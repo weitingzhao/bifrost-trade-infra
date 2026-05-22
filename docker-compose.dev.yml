@@ -1,0 +1,115 @@
+version: "3.9"
+
+# ============================================================
+# Bifrost Trade — 本地开发 Docker Compose
+# 使用方式: docker compose -f docker-compose.dev.yml up
+# 特点: 挂载本地源码，支持热重载；bifrost-core 以 editable 安装
+# ============================================================
+
+x-dev-volumes: &dev-volumes
+  - ../bifrost-trade-core/src:/workspace/bifrost-core/src:ro
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bifrost}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bifrost_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-bifrost_dev}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-dev-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  engine:
+    build:
+      context: ../bifrost-trade-core
+    command: python scripts/run_engine.py
+    volumes:
+      - ../bifrost-trade-core/src:/app/src:ro
+      - ../bifrost-trade-core/config:/app/config:ro
+    env_file: .env
+    depends_on:
+      - postgres
+      - redis
+
+  ib-ingestor:
+    build:
+      context: ../bifrost-trade-ib-edge
+    command: python scripts/run_ingestor.py
+    volumes:
+      - ../bifrost-trade-ib-edge/src:/app/src:ro
+      - <<: *dev-volumes
+      - ../bifrost-trade-core/config:/app/config:ro
+    env_file: .env
+    depends_on:
+      - redis
+
+  ib-account-agent:
+    build:
+      context: ../bifrost-trade-ib-edge
+    command: python scripts/run_account_agent.py
+    volumes:
+      - ../bifrost-trade-ib-edge/src:/app/src:ro
+      - <<: *dev-volumes
+      - ../bifrost-trade-core/config:/app/config:ro
+    env_file: .env
+    depends_on:
+      - redis
+
+  ib-operator:
+    build:
+      context: ../bifrost-trade-ib-edge
+    command: python scripts/run_operator.py
+    volumes:
+      - ../bifrost-trade-ib-edge/src:/app/src:ro
+      - <<: *dev-volumes
+      - ../bifrost-trade-core/config:/app/config:ro
+    env_file: .env
+    depends_on:
+      - redis
+
+  api-monitor:
+    build:
+      context: ../bifrost-trade-api
+    command: uvicorn bifrost_api.monitor.app:app --host 0.0.0.0 --port 8765 --reload
+    volumes:
+      - ../bifrost-trade-api/src:/app/src:ro
+      - <<: *dev-volumes
+      - ../bifrost-trade-core/config:/app/config:ro
+    ports: ["8765:8765"]
+    env_file: .env
+    depends_on:
+      - postgres
+
+  celery-worker:
+    build:
+      context: ../bifrost-trade-data
+    command: python scripts/run_celery.py
+    volumes:
+      - ../bifrost-trade-data/src:/app/src:ro
+      - <<: *dev-volumes
+      - ../bifrost-trade-core/config:/app/config:ro
+    env_file: .env
+    depends_on:
+      - redis
+      - postgres
+
+  frontend:
+    image: node:20-slim
+    working_dir: /app
+    command: npm run dev -- --host
+    volumes:
+      - ../bifrost-trade-frontend:/app
+    ports: ["5173:5173"]
+    environment:
+      - NODE_ENV=development
+
+volumes:
+  postgres-dev-data:

@@ -1,0 +1,76 @@
+{
+	"folders": [
+		{
+			"name": "🏗️ infra — Docker Compose / Nginx / 部署配置",
+			"path": "."
+		},
+		{
+			"name": "⚙️ core — 共享库 + 交易 daemon [pip: bifrost-core]",
+			"path": "../bifrost-trade-core"
+		},
+		{
+			"name": "📡 ib-edge — IB 边缘服务 (Ingestor / AccountAgent / Operator)",
+			"path": "../bifrost-trade-ib-edge"
+		},
+		{
+			"name": "🌐 api — FastAPI 后端 9 个域 (端口 8765-8773)",
+			"path": "../bifrost-trade-api"
+		},
+		{
+			"name": "📊 data — Polygon 数据管道 + Celery Workers",
+			"path": "../bifrost-trade-data"
+		},
+		{
+			"name": "🔬 research — SEPA 研究流水线",
+			"path": "../bifrost-trade-research"
+		},
+		{
+			"name": "🖥️ frontend — React 18 / TypeScript / Vite",
+			"path": "../bifrost-trade-frontend"
+		},
+		{
+			"name": "📖 [只读参考] bifrost-trader-engine — 重构源，禁止修改",
+			"path": "../bifrost-trader-engine"
+		}
+	],
+	"settings": {
+		"files.readonlyInclude": {
+			"**/bifrost-trader-engine/**": true
+		},
+		"files.readonlyFromPermissions": false,
+		"editor.formatOnSave": true,
+		"[python]": {
+			"editor.defaultFormatter": "charliermarsh.ruff"
+		},
+		"[typescript]": {
+			"editor.defaultFormatter": "esbenp.prettier-vscode"
+		},
+		"[typescriptreact]": {
+			"editor.defaultFormatter": "esbenp.prettier-vscode"
+		},
+		"search.exclude": {
+			"**/node_modules": true,
+			"**/__pycache__": true,
+			"**/.venv": true,
+			"**/dist": true,
+			"**/build": true,
+			"**/*.egg-info": true
+		},
+		"explorer.fileNesting.enabled": true,
+		"explorer.fileNesting.patterns": {
+			"pyproject.toml": "requirements*.txt, setup.py, setup.cfg",
+			"docker-compose.yml": "docker-compose*.yml, .env.example, .env",
+			"package.json": "package-lock.json, yarn.lock, tsconfig*.json, vite.config.*"
+		}
+	},
+	"extensions": {
+		"recommendations": [
+			"ms-python.python",
+			"charliermarsh.ruff",
+			"ms-python.mypy-type-checker",
+			"esbenp.prettier-vscode",
+			"dbaeumer.vscode-eslint",
+			"ms-azuretools.vscode-docker"
+		]
+	}
+}
