@@ -1,5 +1,7 @@
 # CLAUDE.md — bifrost-trade-infra
 
+> 本项目是 bifrost-trader-engine 重构的部署中心。迁移进度见 `docs/MIGRATION_TRACKING.md`。
+
 与本项目用户的所有对话一律使用中文。
 
 ## 职责范围
