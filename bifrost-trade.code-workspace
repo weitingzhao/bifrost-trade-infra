@@ -1,35 +1,33 @@
 {
+	// Bifrost Trade — 多 repo 工作区
+	// Folder 顺序 = 依赖方向：infra → core → ib-edge → worker → api → frontend → engine(只读)
 	"folders": [
 		{
-			"name": "🏗️ infra — Docker Compose / Nginx / 部署配置",
+			"name": "🏗️ infra · 部署中心 — Compose / Nginx / 全局配置",
 			"path": "."
 		},
 		{
-			"name": "⚙️ core — 共享库 + 交易 daemon [pip: bifrost-core]",
+			"name": "📦 core · 共享库 — bifrost_core · 无进程入口",
 			"path": "../bifrost-trade-core"
 		},
 		{
-			"name": "📡 ib-edge — IB 边缘服务 (Ingestor / AccountAgent / Operator)",
+			"name": "📡 ib-edge · IB 直连 — 行情 / 账户 / 订单 RPC",
 			"path": "../bifrost-trade-ib-edge"
 		},
 		{
-			"name": "🌐 api — FastAPI 后端 9 个域 (端口 8765-8773)",
+			"name": "⚡ worker · 后台引擎 — GsTrading Daemon + Celery 数据管道",
+			"path": "../bifrost-trade-worker"
+		},
+		{
+			"name": "🌐 api · 只读 HTTP — FastAPI 9 域 · :8765–8773",
 			"path": "../bifrost-trade-api"
 		},
 		{
-			"name": "📊 data — Polygon 数据管道 + Celery Workers",
-			"path": "../bifrost-trade-data"
-		},
-		{
-			"name": "🔬 research — SEPA 研究流水线",
-			"path": "../bifrost-trade-research"
-		},
-		{
-			"name": "🖥️ frontend — React 18 / TypeScript / Vite",
+			"name": "🖥️ frontend · 监控 UI — React 18 · Vite · :5173",
 			"path": "../bifrost-trade-frontend"
 		},
 		{
-			"name": "📖 [只读参考] bifrost-trader-engine — 重构源，禁止修改",
+			"name": "🔒 engine · 只读参考 — 重构蓝本 · 禁止修改",
 			"path": "../bifrost-trader-engine"
 		}
 	],
@@ -38,6 +36,8 @@
 			"**/bifrost-trader-engine/**": true
 		},
 		"files.readonlyFromPermissions": false,
+		"explorer.compactFolders": false,
+		"explorer.sortOrder": "default",
 		"editor.formatOnSave": true,
 		"[python]": {
 			"editor.defaultFormatter": "charliermarsh.ruff"
@@ -54,13 +54,17 @@
 			"**/.venv": true,
 			"**/dist": true,
 			"**/build": true,
-			"**/*.egg-info": true
+			"**/*.egg-info": true,
+			"**/site": true
 		},
 		"explorer.fileNesting.enabled": true,
+		"explorer.fileNesting.expand": false,
 		"explorer.fileNesting.patterns": {
-			"pyproject.toml": "requirements*.txt, setup.py, setup.cfg",
-			"docker-compose.yml": "docker-compose*.yml, .env.example, .env",
-			"package.json": "package-lock.json, yarn.lock, tsconfig*.json, vite.config.*"
+			"pyproject.toml": "requirements*.txt, setup.py, setup.cfg, uv.lock",
+			"docker-compose.yml": "docker-compose*.yml, .env.example, .env, Makefile",
+			"package.json": "package-lock.json, yarn.lock, tsconfig*.json, vite.config.*",
+			"CLAUDE.md": "README.md, AGENTS.md, LICENSE",
+			"bifrost-trade.code-workspace": "docs/MIGRATION_TRACKING.md"
 		}
 	},
 	"extensions": {

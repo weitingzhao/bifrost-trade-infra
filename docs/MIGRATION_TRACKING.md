@@ -17,16 +17,15 @@
 
 | 目标 Repo | 模块数 | 已完成 | 进度 |
 |-----------|--------|--------|------|
-| bifrost-trade-core | 8 | 0 | 0% |
+| bifrost-trade-core | 6 | 0 | 0% |
 | bifrost-trade-ib-edge | 4 | 0 | 0% |
+| bifrost-trade-worker | 3 | 0 | 0% |
 | bifrost-trade-api | 9 | 0 | 0% |
-| bifrost-trade-data | 4 | 0 | 0% |
-| bifrost-trade-research | 4 | 0 | 0% |
 | bifrost-trade-frontend | 4 | 0 | 0% |
 
 ---
 
-## §2 bifrost-trade-core（共享库 + Daemon）
+## §2 bifrost-trade-core（共享库 · 无进程入口）
 
 ### §2.1 共享库模块
 
@@ -38,21 +37,6 @@
 | portfolio | `src/portfolio/` | `bifrost_core/portfolio/` | accounts, symbol_position, model/{core, payoff}, positions/{portfolio, position_book}, reader/*, services/* | - |
 | ib_operator (client) | `src/ib_operator/` | `bifrost_core/ib_operator/` | client.py, protocol.py, config.py | - |
 | monitor | `src/monitor/` | `bifrost_core/monitor/` | self_check, reader/{status, strategy, gate_safety, watchlist, market, massive_jobs, ...}, schemas/*, services/* | - |
-
-### §2.2 Daemon 模块
-
-| 子模块 | engine 源 | 目标路径 | 关键文件 | 状态 |
-|--------|----------|----------|---------|------|
-| app | `src/daemon/app/` | `bifrost_core/daemon/app/` | gs_trading.py, entry.py, hedge_flow.py, daemon_handlers.py, snapshot.py, ticker_redis.py | - |
-| fsm | `src/daemon/fsm/` | `bifrost_core/daemon/fsm/` | daemon_fsm.py, trading_fsm.py, hedge_fsm.py, events.py | - |
-| guards | `src/daemon/guards/` | `bifrost_core/daemon/guards/` | execution_guard.py, trading_guard.py | - |
-| execution | `src/daemon/execution/` | `bifrost_core/daemon/execution/` | order_manager.py | - |
-| strategy | `src/daemon/strategy/` | `bifrost_core/daemon/strategy/` | gamma_scalper.py, hedge_gate.py | - |
-| pricing | `src/daemon/pricing/` | `bifrost_core/daemon/pricing/` | black_scholes.py, greeks.py | - |
-| market | `src/daemon/market/` | `bifrost_core/daemon/market/` | market_data.py | - |
-| core/state | `src/daemon/core/` | `bifrost_core/daemon/core/` | store.py, metrics.py, state/{classifier, composite, enums, snapshot} | - |
-| account_sync | `src/daemon/account_sync/` | `bifrost_core/daemon/account_sync/` | app.py, diff_engine.py, heartbeat.py, redis_keys.py, stream_consumer.py | - |
-| sink | `src/daemon/sink/` | `bifrost_core/daemon/sink/` | (postgres sink 实现) | - |
 
 ---
 
@@ -79,40 +63,43 @@
 | strategy | 8770 | `backend/strategy/` | `bifrost_api/strategy/` | app.py, routers/strategies | - |
 | portfolio | 8771 | `backend/portfolio/` | `bifrost_api/portfolio/` | app.py, routers/{config, model} | - |
 | market | 8772 | `backend/market/` | `bifrost_api/market/` | app.py, routers/{quotes, watchlist, market_data} | - |
-| research | 8773 | `backend/research/` | `bifrost_api/research/` | app.py, deps.py, routers/{screener, greeks, max_pain, option_discovery, data_readiness, sepa_*} | - |
+| research | 8773 | `backend/research/` + `src/research/sepa/` | `bifrost_api/research/` | app.py, sepa/*, screener/*, indicators/*, routers/{screener, greeks, max_pain, option_discovery, data_readiness, sepa_*} | - |
+
+> **research 域（8773）**：SEPA 四阶段筛选引擎 + 回测 + 历史 Greeks，完整业务逻辑在本 repo 的 `bifrost_api.research` 内实现（含 sepa / screener / indicators 子模块）。
 
 ---
 
-## §5 bifrost-trade-data（数据管道）
+## §5 bifrost-trade-worker（Daemon + Celery 数据管道）
+
+### §5.1 交易 Daemon
+
+| 子模块 | engine 源 | 目标路径 | 关键文件 | 状态 |
+|--------|----------|----------|---------|------|
+| app | `src/daemon/app/` | `bifrost_worker/daemon/app/` | gs_trading.py, entry.py, hedge_flow.py, daemon_handlers.py, snapshot.py, ticker_redis.py | - |
+| fsm | `src/daemon/fsm/` | `bifrost_worker/daemon/fsm/` | daemon_fsm.py, trading_fsm.py, hedge_fsm.py, events.py | - |
+| guards | `src/daemon/guards/` | `bifrost_worker/daemon/guards/` | execution_guard.py, trading_guard.py | - |
+| execution | `src/daemon/execution/` | `bifrost_worker/daemon/execution/` | order_manager.py | - |
+| strategy | `src/daemon/strategy/` | `bifrost_worker/daemon/strategy/` | gamma_scalper.py, hedge_gate.py | - |
+| pricing | `src/daemon/pricing/` | `bifrost_worker/daemon/pricing/` | black_scholes.py, greeks.py | - |
+| market | `src/daemon/market/` | `bifrost_worker/daemon/market/` | market_data.py | - |
+| core/state | `src/daemon/core/` | `bifrost_worker/daemon/core/` | store.py, metrics.py, state/{classifier, composite, enums, snapshot} | - |
+| account_sync | `src/daemon/account_sync/` | `bifrost_worker/daemon/account_sync/` | app.py, diff_engine.py, heartbeat.py, redis_keys.py, stream_consumer.py | - |
+| sink | `src/daemon/sink/` | `bifrost_worker/daemon/sink/` | (postgres sink 实现) | - |
+
+### §5.2 Celery 数据管道
 
 | 模块 | engine 源 | 目标路径 | 关键文件 | 状态 |
 |------|----------|----------|---------|------|
-| workers | `src/workers/` | `bifrost_data/workers/` | celery_app.py, celery_queue_names.py | - |
-| bars | `src/bars/` | `bifrost_data/bars/` | tasks.py, backfill.py, ib_operator_transport.py | - |
-| massive | `src/massive/` | `bifrost_data/massive/` | tasks.py, celery_queues.py, beat_schedule, massive_job_goal, snapshot_chain_ingest, stock_ohlc_daily_smart, option_*_pool_fill, polygon_stock_tickers | - |
-| massive vendor | `src/vendor/massive/` | `bifrost_data/massive/` | client.py, config.py, reader.py, holidays_sync.py, stock_day_gap.py, contracts_reference_*, snapshots_contracts_gap.py | - |
+| celery | `src/workers/` | `bifrost_worker/celery/` | celery_app.py, celery_queue_names.py, beat_schedule | - |
+| bars | `src/bars/` | `bifrost_worker/data/bars/` | tasks.py, backfill.py, ib_operator_transport.py | - |
+| massive | `src/massive/` | `bifrost_worker/data/massive/` | tasks.py, celery_queues.py, massive_job_goal, snapshot_chain_ingest, stock_ohlc_daily_smart, option_*_pool_fill | - |
+| massive vendor | `src/vendor/massive/` | `bifrost_worker/data/massive/` | client.py, config.py, reader.py, holidays_sync.py, stock_day_gap.py, contracts_reference_* | - |
 
 ---
 
-## §6 bifrost-trade-research（SEPA 研究流水线）
+## §6 bifrost-trade-frontend（React 前端）
 
-| 模块 | engine 源 | 目标路径 | 关键文件 | 状态 |
-|------|----------|----------|---------|------|
-| sepa | `src/research/sepa/` | `bifrost_research/sepa/` | phase1_engine, phase4_engine, fundamentals_engine, fundamentals_ext_engine, technical_engine, crs_engine, momentum/pattern/structure/short_indicators, readiness_snapshot, financials_data, stock_unified_snapshot_refresh | - |
-| screener | (from sepa + backend) | `bifrost_research/screener/` | 股票筛选器 | - |
-| indicators | (from sepa technical) | `bifrost_research/indicators/` | 技术指标、IV Cone | - |
-| api | `backend/research/` (部分) | `bifrost_research/api/` | research-worker 计算入口（SEPA 流水线触发） | - |
-
-### 关于 research 端口 8773 的分工
-
-- **`bifrost-trade-api` 的 research 域（8773）**：HTTP API 展示层，读 PostgreSQL 返回 SEPA 结果、筛选数据、Greeks 分析
-- **`bifrost-trade-research` 的 research-worker**：SEPA 四阶段计算引擎，跑流水线后将结果写入 PostgreSQL
-
----
-
-## §7 bifrost-trade-frontend（React 前端）
-
-### §7.1 基础设施
+### §6.1 基础设施
 
 | 项目 | engine 源 | 状态 |
 |------|----------|------|
@@ -121,7 +108,7 @@
 | styles/ (5 CSS) | `frontend/src/styles/` | - |
 | public/ | `frontend/public/` | - |
 
-### §7.2 API 客户端模块（31 个）
+### §6.2 API 客户端模块（31 个）
 
 | 域 | 文件数 | engine 源 | 状态 |
 |----|--------|----------|------|
@@ -135,7 +122,7 @@
 | strategy | 2 | `frontend/src/api/strategy/` | - |
 | trading | 2 | `frontend/src/api/trading/` | - |
 
-### §7.3 页面组件（45 个顶层 Page）
+### §6.3 页面组件（45 个顶层 Page）
 
 | 页面 | engine 源 | 状态 |
 |------|----------|------|
@@ -183,7 +170,7 @@
 | FeedMassiveStockPage (Settings) | `frontend/src/pages/` | - |
 | StrategyInstanceDetailPage | `frontend/src/pages/strategy/` | - |
 
-### §7.4 共享组件与工具
+### §6.4 共享组件与工具
 
 | 类别 | 文件数 | engine 源 | 状态 |
 |------|--------|----------|------|
@@ -194,20 +181,20 @@
 
 ---
 
-## §8 测试迁移
+## §7 测试迁移
 
 | 目标 Repo | engine 测试源 | 测试文件数 | 状态 |
 |-----------|--------------|-----------|------|
-| bifrost-trade-core | `tests/test_config*`, `test_daemon_fsm*`, `test_guards*`, `test_portfolio*`, `test_persistence*`, `test_state_*`, `test_gs_trading*` 等 | ~45 | - |
+| bifrost-trade-core | `tests/test_config*`, `test_portfolio*`, `test_persistence*` 等 | ~15 | - |
 | bifrost-trade-ib-edge | `tests/test_connector_ib*`, `test_ib_operator*`, `test_ib_config*`, `test_subprocess_executor_ingest*` | ~5 | - |
-| bifrost-trade-api | `tests/test_research_app*`, `tests/test_massive_app*`, `test_docs_app*`, `test_monitor_status*` | ~8 | - |
-| bifrost-trade-data | `tests/test_celery_*`, `test_massive_*`, `test_stock_ohlc_*`, `test_holidays_*` | ~20 | - |
-| bifrost-trade-research | `tests/research/sepa/test_*`, `tests/test_sepa_*` | ~15 | - |
+| bifrost-trade-worker | `tests/test_daemon_fsm*`, `test_guards*`, `test_state_*`, `test_gs_trading*`, `tests/test_celery_*`, `test_massive_*`, `test_stock_ohlc_*` | ~65 | - |
+| bifrost-trade-api | `tests/test_research_app*`, `tests/test_massive_app*`, `test_docs_app*`, `test_monitor_status*`, `tests/research/sepa/test_*`, `tests/test_sepa_*` | ~23 | - |
 
 ---
 
-## §9 变更日志
+## §8 变更日志
 
 | 日期 | 变更内容 | 操作人 |
 |------|---------|--------|
 | 2026-05-22 | 创建迁移追踪文档，初始化所有模块为"未开始"状态 | Agent |
+| 2026-05-23 | 同步当前架构：daemon/celery 归入 worker；SEPA 归入 api.research；移除 data/research 独立 repo | Agent |
