@@ -18,7 +18,7 @@
 | 目标 Repo | 模块数 | 已完成 | 进度 |
 |-----------|--------|--------|------|
 | bifrost-trade-core | 6 | 0 | 0% |
-| bifrost-trade-ib-edge | 4 | 0 | 0% |
+| bifrost-trade-socket | 5 | 0 | 0% |
 | bifrost-trade-worker | 3 | 0 | 0% |
 | bifrost-trade-api | 9 | 0 | 0% |
 | bifrost-trade-frontend | 4 | 0 | 0% |
@@ -40,14 +40,22 @@
 
 ---
 
-## §3 bifrost-trade-ib-edge（IB 边缘服务）
+## §3 bifrost-trade-socket（WebSocket 边缘服务）
+
+### §3.1 IB 子域（`src/bifrost_socket/ib/`）
 
 | 模块 | engine 源 | 目标路径 | 关键文件 | 状态 |
 |------|----------|----------|---------|------|
-| connector | `src/ib/`, `src/connector/` | `bifrost_ib_edge/connector/` | connection_policy.py, ib.py, flex_client.py | - |
-| ingestor | `src/vendor/ib_ingestor/` | `bifrost_ib_edge/ingestor/` | writer.py, redis_keys.py | - |
-| account_agent | `src/vendor/ib_account_agent/` | `bifrost_ib_edge/account_agent/` | writer.py, redis_keys.py | - |
-| operator | `src/ib_operator/` (service) | `bifrost_ib_edge/operator/` | service.py, executor.py, redis_io.py, health_redis.py | - |
+| connector | `src/ib/`, `src/connector/` | `bifrost_socket/ib/connector/` | connection_policy.py, ib.py, flex_client.py | - |
+| ingestor | `src/vendor/ib_ingestor/` | `bifrost_socket/ib/ingestor/` | writer.py, redis_keys.py | - |
+| account_agent | `src/vendor/ib_account_agent/` | `bifrost_socket/ib/account_agent/` | writer.py, redis_keys.py | - |
+| operator | `src/ib_operator/` (service) | `bifrost_socket/ib/operator/` | service.py, executor.py, redis_io.py, health_redis.py | - |
+
+### §3.2 Massive 子域（`src/bifrost_socket/massive/`）
+
+| 模块 | engine 源 | 目标路径 | 关键文件 | 状态 |
+|------|----------|----------|---------|------|
+| massive_ws | `scripts/systemd/run_massive_ws.py` | `bifrost_socket/massive/` | massive_ws_ingestor.py, redis_writer.py, subscription_manager.py | - |
 
 ---
 
@@ -186,7 +194,7 @@
 | 目标 Repo | engine 测试源 | 测试文件数 | 状态 |
 |-----------|--------------|-----------|------|
 | bifrost-trade-core | `tests/test_config*`, `test_portfolio*`, `test_persistence*` 等 | ~15 | - |
-| bifrost-trade-ib-edge | `tests/test_connector_ib*`, `test_ib_operator*`, `test_ib_config*`, `test_subprocess_executor_ingest*` | ~5 | - |
+| bifrost-trade-socket | `tests/test_connector_ib*`, `test_ib_operator*`, `test_ib_config*`, `test_subprocess_executor_ingest*` | ~5 | - |
 | bifrost-trade-worker | `tests/test_daemon_fsm*`, `test_guards*`, `test_state_*`, `test_gs_trading*`, `tests/test_celery_*`, `test_massive_*`, `test_stock_ohlc_*` | ~65 | - |
 | bifrost-trade-api | `tests/test_research_app*`, `tests/test_massive_app*`, `test_docs_app*`, `test_monitor_status*`, `tests/research/sepa/test_*`, `tests/test_sepa_*` | ~23 | - |
 
@@ -198,3 +206,4 @@
 |------|---------|--------|
 | 2026-05-22 | 创建迁移追踪文档，初始化所有模块为"未开始"状态 | Agent |
 | 2026-05-23 | 同步当前架构：daemon/celery 归入 worker；SEPA 归入 api.research；移除 data/research 独立 repo | Agent |
+| 2026-05-30 | bifrost-trade-ib-edge 替换为 bifrost-trade-socket；扩展范围含 Massive WS；目标路径更新为 bifrost_socket/ib/ 和 bifrost_socket/massive/ | Agent |

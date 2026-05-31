@@ -1,6 +1,6 @@
 {
 	// Bifrost Trade — 多 repo 工作区
-	// Folder 顺序 = 依赖方向：infra → core → ib-edge → worker → api → frontend → engine(只读)
+	// Folder 顺序 = 依赖方向：infra → core → socket → worker → api → frontend → engine(只读)
 	"folders": [
 		{
 			"name": "🏗️ infra · 部署中心 — Compose / Nginx / 全局配置",
@@ -11,8 +11,8 @@
 			"path": "../bifrost-trade-core"
 		},
 		{
-			"name": "📡 ib-edge · IB 直连 — 行情 / 账户 / 订单 RPC",
-			"path": "../bifrost-trade-ib-edge"
+			"name": "🔌 socket · 边缘连接 — IB Ingestor/Operator + Massive WS → Redis",
+			"path": "../bifrost-trade-socket"
 		},
 		{
 			"name": "⚡ worker · 后台引擎 — GsTrading Daemon + Celery 数据管道",
