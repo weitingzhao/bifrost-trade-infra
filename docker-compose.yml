@@ -16,6 +16,8 @@ x-api-build: &api-build
     context: ../bifrost-trade-api
     args:
       BIFROST_CORE_REF: ${BIFROST_CORE_REF:-main}
+      BIFROST_WORKER_REF: ${BIFROST_WORKER_REF:-main}
+      BIFROST_SOCKET_REF: ${BIFROST_SOCKET_REF:-main}
       GITHUB_ORG: ${GITHUB_ORG}
   <<: *python-common
 

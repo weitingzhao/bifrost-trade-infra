@@ -2,12 +2,34 @@ version: "3.9"
 
 # ============================================================
 # Bifrost Trade — 本地开发 Docker Compose
-# 使用方式: docker compose -f docker-compose.dev.yml up
-# 特点: 挂载本地源码，支持热重载；bifrost-core 以 editable 安装
+# 使用方式: make dev  (或 docker compose -f docker-compose.dev.yml up)
+# 特点: 挂载 monorepo 源码；entrypoint editable 安装 core/worker/socket/api
+# 健康检查: make dev-health
 # ============================================================
 
-x-dev-volumes: &dev-volumes
-  - ../bifrost-trade-core/src:/workspace/bifrost-core/src:ro
+x-dev-repos: &dev-repos
+  - ../bifrost-trade-core:/workspace/bifrost-trade-core:ro
+  - ../bifrost-trade-worker:/workspace/bifrost-trade-worker:ro
+  - ../bifrost-trade-socket:/workspace/bifrost-trade-socket:ro
+  - ../bifrost-trade-api:/workspace/bifrost-trade-api:ro
+  - ../bifrost-trade-core/config:/app/config:ro
+
+x-dev-env: &dev-env
+  BIFROST_CONFIG: /app/config/config.yaml.example
+  BIFROST_ENV: dev
+
+x-dev-build: &dev-build
+  build:
+    context: .
+    dockerfile: docker/Dockerfile.dev
+
+x-dev-api: &dev-api
+  <<: *dev-build
+  volumes: *dev-repos
+  environment:
+    <<: *dev-env
+    BIFROST_DEV_STACK: api
+  env_file: .env
 
 services:
 
@@ -21,85 +43,139 @@ services:
       - "5432:5432"
     volumes:
       - postgres-dev-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bifrost} -d ${POSTGRES_DB:-bifrost_dev}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
-  engine:
-    build:
-      context: ../bifrost-trade-core
-    command: python scripts/run_engine.py
-    volumes:
-      - ../bifrost-trade-core/src:/app/src:ro
-      - ../bifrost-trade-core/config:/app/config:ro
+  daemon:
+    <<: *dev-build
+    command: ["python", "/workspace/bifrost-trade-worker/scripts/run_daemon.py"]
+    volumes: *dev-repos
+    environment:
+      <<: *dev-env
+      BIFROST_DEV_STACK: daemon
     env_file: .env
     depends_on:
-      - postgres
-      - redis
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
 
   ib-ingestor:
-    build:
-      context: ../bifrost-trade-ib-edge
-    command: python scripts/run_ingestor.py
-    volumes:
-      - ../bifrost-trade-ib-edge/src:/app/src:ro
-      - <<: *dev-volumes
-      - ../bifrost-trade-core/config:/app/config:ro
+    <<: *dev-build
+    command: ["python", "/workspace/bifrost-trade-socket/scripts/run_ib_ingestor.py"]
+    volumes: *dev-repos
+    environment:
+      <<: *dev-env
+      BIFROST_DEV_STACK: socket
     env_file: .env
     depends_on:
-      - redis
+      redis: { condition: service_healthy }
 
   ib-account-agent:
-    build:
-      context: ../bifrost-trade-ib-edge
-    command: python scripts/run_account_agent.py
-    volumes:
-      - ../bifrost-trade-ib-edge/src:/app/src:ro
-      - <<: *dev-volumes
-      - ../bifrost-trade-core/config:/app/config:ro
+    <<: *dev-build
+    command: ["python", "/workspace/bifrost-trade-socket/scripts/run_ib_account_agent.py"]
+    volumes: *dev-repos
+    environment:
+      <<: *dev-env
+      BIFROST_DEV_STACK: socket
     env_file: .env
     depends_on:
-      - redis
+      redis: { condition: service_healthy }
 
   ib-operator:
-    build:
-      context: ../bifrost-trade-ib-edge
-    command: python scripts/run_operator.py
-    volumes:
-      - ../bifrost-trade-ib-edge/src:/app/src:ro
-      - <<: *dev-volumes
-      - ../bifrost-trade-core/config:/app/config:ro
+    <<: *dev-build
+    command: ["python", "/workspace/bifrost-trade-socket/scripts/run_ib_operator.py"]
+    volumes: *dev-repos
+    environment:
+      <<: *dev-env
+      BIFROST_DEV_STACK: socket
     env_file: .env
     depends_on:
-      - redis
-
-  api-monitor:
-    build:
-      context: ../bifrost-trade-api
-    command: uvicorn bifrost_api.monitor.app:app --host 0.0.0.0 --port 8765 --reload
-    volumes:
-      - ../bifrost-trade-api/src:/app/src:ro
-      - <<: *dev-volumes
-      - ../bifrost-trade-core/config:/app/config:ro
-    ports: ["8765:8765"]
-    env_file: .env
-    depends_on:
-      - postgres
+      redis: { condition: service_healthy }
 
   celery-worker:
-    build:
-      context: ../bifrost-trade-data
-    command: python scripts/run_celery.py
-    volumes:
-      - ../bifrost-trade-data/src:/app/src:ro
-      - <<: *dev-volumes
-      - ../bifrost-trade-core/config:/app/config:ro
+    <<: *dev-build
+    command: ["python", "/workspace/bifrost-trade-worker/scripts/run_celery.py"]
+    volumes: *dev-repos
+    environment:
+      <<: *dev-env
+      BIFROST_DEV_STACK: celery
     env_file: .env
     depends_on:
-      - redis
-      - postgres
+      redis: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+
+  api-monitor:
+    <<: *dev-api
+    command: ["python", "/workspace/bifrost-trade-api/scripts/run_server.py", "monitor"]
+    ports: ["8765:8765"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  api-massive:
+    <<: *dev-api
+    command: ["python", "/workspace/bifrost-trade-api/scripts/run_server.py", "massive"]
+    ports: ["8766:8766"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  api-docs:
+    <<: *dev-api
+    command: ["python", "/workspace/bifrost-trade-api/scripts/run_server.py", "docs"]
+    ports: ["8767:8767"]
+
+  api-ops:
+    <<: *dev-api
+    command: ["python", "/workspace/bifrost-trade-api/scripts/run_server.py", "ops"]
+    ports: ["8768:8768"]
+    depends_on:
+      redis: { condition: service_healthy }
+
+  api-trading:
+    <<: *dev-api
+    command: ["python", "/workspace/bifrost-trade-api/scripts/run_server.py", "trading"]
+    ports: ["8769:8769"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  api-strategy:
+    <<: *dev-api
+    command: ["python", "/workspace/bifrost-trade-api/scripts/run_server.py", "strategy"]
+    ports: ["8770:8770"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  api-portfolio:
+    <<: *dev-api
+    command: ["python", "/workspace/bifrost-trade-api/scripts/run_server.py", "portfolio"]
+    ports: ["8771:8771"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  api-market:
+    <<: *dev-api
+    command: ["python", "/workspace/bifrost-trade-api/scripts/run_server.py", "market"]
+    ports: ["8772:8772"]
+    depends_on:
+      redis: { condition: service_healthy }
+
+  api-research:
+    <<: *dev-api
+    command: ["python", "/workspace/bifrost-trade-api/scripts/run_server.py", "research"]
+    ports: ["8773:8773"]
+    depends_on:
+      postgres: { condition: service_healthy }
 
   frontend:
     image: node:20-slim

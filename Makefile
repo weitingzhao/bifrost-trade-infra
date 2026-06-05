@@ -1,4 +1,4 @@
-.PHONY: up down dev build logs ps shell-postgres shell-redis db-init clean
+.PHONY: up down dev dev-down dev-build dev-health build logs ps db-init db-init-dev db-shell shell-redis clean
 
 COMPOSE      = docker compose
 COMPOSE_DEV  = docker compose -f docker-compose.dev.yml
@@ -31,18 +31,23 @@ dev-down:
 dev-build:
 	$(COMPOSE_DEV) build
 
+dev-health:
+	@chmod +x scripts/check_dev_stack.sh
+	@./scripts/check_dev_stack.sh
+
 # ── Database ──────────────────────────────────────────────────────────────────
 
 db-init:
-	$(COMPOSE) exec engine python scripts/db/db_refresh_schema.py
+	cd ../bifrost-trade-core && BIFROST_CONFIG=../bifrost-trade-core/config/config.yaml.example python scripts/db/db_refresh_schema.py
+
+db-init-dev:
+	$(COMPOSE_DEV) exec -T postgres psql -U $${POSTGRES_USER:-bifrost} -d $${POSTGRES_DB:-bifrost_dev} -c "SELECT 1" >/dev/null
+	cd ../bifrost-trade-core && BIFROST_CONFIG=../bifrost-trade-core/config/config.yaml.example python scripts/db/db_refresh_schema.py
 
 db-shell:
-	$(COMPOSE) exec postgres psql -U $${POSTGRES_USER} -d $${POSTGRES_DB}
+	$(COMPOSE) exec postgres psql -U $${POSTGRES_USER:-bifrost} -d $${POSTGRES_DB:-bifrost_dev}
 
 # ── Debug shells ──────────────────────────────────────────────────────────────
-
-shell-engine:
-	$(COMPOSE) exec engine bash
 
 shell-redis:
 	$(COMPOSE) exec redis redis-cli

@@ -17,13 +17,13 @@
 
 | 目标 Repo | 模块数 | 已完成 | 进度 |
 |-----------|--------|--------|------|
-| bifrost-trade-core | 6 | 0 | 0% |
-| bifrost-trade-socket | 5 | 0 | 0% |
-| bifrost-trade-worker | 3 | 0 | 0% |
-| bifrost-trade-api | 9 | 0 | 0% |
+| bifrost-trade-core | 6 | 6 | **VERIFIED**（2026-06-05）— `make test` 146 passed（`not ib and not db`） |
+| bifrost-trade-socket | 5 | 5 | **VERIFIED**（2026-06-05）— 代码 + 4 tests；待 `@pytest.mark.ib` 烟雾 |
+| bifrost-trade-worker | 3 | 3 | **VERIFIED**（2026-06-05）— daemon + celery 已迁；185 tests passed |
+| bifrost-trade-api | 9 | 9 | **DONE**（2026-06-05）— 9 域代码已迁；契约/集成测试进行中 → 逐域 VERIFIED 后切 `VITE_API_*` |
 | bifrost-trade-frontend | 4 | 4 | **Phase 1 CLOSED**（2026-06-04）— New Frontend + Legacy API 业务等价 100%（含 `/settings/ib`） |
 
-> **Frontend 阶段 1 收口门禁**（2026-06-04）：[`IB_CONNECTION_ACCEPTANCE.md`](../bifrost-trade-frontend/docs/IB_CONNECTION_ACCEPTANCE.md) Owner 签字 + Batch 1 smoke + 机械门禁通过 → **允许启动** `bifrost-trade-core` 等底层迁移。此前不得切换 `VITE_API_*` 或迁移 API 实现（见 migration-protocol 阶段 2）。
+> **Backend M0–M5 落地**（2026-06-05）：见 [`PHASE2_API_CUTOVER.md`](./PHASE2_API_CUTOVER.md)。**默认仍指向 Legacy API**；单域 VERIFIED 后才切换 `VITE_API_*`。
 
 ---
 
@@ -33,12 +33,12 @@
 
 | 模块 | engine 源 | 目标路径 | 关键文件 | 状态 |
 |------|----------|----------|---------|------|
-| config | `src/config/` | `bifrost_core/config/` | settings.py, yaml_config.py | - |
-| core | `src/core/` | `bifrost_core/core/` | dict_merge, redis_url, logging, realtime/redis_*, sse/queue_utils | - |
-| persistence | `src/persistence/` | `bifrost_core/persistence/` | status_sink, postgres/{connection, ddl, postgres_sink, accounts_sync, stock_ohlc_massive, ticker_reference} | - |
-| portfolio | `src/portfolio/` | `bifrost_core/portfolio/` | accounts, symbol_position, model/{core, payoff}, positions/{portfolio, position_book}, reader/*, services/* | - |
-| ib_operator (client) | `src/ib_operator/` | `bifrost_core/ib_operator/` | client.py, protocol.py, config.py | - |
-| monitor | `src/monitor/` | `bifrost_core/monitor/` | self_check, reader/{status, strategy, gate_safety, watchlist, market, massive_jobs, ...}, schemas/*, services/* | - |
+| config | `src/config/` | `bifrost_core/config/` | settings.py, yaml_config.py | **VERIFIED** |
+| core | `src/core/` | `bifrost_core/core/` | dict_merge, redis_url, logging, realtime/redis_*, sse/queue_utils | **VERIFIED** |
+| persistence | `src/persistence/` | `bifrost_core/persistence/` | status_sink, postgres/{connection, ddl, postgres_sink, accounts_sync, stock_ohlc_massive, ticker_reference} | **VERIFIED** |
+| portfolio | `src/portfolio/` | `bifrost_core/portfolio/` | accounts, symbol_position, model/{core, payoff}, positions/{portfolio, position_book}, reader/*, services/* | **VERIFIED** |
+| ib_operator (client) | `src/ib_operator/` | `bifrost_core/ib_operator/` | client.py, protocol.py, config.py | **VERIFIED** |
+| monitor | `src/monitor/` | `bifrost_core/monitor/` | self_check, reader/{status, strategy, gate_safety, watchlist, market, massive_jobs, ...}, schemas/*, services/* | **VERIFIED** |
 
 ---
 
@@ -278,3 +278,4 @@
 | 2026-06-03 | **Phase 1 Cross-cutting Owner sign-off**（global strip、settings 无 strip、sidebar lamp、canvas、无 data regression） | Owner |
 | 2026-06-03 | **Phase 1 Final sign-off** — frontend **Phase 1 VERIFIED**（New Frontend + Legacy API 阶段 1 闭环） | Owner |
 | 2026-06-04 | **Frontend Phase 1 CLOSED**：`IB_CONNECTION_ACCEPTANCE.md`（`/settings/ib` parity）；Batch 1 smoke；`MIGRATION_TRACKING` §6 同步；机械门禁通过 — **允许启动底层迁移** | Agent |
+| 2026-06-05 | **Backend M0–M5 落地**：core/socket/worker/api 代码迁移 + 测试（core 146、worker 185、socket 4）；`PHASE2_API_CUTOVER.md`；infra `docker-compose.dev.yml` 对齐 socket/worker | Agent |
