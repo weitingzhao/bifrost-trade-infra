@@ -1,5 +1,3 @@
-version: "3.9"
-
 # ============================================================
 # Bifrost Trade — 本地开发 Docker Compose
 # 使用方式: make dev  (或 docker compose -f docker-compose.dev.yml up)
@@ -8,14 +6,16 @@ version: "3.9"
 # ============================================================
 
 x-dev-repos: &dev-repos
-  - ../bifrost-trade-core:/workspace/bifrost-trade-core:ro
-  - ../bifrost-trade-worker:/workspace/bifrost-trade-worker:ro
-  - ../bifrost-trade-socket:/workspace/bifrost-trade-socket:ro
-  - ../bifrost-trade-api:/workspace/bifrost-trade-api:ro
-  - ../bifrost-trade-core/config:/app/config:ro
+  # rw mounts: entrypoint runs `pip install -e` (needs egg-info writes)
+  - ../bifrost-trade-core:/workspace/bifrost-trade-core
+  - ../bifrost-trade-worker:/workspace/bifrost-trade-worker
+  - ../bifrost-trade-socket:/workspace/bifrost-trade-socket
+  - ../bifrost-trade-api:/workspace/bifrost-trade-api
+  - ../bifrost-trade-core/config/config.yaml.example:/app/config/config.yaml:ro
+  - ./config/config.dev.yaml:/app/config/config.dev.yaml:ro
 
 x-dev-env: &dev-env
-  BIFROST_CONFIG: /app/config/config.yaml.example
+  BIFROST_CONFIG: /app/config/config.dev.yaml
   BIFROST_ENV: dev
 
 x-dev-build: &dev-build
@@ -29,7 +29,9 @@ x-dev-api: &dev-api
   environment:
     <<: *dev-env
     BIFROST_DEV_STACK: api
-  env_file: .env
+  env_file:
+    - path: .env
+      required: false
 
 services:
 
@@ -66,7 +68,9 @@ services:
     environment:
       <<: *dev-env
       BIFROST_DEV_STACK: daemon
-    env_file: .env
+    env_file:
+    - path: .env
+      required: false
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -78,7 +82,9 @@ services:
     environment:
       <<: *dev-env
       BIFROST_DEV_STACK: socket
-    env_file: .env
+    env_file:
+    - path: .env
+      required: false
     depends_on:
       redis: { condition: service_healthy }
 
@@ -89,7 +95,9 @@ services:
     environment:
       <<: *dev-env
       BIFROST_DEV_STACK: socket
-    env_file: .env
+    env_file:
+    - path: .env
+      required: false
     depends_on:
       redis: { condition: service_healthy }
 
@@ -100,7 +108,9 @@ services:
     environment:
       <<: *dev-env
       BIFROST_DEV_STACK: socket
-    env_file: .env
+    env_file:
+    - path: .env
+      required: false
     depends_on:
       redis: { condition: service_healthy }
 
@@ -111,7 +121,9 @@ services:
     environment:
       <<: *dev-env
       BIFROST_DEV_STACK: celery
-    env_file: .env
+    env_file:
+    - path: .env
+      required: false
     depends_on:
       redis: { condition: service_healthy }
       postgres: { condition: service_healthy }

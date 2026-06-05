@@ -6,12 +6,17 @@
 
 ```bash
 cd bifrost-trade-infra
-cp .env.example .env   # 填写 POSTGRES_* / REDIS_* / GITHUB_ORG（生产镜像构建时）
-make install-dev       # 各 repo 本地 venv（见下表）
-make dev-build && make dev
-make db-init-dev       # 首次
-make dev-health        # 9 API + PG + Redis
+make dev-build         # 自动从 .env.example 创建 .env（若缺失）
+make dev               # 后台启动全栈（首次各 API 容器 pip install ~1–2 分钟）
+make db-init-dev       # 首次初始化 schema
+# 等待 API 就绪后再探活：
+sleep 90 && make dev-health
 ```
+
+**常见失败**：
+- `(000)` / `(000000)`：栈未启动 → 先 `make dev`；查看 `docker compose -f docker-compose.dev.yml ps -a`
+- 容器 `Exited` + `egg-info` 错误：已修复（dev 卷改为 rw 挂载）
+- `Attribute "app" not found`：已修复（`run_server.py` 调用各域 `run_*_server`）
 
 | Repo | `make install-dev` 链 |
 |------|----------------------|

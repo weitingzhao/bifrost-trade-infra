@@ -37,15 +37,20 @@ else
   echo "SKIP redis (redis-cli not installed)"
 fi
 
+api_down_hint=0
+
 check_http() {
   local name="$1"
   local url="$2"
   local code
-  code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 3 "$url" || echo "000")
+  code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 3 "$url" 2>/dev/null) || code="000"
   if [[ "$code" == "200" || "$code" == "503" ]]; then
     ok "${name} ${url} (${code})"
   else
     bad "${name} ${url} (${code})"
+    if [[ "$code" == "000" || "$code" == "000000" ]]; then
+      api_down_hint=1
+    fi
   fi
 }
 
@@ -61,6 +66,13 @@ check_http "api-market"    "http://127.0.0.1:8772/health"
 check_http "api-research"  "http://127.0.0.1:8773/health"
 
 if [[ "$fail" -ne 0 ]]; then
+  if [[ "$api_down_hint" -eq 1 ]]; then
+    echo ""
+    echo "Hint: API ports not listening. Start the dev stack first:"
+    echo "  cd bifrost-trade-infra && make dev-build && make dev"
+    echo "Then inspect failures: docker compose -f docker-compose.dev.yml ps -a"
+    echo "                      docker compose -f docker-compose.dev.yml logs api-monitor --tail=50"
+  fi
   echo "Dev stack health check failed."
   exit 1
 fi

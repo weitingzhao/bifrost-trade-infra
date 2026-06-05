@@ -20,10 +20,10 @@
 | bifrost-trade-core | 6 | 6 | **VERIFIED**（2026-06-05）— `make test` 146 passed（`not ib and not db`） |
 | bifrost-trade-socket | 5 | 5 | **VERIFIED**（2026-06-04）— 23 tests（`not ib`）；`@pytest.mark.ib` 烟雾可选 |
 | bifrost-trade-worker | 3 | 3 | **VERIFIED**（2026-06-04）— daemon + celery；189 tests（`not ib and not db`） |
-| bifrost-trade-api | 9 | 9 | **VERIFIED**（2026-06-04）— 9 域契约 + 跨 repo；199 tests；可启动 Phase 2B 切域 |
+| bifrost-trade-api | 9 | 9 | **CUTOVER**（2026-06-04）— Phase 2B：`.env.development` → 8765–8773；Owner 签字见 `PHASE2B_SIGNOFF_MASTER.md` |
 | bifrost-trade-frontend | 4 | 4 | **Phase 1 CLOSED**（2026-06-04）— New Frontend + Legacy API 业务等价 100%（含 `/settings/ib`） |
 
-> **Backend M0–M5 落地**（2026-06-05）：见 [`PHASE2_API_CUTOVER.md`](./PHASE2_API_CUTOVER.md)。**默认仍指向 Legacy API**；单域 VERIFIED 后才切换 `VITE_API_*`。
+> **Phase 2B**（2026-06-04）：见 [`PHASE2_API_CUTOVER.md`](./PHASE2_API_CUTOVER.md)、[`PHASE2B_SIGNOFF_MASTER.md`](../bifrost-trade-frontend/docs/PHASE2B_SIGNOFF_MASTER.md)。Dev 前端 `VITE_API_*` 已指向新 API（8765–8773）。
 
 ---
 
@@ -65,15 +65,15 @@
 
 | 域 | 端口 | engine 源 | 目标路径 | 主要文件 | 状态 |
 |----|------|----------|----------|---------|------|
-| monitor | 8765 | `backend/monitor/` | `bifrost_api/monitor/` | app.py, routers/{status, daemon, config, core, logs, messages} | **VERIFIED** |
-| massive | 8766 | `backend/massive/` | `bifrost_api/massive/` | app.py, deps.py, sse.py, routers/{routes, stream} | **VERIFIED** |
-| docs | 8767 | `backend/docs/` | `bifrost_api/docs_api/` | app.py, merge_openapi.py | **VERIFIED** |
-| ops | 8768 | `backend/ops/` | `bifrost_api/ops/` | app.py, auth.py, worker_profiles, agent/*, routers/{workers, job_queues, market_ingest}, services/* | **VERIFIED** |
-| trading | 8769 | `backend/trading/` | `bifrost_api/trading/` | app.py, routers/executions | **VERIFIED** |
-| strategy | 8770 | `backend/strategy/` | `bifrost_api/strategy/` | app.py, routers/strategies | **VERIFIED** |
-| portfolio | 8771 | `backend/portfolio/` | `bifrost_api/portfolio/` | app.py, routers/{config, model} | **VERIFIED** |
-| market | 8772 | `backend/market/` | `bifrost_api/market/` | app.py, routers/{quotes, watchlist, market_data} | **VERIFIED** |
-| research | 8773 | `backend/research/` + `src/research/sepa/` | `bifrost_api/research/` | app.py, sepa/*, screener/*, indicators/*, routers/{screener, greeks, max_pain, option_discovery, data_readiness, sepa_*} | **VERIFIED** |
+| monitor | 8765 | `backend/monitor/` | `bifrost_api/monitor/` | app.py, routers/{status, daemon, config, core, logs, messages} | **CUTOVER** |
+| massive | 8766 | `backend/massive/` | `bifrost_api/massive/` | app.py, deps.py, sse.py, routers/{routes, stream} | **CUTOVER** |
+| docs | 8767 | `backend/docs/` | `bifrost_api/docs_api/` | app.py, merge_openapi.py | **CUTOVER** |
+| ops | 8768 | `backend/ops/` | `bifrost_api/ops/` | app.py, auth.py, worker_profiles, agent/*, routers/{workers, job_queues, market_ingest}, services/* | **CUTOVER** |
+| trading | 8769 | `backend/trading/` | `bifrost_api/trading/` | app.py, routers/executions | **CUTOVER** |
+| strategy | 8770 | `backend/strategy/` | `bifrost_api/strategy/` | app.py, routers/strategies | **CUTOVER** |
+| portfolio | 8771 | `backend/portfolio/` | `bifrost_api/portfolio/` | app.py, routers/{config, model} | **CUTOVER** |
+| market | 8772 | `backend/market/` | `bifrost_api/market/` | app.py, routers/{quotes, watchlist, market_data} | **CUTOVER** |
+| research | 8773 | `backend/research/` + `src/research/sepa/` | `bifrost_api/research/` | app.py, sepa/*, screener/*, indicators/*, routers/{screener, greeks, max_pain, option_discovery, data_readiness, sepa_*} | **CUTOVER** |
 
 > **research 域（8773）**：SEPA 四阶段筛选引擎 + 回测 + 历史 Greeks，完整业务逻辑在本 repo 的 `bifrost_api.research` 内实现（含 sepa / screener / indicators 子模块）。
 
@@ -164,7 +164,7 @@
 
 ### §6.2 API 客户端模块
 
-> 新 repo 合并重组为 **22** 个 `src/api/**/*.ts` 文件（非 engine 31 文件一一对应）；全部指向 Legacy API（`VITE_API_*`）。
+> 新 repo 合并重组为 **22** 个 `src/api/**/*.ts` 文件（非 engine 31 文件一一对应）；Phase 2B 起 Dev `VITE_API_*` 指向新 API（8765–8773）。
 
 | 域 | 新 repo 文件 | engine 源 | 状态 |
 |----|-------------|----------|------|
@@ -276,6 +276,26 @@
 
 ---
 
+## §10 Phase 2B 进度（API 逐域切换 M6）
+
+> 签字清单：[PHASE2B_SIGNOFF_MASTER.md](../bifrost-trade-frontend/docs/PHASE2B_SIGNOFF_MASTER.md)。Dev 栈：`make dev` + `make dev-health`。
+
+| Sprint | 域 | `VITE_API_*` → New | Batch | Agent gate | Owner | §4 状态 |
+|--------|-----|-------------------|-------|------------|-------|---------|
+| 2B.1 | docs | `DOCS` → 8767 | 5 | lint/build/legacy-css | pending | **CUTOVER** |
+| 2B.2 | monitor | `MONITOR` → 8765 | 1 + 5 | lint/build/legacy-css | pending | **CUTOVER** |
+| 2B.2 | market | `MARKET` → 8772 | 1 | lint/build/legacy-css | pending | **CUTOVER** |
+| 2B.3 | trading | `TRADING` → 8769 | 2 | lint/build/legacy-css | pending | **CUTOVER** |
+| 2B.3 | portfolio | `PORTFOLIO` → 8771 | 1–2 | lint/build/legacy-css | pending | **CUTOVER** |
+| 2B.3 | strategy | `STRATEGY` → 8770 | 4 | lint/build/legacy-css | pending | **CUTOVER** |
+| 2B.4 | ops | `OPS` → 8768 | 5 | lint/build/legacy-css | pending | **CUTOVER** |
+| 2B.4 | massive | `MASSIVE` → 8766 | 6 | lint/build/legacy-css | pending | **CUTOVER** |
+| 2B.4 | research | `RESEARCH` → 8773 | 3 | lint/build/legacy-css | pending | **CUTOVER** |
+
+**Phase 2B 出口**：9/9 CUTOVER + Owner 签字 + `check_cutover_env.sh` 无 Legacy 端口 → 解锁 Phase 2C（Prod）/ Phase 3（Legacy 退役）。
+
+---
+
 ## §8 变更日志
 
 | 日期 | 变更内容 | 操作人 |
@@ -305,3 +325,4 @@
 | 2026-06-04 | **Frontend Phase 1 CLOSED**：`IB_CONNECTION_ACCEPTANCE.md`（`/settings/ib` parity）；Batch 1 smoke；`MIGRATION_TRACKING` §6 同步；机械门禁通过 — **允许启动底层迁移** | Agent |
 | 2026-06-05 | **Backend M0–M5 落地**：core/socket/worker/api 代码迁移 + 测试（core 146、worker 185、socket 4）；`PHASE2_API_CUTOVER.md`；infra `docker-compose.dev.yml` 对齐 socket/worker | Agent |
 | 2026-06-04 | **Phase 2A 完成**：Dev 栈 9 API + `dev-health`；socket 23 tests；api contract 24 + 跨 repo；`PHASE2A_INTEGRATION_CHECKLIST.md`；§4 九域 VERIFIED → 解锁 Phase 2B | Agent |
+| 2026-06-04 | **Phase 2B 实施**：`PHASE2B_SIGNOFF_MASTER.md`；`PHASE2_API_CUTOVER.md` 扩展；`check_cutover_env.sh`；§10；`.env.development` → 8765–8773；§4 **CUTOVER** | Agent |

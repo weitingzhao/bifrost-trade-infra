@@ -1,0 +1,17 @@
+# Dev Docker overlay — deep-merged over config.yaml (from core example).
+
+server:
+  skip_monitor_ib: true
+
+postgres:
+  host: postgres
+  port: 5432
+  user: bifrost
+  password: bifrost_dev
+  database: bifrost_dev
+
+redis:
+  enabled: true
+  host: redis
+  port: 6379
+  db: 0
