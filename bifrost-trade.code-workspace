@@ -8,19 +8,35 @@
 		},
 		{
 			"name": "📦 core · 共享库 — bifrost_core · 无进程入口",
-			"path": "../bifrost-trade-core"
+			"path": "../bifrost-trade-core",
+			"settings": {
+				"python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+				"python.testing.pytestArgs": ["-m", "not ib and not db"]
+			}
 		},
 		{
 			"name": "🔌 socket · 边缘连接 — IB Ingestor/Operator + Massive WS → Redis",
-			"path": "../bifrost-trade-socket"
+			"path": "../bifrost-trade-socket",
+			"settings": {
+				"python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+				"python.testing.pytestArgs": ["-m", "not ib"]
+			}
 		},
 		{
 			"name": "⚡ worker · 后台引擎 — GsTrading Daemon + Celery 数据管道",
-			"path": "../bifrost-trade-worker"
+			"path": "../bifrost-trade-worker",
+			"settings": {
+				"python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+				"python.testing.pytestArgs": ["-m", "not ib and not db"]
+			}
 		},
 		{
 			"name": "🌐 api · 只读 HTTP — FastAPI 9 域 · :8765–8773",
-			"path": "../bifrost-trade-api"
+			"path": "../bifrost-trade-api",
+			"settings": {
+				"python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+				"python.testing.pytestArgs": ["-m", "not ib and not db"]
+			}
 		},
 		{
 			"name": "🖥️ frontend · 监控 UI — React 18 · Vite · :5173",
@@ -28,10 +44,16 @@
 		},
 		{
 			"name": "🔒 engine · 只读参考 — 重构蓝本 · 禁止修改",
-			"path": "../bifrost-trader-engine"
+			"path": "../bifrost-trader-engine",
+			"settings": {
+				"python.testing.pytestEnabled": false,
+				"python.testing.unittestEnabled": false
+			}
 		}
 	],
 	"settings": {
+		"python.testing.pytestEnabled": true,
+		"python.testing.unittestEnabled": false,
 		"files.readonlyInclude": {
 			"**/bifrost-trader-engine/**": true
 		},

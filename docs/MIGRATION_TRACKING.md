@@ -18,9 +18,9 @@
 | 目标 Repo | 模块数 | 已完成 | 进度 |
 |-----------|--------|--------|------|
 | bifrost-trade-core | 6 | 6 | **VERIFIED**（2026-06-05）— `make test` 146 passed（`not ib and not db`） |
-| bifrost-trade-socket | 5 | 5 | **VERIFIED**（2026-06-05）— 代码 + 4 tests；待 `@pytest.mark.ib` 烟雾 |
-| bifrost-trade-worker | 3 | 3 | **VERIFIED**（2026-06-05）— daemon + celery 已迁；185 tests passed |
-| bifrost-trade-api | 9 | 9 | **DONE**（2026-06-05）— 9 域代码已迁；契约/集成测试进行中 → 逐域 VERIFIED 后切 `VITE_API_*` |
+| bifrost-trade-socket | 5 | 5 | **VERIFIED**（2026-06-04）— 23 tests（`not ib`）；`@pytest.mark.ib` 烟雾可选 |
+| bifrost-trade-worker | 3 | 3 | **VERIFIED**（2026-06-04）— daemon + celery；189 tests（`not ib and not db`） |
+| bifrost-trade-api | 9 | 9 | **VERIFIED**（2026-06-04）— 9 域契约 + 跨 repo；199 tests；可启动 Phase 2B 切域 |
 | bifrost-trade-frontend | 4 | 4 | **Phase 1 CLOSED**（2026-06-04）— New Frontend + Legacy API 业务等价 100%（含 `/settings/ib`） |
 
 > **Backend M0–M5 落地**（2026-06-05）：见 [`PHASE2_API_CUTOVER.md`](./PHASE2_API_CUTOVER.md)。**默认仍指向 Legacy API**；单域 VERIFIED 后才切换 `VITE_API_*`。
@@ -48,16 +48,16 @@
 
 | 模块 | engine 源 | 目标路径 | 关键文件 | 状态 |
 |------|----------|----------|---------|------|
-| connector | `src/ib/`, `src/connector/` | `bifrost_socket/ib/connector/` | connection_policy.py, ib.py, flex_client.py | - |
-| ingestor | `src/vendor/ib_ingestor/` | `bifrost_socket/ib/ingestor/` | writer.py, redis_keys.py | - |
-| account_agent | `src/vendor/ib_account_agent/` | `bifrost_socket/ib/account_agent/` | writer.py, redis_keys.py | - |
-| operator | `src/ib_operator/` (service) | `bifrost_socket/ib/operator/` | service.py, executor.py, redis_io.py, health_redis.py | - |
+| connector | `src/ib/`, `src/connector/` | `bifrost_socket/ib/connector/` | connection_policy.py, ib.py, flex_client.py | **VERIFIED** |
+| ingestor | `src/vendor/ib_ingestor/` | `bifrost_socket/ib/ingestor/` | writer.py, redis_keys.py | **VERIFIED** |
+| account_agent | `src/vendor/ib_account_agent/` | `bifrost_socket/ib/account_agent/` | writer.py, redis_keys.py | **VERIFIED** |
+| operator | `src/ib_operator/` (service) | `bifrost_socket/ib/operator/` | service.py, executor.py, redis_io.py, health_redis.py | **VERIFIED** |
 
 ### §3.2 Massive 子域（`src/bifrost_socket/massive/`）
 
 | 模块 | engine 源 | 目标路径 | 关键文件 | 状态 |
 |------|----------|----------|---------|------|
-| massive_ws | `scripts/systemd/run_massive_ws.py` | `bifrost_socket/massive/` | massive_ws_ingestor.py, redis_writer.py, subscription_manager.py | - |
+| massive_ws | `scripts/systemd/run_massive_ws.py` | `bifrost_socket/massive/` | massive_ws_ingestor.py, redis_writer.py, subscription_manager.py | **DONE** |
 
 ---
 
@@ -65,15 +65,15 @@
 
 | 域 | 端口 | engine 源 | 目标路径 | 主要文件 | 状态 |
 |----|------|----------|----------|---------|------|
-| monitor | 8765 | `backend/monitor/` | `bifrost_api/monitor/` | app.py, routers/{status, daemon, config, core, logs, messages} | - |
-| massive | 8766 | `backend/massive/` | `bifrost_api/massive/` | app.py, deps.py, sse.py, routers/{routes, stream} | - |
-| docs | 8767 | `backend/docs/` | `bifrost_api/docs_api/` | app.py, merge_openapi.py | - |
-| ops | 8768 | `backend/ops/` | `bifrost_api/ops/` | app.py, auth.py, worker_profiles, agent/*, routers/{workers, job_queues, market_ingest}, services/* | - |
-| trading | 8769 | `backend/trading/` | `bifrost_api/trading/` | app.py, routers/executions | - |
-| strategy | 8770 | `backend/strategy/` | `bifrost_api/strategy/` | app.py, routers/strategies | - |
-| portfolio | 8771 | `backend/portfolio/` | `bifrost_api/portfolio/` | app.py, routers/{config, model} | - |
-| market | 8772 | `backend/market/` | `bifrost_api/market/` | app.py, routers/{quotes, watchlist, market_data} | - |
-| research | 8773 | `backend/research/` + `src/research/sepa/` | `bifrost_api/research/` | app.py, sepa/*, screener/*, indicators/*, routers/{screener, greeks, max_pain, option_discovery, data_readiness, sepa_*} | - |
+| monitor | 8765 | `backend/monitor/` | `bifrost_api/monitor/` | app.py, routers/{status, daemon, config, core, logs, messages} | **VERIFIED** |
+| massive | 8766 | `backend/massive/` | `bifrost_api/massive/` | app.py, deps.py, sse.py, routers/{routes, stream} | **VERIFIED** |
+| docs | 8767 | `backend/docs/` | `bifrost_api/docs_api/` | app.py, merge_openapi.py | **VERIFIED** |
+| ops | 8768 | `backend/ops/` | `bifrost_api/ops/` | app.py, auth.py, worker_profiles, agent/*, routers/{workers, job_queues, market_ingest}, services/* | **VERIFIED** |
+| trading | 8769 | `backend/trading/` | `bifrost_api/trading/` | app.py, routers/executions | **VERIFIED** |
+| strategy | 8770 | `backend/strategy/` | `bifrost_api/strategy/` | app.py, routers/strategies | **VERIFIED** |
+| portfolio | 8771 | `backend/portfolio/` | `bifrost_api/portfolio/` | app.py, routers/{config, model} | **VERIFIED** |
+| market | 8772 | `backend/market/` | `bifrost_api/market/` | app.py, routers/{quotes, watchlist, market_data} | **VERIFIED** |
+| research | 8773 | `backend/research/` + `src/research/sepa/` | `bifrost_api/research/` | app.py, sepa/*, screener/*, indicators/*, routers/{screener, greeks, max_pain, option_discovery, data_readiness, sepa_*} | **VERIFIED** |
 
 > **research 域（8773）**：SEPA 四阶段筛选引擎 + 回测 + 历史 Greeks，完整业务逻辑在本 repo 的 `bifrost_api.research` 内实现（含 sepa / screener / indicators 子模块）。
 
@@ -244,10 +244,35 @@
 
 | 目标 Repo | engine 测试源 | 测试文件数 | 状态 |
 |-----------|--------------|-----------|------|
-| bifrost-trade-core | `tests/test_config*`, `test_portfolio*`, `test_persistence*` 等 | ~15 | - |
-| bifrost-trade-socket | `tests/test_connector_ib*`, `test_ib_operator*`, `test_ib_config*`, `test_subprocess_executor_ingest*` | ~5 | - |
-| bifrost-trade-worker | `tests/test_daemon_fsm*`, `test_guards*`, `test_state_*`, `test_gs_trading*`, `tests/test_celery_*`, `test_massive_*`, `test_stock_ohlc_*` | ~65 | - |
-| bifrost-trade-api | `tests/test_research_app*`, `tests/test_massive_app*`, `test_docs_app*`, `test_monitor_status*`, `tests/research/sepa/test_*`, `tests/test_sepa_*` | ~23 | - |
+| bifrost-trade-core | `tests/test_config*`, `test_portfolio*`, `test_persistence*` 等 | 146 passed | **VERIFIED**（`not ib and not db`） |
+| bifrost-trade-socket | `test_connection_policy`, `test_redis_protocol_keys`, `test_ib_operator`, `test_ingestor_redis_keys`, `test_redis_health_keys`, `test_account_agent_redis_keys` | 23 passed | **VERIFIED**（`not ib`） |
+| bifrost-trade-worker | `test_daemon_fsm*`, `test_guards*`, `test_celery_*`, `test_massive_*`, `test_stock_ohlc_*` 等 | 189 passed | **VERIFIED**（`not ib and not db`） |
+| bifrost-trade-api | 单元 + `tests/contract/test_{domain}_parity.py` + `test_cross_repo_integration` | 199 passed（含 contract 24） | **VERIFIED** |
+
+---
+
+## §9 Phase 2A 进度（后端验证与 Dev 栈联调）
+
+> 出口标准见 [`PHASE2A_INTEGRATION_CHECKLIST.md`](./PHASE2A_INTEGRATION_CHECKLIST.md)。Phase 2A 完成后解锁 **Phase 2B**（M6 逐域切 `VITE_API_*`）。
+
+| Sprint | 工作流 | 交付物 | 状态 |
+|--------|--------|--------|------|
+| 2A.1 | A Harness + Dev compose 9 API + `dev-health` | `docker-compose.dev.yml` 全栈；`make dev-health` | **DONE** |
+| 2A.2 | B Socket 测试 ≥20 | socket 23 passed；`test_ib_operator` 等 | **DONE** |
+| 2A.3 | C 契约 docs + monitor + market | `tests/contract/test_{docs,monitor,market}_parity.py` | **DONE** |
+| 2A.4 | C 剩余 6 域 + D 跨 repo + E 文档 | 9/9 VERIFIED；`PHASE2A_INTEGRATION_CHECKLIST.md`；workspace pytest 隔离 | **DONE** |
+
+| API 域 | 契约测试 | Dev health（`make dev-health`） | VERIFIED |
+|--------|----------|--------------------------------|----------|
+| docs | `test_docs_parity.py` | :8767 | ✅ |
+| monitor | `test_monitor_parity.py` | :8765 | ✅ |
+| market | `test_market_parity.py` | :8772 | ✅ |
+| trading | `test_trading_parity.py` | :8769 | ✅ |
+| portfolio | `test_portfolio_parity.py` | :8771 | ✅ |
+| strategy | `test_strategy_parity.py` | :8770 | ✅ |
+| ops | `test_ops_parity.py` | :8768 | ✅ |
+| massive | `test_massive_parity.py` | :8766 | ✅ |
+| research | `test_research_parity.py` | :8773 | ✅ |
 
 ---
 
@@ -279,3 +304,4 @@
 | 2026-06-03 | **Phase 1 Final sign-off** — frontend **Phase 1 VERIFIED**（New Frontend + Legacy API 阶段 1 闭环） | Owner |
 | 2026-06-04 | **Frontend Phase 1 CLOSED**：`IB_CONNECTION_ACCEPTANCE.md`（`/settings/ib` parity）；Batch 1 smoke；`MIGRATION_TRACKING` §6 同步；机械门禁通过 — **允许启动底层迁移** | Agent |
 | 2026-06-05 | **Backend M0–M5 落地**：core/socket/worker/api 代码迁移 + 测试（core 146、worker 185、socket 4）；`PHASE2_API_CUTOVER.md`；infra `docker-compose.dev.yml` 对齐 socket/worker | Agent |
+| 2026-06-04 | **Phase 2A 完成**：Dev 栈 9 API + `dev-health`；socket 23 tests；api contract 24 + 跨 repo；`PHASE2A_INTEGRATION_CHECKLIST.md`；§4 九域 VERIFIED → 解锁 Phase 2B | Agent |
