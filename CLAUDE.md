@@ -34,7 +34,25 @@ make db-init
 
 - `.env` — 敏感信息（密码、API Key），**不提交 git**
 - `config/config.yaml` — 从 `bifrost-trade-core/config/config.yaml.example` 复制并修改
+- `config/config.dev.yaml` — Dev 叠加层（postgres/redis/ib 由 `make sync-dev-config` 同步；**Ops Authenticate token** 在 `ops.auth.tokens`）
 - 配置通过 Docker volume 挂载到各服务的 `/app/config/`
+
+### Ops UI Authenticate token（Dev）
+
+与 Legacy 相同，定义在 **`config/config.dev.yaml`** → `ops.auth.tokens`：
+
+- `role: operator` → 名称 `trader`（关停 API、Celery/Socket 控制）
+- `role: admin` → 名称 `admin`
+
+可选环境变量覆盖：`OPS_OPERATOR_TOKEN` / `OPS_ADMIN_TOKEN`（写入 `.env`）。
+
+验证（Dev 栈启动后）：
+
+```bash
+curl -s -H "Authorization: Bearer <operator-token>" http://localhost:8768/ops/auth/capabilities
+```
+
+应返回 `"authenticated": true` 且 `"can_operate": true`。修改 `config.dev.yaml` 后需重启 API 容器（`docker compose ... restart api-ops` 或 `make dev` 重拉）。
 
 ## 服务端口一览
 

@@ -1,17 +1,90 @@
-# Dev Docker overlay — deep-merged over config.yaml (from core example).
+# Dev overlay — deep-merged over config.yaml (from core example).
+# postgres/redis/ib/server 由 make sync-dev-config 从 .env 写入；勿手改后忘记同步。
+# ops.auth.tokens：从 bifrost-trader-engine/config/config.dev.yaml 迁移；UI Authenticate 用此处 token
+#   (Settings → API Health / Socket / Celery)。operator/admin 可关停 API 与 ingest 控制。
 
 server:
-  skip_monitor_ib: true
+  skip_monitor_ib: false
+
+sink: postgres
+
+ib:
+  connect_timeout: 60.0
+  host:
+    ip: 192.168.10.30
+    port_type: tws_paper
+    client_id:
+      daemon: 110
+      listener: 101
+      operator: 120
+      worker_market: 140
+      ingestor: 150
+      account_agent: 160
+
+utilized:
+  services:
+    server: dev
+    massive: dev
+    docs: dev
+    ops: dev
+    trading: dev
+    strategy: dev
+    portfolio: dev
+    market: dev
+    research: dev
 
 postgres:
-  host: postgres
+  host: 192.168.10.80
   port: 5432
   user: bifrost
-  password: bifrost_dev
-  database: bifrost_dev
+  password: OptionPSW!@
+  database: options_db
 
 redis:
   enabled: true
-  host: redis
+  host: 192.168.10.70
   port: 6379
   db: 0
+
+ops:
+  control_profile: dev
+  executor_mode: "local" # local | agent
+  # macOS: subprocess (no systemctl). Linux dev may use systemd.
+  local_control: "subprocess"
+  agent_socket: "/var/run/bifrost-agent.sock"
+  # worker_profiles + prod hostnames: synced from bifrost-trader-engine/config/config.yaml (make sync-dev-config).
+  celery:
+    prod_worker_hostnames:
+      - server-app-ubt
+  worker_profiles:
+    stocks_ib:
+      queues: ["stocks_ib"]
+      max_worker_instances: 1
+    options_massive:
+      queues: ["options_massive"]
+      pool: solo
+      max_worker_instances: 5
+    options_massive_high:
+      queues: ["options_massive_high"]
+      pool: solo
+      max_worker_instances: 1
+    stocks_massive:
+      queues: ["stocks_massive"]
+      pool: solo
+      max_worker_instances: 10
+    stocks_massive_high:
+      queues: ["stocks_massive_high"]
+      pool: solo
+      max_worker_instances: 1
+  auth:
+    default_role: "admin" # dev convenience: unauthenticated = admin
+    allow_unauthenticated_reads: true
+    tokens:
+      - token: "sejpBgwWwOYIGOu-8BPH22PtJkNBBUkFQvgqWD4SJP0"
+        role: "operator"
+        name: "trader"
+      - token: "p_OY_4tIM9CG2dMYblGmzZBi05IuQ9BGzDfwkes6sJc"
+        role: "admin"
+        name: "admin"
+  audit:
+    persist: false # dev: in-memory only

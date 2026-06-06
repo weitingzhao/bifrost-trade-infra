@@ -1,0 +1,84 @@
+# Prod overlay — deep-merged over config.yaml (from config.yaml.example).
+# postgres/redis/ib/server 由 make sync-prod-config 从 .env 写入；勿手改后忘记同步。
+# ops.auth.tokens：生产 token 勿提交 git；通过 .env OPS_* 或部署密钥注入。
+
+server:
+  skip_monitor_ib: false
+
+sink: postgres
+
+ib:
+  connect_timeout: 60.0
+  host:
+    ip: 192.168.10.30
+    port_type: tws_live
+    client_id:
+      daemon: 1
+      listener: 2
+      operator: 3
+      worker_market: 4
+      ingestor: 1
+      account_agent: 2
+
+utilized:
+  services:
+    server: prod
+    massive: prod
+    docs: prod
+    ops: prod
+    trading: prod
+    strategy: prod
+    portfolio: prod
+    market: prod
+    research: prod
+
+postgres:
+  host: 192.168.10.80
+  port: 5432
+  user: bifrost
+  password: OptionPSW!@
+  database: options_db
+
+redis:
+  enabled: true
+  host: 192.168.10.70
+  port: 6379
+  db: 0
+
+ops:
+  control_profile: prod
+  executor_mode: "local"
+  local_control: "subprocess"
+  agent_socket: "/var/run/bifrost-agent.sock"
+  celery:
+    prod_worker_hostnames:
+      - server-app-ubt
+  worker_profiles:
+    stocks_ib:
+      queues: ["stocks_ib"]
+      max_worker_instances: 1
+    options_massive:
+      queues: ["options_massive"]
+      pool: solo
+      max_worker_instances: 5
+    options_massive_high:
+      queues: ["options_massive_high"]
+      pool: solo
+      max_worker_instances: 1
+    stocks_massive:
+      queues: ["stocks_massive"]
+      pool: solo
+      max_worker_instances: 10
+    stocks_massive_high:
+      queues: ["stocks_massive_high"]
+      pool: solo
+      max_worker_instances: 1
+  auth:
+    default_role: "operator"
+    allow_unauthenticated_reads: false
+    tokens: []
+  audit:
+    persist: true
+
+massive:
+  api_key: MYCd1tboShKK7UTYgKN_fjtBrZUr9zhe

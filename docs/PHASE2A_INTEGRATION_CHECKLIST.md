@@ -85,8 +85,8 @@ pytest tests/contract -q                    # 期望 24 passed（9 域 parity + 
 
 ## 出口签字
 
-- [ ] 四 repo 单测绿（`not ib and not db` / socket `not ib`）
-- [ ] `tests/contract` 24 passed
-- [ ] `make dev-health` 9/9（Dev 栈已起时）
-- [ ] `MIGRATION_TRACKING.md` §4 九域 **VERIFIED**
-- [ ] 解锁 Phase 2B：按 [`PHASE2_API_CUTOVER.md`](./PHASE2_API_CUTOVER.md) 逐域切 `VITE_API_*`
+- [x] 四 repo 单测绿（`not ib and not db` / socket `not ib`）
+- [x] `tests/contract` 24 passed
+- [x] `make dev-health` 9/9（Dev 栈已起时）
+- [x] `MIGRATION_TRACKING.md` §4 九域 **VERIFIED** → Phase 2B **CUTOVER**
+- [x] Phase 2B：[`PHASE2_API_CUTOVER.md`](./PHASE2_API_CUTOVER.md) + `PHASE2B_SIGNOFF_MASTER.md`；`make check-cutover-env`

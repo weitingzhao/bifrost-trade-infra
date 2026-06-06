@@ -1,15 +1,23 @@
 version: "3.9"
 
 # ============================================================
-# Bifrost Trade — Production Docker Compose
-# 使用方式: cp .env.example .env && docker compose up -d
+# Bifrost Trade — Production Docker Compose (Phase 2C)
+# 使用方式: cp .env.example .env && make sync-prod-config && make prod-preflight
+#
+# PG/Redis 默认外置（LAN，见 config.prod.yaml）；仅 greenfield/CI:
+#   docker compose --profile embedded-infra up -d
 # ============================================================
 
 x-python-common: &python-common
   env_file: .env
+  environment:
+    BIFROST_ENV: prod
+    BIFROST_CONFIG: /app/config/config.prod.yaml
   restart: unless-stopped
   networks:
     - bifrost-net
+  volumes:
+    - ./config:/app/config:ro
 
 x-api-build: &api-build
   build:
@@ -21,22 +29,39 @@ x-api-build: &api-build
       GITHUB_ORG: ${GITHUB_ORG}
   <<: *python-common
 
+x-worker-build: &worker-build
+  build:
+    context: ../bifrost-trade-worker
+    args:
+      BIFROST_CORE_REF: ${BIFROST_CORE_REF:-main}
+      GITHUB_ORG: ${GITHUB_ORG}
+  <<: *python-common
+
+x-socket-build: &socket-build
+  build:
+    context: ../bifrost-trade-socket
+    args:
+      BIFROST_CORE_REF: ${BIFROST_CORE_REF:-main}
+      GITHUB_ORG: ${GITHUB_ORG}
+  <<: *python-common
+
 services:
 
-  # ── 基础设施 ──────────────────────────────────────────────
+  # ── 可选内嵌基础设施（默认不启；生产连 LAN PG/Redis）────────
 
   postgres:
+    profiles: [embedded-infra]
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_USER: ${POSTGRES_USER:-bifrost}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_DB: ${POSTGRES_DB:-bifrost_prod}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bifrost}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -45,6 +70,7 @@ services:
     restart: unless-stopped
 
   redis:
+    profiles: [embedded-infra]
     image: redis:7-alpine
     command: redis-server --appendonly yes
     volumes:
@@ -60,197 +86,94 @@ services:
       - bifrost-net
     restart: unless-stopped
 
-  # ── 交易核心 daemon ───────────────────────────────────────
+  # ── 交易 daemon ───────────────────────────────────────────
 
-  engine:
-    build:
-      context: ../bifrost-trade-core
-    command: python scripts/run_engine.py
-    volumes:
-      - ./config:/app/config:ro
-    depends_on:
-      postgres: { condition: service_healthy }
-      redis: { condition: service_healthy }
-    <<: *python-common
+  daemon:
+    <<: *worker-build
+    command: python scripts/run_daemon.py
 
-  # ── IB 边缘服务 ───────────────────────────────────────────
+  # ── IB / Massive socket 边缘 ──────────────────────────────
 
   ib-ingestor:
-    build:
-      context: ../bifrost-trade-ib-edge
-      args:
-        BIFROST_CORE_REF: ${BIFROST_CORE_REF:-main}
-        GITHUB_ORG: ${GITHUB_ORG}
-    command: python scripts/run_ingestor.py
-    volumes:
-      - ./config:/app/config:ro
-    depends_on:
-      redis: { condition: service_healthy }
-    <<: *python-common
+    <<: *socket-build
+    command: python scripts/run_ib_ingestor.py
 
   ib-account-agent:
-    build:
-      context: ../bifrost-trade-ib-edge
-      args:
-        BIFROST_CORE_REF: ${BIFROST_CORE_REF:-main}
-        GITHUB_ORG: ${GITHUB_ORG}
-    command: python scripts/run_account_agent.py
-    volumes:
-      - ./config:/app/config:ro
-    depends_on:
-      redis: { condition: service_healthy }
-    <<: *python-common
+    <<: *socket-build
+    command: python scripts/run_ib_account_agent.py
 
   ib-operator:
-    build:
-      context: ../bifrost-trade-ib-edge
-      args:
-        BIFROST_CORE_REF: ${BIFROST_CORE_REF:-main}
-        GITHUB_ORG: ${GITHUB_ORG}
-    command: python scripts/run_operator.py
-    volumes:
-      - ./config:/app/config:ro
-    depends_on:
-      redis: { condition: service_healthy }
-    <<: *python-common
+    <<: *socket-build
+    command: python scripts/run_ib_operator.py
+
+  massive-ws:
+    <<: *socket-build
+    command: python scripts/run_massive_ws.py
 
   # ── FastAPI 后端 (9 个域) ─────────────────────────────────
 
   api-monitor:
     <<: *api-build
     command: python scripts/run_server.py monitor
-    ports: ["${PORT_MONITOR}:${PORT_MONITOR}"]
-    volumes:
-      - ./config:/app/config:ro
-    depends_on:
-      postgres: { condition: service_healthy }
 
   api-massive:
     <<: *api-build
     command: python scripts/run_server.py massive
-    ports: ["${PORT_MASSIVE}:${PORT_MASSIVE}"]
-    volumes:
-      - ./config:/app/config:ro
-    depends_on:
-      postgres: { condition: service_healthy }
 
   api-docs:
     <<: *api-build
     command: python scripts/run_server.py docs
-    ports: ["${PORT_DOCS}:${PORT_DOCS}"]
-    volumes:
-      - ./config:/app/config:ro
 
   api-ops:
     <<: *api-build
     command: python scripts/run_server.py ops
-    ports: ["${PORT_OPS}:${PORT_OPS}"]
-    volumes:
-      - ./config:/app/config:ro
-    depends_on:
-      redis: { condition: service_healthy }
 
   api-trading:
     <<: *api-build
     command: python scripts/run_server.py trading
-    ports: ["${PORT_TRADING}:${PORT_TRADING}"]
-    volumes:
-      - ./config:/app/config:ro
-    depends_on:
-      postgres: { condition: service_healthy }
 
   api-strategy:
     <<: *api-build
     command: python scripts/run_server.py strategy
-    ports: ["${PORT_STRATEGY}:${PORT_STRATEGY}"]
-    volumes:
-      - ./config:/app/config:ro
-    depends_on:
-      postgres: { condition: service_healthy }
 
   api-portfolio:
     <<: *api-build
     command: python scripts/run_server.py portfolio
-    ports: ["${PORT_PORTFOLIO}:${PORT_PORTFOLIO}"]
-    volumes:
-      - ./config:/app/config:ro
-    depends_on:
-      postgres: { condition: service_healthy }
 
   api-market:
     <<: *api-build
     command: python scripts/run_server.py market
-    ports: ["${PORT_MARKET}:${PORT_MARKET}"]
-    volumes:
-      - ./config:/app/config:ro
-    depends_on:
-      redis: { condition: service_healthy }
 
   api-research:
     <<: *api-build
     command: python scripts/run_server.py research
-    ports: ["${PORT_RESEARCH}:${PORT_RESEARCH}"]
-    volumes:
-      - ./config:/app/config:ro
-    depends_on:
-      postgres: { condition: service_healthy }
 
-  # ── 数据管道 ──────────────────────────────────────────────
+  # ── Celery + Flower ───────────────────────────────────────
 
   celery-worker:
-    build:
-      context: ../bifrost-trade-data
-      args:
-        BIFROST_CORE_REF: ${BIFROST_CORE_REF:-main}
-        GITHUB_ORG: ${GITHUB_ORG}
+    <<: *worker-build
     command: python scripts/run_celery.py
-    volumes:
-      - ./config:/app/config:ro
-    depends_on:
-      redis: { condition: service_healthy }
-      postgres: { condition: service_healthy }
-    <<: *python-common
 
   flower:
-    build:
-      context: ../bifrost-trade-data
-      args:
-        BIFROST_CORE_REF: ${BIFROST_CORE_REF:-main}
-        GITHUB_ORG: ${GITHUB_ORG}
-    command: python scripts/run_flower.py
-    ports: ["5555:5555"]
-    depends_on:
-      redis: { condition: service_healthy }
-    <<: *python-common
+    <<: *worker-build
+    command: >
+      celery -A bifrost_worker.celery.celery_app flower
+      --port=5555 --address=0.0.0.0
+    ports:
+      - "5555:5555"
 
-  # ── 研究流水线 ────────────────────────────────────────────
-
-  research-worker:
-    build:
-      context: ../bifrost-trade-research
-      args:
-        BIFROST_CORE_REF: ${BIFROST_CORE_REF:-main}
-        GITHUB_ORG: ${GITHUB_ORG}
-    command: python scripts/run_research_api.py
-    volumes:
-      - ./config:/app/config:ro
-    depends_on:
-      postgres: { condition: service_healthy }
-    <<: *python-common
-
-  # ── 前端 ──────────────────────────────────────────────────
+  # ── 前端（仅内部网络；对外入口为 nginx）────────────────────
 
   frontend:
     build:
       context: ../bifrost-trade-frontend
-    ports: ["${PORT_FRONTEND:-80}:80"]
     depends_on:
       - api-monitor
     networks:
       - bifrost-net
     restart: unless-stopped
 
-  # ── 反向代理 ──────────────────────────────────────────────
+  # ── 反向代理（统一入口 :80）──────────────────────────────
 
   nginx:
     image: nginx:alpine
@@ -263,6 +186,7 @@ services:
     depends_on:
       - frontend
       - api-monitor
+      - api-market
     networks:
       - bifrost-net
     restart: unless-stopped

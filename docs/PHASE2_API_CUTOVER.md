@@ -3,7 +3,36 @@
 **前置**：Phase 2A 完成 — 9 域 **VERIFIED**，`make dev-health` 9/9，`tests/contract/test_{domain}_parity.py` 全绿。
 
 **验收清单**：[PHASE2B_SIGNOFF_MASTER.md](../../bifrost-trade-frontend/docs/PHASE2B_SIGNOFF_MASTER.md)  
+**Owner 走查**：[PHASE2B_OWNER_WALKTHROUGH.md](../../bifrost-trade-frontend/docs/PHASE2B_OWNER_WALKTHROUGH.md)  
+**Agent 验证**：[PHASE2B_AGENT_VERIFICATION.md](../../bifrost-trade-frontend/docs/PHASE2B_AGENT_VERIFICATION.md)  
 **进度表**：[MIGRATION_TRACKING.md](./MIGRATION_TRACKING.md) §10
+
+---
+
+## Mac Dev Runbook（日常标准环境）
+
+默认 **不** Docker 化 PG/Redis；容器连 LAN 共享库（`.env` → `make sync-dev-config`）。
+
+```bash
+cd bifrost-trade-infra
+make ensure-env              # 首次：cp .env.example .env，填 LAN 密码
+make dev-preflight           # sync + dev + dev-health + celery 检查
+make verify-domain-apis      # 9 域 New API smoke
+```
+
+| 命令 | 用途 |
+|------|------|
+| `make dev` | 启动应用容器（无 postgres/redis profile） |
+| `make dev-health` | PG/Redis + 9 API（首次 pip 最多等 ~5 min） |
+| `make dev-reinstall-deps` | pyproject 依赖变更后清 pip 标记卷 |
+| `make dev-docker-infra` | 可选：隔离空 PG+Redis（CI 用） |
+| `make switch-cutover-domain DOMAIN=docs MODE=legacy` | Phase 2B 单域 Legacy |
+| `make switch-cutover-domain DOMAIN=all-new` | 恢复全 New 端口 |
+| `make verify-wave-a-sessions` | Wave A 各会话关键 API smoke |
+
+前端：`cd bifrost-trade-frontend && npm run dev`（5173）。
+
+**生产 compose（Phase 2C）**：[`docker-compose.yml`](../docker-compose.yml) 已对齐 monorepo；`make prod-preflight` · 签字见 [PHASE2C_SIGNOFF_MASTER.md](./PHASE2C_SIGNOFF_MASTER.md)。
 
 ---
 
@@ -11,10 +40,10 @@
 
 ```bash
 cd bifrost-trade-infra
-make dev-build    # 首次
+make dev-build    # 仅 Dockerfile.dev 变更时
 make dev          # 后台启动全栈
-make dev-health   # 等待 ~90s 后 9 API OK
-make db-init-dev  # 首次 schema
+make dev-health   # 等待 pip 完成后 9 API OK
+make db-init-dev  # 仅空库首次 schema（LAN 库通常已有数据）
 ```
 
 Celery 相关域（ops / massive / research）切域前确认 worker 在跑：
@@ -28,8 +57,8 @@ docker compose -f docker-compose.dev.yml ps celery-worker
 ## 切换步骤（每域一次）
 
 1. `make dev-health` — 该域端口 OK
-2. 编辑 `bifrost-trade-frontend/.env.development` — **仅改一个** `VITE_API_*`（见下表）
-3. **重启** `npm run dev`（Vite proxy 从 env 读端口）
+2. `make switch-cutover-domain DOMAIN=<域> MODE=legacy|new` — **仅改一个** `VITE_API_*`（见下表）
+3. **重启** `npm run dev`（Vite 从 env 读端口）
 4. 跑 [PHASE2B_SIGNOFF_MASTER.md](../../bifrost-trade-frontend/docs/PHASE2B_SIGNOFF_MASTER.md) 对应域 + Phase 1 Batch
 5. Owner 签字 → 更新 MIGRATION_TRACKING §10 该行 **CUTOVER**
 6. 机械门禁：`cd bifrost-trade-frontend && npm run lint && npm run build && npm run check:legacy-css`

@@ -20,10 +20,10 @@
 | bifrost-trade-core | 6 | 6 | **VERIFIED**（2026-06-05）— `make test` 146 passed（`not ib and not db`） |
 | bifrost-trade-socket | 5 | 5 | **VERIFIED**（2026-06-04）— 23 tests（`not ib`）；`@pytest.mark.ib` 烟雾可选 |
 | bifrost-trade-worker | 3 | 3 | **VERIFIED**（2026-06-04）— daemon + celery；189 tests（`not ib and not db`） |
-| bifrost-trade-api | 9 | 9 | **CUTOVER**（2026-06-04）— Phase 2B：`.env.development` → 8765–8773；Owner 签字见 `PHASE2B_SIGNOFF_MASTER.md` |
-| bifrost-trade-frontend | 4 | 4 | **Phase 1 CLOSED**（2026-06-04）— New Frontend + Legacy API 业务等价 100%（含 `/settings/ib`） |
+| bifrost-trade-api | 9 | 9 | **Phase 2B CLOSED**（2026-06-04）— 9/9 域 CUTOVER + Owner 签字；Dev `VITE_API_*` → 8765–8773 |
+| bifrost-trade-frontend | 4 | 4 | **Phase 2B CLOSED**（2026-06-04）— New Frontend + New API 9/9 域 Owner 签字完成 |
 
-> **Phase 2B**（2026-06-04）：见 [`PHASE2_API_CUTOVER.md`](./PHASE2_API_CUTOVER.md)、[`PHASE2B_SIGNOFF_MASTER.md`](../bifrost-trade-frontend/docs/PHASE2B_SIGNOFF_MASTER.md)。Dev 前端 `VITE_API_*` 已指向新 API（8765–8773）。
+> **Phase 2B CLOSED**（2026-06-04）· **Phase 2C WIP**（2026-06-04）：生产 compose 已对齐 monorepo；见 [`PHASE2C_SIGNOFF_MASTER.md`](./PHASE2C_SIGNOFF_MASTER.md)。Mac Dev：`PHASE2_API_CUTOVER.md` + `PHASE2B_SIGNOFF_MASTER.md`。
 
 ---
 
@@ -278,21 +278,47 @@
 
 ## §10 Phase 2B 进度（API 逐域切换 M6）
 
-> 签字清单：[PHASE2B_SIGNOFF_MASTER.md](../bifrost-trade-frontend/docs/PHASE2B_SIGNOFF_MASTER.md)。Dev 栈：`make dev` + `make dev-health`。
+> 签字清单：[PHASE2B_SIGNOFF_MASTER.md](../bifrost-trade-frontend/docs/PHASE2B_SIGNOFF_MASTER.md)。Owner 走查：[PHASE2B_OWNER_WALKTHROUGH.md](../bifrost-trade-frontend/docs/PHASE2B_OWNER_WALKTHROUGH.md)。Dev 栈：`make dev-preflight` / `make dev-health`。
 
 | Sprint | 域 | `VITE_API_*` → New | Batch | Agent gate | Owner | §4 状态 |
 |--------|-----|-------------------|-------|------------|-------|---------|
-| 2B.1 | docs | `DOCS` → 8767 | 5 | lint/build/legacy-css | pending | **CUTOVER** |
-| 2B.2 | monitor | `MONITOR` → 8765 | 1 + 5 | lint/build/legacy-css | pending | **CUTOVER** |
-| 2B.2 | market | `MARKET` → 8772 | 1 | lint/build/legacy-css | pending | **CUTOVER** |
-| 2B.3 | trading | `TRADING` → 8769 | 2 | lint/build/legacy-css | pending | **CUTOVER** |
-| 2B.3 | portfolio | `PORTFOLIO` → 8771 | 1–2 | lint/build/legacy-css | pending | **CUTOVER** |
-| 2B.3 | strategy | `STRATEGY` → 8770 | 4 | lint/build/legacy-css | pending | **CUTOVER** |
-| 2B.4 | ops | `OPS` → 8768 | 5 | lint/build/legacy-css | pending | **CUTOVER** |
-| 2B.4 | massive | `MASSIVE` → 8766 | 6 | lint/build/legacy-css | pending | **CUTOVER** |
-| 2B.4 | research | `RESEARCH` → 8773 | 3 | lint/build/legacy-css | pending | **CUTOVER** |
+| 2B.1 | docs | `DOCS` → 8767 | 5 | pass 2026-06-04 | **signed 2026-06-04** | **CUTOVER** |
+| 2B.2 | monitor | `MONITOR` → 8765 | 1 + 5 | pass 2026-06-04 | **signed 2026-06-04** | **CUTOVER** |
+| 2B.2 | market | `MARKET` → 8772 | 1 | pass 2026-06-04 | **signed 2026-06-04** | **CUTOVER** |
+| 2B.3 | trading | `TRADING` → 8769 | 2 | pass 2026-06-04 | **signed 2026-06-05** | **CUTOVER** |
+| 2B.3 | portfolio | `PORTFOLIO` → 8771 | 1–2 | pass 2026-06-04 | **signed 2026-06-04** | **CUTOVER** |
+| 2B.3 | strategy | `STRATEGY` → 8770 | 4 | pass 2026-06-04 | **signed 2026-06-05** | **CUTOVER** |
+| 2B.4 | ops | `OPS` → 8768 | 5 | pass 2026-06-04 | **signed 2026-06-04** | **CUTOVER** |
+| 2B.4 | massive | `MASSIVE` → 8766 | 6 | pass 2026-06-05 | **signed 2026-06-05** | **CUTOVER** |
+| 2B.4 | research | `RESEARCH` → 8773 | 3 | pass 2026-06-04 | **signed 2026-06-05** | **CUTOVER** |
 
-**Phase 2B 出口**：9/9 CUTOVER + Owner 签字 + `check_cutover_env.sh` 无 Legacy 端口 → 解锁 Phase 2C（Prod）/ Phase 3（Legacy 退役）。
+> **Phase 2B CLOSED（2026-06-04）**：Wave A Session 1–6 + Wave B Session 7–9 Owner **全部已签**；§10 九域 Owner 列均为 signed。见 [PHASE2B_SESSION_TRACKER.md](../bifrost-trade-frontend/docs/PHASE2B_SESSION_TRACKER.md)。
+
+**Phase 2B 出口（已达成）**：9/9 CUTOVER + Owner 签字 + `check_cutover_env.sh` 无 Legacy 端口 → Mac Dev 稳定 → **已解锁 Phase 2C**（[PHASE2C_PROD_DEFERRED.md](./PHASE2C_PROD_DEFERRED.md)）/ Phase 3。
+
+---
+
+## §11 Mac Dev 标准环境（Phase 2B 后）
+
+| 项 | 约定 |
+|----|------|
+| PG/Redis | 默认 **host/LAN**（`BIFROST_DEV_INFRA=host`），非 Docker 空库 |
+| 启动 | `make dev-preflight` · Runbook 见 [PHASE2_API_CUTOVER.md](./PHASE2_API_CUTOVER.md) |
+| 单域切换 | `make switch-cutover-domain DOMAIN=<域> MODE=legacy\|new` |
+| 生产 compose | [`docker-compose.yml`](./docker-compose.yml) — **Phase 2C 已对齐**；`make prod-preflight` |
+
+---
+
+## §12 Phase 2C 进度（Linux 生产 M7）
+
+> 签字清单：[PHASE2C_SIGNOFF_MASTER.md](./PHASE2C_SIGNOFF_MASTER.md)
+
+| 子阶段 | 内容 | Agent | Owner | 状态 |
+|--------|------|-------|-------|------|
+| 2C-A | compose + config.prod + 前端 prod build + `prod-health` | 实施完成 | 待冒烟 | **WIP** |
+| 2C-B | 192.168.10.70 切换 + 停 Legacy | — | 待排期 | 未开始 |
+
+**出口**：2C-B Owner 签字 → Phase 3 Legacy 退役。
 
 ---
 
@@ -326,3 +352,7 @@
 | 2026-06-05 | **Backend M0–M5 落地**：core/socket/worker/api 代码迁移 + 测试（core 146、worker 185、socket 4）；`PHASE2_API_CUTOVER.md`；infra `docker-compose.dev.yml` 对齐 socket/worker | Agent |
 | 2026-06-04 | **Phase 2A 完成**：Dev 栈 9 API + `dev-health`；socket 23 tests；api contract 24 + 跨 repo；`PHASE2A_INTEGRATION_CHECKLIST.md`；§4 九域 VERIFIED → 解锁 Phase 2B | Agent |
 | 2026-06-04 | **Phase 2B 实施**：`PHASE2B_SIGNOFF_MASTER.md`；`PHASE2_API_CUTOVER.md` 扩展；`check_cutover_env.sh`；§10；`.env.development` → 8765–8773；§4 **CUTOVER** | Agent |
+| 2026-06-05 | **Phase 2B 分批签字**：`verify-wave-a-sessions`；`PHASE2B_SESSION_TRACKER.md`；Wave A Agent gate 全通过；Wave B 延后 | Agent |
+| 2026-06-05 | **Phase 2B 工具链 + Mac Dev Runbook**：`dev_preflight` / `verify-domain-apis` / `switch_cutover_domain`；`PHASE2B_OWNER_WALKTHROUGH` + `PHASE2B_AGENT_VERIFICATION`；host/LAN PG/Redis 默认；`PHASE2C_PROD_DEFERRED.md`；§11 | Agent |
+| 2026-06-04 | **Phase 2B CLOSED**：Wave B Session 9（ops）Owner 签字；9/9 域 `PHASE2B_SIGNOFF_MASTER` Pass + Final 四项；frontend/api §1 → Phase 2B CLOSED | Owner |
+| 2026-06-04 | **Phase 2C 启动**：`docker-compose.yml` 对齐 socket/worker/daemon；`config.prod.yaml`；`sync_prod_config.sh`；`make prod-*`；`PHASE2C_SIGNOFF_MASTER.md`；前端 `.env.production` | Agent |

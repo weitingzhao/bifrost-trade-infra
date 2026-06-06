@@ -1,4 +1,4 @@
-.PHONY: up down dev dev-down dev-build dev-health check-cutover-env build logs ps db-init db-init-dev db-shell shell-redis clean
+.PHONY: up down build logs ps prod-build prod-preflight prod-health prod-embedded-infra sync-prod-config dev dev-docker-infra dev-down dev-build dev-reinstall-deps dev-preflight dev-health verify-domain-apis verify-wave-a-sessions switch-cutover-domain signoff-start check-cutover-env sync-dev-config sync-dev-db-password db-init db-init-dev db-shell shell-redis clean
 
 COMPOSE      = docker compose
 COMPOSE_DEV  = docker compose -f docker-compose.dev.yml
@@ -11,8 +11,28 @@ up:
 down:
 	$(COMPOSE) down
 
-build:
+build: prod-build
+
+prod-build: ensure-env sync-prod-config
 	$(COMPOSE) build
+
+prod-preflight:
+	@chmod +x scripts/prod_preflight.sh
+	@./scripts/prod_preflight.sh
+
+prod-health:
+	@chmod +x scripts/check_prod_stack.sh
+	@./scripts/check_prod_stack.sh
+
+sync-prod-config:
+	@chmod +x scripts/sync_prod_config.sh
+	@./scripts/sync_prod_config.sh
+
+# Optional isolated PG+Redis for prod compose smoke (greenfield/CI).
+prod-embedded-infra: ensure-env sync-prod-config
+	$(COMPOSE) --profile embedded-infra up -d postgres redis
+	$(COMPOSE) up -d
+	@echo "Prod stack with embedded-infra. Run: make prod-health"
 
 logs:
 	$(COMPOSE) logs -f
@@ -25,18 +45,35 @@ ps:
 ensure-env:
 	@test -f .env || (cp .env.example .env && echo "Created .env from .env.example — review POSTGRES_* / REDIS_* before prod.")
 
-dev: ensure-env
-	$(COMPOSE_DEV) up -d
-	@echo "Dev stack starting in background. Run: make dev-health  (or: make dev-logs)"
+sync-dev-config:
+	@chmod +x scripts/sync_dev_config.sh
+	@./scripts/sync_dev_config.sh
 
-dev-attach: ensure-env
+# Default dev: app containers only; PG/Redis from host or LAN (.env → config.dev.yaml).
+dev: ensure-env sync-dev-config
+	$(COMPOSE_DEV) up -d
+	@echo "Dev stack starting (host/LAN PG+Redis). Run: make dev-health"
+
+# Optional isolated empty PG+Redis in Docker (CI / first-time schema only).
+dev-docker-infra: ensure-env sync-dev-config
+	$(COMPOSE_DEV) --profile docker-infra up -d postgres redis
+	$(COMPOSE_DEV) up -d
+	@echo "Dev stack with docker-infra PG+Redis. Run: make dev-health"
+
+dev-attach: ensure-env sync-dev-config
 	$(COMPOSE_DEV) up
 
 dev-down:
-	$(COMPOSE_DEV) down
+	$(COMPOSE_DEV) --profile docker-infra down
 
 dev-build: ensure-env
 	$(COMPOSE_DEV) build
+
+# Force editable reinstall on next container start (e.g. after pyproject dependency change).
+dev-reinstall-deps:
+	$(COMPOSE_DEV) down || true
+	docker volume rm bifrost-trade-infra_dev-install-state 2>/dev/null || true
+	@echo "Cleared dev-install-state volume. Run: make dev"
 
 dev-logs:
 	$(COMPOSE_DEV) logs -f
@@ -44,6 +81,32 @@ dev-logs:
 dev-health:
 	@chmod +x scripts/check_dev_stack.sh
 	@./scripts/check_dev_stack.sh
+
+verify-ops-auth:
+	@chmod +x scripts/verify_ops_auth.sh
+	@./scripts/verify_ops_auth.sh
+
+dev-preflight:
+	@chmod +x scripts/dev_preflight.sh
+	@./scripts/dev_preflight.sh
+
+verify-domain-apis:
+	@chmod +x scripts/verify_domain_apis.sh
+	@./scripts/verify_domain_apis.sh
+
+verify-wave-a-sessions:
+	@chmod +x scripts/verify_wave_a_sessions.sh
+	@./scripts/verify_wave_a_sessions.sh
+
+# Usage: make switch-cutover-domain DOMAIN=docs MODE=legacy|new  |  DOMAIN=all-new
+switch-cutover-domain:
+	@chmod +x scripts/switch_cutover_domain.sh
+	@./scripts/switch_cutover_domain.sh $(DOMAIN) $(MODE)
+
+# Usage: make signoff-start SESSION=1  (backend prep; frontend: ../bifrost-trade-frontend/signoff-dev.sh)
+signoff-start:
+	@chmod +x scripts/signoff_start.sh
+	@./scripts/signoff_start.sh $(if $(SESSION),$(SESSION),1)
 
 check-cutover-env:
 	@chmod +x scripts/check_cutover_env.sh
@@ -54,9 +117,11 @@ check-cutover-env:
 db-init:
 	cd ../bifrost-trade-core && BIFROST_CONFIG=../bifrost-trade-core/config/config.yaml.example python scripts/db/db_refresh_schema.py
 
-db-init-dev:
-	$(COMPOSE_DEV) exec -T postgres psql -U $${POSTGRES_USER:-bifrost} -d $${POSTGRES_DB:-bifrost_dev} -c "SELECT 1" >/dev/null
-	cd ../bifrost-trade-core && BIFROST_CONFIG=../bifrost-trade-core/config/config.yaml.example python scripts/db/db_refresh_schema.py
+sync-dev-db-password: sync-dev-config
+
+db-init-dev: sync-dev-config
+	$(COMPOSE_DEV) exec -T -e BIFROST_CONFIG=/app/config/config.dev.yaml api-monitor \
+		python /workspace/bifrost-trade-core/scripts/db/db_refresh_schema.py
 
 db-shell:
 	$(COMPOSE) exec postgres psql -U $${POSTGRES_USER:-bifrost} -d $${POSTGRES_DB:-bifrost_dev}
