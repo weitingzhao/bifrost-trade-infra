@@ -88,6 +88,13 @@ frontend:
   prod_path: "http://127.0.0.1"
 
 ops:
+  # executor_mode: local | agent | docker (Phase 2C prod compose → docker)
+  # executor_mode: docker
+  # docker:
+  #   workdir: /infra
+  #   socket_path: /var/run/docker.sock
+  #   compose_files:
+  #     - docker-compose.yml
   celery_inspect_timeout_sec: 15
   celery_inspect_wall_sec: 10
   worker_list_mode: redis_presence

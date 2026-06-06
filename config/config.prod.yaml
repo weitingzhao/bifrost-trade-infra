@@ -47,9 +47,14 @@ redis:
 
 ops:
   control_profile: prod
-  executor_mode: "local"
-  local_control: "subprocess"
+  executor_mode: docker
+  local_control: subprocess
   agent_socket: "/var/run/bifrost-agent.sock"
+  docker:
+    workdir: /infra
+    socket_path: /var/run/docker.sock
+    compose_files:
+      - docker-compose.yml
   celery:
     prod_worker_hostnames:
       - server-app-ubt

@@ -1,0 +1,58 @@
+# Override prod compose builds to use sibling monorepo repos (no GitHub pip).
+# Usage: make prod-preflight-local  (or BIFROST_BUILD_LOCAL=1 make prod-preflight)
+
+x-local-api-build: &local-api-build
+  build:
+    context: ..
+    dockerfile: bifrost-trade-infra/docker/Dockerfile.prod-local-api
+
+x-local-worker-build: &local-worker-build
+  build:
+    context: ..
+    dockerfile: bifrost-trade-infra/docker/Dockerfile.prod-local-worker
+
+x-local-socket-build: &local-socket-build
+  build:
+    context: ..
+    dockerfile: bifrost-trade-infra/docker/Dockerfile.prod-local-socket
+
+services:
+  daemon:
+    <<: *local-worker-build
+
+  ib-ingestor:
+    <<: *local-socket-build
+
+  ib-account-agent:
+    <<: *local-socket-build
+
+  ib-operator:
+    <<: *local-socket-build
+
+  massive-ws:
+    <<: *local-socket-build
+
+  celery-worker:
+    <<: *local-worker-build
+
+  flower:
+    <<: *local-worker-build
+
+  api-monitor:
+    <<: *local-api-build
+  api-massive:
+    <<: *local-api-build
+  api-docs:
+    <<: *local-api-build
+  api-ops:
+    <<: *local-api-build
+  api-trading:
+    <<: *local-api-build
+  api-strategy:
+    <<: *local-api-build
+  api-portfolio:
+    <<: *local-api-build
+  api-market:
+    <<: *local-api-build
+  api-research:
+    <<: *local-api-build

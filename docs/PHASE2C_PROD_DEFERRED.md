@@ -6,8 +6,9 @@
 
 | 子阶段 | 内容 | 状态 |
 |--------|------|------|
-| 2C-A | `docker-compose.yml` 对齐 socket/worker/daemon；`config.prod.yaml`；前端 `.env.production`；`make prod-preflight` | **实施完成，待冒烟签字** |
-| 2C-B | 192.168.10.70 切换、停 Legacy、Owner 生产签字 | 排期 |
+| 2C-A | compose + config.prod + 前端 prod build；Session 0 栈门禁 | **Session 0 已签** |
+| **2C-A.1** | Ops `executor_mode: docker`；Daemon/Socket 页；`make verify-2c-a1` | **进行中** — [PHASE2C_A1_DOCKER_CONTROL_PLANE.md](./PHASE2C_A1_DOCKER_CONTROL_PLANE.md) |
+| 2C-B | **新 Docker Prod 集群**上线、Owner 生产签字（70 仅 Legacy baseline） | 排期 |
 
 **前置（已满足）**：
 

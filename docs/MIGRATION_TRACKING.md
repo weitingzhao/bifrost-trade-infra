@@ -315,8 +315,9 @@
 
 | 子阶段 | 内容 | Agent | Owner | 状态 |
 |--------|------|-------|-------|------|
-| 2C-A | compose + config.prod + 前端 prod build + `prod-health` | 实施完成 | 待冒烟 | **WIP** |
-| 2C-B | 192.168.10.70 切换 + 停 Legacy | — | 待排期 | 未开始 |
+| 2C-A | compose + config.prod + 前端 prod build + `prod-health` | Session 0 已签 | Session 1–9 **冻结** | **WIP** |
+| 2C-A.1 | Docker 控制面（Ops executor + Daemon/Socket UI） | 未开始 | — | **阻塞 2C-A** |
+| 2C-B | 新 Docker Prod 集群上线（非 70 迁移） | — | 待排期 | 未开始 |
 
 **出口**：2C-B Owner 签字 → Phase 3 Legacy 退役。
 
@@ -356,3 +357,4 @@
 | 2026-06-05 | **Phase 2B 工具链 + Mac Dev Runbook**：`dev_preflight` / `verify-domain-apis` / `switch_cutover_domain`；`PHASE2B_OWNER_WALKTHROUGH` + `PHASE2B_AGENT_VERIFICATION`；host/LAN PG/Redis 默认；`PHASE2C_PROD_DEFERRED.md`；§11 | Agent |
 | 2026-06-04 | **Phase 2B CLOSED**：Wave B Session 9（ops）Owner 签字；9/9 域 `PHASE2B_SIGNOFF_MASTER` Pass + Final 四项；frontend/api §1 → Phase 2B CLOSED | Owner |
 | 2026-06-04 | **Phase 2C 启动**：`docker-compose.yml` 对齐 socket/worker/daemon；`config.prod.yaml`；`sync_prod_config.sh`；`make prod-*`；`PHASE2C_SIGNOFF_MASTER.md`；前端 `.env.production` | Agent |
+| 2026-06-06 | **2C-A.1 立项**：Docker 控制面任务清单；Session 1–9 Owner 冻结；`make verify-2c-a1`；`PHASE2C_A1_DOCKER_CONTROL_PLANE.md` | Agent |

@@ -1,0 +1,26 @@
+# Local monorepo prod image — API services (context: stocks/ parent dir).
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+COPY bifrost-trade-core /build/bifrost-trade-core
+COPY bifrost-trade-worker /build/bifrost-trade-worker
+COPY bifrost-trade-socket /build/bifrost-trade-socket
+COPY bifrost-trade-api /build/bifrost-trade-api
+
+RUN pip install --no-cache-dir \
+    -e /build/bifrost-trade-core \
+    -e /build/bifrost-trade-worker \
+    -e /build/bifrost-trade-socket \
+    -e /build/bifrost-trade-api
+
+WORKDIR /build/bifrost-trade-api
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+CMD ["python", "scripts/run_server.py", "monitor"]

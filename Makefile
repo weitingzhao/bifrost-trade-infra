@@ -1,7 +1,8 @@
-.PHONY: up down build logs ps prod-build prod-preflight prod-health prod-embedded-infra sync-prod-config dev dev-docker-infra dev-down dev-build dev-reinstall-deps dev-preflight dev-health verify-domain-apis verify-wave-a-sessions switch-cutover-domain signoff-start check-cutover-env sync-dev-config sync-dev-db-password db-init db-init-dev db-shell shell-redis clean
+.PHONY: up down build logs ps prod-build prod-build-local prod-preflight prod-preflight-local prod-health prod-down-local prod-embedded-infra sync-prod-config verify-2c-a1 dev dev-docker-infra dev-down dev-build dev-reinstall-deps dev-preflight dev-health verify-domain-apis verify-wave-a-sessions switch-cutover-domain signoff-start check-cutover-env sync-dev-config sync-dev-db-password db-init db-init-dev db-shell shell-redis clean
 
-COMPOSE      = docker compose
-COMPOSE_DEV  = docker compose -f docker-compose.dev.yml
+COMPOSE        = docker compose
+COMPOSE_LOCAL  = docker compose -f docker-compose.yml -f docker-compose.local.yml
+COMPOSE_DEV    = docker compose -f docker-compose.dev.yml
 
 # ── Production ────────────────────────────────────────────────────────────────
 
@@ -16,13 +17,28 @@ build: prod-build
 prod-build: ensure-env sync-prod-config
 	$(COMPOSE) build
 
+prod-build-local: ensure-env sync-prod-config
+	$(COMPOSE_LOCAL) build
+
 prod-preflight:
 	@chmod +x scripts/prod_preflight.sh
 	@./scripts/prod_preflight.sh
 
+prod-preflight-local:
+	@chmod +x scripts/prod_preflight.sh
+	@./scripts/prod_preflight.sh local
+
+prod-down-local:
+	$(COMPOSE_LOCAL) down
+
 prod-health:
 	@chmod +x scripts/check_prod_stack.sh
 	@./scripts/check_prod_stack.sh
+
+# Phase 2C-A.1 — Docker control plane (Ops executor + market-ingest). See docs/PHASE2C_A1_DOCKER_CONTROL_PLANE.md
+verify-2c-a1:
+	@chmod +x scripts/verify_2c_a1_control_plane.sh
+	@./scripts/verify_2c_a1_control_plane.sh
 
 sync-prod-config:
 	@chmod +x scripts/sync_prod_config.sh

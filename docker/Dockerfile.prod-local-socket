@@ -1,0 +1,22 @@
+# Local monorepo prod image — IB / Massive socket (context: stocks/ parent dir).
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+COPY bifrost-trade-core /build/bifrost-trade-core
+COPY bifrost-trade-socket /build/bifrost-trade-socket
+
+RUN pip install --no-cache-dir \
+    -e /build/bifrost-trade-core \
+    -e /build/bifrost-trade-socket
+
+WORKDIR /build/bifrost-trade-socket
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+CMD ["python", "scripts/run_ib_ingestor.py"]
