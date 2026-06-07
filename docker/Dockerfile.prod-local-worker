@@ -4,7 +4,7 @@
 FROM python:3.11-slim AS base-worker
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc libpq-dev \
+    gcc libpq-dev procps \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build

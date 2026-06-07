@@ -90,6 +90,10 @@ services:
     <<: *worker-build
     command: python scripts/run_daemon.py
 
+  account-sync:
+    <<: *worker-build
+    command: python scripts/run_account_sync_daemon.py
+
   # ── IB / Massive socket 边缘 ──────────────────────────────
 
   ib-ingestor:
@@ -141,6 +145,8 @@ services:
       BIFROST_ENV: prod
       BIFROST_CONFIG: /app/config/config.prod.yaml
       BIFROST_COMPOSE_WORKDIR: /infra
+      # Host path for docker compose CLI (bind mounts); must not be container-only /infra.
+      BIFROST_COMPOSE_HOST_WORKDIR: ${BIFROST_COMPOSE_HOST_WORKDIR:-${PWD}}
       COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-bifrost-trade-infra}
 
   api-trading:

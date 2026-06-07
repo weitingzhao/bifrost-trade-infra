@@ -55,6 +55,9 @@ services:
   daemon:
     <<: *local-worker-build
 
+  account-sync:
+    <<: *local-worker-build
+
   ib-ingestor:
     <<: *local-socket-build
 
@@ -63,11 +66,6 @@ services:
 
   ib-operator:
     <<: *local-socket-build
-    environment:
-      BIFROST_AGENT_DEBUG_LOG: /cursor-debug/debug-6a885c.log
-    volumes:
-      - ./config:/app/config:ro
-      - ./.cursor:/cursor-debug:rw
 
   massive-ws:
     <<: *local-socket-build
