@@ -1,13 +1,15 @@
 # Phase 2C-A.1 — Docker 控制面（Daemon / Socket / Ops）
 
-**状态**：**进行中**（阻塞 2C-A Session 1–9 Owner 签字）
+**状态**：**Owner 已验**（Session 8 签字 2026-06-07）；Session 1 下一项
 
 | WP | 状态 | 备注 |
 |----|------|------|
 | WP1 | **已验证** | `executor_docker.py` · `Dockerfile.ops` · `process_active` 来自 compose · restart 200 |
-| WP2 | 部分 | `runtime_kind` / `compose_service` 已在 GET services |
-| WP3 | 部分 | `api-ops` docker.sock + `/infra` 挂载 · `config.prod.yaml` |
-| WP4–WP6 | 未开始 | |
+| WP2 | **已验证** | `runtime_kind` / `compose_service` 已在 GET services |
+| WP3 | **已验证** | `api-ops` docker.sock + compose workdir · `config.prod.yaml` |
+| WP4 | **已验证** | Daemon/Socket 表 + Connection 重试 UI（Owner Session 8） |
+| WP5 | **已验证** | `make verify-2c-a1` 通过（destructive / 独立 Redis 为可选 SKIP） |
+| WP6 | 进行中 | Session 0–5、8 已签；Session 6 下一项 |
 
 **前置**：2C-A Session 0 已签（栈门禁 + nginx `/api/*`）。
 

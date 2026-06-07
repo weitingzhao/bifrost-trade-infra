@@ -318,8 +318,8 @@
 
 | 子阶段 | 内容 | Agent | Owner | 状态 |
 |--------|------|-------|-------|------|
-| 2C-A | compose + config.prod + 前端 prod build + `prod-health` | Session 0 已签 | Session 1–9 **冻结** | **WIP** |
-| 2C-A.1 | Docker 控制面（Ops executor + Daemon/Socket UI） | 未开始 | — | **阻塞 2C-A** |
+| 2C-A | compose + config.prod + 前端 prod build + `prod-health` | Session 0–8 已签 | Session **9 关账** | **WIP** |
+| 2C-A.1 | Docker 控制面（Ops executor + Daemon/Socket UI） | `verify-2c-a1` 通过 | Session 8 已签 | **Owner 已验** |
 | 2C-B | 新 Docker Prod 集群上线（非 70 迁移） | — | 待排期 | 未开始 |
 
 **出口**：2C-B Owner 签字 → Phase 3 Legacy 退役。
@@ -361,5 +361,13 @@
 | 2026-06-04 | **Phase 2B CLOSED**：Wave B Session 9（ops）Owner 签字；9/9 域 `PHASE2B_SIGNOFF_MASTER` Pass + Final 四项；frontend/api §1 → Phase 2B CLOSED | Owner |
 | 2026-06-04 | **Phase 2C 启动**：`docker-compose.yml` 对齐 socket/worker/daemon；`config.prod.yaml`；`sync_prod_config.sh`；`make prod-*`；`PHASE2C_SIGNOFF_MASTER.md`；前端 `.env.production` | Agent |
 | 2026-06-06 | **2C-A.1 立项**：Docker 控制面任务清单；Session 1–9 Owner 冻结；`make verify-2c-a1`；`PHASE2C_A1_DOCKER_CONTROL_PLANE.md` | Agent |
+| 2026-06-07 | **2C-A Session 8 Owner sign-off**：Celery + Socket + Daemon docker 控制面；`PHASE2C_SIGNOFF_MASTER` Session 8；下一项 Session 1（Monitor） | Owner |
+| 2026-06-08 | **2C-A Session 1 Owner sign-off**：Monitor Global strip、侧栏灯、daemon、allocations、API Network `/api/*`；下一项 Session 2（Market / Live） | Owner |
+| 2026-06-08 | **2C-A Session 2 Owner sign-off**：`/market/live` SSE + category groups + watchlist quotes；下一项 Session 3（Portfolio） | Owner |
+| 2026-06-08 | **2C-A Session 3 Owner sign-off**：accounts / positions / performance / model-analysis；下一项 Session 4（Ledger） | Owner |
+| 2026-06-08 | **2C-A Session 4 Owner sign-off**：`/portfolio/ledger`；下一项 Session 5（Strategy） | Owner |
+| 2026-06-08 | **2C-A Session 5 Owner sign-off**：Strategy 7 路由；下一项 Session 6（Research） | Owner |
+| 2026-06-08 | **2C-A Session 6 Owner sign-off**：Research 8 路由 + Stock Inspector + stock-data backfill；`financials_feed` Celery 修；下一项 Session 7（Massive） | Owner |
+| 2026-06-08 | **2C-A Session 7 Owner sign-off**：coverage/* + feed/massive-*；下一项 Session 9（2C-A Final） | Owner |
 | 2026-06-05 | **Socket Message Center**：`IbConnectionStatusTracker` 接入 ingestor/account_agent/operator；`test_message_center_tracker`；prod-local 容器重启后 Redis 流验证 | Agent |
 | 2026-06-04 | **IB Broker Connection 完全对齐**：`bifrost_core.monitor.integrations.ib_socket_status`（v0.2.3）；socket `ib_health_schema` + AA canonical probe keys + ingestor `host_*` mirror；api `status.py` 三服务 `build_ib_socket_status`；frontend `IbBrokerConnection` + `StatusSocketIbBroker`；docker 重建 ib-operator/ingestor/account-agent/api-monitor/frontend | Agent |

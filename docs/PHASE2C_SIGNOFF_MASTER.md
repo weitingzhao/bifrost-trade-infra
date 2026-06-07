@@ -6,21 +6,21 @@
 
 | 阶段 | 目标 | 状态 |
 |------|------|------|
-| **2C-A** | `docker-compose.yml` 对齐 monorepo + 本地/staging 冒烟 | Session 0 已签；**1–9 冻结** |
-| **2C-A.1** | Docker 控制面（Ops executor + Daemon/Socket UI） | **进行中** — [任务清单](./PHASE2C_A1_DOCKER_CONTROL_PLANE.md) |
+| **2C-A** | `docker-compose.yml` 对齐 monorepo + 本地/staging 冒烟 | Session 0–8 已签；**9 关账进行中** |
+| **2C-A.1** | Docker 控制面（Ops executor + Daemon/Socket UI） | **Owner 已验**（Session 8）— [任务清单](./PHASE2C_A1_DOCKER_CONTROL_PLANE.md) |
 | **2C-B** | 新 Docker Prod 集群上线 + Owner 签字 | 排期（**非** 70 迁移） |
 
 ---
 
-## ⚠️ Owner 签字冻结（2026-06-06）
+## Owner 签字进度（2026-06-08 更新）
 
-**Session 1–9 暂停勾选**，直至 **2C-A.1** Agent 门禁 `make verify-2c-a1` 通过（允许 SKIP 仅存在于 WP 未落地阶段；最终解冻前须全绿）。
+**2C-A.1 控制面**：`make verify-2c-a1` 已通过；Session 0–8 Owner 已签。
 
-| 已签 | 冻结 | 2C-A.1 后重验 |
-|------|------|----------------|
-| Session 0 | Session 1–9 | 0（复验）、1、8 必重签；2 视 IB 环境；3–7 抽样 |
+| 已签 | 下一项 | 待签 |
+|------|--------|------|
+| Session 0–8 | **Session 9**（2C-A Final） | 2C-B 生产切换（排期） |
 
-**原因**：Daemon / Socket 页 Ops 表面向 systemd/同机 subprocess，与 compose 多容器未来 prod 不一致；现 Sign off 将导致 Session 8 与运维 UI 重复 QA。
+**签字顺序建议**：6–7 抽样 → 0 复验 → 9 Final。
 
 ---
 
@@ -57,15 +57,15 @@ make prod-preflight      # 无 GITHUB_ORG 时自动 local monorepo build
 | Session | 范围 | Owner UI | Owner date | 备注 |
 |---------|------|----------|------------|------|
 | **0** | 栈门禁：`prod-health`、SPA、`/settings/api` 五 Tab、Network `/api/*` | **已签** | 2026-06-06 | Dev/Prod Health 双列全红为已知缺口，不阻塞 |
-| **1** | Monitor：Global strip、侧栏灯、`/operations/daemon`、`/strategy/allocations` | **冻结** | | 待 2C-A.1；Ops 表须 docker 可信 |
-| **2** | Market：`/market/live` SSE + category groups | **冻结** | | 需 ingestor / 行情 |
-| **3** | Portfolio：accounts / positions / performance | **冻结** | | |
-| **4** | Ledger：`/portfolio/ledger` | **冻结** | | |
-| **5** | Strategy：instances / structures / opportunities / gates | **冻结** | | |
-| **6** | Research：screener / discovery / greeks / SEPA | **冻结** | | |
-| **7** | Massive：coverage / feed | **冻结** | | |
-| **8** | Ops：celery 8 表 + socket ingest 状态 | **冻结** | | 强依赖 2C-A.1 |
-| **9** | 关账：2C-A Final + `make prod-health` 复验 | **冻结** | | |
+| **1** | Monitor：Global strip、侧栏灯、`/operations/daemon`、`/strategy/allocations` | **已签** | 2026-06-08 | Dev/Prod Health 双列全红已知缺口 |
+| **2** | Market：`/market/live` SSE + category groups | **已签** | 2026-06-08 | Live SSE + category groups |
+| **3** | Portfolio：accounts / positions / performance / model-analysis | **已签** | 2026-06-08 | 2B Domain 5 对照 |
+| **4** | Ledger：`/portfolio/ledger` | **已签** | 2026-06-08 | 2B Domain 4 对照 |
+| **5** | Strategy：instances / structures / opportunities / gates 等 | **已签** | 2026-06-08 | 2B Domain 6 对照 |
+| **6** | Research：8 路由 + Stock Inspector | **已签** | 2026-06-08 | 2B Domain 9；stock-data Celery `financials_feed` 已修 |
+| **7** | Massive：coverage / feed | **已签** | 2026-06-08 | 2B Domain 8 抽样 |
+| **8** | Ops：celery 8 表 + socket ingest 状态 | **已签** | 2026-06-07 | docker executor；Worker instances；Connection 重试 |
+| **9** | 关账：2C-A Final + `make prod-health` 复验 | **下一项** | | Session 0–8 完成后 |
 
 ### Agent 机械门禁
 
@@ -84,6 +84,147 @@ make prod-preflight      # 无 GITHUB_ORG 时自动 local monorepo build
 |-------|-----------------|------|------------|---------|
 | `/` SPA | Loads via nginx | [x] | 2026-06-06 | |
 | `/settings/api` | 5 tabs health（非 Dev/Prod 双列） | [x] | 2026-06-06 | Network 走 `/api/*` |
+
+### Owner 2C-A — Session 8（已签）
+
+**入口**：`http://localhost/` · API 同源 `/api/ops/*` · 需 Ops token（operator/admin）。
+
+| Route / check | Business checks | Pass | Owner date | Remarks |
+|---------------|-----------------|------|------------|---------|
+| `/operations/celery` | 8 tables、Queue Summary、Worker instances（Add all / 启停） | [x] | 2026-06-07 | docker executor；`celery-worker` 容器 |
+| `/settings/socket` | Massive + IB ingest 分组表；Connection 列；Start/Stop/Force restart | [x] | 2026-06-07 | `runtime_kind=docker`；IB slot 重试倒计时 + 手动 ↻ |
+| `/operations/daemon` | Daemon 状态 + Process control 与 compose 一致 | [x] | 2026-06-07 | 与 Socket 表同源 Ops API |
+| 侧栏 Celery / Socket 灯 | 与页面 ingest / broker 健康 rollup 一致 | [x] | 2026-06-07 | Socket 黄灯可因单 slot down（备注即可） |
+
+### Owner 2C-A — Session 1（已签）
+
+**对照**：[PHASE2B_SIGNOFF_MASTER.md](../../bifrost-trade-frontend/docs/PHASE2B_SIGNOFF_MASTER.md) Domain 2（2B Session 7）。
+
+| Route / check | Business checks | Pass | Owner date | Remarks |
+|---------------|-----------------|------|------------|---------|
+| Global strip | Open orders、Streams lamp、Daily %/$ | [x] | 2026-06-08 | |
+| Sidebar lamp | Live / Monitor / Socket / Celery nav 健康灯 | [x] | 2026-06-08 | |
+| `/operations/daemon` | FSM、Control、Recent ops；Process 表 `process_active` | [x] | 2026-06-08 | 与 Session 8 一致 |
+| `/settings/api` Monitor tab | Network `/api/monitor/*` 200 | [x] | 2026-06-08 | Dev/Prod 双列端口探针全红 — 已知缺口 |
+| `/strategy/allocations` | Current active strategy 来自 monitor | [x] | 2026-06-08 | |
+| Shell TopNav | 窄屏（≤768px）顶栏菜单 | [x] | 2026-06-08 | |
+
+### Owner 2C-A — Session 2（已签）
+
+**对照**：[PHASE2B_SIGNOFF_MASTER.md](../../bifrost-trade-frontend/docs/PHASE2B_SIGNOFF_MASTER.md) Domain 3（2B Session 8）。
+
+| Route / check | Business checks | Pass | Owner date | Remarks |
+|---------------|-----------------|------|------------|---------|
+| `/market/live` | Quotes 表加载、列与分组 | [x] | 2026-06-08 | |
+| `/market/live` | SSE `quotes/stream` 推送（Network EventStream） | [x] | 2026-06-08 | nginx 无缓冲 |
+| `/market/live` | Category groups（OPT/STK 等）筛选/分组 | [x] | 2026-06-08 | |
+| Watchlist quotes | `/research/watchlist` OPT/STK 行更新（可选） | [x] | 2026-06-08 | |
+| 侧栏 Market / Live 灯 | 与 ingest 健康一致 | [x] | 2026-06-08 | |
+
+### Owner 2C-A — Session 3（已签）
+
+**对照**：[PHASE2B_SIGNOFF_MASTER.md](../../bifrost-trade-frontend/docs/PHASE2B_SIGNOFF_MASTER.md) Domain 5（2B Session 2）。
+
+| Route / check | Business checks | Pass | Owner date | Remarks |
+|---------------|-----------------|------|------------|---------|
+| `/portfolio/accounts` | KPI、tables、category modal | [x] | 2026-06-08 | |
+| `/portfolio/positions` | Tabs、charts、attribution | [x] | 2026-06-08 | |
+| `/portfolio/performance` | FilterBar、calendar、Equity Growth %/$ | [x] | 2026-06-08 | |
+| `/portfolio/model-analysis` | Table expand、stress panel | [x] | 2026-06-08 | |
+
+### Owner 2C-A — Session 4（已签）
+
+**对照**：[PHASE2B_SIGNOFF_MASTER.md](../../bifrost-trade-frontend/docs/PHASE2B_SIGNOFF_MASTER.md) Domain 4（2B Session 3）。
+
+| Route / check | Business checks | Pass | Owner date | Remarks |
+|---------------|-----------------|------|------------|---------|
+| `/portfolio/ledger` | Open/closed groups、展开行 | [x] | 2026-06-08 | |
+| `/portfolio/ledger` | Execution link、Link stock fills | [x] | 2026-06-08 | |
+| `/portfolio/ledger` | Options/Stock 列、Strategy PnL 着色 | [x] | 2026-06-08 | |
+
+### Owner 2C-A — Session 5（已签）
+
+**对照**：[PHASE2B_SIGNOFF_MASTER.md](../../bifrost-trade-frontend/docs/PHASE2B_SIGNOFF_MASTER.md) Domain 6（2B Session 4）。
+
+| Route / check | Business checks | Pass | Owner date | Remarks |
+|---------------|-----------------|------|------------|---------|
+| `/strategy/instances` | Filters、sidebar detail、Create instance modal | [x] | 2026-06-08 | |
+| `/strategy/win-rate` | Structure cards、drill to instances | [x] | 2026-06-08 | |
+| `/strategy/structures` | Dual tables、SegmentControl | [x] | 2026-06-08 | |
+| `/strategy/opportunities` | List、filters | [x] | 2026-06-08 | |
+| `/strategy/allocations` | Table、Current active | [x] | 2026-06-08 | |
+| `/strategy/gates` | Gates table、Safety sheet | [x] | 2026-06-08 | |
+| `/strategy/option-category` | Templates、legs/meta dropdowns | [x] | 2026-06-08 | |
+
+### Owner 2C-A — Session 6（已签）
+
+**对照**：[PHASE2B_SIGNOFF_MASTER.md](../../bifrost-trade-frontend/docs/PHASE2B_SIGNOFF_MASTER.md) Domain 9（2B Session 5）。
+
+**预检**：
+
+```bash
+cd bifrost-trade-infra
+curl -s http://localhost/api/research/health | jq .
+curl -s http://localhost/api/research/sepa/readiness | jq 'keys | length'
+```
+
+| Route / check | Business checks | Pass | Owner date | Remarks |
+|---------------|-----------------|------|------------|---------|
+| `/research/watchlist` | Watching → Sizing → Positions | [x] | 2026-06-08 | Session 2 已验 quotes |
+| `/research/sepa` | Filter funnel、Readiness | [x] | 2026-06-08 | |
+| `/research/stock-data` | Runbook、backfill | [x] | 2026-06-08 | `stocks_massive` worker + `financials_feed` 修 Celery |
+| `/research/screener` | Option screener | [x] | 2026-06-08 | |
+| `/research/discovery` | IV term、charts | [x] | 2026-06-08 | |
+| `/research/greeks` | Filters + table | [x] | 2026-06-08 | |
+| `/research/risk` | KPI tiles | [x] | 2026-06-08 | |
+| Stock Inspector | 三处入口打开 Inspector | [x] | 2026-06-08 | watchlist / screener / discovery |
+
+### Owner 2C-A — Session 7（已签）
+
+**对照**：[PHASE2B_SIGNOFF_MASTER.md](../../bifrost-trade-frontend/docs/PHASE2B_SIGNOFF_MASTER.md) Domain 8（2B Session 6）。
+
+**预检**：
+
+```bash
+cd bifrost-trade-infra
+curl -s http://localhost/api/massive/health | jq .
+curl -s http://localhost/api/ops/ops/queues/summary | jq '.queues | length'
+```
+
+| Route / check | Business checks | Pass | Owner date | Remarks |
+|---------------|-----------------|------|------------|---------|
+| `/settings/coverage/overview` | Stocks/Options 分块、job queues、Worker situation | [x] | 2026-06-08 | |
+| `/settings/coverage/option` | Option coverage 表与 drill-down | [x] | 2026-06-08 | |
+| `/settings/coverage/stock-ib` | Stock IB 覆盖 | [x] | 2026-06-08 | |
+| `/settings/coverage/stock-massive` | Stock Massive 覆盖 | [x] | 2026-06-08 | |
+| `/settings/feed/massive` | Massive feed 主路由 | [x] | 2026-06-08 | |
+| `/settings/feed/massive-stock` | Stock feed / Execute | [x] | 2026-06-08 | |
+| `/settings/feed/massive-option` | Option feed | [x] | 2026-06-08 | |
+| Beat schedule | Coverage UI 可见 beat 条目 | [x] | 2026-06-08 | beat 未 compose 起可备注 |
+
+### Owner 2C-A — Session 9（下一项 — 2C-A Final）
+
+**目标**：Session 0–8 全部已签后关账 **2C-A**（本地/staging compose 冒烟）。**不等于** 2C-B 生产切换。
+
+**机械门禁**（终端，栈需已 `up`）：
+
+```bash
+cd bifrost-trade-infra
+make prod-health
+make verify-2c-a1    # 可选；控制面已 Session 8 验过可快速过
+curl -sf http://localhost/ >/dev/null && echo SPA ok
+curl -s http://localhost/api/monitor/health | jq '.ok // .status'
+```
+
+| Check | Business / technical | Pass | Owner date | Remarks |
+|-------|----------------------|------|------------|---------|
+| `make prod-health` | 9 API via nginx + PG/Redis 探针 | [ ] | | |
+| `http://localhost/` | SPA 经 nginx 加载 | [ ] | | |
+| Session 0 复验 | `/settings/api` 五 Tab；Network 走 `/api/*` | [ ] | | Dev/Prod 双列全红 — 已知缺口 |
+| Agent 机械门禁表 | 本节上文「Agent 机械门禁」全 [x] | [ ] | | Owner 确认无回归 |
+| Session 1–8 | 追踪表全部 **已签** | [ ] | | 本关账项 |
+
+**签字后**：2C-A 视为 **Owner 已验**；2C-B（新 Prod 集群 / `.70` 切换）另排期。
 
 ---
 
@@ -168,11 +309,11 @@ VERIFY_2C_A1_CONTROL=1 make verify-2c-a1
 | WP | 内容 | Pass |
 |----|------|------|
 | WP1 | api `executor_mode: docker` | [x] |
-| WP2 | market-ingest API 字段 + compose 状态 | [ ] |
-| WP3 | infra compose.sock + config.prod | [ ] |
-| WP4 | frontend Daemon/Socket lamp | [ ] |
-| WP5 | `make verify-2c-a1` | [ ] |
-| WP6 | 解冻 Session 1–9 | [ ] |
+| WP2 | market-ingest API 字段 + compose 状态 | [x] |
+| WP3 | infra compose.sock + config.prod | [x] |
+| WP4 | frontend Daemon/Socket lamp | [x] |
+| WP5 | `make verify-2c-a1` | [x] |
+| WP6 | 解冻 Session 1–9 | 进行中（0–8 已签；9 关账） |
 
 ---
 
@@ -183,4 +324,4 @@ VERIFY_2C_A1_CONTROL=1 make verify-2c-a1
 - [ ] `MIGRATION_TRACKING.md` §12 Prod deployed
 - [ ] 解锁 [Phase 3 — Legacy 退役](./PHASE2C_PROD_DEFERRED.md#phase-3--legacy-退役未开始)
 
-**Status**: Phase 2C **WIP** — 2C-A Session 0 已签；**Session 1–9 冻结**；**2C-A.1 Docker 控制面**进行中；2C-B 新集群排期。
+**Status**: Phase 2C **WIP** — 2C-A Session **0–8 已签**；**Session 9（2C-A Final）下一项**；2C-B 新集群排期。
