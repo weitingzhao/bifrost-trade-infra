@@ -1,6 +1,6 @@
-# syntax=docker/dockerfile:1
-# Thin API layer on shared base-api stage (same file as base-api Dockerfile).
-# Tag: bifrost-api:local (target api).
+# Ops API: base-api deps + Docker CLI + api layer. Tag: bifrost-api-ops:local (target api-ops).
+# Omit `# syntax=docker/dockerfile:1` — avoids pulling docker/dockerfile from Docker Hub on restricted networks.
+# BuildKit cache mounts (`RUN --mount=type=cache`) work with Docker Desktop's built-in frontend.
 FROM python:3.11-slim AS base-api
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -26,7 +26,22 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --no-cache-dir --no-deps /build/bifrost-trade-socket \
     && pip install --no-cache-dir "ib_insync>=0.9.86" "websockets>=12.0" "aioredis>=2.0"
 
-FROM base-api AS api
+FROM base-api AS base-ops
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl gnupg \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg \
+      | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+    && chmod a+r /etc/apt/keyrings/docker.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+https://download.docker.com/linux/debian bookworm stable" \
+      > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin \
+    && rm -rf /var/lib/apt/lists/*
+
+FROM base-ops AS api-ops
 
 COPY bifrost-trade-api/pyproject.toml /build/bifrost-trade-api/
 COPY bifrost-trade-api/src /build/bifrost-trade-api/src
@@ -40,4 +55,4 @@ WORKDIR /build/bifrost-trade-api
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-CMD ["python", "scripts/run_server.py", "monitor"]
+CMD ["python", "scripts/run_server.py", "ops"]

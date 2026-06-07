@@ -52,6 +52,8 @@
 | ingestor | `src/vendor/ib_ingestor/` | `bifrost_socket/ib/ingestor/` | writer.py, redis_keys.py | **VERIFIED** |
 | account_agent | `src/vendor/ib_account_agent/` | `bifrost_socket/ib/account_agent/` | writer.py, redis_keys.py | **VERIFIED** |
 | operator | `src/ib_operator/` (service) | `bifrost_socket/ib/operator/` | service.py, executor.py, redis_io.py, health_redis.py | **VERIFIED** |
+| connection_lifecycle | `run_ib_*` probe + heartbeat + reconnect | `bifrost_socket/ib/connection_lifecycle.py` | `IbBrokerLifecycleConfig`, `ServiceHeartbeatClock`, `heartbeat_reconnect_*`, Message 发布；三服务共用 | **VERIFIED**（2026-06-04） |
+| message_center | `src/bifrost/message_center.py` (`IbConnectionStatusTracker`) | `connection_lifecycle` + ingestor/account_agent/operator `_push_health` | Redis `bifrost:msg:center:events` → Monitor SSE → UI Messages | **VERIFIED**（2026-06-05） |
 
 ### §3.2 Massive 子域（`src/bifrost_socket/massive/`）
 
@@ -148,6 +150,7 @@
 | Discovery 功能目视 | 与 Legacy 同 API 对照验收 | **Batch 3 Owner signed**（2026-06-03；`PHASE2_DISCOVERY_ACCEPTANCE.md`） |
 | 目视验收清单 | [PHASE1_SIGNOFF_MASTER.md](../bifrost-trade-frontend/docs/PHASE1_SIGNOFF_MASTER.md)（6 批次）+ [PHASE1_UI_ACCEPTANCE.md](../bifrost-trade-frontend/docs/PHASE1_UI_ACCEPTANCE.md) | **Phase 1 CLOSED**（2026-06-04）— Batch 1–6 + Cross-cutting + IB parity + smoke |
 | IB Connection 验收 | [IB_CONNECTION_ACCEPTANCE.md](../bifrost-trade-frontend/docs/IB_CONNECTION_ACCEPTANCE.md) | **VERIFIED**（2026-06-04） |
+| IB Broker Connection 对齐 | core `ib_socket_status` + socket Redis writers + api `status.py` + frontend `IbBrokerConnection` | **VERIFIED**（2026-06-04；三服务 host/secondary 统一形状；AA `host_ib_probe_*`；Operator 无 probe 后台线程） |
 
 ### §6.1.3 分栏符合度治理（2026-05-31）
 
@@ -245,7 +248,7 @@
 | 目标 Repo | engine 测试源 | 测试文件数 | 状态 |
 |-----------|--------------|-----------|------|
 | bifrost-trade-core | `tests/test_config*`, `test_portfolio*`, `test_persistence*` 等 | 146 passed | **VERIFIED**（`not ib and not db`） |
-| bifrost-trade-socket | `test_connection_policy`, `test_redis_protocol_keys`, `test_ib_operator`, `test_ingestor_redis_keys`, `test_redis_health_keys`, `test_account_agent_redis_keys` | 23 passed | **VERIFIED**（`not ib`） |
+| bifrost-trade-socket | 上述 + `test_message_center_tracker` | 25 passed | **VERIFIED**（`not ib`） |
 | bifrost-trade-worker | `test_daemon_fsm*`, `test_guards*`, `test_celery_*`, `test_massive_*`, `test_stock_ohlc_*` 等 | 189 passed | **VERIFIED**（`not ib and not db`） |
 | bifrost-trade-api | 单元 + `tests/contract/test_{domain}_parity.py` + `test_cross_repo_integration` | 199 passed（含 contract 24） | **VERIFIED** |
 
@@ -358,3 +361,5 @@
 | 2026-06-04 | **Phase 2B CLOSED**：Wave B Session 9（ops）Owner 签字；9/9 域 `PHASE2B_SIGNOFF_MASTER` Pass + Final 四项；frontend/api §1 → Phase 2B CLOSED | Owner |
 | 2026-06-04 | **Phase 2C 启动**：`docker-compose.yml` 对齐 socket/worker/daemon；`config.prod.yaml`；`sync_prod_config.sh`；`make prod-*`；`PHASE2C_SIGNOFF_MASTER.md`；前端 `.env.production` | Agent |
 | 2026-06-06 | **2C-A.1 立项**：Docker 控制面任务清单；Session 1–9 Owner 冻结；`make verify-2c-a1`；`PHASE2C_A1_DOCKER_CONTROL_PLANE.md` | Agent |
+| 2026-06-05 | **Socket Message Center**：`IbConnectionStatusTracker` 接入 ingestor/account_agent/operator；`test_message_center_tracker`；prod-local 容器重启后 Redis 流验证 | Agent |
+| 2026-06-04 | **IB Broker Connection 完全对齐**：`bifrost_core.monitor.integrations.ib_socket_status`（v0.2.3）；socket `ib_health_schema` + AA canonical probe keys + ingestor `host_*` mirror；api `status.py` 三服务 `build_ib_socket_status`；frontend `IbBrokerConnection` + `StatusSocketIbBroker`；docker 重建 ib-operator/ingestor/account-agent/api-monitor/frontend | Agent |

@@ -13,6 +13,7 @@
 - `nginx/` — 反向代理配置（统一入口、路径路由、SSE 支持）
 - `config/` — 共享 YAML 配置文件（挂载到各容器）
 - `Makefile` — 常用操作快捷命令
+- `docs/DOCKER_BUILD.md` — 何时 rebuild、local 镜像分层、BuildKit 缓存
 
 ## 快速启动
 

@@ -4,7 +4,7 @@
 #   (Settings → API Health / Socket / Celery)。operator/admin 可关停 API 与 ingest 控制。
 
 server:
-  skip_monitor_ib: false
+  skip_monitor_ib: falsedocker compose -f docker-compose.yml -f docker-compose.local.yml restart nginx
 
 sink: postgres
 
@@ -19,6 +19,13 @@ ib:
       operator: 120
       worker_market: 140
       ingestor: 150
+      account_agent: 160
+  secondary:
+    ip: 192.168.10.33
+    port_type: tws_live
+    client_id:
+      listener: 101
+      operator: 120
       account_agent: 160
 
 utilized:

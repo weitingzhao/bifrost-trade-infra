@@ -1,22 +1,57 @@
 # Override prod compose builds to use sibling monorepo repos (no GitHub pip).
 # Usage: make prod-preflight-local  (or BIFROST_BUILD_LOCAL=1 make prod-preflight)
+#
+# Image tags dedupe identical builds (9 API services share bifrost-api:local).
+# Layered Dockerfiles: base-* stages cache core/worker/socket deps; api/worker/socket
+# targets add only service-specific src/scripts. See docs/DOCKER_BUILD.md
 
 x-local-api-build: &local-api-build
+  image: bifrost-api:local
   build:
     context: ..
     dockerfile: bifrost-trade-infra/docker/Dockerfile.prod-local-api
+    target: api
 
 x-local-worker-build: &local-worker-build
+  image: bifrost-worker:local
   build:
     context: ..
     dockerfile: bifrost-trade-infra/docker/Dockerfile.prod-local-worker
+    target: worker
 
 x-local-socket-build: &local-socket-build
+  image: bifrost-socket:local
   build:
     context: ..
     dockerfile: bifrost-trade-infra/docker/Dockerfile.prod-local-socket
+    target: socket
 
 services:
+  # Build-only targets (not started by compose up). Use: make prod-base-local
+  bifrost-base-worker:
+    image: bifrost-base-worker:local
+    build:
+      context: ..
+      dockerfile: bifrost-trade-infra/docker/Dockerfile.prod-local-base-worker
+      target: base-worker
+    profiles: [build-base]
+
+  bifrost-base-socket:
+    image: bifrost-base-socket:local
+    build:
+      context: ..
+      dockerfile: bifrost-trade-infra/docker/Dockerfile.prod-local-base-socket
+      target: base-socket
+    profiles: [build-base]
+
+  bifrost-base-api:
+    image: bifrost-base-api:local
+    build:
+      context: ..
+      dockerfile: bifrost-trade-infra/docker/Dockerfile.prod-local-base-api
+      target: base-api
+    profiles: [build-base]
+
   daemon:
     <<: *local-worker-build
 
@@ -28,6 +63,11 @@ services:
 
   ib-operator:
     <<: *local-socket-build
+    environment:
+      BIFROST_AGENT_DEBUG_LOG: /cursor-debug/debug-6a885c.log
+    volumes:
+      - ./config:/app/config:ro
+      - ./.cursor:/cursor-debug:rw
 
   massive-ws:
     <<: *local-socket-build
@@ -45,7 +85,11 @@ services:
   api-docs:
     <<: *local-api-build
   api-ops:
-    <<: *local-api-build
+    image: bifrost-api-ops:local
+    build:
+      context: ..
+      dockerfile: bifrost-trade-infra/docker/Dockerfile.prod-local-api-ops
+      target: api-ops
   api-trading:
     <<: *local-api-build
   api-strategy:

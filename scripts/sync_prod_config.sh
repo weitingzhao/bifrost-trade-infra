@@ -14,6 +14,13 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
+# Import IB host/secondary/client_ids from Legacy engine overlay when .env still has template IB_HOST.
+LEGACY_PROD_IB="${ROOT}/../bifrost-trader-engine/config/config.prod.yaml"
+if [[ -f "$LEGACY_PROD_IB" ]]; then
+  # Only seed .env from Legacy when IB_HOST is still the old template (.34), not when Owner set dev TWS (.30).
+  python3 "${ROOT}/scripts/import_legacy_ib_env.py" "$ENV_FILE" "$LEGACY_PROD_IB" "192.168.10.34" || true
+fi
+
 if [[ ! -f "$BASE_CFG" ]]; then
   cp "$BASE_EXAMPLE" "$BASE_CFG"
   echo "Created ${BASE_CFG} from config.yaml.example"
@@ -33,15 +40,20 @@ REDIS_HOST="${REDIS_HOST:-192.168.10.70}"
 REDIS_PORT="${REDIS_PORT:-6379}"
 IB_HOST_IP="${IB_HOST:-192.168.10.30}"
 IB_PORT_TYPE="${IB_PORT_TYPE:-tws_live}"
+IB_SECONDARY_HOST="${IB_SECONDARY_HOST:-192.168.10.33}"
+IB_SECONDARY_PORT_TYPE="${IB_SECONDARY_PORT_TYPE:-tws_live}"
 SKIP_MONITOR_IB="${BIFROST_SKIP_MONITOR_IB:-false}"
 POLYGON_KEY="${POLYGON_API_KEY:-${MASSIVE_API_KEY:-CHANGE_ME}}"
 
-CID_DAEMON="${IB_CLIENT_ID_DAEMON:-1}"
-CID_LISTENER="${IB_CLIENT_ID_LISTENER:-2}"
-CID_OPERATOR="${IB_CLIENT_ID_OPERATOR:-3}"
-CID_WORKER="${IB_CLIENT_ID_WORKER:-4}"
-CID_INGESTOR="${IB_CLIENT_ID_INGESTOR:-5}"
-CID_ACCOUNT="${IB_CLIENT_ID_ACCOUNT:-6}"
+CID_DAEMON="${IB_CLIENT_ID_DAEMON:-10}"
+CID_LISTENER="${IB_CLIENT_ID_LISTENER:-1}"
+CID_OPERATOR="${IB_CLIENT_ID_OPERATOR:-20}"
+CID_WORKER="${IB_CLIENT_ID_WORKER:-40}"
+CID_INGESTOR="${IB_CLIENT_ID_INGESTOR:-50}"
+CID_ACCOUNT="${IB_CLIENT_ID_ACCOUNT:-60}"
+CID2_LISTENER="${IB_SECONDARY_CLIENT_ID_LISTENER:-1}"
+CID2_OPERATOR="${IB_SECONDARY_CLIENT_ID_OPERATOR:-20}"
+CID2_ACCOUNT="${IB_SECONDARY_CLIENT_ID_ACCOUNT:-60}"
 
 python3 - "$CFG" <<PY
 import sys
@@ -79,6 +91,8 @@ redis_host = """${REDIS_HOST}"""
 redis_port = """${REDIS_PORT}"""
 ib_host = """${IB_HOST_IP}"""
 port_type = """${IB_PORT_TYPE}"""
+ib2_host = """${IB_SECONDARY_HOST}"""
+ib2_port_type = """${IB_SECONDARY_PORT_TYPE}"""
 skip_ib = """${SKIP_MONITOR_IB}""".lower() in ("1", "true", "yes")
 polygon = """${POLYGON_KEY}"""
 
@@ -103,6 +117,20 @@ cid_operator = """${CID_OPERATOR}"""
 cid_worker = """${CID_WORKER}"""
 cid_ingestor = """${CID_INGESTOR}"""
 cid_account = """${CID_ACCOUNT}"""
+cid2_listener = """${CID2_LISTENER}"""
+cid2_operator = """${CID2_OPERATOR}"""
+cid2_account = """${CID2_ACCOUNT}"""
+
+secondary_block = ""
+if ib2_host.strip():
+    secondary_block = f"""  secondary:
+    ip: {ib2_host.strip()}
+    port_type: {ib2_port_type}
+    client_id:
+      listener: {cid2_listener}
+      operator: {cid2_operator}
+      account_agent: {cid2_account}
+"""
 
 ib = f"""ib:
   connect_timeout: 60.0
@@ -116,7 +144,7 @@ ib = f"""ib:
       worker_market: {cid_worker}
       ingestor: {cid_ingestor}
       account_agent: {cid_account}
-"""
+{secondary_block}"""
 
 server = f"""server:
   skip_monitor_ib: {str(skip_ib).lower()}
@@ -132,7 +160,8 @@ text = sub_block(text, "postgres", postgres)
 text = sub_block(text, "redis", redis)
 text = sub_block(text, "massive", massive)
 path.write_text(text, encoding="utf-8")
-print(f"Updated {path} from .env (postgres→{pg_host}/{pg_db}, redis→{redis_host}, ib→{ib_host})")
+ib2_msg = ib2_host.strip() or "—"
+print(f"Updated {path} from .env (postgres→{pg_host}/{pg_db}, redis→{redis_host}, ib→{ib_host}, secondary→{ib2_msg})")
 PY
 
 INFRA_MODE="${BIFROST_PROD_INFRA:-host}"

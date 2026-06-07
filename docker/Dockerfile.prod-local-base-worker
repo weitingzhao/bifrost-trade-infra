@@ -1,6 +1,5 @@
 # syntax=docker/dockerfile:1
-# Alias: build target worker from Dockerfile.prod-local-base-worker.
-# Kept for compose backward compatibility; see docker-compose.local.yml.
+# Shared deps: core + worker. Tag: bifrost-base-worker:local / bifrost-worker:local (target worker).
 FROM python:3.11-slim AS base-worker
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -21,8 +20,6 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     && pip install --no-cache-dir "celery[redis]>=5.3.0" "flower>=2.0.0"
 
 FROM base-worker AS worker
-
-COPY bifrost-trade-worker/scripts /build/bifrost-trade-worker/scripts
 
 WORKDIR /build/bifrost-trade-worker
 

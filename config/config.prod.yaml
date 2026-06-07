@@ -13,12 +13,19 @@ ib:
     ip: 192.168.10.30
     port_type: tws_live
     client_id:
-      daemon: 1
-      listener: 2
-      operator: 3
-      worker_market: 4
-      ingestor: 1
-      account_agent: 2
+      daemon: 10
+      listener: 1
+      operator: 20
+      worker_market: 40
+      ingestor: 50
+      account_agent: 60
+  secondary:
+    ip: 192.168.10.33
+    port_type: tws_live
+    client_id:
+      listener: 1
+      operator: 20
+      account_agent: 60
 
 utilized:
   services:

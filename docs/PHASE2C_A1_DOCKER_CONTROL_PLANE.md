@@ -4,7 +4,7 @@
 
 | WP | 状态 | 备注 |
 |----|------|------|
-| WP1 | **已落地** | `executor_docker.py` · `docker_compose_map.py` · api 0.1.1 |
+| WP1 | **已验证** | `executor_docker.py` · `Dockerfile.ops` · `process_active` 来自 compose · restart 200 |
 | WP2 | 部分 | `runtime_kind` / `compose_service` 已在 GET services |
 | WP3 | 部分 | `api-ops` docker.sock + `/infra` 挂载 · `config.prod.yaml` |
 | WP4–WP6 | 未开始 | |
@@ -141,6 +141,8 @@ async def _systemctl(self, action: str, unit: str, ...) -> dict:
 
 ### 3.1 api-ops 容器能力
 
+`api-ops` 使用 **`Dockerfile.ops`**（git build）或 **`Dockerfile.prod-local-api-ops`**（本地 monorepo），镜像内安装 `docker-ce-cli` + `compose` 插件；仅挂载 socket，不在容器内跑 dockerd。
+
 `docker-compose.yml` → `api-ops`：
 
 ```yaml
@@ -148,7 +150,8 @@ volumes:
   - /var/run/docker.sock:/var/run/docker.sock:ro
   - .:/infra:ro   # compose 文件与 project 名
 environment:
-  BIFROST_OPS_EXECUTOR: docker
+  BIFROST_COMPOSE_WORKDIR: /infra
+  COMPOSE_PROJECT_NAME: bifrost-trade-infra
 ```
 
 `config.prod.yaml`：

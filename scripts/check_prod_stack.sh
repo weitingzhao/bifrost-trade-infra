@@ -78,32 +78,75 @@ wait_for_nginx() {
   return 1
 }
 
-check_http() {
+check_http_once() {
   local name="$1"
   local url="$2"
   local code
   code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "$url" 2>/dev/null) || code="000"
   if [[ "$code" == "200" || "$code" == "503" ]]; then
     ok "${name} ${url} (${code})"
-  else
-    bad "${name} ${url} (${code})"
+    return 0
   fi
+  bad "${name} ${url} (${code})"
+  return 1
+}
+
+API_ENDPOINTS=(
+  "nginx-spa|${NGINX_BASE}/"
+  "api-monitor|${NGINX_BASE}/api/monitor/status"
+  "api-massive|${NGINX_BASE}/api/massive/research/massive/health"
+  "api-docs|${NGINX_BASE}/api/docs/research/docs/health"
+  "api-ops|${NGINX_BASE}/api/ops/health"
+  "api-trading|${NGINX_BASE}/api/trading/health"
+  "api-strategy|${NGINX_BASE}/api/strategy/health"
+  "api-portfolio|${NGINX_BASE}/api/portfolio/health"
+  "api-market|${NGINX_BASE}/api/market/health"
+  "api-research|${NGINX_BASE}/api/research/health"
+)
+
+wait_for_api_endpoints() {
+  local elapsed=0
+  while [[ "$elapsed" -lt "$API_WAIT_SECS" ]]; do
+    fail=0
+    for entry in "${API_ENDPOINTS[@]}"; do
+      local name="${entry%%|*}"
+      local url="${entry#*|}"
+      local code
+      code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "$url" 2>/dev/null) || code="000"
+      if [[ "$code" != "200" && "$code" != "503" ]]; then
+        fail=1
+        break
+      fi
+      # shellcheck disable=SC2034
+      _last_ok_name="$name"
+    done
+    if [[ "$fail" -eq 0 ]]; then
+      [[ "$elapsed" -gt 0 ]] && echo "API endpoints ready after ${elapsed}s."
+      return 0
+    fi
+    if [[ "$elapsed" -eq 0 ]]; then
+      echo "Waiting for API endpoints via nginx..."
+    fi
+    sleep "$API_RETRY_INTERVAL"
+    elapsed=$((elapsed + API_RETRY_INTERVAL))
+  done
+  echo "API endpoints still not ready after ${API_WAIT_SECS}s."
+  return 1
 }
 
 if ! wait_for_nginx; then
   bad "nginx ${NGINX_BASE}/"
 fi
 
-check_http "nginx-spa"      "${NGINX_BASE}/"
-check_http "api-monitor"    "${NGINX_BASE}/api/monitor/status"
-check_http "api-massive"    "${NGINX_BASE}/api/massive/research/massive/health"
-check_http "api-docs"       "${NGINX_BASE}/api/docs/research/docs/health"
-check_http "api-ops"        "${NGINX_BASE}/api/ops/health"
-check_http "api-trading"    "${NGINX_BASE}/api/trading/health"
-check_http "api-strategy"   "${NGINX_BASE}/api/strategy/health"
-check_http "api-portfolio"  "${NGINX_BASE}/api/portfolio/health"
-check_http "api-market"     "${NGINX_BASE}/api/market/health"
-check_http "api-research"   "${NGINX_BASE}/api/research/health"
+if ! wait_for_api_endpoints; then
+  echo "Hint: if nginx was up before API recreate, restart nginx:"
+  echo "  docker compose restart nginx"
+fi
+
+fail=0
+for entry in "${API_ENDPOINTS[@]}"; do
+  check_http_once "${entry%%|*}" "${entry#*|}" || true
+done
 
 if [[ "$fail" -ne 0 ]]; then
   echo ""

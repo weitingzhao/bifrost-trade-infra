@@ -1,4 +1,4 @@
-.PHONY: up down build logs ps prod-build prod-build-local prod-preflight prod-preflight-local prod-health prod-down-local prod-embedded-infra sync-prod-config verify-2c-a1 dev dev-docker-infra dev-down dev-build dev-reinstall-deps dev-preflight dev-health verify-domain-apis verify-wave-a-sessions switch-cutover-domain signoff-start check-cutover-env sync-dev-config sync-dev-db-password db-init db-init-dev db-shell shell-redis clean
+.PHONY: up down build logs ps prod-build prod-build-local prod-base-local prod-up-local prod-rebuild-local prod-rebuild-local-api prod-pull-base-images prod-preflight prod-preflight-local prod-preflight-local-build prod-preflight-local-up prod-preflight-local-health prod-health prod-down-local prod-embedded-infra sync-prod-config verify-2c-a1 dev dev-docker-infra dev-down dev-build dev-reinstall-deps dev-preflight dev-health verify-domain-apis verify-wave-a-sessions switch-cutover-domain signoff-start check-cutover-env sync-dev-config sync-dev-db-password db-init db-init-dev db-shell shell-redis clean
 
 COMPOSE        = docker compose
 COMPOSE_LOCAL  = docker compose -f docker-compose.yml -f docker-compose.local.yml
@@ -17,8 +17,47 @@ build: prod-build
 prod-build: ensure-env sync-prod-config
 	$(COMPOSE) build
 
-prod-build-local: ensure-env sync-prod-config
+prod-build-local: ensure-env sync-prod-config prod-base-local
+	export DOCKER_BUILDKIT=$${DOCKER_BUILDKIT:-1}; \
 	$(COMPOSE_LOCAL) build
+
+# Shared deps layers only (core/worker/socket). Run after pyproject or base Dockerfile changes.
+prod-base-local: ensure-env
+	export DOCKER_BUILDKIT=$${DOCKER_BUILDKIT:-1}; \
+	$(COMPOSE_LOCAL) --profile build-base build \
+		bifrost-base-worker bifrost-base-socket bifrost-base-api
+
+# Start prod-local stack without rebuilding images.
+prod-up-local: ensure-env sync-prod-config
+	$(COMPOSE_LOCAL) up -d --no-build
+	$(COMPOSE_LOCAL) restart nginx
+
+# Rebuild one service, recreate it, refresh nginx upstream DNS.
+# Usage: make prod-rebuild-local SERVICE=api-monitor
+prod-rebuild-local: ensure-env sync-prod-config
+ifndef SERVICE
+	$(error SERVICE is required, e.g. make prod-rebuild-local SERVICE=api-monitor)
+endif
+	export DOCKER_BUILDKIT=$${DOCKER_BUILDKIT:-1}; \
+	$(COMPOSE_LOCAL) build $(SERVICE)
+	$(COMPOSE_LOCAL) up -d --no-build $(SERVICE)
+	$(COMPOSE_LOCAL) restart nginx
+
+# Rebuild all 9 API domains (shared bifrost-api:local image) after api-only code changes.
+prod-rebuild-local-api: ensure-env sync-prod-config
+	export DOCKER_BUILDKIT=$${DOCKER_BUILDKIT:-1}; \
+	$(COMPOSE_LOCAL) build api-monitor
+	$(COMPOSE_LOCAL) up -d --no-build \
+		api-monitor api-massive api-docs api-ops api-trading api-strategy \
+		api-portfolio api-market api-research
+	$(COMPOSE_LOCAL) restart nginx
+
+prod-pull-base-images:
+	docker pull python:3.11-slim
+	docker pull node:20-slim
+	docker pull nginx:alpine
+	docker pull postgres:16-alpine
+	docker pull redis:7-alpine
 
 prod-preflight:
 	@chmod +x scripts/prod_preflight.sh
@@ -27,6 +66,18 @@ prod-preflight:
 prod-preflight-local:
 	@chmod +x scripts/prod_preflight.sh
 	@./scripts/prod_preflight.sh local
+
+prod-preflight-local-build: ensure-env sync-prod-config
+	@chmod +x scripts/prod_preflight.sh
+	@./scripts/prod_preflight.sh local build
+
+prod-preflight-local-up: ensure-env sync-prod-config
+	@chmod +x scripts/prod_preflight.sh
+	@./scripts/prod_preflight.sh local up
+
+prod-preflight-local-health:
+	@chmod +x scripts/prod_preflight.sh
+	@./scripts/prod_preflight.sh local health
 
 prod-down-local:
 	$(COMPOSE_LOCAL) down
@@ -149,6 +200,7 @@ shell-redis:
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 
+# WARNING: prune removes Docker builder cache — avoid during active 2C signoff rebuild loops.
 clean:
 	$(COMPOSE) down -v --remove-orphans
 	docker system prune -f

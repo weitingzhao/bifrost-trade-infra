@@ -37,6 +37,19 @@ make prod-preflight      # 无 GITHUB_ORG 时自动 local monorepo build
 # 可选隔离空库：make prod-embedded-infra
 ```
 
+**何时 rebuild**（详见 [DOCKER_BUILD.md](./DOCKER_BUILD.md)）：
+
+| 场景 | 命令 |
+|------|------|
+| 日常改 Python 代码 | `make dev`（不 rebuild） |
+| 栈已跑，只验门禁 | `make prod-health` |
+| 仅配置变更 | `make prod-up-local` |
+| pyproject / Dockerfile 变更 | `make prod-base-local` + `make prod-build-local` |
+| 仅 API 代码（prod 形态） | `make prod-rebuild-local-api` |
+| 全栈签验收 | `make prod-preflight-local` |
+
+避免重构期习惯性 `make clean`（会 `docker system prune`，清掉 builder cache）。
+
 **不碰 Legacy Prod（192.168.10.70）** — 仅浏览器只读对照；全部 Session 在 `http://localhost/` 验收。
 
 ### 2C-A Session 追踪（Owner 逐会话签字）

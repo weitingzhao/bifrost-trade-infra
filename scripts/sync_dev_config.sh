@@ -12,6 +12,11 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
+LEGACY_DEV_IB="${ROOT}/../bifrost-trader-engine/config/config.dev.yaml"
+if [[ -f "$LEGACY_DEV_IB" ]]; then
+  python3 "${ROOT}/scripts/import_legacy_ib_env.py" "$ENV_FILE" "$LEGACY_DEV_IB" "host.docker.internal" || true
+fi
+
 # One-time dev convenience: import Polygon key from legacy engine config when .env still has placeholder.
 LEGACY_CFG="${ROOT}/../bifrost-trader-engine/config/config.yaml"
 if [[ -f "$LEGACY_CFG" ]]; then
@@ -64,8 +69,21 @@ PG_HOST="${POSTGRES_HOST:-host.docker.internal}"
 PG_PORT="${POSTGRES_PORT:-5432}"
 REDIS_HOST="${REDIS_HOST:-host.docker.internal}"
 REDIS_PORT="${REDIS_PORT:-6379}"
-IB_HOST_IP="${IB_HOST:-host.docker.internal}"
+IB_HOST_IP="${IB_HOST:-192.168.10.30}"
+IB_PORT_TYPE="${IB_PORT_TYPE:-tws_live}"
+IB_SECONDARY_HOST="${IB_SECONDARY_HOST:-192.168.10.33}"
+IB_SECONDARY_PORT_TYPE="${IB_SECONDARY_PORT_TYPE:-tws_live}"
 SKIP_MONITOR_IB="${BIFROST_SKIP_MONITOR_IB:-true}"
+
+CID_DAEMON="${IB_CLIENT_ID_DAEMON:-110}"
+CID_LISTENER="${IB_CLIENT_ID_LISTENER:-101}"
+CID_OPERATOR="${IB_CLIENT_ID_OPERATOR:-120}"
+CID_WORKER="${IB_CLIENT_ID_WORKER:-140}"
+CID_INGESTOR="${IB_CLIENT_ID_INGESTOR:-150}"
+CID_ACCOUNT="${IB_CLIENT_ID_ACCOUNT:-160}"
+CID2_LISTENER="${IB_SECONDARY_CLIENT_ID_LISTENER:-101}"
+CID2_OPERATOR="${IB_SECONDARY_CLIENT_ID_OPERATOR:-120}"
+CID2_ACCOUNT="${IB_SECONDARY_CLIENT_ID_ACCOUNT:-160}"
 
 python3 - "$CFG" <<PY
 import sys
@@ -101,7 +119,19 @@ pg_port = """${PG_PORT}"""
 redis_host = """${REDIS_HOST}"""
 redis_port = """${REDIS_PORT}"""
 ib_host = """${IB_HOST_IP}"""
+port_type = """${IB_PORT_TYPE}"""
+ib2_host = """${IB_SECONDARY_HOST}"""
+ib2_port_type = """${IB_SECONDARY_PORT_TYPE}"""
 skip_ib = """${SKIP_MONITOR_IB}""".lower() in ("1", "true", "yes")
+cid_daemon = """${CID_DAEMON}"""
+cid_listener = """${CID_LISTENER}"""
+cid_operator = """${CID_OPERATOR}"""
+cid_worker = """${CID_WORKER}"""
+cid_ingestor = """${CID_INGESTOR}"""
+cid_account = """${CID_ACCOUNT}"""
+cid2_listener = """${CID2_LISTENER}"""
+cid2_operator = """${CID2_OPERATOR}"""
+cid2_account = """${CID2_ACCOUNT}"""
 
 postgres = f"""postgres:
   host: {pg_host}
@@ -118,19 +148,30 @@ redis = f"""redis:
   db: 0
 """
 
+secondary_block = ""
+if ib2_host.strip():
+    secondary_block = f"""  secondary:
+    ip: {ib2_host.strip()}
+    port_type: {ib2_port_type}
+    client_id:
+      listener: {cid2_listener}
+      operator: {cid2_operator}
+      account_agent: {cid2_account}
+"""
+
 ib = f"""ib:
   connect_timeout: 60.0
   host:
     ip: {ib_host}
-    port_type: tws_paper
+    port_type: {port_type}
     client_id:
-      daemon: 110
-      listener: 101
-      operator: 120
-      worker_market: 140
-      ingestor: 150
-      account_agent: 160
-"""
+      daemon: {cid_daemon}
+      listener: {cid_listener}
+      operator: {cid_operator}
+      worker_market: {cid_worker}
+      ingestor: {cid_ingestor}
+      account_agent: {cid_account}
+{secondary_block}"""
 
 server = f"""server:
   skip_monitor_ib: {str(skip_ib).lower()}
@@ -141,7 +182,8 @@ text = sub_block(text, "ib", ib)
 text = sub_block(text, "postgres", postgres)
 text = sub_block(text, "redis", redis)
 path.write_text(text, encoding="utf-8")
-print(f"Updated {path} from .env (postgres→{pg_host}, redis→{redis_host}, ib→{ib_host})")
+ib2_msg = ib2_host.strip() or "—"
+print(f"Updated {path} from .env (postgres→{pg_host}, redis→{redis_host}, ib→{ib_host}, secondary→{ib2_msg})")
 PY
 
 # Remind: ops.worker_profiles + ops.celery.prod_worker_hostnames live in config.dev.yaml (from legacy config.yaml).
