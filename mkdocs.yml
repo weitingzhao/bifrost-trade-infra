@@ -1,0 +1,66 @@
+site_name: Bifrost Trade Infra
+site_description: Deployment, migration, and platform architecture (Docker Compose → K3s)
+site_url: http://127.0.0.1:8000/
+
+repo_url: https://github.com/weitingzhao/bifrost-trade-infra
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: indigo
+      accent: cyan
+      toggle:
+        icon: material/brightness-4
+        name: Light mode
+    - scheme: default
+      primary: indigo
+      accent: cyan
+      toggle:
+        icon: material/brightness-7
+        name: Dark mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+    - search.suggest
+
+plugins:
+  - search
+  - mermaid2:
+      javascript: https://unpkg.com/mermaid@10.4.0/dist/mermaid.esm.min.mjs
+
+markdown_extensions:
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:mermaid2.fence_mermaid_custom
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Goals:
+    - Goals index: Goal/README.md
+    - AI native ops platform: Goal/AI_NATIVE_OPS_PLATFORM.md
+  - Platform:
+    - Roadmap (Compose → K3s): PLATFORM_ROADMAP.md
+    - K3s target architecture: K3S_PLATFORM_ARCHITECTURE.md
+  - Migration & sign-off:
+    - Local Prod Final signoff: LOCAL_PROD_FINAL_SIGNOFF.md
+    - Migration tracking: MIGRATION_TRACKING.md
+    - Phase 2 API cutover: PHASE2_API_CUTOVER.md
+    - Phase 2A checklist: PHASE2A_INTEGRATION_CHECKLIST.md
+    - Phase 2C sign-off: PHASE2C_SIGNOFF_MASTER.md
+    - Phase 2C deferred / Phase 3: PHASE2C_PROD_DEFERRED.md
+    - Docker control plane (2C-A.1): PHASE2C_A1_DOCKER_CONTROL_PLANE.md
+  - Operations:
+    - Docker build guide: DOCKER_BUILD.md
+    - Dense UI phase roadmap: DENSE_UI_PHASE_ROADMAP.md

@@ -6,21 +6,25 @@
 
 | 阶段 | 目标 | 状态 |
 |------|------|------|
-| **2C-A** | `docker-compose.yml` 对齐 monorepo + 本地/staging 冒烟 | Session 0–8 已签；**9 关账进行中** |
+| **2C-A** | `docker-compose.yml` 对齐 monorepo + 本地/staging 冒烟 | **Owner 已验**（Session 0–9，2026-06-08） |
 | **2C-A.1** | Docker 控制面（Ops executor + Daemon/Socket UI） | **Owner 已验**（Session 8）— [任务清单](./PHASE2C_A1_DOCKER_CONTROL_PLANE.md) |
-| **2C-B** | 新 Docker Prod 集群上线 + Owner 签字 | 排期（**非** 70 迁移） |
+| **Local Prod Final** | 2C-B 前最后一道 local 闸门 | **CLOSED**（2026-06-04）— [LOCAL_PROD_FINAL_SIGNOFF.md](./LOCAL_PROD_FINAL_SIGNOFF.md) |
+| **2C-B** | Compose Prod 稳定测试 / 生产切换 | **稳定测试已签**；生产切换待 K3s 后迁移决策 |
+| **K3s 阶段 1** | 集群搭建与试验 | **进行中** — [K3S_PLATFORM_ARCHITECTURE.md](./K3S_PLATFORM_ARCHITECTURE.md) §9 |
+
+**部署主线**（Owner 2026-06-04 修订）：Local Prod Final **CLOSED** → **K3s 阶段 1** → 迁移方案定稿 → Legacy 退役（2C-B Compose 作稳定参照；R-DV3 自动下单暂缓）。
 
 ---
 
 ## Owner 签字进度（2026-06-08 更新）
 
-**2C-A.1 控制面**：`make verify-2c-a1` 已通过；Session 0–8 Owner 已签。
+**2C-A + 2C-A.1**：Session **0–9** Owner 已签；`make prod-health` 复验通过（LAN PG `192.168.10.80` + Redis `192.168.10.70`）。
 
-| 已签 | 下一项 | 待签 |
+| 已签 | 进行中 | 待签 |
 |------|--------|------|
-| Session 0–8 | **Session 9**（2C-A Final） | 2C-B 生产切换（排期） |
+| **2C-A** + **2C-A.1** + **Local Prod Final** | **K3s 阶段 1** | 迁移定稿 → **2C-B 生产切换**（可选）→ Legacy 退役 |
 
-**签字顺序建议**：6–7 抽样 → 0 复验 → 9 Final。
+**2C-A 签字顺序（已完成）**：6–7 抽样 → 0 复验 → 9 Final。
 
 ---
 
@@ -65,7 +69,7 @@ make prod-preflight      # 无 GITHUB_ORG 时自动 local monorepo build
 | **6** | Research：8 路由 + Stock Inspector | **已签** | 2026-06-08 | 2B Domain 9；stock-data Celery `financials_feed` 已修 |
 | **7** | Massive：coverage / feed | **已签** | 2026-06-08 | 2B Domain 8 抽样 |
 | **8** | Ops：celery 8 表 + socket ingest 状态 | **已签** | 2026-06-07 | docker executor；Worker instances；Connection 重试 |
-| **9** | 关账：2C-A Final + `make prod-health` 复验 | **下一项** | | Session 0–8 完成后 |
+| **9** | 关账：2C-A Final + `make prod-health` 复验 | **已签** | 2026-06-08 | 12/12 health OK；SPA + Session 0 复验 |
 
 ### Agent 机械门禁
 
@@ -73,7 +77,7 @@ make prod-preflight      # 无 GITHUB_ORG 时自动 local monorepo build
 |-------|------|------|---------|
 | `docker compose config` 无 ib-edge/data/research/engine | [x] | 2026-06-04 | |
 | `make prod-build` / local monorepo 可构建 | [x] | 2026-06-06 | `BIFROST_BUILD_LOCAL=1` 或自动 fallback；git pip 留待未来集群 |
-| `make prod-health` 9 API via nginx + PG/Redis | [x] | 2026-06-06 | nginx.conf SSE 路由已修 |
+| `make prod-health` 9 API via nginx + PG/Redis | [x] | 2026-06-08 | Session 9 Owner 复验：12/12 OK |
 | 前端 `npm run build`（production + `.env.production`） | [x] | 2026-06-04 | bundle 含 `/api/monitor` 等同源路径 |
 | `docker compose build frontend` | [x] | 2026-06-06 | lockfile 需含 Linux optional deps；`npm run sync:docker-lock` |
 | Session 0 浏览器 `http://localhost/` | [x] | 2026-06-06 | Owner 已签 |
@@ -202,7 +206,7 @@ curl -s http://localhost/api/ops/ops/queues/summary | jq '.queues | length'
 | `/settings/feed/massive-option` | Option feed | [x] | 2026-06-08 | |
 | Beat schedule | Coverage UI 可见 beat 条目 | [x] | 2026-06-08 | beat 未 compose 起可备注 |
 
-### Owner 2C-A — Session 9（下一项 — 2C-A Final）
+### Owner 2C-A — Session 9（已签 — 2C-A Final）
 
 **目标**：Session 0–8 全部已签后关账 **2C-A**（本地/staging compose 冒烟）。**不等于** 2C-B 生产切换。
 
@@ -218,17 +222,45 @@ curl -s http://localhost/api/monitor/health | jq '.ok // .status'
 
 | Check | Business / technical | Pass | Owner date | Remarks |
 |-------|----------------------|------|------------|---------|
-| `make prod-health` | 9 API via nginx + PG/Redis 探针 | [ ] | | |
-| `http://localhost/` | SPA 经 nginx 加载 | [ ] | | |
-| Session 0 复验 | `/settings/api` 五 Tab；Network 走 `/api/*` | [ ] | | Dev/Prod 双列全红 — 已知缺口 |
-| Agent 机械门禁表 | 本节上文「Agent 机械门禁」全 [x] | [ ] | | Owner 确认无回归 |
-| Session 1–8 | 追踪表全部 **已签** | [ ] | | 本关账项 |
+| `make prod-health` | 9 API via nginx + PG/Redis 探针 | [x] | 2026-06-08 | postgres `.80`、redis `.70`、nginx + 9 API 全 OK |
+| `http://localhost/` | SPA 经 nginx 加载 | [x] | 2026-06-08 | |
+| Session 0 复验 | `/settings/api` 五 Tab；Network 走 `/api/*` | [x] | 2026-06-08 | Dev/Prod 双列全红 — 已知缺口 |
+| Agent 机械门禁表 | 本节上文「Agent 机械门禁」全 [x] | [x] | 2026-06-08 | |
+| Session 1–8 | 追踪表全部 **已签** | [x] | 2026-06-08 | |
 
-**签字后**：2C-A 视为 **Owner 已验**；2C-B（新 Prod 集群 / `.70` 切换）另排期。
+**2C-A Owner 已验**（2026-06-08）。下一里程碑：**Local Prod Final** → **2C-B**（见 [LOCAL_PROD_FINAL_SIGNOFF.md](./LOCAL_PROD_FINAL_SIGNOFF.md)）。
 
 ---
 
-## 2C-B — 192.168.10.70 生产切换 Runbook
+## Local Prod Final — 2C-B 前置闸门（CLOSED）
+
+权威清单：[LOCAL_PROD_FINAL_SIGNOFF.md](./LOCAL_PROD_FINAL_SIGNOFF.md)
+
+| L1 Agent | L2 Owner | L3 决策 | L4 |
+|----------|----------|---------|-----|
+| [x] 2026-06-08 | [x] 2026-06-04 Session 0–3/8 + L2.8 | [x] D1–D5（Owner 修订，见 LOCAL 文档） | [x] **CLOSED** |
+
+**下一里程碑**：K3s 阶段 1（§ [K3S_PLATFORM_ARCHITECTURE.md](./K3S_PLATFORM_ARCHITECTURE.md) §9）。
+
+---
+
+## 2C-B — 新 Docker Prod 集群（待 Local Final 后执行）
+
+> **与 2C-A 区别**：2C-A 在 Mac `localhost` 冒烟（可连 LAN PG/Redis）；2C-B 在 **Linux 生产主机** 跑全栈 compose，Owner 生产签字后解锁 Phase 3。Legacy `.70` 仅作切换前对照，非必须先迁同一台机。
+
+### 规划清单（Owner / Agent）
+
+| 步骤 | 内容 | 状态 |
+|------|------|------|
+| B1 | 选定 **新 Prod 主机**（或复用 `.70` 空窗）与维护窗口 | 待 Owner |
+| B2 | `.env`：`GITHUB_ORG`、`BIFROST_*_REF` tag、`POSTGRES_*` → `bifrost_prod`、`REDIS_*`、**R-DV3** client_id / Engine 互斥 | 待实施 |
+| B3 | `BIFROST_BUILD_LOCAL=0` + `make prod-preflight`（git pip 镜像）或 Linux 上 monorepo build | 待实施 |
+| B4 | IB：TWS on Mac Mini；socket ingestor/operator **LAN** 连 `IB_HOST` | 待实施 |
+| B5 | `make prod-health` + 浏览器关键路由（与 2C-A Session 1–8 抽样同序） | 待 Owner 签 |
+| B6 | **R-DV3**：停 Legacy `run_engine.py`；仅 New `daemon` 自动下单 | 维护窗口 |
+| B7 | Owner **2C-B 生产签字**（下表）→ `MIGRATION_TRACKING` §12 Prod deployed | 待签 |
+
+### 2C-B Runbook（维护窗口）
 
 **维护窗口前置**：
 
@@ -313,15 +345,17 @@ VERIFY_2C_A1_CONTROL=1 make verify-2c-a1
 | WP3 | infra compose.sock + config.prod | [x] |
 | WP4 | frontend Daemon/Socket lamp | [x] |
 | WP5 | `make verify-2c-a1` | [x] |
-| WP6 | 解冻 Session 1–9 | 进行中（0–8 已签；9 关账） |
+| WP6 | 解冻 Session 1–9 | [x] — Session 0–9 Owner 已签（2026-06-08） |
 
 ---
 
 ## Final sign-off — Phase 2C CLOSED
 
-- [ ] 2C-A + **2C-A.1** Agent 机械门禁全 Pass
-- [ ] 2C-B Owner 生产签字
-- [ ] `MIGRATION_TRACKING.md` §12 Prod deployed
-- [ ] 解锁 [Phase 3 — Legacy 退役](./PHASE2C_PROD_DEFERRED.md#phase-3--legacy-退役未开始)
+- [x] **2C-A** + **2C-A.1** Agent 机械门禁 + Owner Session 0–9（2026-06-08）
+- [x] **Local Prod Final** Owner 签字（2026-06-04）
+- [x] **2C-B** 稳定测试签字（D5；生产切换待迁移决策）
+- [ ] **K3s 阶段 1** 集群搭建与试验
+- [ ] 迁移定稿 + `MIGRATION_TRACKING.md` §12 Prod deployed
+- [ ] 解锁 [Phase 3 — Legacy 退役](./PHASE2C_PROD_DEFERRED.md)
 
-**Status**: Phase 2C **WIP** — 2C-A Session **0–8 已签**；**Session 9（2C-A Final）下一项**；2C-B 新集群排期。
+**Status**: **2C-A CLOSED** · **Local Prod Final CLOSED** · **K3s 阶段 1 进行中** · Phase 3 待 K3s/Prod 验证。

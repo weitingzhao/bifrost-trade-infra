@@ -23,7 +23,7 @@
 | bifrost-trade-api | 9 | 9 | **Phase 2B CLOSED**（2026-06-04）— 9/9 域 CUTOVER + Owner 签字；Dev `VITE_API_*` → 8765–8773 |
 | bifrost-trade-frontend | 4 | 4 | **Phase 2B CLOSED**（2026-06-04）— New Frontend + New API 9/9 域 Owner 签字完成 |
 
-> **Phase 2B CLOSED**（2026-06-04）· **Phase 2C WIP**（2026-06-04）：生产 compose 已对齐 monorepo；见 [`PHASE2C_SIGNOFF_MASTER.md`](./PHASE2C_SIGNOFF_MASTER.md)。Mac Dev：`PHASE2_API_CUTOVER.md` + `PHASE2B_SIGNOFF_MASTER.md`。
+> **Phase 2B CLOSED**（2026-06-04）· **2C-A CLOSED**（2026-06-08）· **2C-B 规划中** · **K3s 规划未实施** · **重点目标**：[Goal/AI_NATIVE_OPS_PLATFORM.md](../Goal/AI_NATIVE_OPS_PLATFORM.md)（AI 原生发布运维平台）。见 [`PHASE2C_SIGNOFF_MASTER.md`](./PHASE2C_SIGNOFF_MASTER.md)、[`PLATFORM_ROADMAP.md`](./PLATFORM_ROADMAP.md)、[`K3S_PLATFORM_ARCHITECTURE.md`](./K3S_PLATFORM_ARCHITECTURE.md)。Mac Dev：`PHASE2_API_CUTOVER.md` + `PHASE2B_SIGNOFF_MASTER.md`。
 
 ---
 
@@ -318,11 +318,15 @@
 
 | 子阶段 | 内容 | Agent | Owner | 状态 |
 |--------|------|-------|-------|------|
-| 2C-A | compose + config.prod + 前端 prod build + `prod-health` | Session 0–8 已签 | Session **9 关账** | **WIP** |
+| 2C-A | compose + config.prod + 前端 prod build + `prod-health` | Session 0–9 已签 | Owner 2026-06-08 | **CLOSED** |
 | 2C-A.1 | Docker 控制面（Ops executor + Daemon/Socket UI） | `verify-2c-a1` 通过 | Session 8 已签 | **Owner 已验** |
-| 2C-B | 新 Docker Prod 集群上线（非 70 迁移） | — | 待排期 | 未开始 |
+| **Local Prod Final** | local 闸门；Session 0–3/8 + L2.8 | Owner 2026-06-04 | L4 CLOSED | **CLOSED** |
+| 2C-B | Compose Prod 稳定测试 | D5 已签 | 生产切换待迁移决策 | **稳定测试已签** |
+| **K3s 阶段 1** | 集群搭建与试验 | §9 清单 | Owner 2026-06-04 解锁 | **进行中** |
+| K3s 搬迁 → Legacy | PLATFORM / K3S 文档 | — | 待阶段 1 + D1 | **未开始** |
+| Phase 3 | Legacy 退役 | — | 待 Prod 验证 | **未开始** |
 
-**出口**：2C-B Owner 签字 → Phase 3 Legacy 退役。
+**主线**（Owner 2026-06-04）：Local Prod Final **CLOSED** → **K3s 阶段 1** → 迁移定稿 → Legacy 退役。见 [LOCAL_PROD_FINAL_SIGNOFF.md](./LOCAL_PROD_FINAL_SIGNOFF.md)。
 
 ---
 
@@ -369,5 +373,8 @@
 | 2026-06-08 | **2C-A Session 5 Owner sign-off**：Strategy 7 路由；下一项 Session 6（Research） | Owner |
 | 2026-06-08 | **2C-A Session 6 Owner sign-off**：Research 8 路由 + Stock Inspector + stock-data backfill；`financials_feed` Celery 修；下一项 Session 7（Massive） | Owner |
 | 2026-06-08 | **2C-A Session 7 Owner sign-off**：coverage/* + feed/massive-*；下一项 Session 9（2C-A Final） | Owner |
+| 2026-06-08 | **2C-A Session 9 / Final**：`make prod-health` 12/12 OK（LAN PG/Redis）；**2C-A CLOSED**；下一项 **2C-B** 新 Prod 集群 | Owner |
+| 2026-06-04 | **Local Prod Final CLOSED**：L2 Session 0–3/8 + L2.8；L3 D1–D5 Owner 修订（K3s 优先、PG `.80`、Win11×2 TWS、暂缓自动下单）；解锁 **K3s 阶段 1** | Owner |
+| 2026-06-08 | **Local Prod Final 立项**：主线 Local Final → 2C-B → K3s → 搬迁 → Legacy；`local_prod_final_gate.sh` L1 通过 | Agent |
 | 2026-06-05 | **Socket Message Center**：`IbConnectionStatusTracker` 接入 ingestor/account_agent/operator；`test_message_center_tracker`；prod-local 容器重启后 Redis 流验证 | Agent |
 | 2026-06-04 | **IB Broker Connection 完全对齐**：`bifrost_core.monitor.integrations.ib_socket_status`（v0.2.3）；socket `ib_health_schema` + AA canonical probe keys + ingestor `host_*` mirror；api `status.py` 三服务 `build_ib_socket_status`；frontend `IbBrokerConnection` + `StatusSocketIbBroker`；docker 重建 ib-operator/ingestor/account-agent/api-monitor/frontend | Agent |

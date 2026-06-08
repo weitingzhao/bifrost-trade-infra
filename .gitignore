@@ -19,3 +19,8 @@ logs/
 
 # Generated nginx configs
 nginx/generated/
+
+# MkDocs
+site/
+.cache/
+docs/Goal

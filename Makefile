@@ -1,4 +1,4 @@
-.PHONY: up down build logs ps prod-build prod-build-local prod-base-local prod-up-local prod-rebuild-local prod-rebuild-local-api prod-pull-base-images prod-preflight prod-preflight-local prod-preflight-local-build prod-preflight-local-up prod-preflight-local-health prod-health prod-down-local prod-embedded-infra sync-prod-config verify-2c-a1 dev dev-docker-infra dev-down dev-build dev-reinstall-deps dev-preflight dev-health verify-domain-apis verify-wave-a-sessions switch-cutover-domain signoff-start check-cutover-env sync-dev-config sync-dev-db-password db-init db-init-dev db-shell shell-redis clean
+.PHONY: up down build logs ps prod-build prod-build-local prod-base-local prod-up-local prod-rebuild-local prod-rebuild-local-api prod-pull-base-images prod-preflight prod-preflight-local prod-preflight-local-build prod-preflight-local-up prod-preflight-local-health prod-health prod-down-local prod-embedded-infra sync-prod-config verify-2c-a1 local-prod-final-gate dev dev-docker-infra dev-down dev-build dev-reinstall-deps dev-preflight dev-health verify-domain-apis verify-wave-a-sessions switch-cutover-domain signoff-start check-cutover-env sync-dev-config sync-dev-db-password db-init db-init-dev db-shell shell-redis clean docs docs-build
 
 COMPOSE        = docker compose
 COMPOSE_LOCAL  = docker compose -f docker-compose.yml -f docker-compose.local.yml
@@ -85,6 +85,14 @@ prod-down-local:
 prod-health:
 	@chmod +x scripts/check_prod_stack.sh
 	@./scripts/check_prod_stack.sh
+
+local-prod-final-gate:
+	@chmod +x scripts/local_prod_final_gate.sh
+	@./scripts/local_prod_final_gate.sh
+
+local-prod-final-owner:
+	@chmod +x scripts/local_prod_final_owner.sh
+	@./scripts/local_prod_final_owner.sh $(SESSION)
 
 # Phase 2C-A.1 — Docker control plane (Ops executor + market-ingest). See docs/PHASE2C_A1_DOCKER_CONTROL_PLANE.md
 verify-2c-a1:
@@ -197,6 +205,15 @@ db-shell:
 
 shell-redis:
 	$(COMPOSE) exec redis redis-cli
+
+# ── Documentation (MkDocs) ────────────────────────────────────────────────────
+
+docs:
+	python scripts/run_mkdocs.py
+
+docs-build:
+	python -c "from scripts.run_mkdocs import _ensure_goal_symlink; _ensure_goal_symlink()"
+	python -m mkdocs build
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 

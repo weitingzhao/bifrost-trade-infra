@@ -6,9 +6,11 @@
 
 | 子阶段 | 内容 | 状态 |
 |--------|------|------|
-| 2C-A | compose + config.prod + 前端 prod build；Session 0 栈门禁 | **Session 0 已签** |
-| **2C-A.1** | Ops `executor_mode: docker`；Daemon/Socket 页；`make verify-2c-a1` | **进行中** — [PHASE2C_A1_DOCKER_CONTROL_PLANE.md](./PHASE2C_A1_DOCKER_CONTROL_PLANE.md) |
-| 2C-B | **新 Docker Prod 集群**上线、Owner 生产签字（70 仅 Legacy baseline） | 排期 |
+| 2C-A | compose + config.prod + 前端 prod build；Session 0–9 | **Owner 已验**（2026-06-08） |
+| **2C-A.1** | Ops `executor_mode: docker`；Daemon/Socket 页；`make verify-2c-a1` | **Owner 已验** — [PHASE2C_A1_DOCKER_CONTROL_PLANE.md](./PHASE2C_A1_DOCKER_CONTROL_PLANE.md) |
+| **Local Prod Final** | local 闸门 | **CLOSED**（2026-06-04）— [LOCAL_PROD_FINAL_SIGNOFF.md](./LOCAL_PROD_FINAL_SIGNOFF.md) |
+| 2C-B | Compose Prod 稳定测试 / 生产切换 | **稳定测试已签**；生产切换待 K3s 后迁移决策 |
+| **K3s 阶段 1** | 集群搭建与试验 | **进行中** — [K3S_PLATFORM_ARCHITECTURE.md](./K3S_PLATFORM_ARCHITECTURE.md) §9 |
 
 **前置（已满足）**：
 
