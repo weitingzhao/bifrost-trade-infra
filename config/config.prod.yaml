@@ -43,7 +43,7 @@ postgres:
   host: 192.168.10.80
   port: 5432
   user: bifrost
-  password: OptionPSW!@
+  password: CHANGE_ME
   database: options_db
 
 redis:
@@ -93,4 +93,4 @@ ops:
     persist: true
 
 massive:
-  api_key: MYCd1tboShKK7UTYgKN_fjtBrZUr9zhe
+  api_key: CHANGE_ME
