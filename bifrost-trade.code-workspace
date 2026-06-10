@@ -1,37 +1,41 @@
 {
-	// Bifrost Trade — 多 repo 工作区
-	// Folder 顺序 = 依赖方向：infra → core → socket → worker → api → frontend → engine(只读)
+	// Bifrost — multi-repo workspace
+	// Explorer order: Environment (control plane) → Business (data plane) → Reference
 	"folders": [
 		{
-			"name": "bifrost-platform",
+			"name": "🛡️ ui · 共享框架 — @bifrost/ui · Shell · Dense tokens",
+			"path": "../bifrost-ui"
+		},
+		{
+			"name": "🛡️ platform · 环境控制面 — Go API :8780 · Console :5180",
 			"path": "../bifrost-platform"
 		},
 		{
-			"name": "🏗️ infra · 部署中心 — Compose / Nginx / 全局配置",
+			"name": "🛡️ infra · 部署 / Goal — Compose · Nginx · MkDocs :8050",
 			"path": "."
 		},
 		{
-			"name": "📦 core · 共享库 — bifrost_core · 无进程入口",
-			"path": "../bifrost-trade-core"
-		},
-		{
-			"name": "🔌 socket · 边缘连接 — IB Ingestor/Operator + Massive WS → Redis",
-			"path": "../bifrost-trade-socket"
-		},
-		{
-			"name": "⚡ worker · 后台引擎 — GsTrading Daemon + Celery 数据管道",
-			"path": "../bifrost-trade-worker"
-		},
-		{
-			"name": "🌐 api · 只读 HTTP — FastAPI 9 域 · :8765–8773",
-			"path": "../bifrost-trade-api"
-		},
-		{
-			"name": "🖥️ frontend · 监控 UI — React 18 · Vite · :5173",
+			"name": "📊 frontend · 业务监控 UI — React · Trade SPA :5173",
 			"path": "../bifrost-trade-frontend"
 		},
 		{
-			"name": "🔒 engine · 只读参考 — 重构蓝本 · 禁止修改",
+			"name": "📦 core · 共享库 — bifrost_core",
+			"path": "../bifrost-trade-core"
+		},
+		{
+			"name": "🔌 socket · IB / Massive 边缘 — Redis",
+			"path": "../bifrost-trade-socket"
+		},
+		{
+			"name": "⚡ worker · Daemon + Celery",
+			"path": "../bifrost-trade-worker"
+		},
+		{
+			"name": "🌐 api · FastAPI 9 域 — :8765–8773",
+			"path": "../bifrost-trade-api"
+		},
+		{
+			"name": "🔒 engine · 只读参考 — 禁止修改",
 			"path": "../bifrost-trader-engine"
 		}
 	],

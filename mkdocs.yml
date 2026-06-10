@@ -1,6 +1,6 @@
 site_name: Bifrost Trade Infra
 site_description: Deployment, migration, and platform architecture (Docker Compose → K3s)
-site_url: http://127.0.0.1:8000/
+site_url: http://127.0.0.1:8050/
 
 repo_url: https://github.com/weitingzhao/bifrost-trade-infra
 edit_uri: edit/main/docs/
@@ -53,6 +53,10 @@ nav:
   - Platform:
     - Roadmap (Compose → K3s): PLATFORM_ROADMAP.md
     - K3s target architecture: K3S_PLATFORM_ARCHITECTURE.md
+  - Platform Console (bifrost-platform):
+    - Overview: external/bifrost-platform/README.md
+    - Control plane architecture: external/bifrost-platform/ARCHITECTURE.md
+    - Trade probe contract: external/bifrost-platform/TRADE_CONTRACT.md
   - Migration & sign-off:
     - Local Prod Final signoff: LOCAL_PROD_FINAL_SIGNOFF.md
     - Migration tracking: MIGRATION_TRACKING.md

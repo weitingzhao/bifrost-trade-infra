@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Start MkDocs dev server for bifrost-trade-infra.
 
-Default: http://127.0.0.1:8000
+Default: http://127.0.0.1:8050
 Port: DOCS_PORT env or --port / -p
 
 Install deps once:
@@ -20,6 +20,18 @@ import time
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+def _symlink_file_or_dir(link_path: str, target_path: str) -> None:
+    """Create symlink if target exists and link is absent."""
+    if not os.path.exists(target_path):
+        return
+    if os.path.islink(link_path):
+        return
+    if os.path.lexists(link_path):
+        return
+    os.makedirs(os.path.dirname(link_path), exist_ok=True)
+    os.symlink(target_path, link_path)
+
+
 def _ensure_goal_symlink() -> None:
     """Expose repo-root Goal/ in MkDocs via docs/Goal symlink."""
     docs_goal = os.path.join(_PROJECT_ROOT, "docs", "Goal")
@@ -31,6 +43,26 @@ def _ensure_goal_symlink() -> None:
     if os.path.exists(docs_goal):
         return
     os.symlink(os.path.join("..", "Goal"), docs_goal)
+
+
+def _ensure_platform_symlinks() -> None:
+    """Expose sibling bifrost-platform docs under docs/external/bifrost-platform/."""
+    platform_root = os.path.normpath(os.path.join(_PROJECT_ROOT, "..", "bifrost-platform"))
+    if not os.path.isdir(platform_root):
+        return
+    ext_dir = os.path.join(_PROJECT_ROOT, "docs", "external", "bifrost-platform")
+    files = {
+        "README.md": os.path.join(platform_root, "README.md"),
+        "ARCHITECTURE.md": os.path.join(platform_root, "docs", "ARCHITECTURE.md"),
+        "TRADE_CONTRACT.md": os.path.join(platform_root, "docs", "TRADE_CONTRACT.md"),
+    }
+    for name, src in files.items():
+        _symlink_file_or_dir(os.path.join(ext_dir, name), src)
+
+
+def _ensure_doc_symlinks() -> None:
+    _ensure_goal_symlink()
+    _ensure_platform_symlinks()
 
 
 def _pids_on_port(port: int) -> list[int]:
@@ -78,8 +110,8 @@ def main() -> int:
         "-p",
         "--port",
         type=int,
-        default=int(os.environ.get("DOCS_PORT", "8000")),
-        help="Listen port (default 8000 or DOCS_PORT)",
+        default=int(os.environ.get("DOCS_PORT", "8050")),
+        help="Listen port (default 8050 or DOCS_PORT)",
     )
     parser.add_argument(
         "-a",
@@ -90,7 +122,7 @@ def main() -> int:
     args = parser.parse_args()
 
     os.chdir(_PROJECT_ROOT)
-    _ensure_goal_symlink()
+    _ensure_doc_symlinks()
 
     try:
         import mkdocs  # noqa: F401

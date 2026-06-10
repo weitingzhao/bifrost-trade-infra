@@ -17,7 +17,7 @@
 - `Goal/` — **开发目标**（重点：[AI_NATIVE_OPS_PLATFORM.md](Goal/AI_NATIVE_OPS_PLATFORM.md)）
 - `../bifrost-platform` — **环境治理控制面**（Go API `:8780` + Console `:5180`）
 - `docs/PLATFORM_ROADMAP.md` · `docs/K3S_PLATFORM_ARCHITECTURE.md` — Compose → K3s 平台规划
-- `mkdocs.yml` + `scripts/run_mkdocs.py` — 本地文档站（`make docs` → http://127.0.0.1:8000）
+- `mkdocs.yml` + `scripts/start_docs.sh` — 本地文档站（`make docs` → http://127.0.0.1:8050）；platform 文档 → http://127.0.0.1:8060
 
 ## 快速启动
 

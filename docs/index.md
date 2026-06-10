@@ -29,8 +29,10 @@ make dev                      # dev compose (hot reload)
 
 ```bash
 pip install -r requirements-docs.txt
-python scripts/run_mkdocs.py          # http://127.0.0.1:8000
+./scripts/start_docs.sh                 # http://127.0.0.1:8050
 # or: make docs
+
+Platform control-plane docs: [bifrost-platform](../../bifrost-platform) → `./scripts/start_docs.sh` → http://127.0.0.1:8060
 ```
 
 ## Service ports (via nginx)

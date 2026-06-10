@@ -209,10 +209,10 @@ shell-redis:
 # ── Documentation (MkDocs) ────────────────────────────────────────────────────
 
 docs:
-	python scripts/run_mkdocs.py
+	./scripts/start_docs.sh
 
 docs-build:
-	python -c "from scripts.run_mkdocs import _ensure_goal_symlink; _ensure_goal_symlink()"
+	python -c "from scripts.run_mkdocs import _ensure_doc_symlinks; _ensure_doc_symlinks()"
 	python -m mkdocs build
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────

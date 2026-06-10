@@ -24,3 +24,5 @@ nginx/generated/
 site/
 .cache/
 docs/Goal
+docs/external/
+.venv-docs/
