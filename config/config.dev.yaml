@@ -95,3 +95,6 @@ ops:
         name: "admin"
   audit:
     persist: false # dev: in-memory only
+
+massive:
+  api_key: MYCd1tboShKK7UTYgKN_fjtBrZUr9zhe

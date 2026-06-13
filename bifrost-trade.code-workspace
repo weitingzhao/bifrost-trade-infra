@@ -48,6 +48,7 @@
 		"files.readonlyFromPermissions": false,
 		"explorer.compactFolders": false,
 		"explorer.sortOrder": "default",
+		"explorer.excludeGitIgnore": false,
 		"editor.formatOnSave": true,
 		"[python]": {
 			"editor.defaultFormatter": "charliermarsh.ruff"
@@ -71,7 +72,7 @@
 		"explorer.fileNesting.expand": false,
 		"explorer.fileNesting.patterns": {
 			"pyproject.toml": "requirements*.txt, setup.py, setup.cfg, uv.lock",
-			"docker-compose.yml": "docker-compose*.yml, .env.example, .env, Makefile",
+			"docker-compose.yml": "docker-compose*.yml, .env.example, Makefile",
 			"package.json": "package-lock.json, yarn.lock, tsconfig*.json, vite.config.*",
 			"CLAUDE.md": "README.md, AGENTS.md, LICENSE",
 			"bifrost-trade.code-workspace": "docs/MIGRATION_TRACKING.md"

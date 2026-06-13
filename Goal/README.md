@@ -12,15 +12,16 @@
 | 文档 / Repo | 状态 | 摘要 |
 |-------------|------|------|
 | **[AI_NATIVE_OPS_PLATFORM.md](AI_NATIVE_OPS_PLATFORM.md)** | **重点构建** | AI 原生自发现 / 自维护 / 自修复的发布运维平台；承载页面持续重构与交易复盘 AI |
-| **[bifrost-platform](../../bifrost-platform)** | **Phase 0 脚手架** | Go API `:8780` + Console `:5180`；Dev/Prod 连通性矩阵（L0） |
+| **[bifrost-platform](../../bifrost-platform)** | **Phase 0 live** | **Bifrost Ops Platform** — Go API `:8780` + Ops Console `:5180`；脊柱 `config/ops-context.yaml` |
 
 ## 阅读顺序
 
 1. [AI_NATIVE_OPS_PLATFORM.md](AI_NATIVE_OPS_PLATFORM.md) — 合并后的主目标（原「快速发布 + AI 重构」与「全网 AI 运维」）
-2. [../docs/LOCAL_PROD_FINAL_SIGNOFF.md](../docs/LOCAL_PROD_FINAL_SIGNOFF.md) — **进行中**：Local Final → 2C-B → K3s → Legacy
-3. [bifrost-platform/README.md](../../bifrost-platform/README.md) — 控制面 repo 快速启动
-4. [../docs/PLATFORM_ROADMAP.md](../docs/PLATFORM_ROADMAP.md) — Compose → K3s 分阶段执行
-4. [../docs/K3S_PLATFORM_ARCHITECTURE.md](../docs/K3S_PLATFORM_ARCHITECTURE.md) — 目标集群拓扑
+2. [bifrost-platform/config/ops-context.yaml](../../bifrost-platform/config/ops-context.yaml) — **脊柱**（milestones、D1–D5、focus）
+3. [../docs/LOCAL_PROD_FINAL_SIGNOFF.md](../docs/LOCAL_PROD_FINAL_SIGNOFF.md) — Local Final → K3s → Legacy
+4. [bifrost-platform/README.md](../../bifrost-platform/README.md) — Bifrost Ops 控制面快速启动
+5. [../docs/PLATFORM_ROADMAP.md](../docs/PLATFORM_ROADMAP.md) — Compose → K3s 分阶段执行
+6. [../docs/K3S_PLATFORM_ARCHITECTURE.md](../docs/K3S_PLATFORM_ARCHITECTURE.md) — 目标集群拓扑
 
 ## MkDocs
 
