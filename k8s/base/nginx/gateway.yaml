@@ -1,0 +1,157 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-stg
+  labels:
+    app.kubernetes.io/name: nginx
+data:
+  default.conf: |
+    upstream api_monitor    { server api-monitor:8765; }
+    upstream api_massive    { server api-massive:8766; }
+    upstream api_docs       { server api-docs:8767; }
+    upstream api_ops        { server api-ops:8768; }
+    upstream api_trading    { server api-trading:8769; }
+    upstream api_strategy   { server api-strategy:8770; }
+    upstream api_portfolio  { server api-portfolio:8771; }
+    upstream api_market     { server api-market:8772; }
+    upstream api_research   { server api-research:8773; }
+
+    server {
+        listen 80;
+        server_name _;
+
+        location / {
+            proxy_pass http://frontend:80;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+
+        location /api/monitor/ {
+            proxy_pass http://api_monitor/;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_buffering off;
+            proxy_read_timeout 86400s;
+        }
+        location /api/massive/ {
+            proxy_pass http://api_massive/;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_buffering off;
+            proxy_read_timeout 86400s;
+        }
+        location /api/docs/ {
+            proxy_pass http://api_docs/;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_buffering off;
+            proxy_read_timeout 86400s;
+        }
+        location /api/ops/ {
+            proxy_pass http://api_ops/;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_buffering off;
+            proxy_read_timeout 86400s;
+        }
+        location /api/trading/ {
+            proxy_pass http://api_trading/;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_buffering off;
+            proxy_read_timeout 86400s;
+        }
+        location /api/strategy/ {
+            proxy_pass http://api_strategy/;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_buffering off;
+            proxy_read_timeout 86400s;
+        }
+        location /api/portfolio/ {
+            proxy_pass http://api_portfolio/;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_buffering off;
+            proxy_read_timeout 86400s;
+        }
+        location /api/market/ {
+            proxy_pass http://api_market/;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_buffering off;
+            proxy_read_timeout 86400s;
+        }
+        location /api/research/ {
+            proxy_pass http://api_research/;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_buffering off;
+            proxy_read_timeout 86400s;
+        }
+
+        location /health {
+            return 200 "ok";
+            add_header Content-Type text/plain;
+        }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  labels:
+    app.kubernetes.io/name: nginx
+    app.kubernetes.io/component: gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nginx
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nginx
+        app.kubernetes.io/component: gateway
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - name: http
+              containerPort: 80
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: nginx-stg
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  labels:
+    app.kubernetes.io/name: nginx
+spec:
+  selector:
+    app.kubernetes.io/name: nginx
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

@@ -1,0 +1,110 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-monitor
+spec:
+  template:
+    spec:
+      containers:
+        - name: api-monitor
+          imagePullPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-massive
+spec:
+  template:
+    spec:
+      containers:
+        - name: api-massive
+          imagePullPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-docs
+spec:
+  template:
+    spec:
+      containers:
+        - name: api-docs
+          imagePullPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-ops
+spec:
+  template:
+    spec:
+      containers:
+        - name: api-ops
+          imagePullPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-trading
+spec:
+  template:
+    spec:
+      containers:
+        - name: api-trading
+          imagePullPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-strategy
+spec:
+  template:
+    spec:
+      containers:
+        - name: api-strategy
+          imagePullPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-portfolio
+spec:
+  template:
+    spec:
+      containers:
+        - name: api-portfolio
+          imagePullPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-market
+spec:
+  template:
+    spec:
+      containers:
+        - name: api-market
+          imagePullPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-research
+spec:
+  template:
+    spec:
+      containers:
+        - name: api-research
+          imagePullPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+spec:
+  template:
+    spec:
+      containers:
+        - name: frontend
+          imagePullPolicy: Always

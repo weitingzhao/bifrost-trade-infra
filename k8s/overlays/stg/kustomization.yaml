@@ -6,16 +6,39 @@ namespace: bifrost-stg
 resources:
   - ../../base
 
+configMapGenerator:
+  - name: bifrost-config
+    files:
+      - config/config.stg.yaml
+    options:
+      disableNameSuffixHash: true
+
 patches:
   - path: node-control-plane.patch.yaml
   - path: nodeport-services.patch.yaml
-  - path: frontend-pull-always.patch.yaml
+  - path: stg-images-pull-always.patch.yaml
 
 # Kubelet pulls images on the node host — it cannot resolve *.svc.cluster.local.
 # Use bootstrap node LAN IP + registry NodePort (30500) instead of in-cluster DNS.
 images:
   - name: registry.cicd.svc.cluster.local:5000/bifrost-api-monitor
     newName: 192.168.10.73:30500/bifrost-api-monitor
+  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-massive
+    newName: 192.168.10.73:30500/bifrost-api-massive
+  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-docs
+    newName: 192.168.10.73:30500/bifrost-api-docs
+  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-ops
+    newName: 192.168.10.73:30500/bifrost-api-ops
+  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-trading
+    newName: 192.168.10.73:30500/bifrost-api-trading
+  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-strategy
+    newName: 192.168.10.73:30500/bifrost-api-strategy
+  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-portfolio
+    newName: 192.168.10.73:30500/bifrost-api-portfolio
+  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-market
+    newName: 192.168.10.73:30500/bifrost-api-market
+  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-research
+    newName: 192.168.10.73:30500/bifrost-api-research
   - name: registry.cicd.svc.cluster.local:5000/bifrost-frontend
     newName: 192.168.10.73:30500/bifrost-frontend
 

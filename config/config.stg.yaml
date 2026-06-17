@@ -1,0 +1,36 @@
+# K3s bifrost-stg overlay — in-cluster PG/Redis, no worker/socket (Phase B v1).
+# Password must match k8s/base/infra/postgres secret (bifrost_stg).
+server:
+  skip_monitor_ib: true
+
+sink: postgres
+
+postgres:
+  host: postgres
+  port: 5432
+  user: bifrost
+  password: bifrost_stg
+  database: bifrost_stg
+
+redis:
+  enabled: true
+  host: redis
+  port: 6379
+  db: 0
+
+ops:
+  control_profile: stg
+  executor_mode: local
+  local_control: subprocess
+
+utilized:
+  services:
+    server: stg
+    massive: stg
+    docs: stg
+    ops: stg
+    trading: stg
+    strategy: stg
+    portfolio: stg
+    market: stg
+    research: stg

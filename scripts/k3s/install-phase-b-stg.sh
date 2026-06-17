@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+# Phase B — stg v1: PG + Redis + nginx + 9 Trade APIs + frontend (worker/socket deferred).
+#
+# Usage:
+#   KUBECONFIG=~/.kube/bifrost-k3s.yaml ./scripts/k3s/install-phase-b-stg.sh
+#   make k3s-install-phase-b-stg
+#
+# Verify:
+#   Browser http://192.168.10.73:30880/ — Bifrost Trade SPA
+#   curl http://192.168.10.73:30880/api/monitor/status — real bifrost_api monitor
+#   Ops Console → Delivery → bifrost-deliver-stg (Succeeded)
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+KUBECONFIG="${KUBECONFIG:-${PLATFORM_KUBECONFIG:-$HOME/.kube/bifrost-k3s.yaml}}"
+CICD_NAMESPACE="${CICD_NAMESPACE:-cicd}"
+STG_NAMESPACE="${STG_NAMESPACE:-bifrost-stg}"
+RUN_DELIVER="${RUN_DELIVER:-1}"
+DELIVER_TIMEOUT="${DELIVER_TIMEOUT:-7200}"
+STG_GATEWAY_URL="${STG_GATEWAY_URL:-http://192.168.10.73:30880/}"
+STG_API_URL="${STG_API_URL:-http://192.168.10.73:30880/api/monitor/status}"
+GITEA_ORG="${GITEA_ORG:-bifrost}"
+
+export KUBECONFIG
+
+if [[ ! -f "${KUBECONFIG}" ]]; then
+  echo "kubeconfig not found: ${KUBECONFIG}" >&2
+  exit 1
+fi
+
+if ! kubectl get secret gitea-git-credentials -n "${CICD_NAMESPACE}" >/dev/null 2>&1; then
+  echo "Missing gitea-git-credentials — complete Gitea secret setup first." >&2
+  exit 1
+fi
+
+echo "==> Phase B: Gitea mirrors (Trade repos for API + frontend builds)"
+MIRROR_REPOS="bifrost-trade-core bifrost-trade-worker bifrost-trade-socket bifrost-trade-api bifrost-trade-frontend bifrost-trade-infra bifrost-ui" \
+  "${ROOT}/scripts/k3s/bootstrap-gitea-mirrors.sh"
+
+echo "==> Sync stg config into kustomize overlay"
+mkdir -p "${ROOT}/k8s/overlays/stg/config"
+cp "${ROOT}/config/config.stg.yaml" "${ROOT}/k8s/overlays/stg/config/config.stg.yaml"
+
+echo "==> Apply bifrost-stg overlay (PG, Redis, nginx, 9 APIs, frontend, config)"
+kubectl apply -k "${ROOT}/k8s/overlays/stg"
+
+echo "==> Wait for infra (postgres, redis, nginx)"
+kubectl rollout status deployment/postgres -n "${STG_NAMESPACE}" --timeout=600s || true
+kubectl rollout status deployment/redis -n "${STG_NAMESPACE}" --timeout=300s
+kubectl rollout status deployment/nginx -n "${STG_NAMESPACE}" --timeout=300s || true
+
+echo "==> Tekton ConfigMaps (Dockerfiles)"
+kubectl create configmap bifrost-frontend-stg-dockerfile \
+  --from-file=Dockerfile.frontend-stg="${ROOT}/k8s/cicd/docker/Dockerfile.frontend-stg" \
+  -n "${CICD_NAMESPACE}" \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl create configmap bifrost-api-stg-dockerfile \
+  --from-file=Dockerfile.api-stg="${ROOT}/k8s/cicd/docker/Dockerfile.api-stg" \
+  -n "${CICD_NAMESPACE}" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+echo "==> Tekton Phase B deliver pipeline"
+kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-git-clone-gitea.yaml"
+kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-kaniko-all-apis-stg.yaml"
+kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-kaniko-frontend-real.yaml"
+kubectl apply -f "${ROOT}/k8s/cicd/tekton/rbac-deliver-stg.yaml"
+kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-deliver-stg.yaml"
+kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-deliver-stg.yaml"
+
+if [[ "${RUN_DELIVER}" != "1" ]]; then
+  echo "RUN_DELIVER=0 — manifests applied, skip PipelineRun."
+  exit 0
+fi
+
+RUN_NAME="bifrost-deliver-stg-$(date +%s)"
+echo "==> Starting PipelineRun ${RUN_NAME} (timeout ${DELIVER_TIMEOUT}s — 9 API builds + frontend)"
+kubectl apply -f - <<EOF
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: ${RUN_NAME}
+  namespace: ${CICD_NAMESPACE}
+  labels:
+    tekton.dev/pipeline: bifrost-deliver-stg
+    bifrost.io/trigger: install-phase-b-stg
+spec:
+  pipelineRef:
+    name: bifrost-deliver-stg
+  taskRunSpecs:
+    - pipelineTaskName: rollout
+      serviceAccountName: tekton-deliver
+    - pipelineTaskName: gitops-sync
+      serviceAccountName: tekton-deliver
+  workspaces:
+    - name: build-context
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: local-path
+          resources:
+            requests:
+              storage: 10Gi
+EOF
+
+deadline=$((SECONDS + DELIVER_TIMEOUT))
+while true; do
+  reason="$(kubectl get pipelinerun "${RUN_NAME}" -n "${CICD_NAMESPACE}" -o jsonpath='{.status.conditions[0].reason}' 2>/dev/null || true)"
+  status="$(kubectl get pipelinerun "${RUN_NAME}" -n "${CICD_NAMESPACE}" -o jsonpath='{.status.conditions[0].status}' 2>/dev/null || true)"
+  if [[ "${status}" == "True" && "${reason}" == "Succeeded" ]]; then
+    echo "PipelineRun succeeded."
+    break
+  fi
+  if [[ "${status}" == "False" ]]; then
+    echo "PipelineRun failed (reason=${reason})." >&2
+    kubectl describe pipelinerun "${RUN_NAME}" -n "${CICD_NAMESPACE}" | tail -50 >&2 || true
+    exit 1
+  fi
+  if (( SECONDS > deadline )); then
+    echo "Timed out waiting for PipelineRun ${RUN_NAME}" >&2
+    exit 1
+  fi
+  sleep 20
+done
+
+echo "==> DB schema init (one-shot Job)"
+kubectl delete job db-init-stg -n "${STG_NAMESPACE}" --ignore-not-found
+kubectl apply -k "${ROOT}/k8s/overlays/stg"
+kubectl wait --for=condition=complete job/db-init-stg -n "${STG_NAMESPACE}" --timeout=600s
+
+echo "==> Stg gateway smoke"
+api_code="$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 8 "${STG_API_URL}" || echo 000)"
+fe_body="$(curl -sf --connect-timeout 8 "${STG_GATEWAY_URL}" || true)"
+fe_code="$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 8 "${STG_GATEWAY_URL}" || echo 000)"
+
+echo "  gateway   ${STG_GATEWAY_URL} → HTTP ${fe_code}"
+echo "  monitor   ${STG_API_URL} → HTTP ${api_code}"
+
+if [[ "${fe_code}" != "200" ]]; then
+  echo "FAIL: stg gateway not HTTP 200" >&2
+  exit 1
+fi
+if [[ "${api_code}" != "200" ]]; then
+  echo "WARN: /api/monitor/status not HTTP 200 (DB or API warming up — check pods)" >&2
+fi
+if echo "${fe_body}" | grep -q 'K3s smoke'; then
+  echo "FAIL: still serving smoke HTML" >&2
+  exit 1
+fi
+if echo "${fe_body}" | grep -q 'Bifrost Trade'; then
+  echo "  SPA check: HTML contains 'Bifrost Trade'"
+fi
+
+echo ""
+echo "Phase B stg v1 complete."
+echo "  Gateway:  ${STG_GATEWAY_URL} (nginx NodePort :30880)"
+echo "  Monitor:  ${STG_API_URL}"
+echo "  Console:  Delivery → ${RUN_NAME}; Promote stg smoke via gateway URLs"
+echo "  Deferred: worker daemon, IB socket ingestors (Phase B+ / socket session)"

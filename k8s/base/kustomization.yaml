@@ -8,7 +8,10 @@ commonLabels:
   app.kubernetes.io/managed-by: kustomize
 
 resources:
-  - api-monitor/deployment.yaml
-  - api-monitor/service.yaml
+  - infra/postgres.yaml
+  - infra/redis.yaml
+  - nginx/gateway.yaml
+  - apis/manifest.yaml
+  - jobs/db-init.yaml
   - frontend/deployment.yaml
   - frontend/service.yaml

@@ -1,0 +1,648 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-monitor
+  labels:
+    app.kubernetes.io/name: api-monitor
+    app.kubernetes.io/component: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-monitor
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api-monitor
+        app.kubernetes.io/component: api
+    spec:
+      volumes:
+        - name: bifrost-config
+          configMap:
+            name: bifrost-config
+      containers:
+        - name: api-monitor
+          image: registry.cicd.svc.cluster.local:5000/bifrost-api-monitor:stg
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: BIFROST_CONFIG
+              value: /app/config/config.stg.yaml
+            - name: BIFROST_ENV
+              value: stg
+          ports:
+            - name: http
+              containerPort: 8765
+          volumeMounts:
+            - name: bifrost-config
+              mountPath: /app/config/config.stg.yaml
+              subPath: config.stg.yaml
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-monitor
+  labels:
+    app.kubernetes.io/name: api-monitor
+spec:
+  selector:
+    app.kubernetes.io/name: api-monitor
+  ports:
+    - name: http
+      port: 8765
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-massive
+  labels:
+    app.kubernetes.io/name: api-massive
+    app.kubernetes.io/component: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-massive
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api-massive
+        app.kubernetes.io/component: api
+    spec:
+      volumes:
+        - name: bifrost-config
+          configMap:
+            name: bifrost-config
+      containers:
+        - name: api-massive
+          image: registry.cicd.svc.cluster.local:5000/bifrost-api-massive:stg
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: BIFROST_CONFIG
+              value: /app/config/config.stg.yaml
+            - name: BIFROST_ENV
+              value: stg
+          ports:
+            - name: http
+              containerPort: 8766
+          volumeMounts:
+            - name: bifrost-config
+              mountPath: /app/config/config.stg.yaml
+              subPath: config.stg.yaml
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-massive
+  labels:
+    app.kubernetes.io/name: api-massive
+spec:
+  selector:
+    app.kubernetes.io/name: api-massive
+  ports:
+    - name: http
+      port: 8766
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-docs
+  labels:
+    app.kubernetes.io/name: api-docs
+    app.kubernetes.io/component: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-docs
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api-docs
+        app.kubernetes.io/component: api
+    spec:
+      volumes:
+        - name: bifrost-config
+          configMap:
+            name: bifrost-config
+      containers:
+        - name: api-docs
+          image: registry.cicd.svc.cluster.local:5000/bifrost-api-docs:stg
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: BIFROST_CONFIG
+              value: /app/config/config.stg.yaml
+            - name: BIFROST_ENV
+              value: stg
+          ports:
+            - name: http
+              containerPort: 8767
+          volumeMounts:
+            - name: bifrost-config
+              mountPath: /app/config/config.stg.yaml
+              subPath: config.stg.yaml
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-docs
+  labels:
+    app.kubernetes.io/name: api-docs
+spec:
+  selector:
+    app.kubernetes.io/name: api-docs
+  ports:
+    - name: http
+      port: 8767
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-ops
+  labels:
+    app.kubernetes.io/name: api-ops
+    app.kubernetes.io/component: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-ops
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api-ops
+        app.kubernetes.io/component: api
+    spec:
+      volumes:
+        - name: bifrost-config
+          configMap:
+            name: bifrost-config
+      containers:
+        - name: api-ops
+          image: registry.cicd.svc.cluster.local:5000/bifrost-api-ops:stg
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: BIFROST_CONFIG
+              value: /app/config/config.stg.yaml
+            - name: BIFROST_ENV
+              value: stg
+          ports:
+            - name: http
+              containerPort: 8768
+          volumeMounts:
+            - name: bifrost-config
+              mountPath: /app/config/config.stg.yaml
+              subPath: config.stg.yaml
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-ops
+  labels:
+    app.kubernetes.io/name: api-ops
+spec:
+  selector:
+    app.kubernetes.io/name: api-ops
+  ports:
+    - name: http
+      port: 8768
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-trading
+  labels:
+    app.kubernetes.io/name: api-trading
+    app.kubernetes.io/component: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-trading
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api-trading
+        app.kubernetes.io/component: api
+    spec:
+      volumes:
+        - name: bifrost-config
+          configMap:
+            name: bifrost-config
+      containers:
+        - name: api-trading
+          image: registry.cicd.svc.cluster.local:5000/bifrost-api-trading:stg
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: BIFROST_CONFIG
+              value: /app/config/config.stg.yaml
+            - name: BIFROST_ENV
+              value: stg
+          ports:
+            - name: http
+              containerPort: 8769
+          volumeMounts:
+            - name: bifrost-config
+              mountPath: /app/config/config.stg.yaml
+              subPath: config.stg.yaml
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-trading
+  labels:
+    app.kubernetes.io/name: api-trading
+spec:
+  selector:
+    app.kubernetes.io/name: api-trading
+  ports:
+    - name: http
+      port: 8769
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-strategy
+  labels:
+    app.kubernetes.io/name: api-strategy
+    app.kubernetes.io/component: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-strategy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api-strategy
+        app.kubernetes.io/component: api
+    spec:
+      volumes:
+        - name: bifrost-config
+          configMap:
+            name: bifrost-config
+      containers:
+        - name: api-strategy
+          image: registry.cicd.svc.cluster.local:5000/bifrost-api-strategy:stg
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: BIFROST_CONFIG
+              value: /app/config/config.stg.yaml
+            - name: BIFROST_ENV
+              value: stg
+          ports:
+            - name: http
+              containerPort: 8770
+          volumeMounts:
+            - name: bifrost-config
+              mountPath: /app/config/config.stg.yaml
+              subPath: config.stg.yaml
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-strategy
+  labels:
+    app.kubernetes.io/name: api-strategy
+spec:
+  selector:
+    app.kubernetes.io/name: api-strategy
+  ports:
+    - name: http
+      port: 8770
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-portfolio
+  labels:
+    app.kubernetes.io/name: api-portfolio
+    app.kubernetes.io/component: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-portfolio
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api-portfolio
+        app.kubernetes.io/component: api
+    spec:
+      volumes:
+        - name: bifrost-config
+          configMap:
+            name: bifrost-config
+      containers:
+        - name: api-portfolio
+          image: registry.cicd.svc.cluster.local:5000/bifrost-api-portfolio:stg
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: BIFROST_CONFIG
+              value: /app/config/config.stg.yaml
+            - name: BIFROST_ENV
+              value: stg
+          ports:
+            - name: http
+              containerPort: 8771
+          volumeMounts:
+            - name: bifrost-config
+              mountPath: /app/config/config.stg.yaml
+              subPath: config.stg.yaml
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-portfolio
+  labels:
+    app.kubernetes.io/name: api-portfolio
+spec:
+  selector:
+    app.kubernetes.io/name: api-portfolio
+  ports:
+    - name: http
+      port: 8771
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-market
+  labels:
+    app.kubernetes.io/name: api-market
+    app.kubernetes.io/component: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-market
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api-market
+        app.kubernetes.io/component: api
+    spec:
+      volumes:
+        - name: bifrost-config
+          configMap:
+            name: bifrost-config
+      containers:
+        - name: api-market
+          image: registry.cicd.svc.cluster.local:5000/bifrost-api-market:stg
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: BIFROST_CONFIG
+              value: /app/config/config.stg.yaml
+            - name: BIFROST_ENV
+              value: stg
+          ports:
+            - name: http
+              containerPort: 8772
+          volumeMounts:
+            - name: bifrost-config
+              mountPath: /app/config/config.stg.yaml
+              subPath: config.stg.yaml
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-market
+  labels:
+    app.kubernetes.io/name: api-market
+spec:
+  selector:
+    app.kubernetes.io/name: api-market
+  ports:
+    - name: http
+      port: 8772
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-research
+  labels:
+    app.kubernetes.io/name: api-research
+    app.kubernetes.io/component: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-research
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api-research
+        app.kubernetes.io/component: api
+    spec:
+      volumes:
+        - name: bifrost-config
+          configMap:
+            name: bifrost-config
+      containers:
+        - name: api-research
+          image: registry.cicd.svc.cluster.local:5000/bifrost-api-research:stg
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: BIFROST_CONFIG
+              value: /app/config/config.stg.yaml
+            - name: BIFROST_ENV
+              value: stg
+          ports:
+            - name: http
+              containerPort: 8773
+          volumeMounts:
+            - name: bifrost-config
+              mountPath: /app/config/config.stg.yaml
+              subPath: config.stg.yaml
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-research
+  labels:
+    app.kubernetes.io/name: api-research
+spec:
+  selector:
+    app.kubernetes.io/name: api-research
+  ports:
+    - name: http
+      port: 8773
+      targetPort: http

@@ -1,4 +1,4 @@
-.PHONY: up down build logs ps prod-build prod-build-local prod-base-local prod-up-local prod-rebuild-local prod-rebuild-local-api prod-pull-base-images prod-preflight prod-preflight-local prod-preflight-local-build prod-preflight-local-up prod-preflight-local-health prod-health release-gate prod-down-local prod-embedded-infra sync-prod-config verify-2c-a1 local-prod-final-gate dev dev-docker-infra dev-down dev-build dev-reinstall-deps dev-preflight dev-health verify-domain-apis verify-wave-a-sessions switch-cutover-domain signoff-start check-cutover-env sync-dev-config sync-dev-db-password db-init db-init-dev db-shell shell-redis k3s-install-remote k3s-install-remote-run k3s-verify-remote k3s-fetch-kubeconfig k3s-install-metrics-remote k3s-install-argocd k3s-verify-argocd k3s-install-cicd-stack k3s-verify-cicd-stack k3s-install-bifrost-stg k3s-verify-bifrost-stg k3s-install-gitea-persistent k3s-bootstrap-gitea-mirrors k3s-install-ci-frontend-git k3s-verify-ci-frontend-git k3s-join-agent-remote clean docs docs-build
+.PHONY: up down build logs ps prod-build prod-build-local prod-base-local prod-up-local prod-rebuild-local prod-rebuild-local-api prod-pull-base-images prod-preflight prod-preflight-local prod-preflight-local-build prod-preflight-local-up prod-preflight-local-health prod-health release-gate prod-down-local prod-embedded-infra sync-prod-config verify-2c-a1 local-prod-final-gate dev dev-docker-infra dev-down dev-build dev-reinstall-deps dev-preflight dev-health verify-domain-apis verify-wave-a-sessions switch-cutover-domain signoff-start check-cutover-env sync-dev-config sync-dev-db-password db-init db-init-dev db-shell shell-redis k3s-install-remote k3s-install-remote-run k3s-verify-remote k3s-fetch-kubeconfig k3s-install-metrics-remote k3s-install-argocd k3s-verify-argocd k3s-install-cicd-stack k3s-verify-cicd-stack k3s-install-bifrost-stg k3s-verify-bifrost-stg k3s-install-gitea-persistent k3s-bootstrap-gitea-mirrors k3s-install-ci-frontend-git k3s-verify-ci-frontend-git k3s-install-ci-frontend-build k3s-verify-ci-frontend-build k3s-install-ci-deliver-stg k3s-verify-ci-deliver-stg k3s-install-phase-b-stg k3s-verify-phase-b-stg k3s-join-agent-remote clean docs docs-build
 
 COMPOSE        = docker compose
 COMPOSE_LOCAL  = docker compose -f docker-compose.yml -f docker-compose.local.yml
@@ -310,15 +310,27 @@ k3s-verify-ci-frontend-build:
 	@kubectl --kubeconfig $(KUBECONFIG) get configmap bifrost-frontend-stg-dockerfile -n cicd
 	@curl -sf http://192.168.10.73:30500/v2/bifrost-frontend/tags/list || echo "registry tag check skipped"
 
-# S9 — deliver-stg with real frontend + rollout + stg SPA smoke
+# S9 / Phase B — deliver-stg (9 APIs + frontend + nginx gateway)
 k3s-install-ci-deliver-stg:
-	@chmod +x scripts/k3s/install-ci-deliver-stg.sh
-	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/install-ci-deliver-stg.sh
+	@chmod +x scripts/k3s/install-phase-b-stg.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/install-phase-b-stg.sh
 
 k3s-verify-ci-deliver-stg:
 	@kubectl --kubeconfig $(KUBECONFIG) get pipeline bifrost-deliver-stg -n cicd
-	@curl -sf -o /dev/null -w "stg-api HTTP %{http_code}\n" http://192.168.10.73:30765/status
-	@curl -sf http://192.168.10.73:30780/ | head -5
+	@kubectl --kubeconfig $(KUBECONFIG) get task bifrost-kaniko-all-apis-stg -n cicd
+	@curl -sf -o /dev/null -w "stg-gateway HTTP %{http_code}\n" http://192.168.10.73:30880/
+	@curl -sf -o /dev/null -w "stg-monitor HTTP %{http_code}\n" http://192.168.10.73:30880/api/monitor/status
+
+# Phase B — stg v1 full stack (PG/Redis/nginx/9 APIs/frontend; worker/socket deferred)
+k3s-install-phase-b-stg:
+	@chmod +x scripts/k3s/install-phase-b-stg.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/install-phase-b-stg.sh
+
+k3s-verify-phase-b-stg:
+	@kubectl --kubeconfig $(KUBECONFIG) get deploy -n bifrost-stg
+	@kubectl --kubeconfig $(KUBECONFIG) get svc nginx -n bifrost-stg
+	@curl -sf -o /dev/null -w "gateway %{http_code}\n" http://192.168.10.73:30880/
+	@curl -sf -o /dev/null -w "monitor %{http_code}\n" http://192.168.10.73:30880/api/monitor/status
 
 k3s-configure-registry:
 	@chmod +x scripts/k3s/configure-insecure-registry.sh

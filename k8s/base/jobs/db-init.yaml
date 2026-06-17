@@ -1,0 +1,45 @@
+# One-shot schema init — run after api-monitor:stg image exists and postgres is Ready.
+# Re-apply after image rebuild: kubectl delete job db-init-stg -n bifrost-stg --ignore-not-found && kubectl apply -f ...
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-init-stg
+  labels:
+    app.kubernetes.io/name: db-init
+    app.kubernetes.io/component: infra
+spec:
+  ttlSecondsAfterFinished: 86400
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: db-init
+    spec:
+      restartPolicy: OnFailure
+      volumes:
+        - name: bifrost-config
+          configMap:
+            name: bifrost-config
+      containers:
+        - name: db-init
+          image: registry.cicd.svc.cluster.local:5000/bifrost-api-monitor:stg
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - /src/bifrost-trade-core/scripts/db/db_refresh_schema.py
+          env:
+            - name: BIFROST_CONFIG
+              value: /app/config/config.stg.yaml
+            - name: BIFROST_ENV
+              value: stg
+          volumeMounts:
+            - name: bifrost-config
+              mountPath: /app/config/config.stg.yaml
+              subPath: config.stg.yaml
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi

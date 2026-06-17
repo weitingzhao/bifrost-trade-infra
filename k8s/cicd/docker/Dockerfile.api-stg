@@ -1,0 +1,31 @@
+# CI build — context must contain sibling repos from Gitea:
+#   bifrost-trade-core/  bifrost-trade-worker/  bifrost-trade-socket/  bifrost-trade-api/
+# Build arg API_DOMAIN selects which FastAPI domain this image runs (monitor|massive|...).
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY bifrost-trade-core /src/bifrost-trade-core
+COPY bifrost-trade-worker /src/bifrost-trade-worker
+COPY bifrost-trade-socket /src/bifrost-trade-socket
+COPY bifrost-trade-api /src/bifrost-trade-api
+
+RUN pip install --no-cache-dir \
+    -e /src/bifrost-trade-core \
+    -e /src/bifrost-trade-worker \
+    -e /src/bifrost-trade-socket \
+    -e /src/bifrost-trade-api
+
+ARG API_DOMAIN=monitor
+ENV API_DOMAIN=${API_DOMAIN} \
+    PYTHONUNBUFFERED=1 \
+    BIFROST_CONFIG=/app/config/config.stg.yaml \
+    BIFROST_ENV=stg
+
+EXPOSE 8765
+
+CMD ["sh", "-c", "python /src/bifrost-trade-api/scripts/run_server.py \"${API_DOMAIN}\""]
