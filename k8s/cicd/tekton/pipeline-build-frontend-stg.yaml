@@ -1,0 +1,85 @@
+# Session S8 — Gitea clone bifrost-trade-frontend + bifrost-ui → Kaniko → registry :stg
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: bifrost-build-frontend-stg
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: stg-build
+spec:
+  description: Real Trade Frontend image from Gitea mirrors (npm ci + vite build inside Kaniko)
+  params:
+    - name: frontendRepo
+      type: string
+      default: http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-trade-frontend.git
+    - name: uiRepo
+      type: string
+      default: http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-ui.git
+    - name: revision
+      type: string
+      default: main
+    - name: frontendImage
+      type: string
+      default: registry.cicd.svc.cluster.local:5000/bifrost-frontend:stg
+  workspaces:
+    - name: build-context
+  tasks:
+    - name: clone-frontend
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.frontendRepo)
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: bifrost-trade-frontend
+      workspaces:
+        - name: output
+          workspace: build-context
+    - name: clone-ui
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.uiRepo)
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: bifrost-ui
+      workspaces:
+        - name: output
+          workspace: build-context
+    - name: stage-dockerfile
+      runAfter: [clone-frontend, clone-ui]
+      workspaces:
+        - name: source
+          workspace: build-context
+      taskSpec:
+        workspaces:
+          - name: source
+        volumes:
+          - name: dockerfile-cm
+            configMap:
+              name: bifrost-frontend-stg-dockerfile
+        steps:
+          - name: copy
+            image: alpine:3.20
+            volumeMounts:
+              - name: dockerfile-cm
+                mountPath: /cm
+            script: |
+              #!/usr/bin/env sh
+              set -eu
+              cp /cm/Dockerfile.frontend-stg "$(workspaces.source.path)/Dockerfile.frontend-stg"
+              ls -la "$(workspaces.source.path)"
+    - name: kaniko-frontend
+      runAfter: [stage-dockerfile]
+      taskRef:
+        name: bifrost-kaniko-frontend-real
+      params:
+        - name: image
+          value: $(params.frontendImage)
+      workspaces:
+        - name: source
+          workspace: build-context

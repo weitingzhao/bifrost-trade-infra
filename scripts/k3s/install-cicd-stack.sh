@@ -35,9 +35,9 @@ echo "==> Internal Registry"
 kubectl apply -f "${ROOT}/k8s/cicd/registry/deployment.yaml"
 kubectl rollout status deployment/registry -n "${CICD_NAMESPACE}" --timeout=180s
 
-echo "==> Gitea (minimal smoke)"
-kubectl apply -f "${ROOT}/k8s/cicd/gitea/deployment.yaml"
-kubectl rollout status deployment/gitea -n "${CICD_NAMESPACE}" --timeout=300s
+echo "==> Gitea (persistent PVC — Session S7.5)"
+chmod +x "${ROOT}/scripts/k3s/install-gitea-persistent.sh"
+"${ROOT}/scripts/k3s/install-gitea-persistent.sh"
 
 if [[ "${SKIP_TEKTON}" != "1" ]]; then
   TEKTON_URL="https://storage.googleapis.com/tekton-releases/pipeline/${TEKTON_VERSION}/release.yaml"
@@ -71,7 +71,9 @@ fi
   echo "==> Registering bifrost-build-stg + bifrost-deliver-stg pipelines"
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-kaniko-api-monitor.yaml" 2>/dev/null || true
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-kaniko-frontend.yaml" 2>/dev/null || true
+  kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-kaniko-frontend-real.yaml" 2>/dev/null || true
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-build-stg.yaml" 2>/dev/null || true
+  kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-build-frontend-stg.yaml" 2>/dev/null || true
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/rbac-deliver-stg.yaml" 2>/dev/null || true
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-deliver-stg.yaml" 2>/dev/null || true
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-deliver-stg.yaml" 2>/dev/null || true

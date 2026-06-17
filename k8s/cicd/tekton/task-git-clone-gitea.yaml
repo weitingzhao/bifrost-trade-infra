@@ -1,0 +1,59 @@
+# Session S7 — clone from in-cluster Gitea (primary Git; GitHub is upstream mirror only).
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-git-clone-gitea
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: ci-git
+spec:
+  description: Shallow clone from Gitea HTTP with basic-auth secret gitea-git-credentials
+  params:
+    - name: url
+      type: string
+      description: Gitea clone URL (http://gitea.cicd.svc.cluster.local:3000/org/repo.git)
+    - name: revision
+      type: string
+      default: main
+    - name: subdir
+      type: string
+      default: ""
+      description: Optional subdirectory under workspace (e.g. bifrost-trade-frontend)
+  workspaces:
+    - name: output
+  steps:
+    - name: clone
+      image: alpine/git:2.45.2
+      env:
+        - name: GIT_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: gitea-git-credentials
+              key: username
+        - name: GIT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: gitea-git-credentials
+              key: password
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+        out="$(workspaces.output.path)"
+        subdir="$(params.subdir)"
+        target="${out}"
+        if [ -n "${subdir}" ]; then
+          target="${out}/${subdir}"
+        fi
+        mkdir -p "${target}"
+        rm -rf "${target}"/* "${target}"/.[!.]* "${target}"/..?* 2>/dev/null || true
+        url="$(params.url)"
+        rev="$(params.revision)"
+        host_path="${url#http://}"
+        host_path="${host_path#https://}"
+        clone_url="http://${GIT_USERNAME}:${GIT_PASSWORD}@${host_path}"
+        echo "Cloning ${url} @ ${rev} into ${target} ..."
+        git clone --depth=1 --branch "${rev}" "${clone_url}" "${target}"
+        cd "${target}"
+        echo "=== HEAD $(git rev-parse HEAD) ==="
+        git log -1 --oneline
+        ls -la

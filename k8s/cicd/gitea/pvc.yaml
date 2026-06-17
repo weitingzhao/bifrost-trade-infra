@@ -1,0 +1,18 @@
+# Session S7.5 — Gitea data volume (repos, DB, config).
+# Default StorageClass on K3s is usually local-path (node-local disk).
+# For NAS: create NFS StorageClass + PV first, then set GITEA_STORAGE_CLASS before install.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gitea-data
+  namespace: cicd
+  labels:
+    app: gitea
+    bifrost.io/component: gitea
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 20Gi

@@ -1,0 +1,47 @@
+# Session S7 — verify Gitea → Tekton git clone for bifrost-trade-frontend mirror.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: bifrost-clone-frontend-smoke
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: ci-git
+spec:
+  description: Clone bifrost-trade-frontend from Gitea and assert package.json exists
+  params:
+    - name: url
+      type: string
+      default: http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-trade-frontend.git
+    - name: revision
+      type: string
+      default: main
+  workspaces:
+    - name: source
+  tasks:
+    - name: clone-frontend
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.url)
+        - name: revision
+          value: $(params.revision)
+      workspaces:
+        - name: output
+          workspace: source
+    - name: verify-frontend
+      runAfter: [clone-frontend]
+      taskSpec:
+        workspaces:
+          - name: source
+        steps:
+          - name: check
+            image: alpine:3.20
+            script: |
+              #!/bin/sh
+              set -eu
+              root="$(workspaces.source.path)"
+              test -f "${root}/package.json"
+              test -f "${root}/Dockerfile"
+              echo "OK: bifrost-trade-frontend source ready for S8 Kaniko build"
+              head -5 "${root}/package.json"

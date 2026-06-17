@@ -1,0 +1,34 @@
+# Example — Gitea data on NAS via NFS (adjust server/path/StorageClass name).
+# 1. Ensure NFS server exports a path (e.g. /volume1/k3s/gitea)
+# 2. Install nfs-subdir-external-provisioner or create static PV
+# 3. kubectl apply -f pv-nfs.example.yaml (after editing)
+# 4. GITEA_STORAGE_CLASS=nfs-gitea make k3s-install-gitea-persistent
+#
+# apiVersion: v1
+# kind: PersistentVolume
+# metadata:
+#   name: gitea-data-nfs
+# spec:
+#   capacity:
+#     storage: 50Gi
+#   accessModes:
+#     - ReadWriteOnce
+#   persistentVolumeReclaimPolicy: Retain
+#   storageClassName: nfs-gitea
+#   nfs:
+#     server: 192.168.10.x
+#     path: /volume1/k3s/gitea
+# ---
+# apiVersion: v1
+# kind: PersistentVolumeClaim
+# metadata:
+#   name: gitea-data
+#   namespace: cicd
+# spec:
+#   accessModes:
+#     - ReadWriteOnce
+#   storageClassName: nfs-gitea
+#   volumeName: gitea-data-nfs
+#   resources:
+#     requests:
+#       storage: 50Gi
