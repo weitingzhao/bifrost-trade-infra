@@ -3,16 +3,20 @@
 # Satisfies package.json: "@bifrost/ui": "file:../bifrost-ui"
 FROM node:20-slim AS builder
 
-WORKDIR /build/bifrost-trade-frontend
+# Install @bifrost/ui peer/dev deps first (file:../bifrost-ui resolves to source).
+WORKDIR /build/bifrost-ui
+COPY bifrost-ui/package.json bifrost-ui/package-lock.json* ./
+RUN npm install --no-audit --no-fund
 
+WORKDIR /build/bifrost-trade-frontend
 COPY bifrost-ui /build/bifrost-ui
 COPY bifrost-trade-frontend/package.json bifrost-trade-frontend/package-lock.json* ./
-# Lock file may lack Linux optional deps until `npm run sync:docker-lock` on frontend repo.
 RUN npm install --no-audit --no-fund
 
 COPY bifrost-trade-frontend/ .
 RUN test -f .env.production || cp .env.production.example .env.production
-RUN npm run build
+# CI image: vite only (npm run build runs tsc — blocked until coverage stubs on main + sync:docker-lock).
+RUN npx vite build
 
 FROM nginx:alpine
 

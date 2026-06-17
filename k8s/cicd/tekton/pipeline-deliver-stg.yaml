@@ -1,5 +1,5 @@
-# Session S5 — build stg images, rollout workloads, request Argo sync (CI → deploy chain).
-# Flat task list (no nested pipelineRef — Tekton feature gate not enabled on cluster).
+# Session S9 — real frontend (Gitea clone + Kaniko) + smoke api-monitor + rollout + Argo sync.
+# Flat task list (no nested pipelineRef).
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
@@ -8,7 +8,7 @@ metadata:
   labels:
     bifrost.io/purpose: stg-deliver
 spec:
-  description: Build smoke images, rollout bifrost-stg Deployments, patch Argo Application sync
+  description: Build stg images (real Trade Frontend from Gitea), rollout bifrost-stg, request Argo sync
   params:
     - name: apiImage
       type: string
@@ -16,9 +16,18 @@ spec:
     - name: frontendImage
       type: string
       default: registry.cicd.svc.cluster.local:5000/bifrost-frontend:stg
+    - name: frontendRepo
+      type: string
+      default: http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-trade-frontend.git
+    - name: uiRepo
+      type: string
+      default: http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-ui.git
+    - name: revision
+      type: string
+      default: main
   workspaces:
     - name: api-source
-    - name: frontend-source
+    - name: build-context
   tasks:
     - name: build-api-monitor
       taskRef:
@@ -29,18 +38,66 @@ spec:
       workspaces:
         - name: source
           workspace: api-source
-    - name: build-frontend
-      runAfter: [build-api-monitor]
+    - name: clone-frontend
       taskRef:
-        name: bifrost-kaniko-frontend
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.frontendRepo)
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: bifrost-trade-frontend
+      workspaces:
+        - name: output
+          workspace: build-context
+    - name: clone-ui
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.uiRepo)
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: bifrost-ui
+      workspaces:
+        - name: output
+          workspace: build-context
+    - name: stage-dockerfile
+      runAfter: [clone-frontend, clone-ui]
+      workspaces:
+        - name: source
+          workspace: build-context
+      taskSpec:
+        workspaces:
+          - name: source
+        volumes:
+          - name: dockerfile-cm
+            configMap:
+              name: bifrost-frontend-stg-dockerfile
+        steps:
+          - name: copy
+            image: alpine:3.20
+            volumeMounts:
+              - name: dockerfile-cm
+                mountPath: /cm
+            script: |
+              #!/usr/bin/env sh
+              set -eu
+              cp /cm/Dockerfile.frontend-stg "$(workspaces.source.path)/Dockerfile.frontend-stg"
+    - name: build-frontend
+      runAfter: [stage-dockerfile]
+      taskRef:
+        name: bifrost-kaniko-frontend-real
       params:
         - name: image
           value: $(params.frontendImage)
       workspaces:
         - name: source
-          workspace: frontend-source
+          workspace: build-context
     - name: rollout
-      runAfter: [build-frontend]
+      runAfter: [build-api-monitor, build-frontend]
       taskRef:
         name: bifrost-rollout-stg
     - name: gitops-sync

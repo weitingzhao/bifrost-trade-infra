@@ -12,10 +12,10 @@ spec:
       default: bifrost-stg
   steps:
     - name: rollout-restart
-      image: bitnami/kubectl:1.30
+      image: alpine/k8s:1.31.4
       script: |
-        #!/usr/bin/env bash
-        set -euo pipefail
+        #!/bin/sh
+        set -eu
         NS="$(params.namespace)"
         kubectl rollout restart deployment/api-monitor deployment/frontend -n "${NS}"
         kubectl rollout status deployment/api-monitor -n "${NS}" --timeout=300s
@@ -39,10 +39,10 @@ spec:
       default: cicd
   steps:
     - name: sync
-      image: bitnami/kubectl:1.30
+      image: alpine/k8s:1.31.4
       script: |
-        #!/usr/bin/env bash
-        set -euo pipefail
+        #!/bin/sh
+        set -eu
         APP="$(params.application)"
         NS="$(params.namespace)"
         kubectl patch application "${APP}" -n "${NS}" --type merge -p \

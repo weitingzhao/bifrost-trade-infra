@@ -310,6 +310,16 @@ k3s-verify-ci-frontend-build:
 	@kubectl --kubeconfig $(KUBECONFIG) get configmap bifrost-frontend-stg-dockerfile -n cicd
 	@curl -sf http://192.168.10.73:30500/v2/bifrost-frontend/tags/list || echo "registry tag check skipped"
 
+# S9 — deliver-stg with real frontend + rollout + stg SPA smoke
+k3s-install-ci-deliver-stg:
+	@chmod +x scripts/k3s/install-ci-deliver-stg.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/install-ci-deliver-stg.sh
+
+k3s-verify-ci-deliver-stg:
+	@kubectl --kubeconfig $(KUBECONFIG) get pipeline bifrost-deliver-stg -n cicd
+	@curl -sf -o /dev/null -w "stg-api HTTP %{http_code}\n" http://192.168.10.73:30765/status
+	@curl -sf http://192.168.10.73:30780/ | head -5
+
 k3s-configure-registry:
 	@chmod +x scripts/k3s/configure-insecure-registry.sh
 	@echo "On each K3s node: sudo bash scripts/k3s/configure-insecure-registry.sh"
