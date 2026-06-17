@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: bifrost-stg
+
+resources:
+  - ../../base
+
+patches:
+  - path: node-control-plane.patch.yaml
+  - path: nodeport-services.patch.yaml
+
+# Kubelet pulls images on the node host — it cannot resolve *.svc.cluster.local.
+# Use bootstrap node LAN IP + registry NodePort (30500) instead of in-cluster DNS.
+images:
+  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-monitor
+    newName: 192.168.10.73:30500/bifrost-api-monitor
+  - name: registry.cicd.svc.cluster.local:5000/bifrost-frontend
+    newName: 192.168.10.73:30500/bifrost-frontend
+
+commonAnnotations:
+  bifrost.io/environment: stg
+
+labels:
+  - pairs:
+      bifrost.io/environment: stg
+    includeSelectors: false

@@ -1,0 +1,16 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-smoke-echo
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: cicd-smoke
+spec:
+  steps:
+    - name: echo
+      image: alpine:3.20
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+        echo "Bifrost Tekton smoke — pipeline run OK"
+        echo "registry=cicd/registry:5000"

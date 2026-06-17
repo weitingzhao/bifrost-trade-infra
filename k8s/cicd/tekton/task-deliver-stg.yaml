@@ -1,0 +1,50 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-rollout-stg
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: stg-deliver
+spec:
+  params:
+    - name: namespace
+      type: string
+      default: bifrost-stg
+  steps:
+    - name: rollout-restart
+      image: bitnami/kubectl:1.30
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        NS="$(params.namespace)"
+        kubectl rollout restart deployment/api-monitor deployment/frontend -n "${NS}"
+        kubectl rollout status deployment/api-monitor -n "${NS}" --timeout=300s
+        kubectl rollout status deployment/frontend -n "${NS}" --timeout=300s
+        echo "Rollout complete in ${NS}"
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-argocd-sync-stg
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: stg-deliver
+spec:
+  params:
+    - name: application
+      type: string
+      default: bifrost-stg
+    - name: namespace
+      type: string
+      default: cicd
+  steps:
+    - name: sync
+      image: bitnami/kubectl:1.30
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        APP="$(params.application)"
+        NS="$(params.namespace)"
+        kubectl patch application "${APP}" -n "${NS}" --type merge -p \
+          '{"operation":{"initiatedBy":{"username":"tekton-deliver"},"sync":{"revision":"HEAD"}}}'
+        echo "Sync requested for Application ${APP}"

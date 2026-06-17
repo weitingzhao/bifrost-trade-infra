@@ -1,0 +1,39 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: bifrost-build-stg
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: stg-build
+spec:
+  params:
+    - name: apiImage
+      type: string
+      default: registry.cicd.svc.cluster.local:5000/bifrost-api-monitor:stg
+    - name: frontendImage
+      type: string
+      default: registry.cicd.svc.cluster.local:5000/bifrost-frontend:stg
+  workspaces:
+    - name: api-source
+    - name: frontend-source
+  tasks:
+    - name: build-api-monitor
+      taskRef:
+        name: bifrost-kaniko-api-monitor
+      params:
+        - name: image
+          value: $(params.apiImage)
+      workspaces:
+        - name: source
+          workspace: api-source
+    - name: build-frontend
+      taskRef:
+        name: bifrost-kaniko-frontend
+      params:
+        - name: image
+          value: $(params.frontendImage)
+      workspaces:
+        - name: source
+          workspace: frontend-source
+      runAfter:
+        - build-api-monitor

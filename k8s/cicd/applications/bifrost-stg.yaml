@@ -1,0 +1,30 @@
+# GitOps Application for Bifrost Trade staging stack (Session S4).
+# Source: k8s/overlays/stg in bifrost-trade-infra (frontend + api-monitor smoke).
+#
+# If the GitHub repo is private, create an Argo CD repository Secret in cicd, then:
+#   kubectl apply -f k8s/cicd/argocd/repo-secret.yaml  (from .example after filling token)
+#
+# Until GitHub has k8s/overlays/stg on main, use install-bifrost-stg.sh LOCAL_BOOTSTRAP=1
+# to apply the overlay once; Argo will converge after push + repo credentials.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: bifrost-stg
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: trade-stg
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/weitingzhao/bifrost-trade-infra.git
+    path: k8s/overlays/stg
+    targetRevision: main
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: bifrost-stg
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

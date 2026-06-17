@@ -1,0 +1,12 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: bifrost-smoke
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: cicd-smoke
+spec:
+  tasks:
+    - name: smoke-echo
+      taskRef:
+        name: bifrost-smoke-echo

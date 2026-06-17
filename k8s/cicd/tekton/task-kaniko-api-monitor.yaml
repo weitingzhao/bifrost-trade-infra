@@ -1,0 +1,53 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-kaniko-api-monitor
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: stg-build
+spec:
+  params:
+    - name: image
+      type: string
+      default: registry.cicd.svc.cluster.local:5000/bifrost-api-monitor:stg
+  workspaces:
+    - name: source
+  steps:
+    - name: prepare
+      image: alpine:3.20
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+        mkdir -p "$(workspaces.source.path)"
+        cat > "$(workspaces.source.path)/Dockerfile" <<'EOF'
+        FROM python:3.11-slim
+        WORKDIR /app
+        RUN pip install --no-cache-dir "fastapi>=0.100.0" "uvicorn[standard]>=0.22.0"
+        COPY app.py /app/app.py
+        ENV PYTHONUNBUFFERED=1
+        EXPOSE 8765
+        CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8765"]
+        EOF
+        cat > "$(workspaces.source.path)/app.py" <<'EOF'
+        from fastapi import FastAPI
+        app = FastAPI(title="Bifrost Monitor API (K3s stg smoke)")
+        @app.get("/status")
+        def status():
+            return {"status": "ok", "service": "bifrost-api-monitor", "environment": "stg-smoke"}
+        EOF
+    - name: build-and-push
+      image: gcr.io/kaniko-project/executor:v1.23.2
+      args:
+        - --dockerfile=Dockerfile
+        - --context=$(workspaces.source.path)
+        - --destination=$(params.image)
+        - --insecure
+        - --skip-tls-verify
+        - --insecure-registry=registry.cicd.svc.cluster.local:5000
+      computeResources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+        limits:
+          cpu: "2"
+          memory: 2Gi

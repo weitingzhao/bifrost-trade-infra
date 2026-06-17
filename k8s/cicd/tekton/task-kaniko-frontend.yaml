@@ -1,0 +1,48 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-kaniko-frontend
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: stg-build
+spec:
+  params:
+    - name: image
+      type: string
+      default: registry.cicd.svc.cluster.local:5000/bifrost-frontend:stg
+  workspaces:
+    - name: source
+  steps:
+    - name: prepare
+      image: alpine:3.20
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+        mkdir -p "$(workspaces.source.path)"
+        cat > "$(workspaces.source.path)/Dockerfile" <<'EOF'
+        FROM nginx:1.27-alpine
+        COPY index.html /usr/share/nginx/html/index.html
+        EOF
+        cat > "$(workspaces.source.path)/index.html" <<'EOF'
+        <!DOCTYPE html>
+        <html lang="en"><head><meta charset="UTF-8"/><title>Bifrost Trade — Staging</title></head>
+        <body style="font-family:system-ui;background:#0f1419;color:#e6edf3;margin:2rem">
+        <h1 style="color:#58a6ff">Bifrost Trade — Staging (K3s smoke)</h1>
+        <p>GitOps app <strong>bifrost-stg</strong></p></body></html>
+        EOF
+    - name: build-and-push
+      image: gcr.io/kaniko-project/executor:v1.23.2
+      args:
+        - --dockerfile=Dockerfile
+        - --context=$(workspaces.source.path)
+        - --destination=$(params.image)
+        - --insecure
+        - --skip-tls-verify
+        - --insecure-registry=registry.cicd.svc.cluster.local:5000
+      computeResources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+        limits:
+          cpu: "2"
+          memory: 2Gi

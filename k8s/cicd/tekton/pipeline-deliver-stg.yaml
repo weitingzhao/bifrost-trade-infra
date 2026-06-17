@@ -1,0 +1,49 @@
+# Session S5 — build stg images, rollout workloads, request Argo sync (CI → deploy chain).
+# Flat task list (no nested pipelineRef — Tekton feature gate not enabled on cluster).
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: bifrost-deliver-stg
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: stg-deliver
+spec:
+  description: Build smoke images, rollout bifrost-stg Deployments, patch Argo Application sync
+  params:
+    - name: apiImage
+      type: string
+      default: registry.cicd.svc.cluster.local:5000/bifrost-api-monitor:stg
+    - name: frontendImage
+      type: string
+      default: registry.cicd.svc.cluster.local:5000/bifrost-frontend:stg
+  workspaces:
+    - name: api-source
+    - name: frontend-source
+  tasks:
+    - name: build-api-monitor
+      taskRef:
+        name: bifrost-kaniko-api-monitor
+      params:
+        - name: image
+          value: $(params.apiImage)
+      workspaces:
+        - name: source
+          workspace: api-source
+    - name: build-frontend
+      runAfter: [build-api-monitor]
+      taskRef:
+        name: bifrost-kaniko-frontend
+      params:
+        - name: image
+          value: $(params.frontendImage)
+      workspaces:
+        - name: source
+          workspace: frontend-source
+    - name: rollout
+      runAfter: [build-frontend]
+      taskRef:
+        name: bifrost-rollout-stg
+    - name: gitops-sync
+      runAfter: [rollout]
+      taskRef:
+        name: bifrost-argocd-sync-stg

@@ -1,4 +1,4 @@
-.PHONY: up down build logs ps prod-build prod-build-local prod-base-local prod-up-local prod-rebuild-local prod-rebuild-local-api prod-pull-base-images prod-preflight prod-preflight-local prod-preflight-local-build prod-preflight-local-up prod-preflight-local-health prod-health prod-down-local prod-embedded-infra sync-prod-config verify-2c-a1 local-prod-final-gate dev dev-docker-infra dev-down dev-build dev-reinstall-deps dev-preflight dev-health verify-domain-apis verify-wave-a-sessions switch-cutover-domain signoff-start check-cutover-env sync-dev-config sync-dev-db-password db-init db-init-dev db-shell shell-redis k3s-install-remote k3s-install-remote-run k3s-verify-remote k3s-fetch-kubeconfig k3s-install-metrics-remote k3s-install-argocd k3s-verify-argocd k3s-join-agent-remote clean docs docs-build
+.PHONY: up down build logs ps prod-build prod-build-local prod-base-local prod-up-local prod-rebuild-local prod-rebuild-local-api prod-pull-base-images prod-preflight prod-preflight-local prod-preflight-local-build prod-preflight-local-up prod-preflight-local-health prod-health prod-down-local prod-embedded-infra sync-prod-config verify-2c-a1 local-prod-final-gate dev dev-docker-infra dev-down dev-build dev-reinstall-deps dev-preflight dev-health verify-domain-apis verify-wave-a-sessions switch-cutover-domain signoff-start check-cutover-env sync-dev-config sync-dev-db-password db-init db-init-dev db-shell shell-redis k3s-install-remote k3s-install-remote-run k3s-verify-remote k3s-fetch-kubeconfig k3s-install-metrics-remote k3s-install-argocd k3s-verify-argocd k3s-install-cicd-stack k3s-verify-cicd-stack k3s-install-bifrost-stg k3s-verify-bifrost-stg k3s-join-agent-remote clean docs docs-build
 
 COMPOSE        = docker compose
 COMPOSE_LOCAL  = docker compose -f docker-compose.yml -f docker-compose.local.yml
@@ -254,6 +254,31 @@ k3s-install-argocd:
 k3s-verify-argocd:
 	@kubectl --kubeconfig $(KUBECONFIG) get deploy argocd-server -n cicd
 	@kubectl --kubeconfig $(KUBECONFIG) get applications.argoproj.io -n cicd
+
+# P3 — Gitea + Registry + Tekton + smoke Pipeline (Session S3; verify Ops Console → Delivery)
+k3s-install-cicd-stack:
+	@chmod +x scripts/k3s/install-cicd-stack.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/install-cicd-stack.sh
+
+k3s-verify-cicd-stack:
+	@kubectl --kubeconfig $(KUBECONFIG) get deploy registry gitea -n cicd
+	@kubectl --kubeconfig $(KUBECONFIG) get deploy tekton-pipelines-controller -n tekton-pipelines
+	@kubectl --kubeconfig $(KUBECONFIG) get pipeline bifrost-smoke -n cicd
+
+# P4 — stg smoke images + k8s/overlays/stg + Argo Application bifrost-stg (Session S4)
+k3s-install-bifrost-stg:
+	@chmod +x scripts/k3s/install-bifrost-stg.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/install-bifrost-stg.sh
+
+k3s-verify-bifrost-stg:
+	@kubectl --kubeconfig $(KUBECONFIG) get application bifrost-stg -n cicd
+	@kubectl --kubeconfig $(KUBECONFIG) get deploy,pods -n bifrost-stg
+	@kubectl --kubeconfig $(KUBECONFIG) get pipeline bifrost-build-stg -n cicd
+
+k3s-configure-registry:
+	@chmod +x scripts/k3s/configure-insecure-registry.sh
+	@echo "On each K3s node: sudo bash scripts/k3s/configure-insecure-registry.sh"
+	@echo "Or remote: K3S_SSH_HOSTS=\"user@host ...\" ./scripts/k3s/configure-insecure-registry.sh"
 
 # One-time agent join — set K3S_JOIN_HOST=user@gpu-server and K3S_TOKEN on target
 K3S_JOIN_HOST ?=
