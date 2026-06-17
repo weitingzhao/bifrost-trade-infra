@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Local Prod Final — mechanical gate (L1 in LOCAL_PROD_FINAL_SIGNOFF.md)
+# Local Prod Final — mechanical gate (L1 in Ops Console → Program → Deploy Mainline)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -51,7 +51,7 @@ fi
 
 if [[ "$fail" -ne 0 ]]; then
   echo ""
-  echo "Local Prod Final gate FAILED. See docs/LOCAL_PROD_FINAL_SIGNOFF.md"
+  echo "Local Prod Final gate FAILED. See Ops Console → Program → Deploy Mainline"
   exit 1
 fi
 

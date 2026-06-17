@@ -1,0 +1,24 @@
+# Dummy GitOps app for P1 Delivery page verification (Session S1).
+# Syncs upstream guestbook example into bifrost-stg — safe smoke only.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hello-stg
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: gitops-smoke
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/argoproj/argocd-example-apps.git
+    path: guestbook
+    targetRevision: HEAD
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: bifrost-stg
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

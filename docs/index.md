@@ -16,12 +16,13 @@ make dev                      # dev compose (hot reload)
 
 | Topic | Document |
 |-------|----------|
-| **Next build target** | [AI Native Ops Platform](../Goal/AI_NATIVE_OPS_PLATFORM.md) — 自发现/自维护/自修复发布运维 |
+| **Next build target** | Ops Console → Architecture → Blueprint § AI Native Platform (`blueprintCatalog.ts`) |
 | **Platform Console** | [bifrost-platform](../../bifrost-platform) — `:5180` matrix UI · API `:8780` |
-| **Where we are going** | [Platform Roadmap](PLATFORM_ROADMAP.md) — hardware + 2C-B + K3s phases |
-| **K3s target design** | [K3s Platform Architecture](K3S_PLATFORM_ARCHITECTURE.md) |
+| **Where we are going** | Ops Console → **Architecture → Platform Roadmap** (`roadmapCatalog.ts`) |
+| **K3s target design** | Ops Console → **Architecture → K3s Architecture** (`k3sArchitectureCatalog.ts`) |
+| **K3s bootstrap** | Ops Console → **Architecture → K3s Bootstrap** (`k3sBootstrapCatalog.ts`) |
+| **Deploy mainline** | Ops Console → **Program → Deploy Mainline** (`deployMainlineCatalog.ts`) |
 | **Migration status** | [Migration Tracking](MIGRATION_TRACKING.md) |
-| **Local Prod Final** | [Local Prod Final Signoff](LOCAL_PROD_FINAL_SIGNOFF.md) — 进行中 |
 | **2C-A sign-off** | [Phase 2C Sign-off Master](PHASE2C_SIGNOFF_MASTER.md) |
 | **Docker rebuild** | [Docker Build](DOCKER_BUILD.md) |
 

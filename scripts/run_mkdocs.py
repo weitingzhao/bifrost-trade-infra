@@ -52,10 +52,17 @@ def _ensure_platform_symlinks() -> None:
         return
     ext_dir = os.path.join(_PROJECT_ROOT, "docs", "external", "bifrost-platform")
     files = {
-        "README.md": os.path.join(platform_root, "README.md"),
-        "ARCHITECTURE.md": os.path.join(platform_root, "docs", "ARCHITECTURE.md"),
-        "TRADE_CONTRACT.md": os.path.join(platform_root, "docs", "TRADE_CONTRACT.md"),
+        "index.md": os.path.join(platform_root, "docs", "index.md"),
+        "STAGING.md": os.path.join(platform_root, "docs", "STAGING.md"),
     }
+    # Remove retired / conflicting symlinks (governance markdown moved to Console catalogs).
+    for stale in ("ARCHITECTURE.md", "TRADE_CONTRACT.md", "README.md"):
+        stale_path = os.path.join(ext_dir, stale)
+        if os.path.islink(stale_path) or (stale == "README.md" and os.path.lexists(stale_path)):
+            try:
+                os.unlink(stale_path)
+            except OSError:
+                pass
     for name, src in files.items():
         _symlink_file_or_dir(os.path.join(ext_dir, name), src)
 

@@ -7,7 +7,7 @@
 #   ./scripts/local_prod_final_owner.sh platform # optional bifrost-platform
 #   ./scripts/local_prod_final_owner.sh all      # print full order
 #
-# Sign rows in: docs/LOCAL_PROD_FINAL_SIGNOFF.md (L2.x) + PHASE2C_SIGNOFF_MASTER.md (reference)
+# Sign rows in: Ops Console → Program → Deploy Mainline (L2.x) + PHASE2C_SIGNOFF_MASTER.md (reference)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -45,7 +45,7 @@ session_0() {
   echo "  curl -s ${BASE}/api/monitor/status | head -c 120"
   echo "  curl -s ${BASE}/api/ops/health | head -c 120"
   echo ""
-  echo "Sign: LOCAL_PROD_FINAL_SIGNOFF.md → L2.7 (Dev/Prod dual-column red = known gap, OK)"
+  echo "Sign: Deploy Mainline (deployMainlineCatalog.ts) → L2.7 (Dev/Prod dual-column red = known gap, OK)"
 }
 
 session_1() {
@@ -56,7 +56,7 @@ session_1() {
   open_url "/operations/daemon"
   open_url "/strategy/allocations"
   echo ""
-  echo "Sign: LOCAL_PROD_FINAL_SIGNOFF.md → L2.1, L2.2 (partial)"
+  echo "Sign: Deploy Mainline (deployMainlineCatalog.ts) → L2.1, L2.2 (partial)"
 }
 
 session_2() {
@@ -65,7 +65,7 @@ session_2() {
   echo ""
   open_url "/market/live"
   echo ""
-  echo "Sign: LOCAL_PROD_FINAL_SIGNOFF.md → L2.5"
+  echo "Sign: Deploy Mainline (deployMainlineCatalog.ts) → L2.5"
 }
 
 session_3() {
@@ -75,7 +75,7 @@ session_3() {
   open_url "/portfolio/positions"
   open_url "/portfolio/accounts"
   echo ""
-  echo "Sign: LOCAL_PROD_FINAL_SIGNOFF.md → L2.6"
+  echo "Sign: Deploy Mainline (deployMainlineCatalog.ts) → L2.6"
 }
 
 session_8() {
@@ -90,7 +90,7 @@ session_8() {
   echo "Optional:"
   echo "  cd bifrost-trade-infra && make verify-2c-a1"
   echo ""
-  echo "Sign: LOCAL_PROD_FINAL_SIGNOFF.md → L2.2, L2.3, L2.4"
+  echo "Sign: Deploy Mainline (deployMainlineCatalog.ts) → L2.2, L2.3, L2.4"
 }
 
 session_platform() {
@@ -98,7 +98,7 @@ session_platform() {
   echo "  cd ../bifrost-platform && ./scripts/run_platform.py"
   echo "  open http://127.0.0.1:5180  (Topology + Matrix dev/prod)"
   echo ""
-  echo "Sign: LOCAL_PROD_FINAL_SIGNOFF.md → L2.8"
+  echo "Sign: Deploy Mainline (deployMainlineCatalog.ts) → L2.8"
 }
 
 print_all() {
@@ -118,7 +118,7 @@ print_all() {
 3) Optional platform
    ./scripts/local_prod_final_owner.sh platform
 
-4) Decisions L3 (D1–D5) + L4 sign in docs/LOCAL_PROD_FINAL_SIGNOFF.md
+4) Decisions L3 (D1–D5) + L4 sign in docs/Deploy Mainline (deployMainlineCatalog.ts)
 
 5) Next phase: PHASE2C_SIGNOFF_MASTER.md §2C-B (Linux .70)
 

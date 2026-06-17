@@ -49,16 +49,14 @@ nav:
   - Home: index.md
   - Goals:
     - Goals index: Goal/README.md
-    - AI native ops platform: Goal/AI_NATIVE_OPS_PLATFORM.md
+    - AI native ops platform: pointers/ai-native-platform.md
   - Platform:
-    - Roadmap (Compose → K3s): PLATFORM_ROADMAP.md
-    - K3s target architecture: K3S_PLATFORM_ARCHITECTURE.md
+    - Roadmap & K3s: pointers/platform-roadmap-k3s.md
+    - Deploy mainline: pointers/deploy-mainline.md
   - Platform Console (bifrost-platform):
-    - Overview: external/bifrost-platform/README.md
-    - Control plane architecture: external/bifrost-platform/ARCHITECTURE.md
-    - Trade probe contract: external/bifrost-platform/TRADE_CONTRACT.md
+    - Overview: external/bifrost-platform/index.md
+    - Staging policy: external/bifrost-platform/STAGING.md
   - Migration & sign-off:
-    - Local Prod Final signoff: LOCAL_PROD_FINAL_SIGNOFF.md
     - Migration tracking: MIGRATION_TRACKING.md
     - Phase 2 API cutover: PHASE2_API_CUTOVER.md
     - Phase 2A checklist: PHASE2A_INTEGRATION_CHECKLIST.md

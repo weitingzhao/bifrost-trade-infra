@@ -14,9 +14,10 @@
 - `config/` — 共享 YAML 配置文件（挂载到各容器）
 - `Makefile` — 常用操作快捷命令
 - `docs/DOCKER_BUILD.md` — 何时 rebuild、local 镜像分层、BuildKit 缓存
-- `Goal/` — **开发目标**（重点：[AI_NATIVE_OPS_PLATFORM.md](Goal/AI_NATIVE_OPS_PLATFORM.md)）
+- `Goal/` — **开发目标索引**（战略文档已迁入 Ops Console Architecture — Blueprint § AI Native Platform）
 - `../bifrost-platform` — **环境治理控制面**（Go API `:8780` + Console `:5180`）
-- `docs/PLATFORM_ROADMAP.md` · `docs/K3S_PLATFORM_ARCHITECTURE.md` — Compose → K3s 平台规划
+- Ops Console → Architecture → **Blueprint** · **Platform Roadmap** · **K3s Architecture** · **K3s Bootstrap**（`bifrost-platform/console/src/lib/architecture/`）
+- Ops Console → Program → **Deploy Mainline**（`deployMainlineCatalog.ts`）— 部署决策主线
 - `mkdocs.yml` + `scripts/start_docs.sh` — 本地文档站（`make docs` → http://127.0.0.1:8050）；platform 文档 → http://127.0.0.1:8060
 
 ## 快速启动

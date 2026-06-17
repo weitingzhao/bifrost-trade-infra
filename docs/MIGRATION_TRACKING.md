@@ -23,7 +23,7 @@
 | bifrost-trade-api | 9 | 9 | **Phase 2B CLOSED**（2026-06-04）— 9/9 域 CUTOVER + Owner 签字；Dev `VITE_API_*` → 8765–8773 |
 | bifrost-trade-frontend | 4 | 4 | **Phase 2B CLOSED**（2026-06-04）— New Frontend + New API 9/9 域 Owner 签字完成 |
 
-> **Phase 2B CLOSED**（2026-06-04）· **2C-A CLOSED**（2026-06-08）· **2C-B 规划中** · **K3s 规划未实施** · **重点目标**：[Goal/AI_NATIVE_OPS_PLATFORM.md](../Goal/AI_NATIVE_OPS_PLATFORM.md)（AI 原生发布运维平台）。见 [`PHASE2C_SIGNOFF_MASTER.md`](./PHASE2C_SIGNOFF_MASTER.md)、[`PLATFORM_ROADMAP.md`](./PLATFORM_ROADMAP.md)、[`K3S_PLATFORM_ARCHITECTURE.md`](./K3S_PLATFORM_ARCHITECTURE.md)。Mac Dev：`PHASE2_API_CUTOVER.md` + `PHASE2B_SIGNOFF_MASTER.md`。
+> **Phase 2B CLOSED**（2026-06-04）· **2C-A CLOSED**（2026-06-08）· **2C-B 规划中** · **K3s bootstrap 部分完成** · **重点目标**：Ops Console → Architecture → Blueprint § AI Native Platform（`blueprintCatalog.ts`）。见 [`PHASE2C_SIGNOFF_MASTER.md`](./PHASE2C_SIGNOFF_MASTER.md)、Ops Console → Architecture → **Platform Roadmap** / **K3s Architecture**（`bifrost-platform/console/src/lib/architecture/*Catalog.ts`）。Mac Dev：`PHASE2_API_CUTOVER.md` + `PHASE2B_SIGNOFF_MASTER.md`。
 
 ---
 
@@ -326,7 +326,7 @@
 | K3s 搬迁 → Legacy | PLATFORM / K3S 文档 | — | 待阶段 1 + D1 | **未开始** |
 | Phase 3 | Legacy 退役 | — | 待 Prod 验证 | **未开始** |
 
-**主线**（Owner 2026-06-04）：Local Prod Final **CLOSED** → **K3s 阶段 1** → 迁移定稿 → Legacy 退役。见 [LOCAL_PROD_FINAL_SIGNOFF.md](./LOCAL_PROD_FINAL_SIGNOFF.md)。
+**主线**（Owner 2026-06-04）：Local Prod Final **CLOSED** → **K3s 阶段 1** → 迁移定稿 → Legacy 退役。见 Ops Console → Program → Deploy Mainline（`deployMainlineCatalog.ts`）。
 
 ---
 

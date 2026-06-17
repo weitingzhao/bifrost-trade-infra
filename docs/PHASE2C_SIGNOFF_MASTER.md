@@ -8,9 +8,9 @@
 |------|------|------|
 | **2C-A** | `docker-compose.yml` 对齐 monorepo + 本地/staging 冒烟 | **Owner 已验**（Session 0–9，2026-06-08） |
 | **2C-A.1** | Docker 控制面（Ops executor + Daemon/Socket UI） | **Owner 已验**（Session 8）— [任务清单](./PHASE2C_A1_DOCKER_CONTROL_PLANE.md) |
-| **Local Prod Final** | 2C-B 前最后一道 local 闸门 | **CLOSED**（2026-06-04）— [LOCAL_PROD_FINAL_SIGNOFF.md](./LOCAL_PROD_FINAL_SIGNOFF.md) |
+| **Local Prod Final** | 2C-B 前最后一道 local 闸门 | **CLOSED**（2026-06-04）— Ops Console → Program → Deploy Mainline (`deployMainlineCatalog.ts`) |
 | **2C-B** | Compose Prod 稳定测试 / 生产切换 | **稳定测试已签**；生产切换待 K3s 后迁移决策 |
-| **K3s 阶段 1** | 集群搭建与试验 | **进行中** — [K3S_PLATFORM_ARCHITECTURE.md](./K3S_PLATFORM_ARCHITECTURE.md) §9 |
+| **K3s 阶段 1** | 集群搭建与试验 | **进行中** — Ops Console → Architecture → K3s Architecture §10 |
 
 **部署主线**（Owner 2026-06-04 修订）：Local Prod Final **CLOSED** → **K3s 阶段 1** → 迁移方案定稿 → Legacy 退役（2C-B Compose 作稳定参照；R-DV3 自动下单暂缓）。
 
@@ -228,19 +228,19 @@ curl -s http://localhost/api/monitor/health | jq '.ok // .status'
 | Agent 机械门禁表 | 本节上文「Agent 机械门禁」全 [x] | [x] | 2026-06-08 | |
 | Session 1–8 | 追踪表全部 **已签** | [x] | 2026-06-08 | |
 
-**2C-A Owner 已验**（2026-06-08）。下一里程碑：**Local Prod Final** → **2C-B**（见 [LOCAL_PROD_FINAL_SIGNOFF.md](./LOCAL_PROD_FINAL_SIGNOFF.md)）。
+**2C-A Owner 已验**（2026-06-08）。下一里程碑：**Local Prod Final** → **2C-B**（见 Ops Console → Program → Deploy Mainline）。
 
 ---
 
 ## Local Prod Final — 2C-B 前置闸门（CLOSED）
 
-权威清单：[LOCAL_PROD_FINAL_SIGNOFF.md](./LOCAL_PROD_FINAL_SIGNOFF.md)
+权威清单：Ops Console → Program → Deploy Mainline（`deployMainlineCatalog.ts`）
 
 | L1 Agent | L2 Owner | L3 决策 | L4 |
 |----------|----------|---------|-----|
 | [x] 2026-06-08 | [x] 2026-06-04 Session 0–3/8 + L2.8 | [x] D1–D5（Owner 修订，见 LOCAL 文档） | [x] **CLOSED** |
 
-**下一里程碑**：K3s 阶段 1（§ [K3S_PLATFORM_ARCHITECTURE.md](./K3S_PLATFORM_ARCHITECTURE.md) §9）。
+**下一里程碑**：K3s 阶段 1（Ops Console → Architecture → K3s Architecture §9–10）。
 
 ---
 

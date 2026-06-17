@@ -1,4 +1,4 @@
-.PHONY: up down build logs ps prod-build prod-build-local prod-base-local prod-up-local prod-rebuild-local prod-rebuild-local-api prod-pull-base-images prod-preflight prod-preflight-local prod-preflight-local-build prod-preflight-local-up prod-preflight-local-health prod-health prod-down-local prod-embedded-infra sync-prod-config verify-2c-a1 local-prod-final-gate dev dev-docker-infra dev-down dev-build dev-reinstall-deps dev-preflight dev-health verify-domain-apis verify-wave-a-sessions switch-cutover-domain signoff-start check-cutover-env sync-dev-config sync-dev-db-password db-init db-init-dev db-shell shell-redis clean docs docs-build
+.PHONY: up down build logs ps prod-build prod-build-local prod-base-local prod-up-local prod-rebuild-local prod-rebuild-local-api prod-pull-base-images prod-preflight prod-preflight-local prod-preflight-local-build prod-preflight-local-up prod-preflight-local-health prod-health prod-down-local prod-embedded-infra sync-prod-config verify-2c-a1 local-prod-final-gate dev dev-docker-infra dev-down dev-build dev-reinstall-deps dev-preflight dev-health verify-domain-apis verify-wave-a-sessions switch-cutover-domain signoff-start check-cutover-env sync-dev-config sync-dev-db-password db-init db-init-dev db-shell shell-redis k3s-install-remote k3s-install-remote-run k3s-verify-remote k3s-fetch-kubeconfig k3s-install-metrics-remote k3s-install-argocd k3s-verify-argocd k3s-join-agent-remote clean docs docs-build
 
 COMPOSE        = docker compose
 COMPOSE_LOCAL  = docker compose -f docker-compose.yml -f docker-compose.local.yml
@@ -214,6 +214,57 @@ docs:
 docs-build:
 	python -c "from scripts.run_mkdocs import _ensure_doc_symlinks; _ensure_doc_symlinks()"
 	python -m mkdocs build
+
+# ── K3s bootstrap (LAN server — requires interactive sudo on target) ─────────
+
+K3S_HOST ?= vision@192.168.10.73
+K3S_NODE_IP ?= 192.168.10.73
+# install-server.sh sets kubeconfig mode 644 — vision can kubectl without sudo over SSH
+K3S_REMOTE_KUBECTL = KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl
+
+k3s-install-remote:
+	@chmod +x scripts/k3s/install-server.sh scripts/k3s/fetch-kubeconfig.sh
+	scp scripts/k3s/install-server.sh $(K3S_HOST):~/install-k3s-server.sh
+	@echo "Run on server (interactive sudo): ssh -t $(K3S_HOST) 'sudo bash ~/install-k3s-server.sh'"
+
+k3s-install-remote-run:
+	@chmod +x scripts/k3s/install-server.sh
+	scp scripts/k3s/install-server.sh $(K3S_HOST):~/install-k3s-server.sh
+	ssh -t $(K3S_HOST) 'sudo bash ~/install-k3s-server.sh'
+
+k3s-verify-remote:
+	ssh $(K3S_HOST) '$(K3S_REMOTE_KUBECTL) get nodes -o wide && $(K3S_REMOTE_KUBECTL) get ns | grep -E "cicd|bifrost|data"'
+
+k3s-fetch-kubeconfig:
+	@chmod +x scripts/k3s/fetch-kubeconfig.sh
+	K3S_NODE_IP=$(K3S_NODE_IP) ./scripts/k3s/fetch-kubeconfig.sh $(K3S_HOST)
+
+# Layer A — metrics-server (uses local kubeconfig; cluster API @ K3S_NODE_IP)
+KUBECONFIG ?= $(HOME)/.kube/bifrost-k3s.yaml
+
+k3s-install-metrics-remote:
+	@chmod +x scripts/k3s/install-metrics-server.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/install-metrics-server.sh
+
+# P1 — minimal Argo CD in cicd (Session S1; verify Ops Console → Delivery → GitOps probe)
+k3s-install-argocd:
+	@chmod +x scripts/k3s/install-argocd.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/install-argocd.sh
+
+k3s-verify-argocd:
+	@kubectl --kubeconfig $(KUBECONFIG) get deploy argocd-server -n cicd
+	@kubectl --kubeconfig $(KUBECONFIG) get applications.argoproj.io -n cicd
+
+# One-time agent join — set K3S_JOIN_HOST=user@gpu-server and K3S_TOKEN on target
+K3S_JOIN_HOST ?=
+K3S_URL ?= https://$(K3S_NODE_IP):6443
+
+k3s-join-agent-remote:
+	@test -n "$(K3S_JOIN_HOST)" || (echo "Set K3S_JOIN_HOST=user@host" >&2; exit 1)
+	@chmod +x scripts/k3s/install-agent.sh
+	scp scripts/k3s/install-agent.sh $(K3S_JOIN_HOST):~/install-k3s-agent.sh
+	@echo "On target (interactive sudo):"
+	@echo "  ssh -t $(K3S_JOIN_HOST) 'sudo K3S_URL=$(K3S_URL) K3S_TOKEN=<token> K3S_NODE_IP=<lan-ip> bash ~/install-k3s-agent.sh'"
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 
