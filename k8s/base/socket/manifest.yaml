@@ -1,0 +1,205 @@
+# Phase B stg v2 — IB edge + Massive WS (shared bifrost-socket:stg image).
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ib-ingestor
+  labels:
+    app.kubernetes.io/name: ib-ingestor
+    app.kubernetes.io/component: socket
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ib-ingestor
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ib-ingestor
+        app.kubernetes.io/component: socket
+    spec:
+      volumes:
+        - name: bifrost-config
+          configMap:
+            name: bifrost-config
+      containers:
+        - name: ib-ingestor
+          image: registry.cicd.svc.cluster.local:5000/bifrost-socket:stg
+          imagePullPolicy: IfNotPresent
+          command: ["python", "scripts/run_ib_ingestor.py"]
+          workingDir: /src/bifrost-trade-socket
+          env:
+            - name: BIFROST_CONFIG
+              value: /app/config/config.stg.yaml
+            - name: BIFROST_ENV
+              value: stg
+          envFrom:
+            - secretRef:
+                name: bifrost-stg-secrets
+                optional: true
+          volumeMounts:
+            - name: bifrost-config
+              mountPath: /app/config/config.stg.yaml
+              subPath: config.stg.yaml
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ib-account-agent
+  labels:
+    app.kubernetes.io/name: ib-account-agent
+    app.kubernetes.io/component: socket
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ib-account-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ib-account-agent
+        app.kubernetes.io/component: socket
+    spec:
+      volumes:
+        - name: bifrost-config
+          configMap:
+            name: bifrost-config
+      containers:
+        - name: ib-account-agent
+          image: registry.cicd.svc.cluster.local:5000/bifrost-socket:stg
+          imagePullPolicy: IfNotPresent
+          command: ["python", "scripts/run_ib_account_agent.py"]
+          workingDir: /src/bifrost-trade-socket
+          env:
+            - name: BIFROST_CONFIG
+              value: /app/config/config.stg.yaml
+            - name: BIFROST_ENV
+              value: stg
+          envFrom:
+            - secretRef:
+                name: bifrost-stg-secrets
+                optional: true
+          volumeMounts:
+            - name: bifrost-config
+              mountPath: /app/config/config.stg.yaml
+              subPath: config.stg.yaml
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ib-operator
+  labels:
+    app.kubernetes.io/name: ib-operator
+    app.kubernetes.io/component: socket
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ib-operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ib-operator
+        app.kubernetes.io/component: socket
+    spec:
+      volumes:
+        - name: bifrost-config
+          configMap:
+            name: bifrost-config
+      containers:
+        - name: ib-operator
+          image: registry.cicd.svc.cluster.local:5000/bifrost-socket:stg
+          imagePullPolicy: IfNotPresent
+          command: ["python", "scripts/run_ib_operator.py"]
+          workingDir: /src/bifrost-trade-socket
+          env:
+            - name: BIFROST_CONFIG
+              value: /app/config/config.stg.yaml
+            - name: BIFROST_ENV
+              value: stg
+          envFrom:
+            - secretRef:
+                name: bifrost-stg-secrets
+                optional: true
+          volumeMounts:
+            - name: bifrost-config
+              mountPath: /app/config/config.stg.yaml
+              subPath: config.stg.yaml
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: massive-ws
+  labels:
+    app.kubernetes.io/name: massive-ws
+    app.kubernetes.io/component: socket
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: massive-ws
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: massive-ws
+        app.kubernetes.io/component: socket
+    spec:
+      volumes:
+        - name: bifrost-config
+          configMap:
+            name: bifrost-config
+      containers:
+        - name: massive-ws
+          image: registry.cicd.svc.cluster.local:5000/bifrost-socket:stg
+          imagePullPolicy: IfNotPresent
+          command: ["python", "scripts/run_massive_ws.py"]
+          workingDir: /src/bifrost-trade-socket
+          env:
+            - name: BIFROST_CONFIG
+              value: /app/config/config.stg.yaml
+            - name: BIFROST_ENV
+              value: stg
+          envFrom:
+            - secretRef:
+                name: bifrost-stg-secrets
+                optional: true
+          volumeMounts:
+            - name: bifrost-config
+              mountPath: /app/config/config.stg.yaml
+              subPath: config.stg.yaml
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi

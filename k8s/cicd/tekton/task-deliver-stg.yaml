@@ -18,15 +18,17 @@ spec:
         set -eu
         NS="$(params.namespace)"
         APIS="api-monitor api-massive api-docs api-ops api-trading api-strategy api-portfolio api-market api-research"
-        for dep in nginx frontend ${APIS}; do
+        WORKER="daemon account-sync celery-worker"
+        SOCKET="ib-ingestor ib-account-agent ib-operator massive-ws"
+        for dep in nginx frontend ${APIS} ${WORKER} ${SOCKET}; do
           kubectl rollout restart "deployment/${dep}" -n "${NS}"
         done
         kubectl rollout status deployment/nginx -n "${NS}" --timeout=300s
         kubectl rollout status deployment/frontend -n "${NS}" --timeout=300s
-        for dep in ${APIS}; do
+        for dep in ${APIS} ${WORKER} ${SOCKET}; do
           kubectl rollout status "deployment/${dep}" -n "${NS}" --timeout=600s
         done
-        echo "Rollout complete in ${NS} (nginx + frontend + 9 APIs)"
+        echo "Rollout complete in ${NS} (gateway + frontend + 9 APIs + worker + socket)"
 ---
 apiVersion: tekton.dev/v1
 kind: Task

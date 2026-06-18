@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Phase B — stg v1: PG + Redis + nginx + 9 Trade APIs + frontend (worker/socket deferred).
+# Phase B — stg v2: full stack — PG/Redis/nginx/9 APIs/frontend + worker + socket (Live TWS + Massive).
 #
 # Usage:
+#   make sync-stg-config   # optional: refresh IB from .env
 #   KUBECONFIG=~/.kube/bifrost-k3s.yaml ./scripts/k3s/install-phase-b-stg.sh
 #   make k3s-install-phase-b-stg
 #
-# Verify:
-#   Browser http://192.168.10.73:30880/ — Bifrost Trade SPA
-#   curl http://192.168.10.73:30880/api/monitor/status — real bifrost_api monitor
-#   Ops Console → Delivery → bifrost-deliver-stg (Succeeded)
+# Prereq: kubectl apply -f k8s/base/secrets/bifrost-stg-secrets.yaml -n bifrost-stg (from .example)
+#
+# Verify: make k3s-verify-phase-b-stg-v2
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -38,10 +38,21 @@ MIRROR_REPOS="bifrost-trade-core bifrost-trade-worker bifrost-trade-socket bifro
   "${ROOT}/scripts/k3s/bootstrap-gitea-mirrors.sh"
 
 echo "==> Sync stg config into kustomize overlay"
-mkdir -p "${ROOT}/k8s/overlays/stg/config"
-cp "${ROOT}/config/config.stg.yaml" "${ROOT}/k8s/overlays/stg/config/config.stg.yaml"
+if [[ -f "${ROOT}/.env" ]]; then
+  "${ROOT}/scripts/sync_stg_config.sh"
+else
+  mkdir -p "${ROOT}/k8s/overlays/stg/config"
+  cp "${ROOT}/config/config.stg.yaml" "${ROOT}/k8s/overlays/stg/config/config.stg.yaml"
+fi
 
-echo "==> Apply bifrost-stg overlay (PG, Redis, nginx, 9 APIs, frontend, config)"
+if [[ -f "${ROOT}/k8s/base/secrets/bifrost-stg-secrets.yaml" ]]; then
+  echo "==> Apply bifrost-stg-secrets"
+  kubectl apply -f "${ROOT}/k8s/base/secrets/bifrost-stg-secrets.yaml" -n "${STG_NAMESPACE}"
+else
+  echo "WARN: no k8s/base/secrets/bifrost-stg-secrets.yaml — copy from .example for Massive API key" >&2
+fi
+
+echo "==> Apply bifrost-stg overlay (full stack: infra + APIs + worker + socket + frontend)"
 kubectl apply -k "${ROOT}/k8s/overlays/stg"
 
 echo "==> Wait for infra (postgres, redis, nginx)"
@@ -58,10 +69,19 @@ kubectl create configmap bifrost-api-stg-dockerfile \
   --from-file=Dockerfile.api-stg="${ROOT}/k8s/cicd/docker/Dockerfile.api-stg" \
   -n "${CICD_NAMESPACE}" \
   --dry-run=client -o yaml | kubectl apply -f -
+kubectl create configmap bifrost-worker-stg-dockerfile \
+  --from-file=Dockerfile.worker-stg="${ROOT}/k8s/cicd/docker/Dockerfile.worker-stg" \
+  -n "${CICD_NAMESPACE}" \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl create configmap bifrost-socket-stg-dockerfile \
+  --from-file=Dockerfile.socket-stg="${ROOT}/k8s/cicd/docker/Dockerfile.socket-stg" \
+  -n "${CICD_NAMESPACE}" \
+  --dry-run=client -o yaml | kubectl apply -f -
 
-echo "==> Tekton Phase B deliver pipeline"
+echo "==> Tekton Phase B v2 deliver pipeline"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-git-clone-gitea.yaml"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-kaniko-all-apis-stg.yaml"
+kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-kaniko-worker-socket-stg.yaml"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-kaniko-frontend-real.yaml"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/rbac-deliver-stg.yaml"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-deliver-stg.yaml"
@@ -86,6 +106,15 @@ metadata:
 spec:
   pipelineRef:
     name: bifrost-deliver-stg
+  # Pin ALL tasks to amd64 control-plane (arm64 workers cannot run RUN commands for amd64 images).
+  taskRunTemplate:
+    podTemplate:
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
   taskRunSpecs:
     - pipelineTaskName: rollout
       serviceAccountName: tekton-deliver
@@ -152,8 +181,10 @@ if echo "${fe_body}" | grep -q 'Bifrost Trade'; then
 fi
 
 echo ""
-echo "Phase B stg v1 complete."
+echo "Phase B stg v2 complete."
 echo "  Gateway:  ${STG_GATEWAY_URL} (nginx NodePort :30880)"
 echo "  Monitor:  ${STG_API_URL}"
+echo "  Worker:   daemon · account-sync · celery-worker"
+echo "  Socket:   ib-ingestor · ib-account-agent · ib-operator · massive-ws"
+echo "  Verify:   make k3s-verify-phase-b-stg-v2"
 echo "  Console:  Delivery → ${RUN_NAME}; Promote stg smoke via gateway URLs"
-echo "  Deferred: worker daemon, IB socket ingestors (Phase B+ / socket session)"

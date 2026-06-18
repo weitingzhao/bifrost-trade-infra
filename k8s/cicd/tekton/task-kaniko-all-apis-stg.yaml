@@ -1,4 +1,4 @@
-# Phase B — build all 9 Trade API images from Gitea sibling clones + Dockerfile.api-stg
+# Phase B — build all 9 Trade API images (single pod; one Kaniko step loop to avoid Tekton step resource sum).
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -30,156 +30,35 @@ spec:
         test -f "${root}/bifrost-trade-worker/pyproject.toml"
         test -f "${root}/bifrost-trade-socket/pyproject.toml"
         echo "API build context OK"
-    - name: build-api-monitor
-      image: gcr.io/kaniko-project/executor:v1.23.2
-      args:
-        - --dockerfile=Dockerfile.api-stg
-        - --context=$(workspaces.source.path)
-        - --destination=$(params.registry)/bifrost-api-monitor:$(params.tag)
-        - --build-arg=API_DOMAIN=monitor
-        - --insecure
-        - --skip-tls-verify
-        - --insecure-registry=$(params.registry)
+    - name: build-all-apis
+      image: gcr.io/kaniko-project/executor:v1.23.2-debug
+      env:
+        - name: REGISTRY
+          value: $(params.registry)
+        - name: TAG
+          value: $(params.tag)
+      script: |
+        #!/busybox/sh
+        set -eu
+        ctx="$(workspaces.source.path)"
+        domains="monitor massive docs ops trading strategy portfolio market research"
+        for d in ${domains}; do
+          echo "=== Kaniko build bifrost-api-${d}:${TAG} ==="
+          /kaniko/executor \
+            --dockerfile="${ctx}/Dockerfile.api-stg" \
+            --context="${ctx}" \
+            --destination="${REGISTRY}/bifrost-api-${d}:${TAG}" \
+            --build-arg="API_DOMAIN=${d}" \
+            --custom-platform=linux/amd64 \
+            --insecure \
+            --skip-tls-verify \
+            --insecure-registry="${REGISTRY}"
+        done
+        echo "All 9 API images pushed."
       computeResources:
         requests:
           cpu: 500m
           memory: 1Gi
         limits:
           cpu: "4"
-          memory: 4Gi
-    - name: build-api-massive
-      image: gcr.io/kaniko-project/executor:v1.23.2
-      args:
-        - --dockerfile=Dockerfile.api-stg
-        - --context=$(workspaces.source.path)
-        - --destination=$(params.registry)/bifrost-api-massive:$(params.tag)
-        - --build-arg=API_DOMAIN=massive
-        - --insecure
-        - --skip-tls-verify
-        - --insecure-registry=$(params.registry)
-      computeResources:
-        requests:
-          cpu: 500m
-          memory: 1Gi
-        limits:
-          cpu: "4"
-          memory: 4Gi
-    - name: build-api-docs
-      image: gcr.io/kaniko-project/executor:v1.23.2
-      args:
-        - --dockerfile=Dockerfile.api-stg
-        - --context=$(workspaces.source.path)
-        - --destination=$(params.registry)/bifrost-api-docs:$(params.tag)
-        - --build-arg=API_DOMAIN=docs
-        - --insecure
-        - --skip-tls-verify
-        - --insecure-registry=$(params.registry)
-      computeResources:
-        requests:
-          cpu: 500m
-          memory: 1Gi
-        limits:
-          cpu: "4"
-          memory: 4Gi
-    - name: build-api-ops
-      image: gcr.io/kaniko-project/executor:v1.23.2
-      args:
-        - --dockerfile=Dockerfile.api-stg
-        - --context=$(workspaces.source.path)
-        - --destination=$(params.registry)/bifrost-api-ops:$(params.tag)
-        - --build-arg=API_DOMAIN=ops
-        - --insecure
-        - --skip-tls-verify
-        - --insecure-registry=$(params.registry)
-      computeResources:
-        requests:
-          cpu: 500m
-          memory: 1Gi
-        limits:
-          cpu: "4"
-          memory: 4Gi
-    - name: build-api-trading
-      image: gcr.io/kaniko-project/executor:v1.23.2
-      args:
-        - --dockerfile=Dockerfile.api-stg
-        - --context=$(workspaces.source.path)
-        - --destination=$(params.registry)/bifrost-api-trading:$(params.tag)
-        - --build-arg=API_DOMAIN=trading
-        - --insecure
-        - --skip-tls-verify
-        - --insecure-registry=$(params.registry)
-      computeResources:
-        requests:
-          cpu: 500m
-          memory: 1Gi
-        limits:
-          cpu: "4"
-          memory: 4Gi
-    - name: build-api-strategy
-      image: gcr.io/kaniko-project/executor:v1.23.2
-      args:
-        - --dockerfile=Dockerfile.api-stg
-        - --context=$(workspaces.source.path)
-        - --destination=$(params.registry)/bifrost-api-strategy:$(params.tag)
-        - --build-arg=API_DOMAIN=strategy
-        - --insecure
-        - --skip-tls-verify
-        - --insecure-registry=$(params.registry)
-      computeResources:
-        requests:
-          cpu: 500m
-          memory: 1Gi
-        limits:
-          cpu: "4"
-          memory: 4Gi
-    - name: build-api-portfolio
-      image: gcr.io/kaniko-project/executor:v1.23.2
-      args:
-        - --dockerfile=Dockerfile.api-stg
-        - --context=$(workspaces.source.path)
-        - --destination=$(params.registry)/bifrost-api-portfolio:$(params.tag)
-        - --build-arg=API_DOMAIN=portfolio
-        - --insecure
-        - --skip-tls-verify
-        - --insecure-registry=$(params.registry)
-      computeResources:
-        requests:
-          cpu: 500m
-          memory: 1Gi
-        limits:
-          cpu: "4"
-          memory: 4Gi
-    - name: build-api-market
-      image: gcr.io/kaniko-project/executor:v1.23.2
-      args:
-        - --dockerfile=Dockerfile.api-stg
-        - --context=$(workspaces.source.path)
-        - --destination=$(params.registry)/bifrost-api-market:$(params.tag)
-        - --build-arg=API_DOMAIN=market
-        - --insecure
-        - --skip-tls-verify
-        - --insecure-registry=$(params.registry)
-      computeResources:
-        requests:
-          cpu: 500m
-          memory: 1Gi
-        limits:
-          cpu: "4"
-          memory: 4Gi
-    - name: build-api-research
-      image: gcr.io/kaniko-project/executor:v1.23.2
-      args:
-        - --dockerfile=Dockerfile.api-stg
-        - --context=$(workspaces.source.path)
-        - --destination=$(params.registry)/bifrost-api-research:$(params.tag)
-        - --build-arg=API_DOMAIN=research
-        - --insecure
-        - --skip-tls-verify
-        - --insecure-registry=$(params.registry)
-      computeResources:
-        requests:
-          cpu: 500m
-          memory: 1Gi
-        limits:
-          cpu: "4"
-          memory: 4Gi
+          memory: 6Gi

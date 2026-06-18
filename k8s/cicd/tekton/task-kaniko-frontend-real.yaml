@@ -34,6 +34,7 @@ spec:
         - --dockerfile=$(params.dockerfile)
         - --context=$(workspaces.source.path)
         - --destination=$(params.image)
+        - --custom-platform=linux/amd64
         - --insecure
         - --skip-tls-verify
         - --insecure-registry=registry.cicd.svc.cluster.local:5000

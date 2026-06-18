@@ -108,3 +108,80 @@ spec:
       containers:
         - name: frontend
           imagePullPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: daemon
+spec:
+  template:
+    spec:
+      containers:
+        - name: daemon
+          imagePullPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: account-sync
+spec:
+  template:
+    spec:
+      containers:
+        - name: account-sync
+          imagePullPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker
+spec:
+  template:
+    spec:
+      containers:
+        - name: celery-worker
+          imagePullPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ib-ingestor
+spec:
+  template:
+    spec:
+      containers:
+        - name: ib-ingestor
+          imagePullPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ib-account-agent
+spec:
+  template:
+    spec:
+      containers:
+        - name: ib-account-agent
+          imagePullPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ib-operator
+spec:
+  template:
+    spec:
+      containers:
+        - name: ib-operator
+          imagePullPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: massive-ws
+spec:
+  template:
+    spec:
+      containers:
+        - name: massive-ws
+          imagePullPolicy: Always

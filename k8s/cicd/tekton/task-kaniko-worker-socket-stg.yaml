@@ -1,0 +1,103 @@
+# Phase B stg v2 — build bifrost-worker:stg and bifrost-socket:stg images.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-kaniko-worker-socket-stg
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: stg-build
+spec:
+  description: Kaniko build bifrost-worker:stg and bifrost-socket:stg
+  params:
+    - name: registry
+      type: string
+      default: registry.cicd.svc.cluster.local:5000
+    - name: tag
+      type: string
+      default: stg
+  workspaces:
+    - name: source
+  volumes:
+    - name: worker-dockerfile-cm
+      configMap:
+        name: bifrost-worker-stg-dockerfile
+    - name: socket-dockerfile-cm
+      configMap:
+        name: bifrost-socket-stg-dockerfile
+  steps:
+    - name: stage-dockerfiles
+      image: alpine:3.20
+      volumeMounts:
+        - name: worker-dockerfile-cm
+          mountPath: /cm-worker
+        - name: socket-dockerfile-cm
+          mountPath: /cm-socket
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+        root="$(workspaces.source.path)"
+        cp /cm-worker/Dockerfile.worker-stg "${root}/Dockerfile.worker-stg"
+        cp /cm-socket/Dockerfile.socket-stg "${root}/Dockerfile.socket-stg"
+    - name: assert-context
+      image: alpine:3.20
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+        root="$(workspaces.source.path)"
+        test -f "${root}/Dockerfile.worker-stg"
+        test -f "${root}/Dockerfile.socket-stg"
+        test -f "${root}/bifrost-trade-worker/pyproject.toml"
+        test -f "${root}/bifrost-trade-socket/pyproject.toml"
+        echo "worker/socket build context OK"
+    - name: build-worker
+      image: gcr.io/kaniko-project/executor:v1.23.2-debug
+      env:
+        - name: REGISTRY
+          value: $(params.registry)
+        - name: TAG
+          value: $(params.tag)
+      script: |
+        #!/busybox/sh
+        set -eu
+        ctx="$(workspaces.source.path)"
+        /kaniko/executor \
+          --dockerfile="${ctx}/Dockerfile.worker-stg" \
+          --context="${ctx}" \
+          --destination="${REGISTRY}/bifrost-worker:${TAG}" \
+          --custom-platform=linux/amd64 \
+          --insecure \
+          --skip-tls-verify \
+          --insecure-registry="${REGISTRY}"
+      computeResources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+        limits:
+          cpu: "2"
+          memory: 3Gi
+    - name: build-socket
+      image: gcr.io/kaniko-project/executor:v1.23.2-debug
+      env:
+        - name: REGISTRY
+          value: $(params.registry)
+        - name: TAG
+          value: $(params.tag)
+      script: |
+        #!/busybox/sh
+        set -eu
+        ctx="$(workspaces.source.path)"
+        /kaniko/executor \
+          --dockerfile="${ctx}/Dockerfile.socket-stg" \
+          --context="${ctx}" \
+          --destination="${REGISTRY}/bifrost-socket:${TAG}" \
+          --custom-platform=linux/amd64 \
+          --insecure \
+          --skip-tls-verify \
+          --insecure-registry="${REGISTRY}"
+      computeResources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+        limits:
+          cpu: "2"
+          memory: 3Gi

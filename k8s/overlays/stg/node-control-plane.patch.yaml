@@ -1,5 +1,5 @@
-# Pin stg workloads to control-plane until insecure registry is configured on all agents.
-# Remove this patch after: sudo bash scripts/k3s/configure-insecure-registry.sh on each node.
+# STG runtime placement — amd64 general pool (workload placement G3).
+# Registry should be configured on all nodes via configure-insecure-registry.sh.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -9,7 +9,7 @@ spec:
   template:
     spec:
       nodeSelector:
-        node-role.kubernetes.io/control-plane: "true"
+        kubernetes.io/arch: amd64
       tolerations:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists
@@ -26,7 +26,7 @@ spec:
   template:
     spec:
       nodeSelector:
-        node-role.kubernetes.io/control-plane: "true"
+        kubernetes.io/arch: amd64
       tolerations:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists
@@ -43,7 +43,7 @@ spec:
   template:
     spec:
       nodeSelector:
-        node-role.kubernetes.io/control-plane: "true"
+        kubernetes.io/arch: amd64
       tolerations:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists
@@ -60,7 +60,7 @@ spec:
   template:
     spec:
       nodeSelector:
-        node-role.kubernetes.io/control-plane: "true"
+        kubernetes.io/arch: amd64
       tolerations:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists
@@ -77,7 +77,7 @@ spec:
   template:
     spec:
       nodeSelector:
-        node-role.kubernetes.io/control-plane: "true"
+        kubernetes.io/arch: amd64
       tolerations:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists
@@ -94,7 +94,7 @@ spec:
   template:
     spec:
       nodeSelector:
-        node-role.kubernetes.io/control-plane: "true"
+        kubernetes.io/arch: amd64
       tolerations:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists
@@ -111,7 +111,7 @@ spec:
   template:
     spec:
       nodeSelector:
-        node-role.kubernetes.io/control-plane: "true"
+        kubernetes.io/arch: amd64
       tolerations:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists
@@ -128,7 +128,7 @@ spec:
   template:
     spec:
       nodeSelector:
-        node-role.kubernetes.io/control-plane: "true"
+        kubernetes.io/arch: amd64
       tolerations:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists
@@ -145,7 +145,7 @@ spec:
   template:
     spec:
       nodeSelector:
-        node-role.kubernetes.io/control-plane: "true"
+        kubernetes.io/arch: amd64
       tolerations:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists
@@ -162,7 +162,7 @@ spec:
   template:
     spec:
       nodeSelector:
-        node-role.kubernetes.io/control-plane: "true"
+        kubernetes.io/arch: amd64
       tolerations:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists
@@ -179,7 +179,7 @@ spec:
   template:
     spec:
       nodeSelector:
-        node-role.kubernetes.io/control-plane: "true"
+        kubernetes.io/arch: amd64
       tolerations:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists
@@ -196,7 +196,7 @@ spec:
   template:
     spec:
       nodeSelector:
-        node-role.kubernetes.io/control-plane: "true"
+        kubernetes.io/arch: amd64
       tolerations:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists
@@ -213,7 +213,126 @@ spec:
   template:
     spec:
       nodeSelector:
-        node-role.kubernetes.io/control-plane: "true"
+        kubernetes.io/arch: amd64
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/etcd
+          operator: Exists
+          effect: NoSchedule
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: daemon
+spec:
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/etcd
+          operator: Exists
+          effect: NoSchedule
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: account-sync
+spec:
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/etcd
+          operator: Exists
+          effect: NoSchedule
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker
+spec:
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/etcd
+          operator: Exists
+          effect: NoSchedule
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ib-ingestor
+spec:
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/etcd
+          operator: Exists
+          effect: NoSchedule
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ib-account-agent
+spec:
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/etcd
+          operator: Exists
+          effect: NoSchedule
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ib-operator
+spec:
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/etcd
+          operator: Exists
+          effect: NoSchedule
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: massive-ws
+spec:
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/arch: amd64
       tolerations:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists

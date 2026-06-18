@@ -8,8 +8,8 @@ metadata:
     bifrost.io/purpose: stg-deliver
 spec:
   description: >-
-    Build stg images (9 FastAPI domains + Trade Frontend from Gitea), rollout bifrost-stg,
-    request Argo sync. Worker/socket images are build-deps only (not deployed in Phase B v1).
+    Build stg images (9 FastAPI domains + Trade Frontend + worker + socket from Gitea), rollout bifrost-stg,
+    request Argo sync. Phase B v2 — full stack including daemon, Celery, IB/Massive socket.
   params:
     - name: revision
       type: string
@@ -173,8 +173,20 @@ spec:
       workspaces:
         - name: source
           workspace: build-context
+    - name: build-worker-socket
+      runAfter: [clone-core, clone-worker, clone-socket]
+      taskRef:
+        name: bifrost-kaniko-worker-socket-stg
+      params:
+        - name: registry
+          value: $(params.registry)
+        - name: tag
+          value: $(params.tag)
+      workspaces:
+        - name: source
+          workspace: build-context
     - name: rollout
-      runAfter: [build-all-apis, build-frontend]
+      runAfter: [build-all-apis, build-frontend, build-worker-socket]
       taskRef:
         name: bifrost-rollout-stg
     - name: gitops-sync

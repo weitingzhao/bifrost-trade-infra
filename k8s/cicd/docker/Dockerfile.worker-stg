@@ -1,0 +1,27 @@
+# CI build — context must contain: bifrost-trade-core/ bifrost-trade-worker/
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc libpq-dev procps \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY bifrost-trade-core /src/bifrost-trade-core
+COPY bifrost-trade-worker /src/bifrost-trade-worker
+
+RUN pip install --no-cache-dir \
+    -e /src/bifrost-trade-core \
+    -e /src/bifrost-trade-worker \
+    && pip install --no-cache-dir "celery[redis]>=5.3.0" "flower>=2.0.0"
+
+COPY bifrost-trade-worker/scripts /src/bifrost-trade-worker/scripts
+
+WORKDIR /src/bifrost-trade-worker
+
+ENV PYTHONUNBUFFERED=1 \
+    BIFROST_CONFIG=/app/config/config.stg.yaml \
+    BIFROST_ENV=stg
+
+# Default entry; K8s Deployment overrides command per workload.
+CMD ["python", "scripts/run_daemon.py"]

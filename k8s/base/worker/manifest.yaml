@@ -1,0 +1,155 @@
+# Phase B stg v2 — trading daemon, account sync, Celery worker (shared bifrost-worker:stg image).
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: daemon
+  labels:
+    app.kubernetes.io/name: daemon
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: daemon
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: daemon
+        app.kubernetes.io/component: worker
+    spec:
+      volumes:
+        - name: bifrost-config
+          configMap:
+            name: bifrost-config
+      containers:
+        - name: daemon
+          image: registry.cicd.svc.cluster.local:5000/bifrost-worker:stg
+          imagePullPolicy: IfNotPresent
+          command: ["python", "scripts/run_daemon.py"]
+          workingDir: /src/bifrost-trade-worker
+          env:
+            - name: BIFROST_CONFIG
+              value: /app/config/config.stg.yaml
+            - name: BIFROST_ENV
+              value: stg
+          envFrom:
+            - secretRef:
+                name: bifrost-stg-secrets
+                optional: true
+          volumeMounts:
+            - name: bifrost-config
+              mountPath: /app/config/config.stg.yaml
+              subPath: config.stg.yaml
+            - name: bifrost-config
+              mountPath: /app/config/config.yaml.example
+              subPath: config.yaml.example
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: account-sync
+  labels:
+    app.kubernetes.io/name: account-sync
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: account-sync
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: account-sync
+        app.kubernetes.io/component: worker
+    spec:
+      volumes:
+        - name: bifrost-config
+          configMap:
+            name: bifrost-config
+      containers:
+        - name: account-sync
+          image: registry.cicd.svc.cluster.local:5000/bifrost-worker:stg
+          imagePullPolicy: IfNotPresent
+          command: ["python", "scripts/run_account_sync_daemon.py"]
+          workingDir: /src/bifrost-trade-worker
+          env:
+            - name: BIFROST_CONFIG
+              value: /app/config/config.stg.yaml
+            - name: BIFROST_ENV
+              value: stg
+          envFrom:
+            - secretRef:
+                name: bifrost-stg-secrets
+                optional: true
+          volumeMounts:
+            - name: bifrost-config
+              mountPath: /app/config/config.stg.yaml
+              subPath: config.stg.yaml
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker
+  labels:
+    app.kubernetes.io/name: celery-worker
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: celery-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: celery-worker
+        app.kubernetes.io/component: worker
+    spec:
+      volumes:
+        - name: bifrost-config
+          configMap:
+            name: bifrost-config
+      containers:
+        - name: celery-worker
+          image: registry.cicd.svc.cluster.local:5000/bifrost-worker:stg
+          imagePullPolicy: IfNotPresent
+          command: ["python", "scripts/run_celery.py"]
+          workingDir: /src/bifrost-trade-worker
+          env:
+            - name: BIFROST_CONFIG
+              value: /app/config/config.stg.yaml
+            - name: BIFROST_ENV
+              value: stg
+          envFrom:
+            - secretRef:
+                name: bifrost-stg-secrets
+                optional: true
+          volumeMounts:
+            - name: bifrost-config
+              mountPath: /app/config/config.stg.yaml
+              subPath: config.stg.yaml
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi

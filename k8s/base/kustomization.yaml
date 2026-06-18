@@ -12,6 +12,8 @@ resources:
   - infra/redis.yaml
   - nginx/gateway.yaml
   - apis/manifest.yaml
+  - worker/manifest.yaml
+  - socket/manifest.yaml
   - jobs/db-init.yaml
   - frontend/deployment.yaml
   - frontend/service.yaml

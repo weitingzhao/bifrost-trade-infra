@@ -3,6 +3,7 @@
 .env.local
 *.env.local
 config/secrets/
+k8s/base/secrets/bifrost-stg-secrets.yaml
 config/config.yaml
 
 # Docker

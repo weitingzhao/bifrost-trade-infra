@@ -1,0 +1,26 @@
+# Tekton PipelineRun placement — amd64 CI / Kaniko builds (G2)
+#
+# Apply via PipelineRun spec.taskRunTemplate (Tekton v1).
+# All Kaniko pipelines MUST use this template when created from:
+#   - platform-api POST /delivery/pipelines/{name}/runs
+#   - scripts/k3s/install-phase-b-stg.sh
+#
+# ARM nodes cannot execute RUN layers from linux/amd64 images (exec format error).
+---
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: placement-amd64-build-reference
+  annotations:
+    bifrost.io/placement-doc: "Do not apply this CR — reference only"
+spec:
+  pipelineRef:
+    name: bifrost-build-stg
+  taskRunTemplate:
+    podTemplate:
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
