@@ -398,6 +398,14 @@ k3s-join-gpu-server:
 	@chmod +x scripts/k3s/join-gpu-server.sh scripts/k3s/label-gpu-server.sh scripts/k3s/fetch-join-token.sh scripts/k3s/install-agent.sh scripts/k3s/configure-insecure-registry.sh
 	GPU_HOST=$(K3S_GPU_HOST) K3S_NODE_IP=$(K3S_GPU_NODE_IP) BOOTSTRAP_HOST=$(K3S_BOOTSTRAP_HOST) KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/join-gpu-server.sh
 
+# ubt-k3s-04 @ 192.168.10.75 — general K3s agent
+K3S_UBT04_HOST ?= vision@192.168.10.75
+K3S_UBT04_NODE_IP ?= 192.168.10.75
+
+k3s-join-ubt-k3s-04:
+	@chmod +x scripts/k3s/join-ubt-k3s-04.sh scripts/k3s/fetch-join-token.sh scripts/k3s/install-agent.sh scripts/k3s/configure-insecure-registry.sh
+	AGENT_HOST=$(K3S_UBT04_HOST) K3S_NODE_IP=$(K3S_UBT04_NODE_IP) BOOTSTRAP_HOST=$(K3S_BOOTSTRAP_HOST) KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/join-ubt-k3s-04.sh
+
 k3s-fetch-join-token:
 	@chmod +x scripts/k3s/fetch-join-token.sh
 	BOOTSTRAP_HOST=$(K3S_BOOTSTRAP_HOST) ./scripts/k3s/fetch-join-token.sh
