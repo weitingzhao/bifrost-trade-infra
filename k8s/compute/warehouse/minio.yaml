@@ -1,0 +1,81 @@
+# MinIO — local data warehouse object store on gpu-server (node-role=warehouse).
+# Scale up: make gpu-warehouse-up  |  Scale down: make gpu-warehouse-down
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-root
+  namespace: data-warehouse
+type: Opaque
+stringData:
+  MINIO_ROOT_USER: bifrost-warehouse
+  MINIO_ROOT_PASSWORD: change-me-warehouse-local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: data-warehouse
+  labels:
+    app: minio
+spec:
+  type: ClusterIP
+  selector:
+    app: minio
+  ports:
+    - name: api
+      port: 9000
+      targetPort: 9000
+    - name: console
+      port: 9001
+      targetPort: 9001
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: data-warehouse
+  labels:
+    app: minio
+    bifrost.io/workload-class: warehouse
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+        bifrost.io/workload-class: warehouse
+    spec:
+      nodeSelector:
+        node-role: warehouse
+        bifrost.io/workload-pool: compute
+      containers:
+        - name: minio
+          image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+          args:
+            - server
+            - /data
+            - --console-address
+            - ":9001"
+          envFrom:
+            - secretRef:
+                name: minio-root
+          ports:
+            - containerPort: 9000
+            - containerPort: 9001
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 1Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: minio-data

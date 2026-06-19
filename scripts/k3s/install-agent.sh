@@ -36,10 +36,19 @@ if swapon --show | grep -q .; then
   swapoff -a
 fi
 
+AGENT_ARGS=(--node-name "${K3S_NODE_NAME}" --node-ip "${K3S_NODE_IP}")
+if [[ -n "${K3S_NODE_LABELS:-}" ]]; then
+  IFS=',' read -ra PAIRS <<< "${K3S_NODE_LABELS}"
+  for pair in "${PAIRS[@]}"; do
+    key="${pair%%=*}"
+    val="${pair#*=}"
+    AGENT_ARGS+=(--node-label "${key}=${val}")
+  done
+fi
+
 export INSTALL_K3S_CHANNEL
 curl -sfL https://get.k3s.io | K3S_URL="${K3S_URL}" K3S_TOKEN="${K3S_TOKEN}" sh -s - agent \
-  --node-name "${K3S_NODE_NAME}" \
-  --node-ip "${K3S_NODE_IP}"
+  "${AGENT_ARGS[@]}"
 
 echo ""
 echo "Agent install complete: ${K3S_NODE_NAME} @ ${K3S_NODE_IP}"

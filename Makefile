@@ -389,6 +389,66 @@ k3s-join-agent-remote:
 	@echo "On target (interactive sudo):"
 	@echo "  ssh -t $(K3S_JOIN_HOST) 'sudo K3S_URL=$(K3S_URL) K3S_TOKEN=<token> K3S_NODE_IP=<lan-ip> bash ~/install-k3s-agent.sh'"
 
+# P5a — 4090 gpu-server @ 192.168.10.60 (warehouse + compute + GPU)
+K3S_GPU_HOST ?= vision@192.168.10.60
+K3S_GPU_NODE_IP ?= 192.168.10.60
+K3S_BOOTSTRAP_HOST ?= vision@192.168.10.73
+
+k3s-join-gpu-server:
+	@chmod +x scripts/k3s/join-gpu-server.sh scripts/k3s/label-gpu-server.sh scripts/k3s/fetch-join-token.sh scripts/k3s/install-agent.sh scripts/k3s/configure-insecure-registry.sh
+	GPU_HOST=$(K3S_GPU_HOST) K3S_NODE_IP=$(K3S_GPU_NODE_IP) BOOTSTRAP_HOST=$(K3S_BOOTSTRAP_HOST) KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/join-gpu-server.sh
+
+k3s-fetch-join-token:
+	@chmod +x scripts/k3s/fetch-join-token.sh
+	BOOTSTRAP_HOST=$(K3S_BOOTSTRAP_HOST) ./scripts/k3s/fetch-join-token.sh
+
+k3s-label-gpu-server:
+	@chmod +x scripts/k3s/label-gpu-server.sh
+	KUBECONFIG=$(KUBECONFIG) GPU_NODE_NAME=gpu-server ./scripts/k3s/label-gpu-server.sh
+
+# Step 2 — compute workloads on gpu-server (Ollama + MinIO, scale-to-zero)
+gpu-install-compute-stack:
+	@chmod +x scripts/k3s/install-compute-stack.sh scripts/k3s/gpu-workload.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/install-compute-stack.sh
+
+gpu-workloads-status:
+	@chmod +x scripts/k3s/gpu-workload.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/gpu-workload.sh status
+
+gpu-ollama-up:
+	@chmod +x scripts/k3s/gpu-workload.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/gpu-workload.sh ollama-up
+
+gpu-ollama-down:
+	@chmod +x scripts/k3s/gpu-workload.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/gpu-workload.sh ollama-down
+
+gpu-warehouse-up:
+	@chmod +x scripts/k3s/gpu-workload.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/gpu-workload.sh warehouse-up
+
+gpu-warehouse-down:
+	@chmod +x scripts/k3s/gpu-workload.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/gpu-workload.sh warehouse-down
+
+gpu-workloads-up:
+	@chmod +x scripts/k3s/gpu-workload.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/gpu-workload.sh all-up
+
+gpu-workloads-down:
+	@chmod +x scripts/k3s/gpu-workload.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/gpu-workload.sh all-down
+
+# Step 3 — WOL wake + idle poweroff (runs on bootstrap by default)
+gpu-power-manager:
+	@chmod +x scripts/k3s/gpu-node-power-manager.sh
+	GPU_POWER_ENV=$(CURDIR)/config/gpu-node-power.env KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/gpu-node-power-manager.sh
+
+gpu-install-power-manager:
+	@chmod +x scripts/k3s/install-gpu-power-manager.sh scripts/k3s/install-gpu-power-manager-remote.sh
+	@test -f config/gpu-node-power.env || cp config/gpu-node-power.env.example config/gpu-node-power.env
+	GPU_POWER_ENV=$(CURDIR)/config/gpu-node-power.env ./scripts/k3s/install-gpu-power-manager.sh
+
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 
 # WARNING: prune removes Docker builder cache — avoid during active 2C signoff rebuild loops.

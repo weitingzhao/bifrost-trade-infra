@@ -1,0 +1,67 @@
+# Ollama — scale-to-zero on gpu-server (workload=gpu).
+# Scale up: make gpu-ollama-up  |  Scale down: make gpu-ollama-down
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: ai
+  labels:
+    app: ollama
+spec:
+  type: ClusterIP
+  selector:
+    app: ollama
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: ai
+  labels:
+    app: ollama
+    bifrost.io/workload-class: ai
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+        bifrost.io/workload-class: ai
+    spec:
+      nodeSelector:
+        workload: gpu
+        bifrost.io/workload-pool: compute
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          ports:
+            - containerPort: 11434
+              name: http
+          env:
+            - name: OLLAMA_HOST
+              value: "0.0.0.0:11434"
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama
+          resources:
+            requests:
+              cpu: "2"
+              memory: 8Gi
+            limits:
+              cpu: "16"
+              memory: 64Gi
+          # Uncomment when nvidia-container-toolkit is on gpu-server:
+          # resources:
+          #   limits:
+          #     nvidia.com/gpu: "1"
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: ollama-models

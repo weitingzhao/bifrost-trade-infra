@@ -1,0 +1,17 @@
+# Reference — Tekton / Job pods targeting gpu-server (do not kubectl apply as-is).
+# Use taskRunTemplate.podTemplate.nodeSelector when scheduling GPU CI on 4090.
+---
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: placement-gpu-compute-reference
+  annotations:
+    bifrost.io/placement-doc: "Reference only — GPU / warehouse node gpu-server @ 192.168.10.60"
+spec:
+  pipelineRef:
+    name: bifrost-build-stg
+  taskRunTemplate:
+    podTemplate:
+      nodeSelector:
+        bifrost.io/workload-pool: compute
+        workload: gpu

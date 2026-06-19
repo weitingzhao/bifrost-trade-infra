@@ -1,0 +1,11 @@
+[Unit]
+Description=Enable Wake-on-LAN for eno1 (Marvell 10G)
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/ethtool -s eno1 wol g
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
