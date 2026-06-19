@@ -23,7 +23,7 @@
 | bifrost-trade-api | 9 | 9 | **Phase 2B CLOSED**（2026-06-04）— 9/9 域 CUTOVER + Owner 签字；Dev `VITE_API_*` → 8765–8773 |
 | bifrost-trade-frontend | 4 | 4 | **Phase 2B CLOSED**（2026-06-04）— New Frontend + New API 9/9 域 Owner 签字完成 |
 
-> **Phase 2B CLOSED**（2026-06-04）· **2C-A CLOSED**（2026-06-08）· **2C-B 规划中** · **K3s bootstrap 部分完成** · **重点目标**：Ops Console → Architecture → Blueprint § AI Native Platform（`blueprintCatalog.ts`）。见 [`PHASE2C_SIGNOFF_MASTER.md`](./PHASE2C_SIGNOFF_MASTER.md)、Ops Console → Architecture → **Platform Roadmap** / **K3s Architecture**（`bifrost-platform/console/src/lib/architecture/*Catalog.ts`）。Mac Dev：`PHASE2_API_CUTOVER.md` + `PHASE2B_SIGNOFF_MASTER.md`。
+> **Phase 2B CLOSED**（2026-06-04）· **2C-A CLOSED**（2026-06-08）· **K3s STG v2 SIGNED**（2026-06-18）· **2C-B Prod cutover IN_PROGRESS** · **K3s bootstrap 部分完成** · **重点目标**：Prod overlay + `bifrost-deliver-prod`。见 Ops Console → Operate → Delivery / Promote。
 
 ---
 
@@ -374,6 +374,7 @@
 | 2026-06-08 | **2C-A Session 6 Owner sign-off**：Research 8 路由 + Stock Inspector + stock-data backfill；`financials_feed` Celery 修；下一项 Session 7（Massive） | Owner |
 | 2026-06-08 | **2C-A Session 7 Owner sign-off**：coverage/* + feed/massive-*；下一项 Session 9（2C-A Final） | Owner |
 | 2026-06-08 | **2C-A Session 9 / Final**：`make prod-health` 12/12 OK（LAN PG/Redis）；**2C-A CLOSED**；下一项 **2C-B** 新 Prod 集群 | Owner |
+| 2026-06-18 | **K3s STG v2 SIGNED**：deliver-stg + Tier A smoke + STG release gate + Tier B sign-off；`k3s-stg-v2-deliver` CLOSED；`2c-b-prod-cutover` → IN_PROGRESS；compose→k3s ③/⑤ | Owner |
 | 2026-06-04 | **Local Prod Final CLOSED**：L2 Session 0–3/8 + L2.8；L3 D1–D5 Owner 修订（K3s 优先、PG `.80`、Win11×2 TWS、暂缓自动下单）；解锁 **K3s 阶段 1** | Owner |
 | 2026-06-08 | **Local Prod Final 立项**：主线 Local Final → 2C-B → K3s → 搬迁 → Legacy；`local_prod_final_gate.sh` L1 通过 | Agent |
 | 2026-06-05 | **Socket Message Center**：`IbConnectionStatusTracker` 接入 ingestor/account_agent/operator；`test_message_center_tracker`；prod-local 容器重启后 Redis 流验证 | Agent |
