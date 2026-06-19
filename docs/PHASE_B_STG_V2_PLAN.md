@@ -85,13 +85,22 @@ Host: `192.168.10.30` / Secondary: `192.168.10.33` · `port_type: tws_live`（Ow
 
 ### 4.4 部署命令
 
+日常交付详见 **`docs/DELIVER_STG.md`**。
+
 ```bash
 # 1. 配置（从 .env 同步 STG overlay）
 make sync-stg-config
-# 2. 创建 Secret（一次性，见 k8s/base/secrets/bifrost-stg-secrets.example.yaml）
+kubectl apply -k k8s/overlays/stg
+
+# 2. Secret（一次性，见 k8s/base/secrets/bifrost-stg-secrets.example.yaml）
 kubectl apply -f k8s/base/secrets/bifrost-stg-secrets.yaml -n bifrost-stg
-# 3. 全量安装 / 升级
-make k3s-install-phase-b-stg-v2
+
+# 3. 推送 GitHub → Gitea mirror → Kaniko 构建 + rollout
+make k3s-deliver-stg
+
+# 首次全栈安装（含 overlay + deliver + db-init）
+make k3s-install-phase-b-stg
+
 # 4. 验证
 make k3s-verify-phase-b-stg-v2
 ```
@@ -103,10 +112,12 @@ make k3s-verify-phase-b-stg-v2
 ```
 bifrost-trade-infra/
   docs/PHASE_B_STG_V2_PLAN.md          ← 本文
+  docs/DELIVER_STG.md                  ← deliver 管线操作手册
   config/config.stg.yaml               ← 全功能结构（密钥走 env/secret）
   scripts/sync_stg_config.sh
+  scripts/k3s/run-deliver-stg.sh
   scripts/k3s/verify-phase-b-stg-v2.sh
-  scripts/k3s/install-phase-b-stg-v2.sh
+  scripts/k3s/install-phase-b-stg.sh
   k8s/base/worker/manifest.yaml
   k8s/base/socket/manifest.yaml
   k8s/base/secrets/bifrost-stg-secrets.example.yaml

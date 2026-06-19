@@ -26,7 +26,7 @@ spec:
           imagePullPolicy: IfNotPresent
           command:
             - python
-            - /src/bifrost-trade-core/scripts/db/db_refresh_schema.py
+            - /build/bifrost-trade-core/scripts/db/db_refresh_schema.py
           env:
             - name: BIFROST_CONFIG
               value: /app/config/config.stg.yaml

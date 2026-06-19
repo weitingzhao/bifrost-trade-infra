@@ -60,102 +60,17 @@ kubectl rollout status deployment/postgres -n "${STG_NAMESPACE}" --timeout=600s 
 kubectl rollout status deployment/redis -n "${STG_NAMESPACE}" --timeout=300s
 kubectl rollout status deployment/nginx -n "${STG_NAMESPACE}" --timeout=300s || true
 
-echo "==> Tekton ConfigMaps (Dockerfiles)"
-kubectl create configmap bifrost-frontend-stg-dockerfile \
-  --from-file=Dockerfile.frontend-stg="${ROOT}/k8s/cicd/docker/Dockerfile.frontend-stg" \
-  -n "${CICD_NAMESPACE}" \
-  --dry-run=client -o yaml | kubectl apply -f -
-kubectl create configmap bifrost-api-stg-dockerfile \
-  --from-file=Dockerfile.api-stg="${ROOT}/k8s/cicd/docker/Dockerfile.api-stg" \
-  -n "${CICD_NAMESPACE}" \
-  --dry-run=client -o yaml | kubectl apply -f -
-kubectl create configmap bifrost-worker-stg-dockerfile \
-  --from-file=Dockerfile.worker-stg="${ROOT}/k8s/cicd/docker/Dockerfile.worker-stg" \
-  -n "${CICD_NAMESPACE}" \
-  --dry-run=client -o yaml | kubectl apply -f -
-kubectl create configmap bifrost-socket-stg-dockerfile \
-  --from-file=Dockerfile.socket-stg="${ROOT}/k8s/cicd/docker/Dockerfile.socket-stg" \
-  -n "${CICD_NAMESPACE}" \
-  --dry-run=client -o yaml | kubectl apply -f -
-
-echo "==> Tekton Phase B v2 deliver pipeline"
-kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-git-clone-gitea.yaml"
-kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-kaniko-all-apis-stg.yaml"
-kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-kaniko-worker-socket-stg.yaml"
-kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-kaniko-frontend-real.yaml"
-kubectl apply -f "${ROOT}/k8s/cicd/tekton/rbac-deliver-stg.yaml"
-kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-deliver-stg.yaml"
-kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-deliver-stg.yaml"
-
+echo "==> Tekton ConfigMaps (Dockerfiles) + deliver pipeline"
 if [[ "${RUN_DELIVER}" != "1" ]]; then
   echo "RUN_DELIVER=0 — manifests applied, skip PipelineRun."
   exit 0
 fi
 
-RUN_NAME="bifrost-deliver-stg-$(date +%s)"
-echo "==> Starting PipelineRun ${RUN_NAME} (timeout ${DELIVER_TIMEOUT}s — 9 API builds + frontend)"
-kubectl apply -f - <<EOF
-apiVersion: tekton.dev/v1
-kind: PipelineRun
-metadata:
-  name: ${RUN_NAME}
-  namespace: ${CICD_NAMESPACE}
-  labels:
-    tekton.dev/pipeline: bifrost-deliver-stg
-    bifrost.io/trigger: install-phase-b-stg
-spec:
-  pipelineRef:
-    name: bifrost-deliver-stg
-  # Pin ALL tasks to amd64 control-plane (arm64 workers cannot run RUN commands for amd64 images).
-  taskRunTemplate:
-    podTemplate:
-      nodeSelector:
-        kubernetes.io/arch: amd64
-      tolerations:
-        - key: node-role.kubernetes.io/control-plane
-          operator: Exists
-          effect: NoSchedule
-  taskRunSpecs:
-    - pipelineTaskName: rollout
-      serviceAccountName: tekton-deliver
-    - pipelineTaskName: gitops-sync
-      serviceAccountName: tekton-deliver
-  workspaces:
-    - name: build-context
-      volumeClaimTemplate:
-        spec:
-          accessModes:
-            - ReadWriteOnce
-          storageClassName: local-path
-          resources:
-            requests:
-              storage: 10Gi
-EOF
+TRIGGER=install-phase-b-stg SYNC_GITEA=0 APPLY_OVERLAY=0 RUN_DB_INIT=1 \
+  "${ROOT}/scripts/k3s/run-deliver-stg.sh"
 
-deadline=$((SECONDS + DELIVER_TIMEOUT))
-while true; do
-  reason="$(kubectl get pipelinerun "${RUN_NAME}" -n "${CICD_NAMESPACE}" -o jsonpath='{.status.conditions[0].reason}' 2>/dev/null || true)"
-  status="$(kubectl get pipelinerun "${RUN_NAME}" -n "${CICD_NAMESPACE}" -o jsonpath='{.status.conditions[0].status}' 2>/dev/null || true)"
-  if [[ "${status}" == "True" && "${reason}" == "Succeeded" ]]; then
-    echo "PipelineRun succeeded."
-    break
-  fi
-  if [[ "${status}" == "False" ]]; then
-    echo "PipelineRun failed (reason=${reason})." >&2
-    kubectl describe pipelinerun "${RUN_NAME}" -n "${CICD_NAMESPACE}" | tail -50 >&2 || true
-    exit 1
-  fi
-  if (( SECONDS > deadline )); then
-    echo "Timed out waiting for PipelineRun ${RUN_NAME}" >&2
-    exit 1
-  fi
-  sleep 20
-done
-
-echo "==> DB schema init (one-shot Job)"
-kubectl delete job db-init-stg -n "${STG_NAMESPACE}" --ignore-not-found
-kubectl apply -k "${ROOT}/k8s/overlays/stg"
-kubectl wait --for=condition=complete job/db-init-stg -n "${STG_NAMESPACE}" --timeout=600s
+STG_GATEWAY_URL="${STG_GATEWAY_URL:-http://192.168.10.73:30880/}"
+STG_API_URL="${STG_API_URL:-http://192.168.10.73:30880/api/monitor/status}"
 
 echo "==> Stg gateway smoke"
 api_code="$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 8 "${STG_API_URL}" || echo 000)"
@@ -187,4 +102,4 @@ echo "  Monitor:  ${STG_API_URL}"
 echo "  Worker:   daemon · account-sync · celery-worker"
 echo "  Socket:   ib-ingestor · ib-account-agent · ib-operator · massive-ws"
 echo "  Verify:   make k3s-verify-phase-b-stg-v2"
-echo "  Console:  Delivery → ${RUN_NAME}; Promote stg smoke via gateway URLs"
+echo "  Console:  Delivery → bifrost-deliver-stg; Promote stg smoke via gateway URLs"

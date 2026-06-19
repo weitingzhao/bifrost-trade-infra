@@ -86,7 +86,10 @@ redis:
 
 ops:
   control_profile: stg
-  # K8s stg: process control via Ops Console Cluster actuation (B1). K8s executor in B2.
+  # K8s stg: Celery worker instances spawn via Ops subprocess inside api-ops pod (B1).
+  # B2: executor_mode kubernetes for pod/Job actuation.
+  project_root: /build/bifrost-trade-worker
+  socket_project_root: /build/bifrost-trade-socket
   executor_mode: local
   local_control: subprocess
   celery:
@@ -122,3 +125,7 @@ ops:
 # Prefer env MASSIVE_API_KEY / POLYGON_API_KEY from Secret in pods.
 massive:
   api_key: ""
+  tier: starter
+  ws_url: wss://delayed.polygon.io/options
+  features:
+    trades_enabled: false

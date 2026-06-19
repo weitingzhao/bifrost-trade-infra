@@ -1,0 +1,46 @@
+# Post-deliver HTTP smoke inside cluster (Tier A subset — gateway + 9 API /health|/status).
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-verify-stg-deliver
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: stg-deliver
+spec:
+  params:
+    - name: gatewayBase
+      type: string
+      default: http://nginx.bifrost-stg.svc.cluster.local
+  steps:
+    - name: http-smoke
+      image: curlimages/curl:8.11.1
+      script: |
+        #!/bin/sh
+        set -eu
+        gw="$(params.gatewayBase)"
+        gw="${gw%/}"
+        fail=0
+        check() {
+          id="$1"
+          path="$2"
+          url="${gw}${path}"
+          code="$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 15 "${url}" || echo 000)"
+          echo "${id} ${url} → HTTP ${code}"
+          case "${code}" in
+            200|503) ;;
+            *) fail=1 ;;
+          esac
+        }
+        check stg-frontend /
+        check stg-api-monitor /api/monitor/status
+        for d in massive docs ops trading strategy portfolio market research; do
+          if [ "${d}" = "monitor" ]; then
+            continue
+          fi
+          check "stg-api-${d}" "/api/${d}/health"
+        done
+        if [ "${fail}" -ne 0 ]; then
+          echo "STG verify failed — one or more endpoints unreachable" >&2
+          exit 1
+        fi
+        echo "STG verify passed (gateway + 9 API domains)"

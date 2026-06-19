@@ -324,6 +324,23 @@ spec:
           operator: Exists
           effect: NoSchedule
 ---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-init-stg
+spec:
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/etcd
+          operator: Exists
+          effect: NoSchedule
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:

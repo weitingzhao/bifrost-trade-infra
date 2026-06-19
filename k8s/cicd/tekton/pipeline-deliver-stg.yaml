@@ -8,8 +8,8 @@ metadata:
     bifrost.io/purpose: stg-deliver
 spec:
   description: >-
-    Build stg images (9 FastAPI domains + Trade Frontend + worker + socket from Gitea), rollout bifrost-stg,
-    request Argo sync. Phase B v2 — full stack including daemon, Celery, IB/Massive socket.
+    Prepare (Gitea mirror + Dockerfile CMs) → build stg images from Gitea → rollout →
+    in-cluster HTTP verify → Argo sync. Phase B v2 full stack.
   params:
     - name: revision
       type: string
@@ -107,8 +107,31 @@ spec:
       workspaces:
         - name: output
           workspace: build-context
+    - name: clone-infra
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-trade-infra.git
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: bifrost-trade-infra
+      workspaces:
+        - name: output
+          workspace: build-context
+    - name: prepare
+      runAfter: [clone-infra]
+      taskRef:
+        name: bifrost-prepare-deliver-stg
+      params:
+        - name: giteaBase
+          value: $(params.giteaBase)
+      workspaces:
+        - name: source
+          workspace: build-context
     - name: stage-api-dockerfile
-      runAfter: [clone-core, clone-worker, clone-socket, clone-api]
+      runAfter: [prepare, clone-core, clone-worker, clone-socket, clone-api]
       workspaces:
         - name: source
           workspace: build-context
@@ -142,7 +165,7 @@ spec:
         - name: source
           workspace: build-context
     - name: stage-frontend-dockerfile
-      runAfter: [clone-frontend, clone-ui]
+      runAfter: [prepare, clone-frontend, clone-ui]
       workspaces:
         - name: source
           workspace: build-context
@@ -174,7 +197,7 @@ spec:
         - name: source
           workspace: build-context
     - name: build-worker-socket
-      runAfter: [clone-core, clone-worker, clone-socket]
+      runAfter: [prepare, clone-core, clone-worker, clone-socket]
       taskRef:
         name: bifrost-kaniko-worker-socket-stg
       params:
@@ -189,7 +212,11 @@ spec:
       runAfter: [build-all-apis, build-frontend, build-worker-socket]
       taskRef:
         name: bifrost-rollout-stg
-    - name: gitops-sync
+    - name: verify-stg
       runAfter: [rollout]
+      taskRef:
+        name: bifrost-verify-stg-deliver
+    - name: gitops-sync
+      runAfter: [verify-stg]
       taskRef:
         name: bifrost-argocd-sync-stg

@@ -1,4 +1,4 @@
-# Phase B — build all 9 Trade API images (single pod; one Kaniko step loop to avoid Tekton step resource sum).
+# Phase B — build ONE Trade API image, retag for all 9 domains (same layers; API_DOMAIN set in K8s).
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -7,7 +7,7 @@ metadata:
   labels:
     bifrost.io/purpose: stg-build
 spec:
-  description: Kaniko build bifrost-api-{domain}:stg for all FastAPI domains (shared context)
+  description: Kaniko build bifrost-api-monitor:stg once; crane copy to bifrost-api-{domain}:stg
   params:
     - name: registry
       type: string
@@ -29,8 +29,10 @@ spec:
         test -f "${root}/bifrost-trade-api/pyproject.toml"
         test -f "${root}/bifrost-trade-worker/pyproject.toml"
         test -f "${root}/bifrost-trade-socket/pyproject.toml"
+        test -f "${root}/bifrost-trade-worker/scripts/systemd/run_celery.py"
+        test -f "${root}/bifrost-trade-socket/scripts/run_massive_ws.py"
         echo "API build context OK"
-    - name: build-all-apis
+    - name: build-api-base
       image: gcr.io/kaniko-project/executor:v1.23.2-debug
       env:
         - name: REGISTRY
@@ -41,20 +43,17 @@ spec:
         #!/busybox/sh
         set -eu
         ctx="$(workspaces.source.path)"
-        domains="monitor massive docs ops trading strategy portfolio market research"
-        for d in ${domains}; do
-          echo "=== Kaniko build bifrost-api-${d}:${TAG} ==="
-          /kaniko/executor \
-            --dockerfile="${ctx}/Dockerfile.api-stg" \
-            --context="${ctx}" \
-            --destination="${REGISTRY}/bifrost-api-${d}:${TAG}" \
-            --build-arg="API_DOMAIN=${d}" \
-            --custom-platform=linux/amd64 \
-            --insecure \
-            --skip-tls-verify \
-            --insecure-registry="${REGISTRY}"
-        done
-        echo "All 9 API images pushed."
+        echo "=== Kaniko build shared bifrost-api-monitor:${TAG} ==="
+        /kaniko/executor \
+          --dockerfile="${ctx}/Dockerfile.api-stg" \
+          --context="${ctx}" \
+          --destination="${REGISTRY}/bifrost-api-monitor:${TAG}" \
+          --build-arg="API_DOMAIN=monitor" \
+          --custom-platform=linux/amd64 \
+          --insecure \
+          --skip-tls-verify \
+          --insecure-registry="${REGISTRY}"
+        echo "Base API image pushed."
       computeResources:
         requests:
           cpu: 500m
@@ -62,3 +61,21 @@ spec:
         limits:
           cpu: "4"
           memory: 6Gi
+    - name: tag-all-domains
+      image: gcr.io/go-containerregistry/crane:debug
+      env:
+        - name: REGISTRY
+          value: $(params.registry)
+        - name: TAG
+          value: $(params.tag)
+      script: |
+        #!/busybox/sh
+        set -eu
+        src="${REGISTRY}/bifrost-api-monitor:${TAG}"
+        domains="monitor massive docs ops trading strategy portfolio market research"
+        for d in ${domains}; do
+          dest="${REGISTRY}/bifrost-api-${d}:${TAG}"
+          echo "=== crane copy ${src} -> ${dest} ==="
+          crane copy --insecure "${src}" "${dest}"
+        done
+        echo "All 9 API tags point at the same image digest."

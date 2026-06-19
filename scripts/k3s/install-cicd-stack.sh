@@ -74,7 +74,9 @@ fi
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-kaniko-frontend-real.yaml" 2>/dev/null || true
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-build-stg.yaml" 2>/dev/null || true
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-build-frontend-stg.yaml" 2>/dev/null || true
-  kubectl apply -f "${ROOT}/k8s/cicd/tekton/rbac-deliver-stg.yaml" 2>/dev/null || true
+  kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-prepare-deliver-stg.yaml"
+kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-verify-stg-deliver.yaml"
+kubectl apply -f "${ROOT}/k8s/cicd/tekton/rbac-deliver-stg.yaml" 2>/dev/null || true
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-deliver-stg.yaml" 2>/dev/null || true
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-deliver-stg.yaml" 2>/dev/null || true
 fi

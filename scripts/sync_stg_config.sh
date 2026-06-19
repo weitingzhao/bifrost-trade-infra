@@ -121,6 +121,8 @@ PY
 mkdir -p "$(dirname "$OVERLAY_CFG")"
 cp "$CFG" "$OVERLAY_CFG"
 cp "${ROOT}/config/config.yaml.example" "$(dirname "$OVERLAY_CFG")/config.yaml.example"
+
 echo "Copied → ${OVERLAY_CFG} + config.yaml.example"
-echo "Apply to cluster: kubectl apply -k ${ROOT}/k8s/overlays/stg"
+echo "Apply manifest: kubectl apply -k ${ROOT}/k8s/overlays/stg"
+echo "Build images:   make k3s-deliver-stg  (after push to GitHub + Gitea mirror sync)"
 echo "Secrets: kubectl apply -f k8s/base/secrets/bifrost-stg-secrets.yaml -n bifrost-stg (from .example)"

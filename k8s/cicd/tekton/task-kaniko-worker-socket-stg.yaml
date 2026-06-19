@@ -48,6 +48,8 @@ spec:
         test -f "${root}/Dockerfile.socket-stg"
         test -f "${root}/bifrost-trade-worker/pyproject.toml"
         test -f "${root}/bifrost-trade-socket/pyproject.toml"
+        test -f "${root}/bifrost-trade-worker/scripts/run_daemon.py"
+        test -f "${root}/bifrost-trade-socket/scripts/run_massive_ws.py"
         echo "worker/socket build context OK"
     - name: build-worker
       image: gcr.io/kaniko-project/executor:v1.23.2-debug

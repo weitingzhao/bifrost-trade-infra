@@ -18,6 +18,7 @@ patches:
   - path: node-control-plane.patch.yaml
   - path: nodeport-services.patch.yaml
   - path: stg-images-pull-always.patch.yaml
+  - path: api-ops-celery.patch.yaml
 
 # Kubelet pulls images on the node host — it cannot resolve *.svc.cluster.local.
 # Use bootstrap node LAN IP + registry NodePort (30500) instead of in-cluster DNS.

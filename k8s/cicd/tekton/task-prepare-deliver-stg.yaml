@@ -1,0 +1,69 @@
+# Prepare bifrost-deliver-stg: Gitea mirror-sync + Dockerfile ConfigMaps (Console Run parity with run-deliver-stg.sh).
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-prepare-deliver-stg
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: stg-deliver
+spec:
+  params:
+    - name: giteaBase
+      type: string
+      default: http://gitea.cicd.svc.cluster.local:3000/bifrost
+    - name: mirrorRepos
+      type: string
+      default: "bifrost-trade-core bifrost-trade-worker bifrost-trade-socket bifrost-trade-api bifrost-trade-frontend bifrost-ui"
+  workspaces:
+    - name: source
+  steps:
+    - name: mirror-sync
+      image: curlimages/curl:8.11.1
+      env:
+        - name: GITEA_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: gitea-bootstrap
+              key: gitea_admin_token
+              optional: true
+      script: |
+        #!/bin/sh
+        set -eu
+        if [ -z "${GITEA_TOKEN:-}" ]; then
+          echo "WARN: gitea-bootstrap/gitea_admin_token missing — skip mirror-sync (ensure GitHub→Gitea mirrors are fresh)"
+          exit 0
+        fi
+        base="$(params.giteaBase)"
+        org="${base##*/}"
+        api="${base%/bifrost}/api/v1"
+        for repo in $(params.mirrorRepos); do
+          code="$(curl -s -o /dev/null -w '%{http_code}' \
+            -X POST \
+            -H "Authorization: token ${GITEA_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "${api}/repos/${org}/${repo}/mirror-sync" \
+            -d '{}')"
+          echo "mirror-sync ${org}/${repo} → HTTP ${code}"
+        done
+    - name: dockerfile-configmaps
+      image: alpine/k8s:1.31.4
+      script: |
+        #!/bin/sh
+        set -eu
+        root="$(workspaces.source.path)/bifrost-trade-infra/k8s/cicd/docker"
+        ns="cicd"
+        for pair in \
+          "bifrost-api-stg-dockerfile:Dockerfile.api-stg" \
+          "bifrost-frontend-stg-dockerfile:Dockerfile.frontend-stg" \
+          "bifrost-worker-stg-dockerfile:Dockerfile.worker-stg" \
+          "bifrost-socket-stg-dockerfile:Dockerfile.socket-stg"; do
+          cm="${pair%%:*}"
+          file="${pair##*:}"
+          path="${root}/${file}"
+          test -f "${path}" || { echo "missing ${path}" >&2; exit 1; }
+          kubectl create configmap "${cm}" \
+            --from-file="${file}=${path}" \
+            -n "${ns}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          echo "Applied ConfigMap ${cm} in ${ns}"
+        done
