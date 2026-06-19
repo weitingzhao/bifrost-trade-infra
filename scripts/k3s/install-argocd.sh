@@ -13,7 +13,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 KUBECONFIG="${KUBECONFIG:-${PLATFORM_KUBECONFIG:-$HOME/.kube/bifrost-k3s.yaml}}"
 ARGOCD_NAMESPACE="${ARGOCD_NAMESPACE:-cicd}"
 ARGOCD_VERSION="${ARGOCD_VERSION:-stable}"
-APPLY_HELLO_APP="${APPLY_HELLO_APP:-1}"
+	APPLY_HELLO_APP="${APPLY_HELLO_APP:-1}"
+	RBAC_FIX="${ROOT}/k8s/cicd/argocd/rbac-cicd-namespace-bindings.yaml"
 
 export KUBECONFIG
 
@@ -48,6 +49,13 @@ for i in $(seq 1 60); do
   sleep 2
 done
 kubectl get crd applications.argoproj.io >/dev/null
+
+if [[ -f "${RBAC_FIX}" ]]; then
+  echo "==> Patch ClusterRoleBindings for cicd namespace ServiceAccounts"
+  kubectl apply -f "${RBAC_FIX}"
+else
+  echo "WARN: missing ${RBAC_FIX} — Argo controllers may lack cluster RBAC" >&2
+fi
 
 if [[ "${APPLY_HELLO_APP}" == "1" ]]; then
   APP_MANIFEST="${ROOT}/k8s/cicd/applications/hello-stg.yaml"
