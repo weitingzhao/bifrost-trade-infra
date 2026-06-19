@@ -1,0 +1,68 @@
+# Refresh Kaniko Dockerfile ConfigMaps from Gitea bifrost-trade-infra (Supply Chain actuation).
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-refresh-dockerfile-cms
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: stg-deliver
+spec:
+  params:
+    - name: giteaBase
+      type: string
+      default: http://gitea.cicd.svc.cluster.local:3000/bifrost
+    - name: revision
+      type: string
+      default: main
+  workspaces:
+    - name: source
+  steps:
+    - name: clone-infra
+      image: alpine/git:2.45.2
+      env:
+        - name: GIT_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: gitea-git-credentials
+              key: username
+        - name: GIT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: gitea-git-credentials
+              key: password
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+        out="$(workspaces.source.path)/bifrost-trade-infra"
+        mkdir -p "${out}"
+        rm -rf "${out}"/* "${out}"/.[!.]* "${out}"/..?* 2>/dev/null || true
+        url="$(params.giteaBase)/bifrost-trade-infra.git"
+        rev="$(params.revision)"
+        host_path="${url#http://}"
+        host_path="${host_path#https://}"
+        clone_url="http://${GIT_USERNAME}:${GIT_PASSWORD}@${host_path}"
+        git clone --depth=1 --branch "${rev}" "${clone_url}" "${out}"
+        cd "${out}"
+        echo "=== infra HEAD $(git rev-parse --short HEAD) @ ${rev} ==="
+    - name: dockerfile-configmaps
+      image: alpine/k8s:1.31.4
+      script: |
+        #!/bin/sh
+        set -eu
+        root="$(workspaces.source.path)/bifrost-trade-infra/k8s/cicd/docker"
+        ns="cicd"
+        for pair in \
+          "bifrost-api-stg-dockerfile:Dockerfile.api-stg" \
+          "bifrost-frontend-stg-dockerfile:Dockerfile.frontend-stg" \
+          "bifrost-worker-stg-dockerfile:Dockerfile.worker-stg" \
+          "bifrost-socket-stg-dockerfile:Dockerfile.socket-stg"; do
+          cm="${pair%%:*}"
+          file="${pair##*:}"
+          path="${root}/${file}"
+          test -f "${path}" || { echo "missing ${path}" >&2; exit 1; }
+          kubectl create configmap "${cm}" \
+            --from-file="${file}=${path}" \
+            -n "${ns}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          echo "Applied ConfigMap ${cm}"
+        done
