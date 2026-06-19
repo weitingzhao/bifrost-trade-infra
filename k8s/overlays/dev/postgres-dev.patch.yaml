@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  template:
+    spec:
+      containers:
+        - name: postgres
+          env:
+            - name: POSTGRES_USER
+              value: bifrost
+            - name: POSTGRES_PASSWORD
+              value: bifrost_dev
+            - name: POSTGRES_DB
+              value: bifrost_dev
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "bifrost", "-d", "bifrost_dev"]

@@ -1,0 +1,61 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: bifrost-dev
+
+resources:
+  - namespace.yaml
+  - ../../base
+  - db-init-dev.job.yaml
+
+configMapGenerator:
+  - name: bifrost-config
+    files:
+      # Base manifests mount config.stg.yaml — alias dev content (same pattern as prod overlay).
+      - config.stg.yaml=config/config.dev.yaml
+      - config.dev.yaml=config/config.dev.yaml
+      - config.yaml.example=config/config.yaml.example
+    options:
+      disableNameSuffixHash: true
+
+patches:
+  - path: node-control-plane.patch.yaml
+  - path: nodeport-services.patch.yaml
+  - path: dev-images-pull-always.patch.yaml
+  - path: api-ops-celery.patch.yaml
+  - path: postgres-dev.patch.yaml
+  - path: delete-db-init-stg.patch.yaml
+
+images:
+  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-monitor
+    newName: 192.168.10.73:30500/bifrost-api-monitor
+  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-massive
+    newName: 192.168.10.73:30500/bifrost-api-massive
+  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-docs
+    newName: 192.168.10.73:30500/bifrost-api-docs
+  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-ops
+    newName: 192.168.10.73:30500/bifrost-api-ops
+  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-trading
+    newName: 192.168.10.73:30500/bifrost-api-trading
+  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-strategy
+    newName: 192.168.10.73:30500/bifrost-api-strategy
+  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-portfolio
+    newName: 192.168.10.73:30500/bifrost-api-portfolio
+  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-market
+    newName: 192.168.10.73:30500/bifrost-api-market
+  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-research
+    newName: 192.168.10.73:30500/bifrost-api-research
+  - name: registry.cicd.svc.cluster.local:5000/bifrost-frontend
+    newName: 192.168.10.73:30500/bifrost-frontend
+  - name: registry.cicd.svc.cluster.local:5000/bifrost-worker
+    newName: 192.168.10.73:30500/bifrost-worker
+  - name: registry.cicd.svc.cluster.local:5000/bifrost-socket
+    newName: 192.168.10.73:30500/bifrost-socket
+
+commonAnnotations:
+  bifrost.io/environment: dev
+
+labels:
+  - pairs:
+      bifrost.io/environment: dev
+    includeSelectors: false
