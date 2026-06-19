@@ -1,0 +1,7 @@
+# Prod uses bare-metal PostgreSQL @ 192.168.10.80 (D2) — no in-cluster PG.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  replicas: 0

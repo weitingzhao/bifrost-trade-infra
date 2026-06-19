@@ -107,6 +107,10 @@ sync-prod-config:
 	@chmod +x scripts/sync_prod_config.sh
 	@./scripts/sync_prod_config.sh
 
+sync-prod-k8s-config:
+	@chmod +x scripts/sync_prod_k8s_config.sh
+	@./scripts/sync_prod_k8s_config.sh
+
 # Optional isolated PG+Redis for prod compose smoke (greenfield/CI).
 prod-embedded-infra: ensure-env sync-prod-config
 	$(COMPOSE) --profile embedded-infra up -d postgres redis
@@ -353,6 +357,21 @@ k3s-sync-gitea-mirrors:
 k3s-deliver-stg:
 	@chmod +x scripts/k3s/run-deliver-stg.sh scripts/k3s/bootstrap-gitea-mirrors.sh scripts/sync_stg_config.sh
 	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/run-deliver-stg.sh
+
+k3s-deliver-prod:
+	@chmod +x scripts/k3s/run-deliver-prod.sh scripts/k3s/bootstrap-gitea-mirrors.sh scripts/sync_prod_k8s_config.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/run-deliver-prod.sh
+
+k3s-verify-phase-b-prod:
+	@chmod +x scripts/k3s/verify-phase-b-prod.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/verify-phase-b-prod.sh
+
+k3s-install-ci-deliver-prod:
+	@chmod +x scripts/k3s/run-deliver-prod.sh
+	kubectl --kubeconfig $(KUBECONFIG) apply -f k8s/cicd/tekton/task-verify-prod-deliver.yaml
+	kubectl --kubeconfig $(KUBECONFIG) apply -f k8s/cicd/tekton/rbac-deliver-prod.yaml
+	kubectl --kubeconfig $(KUBECONFIG) apply -f k8s/cicd/tekton/pipeline-deliver-prod.yaml
+	kubectl --kubeconfig $(KUBECONFIG) apply -f k8s/cicd/applications/bifrost-prod.yaml
 
 k3s-configure-registry:
 	@chmod +x scripts/k3s/configure-insecure-registry.sh

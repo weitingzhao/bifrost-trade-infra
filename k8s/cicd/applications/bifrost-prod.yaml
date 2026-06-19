@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: bifrost-prod
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: trade-prod
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/weitingzhao/bifrost-trade-infra.git
+    path: k8s/overlays/prod
+    targetRevision: main
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: bifrost-prod
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

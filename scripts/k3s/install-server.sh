@@ -69,7 +69,7 @@ kubectl get nodes -o wide
 kubectl get pods -A
 
 echo "==> Creating Bifrost namespaces"
-for ns in cicd data monitoring ai bifrost bifrost-stg; do
+for ns in cicd data monitoring ai bifrost bifrost-stg bifrost-prod; do
   kubectl create namespace "${ns}" --dry-run=client -o yaml | kubectl apply -f -
 done
 
