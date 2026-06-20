@@ -254,6 +254,19 @@ k3s-install-metrics-remote:
 	@chmod +x scripts/k3s/install-metrics-server.sh
 	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/install-metrics-server.sh
 
+# NAS NFS — StorageClass nfs-hot / nfs-cold (UGREEN @ 192.168.10.20; run install-nfs-common-nodes.sh first)
+k3s-install-nfs-common-nodes:
+	@chmod +x scripts/k3s/install-nfs-common-nodes.sh
+	./scripts/k3s/install-nfs-common-nodes.sh
+
+k3s-install-nfs-provisioner:
+	@chmod +x scripts/k3s/install-nfs-provisioner.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/install-nfs-provisioner.sh
+
+k3s-verify-nfs-provisioner:
+	@chmod +x scripts/k3s/verify-nfs-provisioner.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/verify-nfs-provisioner.sh
+
 # P1 — minimal Argo CD in cicd (Session S1; verify Ops Console → Delivery → GitOps probe)
 k3s-install-argocd:
 	@chmod +x scripts/k3s/install-argocd.sh
