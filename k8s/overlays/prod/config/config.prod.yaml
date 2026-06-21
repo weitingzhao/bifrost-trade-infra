@@ -1,7 +1,6 @@
-# Prod overlay — K3s bifrost-prod @ mini-pc-a pool.
-# Sync: scripts/sync_prod_overlay_config.sh (IB/massive from .env). PG: CNPG @ data NS (phase ⑤).
-# CNPG app user password = secret bifrost-postgres-app (bifrost_stg); database = bifrost_prod (R-DV1).
-# Legacy bare-metal .80 options_db retired after cutover — rollback: revert host to 192.168.10.80.
+# Prod overlay — deep-merged over config.yaml (from config.yaml.example).
+# postgres/redis/ib/server 由 make sync-prod-config 从 .env 写入；勿手改后忘记同步。
+# ops.auth.tokens：生产 token 勿提交 git；通过 .env OPS_* 或部署密钥注入。
 
 server:
   skip_monitor_ib: false
@@ -68,21 +67,15 @@ utilized:
     research: prod
 
 postgres:
-  host: bifrost-postgres-rw.data.svc.cluster.local
+  host: 192.168.10.80
   port: 5432
   user: bifrost
-  password: bifrost_stg
-  database: bifrost_prod
+  password: OptionPSW!@
+  database: options_db
 
 redis:
   enabled: true
-  host: redis-live-prod.data.svc.cluster.local
-  port: 6379
-  db: 0
-
-redis_queue:
-  enabled: true
-  host: redis-queue-prod.data.svc.cluster.local
+  host: redis
   port: 6379
   db: 0
 
@@ -124,7 +117,3 @@ ops:
 
 massive:
   api_key: MYCd1tboShKK7UTYgKN_fjtBrZUr9zhe
-  tier: starter
-  ws_url: wss://delayed.polygon.io/options
-  features:
-    trades_enabled: false
