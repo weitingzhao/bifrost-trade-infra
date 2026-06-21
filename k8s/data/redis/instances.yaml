@@ -1,0 +1,307 @@
+# Phase ⑥ — Redis live/queue targets @ data NS (single-replica; upgrade to Bitnami HA later).
+# Names must match platform-api redisTargetCatalog (redis_status.go).
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-live-stg
+  labels:
+    app.kubernetes.io/name: redis-live-stg
+    bifrost.io/environment: stg
+    bifrost.io/redis-role: live
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis-live-stg
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis-live-stg
+        bifrost.io/environment: stg
+        bifrost.io/redis-role: live
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command:
+            - redis-server
+            - --appendonly
+            - "yes"
+            - --appendfsync
+            - everysec
+            - --maxmemory-policy
+            - noeviction
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-live-stg
+  labels:
+    app.kubernetes.io/name: redis-live-stg
+spec:
+  selector:
+    app.kubernetes.io/name: redis-live-stg
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-queue-stg
+  labels:
+    app.kubernetes.io/name: redis-queue-stg
+    bifrost.io/environment: stg
+    bifrost.io/redis-role: queue
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis-queue-stg
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis-queue-stg
+        bifrost.io/environment: stg
+        bifrost.io/redis-role: queue
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command:
+            - redis-server
+            - --appendonly
+            - "yes"
+            - --appendfsync
+            - everysec
+            - --maxmemory-policy
+            - allkeys-lru
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-queue-stg
+  labels:
+    app.kubernetes.io/name: redis-queue-stg
+spec:
+  selector:
+    app.kubernetes.io/name: redis-queue-stg
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-live-prod
+  labels:
+    app.kubernetes.io/name: redis-live-prod
+    bifrost.io/environment: prod
+    bifrost.io/redis-role: live
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis-live-prod
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis-live-prod
+        bifrost.io/environment: prod
+        bifrost.io/redis-role: live
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command:
+            - redis-server
+            - --appendonly
+            - "yes"
+            - --appendfsync
+            - everysec
+            - --maxmemory-policy
+            - noeviction
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-live-prod
+  labels:
+    app.kubernetes.io/name: redis-live-prod
+spec:
+  selector:
+    app.kubernetes.io/name: redis-live-prod
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-queue-prod
+  labels:
+    app.kubernetes.io/name: redis-queue-prod
+    bifrost.io/environment: prod
+    bifrost.io/redis-role: queue
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis-queue-prod
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis-queue-prod
+        bifrost.io/environment: prod
+        bifrost.io/redis-role: queue
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command:
+            - redis-server
+            - --appendonly
+            - "yes"
+            - --appendfsync
+            - everysec
+            - --maxmemory-policy
+            - allkeys-lru
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-queue-prod
+  labels:
+    app.kubernetes.io/name: redis-queue-prod
+spec:
+  selector:
+    app.kubernetes.io/name: redis-queue-prod
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-dev
+  labels:
+    app.kubernetes.io/name: redis-dev
+    bifrost.io/environment: dev
+    bifrost.io/redis-role: live-queue
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis-dev
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis-dev
+        bifrost.io/environment: dev
+        bifrost.io/redis-role: live-queue
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command:
+            - redis-server
+            - --appendonly
+            - "yes"
+            - --appendfsync
+            - everysec
+            - --maxmemory-policy
+            - noeviction
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-dev
+  labels:
+    app.kubernetes.io/name: redis-dev
+spec:
+  selector:
+    app.kubernetes.io/name: redis-dev
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis

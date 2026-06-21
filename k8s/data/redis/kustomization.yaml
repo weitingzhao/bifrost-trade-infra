@@ -4,17 +4,11 @@ kind: Kustomization
 namespace: data
 
 resources:
-  - namespace.yaml
-  - cluster.yaml
-  - databases.yaml
-  - backup-scheduled.yaml
-  - minio/pvc.yaml
-  - minio/deployment.yaml
-  - minio/service.yaml
-  - redis/
+  - instances.yaml
 
 labels:
   - pairs:
       app.kubernetes.io/managed-by: kustomize
       app.kubernetes.io/part-of: bifrost
+      app.kubernetes.io/component: redis
     includeSelectors: false

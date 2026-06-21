@@ -340,6 +340,39 @@ k3s-verify-data-layer-phase4-prod:
 	@chmod +x scripts/k3s/verify-data-layer-phase4-prod.sh
 	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/verify-data-layer-phase4-prod.sh
 
+# Data layer phase ⑥ — Redis live/queue @ data NS
+k3s-install-data-layer-phase5-redis:
+	@chmod +x scripts/k3s/install-data-layer-phase5-redis.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/install-data-layer-phase5-redis.sh
+
+k3s-verify-data-layer-phase5-data:
+	@chmod +x scripts/k3s/verify-data-layer-phase5-data.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/verify-data-layer-phase5-data.sh
+
+k3s-cutover-stg-data-layer-phase5-redis:
+	@chmod +x scripts/k3s/cutover-stg-data-layer-phase5-redis.sh scripts/k3s/verify-data-layer-phase5-stg.sh scripts/k3s/verify-data-layer-phase5-data.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/cutover-stg-data-layer-phase5-redis.sh
+
+k3s-verify-data-layer-phase5-stg:
+	@chmod +x scripts/k3s/verify-data-layer-phase5-stg.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/verify-data-layer-phase5-stg.sh
+
+k3s-cutover-dev-data-layer-phase5-redis:
+	@chmod +x scripts/k3s/cutover-dev-data-layer-phase5-redis.sh scripts/k3s/verify-data-layer-phase5-dev.sh scripts/k3s/verify-data-layer-phase5-data.sh scripts/sync_dev_overlay_config.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/cutover-dev-data-layer-phase5-redis.sh
+
+k3s-verify-data-layer-phase5-dev:
+	@chmod +x scripts/k3s/verify-data-layer-phase5-dev.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/verify-data-layer-phase5-dev.sh
+
+k3s-cutover-prod-data-layer-phase5-redis:
+	@chmod +x scripts/k3s/cutover-prod-data-layer-phase5-redis.sh scripts/k3s/verify-data-layer-phase5-prod.sh scripts/k3s/verify-data-layer-phase5-data.sh scripts/sync_prod_overlay_config.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/cutover-prod-data-layer-phase5-redis.sh
+
+k3s-verify-data-layer-phase5-prod:
+	@chmod +x scripts/k3s/verify-data-layer-phase5-prod.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/verify-data-layer-phase5-prod.sh
+
 # P1 — minimal Argo CD in cicd (Session S1; verify Ops Console → Delivery → GitOps probe)
 k3s-install-argocd:
 	@chmod +x scripts/k3s/install-argocd.sh

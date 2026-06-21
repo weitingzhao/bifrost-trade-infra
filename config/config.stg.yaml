@@ -80,7 +80,13 @@ postgres:
 
 redis:
   enabled: true
-  host: redis
+  host: redis-live-stg.data.svc.cluster.local
+  port: 6379
+  db: 0
+
+redis_queue:
+  enabled: true
+  host: redis-queue-stg.data.svc.cluster.local
   port: 6379
   db: 0
 

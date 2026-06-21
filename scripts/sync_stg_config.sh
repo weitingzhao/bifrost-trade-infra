@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Sync STG overlay config: .env → config/config.stg.yaml → k8s/overlays/stg/config/
-# IB + skip_monitor_ib from .env. postgres.host stays CNPG (phase ③) — not overwritten.
+# IB + skip_monitor_ib from .env. postgres.host + redis* stay CNPG/data NS (phase ③/⑥) — not overwritten.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

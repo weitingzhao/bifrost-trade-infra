@@ -1,0 +1,12 @@
+# Phase ⑥ — DEV uses redis-dev @ data NS (live db=0 · queue db=1 on same instance).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+$patch: delete
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+$patch: delete

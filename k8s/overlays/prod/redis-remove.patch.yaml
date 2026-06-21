@@ -1,0 +1,12 @@
+# Phase ⑥ — PROD uses redis-live/queue @ data NS.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+$patch: delete
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+$patch: delete

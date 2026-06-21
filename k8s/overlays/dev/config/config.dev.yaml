@@ -82,9 +82,15 @@ postgres:
 
 redis:
   enabled: true
-  host: redis
+  host: redis-dev.data.svc.cluster.local
   port: 6379
   db: 0
+
+redis_queue:
+  enabled: true
+  host: redis-dev.data.svc.cluster.local
+  port: 6379
+  db: 1
 
 ops:
   control_profile: dev

@@ -20,6 +20,7 @@ patches:
   - path: stg-images-pull-always.patch.yaml
   - path: api-ops-celery.patch.yaml
   - path: postgres-remove.patch.yaml
+  - path: redis-remove.patch.yaml
 
 # Kubelet pulls images on the node host — it cannot resolve *.svc.cluster.local.
 # Use bootstrap node LAN IP + registry NodePort (30500) instead of in-cluster DNS.
