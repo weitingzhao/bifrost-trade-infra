@@ -267,6 +267,79 @@ k3s-verify-nfs-provisioner:
 	@chmod +x scripts/k3s/verify-nfs-provisioner.sh
 	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/verify-nfs-provisioner.sh
 
+# Data layer phase ① — CNPG operator + bifrost-postgres @ data namespace (D2-prime)
+k3s-label-postgres-node:
+	@chmod +x scripts/k3s/label-postgres-node.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/label-postgres-node.sh
+
+k3s-install-cnpg-operator:
+	@chmod +x scripts/k3s/install-cnpg-operator.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/install-cnpg-operator.sh
+
+k3s-install-data-layer-phase0:
+	@chmod +x scripts/k3s/install-data-layer-phase0.sh scripts/k3s/label-postgres-node.sh scripts/k3s/install-cnpg-operator.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/install-data-layer-phase0.sh
+
+k3s-verify-data-layer-phase0:
+	@chmod +x scripts/k3s/verify-data-layer-phase0.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/verify-data-layer-phase0.sh
+
+# Data layer phase ② — CNPG instances=2 + MinIO @ nfs-hot + barman WAL backup
+k3s-label-postgres-standby-node:
+	@chmod +x scripts/k3s/label-postgres-standby-node.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/label-postgres-standby-node.sh
+
+k3s-install-data-layer-phase1:
+	@chmod +x scripts/k3s/install-data-layer-phase1.sh scripts/k3s/label-postgres-node.sh scripts/k3s/label-postgres-standby-node.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/install-data-layer-phase1.sh
+
+k3s-verify-data-layer-phase1:
+	@chmod +x scripts/k3s/verify-data-layer-phase1.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/verify-data-layer-phase1.sh
+
+k3s-switchover-postgres-primary:
+	@chmod +x scripts/k3s/switchover-postgres-primary.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/switchover-postgres-primary.sh
+
+# Data layer phase ③ — STG cutover to CNPG @ data NS
+k3s-migrate-stg-postgres-to-cnpg:
+	@chmod +x scripts/k3s/migrate-stg-postgres-to-cnpg.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/migrate-stg-postgres-to-cnpg.sh
+
+k3s-cutover-stg-data-layer-phase2:
+	@chmod +x scripts/k3s/cutover-stg-data-layer-phase2.sh scripts/k3s/migrate-stg-postgres-to-cnpg.sh scripts/k3s/verify-data-layer-phase2-stg.sh scripts/k3s/verify-data-layer-phase1.sh scripts/sync_stg_config.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/cutover-stg-data-layer-phase2.sh
+
+k3s-verify-data-layer-phase2-stg:
+	@chmod +x scripts/k3s/verify-data-layer-phase2-stg.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/verify-data-layer-phase2-stg.sh
+
+# Data layer phase ④ — DEV cutover to CNPG @ data NS
+k3s-migrate-dev-postgres-to-cnpg:
+	@chmod +x scripts/k3s/migrate-dev-postgres-to-cnpg.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/migrate-dev-postgres-to-cnpg.sh
+
+k3s-cutover-dev-data-layer-phase3:
+	@chmod +x scripts/k3s/cutover-dev-data-layer-phase3.sh scripts/k3s/migrate-dev-postgres-to-cnpg.sh scripts/k3s/verify-data-layer-phase3-dev.sh scripts/k3s/verify-data-layer-phase2-stg.sh scripts/sync_dev_overlay_config.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/cutover-dev-data-layer-phase3.sh
+
+k3s-verify-data-layer-phase3-dev:
+	@chmod +x scripts/k3s/verify-data-layer-phase3-dev.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/verify-data-layer-phase3-dev.sh
+
+# Data layer phase ⑤ — PROD cutover: legacy .80 → CNPG bifrost_prod
+k3s-migrate-prod-postgres-to-cnpg:
+	@chmod +x scripts/k3s/migrate-prod-postgres-to-cnpg.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/migrate-prod-postgres-to-cnpg.sh
+
+k3s-cutover-prod-data-layer-phase4:
+	@chmod +x scripts/k3s/cutover-prod-data-layer-phase4.sh scripts/k3s/migrate-prod-postgres-to-cnpg.sh scripts/k3s/verify-data-layer-phase4-prod.sh scripts/k3s/verify-data-layer-phase3-dev.sh scripts/sync_prod_overlay_config.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/cutover-prod-data-layer-phase4.sh
+
+k3s-verify-data-layer-phase4-prod:
+	@chmod +x scripts/k3s/verify-data-layer-phase4-prod.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/verify-data-layer-phase4-prod.sh
+
 # P1 — minimal Argo CD in cicd (Session S1; verify Ops Console → Delivery → GitOps probe)
 k3s-install-argocd:
 	@chmod +x scripts/k3s/install-argocd.sh

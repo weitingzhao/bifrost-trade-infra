@@ -1,0 +1,42 @@
+# R-DV1 logical databases on shared CNPG cluster (phase ① — create empty DBs; cutover in phases ②–④).
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: bifrost-dev
+  namespace: data
+  labels:
+    app.kubernetes.io/part-of: bifrost
+    bifrost.io/environment: dev
+spec:
+  name: bifrost_dev
+  owner: bifrost
+  cluster:
+    name: bifrost-postgres
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: bifrost-stg
+  namespace: data
+  labels:
+    app.kubernetes.io/part-of: bifrost
+    bifrost.io/environment: stg
+spec:
+  name: bifrost_stg
+  owner: bifrost
+  cluster:
+    name: bifrost-postgres
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: bifrost-prod
+  namespace: data
+  labels:
+    app.kubernetes.io/part-of: bifrost
+    bifrost.io/environment: prod
+spec:
+  name: bifrost_prod
+  owner: bifrost
+  cluster:
+    name: bifrost-postgres

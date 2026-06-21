@@ -1,0 +1,61 @@
+# CloudNativePG Cluster — phase ② (HA instances=2 + barman WAL backup via MinIO @ nfs-hot).
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: bifrost-postgres
+  namespace: data
+  labels:
+    app.kubernetes.io/name: bifrost-postgres
+    app.kubernetes.io/part-of: bifrost
+    app.kubernetes.io/component: postgres
+spec:
+  instances: 2
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.6
+  primaryUpdateStrategy: unsupervised
+  storage:
+    size: 30Gi
+    storageClass: local-path
+  bootstrap:
+    initdb:
+      database: postgres
+      owner: bifrost
+      secret:
+        name: bifrost-postgres-app
+  postgresql:
+    parameters:
+      max_connections: "200"
+      # CNPG requires resources.requests.memory >= shared_buffers (tune up on .80 join).
+      shared_buffers: 512MB
+      effective_cache_size: 1536MB
+      work_mem: 8MB
+  affinity:
+    enablePodAntiAffinity: true
+    podAntiAffinityType: required
+    topologyKey: kubernetes.io/hostname
+    nodeSelector:
+      node-role: postgres
+  backup:
+    barmanObjectStore:
+      destinationPath: s3://bifrost-postgres-backup/
+      endpointURL: http://minio.data.svc.cluster.local:9000
+      s3Credentials:
+        accessKeyId:
+          name: minio-backup
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: minio-backup
+          key: SECRET_ACCESS_KEY
+      wal:
+        compression: gzip
+        maxParallel: 2
+      data:
+        compression: gzip
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  monitoring:
+    enablePodMonitor: false

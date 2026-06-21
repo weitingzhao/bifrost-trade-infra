@@ -1,0 +1,15 @@
+# MinIO backup target — nfs-hot (WAL/base backups only; PGDATA stays on local-path).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+  labels:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/component: backup
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nfs-hot
+  resources:
+    requests:
+      storage: 50Gi

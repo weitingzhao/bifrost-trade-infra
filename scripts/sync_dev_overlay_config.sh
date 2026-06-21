@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Sync STG overlay config: .env → config/config.stg.yaml → k8s/overlays/stg/config/
-# IB + skip_monitor_ib from .env. postgres.host stays CNPG (phase ③) — not overwritten.
+# Sync DEV overlay config: .env → config/config.dev.yaml → k8s/overlays/dev/config/
+# IB + skip_monitor_ib from .env. postgres.host stays CNPG (phase ④) — not overwritten.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="${ROOT}/.env"
-CFG="${ROOT}/config/config.stg.yaml"
-OVERLAY_CFG="${ROOT}/k8s/overlays/stg/config/config.stg.yaml"
+CFG="${ROOT}/config/config.dev.yaml"
+OVERLAY_CFG="${ROOT}/k8s/overlays/dev/config/config.dev.yaml"
 
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "Missing ${ENV_FILE} — copy .env.example and fill IB / POLYGON_API_KEY" >&2
@@ -19,21 +19,20 @@ source "$ENV_FILE"
 set +a
 
 IB_HOST_IP="${IB_HOST:-192.168.10.30}"
-IB_PORT_TYPE="${IB_PORT_TYPE:-tws_live}"
+IB_PORT_TYPE="${IB_PORT_TYPE:-tws_paper}"
 IB_SECONDARY_HOST="${IB_SECONDARY_HOST:-192.168.10.33}"
 IB_SECONDARY_PORT_TYPE="${IB_SECONDARY_PORT_TYPE:-tws_live}"
 SKIP_MONITOR_IB="${BIFROST_SKIP_MONITOR_IB:-false}"
 
-# STG K3s client_id block (210 range — isolated from prod 10 / dev 110)
-CID_DAEMON="${STG_IB_CLIENT_ID_DAEMON:-210}"
-CID_LISTENER="${STG_IB_CLIENT_ID_LISTENER:-201}"
-CID_OPERATOR="${STG_IB_CLIENT_ID_OPERATOR:-220}"
-CID_WORKER="${STG_IB_CLIENT_ID_WORKER:-240}"
-CID_INGESTOR="${STG_IB_CLIENT_ID_INGESTOR:-250}"
-CID_ACCOUNT="${STG_IB_CLIENT_ID_ACCOUNT:-260}"
-CID2_LISTENER="${STG_IB_SECONDARY_CLIENT_ID_LISTENER:-202}"
-CID2_OPERATOR="${STG_IB_SECONDARY_CLIENT_ID_OPERATOR:-222}"
-CID2_ACCOUNT="${STG_IB_SECONDARY_CLIENT_ID_ACCOUNT:-262}"
+CID_DAEMON="${IB_CLIENT_ID_DAEMON:-110}"
+CID_LISTENER="${IB_CLIENT_ID_LISTENER:-101}"
+CID_OPERATOR="${IB_CLIENT_ID_OPERATOR:-120}"
+CID_WORKER="${IB_CLIENT_ID_WORKER:-140}"
+CID_INGESTOR="${IB_CLIENT_ID_INGESTOR:-150}"
+CID_ACCOUNT="${IB_CLIENT_ID_ACCOUNT:-160}"
+CID2_LISTENER="${IB_SECONDARY_CLIENT_ID_LISTENER:-102}"
+CID2_OPERATOR="${IB_SECONDARY_CLIENT_ID_OPERATOR:-122}"
+CID2_ACCOUNT="${IB_SECONDARY_CLIENT_ID_ACCOUNT:-162}"
 
 python3 - "$CFG" <<PY
 import sys
@@ -118,11 +117,32 @@ path.write_text(text, encoding="utf-8")
 print(f"Updated {path} (ib→{ib_host}, skip_monitor_ib={str(skip_ib).lower()})")
 PY
 
-mkdir -p "$(dirname "$OVERLAY_CFG")"
-cp "$CFG" "$OVERLAY_CFG"
+# Preserve CNPG postgres block from overlay (phase ④); merge IB/server from root config.
+python3 - "$CFG" "$OVERLAY_CFG" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).read_text(encoding="utf-8")
+overlay = Path(sys.argv[2]).read_text(encoding="utf-8")
+
+def extract_block(text: str, key: str) -> str:
+    m = re.search(rf"^{key}:\n(?:  .+\n)+", text, re.MULTILINE)
+    if not m:
+        raise SystemExit(f"missing {key} block")
+    return m.group(0)
+
+for key in ("server", "ib"):
+    block = extract_block(root, key)
+    overlay, n = re.subn(rf"^{key}:\n(?:  .+\n)+", block, overlay, count=1, flags=re.MULTILINE)
+    if n != 1:
+        raise SystemExit(f"could not merge {key} into overlay")
+
+Path(sys.argv[2]).write_text(overlay, encoding="utf-8")
+print(f"Merged server/ib into overlay; postgres.host unchanged (CNPG)")
+PY
+
 cp "${ROOT}/config/config.yaml.example" "$(dirname "$OVERLAY_CFG")/config.yaml.example"
 
-echo "Copied → ${OVERLAY_CFG} + config.yaml.example"
-echo "Apply manifest: kubectl apply -k ${ROOT}/k8s/overlays/stg"
-echo "Build images:   make k3s-deliver-stg  (after push to GitHub + Gitea mirror sync)"
-echo "Secrets: kubectl apply -f k8s/base/secrets/bifrost-stg-secrets.yaml -n bifrost-stg (from .example)"
+echo "Overlay ready: ${OVERLAY_CFG}"
+echo "Apply: kubectl apply -k ${ROOT}/k8s/overlays/dev"

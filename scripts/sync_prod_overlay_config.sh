@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Sync STG overlay config: .env → config/config.stg.yaml → k8s/overlays/stg/config/
-# IB + skip_monitor_ib from .env. postgres.host stays CNPG (phase ③) — not overwritten.
+# Sync PROD overlay config: .env → config/config.prod.yaml → k8s/overlays/prod/config/
+# IB + massive from .env. postgres.host stays CNPG (phase ⑤) — not overwritten.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="${ROOT}/.env"
-CFG="${ROOT}/config/config.stg.yaml"
-OVERLAY_CFG="${ROOT}/k8s/overlays/stg/config/config.stg.yaml"
+CFG="${ROOT}/config/config.prod.yaml"
+OVERLAY_CFG="${ROOT}/k8s/overlays/prod/config/config.prod.yaml"
 
 if [[ ! -f "$ENV_FILE" ]]; then
-  echo "Missing ${ENV_FILE} — copy .env.example and fill IB / POLYGON_API_KEY" >&2
+  echo "Missing ${ENV_FILE} — copy .env.example and fill POSTGRES_PASSWORD / IB" >&2
   exit 1
 fi
 
@@ -23,17 +23,17 @@ IB_PORT_TYPE="${IB_PORT_TYPE:-tws_live}"
 IB_SECONDARY_HOST="${IB_SECONDARY_HOST:-192.168.10.33}"
 IB_SECONDARY_PORT_TYPE="${IB_SECONDARY_PORT_TYPE:-tws_live}"
 SKIP_MONITOR_IB="${BIFROST_SKIP_MONITOR_IB:-false}"
+POLYGON_KEY="${POLYGON_API_KEY:-${MASSIVE_API_KEY:-CHANGE_ME}}"
 
-# STG K3s client_id block (210 range — isolated from prod 10 / dev 110)
-CID_DAEMON="${STG_IB_CLIENT_ID_DAEMON:-210}"
-CID_LISTENER="${STG_IB_CLIENT_ID_LISTENER:-201}"
-CID_OPERATOR="${STG_IB_CLIENT_ID_OPERATOR:-220}"
-CID_WORKER="${STG_IB_CLIENT_ID_WORKER:-240}"
-CID_INGESTOR="${STG_IB_CLIENT_ID_INGESTOR:-250}"
-CID_ACCOUNT="${STG_IB_CLIENT_ID_ACCOUNT:-260}"
-CID2_LISTENER="${STG_IB_SECONDARY_CLIENT_ID_LISTENER:-202}"
-CID2_OPERATOR="${STG_IB_SECONDARY_CLIENT_ID_OPERATOR:-222}"
-CID2_ACCOUNT="${STG_IB_SECONDARY_CLIENT_ID_ACCOUNT:-262}"
+CID_DAEMON="${IB_CLIENT_ID_DAEMON:-10}"
+CID_LISTENER="${IB_CLIENT_ID_LISTENER:-1}"
+CID_OPERATOR="${IB_CLIENT_ID_OPERATOR:-20}"
+CID_WORKER="${IB_CLIENT_ID_WORKER:-40}"
+CID_INGESTOR="${IB_CLIENT_ID_INGESTOR:-50}"
+CID_ACCOUNT="${IB_CLIENT_ID_ACCOUNT:-60}"
+CID2_LISTENER="${IB_SECONDARY_CLIENT_ID_LISTENER:-1}"
+CID2_OPERATOR="${IB_SECONDARY_CLIENT_ID_OPERATOR:-20}"
+CID2_ACCOUNT="${IB_SECONDARY_CLIENT_ID_ACCOUNT:-60}"
 
 python3 - "$CFG" <<PY
 import sys
@@ -47,6 +47,7 @@ def sub_block(text: str, key: str, body: str) -> str:
     patterns = {
         "server": r"(^server:\n)(?:  .+\n)*",
         "ib": r"(^ib:\n)(?:  .+\n)*",
+        "massive": r"(^massive:\n)(?:  .+\n)*",
     }
     pattern = patterns[key]
     repl = body if body.endswith("\n") else body + "\n"
@@ -60,6 +61,7 @@ port_type = """${IB_PORT_TYPE}"""
 ib2_host = """${IB_SECONDARY_HOST}"""
 ib2_port_type = """${IB_SECONDARY_PORT_TYPE}"""
 skip_ib = """${SKIP_MONITOR_IB}""".lower() in ("1", "true", "yes")
+polygon = """${POLYGON_KEY}"""
 cid_daemon = """${CID_DAEMON}"""
 cid_listener = """${CID_LISTENER}"""
 cid_operator = """${CID_OPERATOR}"""
@@ -112,17 +114,44 @@ server = f"""server:
     massive_port: 8766
 """
 
+massive = f"""massive:
+  api_key: {polygon}
+  tier: starter
+  ws_url: wss://delayed.polygon.io/options
+  features:
+    trades_enabled: false
+"""
+
 text = sub_block(text, "server", server)
 text = sub_block(text, "ib", ib)
+text = sub_block(text, "massive", massive)
 path.write_text(text, encoding="utf-8")
 print(f"Updated {path} (ib→{ib_host}, skip_monitor_ib={str(skip_ib).lower()})")
 PY
 
-mkdir -p "$(dirname "$OVERLAY_CFG")"
-cp "$CFG" "$OVERLAY_CFG"
-cp "${ROOT}/config/config.yaml.example" "$(dirname "$OVERLAY_CFG")/config.yaml.example"
+python3 - "$CFG" "$OVERLAY_CFG" <<'PY'
+import re
+import sys
+from pathlib import Path
 
-echo "Copied → ${OVERLAY_CFG} + config.yaml.example"
-echo "Apply manifest: kubectl apply -k ${ROOT}/k8s/overlays/stg"
-echo "Build images:   make k3s-deliver-stg  (after push to GitHub + Gitea mirror sync)"
-echo "Secrets: kubectl apply -f k8s/base/secrets/bifrost-stg-secrets.yaml -n bifrost-stg (from .example)"
+root = Path(sys.argv[1]).read_text(encoding="utf-8")
+overlay = Path(sys.argv[2]).read_text(encoding="utf-8")
+
+def extract_block(text: str, key: str) -> str:
+    m = re.search(rf"^{key}:\n(?:  .+\n)+", text, re.MULTILINE)
+    if not m:
+        raise SystemExit(f"missing {key} block")
+    return m.group(0)
+
+for key in ("server", "ib", "massive"):
+    block = extract_block(root, key)
+    overlay, n = re.subn(rf"^{key}:\n(?:  .+\n)+", block, overlay, count=1, flags=re.MULTILINE)
+    if n != 1:
+        raise SystemExit(f"could not merge {key} into overlay")
+
+Path(sys.argv[2]).write_text(overlay, encoding="utf-8")
+print("Merged server/ib/massive into overlay; postgres.host unchanged (CNPG)")
+PY
+
+cp "${ROOT}/config/config.yaml.example" "$(dirname "$OVERLAY_CFG")/config.yaml.example"
+echo "Overlay ready: ${OVERLAY_CFG}"

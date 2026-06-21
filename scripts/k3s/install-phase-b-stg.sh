@@ -55,8 +55,17 @@ fi
 echo "==> Apply bifrost-stg overlay (full stack: infra + APIs + worker + socket + frontend)"
 kubectl apply -k "${ROOT}/k8s/overlays/stg"
 
-echo "==> Wait for infra (postgres, redis, nginx)"
-kubectl rollout status deployment/postgres -n "${STG_NAMESPACE}" --timeout=600s || true
+echo "==> Wait for infra (redis, nginx; postgres only if embedded)"
+if kubectl get deployment postgres -n "${STG_NAMESPACE}" >/dev/null 2>&1; then
+  pg_replicas="$(kubectl get deployment postgres -n "${STG_NAMESPACE}" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 1)"
+  if [[ "${pg_replicas}" != "0" ]]; then
+    kubectl rollout status deployment/postgres -n "${STG_NAMESPACE}" --timeout=600s || true
+  else
+    echo "  skip postgres (replicas=0 — CNPG cutover)"
+  fi
+else
+  echo "  skip postgres (removed — CNPG @ data NS)"
+fi
 kubectl rollout status deployment/redis -n "${STG_NAMESPACE}" --timeout=300s
 kubectl rollout status deployment/nginx -n "${STG_NAMESPACE}" --timeout=300s || true
 

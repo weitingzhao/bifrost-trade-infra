@@ -1,5 +1,5 @@
 # K3s bifrost-stg — full stack (Tier A+B). Secrets: MASSIVE_API_KEY via bifrost-stg-secrets.
-# Sync: make sync-stg-config (from .env). Password must match postgres secret (bifrost_stg).
+# Sync: make sync-stg-config (from .env). PG: CNPG @ data NS (phase ③); password = bifrost-postgres-app secret.
 server:
   skip_monitor_ib: false
   architecture:
@@ -72,7 +72,7 @@ utilized:
     research: stg
 
 postgres:
-  host: postgres
+  host: bifrost-postgres-rw.data.svc.cluster.local
   port: 5432
   user: bifrost
   password: bifrost_stg

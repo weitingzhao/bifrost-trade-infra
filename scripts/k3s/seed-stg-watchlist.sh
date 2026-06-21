@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copy watchlist rows from Dev PostgreSQL → bifrost-stg (K3s postgres).
+# Copy watchlist rows from Dev PostgreSQL → bifrost_stg (embedded postgres or CNPG @ data NS).
 # Massive WS requires: sec_type='STK' AND optionable=true.
 #
 # Usage (from bifrost-trade-infra):
@@ -34,7 +34,31 @@ if ! command -v kubectl >/dev/null 2>&1; then
 fi
 
 echo "Source: ${POSTGRES_USER}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}"
-echo "Target: postgres.${STG_NAMESPACE}/${STG_DB}"
+
+stg_psql() {
+  if kubectl get deployment postgres -n "$STG_NAMESPACE" >/dev/null 2>&1; then
+    local reps
+    reps="$(kubectl get deployment postgres -n "$STG_NAMESPACE" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 1)"
+    if [[ "${reps}" != "0" ]]; then
+      echo "Target: postgres.${STG_NAMESPACE}/${STG_DB}" >&2
+      kubectl exec -i -n "$STG_NAMESPACE" deploy/postgres -- psql -U bifrost -d "$STG_DB" -v ON_ERROR_STOP=1 "$@"
+      return
+    fi
+  fi
+  local primary
+  primary="$(kubectl get cluster bifrost-postgres -n data -o jsonpath='{.status.currentPrimary}' 2>/dev/null || true)"
+  if [[ -z "${primary}" ]]; then
+    echo "No STG postgres or CNPG primary found" >&2
+    exit 1
+  fi
+  echo "Target: CNPG ${primary} (data)/${STG_DB}" >&2
+  # CNPG local socket uses peer auth for postgres superuser only (not bifrost app role).
+  kubectl exec -i -n data "${primary}" -- psql -U postgres -d "$STG_DB" -v ON_ERROR_STOP=1 "$@"
+}
+
+stg_psql_query() {
+  stg_psql -tAc "$1"
+}
 
 DEV_COUNT="$(PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
   "SELECT count(*) FROM watchlist")"
@@ -69,11 +93,10 @@ fi
   echo "BEGIN;"
   cat "$TMP"
   echo "COMMIT;"
-} | kubectl exec -i -n "$STG_NAMESPACE" deploy/postgres -- psql -U bifrost -d "$STG_DB" -v ON_ERROR_STOP=1
+} | stg_psql
 
-STG_TOTAL="$(kubectl exec -n "$STG_NAMESPACE" deploy/postgres -- psql -U bifrost -d "$STG_DB" -tAc "SELECT count(*) FROM watchlist")"
-STG_OPT="$(kubectl exec -n "$STG_NAMESPACE" deploy/postgres -- psql -U bifrost -d "$STG_DB" -tAc \
-  "SELECT count(*) FROM watchlist WHERE sec_type='STK' AND optionable IS TRUE")"
+STG_TOTAL="$(stg_psql_query "SELECT count(*) FROM watchlist")"
+STG_OPT="$(stg_psql_query "SELECT count(*) FROM watchlist WHERE sec_type='STK' AND optionable IS TRUE")"
 echo "STG watchlist rows: ${STG_TOTAL} (${STG_OPT} optionable STK)"
 
 echo "Restarting massive-ws so ingestor re-reads watchlist…"

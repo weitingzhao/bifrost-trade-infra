@@ -1,4 +1,6 @@
-# K3s bifrost-dev — Vision V1 dev inner-loop stack (in-cluster PG/Redis).
+# K3s bifrost-dev — Vision V1 dev inner-loop stack.
+# Sync: scripts/sync_dev_overlay_config.sh (IB from .env). PG: CNPG @ data NS (phase ④).
+# CNPG app user password = secret bifrost-postgres-app (currently bifrost_stg); database = bifrost_dev.
 # Secrets: MASSIVE_API_KEY via bifrost-dev-secrets. Sync tokens from config.dev.yaml as needed.
 server:
   skip_monitor_ib: false
@@ -43,21 +45,21 @@ ib:
   connect_timeout: 60.0
   host:
     ip: 192.168.10.30
-    port_type: tws_paper
+    port_type: tws_live
     client_id:
-      daemon: 110
-      listener: 101
-      operator: 120
-      worker_market: 140
-      ingestor: 150
-      account_agent: 160
+      daemon: 10
+      listener: 1
+      operator: 20
+      worker_market: 40
+      ingestor: 50
+      account_agent: 60
   secondary:
     ip: 192.168.10.33
     port_type: tws_live
     client_id:
-      listener: 102
-      operator: 122
-      account_agent: 162
+      listener: 1
+      operator: 20
+      account_agent: 60
 
 utilized:
   services:
@@ -72,10 +74,10 @@ utilized:
     research: dev
 
 postgres:
-  host: postgres
+  host: bifrost-postgres-rw.data.svc.cluster.local
   port: 5432
   user: bifrost
-  password: bifrost_dev
+  password: bifrost_stg
   database: bifrost_dev
 
 redis:

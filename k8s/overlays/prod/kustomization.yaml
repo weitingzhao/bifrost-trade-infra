@@ -22,7 +22,7 @@ patches:
   - path: nodeport-services.patch.yaml
   - path: prod-images-pull-always.patch.yaml
   - path: api-ops-celery.patch.yaml
-  - path: postgres-disabled.patch.yaml
+  - path: postgres-remove.patch.yaml
   - path: delete-db-init-stg.patch.yaml
 
 images:

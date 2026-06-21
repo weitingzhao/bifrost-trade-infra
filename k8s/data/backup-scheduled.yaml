@@ -1,0 +1,15 @@
+# Daily base backup to MinIO (barmanObjectStore configured on Cluster spec).
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: bifrost-postgres-daily
+  labels:
+    app.kubernetes.io/name: bifrost-postgres
+    app.kubernetes.io/part-of: bifrost
+spec:
+  # CNPG cron: second minute hour dom month dow (6 fields)
+  schedule: "0 0 3 * * *"
+  backupOwnerReference: self
+  cluster:
+    name: bifrost-postgres
+  method: barmanObjectStore

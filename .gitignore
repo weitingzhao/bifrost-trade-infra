@@ -4,6 +4,7 @@
 *.env.local
 config/secrets/
 k8s/base/secrets/bifrost-stg-secrets.yaml
+k8s/data/secrets/bifrost-postgres-app.yaml
 config/config.yaml
 config/gpu-node-power.env
 
