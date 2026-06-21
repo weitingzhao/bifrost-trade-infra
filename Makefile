@@ -492,9 +492,10 @@ k3s-deliver-platform:
 k3s-install-platform-stg:
 	@chmod +x scripts/sync_platform_k8s_config.sh
 	./scripts/sync_platform_k8s_config.sh
-	kubectl apply -k k8s/overlays/platform-stg
-	kubectl apply -f k8s/cicd/applications/bifrost-platform-stg.yaml
-	kubectl apply -f k8s/cicd/tekton/rbac-deliver-platform.yaml
+	kubectl --kubeconfig $(KUBECONFIG) create namespace bifrost-platform-stg --dry-run=client -o yaml | kubectl --kubeconfig $(KUBECONFIG) apply -f -
+	kubectl --kubeconfig $(KUBECONFIG) apply -k k8s/overlays/platform-stg
+	kubectl --kubeconfig $(KUBECONFIG) apply -f k8s/cicd/applications/bifrost-platform-stg.yaml
+	kubectl --kubeconfig $(KUBECONFIG) apply -f k8s/cicd/tekton/rbac-deliver-platform.yaml
 
 k3s-verify-phase-b-prod:
 	@chmod +x scripts/k3s/verify-phase-b-prod.sh

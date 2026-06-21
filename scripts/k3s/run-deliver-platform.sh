@@ -8,7 +8,7 @@
 #   APPLY_OVERLAY=1 make k3s-deliver-platform
 #   APPLY_ARGO=1 make k3s-deliver-platform
 #
-# Ops Console: Operate → Delivery → Platform GitOps panel → Run deliver-platform
+# Ops Console: Operate → Platform → Platform Release → Run deliver-platform
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

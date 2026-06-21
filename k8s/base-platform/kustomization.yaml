@@ -3,9 +3,11 @@ kind: Kustomization
 
 namespace: bifrost-platform-stg
 
-commonLabels:
-  app.kubernetes.io/part-of: bifrost-platform
-  app.kubernetes.io/managed-by: kustomize
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: bifrost-platform
+      app.kubernetes.io/managed-by: kustomize
+    includeSelectors: true
 
 resources:
   - manifest.yaml

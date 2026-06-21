@@ -4,6 +4,7 @@ kind: Kustomization
 namespace: bifrost-platform-stg
 
 resources:
+  - namespace.yaml
   - ../../base-platform
 
 configMapGenerator:
