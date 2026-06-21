@@ -13,7 +13,7 @@ spec:
       default: http://gitea.cicd.svc.cluster.local:3000/bifrost
     - name: mirrorRepos
       type: string
-      default: "bifrost-trade-core bifrost-trade-worker bifrost-trade-socket bifrost-trade-api bifrost-trade-frontend bifrost-ui"
+      default: "bifrost-trade-core bifrost-trade-worker bifrost-trade-socket bifrost-trade-api bifrost-trade-frontend bifrost-ui bifrost-platform"
   workspaces:
     - name: source
   steps:

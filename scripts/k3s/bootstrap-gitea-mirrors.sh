@@ -16,7 +16,7 @@ KUBECONFIG="${KUBECONFIG:-${PLATFORM_KUBECONFIG:-$HOME/.kube/bifrost-k3s.yaml}}"
 CICD_NAMESPACE="${CICD_NAMESPACE:-cicd}"
 GITEA_ORG="${GITEA_ORG:-bifrost}"
 GITEA_LOCAL_PORT="${GITEA_LOCAL_PORT:-13000}"
-MIRROR_REPOS="${MIRROR_REPOS:-bifrost-trade-core bifrost-trade-worker bifrost-trade-socket bifrost-trade-api bifrost-trade-frontend bifrost-trade-infra bifrost-ui}"
+MIRROR_REPOS="${MIRROR_REPOS:-bifrost-trade-core bifrost-trade-worker bifrost-trade-socket bifrost-trade-api bifrost-trade-frontend bifrost-trade-infra bifrost-ui bifrost-platform}"
 GITHUB_OWNER="${GITHUB_OWNER:-weitingzhao}"
 
 export KUBECONFIG

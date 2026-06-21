@@ -34,7 +34,7 @@ if ! kubectl get secret gitea-git-credentials -n "${CICD_NAMESPACE}" >/dev/null 
 fi
 
 echo "==> Phase B: Gitea mirrors (Trade repos for API + frontend builds)"
-MIRROR_REPOS="bifrost-trade-core bifrost-trade-worker bifrost-trade-socket bifrost-trade-api bifrost-trade-frontend bifrost-trade-infra bifrost-ui" \
+MIRROR_REPOS="bifrost-trade-core bifrost-trade-worker bifrost-trade-socket bifrost-trade-api bifrost-trade-frontend bifrost-trade-infra bifrost-ui bifrost-platform" \
   "${ROOT}/scripts/k3s/bootstrap-gitea-mirrors.sh"
 
 echo "==> Sync stg config into kustomize overlay"

@@ -55,7 +55,10 @@ spec:
           "bifrost-api-stg-dockerfile:Dockerfile.api-stg" \
           "bifrost-frontend-stg-dockerfile:Dockerfile.frontend-stg" \
           "bifrost-worker-stg-dockerfile:Dockerfile.worker-stg" \
-          "bifrost-socket-stg-dockerfile:Dockerfile.socket-stg"; do
+          "bifrost-socket-stg-dockerfile:Dockerfile.socket-stg" \
+          "bifrost-platform-api-stg-dockerfile:Dockerfile.platform-api-stg" \
+          "bifrost-platform-console-stg-dockerfile:Dockerfile.platform-console-stg" \
+          "bifrost-remediation-runner-stg-dockerfile:Dockerfile.remediation-runner-stg"; do
           cm="${pair%%:*}"
           file="${pair##*:}"
           path="${root}/${file}"

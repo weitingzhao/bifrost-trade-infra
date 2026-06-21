@@ -1,0 +1,45 @@
+# Kaniko build bifrost-platform-api from Gitea clone workspace.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-kaniko-platform-api-stg
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: platform-deliver
+spec:
+  params:
+    - name: image
+      type: string
+      default: registry.cicd.svc.cluster.local:5000/bifrost-platform-api:stg
+    - name: dockerfile
+      type: string
+      default: Dockerfile.platform-api-stg
+  workspaces:
+    - name: source
+  steps:
+    - name: assert-context
+      image: alpine:3.20
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+        root="$(workspaces.source.path)"
+        test -f "${root}/Dockerfile.platform-api-stg"
+        test -f "${root}/bifrost-platform/api/go.mod"
+        echo "Platform API build context OK"
+    - name: build-and-push
+      image: gcr.io/kaniko-project/executor:v1.23.2
+      args:
+        - --dockerfile=$(params.dockerfile)
+        - --context=$(workspaces.source.path)
+        - --destination=$(params.image)
+        - --custom-platform=linux/amd64
+        - --insecure
+        - --skip-tls-verify
+        - --insecure-registry=registry.cicd.svc.cluster.local:5000
+      computeResources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+        limits:
+          cpu: "2"
+          memory: 2Gi

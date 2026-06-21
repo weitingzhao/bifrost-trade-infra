@@ -481,6 +481,21 @@ k3s-deliver-prod:
 	@chmod +x scripts/k3s/run-deliver-prod.sh scripts/k3s/bootstrap-gitea-mirrors.sh scripts/sync_prod_k8s_config.sh
 	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/run-deliver-prod.sh
 
+sync-platform-k8s-config:
+	@chmod +x scripts/sync_platform_k8s_config.sh
+	./scripts/sync_platform_k8s_config.sh
+
+k3s-deliver-platform:
+	@chmod +x scripts/k3s/run-deliver-platform.sh scripts/k3s/bootstrap-gitea-mirrors.sh scripts/sync_platform_k8s_config.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/run-deliver-platform.sh
+
+k3s-install-platform-stg:
+	@chmod +x scripts/sync_platform_k8s_config.sh
+	./scripts/sync_platform_k8s_config.sh
+	kubectl apply -k k8s/overlays/platform-stg
+	kubectl apply -f k8s/cicd/applications/bifrost-platform-stg.yaml
+	kubectl apply -f k8s/cicd/tekton/rbac-deliver-platform.yaml
+
 k3s-verify-phase-b-prod:
 	@chmod +x scripts/k3s/verify-phase-b-prod.sh
 	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/verify-phase-b-prod.sh

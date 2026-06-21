@@ -1,0 +1,51 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-rollout-platform-stg
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: platform-deliver
+spec:
+  params:
+    - name: namespace
+      type: string
+      default: bifrost-platform-stg
+  steps:
+    - name: rollout-restart
+      image: alpine/k8s:1.31.4
+      script: |
+        #!/bin/sh
+        set -eu
+        NS="$(params.namespace)"
+        for dep in platform-api platform-console; do
+          kubectl rollout restart "deployment/${dep}" -n "${NS}"
+          kubectl rollout status "deployment/${dep}" -n "${NS}" --timeout=300s
+        done
+        echo "Platform rollout complete in ${NS}"
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-argocd-sync-platform-stg
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: platform-deliver
+spec:
+  params:
+    - name: application
+      type: string
+      default: bifrost-platform-stg
+    - name: namespace
+      type: string
+      default: cicd
+  steps:
+    - name: sync
+      image: alpine/k8s:1.31.4
+      script: |
+        #!/bin/sh
+        set -eu
+        APP="$(params.application)"
+        NS="$(params.namespace)"
+        kubectl patch application "${APP}" -n "${NS}" --type merge -p \
+          '{"operation":{"initiatedBy":{"username":"tekton-deliver-platform"},"sync":{"revision":"HEAD"}}}'
+        echo "Sync requested for Application ${APP}"

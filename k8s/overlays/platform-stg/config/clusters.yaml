@@ -1,0 +1,81 @@
+# Registered Kubernetes clusters for Platform API cluster probe (L0).
+# Kubeconfig path: PLATFORM_KUBECONFIG env (default ~/.kube/bifrost-k3s.yaml).
+
+clusters:
+  - id: bifrost-bootstrap
+    label: K3s bootstrap
+    distribution: k3s
+    api_server: https://192.168.10.73:6443
+    kubeconfig_env: PLATFORM_KUBECONFIG
+    ssh_host: vision@192.168.10.73
+    node_ip: 192.168.10.73
+    bifrost_namespaces:
+      - cicd
+      - data
+      - bifrost
+      - bifrost-dev
+      - bifrost-stg
+      - bifrost-prod
+      - bifrost-platform-stg
+      - monitoring
+      - ai
+      - data-warehouse
+    compute_nodes:
+      - name: gpu-server
+        ssh_host: vision@192.168.10.60
+        wol_mac: "c8:7f:54:5b:b8:33"
+        wol_ssh_host: vision@192.168.10.73
+        power_manager_unit: bifrost-gpu-power-manager.service
+        workloads:
+          - namespace: ai
+            deployment: ollama
+            label: Ollama
+          - namespace: data-warehouse
+            deployment: minio
+            label: MinIO
+    join_profiles:
+      - id: gpu-server
+        label: K3s agent join — gpu-server (P5a)
+        script: join-gpu-server.sh
+        expected_node: gpu-server
+    monitoring_namespace: monitoring
+    observability_urls:
+      grafana: ""
+      prometheus: ""
+      docs_infra: ""
+    gitops:
+      argocd_namespace: cicd
+      applications_namespace: cicd
+      argocd_server_match: argocd-server
+    stack:
+      namespace: cicd
+      addons:
+        - id: gitea
+          label: Gitea
+          match: gitea
+          install_script: install-gitea-persistent.sh
+          upgrade_script: install-gitea-persistent.sh
+        - id: tekton
+          label: Tekton
+          match: tekton
+          probe_namespace: tekton-pipelines
+          install_script: install-stack-tekton.sh
+          upgrade_script: install-stack-tekton.sh
+        - id: registry
+          label: Registry
+          match: registry
+          install_script: install-stack-registry.sh
+          upgrade_script: install-stack-registry.sh
+    stg_smoke:
+      gateway_url: http://192.168.10.73:30880
+      api_monitor_url: http://192.168.10.73:30880/api/monitor/status
+      frontend_url: http://192.168.10.73:30880/
+      platform_console_url: http://192.168.10.73:30879
+      platform_api_health_url: http://192.168.10.73:30878/health
+    prod_smoke:
+      gateway_url: http://192.168.10.70:30881
+      api_monitor_url: http://192.168.10.70:30881/api/monitor/status
+      frontend_url: http://192.168.10.70:30881/
+    dev_smoke:
+      gateway_url: http://192.168.10.73:30882
+      api_monitor_url: http://192.168.10.73:30882/api/monitor/status

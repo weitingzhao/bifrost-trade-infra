@@ -1,0 +1,136 @@
+# Ops Platform deliver — Gitea clone → Kaniko (api + console) → rollout → Argo sync.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: bifrost-deliver-platform
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: platform-deliver
+spec:
+  description: >-
+    Mirror-sync bifrost-platform → build platform-api + platform-console images →
+    rollout bifrost-platform-stg → Argo CD sync.
+  params:
+    - name: revision
+      type: string
+      default: main
+    - name: giteaBase
+      type: string
+      default: http://gitea.cicd.svc.cluster.local:3000/bifrost
+    - name: platformApiImage
+      type: string
+      default: registry.cicd.svc.cluster.local:5000/bifrost-platform-api:stg
+    - name: platformConsoleImage
+      type: string
+      default: registry.cicd.svc.cluster.local:5000/bifrost-platform-console:stg
+  workspaces:
+    - name: build-context
+  tasks:
+    - name: mirror-sync
+      taskRef:
+        name: bifrost-gitea-mirror-sync
+      params:
+        - name: giteaBase
+          value: $(params.giteaBase)
+        - name: mirrorRepos
+          value: bifrost-platform bifrost-ui
+    - name: clone-platform
+      runAfter: [mirror-sync]
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-platform.git
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: bifrost-platform
+      workspaces:
+        - name: output
+          workspace: build-context
+    - name: clone-ui
+      runAfter: [mirror-sync]
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-ui.git
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: bifrost-ui
+      workspaces:
+        - name: output
+          workspace: build-context
+    - name: stage-api-dockerfile
+      runAfter: [clone-platform]
+      workspaces:
+        - name: source
+          workspace: build-context
+      taskSpec:
+        workspaces:
+          - name: source
+        volumes:
+          - name: dockerfile-cm
+            configMap:
+              name: bifrost-platform-api-stg-dockerfile
+        steps:
+          - name: copy
+            image: alpine:3.20
+            volumeMounts:
+              - name: dockerfile-cm
+                mountPath: /cm
+            script: |
+              #!/usr/bin/env sh
+              set -eu
+              cp /cm/Dockerfile.platform-api-stg "$(workspaces.source.path)/Dockerfile.platform-api-stg"
+    - name: stage-console-dockerfile
+      runAfter: [clone-platform, clone-ui]
+      workspaces:
+        - name: source
+          workspace: build-context
+      taskSpec:
+        workspaces:
+          - name: source
+        volumes:
+          - name: dockerfile-cm
+            configMap:
+              name: bifrost-platform-console-stg-dockerfile
+        steps:
+          - name: copy
+            image: alpine:3.20
+            volumeMounts:
+              - name: dockerfile-cm
+                mountPath: /cm
+            script: |
+              #!/usr/bin/env sh
+              set -eu
+              cp /cm/Dockerfile.platform-console-stg "$(workspaces.source.path)/Dockerfile.platform-console-stg"
+    - name: build-platform-api
+      runAfter: [stage-api-dockerfile]
+      taskRef:
+        name: bifrost-kaniko-platform-api-stg
+      params:
+        - name: image
+          value: $(params.platformApiImage)
+      workspaces:
+        - name: source
+          workspace: build-context
+    - name: build-platform-console
+      runAfter: [stage-console-dockerfile]
+      taskRef:
+        name: bifrost-kaniko-platform-console-stg
+      params:
+        - name: image
+          value: $(params.platformConsoleImage)
+      workspaces:
+        - name: source
+          workspace: build-context
+    - name: rollout
+      runAfter: [build-platform-api, build-platform-console]
+      taskRef:
+        name: bifrost-rollout-platform-stg
+    - name: gitops-sync
+      runAfter: [rollout]
+      taskRef:
+        name: bifrost-argocd-sync-platform-stg

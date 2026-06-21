@@ -42,7 +42,7 @@ fi
 
 if [[ "${SYNC_GITEA}" == "1" ]]; then
   echo "==> Sync Gitea mirrors from GitHub (${REVISION} on upstream)"
-  MIRROR_REPOS="bifrost-trade-core bifrost-trade-worker bifrost-trade-socket bifrost-trade-api bifrost-trade-frontend bifrost-trade-infra bifrost-ui" \
+  MIRROR_REPOS="bifrost-trade-core bifrost-trade-worker bifrost-trade-socket bifrost-trade-api bifrost-trade-frontend bifrost-trade-infra bifrost-ui bifrost-platform" \
     "${ROOT}/scripts/k3s/bootstrap-gitea-mirrors.sh"
 fi
 

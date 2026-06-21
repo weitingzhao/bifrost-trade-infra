@@ -1,0 +1,23 @@
+# GitOps Application for Bifrost Ops Platform (control plane) staging stack.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: bifrost-platform-stg
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: platform-stg
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/weitingzhao/bifrost-trade-infra.git
+    path: k8s/overlays/platform-stg
+    targetRevision: main
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: bifrost-platform-stg
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

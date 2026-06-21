@@ -1,0 +1,15 @@
+# Sidecar for Cursor SDK remediation — not deployed to K3s in Phase 1 (Mac Mini agent host).
+# Context: bifrost-platform/agent/remediation/
+FROM node:22-alpine
+
+WORKDIR /app
+COPY bifrost-platform/agent/remediation/package.json bifrost-platform/agent/remediation/package-lock.json* ./
+RUN npm ci --no-audit --no-fund
+
+COPY bifrost-platform/agent/remediation/ ./
+
+ENV REMEDIATION_RUNNER_BIND=0.0.0.0
+ENV REMEDIATION_RUNNER_PORT=8790
+EXPOSE 8790
+
+CMD ["node", "--import", "tsx", "src/server.ts"]
