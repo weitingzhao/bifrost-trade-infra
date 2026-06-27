@@ -1,0 +1,138 @@
+# kube-vip — floating VIP for the Bifrost K3s cluster access entrypoint.
+#
+# Purpose: provide a single, stable IP (192.168.10.100) that always lives on a
+# surviving node, so the Ops Platform / Trade NodePort services can be reached
+# via VIP:<nodePort> instead of a hard-coded node IP. The VIP is announced via
+# ARP and owned by the kube-vip leader; if the leader node goes down the VIP
+# moves to another eligible node.
+#
+# Scope / limitation (single control-plane cluster):
+#   kube-vip leader election relies on a Kubernetes Lease served by the API
+#   server, which currently runs ONLY on ubt-k3s-01 (192.168.10.73). Therefore
+#   this VIP protects against *worker* node failure and removes the need to
+#   memorise per-node IPs, but it does NOT yet protect against control-plane
+#   (.73) failure. Real ".73 down -> still up" requires control-plane HA
+#   (3-node etcd quorum) as a follow-up milestone.
+#
+# Eligible nodes: ubt-k3s-01/.73, ubt-k3s-02/.70, ubt-k3s-04/.75, ubt-k3s-05/.77
+# Excluded: gpu-server/.60 (NotReady, unschedulable).
+# Interface is auto-detected per node (node NICs differ: eno1 vs enp4s0 ...).
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kube-vip
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: system:kube-vip-role
+  annotations:
+    rbac.authorization.kubernetes.io/autoupdate: "true"
+rules:
+  - apiGroups: [""]
+    resources: ["services", "services/status", "nodes", "endpoints"]
+    verbs: ["list", "get", "watch", "update"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["list", "get", "watch", "update", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: system:kube-vip-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:kube-vip-role
+subjects:
+  - kind: ServiceAccount
+    name: kube-vip
+    namespace: kube-system
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kube-vip-ds
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: kube-vip-ds
+    app.kubernetes.io/version: v0.8.9
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kube-vip-ds
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kube-vip-ds
+        app.kubernetes.io/version: v0.8.9
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - ubt-k3s-01
+                      - ubt-k3s-02
+                      - ubt-k3s-04
+                      - ubt-k3s-05
+      containers:
+        - name: kube-vip
+          image: ghcr.io/kube-vip/kube-vip:v0.8.9
+          imagePullPolicy: IfNotPresent
+          args:
+            - manager
+          env:
+            - name: vip_arp
+              value: "true"
+            - name: port
+              value: "6443"
+            - name: vip_nodename
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            # Empty interface => kube-vip auto-detects the NIC holding the
+            # default route on each node (NIC names differ across nodes).
+            - name: vip_interface
+              value: ""
+            - name: dns_mode
+              value: first
+            - name: cp_enable
+              value: "true"
+            - name: cp_namespace
+              value: kube-system
+            - name: svc_enable
+              value: "false"
+            - name: vip_leaderelection
+              value: "true"
+            - name: vip_leasename
+              value: plndr-cp-lock
+            - name: vip_leaseduration
+              value: "5"
+            - name: vip_renewdeadline
+              value: "3"
+            - name: vip_retryperiod
+              value: "1"
+            - name: address
+              value: "192.168.10.100"
+            - name: prometheus_server
+              value: ":2112"
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+                - NET_RAW
+                - SYS_TIME
+      hostNetwork: true
+      serviceAccountName: kube-vip
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+  updateStrategy:
+    type: RollingUpdate

@@ -1,0 +1,14 @@
+# HA: >=2 replicas for L1 control plane prod (p6-platform-prod).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-api
+spec:
+  replicas: 2
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-console
+spec:
+  replicas: 2

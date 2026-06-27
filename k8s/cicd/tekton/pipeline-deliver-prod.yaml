@@ -1,4 +1,6 @@
-# Phase B — 9 real Trade APIs + frontend; PG/Redis/nginx already in bifrost-prod overlay.
+# Production delivery — symmetric to deliver-stg with prod overlay + prod smoke.
+# Gate: STG preflight must pass before any prod build starts.
+# Flow: preflight-stg → clone → prepare → build (API+FE+worker) → rollout → verify-prod → Argo sync.
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
@@ -6,10 +8,11 @@ metadata:
   namespace: cicd
   labels:
     bifrost.io/purpose: prod-deliver
+    bifrost.io/layer: L2
 spec:
   description: >-
-    Prepare (Gitea mirror + Dockerfile CMs) → build prod images from Gitea → rollout bifrost-prod →
-    in-cluster HTTP verify → Argo sync.
+    STG preflight gate → prepare → build prod images → rollout bifrost-prod →
+    HTTP verify → Argo sync. Refuses to deploy if STG is unhealthy.
   params:
     - name: revision
       type: string
@@ -29,7 +32,42 @@ spec:
   workspaces:
     - name: build-context
   tasks:
+    - name: preflight-stg
+      taskSpec:
+        params:
+          - name: gatewayBase
+            type: string
+        steps:
+          - name: stg-smoke-gate
+            image: curlimages/curl:8.11.1
+            script: |
+              #!/bin/sh
+              set -eu
+              echo "==> Prod preflight: verifying STG health before prod deploy"
+              gw="$(params.gatewayBase)"
+              gw="${gw%/}"
+              fail=0
+              check() {
+                id="$1"; path="$2"; url="${gw}${path}"
+                code="$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 10 "${url}" || echo 000)"
+                echo "  ${id} → HTTP ${code}"
+                case "${code}" in 200|503) ;; *) fail=1 ;; esac
+              }
+              check frontend /
+              check api-monitor /api/monitor/status
+              for d in massive docs ops trading strategy portfolio market research; do
+                check "api-${d}" "/api/${d}/health"
+              done
+              if [ "${fail}" -ne 0 ]; then
+                echo "BLOCKED: STG is unhealthy — refusing to deploy to prod" >&2
+                exit 1
+              fi
+              echo "==> STG preflight passed — proceeding with prod deploy"
+      params:
+        - name: gatewayBase
+          value: http://nginx.bifrost-stg.svc.cluster.local
     - name: clone-core
+      runAfter: [preflight-stg]
       taskRef:
         name: bifrost-git-clone-gitea
       params:
@@ -43,6 +81,7 @@ spec:
         - name: output
           workspace: build-context
     - name: clone-worker
+      runAfter: [preflight-stg]
       taskRef:
         name: bifrost-git-clone-gitea
       params:
@@ -56,6 +95,7 @@ spec:
         - name: output
           workspace: build-context
     - name: clone-socket
+      runAfter: [preflight-stg]
       taskRef:
         name: bifrost-git-clone-gitea
       params:
@@ -69,6 +109,7 @@ spec:
         - name: output
           workspace: build-context
     - name: clone-api
+      runAfter: [preflight-stg]
       taskRef:
         name: bifrost-git-clone-gitea
       params:
@@ -82,6 +123,7 @@ spec:
         - name: output
           workspace: build-context
     - name: clone-frontend
+      runAfter: [preflight-stg]
       taskRef:
         name: bifrost-git-clone-gitea
       params:
@@ -95,6 +137,7 @@ spec:
         - name: output
           workspace: build-context
     - name: clone-ui
+      runAfter: [preflight-stg]
       taskRef:
         name: bifrost-git-clone-gitea
       params:
@@ -108,6 +151,7 @@ spec:
         - name: output
           workspace: build-context
     - name: clone-infra
+      runAfter: [preflight-stg]
       taskRef:
         name: bifrost-git-clone-gitea
       params:

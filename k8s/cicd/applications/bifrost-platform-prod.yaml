@@ -1,0 +1,24 @@
+# GitOps Application for Bifrost Ops Platform (control plane) PROD stack.
+# HA: 2 replicas for API + Console. Minimal kubeconfig SA.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: bifrost-platform-prod
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: platform-prod
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/weitingzhao/bifrost-trade-infra.git
+    path: k8s/overlays/platform-prod
+    targetRevision: main
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: bifrost-platform-prod
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

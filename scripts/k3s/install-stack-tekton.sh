@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Install Tekton Pipelines + Bifrost smoke/deliver manifests (P4 stack wizard).
+# Install Tekton Pipelines + Triggers + Bifrost smoke/deliver/CI manifests (P4→P6 stack wizard).
 # Idempotent — safe to re-run.
+# Set SKIP_TRIGGERS=1 to skip Tekton Triggers installation.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 KUBECONFIG="${KUBECONFIG:-${PLATFORM_KUBECONFIG:-$HOME/.kube/bifrost-k3s.yaml}}"
 CICD_NAMESPACE="${CICD_NAMESPACE:-cicd}"
 TEKTON_VERSION="${TEKTON_VERSION:-latest}"
+SKIP_TRIGGERS="${SKIP_TRIGGERS:-0}"
 
 export KUBECONFIG
 
@@ -44,7 +46,7 @@ kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-smoke.yaml"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-smoke.yaml"
 
 if [[ -f "${ROOT}/k8s/cicd/tekton/pipeline-build-stg.yaml" ]]; then
-  echo "==> Registering bifrost-build-stg + bifrost-deliver-stg pipelines"
+  echo "==> Registering bifrost-deliver-stg + bifrost-deliver-prod pipelines"
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-kaniko-api-monitor.yaml" 2>/dev/null || true
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-kaniko-frontend.yaml" 2>/dev/null || true
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-kaniko-frontend-real.yaml" 2>/dev/null || true
@@ -57,6 +59,28 @@ if [[ -f "${ROOT}/k8s/cicd/tekton/pipeline-build-stg.yaml" ]]; then
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/rbac-deliver-stg.yaml" 2>/dev/null || true
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-deliver-stg.yaml" 2>/dev/null || true
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-deliver-stg.yaml" 2>/dev/null || true
+  # Prod delivery pipeline + RBAC + verify task
+  kubectl apply -f "${ROOT}/k8s/cicd/tekton/rbac-deliver-prod.yaml" 2>/dev/null || true
+  kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-verify-prod-deliver.yaml" 2>/dev/null || true
+  kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-deliver-prod.yaml" 2>/dev/null || true
+  # Platform prod delivery pipeline + RBAC (L1 prod)
+  kubectl apply -f "${ROOT}/k8s/cicd/tekton/rbac-deliver-platform.yaml" 2>/dev/null || true
+  kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml" 2>/dev/null || true
+fi
+
+# ---------- Tekton Triggers + CI gate (P6) ----------
+if [[ "${SKIP_TRIGGERS}" == "1" ]]; then
+  echo "==> Skipping Tekton Triggers (SKIP_TRIGGERS=1)"
+else
+  echo "==> Installing Tekton Triggers"
+  bash "${ROOT}/scripts/k3s/install-tekton-triggers.sh"
+
+  echo "==> Registering CI gate manifests (L1 + L2)"
+  kubectl apply -f "${ROOT}/k8s/cicd/tekton/rbac-trigger.yaml"
+  kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-ci-python.yaml"
+  kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-ci-frontend.yaml"
+  kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-ci-platform.yaml"
+  kubectl apply -f "${ROOT}/k8s/cicd/tekton/trigger-trade-ci.yaml"
 fi
 
 echo "Tekton stack ready."

@@ -1,0 +1,97 @@
+# CI gate for bifrost-trade-frontend (+ bifrost-ui peer dep).
+# Lightweight: clone → npm ci → lint → type-check → build. No deploy.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: bifrost-ci-frontend
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: ci-gate
+    bifrost.io/layer: L2
+spec:
+  description: >-
+    CI gate for frontend — npm lint + type-check + build.
+    Triggered by Gitea push webhook or manual Console run.
+  params:
+    - name: revision
+      type: string
+      default: main
+    - name: giteaBase
+      type: string
+      default: http://gitea.cicd.svc.cluster.local:3000/bifrost
+  workspaces:
+    - name: source
+  tasks:
+    - name: clone-frontend
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-trade-frontend.git
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: bifrost-trade-frontend
+      workspaces:
+        - name: output
+          workspace: source
+    - name: clone-ui
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-ui.git
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: bifrost-ui
+      workspaces:
+        - name: output
+          workspace: source
+    - name: lint-build
+      runAfter: [clone-frontend, clone-ui]
+      workspaces:
+        - name: source
+          workspace: source
+      taskSpec:
+        workspaces:
+          - name: source
+        steps:
+          - name: npm-ci-lint-build
+            image: node:20-slim
+            resources:
+              requests:
+                cpu: 500m
+                memory: 1Gi
+              limits:
+                cpu: "2"
+                memory: 4Gi
+            script: |
+              #!/usr/bin/env bash
+              set -euo pipefail
+              ws="$(workspaces.source.path)"
+
+              echo "==> Installing bifrost-ui"
+              cd "${ws}/bifrost-ui"
+              npm ci --ignore-scripts 2>/dev/null || npm install --ignore-scripts
+
+              echo "==> Installing bifrost-trade-frontend"
+              cd "${ws}/bifrost-trade-frontend"
+              npm ci 2>/dev/null || npm install
+
+              echo "==> Lint"
+              npm run lint || {
+                echo "WARN: lint found issues (non-blocking for now)"
+              }
+
+              echo "==> Build (includes type-check)"
+              npm run build
+
+              echo "==> Legacy CSS check"
+              if [ -f scripts/check-legacy-css.sh ]; then
+                bash scripts/check-legacy-css.sh || {
+                  echo "WARN: legacy CSS check found issues"
+                }
+              fi
+
+              echo "==> CI gate passed for bifrost-trade-frontend"

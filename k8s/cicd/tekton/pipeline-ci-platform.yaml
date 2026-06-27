@@ -1,0 +1,126 @@
+# CI gate for bifrost-platform (L1 control plane).
+# Monorepo: Go API (api/) + TypeScript Console (console/) + spine check.
+# Lightweight: clone → go test → npm type-check → check-spine. No deploy.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: bifrost-ci-platform
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: ci-gate
+    bifrost.io/layer: L1
+spec:
+  description: >-
+    CI gate for bifrost-platform — go test + npm type-check + check-spine.
+    Triggered by Gitea push webhook or manual Console run.
+    L1 control plane: conservative gate, must not break ops visibility.
+  params:
+    - name: revision
+      type: string
+      default: main
+    - name: giteaBase
+      type: string
+      default: http://gitea.cicd.svc.cluster.local:3000/bifrost
+  workspaces:
+    - name: source
+  tasks:
+    - name: clone
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-platform.git
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: bifrost-platform
+      workspaces:
+        - name: output
+          workspace: source
+    - name: test-api
+      runAfter: [clone]
+      workspaces:
+        - name: source
+          workspace: source
+      taskSpec:
+        workspaces:
+          - name: source
+        steps:
+          - name: go-test
+            image: golang:1.23-bookworm
+            resources:
+              requests:
+                cpu: 250m
+                memory: 512Mi
+              limits:
+                cpu: "2"
+                memory: 2Gi
+            script: |
+              #!/usr/bin/env bash
+              set -euo pipefail
+              ws="$(workspaces.source.path)"
+              cd "${ws}/bifrost-platform/api"
+
+              echo "==> go mod download"
+              go mod download
+
+              echo "==> go test ./..."
+              go test ./... -count=1 -timeout=120s
+
+              echo "==> Go API tests passed"
+    - name: test-console
+      runAfter: [clone]
+      workspaces:
+        - name: source
+          workspace: source
+      taskSpec:
+        workspaces:
+          - name: source
+        steps:
+          - name: npm-type-check
+            image: node:20-slim
+            resources:
+              requests:
+                cpu: 500m
+                memory: 1Gi
+              limits:
+                cpu: "2"
+                memory: 4Gi
+            script: |
+              #!/usr/bin/env bash
+              set -euo pipefail
+              ws="$(workspaces.source.path)"
+              cd "${ws}/bifrost-platform/console"
+
+              echo "==> npm ci"
+              npm ci 2>/dev/null || npm install
+
+              echo "==> tsc --noEmit"
+              npx tsc --noEmit
+
+              echo "==> Console type-check passed"
+    - name: check-spine
+      runAfter: [clone]
+      workspaces:
+        - name: source
+          workspace: source
+      taskSpec:
+        workspaces:
+          - name: source
+        steps:
+          - name: spine-catalog-check
+            image: alpine:3.20
+            script: |
+              #!/usr/bin/env sh
+              set -eu
+              ws="$(workspaces.source.path)"
+              cd "${ws}/bifrost-platform"
+
+              if [ -f scripts/ci/check_spine_catalog.sh ]; then
+                apk add --no-cache bash grep sed >/dev/null 2>&1
+                bash scripts/ci/check_spine_catalog.sh
+              else
+                echo "check_spine_catalog.sh not found — skipping"
+              fi
+
+              echo "==> Spine catalog check passed"

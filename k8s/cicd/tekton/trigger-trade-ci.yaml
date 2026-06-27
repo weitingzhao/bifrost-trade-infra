@@ -1,0 +1,235 @@
+# Tekton Triggers for Bifrost CI gate — Gitea push webhook → CI pipeline.
+#
+# Flow: Gitea mirror-sync fires push webhook → EventListener → CEL filter
+#       routes to python-ci, frontend-ci, or platform-ci TriggerTemplate → PipelineRun.
+#
+# Gitea webhook config (per repo):
+#   URL:  http://el-bifrost-ci.cicd.svc.cluster.local:8080
+#   Type: application/json
+#   Event: Push
+#   Secret: (value from gitea-webhook-secret/token, optional)
+
+# --- TriggerBinding: extract repo name + revision from Gitea push payload ---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: bifrost-gitea-push
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: ci-trigger
+spec:
+  params:
+    - name: repo
+      value: $(body.repository.name)
+    - name: revision
+      value: $(body.after)
+    - name: ref
+      value: $(body.ref)
+    - name: clone_url
+      value: $(body.repository.clone_url)
+
+---
+# --- TriggerTemplate: Python repos → bifrost-ci-python pipeline ---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: bifrost-ci-python-template
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: ci-trigger
+spec:
+  params:
+    - name: repo
+    - name: revision
+      default: main
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: ci-python-$(tt.params.repo)-
+        namespace: cicd
+        labels:
+          tekton.dev/pipeline: bifrost-ci-python
+          bifrost.io/trigger: gitea-webhook
+          bifrost.io/repo: $(tt.params.repo)
+      spec:
+        pipelineRef:
+          name: bifrost-ci-python
+        params:
+          - name: repo
+            value: $(tt.params.repo)
+          - name: revision
+            value: $(tt.params.revision)
+        taskRunTemplate:
+          podTemplate:
+            nodeSelector:
+              kubernetes.io/arch: amd64
+            tolerations:
+              - key: node-role.kubernetes.io/control-plane
+                operator: Exists
+                effect: NoSchedule
+        workspaces:
+          - name: source
+            volumeClaimTemplate:
+              spec:
+                accessModes: [ReadWriteOnce]
+                storageClassName: local-path
+                resources:
+                  requests:
+                    storage: 2Gi
+
+---
+# --- TriggerTemplate: Frontend repo → bifrost-ci-frontend pipeline ---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: bifrost-ci-frontend-template
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: ci-trigger
+spec:
+  params:
+    - name: revision
+      default: main
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: ci-frontend-
+        namespace: cicd
+        labels:
+          tekton.dev/pipeline: bifrost-ci-frontend
+          bifrost.io/trigger: gitea-webhook
+          bifrost.io/repo: bifrost-trade-frontend
+      spec:
+        pipelineRef:
+          name: bifrost-ci-frontend
+        params:
+          - name: revision
+            value: $(tt.params.revision)
+        taskRunTemplate:
+          podTemplate:
+            nodeSelector:
+              kubernetes.io/arch: amd64
+            tolerations:
+              - key: node-role.kubernetes.io/control-plane
+                operator: Exists
+                effect: NoSchedule
+        workspaces:
+          - name: source
+            volumeClaimTemplate:
+              spec:
+                accessModes: [ReadWriteOnce]
+                storageClassName: local-path
+                resources:
+                  requests:
+                    storage: 3Gi
+
+---
+# --- TriggerTemplate: Platform repo → bifrost-ci-platform pipeline (L1) ---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: bifrost-ci-platform-template
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: ci-trigger
+    bifrost.io/layer: L1
+spec:
+  params:
+    - name: revision
+      default: main
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: ci-platform-
+        namespace: cicd
+        labels:
+          tekton.dev/pipeline: bifrost-ci-platform
+          bifrost.io/trigger: gitea-webhook
+          bifrost.io/repo: bifrost-platform
+          bifrost.io/layer: L1
+      spec:
+        pipelineRef:
+          name: bifrost-ci-platform
+        params:
+          - name: revision
+            value: $(tt.params.revision)
+        taskRunTemplate:
+          podTemplate:
+            nodeSelector:
+              kubernetes.io/arch: amd64
+            tolerations:
+              - key: node-role.kubernetes.io/control-plane
+                operator: Exists
+                effect: NoSchedule
+        workspaces:
+          - name: source
+            volumeClaimTemplate:
+              spec:
+                accessModes: [ReadWriteOnce]
+                storageClassName: local-path
+                resources:
+                  requests:
+                    storage: 2Gi
+
+---
+# --- EventListener: receives Gitea push webhooks, routes by repo name ---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: bifrost-ci
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: ci-trigger
+spec:
+  serviceAccountName: tekton-trigger
+  triggers:
+    # L2: Python repos (core, api, worker, socket)
+    - name: python-ci
+      interceptors:
+        - ref:
+            name: "cel"
+          params:
+            - name: filter
+              value: >-
+                body.ref == 'refs/heads/main' &&
+                body.repository.name in ['bifrost-trade-core', 'bifrost-trade-api',
+                  'bifrost-trade-worker', 'bifrost-trade-socket']
+            - name: overlays
+              value:
+                - key: repo_name
+                  expression: body.repository.name
+      bindings:
+        - ref: bifrost-gitea-push
+      template:
+        ref: bifrost-ci-python-template
+    # L2: Frontend repo (+ bifrost-ui triggers frontend CI too)
+    - name: frontend-ci
+      interceptors:
+        - ref:
+            name: "cel"
+          params:
+            - name: filter
+              value: >-
+                body.ref == 'refs/heads/main' &&
+                body.repository.name in ['bifrost-trade-frontend', 'bifrost-ui']
+      bindings:
+        - ref: bifrost-gitea-push
+      template:
+        ref: bifrost-ci-frontend-template
+    # L1: Platform repo (control plane)
+    - name: platform-ci
+      interceptors:
+        - ref:
+            name: "cel"
+          params:
+            - name: filter
+              value: >-
+                body.ref == 'refs/heads/main' &&
+                body.repository.name == 'bifrost-platform'
+      bindings:
+        - ref: bifrost-gitea-push
+      template:
+        ref: bifrost-ci-platform-template

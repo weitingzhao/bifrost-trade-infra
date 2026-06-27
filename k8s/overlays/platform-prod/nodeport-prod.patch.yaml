@@ -1,0 +1,23 @@
+# Platform prod NodePorts — 30876 (API) / 30877 (Console).
+# STG uses 30878/30879; trade uses 30880 (stg) / 30881 (prod) / 30882 (dev).
+apiVersion: v1
+kind: Service
+metadata:
+  name: platform-api
+spec:
+  ports:
+    - name: http
+      port: 8780
+      targetPort: http
+      nodePort: 30876
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: platform-console
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      nodePort: 30877

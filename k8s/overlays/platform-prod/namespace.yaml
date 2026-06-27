@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bifrost-platform-prod
+  labels:
+    app.kubernetes.io/part-of: bifrost-platform
+    bifrost.io/environment: platform-prod

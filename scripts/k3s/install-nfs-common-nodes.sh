@@ -18,6 +18,7 @@ DEFAULT_NODES=(
   "vision@192.168.10.73"
   "vision@192.168.10.70"
   "vision@192.168.10.75"
+  "vision@192.168.10.77"
 )
 
 if [[ -n "${K3S_NFS_NODES:-}" ]]; then

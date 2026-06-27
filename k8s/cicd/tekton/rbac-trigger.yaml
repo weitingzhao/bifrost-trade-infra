@@ -1,0 +1,59 @@
+# RBAC for Tekton Triggers EventListener — creates PipelineRuns from webhook events.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tekton-trigger
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: ci-trigger
+---
+# The EventListener SA needs to create PipelineRuns in the cicd namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tekton-trigger-runs
+  namespace: cicd
+rules:
+  - apiGroups: [tekton.dev]
+    resources: [pipelineruns]
+    verbs: [create, get, list]
+  - apiGroups: [triggers.tekton.dev]
+    resources: [eventlisteners, triggerbindings, triggertemplates]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-trigger-runs
+  namespace: cicd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tekton-trigger-runs
+subjects:
+  - kind: ServiceAccount
+    name: tekton-trigger
+    namespace: cicd
+---
+# ClusterRole for resolving TriggerTemplates and interceptors.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tekton-trigger-resolve
+rules:
+  - apiGroups: [triggers.tekton.dev]
+    resources: [clusterinterceptors, clustertriggerbindings]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tekton-trigger-resolve
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tekton-trigger-resolve
+subjects:
+  - kind: ServiceAccount
+    name: tekton-trigger
+    namespace: cicd

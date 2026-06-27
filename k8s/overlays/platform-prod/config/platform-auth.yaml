@@ -1,0 +1,16 @@
+# Bifrost Ops Platform auth for L1+ actuation — PROD instance.
+# Prod tokens MUST differ from STG; prefer env overrides exclusively.
+
+tokens:
+  - name: viewer
+    role: viewer
+    token_env: PLATFORM_PROD_VIEWER_TOKEN
+    token: placeholder-override-via-env
+  - name: operator
+    role: operator
+    token_env: PLATFORM_PROD_OPERATOR_TOKEN
+    token: placeholder-override-via-env
+  - name: admin
+    role: admin
+    token_env: PLATFORM_PROD_ADMIN_TOKEN
+    token: placeholder-override-via-env

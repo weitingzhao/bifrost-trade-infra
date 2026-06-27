@@ -541,6 +541,14 @@ k3s-join-ubt-k3s-04:
 	@chmod +x scripts/k3s/join-ubt-k3s-04.sh scripts/k3s/fetch-join-token.sh scripts/k3s/install-agent.sh scripts/k3s/configure-insecure-registry.sh
 	AGENT_HOST=$(K3S_UBT04_HOST) K3S_NODE_IP=$(K3S_UBT04_NODE_IP) BOOTSTRAP_HOST=$(K3S_BOOTSTRAP_HOST) KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/join-ubt-k3s-04.sh
 
+# ubt-k3s-05 @ 192.168.10.77 — general K3s agent
+K3S_UBT05_HOST ?= vision@192.168.10.77
+K3S_UBT05_NODE_IP ?= 192.168.10.77
+
+k3s-join-ubt-k3s-05:
+	@chmod +x scripts/k3s/join-ubt-k3s-05.sh scripts/k3s/fetch-join-token.sh scripts/k3s/install-agent.sh scripts/k3s/configure-insecure-registry.sh
+	AGENT_HOST=$(K3S_UBT05_HOST) K3S_NODE_IP=$(K3S_UBT05_NODE_IP) BOOTSTRAP_HOST=$(K3S_BOOTSTRAP_HOST) KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/join-ubt-k3s-05.sh
+
 k3s-fetch-join-token:
 	@chmod +x scripts/k3s/fetch-join-token.sh
 	BOOTSTRAP_HOST=$(K3S_BOOTSTRAP_HOST) ./scripts/k3s/fetch-join-token.sh

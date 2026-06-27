@@ -1,0 +1,180 @@
+# Ops Platform PROD deliver — preflight STG health → Kaniko (:prod) → rollout → Argo sync.
+# Conservative L1 rollout: only proceeds when platform-stg is healthy.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: bifrost-deliver-platform-prod
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: platform-deliver-prod
+    bifrost.io/layer: L1
+spec:
+  description: >-
+    L1 prod deploy for Ops Platform. Preflight checks platform-stg health,
+    then builds :prod images, rolls out bifrost-platform-prod, and syncs Argo.
+  params:
+    - name: revision
+      type: string
+      default: main
+    - name: giteaBase
+      type: string
+      default: http://gitea.cicd.svc.cluster.local:3000/bifrost
+    - name: platformApiImage
+      type: string
+      default: registry.cicd.svc.cluster.local:5000/bifrost-platform-api:prod
+    - name: platformConsoleImage
+      type: string
+      default: registry.cicd.svc.cluster.local:5000/bifrost-platform-console:prod
+  workspaces:
+    - name: build-context
+  tasks:
+    # Gate: verify platform-stg is healthy before touching prod
+    - name: preflight-stg
+      taskSpec:
+        steps:
+          - name: check-stg-health
+            image: alpine:3.20
+            script: |
+              #!/usr/bin/env sh
+              set -eu
+              apk add --no-cache curl >/dev/null 2>&1
+              echo "==> Preflight: checking platform-stg health"
+              HTTP=$(curl -s -o /dev/null -w '%{http_code}' \
+                http://platform-api.bifrost-platform-stg.svc.cluster.local:8780/health || echo 000)
+              if [ "$HTTP" != "200" ]; then
+                echo "FAIL: platform-stg API returned $HTTP — aborting prod deploy"
+                exit 1
+              fi
+              echo "OK: platform-stg API healthy ($HTTP)"
+              HTTP2=$(curl -s -o /dev/null -w '%{http_code}' \
+                http://platform-console.bifrost-platform-stg.svc.cluster.local:80/ || echo 000)
+              if [ "$HTTP2" != "200" ]; then
+                echo "FAIL: platform-stg Console returned $HTTP2 — aborting prod deploy"
+                exit 1
+              fi
+              echo "OK: platform-stg Console healthy ($HTTP2)"
+              echo "==> Preflight passed — proceeding to prod deploy"
+
+    - name: mirror-sync
+      runAfter: [preflight-stg]
+      taskRef:
+        name: bifrost-gitea-mirror-sync
+      params:
+        - name: giteaBase
+          value: $(params.giteaBase)
+        - name: mirrorRepos
+          value: bifrost-platform bifrost-ui
+
+    - name: clone-platform
+      runAfter: [mirror-sync]
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-platform.git
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: bifrost-platform
+      workspaces:
+        - name: output
+          workspace: build-context
+
+    - name: clone-ui
+      runAfter: [mirror-sync]
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-ui.git
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: bifrost-ui
+      workspaces:
+        - name: output
+          workspace: build-context
+
+    - name: stage-api-dockerfile
+      runAfter: [clone-platform]
+      workspaces:
+        - name: source
+          workspace: build-context
+      taskSpec:
+        workspaces:
+          - name: source
+        volumes:
+          - name: dockerfile-cm
+            configMap:
+              name: bifrost-platform-api-stg-dockerfile
+        steps:
+          - name: copy
+            image: alpine:3.20
+            volumeMounts:
+              - name: dockerfile-cm
+                mountPath: /cm
+            script: |
+              #!/usr/bin/env sh
+              set -eu
+              cp /cm/Dockerfile.platform-api-stg "$(workspaces.source.path)/Dockerfile.platform-api-stg"
+
+    - name: stage-console-dockerfile
+      runAfter: [clone-platform, clone-ui]
+      workspaces:
+        - name: source
+          workspace: build-context
+      taskSpec:
+        workspaces:
+          - name: source
+        volumes:
+          - name: dockerfile-cm
+            configMap:
+              name: bifrost-platform-console-stg-dockerfile
+        steps:
+          - name: copy
+            image: alpine:3.20
+            volumeMounts:
+              - name: dockerfile-cm
+                mountPath: /cm
+            script: |
+              #!/usr/bin/env sh
+              set -eu
+              cp /cm/Dockerfile.platform-console-stg "$(workspaces.source.path)/Dockerfile.platform-console-stg"
+
+    - name: build-platform-api
+      runAfter: [stage-api-dockerfile]
+      taskRef:
+        name: bifrost-kaniko-platform-api-stg
+      params:
+        - name: image
+          value: $(params.platformApiImage)
+      workspaces:
+        - name: source
+          workspace: build-context
+
+    - name: build-platform-console
+      runAfter: [stage-console-dockerfile]
+      taskRef:
+        name: bifrost-kaniko-platform-console-stg
+      params:
+        - name: image
+          value: $(params.platformConsoleImage)
+      workspaces:
+        - name: source
+          workspace: build-context
+
+    - name: rollout
+      runAfter: [build-platform-api, build-platform-console]
+      taskRef:
+        name: bifrost-rollout-platform-stg
+      params:
+        - name: namespace
+          value: bifrost-platform-prod
+
+    - name: gitops-sync
+      runAfter: [rollout]
+      taskRef:
+        name: bifrost-argocd-sync-platform-stg
+      params:
+        - name: application
+          value: bifrost-platform-prod
