@@ -30,6 +30,8 @@ spec:
               value: /var/kubeconfig/bifrost-k3s.yaml
             - name: PLATFORM_LISTEN
               value: ":8780"
+            - name: PLATFORM_DATA_DIR
+              value: /app/data
           volumeMounts:
             - name: platform-config
               mountPath: /app/config
@@ -37,6 +39,8 @@ spec:
             - name: kubeconfig
               mountPath: /var/kubeconfig
               readOnly: true
+            - name: platform-data
+              mountPath: /app/data
           readinessProbe:
             httpGet:
               path: /health
@@ -64,6 +68,8 @@ spec:
           secret:
             secretName: bifrost-platform-kubeconfig
             optional: true
+        - name: platform-data
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
