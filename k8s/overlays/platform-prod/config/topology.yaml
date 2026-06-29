@@ -31,15 +31,15 @@ nodes:
     in_k3s_cluster: true
     grid: { row: 1, col: 0 }
 
-  - id: mini-pc-b
-    # Legacy bare-metal PostgreSQL (.80) decommissioned 2026-06-29; data migrated to CNPG @ data NS.
-    # Server being reinstalled as .79 plain K3s agent (not yet joined).
-    label: mini-pc-b (→ .79 agent)
+  - id: ubt-k3s-06
+    # Reinstalled former bare-metal PG box (.80 decommissioned 2026-06-29 → CNPG @ data NS).
+    label: ubt-k3s-06
     host: 192.168.10.79
+    ssh_port: 22
     group: linux
     compose_roles: []
     k3s_roles: [k3s_agent]
-    in_k3s_cluster: false
+    in_k3s_cluster: true   # ubt-k3s-06 · K3s node Ready · general pool (16 vCPU / 32GB)
     grid: { row: 1, col: 2 }
 
   - id: mini-pc-c
