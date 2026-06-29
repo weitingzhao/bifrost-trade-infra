@@ -1,0 +1,37 @@
+# W2: api-ops in-cluster actuation — scale/restart Deployments, delete worker pods.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: api-ops
+  labels:
+    app.kubernetes.io/name: api-ops
+    app.kubernetes.io/component: api
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: api-ops-actuator
+  labels:
+    app.kubernetes.io/name: api-ops
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: api-ops-actuator
+  labels:
+    app.kubernetes.io/name: api-ops
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: api-ops-actuator
+subjects:
+  - kind: ServiceAccount
+    name: api-ops

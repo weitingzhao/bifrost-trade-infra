@@ -98,10 +98,9 @@ redis_queue:
 
 ops:
   control_profile: dev
-  project_root: /build/bifrost-trade-worker
-  socket_project_root: /build/bifrost-trade-socket
-  executor_mode: local
-  local_control: subprocess
+  executor_mode: kubernetes
+  kubernetes:
+    namespace: bifrost-dev
   celery:
     prod_worker_hostnames:
       - celery-worker

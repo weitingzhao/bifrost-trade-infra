@@ -18,7 +18,6 @@ configMapGenerator:
 patches:
   - path: node-control-plane.patch.yaml
   - path: stg-images-pull-always.patch.yaml
-  - path: api-ops-celery.patch.yaml
   - path: postgres-remove.patch.yaml
   - path: redis-remove.patch.yaml
 

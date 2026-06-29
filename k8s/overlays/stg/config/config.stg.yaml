@@ -92,12 +92,9 @@ redis_queue:
 
 ops:
   control_profile: stg
-  # K8s stg: Celery worker instances spawn via Ops subprocess inside api-ops pod (B1).
-  # B2: executor_mode kubernetes for pod/Job actuation.
-  project_root: /build/bifrost-trade-worker
-  socket_project_root: /build/bifrost-trade-socket
-  executor_mode: local
-  local_control: subprocess
+  executor_mode: kubernetes
+  kubernetes:
+    namespace: bifrost-stg
   celery:
     prod_worker_hostnames:
       - celery-worker

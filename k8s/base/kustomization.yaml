@@ -12,6 +12,7 @@ resources:
   - infra/redis.yaml
   - ingress/middlewares.yaml
   - apis/manifest.yaml
+  - apis/api-ops-rbac.yaml
   - worker/manifest.yaml
   - socket/manifest.yaml
   - jobs/db-init.yaml

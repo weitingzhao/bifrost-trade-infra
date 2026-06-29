@@ -241,6 +241,7 @@ spec:
         app.kubernetes.io/name: api-ops
         app.kubernetes.io/component: api
     spec:
+      serviceAccountName: api-ops
       volumes:
         - name: bifrost-config
           configMap:
