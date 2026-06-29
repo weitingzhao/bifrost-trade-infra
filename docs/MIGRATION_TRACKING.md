@@ -23,7 +23,7 @@
 | bifrost-trade-api | 9 | 9 | **Phase 2B CLOSED**（2026-06-04）— 9/9 域 CUTOVER + Owner 签字；Dev `VITE_API_*` → 8765–8773 |
 | bifrost-trade-frontend | 4 | 4 | **Phase 2B CLOSED**（2026-06-04）— New Frontend + New API 9/9 域 Owner 签字完成 |
 
-> **Phase 2B CLOSED**（2026-06-04）· **2C-A CLOSED**（2026-06-08）· **K3s STG v2 SIGNED**（2026-06-18）· **Data layer CNPG**（2026-06-29，`.80` 下线）· **Legacy runtime 已停**（`.70` 无 compose/systemd）· **重点**：Phase 3 spine 签字 + Platform deliver。
+> **Phase 2B CLOSED**（2026-06-04）· **2C-A CLOSED**（2026-06-08）· **K3s STG v2 SIGNED**（2026-06-18）· **Data layer CNPG**（2026-06-29，`.80` 下线）· **Phase 3 Legacy retirement SIGNED**（2026-06-29，决策 D8 — `bifrost-trader-engine` NAS 归档只读）· **重点**：Platform Console deliver。
 
 ---
 
@@ -324,7 +324,7 @@
 | 2C-B | Compose Prod 稳定测试 | D5 已签 | 生产切换待迁移决策 | **稳定测试已签** |
 | **K3s 阶段 1** | 集群搭建与试验 | §9 清单 | Owner 2026-06-04 解锁 | **CLOSED**（CNPG + dev/stg/prod 栈 @ K3s） |
 | K3s 搬迁 → Legacy | PLATFORM / K3S 文档 | overlay 同步、矩阵 CNPG/redis | 2026-06-29 | **DONE** |
-| Phase 3 | Legacy 退役 | `.70` compose 已停；engine NAS 归档 | 运行时已清 | **IN_PROGRESS**（治理/spine 待签） |
+| Phase 3 | Legacy 退役 | `.70` compose 已停；engine NAS 归档；spine 决策 D8 签字 | 2026-06-29 | **CLOSED**（SIGNED — engine retired） |
 
 **主线**（Owner 2026-06-04）：Local Prod Final **CLOSED** → **K3s 阶段 1** → 迁移定稿 → Legacy 退役。见 Ops Console → Program → Deploy Mainline（`deployMainlineCatalog.ts`）。
 
@@ -378,6 +378,7 @@
 | 2026-06-04 | **Local Prod Final CLOSED**：L2 Session 0–3/8 + L2.8；L3 D1–D5 Owner 修订（K3s 优先、PG `.80`、Win11×2 TWS、暂缓自动下单）；解锁 **K3s 阶段 1** | Owner |
 | 2026-06-08 | **Local Prod Final 立项**：主线 Local Final → 2C-B → K3s → 搬迁 → Legacy；`local_prod_final_gate.sh` L1 通过 | Agent |
 | 2026-06-05 | **Socket Message Center**：`IbConnectionStatusTracker` 接入 ingestor/account_agent/operator；`test_message_center_tracker`；prod-local 容器重启后 Redis 流验证 | Agent |
+| 2026-06-29 | **Phase 3 Legacy retirement SIGNED（决策 D8）**：Owner 豁免「UI 并排对齐」退役前置（Legacy 已停无法并排；2B 9/9 域已业务等价）；engine NAS 归档只读 + 移出 workspace；spine `legacy-retirement` → SIGNED/closed | Owner |
 | 2026-06-29 | **Data layer cutover**：裸机 PG `.80` 下线；CNPG `bifrost-postgres-rw` 承载 dev/stg/prod；Platform 矩阵 postgres→CNPG；prod redis→`redis-live-prod.data.svc`；`ubt-k3s-06`（`.79`）入列 | Agent |
 | 2026-06-29 | **Legacy runtime 收尾**：`.70`/`.73`/`.50` 无 Legacy API/compose/systemd 监听；`bifrost-trader-engine` 已 NAS 归档并从 workspace 移除 | Agent |
 | 2026-06-04 | **IB Broker Connection 完全对齐**：`bifrost_core.monitor.integrations.ib_socket_status`（v0.2.3）；socket `ib_health_schema` + AA canonical probe keys + ingestor `host_*` mirror；api `status.py` 三服务 `build_ib_socket_status`；frontend `IbBrokerConnection` + `StatusSocketIbBroker`；docker 重建 ib-operator/ingestor/account-agent/api-monitor/frontend | Agent |
