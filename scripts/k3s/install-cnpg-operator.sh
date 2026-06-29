@@ -5,7 +5,8 @@ set -euo pipefail
 KUBECONFIG="${KUBECONFIG:-${PLATFORM_KUBECONFIG:-$HOME/.kube/bifrost-k3s.yaml}}"
 export KUBECONFIG
 
-CNPG_VERSION="${CNPG_VERSION:-1.25.1}"
+# >=1.26 supports declarative offline major-version upgrades (bump cluster imageName → operator runs pg_upgrade).
+CNPG_VERSION="${CNPG_VERSION:-1.27.4}"
 CNPG_MANIFEST="${CNPG_MANIFEST:-https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/v${CNPG_VERSION}/releases/cnpg-${CNPG_VERSION}.yaml}"
 ROLLOUT_TIMEOUT="${ROLLOUT_TIMEOUT:-300}"
 

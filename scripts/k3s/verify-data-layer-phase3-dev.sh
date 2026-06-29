@@ -36,7 +36,13 @@ if kubectl get deployment redis -n "${DEV_NAMESPACE}" >/dev/null 2>&1; then
     fail "embedded redis not ready in ${DEV_NAMESPACE}"
   fi
 else
-  fail "embedded redis missing in ${DEV_NAMESPACE} (dev stack expects in-ns redis until phase ⑥)"
+  redis_host="$(kubectl get configmap bifrost-config -n "${DEV_NAMESPACE}" -o jsonpath='{.data.config\.dev\.yaml}' 2>/dev/null \
+    | awk '/^redis:/{p=1;next} p&&/^[a-z_]+:/{exit} p&&/host:/{print $2; exit}' || true)"
+  if [[ "${redis_host}" == *".data.svc"* ]]; then
+    pass "no embedded redis; config uses data NS (${redis_host})"
+  else
+    fail "embedded redis missing in ${DEV_NAMESPACE} (dev stack expects in-ns redis until phase ⑥)"
+  fi
 fi
 
 pg_host="$(kubectl get configmap bifrost-config -n "${DEV_NAMESPACE}" -o jsonpath='{.data.config\.dev\.yaml}' 2>/dev/null \

@@ -5,6 +5,7 @@ namespace: data
 
 resources:
   - instances.yaml
+  - redis-nodeport.yaml
 
 labels:
   - pairs:

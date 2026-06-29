@@ -332,6 +332,19 @@ k3s-migrate-prod-postgres-to-cnpg:
 	@chmod +x scripts/k3s/migrate-prod-postgres-to-cnpg.sh
 	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/migrate-prod-postgres-to-cnpg.sh
 
+# Final legacy .80 archive + first dev/stg baseline from CNPG prod
+k3s-backup-legacy-postgres-final:
+	@chmod +x scripts/k3s/backup-legacy-postgres-final.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/backup-legacy-postgres-final.sh
+
+k3s-clone-cnpg-prod-to-dev-stg:
+	@chmod +x scripts/k3s/clone-cnpg-prod-to-dev-stg.sh scripts/k3s/fix-cnpg-db-ownership.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/clone-cnpg-prod-to-dev-stg.sh
+
+k3s-fix-cnpg-db-ownership:
+	@chmod +x scripts/k3s/fix-cnpg-db-ownership.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/fix-cnpg-db-ownership.sh $(DBS)
+
 k3s-cutover-prod-data-layer-phase4:
 	@chmod +x scripts/k3s/cutover-prod-data-layer-phase4.sh scripts/k3s/migrate-prod-postgres-to-cnpg.sh scripts/k3s/verify-data-layer-phase4-prod.sh scripts/k3s/verify-data-layer-phase3-dev.sh scripts/sync_prod_overlay_config.sh
 	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/cutover-prod-data-layer-phase4.sh

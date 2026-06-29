@@ -31,7 +31,14 @@ SKIP_DAEMON_SCALE="${SKIP_DAEMON_SCALE:-0}"
 
 PG_DUMP="${PG_DUMP:-pg_dump}"
 if ! command -v "${PG_DUMP}" >/dev/null 2>&1; then
-  echo "pg_dump not found — install libpq (brew install libpq)" >&2
+  echo "pg_dump not found — install libpq (brew install libpq@17)" >&2
+  exit 1
+fi
+
+# pg_dump must be >= source major (17): a lower client refuses to dump a newer server.
+pgd_major="$("${PG_DUMP}" --version | sed -E 's/.* ([0-9]+).*/\1/')"
+if [[ -z "${pgd_major}" || "${pgd_major}" -lt 17 ]]; then
+  echo "pg_dump major=${pgd_major:-unknown} < 17 — source is PG17; install libpq@17 or run via 'docker run --rm postgres:17 pg_dump ...'" >&2
   exit 1
 fi
 
@@ -60,14 +67,10 @@ REMOTE_DUMP="/var/lib/postgresql/data/bifrost-prod-migrate.sql"
 trap 'rm -f "${DUMP_FILE}"; restore_daemon' EXIT
 
 echo "==> pg_dump legacy ${LEGACY_PG_HOST}:${LEGACY_PG_PORT}/${LEGACY_PG_DB} (plain SQL, no --clean)"
+# CNPG target is PG 17.x, same major as the legacy source (17.9) — no GUC stripping / downgrade shims.
 PGPASSWORD="${LEGACY_PG_PASSWORD}" "${PG_DUMP}" \
   -h "${LEGACY_PG_HOST}" -p "${LEGACY_PG_PORT}" -U "${LEGACY_PG_USER}" -d "${LEGACY_PG_DB}" \
-  --no-owner --no-acl --format=plain -f "${DUMP_FILE}.raw"
-
-# Strip PG17+ GUCs not understood by CNPG PG16
-sed -e '/^SET transaction_timeout/d' -e '/^SET idle_session_timeout/d' \
-  "${DUMP_FILE}.raw" > "${DUMP_FILE}"
-rm -f "${DUMP_FILE}.raw"
+  --no-owner --no-acl --format=plain -f "${DUMP_FILE}"
 
 echo "==> Reset CNPG ${TARGET_DB} schema (DROP SCHEMA public CASCADE)"
 kubectl exec -n "${DATA_NAMESPACE}" "${primary}" -- psql -U postgres -d "${TARGET_DB}" -v ON_ERROR_STOP=1 -c \

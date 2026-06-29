@@ -10,7 +10,8 @@ metadata:
     app.kubernetes.io/component: postgres
 spec:
   instances: 2
-  imageName: ghcr.io/cloudnative-pg/postgresql:16.6
+  # PG 17.x — aligned with legacy source .80 (17.9): same-major migration, no downgrade.
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.9
   primaryUpdateStrategy: unsupervised
   storage:
     size: 30Gi

@@ -1,0 +1,121 @@
+# LAN-only NodePorts for Redis Insight / redis-cli from the local network.
+#
+# Each Service targets the matching ClusterIP redis deployment in data NS.
+# No password is configured on these phase-⑥ single-replica instances (dev only).
+#
+# Ports (LAN only — never expose to the public internet):
+#   redis-dev          30379  (dev live+queue, db 0/1)
+#   redis-live-stg     30380
+#   redis-queue-stg    30381
+#   redis-live-prod    30382
+#   redis-queue-prod   30383
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-dev-lan
+  namespace: data
+  labels:
+    app.kubernetes.io/name: redis-dev
+    app.kubernetes.io/component: redis-lan-access
+    bifrost.io/environment: dev
+  annotations:
+    bifrost.io/purpose: "LAN Redis Insight access — dev live+queue"
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: redis-dev
+  ports:
+    - name: redis
+      protocol: TCP
+      port: 6379
+      targetPort: redis
+      nodePort: 30379
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-live-stg-lan
+  namespace: data
+  labels:
+    app.kubernetes.io/name: redis-live-stg
+    app.kubernetes.io/component: redis-lan-access
+    bifrost.io/environment: stg
+  annotations:
+    bifrost.io/purpose: "LAN Redis Insight access — stg live quotes/streams"
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: redis-live-stg
+  ports:
+    - name: redis
+      protocol: TCP
+      port: 6379
+      targetPort: redis
+      nodePort: 30380
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-queue-stg-lan
+  namespace: data
+  labels:
+    app.kubernetes.io/name: redis-queue-stg
+    app.kubernetes.io/component: redis-lan-access
+    bifrost.io/environment: stg
+  annotations:
+    bifrost.io/purpose: "LAN Redis Insight access — stg Celery broker"
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: redis-queue-stg
+  ports:
+    - name: redis
+      protocol: TCP
+      port: 6379
+      targetPort: redis
+      nodePort: 30381
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-live-prod-lan
+  namespace: data
+  labels:
+    app.kubernetes.io/name: redis-live-prod
+    app.kubernetes.io/component: redis-lan-access
+    bifrost.io/environment: prod
+  annotations:
+    bifrost.io/purpose: "LAN Redis Insight access — prod live quotes/streams"
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: redis-live-prod
+  ports:
+    - name: redis
+      protocol: TCP
+      port: 6379
+      targetPort: redis
+      nodePort: 30382
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-queue-prod-lan
+  namespace: data
+  labels:
+    app.kubernetes.io/name: redis-queue-prod
+    app.kubernetes.io/component: redis-lan-access
+    bifrost.io/environment: prod
+  annotations:
+    bifrost.io/purpose: "LAN Redis Insight access — prod Celery broker"
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: redis-queue-prod
+  ports:
+    - name: redis
+      protocol: TCP
+      port: 6379
+      targetPort: redis
+      nodePort: 30383

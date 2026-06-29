@@ -7,6 +7,7 @@ resources:
   - namespace.yaml
   - cluster.yaml
   - databases.yaml
+  - postgres-nodeport.yaml
   - backup-scheduled.yaml
   - minio/pvc.yaml
   - minio/deployment.yaml

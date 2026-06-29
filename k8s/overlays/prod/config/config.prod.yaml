@@ -67,11 +67,11 @@ utilized:
     research: prod
 
 postgres:
-  host: 192.168.10.80
+  host: bifrost-postgres-rw.data.svc.cluster.local
   port: 5432
   user: bifrost
-  password: OptionPSW!@
-  database: options_db
+  password: bifrost_stg
+  database: bifrost_prod
 
 redis:
   enabled: true
@@ -117,3 +117,7 @@ ops:
 
 massive:
   api_key: MYCd1tboShKK7UTYgKN_fjtBrZUr9zhe
+  tier: starter
+  ws_url: wss://delayed.polygon.io/options
+  features:
+    trades_enabled: false

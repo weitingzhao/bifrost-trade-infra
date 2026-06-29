@@ -1,0 +1,32 @@
+# LAN-only NodePort for DBeaver / external SQL clients to reach the CNPG primary.
+#
+# This is a SEPARATE Service from CNPG-managed bifrost-postgres-rw (which the
+# operator reconciles and must not be edited). It targets the same primary pod
+# via the CNPG primary-role selector.
+#
+# Access (LAN only — never expose 30432 to the public internet):
+#   Host: <any Ready k3s node IP, e.g. 192.168.10.73>
+#   Port: 30432
+#   DB:   bifrost_dev / bifrost_stg / bifrost_prod
+#   User: bifrost   (secret bifrost-postgres-app)
+apiVersion: v1
+kind: Service
+metadata:
+  name: bifrost-postgres-lan
+  namespace: data
+  labels:
+    app.kubernetes.io/name: bifrost-postgres
+    app.kubernetes.io/component: postgres-lan-access
+  annotations:
+    bifrost.io/purpose: "LAN DBeaver/SQL client access to CNPG primary (read-write)"
+spec:
+  type: NodePort
+  selector:
+    cnpg.io/cluster: bifrost-postgres
+    cnpg.io/instanceRole: primary
+  ports:
+    - name: postgres
+      protocol: TCP
+      port: 5432
+      targetPort: 5432
+      nodePort: 30432
