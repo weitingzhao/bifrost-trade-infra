@@ -12,12 +12,10 @@ clusters:
     bifrost_namespaces:
       - cicd
       - data
-      - bifrost
       - bifrost-dev
       - bifrost-stg
       - bifrost-prod
       - bifrost-platform-stg
-      - bifrost-platform-prod
       - monitoring
       - ai
       - data-warehouse
@@ -68,17 +66,21 @@ clusters:
           install_script: install-stack-registry.sh
           upgrade_script: install-stack-registry.sh
     stg_smoke:
-      gateway_url: http://192.168.10.73:30880
-      api_monitor_url: http://192.168.10.73:30880/api/monitor/status
-      frontend_url: http://192.168.10.73:30880/
+      gateway_url: http://trade-stg.bifrost.lan/
+      gateway_host: trade-stg.bifrost.lan
+      gateway_node_ip: 192.168.10.73
+      api_monitor_url: http://trade-stg.bifrost.lan/api/monitor/status
+      frontend_url: http://trade-stg.bifrost.lan/
       platform_console_url: http://192.168.10.73:30879
       platform_api_health_url: http://192.168.10.73:30878/health
     prod_smoke:
-      gateway_url: http://192.168.10.70:30881
-      api_monitor_url: http://192.168.10.70:30881/api/monitor/status
-      frontend_url: http://192.168.10.70:30881/
-      platform_console_url: http://192.168.10.73:30877
-      platform_api_health_url: http://192.168.10.73:30876/health
+      gateway_url: http://trade.bifrost.lan/
+      gateway_host: trade.bifrost.lan
+      gateway_node_ip: 192.168.10.70
+      api_monitor_url: http://trade.bifrost.lan/api/monitor/status
+      frontend_url: http://trade.bifrost.lan/
     dev_smoke:
-      gateway_url: http://192.168.10.73:30882
-      api_monitor_url: http://192.168.10.73:30882/api/monitor/status
+      gateway_url: http://trade-dev.bifrost.lan/
+      gateway_host: trade-dev.bifrost.lan
+      gateway_node_ip: 192.168.10.73
+      api_monitor_url: http://trade-dev.bifrost.lan/api/monitor/status

@@ -33,19 +33,11 @@
 		{
 			"name": "🌐 api · FastAPI 9 域 — :8765–8773",
 			"path": "../bifrost-trade-api"
-		},
-		{
-			"name": "🔒 engine · 只读参考 — 禁止修改",
-			"path": "../bifrost-trader-engine"
 		}
 	],
 	"settings": {
 		"python.testing.pytestEnabled": true,
 		"python.testing.unittestEnabled": false,
-		"files.readonlyInclude": {
-			"**/bifrost-trader-engine/**": true
-		},
-		"files.readonlyFromPermissions": false,
 		"explorer.compactFolders": false,
 		"explorer.sortOrder": "default",
 		"explorer.excludeGitIgnore": false,

@@ -1,0 +1,114 @@
+# Traefik middlewares for Trade gateway (W1 trade-k8s-native).
+# stripPrefix mirrors legacy nginx proxy_pass http://api_*/  (drops /api/{domain}).
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-api-monitor
+  labels:
+    app.kubernetes.io/name: trade-gateway
+    app.kubernetes.io/component: ingress
+spec:
+  stripPrefix:
+    prefixes:
+      - /api/monitor
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-api-massive
+  labels:
+    app.kubernetes.io/name: trade-gateway
+spec:
+  stripPrefix:
+    prefixes:
+      - /api/massive
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-api-docs
+  labels:
+    app.kubernetes.io/name: trade-gateway
+spec:
+  stripPrefix:
+    prefixes:
+      - /api/docs
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-api-ops
+  labels:
+    app.kubernetes.io/name: trade-gateway
+spec:
+  stripPrefix:
+    prefixes:
+      - /api/ops
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-api-trading
+  labels:
+    app.kubernetes.io/name: trade-gateway
+spec:
+  stripPrefix:
+    prefixes:
+      - /api/trading
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-api-strategy
+  labels:
+    app.kubernetes.io/name: trade-gateway
+spec:
+  stripPrefix:
+    prefixes:
+      - /api/strategy
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-api-portfolio
+  labels:
+    app.kubernetes.io/name: trade-gateway
+spec:
+  stripPrefix:
+    prefixes:
+      - /api/portfolio
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-api-market
+  labels:
+    app.kubernetes.io/name: trade-gateway
+spec:
+  stripPrefix:
+    prefixes:
+      - /api/market
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-api-research
+  labels:
+    app.kubernetes.io/name: trade-gateway
+spec:
+  stripPrefix:
+    prefixes:
+      - /api/research
+---
+# SSE / long-poll friendly — disable proxy buffering semantics for streaming APIs.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: sse-streaming
+  labels:
+    app.kubernetes.io/name: trade-gateway
+spec:
+  headers:
+    customResponseHeaders:
+      X-Accel-Buffering: "no"

@@ -5,6 +5,7 @@ namespace: bifrost-stg
 
 resources:
   - ../../base
+  - trade-ingressroute.yaml
 
 configMapGenerator:
   - name: bifrost-config
@@ -16,7 +17,6 @@ configMapGenerator:
 
 patches:
   - path: node-control-plane.patch.yaml
-  - path: nodeport-services.patch.yaml
   - path: stg-images-pull-always.patch.yaml
   - path: api-ops-celery.patch.yaml
   - path: postgres-remove.patch.yaml

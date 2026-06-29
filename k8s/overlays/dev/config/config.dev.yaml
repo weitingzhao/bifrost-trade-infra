@@ -42,6 +42,10 @@ ib_connection:
   ib_probe_stale_multiplier: 2.5
 
 ib:
+  # W0 (trade-k8s-native): bifrost-dev runs IB edge services as mock gateways —
+  # no TWS socket is opened, so dev consumes ZERO live client_id on the shared
+  # Win11 TWS hosts (.30/.33). Set to "live" only to connect a real dev session.
+  mode: mock
   connect_timeout: 60.0
   host:
     ip: 192.168.10.30

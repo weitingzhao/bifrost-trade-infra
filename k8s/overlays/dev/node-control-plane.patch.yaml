@@ -174,23 +174,6 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nginx
-spec:
-  template:
-    spec:
-      nodeSelector:
-        kubernetes.io/arch: amd64
-      tolerations:
-        - key: node-role.kubernetes.io/control-plane
-          operator: Exists
-          effect: NoSchedule
-        - key: node-role.kubernetes.io/etcd
-          operator: Exists
-          effect: NoSchedule
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
   name: postgres
 spec:
   template:

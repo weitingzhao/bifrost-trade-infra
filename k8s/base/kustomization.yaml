@@ -10,7 +10,7 @@ commonLabels:
 resources:
   - infra/postgres.yaml
   - infra/redis.yaml
-  - nginx/gateway.yaml
+  - ingress/middlewares.yaml
   - apis/manifest.yaml
   - worker/manifest.yaml
   - socket/manifest.yaml

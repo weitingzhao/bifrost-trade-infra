@@ -17,8 +17,10 @@ CICD_NAMESPACE="${CICD_NAMESPACE:-cicd}"
 STG_NAMESPACE="${STG_NAMESPACE:-bifrost-stg}"
 RUN_DELIVER="${RUN_DELIVER:-1}"
 DELIVER_TIMEOUT="${DELIVER_TIMEOUT:-7200}"
-STG_GATEWAY_URL="${STG_GATEWAY_URL:-http://192.168.10.73:30880/}"
-STG_API_URL="${STG_API_URL:-http://192.168.10.73:30880/api/monitor/status}"
+STG_GATEWAY_HOST="${STG_GATEWAY_HOST:-trade-stg.bifrost.lan}"
+STG_GATEWAY_IP="${STG_GATEWAY_IP:-192.168.10.73}"
+STG_GATEWAY_URL="${STG_GATEWAY_URL:-http://${STG_GATEWAY_IP}/}"
+STG_API_URL="${STG_API_URL:-http://${STG_GATEWAY_IP}/api/monitor/status}"
 GITEA_ORG="${GITEA_ORG:-bifrost}"
 
 export KUBECONFIG
@@ -78,8 +80,10 @@ fi
 TRIGGER=install-phase-b-stg SYNC_GITEA=0 APPLY_OVERLAY=0 RUN_DB_INIT=1 \
   "${ROOT}/scripts/k3s/run-deliver-stg.sh"
 
-STG_GATEWAY_URL="${STG_GATEWAY_URL:-http://192.168.10.73:30880/}"
-STG_API_URL="${STG_API_URL:-http://192.168.10.73:30880/api/monitor/status}"
+STG_GATEWAY_HOST="${STG_GATEWAY_HOST:-trade-stg.bifrost.lan}"
+STG_GATEWAY_IP="${STG_GATEWAY_IP:-192.168.10.73}"
+STG_GATEWAY_URL="${STG_GATEWAY_URL:-http://${STG_GATEWAY_IP}/}"
+STG_API_URL="${STG_API_URL:-http://${STG_GATEWAY_IP}/api/monitor/status}"
 
 echo "==> Stg gateway smoke"
 api_code="$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 8 "${STG_API_URL}" || echo 000)"
@@ -106,7 +110,7 @@ fi
 
 echo ""
 echo "Phase B stg v2 complete."
-echo "  Gateway:  ${STG_GATEWAY_URL} (nginx NodePort :30880)"
+echo "  Gateway:  ${STG_GATEWAY_URL} (Host: ${STG_GATEWAY_HOST:-trade-stg.bifrost.lan} · Traefik :80)"
 echo "  Monitor:  ${STG_API_URL}"
 echo "  Worker:   daemon · account-sync · celery-worker"
 echo "  Socket:   ib-ingestor · ib-account-agent · ib-operator · massive-ws"

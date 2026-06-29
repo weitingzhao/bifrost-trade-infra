@@ -5,6 +5,7 @@ namespace: bifrost-prod
 
 resources:
   - ../../base
+  - trade-ingressroute.yaml
   - db-init-prod.job.yaml
 
 configMapGenerator:
@@ -19,7 +20,6 @@ configMapGenerator:
 
 patches:
   - path: node-prod.patch.yaml
-  - path: nodeport-services.patch.yaml
   - path: prod-images-pull-always.patch.yaml
   - path: api-ops-celery.patch.yaml
   - path: postgres-remove.patch.yaml
