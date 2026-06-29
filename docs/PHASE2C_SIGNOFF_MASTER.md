@@ -19,6 +19,7 @@
 ## Owner 签字进度（2026-06-08 更新）
 
 **2C-A + 2C-A.1**：Session **0–9** Owner 已签；`make prod-health` 复验通过（LAN PG `192.168.10.80` + Redis `192.168.10.70`）。
+> 历史记录：LAN PG `192.168.10.80` 已于 2026-06-29 下线，数据迁移至 CNPG（`bifrost-postgres-rw.data.svc` / `bifrost_prod`）；该服务器将重装为 `.79` 普通 K3s 节点。
 
 | 已签 | 进行中 | 待签 |
 |------|--------|------|
@@ -264,7 +265,7 @@ curl -s http://localhost/api/monitor/health | jq '.ok // .status'
 
 **维护窗口前置**：
 
-1. Prod DB 备份（`192.168.10.80` / `bifrost_prod` 或现网库名）
+1. Prod DB 备份（CNPG `bifrost-postgres-rw.data.svc` / `bifrost_prod`；legacy `192.168.10.80` 已于 2026-06-29 下线）
 2. 确认 **R-DV3**：停 Legacy `run_engine.py`，仅 New `daemon` 自动下单
 3. 通知：Legacy UI `http://192.168.10.70/` 将切换
 

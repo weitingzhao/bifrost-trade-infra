@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Copy legacy bare-metal PG (192.168.10.80 / options_db) → CloudNativePG bifrost_prod.
+# [ARCHIVED — COMPLETED 2026-06-29] One-time copy of legacy bare-metal PG
+# (192.168.10.80 / options_db) → CloudNativePG bifrost_prod. The .80 server has
+# since been decommissioned; kept for audit / runbook history only.
+# Do NOT expect .80 to be reachable — set LEGACY_PG_HOST explicitly to re-run.
 #
 # Usage:
 #   make k3s-migrate-prod-postgres-to-cnpg

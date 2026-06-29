@@ -19,7 +19,7 @@ ok() { echo -e "${GREEN}OK${NC}  $*"; }
 bad() { echo -e "${RED}FAIL${NC}  $*"; fail=1; }
 
 NGINX_BASE="${PROD_NGINX_URL:-http://127.0.0.1}"
-PG_HOST="${POSTGRES_HOST:-192.168.10.80}"
+PG_HOST="${POSTGRES_HOST:-bifrost-postgres-rw.data.svc.cluster.local}"
 PG_PORT="${POSTGRES_PORT:-5432}"
 PG_USER="${POSTGRES_USER:-bifrost}"
 PG_DB="${POSTGRES_DB:-bifrost_prod}"

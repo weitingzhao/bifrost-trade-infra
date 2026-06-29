@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Final backup of legacy bare-metal PostgreSQL @ 192.168.10.80 before decommission.
+# [ARCHIVED — COMPLETED 2026-06-29] One-time final backup of the legacy bare-metal
+# PostgreSQL @ 192.168.10.80 before decommission. The .80 server has since been
+# offlined (data lives in CNPG @ data NS); kept for audit / runbook history only.
+# Do NOT expect .80 to be reachable — set LEGACY_PG_HOST explicitly to re-run.
 #
 # Databases:
 #   options_db  — Bifrost Trade prod (authoritative until CNPG cutover)

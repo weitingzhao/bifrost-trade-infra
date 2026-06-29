@@ -34,7 +34,7 @@ set +a
 PW="${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required in .env for prod sync}"
 PG_USER="${POSTGRES_USER:-bifrost}"
 PG_DB="${POSTGRES_DB:-bifrost_prod}"
-PG_HOST="${POSTGRES_HOST:-192.168.10.80}"
+PG_HOST="${POSTGRES_HOST:-bifrost-postgres-rw.data.svc.cluster.local}"
 PG_PORT="${POSTGRES_PORT:-5432}"
 REDIS_HOST="${REDIS_HOST:-192.168.10.70}"
 REDIS_PORT="${REDIS_PORT:-6379}"

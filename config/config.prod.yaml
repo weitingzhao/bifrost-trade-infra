@@ -53,11 +53,12 @@ utilized:
     research: prod
 
 postgres:
-  host: 192.168.10.80
+  # CNPG @ data NS (legacy bare-metal .80 decommissioned 2026-06-29)
+  host: bifrost-postgres-rw.data.svc.cluster.local
   port: 5432
   user: bifrost
   password: OptionPSW!@
-  database: options_db
+  database: bifrost_prod
 
 redis:
   enabled: true

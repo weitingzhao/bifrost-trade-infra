@@ -170,7 +170,7 @@ ops:
 | 变量 | 2C-A Session 0（已签） | **2C-A.1 推荐** |
 |------|------------------------|-----------------|
 | `REDIS_HOST` | 192.168.10.70（与 Legacy 共用） | `redis`（embedded-infra）或独立 LAN Redis |
-| `POSTGRES_HOST` | 192.168.10.80 | 可保持（只读验收）或 dev 库 |
+| `POSTGRES_HOST` | 192.168.10.80 _(已下线 2026-06-29 → CNPG `bifrost-postgres-rw.data.svc`)_ | 可保持（只读验收）或 dev 库 |
 | `BIFROST_PROD_INFRA` | `host` | `embedded-infra`（仅 Redis+PG 容器，应用栈不变） |
 
 命令：

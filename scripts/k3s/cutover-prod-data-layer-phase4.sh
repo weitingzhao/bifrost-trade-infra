@@ -6,7 +6,8 @@
 #   SKIP_MIGRATE=1 make k3s-cutover-prod-data-layer-phase4
 #
 # Prerequisite: make k3s-verify-data-layer-phase3-dev
-# Rollback: revert k8s/overlays/prod/config postgres.host to 192.168.10.80 + options_db; rollout restart.
+# Rollback: legacy .80 decommissioned 2026-06-29 — no live fallback. Recover from the
+#           final dump (db-backups/final-legacy-2026-06-29/options_db.dump) into CNPG.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -92,10 +93,10 @@ echo "  PG RW: bifrost-postgres-rw.data.svc.cluster.local:5432/bifrost_prod"
 echo "  Gateway: http://192.168.10.70:30881"
 echo "  verify: make k3s-verify-data-layer-phase4-prod"
 echo ""
-echo "Rollback (if needed):"
-echo "  1. Patch config.prod.yaml postgres.host=192.168.10.80 database=options_db"
-echo "  2. kubectl apply -k k8s/overlays/prod && kubectl rollout restart deployment -n bifrost-prod"
-echo "  3. Legacy .80 remains read-only standby until Owner decommissions"
+echo "Rollback (if needed): legacy .80 decommissioned 2026-06-29 — no live fallback."
+echo "  1. Restore db-backups/final-legacy-2026-06-29/options_db.dump into a fresh CNPG database"
+echo "  2. Patch config.prod.yaml postgres.database to that restored DB; kubectl apply -k k8s/overlays/prod"
+echo "  3. kubectl rollout restart deployment -n bifrost-prod"
 echo ""
 echo "IMPORTANT: Push bifrost-trade-infra to GitHub, then re-enable Argo auto-sync:"
 echo "  kubectl patch application bifrost-prod -n cicd --type merge \\"

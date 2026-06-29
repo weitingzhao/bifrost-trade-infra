@@ -1,4 +1,5 @@
-# Prod uses bare-metal PostgreSQL @ 192.168.10.80 (D2) — no in-cluster PG.
+# Prod uses CNPG @ data NS (bifrost-postgres-rw.data.svc) — no in-cluster PG in this overlay.
+# (legacy bare-metal PostgreSQL .80 decommissioned 2026-06-29)
 apiVersion: apps/v1
 kind: Deployment
 metadata:

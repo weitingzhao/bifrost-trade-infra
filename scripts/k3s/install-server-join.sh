@@ -10,8 +10,8 @@
 # Optional:
 #   K3S_NODE_NAME — default: hostname -s
 #
-# Example (mini-pc-b):
-#   sudo K3S_URL=https://192.168.10.73:6443 K3S_TOKEN=... K3S_NODE_IP=192.168.10.80 \
+# Example (mini-pc-b reinstalled as .79 — legacy PG .80 decommissioned 2026-06-29):
+#   sudo K3S_URL=https://192.168.10.73:6443 K3S_TOKEN=... K3S_NODE_IP=192.168.10.79 \
 #     K3S_NODE_NAME=mini-pc-b bash install-server-join.sh
 set -euo pipefail
 
