@@ -42,6 +42,10 @@ rules:
   - apiGroups: [apps]
     resources: [deployments]
     verbs: [get, patch, list, watch]
+  # W1 Traefik Ingress: rollout task verifies the gateway IngressRoute post-rollout.
+  - apiGroups: [traefik.io]
+    resources: [ingressroutes]
+    verbs: [get, list]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
