@@ -32,6 +32,13 @@ spec:
       ports:
         - protocol: TCP
           port: 443
+    # Some CNIs hairpin ClusterIP to the apiserver node endpoint (6443).
+    - to:
+        - ipBlock:
+            cidr: 192.168.10.73/32
+      ports:
+        - protocol: TCP
+          port: 6443
     # In-cluster: DNS, Redis @ data, same-namespace pod traffic.
     - to:
         - namespaceSelector: {}
