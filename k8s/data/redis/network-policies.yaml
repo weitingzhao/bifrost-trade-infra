@@ -1,0 +1,115 @@
+# W9 trade-k8s-native — Redis env isolation (data NS).
+#
+# Each live/queue Redis instance accepts ingress only from its matching Trade
+# namespace. Verify: bifrost-stg pods cannot reach redis-live-prod / redis-queue-prod.
+# Namespace match uses kubernetes.io/metadata.name (K8s 1.22+).
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-live-stg-ingress
+  labels:
+    app.kubernetes.io/name: redis-live-stg
+    bifrost.io/environment: stg
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis-live-stg
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bifrost-stg
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-queue-stg-ingress
+  labels:
+    app.kubernetes.io/name: redis-queue-stg
+    bifrost.io/environment: stg
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis-queue-stg
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bifrost-stg
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-live-prod-ingress
+  labels:
+    app.kubernetes.io/name: redis-live-prod
+    bifrost.io/environment: prod
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis-live-prod
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bifrost-prod
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-queue-prod-ingress
+  labels:
+    app.kubernetes.io/name: redis-queue-prod
+    bifrost.io/environment: prod
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis-queue-prod
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bifrost-prod
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-dev-ingress
+  labels:
+    app.kubernetes.io/name: redis-dev
+    bifrost.io/environment: dev
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis-dev
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bifrost-dev
+      ports:
+        - protocol: TCP
+          port: 6379

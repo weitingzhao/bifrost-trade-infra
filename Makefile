@@ -472,6 +472,10 @@ k3s-verify-phase-b-stg-v2:
 	@chmod +x scripts/k3s/verify-phase-b-stg-v2.sh
 	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/verify-phase-b-stg-v2.sh
 
+k3s-verify-w11-trade-k8s-native:
+	@chmod +x scripts/k3s/verify-w11-trade-k8s-native.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/verify-w11-trade-k8s-native.sh
+
 k3s-verify-placement:
 	@chmod +x scripts/k3s/verify-placement-governance.sh
 	KUBECONFIG=$(KUBECONFIG) PLATFORM_API=$(PLATFORM_API) ./scripts/k3s/verify-placement-governance.sh

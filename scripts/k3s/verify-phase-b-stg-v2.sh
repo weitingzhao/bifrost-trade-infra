@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Phase B stg v2 — HTTP + deployment readiness smoke (Tier A).
+# W11 trade-k8s-native: IB socket workloads are StatefulSets (W5); Flower added (W10).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -17,13 +18,16 @@ gateway_curl() {
 }
 
 DOMAINS="monitor massive docs ops trading strategy portfolio market research"
-WORKER="daemon account-sync celery-worker"
-SOCKET="ib-market-gateway ib-account-agent ib-operator massive-ws"
+WORKER_DEPLOY="daemon account-sync celery-worker flower"
+SOCKET_STS="ib-market-gateway ib-account-agent ib-operator"
+SOCKET_DEPLOY="massive-ws"
 
 fail=0
 
 echo "==> Deployments (${NS})"
-kubectl get deploy -n "${NS}" -o wide
+kubectl get deploy -n "${NS}" -o wide 2>/dev/null || true
+echo "==> StatefulSets (${NS})"
+kubectl get sts -n "${NS}" -o wide 2>/dev/null || true
 
 for dep in frontend; do
   if ! kubectl rollout status "deployment/${dep}" -n "${NS}" --timeout=120s >/dev/null 2>&1; then
@@ -51,7 +55,25 @@ for d in ${DOMAINS}; do
   fi
 done
 
-for dep in ${WORKER// / } ${SOCKET// / }; do
+for dep in ${WORKER_DEPLOY}; do
+  if ! kubectl rollout status "deployment/${dep}" -n "${NS}" --timeout=120s >/dev/null 2>&1; then
+    echo "FAIL rollout: ${dep}" >&2
+    fail=1
+  else
+    echo "OK rollout: ${dep}"
+  fi
+done
+
+for sts in ${SOCKET_STS}; do
+  if ! kubectl rollout status "statefulset/${sts}" -n "${NS}" --timeout=120s >/dev/null 2>&1; then
+    echo "FAIL rollout: statefulset/${sts}" >&2
+    fail=1
+  else
+    echo "OK rollout: statefulset/${sts}"
+  fi
+done
+
+for dep in ${SOCKET_DEPLOY}; do
   if ! kubectl rollout status "deployment/${dep}" -n "${NS}" --timeout=120s >/dev/null 2>&1; then
     echo "FAIL rollout: ${dep}" >&2
     fail=1

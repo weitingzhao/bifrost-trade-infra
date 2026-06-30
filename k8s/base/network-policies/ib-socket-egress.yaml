@@ -1,0 +1,44 @@
+# W9 trade-k8s-native — IB socket egress allowlist (Trade namespace).
+#
+# IB edge StatefulSets may egress to in-cluster services (Redis @ data, K8s API for
+# Lease, DNS) plus the IB TWS hosts on LAN (.30 host + .33 secondary per config).
+# massive-ws (Polygon) is excluded — it keeps default-allow egress for wss://.
+#
+# Verify: socket pod can reach 192.168.10.30:7496 and 192.168.10.33:7496.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ib-socket-egress
+  labels:
+    app.kubernetes.io/component: socket
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - ib-market-gateway
+          - ib-account-agent
+          - ib-operator
+  policyTypes:
+    - Egress
+  egress:
+    # In-cluster: DNS, Redis @ data, coordination.k8s.io Lease API, same-namespace.
+    - to:
+        - namespaceSelector: {}
+    # IB TWS / Gateway on dedicated Mac Minis (ARCHITECTURE §2 — Host + Secondary).
+    - to:
+        - ipBlock:
+            cidr: 192.168.10.30/32
+        - ipBlock:
+            cidr: 192.168.10.33/32
+      ports:
+        - protocol: TCP
+          port: 7496
+        - protocol: TCP
+          port: 7497
+        - protocol: TCP
+          port: 4001
+        - protocol: TCP
+          port: 4002

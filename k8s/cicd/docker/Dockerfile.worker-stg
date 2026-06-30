@@ -15,7 +15,8 @@ RUN pip install --no-cache-dir /src/bifrost-trade-core
 COPY bifrost-trade-worker/pyproject.toml bifrost-trade-worker/README.md /src/bifrost-trade-worker/
 COPY bifrost-trade-worker/src /src/bifrost-trade-worker/src
 RUN pip install --no-cache-dir --no-deps /src/bifrost-trade-worker \
-    && pip install --no-cache-dir "celery[redis]>=5.3.0" "flower>=2.0.0"
+    && pip install --no-cache-dir "celery[redis]>=5.3.0" "flower>=2.0.0" \
+    "kubernetes>=27.0"  # W8: daemon Lease leader election (bifrost_worker.daemon.lease)
 
 COPY bifrost-trade-worker/scripts /src/bifrost-trade-worker/scripts
 

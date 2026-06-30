@@ -1,0 +1,18 @@
+# W10 trade-k8s-native — IB market data line budget (account + gateway cap).
+#
+# Mounted by ib-market-gateway only. One gateway per env subscribes on TWS; all
+# other Trade workloads read quotes from Redis (IB_TWS_CONSTRAINTS market data lines).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ib-data-line-budget
+  labels:
+    app.kubernetes.io/name: ib-data-line-budget
+    app.kubernetes.io/component: observability
+data:
+  account_budget: "100"
+  gateway_max_subscriptions: "200"
+  reserved_tws_ui_lines: "10"
+  budget_notes: >-
+    TWS account-level budget shared by UI and API clients. Single ib-market-gateway
+    per env; standby pods hold Lease without subscribing.

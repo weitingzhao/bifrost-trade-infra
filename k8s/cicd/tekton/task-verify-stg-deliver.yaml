@@ -1,4 +1,4 @@
-# Post-deliver HTTP smoke inside cluster (Tier A subset — gateway + 9 API /health|/status).
+# Post-deliver HTTP smoke inside cluster (Tier A — W1 Traefik IngressRoute + Host header).
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -8,24 +8,28 @@ metadata:
     bifrost.io/purpose: stg-deliver
 spec:
   params:
-    - name: gatewayBase
+    - name: traefikBase
       type: string
-      default: http://nginx.bifrost-stg.svc.cluster.local
+      default: http://traefik.kube-system.svc.cluster.local
+    - name: gatewayHost
+      type: string
+      default: trade-stg.bifrost.lan
   steps:
     - name: http-smoke
       image: curlimages/curl:8.11.1
       script: |
         #!/bin/sh
         set -eu
-        gw="$(params.gatewayBase)"
-        gw="${gw%/}"
+        trf="$(params.traefikBase)"
+        trf="${trf%/}"
+        host="$(params.gatewayHost)"
         fail=0
         check() {
           id="$1"
           path="$2"
-          url="${gw}${path}"
-          code="$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 15 "${url}" || echo 000)"
-          echo "${id} ${url} → HTTP ${code}"
+          url="${trf}${path}"
+          code="$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 15 -H "Host: ${host}" "${url}" || echo 000)"
+          echo "${id} ${url} (Host: ${host}) → HTTP ${code}"
           case "${code}" in
             200|503) ;;
             *) fail=1 ;;
@@ -34,13 +38,10 @@ spec:
         check stg-frontend /
         check stg-api-monitor /api/monitor/status
         for d in massive docs ops trading strategy portfolio market research; do
-          if [ "${d}" = "monitor" ]; then
-            continue
-          fi
           check "stg-api-${d}" "/api/${d}/health"
         done
         if [ "${fail}" -ne 0 ]; then
           echo "STG verify failed — one or more endpoints unreachable" >&2
           exit 1
         fi
-        echo "STG verify passed (gateway + 9 API domains)"
+        echo "STG verify passed (Traefik gateway + 9 API domains)"

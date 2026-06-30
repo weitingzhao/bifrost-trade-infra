@@ -40,7 +40,7 @@ metadata:
   namespace: bifrost-stg
 rules:
   - apiGroups: [apps]
-    resources: [deployments]
+    resources: [deployments, statefulsets]
     verbs: [get, patch, list, watch]
   # W1 Traefik Ingress: rollout task verifies the gateway IngressRoute post-rollout.
   - apiGroups: [traefik.io]

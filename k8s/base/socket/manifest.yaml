@@ -46,6 +46,25 @@ spec:
         - name: bifrost-config
           configMap:
             name: bifrost-config
+        # W10: IB account market data line budget (gateway cap + account_budget).
+        - name: ib-data-line-budget
+          configMap:
+            name: ib-data-line-budget
+      initContainers:
+        - name: wait-for-data
+          image: registry.cicd.svc.cluster.local:5000/bifrost-socket:stg
+          imagePullPolicy: IfNotPresent
+          command: ["python", "scripts/wait_for_data.py"]
+          workingDir: /src/bifrost-trade-socket
+          env:
+            - name: BIFROST_CONFIG
+              value: /app/config/config.stg.yaml
+            - name: BIFROST_ENV
+              value: stg
+          volumeMounts:
+            - name: bifrost-config
+              mountPath: /app/config/config.stg.yaml
+              subPath: config.stg.yaml
       containers:
         - name: ib-market-gateway
           image: registry.cicd.svc.cluster.local:5000/bifrost-socket:stg
@@ -68,6 +87,9 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            # W10: ConfigMap-driven market data line budget.
+            - name: IB_DATA_LINE_BUDGET_DIR
+              value: /etc/bifrost/ib-data-line-budget
           envFrom:
             - secretRef:
                 name: bifrost-stg-secrets
@@ -76,6 +98,15 @@ spec:
             - name: bifrost-config
               mountPath: /app/config/config.stg.yaml
               subPath: config.stg.yaml
+            - name: ib-data-line-budget
+              mountPath: /etc/bifrost/ib-data-line-budget
+              readOnly: true
+          readinessProbe:
+            exec:
+              command: ["python", "scripts/wait_for_data.py", "--once"]
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 10
           resources:
             requests:
               cpu: 50m
@@ -121,6 +152,22 @@ spec:
         - name: bifrost-config
           configMap:
             name: bifrost-config
+      # W7: account agent persists to CNPG + Redis — wait for both before connecting IB.
+      initContainers:
+        - name: wait-for-data
+          image: registry.cicd.svc.cluster.local:5000/bifrost-socket:stg
+          imagePullPolicy: IfNotPresent
+          command: ["python", "scripts/wait_for_data.py"]
+          workingDir: /src/bifrost-trade-socket
+          env:
+            - name: BIFROST_CONFIG
+              value: /app/config/config.stg.yaml
+            - name: BIFROST_ENV
+              value: stg
+          volumeMounts:
+            - name: bifrost-config
+              mountPath: /app/config/config.stg.yaml
+              subPath: config.stg.yaml
       containers:
         - name: ib-account-agent
           image: registry.cicd.svc.cluster.local:5000/bifrost-socket:stg
@@ -150,6 +197,12 @@ spec:
             - name: bifrost-config
               mountPath: /app/config/config.stg.yaml
               subPath: config.stg.yaml
+          readinessProbe:
+            exec:
+              command: ["python", "scripts/wait_for_data.py", "--once"]
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 10
           resources:
             requests:
               cpu: 50m
@@ -195,6 +248,22 @@ spec:
         - name: bifrost-config
           configMap:
             name: bifrost-config
+      # W7: operator RPC rides Redis only — wait for Redis (skip CNPG).
+      initContainers:
+        - name: wait-for-data
+          image: registry.cicd.svc.cluster.local:5000/bifrost-socket:stg
+          imagePullPolicy: IfNotPresent
+          command: ["python", "scripts/wait_for_data.py", "--no-pg"]
+          workingDir: /src/bifrost-trade-socket
+          env:
+            - name: BIFROST_CONFIG
+              value: /app/config/config.stg.yaml
+            - name: BIFROST_ENV
+              value: stg
+          volumeMounts:
+            - name: bifrost-config
+              mountPath: /app/config/config.stg.yaml
+              subPath: config.stg.yaml
       containers:
         - name: ib-operator
           image: registry.cicd.svc.cluster.local:5000/bifrost-socket:stg
@@ -224,6 +293,12 @@ spec:
             - name: bifrost-config
               mountPath: /app/config/config.stg.yaml
               subPath: config.stg.yaml
+          readinessProbe:
+            exec:
+              command: ["python", "scripts/wait_for_data.py", "--no-pg", "--once"]
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 10
           resources:
             requests:
               cpu: 50m
@@ -256,6 +331,22 @@ spec:
         - name: bifrost-config
           configMap:
             name: bifrost-config
+      # W7: Polygon WS writes to Redis only — wait for Redis (skip CNPG).
+      initContainers:
+        - name: wait-for-data
+          image: registry.cicd.svc.cluster.local:5000/bifrost-socket:stg
+          imagePullPolicy: IfNotPresent
+          command: ["python", "scripts/wait_for_data.py", "--no-pg"]
+          workingDir: /src/bifrost-trade-socket
+          env:
+            - name: BIFROST_CONFIG
+              value: /app/config/config.stg.yaml
+            - name: BIFROST_ENV
+              value: stg
+          volumeMounts:
+            - name: bifrost-config
+              mountPath: /app/config/config.stg.yaml
+              subPath: config.stg.yaml
       containers:
         - name: massive-ws
           image: registry.cicd.svc.cluster.local:5000/bifrost-socket:stg
@@ -275,6 +366,12 @@ spec:
             - name: bifrost-config
               mountPath: /app/config/config.stg.yaml
               subPath: config.stg.yaml
+          readinessProbe:
+            exec:
+              command: ["python", "scripts/wait_for_data.py", "--no-pg", "--once"]
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 10
           resources:
             requests:
               cpu: 50m

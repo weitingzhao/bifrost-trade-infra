@@ -30,7 +30,7 @@ ib_operator:
   health_refresh_sec: 30
   max_result_bytes: 4194304
   block_ms: 5000
-  use_for_celery_bars: true
+  use_for_celery_bars: false
 
 ib_connection:
   reconnect_base_sec: 2
@@ -46,13 +46,16 @@ ib:
     port_type: tws_live
     client_id:
       daemon: 210
-      market_gateway: 250
+      listener: 201
       operator: 220
+      worker_market: 240
+      ingestor: 250
       account_agent: 260
   secondary:
     ip: 192.168.10.33
     port_type: tws_live
     client_id:
+      listener: 202
       operator: 222
       account_agent: 262
 
@@ -89,9 +92,12 @@ redis_queue:
 
 ops:
   control_profile: stg
-  executor_mode: kubernetes
-  kubernetes:
-    namespace: bifrost-stg
+  # K8s stg: Celery worker instances spawn via Ops subprocess inside api-ops pod (B1).
+  # B2: executor_mode kubernetes for pod/Job actuation.
+  project_root: /build/bifrost-trade-worker
+  socket_project_root: /build/bifrost-trade-socket
+  executor_mode: local
+  local_control: subprocess
   celery:
     prod_worker_hostnames:
       - celery-worker

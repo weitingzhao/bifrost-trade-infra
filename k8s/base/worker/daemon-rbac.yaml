@@ -1,0 +1,40 @@
+# W8 trade-k8s-native: ServiceAccount + RBAC for daemon Lease leader election (R-DV3).
+#
+# The daemon Deployment acquires a coordination.k8s.io/Lease so only one pod runs
+# the GsTrading FSM auto-trade loop per environment. Standby pods wait without
+# starting the trading loop — separate from IB socket Leases (W4/W5).
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: daemon-worker
+  labels:
+    app.kubernetes.io/name: daemon
+    app.kubernetes.io/component: worker
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: daemon-lease
+  labels:
+    app.kubernetes.io/name: daemon
+    app.kubernetes.io/component: worker
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: daemon-lease
+  labels:
+    app.kubernetes.io/name: daemon
+    app.kubernetes.io/component: worker
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: daemon-lease
+subjects:
+  - kind: ServiceAccount
+    name: daemon-worker

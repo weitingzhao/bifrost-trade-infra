@@ -35,7 +35,9 @@ spec:
     - name: preflight-stg
       taskSpec:
         params:
-          - name: gatewayBase
+          - name: traefikBase
+            type: string
+          - name: gatewayHost
             type: string
         steps:
           - name: stg-smoke-gate
@@ -43,13 +45,14 @@ spec:
             script: |
               #!/bin/sh
               set -eu
-              echo "==> Prod preflight: verifying STG health before prod deploy"
-              gw="$(params.gatewayBase)"
-              gw="${gw%/}"
+              echo "==> Prod preflight: verifying STG health before prod deploy (W1 Traefik)"
+              trf="$(params.traefikBase)"
+              trf="${trf%/}"
+              host="$(params.gatewayHost)"
               fail=0
               check() {
-                id="$1"; path="$2"; url="${gw}${path}"
-                code="$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 10 "${url}" || echo 000)"
+                id="$1"; path="$2"; url="${trf}${path}"
+                code="$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 10 -H "Host: ${host}" "${url}" || echo 000)"
                 echo "  ${id} → HTTP ${code}"
                 case "${code}" in 200|503) ;; *) fail=1 ;; esac
               }
@@ -64,8 +67,10 @@ spec:
               fi
               echo "==> STG preflight passed — proceeding with prod deploy"
       params:
-        - name: gatewayBase
-          value: http://nginx.bifrost-stg.svc.cluster.local
+        - name: traefikBase
+          value: http://traefik.kube-system.svc.cluster.local
+        - name: gatewayHost
+          value: trade-stg.bifrost.lan
     - name: clone-core
       runAfter: [preflight-stg]
       taskRef:
