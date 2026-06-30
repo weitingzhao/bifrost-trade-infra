@@ -1,0 +1,9 @@
+# STG interim (pre–Trade refactor): no GsTrading daemon on STG.
+# STG currently shares Host Live TWS — only IB edge + APIs + Celery data path run here.
+# Revert replicas (use base replicas:2) when Trade defines STG Paper / isolated trading.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: daemon
+spec:
+  replicas: 0

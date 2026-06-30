@@ -17,6 +17,7 @@ configMapGenerator:
 
 patches:
   - path: node-control-plane.patch.yaml
+  - path: daemon-scale-zero.patch.yaml
   - path: stg-images-pull-always.patch.yaml
   - path: postgres-remove.patch.yaml
   - path: redis-remove.patch.yaml
