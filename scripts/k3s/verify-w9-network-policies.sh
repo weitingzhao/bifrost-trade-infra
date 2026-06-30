@@ -84,6 +84,22 @@ if [[ "${RUN_NETPOL_PROBE:-0}" == "1" ]]; then
     if kubectl exec -n "${STG_NS}" "${socket_pod}" -c "${container}" -- \
       python -c "
 import socket, sys
+try:
+    s = socket.create_connection(('10.43.0.1', 443), timeout=5)
+    s.close()
+    print('OK tcp 10.43.0.1:443 (K8s API ClusterIP — IB Lease)')
+except OSError as e:
+    print(f'FAIL tcp 10.43.0.1:443 {e}', file=sys.stderr)
+    sys.exit(1)
+" 2>&1; then
+      echo "OK IB socket → K8s API ClusterIP (Lease egress)"
+    else
+      echo "FAIL IB socket cannot reach K8s API — check ib-socket-egress ipBlock" >&2
+      fail=1
+    fi
+    if kubectl exec -n "${STG_NS}" "${socket_pod}" -c "${container}" -- \
+      python -c "
+import socket, sys
 ok = False
 for host in ('${IB_HOST_PRIMARY}', '${IB_HOST_SECONDARY}'):
     try:

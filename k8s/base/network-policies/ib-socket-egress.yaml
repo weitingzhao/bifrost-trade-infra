@@ -24,7 +24,15 @@ spec:
   policyTypes:
     - Egress
   egress:
-    # In-cluster: DNS, Redis @ data, coordination.k8s.io Lease API, same-namespace.
+    # K8s Service CIDR (Lease leader election). namespaceSelector matches pod IPs only,
+    # not ClusterIP services (kubernetes.default @ 10.43.0.1). k3s default: 10.43.0.0/16.
+    - to:
+        - ipBlock:
+            cidr: 10.43.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+    # In-cluster: DNS, Redis @ data, same-namespace pod traffic.
     - to:
         - namespaceSelector: {}
     # IB TWS / Gateway on dedicated Mac Minis (ARCHITECTURE §2 — Host + Secondary).
