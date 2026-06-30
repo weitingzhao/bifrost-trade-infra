@@ -18,7 +18,7 @@ gateway_curl() {
 
 DOMAINS="monitor massive docs ops trading strategy portfolio market research"
 WORKER="daemon account-sync celery-worker"
-SOCKET="ib-ingestor ib-account-agent ib-operator massive-ws"
+SOCKET="ib-market-gateway ib-account-agent ib-operator massive-ws"
 
 fail=0
 

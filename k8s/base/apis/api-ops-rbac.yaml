@@ -15,8 +15,9 @@ metadata:
   labels:
     app.kubernetes.io/name: api-ops
 rules:
+  # W5: IB socket services are StatefulSets (Lease HA) — api-ops controls both kinds.
   - apiGroups: ["apps"]
-    resources: ["deployments"]
+    resources: ["deployments", "statefulsets"]
     verbs: ["get", "list", "patch", "update"]
   - apiGroups: [""]
     resources: ["pods"]

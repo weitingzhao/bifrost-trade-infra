@@ -15,6 +15,7 @@ resources:
   - apis/api-ops-rbac.yaml
   - worker/manifest.yaml
   - socket/manifest.yaml
+  - socket/ib-socket-rbac.yaml
   - jobs/db-init.yaml
   - frontend/deployment.yaml
   - frontend/service.yaml

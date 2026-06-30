@@ -1,0 +1,41 @@
+# W5 trade-k8s-native: ServiceAccount + RBAC for IB socket Lease leader election.
+#
+# The IB edge StatefulSets (ib-market-gateway, ib-account-agent, ib-operator) acquire and
+# renew a coordination.k8s.io/Lease so only one pod opens the IB socket per env
+# (Active-Standby; prevents IB Error 326 duplicate clientId). This grants the
+# bifrost_socket.ib.lease KubernetesLeaseBackend the minimum Lease permissions.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ib-socket
+  labels:
+    app.kubernetes.io/name: ib-socket
+    app.kubernetes.io/component: socket
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ib-socket-lease
+  labels:
+    app.kubernetes.io/name: ib-socket
+    app.kubernetes.io/component: socket
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ib-socket-lease
+  labels:
+    app.kubernetes.io/name: ib-socket
+    app.kubernetes.io/component: socket
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ib-socket-lease
+subjects:
+  - kind: ServiceAccount
+    name: ib-socket

@@ -257,9 +257,9 @@ spec:
           effect: NoSchedule
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
-  name: ib-ingestor
+  name: ib-market-gateway
 spec:
   template:
     spec:
@@ -274,7 +274,7 @@ spec:
           effect: NoSchedule
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: ib-account-agent
 spec:
@@ -291,7 +291,7 @@ spec:
           effect: NoSchedule
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: ib-operator
 spec:

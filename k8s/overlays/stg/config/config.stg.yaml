@@ -30,7 +30,7 @@ ib_operator:
   health_refresh_sec: 30
   max_result_bytes: 4194304
   block_ms: 5000
-  use_for_celery_bars: false
+  use_for_celery_bars: true
 
 ib_connection:
   reconnect_base_sec: 2
@@ -46,16 +46,13 @@ ib:
     port_type: tws_live
     client_id:
       daemon: 210
-      listener: 201
+      market_gateway: 250
       operator: 220
-      worker_market: 240
-      ingestor: 250
       account_agent: 260
   secondary:
     ip: 192.168.10.33
     port_type: tws_live
     client_id:
-      listener: 202
       operator: 222
       account_agent: 262
 

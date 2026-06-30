@@ -15,7 +15,8 @@ RUN pip install --no-cache-dir /src/bifrost-trade-core
 COPY bifrost-trade-socket/pyproject.toml bifrost-trade-socket/README.md /src/bifrost-trade-socket/
 COPY bifrost-trade-socket/src /src/bifrost-trade-socket/src
 RUN pip install --no-cache-dir --no-deps /src/bifrost-trade-socket \
-    && pip install --no-cache-dir "ib_insync>=0.9.86" "websockets>=12.0" "aioredis>=2.0" "tzdata>=2024.1"
+    && pip install --no-cache-dir "ib_insync>=0.9.86" "websockets>=12.0" "aioredis>=2.0" "tzdata>=2024.1" \
+    "kubernetes>=27.0"  # W5: K8s Lease leader election (bifrost_socket.ib.lease)
 
 COPY bifrost-trade-socket/scripts /src/bifrost-trade-socket/scripts
 

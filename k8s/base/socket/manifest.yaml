@@ -1,40 +1,73 @@
 # Phase B stg v2 — IB edge + Massive WS (shared bifrost-socket:stg image).
+#
+# W5 trade-k8s-native: the three IB edge services are StatefulSets with a K8s
+# Lease (coordination.k8s.io/Lease) for Active-Standby HA. IB caps each TWS at 32
+# API clients and rejects a duplicate clientId with Error 326, so only the Lease
+# holder opens the IB socket; standby pods wait. Scale a StatefulSet to 2 to get a
+# hot standby (replicas: 1 default keeps current single-active behaviour).
+# Massive WS talks to Polygon (no IB clientId) and stays a plain Deployment.
+# W6 trade-k8s-native: ib-market-gateway merges legacy ingestor + listener +
+# worker_market into one market_gateway client_id per TWS host (3 gateways/env).
 ---
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: v1
+kind: Service
 metadata:
-  name: ib-ingestor
+  name: ib-market-gateway
   labels:
-    app.kubernetes.io/name: ib-ingestor
+    app.kubernetes.io/name: ib-market-gateway
     app.kubernetes.io/component: socket
 spec:
+  clusterIP: None  # headless — governs StatefulSet pod network identity
+  selector:
+    app.kubernetes.io/name: ib-market-gateway
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ib-market-gateway
+  labels:
+    app.kubernetes.io/name: ib-market-gateway
+    app.kubernetes.io/component: socket
+spec:
+  serviceName: ib-market-gateway
   replicas: 1
-  strategy:
-    type: Recreate
+  podManagementPolicy: Parallel  # standby starts hot alongside the active pod
   selector:
     matchLabels:
-      app.kubernetes.io/name: ib-ingestor
+      app.kubernetes.io/name: ib-market-gateway
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: ib-ingestor
+        app.kubernetes.io/name: ib-market-gateway
         app.kubernetes.io/component: socket
     spec:
+      serviceAccountName: ib-socket  # Lease get/create/update RBAC (ib-socket-rbac.yaml)
       volumes:
         - name: bifrost-config
           configMap:
             name: bifrost-config
       containers:
-        - name: ib-ingestor
+        - name: ib-market-gateway
           image: registry.cicd.svc.cluster.local:5000/bifrost-socket:stg
           imagePullPolicy: IfNotPresent
-          command: ["python", "scripts/run_ib_ingestor.py"]
+          command: ["python", "scripts/run_ib_market_gateway.py"]
           workingDir: /src/bifrost-trade-socket
           env:
             - name: BIFROST_CONFIG
               value: /app/config/config.stg.yaml
             - name: BIFROST_ENV
               value: stg
+            # W5: K8s Lease active-standby — only the holder opens the IB socket.
+            - name: BIFROST_IB_LEASE_ENABLED
+              value: "1"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           envFrom:
             - secretRef:
                 name: bifrost-stg-secrets
@@ -51,17 +84,29 @@ spec:
               cpu: "1"
               memory: 512Mi
 ---
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: v1
+kind: Service
 metadata:
   name: ib-account-agent
   labels:
     app.kubernetes.io/name: ib-account-agent
     app.kubernetes.io/component: socket
 spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: ib-account-agent
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ib-account-agent
+  labels:
+    app.kubernetes.io/name: ib-account-agent
+    app.kubernetes.io/component: socket
+spec:
+  serviceName: ib-account-agent
   replicas: 1
-  strategy:
-    type: Recreate
+  podManagementPolicy: Parallel
   selector:
     matchLabels:
       app.kubernetes.io/name: ib-account-agent
@@ -71,6 +116,7 @@ spec:
         app.kubernetes.io/name: ib-account-agent
         app.kubernetes.io/component: socket
     spec:
+      serviceAccountName: ib-socket
       volumes:
         - name: bifrost-config
           configMap:
@@ -86,6 +132,16 @@ spec:
               value: /app/config/config.stg.yaml
             - name: BIFROST_ENV
               value: stg
+            - name: BIFROST_IB_LEASE_ENABLED
+              value: "1"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           envFrom:
             - secretRef:
                 name: bifrost-stg-secrets
@@ -102,17 +158,29 @@ spec:
               cpu: "1"
               memory: 512Mi
 ---
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: v1
+kind: Service
 metadata:
   name: ib-operator
   labels:
     app.kubernetes.io/name: ib-operator
     app.kubernetes.io/component: socket
 spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: ib-operator
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ib-operator
+  labels:
+    app.kubernetes.io/name: ib-operator
+    app.kubernetes.io/component: socket
+spec:
+  serviceName: ib-operator
   replicas: 1
-  strategy:
-    type: Recreate
+  podManagementPolicy: Parallel
   selector:
     matchLabels:
       app.kubernetes.io/name: ib-operator
@@ -122,6 +190,7 @@ spec:
         app.kubernetes.io/name: ib-operator
         app.kubernetes.io/component: socket
     spec:
+      serviceAccountName: ib-socket
       volumes:
         - name: bifrost-config
           configMap:
@@ -137,6 +206,16 @@ spec:
               value: /app/config/config.stg.yaml
             - name: BIFROST_ENV
               value: stg
+            - name: BIFROST_IB_LEASE_ENABLED
+              value: "1"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           envFrom:
             - secretRef:
                 name: bifrost-stg-secrets
