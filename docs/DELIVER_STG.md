@@ -118,7 +118,8 @@ Ops Console：**Delivery → bifrost-deliver-stg → Run**（Platform API 创建
 ## Massive WS STG 要点
 
 - Watchlist 种子：`scripts/k3s/seed-stg-watchlist.sh`（从 Dev PG 导入）
-- Polygon Starter 必须用 `wss://delayed.polygon.io/options`
+- **Options Starter**：`massive.features.ws_enabled: false` — `massive-ws` REST-only 待机（`ws_mode=rest_only`），期权 aggregates 走 Celery REST；**不要求** live Polygon WS quotes
+- Options Developer+：设 `ws_enabled: true`（或 `tier: developer`）后启用 WS；Starter 可用 `wss://delayed.polygon.io/options`
 - K8s 托管：Socket 页 Start/Stop 禁用；重启用 `kubectl rollout restart deployment/massive-ws -n bifrost-stg`
 
 ## 相关文件

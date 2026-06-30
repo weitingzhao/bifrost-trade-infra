@@ -31,7 +31,7 @@
 ### Tier B — 运行时全功能
 
 - [ ] **Live TWS**：`ib.host` / `ib.secondary` LAN 可达；**STG 独立 client_id**（210 段，与 prod/dev 隔离，R-DV3）
-- [ ] **Massive**：`massive-ws` 运行；`MASSIVE_API_KEY` 经 Secret 注入
+- [ ] **Massive**：`massive-ws` 运行（Options Starter：`ws_enabled: false` REST-only 待机；aggregates 走 Celery）；`MASSIVE_API_KEY` 经 Secret 注入
 - [ ] **daemon** 写入 in-cluster PG；Monitor Daemon 页可读状态
 - [ ] **Celery worker** 连 in-cluster Redis；Ops Celery 页可见队列
 - [ ] **Socket 四服务** Redis 健康键刷新；Market Live / Socket 页可联调
