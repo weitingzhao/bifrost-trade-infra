@@ -135,3 +135,4 @@ massive:
   ws_url: wss://delayed.polygon.io/options
   features:
     trades_enabled: false
+    ws_enabled: false  # Options Starter = REST aggregates via Celery; WS needs Developer+
