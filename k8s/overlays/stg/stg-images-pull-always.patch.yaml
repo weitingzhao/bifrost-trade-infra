@@ -116,6 +116,9 @@ metadata:
 spec:
   template:
     spec:
+      initContainers:
+        - name: wait-for-data
+          imagePullPolicy: Always
       containers:
         - name: daemon
           imagePullPolicy: Always
@@ -127,6 +130,9 @@ metadata:
 spec:
   template:
     spec:
+      initContainers:
+        - name: wait-for-data
+          imagePullPolicy: Always
       containers:
         - name: account-sync
           imagePullPolicy: Always
@@ -138,6 +144,9 @@ metadata:
 spec:
   template:
     spec:
+      initContainers:
+        - name: wait-for-data
+          imagePullPolicy: Always
       containers:
         - name: celery-worker
           imagePullPolicy: Always
@@ -149,6 +158,9 @@ metadata:
 spec:
   template:
     spec:
+      initContainers:
+        - name: wait-for-data
+          imagePullPolicy: Always
       containers:
         - name: ib-market-gateway
           imagePullPolicy: Always
@@ -160,6 +172,9 @@ metadata:
 spec:
   template:
     spec:
+      initContainers:
+        - name: wait-for-data
+          imagePullPolicy: Always
       containers:
         - name: ib-account-agent
           imagePullPolicy: Always
@@ -171,6 +186,9 @@ metadata:
 spec:
   template:
     spec:
+      initContainers:
+        - name: wait-for-data
+          imagePullPolicy: Always
       containers:
         - name: ib-operator
           imagePullPolicy: Always
@@ -182,6 +200,9 @@ metadata:
 spec:
   template:
     spec:
+      initContainers:
+        - name: wait-for-data
+          imagePullPolicy: Always
       containers:
         - name: massive-ws
           imagePullPolicy: Always

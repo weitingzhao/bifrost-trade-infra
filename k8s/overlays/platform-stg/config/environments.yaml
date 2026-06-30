@@ -4,10 +4,8 @@
 environments:
   - id: dev
     label: Development
-    # W1 Traefik Ingress — Host trade-dev.bifrost.lan @ K3s node :80 (legacy :30882 nginx retired)
-    nginx_base: http://trade-dev.bifrost.lan/
-    ingress_host: trade-dev.bifrost.lan
-    ingress_node_ip: 192.168.10.73
+    # Vision V1 — K3s bifrost-dev gateway (Mac: Vite + 1 local API; rest via this URL)
+    nginx_base: http://192.168.10.73:30882
     # CNPG @ data NS (legacy bare-metal .80 decommissioned 2026-06-29)
     postgres:
       host: bifrost-postgres-rw.data.svc.cluster.local
@@ -20,10 +18,8 @@ environments:
 
   - id: prod
     label: Production
-    # W1 Traefik Ingress — Host trade.bifrost.lan @ mini-pc-a :80 (legacy :30881 nginx retired)
-    nginx_base: http://trade.bifrost.lan/
-    ingress_host: trade.bifrost.lan
-    ingress_node_ip: 192.168.10.70
+    # K3s bifrost-prod nginx NodePort (30880 = stg @ .73, 30881 = prod @ .70)
+    nginx_base: http://192.168.10.70:30881
     # CNPG @ data NS (legacy bare-metal .80 decommissioned 2026-06-29)
     postgres:
       host: bifrost-postgres-rw.data.svc.cluster.local

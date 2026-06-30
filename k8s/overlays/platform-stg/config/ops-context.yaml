@@ -29,7 +29,8 @@ deployment:
     active_track: ops_ui_actuation
 # clusters: see config/clusters.yaml — bifrost-bootstrap @ 192.168.10.73
 focus:
-    headline: "Trade K8s-native refactor (trade-k8s-native W0) — IB Edge Lease + Ingress + Ops kubernetes executor · data-layer ⑦ retire embedded"
+    # Derived from active spine streams (deriveFocusHeadline) — do not hand-edit; must contain active wave id (D-D).
+    headline: "Trade K8s-native CLOSED — (W0–W11 signed)"
     flywheel_primary: B # A = trade FE, B = runtime/ops
     blocker: null
 milestones:
@@ -321,10 +322,11 @@ tracks:
             - id: trade-k8s-native
               label: "Trade stack K8s-native refactor + IB Edge Gateway"
               total: 12
-              done: 0
-              status: in_progress
-              next_task: "W0 — Dev IB Mock Gateway (zero live client_id on bifrost-dev)"
-              note: "Compose-on-K8s lift-and-shift done; this stream = ideal runtime. IB: Lease active-standby (not multi-replica). 3 gateways/env; dev mock. Authority: tradeK8sNativeCatalog.ts"
+              done: 12
+              ready_for_signoff: 0
+              status: closed
+              next_task: "CLOSED — (W0–W11 signed)"
+              note: "W0 ✓ W1 ✓ W2 ✓ signed (W2 STG verify PASS: executor_mode=kubernetes, k8s_reachable, celery-worker 1/1, no subprocess). Authority: tradeK8sNativeCatalog.ts · W3 ✓ signed (Owner sign-off via Briefing queue) · W4 ✓ signed (Owner sign-off via Briefing queue) · W5 ✓ signed (Owner sign-off via Briefing queue) · W6 ✓ signed (Owner sign-off via Briefing queue) · W7 ✓ signed (Owner sign-off via Briefing queue) · W8 ✓ signed (Owner sign-off via Briefing queue) · W9 ✓ signed (Owner sign-off via Briefing queue) · W10 ✓ signed (Owner sign-off via Briefing queue) · W11 ✓ signed (Owner sign-off via Briefing queue)"
               prerequisites:
                 - "compose-to-k3s stream closed"
                 - "data-layer-k3s PG+Redis in data NS (step ⑦ in progress)"
@@ -332,14 +334,15 @@ tracks:
             - id: data-layer-k3s
               label: "K3s data layer (PG + Redis → data NS)"
               total: 7
-              done: 6
-              status: in_progress
-              next_task: "⑦ Retire embedded — remove postgres/redis from k8s/base; update environments.yaml matrix"
-              note: "①–⑥ complete ✓ · PG+Redis @ data NS (STG/DEV/PROD) · deliver images for celery_redis_url_from_config"
+              done: 7
+              status: closed
+              next_task: "CLOSED — (①–⑦ complete ✓)"
+              note: "①–⑥ complete ✓ · PG+Redis @ data NS (STG/DEV/PROD) · deliver images for celery_redis_url_from_config · ⑦ ✓ signed (Owner sign-off via Briefing queue)"
               prerequisites:
                 - "nfs-hot/nfs-cold provisioners ready"
                 - "bifrost-stg full stack stable"
                 - "decision D2-prime signed"
+              ready_for_signoff: 0
             - id: vision-v1-dev
               label: "Vision V1 — Mac thin + K3s dev thick"
               total: 3

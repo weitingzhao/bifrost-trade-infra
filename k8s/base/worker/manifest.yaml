@@ -34,7 +34,7 @@ spec:
       initContainers:
         - name: wait-for-data
           image: registry.cicd.svc.cluster.local:5000/bifrost-worker:stg
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           command: ["python", "scripts/wait_for_data.py", "--queue"]
           workingDir: /src/bifrost-trade-worker
           env:
@@ -121,7 +121,7 @@ spec:
       initContainers:
         - name: wait-for-data
           image: registry.cicd.svc.cluster.local:5000/bifrost-worker:stg
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           command: ["python", "scripts/wait_for_data.py"]
           workingDir: /src/bifrost-trade-worker
           env:
@@ -192,7 +192,7 @@ spec:
       initContainers:
         - name: wait-for-data
           image: registry.cicd.svc.cluster.local:5000/bifrost-worker:stg
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           command: ["python", "scripts/wait_for_data.py", "--queue"]
           workingDir: /src/bifrost-trade-worker
           env:
