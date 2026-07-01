@@ -20,7 +20,7 @@ environments:
 
   - id: prod
     label: Production
-    nginx_base: http://trade.bifrost.lan/
+    nginx_base: http://192.168.10.70
     ingress_host: trade.bifrost.lan
     ingress_node_ip: 192.168.10.70
     # CNPG @ data NS (legacy bare-metal .80 decommissioned 2026-06-29)

@@ -76,11 +76,11 @@ clusters:
       platform_console_url: http://192.168.10.73:30879
       platform_api_health_url: http://192.168.10.73:30878/health
     prod_smoke:
-      gateway_url: http://trade.bifrost.lan/
+      gateway_url: http://192.168.10.70
       gateway_host: trade.bifrost.lan
       gateway_node_ip: 192.168.10.70
-      api_monitor_url: http://trade.bifrost.lan/api/monitor/status
-      frontend_url: http://trade.bifrost.lan/
+      api_monitor_url: http://192.168.10.70/api/monitor/status
+      frontend_url: http://192.168.10.70/
       platform_console_url: http://192.168.10.73:30877
       platform_api_health_url: http://192.168.10.73:30876/health
     dev_smoke:
