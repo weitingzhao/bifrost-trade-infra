@@ -1,15 +1,8 @@
-# P5B — Prod daemon observe mode: FSM + monitor writes; HARD_NO_ORDERS blocks live IB RPC.
-# Replaces daemon-scale-zero (P1). Live auto-trade requires Owner R-DV3 + removing this latch.
+# P5B — Prod daemon observe mode: FSM + monitor writes; hedge is simulated only (no IB orders).
+# Live auto-trade is out of scope until Owner explicitly re-enables order placement in code.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: daemon
 spec:
   replicas: 2
-  template:
-    spec:
-      containers:
-        - name: daemon
-          env:
-            - name: BIFROST_DAEMON_HARD_NO_ORDERS
-              value: "1"

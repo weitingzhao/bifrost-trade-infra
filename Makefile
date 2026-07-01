@@ -514,6 +514,17 @@ k3s-install-platform-stg:
 	kubectl --kubeconfig $(KUBECONFIG) apply -f k8s/cicd/applications/bifrost-platform-stg.yaml
 	kubectl --kubeconfig $(KUBECONFIG) apply -f k8s/cicd/tekton/rbac-deliver-platform.yaml
 
+k3s-install-traefik-trade-nodeports:
+	kubectl --kubeconfig $(KUBECONFIG) apply -f k8s/system/traefik-trade-nodeports.yaml
+
+k3s-cleanup-legacy-ib-deployments:
+	@chmod +x scripts/k3s/cleanup-legacy-ib-deployments.sh
+	NS=$(NS) KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/cleanup-legacy-ib-deployments.sh
+
+k3s-verify-data-layer-backup:
+	@chmod +x scripts/k3s/verify-data-layer-backup.sh scripts/k3s/ensure-minio-backup-bucket.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/verify-data-layer-backup.sh
+
 k3s-verify-phase-b-prod:
 	@chmod +x scripts/k3s/verify-phase-b-prod.sh
 	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/verify-phase-b-prod.sh

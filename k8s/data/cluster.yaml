@@ -36,6 +36,8 @@ spec:
     nodeSelector:
       node-role: postgres
   backup:
+    # Prefer standby to keep base backup load off primary; CNPG falls back to primary if standby is unavailable.
+    target: prefer-standby
     barmanObjectStore:
       destinationPath: s3://bifrost-postgres-backup/
       endpointURL: http://minio.data.svc.cluster.local:9000

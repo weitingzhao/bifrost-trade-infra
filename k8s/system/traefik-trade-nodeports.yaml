@@ -1,0 +1,24 @@
+# k3s Traefik — legacy NodePort entrypoints for IP-only LAN access (no /etc/hosts).
+# STG :30880 · DEV :30882 on .73; PROD uses :80 on .70 (add Host IP match in IngressRoute).
+# Apply once: kubectl apply -f k8s/system/traefik-trade-nodeports.yaml
+# Traefik pod may restart (~30s) after first apply.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    ports:
+      trade-stg:
+        port: 30880
+        expose:
+          default: true
+        exposedPort: 30880
+        protocol: TCP
+      trade-dev:
+        port: 30882
+        expose:
+          default: true
+        exposedPort: 30882
+        protocol: TCP

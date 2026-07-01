@@ -1,18 +1,19 @@
-# W1 — Traefik IngressRoute for bifrost-prod (replaces in-cluster nginx).
-# IP: http://192.168.10.70/  ·  Hostname (optional): trade.bifrost.lan via /etc/hosts
+# IP-only gateway — http://192.168.10.73:30880/ (no /etc/hosts).
+# LAN: add to /etc/hosts →  192.168.10.73  trade-stg.bifrost.lan
+# Smoke: curl -H 'Host: trade-stg.bifrost.lan' http://192.168.10.73/api/monitor/status
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
-  name: trade-gateway
+  name: trade-gateway-ip
   labels:
-    app.kubernetes.io/name: trade-gateway
+    app.kubernetes.io/name: trade-gateway-ip
     app.kubernetes.io/component: ingress
-    bifrost.io/gateway-host: trade.bifrost.lan
+    bifrost.io/gateway-host: trade-stg.bifrost.lan
 spec:
   entryPoints:
-    - web
+    - trade-stg
   routes:
-    - match: Host(`trade.bifrost.lan`) || Host(`192.168.10.70`) && PathPrefix(`/api/monitor`)
+    - match: PathPrefix(`/api/monitor`)
       kind: Rule
       priority: 100
       middlewares:
@@ -23,7 +24,7 @@ spec:
           port: 8765
           responseForwarding:
             flushInterval: 1ms
-    - match: Host(`trade.bifrost.lan`) || Host(`192.168.10.70`) && PathPrefix(`/api/massive`)
+    - match: PathPrefix(`/api/massive`)
       kind: Rule
       priority: 100
       middlewares:
@@ -34,7 +35,7 @@ spec:
           port: 8766
           responseForwarding:
             flushInterval: 1ms
-    - match: Host(`trade.bifrost.lan`) || Host(`192.168.10.70`) && PathPrefix(`/api/docs`)
+    - match: PathPrefix(`/api/docs`)
       kind: Rule
       priority: 100
       middlewares:
@@ -45,7 +46,7 @@ spec:
           port: 8767
           responseForwarding:
             flushInterval: 1ms
-    - match: Host(`trade.bifrost.lan`) || Host(`192.168.10.70`) && PathPrefix(`/api/ops`)
+    - match: PathPrefix(`/api/ops`)
       kind: Rule
       priority: 100
       middlewares:
@@ -56,7 +57,7 @@ spec:
           port: 8768
           responseForwarding:
             flushInterval: 1ms
-    - match: Host(`trade.bifrost.lan`) || Host(`192.168.10.70`) && PathPrefix(`/api/trading`)
+    - match: PathPrefix(`/api/trading`)
       kind: Rule
       priority: 100
       middlewares:
@@ -67,7 +68,7 @@ spec:
           port: 8769
           responseForwarding:
             flushInterval: 1ms
-    - match: Host(`trade.bifrost.lan`) || Host(`192.168.10.70`) && PathPrefix(`/api/strategy`)
+    - match: PathPrefix(`/api/strategy`)
       kind: Rule
       priority: 100
       middlewares:
@@ -78,7 +79,7 @@ spec:
           port: 8770
           responseForwarding:
             flushInterval: 1ms
-    - match: Host(`trade.bifrost.lan`) || Host(`192.168.10.70`) && PathPrefix(`/api/portfolio`)
+    - match: PathPrefix(`/api/portfolio`)
       kind: Rule
       priority: 100
       middlewares:
@@ -89,7 +90,7 @@ spec:
           port: 8771
           responseForwarding:
             flushInterval: 1ms
-    - match: Host(`trade.bifrost.lan`) || Host(`192.168.10.70`) && PathPrefix(`/api/market`)
+    - match: PathPrefix(`/api/market`)
       kind: Rule
       priority: 100
       middlewares:
@@ -100,7 +101,7 @@ spec:
           port: 8772
           responseForwarding:
             flushInterval: 1ms
-    - match: Host(`trade.bifrost.lan`) || Host(`192.168.10.70`) && PathPrefix(`/api/research`)
+    - match: PathPrefix(`/api/research`)
       kind: Rule
       priority: 100
       middlewares:
@@ -111,13 +112,13 @@ spec:
           port: 8773
           responseForwarding:
             flushInterval: 1ms
-    - match: Host(`trade.bifrost.lan`) || Host(`192.168.10.70`) && Path(`/health`)
+    - match: Path(`/health`)
       kind: Rule
       priority: 50
       services:
         - name: frontend
           port: 80
-    - match: Host(`trade.bifrost.lan`) || Host(`192.168.10.70`) && PathPrefix(`/`)
+    - match: PathPrefix(`/`)
       kind: Rule
       priority: 1
       services:

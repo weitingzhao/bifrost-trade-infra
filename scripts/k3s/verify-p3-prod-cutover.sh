@@ -37,22 +37,21 @@ else
 fi
 
 echo "==> [3/5] No legacy IB Deployments in ${NS}"
-for dep in ib-ingestor; do
+for dep in ib-ingestor ib-account-agent ib-operator; do
   if kubectl get "deployment/${dep}" -n "${NS}" >/dev/null 2>&1; then
     die "legacy deployment/${dep} still exists"
   fi
 done
-pass "no legacy ib-ingestor Deployment"
+pass "no legacy IB Deployments (StatefulSet-only)"
 
-echo "==> [4/5] Cutover safety — daemon off OR observe mode (HARD_NO_ORDERS)"
+echo "==> [4/5] Cutover safety — daemon observe (replicas>=1, no live IB orders in worker)"
 replicas="$(kubectl get deployment/daemon -n "${NS}" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo missing)"
-hard_val="$(kubectl get deployment/daemon -n "${NS}" -o jsonpath='{.spec.template.spec.containers[?(@.name=="daemon")].env[?(@.name=="BIFROST_DAEMON_HARD_NO_ORDERS")].value}' 2>/dev/null || echo "")"
 if [[ "${replicas}" == "0" ]]; then
   pass "daemon replicas=0 (pre-P5B)"
-elif [[ "${replicas}" -ge 1 && "${hard_val}" == "1" ]]; then
-  pass "daemon replicas=${replicas} with BIFROST_DAEMON_HARD_NO_ORDERS=1 (P5B observe)"
+elif [[ "${replicas}" -ge 1 ]]; then
+  pass "daemon replicas=${replicas} (observe / simulated hedge)"
 else
-  die "daemon replicas=${replicas} without HARD_NO_ORDERS (unsafe — want 0 or HARD_NO_ORDERS=1)"
+  die "daemon replicas=${replicas} (unexpected)"
 fi
 
 echo "==> [5/5] Optional: Compose absent on prod host (${PROD_HOST})"

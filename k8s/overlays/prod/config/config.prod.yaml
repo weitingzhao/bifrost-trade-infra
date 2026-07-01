@@ -135,7 +135,7 @@ massive:
     trades_enabled: false
     ws_enabled: false  # Options Starter = REST aggregates via Celery; WS needs Developer+
 
-# P5B observe: file gates enforce no live orders (DB gate_safety skipped when HARD_NO_ORDERS set).
+# P5B observe: daemon hedge is simulated only; no live IB order placement in worker code.
 gates:
   guard:
     risk:

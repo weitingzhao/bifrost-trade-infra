@@ -6,6 +6,7 @@ namespace: bifrost-stg
 resources:
   - ../../base
   - trade-ingressroute.yaml
+  - trade-ip-ingressroute.yaml
 
 configMapGenerator:
   - name: bifrost-config

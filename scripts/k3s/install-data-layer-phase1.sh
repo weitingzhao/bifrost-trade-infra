@@ -44,6 +44,9 @@ kubectl apply -k "${ROOT}/k8s/data"
 echo "==> 4/5 Wait for MinIO ready"
 kubectl rollout status deployment/minio -n "${DATA_NAMESPACE}" --timeout=300s
 
+echo "==> 4b/5 Ensure MinIO backup bucket"
+"${ROOT}/scripts/k3s/ensure-minio-backup-bucket.sh"
+
 echo "==> 5/5 Wait for CNPG cluster ${CLUSTER_NAME} (2 instances Ready)"
 kubectl wait --for=condition=Ready "cluster/${CLUSTER_NAME}" -n "${DATA_NAMESPACE}" --timeout="${CLUSTER_READY_TIMEOUT}s"
 

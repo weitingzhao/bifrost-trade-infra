@@ -17,6 +17,13 @@ spec:
         #!/bin/sh
         set -eu
         NS="$(params.namespace)"
+        LEGACY="ib-ingestor ib-account-agent ib-operator"
+        for dep in ${LEGACY}; do
+          if kubectl get "deployment/${dep}" -n "${NS}" >/dev/null 2>&1; then
+            echo "Pruning legacy deployment/${dep} (W5 StatefulSet migration)"
+            kubectl delete "deployment/${dep}" -n "${NS}" --wait=true --timeout=120s
+          fi
+        done
         APIS="api-monitor api-massive api-docs api-ops api-trading api-strategy api-portfolio api-market api-research"
         WORKER="daemon account-sync celery-worker"
         DEPLOY="${APIS} ${WORKER} massive-ws"
