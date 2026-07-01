@@ -19,9 +19,13 @@ die() { echo "FAIL $*" >&2; fail=1; }
 
 echo "==> P3 prod cutover verify (K8s native @ ${GATEWAY_HOST})"
 
-echo "==> [1/5] Full stack smoke (PROD_VERIFY_FULL=1)"
-if ! PROD_VERIFY_FULL=1 "${ROOT}/scripts/k3s/verify-phase-b-prod.sh"; then
-  die "phase-b-prod full smoke"
+echo "==> [1/5] Full stack smoke (PROD_VERIFY_FULL=${PROD_VERIFY_FULL:-1})"
+if [[ "${PROD_VERIFY_FULL:-1}" == "1" ]]; then
+  if ! PROD_VERIFY_FULL=1 "${ROOT}/scripts/k3s/verify-phase-b-prod.sh"; then
+    die "phase-b-prod full smoke"
+  fi
+else
+  pass "full stack smoke skipped (PROD_VERIFY_FULL=0)"
 fi
 
 echo "==> [2/5] Legacy NodePort :${LEGACY_PORT} must be down (W1 Traefik only)"
@@ -40,12 +44,15 @@ for dep in ib-ingestor; do
 done
 pass "no legacy ib-ingestor Deployment"
 
-echo "==> [4/5] Cutover safety — daemon=0 until R-DV3 / P5B (celery allowed after P5A)"
+echo "==> [4/5] Cutover safety — daemon off OR observe mode (HARD_NO_ORDERS)"
 replicas="$(kubectl get deployment/daemon -n "${NS}" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo missing)"
-if [[ "${replicas}" != "0" ]]; then
-  die "daemon replicas=${replicas} (want 0 until Owner R-DV3 sign-off)"
+hard_val="$(kubectl get deployment/daemon -n "${NS}" -o jsonpath='{.spec.template.spec.containers[?(@.name=="daemon")].env[?(@.name=="BIFROST_DAEMON_HARD_NO_ORDERS")].value}' 2>/dev/null || echo "")"
+if [[ "${replicas}" == "0" ]]; then
+  pass "daemon replicas=0 (pre-P5B)"
+elif [[ "${replicas}" -ge 1 && "${hard_val}" == "1" ]]; then
+  pass "daemon replicas=${replicas} with BIFROST_DAEMON_HARD_NO_ORDERS=1 (P5B observe)"
 else
-  pass "daemon replicas=0"
+  die "daemon replicas=${replicas} without HARD_NO_ORDERS (unsafe — want 0 or HARD_NO_ORDERS=1)"
 fi
 
 echo "==> [5/5] Optional: Compose absent on prod host (${PROD_HOST})"

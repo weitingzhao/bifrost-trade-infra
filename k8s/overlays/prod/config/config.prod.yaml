@@ -134,3 +134,10 @@ massive:
   features:
     trades_enabled: false
     ws_enabled: false  # Options Starter = REST aggregates via Celery; WS needs Developer+
+
+# P5B observe: file gates enforce no live orders (DB gate_safety skipped when HARD_NO_ORDERS set).
+gates:
+  guard:
+    risk:
+      paper_trade: true
+      mock_hedging: true

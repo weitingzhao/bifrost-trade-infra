@@ -1,8 +1,0 @@
-# P1 Native K8s prod cutover: no GsTrading daemon until Owner signs R-DV3 auto-trade.
-# Monitoring + IB edge + APIs run; revert replicas when auto-trade cutover is approved.
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: daemon
-spec:
-  replicas: 0
