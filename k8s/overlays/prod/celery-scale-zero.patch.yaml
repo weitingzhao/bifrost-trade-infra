@@ -1,0 +1,7 @@
+# P1 Native K8s prod cutover: Celery workers off until P5 post-cutover validation.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker
+spec:
+  replicas: 0

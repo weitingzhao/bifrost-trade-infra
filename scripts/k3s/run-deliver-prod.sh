@@ -134,5 +134,5 @@ fi
 echo ""
 echo "Prod deliver complete."
 echo "  PipelineRun: ${RUN_NAME}"
-echo "  Gateway:     http://192.168.10.70:30881/"
+echo "  Gateway:     http://trade.bifrost.lan/ (Host → ${PROD_NAMESPACE:-bifrost-prod} Traefik @ .70)"
 echo "  Verify:      make k3s-verify-phase-b-prod"

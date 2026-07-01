@@ -120,6 +120,7 @@ massive = f"""massive:
   ws_url: wss://delayed.polygon.io/options
   features:
     trades_enabled: false
+    ws_enabled: false
 """
 
 text = sub_block(text, "server", server)

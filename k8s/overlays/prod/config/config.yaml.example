@@ -185,6 +185,8 @@ massive:
   ws_url: "wss://socket.polygon.io/options"
   features:
     trades_enabled: false
+    # Options Starter: REST aggregates only (default ws_enabled=false). Developer+ enables WS.
+    ws_enabled: false
   expiration_cache:
     enabled: true
     ttl_trading_sec: 3600

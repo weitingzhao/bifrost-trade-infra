@@ -32,7 +32,14 @@ ib_operator:
   health_refresh_sec: 30
   max_result_bytes: 4194304
   block_ms: 5000
-  use_for_celery_bars: true
+  use_for_celery_bars: false
+
+ib_connection:
+  reconnect_base_sec: 2
+  reconnect_max_sec: 60
+  reconnect_max_exp: 6
+  ib_probe_interval_sec: 15
+  ib_probe_stale_multiplier: 2.5
 
 ib:
   connect_timeout: 60.0
@@ -41,13 +48,16 @@ ib:
     port_type: tws_live
     client_id:
       daemon: 10
-      market_gateway: 50
+      listener: 1
       operator: 20
+      worker_market: 40
+      ingestor: 50
       account_agent: 60
   secondary:
     ip: 192.168.10.33
     port_type: tws_live
     client_id:
+      listener: 1
       operator: 20
       account_agent: 60
 
@@ -73,6 +83,12 @@ postgres:
 redis:
   enabled: true
   host: redis
+  port: 6379
+  db: 0
+
+redis_queue:
+  enabled: true
+  host: redis-queue-prod.data.svc.cluster.local
   port: 6379
   db: 0
 
@@ -112,8 +128,9 @@ ops:
     persist: true
 
 massive:
-  api_key: MYCd1tboShKK7UTYgKN_fjtBrZUr9zhe
+  api_key: ""
   tier: starter
   ws_url: wss://delayed.polygon.io/options
   features:
     trades_enabled: false
+    ws_enabled: false  # Options Starter = REST aggregates via Celery; WS needs Developer+

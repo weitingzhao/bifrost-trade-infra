@@ -7,6 +7,7 @@ resources:
   - ../../base
   - trade-ingressroute.yaml
   - db-init-prod.job.yaml
+  - redis-data-ns-aliases.yaml
 
 configMapGenerator:
   - name: bifrost-config
@@ -20,6 +21,9 @@ configMapGenerator:
 
 patches:
   - path: node-prod.patch.yaml
+  - path: daemon-scale-zero.patch.yaml
+  - path: celery-scale-zero.patch.yaml
+  - path: prod-secrets-env.patch.yaml
   - path: prod-images-pull-always.patch.yaml
   - path: postgres-remove.patch.yaml
   - path: redis-remove.patch.yaml

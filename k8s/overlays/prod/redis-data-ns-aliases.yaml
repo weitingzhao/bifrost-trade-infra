@@ -1,0 +1,15 @@
+# Celery broker alias → data NS redis-queue-prod.
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-queue
+  labels:
+    app.kubernetes.io/name: redis-queue
+    bifrost.io/redis-role: queue
+spec:
+  type: ExternalName
+  externalName: redis-queue-prod.data.svc.cluster.local
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
