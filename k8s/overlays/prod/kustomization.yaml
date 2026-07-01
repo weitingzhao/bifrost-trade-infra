@@ -22,7 +22,6 @@ configMapGenerator:
 patches:
   - path: node-prod.patch.yaml
   - path: daemon-scale-zero.patch.yaml
-  - path: celery-scale-zero.patch.yaml
   - path: prod-secrets-env.patch.yaml
   - path: prod-images-pull-always.patch.yaml
   - path: postgres-remove.patch.yaml

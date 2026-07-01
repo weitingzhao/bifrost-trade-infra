@@ -522,6 +522,10 @@ k3s-verify-p3-prod-cutover:
 	@chmod +x scripts/k3s/verify-p3-prod-cutover.sh
 	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/verify-p3-prod-cutover.sh
 
+k3s-verify-p5a-prod-celery:
+	@chmod +x scripts/k3s/verify-p5a-prod-celery.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/verify-p5a-prod-celery.sh
+
 k3s-install-ci-deliver-prod:
 	@chmod +x scripts/k3s/run-deliver-prod.sh
 	kubectl --kubeconfig $(KUBECONFIG) apply -f k8s/cicd/tekton/task-verify-prod-deliver.yaml

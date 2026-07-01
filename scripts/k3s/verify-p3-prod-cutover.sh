@@ -40,15 +40,13 @@ for dep in ib-ingestor; do
 done
 pass "no legacy ib-ingestor Deployment"
 
-echo "==> [4/5] Cutover safety replicas (daemon/celery=0 until R-DV3 / P5)"
-for dep in daemon celery-worker; do
-  replicas="$(kubectl get "deployment/${dep}" -n "${NS}" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo missing)"
-  if [[ "${replicas}" != "0" ]]; then
-    die "${dep} replicas=${replicas} (want 0 for cutover window)"
-  else
-    pass "${dep} replicas=0"
-  fi
-done
+echo "==> [4/5] Cutover safety — daemon=0 until R-DV3 / P5B (celery allowed after P5A)"
+replicas="$(kubectl get deployment/daemon -n "${NS}" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo missing)"
+if [[ "${replicas}" != "0" ]]; then
+  die "daemon replicas=${replicas} (want 0 until Owner R-DV3 sign-off)"
+else
+  pass "daemon replicas=0"
+fi
 
 echo "==> [5/5] Optional: Compose absent on prod host (${PROD_HOST})"
 if ssh -o ConnectTimeout=5 -o BatchMode=yes "${PROD_HOST}" 'command -v docker >/dev/null 2>&1 && docker ps --format "{{.Names}}" | grep -qi bifrost && exit 1 || exit 0' 2>/dev/null; then
