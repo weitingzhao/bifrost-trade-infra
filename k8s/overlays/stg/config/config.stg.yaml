@@ -52,7 +52,7 @@ ib:
       ingestor: 250
       account_agent: 260
   secondary:
-    ip: 192.168.10.33
+    ip: 192.168.10.32
     port_type: tws_live
     client_id:
       listener: 202
