@@ -93,6 +93,15 @@ redis_queue:
   port: 6379
   db: 1
 
+# IBGP3 — shared Platform IB bus (ExternalName redis-ib → data NS). Password synced via scripts/sync_redis_ib_trade_config.sh
+redis_ib:
+  enabled: true
+  host: redis-ib
+  port: 6379
+  db: 0
+  username: trade-dev
+  password: "936f5d73037fda1c298bd6e0a7881cf3"
+
 ops:
   control_profile: dev
   executor_mode: kubernetes

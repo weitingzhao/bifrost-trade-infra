@@ -152,48 +152,6 @@ spec:
           imagePullPolicy: Always
 ---
 apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: ib-market-gateway
-spec:
-  template:
-    spec:
-      initContainers:
-        - name: wait-for-data
-          imagePullPolicy: Always
-      containers:
-        - name: ib-market-gateway
-          imagePullPolicy: Always
----
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: ib-account-agent
-spec:
-  template:
-    spec:
-      initContainers:
-        - name: wait-for-data
-          imagePullPolicy: Always
-      containers:
-        - name: ib-account-agent
-          imagePullPolicy: Always
----
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: ib-operator
-spec:
-  template:
-    spec:
-      initContainers:
-        - name: wait-for-data
-          imagePullPolicy: Always
-      containers:
-        - name: ib-operator
-          imagePullPolicy: Always
----
-apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: massive-ws

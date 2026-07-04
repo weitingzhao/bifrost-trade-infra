@@ -101,17 +101,25 @@ if [[ "${preflight_fail}" -ne 0 ]]; then
   fail=1
 fi
 
-echo "==> W11 rollout summary (informational — run make k3s-deliver-stg if socket/worker FAIL)"
+echo "==> W11 rollout summary (informational — legacy IB STS should be absent)"
 rollout_warn=0
-for dep in frontend daemon celery-worker flower; do
+for dep in frontend daemon celery-worker flower massive-ws; do
   kubectl rollout status "deployment/${dep}" -n "${NS}" --timeout=30s >/dev/null 2>&1 \
     && echo "OK rollout deployment/${dep}" \
     || { echo "WARN rollout deployment/${dep}" >&2; rollout_warn=1; }
 done
 for sts in ib-market-gateway ib-account-agent ib-operator; do
-  kubectl rollout status "statefulset/${sts}" -n "${NS}" --timeout=30s >/dev/null 2>&1 \
-    && echo "OK rollout statefulset/${sts}" \
-    || { echo "WARN rollout statefulset/${sts} (likely pending deliver-stg image rebuild)" >&2; rollout_warn=1; }
+  if kubectl get statefulset "${sts}" -n "${NS}" >/dev/null 2>&1; then
+    reps="$(kubectl get statefulset "${sts}" -n "${NS}" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 1)"
+    if [[ "${reps}" == "0" ]]; then
+      echo "OK legacy statefulset/${sts} retired (replicas=0)"
+    else
+      echo "WARN legacy statefulset/${sts} still active replicas=${reps}" >&2
+      rollout_warn=1
+    fi
+  else
+    echo "OK legacy statefulset/${sts} absent"
+  fi
 done
 
 if [[ "${fail}" -ne 0 ]]; then

@@ -19,7 +19,7 @@ gateway_curl() {
 
 DOMAINS="monitor massive docs ops trading strategy portfolio market research"
 WORKER_DEPLOY="daemon account-sync celery-worker flower"
-SOCKET_STS="ib-market-gateway ib-account-agent ib-operator"
+SOCKET_LEGACY_STS="ib-market-gateway ib-account-agent ib-operator"
 SOCKET_DEPLOY="massive-ws"
 
 fail=0
@@ -64,12 +64,17 @@ for dep in ${WORKER_DEPLOY}; do
   fi
 done
 
-for sts in ${SOCKET_STS}; do
-  if ! kubectl rollout status "statefulset/${sts}" -n "${NS}" --timeout=120s >/dev/null 2>&1; then
-    echo "FAIL rollout: statefulset/${sts}" >&2
-    fail=1
+for sts in ${SOCKET_LEGACY_STS}; do
+  if kubectl get statefulset "${sts}" -n "${NS}" >/dev/null 2>&1; then
+    reps="$(kubectl get statefulset "${sts}" -n "${NS}" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 1)"
+    if [[ "${reps}" == "0" ]]; then
+      echo "OK legacy statefulset/${sts} retired (replicas=0)"
+    else
+      echo "FAIL legacy statefulset/${sts} still active replicas=${reps}" >&2
+      fail=1
+    fi
   else
-    echo "OK rollout: statefulset/${sts}"
+    echo "OK legacy statefulset/${sts} absent"
   fi
 done
 

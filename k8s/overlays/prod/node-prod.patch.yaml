@@ -151,36 +151,6 @@ spec:
       nodeSelector:
         bifrost.io/host-id: mini-pc-a
 ---
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: ib-market-gateway
-spec:
-  template:
-    spec:
-      nodeSelector:
-        bifrost.io/host-id: mini-pc-a
----
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: ib-account-agent
-spec:
-  template:
-    spec:
-      nodeSelector:
-        bifrost.io/host-id: mini-pc-a
----
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: ib-operator
-spec:
-  template:
-    spec:
-      nodeSelector:
-        bifrost.io/host-id: mini-pc-a
----
 apiVersion: batch/v1
 kind: Job
 metadata:

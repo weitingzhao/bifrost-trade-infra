@@ -29,12 +29,11 @@ for pol in redis-live-stg-ingress redis-queue-stg-ingress redis-live-prod-ingres
   fi
 done
 
-echo "==> NetworkPolicy objects (${STG_NS} — IB socket egress)"
+echo "==> NetworkPolicy objects (${STG_NS} — legacy IB socket egress)"
 if kubectl get networkpolicy ib-socket-egress -n "${STG_NS}" >/dev/null 2>&1; then
-  echo "OK ${STG_NS}/ib-socket-egress"
+  echo "WARN ${STG_NS}/ib-socket-egress still present (legacy trade-socket retired — optional cleanup)" >&2
 else
-  echo "FAIL missing ${STG_NS}/ib-socket-egress" >&2
-  fail=1
+  echo "OK ${STG_NS}/ib-socket-egress absent (legacy IB retired)"
 fi
 
 redis_probe() {
@@ -70,7 +69,7 @@ if [[ "${RUN_NETPOL_PROBE:-0}" == "1" ]]; then
   redis_probe "${PROD_NS}" "redis-live-prod.${DATA_NS}.svc.cluster.local" allow \
     "${PROD_NS} → redis-live-prod"
 
-  echo "==> Live probe: IB socket → ${IB_HOST_PRIMARY}:${IB_PORT} (or secondary)"
+  echo "==> Live probe: legacy IB socket (retired — Platform ib-gateway @ data NS)"
   socket_pod=""
   for app in ib-market-gateway ib-account-agent ib-operator; do
     socket_pod="$(kubectl get pods -n "${STG_NS}" -l "app.kubernetes.io/name=${app}" \
@@ -80,49 +79,9 @@ if [[ "${RUN_NETPOL_PROBE:-0}" == "1" ]]; then
     [[ -n "${socket_pod}" ]] && break
   done
   if [[ -n "${socket_pod}" ]]; then
-    container="$(kubectl get pod -n "${STG_NS}" "${socket_pod}" -o jsonpath='{.spec.containers[0].name}')"
-    if kubectl exec -n "${STG_NS}" "${socket_pod}" -c "${container}" -- \
-      python -c "
-import socket, sys
-hosts = (('10.43.0.1', 443), ('192.168.10.73', 6443))
-for host, port in hosts:
-    try:
-        s = socket.create_connection((host, port), timeout=5)
-        s.close()
-        print(f'OK tcp {host}:{port} (K8s API — IB Lease)')
-        sys.exit(0)
-    except OSError as e:
-        print(f'WARN tcp {host}:{port} {e}', file=sys.stderr)
-print('FAIL no K8s API path reachable from IB socket pod', file=sys.stderr)
-sys.exit(1)
-" 2>&1; then
-      echo "OK IB socket → K8s API ClusterIP (Lease egress)"
-    else
-      echo "FAIL IB socket cannot reach K8s API — check ib-socket-egress ipBlock" >&2
-      fail=1
-    fi
-    if kubectl exec -n "${STG_NS}" "${socket_pod}" -c "${container}" -- \
-      python -c "
-import socket, sys
-ok = False
-for host in ('${IB_HOST_PRIMARY}', '${IB_HOST_SECONDARY}'):
-    try:
-        s = socket.create_connection((host, ${IB_PORT}), timeout=5)
-        s.close()
-        print(f'OK tcp {host}:${IB_PORT}')
-        ok = True
-        break
-    except OSError as e:
-        print(f'WARN tcp {host}:${IB_PORT} {e}', file=sys.stderr)
-if not ok:
-    sys.exit(1)
-" 2>&1; then
-      echo "OK IB socket LAN egress (at least one TWS host reachable)"
-    else
-      echo "WARN IB socket TCP probe failed (TWS may be down — check manually)" >&2
-    fi
+    echo "WARN legacy IB socket pod still running in ${STG_NS}: ${socket_pod} (expect absent after cutover)" >&2
   else
-    echo "SKIP no IB socket pod in ${STG_NS}"
+    echo "OK no legacy IB socket pods in ${STG_NS}"
   fi
 fi
 

@@ -27,23 +27,17 @@ spec:
         APIS="api-monitor api-massive api-docs api-ops api-trading api-strategy api-portfolio api-market api-research"
         WORKER="daemon account-sync celery-worker"
         DEPLOY="${APIS} ${WORKER} massive-ws"
-        STATEFUL="ib-market-gateway ib-account-agent ib-operator"
+        # IBGP3 retired — legacy IB StatefulSets removed from kustomize; do not rollout/restart.
         kubectl rollout restart "deployment/frontend" -n "${NS}"
         for dep in ${DEPLOY}; do
           kubectl rollout restart "deployment/${dep}" -n "${NS}"
-        done
-        for sts in ${STATEFUL}; do
-          kubectl rollout restart "statefulset/${sts}" -n "${NS}"
         done
         kubectl get ingressroute trade-gateway -n "${NS}"
         kubectl rollout status deployment/frontend -n "${NS}" --timeout=300s
         for dep in ${DEPLOY}; do
           kubectl rollout status "deployment/${dep}" -n "${NS}" --timeout=600s
         done
-        for sts in ${STATEFUL}; do
-          kubectl rollout status "statefulset/${sts}" -n "${NS}" --timeout=600s
-        done
-        echo "Rollout complete in ${NS} (Traefik gateway + frontend + 9 APIs + worker + socket)"
+        echo "Rollout complete in ${NS} (Traefik gateway + frontend + 9 APIs + worker + massive-ws)"
 ---
 apiVersion: tekton.dev/v1
 kind: Task

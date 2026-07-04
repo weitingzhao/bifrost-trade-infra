@@ -98,14 +98,17 @@ services:
 
   ib-ingestor:
     <<: *socket-build
+    profiles: [legacy-ib]
     command: python scripts/run_ib_ingestor.py
 
   ib-account-agent:
     <<: *socket-build
+    profiles: [legacy-ib]
     command: python scripts/run_ib_account_agent.py
 
   ib-operator:
     <<: *socket-build
+    profiles: [legacy-ib]
     command: python scripts/run_ib_operator.py
 
   massive-ws:
