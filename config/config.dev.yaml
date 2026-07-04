@@ -5,19 +5,6 @@
 
 server:
   skip_monitor_ib: false
-  architecture:
-    monitor_port: 8765
-    ops_port: 8768
-    docs_port: 8767
-  account:
-    trading_port: 8769
-    portfolio_port: 8771
-  research:
-    research_port: 8773
-    market_port: 8772
-    strategy_port: 8770
-  feed:
-    massive_port: 8766
 
 sink: postgres
 
@@ -34,7 +21,7 @@ ib:
       ingestor: 50
       account_agent: 60
   secondary:
-    ip: 192.168.10.32
+    ip: 192.168.10.33
     port_type: tws_live
     client_id:
       listener: 1
@@ -54,18 +41,25 @@ utilized:
     research: dev
 
 postgres:
-  # CNPG @ data NS (legacy bare-metal .80 decommissioned 2026-06-29)
-  host: bifrost-postgres-rw.data.svc.cluster.local
+  host: 192.168.10.80
   port: 5432
   user: bifrost
   password: OptionPSW!@
-  database: bifrost_dev
+  database: options_db
 
 redis:
   enabled: true
   host: 192.168.10.70
   port: 6379
   db: 0
+
+redis_ib:
+  enabled: true
+  host: host.docker.internal
+  port: 6380
+  db: 0
+  username: trade-prod
+  password: "9934af40b9c34fe20bb227b1730dea1e"
 
 ops:
   control_profile: dev
