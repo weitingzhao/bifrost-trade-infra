@@ -12,10 +12,13 @@ if [[ ! -d "${PLATFORM_ROOT}/config" ]]; then
   exit 1
 fi
 
-mkdir -p "${DEST}"
+mkdir -p "${DEST}" "${DEST}/programs"
 for f in environments.yaml clusters.yaml topology.yaml ops-context.yaml platform-auth.yaml; do
   cp "${PLATFORM_ROOT}/config/${f}" "${DEST}/${f}"
 done
+if [[ -d "${PLATFORM_ROOT}/config/programs" ]]; then
+  cp "${PLATFORM_ROOT}/config/programs/"*.yaml "${DEST}/programs/"
+fi
 
 # Ensure platform-stg namespace is registered for cluster probes.
 if ! grep -q 'bifrost-platform-stg' "${DEST}/clusters.yaml"; then

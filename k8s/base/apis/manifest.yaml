@@ -31,6 +31,8 @@ spec:
               value: /app/config/config.stg.yaml
             - name: BIFROST_ENV
               value: stg
+            - name: ENABLE_METRICS
+              value: "true"
             - name: API_DOMAIN
               value: monitor
           ports:
@@ -110,6 +112,8 @@ spec:
               value: /app/config/config.stg.yaml
             - name: BIFROST_ENV
               value: stg
+            - name: ENABLE_METRICS
+              value: "true"
             - name: API_DOMAIN
               value: massive
           ports:
@@ -187,6 +191,8 @@ spec:
               value: /app/config/config.stg.yaml
             - name: BIFROST_ENV
               value: stg
+            - name: ENABLE_METRICS
+              value: "true"
             - name: API_DOMAIN
               value: docs
           ports:
@@ -265,6 +271,8 @@ spec:
               value: /app/config/config.stg.yaml
             - name: BIFROST_ENV
               value: stg
+            - name: ENABLE_METRICS
+              value: "true"
             - name: API_DOMAIN
               value: ops
           envFrom:
@@ -346,6 +354,8 @@ spec:
               value: /app/config/config.stg.yaml
             - name: BIFROST_ENV
               value: stg
+            - name: ENABLE_METRICS
+              value: "true"
             - name: API_DOMAIN
               value: trading
           ports:
@@ -423,6 +433,8 @@ spec:
               value: /app/config/config.stg.yaml
             - name: BIFROST_ENV
               value: stg
+            - name: ENABLE_METRICS
+              value: "true"
             - name: API_DOMAIN
               value: strategy
           ports:
@@ -500,6 +512,8 @@ spec:
               value: /app/config/config.stg.yaml
             - name: BIFROST_ENV
               value: stg
+            - name: ENABLE_METRICS
+              value: "true"
             - name: API_DOMAIN
               value: portfolio
           ports:
@@ -577,6 +591,8 @@ spec:
               value: /app/config/config.stg.yaml
             - name: BIFROST_ENV
               value: stg
+            - name: ENABLE_METRICS
+              value: "true"
             - name: API_DOMAIN
               value: market
           ports:
@@ -654,6 +670,8 @@ spec:
               value: /app/config/config.stg.yaml
             - name: BIFROST_ENV
               value: stg
+            - name: ENABLE_METRICS
+              value: "true"
             - name: API_DOMAIN
               value: research
           ports:
