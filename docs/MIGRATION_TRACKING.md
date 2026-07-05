@@ -23,7 +23,20 @@
 | bifrost-trade-api | 9 | 9 | **Phase 2B CLOSED**（2026-06-04）— 9/9 域 CUTOVER + Owner 签字；Dev `VITE_API_*` → 8765–8773 |
 | bifrost-trade-frontend | 4 | 4 | **Phase 2B CLOSED**（2026-06-04）— New Frontend + New API 9/9 域 Owner 签字完成 |
 
-> **Phase 2B CLOSED**（2026-06-04）· **2C-A CLOSED**（2026-06-08）· **K3s STG v2 SIGNED**（2026-06-18）· **Data layer CNPG**（2026-06-29，`.80` 下线）· **Phase 3 Legacy retirement SIGNED**（2026-06-29，决策 D8 — `bifrost-trader-engine` NAS 归档只读）· **重点**：Platform Console deliver。
+> **Phase 2B CLOSED**（2026-06-04）· **2C-A CLOSED**（2026-06-08）· **K3s STG v2 SIGNED**（2026-06-18）· **Data layer CNPG**（2026-06-29，`.80` 下线）· **Phase 3 Legacy retirement SIGNED**（2026-06-29，决策 D8 — `bifrost-trader-engine` NAS 归档只读）· **Platform IB Gateway + TIBM Rollout**（2026-07-04，Console IBGP/TIBM 全链签收；K3s prod 经 `bifrost-deliver-prod`；legacy IB socket STS 退役；D10 live trading 仍 BLOCKED）
+
+### §1.1 Platform IB Gateway（K3s · 替代 legacy trade-socket IB）
+
+| 组件 | 位置 | 状态 | 说明 |
+|------|------|------|------|
+| redis-ib + ACL | `data/redis-ib` · bifrost-platform-plugin | **VERIFIED** | Trade NS ExternalName → `redis-ib.data` |
+| ib-gateway (live) | `data/ib-gateway` · client_id host **70** / secondary **72** | **VERIFIED** | 替代 ib-market-gateway / ib-operator / ib-account-agent STS |
+| Trade 读路径 | bifrost-prod `api-market` → redis-ib | **VERIFIED** | `verify-trade-quotes-e2e` · Monitor `platform_ib_gateway` |
+| Celery bars RPC | bifrost-prod `celery-worker` → operator stream | **VERIFIED** | `use_for_celery_bars: true` · gateway RPC |
+| Legacy socket STS | bifrost-{dev,stg,prod} | **RETIRED** | Argo 不再拉起；Deliver-prod 不恢复 STS |
+| D10 live trading | daemon bifrost-prod | **BLOCKED** | observe-safe；W-block 未 unlock |
+
+GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 验收: `make verify-ib-gateway-program` · `make verify-trade-ib-rollout-prod`
 
 ---
 
