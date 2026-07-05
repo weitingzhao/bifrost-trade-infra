@@ -1,6 +1,14 @@
 # Bifrost Ops Platform — context spine (authoritative for milestones & decisions).
 # Console Program/Control Room and Copy-for-LLM merge this file via GET /api/v1/context.
 # Detail: Ops Console → Program → Deploy Mainline (deployMainlineCatalog.ts) L3
+#
+# Milestone status semantics (Spine layer — historical Owner sign-off):
+#   SIGNED      — Owner historically approved this milestone's scope
+#   CLOSED      — Fully completed and archived (no further action)
+#   IN_PROGRESS — Active work ongoing
+#   NOT_STARTED — Planned, no work started
+#   BLOCKED_ON  — Blocked by named dependency
+# SIGNED ≠ "currently ready" — live gate readiness from Projection (matrix / Promote evaluation).
 
 meta:
     version: "2026-06-25-cicd-bootstrap"
@@ -208,6 +216,18 @@ decisions:
       conclusion: "Owner dropped the ui-experience-alignment prerequisite for Phase 3: Legacy runtime is already stopped (.70/.73/.50 clean) so side-by-side comparison is no longer possible, and Phase 2B already signed off 9/9 domains as business-equivalent. Ongoing UI polish continues as ordinary Design System work, not a retirement blocker. bifrost-trader-engine is NAS-archived (read-only) and removed from the workspace. legacy-retirement milestone → SIGNED/closed."
       signed_at: "2026-06-29"
       authority: bifrost-trade-infra/docs/PHASE2C_PROD_DEFERRED.md
+    - id: D9
+      status: SIGNED
+      topic: Network actuation path — Session v2 API primary
+      conclusion: "Integration API Key on UCG Max 10.4.57 does not return site UUID in /sites response; firewall/zone write impossible via Integration path. Primary actuation path is bifrost-agent Session (Super Admin local account) via v2 API with CSRF token. Unlock condition: Ubiquiti fixes Integration /sites or UCG firmware upgrade."
+      signed_at: "2026-07-02"
+      authority: "scripts/unifi_firewall_setup.py + console/src/lib/architecture/blueprintCatalog.ts (Principle 8)"
+    - id: D10
+      status: BLOCKED
+      topic: Trade execution — intentional freeze until Owner unlock
+      conclusion: "Post TIBM-PC rollout may deploy observe + data-path surfaces only (W1–W3). Live order placement, daemon auto-trade scale-up, and S08 execution wiring remain BLOCKED. Rocket (Ops Platform) and satellite (Trade) must stabilize; research/analysis precede trading. Owner unlock requires explicit written command to Agent AND D10 status → UNLOCKED in spine. Authority: tradeIbClientMigrationRolloutCatalog.ts · agentProtocolCatalog.ts · trade-execution-freeze.mdc."
+      signed_at: "2026-07-04"
+      authority: "console/src/lib/architecture/tradeIbClientMigrationRolloutCatalog.ts"
 platform_phases:
     - id: A
       label: Gate
@@ -226,10 +246,11 @@ coupling_surfaces:
     - vite_api_env
     - ops_auth_capabilities
     - ib_client_id
+    - unifi_session_v2
 promotion:
     last_gate:
-        at: "2026-06-30T22:16:19Z"
-        result: fail
+        at: "2026-07-01T02:54:49Z"
+        result: pass
         log_path: bifrost-trade-infra/scripts/release_gate.log
 environments_extended:
     staging:
@@ -331,6 +352,17 @@ tracks:
                 - "compose-to-k3s stream closed"
                 - "data-layer-k3s PG+Redis in data NS (step ⑦ in progress)"
                 - "R-DV3 prod auto-trade cutover deferred (Owner)"
+            - id: trade-ib-client-migration-rollout
+              label: "TIBM rollout — observe + data path (no live trading)"
+              total: 3
+              done: 1
+              status: in_progress
+              next_task: "Owner sign-off W1 @ Architecture → Trade IB Migration → Rollout W1 panel"
+              note: "W0 ✓ · W1 STG observability rolled out (api-monitor/ops/frontend amd64) · verify-trade-ib-w1-stg OK · ACL trade-prod + bifrost:health fix · daemon replicas=0 (D10). Owner: #rollout-w1-signoff"
+              prerequisites:
+                - "IB Gateway Plugin program complete"
+                - "trade-ib-client-migration program COMPLETE (TIBM-PC signed)"
+                - "decision D10 BLOCKED acknowledged"
             - id: data-layer-k3s
               label: "K3s data layer (PG + Redis → data NS)"
               total: 7
@@ -446,9 +478,10 @@ tracks:
             - id: release-agent-task
               label: "Release Agent Task — one-click platform release"
               total: 3
-              done: 2
-              status: in_progress
-              note: "① P1 delivery/promote custom tools for runner ✓ ② P2 release scope prompt + cwd + admin token ✓ ③ P3 Agent Desk quick prompt + end-to-end validation"
+              done: 3
+              status: closed
+              next_task: ""
+              note: "P1–P3 ✓ Owner E2E sign-off 2026-07-01 — Agent Desk release scope → git scan + skip-commit path → STG/PROD gates pass → PROD deploy bifrost-deliver-platform-prod-1782923108 · job c5de2ba2 · K3s release-state released"
               prerequisites:
                 - "agent-infra-bootstrap stream closed"
                 - "p6-platform-e2e-cicd done"
@@ -522,17 +555,17 @@ tracks:
             - id: network-upgrade-core
               label: "Network upgrade — server LAN (UCG Max + USW-Pro-Max-24)"
               total: 6
-              done: 1
+              done: 5
               status: in_progress
-              note: "① Hardware selection & purchase ✓ ② UCG Max initial setup (VLAN 10/20/50, IDS/IPS, Controller) ③ USW-Pro-Max-24 swap (cable migration, VLAN trunk, 2.5G uplinks) ④ K3s node connectivity validation (all nodes stable, kube-vip VIP) ⑤ UniFi API → MCP Server integration (read-only network diagnostics) ⑥ UniFi API write actuation (port restart, firewall rule, client isolation)"
+              note: "① Hardware selection & purchase ✓ ② UCG Max initial setup (VLAN 10/20/30/50, IDS/IPS, Controller) — VLAN 30 Family added 2026-07-02 ③ USW-Pro-Max-24 swap + wired VLAN 10 migration ✓ (all server ports incl. Mac .40) ④ K3s + TWS + kube-vip validation ✓ · ib.secondary aligned to .32 ⑤ UniFi API → MCP Server integration (read-only network diagnostics) — pending ⑥ Firewall ✓ — Session v2 applied (decision D9): 5 Bifrost Zones + 9 Policies via ZBF; scripts/unifi_firewall_setup.py audit/apply operational; Integration API Key blocked on UCG 10.4.57"
               prerequisites:
                 - "Hardware delivered (UCG Max + USW-Pro-Max-24)"
             - id: network-upgrade-wifi
               label: "Network upgrade — WiFi (U7 Pro + U6 Mesh, replace Eero)"
               total: 5
-              done: 0
-              status: not_started
-              note: "① AP hardware purchase ② WiFiman baseline benchmark ③ Per-floor AP rollout (MoCA backhaul, VLAN SSIDs) ④ B1/garage mesh AP deployment ⑤ Eero decommission + coverage verification"
+              done: 2
+              status: in_progress
+              note: "① AP hardware purchase ✓ (arriving ~2 days) ② WiFiman baseline — scripts/wifiman_baseline.sh ready (Owner: run 9-point survey on Eero before cutover) ③ Pre-AP tooling ✓ — unifi_wlan_precreate.py (apply after first AP adopt; ApGroupMissing until then) · unifi_moca_vlan_test.sh (evening window) ④ Per-floor AP rollout (MoCA trunk P13-15) ⑤ Eero decommission + coverage verification"
               prerequisites:
                 - "network-upgrade-core stream ③ switch swap complete"
             - id: unifi-mcp-server

@@ -52,7 +52,7 @@ ib:
       ingestor: 250
       account_agent: 260
   secondary:
-    ip: 192.168.10.32
+    ip: 192.168.10.33
     port_type: tws_live
     client_id:
       listener: 202
@@ -89,14 +89,6 @@ redis_queue:
   host: redis-queue-stg.data.svc.cluster.local
   port: 6379
   db: 0
-
-redis_ib:
-  enabled: true
-  host: redis-ib
-  port: 6379
-  db: 0
-  username: trade-prod
-  password: "9934af40b9c34fe20bb227b1730dea1e"
 
 ops:
   control_profile: stg

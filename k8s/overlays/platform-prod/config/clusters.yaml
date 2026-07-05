@@ -40,9 +40,10 @@ clusters:
         script: join-gpu-server.sh
         expected_node: gpu-server
     monitoring_namespace: monitoring
+    # Browser deep links: set PLATFORM_GRAFANA_URL / PLATFORM_PROMETHEUS_URL on platform-api after NodePort confirm.
     observability_urls:
       grafana: ""
-      prometheus: ""
+      prometheus: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"
       docs_infra: ""
     gitops:
       argocd_namespace: cicd
