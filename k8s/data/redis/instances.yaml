@@ -49,6 +49,8 @@ spec:
               memory: 512Mi
         - name: redis-exporter
           image: oliver006/redis_exporter:v1.62.0
+          args:
+            - --web.listen-address=0.0.0.0:9121
           env:
             - name: REDIS_ADDR
               value: redis://127.0.0.1:6379
@@ -128,6 +130,8 @@ spec:
               memory: 512Mi
         - name: redis-exporter
           image: oliver006/redis_exporter:v1.62.0
+          args:
+            - --web.listen-address=0.0.0.0:9121
           env:
             - name: REDIS_ADDR
               value: redis://127.0.0.1:6379
@@ -207,6 +211,8 @@ spec:
               memory: 1Gi
         - name: redis-exporter
           image: oliver006/redis_exporter:v1.62.0
+          args:
+            - --web.listen-address=0.0.0.0:9121
           env:
             - name: REDIS_ADDR
               value: redis://127.0.0.1:6379
@@ -286,6 +292,8 @@ spec:
               memory: 1Gi
         - name: redis-exporter
           image: oliver006/redis_exporter:v1.62.0
+          args:
+            - --web.listen-address=0.0.0.0:9121
           env:
             - name: REDIS_ADDR
               value: redis://127.0.0.1:6379
@@ -365,6 +373,8 @@ spec:
               memory: 512Mi
         - name: redis-exporter
           image: oliver006/redis_exporter:v1.62.0
+          args:
+            - --web.listen-address=0.0.0.0:9121
           env:
             - name: REDIS_ADDR
               value: redis://127.0.0.1:6379
