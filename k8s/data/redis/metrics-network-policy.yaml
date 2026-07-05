@@ -7,8 +7,9 @@ metadata:
     app.kubernetes.io/component: redis
 spec:
   podSelector:
-    matchLabels:
-      app.kubernetes.io/component: redis
+    matchExpressions:
+      - key: bifrost.io/redis-role
+        operator: Exists
   policyTypes:
     - Ingress
   ingress:
