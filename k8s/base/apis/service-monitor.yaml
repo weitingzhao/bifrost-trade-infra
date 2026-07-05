@@ -15,7 +15,7 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/component: api
-      app.kubernetes.io/part-of: bifrost-trade
+      app.kubernetes.io/part-of: bifrost
   endpoints:
     - port: http
       path: /metrics

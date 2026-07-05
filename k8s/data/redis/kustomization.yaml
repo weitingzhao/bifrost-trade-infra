@@ -6,6 +6,7 @@ namespace: data
 resources:
   - instances.yaml
   - service-monitor.yaml
+  - metrics-network-policy.yaml
   - redis-nodeport.yaml
   - network-policies.yaml
 
