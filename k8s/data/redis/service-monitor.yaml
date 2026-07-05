@@ -1,0 +1,20 @@
+# Scrape redis_exporter sidecars in data namespace.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bifrost-redis
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames:
+      - data
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: bifrost
+      app.kubernetes.io/component: redis
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s

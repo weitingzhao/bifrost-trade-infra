@@ -61,4 +61,4 @@ spec:
       cpu: "2"
       memory: 4Gi
   monitoring:
-    enablePodMonitor: false
+    enablePodMonitor: true

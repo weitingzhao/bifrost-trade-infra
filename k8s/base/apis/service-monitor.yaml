@@ -1,0 +1,22 @@
+# Scrape Bifrost Trade API /metrics from bifrost-* namespaces.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bifrost-trade-apis
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames:
+      - bifrost-stg
+      - bifrost-dev
+      - bifrost-prod
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: api
+      app.kubernetes.io/part-of: bifrost-trade
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s

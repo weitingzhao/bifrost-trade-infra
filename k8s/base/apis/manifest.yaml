@@ -6,6 +6,8 @@ metadata:
   labels:
     app.kubernetes.io/name: api-monitor
     app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: bifrost-trade
+    app.kubernetes.io/component: api
 spec:
   replicas: 1
   selector:
@@ -67,6 +69,8 @@ metadata:
   name: api-monitor
   labels:
     app.kubernetes.io/name: api-monitor
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: bifrost-trade
 spec:
   selector:
     app.kubernetes.io/name: api-monitor
@@ -81,6 +85,8 @@ metadata:
   name: api-massive
   labels:
     app.kubernetes.io/name: api-massive
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: bifrost-trade
     app.kubernetes.io/component: api
 spec:
   replicas: 1
@@ -141,6 +147,8 @@ metadata:
   name: api-massive
   labels:
     app.kubernetes.io/name: api-massive
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: bifrost-trade
 spec:
   selector:
     app.kubernetes.io/name: api-massive
@@ -155,6 +163,8 @@ metadata:
   name: api-docs
   labels:
     app.kubernetes.io/name: api-docs
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: bifrost-trade
     app.kubernetes.io/component: api
 spec:
   replicas: 1
@@ -215,6 +225,8 @@ metadata:
   name: api-docs
   labels:
     app.kubernetes.io/name: api-docs
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: bifrost-trade
 spec:
   selector:
     app.kubernetes.io/name: api-docs
@@ -229,6 +241,8 @@ metadata:
   name: api-ops
   labels:
     app.kubernetes.io/name: api-ops
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: bifrost-trade
     app.kubernetes.io/component: api
 spec:
   replicas: 1
@@ -294,6 +308,8 @@ metadata:
   name: api-ops
   labels:
     app.kubernetes.io/name: api-ops
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: bifrost-trade
 spec:
   selector:
     app.kubernetes.io/name: api-ops
@@ -308,6 +324,8 @@ metadata:
   name: api-trading
   labels:
     app.kubernetes.io/name: api-trading
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: bifrost-trade
     app.kubernetes.io/component: api
 spec:
   replicas: 1
@@ -368,6 +386,8 @@ metadata:
   name: api-trading
   labels:
     app.kubernetes.io/name: api-trading
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: bifrost-trade
 spec:
   selector:
     app.kubernetes.io/name: api-trading
@@ -382,6 +402,8 @@ metadata:
   name: api-strategy
   labels:
     app.kubernetes.io/name: api-strategy
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: bifrost-trade
     app.kubernetes.io/component: api
 spec:
   replicas: 1
@@ -442,6 +464,8 @@ metadata:
   name: api-strategy
   labels:
     app.kubernetes.io/name: api-strategy
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: bifrost-trade
 spec:
   selector:
     app.kubernetes.io/name: api-strategy
@@ -456,6 +480,8 @@ metadata:
   name: api-portfolio
   labels:
     app.kubernetes.io/name: api-portfolio
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: bifrost-trade
     app.kubernetes.io/component: api
 spec:
   replicas: 1
@@ -516,6 +542,8 @@ metadata:
   name: api-portfolio
   labels:
     app.kubernetes.io/name: api-portfolio
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: bifrost-trade
 spec:
   selector:
     app.kubernetes.io/name: api-portfolio
@@ -530,6 +558,8 @@ metadata:
   name: api-market
   labels:
     app.kubernetes.io/name: api-market
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: bifrost-trade
     app.kubernetes.io/component: api
 spec:
   replicas: 1
@@ -590,6 +620,8 @@ metadata:
   name: api-market
   labels:
     app.kubernetes.io/name: api-market
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: bifrost-trade
 spec:
   selector:
     app.kubernetes.io/name: api-market
@@ -604,6 +636,8 @@ metadata:
   name: api-research
   labels:
     app.kubernetes.io/name: api-research
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: bifrost-trade
     app.kubernetes.io/component: api
 spec:
   replicas: 1
@@ -664,6 +698,8 @@ metadata:
   name: api-research
   labels:
     app.kubernetes.io/name: api-research
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: bifrost-trade
 spec:
   selector:
     app.kubernetes.io/name: api-research
