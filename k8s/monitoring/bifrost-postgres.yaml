@@ -1,0 +1,19 @@
+# CNPG PostgreSQL metrics (9187/metrics).
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: bifrost-postgres
+  labels:
+    app.kubernetes.io/component: postgres
+spec:
+  namespaceSelector:
+    matchNames:
+      - data
+  selector:
+    matchLabels:
+      cnpg.io/cluster: bifrost-postgres
+      cnpg.io/podRole: instance
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s

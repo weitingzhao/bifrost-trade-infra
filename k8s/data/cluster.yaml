@@ -61,4 +61,5 @@ spec:
       cpu: "2"
       memory: 4Gi
   monitoring:
-    enablePodMonitor: true
+    # Operator PodMonitor lacks release=kube-prometheus-stack; use k8s/data/postgres-pod-monitor.yaml
+    enablePodMonitor: false

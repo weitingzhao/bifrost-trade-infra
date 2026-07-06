@@ -12,7 +12,6 @@ resources:
   - infra/redis.yaml
   - ingress/middlewares.yaml
   - apis/manifest.yaml
-  - apis/service-monitor.yaml
   - apis/api-ops-rbac.yaml
   - worker/manifest.yaml
   - worker/daemon-rbac.yaml

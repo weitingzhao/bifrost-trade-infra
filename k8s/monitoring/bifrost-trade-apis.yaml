@@ -3,9 +3,8 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: bifrost-trade-apis
-  namespace: monitoring
   labels:
-    release: kube-prometheus-stack
+    app.kubernetes.io/component: api
 spec:
   namespaceSelector:
     matchNames:

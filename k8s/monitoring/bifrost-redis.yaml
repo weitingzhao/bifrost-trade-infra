@@ -3,9 +3,8 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: bifrost-redis
-  namespace: monitoring
   labels:
-    release: kube-prometheus-stack
+    app.kubernetes.io/component: redis
 spec:
   namespaceSelector:
     matchNames:

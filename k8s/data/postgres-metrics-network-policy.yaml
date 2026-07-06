@@ -1,0 +1,21 @@
+# Allow Prometheus (monitoring NS) to scrape CNPG exporter on :9187.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-metrics-ingress
+  labels:
+    app.kubernetes.io/component: postgres
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: bifrost-postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9187

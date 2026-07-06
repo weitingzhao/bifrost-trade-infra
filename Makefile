@@ -518,6 +518,14 @@ k3s-install-platform-stg:
 	kubectl --kubeconfig $(KUBECONFIG) apply -f k8s/cicd/applications/bifrost-platform-stg.yaml
 	kubectl --kubeconfig $(KUBECONFIG) apply -f k8s/cicd/tekton/rbac-deliver-platform.yaml
 
+k3s-apply-monitoring-scrape:
+	@chmod +x scripts/k3s/apply-monitoring-scrape.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/apply-monitoring-scrape.sh
+
+k3s-verify-phase4-observability:
+	@chmod +x scripts/k3s/verify-phase4-observability.sh
+	KUBECONFIG=$(KUBECONFIG) PLATFORM_API=$(PLATFORM_API) ./scripts/k3s/verify-phase4-observability.sh
+
 k3s-install-traefik-trade-nodeports:
 	kubectl --kubeconfig $(KUBECONFIG) apply -f k8s/system/traefik-trade-nodeports.yaml
 
