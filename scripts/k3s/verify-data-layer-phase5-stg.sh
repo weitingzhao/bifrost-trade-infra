@@ -83,7 +83,7 @@ else
   pass "config-only check (image deliver pending for celery split)"
 fi
 
-mon_code="$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 8 "${GATEWAY}/api/monitor/status" || echo 000)"
+mon_code="$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 30 "${GATEWAY}/api/monitor/status" || echo 000)"
 if [[ "${mon_code}" == "200" ]]; then
   pass "gateway /api/monitor/status HTTP 200"
 else

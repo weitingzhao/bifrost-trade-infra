@@ -9,6 +9,7 @@ resources:
   - databases.yaml
   - postgres-nodeport.yaml
   - postgres-metrics-network-policy.yaml
+  - postgres-ingress-network-policy.yaml
   - backup-scheduled.yaml
   - minio/pvc.yaml
   - minio/deployment.yaml

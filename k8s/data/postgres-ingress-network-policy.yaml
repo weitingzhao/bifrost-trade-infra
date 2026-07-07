@@ -1,0 +1,75 @@
+# CNPG bifrost-postgres — allow application and operator traffic.
+#
+# postgres-metrics-ingress only opens :9187 from monitoring; without these rules
+# all other ingress to CNPG pods is denied (default deny when any NP matches).
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-trade-ingress
+  labels:
+    app.kubernetes.io/component: postgres
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: bifrost-postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bifrost-dev
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bifrost-stg
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bifrost-prod
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-cnpg-operator-ingress
+  labels:
+    app.kubernetes.io/component: postgres
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: bifrost-postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cnpg-system
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-inter-instance-ingress
+  labels:
+    app.kubernetes.io/component: postgres
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: bifrost-postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: bifrost-postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 8000
