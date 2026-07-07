@@ -126,11 +126,13 @@ spec:
       workspaces:
         - name: source
           workspace: build-context
-    - name: rollout
+    # Sync ConfigMap (clusters.yaml grafana_url, etc.) before rollout so platform-api
+    # reads updated config on pod start — not stale in-memory config from prior mount.
+    - name: gitops-sync
       runAfter: [build-platform-api, build-platform-console]
       taskRef:
-        name: bifrost-rollout-platform-stg
-    - name: gitops-sync
-      runAfter: [rollout]
-      taskRef:
         name: bifrost-argocd-sync-platform-stg
+    - name: rollout
+      runAfter: [gitops-sync]
+      taskRef:
+        name: bifrost-rollout-platform-stg

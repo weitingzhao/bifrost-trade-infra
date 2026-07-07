@@ -1,0 +1,14 @@
+# Browser-reachable Grafana URL for Cluster → Observability deep links.
+# Complements clusters.yaml observability_urls.grafana (platform-api loads config at startup).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform-api
+          env:
+            - name: PLATFORM_GRAFANA_URL
+              value: "http://192.168.10.73:30883"
