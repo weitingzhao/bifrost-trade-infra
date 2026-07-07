@@ -68,14 +68,7 @@ kubectl create configmap bifrost-remediation-runner-stg-dockerfile \
   --dry-run=client -o yaml | kubectl apply -f -
 
 echo "==> Register Tekton platform deliver pipeline"
-kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-git-clone-gitea.yaml"
-kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-gitea-mirror-sync.yaml"
-kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-kaniko-platform-api-stg.yaml"
-kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-kaniko-platform-console-stg.yaml"
-kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-deliver-platform.yaml"
-kubectl apply -f "${ROOT}/k8s/cicd/tekton/rbac-deliver-stg.yaml"
-kubectl apply -f "${ROOT}/k8s/cicd/tekton/rbac-deliver-platform.yaml"
-kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-deliver-platform.yaml"
+SYNC_CONFIG=0 APPLY_OVERLAY=0 "${ROOT}/scripts/k3s/apply-cicd-platform-pipeline.sh"
 
 RUN_NAME="bifrost-deliver-platform-$(date +%s)"
 echo "==> PipelineRun ${RUN_NAME} (revision=${REVISION}, timeout=${DELIVER_TIMEOUT}s)"
