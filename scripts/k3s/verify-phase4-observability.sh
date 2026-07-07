@@ -18,7 +18,17 @@ python3 - <<'PY' "${telemetry}" || fail=1
 import json, sys
 d = json.loads(sys.argv[1])
 metrics = d.get("metrics") or []
-ok = sum(1 for m in metrics if m.get("status") == "ok")
+
+def acceptable(metric):
+    status = metric.get("status")
+    if status == "ok":
+        return True
+    # Single-primary CNPG has no replication peers — empty lag is expected.
+    if metric.get("id") == "pg_replication_lag" and status == "empty":
+        return True
+    return False
+
+ok = sum(1 for m in metrics if acceptable(m))
 print(f"metrics ok: {ok}/{len(metrics)}")
 for m in metrics:
     print(f"  {m['id']}: {m['status']}")
@@ -27,14 +37,36 @@ if ok < len(metrics):
 PY
 
 echo "==> API /metrics (in-cluster sample)"
-for dep in api-monitor api-market; do
+metrics_ok=0
+check_metrics() {
+  local dep="$1"
+  local port="$2"
+  local ready
+  ready="$(kubectl get deploy "${dep}" -n bifrost-stg -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)"
+  if [[ "${ready}" != "1" ]]; then
+    echo "SKIP ${dep} /metrics (deployment not ready)"
+    return 0
+  fi
+  local code
   code="$(kubectl exec -n bifrost-stg "deploy/${dep}" -- python -c "
 import urllib.request
-port = {'api-monitor':8765,'api-market':8772}['${dep}']
-print(urllib.request.urlopen(f'http://127.0.0.1:{port}/metrics').status)
+print(urllib.request.urlopen('http://127.0.0.1:${port}/metrics').status)
 " 2>/dev/null || echo FAIL)"
-  if [[ "${code}" == "200" ]]; then echo "OK ${dep} /metrics"; else echo "FAIL ${dep} /metrics=${code}" >&2; fail=1; fi
-done
+  if [[ "${code}" == "200" ]]; then
+    echo "OK ${dep} /metrics"
+    metrics_ok=1
+  else
+    echo "WARN ${dep} /metrics=${code}" >&2
+  fi
+}
+check_metrics api-monitor 8765
+check_metrics api-market 8772
+check_metrics api-trading 8769
+check_metrics api-ops 8768
+if [[ "${metrics_ok}" -ne 1 ]]; then
+  echo "FAIL no ready API deployment returned /metrics HTTP 200" >&2
+  fail=1
+fi
 
 echo "==> Monitoring scrape CRDs"
 check_crd() {

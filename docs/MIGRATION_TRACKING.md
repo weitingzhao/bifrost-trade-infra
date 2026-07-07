@@ -347,7 +347,7 @@ GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 
 
 | 日期 | 变更内容 | 操作人 |
 |------|---------|--------|
-| 2026-05-22 | 创建迁移追踪文档，初始化所有模块为"未开始"状态 | Agent |
+| 2026-07-06 | **Phase 5 Observability (STG)**: Loki + Promtail @ monitoring; PrometheusRule (6 rules) + Alertmanager bifrost-ops-agent webhook; Grafana Trade dashboard ConfigMap; `verify-phase5-observability.sh`; MCP mcp-server-prometheus bridge | Agent |
 | 2026-05-23 | 同步当前架构：daemon/celery 归入 worker；SEPA 归入 api.research；移除 data/research 独立 repo | Agent |
 | 2026-05-31 | AccountsPage 样式布局迁移：页头 breadcrumb/pill 工具条/KPI/图表/摘要卡/持仓表对齐 Legacy | Agent |
 | 2026-05-31 | CeleryPage Phase C：Ops 鉴权门控、URL 深链、跨 Tab 导航、AppHeader Celery 指标、Broker extended + flash | Agent |

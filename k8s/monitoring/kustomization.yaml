@@ -8,6 +8,10 @@ resources:
   - bifrost-trade-apis.yaml
   - bifrost-redis.yaml
   - bifrost-postgres.yaml
+  - bifrost-alerting-rules.yaml
+  - alertmanager-webhook-auth-secret.yaml
+  - alertmanager-webhook-network-policy.yaml
+  - grafana-dashboards-configmap.yaml
 
 labels:
   - pairs:

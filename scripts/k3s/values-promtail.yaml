@@ -1,0 +1,15 @@
+# Promtail — ship container logs to in-cluster Loki (STG).
+config:
+  clients:
+    - url: http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+daemonset:
+  enabled: true

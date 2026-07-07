@@ -11,6 +11,11 @@ prometheus:
         memory: 2Gi
 
 grafana:
+  # Browser deep link for Ops Console → Open Grafana (STG @ .73:30883).
+  service:
+    type: NodePort
+    port: 80
+    nodePort: 30883
   resources:
     requests:
       cpu: 100m
@@ -18,9 +23,24 @@ grafana:
     limits:
       cpu: 500m
       memory: 512Mi
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki.monitoring.svc.cluster.local:3100
+      jsonData:
+        maxLines: 1000
 
 alertmanager:
   alertmanagerSpec:
+    secrets:
+      - alertmanager-webhook-auth
     resources:
       requests:
         cpu: 100m
@@ -28,3 +48,25 @@ alertmanager:
       limits:
         cpu: 500m
         memory: 512Mi
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: default
+      group_by: ['alertname', 'namespace']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+      routes:
+        - match_re:
+            alertname: Bifrost.*
+          receiver: bifrost-ops-agent
+          continue: false
+    receivers:
+      - name: default
+      - name: bifrost-ops-agent
+        webhook_configs:
+          - url: http://platform-api.bifrost-platform-stg.svc.cluster.local:8780/api/v1/ops-agent/alertmanager
+            send_resolved: true
+            http_config:
+              bearer_token_file: /etc/alertmanager/secrets/alertmanager-webhook-auth/token

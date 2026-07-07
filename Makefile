@@ -526,6 +526,14 @@ k3s-verify-phase4-observability:
 	@chmod +x scripts/k3s/verify-phase4-observability.sh
 	KUBECONFIG=$(KUBECONFIG) PLATFORM_API=$(PLATFORM_API) ./scripts/k3s/verify-phase4-observability.sh
 
+k3s-install-loki:
+	@chmod +x scripts/k3s/install-loki.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/install-loki.sh
+
+k3s-verify-phase5-observability:
+	@chmod +x scripts/k3s/verify-phase5-observability.sh
+	KUBECONFIG=$(KUBECONFIG) PLATFORM_API=$(PLATFORM_API) ./scripts/k3s/verify-phase5-observability.sh
+
 k3s-install-traefik-trade-nodeports:
 	kubectl --kubeconfig $(KUBECONFIG) apply -f k8s/system/traefik-trade-nodeports.yaml
 

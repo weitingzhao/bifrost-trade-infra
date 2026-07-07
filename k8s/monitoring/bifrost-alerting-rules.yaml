@@ -1,0 +1,77 @@
+# Bifrost Trade stack alerting rules — routed to bifrost-ops-agent webhook receiver.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bifrost-alerting-rules
+  labels:
+    app.kubernetes.io/component: alerting
+spec:
+  groups:
+    - name: bifrost-trade
+      rules:
+        - alert: BifrostAPICrashLooping
+          expr: |
+            kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff",namespace=~"bifrost-.*"} == 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Bifrost API pod crash looping"
+            description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} container {{ $labels.container }} is in CrashLoopBackOff."
+
+        - alert: BifrostAPIHighErrorRate
+          expr: |
+            (
+              sum(rate(http_requests_total{namespace=~"bifrost-.*",status="5xx"}[5m])) by (namespace, service)
+              /
+              sum(rate(http_requests_total{namespace=~"bifrost-.*"}[5m])) by (namespace, service)
+            ) > 0.05
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Bifrost API high 5xx error rate"
+            description: "Service {{ $labels.service }} in {{ $labels.namespace }} has 5xx rate above 5%."
+
+        - alert: BifrostAPIHighLatency
+          expr: |
+            histogram_quantile(
+              0.99,
+              sum(rate(http_request_duration_seconds_bucket{namespace=~"bifrost-.*"}[5m])) by (le, namespace, service)
+            ) > 2
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Bifrost API high P99 latency"
+            description: "Service {{ $labels.service }} in {{ $labels.namespace }} P99 latency exceeds 2s."
+
+        - alert: BifrostRedisDown
+          expr: |
+            up{namespace="data", job=~".*redis.*"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Redis exporter target down"
+            description: "Redis metrics target {{ $labels.job }} is down."
+
+        - alert: BifrostPostgresReplicationLag
+          expr: |
+            cnpg_pg_stat_replication_replay_lag_seconds{namespace="data"} > 30
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PostgreSQL replication lag high"
+            description: "CNPG pod {{ $labels.pod }} replication replay lag exceeds 30s."
+
+        - alert: BifrostPostgresHighConnections
+          expr: |
+            sum(cnpg_backends_total{namespace="data"}) by (pod) > 80
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PostgreSQL connection count high"
+            description: "CNPG pod {{ $labels.pod }} has more than 80 backends."
