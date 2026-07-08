@@ -28,15 +28,29 @@ spec:
         WORKER="daemon account-sync celery-worker"
         DEPLOY="${APIS} ${WORKER} massive-ws"
         # IBGP3 retired — legacy IB StatefulSets removed from kustomize; do not rollout/restart.
-        kubectl rollout restart "deployment/frontend" -n "${NS}"
-        for dep in ${DEPLOY}; do
+        rollout_dep() {
+          dep="$1"
+          timeout="$2"
+          if ! kubectl get "deployment/${dep}" -n "${NS}" >/dev/null 2>&1; then
+            echo "SKIP deployment/${dep} — not present in ${NS}"
+            return 0
+          fi
+          desired="$(kubectl get "deployment/${dep}" -n "${NS}" -o jsonpath='{.spec.replicas}')"
+          echo "Rollout deployment/${dep} (replicas=${desired:-?})"
           kubectl rollout restart "deployment/${dep}" -n "${NS}"
+          if ! kubectl rollout status "deployment/${dep}" -n "${NS}" --timeout="${timeout}"; then
+            echo "ROLL_FAILED deployment/${dep} in ${NS}"
+            kubectl describe "deployment/${dep}" -n "${NS}" | tail -40
+            kubectl get pods -n "${NS}" -l "app.kubernetes.io/name=${dep}" -o wide 2>/dev/null || \
+              kubectl get pods -n "${NS}" | grep "${dep}" || true
+            exit 1
+          fi
+        }
+        rollout_dep frontend 300s
+        for dep in ${DEPLOY}; do
+          rollout_dep "${dep}" 600s
         done
         kubectl get ingressroute trade-gateway -n "${NS}"
-        kubectl rollout status deployment/frontend -n "${NS}" --timeout=300s
-        for dep in ${DEPLOY}; do
-          kubectl rollout status "deployment/${dep}" -n "${NS}" --timeout=600s
-        done
         echo "Rollout complete in ${NS} (Traefik gateway + frontend + 9 APIs + worker + massive-ws)"
 ---
 apiVersion: tekton.dev/v1
