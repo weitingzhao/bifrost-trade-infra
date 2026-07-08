@@ -90,6 +90,15 @@ redis_queue:
   port: 6379
   db: 0
 
+# IBGP3 — shared Platform IB bus (ExternalName redis-ib → data NS). Password: make sync-redis-ib-secrets
+redis_ib:
+  enabled: true
+  host: redis-ib
+  port: 6379
+  db: 0
+  username: trade-prod
+  password: "9934af40b9c34fe20bb227b1730dea1e"
+
 ops:
   control_profile: stg
   # K8s stg: Celery worker instances spawn via Ops subprocess inside api-ops pod (B1).
