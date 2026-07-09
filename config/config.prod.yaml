@@ -33,7 +33,7 @@ ib:
       ingestor: 50
       account_agent: 60
   secondary:
-    ip: 192.168.10.32
+    ip: 192.168.10.33
     port_type: tws_live
     client_id:
       listener: 1
@@ -53,12 +53,11 @@ utilized:
     research: prod
 
 postgres:
-  # CNPG @ data NS (legacy bare-metal .80 decommissioned 2026-06-29)
-  host: bifrost-postgres-rw.data.svc.cluster.local
+  host: 192.168.10.80
   port: 5432
   user: bifrost
   password: OptionPSW!@
-  database: bifrost_prod
+  database: options_db
 
 redis:
   enabled: true
@@ -112,3 +111,4 @@ massive:
   ws_url: wss://delayed.polygon.io/options
   features:
     trades_enabled: false
+    ws_enabled: false

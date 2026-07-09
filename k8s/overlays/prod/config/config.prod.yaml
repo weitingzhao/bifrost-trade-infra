@@ -54,7 +54,7 @@ ib:
       ingestor: 50
       account_agent: 60
   secondary:
-    ip: 192.168.10.32
+    ip: 192.168.10.33
     port_type: tws_live
     client_id:
       listener: 1
@@ -136,12 +136,12 @@ ops:
     persist: true
 
 massive:
-  api_key: ""
+  api_key: MYCd1tboShKK7UTYgKN_fjtBrZUr9zhe
   tier: starter
   ws_url: wss://delayed.polygon.io/options
   features:
     trades_enabled: false
-    ws_enabled: false  # Options Starter = REST aggregates via Celery; WS needs Developer+
+    ws_enabled: false
 
 # P5B observe: daemon hedge is simulated only; no live IB order placement in worker code.
 gates:
