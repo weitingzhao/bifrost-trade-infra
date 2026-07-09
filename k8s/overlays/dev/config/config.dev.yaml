@@ -105,6 +105,8 @@ redis_ib:
 ops:
   control_profile: dev
   executor_mode: kubernetes
+  worker_list_mode: redis_presence
+  worker_list_fallback_inspect: false
   kubernetes:
     namespace: bifrost-dev
   celery:
