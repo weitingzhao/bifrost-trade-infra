@@ -1,6 +1,8 @@
-# W1 — Traefik IngressRoute for bifrost-prod (replaces in-cluster nginx).
-# IP: http://192.168.10.70/  ·  Hostname: trade.bifrost.lan via /etc/hosts
-# Duplicate routes per Host (same as STG) — avoids OR/AND precedence issues in Traefik.
+# Traefik IngressRoute for bifrost-prod.
+# Primary: trader.bifrost.lan → VIP 192.168.10.100:80
+# Escape: Host 192.168.10.70 / 192.168.10.100 (direct IP).
+# Duplicate Host rules (no OR) — matches prior Traefik precedence practice.
+# Smoke: curl -H 'Host: trader.bifrost.lan' http://192.168.10.100/api/monitor/status
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -8,12 +10,12 @@ metadata:
   labels:
     app.kubernetes.io/name: trade-gateway
     app.kubernetes.io/component: ingress
-    bifrost.io/gateway-host: trade.bifrost.lan
+    bifrost.io/gateway-host: trader.bifrost.lan
 spec:
   entryPoints:
     - web
   routes:
-    - match: Host(`trade.bifrost.lan`) && PathPrefix(`/api/monitor`)
+    - match: Host(`trader.bifrost.lan`) && PathPrefix(`/api/monitor`)
       kind: Rule
       priority: 100
       middlewares:
@@ -35,7 +37,18 @@ spec:
           port: 8765
           responseForwarding:
             flushInterval: 1ms
-    - match: Host(`trade.bifrost.lan`) && PathPrefix(`/api/massive`)
+    - match: Host(`192.168.10.100`) && PathPrefix(`/api/monitor`)
+      kind: Rule
+      priority: 100
+      middlewares:
+        - name: strip-api-monitor
+        - name: sse-streaming
+      services:
+        - name: api-monitor
+          port: 8765
+          responseForwarding:
+            flushInterval: 1ms
+    - match: Host(`trader.bifrost.lan`) && PathPrefix(`/api/massive`)
       kind: Rule
       priority: 100
       middlewares:
@@ -57,7 +70,18 @@ spec:
           port: 8766
           responseForwarding:
             flushInterval: 1ms
-    - match: Host(`trade.bifrost.lan`) && PathPrefix(`/api/docs`)
+    - match: Host(`192.168.10.100`) && PathPrefix(`/api/massive`)
+      kind: Rule
+      priority: 100
+      middlewares:
+        - name: strip-api-massive
+        - name: sse-streaming
+      services:
+        - name: api-massive
+          port: 8766
+          responseForwarding:
+            flushInterval: 1ms
+    - match: Host(`trader.bifrost.lan`) && PathPrefix(`/api/docs`)
       kind: Rule
       priority: 100
       middlewares:
@@ -79,7 +103,18 @@ spec:
           port: 8767
           responseForwarding:
             flushInterval: 1ms
-    - match: Host(`trade.bifrost.lan`) && PathPrefix(`/api/ops`)
+    - match: Host(`192.168.10.100`) && PathPrefix(`/api/docs`)
+      kind: Rule
+      priority: 100
+      middlewares:
+        - name: strip-api-docs
+        - name: sse-streaming
+      services:
+        - name: api-docs
+          port: 8767
+          responseForwarding:
+            flushInterval: 1ms
+    - match: Host(`trader.bifrost.lan`) && PathPrefix(`/api/ops`)
       kind: Rule
       priority: 100
       middlewares:
@@ -101,7 +136,18 @@ spec:
           port: 8768
           responseForwarding:
             flushInterval: 1ms
-    - match: Host(`trade.bifrost.lan`) && PathPrefix(`/api/trading`)
+    - match: Host(`192.168.10.100`) && PathPrefix(`/api/ops`)
+      kind: Rule
+      priority: 100
+      middlewares:
+        - name: strip-api-ops
+        - name: sse-streaming
+      services:
+        - name: api-ops
+          port: 8768
+          responseForwarding:
+            flushInterval: 1ms
+    - match: Host(`trader.bifrost.lan`) && PathPrefix(`/api/trading`)
       kind: Rule
       priority: 100
       middlewares:
@@ -123,7 +169,18 @@ spec:
           port: 8769
           responseForwarding:
             flushInterval: 1ms
-    - match: Host(`trade.bifrost.lan`) && PathPrefix(`/api/strategy`)
+    - match: Host(`192.168.10.100`) && PathPrefix(`/api/trading`)
+      kind: Rule
+      priority: 100
+      middlewares:
+        - name: strip-api-trading
+        - name: sse-streaming
+      services:
+        - name: api-trading
+          port: 8769
+          responseForwarding:
+            flushInterval: 1ms
+    - match: Host(`trader.bifrost.lan`) && PathPrefix(`/api/strategy`)
       kind: Rule
       priority: 100
       middlewares:
@@ -145,7 +202,18 @@ spec:
           port: 8770
           responseForwarding:
             flushInterval: 1ms
-    - match: Host(`trade.bifrost.lan`) && PathPrefix(`/api/portfolio`)
+    - match: Host(`192.168.10.100`) && PathPrefix(`/api/strategy`)
+      kind: Rule
+      priority: 100
+      middlewares:
+        - name: strip-api-strategy
+        - name: sse-streaming
+      services:
+        - name: api-strategy
+          port: 8770
+          responseForwarding:
+            flushInterval: 1ms
+    - match: Host(`trader.bifrost.lan`) && PathPrefix(`/api/portfolio`)
       kind: Rule
       priority: 100
       middlewares:
@@ -167,7 +235,18 @@ spec:
           port: 8771
           responseForwarding:
             flushInterval: 1ms
-    - match: Host(`trade.bifrost.lan`) && PathPrefix(`/api/market`)
+    - match: Host(`192.168.10.100`) && PathPrefix(`/api/portfolio`)
+      kind: Rule
+      priority: 100
+      middlewares:
+        - name: strip-api-portfolio
+        - name: sse-streaming
+      services:
+        - name: api-portfolio
+          port: 8771
+          responseForwarding:
+            flushInterval: 1ms
+    - match: Host(`trader.bifrost.lan`) && PathPrefix(`/api/market`)
       kind: Rule
       priority: 100
       middlewares:
@@ -189,7 +268,18 @@ spec:
           port: 8772
           responseForwarding:
             flushInterval: 1ms
-    - match: Host(`trade.bifrost.lan`) && PathPrefix(`/api/research`)
+    - match: Host(`192.168.10.100`) && PathPrefix(`/api/market`)
+      kind: Rule
+      priority: 100
+      middlewares:
+        - name: strip-api-market
+        - name: sse-streaming
+      services:
+        - name: api-market
+          port: 8772
+          responseForwarding:
+            flushInterval: 1ms
+    - match: Host(`trader.bifrost.lan`) && PathPrefix(`/api/research`)
       kind: Rule
       priority: 100
       middlewares:
@@ -211,7 +301,18 @@ spec:
           port: 8773
           responseForwarding:
             flushInterval: 1ms
-    - match: Host(`trade.bifrost.lan`) && Path(`/health`)
+    - match: Host(`192.168.10.100`) && PathPrefix(`/api/research`)
+      kind: Rule
+      priority: 100
+      middlewares:
+        - name: strip-api-research
+        - name: sse-streaming
+      services:
+        - name: api-research
+          port: 8773
+          responseForwarding:
+            flushInterval: 1ms
+    - match: Host(`trader.bifrost.lan`) && Path(`/health`)
       kind: Rule
       priority: 50
       services:
@@ -223,13 +324,25 @@ spec:
       services:
         - name: frontend
           port: 80
-    - match: Host(`trade.bifrost.lan`) && PathPrefix(`/`)
+    - match: Host(`192.168.10.100`) && Path(`/health`)
+      kind: Rule
+      priority: 50
+      services:
+        - name: frontend
+          port: 80
+    - match: Host(`trader.bifrost.lan`) && PathPrefix(`/`)
       kind: Rule
       priority: 1
       services:
         - name: frontend
           port: 80
     - match: Host(`192.168.10.70`) && PathPrefix(`/`)
+      kind: Rule
+      priority: 1
+      services:
+        - name: frontend
+          port: 80
+    - match: Host(`192.168.10.100`) && PathPrefix(`/`)
       kind: Rule
       priority: 1
       services:

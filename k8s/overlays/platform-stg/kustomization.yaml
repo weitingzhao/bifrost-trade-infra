@@ -6,6 +6,7 @@ namespace: bifrost-platform-stg
 resources:
   - namespace.yaml
   - ../../base-platform
+  - ops-ingressroute.yaml
 
 configMapGenerator:
   - name: bifrost-platform-config

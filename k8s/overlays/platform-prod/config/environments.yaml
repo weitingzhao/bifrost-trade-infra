@@ -4,9 +4,9 @@
 environments:
   - id: dev
     label: Development
-    # W1 Traefik Ingress — Host trade-dev.bifrost.lan @ K3s node :80
-    nginx_base: http://trade-dev.bifrost.lan/
-    ingress_host: trade-dev.bifrost.lan
+    # Traefik Host dev.trader.bifrost.lan @ VIP :80
+    nginx_base: http://dev.trader.bifrost.lan/
+    ingress_host: dev.trader.bifrost.lan
     ingress_node_ip: 192.168.10.73
     # CNPG @ data NS (legacy bare-metal .80 decommissioned 2026-06-29)
     postgres:
@@ -20,8 +20,8 @@ environments:
 
   - id: prod
     label: Production
-    nginx_base: http://192.168.10.70
-    ingress_host: trade.bifrost.lan
+    nginx_base: http://192.168.10.100
+    ingress_host: trader.bifrost.lan
     ingress_node_ip: 192.168.10.70
     # CNPG @ data NS (legacy bare-metal .80 decommissioned 2026-06-29)
     postgres:

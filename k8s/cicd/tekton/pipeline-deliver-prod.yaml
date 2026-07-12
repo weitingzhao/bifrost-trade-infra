@@ -70,7 +70,7 @@ spec:
         - name: traefikBase
           value: http://traefik.kube-system.svc.cluster.local
         - name: gatewayHost
-          value: trade-stg.bifrost.lan
+          value: stg.trader.bifrost.lan
     - name: clone-core
       runAfter: [preflight-stg]
       taskRef:

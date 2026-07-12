@@ -1,0 +1,22 @@
+# Rocket Ops Console — Traefik Host on VIP :80.
+# Primary: stg.ops.bifrost.lan → platform-console (nginx proxies /api → platform-api).
+# Escape hatch remains NodePort :30879.
+# Smoke: curl -sS -o /dev/null -w '%{http_code}\n' -H 'Host: stg.ops.bifrost.lan' http://192.168.10.100/
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: ops-gateway
+  labels:
+    app.kubernetes.io/name: ops-gateway
+    app.kubernetes.io/component: ingress
+    bifrost.io/gateway-host: stg.ops.bifrost.lan
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`stg.ops.bifrost.lan`)
+      kind: Rule
+      priority: 10
+      services:
+        - name: platform-console
+          port: 80

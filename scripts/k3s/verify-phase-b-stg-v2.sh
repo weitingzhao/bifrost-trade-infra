@@ -5,7 +5,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # W1 Traefik Ingress — gateway on K3s Traefik :80 with Host header (see trade-ingressroute.yaml).
-GATEWAY_HOST="${STG_GATEWAY_HOST:-trade-stg.bifrost.lan}"
+GATEWAY_HOST="${STG_GATEWAY_HOST:-stg.trader.bifrost.lan}"
 GATEWAY_IP="${STG_GATEWAY_IP:-192.168.10.73}"
 GATEWAY="${STG_GATEWAY_URL:-http://${GATEWAY_IP}/}"
 KUBECONFIG="${KUBECONFIG:-${PLATFORM_KUBECONFIG:-$HOME/.kube/bifrost-k3s.yaml}}"

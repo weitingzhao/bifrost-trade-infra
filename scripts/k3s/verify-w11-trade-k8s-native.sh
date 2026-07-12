@@ -10,7 +10,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 KUBECONFIG="${KUBECONFIG:-${PLATFORM_KUBECONFIG:-$HOME/.kube/bifrost-k3s.yaml}}"
 NS="${STG_NAMESPACE:-bifrost-stg}"
-GATEWAY_HOST="${STG_GATEWAY_HOST:-trade-stg.bifrost.lan}"
+GATEWAY_HOST="${STG_GATEWAY_HOST:-stg.trader.bifrost.lan}"
 GATEWAY_IP="${STG_GATEWAY_IP:-192.168.10.73}"
 TRAEFIK_URL="${STG_TRAEFIK_URL:-http://traefik.kube-system.svc.cluster.local}"
 

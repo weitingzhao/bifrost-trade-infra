@@ -1,5 +1,6 @@
 # IP-only gateway — http://192.168.10.73:30882/ (no /etc/hosts).
-# LAN: add to /etc/hosts →  192.168.10.73  trade-dev.bifrost.lan
+# NodePort escape hatch (no Host required) — entryPoint trade-dev :30882.
+# Preferred path: http://dev.trader.bifrost.lan/ via VIP :80.
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -7,7 +8,7 @@ metadata:
   labels:
     app.kubernetes.io/name: trade-gateway-ip
     app.kubernetes.io/component: ingress
-    bifrost.io/gateway-host: trade-dev.bifrost.lan
+    bifrost.io/gateway-host: dev.trader.bifrost.lan
 spec:
   entryPoints:
     - trade-dev

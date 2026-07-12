@@ -13,7 +13,7 @@ spec:
       default: http://traefik.kube-system.svc.cluster.local
     - name: gatewayHost
       type: string
-      default: trade.bifrost.lan
+      default: trader.bifrost.lan
   steps:
     - name: http-smoke
       image: curlimages/curl:8.11.1
