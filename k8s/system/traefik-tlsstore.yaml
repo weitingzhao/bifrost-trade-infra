@@ -1,0 +1,13 @@
+# Traefik default certificate store (kube-system).
+# Secret bifrost-lan-tls is created by scripts/k3s/issue-bifrost-lan-tls.sh (mkcert).
+apiVersion: traefik.io/v1alpha1
+kind: TLSStore
+metadata:
+  name: default
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: bifrost-lan-tls
+    bifrost.io/component: ingress-tls
+spec:
+  defaultCertificate:
+    secretName: bifrost-lan-tls

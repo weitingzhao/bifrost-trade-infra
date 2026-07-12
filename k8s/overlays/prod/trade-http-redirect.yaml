@@ -1,0 +1,21 @@
+# HTTP :80 → HTTPS :443 for PROD Satellite hostname / VIP Host.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: trade-gateway-http-redirect
+  labels:
+    app.kubernetes.io/name: trade-gateway
+    app.kubernetes.io/component: ingress-redirect
+    bifrost.io/gateway-host: trader.bifrost.lan
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`trader.bifrost.lan`) || Host(`192.168.10.100`) || Host(`192.168.10.70`)
+      kind: Rule
+      priority: 10
+      middlewares:
+        - name: redirect-https
+      services:
+        - name: frontend
+          port: 80

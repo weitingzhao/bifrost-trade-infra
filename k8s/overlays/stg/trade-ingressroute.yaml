@@ -1,6 +1,6 @@
 # Traefik IngressRoute for bifrost-stg.
 # Primary: stg.trader.bifrost.lan → VIP 192.168.10.100:80
-# Smoke: curl -H 'Host: stg.trader.bifrost.lan' http://192.168.10.100/api/monitor/status
+# Smoke: curl -H 'Host: stg.trader.bifrost.lan' https://192.168.10.100/api/monitor/status
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -11,7 +11,8 @@ metadata:
     bifrost.io/gateway-host: stg.trader.bifrost.lan
 spec:
   entryPoints:
-    - web
+    - websecure
+  tls: {}
   routes:
     - match: Host(`stg.trader.bifrost.lan`) && PathPrefix(`/api/monitor`)
       kind: Rule

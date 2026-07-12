@@ -6,6 +6,7 @@ namespace: bifrost-prod
 resources:
   - ../../base
   - trade-ingressroute.yaml
+  - trade-http-redirect.yaml
   - db-init-prod.job.yaml
   - redis-data-ns-aliases.yaml
 

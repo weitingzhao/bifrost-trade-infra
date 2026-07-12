@@ -1,0 +1,9 @@
+# Bifrost LAN TLS (Traefik websecure)
+#
+# Private CA for https://*.trader.bifrost.lan / https://*.ops.bifrost.lan on VIP :443.
+# Leaf key is NOT stored in git — run scripts/k3s/issue-bifrost-lan-tls.sh to mint + apply.
+#
+*.pem
+!bifrost-lan-rootCA.pem
+*-key.pem
+*.key

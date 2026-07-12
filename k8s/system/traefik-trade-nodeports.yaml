@@ -1,7 +1,8 @@
 # k3s Traefik — legacy NodePort entrypoints for IP-only LAN access (no /etc/hosts).
-# STG :30880 · DEV :30882 on .73; PROD uses :80 on .70 (add Host IP match in IngressRoute).
-# Apply once: kubectl apply -f k8s/system/traefik-trade-nodeports.yaml
-# Traefik pod may restart (~30s) after first apply.
+# STG :30880 · DEV :30882 on .73; PROD Host/VIP :80/:443 via IngressRoute.
+# HTTPS redirect is handled per-IngressRoute (trade/ops *-http-redirect), not entryPoint-wide
+# so NodePort escapes stay plain HTTP.
+# Apply: kubectl apply -f k8s/system/traefik-trade-nodeports.yaml
 apiVersion: helm.cattle.io/v1
 kind: HelmChartConfig
 metadata:
