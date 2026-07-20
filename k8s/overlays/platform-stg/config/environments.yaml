@@ -32,11 +32,10 @@ environments:
 
   - id: prod
     label: Production
-    # Traefik Host trader.bifrost.lan @ VIP 192.168.10.100:80
-    nginx_base: http://192.168.10.100
+    # Traefik trade-prod NodePort escape (parity with DEV :30882 / STG :30880).
+    nginx_base: http://192.168.10.73:30881
     ingress_host: trader.bifrost.lan
-    ingress_node_ip: 192.168.10.70
-    # CNPG @ data NS — matrix uses cluster API; LAN NodePort fallback below.
+    ingress_node_ip: 192.168.10.73
     postgres:
       host: 192.168.10.73
       port: 30432

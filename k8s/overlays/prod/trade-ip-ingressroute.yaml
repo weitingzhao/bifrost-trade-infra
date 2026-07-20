@@ -1,0 +1,127 @@
+# IP-only gateway — http://192.168.10.73:30881/ (no /etc/hosts).
+# NodePort escape hatch (no Host required) — entryPoint trade-prod :30881.
+# Preferred path: https://trader.bifrost.lan/ via VIP (browser); in-cluster matrix must use this hatch
+# because VIP :80 redirects to https://trader.bifrost.lan and CoreDNS cannot resolve *.lan.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: trade-gateway-ip
+  labels:
+    app.kubernetes.io/name: trade-gateway-ip
+    app.kubernetes.io/component: ingress
+    bifrost.io/gateway-host: trader.bifrost.lan
+spec:
+  entryPoints:
+    - trade-prod
+  routes:
+    - match: PathPrefix(`/api/monitor`)
+      kind: Rule
+      priority: 100
+      middlewares:
+        - name: strip-api-monitor
+        - name: sse-streaming
+      services:
+        - name: api-monitor
+          port: 8765
+          responseForwarding:
+            flushInterval: 1ms
+    - match: PathPrefix(`/api/massive`)
+      kind: Rule
+      priority: 100
+      middlewares:
+        - name: strip-api-massive
+        - name: sse-streaming
+      services:
+        - name: api-massive
+          port: 8766
+          responseForwarding:
+            flushInterval: 1ms
+    - match: PathPrefix(`/api/docs`)
+      kind: Rule
+      priority: 100
+      middlewares:
+        - name: strip-api-docs
+        - name: sse-streaming
+      services:
+        - name: api-docs
+          port: 8767
+          responseForwarding:
+            flushInterval: 1ms
+    - match: PathPrefix(`/api/ops`)
+      kind: Rule
+      priority: 100
+      middlewares:
+        - name: strip-api-ops
+        - name: sse-streaming
+      services:
+        - name: api-ops
+          port: 8768
+          responseForwarding:
+            flushInterval: 1ms
+    - match: PathPrefix(`/api/trading`)
+      kind: Rule
+      priority: 100
+      middlewares:
+        - name: strip-api-trading
+        - name: sse-streaming
+      services:
+        - name: api-trading
+          port: 8769
+          responseForwarding:
+            flushInterval: 1ms
+    - match: PathPrefix(`/api/strategy`)
+      kind: Rule
+      priority: 100
+      middlewares:
+        - name: strip-api-strategy
+        - name: sse-streaming
+      services:
+        - name: api-strategy
+          port: 8770
+          responseForwarding:
+            flushInterval: 1ms
+    - match: PathPrefix(`/api/portfolio`)
+      kind: Rule
+      priority: 100
+      middlewares:
+        - name: strip-api-portfolio
+        - name: sse-streaming
+      services:
+        - name: api-portfolio
+          port: 8771
+          responseForwarding:
+            flushInterval: 1ms
+    - match: PathPrefix(`/api/market`)
+      kind: Rule
+      priority: 100
+      middlewares:
+        - name: strip-api-market
+        - name: sse-streaming
+      services:
+        - name: api-market
+          port: 8772
+          responseForwarding:
+            flushInterval: 1ms
+    - match: PathPrefix(`/api/research`)
+      kind: Rule
+      priority: 100
+      middlewares:
+        - name: strip-api-research
+        - name: sse-streaming
+      services:
+        - name: api-research
+          port: 8773
+          responseForwarding:
+            flushInterval: 1ms
+    - match: Path(`/health`)
+      kind: Rule
+      priority: 50
+      services:
+        - name: frontend
+          port: 80
+    - match: PathPrefix(`/`)
+      kind: Rule
+      priority: 1
+      services:
+        - name: frontend
+          port: 80
