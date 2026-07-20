@@ -12,6 +12,8 @@ spec:
       containers:
         - name: platform-api
           env:
+            - name: OPS_VIEWER_ENV
+              value: "stg"
             - name: PLATFORM_GRAFANA_URL
               value: "http://192.168.10.73:30883"
             - name: REMEDIATION_RUNNER_URL

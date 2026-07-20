@@ -2,9 +2,11 @@
 # Kubeconfig path: PLATFORM_KUBECONFIG env (default ~/.kube/bifrost-k3s.yaml).
 
 clusters:
+  # DefaultCluster = first entry. In-cluster STG seat (ResolveViewerEnv).
   - id: bifrost-bootstrap
     label: K3s bootstrap
     distribution: k3s
+    viewer_env: stg
     api_server: https://192.168.10.73:6443
     kubeconfig_env: PLATFORM_KUBECONFIG
     ssh_host: vision@192.168.10.73

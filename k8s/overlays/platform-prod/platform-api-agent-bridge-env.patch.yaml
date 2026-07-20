@@ -11,6 +11,9 @@ spec:
       containers:
         - name: platform-api
           env:
+            # Explicit seat pin (overrides clusters.yaml; local make start stays DEV without this).
+            - name: OPS_VIEWER_ENV
+              value: "prod"
             - name: REMEDIATION_RUNNER_URL
               value: "http://192.168.10.50:8781"
             - name: REMEDIATION_RUNNER_STANDBY_URL
