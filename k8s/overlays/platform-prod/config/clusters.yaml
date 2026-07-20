@@ -73,25 +73,26 @@ clusters:
           install_script: install-stack-registry.sh
           upgrade_script: install-stack-registry.sh
     stg_smoke:
-      gateway_url: http://stg.trader.bifrost.lan/
+      # In-cluster smoke must use Traefik NodePort (CoreDNS cannot resolve *.trader.bifrost.lan;
+      # VIP :80 redirects to https://*.lan). Escape hatch = :30880 (same as matrix).
+      gateway_url: http://192.168.10.73:30880/
       gateway_host: stg.trader.bifrost.lan
-      gateway_node_ip: 192.168.10.100
-      api_monitor_url: http://stg.trader.bifrost.lan/api/monitor/status
-      frontend_url: http://stg.trader.bifrost.lan/
-      # In-cluster self-health must use NodePort (CoreDNS cannot resolve *.ops.bifrost.lan;
-      # Traefik TLS for ops Hosts also fails x509 inside pods). Escape hatch = :30879 / :30877.
+      gateway_node_ip: 192.168.10.73
+      api_monitor_url: http://192.168.10.73:30880/api/monitor/status
+      frontend_url: http://192.168.10.73:30880/
       platform_console_url: http://192.168.10.73:30879/
       platform_api_health_url: http://192.168.10.73:30878/health
     prod_smoke:
-      gateway_url: http://192.168.10.100
+      gateway_url: http://192.168.10.73:30881/
       gateway_host: trader.bifrost.lan
-      gateway_node_ip: 192.168.10.100
-      api_monitor_url: http://192.168.10.100/api/monitor/status
-      frontend_url: http://192.168.10.100/
+      gateway_node_ip: 192.168.10.73
+      api_monitor_url: http://192.168.10.73:30881/api/monitor/status
+      frontend_url: http://192.168.10.73:30881/
       platform_console_url: http://192.168.10.73:30877/
       platform_api_health_url: http://192.168.10.73:30876/health
     dev_smoke:
-      gateway_url: http://dev.trader.bifrost.lan/
+      gateway_url: http://192.168.10.73:30882/
       gateway_host: dev.trader.bifrost.lan
-      gateway_node_ip: 192.168.10.100
-      api_monitor_url: http://dev.trader.bifrost.lan/api/monitor/status
+      gateway_node_ip: 192.168.10.73
+      api_monitor_url: http://192.168.10.73:30882/api/monitor/status
+      frontend_url: http://192.168.10.73:30882/
