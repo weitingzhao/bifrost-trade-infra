@@ -1,7 +1,6 @@
-# Browser-reachable Grafana URL for Cluster → Observability deep links.
-# Complements clusters.yaml observability_urls.grafana (platform-api loads config at startup).
-# Also inject Agent Bridge LAN URLs (parity with platform-prod) so STG self-probes
-# do not default to http://127.0.0.1:8781 inside the pod.
+# In-cluster platform-api must reach Mac Mini runners + Mac Pro Git Bridge on LAN.
+# Without these, /api/v1/agent/bridge defaults to http://127.0.0.1:8781 (Runner down).
+# LAN URLs are non-secret (same as bifrost-platform/.env); do not put passwords here.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -12,8 +11,6 @@ spec:
       containers:
         - name: platform-api
           env:
-            - name: PLATFORM_GRAFANA_URL
-              value: "http://192.168.10.73:30883"
             - name: REMEDIATION_RUNNER_URL
               value: "http://192.168.10.50:8781"
             - name: REMEDIATION_RUNNER_STANDBY_URL
@@ -22,3 +19,5 @@ spec:
               value: "http://192.168.10.40:8785"
             - name: NOUS_HERMES_URL
               value: "http://192.168.10.50:9119"
+            - name: PLATFORM_GRAFANA_URL
+              value: "http://192.168.10.73:30883"

@@ -76,13 +76,16 @@ clusters:
       gateway_host: stg.trader.bifrost.lan
       api_monitor_url: http://192.168.10.100/api/monitor/status
       frontend_url: http://192.168.10.100/
-      platform_console_url: https://stg.ops.bifrost.lan/
+      # In-cluster self-health: NodePort escape hatch (not *.ops.bifrost.lan — CoreDNS/TLS).
+      platform_console_url: http://192.168.10.73:30879/
       platform_api_health_url: http://192.168.10.73:30878/health
     prod_smoke:
       gateway_url: http://192.168.10.100/
       gateway_host: trader.bifrost.lan
       api_monitor_url: http://192.168.10.100/api/monitor/status
       frontend_url: http://192.168.10.100/
+      platform_console_url: http://192.168.10.73:30877/
+      platform_api_health_url: http://192.168.10.73:30876/health
     dev_smoke:
       gateway_url: http://192.168.10.100/
       gateway_host: dev.trader.bifrost.lan

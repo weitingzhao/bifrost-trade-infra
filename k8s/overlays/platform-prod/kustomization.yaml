@@ -32,6 +32,7 @@ patches:
   - path: images-pull-always.patch.yaml
   - path: replicas-ha.patch.yaml
   - path: nodeport-prod.patch.yaml
+  - path: platform-api-agent-bridge-env.patch.yaml
 
 images:
   - name: registry.cicd.svc.cluster.local:5000/bifrost-platform-api
