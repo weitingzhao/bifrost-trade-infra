@@ -115,7 +115,7 @@ services:
 
   celery-worker:
     <<: *dev-build
-    command: ["python", "/workspace/bifrost-trade-worker/scripts/run_celery.py"]
+    command: ["python", "/workspace/bifrost-trade-worker/scripts/systemd/run_celery.py"]
     volumes: *dev-volumes
     environment:
       <<: *dev-env

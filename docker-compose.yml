@@ -176,7 +176,12 @@ services:
 
   celery-worker:
     <<: *worker-build
-    command: python scripts/run_celery.py
+    # Consume all canonical queues (Massive + stocks_ib); bare run_celery.py → stocks_ib only.
+    command: python scripts/systemd/run_celery.py
+
+  celery-beat:
+    <<: *worker-build
+    command: python scripts/run_celery_beat.py
 
   flower:
     <<: *worker-build

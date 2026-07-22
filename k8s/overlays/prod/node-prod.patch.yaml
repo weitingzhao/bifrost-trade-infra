@@ -170,3 +170,79 @@ spec:
     spec:
       nodeSelector:
         bifrost.io/host-id: mini-pc-a
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-beat
+spec:
+  template:
+    spec:
+      nodeSelector:
+        bifrost.io/host-id: mini-pc-a
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker-stocks-ib
+spec:
+  template:
+    spec:
+      nodeSelector:
+        bifrost.io/host-id: mini-pc-a
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker-stocks-massive
+spec:
+  template:
+    spec:
+      nodeSelector:
+        bifrost.io/host-id: mini-pc-a
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker-stocks-massive-high
+spec:
+  template:
+    spec:
+      nodeSelector:
+        bifrost.io/host-id: mini-pc-a
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker-options-massive
+spec:
+  template:
+    spec:
+      nodeSelector:
+        bifrost.io/host-id: mini-pc-a
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker-options-massive-high
+spec:
+  template:
+    spec:
+      nodeSelector:
+        bifrost.io/host-id: mini-pc-a
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flower
+spec:
+  template:
+    spec:
+      nodeSelector:
+        bifrost.io/host-id: mini-pc-a

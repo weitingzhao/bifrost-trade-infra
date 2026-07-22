@@ -152,3 +152,105 @@ spec:
       containers:
         - name: massive-ws
           imagePullPolicy: Always
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-beat
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: wait-for-data
+          imagePullPolicy: Always
+      containers:
+        - name: celery-beat
+          imagePullPolicy: Always
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker-stocks-ib
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: wait-for-data
+          imagePullPolicy: Always
+      containers:
+        - name: celery-worker
+          imagePullPolicy: Always
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker-stocks-massive
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: wait-for-data
+          imagePullPolicy: Always
+      containers:
+        - name: celery-worker
+          imagePullPolicy: Always
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker-stocks-massive-high
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: wait-for-data
+          imagePullPolicy: Always
+      containers:
+        - name: celery-worker
+          imagePullPolicy: Always
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker-options-massive
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: wait-for-data
+          imagePullPolicy: Always
+      containers:
+        - name: celery-worker
+          imagePullPolicy: Always
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker-options-massive-high
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: wait-for-data
+          imagePullPolicy: Always
+      containers:
+        - name: celery-worker
+          imagePullPolicy: Always
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flower
+spec:
+  template:
+    spec:
+      containers:
+        - name: flower
+          imagePullPolicy: Always
