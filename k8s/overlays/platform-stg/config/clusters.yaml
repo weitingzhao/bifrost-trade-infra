@@ -2,11 +2,13 @@
 # Kubeconfig path: PLATFORM_KUBECONFIG env (default ~/.kube/bifrost-k3s.yaml).
 
 clusters:
-  # DefaultCluster = first entry. In-cluster STG seat (ResolveViewerEnv).
+  # DefaultCluster = first entry.
+  # viewer_env applies only to in-cluster platform-api (see ResolveViewerEnv).
+  # Local make start ignores this pin and defaults to DEV unless OPS_VIEWER_ENV is set.
   - id: bifrost-bootstrap
     label: K3s bootstrap
     distribution: k3s
-    viewer_env: stg
+    viewer_env: prod
     api_server: https://192.168.10.73:6443
     kubeconfig_env: PLATFORM_KUBECONFIG
     ssh_host: vision@192.168.10.73
@@ -74,18 +76,16 @@ clusters:
           install_script: install-stack-registry.sh
           upgrade_script: install-stack-registry.sh
     stg_smoke:
+      # Prefer NodePort escape hatches for in-cluster / LAN probes (VIP :80 → HTTPS *.lan).
       gateway_url: http://192.168.10.73:30880/
       gateway_host: stg.trader.bifrost.lan
-      gateway_node_ip: 192.168.10.73
       api_monitor_url: http://192.168.10.73:30880/api/monitor/status
       frontend_url: http://192.168.10.73:30880/
-      # In-cluster self-health: NodePort escape hatch (not *.ops.bifrost.lan — CoreDNS/TLS).
       platform_console_url: http://192.168.10.73:30879/
       platform_api_health_url: http://192.168.10.73:30878/health
     prod_smoke:
       gateway_url: http://192.168.10.73:30881/
       gateway_host: trader.bifrost.lan
-      gateway_node_ip: 192.168.10.73
       api_monitor_url: http://192.168.10.73:30881/api/monitor/status
       frontend_url: http://192.168.10.73:30881/
       platform_console_url: http://192.168.10.73:30877/
@@ -93,6 +93,5 @@ clusters:
     dev_smoke:
       gateway_url: http://192.168.10.73:30882/
       gateway_host: dev.trader.bifrost.lan
-      gateway_node_ip: 192.168.10.73
       api_monitor_url: http://192.168.10.73:30882/api/monitor/status
       frontend_url: http://192.168.10.73:30882/
