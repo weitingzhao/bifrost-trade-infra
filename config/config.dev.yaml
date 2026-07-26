@@ -77,10 +77,8 @@ ib_operator:
 
 ops:
   control_profile: dev
-  executor_mode: "local" # local | agent
-  # macOS: subprocess (no systemctl). Linux dev may use systemd.
-  local_control: "subprocess"
-  agent_socket: "/var/run/bifrost-agent.sock"
+  executor_mode: kubernetes
+  daemon_scale_guard: freeze
   # worker_profiles + prod hostnames: synced from bifrost-trader-engine/config/config.yaml (make sync-dev-config).
   celery:
     prod_worker_hostnames:

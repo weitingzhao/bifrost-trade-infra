@@ -98,7 +98,7 @@ local-prod-final-owner:
 	@chmod +x scripts/local_prod_final_owner.sh
 	@./scripts/local_prod_final_owner.sh $(SESSION)
 
-# Phase 2C-A.1 — Docker control plane (Ops executor + market-ingest). See docs/PHASE2C_A1_DOCKER_CONTROL_PLANE.md
+# C4 — Ops executor K8s-only gate (legacy name verify-2c-a1 retained for Makefile compatibility).
 verify-2c-a1:
 	@chmod +x scripts/verify_2c_a1_control_plane.sh
 	@./scripts/verify_2c_a1_control_plane.sh

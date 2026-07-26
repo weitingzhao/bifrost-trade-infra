@@ -1,5 +1,7 @@
 # Phase 2C-A.1 — Docker 控制面（Daemon / Socket / Ops）
 
+> **SUPERSEDED (C4, 2026-07-26):** api-ops is **Kubernetes-only**. `executor_docker` / local / agent were deleted; `make verify-2c-a1` now asserts `executor_mode=kubernetes`. Keep this doc as historical sign-off evidence only.
+
 **状态**：**Owner 已验**（Session 8 签字 2026-06-07）；Session 1 下一项
 
 | WP | 状态 | 备注 |
