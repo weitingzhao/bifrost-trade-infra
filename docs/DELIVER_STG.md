@@ -12,7 +12,7 @@ Gitea (cicd)  ← clone 7 repos (incl. bifrost-trade-infra)
     ↓ Kaniko
 Registry :30500  →  bifrost-{api,frontend,worker,socket}:stg
     ↓ rollout restart
-    ↓ verify-stg (in-cluster HTTP: gateway + 9 APIs)
+    ↓ verify-stg (in-cluster Traefik: follow redirects / accept 301|302|200|503)
 bifrost-stg namespace  (+ Argo CD sync)
 ```
 
@@ -24,7 +24,7 @@ bifrost-stg namespace  (+ Argo CD sync)
 | Dockerfiles | infra clone in pipeline | `prepare` task 写入 cicd ConfigMap |
 | 运行时配置 | `config/config.stg.yaml` | ConfigMap `bifrost-config`，Secret 放密钥 |
 | Overlay 策略 | `k8s/overlays/stg/` | celery-worker replicas=0、NodePort、amd64 调度 |
-| 验收 | `verify-stg` task | 集群内 curl nginx + 9 API；Delivery Stg smoke 为外网视角 |
+| 验收 | `verify-stg` task | 集群内 curl Traefik（`-L -k`，接受 200/301/302/503）+ 9 API；外网视角用 Delivery `get_stg_smoke`（NodePort） |
 
 ## 镜像内容（Dockerfile.api-stg）
 
