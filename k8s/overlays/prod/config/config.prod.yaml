@@ -102,6 +102,8 @@ redis_ib:
 
 ops:
   control_profile: prod
+  # Wave A: D10 freeze — block daemon scale-up via api-ops until Owner unlock.
+  daemon_scale_guard: freeze
   executor_mode: kubernetes
   kubernetes:
     namespace: bifrost-prod
