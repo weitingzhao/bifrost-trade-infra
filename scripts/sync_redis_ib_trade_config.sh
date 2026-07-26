@@ -12,10 +12,10 @@ fi
 # shellcheck disable=SC1090
 source "$PLUGIN_ENV"
 
-DEV_PASS="${REDIS_IB_TRADE_DEV_PASS:?REDIS_IB_TRADE_DEV_PASS missing in plugin .env}"
+# Dev K8s account-sync needs XREADGROUP/XGROUP/HSET — trade-dev ACL is read-only observe only.
 PROD_PASS="${REDIS_IB_TRADE_PROD_PASS:?REDIS_IB_TRADE_PROD_PASS missing in plugin .env}"
 
-python3 - "$ROOT/k8s/overlays/dev/config/config.dev.yaml" "$DEV_PASS" <<'PY'
+python3 - "$ROOT/k8s/overlays/dev/config/config.dev.yaml" "$PROD_PASS" <<'PY'
 import re, sys
 from pathlib import Path
 path, pw = Path(sys.argv[1]), sys.argv[2]
@@ -25,14 +25,14 @@ block = f"""redis_ib:
   host: redis-ib
   port: 6379
   db: 0
-  username: trade-dev
+  username: trade-prod
   password: "{pw}"
 """
 out, n = re.subn(r"^redis_ib:\n(?:  .+\n)+", block, text, count=1, flags=re.MULTILINE)
 if n != 1:
     raise SystemExit(f"redis_ib block not found in {path}")
 path.write_text(out, encoding="utf-8")
-print(f"Updated {path} redis_ib.password (trade-dev)")
+print(f"Updated {path} redis_ib.password (trade-prod)")
 PY
 
 for env in stg prod; do
