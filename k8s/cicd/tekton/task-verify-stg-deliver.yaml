@@ -28,9 +28,11 @@ spec:
           id="$1"
           path="$2"
           url="${trf}${path}"
-          # Follow HTTPS redirects from Traefik (-L -k). Accept 301/302 as
-          # reachability OK when redirect cannot be followed in-cluster.
-          code="$(curl -sL -k -o /dev/null -w '%{http_code}' --connect-timeout 15 --max-redirs 5 -H "Host: ${host}" "${url}" || echo 000)"
+          # Probe first hop only (no -L). Traefik may 301 → HTTPS; that is
+          # reachability OK in-cluster (HTTPS follow often fails on Host DNS).
+          # Never append "000" after -w http_code: curl -L can exit non-zero
+          # *after* writing 301, producing a bogus "301000" that fails the case.
+          code="$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 15 -H "Host: ${host}" "${url}" || echo 000)"
           echo "${id} ${url} (Host: ${host}) → HTTP ${code}"
           case "${code}" in
             200|301|302|503) ;;
