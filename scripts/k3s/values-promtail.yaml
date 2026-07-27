@@ -3,13 +3,14 @@ config:
   clients:
     - url: http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push
 
+# cicd / busy nodes routinely sit near 200Mi; 256Mi limit caused OOMKilled (137).
 resources:
   requests:
-    cpu: 50m
-    memory: 128Mi
-  limits:
-    cpu: 200m
+    cpu: 100m
     memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
 
 daemonset:
   enabled: true
