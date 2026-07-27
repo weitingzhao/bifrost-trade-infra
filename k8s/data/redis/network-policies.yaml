@@ -113,3 +113,175 @@ spec:
       ports:
         - protocol: TCP
           port: 6379
+---
+# LAN NodePorts (:30379–:30383) — Mac Mini / Work Mac / Redis Insight.
+# Same flannel.1 + LAN CIDR rationale as postgres-lan-ingress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-dev-lan-ingress
+  labels:
+    app.kubernetes.io/name: redis-dev
+    bifrost.io/environment: dev
+    bifrost.io/purpose: lan-nodeport
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis-dev
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.42.0.0/32
+        - ipBlock:
+            cidr: 10.42.3.0/32
+        - ipBlock:
+            cidr: 10.42.6.0/32
+        - ipBlock:
+            cidr: 10.42.8.0/32
+        - ipBlock:
+            cidr: 10.42.9.0/32
+        - ipBlock:
+            cidr: 192.168.10.0/24
+        - ipBlock:
+            cidr: 192.168.20.0/24
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-live-stg-lan-ingress
+  labels:
+    app.kubernetes.io/name: redis-live-stg
+    bifrost.io/environment: stg
+    bifrost.io/purpose: lan-nodeport
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis-live-stg
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.42.0.0/32
+        - ipBlock:
+            cidr: 10.42.3.0/32
+        - ipBlock:
+            cidr: 10.42.6.0/32
+        - ipBlock:
+            cidr: 10.42.8.0/32
+        - ipBlock:
+            cidr: 10.42.9.0/32
+        - ipBlock:
+            cidr: 192.168.10.0/24
+        - ipBlock:
+            cidr: 192.168.20.0/24
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-queue-stg-lan-ingress
+  labels:
+    app.kubernetes.io/name: redis-queue-stg
+    bifrost.io/environment: stg
+    bifrost.io/purpose: lan-nodeport
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis-queue-stg
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.42.0.0/32
+        - ipBlock:
+            cidr: 10.42.3.0/32
+        - ipBlock:
+            cidr: 10.42.6.0/32
+        - ipBlock:
+            cidr: 10.42.8.0/32
+        - ipBlock:
+            cidr: 10.42.9.0/32
+        - ipBlock:
+            cidr: 192.168.10.0/24
+        - ipBlock:
+            cidr: 192.168.20.0/24
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-live-prod-lan-ingress
+  labels:
+    app.kubernetes.io/name: redis-live-prod
+    bifrost.io/environment: prod
+    bifrost.io/purpose: lan-nodeport
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis-live-prod
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.42.0.0/32
+        - ipBlock:
+            cidr: 10.42.3.0/32
+        - ipBlock:
+            cidr: 10.42.6.0/32
+        - ipBlock:
+            cidr: 10.42.8.0/32
+        - ipBlock:
+            cidr: 10.42.9.0/32
+        - ipBlock:
+            cidr: 192.168.10.0/24
+        - ipBlock:
+            cidr: 192.168.20.0/24
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-queue-prod-lan-ingress
+  labels:
+    app.kubernetes.io/name: redis-queue-prod
+    bifrost.io/environment: prod
+    bifrost.io/purpose: lan-nodeport
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis-queue-prod
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.42.0.0/32
+        - ipBlock:
+            cidr: 10.42.3.0/32
+        - ipBlock:
+            cidr: 10.42.6.0/32
+        - ipBlock:
+            cidr: 10.42.8.0/32
+        - ipBlock:
+            cidr: 10.42.9.0/32
+        - ipBlock:
+            cidr: 192.168.10.0/24
+        - ipBlock:
+            cidr: 192.168.20.0/24
+      ports:
+        - protocol: TCP
+          port: 6379
