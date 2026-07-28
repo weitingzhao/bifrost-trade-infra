@@ -4,7 +4,8 @@
 # 特点: 挂载 monorepo 源码；entrypoint editable 安装 core/worker/socket/api
 # 健康检查: make dev-health
 #
-# PG/Redis 默认不 Docker 化：容器通过 config.dev.yaml 连宿主机或 LAN（见 .env）。
+# PG/Redis 默认不 Docker 化：容器通过 config.dev.yaml 连 CNPG（LAN NodePort / in-cluster DNS；见 .env）。
+# Legacy bare-metal .80 / options_db decommissioned 2026-06-29.
 # 仅 CI/隔离空库时需要: make dev-docker-infra  (profile docker-infra)
 # ============================================================
 

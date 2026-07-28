@@ -1,5 +1,6 @@
 # Prod overlay — deep-merged over config.yaml (from config.yaml.example).
-# postgres/redis/ib/server 由 make sync-prod-config 从 .env 写入；勿手改后忘记同步。
+# NOTE: This file is the LOCAL Docker Compose fallback (non-K3s). The canonical prod config
+#   is k8s/overlays/prod/config/config.prod.yaml (CNPG @ data NS, bifrost_prod).
 # ops.auth.tokens：生产 token 勿提交 git；通过 .env OPS_* 或部署密钥注入。
 
 server:
@@ -53,11 +54,11 @@ utilized:
     research: prod
 
 postgres:
-  host: 192.168.10.80
+  host: bifrost-postgres-rw.data.svc.cluster.local
   port: 5432
   user: bifrost
-  password: OptionPSW!@
-  database: options_db
+  password: bifrost_stg
+  database: bifrost_prod
 
 redis:
   enabled: true

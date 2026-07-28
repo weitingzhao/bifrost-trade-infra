@@ -132,10 +132,10 @@ sync-dev-config:
 	@chmod +x scripts/sync_dev_config.sh
 	@./scripts/sync_dev_config.sh
 
-# Default dev: app containers only; PG/Redis from host or LAN (.env → config.dev.yaml).
+# Default dev: app containers only; PG/Redis from .env → config.dev.yaml (CNPG / NodePort / brew).
 dev: ensure-env sync-dev-config
 	$(COMPOSE_DEV) up -d
-	@echo "Dev stack starting (host/LAN PG+Redis). Run: make dev-health"
+	@echo "Dev stack starting (CNPG/host PG+Redis). Run: make dev-health"
 
 # Optional isolated empty PG+Redis in Docker (CI / first-time schema only).
 dev-docker-infra: ensure-env sync-dev-config
@@ -331,15 +331,8 @@ k3s-verify-data-layer-phase3-dev:
 	@chmod +x scripts/k3s/verify-data-layer-phase3-dev.sh
 	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/verify-data-layer-phase3-dev.sh
 
-# Data layer phase ⑤ — PROD cutover: legacy .80 → CNPG bifrost_prod
-k3s-migrate-prod-postgres-to-cnpg:
-	@chmod +x scripts/k3s/migrate-prod-postgres-to-cnpg.sh
-	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/migrate-prod-postgres-to-cnpg.sh
-
-# Final legacy .80 archive + first dev/stg baseline from CNPG prod
-k3s-backup-legacy-postgres-final:
-	@chmod +x scripts/k3s/backup-legacy-postgres-final.sh
-	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/backup-legacy-postgres-final.sh
+# Data layer phase ⑤ — PROD cutover (completed 2026-06-29: legacy .80 retired → CNPG bifrost_prod)
+# One-shot migrate/backup scripts deleted — do not resurrect options_db / .80 as live PG.
 
 k3s-clone-cnpg-prod-to-dev-stg:
 	@chmod +x scripts/k3s/clone-cnpg-prod-to-dev-stg.sh scripts/k3s/fix-cnpg-db-ownership.sh
@@ -350,7 +343,7 @@ k3s-fix-cnpg-db-ownership:
 	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/fix-cnpg-db-ownership.sh $(DBS)
 
 k3s-cutover-prod-data-layer-phase4:
-	@chmod +x scripts/k3s/cutover-prod-data-layer-phase4.sh scripts/k3s/migrate-prod-postgres-to-cnpg.sh scripts/k3s/verify-data-layer-phase4-prod.sh scripts/k3s/verify-data-layer-phase3-dev.sh scripts/sync_prod_overlay_config.sh
+	@chmod +x scripts/k3s/cutover-prod-data-layer-phase4.sh scripts/k3s/verify-data-layer-phase4-prod.sh scripts/k3s/verify-data-layer-phase3-dev.sh scripts/sync_prod_overlay_config.sh
 	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/cutover-prod-data-layer-phase4.sh
 
 k3s-verify-data-layer-phase4-prod:

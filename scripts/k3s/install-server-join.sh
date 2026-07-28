@@ -10,9 +10,10 @@
 # Optional:
 #   K3S_NODE_NAME — default: hostname -s
 #
-# Example (mini-pc-b reinstalled as .79 — legacy PG .80 decommissioned 2026-06-29):
+# Example (ubt-k3s-06 @ .79 — former bare PG .80 decommissioned 2026-06-29):
 #   sudo K3S_URL=https://192.168.10.73:6443 K3S_TOKEN=... K3S_NODE_IP=192.168.10.79 \
-#     K3S_NODE_NAME=mini-pc-b bash install-server-join.sh
+#     K3S_NODE_NAME=ubt-k3s-06 bash install-server-join.sh
+# Prefer agent join for this host: make k3s-join-ubt-k3s-06
 set -euo pipefail
 
 K3S_URL="${K3S_URL:?set K3S_URL}"

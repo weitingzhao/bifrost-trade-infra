@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Probe production compose stack: LAN PG/Redis + 9 APIs via nginx same-origin paths.
+# Probe production compose stack: CNPG/host PG+Redis + 9 APIs via nginx same-origin paths.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 2B acceptance preflight — LAN PG/Redis, dev stack, celery-worker.
+# Phase 2B acceptance preflight — CNPG/host PG+Redis, dev stack, celery-worker.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

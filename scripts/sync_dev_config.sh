@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Sync bifrost-trade-infra/.env → config/config.dev.yaml (postgres, redis, ib, server flags).
-# Dev default: host/LAN PG+Redis — not the optional docker-infra profile containers.
+# Dev default: CNPG (NodePort/in-cluster) or brew PG+Redis — not the optional docker-infra profile.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

@@ -91,4 +91,4 @@ echo "==> Fix table ownership (bifrost app user)"
 
 echo ""
 echo "Clone complete. Dev/Stg now mirror ${SOURCE_DB}."
-echo "Reminder: apps must point postgres.database to bifrost_dev / bifrost_stg (not options_db)."
+echo "Reminder: apps must point postgres.database to bifrost_dev / bifrost_stg."

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Sync bifrost-trade-infra/.env → config/config.prod.yaml (postgres, redis, ib, server, massive).
-# Prod default: LAN PG+Redis — not the optional embedded-infra profile containers.
+# Prod default: CNPG (NodePort/in-cluster) + Redis — not the optional embedded-infra profile.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

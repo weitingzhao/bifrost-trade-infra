@@ -11,11 +11,12 @@
 
 ## Mac Dev Runbook（日常标准环境）
 
-默认 **不** Docker 化 PG/Redis；容器连 LAN 共享库（`.env` → `make sync-dev-config`）。
+默认 **不** Docker 化 PG/Redis；容器连 CNPG（`bifrost_dev` / NodePort 或 in-cluster DNS；`.env` → `make sync-dev-config`）。
+Legacy bare-metal `.80` / `options_db` 已于 2026-06-29 退役。
 
 ```bash
 cd bifrost-trade-infra
-make ensure-env              # 首次：cp .env.example .env，填 LAN 密码
+make ensure-env              # 首次：cp .env.example .env，填 CNPG 密码
 make dev-preflight           # sync + dev + dev-health + celery 检查
 make verify-domain-apis      # 9 域 New API smoke
 ```

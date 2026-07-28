@@ -1,0 +1,465 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONFIG_DIR="$HOME/.bifrost-dev"
+CONFIG_FILE="$CONFIG_DIR/sessions.yaml"
+LOG_DIR="$CONFIG_DIR/logs"
+TMUX_SESSION="bifrost"
+# Resolve symlink so ~/.local/bin/bdev → …/scripts/ still finds bdev-log-tee.
+_BDEV_SRC="${BASH_SOURCE[0]}"
+if command -v realpath >/dev/null 2>&1; then
+  _BDEV_SRC="$(realpath "$_BDEV_SRC")"
+elif [[ -L "$_BDEV_SRC" ]]; then
+  _BDEV_SRC="$(readlink "$_BDEV_SRC")"
+fi
+SCRIPT_DIR="$(cd "$(dirname "$_BDEV_SRC")" && pwd)"
+unset _BDEV_SRC
+LOG_TEE="$SCRIPT_DIR/bdev-log-tee"
+# Soft cap for on-disk session logs (bdev-log-tee enforces while streaming).
+BDEV_LOG_MAX_BYTES="${BDEV_LOG_MAX_BYTES:-5242880}"   # 5 MiB
+BDEV_LOG_KEEP_BYTES="${BDEV_LOG_KEEP_BYTES:-2097152}" # 2 MiB after rotate
+export BDEV_LOG_MAX_BYTES BDEV_LOG_KEEP_BYTES
+
+# ─── Helpers ──────────────────────────────────────────────────────────
+
+die() { echo "ERROR: $*" >&2; exit 1; }
+
+require_tmux() {
+  command -v tmux >/dev/null 2>&1 || die "tmux is not installed. Install with: brew install tmux"
+}
+
+require_config() {
+  [[ -f "$CONFIG_FILE" ]] || die "Config not found: $CONFIG_FILE"
+}
+
+ensure_log_dir() {
+  mkdir -p "$LOG_DIR"
+}
+
+# Trim an existing log file if over max (used on start / log-gc).
+trim_log_file() {
+  local log_file="$1"
+  [[ -f "$log_file" ]] || return 0
+  python3 - "$log_file" "$BDEV_LOG_MAX_BYTES" "$BDEV_LOG_KEEP_BYTES" <<'PY'
+import os, sys
+path, max_b, keep_b = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+try:
+    size = os.path.getsize(path)
+except FileNotFoundError:
+    raise SystemExit(0)
+if size <= max_b:
+    raise SystemExit(0)
+keep = min(keep_b, max_b)
+with open(path, "rb") as f:
+    start = max(0, size - keep)
+    f.seek(start)
+    if start > 0:
+        f.readline()
+    data = f.read()
+tmp = path + ".tmp"
+with open(tmp, "wb") as f:
+    f.write(b"[bdev] trimmed oversized log on start/gc\n")
+    f.write(data)
+os.replace(tmp, path)
+print(f"trimmed {path}: {size} -> {len(data)} bytes", file=sys.stderr)
+PY
+}
+
+log_bytes_of() {
+  local log_file="$1"
+  if [[ -f "$log_file" ]]; then
+    # macOS: stat -f%z ; Linux: stat -c%s
+    stat -f%z "$log_file" 2>/dev/null || stat -c%s "$log_file" 2>/dev/null || echo 0
+  else
+    echo 0
+  fi
+}
+
+# Parse sessions.yaml via python3 (stdlib only, no PyYAML needed).
+# Outputs lines: name|label|cwd|command|ports|health_url|group
+parse_sessions() {
+  python3 << 'PYEOF'
+import os, re, sys
+
+config_file = os.path.expanduser("~/.bifrost-dev/sessions.yaml")
+with open(config_file) as f:
+    text = f.read()
+
+current_name = None
+sessions = {}
+
+for line in text.splitlines():
+    stripped = line.rstrip()
+    if not stripped or stripped.startswith("#"):
+        continue
+    # Top-level "sessions:" key
+    if stripped == "sessions:":
+        continue
+    # Session name (2-space indent, ends with colon)
+    m = re.match(r"^  (\S+):$", stripped)
+    if m:
+        current_name = m.group(1)
+        sessions[current_name] = {}
+        continue
+    # Session property (4-space indent)
+    m = re.match(r"^    (\w+):\s*(.+)$", stripped)
+    if m and current_name:
+        key, val = m.group(1), m.group(2).strip()
+        # Strip surrounding quotes
+        if (val.startswith('"') and val.endswith('"')) or \
+           (val.startswith("'") and val.endswith("'")):
+            val = val[1:-1]
+        # Parse inline list [a, b]
+        if val.startswith("[") and val.endswith("]"):
+            inner = val[1:-1]
+            val = [v.strip().strip('"').strip("'") for v in inner.split(",") if v.strip()]
+        sessions[current_name][key] = val
+
+for name, s in sessions.items():
+    cwd = os.path.expanduser(s.get("cwd", "."))
+    ports_raw = s.get("ports", [])
+    if isinstance(ports_raw, list):
+        ports = ",".join(str(p) for p in ports_raw)
+    else:
+        ports = str(ports_raw)
+    health = s.get("health_url", "")
+    label = s.get("label", name)
+    command = s.get("command", "")
+    group = s.get("group", "")
+    print(f"{name}|{label}|{cwd}|{command}|{ports}|{health}|{group}")
+PYEOF
+  [[ ${PIPESTATUS[0]:-$?} -eq 0 ]] || die "Failed to parse $CONFIG_FILE"
+}
+
+# Get a single session field. Args: session_name
+get_session() {
+  local target="$1"
+  parse_sessions | while IFS='|' read -r name label cwd command ports health group; do
+    if [[ "$name" == "$target" ]]; then
+      echo "$name|$label|$cwd|$command|$ports|$health|$group"
+      return 0
+    fi
+  done
+}
+
+session_exists() {
+  tmux has-session -t "$TMUX_SESSION" 2>/dev/null
+}
+
+window_exists() {
+  tmux list-windows -t "$TMUX_SESSION" -F '#{window_name}' 2>/dev/null | grep -qx "$1"
+}
+
+pane_is_alive() {
+  local win="$1"
+  local dead
+  dead=$(tmux list-panes -t "$TMUX_SESSION:$win" -F '#{pane_dead}' 2>/dev/null | head -1)
+  [[ "$dead" == "0" ]]
+}
+
+# Build a tmux pane command with Homebrew PATH + unbuffered Python.
+# Bare commands in tmux often miss /opt/homebrew/bin (go/node/python).
+build_run_cmd() {
+  local cwd="$1"
+  local command="$2"
+  local log_file="$3"
+  printf "bash -lc %q" \
+    "export PATH=\"/opt/homebrew/bin:/usr/local/bin:\${HOME}/.local/bin:\${PATH}\"; export PYTHONUNBUFFERED=1; cd $(printf %q "$cwd") && ${command} 2>&1 | $(printf %q "$LOG_TEE") $(printf %q "$log_file")"
+}
+
+# ─── Commands ─────────────────────────────────────────────────────────
+
+cmd_start() {
+  require_tmux
+  require_config
+  ensure_log_dir
+
+  local target="${1:-}"
+
+  if [[ ! -x "$LOG_TEE" ]]; then
+    chmod +x "$LOG_TEE" 2>/dev/null || true
+  fi
+  [[ -x "$LOG_TEE" ]] || die "bdev-log-tee missing or not executable: $LOG_TEE"
+
+  while IFS='|' read -r name label cwd command ports health group; do
+    if [[ -n "$target" && "$name" != "$target" ]]; then
+      continue
+    fi
+
+    if window_exists "$name" && pane_is_alive "$name"; then
+      echo "✓ $name — already running, skipping"
+      continue
+    fi
+
+    local log_file="$LOG_DIR/${name}.log"
+    trim_log_file "$log_file"
+    local run_cmd
+    run_cmd=$(build_run_cmd "$cwd" "$command" "$log_file")
+
+    if ! session_exists; then
+      tmux new-session -d -s "$TMUX_SESSION" -n "$name" "$run_cmd"
+      echo "● $name — started (new session)"
+    elif window_exists "$name"; then
+      # Window exists but pane is dead — respawn
+      tmux respawn-pane -t "$TMUX_SESSION:$name" -k "$run_cmd"
+      echo "● $name — respawned"
+    else
+      tmux new-window -t "$TMUX_SESSION" -n "$name" "$run_cmd"
+      echo "● $name — started"
+    fi
+  done < <(parse_sessions)
+
+  if [[ -n "$target" ]]; then
+    local found
+    found=$(get_session "$target")
+    [[ -n "$found" ]] || die "Unknown service: $target"
+  fi
+}
+
+cmd_stop() {
+  require_tmux
+  local target="${1:-}"
+
+  if ! session_exists; then
+    echo "No tmux session '$TMUX_SESSION' found."
+    return 0
+  fi
+
+  if [[ -n "$target" ]]; then
+    if ! window_exists "$target"; then
+      echo "✓ $target — not running"
+      return 0
+    fi
+    tmux send-keys -t "$TMUX_SESSION:$target" C-c 2>/dev/null || true
+    sleep 1
+    if pane_is_alive "$target" 2>/dev/null; then
+      tmux send-keys -t "$TMUX_SESSION:$target" C-c 2>/dev/null || true
+      sleep 1
+    fi
+    echo "■ $target — stopped"
+  else
+    require_config
+    parse_sessions | while IFS='|' read -r name label cwd command ports health group; do
+      if window_exists "$name"; then
+        tmux send-keys -t "$TMUX_SESSION:$name" C-c 2>/dev/null || true
+        echo "■ $name — stopping"
+      fi
+    done
+    sleep 2
+    # Kill any remaining alive panes
+    parse_sessions | while IFS='|' read -r name label cwd command ports health group; do
+      if window_exists "$name" && pane_is_alive "$name" 2>/dev/null; then
+        tmux send-keys -t "$TMUX_SESSION:$name" C-c 2>/dev/null || true
+      fi
+    done
+  fi
+}
+
+cmd_restart() {
+  local target="${1:-}"
+  [[ -n "$target" ]] || die "Usage: bdev restart <name>"
+  cmd_stop "$target"
+  sleep 1
+  cmd_start "$target"
+}
+
+cmd_status() {
+  require_tmux
+  require_config
+
+  local json_mode=false
+  [[ "${1:-}" == "--json" ]] && json_mode=true
+
+  local results=()
+
+  while IFS='|' read -r name label cwd command ports health group; do
+    local status="stopped"
+    local pid="-"
+    local uptime="-"
+    local uptime_sec=0
+    local health_ok="null"
+
+    if session_exists && window_exists "$name"; then
+      if pane_is_alive "$name" 2>/dev/null; then
+        status="running"
+        local pane_info
+        pane_info=$(tmux list-panes -t "$TMUX_SESSION:$name" -F '#{pane_pid} #{pane_start_time}' 2>/dev/null | head -1)
+        pid=$(echo "$pane_info" | awk '{print $1}')
+        local start_ts
+        start_ts=$(echo "$pane_info" | awk '{print $2}')
+        if [[ -n "$start_ts" && "$start_ts" != "0" ]]; then
+          local now
+          now=$(date +%s)
+          uptime_sec=$(( now - start_ts ))
+          if (( uptime_sec >= 3600 )); then
+            uptime="$(( uptime_sec / 3600 ))h$(( (uptime_sec % 3600) / 60 ))m"
+          elif (( uptime_sec >= 60 )); then
+            uptime="$(( uptime_sec / 60 ))m$(( uptime_sec % 60 ))s"
+          else
+            uptime="${uptime_sec}s"
+          fi
+        fi
+      else
+        status="dead"
+      fi
+    fi
+
+    if [[ "$status" == "running" && -n "$health" ]]; then
+      if curl -sf -o /dev/null --max-time 2 "$health" 2>/dev/null; then
+        health_ok="true"
+      else
+        health_ok="false"
+      fi
+    fi
+
+    if $json_mode; then
+      local ports_json
+      ports_json=$(echo "$ports" | tr ',' '\n' | awk 'BEGIN{printf "["} NR>1{printf ","} {printf "%s",$1} END{printf "]"}')
+      [[ "$ports_json" == "[]" ]] || true
+      # JSON contract for platform-api DevSession: pid is null|int, status is running|stopped|error
+      local json_status="$status"
+      [[ "$json_status" == "dead" ]] && json_status="error"
+      local pid_json="null"
+      if [[ "$status" == "running" && -n "$pid" && "$pid" != "-" ]]; then
+        pid_json="$pid"
+      fi
+      local log_file="$LOG_DIR/${name}.log"
+      local log_bytes
+      log_bytes=$(log_bytes_of "$log_file")
+      results+=("{\"name\":\"$name\",\"label\":\"$label\",\"group\":\"$group\",\"ports\":$ports_json,\"status\":\"$json_status\",\"pid\":$pid_json,\"uptime_sec\":$uptime_sec,\"health_ok\":$health_ok,\"restarts\":0,\"log_bytes\":$log_bytes,\"log_max_bytes\":$BDEV_LOG_MAX_BYTES}")
+    else
+      local health_str
+      if [[ "$health_ok" == "true" ]]; then
+        health_str="✓ healthy"
+      elif [[ "$health_ok" == "false" ]]; then
+        health_str="✗ unhealthy"
+      else
+        health_str="-"
+      fi
+
+      local status_icon
+      case "$status" in
+        running) status_icon="🟢" ;;
+        dead)    status_icon="🔴" ;;
+        *)       status_icon="⚪" ;;
+      esac
+
+      local log_file="$LOG_DIR/${name}.log"
+      local log_bytes
+      log_bytes=$(log_bytes_of "$log_file")
+      local log_note=""
+      if (( log_bytes > BDEV_LOG_MAX_BYTES )); then
+        log_note="  LOG: $((log_bytes / 1024 / 1024))MiB⚠"
+      elif (( log_bytes > 0 )); then
+        log_note="  LOG: $((log_bytes / 1024))KiB"
+      fi
+
+      printf "%-14s %s %-8s  PID: %-7s  Uptime: %-10s  Ports: %-12s  Health: %s%s\n" \
+        "$name" "$status_icon" "$status" "$pid" "$uptime" "$ports" "$health_str" "$log_note"
+    fi
+
+  done < <(parse_sessions)
+
+  if $json_mode; then
+    local IFS=','
+    echo "[${results[*]}]"
+  fi
+}
+
+cmd_logs() {
+  require_config
+
+  local name=""
+  local lines=50
+  local follow=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -n) shift; lines="${1:-50}" ;;
+      -f) follow=true ;;
+      *)  name="$1" ;;
+    esac
+    shift
+  done
+
+  [[ -n "$name" ]] || die "Usage: bdev logs <name> [-n N] [-f]"
+
+  local found
+  found=$(get_session "$name")
+  [[ -n "$found" ]] || die "Unknown service: $name"
+
+  local log_file="$LOG_DIR/${name}.log"
+  if [[ ! -f "$log_file" ]]; then
+    echo "No log file yet: $log_file"
+    return 0
+  fi
+
+  if $follow; then
+    tail -n "$lines" -f "$log_file"
+  else
+    tail -n "$lines" "$log_file"
+  fi
+}
+
+cmd_log_gc() {
+  require_config
+  ensure_log_dir
+  local target="${1:-}"
+  local any=0
+  parse_sessions | while IFS='|' read -r name label cwd command ports health group; do
+    if [[ -n "$target" && "$name" != "$target" ]]; then
+      continue
+    fi
+    local log_file="$LOG_DIR/${name}.log"
+    if [[ -f "$log_file" ]]; then
+      trim_log_file "$log_file"
+      any=1
+      echo "■ $name — log $(log_bytes_of "$log_file") bytes (max $BDEV_LOG_MAX_BYTES)"
+    else
+      echo "✓ $name — no log file"
+    fi
+  done
+  if [[ -n "$target" ]]; then
+    local found
+    found=$(get_session "$target")
+    [[ -n "$found" ]] || die "Unknown service: $target"
+  fi
+}
+
+# ─── Usage ────────────────────────────────────────────────────────────
+
+cmd_help() {
+  cat <<'USAGE'
+bdev — Bifrost Dev Sessions Manager
+
+Usage:
+  bdev start [name]      Start all services (or a specific one) in tmux
+  bdev stop [name]       Stop all services (or a specific one)
+  bdev restart <name>    Restart a single service
+  bdev status [--json]   Show status of all services
+  bdev logs <name> [-n N] [-f]  View service logs (default: last 50 lines)
+  bdev log-gc [name]     Trim oversized on-disk logs to cap (default 5 MiB)
+  bdev help              Show this help
+
+Config:  ~/.bifrost-dev/sessions.yaml
+Logs:    ~/.bifrost-dev/logs/<name>.log  (capped via bdev-log-tee)
+tmux:    session "bifrost"
+
+Env:
+  BDEV_LOG_MAX_BYTES   rotate/trim threshold (default 5242880 = 5 MiB)
+  BDEV_LOG_KEEP_BYTES  bytes kept after rotate (default 2097152 = 2 MiB)
+USAGE
+}
+
+# ─── Main ─────────────────────────────────────────────────────────────
+
+case "${1:-help}" in
+  start)   shift; cmd_start "$@" ;;
+  stop)    shift; cmd_stop "$@" ;;
+  restart) shift; cmd_restart "$@" ;;
+  status)  shift; cmd_status "$@" ;;
+  logs)    shift; cmd_logs "$@" ;;
+  log-gc)  shift; cmd_log_gc "$@" ;;
+  help|--help|-h) cmd_help ;;
+  *) die "Unknown command: $1 — run 'bdev help' for usage" ;;
+esac

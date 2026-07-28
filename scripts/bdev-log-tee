@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+"""Append stdin to a log file with size cap; also echo to stdout for tmux.
+
+Env:
+  BDEV_LOG_MAX_BYTES   rotate when file exceeds this (default 5 MiB)
+  BDEV_LOG_KEEP_BYTES  bytes retained after rotate (default 2 MiB)
+"""
+from __future__ import annotations
+
+import os
+import sys
+
+DEFAULT_MAX = 5 * 1024 * 1024
+DEFAULT_KEEP = 2 * 1024 * 1024
+
+
+def _int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        n = int(raw)
+        return n if n > 0 else default
+    except ValueError:
+        return default
+
+
+def rotate_if_needed(path: str, max_bytes: int, keep_bytes: int) -> bool:
+    try:
+        size = os.path.getsize(path)
+    except FileNotFoundError:
+        return False
+    if size <= max_bytes:
+        return False
+    keep = min(keep_bytes, max_bytes)
+    with open(path, "rb") as f:
+        start = max(0, size - keep)
+        f.seek(start)
+        if start > 0:
+            f.readline()  # align to next newline
+        data = f.read()
+    tmp = path + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(b"[bdev-log-tee] rotated oversized log\n")
+        f.write(data)
+    os.replace(tmp, path)
+    return True
+
+
+def main() -> int:
+    if len(sys.argv) != 2:
+        print(f"Usage: {sys.argv[0]} <logfile>", file=sys.stderr)
+        return 2
+
+    path = os.path.expanduser(sys.argv[1])
+    max_bytes = _int_env("BDEV_LOG_MAX_BYTES", DEFAULT_MAX)
+    keep_bytes = _int_env("BDEV_LOG_KEEP_BYTES", DEFAULT_KEEP)
+    if keep_bytes > max_bytes:
+        keep_bytes = max_bytes // 2 or max_bytes
+
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
+    rotate_if_needed(path, max_bytes, keep_bytes)
+
+    out = open(path, "ab", buffering=0)
+    try:
+        n = 0
+        while True:
+            chunk = sys.stdin.buffer.read(4096)
+            if not chunk:
+                break
+            sys.stdout.buffer.write(chunk)
+            sys.stdout.buffer.flush()
+            out.write(chunk)
+            n += 1
+            if n % 32 == 0 and rotate_if_needed(path, max_bytes, keep_bytes):
+                out.close()
+                out = open(path, "ab", buffering=0)
+        rotate_if_needed(path, max_bytes, keep_bytes)
+    finally:
+        out.close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -2,7 +2,7 @@
 # Bifrost Trade — Production Docker Compose (Phase 2C)
 # 使用方式: cp .env.example .env && make sync-prod-config && make prod-preflight
 #
-# PG/Redis 默认外置（LAN，见 config.prod.yaml）；仅 greenfield/CI:
+# PG/Redis 默认外置（CNPG @ data NS / LAN NodePort，见 config.prod.yaml）；仅 greenfield/CI:
 #   docker compose --profile embedded-infra up -d
 # ============================================================
 
@@ -45,7 +45,7 @@ x-socket-build: &socket-build
 
 services:
 
-  # ── 可选内嵌基础设施（默认不启；生产连 LAN PG/Redis）────────
+  # ── 可选内嵌基础设施（默认不启；生产连 CNPG / Redis）────────
 
   postgres:
     profiles: [embedded-infra]
