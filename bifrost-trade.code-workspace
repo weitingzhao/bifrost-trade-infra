@@ -36,6 +36,9 @@
 		},
 		{
 			"path": "../bifrost-platform-plugin"
+		},
+		{
+			"path": "../bifrost-platform-plugin-market-data"
 		}
 	],
 	"settings": {
