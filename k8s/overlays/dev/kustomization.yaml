@@ -24,13 +24,15 @@ configMapGenerator:
 patches:
   - path: node-control-plane.patch.yaml
   - path: dev-images-pull-always.patch.yaml
+  - path: api-monitor-local-image.patch.yaml
   - path: postgres-remove.patch.yaml
   - path: redis-remove.patch.yaml
   - path: delete-db-init-stg.patch.yaml
 
 images:
   - name: registry.cicd.svc.cluster.local:5000/bifrost-api-monitor
-    newName: 192.168.10.73:30500/bifrost-api-monitor
+    newName: bifrost-api-monitor
+    newTag: dev-ib-secondary-636ab82
   - name: registry.cicd.svc.cluster.local:5000/bifrost-api-massive
     newName: 192.168.10.73:30500/bifrost-api-massive
   - name: registry.cicd.svc.cluster.local:5000/bifrost-api-docs
