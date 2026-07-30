@@ -28,6 +28,9 @@ patches:
   - path: postgres-remove.patch.yaml
   - path: redis-remove.patch.yaml
   - path: delete-db-init-stg.patch.yaml
+  # P8: Trade Discovery/Massive APIs need Polygon keys; Celery Massive scaled off.
+  - path: dev-secrets-env.patch.yaml
+  - path: celery-massive-scale-zero.patch.yaml
 
 images:
   - name: registry.cicd.svc.cluster.local:5000/bifrost-api-monitor
