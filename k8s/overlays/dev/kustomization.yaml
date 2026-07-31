@@ -35,7 +35,7 @@ patches:
 images:
   - name: registry.cicd.svc.cluster.local:5000/bifrost-api-monitor
     newName: bifrost-api-monitor
-    newTag: dev-ib-secondary-636ab82
+    newTag: dev-live-fix-20260731
   - name: registry.cicd.svc.cluster.local:5000/bifrost-api-massive
     newName: 192.168.10.73:30500/bifrost-api-massive
   - name: registry.cicd.svc.cluster.local:5000/bifrost-api-docs
