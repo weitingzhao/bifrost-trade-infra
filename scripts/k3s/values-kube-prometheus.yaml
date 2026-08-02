@@ -16,6 +16,14 @@ grafana:
     type: NodePort
     port: 80
     nodePort: 30883
+  # Wave 7: Console Selected Domain embeds Grafana d-solo panels (same LAN).
+  # allow_embedding clears X-Frame-Options:deny; anonymous Viewer skips login for iframe.
+  grafana.ini:
+    security:
+      allow_embedding: true
+    auth.anonymous:
+      enabled: true
+      org_role: Viewer
   resources:
     requests:
       cpu: 100m
