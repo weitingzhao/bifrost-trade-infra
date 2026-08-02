@@ -80,13 +80,21 @@ spec:
     # Does NOT fire when ai/ollama or data-warehouse/minio want replicas > 0.
     - name: bifrost-elastic-standby
       rules:
+        # Prefer kube_node_labels{label_bifrost_io_wol="enabled"} when KSM
+        # metricLabelsAllowlist exposes it. Bootstrap clusters often omit
+        # kube_node_labels entirely — fall back to known WOL elastic node
+        # (gpu-server) via kube_node_info so inhibit/FE marker can fire.
         - alert: BifrostElasticStandbyMarker
           expr: |
             (
-              max by (node) (kube_node_labels{label_bifrost_io_wol="enabled"})
-              * on (node) group_left ()
               (
-                max by (node) (kube_node_status_condition{condition="Ready",status="true"} == 0)
+                max by (node) (kube_node_labels{label_bifrost_io_wol="enabled"})
+                or
+                max by (node) (kube_node_info{node="gpu-server"})
+              )
+              and on (node)
+              (
+                max by (node) (kube_node_status_condition{condition="Ready",status="true"}) == bool 0
               )
             )
             unless on ()
@@ -105,4 +113,4 @@ spec:
             elastic_standby: "true"
           annotations:
             summary: "Elastic node {{ $labels.node }} standby (no demand)"
-            description: "Node {{ $labels.node }} has bifrost.io/wol=enabled and is NotReady while GPU/warehouse workloads are scaled to zero — expected standby."
+            description: "Node {{ $labels.node }} is NotReady with no GPU/warehouse demand — expected elastic standby (WOL). Console Observability also neutralizes related TargetDown/DaemonSet noise via FE standbyNodes."

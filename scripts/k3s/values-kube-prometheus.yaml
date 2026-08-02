@@ -63,19 +63,24 @@ alertmanager:
           receiver: bifrost-ops-agent
           continue: false
     # Mute kube/node noise for elastic WOL standby when BifrostElasticStandbyMarker fires.
-    # Does not suppress non-elastic node alerts (equal: node).
+    # Node-scoped alerts keep equal:node. Aggregate TargetDown and DaemonSet/Pod
+    # alerts often omit `node` — inhibit by alertname (+ job/namespace) only.
     inhibit_rules:
       - source_matchers:
           - elastic_standby="true"
         target_matchers:
-          - alertname=~"KubeNodeNotReady|KubeNodeUnreachable|KubeletInstanceUnreachable|KubeDaemonSetRolloutStuck|KubeDaemonSetMisScheduled|KubePodNotReady"
+          - alertname=~"KubeNodeNotReady|KubeNodeUnreachable|KubeletInstanceUnreachable"
         equal: ['node']
       - source_matchers:
           - elastic_standby="true"
         target_matchers:
+          - alertname=~"KubeDaemonSetRolloutStuck|KubeDaemonSetMisScheduled|KubePodNotReady"
+          - namespace=~"monitoring|kube-system"
+      - source_matchers:
+          - elastic_standby="true"
+        target_matchers:
           - alertname="TargetDown"
-          - job=~".*node-exporter.*"
-        equal: ['node']
+          - job=~".*(node-exporter|kubelet).*"
     receivers:
       - name: default
       - name: bifrost-ops-agent
@@ -84,3 +89,9 @@ alertmanager:
             send_resolved: true
             http_config:
               bearer_token_file: /etc/alertmanager/secrets/alertmanager-webhook-auth/token
+
+# Expose bifrost.io/wol on kube_node_labels so BifrostElasticStandbyMarker can
+# match without hardcoding node names (requires helm upgrade of the stack).
+kube-state-metrics:
+  metricLabelsAllowlist:
+    - nodes=[bifrost.io/wol,bifrost.io/workload-pool]
