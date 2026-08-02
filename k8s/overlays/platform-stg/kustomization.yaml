@@ -17,6 +17,7 @@ configMapGenerator:
       - config/topology.yaml
       - config/ops-context.yaml
       - config/platform-auth.yaml
+      - config/sessions-catalog.yaml
     options:
       disableNameSuffixHash: true
   - name: bifrost-platform-programs

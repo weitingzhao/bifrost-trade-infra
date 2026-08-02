@@ -1,0 +1,327 @@
+# Static allowlist for Ops Console Sessions (K8s mode — STG/PROD viewer seats).
+# Local / DEV continues to use bdev; this file is ignored in bdev mode.
+#
+# name: session id used by /api/v1/dev-sessions/{name}/...
+# deployment: K8s Deployment name (may differ from name; platform → platform-api)
+#
+# Annotation discovery (optional complement):
+#   bifrost.dev/session: "true"
+#   bifrost.dev/session-name: <optional id; default = Deployment name>
+#   bifrost.dev/session-label: <optional>
+#   bifrost.dev/session-group: <optional>
+# Catalog entries win on name (or namespace/deployment) collision.
+
+version: "1"
+
+discovery:
+  enabled: true
+  namespaces:
+    stg:
+      - bifrost-stg
+      - bifrost-platform-stg
+      - plugin-market-data-stg
+      - data
+    prod:
+      - bifrost-prod
+      - bifrost-platform-prod
+      - plugin-market-data
+      - data
+
+envs:
+  stg:
+    - name: platform
+      label: Platform API
+      group: platform
+      namespace: bifrost-platform-stg
+      deployment: platform-api
+      ports: [8780]
+    - name: platform-console
+      label: Platform Console
+      group: platform
+      namespace: bifrost-platform-stg
+      deployment: platform-console
+      ports: [5180]
+
+    - name: api-monitor
+      label: Monitor API
+      group: api
+      namespace: bifrost-stg
+      deployment: api-monitor
+      ports: [8765]
+    - name: api-massive
+      label: Massive API
+      group: api
+      namespace: bifrost-stg
+      deployment: api-massive
+      ports: [8766]
+    - name: api-docs
+      label: Docs API
+      group: api
+      namespace: bifrost-stg
+      deployment: api-docs
+      ports: [8767]
+    - name: api-ops
+      label: Ops API
+      group: api
+      namespace: bifrost-stg
+      deployment: api-ops
+      ports: [8768]
+    - name: api-trading
+      label: Trading API
+      group: api
+      namespace: bifrost-stg
+      deployment: api-trading
+      ports: [8769]
+    - name: api-strategy
+      label: Strategy API
+      group: api
+      namespace: bifrost-stg
+      deployment: api-strategy
+      ports: [8770]
+    - name: api-portfolio
+      label: Portfolio API
+      group: api
+      namespace: bifrost-stg
+      deployment: api-portfolio
+      ports: [8771]
+    - name: api-market
+      label: Market API
+      group: api
+      namespace: bifrost-stg
+      deployment: api-market
+      ports: [8772]
+    - name: api-research
+      label: Research API
+      group: api
+      namespace: bifrost-stg
+      deployment: api-research
+      ports: [8773]
+    - name: frontend
+      label: Trade Frontend
+      group: ui
+      namespace: bifrost-stg
+      deployment: frontend
+      ports: [80]
+
+    - name: celery-worker
+      label: Celery Worker
+      group: worker
+      namespace: bifrost-stg
+      deployment: celery-worker
+    - name: celery-worker-stocks-ib
+      label: Celery Stocks IB
+      group: worker
+      namespace: bifrost-stg
+      deployment: celery-worker-stocks-ib
+    - name: celery-worker-stocks-massive
+      label: Celery Stocks Massive
+      group: worker
+      namespace: bifrost-stg
+      deployment: celery-worker-stocks-massive
+    - name: celery-worker-stocks-massive-high
+      label: Celery Stocks Massive High
+      group: worker
+      namespace: bifrost-stg
+      deployment: celery-worker-stocks-massive-high
+    - name: celery-worker-options-massive
+      label: Celery Options Massive
+      group: worker
+      namespace: bifrost-stg
+      deployment: celery-worker-options-massive
+    - name: celery-worker-options-massive-high
+      label: Celery Options Massive High
+      group: worker
+      namespace: bifrost-stg
+      deployment: celery-worker-options-massive-high
+    - name: celery-beat
+      label: Celery Beat
+      group: worker
+      namespace: bifrost-stg
+      deployment: celery-beat
+    - name: flower
+      label: Flower
+      group: worker
+      namespace: bifrost-stg
+      deployment: flower
+      ports: [5555]
+    - name: daemon
+      label: Daemon
+      group: worker
+      namespace: bifrost-stg
+      deployment: daemon
+    - name: account-sync
+      label: Account Sync
+      group: worker
+      namespace: bifrost-stg
+      deployment: account-sync
+    - name: massive-ws
+      label: Massive WS
+      group: socket
+      namespace: bifrost-stg
+      deployment: massive-ws
+
+    - name: polygon-worker-stocks
+      label: Market Data Stocks
+      group: market-data
+      namespace: plugin-market-data-stg
+      deployment: polygon-worker-stocks
+    - name: polygon-worker-options
+      label: Market Data Options
+      group: market-data
+      namespace: plugin-market-data-stg
+      deployment: polygon-worker-options
+
+    - name: ib-gateway
+      label: IB Gateway
+      group: plugins
+      namespace: data
+      deployment: ib-gateway
+
+  prod:
+    - name: platform
+      label: Platform API
+      group: platform
+      namespace: bifrost-platform-prod
+      deployment: platform-api
+      ports: [8780]
+    - name: platform-console
+      label: Platform Console
+      group: platform
+      namespace: bifrost-platform-prod
+      deployment: platform-console
+      ports: [5180]
+
+    - name: api-monitor
+      label: Monitor API
+      group: api
+      namespace: bifrost-prod
+      deployment: api-monitor
+      ports: [8765]
+    - name: api-massive
+      label: Massive API
+      group: api
+      namespace: bifrost-prod
+      deployment: api-massive
+      ports: [8766]
+    - name: api-docs
+      label: Docs API
+      group: api
+      namespace: bifrost-prod
+      deployment: api-docs
+      ports: [8767]
+    - name: api-ops
+      label: Ops API
+      group: api
+      namespace: bifrost-prod
+      deployment: api-ops
+      ports: [8768]
+    - name: api-trading
+      label: Trading API
+      group: api
+      namespace: bifrost-prod
+      deployment: api-trading
+      ports: [8769]
+    - name: api-strategy
+      label: Strategy API
+      group: api
+      namespace: bifrost-prod
+      deployment: api-strategy
+      ports: [8770]
+    - name: api-portfolio
+      label: Portfolio API
+      group: api
+      namespace: bifrost-prod
+      deployment: api-portfolio
+      ports: [8771]
+    - name: api-market
+      label: Market API
+      group: api
+      namespace: bifrost-prod
+      deployment: api-market
+      ports: [8772]
+    - name: api-research
+      label: Research API
+      group: api
+      namespace: bifrost-prod
+      deployment: api-research
+      ports: [8773]
+    - name: frontend
+      label: Trade Frontend
+      group: ui
+      namespace: bifrost-prod
+      deployment: frontend
+      ports: [80]
+
+    - name: celery-worker
+      label: Celery Worker
+      group: worker
+      namespace: bifrost-prod
+      deployment: celery-worker
+    - name: celery-worker-stocks-ib
+      label: Celery Stocks IB
+      group: worker
+      namespace: bifrost-prod
+      deployment: celery-worker-stocks-ib
+    - name: celery-worker-stocks-massive
+      label: Celery Stocks Massive
+      group: worker
+      namespace: bifrost-prod
+      deployment: celery-worker-stocks-massive
+    - name: celery-worker-stocks-massive-high
+      label: Celery Stocks Massive High
+      group: worker
+      namespace: bifrost-prod
+      deployment: celery-worker-stocks-massive-high
+    - name: celery-worker-options-massive
+      label: Celery Options Massive
+      group: worker
+      namespace: bifrost-prod
+      deployment: celery-worker-options-massive
+    - name: celery-worker-options-massive-high
+      label: Celery Options Massive High
+      group: worker
+      namespace: bifrost-prod
+      deployment: celery-worker-options-massive-high
+    - name: celery-beat
+      label: Celery Beat
+      group: worker
+      namespace: bifrost-prod
+      deployment: celery-beat
+    - name: flower
+      label: Flower
+      group: worker
+      namespace: bifrost-prod
+      deployment: flower
+      ports: [5555]
+    - name: daemon
+      label: Daemon
+      group: worker
+      namespace: bifrost-prod
+      deployment: daemon
+    - name: account-sync
+      label: Account Sync
+      group: worker
+      namespace: bifrost-prod
+      deployment: account-sync
+    - name: massive-ws
+      label: Massive WS
+      group: socket
+      namespace: bifrost-prod
+      deployment: massive-ws
+
+    - name: polygon-worker-stocks
+      label: Market Data Stocks
+      group: market-data
+      namespace: plugin-market-data
+      deployment: polygon-worker-stocks
+    - name: polygon-worker-options
+      label: Market Data Options
+      group: market-data
+      namespace: plugin-market-data
+      deployment: polygon-worker-options
+
+    - name: ib-gateway
+      label: IB Gateway
+      group: plugins
+      namespace: data
+      deployment: ib-gateway
