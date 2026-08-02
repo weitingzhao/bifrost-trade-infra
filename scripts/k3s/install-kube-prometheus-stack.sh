@@ -32,6 +32,9 @@ echo "    namespace=${MONITORING_NAMESPACE} release=${RELEASE_NAME}"
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts >/dev/null
 helm repo update prometheus-community >/dev/null
 
+# Do not --wait on the full chart: prometheus-node-exporter DaemonSet stays
+# Updated/Ready < DESIRED while elastic WOL standby (e.g. gpu-server) is off,
+# which previously left the Helm release STATUS=failed despite Grafana/Prom OK.
 HELM_ARGS=(
   upgrade
   --install
@@ -39,8 +42,7 @@ HELM_ARGS=(
   "${CHART_REF}"
   --namespace "${MONITORING_NAMESPACE}"
   --create-namespace
-  --wait
-  --timeout 8m
+  --timeout 10m
 )
 
 if [[ -f "${VALUES_FILE}" ]]; then
@@ -70,8 +72,15 @@ do
   fi
 done
 
+# Soft-check node-exporter: Ready may be DESIRED-1 with elastic standby offline.
 if kubectl get daemonset "${RELEASE_NAME}-prometheus-node-exporter" -n "${MONITORING_NAMESPACE}" >/dev/null 2>&1; then
-  kubectl rollout status "daemonset/${RELEASE_NAME}-prometheus-node-exporter" -n "${MONITORING_NAMESPACE}" --timeout=240s
+  ready="$(kubectl get daemonset "${RELEASE_NAME}-prometheus-node-exporter" -n "${MONITORING_NAMESPACE}" -o jsonpath='{.status.numberReady}')"
+  desired="$(kubectl get daemonset "${RELEASE_NAME}-prometheus-node-exporter" -n "${MONITORING_NAMESPACE}" -o jsonpath='{.status.desiredNumberScheduled}')"
+  echo "    node-exporter Ready ${ready:-0}/${desired:-0} (elastic standby may leave 1 NotReady)"
+  if [[ "${ready:-0}" -lt 1 ]]; then
+    echo "node-exporter has zero Ready pods" >&2
+    exit 1
+  fi
 fi
 
-echo "kube-prometheus-stack ready"
+echo "kube-prometheus-stack ready (helm STATUS should be deployed; node-exporter soft-checked)"
