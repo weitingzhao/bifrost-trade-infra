@@ -1,0 +1,270 @@
+# Bifrost Ground Data Layer dashboard — Grafana sidecar (label grafana_dashboard=1).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bifrost-dashboard-data-layer
+  labels:
+    grafana_dashboard: "1"
+data:
+  bifrost-data-layer.json: |
+    {
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          },
+          {
+            "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+            "enable": true,
+            "name": "Scope note",
+            "iconColor": "blue",
+            "type": "text",
+            "text": "Shared data NS Redis (exporter) + CNPG. redis-ib has no redis_exporter yet — use IB Gateway board kube panels for that pod."
+          }
+        ]
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "id": null,
+      "links": [
+        {
+          "asDropdown": false,
+          "icon": "external link",
+          "includeVars": false,
+          "keepTime": true,
+          "tags": [],
+          "targetBlank": true,
+          "title": "IB Gateway",
+          "tooltip": "Platform IB Gateway K8s MVP",
+          "type": "link",
+          "url": "/d/bifrost-ib-gateway/bifrost-ib-gateway"
+        }
+      ],
+      "panels": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }, "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+          "id": 1,
+          "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+          "targets": [
+            {
+              "expr": "count(up{namespace=\"$namespace\",job=~\".*redis.*\"} == 1)",
+              "legendFormat": "redis up",
+              "refId": "A"
+            }
+          ],
+          "title": "Redis scrape targets up",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }, "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+          "id": 2,
+          "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+          "targets": [
+            {
+              "expr": "count(up{namespace=\"$namespace\",job=~\".*postgres.*|.*cnpg.*|monitoring/bifrost-postgres\"} == 1)",
+              "legendFormat": "postgres up",
+              "refId": "A"
+            }
+          ],
+          "title": "PostgreSQL scrape targets up",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+          "id": 3,
+          "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+          "targets": [
+            {
+              "expr": "sum(redis_memory_used_bytes{namespace=\"$namespace\"})",
+              "legendFormat": "total",
+              "refId": "A"
+            }
+          ],
+          "title": "Redis memory (sum)",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+          "id": 4,
+          "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+          "targets": [
+            {
+              "expr": "sum(cnpg_backends_total{namespace=\"$namespace\"})",
+              "legendFormat": "backends",
+              "refId": "A"
+            }
+          ],
+          "title": "PostgreSQL backends (sum)",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 4 },
+          "id": 5,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "redis_memory_used_bytes{namespace=\"$namespace\"}",
+              "legendFormat": "{{pod}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Redis memory used",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 4 },
+          "id": 6,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "redis_connected_clients{namespace=\"$namespace\"}",
+              "legendFormat": "{{pod}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Redis connected clients",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 4 },
+          "id": 7,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "rate(redis_commands_processed_total{namespace=\"$namespace\"}[5m])",
+              "legendFormat": "{{pod}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Redis ops/sec",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 12 },
+          "id": 8,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "sum(cnpg_backends_total{namespace=\"$namespace\"}) by (pod)",
+              "legendFormat": "{{pod}}",
+              "refId": "A"
+            }
+          ],
+          "title": "PostgreSQL connections",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 12 },
+          "id": 9,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "cnpg_pg_stat_replication_replay_lag_seconds{namespace=\"$namespace\"}",
+              "legendFormat": "{{pod}}",
+              "refId": "A"
+            }
+          ],
+          "title": "PostgreSQL replication lag",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 12 },
+          "id": 10,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "cnpg_pg_wal{namespace=\"$namespace\"}",
+              "legendFormat": "{{pod}}",
+              "refId": "A"
+            }
+          ],
+          "title": "PostgreSQL WAL size",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+          "id": 11,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "container_memory_working_set_bytes{namespace=\"$namespace\",pod=~\"redis-ib.*\",container!=\"\",container!=\"POD\"}",
+              "legendFormat": "{{pod}}/{{container}}",
+              "refId": "A"
+            }
+          ],
+          "title": "redis-ib container memory (no exporter)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+          "id": 12,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "up{namespace=\"$namespace\",job=~\".*redis.*|.*postgres.*|.*cnpg.*|monitoring/bifrost-postgres\"}",
+              "legendFormat": "{{job}} {{pod}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Scrape up (redis / postgres)",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 39,
+      "tags": ["bifrost", "ground"],
+      "templating": {
+        "list": [
+          {
+            "current": { "selected": true, "text": "data", "value": "data" },
+            "hide": 0,
+            "label": "namespace",
+            "name": "namespace",
+            "options": [
+              { "selected": true, "text": "data", "value": "data" }
+            ],
+            "query": "data",
+            "skipUrlSync": false,
+            "type": "custom",
+            "values": ["data"]
+          }
+        ]
+      },
+      "time": { "from": "now-6h", "to": "now" },
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "Bifrost Data Layer",
+      "uid": "bifrost-data-layer",
+      "version": 1
+    }

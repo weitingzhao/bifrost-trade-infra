@@ -12,6 +12,9 @@ resources:
   - alertmanager-webhook-auth-secret.yaml
   - alertmanager-webhook-network-policy.yaml
   - grafana-dashboards-configmap.yaml
+  - grafana-dashboard-data-layer.yaml
+  - grafana-dashboard-ib-gateway.yaml
+  - grafana-dashboard-agent-operations.yaml
 
 labels:
   - pairs:

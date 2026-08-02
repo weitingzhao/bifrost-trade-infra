@@ -1,0 +1,217 @@
+# Bifrost Platform Control Plane dashboard — Grafana sidecar (label grafana_dashboard=1).
+# remediation-runner is Mac-host (L-1 fate isolation), not a K8s Deployment.
+# This board covers platform-api / platform-console K8s surface; job deep status → Operator Dock / Agent Desk.
+# UID kept as bifrost-agent-operations for stable deep links.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bifrost-dashboard-agent-operations
+  labels:
+    grafana_dashboard: "1"
+data:
+  bifrost-agent-operations.json: |
+    {
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          },
+          {
+            "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+            "enable": true,
+            "name": "Scope note",
+            "iconColor": "purple",
+            "type": "text",
+            "text": "K8s surface: platform-api + platform-console. remediation-runner / Git Bridge / probe bridge run on Mac hosts (not scheduled into K8s). Job success KPIs and runner health → Operator Dock / Agent Desk — do not invent PromQL for those."
+          }
+        ]
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }, "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+          "id": 1,
+          "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+          "targets": [
+            {
+              "expr": "sum(kube_deployment_status_replicas_ready{namespace=~\"$namespace\",deployment=\"platform-api\"})",
+              "legendFormat": "api ready",
+              "refId": "A"
+            }
+          ],
+          "title": "platform-api ready (sum)",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }, "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+          "id": 2,
+          "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+          "targets": [
+            {
+              "expr": "sum(kube_deployment_status_replicas_ready{namespace=~\"$namespace\",deployment=\"platform-console\"})",
+              "legendFormat": "console ready",
+              "refId": "A"
+            }
+          ],
+          "title": "platform-console ready (sum)",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 5 }] }, "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+          "id": 3,
+          "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+          "targets": [
+            {
+              "expr": "sum(kube_pod_container_status_restarts_total{namespace=~\"$namespace\",pod=~\"platform-api.*|platform-console.*\"})",
+              "legendFormat": "restarts",
+              "refId": "A"
+            }
+          ],
+          "title": "Container restarts (sum)",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+          "id": 4,
+          "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+          "targets": [
+            {
+              "expr": "sum(container_memory_working_set_bytes{namespace=~\"$namespace\",pod=~\"platform-api.*|platform-console.*\",container!=\"\",container!=\"POD\"})",
+              "legendFormat": "memory",
+              "refId": "A"
+            }
+          ],
+          "title": "Working set memory (sum)",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+          "id": 5,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "kube_deployment_status_replicas_ready{namespace=~\"$namespace\",deployment=~\"platform-api|platform-console\"}",
+              "legendFormat": "{{namespace}}/{{deployment}} ready",
+              "refId": "A"
+            },
+            {
+              "expr": "kube_deployment_spec_replicas{namespace=~\"$namespace\",deployment=~\"platform-api|platform-console\"}",
+              "legendFormat": "{{namespace}}/{{deployment}} desired",
+              "refId": "B"
+            }
+          ],
+          "title": "Deployment ready vs desired",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+          "id": 6,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "kube_pod_container_status_restarts_total{namespace=~\"$namespace\",pod=~\"platform-api.*|platform-console.*\"}",
+              "legendFormat": "{{namespace}}/{{pod}}/{{container}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Container restarts",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+          "id": 7,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\",pod=~\"platform-api.*|platform-console.*\",container!=\"\",container!=\"POD\"}[5m])) by (namespace, pod, container)",
+              "legendFormat": "{{namespace}}/{{pod}}/{{container}}",
+              "refId": "A"
+            }
+          ],
+          "title": "CPU usage (cores)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+          "id": 8,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "container_memory_working_set_bytes{namespace=~\"$namespace\",pod=~\"platform-api.*|platform-console.*\",container!=\"\",container!=\"POD\"}",
+              "legendFormat": "{{namespace}}/{{pod}}/{{container}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Memory working set",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
+          "id": 9,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "kube_pod_status_phase{namespace=~\"$namespace\",pod=~\"platform-api.*|platform-console.*\",phase=~\"Running|Pending|Failed|Unknown\"} == 1",
+              "legendFormat": "{{namespace}}/{{pod}} {{phase}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Pod phase",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 39,
+      "tags": ["bifrost", "agent"],
+      "templating": {
+        "list": [
+          {
+            "allValue": "bifrost-platform-.*",
+            "current": { "selected": true, "text": "All", "value": "$__all" },
+            "hide": 0,
+            "includeAll": true,
+            "label": "namespace",
+            "multi": true,
+            "name": "namespace",
+            "options": [],
+            "query": "bifrost-platform-stg,bifrost-platform-prod",
+            "skipUrlSync": false,
+            "type": "custom"
+          }
+        ]
+      },
+      "time": { "from": "now-6h", "to": "now" },
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "Bifrost Platform Control Plane",
+      "uid": "bifrost-agent-operations",
+      "version": 1
+    }

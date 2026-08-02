@@ -1,4 +1,5 @@
 # Bifrost Trade overview dashboard — auto-loaded by Grafana sidecar (label grafana_dashboard=1).
+# Redis/PG panels live on bifrost-data-layer (W4 slim).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -8,12 +9,36 @@ metadata:
 data:
   bifrost-trade-overview.json: |
     {
-      "annotations": { "list": [] },
+      "annotations": {
+        "list": [
+          {
+            "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+            "enable": true,
+            "name": "Scope note",
+            "iconColor": "blue",
+            "type": "text",
+            "text": "Trade API golden signals only. Shared Redis/CNPG → Bifrost Data Layer dashboard."
+          }
+        ]
+      },
       "editable": true,
       "fiscalYearStartMonth": 0,
       "graphTooltip": 1,
       "id": null,
-      "links": [],
+      "links": [
+        {
+          "asDropdown": false,
+          "icon": "external link",
+          "includeVars": false,
+          "keepTime": true,
+          "tags": [],
+          "targetBlank": true,
+          "title": "Data Layer",
+          "tooltip": "Shared Redis + CNPG",
+          "type": "link",
+          "url": "/d/bifrost-data-layer/bifrost-data-layer"
+        }
+      ],
       "panels": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -62,102 +87,6 @@ data:
           ],
           "title": "Trade API P99 latency",
           "type": "timeseries"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
-          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
-          "id": 4,
-          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
-          "targets": [
-            {
-              "expr": "redis_memory_used_bytes{namespace=\"data\"}",
-              "legendFormat": "{{pod}}",
-              "refId": "A"
-            }
-          ],
-          "title": "Redis memory used",
-          "type": "timeseries"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
-          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
-          "id": 5,
-          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
-          "targets": [
-            {
-              "expr": "redis_connected_clients{namespace=\"data\"}",
-              "legendFormat": "{{pod}}",
-              "refId": "A"
-            }
-          ],
-          "title": "Redis connected clients",
-          "type": "timeseries"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
-          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
-          "id": 6,
-          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
-          "targets": [
-            {
-              "expr": "rate(redis_commands_processed_total{namespace=\"data\"}[5m])",
-              "legendFormat": "{{pod}}",
-              "refId": "A"
-            }
-          ],
-          "title": "Redis ops/sec",
-          "type": "timeseries"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
-          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
-          "id": 7,
-          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
-          "targets": [
-            {
-              "expr": "sum(cnpg_backends_total{namespace=\"data\"}) by (pod)",
-              "legendFormat": "{{pod}}",
-              "refId": "A"
-            }
-          ],
-          "title": "PostgreSQL connections",
-          "type": "timeseries"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
-          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
-          "id": 8,
-          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
-          "targets": [
-            {
-              "expr": "cnpg_pg_stat_replication_replay_lag_seconds{namespace=\"data\"}",
-              "legendFormat": "{{pod}}",
-              "refId": "A"
-            }
-          ],
-          "title": "PostgreSQL replication lag",
-          "type": "timeseries"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
-          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
-          "id": 9,
-          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
-          "targets": [
-            {
-              "expr": "cnpg_pg_wal{namespace=\"data\"}",
-              "legendFormat": "{{pod}}",
-              "refId": "A"
-            }
-          ],
-          "title": "PostgreSQL WAL size",
-          "type": "timeseries"
         }
       ],
       "refresh": "30s",
@@ -169,5 +98,5 @@ data:
       "timezone": "browser",
       "title": "Bifrost Trade Overview",
       "uid": "bifrost-trade-overview",
-      "version": 1
+      "version": 2
     }

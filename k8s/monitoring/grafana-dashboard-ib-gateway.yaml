@@ -1,0 +1,249 @@
+# Bifrost IB Gateway K8s MVP dashboard — Grafana sidecar (label grafana_dashboard=1).
+# Panels use kube-state-metrics / cAdvisor — does not wait for Plugin /metrics.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bifrost-dashboard-ib-gateway
+  labels:
+    grafana_dashboard: "1"
+data:
+  bifrost-ib-gateway.json: |
+    {
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          },
+          {
+            "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+            "enable": true,
+            "name": "Scope note",
+            "iconColor": "orange",
+            "type": "text",
+            "text": "K8s MVP for deployment/ib-gateway @ data NS. App-level TWS/redis-ib health remains on Console Plugin Gallery / Satellite Bus — not invented PromQL."
+          }
+        ]
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "id": null,
+      "links": [
+        {
+          "asDropdown": false,
+          "icon": "external link",
+          "includeVars": false,
+          "keepTime": true,
+          "tags": [],
+          "targetBlank": true,
+          "title": "Data Layer",
+          "tooltip": "Shared Redis + CNPG",
+          "type": "link",
+          "url": "/d/bifrost-data-layer/bifrost-data-layer"
+        }
+      ],
+      "panels": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }, "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+          "id": 1,
+          "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+          "targets": [
+            {
+              "expr": "kube_deployment_status_replicas_ready{namespace=\"$namespace\",deployment=\"ib-gateway\"}",
+              "legendFormat": "ready",
+              "refId": "A"
+            }
+          ],
+          "title": "Ready replicas",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+          "id": 2,
+          "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+          "targets": [
+            {
+              "expr": "kube_deployment_spec_replicas{namespace=\"$namespace\",deployment=\"ib-gateway\"}",
+              "legendFormat": "desired",
+              "refId": "A"
+            }
+          ],
+          "title": "Desired replicas",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 3 }] }, "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+          "id": 3,
+          "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+          "targets": [
+            {
+              "expr": "sum(kube_pod_container_status_restarts_total{namespace=\"$namespace\",pod=~\"ib-gateway.*\"})",
+              "legendFormat": "restarts",
+              "refId": "A"
+            }
+          ],
+          "title": "Container restarts (sum)",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+          "id": 4,
+          "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+          "targets": [
+            {
+              "expr": "sum(container_memory_working_set_bytes{namespace=\"$namespace\",pod=~\"ib-gateway.*\",container=\"ib-gateway\"})",
+              "legendFormat": "memory",
+              "refId": "A"
+            }
+          ],
+          "title": "Working set memory",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+          "id": 5,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "kube_deployment_status_replicas_ready{namespace=\"$namespace\",deployment=\"ib-gateway\"}",
+              "legendFormat": "ready",
+              "refId": "A"
+            },
+            {
+              "expr": "kube_deployment_spec_replicas{namespace=\"$namespace\",deployment=\"ib-gateway\"}",
+              "legendFormat": "desired",
+              "refId": "B"
+            },
+            {
+              "expr": "kube_deployment_status_replicas_unavailable{namespace=\"$namespace\",deployment=\"ib-gateway\"}",
+              "legendFormat": "unavailable",
+              "refId": "C"
+            }
+          ],
+          "title": "Deployment replicas",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+          "id": 6,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "kube_pod_container_status_restarts_total{namespace=\"$namespace\",pod=~\"ib-gateway.*\"}",
+              "legendFormat": "{{pod}}/{{container}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Container restarts",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+          "id": 7,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"$namespace\",pod=~\"ib-gateway.*\",container!=\"\",container!=\"POD\"}[5m])) by (pod, container)",
+              "legendFormat": "{{pod}}/{{container}}",
+              "refId": "A"
+            }
+          ],
+          "title": "CPU usage (cores)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+          "id": 8,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "container_memory_working_set_bytes{namespace=\"$namespace\",pod=~\"ib-gateway.*\",container!=\"\",container!=\"POD\"}",
+              "legendFormat": "{{pod}}/{{container}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Memory working set",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+          "id": 9,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "container_memory_working_set_bytes{namespace=\"$namespace\",pod=~\"redis-ib.*\",container!=\"\",container!=\"POD\"}",
+              "legendFormat": "{{pod}}/{{container}}",
+              "refId": "A"
+            }
+          ],
+          "title": "redis-ib container memory (companion)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+          "id": 10,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "kube_pod_status_phase{namespace=\"$namespace\",pod=~\"ib-gateway.*|redis-ib.*\",phase=~\"Running|Pending|Failed|Unknown\"} == 1",
+              "legendFormat": "{{pod}} {{phase}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Pod phase (ib-gateway / redis-ib)",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 39,
+      "tags": ["bifrost", "ib"],
+      "templating": {
+        "list": [
+          {
+            "current": { "selected": true, "text": "data", "value": "data" },
+            "hide": 0,
+            "label": "namespace",
+            "name": "namespace",
+            "options": [
+              { "selected": true, "text": "data", "value": "data" }
+            ],
+            "query": "data",
+            "skipUrlSync": false,
+            "type": "custom",
+            "values": ["data"]
+          }
+        ]
+      },
+      "time": { "from": "now-6h", "to": "now" },
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "Bifrost IB Gateway",
+      "uid": "bifrost-ib-gateway",
+      "version": 1
+    }
