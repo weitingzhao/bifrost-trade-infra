@@ -62,6 +62,20 @@ alertmanager:
             alertname: Bifrost.*
           receiver: bifrost-ops-agent
           continue: false
+    # Mute kube/node noise for elastic WOL standby when BifrostElasticStandbyMarker fires.
+    # Does not suppress non-elastic node alerts (equal: node).
+    inhibit_rules:
+      - source_matchers:
+          - elastic_standby="true"
+        target_matchers:
+          - alertname=~"KubeNodeNotReady|KubeNodeUnreachable|KubeletInstanceUnreachable|KubeDaemonSetRolloutStuck|KubeDaemonSetMisScheduled|KubePodNotReady"
+        equal: ['node']
+      - source_matchers:
+          - elastic_standby="true"
+        target_matchers:
+          - alertname="TargetDown"
+          - job=~".*node-exporter.*"
+        equal: ['node']
     receivers:
       - name: default
       - name: bifrost-ops-agent

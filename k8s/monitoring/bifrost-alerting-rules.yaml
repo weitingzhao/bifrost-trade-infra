@@ -75,3 +75,34 @@ spec:
           annotations:
             summary: "PostgreSQL connection count high"
             description: "CNPG pod {{ $labels.pod }} has more than 80 backends."
+
+    # Elastic / WOL standby — marker for Alertmanager inhibit (no GPU/warehouse demand).
+    # Does NOT fire when ai/ollama or data-warehouse/minio want replicas > 0.
+    - name: bifrost-elastic-standby
+      rules:
+        - alert: BifrostElasticStandbyMarker
+          expr: |
+            (
+              max by (node) (kube_node_labels{label_bifrost_io_wol="enabled"})
+              * on (node) group_left ()
+              (
+                max by (node) (kube_node_status_condition{condition="Ready",status="true"} == 0)
+              )
+            )
+            unless on ()
+            (
+              (
+                max(kube_deployment_spec_replicas{namespace="ai",deployment="ollama"}) > 0
+              )
+              or
+              (
+                max(kube_deployment_spec_replicas{namespace="data-warehouse",deployment="minio"}) > 0
+              )
+            )
+          for: 2m
+          labels:
+            severity: info
+            elastic_standby: "true"
+          annotations:
+            summary: "Elastic node {{ $labels.node }} standby (no demand)"
+            description: "Node {{ $labels.node }} has bifrost.io/wol=enabled and is NotReady while GPU/warehouse workloads are scaled to zero — expected standby."
