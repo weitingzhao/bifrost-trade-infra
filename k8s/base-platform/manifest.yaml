@@ -5,6 +5,11 @@ metadata:
   labels:
     app.kubernetes.io/name: platform-api
     app.kubernetes.io/component: platform-api
+  annotations:
+    bifrost.dev/session: "true"
+    bifrost.dev/session-name: platform
+    bifrost.dev/session-label: Platform API
+    bifrost.dev/session-group: platform
 spec:
   replicas: 1
   selector:
@@ -100,6 +105,11 @@ metadata:
   labels:
     app.kubernetes.io/name: platform-console
     app.kubernetes.io/component: platform-console
+  annotations:
+    bifrost.dev/session: "true"
+    bifrost.dev/session-name: platform-console
+    bifrost.dev/session-label: Platform Console
+    bifrost.dev/session-group: platform
 spec:
   replicas: 1
   selector:
