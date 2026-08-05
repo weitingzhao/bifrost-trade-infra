@@ -1,0 +1,214 @@
+#!/usr/bin/env bash
+# bdev-supervise — restart wrapper for a single bdev session command.
+#
+# Usage:
+#   bdev-supervise <name> <policy> <delay> <max_delay> <max_failures> -- <command...>
+#
+# Policies:
+#   no          run once; exit with child status
+#   on-failure  restart only when child exits non-zero
+#   always      always restart (unless stop file present)
+#
+# Stop: create $HOME/.bifrost-dev/state/<name>.stop (bdev stop) or SIGINT/SIGTERM.
+# State: $HOME/.bifrost-dev/state/<name>.json (restarts, consecutive_failures, crashed)
+
+set -uo pipefail
+
+NAME="${1:-}"
+POLICY="${2:-no}"
+DELAY="${3:-1}"
+MAX_DELAY="${4:-30}"
+MAX_FAILS="${5:-10}"
+shift 5 || true
+
+if [[ "${1:-}" == "--" ]]; then
+  shift
+fi
+
+if [[ -z "$NAME" || $# -lt 1 ]]; then
+  echo "Usage: bdev-supervise <name> <policy> <delay> <max_delay> <max_fails> -- <command...>" >&2
+  exit 2
+fi
+
+STATE_DIR="${BDEV_STATE_DIR:-$HOME/.bifrost-dev/state}"
+mkdir -p "$STATE_DIR"
+STATE_FILE="$STATE_DIR/${NAME}.json"
+STOP_FILE="$STATE_DIR/${NAME}.stop"
+CRASH_FILE="$STATE_DIR/${NAME}.crashed"
+
+CHILD_PID=""
+CHILD_PGID=""
+STOPPING=0
+
+kill_child_group() {
+  local sig="${1:-TERM}"
+  if [[ -n "$CHILD_PGID" ]]; then
+    kill "-${sig}" -- "-${CHILD_PGID}" 2>/dev/null || true
+  elif [[ -n "$CHILD_PID" ]]; then
+    kill "-${sig}" "$CHILD_PID" 2>/dev/null || true
+  fi
+}
+
+write_state() {
+  local restarts="$1"
+  local consec="$2"
+  local crashed="$3"
+  local last_exit="$4"
+  local last_crash="$5"
+  python3 - "$STATE_FILE" "$restarts" "$consec" "$crashed" "$last_exit" "$last_crash" <<'PY'
+import json, os, sys, time
+path, restarts, consec, crashed, last_exit, last_crash = sys.argv[1:7]
+data = {}
+if os.path.isfile(path):
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except Exception:
+        data = {}
+data["restarts"] = int(restarts)
+data["consecutive_failures"] = int(consec)
+data["crashed"] = crashed == "1"
+data["last_exit_code"] = int(last_exit) if last_exit != "" else None
+if last_crash and last_crash != "0":
+    data["last_crash_at"] = int(last_crash)
+data["updated_at"] = int(time.time())
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+os.replace(tmp, path)
+PY
+}
+
+read_restarts() {
+  python3 - "$STATE_FILE" <<'PY'
+import json, os, sys
+path = sys.argv[1]
+if not os.path.isfile(path):
+    print(0)
+    raise SystemExit(0)
+try:
+    with open(path) as f:
+        print(int(json.load(f).get("restarts", 0) or 0))
+except Exception:
+    print(0)
+PY
+}
+
+on_signal() {
+  STOPPING=1
+  kill_child_group TERM
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if [[ -z "$CHILD_PID" ]] || ! kill -0 "$CHILD_PID" 2>/dev/null; then
+      break
+    fi
+    sleep 0.2
+  done
+  kill_child_group KILL
+  if [[ -n "$CHILD_PID" ]]; then
+    wait "$CHILD_PID" 2>/dev/null || true
+  fi
+  exit 0
+}
+
+trap on_signal INT TERM
+
+POLICY="$(echo "$POLICY" | tr '[:upper:]' '[:lower:]')"
+if [[ "$POLICY" != "no" && "$POLICY" != "on-failure" && "$POLICY" != "always" ]]; then
+  echo "[bdev-supervise] unknown policy '$POLICY' — treating as 'no'" >&2
+  POLICY="no"
+fi
+
+# Clear crash marker when supervise starts (manual start / respawn).
+rm -f "$CRASH_FILE"
+
+restarts="$(read_restarts)"
+consec=0
+delay="$DELAY"
+# Clamp numeric defaults
+[[ "$DELAY" =~ ^[0-9]+$ ]] || DELAY=1
+[[ "$MAX_DELAY" =~ ^[0-9]+$ ]] || MAX_DELAY=30
+[[ "$MAX_FAILS" =~ ^[0-9]+$ ]] || MAX_FAILS=10
+delay="$DELAY"
+
+if [[ "$POLICY" == "no" ]]; then
+  "$@"
+  exit $?
+fi
+
+echo "[bdev-supervise] $NAME policy=$POLICY delay=${DELAY}s max_delay=${MAX_DELAY}s max_fails=$MAX_FAILS"
+
+while true; do
+  if [[ -f "$STOP_FILE" || "$STOPPING" -eq 1 ]]; then
+    echo "[bdev-supervise] $NAME stop requested — exiting"
+    exit 0
+  fi
+
+  echo "[bdev-supervise] $NAME starting: $*"
+  # New session/process-group so leftover children (orphans holding log fds) can be reaped.
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "$@" &
+  else
+    # macOS often lacks setsid(1); use bash job-control process groups.
+    set -m
+    "$@" &
+  fi
+  CHILD_PID=$!
+  CHILD_PGID="$CHILD_PID"
+  started_at=$(date +%s)
+  set +e
+  wait "$CHILD_PID"
+  code=$?
+  set -e
+  # Reap process group so inherited log pipes / sidecar children cannot pin the supervisor.
+  kill_child_group TERM
+  sleep 0.2
+  kill_child_group KILL
+  CHILD_PID=""
+  CHILD_PGID=""
+  ended_at=$(date +%s)
+  ran=$(( ended_at - started_at ))
+
+  if [[ -f "$STOP_FILE" || "$STOPPING" -eq 1 ]]; then
+    echo "[bdev-supervise] $NAME stop after exit $code — not restarting"
+    exit 0
+  fi
+
+  # Stable run resets failure streak / backoff.
+  if (( ran >= 60 )); then
+    consec=0
+    delay="$DELAY"
+  fi
+
+  should_restart=0
+  if [[ "$POLICY" == "always" ]]; then
+    should_restart=1
+  elif [[ "$POLICY" == "on-failure" && "$code" -ne 0 ]]; then
+    should_restart=1
+  fi
+
+  if [[ "$should_restart" -eq 0 ]]; then
+    write_state "$restarts" "$consec" "0" "$code" "0"
+    echo "[bdev-supervise] $NAME exited $code — policy=$POLICY, not restarting"
+    exit "$code"
+  fi
+
+  restarts=$(( restarts + 1 ))
+  consec=$(( consec + 1 ))
+  crash_ts=$(date +%s)
+  write_state "$restarts" "$consec" "0" "$code" "$crash_ts"
+
+  if (( consec >= MAX_FAILS )); then
+    write_state "$restarts" "$consec" "1" "$code" "$crash_ts"
+    touch "$CRASH_FILE"
+    echo "[bdev-supervise] $NAME CRASHED after $consec consecutive failures (exit $code) — giving up" >&2
+    exit 1
+  fi
+
+  echo "[bdev-supervise] $NAME exited $code; restart #${restarts} in ${delay}s (streak ${consec}/${MAX_FAILS})" >&2
+  sleep "$delay"
+  delay=$(( delay * 2 ))
+  if (( delay > MAX_DELAY )); then
+    delay=$MAX_DELAY
+  fi
+done

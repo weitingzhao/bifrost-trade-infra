@@ -1,0 +1,91 @@
+# Example ~/.bifrost-dev/sessions.yaml (Platform Service Reliability split).
+# Copy/adapt to ~/.bifrost-dev/sessions.yaml on the Mac Pro / local Dev host.
+#
+# Compat: `bdev restart platform` still works — aliases to platform-api + platform-console.
+#
+# Optional fields:
+#   restart: on-failure | always | no
+#   restart_delay / restart_max_delay / restart_max_failures
+#   health_interval / health_fail_threshold
+
+sessions:
+  platform-api:
+    label: "Platform API"
+    cwd: ~/Desktop/stocks/bifrost-platform
+    # Prefers api/bin/platform-api when built (`make build-api`); loads .env; exec's binary
+    command: "./scripts/run_platform_api.sh"
+    ports: [8780]
+    health_url: "http://127.0.0.1:8780/health"
+    group: ops
+    restart: on-failure
+    restart_delay: 1
+    restart_max_delay: 30
+    restart_max_failures: 10
+    health_interval: 30
+    health_fail_threshold: 3
+
+  platform-console:
+    label: "Platform Console"
+    cwd: ~/Desktop/stocks/bifrost-platform
+    # Host/port from bifrost-platform/.env (PLATFORM_CONSOLE_HOST=0.0.0.0)
+    command: "python3 scripts/run_platform.py --console-only"
+    ports: [5180]
+    health_url: "http://127.0.0.1:5180"
+    group: ops
+    restart: on-failure
+    restart_delay: 1
+    restart_max_delay: 30
+    restart_max_failures: 10
+    health_interval: 30
+    health_fail_threshold: 3
+
+  # Optional: Agent Desk remediation runner (otherwise run_platform --api-only can autostart it)
+  # remediation-runner:
+  #   label: "Remediation Runner"
+  #   cwd: ~/Desktop/stocks/bifrost-platform
+  #   command: "python3 scripts/run_agent.py start --no-watch"
+  #   ports: [8781]
+  #   health_url: "http://127.0.0.1:8781/health"
+  #   group: ops
+  #   restart: on-failure
+
+  prometheus-pf:
+    label: "Prometheus Port-Forward"
+    cwd: ~/Desktop/stocks/bifrost-platform
+    command: "kubectl -n monitoring port-forward svc/kube-prometheus-stack-prometheus 9090:9090"
+    ports: [9090]
+    health_url: "http://127.0.0.1:9090/-/healthy"
+    group: ops
+    restart: always
+    restart_delay: 2
+    restart_max_delay: 60
+    restart_max_failures: 20
+    health_interval: 30
+    health_fail_threshold: 3
+
+  git-bridge:
+    label: "Git Bridge Agent"
+    cwd: ~/Desktop/stocks/bifrost-platform/agent/git-bridge
+    command: "./start.sh"
+    ports: [8785]
+    health_url: "http://127.0.0.1:8785/health"
+    group: ops
+    restart: on-failure
+
+  probe-bridge:
+    label: "Satellite Probe Bridge"
+    cwd: ~/Desktop/stocks/bifrost-platform/agent/satellite-probe-bridge
+    command: "./start.sh"
+    ports: [8786]
+    health_url: "http://127.0.0.1:8786/health"
+    group: ops
+    restart: on-failure
+
+  trade-ui:
+    label: "Trade Frontend (Vite)"
+    cwd: ~/Desktop/stocks/bifrost-trade-frontend
+    command: "./run-local-ui.sh"
+    ports: [5173]
+    health_url: "http://127.0.0.1:5173"
+    group: trade
+    restart: on-failure
