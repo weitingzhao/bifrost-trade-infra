@@ -54,11 +54,11 @@ utilized:
     research: prod
 
 postgres:
-  host: bifrost-postgres-rw.data.svc.cluster.local
-  port: 5432
+  host: 192.168.10.73
+  port: 30432
   user: bifrost
   password: bifrost_stg
-  database: bifrost_prod
+  database: bifrost_dev
 
 redis:
   enabled: true
