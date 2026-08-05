@@ -1,0 +1,29 @@
+# P8 STG: stop Celery Massive writers (plugin-market-data owns ingest).
+# Keep celery-worker-stocks-ib (IB bars) running — not patched here.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker-stocks-massive
+spec:
+  replicas: 0
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker-stocks-massive-high
+spec:
+  replicas: 0
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker-options-massive
+spec:
+  replicas: 0
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker-options-massive-high
+spec:
+  replicas: 0
