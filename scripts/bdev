@@ -81,6 +81,54 @@ log_bytes_of() {
   fi
 }
 
+format_uptime() {
+  local sec="$1"
+  if [[ -z "$sec" ]] || (( sec < 0 )); then
+    echo "-"
+    return
+  fi
+  if (( sec >= 3600 )); then
+    echo "$(( sec / 3600 ))h$(( (sec % 3600) / 60 ))m"
+  elif (( sec >= 60 )); then
+    echo "$(( sec / 60 ))m$(( sec % 60 ))s"
+  else
+    echo "${sec}s"
+  fi
+}
+
+# Fallback when tmux lacks pane_start_time and state has no started_at (pre-C3 panes).
+uptime_sec_from_pid() {
+  local pid="$1"
+  [[ -n "$pid" && "$pid" != "-" ]] || { echo 0; return; }
+  python3 - "$pid" <<'PY'
+import os, sys, time
+pid = int(sys.argv[1])
+# macOS: sysctl kern.proc.pid → not portable; use ps etime
+import subprocess
+try:
+    out = subprocess.check_output(["ps", "-p", str(pid), "-o", "etime="], text=True).strip()
+except Exception:
+    print(0)
+    raise SystemExit(0)
+if not out:
+    print(0)
+    raise SystemExit(0)
+# [[dd-]hh:]mm:ss
+parts = out.replace("-", ":").split(":")
+parts = [int(p) for p in parts]
+sec = 0
+if len(parts) == 4:  # dd:hh:mm:ss
+    sec = parts[0]*86400 + parts[1]*3600 + parts[2]*60 + parts[3]
+elif len(parts) == 3:
+    sec = parts[0]*3600 + parts[1]*60 + parts[2]
+elif len(parts) == 2:
+    sec = parts[0]*60 + parts[1]
+elif len(parts) == 1:
+    sec = parts[0]
+print(max(0, sec))
+PY
+}
+
 read_state_field() {
   local name="$1"
   local field="$2"
@@ -268,12 +316,64 @@ except Exception:
     raise SystemExit(0)
 data["crashed"] = False
 data["consecutive_failures"] = 0
+data.pop("cooling_until", None)
 tmp = path + ".tmp"
 with open(tmp, "w") as f:
     json.dump(data, f, indent=2)
     f.write("\n")
 os.replace(tmp, path)
 PY
+}
+
+# Kill leftover whole-package run_platform / suspended go run that race with split sessions.
+cleanup_legacy_platform_orphans() {
+  local pids
+  # Combined launcher (no --console-only / --api-only)
+  pids=$(pgrep -f '[Pp]ython.*scripts/run_platform\.py$' 2>/dev/null || true)
+  if [[ -n "${pids:-}" ]]; then
+    echo "⚠ cleaning legacy combined run_platform orphans: ${pids//$'\n'/ }"
+    # shellcheck disable=SC2086
+    kill -TERM $pids 2>/dev/null || true
+    sleep 0.4
+    # shellcheck disable=SC2086
+    kill -KILL $pids 2>/dev/null || true
+  fi
+  # Suspended (T state) go run left by interrupted combined launcher
+  pids=$(pgrep -f 'go run ./cmd/platform-api' 2>/dev/null || true)
+  if [[ -n "${pids:-}" ]]; then
+    local keep="" orphan=""
+    for pid in $pids; do
+      # Keep if parent tree includes bdev-supervise platform-api
+      if ps -p "$pid" -o command= 2>/dev/null | grep -q .; then
+        local ancestry
+        ancestry=$(ps -o pid=,ppid=,command= -p "$pid" 2>/dev/null || true)
+        local ppid
+        ppid=$(ps -p "$pid" -o ppid= 2>/dev/null | tr -d ' ')
+        local parent_cmd=""
+        [[ -n "$ppid" ]] && parent_cmd=$(ps -p "$ppid" -o command= 2>/dev/null || true)
+        if [[ "$parent_cmd" == *bdev-supervise*platform-api* ]] || [[ "$parent_cmd" == *run_platform_api* ]]; then
+          keep+="$pid "
+        else
+          # Also check grandparent
+          local gppid
+          gppid=$(ps -p "$ppid" -o ppid= 2>/dev/null | tr -d ' ')
+          local gcmd=""
+          [[ -n "$gppid" ]] && gcmd=$(ps -p "$gppid" -o command= 2>/dev/null || true)
+          if [[ "$gcmd" == *bdev-supervise* ]] || [[ "$parent_cmd" == *run_platform_api* ]] || [[ "$gcmd" == *run_platform_api* ]]; then
+            keep+="$pid "
+          else
+            orphan+="$pid "
+          fi
+        fi
+      fi
+      unset ancestry
+    done
+    if [[ -n "${orphan// /}" ]]; then
+      echo "⚠ cleaning orphan go run platform-api: $orphan"
+      # shellcheck disable=SC2086
+      kill -KILL $orphan 2>/dev/null || true
+    fi
+  fi
 }
 
 bump_health_fail() {
@@ -357,10 +457,16 @@ cmd_start() {
       tmux kill-window -t "$TMUX_SESSION:platform" 2>/dev/null || true
       echo "■ platform — stopped legacy combined session"
     fi
+    cleanup_legacy_platform_orphans
     cmd_start platform-api
     cmd_start platform-console
     ensure_watchdog
     return 0
+  fi
+
+  # When starting split API/console, also sweep legacy combined orphans.
+  if [[ "$target" == "platform-api" || "$target" == "platform-console" ]]; then
+    cleanup_legacy_platform_orphans
   fi
 
   while IFS='|' read -r name label cwd command ports health group restart delay max_delay max_fails health_interval health_fails; do
@@ -504,6 +610,7 @@ cmd_restart() {
   [[ -n "$target" ]] || die "Usage: bdev restart <name>"
   if [[ "$target" == "platform" ]]; then
     echo "ℹ 'platform' session split — restarting platform-api + platform-console"
+    cleanup_legacy_platform_orphans
     cmd_restart platform-api
     cmd_restart platform-console
     return 0
@@ -522,6 +629,7 @@ cmd_status() {
   [[ "${1:-}" == "--json" ]] && json_mode=true
 
   local results=()
+  local crash_hints=()
 
   while IFS='|' read -r name label cwd command ports health group restart delay max_delay max_fails health_interval health_fails; do
     local status="stopped"
@@ -533,6 +641,13 @@ cmd_status() {
     restarts=$(read_state_field "$name" "restarts" 0)
     local crashed
     crashed=$(read_state_field "$name" "crashed" 0)
+    if [[ -f "$STATE_DIR/${name}.crashed" ]]; then
+      crashed=1
+    fi
+    local last_exit
+    last_exit=$(read_state_field "$name" "last_exit_code" null)
+    local cooling_until
+    cooling_until=$(read_state_field "$name" "cooling_until" 0)
 
     if session_exists && window_exists "$name"; then
       if pane_is_alive "$name" 2>/dev/null; then
@@ -542,16 +657,22 @@ cmd_status() {
         pid=$(echo "$pane_info" | awk '{print $1}')
         local start_ts
         start_ts=$(echo "$pane_info" | awk '{print $2}')
+        # tmux 3.6+ may omit pane_start_time — fall back to supervise started_at, then ps etime
+        if [[ -z "$start_ts" || "$start_ts" == "0" ]]; then
+          start_ts=$(read_state_field "$name" "started_at" 0)
+        fi
         if [[ -n "$start_ts" && "$start_ts" != "0" ]]; then
           local now
           now=$(date +%s)
           uptime_sec=$(( now - start_ts ))
-          if (( uptime_sec >= 3600 )); then
-            uptime="$(( uptime_sec / 3600 ))h$(( (uptime_sec % 3600) / 60 ))m"
-          elif (( uptime_sec >= 60 )); then
-            uptime="$(( uptime_sec / 60 ))m$(( uptime_sec % 60 ))s"
-          else
-            uptime="${uptime_sec}s"
+          if (( uptime_sec < 0 )); then
+            uptime_sec=0
+          fi
+          uptime=$(format_uptime "$uptime_sec")
+        else
+          uptime_sec=$(uptime_sec_from_pid "$pid")
+          if (( uptime_sec > 0 )); then
+            uptime=$(format_uptime "$uptime_sec")
           fi
         fi
       else
@@ -559,7 +680,8 @@ cmd_status() {
       fi
     fi
 
-    if [[ "$crashed" == "1" && "$status" != "running" ]]; then
+    # CRASHED (incl. cooldown while supervise pane still alive)
+    if [[ "$crashed" == "1" ]]; then
       status="crashed"
     fi
 
@@ -580,12 +702,22 @@ cmd_status() {
       if [[ "$status" == "running" && -n "$pid" && "$pid" != "-" ]]; then
         pid_json="$pid"
       fi
+      # During cooldown, pane may still be alive (supervise sleeping) — still report pid.
+      if [[ "$status" == "crashed" && -n "$pid" && "$pid" != "-" ]]; then
+        pid_json="$pid"
+      fi
       local log_file="$LOG_DIR/${name}.log"
       local log_bytes
       log_bytes=$(log_bytes_of "$log_file")
       local last_crash
       last_crash=$(read_state_field "$name" "last_crash_at" null)
-      results+=("{\"name\":\"$name\",\"label\":\"$label\",\"group\":\"$group\",\"ports\":$ports_json,\"status\":\"$json_status\",\"pid\":$pid_json,\"uptime_sec\":$uptime_sec,\"health_ok\":$health_ok,\"restarts\":$restarts,\"log_bytes\":$log_bytes,\"log_max_bytes\":$BDEV_LOG_MAX_BYTES,\"restart_policy\":\"$restart\",\"last_crash_at\":$last_crash}")
+      local crashed_json="false"
+      [[ "$crashed" == "1" ]] && crashed_json="true"
+      local last_exit_json="null"
+      [[ "$last_exit" != "null" && -n "$last_exit" ]] && last_exit_json="$last_exit"
+      local cooling_json="null"
+      [[ "$cooling_until" != "0" && -n "$cooling_until" ]] && cooling_json="$cooling_until"
+      results+=("{\"name\":\"$name\",\"label\":\"$label\",\"group\":\"$group\",\"ports\":$ports_json,\"status\":\"$json_status\",\"pid\":$pid_json,\"uptime_sec\":$uptime_sec,\"health_ok\":$health_ok,\"restarts\":$restarts,\"log_bytes\":$log_bytes,\"log_max_bytes\":$BDEV_LOG_MAX_BYTES,\"restart_policy\":\"$restart\",\"last_crash_at\":$last_crash,\"crashed\":$crashed_json,\"last_exit_code\":$last_exit_json,\"cooling_until\":$cooling_json}")
     else
       local health_str
       if [[ "$health_ok" == "true" ]]; then
@@ -620,6 +752,20 @@ cmd_status() {
       if [[ "$restarts" != "0" ]]; then
         restart_note="${restart_note}  restarts=$restarts"
       fi
+      if [[ "$status" == "crashed" ]]; then
+        if [[ "$last_exit" != "null" && -n "$last_exit" ]]; then
+          restart_note="${restart_note}  last_exit=$last_exit"
+        fi
+        if [[ "$cooling_until" != "0" && -n "$cooling_until" ]]; then
+          local now_cool
+          now_cool=$(date +%s)
+          local left=$(( cooling_until - now_cool ))
+          if (( left > 0 )); then
+            restart_note="${restart_note}  cooldown=${left}s"
+          fi
+        fi
+        crash_hints+=("$name")
+      fi
 
       printf "%-18s %s %-8s  PID: %-7s  Uptime: %-10s  Ports: %-12s  Health: %s%s%s\n" \
         "$name" "$status_icon" "$status" "$pid" "$uptime" "$ports" "$health_str" "$log_note" "$restart_note"
@@ -630,6 +776,11 @@ cmd_status() {
   if $json_mode; then
     local IFS=','
     echo "[${results[*]}]"
+  elif (( ${#crash_hints[@]} > 0 )); then
+    echo ""
+    echo "⚠ CRASHED: ${crash_hints[*]}"
+    echo "  Recover: bdev restart <name>   (or wait for supervise cooldown auto-retry)"
+    echo "  Logs:    bdev logs <name> -n 80"
   fi
 }
 
@@ -709,12 +860,26 @@ cmd_watchdog_loop() {
     while IFS='|' read -r name label cwd command ports health group restart delay max_delay max_fails health_interval health_fails; do
       [[ "$restart" == "on-failure" || "$restart" == "always" ]] || continue
 
-      # Skip if user requested stop or already CRASHED
+      # Skip if user requested stop
       if [[ -f "$STATE_DIR/${name}.stop" ]]; then
         continue
       fi
+      # Skip while CRASHED / cooling — supervise owns cooldown retry; do not fight it.
+      # If cooling_until elapsed and pane is dead, clear crash and respawn below.
+      local is_crashed=0
       if [[ -f "$STATE_DIR/${name}.crashed" ]] || [[ "$(read_state_field "$name" "crashed" 0)" == "1" ]]; then
-        continue
+        is_crashed=1
+      fi
+      if [[ "$is_crashed" == "1" ]]; then
+        local cool_until
+        cool_until=$(read_state_field "$name" "cooling_until" 0)
+        if [[ "$cool_until" != "0" ]] && (( now >= cool_until )) && \
+           session_exists && window_exists "$name" && ! pane_is_alive "$name" 2>/dev/null; then
+          echo "[bdev-watchdog] $name cooldown elapsed + pane dead — clearing crash and respawning"
+          clear_crash_flag "$name"
+        else
+          continue
+        fi
       fi
 
       # Dead pane with restart policy → respawn (supervise should keep pane alive;
@@ -904,10 +1069,14 @@ sessions.yaml optional fields:
   restart: on-failure | always | no     (default: no)
   restart_delay: 1                      initial backoff seconds
   restart_max_delay: 30                 backoff cap
-  restart_max_failures: 10              then mark CRASHED, stop auto-restart
+  restart_max_failures: 10              then CRASHED + cooldown, then retry
   health_url: http://127.0.0.1:8780/health
   health_interval: 30                   watchdog poll seconds
   health_fail_threshold: 3              consecutive fails → restart
+
+CRASHED recovery:
+  bdev restart <name>                   clears crash flags and respawns
+  Or wait for supervise cooldown        (default max(120, max_delay*2) seconds)
 
 Config:  ~/.bifrost-dev/sessions.yaml
 Logs:    ~/.bifrost-dev/logs/<name>.log  (append mode; trimmed on start + watchdog)
@@ -915,10 +1084,15 @@ State:   ~/.bifrost-dev/state/<name>.json
 tmux:    session "bifrost" (+ window _watchdog when restart policies enabled)
 Example: bifrost-trade-infra/config/sessions.yaml.example
 
+prometheus-pf requires KUBECONFIG (default ~/.kube/bifrost-k3s.yaml via
+scripts/run_prometheus_pf.sh). Do not run whole-package run_platform.py
+alongside split platform-api / platform-console sessions.
+
 Env:
   BDEV_LOG_MAX_BYTES   rotate/trim threshold (default 5242880 = 5 MiB)
   BDEV_LOG_KEEP_BYTES  bytes kept after rotate (default 2097152 = 2 MiB)
   BDEV_HEALTH_INTERVAL default health poll seconds (default 30)
+  BDEV_CRASH_COOLDOWN  seconds to wait after max_failures before retry
 USAGE
 }
 

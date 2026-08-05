@@ -7,6 +7,18 @@
 #   restart: on-failure | always | no
 #   restart_delay / restart_max_delay / restart_max_failures
 #   health_interval / health_fail_threshold
+#
+# CRASHED: after restart_max_failures consecutive short exits, supervise cools down
+# (default max(120s, restart_max_delay*2)) then clears the streak and retries.
+# Manual recovery anytime: `bdev restart <name>` (clears ~/.bifrost-dev/state/<name>.crashed).
+#
+# Do NOT run whole-package `python3 scripts/run_platform.py` (api+console together)
+# alongside these split sessions — use bdev / MCP restart_dev_session only.
+#
+# Frozen out of scope (this reliability pass):
+#   - remediation-runner as a dedicated bdev session (keep commented; API may autostart)
+#   - launchd as default bootstrap (bdev install-system remains optional)
+#   - full timeline UI for session events
 
 sessions:
   platform-api:
@@ -39,7 +51,7 @@ sessions:
     health_interval: 30
     health_fail_threshold: 3
 
-  # Optional: Agent Desk remediation runner (otherwise run_platform --api-only can autostart it)
+  # FROZEN: remediation-runner dedicated session — do not enable by default this pass.
   # remediation-runner:
   #   label: "Remediation Runner"
   #   cwd: ~/Desktop/stocks/bifrost-platform
@@ -49,17 +61,20 @@ sessions:
   #   group: ops
   #   restart: on-failure
 
+  # Requires KUBECONFIG (wrapper defaults to ~/.kube/bifrost-k3s.yaml).
+  # Without it, kubectl falls back to 127.0.0.1:6443 and the session CRASHes.
+  # Do not leave a manual `kubectl port-forward …9090` running — it fakes health.
   prometheus-pf:
     label: "Prometheus Port-Forward"
     cwd: ~/Desktop/stocks/bifrost-platform
-    command: "kubectl -n monitoring port-forward svc/kube-prometheus-stack-prometheus 9090:9090"
+    command: "./scripts/run_prometheus_pf.sh"
     ports: [9090]
     health_url: "http://127.0.0.1:9090/-/healthy"
     group: ops
     restart: always
     restart_delay: 2
     restart_max_delay: 60
-    restart_max_failures: 20
+    restart_max_failures: 40
     health_interval: 30
     health_fail_threshold: 3
 

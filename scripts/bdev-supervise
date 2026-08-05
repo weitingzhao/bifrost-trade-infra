@@ -10,7 +10,11 @@
 #   always      always restart (unless stop file present)
 #
 # Stop: create $HOME/.bifrost-dev/state/<name>.stop (bdev stop) or SIGINT/SIGTERM.
-# State: $HOME/.bifrost-dev/state/<name>.json (restarts, consecutive_failures, crashed)
+# State: $HOME/.bifrost-dev/state/<name>.json (restarts, consecutive_failures, crashed, started_at)
+#
+# After restart_max_failures consecutive short failures, enter a cooldown
+# (default: max(120, max_delay*2) seconds), clear the streak, and retry —
+# instead of exiting permanently CRASHED. Manual recovery: bdev restart <name>.
 
 set -uo pipefail
 
@@ -55,9 +59,11 @@ write_state() {
   local crashed="$3"
   local last_exit="$4"
   local last_crash="$5"
-  python3 - "$STATE_FILE" "$restarts" "$consec" "$crashed" "$last_exit" "$last_crash" <<'PY'
+  local started_at="${6:-}"
+  local cooling_until="${7:-}"
+  python3 - "$STATE_FILE" "$restarts" "$consec" "$crashed" "$last_exit" "$last_crash" "$started_at" "$cooling_until" <<'PY'
 import json, os, sys, time
-path, restarts, consec, crashed, last_exit, last_crash = sys.argv[1:7]
+path, restarts, consec, crashed, last_exit, last_crash, started_at, cooling_until = sys.argv[1:9]
 data = {}
 if os.path.isfile(path):
     try:
@@ -71,6 +77,12 @@ data["crashed"] = crashed == "1"
 data["last_exit_code"] = int(last_exit) if last_exit != "" else None
 if last_crash and last_crash != "0":
     data["last_crash_at"] = int(last_crash)
+if started_at and started_at != "0" and started_at != "":
+    data["started_at"] = int(started_at)
+if cooling_until and cooling_until != "0" and cooling_until != "":
+    data["cooling_until"] = int(cooling_until)
+elif cooling_until == "0":
+    data.pop("cooling_until", None)
 data["updated_at"] = int(time.time())
 tmp = path + ".tmp"
 with open(tmp, "w") as f:
@@ -131,12 +143,23 @@ delay="$DELAY"
 [[ "$MAX_FAILS" =~ ^[0-9]+$ ]] || MAX_FAILS=10
 delay="$DELAY"
 
+# Cooldown after hitting max consecutive failures (avoid permanent CRASHED).
+COOLDOWN="${BDEV_CRASH_COOLDOWN:-}"
+if [[ ! "$COOLDOWN" =~ ^[0-9]+$ ]]; then
+  COOLDOWN=$(( MAX_DELAY * 2 ))
+  if (( COOLDOWN < 120 )); then
+    COOLDOWN=120
+  fi
+fi
+
 if [[ "$POLICY" == "no" ]]; then
+  started_at=$(date +%s)
+  write_state "$restarts" 0 0 "" 0 "$started_at" 0
   "$@"
   exit $?
 fi
 
-echo "[bdev-supervise] $NAME policy=$POLICY delay=${DELAY}s max_delay=${MAX_DELAY}s max_fails=$MAX_FAILS"
+echo "[bdev-supervise] $NAME policy=$POLICY delay=${DELAY}s max_delay=${MAX_DELAY}s max_fails=$MAX_FAILS cooldown=${COOLDOWN}s"
 
 while true; do
   if [[ -f "$STOP_FILE" || "$STOPPING" -eq 1 ]]; then
@@ -156,6 +179,7 @@ while true; do
   CHILD_PID=$!
   CHILD_PGID="$CHILD_PID"
   started_at=$(date +%s)
+  write_state "$restarts" "$consec" "0" "" 0 "$started_at" 0
   set +e
   wait "$CHILD_PID"
   code=$?
@@ -188,7 +212,7 @@ while true; do
   fi
 
   if [[ "$should_restart" -eq 0 ]]; then
-    write_state "$restarts" "$consec" "0" "$code" "0"
+    write_state "$restarts" "$consec" "0" "$code" "0" "" 0
     echo "[bdev-supervise] $NAME exited $code — policy=$POLICY, not restarting"
     exit "$code"
   fi
@@ -196,13 +220,30 @@ while true; do
   restarts=$(( restarts + 1 ))
   consec=$(( consec + 1 ))
   crash_ts=$(date +%s)
-  write_state "$restarts" "$consec" "0" "$code" "$crash_ts"
+  write_state "$restarts" "$consec" "0" "$code" "$crash_ts" "" 0
 
   if (( consec >= MAX_FAILS )); then
-    write_state "$restarts" "$consec" "1" "$code" "$crash_ts"
+    cooling_until=$(( crash_ts + COOLDOWN ))
+    write_state "$restarts" "$consec" "1" "$code" "$crash_ts" "" "$cooling_until"
     touch "$CRASH_FILE"
-    echo "[bdev-supervise] $NAME CRASHED after $consec consecutive failures (exit $code) — giving up" >&2
-    exit 1
+    echo "[bdev-supervise] $NAME CRASHED after $consec consecutive failures (exit $code)" >&2
+    echo "[bdev-supervise] $NAME cooling ${COOLDOWN}s then retry — or run: bdev restart $NAME" >&2
+    # Stay alive during cooldown so the pane does not go dead; clear and retry.
+    slept=0
+    while (( slept < COOLDOWN )); do
+      if [[ -f "$STOP_FILE" || "$STOPPING" -eq 1 ]]; then
+        echo "[bdev-supervise] $NAME stop during cooldown — exiting"
+        exit 0
+      fi
+      sleep 1
+      slept=$(( slept + 1 ))
+    done
+    rm -f "$CRASH_FILE"
+    consec=0
+    delay="$DELAY"
+    write_state "$restarts" 0 "0" "$code" "$crash_ts" "" 0
+    echo "[bdev-supervise] $NAME cooldown done — clearing crash streak and retrying" >&2
+    continue
   fi
 
   echo "[bdev-supervise] $NAME exited $code; restart #${restarts} in ${delay}s (streak ${consec}/${MAX_FAILS})" >&2
