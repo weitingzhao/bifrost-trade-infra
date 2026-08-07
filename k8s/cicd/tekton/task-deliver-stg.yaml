@@ -24,7 +24,18 @@ spec:
             kubectl delete "deployment/${dep}" -n "${NS}" --wait=true --timeout=120s
           fi
         done
-        APIS="api-monitor api-massive api-docs api-ops api-trading api-strategy api-portfolio api-market api-research"
+        # P7: api-massive retired (Plugin Market Data). Prune if leftover from older overlays.
+        for dep in api-massive; do
+          if kubectl get "deployment/${dep}" -n "${NS}" >/dev/null 2>&1; then
+            echo "Pruning retired deployment/${dep}"
+            kubectl delete "deployment/${dep}" -n "${NS}" --wait=true --timeout=120s || true
+          fi
+          if kubectl get "service/${dep}" -n "${NS}" >/dev/null 2>&1; then
+            echo "Pruning retired service/${dep}"
+            kubectl delete "service/${dep}" -n "${NS}" --wait=true --timeout=60s || true
+          fi
+        done
+        APIS="api-monitor api-docs api-ops api-trading api-strategy api-portfolio api-market api-research"
         WORKER="daemon account-sync celery-worker celery-beat"
         DEPLOY="${APIS} ${WORKER} massive-ws"
         # IBGP3 retired — legacy IB StatefulSets removed from kustomize; do not rollout/restart.
@@ -51,7 +62,7 @@ spec:
           rollout_dep "${dep}" 600s
         done
         kubectl get ingressroute trade-gateway -n "${NS}"
-        echo "Rollout complete in ${NS} (Traefik gateway + frontend + 9 APIs + worker + massive-ws)"
+        echo "Rollout complete in ${NS} (Traefik gateway + frontend + 8 APIs + worker + massive-ws)"
 ---
 apiVersion: tekton.dev/v1
 kind: Task

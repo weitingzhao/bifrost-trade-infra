@@ -14,16 +14,6 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: api-massive
-spec:
-  template:
-    spec:
-      nodeSelector:
-        bifrost.io/host-id: mini-pc-a
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
   name: api-docs
 spec:
   template:

@@ -24,14 +24,13 @@ patches:
   - path: stg-images-pull-always.patch.yaml
   - path: postgres-remove.patch.yaml
   - path: redis-remove.patch.yaml
+  - path: delete-api-massive.patch.yaml
 
 # Kubelet pulls images on the node host — it cannot resolve *.svc.cluster.local.
 # Use bootstrap node LAN IP + registry NodePort (30500) instead of in-cluster DNS.
 images:
   - name: registry.cicd.svc.cluster.local:5000/bifrost-api-monitor
     newName: 192.168.10.73:30500/bifrost-api-monitor
-  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-massive
-    newName: 192.168.10.73:30500/bifrost-api-massive
   - name: registry.cicd.svc.cluster.local:5000/bifrost-api-docs
     newName: 192.168.10.73:30500/bifrost-api-docs
   - name: registry.cicd.svc.cluster.local:5000/bifrost-api-ops

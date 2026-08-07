@@ -41,11 +41,11 @@ spec:
         }
         check stg-frontend /
         check stg-api-monitor /api/monitor/status
-        for d in massive docs ops trading strategy portfolio market research; do
+        for d in docs ops trading strategy portfolio market research; do
           check "stg-api-${d}" "/api/${d}/health"
         done
         if [ "${fail}" -ne 0 ]; then
           echo "STG verify failed — one or more endpoints unreachable" >&2
           exit 1
         fi
-        echo "STG verify passed (Traefik gateway + 9 API domains)"
+        echo "STG verify passed (Traefik gateway + 8 API domains; massive retired)"

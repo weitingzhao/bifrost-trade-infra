@@ -30,13 +30,11 @@ patches:
   - path: postgres-remove.patch.yaml
   - path: redis-remove.patch.yaml
   - path: delete-db-init-stg.patch.yaml
+  - path: delete-api-massive.patch.yaml
 
 images:
   - name: registry.cicd.svc.cluster.local:5000/bifrost-api-monitor
     newName: 192.168.10.73:30500/bifrost-api-monitor
-    newTag: prod
-  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-massive
-    newName: 192.168.10.73:30500/bifrost-api-massive
     newTag: prod
   - name: registry.cicd.svc.cluster.local:5000/bifrost-api-docs
     newName: 192.168.10.73:30500/bifrost-api-docs

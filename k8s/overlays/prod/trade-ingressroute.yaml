@@ -49,39 +49,6 @@ spec:
           port: 8765
           responseForwarding:
             flushInterval: 1ms
-    - match: Host(`trader.bifrost.lan`) && PathPrefix(`/api/massive`)
-      kind: Rule
-      priority: 100
-      middlewares:
-        - name: strip-api-massive
-        - name: sse-streaming
-      services:
-        - name: api-massive
-          port: 8766
-          responseForwarding:
-            flushInterval: 1ms
-    - match: Host(`192.168.10.70`) && PathPrefix(`/api/massive`)
-      kind: Rule
-      priority: 100
-      middlewares:
-        - name: strip-api-massive
-        - name: sse-streaming
-      services:
-        - name: api-massive
-          port: 8766
-          responseForwarding:
-            flushInterval: 1ms
-    - match: Host(`192.168.10.100`) && PathPrefix(`/api/massive`)
-      kind: Rule
-      priority: 100
-      middlewares:
-        - name: strip-api-massive
-        - name: sse-streaming
-      services:
-        - name: api-massive
-          port: 8766
-          responseForwarding:
-            flushInterval: 1ms
     - match: Host(`trader.bifrost.lan`) && PathPrefix(`/api/docs`)
       kind: Rule
       priority: 100

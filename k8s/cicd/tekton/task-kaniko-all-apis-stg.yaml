@@ -72,10 +72,11 @@ spec:
         #!/busybox/sh
         set -eu
         src="${REGISTRY}/bifrost-api-monitor:${TAG}"
-        domains="monitor massive docs ops trading strategy portfolio market research"
+        # P7: massive REST API domain retired — do not publish bifrost-api-massive tag.
+        domains="monitor docs ops trading strategy portfolio market research"
         for d in ${domains}; do
           dest="${REGISTRY}/bifrost-api-${d}:${TAG}"
           echo "=== crane copy ${src} -> ${dest} ==="
           crane copy --insecure "${src}" "${dest}"
         done
-        echo "All 9 API tags point at the same image digest."
+        echo "All 8 API tags point at the same image digest."
