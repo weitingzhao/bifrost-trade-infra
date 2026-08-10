@@ -22,9 +22,20 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: bifrost-stg
+  ignoreDifferences:
+    # Completed db-init Job spec is immutable — Argo OutOfSync here is not workload drift.
+    - group: batch
+      kind: Job
+      name: db-init-stg
+      jsonPointers:
+        - /spec
+        - /status
+        - /metadata/annotations
+        - /metadata/labels
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+      - RespectIgnoreDifferences=true
