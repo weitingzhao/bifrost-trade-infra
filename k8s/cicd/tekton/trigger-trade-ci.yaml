@@ -3,6 +3,9 @@
 # Flow: Gitea mirror-sync fires push webhook → EventListener → CEL filter
 #       routes to python-ci, frontend-ci, or platform-ci TriggerTemplate → PipelineRun.
 #
+# PipelineRun TTL: Tekton v1.6 CRD rejects spec.ttlSecondsAfterFinished.
+# Finished runs are pruned by k8s/cicd/tekton/pipelinerun-ttl.yaml (7d).
+#
 # Gitea webhook config (per repo):
 #   URL:  http://el-bifrost-ci.cicd.svc.cluster.local:8080
 #   Type: application/json

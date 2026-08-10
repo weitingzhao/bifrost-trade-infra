@@ -45,6 +45,8 @@ singleBinary:
 gateway:
   enabled: false
 
+# Nested chart key is unused (Promtail is a separate helm release + values-promtail.yaml).
+# Keep limits in sync so a future combined install does not regress CI-node OOM.
 promtail:
   enabled: true
   resources:
@@ -53,7 +55,7 @@ promtail:
       memory: 256Mi
     limits:
       cpu: 500m
-      memory: 512Mi
+      memory: 1Gi
 
 monitoring:
   selfMonitoring:

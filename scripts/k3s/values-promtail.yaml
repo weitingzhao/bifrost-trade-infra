@@ -3,14 +3,15 @@ config:
   clients:
     - url: http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push
 
-# cicd / busy nodes routinely sit near 200Mi; 256Mi limit caused OOMKilled (137).
+# cicd node tails hundreds of Tekton step pods; 256Mi/512Mi OOMKilled (444+ restarts).
+# Keep request modest so quiet nodes are not over-reserved; raise limit for CI spikes.
 resources:
   requests:
     cpu: 100m
     memory: 256Mi
   limits:
     cpu: 500m
-    memory: 512Mi
+    memory: 1Gi
 
 daemonset:
   enabled: true

@@ -64,6 +64,9 @@ if [[ "${SKIP_TEKTON}" != "1" ]]; then
   echo "==> Bifrost smoke Pipeline + Task"
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-smoke.yaml"
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-smoke.yaml"
+
+  echo "==> PipelineRun TTL janitor (7d; Tekton CRD has no ttlSecondsAfterFinished)"
+  kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipelinerun-ttl.yaml"
 fi
 
 # Tekton build pipeline manifests (applied fully in install-bifrost-stg.sh Session S4)

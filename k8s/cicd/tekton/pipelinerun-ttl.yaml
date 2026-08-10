@@ -1,0 +1,113 @@
+# PipelineRun TTL janitor — Tekton v1.6 CRD rejects spec.ttlSecondsAfterFinished
+# (strict decoding). Hourly CronJob deletes terminal PipelineRuns older than 7d
+# so Completed step pods / PVCs do not pile up on the CI node (Promtail OOM).
+#
+# Apply: kubectl apply -f k8s/cicd/tekton/pipelinerun-ttl.yaml
+# Also applied by scripts/k3s/install-stack-tekton.sh and install-cicd-stack.sh.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tekton-pipelinerun-ttl
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: pipelinerun-ttl
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tekton-pipelinerun-ttl
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: pipelinerun-ttl
+rules:
+  - apiGroups: [tekton.dev]
+    resources: [pipelineruns, taskruns]
+    verbs: [get, list, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-pipelinerun-ttl
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: pipelinerun-ttl
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tekton-pipelinerun-ttl
+subjects:
+  - kind: ServiceAccount
+    name: tekton-pipelinerun-ttl
+    namespace: cicd
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: tekton-pipelinerun-ttl
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: pipelinerun-ttl
+spec:
+  schedule: "20 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 86400
+      backoffLimit: 1
+      template:
+        spec:
+          serviceAccountName: tekton-pipelinerun-ttl
+          restartPolicy: OnFailure
+          nodeSelector:
+            kubernetes.io/arch: amd64
+          containers:
+            - name: prune
+              image: docker.io/library/alpine:3.20
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: NAMESPACE
+                  value: cicd
+                - name: MAX_AGE_SECONDS
+                  value: "604800"
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 300m
+                  memory: 256Mi
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  apk add --no-cache kubectl >/dev/null
+                  NS="${NAMESPACE:-cicd}"
+                  MAX_AGE_SECONDS="${MAX_AGE_SECONDS:-604800}"
+                  NOW="$(date -u +%s)"
+                  deleted=0
+                  skipped=0
+                  list="$(mktemp)"
+                  kubectl get pipelinerun -n "${NS}" -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.status.completionTime}{"\n"}{end}' >"${list}"
+                  while IFS='|' read -r name completed; do
+                    [ -z "${name}" ] && continue
+                    [ -z "${completed}" ] && continue
+                    clean=$(printf '%s' "${completed}" | sed 's/\.[0-9]*Z$/Z/')
+                    epoch=$(date -u -D '%Y-%m-%dT%H:%M:%SZ' -d "${clean}" +%s 2>/dev/null || true)
+                    if [ -z "${epoch}" ]; then
+                      skipped=$((skipped + 1))
+                      continue
+                    fi
+                    age=$((NOW - epoch))
+                    if [ "${age}" -lt "${MAX_AGE_SECONDS}" ]; then
+                      skipped=$((skipped + 1))
+                      continue
+                    fi
+                    echo "delete PipelineRun ${name} completionTime=${completed} age=${age}s"
+                    kubectl delete pipelinerun "${name}" -n "${NS}" --wait=false
+                    deleted=$((deleted + 1))
+                  done <"${list}"
+                  rm -f "${list}"
+                  echo "pipelinerun-ttl done deleted=${deleted} kept=${skipped} maxAge=${MAX_AGE_SECONDS}s"
