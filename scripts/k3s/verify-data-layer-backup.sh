@@ -43,6 +43,13 @@ else
   die "scheduledbackup/bifrost-postgres-daily missing"
 fi
 
+retention="$(kubectl get cluster "${CLUSTER_NAME}" -n "${DATA_NAMESPACE}" -o jsonpath='{.spec.backup.retentionPolicy}' 2>/dev/null || true)"
+if [[ "${retention}" == "30d" ]]; then
+  pass "backup retentionPolicy=30d"
+else
+  die "backup retentionPolicy want 30d (got ${retention:-empty})"
+fi
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 if [[ -x "${ROOT}/scripts/k3s/ensure-minio-backup-bucket.sh" ]]; then
   if "${ROOT}/scripts/k3s/ensure-minio-backup-bucket.sh"; then

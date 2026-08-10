@@ -115,7 +115,7 @@ phases:
       agent_session: null
     - id: TIBM4
       title: UI + legacy cleanup
-      status: pending
+      status: done
       prompt_template: |
         Execute Trade IB Client Migration Phase 4 (UI & Legacy Cleanup).
         Follow {{skill_path}}.

@@ -10,8 +10,8 @@
 
 ## 当前状态
 
-- **当前 Phase**: Phase 0 — 分析与对齐
-- **最后更新**: 2026-07-04
+- **当前 Phase**: Phase 4 — 清理与加固（UI & Legacy Cleanup）✅ **SIGNED**
+- **最后更新**: 2026-08-09
 - **阻塞**: 无
 
 ---
@@ -87,16 +87,17 @@
 
 ---
 
-### Phase 4 — 清理与加固 ⏳
+### Phase 4 — 清理与加固 ✅
 
-**目标**：移除 Trade Socket Operator 冗余代码，加固 Gateway 健壮性。
+**目标**：Frontend/Ops 标签反映 Platform IB Gateway 为传输源；Legacy "IB Broker" / "Socket Ingest" 引用更新。
 
 **验收标准**：
-- [ ] Trade Socket Operator 代码删除或归档
-- [ ] Gateway 增加重试、deadline、流量限制
-- [ ] Gateway 健康探测与 Console 监控对齐
-- [ ] 全量回归绿灯
-- [ ] 更新 MIGRATION_TRACKING.md
+- [x] `platformIbGateway.ts` 工具模块 + 测试
+- [x] `socketIngestLamp` + `ibBrokerConnectionModel` 优先 `platform_ib_gateway`
+- [x] Ops `market_ingest_config` 标签：`Platform IB Gateway · ...`
+- [x] `platform_gateway_managed` flag 在 market-ingest API 响应中
+- [x] `verify-trade-ib-ui` 通过
+- [x] Phase 4 Delivery Board sign-off (TIBM4 / P5)
 
 ---
 

@@ -36,6 +36,8 @@ spec:
     nodeSelector:
       node-role: postgres
   backup:
+    # Barman object-store retention — drop backups older than 30 days.
+    retentionPolicy: "30d"
     # Prefer standby to keep base backup load off primary; CNPG falls back to primary if standby is unavailable.
     target: prefer-standby
     barmanObjectStore:
