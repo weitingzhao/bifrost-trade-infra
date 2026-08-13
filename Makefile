@@ -173,6 +173,19 @@ dev-preflight:
 	@chmod +x scripts/dev_preflight.sh
 	@./scripts/dev_preflight.sh
 
+# Trade DEV Inner Loop (program trade-dev-inner-loop) — topology / Live / post-clone bounce
+assert-redis-ib-topology:
+	@chmod +x scripts/assert_redis_ib_topology.sh
+	@if [ "$(DRY_RUN)" = "1" ]; then ./scripts/assert_redis_ib_topology.sh --dry-run; else ./scripts/assert_redis_ib_topology.sh; fi
+
+probe-dev-live-readiness:
+	@chmod +x scripts/probe_dev_live_readiness.sh
+	@if [ "$(DRY_RUN)" = "1" ]; then ./scripts/probe_dev_live_readiness.sh --dry-run; else ./scripts/probe_dev_live_readiness.sh; fi
+
+bounce-dev-apis-after-clone:
+	@chmod +x scripts/bounce_dev_apis_after_clone.sh
+	@if [ "$(EXECUTE)" = "1" ]; then ./scripts/bounce_dev_apis_after_clone.sh --execute; else ./scripts/bounce_dev_apis_after_clone.sh --dry-run; fi
+
 verify-domain-apis:
 	@chmod +x scripts/verify_domain_apis.sh
 	@./scripts/verify_domain_apis.sh
