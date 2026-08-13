@@ -1,44 +1,54 @@
 {
 	// Bifrost — multi-repo workspace
-	// Explorer order: Environment (control plane) → Business (data plane) → Reference
+	// Explorer is a flat list; tier prefixes encode dependency planes:
+	//   Shared → used by Ops + Trade (ui kit, deploy/infra)
+	//   Ops    → control plane (platform + plugins / subcontractors)
+	//   Trade  → data plane (SPA + core/socket/worker/api)
+	//   Ref    → readonly external reference (no write / no deploy)
 	"folders": [
 		{
-			"name": "🛡️ ui · 共享框架 — @bifrost/ui · Shell · Dense tokens",
+			"name": "🔗 Shared · ui — @bifrost/ui · Shell · Dense tokens",
 			"path": "../bifrost-ui"
 		},
 		{
-			"name": "🛡️ platform · 环境控制面 — Go API :8780 · Console :5180",
-			"path": "../bifrost-platform"
-		},
-		{
-			"name": "🛡️ infra · 部署 / Goal — Compose · Nginx · MkDocs :8050",
+			"name": "🔗 Shared · infra — 部署 / Goal · Compose · Nginx · :8050",
 			"path": "."
 		},
 		{
-			"name": "📊 frontend · 业务监控 UI — React · Trade SPA :5173",
-			"path": "../bifrost-trade-frontend"
+			"name": "🚀 Ops · platform — 控制面 · API :8780 · Console :5180",
+			"path": "../bifrost-platform"
 		},
 		{
-			"name": "📦 core · 共享库 — bifrost_core",
-			"path": "../bifrost-trade-core"
-		},
-		{
-			"name": "🔌 socket · IB / Massive 边缘 — Redis",
-			"path": "../bifrost-trade-socket"
-		},
-		{
-			"name": "⚡ worker · Daemon + Celery",
-			"path": "../bifrost-trade-worker"
-		},
-		{
-			"name": "🌐 api · FastAPI 9 域 — :8765–8773",
-			"path": "../bifrost-trade-api"
-		},
-		{
+			"name": "🚀 Ops · plugin — IB Gateway · redis-ib",
 			"path": "../bifrost-platform-plugin"
 		},
 		{
+			"name": "🚀 Ops · market-data — 行情分包 · Polygon · :8790",
 			"path": "../bifrost-platform-plugin-market-data"
+		},
+		{
+			"name": "📈 Trade · frontend — 业务监控 UI · SPA :5173",
+			"path": "../bifrost-trade-frontend"
+		},
+		{
+			"name": "📈 Trade · core — 共享库 · bifrost_core",
+			"path": "../bifrost-trade-core"
+		},
+		{
+			"name": "📈 Trade · socket — IB / Massive 边缘 · Redis",
+			"path": "../bifrost-trade-socket"
+		},
+		{
+			"name": "📈 Trade · worker — Daemon + Celery",
+			"path": "../bifrost-trade-worker"
+		},
+		{
+			"name": "📈 Trade · api — FastAPI 9 域 · :8765–8773",
+			"path": "../bifrost-trade-api"
+		},
+		{
+			"name": "📚 Ref · research — 外部只读 · Analysis · 事件雷达",
+			"path": "../Research-workspace"
 		}
 	],
 	"settings": {
@@ -65,6 +75,9 @@
 			"**/build": true,
 			"**/*.egg-info": true,
 			"**/site": true
+		},
+		"files.readonlyInclude": {
+			"📚 Ref · research — 外部只读 · Analysis · 事件雷达/**": true
 		},
 		"explorer.fileNesting.enabled": true,
 		"explorer.fileNesting.expand": false,

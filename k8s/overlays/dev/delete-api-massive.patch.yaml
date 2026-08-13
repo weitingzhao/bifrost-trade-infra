@@ -1,0 +1,12 @@
+# P7: Massive REST API domain retired — Plugin Market Data owns Polygon REST.
+$patch: delete
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-massive
+---
+$patch: delete
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-massive
