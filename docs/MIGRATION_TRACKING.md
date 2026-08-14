@@ -343,10 +343,73 @@ GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 
 
 ---
 
+## §13 Market Data Golden Source（Program: `market-data-golden-source`）
+
+> Trade 消费者从直接 SQL 读 `market.*` 切换为 Plugin API HTTP；详见 `bifrost-trade-api/docs/MARKET_SQL_RESIDUAL.md`。
+
+### Wave 0（Plugin API 补全） — ✅ COMPLETED
+
+| Phase | 内容 | 状态 |
+|-------|------|------|
+| W0-P1 | Plugin API — stock daily bars + ticker reference | ✅ |
+| W0-P2 | Plugin API — option chain, contracts, expirations, OI | ✅ |
+| W0-P3 | Plugin API — financials, short interest, SEPA helpers | ✅ |
+| W0-P4 | Plugin API — watchlist union endpoint + platform-api proxy | ✅ |
+
+### Wave 1（Trade 消费者切换） — ✅ COMPLETED
+
+| Phase | 内容 | 状态 |
+|-------|------|------|
+| W1-P1 | market_pg.py stock reads → Plugin API HTTP client (3 functions) | ✅ |
+| W1-P2 | market_pg.py option reads → Plugin API HTTP client (6 functions) | ✅ |
+| W1-P3 | market_pg.py fundamentals reads → Plugin API HTTP client (2 functions) | ✅ |
+| W1-P4 | E2E grep audit + feature flag verification + docs | ✅ |
+
+**已迁移（11 functions in `market_pg.py`）**:
+
+| Function | Plugin API endpoint |
+|----------|---------------------|
+| `get_stock_day_series_for_sepa` | `GET /stocks/db/bars/daily` |
+| `get_stock_day_close_series_for_crs` | `GET /stocks/db/bars/daily/close` |
+| `get_spy_close_series` | `GET /stocks/db/bars/daily/spy-close` |
+| `get_option_snapshots_latest` | `GET /options/chain/latest` |
+| `get_option_snapshots_eod_per_day` | `GET /options/chain/eod` |
+| `get_option_open_interest_daily` | `GET /options/oi` |
+| `get_option_expirations_from_contracts_db` | `GET /options/expirations/yyyymmdd` |
+| `get_strikes_for_expiry_from_contracts_db` | `GET /options/strikes` |
+| `get_option_expiration_cache_snapshot` | `GET /options/expirations` |
+| `get_short_interest_recent` | `GET /stocks/fundamentals/db/short-interest` |
+| `get_short_volume_recent` | `GET /stocks/fundamentals/db/short-volume` |
+
+**Feature flag**: `MARKET_DATA_SOURCE` env — default `plugin`; set `sql` to fallback. SQL fallback retained in `_sql_*` private functions.
+
+**Residual SQL（未迁移，已记录在 `MARKET_SQL_RESIDUAL.md`）**:
+
+| File | Repo | SQL count | Reason |
+|------|------|-----------|--------|
+| `sepa/financials_data.py` | trade-api | ~33 | Complex jsonb unpacking |
+| `sepa/readiness_snapshot.py` | trade-api | ~13 | Readiness coverage queries |
+| `routers/data_readiness.py` | trade-api | ~9 | Coverage analysis + jsonb |
+| `sepa_engine/stock_option_pcr.py` | trade-api | ~8 | PCR aggregate SQL |
+| `routers/greeks.py` | trade-api | ~2 | option_daily reads |
+| `monitor/reader/market.py` | trade-core | ~32 | Mixed R/W + minute bars |
+| `persistence/.../ticker_reference.py` | trade-core | ~51 | Ticker lifecycle R/W |
+
+### Wave 2（基础设施收敛） — PENDING
+
+| Phase | 内容 | 状态 |
+|-------|------|------|
+| W2-P1 | K8s — collapse to single Plugin NS + watchlist union mode | pending |
+| W2-P2 | Retire STG/PROD Plugin overlays + market.* tables | pending |
+| W2-P3 | Golden database rename + Ops Console governance | pending |
+
+---
+
 ## §8 变更日志
 
 | 日期 | 变更内容 | 操作人 |
 |------|---------|--------|
+| 2026-08-14 | **Market Data Golden Source W0+W1 COMPLETED**: 11 market_pg.py functions migrated from direct SQL to Plugin API HTTP; market_data_client.py (11 endpoints); 47 client tests + 78 Plugin API tests; feature flag `MARKET_DATA_SOURCE=plugin` default; residual ~148 SQL documented in `MARKET_SQL_RESIDUAL.md`; program YAML W0-P1–W1-P4 → completed | Agent |
 | 2026-07-06 | **Phase 5 Observability (STG)**: Loki + Promtail @ monitoring; PrometheusRule (6 rules) + Alertmanager bifrost-ops-agent webhook; Grafana Trade dashboard ConfigMap; `verify-phase5-observability.sh`; MCP mcp-server-prometheus bridge | Agent |
 | 2026-05-23 | 同步当前架构：daemon/celery 归入 worker；SEPA 归入 api.research；移除 data/research 独立 repo | Agent |
 | 2026-05-31 | AccountsPage 样式布局迁移：页头 breadcrumb/pill 工具条/KPI/图表/摘要卡/持仓表对齐 Legacy | Agent |
