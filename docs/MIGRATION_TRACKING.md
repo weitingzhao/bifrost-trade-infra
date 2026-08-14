@@ -407,13 +407,53 @@ GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 
 
 - 单一 Plugin NS `plugin-market-data`，watchlist union mode
 - 目标数据库：`bifrost_golden_source`（已创建 + schema 迁移完成，177 张表 ~212MB）
-- Trade 消费者通过 Plugin API HTTP 读取，market_pg.py SQL fallback 已移除
-- `bifrost_stg` / `bifrost_prod` market schemas 已 DROP
+- Trade 消费者通过 Plugin API HTTP 读写，零直接 SQL
+- `bifrost_stg` / `bifrost_prod` / `bifrost_dev` market schemas 全部 DROP
 - `plugin-market-data-stg` / `plugin-market-data-prod` K8s NS 已删除
 - STG/PROD overlays 归档至 `k8s/overlays/_archived/`
 - Ops Console catalog 版本 `2026-08-14-golden-source`
-- **注意**：`bifrost_dev.market.*` 保留 — Trade WRITE 路径（IB bars backfill, ticker upsert）仍在使用
-- Residual SQL（~148 处，7 文件）需独立 Program 处理 — 见 `bifrost-trade-api/docs/MARKET_SQL_RESIDUAL.md`
+
+---
+
+## §14 Market Data Write Consolidation（Program: `market-data-write-consolidation`）
+
+> Golden Source 后续 — 将 ~148 处 `market.*` 直接 SQL 全部迁移到 Plugin API HTTP；`bifrost_dev` market schemas 已 DROP。
+
+### Wave 0（Plugin WRITE API） — ✅ COMPLETED
+
+| Phase | 内容 | 状态 |
+|-------|------|------|
+| W0-P1 | POST /stocks/bars/ingest (OHLC batch write + delete) | ✅ |
+| W0-P2 | POST /reference/ticker/upsert (ticker metadata write) | ✅ |
+| W0-P3 | POST /options/expirations/replace (cache refresh) | ✅ |
+
+### Wave 1（Trade WRITE cutover） — ✅ COMPLETED
+
+| Phase | 内容 | 状态 |
+|-------|------|------|
+| W1-P1 | IB bars backfill + Market API → Plugin POST | ✅ |
+| W1-P2 | StatusSink bars → Plugin POST | ✅ |
+| W1-P3 | ticker_reference upsert → Plugin POST | ✅ |
+| W1-P4 | option expiration cache → Plugin POST | ✅ |
+
+### Wave 2（Trade READ residual） — ✅ COMPLETED
+
+| Phase | 内容 | 状态 |
+|-------|------|------|
+| W2-P1 | Plugin SEPA financial aggregate endpoints (9 endpoints) | ✅ |
+| W2-P2 | financials_data.py + readiness_snapshot.py → Plugin HTTP | ✅ |
+| W2-P3 | Plugin PCR/greeks/coverage endpoints (13 endpoints) | ✅ |
+| W2-P4 | PCR/greeks/data_readiness/market.py/ticker READ → Plugin HTTP | ✅ |
+| Residual | readiness_snapshot, data_readiness, pcr, ticker_reference, massive_jobs, ddl | ✅ |
+
+### Wave 3（DROP + cleanup） — ✅ COMPLETED
+
+| Phase | 内容 | 状态 |
+|-------|------|------|
+| W3-P1 | DROP market/market_analytics/data_ops from bifrost_dev | ✅ |
+| W3-P2 | 文档更新 + program sign-off | ✅ |
+
+**最终状态**：`bifrost_dev` 仅剩 `public` schema；所有 market 数据读写经 Plugin API → `bifrost_golden_source`。
 
 ---
 
@@ -421,6 +461,7 @@ GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 
 
 | 日期 | 变更内容 | 操作人 |
 |------|---------|--------|
+| 2026-08-14 | **Write Consolidation COMPLETED**: W0 Plugin WRITE API (3 endpoints); W1 Trade WRITE cutover (4 phases — bars/ticker/expiration); W2 Trade READ residual (4+1 phases — SEPA/PCR/greeks/bars/ticker, ~148 SQL → Plugin HTTP); W3 DROP `market`/`market_analytics`/`data_ops` from `bifrost_dev` (19+4+5 objects); CNPG backup `bifrost-postgres-ondemand-20260814-213229` | Agent |
 | 2026-08-14 | **Golden Source Post-Cleanup**: CREATE DATABASE `bifrost_golden_source` + pg_dump/restore (177 tables, 212MB); DROP schemas from `bifrost_stg`/`bifrost_prod`; DELETE NS `plugin-market-data-stg`/`plugin-market-data-prod`; remove SQL fallback from `market_pg.py` (-1169 lines); ingress NetworkPolicy fix | Agent |
 | 2026-08-14 | **Market Data Golden Source W2 COMPLETED**: W2-P1 single NS converge + watchlist union; W2-P2 STG/PROD overlays archived to `_archived/`; W2-P3 config → `bifrost_golden_source`, Ops Console catalog `2026-08-14-golden-source`, program YAML all phases → completed | Agent |
 | 2026-08-14 | **Market Data Golden Source W0+W1 COMPLETED**: 11 market_pg.py functions migrated from direct SQL to Plugin API HTTP; market_data_client.py (11 endpoints); 47 client tests + 78 Plugin API tests; feature flag `MARKET_DATA_SOURCE=plugin` default; residual ~148 SQL documented in `MARKET_SQL_RESIDUAL.md`; program YAML W0-P1–W1-P4 → completed | Agent |
