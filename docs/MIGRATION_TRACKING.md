@@ -406,10 +406,14 @@ GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 
 **Golden Source 最终架构（2026-08-14）**:
 
 - 单一 Plugin NS `plugin-market-data`，watchlist union mode
-- 目标数据库：`bifrost_golden_source`（Owner 手动 CREATE DATABASE + schema 迁移后生效）
-- Trade 消费者通过 Plugin API HTTP 读取，零直接 SQL
+- 目标数据库：`bifrost_golden_source`（已创建 + schema 迁移完成，177 张表 ~212MB）
+- Trade 消费者通过 Plugin API HTTP 读取，market_pg.py SQL fallback 已移除
+- `bifrost_stg` / `bifrost_prod` market schemas 已 DROP
+- `plugin-market-data-stg` / `plugin-market-data-prod` K8s NS 已删除
 - STG/PROD overlays 归档至 `k8s/overlays/_archived/`
 - Ops Console catalog 版本 `2026-08-14-golden-source`
+- **注意**：`bifrost_dev.market.*` 保留 — Trade WRITE 路径（IB bars backfill, ticker upsert）仍在使用
+- Residual SQL（~148 处，7 文件）需独立 Program 处理 — 见 `bifrost-trade-api/docs/MARKET_SQL_RESIDUAL.md`
 
 ---
 
@@ -417,7 +421,8 @@ GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 
 
 | 日期 | 变更内容 | 操作人 |
 |------|---------|--------|
-| 2026-08-14 | **Market Data Golden Source W2 COMPLETED**: W2-P1 single NS converge + watchlist union; W2-P2 STG/PROD overlays archived to `_archived/`; W2-P3 config → `bifrost_golden_source`, Ops Console catalog `2026-08-14-golden-source`, program YAML all phases → completed. Owner 手动步骤: CREATE DATABASE + schema migrate. | Agent |
+| 2026-08-14 | **Golden Source Post-Cleanup**: CREATE DATABASE `bifrost_golden_source` + pg_dump/restore (177 tables, 212MB); DROP schemas from `bifrost_stg`/`bifrost_prod`; DELETE NS `plugin-market-data-stg`/`plugin-market-data-prod`; remove SQL fallback from `market_pg.py` (-1169 lines); ingress NetworkPolicy fix | Agent |
+| 2026-08-14 | **Market Data Golden Source W2 COMPLETED**: W2-P1 single NS converge + watchlist union; W2-P2 STG/PROD overlays archived to `_archived/`; W2-P3 config → `bifrost_golden_source`, Ops Console catalog `2026-08-14-golden-source`, program YAML all phases → completed | Agent |
 | 2026-08-14 | **Market Data Golden Source W0+W1 COMPLETED**: 11 market_pg.py functions migrated from direct SQL to Plugin API HTTP; market_data_client.py (11 endpoints); 47 client tests + 78 Plugin API tests; feature flag `MARKET_DATA_SOURCE=plugin` default; residual ~148 SQL documented in `MARKET_SQL_RESIDUAL.md`; program YAML W0-P1–W1-P4 → completed | Agent |
 | 2026-07-06 | **Phase 5 Observability (STG)**: Loki + Promtail @ monitoring; PrometheusRule (6 rules) + Alertmanager bifrost-ops-agent webhook; Grafana Trade dashboard ConfigMap; `verify-phase5-observability.sh`; MCP mcp-server-prometheus bridge | Agent |
 | 2026-05-23 | 同步当前架构：daemon/celery 归入 worker；SEPA 归入 api.research；移除 data/research 独立 repo | Agent |
