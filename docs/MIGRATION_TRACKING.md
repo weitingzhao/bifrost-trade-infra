@@ -395,13 +395,21 @@ GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 
 | `monitor/reader/market.py` | trade-core | ~32 | Mixed R/W + minute bars |
 | `persistence/.../ticker_reference.py` | trade-core | ~51 | Ticker lifecycle R/W |
 
-### Wave 2（基础设施收敛） — PENDING
+### Wave 2（基础设施收敛） — ✅ COMPLETED
 
 | Phase | 内容 | 状态 |
 |-------|------|------|
-| W2-P1 | K8s — collapse to single Plugin NS + watchlist union mode | pending |
-| W2-P2 | Retire STG/PROD Plugin overlays + market.* tables | pending |
-| W2-P3 | Golden database rename + Ops Console governance | pending |
+| W2-P1 | K8s — collapse to single Plugin NS + watchlist union mode | ✅ |
+| W2-P2 | Retire STG/PROD Plugin overlays (archived to `_archived/`) | ✅ |
+| W2-P3 | Golden database rename (`bifrost_golden_source`) + Ops Console governance | ✅ |
+
+**Golden Source 最终架构（2026-08-14）**:
+
+- 单一 Plugin NS `plugin-market-data`，watchlist union mode
+- 目标数据库：`bifrost_golden_source`（Owner 手动 CREATE DATABASE + schema 迁移后生效）
+- Trade 消费者通过 Plugin API HTTP 读取，零直接 SQL
+- STG/PROD overlays 归档至 `k8s/overlays/_archived/`
+- Ops Console catalog 版本 `2026-08-14-golden-source`
 
 ---
 
@@ -409,6 +417,7 @@ GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 
 
 | 日期 | 变更内容 | 操作人 |
 |------|---------|--------|
+| 2026-08-14 | **Market Data Golden Source W2 COMPLETED**: W2-P1 single NS converge + watchlist union; W2-P2 STG/PROD overlays archived to `_archived/`; W2-P3 config → `bifrost_golden_source`, Ops Console catalog `2026-08-14-golden-source`, program YAML all phases → completed. Owner 手动步骤: CREATE DATABASE + schema migrate. | Agent |
 | 2026-08-14 | **Market Data Golden Source W0+W1 COMPLETED**: 11 market_pg.py functions migrated from direct SQL to Plugin API HTTP; market_data_client.py (11 endpoints); 47 client tests + 78 Plugin API tests; feature flag `MARKET_DATA_SOURCE=plugin` default; residual ~148 SQL documented in `MARKET_SQL_RESIDUAL.md`; program YAML W0-P1–W1-P4 → completed | Agent |
 | 2026-07-06 | **Phase 5 Observability (STG)**: Loki + Promtail @ monitoring; PrometheusRule (6 rules) + Alertmanager bifrost-ops-agent webhook; Grafana Trade dashboard ConfigMap; `verify-phase5-observability.sh`; MCP mcp-server-prometheus bridge | Agent |
 | 2026-05-23 | 同步当前架构：daemon/celery 归入 worker；SEPA 归入 api.research；移除 data/research 独立 repo | Agent |
