@@ -44,9 +44,6 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: bifrost-stg
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: plugin-market-data-stg
       ports:
         - protocol: TCP
           port: 6379
@@ -91,9 +88,6 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: bifrost-prod
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: plugin-market-data-prod
       ports:
         - protocol: TCP
           port: 6379

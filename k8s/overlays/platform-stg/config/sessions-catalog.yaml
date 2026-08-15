@@ -19,7 +19,7 @@ discovery:
     stg:
       - bifrost-stg
       - bifrost-platform-stg
-      - plugin-market-data-stg
+      - plugin-market-data
       - data
     prod:
       - bifrost-prod
@@ -163,12 +163,12 @@ envs:
     - name: polygon-worker-stocks
       label: Market Data Stocks
       group: market-data
-      namespace: plugin-market-data-stg
+      namespace: plugin-market-data
       deployment: polygon-worker-stocks
     - name: polygon-worker-options
       label: Market Data Options
       group: market-data
-      namespace: plugin-market-data-stg
+      namespace: plugin-market-data
       deployment: polygon-worker-options
 
     - name: ib-gateway

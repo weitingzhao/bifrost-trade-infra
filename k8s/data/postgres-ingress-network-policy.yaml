@@ -29,12 +29,6 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: plugin-market-data
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: plugin-market-data-stg
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: plugin-market-data-prod
       ports:
         - protocol: TCP
           port: 5432

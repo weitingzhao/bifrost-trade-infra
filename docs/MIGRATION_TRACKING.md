@@ -381,7 +381,7 @@ GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 
 | `get_short_interest_recent` | `GET /stocks/fundamentals/db/short-interest` |
 | `get_short_volume_recent` | `GET /stocks/fundamentals/db/short-volume` |
 
-**Feature flag**: `MARKET_DATA_SOURCE` env — default `plugin`; set `sql` to fallback. SQL fallback retained in `_sql_*` private functions.
+**Plugin API**: Trade consumers read/write `market.*` exclusively through Plugin API HTTP (`MARKET_DATA_PLUGIN_URL`). SQL fallback has been removed.
 
 **Residual SQL（未迁移，已记录在 `MARKET_SQL_RESIDUAL.md`）**:
 

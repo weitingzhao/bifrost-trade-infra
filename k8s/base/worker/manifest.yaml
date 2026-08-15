@@ -57,6 +57,8 @@ spec:
               value: /app/config/config.stg.yaml
             - name: BIFROST_ENV
               value: stg
+            - name: MARKET_DATA_PLUGIN_URL
+              value: http://market-data-api.plugin-market-data.svc.cluster.local:8790/market
             # W8: K8s Lease active-standby — only the holder runs auto-trade FSM (R-DV3).
             - name: BIFROST_DAEMON_LEASE_ENABLED
               value: "1"
@@ -218,6 +220,8 @@ spec:
               value: /app/config/config.stg.yaml
             - name: BIFROST_ENV
               value: stg
+            - name: MARKET_DATA_PLUGIN_URL
+              value: http://market-data-api.plugin-market-data.svc.cluster.local:8790/market
           envFrom:
             - secretRef:
                 name: bifrost-stg-secrets
