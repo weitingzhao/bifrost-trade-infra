@@ -11,8 +11,9 @@ metadata:
     bifrost.io/layer: L2
 spec:
   description: >-
-    STG preflight gate → prepare → build prod images → rollout bifrost-prod →
-    HTTP verify → Argo sync. Refuses to deploy if STG is unhealthy.
+    STG preflight → Gitea mirror-sync → clone → Dockerfile CMs → build prod
+    images → rollout bifrost-prod → HTTP verify → Argo sync.
+    Clones must not start before mirror-sync. Refuses to deploy if STG is unhealthy.
   params:
     - name: revision
       type: string
@@ -73,8 +74,17 @@ spec:
           value: http://traefik.kube-system.svc.cluster.local
         - name: gatewayHost
           value: stg.trader.bifrost.lan
-    - name: clone-core
+    - name: mirror-sync
       runAfter: [preflight-stg]
+      taskRef:
+        name: bifrost-gitea-mirror-sync
+      params:
+        - name: giteaBase
+          value: $(params.giteaBase)
+        - name: mirrorRepos
+          value: "bifrost-trade-core bifrost-trade-worker bifrost-trade-socket bifrost-trade-api bifrost-trade-frontend bifrost-trade-infra bifrost-ui bifrost-platform"
+    - name: clone-core
+      runAfter: [mirror-sync]
       taskRef:
         name: bifrost-git-clone-gitea
       params:
@@ -88,7 +98,7 @@ spec:
         - name: output
           workspace: build-context
     - name: clone-worker
-      runAfter: [preflight-stg]
+      runAfter: [mirror-sync]
       taskRef:
         name: bifrost-git-clone-gitea
       params:
@@ -102,7 +112,7 @@ spec:
         - name: output
           workspace: build-context
     - name: clone-socket
-      runAfter: [preflight-stg]
+      runAfter: [mirror-sync]
       taskRef:
         name: bifrost-git-clone-gitea
       params:
@@ -116,7 +126,7 @@ spec:
         - name: output
           workspace: build-context
     - name: clone-api
-      runAfter: [preflight-stg]
+      runAfter: [mirror-sync]
       taskRef:
         name: bifrost-git-clone-gitea
       params:
@@ -130,7 +140,7 @@ spec:
         - name: output
           workspace: build-context
     - name: clone-frontend
-      runAfter: [preflight-stg]
+      runAfter: [mirror-sync]
       taskRef:
         name: bifrost-git-clone-gitea
       params:
@@ -144,7 +154,7 @@ spec:
         - name: output
           workspace: build-context
     - name: clone-ui
-      runAfter: [preflight-stg]
+      runAfter: [mirror-sync]
       taskRef:
         name: bifrost-git-clone-gitea
       params:
@@ -158,7 +168,7 @@ spec:
         - name: output
           workspace: build-context
     - name: clone-infra
-      runAfter: [preflight-stg]
+      runAfter: [mirror-sync]
       taskRef:
         name: bifrost-git-clone-gitea
       params:
@@ -175,9 +185,6 @@ spec:
       runAfter: [clone-infra]
       taskRef:
         name: bifrost-prepare-deliver-stg
-      params:
-        - name: giteaBase
-          value: $(params.giteaBase)
       workspaces:
         - name: source
           workspace: build-context

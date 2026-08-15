@@ -8,8 +8,8 @@ metadata:
     bifrost.io/purpose: stg-deliver
 spec:
   description: >-
-    Prepare (Gitea mirror + Dockerfile CMs) → build stg images from Gitea → rollout →
-    in-cluster HTTP verify → Argo sync. Phase B v2 full stack.
+    Mirror-sync Gitea, then clone, Dockerfile CMs, build stg images, rollout,
+    in-cluster HTTP verify, Argo sync. Clones must not start before mirror-sync.
   params:
     - name: revision
       type: string
@@ -29,7 +29,16 @@ spec:
   workspaces:
     - name: build-context
   tasks:
+    - name: mirror-sync
+      taskRef:
+        name: bifrost-gitea-mirror-sync
+      params:
+        - name: giteaBase
+          value: $(params.giteaBase)
+        - name: mirrorRepos
+          value: "bifrost-trade-core bifrost-trade-worker bifrost-trade-socket bifrost-trade-api bifrost-trade-frontend bifrost-trade-infra bifrost-ui bifrost-platform"
     - name: clone-core
+      runAfter: [mirror-sync]
       taskRef:
         name: bifrost-git-clone-gitea
       params:
@@ -43,6 +52,7 @@ spec:
         - name: output
           workspace: build-context
     - name: clone-worker
+      runAfter: [mirror-sync]
       taskRef:
         name: bifrost-git-clone-gitea
       params:
@@ -56,6 +66,7 @@ spec:
         - name: output
           workspace: build-context
     - name: clone-socket
+      runAfter: [mirror-sync]
       taskRef:
         name: bifrost-git-clone-gitea
       params:
@@ -69,6 +80,7 @@ spec:
         - name: output
           workspace: build-context
     - name: clone-api
+      runAfter: [mirror-sync]
       taskRef:
         name: bifrost-git-clone-gitea
       params:
@@ -82,6 +94,7 @@ spec:
         - name: output
           workspace: build-context
     - name: clone-frontend
+      runAfter: [mirror-sync]
       taskRef:
         name: bifrost-git-clone-gitea
       params:
@@ -95,6 +108,7 @@ spec:
         - name: output
           workspace: build-context
     - name: clone-ui
+      runAfter: [mirror-sync]
       taskRef:
         name: bifrost-git-clone-gitea
       params:
@@ -108,6 +122,7 @@ spec:
         - name: output
           workspace: build-context
     - name: clone-infra
+      runAfter: [mirror-sync]
       taskRef:
         name: bifrost-git-clone-gitea
       params:
@@ -124,9 +139,6 @@ spec:
       runAfter: [clone-infra]
       taskRef:
         name: bifrost-prepare-deliver-stg
-      params:
-        - name: giteaBase
-          value: $(params.giteaBase)
       workspaces:
         - name: source
           workspace: build-context

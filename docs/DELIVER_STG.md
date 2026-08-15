@@ -6,7 +6,7 @@
 
 ```
 GitHub (upstream)
-    ↓ mirror-sync (pipeline task prepare)
+    ↓ mirror-sync (must finish before any clone; includes bifrost-trade-infra)
 Gitea (cicd)  ← clone 7 repos (incl. bifrost-trade-infra)
     ↓ prepare: Dockerfile ConfigMaps from infra clone
     ↓ Kaniko
@@ -16,7 +16,7 @@ Registry :30500  →  bifrost-{api,frontend,worker,socket}:stg
 bifrost-stg namespace  (+ Argo CD sync)
 ```
 
-**Console Delivery → Run** 与 **`make k3s-deliver-stg`** 现在共用同一 Pipeline（含 prepare + verify）。CLI 额外步骤：可选 `sync-stg-config`、Gitea mirror（Pipeline 内 prepare 也会尝试 mirror-sync）。
+**约束：** `clone-*` 必须 `runAfter: [mirror-sync]`。prepare 只写 Dockerfile ConfigMap，不再做 mirror（否则 clone 会吃到 Gitea 旧 SHA）。`bifrost-trade-infra` 必须在 mirrorRepos 里。
 
 | 组件 | 来源 | 说明 |
 |------|------|------|
@@ -126,6 +126,8 @@ Ops Console：**Delivery → bifrost-deliver-stg → Run**（Platform API 创建
 
 ```
 k8s/cicd/tekton/pipeline-deliver-stg.yaml
+k8s/cicd/tekton/task-gitea-mirror-sync.yaml
+k8s/cicd/tekton/task-prepare-deliver-stg.yaml
 k8s/cicd/tekton/task-deliver-stg.yaml
 k8s/cicd/tekton/task-kaniko-*.yaml
 k8s/cicd/docker/Dockerfile.*-stg

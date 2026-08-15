@@ -47,4 +47,7 @@ spec:
             *) exit 1 ;;
           esac
         done
+        # Gitea mirror-sync is async; clones must not start until fetch settles.
+        echo "waiting 8s for Gitea mirror fetch to settle"
+        sleep 8
         echo "Gitea mirror-sync complete"
