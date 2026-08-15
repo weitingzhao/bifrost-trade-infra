@@ -26,6 +26,7 @@ patches:
   - path: daemon-observe-safe.patch.yaml
   - path: celery-massive-scale-zero.patch.yaml
   - path: prod-secrets-env.patch.yaml
+  - path: prod-write-token-secret.patch.yaml
   - path: prod-images-pull-always.patch.yaml
   - path: postgres-remove.patch.yaml
   - path: redis-remove.patch.yaml

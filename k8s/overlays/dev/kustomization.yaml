@@ -32,6 +32,7 @@ patches:
   - path: delete-api-massive.patch.yaml
   # P8: Trade Discovery needs Polygon keys; Celery Massive scaled off.
   - path: dev-secrets-env.patch.yaml
+  - path: dev-write-token-secret.patch.yaml
   - path: celery-massive-scale-zero.patch.yaml
 
 images:

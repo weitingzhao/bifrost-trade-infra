@@ -37,6 +37,12 @@ spec:
               value: monitor
             - name: MARKET_DATA_PLUGIN_URL
               value: http://market-data-api.plugin-market-data.svc.cluster.local:8790/market
+            - name: MARKET_DATA_WRITE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bifrost-stg-secrets
+                  key: MARKET_DATA_WRITE_TOKEN
+                  optional: true
           ports:
             - name: http
               containerPort: 8765
@@ -118,6 +124,7 @@ spec:
               value: "true"
             - name: API_DOMAIN
               value: massive
+            # Skip MARKET_DATA_PLUGIN_URL — api-massive has no market.* SQL / Plugin client.
           ports:
             - name: http
               containerPort: 8766
@@ -197,6 +204,7 @@ spec:
               value: "true"
             - name: API_DOMAIN
               value: docs
+            # Skip MARKET_DATA_PLUGIN_URL — api-docs has no market.* SQL / Plugin client.
           ports:
             - name: http
               containerPort: 8767
@@ -277,6 +285,7 @@ spec:
               value: "true"
             - name: API_DOMAIN
               value: ops
+            # Skip MARKET_DATA_PLUGIN_URL — api-ops has no market.* SQL / Plugin client.
           envFrom:
             - secretRef:
                 name: bifrost-stg-secrets
@@ -360,6 +369,7 @@ spec:
               value: "true"
             - name: API_DOMAIN
               value: trading
+            # Skip MARKET_DATA_PLUGIN_URL — api-trading has no market.* SQL / Plugin client.
           ports:
             - name: http
               containerPort: 8769
@@ -439,6 +449,7 @@ spec:
               value: "true"
             - name: API_DOMAIN
               value: strategy
+            # Skip MARKET_DATA_PLUGIN_URL — api-strategy has no market.* SQL / Plugin client.
           ports:
             - name: http
               containerPort: 8770
@@ -518,6 +529,7 @@ spec:
               value: "true"
             - name: API_DOMAIN
               value: portfolio
+            # Skip MARKET_DATA_PLUGIN_URL — api-portfolio has no market.* SQL / Plugin client.
           ports:
             - name: http
               containerPort: 8771
@@ -599,6 +611,12 @@ spec:
               value: market
             - name: MARKET_DATA_PLUGIN_URL
               value: http://market-data-api.plugin-market-data.svc.cluster.local:8790/market
+            - name: MARKET_DATA_WRITE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bifrost-stg-secrets
+                  key: MARKET_DATA_WRITE_TOKEN
+                  optional: true
           ports:
             - name: http
               containerPort: 8772
@@ -680,6 +698,12 @@ spec:
               value: research
             - name: MARKET_DATA_PLUGIN_URL
               value: http://market-data-api.plugin-market-data.svc.cluster.local:8790/market
+            - name: MARKET_DATA_WRITE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bifrost-stg-secrets
+                  key: MARKET_DATA_WRITE_TOKEN
+                  optional: true
           ports:
             - name: http
               containerPort: 8773

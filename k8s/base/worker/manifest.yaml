@@ -59,6 +59,12 @@ spec:
               value: stg
             - name: MARKET_DATA_PLUGIN_URL
               value: http://market-data-api.plugin-market-data.svc.cluster.local:8790/market
+            - name: MARKET_DATA_WRITE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bifrost-stg-secrets
+                  key: MARKET_DATA_WRITE_TOKEN
+                  optional: true
             # W8: K8s Lease active-standby — only the holder runs auto-trade FSM (R-DV3).
             - name: BIFROST_DAEMON_LEASE_ENABLED
               value: "1"
@@ -222,6 +228,12 @@ spec:
               value: stg
             - name: MARKET_DATA_PLUGIN_URL
               value: http://market-data-api.plugin-market-data.svc.cluster.local:8790/market
+            - name: MARKET_DATA_WRITE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bifrost-stg-secrets
+                  key: MARKET_DATA_WRITE_TOKEN
+                  optional: true
           envFrom:
             - secretRef:
                 name: bifrost-stg-secrets
