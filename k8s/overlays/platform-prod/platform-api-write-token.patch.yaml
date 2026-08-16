@@ -1,0 +1,22 @@
+# Console Ingest enqueue: after operator auth, platform-api attaches
+# MARKET_DATA_WRITE_TOKEN toward Plugin :8790. Secret is copied from
+# plugin-market-data/market-data-secrets key write-token
+# (make -C bifrost-platform-plugin-market-data sync-platform-write-token).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform-api
+          env:
+            - name: MARKET_DATA_API_URL
+              value: "http://market-data-api.plugin-market-data.svc.cluster.local:8790"
+            - name: MARKET_DATA_WRITE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: market-data-write-token
+                  key: write-token
+                  optional: true
