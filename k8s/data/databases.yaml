@@ -40,3 +40,19 @@ spec:
   owner: bifrost
   cluster:
     name: bifrost-postgres
+---
+# Shared Golden Source — not an env clone target (never env=dev/stg/prod).
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: bifrost-golden-source
+  namespace: data
+  labels:
+    app.kubernetes.io/part-of: bifrost
+    bifrost.io/role: golden-source
+    bifrost.io/shared: "true"
+spec:
+  name: bifrost_golden_source
+  owner: bifrost
+  cluster:
+    name: bifrost-postgres
