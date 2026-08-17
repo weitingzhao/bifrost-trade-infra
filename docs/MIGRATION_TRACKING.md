@@ -347,6 +347,28 @@ GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 
 
 ---
 
+## §13b Brokerage Golden Source（Program: `brokerage-golden-source`）
+
+> IB 账户/持仓/成交迁入 `bifrost_golden_source.brokerage.*`；per-env 经 `postgres_fdw` 只读 JOIN。
+> Core `0.6.0`：`brokerage_ddl.py` / `brokerage_tables.py` / dual-conn sink / Account Sync golden_conn。
+
+| Phase | 内容 | 状态 |
+|-------|------|------|
+| P0 | Schema DDL + roles + FDW (dev/stg/prod) + config | ✅ 2026-08-17 |
+| P1 | Writers: account/positions/quotes/open_orders/settings_flex | ✅ |
+| P1 data | Copy from bifrost_prod → brokerage.* | ✅ |
+| P2 | Writers: executions/commissions/transactions | ✅ |
+| P2 data | Copy executions + commissions + transactions | ✅ |
+| P3 | Readers: schema-qualify via brokerage_tables | ✅ |
+| P4 | Docs + core 0.6.0; legacy public tables retained 30d | ✅ |
+
+**Table map**: `account`→`brokerage.account`, `account_positions`→`brokerage.positions`,
+`account_execution_commissions`→`brokerage.commissions`, `account_transactions`→`brokerage.transactions`,
+`daemon_open_orders`→`brokerage.open_orders`, `settings_ib_flex`→`brokerage.settings_flex`,
+views `account_executions*`→`brokerage.executions*`.
+
+---
+
 ## §13 Market Data Golden Source（Program: `market-data-golden-source`）
 
 > Trade 消费者从直接 SQL 读 `market.*` 切换为 Plugin API HTTP；详见 `bifrost-trade-api/docs/MARKET_SQL_RESIDUAL.md`。
