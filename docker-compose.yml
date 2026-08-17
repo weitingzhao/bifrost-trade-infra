@@ -115,15 +115,11 @@ services:
     <<: *socket-build
     command: python scripts/run_massive_ws.py
 
-  # ── FastAPI 后端 (9 个域) ─────────────────────────────────
+  # ── FastAPI 后端 (8 个域；api-massive P7 retired → Market Data Plugin) ──
 
   api-monitor:
     <<: *api-build
     command: python scripts/run_server.py monitor
-
-  api-massive:
-    <<: *api-build
-    command: python scripts/run_server.py massive
 
   api-docs:
     <<: *api-build

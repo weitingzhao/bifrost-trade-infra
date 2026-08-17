@@ -100,7 +100,6 @@ fi
 
 # monitor uses /status; others use /health or prefixed health
 check_http "api-monitor"   "http://127.0.0.1:8765/status"
-check_http "api-massive"   "http://127.0.0.1:8766/research/massive/health"
 check_http "api-docs"      "http://127.0.0.1:8767/research/docs/health"
 check_http "api-ops"       "http://127.0.0.1:8768/health"
 check_http "api-trading"   "http://127.0.0.1:8769/health"

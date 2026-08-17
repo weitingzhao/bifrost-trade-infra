@@ -67,7 +67,6 @@ curl -s -H "Authorization: Bearer <operator-token>" http://localhost:8768/ops/au
 | Nginx | 80 / 443 | 统一入口，路由到各 API |
 | Frontend | 80 (via Nginx) | React SPA |
 | Monitor API | 8765 | Daemon 状态与控制 |
-| Massive API | 8766 | Polygon 数据 |
 | Docs API | 8767 | OpenAPI |
 | Ops API | 8768 | Celery 管理 |
 | Trading API | 8769 | 订单与持仓 |
@@ -78,6 +77,8 @@ curl -s -H "Authorization: Bearer <operator-token>" http://localhost:8768/ops/au
 | Flower | 5555 | Celery 监控 UI |
 | PostgreSQL | 5432 | 数据库 |
 | Redis | 6379 | 消息队列/缓存 |
+
+> **P7:** Massive REST API (`api-massive` / port 8766) retired — Polygon public market data is served by **Market Data Plugin** (`market-data-api:8790` via platform-api `:8780`). `massive-ws` (options WS) remains a socket edge service. Config key `massive_port` / `massive:` YAML blocks may remain as **legacy** schema fields (API key for Plugin/Celery consumers); they do not mean a Trade `api-massive` Deployment.
 
 ## bifrost-core 版本管理
 

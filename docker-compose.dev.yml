@@ -130,11 +130,6 @@ services:
     command: ["python", "/workspace/bifrost-trade-api/scripts/run_server.py", "monitor"]
     ports: ["8765:8765"]
 
-  api-massive:
-    <<: *dev-api
-    command: ["python", "/workspace/bifrost-trade-api/scripts/run_server.py", "massive"]
-    ports: ["8766:8766"]
-
   api-docs:
     <<: *dev-api
     command: ["python", "/workspace/bifrost-trade-api/scripts/run_server.py", "docs"]

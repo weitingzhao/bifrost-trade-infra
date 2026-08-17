@@ -43,12 +43,13 @@ endif
 	$(COMPOSE_LOCAL) up -d --no-build $(SERVICE)
 	$(COMPOSE_LOCAL) restart nginx
 
-# Rebuild all 9 API domains (shared bifrost-api:local image) after api-only code changes.
+# Rebuild all 8 API domains (shared bifrost-api:local image) after api-only code changes.
+# P7: api-massive REST retired — use Market Data Plugin.
 prod-rebuild-local-api: ensure-env sync-prod-config
 	export DOCKER_BUILDKIT=$${DOCKER_BUILDKIT:-1}; \
 	$(COMPOSE_LOCAL) build api-monitor
 	$(COMPOSE_LOCAL) up -d --no-build \
-		api-monitor api-massive api-docs api-ops api-trading api-strategy \
+		api-monitor api-docs api-ops api-trading api-strategy \
 		api-portfolio api-market api-research
 	$(COMPOSE_LOCAL) restart nginx
 

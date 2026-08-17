@@ -81,7 +81,7 @@ GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 
 | 域 | 端口 | engine 源 | 目标路径 | 主要文件 | 状态 |
 |----|------|----------|----------|---------|------|
 | monitor | 8765 | `backend/monitor/` | `bifrost_api/monitor/` | app.py, routers/{status, daemon, config, core, logs, messages} | **CUTOVER** |
-| massive | 8766 | `backend/massive/` | `bifrost_api/massive/` | app.py, deps.py, sse.py, routers/{routes, stream} | **CUTOVER** |
+| massive | 8766 | `backend/massive/` | `bifrost_api/massive/` | app.py, deps.py, sse.py, routers/{routes, stream} | **RETIRED (P7 → Market Data Plugin)** |
 | docs | 8767 | `backend/docs/` | `bifrost_api/docs_api/` | app.py, merge_openapi.py | **CUTOVER** |
 | ops | 8768 | `backend/ops/` | `bifrost_api/ops/` | app.py, auth.py, worker_profiles, agent/*, routers/{workers, job_queues, market_ingest}, services/* | **CUTOVER** |
 | trading | 8769 | `backend/trading/` | `bifrost_api/trading/` | app.py, routers/executions | **CUTOVER** |
@@ -305,7 +305,7 @@ GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 
 | 2B.3 | portfolio | `PORTFOLIO` → 8771 | 1–2 | pass 2026-06-04 | **signed 2026-06-04** | **CUTOVER** |
 | 2B.3 | strategy | `STRATEGY` → 8770 | 4 | pass 2026-06-04 | **signed 2026-06-05** | **CUTOVER** |
 | 2B.4 | ops | `OPS` → 8768 | 5 | pass 2026-06-04 | **signed 2026-06-04** | **CUTOVER** |
-| 2B.4 | massive | `MASSIVE` → 8766 | 6 | pass 2026-06-05 | **signed 2026-06-05** | **CUTOVER** |
+| 2B.4 | massive | `MASSIVE` → 8766 | 6 | pass 2026-06-05 | **signed 2026-06-05** | **RETIRED (P7 → Market Data Plugin)** |
 | 2B.4 | research | `RESEARCH` → 8773 | 3 | pass 2026-06-04 | **signed 2026-06-05** | **CUTOVER** |
 
 > **Phase 2B CLOSED（2026-06-04）**：Wave A Session 1–6 + Wave B Session 7–9 Owner **全部已签**；§10 九域 Owner 列均为 signed。见 [PHASE2B_SESSION_TRACKER.md](../bifrost-trade-frontend/docs/PHASE2B_SESSION_TRACKER.md)。

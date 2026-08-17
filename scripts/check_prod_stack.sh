@@ -94,7 +94,6 @@ check_http_once() {
 API_ENDPOINTS=(
   "nginx-spa|${NGINX_BASE}/"
   "api-monitor|${NGINX_BASE}/api/monitor/status"
-  "api-massive|${NGINX_BASE}/api/massive/research/massive/health"
   "api-docs|${NGINX_BASE}/api/docs/research/docs/health"
   "api-ops|${NGINX_BASE}/api/ops/health"
   "api-trading|${NGINX_BASE}/api/trading/health"

@@ -28,7 +28,6 @@ check "2B.3 trading"  "http://127.0.0.1:8769/health"
 check "2B.3 portfolio" "http://127.0.0.1:8771/health"
 check "2B.3 strategy" "http://127.0.0.1:8770/health"
 check "2B.4 ops"      "http://127.0.0.1:8768/health"
-check "2B.4 massive"  "http://127.0.0.1:8766/research/massive/health"
 check "2B.4 research" "http://127.0.0.1:8773/health"
 
 if [[ "$fail" -ne 0 ]]; then

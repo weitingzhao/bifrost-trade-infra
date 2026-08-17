@@ -12,7 +12,8 @@ EXAMPLE="${ROOT}/../bifrost-trade-frontend/.env.development.example"
 
 usage() {
   echo "Usage: $0 <domain|all-new> [legacy|new]"
-  echo "Domains: docs monitor market trading portfolio strategy ops massive research"
+  echo "Domains: docs monitor market trading portfolio strategy ops research"
+  echo "P7: massive REST retired — use VITE_API_MARKET_DATA_PLUGIN / Market Data Plugin"
   exit 1
 }
 
@@ -25,7 +26,6 @@ domain_var() {
     portfolio) echo "VITE_API_PORTFOLIO" ;;
     strategy) echo "VITE_API_STRATEGY" ;;
     ops) echo "VITE_API_OPS" ;;
-    massive) echo "VITE_API_MASSIVE" ;;
     research) echo "VITE_API_RESEARCH" ;;
     *) return 1 ;;
   esac
@@ -40,7 +40,6 @@ domain_legacy_port() {
     portfolio) echo 8723 ;;
     strategy) echo 8735 ;;
     ops) echo 8713 ;;
-    massive) echo 8741 ;;
     research) echo 8731 ;;
     *) return 1 ;;
   esac
@@ -55,7 +54,6 @@ domain_new_port() {
     portfolio) echo 8771 ;;
     strategy) echo 8770 ;;
     ops) echo 8768 ;;
-    massive) echo 8766 ;;
     research) echo 8773 ;;
     *) return 1 ;;
   esac

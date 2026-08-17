@@ -48,12 +48,6 @@ envs:
       namespace: bifrost-stg
       deployment: api-monitor
       ports: [8765]
-    - name: api-massive
-      label: Massive API
-      group: api
-      namespace: bifrost-stg
-      deployment: api-massive
-      ports: [8766]
     - name: api-docs
       label: Docs API
       group: api
@@ -197,12 +191,6 @@ envs:
       namespace: bifrost-prod
       deployment: api-monitor
       ports: [8765]
-    - name: api-massive
-      label: Massive API
-      group: api
-      namespace: bifrost-prod
-      deployment: api-massive
-      ports: [8766]
     - name: api-docs
       label: Docs API
       group: api

@@ -78,8 +78,6 @@ services:
 
   api-monitor:
     <<: *local-api-build
-  api-massive:
-    <<: *local-api-build
   api-docs:
     <<: *local-api-build
   api-ops:

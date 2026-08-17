@@ -53,10 +53,7 @@ check "research health" "http://127.0.0.1:8773/health"
 check "data readiness" "http://127.0.0.1:8773/research/data/readiness/summary" "2xx"
 check "sepa phase1 route" "http://127.0.0.1:8773/research/screening/sepa/phase1" "exists"
 
-echo ""
-echo "--- Session 6: massive ---"
-check "massive health" "http://127.0.0.1:8766/research/massive/health"
-check "contracts-coverage" "http://127.0.0.1:8766/research/massive/contracts-coverage" "2xx_or_422"
+# P7: Session 6 api-massive retired — Polygon data via Market Data Plugin
 
 if [[ "$fail" -ne 0 ]]; then
   echo ""

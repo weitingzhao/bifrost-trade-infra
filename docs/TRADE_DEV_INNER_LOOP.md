@@ -145,7 +145,7 @@ make bounce-dev-apis-after-clone
 # Or Console Cluster → rollout restart DEV Trade API deployments
 ```
 
-Safe scope: `bifrost-dev` `api-monitor`, `api-market`, `api-trading`, `api-strategy`, `api-portfolio`, `api-ops`, `api-docs`, `api-massive`, `api-research` (names as deployed). **Never** bounce Prod as part of this playbook.
+Safe scope: `bifrost-dev` `api-monitor`, `api-market`, `api-trading`, `api-strategy`, `api-portfolio`, `api-ops`, `api-docs`, `api-research` (names as deployed). **P7:** `api-massive` retired — Polygon public data via Market Data Plugin (`platform-api` proxy). **Never** bounce Prod as part of this playbook.
 
 ### Cadence
 
