@@ -17,7 +17,7 @@ server:
     market_port: 8772
     strategy_port: 8770
   feed:
-    massive_port: 8766
+    massive_port: 8766  # legacy — api-massive retired (P7)
 
 sink: postgres
 
@@ -100,6 +100,14 @@ ops:
   audit:
     persist: true
 
+# Plugin redis-massive — ExternalName → redis-massive.data.svc.cluster.local
+redis_massive:
+  enabled: true
+  host: redis-massive
+  port: 6379
+  db: 0
+
+# api_key + rest_base still used by Research REST (polygon_http); WS migrated to Plugin
 massive:
   api_key: MYCd1tboShKK7UTYgKN_fjtBrZUr9zhe
   tier: starter

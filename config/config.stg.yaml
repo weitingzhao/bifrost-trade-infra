@@ -14,7 +14,7 @@ server:
     market_port: 8772
     strategy_port: 8770
   feed:
-    massive_port: 8766
+    massive_port: 8766  # legacy — api-massive retired (P7)
 
 sink: postgres
 
@@ -139,11 +139,19 @@ ops:
   audit:
     persist: true
 
-# Prefer env MASSIVE_API_KEY / POLYGON_API_KEY from Secret in pods.
+# Plugin redis-massive — ExternalName → redis-massive.data.svc.cluster.local
+redis_massive:
+  enabled: true
+  host: redis-massive
+  port: 6379
+  db: 0
+
+# api_key: Prefer env MASSIVE_API_KEY / POLYGON_API_KEY from Secret in pods.
+# WS ingest (ws_url, ws_enabled, trades_enabled) migrated to Plugin; Trade no longer uses these.
 massive:
   api_key: ""
   tier: starter
   ws_url: wss://delayed.polygon.io/options
   features:
     trades_enabled: false
-    ws_enabled: false  # Options Starter = REST aggregates via Celery; WS needs Developer+
+    ws_enabled: false

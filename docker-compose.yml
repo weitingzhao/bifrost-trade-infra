@@ -111,6 +111,8 @@ services:
     profiles: [legacy-ib]
     command: python scripts/run_ib_operator.py
 
+  # ⚠ PENDING RETIREMENT: WS ingestor migrated to Plugin (polygon-ws-ingestor @ redis-massive).
+  # Keep for local Docker Compose fallback until Plugin WS verified in production.
   massive-ws:
     <<: *socket-build
     command: python scripts/run_massive_ws.py

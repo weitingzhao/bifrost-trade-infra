@@ -3,6 +3,11 @@
 # Legacy trade-socket IB StatefulSets (ib-market-gateway / ib-account-agent / ib-operator)
 # retired IBGP3 — Platform ib-gateway @ data/redis-ib is the sole IB bus.
 # Archived manifests: k8s/legacy/ib-socket/manifest.yaml (not applied by kustomize).
+#
+# ⚠ PENDING RETIREMENT (Polygon WS Plugin Migration Wave 3):
+# WS ingestor migrated to bifrost-platform-plugin-market-data (polygon-ws-ingestor).
+# Health hash now written to redis-massive (data NS). This Deployment will be scaled to 0
+# after Plugin WS ingestor is verified in production. Kept as rollback option until then.
 ---
 apiVersion: apps/v1
 kind: Deployment

@@ -117,5 +117,13 @@ ops:
   audit:
     persist: false # dev: in-memory only
 
+# Plugin redis-massive — ExternalName → redis-massive.data.svc.cluster.local
+redis_massive:
+  enabled: true
+  host: redis-massive
+  port: 6379
+  db: 0
+
+# api_key + rest_base still used by Research REST (polygon_http); WS migrated to Plugin
 massive:
   api_key: MYCd1tboShKK7UTYgKN_fjtBrZUr9zhe
