@@ -77,7 +77,7 @@ spec:
         - name: sse-streaming
       services:
         - name: api-portfolio
-          port: 8771
+          port: 8769
           responseForwarding:
             flushInterval: 1ms
     - match: PathPrefix(`/api/market`)
