@@ -37,7 +37,7 @@ http_fail=0
 fe_code="$(gateway_curl -s -o /dev/null -w '%{http_code}' "http://${GATEWAY_IP}/" || echo 000)"
 echo "  frontend → HTTP ${fe_code}"
 [[ "${fe_code}" == "200" ]] || http_fail=1
-for d in monitor massive docs ops trading strategy portfolio market research; do
+for d in monitor docs ops trading strategy portfolio market research; do
   path="health"
   [[ "${d}" == "monitor" ]] && path="status"
   code="$(gateway_curl -s -o /dev/null -w '%{http_code}' "http://${GATEWAY_IP}/api/${d}/${path}" || echo 000)"
@@ -83,7 +83,7 @@ if kubectl run "w11-preflight-${RANDOM}" -n "${NS}" --rm -i --restart=Never \
     }
     check frontend /
     check api-monitor /api/monitor/status
-    for d in massive docs ops trading strategy portfolio market research; do
+    for d in docs ops trading strategy portfolio market research; do
       check api-\${d} /api/\${d}/health
     done
     echo OK preflight

@@ -115,12 +115,15 @@ Ops Console：**Delivery → bifrost-deliver-stg → Run**（Platform API 创建
 - `api-ops-celery.patch.yaml` — `celery-worker` replicas=0 + api-ops 可写 logs emptyDir
 - `config.stg.yaml` — `massive.ws_url: delayed.polygon.io`（Starter tier）
 
-## Massive WS STG 要点
+## Massive WS STG 要点 [RETIRED]
+
+> **Trade `massive-ws` Deployment retired (P7).** Polygon Options WS 已迁至 Market Data Plugin
+> `polygon-ws-ingestor`（`plugin-market-data` / `redis-massive`）。以下为历史运维笔记，勿再对 Trade NS 做 massive-ws rollout。
 
 - Watchlist 种子：`scripts/k3s/seed-stg-watchlist.sh`（从 Dev PG 导入）
-- **Options Starter**：`massive.features.ws_enabled: false` — `massive-ws` REST-only 待机（`ws_mode=rest_only`），期权 aggregates 走 Celery REST；**不要求** live Polygon WS quotes
-- Options Developer+：设 `ws_enabled: true`（或 `tier: developer`）后启用 WS；Starter 可用 `wss://delayed.polygon.io/options`
-- K8s 托管：Socket 页 Start/Stop 禁用；重启用 `kubectl rollout restart deployment/massive-ws -n bifrost-stg`
+- **Options Starter**（历史）：`massive.features.ws_enabled: false` — 原 `massive-ws` REST-only 待机；现由 Plugin 承载
+- Options Developer+：Plugin 侧配置 WS；Starter 可用 delayed Polygon WS
+- K8s：重启用 Plugin 侧 `kubectl rollout restart deployment/polygon-ws-ingestor -n plugin-market-data`（勿再 `deployment/massive-ws`）
 
 ## 相关文件
 

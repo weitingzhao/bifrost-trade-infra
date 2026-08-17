@@ -16,7 +16,7 @@ gateway_curl() {
   curl -sf -H "Host: ${GATEWAY_HOST}" --connect-timeout 8 "$@"
 }
 
-DOMAINS="monitor massive docs ops trading strategy portfolio market research"
+DOMAINS="monitor docs ops trading strategy portfolio market research"
 # P1: gateway + APIs only. Set PROD_VERIFY_FULL=1 after deliver-prod refreshes :prod images.
 WORKER_DEPLOY="daemon account-sync celery-worker flower"
 # massive-ws retired → Plugin polygon-ws-ingestor

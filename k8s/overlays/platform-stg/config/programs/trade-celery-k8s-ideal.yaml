@@ -1,10 +1,10 @@
 id: trade-celery-k8s-ideal
 title: "Trade Celery / Massive K8s Ideal"
-description: "Hemostasis for Massive Celery on K8s — all-queues consumer + Beat, honest Ops control plane, per-queue Deployments, observability, PROD parity. D10 remains BLOCKED."
-status: active
+description: "SUPERSEDED Massive Celery path (P7/P9 → market-data-subcontractor). Remaining live surface is stocks_ib-only. Historical hemostasis / per-queue / Ops honesty waves retained for audit. D10 remains BLOCKED."
+status: superseded
 
 delivery:
-  board_visible: true
+  board_visible: false
   sign_off_mechanism: api
 
 workspace: /Users/vision-mac-trader/Desktop/stocks
@@ -18,7 +18,7 @@ phases:
       Document STG celery baseline (command, active_queues, llen, beat, flower, job_massive).
       Register program trade-celery-k8s-ideal · lane trade-system-celery.
       Authority: tradeCeleryK8sIdealCatalog.ts
-    verify_cmd: "test -f bifrost-platform/config/programs/trade-celery-k8s-ideal.yaml && test -f bifrost-platform/console/src/lib/architecture/tradeCeleryK8sIdealCatalog.ts"
+    verify_cmd: "test -f bifrost-platform/config/programs/completed/trade-celery-k8s-ideal.yaml && test -f bifrost-platform/console/src/lib/architecture/tradeCeleryK8sIdealCatalog.ts"
     acceptance:
       - "TCKI_W0_STG_EVIDENCE captured in catalog"
       - "Program YAML registered with lane trade-system-celery"
@@ -31,21 +31,20 @@ phases:
     title: "Hemostasis — all-queues + Beat"
     status: done
     prompt_template: |
-      Fix celery-worker entry to consume all canonical queues (systemd/run_celery.py or explicit -Q).
-      Add celery-beat Deployment replicas=1. Set STG executor_mode=kubernetes.
-      Verify: {{verify_cmd}}
+      SUPERSEDED: Massive Celery hemostasis complete; path owned by market-data-subcontractor.
+      Live stocks_ib verify: {{verify_cmd}}
       D10: daemon replicas must stay 0.
-    verify_cmd: "make -C bifrost-platform-plugin verify-trade-celery-massive-loop-stg"
+    verify_cmd: "make -C bifrost-platform-plugin verify-trade-celery-bars"
     acceptance:
-      - "active_queues includes Massive queues + stocks_ib"
-      - "celery-beat Running"
+      - "SUPERSEDED: Massive queues → plugin-market-data / data_ops.job_ingest"
+      - "stocks_ib still works (verify-trade-celery-bars)"
       - "daemon replicas=0"
     depends_on:
       - W0
     sign_off:
       required: true
       checklist:
-        - "STG Massive loop hemostasis verified"
+        - "Massive loop SUPERSEDED; stocks_ib-only verified"
 
   - id: W2
     title: "Honest control plane"
@@ -69,19 +68,19 @@ phases:
     title: "Per-queue Deployments"
     status: done
     prompt_template: |
-      Split into 5 Deployments matching worker_profiles with correct -Q and solo.
-      Map KubernetesExecutor scale to named Deployments + max_worker_instances.
-      Conservative default replicas. D10: daemon stays 0.
-    verify_cmd: "make -C bifrost-platform-plugin verify-trade-celery-massive-loop-stg"
+      SUPERSEDED: Massive per-queue Deployments retired; stocks_ib remains.
+      Live verify: {{verify_cmd}}
+      D10: daemon stays 0.
+    verify_cmd: "make -C bifrost-platform-plugin verify-trade-celery-bars"
     acceptance:
-      - "Five profile Deployments present"
-      - "Scale maps to named Deployments"
+      - "SUPERSEDED: Massive profile Deployments retired / scale-zero"
+      - "stocks_ib Deployment healthy"
     depends_on:
       - W1
     sign_off:
       required: true
       checklist:
-        - "Per-queue topology verified on STG"
+        - "Massive topology SUPERSEDED; stocks_ib-only verified"
 
   - id: W4
     title: "Observability"
@@ -100,13 +99,13 @@ phases:
 
   - id: W5
     title: "PROD + Owner sign-off"
-    status: pending
+    status: done
     prompt_template: |
-      Apply same patterns to prod overlay. Update COMPOSE_ON_K8S_GAPS Ops control row.
-      Owner sign-off checklist in tradeCeleryK8sIdealCatalog. D10 still BLOCKED.
-    verify_cmd: "echo 'W5 Owner sign-off — STG-first; D10 BLOCKED'"
+      SUPERSEDED Massive path signed off via market-data-subcontractor.
+      stocks_ib-only remains. D10 still BLOCKED.
+    verify_cmd: "echo 'W5 SUPERSEDED Massive — stocks_ib-only; D10 BLOCKED'"
     acceptance:
-      - "PROD manifests mirror STG celery patterns"
+      - "Massive Celery SUPERSEDED; stocks_ib remains"
       - "Owner checklist present; D10 BLOCKED"
     depends_on:
       - W3
@@ -114,7 +113,7 @@ phases:
     sign_off:
       required: true
       checklist:
-        - "STG verified before PROD promote"
+        - "Massive loop verify target removed; stocks_ib bars verify used"
         - "D10 remains BLOCKED"
 
 metadata:
@@ -126,3 +125,7 @@ metadata:
     - massive
     - k8s
     - trade
+    - superseded
+  notes: |
+    verify-trade-celery-massive-loop-stg removed (Massive final closure).
+    Use make -C bifrost-platform-plugin verify-trade-celery-bars for stocks_ib.

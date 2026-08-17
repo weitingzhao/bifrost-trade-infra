@@ -17,7 +17,7 @@ gateway_curl() {
   curl -sf -H "Host: ${GATEWAY_HOST}" --connect-timeout 8 "$@"
 }
 
-DOMAINS="monitor massive docs ops trading strategy portfolio market research"
+DOMAINS="monitor docs ops trading strategy portfolio market research"
 WORKER_DEPLOY="daemon account-sync celery-worker flower"
 SOCKET_LEGACY_STS="ib-market-gateway ib-account-agent ib-operator"
 # massive-ws retired → Plugin polygon-ws-ingestor (plugin-market-data / redis-massive)
