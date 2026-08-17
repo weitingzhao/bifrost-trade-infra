@@ -77,22 +77,6 @@ ops:
     stocks_ib:
       queues: ["stocks_ib"]
       max_worker_instances: 1
-    options_massive:
-      queues: ["options_massive"]
-      pool: solo
-      max_worker_instances: 5
-    options_massive_high:
-      queues: ["options_massive_high"]
-      pool: solo
-      max_worker_instances: 1
-    stocks_massive:
-      queues: ["stocks_massive"]
-      pool: solo
-      max_worker_instances: 10
-    stocks_massive_high:
-      queues: ["stocks_massive_high"]
-      pool: solo
-      max_worker_instances: 1
   auth:
     default_role: "operator"
     allow_unauthenticated_reads: false
