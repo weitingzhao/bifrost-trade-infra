@@ -2,7 +2,8 @@
 #
 # IB edge StatefulSets may egress to in-cluster services (Redis @ data, K8s API for
 # Lease, DNS) plus the IB TWS hosts on LAN (.30 host + .32 secondary per config).
-# massive-ws (Polygon) is excluded — it keeps default-allow egress for wss://.
+# IB socket egress policy (legacy Trade IB STS retired IBGP3).
+# Polygon Options WS is Plugin polygon-ws-ingestor (plugin-market-data) — not covered here.
 #
 # Verify: socket pod can reach 192.168.10.30:7496 and 192.168.10.32:7496.
 ---

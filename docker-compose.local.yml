@@ -67,8 +67,7 @@ services:
   ib-operator:
     <<: *local-socket-build
 
-  massive-ws:
-    <<: *local-socket-build
+  # massive-ws retired → Plugin polygon-ws-ingestor
 
   celery-worker:
     <<: *local-worker-build

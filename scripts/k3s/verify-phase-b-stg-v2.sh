@@ -20,7 +20,7 @@ gateway_curl() {
 DOMAINS="monitor massive docs ops trading strategy portfolio market research"
 WORKER_DEPLOY="daemon account-sync celery-worker flower"
 SOCKET_LEGACY_STS="ib-market-gateway ib-account-agent ib-operator"
-SOCKET_DEPLOY="massive-ws"
+# massive-ws retired → Plugin polygon-ws-ingestor (plugin-market-data / redis-massive)
 
 fail=0
 
@@ -78,14 +78,19 @@ for sts in ${SOCKET_LEGACY_STS}; do
   fi
 done
 
-for dep in ${SOCKET_DEPLOY}; do
-  if ! kubectl rollout status "deployment/${dep}" -n "${NS}" --timeout=120s >/dev/null 2>&1; then
-    echo "FAIL rollout: ${dep}" >&2
-    fail=1
-  else
-    echo "OK rollout: ${dep}"
-  fi
-done
+# Trade massive-ws must be absent (Plugin owns Polygon Options WS)
+if kubectl get deployment massive-ws -n "${NS}" >/dev/null 2>&1; then
+  echo "FAIL legacy deployment/massive-ws still present" >&2
+  fail=1
+else
+  echo "OK massive-ws absent (Plugin polygon-ws-ingestor)"
+fi
+if ! kubectl rollout status deployment/polygon-ws-ingestor -n plugin-market-data --timeout=60s >/dev/null 2>&1; then
+  echo "FAIL Plugin deployment/polygon-ws-ingestor" >&2
+  fail=1
+else
+  echo "OK Plugin polygon-ws-ingestor"
+fi
 
 echo "==> Gateway ${GATEWAY} (Host: ${GATEWAY_HOST})"
 fe_code="$(gateway_curl -s -o /dev/null -w '%{http_code}' "${GATEWAY}/" || echo 000)"

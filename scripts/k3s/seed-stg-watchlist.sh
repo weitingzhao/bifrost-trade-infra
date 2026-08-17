@@ -99,7 +99,7 @@ STG_TOTAL="$(stg_psql_query "SELECT count(*) FROM watchlist")"
 STG_OPT="$(stg_psql_query "SELECT count(*) FROM watchlist WHERE sec_type='STK' AND optionable IS TRUE")"
 echo "STG watchlist rows: ${STG_TOTAL} (${STG_OPT} optionable STK)"
 
-echo "Restarting massive-ws so ingestor re-reads watchlist…"
-kubectl rollout restart deployment/massive-ws -n "$STG_NAMESPACE"
-kubectl rollout status deployment/massive-ws -n "$STG_NAMESPACE" --timeout=120s
-echo "Done. Check Socket page Massive WS or: kubectl logs -n ${STG_NAMESPACE} deploy/massive-ws --tail=30"
+echo "Restarting Plugin polygon-ws-ingestor so it re-reads watchlist…"
+kubectl rollout restart deployment/polygon-ws-ingestor -n plugin-market-data
+kubectl rollout status deployment/polygon-ws-ingestor -n plugin-market-data --timeout=120s
+echo "Done. Check Plugin logs: kubectl logs -n plugin-market-data deploy/polygon-ws-ingestor --tail=30"

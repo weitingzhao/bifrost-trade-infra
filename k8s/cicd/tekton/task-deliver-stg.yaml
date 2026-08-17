@@ -37,8 +37,9 @@ spec:
         done
         APIS="api-monitor api-account api-market api-research"
         WORKER="daemon account-sync celery-worker celery-worker-stocks-ib celery-beat"
-        DEPLOY="${APIS} ${WORKER} massive-ws"
+        DEPLOY="${APIS} ${WORKER}"
         # IBGP3 retired — legacy IB StatefulSets removed from kustomize; do not rollout/restart.
+        # massive-ws retired — Polygon Options WS is Plugin polygon-ws-ingestor → redis-massive.
         rollout_dep() {
           dep="$1"
           timeout="$2"
@@ -62,7 +63,7 @@ spec:
           rollout_dep "${dep}" 600s
         done
         kubectl get ingressroute trade-gateway -n "${NS}"
-        echo "Rollout complete in ${NS} (Traefik gateway + frontend + 8 APIs + worker + massive-ws)"
+        echo "Rollout complete in ${NS} (Traefik gateway + frontend + 4 APIs + worker)"
 ---
 apiVersion: tekton.dev/v1
 kind: Task

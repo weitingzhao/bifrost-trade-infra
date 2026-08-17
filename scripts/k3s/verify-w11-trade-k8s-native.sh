@@ -103,11 +103,18 @@ fi
 
 echo "==> W11 rollout summary (informational — legacy IB STS should be absent)"
 rollout_warn=0
-for dep in frontend daemon celery-worker flower massive-ws; do
+for dep in frontend daemon celery-worker flower; do
   kubectl rollout status "deployment/${dep}" -n "${NS}" --timeout=30s >/dev/null 2>&1 \
     && echo "OK rollout deployment/${dep}" \
     || { echo "WARN rollout deployment/${dep}" >&2; rollout_warn=1; }
 done
+# massive-ws retired — health lives on Plugin polygon-ws-ingestor / redis-massive
+if kubectl get deployment massive-ws -n "${NS}" >/dev/null 2>&1; then
+  echo "WARN legacy deployment/massive-ws still present in ${NS}" >&2
+  rollout_warn=1
+else
+  echo "OK massive-ws absent (Plugin polygon-ws-ingestor)"
+fi
 for sts in ib-market-gateway ib-account-agent ib-operator; do
   if kubectl get statefulset "${sts}" -n "${NS}" >/dev/null 2>&1; then
     reps="$(kubectl get statefulset "${sts}" -n "${NS}" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 1)"

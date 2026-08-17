@@ -1,5 +1,3 @@
-
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -109,20 +107,6 @@ spec:
           imagePullPolicy: Always
       containers:
         - name: celery-beat
-          imagePullPolicy: Always
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: massive-ws
-spec:
-  template:
-    spec:
-      initContainers:
-        - name: wait-for-data
-          imagePullPolicy: Always
-      containers:
-        - name: massive-ws
           imagePullPolicy: Always
 ---
 apiVersion: apps/v1

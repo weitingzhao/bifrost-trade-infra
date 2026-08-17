@@ -1,5 +1,3 @@
-
----
 # Prod runtime placement — pinned to mini-pc-a @ .70 — amd64 general pool (workload placement G3).
 # Registry should be configured on all nodes via configure-insecure-registry.sh.
 ---
@@ -107,16 +105,6 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: db-init-stg
-spec:
-  template:
-    spec:
-      nodeSelector:
-        bifrost.io/host-id: mini-pc-a
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: massive-ws
 spec:
   template:
     spec:

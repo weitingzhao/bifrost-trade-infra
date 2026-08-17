@@ -86,14 +86,3 @@ spec:
       containers:
         - name: celery-worker
           imagePullPolicy: Always
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: massive-ws
-spec:
-  template:
-    spec:
-      containers:
-        - name: massive-ws
-          imagePullPolicy: Always
