@@ -6,8 +6,8 @@
 #
 # ⚠ PENDING RETIREMENT (Polygon WS Plugin Migration Wave 3):
 # WS ingestor migrated to bifrost-platform-plugin-market-data (polygon-ws-ingestor).
-# Health hash now written to redis-massive (data NS). This Deployment will be scaled to 0
-# after Plugin WS ingestor is verified in production. Kept as rollback option until then.
+# Health hash now written to redis-massive (data NS). Scaled to 0 after Plugin WS
+# health verified — keep Deployment for +24h rollback; delete after Owner cleanup.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -17,7 +17,7 @@ metadata:
     app.kubernetes.io/name: massive-ws
     app.kubernetes.io/component: socket
 spec:
-  replicas: 1
+  replicas: 0
   strategy:
     type: Recreate
   selector:
