@@ -145,6 +145,9 @@ redis_massive:
   host: redis-massive
   port: 6379
   db: 0
+  username: trade-prod
+  password: "b9e7bf4caccb99060774f2c3050480b70d21aacea97dd381"
+
 
 # api_key: Prefer env MASSIVE_API_KEY / POLYGON_API_KEY from Secret in pods.
 # WS ingest (ws_url, ws_enabled, trades_enabled) migrated to Plugin; Trade no longer uses these.

@@ -107,6 +107,9 @@ redis_massive:
   host: redis-massive
   port: 6379
   db: 0
+  username: trade-prod
+  password: "b9e7bf4caccb99060774f2c3050480b70d21aacea97dd381"
+
 
 ops:
   control_profile: prod
