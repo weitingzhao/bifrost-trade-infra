@@ -68,11 +68,15 @@ GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 
 | connection_lifecycle | `run_ib_*` probe + heartbeat + reconnect | `bifrost_socket/ib/connection_lifecycle.py` | `IbBrokerLifecycleConfig`, `ServiceHeartbeatClock`, `heartbeat_reconnect_*`, Message 发布；三服务共用 | **VERIFIED**（2026-06-04） |
 | message_center | `src/bifrost/message_center.py` (`IbConnectionStatusTracker`) | `connection_lifecycle` + ingestor/account_agent/operator `_push_health` | Redis `bifrost:msg:center:events` → Monitor SSE → UI Messages | **VERIFIED**（2026-06-05） |
 
-### §3.2 Massive 子域（`src/bifrost_socket/massive/`）
+### §3.2 Massive 子域（`src/bifrost_socket/massive/`） — **RETIRED (P7)**
+
+> Trade `massive-ws` / socket `massive/` package retired. Polygon Options WS + public REST ingest →
+> **Market Data Plugin** (`bifrost-platform-plugin-market-data`: `polygon-ws-ingestor` → `redis-massive`).
+> Rows below are migration archaeology only.
 
 | 模块 | engine 源 | 目标路径 | 关键文件 | 状态 |
 |------|----------|----------|---------|------|
-| massive_ws | `scripts/systemd/run_massive_ws.py` | `bifrost_socket/massive/` | massive_ws_ingestor.py, redis_writer.py, subscription_manager.py | **DONE** |
+| massive_ws | `scripts/systemd/run_massive_ws.py` | `bifrost_socket/massive/` | massive_ws_ingestor.py, redis_writer.py, subscription_manager.py | **RETIRED (P7 → Plugin)** |
 
 ---
 

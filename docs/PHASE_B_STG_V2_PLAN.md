@@ -1,5 +1,10 @@
 # Phase B — bifrost-stg v2 全功能实施计划
 
+> **P7 RETIRED note (2026)**: Trade `massive-ws` / `api-massive` / Celery Massive queues are **retired**.
+> Polygon public data + Options WS → **Market Data Plugin** (`polygon-ws-ingestor` / `market-data-api:8790`).
+> Do not deploy or restart `massive-ws` in Trade NS. Historical checklist items below that mention
+> `massive-ws` remain as plan archaeology only.
+
 > **目标**：K3s `bifrost-stg` 成为与 Compose 等价的**全功能 STG**（Tier A + B）：Live TWS + Massive + daemon + Celery + socket 四服务 + 9 API + frontend。  
 > **非目标**：P5a gpu-server、prod cutover（D1）、Legacy 关停（见 §7）。  
 > **权威入口**：`http://192.168.10.73:30880/` · namespace `bifrost-stg` · `make k3s-install-phase-b-stg-v2`
@@ -11,7 +16,7 @@
 | 已有 | 缺失 |
 |------|------|
 | PG / Redis in-cluster | daemon · account-sync · celery-worker |
-| nginx :30880 + 9 API + frontend | ib-ingestor · ib-account-agent · ib-operator · massive-ws |
+| nginx :30880 + 9 API + frontend | ib-ingestor · ib-account-agent · ib-operator · ~~massive-ws~~ **RETIRED (P7 → Plugin `polygon-ws-ingestor`)** |
 | Tekton `bifrost-deliver-stg` | worker/socket K8s manifests + Kaniko 镜像 |
 | `skip_monitor_ib: true` | Live IB + Massive 配置 |
 | release gate：stg-monitor + frontend | 9 API 全量 smoke · worker/socket 健康 |
@@ -31,7 +36,7 @@
 ### Tier B — 运行时全功能
 
 - [ ] **Live TWS**：`ib.host` / `ib.secondary` LAN 可达；**STG 独立 client_id**（210 段，与 prod/dev 隔离，R-DV3）
-- [ ] **Massive**：`massive-ws` 运行（Options Starter：`ws_enabled: false` REST-only 待机；aggregates 走 Celery）；`MASSIVE_API_KEY` 经 Secret 注入
+- [ ] ~~**Massive**：`massive-ws` 运行…~~ **RETIRED (P7)** — use Plugin `polygon-ws-ingestor` + `MASSIVE_API_KEY` / `POLYGON_API_KEY` for Plugin consumers; YAML `massive:` key may remain as legacy schema
 - [ ] **daemon** 写入 in-cluster PG；Monitor Daemon 页可读状态
 - [ ] **Celery worker** 连 in-cluster Redis；Ops Celery 页可见队列
 - [ ] **Socket 四服务** Redis 健康键刷新；Market Live / Socket 页可联调

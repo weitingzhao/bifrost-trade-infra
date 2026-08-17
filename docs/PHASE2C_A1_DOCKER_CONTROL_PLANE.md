@@ -1,6 +1,9 @@
 # Phase 2C-A.1 — Docker 控制面（Daemon / Socket / Ops）
 
 > **SUPERSEDED (C4, 2026-07-26):** api-ops is **Kubernetes-only**. `executor_docker` / local / agent were deleted; `make verify-2c-a1` now asserts `executor_mode=kubernetes`. Keep this doc as historical sign-off evidence only.
+>
+> **P7 RETIRED:** Compose service `massive-ws` / systemd `bifrost-massive-ws` / market_ingest id `massive_ws` are **retired**.
+> Polygon Options WS → Plugin `polygon-ws-ingestor` (`plugin-market-data` / `redis-massive`). Do not start/stop/restart Trade `massive-ws`.
 
 **状态**：**Owner 已验**（Session 8 签字 2026-06-07）；Session 1 下一项
 
@@ -74,7 +77,7 @@ ops:
 | `market_ingest` id | Legacy systemd unit | **Compose service** | 控制动作 |
 |--------------------|---------------------|---------------------|----------|
 | `trading_engine` | bifrost-engine.service | `daemon` | start/stop/restart |
-| `massive_ws` | bifrost-massive-ws.service | `massive-ws` | start/stop/restart |
+| `massive_ws` | bifrost-massive-ws.service | `massive-ws` | **RETIRED (P7)** — do not start/stop; use Plugin `polygon-ws-ingestor` |
 | `ib_ingestor` | bifrost-ib-ingestor.service | `ib-ingestor` | start/stop/restart |
 | `ib_account_agent` | bifrost-ib-account-agent.service | `ib-account-agent` | start/stop/restart |
 | `ib_operator` | bifrost-ib-operator.service | `ib-operator` | start/stop/restart |
