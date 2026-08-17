@@ -102,6 +102,15 @@ spec:
           port: 8773
           responseForwarding:
             flushInterval: 1ms
+    - match: PathPrefix(`/api/plugin/market-data`)
+      kind: Rule
+      priority: 110
+      middlewares:
+        - name: strip-api-plugin-market-data
+      services:
+        - name: market-data-api
+          namespace: plugin-market-data
+          port: 8790
     - match: Path(`/health`)
       kind: Rule
       priority: 50

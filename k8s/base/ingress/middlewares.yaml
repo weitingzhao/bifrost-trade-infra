@@ -90,6 +90,18 @@ spec:
     prefixes:
       - /api/research
 ---
+# FE same-origin Market Data Plugin: /api/plugin/market-data/* → market-data-api paths.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-api-plugin-market-data
+  labels:
+    app.kubernetes.io/name: trade-gateway
+spec:
+  stripPrefix:
+    prefixes:
+      - /api/plugin/market-data
+---
 # SSE / long-poll friendly — disable proxy buffering semantics for streaming APIs.
 apiVersion: traefik.io/v1alpha1
 kind: Middleware

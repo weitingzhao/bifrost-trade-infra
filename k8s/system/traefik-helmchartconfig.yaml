@@ -1,0 +1,35 @@
+# Traefik (k3s HelmChartConfig) — Trade NodePorts + cross-namespace CRD backends.
+# Needed so Trade IngressRoutes can route /api/plugin/market-data →
+# market-data-api.plugin-market-data (ExternalName is disallowed by Traefik).
+# Apply: kubectl apply -f k8s/system/traefik-helmchartconfig.yaml
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  failurePolicy: reinstall
+  valuesContent: |-
+    ports:
+      trade-stg:
+        port: 30880
+        expose:
+          default: true
+        exposedPort: 30880
+        protocol: TCP
+      trade-prod:
+        port: 30881
+        expose:
+          default: true
+        exposedPort: 30881
+        protocol: TCP
+      trade-dev:
+        port: 30882
+        expose:
+          default: true
+        exposedPort: 30882
+        protocol: TCP
+    providers:
+      kubernetesCRD:
+        allowCrossNamespace: true
+        allowEmptyServices: true

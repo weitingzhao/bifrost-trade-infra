@@ -280,6 +280,33 @@ spec:
           port: 8773
           responseForwarding:
             flushInterval: 1ms
+    - match: Host(`trader.bifrost.lan`) && PathPrefix(`/api/plugin/market-data`)
+      kind: Rule
+      priority: 110
+      middlewares:
+        - name: strip-api-plugin-market-data
+      services:
+        - name: market-data-api
+          namespace: plugin-market-data
+          port: 8790
+    - match: Host(`192.168.10.70`) && PathPrefix(`/api/plugin/market-data`)
+      kind: Rule
+      priority: 110
+      middlewares:
+        - name: strip-api-plugin-market-data
+      services:
+        - name: market-data-api
+          namespace: plugin-market-data
+          port: 8790
+    - match: Host(`192.168.10.100`) && PathPrefix(`/api/plugin/market-data`)
+      kind: Rule
+      priority: 110
+      middlewares:
+        - name: strip-api-plugin-market-data
+      services:
+        - name: market-data-api
+          namespace: plugin-market-data
+          port: 8790
     - match: Host(`trader.bifrost.lan`) && Path(`/health`)
       kind: Rule
       priority: 50
