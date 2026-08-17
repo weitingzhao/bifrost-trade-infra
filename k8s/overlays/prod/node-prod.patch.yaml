@@ -1,3 +1,4 @@
+
 ---
 # Prod runtime placement — pinned to mini-pc-a @ .70 — amd64 general pool (workload placement G3).
 # Registry should be configured on all nodes via configure-insecure-registry.sh.
@@ -136,46 +137,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: celery-worker-stocks-ib
-spec:
-  template:
-    spec:
-      nodeSelector:
-        bifrost.io/host-id: mini-pc-a
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: celery-worker-stocks-massive
-spec:
-  template:
-    spec:
-      nodeSelector:
-        bifrost.io/host-id: mini-pc-a
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: celery-worker-stocks-massive-high
-spec:
-  template:
-    spec:
-      nodeSelector:
-        bifrost.io/host-id: mini-pc-a
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: celery-worker-options-massive
-spec:
-  template:
-    spec:
-      nodeSelector:
-        bifrost.io/host-id: mini-pc-a
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: celery-worker-options-massive-high
 spec:
   template:
     spec:

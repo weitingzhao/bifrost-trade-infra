@@ -78,7 +78,7 @@ curl -s -H "Authorization: Bearer <operator-token>" http://localhost:8768/ops/au
 | PostgreSQL | 5432 | 数据库 |
 | Redis | 6379 | 消息队列/缓存 |
 
-> **P7:** Massive REST API (`api-massive` / port 8766) retired — Polygon public market data is served by **Market Data Plugin** (`market-data-api:8790` via platform-api `:8780`). `massive-ws` (options WS) remains a socket edge service. Config key `massive_port` / `massive:` YAML blocks may remain as **legacy** schema fields (API key for Plugin/Celery consumers); they do not mean a Trade `api-massive` Deployment.
+> **P7:** Massive REST API (`api-massive` / port 8766) retired — Polygon public market data is served by **Market Data Plugin** (`market-data-api:8790` via Trade `/api/plugin/market-data` or platform-api). Celery Massive workers removed from base (ingest is Plugin Cron/PG-broker). `massive-ws` (options WS) remains a Trade socket edge **until** absorbed into Plugin shared bus (same pattern as IB Gateway / `redis-ib`). Config key `massive_port` / `massive:` YAML blocks may remain as **legacy** schema fields (API key for Plugin consumers); they do not mean a Trade `api-massive` Deployment.
 
 ## bifrost-core 版本管理
 
