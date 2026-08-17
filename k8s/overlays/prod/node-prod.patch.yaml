@@ -1,3 +1,4 @@
+---
 # Prod runtime placement — pinned to mini-pc-a @ .70 — amd64 general pool (workload placement G3).
 # Registry should be configured on all nodes via configure-insecure-registry.sh.
 ---
@@ -14,47 +15,7 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: api-docs
-spec:
-  template:
-    spec:
-      nodeSelector:
-        bifrost.io/host-id: mini-pc-a
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: api-ops
-spec:
-  template:
-    spec:
-      nodeSelector:
-        bifrost.io/host-id: mini-pc-a
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: api-trading
-spec:
-  template:
-    spec:
-      nodeSelector:
-        bifrost.io/host-id: mini-pc-a
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: api-strategy
-spec:
-  template:
-    spec:
-      nodeSelector:
-        bifrost.io/host-id: mini-pc-a
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: api-portfolio
+  name: api-account
 spec:
   template:
     spec:
@@ -170,7 +131,6 @@ spec:
     spec:
       nodeSelector:
         bifrost.io/host-id: mini-pc-a
-
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -181,7 +141,6 @@ spec:
     spec:
       nodeSelector:
         bifrost.io/host-id: mini-pc-a
-
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -192,7 +151,6 @@ spec:
     spec:
       nodeSelector:
         bifrost.io/host-id: mini-pc-a
-
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -203,7 +161,6 @@ spec:
     spec:
       nodeSelector:
         bifrost.io/host-id: mini-pc-a
-
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -214,7 +171,6 @@ spec:
     spec:
       nodeSelector:
         bifrost.io/host-id: mini-pc-a
-
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -225,7 +181,6 @@ spec:
     spec:
       nodeSelector:
         bifrost.io/host-id: mini-pc-a
-
 ---
 apiVersion: apps/v1
 kind: Deployment

@@ -41,7 +41,7 @@ spec:
         }
         check stg-frontend /
         check stg-api-monitor /api/monitor/status
-        for d in docs ops trading strategy portfolio market research; do
+        for d in account market research; do
           check "stg-api-${d}" "/api/${d}/health"
         done
         if [ "${fail}" -ne 0 ]; then

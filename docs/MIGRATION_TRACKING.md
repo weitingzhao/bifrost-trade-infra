@@ -513,3 +513,16 @@ GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 
 | 2026-06-29 | **Data layer cutover**：裸机 PG `.80` 下线；CNPG `bifrost-postgres-rw` 承载 dev/stg/prod；Platform 矩阵 postgres→CNPG；prod redis→`redis-live-prod.data.svc`；`ubt-k3s-06`（`.79`）入列 | Agent |
 | 2026-06-29 | **Legacy runtime 收尾**：`.70`/`.73`/`.50` 无 Legacy API/compose/systemd 监听；`bifrost-trader-engine` 已 NAS 归档并从 workspace 移除 | Agent |
 | 2026-06-04 | **IB Broker Connection 完全对齐**：`bifrost_core.monitor.integrations.ib_socket_status`（v0.2.3）；socket `ib_health_schema` + AA canonical probe keys + ingestor `host_*` mirror；api `status.py` 三服务 `build_ib_socket_status`；frontend `IbBrokerConnection` + `StatusSocketIbBroker`；docker 重建 ib-operator/ingestor/account-agent/api-monitor/frontend | Agent |
+
+## Phase B — Trade API consolidation (2026-08-17)
+
+**8 path domains → 4 process pods** (HTTP path prefixes preserved via Traefik/nginx strip + Service aliases):
+
+| Pod | Port | Absorbs |
+|-----|------|---------|
+| `api-monitor` | 8765 | monitor + ops + docs |
+| `api-account` | 8769 | trading + portfolio + strategy |
+| `api-market` | 8772 | market |
+| `api-research` | 8773 | research |
+
+Frontend: single `VITE_API_BASE` (Wave B1). Gate B4 PASS (RBAC via `api-ops` SA on monitor).

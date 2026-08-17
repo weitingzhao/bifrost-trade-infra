@@ -96,9 +96,9 @@ API_ENDPOINTS=(
   "api-monitor|${NGINX_BASE}/api/monitor/status"
   "api-docs|${NGINX_BASE}/api/docs/research/docs/health"
   "api-ops|${NGINX_BASE}/api/ops/health"
-  "api-trading|${NGINX_BASE}/api/trading/health"
+  "api-account|${NGINX_BASE}/api/trading/health"
   "api-strategy|${NGINX_BASE}/api/strategy/health"
-  "api-portfolio|${NGINX_BASE}/api/portfolio/health"
+  "api-account(portfolio-path)|${NGINX_BASE}/api/portfolio/health"
   "api-market|${NGINX_BASE}/api/market/health"
   "api-research|${NGINX_BASE}/api/research/health"
 )

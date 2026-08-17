@@ -13,56 +13,12 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: api-docs
+  name: api-account
 spec:
   template:
     spec:
       containers:
-        - name: api-docs
-          imagePullPolicy: Always
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: api-ops
-spec:
-  template:
-    spec:
-      containers:
-        - name: api-ops
-          imagePullPolicy: Always
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: api-trading
-spec:
-  template:
-    spec:
-      containers:
-        - name: api-trading
-          imagePullPolicy: Always
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: api-strategy
-spec:
-  template:
-    spec:
-      containers:
-        - name: api-strategy
-          imagePullPolicy: Always
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: api-portfolio
-spec:
-  template:
-    spec:
-      containers:
-        - name: api-portfolio
+        - name: api-account
           imagePullPolicy: Always
 ---
 apiVersion: apps/v1

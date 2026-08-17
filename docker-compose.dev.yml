@@ -130,30 +130,10 @@ services:
     command: ["python", "/workspace/bifrost-trade-api/scripts/run_server.py", "monitor"]
     ports: ["8765:8765"]
 
-  api-docs:
+  api-account:
     <<: *dev-api
-    command: ["python", "/workspace/bifrost-trade-api/scripts/run_server.py", "docs"]
-    ports: ["8767:8767"]
-
-  api-ops:
-    <<: *dev-api
-    command: ["python", "/workspace/bifrost-trade-api/scripts/run_server.py", "ops"]
-    ports: ["8768:8768"]
-
-  api-trading:
-    <<: *dev-api
-    command: ["python", "/workspace/bifrost-trade-api/scripts/run_server.py", "trading"]
+    command: ["python", "/workspace/bifrost-trade-api/scripts/run_server.py", "account"]
     ports: ["8769:8769"]
-
-  api-strategy:
-    <<: *dev-api
-    command: ["python", "/workspace/bifrost-trade-api/scripts/run_server.py", "strategy"]
-    ports: ["8770:8770"]
-
-  api-portfolio:
-    <<: *dev-api
-    command: ["python", "/workspace/bifrost-trade-api/scripts/run_server.py", "portfolio"]
-    ports: ["8771:8771"]
 
   api-market:
     <<: *dev-api

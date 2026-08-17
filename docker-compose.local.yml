@@ -78,19 +78,7 @@ services:
 
   api-monitor:
     <<: *local-api-build
-  api-docs:
-    <<: *local-api-build
-  api-ops:
-    image: bifrost-api-ops:local
-    build:
-      context: ..
-      dockerfile: bifrost-trade-infra/docker/Dockerfile.prod-local-api-ops
-      target: api-ops
-  api-trading:
-    <<: *local-api-build
-  api-strategy:
-    <<: *local-api-build
-  api-portfolio:
+  api-account:
     <<: *local-api-build
   api-market:
     <<: *local-api-build

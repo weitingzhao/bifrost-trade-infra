@@ -7,11 +7,11 @@ metadata:
 data:
   default.conf: |
     upstream api_monitor    { server api-monitor:8765; }
-    upstream api_docs       { server api-docs:8767; }
-    upstream api_ops        { server api-ops:8768; }
-    upstream api_trading    { server api-trading:8769; }
-    upstream api_strategy   { server api-strategy:8770; }
-    upstream api_portfolio  { server api-portfolio:8771; }
+    upstream api_docs       { server api-monitor:8765; }
+    upstream api_ops        { server api-monitor:8765; }
+    upstream api_trading    { server api-account:8769; }
+    upstream api_strategy   { server api-account:8769; }
+    upstream api_portfolio  { server api-account:8769; }
     upstream api_market     { server api-market:8772; }
     upstream api_research   { server api-research:8773; }
 

@@ -35,7 +35,7 @@ spec:
             kubectl delete "service/${dep}" -n "${NS}" --wait=true --timeout=60s || true
           fi
         done
-        APIS="api-monitor api-docs api-ops api-trading api-strategy api-portfolio api-market api-research"
+        APIS="api-monitor api-account api-market api-research"
         WORKER="daemon account-sync celery-worker celery-worker-stocks-ib celery-beat"
         DEPLOY="${APIS} ${WORKER} massive-ws"
         # IBGP3 retired — legacy IB StatefulSets removed from kustomize; do not rollout/restart.

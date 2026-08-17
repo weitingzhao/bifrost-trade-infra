@@ -57,7 +57,7 @@ spec:
         - name: sse-streaming
       services:
         - name: api-docs
-          port: 8767
+          port: 8765
           responseForwarding:
             flushInterval: 1ms
     - match: Host(`192.168.10.70`) && PathPrefix(`/api/docs`)
@@ -68,7 +68,7 @@ spec:
         - name: sse-streaming
       services:
         - name: api-docs
-          port: 8767
+          port: 8765
           responseForwarding:
             flushInterval: 1ms
     - match: Host(`192.168.10.100`) && PathPrefix(`/api/docs`)
@@ -79,7 +79,7 @@ spec:
         - name: sse-streaming
       services:
         - name: api-docs
-          port: 8767
+          port: 8765
           responseForwarding:
             flushInterval: 1ms
     - match: Host(`trader.bifrost.lan`) && PathPrefix(`/api/ops`)
@@ -90,7 +90,7 @@ spec:
         - name: sse-streaming
       services:
         - name: api-ops
-          port: 8768
+          port: 8765
           responseForwarding:
             flushInterval: 1ms
     - match: Host(`192.168.10.70`) && PathPrefix(`/api/ops`)
@@ -101,7 +101,7 @@ spec:
         - name: sse-streaming
       services:
         - name: api-ops
-          port: 8768
+          port: 8765
           responseForwarding:
             flushInterval: 1ms
     - match: Host(`192.168.10.100`) && PathPrefix(`/api/ops`)
@@ -112,7 +112,7 @@ spec:
         - name: sse-streaming
       services:
         - name: api-ops
-          port: 8768
+          port: 8765
           responseForwarding:
             flushInterval: 1ms
     - match: Host(`trader.bifrost.lan`) && PathPrefix(`/api/trading`)
@@ -156,7 +156,7 @@ spec:
         - name: sse-streaming
       services:
         - name: api-strategy
-          port: 8770
+          port: 8769
           responseForwarding:
             flushInterval: 1ms
     - match: Host(`192.168.10.70`) && PathPrefix(`/api/strategy`)
@@ -167,7 +167,7 @@ spec:
         - name: sse-streaming
       services:
         - name: api-strategy
-          port: 8770
+          port: 8769
           responseForwarding:
             flushInterval: 1ms
     - match: Host(`192.168.10.100`) && PathPrefix(`/api/strategy`)
@@ -178,7 +178,7 @@ spec:
         - name: sse-streaming
       services:
         - name: api-strategy
-          port: 8770
+          port: 8769
           responseForwarding:
             flushInterval: 1ms
     - match: Host(`trader.bifrost.lan`) && PathPrefix(`/api/portfolio`)
@@ -189,7 +189,7 @@ spec:
         - name: sse-streaming
       services:
         - name: api-portfolio
-          port: 8771
+          port: 8769
           responseForwarding:
             flushInterval: 1ms
     - match: Host(`192.168.10.70`) && PathPrefix(`/api/portfolio`)
@@ -200,7 +200,7 @@ spec:
         - name: sse-streaming
       services:
         - name: api-portfolio
-          port: 8771
+          port: 8769
           responseForwarding:
             flushInterval: 1ms
     - match: Host(`192.168.10.100`) && PathPrefix(`/api/portfolio`)
@@ -211,7 +211,7 @@ spec:
         - name: sse-streaming
       services:
         - name: api-portfolio
-          port: 8771
+          port: 8769
           responseForwarding:
             flushInterval: 1ms
     - match: Host(`trader.bifrost.lan`) && PathPrefix(`/api/market`)

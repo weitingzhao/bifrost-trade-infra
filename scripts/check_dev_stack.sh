@@ -102,9 +102,8 @@ fi
 check_http "api-monitor"   "http://127.0.0.1:8765/status"
 check_http "api-docs"      "http://127.0.0.1:8767/research/docs/health"
 check_http "api-ops"       "http://127.0.0.1:8768/health"
-check_http "api-trading"   "http://127.0.0.1:8769/health"
+check_http "api-account"   "http://127.0.0.1:8769/health"
 check_http "api-strategy"  "http://127.0.0.1:8770/health"
-check_http "api-portfolio" "http://127.0.0.1:8771/health"
 check_http "api-market"    "http://127.0.0.1:8772/health"
 check_http "api-research"  "http://127.0.0.1:8773/health"
 

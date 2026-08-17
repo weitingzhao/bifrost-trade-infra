@@ -1,3 +1,4 @@
+---
 # STG runtime placement — amd64 general pool (workload placement G3).
 # Registry should be configured on all nodes via configure-insecure-registry.sh.
 ---
@@ -21,75 +22,7 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: api-docs
-spec:
-  template:
-    spec:
-      nodeSelector:
-        kubernetes.io/arch: amd64
-      tolerations:
-        - key: node-role.kubernetes.io/control-plane
-          operator: Exists
-          effect: NoSchedule
-        - key: node-role.kubernetes.io/etcd
-          operator: Exists
-          effect: NoSchedule
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: api-ops
-spec:
-  template:
-    spec:
-      nodeSelector:
-        kubernetes.io/arch: amd64
-      tolerations:
-        - key: node-role.kubernetes.io/control-plane
-          operator: Exists
-          effect: NoSchedule
-        - key: node-role.kubernetes.io/etcd
-          operator: Exists
-          effect: NoSchedule
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: api-trading
-spec:
-  template:
-    spec:
-      nodeSelector:
-        kubernetes.io/arch: amd64
-      tolerations:
-        - key: node-role.kubernetes.io/control-plane
-          operator: Exists
-          effect: NoSchedule
-        - key: node-role.kubernetes.io/etcd
-          operator: Exists
-          effect: NoSchedule
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: api-strategy
-spec:
-  template:
-    spec:
-      nodeSelector:
-        kubernetes.io/arch: amd64
-      tolerations:
-        - key: node-role.kubernetes.io/control-plane
-          operator: Exists
-          effect: NoSchedule
-        - key: node-role.kubernetes.io/etcd
-          operator: Exists
-          effect: NoSchedule
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: api-portfolio
+  name: api-account
 spec:
   template:
     spec:

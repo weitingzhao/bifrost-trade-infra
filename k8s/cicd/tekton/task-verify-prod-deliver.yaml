@@ -39,7 +39,7 @@ spec:
         }
         check prod-frontend /
         check prod-api-monitor /api/monitor/status
-        for d in docs ops trading strategy portfolio market research; do
+        for d in account market research; do
           check "prod-api-${d}" "/api/${d}/health"
         done
         if [ "${fail}" -ne 0 ]; then

@@ -37,16 +37,8 @@ images:
   - name: registry.cicd.svc.cluster.local:5000/bifrost-api-monitor
     newName: bifrost-api-monitor
     newTag: dev-live-fix-20260731
-  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-docs
-    newName: 192.168.10.73:30500/bifrost-api-docs
-  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-ops
-    newName: 192.168.10.73:30500/bifrost-api-ops
-  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-trading
-    newName: 192.168.10.73:30500/bifrost-api-trading
-  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-strategy
-    newName: 192.168.10.73:30500/bifrost-api-strategy
-  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-portfolio
-    newName: 192.168.10.73:30500/bifrost-api-portfolio
+  - name: registry.cicd.svc.cluster.local:5000/bifrost-api-account
+    newName: 192.168.10.73:30500/bifrost-api-account
   - name: registry.cicd.svc.cluster.local:5000/bifrost-api-market
     newName: 192.168.10.73:30500/bifrost-api-market
   - name: registry.cicd.svc.cluster.local:5000/bifrost-api-research

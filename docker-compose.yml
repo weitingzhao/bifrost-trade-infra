@@ -121,40 +121,9 @@ services:
     <<: *api-build
     command: python scripts/run_server.py monitor
 
-  api-docs:
+  api-account:
     <<: *api-build
-    command: python scripts/run_server.py docs
-
-  api-ops:
-    build:
-      context: ../bifrost-trade-api
-      dockerfile: Dockerfile.ops
-      args:
-        BIFROST_CORE_REF: ${BIFROST_CORE_REF:-main}
-        BIFROST_WORKER_REF: ${BIFROST_WORKER_REF:-main}
-        BIFROST_SOCKET_REF: ${BIFROST_SOCKET_REF:-main}
-        GITHUB_ORG: ${GITHUB_ORG}
-    <<: *python-common
-    command: python scripts/run_server.py ops
-    volumes:
-      - ./config:/app/config:ro
-    environment:
-      BIFROST_ENV: prod
-      BIFROST_CONFIG: /app/config/config.prod.yaml
-      # C4: api-ops is Kubernetes-only (no docker.sock / compose control).
-      # Provide cluster credentials via kubeconfig mount or in-cluster SA when used for ops.
-
-  api-trading:
-    <<: *api-build
-    command: python scripts/run_server.py trading
-
-  api-strategy:
-    <<: *api-build
-    command: python scripts/run_server.py strategy
-
-  api-portfolio:
-    <<: *api-build
-    command: python scripts/run_server.py portfolio
+    command: python scripts/run_server.py account
 
   api-market:
     <<: *api-build

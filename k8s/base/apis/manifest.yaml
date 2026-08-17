@@ -18,6 +18,7 @@ spec:
         app.kubernetes.io/name: api-monitor
         app.kubernetes.io/component: api
     spec:
+      serviceAccountName: api-ops
       volumes:
         - name: bifrost-config
           configMap:
@@ -88,70 +89,7 @@ spec:
       port: 8765
       targetPort: http
 ---
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: api-docs
-  labels:
-    app.kubernetes.io/name: api-docs
-    app.kubernetes.io/component: api
-    app.kubernetes.io/part-of: bifrost-trade
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: api-docs
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: api-docs
-        app.kubernetes.io/component: api
-    spec:
-      volumes:
-        - name: bifrost-config
-          configMap:
-            name: bifrost-config
-      containers:
-        - name: api-docs
-          image: registry.cicd.svc.cluster.local:5000/bifrost-api-docs:stg
-          imagePullPolicy: IfNotPresent
-          env:
-            - name: BIFROST_CONFIG
-              value: /app/config/config.stg.yaml
-            - name: BIFROST_ENV
-              value: stg
-            - name: ENABLE_METRICS
-              value: "true"
-            - name: API_DOMAIN
-              value: docs
-            # Skip MARKET_DATA_PLUGIN_URL — api-docs has no market.* SQL / Plugin client.
-          ports:
-            - name: http
-              containerPort: 8767
-          volumeMounts:
-            - name: bifrost-config
-              mountPath: /app/config/config.stg.yaml
-              subPath: config.stg.yaml
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: http
-            initialDelaySeconds: 15
-            periodSeconds: 20
-          resources:
-            requests:
-              cpu: 50m
-              memory: 128Mi
-            limits:
-              cpu: "1"
-              memory: 512Mi
----
+# Phase B: docs absorbed into api-monitor (IngressRoute /api/docs → monitor)
 apiVersion: v1
 kind: Service
 metadata:
@@ -162,81 +100,13 @@ metadata:
     app.kubernetes.io/part-of: bifrost-trade
 spec:
   selector:
-    app.kubernetes.io/name: api-docs
+    app.kubernetes.io/name: api-monitor
   ports:
     - name: http
-      port: 8767
+      port: 8765
       targetPort: http
 ---
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: api-ops
-  labels:
-    app.kubernetes.io/name: api-ops
-    app.kubernetes.io/component: api
-    app.kubernetes.io/part-of: bifrost-trade
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: api-ops
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: api-ops
-        app.kubernetes.io/component: api
-    spec:
-      serviceAccountName: api-ops
-      volumes:
-        - name: bifrost-config
-          configMap:
-            name: bifrost-config
-      containers:
-        - name: api-ops
-          image: registry.cicd.svc.cluster.local:5000/bifrost-api-ops:stg
-          imagePullPolicy: IfNotPresent
-          env:
-            - name: BIFROST_CONFIG
-              value: /app/config/config.stg.yaml
-            - name: BIFROST_ENV
-              value: stg
-            - name: ENABLE_METRICS
-              value: "true"
-            - name: API_DOMAIN
-              value: ops
-            # Skip MARKET_DATA_PLUGIN_URL — api-ops has no market.* SQL / Plugin client.
-          envFrom:
-            - secretRef:
-                name: bifrost-stg-secrets
-                optional: true
-          ports:
-            - name: http
-              containerPort: 8768
-          volumeMounts:
-            - name: bifrost-config
-              mountPath: /app/config/config.stg.yaml
-              subPath: config.stg.yaml
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: http
-            initialDelaySeconds: 15
-            periodSeconds: 20
-          resources:
-            requests:
-              cpu: 50m
-              memory: 128Mi
-            limits:
-              cpu: "1"
-              memory: 512Mi
----
+# Phase B Wave B4: ops absorbed into api-monitor (IngressRoute /api/ops → monitor)
 apiVersion: v1
 kind: Service
 metadata:
@@ -247,29 +117,29 @@ metadata:
     app.kubernetes.io/part-of: bifrost-trade
 spec:
   selector:
-    app.kubernetes.io/name: api-ops
+    app.kubernetes.io/name: api-monitor
   ports:
     - name: http
-      port: 8768
+      port: 8765
       targetPort: http
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: api-trading
+  name: api-account
   labels:
-    app.kubernetes.io/name: api-trading
+    app.kubernetes.io/name: api-account
     app.kubernetes.io/component: api
     app.kubernetes.io/part-of: bifrost-trade
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: api-trading
+      app.kubernetes.io/name: api-account
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: api-trading
+        app.kubernetes.io/name: api-account
         app.kubernetes.io/component: api
     spec:
       volumes:
@@ -277,8 +147,8 @@ spec:
           configMap:
             name: bifrost-config
       containers:
-        - name: api-trading
-          image: registry.cicd.svc.cluster.local:5000/bifrost-api-trading:stg
+        - name: api-account
+          image: registry.cicd.svc.cluster.local:5000/bifrost-api-account:stg
           imagePullPolicy: IfNotPresent
           env:
             - name: BIFROST_CONFIG
@@ -288,8 +158,8 @@ spec:
             - name: ENABLE_METRICS
               value: "true"
             - name: API_DOMAIN
-              value: trading
-            # Skip MARKET_DATA_PLUGIN_URL — api-trading has no market.* SQL / Plugin client.
+              value: account
+            # Phase B: merged trading + portfolio (paths /executions*, /portfolio*, /position-categories*).
           ports:
             - name: http
               containerPort: 8769
@@ -320,6 +190,23 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
+  name: api-account
+  labels:
+    app.kubernetes.io/name: api-account
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: bifrost-trade
+spec:
+  selector:
+    app.kubernetes.io/name: api-account
+  ports:
+    - name: http
+      port: 8769
+      targetPort: http
+---
+# Compatibility alias: IngressRoute /api/trading → account pod
+apiVersion: v1
+kind: Service
+metadata:
   name: api-trading
   labels:
     app.kubernetes.io/name: api-trading
@@ -327,76 +214,13 @@ metadata:
     app.kubernetes.io/part-of: bifrost-trade
 spec:
   selector:
-    app.kubernetes.io/name: api-trading
+    app.kubernetes.io/name: api-account
   ports:
     - name: http
       port: 8769
       targetPort: http
 ---
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: api-strategy
-  labels:
-    app.kubernetes.io/name: api-strategy
-    app.kubernetes.io/component: api
-    app.kubernetes.io/part-of: bifrost-trade
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: api-strategy
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: api-strategy
-        app.kubernetes.io/component: api
-    spec:
-      volumes:
-        - name: bifrost-config
-          configMap:
-            name: bifrost-config
-      containers:
-        - name: api-strategy
-          image: registry.cicd.svc.cluster.local:5000/bifrost-api-strategy:stg
-          imagePullPolicy: IfNotPresent
-          env:
-            - name: BIFROST_CONFIG
-              value: /app/config/config.stg.yaml
-            - name: BIFROST_ENV
-              value: stg
-            - name: ENABLE_METRICS
-              value: "true"
-            - name: API_DOMAIN
-              value: strategy
-            # Skip MARKET_DATA_PLUGIN_URL — api-strategy has no market.* SQL / Plugin client.
-          ports:
-            - name: http
-              containerPort: 8770
-          volumeMounts:
-            - name: bifrost-config
-              mountPath: /app/config/config.stg.yaml
-              subPath: config.stg.yaml
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: http
-            initialDelaySeconds: 15
-            periodSeconds: 20
-          resources:
-            requests:
-              cpu: 50m
-              memory: 128Mi
-            limits:
-              cpu: "1"
-              memory: 512Mi
----
+# Phase B: strategy absorbed into api-account (IngressRoute /api/strategy → account)
 apiVersion: v1
 kind: Service
 metadata:
@@ -407,76 +231,13 @@ metadata:
     app.kubernetes.io/part-of: bifrost-trade
 spec:
   selector:
-    app.kubernetes.io/name: api-strategy
+    app.kubernetes.io/name: api-account
   ports:
     - name: http
-      port: 8770
+      port: 8769
       targetPort: http
 ---
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: api-portfolio
-  labels:
-    app.kubernetes.io/name: api-portfolio
-    app.kubernetes.io/component: api
-    app.kubernetes.io/part-of: bifrost-trade
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: api-portfolio
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: api-portfolio
-        app.kubernetes.io/component: api
-    spec:
-      volumes:
-        - name: bifrost-config
-          configMap:
-            name: bifrost-config
-      containers:
-        - name: api-portfolio
-          image: registry.cicd.svc.cluster.local:5000/bifrost-api-portfolio:stg
-          imagePullPolicy: IfNotPresent
-          env:
-            - name: BIFROST_CONFIG
-              value: /app/config/config.stg.yaml
-            - name: BIFROST_ENV
-              value: stg
-            - name: ENABLE_METRICS
-              value: "true"
-            - name: API_DOMAIN
-              value: portfolio
-            # Skip MARKET_DATA_PLUGIN_URL — api-portfolio has no market.* SQL / Plugin client.
-          ports:
-            - name: http
-              containerPort: 8771
-          volumeMounts:
-            - name: bifrost-config
-              mountPath: /app/config/config.stg.yaml
-              subPath: config.stg.yaml
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: http
-            initialDelaySeconds: 15
-            periodSeconds: 20
-          resources:
-            requests:
-              cpu: 50m
-              memory: 128Mi
-            limits:
-              cpu: "1"
-              memory: 512Mi
----
+# Compatibility alias: IngressRoute /api/portfolio → account pod (port unified to 8769)
 apiVersion: v1
 kind: Service
 metadata:
@@ -487,10 +248,10 @@ metadata:
     app.kubernetes.io/part-of: bifrost-trade
 spec:
   selector:
-    app.kubernetes.io/name: api-portfolio
+    app.kubernetes.io/name: api-account
   ports:
     - name: http
-      port: 8771
+      port: 8769
       targetPort: http
 ---
 apiVersion: apps/v1
