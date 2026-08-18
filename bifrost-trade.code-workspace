@@ -49,6 +49,9 @@
 		{
 			"name": "📚 Ref · research — 外部只读 · Analysis · 事件雷达",
 			"path": "../Research-workspace"
+		},
+		{
+			"path": "../bifrost-platform-plugin-flex-query"
 		}
 	],
 	"settings": {

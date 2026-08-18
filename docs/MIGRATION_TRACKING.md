@@ -350,7 +350,7 @@ GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 
 ## §13b Brokerage Golden Source（Program: `brokerage-golden-source`）
 
 > IB 账户/持仓/成交迁入 `bifrost_golden_source.brokerage.*`；per-env 经 `postgres_fdw` 只读 JOIN。
-> Core `0.6.0`：`brokerage_ddl.py` / `brokerage_tables.py` / dual-conn sink / Account Sync golden_conn。
+> Core `0.6.1`：per-env `_ensure_tables` 跳过已迁表；`db_refresh_schema` 自动 brokerage DDL + FDW。
 
 | Phase | 内容 | 状态 |
 |-------|------|------|
@@ -361,6 +361,7 @@ GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 
 | P2 data | Copy executions + commissions + transactions | ✅ |
 | P3 | Readers: schema-qualify via brokerage_tables | ✅ |
 | P4 | Docs + core 0.6.0; legacy public tables retained 30d | ✅ |
+| P5 | Hygiene: skip legacy CREATE in ddl.py; watchlist → brokerage.positions; db-init FDW; drop EXECUTIONS_WRITE_LEGACY | ✅ 2026-08-17 |
 
 **Table map**: `account`→`brokerage.account`, `account_positions`→`brokerage.positions`,
 `account_execution_commissions`→`brokerage.commissions`, `account_transactions`→`brokerage.transactions`,

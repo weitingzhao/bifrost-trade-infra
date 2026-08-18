@@ -43,6 +43,16 @@ gates:
       paper_trade: true
 
 # PostgreSQL / Redis / IB live in config.dev.yaml / config.prod.yaml in a typical split.
+#
+# Brokerage Golden Source (shared IB account/position/execution data).
+# Same CNPG host as postgres; database bifrost_golden_source; schema brokerage.*.
+# Env overrides: GOLDEN_SOURCE_HOST/PORT/DATABASE/USER/PASSWORD
+# golden_source:
+#   # host/port omit → reuse postgres.host/port
+#   database: "bifrost_golden_source"
+#   user: "bifrost"
+#   # password: ""
+#   # fdw_user: "brokerage_reader"
 
 # IB Operator (shared): Redis cmd RPC. Start: scripts/run_ib_operator.py
 ib_operator:
