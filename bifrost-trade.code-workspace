@@ -27,6 +27,10 @@
 			"path": "../bifrost-platform-plugin-market-data"
 		},
 		{
+			"name": "🚀 Ops · flex-query — IB Flex Query · brokerage · :8791",
+			"path": "../bifrost-platform-plugin-flex-query"
+		},
+		{
 			"name": "📈 Trade · frontend — 业务监控 UI · SPA :5173",
 			"path": "../bifrost-trade-frontend"
 		},
