@@ -102,6 +102,30 @@ spec:
     prefixes:
       - /api/plugin/market-data
 ---
+# FE same-origin Flex Query Plugin: /api/plugin/flex-query/* → flex-query-api paths.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-api-plugin-flex-query
+  labels:
+    app.kubernetes.io/name: trade-gateway
+spec:
+  stripPrefix:
+    prefixes:
+      - /api/plugin/flex-query
+---
+# Marks Trade-gateway POSTs so Plugin write-token can accept LAN same-origin FE.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: flex-query-trade-gateway
+  labels:
+    app.kubernetes.io/name: trade-gateway
+spec:
+  headers:
+    customRequestHeaders:
+      X-Bifrost-Trade-Gateway: "1"
+---
 # SSE / long-poll friendly — disable proxy buffering semantics for streaming APIs.
 apiVersion: traefik.io/v1alpha1
 kind: Middleware

@@ -111,6 +111,16 @@ spec:
         - name: market-data-api
           namespace: plugin-market-data
           port: 8790
+    - match: Host(`stg.trader.bifrost.lan`) && PathPrefix(`/api/plugin/flex-query`)
+      kind: Rule
+      priority: 110
+      middlewares:
+        - name: strip-api-plugin-flex-query
+        - name: flex-query-trade-gateway
+      services:
+        - name: flex-query-api
+          namespace: plugin-flex-query
+          port: 8791
     - match: Host(`stg.trader.bifrost.lan`) && Path(`/health`)
       kind: Rule
       priority: 50
