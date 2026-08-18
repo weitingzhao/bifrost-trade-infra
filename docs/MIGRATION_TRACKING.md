@@ -61,7 +61,7 @@ GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 
 
 | 模块 | engine 源 | 目标路径 | 关键文件 | 状态 |
 |------|----------|----------|---------|------|
-| connector | `src/ib/`, `src/connector/` | `bifrost_socket/ib/connector/` | connection_policy.py, ib.py, flex_client.py | **VERIFIED** |
+| connector | `src/ib/`, `src/connector/` | `bifrost_socket/ib/connector/` | connection_policy.py, ib.py（`flex_client.py` → Flex Query Plugin `0.2.0`） | **VERIFIED** |
 | ingestor | `src/vendor/ib_ingestor/` | `bifrost_socket/ib/ingestor/` | writer.py, redis_keys.py | **VERIFIED** |
 | account_agent | `src/vendor/ib_account_agent/` | `bifrost_socket/ib/account_agent/` | writer.py, redis_keys.py | **VERIFIED** |
 | operator | `src/ib_operator/` (service) | `bifrost_socket/ib/operator/` | service.py, executor.py, redis_io.py, health_redis.py | **VERIFIED** |
@@ -488,6 +488,7 @@ views `account_executions*`→`brokerage.executions*`.
 
 | 日期 | 变更内容 | 操作人 |
 |------|---------|--------|
+| 2026-08-18 | **Flex 引擎内化**: `flex_client` + Flex 编排/配置读写从 Trade core/socket 迁入 `bifrost-platform-plugin-flex-query` `0.2.0`；core `0.7.0`；Monitor `GET /status` 去掉 `config.ib_flex` | Agent |
 | 2026-08-14 | **Write Consolidation COMPLETED**: W0 Plugin WRITE API (3 endpoints); W1 Trade WRITE cutover (4 phases — bars/ticker/expiration); W2 Trade READ residual (4+1 phases — SEPA/PCR/greeks/bars/ticker, ~148 SQL → Plugin HTTP); W3 DROP `market`/`market_analytics`/`data_ops` from `bifrost_dev` (19+4+5 objects); CNPG backup `bifrost-postgres-ondemand-20260814-213229` | Agent |
 | 2026-08-14 | **Golden Source Post-Cleanup**: CREATE DATABASE `bifrost_golden_source` + pg_dump/restore (177 tables, 212MB); DROP schemas from `bifrost_stg`/`bifrost_prod`; DELETE NS `plugin-market-data-stg`/`plugin-market-data-prod`; remove SQL fallback from `market_pg.py` (-1169 lines); ingress NetworkPolicy fix | Agent |
 | 2026-08-14 | **Market Data Golden Source W2 COMPLETED**: W2-P1 single NS converge + watchlist union; W2-P2 STG/PROD overlays archived to `_archived/`; W2-P3 config → `bifrost_golden_source`, Ops Console catalog `2026-08-14-golden-source`, program YAML all phases → completed | Agent |
