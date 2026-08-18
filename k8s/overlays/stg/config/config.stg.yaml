@@ -14,7 +14,7 @@ server:
     market_port: 8772
     strategy_port: 8770
   feed:
-    massive_port: 8766  # legacy — api-massive retired (P7)
+    massive_port: 8766
 
 sink: postgres
 
@@ -109,17 +109,6 @@ redis_ib:
   username: trade-prod
   password: "9934af40b9c34fe20bb227b1730dea1e"
 
-# Plugin redis-massive — ExternalName → redis-massive.data.svc.cluster.local
-# WS ingestor migrated to bifrost-platform-plugin-market-data (Wave 2).
-redis_massive:
-  enabled: true
-  host: redis-massive
-  port: 6379
-  db: 0
-  username: trade-prod
-  password: "b9e7bf4caccb99060774f2c3050480b70d21aacea97dd381"
-
-
 ops:
   control_profile: stg
   # trade-celery-k8s-ideal W1: kubernetes executor scales Deployments (not subprocess in api-ops).
@@ -144,11 +133,22 @@ ops:
   audit:
     persist: true
 
-# Prefer env MASSIVE_API_KEY / POLYGON_API_KEY from Secret in pods.
+# Plugin redis-massive — ExternalName → redis-massive.data.svc.cluster.local
+redis_massive:
+  enabled: true
+  host: redis-massive
+  port: 6379
+  db: 0
+  username: trade-prod
+  password: "b9e7bf4caccb99060774f2c3050480b70d21aacea97dd381"
+
+
+# api_key: Prefer env MASSIVE_API_KEY / POLYGON_API_KEY from Secret in pods.
+# WS ingest (ws_url, ws_enabled, trades_enabled) migrated to Plugin; Trade no longer uses these.
 massive:
   api_key: ""
   tier: starter
   ws_url: wss://delayed.polygon.io/options
   features:
     trades_enabled: false
-    ws_enabled: false  # Options Starter = REST aggregates via Celery; WS needs Developer+
+    ws_enabled: false

@@ -14,7 +14,7 @@ server:
     market_port: 8772
     strategy_port: 8770
   feed:
-    massive_port: 8766  # legacy — api-massive retired (P7)
+    massive_port: 8766
 
 sink: postgres
 
@@ -77,6 +77,16 @@ postgres:
   user: bifrost
   password: bifrost_stg
   database: bifrost_stg
+
+# Shared brokerage Golden Source (IB account/positions/executions)
+golden_source:
+  host: bifrost-postgres-rw.data.svc.cluster.local
+  port: 5432
+  database: bifrost_golden_source
+  user: bifrost
+  password: bifrost_stg
+  fdw_user: brokerage_reader
+  fdw_password: bifrost_stg
 
 redis:
   enabled: true

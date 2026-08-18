@@ -60,6 +60,16 @@ postgres:
   password: bifrost_stg
   database: bifrost_dev
 
+# Shared brokerage Golden Source (IB account/positions/executions)
+golden_source:
+  host: 192.168.10.73
+  port: 30432
+  database: bifrost_golden_source
+  user: bifrost
+  password: bifrost_stg
+  fdw_user: brokerage_reader
+  fdw_password: bifrost_stg
+
 redis:
   enabled: true
   host: 192.168.10.70
