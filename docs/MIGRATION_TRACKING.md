@@ -554,3 +554,49 @@ views `account_executions*`→`brokerage.executions*`.
 | `api-research` | 8773 | research |
 
 Frontend: single `VITE_API_BASE` (Wave B1). Gate B4 PASS (RBAC via `api-ops` SA on monitor).
+
+## Backlog — Frontend `massive` source alias cleanup
+
+**Status**: PLANNED | **Priority**: Low | **Risk**: None (functionally correct, semantically stale)
+
+P7 retired `api-massive` (port 8766) and Polygon WS — all data now flows through Market Data Plugin.
+Backend APIs still accept `source='massive'` as a backward-compatible alias, so the frontend works correctly.
+However, 15 call sites and 7 type references still hardcode `'massive'` as the source string, creating semantic confusion.
+
+### Files to update (replace `'massive'` → `'plugin'` or remove source param)
+
+| File | Occurrences | Nature |
+|------|:-----------:|--------|
+| `src/api/research/optionDiscovery.ts` | 7 | Default params `source = 'massive'` |
+| `src/api/market.ts` | 1 | `source: params.source ?? 'massive'` |
+| `src/hooks/useDiscoveryExpirations.ts` | 2 | Hardcoded `'massive'` in fetch calls |
+| `src/hooks/useDiscoverySnapshots.ts` | 2 | Hardcoded `'massive'` in fetch calls |
+| `src/hooks/useOptionChainQuotes.ts` | 2 | Hardcoded `'massive'` in fetch calls |
+| `src/hooks/useDiscoveryIvTerm.ts` | 2 | Hardcoded `'massive'` in fetch calls |
+| `src/hooks/useDiscoveryGreeksCoverage.ts` | 1 | Hardcoded `'massive'` in fetch call |
+| `src/components/optionDiscovery/useOptionContractLiquidity.ts` | 2 | Hardcoded `'massive'` |
+| `src/components/optionDiscovery/OptionContractDetailFromOpenPosition.tsx` | 2 | Hardcoded `'massive'` |
+| `src/components/optionDiscovery/OptionDiscoveryContractChartPanel.tsx` | 1 | `BAR_SOURCE = 'massive'` const |
+| `src/components/strategy/instanceDetail/InstanceKlineSection.tsx` | 2 | Hardcoded `'massive'` |
+| `src/pages/research/optionScreener/optionScreenerConstants.ts` | 1 | `source: 'massive'` |
+| `src/pages/settings/apiHealth/panels/ArchDetailsPanel.tsx` | 1 | Displays `massive_port` config |
+| `src/pages/settings/apiHealth/ApiConfiguredRoutesStrip.tsx` | 2 | Label for `'massive'` source |
+
+### Also clean (types / monitor)
+
+| File | Nature |
+|------|--------|
+| `src/types/monitor.ts` | JSDoc referencing "massive fallback" |
+| `src/types/watchlistDbCoverage.ts` | `massive_count`, `massive_total` fields |
+| `src/types/stockDataReadiness.ts` | `massive_count`, `last_massive_sync` fields |
+| `src/pages/settings/socket/IngestConnectionCell.tsx` | `ws_massive` references |
+| `src/utils/socketIngestLamp.ts` + test | `ws_massive` references |
+| `src/hooks/useMarketDataPluginStatus.ts` | Comment about retired api-massive |
+
+### Execution plan
+
+1. Backend: add `'plugin'` as canonical source alias (or remove source routing entirely)
+2. Frontend: batch-replace `'massive'` → `'plugin'` in all call sites
+3. Frontend: update type definitions to drop `massive_*` fields
+4. Frontend: remove ArchDetailsPanel `massive_port` display
+5. Run `npm run lint && npm run build && npm run check:legacy-css`
