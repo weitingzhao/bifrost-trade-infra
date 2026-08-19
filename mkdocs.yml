@@ -65,4 +65,5 @@ nav:
     - Docker control plane (2C-A.1): PHASE2C_A1_DOCKER_CONTROL_PLANE.md
   - Operations:
     - Docker build guide: DOCKER_BUILD.md
+    - Secrets (YAML → K8s Secret): SECRETS.md
     - Dense UI phase roadmap: DENSE_UI_PHASE_ROADMAP.md

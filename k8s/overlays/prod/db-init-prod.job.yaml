@@ -32,6 +32,10 @@ spec:
               value: /app/config/config.prod.yaml
             - name: BIFROST_ENV
               value: prod
+          envFrom:
+            - secretRef:
+                name: bifrost-prod-secrets
+                optional: true
           volumeMounts:
             - name: bifrost-config
               mountPath: /app/config/config.prod.yaml

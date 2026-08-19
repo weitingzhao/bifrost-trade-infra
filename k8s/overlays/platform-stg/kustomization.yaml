@@ -33,6 +33,7 @@ patches:
   - path: images-pull-always.patch.yaml
   - path: platform-api-observability-env.patch.yaml
   - path: platform-api-write-token.patch.yaml
+  - path: platform-api-redis-ib-env.patch.yaml
 
 images:
   - name: registry.cicd.svc.cluster.local:5000/bifrost-platform-api

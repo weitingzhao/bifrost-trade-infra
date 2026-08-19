@@ -100,7 +100,7 @@ postgres = f"""postgres:
   host: {pg_host}
   port: {pg_port}
   user: {pg_user}
-  password: {pw}
+  password: ""
   database: {pg_db}
 """
 
@@ -151,7 +151,7 @@ server = f"""server:
 """
 
 massive = f"""massive:
-  api_key: {polygon}
+  api_key: ""
 """
 
 text = sub_block(text, "server", server)
@@ -162,6 +162,7 @@ text = sub_block(text, "massive", massive)
 path.write_text(text, encoding="utf-8")
 ib2_msg = ib2_host.strip() or "—"
 print(f"Updated {path} from .env (postgres→{pg_host}/{pg_db}, redis→{redis_host}, ib→{ib_host}, secondary→{ib2_msg})")
+print("NOTE: passwords/api_key left empty — use PGPASSWORD / MASSIVE_API_KEY in .env or K8s Secret (docs/SECRETS.md)")
 PY
 
 INFRA_MODE="${BIFROST_PROD_INFRA:-host}"

@@ -137,7 +137,7 @@ postgres = f"""postgres:
   host: {pg_host}
   port: {pg_port}
   user: {pg_user}
-  password: {pw}
+  password: ""
   database: {pg_db}
 """
 
@@ -184,6 +184,7 @@ text = sub_block(text, "redis", redis)
 path.write_text(text, encoding="utf-8")
 ib2_msg = ib2_host.strip() or "—"
 print(f"Updated {path} from .env (postgres→{pg_host}, redis→{redis_host}, ib→{ib_host}, secondary→{ib2_msg})")
+print("NOTE: postgres.password left empty — set PGPASSWORD / POSTGRES_PASSWORD in .env (see docs/SECRETS.md)")
 PY
 
 # Remind: ops.worker_profiles + ops.celery.prod_worker_hostnames live in config.dev.yaml (from legacy config.yaml).

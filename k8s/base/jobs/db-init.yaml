@@ -32,6 +32,10 @@ spec:
               value: /app/config/config.stg.yaml
             - name: BIFROST_ENV
               value: stg
+          envFrom:
+            - secretRef:
+                name: bifrost-stg-secrets
+                optional: true
           volumeMounts:
             - name: bifrost-config
               mountPath: /app/config/config.stg.yaml

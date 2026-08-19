@@ -115,7 +115,7 @@ server = f"""server:
 """
 
 massive = f"""massive:
-  api_key: {polygon}
+  api_key: ""
   tier: starter
   ws_url: wss://delayed.polygon.io/options
   features:
@@ -128,6 +128,7 @@ text = sub_block(text, "ib", ib)
 text = sub_block(text, "massive", massive)
 path.write_text(text, encoding="utf-8")
 print(f"Updated {path} (ib→{ib_host}, skip_monitor_ib={str(skip_ib).lower()})")
+print("NOTE: massive.api_key left empty — use MASSIVE_API_KEY / POLYGON_API_KEY in Secret or .env")
 PY
 
 python3 - "$CFG" "$OVERLAY_CFG" <<'PY'

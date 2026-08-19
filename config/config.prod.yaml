@@ -57,7 +57,7 @@ postgres:
   host: 192.168.10.73
   port: 30432
   user: bifrost
-  password: bifrost_stg
+  password: ""
   database: bifrost_dev
 
 # Shared brokerage Golden Source (IB account/positions/executions)
@@ -66,9 +66,9 @@ golden_source:
   port: 30432
   database: bifrost_golden_source
   user: bifrost
-  password: bifrost_stg
+  password: ""
   fdw_user: brokerage_reader
-  fdw_password: bifrost_stg
+  fdw_password: ""
 
 redis:
   enabled: true
@@ -101,12 +101,12 @@ redis_massive:
   port: 6379
   db: 0
   username: trade-prod
-  password: "b9e7bf4caccb99060774f2c3050480b70d21aacea97dd381"
+  password: ""
 
 
 # api_key + rest_base still used by Research REST (polygon_http); WS migrated to Plugin
 massive:
-  api_key: MYCd1tboShKK7UTYgKN_fjtBrZUr9zhe
+  api_key: ""
   tier: starter
   ws_url: wss://delayed.polygon.io/options
   features:

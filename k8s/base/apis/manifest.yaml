@@ -44,6 +44,10 @@ spec:
                   name: bifrost-stg-secrets
                   key: MARKET_DATA_WRITE_TOKEN
                   optional: true
+          envFrom:
+            - secretRef:
+                name: bifrost-stg-secrets
+                optional: true
           ports:
             - name: http
               containerPort: 8765
@@ -160,6 +164,10 @@ spec:
             - name: API_DOMAIN
               value: account
             # Phase B: merged trading + portfolio (paths /executions*, /portfolio*, /position-categories*).
+          envFrom:
+            - secretRef:
+                name: bifrost-stg-secrets
+                optional: true
           ports:
             - name: http
               containerPort: 8769
@@ -298,6 +306,10 @@ spec:
                   name: bifrost-stg-secrets
                   key: MARKET_DATA_WRITE_TOKEN
                   optional: true
+          envFrom:
+            - secretRef:
+                name: bifrost-stg-secrets
+                optional: true
           ports:
             - name: http
               containerPort: 8772
@@ -385,6 +397,10 @@ spec:
                   name: bifrost-stg-secrets
                   key: MARKET_DATA_WRITE_TOKEN
                   optional: true
+          envFrom:
+            - secretRef:
+                name: bifrost-stg-secrets
+                optional: true
           ports:
             - name: http
               containerPort: 8773

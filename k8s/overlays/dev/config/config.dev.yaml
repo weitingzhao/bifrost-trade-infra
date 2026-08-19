@@ -78,7 +78,7 @@ postgres:
   host: bifrost-postgres-rw.data.svc.cluster.local
   port: 5432
   user: bifrost
-  password: bifrost_stg
+  password: ""
   database: bifrost_dev
 
 # Shared brokerage Golden Source (IB account/positions/executions)
@@ -87,9 +87,9 @@ golden_source:
   port: 5432
   database: bifrost_golden_source
   user: bifrost
-  password: bifrost_stg
+  password: ""
   fdw_user: brokerage_reader
-  fdw_password: bifrost_stg
+  fdw_password: ""
 
 redis:
   enabled: true
@@ -105,14 +105,14 @@ redis_queue:
 
 # IBGP3 — shared Platform IB bus (ExternalName redis-ib → data NS).
 # trade-prod (not trade-dev): account-sync needs XREADGROUP/XGROUP/HSET; trade-dev ACL is read-only.
-# Password synced via scripts/sync_redis_ib_trade_config.sh
+# Password: REDIS_IB_PASSWORD in bifrost-*-secrets (scripts/sync_redis_ib_trade_config.sh — never YAML).
 redis_ib:
   enabled: true
   host: redis-ib
   port: 6379
   db: 0
   username: trade-prod
-  password: "9934af40b9c34fe20bb227b1730dea1e"
+  password: ""
 
 # Plugin redis-massive — ExternalName → redis-massive.data.svc.cluster.local
 # WS ingestor migrated to bifrost-platform-plugin-market-data (Wave 2).
@@ -122,7 +122,7 @@ redis_massive:
   port: 6379
   db: 0
   username: trade-prod
-  password: "b9e7bf4caccb99060774f2c3050480b70d21aacea97dd381"
+  password: ""
 
 
 ops:
