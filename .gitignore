@@ -11,6 +11,10 @@ config/gpu-node-power.env
 # Docker
 *.pid
 
+# Python
+__pycache__/
+*.pyc
+
 # macOS
 .DS_Store
 .DS_Store?
