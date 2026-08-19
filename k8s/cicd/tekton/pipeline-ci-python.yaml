@@ -110,9 +110,7 @@ spec:
 
               echo "==> Test (pytest)"
               if command -v pytest >/dev/null 2>&1; then
-                pytest -m 'not ib and not db' --tb=short -q || {
-                  echo "WARN: some tests failed (non-blocking for now)"
-                }
+                pytest -m 'not ib and not db' --tb=short -q
               else
                 echo "pytest not found — skip (repo may have no tests yet)"
               fi

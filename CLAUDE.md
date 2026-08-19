@@ -84,6 +84,6 @@ curl -s -H "Authorization: Bearer <operator-token>" http://localhost:8768/ops/au
 
 各服务 Docker 镜像通过 `BIFROST_CORE_REF` 变量控制安装的 bifrost-core 版本：
 - `BIFROST_CORE_REF=main` — 最新主干（开发用）
-- `BIFROST_CORE_REF=v0.2.0` — 指定 tag（生产用）
+- `BIFROST_CORE_REF=v0.8.5` — 指定 tag（生产用；与 bifrost-trade-core 当前版本对齐）
 
 在 `.env` 中修改后 `make build` 重新构建镜像。
