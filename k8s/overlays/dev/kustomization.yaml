@@ -33,9 +33,12 @@ patches:
   - path: dev-write-token-secret.patch.yaml
 
 images:
+  # Keep api-monitor on the shared registry (same pattern as account/market/research).
+  # A previous local tag (dev-live-fix-*) is not on nodes and caused ImagePullBackOff,
+  # which blocked rollout after Secret rotation → stale PGPASSWORD → empty Accounts.
   - name: registry.cicd.svc.cluster.local:5000/bifrost-api-monitor
-    newName: bifrost-api-monitor
-    newTag: dev-live-fix-20260731
+    newName: 192.168.10.73:30500/bifrost-api-monitor
+    newTag: stg
   - name: registry.cicd.svc.cluster.local:5000/bifrost-api-account
     newName: 192.168.10.73:30500/bifrost-api-account
   - name: registry.cicd.svc.cluster.local:5000/bifrost-api-market
