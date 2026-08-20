@@ -38,7 +38,7 @@
 
 GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 验收: `make verify-ib-gateway-program` · `make verify-trade-ib-rollout-prod`
 
-### §1.2 Market Data Golden Source — related tickers / ticker types
+### §1.2 Market Data Golden Source — related tickers / ticker types / stock snapshot
 
 | 项 | 状态 | 说明 |
 |----|------|------|
@@ -48,6 +48,8 @@ GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 
 | `market.ticker_type` | **DONE**（2026-08-19） | Plugin ingest `kind=ticker_type`（全量字典，手动 enqueue） |
 | Trade HTTP (types) | **DONE** | Plugin `/reference/ticker-types`；Core 删直连 SQL |
 | `public.ticker_types` | **RETIRED** | Core DDL DROP；字典迁入 Golden Source |
+| `market.stock_snapshot` coverage | **DONE**（2026-08-20） | Plugin `/market/readiness/snapshot-coverage` + `/market/readiness/vendor-gap` |
+| `public.cache_stock_snapshot` | **RETIRED**（2026-08-20） | Core DDL DROP；Trade readiness 改读 Plugin HTTP；Plugin 0.7.0 / Core 0.10.2 |
 
 ---
 
@@ -499,6 +501,7 @@ views `account_executions*`→`brokerage.executions*`.
 
 | 日期 | 变更内容 | 操作人 |
 |------|---------|--------|
+| 2026-08-20 | **Readiness Quality Migration**: `cache_stock_snapshot` → Plugin `market.stock_snapshot`；Plugin 0.7.0 新增 `/market/readiness/snapshot-coverage` + `/market/readiness/vendor-gap`；Trade Core 0.10.2 DDL DROP；API readiness_snapshot 3 处 SQL→HTTP；FE tooltip 更新 | Agent |
 | 2026-08-18 | **Flex 引擎内化**: `flex_client` + Flex 编排/配置读写从 Trade core/socket 迁入 `bifrost-platform-plugin-flex-query` `0.2.0`；core `0.7.0`；Monitor `GET /status` 去掉 `config.ib_flex` | Agent |
 | 2026-08-14 | **Write Consolidation COMPLETED**: W0 Plugin WRITE API (3 endpoints); W1 Trade WRITE cutover (4 phases — bars/ticker/expiration); W2 Trade READ residual (4+1 phases — SEPA/PCR/greeks/bars/ticker, ~148 SQL → Plugin HTTP); W3 DROP `market`/`market_analytics`/`data_ops` from `bifrost_dev` (19+4+5 objects); CNPG backup `bifrost-postgres-ondemand-20260814-213229` | Agent |
 | 2026-08-14 | **Golden Source Post-Cleanup**: CREATE DATABASE `bifrost_golden_source` + pg_dump/restore (177 tables, 212MB); DROP schemas from `bifrost_stg`/`bifrost_prod`; DELETE NS `plugin-market-data-stg`/`plugin-market-data-prod`; remove SQL fallback from `market_pg.py` (-1169 lines); ingress NetworkPolicy fix | Agent |
