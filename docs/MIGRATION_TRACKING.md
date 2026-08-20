@@ -38,13 +38,16 @@
 
 GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 验收: `make verify-ib-gateway-program` · `make verify-trade-ib-rollout-prod`
 
-### §1.2 Market Data Golden Source — related tickers
+### §1.2 Market Data Golden Source — related tickers / ticker types
 
 | 项 | 状态 | 说明 |
 |----|------|------|
 | `market.ticker_related` | **DONE**（2026-08-19） | Plugin ingest `kind=ticker_related` + CronJob `related-rotate` |
-| Trade FDW | **DONE** | `MARKET_FOREIGN_TABLES` 含 `ticker_related`；Research ticker-overview 读 FDW |
+| Trade FDW (related) | **DONE** | `MARKET_FOREIGN_TABLES` 含 `ticker_related`；Research ticker-overview 读 FDW |
 | `public.ticker_related_tickers` | **RETIRED** | Core DDL DROP；历史数据回填进 Golden Source |
+| `market.ticker_type` | **DONE**（2026-08-19） | Plugin ingest `kind=ticker_type`（全量字典，手动 enqueue） |
+| Trade HTTP (types) | **DONE** | Plugin `/reference/ticker-types`；Core 删直连 SQL |
+| `public.ticker_types` | **RETIRED** | Core DDL DROP；字典迁入 Golden Source |
 
 ---
 

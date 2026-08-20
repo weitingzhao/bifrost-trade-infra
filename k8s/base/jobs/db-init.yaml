@@ -23,7 +23,7 @@ spec:
       containers:
         - name: db-init
           image: registry.cicd.svc.cluster.local:5000/bifrost-api-monitor:stg
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           command:
             - python
             - /build/bifrost-trade-core/scripts/db/db_refresh_schema.py

@@ -27,7 +27,7 @@ spec:
       containers:
         - name: db-init
           image: 192.168.10.73:30500/bifrost-api-monitor:stg
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           command:
             - python
             - /build/bifrost-trade-core/scripts/db/db_refresh_schema.py
