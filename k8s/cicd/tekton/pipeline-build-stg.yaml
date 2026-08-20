@@ -9,10 +9,11 @@ spec:
   params:
     - name: apiImage
       type: string
-      default: registry.cicd.svc.cluster.local:5000/bifrost-api-monitor:stg
+      # Smoke placeholder tags — real STG images come from bifrost-deliver-stg.
+      default: registry.cicd.svc.cluster.local:5000/bifrost-api-monitor:smoke
     - name: frontendImage
       type: string
-      default: registry.cicd.svc.cluster.local:5000/bifrost-frontend:stg
+      default: registry.cicd.svc.cluster.local:5000/bifrost-frontend:smoke
   workspaces:
     - name: api-source
     - name: frontend-source

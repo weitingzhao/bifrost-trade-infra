@@ -48,8 +48,9 @@ GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 
 | `market.ticker_type` | **DONE**（2026-08-19） | Plugin ingest `kind=ticker_type`（全量字典，手动 enqueue） |
 | Trade HTTP (types) | **DONE** | Plugin `/reference/ticker-types`；Core 删直连 SQL |
 | `public.ticker_types` | **RETIRED** | Core DDL DROP；字典迁入 Golden Source |
-| `market.stock_snapshot` coverage | **DONE**（2026-08-20） | Plugin `/market/readiness/snapshot-coverage` + `/market/readiness/vendor-gap` |
-| `public.cache_stock_snapshot` | **RETIRED**（2026-08-20） | Core DDL DROP；Trade readiness 改读 Plugin HTTP；Plugin 0.7.0 / Core 0.10.2 |
+| `market.stock_snapshot` coverage | **DONE**（2026-08-20） | Plugin `/market/readiness/snapshot-coverage` + `/market/readiness/vendor-gap`；STG/DEV/PROD 全环境 E2E 验证 |
+| `public.cache_stock_snapshot` | **RETIRED**（2026-08-20） | Core DDL DROP；Trade readiness 改读 Plugin HTTP；Plugin 0.7.0 / Core 0.10.2；db-init 已在 STG/DEV/PROD 执行（表不存在） |
+| Tekton smoke tag isolation | **DONE**（2026-08-20） | `bifrost-build-stg` / kaniko smoke tasks 默认 tag `:stg` → `:smoke`，避免覆盖真实交付镜像 |
 
 ---
 
@@ -501,6 +502,7 @@ views `account_executions*`→`brokerage.executions*`.
 
 | 日期 | 变更内容 | 操作人 |
 |------|---------|--------|
+| 2026-08-20 | **Readiness Quality Phase B**: DEV rollout + `db-init-dev`；PROD `bifrost-deliver-prod` + `db-init-prod`；STG `bifrost-deliver-stg` 规范化重建；三环境 readiness `row=13131 gap=118`；`cache_stock_snapshot` 三库均不存在；Tekton smoke 默认 tag 改为 `:smoke` | Agent |
 | 2026-08-20 | **Readiness Quality Migration**: `cache_stock_snapshot` → Plugin `market.stock_snapshot`；Plugin 0.7.0 新增 `/market/readiness/snapshot-coverage` + `/market/readiness/vendor-gap`；Trade Core 0.10.2 DDL DROP；API readiness_snapshot 3 处 SQL→HTTP；FE tooltip 更新 | Agent |
 | 2026-08-18 | **Flex 引擎内化**: `flex_client` + Flex 编排/配置读写从 Trade core/socket 迁入 `bifrost-platform-plugin-flex-query` `0.2.0`；core `0.7.0`；Monitor `GET /status` 去掉 `config.ib_flex` | Agent |
 | 2026-08-14 | **Write Consolidation COMPLETED**: W0 Plugin WRITE API (3 endpoints); W1 Trade WRITE cutover (4 phases — bars/ticker/expiration); W2 Trade READ residual (4+1 phases — SEPA/PCR/greeks/bars/ticker, ~148 SQL → Plugin HTTP); W3 DROP `market`/`market_analytics`/`data_ops` from `bifrost_dev` (19+4+5 objects); CNPG backup `bifrost-postgres-ondemand-20260814-213229` | Agent |

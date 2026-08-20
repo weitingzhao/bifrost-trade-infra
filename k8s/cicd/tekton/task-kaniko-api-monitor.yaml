@@ -9,7 +9,8 @@ spec:
   params:
     - name: image
       type: string
-      default: registry.cicd.svc.cluster.local:5000/bifrost-api-monitor:stg
+      # Smoke placeholder only — never overwrite :stg (real deliver uses bifrost-deliver-stg).
+      default: registry.cicd.svc.cluster.local:5000/bifrost-api-monitor:smoke
   workspaces:
     - name: source
   steps:
