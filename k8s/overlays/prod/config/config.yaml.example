@@ -43,6 +43,16 @@ gates:
       paper_trade: true
 
 # PostgreSQL / Redis / IB live in config.dev.yaml / config.prod.yaml in a typical split.
+#
+# Brokerage Golden Source (shared IB account/position/execution data).
+# Same CNPG host as postgres; database bifrost_golden_source; schema brokerage.*.
+# Env overrides: GOLDEN_SOURCE_HOST/PORT/DATABASE/USER/PASSWORD
+# golden_source:
+#   # host/port omit → reuse postgres.host/port
+#   database: "bifrost_golden_source"
+#   user: "bifrost"
+#   # password: ""
+#   # fdw_user: "brokerage_reader"
 
 # IB Operator (shared): Redis cmd RPC. Start: scripts/run_ib_operator.py
 ib_operator:
@@ -101,12 +111,9 @@ ops:
   worker_list_inspect_cache_ttl_sec: 20
   auth:
     allow_unauthenticated_reads: true
-    # Dev tokens (operator/admin for UI Authenticate): see config/config.dev.yaml ops.auth.tokens
-    # Prod: config.prod.yaml or OPS_OPERATOR_TOKEN / OPS_ADMIN_TOKEN env overrides
-    # tokens:
-    #   - token: "<secret>"
-    #     role: "operator"
-    #     name: "trader"
+    # Tokens: set OPS_OPERATOR_TOKEN / OPS_ADMIN_TOKEN in .env or K8s Secret (docs/SECRETS.md).
+    # Do not commit plaintext tokens in YAML.
+    # tokens: []
   celery:
     default_max_worker_instances: 1
     canonical_queue_order:
