@@ -511,7 +511,8 @@ views `account_executions*`→`brokerage.executions*`.
 | Trade API cutover | ✅ Deployed STG+DEV | `SEPA_USE_ANALYTICS=true`, analytics_reader pooled connection to Golden Source |
 | Frontend adaptation | ✅ Deployed STG+DEV | `normalizeSnapshotRow()` adapter, 7 files, pipeline `bifrost-deliver-stg` |
 | Python engines deprecated | ✅ Moved to `_deprecated/` | 9 engine files with redirect stubs |
-| Legacy tables DROP | ⏳ After 1-week soak | `stock_readiness_daily`, `research_sepa_fundamentals_cache`, `job_sepa_phase4` |
+| Legacy tables DROP | ✅ Dropped 2026-08-20 | `stock_readiness_daily`, `research_sepa_fundamentals_cache`, `job_sepa_phase4` + CASCADE (`v_sepa_symbol_fund_cache_readiness`) — DEV + PROD |
+| API legacy query guards | ✅ Deployed 2026-08-20 | All `stock_readiness_daily` queries guarded by `use_analytics()` — tier endpoints return empty with note |
 
 **Data depth note:** `market.stock_daily` covers ~162 trading days (2025-06 to 2026-08). CRS/technical models require 252+ days → `sepa_technical_eval`, `sepa_tier_momentum`, `sepa_composite_score`, `sepa_screener_wide` currently empty. Will auto-populate as daily bars accumulate.
 
@@ -520,7 +521,7 @@ views `account_executions*`→`brokerage.executions*`.
 2. ✅ dbt runner Job (21/21 PASS) + daily CronJob
 3. ✅ Trade API `api-research` with `SEPA_USE_ANALYTICS=true` (STG + DEV)
 4. ✅ Frontend with normalizer (STG + DEV via `bifrost-deliver-stg`)
-5. ⏳ 1-week soak period → DROP legacy tables
+5. ✅ Legacy tables DROPPED (DEV + PROD) + all API queries guarded
 
 ---
 
@@ -528,6 +529,7 @@ views `account_executions*`→`brokerage.executions*`.
 
 | 日期 | 变更内容 | 操作人 |
 |------|---------|--------|
+| 2026-08-20 | **SEPA dbt Migration COMPLETED**: Legacy tables DROPPED (DEV+PROD); all API endpoints guarded by `use_analytics()`; readiness/summary migrated to analytics schema; POST snapshot/backfill return deprecated; tier endpoints graceful empty | Agent |
 | 2026-08-20 | **SEPA dbt Migration Wave 6 (Cleanup)**: DDL deprecation markers on `stock_readiness_daily` / `research_sepa_fundamentals_cache` / `v_sepa_symbol_fund_cache_readiness` / `job_sepa_phase4`；§15 added；`bifrost-analytics` added to workspace rules | Agent |
 | 2026-08-20 | **Readiness Quality Phase B**: DEV rollout + `db-init-dev`；PROD `bifrost-deliver-prod` + `db-init-prod`；STG `bifrost-deliver-stg` 规范化重建；三环境 readiness `row=13131 gap=118`；`cache_stock_snapshot` 三库均不存在；Tekton smoke 默认 tag 改为 `:smoke` | Agent |
 | 2026-08-20 | **Readiness Quality Migration**: `cache_stock_snapshot` → Plugin `market.stock_snapshot`；Plugin 0.7.0 新增 `/market/readiness/snapshot-coverage` + `/market/readiness/vendor-gap`；Trade Core 0.10.2 DDL DROP；API readiness_snapshot 3 处 SQL→HTTP；FE tooltip 更新 | Agent |
