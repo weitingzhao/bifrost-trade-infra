@@ -1,0 +1,39 @@
+# GitOps Application for Bifrost Research Engine (OLAP).
+# Source: bifrost-research repo k8s/ (namespace + api + engines + dbt).
+# Dagster orchestration stays replicas:0 (out of Runtime Ignition scope for scale-up).
+#
+# Until GitHub main has k8s/, use kubectl apply from the local bifrost-research checkout;
+# Argo will converge after push + repo credentials.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: bifrost-research
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: research-olap
+    bifrost.io/domain: olap
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/weitingzhao/bifrost-research.git
+    path: k8s
+    targetRevision: main
+    directory:
+      recurse: true
+      exclude: '{orchestration/**,dbt/Dockerfile}'
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: research
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: false
+    syncOptions:
+      - CreateNamespace=true
+  # Secrets are cluster-local — never prune them via GitOps
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      jsonPointers:
+        - /data
+        - /stringData
