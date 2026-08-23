@@ -131,25 +131,6 @@ services:
     <<: *api-build
     command: python scripts/run_server.py research
 
-  # ── Celery + Flower ───────────────────────────────────────
-
-  celery-worker:
-    <<: *worker-build
-    # Consume all canonical queues (Massive + stocks_ib); bare run_celery.py → stocks_ib only.
-    command: python scripts/systemd/run_celery.py
-
-  celery-beat:
-    <<: *worker-build
-    command: python scripts/run_celery_beat.py
-
-  flower:
-    <<: *worker-build
-    command: >
-      celery -A bifrost_worker.celery.celery_app flower
-      --port=5555 --address=0.0.0.0
-    ports:
-      - "5555:5555"
-
   # ── 前端（仅内部网络；对外入口为 nginx）────────────────────
 
   frontend:

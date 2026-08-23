@@ -14,7 +14,6 @@ resources:
   - apis/manifest.yaml
   - apis/api-ops-rbac.yaml
   - worker/manifest.yaml
-  - worker/celery-profile-workers.yaml
   - worker/daemon-rbac.yaml
   - jobs/db-init.yaml
   - frontend/deployment.yaml

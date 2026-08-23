@@ -17,7 +17,7 @@ server:
     market_port: 8772
     strategy_port: 8770
   feed:
-    massive_port: 8766  # legacy — api-massive retired (P7)
+    massive_port: 8766
 
 sink: postgres
 
@@ -81,12 +81,8 @@ ops:
   executor_mode: kubernetes
   daemon_scale_guard: freeze
   celery:
-    prod_worker_hostnames:
-      - server-app-ubt
-  worker_profiles:
-    stocks_ib:
-      queues: ["stocks_ib"]
-      max_worker_instances: 1
+    prod_worker_hostnames: []
+  worker_profiles: {}
   auth:
     default_role: "operator"
     allow_unauthenticated_reads: false

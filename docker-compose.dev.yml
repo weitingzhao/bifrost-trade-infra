@@ -114,17 +114,6 @@ services:
     - path: .env
       required: false
 
-  celery-worker:
-    <<: *dev-build
-    command: ["python", "/workspace/bifrost-trade-worker/scripts/systemd/run_celery.py"]
-    volumes: *dev-volumes
-    environment:
-      <<: *dev-env
-      BIFROST_DEV_STACK: celery
-    env_file:
-    - path: .env
-      required: false
-
   api-monitor:
     <<: *dev-api
     command: ["python", "/workspace/bifrost-trade-api/scripts/run_server.py", "monitor"]

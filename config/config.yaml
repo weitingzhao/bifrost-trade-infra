@@ -53,11 +53,9 @@ ib_operator:
   health_key: "bifrost:health:ws_ib_operator"
   result_ttl_sec: 300
   request_timeout_sec: 120
-  bars_backfill_request_timeout_sec: 7200
   health_refresh_sec: 30
   max_result_bytes: 4194304
   block_ms: 5000
-  use_for_celery_bars: true
 
 ib_connection:
   reconnect_base_sec: 2
@@ -104,14 +102,9 @@ ops:
     #     name: "trader"
   celery:
     default_max_worker_instances: 1
-    canonical_queue_order:
-      - stocks_ib
-    broker_queue_display_names:
-      stocks_ib: "Stocks IB"
-  worker_profiles:
-    stocks_ib:
-      queues: ["stocks_ib"]
-      max_worker_instances: 1
+    canonical_queue_order: []
+    broker_queue_display_names: {}
+  worker_profiles: {}
 
 history_backfill:
   stock:

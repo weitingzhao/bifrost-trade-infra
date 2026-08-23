@@ -75,14 +75,3 @@ spec:
       containers:
         - name: account-sync
           imagePullPolicy: Always
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: celery-worker
-spec:
-  template:
-    spec:
-      containers:
-        - name: celery-worker
-          imagePullPolicy: Always

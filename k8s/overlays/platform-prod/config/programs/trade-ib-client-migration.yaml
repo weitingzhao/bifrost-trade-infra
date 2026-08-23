@@ -96,7 +96,7 @@ phases:
       - Phase 3 panel + sign-off
 
       Output a structured Phase completion report at the end.
-    verify_cmd: "make -C bifrost-platform-plugin verify-trade-celery-bars"
+    verify_cmd: "make -C bifrost-platform-plugin verify-trade-ib-w2-prod"
     acceptance:
       - "fetch_bars_range RPC OK via verify script"
       - "Worker code has no MarketIbClient import (source)"

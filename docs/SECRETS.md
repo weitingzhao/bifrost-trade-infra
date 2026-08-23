@@ -29,7 +29,7 @@ This writes gitignored Secret files and applies them to `bifrost-{dev,stg,prod}`
 ```bash
 kubectl apply -k k8s/overlays/stg   # or dev / prod
 kubectl -n bifrost-stg rollout restart deploy/api-monitor deploy/api-account deploy/api-market deploy/api-research
-kubectl -n bifrost-stg rollout restart deploy/daemon deploy/account-sync deploy/celery-worker-stocks-ib
+kubectl -n bifrost-stg rollout restart deploy/daemon deploy/account-sync
 ```
 
 ## Rotate redis-ib / redis-massive

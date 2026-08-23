@@ -35,8 +35,20 @@ spec:
             kubectl delete "service/${dep}" -n "${NS}" --wait=true --timeout=60s || true
           fi
         done
+        # P9: Trade Celery retired — stock OHLC via Market Data Plugin ops_jobs.
+        CELERY_RETIRED="celery-worker-stocks-ib celery-beat flower celery-worker"
+        for dep in ${CELERY_RETIRED}; do
+          if kubectl get "deployment/${dep}" -n "${NS}" >/dev/null 2>&1; then
+            echo "Pruning retired Celery deployment/${dep}"
+            kubectl delete "deployment/${dep}" -n "${NS}" --wait=true --timeout=180s || true
+          fi
+          if kubectl get "service/${dep}" -n "${NS}" >/dev/null 2>&1; then
+            echo "Pruning retired Celery service/${dep}"
+            kubectl delete "service/${dep}" -n "${NS}" --wait=true --timeout=60s || true
+          fi
+        done
         APIS="api-monitor api-account api-market api-research"
-        WORKER="daemon account-sync celery-worker celery-worker-stocks-ib celery-beat"
+        WORKER="daemon account-sync"
         DEPLOY="${APIS} ${WORKER}"
         # IBGP3 retired — legacy IB StatefulSets removed from kustomize; do not rollout/restart.
         # massive-ws retired — Polygon Options WS is Plugin polygon-ws-ingestor → redis-massive.

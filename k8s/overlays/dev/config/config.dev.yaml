@@ -1,64 +1,31 @@
-# K3s bifrost-dev — Vision V1 dev inner-loop stack.
-# Sync: scripts/sync_dev_overlay_config.sh (IB from .env). PG: CNPG @ data NS (phase ④).
-# CNPG app user password = secret bifrost-postgres-app (currently bifrost_stg); database = bifrost_dev.
-# Secrets: MASSIVE_API_KEY via bifrost-dev-secrets. Sync tokens from config.dev.yaml as needed.
+# Dev overlay — deep-merged over config.yaml (from core example).
+# NOTE: LOCAL Docker Compose fallback (non-K3s). Canonical K3s config:
+#   k8s/overlays/dev/config/config.dev.yaml (CNPG @ data NS, bifrost_dev).
+# Local LAN access: NodePort 30432 on any Ready node (see k8s/data/postgres-nodeport.yaml).
+# ops.auth.tokens：UI Authenticate 用此处 token (Settings → API Health / Socket / Celery)。
+
 server:
   skip_monitor_ib: false
-  architecture:
-    monitor_port: 8765
-    ops_port: 8768
-    docs_port: 8767
-  account:
-    trading_port: 8769
-    portfolio_port: 8771
-  research:
-    research_port: 8773
-    market_port: 8772
-    strategy_port: 8770
-  feed:
-    massive_port: 8766  # legacy — api-massive retired (P7)
 
 sink: postgres
 
-ib_operator:
-  enabled: true
-  stream: "ib:operator:cmd"
-  consumer_group: ib-operator
-  result_prefix: "ib:operator:result:"
-  health_key: "bifrost:health:ws_ib_operator"
-  result_ttl_sec: 300
-  request_timeout_sec: 120
-  bars_backfill_request_timeout_sec: 7200
-  health_refresh_sec: 30
-  max_result_bytes: 4194304
-  block_ms: 5000
-  use_for_celery_bars: true
-
-ib_connection:
-  reconnect_base_sec: 2
-  reconnect_max_sec: 60
-  reconnect_max_exp: 6
-  ib_probe_interval_sec: 15
-  ib_probe_stale_multiplier: 2.5
-
 ib:
-  # W0 (trade-k8s-native): bifrost-dev runs IB edge services as mock gateways —
-  # no TWS socket is opened, so dev consumes ZERO live client_id on the shared
-  # Win11 TWS hosts (.30/.33). Set to "live" only to connect a real dev session.
-  mode: mock
   connect_timeout: 60.0
   host:
     ip: 192.168.10.30
     port_type: tws_live
     client_id:
       daemon: 10
-      market_gateway: 50
+      listener: 1
       operator: 20
+      worker_market: 40
+      ingestor: 50
       account_agent: 60
   secondary:
-    ip: 192.168.10.32
+    ip: 192.168.10.33
     port_type: tws_live
     client_id:
+      listener: 1
       operator: 20
       account_agent: 60
 
@@ -75,16 +42,16 @@ utilized:
     research: dev
 
 postgres:
-  host: bifrost-postgres-rw.data.svc.cluster.local
-  port: 5432
+  host: 192.168.10.73
+  port: 30432
   user: bifrost
   password: ""
   database: bifrost_dev
 
 # Shared brokerage Golden Source (IB account/positions/executions)
 golden_source:
-  host: bifrost-postgres-rw.data.svc.cluster.local
-  port: 5432
+  host: 192.168.10.73
+  port: 30432
   database: bifrost_golden_source
   user: bifrost
   password: ""
@@ -93,29 +60,47 @@ golden_source:
 
 redis:
   enabled: true
-  host: redis-dev.data.svc.cluster.local
+  host: 192.168.10.70
   port: 6379
   db: 0
 
-redis_queue:
-  enabled: true
-  host: redis-dev.data.svc.cluster.local
-  port: 6379
-  db: 1
-
-# IBGP3 — shared Platform IB bus (ExternalName redis-ib → data NS).
-# trade-prod (not trade-dev): account-sync needs XREADGROUP/XGROUP/HSET; trade-dev ACL is read-only.
-# Password: REDIS_IB_PASSWORD in bifrost-*-secrets (scripts/sync_redis_ib_trade_config.sh — never YAML).
 redis_ib:
   enabled: true
-  host: redis-ib
-  port: 6379
+  host: host.docker.internal
+  port: 6380
   db: 0
   username: trade-prod
   password: ""
 
+ib_operator:
+  enabled: true
+  stream: "ib:operator:cmd"
+  consumer_group: ib-operator
+  result_prefix: "ib:operator:result:"
+  health_key: "bifrost:health:ws_ib_operator"
+  result_ttl_sec: 300
+  request_timeout_sec: 120
+  bars_backfill_request_timeout_sec: 7200
+  health_refresh_sec: 30
+  max_result_bytes: 4194304
+  block_ms: 5000
+  use_for_celery_bars: true
+
+ops:
+  control_profile: dev
+  executor_mode: kubernetes
+  daemon_scale_guard: freeze
+  celery:
+    prod_worker_hostnames: []
+  worker_profiles: {}
+  auth:
+    default_role: "admin" # dev convenience: unauthenticated = admin
+    allow_unauthenticated_reads: true
+    tokens: []
+  audit:
+    persist: false # dev: in-memory only
+
 # Plugin redis-massive — ExternalName → redis-massive.data.svc.cluster.local
-# WS ingestor migrated to bifrost-platform-plugin-market-data (Wave 2).
 redis_massive:
   enabled: true
   host: redis-massive
@@ -125,32 +110,6 @@ redis_massive:
   password: ""
 
 
-ops:
-  control_profile: dev
-  # Wave A: D10 freeze — block daemon scale-up via api-ops until Owner unlock.
-  daemon_scale_guard: freeze
-  executor_mode: kubernetes
-  worker_list_mode: redis_presence
-  worker_list_fallback_inspect: false
-  kubernetes:
-    namespace: bifrost-dev
-  celery:
-    prod_worker_hostnames:
-      - celery-worker
-  worker_profiles:
-    stocks_ib:
-      queues: ["stocks_ib"]
-      max_worker_instances: 1
-  auth:
-    default_role: operator
-    allow_unauthenticated_reads: true
-    tokens: []
-  audit:
-    persist: true
-
+# api_key + rest_base still used by Research REST (polygon_http); WS migrated to Plugin
 massive:
   api_key: ""
-  tier: starter
-  ws_url: wss://delayed.polygon.io/options
-  features:
-    trades_enabled: false
