@@ -30,12 +30,12 @@ spec:
         - name: bifrost-config
           configMap:
             name: bifrost-config
-      # W7: do not start the FSM trading loop before CNPG + Redis (live + queue) are Ready.
+      # W7: wait for CNPG + Redis before daemon FSM starts (Celery redis_queue retired).
       initContainers:
         - name: wait-for-data
           image: registry.cicd.svc.cluster.local:5000/bifrost-worker:stg
           imagePullPolicy: Always
-          command: ["python", "scripts/wait_for_data.py", "--queue"]
+          command: ["python", "scripts/wait_for_data.py"]
           workingDir: /src/bifrost-trade-worker
           env:
             - name: BIFROST_CONFIG
@@ -89,7 +89,7 @@ spec:
               subPath: config.yaml.example
           readinessProbe:
             exec:
-              command: ["python", "scripts/wait_for_data.py", "--queue", "--once"]
+              command: ["python", "scripts/wait_for_data.py", "--once"]
             initialDelaySeconds: 10
             periodSeconds: 30
             timeoutSeconds: 10

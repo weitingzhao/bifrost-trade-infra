@@ -58,7 +58,7 @@ postgres:
   port: 30432
   user: bifrost
   password: ""
-  database: bifrost_dev
+  database: bifrost_prod
 
 # Shared brokerage Golden Source (IB account/positions/executions)
 golden_source:
@@ -70,21 +70,31 @@ golden_source:
   fdw_user: brokerage_reader
   fdw_password: ""
 
+# In-cluster ExternalName `redis` → redis-live-prod @ data NS (see redis-remove.patch.yaml).
 redis:
   enabled: true
-  host: 192.168.10.70
+  host: redis
   port: 6379
   db: 0
+
+redis_ib:
+  enabled: true
+  host: redis-ib
+  port: 6379
+  db: 0
+  username: trade-prod
+  password: ""
 
 ops:
   control_profile: prod
   executor_mode: kubernetes
-  daemon_scale_guard: freeze
+  kubernetes:
+    namespace: bifrost-prod
   celery:
     prod_worker_hostnames: []
   worker_profiles: {}
   auth:
-    default_role: "operator"
+    default_role: operator
     allow_unauthenticated_reads: false
     tokens: []
   audit:

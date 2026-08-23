@@ -61,12 +61,8 @@ ops = """ops:
   kubernetes:
     namespace: bifrost-prod
   celery:
-    prod_worker_hostnames:
-      - celery-worker
-  worker_profiles:
-    stocks_ib:
-      queues: ["stocks_ib"]
-      max_worker_instances: 1
+    prod_worker_hostnames: []
+  worker_profiles: {}
   auth:
     default_role: operator
     allow_unauthenticated_reads: false
