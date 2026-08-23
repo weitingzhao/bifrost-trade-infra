@@ -43,6 +43,16 @@ gates:
       paper_trade: true
 
 # PostgreSQL / Redis / IB live in config.dev.yaml / config.prod.yaml in a typical split.
+#
+# Brokerage Golden Source (shared IB account/position/execution data).
+# Same CNPG host as postgres; database bifrost_golden_source; schema brokerage.*.
+# Env overrides: GOLDEN_SOURCE_HOST/PORT/DATABASE/USER/PASSWORD
+# golden_source:
+#   # host/port omit → reuse postgres.host/port
+#   database: "bifrost_golden_source"
+#   user: "bifrost"
+#   # password: ""
+#   # fdw_user: "brokerage_reader"
 
 # IB Operator (shared): Redis cmd RPC. Start: scripts/run_ib_operator.py
 ib_operator:
@@ -53,9 +63,11 @@ ib_operator:
   health_key: "bifrost:health:ws_ib_operator"
   result_ttl_sec: 300
   request_timeout_sec: 120
+  bars_backfill_request_timeout_sec: 7200
   health_refresh_sec: 30
   max_result_bytes: 4194304
   block_ms: 5000
+  # use_for_celery_bars: retired (P7 — Market Data Plugin minute-bars enqueue)
 
 ib_connection:
   reconnect_base_sec: 2
@@ -86,6 +98,11 @@ frontend:
   prod_path: "http://127.0.0.1"
 
 ops:
+  # C4: api-ops is Kubernetes-only (local/docker/agent executors removed).
+  # executor_mode: kubernetes
+  # daemon_scale_guard: freeze  # D10 — block daemon scale-up until Owner unlock
+  # kubernetes:
+  #   namespace: bifrost-stg  # or bifrost-prod / bifrost-dev
   celery_inspect_timeout_sec: 15
   celery_inspect_wall_sec: 10
   worker_list_mode: redis_presence
@@ -94,17 +111,19 @@ ops:
   worker_list_inspect_cache_ttl_sec: 20
   auth:
     allow_unauthenticated_reads: true
-    # Dev tokens (operator/admin for UI Authenticate): see config/config.dev.yaml ops.auth.tokens
-    # Prod: config.prod.yaml or OPS_OPERATOR_TOKEN / OPS_ADMIN_TOKEN env overrides
-    # tokens:
-    #   - token: "<secret>"
-    #     role: "operator"
-    #     name: "trader"
+    # Tokens: set OPS_OPERATOR_TOKEN / OPS_ADMIN_TOKEN in .env or K8s Secret (docs/SECRETS.md).
+    # Do not commit plaintext tokens in YAML.
+    # tokens: []
   celery:
     default_max_worker_instances: 1
-    canonical_queue_order: []
-    broker_queue_display_names: {}
-  worker_profiles: {}
+    canonical_queue_order:
+      - stocks_ib
+    broker_queue_display_names:
+      stocks_ib: "Stocks IB"
+  worker_profiles:
+    stocks_ib:
+      queues: ["stocks_ib"]
+      max_worker_instances: 1
 
 history_backfill:
   stock:
@@ -137,26 +156,16 @@ reference_indices:
     label: "VIX (VIXY)"
     polygon_ticker: "VIXY"
 
-# Plugin redis-massive — shared Polygon Options WS health bus (data NS, ExternalName).
-# WS ingestor migrated to bifrost-platform-plugin-market-data (Wave 2).
-# Trade consumers read health hash only; quote data has no active Trade reader.
-redis_massive:
-  enabled: true
-  host: redis-massive
-  port: 6379
-  db: 0
-
 # Prefer env: MASSIVE_API_KEY or POLYGON_API_KEY
-# NOTE: WS ingest (ws_url, tier WS features) migrated to Market Data Plugin (Wave 2).
-# Remaining keys used by Trade: api_key + rest_base (Research REST via polygon_http).
 massive:
+  api_key: ""
   tier: "starter"
   rest_base: "https://api.polygon.io"
-  # ws_url: migrated to Plugin — not used by Trade since Wave 2
   ws_url: "wss://socket.polygon.io/options"
   features:
-    # trades_enabled / ws_enabled: managed by Plugin; Trade no longer reads these
     trades_enabled: false
+    # Options Starter: REST aggregates only (default ws_enabled=false). Developer+ enables WS.
+    ws_enabled: false
   expiration_cache:
     enabled: true
     ttl_trading_sec: 3600

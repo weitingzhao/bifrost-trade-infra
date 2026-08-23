@@ -84,7 +84,6 @@ ib_operator:
   health_refresh_sec: 30
   max_result_bytes: 4194304
   block_ms: 5000
-  use_for_celery_bars: true
 
 ops:
   control_profile: dev
