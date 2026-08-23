@@ -511,8 +511,8 @@ views `account_executions*`→`brokerage.executions*`.
 | Trade API cutover | ✅ Deployed STG+DEV | `SEPA_USE_ANALYTICS=true`, analytics_reader pooled connection to Golden Source |
 | Frontend adaptation | ✅ Deployed STG+DEV | `normalizeSnapshotRow()` adapter, 7 files, pipeline `bifrost-deliver-stg` |
 | Python engines deprecated | ✅ Moved to `_deprecated/` | 9 engine files with redirect stubs |
-| Legacy tables DROP | ✅ Dropped DEV+PROD 2026-08-20; STG 2026-08-21 | `stock_readiness_daily`, `research_sepa_fundamentals_cache`, `job_sepa_phase4` + CASCADE (`v_sepa_symbol_fund_cache_readiness`) — all Trade DBs |
-| API legacy query guards | ✅ Deployed 2026-08-20 | All `stock_readiness_daily` queries guarded by `use_analytics()` — tier endpoints return empty with note |
+| Legacy tables DROP | ✅ Dropped DEV+PROD 2026-08-20; STG 2026-08-21; **SRD DDL CREATE removed core 0.10.7 (2026-08-23)** | `stock_readiness_daily`, `research_sepa_fundamentals_cache`, `job_sepa_phase4` + CASCADE — all Trade DBs; refresh actively DROPs SRD |
+| API legacy query guards | ✅ **Retired 2026-08-23** | `data_readiness.py` / `readiness_snapshot.py` legacy SRD SQL removed; writers unconditionally deprecated; `SEPA_USE_ANALYTICS=false` returns explicit error |
 
 **Data depth note:** `market.stock_daily` covers ~162 trading days (2025-06 to 2026-08). CRS/technical models require 252+ days → `sepa_technical_eval`, `sepa_tier_momentum`, `sepa_composite_score`, `sepa_screener_wide` currently empty. Will auto-populate as daily bars accumulate.
 
@@ -530,7 +530,7 @@ views `account_executions*`→`brokerage.executions*`.
 
 | 日期 | 变更内容 | 操作人 |
 |------|---------|--------|
-| 2026-08-21 | **SEPA legacy STG DROP + dbt mart rename**: `bifrost_stg` dropped 3 legacy tables; Analytics Console Lineage tab → external Elementary link (no iframe); dbt mart tables renamed `sepa_*` → `mart_sepa_*` (10 tables) for dbt convention alignment; API + Console + docs synced | Agent |
+| 2026-08-23 | **stock_readiness_daily RETIRE (Waves W0–W5)**: core 0.10.7 DROP-only DDL; API legacy SQL stripped; FE screener empty-state; Plugin readiness-refresh retired (CronJob suspend); deliver STG+PROD | Agent |
 | 2026-08-20 | **SEPA dbt Migration COMPLETED**: Legacy tables DROPPED (DEV+PROD); all API endpoints guarded by `use_analytics()`; readiness/summary migrated to analytics schema; POST snapshot/backfill return deprecated; tier endpoints graceful empty | Agent |
 | 2026-08-20 | **SEPA dbt Migration Wave 6 (Cleanup)**: DDL deprecation markers on `stock_readiness_daily` / `research_sepa_fundamentals_cache` / `v_sepa_symbol_fund_cache_readiness` / `job_sepa_phase4`；§15 added；`bifrost-analytics` added to workspace rules | Agent |
 | 2026-08-20 | **Readiness Quality Phase B**: DEV rollout + `db-init-dev`；PROD `bifrost-deliver-prod` + `db-init-prod`；STG `bifrost-deliver-stg` 规范化重建；三环境 readiness `row=13131 gap=118`；`cache_stock_snapshot` 三库均不存在；Tekton smoke 默认 tag 改为 `:smoke` | Agent |
