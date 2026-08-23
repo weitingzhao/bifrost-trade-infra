@@ -29,8 +29,8 @@ spec:
         test -f "${root}/bifrost-trade-api/pyproject.toml"
         test -f "${root}/bifrost-trade-worker/pyproject.toml"
         test -f "${root}/bifrost-trade-socket/pyproject.toml"
-        test -f "${root}/bifrost-trade-worker/scripts/systemd/run_celery.py"
-        # massive-ws retired → Plugin polygon-ws-ingestor
+        test -f "${root}/bifrost-trade-worker/scripts/run_daemon.py"
+        # stocks_ib Celery retired → Plugin minute-bars; massive-ws → polygon-ws-ingestor
         echo "API build context OK"
     - name: build-api-base
       image: gcr.io/kaniko-project/executor:v1.23.2-debug
