@@ -6,6 +6,19 @@
 
 server:
   skip_monitor_ib: false
+  architecture:
+    monitor_port: 8765
+    ops_port: 8768
+    docs_port: 8767
+  account:
+    trading_port: 8769
+    portfolio_port: 8771
+  research:
+    research_port: 8773
+    market_port: 8772
+    strategy_port: 8770
+  feed:
+    massive_port: 8766  # legacy — api-massive retired (P7)
 
 sink: postgres
 
@@ -84,7 +97,6 @@ ib_operator:
   health_refresh_sec: 30
   max_result_bytes: 4194304
   block_ms: 5000
-  use_for_celery_bars: true
 
 ops:
   control_profile: dev
