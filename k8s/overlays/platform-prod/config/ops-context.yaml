@@ -1,6 +1,14 @@
 # Bifrost Ops Platform — context spine (authoritative for milestones & decisions).
 # Console Program/Control Room and Copy-for-LLM merge this file via GET /api/v1/context.
 # Detail: Ops Console → Program → Deploy Mainline (deployMainlineCatalog.ts) L3
+#
+# Milestone status semantics (Spine layer — historical Owner sign-off):
+#   SIGNED      — Owner historically approved this milestone's scope
+#   CLOSED      — Fully completed and archived (no further action)
+#   IN_PROGRESS — Active work ongoing
+#   NOT_STARTED — Planned, no work started
+#   BLOCKED_ON  — Blocked by named dependency
+# SIGNED ≠ "currently ready" — live gate readiness from Projection (matrix / Promote evaluation).
 
 meta:
     version: "2026-06-25-cicd-bootstrap"
@@ -26,10 +34,11 @@ north_star:
         - "MCP Tools mirror UI capabilities with same auth and audit trail"
 deployment:
     phase: k3s_partial # compose | k3s_partial | k3s_ha
-    active_track: ops_ui_actuation
+    active_track: trade_ib_client_migration_rollout
 # clusters: see config/clusters.yaml — bifrost-bootstrap @ 192.168.10.73
 focus:
-    headline: "Trade K8s-native refactor (trade-k8s-native W0) — IB Edge Lease + Ingress + Ops kubernetes executor · data-layer ⑦ retire embedded"
+    # Derived from active spine streams (deriveFocusHeadline) — do not hand-edit; must contain active wave id (D-D).
+    headline: "TIBM W3 signed — STG read-path complete (D10 BLOCKED)"
     flywheel_primary: B # A = trade FE, B = runtime/ops
     blocker: null
 milestones:
@@ -123,22 +132,31 @@ milestones:
       authority: console/src/lib/architecture/convergenceLoopCatalog.ts
     - id: ops-ui-actuation
       label: Ops UI single-pane actuation (north star)
-      status: IN_PROGRESS
+      status: CLOSED
+      signed_at: "2026-07-22"
       pipeline_lane: parallel
       pipeline_after: k3s-phase1
       authority: console/src/lib/architecture/blueprintCatalog.ts
+      note: >
+        Owner CLOSED 2026-07-22. Sign-off checklist done items + Network L1 POLICY_NOMINAL. runtime-observe-act-loop Owner-waived (trade-k8s Matrix probe expansion remains follow-up, not blocking north-star single-pane actuation). D10 remains BLOCKED.
+
+      # next_task: none for this milestone — residual Runtime probe expansion tracked on trade-k8s-migration
     - id: workload-placement-governance
       label: K8s workload placement governance (G1–G5)
-      status: IN_PROGRESS
+      status: CLOSED
+      signed_at: "2026-08-05"
       pipeline_lane: parallel
       pipeline_after: k3s-mac-agents
       authority: console/src/lib/architecture/workloadPlacementCatalog.ts
+      note: >
+        Owner CLOSED 2026-08-05 — core placement governance delivered: catalog + GET /api/v1/cluster/placement evaluator live; pools amd64_ci / amd64_general / nfs_client live; 6/7 rules satisfied (cicd_build/control, stg_runtime, data, nfs_storage, monitoring). Residual (not blocking this milestone): GPU pool planned (P5a gpu-server — park lane gpu-pool-join). Fleet standardized amd64-only (arm64_edge removed 2026-08-10). Ongoing evaluation stays on Placement / Cluster / Daily Ops.
+
     - id: autonomous-agent-v1
       label: Autonomous Agent v1 (nightly drift + morning briefing)
       status: NOT_STARTED
       pipeline_lane: parallel
       pipeline_after: vision-v5-convergence
-      authority: console/src/lib/briefing/workLanes.ts
+      authority: config/lanes.yaml · GET/POST /api/v1/lanes
     - id: legacy-retirement
       label: Phase 3 Legacy retirement
       status: SIGNED
@@ -148,10 +166,35 @@ milestones:
       authority: bifrost-trade-infra/docs/PHASE2C_PROD_DEFERRED.md
     - id: k3s-data-layer
       label: K3s data layer (PG + Redis → data namespace)
-      status: IN_PROGRESS
+      status: CLOSED
+      signed_at: "2026-08-05"
       pipeline_lane: mainline
       pipeline_after: 2c-b-prod-cutover
       authority: console/src/lib/architecture/dataLayerCatalog.ts
+      note: >
+        Owner CLOSED 2026-08-05 — aligned with migrate stream data-layer-k3s closed 7/7 (①–⑦ complete; Owner sign-off via Briefing queue). PG+Redis @ data NS (DEV/STG/PROD). Was stale IN_PROGRESS while stream already closed; hygiene so Governance & spine lane no longer projects a false active milestone.
+
+    - id: market-data-subcontractor
+      label: Market Data Subcontractor (Polygon → plugin-market-data NS)
+      status: DONE
+      pipeline_lane: parallel
+      pipeline_after: k3s-data-layer
+      authority: config/programs/completed/market-data-subcontractor.yaml
+      note: "Program signed off 2026-07-30 (P0–P9). Post-P9 follow-on: STG/PROD promote + compat cleanup."
+    - id: research-foundation
+      label: Research Engine foundation (OLAP domain + dbt merge)
+      status: DONE
+      pipeline_lane: parallel
+      pipeline_after: market-data-subcontractor
+      authority: console/src/lib/architecture/blueprintCatalog.ts · bifrost-research/CLAUDE.md
+      note: "Wave 1 complete — bifrost-research repo, bifrost-analytics merged into src/bifrost_research/dbt/, D13 SIGNED + Research Agent mode. Baseline closeout 2026-08-21."
+    - id: research-runtime-ignition
+      label: Research Runtime Ignition (NS + API + CronJobs live)
+      status: DONE
+      pipeline_lane: parallel
+      pipeline_after: research-foundation
+      authority: config/programs/active/research-runtime-ignition.yaml · bifrost-research/CLAUDE.md
+      note: "2026-08-21 — research NS, research-api:8795, dbt/volatility/engines/intraday CronJobs, Trade Intelligence honest empty states. Dagster stays replicas:0. Follow-ons: news source + options tape."
 decisions:
     - id: D1
       status: SIGNED
@@ -207,6 +250,36 @@ decisions:
       conclusion: "Owner dropped the ui-experience-alignment prerequisite for Phase 3: Legacy runtime is already stopped (.70/.73/.50 clean) so side-by-side comparison is no longer possible, and Phase 2B already signed off 9/9 domains as business-equivalent. Ongoing UI polish continues as ordinary Design System work, not a retirement blocker. bifrost-trader-engine is NAS-archived (read-only) and removed from the workspace. legacy-retirement milestone → SIGNED/closed."
       signed_at: "2026-06-29"
       authority: bifrost-trade-infra/docs/PHASE2C_PROD_DEFERRED.md
+    - id: D9
+      status: SIGNED
+      topic: Network actuation path — Session v2 API primary
+      conclusion: "Integration API Key on UCG Max 10.4.57 does not return site UUID in /sites response; firewall/zone write impossible via Integration path. Primary actuation path is bifrost-agent Session (Super Admin local account) via v2 API with CSRF token. Unlock condition: Ubiquiti fixes Integration /sites or UCG firmware upgrade."
+      signed_at: "2026-07-02"
+      authority: "scripts/unifi_firewall_setup.py + console/src/lib/architecture/blueprintCatalog.ts (Principle 8)"
+    - id: D10
+      status: BLOCKED
+      topic: Trade execution — intentional freeze until Owner unlock
+      conclusion: "Post TIBM-PC rollout may deploy observe + data-path surfaces only (W1–W3). Live order placement, daemon auto-trade scale-up, and S08 execution wiring remain BLOCKED. Rocket (Ops Platform) and satellite (Trade) must stabilize; research/analysis precede trading. Owner unlock requires explicit written command to Agent AND D10 status → UNLOCKED in spine. Authority: tradeIbClientMigrationRolloutCatalog.ts · agentProtocolCatalog.ts · trade-execution-freeze.mdc."
+      signed_at: "2026-07-04"
+      authority: "console/src/lib/architecture/tradeIbClientMigrationRolloutCatalog.ts"
+    - id: D11
+      status: SIGNED
+      topic: Operate Queue — post-completion handoff contract (Wave 3 P0)
+      conclusion: "Approved post-completion items inject into a dedicated Projection-layer Operate Queue API (GET/POST /api/v1/operate/queue), persisted under data/operate/queue.json — not spine tracks.operate. Backward-compatible structured extension: Program completion remains NOT ASSESSED until Briefing Owner decision; flow is submit_post_completion → pending_review → Owner approve or reject / explicit NO HANDOFF → queue open → Agent Desk execution_job_id → evidence-gated close with recent_closed history. Handoffs carry source/operate lane, kind, reason, validated agent task, acceptance criteria, verification steps, risk, owner/due, execution and completion evidence. Lane metadata is only a default and never decides handoff. Spine tracks.operate remains strategic flywheel classification only."
+      signed_at: "2026-07-07"
+      authority: "console/src/lib/architecture/agentProtocolCatalog.ts · config/programs/_schema.yaml"
+    - id: D12
+      status: SIGNED
+      topic: Delivery Board sign-off — single write path api (Wave 3 P0)
+      conclusion: "All program phase sign-offs converge on POST /api/v1/programs/{id}/phases/{pid}/signoff → data/programs/{id}.json phase_sign_offs. Deprecate sign_off_mechanism enums dev_agent and vision_gate; schema default and only mechanism is api. Dev Agent Mark as Verified and Vision gate Owner sign-off become adapters that call the same programs signoff API. Vision gate run/check artifacts remain on /api/v1/vision/*/gate; Delivery Board reads unified programs state only."
+      signed_at: "2026-07-07"
+      authority: "console/src/lib/architecture/agentProtocolCatalog.ts · api/internal/devagent/programs_delivery.go"
+    - id: D13
+      status: SIGNED
+      topic: Research Engine independent — OLAP domain separated from Trade/Ops
+      conclusion: "Bifrost is three domains: Trade (OLTP), Research (OLAP), Ops (Control Plane). bifrost-research owns dbt analytics (former bifrost-analytics), Python analysis engines, and Research API on bifrost_golden_source. Research must not write Trade DB or market.* ingest tables, and must not trigger trade execution (D10 remains BLOCKED). Plugins remain data-source adapters; OLAP compute migrates into Research over subsequent Waves."
+      signed_at: "2026-08-21"
+      authority: "console/src/lib/architecture/blueprintCatalog.ts · agentProtocolCatalog.ts · bifrost-research/CLAUDE.md"
     - id: D-Wave-6.1
       status: SIGNED
       topic: Trade Celery active-code sweep (Wave 6.1)
@@ -225,6 +298,18 @@ decisions:
       conclusion: "Drop features_daily/option/signals/forecasts/backtests view schemas; canonical features.* only; bifrost-research 0.7.0; db-init drops legacy schemas idempotently."
       signed_at: "2026-08-24"
       authority: "bifrost-research/scripts/wave_6_6_drop_legacy_features_schemas.sql"
+    - id: D-Wave-8
+      status: EXECUTED
+      topic: Golden Source Wave 8 (financials split + OI partition + Trade public FK)
+      conclusion: "raw_market.stock_financials split into 6 entity tables + compat view; option_open_interest month-partitioned; settings.active_*_id FK ON DELETE SET NULL; Flex token Secret canonical write path; data_ops.ingest_freshness compat view retired; platform-api probe reads ops_jobs.ingest_freshness."
+      signed_at: "2026-08-24"
+      authority: "bifrost-platform-plugin-market-data/src/bifrost_market_data/schema/wave8_migrations.py · bifrost-trade-core/src/bifrost_core/persistence/postgres/ddl.py"
+    - id: D-Wave-7
+      status: SIGNED
+      topic: Golden Source Wave 7 Hardening
+      conclusion: "Plugin retires features_daily DDL/ingest; analytics read paths use features.option_metric_*; Research 0.8.0 with GRANT-in-DDL, partition maintenance CronJob, vol backfill Job + weekly repair CronJob; Research + Plugin API startup schema guard (/health.startup_ok)."
+      signed_at: "2026-08-24"
+      authority: "bifrost-research/k8s/engines/job-vol-backfill-2024.yaml · bifrost-platform-plugin-market-data/src/bifrost_market_data/schema/ddl.py"
     - id: D-Wave-6.5
       status: SIGNED
       topic: SEPA single owner + API fork (Wave 6.5)
@@ -261,10 +346,11 @@ coupling_surfaces:
     - vite_api_env
     - ops_auth_capabilities
     - ib_client_id
+    - unifi_session_v2
 promotion:
     last_gate:
-        at: "2026-06-25T16:16:40Z"
-        result: fail
+        at: "2026-08-18T15:56:08Z"
+        result: pass
         log_path: bifrost-trade-infra/scripts/release_gate.log
 environments_extended:
     staging:
@@ -332,7 +418,15 @@ tracks:
               status: done
             - id: p6-escape-hatch
               label: "L0 escape hatch runbook + Console recovery visibility"
-              status: next
+              status: done
+            - id: wave-a-a3-agent-prep
+              label: "Wave A Phase A3 — agent closure prep"
+              status: done
+              note: "Audit JSON export; uiProgressOverrides alignment; opsUiActuationSignoffChecklist.ts; D6 network L2/AP defer documented"
+            - id: network-l2-ap-lifecycle
+              label: "Network L2 zone/SSID + P2 AP lifecycle actuation"
+              status: deferred
+              note: "Owner-deferred — blueprintCatalog D6 appendix + networkApiContractCatalog NETWORK_API_OWNER_DEFERRED; not Wave A agent scope"
     migrate:
         label: "Legacy retirement & deployment migration"
         streams:
@@ -357,25 +451,40 @@ tracks:
             - id: trade-k8s-native
               label: "Trade stack K8s-native refactor + IB Edge Gateway"
               total: 12
-              done: 0
-              status: in_progress
-              next_task: "W0 — Dev IB Mock Gateway (zero live client_id on bifrost-dev)"
-              note: "Compose-on-K8s lift-and-shift done; this stream = ideal runtime. IB: Lease active-standby (not multi-replica). 3 gateways/env; dev mock. Authority: tradeK8sNativeCatalog.ts"
+              done: 12
+              ready_for_signoff: 0
+              status: closed
+              next_task: "CLOSED — (W0–W11 signed)"
+              note: "W0 ✓ W1 ✓ W2 ✓ signed (W2 STG verify PASS: executor_mode=kubernetes, k8s_reachable, celery-worker 1/1, no subprocess). Authority: tradeK8sNativeCatalog.ts · W3 ✓ signed (Owner sign-off via Briefing queue) · W4 ✓ signed (Owner sign-off via Briefing queue) · W5 ✓ signed (Owner sign-off via Briefing queue) · W6 ✓ signed (Owner sign-off via Briefing queue) · W7 ✓ signed (Owner sign-off via Briefing queue) · W8 ✓ signed (Owner sign-off via Briefing queue) · W9 ✓ signed (Owner sign-off via Briefing queue) · W10 ✓ signed (Owner sign-off via Briefing queue) · W11 ✓ signed (Owner sign-off via Briefing queue)"
               prerequisites:
                 - "compose-to-k3s stream closed"
                 - "data-layer-k3s PG+Redis in data NS (step ⑦ in progress)"
                 - "R-DV3 prod auto-trade cutover deferred (Owner)"
+            - id: trade-ib-client-migration-rollout
+              label: "TIBM rollout — observe + data path (no live trading)"
+              total: 3
+              done: 3
+              status: closed
+              next_task: "CLOSED — W1–W3 signed (optional 24h STG soak; D10 remains BLOCKED)"
+              note: >
+                W0 ✓ · W1 ✓ Owner signed 2026-07-22 · W2 ✓ Owner signed 2026-07-22 · W3 ✓ Owner signed 2026-07-22 (make verify-trade-ib-w3-stg PASS — 6 read-only APIs health 200; bifrost-core 0.3.3; GET /api/market/quotes NVDA OK; redis_ib tick E2E OK; daemon replicas=0). Core fix: RedisQuotesReader retry + redis_ib fallback. No daemon scale / no live trading (D10).
+
+              prerequisites:
+                - "IB Gateway Plugin program complete"
+                - "trade-ib-client-migration program COMPLETE (TIBM-PC signed)"
+                - "decision D10 BLOCKED acknowledged"
             - id: data-layer-k3s
               label: "K3s data layer (PG + Redis → data NS)"
               total: 7
-              done: 6
-              status: in_progress
-              next_task: "⑦ Retire embedded — remove postgres/redis from k8s/base; update environments.yaml matrix"
-              note: "①–⑥ complete ✓ · PG+Redis @ data NS (STG/DEV/PROD) · deliver images for celery_redis_url_from_config"
+              done: 7
+              status: closed
+              next_task: "CLOSED — (①–⑦ complete ✓)"
+              note: "①–⑥ complete ✓ · PG+Redis @ data NS (STG/DEV/PROD) · deliver images for celery_redis_url_from_config · ⑦ ✓ signed (Owner sign-off via Briefing queue)"
               prerequisites:
                 - "nfs-hot/nfs-cold provisioners ready"
                 - "bifrost-stg full stack stable"
                 - "decision D2-prime signed"
+              ready_for_signoff: 0
             - id: vision-v1-dev
               label: "Vision V1 — Mac thin + K3s dev thick"
               total: 3
@@ -472,35 +581,37 @@ tracks:
               total: 3
               done: 0
               status: not_started
-              note: "① Morning trade briefing ② Position risk alerts ③ SEPA opportunity notifications"
+              note: "PARKED — aspirational; no delivery program / no executable phases until Owner opens one. Briefing lane agent-trade-advisory-parked is Ready (empty queue); not projected on agent-services Doing queue. Scope when resumed: ① Morning trade briefing ② Position risk alerts ③ SEPA opportunity notifications"
               prerequisites:
                 - "agent-mcp-integration stream closed"
                 - "Trade API read endpoints stable"
             - id: release-agent-task
               label: "Release Agent Task — one-click platform release"
               total: 3
-              done: 2
-              status: in_progress
-              note: "① P1 delivery/promote custom tools for runner ✓ ② P2 release scope prompt + cwd + admin token ✓ ③ P3 Agent Desk quick prompt + end-to-end validation"
+              done: 3
+              status: closed
+              next_task: ""
+              note: "P1–P3 ✓ Owner E2E sign-off 2026-07-01 — Agent Desk release scope → git scan + skip-commit path → STG/PROD gates pass → PROD deploy bifrost-deliver-platform-prod-1782923108 · job c5de2ba2 · K3s release-state released"
               prerequisites:
                 - "agent-infra-bootstrap stream closed"
                 - "p6-platform-e2e-cicd done"
             - id: mission-auto-remediation
               label: "Mission Status → Agent auto-remediation closed loop"
               total: 5
-              done: 3
-              status: in_progress
-              note: "① buildDiagnosticPrompt — snapshot→structured prompt ✓ ② Diagnose & Fix button (Mission Board + FocusStrip) with composer prefill ✓ ③ Trade on K3s — deploy payload workloads to cluster so Agent kubectl/platform-api tools cover full stack ④ Mutual Watchdog — dual Mac Mini peer health monitor (restart_peer_agent tool + symmetric peer_watchdog launchd, platform-api primary+standby failover) ✓ see mutual-watchdog stream ⑤ Autonomous fix validation — Agent re-probes mission snapshot after remediation, confirms NOMINAL before closing job"
+              done: 5
+              status: closed
+              next_task: ""
+              note: "① buildDiagnosticPrompt ✓ ② Diagnose & Fix button ✓ ③ Trade-on-K3s Agent coverage — CLOSED with residual: lift-and-shift done (trade-k8s-migration); deeper native + IB coverage deferred to trade-k8s-native migrate lane. ④ Mutual Watchdog ✓ ⑤ Autonomous fix validation ✓ (runPostFixVerification). Full loop operational for current K8s footprint."
               prerequisites:
                 - "agent-mcp-integration stream closed"
                 - "release-agent-task stream closed"
             - id: trade-k8s-migration
               label: "Trade payload K8s migration — Docker Compose → K8s Deployments"
               total: 6
-              done: 5
-              status: in_progress
-              next_task: "⑥ Matrix probe expansion — full K8s service-readiness actuation"
-              note: "Lift-and-shift DONE (manifests + Tekton deliver-stg/prod). Remaining: matrix probes + native refactor → migrate stream trade-k8s-native (IB Lease, Ingress, Ops executor)"
+              done: 6
+              status: closed
+              next_task: "CLOSED — lift-and-shift complete; ⑥ waived / follow-on elsewhere"
+              note: "CLOSED 2026-08-05 — ①–⑤ lift-and-shift DONE (manifests + Tekton deliver-stg/prod). ⑥ Matrix probe expansion Owner-waived with ops-ui-actuation (runtime-observe-act-loop follow-up, not blocking). Native refactor / IB Lease / Ingress / Ops executor → migrate stream trade-k8s-native + TIBM track. Hygiene: stop agent-services lane projecting false in_progress."
               prerequisites:
                 - "migrate track: trade-backend + trade-frontend streams closed"
                 - "p6-platform-e2e-cicd done"
@@ -524,9 +635,10 @@ tracks:
             - id: retrospective-agent
               label: "Retrospective Agent — self-evolving platform"
               total: 5
-              done: 2
-              status: in_progress
-              note: "AI agent that analyzes remediation job history to identify systemic platform defects. ① Cross-job pattern clustering (recurring pod/namespace/error) ✓ — Go analyzer reads JobStore, extracts scope/namespace/tool patterns, computes health score + insights; /api/v1/agent/retrospective/{report,patterns,insights} endpoints; Console Defects page (Observe → Diagnosis → Defects) with StatsCards, InsightsPanel, PatternsTable, ScopeBreakdown, ToolUsage, NamespaceActivity ② Root-cause classification ✓ — Multi-signal fusion classifier (8 signal categories: tool-pattern, scope-based, error-text, init-brief, summary, temporal, approval, failure-rate); ClassificationSignal + confidence score on PatternCluster; Console RootCauseDistBar (stacked bar + legend); expandable signal detail rows in PatternsTable; enhanced Insights with confidence % and platform-defect recommendations ③ Platform defect report generation with code-level attribution ④ Ops Console Defects dashboard (done as part of ①) ⑤ Autonomous fix-PR proposal for identified platform bugs"
+              done: 5
+              status: closed
+              next_task: ""
+              note: "CLOSED 2026-08-05 — ① Pattern clustering ✓ ② Root-cause classification ✓ ③ DefectReport code-level attribution ✓ — GET /api/v1/agent/retrospective/defects + report.defects[]; heuristic file/line_range/commit_sha + Console Code attribution panel ④ Defects dashboard ✓ (with ①) ⑤ Fix-PR proposal path ✓ — defect-pattern-remediate scoped prompt dry-run proposal + request_operator_approval before git write. Program config/programs/retrospective-agent.yaml (lane drift-remediation). Hermes LLM key remains separate Owner gate (hermes-gateway-integration ⑥)."
               prerequisites:
                 - "nightly-drift-scan stream closed"
                 - "agent-mcp-integration stream closed"
@@ -534,9 +646,10 @@ tracks:
             - id: hermes-gateway-integration
               label: "Nous Hermes Agent integration — LLM-powered autonomous engineer"
               total: 6
-              done: 5
-              status: in_progress
-              note: "Elevate Agent from on-demand Dispatch (Cursor Runner) to LLM-powered autonomous engineer (Nous Research Hermes Agent v0.17.0). Mental model: Runner = on-call engineer you page; Hermes = full-time AI engineer with 72 bundled skills, MCP tool access, persistent memory, cron scheduling, and a web dashboard. ① Nous Hermes Agent installed on Mac Mini primary (.50) ✓ — v0.17.0 with uv+Python 3.11+Playwright, ~/.hermes/ config directory, gateway as launchd ai.hermes.gateway, dashboard on :9119 with basic auth ② bifrost-platform MCP server synced to Mac Mini ✓ — mcp-server-platform (35 ops tools) via stdio, config in ~/.hermes/config.yaml mcp_servers.bifrost-platform, hermes mcp test passed all 35 tools ③ platform-api agent bridge probeNousHermes ✓ — NOUS_HERMES_URL/NOUS_HERMES_USER/NOUS_HERMES_PASS env vars, bridge.nous_hermes status block in /api/v1/agent/bridge ④ Console Operator Plane shows Hermes Agent status ✓ — version/gateway-state/dashboard-link, legacy scheduler dimmed (opacity-60) ⑤ Self-built bifrost-hermes-gateway retired ✓ — com.bifrost.hermes-gateway launchd bootout, plist removed, deploy_mac_mini.sh updated to sync MCP server instead ⑥ LLM API key provisioning + first autonomous task — configure Anthropic/OpenRouter key, run first Hermes Agent session with bifrost-platform MCP tools, verify end-to-end AI-driven ops"
+              done: 6
+              status: closed
+              next_task: ""
+              note: "CLOSED 2026-08-08 — ① Nous Hermes v0.17.0 on .50:9119 ✓ ② bifrost-platform MCP stdio on Mini ✓ ③ platform-api probeNousHermes ✓ ④ Console Operator Plane Hermes status ✓ ⑤ self-built gateway retired ✓ ⑥ DeepSeek key + L0 first-task live: session 20260808_013539_3a2845 (deepseek/deepseek-chat); post_fix_verification.passed=true; verify_payload NOMINAL 4/4; no actuation. Follow-up applied same day: readiness probe uses dashboard /api/env (public /api/status has no llm_key field); tools.tool_search.enabled=false so verify_mission_snapshot/verify_payload stay first-class; mcp-platform rsynced to Mini. Evidence: console/src/lib/architecture/hermesL0FirstTaskEvidence.ts."
               prerequisites:
                 - "agent-release-discipline stream closed"
                 - "mutual-watchdog stream closed"
@@ -545,35 +658,42 @@ tracks:
               total: 5
               done: 0
               status: not_started
-              note: "Transform Owner from hands-on engineer / task dispatcher to Mission Director who governs the Agent team. Spine decision D8 (pending). ① Console Governance page — Agent performance dashboard (success rate, MTTR, intervention rate over 7/30d windows) ② Trust & Autonomy matrix — per-Skill actuation level (L0 auto / L1 confirm / L2 escalate), adjustable in UI ③ Capability Map — Hermes Skills × MCP tools × Mission Status coverage; gap highlighting ④ Earned autonomy engine — if Skill succeeds N consecutive times at L1, suggest promotion to L0; if failure rate rises, auto-demote to L1 ⑤ Flight Director Briefing — daily digest of what Agent did autonomously, what it escalated, and what failed; replaces Owner checking Audit page manually"
+              note: "PARKED — aspirational after Hermes L0; no delivery program until Owner opens one. Briefing lane flight-director-parked is Ready (empty queue); not projected on agent-services Doing queue. Depends on hermes-gateway-integration ⑥ + retrospective-agent. Scope when resumed: ① Agent performance dashboard ② Trust & Autonomy matrix ③ Capability Map ④ Earned autonomy engine ⑤ Flight Director daily digest. (D8 was Legacy UI gate — SIGNED; not a blocker for this vision.)"
               prerequisites:
                 - "hermes-gateway-integration stream ③ skills API done"
                 - "retrospective-agent stream closed"
+            - id: polygon-data-pipeline
+              label: "Polygon.io Market Data Subcontractor"
+              total: 10
+              done: 10
+              status: closed
+              next_task: ""
+              note: "10/10 phases done, 6/6 gates signed. Standalone K8s-native workers in plugin-market-data NS. Replaces bifrost-trade-worker/data/massive entirely."
     infra:
         label: "Infrastructure & network evolution"
         streams:
             - id: network-upgrade-core
               label: "Network upgrade — server LAN (UCG Max + USW-Pro-Max-24)"
               total: 6
-              done: 1
-              status: in_progress
-              note: "① Hardware selection & purchase ✓ ② UCG Max initial setup (VLAN 10/20/50, IDS/IPS, Controller) ③ USW-Pro-Max-24 swap (cable migration, VLAN trunk, 2.5G uplinks) ④ K3s node connectivity validation (all nodes stable, kube-vip VIP) ⑤ UniFi API → MCP Server integration (read-only network diagnostics) ⑥ UniFi API write actuation (port restart, firewall rule, client isolation)"
+              done: 6
+              status: closed
+              note: "① Hardware selection & purchase ✓ ② UCG Max setup (VLAN 10/20/30/50, IDS/IPS, Controller) ✓ ③ USW-Pro-Max-24 swap + wired VLAN 10 migration ✓ ④ K3s + TWS + kube-vip validation ✓ — 2026-07-12 Owner verified VIP DNS + HTTPS for trader/ops Hostnames (Work Mac, Family Win11, Mac Pro) · ⑤ Firewall permanent ZBF ✓ — 2026-07-11: TEMP removed; Work→Server; Family→NAS .20; Family→Trade VIP .100:80/443; IoT→Plex; Default→Server deny; audit via scripts/unifi_firewall_setup.py ⑥ UniFi API → MCP Server ✓ — closed via stream unifi-mcp-server 4/4 (2026-07-22 Post-QA F1; was stale pending note)"
               prerequisites:
                 - "Hardware delivered (UCG Max + USW-Pro-Max-24)"
             - id: network-upgrade-wifi
               label: "Network upgrade — WiFi (U7 Pro + U6 Mesh, replace Eero)"
               total: 5
-              done: 0
-              status: not_started
-              note: "① AP hardware purchase ② WiFiman baseline benchmark ③ Per-floor AP rollout (MoCA backhaul, VLAN SSIDs) ④ B1/garage mesh AP deployment ⑤ Eero decommission + coverage verification"
+              done: 5
+              status: closed
+              note: "① AP hardware + 4× U7-Pro-Wall adopted (1F/2F/3F/B1) ✓ ② SSIDs Bifrost/Family/vision ✓ ③ Per-floor rollout live ✓ ④ VLAN placement + Ring Alarm Pro P18→VLAN 50 + Bridge mode ✓ ⑤ Eero decommission ✓ — Owner 2026-07-11: all Eero powered off; Ring Alarm Pro Bridge mode; cameras on vision/VLAN50"
               prerequisites:
                 - "network-upgrade-core stream ③ switch swap complete"
             - id: unifi-mcp-server
               label: "UniFi MCP Server — AI network management"
               total: 4
-              done: 0
-              status: not_started
-              note: "① UniFi REST API client library ② MCP Server read tools (device status, port stats, DPI, firewall rules) ③ Ops Console Network Health panel ④ MCP Server write tools (port restart, client isolate, firewall CRUD)"
+              done: 4
+              status: closed
+              note: "① UniFi REST API client ✓ ② MCP read tools (mcp/unifi) ✓ ③ Ops Console Network live probe ✓ ④ L1 write (firewall apply + MCP) ✓ — aligned with unifiMcpServerCatalog.ts 4/4 (2026-07-22). Projection: console/src/lib/architecture/unifiMcpServerCatalog.ts"
               prerequisites:
                 - "network-upgrade-core stream ② UCG Max setup complete"
                 - "agent-mcp-integration stream closed"
@@ -582,7 +702,7 @@ tracks:
               total: 5
               done: 0
               status: not_started
-              note: "① Home Assistant + UniFi presence detection ② Automated network anomaly response (isolate + alert) ③ Ops Console unified Network dashboard (LAN + WiFi + IoT) ④ Predictive maintenance (node connectivity pattern → preemptive fix) ⑤ Self-healing network (auto-restart port, re-route traffic, failover)"
+              note: "PARKED — no delivery program / no executable phases until Owner opens one. Briefing lane ai-network is Ready (empty queue), not Planned. L0 dashboard/anomaly/predictive-lite already shipped via network-monitoring-ops; UniFi MCP foundation closed (unifi-mcp-server 4/4). Aspirational scope only (not a phase contract): ① Home Assistant + UniFi presence detection ② Automated network anomaly response (isolate + alert) ③ Ops Console unified Network dashboard (LAN + WiFi + IoT) ④ Predictive maintenance (node connectivity pattern → preemptive fix) ⑤ Self-healing network (auto-restart port, re-route traffic, failover)"
               prerequisites:
                 - "unifi-mcp-server stream closed"
                 - "network-upgrade-wifi stream closed"
