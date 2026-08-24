@@ -547,6 +547,7 @@ views `account_executions*`→`brokerage.executions*`.
 
 | 日期 | 变更内容 | 操作人 |
 |------|---------|--------|
+| 2026-08-24 | **Wave 6.3 DONE**: Golden Source canonical naming (DATABASE.md + catalogs); GOLDEN_SOURCE_RETENTION matrix; settings active_* guard core 0.15.2; flex_ops DEPRECATED; D-Wave-6.3 | Agent |
 | 2026-08-24 | **Wave 6.2 DONE**: `config/config.yaml` dead `ops.celery` aligned with core example; CLAUDE/docs/environments-catalog stale Celery copy updated; D-Wave-6.2 spine decision | Agent |
 | 2026-08-24 | **Wave 6.1 DONE**: active Celery code sweep — satellite bus, sessions-catalog, Trade FE noop hook, core example config v0.15.1 | Agent |
 | 2026-08-24 | **DB Hygiene Wave 6 DONE**: platform audit append live; satellite token synced; api-monitor core 0.15.0; `ops_audit_log` DROP DEV/STG/PROD; PROD archive `/tmp/ops_audit_log-prod-20260824.dump`; overlay `ops_port: 8768` fix | Agent |
