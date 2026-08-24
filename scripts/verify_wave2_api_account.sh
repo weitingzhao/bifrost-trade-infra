@@ -8,8 +8,8 @@
 #      and strategy_template.characteristics_json exist; strategy_structure.meta_json
 #      exists; the 3 old KV tables no longer exist.
 #   3. public.ops_audit_log exists (core-owned DDL applied).
-#   4. api-account serves /api/strategies/templates with `params` populated from
-#      params_json (contract preserved).
+#   4. api-account serves /api/strategy/strategies/templates/{id} with
+#      meta_params + characteristics hydrated from jsonb (Wave 2 contract).
 #
 # Fails loudly (exit 1) on any regression; keeps going through all envs.
 #
@@ -41,11 +41,11 @@ trade_db_for() {
 }
 
 nginx_for() {
-  # Prefer the environment's Trade nginx service; fall back to platform-api probe URL.
+  # Traefik trade-* NodePorts: DEV 30882 · STG 30880 · PROD 30881
   case "$1" in
     dev)  echo "http://192.168.10.73:30882" ;;
-    stg)  echo "http://192.168.10.73:30882" ;;
-    prod) echo "http://192.168.10.73:30880" ;;
+    stg)  echo "http://192.168.10.73:30880" ;;
+    prod) echo "http://192.168.10.73:30881" ;;
     *)    echo "" ;;
   esac
 }
@@ -101,30 +101,30 @@ SELECT json_build_object(
     echo "[$ENV] schema OK (Wave 2 jsonb + Wave 3 strategy_history retired)"
   fi
 
-  # (3) params round-trip — /api/strategies/templates first row must expose params list
+  # (3) params round-trip — template detail must expose meta_params from params_json
   if [[ -n "$URL" ]]; then
-    SAMPLE="$(/usr/bin/curl -sS --max-time 6 "${URL}/api/strategies/templates" 2>/dev/null \
+    SAMPLE="$(/usr/bin/curl -sS --max-time 6 "${URL}/api/strategy/strategies/templates/1" 2>/dev/null \
       | /usr/bin/python3 -c 'import json,sys
 try:
-  data=json.load(sys.stdin)
+  row=json.load(sys.stdin)
 except Exception as e:
   print(f"ERR:{e}");raise SystemExit
-items=data if isinstance(data,list) else data.get("items") or data.get("templates") or []
-if not items:
-  print("EMPTY");raise SystemExit
-row=items[0]
+if not isinstance(row, dict):
+  print("ERR:not_object");raise SystemExit
+mp=row.get("meta_params")
+chars=row.get("characteristics")
 print(json.dumps({
   "id": row.get("strategy_template_id") or row.get("id"),
-  "has_params": isinstance(row.get("params"), list),
-  "params_len": len(row.get("params") or []),
-  "has_chars":  isinstance(row.get("characteristics"), list),
+  "has_meta_params": isinstance(mp, list) and len(mp) > 0,
+  "meta_params_len": len(mp) if isinstance(mp, list) else 0,
+  "has_chars": isinstance(chars, list) and len(chars) > 0,
 }))
 ' 2>/dev/null || true)"
     echo "[$ENV] api contract: ${SAMPLE:-<no response>}"
-    if [[ -z "$SAMPLE" || "$SAMPLE" == ERR:* || "$SAMPLE" == "EMPTY" ]]; then
-      echo "[$ENV] WARN: api-account not answering /api/strategies/templates (check ingress)"
-    elif [[ "$SAMPLE" != *'"has_params": true'* ]]; then
-      echo "[$ENV] FAIL: /api/strategies/templates missing params array"
+    if [[ -z "$SAMPLE" || "$SAMPLE" == ERR:* ]]; then
+      echo "[$ENV] WARN: api-account not answering /api/strategy/strategies/templates/1 (check ingress)"
+    elif [[ "$SAMPLE" != *'"has_meta_params": true'* ]]; then
+      echo "[$ENV] FAIL: /templates/1 missing non-empty meta_params (params_json hydration)"
       FAIL=1
     else
       echo "[$ENV] api contract OK"
