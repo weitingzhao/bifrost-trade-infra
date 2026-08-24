@@ -9,6 +9,7 @@ server:
   architecture:
     monitor_port: 8765
     docs_port: 8767
+    ops_port: 8768
   account:
     trading_port: 8769
     portfolio_port: 8771

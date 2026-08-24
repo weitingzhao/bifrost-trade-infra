@@ -1,4 +1,5 @@
-# Wave 6 — allow api-monitor to POST satellite audit to platform-api.
+# Wave 6 — api-monitor egress: platform audit + required cluster dependencies.
+# Note: egress rules default-deny other traffic; must include DNS and data NS.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -12,10 +13,38 @@ spec:
   policyTypes:
     - Egress
   egress:
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: bifrost-platform-stg
-      ports:
-        - protocol: TCP
-          port: 8780
+  # CoreDNS (kube-system)
+  - to:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: kube-system
+    ports:
+      - protocol: UDP
+        port: 53
+      - protocol: TCP
+        port: 53
+  # CNPG + redis-live / redis-ib / redis-massive (data NS)
+  - to:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: data
+    ports:
+      - protocol: TCP
+        port: 5432
+      - protocol: TCP
+        port: 6379
+  # Kubernetes API (monitor+ops in-cluster actuation)
+  - to:
+      - ipBlock:
+          cidr: 10.43.0.0/16
+    ports:
+      - protocol: TCP
+        port: 443
+  # Platform satellite audit sink
+  - to:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: bifrost-platform-stg
+    ports:
+      - protocol: TCP
+        port: 8780

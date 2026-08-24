@@ -81,10 +81,10 @@ pg_dump -Fc -t 'public.ops_audit_log*' bifrost_stg > ops_audit_log-stg-$(date +%
 
 ## Sign-off checklist
 
-- [ ] `bifrost-core v0.15.0` tagged
-- [ ] Platform `POST /api/v1/audit/append` live STG+PROD
-- [ ] Satellite token synced Trade ↔ Platform
-- [ ] Trade market-ingest control → record visible on `GET /api/v1/audit`
-- [ ] `ops_audit_log` NULL in all Trade DBs
-- [ ] `data_clone` no longer references ops_audit_log
-- [ ] STG/PROD legacy rows archived (optional)
+- [x] `bifrost-core v0.15.0` tagged
+- [x] Platform `POST /api/v1/audit/append` live STG+PROD
+- [x] Satellite token synced Trade ↔ Platform
+- [ ] Trade market-ingest control → record visible on `GET /api/v1/audit` (Owner manual)
+- [x] `ops_audit_log` NULL in all Trade DBs
+- [x] `data_clone` no longer references ops_audit_log (platform code; prod platform delivered)
+- [x] STG/PROD legacy rows archived (PROD: `/tmp/ops_audit_log-prod-20260824.dump`)

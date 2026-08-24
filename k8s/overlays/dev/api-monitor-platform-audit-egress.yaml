@@ -1,4 +1,4 @@
-# Wave 6 — DEV api-monitor → platform STG for satellite audit ingest.
+# Wave 6 — DEV api-monitor egress: platform STG audit + cluster + LAN fallbacks.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -12,10 +12,43 @@ spec:
   policyTypes:
     - Egress
   egress:
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: bifrost-platform-stg
-      ports:
-        - protocol: TCP
-          port: 8780
+  - to:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: kube-system
+    ports:
+      - protocol: UDP
+        port: 53
+      - protocol: TCP
+        port: 53
+  - to:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: data
+    ports:
+      - protocol: TCP
+        port: 5432
+      - protocol: TCP
+        port: 6379
+  - to:
+      - ipBlock:
+          cidr: 10.43.0.0/16
+    ports:
+      - protocol: TCP
+        port: 443
+  - to:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: bifrost-platform-stg
+    ports:
+      - protocol: TCP
+        port: 8780
+  # DEV overlay may use LAN NodePort PG / legacy redis (config.dev.yaml)
+  - to:
+      - ipBlock:
+          cidr: 192.168.10.0/24
+    ports:
+      - protocol: TCP
+        port: 30432
+      - protocol: TCP
+        port: 6379
