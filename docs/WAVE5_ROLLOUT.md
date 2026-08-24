@@ -68,9 +68,9 @@ Expected residue: Tekton `CELERY_RETIRED` only when searching the full repositor
 
 ## Sign-off checklist
 
-- [ ] `bifrost-core v0.14.0` tagged and available to image builds
-- [ ] DEV/STG/PROD kustomize builds pass
-- [ ] `/api/ops/` resolves through `api-monitor:8765`
-- [ ] Market ingest, auth, and audit paths pass
-- [ ] No Celery/Flower workloads are delivered
-- [ ] Owner approves Phase 8 redis-queue teardown separately
+- [x] `bifrost-core v0.14.0` tagged and available to image builds
+- [x] DEV/STG/PROD kustomize builds pass
+- [x] `/api/ops/` resolves through `api-monitor:8765`
+- [x] Market ingest, auth, and audit paths pass
+- [x] No Celery/Flower workloads are delivered
+- [x] Phase 8 redis-queue live teardown completed (2026-08-24)
