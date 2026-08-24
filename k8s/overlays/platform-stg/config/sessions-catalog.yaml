@@ -19,7 +19,7 @@ discovery:
     stg:
       - bifrost-stg
       - bifrost-platform-stg
-      - plugin-market-data
+      - plugin-market-data-stg
       - data
     prod:
       - bifrost-prod
@@ -73,6 +73,27 @@ envs:
       deployment: frontend
       ports: [80]
 
+    - name: celery-worker
+      label: Celery Worker
+      group: worker
+      namespace: bifrost-stg
+      deployment: celery-worker
+    - name: celery-worker-stocks-ib
+      label: Celery Stocks IB
+      group: worker
+      namespace: bifrost-stg
+      deployment: celery-worker-stocks-ib
+    - name: celery-beat
+      label: Celery Beat
+      group: worker
+      namespace: bifrost-stg
+      deployment: celery-beat
+    - name: flower
+      label: Flower
+      group: worker
+      namespace: bifrost-stg
+      deployment: flower
+      ports: [5555]
     - name: daemon
       label: Daemon
       group: worker
@@ -92,12 +113,12 @@ envs:
     - name: polygon-worker-stocks
       label: Market Data Stocks
       group: market-data
-      namespace: plugin-market-data
+      namespace: plugin-market-data-stg
       deployment: polygon-worker-stocks
     - name: polygon-worker-options
       label: Market Data Options
       group: market-data
-      namespace: plugin-market-data
+      namespace: plugin-market-data-stg
       deployment: polygon-worker-options
 
     - name: ib-gateway
@@ -151,6 +172,27 @@ envs:
       deployment: frontend
       ports: [80]
 
+    - name: celery-worker
+      label: Celery Worker
+      group: worker
+      namespace: bifrost-prod
+      deployment: celery-worker
+    - name: celery-worker-stocks-ib
+      label: Celery Stocks IB
+      group: worker
+      namespace: bifrost-prod
+      deployment: celery-worker-stocks-ib
+    - name: celery-beat
+      label: Celery Beat
+      group: worker
+      namespace: bifrost-prod
+      deployment: celery-beat
+    - name: flower
+      label: Flower
+      group: worker
+      namespace: bifrost-prod
+      deployment: flower
+      ports: [5555]
     - name: daemon
       label: Daemon
       group: worker
