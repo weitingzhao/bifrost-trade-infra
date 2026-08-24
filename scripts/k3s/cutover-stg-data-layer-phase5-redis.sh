@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# Phase ⑥ — STG Redis cutover: apps → redis-live/queue @ data NS; remove embedded redis.
+# Phase ⑥ — STG Redis cutover: apps → redis-live @ data NS; remove embedded redis.
 #
 # Usage:
 #   make k3s-cutover-stg-data-layer-phase5-redis
 #
 # Prerequisite:
 #   make k3s-install-data-layer-phase5-redis
-#   Images include bifrost-core >= 0.2.6 (redis_queue + celery_redis_url_from_config)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -43,7 +42,7 @@ pause_argo_stg
 echo "==> 1/5 Verify data NS Redis targets"
 "${ROOT}/scripts/k3s/verify-data-layer-phase5-data.sh"
 
-echo "==> 2/5 Overlay config (redis-live/queue — k8s/overlays/stg/config/config.stg.yaml)"
+echo "==> 2/5 Overlay config (redis-live — k8s/overlays/stg/config/config.stg.yaml)"
 # Do not run sync_stg_config here — it copies config/config.stg.yaml and can revert redis hosts.
 
 echo "==> 3/5 Apply bifrost-stg overlay (redis-remove.patch)"
@@ -63,7 +62,6 @@ echo "==> 5/5 Verify phase ⑥ STG"
 echo ""
 echo "Phase ⑥ STG Redis cutover complete."
 echo "  live:  redis-live-stg.data.svc.cluster.local:6379"
-echo "  queue: redis-queue-stg.data.svc.cluster.local:6379"
 echo "  verify: make k3s-verify-data-layer-phase5-stg"
 echo ""
 echo "Re-enable Argo after git push:"

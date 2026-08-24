@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase ⑥ — PROD Redis cutover: apps → redis-live/queue @ data NS; remove embedded redis.
+# Phase ⑥ — PROD Redis cutover: apps → redis-live @ data NS; remove embedded redis.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -52,5 +52,4 @@ kubectl rollout status deployment/api-ops -n "${PROD_NAMESPACE}" --timeout=600s
 echo ""
 echo "Phase ⑥ PROD Redis cutover complete."
 echo "  live:  redis-live-prod.data.svc.cluster.local:6379"
-echo "  queue: redis-queue-prod.data.svc.cluster.local:6379"
 echo "  verify: make k3s-verify-data-layer-phase5-prod"

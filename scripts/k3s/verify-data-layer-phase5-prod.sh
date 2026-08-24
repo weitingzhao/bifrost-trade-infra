@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Verify phase ⑥ — PROD apps on redis-live/queue @ data NS.
+# Verify phase ⑥ — PROD apps on redis-live @ data NS.
 set -euo pipefail
 
 KUBECONFIG="${KUBECONFIG:-${PLATFORM_KUBECONFIG:-$HOME/.kube/bifrost-k3s.yaml}}"
@@ -21,7 +21,7 @@ else
   pass "no embedded redis in ${PROD_NAMESPACE}"
 fi
 
-for dep in redis-live-prod redis-queue-prod; do
+for dep in redis-live-prod; do
   ready="$(kubectl get deployment "${dep}" -n "${DATA_NAMESPACE}" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)"
   [[ "${ready}" == "1" ]] && pass "${dep} ready" || fail "${dep} not ready"
 done
@@ -31,26 +31,6 @@ if kubectl exec -n "${PROD_NAMESPACE}" deploy/api-monitor -- \
   pass "api-monitor config has redis-live-prod"
 else
   fail "api-monitor config missing redis-live-prod"
-fi
-
-if kubectl exec -n "${PROD_NAMESPACE}" deploy/api-monitor -- \
-  python -c "from bifrost_core.core.redis_url import celery_redis_url_from_config" 2>/dev/null; then
-  if kubectl exec -n "${PROD_NAMESPACE}" deploy/api-monitor -- \
-    python -c "
-from bifrost_core.config.startup import read_config
-from bifrost_core.core.redis_url import celery_redis_url_from_config
-c,_=read_config()
-q=celery_redis_url_from_config(c)
-assert 'redis-queue-prod' in q, q
-print('ok')
-" 2>/dev/null; then
-    pass "celery_redis_url_from_config OK"
-  else
-    fail "redis_queue URL failed — deliver prod images with bifrost-core 0.2.6"
-  fi
-else
-  echo "WARN: bifrost-core < 0.2.6 — Celery on live db=1 until image deliver"
-  pass "config-only check (image deliver pending)"
 fi
 
 for d in monitor ops trading market; do

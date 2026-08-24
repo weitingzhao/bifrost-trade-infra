@@ -16,8 +16,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 COPY bifrost-trade-worker/pyproject.toml bifrost-trade-worker/README.md /build/bifrost-trade-worker/
 COPY bifrost-trade-worker/src /build/bifrost-trade-worker/src
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --no-cache-dir --no-deps /build/bifrost-trade-worker \
-    && pip install --no-cache-dir "celery[redis]>=5.3.0" "flower>=2.0.0"
+    pip install --no-cache-dir --no-deps /build/bifrost-trade-worker
 
 COPY bifrost-trade-socket/pyproject.toml bifrost-trade-socket/README.md /build/bifrost-trade-socket/
 COPY bifrost-trade-socket/src /build/bifrost-trade-socket/src

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 2B acceptance preflight — CNPG/host PG+Redis, dev stack, celery-worker.
+# Phase 2B acceptance preflight — CNPG/host PG+Redis and dev stack.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -35,14 +35,6 @@ if ./scripts/check_dev_stack.sh; then
   ok "dev-health passed"
 else
   bad "dev-health failed (APIs may still be pip-installing — retry in 2–3 min)"
-fi
-
-echo ""
-echo "--- celery-worker (ops / massive / research) ---"
-if docker compose -f docker-compose.dev.yml ps celery-worker --format '{{.Status}}' 2>/dev/null | grep -qi up; then
-  ok "celery-worker Up"
-else
-  bad "celery-worker not Up"
 fi
 
 echo ""

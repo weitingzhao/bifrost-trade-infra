@@ -187,12 +187,6 @@ print(f"Updated {path} from .env (postgres→{pg_host}, redis→{redis_host}, ib
 print("NOTE: postgres.password left empty — set PGPASSWORD / POSTGRES_PASSWORD in .env (see docs/SECRETS.md)")
 PY
 
-# Remind: ops.worker_profiles + ops.celery.prod_worker_hostnames live in config.dev.yaml (from legacy config.yaml).
-LEGACY_ENGINE_CFG="${ROOT}/../bifrost-trader-engine/config/config.yaml"
-if [[ -f "$LEGACY_ENGINE_CFG" ]] && ! grep -q 'worker_profiles:' "$CFG" 2>/dev/null; then
-  echo "NOTE: add ops.worker_profiles from ${LEGACY_ENGINE_CFG} to ${CFG} (see config.dev.yaml comments)."
-fi
-
 INFRA_MODE="${BIFROST_DEV_INFRA:-host}"
 if [[ "$INFRA_MODE" == "docker-infra" ]]; then
   echo "Applying password in docker-infra postgres (if up)..."

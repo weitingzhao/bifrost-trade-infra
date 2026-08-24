@@ -4,7 +4,6 @@ server:
   skip_monitor_ib: false
   architecture:
     monitor_port: 8765
-    ops_port: 8768
     docs_port: 8767
   account:
     trading_port: 8769
@@ -93,12 +92,6 @@ redis:
   port: 6379
   db: 0
 
-redis_queue:
-  enabled: true
-  host: redis-queue-stg.data.svc.cluster.local
-  port: 6379
-  db: 0
-
 # IBGP3 — shared Platform IB bus (ExternalName redis-ib → data NS). Password: REDIS_IB_PASSWORD in bifrost-stg-secrets.
 redis_ib:
   enabled: true
@@ -110,7 +103,6 @@ redis_ib:
 
 ops:
   control_profile: stg
-  # trade-celery-k8s-ideal W1: kubernetes executor scales Deployments (not subprocess in api-ops).
   # Wave A: D10 freeze — block daemon scale-up via api-ops until Owner unlock.
   daemon_scale_guard: freeze
   project_root: /build/bifrost-trade-worker
@@ -118,9 +110,6 @@ ops:
   executor_mode: kubernetes
   kubernetes:
     namespace: bifrost-stg
-  celery:
-    prod_worker_hostnames: []
-  worker_profiles: {}
   auth:
     default_role: operator
     allow_unauthenticated_reads: false

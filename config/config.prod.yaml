@@ -7,7 +7,6 @@ server:
   skip_monitor_ib: false
   architecture:
     monitor_port: 8765
-    ops_port: 8768
     docs_port: 8767
   account:
     trading_port: 8769
@@ -80,9 +79,6 @@ ops:
   control_profile: prod
   executor_mode: kubernetes
   daemon_scale_guard: freeze
-  celery:
-    prod_worker_hostnames: []
-  worker_profiles: {}
   auth:
     default_role: "operator"
     allow_unauthenticated_reads: false

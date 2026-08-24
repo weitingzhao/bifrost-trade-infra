@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase ⑥ — Deploy redis-live/queue targets @ data NS.
+# Phase ⑥ — Deploy Redis live targets @ data NS.
 #
 # Usage:
 #   make k3s-install-data-layer-phase5-redis
@@ -12,9 +12,7 @@ export KUBECONFIG
 
 TARGETS=(
   redis-live-stg
-  redis-queue-stg
   redis-live-prod
-  redis-queue-prod
   redis-dev
 )
 
@@ -23,7 +21,7 @@ if [[ ! -f "${KUBECONFIG}" ]]; then
   exit 1
 fi
 
-echo "==> Phase ⑥ install — Redis live/queue @ ${DATA_NAMESPACE} NS"
+echo "==> Phase ⑥ install — Redis live @ ${DATA_NAMESPACE} NS"
 kubectl apply -k "${ROOT}/k8s/data/redis"
 
 for dep in "${TARGETS[@]}"; do

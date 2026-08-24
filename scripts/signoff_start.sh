@@ -81,8 +81,8 @@ case "$SESSION" in
   9)
     echo ""
     echo "--- Session 9: ops (Wave B) ---"
-    echo "  /operations/celery · /settings/socket"
-    echo "  Sign: Domain 7 — celery-worker + ingest health"
+    echo "  /settings/socket · /operations/daemon"
+    echo "  Sign: Domain 7 — ingest health + daemon control"
     ;;
   *)
     echo "Unknown session: $SESSION (use 1–9)"

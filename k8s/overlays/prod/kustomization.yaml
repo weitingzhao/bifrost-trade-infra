@@ -9,7 +9,6 @@ resources:
   - trade-http-redirect.yaml
   - trade-ip-ingressroute.yaml
   - db-init-prod.job.yaml
-  - redis-data-ns-aliases.yaml
 
 configMapGenerator:
   - name: bifrost-config

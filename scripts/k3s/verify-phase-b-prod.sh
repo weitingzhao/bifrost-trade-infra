@@ -18,7 +18,7 @@ gateway_curl() {
 
 DOMAINS="monitor docs ops trading strategy portfolio market research"
 # P1: gateway + APIs only. Set PROD_VERIFY_FULL=1 after deliver-prod refreshes :prod images.
-WORKER_DEPLOY="daemon account-sync celery-worker flower"
+WORKER_DEPLOY="daemon account-sync"
 # massive-ws retired → Plugin polygon-ws-ingestor
 FULL_VERIFY="${PROD_VERIFY_FULL:-0}"
 
@@ -59,7 +59,7 @@ for d in ${DOMAINS}; do
 done
 
 for dep in ${WORKER_DEPLOY}; do
-  if [[ "${FULL_VERIFY}" != "1" ]] && [[ "${dep}" != "daemon" ]] && [[ "${dep}" != "celery-worker" ]]; then
+  if [[ "${FULL_VERIFY}" != "1" ]] && [[ "${dep}" != "daemon" ]]; then
     desired="$(kubectl get deployment "${dep}" -n "${NS}" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "?")"
     echo "SKIP rollout: ${dep} (P1 — refresh via deliver-prod; replicas=${desired})"
     continue
@@ -103,7 +103,7 @@ else
 fi
 
 echo "==> Redis aliases (${NS})"
-for svc in redis redis-queue; do
+for svc in redis; do
   if kubectl get "service/${svc}" -n "${NS}" >/dev/null 2>&1; then
     echo "OK service: ${svc}"
   else

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Phase B stg v2 — HTTP + deployment readiness smoke (Tier A).
-# W11 trade-k8s-native: IB socket workloads are StatefulSets (W5); Flower added (W10).
+# W11 trade-k8s-native: IB socket workloads are retired StatefulSets (W5).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -18,7 +18,7 @@ gateway_curl() {
 }
 
 DOMAINS="monitor docs ops trading strategy portfolio market research"
-WORKER_DEPLOY="daemon account-sync celery-worker flower"
+WORKER_DEPLOY="daemon account-sync"
 SOCKET_LEGACY_STS="ib-market-gateway ib-account-agent ib-operator"
 # massive-ws retired → Plugin polygon-ws-ingestor (plugin-market-data / redis-massive)
 

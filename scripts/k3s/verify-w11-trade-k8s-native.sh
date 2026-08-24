@@ -103,7 +103,7 @@ fi
 
 echo "==> W11 rollout summary (informational — legacy IB STS should be absent)"
 rollout_warn=0
-for dep in frontend daemon celery-worker flower; do
+for dep in frontend daemon account-sync; do
   kubectl rollout status "deployment/${dep}" -n "${NS}" --timeout=30s >/dev/null 2>&1 \
     && echo "OK rollout deployment/${dep}" \
     || { echo "WARN rollout deployment/${dep}" >&2; rollout_warn=1; }

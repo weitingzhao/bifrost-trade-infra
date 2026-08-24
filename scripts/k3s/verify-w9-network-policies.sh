@@ -20,7 +20,7 @@ export KUBECONFIG
 fail=0
 
 echo "==> NetworkPolicy objects (data NS — Redis env isolation)"
-for pol in redis-live-stg-ingress redis-queue-stg-ingress redis-live-prod-ingress redis-queue-prod-ingress redis-dev-ingress; do
+for pol in redis-live-stg-ingress redis-live-prod-ingress redis-dev-ingress; do
   if kubectl get networkpolicy "${pol}" -n "${DATA_NS}" >/dev/null 2>&1; then
     echo "OK data/${pol}"
   else

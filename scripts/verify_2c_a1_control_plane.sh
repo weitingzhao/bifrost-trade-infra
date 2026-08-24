@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # C4 — Assert api-ops is Kubernetes-only (legacy docker/local/agent executors removed).
-# Prefer cluster verify scripts (e.g. scripts/k3s/verify-p5a-prod-celery.sh) for full STG/PROD checks.
+# Prefer the Phase B cluster verify scripts for full STG/PROD checks.
 set -euo pipefail
 
 OPS_BASE="${OPS_BASE:-http://127.0.0.1:8768}"

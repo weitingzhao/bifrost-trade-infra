@@ -69,12 +69,6 @@ services:
 
   # massive-ws retired → Plugin polygon-ws-ingestor
 
-  celery-worker:
-    <<: *local-worker-build
-
-  flower:
-    <<: *local-worker-build
-
   api-monitor:
     <<: *local-api-build
   api-account:

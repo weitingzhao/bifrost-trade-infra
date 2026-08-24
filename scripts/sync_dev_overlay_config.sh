@@ -98,7 +98,6 @@ server = f"""server:
   skip_monitor_ib: {str(skip_ib).lower()}
   architecture:
     monitor_port: 8765
-    ops_port: 8768
     docs_port: 8767
   account:
     trading_port: 8769

@@ -26,7 +26,7 @@ check_policy() {
 
 echo "==> verify data layer phase ⑥ data NS Redis (KUBECONFIG=${KUBECONFIG})"
 
-for dep in redis-live-stg redis-queue-stg redis-live-prod redis-queue-prod redis-dev; do
+for dep in redis-live-stg redis-live-prod redis-dev; do
   if kubectl get deployment "${dep}" -n "${DATA_NAMESPACE}" >/dev/null 2>&1; then
     ready="$(kubectl get deployment "${dep}" -n "${DATA_NAMESPACE}" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)"
     if [[ "${ready}" == "1" ]]; then
@@ -45,9 +45,7 @@ for dep in redis-live-stg redis-queue-stg redis-live-prod redis-queue-prod redis
 done
 
 check_policy redis-live-stg noeviction
-check_policy redis-queue-stg allkeys-lru
 check_policy redis-live-prod noeviction
-check_policy redis-queue-prod allkeys-lru
 check_policy redis-dev noeviction
 
 echo ""

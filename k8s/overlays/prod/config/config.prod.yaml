@@ -7,7 +7,6 @@ server:
   skip_monitor_ib: false
   architecture:
     monitor_port: 8765
-    ops_port: 8768
     docs_port: 8767
   account:
     trading_port: 8769
@@ -90,9 +89,6 @@ ops:
   executor_mode: kubernetes
   kubernetes:
     namespace: bifrost-prod
-  celery:
-    prod_worker_hostnames: []
-  worker_profiles: {}
   auth:
     default_role: operator
     allow_unauthenticated_reads: false

@@ -67,7 +67,6 @@ ib_operator:
   health_refresh_sec: 30
   max_result_bytes: 4194304
   block_ms: 5000
-  # use_for_celery_bars: retired (P7 — Market Data Plugin minute-bars enqueue)
 
 ib_connection:
   reconnect_base_sec: 2
@@ -80,7 +79,6 @@ ib_connection:
 server:
   architecture:
     monitor_port: 8765
-    ops_port: 8768
     docs_port: 8767
   account:
     trading_port: 8769
@@ -103,28 +101,11 @@ ops:
   # daemon_scale_guard: freeze  # D10 — block daemon scale-up until Owner unlock
   # kubernetes:
   #   namespace: bifrost-stg  # or bifrost-prod / bifrost-dev
-  celery_inspect_timeout_sec: 15
-  celery_inspect_wall_sec: 10
-  worker_list_mode: redis_presence
-  worker_list_fallback_inspect: true
-  worker_list_inspect_quick_timeout_sec: 10
-  worker_list_inspect_cache_ttl_sec: 20
   auth:
     allow_unauthenticated_reads: true
     # Tokens: set OPS_OPERATOR_TOKEN / OPS_ADMIN_TOKEN in .env or K8s Secret (docs/SECRETS.md).
     # Do not commit plaintext tokens in YAML.
     # tokens: []
-  celery:
-    default_max_worker_instances: 1
-    canonical_queue_order:
-      - stocks_ib
-    broker_queue_display_names:
-      stocks_ib: "Stocks IB"
-  worker_profiles:
-    stocks_ib:
-      queues: ["stocks_ib"]
-      max_worker_instances: 1
-
 history_backfill:
   stock:
     daily_years: 10

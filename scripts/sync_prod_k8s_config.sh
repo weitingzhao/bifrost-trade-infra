@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Sync Prod K8s overlay: .env → config/config.prod.yaml; merge IB/server into overlay only.
-# Postgres/redis_queue stay CNPG @ data NS — never copy compose .env PG into overlay.
+# Postgres/Redis stay CNPG @ data NS — never copy compose .env PG into overlay.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -42,7 +42,6 @@ server = f"""server:
   skip_monitor_ib: {str(skip_ib).lower()}
   architecture:
     monitor_port: 8765
-    ops_port: 8768
     docs_port: 8767
   account:
     trading_port: 8769
@@ -60,9 +59,6 @@ ops = """ops:
   executor_mode: kubernetes
   kubernetes:
     namespace: bifrost-prod
-  celery:
-    prod_worker_hostnames: []
-  worker_profiles: {}
   auth:
     default_role: operator
     allow_unauthenticated_reads: false

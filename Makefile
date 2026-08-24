@@ -565,10 +565,6 @@ k3s-verify-p3-prod-cutover:
 	@chmod +x scripts/k3s/verify-p3-prod-cutover.sh
 	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/verify-p3-prod-cutover.sh
 
-k3s-verify-p5a-prod-celery:
-	@chmod +x scripts/k3s/verify-p5a-prod-celery.sh
-	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/verify-p5a-prod-celery.sh
-
 k3s-verify-p5b-prod-daemon-observe:
 	@chmod +x scripts/k3s/verify-p5b-prod-daemon-observe.sh
 	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/verify-p5b-prod-daemon-observe.sh

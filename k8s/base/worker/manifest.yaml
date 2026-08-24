@@ -30,7 +30,7 @@ spec:
         - name: bifrost-config
           configMap:
             name: bifrost-config
-      # W7: wait for CNPG + Redis before daemon FSM starts (Celery redis_queue retired).
+      # W7: wait for CNPG + Redis before daemon FSM starts.
       initContainers:
         - name: wait-for-data
           image: registry.cicd.svc.cluster.local:5000/bifrost-worker:stg

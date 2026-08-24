@@ -38,7 +38,17 @@
 
 GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 验收: `make verify-ib-gateway-program` · `make verify-trade-ib-rollout-prod`
 
-### §1.2 Market Data Golden Source — related tickers / ticker types / stock snapshot
+### §1.2 Wave 5 — Trade Celery retirement
+
+| 项 | 状态 | 说明 |
+|----|------|------|
+| Frontend/API Celery surface | **DONE (local)**（2026-08-24） | Celery/Flower UI 与 API worker/queue surface removed；Ops market-ingest/auth/audit retained |
+| Worker/Core runtime | **DONE (local)** | Trade Celery runtime retired；core **0.14.0** removes `celery_redis_url_from_config` and Celery health roll-up |
+| Infra desired state | **DONE (local)** | Config, image dependencies, compose services, scripts, and redis-queue manifests cleaned |
+| STG/PROD rollout | **PENDING** | Deliver Wave 5 artifacts and complete Owner sign-off |
+| Live redis-queue teardown | **DEFERRED (Phase 8)** | Physical deletion only after separate Owner sign-off; Wave 5 removes recreation paths |
+
+### §1.3 Market Data Golden Source — related tickers / ticker types / stock snapshot
 
 | 项 | 状态 | 说明 |
 |----|------|------|
@@ -536,6 +546,7 @@ views `account_executions*`→`brokerage.executions*`.
 
 | 日期 | 变更内容 | 操作人 |
 |------|---------|--------|
+| 2026-08-24 | **Wave 5 Phase 6 (local complete / rollout pending)**: infra Celery/Flower config + image + compose + verify cleanup；redis-queue desired state removed，live teardown deferred to Phase 8；core ref → `v0.14.0` | Agent |
 | 2026-08-24 | **DB Hygiene Wave 4 DONE**: Flex token Secret prefer + ops_audit_log partitioned timestamptz + 90d drop; core `v0.13.0`; flex-query `0.4.0`; platform clone `ops_audit_log*`; STG+PROD deliver green; verify_wave4_* PASS (Secret empty → source=db fallback until Owner fills IB_FLEX_*_TOKEN) | Agent |
 | 2026-08-24 | **DB Hygiene Wave 3**: DROP strategy_history; transactions UNIQUE +report_date; core `0.12.0` (ships Wave 2+3); D-W3.1/2/3/4 + K-W3.1 SINGLE + K-W3.2 SILENT | Agent |
 | 2026-08-24 | **DB Hygiene Wave 2**: strategy KV→jsonb (15→12 tables); ops_audit_log DDL in core + clone exclude/backup; preference_* kept (live consumers); core `0.11.0` | Agent |

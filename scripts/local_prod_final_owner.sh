@@ -79,11 +79,10 @@ session_3() {
 }
 
 session_8() {
-  echo "=== Session 8 (Final) — Ops Celery + Socket + Daemon control → L2.2–L2.4 ==="
-  echo "Checks: Celery 8 tables + worker instances; Socket ingest + Connection; Daemon process control"
-  echo "Needs: Ops token on Celery/Socket pages (operator/admin from config.dev.yaml)"
+  echo "=== Session 8 (Final) — Ops Socket + Daemon control → L2.2–L2.4 ==="
+  echo "Checks: Socket ingest + Connection; Daemon process control"
+  echo "Needs: Ops token on Socket/Daemon pages (operator/admin from config.dev.yaml)"
   echo ""
-  open_url "/operations/celery"
   open_url "/settings/socket"
   open_url "/operations/daemon"
   echo ""
