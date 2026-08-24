@@ -73,14 +73,14 @@ golden_source:
 
 redis:
   enabled: true
-  host: 192.168.10.70
+  host: redis-dev.data.svc.cluster.local
   port: 6379
   db: 0
 
 redis_ib:
   enabled: true
-  host: host.docker.internal
-  port: 6380
+  host: redis-ib
+  port: 6379
   db: 0
   username: trade-prod
   password: ""

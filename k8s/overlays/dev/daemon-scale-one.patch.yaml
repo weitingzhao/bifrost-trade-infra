@@ -1,0 +1,8 @@
+# DEV: single daemon replica — avoids _ensure_tables() lock contention on startup
+# (Wave 9 migration + FK DDL). Lease leader election still enabled; no hot standby needed.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: daemon
+spec:
+  replicas: 1

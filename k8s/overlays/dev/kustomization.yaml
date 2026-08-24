@@ -23,6 +23,7 @@ configMapGenerator:
       disableNameSuffixHash: true
 
 patches:
+  - path: daemon-scale-one.patch.yaml
   - path: node-control-plane.patch.yaml
   - path: dev-images-pull-always.patch.yaml
   - path: api-monitor-local-image.patch.yaml
