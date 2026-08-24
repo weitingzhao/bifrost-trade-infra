@@ -207,6 +207,12 @@ decisions:
       conclusion: "Owner dropped the ui-experience-alignment prerequisite for Phase 3: Legacy runtime is already stopped (.70/.73/.50 clean) so side-by-side comparison is no longer possible, and Phase 2B already signed off 9/9 domains as business-equivalent. Ongoing UI polish continues as ordinary Design System work, not a retirement blocker. bifrost-trader-engine is NAS-archived (read-only) and removed from the workspace. legacy-retirement milestone → SIGNED/closed."
       signed_at: "2026-06-29"
       authority: bifrost-trade-infra/docs/PHASE2C_PROD_DEFERRED.md
+    - id: D-Wave-6.1
+      status: SIGNED
+      topic: Trade Celery active-code sweep (Wave 6.1)
+      conclusion: "Wave 5 retired Trade Celery runtime (zero celery-worker / celery-beat / flower pods). Wave 6.1 removes remaining active code paths: platform-api satellite monitor.celery field, Console Satellite Bus celery nodes, sessions-catalog celery sessions, Trade FE celeryBeat noop hook, bifrost-core config.yaml.example ops.celery dead fields. Governance catalogs and completed program yaml retained as audit evidence."
+      signed_at: "2026-08-24"
+      authority: "console/src/lib/architecture/tradeCeleryK8sIdealCatalog.ts · bifrost-trade-infra/docs/WAVE5_ROLLOUT.md"
 platform_phases:
     - id: A
       label: Gate
@@ -569,5 +575,5 @@ probe_hints:
       trade_route: /operations/daemon
       hint: "Daemon status and control overview"
     - target_id: api-ops
-      trade_route: /operations/celery
-      hint: "Celery workers and queues"
+      trade_route: /operations/logs
+      hint: "Ops API health and log streams"
