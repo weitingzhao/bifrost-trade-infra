@@ -14,3 +14,7 @@ tokens:
     role: admin
     token_env: PLATFORM_PROD_ADMIN_TOKEN
     token: placeholder-override-via-env
+  - name: trade-satellite
+    role: operator
+    token_env: PLATFORM_SATELLITE_AUDIT_TOKEN
+    token: placeholder-override-via-env

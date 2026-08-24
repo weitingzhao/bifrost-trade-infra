@@ -36,6 +36,7 @@ patches:
   - path: platform-api-agent-bridge-env.patch.yaml
   - path: platform-api-write-token.patch.yaml
   - path: platform-api-redis-ib-env.patch.yaml
+  - path: platform-api-satellite-audit-token.patch.yaml
 
 images:
   - name: registry.cicd.svc.cluster.local:5000/bifrost-platform-api

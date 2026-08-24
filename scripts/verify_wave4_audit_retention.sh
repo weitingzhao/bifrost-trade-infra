@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# RETIRED Wave 6 — ops_audit_log table removed.
+echo "SKIP: verify_wave4_audit_retention.sh retired (Wave 6); use verify_wave6_ops_audit_retired.sh"
+exit 0
+
+# --- legacy script below (not executed) ---
 # Wave 4 Item B retention: no monthly ops_audit_log partitions older than 3 months.
 #
 # Run AFTER db-init / api restart (ensure_tables drops stale partitions) or after

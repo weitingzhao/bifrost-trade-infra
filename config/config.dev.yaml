@@ -93,8 +93,10 @@ ops:
     default_role: "admin" # dev convenience: unauthenticated = admin
     allow_unauthenticated_reads: true
     tokens: []
-  audit:
-    persist: false # dev: in-memory only
+  platform_audit:
+    enabled: false
+    url: http://127.0.0.1:8780
+    timeout_ms: 2000
 
 # Plugin redis-massive — ExternalName → redis-massive.data.svc.cluster.local
 redis_massive:

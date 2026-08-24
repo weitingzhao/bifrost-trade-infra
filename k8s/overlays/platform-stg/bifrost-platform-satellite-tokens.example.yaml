@@ -1,0 +1,11 @@
+# Example — copy to bifrost-platform-satellite-tokens.yaml (gitignored), sync same value to Trade bifrost-*-secrets.
+#   kubectl apply -f k8s/overlays/platform-stg/bifrost-platform-satellite-tokens.yaml -n bifrost-platform-stg
+apiVersion: v1
+kind: Secret
+metadata:
+  name: bifrost-platform-satellite-tokens
+  labels:
+    app.kubernetes.io/part-of: bifrost-platform
+type: Opaque
+stringData:
+  PLATFORM_SATELLITE_AUDIT_TOKEN: "REPLACE_ME"

@@ -8,6 +8,7 @@ resources:
   - trade-ingressroute.yaml
   - trade-http-redirect.yaml
   - trade-ip-ingressroute.yaml
+  - api-monitor-platform-audit-egress.yaml
 
 configMapGenerator:
   - name: bifrost-config

@@ -93,8 +93,10 @@ ops:
     default_role: operator
     allow_unauthenticated_reads: false
     tokens: []
-  audit:
-    persist: true
+  platform_audit:
+    enabled: true
+    url: http://platform-api.bifrost-platform-prod.svc.cluster.local:8780
+    timeout_ms: 2000
 
 # Plugin redis-massive — ExternalName → redis-massive.data.svc.cluster.local
 redis_massive:

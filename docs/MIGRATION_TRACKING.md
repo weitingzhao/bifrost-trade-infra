@@ -529,6 +529,7 @@ views `account_executions*`→`brokerage.executions*`.
 | DB Hygiene Wave 2 | ✅ **2026-08-24** | strategy KV 3 tables → parent jsonb (`params_json`/`characteristics_json`/`meta_json`); strategy_* 15→12; `ops_audit_log` DDL → core + clone `--exclude-table-data` + backup/restore; preference_* **retained** (live FE/API); core `0.11.0` |
 | DB Hygiene Wave 3 | ✅ **2026-08-24** | DROP `strategy_history` (DDL/reader/writer/API/FE); extend `raw_broker.transactions` UNIQUE → `(account_id, ts, amount, type, report_date)`; Wave 2+3 single cutover `v0.12.0` (K-W3.1); D-W3.1 DROP / D-W3.2 LEAVE raw_extra / D-W3.3 EXTEND / D-W3.4 WIDE |
 | DB Hygiene Wave 4 | ✅ **2026-08-24** | Flex tokens → K8s Secret `bifrost-flex-tokens` (env prefer, DB fallback); `ops_audit_log` partitioned timestamptz + 90d retention on `_ensure_tables`; clone `ops_audit_log*` wildcard; core `0.13.0` / flex-query `0.4.0` — [WAVE4_ROLLOUT.md](WAVE4_ROLLOUT.md); verify_wave4_* green DEV/STG/PROD |
+| DB Hygiene Wave 6 | 🔄 **in progress** | `ops_audit_log` retired → platform `POST /api/v1/audit/append`; core `0.15.0` — code landed; cluster DROP pending — [WAVE6_ROLLOUT.md](WAVE6_ROLLOUT.md) |
 
 **Data depth note:** `market.stock_daily` covers ~162 trading days (2025-06 to 2026-08). CRS/technical models require 252+ days → `sepa_technical_eval`, `sepa_tier_momentum`, `sepa_composite_score`, `sepa_screener_wide` currently empty. Will auto-populate as daily bars accumulate.
 
@@ -546,6 +547,7 @@ views `account_executions*`→`brokerage.executions*`.
 
 | 日期 | 变更内容 | 操作人 |
 |------|---------|--------|
+| 2026-08-24 | **DB Hygiene Wave 6 in progress**: code for ops_audit_log retirement + platform audit sink; cluster delivery + physical DROP pending | Agent |
 | 2026-08-24 | **Wave 5 Phase 8 DONE**: live `redis-queue-{stg,prod}` Deployments/Services/NodePorts/NetworkPolicies + prod ExternalName deleted from cluster | Agent |
 | 2026-08-24 | **Wave 5 DONE (rollout)**: core `v0.14.0` tagged; Celery FE/API/worker/infra removed; STG+PROD deliver green; `/ops/auth`+market-ingest retained; redis-queue live teardown → Phase 8 | Agent |
 | 2026-08-24 | **Wave 5 Phase 6 (local complete / rollout pending)**: infra Celery/Flower config + image + compose + verify cleanup；redis-queue desired state removed，live teardown deferred to Phase 8；core ref → `v0.14.0` | Agent |

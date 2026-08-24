@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# RETIRED Wave 6 — ops_audit_log partitioned table removed.
+# Use scripts/verify_wave6_ops_audit_retired.sh instead.
+echo "SKIP: verify_wave4_audit_partitioned.sh retired (Wave 6); use verify_wave6_ops_audit_retired.sh"
+exit 0
+
+# --- legacy script below (not executed) ---
 # Wave 4 Item B: ops_audit_log is RANGE-partitioned with timestamptz.
 #
 # Per env (dev/stg/prod):

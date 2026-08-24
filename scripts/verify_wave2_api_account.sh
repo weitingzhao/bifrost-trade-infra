@@ -7,7 +7,7 @@
 #   2. Trade DB schema reflects the jsonb collapse: strategy_template.params_json
 #      and strategy_template.characteristics_json exist; strategy_structure.meta_json
 #      exists; the 3 old KV tables no longer exist.
-#   3. public.ops_audit_log exists (core-owned DDL applied).
+#   3. public.ops_audit_log absent (Wave 6 retired → platform-api audit).
 #   4. api-account serves /api/strategy/strategies/templates/{id} with
 #      meta_params + characteristics hydrated from jsonb (Wave 2 contract).
 #
@@ -84,7 +84,7 @@ SELECT json_build_object(
   'kv_dropped',             to_regclass('public.strategy_template_param') IS NULL
                              AND to_regclass('public.strategy_template_characteristic') IS NULL
                              AND to_regclass('public.strategy_structure_meta') IS NULL,
-  'ops_audit_log',          to_regclass('public.ops_audit_log') IS NOT NULL,
+  'ops_audit_log_retired', to_regclass('public.ops_audit_log') IS NULL,
   'strategy_history_gone',  to_regclass('public.strategy_history') IS NULL
 );" 2>/dev/null | tr -d '[:space:]')"
 
@@ -93,7 +93,7 @@ SELECT json_build_object(
      || [[ "$SCHEMA_JSON" != *'"characteristics_json":true'* ]] \
      || [[ "$SCHEMA_JSON" != *'"meta_json":true'* ]] \
      || [[ "$SCHEMA_JSON" != *'"kv_dropped":true'* ]] \
-     || [[ "$SCHEMA_JSON" != *'"ops_audit_log":true'* ]] \
+     || [[ "$SCHEMA_JSON" != *'"ops_audit_log_retired":true'* ]] \
      || [[ "$SCHEMA_JSON" != *'"strategy_history_gone":true'* ]]; then
     echo "[$ENV] FAIL: schema not fully upgraded to Wave 2+3"
     FAIL=1

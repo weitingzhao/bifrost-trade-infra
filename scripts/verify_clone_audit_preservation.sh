@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# Verify that trigger_data_clone preserves the target env's ops_audit_log
+# RETIRED Wave 6 — ops_audit_log table dropped; clone no longer preserves audit rows.
+# Use scripts/verify_wave6_ops_audit_retired.sh instead.
+echo "SKIP: verify_clone_audit_preservation.sh retired (Wave 6); use verify_wave6_ops_audit_retired.sh"
+exit 0
+
+# --- legacy script below (not executed) ---
 # (Wave 2 requirement — pg_dump excludes public.ops_audit_log data, then
 #  data_clone.go backs up target audit rows and replays them post-restore).
 #
