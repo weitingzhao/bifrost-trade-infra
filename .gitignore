@@ -38,3 +38,6 @@ site/
 docs/Goal
 docs/external/
 .venv-docs/
+
+# Local pg_dump / backup artefacts (do not commit)
+backups/
