@@ -58,13 +58,14 @@ CANARY_TAG="wave2_clone_canary_$(date -u +%Y%m%dT%H%M%SZ)_${TARGET_ENV}"
 
 case "$STAGE" in
   seed)
-    # Sanity: ops_audit_log must exist (Wave 2 core >= 0.11.0)
+    # Sanity: ops_audit_log must exist (Wave 2+; Wave 4 may be partitioned timestamptz)
     HAS_TABLE="$(psql_target "SELECT to_regclass('public.ops_audit_log') IS NOT NULL")"
     if [[ "$HAS_TABLE" != "t" ]]; then
       echo "FATAL: public.ops_audit_log missing in $TARGET_DB — run db-init with core >= 0.11.0 first" >&2
       exit 4
     fi
 
+    # timestamp column is timestamptz (Wave 4) or legacy double; DEFAULT handles both.
     # -tAc mixes RETURNING output with the command tag ("INSERT 0 1"); grab the
     # first purely-numeric line so state files stay `source`-safe.
     ROW_ID="$(psql_target "

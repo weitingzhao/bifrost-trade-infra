@@ -518,6 +518,7 @@ views `account_executions*`→`brokerage.executions*`.
 | DB Hygiene Wave 1 | ✅ **2026-08-24** | Stop `comprehensive_income` ingest; OI covering indexes; dbt lookback 210→60; empty/out-of-window partitions 196→136; `drop_month_partitions_older_than` + trim slot; `_ensure_partitions` → `raw_market`/`features_daily`; core `0.10.11` (gate_safety legacy already dropped); plugin `0.7.10` |
 | DB Hygiene Wave 2 | ✅ **2026-08-24** | strategy KV 3 tables → parent jsonb (`params_json`/`characteristics_json`/`meta_json`); strategy_* 15→12; `ops_audit_log` DDL → core + clone `--exclude-table-data` + backup/restore; preference_* **retained** (live FE/API); core `0.11.0` |
 | DB Hygiene Wave 3 | ✅ **2026-08-24** | DROP `strategy_history` (DDL/reader/writer/API/FE); extend `raw_broker.transactions` UNIQUE → `(account_id, ts, amount, type, report_date)`; Wave 2+3 single cutover `v0.12.0` (K-W3.1); D-W3.1 DROP / D-W3.2 LEAVE raw_extra / D-W3.3 EXTEND / D-W3.4 WIDE |
+| DB Hygiene Wave 4 | 🔄 **code ready 2026-08-24** | Flex tokens → K8s Secret `bifrost-flex-tokens` (env prefer, DB fallback); `ops_audit_log` partitioned timestamptz + 90d retention on `_ensure_tables`; clone `ops_audit_log*` wildcard; core `0.13.0` / flex-query `0.4.0` — see [WAVE4_ROLLOUT.md](WAVE4_ROLLOUT.md) |
 
 **Data depth note:** `market.stock_daily` covers ~162 trading days (2025-06 to 2026-08). CRS/technical models require 252+ days → `sepa_technical_eval`, `sepa_tier_momentum`, `sepa_composite_score`, `sepa_screener_wide` currently empty. Will auto-populate as daily bars accumulate.
 
@@ -535,6 +536,7 @@ views `account_executions*`→`brokerage.executions*`.
 
 | 日期 | 变更内容 | 操作人 |
 |------|---------|--------|
+| 2026-08-24 | **DB Hygiene Wave 4 (code)**: Flex token Secret prefer + ops_audit_log partitioned timestamptz + 90d drop; core `0.13.0`; flex-query `0.4.0`; platform clone `ops_audit_log*`; verify_wave4_*.sh — rollout pending | Agent |
 | 2026-08-24 | **DB Hygiene Wave 3**: DROP strategy_history; transactions UNIQUE +report_date; core `0.12.0` (ships Wave 2+3); D-W3.1/2/3/4 + K-W3.1 SINGLE + K-W3.2 SILENT | Agent |
 | 2026-08-24 | **DB Hygiene Wave 2**: strategy KV→jsonb (15→12 tables); ops_audit_log DDL in core + clone exclude/backup; preference_* kept (live consumers); core `0.11.0` | Agent |
 | 2026-08-24 | **DB Hygiene Wave 1**: Plugin stop `comprehensive_income`; OI indexes; partition rolling window + empty DROP (196→136); dbt `int_stock_daily_enriched` lookback 60; core `0.10.11` / plugin `0.7.10` | Agent |
