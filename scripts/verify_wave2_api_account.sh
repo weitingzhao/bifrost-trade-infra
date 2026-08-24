@@ -84,7 +84,8 @@ SELECT json_build_object(
   'kv_dropped',             to_regclass('public.strategy_template_param') IS NULL
                              AND to_regclass('public.strategy_template_characteristic') IS NULL
                              AND to_regclass('public.strategy_structure_meta') IS NULL,
-  'ops_audit_log',          to_regclass('public.ops_audit_log') IS NOT NULL
+  'ops_audit_log',          to_regclass('public.ops_audit_log') IS NOT NULL,
+  'strategy_history_gone',  to_regclass('public.strategy_history') IS NULL
 );" 2>/dev/null | tr -d '[:space:]')"
 
   echo "[$ENV] schema check: $SCHEMA_JSON"
@@ -92,11 +93,12 @@ SELECT json_build_object(
      || [[ "$SCHEMA_JSON" != *'"characteristics_json":true'* ]] \
      || [[ "$SCHEMA_JSON" != *'"meta_json":true'* ]] \
      || [[ "$SCHEMA_JSON" != *'"kv_dropped":true'* ]] \
-     || [[ "$SCHEMA_JSON" != *'"ops_audit_log":true'* ]]; then
-    echo "[$ENV] FAIL: schema not fully upgraded to Wave 2"
+     || [[ "$SCHEMA_JSON" != *'"ops_audit_log":true'* ]] \
+     || [[ "$SCHEMA_JSON" != *'"strategy_history_gone":true'* ]]; then
+    echo "[$ENV] FAIL: schema not fully upgraded to Wave 2+3"
     FAIL=1
   else
-    echo "[$ENV] schema OK"
+    echo "[$ENV] schema OK (Wave 2 jsonb + Wave 3 strategy_history retired)"
   fi
 
   # (3) params round-trip — /api/strategies/templates first row must expose params list
@@ -131,6 +133,33 @@ print(json.dumps({
     echo "[$ENV] SKIP api probe: no ingress URL mapped"
   fi
 done
+
+# Wave 3 append-only: Golden Source transactions UNIQUE includes report_date
+echo
+echo "==================== golden_source (Wave 3 dedupe) ===================="
+DEDUPE="$(kubectl exec -n data "$PRIMARY" -c postgres -- \
+  psql -U postgres -d bifrost_golden_source -tAc "
+SELECT EXISTS (
+  SELECT 1
+  FROM pg_constraint c
+  JOIN pg_class t ON t.oid = c.conrelid
+  JOIN pg_namespace n ON n.oid = t.relnamespace
+  JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS u(attnum, ord) ON true
+  JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = u.attnum
+  WHERE n.nspname = 'raw_broker'
+    AND t.relname = 'transactions'
+    AND c.contype = 'u'
+  GROUP BY c.conname
+  HAVING array_agg(a.attname ORDER BY u.ord)::text[]
+       = ARRAY['account_id','ts','amount','type','report_date']::text[]
+);" 2>/dev/null | tr -d '[:space:]')"
+echo "transactions 5-col UNIQUE present: ${DEDUPE:-?}"
+if [[ "$DEDUPE" != "t" ]]; then
+  echo "FAIL: raw_broker.transactions missing UNIQUE(account_id, ts, amount, type, report_date)"
+  FAIL=1
+else
+  echo "broker dedupe OK"
+fi
 
 echo
 if [[ "$FAIL" -eq 0 ]]; then
