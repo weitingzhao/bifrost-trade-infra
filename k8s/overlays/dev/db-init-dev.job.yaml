@@ -30,7 +30,7 @@ spec:
           imagePullPolicy: Always
           command:
             - python
-            - /build/bifrost-trade-core/scripts/db/db_refresh_schema.py
+            - /app/scripts/run_db_refresh_schema.py
           env:
             - name: BIFROST_CONFIG
               value: /app/config/config.stg.yaml
