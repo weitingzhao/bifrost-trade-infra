@@ -1,7 +1,16 @@
-# DB Hygiene Wave 3 — pre-scope blueprint
+# DB Hygiene Wave 3 — executable phase plan
 
-> Status: **Blueprint / Owner decisions pending** — do not begin execution
-> until the four decision points below are answered.
+> Status: **Owner decisions recorded 2026-08-24** — ready to execute pending
+> the two remaining kick-off questions in §8.
+
+## Owner decisions (2026-08-24)
+
+| # | Decision |
+|---|---|
+| **D-W3.1** | **DROP** `strategy_history` — feature not needed. Remove DDL, core writer/reader, Trade API endpoint, and Frontend `StrategyHistorySection`. |
+| **D-W3.2** | **LEAVE** `raw_broker.transactions.raw_extra` — accept the ~2× storage cost on this small table. |
+| **D-W3.3** | **EXTEND** `raw_broker.transactions` UNIQUE tuple to `(account_id, ts, amount, type, report_date)`. |
+| **D-W3.4** | **WIDE scope** — Wave 3 covers D-W3.1 (Trade DB) **and** D-W3.3 (Golden Source). D-W3.2 collapses to a no-op inside the wide scope. |
 
 Wave 1 (2026-08-24) closed Plugin ingest drift and dbt lookback.
 Wave 2 (2026-08-24) folded 3 strategy KV subtables into jsonb and moved
@@ -78,71 +87,106 @@ Mitigation candidates for Owner:
 
 Do not change this without an Owner decision — it is data-shape.
 
-## 3. Owner decisions (blockers before Wave 3 execution)
+## 3. Owner decisions — recorded (see banner)
 
-| # | Question | Impact if deferred |
+See the decision block at the top of this document. §4 below is the
+executable phase plan derived from those decisions.
+
+## 4. Wave 3 phase plan (Wide scope — D-W3.1 drop + D-W3.3 extend)
+
+Two independent tracks. Track A touches Trade DB / core / api / Frontend.
+Track B touches only Golden Source and `bifrost-flex-query`. They can run
+in either order or in parallel; recommended order is **A first** to
+consolidate the core version bump, then **B**.
+
+### Track A — Retire `strategy_history` (Trade DB / core / api / FE)
+
+| Phase | Change | Files |
 |---|---|---|
-| **D-W3.1** | `strategy_history` — **keep alive** (turn on `append_history=True` in daemon FSM transitions and expose in Frontend) or **drop** (remove core DDL/reader/writer, remove FE section, drop table)? | UI section keeps showing 0 rows; forensics on FSM transitions unavailable |
-| **D-W3.2** | `raw_broker.transactions.raw_extra` — **A: leave** or **B: strip promoted keys**? | Cost is small (table is ~102 rows), so leaving is safe. B pays off only if this table grows 100×. |
-| **D-W3.3** | `raw_broker.transactions` UNIQUE key — leave `(account_id, ts, amount, type)`, or extend with `report_date` / description hash? | Rare same-day duplicate cash txns collapse silently. Zero incidents observed so far. |
-| **D-W3.4** | Wave 3 scope philosophy — **narrow** (only D-W3.1 answered) or **wide** (also address D-W3.2 / D-W3.3 and any Owner-added items)? | Determines whether Wave 3 is a same-day cleanup or a full Golden Source hygiene pass. |
+| **A1** | Remove core write path — delete the `append_history` branch and DDL migration | `bifrost-trade-core/src/bifrost_core/persistence/postgres_sink.py`, `bifrost_core/persistence/status_sink.py`, `bifrost_core/persistence/postgres/ddl.py` (remove `_log_table("strategy_history", ...)` block + indexes) |
+| **A2** | Remove core reader | `bifrost_core/monitor/reader/strategy.py` (delete `get_strategy_history`), `bifrost_core/monitor/reader/common.py` (delete wrapper) |
+| **A3** | Remove Trade API endpoint | `bifrost-trade-api/src/bifrost_api/monitor/routers/status.py` and/or `config.py` and `strategy/routers/strategies.py` — grep for `get_strategy_history` and `strategy_history` |
+| **A4** | Remove Frontend surface | `bifrost-trade-frontend/src/components/strategy/StrategyHistorySection.tsx` (delete), `src/pages/strategy/StructuresPage.tsx` (unwire import), `src/api/strategy.ts` (delete `fetchStrategyHistory`), `src/types/strategy.ts` (delete `StrategyHistoryRow/Params/Response`), `src/types/positions.ts` (re-export cleanup) |
+| **A5** | Idempotent DROP TABLE + schema-report update | Add `DROP TABLE IF EXISTS strategy_history CASCADE` guarded call inside a `_retire_strategy_history` helper in core `ddl.py`; remove `strategy_history` from `scripts/db/_schema_report.py::EXPECTED_TABLES_BY_CATEGORY` |
+| **A6** | Version bump `bifrost-core` → **`0.12.0`** (MINOR — dropped a public reader function) | `bifrost-trade-core/pyproject.toml`, `bifrost-trade-core/CLAUDE.md`; `bifrost-trade-api/pyproject.toml` pins `>=0.12.0`; `bifrost-trade-infra/.env.example` → `v0.12.0` |
+| **A7** | Trade DB verification — apply DDL in DEV/STG/PROD, confirm table absent + api-account healthy | run `db-init`; extend `verify_wave2_api_account.sh` or add `verify_wave3_strategy_history_retired.sh` |
 
-## 4. Proposed Wave 3 phases (subject to Owner decisions above)
+### Track B — Golden Source `raw_broker.transactions` UNIQUE hardening
 
-Assumes narrow scope (**D-W3.1 = drop**, D-W3.2 = leave, D-W3.3 = leave):
+Current index: `UNIQUE(account_id, ts, amount, type)`. New:
+`UNIQUE(account_id, ts, amount, type, report_date)`. `report_date` is
+100% non-null in current data (2026-08-24 sample: 102/102 rows), so the
+migration is safe — but the new UNIQUE **must** be created before
+Plugin upsert code switches its `ON CONFLICT` target, otherwise upsert
+will fall back to plain INSERT and duplicate.
 
-1. **P1 — Remove `strategy_history` write path.** Delete `append_history`
-   branch in `bifrost_core.persistence.postgres_sink` and status_sink API;
-   `_ensure_strategy_history` migration; DROP TABLE guarded with
-   idempotent `IF EXISTS`.
-2. **P2 — Remove reader + API surface.** Drop
-   `bifrost_core.monitor.reader.strategy.get_strategy_history`,
-   `common.get_strategy_history`, and the Trade API endpoint (if wired).
-3. **P3 — Remove Frontend section.** Drop `StrategyHistorySection.tsx`,
-   `StrategyHistoryRow/Params/Response` types, and unwire it from
-   `StructuresPage.tsx`.
-4. **P4 — Bump `bifrost-core` to `0.11.1`** (or `0.12.0` if we also change
-   the reader API contract), refresh `BIFROST_CORE_REF`, run
-   `verify_wave2_api_account.sh` variant to prove the API contract still
-   holds.
+| Phase | Change | Files |
+|---|---|---|
+| **B1** | Backfill guard — verify `report_date IS NULL` count in `raw_broker.transactions` is 0 across DEV/STG/PROD (production Golden Source is single instance, so one check suffices) | ad-hoc `psql` query captured in verify script |
+| **B2** | DDL migration — `CREATE UNIQUE INDEX CONCURRENTLY raw_broker_transactions_dedupe_v2 ON raw_broker.transactions (account_id, ts, amount, type, report_date)` then swap the CONSTRAINT | `bifrost-platform-plugin-flex-query/src/bifrost_flex_query/schema/…` (or wherever brokerage DDL is applied) — path likely `bifrost-trade-core/src/bifrost_core/persistence/postgres/brokerage_ddl.py` since core owns the transactions DDL |
+| **B3** | Upsert `ON CONFLICT` target — change from `(account_id, ts, amount, type)` to `(account_id, ts, amount, type, report_date)` in `upsert_account_transactions` | `bifrost-trade-core/src/bifrost_core/portfolio/reader/accounts.py` (~line 1236). This means Track B **also** needs a core bump — fold into A6 → `0.12.0` |
+| **B4** | Plugin ingest smoke — trigger Flex cash-transactions ingest on DEV; confirm existing rows do not duplicate; confirm same-day-different-report-date rows now co-exist | `bifrost-platform-plugin-flex-query/Makefile` verify targets or a new `verify_wave3_broker_dedupe.sh` |
+| **B5** | Plugin version bump (only if the Plugin runs its own DDL step; otherwise skip — Plugin only depends on core `0.12.0`) | `bifrost-platform-plugin-flex-query/pyproject.toml` |
 
-Assumes wide scope adds:
+### Track C — Roll-up and documentation
 
-5. **P5 (optional)** — Plugin upsert change: strip promoted keys from
-   `raw_extra`; one-shot backfill in `bifrost_golden_source` (small table,
-   safe).
-6. **P6 (optional)** — Extend `raw_broker.transactions` UNIQUE index with
-   `report_date` or `md5(description)`; migrate via `CREATE UNIQUE INDEX
-   CONCURRENTLY` and swap.
+| Phase | Change |
+|---|---|
+| **C1** | Update `bifrost-trade-infra/docs/MIGRATION_TRACKING.md` with a new "DB Hygiene Wave 3" entry (Wave 3 DONE date, changes summary, breaking notes) |
+| **C2** | Update `bifrost-trade-infra/docs/WAVE2_ROLLOUT.md` → new `WAVE3_ROLLOUT.md` sibling with the same delivery-pipeline flow (Kaniko rebuild → rollout restart → `verify_wave3_*.sh`) |
+| **C3** | Local `git tag v0.12.0` on `bifrost-trade-core` (Owner controls push) |
 
-## 5. Verification handles (already in place)
+## 5. Rollback posture
 
-- `bifrost-trade-infra/scripts/verify_wave2_api_account.sh` — will keep
-  guarding jsonb columns and audit table presence after Wave 3.
-- `bifrost-trade-infra/scripts/verify_clone_audit_preservation.sh` — will
-  keep guarding audit-preservation across clones.
-- `bifrost-trade-core/scripts/db/_schema_report.py` — canonical expected
-  table set; update in Wave 3 if `strategy_history` is dropped.
+Track A: schema-destructive on read (drops a table with 0 rows). If a
+regression appears the rollback is `bifrost-core` image revert; the
+table itself is empty so nothing is lost. **One-way door once merged**.
 
-## 6. Non-goals (explicitly out of Wave 3)
+Track B: `CREATE UNIQUE INDEX CONCURRENTLY` is non-blocking and reversible
+via `DROP INDEX CONCURRENTLY` before the constraint swap. After the swap
+the rollback requires re-creating the old UNIQUE — still safe because
+existing rows already respect both keys (report_date is present).
 
-- Cross-repo consolidation (Ops Console catalog changes, Platform data-clone
-  logic) — done in Wave 2.
+## 6. Version and rollout coupling
+
+Both tracks bump `bifrost-core` to a **single** `v0.12.0` release; A and
+B ship in one image. Rollout uses the same `bifrost-deliver-stg` /
+`-prod` Tekton pipelines as Wave 2.
+
+## 7. Verification handles (extend, do not replace)
+
+- `scripts/verify_wave2_api_account.sh` — after Wave 3, also assert that
+  `to_regclass('public.strategy_history') IS NULL` and that
+  `pg_indexes` shows the 5-column dedupe index. Add these as an
+  *append-only* patch to keep Wave 2 semantics intact.
+- New `scripts/verify_wave3_strategy_history_retired.sh` — per-env probe
+  that (a) the table is gone, (b) Trade API no longer exposes
+  `/api/strategies/history` (or whatever the endpoint was), (c) the
+  frontend build succeeds without the section.
+- New `scripts/verify_wave3_broker_dedupe.sh` — asserts the 5-column
+  UNIQUE index exists on Golden Source and that a synthetic
+  same-`(account,ts,amount,type)` but different-`report_date` row can
+  coexist.
+
+## 8. Kick-off questions still open
+
+Before the first Wave 3 commit lands, Owner should confirm:
+
+| # | Question | Default if silent |
+|---|---|---|
+| **K-W3.1** | **Wave 2 rollout timing** — roll out Wave 2 (`bifrost-core v0.11.0` → api-account) *before* starting Wave 3 codework, or roll Wave 2 and Wave 3 as a single `v0.12.0` cutover? | Ship as one `v0.12.0` cutover — halves the number of rollout events and keeps `v0.11.0` as a purely local tag |
+| **K-W3.2** | **UI removal etiquette for `StrategyHistorySection`** — silent removal, or deprecate-then-delete over one release? | Silent removal (0 rows in production ever; no user has seen data there) |
+
+Once K-W3.1 and K-W3.2 land, phase execution can start with A1.
+
+## 9. Non-goals (unchanged from pre-scope)
+
+- Cross-repo consolidation (Ops Console catalogs, Platform data-clone) —
+  done in Wave 2.
 - Live trading enablement — remains BLOCKED per D10.
 - Any change to `preference_*` tables — retained decision from Wave 2.
 - Any change to `strategy_dim` / `strategy_allocation*` — active feature
   surfaces, kept as is.
 - `market.*` / `features_*` schema changes on Golden Source — belongs to
   Research/Plugin waves, not Trade DB hygiene.
-
-## 7. Recommended order of Owner conversation
-
-1. Read section 3 (four decisions).
-2. Pick scope: narrow vs wide (D-W3.4).
-3. Confirm D-W3.1 direction (keep-alive vs drop). This is the only
-   decision that touches user-visible UI (StrategyHistorySection).
-4. If wide scope, pick D-W3.2 / D-W3.3 defaults.
-
-Once the four decisions land, this blueprint becomes an executable phase
-plan and can be lifted into `MIGRATION_TRACKING.md` under a new "Wave 3
-DB Hygiene" heading.
+- `raw_broker.transactions.raw_extra` — D-W3.2 recorded **LEAVE**.
