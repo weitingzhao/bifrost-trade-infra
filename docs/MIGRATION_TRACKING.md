@@ -547,6 +547,9 @@ views `account_executions*`→`brokerage.executions*`.
 
 | 日期 | 变更内容 | 操作人 |
 |------|---------|--------|
+| 2026-08-24 | **Wave 6.6 DONE**: drop legacy `features_*` view schemas; canonical `features.*` only; research `0.7.0`; D-Wave-6.6 | Agent |
+| 2026-08-24 | **Wave 6.5 DONE**: `mart_sepa_feature_daily` + SEPA projection; API fork dashboard/model; Console catalogs; D-Wave-6.5 | Agent |
+| 2026-08-24 | **Wave 6.4 DONE**: Feature Store unify — `features` schema + 19 four-part names; legacy `features_*` compat views; engine writes; research `0.6.0`; D-Wave-6.4 | Agent |
 | 2026-08-24 | **Wave 6.3 DONE**: Golden Source canonical naming (DATABASE.md + catalogs); GOLDEN_SOURCE_RETENTION matrix; settings active_* guard core 0.15.2; flex_ops DEPRECATED; D-Wave-6.3 | Agent |
 | 2026-08-24 | **Wave 6.2 DONE**: `config/config.yaml` dead `ops.celery` aligned with core example; CLAUDE/docs/environments-catalog stale Celery copy updated; D-Wave-6.2 spine decision | Agent |
 | 2026-08-24 | **Wave 6.1 DONE**: active Celery code sweep — satellite bus, sessions-catalog, Trade FE noop hook, core example config v0.15.1 | Agent |
