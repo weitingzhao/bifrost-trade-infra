@@ -1,7 +1,7 @@
 # DB Hygiene Wave 3 — executable phase plan
 
-> Status: **Owner decisions recorded 2026-08-24** — ready to execute pending
-> the two remaining kick-off questions in §8.
+> Status: **GREEN — all Owner decisions recorded 2026-08-24. Ready to
+> execute on Owner "start" command.**
 
 ## Owner decisions (2026-08-24)
 
@@ -11,6 +11,8 @@
 | **D-W3.2** | **LEAVE** `raw_broker.transactions.raw_extra` — accept the ~2× storage cost on this small table. |
 | **D-W3.3** | **EXTEND** `raw_broker.transactions` UNIQUE tuple to `(account_id, ts, amount, type, report_date)`. |
 | **D-W3.4** | **WIDE scope** — Wave 3 covers D-W3.1 (Trade DB) **and** D-W3.3 (Golden Source). D-W3.2 collapses to a no-op inside the wide scope. |
+| **K-W3.1** | **SINGLE cutover** — Wave 2 + Wave 3 ship together as one `bifrost-core v0.12.0` release. `v0.11.0` stays a local tag; no standalone Wave 2 rollout to STG/PROD. |
+| **K-W3.2** | **SILENT removal** for `StrategyHistorySection` — table has been empty since day one; no user has seen data there. No deprecation banner. |
 
 Wave 1 (2026-08-24) closed Plugin ingest drift and dbt lookback.
 Wave 2 (2026-08-24) folded 3 strategy KV subtables into jsonb and moved
@@ -168,16 +170,22 @@ B ship in one image. Rollout uses the same `bifrost-deliver-stg` /
   same-`(account,ts,amount,type)` but different-`report_date` row can
   coexist.
 
-## 8. Kick-off questions still open
+## 8. Kick-off — CLEARED
 
-Before the first Wave 3 commit lands, Owner should confirm:
+K-W3.1 / K-W3.2 recorded in the banner. Phase execution starts with **A1**
+on Owner "start" command. There are no other blockers.
 
-| # | Question | Default if silent |
-|---|---|---|
-| **K-W3.1** | **Wave 2 rollout timing** — roll out Wave 2 (`bifrost-core v0.11.0` → api-account) *before* starting Wave 3 codework, or roll Wave 2 and Wave 3 as a single `v0.12.0` cutover? | Ship as one `v0.12.0` cutover — halves the number of rollout events and keeps `v0.11.0` as a purely local tag |
-| **K-W3.2** | **UI removal etiquette for `StrategyHistorySection`** — silent removal, or deprecate-then-delete over one release? | Silent removal (0 rows in production ever; no user has seen data there) |
+Consequences of K-W3.1 = SINGLE:
+- Wave 2 changes (jsonb-collapsed strategy tables + `ops_audit_log` DDL
+  in core) ride with Wave 3 in the same `v0.12.0` image. `verify_wave2_*`
+  scripts stay valid; they will be run *after* the merged rollout.
+- `bifrost-trade-core` local tag `v0.11.0` remains as historical marker;
+  the pushed release will be `v0.12.0`.
 
-Once K-W3.1 and K-W3.2 land, phase execution can start with A1.
+Consequences of K-W3.2 = SILENT:
+- A4 deletes `StrategyHistorySection.tsx` outright; no intermediate
+  "deprecated" banner.
+- No user-visible release note beyond the standard changelog entry.
 
 ## 9. Non-goals (unchanged from pre-scope)
 
