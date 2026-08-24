@@ -530,6 +530,7 @@ views `account_executions*`→`brokerage.executions*`.
 
 | 日期 | 变更内容 | 操作人 |
 |------|---------|--------|
+| 2026-08-23 | **Golden Source schema rename**: `signals`/`forecasts`/`backtests` → `features_signals`/`features_forecasts`/`features_backtests`; bifrost-research `0.5.7`; Ops Console catalogs; CNPG ALTER SCHEMA | Agent |
 | 2026-08-23 | **SRD QA closeout**: momentum-distribution legacy SQL removed; core 0.10.8 DROP fund_cache/view; market_pg stubs; FE Step 10 dbt-only; deliver STG+PROD + DEV rollout | Agent |
 | 2026-08-20 | **SEPA dbt Migration COMPLETED**: Legacy tables DROPPED (DEV+PROD); all API endpoints guarded by `use_analytics()`; readiness/summary migrated to analytics schema; POST snapshot/backfill return deprecated; tier endpoints graceful empty | Agent |
 | 2026-08-20 | **SEPA dbt Migration Wave 6 (Cleanup)**: DDL deprecation markers on `stock_readiness_daily` / `research_sepa_fundamentals_cache` / `v_sepa_symbol_fund_cache_readiness` / `job_sepa_phase4`；§15 added；`bifrost-analytics` added to workspace rules | Agent |
