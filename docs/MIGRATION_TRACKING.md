@@ -547,6 +547,8 @@ views `account_executions*`→`brokerage.executions*`.
 
 | 日期 | 变更内容 | 操作人 |
 |------|---------|--------|
+| 2026-08-24 | **Wave 6.2 DONE**: `config/config.yaml` dead `ops.celery` aligned with core example; CLAUDE/docs/environments-catalog stale Celery copy updated; D-Wave-6.2 spine decision | Agent |
+| 2026-08-24 | **Wave 6.1 DONE**: active Celery code sweep — satellite bus, sessions-catalog, Trade FE noop hook, core example config v0.15.1 | Agent |
 | 2026-08-24 | **DB Hygiene Wave 6 DONE**: platform audit append live; satellite token synced; api-monitor core 0.15.0; `ops_audit_log` DROP DEV/STG/PROD; PROD archive `/tmp/ops_audit_log-prod-20260824.dump`; overlay `ops_port: 8768` fix | Agent |
 | 2026-08-24 | **Wave 5 Phase 8 DONE**: live `redis-queue-{stg,prod}` Deployments/Services/NodePorts/NetworkPolicies + prod ExternalName deleted from cluster | Agent |
 | 2026-08-24 | **Wave 5 DONE (rollout)**: core `v0.14.0` tagged; Celery FE/API/worker/infra removed; STG+PROD deliver green; `/ops/auth`+market-ingest retained; redis-queue live teardown → Phase 8 | Agent |

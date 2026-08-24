@@ -1,4 +1,4 @@
-# Phase B stg v2 — trading daemon, account sync, Celery worker (shared bifrost-worker:stg image).
+# Phase B stg v2 — trading daemon, account-sync (shared bifrost-worker:stg image).
 # W8 trade-k8s-native: daemon Deployment uses K8s Lease (R-DV3) — replicas:2 hot standby,
 # only the Lease holder runs the GsTrading FSM loop.
 ---

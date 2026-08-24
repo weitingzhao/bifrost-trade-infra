@@ -1,5 +1,7 @@
 # Wave 5 rollout — Trade Celery retirement and queue cleanup (bifrost-core v0.14.0)
 
+> **Follow-on (2026-08-24)**: Wave 6.1 removed active code paths; Wave 6.2 aligned `bifrost-trade-infra/config/config.yaml` and stale CLAUDE/docs copy. Governance catalogs and this runbook remain audit evidence.
+
 Owner-facing runbook for Wave 5 runtime cleanup.
 
 ## What ships

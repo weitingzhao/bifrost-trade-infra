@@ -48,7 +48,7 @@ make db-init
 
 定义在 **`.env`**（或 K8s Secret）→ `OPS_OPERATOR_TOKEN` / `OPS_ADMIN_TOKEN`（YAML `ops.auth.tokens` 已清空）：
 
-- `OPS_OPERATOR_TOKEN` → operator（关停 API、Celery/Socket 控制）
+- `OPS_OPERATOR_TOKEN` → operator（关停 API、Socket 控制）
 - `OPS_ADMIN_TOKEN` → admin
 
 验证（Dev 栈启动后）：
@@ -65,15 +65,14 @@ curl -s -H "Authorization: Bearer <operator-token>" http://localhost:8768/ops/au
 |------|---------|------|
 | Nginx | 80 / 443 | 统一入口，路由到各 API |
 | Frontend | 80 (via Nginx) | React SPA |
-| Monitor API | 8765 | Daemon 状态与控制 |
-| Docs API | 8767 | OpenAPI |
-| Ops API | 8768 | Celery 管理 |
+| Monitor API | 8765 | Daemon 状态与控制 + Ops 认证/审计/market-ingest |
+| ~~Docs API~~ | ~~8767~~ | **merged** into api-monitor |
+| ~~Ops API~~ | ~~8768~~ | **merged** into api-monitor (`/api/ops/*` alias) |
 | Trading API | 8769 | 订单与持仓 |
 | Strategy API | 8770 | 策略与 Gate |
 | Portfolio API | 8771 | 多账户 Greeks |
 | Market API | 8772 | 实时行情 SSE |
 | Research API | 8773 | 回测分析 |
-| Flower | 5555 | Celery 监控 UI |
 | PostgreSQL | 5432 | 数据库 |
 | Redis | 6379 | 消息队列/缓存 |
 

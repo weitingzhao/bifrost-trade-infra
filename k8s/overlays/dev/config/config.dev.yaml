@@ -2,7 +2,7 @@
 # NOTE: LOCAL Docker Compose fallback (non-K3s). Canonical K3s config:
 #   k8s/overlays/dev/config/config.dev.yaml (CNPG @ data NS, bifrost_dev).
 # Local LAN access: NodePort 30432 on any Ready node (see k8s/data/postgres-nodeport.yaml).
-# ops.auth.tokens：UI Authenticate 用此处 token (Settings → API Health / Socket / Celery)。
+# ops.auth.tokens：UI Authenticate 用此处 token (Settings → API Health / Socket)。
 
 server:
   skip_monitor_ib: false
