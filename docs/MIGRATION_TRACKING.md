@@ -42,11 +42,11 @@ GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 
 
 | 项 | 状态 | 说明 |
 |----|------|------|
-| Frontend/API Celery surface | **DONE (local)**（2026-08-24） | Celery/Flower UI 与 API worker/queue surface removed；Ops market-ingest/auth/audit retained |
-| Worker/Core runtime | **DONE (local)** | Trade Celery runtime retired；core **0.14.0** removes `celery_redis_url_from_config` and Celery health roll-up |
-| Infra desired state | **DONE (local)** | Config, image dependencies, compose services, scripts, and redis-queue manifests cleaned |
-| STG/PROD rollout | **PENDING** | Deliver Wave 5 artifacts and complete Owner sign-off |
-| Live redis-queue teardown | **DEFERRED (Phase 8)** | Physical deletion only after separate Owner sign-off; Wave 5 removes recreation paths |
+| Frontend/API Celery surface | **DONE**（2026-08-24） | Celery/Flower UI 与 API worker/queue surface removed；Ops market-ingest/auth/audit retained |
+| Worker/Core runtime | **DONE** | Trade Celery runtime retired；core **0.14.0** removes `celery_redis_url_from_config` and Celery health roll-up |
+| Infra desired state | **DONE** | Config, image dependencies, compose services, scripts, and redis-queue manifests cleaned |
+| STG/PROD rollout | **DONE**（2026-08-24） | `bifrost-deliver-stg` + `bifrost-deliver-prod` Succeeded；DEV/STG/PROD `/ops/auth`+`/ops/market-ingest` 200，`/ops/workers`+`/ops/celery/*` 404 |
+| Live redis-queue teardown | **DONE**（2026-08-24） | Deleted `data/redis-queue-{stg,prod}` Deployments + Services + NodePorts + NetworkPolicies + `bifrost-prod/redis-queue` ExternalName；no PVC leftover |
 
 ### §1.3 Market Data Golden Source — related tickers / ticker types / stock snapshot
 
@@ -546,6 +546,8 @@ views `account_executions*`→`brokerage.executions*`.
 
 | 日期 | 变更内容 | 操作人 |
 |------|---------|--------|
+| 2026-08-24 | **Wave 5 Phase 8 DONE**: live `redis-queue-{stg,prod}` Deployments/Services/NodePorts/NetworkPolicies + prod ExternalName deleted from cluster | Agent |
+| 2026-08-24 | **Wave 5 DONE (rollout)**: core `v0.14.0` tagged; Celery FE/API/worker/infra removed; STG+PROD deliver green; `/ops/auth`+market-ingest retained; redis-queue live teardown → Phase 8 | Agent |
 | 2026-08-24 | **Wave 5 Phase 6 (local complete / rollout pending)**: infra Celery/Flower config + image + compose + verify cleanup；redis-queue desired state removed，live teardown deferred to Phase 8；core ref → `v0.14.0` | Agent |
 | 2026-08-24 | **DB Hygiene Wave 4 DONE**: Flex token Secret prefer + ops_audit_log partitioned timestamptz + 90d drop; core `v0.13.0`; flex-query `0.4.0`; platform clone `ops_audit_log*`; STG+PROD deliver green; verify_wave4_* PASS (Secret empty → source=db fallback until Owner fills IB_FLEX_*_TOKEN) | Agent |
 | 2026-08-24 | **DB Hygiene Wave 3**: DROP strategy_history; transactions UNIQUE +report_date; core `0.12.0` (ships Wave 2+3); D-W3.1/2/3/4 + K-W3.1 SINGLE + K-W3.2 SILENT | Agent |
