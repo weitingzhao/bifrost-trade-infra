@@ -20,7 +20,7 @@ spec:
     targetRevision: main
     directory:
       recurse: true
-      exclude: '{orchestration/**,dbt/Dockerfile,_archived/**}'
+      exclude: '{orchestration/**,dbt/Dockerfile,**/_archived/**,_archived/**}'
   destination:
     server: https://kubernetes.default.svc
     namespace: research
