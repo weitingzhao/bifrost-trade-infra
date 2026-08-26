@@ -694,3 +694,17 @@ However, 15 call sites and 7 type references still hardcode `'massive'` as the s
 | Docs | `CAPABILITY_MATRIX.md` (both repos), `RESEARCH_UX_DECISIONS.md` |
 
 Verify: `bifrost-research` `make test` (107 passed); FE `npm run lint && npm run build && npm run check:legacy-css`.
+
+---
+
+## Research Copilot Knowledge Base RS-KB1–KB5 (2026-08-26) ✅
+
+| Wave | Repo | Deliverables |
+|------|------|----------------|
+| **RS-KB1** Full Chat Memory | `bifrost-research` **0.23.0** | `agent_runtime` turn frame buffer; `append_turn` + UUID session mint; `expires_at` 1y sliding; FE `crypto.randomUUID` + `hydrateCopilotMessages` |
+| **RS-KB2** Multi-user | both | `RESEARCH_USERS` bearer auth; `require_owner` on copilot/session routes; FE `ResearchUserSwitcher` + auth headers |
+| **RS-KB3** Playbook skeleton | both | `playbook_rule/case/note` DDL + CRUD API; FE `/research/playbook` My Trading System page |
+| **RS-KB4** Curator + agents | `bifrost-research` | `research.playbook.*` MCP tools; Curator agent; Inbox approve → playbook rows |
+| **RS-KB5** Search / RAG-lite | `bifrost-research` | `/research/playbook/search` keyword; optional `embedding_chunk` + `embed_pipeline` stub; agent playbook context injection |
+
+Verify: `pytest tests/copilot tests/auth tests/mcp` (40+ passed); FE `npm run build`; rollout `bifrost-research:0.23.0` api+mcp after `docker buildx build --platform linux/amd64`.
