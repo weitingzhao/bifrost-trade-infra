@@ -1,7 +1,8 @@
 # Traefik (k3s HelmChartConfig) — Trade NodePorts + cross-namespace CRD backends.
-# Needed so Trade IngressRoutes can route /api/plugin/market-data →
-# market-data-api.plugin-market-data and /api/plugin/flex-query →
-# flex-query-api.plugin-flex-query (ExternalName is disallowed by Traefik).
+    Needed so Trade IngressRoutes can route /api/plugin/market-data →
+    market-data-api.plugin-market-data, /api/plugin/flex-query →
+    flex-query-api.plugin-flex-query, and /api/plugin/research →
+    research-api.research (ExternalName is disallowed by Traefik).
 # Apply: kubectl apply -f k8s/system/traefik-helmchartconfig.yaml
 apiVersion: helm.cattle.io/v1
 kind: HelmChartConfig

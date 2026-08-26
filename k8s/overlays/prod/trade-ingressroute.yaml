@@ -299,6 +299,16 @@ spec:
         - name: flex-query-api
           namespace: plugin-flex-query
           port: 8791
+    - match: Host(`trader.bifrost.lan`) && PathPrefix(`/api/plugin/research`)
+      kind: Rule
+      priority: 110
+      middlewares:
+        - name: strip-api-plugin-research
+        - name: sse-streaming
+      services:
+        - name: research-api
+          namespace: research
+          port: 8795
     - match: Host(`192.168.10.70`) && PathPrefix(`/api/plugin/market-data`)
       kind: Rule
       priority: 110
@@ -318,6 +328,16 @@ spec:
         - name: flex-query-api
           namespace: plugin-flex-query
           port: 8791
+    - match: Host(`192.168.10.70`) && PathPrefix(`/api/plugin/research`)
+      kind: Rule
+      priority: 110
+      middlewares:
+        - name: strip-api-plugin-research
+        - name: sse-streaming
+      services:
+        - name: research-api
+          namespace: research
+          port: 8795
     - match: Host(`192.168.10.100`) && PathPrefix(`/api/plugin/market-data`)
       kind: Rule
       priority: 110
@@ -337,6 +357,16 @@ spec:
         - name: flex-query-api
           namespace: plugin-flex-query
           port: 8791
+    - match: Host(`192.168.10.100`) && PathPrefix(`/api/plugin/research`)
+      kind: Rule
+      priority: 110
+      middlewares:
+        - name: strip-api-plugin-research
+        - name: sse-streaming
+      services:
+        - name: research-api
+          namespace: research
+          port: 8795
     - match: Host(`trader.bifrost.lan`) && Path(`/health`)
       kind: Rule
       priority: 50
