@@ -54,17 +54,19 @@ utilized:
     market: dev
     research: dev
 
+# In-cluster CNPG (pods cannot reliably reach LAN NodePort 30432 — hairpin/NP).
+# Mac / thin-client LAN access remains via bifrost-postgres-lan :30432.
 postgres:
-  host: 192.168.10.73
-  port: 30432
+  host: bifrost-postgres-rw.data.svc.cluster.local
+  port: 5432
   user: bifrost
   password: ""
   database: bifrost_dev
 
 # Shared brokerage Golden Source (IB account/positions/executions)
 golden_source:
-  host: 192.168.10.73
-  port: 30432
+  host: bifrost-postgres-rw.data.svc.cluster.local
+  port: 5432
   database: bifrost_golden_source
   user: bifrost
   password: ""

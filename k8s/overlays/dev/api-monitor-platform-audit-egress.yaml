@@ -43,7 +43,7 @@ spec:
     ports:
       - protocol: TCP
         port: 8780
-  # DEV overlay may use LAN NodePort PG / legacy redis (config.dev.yaml)
+  # LAN: NodePort PG/redis fallbacks + k3s apiserver after DNAT (node:6443)
   - to:
       - ipBlock:
           cidr: 192.168.10.0/24
@@ -52,3 +52,5 @@ spec:
         port: 30432
       - protocol: TCP
         port: 6379
+      - protocol: TCP
+        port: 6443

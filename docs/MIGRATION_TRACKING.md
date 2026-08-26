@@ -682,3 +682,15 @@ However, 15 call sites and 7 type references still hardcode `'massive'` as the s
 3. Frontend: update type definitions to drop `massive_*` fields
 4. Frontend: remove ArchDetailsPanel `massive_port` display
 5. Run `npm run lint && npm run build && npm run check:legacy-css`
+
+---
+
+## Research UX Wave R1–R6 (2026-08-25) ✅
+
+| Repo | Deliverables |
+|------|----------------|
+| `bifrost-trade-frontend` | Research nav 6-group decision flow; landing `/research/daily-brief`; Event Radar dashboard (theme split, timeline, macro); Forecast structure cards; Backtest settlement table; Momentum legend; Multi-leg Top-N; GEX OI/Volume chart; Intraday replay slider; Analysis skew/kurtosis |
+| `bifrost-research` **0.9.0** | `macro_event_daily` + CSV ingest; `EventTagger`; settlement `stats_json`; `stock_forecast_hourly_session`; macro `/event-radar/macro/*`; flow reads `raw_market.option_trades`; GEX volume layer in `levels_json` |
+| Docs | `CAPABILITY_MATRIX.md` (both repos), `RESEARCH_UX_DECISIONS.md` |
+
+Verify: `bifrost-research` `make test` (107 passed); FE `npm run lint && npm run build && npm run check:legacy-css`.

@@ -40,6 +40,13 @@ spec:
     ports:
       - protocol: TCP
         port: 443
+  # k3s apiserver is host-networked; Service 10.43.0.1:443 DNAT → node:6443
+  - to:
+      - ipBlock:
+          cidr: 192.168.10.0/24
+    ports:
+      - protocol: TCP
+        port: 6443
   # Platform satellite audit sink
   - to:
       - namespaceSelector:

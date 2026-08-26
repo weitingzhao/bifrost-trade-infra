@@ -94,7 +94,8 @@
 			"package.json": "package-lock.json, yarn.lock, tsconfig*.json, vite.config.*",
 			"CLAUDE.md": "README.md, AGENTS.md, LICENSE",
 			"bifrost-trade.code-workspace": "docs/MIGRATION_TRACKING.md"
-		}
+		},
+		"dbt.dbtMajorVersion": "v1"
 	},
 	"extensions": {
 		"recommendations": [
