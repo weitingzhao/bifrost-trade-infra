@@ -106,6 +106,7 @@ ops:
     # Tokens: set OPS_OPERATOR_TOKEN / OPS_ADMIN_TOKEN in .env or K8s Secret (docs/SECRETS.md).
     # Do not commit plaintext tokens in YAML.
     # tokens: []
+
 history_backfill:
   stock:
     daily_years: 10

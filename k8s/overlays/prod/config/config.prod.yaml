@@ -8,7 +8,6 @@ server:
   architecture:
     monitor_port: 8765
     docs_port: 8767
-    ops_port: 8768
   account:
     trading_port: 8769
     portfolio_port: 8771
@@ -96,10 +95,8 @@ ops:
     default_role: operator
     allow_unauthenticated_reads: false
     tokens: []
-  platform_audit:
-    enabled: true
-    url: http://platform-api.bifrost-platform-prod.svc.cluster.local:8780
-    timeout_ms: 2000
+  audit:
+    persist: true
 
 # Plugin redis-massive — ExternalName → redis-massive.data.svc.cluster.local
 redis_massive:

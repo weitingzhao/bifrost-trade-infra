@@ -38,6 +38,8 @@
 
 GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 验收: `make verify-ib-gateway-program` · `make verify-trade-ib-rollout-prod`
 
+**Self-heal ladder**（2026-08-27）：Plugin **0.2.0** L0 snapshot-stale → `reconnect_all`；platform-api reconnect soft-first + optional `OPS_IB_AUTOREPAIR_ENABLED` L1 auto rollout；Redis `bifrost:ib:gateway:self_heal`；D10 仍 BLOCKED。
+
 ### §1.2 Wave 5 — Trade Celery retirement
 
 | 项 | 状态 | 说明 |
