@@ -1,0 +1,138 @@
+# Tasks for bifrost-deliver-research (Research OLAP payload).
+#
+# Deliberately separate from bifrost-rollout-stg: that task carries Trade-specific
+# legacy pruning (ib-ingestor / ib-account-agent / ib-operator / api-massive) that
+# has no meaning in the `research` namespace. Reusing it here would run irrelevant
+# deletes against a namespace it was never written for.
+#
+# The Argo CD sync step is NOT duplicated — bifrost-argocd-sync-stg is pure
+# parameterised logic and is reused verbatim by the pipeline.
+#
+# D10: research namespace only; no daemon scaling, no order path.
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-rollout-research
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: deliver-research
+spec:
+  description: Roll research-api onto the freshly built image and wait for readiness.
+  params:
+    - name: namespace
+      type: string
+      default: research
+    - name: deployment
+      type: string
+      default: research-api
+  steps:
+    - name: rollout-restart
+      image: alpine/k8s:1.31.4
+      script: |
+        #!/bin/sh
+        set -eu
+        NS="$(params.namespace)"
+        DEP="$(params.deployment)"
+
+        if ! kubectl get "deployment/${DEP}" -n "${NS}" >/dev/null 2>&1; then
+          echo "ERROR: deployment/${DEP} not found in ${NS}" >&2
+          exit 1
+        fi
+
+        echo "Rolling out deployment/${DEP} in ${NS}"
+        kubectl rollout restart "deployment/${DEP}" -n "${NS}"
+        kubectl rollout status "deployment/${DEP}" -n "${NS}" --timeout=180s
+        echo "Rollout complete"
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-verify-research
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: deliver-research
+spec:
+  description: >-
+    Health smoke for research-api. Probes the in-cluster Service directly —
+    Research is reached through the Trade gateway at /api/plugin/research, but
+    that indirection is not what this step is verifying.
+
+    Also asserts the running image matches the tag just built. Without that
+    check the step passes even when the rollout had no effect (the Deployment
+    still points at the previous tag), which would report a delivery as
+    successful while nothing was actually delivered.
+  params:
+    - name: serviceBase
+      type: string
+      default: http://research-api.research.svc.cluster.local:8795
+    - name: namespace
+      type: string
+      default: research
+    - name: deployment
+      type: string
+      default: research-api
+    - name: expectTag
+      type: string
+      default: ""
+      description: >-
+        Image tag this run built. Empty disables the check (for reruns that only
+        want a health probe).
+  steps:
+    - name: image-assert
+      image: alpine/k8s:1.31.4
+      script: |
+        #!/bin/sh
+        set -eu
+        WANT="$(params.expectTag)"
+        if [ -z "${WANT}" ]; then
+          echo "expectTag empty — skipping image assertion"
+          exit 0
+        fi
+        NS="$(params.namespace)"
+        DEP="$(params.deployment)"
+        RUNNING="$(kubectl get deployment "${DEP}" -n "${NS}" \
+          -o jsonpath='{.spec.template.spec.containers[0].image}')"
+        echo "deployment image: ${RUNNING}"
+        echo "expected tag:     ${WANT}"
+        case "${RUNNING}" in
+          *:"${WANT}") echo "image assertion OK" ;;
+          *)
+            echo "ERROR: deployment is not running the tag this run built." >&2
+            echo "The image was pushed, but k8s/api/deployment.yaml still points" >&2
+            echo "elsewhere. Bump the manifest and let Argo CD converge." >&2
+            exit 1
+            ;;
+        esac
+    - name: http-smoke
+      image: curlimages/curl:8.11.1
+      script: |
+        #!/bin/sh
+        set -eu
+        base="$(params.serviceBase)"
+        base="${base%/}"
+
+        # Deployment readiness does not guarantee the app finished schema guard,
+        # so retry briefly rather than probing once.
+        i=1
+        while [ "${i}" -le 10 ]; do
+          code="$(curl -s -o /tmp/health.json -w '%{http_code}' --connect-timeout 10 "${base}/health" || echo 000)"
+          echo "attempt ${i}: ${base}/health → HTTP ${code}"
+          if [ "${code}" = "200" ]; then
+            cat /tmp/health.json
+            echo ""
+            # startup_ok=false means the schema guard failed — image is up but
+            # unusable, which must not pass as a successful delivery.
+            if grep -q '"startup_ok":[[:space:]]*true' /tmp/health.json; then
+              echo "verify-research OK"
+              exit 0
+            fi
+            echo "ERROR: startup_ok is not true" >&2
+            exit 1
+          fi
+          i=$((i + 1))
+          sleep 6
+        done
+
+        echo "ERROR: research-api /health never returned 200" >&2
+        exit 1

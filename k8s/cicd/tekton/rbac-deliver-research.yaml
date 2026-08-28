@@ -1,0 +1,38 @@
+# RBAC for bifrost-deliver-research.
+#
+# Reuses the existing `tekton-deliver` ServiceAccount (cicd) — it already holds
+# the Argo CD application get/patch Role in cicd via rbac-deliver-stg.yaml, and
+# the gitops-sync step reuses that same task. Only the rollout permission in the
+# `research` namespace is missing, so that is all this file grants.
+#
+# Scope is deliberately narrow: deployments only, no create/delete. The pipeline
+# restarts research-api onto a new image; it never creates or removes workloads
+# (Argo CD owns those, with prune:false).
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tekton-deliver-rollout
+  namespace: research
+  labels:
+    bifrost.io/purpose: deliver-research
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "patch", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-deliver-rollout
+  namespace: research
+  labels:
+    bifrost.io/purpose: deliver-research
+subjects:
+  - kind: ServiceAccount
+    name: tekton-deliver
+    namespace: cicd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tekton-deliver-rollout

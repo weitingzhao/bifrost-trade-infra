@@ -1,0 +1,128 @@
+# bifrost-deliver-research — Research Engine (OLAP) delivery chain.
+#
+# Research is the **second payload** (decision payload), peer to Satellite
+# (execution payload) — not a subcontractor. It therefore gets the full
+# payload-grade chain modelled on pipeline-deliver-platform.yaml:
+#
+#   mirror-sync → clone → kaniko → rollout → verify → gitops-sync
+#
+# Contrast with bifrost-build-flex-query (plugin grade), which stops after
+# kaniko — no rollout, no verify, no GitOps. That gap is exactly why Research
+# had no automated release path and was hand-pushed from a laptop.
+#
+# Placement: Kaniko RUN layers are linux/amd64 — PipelineRun MUST carry the
+# amd64 nodeSelector from placement-amd64-build.yaml (ARM nodes fail with
+# "exec format error").
+#
+# D10: observe-only. This chain touches the `research` namespace only; it never
+# scales the trade daemon nor reaches any order path.
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: bifrost-deliver-research
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: deliver-research
+    bifrost.io/domain: research
+spec:
+  description: >-
+    Research OLAP payload delivery — Gitea mirror sync, Kaniko build of the
+    bifrost-research base target, rollout of research-api, health verify, and
+    Argo CD sync of the bifrost-research Application.
+  params:
+    - name: revision
+      type: string
+      default: main
+    - name: giteaBase
+      type: string
+      default: http://gitea.cicd.svc.cluster.local:3000/bifrost
+    - name: registry
+      type: string
+      default: registry.cicd.svc.cluster.local:5000
+    - name: tag
+      type: string
+      description: Image tag — MUST match k8s/api/deployment.yaml after the build lands.
+  workspaces:
+    - name: build-context
+  tasks:
+    # Trade deliver pipelines do not clone research, so this run syncs only the
+    # research mirror rather than the full 8-repo Trade list.
+    - name: mirror-sync
+      taskRef:
+        name: bifrost-gitea-mirror-sync
+      params:
+        - name: giteaBase
+          value: $(params.giteaBase)
+        - name: mirrorRepos
+          value: "bifrost-research"
+
+    - name: clone-research
+      runAfter: [mirror-sync]
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-research.git
+        - name: revision
+          value: $(params.revision)
+      workspaces:
+        - name: output
+          workspace: build-context
+
+    - name: build-research
+      runAfter: [clone-research]
+      params:
+        - name: image
+          value: $(params.registry)/bifrost-research:$(params.tag)
+      workspaces:
+        - name: source
+          workspace: build-context
+      taskSpec:
+        params:
+          - name: image
+            type: string
+        workspaces:
+          - name: source
+        steps:
+          - name: build-and-push
+            image: gcr.io/kaniko-project/executor:v1.23.2
+            args:
+              - --dockerfile=Dockerfile
+              - --context=$(workspaces.source.path)
+              # base = Research API + CronJob engines. `orchestration` (Dagster)
+              # stays out of scope while Dagster is replicas:0.
+              - --target=base
+              - --destination=$(params.image)
+              - --custom-platform=linux/amd64
+              - --insecure
+              - --skip-tls-verify
+              - --insecure-registry=registry.cicd.svc.cluster.local:5000
+
+    - name: rollout-research
+      runAfter: [build-research]
+      taskRef:
+        name: bifrost-rollout-research
+
+    # NOTE: verify-research reads the Deployment, so its TaskRun must also run as
+    # tekton-deliver (see taskRunSpecs in the PipelineRun / platform-api
+    # service.go). The default SA has no read access to the research namespace.
+    - name: verify-research
+      runAfter: [rollout-research]
+      taskRef:
+        name: bifrost-verify-research
+      params:
+        # Asserts the rollout actually landed this run's image — a health probe
+        # alone would go green against the previously running pod.
+        - name: expectTag
+          value: $(params.tag)
+
+    # Reuses the Trade sync task verbatim — it is pure parameterised logic
+    # (kubectl patch application ... sync), nothing Trade-specific in it.
+    - name: gitops-sync
+      runAfter: [verify-research]
+      taskRef:
+        name: bifrost-argocd-sync-stg
+      params:
+        - name: application
+          value: bifrost-research
