@@ -41,3 +41,6 @@ docs/external/
 
 # Local pg_dump / backup artefacts (do not commit)
 backups/
+
+# Agent 治理层：个人本地设置不入库（settings.json 是共享的，随库走）
+agent-config/claude/settings.local.json

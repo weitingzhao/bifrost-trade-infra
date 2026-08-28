@@ -1,0 +1,51 @@
+---
+description: Trade execution freeze — live trading BLOCKED until Owner explicit unlock (spine D10)
+globs:
+alwaysApply: true
+parity-id: trade-execution-freeze-v2
+---
+
+# Trade execution freeze (D10)
+
+**Status: BLOCKED** — intentional Owner policy after TIBM-PC sign-off.
+
+## Business rule
+
+Live trading (auto-order, daemon FSM place_order, live hedge, real IB order placement) is **the last capability** to enable. Ops Platform ("rocket") and Trade stack ("satellite") must stabilize first; research and analysis are not complete enough to trade.
+
+**Do not enable, suggest, or implement live trading paths** unless the Owner has issued an **explicit written unlock command** (e.g. "trade execution enable" / "解禁交易执行") **and** spine decision **D10** is updated to `UNLOCKED`.
+
+## Agent behavior (all modes: Product, Ops, Promote)
+
+**Must not:**
+- Write `ib:operator:cmd` (the only legitimate writer is the Daemon itself)
+- Scale `daemon` Deployment for live auto-trade (STG must stay `replicas: 0` per `daemon-scale-zero.patch.yaml`)
+- Remove or bypass `k8s/overlays/prod/daemon-observe-safe.patch.yaml`
+- Wire S08 daemon execution / live `place_order` to Gateway RPC without a new Owner-approved program
+- Use Monitor `POST /control/*` to arm live trading during rollout
+- Promote or rollout changes whose primary purpose is enabling live order execution
+
+**May (TIBM rollout scope):**
+- Deploy W1–W3 surfaces: monitor, ops, frontend, read-only API domains (Trade Celery retired — D-Wave-6.1)
+- Run `make verify-trade-ib-migration-program`
+- Improve observe UI, health, quotes SSE, research data paths
+
+## Authority chain
+
+1. `bifrost-platform/config/ops-context.yaml` → decisions **D10**
+2. `bifrost-platform/console/src/lib/architecture/tradeIbClientMigrationRolloutCatalog.ts`
+3. `bifrost-platform/console/src/lib/architecture/agentProtocolCatalog.ts` → FORBIDDEN_ACTIONS
+4. Ops Console → Architecture → Plugins → **Trade IB Migration** → Rollout section
+
+## Mechanical enforcement
+
+`scripts/agent-guard/preflight.js` blocks the above at `beforeShellExecution` / `beforeMCPExecution` (Cursor) and `PreToolUse` (Claude).
+The script reads spine `decisions[id=D10].status` at runtime — gate and spine share one switch.
+When blocked: do not work around it, do not "fix" the guard files. Report to Owner.
+
+## Infra guards (do not "fix" without unlock)
+
+| Env | Guard |
+|-----|--------|
+| STG | `k8s/overlays/stg/daemon-scale-zero.patch.yaml` — replicas: 0 |
+| PROD | `k8s/overlays/prod/daemon-observe-safe.patch.yaml` — observe mode, simulated hedge |

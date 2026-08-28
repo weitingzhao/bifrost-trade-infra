@@ -1,0 +1,33 @@
+---
+description: Project workflow — core document triangle and document update rules
+alwaysApply: true
+---
+
+# Project Workflow (项目运行工作流)
+
+## Core Document Triangle（核心文档三角）
+
+在迁移完成前，以下三份文档存放在 **bifrost-trader-engine/docs/**（只读参考）：
+
+- **docs/REQUIREMENTS.md** — 产品需求 (R-M*, R-C*, R-H*, R-B*, R-A*, R-DV*)
+- **docs/ARCHITECTURE.md** — 系统架构和运行环境 (§2)
+- **docs/plans/CAPABILITY_TRACKING.md** — 能力维度当前进度与短板
+
+修改这三份文档**仅限**项目 Owner 明确要求变更**产品需求、硬件 / 运行环境 / 架构、能力评估**时。修改后保持三文档一致。
+
+## Supporting Resources（项目资源，只读参考）
+
+- **数据库设计** → bifrost-trader-engine/docs/DATABASE.md
+- **FSM 状态流转** → bifrost-trader-engine/docs/fsm/linkage.md
+- **状态空间 (O,D,M,L,E,S)** → bifrost-trader-engine/docs/research/STATE_SPACE_MAPPING.md
+- **配置安全分类** → bifrost-trader-engine/docs/research/CONFIG_SAFETY_TAXONOMY.md
+- **Guard 边界与微调** → bifrost-trader-engine/docs/research/GUARD_TUNING_AND_IMPACT.md
+
+## 迁移进度追踪
+
+- **迁移进度总览** → bifrost-trade-infra/docs/MIGRATION_TRACKING.md
+- 每完成一个模块 / API 域 / 前端页面的迁移，需更新该文档的对应条目状态。
+
+## Decision Flow
+
+是否调整需求、架构或能力评估由**项目 Owner** 决定。Agent 遵循 Owner 指令并更新相应核心文档。

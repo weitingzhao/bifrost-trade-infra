@@ -1,0 +1,71 @@
+---
+description: Dev service management via bdev + tmux
+alwaysApply: true
+parity-id: dev-services-v2
+---
+# Dev Services Management
+
+本地开发服务运行在 tmux session "bifrost" 中，通过 `bdev` CLI 管理。
+
+## Agent 行为约束
+
+> 下列「禁止」项由 `scripts/agent-guard/preflight.js` 机械拦截（Cursor `beforeShellExecution` / Claude `PreToolUse`），不依赖 Agent 自律。
+
+- **禁止**在 Cursor 终端中直接长期运行整包 `run_platform.py`（api+console 一起）、`start.sh`、`run-local-ui.sh`
+- **禁止**与 bdev 拆分 session（`platform-api` / `platform-console`）同时再跑整包 `run_platform.py` — 会双开抢端口、留下 T 状态 `go run` 孤儿
+- **禁止**直接 kill 这些服务的进程（验收/排障除外，用 `bdev restart`）
+- 需要重启服务时：`bdev restart <name>`（或 MCP `restart_dev_session`）
+- 需要查看服务状态：`bdev status`
+- 需要读日志时：读取 `~/.bifrost-dev/logs/<name>.log`
+- 需要看最近 N 行日志：`bdev logs <name> -n 200`
+- 磁盘日志封顶（默认 5 MiB）：`bdev-log-tee` / watchdog trim；手动清理 `bdev log-gc`
+
+## 可用服务名
+
+| 名称 | 说明 | 端口 |
+|------|------|------|
+| platform-api | Platform API（预编译 `make build-api` 优先） | 8780 |
+| platform-console | Platform Console (Vite) | 5180 |
+| prometheus-pf | Prometheus kubectl port-forward（需 KUBECONFIG） | 9090 |
+| git-bridge | Git Bridge Agent | 8785 |
+| probe-bridge | Satellite Probe Bridge | 8786 |
+| trade-ui | Trade Frontend (Vite) | 5173 |
+
+兼容：`bdev restart platform` 仍可用，会同时操作 `platform-api` + `platform-console`，并清理旧 `platform` window / 整包孤儿进程。
+
+### prometheus-pf / KUBECONFIG
+
+- Session 命令应为 `./scripts/run_prometheus_pf.sh`（注入 `KUBECONFIG=${KUBECONFIG:-$HOME/.kube/bifrost-k3s.yaml}`）
+- 未注入时 kubectl 默认连 `127.0.0.1:6443` → 连续失败 → CRASHED
+- **禁止**残留手动 `kubectl port-forward …9090`（会造成假健康）
+- Cluster server 应为内网 apiserver（如 `https://192.168.10.73:6443`），不是 localhost
+
+### CRASHED
+
+- 连续失败达 `restart_max_failures` 后标记 CRASHED，supervise 进入 cooldown 后清零重试
+- 立即恢复：`bdev restart <name>`（清除 `~/.bifrost-dev/state/<name>.crashed`）
+- `bdev status` 对 CRASHED 会打印恢复提示
+
+`sessions.yaml` 支持 `restart: on-failure|always|no`、backoff、以及 health watchdog（见 `bdev help`）。模板：`bifrost-trade-infra/config/sessions.yaml.example`。
+
+## Out of scope（本轮冻结）
+
+- remediation-runner 独立 bdev session（保持注释；勿默认启用）
+- launchd 作为默认 bootstrap（`bdev install-system` 仅可选）
+- 完整 session timeline UI
+
+## 配置
+
+服务声明在 `~/.bifrost-dev/sessions.yaml`。新增服务只需加一个条目。
+
+## MCP 工具（优先使用）
+
+Agent 应优先使用 MCP 工具而非 Shell 命令：
+
+| MCP Tool | 用途 |
+|----------|------|
+| `list_dev_sessions` | 查看所有服务状态 |
+| `restart_dev_session` | 重启指定服务 |
+| `get_dev_session_logs` | 获取服务日志 |
+
+Shell `bdev` 命令作为 fallback。

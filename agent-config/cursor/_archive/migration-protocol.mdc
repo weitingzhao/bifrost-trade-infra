@@ -1,0 +1,97 @@
+---
+description: Migration protocol — cross-repo coordination, import rewriting, and progress tracking
+alwaysApply: true
+---
+
+# Migration Protocol (迁移协议)
+
+## 项目终极目标
+
+**完全替代 bifrost-trader-engine，在功能和业务上实现完整重构。** 所有新代码在 `bifrost-trade-*` 各仓库中实现，bifrost-trader-engine 保持只读，仅作参考源。当所有模块迁移完成并通过验证后，bifrost-trader-engine 将退役。
+
+## 迁移顺序
+
+按依赖方向从底层到上层：
+
+1. **bifrost-trade-core** — 共享库（config / persistence / portfolio / monitor / ib_operator client）
+2. **bifrost-trade-ib-edge** — IB 边缘服务（依赖 core）
+3. **bifrost-trade-worker** — 交易 Daemon + Celery 数据管道（依赖 core）
+4. **bifrost-trade-api** — 9 个 FastAPI 域（依赖 core；research 域含 SEPA 完整业务逻辑）
+5. **bifrost-trade-frontend** — React 前端（依赖 api 接口契约）
+
+## 迁移原则
+
+1. **不复制粘贴**：理解 engine 中的逻辑后，在新 repo 中**重写**实现。
+2. **Import 路径重写**：
+   - `from src.config` → `from bifrost_core.config`
+   - `from src.daemon` → `from bifrost_worker.daemon`
+   - `from src.vendor.ib_ingestor` → `from bifrost_ib_edge.ingestor`
+   - ~~`from src.massive` → `from bifrost_worker.data.massive`~~ **retired (P7)** — Polygon ingest 已迁 **Market Data Plugin**（`bifrost-platform-plugin-market-data`），不再映射到 worker Massive 包
+   - `from src.research` → `from bifrost_api.research.sepa`
+   - 前端 API 路径保持 `/api/{domain}/` 不变
+3. **测试随代码走**：从 engine 的 `tests/` 中找到对应测试，同步迁移到新 repo 的 `tests/` 目录。
+4. **文档随代码走**：如果迁移的模块有对应的 docs 文档，在新 repo 中创建或更新。
+
+## ⚠️ 前端先行、API 后迁（单变量隔离原则）
+
+**在新前端的所有页面在业务层面等价于 Legacy Frontend 之前，不迁移 `bifrost-trade-api` 的任何 API 域。**
+
+### 原因
+
+迁移的验证依赖**可信参照物**。Legacy Frontend + Legacy API 是经过生产验证的基准行为。
+
+- **新前端 + Legacy API** → 差异 = 纯前端问题，隔离定位成本低
+- **新前端 + 新 API** → 出问题无法判断是前端 bug 还是 API bug（两个变量同时变化）
+- **Legacy 前端 + 新 API** → Legacy 前端无法适配新 API，基准参照物丢失
+
+### 三阶段切换
+
+```
+阶段 1（当前）：New Frontend + Legacy API
+  → 逐页迁移前端，逐页与 Legacy Frontend 对比验证
+  → 直到新前端在业务层面完全等价于 Legacy
+
+阶段 2：New Frontend + New API（逐域切换）
+  → 一个 API 域一个域地替换 VITE_API_* 指向
+  → 每域切换后回归测试该域所有页面
+
+阶段 3：Legacy 全线退役
+  → Legacy Frontend + Legacy API 停止运行
+```
+
+### Agent 行为约束
+
+- 在阶段 1 期间，Agent **不得**开始迁移 `bifrost-trade-api` 中的 API 实现（目录结构和 `__init__.py` 骨架可以提前准备）。
+- 前端 `src/api/*.ts` 中的 fetch 函数**必须指向 Legacy API 端点**（通过 `VITE_API_*` 环境变量）。
+- 每完成一个页面迁移，需在两套前端上对比同一 Legacy API 的行为，确认业务等价。
+
+## 跨 Repo 变更协同
+
+- **bifrost-trade-core 改接口时**：必须在 commit message 或 PR 描述中标注受影响的下游 repo（ib-edge / worker / api）。
+- **破坏性变更**：先 bump core 的 `pyproject.toml` 版本，再同步更新下游 repo 的依赖版本。
+- **DDL 变更**：修改 `persistence/postgres/ddl.py` 后，相关 API reader 和 worker data task 必须同步适配。
+
+## 进度追踪
+
+- 迁移进度统一记录在 **bifrost-trade-infra/docs/MIGRATION_TRACKING.md**。
+- 每完成一个模块迁移，更新该文档的对应条目状态（未开始 → 进行中 → 已完成 → 已验证）。
+- Agent 在开始迁移工作前，应先查阅该文档了解当前进度，避免重复工作。
+
+## 模块 → Repo 映射速查
+
+| engine 源路径 | 目标 repo | 目标包路径 |
+|--------------|-----------|-----------|
+| `src/config/`, `src/core/` | bifrost-trade-core | `bifrost_core.config`, `bifrost_core.core` |
+| `src/persistence/` | bifrost-trade-core | `bifrost_core.persistence` |
+| `src/portfolio/` | bifrost-trade-core | `bifrost_core.portfolio` |
+| `src/monitor/` | bifrost-trade-core | `bifrost_core.monitor` |
+| `src/ib_operator/` (client) | bifrost-trade-core | `bifrost_core.ib_operator` |
+| `src/daemon/` | bifrost-trade-worker | `bifrost_worker.daemon` |
+| `src/vendor/ib_ingestor/` | bifrost-trade-ib-edge | `bifrost_ib_edge.ingestor` |
+| `src/vendor/ib_account_agent/` | bifrost-trade-ib-edge | `bifrost_ib_edge.account_agent` |
+| `src/ib_operator/` (service) | bifrost-trade-ib-edge | `bifrost_ib_edge.operator` |
+| `backend/*/` | bifrost-trade-api | `bifrost_api.*` |
+| `src/bars/`, `src/workers/` | bifrost-trade-worker | `bifrost_worker.celery`, `bifrost_worker.data`（IB bars / Celery；不含 Polygon Massive） |
+| `src/massive/`, `src/vendor/massive/` | — | **retired (P7)** → Market Data Plugin（`bifrost-market-data`）；Trade worker Massive 队列已退役 |
+| `src/research/sepa/` + `backend/research/` | bifrost-trade-api | `bifrost_api.research` |
+| `frontend/src/` | bifrost-trade-frontend | `src/` |

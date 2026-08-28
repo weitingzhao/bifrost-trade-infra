@@ -1,0 +1,62 @@
+---
+name: database-design
+description: >-
+  PostgreSQL 设计标准 — 表命名、主键/外键列名、strategy_* 与 gate_safety_* 边界表、
+  jsonb vs 子表、dim 枚举、环境隔离。Use when adding or changing any PostgreSQL table,
+  column, DDL, or migration in bifrost-trade-core / api / worker / research.
+parity-id: database-design-v2
+---
+
+# Database Design Standards (数据库设计标准)
+
+When adding or changing **PostgreSQL** tables in any `bifrost-trade-*` repo, follow the standards below. The **authoritative schema reference** is **`bifrost-trade-core/docs/DATABASE.md`**; Golden Source 侧参见 `bifrost-trade-core/docs/BROKERAGE_GOLDEN_SOURCE.md` 与 `bifrost-trade-infra/docs/GOLDEN_SOURCE_RETENTION.md`。
+
+适用 repo：`bifrost-trade-core`（DDL）、`bifrost-trade-api`（reader）、`bifrost-trade-worker`（data task 写入）。
+
+## 1. Table Naming
+
+- **Strategy-related tables** (option structure, opportunity, allocation): use prefix **`strategy_`**.
+  - `strategy_structure`, `strategy_opportunity`, `strategy_allocation`.
+- **Safety-boundary tables** (gates): use prefix **`gate_safety_`**.
+  - `gate_safety_strategy` (metadata + six dims + `params_json`).
+  - Retired (Wave 9): `gate_safety_strategy_earnings_dates` (folded into `params_json.strategy.earnings.dates`).
+  - Retired (merged into `gate_safety_strategy` in core `0.8.1`): `gate_safety_state`, `gate_safety_intent`, `gate_safety_guard`.
+- **Plugin job queues** (Golden Source): `ops_jobs.job_ingest` (Market Data Plugin); Trade `public.job_*` Celery tables retired (0.10.6).
+- **User-preference tables**: use prefix **`preference_`** (e.g. `preference_market_streams_symbol_order` for Market Streams symbol order per category).
+- Other domain tables keep existing names (e.g. `status_current`, `account`, `settings`).
+
+## 2. Primary Key Column Name
+
+- **Multi-row tables**：主键列名必须使用 **`<table_name>_id`**（如 `strategy_structure` → `strategy_structure_id`；`gate_safety_strategy` → `gate_safety_strategy_id`）。不得使用通用列名 `id`。
+- **Single-row tables（单行表）**：允许使用 **`id`** 作为主键列名，且通常取固定值（如 1）。单行表仍需主键以支持 `UPDATE WHERE …` 与 `INSERT … ON CONFLICT (id) DO UPDATE`；列名 `id` 作为项目约定写入本规则，例如 `settings`、`daemon_heartbeat`、`daemon_run_status`。
+
+## 3. Foreign Key Column Names
+
+- Name FK columns to match the referenced table's PK column name (e.g. `strategy_structure_id` in `strategy_opportunity` references `strategy_structure.strategy_structure_id`).
+- For gate_safety, use **`gate_safety_strategy_id`** (not `boundary_set_id`) when referencing `gate_safety_strategy`. Earnings dates live in `params_json.strategy.earnings.dates` (Wave 9).
+
+## 4. Safety-Boundary Tables: Metadata + `params_json`
+
+- **`gate_safety_strategy`** stores metadata scalars (name, version, six `dim_*`, `is_active`) plus **`params_json jsonb`** for nested strategy/state/intent/guard parameters.
+- **Schema validation** is enforced in Python (`bifrost_core.monitor.schemas.gate_params.GateParams`), not in PostgreSQL CHECK constraints.
+- Earnings blacklist dates are stored in `params_json.strategy.earnings.dates` (no child table).
+
+## 5. Strategy Tables: jsonb for Small 1:N + Catalog Dims
+
+- **`strategy_template`**: `legs_json`, `params_json`, `characteristics_json`. Retired child tables: `strategy_template_leg`, `strategy_template_param`, `strategy_template_characteristic`.
+- **`strategy_structure`**: `legs_json`, `meta_json`. Retired: `strategy_structure_leg`, `strategy_structure_meta`.
+- **`strategy_opportunity`**: `symbols_json`, `entry_conditions_json`. Retired: `strategy_opportunity_symbol`, `strategy_opportunity_entry_condition`.
+- **`strategy_allocation`**: keeps **`strategy_allocation_opportunity`** junction (true N:M). Limits stay scalar (`max_positions`, `max_bp_pct`).
+- **Dimension enums**: six PostgreSQL enum types (`dim_direction_t`, …) replace `strategy_dim`; UI catalog is read-only in `strategy_dim_catalog.py`.
+- Prefer jsonb when a parent row has **≤ few dozen** child rows; use junction tables for real N:M (allocation ↔ opportunity).
+
+## 6. Where to Define and Update Schemas
+
+- **All** new or changed tables and columns must be documented in **`bifrost-trade-core/docs/DATABASE.md`**（该文件已存在，是唯一权威）。
+- After changing the design, add an entry to the change log section.
+
+## 7. Dev/Prod Database Isolation
+
+- Trade (OLTP) 三环境隔离：`bifrost_dev` / `bifrost_stg` / `bifrost_prod`（CloudNativePG @ `data` NS，spine **D2-prime**）
+- Research (OLAP) 单实例：`bifrost_golden_source`（无环境隔离）。Research **禁止**写 Trade DB（spine **D13**）
+- DDL 变更必须在三个 Trade 环境同步执行。

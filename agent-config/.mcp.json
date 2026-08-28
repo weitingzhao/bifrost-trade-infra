@@ -1,0 +1,75 @@
+{
+  "mcpServers": {
+    "bifrost-platform": {
+      "command": "npx",
+      "args": [
+        "tsx",
+        "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform/mcp/platform/src/index.ts"
+      ],
+      "env": {
+        "PLATFORM_API_URL": "http://127.0.0.1:8780",
+        "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_OPERATOR_TOKEN:-platform-operator-dev}"
+      }
+    },
+    "bifrost-kubernetes": {
+      "command": "npx",
+      "args": [
+        "tsx",
+        "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform/mcp/platform/src/index.ts"
+      ],
+      "env": {
+        "PLATFORM_API_URL": "http://127.0.0.1:8780",
+        "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_OPERATOR_TOKEN:-platform-operator-dev}",
+        "MCP_BRIDGE_FOCUS": "kubernetes"
+      }
+    },
+    "bifrost-redis": {
+      "command": "npx",
+      "args": [
+        "tsx",
+        "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform/mcp/platform/src/index.ts"
+      ],
+      "env": {
+        "PLATFORM_API_URL": "http://127.0.0.1:8780",
+        "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_VIEWER_TOKEN:-platform-viewer-dev}",
+        "MCP_BRIDGE_FOCUS": "redis"
+      }
+    },
+    "bifrost-postgres": {
+      "command": "npx",
+      "args": [
+        "tsx",
+        "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform/mcp/platform/src/index.ts"
+      ],
+      "env": {
+        "PLATFORM_API_URL": "http://127.0.0.1:8780",
+        "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_VIEWER_TOKEN:-platform-viewer-dev}",
+        "MCP_BRIDGE_FOCUS": "postgres"
+      }
+    },
+    "bifrost-prometheus": {
+      "command": "npx",
+      "args": [
+        "tsx",
+        "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform/mcp/platform/src/index.ts"
+      ],
+      "env": {
+        "PLATFORM_API_URL": "http://127.0.0.1:8780",
+        "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_VIEWER_TOKEN:-platform-viewer-dev}",
+        "MCP_BRIDGE_FOCUS": "prometheus"
+      }
+    },
+    "bifrost-trade-api": {
+      "command": "npx",
+      "args": [
+        "tsx",
+        "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform/mcp/trade/src/index.ts"
+      ],
+      "env": {
+        "TRADE_API_GATEWAY": "http://192.168.10.73",
+        "TRADE_API_GATEWAY_HOST": "stg.trader.bifrost.lan",
+        "TRADE_AGENT_CATALOG_URL": "http://127.0.0.1:8780/api/v1/trade-agent/catalog"
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+---
+description: Language and locale — always communicate in Chinese; English for UI strings and code identifiers
+alwaysApply: true
+parity-id: language-v1
+---
+
+# Language (沟通与界面 / 代码 / 文档)
+
+**与本项目用户对话一律使用中文回复。** 无论用户当条消息使用何种语言（包括英文），都用中文沟通，不要因为消息是英文就切换成英文。
+
+- **Communication with the user (Agent 对话)**: Always reply in **Chinese**, regardless of the language of the user's most recent message. Never switch to English just because a message arrives in English.
+- **UI and code**: Use **English** for all user-facing strings (labels, buttons, tooltips, placeholders, error messages) and code identifiers. No Chinese in the frontend UI. Code comments have no language requirement (Chinese or English is fine).
+- **Documentation** (e.g. docs/, README, .md in any repo): May be written in **Chinese or English** as the project owner prefers.
+
+When adding or changing UI text or error messages, use English.

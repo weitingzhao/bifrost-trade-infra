@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": "node ./scripts/agent-guard/preflight.js"
+      }
+    ],
+    "beforeMCPExecution": [
+      {
+        "command": "node ./scripts/agent-guard/preflight.js"
+      }
+    ],
+    "stop": [
+      {
+        "command": "node .cursor/hooks/on-session-stop.js"
+      }
+    ]
+  }
+}

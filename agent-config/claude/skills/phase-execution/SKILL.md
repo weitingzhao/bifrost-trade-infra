@@ -1,0 +1,103 @@
+---
+name: phase-execution
+description: >-
+  Agent 执行纪律 — Phase / Wave 多步骤工程任务的自检、结构化报告、进度追踪与 sign-off 流程。
+  Use when executing a numbered Phase or Wave, resuming a program across chats, running
+  verify_cmd self-checks, or when Owner asks 继续 / 全量 Review / Phase 完成报告.
+parity-id: phase-execution-v2
+---
+
+# Phase Execution Protocol（Agent 执行纪律）
+
+当 Agent 被要求执行一个 Phase（或多步骤工程任务）时，必须遵守以下纪律。
+
+## 开始 Phase 前
+
+1. **读取项目 PROGRESS.md**（位于 `bifrost-trade-infra/docs/` 或对应项目根目录），确认：
+   - 当前 Phase 编号与状态
+   - 前置 Phase 已完成
+   - Owner 已做的架构决策（Decision Log）
+2. **读取对应 SKILL.md**（Cursor: `.cursor/skills/{project}/SKILL.md` · Claude: `.claude/skills/{project}/SKILL.md`），了解：
+   - 需修改的文件列表
+   - 验证命令
+   - 架构约束
+3. **若存在 Owner 决策记录，严格遵守**，不重新提议已定的方案。
+
+## 执行过程中
+
+4. **每个逻辑单元**（一个模块 / 一个函数 / 一个文件组）完成后，立即运行自检：
+   - Python: `make lint && make test`（或 `ruff check . && pytest -m 'not ib and not db'`）
+   - TypeScript: `npm run lint && npm run build`（前端另加 `npm run check:legacy-css`）
+   - Go: `go build ./... && go test ./...`
+   - 如果失败：**自行修复直到通过**，不等用户提醒
+5. **架构级决策不擅自做**。以下属于架构级：
+   - 新增 RPC op / 改变数据流方向
+   - 新增外部依赖（pip/npm package）
+   - 改变模块公开接口（函数签名、类属性）
+   - 新增数据库表或列
+   - 遇到时：明确列出 2–3 个选项 + 推荐 → 等 Owner 确认
+6. **最小化变更范围**：只改 Phase scope 内的代码，不做 scope 外的 refactor。
+7. **不引入 TODO / FIXME**：当前 Phase 能解决的问题当场解决。
+
+## 完成 Phase 后
+
+8. **更新 PROGRESS.md**：
+   - 标记当前 Phase 为 ✅
+   - 填写完成日期
+   - 记录实际改动摘要
+9. **输出 Phase 完成报告**，结构如下：
+
+```
+## Phase N 完成报告
+
+### 涉及文件
+- repo/path/file.py (新增 / 修改 / 删除)
+
+### 公开 API 变更
+- 新增 op: xxx（协议 v1）
+- 函数签名变化: xxx
+
+### Breaking Changes
+- 无 / 列出需要下游同步的变更
+
+### 验证结果
+- `make test` → 23 passed
+- `make lint` → clean
+
+### 建议的 E2E 验证
+- 命令 1
+- 命令 2
+
+### 后续注意
+- 下游 repo 需要 xxx
+```
+
+10. **不自动开始下一个 Phase**，等 Owner 说「继续」或给出新指令。
+
+### Batch execution mode exception（批量执行）
+
+当 Owner 已确认 **batch mode**（说「批量执行」或「执行」且上下文为 delivery program batch run — 见 `{.cursor,.claude}/skills/batch-execution/OWNER_COMMANDS.md`）时：
+
+- **允许自动推进**到下一个 Phase，无需每 Phase 等待「继续」
+- **仅在以下情况暂停**并报告 Owner：
+  - 该 Phase 的 `verify_cmd` / 自检在 **2 次重试后仍失败**
+  - 遇到架构级决策（rule 5）
+  - Blueprint acceptance 未覆盖的新需求
+  - Owner 明确说「停」/「pause」
+- Batch 全部 Phase 完成后仍须输出 **Batch Execution Report**（见 batch-execution SKILL）并走 Global QA
+- `sign_off.required: true` 的 Phase：batch 模式下若 Owner 未预授权自动 sign-off，在 verify 通过后暂停等待 Console/API sign-off
+
+## Sign-off 流程
+
+当所有 Phase 完成后，Owner 要求「全量 Review」时：
+1. 读取 PROGRESS.md，汇总所有 Phase 变更
+2. 生成 Sign-off Checklist（每项对应一个可验证的验收标准）
+3. 每项列出验证命令或观察点
+4. 等 Owner 逐项确认
+
+## 跨 Chat Resume
+
+新 chat 中 Owner 说「继续上次的 X 项目」时：
+1. 读取 PROGRESS.md 确认当前进度
+2. 读取 SKILL.md 获取 context
+3. 从上次停留的 Phase / 步骤继续，不重复已完成的工作

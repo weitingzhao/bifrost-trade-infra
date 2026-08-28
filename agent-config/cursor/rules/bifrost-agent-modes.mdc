@@ -1,0 +1,27 @@
+---
+description: Bifrost Agent modes — Product / Ops / Promote / Research flywheel discipline
+globs:
+alwaysApply: true
+parity-id: agent-modes-v2
+---
+
+# Bifrost Agent modes (flywheel discipline)
+
+Before non-trivial work, infer or ask which mode applies:
+
+| Mode | When | Primary repos |
+|------|------|----------------|
+| **Product** | UI pages, Dense UI, FE hooks, Legacy equivalence | `bifrost-trade-frontend` |
+| **Ops** | Matrix, spine, compose, K3s, release gates | `bifrost-platform`, `bifrost-trade-infra` |
+| **Promote** | Release / prod cutover / env promotion | Ops Console Promote + spine + single-variable rule |
+| **Research** | dbt / OLAP engines / Golden Source analytics | `bifrost-research` (D13) |
+
+**Spine (milestones, decisions D1–D13 + D-Wave-*):** `bifrost-platform/config/ops-context.yaml` → `GET /api/v1/context`  
+**Agent modes (authoritative):** Ops Console → Governance → Agent Protocol · `console/src/lib/architecture/agentProtocolCatalog.ts`  
+**Governance priority:** code → Console Governance catalogs → spine. No `docs/` directory exists in `bifrost-platform`.
+
+- Product mode: do not migrate `bifrost-trade-api` or change compose prod (migration-protocol Phase 1).
+- Ops mode: do not edit trade monitoring pages unless explicitly cross-linked.
+- Promote mode: respect `BLOCKED_ON` milestones and Owner decisions in spine before suggesting cutover.
+- Research mode: Golden Source `dw_stock.*` / `features.*` only (canonical since Wave 6.4/6.6); read-only on `raw_market.*`; never write Trade DB; never enable live trading.
+- **All modes:** live trading BLOCKED until Owner unlock — see `.cursor/rules/trade-execution-freeze.mdc` and spine **D10**.

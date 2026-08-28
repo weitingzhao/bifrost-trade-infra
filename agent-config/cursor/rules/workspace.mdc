@@ -1,0 +1,87 @@
+---
+description: Bifrost 工作区结构、三域架构、双飞轮边界与双轨维护规范
+globs: ["**/*"]
+alwaysApply: true
+parity-id: workspace-v4
+---
+
+# Bifrost 工作区规范
+
+> **事实基线：`AGENT_FACTS.md`（工作区根）** — repo 清单、端口表、已退役实体、运行环境、权威源链。
+> 本规则只讲**规则**，不重复事实。两者冲突时以 `AGENT_FACTS.md` 为准，并修正本文件。
+
+---
+
+## 1. 三域架构（最高层结构）
+
+Bifrost = 三个域，边界不可跨越（spine **D13**）：
+
+| 域 | Repos | 数据库 |
+|----|-------|--------|
+| **Trade (OLTP)** | `bifrost-trade-{core,socket,worker,api,frontend,infra}` | `bifrost_{dev,stg,prod}` |
+| **Research (OLAP)** | `bifrost-research` | `bifrost_golden_source` |
+| **Ops (控制面)** | `bifrost-platform` + `bifrost-platform-plugin{,-market-data,-flex-query}` | 控制面状态 |
+
+共享：`bifrost-ui`（`@bifrost/ui` 组件库）。详见 `AGENT_FACTS.md` §1–§2。
+
+### 双飞轮 — 平台/业务解耦（最关键设计决策）
+
+- **Flywheel A（Trade）** = 业务数据面 · **Flywheel B（`bifrost-platform`）** = 控制面
+- `bifrost-platform` **永远不了解**：Greeks、IB 协议、SEPA、straddles、daemon 策略
+- **验证测试**：把 `bifrost-platform` clone 到新集群、指向别的应用，Dev/Ops Agent 应开箱即用
+- Trade repos **不得**修改 platform-api 路由或 Ops Console 架构页
+
+任何涉及 `bifrost-platform` 的改动，先问：**这是平台通用能力还是 Trade 专属逻辑？**
+是 Trade 专属，它就不应该进 `bifrost-platform`。
+
+---
+
+## 2. Repo 级规范
+
+各 repo 有自己的 `CLAUDE.md` / `.cursor/rules/`。特别注意：
+
+| Repo | 额外规范 |
+|------|---------|
+| `bifrost-trade-frontend` | `AGENTS.md` · Dense UI（`.cursor/rules/dense-ui-system.mdc` + `.cursor/skills/dense-ui/`）· 大改版用 `.cursor/skills/frontend-design/` · DEV Inner Loop（D-IL1：验收在本机 Vite `:5173`，不是 Prod） |
+| `bifrost-trade-core` | `.cursor/rules/versioning.mdc` — 改公开接口必须同 PR bump `pyproject.toml` |
+| `bifrost-research` | D13 边界：只读 `raw_market.*`；写 `dw_stock.*` / `features.*`；不触交易执行 |
+| `bifrost-analytics` | **已归档**，勿再改（已并入 `bifrost-research/src/bifrost_research/dbt/`） |
+
+## 3. 其余工作区规则
+
+| 主题 | 规则文件 |
+|------|---------|
+| 语言 | `.cursor/rules/language.mdc` |
+| Agent 模式 | `.cursor/rules/bifrost-agent-modes.mdc` |
+| **D10 交易执行冻结** | `.cursor/rules/trade-execution-freeze.mdc` |
+| Dev 服务（bdev） | `.cursor/rules/dev-services.mdc` |
+| Phase 执行纪律 | `.cursor/rules/phase-execution.mdc` |
+| 数据库设计 | `.cursor/rules/database-design.mdc` |
+
+已退役的规则归档在 `.cursor/_archive/`（不再加载，见其 README）。
+
+---
+
+## 4. 双轨维护（Cursor ↔ Claude）
+
+本项目同时被 Cursor Agent 与 Claude Code 使用，两侧各维护一套完整规则：
+
+| Cursor 侧 | Claude 侧 |
+|----------|-----------|
+| `.cursor/rules/workspace.mdc`（本文件） | `CLAUDE.md` |
+| `.cursor/skills/` | `.claude/skills/` |
+| `.cursor/commands/` | `.claude/commands/` |
+| `.cursor/hooks.json` | `.claude/settings.json` hooks |
+| — 共用 —— | `AGENT_FACTS.md` · `scripts/agent-guard/preflight.js` |
+
+**改动任一侧的规则，必须同步另一侧并 bump 两侧的 `parity-id`。**
+提交前跑 `bash scripts/check-agent-config-parity.sh` 校验。
+
+事实与硬边界**只有一份实现**（`AGENT_FACTS.md` + `preflight.js`），不复制到两侧。
+
+### 存放位置
+
+治理层实体在 **`bifrost-trade-infra/agent-config/`**（纳入 infra 版本控制与 CI），
+工作区根的 `CLAUDE.md` / `AGENT_FACTS.md` / `.mcp.json` / `.claude` / `.cursor` / `scripts` 均为符号链接。
+布局、链接重建命令与路径约定见 `bifrost-trade-infra/agent-config/README.md`。
+

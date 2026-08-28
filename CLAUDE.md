@@ -1,6 +1,7 @@
 # CLAUDE.md — bifrost-trade-infra
 
-> 本项目是 bifrost-trader-engine 重构的部署中心。迁移进度见 `docs/MIGRATION_TRACKING.md`。
+> 本 repo 是 Bifrost 的部署中心。Legacy `bifrost-trader-engine` 已按 spine **D8**（2026-06-29）归档移出工作区。
+> 迁移进度见 `docs/MIGRATION_TRACKING.md`；工作区事实基线见 `../AGENT_FACTS.md`。
 
 与本项目用户对话一律使用中文回复（无论用户用何种语言提问）；UI 字符串与代码标识符使用 English。
 
