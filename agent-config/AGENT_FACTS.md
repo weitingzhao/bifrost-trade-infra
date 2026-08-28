@@ -26,6 +26,24 @@ Bifrost = 三个域，边界不可跨越（spine **D13**，2026-08-21 SIGNED）�
 
 跨域共享：`bifrost-ui`（`@bifrost/ui` 共享 React 组件库）。
 
+### Ops 运维归属（2026-08-28 更正）
+
+Ops Platform 的域分类法（`console/src/lib/architecture/systemDomainCatalog.ts`）此前把
+Research 归为 **Subcontractors/Plugin**，导致它两边的发布能力都拿不到（Launch Plugin 只覆盖
+ib-gateway / market-data；`bifrost-deliver-stg` 是 Trade 专属），因而长期靠本机手推镜像。
+
+现已提升为**第一级域 `research`** —— 与 Satellite 平级的**第二 payload**：
+
+| 角色 | 含义 |
+|------|------|
+| Rocket | 运载工具 —— Ops Platform 自身 |
+| **Satellite** | **执行载荷** —— Trade |
+| **Research** | **决策载荷** —— OLAP / Golden Source / Copilot |
+| Subcontractors | 外围供数插件 —— 写 `raw_*`，与 Research 的数据流方向相反 |
+
+发布链：`bifrost-deliver-research`（mirror-sync → clone → kaniko → rollout → verify → gitops-sync）。
+
+
 **双飞轮**：Flywheel A = Trade 业务面；Flywheel B = `bifrost-platform` 控制面。
 硬边界 —— `bifrost-platform` 永远不了解 Greeks、IB 协议、SEPA、straddles、daemon 策略。
 
