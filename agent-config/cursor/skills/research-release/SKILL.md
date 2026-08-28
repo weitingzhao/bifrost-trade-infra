@@ -138,6 +138,35 @@ curl -s http://192.168.10.73:30882/api/plugin/research/health
 - Console 页：`bifrost-platform/console/src/pages/ResearchReleasePage.tsx`
 - 域归属：`AGENT_FACTS.md` §1 · `systemDomainCatalog.ts`
 
+---
+
+## 与 Satellite（Trade frontend）的发布互动
+
+`bifrost-trade-frontend` 是两个 payload 共用的**驾驶舱**，不是第三个 payload。
+Research UI（83 页）与 Portfolio / Strategy / Market 同处一个 SPA，整体随
+**Satellite** 链发布 —— 不给 Research UI 单独建交付链（同一 SPA 两半版本不一致
+比耦合更糟）。
+
+两条链先后顺序不确定：前端可能比 research-api 新，也可能旧。因此：
+
+**改 Research API 前先问：这是可加性变更吗？**
+
+| 变更类型 | 允许 | 做法 |
+|---------|------|------|
+| 加字段 / 加端点 | ✅ 直接发 | schema 是 `.passthrough()`，前端不会误报 |
+| 改字段类型 | ⚠️ 分步 | 加新字段 → 前端迁移 → **下个版本**才删旧字段 |
+| 删字段 / 删端点 | ⚠️ 分步 | 同上，绝不一步到位 |
+
+**契约校验**：`bifrost-trade-frontend/src/lib/schemas/research.ts`
++ `lib/apiValidation.ts` —— dev 模式 `console.warn` 报漂移、生产透传不中断。
+新增 Research 端点时**一并加 schema**，否则该端点在两链解耦后没有任何保护。
+
+改完用真实响应验证 schema，三个维度都要过：正向不误报、破坏结构能拦截、
+加字段不告警。只看编译通过是不够的 —— schema 可能松到永不触发。
+
+**Copilot 是跨载荷服务**：面板挂在 `AppLayout`，全站可用但打 Research 后端。
+它读两边数据是设计如此，不是耦合缺陷；但爆炸半径 = 全站，契约按最高标准管。
+
 ## D10
 
 全链路 observe-only，只触及 `research` namespace，不涉任何交易执行路径。

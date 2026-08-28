@@ -43,6 +43,29 @@ ib-gateway / market-data；`bifrost-deliver-stg` 是 Trade 专属），因而长
 
 发布链：`bifrost-deliver-research`（mirror-sync → clone → kaniko → rollout → verify → gitops-sync）。
 
+### 两个 Payload 的发布互动（前端是共用驾驶舱）
+
+`bifrost-trade-frontend` **不是第三个 payload**，它是两个 payload 共用的驾驶舱：
+Research UI（83 页 / 16.3k 行）与 Portfolio / Strategy / Market 同处一个 SPA，
+整体随 **Satellite** 链发布。
+
+耦合是双向的：Research 页面读 Trade 数据（Watchlist / Discovery / Sizing 等 5 处），
+Trade 页面经 Ask Copilot 读 Research 后端（Positions / Instances / Live 3 处），
+且 Copilot 面板挂在 `AppLayout` —— **全站可用，打 Research 后端**。
+
+因此两条发布链的**先后顺序不确定**：前端可能比 research-api 新（Satellite 先发），
+也可能旧（Research 先发）。约定如下：
+
+1. **前端整体随 Satellite 发布** —— 不给 Research UI 单独建交付链。同一 SPA 的
+   两半版本不一致，比现在的耦合严重得多。
+2. **Research API 只能向后兼容地演进** —— 破坏性变更走「加新字段 → 前端迁移 →
+   下版删旧字段」三步，不允许一步到位。
+3. **运行时契约校验** —— `src/lib/schemas/research.ts` + `lib/apiValidation.ts`，
+   dev 模式告警、生产透传；全部 `.passthrough()` 使加字段不误报。
+4. **Copilot 是跨载荷服务** —— 不属于任一 payload，读两边数据是设计如此。
+   其契约按最高标准管（爆炸半径 = 全站）。
+
+
 
 **双飞轮**：Flywheel A = Trade 业务面；Flywheel B = `bifrost-platform` 控制面。
 硬边界 —— `bifrost-platform` 永远不了解 Greeks、IB 协议、SEPA、straddles、daemon 策略。
