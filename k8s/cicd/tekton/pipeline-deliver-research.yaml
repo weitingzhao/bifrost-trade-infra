@@ -42,7 +42,16 @@ spec:
       default: registry.cicd.svc.cluster.local:5000
     - name: tag
       type: string
-      description: Image tag — MUST match k8s/api/deployment.yaml after the build lands.
+      # Defaulted so a run started without an explicit tag is still valid rather
+      # than rejected by Tekton for a missing param. `dev` is a moving tag: it is
+      # deliberately NOT what k8s/api/deployment.yaml pins, so an accidental
+      # default-tag run cannot silently become the deployed image.
+      default: dev
+      description: >-
+        Image tag to build. For a real release pass the target version (e.g.
+        0.30.0) — it MUST match what k8s/api/deployment.yaml will pin once the
+        image is in the registry. verify-research asserts the running Deployment
+        actually carries this tag.
   workspaces:
     - name: build-context
   tasks:

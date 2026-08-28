@@ -39,7 +39,11 @@ def rel(p): return str(p.relative_to(ROOT))
 
 # ─────────── 1. parity-id 双向覆盖 ───────────
 cursor_ids = {}   # id -> [file]
-for p in list(ROOT.glob('.cursor/rules/*.mdc')) + list(ROOT.glob('*/.cursor/rules/*.mdc')):
+# Rules (.mdc) AND skills (SKILL.md) — the Claude side scans SKILL.md, so scanning
+# only .mdc here made any Cursor-side skill look like drift.
+for p in (list(ROOT.glob('.cursor/rules/*.mdc')) + list(ROOT.glob('*/.cursor/rules/*.mdc'))
+          + list(ROOT.glob('.cursor/skills/*/SKILL.md'))
+          + list(ROOT.glob('*/.cursor/skills/*/SKILL.md'))):
     for m in re.finditer(r'^parity-id:\s*(\S+)', p.read_text(), re.M):
         cursor_ids.setdefault(m.group(1), []).append(rel(p))
 
