@@ -5,7 +5,7 @@ description: >-
   Use when a code-health check fails, when lowering a baseline in baselines.env,
   when adding a metric to scan.sh, when reading Ops Console → Code Health, or when
   deciding whether a conclusion rests on verified code or on stale memory.
-parity-id: code-health-v9
+parity-id: code-health-v10
 ---
 
 # 代码健康度棘轮
@@ -16,16 +16,16 @@ parity-id: code-health-v9
 - 采集：`agent-config/scripts/code-health/scan.sh`（工作区根 `scripts/code-health/`）
 - 基线：同目录 `baselines.env`
 - 可视：Ops Console → Mission Control → **Code Health**；Observability 内每域一条汇总 signal（仅 OVER 降级，贴顶不翻舰队）
-- **覆盖（v8）**：10 repo · 4 domain 展示块（不是「一域一仓」）
+- **覆盖（v10）**：11 git repos in multi-root workspace · 4 domain 展示块（无静默死角）
 
 | Domain | Repos | Metrics |
 |--------|-------|---------|
+| Rocket | `bifrost-platform` · `bifrost-ui` · **`bifrost-trade-infra`** | oversized · infra shell/py dup |
 | Satellite | `bifrost-trade-frontend` · `bifrost-trade-api` · `bifrost-trade-core` · `bifrost-trade-worker` | dup · oversized · FE contract |
-| Rocket | `bifrost-platform` · `bifrost-ui` | oversized |
 | Research | `bifrost-research` | dup · oversized · image tiers |
 | Subcontractors | `bifrost-platform-plugin{,-market-data,-flex-query}` | dup · oversized |
 
-**不扫**：`bifrost-trade-socket`（**已移出 workspace** / GitHub Archived）· `bifrost-trade-infra`（治理宿主）· `Research-workspace`
+**Out of scope（须在 Console Coverage 列出）**：`Research-workspace`（无 `.git`）· `bifrost-trade-socket`（已 Archive/移出）· `bifrost-analytics`（并入 research dbt，不在 multi-root）
 - 规划 lens：`bifrost-platform/console/src/lib/code-health/codeHealthLens.ts`（slack / at ceiling / paydown / **Posture Summary**）
 - Agent 读取：MCP `get_code_health`；Console **Generate Agent Pack** / 侧栏 Sparkles（先 Live Re-scan，再生成可粘贴的 Code Refactor Agent Task Content）
 - **Live Re-scan**：`POST /api/v1/code-health/rescan`（operator）跑本机 `scan.sh`；`GET` 带回 `freshness.stale_vs_head`。**Refresh 只重拉快照**。

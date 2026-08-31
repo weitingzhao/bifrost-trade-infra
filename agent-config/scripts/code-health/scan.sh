@@ -71,7 +71,8 @@ else
   fi
 fi
 
-KNOWN_REPOS="bifrost-platform bifrost-trade-frontend bifrost-research bifrost-trade-api bifrost-trade-core bifrost-trade-worker bifrost-ui bifrost-platform-plugin bifrost-platform-plugin-market-data bifrost-platform-plugin-flex-query"
+# All multi-root workspace git repos (Research-workspace has no .git; analytics/socket archived off-workspace).
+KNOWN_REPOS="bifrost-platform bifrost-trade-frontend bifrost-research bifrost-trade-api bifrost-trade-core bifrost-trade-worker bifrost-ui bifrost-platform-plugin bifrost-platform-plugin-market-data bifrost-platform-plugin-flex-query bifrost-trade-infra"
 if [[ -n "$REPO_FILTER" ]]; then
   for r in $(printf '%s' "$REPO_FILTER" | tr ',' ' '); do
     printf '%s' " $KNOWN_REPOS " | grep -q " $r " || {
@@ -232,17 +233,46 @@ py_dup_metric bifrost-platform-plugin-market-data subcontractors \
 py_dup_metric bifrost-platform-plugin-flex-query subcontractors \
   code.duplication.subcontractors.flex-query DUP_FUNCS_FLEX_QUERY_BASELINE flex-query
 
+# Infra shell helpers — exclude trivial assert aliases (pass/fail/ok/bad) that
+# every verify_*.sh redefines. Remaining dups are real shared-concept debt.
+if want bifrost-trade-infra; then
+infra_sh_files="$(tracked bifrost-trade-infra '*.sh')"
+infra_sh_dup="$(grep_files bifrost-trade-infra "$infra_sh_files" '^[a-zA-Z_][a-zA-Z0-9_]*\(\)' \
+  | sed 's/()$//' | grep -vE '^(pass|fail|ok|bad)$' | dup_table)"
+infra_sh_dup_n=$(printf '%s' "$infra_sh_dup" | grep -c . || true)
+add_metric code.duplication.rocket.infra "duplicated shell function names (infra)" rocket bifrost-trade-infra \
+  "$infra_sh_dup_n" DUP_FUNCS_INFRA_SH_BASELINE \
+  "top: $(printf '%s\n' "$infra_sh_dup" | dup_detail)" "$infra_sh_dup"
+py_dup_metric bifrost-trade-infra rocket \
+  code.duplication.rocket.infra-py DUP_FUNCS_INFRA_PY_BASELINE infra-py
+fi
+
 # ---------------------------------------------------------------- metric 2
-# Files over 800 lines. A file nobody can hold in their head is where the next
+# Files over N lines. A file nobody can hold in their head is where the next
 # duplicate gets written, because finding the existing helper costs more than
 # retyping it.
+# Product repos: 800 lines · TS/Py/Go. Infra: 500 · + shell/YAML/Markdown
+# (governance host almost never hits 800).
 oversized() {
-  local repo="$1" files
+  local repo="$1"
+  local threshold="${2:-800}"
+  local files
   files="$(tracked "$repo" '*.ts' '*.tsx' '*.py' '*.go')"
   [[ -n "$files" ]] || { echo ""; return 0; }
   ( cd "$ROOT/$repo" && printf '%s\n' "$files" | tr '\n' '\0' | xargs -0 wc -l 2>/dev/null ) \
-    | awk '$2!="total" && $1>800 {print $1" "$2}' | sort -rn || true
+    | awk -v thr="$threshold" '$2!="total" && $1>thr {print $1" "$2}' | sort -rn || true
 }
+
+oversized_infra() {
+  local repo="$1"
+  local threshold="${2:-500}"
+  local files
+  files="$(tracked "$repo" '*.ts' '*.tsx' '*.py' '*.go' '*.sh' '*.yml' '*.yaml' '*.md')"
+  [[ -n "$files" ]] || { echo ""; return 0; }
+  ( cd "$ROOT/$repo" && printf '%s\n' "$files" | tr '\n' '\0' | xargs -0 wc -l 2>/dev/null ) \
+    | awk -v thr="$threshold" '$2!="total" && $1>thr {print $1" "$2}' | sort -rn || true
+}
+
 # id domain repo baseline_var label_suffix
 while IFS='|' read -r id domain repo var suffix; do
   [[ -z "$id" ]] && continue
@@ -263,6 +293,14 @@ code.oversized.subcontractors.plugin|subcontractors|bifrost-platform-plugin|OVER
 code.oversized.subcontractors.market-data|subcontractors|bifrost-platform-plugin-market-data|OVERSIZED_MARKET_DATA_BASELINE|market-data
 code.oversized.subcontractors.flex-query|subcontractors|bifrost-platform-plugin-flex-query|OVERSIZED_FLEX_QUERY_BASELINE|flex-query
 OVERSIZED_SPECS
+
+if want bifrost-trade-infra; then
+infra_big="$(oversized_infra bifrost-trade-infra 500)"
+infra_big_n=$(printf '%s' "$infra_big" | grep -c . || true)
+add_metric code.oversized.rocket.infra "files over 500 lines (infra)" rocket bifrost-trade-infra \
+  "$infra_big_n" OVERSIZED_INFRA_BASELINE \
+  "largest: $(printf '%s\n' "$infra_big" | head -2 | awk '{printf "%s(%s) ", $2, $1}')" "$infra_big"
+fi
 
 # ---------------------------------------------------------------- metric 2b
 # Page files sitting loose at a domain's top level, summed across domains.

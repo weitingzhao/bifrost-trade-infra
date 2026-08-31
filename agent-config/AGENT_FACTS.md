@@ -20,7 +20,7 @@ Bifrost = 三个域，边界不可跨越（spine **D13**，2026-08-21 SIGNED）�
 
 | 域 | Repos | 数据库 | 职责 |
 |----|-------|--------|------|
-| **Trade (OLTP)** | `bifrost-trade-{core,socket,worker,api,frontend,infra}` | `bifrost_{dev,stg,prod}` 环境隔离 | 交易执行、持仓、实时监控 |
+| **Trade (OLTP)** | `bifrost-trade-{core,worker,api,frontend,infra}`（socket 已 Archive/移出） | `bifrost_{dev,stg,prod}` 环境隔离 | 交易执行、持仓、实时监控 |
 | **Research (OLAP)** | `bifrost-research` | `bifrost_golden_source` 单实例 | 分析、预测、回测、选股选期权 |
 | **Ops (控制面)** | `bifrost-platform` + `bifrost-platform-plugin{,-market-data,-flex-query}` | 控制面状态（非业务库） | 环境治理、健康探测、部署编排、Agent |
 
