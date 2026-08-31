@@ -27,7 +27,7 @@ fi
 
 if [[ "${SYNC_GITEA}" == "1" ]]; then
   echo "==> Sync Gitea mirrors from GitHub (${REVISION})"
-  MIRROR_REPOS="bifrost-trade-core bifrost-trade-worker bifrost-trade-socket bifrost-trade-api bifrost-trade-frontend bifrost-trade-infra bifrost-ui bifrost-platform" \
+  MIRROR_REPOS="bifrost-trade-core bifrost-trade-worker bifrost-trade-api bifrost-trade-frontend bifrost-trade-infra bifrost-ui bifrost-platform" \
     "${ROOT}/scripts/k3s/bootstrap-gitea-mirrors.sh"
 fi
 
@@ -51,9 +51,8 @@ kubectl create configmap bifrost-api-stg-dockerfile \
 kubectl create configmap bifrost-worker-stg-dockerfile \
   --from-file=Dockerfile.worker-stg="${ROOT}/k8s/cicd/docker/Dockerfile.worker-stg" \
   -n "${CICD_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
-kubectl create configmap bifrost-socket-stg-dockerfile \
-  --from-file=Dockerfile.socket-stg="${ROOT}/k8s/cicd/docker/Dockerfile.socket-stg" \
-  -n "${CICD_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+# Wave 14G-F: bifrost-socket image retired — delete leftover CM if present
+kubectl delete configmap bifrost-socket-stg-dockerfile -n "${CICD_NAMESPACE}" --ignore-not-found
 
 echo "==> Register Tekton deliver-prod pipeline"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-verify-prod-deliver.yaml"

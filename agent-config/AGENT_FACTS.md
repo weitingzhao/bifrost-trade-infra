@@ -77,7 +77,7 @@ Trade 页面经 Ask Copilot 读 Research 后端（Positions / Instances / Live 3
 | Repo | 包名 / 语言 | 域 | 备注 |
 |------|------------|----|------|
 | `bifrost-trade-core` | `bifrost_core` (py) | Trade | 纯共享库，无进程入口。config / persistence / portfolio / ib_operator / monitor |
-| `bifrost-trade-socket` | `bifrost_socket` (py) | Trade | **半退役** — 见 §4 |
+| `bifrost-trade-socket` | `bifrost_socket` (py) | Trade | **RETIRED**（参考保留）— 见 §4；已从 CI/CD + Gitea 清除 |
 | `bifrost-trade-worker` | `bifrost_worker` (py) | Trade | 现仅 `daemon/`（Celery 已退役，见 §4） |
 | `bifrost-trade-api` | `bifrost_api` (py) | Trade | 9 个逻辑域 → K8s 4 个 deployment，见 §3 |
 | `bifrost-trade-frontend` | TypeScript / React 18 / Vite | Trade | **232 个 `.tsx` 页面**，8 个域目录：`copilot / market / operations / portfolio / research / settings / strategy` + `RouteErrorPage` |
@@ -151,7 +151,9 @@ Owner **2026-08-31** 签批 D-14GF.1–6（R1）并授权继续（覆盖结论 C
 | 0 文档/catalog | ✅ |
 | 1 compose 默认下线（`legacy-ib` profile） | ✅ |
 | 2 停 Tekton `bifrost-socket` 镜像 / API 去依赖 | ✅ |
-| 3 `ARCHIVED.md` | ✅；GitHub archive / 移出 workspace **≥90 天后** Owner 另令 |
+| 3 `ARCHIVED.md` | ✅ |
+| 3b 清 CI/CD + Gitea | ✅（2026-08-31）— mirror/webhook/trigger/deliver 列表去 socket；删 `Dockerfile.socket-stg` + CM；Gitea org mirror 删除 |
+| GitHub archive / 移出 workspace | Owner 可即时 archive；workspace 移出仍建议 **≥90 天** |
 
 **勿启动** socket 三进程（双写=事故）。逃生舱：`docker compose -f docker-compose.dev.yml --profile legacy-ib up`。
 设计：`bifrost-trade-infra/docs/WAVE_14G_F_SOCKET_RETIREMENT.md`。

@@ -1,4 +1,4 @@
-# CI gate for Python Trade repos (core / api / worker / socket).
+# CI gate for Python Trade repos (core / api / worker). Socket retired Wave 14G-F.
 # Lightweight: clone → install → lint → test. No image build, no deploy.
 apiVersion: tekton.dev/v1
 kind: Pipeline

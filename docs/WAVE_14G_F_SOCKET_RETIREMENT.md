@@ -297,6 +297,12 @@ Monitor：`socket.platform_ib_gateway` / `transport=platform_gateway`；Critical
 ### Phase 3 部分完成（2026-08-31）
 
 - [x] `bifrost-trade-socket/ARCHIVED.md`
-- [ ] GitHub archive 按钮 / 移出 Cursor workspace — **按 D-14GF.2 参考保留 ≥90 天后再做**（Owner 另令）
+- [x] **CI/CD + Gitea 清除（Owner 2026-08-31）**
+  - mirror / webhook / trigger CEL / deliver `MIRROR_REPOS` 去掉 `bifrost-trade-socket`
+  - 删除 `k8s/cicd/docker/Dockerfile.socket-stg`；deliver 脚本不再创建 `bifrost-socket-stg-dockerfile` CM
+  - 集群：Gitea `bifrost/bifrost-trade-socket` 仓库与 webhook 已 DELETE（404）
+  - Console `payloadConstellationCatalog` Trade `mirrorRepos` 去掉 socket
+- [ ] 移出 Cursor workspace — **按 D-14GF.2 参考保留 ≥90 天后再做**（Owner 另令）
+- [ ] GitHub `weitingzhao/bifrost-trade-socket` archive — **本轮 PAT 无 `archiveRepository` 权限（403）**；Owner 在 GitHub UI Settings → Danger Zone → Archive 即可
 
 *End of design — Wave 14G-F Trade Socket retirement.*

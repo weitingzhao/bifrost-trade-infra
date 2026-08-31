@@ -82,7 +82,7 @@ spec:
         - name: giteaBase
           value: $(params.giteaBase)
         - name: mirrorRepos
-          value: "bifrost-trade-core bifrost-trade-worker bifrost-trade-socket bifrost-trade-api bifrost-trade-frontend bifrost-trade-infra bifrost-ui bifrost-platform"
+          value: "bifrost-trade-core bifrost-trade-worker bifrost-trade-api bifrost-trade-frontend bifrost-trade-infra bifrost-ui bifrost-platform"
     - name: clone-core
       runAfter: [mirror-sync]
       taskRef:
