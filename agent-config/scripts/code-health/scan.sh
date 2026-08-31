@@ -164,6 +164,7 @@ add_metric() {
   metrics_json+="\"domain\":\"$(json_escape "$domain")\","
   metrics_json+="\"repo\":\"$(json_escape "$repo")\","
   metrics_json+="\"value\":$value,\"baseline\":$baseline,"
+  metrics_json+="\"baseline_var\":\"$(json_escape "$baseline_var")\","
   metrics_json+="\"status\":\"$status\","
   metrics_json+="\"detail\":\"$(json_escape "$detail")\"}"
 }

@@ -5,7 +5,7 @@ description: >-
   Use when a code-health check fails, when lowering a baseline in baselines.env,
   when adding a metric to scan.sh, when reading Ops Console → Code Health, or when
   deciding whether a conclusion rests on verified code or on stale memory.
-parity-id: code-health-v4
+parity-id: code-health-v5
 ---
 
 # 代码健康度棘轮
@@ -31,6 +31,8 @@ parity-id: code-health-v4
 **禁止**加权综合健康分 / A–E / 技术债美元。维度（size / duplication / contract / image_spread）只做分组标签。
 
 **Posture Summary**（页顶 + 侧栏 title + Ask pack）：一句 `Gate CLEAR|BLOCKED · Planning AT CEILING|HELD|NOT OBSERVED · headroom`，再加 Dimensions chips / Next / Trend — **仍不是分数**。
+
+**Lower baseline 工作流**（IMPROVED）：页上 **BASELINE LOWERING OWED** / 行内 Lower… → 对话框只允许把 `baselines.env` 常量改成 **scan 打印的 value**（Copy patch / Copy for Agent）。Console **不写** 文件；在 `bifrost-trade-infra` 改并 `scan.sh --report`。禁止抬高基线。
 
 规划灯（页 + 侧栏，**不是** Observability 舰队）：
 
