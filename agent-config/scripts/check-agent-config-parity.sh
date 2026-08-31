@@ -7,6 +7,7 @@
 #   3. 活跃治理文件不引用已退役实体
 #   4. D10 表述与 spine 一致
 #   5. 硬边界 hook 两侧都已接线
+#   6. 各 repo 本地 HEAD 相对 origin/main 的新鲜度（Agent 认知是否过期）
 #
 # 用法: bash scripts/check-agent-config-parity.sh
 # 退出码: 0 = 一致 · 1 = 存在漂移
@@ -153,6 +154,46 @@ else:
             warns.append(".claude/settings.json 的 preflight 未覆盖 mcp__* 工具")
     else:
         fails.append("缺少 .claude/settings.json")
+
+# ─────────── 6. 认知新鲜度 ───────────
+# 规则本身对了，不代表 Agent 手里的认知是对的。隔几天回来，记忆里的镜像版本、
+# replicas、目录结构可能已全部失效，而这种失效是无声的。
+#
+# 不联网：只读已有的 origin/main 与上次 fetch 时间。治理检查不该改状态或卡在网络上。
+import subprocess, time
+
+def git(repo, *args):
+    try:
+        r = subprocess.run(['git', '-C', str(repo), *args],
+                           capture_output=True, text=True, timeout=10)
+        return r.stdout.strip() if r.returncode == 0 else None
+    except Exception:
+        return None
+
+STALE_FETCH_SEC = 24 * 3600
+stale_notes = []
+for repo in sorted(ROOT.glob('bifrost-*')):
+    if not (repo / '.git').exists():
+        continue
+    behind = git(repo, 'rev-list', '--count', 'HEAD..origin/main')
+    if behind is None:
+        continue
+    fetch_head = repo / '.git' / 'FETCH_HEAD'
+    age = time.time() - fetch_head.stat().st_mtime if fetch_head.exists() else None
+
+    if behind.isdigit() and int(behind) > 0:
+        stale_notes.append(f"{repo.name}: 落后 origin/main {behind} 个 commit — 先 git pull 再下结论")
+    elif age is None:
+        stale_notes.append(f"{repo.name}: 从未 fetch — origin/main 不可信，无法判断是否落后")
+    elif age > STALE_FETCH_SEC:
+        stale_notes.append(f"{repo.name}: 上次 fetch 在 {int(age // 3600)}h 前 — origin/main 本身已陈旧")
+
+if stale_notes:
+    print("  认知新鲜度：")
+    for n in stale_notes:
+        print(f"    ⚠ {n}")
+else:
+    print("  认知新鲜度：各 repo 与 origin/main 同步且 fetch 在 24h 内")
 
 # ─────────── 结果 ───────────
 print(f"  parity-id: Cursor {len(cursor_ids)} 条 · Claude {len(claude_ids)} 条")

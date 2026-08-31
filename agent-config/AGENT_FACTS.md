@@ -193,6 +193,37 @@ socket 仓库（52 py / ~10.4k 行）仍在 `docker-compose.dev.yml` 默认启�
 
 ---
 
+## 7b. 代码健康度棘轮（2026-08-31 新增）
+
+治理覆盖此前只有运行时与流程两条腿；**代码资产**这一维在 Console 里不存在。
+`SignalSourceKind` 原有 13 个取值全是运行时探测，新增第 14 个 `code_health` 补上。
+
+| 实体 | 位置 |
+|------|------|
+| 采集器 | `bifrost-trade-infra/agent-config/scripts/code-health/scan.sh` |
+| 基线 | 同目录 `baselines.env`（7 个指标 / 3 个 repo） |
+| 存储 | `bifrost-platform/api/internal/codehealth/`（落盘 `agent/code-health/*.json`，保留 30 份） |
+| 端点 | `GET /api/v1/code-health`（viewer）· `POST /api/v1/code-health/report`（operator） |
+| MCP | `get_code_health` |
+| UI | Console → Mission Control → **Code Health**；Observability 三条 `code_health` signal（satellite / research / rocket，均为 `evidence` + `optionalContract`） |
+| Skill | `.claude/skills/code-health/` ·`.cursor/skills/code-health/`（`parity-id: code-health-v1`） |
+
+**契约**：无数据 → `NOT OBSERVED`，链路每一层都不得显示为健康。
+
+### CI 现状（重要 — 不要高估）
+
+- **唯一真正生效的机械闸门**是 `bifrost-trade-frontend/.husky/pre-commit`
+- `bifrost-ci-{frontend,platform,python}` 三条 Tekton 流水线**只存在于 git，未部署到集群**；
+  Tekton Triggers（`eventlistener` / `triggertemplate` CRD）**未安装** —— Gitea push 无人接收
+- 这些 YAML 此前也 **apply 不上**：Tekton v1 已把 step 的 `resources` 改名为 `computeResources`，
+  旧字段被 admission webhook 拒绝（已修）
+- `bifrost-research` **不在任何 CI 触发列表内**（python-ci 只覆盖 core/api/worker/socket）
+- `bifrost-platform` / `bifrost-research` 无 pre-commit hook
+
+→ 在 Owner 决定是否安装 Triggers 并 apply 流水线之前，**不得声称「CI 会拦住」**。
+
+---
+
 ## 8. D10 — 交易执行冻结（硬边界）
 
 **状态：BLOCKED**（spine，signed 2026-07-04）。
