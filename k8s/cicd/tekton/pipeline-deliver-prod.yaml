@@ -111,20 +111,6 @@ spec:
       workspaces:
         - name: output
           workspace: build-context
-    - name: clone-socket
-      runAfter: [mirror-sync]
-      taskRef:
-        name: bifrost-git-clone-gitea
-      params:
-        - name: url
-          value: $(params.giteaBase)/bifrost-trade-socket.git
-        - name: revision
-          value: $(params.revision)
-        - name: subdir
-          value: bifrost-trade-socket
-      workspaces:
-        - name: output
-          workspace: build-context
     - name: clone-api
       runAfter: [mirror-sync]
       taskRef:
@@ -189,7 +175,7 @@ spec:
         - name: source
           workspace: build-context
     - name: stage-api-dockerfile
-      runAfter: [prepare, clone-core, clone-worker, clone-socket, clone-api]
+      runAfter: [prepare, clone-core, clone-worker, clone-api]
       workspaces:
         - name: source
           workspace: build-context
@@ -254,8 +240,8 @@ spec:
       workspaces:
         - name: source
           workspace: build-context
-    - name: build-worker-socket
-      runAfter: [prepare, clone-core, clone-worker, clone-socket]
+    - name: build-worker
+      runAfter: [prepare, clone-core, clone-worker]
       taskRef:
         name: bifrost-kaniko-worker-socket-stg
       params:
@@ -267,7 +253,7 @@ spec:
         - name: source
           workspace: build-context
     - name: rollout
-      runAfter: [build-all-apis, build-frontend, build-worker-socket]
+      runAfter: [build-all-apis, build-frontend, build-worker]
       taskRef:
         name: bifrost-rollout-stg
       params:

@@ -151,20 +151,25 @@ spec:
       params:
         - name: repo
           value: $(params.repo)
-    # Only bifrost-research has ratchet baselines among the Python repos; the
-    # Trade Python repos (core/api/worker/socket) are not measured yet, and a
-    # gate that silently measures nothing is worse than no gate.
+    # Python ratchet coverage: research + Trade OLTP (api/core/worker).
+    # socket / infra intentionally not in scan.sh KNOWN_REPOS.
     - name: code-health
       runAfter: [clone, clone-infra]
       when:
         - input: $(params.repo)
           operator: in
-          values: [bifrost-research]
+          values:
+            [
+              bifrost-research,
+              bifrost-trade-api,
+              bifrost-trade-core,
+              bifrost-trade-worker,
+            ]
       taskRef:
         name: bifrost-code-health
       params:
         - name: repo
-          value: bifrost-research
+          value: $(params.repo)
         - name: sourceDir
           value: repo
       workspaces:

@@ -5,7 +5,7 @@ description: >-
   Use when a code-health check fails, when lowering a baseline in baselines.env,
   when adding a metric to scan.sh, when reading Ops Console → Code Health, or when
   deciding whether a conclusion rests on verified code or on stale memory.
-parity-id: code-health-v5
+parity-id: code-health-v8
 ---
 
 # 代码健康度棘轮
@@ -16,8 +16,20 @@ parity-id: code-health-v5
 - 采集：`agent-config/scripts/code-health/scan.sh`（工作区根 `scripts/code-health/`）
 - 基线：同目录 `baselines.env`
 - 可视：Ops Console → Mission Control → **Code Health**；Observability 内每域一条汇总 signal（仅 OVER 降级，贴顶不翻舰队）
+- **覆盖（v8）**：10 repo · 4 domain 展示块（不是「一域一仓」）
+
+| Domain | Repos | Metrics |
+|--------|-------|---------|
+| Satellite | `bifrost-trade-frontend` · `bifrost-trade-api` · `bifrost-trade-core` · `bifrost-trade-worker` | dup · oversized · FE contract |
+| Rocket | `bifrost-platform` · `bifrost-ui` | oversized |
+| Research | `bifrost-research` | dup · oversized · image tiers |
+| Subcontractors | `bifrost-platform-plugin{,-market-data,-flex-query}` | dup · oversized |
+
+**不扫**：`bifrost-trade-socket`（半退役）· `bifrost-trade-infra`（治理宿主）· `Research-workspace`
 - 规划 lens：`bifrost-platform/console/src/lib/code-health/codeHealthLens.ts`（slack / at ceiling / paydown / **Posture Summary**）
-- Agent 读取：MCP `get_code_health`；Console **Copy for Agent** / 侧栏 Sparkles
+- Agent 读取：MCP `get_code_health`；Console **Generate Agent Pack** / 侧栏 Sparkles（先 Live Re-scan，再生成可粘贴的 Code Refactor Agent Task Content）
+- **Live Re-scan**：`POST /api/v1/code-health/rescan`（operator）跑本机 `scan.sh`；`GET` 带回 `freshness.stale_vs_head`。**Refresh 只重拉快照**。
+- **不在 UI 生成 Suggested Cuts** — playbook 已退役。切点由 IDE Agent 读 offender 后提出；Console 只提供机械量尺 + Agent Task Content pack。
 
 ---
 
@@ -54,9 +66,10 @@ Observability `code-health.*` 仍为 `role: evidence`：只有 OVER → degraded
 | 层 | 无数据时的表现 |
 |----|---------------|
 | `scan.sh` | repo 缺失 → `NOT MEASURED`；`--repo` 名字不认识 → 退出 2；一个指标都没产出 → 退出 2 |
-| `GET /api/v1/code-health` | `reported: false` + note，**不返回空的健康对象** |
+| `GET /api/v1/code-health` | `reported: false` + note，**不返回空的健康对象**；附带 `freshness`（`stale_vs_head` / `rescan_available`） |
+| `POST /api/v1/code-health/rescan` | operator；本机跑 `scan.sh`，`source=live-rescan`；集群内常无 workspace → `rescan_available: false` |
 | Observability signal | `optionalContract: true` → `NOT OBSERVED` |
-| Code Health 页 / 侧栏 | 琥珀 `NOT OBSERVED` + 产出读数的命令；贴顶用黄灯，不用绿 HELD 假装健康 |
+| Code Health 页 / 侧栏 | 琥珀 `NOT OBSERVED` + 产出读数的命令；贴顶用黄灯，不用绿 HELD 假装健康；**STALE VS HEAD** 时先 Live Re-scan / Generate Agent Pack |
 
 改这条链上任何一环时，先问：**没数据会不会被显示成绿的？贴顶会不会被当成「很健康」？** 会，就是 bug。
 
@@ -85,9 +98,12 @@ make check-code-health                      # bifrost-trade-infra，全量
 npm run check:code-health                   # bifrost-trade-frontend，只查 satellite
 bash scripts/code-health/scan.sh --json -    # 机器可读（摘要走 stderr）
 bash scripts/code-health/scan.sh --report    # 上报 platform-api（需 PLATFORM_OPERATOR_TOKEN）
+# Console Live Re-scan ≡ POST /api/v1/code-health/rescan（DEV platform-api + workspace）
 ```
 
 `--root <path>` 用于 CI：工作区里只有部分 repo，向上查找找不到工作区根。
+
+Live Re-scan 环境（可选）：`BIFROST_WORKSPACE_ROOT`（stocks 根）、`PLATFORM_CODE_HEALTH_SCAN_SH`（测试替身）。默认：`PLATFORM_PROJECT_ROOT` 的父目录若含 `scan.sh` 即工作区。
 
 ---
 
@@ -122,7 +138,7 @@ bash scripts/code-health/scan.sh --report    # 上报 platform-api（需 PLATFOR
 | `bifrost-trade-frontend/.husky/pre-commit` | ✅ `check:legacy-css` + `check:code-health` |
 | `bifrost-platform/.husky/pre-commit` | ✅ `check:code-health`（console `npm install` → husky） |
 | `bifrost-research/.githooks/pre-commit` | ✅ `make install-hooks` / `make install-dev` |
-| `bifrost-ci-{frontend,platform,python}` Tekton | ✅ Triggers + Gitea push webhook；**python-ci 含 bifrost-research** |
+| `bifrost-ci-{frontend,platform,python}` Tekton | ✅ Triggers + Gitea push webhook；**python-ci 含 research + trade-api/core/worker** |
 
 CI 链：Gitea push → `el-bifrost-ci` → CEL 路由 → PipelineRun → `bifrost-code-health` Task。
 安装：`make k3s-install-ci-triggers` + `make k3s-install-ci-webhooks`；校验 `make k3s-verify-ci-triggers`。

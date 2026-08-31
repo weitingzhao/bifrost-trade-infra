@@ -21,8 +21,7 @@ spec:
         for pair in \
           "bifrost-api-stg-dockerfile:Dockerfile.api-stg" \
           "bifrost-frontend-stg-dockerfile:Dockerfile.frontend-stg" \
-          "bifrost-worker-stg-dockerfile:Dockerfile.worker-stg" \
-          "bifrost-socket-stg-dockerfile:Dockerfile.socket-stg"; do
+          "bifrost-worker-stg-dockerfile:Dockerfile.worker-stg"; do
           cm="${pair%%:*}"
           file="${pair##*:}"
           path="${root}/${file}"

@@ -34,6 +34,7 @@
 | Trade 读路径 | bifrost-prod `api-market` → redis-ib | **VERIFIED** | `verify-trade-quotes-e2e` · Monitor `platform_ib_gateway` |
 | Celery bars RPC | bifrost-prod `celery-worker` → operator stream | **VERIFIED** | `use_for_celery_bars: true` · gateway RPC |
 | Legacy socket STS | bifrost-{dev,stg,prod} | **RETIRED** | Argo 不再拉起；Deliver-prod 不恢复 STS |
+| **Wave 14G-F** trade-socket repo | 编排 / compose / CI | **Phase 0–2 DONE**（2026-08-31） | 默认不起 socket；停 `bifrost-socket` 镜像；`ARCHIVED.md`；workspace 移出 ≥90 天后再做 |
 | D10 live trading | daemon bifrost-prod | **BLOCKED** | observe-safe；W-block 未 unlock |
 
 GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 验收: `make verify-ib-gateway-program` · `make verify-trade-ib-rollout-prod`

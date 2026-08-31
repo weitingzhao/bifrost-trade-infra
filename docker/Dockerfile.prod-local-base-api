@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1
-# Shared deps: core + worker + socket (no api). Tag: bifrost-base-api:local.
+# Shared deps: core + worker (no api). Tag: bifrost-base-api:local.
+# Wave 14G-F: socket package removed from API base (IB edge = Plugin → redis-ib).
 FROM python:3.11-slim AS base-api
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -18,8 +19,3 @@ COPY bifrost-trade-worker/src /build/bifrost-trade-worker/src
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --no-cache-dir --no-deps /build/bifrost-trade-worker
 
-COPY bifrost-trade-socket/pyproject.toml bifrost-trade-socket/README.md /build/bifrost-trade-socket/
-COPY bifrost-trade-socket/src /build/bifrost-trade-socket/src
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --no-cache-dir --no-deps /build/bifrost-trade-socket \
-    && pip install --no-cache-dir "ib_insync>=0.9.86" "websockets>=12.0" "aioredis>=2.0"

@@ -21,7 +21,7 @@ spec:
   params:
     - name: repo
       type: string
-      description: "Repo to gate — must be one scan.sh knows (bifrost-platform | bifrost-trade-frontend | bifrost-research)"
+      description: "Repo to gate — must be in scan.sh KNOWN_REPOS (platform, trade-frontend, research, trade-api/core/worker, ui, plugin{,-market-data,-flex-query})"
     - name: sourceDir
       type: string
       default: ""

@@ -51,8 +51,6 @@ images:
     newName: 192.168.10.73:30500/bifrost-frontend
   - name: registry.cicd.svc.cluster.local:5000/bifrost-worker
     newName: 192.168.10.73:30500/bifrost-worker
-  - name: registry.cicd.svc.cluster.local:5000/bifrost-socket
-    newName: 192.168.10.73:30500/bifrost-socket
 
 commonAnnotations:
   bifrost.io/environment: dev

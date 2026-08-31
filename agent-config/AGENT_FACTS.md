@@ -141,12 +141,20 @@ Trade 页面经 Ask Copilot 读 Research 后端（Positions / Instances / Live 3
 | `features_daily` / `features_option` 等 legacy schema | DROP | **D-Wave-6.6**，2026-08-24；canonical 为 `features.*` |
 | Trade `public.job_*` Celery 表 | 退役（core 0.10.6） | → `ops_jobs.job_ingest` |
 
-### `bifrost-trade-socket` — 半退役，尚未授权删除
+### `bifrost-trade-socket` — RETIRED / reference-only（Wave 14G-F Phase 0–2 DONE）
 
-生产 IB 实时总线已由 **Platform IB Gateway Plugin → `redis-ib`** 承接（IBGP3/4 done）。
-socket 仓库（52 py / ~10.4k 行）仍在 `docker-compose.dev.yml` 默认启动、Tekton 仍 build 镜像。
-退役设计文档 `bifrost-trade-infra/docs/WAVE_14G_F_SOCKET_RETIREMENT.md` 标注
-**DESIGN ONLY — 未授权实施删除 / 改 compose / 改 CI**。Owner 决策清单未走完前不得实施。
+生产与 Inner Loop IB 实时总线权威路径：**Platform IB Gateway Plugin → `redis-ib`**（IBGP3/4）。
+Owner **2026-08-31** 签批 D-14GF.1–6（R1）并授权继续（覆盖结论 C）。
+
+| Phase | 状态 |
+|-------|------|
+| 0 文档/catalog | ✅ |
+| 1 compose 默认下线（`legacy-ib` profile） | ✅ |
+| 2 停 Tekton `bifrost-socket` 镜像 / API 去依赖 | ✅ |
+| 3 `ARCHIVED.md` | ✅；GitHub archive / 移出 workspace **≥90 天后** Owner 另令 |
+
+**勿启动** socket 三进程（双写=事故）。逃生舱：`docker compose -f docker-compose.dev.yml --profile legacy-ib up`。
+设计：`bifrost-trade-infra/docs/WAVE_14G_F_SOCKET_RETIREMENT.md`。
 
 ---
 

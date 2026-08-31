@@ -54,9 +54,6 @@ images:
   - name: registry.cicd.svc.cluster.local:5000/bifrost-worker
     newName: 192.168.10.73:30500/bifrost-worker
     newTag: prod
-  - name: registry.cicd.svc.cluster.local:5000/bifrost-socket
-    newName: 192.168.10.73:30500/bifrost-socket
-    newTag: prod
 
 commonAnnotations:
   bifrost.io/environment: prod

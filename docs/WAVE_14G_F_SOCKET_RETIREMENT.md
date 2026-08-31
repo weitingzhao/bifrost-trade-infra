@@ -1,8 +1,8 @@
 # Wave 14G-F — Trade Socket 退役设计
 
-> **Status:** DESIGN ONLY — **未授权实施删除 / 改 compose / 改 CI**  
-> **Date:** 2026-08-24  
-> **Owner gate:** 下文 §4 决策题全部确认后，方可另开实施 Phase  
+> **Status:** Phase 0–2 **DONE**（2026-08-31）· Phase 3 archive marker 已落；workspace 移出待 ≥90 天  
+> **Date:** 2026-08-24（design）· Phase 0–2 executed 2026-08-31  
+> **Owner gate:** D-14GF.1–6 **同意推荐 R1**；Owner 授权「继续」执行 Phase 1+（结论 C）  
 > **D10:** 本 Wave **不触达** live trading unlock；Operator 退役只清进程/镜像/文档，不解锁发单
 
 ---
@@ -267,11 +267,36 @@ Monitor：`socket.platform_ib_gateway` / `transport=platform_gateway`；Critical
 
 | 字段 | 值 |
 |------|-----|
-| Owner 签批日期 | _pending_ |
-| D-14GF.1 … D-14GF.6 | _pending_ |
-| 授权进入实施 Phase | **否（默认）** — 需书面「执行 14G-F Phase N」 |
-| 设计作者 | Bifrost Agent（14G-F design only） |
+| Owner 签批日期 | **2026-08-31** |
+| D-14GF.1 … D-14GF.6 | **同意推荐 R1**（一律 redis-ib；归档+90 天；短过渡 profile；仅 Plugin Operator；停 Tekton build；本 Wave 不 rename FE/API） |
+| 授权进入实施 Phase | **Phase 0 已授权并执行**（文档 / catalog / 事实基线）。Phase 1+ 须另开「执行 14G-F Phase N」 |
+| 设计作者 | Bifrost Agent（14G-F design）；Phase 0 执行 2026-08-31 |
 
----
+### Phase 0 完成记录（2026-08-31）
+
+- [x] 本设计 Owner 签批（D-14GF.1–6 R1）
+- [x] `MIGRATION_TRACKING.md` §1.1 · `AGENT_FACTS.md` §4 记 14G-F Phase 0
+- [x] `environments-catalog.ts` SOCKET → RETIRED / reference-only；IB edge 路径改 Platform Gateway
+- [x] `TRADE_DEV_INNER_LOOP.md` Non-goals：勿启动 trade-socket
+- [x] socket / worker `CLAUDE.md`：勿启动 / 无 fallback
+
+### Phase 1 完成记录（2026-08-31）— Owner 授权继续（结论 C）
+
+- [x] `docker-compose.dev.yml`：三进程 `profiles: [legacy-ib]`；默认 `config --services` 无 `ib-*`
+- [x] `docker-compose.local.yml`：ib-* + base-socket 对齐 `legacy-ib`
+- [x] prod compose 本已 `legacy-ib`（未改行为）
+
+### Phase 2 完成记录（2026-08-31）
+
+- [x] Tekton `bifrost-kaniko-worker-socket-stg` 仅 build worker；无 `--destination …/bifrost-socket:`
+- [x] deliver STG/PROD 去掉 `clone-socket`；API Dockerfile 不再 pip install socket
+- [x] `bifrost-trade-api` 去掉 `bifrost-socket` 依赖（0.1.6）
+- [x] overlays `{dev,stg,prod}` 去掉 `bifrost-socket` image rename
+- [x] prepare/refresh Dockerfile CM 列表去掉 socket
+
+### Phase 3 部分完成（2026-08-31）
+
+- [x] `bifrost-trade-socket/ARCHIVED.md`
+- [ ] GitHub archive 按钮 / 移出 Cursor workspace — **按 D-14GF.2 参考保留 ≥90 天后再做**（Owner 另令）
 
 *End of design — Wave 14G-F Trade Socket retirement.*

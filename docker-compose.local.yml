@@ -42,7 +42,7 @@ services:
       context: ..
       dockerfile: bifrost-trade-infra/docker/Dockerfile.prod-local-base-socket
       target: base-socket
-    profiles: [build-base]
+    profiles: [build-base, legacy-ib]
 
   bifrost-base-api:
     image: bifrost-base-api:local
@@ -58,14 +58,18 @@ services:
   account-sync:
     <<: *local-worker-build
 
+  # Wave 14G-F: legacy IB edge — only with --profile legacy-ib (Plugin → redis-ib is default)
   ib-ingestor:
     <<: *local-socket-build
+    profiles: [legacy-ib]
 
   ib-account-agent:
     <<: *local-socket-build
+    profiles: [legacy-ib]
 
   ib-operator:
     <<: *local-socket-build
+    profiles: [legacy-ib]
 
   # massive-ws retired → Plugin polygon-ws-ingestor
 

@@ -45,8 +45,7 @@ case "${BIFROST_DEV_STACK:-}" in
     ;;
   api)
     install_editable "$WORKER" "bifrost-worker"
-    install_editable "$SOCKET" "bifrost-socket"
-    # api pyproject lists local siblings as PyPI names — install without re-resolving deps.
+    # Wave 14G-F: API no longer depends on bifrost-socket (IB edge = Plugin → redis-ib)
     install_editable "$API" "bifrost-api" 1
     pip install "fastapi>=0.100.0" "uvicorn[standard]>=0.22.0"
     ;;

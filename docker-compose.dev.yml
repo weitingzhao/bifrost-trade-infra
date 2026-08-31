@@ -1,8 +1,11 @@
 # ============================================================
 # Bifrost Trade — 本地开发 Docker Compose
 # 使用方式: make dev  (或 docker compose -f docker-compose.dev.yml up)
-# 特点: 挂载 monorepo 源码；entrypoint editable 安装 core/worker/socket/api
+# 特点: 挂载 monorepo 源码；entrypoint editable 安装 core/worker/api
 # 健康检查: make dev-health
+#
+# Wave 14G-F: IB edge 默认走 Plugin → redis-ib。ib-ingestor / ib-account-agent /
+# ib-operator 仅在 --profile legacy-ib 时启动（排障逃生舱，禁止与 Plugin 双写）。
 #
 # PG/Redis 默认不 Docker 化：容器通过 config.dev.yaml 连 CNPG（LAN NodePort / in-cluster DNS；见 .env）。
 # Legacy bare-metal .80 / options_db decommissioned 2026-06-29.
@@ -83,6 +86,7 @@ services:
 
   ib-ingestor:
     <<: *dev-build
+    profiles: [legacy-ib]
     command: ["python", "/workspace/bifrost-trade-socket/scripts/run_ib_ingestor.py"]
     volumes: *dev-volumes
     environment:
@@ -94,6 +98,7 @@ services:
 
   ib-account-agent:
     <<: *dev-build
+    profiles: [legacy-ib]
     command: ["python", "/workspace/bifrost-trade-socket/scripts/run_ib_account_agent.py"]
     volumes: *dev-volumes
     environment:
@@ -105,6 +110,7 @@ services:
 
   ib-operator:
     <<: *dev-build
+    profiles: [legacy-ib]
     command: ["python", "/workspace/bifrost-trade-socket/scripts/run_ib_operator.py"]
     volumes: *dev-volumes
     environment:
