@@ -9,6 +9,8 @@ export KUBECONFIG
 RELEASE_NAME="${RELEASE_NAME:-kube-prometheus-stack}"
 MONITORING_NAMESPACE="${MONITORING_NAMESPACE:-monitoring}"
 CHART_REF="${CHART_REF:-prometheus-community/kube-prometheus-stack}"
+# Pin to the deployed chart — do not surprise-upgrade on ensure.
+CHART_VERSION="${CHART_VERSION:-88.1.3}"
 VALUES_FILE="${VALUES_FILE:-$(dirname "$0")/values-kube-prometheus.yaml}"
 
 if ! command -v kubectl >/dev/null 2>&1; then
@@ -40,6 +42,7 @@ HELM_ARGS=(
   --install
   "${RELEASE_NAME}"
   "${CHART_REF}"
+  --version "${CHART_VERSION}"
   --namespace "${MONITORING_NAMESPACE}"
   --create-namespace
   --timeout 10m

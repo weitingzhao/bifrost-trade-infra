@@ -1,4 +1,26 @@
 # Conservative defaults for bootstrap K3s clusters.
+#
+# k3s embeds kube-controller-manager / kube-scheduler / kube-proxy in the
+# k3s-server process. Stock kube-prometheus scrape jobs never appear, so
+# KubeControllerManagerDown / KubeSchedulerDown / KubeProxyDown fire forever
+# with "Target disappeared from Prometheus target discovery". Disable those
+# scrapes + alerting groups — do not mute in Alertmanager.
+defaultRules:
+  rules:
+    kubeControllerManager: false
+    kubeSchedulerAlerting: false
+    kubeProxy: false
+  disabled:
+    # kubernetes-system group: k3s kubelet/apiserver patch skew is normal.
+    KubeVersionMismatch: true
+
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+
 prometheus:
   prometheusSpec:
     retention: 10d
