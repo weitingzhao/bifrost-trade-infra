@@ -106,9 +106,22 @@ spec:
                 pip install --quiet -e "${ws}/bifrost-trade-core"
               fi
 
-              # Install the repo itself with dev extras
+              # Install with EVERY extra the repo declares, not just [dev].
+              # bifrost-research's tests import `agents` (from [copilot]) and
+              # dagster (from [orchestration]); installing only [dev] failed
+              # collection on 23 modules before pytest ran a single test. Reading
+              # the extras from pyproject keeps this true as they change, with no
+              # per-repo list here to drift. Falls back if an extra won't install.
               if [ -f pyproject.toml ]; then
-                pip install --quiet -e ".[dev]" 2>/dev/null || pip install --quiet -e .
+                extras="$(python -c "import tomllib,sys; d=tomllib.load(open('pyproject.toml','rb')); sys.stdout.write(','.join(sorted(d.get('project',{}).get('optional-dependencies',{}))))" 2>/dev/null || true)"
+                if [ -n "${extras}" ]; then
+                  echo "    extras: ${extras}"
+                  pip install --quiet -e ".[${extras}]" \
+                    || pip install --quiet -e ".[dev]" \
+                    || pip install --quiet -e .
+                else
+                  pip install --quiet -e .
+                fi
               elif [ -f setup.py ]; then
                 pip install --quiet -e .
               elif [ -f requirements.txt ]; then
