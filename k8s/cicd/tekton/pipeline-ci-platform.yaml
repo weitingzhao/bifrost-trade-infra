@@ -37,6 +37,19 @@ spec:
       workspaces:
         - name: output
           workspace: source
+    - name: clone-infra
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-trade-infra.git
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: bifrost-trade-infra
+      workspaces:
+        - name: output
+          workspace: source
     - name: test-api
       runAfter: [clone]
       workspaces:
@@ -48,7 +61,7 @@ spec:
         steps:
           - name: go-test
             image: golang:1.23-bookworm
-            resources:
+            computeResources:
               requests:
                 cpu: 250m
                 memory: 512Mi
@@ -79,7 +92,7 @@ spec:
         steps:
           - name: npm-type-check
             image: node:20-slim
-            resources:
+            computeResources:
               requests:
                 cpu: 500m
                 memory: 1Gi
@@ -124,3 +137,13 @@ spec:
               fi
 
               echo "==> Spine catalog check passed"
+    - name: code-health
+      runAfter: [clone, clone-infra]
+      taskRef:
+        name: bifrost-code-health
+      params:
+        - name: repo
+          value: bifrost-platform
+      workspaces:
+        - name: source
+          workspace: source

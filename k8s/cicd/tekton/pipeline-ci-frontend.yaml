@@ -48,6 +48,19 @@ spec:
       workspaces:
         - name: output
           workspace: source
+    - name: clone-infra
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-trade-infra.git
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: bifrost-trade-infra
+      workspaces:
+        - name: output
+          workspace: source
     - name: lint-build
       runAfter: [clone-frontend, clone-ui]
       workspaces:
@@ -59,7 +72,7 @@ spec:
         steps:
           - name: npm-ci-lint-build
             image: node:20-slim
-            resources:
+            computeResources:
               requests:
                 cpu: 500m
                 memory: 1Gi
@@ -95,3 +108,13 @@ spec:
               fi
 
               echo "==> CI gate passed for bifrost-trade-frontend"
+    - name: code-health
+      runAfter: [clone-frontend, clone-infra]
+      taskRef:
+        name: bifrost-code-health
+      params:
+        - name: repo
+          value: bifrost-trade-frontend
+      workspaces:
+        - name: source
+          workspace: source

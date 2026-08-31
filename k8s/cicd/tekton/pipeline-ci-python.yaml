@@ -51,6 +51,19 @@ spec:
       workspaces:
         - name: output
           workspace: source
+    - name: clone-infra
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-trade-infra.git
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: bifrost-trade-infra
+      workspaces:
+        - name: output
+          workspace: source
     - name: lint-test
       runAfter: [clone, clone-core]
       workspaces:
@@ -65,7 +78,7 @@ spec:
         steps:
           - name: install-and-test
             image: python:3.12-slim
-            resources:
+            computeResources:
               requests:
                 cpu: 250m
                 memory: 512Mi
@@ -119,3 +132,22 @@ spec:
       params:
         - name: repo
           value: $(params.repo)
+    # Only bifrost-research has ratchet baselines among the Python repos; the
+    # Trade Python repos (core/api/worker/socket) are not measured yet, and a
+    # gate that silently measures nothing is worse than no gate.
+    - name: code-health
+      runAfter: [clone, clone-infra]
+      when:
+        - input: $(params.repo)
+          operator: in
+          values: [bifrost-research]
+      taskRef:
+        name: bifrost-code-health
+      params:
+        - name: repo
+          value: bifrost-research
+        - name: sourceDir
+          value: repo
+      workspaces:
+        - name: source
+          workspace: source

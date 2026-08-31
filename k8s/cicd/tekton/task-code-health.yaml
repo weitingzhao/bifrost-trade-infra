@@ -1,0 +1,72 @@
+# Code-health ratchet gate — shared by the three CI pipelines.
+#
+# One Task, not a copy of the same script in each pipeline: a duplicated gate
+# drifts, and a gate that drifts is the thing this ratchet exists to catch.
+#
+# Contract (agent-config/scripts/code-health/scan.sh):
+#   value > baseline  → exit 1, this Task fails, CI is red
+#   value < baseline  → passes, but tells you to lower the baseline
+#   repo absent       → NOT MEASURED, never silently counted as zero
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-code-health
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: ci-gate
+spec:
+  description: >-
+    Run the code-health ratchet for one repo. Fails the pipeline when a metric
+    exceeds its baseline in agent-config/scripts/code-health/baselines.env.
+  params:
+    - name: repo
+      type: string
+      description: "Repo to gate — must be one scan.sh knows (bifrost-platform | bifrost-trade-frontend | bifrost-research)"
+    - name: sourceDir
+      type: string
+      default: ""
+      description: >-
+        Workspace subdir holding the clone, when it differs from `repo`
+        (bifrost-ci-python clones into `repo/`). Linked to `repo` before scanning.
+  workspaces:
+    - name: source
+  steps:
+    - name: ratchet
+      image: alpine:3.20
+      computeResources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: "1"
+          memory: 512Mi
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+        ws="$(workspaces.source.path)"
+        repo="$(params.repo)"
+        src="$(params.sourceDir)"
+
+        # scan.sh needs bash (arrays, indirection) and git (git ls-files defines
+        # what counts as source, so gitignored vendor trees are excluded for free).
+        apk add --no-cache bash git >/dev/null 2>&1
+
+        scan="${ws}/bifrost-trade-infra/agent-config/scripts/code-health/scan.sh"
+        if [ ! -f "${scan}" ]; then
+          echo "ERROR: ${scan} not found — the pipeline must clone bifrost-trade-infra" >&2
+          exit 1
+        fi
+
+        # Some pipelines clone into a generic dir; scan.sh addresses repos by name.
+        if [ -n "${src}" ] && [ "${src}" != "${repo}" ]; then
+          if [ ! -d "${ws}/${src}" ]; then
+            echo "ERROR: sourceDir '${src}' not present in workspace" >&2
+            exit 1
+          fi
+          rm -rf "${ws:?}/${repo}"
+          ln -s "${ws}/${src}" "${ws}/${repo}"
+          echo "linked ${src} -> ${repo}"
+        fi
+
+        echo "==> Code-health ratchet for ${repo}"
+        bash "${scan}" --root "${ws}" --repo "${repo}"

@@ -15,10 +15,20 @@ metadata:
   namespace: cicd
 rules:
   - apiGroups: [tekton.dev]
-    resources: [pipelineruns]
+    resources: [pipelineruns, taskruns]
     verbs: [create, get, list]
+  # The EventListener sink watches `triggers` and `interceptors` too, not just
+  # the three resources this Role originally named — without them the pod fails
+  # its liveness probe and never serves, so webhooks land nowhere.
   - apiGroups: [triggers.tekton.dev]
-    resources: [eventlisteners, triggerbindings, triggertemplates]
+    resources: [eventlisteners, triggerbindings, triggertemplates, triggers, interceptors]
+    verbs: [get, list, watch]
+  # config-logging-triggers / config-observability
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [secrets]
     verbs: [get, list, watch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
