@@ -175,13 +175,28 @@ add_metric() {
 # times, i.e. duplicated *concepts*. Tests are excluded (fakes legitimately
 # re-implement cursor/commit/execute) and so are dunders (__init__ per class
 # is not duplication).
+#
+# The two languages are scoped differently on purpose:
+#
+#   TS  module scope only (column 0), covering `function f` and `const f = (`.
+#       The debt is a helper re-implemented across files. Counting indented
+#       declarations swept in every local lambda — `sym`, `j`, `yScale` — and
+#       took the count from 8 to 52, which is a metric people mute. Arrow
+#       consts are included so the ratchet cannot be dodged by writing
+#       `const f = () =>` instead of `function f()`.
+#
+#   PY  any indentation. Here the debt IS in the methods: `repositories/` holds
+#       19 copies of `_row_to_dict` and 17 of `_connect_or_503`, one per class,
+#       because there is no shared base. Restricting to module scope would drop
+#       exactly the signal worth having.
 dup_table() { sort | uniq -c | sort -rn | awk '$1>3' || true; }
 dup_detail() { head -3 | awk '{printf "%s(%s) ", $2, $1}' || true; }
 
 if want bifrost-trade-frontend; then
 fe_files="$(tracked bifrost-trade-frontend 'src/*.ts' 'src/*.tsx' | grep -vE '\.(test|spec)\.tsx?$' || true)"
-fe_dup="$(grep_files bifrost-trade-frontend "$fe_files" '^[[:space:]]*(export )?(async )?function [a-zA-Z_][a-zA-Z0-9_]*' \
-  | sed -E 's/.*function //' | dup_table)"
+fe_dup="$(grep_files bifrost-trade-frontend "$fe_files" \
+  '^(export )?(async )?function [a-zA-Z_][a-zA-Z0-9_]*|^(export )?const [a-zA-Z_][a-zA-Z0-9_]* = (async )?\(' \
+  | sed -E 's/.*function //; s/.*const //; s/ = .*//' | dup_table)"
 fe_dup_n=$(printf '%s' "$fe_dup" | grep -c . || true)
 add_metric code.duplication.satellite "duplicated function names" satellite bifrost-trade-frontend \
   "$fe_dup_n" DUP_FUNCS_FRONTEND_BASELINE \
