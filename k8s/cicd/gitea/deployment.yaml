@@ -48,6 +48,13 @@ spec:
         - key: node-role.kubernetes.io/etcd
           operator: Exists
           effect: NoSchedule
+        # Gitea's PV is local-path with hard nodeAffinity to this one node, so it
+        # can never be rescheduled elsewhere. Without this toleration a cordon
+        # turns any routine restart into an outage: strategy is Recreate, so the
+        # old pod dies and the replacement cannot be placed at all.
+        - key: node.kubernetes.io/unschedulable
+          operator: Exists
+          effect: NoSchedule
       containers:
         - name: gitea
           image: gitea/gitea:1.21.11
@@ -62,6 +69,12 @@ spec:
               value: http://gitea.cicd.svc:3000/
             - name: GITEA__server__HTTP_PORT
               value: "3000"
+            # Gitea's default webhook ALLOWED_HOST_LIST is `external`, which
+            # refuses to deliver to private addresses. The CI EventListener is a
+            # ClusterIP in this same namespace, so without this every push
+            # webhook is silently dropped and CI never fires.
+            - name: GITEA__webhook__ALLOWED_HOST_LIST
+              value: "*.svc.cluster.local,private"
           volumeMounts:
             - name: gitea-data
               mountPath: /data

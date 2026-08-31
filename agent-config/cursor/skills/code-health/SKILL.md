@@ -91,12 +91,15 @@ bash scripts/code-health/scan.sh --report    # 上报 platform-api（需 PLATFOR
 
 | 位置 | 状态 |
 |------|------|
-| `bifrost-trade-frontend/.husky/pre-commit` | ✅ 唯一真正生效的机械闸门 |
-| `bifrost-ci-{frontend,platform,python}` Tekton | ⚠️ YAML 已就绪，但**流水线未部署到集群**，Tekton Triggers 也未安装 |
+| `bifrost-trade-frontend/.husky/pre-commit` | ✅ 生效（`check:legacy-css` + `check:code-health`） |
+| `bifrost-ci-{frontend,platform,python}` Tekton | ✅ 已部署；Triggers + Gitea push webhook 已接通（Owner 批准，2026-08-31） |
 | `bifrost-platform` / `bifrost-research` | ❌ 无 pre-commit hook |
 
-CI 那条要生效，需要 Owner 决定是否安装 Tekton Triggers 并 apply 流水线。
-在那之前，**不要说「CI 会拦住」** —— 现在拦不住。
+CI 链：Gitea push → `el-bifrost-ci` → CEL 路由 → PipelineRun → `bifrost-code-health` Task。
+安装：`make k3s-install-ci-triggers` + `make k3s-install-ci-webhooks`；校验 `make k3s-verify-ci-triggers`。
+
+**`bifrost-research` 仍不在任何 CI 触发过滤器内**（python-ci 只覆盖 core/api/worker/socket），
+所以第二 payload 有交付链但没有 CI 闸门 —— 对 research 不要说「CI 会拦住」。
 
 ---
 

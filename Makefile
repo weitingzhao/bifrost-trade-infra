@@ -1,4 +1,4 @@
-.PHONY: up down build logs ps prod-build prod-build-local prod-base-local prod-up-local prod-rebuild-local prod-rebuild-local-api prod-pull-base-images prod-preflight prod-preflight-local prod-preflight-local-build prod-preflight-local-up prod-preflight-local-health prod-health release-gate prod-down-local prod-embedded-infra sync-prod-config sync-stg-config verify-2c-a1 local-prod-final-gate dev dev-docker-infra dev-down dev-build dev-reinstall-deps dev-preflight dev-health verify-domain-apis verify-wave-a-sessions switch-cutover-domain signoff-start check-cutover-env sync-dev-config sync-dev-db-password db-init db-init-dev db-shell shell-redis k3s-install-remote k3s-install-remote-run k3s-verify-remote k3s-fetch-kubeconfig k3s-install-metrics-remote k3s-install-observability-remote k3s-install-argocd k3s-verify-argocd k3s-install-cicd-stack k3s-verify-cicd-stack k3s-install-bifrost-stg k3s-verify-bifrost-stg k3s-install-gitea-persistent k3s-bootstrap-gitea-mirrors k3s-sync-gitea-mirrors k3s-deliver-stg k3s-install-ci-frontend-git k3s-verify-ci-frontend-git k3s-install-ci-frontend-build k3s-verify-ci-frontend-build k3s-install-ci-deliver-stg k3s-verify-ci-deliver-stg k3s-install-phase-b-stg k3s-verify-phase-b-stg k3s-verify-phase-b-stg-v2 k3s-apply-cicd-platform-pipeline k3s-join-agent-remote clean docs docs-build sync-flex-tokens check-agent-parity check-code-health k3s-install-ci-triggers k3s-verify-ci-triggers
+.PHONY: up down build logs ps prod-build prod-build-local prod-base-local prod-up-local prod-rebuild-local prod-rebuild-local-api prod-pull-base-images prod-preflight prod-preflight-local prod-preflight-local-build prod-preflight-local-up prod-preflight-local-health prod-health release-gate prod-down-local prod-embedded-infra sync-prod-config sync-stg-config verify-2c-a1 local-prod-final-gate dev dev-docker-infra dev-down dev-build dev-reinstall-deps dev-preflight dev-health verify-domain-apis verify-wave-a-sessions switch-cutover-domain signoff-start check-cutover-env sync-dev-config sync-dev-db-password db-init db-init-dev db-shell shell-redis k3s-install-remote k3s-install-remote-run k3s-verify-remote k3s-fetch-kubeconfig k3s-install-metrics-remote k3s-install-observability-remote k3s-install-argocd k3s-verify-argocd k3s-install-cicd-stack k3s-verify-cicd-stack k3s-install-bifrost-stg k3s-verify-bifrost-stg k3s-install-gitea-persistent k3s-bootstrap-gitea-mirrors k3s-sync-gitea-mirrors k3s-deliver-stg k3s-install-ci-frontend-git k3s-verify-ci-frontend-git k3s-install-ci-frontend-build k3s-verify-ci-frontend-build k3s-install-ci-deliver-stg k3s-verify-ci-deliver-stg k3s-install-phase-b-stg k3s-verify-phase-b-stg k3s-verify-phase-b-stg-v2 k3s-apply-cicd-platform-pipeline k3s-join-agent-remote clean docs docs-build sync-flex-tokens check-agent-parity check-code-health k3s-install-ci-triggers k3s-verify-ci-triggers k3s-install-ci-webhooks
 
 COMPOSE        = docker compose
 COMPOSE_LOCAL  = docker compose -f docker-compose.yml -f docker-compose.local.yml
@@ -470,6 +470,12 @@ k3s-verify-ci-triggers:
 	@kubectl --kubeconfig $(KUBECONFIG) get svc el-bifrost-ci -n cicd
 	@kubectl --kubeconfig $(KUBECONFIG) get task bifrost-code-health -n cicd
 	@kubectl --kubeconfig $(KUBECONFIG) get pipeline bifrost-ci-frontend bifrost-ci-platform bifrost-ci-python -n cicd
+
+# Point Gitea push webhooks at the CI EventListener. Without this the CI layer
+# is installed but inert — pipelines exist and nothing ever fires.
+k3s-install-ci-webhooks:
+	@chmod +x scripts/k3s/install-ci-webhooks.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/install-ci-webhooks.sh
 
 k3s-install-ci-deliver-stg:
 	@chmod +x scripts/k3s/install-phase-b-stg.sh
