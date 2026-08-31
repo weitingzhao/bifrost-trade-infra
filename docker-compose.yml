@@ -35,6 +35,7 @@ x-worker-build: &worker-build
       GITHUB_ORG: ${GITHUB_ORG}
   <<: *python-common
 
+# Wave 14G-F: socket tree out of workspace — restore before --profile legacy-ib build.
 x-socket-build: &socket-build
   build:
     context: ../bifrost-trade-socket

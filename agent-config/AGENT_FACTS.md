@@ -72,12 +72,11 @@ Trade 页面经 Ask Copilot 读 Research 后端（Positions / Instances / Live 3
 
 ---
 
-## 2. 活跃 Repo 清单（13 个）
+## 2. 活跃 Repo 清单（12 个）
 
 | Repo | 包名 / 语言 | 域 | 备注 |
 |------|------------|----|------|
 | `bifrost-trade-core` | `bifrost_core` (py) | Trade | 纯共享库，无进程入口。config / persistence / portfolio / ib_operator / monitor |
-| `bifrost-trade-socket` | `bifrost_socket` (py) | Trade | **RETIRED**（参考保留）— 见 §4；已从 CI/CD + Gitea 清除 |
 | `bifrost-trade-worker` | `bifrost_worker` (py) | Trade | 现仅 `daemon/`（Celery 已退役，见 §4） |
 | `bifrost-trade-api` | `bifrost_api` (py) | Trade | 9 个逻辑域 → K8s 4 个 deployment，见 §3 |
 | `bifrost-trade-frontend` | TypeScript / React 18 / Vite | Trade | **232 个 `.tsx` 页面**，8 个域目录：`copilot / market / operations / portfolio / research / settings / strategy` + `RouteErrorPage` |
@@ -134,6 +133,7 @@ Trade 页面经 Ask Copilot 读 Research 后端（Positions / Instances / Live 3
 |------|------|------|
 | `bifrost-trader-engine` | **已 NAS 归档并移出工作区** | spine **D8**，2026-06-29 |
 | `bifrost-trade-ib-edge` | 被 `bifrost-trade-socket` 取代 | 2026-05-30 架构调整 |
+| `bifrost-trade-socket` | **GitHub Archived** · 已从多仓 workspace / CI/CD / Gitea 清除 | Owner 2026-08-31；GitHub `22bd9d6`；本地 tip/tag `b0a59f5`/`archived-14gf`（只读无法 push）；tarball 备份 |
 | Trade Celery runtime + Celery workers + Flower `:5555` | 退役 | Wave 5（runtime）· **D-Wave-6.1**（代码）· **D-Wave-6.2**（文档/配置），2026-08-24 |
 | massive API `:8766` + Polygon Massive WS | 退役 | P7 → Market Data Plugin `:8790` |
 | `bifrost-analytics` | 并入 `bifrost-research/src/bifrost_research/dbt/` | spine **D13**，2026-08-21。目录保留但 README 标 ARCHIVED，**勿再改** |
@@ -141,22 +141,20 @@ Trade 页面经 Ask Copilot 读 Research 后端（Positions / Instances / Live 3
 | `features_daily` / `features_option` 等 legacy schema | DROP | **D-Wave-6.6**，2026-08-24；canonical 为 `features.*` |
 | Trade `public.job_*` Celery 表 | 退役（core 0.10.6） | → `ops_jobs.job_ingest` |
 
-### `bifrost-trade-socket` — RETIRED / reference-only（Wave 14G-F Phase 0–2 DONE）
+### `bifrost-trade-socket` — RETIRED / workspace-removed（Wave 14G-F）
 
 生产与 Inner Loop IB 实时总线权威路径：**Platform IB Gateway Plugin → `redis-ib`**（IBGP3/4）。
-Owner **2026-08-31** 签批 D-14GF.1–6（R1）并授权继续（覆盖结论 C）。
+Owner **2026-08-31** 签批 D-14GF.1–6（R1）；同日 GitHub Archive + 授权移出多仓 workspace。
 
 | Phase | 状态 |
 |-------|------|
-| 0 文档/catalog | ✅ |
-| 1 compose 默认下线（`legacy-ib` profile） | ✅ |
-| 2 停 Tekton `bifrost-socket` 镜像 / API 去依赖 | ✅ |
-| 3 `ARCHIVED.md` | ✅ |
-| 3b 清 CI/CD + Gitea | ✅（2026-08-31）— mirror/webhook/trigger/deliver 列表去 socket；删 `Dockerfile.socket-stg` + CM；Gitea org mirror 删除 |
-| GitHub archive / 移出 workspace | Owner 可即时 archive；workspace 移出仍建议 **≥90 天** |
+| 0–2 · 3 · 3b | ✅ 见 `docs/WAVE_14G_F_SOCKET_RETIREMENT.md` |
+| GitHub Archive | ✅ `weitingzhao/bifrost-trade-socket` |
+| 移出 Cursor / multi-root workspace | ✅（`bifrost-trade.code-workspace` 已去 folder；物理目录由 Owner 压缩移出） |
+| 考古锚点 | GitHub last push `22bd9d6`；本地 tip `b0a59f5` + tag `archived-14gf`（GitHub 只读无法 push）；Owner tarball |
 
-**勿启动** socket 三进程（双写=事故）。逃生舱：`docker compose -f docker-compose.dev.yml --profile legacy-ib up`。
-设计：`bifrost-trade-infra/docs/WAVE_14G_F_SOCKET_RETIREMENT.md`。
+**勿启动** socket 三进程（双写=事故）。逃生舱仅在**解压回** `../bifrost-trade-socket` 后：  
+`docker compose -f docker-compose.dev.yml --profile legacy-ib up`（禁止与 Plugin 并行）。
 
 ---
 

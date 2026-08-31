@@ -302,7 +302,8 @@ Monitor：`socket.platform_ib_gateway` / `transport=platform_gateway`；Critical
   - 删除 `k8s/cicd/docker/Dockerfile.socket-stg`；deliver 脚本不再创建 `bifrost-socket-stg-dockerfile` CM
   - 集群：Gitea `bifrost/bifrost-trade-socket` 仓库与 webhook 已 DELETE（404）
   - Console `payloadConstellationCatalog` Trade `mirrorRepos` 去掉 socket
-- [ ] 移出 Cursor workspace — **按 D-14GF.2 参考保留 ≥90 天后再做**（Owner 另令）
-- [ ] GitHub `weitingzhao/bifrost-trade-socket` archive — **本轮 PAT 无 `archiveRepository` 权限（403）**；Owner 在 GitHub UI Settings → Danger Zone → Archive 即可
+- [x] 移出 Cursor workspace — Owner 提前授权（2026-08-31）；`bifrost-trade.code-workspace` 去 folder；compose 默认路径不再挂载 socket
+- [x] GitHub Archive — Owner 已 Archive `weitingzhao/bifrost-trade-socket`
+- [x] 考古锚点 — GitHub `22bd9d6`；本地 `b0a59f5` + tag `archived-14gf`（archived remote 只读）；物理目录由 Owner 压缩备份后移出 `Desktop/stocks/`
 
 *End of design — Wave 14G-F Trade Socket retirement.*

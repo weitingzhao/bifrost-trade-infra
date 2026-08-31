@@ -24,7 +24,7 @@ This document is the authoritative Product-mode contract for day-to-day Trade UI
 - Do not pin local FE long-term to Prod writable APIs
 - Do not unlock D10 / do not scale daemon for live trading
 - Do not change Prod write paths “for developer convenience”
-- **Do not start `bifrost-trade-socket`** (ib-ingestor / ib-account-agent / ib-operator) for Inner Loop — Live bus is **Plugin → `redis-ib` only** (Wave 14G-F; D-14GF.1). Optional `legacy-ib` compose profile is Phase 1 escape hatch only, not the default path.
+- **Do not start `bifrost-trade-socket`** — repo **removed from workspace** / GitHub Archived; Live bus is **Plugin → `redis-ib` only** (Wave 14G-F). Escape hatch requires restoring the tree to `../bifrost-trade-socket` then `--profile legacy-ib` (never dual-write with Plugin).
 
 ---
 

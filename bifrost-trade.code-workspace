@@ -3,7 +3,7 @@
 	// Explorer is a flat list; tier prefixes encode dependency planes:
 	//   Shared → used by Ops + Trade (ui kit, deploy/infra)
 	//   Ops    → control plane (platform + plugins / subcontractors)
-	//   Trade  → data plane (SPA + core/socket/worker/api)
+	//   Trade  → data plane (SPA + core/worker/api; socket retired Wave 14G-F)
 	//   Ref    → readonly external reference (no write / no deploy)
 	"folders": [
 		{
@@ -37,10 +37,6 @@
 		{
 			"name": "📈 Trade · core — 共享库 · bifrost_core",
 			"path": "../bifrost-trade-core"
-		},
-		{
-			"name": "📈 Trade · socket — IB / Massive 边缘 · Redis",
-			"path": "../bifrost-trade-socket"
 		},
 		{
 			"name": "📈 Trade · worker — Daemon + Celery",

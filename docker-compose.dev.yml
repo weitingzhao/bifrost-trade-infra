@@ -6,6 +6,7 @@
 #
 # Wave 14G-F: IB edge 默认走 Plugin → redis-ib。ib-ingestor / ib-account-agent /
 # ib-operator 仅在 --profile legacy-ib 时启动（排障逃生舱，禁止与 Plugin 双写）。
+# bifrost-trade-socket 已移出多仓 workspace — legacy-ib 须先解压回 ../bifrost-trade-socket。
 #
 # PG/Redis 默认不 Docker 化：容器通过 config.dev.yaml 连 CNPG（LAN NodePort / in-cluster DNS；见 .env）。
 # Legacy bare-metal .80 / options_db decommissioned 2026-06-29.
@@ -14,6 +15,17 @@
 
 x-dev-volumes: &dev-volumes
   # rw mounts: entrypoint runs `pip install -e` (needs egg-info writes)
+  - ../bifrost-trade-core:/workspace/bifrost-trade-core
+  - ../bifrost-trade-worker:/workspace/bifrost-trade-worker
+  - ../bifrost-trade-api:/workspace/bifrost-trade-api
+  - ../bifrost-trade-core/config/config.yaml.example:/app/config/config.yaml:ro
+  - ./config/config.dev.yaml:/app/config/config.dev.yaml:ro
+  - dev-pip-cache:/root/.cache/pip
+  - dev-install-state:/var/lib/bifrost-dev
+  - ./docker/dev-install.sh:/usr/local/bin/bifrost-dev-install.sh:ro
+
+# Only for --profile legacy-ib (restore ../bifrost-trade-socket first)
+x-legacy-ib-volumes: &legacy-ib-volumes
   - ../bifrost-trade-core:/workspace/bifrost-trade-core
   - ../bifrost-trade-worker:/workspace/bifrost-trade-worker
   - ../bifrost-trade-socket:/workspace/bifrost-trade-socket
@@ -88,7 +100,7 @@ services:
     <<: *dev-build
     profiles: [legacy-ib]
     command: ["python", "/workspace/bifrost-trade-socket/scripts/run_ib_ingestor.py"]
-    volumes: *dev-volumes
+    volumes: *legacy-ib-volumes
     environment:
       <<: *dev-env
       BIFROST_DEV_STACK: socket
@@ -100,7 +112,7 @@ services:
     <<: *dev-build
     profiles: [legacy-ib]
     command: ["python", "/workspace/bifrost-trade-socket/scripts/run_ib_account_agent.py"]
-    volumes: *dev-volumes
+    volumes: *legacy-ib-volumes
     environment:
       <<: *dev-env
       BIFROST_DEV_STACK: socket
@@ -112,7 +124,7 @@ services:
     <<: *dev-build
     profiles: [legacy-ib]
     command: ["python", "/workspace/bifrost-trade-socket/scripts/run_ib_operator.py"]
-    volumes: *dev-volumes
+    volumes: *legacy-ib-volumes
     environment:
       <<: *dev-env
       BIFROST_DEV_STACK: socket

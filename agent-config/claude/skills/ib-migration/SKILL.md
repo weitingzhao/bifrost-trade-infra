@@ -22,7 +22,7 @@ description: >-
 4. `bifrost-platform-plugin/src/bifrost_plugin/ib_gateway/mock.py` — Gateway mock 实现
 5. `bifrost-trade-core/src/bifrost_core/ib_operator/client.py` — Trade 侧 RPC client
 6. `bifrost-trade-core/src/bifrost_core/ib_operator/protocol.py` — Trade 侧协议定义
-7. `bifrost-trade-socket/src/bifrost_socket/ib/operator/executor.py` — Trade Socket Operator（Legacy）
+7. ~~`bifrost-trade-socket/.../executor.py`~~ — **RETIRED**（GitHub archive / local tarball；日常勿依赖本地路径）
 8. `bifrost-trade-worker/src/bifrost_worker/data/bars/ib_operator_transport.py` — Worker bars adapter
 
 ## Architecture rules
@@ -40,7 +40,7 @@ description: >-
 
 | | Trade Socket Operator | Platform IB Gateway |
 |---|---|---|
-| 位置 | `bifrost-trade-socket/ib/operator/` | `bifrost-platform-plugin/ib_gateway/` |
+| 位置 | ~~`bifrost-trade-socket/ib/operator/`~~（archived） | `bifrost-platform-plugin/ib_gateway/` |
 | 连接 TWS | 直连（ib_insync） | 直连（ib_insync） |
 | Redis | `redis-trade` | `redis-ib` |
 | 部署 | K8s Pod（Trade namespace） | K8s Pod（data namespace，Mac Mini） |
@@ -67,8 +67,8 @@ Trade Daemon / Worker / API
 
 ### Phase 0: 分析与对齐
 
-1. 读取 `bifrost-trade-socket/src/bifrost_socket/ib/operator/executor.py`，提取所有支持的 ops
-2. 读取 `bifrost-platform-plugin/src/bifrost_plugin/ib_gateway/protocol.py`，提取 `ALL_OPS`
+1. 契约考古：GitHub archive `weitingzhao/bifrost-trade-socket`（或本地 tarball）中 `ib/operator/executor.py` — **非工作区日常路径**
+2. 读取 `bifrost-platform-plugin/src/bifrost_plugin/ib_gateway/protocol.py`，提取 `ALL_OPS`（权威）
 3. Grep Trade Worker + Trade API 中 `ib_operator` / `IbOperatorClient` 的使用点
 4. 对比输出 Gap 矩阵
 5. 写入 `bifrost-trade-infra/docs/IB_MIGRATION_ANALYSIS.md`
@@ -123,13 +123,13 @@ cd /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-core && make test
 ### Phase 4: 清理与加固
 
 **修改文件**:
-- `bifrost-trade-socket/src/bifrost_socket/ib/operator/` — 删除或归档
+- ~~`bifrost-trade-socket`~~ — 已 GitHub Archive + 移出 workspace（Wave 14G-F）
 - `bifrost-platform-plugin/src/bifrost_plugin/ib_gateway/operator.py` — 加固（重试、超时）
 - `bifrost-trade-infra/docs/MIGRATION_TRACKING.md` — 更新 IB 相关条目
 
 **验证命令**:
 ```bash
-cd /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-socket && pytest
+# socket repo retired — do not expect local checkout
 cd /Users/vision-mac-trader/Desktop/stocks/bifrost-platform-plugin && make test
 cd /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-worker && make test
 cd /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-core && make test
@@ -142,5 +142,5 @@ cd /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-core && make test
 | bifrost-platform-plugin | `cd bifrost-platform-plugin && make test` |
 | bifrost-trade-core | `cd bifrost-trade-core && make test` |
 | bifrost-trade-worker | `cd bifrost-trade-worker && make test` |
-| bifrost-trade-socket | `cd bifrost-trade-socket && pytest -m 'not ib'` |
+| bifrost-trade-socket | **RETIRED** — GitHub archive / tarball only |
 | bifrost-trade-api | `cd bifrost-trade-api && pytest` |

@@ -5,7 +5,7 @@ description: >-
   Use when a code-health check fails, when lowering a baseline in baselines.env,
   when adding a metric to scan.sh, when reading Ops Console → Code Health, or when
   deciding whether a conclusion rests on verified code or on stale memory.
-parity-id: code-health-v8
+parity-id: code-health-v9
 ---
 
 # 代码健康度棘轮
@@ -25,7 +25,7 @@ parity-id: code-health-v8
 | Research | `bifrost-research` | dup · oversized · image tiers |
 | Subcontractors | `bifrost-platform-plugin{,-market-data,-flex-query}` | dup · oversized |
 
-**不扫**：`bifrost-trade-socket`（半退役）· `bifrost-trade-infra`（治理宿主）· `Research-workspace`
+**不扫**：`bifrost-trade-socket`（**已移出 workspace** / GitHub Archived）· `bifrost-trade-infra`（治理宿主）· `Research-workspace`
 - 规划 lens：`bifrost-platform/console/src/lib/code-health/codeHealthLens.ts`（slack / at ceiling / paydown / **Posture Summary**）
 - Agent 读取：MCP `get_code_health`；Console **Generate Agent Pack** / 侧栏 Sparkles（先 Live Re-scan，再生成可粘贴的 Code Refactor Agent Task Content）
 - **Live Re-scan**：`POST /api/v1/code-health/rescan`（operator）跑本机 `scan.sh`；`GET` 带回 `freshness.stale_vs_head`。**Refresh 只重拉快照**。

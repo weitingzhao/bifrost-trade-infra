@@ -41,6 +41,11 @@ case "${BIFROST_DEV_STACK:-}" in
     install_editable "$WORKER" "bifrost-worker"
     ;;
   socket)
+    # Wave 14G-F: tree normally absent; restore before --profile legacy-ib
+    if [ ! -d "$SOCKET" ]; then
+      echo "[bifrost-dev] ERROR: $SOCKET missing — restore bifrost-trade-socket before legacy-ib" >&2
+      exit 1
+    fi
     install_editable "$SOCKET" "bifrost-socket"
     ;;
   api)

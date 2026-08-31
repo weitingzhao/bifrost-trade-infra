@@ -1,3 +1,5 @@
+# Wave 14G-F: bifrost-trade-socket is out of workspace.
+# Restore ../bifrost-trade-socket (tarball / git clone archived GitHub) before building.
 # syntax=docker/dockerfile:1
 # Shared deps: core + socket. Tag: bifrost-base-socket:local / bifrost-socket:local (target socket).
 FROM python:3.11-slim AS base-socket
