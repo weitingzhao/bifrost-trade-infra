@@ -71,7 +71,7 @@ else
   fi
 fi
 
-KNOWN_REPOS="bifrost-platform bifrost-trade-frontend bifrost-research"
+KNOWN_REPOS="bifrost-platform bifrost-trade-frontend bifrost-research bifrost-trade-api bifrost-trade-core bifrost-trade-worker bifrost-ui bifrost-platform-plugin bifrost-platform-plugin-market-data bifrost-platform-plugin-flex-query"
 if [[ -n "$REPO_FILTER" ]]; then
   for r in $(printf '%s' "$REPO_FILTER" | tr ',' ' '); do
     printf '%s' " $KNOWN_REPOS " | grep -q " $r " || {
@@ -192,26 +192,45 @@ add_metric() {
 dup_table() { sort | uniq -c | sort -rn | awk '$1>3' || true; }
 dup_detail() { head -3 | awk '{printf "%s(%s) ", $2, $1}' || true; }
 
+# TS module-scope dup (frontend). See comment above for why indentation is excluded.
 if want bifrost-trade-frontend; then
 fe_files="$(tracked bifrost-trade-frontend 'src/*.ts' 'src/*.tsx' | grep -vE '\.(test|spec)\.tsx?$' || true)"
 fe_dup="$(grep_files bifrost-trade-frontend "$fe_files" \
   '^(export )?(async )?function [a-zA-Z_][a-zA-Z0-9_]*|^(export )?const [a-zA-Z_][a-zA-Z0-9_]* = (async )?\(' \
   | sed -E 's/.*function //; s/.*const //; s/ = .*//' | dup_table)"
 fe_dup_n=$(printf '%s' "$fe_dup" | grep -c . || true)
-add_metric code.duplication.satellite "duplicated function names" satellite bifrost-trade-frontend \
+add_metric code.duplication.satellite "duplicated function names (frontend)" satellite bifrost-trade-frontend \
   "$fe_dup_n" DUP_FUNCS_FRONTEND_BASELINE \
   "top: $(printf '%s\n' "$fe_dup" | dup_detail)" "$fe_dup"
 fi
 
-if want bifrost-research; then
-rs_files="$(tracked bifrost-research '*.py' | grep -vE '^tests/' || true)"
-rs_dup="$(grep_files bifrost-research "$rs_files" '^[[:space:]]*(async )?def [a-zA-Z_][a-zA-Z0-9_]*' \
-  | sed -E 's/.*def //' | grep -vE '^__.*__$' | dup_table)"
-rs_dup_n=$(printf '%s' "$rs_dup" | grep -c . || true)
-add_metric code.duplication.research "duplicated function names" research bifrost-research \
-  "$rs_dup_n" DUP_FUNCS_RESEARCH_BASELINE \
-  "top: $(printf '%s\n' "$rs_dup" | dup_detail)" "$rs_dup"
-fi
+# PY dup helper — research / Trade OLTP / plugins share the method-scope signal.
+py_dup_metric() {
+  local repo="$1" domain="$2" id="$3" var="$4" label_suffix="$5"
+  want "$repo" || return 0
+  local files dup n
+  files="$(tracked "$repo" '*.py' | grep -vE '^tests/' || true)"
+  dup="$(grep_files "$repo" "$files" '^[[:space:]]*(async )?def [a-zA-Z_][a-zA-Z0-9_]*' \
+    | sed -E 's/.*def //' | grep -vE '^__.*__$' | dup_table)"
+  n=$(printf '%s' "$dup" | grep -c . || true)
+  add_metric "$id" "duplicated function names ($label_suffix)" "$domain" "$repo" \
+    "$n" "$var" "top: $(printf '%s\n' "$dup" | dup_detail)" "$dup"
+}
+
+py_dup_metric bifrost-research research \
+  code.duplication.research DUP_FUNCS_RESEARCH_BASELINE research
+py_dup_metric bifrost-trade-api satellite \
+  code.duplication.satellite.trade-api DUP_FUNCS_TRADE_API_BASELINE trade-api
+py_dup_metric bifrost-trade-core satellite \
+  code.duplication.satellite.trade-core DUP_FUNCS_TRADE_CORE_BASELINE trade-core
+py_dup_metric bifrost-trade-worker satellite \
+  code.duplication.satellite.trade-worker DUP_FUNCS_TRADE_WORKER_BASELINE trade-worker
+py_dup_metric bifrost-platform-plugin subcontractors \
+  code.duplication.subcontractors.plugin DUP_FUNCS_PLUGIN_BASELINE plugin
+py_dup_metric bifrost-platform-plugin-market-data subcontractors \
+  code.duplication.subcontractors.market-data DUP_FUNCS_MARKET_DATA_BASELINE market-data
+py_dup_metric bifrost-platform-plugin-flex-query subcontractors \
+  code.duplication.subcontractors.flex-query DUP_FUNCS_FLEX_QUERY_BASELINE flex-query
 
 # ---------------------------------------------------------------- metric 2
 # Files over 800 lines. A file nobody can hold in their head is where the next
@@ -224,16 +243,48 @@ oversized() {
   ( cd "$ROOT/$repo" && printf '%s\n' "$files" | tr '\n' '\0' | xargs -0 wc -l 2>/dev/null ) \
     | awk '$2!="total" && $1>800 {print $1" "$2}' | sort -rn || true
 }
-for spec in "bifrost-platform rocket OVERSIZED_PLATFORM_BASELINE code.oversized.rocket" \
-            "bifrost-trade-frontend satellite OVERSIZED_FRONTEND_BASELINE code.oversized.satellite" \
-            "bifrost-research research OVERSIZED_RESEARCH_BASELINE code.oversized.research"; do
-  read -r repo domain var id <<<"$spec"
+# id domain repo baseline_var label_suffix
+while IFS='|' read -r id domain repo var suffix; do
+  [[ -z "$id" ]] && continue
   want "$repo" || continue
   big="$(oversized "$repo")"
   n=$(printf '%s' "$big" | grep -c . || true)
-  add_metric "$id" "files over 800 lines" "$domain" "$repo" "$n" "$var" \
+  add_metric "$id" "files over 800 lines ($suffix)" "$domain" "$repo" "$n" "$var" \
     "largest: $(printf '%s\n' "$big" | head -2 | awk '{printf "%s(%s) ", $2, $1}')" "$big"
+done <<'OVERSIZED_SPECS'
+code.oversized.rocket|rocket|bifrost-platform|OVERSIZED_PLATFORM_BASELINE|platform
+code.oversized.rocket.ui|rocket|bifrost-ui|OVERSIZED_UI_BASELINE|ui
+code.oversized.satellite|satellite|bifrost-trade-frontend|OVERSIZED_FRONTEND_BASELINE|frontend
+code.oversized.satellite.trade-api|satellite|bifrost-trade-api|OVERSIZED_TRADE_API_BASELINE|trade-api
+code.oversized.satellite.trade-core|satellite|bifrost-trade-core|OVERSIZED_TRADE_CORE_BASELINE|trade-core
+code.oversized.satellite.trade-worker|satellite|bifrost-trade-worker|OVERSIZED_TRADE_WORKER_BASELINE|trade-worker
+code.oversized.research|research|bifrost-research|OVERSIZED_RESEARCH_BASELINE|research
+code.oversized.subcontractors.plugin|subcontractors|bifrost-platform-plugin|OVERSIZED_PLUGIN_BASELINE|plugin
+code.oversized.subcontractors.market-data|subcontractors|bifrost-platform-plugin-market-data|OVERSIZED_MARKET_DATA_BASELINE|market-data
+code.oversized.subcontractors.flex-query|subcontractors|bifrost-platform-plugin-flex-query|OVERSIZED_FLEX_QUERY_BASELINE|flex-query
+OVERSIZED_SPECS
+
+# ---------------------------------------------------------------- metric 2b
+# Page files sitting loose at a domain's top level, summed across domains.
+#
+# A flat domain is self-sustaining: with no grouping, nothing tells you where a
+# new page belongs, so it goes to the top. pages/research reached 27 loose files
+# — four times portfolio's — before its nav groups were mirrored on disk.
+#
+# A budget, not a per-domain cap: adding a loose page means nesting one
+# elsewhere, or lowering nothing and explaining why.
+if want bifrost-trade-frontend; then
+flat_pages=""
+for d in $(cd "$ROOT/bifrost-trade-frontend" 2>/dev/null && ls -d src/pages/*/ 2>/dev/null | sed 's:/*$::'); do
+  n=$(tracked bifrost-trade-frontend "$d/*" | sed "s|$d/||" | grep -cv '/' || true)
+  [[ "${n:-0}" -gt 0 ]] && flat_pages+="$n $(basename "$d")"$'\n'
 done
+flat_total=$(printf '%s' "$flat_pages" | awk '{s+=$1} END{print s+0}')
+add_metric code.flat-pages.satellite "loose top-level page files" satellite bifrost-trade-frontend \
+  "$flat_total" FLAT_PAGES_FRONTEND_BASELINE \
+  "worst: $(printf '%s' "$flat_pages" | sort -rn | head -2 | awk '{printf "%s(%s) ", $2, $1}')" \
+  "$(printf '%s' "$flat_pages" | sort -rn)"
+fi
 
 # ---------------------------------------------------------------- metric 3
 # API modules with no runtime contract validation. Research and Satellite ship
