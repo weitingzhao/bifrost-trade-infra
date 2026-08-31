@@ -189,7 +189,8 @@ metadata:
 spec:
   serviceAccountName: tekton-trigger
   triggers:
-    # L2: Python repos (core, api, worker, socket)
+    # L2: Python repos (Trade + Research). code-health Task only runs for
+    # bifrost-research (see pipeline-ci-python when clause).
     - name: python-ci
       interceptors:
         - ref:
@@ -199,7 +200,7 @@ spec:
               value: >-
                 body.ref == 'refs/heads/main' &&
                 body.repository.name in ['bifrost-trade-core', 'bifrost-trade-api',
-                  'bifrost-trade-worker', 'bifrost-trade-socket']
+                  'bifrost-trade-worker', 'bifrost-trade-socket', 'bifrost-research']
             - name: overlays
               value:
                 - key: repo_name

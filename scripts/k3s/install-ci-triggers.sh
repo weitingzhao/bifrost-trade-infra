@@ -84,6 +84,6 @@ echo
 echo "==> Installed. Remaining manual step: add the Gitea push webhook per repo"
 echo "    URL:   http://el-bifrost-ci.cicd.svc.cluster.local:8080"
 echo "    Type:  application/json   Event: Push"
-echo "    Repos: bifrost-trade-{core,api,worker,socket,frontend}, bifrost-ui, bifrost-platform"
+echo "    Repos: bifrost-trade-{core,api,worker,socket,frontend}, bifrost-ui, bifrost-platform, bifrost-research"
 echo
-echo "    Note: bifrost-research is NOT in any CI trigger filter today."
+echo "    Then: make k3s-install-ci-webhooks"

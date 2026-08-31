@@ -21,7 +21,7 @@ EL_URL="${EL_URL:-http://el-bifrost-ci.cicd.svc.cluster.local:8080}"
 
 # Only repos an EventListener CEL filter actually routes. Adding a webhook for a
 # repo no trigger matches would produce silent no-op deliveries that look wired.
-REPOS="${REPOS:-bifrost-trade-core bifrost-trade-api bifrost-trade-worker bifrost-trade-socket bifrost-trade-frontend bifrost-ui bifrost-platform}"
+REPOS="${REPOS:-bifrost-trade-core bifrost-trade-api bifrost-trade-worker bifrost-trade-socket bifrost-trade-frontend bifrost-ui bifrost-platform bifrost-research}"
 
 export KUBECONFIG
 
@@ -86,4 +86,4 @@ fi
 
 echo
 echo "Push webhooks point at ${EL_URL}"
-echo "Note: bifrost-research is deliberately absent — no CI trigger filter matches it."
+echo "Repos: Trade Python + frontend/ui + platform + research (python-ci CEL includes bifrost-research)."

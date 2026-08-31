@@ -38,7 +38,12 @@ spec:
       workspaces:
         - name: output
           workspace: source
+    # Research does not depend on bifrost-trade-core (D13 OLAP boundary).
     - name: clone-core
+      when:
+        - input: $(params.repo)
+          operator: notin
+          values: [bifrost-research]
       taskRef:
         name: bifrost-git-clone-gitea
       params:
@@ -95,8 +100,9 @@ spec:
               echo "==> Installing dependencies for ${repo}"
               pip install --quiet --upgrade pip
 
-              # If not core itself, install core first as editable dep
-              if [ "${repo}" != "bifrost-trade-core" ] && [ -d "${ws}/bifrost-trade-core" ]; then
+              # Trade Python repos depend on bifrost-trade-core; research does not.
+              if [ "${repo}" != "bifrost-trade-core" ] && [ "${repo}" != "bifrost-research" ] \
+                && [ -d "${ws}/bifrost-trade-core" ]; then
                 pip install --quiet -e "${ws}/bifrost-trade-core"
               fi
 

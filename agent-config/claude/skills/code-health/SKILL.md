@@ -5,7 +5,7 @@ description: >-
   Use when a code-health check fails, when lowering a baseline in baselines.env,
   when adding a metric to scan.sh, when reading Ops Console → Code Health, or when
   deciding whether a conclusion rests on verified code or on stale memory.
-parity-id: code-health-v1
+parity-id: code-health-v4
 ---
 
 # 代码健康度棘轮
@@ -15,8 +15,33 @@ parity-id: code-health-v1
 
 - 采集：`agent-config/scripts/code-health/scan.sh`（工作区根 `scripts/code-health/`）
 - 基线：同目录 `baselines.env`
-- 可视：Ops Console → Mission Control → **Code Health**；Observability 内每域一条汇总 signal
-- Agent 读取：MCP `get_code_health`
+- 可视：Ops Console → Mission Control → **Code Health**；Observability 内每域一条汇总 signal（仅 OVER 降级，贴顶不翻舰队）
+- 规划 lens：`bifrost-platform/console/src/lib/code-health/codeHealthLens.ts`（slack / at ceiling / paydown / **Posture Summary**）
+- Agent 读取：MCP `get_code_health`；Console **Copy for Agent** / 侧栏 Sparkles
+
+---
+
+## 两套语言（不要合成一个分）
+
+| 语言 | 问题 | 表现 |
+|------|------|------|
+| **闸门** | 能不能合？ | `value > baseline` → CI / pre-commit 退出 1 |
+| **规划** | 债有多重？下一刀砍哪？ | `slack = baseline − value`；贴顶（slack 0）= 黄灯；paydown 队列 |
+
+**禁止**加权综合健康分 / A–E / 技术债美元。维度（size / duplication / contract / image_spread）只做分组标签。
+
+**Posture Summary**（页顶 + 侧栏 title + Ask pack）：一句 `Gate CLEAR|BLOCKED · Planning AT CEILING|HELD|NOT OBSERVED · headroom`，再加 Dimensions chips / Next / Trend — **仍不是分数**。
+
+规划灯（页 + 侧栏，**不是** Observability 舰队）：
+
+```
+未上报            → unknown / NOT OBSERVED
+任一 OVER         → fail
+无 OVER 且 minSlack=0 → degraded（AT CEILING）
+有余量            → ok（HELD）
+```
+
+Observability `code-health.*` 仍为 `role: evidence`：只有 OVER → degraded；贴顶保持 healthy（不误伤舰队）。
 
 ---
 
@@ -29,9 +54,9 @@ parity-id: code-health-v1
 | `scan.sh` | repo 缺失 → `NOT MEASURED`；`--repo` 名字不认识 → 退出 2；一个指标都没产出 → 退出 2 |
 | `GET /api/v1/code-health` | `reported: false` + note，**不返回空的健康对象** |
 | Observability signal | `optionalContract: true` → `NOT OBSERVED` |
-| Code Health 页 | 琥珀 `NOT OBSERVED` + 产出读数的命令 |
+| Code Health 页 / 侧栏 | 琥珀 `NOT OBSERVED` + 产出读数的命令；贴顶用黄灯，不用绿 HELD 假装健康 |
 
-改这条链上任何一环时，先问：**没数据会不会被显示成绿的？** 会，就是 bug。
+改这条链上任何一环时，先问：**没数据会不会被显示成绿的？贴顶会不会被当成「很健康」？** 会，就是 bug。
 
 ---
 
@@ -39,7 +64,7 @@ parity-id: code-health-v1
 
 ```
 value > baseline  → 退出 1，拒绝合并
-value = baseline  → 放行
+value = baseline  → 放行（规划：AT CEILING）
 value < baseline  → 放行，但要求调低 baseline
 ```
 
@@ -84,22 +109,24 @@ bash scripts/code-health/scan.sh --report    # 上报 platform-api（需 PLATFOR
 3. `scan.sh` 里 `add_metric`（传**基线变量名**，不是值）
 4. 超基线时必须能打印**完整违规清单** —— 只报数字不报位置的检查，人会直接静音它
 5. 两个方向都要实测：造一处回归看是否退出 1；调高基线看是否提示下调
+6. 若指标不是「越低越好」，必须在 `codeHealthLens` 显式声明方向 — 默认全部 lower-is-better
 
 ---
 
-## 当前强制点（2026-08-31 实况）
+## 当前强制点（2026-08-31 Wave 5）
 
 | 位置 | 状态 |
 |------|------|
-| `bifrost-trade-frontend/.husky/pre-commit` | ✅ 生效（`check:legacy-css` + `check:code-health`） |
-| `bifrost-ci-{frontend,platform,python}` Tekton | ✅ 已部署；Triggers + Gitea push webhook 已接通（Owner 批准，2026-08-31） |
-| `bifrost-platform` / `bifrost-research` | ❌ 无 pre-commit hook |
+| `bifrost-trade-frontend/.husky/pre-commit` | ✅ `check:legacy-css` + `check:code-health` |
+| `bifrost-platform/.husky/pre-commit` | ✅ `check:code-health`（console `npm install` → husky） |
+| `bifrost-research/.githooks/pre-commit` | ✅ `make install-hooks` / `make install-dev` |
+| `bifrost-ci-{frontend,platform,python}` Tekton | ✅ Triggers + Gitea push webhook；**python-ci 含 bifrost-research** |
 
 CI 链：Gitea push → `el-bifrost-ci` → CEL 路由 → PipelineRun → `bifrost-code-health` Task。
 安装：`make k3s-install-ci-triggers` + `make k3s-install-ci-webhooks`；校验 `make k3s-verify-ci-triggers`。
 
-**`bifrost-research` 仍不在任何 CI 触发过滤器内**（python-ci 只覆盖 core/api/worker/socket），
-所以第二 payload 有交付链但没有 CI 闸门 —— 对 research 不要说「CI 会拦住」。
+**闸门语言**：只有 OVER 拦合入；贴顶（AT CEILING）放行但规划灯黄。
+**规划语言**：见 Posture Summary / paydown（Console Code Health）。
 
 ---
 

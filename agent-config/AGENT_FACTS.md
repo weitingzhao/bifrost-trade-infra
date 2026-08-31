@@ -206,21 +206,23 @@ socket 仓库（52 py / ~10.4k 行）仍在 `docker-compose.dev.yml` 默认启�
 | 端点 | `GET /api/v1/code-health`（viewer）· `POST /api/v1/code-health/report`（operator） |
 | MCP | `get_code_health` |
 | UI | Console → Mission Control → **Code Health**；Observability 三条 `code_health` signal（satellite / research / rocket，均为 `evidence` + `optionalContract`） |
-| Skill | `.claude/skills/code-health/` ·`.cursor/skills/code-health/`（`parity-id: code-health-v1`） |
+| Skill | `.claude/skills/code-health/` ·`.cursor/skills/code-health/`（`parity-id: code-health-v4`） |
 
 **契约**：无数据 → `NOT OBSERVED`，链路每一层都不得显示为健康。
 
-### CI 现状（重要 — 不要高估）
+### CI 闸门（Wave 5 — Owner 批准 2026-08-31）
 
-- **唯一真正生效的机械闸门**是 `bifrost-trade-frontend/.husky/pre-commit`
-- `bifrost-ci-{frontend,platform,python}` 三条 Tekton 流水线**只存在于 git，未部署到集群**；
-  Tekton Triggers（`eventlistener` / `triggertemplate` CRD）**未安装** —— Gitea push 无人接收
-- 这些 YAML 此前也 **apply 不上**：Tekton v1 已把 step 的 `resources` 改名为 `computeResources`，
-  旧字段被 admission webhook 拒绝（已修）
-- `bifrost-research` **不在任何 CI 触发列表内**（python-ci 只覆盖 core/api/worker/socket）
-- `bifrost-platform` / `bifrost-research` 无 pre-commit hook
+| 闸门 | 状态 |
+|------|------|
+| `bifrost-trade-frontend/.husky/pre-commit` | ✅ legacy-css + code-health |
+| `bifrost-platform/.husky/pre-commit` | ✅ code-health（console npm prepare → husky） |
+| `bifrost-research/.githooks/pre-commit` | ✅ `make install-hooks` |
+| Tekton `bifrost-ci-{frontend,platform,python}` | ✅ Triggers + EventListener + Gitea push webhooks |
+| python-ci CEL | ✅ 含 `bifrost-research`（code-health Task `when` 仅对该 repo 跑棘轮） |
 
-→ 在 Owner 决定是否安装 Triggers 并 apply 流水线之前，**不得声称「CI 会拦住」**。
+安装：`make k3s-install-ci-triggers` + `make k3s-install-ci-webhooks`；校验 `make k3s-verify-ci-triggers`。
+
+**闸门只拦 OVER**；贴顶（AT CEILING）合入放行，规划灯另见 Console Code Health Posture Summary。
 
 ---
 
