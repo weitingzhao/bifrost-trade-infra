@@ -1,0 +1,83 @@
+# Build the bifrost-research Dagster image (`orchestration` Dockerfile target).
+#
+# Separate from bifrost-deliver-research because that pipeline rolls out and
+# verifies the research-api Deployment; the Dagster image belongs to a different
+# Deployment (k8s/orchestration/dagster.yaml) and must not trigger that rollout.
+# Build only — bump k8s/orchestration/dagster.yaml once the tag is in registry.
+#
+# Kaniko clones from Gitea. Refresh the mirror first:
+#   make k3s-sync-gitea-mirrors
+#
+# platform-api's generic runner injects neither params nor the build-context
+# workspace for this pipeline, so create the run from its template:
+#   kubectl -n cicd create -f k8s/cicd/tekton/pipelinerun-build-research-dagster.yaml
+#
+# The orchestration stage runs `dbt deps && dbt parse` so the image ships
+# dbt/target/manifest.json. Without it dagster-dbt loads zero assets and the
+# trading-day job silently skips dbt while still reporting success.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: bifrost-build-research-dagster
+  namespace: cicd
+  labels:
+    bifrost.io/payload: research
+    bifrost.io/purpose: dagster-build
+spec:
+  description: >-
+    Clone bifrost-research from Gitea and build the Dagster (orchestration)
+    image with Kaniko.
+  params:
+    - name: revision
+      type: string
+      default: main
+    - name: giteaBase
+      type: string
+      default: http://gitea.cicd.svc.cluster.local:3000/bifrost
+    - name: image
+      type: string
+      default: registry.cicd.svc.cluster.local:5000/bifrost-research:0.58.0-dagster
+  workspaces:
+    - name: build-context
+  tasks:
+    - name: clone-research
+      taskRef:
+        kind: Task
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-research.git
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: research
+      workspaces:
+        - name: output
+          workspace: build-context
+    - name: kaniko
+      runAfter:
+        - clone-research
+      params:
+        - name: image
+          value: $(params.image)
+      workspaces:
+        - name: source
+          workspace: build-context
+      taskSpec:
+        params:
+          - name: image
+            type: string
+        workspaces:
+          - name: source
+        steps:
+          - name: build-and-push
+            image: gcr.io/kaniko-project/executor:v1.23.2
+            args:
+              - --dockerfile=Dockerfile
+              - --context=$(workspaces.source.path)/research
+              - --target=orchestration
+              - --destination=$(params.image)
+              - --custom-platform=linux/amd64
+              - --insecure
+              - --skip-tls-verify
+              - --insecure-registry=registry.cicd.svc.cluster.local:5000

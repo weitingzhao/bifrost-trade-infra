@@ -1,0 +1,38 @@
+# Run template for bifrost-build-research-dagster.
+#
+#   kubectl -n cicd create -f k8s/cicd/tekton/pipelinerun-build-research-dagster.yaml
+#
+# Edit the image tag before each build, and confirm it landed with
+#   curl -s http://192.168.10.73:30500/v2/bifrost-research/tags/list
+# before pointing k8s/orchestration/dagster.yaml at it.
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: bifrost-build-research-dagster-
+  namespace: cicd
+spec:
+  pipelineRef:
+    name: bifrost-build-research-dagster
+  params:
+    - name: revision
+      value: main
+    - name: image
+      value: registry.cicd.svc.cluster.local:5000/bifrost-research:0.58.0-dagster
+  taskRunTemplate:
+    serviceAccountName: default
+    podTemplate:
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+  workspaces:
+    - name: build-context
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          storageClassName: local-path
+          resources:
+            requests:
+              storage: 8Gi

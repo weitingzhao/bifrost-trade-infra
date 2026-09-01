@@ -99,8 +99,10 @@ spec:
             args:
               - --dockerfile=Dockerfile
               - --context=$(workspaces.source.path)
-              # base = Research API + CronJob engines. `orchestration` (Dagster)
-              # stays out of scope while Dagster is replicas:0.
+              # base = Research API + CronJob engines. The Dagster image is a
+              # different artifact rolled out to a different Deployment, so it
+              # gets its own build-only pipeline (bifrost-build-research-dagster)
+              # rather than riding this one's rollout-research/verify-research.
               - --target=base
               - --destination=$(params.image)
               - --custom-platform=linux/amd64
