@@ -76,6 +76,9 @@ const AUTHORITY =
   'spine D10 · bifrost-platform/config/ops-context.yaml · agentProtocolCatalog.ts FORBIDDEN_ACTIONS'
 
 // ─────────────────────────────── D10 规则（高风险，不豁免） ───────────────────────────────
+// Research domain writes are ALLOWED while D10 is BLOCKED:
+//   research.ai_draft kind=order_intent · research.candidate_pool · harness propose-only
+// ib:operator:cmd remains blocked (only Daemon may write that stream).
 
 /** 仅在 spine D10 !== UNLOCKED 时生效。 */
 function d10Rules(cmd) {

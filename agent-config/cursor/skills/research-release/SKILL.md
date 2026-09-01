@@ -95,7 +95,7 @@ curl -s http://192.168.10.73:30500/v2/bifrost-research/tags/list | grep -o '"0.3
 | `research-api` | `k8s/api/deployment.yaml` | API / SEPA / Copilot 端点变更 |
 | `research-mcp` | `k8s/mcp/deployment.yaml` | **MCP 工具变更**（`mcp/tools/*`） |
 | CronJob engines | `k8s/engines/*.yaml` 等 | engines / scheduler 变更 |
-| dagster | `k8s/orchestration/dagster.yaml` | 当前 replicas:0，通常不动 |
+| dagster | `k8s/orchestration/dagster.yaml` | replicas:1; schedule default RUNNING；缺 secrets 时勿扩 |
 
 > **易错点**：新增 MCP 工具只升 `research-api` 是**无效的** —— 工具跑在
 > `research-mcp` 里。2026-08-28 就踩过：api 升到 0.30.0 后工具仍未上线，
