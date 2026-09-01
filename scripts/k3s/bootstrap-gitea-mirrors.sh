@@ -19,7 +19,7 @@ GITEA_LOCAL_PORT="${GITEA_LOCAL_PORT:-13000}"
 # bifrost-research 是第二 payload（决策载荷），与 Satellite 平级 —— 需要自己的
 # 交付链，因此必须有 Gitea 镜像供 Kaniko clone。Trade 的 deliver 流水线不 clone
 # research，故只在 bootstrap（负责创建镜像仓库）这里扩清单，不动那些流水线。
-MIRROR_REPOS="${MIRROR_REPOS:-bifrost-trade-core bifrost-trade-worker bifrost-trade-api bifrost-trade-frontend bifrost-trade-infra bifrost-ui bifrost-platform bifrost-research}"
+MIRROR_REPOS="${MIRROR_REPOS:-bifrost-trade-core bifrost-trade-worker bifrost-trade-api bifrost-trade-frontend bifrost-trade-infra bifrost-ui bifrost-platform bifrost-research bifrost-platform-plugin bifrost-platform-plugin-market-data bifrost-platform-plugin-flex-query}"
 GITHUB_OWNER="${GITHUB_OWNER:-weitingzhao}"
 
 export KUBECONFIG

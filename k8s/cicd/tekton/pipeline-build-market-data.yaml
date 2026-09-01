@@ -1,0 +1,82 @@
+# Build the Market Data plugin image in-cluster with Kaniko.
+#
+# Modeled on bifrost-build-flex-query, minus the clone-core task: this plugin's
+# Dockerfile is self-contained and does not vendor bifrost-trade-core. It is
+# also written for a repo-root context, hence --context=<workspace>/plugin with
+# a bare --dockerfile=Dockerfile.
+#
+# Kaniko clones from Gitea, not GitHub. Refresh the mirror first (the plugin
+# repos were added to MIRROR_REPOS in scripts/k3s/bootstrap-gitea-mirrors.sh):
+#   make k3s-sync-gitea-mirrors
+#
+# platform-api's generic runner injects neither params nor the build-context
+# workspace for this pipeline, so a run has to be created directly:
+#   kubectl -n cicd create -f k8s/cicd/tekton/pipelinerun-build-market-data.yaml
+#
+# The plugin is not under ArgoCD, so a build does not deploy. Bump the tags in
+# the plugin repo's k8s/base/*.yaml and apply them once the tag is in registry.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: bifrost-build-market-data
+  namespace: cicd
+  labels:
+    bifrost.io/plugin: market-data
+    bifrost.io/purpose: plugin-build
+spec:
+  description: >-
+    Clone the Market Data plugin from Gitea, build its image with Kaniko and
+    push it to the in-cluster registry.
+  params:
+    - name: revision
+      type: string
+      default: main
+    - name: giteaBase
+      type: string
+      default: http://gitea.cicd.svc.cluster.local:3000/bifrost
+    - name: image
+      type: string
+      default: registry.cicd.svc.cluster.local:5000/bifrost-market-data:0.9.7
+  workspaces:
+    - name: build-context
+  tasks:
+    - name: clone-plugin
+      taskRef:
+        kind: Task
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-platform-plugin-market-data.git
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: plugin
+      workspaces:
+        - name: output
+          workspace: build-context
+    - name: kaniko
+      runAfter:
+        - clone-plugin
+      params:
+        - name: image
+          value: $(params.image)
+      workspaces:
+        - name: source
+          workspace: build-context
+      taskSpec:
+        params:
+          - name: image
+            type: string
+        workspaces:
+          - name: source
+        steps:
+          - name: build-and-push
+            image: gcr.io/kaniko-project/executor:v1.23.2
+            args:
+              - --dockerfile=Dockerfile
+              - --context=$(workspaces.source.path)/plugin
+              - --destination=$(params.image)
+              - --custom-platform=linux/amd64
+              - --insecure
+              - --skip-tls-verify
+              - --insecure-registry=registry.cicd.svc.cluster.local:5000

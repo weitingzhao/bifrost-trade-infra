@@ -1,0 +1,40 @@
+# Run template for bifrost-build-market-data.
+#
+# Apply with `kubectl create` (not `apply` — generateName needs it):
+#   kubectl -n cicd create -f k8s/cicd/tekton/pipelinerun-build-market-data.yaml
+#
+# Edit the image tag below before each build. Confirm it landed with
+#   curl -s http://192.168.10.73:30500/v2/bifrost-market-data/tags/list
+# before bumping any deployment onto it.
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: bifrost-build-market-data-
+  namespace: cicd
+spec:
+  pipelineRef:
+    name: bifrost-build-market-data
+  params:
+    - name: revision
+      value: main
+    - name: image
+      value: registry.cicd.svc.cluster.local:5000/bifrost-market-data:0.9.7
+  taskRunTemplate:
+    serviceAccountName: default
+    podTemplate:
+      # Kaniko is amd64-only here; the ARM nodes give "exec format error".
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+  workspaces:
+    - name: build-context
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          storageClassName: local-path
+          resources:
+            requests:
+              storage: 5Gi
