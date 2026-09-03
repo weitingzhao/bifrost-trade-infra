@@ -36,6 +36,7 @@ patches:
   - path: platform-api-agent-bridge-env.patch.yaml
   - path: platform-api-write-token.patch.yaml
   - path: platform-api-redis-ib-env.patch.yaml
+  - path: platform-api-ib-autorepair-env.patch.yaml
   - path: platform-api-satellite-audit-token.patch.yaml
 
 images:
