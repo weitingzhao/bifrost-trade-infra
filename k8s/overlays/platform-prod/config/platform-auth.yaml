@@ -6,6 +6,11 @@ tokens:
     role: viewer
     token_env: PLATFORM_PROD_VIEWER_TOKEN
     token: placeholder-override-via-env
+  # See STG note. No inline value — prod tokens come from the environment only.
+  - name: reporter
+    role: reporter
+    token_env: PLATFORM_PROD_REPORTER_TOKEN
+    token: placeholder-override-via-env
   - name: operator
     role: operator
     token_env: PLATFORM_PROD_OPERATOR_TOKEN
