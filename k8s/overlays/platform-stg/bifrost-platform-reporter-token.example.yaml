@@ -1,0 +1,19 @@
+# Example — copy to bifrost-platform-reporter-token.yaml (gitignored), then:
+#   kubectl apply -f k8s/overlays/platform-stg/bifrost-platform-reporter-token.yaml -n bifrost-platform-stg
+#
+# The reporter role records a catalogued skill's own outcome and nothing else.
+# It is deliberately below operator: operator also carries cluster scale — D10
+# forbids pointing that at the trade daemon — and trust-override writes, which
+# would let a skill grant itself the autonomy the trust gate withholds.
+#
+# Sync the same value into the Research namespace so the harness CronJob can
+# report: key PLATFORM_REPORTER_TOKEN in bifrost-research-secrets.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: bifrost-platform-reporter-token
+  labels:
+    app.kubernetes.io/part-of: bifrost-platform
+type: Opaque
+stringData:
+  PLATFORM_REPORTER_TOKEN: "REPLACE_ME"
