@@ -1,0 +1,21 @@
+# Scrape the IB Flex Query plugin's /metrics (plugin-flex-query namespace).
+# The series it exposes are what the bifrost-flex-ingest alert group reads:
+# last success per kind, last job status, planned fires, data age, token age.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bifrost-flex-query
+  labels:
+    app.kubernetes.io/component: plugin
+spec:
+  namespaceSelector:
+    matchNames:
+      - plugin-flex-query
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: flex-query-api
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 20s

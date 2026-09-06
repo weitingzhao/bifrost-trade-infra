@@ -179,3 +179,85 @@ spec:
             summary: "Postgres cluster is short a streaming replica"
             description: "The CloudNativePG cluster has fewer streaming replicas than expected for 10 minutes — HA is degraded and a primary loss would mean downtime."
 
+    # IB Flex ingest (plugin-flex-query). Every scheduled run from 2026-08-30 to
+    # 09-05 failed and nobody was told: the Dagster asset only confirms the
+    # enqueue and the plugin exported nothing. These read the plugin's /metrics.
+    - name: bifrost-flex-ingest
+      rules:
+        - alert: BifrostFlexIngestFailed
+          expr: |
+            bifrost_flex_ingest_last_job_status{status="failed"} == 1
+          for: 30m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Flex ingest {{ $labels.kind }} failed for good"
+            description: "The newest {{ $labels.kind }} job ended failed (deferred retries exhausted or a config error such as an expired token). Check Ops Console → IB Flex → Ingest, then the error category on the job."
+
+        - alert: BifrostFlexIngestMissedPlan
+          expr: |
+            (
+              label_replace(bifrost_flex_planned_last_timestamp_seconds, "kind", "$1", "slot", "(.*)")
+                > on (kind) bifrost_flex_ingest_last_success_timestamp_seconds
+            )
+            and on (kind)
+            (
+              time() - label_replace(bifrost_flex_planned_last_timestamp_seconds, "kind", "$1", "slot", "(.*)") > 6 * 3600
+            )
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Flex ingest {{ $labels.kind }} has not succeeded since its planned run"
+            description: "The 06:30 America/New_York slot for {{ $labels.kind }} passed more than 6h ago without a completed run — Dagster research_flex_morning_schedule did not enqueue, or the job is still being deferred by IB."
+
+        - alert: BifrostFlexIngestStale
+          expr: |
+            (time() - bifrost_flex_ingest_last_success_timestamp_seconds) > 96 * 3600
+          for: 1h
+          labels:
+            severity: critical
+          annotations:
+            summary: "Flex ingest {{ $labels.kind }} stale for 4 days"
+            description: "No completed {{ $labels.kind }} run in 96h (a Saturday run keeps Monday night under the limit). The Research husbandry gate blocks dbt on the same rule."
+
+        - alert: BifrostFlexIngestScrapeDown
+          expr: |
+            up{job="flex-query-api"} == 0 or absent(up{job="flex-query-api"})
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Flex plugin /metrics not being scraped"
+            description: "Prometheus cannot reach flex-query-api in plugin-flex-query; the other Flex alerts are blind while this fires."
+
+        - alert: BifrostFlexWorkerDown
+          expr: |
+            kube_deployment_status_replicas_available{namespace="plugin-flex-query",deployment="flex-query-worker"} == 0
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Flex worker has no available replica"
+            description: "flex-query-worker in plugin-flex-query is not running; queued Flex jobs will not be claimed."
+
+        - alert: BifrostFlexTokenMissing
+          expr: |
+            sum(bifrost_flex_token_configured) == 0
+          for: 30m
+          labels:
+            severity: critical
+          annotations:
+            summary: "No IB Flex token configured"
+            description: "Secret bifrost-flex-tokens carries no FLEX_HOST_TOKEN / FLEX_SECONDARY_TOKEN; run make sync-flex-tokens in bifrost-trade-infra."
+
+        - alert: BifrostFlexTokenExpiring
+          expr: |
+            bifrost_flex_token_age_seconds > 335 * 86400
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "IB Flex tokens are {{ $value | humanizeDuration }} old"
+            description: "IB expires Flex tokens after a year ([1012]). Generate new ones in IB Account Management and run make sync-flex-tokens (sets FLEX_TOKENS_ISSUED_AT)."
+
