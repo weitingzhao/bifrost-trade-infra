@@ -16,6 +16,16 @@ spec:
     - name: revision
       type: string
       default: main
+      description: The frontend commit or branch under test — a push webhook sends a SHA.
+    # The peer repos are cloned at their own default branch. They were cloned at
+    # `revision` too, which is the frontend's SHA and exists in neither, so every
+    # webhook run failed at clone before any check could run.
+    - name: uiRevision
+      type: string
+      default: main
+    - name: infraRevision
+      type: string
+      default: main
     - name: giteaBase
       type: string
       default: http://gitea.cicd.svc.cluster.local:3000/bifrost
@@ -42,7 +52,7 @@ spec:
         - name: url
           value: $(params.giteaBase)/bifrost-ui.git
         - name: revision
-          value: $(params.revision)
+          value: $(params.uiRevision)
         - name: subdir
           value: bifrost-ui
       workspaces:
@@ -55,7 +65,7 @@ spec:
         - name: url
           value: $(params.giteaBase)/bifrost-trade-infra.git
         - name: revision
-          value: $(params.revision)
+          value: $(params.infraRevision)
         - name: subdir
           value: bifrost-trade-infra
       workspaces:

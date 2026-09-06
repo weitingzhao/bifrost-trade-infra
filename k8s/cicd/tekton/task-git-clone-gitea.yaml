@@ -52,8 +52,29 @@ spec:
         host_path="${host_path#https://}"
         clone_url="http://${GIT_USERNAME}:${GIT_PASSWORD}@${host_path}"
         echo "Cloning ${url} @ ${rev} into ${target} ..."
-        git clone --depth=1 --branch "${rev}" "${clone_url}" "${target}"
-        cd "${target}"
+        # A push webhook hands us a commit SHA, and `git clone --branch` cannot
+        # take one — it resolves branch and tag names only, so every
+        # webhook-triggered run died here with "Remote branch <sha> not found".
+        # Fetch the object instead; fall back to a full clone and checkout when
+        # the server will not serve a bare SHA.
+        if echo "${rev}" | grep -qE '^[0-9a-f]{7,40}$'; then
+          git init -q "${target}"
+          cd "${target}"
+          git remote add origin "${clone_url}"
+          if git fetch -q --depth=1 origin "${rev}" 2>/dev/null; then
+            git checkout -q --detach FETCH_HEAD
+          else
+            echo "server refused a bare-SHA fetch — cloning in full and checking out ${rev}"
+            cd /
+            rm -rf "${target}"
+            git clone -q "${clone_url}" "${target}"
+            cd "${target}"
+            git checkout -q --detach "${rev}"
+          fi
+        else
+          git clone --depth=1 --branch "${rev}" "${clone_url}" "${target}"
+          cd "${target}"
+        fi
         echo "=== HEAD $(git rev-parse HEAD) ==="
         git log -1 --oneline
         ls -la
