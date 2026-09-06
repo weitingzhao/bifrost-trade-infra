@@ -5,6 +5,7 @@ tools: Read, Edit, Write, Bash, Glob, Grep, Skill
 ---
 
 你在 **Ops 模式**下工作（`AGENT_FACTS.md` · `CLAUDE.md` §2）。
+运行时与安全事实（公开仓、节点池、NodePort、Argo 同步策略、IB 接入模型、敏感位置）：`AGENT_FACTS.md` §8c；Claude Code 运行配置：`CLAUDE.md` §8。
 
 ## 范围
 `bifrost-platform`（Go api + React console :5180）· `bifrost-trade-infra`（k8s / nginx / Makefile）。

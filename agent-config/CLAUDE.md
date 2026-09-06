@@ -1,5 +1,5 @@
 <!--
-parity-ids: workspace-v4, language-v1, agent-modes-v2, trade-execution-freeze-v2, dev-services-v2, phase-execution-v2
+parity-ids: workspace-v5, language-v1, agent-modes-v2, trade-execution-freeze-v2, dev-services-v2, phase-execution-v2
 对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
 改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
 -->
@@ -160,4 +160,18 @@ Ops Platform（火箭）与 Trade（载荷）必须先稳定；研究与分析�
 治理层实体在 **`bifrost-trade-infra/agent-config/`**（纳入 infra 版本控制与 CI），
 工作区根的 `CLAUDE.md` / `AGENT_FACTS.md` / `.mcp.json` / `.claude` / `.cursor` / `scripts` 均为符号链接。
 布局、链接重建命令与路径约定见 `bifrost-trade-infra/agent-config/README.md`。
+
+---
+
+## 8. Claude Code 运行配置（auto mode · 会话分组）
+
+- **认知起点**：开工先读 `AGENT_FACTS.md` §8c（运行时与安全事实：公开仓、节点池、NodePort、Argo 同步策略、IB 接入模型、敏感位置）。
+- **auto mode 规则**是 Claude 专属的 harness 强制层（与 §3 硬边界同源，对等于 Cursor 侧 `.mdc` 规则，不另做 parity）：
+  用户级 `~/.claude/settings.json` + 项目级 `.claude/settings.local.json`（gitignored，本机）。
+  payload 与应用脚本在 `.claude/auto-mode/`（`apply-auto-mode.sh`）——**由 Owner 执行**：
+  分类器禁止 Agent 改写自己的 auto mode 规则，Agent 只准备 payload 并报告，不绕过。
+- **会话启动位置**：一律在工作区根 `/stocks`（Claude Desktop 的 `Trade. System` / `Ops - Plugin` 两组均如此）；
+  在子 repo 目录启动的会话没有 preflight hook、auto mode 环境与共享记忆。
+- **IB 账户号不是秘密**：登录只在两台 Win11 TWS 里，系统只经 IB API socket 取数；
+  不得进仓库的是 `.env`、Secret YAML、dump、kubeconfig 与账户**内容**（12 个 repo 全部 PUBLIC）。
 

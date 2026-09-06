@@ -1,6 +1,6 @@
 ---
-parity-id: agent-facts-v1
-generated: 2026-08-27
+parity-id: agent-facts-v2
+generated: 2026-09-06
 authority: bifrost-platform/config/ops-context.yaml (spine) + 磁盘扫描
 ---
 
@@ -271,6 +271,93 @@ Infra guards（未解锁前不得"修复"）：
 - 令牌走 `${PLATFORM_*_TOKEN:-<dev 默认>}` 环境变量展开，不落盘
 - `mcp/unifi/` 未注册（D9 网络执行路径）
 - 详见 `.mcp.json.README.md`
+
+---
+
+## 8c. 运行时与安全事实（2026-09-06 实测核实）
+
+> 来源：`gh` / `kubectl`（`~/.kube/bifrost-k3s.yaml`）/ `claude auto-mode` 实查。与 §6 冲突时以本节为准并回填 §6。
+
+### 代码托管可见性
+
+- GitHub `weitingzhao/*` 的 12 个工作区 repo **全部 PUBLIC**（含已归档的 `bifrost-trade-socket`）。
+  推送即公开：任何 `.env`、Secret YAML、dump、token 进入提交就是公开泄露。
+- 入库的 env 文件只有前端三个非秘密文件（`.env.development` / `.env.development.k3s` / `.env.production`）；
+  Secret 清单只有 `*.example.yaml`；`agent-config/claude/settings.local.json` 已 gitignore。
+- 集群内 Gitea 镜像 `gitea.cicd.svc.cluster.local:3000/bifrost/<repo>`（NodePort `.73:30300`）
+  只由 deliver 流水线的 `mirror-sync` 写入，不手工 push。
+
+### 集群与节点（K3s `bifrost-bootstrap`）
+
+kubeconfig：`~/.kube/bifrost-k3s.yaml`（需 `KUBECONFIG=` 显式指定；默认 context `docker-desktop` 是本机 Docker Desktop，**不是**集群）。
+读状态首选 MCP 只读工具。
+
+| 节点 | IP | host-id | workload-pool | 角色 |
+|------|----|---------|---------------|------|
+| ubt-k3s-02 | 192.168.10.70 | mini-pc-a | prod-pool | PROD 首选节点（preferred affinity 100，required pool `[prod-pool, general]`，可漂移） |
+| ubt-k3s-01 | 192.168.10.73 | mini-pc-c | — | 控制面、monitoring、Tekton；所有 NodePort 的访问地址 |
+| ubt-k3s-04 | 192.168.10.75 | ubt-k3s-04 | data-primary | CloudNativePG |
+| ubt-k3s-05 | 192.168.10.77 | ubt-k3s-05 | general | STG runtime、CI build |
+| ubt-k3s-06 | 192.168.10.79 | ubt-k3s-06 | general | 通用 |
+| gpu-server | 192.168.10.60 | gpu-server | compute | RTX 4090：Ollama（`ai`）、MinIO（`data-warehouse`）、重型 Tekton |
+
+集群外：Win11 TWS ×2（topology `win11-host` / `win11-secondary`；`bifrost-platform-plugin/config/gateway.yaml` 模板写的是 `.30` / `.32`；永不调度进 K3s）、
+Mac mini `.50` / `.52`（agent host）、NAS `.20`（归档与备份目标）、本机 MacBook（kubectl / MCP / Vite）。
+
+### 入口与 NodePort
+
+| 入口 | 地址 |
+|------|------|
+| kube-vip VIP | `192.168.10.100` → `trader.bifrost.lan` / `stg.trader.bifrost.lan` / `dev.trader.bifrost.lan` / `ops.bifrost.lan` / `stg.ops.bifrost.lan` |
+| Trade 网关 | `.73:30880` PROD · `.73:30881` STG · `.73:30882` DEV（前端 DEV inner loop 的 API） |
+| Ops Console / API | `.73:30876`–`30879` |
+| registry / gitea / apiserver | `.73:30500` · `.73:30300` · `.73:6443` |
+
+### 交付链（Argo CD @ `cicd`）
+
+| Argo App | 源 | 同步策略 | 含义 |
+|----------|----|----------|------|
+| `bifrost-platform-stg` / `bifrost-platform-prod` | bifrost-trade-infra `main` | **automated + prune + selfHeal** | 推 infra main = 立即改 Ops STG/PROD 运行时 |
+| `bifrost-research` | bifrost-research `main` | automated（无 prune / selfHeal） | 推 research main = 改 research 运行时；先镜像后 manifest（research-release skill） |
+| `bifrost-stg` / `bifrost-prod` | bifrost-trade-infra `main` | 手动 | Trade 由 `bifrost-deliver-{stg,prod}` rollout，再 `gitops_sync_app` |
+
+Tekton 流水线：`bifrost-ci-{frontend,platform,python}` · `bifrost-deliver-{stg,prod,platform,platform-prod,research}` ·
+`bifrost-build-{stg,frontend-stg,market-data,flex-query,research-dagster}` · `bifrost-smoke` · `bifrost-clone-frontend-smoke`。
+镜像仓库 `registry.cicd.svc.cluster.local:5000`。PROD 清单只走 git + Argo；`kubectl apply` prod overlay 会剥掉 Argo 跟踪注解。
+
+### 数据层
+
+- CloudNativePG `bifrost-postgres` @ `data`，2 实例，库 `bifrost_dev` / `bifrost_stg` / `bifrost_prod` + `bifrost_golden_source`；
+  Barman 备份 → MinIO `minio.data.svc.cluster.local:9000` 桶 `s3://bifrost-postgres-backup/`（删改即毁 PITR）。
+- 第二个 MinIO @ `data-warehouse`（gpu-server）供 Research / Golden Source 对象。
+- `redis-ib` @ `data`：共享 IB 事件总线；`redis-live` / `redis-queue` 每环境一套。
+
+### IB 接入模型（账户号不是秘密 — Owner 2026-09-06 明确）
+
+- IB **登录只发生在两台 Win11 的 TWS 软件里**（Owner 手工登录 + 2FA）；工作区与集群里没有 IB 密码。
+- 其余系统只经 **IB API socket**（TWS `tws_live` 端口；client_ids 70/71 Host、72/73 Secondary）由 Platform IB Gateway Plugin 连接 → `redis-ib`；
+  Trade 服务不直连 TWS。
+- 账户号 `U17123565`（Host）/ `U8829175`（Secondary）是标识符，UI、日志、文档可以出现。
+  敏感的是账户**内容**（持仓、成交、P&L）与 Flex / Polygon / DeepSeek 等 API key。
+
+### 本机敏感位置（只对 Owner 可见，不得进入任何仓库或外部服务）
+
+`backups/bifrost_prod_pre_p9_*.dump`（PROD 全量 dump）· 各 repo 未跟踪 `.env`（platform、research、plugin ×3、infra、frontend `.env.development.local`）·
+未跟踪 Secret YAML（`k8s/base/secrets`、`k8s/data/secrets`、`k8s/cicd/gitea/secret.yaml`、`k8s/overlays/*/…token*.yaml`）·
+`~/.kube/bifrost-k3s.yaml` · `~/.bifrost-dev/`。
+
+### Claude Code 配置拓扑（实测）
+
+- `/stocks/.claude` 是符号链接；Claude Code **能**经链接加载 `settings.json`（hooks）、`settings.local.json`（含 `autoMode`）与 skills
+  （2026-09-06 探针验证）。`/auto-mode-setup` 向导**拒绝**写符号链接目录（"indirection gate"），改用 `claude/auto-mode/apply-auto-mode.sh` 应用。
+- auto mode 规则分两层：用户级 `~/.claude/settings.json`（本机通用）+ 项目级 `claude/settings.local.json`（工作区事实与规则，gitignored）；
+  生效配置 `claude auto-mode config`、内置默认 `claude auto-mode defaults`、AI 点评 `claude auto-mode critique`。
+  分类器把 Agent 改写自己的 auto mode 规则视为 hard_deny（Auto-Mode Bypass）→ **由 Owner 跑脚本应用**，Agent 只准备 payload 并报告。
+- `preflight.js` 的 D10 规则不豁免文件写入：Bash heredoc 正文里若同时出现 `ib:operator:cmd` 与 XADD / SET / DEL 等写动词会被拦
+  （设计内的宁可误报）；写含该字面量的文档用 Edit / Write 工具，不改 guard。
+- Claude Desktop 会话分组 `Trade. System` 与 `Ops - Plugin` 的 cwd 都是 `/stocks`：共享根 `CLAUDE.md`、hooks、auto mode 与
+  记忆目录 `~/.claude/projects/-Users-vision-mac-trader-Desktop-stocks/memory/`；子 repo 的 `CLAUDE.md` 在触及该 repo 文件时自动加载。
+- 治理缺口：子 repo 没有自己的 `.claude/settings.json`，会话若在子 repo 目录启动则**没有** preflight hook 与 auto mode 环境 → 会话一律在 `/stocks` 根启动。
 
 ---
 

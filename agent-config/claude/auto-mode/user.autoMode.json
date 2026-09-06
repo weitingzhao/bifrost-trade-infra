@@ -1,0 +1,14 @@
+{
+  "environment": [
+    "### This machine (user scope — the project settings.local.json of the Bifrost workspace carries the workspace facts and overrides any line here)",
+    "**Primary use of Claude Code**: software development and operations by a single owner (GitHub account weitingzhao) on their own macOS workstation.",
+    "**Trusted repo**: the git repository the session started in and its configured remote(s); for the Bifrost workspace (/Users/vision-mac-trader/Desktop/stocks) the project-scope settings enumerate the 12 sibling repos.",
+    "**Repository visibility**: the owner's GitHub repos are PUBLIC unless the project settings say otherwise — a pushed secret is a public leak.",
+    "**Org-specific CLIs**: bdev (local tmux dev-session manager), kubectl with ~/.kube/bifrost-k3s.yaml for the home K3s cluster (the default docker-desktop context is a different, local cluster), gh, and the bifrost-* MCP servers."
+  ],
+  "soft_deny": [
+    "$defaults",
+    "Kubernetes Deletes: `kubectl delete` of any live object and the MCP tools delete_pod / delete_pipeline_run / drain_node — propose first; the home cluster has single-node PROD placement and one shared database cluster.",
+    "Database Dumps & Restores: `pg_dump` / `pg_restore` / `psql -f` against any bifrost_* database — a dump is the owner's brokerage data, and a restore into the wrong target is unrecoverable."
+  ]
+}
