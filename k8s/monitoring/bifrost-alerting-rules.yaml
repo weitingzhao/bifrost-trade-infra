@@ -114,3 +114,68 @@ spec:
           annotations:
             summary: "Elastic node {{ $labels.node }} standby (no demand)"
             description: "Node {{ $labels.node }} is NotReady with no GPU/warehouse demand — expected elastic standby (WOL). Console Observability also neutralizes related TargetDown/DaemonSet noise via FE standbyNodes."
+
+    # ── Infrastructure that Prod depends on ────────────────────────────────
+    #
+    # The stock KubeNodeNotReady / KubeNodeUnreachable alerts fire correctly,
+    # but Alertmanager routes only `alertname=~"Bifrost.*"` to the ops-agent
+    # webhook; everything else falls through to the `default` receiver, which
+    # has no configs and drops it. On 2026-09-06 a Prod node died at 00:43Z and
+    # nothing reached a human for five hours because of exactly that. These
+    # rules restate the same conditions under a Bifrost name so they take the
+    # delivered route. They deliberately re-use the elastic-standby inhibit
+    # label so a sleeping WOL node stays quiet.
+    - name: bifrost-infrastructure
+      rules:
+        - alert: BifrostClusterNodeDown
+          expr: |
+            (
+              max by (node) (kube_node_status_condition{condition="Ready",status="true"}) == 0
+            )
+            unless on (node)
+            (
+              max by (node) (kube_node_labels{label_bifrost_io_wol="enabled"})
+              or
+              max by (node) (kube_node_info{node="gpu-server"})
+            )
+          for: 3m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Cluster node {{ $labels.node }} is down"
+            description: "Node {{ $labels.node }} has been NotReady for more than 3 minutes and is not the elastic WOL standby. Workloads pinned or scheduled there cannot run until it returns."
+
+        - alert: BifrostProdWorkloadUnavailable
+          expr: |
+            kube_deployment_status_replicas_available{namespace="bifrost-prod"} == 0
+            and
+            kube_deployment_spec_replicas{namespace="bifrost-prod"} > 0
+          for: 3m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Prod deployment {{ $labels.deployment }} has no available replica"
+            description: "bifrost-prod/{{ $labels.deployment }} wants {{ $value }} replica(s) and has none available — the Prod surface it serves is down."
+
+        - alert: BifrostProdPodsUnschedulable
+          expr: |
+            count by (namespace) (
+              kube_pod_status_scheduled{namespace="bifrost-prod",condition="false"} == 1
+            ) > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Prod pods cannot be scheduled"
+            description: "{{ $value }} pod(s) in bifrost-prod have been unschedulable for 5 minutes — usually the node they are pinned to is gone, or the cluster has no node matching their placement rules."
+
+        - alert: BifrostPostgresInstanceMissing
+          expr: |
+            cnpg_pg_replication_streaming_replicas < cnpg_pg_replication_expected_replicas
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Postgres cluster is short a streaming replica"
+            description: "The CloudNativePG cluster has fewer streaming replicas than expected for 10 minutes — HA is degraded and a primary loss would mean downtime."
+

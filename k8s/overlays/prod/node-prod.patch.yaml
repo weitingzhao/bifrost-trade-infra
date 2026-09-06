@@ -1,4 +1,23 @@
-# Prod runtime placement — pinned to mini-pc-a @ .70 — amd64 general pool (workload placement G3).
+# Prod runtime placement.
+#
+# It was a hard `nodeSelector: bifrost.io/host-id: mini-pc-a` on every workload.
+# Nothing in Prod actually needs that host — postgres and redis are removed from
+# this overlay and the shared CloudNativePG cluster lives in the `data`
+# namespace, and no Prod pod mounts a hostPath or a local volume. The pin was a
+# placement preference expressed as a hard requirement, and on 2026-09-06 it
+# cost five hours: mini-pc-a went unreachable at 00:43Z, every Prod pod became
+# unschedulable ("didn't match Pod's node affinity/selector"), and the whole
+# Prod surface returned 503 until the host came back.
+#
+# Now it is a preference. Normal scheduling still puts everything on mini-pc-a
+# (weight 100). When that host is gone the pods move to the general pool and
+# Prod keeps serving, while BifrostClusterNodeDown still reports the node loss —
+# drifting does not hide the fault, it stops the fault from being an outage.
+#
+# The tolerations shorten the wait before a pod on an unreachable node is
+# evicted, from the 300s Kubernetes defaults to 45s, so failover is quick enough
+# to matter.
+#
 # Registry should be configured on all nodes via configure-insecure-registry.sh.
 ---
 apiVersion: apps/v1
@@ -8,8 +27,32 @@ metadata:
 spec:
   template:
     spec:
-      nodeSelector:
-        bifrost.io/host-id: mini-pc-a
+      affinity:
+        nodeAffinity:
+          # Hard: somewhere that can actually run Prod.
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: bifrost.io/workload-pool
+                    operator: In
+                    values: [prod-pool, general]
+          # Soft: mini-pc-a whenever it is available.
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: bifrost.io/host-id
+                    operator: In
+                    values: [mini-pc-a]
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 45
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 45
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -18,8 +61,32 @@ metadata:
 spec:
   template:
     spec:
-      nodeSelector:
-        bifrost.io/host-id: mini-pc-a
+      affinity:
+        nodeAffinity:
+          # Hard: somewhere that can actually run Prod.
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: bifrost.io/workload-pool
+                    operator: In
+                    values: [prod-pool, general]
+          # Soft: mini-pc-a whenever it is available.
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: bifrost.io/host-id
+                    operator: In
+                    values: [mini-pc-a]
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 45
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 45
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -28,8 +95,32 @@ metadata:
 spec:
   template:
     spec:
-      nodeSelector:
-        bifrost.io/host-id: mini-pc-a
+      affinity:
+        nodeAffinity:
+          # Hard: somewhere that can actually run Prod.
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: bifrost.io/workload-pool
+                    operator: In
+                    values: [prod-pool, general]
+          # Soft: mini-pc-a whenever it is available.
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: bifrost.io/host-id
+                    operator: In
+                    values: [mini-pc-a]
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 45
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 45
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -38,8 +129,32 @@ metadata:
 spec:
   template:
     spec:
-      nodeSelector:
-        bifrost.io/host-id: mini-pc-a
+      affinity:
+        nodeAffinity:
+          # Hard: somewhere that can actually run Prod.
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: bifrost.io/workload-pool
+                    operator: In
+                    values: [prod-pool, general]
+          # Soft: mini-pc-a whenever it is available.
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: bifrost.io/host-id
+                    operator: In
+                    values: [mini-pc-a]
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 45
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 45
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -48,8 +163,32 @@ metadata:
 spec:
   template:
     spec:
-      nodeSelector:
-        bifrost.io/host-id: mini-pc-a
+      affinity:
+        nodeAffinity:
+          # Hard: somewhere that can actually run Prod.
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: bifrost.io/workload-pool
+                    operator: In
+                    values: [prod-pool, general]
+          # Soft: mini-pc-a whenever it is available.
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: bifrost.io/host-id
+                    operator: In
+                    values: [mini-pc-a]
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 45
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 45
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -58,8 +197,32 @@ metadata:
 spec:
   template:
     spec:
-      nodeSelector:
-        bifrost.io/host-id: mini-pc-a
+      affinity:
+        nodeAffinity:
+          # Hard: somewhere that can actually run Prod.
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: bifrost.io/workload-pool
+                    operator: In
+                    values: [prod-pool, general]
+          # Soft: mini-pc-a whenever it is available.
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: bifrost.io/host-id
+                    operator: In
+                    values: [mini-pc-a]
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 45
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 45
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -68,8 +231,32 @@ metadata:
 spec:
   template:
     spec:
-      nodeSelector:
-        bifrost.io/host-id: mini-pc-a
+      affinity:
+        nodeAffinity:
+          # Hard: somewhere that can actually run Prod.
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: bifrost.io/workload-pool
+                    operator: In
+                    values: [prod-pool, general]
+          # Soft: mini-pc-a whenever it is available.
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: bifrost.io/host-id
+                    operator: In
+                    values: [mini-pc-a]
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 45
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 45
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -78,8 +265,32 @@ metadata:
 spec:
   template:
     spec:
-      nodeSelector:
-        bifrost.io/host-id: mini-pc-a
+      affinity:
+        nodeAffinity:
+          # Hard: somewhere that can actually run Prod.
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: bifrost.io/workload-pool
+                    operator: In
+                    values: [prod-pool, general]
+          # Soft: mini-pc-a whenever it is available.
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: bifrost.io/host-id
+                    operator: In
+                    values: [mini-pc-a]
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 45
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 45
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -88,5 +299,29 @@ metadata:
 spec:
   template:
     spec:
-      nodeSelector:
-        bifrost.io/host-id: mini-pc-a
+      affinity:
+        nodeAffinity:
+          # Hard: somewhere that can actually run Prod.
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: bifrost.io/workload-pool
+                    operator: In
+                    values: [prod-pool, general]
+          # Soft: mini-pc-a whenever it is available.
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: bifrost.io/host-id
+                    operator: In
+                    values: [mini-pc-a]
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 45
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 45
