@@ -241,6 +241,16 @@ spec:
             summary: "Flex worker has no available replica"
             description: "flex-query-worker in plugin-flex-query is not running; queued Flex jobs will not be claimed."
 
+        - alert: BifrostFlexWorkerSilent
+          expr: |
+            (time() - bifrost_flex_worker_last_seen_timestamp_seconds) > 300
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Flex worker stopped reporting in"
+            description: "flex-query-worker has not written its heartbeat (ops_jobs.flex_worker_heartbeat) for {{ $value | humanizeDuration }} — the pod may be up but its loop stuck or unable to reach Postgres. The Console Self-check shows the same signal."
+
         - alert: BifrostFlexTokenMissing
           expr: |
             sum(bifrost_flex_token_configured) == 0
