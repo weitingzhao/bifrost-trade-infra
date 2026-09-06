@@ -26,6 +26,7 @@ Execute Program `market-data-subscription-focus` (Massive Plugin, three subscrip
 - Ratios, short interest and short volume are fetchable full-market by date (1,000 / page).
 - `/stocks/v1/float` and `/stocks/filings/*` return 404 — do not reintroduce them.
 - Scheduling is Dagster (Research NS) → `POST /market/ingest/enqueue-slot`; Plugin CronJobs stay suspended.
+- **Doctor first, guess never**: `GET /market/doctor` = what the session should hold vs what it does, one prescription per gap; `POST /market/doctor/heal` executes them (write token). Console Doctor panel, MCP `market_data_doctor` / `market_data_heal` and Dagster `market_self_heal` (00:45 UTC Tue–Sat) all run the same prescriptions.
 
 ## Repos to touch
 
@@ -43,6 +44,7 @@ cd bifrost-platform-plugin-market-data && make lint && make test
 export KUBECONFIG=~/.kube/bifrost-k3s.yaml
 kubectl -n plugin-market-data get deploy -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.template.spec.containers[0].image}{"\n"}{end}'
 curl -s http://127.0.0.1:8780/api/v1/plugins/market-data/api/market/ingest/queue-dashboard | python3 -c 'import json,sys; print(json.load(sys.stdin)["husbandry"])'
+curl -s http://127.0.0.1:8780/api/v1/plugins/market-data/api/market/doctor | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["session"], d["verdict"], d["summary"]); [print("-", f["severity"], f["title"], "→", f["fix"]) for f in d["findings"] if f["severity"] != "ok"]'
 ```
 
 ## Release path (Plugin is not under Argo)
