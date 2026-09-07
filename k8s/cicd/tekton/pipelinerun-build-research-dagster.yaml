@@ -17,7 +17,7 @@ spec:
     - name: revision
       value: main
     - name: image
-      value: registry.cicd.svc.cluster.local:5000/bifrost-research:0.74.0-dagster
+      value: registry.cicd.svc.cluster.local:5000/bifrost-research:0.75.0-dagster
   taskRunTemplate:
     serviceAccountName: default
     podTemplate:
