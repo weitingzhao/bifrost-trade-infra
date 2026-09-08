@@ -101,6 +101,20 @@ spec:
               cpu: "2"
               memory: 1Gi
 ---
+# Retired 2026-09-08 — replicas:0, kept for the record and for a future cutover.
+#
+# This daemon was never the writer. `raw_broker.account` / `.positions` are
+# written by the trading daemon's PostgresSink, which stands down only when
+# ACCOUNT_SYNC_DAEMON_ENABLED is set — and that flag has never been set in any
+# environment. account-sync ignored the flag and ran anyway, consuming
+# ib:account:stream:v1 and failing every entry: its diff_engine issues the
+# per-env FDW alias `brokerage.*` against the Golden Source connection, where
+# the schema is `raw_broker.*` (core 0.18.1 migrated the writers; this caller
+# was missed). last_sync_version sat at 0 for the pod's whole 14-day life.
+#
+# Do not scale this up without also fixing diff_engine's table constants AND
+# setting ACCOUNT_SYNC_DAEMON_ENABLED=1 on the daemon — otherwise two writers
+# race on the same rows, and this one DELETEs what the other just wrote.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -109,7 +123,7 @@ metadata:
     app.kubernetes.io/name: account-sync
     app.kubernetes.io/component: worker
 spec:
-  replicas: 1
+  replicas: 0
   strategy:
     type: Recreate
   selector:
