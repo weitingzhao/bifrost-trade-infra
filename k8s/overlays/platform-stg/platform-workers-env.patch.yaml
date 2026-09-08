@@ -1,0 +1,37 @@
+# The loops that moved to platform-workers need the same tuning and runner URLs
+# platform-api gets. Kept as its own patch because strategic-merge patches match
+# a Deployment by name, so the platform-api patches cannot reach this tier.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-workers
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform-api
+          env:
+            - name: OPS_VIEWER_ENV
+              value: "stg"
+            - name: OPS_IB_AUTOREPAIR_ENABLED
+              value: "true"
+            - name: OPS_IB_AUTO_ROLLOUT_COOLDOWN_SEC
+              value: "900"
+            - name: OPS_IB_SNAPSHOT_STALE_SEC
+              value: "90"
+            - name: OPS_IB_SNAPSHOT_STALE_MAX_BEFORE_ROLLOUT
+              value: "3"
+            - name: REMEDIATION_RUNNER_URL
+              value: "http://192.168.10.50:8781"
+            - name: REMEDIATION_RUNNER_STANDBY_URL
+              value: "http://192.168.10.52:8781"
+            - name: GIT_BRIDGE_URL
+              value: "http://192.168.10.40:8785"
+            - name: NOUS_HERMES_URL
+              value: "http://192.168.10.50:9119"
+            - name: REDIS_IB_PLATFORM_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: redis-ib-platform
+                  key: password
+                  optional: true

@@ -82,6 +82,106 @@ spec:
         - name: platform-data
           emptyDir: {}
 ---
+# platform-workers — the singleton that owns the always-on loops.
+#
+# platform-api used to start the patrol autopilot, the IB auto-repair loop and
+# the hourly data-clone scheduler at boot in every replica. Prod runs two, so
+# each loop ran twice against per-pod state that could not see the other run.
+# This tier runs them exactly once (replicas 1, Recreate — never two during a
+# rollout) and keeps a wedged loop off the request path.
+#
+# No Service on purpose: nothing should route here. It listens on :8780 only so
+# kubelet probes have an endpoint and so the patrol autopilot can read the
+# platform's own API over localhost, the way it does today.
+#
+# replicas: 0 until an image carrying PLATFORM_ROLE is deployed. An older binary
+# ignores the variable and would run every loop here as well as in platform-api,
+# which is the duplication this tier exists to end. Enable with a single commit
+# that sets replicas: 1 here and adds PLATFORM_ROLE=api to platform-api, so the
+# loops never run in both tiers and never run in neither.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-workers
+  labels:
+    app.kubernetes.io/name: platform-workers
+    app.kubernetes.io/component: platform-workers
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: platform-workers
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: platform-workers
+        app.kubernetes.io/component: platform-workers
+    spec:
+      containers:
+        - name: platform-api
+          image: registry.cicd.svc.cluster.local:5000/bifrost-platform-api:stg
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8780
+          env:
+            - name: PLATFORM_ROLE
+              value: workers
+            - name: PLATFORM_CONFIG
+              value: /app/config/environments.yaml
+            - name: PLATFORM_KUBECONFIG
+              value: /var/kubeconfig/bifrost-k3s.yaml
+            - name: PLATFORM_LISTEN
+              value: ":8780"
+            - name: PLATFORM_DATA_DIR
+              value: /app/data
+          volumeMounts:
+            - name: platform-config
+              mountPath: /app/config
+              readOnly: true
+            - name: platform-programs
+              mountPath: /app/config/programs
+              readOnly: true
+            - name: kubeconfig
+              mountPath: /var/kubeconfig
+              readOnly: true
+            - name: platform-data
+              mountPath: /app/data
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        - name: platform-config
+          configMap:
+            name: bifrost-platform-config
+        - name: platform-programs
+          configMap:
+            name: bifrost-platform-programs
+        - name: kubeconfig
+          secret:
+            secretName: bifrost-platform-kubeconfig
+            optional: true
+        - name: platform-data
+          emptyDir: {}
+---
 apiVersion: v1
 kind: Service
 metadata:
