@@ -125,6 +125,17 @@ Trade 页面经 Ask Copilot 读 Research 后端（Positions / Instances / Live 3
 | trade-ui (Vite) | 5173 | Trade |
 | prometheus-pf（kubectl port-forward） | 9090 | Ops |
 
+### L-1 带外操作面（两台 Mac mini：`.50` ops-mac-agent-02 · `.52` ops-mac-agent-01）
+
+这些端口**不在集群里**，`lsof` 查不到就以为空闲会撞车。
+
+| 服务 | 端口 | 主机 |
+|------|------|------|
+| remediation runner | 8781 | 两台 |
+| Hermes gateway | 8782 | `.52` |
+| operator-plane（L-1 路由 + patrol） | 8783 | 两台 |
+| Hermes dashboard | 9119 | `.50` |
+
 ---
 
 ## 4. 已退役 / 归档（**不得在任何规则或文档中作为活跃实体引用**）
