@@ -1,10 +1,23 @@
-# HA: >=2 replicas for L1 control plane prod (p6-platform-prod).
+# platform-console is stateless — it mounts nothing and serves a built SPA, so
+# two replicas are real redundancy.
+#
+# platform-api is not. Its state lives in /app/data, an emptyDir, so each
+# replica keeps its own operate queue, checklist signals, patrol runs and
+# scheduler last-run marks, and neither can see the other's. A second replica
+# therefore buys no availability for anything that matters; it splits the state
+# and makes the Console's answer depend on which pod the Service picked. It also
+# ran every always-on loop twice until PLATFORM_ROLE moved them to
+# platform-workers.
+#
+# One replica is the honest configuration until that state moves to Postgres.
+# Rollouts stay seamless: maxUnavailable 25% of 1 rounds down to 0, so the new
+# pod is Ready before the old one goes.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: platform-api
 spec:
-  replicas: 2
+  replicas: 1
 ---
 apiVersion: apps/v1
 kind: Deployment
