@@ -131,6 +131,19 @@ spec:
         - name: research-api
           namespace: research
           port: 8795
+    # Ops Platform plugin status, same-origin for the Trade cockpit.
+    # Read-only by construction: `/status` only, so the rest of
+    # platform-api is not reachable from the Trade origin.
+    - match: Host(`stg.trader.bifrost.lan`) && PathRegexp(`^/api/platform/plugins/[a-z0-9-]+/status$`)
+      kind: Rule
+      priority: 110
+      middlewares:
+        - name: strip-api-platform
+        - name: add-platform-api-v1
+      services:
+        - name: platform-api
+          namespace: bifrost-platform-prod
+          port: 8780
     - match: Host(`stg.trader.bifrost.lan`) && Path(`/health`)
       kind: Rule
       priority: 50

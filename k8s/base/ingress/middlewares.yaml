@@ -163,3 +163,29 @@ spec:
     scheme: https
     port: "443"
     permanent: true
+---
+# FE same-origin Ops Platform plugin status: the Trade cockpit shows how the
+# platform plugins it depends on are doing (market-data, flex-query,
+# ib-gateway, research). Read-only: the route that uses these two matches
+# `/status` alone, so the rest of the control plane stays off the Trade origin.
+# Pair: strip `/api/platform`, then add `/api/v1` — platform-api's own prefix.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-api-platform
+  labels:
+    app.kubernetes.io/name: trade-gateway
+spec:
+  stripPrefix:
+    prefixes:
+      - /api/platform
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: add-platform-api-v1
+  labels:
+    app.kubernetes.io/name: trade-gateway
+spec:
+  addPrefix:
+    prefix: /api/v1
