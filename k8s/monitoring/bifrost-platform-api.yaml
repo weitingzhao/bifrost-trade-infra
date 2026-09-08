@@ -1,0 +1,30 @@
+# Scrape platform-api's /metrics (bifrost-platform-prod namespace).
+#
+# platform-api reports how the plugins under Trade are doing — market-data,
+# flex-query, ib-gateway, research — from the same probes its
+# /api/v1/plugins/*/status endpoints already run. The bifrost-platform-plugins
+# alert group reads these series.
+#
+# Before this existed the plugins had no alerting at all: on 2026-09-07 the IB
+# gateway could not reach TWS for seventeen hours while its pod stayed 1/1
+# Running, so nothing derived from Kubernetes fired and no Bifrost rule covered
+# it.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bifrost-platform-api
+  labels:
+    app.kubernetes.io/component: control-plane
+spec:
+  namespaceSelector:
+    matchNames:
+      - bifrost-platform-prod
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: platform-api
+  endpoints:
+    - port: http
+      path: /metrics
+      # The handler probes four plugins live and caps itself at 8s.
+      interval: 60s
+      scrapeTimeout: 20s

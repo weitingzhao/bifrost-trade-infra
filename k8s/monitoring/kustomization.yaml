@@ -9,6 +9,7 @@ resources:
   - bifrost-redis.yaml
   - bifrost-postgres.yaml
   - bifrost-flex-query.yaml
+  - bifrost-platform-api.yaml
   - bifrost-alerting-rules.yaml
   - alertmanager-webhook-auth-secret.yaml
   - alertmanager-webhook-network-policy.yaml
