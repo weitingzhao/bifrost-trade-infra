@@ -23,7 +23,8 @@ Execute Program `market-data-subscription-focus` (Massive Plugin, three subscrip
 
 - Paid Starter = unlimited calls (15 requests in 0.9s, no 429). `tier: starter` is a soft 8 req/s per process; `polygon.rate_per_sec` / `burst` override.
 - Stock aggregates rolling 5 years; option aggregates rolling 2 years; expired contracts enumerable to 2022.
-- Ratios, short interest and short volume are fetchable full-market by date (1,000 / page).
+- Ratios, short interest and short volume are fetchable full-market by date (1,000 / page). Two traps measured 2026-09-08: `ratios?date=D` **ignores D** and always returns the latest values, so ratio history cannot be backfilled, only accumulated forward; and `short-interest` with a 45-day lookback returns several settlements at ~15,000 rows each, so a low `max_pages` truncates it mid-alphabet while the job still reports success. Every whole-market handler now raises on `truncated` — treat a partial market as a failure, never a result.
+- Vendor ratio coverage is ~5,000 tickers. The SEPA universe is larger, so ratio-condition coverage tops out near 75%; the shortfall is micro caps and recent listings the vendor computes no ratios for, not a bug.
 - `/stocks/v1/float` and `/stocks/filings/*` return 404 — do not reintroduce them.
 - Scheduling is Dagster (Research NS) → `POST /market/ingest/enqueue-slot`; Plugin CronJobs stay suspended.
 - `raw_market.option_snapshot.snapshot_ts` is the **observation time** (EOD = 16:00 NY anchor of the session), not the contract's last trade — that is `last_trade_ts` (plugin 0.13.0 / Wave 9). A chain download only ever shows the current session, so a catch-up is truthful only before the next open: `trading_calendar.chain_session()` decides, and the handler answers `skipped: stale_session` for anything else.
