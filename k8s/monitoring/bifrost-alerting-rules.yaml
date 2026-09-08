@@ -280,8 +280,11 @@ spec:
     - name: bifrost-platform-plugins
       rules:
         - alert: BifrostIBGatewayDisconnected
+          # platform-api runs two replicas and each publishes the same plugin
+          # state, so the raw series would alert once per pod for one outage.
+          # max: fire only when no replica sees the slot connected.
           expr: |
-            bifrost_ib_gateway_slot_connected == 0
+            max by (slot) (bifrost_ib_gateway_slot_connected) == 0
           for: 15m
           labels:
             severity: critical
@@ -291,7 +294,7 @@ spec:
 
         - alert: BifrostIBGatewayIngestSilent
           expr: |
-            bifrost_ib_gateway_ingest_last_msg_age_seconds > 1800
+            min (bifrost_ib_gateway_ingest_last_msg_age_seconds) > 1800
           for: 15m
           labels:
             severity: warning
@@ -300,8 +303,10 @@ spec:
             description: "The gateway holds a session but has received no message for over 30m. Outside market hours this is expected; during a session it means the subscription died without the connection dropping."
 
         - alert: BifrostPluginUnreachable
+          # max: one replica timing out on a slow probe is not an outage; all
+          # of them failing is.
           expr: |
-            bifrost_plugin_reachable == 0
+            max by (plugin) (bifrost_plugin_reachable) == 0
           for: 15m
           labels:
             severity: critical
@@ -310,8 +315,9 @@ spec:
             description: "platform-api could not reach {{ $labels.plugin }} for 15m. The Trade cockpit's footer panel shows the same reachability with the plugin's own summary line."
 
         - alert: BifrostPluginDegraded
+          # min: every replica agrees it is degraded.
           expr: |
-            bifrost_plugin_reachability{state="degraded"} == 1
+            min by (plugin) (bifrost_plugin_reachability{state="degraded"}) == 1
           for: 2h
           labels:
             severity: warning
