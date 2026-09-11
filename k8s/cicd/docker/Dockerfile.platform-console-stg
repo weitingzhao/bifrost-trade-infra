@@ -2,12 +2,13 @@
 #   bifrost-platform/console/   bifrost-ui/
 FROM node:22-alpine AS builder
 
+# Whole @bifrost/ui source before `npm ci`: its prepare script builds dist/ (0.4.9+).
+# Same defect as Dockerfile.frontend-stg, which it failed first on 2026-09-11.
 WORKDIR /build/bifrost-ui
-COPY bifrost-ui/package.json bifrost-ui/package-lock.json* ./
+COPY bifrost-ui/ ./
 RUN npm ci --no-audit --no-fund
 
 WORKDIR /build/bifrost-platform/console
-COPY bifrost-ui /build/bifrost-ui
 COPY bifrost-platform/console/package.json bifrost-platform/console/package-lock.json* ./
 RUN npm ci --no-audit --no-fund
 
