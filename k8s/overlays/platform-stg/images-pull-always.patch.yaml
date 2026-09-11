@@ -19,3 +19,18 @@ spec:
       containers:
         - name: platform-console
           imagePullPolicy: Always
+---
+# platform-workers runs the same moving tag as platform-api (container name too:
+# it is the api image, role-gated by PLATFORM_ROLE). It joined the base on
+# 2026-09-08 without this patch, so it kept IfNotPresent and never moved: on
+# 2026-09-11 prod workers were still on an image older than that day's release.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-workers
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform-api
+          imagePullPolicy: Always
