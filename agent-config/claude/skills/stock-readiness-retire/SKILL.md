@@ -94,8 +94,8 @@ Pipeline: dbt CronJob (plugin-market-data NS) → Golden Source → Research API
 ## Verify commands
 
 ```bash
-# STG analytics path
-curl -sf 'http://192.168.10.73:30880/api/research/research/data/readiness/criteria-stats'
+# PROD analytics path (Trade gateway :30881; :30880 is STG)
+curl -sf 'http://192.168.10.73:30881/api/research/research/data/readiness/criteria-stats'
 
 # Lint
 cd bifrost-trade-api && ruff check src/
