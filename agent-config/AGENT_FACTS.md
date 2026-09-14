@@ -320,7 +320,7 @@ Mac mini `.50` / `.52`（agent host）、NAS `.20`（归档与备份目标）、
 | 入口 | 地址 |
 |------|------|
 | kube-vip VIP | `192.168.10.100` → `trader.bifrost.lan` / `stg.trader.bifrost.lan` / `dev.trader.bifrost.lan` / `ops.bifrost.lan` / `stg.ops.bifrost.lan` |
-| Trade 网关 | `.73:30880` PROD · `.73:30881` STG · `.73:30882` DEV（前端 DEV inner loop 的 API） |
+| Trade 网关 | `.73:30880` STG · `.73:30881` PROD · `.73:30882` DEV（前端 DEV inner loop 的 API）。依据 `k8s/overlays/prod/nodeport-services.patch.yaml`（prod 占 30881，30880 留给 bifrost-stg） |
 | Ops Console / API | `.73:30876`–`30879` |
 | registry / gitea / apiserver | `.73:30500` · `.73:30300` · `.73:6443` |
 
