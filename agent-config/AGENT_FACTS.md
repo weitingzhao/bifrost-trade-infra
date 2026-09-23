@@ -1,6 +1,6 @@
 ---
-parity-id: agent-facts-v2
-generated: 2026-09-06
+parity-id: agent-facts-v3
+generated: 2026-09-22
 authority: bifrost-platform/config/ops-context.yaml (spine) + 磁盘扫描
 ---
 
@@ -204,11 +204,26 @@ Owner **2026-08-31** 签批 D-14GF.1–6（R1）；同日 GitHub Archive + 授�
 
 ## 7. 当前 spine 状态（快照 — 以 `GET /api/v1/context` 为准）
 
+> 核对于 2026-09-22。四个字段自 2026-09-06 未变。
+
 - `deployment.phase`: `k3s_partial`
 - `active_track`: `trade_ib_client_migration_rollout`
 - `focus.headline`: `TIBM W3 signed — STG read-path complete (D10 BLOCKED)`
 - `flywheel_primary`: **B**（runtime/ops）
-- **D10 = BLOCKED** — 交易执行冻结，见 §8
+- `decisions`: 54 条。**非 SIGNED 的只有三条**，其余皆 SIGNED：
+
+| id | status | 含义 |
+|----|--------|------|
+| **D10** | **BLOCKED** | 交易执行冻结，见 §8。机械强制与 spine 同源 |
+| `D-Playbook-Live` | `PENDING_STG` | 待 STG 验证 |
+| `D-Wave-8` | `EXECUTED` | 已执行（非待办） |
+
+### 最近签署
+
+- **`D-Ops-Split`**（2026-09-22）— Ops Platform 按命运拆分，实现 D7。
+  L-1 的 26 条路由已由集群外的 `operator-plane` 提供（两台 Mac mini `:8783`，无 kubeconfig），
+  stg/prod 的 platform-api 经 `OPERATOR_PLANE_URL` 反代。
+  `remediation` + `agentgovernance` 暂不外迁，patrol autopilot 仍留在 platform-workers —— 理由见该条 conclusion。
 
 ---
 
