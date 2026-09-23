@@ -36,6 +36,7 @@ patches:
   - path: replicas-ha.patch.yaml
   - path: nodeport-prod.patch.yaml
   - path: platform-api-agent-bridge-env.patch.yaml
+  - path: platform-api-operator-plane.patch.yaml
   - path: platform-api-write-token.patch.yaml
   - path: platform-api-redis-ib-env.patch.yaml
   - path: platform-api-ib-autorepair-env.patch.yaml

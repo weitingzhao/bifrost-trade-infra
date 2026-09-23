@@ -1,0 +1,24 @@
+# Point platform-api at the out-of-band operator plane (L-1) on the Mac Minis.
+#
+# With this set, platform-api forwards the ~26 /agent/*, /hermes/* and /patrol/*
+# routes to it instead of serving them, and builds no operator plane of its own —
+# so a bad platform-api release no longer takes away the surface you would use to
+# roll that release back. The plane itself is cluster-free by construction.
+#
+# platform-workers deliberately does NOT get this yet: setting it there stops the
+# patrol autopilot, and the plane's own autopilot is still off. Exactly one
+# process must run it, and zero is the failure that nobody notices.
+#
+# LAN URL, non-secret — same class as the agent-bridge patch.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform-api
+          env:
+            - name: OPERATOR_PLANE_URL
+              value: "http://192.168.10.50:8783"
