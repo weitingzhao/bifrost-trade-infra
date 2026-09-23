@@ -427,10 +427,67 @@ PY
 
 # ─── Commands ─────────────────────────────────────────────────────────
 
+# ─── Local-network self-check ────────────────────────────────────────
+#
+# macOS grants local-network access per executable and decides it from the
+# process responsible at creation. A tmux server started from a context that
+# lacks the grant passes that lack to every service under it — and the error
+# the OS returns is EHOSTUNREACH, so the services report "no route to host"
+# about machines that are answering fine.
+#
+# 2026-09-22 cost half a day: the bifrost session had been running since the
+# 17th, Ops Console showed 0/8 hosts and 0/11 services with the K3s API
+# "unreachable", and the cluster was healthy the whole time — a shell on the
+# same Mac, the same second, reached all of it. `bdev restart` cannot fix it
+# because respawn-pane reuses the same server; only a new session helps.
+#
+# So the check runs once, when a session is created, and it runs INSIDE the
+# server (tmux run-shell) rather than here: this shell has the grant, and it
+# is the server's grant that the services inherit.
+BDEV_LAN_PROBE="${BDEV_LAN_PROBE:-192.168.10.73:6443}"
+
+check_session_lan() {
+  [[ "${BDEV_LAN_PROBE}" == "off" ]] && return 0
+  local host="${BDEV_LAN_PROBE%%:*}" port="${BDEV_LAN_PROBE##*:}"
+  local out; out="$(mktemp -t bdev-lan)"
+
+  tmux run-shell -t "$TMUX_SESSION" \
+    "bash -c 'if (exec 3<>/dev/tcp/${host}/${port}) 2>/dev/null; then echo ok; else echo fail; fi > ${out}'" \
+    2>/dev/null || true
+
+  local i result=""
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    result="$(tr -d '[:space:]' < "$out" 2>/dev/null)"
+    [[ -n "$result" ]] && break
+    sleep 0.3
+  done
+  rm -f "$out"
+
+  [[ "$result" == "ok" ]] && return 0
+  # Empty means the probe never answered — same conclusion as a refusal for
+  # this purpose, and saying "could not tell" would leave the reader to guess.
+  cat >&2 <<LANWARN
+
+⚠  This tmux session cannot reach ${BDEV_LAN_PROBE}, and your shell can.
+
+   Every service above inherits that, so they will report "no route to host"
+   about machines that are up — the cluster, the Mac minis, the Trade API.
+   macOS decides local-network access from the process that started the
+   server, and this one was started without it.
+
+   Fix: bdev stop && bdev start   — from iTerm or another granted terminal.
+   \`bdev restart\` will not help: it reuses this server.
+   Set BDEV_LAN_PROBE=off to silence, or host:port to probe something else.
+
+LANWARN
+  return 1
+}
+
 cmd_start() {
   require_tmux
   require_config
   ensure_dirs
+  local created_session=0
 
   local target="${1:-}"
 
@@ -489,6 +546,7 @@ cmd_start() {
 
     if ! session_exists; then
       tmux new-session -d -s "$TMUX_SESSION" -n "$name" "$run_cmd"
+      created_session=1
       echo "● $name — started (new session) [restart=$restart]"
     elif window_exists "$name"; then
       tmux respawn-pane -t "$TMUX_SESSION:$name" -k "$run_cmd"
@@ -506,6 +564,12 @@ cmd_start() {
   fi
 
   ensure_watchdog
+
+  # Only on a session this run created: the grant is decided then, and on every
+  # later start the answer would be the same one already given.
+  if [[ "${created_session:-0}" == "1" ]]; then
+    check_session_lan || true
+  fi
 }
 
 ensure_watchdog() {
