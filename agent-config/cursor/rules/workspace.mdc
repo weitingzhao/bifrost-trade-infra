@@ -2,7 +2,7 @@
 description: Bifrost 工作区结构、三域架构、双飞轮边界与双轨维护规范
 globs: ["**/*"]
 alwaysApply: true
-parity-id: workspace-v5
+parity-id: workspace-v6
 ---
 
 # Bifrost 工作区规范
@@ -82,7 +82,7 @@ Bifrost = 三个域，边界不可跨越（spine **D13**）：
 ### 存放位置
 
 治理层实体在 **`bifrost-trade-infra/agent-config/`**（纳入 infra 版本控制与 CI），
-工作区根的 `CLAUDE.md` / `AGENT_FACTS.md` / `.mcp.json` / `.claude` / `.cursor` / `scripts` 均为符号链接。
+工作区根的 `CLAUDE.md` / `AGENT_FACTS.md` / `DESIGN_CONTRACTS.md` / `.mcp.json` / `.claude` / `.cursor` / `scripts` 均为符号链接。
 布局、链接重建命令与路径约定见 `bifrost-trade-infra/agent-config/README.md`。
 
 ---

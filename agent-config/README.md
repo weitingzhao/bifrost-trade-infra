@@ -11,6 +11,7 @@ Bifrost 工作区（`/stocks`）的 Agent 治理资产。**实体在这里，工
 |---------------------|---------------|------|
 | `/stocks/CLAUDE.md` | `CLAUDE.md` | Claude 侧完整治理规则 |
 | `/stocks/AGENT_FACTS.md` | `AGENT_FACTS.md` | **两侧共用**事实基线 |
+| `/stocks/DESIGN_CONTRACTS.md` | `DESIGN_CONTRACTS.md` | **三域设计契约** — Design 会话的唯一入站文件 |
 | `/stocks/.mcp.json` | `.mcp.json` | 6 个 MCP server 注册 |
 | `/stocks/.mcp.json.README.md` | `.mcp.json.README.md` | MCP 说明（focus 桥、令牌分级） |
 | `/stocks/.claude` | `claude/` | settings.json · skills · agents · commands · hooks |
@@ -29,6 +30,7 @@ cd /path/to/stocks && AC=bifrost-trade-infra/agent-config && \
   ln -sfn "$AC/claude" .claude && ln -sfn "$AC/cursor" .cursor && \
   ln -sfn "$AC/scripts" scripts && \
   ln -sf "$AC/CLAUDE.md" CLAUDE.md && ln -sf "$AC/AGENT_FACTS.md" AGENT_FACTS.md && \
+  ln -sf "$AC/DESIGN_CONTRACTS.md" DESIGN_CONTRACTS.md && \
   ln -sf "$AC/.mcp.json" .mcp.json && ln -sf "$AC/.mcp.json.README.md" .mcp.json.README.md
 ```
 

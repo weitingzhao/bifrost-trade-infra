@@ -1,5 +1,5 @@
 <!--
-parity-ids: workspace-v5, language-v1, agent-modes-v2, trade-execution-freeze-v2, dev-services-v2, phase-execution-v2
+parity-ids: workspace-v6, language-v1, agent-modes-v2, trade-execution-freeze-v2, dev-services-v2, phase-execution-v2
 对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
 改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
 -->
@@ -158,7 +158,7 @@ Ops Platform（火箭）与 Trade（载荷）必须先稳定；研究与分析�
 ### 存放位置
 
 治理层实体在 **`bifrost-trade-infra/agent-config/`**（纳入 infra 版本控制与 CI），
-工作区根的 `CLAUDE.md` / `AGENT_FACTS.md` / `.mcp.json` / `.claude` / `.cursor` / `scripts` 均为符号链接。
+工作区根的 `CLAUDE.md` / `AGENT_FACTS.md` / `DESIGN_CONTRACTS.md` / `.mcp.json` / `.claude` / `.cursor` / `scripts` 均为符号链接。
 布局、链接重建命令与路径约定见 `bifrost-trade-infra/agent-config/README.md`。
 
 ---
