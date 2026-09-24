@@ -1,6 +1,6 @@
 # DESIGN_CONTRACTS.md — 三域设计契约
 
-> **CANONICAL** — 本文件是正本（工作区根 `/stocks`）。`design/trade/DESIGN_CONTRACTS.md` 是随设计包导出的镜像；两份不一致时，以更新日期新的为准并立即覆盖旧的（P1=A，2026-09-15）。本版 2026-09-23 由 Claude Code 按 P1=A 从镜像同步：正本停在 2026-09-16、镜像已到 2026-09-22，补回 **§14.6 密集表列宽** 与 **§14.7 方向色回归绿/红**（app 侧早已按 §14.7 施工），并新增 **§15 业务价值高于视觉**（Owner 2026-09-12 裁定升格入契约）。2026-09-23 晚再次同步：Package 2026-09-23.6 的镜像已收回 §15，并新增 **§14.8 身份色棘轮** 与 **§16 页面精修原则**——两份此刻逐字一致。
+> **CANONICAL** — 本文件是正本（工作区根 `/stocks`）。`design/trade/DESIGN_CONTRACTS.md` 是随设计包导出的镜像；两份不一致时，以更新日期新的为准并立即覆盖旧的（P1=A，2026-09-15）。本版 2026-09-23 由 Claude Code 按 P1=A 从镜像同步：正本停在 2026-09-16、镜像已到 2026-09-22，补回 **§14.6 密集表列宽** 与 **§14.7 方向色回归绿/红**（app 侧早已按 §14.7 施工），并新增 **§15 业务价值高于视觉**（Owner 2026-09-12 裁定升格入契约）。2026-09-23 晚再次同步：Package 2026-09-23.6 的镜像已收回 §15，并新增 **§14.8 身份色棘轮** 与 **§16 页面精修原则**——两份此刻逐字一致。 2026-09-23 夜第三次同步：Package 2026-09-23.8（Rev .29）回 app 侧 ASK，§14.4 实体色表按 §14.8 归一（第 3、6 条改写，§5/§8 身份色枚举补 token 名）——正文与镜像逐字一致，镜像页首这一行仍是旧说明。
 
 放置位置:**读取路径不变** —— 工作区根 `/stocks/DESIGN_CONTRACTS.md`(与 `AGENT_FACTS.md` 平级)。三个 Design 项目(Ops / OLTP / OLAP)都挂载此目录,每次开会话先读本文件。
 
@@ -80,7 +80,7 @@ accent  紫罗兰 #a78bfa(on-accent #16112b)
 
 紫罗兰是**实验室模式**的标记,不是某个域的品牌色(理由见 §11.2)。Trade 沿用它现有的 `@bifrost/ui`;Ops 的新屏以 `@bifrost/ui` 为底,不引入紫罗兰。
 
-**身份色不可分**:ticker = lime、合约 = sky,三域一致。紫罗兰**不得**用于标 ticker——否则同一只票在边界两侧长得不一样,全站唯一的那个 join 就断了。
+**身份色不可分**:ticker = lime(`--sk-ticker`)、合约 = sky 族(`--sk-contract`),三域一致。紫罗兰**不得**用于标 ticker——否则同一只票在边界两侧长得不一样,全站唯一的那个 join 就断了。
 
 ---
 
@@ -280,7 +280,7 @@ Owner 把各会话的最新设计放进对应子目录;历史版本保留在 Des
 
 1. **四态 lamp 语义** —— 尤其**无读数是灰,不是红**。未探测 ≠ 故障。
 2. **方向色** `--color-profit` / `--color-loss` 与未实现 `--color-unrealized`(§1、§14.7)。
-3. **身份色**:ticker = lime、合约 = sky。紫罗兰**不得**用于标 ticker。
+3. **身份色**:ticker = lime(`--sk-ticker`)、合约 = sky 族(`--sk-contract`)。紫罗兰**不得**用于标 ticker。
 4. **数字格式与等宽字体**:精度、千分位、正负号位置、`tabular-nums`、对齐方式。
 5. **asof 徽标 + 质量旗 + `judged by Ops` + 回 Ops 的深链**(§2.1)。三者是一个组件的三半,不许只实现其中一半。
 6. **Copilot 署名行**(§2.2)。
@@ -553,6 +553,7 @@ OLTP 的 Research 已成熟、OLAP 刚起步,这个不对称指向一个省力�
 ### 14.4 实体标记(entity token)——一个金融实体只有一种样子
 
 > 起草:设计侧自查(2026-09-16)。Owner 当日裁定三项口径(点击行为 / 合约格式 / symbol 色)。
+> **修订 2026-09-23(Rev .29,回 app 侧 ASK)**:色列按 §14.8 身份色棘轮归一——Symbol/Stock → `--sk-ticker`、合约 → `--sk-contract`、Instance → `--sk-instance`;第 3、6 条随之改写。色值正本在 §14.8 + registry `DIRECTION`;本节仍是字形 / 格式 / 点击行为的正本。app commit `87db5b9` 的做法正确,不回退。
 > **动机**:Portfolio 五页完成后自查发现,同一个 symbol 出现过 lime 粗体 / 白色粗体 / lime 等宽 / sky 等宽四种;
 > 同一张期权合约出现过 `DAVE 280C` / `280C` / `DAVE Call 280` / `DAVE 261120C00270000 CALL 270` 五种格式;
 > instance 出现过 `#118` / `#156 #156` / `/ #79` / `Book →` 四种。这不是业界做法——终端类产品(TWS、Bloomberg)
@@ -562,10 +563,10 @@ OLTP 的 Research 已成熟、OLAP 刚起步,这个不对称指向一个省力�
 
 | 实体 | 字形 | 色 | 点击 | 正本页 |
 |---|---|---|---|---|
-| **Symbol** `NVDA` | 等宽 700 | **sky `#38bdf8`** | **打开当页右侧一格的 Symbol 面**;跨页只走一格内的显式链接 | Positions(策略轴)· Accounts(券商轴) |
-| **Option 合约** `NVDA 20NOV26 245C` | 等宽,**整体 ink** | ink | 打开该合约的检视面 | Positions / Ledger |
-| **Stock** | 同 Symbol 标记 | sky | 同 Symbol | Accounts |
-| **Instance** `#160` | 等宽 700 | **violet `#c084fc`** | 打开实例面 | Trade Ledger(链接在此产生) |
+| **Symbol** `NVDA` | 等宽 700 `tabular-nums` | **`--sk-ticker`**(暗 lime `#a3e635` / 亮 `#3f6212`) | **打开当页右侧一格的 Symbol 面**;跨页只走一格内的显式链接 | Positions(策略轴)· Accounts(券商轴) |
+| **Option 合约** `NVDA 20NOV26 245C` | 等宽 `tabular-nums`,**整体一色** | **`--sk-contract`**(暗 `#7dd3fc` / 亮 `#075985`) | 打开该合约的检视面 | Positions / Ledger |
+| **Stock** | 同 Symbol 标记 | 同 Symbol | 同 Symbol | Accounts |
+| **Instance** `#160` | 等宽 700 | **`--sk-instance`**(violet `#c084fc`) | 打开实例面 | Trade Ledger(链接在此产生) |
 | **Strategy / Opportunity** `Covered Call 10% OTM` | sans 600,**不着色** | ink | 按它筛选 | Trade Ledger |
 
 **六条硬约束**
@@ -574,15 +575,16 @@ OLTP 的 Research 已成熟、OLAP 刚起步,这个不对称指向一个省力�
    包括合约标记内部、Expiry 列、roll 路径与 fill 摘要。
 2. **合约格式唯一**:`SYM DDMMMYY 行权价+C/P`。券商原文 OCC(`NVDA 261120C00245000`)**只进 `title` 悬停**,
    不进正文——它是给对账用的,不是给阅读用的。
-3. **合约整体 ink,不给里面的 symbol 单独着色**:合约是一个标识符,不是「symbol + 修饰」。
-   裸 symbol 才用 sky。
+3. **合约整体走 `--sk-contract`,不给里面的 symbol 单独着色**:合约是一个标识符,不是「symbol + 修饰」。
+   裸 symbol 才用 `--sk-ticker`。(原「整体 ink」与旧 sky `#38bdf8` 作废,2026-09-23,§14.8 第 2 条)
 4. **点击不跳页**:symbol 点击打开**当页**右侧一格。离开当页永远是一格里的显式动作
    (`Its lines → Positions`),不是点 ticker 的副作用。没有 Symbol 面的页面,symbol 仍用同一个标记,
    只是不可点(无 hover 下划线)——**样子不因可点性而变**。
 5. **账户标识**:正本是账号 `U17123565`(等宽 mute);角色词 `Host` / `Secondary` 只作限定词(sans mute),
    禁止 `HOST` / `SEC` 全大写缩写。
-6. **lime 不用于实体**。lime 是全站唯一强调色,只给「当前激活的那一个东西」和主按钮(§1);
-   拿它当 ticker 色会让每张表都在喊。
+6. **lime 只给 ticker 身份,不给强调**。强调/操作色自 2026-09-23(Package .3)起为紫(`--sk-accent`),
+   lime 从强调通道空出后成为 ticker 身份色——ticker 不能读成正文(Stocks 风格轮裁定)。
+   本条原文「lime 是全站唯一强调色、不用于实体」的前提随强调色换紫失效,作废。
 
 **已执行**:Performance / Positions / Backing & Model / Accounts / Trade Ledger 五页已按本节回扫
 (2026-09-16,Rev .4)。Accounts 因此新增 Symbol 面(原来点 symbol 会直接跳页)。
