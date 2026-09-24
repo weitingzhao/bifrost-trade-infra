@@ -1,0 +1,47 @@
+---
+description: Shared single checkout — stage only the files you touched
+alwaysApply: true
+parity-id: shared-worktree-v1
+---
+# 共享工作树 — 只暂存自己碰过的文件
+
+12 个 repo 是**多会话共用的单一 checkout**。没有 per-session worktree，而且这条路走不通：
+工作区根不是 repo，且会话必须在根启动才能加载治理层（workspace.mdc），
+而 worktree 会把 cwd 切到子 repo 之下。
+
+## Agent 行为约束
+
+> 下列「禁止」项由 `scripts/agent-guard/preflight.js` 机械拦截
+> （Cursor `beforeShellExecution` / Claude `PreToolUse`），不依赖 Agent 自律。
+
+**暂存与提交必须同一步，且只含自己改过的文件**：
+
+```bash
+git status --porcelain          # 先看清楚哪些是自己的
+git add <file> <file>…          # 逐个列出
+git commit                      # 不带 -a
+```
+
+**禁止**：`git add -A` · `git add --all` · `git add -u` · `git add .` · `git commit -a` / `-am`。
+
+带 pathspec 的形式不受影响 —— `git add -A -- src/pages/trade` 放行，
+`git add -p`、`git commit --amend` 同样放行。
+
+`git stash` 不在拦截范围内，但它同样会把别的会话的在制品从工作树里抽走 —— 用之前先看 `git status`。
+
+## 为什么是机械闸门而不是规矩
+
+两次事故：2026-09-07 与 2026-09-22。第二次一整组 greeks 修复被并进了一个标题完全无关的提交，
+35 个提交之后才发现。git 不认为整树暂存是破坏性操作（什么都没丢），
+所以 auto mode 的 [Git Destructive] 分类器不管它 —— 这条闸门补的就是这个缺口。
+
+## 提交信息
+
+提交信息与代码一样进公开历史（12 个 repo 全部 PUBLIC）。
+**验证证据只写计数与「相等/一致」，不写金额**；提交前自查一遍：
+
+```bash
+git log -1 --format=%B | grep -nE '\$[0-9][0-9,]*|[0-9]{4,}\.[0-9]{2}'
+```
+
+对应 Claude 侧：`CLAUDE.md` §5「共享工作树」。

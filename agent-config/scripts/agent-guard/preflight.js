@@ -174,6 +174,67 @@ function devServiceRules(cmd) {
   return null
 }
 
+// ─────────────────────── 共享工作树规则（卫生，可豁免） ───────────────────────
+//
+// 12 个 repo 是多会话共用的单一 checkout：工作区根不是 repo，且会话必须在根启动
+// 才能加载治理层（CLAUDE.md §8），所以 per-session worktree 这条路走不通。后果是
+// 一个会话跑整树暂存，会把别的会话**正在写**的文件一并纳入，下一次 commit 就把
+// 它们卷走。2026-09-07、2026-09-22 各发生过一次；第二次一整组 greeks 修复被并进了
+// 一个标题完全无关的提交，35 个提交之后才被发现。
+//
+// git 不认为这是破坏性操作（什么都没丢），所以 auto mode 的 [Git Destructive]
+// 分类器不管它 —— 这条规则补的就是这个缺口。
+
+/** 拆出 `git <sub>` 的 flag 与 pathspec。第一个非 flag token 之后不再按 flag 解析，
+ *  这样提交信息里的 "-a"、路径里的 "." 都不会被误判。 */
+function gitArgs(cmd, sub) {
+  const m = new RegExp(
+    '(?:^|[\\s;|&`(])git\\s+(?:(?:-C|-c)\\s+\\S+\\s+)*' + sub + '\\b([^;|&\\n]*)',
+  ).exec(cmd)
+  if (!m) return null
+  const flags = []
+  const paths = []
+  let inFlags = true
+  for (const tok of m[1].trim().split(/\s+/).filter(Boolean)) {
+    if (tok === '--') {
+      inFlags = false
+      continue
+    }
+    if (inFlags && tok.startsWith('-')) {
+      flags.push(tok)
+      continue
+    }
+    inFlags = false
+    paths.push(tok)
+  }
+  return { flags, paths }
+}
+
+const SWEEPS_ALL = /^(-A|--all|-u|--update)$/
+const WHOLE_TREE = /^(\.|\.\/|\*)$/
+/** 单横杠短 flag 里带 a（-a / -am / -av…）；--amend 这类长 flag 不算。 */
+const shortFlagHasA = f => /^-[a-zA-Z]+$/.test(f) && f.includes('a')
+
+function sharedWorktreeRules(cmd) {
+  if (isRead(cmd) || isFileWrite(cmd)) return null
+
+  const add = gitArgs(cmd, 'add')
+  if (
+    add &&
+    (add.paths.some(p => WHOLE_TREE.test(p)) ||
+      (add.flags.some(f => SWEEPS_ALL.test(f)) && add.paths.length === 0))
+  ) {
+    return '整棵树暂存（`git add` 的 -A / -u / . 形式）会把别的会话正在写的文件一并纳入 —— 逐个列出自己改过的文件'
+  }
+
+  const commit = gitArgs(cmd, 'commit')
+  if (commit && commit.flags.some(f => f === '--all' || shortFlagHasA(f))) {
+    return '`git commit -a` 绕过暂存区直接提交所有已跟踪改动，包括别的会话的 —— 先逐个 `git add <file>`，再不带 -a 提交'
+  }
+
+  return null
+}
+
 // ─────────────────────────────── 判定 ───────────────────────────────
 
 function evaluate(payload) {
@@ -188,6 +249,8 @@ function evaluate(payload) {
   if (cmd) {
     const dev = devServiceRules(cmd)
     if (dev) return { deny: true, kind: 'dev-services', reason: dev }
+    const sw = sharedWorktreeRules(cmd)
+    if (sw) return { deny: true, kind: 'shared-worktree', reason: sw }
     if (locked) {
       const d10 = d10Rules(cmd)
       if (d10) return { deny: true, kind: 'D10', reason: d10 }
@@ -214,6 +277,17 @@ function denyMessage(kind, reason) {
       `解锁需要两个条件同时满足：Owner 明文书面指令，且 spine 中 decisions[id=D10].status → UNLOCKED。\n` +
       `不要绕过本闸门、不要"修复" guard 文件 —— 直接向 Owner 报告。\n` +
       `权威源：${AUTHORITY}`
+    )
+  }
+  if (kind === 'shared-worktree') {
+    return (
+      `【共享工作树 — 只暂存自己碰过的文件】拦截原因：${reason}。\n` +
+      `12 个 repo 是多会话共用的单一 checkout，没有 per-session worktree：` +
+      `暂存与提交必须同一步，且只含自己改过的文件。\n` +
+      `先看自己改了什么：git status --porcelain ——` +
+      `再 git add <file>… && git commit（不带 -a）。\n` +
+      `注意 git stash 不受本闸门拦截，但它同样会把别人的在制品从工作树里抽走。\n` +
+      `参见 CLAUDE.md §5「共享工作树」/ .cursor/rules/shared-worktree.mdc`
     )
   }
   return (

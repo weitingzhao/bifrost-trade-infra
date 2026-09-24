@@ -1,5 +1,5 @@
 <!--
-parity-ids: workspace-v6, language-v1, agent-modes-v2, trade-execution-freeze-v2, dev-services-v2, phase-execution-v2
+parity-ids: workspace-v6, language-v1, agent-modes-v2, trade-execution-freeze-v2, dev-services-v2, phase-execution-v2, shared-worktree-v1
 对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
 改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
 -->
@@ -122,6 +122,29 @@ Ops Platform（火箭）与 Trade（载荷）必须先稳定；研究与分析�
 - 完成后输出结构化 Phase 报告；**不自动开始下一个 Phase**（除非 Owner 已确认「批量执行」→ `.claude/skills/batch-execution/`）
 
 数据库设计标准见 **`.claude/skills/database-design/`**（新增/修改 PostgreSQL 表时触发）。
+
+### 共享工作树 — 只暂存自己碰过的文件
+
+12 个 repo 是**多会话共用的单一 checkout**。没有 per-session worktree，而且这条路走不通：
+工作区根不是 repo，且会话必须在根启动才能加载治理层（§8），而 worktree 会把 cwd 切到子 repo 之下。
+
+所以**暂存与提交必须同一步，且只含自己改过的文件**：
+
+```bash
+git status --porcelain          # 先看清楚哪些是自己的
+git add <file> <file>…          # 逐个列出
+git commit                      # 不带 -a
+```
+
+**禁止**（由 `scripts/agent-guard/preflight.js` 机械拦截）：
+`git add -A` · `git add --all` · `git add -u` · `git add .` · `git commit -a` / `-am`。
+带 pathspec 的形式不受影响（`git add -A -- src/pages/trade` 放行）。
+
+`git stash` 不在拦截范围内，但它同样会把别的会话的在制品从工作树里抽走 —— 用之前先看 `git status`。
+
+> 两次事故：2026-09-07 与 2026-09-22。第二次一整组 greeks 修复被并进了一个标题完全无关的提交，
+> 35 个提交之后才发现。git 不认为整树暂存是破坏性操作（什么都没丢），所以 auto mode 的
+> [Git Destructive] 分类器不管它 —— 这条闸门补的就是这个缺口。
 
 ---
 
