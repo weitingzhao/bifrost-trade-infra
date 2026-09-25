@@ -76,6 +76,93 @@ spec:
             summary: "PostgreSQL connection count high"
             description: "CNPG pod {{ $labels.pod }} has more than 80 backends."
 
+        # Capacity. Postgres had replication lag, connections and instance
+        # presence and nothing about running out of room, which is the failure
+        # that ends with writes rejected rather than slowed.
+        #
+        # The real ceiling is the node's root partition, not the CNPG
+        # `spec.storage: 30Gi`: local-path is a hostPath provisioner with
+        # allowVolumeExpansion off, and it does not enforce that number. For the
+        # same reason `kubelet_volume_stats_*` reports the whole partition rather
+        # than this PVC, so reading it as "how full is the database volume" is
+        # wrong by two orders of magnitude.
+        #
+        # 50 GB rather than the kube-prometheus-stack default's 5% (25 GB of
+        # 500 GB): measured 2026-09-25, free space on these two moves tens of GB
+        # in a day from build workspaces and image layers while the database
+        # itself grows about 0.3 GB, so 25 GB is inside one day's noise.
+        - alert: BifrostPostgresNodeDiskLow
+          expr: |
+            node_filesystem_avail_bytes{mountpoint="/", instance=~"192.168.10.(70|75):9100"} < 50e9
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Postgres node root partition low"
+            description: >-
+              {{ $labels.instance }} has {{ $value | humanize1024 }}B free on /.
+              This is the real limit for bifrost_golden_source: its local-path
+              volume is not capped at the 30Gi written on the CNPG cluster.
+
+        # One series, not one per pod. The metric is reported by the primary and
+        # every replica, so the bare `delta()` would emit a result per pod and
+        # extrapolate wildly for any pod younger than the window — a replica
+        # rebuilt this week would read as the whole database appearing at once.
+        #
+        # 8 GB, not 3: measured 2026-09-25 the real 7-day delta was 3.01 GB
+        # (1.5 GB of it that day alone, from the canonical PnL rewrite and the
+        # IV history purge), so 3 GB is this week's normal and an alert set there
+        # would fire on the day it was installed. 8 GB is about 2.7x a busy week
+        # and still leaves months of warning before the disk rule above.
+        - alert: BifrostPostgresDatabaseGrowth
+          expr: |
+            delta(max(cnpg_pg_database_size_bytes{namespace="data", datname="bifrost_golden_source"})[7d:1h]) > 8e9
+          labels:
+            severity: warning
+          annotations:
+            summary: "Golden Source grew unusually fast"
+            description: >-
+              bifrost_golden_source grew {{ $value | humanize1024 }}B in seven
+              days. Check the plugin trim slot ran, and whether a backfill or a
+              nightly rewrite is landing more than it retires.
+
+        # WAL shares the data volume — there is no separate `walStorage` — so
+        # anything that stops WAL being recycled eats the same space the database
+        # does. NOT `cnpg_collector_pg_wal`: that series is scraped every 30s and
+        # every sample is NaN, verified 2026-09-25 (count_over_time returns 2880
+        # over a day while max_over_time returns nothing), so a threshold on it
+        # would have been an alert that could never fire — worse than none,
+        # because it reads as coverage.
+        #
+        # These two are the actual ways WAL accumulates, and both carry real
+        # values: archiving stopped, or a slot holding segments for a replica
+        # that has fallen behind.
+        - alert: BifrostPostgresWalArchiveStalled
+          expr: |
+            cnpg_pg_stat_archiver_seconds_since_last_archival{namespace="data"} > 3600
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PostgreSQL WAL archiving stalled"
+            description: >-
+              {{ $labels.pod }} last archived a WAL segment
+              {{ $value | humanizeDuration }} ago. WAL is on the data volume, so
+              unarchived segments accumulate against the same free space.
+
+        - alert: BifrostPostgresWalRetainedBySlot
+          expr: |
+            cnpg_pg_replication_slots_pg_wal_lsn_diff{namespace="data"} > 5e9
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Replication slot retaining WAL"
+            description: >-
+              Slot {{ $labels.slot_name }} on {{ $labels.pod }} is holding
+              {{ $value | humanize1024 }}B of WAL. Postgres cannot recycle it
+              while the slot lags.
+
     # Elastic / WOL standby — marker for Alertmanager inhibit (no GPU/warehouse demand).
     # Does NOT fire when ai/ollama or data-warehouse/minio want replicas > 0.
     - name: bifrost-elastic-standby
