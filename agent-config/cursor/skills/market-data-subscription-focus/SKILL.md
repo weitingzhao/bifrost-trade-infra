@@ -58,6 +58,31 @@ push GitHub → `make -C bifrost-trade-infra k3s-sync-gitea-mirrors` → `kubect
 `pipelinerun-build-market-data.yaml` template with the new image tag → confirm the tag in
 `192.168.10.73:30500/v2/bifrost-market-data/tags/list` → `kubectl apply -k k8s/base` → `make verify-market-data`.
 
+### A release that adds a table lands the schema first
+
+`kubectl apply -k k8s/base` submits the Deployments and `job-wave8-schema-migrate` **in the same
+breath**, so the new pods start claiming work while the DDL is still landing. Any slot that fires
+in that window writes to a table that does not exist yet.
+
+Measured 2026-09-24 on the 0.37.0 SEC-filings release: 181 `sec_filings_symbol` jobs were created
+in one instant at 21:37:25; the 56 that reached the database between 21:37:49 and 21:38:16 died on
+`relation "raw_market.sec_8k_filing" does not exist`, and the 125 that got there from 21:38:56
+onward succeeded. The table appeared inside a 40-second gap in a single batch.
+
+So when a release introduces or alters a table:
+
+1. Apply the migration alone and wait for it — `kubectl apply -k k8s/base` after
+   `kubectl -n plugin-market-data wait --for=condition=complete job/job-wave8-schema-migrate`,
+   or apply that Job on its own first.
+2. Then verify by the **error signature, not by the Job**: the Job carries a TTL and deletes
+   itself on success, so `kubectl get job` afterwards proves nothing either way. Ask the queue
+   instead — `GET /market/ingest/jobs?status=failed` and look for `does not exist`.
+3. A slot firing during the window loses its batch. Prefer a release window away from the
+   slot's cron, the same way 21:05–23:15 UTC is avoided for the session slots.
+
+The three filings tables have **no read endpoints**: to confirm a table exists and holds rows, read
+`/market/coverage/dimensions` and check that dataset's `error` and `held`.
+
 ## Hard rules
 
 - Do **not** enqueue option-trades, I:SPX / I:VIX, trades / quotes / last-trade — 403 by plan
