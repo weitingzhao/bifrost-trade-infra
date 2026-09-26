@@ -66,8 +66,12 @@ containerd 在后台把删除做完了。**不要据此以为失败**，过一�
 ### 两个衍生发现
 
 1. **`Deployment/registry` 没有任何持久卷** —— 19 个 repo 的镜像全在 pod 的可写层里
-   （containerd snapshotter），pod 自 2026-06-17 起没重启过。这既是 `ubt-k3s-01` 上
-   prune 后仍有 158 GB 的原因，也意味着**这个 pod 一旦重建，所有 tag 全部消失**。待处理。
+   （containerd snapshotter，**112.9 GB**），pod 自 2026-06-17 起没重启过。这既是 `ubt-k3s-01` 上
+   prune 后仍有 158 GB 的原因，也意味着**这个 pod 一旦重建，所有 tag 全部消失**。
+   ⚠️ 2026-09-26 的镜像 prune 让这条更危险：节点缓存只剩各约 43 个镜像，**registry 已是唯一副本**。
+   执行方案见 **[`REGISTRY_PERSISTENCE_PLAN.md`](REGISTRY_PERSISTENCE_PLAN.md)**
+   （新起带 PVC 的 registry + `crane` 复制 49 个 tag / 5.30 GB + 切 Service selector，全程可回退）。
+   **前置条件是一个没人构建的窗口** —— 复制完成到切换之间的任何一次 push 都会落到旧 registry 上。
 2. **Tekton 没有 pruner**（`config-defaults` 还是出厂示例块，没有 TektonConfig CRD）。
    2026-09-25 有 115 个 PipelineRun、其中 81 个是当天建的。对象会无界堆积（etcd），
    但**它们占的磁盘极小**（工作区实际约 3 GB）—— 清它们是为了对象卫生，不是为了空间。
