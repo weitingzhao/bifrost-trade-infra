@@ -61,8 +61,14 @@ spec:
             requests:
               cpu: 10m
               memory: 32Mi
+          # 100m was not enough for a 30s-interval exporter: measured 2026-09-26,
+          # all three sidecars sat at 41-51% CFS throttling (CPUThrottlingHigh had
+          # been firing on redis-dev since 08-13). Throttling the exporter starves
+          # the scrape, and BifrostRedisDown keys off that very target being up —
+          # so the throttle degrades the alert that is supposed to watch Redis.
+          # Redis itself was never throttled; its limits are 1-2 CPU.
             limits:
-              cpu: 100m
+              cpu: 250m
               memory: 64Mi
 ---
 apiVersion: v1
@@ -142,8 +148,14 @@ spec:
             requests:
               cpu: 10m
               memory: 32Mi
+          # 100m was not enough for a 30s-interval exporter: measured 2026-09-26,
+          # all three sidecars sat at 41-51% CFS throttling (CPUThrottlingHigh had
+          # been firing on redis-dev since 08-13). Throttling the exporter starves
+          # the scrape, and BifrostRedisDown keys off that very target being up —
+          # so the throttle degrades the alert that is supposed to watch Redis.
+          # Redis itself was never throttled; its limits are 1-2 CPU.
             limits:
-              cpu: 100m
+              cpu: 250m
               memory: 64Mi
 ---
 apiVersion: v1
@@ -223,8 +235,14 @@ spec:
             requests:
               cpu: 10m
               memory: 32Mi
+          # 100m was not enough for a 30s-interval exporter: measured 2026-09-26,
+          # all three sidecars sat at 41-51% CFS throttling (CPUThrottlingHigh had
+          # been firing on redis-dev since 08-13). Throttling the exporter starves
+          # the scrape, and BifrostRedisDown keys off that very target being up —
+          # so the throttle degrades the alert that is supposed to watch Redis.
+          # Redis itself was never throttled; its limits are 1-2 CPU.
             limits:
-              cpu: 100m
+              cpu: 250m
               memory: 64Mi
 ---
 apiVersion: v1

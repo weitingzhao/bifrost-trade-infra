@@ -81,17 +81,30 @@ alertmanager:
   config:
     global:
       resolve_timeout: 5m
+    # Everything reaches the Owner. The root used to point at an *empty* `default`
+    # receiver with one route for `Bifrost.*`, so every other alert fired in
+    # Prometheus and was silently dropped here — including the stack's own
+    # NodeFilesystemAlmostOutOfSpace / KubePersistentVolumeFillingUp, which were
+    # being counted as a capacity backstop that did not exist (2026-09-25).
+    #
+    # Connecting the root is small because the inhibit rules below already do
+    # their job: measured 2026-09-26 against Alertmanager's own view (not
+    # Prometheus's firing list, which does not know about inhibition), 13 alerts
+    # were deliverable and 15 were inhibited. Of the 13, five were already
+    # routed, two are the non-events nulled below, and the rest are real.
     route:
-      receiver: default
+      receiver: bifrost-ops-agent
       group_by: ['alertname', 'namespace']
       group_wait: 30s
       group_interval: 5m
       repeat_interval: 12h
       routes:
-        - match_re:
-            alertname: Bifrost.*
-          receiver: bifrost-ops-agent
-          continue: false
+        # Not events, and must never notify. Watchdog exists to be *absent* — it
+        # fires always, so external dead-man's-switch tooling can notice when it
+        # stops. InfoInhibitor exists only to drive the info-inhibition rule.
+        - receiver: "null"
+          match_re:
+            alertname: 'Watchdog|InfoInhibitor'
     # Mute kube/node noise for elastic WOL standby when BifrostElasticStandbyMarker fires.
     # Node-scoped alerts keep equal:node. Aggregate TargetDown and DaemonSet/Pod
     # alerts often omit `node` — inhibit by alertname (+ job/namespace) only.
@@ -112,7 +125,9 @@ alertmanager:
           - alertname="TargetDown"
           - job=~".*(node-exporter|kubelet).*"
     receivers:
-      - name: default
+      # `default` is gone: an unconfigured receiver is a silent drop, and the
+      # root now names the webhook directly.
+      - name: "null"
       - name: bifrost-ops-agent
         webhook_configs:
           - url: http://platform-api.bifrost-platform-stg.svc.cluster.local:8780/api/v1/ops-agent/alertmanager
