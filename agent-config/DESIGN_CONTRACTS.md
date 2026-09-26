@@ -1,6 +1,6 @@
 # DESIGN_CONTRACTS.md — 三域设计契约
 
-> **CANONICAL** — 本文件是正本（工作区根 `/stocks`）。`design/trade/DESIGN_CONTRACTS.md` 是随设计包导出的镜像；两份不一致时，以更新日期新的为准并立即覆盖旧的（P1=A，2026-09-15）。本版 2026-09-23 由 Claude Code 按 P1=A 从镜像同步：正本停在 2026-09-16、镜像已到 2026-09-22，补回 **§14.6 密集表列宽** 与 **§14.7 方向色回归绿/红**（app 侧早已按 §14.7 施工），并新增 **§15 业务价值高于视觉**（Owner 2026-09-12 裁定升格入契约）。2026-09-23 晚再次同步：Package 2026-09-23.6 的镜像已收回 §15，并新增 **§14.8 身份色棘轮** 与 **§16 页面精修原则**——两份此刻逐字一致。 2026-09-23 夜第三次同步：Package 2026-09-23.8（Rev .29）回 app 侧 ASK，§14.4 实体色表按 §14.8 归一（第 3、6 条改写，§5/§8 身份色枚举补 token 名）——正文与镜像逐字一致，镜像页首这一行仍是旧说明。 2026-09-26：新增 **§15.6–15.9 业务优先**（Owner 裁定：有数据就要放 · 先交付强的 · 缺数据先分权限还是 Bug · 取舍总原则），目前只在正本。**注意：镜像此刻比正本新**（已到 Rev .74，多 §17 交互模式标准及 §8/§14.7 的 token 落地改写），正本其余部分待 Owner 放行后从镜像同步——同步时须保留 §15.6–15.9。
+> **CANONICAL** — 本文件是正本（工作区根 `/stocks`）。`design/trade/DESIGN_CONTRACTS.md` 是随设计包导出的镜像；两份不一致时，以更新日期新的为准并立即覆盖旧的（P1=A，2026-09-15）。本版 2026-09-23 由 Claude Code 按 P1=A 从镜像同步：正本停在 2026-09-16、镜像已到 2026-09-22，补回 **§14.6 密集表列宽** 与 **§14.7 方向色回归绿/红**（app 侧早已按 §14.7 施工），并新增 **§15 业务价值高于视觉**（Owner 2026-09-12 裁定升格入契约）。2026-09-23 晚再次同步：Package 2026-09-23.6 的镜像已收回 §15，并新增 **§14.8 身份色棘轮** 与 **§16 页面精修原则**——两份此刻逐字一致。 2026-09-23 夜第三次同步：Package 2026-09-23.8（Rev .29）回 app 侧 ASK，§14.4 实体色表按 §14.8 归一（第 3、6 条改写，§5/§8 身份色枚举补 token 名）——正文与镜像逐字一致，镜像页首这一行仍是旧说明。 2026-09-26：新增 **§15.6–15.9 业务优先**（Owner 裁定：有数据就要放 · 先交付强的 · 缺数据先分权限还是 Bug · 取舍总原则），目前只在正本、尚未回流镜像。同日第四次同步（Owner 放行）：镜像 Rev .74（2026-09-25）的 §17 交互模式标准、§16.10–16.14 与 §8/§14.7 token 落地改写已收进正本，正文除 §15.6–15.9 外与镜像逐字一致。
 
 放置位置:**读取路径不变** —— 工作区根 `/stocks/DESIGN_CONTRACTS.md`(与 `AGENT_FACTS.md` 平级)。三个 Design 项目(Ops / OLTP / OLAP)都挂载此目录,每次开会话先读本文件。
 
@@ -37,6 +37,8 @@
 --color-lamp-gray   #64748b
 ```
 
+**暗 / 亮同值**(2026-09-25 裁定,回 app 侧 Q4):lamp 四色两个主题都取上表的包值;Trade 暗色遗留的 `#facc15` / `#94a3b8` 作废。
+
 铁律(来自 `lampTone.ts`,已在 Trade 落地):**无读数是灰,永远不是红。** 刻意的安全姿态(如 D10 下 daemon 不运行)必须是灰,红只留给真实故障。灰色 lamp 不发光。
 
 **方向色 — 全域一致(2026-09-12 修订,见 §11.9)。**
@@ -50,11 +52,11 @@
 
 只给**有符号数字**:P&L、涨跌、Θ、净额、delta、OOS 收益、有符号柱。不给标签、边框、背景,也不表示买卖方向。
 
-**红色自此只有一个含义:真实故障。** emerald / red 不再是方向色。这条对三域同时生效——同一个 P&L 数字在 Trade、Workbench、Ops 里必须同色。属 §11.3 不可分项。
+**红色的两个用法按形态与色值分开**(§14.7 第 2 条):方向红 `#f87171` 只落在带符号的 mono 数字上;严重度红 lamp-red `#dc2626` 只落在圆点 / tag 上,两者不共用载体。(2026-09-25 更正:此处原写「红色只有一个含义:真实故障」,是 §11.9 时期的旧句,与上表矛盾。)这条对三域同时生效——同一个 P&L 数字在 Trade、Workbench、Ops 里必须同色。属 §11.3 不可分项。
 
-> 过渡期写法 `var(--color-profit, #4ade80)` 等:三个 token 尚未进 `@bifrost/ui`,fallback 保证今天渲染正确,token 落地后自动接管,页面无需回头改。
+> 写法 `var(--color-profit, #4ade80)` 等:token 自 `@bifrost/ui@0.4.13` 起由包声明(暗 `:root, .dark` / 亮 `[data-theme='light']`),fallback 只保首帧。
 >
-> **2026-09-12 补记(2026-09-17 随 §14.7 换名)**:token 是惰性的,原型里必须有人声明它。`shell-registry.js` 注入 `sr-tokens-css`(`:root, .dark { --color-profit; --color-loss; --color-unrealized }`),让间接层在原型里真正生效,不必 fork 设计系统。`@bifrost/ui` 落地后删掉该 block 即可。
+> ~~2026-09-12 补记:`shell-registry.js` 注入 `sr-tokens-css`~~ —— **2026-09-25 已删(Rev .31)**,包内声明接管。
 
 **未实现盈亏 — 整列橘色,不分正负(2026-09-16 更正,见 §14.7;原 §11.12 撤色处置作废)。**
 
@@ -185,14 +187,46 @@ Research API           :8795
 
 **`bifrost-ui/ds-bundle` 挂为三个 Design 项目的设计系统。** 它已含 tokens、40+ 组件(HealthLamp / DenseDataTable / PageShell / ShellNavSidebar …)、guidelines 与逐组件截图。一致性由**继承**获得,不靠三个会话各自商量。
 
-挂载前先在 Claude Code 里重新构建一次 —— `ds-bundle/_ds_needs_recompile` 标记存在,说明当前包可能是陈旧的。
+**当前挂载:`@bifrost/ui@0.4.14`(2026-09-25 同步)**。色彩 / 主题 token 与 README 已和本契约一致。语义色另有单独入口 `@bifrost/ui/styles/semantic`(7 个色值,暗 / 亮两套);**Trade 只引这一份**,不整份引 `bifrost-ui.css`(后者含未分层的 body / 滚动条 / `.shell-*` 规则)。
+
+**口径优先级(冲突时自上而下取第一个)**:
+1. 本文件正文——设计裁定(含尚未进包的试验口径)
+2. `@bifrost/ui` 包(token 值 · 组件行为 · README / guidelines)——**已固化口径的正本**
+3. `shell-registry.js`——原型层:skin ramp、层色、`SCOPE_STYLE`,以及**试验中、尚未进包**的 token;`DIRECTION` 仅作棘轮镜像,须与包值一致
+4. 原型页面实际渲染
+
+**进包规则(提升到 DS)**:新 token / 组件 / 变体先在 registry 或页面里试,写进本契约定稿;**两个控制台都会用的**在 HANDOFF 单列「提升到 `@bifrost/ui`」,由 `stocks/bifrost-ui` 实现 → 升版 → 同步回 Design;同步后删 registry 里的对应临时写法。**镜像刷新**:`DIRECTION` 的值只能经 HANDOFF「提升到 `@bifrost/ui`」一节变更——只改 registry 会让 app 棘轮报红;包升版后由 app 侧跑 `npm run sync:design-nav` 刷新镜像。Trade 专属的留在本契约,交 `bifrost-trade-frontend`。Design 侧的 Bifrost Dense UI 项目是代码镜像,**不手改**。
+
+> **历史 · 2026-09-25 补记(Rev .30)· 已收口(Rev .31,0.4.13 同步后)**
+>
+> **现状**:Design 侧挂载的包是 `@bifrost/ui@0.4.11`(同步于 2026-09-10);源码 `stocks/bifrost-ui/package.json` 已是 **0.4.12**,`_ds_needs_recompile` 标记仍在。Design 设计系统选择器显示「empty」是该条目缺预览卡的展示问题——组件、tokens、README 实际完整,84 页均加载、77 页直接使用 `BifrostUI.*`。
+>
+> **优先级(冲突时自上而下取第一个)**:
+> 1. 本文件(`DESIGN_CONTRACTS.md`)正文
+> 2. `shell-registry.js`(`DIRECTION` / `SCOPE_STYLE` / 注入的 `sr-tokens-css` 与 `--sk-*` 变量)
+> 3. 原型页面实际渲染
+> 4. `@bifrost/ui` 的 README / guidelines / 包内默认 token 值
+>
+> 第 4 层只提供**组件结构与 core token**(间距、圆角、字号阶、DenseDataTable 等组件行为)。它的色彩与主题叙述已落后,下列各点**以第 1–2 层为准,不得按 README 实现**:
+>
+> | README / 包内现状 | 现行口径 | 出处 |
+> |---|---|---|
+> | 「dark-only,无亮色主题」 | 暗 / 亮两套主题,均走变量 | §14.8 · registry `DIRECTION` |
+> | 「唯一强调色 lime `--primary: #a3e635`」 | 强调色 = 紫 `--sk-accent`(Package .3 起);lime 只给 ticker 身份 | §14.4 第 6 条 · §14.8 |
+> | 身份色未入包 | `--sk-ticker` / `--sk-contract` / `--sk-instance` | §14.4 · §14.8 |
+> | 盈亏 / 未实现色未入包 | `--color-profit` / `--color-loss` / `--color-unrealized`(`#fb923c`) | §1 · §14.7 |
+> | 方向色未入包 | `--color-up` / `--color-down` | §11.9 |
+>
+> **收口路径(app 侧,`@bifrost/ui` 源码 owner)**:上表 token 入 tokens 层(semantic)→ README §1 改写主题与强调色两段 → 重建 ds-bundle、清 `_ds_needs_recompile` → 重新同步到 Design。完成后本补记降为历史,registry 的对应注入改为 fallback。
+>
+> **收口结果(Rev .31)**:上表 9 个 token 已在 0.4.13 包内,暗 / 亮值与 registry `DIRECTION` 逐一核对一致;README §1 已改写。registry 删 `sr-tokens-css`,skin 注入不再写这 6 个色 token(仅保留包内没有的 `-rgb` 三元组)。上表与上列旧优先级作废。
 
 ### 三层 token,偏好只允许落在第三层
 
 | 层 | 内容 | 共享性 |
 |---|---|---|
 | **core** | 间距、圆角、字号阶、栅格 | 三域完全一致,不得覆盖 |
-| **semantic** | lamp 四态、**方向色 up / dn**、危险 / 成功、焦点环、身份色 | 三域完全一致 —— 严重度与方向的语义是普适的 |
+| **semantic** | lamp 四态、**方向色 profit / loss / unrealized**(§14.7;up / dn 已退役)、危险 / 成功、焦点环、身份色 | 三域完全一致 —— 严重度与方向的语义是普适的 |
 | **brand / domain** | ground / surface 配色、正文字体、密度档 | 各域自定,但必须在本文件声明 |
 
 **已声明的第三层偏离:**
@@ -202,7 +236,7 @@ Research API           :8795
 
 ~~方向色 teal / orange 只在 OLAP 存在~~ —— **2026-09-12 作废**:方向色已升为全域 semantic(§1 / §11.9),不再是第三层偏离。
 
-**待入 tokens 层**:`--color-profit` / `--color-loss` / `--color-unrealized`(§14.7)。落地前页面写 `var(--color-profit, #4ade80)` 等 fallback。
+~~待入 tokens 层~~ —— **已入包(0.4.13;0.4.14 起在 `styles/semantic`)**:`--color-profit` / `--color-loss` / `--color-unrealized`。页面的 `var(--color-profit, #4ade80)` fallback 只为首帧。
 
 任何域可以换 ground 配色与正文字体,**不得重新定义红色的含义,不得自造间距阶,不得改动方向色、身份色与数字格式**(完整清单见 §11.3)。
 
@@ -510,7 +544,7 @@ OLTP 的 Research 已成熟、OLAP 刚起步,这个不对称指向一个省力�
 | `/research/lab/history` | History 方法层 | `/research/history` 读数面 |
 | `/research/lab/calibration` | 28 条契约状态表 | 无 |
 
-三条约束:**不得放在 `/docs/` 下**(`isSystemRoute` 会把整条侧栏换成 Ops runtime 页);侧栏里 lab 行带的是中性的 `lab` 模式标而不是徐罗兰徐弽色 badge(§11.2:lab 色不蔓延到 Trade chrome);§11.11 的「一个 URL两张面」在实现上是**同一个已保存筛选对象、同一个 id**,面由路由末段区分。
+三条约束:**不得放在 `/docs/` 下**(`isSystemRoute` 会把整条侧栏换成 System 树;2026-09-15 收敛后 System 树里已无 Ops runtime 页);侧栏里 lab 行带的是中性的 `lab` 模式标而不是徐罗兰徐弽色 badge(§11.2:lab 色不蔓延到 Trade chrome);§11.11 的「一个 URL两张面」在实现上是**同一个已保存筛选对象、同一个 id**,面由路由末段区分。
 
 ---
 
@@ -682,7 +716,7 @@ Description 193px → 446px,截断 13/15 → 2/15)。
 3. **橘与 degraded 琥珀同法分工**:琥珀 `#fbbf24` 只在 lamp / tag,橘 `#fb923c` 只在数字。
    `UNREALIZED` 标记(§11.12 形态)保留——颜色回来了,标记继续把话说全。
 
-4. **阶段感只住 chrome 通道**:accent、选中态、链接、面板底色可随阶段变(Trade lime、Research 紫灰…),
+4. **阶段感只住 chrome 通道**:accent、选中态、链接、面板底色可随阶段变(Research 紫灰…;Trade 的 accent 现为紫 `--sk-accent`,lime 只作 ticker 身份色),
    数据语义色(方向、未实现、lamp、身份色 ticker lime / 合约 sky)永不随阶段变。
 
 5. **图表方向填充同步**:payoff 图涨跌区、stress 柱等用 profit / loss 的低饱和填充
@@ -703,7 +737,7 @@ Description 193px → 446px,截断 13/15 → 2/15)。
 
 主题成对之后,实体身份色必须走变量——裸 hex 在亮主题下不翻转,同一实体就会在不同页/不同主题下长两个颜色。
 
-1. **三个实体 token,正本在 registry `DIRECTION[theme]`,`applySkin` 发布**:
+1. **三个实体 token,正本在 `@bifrost/ui` 包内(0.4.13 起;0.4.14 起为 `styles/semantic`;此前为 registry `DIRECTION[theme]` + `applySkin`)**。`DIRECTION` 留作棘轮镜像,值须与包一致:
    `--sk-ticker`(暗 #a3e635 / 亮深绿)· `--sk-contract`(暗 #7dd3fc / 亮深蓝)· `--sk-instance`(暗 #c084fc / 亮深紫)。
    写法一律 `var(--sk-ticker, #a3e635)`(fallback 只为首帧)。方向/未实现同理走 `--color-profit|loss|unrealized`。
    **完整配方不只是颜色**(2026-09-23 补):Symbol 标 = JetBrains Mono · 700 · `tabular-nums` · ticker 变量;
@@ -713,6 +747,7 @@ Description 193px → 446px,截断 13/15 → 2/15)。
 4. **棘轮审计**(与白天清账同一把尺):扫全库 `.dc.html` 中不在 `var(--…,` 兑底位的 `#a3e635 #7dd3fc #38bdf8 #c084fc #a78bfa`;命中逐个判归属(实体→换 var · 模块色/lamp→豁免 · accent 误用→换 `--sk-accent`)。新页面裸写这五个值作实体墨 = 审计不过。
    **tint 填充同尺**(2026-09-23 二轮):方向/实体色的半透填充必须写 `rgb(var(--color-profit-rgb, 74 222 128) / α)` 形;暗中性微线必须写 `color-mix(… var(--sk-line|surface) α%, transparent)`;裸暗三元组(全通道 <90,黑色 scrim/阴影除外)= 审计不过。
    现状:全库已清零(壳件 + 72 页 + tint 二轮);豁免清单见 CLEANUP。
+5. **图表图层可借身份色**(Owner 2026-09-25,Performance 图层 1b):当一条图层恰是某类实体的汇总(Options 层 = 全部合约 · Stocks 层 = 全部股票)时,取该实体墨(`--sk-contract` / `--sk-ticker`);不属于实体的图层(FI 现金流 · Cash-like)用中性墨 + 虚线,且同图内每条灰线取不同档(`--sk-soft` / `--sk-mute` / `--sk-faint`;`--sk-mute2` 在部分皮肤里与 `--sk-mute` 同值,不作区分用)。图层线不得取方向色、lamp 色或 `--sk-accent`;Total 下的面积区按 0 轴分色——水上 profit、水下 loss 低饱和填充(§14.7 #5),线本身永不红绿。
 
 ---
 
@@ -739,6 +774,150 @@ Description 193px → 446px,截断 13/15 → 2/15)。
 **16.8 颜色只走变量**:所有中性色、方向色、身份色、tint 填充按 §14.8 棘轮;实体标用完整配方(不只颜色)。
 
 **16.9 主题中立**:页面不得假设某个主题(暗 / 亮 / 自动)。凡页面里写死的色值、阴影底色、玻璃底色,都要能在四种组合下成立。
+
+**16.10 统一页头 `_Shell PageHead`(Owner 2026-09-25)**:每页页头只用这一个共用件,不再手写 `<h1>` 或直接用 DS `PageHeader`。
+- **第 1 行**(≥36px):标题 22/700(§16.4,单行不折,最多占 45%)· `ⓘ`(页说明,悬停显示、点击钉住,Esc / 点外关闭;说明**不上屏**,一句不删)· **时间戳位永远有**(有会话 → `ASOF`,`_Part AsofTag`;只有抓取时刻 → `FETCHED`,§4.6 不伪造 ASOF;参考页 Docs/Settings → `REV`;数据页无读数 → `ASOF —` 灰,§11.3.1)· 右侧 meta(计数,mono)+ 操作按钮(DS `Button`,主操作 ≤1 个)。
+- **第 2 行**(可选,32px):下划线 Tab,当前项用 `--sk-accent` 下划线(§1「一个视图一个激活物」)。页面级视图切换放这里;**筛选 / 账户范围不进页头**,放页头下方工具条。
+- 页头以一条 `line0` 细线收尾。高度只有两档:无 Tab 43px · 有 Tab 75px。
+- 窄屏时**时间戳位永不收缩**(§16.3:陈旧 / 未接通必须可见);先让 meta 省略,再让标题省略(最多占 45%)。时间戳文字用短标签(如 `⚠ FEED NOT WIRED`),整句放 `title`;按钮文字 ≤ 20 字符,完整去向放 `title`。
+- **例外:主语页**(Research › Symbol):以主语(symbol · 名称 · 价格 · Verdict)为页头,不再加页名标题;不广播页头事件,面包屑末级照常显示。
+- **例外:长文文档页**(`/docs/*` 中以文章为主体的页:Index · Audit · Capability · Gaps · Progress · Research Menu,及 System › Discover model):保留文档排版,导语留在正文;不广播页头事件。判据:页面主体是连续正文而不是数据面。
+- **Face 开关**(Reading / Method)放页头下方工具条首位,不进页头。
+- 操作按钮可带状态色(`ink` / `border`,如 Refresh 的 polling 琥珀 / 完成青色),带状态色的按钮 `aria-live=polite`。
+- 定稿后提升到 `@bifrost/ui` 的 `PageHeader`(加 `info` / 时间戳位 / `tabs` / 带状态的 `actions`)。
+
+**16.10a Symbol 仍是例外,改成四层头(Owner 2026-09-25)**:不进 `_Shell PageHead`。页头从上到下:主语(symbol 26 · 名称 · 价格 · 涨跌 · 持有)→ Verdict(判定 + Send to · Plan this)→ 依据一行(灰字:lens 概述 · from 来源 · 入选理由)→ 控件行(Reading / Method · snapshot · ASOF · 本次解读的动词)。lamp 行退役,状态灯只在 Tab 上;← n of N → 走 Symbol 列表坞的 Source 列表(Shell Spec §5a.11)。
+
+**16.12 面包屑不重复页名(Owner 2026-09-25)**:页名只在页头做主角。
+- 顶栏面包屑的**上级可点**(`crumbsFor()` 给每级解析 `to`:同名路由且前缀一致 → 该路由;顶层组 → 层页;解析不到的组名保持纯文字)。
+- **末级(当前页名)在页头可见时收起**,连同它前面的 `›`;页头滚出视口后淡入(≈200ms)。`_Shell PageHead` 用 IntersectionObserver 广播 `bifrost:pagehead`(`in` / `out`),并写 `<html data-pagehead>`;TopBar 据此收放。
+- 没有换 `_Shell PageHead` 的页不广播,末级照常显示——过渡期没有页面会看不到自己的名字。
+- §5a.5「h1 = ROUTES `label` = 面包屑末级」仍成立:名字的来源不变,只是同一时刻只出现在一处。
+- 已知:窗口 < 1440 时顶栏本就会折成两行,末级淡入会让顶栏多占一行;在目标宽度下不发生。
+
+**16.13 新鲜度按数据类型写(Owner 2026-09-25)**:时间戳位回答「现在能不能信它」。**平时安静,出问题才显眼**——新鲜 = 中性灰字(不用绿:全站绿灯等于没有信号);陈旧 = 琥珀;未知 = 灰 `—`;红色不用于新鲜度(§1)。文字写**距今多久**,精确时刻与出处进 title。判定对**交易时钟**做(RTH = 周一至周五 09:30–16:00 ET):盘外没有东西算陈旧。
+
+| 类型 `fresh-kind` | 例 | 文字 | 陈旧判定 | 盘外 |
+|---|---|---|---|---|
+| `stream` 实时流 | Live | `LIVE · 0s` / `STALE 12s` | RTH 内 > 5s | `CLOSED · 16:00`(最后一笔 = 上一个收盘) |
+| `snapshot` 抓取快照 | Positions · Accounts · Backing | `FETCHED 2m ago` / `STALE 18m` | RTH 内 > 5m | 1h 内照写距今;更久 `CLOSED · 16:04` |
+| `run` 定时运行 | Daily Brief | `RUN 07:05` / `DUE 07:05` / `LATE · due 07:05` | 过了排期 15 分钟仍没跑 | 同左(排期本身带时刻) |
+| `session` 会话 | Performance · Research 各读数页 | `ASOF 2026-09-10` / `· HOLDING` | 不是应到的会话(`_Part AsofTag`) | 同左 |
+
+页面只传 `fresh-kind` · `fresh-at`(毫秒时刻)· `fresh-src`(出处)· `fresh-due`(run 的排期,`HH:MM` ET);距今、颜色、交易时钟由 `_Shell PageHead` 统一算(stream 每秒、其余每 15 秒重算)。市场时钟 helper 在 registry `MARKET`(`inRTH` · `lastClose` · `etToday` · `etClock`);节假日原型未建模,app 侧按交易日历实现。**原型只有一个时钟**(`MARKET.now()`):默认锚在最近一个交易日 09:59:41 ET(故事线的盘中时刻),从页面加载起走;页头、StatusBar、数据同读这一个时钟(§14.2)。localStorage `bifrost.clockShift` = `real` 用真实时间,= 毫秒数则在锚点上偏移(如 `22000000` 预览收盘后)。已迁移:Live · Positions · Backing · Accounts · Risk › Exposure · The Book · Daily Brief;session 类照旧走 `_Part AsofTag`。**同一份数据只有一个时刻**(§14.2):Positions / Backing / Accounts / Exposure 读的是同一份券商快照,原型里共用 `MARKET.brokerSnapshotAt()`;Accounts 的 Refresh 完成后该时刻前移。**例外**:Corporate Actions 的时间戳位显示的是馈源接通状态(`⚠ FEED NOT WIRED`),不是时刻,保留 `fetch-label` 写法。
+
+**16.14 数据置信度(Owner 2026-09-25,样板阶段;取代 §16.13 的单源写法作为目标形态)**:页面要回答的不是「什么时候更新的」,而是「这页的数现在能不能拿来做决定」。它由两件事决定——**本页依赖哪些源**,以及**本页拿来做什么**。
+
+- **数据源表**(registry `DATA.SOURCES`):每个源声明名称 · 提供方 · 自己的应到周期 · 判定方(Ops / Research,§2.1:Trade 只呈现,不判定)。状态七种:`ok` · `bydesign`(按设计就是旧的,如 OI 盘中永远 T-1)· `delayed`(权限属性,如 Massive 分析链 15 分钟延迟——不是陈旧)· `stale` · `quality`(如 THIN-CHAIN)· `down` · `unknown`。
+- **页面依赖**(`DATA.DATA_PAGES`):分「决定本页」与「参考」两组,并声明用途档位——**execution**(要实时报价 + 当前账本)· **monitoring**(分钟级即可)· **research**(收盘会话足够,延迟链可用)。同一个源,对不同档位的「够用」不同:`delayed` 对 research 是 0,对 execution 的关键源是 1。
+- **四层呈现**:
+  1. **全局** StatusBar:交易时段(PRE / RTH / POST / CLOSED)+ 数据灯(全部源最差态)→ 点开是全站数据源面板。
+  2. **页头**置信度标签:健康 = 灰字、无点,写最关键源的读数(execution:`QUOTES LIVE · POS 2m`;research:`ASOF 2026-09-24`);降级 = 琥珀 + 卡住的那个源(`POSITIONS STALE 18m` · `+N` 表示还有几个);故障 = 红(`OPTION QUOTES DOWN`,红色少数合规用法,§1)。点开 = 本页每个源的周期 · 读数 · 状态 · 判定方。
+  3. **数字**:依赖降级源的列在列头副行标 `≈ quotes` / `≈ snapshot`,点名被污染的数,而不是整页可疑。
+  4. **动作**:execution 档的动作在关键源降级时确认一次,列出是哪个源、读数多少。
+- **不显示的页**:数据全是系统自身状态的页(Inbox · Book · Autopilot · Copilot · Plans · Playbook · Desk · Alerts · Today · Events · Orchestration · System Status)不显示标签——不依赖外部源,给时间什么也说明不了。`ASOF —` 只留给「本该报告却没报告」。
+- 样板:Positions(execution · 多源 · 第 3 层列标)· Trade Expiration(execution · 第 4 层 Create plans 确认)· Stock ratings(research)· StatusBar 数据灯。原型预览:任一样板页的置信度弹层底部「Preview」切三个场景(Healthy / Snapshot stale · thin chain / IB quotes down;localStorage `bifrost.dataScenario`)。
+
+**16.11 页面不横向滚动(Owner 2026-09-25)**:目标最小窗口 **1440px**(含侧栏)。页面滚动容器一律 `overflow-y: auto; overflow-x: hidden`。放不下的宽表在**卡片内**横向滚动,首列固定:表的包裹层加 `data-sr-hscroll`(registry 统一提供 sticky 首列样式)。网格列不用固定 px(用 `minmax(0,1fr)` 或 §16.5 的 flex 写法);`white-space: nowrap` 只给数字、代码和标签,不给说明文字。
+
+---
+
+## 17. 交互模式标准(Owner 2026-09-25 立,分批推进)
+
+> 与 §16 同轮做:精修一页时顺带过本节六条。顺序:状态 → 表格 → 工具条 → KPI → 弹层 → 间距。每类:规则 → 共用件 → 样板页 → 分批迁移(每批 8–10 页),进度在 CLEANUP「交互模式对齐」。
+
+**17.0 盘点基线(2026-09-25,76 页)**——定标准的依据,迁移完成后复扫对照:
+- 状态:加载 / 失败态几乎为零(仅 Home Events 有 down 态);EmptyState 22 处,被筛空多数没有 Clear 动作;外包 padding 10 / 12 / 14 三种。
+- 表格:原生 `<table>` 约 60 页 · DenseDataTable 约 15 页;声明列宽 29 页;`data-sr-hscroll` 2 页;`table-layout: fixed` 3 页。
+- 筛选:SegmentControl 2 页,其余自绘 chip / pill(29 页);搜索框 3 页;没有统一的 Clear。
+- 弹层:DS Dialog / Sheet / Popover 0 处;24 页自绘 overlay / drawer。
+- 圆角:6px 187 · 5px 157 · 3px 90 · 4px 47 · 2px 42 · 8px 27 · 其余 6 种;面板多走 `var(--radius)`(= 10px)。
+- 间距:gap 8 / 6 / 10 / 12 为主,另有 5 / 7 / 9 / 3 / 1 等;padding 组合 > 14 种。
+
+### 17.1 七种非就绪状态(`_Part State`,已建)
+
+| kind | 何时 | 呈现 | 动作 |
+|---|---|---|---|
+| `loading` | 首次加载 | 骨架,300ms 后才出,形状同内容;页头 / 工具条 / 表头 / 导航不等数据 | — |
+| `failed` | 取数失败,没有旧数据 | 红 lamp + 红标题;detail 写原因 · 时刻 · 「以下没有被评估」 | Retry |
+| `stale` | 刷新失败,有上一份 | **条带**(strip)压在数据上方,琥珀;数据保留 | Retry |
+| `empty` | 查询成立,结果为零 | 灰;写清与「全部安全」的区别 | 结束它的动作(去定义 / 去创建) |
+| `filtered` | 筛选把结果筛空 | 灰;写「N 项被 M 个筛选移除」;表头与工具条保留 | Clear filters |
+| `signedout` | §14.1 无凭据 | 灰 | Set user(无 Retry) |
+| `notwired` | 设计已定、馈源未接 | 灰;必须可见(§16.3) | — |
+
+1. **失败落在包住它的最小范围**:一个源坏只占依赖它的面板;导航、静态说明照常。多个面板读同一个源时,只报一次(放在主面板),其余面板让位,不重复。
+2. **刷新不出骨架**:已有数据再拉时,由页头时间戳位表达;刷新失败走 `stale` 条带,不清屏。
+3. **失败 ≠ 空**:失败文案必须说明「没有被评估」,防止读成「没有问题」;空态必须说明「没有定义」与「有余量」的区别。
+4. **文案**:标题说是哪件事(`Couldn't load the limit book`),detail 说原因 + 时刻;错误码写进 detail,不单独出码。
+5. **声明与预览**:页面在 `_Shell PageHead` 传 `states="loading,failed,…"` 声明它实现了哪些态;原型里 ⓘ 弹层底部可逐态预览(localStorage `bifrost.viewState`,按路由;Retry 在原型里回到 Ready)。
+6. 只有 `failed`(红)和 `stale`(琥珀)带色;其余全部灰(§11.3.1)。
+7. **`filtered` 的动作必须结束这个状态**:复位**所有**能把本列表筛空的轴(状态 · 账户 Include/Exclude · 范围 · 搜索),不只复位触发的那一个;`title` 写清复位了哪些。
+
+样板:Risk Overview(loading · failed · stale · empty)。
+
+### 17.2 表格列宽与截断(扩 §14.6;registry 列型预设已建)
+
+| 列型 | 例 | 对齐 | 截断 |
+|---|---|---|---|
+| entity | symbol · 合约 · 实例 | 左 | **永不**;nowrap,宽随内容 |
+| num | 价格 · 数量 · Greeks · % | 右(表头也右),mono tabular | **永不** |
+| tag | 状态 · Kind | 左 | 不截;按最长标签定宽 |
+| text | 说明 · 备注 · 理由 | 左 | 唯一可省略的列:`minmax` 伸缩,省略号 + `title` 全文 |
+| act | 行尾操作 | 右 | 固定宽 |
+
+- **写法**:`<table data-sr-table>` + 每个 `th` / `td` 标 `data-sr-col="entity|num|tag|text|wrap|act"`。表头字号、单元格 padding(DS `--table-cell-py/px`)、行线、首尾列 12px 内缩、num 右对齐等宽,全部由 registry 统一给;页面不再自带 `xx-th` / `xx-td` 类。`wrap` = 允许折行的长说明(最小 220px);`text` 省略时必须带 `title`。
+- 缺值由页面在 renderVals 里写成 `—`(不靠 CSS 补:模板空洞会留空文本节点,`:empty` 不生效);分组 / 小标题行用 `colSpan` 合并,不留空的带类型单元格。
+- 用 DS `DenseDataTable` 的表同样标 `data-sr-col`(列型规则是全局属性选择器)。
+- 每表声明 `min-width`(§14.6);放不下走 `data-sr-hscroll` 首列固定(§16.11)。
+- 空单元格写 `—`(灰);未知 ≠ 0。
+- 表头单行不折;排序标记统一在文字右侧。
+- 行点击 = 打开详情(Inspector);实体标点击 = 实体面(§14.4);两者不得落在同一处。
+
+### 17.3 筛选栏 / 工具条(registry `data-sr-toolbar` 已建)
+- 位置:页头下方(§16.10),高 32px,用页面 gap 与页头隔开。
+- 顺序(左 → 右):Face 开关 → 范围(账户)→ 视图(DS `SegmentControl`,不自绘 pill)→ 筛选(`IncludeExcludeToggle` / `DenseTagButton`)→ 搜索 · 弹性空白 · 行数 `N of M` → `Clear`(有生效筛选才出现)→ 次要动作(导出 / 密度)。
+- 筛选状态写进 URL hash 查询串,深链可复原。
+- 被筛空走 17.1 `filtered`。
+- 窄屏时换行,不横向滚动;搜索框最先收成图标。
+- **写法**:容器 `<div data-sr-toolbar>`(高度由内容撑开,不设 min-height——它是网格项,写死最小高会让换行溢出 · padding 5/10 · 无框 · 圆角 12 · raised2 实底(粘顶时要盖住内容),registry 统一给;Rev .73 并入 1a);内部 `data-sr-tb="label"`(大写小标签)· `"sep"`(竖分隔)· `"meta"`(右对齐计数)。不用共用 DC:各页工具条内容差异大,容器与词表统一即可。
+- **Clear**:DS `Button` ghost sm,文字 `Clear N`(N = 生效筛选数),`title` 列出复位了哪些;复位规则同 §17.1 第 7 条。样板 Positions。
+- 状态读数条(Live 的流状态、Today 的时钟)沿用同一容器,但不放筛选。
+
+### 17.4 KPI 数字条(registry `data-sr-kpi` 已建)
+- 两级:英雄读数(§16.2,28–34 mono,每页 ≤ 5)· 面板读数(20 mono)。其余数字进表。
+- 结构:标签(11/600,sentence case,在上)→ 数(mono tabular)→ 副行(对照 / 变化 / 口径)。
+- 未知写 `—` 灰;估算加 `≈` 前缀;严重档只染描边(§16.2);方向色只给有符号数(§14.7)。
+- 单位跟在数后(小一号),标签里不重复。
+- 点击只做一件事:下钻到算它的地方(§14.2),或筛选本页;去向写在 `title`。
+- **写法**:三级——英雄卡 `data-sr-kpi="hero"`(30)· 面板读数 `data-sr-kpi-v="panel"`(20)· 读数条 `data-sr-kpi="strip"`(页面地面上的独立框)/ `"strip-inset"`(面板内的一行,不加第二层框)+ 子项 `data-sr-kpi="stat"`(16)。hero 与 strip 用 1a 材质(无框 · 圆角 12 · ink 4% 填充,Rev .73);页面只可用 `border-color` 表达状态(如琥珀 = ≥3/4),不得画装饰框。内部 `data-sr-kpi-l` 标签 · `data-sr-kpi-v` 数 · `data-sr-kpi-s` 副行。字号、字重、等宽由 registry 给,页面只写颜色。
+- 样板:英雄卡 Positions;读数条 Risk Margin;面板读数 Risk Overview。
+
+### 17.5 弹窗与侧滑面板(按用途选容器)
+- 需要确认的写操作(发单 / 删除 / 不可撤销)→ DS `ConfirmDialog`;execution 档叠加 §16.14 第 4 层的源降级确认。
+- 看一个对象的详情且不离开列表 → 右侧 Sheet(`_Part Inspector`),宽 480 / 720 两档,URL 带 `?inspect=`。
+- 编辑表单 → Sheet,不用 Dialog:编辑时要看得到背后的数据。
+- 轻量说明、单个筛选的选项、置信度 → Popover(锚定触发器,宽 ≤ 480)。
+- 表内一行多看几列 → `DenseTableDetailRow` 行内展开。
+- 共同:同时最多一层浮层(Popover 可在 Sheet 内);Esc 关最内层;点外关 Popover,不关 Sheet(防误触丢输入);玻璃材质只给这些浮层(§16.6)。
+- **写法**(registry,2026-09-25):`data-sr-scrim`(遮罩;`="center"` 居中放确认框)· `data-sr-sheet="sm|md|lg"`(480 / 600 / 920:查看详情 / 编辑表单 / 带预览的新建)· `data-sr-toast`(底部居中一行,玻璃,`role=status`)。sheet 带 `role="dialog" aria-modal="true"`,危险确认用 `role="alertdialog"`。
+- **点外关不关**:编辑类 Sheet(表单)点遮罩**不关**,只认 Esc / Cancel / ✕;查看类抽屉点外可关;确认框点外 = 取消(安全方向)。
+- 盘点(2026-09-25):自绘浮层 40 处 = 提示条 23 · 编辑 Sheet 6(Desk 5 · Plans 1)· 查看抽屉 1(Autopilot Console)· 确认框 1(Desk Emergency flatten)· 外框自有 3(TopBar 右栏 / 浮窗)。Popover 类(页头 ⓘ / 置信度)在 `_Shell PageHead` 内,已统一。
+
+### 17.6 卡片、间距与圆角
+- **Rev .62 起材质按 1a**:面板 / 卡片圆角 12 · 按钮与输入框 8 · 标签胶囊 999;下一条的 10 / 6 / 4 三档是 1a 之前的值,以 HANDOFF Rev .62 为准,待本节整体改写。
+- 圆角三档:面板 / 卡片 `var(--radius)`(10px)· 内嵌控件与 chip 6px · 标签与小徽标 4px。另有两个例外:色条 / 进度条 1–2px;浮层(popover / toast)8px。其余值退役。
+- 间距阶 **2 · 4 · 6 · 8 · 10 · 12 · 16 · 24**(2026-09-25 按盘点修订:6 与 10 在密集界面里用量第二、第三,保留;奇数值与 14 / 18 / 20 / 22 退役):页面内边距 16 · 面板间 gap 12 · 面板内边距 12(表格区 0,单元格自带 padding)· 面板标题行 8 / 12 · 控件组 gap 6。
+- 面板标题行:h2 15/600(§16.4),右侧 meta + 链接;说明进 `title`。
+- 迁移方式:机械替换(脚本),每批复扫 17.0 的分布。
+- **执行结果**(2026-09-25,84 个文件,仅模板内联样式与页内 `<style>`;JS 生成的样式与 Palette Study 未动):gap 3→4 · 5→6 · 7/9→8 · 11/13/14→12 · 15/18→16 · 20/22→24;padding 同表(14→12);圆角 3→4 · 5/7→6 · 9/11/12→`var(--radius)`;另 46 个面板 / 卡片类的 6px 外框圆角 → `var(--radius)`。结果:圆角 12 种 → 6 种(1 · 2 · 4 · 6 · 8 · 10),gap 14 种 → 8 种主值。
+
+### 17.7 屏上文案与字体(Rev .74)
+- **屏幕说读数与动作,不说设计。** 不引用设计文档(§ 号、Vision §、裁定、Ruled 日期),不讲本页「不是什么」、为什么这样布局、旧版怎样;不写「this page is wrong first」这类给实现者的口径,改写成「X is the source」。读法图例(灰 = 无读数、琥珀 = ≥ 阈值)是读数说明,保留。
+- **D10** 是产品里的执行冻结名,作为状态词可以出现(`⛨ D10 BLOCKED`);不作为引文括注。
+- **等宽只给逐位比较的内容**:数、合约、标识、公式。整句说明、图例、提示一律正文字体,哪怕句中带数字。
+- **字号只用整数**(§5 dense scale);9px 只给坐标轴刻度,不给句子。
+- **大写加字距只给每个面板头的一个 caption**;KPI 标签、表内标签用 sentence case(§17.4)。
 
 ---
 
