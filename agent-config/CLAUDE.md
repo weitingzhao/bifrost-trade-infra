@@ -1,5 +1,5 @@
 <!--
-parity-ids: workspace-v6, language-v1, agent-modes-v2, trade-execution-freeze-v2, dev-services-v2, phase-execution-v2, shared-worktree-v1
+parity-ids: workspace-v6, language-v1, agent-modes-v2, trade-execution-freeze-v2, dev-services-v2, phase-execution-v2, shared-worktree-v1, business-first-v1
 对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
 改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
 -->
@@ -122,6 +122,18 @@ Ops Platform（火箭）与 Trade（载荷）必须先稳定；研究与分析�
 - 完成后输出结构化 Phase 报告；**不自动开始下一个 Phase**（除非 Owner 已确认「批量执行」→ `.claude/skills/batch-execution/`）
 
 数据库设计标准见 **`.claude/skills/database-design/`**（新增/修改 PostgreSQL 表时触发）。
+
+### 业务优先（Owner 2026-09-26）
+
+设计美观、页面精简、代码整洁与业务能力冲突时，**业务能力赢**；美化发生在业务被满足之后。细则在
+`DESIGN_CONTRACTS.md` §15（15.6–15.9），四条要点：
+
+- **有数据就要放**：设计不知道 app 有什么数据。某个端点实测有数、且回答本页的业务问题，就上页面；
+  设计只定位置和形态。
+- **写「没有数据 / unmeasured / owed」前必须实测**：Research、插件、Trade 三侧端点都要查，包括
+  history 类端点和按日期参数。2026-09-26 有两处这样的误报（terrain 历史、max pain 历史）。
+- **先交付强的**：同一能力两处都有而新处更弱时，把强的那版补进新处；先全部可见，再分主次。
+- **缺数据先分原因**：订阅权限 → 接受并留座写明；Bug / 作业停跑 / 没实现 → 修。
 
 ### 共享工作树 — 只暂存自己碰过的文件
 

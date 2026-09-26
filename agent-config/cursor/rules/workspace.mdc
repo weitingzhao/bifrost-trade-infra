@@ -57,6 +57,7 @@ Bifrost = 三个域，边界不可跨越（spine **D13**）：
 | Dev 服务（bdev） | `.cursor/rules/dev-services.mdc` |
 | Phase 执行纪律 | `.cursor/rules/phase-execution.mdc` |
 | 数据库设计 | `.cursor/rules/database-design.mdc` |
+| 业务优先（有数据就要放 · 先实测再写「没有」 · 缺数据分权限/Bug） | `.cursor/rules/business-first.mdc` |
 
 已退役的规则归档在 `.cursor/_archive/`（不再加载，见其 README）。
 
