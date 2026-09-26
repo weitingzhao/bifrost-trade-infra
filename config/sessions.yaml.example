@@ -85,7 +85,15 @@ sessions:
     ports: [8785]
     health_url: "http://127.0.0.1:8785/health"
     group: ops
-    restart: on-failure
+    # Resident: any exit respawns. git-bridge runs git synchronously (execSync),
+    # so /health goes silent for as long as a push and its pre-push hooks run;
+    # 10 x 30s tolerates that instead of killing the bridge mid-push.
+    restart: always
+    restart_delay: 1
+    restart_max_delay: 30
+    restart_max_failures: 10
+    health_interval: 30
+    health_fail_threshold: 10
 
   probe-bridge:
     label: "Satellite Probe Bridge"
