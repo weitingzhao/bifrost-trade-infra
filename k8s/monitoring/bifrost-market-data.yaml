@@ -1,0 +1,22 @@
+# Scrape the Massive Market Data plugin's /metrics (plugin-market-data namespace).
+# The series are the doctor's cached conclusion — findings by severity, one series
+# per critical / warning finding, and when the report was computed — which the
+# bifrost-market-data alert group reads.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bifrost-market-data
+  labels:
+    app.kubernetes.io/component: plugin
+spec:
+  namespaceSelector:
+    matchNames:
+      - plugin-market-data
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: market-data-api
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 20s

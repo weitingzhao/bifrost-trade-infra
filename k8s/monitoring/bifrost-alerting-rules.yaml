@@ -358,6 +358,67 @@ spec:
             summary: "IB Flex tokens are {{ $value | humanizeDuration }} old"
             description: "IB expires Flex tokens after a year ([1012]). Generate new ones in IB Account Management and run make sync-flex-tokens (sets FLEX_TOKENS_ISSUED_AT)."
 
+    # Massive market data (plugin-market-data). Same gap as Flex: a Dagster run
+    # confirms only an enqueue, and the plugin exported nothing, so a slot that
+    # never fired or a partial pull surfaced as a stale panel someone opened.
+    # These read the plugin's /metrics — the doctor's own conclusion, which is
+    # already session- and holiday-aware; no rule here re-derives a deadline.
+    - name: bifrost-market-data
+      rules:
+        - alert: BifrostMarketDataCritical
+          # 3h: the EOD chain drains past midnight UTC and the 00:45 self-heal
+          # gets its turn; still critical at ~02:30 is when the Research
+          # trading-day gate would block on it.
+          expr: |
+            bifrost_market_data_doctor_finding{severity="crit"} == 1
+          for: 3h
+          labels:
+            severity: critical
+          annotations:
+            summary: "Market data: {{ $labels.title }} ({{ $labels.id }})"
+            description: "The market-data doctor has held {{ $labels.id }} critical for 3h, through the self-heal. Ops Console → Massive → Doctor has the detail and prescription; slot {{ $labels.slot }}."
+
+        - alert: BifrostMarketDataWarningLingering
+          # Both nightly heals (00:45, 05:30 UTC) have had a go by 26h.
+          expr: |
+            bifrost_market_data_doctor_finding{severity="warn"} == 1
+          for: 26h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Market data: {{ $labels.title }} ({{ $labels.id }}) for a day"
+            description: "{{ $labels.id }} has been a warning for 26h and neither self-heal cleared it; slot {{ $labels.slot }}. A narrow or short session the heal cannot refill is lost after the vendor moves on."
+
+        - alert: BifrostMarketDataDoctorStale
+          expr: |
+            (time() - bifrost_market_data_doctor_report_timestamp_seconds) > 3600
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Market data doctor has not completed a report in over an hour"
+            description: "The served report is {{ $value | humanizeDuration }} old. The doctor recomputes every ten minutes behind each read, so the API cannot reach Postgres or the doctor is raising; every other market-data alert is blind while this fires."
+
+        - alert: BifrostMarketDataScrapeDown
+          expr: |
+            up{job="market-data-api"} == 0 or absent(up{job="market-data-api"})
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Market data plugin /metrics not being scraped"
+            description: "Prometheus cannot reach market-data-api in plugin-market-data; the other market-data alerts are blind while this fires."
+
+        - alert: BifrostMarketDataWorkersDown
+          expr: |
+            kube_deployment_status_replicas_available{namespace="plugin-market-data",deployment=~"polygon-worker-.*"} == 0
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Market data {{ $labels.deployment }} has no available replica"
+            description: "{{ $labels.deployment }} in plugin-market-data is not running; its queued ingest jobs will not be claimed."
+
 
     # The plugins Trade runs on had no alerting until now. On 2026-09-07 the IB
     # gateway could not reach TWS for 17.5 hours — 1876 failed connects — and
