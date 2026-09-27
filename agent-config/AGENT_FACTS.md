@@ -253,7 +253,7 @@ Owner **2026-08-31** 签批 D-14GF.1–6（R1）；同日 GitHub Archive + 授�
 | `bifrost-research/.githooks/pre-commit` | ✅ `make install-hooks` |
 | Tekton `bifrost-ci-{frontend,platform,python}` | ✅ Triggers + EventListener + Gitea push webhooks |
 | python-ci CEL | ✅ 含 `bifrost-research`；code-health Task 对 research + trade-api/core/worker 跑棘轮 |
-| python-ci ruff（2026-09-26） | ✅ **阻断** research + trade-api/core/worker（脚本里的 `lint_blocks`；research 的 35 条既有问题已于 76901a2 清零）。ruff 只来自各 repo `[dev]` 的 `ruff==0.16.9`，规则显式 `select = ["E4","E7","E9","F"]`（0.16 起默认规则 59→413 条）；CI 与 `make lint` 同为 `ruff check .`。**sqlfluff** 同一闸门：带 `.sqlfluff` 的 dbt 目录（research `src/bifrost_research/dbt`，postgres · jinja 模板器 · `rules = core,RF02,AM03` · 行宽 100，`sqlfluff==4.3.0`）跑 `sqlfluff lint models/`，与 `make lint` 相同 |
+| python-ci ruff（2026-09-26） | ✅ **阻断** research + trade-api/core/worker（脚本里的 `lint_blocks`；research 的 35 条既有问题已于 76901a2 清零）。ruff 只来自各 repo `[dev]` 的 `ruff==0.16.9`，规则显式 `select = ["E4","E7","E9","F"]`（0.16 起默认规则 59→413 条）；CI 与 `make lint` 同为 `ruff check .`。**sqlfluff** 同一闸门：带 `.sqlfluff` 的 dbt 目录（research `src/bifrost_research/dbt`，postgres · jinja 模板器 · `rules = core,RF02,AM03,RF03` · 行宽 100，`sqlfluff==4.3.0`）跑 `sqlfluff lint models/`，与 `make lint` 相同 |
 
 安装：`make k3s-install-ci-triggers` + `make k3s-install-ci-webhooks`；校验 `make k3s-verify-ci-triggers`。
 
