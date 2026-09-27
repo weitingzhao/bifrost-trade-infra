@@ -145,11 +145,11 @@ spec:
               #
               # Lint blocks for the repos that are clean on their pinned ruff; each
               # runs `ruff check .` in `make lint` too, so the verdict is the local
-              # one. bifrost-research joins this list once its findings are cleared.
+              # one. A new repo joins once `ruff check .` is clean on its own pin.
               # A blocking repo with no ruff fails: ruff and pytest both come from
               # [dev], so that is also the case where pytest would silently skip.
               case "${repo}" in
-                bifrost-trade-api|bifrost-trade-core|bifrost-trade-worker) lint_blocks=1 ;;
+                bifrost-research|bifrost-trade-api|bifrost-trade-core|bifrost-trade-worker) lint_blocks=1 ;;
                 *) lint_blocks=0 ;;
               esac
               lint_failed=0

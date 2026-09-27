@@ -253,7 +253,7 @@ Owner **2026-08-31** 签批 D-14GF.1–6（R1）；同日 GitHub Archive + 授�
 | `bifrost-research/.githooks/pre-commit` | ✅ `make install-hooks` |
 | Tekton `bifrost-ci-{frontend,platform,python}` | ✅ Triggers + EventListener + Gitea push webhooks |
 | python-ci CEL | ✅ 含 `bifrost-research`；code-health Task 对 research + trade-api/core/worker 跑棘轮 |
-| python-ci ruff（2026-09-26） | ✅ **阻断** trade-api/core/worker · research 仅 WARN（35 条既有问题清完后加进脚本里的 `lint_blocks`）。ruff 只来自各 repo `[dev]` 的 `ruff==0.16.9`，规则显式 `select = ["E4","E7","E9","F"]`（0.16 起默认规则 59→413 条）；CI 与 `make lint` 同为 `ruff check .` |
+| python-ci ruff（2026-09-26） | ✅ **阻断** research + trade-api/core/worker（脚本里的 `lint_blocks`；research 的 35 条既有问题已于 76901a2 清零）。ruff 只来自各 repo `[dev]` 的 `ruff==0.16.9`，规则显式 `select = ["E4","E7","E9","F"]`（0.16 起默认规则 59→413 条）；CI 与 `make lint` 同为 `ruff check .` |
 
 安装：`make k3s-install-ci-triggers` + `make k3s-install-ci-webhooks`；校验 `make k3s-verify-ci-triggers`。
 
