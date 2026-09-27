@@ -2,7 +2,7 @@
 description: Bifrost 工作区结构、三域架构、双飞轮边界与双轨维护规范
 globs: ["**/*"]
 alwaysApply: true
-parity-id: workspace-v6
+parity-id: workspace-v7
 ---
 
 # Bifrost 工作区规范
@@ -91,7 +91,7 @@ Bifrost = 三个域，边界不可跨越（spine **D13**）：
 ## 5. Claude Code 运行配置（Claude 专属，Cursor 侧仅记录以保持认知一致）
 
 - **认知起点**：开工先读 `AGENT_FACTS.md` §8c（运行时与安全事实：公开仓、节点池、NodePort、Argo 同步策略、IB 接入模型、敏感位置）。
-- Claude 侧的 auto mode 规则（`~/.claude/settings.json` + `.claude/settings.local.json`，payload 在 `.claude/auto-mode/`）
+- Claude 侧的 auto mode 规则（只在用户级 `~/.claude/settings.json` 生效，分类器不读项目级；payload 在 `.claude/auto-mode/`）
   是 harness 强制层，与本文件及 `trade-execution-freeze.mdc` 同源；只由 Owner 应用，Agent 不自改。Cursor 侧无对应文件，不做 parity。
 - **会话启动位置**：一律在工作区根 `/stocks`；在子 repo 目录启动的会话没有 preflight hook 与共享记忆。
 - **IB 账户号不是秘密**：登录只在两台 Win11 TWS 里，系统只经 IB API socket 取数；

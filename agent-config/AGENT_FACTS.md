@@ -375,16 +375,18 @@ Tekton 流水线：`bifrost-ci-{frontend,platform,python}` · `bifrost-deliver-{
 
 ### Claude Code 配置拓扑（实测）
 
-- `/stocks/.claude` 是符号链接；Claude Code **能**经链接加载 `settings.json`（hooks）、`settings.local.json`（含 `autoMode`）与 skills
+- `/stocks/.claude` 是符号链接；Claude Code **能**经链接加载 `settings.json`（hooks）、`settings.local.json`（permissions）与 skills
   （2026-09-06 探针验证）。`/auto-mode-setup` 向导**拒绝**写符号链接目录（"indirection gate"），改用 `claude/auto-mode/apply-auto-mode.sh` 应用。
-- auto mode 规则分两层：用户级 `~/.claude/settings.json`（本机通用）+ 项目级 `claude/settings.local.json`（工作区事实与规则，gitignored）；
-  生效配置 `claude auto-mode config`、内置默认 `claude auto-mode defaults`、AI 点评 `claude auto-mode critique`。
+- auto mode 规则**只在用户级 `~/.claude/settings.json` 生效**：分类器只从用户级、managed settings、`--settings` 读 `autoMode`，
+  项目级 `.claude/settings{,.local}.json` 里的一律忽略（官方文档 + 2026-09-26 在 2.1.268 上探针复核）。原设计把工作区规则放项目级，
+  因此从未生效；现在 `user.autoMode.json` + `project.autoMode.json` 合并写进用户级，对本机所有项目生效。
+  生效配置 `claude auto-mode config`（判据：自定义条目逐字出现在其中）、内置默认 `claude auto-mode defaults`、AI 点评 `claude auto-mode critique`。
   分类器把 Agent 改写自己的 auto mode 规则视为 hard_deny（Auto-Mode Bypass）→ **由 Owner 跑脚本应用**，Agent 只准备 payload 并报告。
 - `preflight.js` 的 D10 规则不豁免文件写入：Bash heredoc 正文里若同时出现 `ib:operator:cmd` 与 XADD / SET / DEL 等写动词会被拦
   （设计内的宁可误报）；写含该字面量的文档用 Edit / Write 工具，不改 guard。
 - Claude Desktop 会话分组 `Trade. System` 与 `Ops - Plugin` 的 cwd 都是 `/stocks`：共享根 `CLAUDE.md`、hooks、auto mode 与
   记忆目录 `~/.claude/projects/-Users-vision-mac-trader-Desktop-stocks/memory/`；子 repo 的 `CLAUDE.md` 在触及该 repo 文件时自动加载。
-- 治理缺口：子 repo 没有自己的 `.claude/settings.json`，会话若在子 repo 目录启动则**没有** preflight hook 与 auto mode 环境 → 会话一律在 `/stocks` 根启动。
+- 治理缺口：子 repo 没有自己的 `.claude/settings.json`，会话若在子 repo 目录启动则**没有** preflight hook 与共享记忆（auto mode 规则在用户级，不受影响）→ 会话一律在 `/stocks` 根启动。
 
 ---
 
