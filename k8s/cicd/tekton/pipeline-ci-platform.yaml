@@ -18,6 +18,13 @@ spec:
     - name: revision
       type: string
       default: main
+      description: The bifrost-platform commit or branch under test — a push webhook sends a SHA.
+    # Infra is cloned at its own default branch. It was cloned at `revision`
+    # too, which is the platform SHA and does not exist in infra, so every
+    # webhook run failed at clone-infra.
+    - name: infraRevision
+      type: string
+      default: main
     - name: giteaBase
       type: string
       default: http://gitea.cicd.svc.cluster.local:3000/bifrost
@@ -44,7 +51,7 @@ spec:
         - name: url
           value: $(params.giteaBase)/bifrost-trade-infra.git
         - name: revision
-          value: $(params.revision)
+          value: $(params.infraRevision)
         - name: subdir
           value: bifrost-trade-infra
       workspaces:

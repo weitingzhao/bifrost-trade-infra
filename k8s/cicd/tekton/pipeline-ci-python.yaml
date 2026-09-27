@@ -19,6 +19,17 @@ spec:
     - name: revision
       type: string
       default: main
+      description: The commit or branch of `repo` under test — a push webhook sends a SHA.
+    # The peer repos are cloned at their own default branch. They were cloned at
+    # `revision` too, which is the pushed repo's SHA and exists in neither, so
+    # every webhook run failed at clone-infra (and clone-core, for api/worker)
+    # and code-health never ran.
+    - name: coreRevision
+      type: string
+      default: main
+    - name: infraRevision
+      type: string
+      default: main
     - name: giteaBase
       type: string
       default: http://gitea.cicd.svc.cluster.local:3000/bifrost
@@ -50,7 +61,7 @@ spec:
         - name: url
           value: $(params.giteaBase)/bifrost-trade-core.git
         - name: revision
-          value: $(params.revision)
+          value: $(params.coreRevision)
         - name: subdir
           value: bifrost-trade-core
       workspaces:
@@ -63,7 +74,7 @@ spec:
         - name: url
           value: $(params.giteaBase)/bifrost-trade-infra.git
         - name: revision
-          value: $(params.revision)
+          value: $(params.infraRevision)
         - name: subdir
           value: bifrost-trade-infra
       workspaces:
