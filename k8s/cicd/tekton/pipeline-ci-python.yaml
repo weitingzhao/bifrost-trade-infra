@@ -142,14 +142,33 @@ spec:
               # ruff comes only from the repo's own [dev] pin, never `pip install ruff`:
               # ruff 0.16 widened its default rules from 59 to 413, so an unpinned
               # install here linted with a different rule set than every local venv.
+              #
+              # Lint blocks for the repos that are clean on their pinned ruff; each
+              # runs `ruff check .` in `make lint` too, so the verdict is the local
+              # one. bifrost-research joins this list once its findings are cleared.
+              # A blocking repo with no ruff fails: ruff and pytest both come from
+              # [dev], so that is also the case where pytest would silently skip.
+              case "${repo}" in
+                bifrost-trade-api|bifrost-trade-core|bifrost-trade-worker) lint_blocks=1 ;;
+                *) lint_blocks=0 ;;
+              esac
+              lint_failed=0
               echo "==> Lint (ruff)"
               if command -v ruff >/dev/null 2>&1; then
                 ruff --version
-                ruff check --output-format=concise . || {
-                  echo "WARN: ruff found issues (non-blocking for now)"
-                }
+                if ! ruff check --output-format=concise .; then
+                  if [ "${lint_blocks}" = 1 ]; then
+                    echo "ERROR: ruff found issues (blocking for ${repo}; tests still run below)"
+                    lint_failed=1
+                  else
+                    echo "WARN: ruff found issues (non-blocking for ${repo} until its findings are cleared)"
+                  fi
+                fi
+              elif [ "${lint_blocks}" = 1 ]; then
+                echo "ERROR: the repo's extras installed no ruff; pin it in [dev]" >&2
+                exit 1
               else
-                echo "WARN: the repo's extras installed no ruff; pin it in [dev] (lint skipped, non-blocking for now)"
+                echo "WARN: the repo's extras installed no ruff; pin it in [dev] (lint skipped, non-blocking)"
               fi
 
               echo "==> Test (pytest)"
@@ -159,6 +178,10 @@ spec:
                 echo "pytest not found — skip (repo may have no tests yet)"
               fi
 
+              if [ "${lint_failed}" = 1 ]; then
+                echo "==> CI gate FAILED for ${repo}: lint (see ERROR above)" >&2
+                exit 1
+              fi
               echo "==> CI gate passed for ${repo}"
       params:
         - name: repo
