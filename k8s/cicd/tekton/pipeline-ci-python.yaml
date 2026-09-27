@@ -139,16 +139,17 @@ spec:
                 pip install --quiet -r requirements.txt
               fi
 
+              # ruff comes only from the repo's own [dev] pin, never `pip install ruff`:
+              # ruff 0.16 widened its default rules from 59 to 413, so an unpinned
+              # install here linted with a different rule set than every local venv.
               echo "==> Lint (ruff)"
               if command -v ruff >/dev/null 2>&1; then
+                ruff --version
                 ruff check --output-format=concise . || {
                   echo "WARN: ruff found issues (non-blocking for now)"
                 }
               else
-                pip install --quiet ruff
-                ruff check --output-format=concise . || {
-                  echo "WARN: ruff found issues (non-blocking for now)"
-                }
+                echo "WARN: the repo's extras installed no ruff; pin it in [dev] (lint skipped, non-blocking for now)"
               fi
 
               echo "==> Test (pytest)"
