@@ -28,9 +28,10 @@ spec:
         - name: db-init
           image: 192.168.10.73:30500/bifrost-api-monitor:stg
           imagePullPolicy: Always
+          # The script ships under the image WORKDIR (Dockerfile.api-stg); /app holds only the mounted config.
           command:
             - python
-            - /app/scripts/run_db_refresh_schema.py
+            - /build/bifrost-trade-api/scripts/run_db_refresh_schema.py
           env:
             - name: BIFROST_CONFIG
               value: /app/config/config.stg.yaml
