@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Reassign public schema table/view owners to bifrost after pg_restore / prod clone.
+# Reassign public schema table/view/type owners to bifrost after pg_restore / prod clone.
 # Required for daemon sink and db_refresh_schema (postgres-owned tables block bifrost DDL/DML).
+# Indexes and OWNED BY sequences follow their table. Idempotent: only touches postgres-owned objects.
+# clone-cnpg-prod-to-dev-stg.sh runs it after restore; platform-api data clone runs the equivalent
+# (dataCloneOwnerSQL, re-owning to the database owner).
 #
 # Usage:
 #   ./scripts/k3s/fix-cnpg-db-ownership.sh bifrost_prod
@@ -46,6 +49,21 @@ BEGIN
       EXECUTE format('ALTER FOREIGN TABLE %I.%I OWNER TO bifrost', r.schemaname, r.relname);
     END IF;
   END LOOP;
+  -- dim_*_t enums (and any domains) — STG/PROD have them owned by bifrost.
+  FOR r IN
+    SELECT n.nspname AS schemaname, t.typname, t.typtype
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'public'
+      AND t.typtype IN ('e','d')
+      AND pg_get_userbyid(t.typowner) = 'postgres'
+  LOOP
+    IF r.typtype = 'e' THEN
+      EXECUTE format('ALTER TYPE %I.%I OWNER TO bifrost', r.schemaname, r.typname);
+    ELSE
+      EXECUTE format('ALTER DOMAIN %I.%I OWNER TO bifrost', r.schemaname, r.typname);
+    END IF;
+  END LOOP;
 END
 \$\$;
 "
@@ -56,7 +74,9 @@ for db in "${DATABASES[@]}"; do
     psql -U postgres -d "${db}" -v ON_ERROR_STOP=1 -c "${FIX_SQL}"
   cnt="$(kubectl exec -n "${DATA_NAMESPACE}" "${primary}" -c postgres -- \
     psql -U postgres -d "${db}" -tAc "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tableowner='bifrost'")"
-  echo "   ${db}: ${cnt} tables owned by bifrost"
+  left="$(kubectl exec -n "${DATA_NAMESPACE}" "${primary}" -c postgres -- \
+    psql -U postgres -d "${db}" -tAc "SELECT (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND pg_get_userbyid(c.relowner) = 'postgres') + (SELECT count(*) FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace WHERE n.nspname = 'public' AND t.typtype IN ('e','d') AND pg_get_userbyid(t.typowner) = 'postgres')")"
+  echo "   ${db}: ${cnt} tables owned by bifrost; ${left} public objects still owned by postgres"
 done
 
 echo "Done."
