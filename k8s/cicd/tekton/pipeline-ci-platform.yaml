@@ -1,5 +1,7 @@
 # CI gate for bifrost-platform (L1 control plane).
 # Monorepo: Go API (api/) + TypeScript Console (console/) + spine check.
+# The Console imports @bifrost/ui from its sibling checkout (file:../../bifrost-ui,
+# tsconfig paths → bifrost-ui/dist), so bifrost-ui is cloned and built first.
 # Lightweight: clone → go test → npm type-check → check-spine. No deploy.
 apiVersion: tekton.dev/v1
 kind: Pipeline
@@ -25,6 +27,11 @@ spec:
     - name: infraRevision
       type: string
       default: main
+    # Same for bifrost-ui. Without it the Console type-check could not resolve
+    # @bifrost/ui, and all 10 runs that reached test-console failed there.
+    - name: uiRevision
+      type: string
+      default: main
     - name: giteaBase
       type: string
       default: http://gitea.cicd.svc.cluster.local:3000/bifrost
@@ -41,6 +48,19 @@ spec:
           value: $(params.revision)
         - name: subdir
           value: bifrost-platform
+      workspaces:
+        - name: output
+          workspace: source
+    - name: clone-ui
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-ui.git
+        - name: revision
+          value: $(params.uiRevision)
+        - name: subdir
+          value: bifrost-ui
       workspaces:
         - name: output
           workspace: source
@@ -67,7 +87,12 @@ spec:
           - name: source
         steps:
           - name: go-test
-            image: golang:1.23-bookworm
+            # api/go.mod says go 1.25.0; the image's GOTOOLCHAIN=local refused to
+            # build it on 1.23. `auto` fetches a newer toolchain if go.mod moves on.
+            image: golang:1.25-bookworm
+            env:
+              - name: GOTOOLCHAIN
+                value: auto
             computeResources:
               requests:
                 cpu: 250m
@@ -89,7 +114,7 @@ spec:
 
               echo "==> Go API tests passed"
     - name: test-console
-      runAfter: [clone]
+      runAfter: [clone, clone-ui]
       workspaces:
         - name: source
           workspace: source
@@ -110,6 +135,13 @@ spec:
               #!/usr/bin/env bash
               set -euo pipefail
               ws="$(workspaces.source.path)"
+
+              # Scripts on: bifrost-ui's prepare builds dist/, which is not in git.
+              echo "==> Installing bifrost-ui"
+              cd "${ws}/bifrost-ui"
+              npm ci --no-audit --no-fund
+              test -f dist/index.d.ts || { echo "bifrost-ui dist/index.d.ts missing after npm ci"; exit 1; }
+
               cd "${ws}/bifrost-platform/console"
 
               echo "==> npm ci"
