@@ -6,13 +6,15 @@ Secrets must not live in git-tracked ConfigMap YAML. Use K8s Secrets + env overr
 
 | Secret | Where | Env keys consumed by code |
 |--------|-------|---------------------------|
-| Trade NS `bifrost-{dev,stg,prod}-secrets` | gitignored `k8s/base/secrets/bifrost-*-secrets.yaml` | `REDIS_IB_*`, `REDIS_MASSIVE_*`, `PGPASSWORD`, `GOLDEN_SOURCE_PASSWORD`, `OPS_*`, `MASSIVE_API_KEY` / `POLYGON_API_KEY`, `MARKET_DATA_WRITE_TOKEN` |
+| Trade NS `bifrost-{dev,stg,prod}-secrets` | gitignored `k8s/base/secrets/bifrost-*-secrets.yaml` | `REDIS_IB_*`, `PGPASSWORD`, `GOLDEN_SOURCE_PASSWORD`, `OPS_*`, `MASSIVE_API_KEY` / `POLYGON_API_KEY`, `MARKET_DATA_WRITE_TOKEN` |
 | Plugin `redis-ib-acl` | `bifrost-platform-plugin` `.env` → `make install-redis-ib` | ACL file on redis-ib |
 | Platform `redis-ib-platform` | gitignored Secret in `bifrost-platform-{stg,prod}` | `REDIS_IB_PLATFORM_PASS` |
-| Plugin `redis-massive-acl` | market-data plugin `.env` → `install-redis-massive.sh` | ACL file on redis-massive |
 | Local Compose | infra `.env` | same env keys |
 
 Examples (placeholders only): `k8s/base/secrets/bifrost-*-secrets.example.yaml`.
+
+`REDIS_MASSIVE_*` / `redis-massive` are retired together with the Polygon WS ingestor (2026-09-27);
+leftover keys in existing Secrets or `.env` are unused and can be dropped on the next refresh.
 
 ## First-time / refresh from current YAML (before scrub)
 
@@ -32,13 +34,13 @@ kubectl -n bifrost-stg rollout restart deploy/api-monitor deploy/api-account dep
 kubectl -n bifrost-stg rollout restart deploy/daemon deploy/account-sync
 ```
 
-## Rotate redis-ib / redis-massive
+## Rotate redis-ib
 
-1. Generate new passwords in plugin `.env` (`REDIS_IB_TRADE_PROD_PASS`, `REDIS_MASSIVE_TRADE_PROD_PASS`, …).
-2. `make -C ../bifrost-platform-plugin install-redis-ib` (and market-data `install-redis-massive.sh`).
+1. Generate new passwords in plugin `.env` (`REDIS_IB_TRADE_PROD_PASS`, …).
+2. `make -C ../bifrost-platform-plugin install-redis-ib`.
 3. `make -C ../bifrost-platform-plugin sync-redis-ib-secrets` (updates Trade Secrets + platform `.env` only — **not** tracked YAML).
 4. `python3 scripts/materialize_k8s_trade_secrets.py --apply` (or kubectl apply Secrets).
-5. Rollout Trade consumers + platform-api + ib-gateway + polygon-ws-ingestor.
+5. Rollout Trade consumers + platform-api + ib-gateway.
 
 ## Rotate Ops tokens
 

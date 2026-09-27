@@ -51,7 +51,7 @@ spec:
         WORKER="daemon account-sync"
         DEPLOY="${APIS} ${WORKER}"
         # IBGP3 retired — legacy IB StatefulSets removed from kustomize; do not rollout/restart.
-        # massive-ws retired — Polygon Options WS is Plugin polygon-ws-ingestor → redis-massive.
+        # massive-ws retired; Polygon WS ingest retired entirely (2026-09-27) — nothing to roll out.
         rollout_dep() {
           dep="$1"
           timeout="$2"

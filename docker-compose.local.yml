@@ -72,7 +72,7 @@ services:
     <<: *local-socket-build
     profiles: [legacy-ib]
 
-  # massive-ws retired → Plugin polygon-ws-ingestor
+  # massive-ws retired — Polygon WS ingest retired entirely (2026-09-27)
 
   api-monitor:
     <<: *local-api-build

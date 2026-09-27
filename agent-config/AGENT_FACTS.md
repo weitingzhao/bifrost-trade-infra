@@ -147,6 +147,7 @@ Trade 页面经 Ask Copilot 读 Research 后端（Positions / Instances / Live 3
 | `bifrost-trade-socket` | **GitHub Archived** · 已从多仓 workspace / CI/CD / Gitea 清除 | Owner 2026-08-31；GitHub `22bd9d6`；本地 tip/tag `b0a59f5`/`archived-14gf`（只读无法 push）；tarball 备份 |
 | Trade Celery runtime + Celery workers + Flower `:5555` | 退役 | Wave 5（runtime）· **D-Wave-6.1**（代码）· **D-Wave-6.2**（文档/配置），2026-08-24 |
 | massive API `:8766` + Polygon Massive WS | 退役 | P7 → Market Data Plugin `:8790` |
+| Plugin `polygon-ws-ingestor` + `redis-massive`（含 `REDIS_MASSIVE_*`、`redis_massive:`） | 退役，无任何 Polygon WS ingest | Owner 2026-09-27（Options Starter 无实时 WS） |
 | `bifrost-analytics` | 并入 `bifrost-research/src/bifrost_research/dbt/` | spine **D13**，2026-08-21。目录保留但 README 标 ARCHIVED，**勿再改** |
 | 裸机 PostgreSQL `.80` | 退役 → CloudNativePG @ `data` NS | spine **D2-prime**，2026-06-20；节点重装为 `ubt-k3s-06` |
 | `features_daily` / `features_option` 等 legacy schema | DROP | **D-Wave-6.6**，2026-08-24；canonical 为 `features.*` |

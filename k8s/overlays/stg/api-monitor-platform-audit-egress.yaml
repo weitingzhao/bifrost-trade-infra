@@ -23,7 +23,7 @@ spec:
         port: 53
       - protocol: TCP
         port: 53
-  # CNPG + redis-live / redis-ib / redis-massive (data NS)
+  # CNPG + redis-live / redis-ib (data NS)
   - to:
       - namespaceSelector:
           matchLabels:

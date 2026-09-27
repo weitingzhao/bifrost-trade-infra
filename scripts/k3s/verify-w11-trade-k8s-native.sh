@@ -108,12 +108,12 @@ for dep in frontend daemon account-sync; do
     && echo "OK rollout deployment/${dep}" \
     || { echo "WARN rollout deployment/${dep}" >&2; rollout_warn=1; }
 done
-# massive-ws retired — health lives on Plugin polygon-ws-ingestor / redis-massive
+# Trade massive-ws retired (P7); Polygon WS ingest retired entirely (2026-09-27)
 if kubectl get deployment massive-ws -n "${NS}" >/dev/null 2>&1; then
   echo "WARN legacy deployment/massive-ws still present in ${NS}" >&2
   rollout_warn=1
 else
-  echo "OK massive-ws absent (Plugin polygon-ws-ingestor)"
+  echo "OK massive-ws absent"
 fi
 for sts in ib-market-gateway ib-account-agent ib-operator; do
   if kubectl get statefulset "${sts}" -n "${NS}" >/dev/null 2>&1; then

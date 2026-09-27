@@ -19,7 +19,7 @@ gateway_curl() {
 DOMAINS="monitor docs ops trading strategy portfolio market research"
 # P1: gateway + APIs only. Set PROD_VERIFY_FULL=1 after deliver-prod refreshes :prod images.
 WORKER_DEPLOY="daemon account-sync"
-# massive-ws retired → Plugin polygon-ws-ingestor
+# Trade massive-ws retired (P7); Polygon WS ingest retired entirely (2026-09-27)
 FULL_VERIFY="${PROD_VERIFY_FULL:-0}"
 
 fail=0
@@ -85,18 +85,12 @@ for sts in ib-market-gateway ib-account-agent ib-operator; do
   fi
 done
 
-# Trade massive-ws must be absent; Plugin owns Polygon Options WS
+# Trade massive-ws must stay absent (Polygon WS ingest retired)
 if kubectl get deployment massive-ws -n "${NS}" >/dev/null 2>&1; then
   echo "FAIL legacy deployment/massive-ws still present" >&2
   fail=1
 else
-  echo "OK massive-ws absent (Plugin polygon-ws-ingestor)"
-fi
-if ! kubectl rollout status deployment/polygon-ws-ingestor -n plugin-market-data --timeout=60s >/dev/null 2>&1; then
-  echo "FAIL Plugin deployment/polygon-ws-ingestor" >&2
-  fail=1
-else
-  echo "OK Plugin polygon-ws-ingestor"
+  echo "OK massive-ws absent"
 fi
 else
   echo "SKIP socket/worker rollouts (P1 mode — PROD_VERIFY_FULL=1 after deliver-prod)"

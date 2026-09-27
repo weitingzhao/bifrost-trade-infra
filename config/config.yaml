@@ -130,17 +130,8 @@ reference_indices:
     label: "VIX (VIXY)"
     polygon_ticker: "VIXY"
 
-# Plugin redis-massive — shared Polygon Options WS health bus (data NS, ExternalName).
-# WS ingestor migrated to bifrost-platform-plugin-market-data (Wave 2).
-# Trade consumers read health hash only; quote data has no active Trade reader.
-redis_massive:
-  enabled: true
-  host: redis-massive
-  port: 6379
-  db: 0
-
 # Prefer env: MASSIVE_API_KEY or POLYGON_API_KEY
-# NOTE: WS ingest (ws_url, tier WS features) migrated to Market Data Plugin (Wave 2).
+# NOTE: Polygon WS ingest (ws_url, tier WS features) retired (Options Starter has no real-time WS).
 # Remaining keys used by Trade: api_key + rest_base (Research REST via polygon_http).
 massive:
   tier: "starter"

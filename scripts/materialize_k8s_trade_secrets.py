@@ -155,17 +155,6 @@ def _build_secret(env_name: str, text: str, extras: dict[str, str], existing: di
             extras.get("REDIS_IB_PASSWORD"),
             existing.get("REDIS_IB_PASSWORD"),
         ),
-        "REDIS_MASSIVE_USERNAME": _pick(
-            _block_field(text, "redis_massive", "username"),
-            extras.get("REDIS_MASSIVE_USERNAME"),
-            "trade-prod",
-        ),
-        "REDIS_MASSIVE_PASSWORD": _pick(
-            _block_field(text, "redis_massive", "password"),
-            extras.get("REDIS_MASSIVE_TRADE_PROD_PASS"),
-            extras.get("REDIS_MASSIVE_PASSWORD"),
-            existing.get("REDIS_MASSIVE_PASSWORD"),
-        ),
         "PGPASSWORD": _pick(
             pg_pw,
             extras.get("POSTGRES_PASSWORD"),
@@ -249,7 +238,7 @@ def main() -> int:
         data = _build_secret(env_name, text, extras, existing)
         missing = _write_secret(dest, f"bifrost-{env_name}-secrets", data)
         filled = sum(1 for v in data.values() if _nonempty(v))
-        print(f"Wrote {dest.relative_to(ROOT)} keys={filled}/11 missing={missing or 'none'}")
+        print(f"Wrote {dest.relative_to(ROOT)} keys={filled}/{len(data)} missing={missing or 'none'}")
         if missing:
             any_missing = True
         if args.apply:
@@ -270,8 +259,6 @@ def main() -> int:
     compose_keys = {
         "REDIS_IB_USERNAME": "trade-prod",
         "REDIS_IB_PASSWORD": "",
-        "REDIS_MASSIVE_USERNAME": "trade-prod",
-        "REDIS_MASSIVE_PASSWORD": "",
         "PGPASSWORD": "",
         "GOLDEN_SOURCE_PASSWORD": "",
         "OPS_OPERATOR_TOKEN": "",

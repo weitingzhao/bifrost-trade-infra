@@ -112,7 +112,7 @@ services:
     profiles: [legacy-ib]
     command: python scripts/run_ib_operator.py
 
-  # massive-ws retired — Polygon Options WS is Plugin polygon-ws-ingestor → redis-massive
+  # massive-ws retired — Polygon WS ingest retired entirely (2026-09-27)
 
   # ── FastAPI 后端 (8 个域；api-massive P7 retired → Market Data Plugin) ──
 

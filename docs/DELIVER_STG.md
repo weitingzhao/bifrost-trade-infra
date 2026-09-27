@@ -117,13 +117,11 @@ Ops Console：**Delivery → bifrost-deliver-stg → Run**（Platform API 创建
 
 ## Massive WS STG 要点 [RETIRED]
 
-> **Trade `massive-ws` Deployment retired (P7).** Polygon Options WS 已迁至 Market Data Plugin
-> `polygon-ws-ingestor`（`plugin-market-data` / `redis-massive`）。以下为历史运维笔记，勿再对 Trade NS 做 massive-ws rollout。
+> **Trade `massive-ws` Deployment retired (P7).** 其 Plugin 继任者 `polygon-ws-ingestor` 与 `redis-massive`
+> 亦于 2026-09-27 退役（Owner 决策：Options Starter 无实时 WS）。Polygon WS ingest 已不存在，勿再做任何 WS rollout / restart。
 
 - Watchlist 种子：`scripts/k3s/seed-stg-watchlist.sh`（从 Dev PG 导入）
-- **Options Starter**（历史）：`massive.features.ws_enabled: false` — 原 `massive-ws` REST-only 待机；现由 Plugin 承载
-- Options Developer+：Plugin 侧配置 WS；Starter 可用 delayed Polygon WS
-- K8s：重启用 Plugin 侧 `kubectl rollout restart deployment/polygon-ws-ingestor -n plugin-market-data`（勿再 `deployment/massive-ws`）
+- **Options Starter**（历史）：`massive.features.ws_enabled: false` — 原 `massive-ws` REST-only 待机
 
 ## 相关文件
 

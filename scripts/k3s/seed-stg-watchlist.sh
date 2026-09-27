@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # Copy watchlist rows from Dev PostgreSQL → bifrost_stg (embedded postgres or CNPG @ data NS).
-# Massive WS requires: sec_type='STK' AND optionable=true.
 #
 # Usage (from bifrost-trade-infra):
 #   ./scripts/k3s/seed-stg-watchlist.sh
@@ -64,7 +63,7 @@ DEV_COUNT="$(PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$POSTGRES_HOST" -p "$POSTG
   "SELECT count(*) FROM watchlist")"
 OPT_STK="$(PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
   "SELECT count(*) FROM watchlist WHERE sec_type='STK' AND optionable IS TRUE")"
-echo "Dev watchlist: ${DEV_COUNT} rows (${OPT_STK} optionable STK for Massive WS)"
+echo "Dev watchlist: ${DEV_COUNT} rows (${OPT_STK} optionable STK)"
 
 TMP="$(mktemp)"
 trap 'rm -f "$TMP"' EXIT
@@ -98,8 +97,3 @@ fi
 STG_TOTAL="$(stg_psql_query "SELECT count(*) FROM watchlist")"
 STG_OPT="$(stg_psql_query "SELECT count(*) FROM watchlist WHERE sec_type='STK' AND optionable IS TRUE")"
 echo "STG watchlist rows: ${STG_TOTAL} (${STG_OPT} optionable STK)"
-
-echo "Restarting Plugin polygon-ws-ingestor so it re-reads watchlist…"
-kubectl rollout restart deployment/polygon-ws-ingestor -n plugin-market-data
-kubectl rollout status deployment/polygon-ws-ingestor -n plugin-market-data --timeout=120s
-echo "Done. Check Plugin logs: kubectl logs -n plugin-market-data deploy/polygon-ws-ingestor --tail=30"
