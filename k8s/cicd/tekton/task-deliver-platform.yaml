@@ -17,7 +17,9 @@ spec:
         #!/bin/sh
         set -eu
         NS="$(params.namespace)"
-        for dep in platform-api platform-console; do
+        # platform-workers runs the same image tag as platform-api. Left out of
+        # this list, it stayed on its 2026-09-11 image through every release.
+        for dep in platform-api platform-console platform-workers; do
           kubectl rollout restart "deployment/${dep}" -n "${NS}"
           kubectl rollout status "deployment/${dep}" -n "${NS}" --timeout=300s
         done
