@@ -171,6 +171,35 @@ spec:
                 echo "WARN: the repo's extras installed no ruff; pin it in [dev] (lint skipped, non-blocking)"
               fi
 
+              # SQL lint: `make lint` also runs `sqlfluff lint models/` in each dbt
+              # project that carries a .sqlfluff (dialect, templater and rules live
+              # there; today only bifrost-research's src/bifrost_research/dbt), so
+              # the gate runs the same command there. sqlfluff, like ruff, comes only
+              # from [dev]. python:3.12-slim has neither make nor git, hence find.
+              for sqlfluff_cfg in $(find . -name .sqlfluff -not -path '*/.venv*' \
+                  -not -path '*/node_modules/*' -not -path '*/dbt_packages/*'); do
+                dbt_dir="$(dirname "${sqlfluff_cfg}")"
+                [ -d "${dbt_dir}/models" ] || continue
+                echo "==> SQL lint (sqlfluff) in ${dbt_dir#./}"
+                if ! command -v sqlfluff >/dev/null 2>&1; then
+                  if [ "${lint_blocks}" = 1 ]; then
+                    echo "ERROR: ${dbt_dir#./} has a .sqlfluff but [dev] installed no sqlfluff" >&2
+                    exit 1
+                  fi
+                  echo "WARN: ${dbt_dir#./} has a .sqlfluff but [dev] installed no sqlfluff (skipped)"
+                  continue
+                fi
+                sqlfluff --version
+                if ! (cd "${dbt_dir}" && sqlfluff lint models/); then
+                  if [ "${lint_blocks}" = 1 ]; then
+                    echo "ERROR: sqlfluff found issues in ${dbt_dir#./} (blocking for ${repo}; tests still run below)"
+                    lint_failed=1
+                  else
+                    echo "WARN: sqlfluff found issues in ${dbt_dir#./} (non-blocking for ${repo})"
+                  fi
+                fi
+              done
+
               echo "==> Test (pytest)"
               if command -v pytest >/dev/null 2>&1; then
                 pytest -m 'not ib and not db' --tb=short -q
