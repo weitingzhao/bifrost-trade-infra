@@ -105,8 +105,9 @@ spec:
 #
 # This daemon was never the writer. `raw_broker.account` / `.positions` are
 # written by the trading daemon's PostgresSink, which stands down only when
-# ACCOUNT_SYNC_DAEMON_ENABLED is set — and that flag has never been set in any
-# environment. account-sync ignored the flag and ran anyway, consuming
+# ACCOUNT_SYNC_DAEMON_ENABLED is set — never in STG/PROD; DEV sets it so its
+# daemon keeps out of the shared Golden Source (overlays/dev/
+# daemon-golden-writes-off.patch.yaml). account-sync ignored the flag and ran anyway, consuming
 # ib:account:stream:v1 and failing every entry: its diff_engine issues the
 # per-env FDW alias `brokerage.*` against the Golden Source connection, where
 # the schema is `raw_broker.*` (core 0.18.1 migrated the writers; this caller

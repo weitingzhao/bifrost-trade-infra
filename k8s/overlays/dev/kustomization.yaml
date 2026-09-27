@@ -24,6 +24,7 @@ configMapGenerator:
 
 patches:
   - path: daemon-scale-one.patch.yaml
+  - path: daemon-golden-writes-off.patch.yaml
   - path: node-control-plane.patch.yaml
   - path: dev-images-pull-always.patch.yaml
   - path: postgres-remove.patch.yaml
