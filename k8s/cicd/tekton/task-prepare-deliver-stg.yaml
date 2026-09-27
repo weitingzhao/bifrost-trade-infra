@@ -1,4 +1,5 @@
-# Prepare bifrost-deliver-stg: Dockerfile ConfigMaps from the infra clone.
+# Prepare bifrost-deliver-stg (and bifrost-deliver-prod, which uses it too):
+# one delivery per environment at a time, then Dockerfile ConfigMaps from the infra clone.
 # Gitea mirror-sync is a separate pipeline task that MUST finish before any clone.
 apiVersion: tekton.dev/v1
 kind: Task
@@ -11,6 +12,53 @@ spec:
   workspaces:
     - name: source
   steps:
+    # 2026-09-27 two sessions each shipped core 0.24.0 to STG, then to PROD,
+    # 15–17 s apart. The later run restarted what the earlier one had just
+    # restarted (a PROD daemon rollout was cut in half) and failed in the same
+    # second (STG 1790476682, PROD pinned-7pkhp). The later of two running
+    # deliveries to one environment stops here, before it builds or rolls
+    # anything; the earlier is untouched. Every creator — platform-api and
+    # inline copies of the pipeline — runs this task as tekton-deliver, and the
+    # task is resolved by name, so an old copied spec gets the guard too.
+    - name: concurrency-guard
+      image: alpine/k8s:1.31.4
+      script: |
+        #!/bin/sh
+        set -eu
+        ns="$(context.taskRun.namespace)"
+        me="$(kubectl get taskrun "$(context.taskRun.name)" -n "$ns" -o jsonpath='{.metadata.labels.tekton\.dev/pipelineRun}')"
+        runs="$(kubectl get pipelinerun -n "$ns" --no-headers -o custom-columns='N:.metadata.name,C:.metadata.creationTimestamp,P:.metadata.labels.bifrost\.io/purpose,S:.status.conditions[0].status')"
+        report="$(printf '%s\n' "$runs" | awk -v me="$me" '
+          # stg / prod from the purpose label platform-api sets, else the name.
+          function lane(run, purpose) {
+            if (purpose == "stg-deliver") return "stg"
+            if (purpose == "prod-deliver") return "prod"
+            if (run ~ /^bifrost-deliver-stg-/) return "stg"
+            if (run ~ /^bifrost-deliver-prod-/) return "prod"
+            return ""
+          }
+          NF >= 4 {
+            n++; name[n] = $1; ts[n] = $2; ln[n] = lane($1, $3)
+            live[n] = ($4 == "Unknown" || $4 == "<none>")
+            if ($1 == me) mine = n
+          }
+          END {
+            if (!mine) { print "SKIP not part of a PipelineRun (" me ")"; exit }
+            if (ln[mine] == "") { print "SKIP " me " is not a stg or prod delivery"; exit }
+            for (i = 1; i <= n; i++) {
+              if (i == mine || !live[i] || ln[i] != ln[mine]) continue
+              # The earlier one goes on; created in the same second, the name decides.
+              if (ts[i] < ts[mine] || (ts[i] == ts[mine] && name[i] < name[mine]))
+                print "BLOCK " name[i] " (created " ts[i] ")"
+            }
+            print "LANE " ln[mine] ": " me " (created " ts[mine] ")"
+          }')"
+        printf '%s\n' "$report" | sed 's/^/  /'
+        if printf '%s\n' "$report" | grep -q '^BLOCK '; then
+          echo "BLOCKED: an earlier delivery to the same environment is still running (above)." >&2
+          echo "This run stops before it builds or rolls anything. Start it again once that one has finished." >&2
+          exit 1
+        fi
     - name: dockerfile-configmaps
       image: alpine/k8s:1.31.4
       script: |
