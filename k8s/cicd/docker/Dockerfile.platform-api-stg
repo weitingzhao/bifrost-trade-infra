@@ -1,6 +1,8 @@
 # CI build — context must contain Gitea clone:
 #   bifrost-platform/api/
-FROM golang:1.23-alpine AS builder
+# Match api/go.mod (go 1.25.0). On 1.23 GOTOOLCHAIN=auto below downloaded
+# go1.25.0 on every build; it stays so a later go.mod bump still builds.
+FROM golang:1.25-alpine AS builder
 
 RUN apk add --no-cache git ca-certificates
 
