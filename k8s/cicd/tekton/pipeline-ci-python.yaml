@@ -93,7 +93,12 @@ spec:
           - name: source
         steps:
           - name: install-and-test
-            image: python:3.12-slim
+            # The interpreter every gated repo ships: research's image is
+            # python:3.11-slim-bookworm, Trade's are python:3.11-slim, and all
+            # four declare requires-python >= 3.11. On 3.12 a float sum() == 1.0
+            # passed here and failed on the image's 3.11 (3.12 made sum()
+            # compensated), so testing on anything newer let 3.11 bugs through.
+            image: python:3.11-slim-bookworm
             computeResources:
               requests:
                 cpu: 250m
@@ -175,7 +180,7 @@ spec:
               # project that carries a .sqlfluff (dialect, templater and rules live
               # there; today only bifrost-research's src/bifrost_research/dbt), so
               # the gate runs the same command there. sqlfluff, like ruff, comes only
-              # from [dev]. python:3.12-slim has neither make nor git, hence find.
+              # from [dev]. The slim image has neither make nor git, hence find.
               for sqlfluff_cfg in $(find . -name .sqlfluff -not -path '*/.venv*' \
                   -not -path '*/node_modules/*' -not -path '*/dbt_packages/*'); do
                 dbt_dir="$(dirname "${sqlfluff_cfg}")"
