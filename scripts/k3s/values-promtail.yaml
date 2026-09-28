@@ -2,6 +2,15 @@
 config:
   clients:
     - url: http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push
+  snippets:
+    # Stop tailing pods that finished successfully. Completed Tekton TaskRun pods stay for 7 days
+    # (cicd/tekton-pipelinerun-ttl), ~1,930 of them on 2026-09-28; promtail CPU tracked the number
+    # of files it tails (2,108 files -> 0.60 cores on ubt-k3s-04), not the bytes it reads. Their
+    # logs were shipped while they ran. Failed pods stay tracked: their last lines are the error.
+    extraRelabelConfigs:
+      - source_labels: [__meta_kubernetes_pod_phase]
+        regex: Succeeded
+        action: drop
 
 # cicd node tails hundreds of Tekton step pods; 256Mi/512Mi OOMKilled (444+ restarts).
 # Keep request modest so quiet nodes are not over-reserved; raise limit for CI spikes.
