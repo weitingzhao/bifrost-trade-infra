@@ -476,3 +476,28 @@ spec:
           annotations:
             summary: "Platform plugin {{ $labels.plugin }} degraded for 2h"
             description: "{{ $labels.plugin }} answers but reports degraded — for market-data this is usually stale freshness on part of the universe. Long window on purpose: degraded is common and self-clearing, and a short one would join the alerts that have been firing since August."
+
+    - name: bifrost-logging
+      rules:
+        - alert: BifrostPromtailDroppingLogs
+          # No `for`: a dropped entry is gone, waiting adds nothing. increase() over
+          # 15m keeps it firing for 15m after the last drop.
+          expr: |
+            (sum by (namespace, pod, reason) (increase(promtail_dropped_entries_total[15m])) > 0)
+              * on (namespace, pod) group_left (node)
+                max by (namespace, pod, node) (kube_pod_info{namespace="monitoring"})
+          labels:
+            severity: warning
+          annotations:
+            summary: "Promtail on {{ $labels.node }} dropped {{ $value | humanize }} log lines ({{ $labels.reason }})"
+            description: "Those lines never reached Loki and cannot be recovered. ingester_error means pushes kept failing until retries ran out, usually because loki-0 was NotReady (the loki Service had no endpoints); check loki-0 readiness and memory against its 1Gi limit. Until 2026-09-28 this happened silently, about 1.9M lines in total."
+
+        - alert: BifrostPromtailScrapeDown
+          expr: |
+            up{job="monitoring/promtail"} == 0 or absent(up{job="monitoring/promtail"})
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Promtail {{ $labels.pod }} /metrics not being scraped"
+            description: "BifrostPromtailDroppingLogs is blind for that node while this fires. On 2026-09-28 the ubt-k3s-04 promtail was CPU-throttled 99% at a 500m limit and its /metrics timed out."
