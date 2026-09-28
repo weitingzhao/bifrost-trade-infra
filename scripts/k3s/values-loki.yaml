@@ -68,7 +68,7 @@ promtail:
       cpu: 100m
       memory: 256Mi
     limits:
-      cpu: 500m
+      cpu: "1"
       memory: 1Gi
 
 monitoring:
