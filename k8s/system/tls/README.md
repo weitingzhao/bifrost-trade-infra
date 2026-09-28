@@ -23,11 +23,9 @@ This:
 3. Exports `bifrost-lan-rootCA.pem` (safe to commit / share)
 4. Applies Secret + `traefik-tlsstore.yaml`
 
-Also apply HTTP→HTTPS redirect (once):
-
-```bash
-kubectl apply -f k8s/system/traefik-trade-nodeports.yaml
-```
+HTTP→HTTPS redirect is per-IngressRoute (`trade-http-redirect.yaml` / `ops-http-redirect.yaml` in each overlay),
+not entryPoint-wide, so the Trade NodePorts :30880–30882 stay plain HTTP. Traefik itself is configured by
+`k8s/system/traefik-helmchartconfig.yaml` (`make k3s-apply-traefik-helmchartconfig`).
 
 ## Clients: trust the CA (once per device)
 

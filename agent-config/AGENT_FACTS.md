@@ -337,7 +337,7 @@ Mac mini `.50` / `.52`（agent host）、NAS `.20`（归档与备份目标）、
 | 入口 | 地址 |
 |------|------|
 | kube-vip VIP | `192.168.10.100` → `trader.bifrost.lan` / `stg.trader.bifrost.lan` / `dev.trader.bifrost.lan` / `ops.bifrost.lan` / `stg.ops.bifrost.lan` |
-| Trade 网关 | `.73:30880` STG · `.73:30881` PROD · `.73:30882` DEV（前端 DEV inner loop 的 API）。依据 Traefik entryPoint `trade-stg` / `trade-prod` / `trade-dev`（`k8s/system/traefik-helmchartconfig.yaml`，即集群里的 `HelmChartConfig traefik`），由各 overlay 的 `trade-ip-ingressroute.yaml`（`trade-gateway-ip`）按 namespace 绑定（2026-09-28 实查）。overlays 里的 `nodeport-services.patch.yaml` 没有任何 kustomization 引用，集群里也没有 `nginx` Service，不是依据 |
+| Trade 网关 | `.73:30880` STG · `.73:30881` PROD · `.73:30882` DEV（前端 DEV inner loop 的 API）。依据 Traefik entryPoint `trade-stg` / `trade-prod` / `trade-dev`（`k8s/system/traefik-helmchartconfig.yaml`，即集群里的 `HelmChartConfig traefik`），由各 overlay 的 `trade-ip-ingressroute.yaml`（`trade-gateway-ip`）按 namespace 绑定（2026-09-28 实查） |
 | Ops Console / API | `.73:30876`–`30879` |
 | registry / gitea / apiserver | `.73:30500` · `.73:30300` · `.73:6443` |
 

@@ -576,8 +576,9 @@ k3s-verify-phase5-observability:
 	@chmod +x scripts/k3s/verify-phase5-observability.sh
 	KUBECONFIG=$(KUBECONFIG) PLATFORM_API=$(PLATFORM_API) ./scripts/k3s/verify-phase5-observability.sh
 
-k3s-install-traefik-trade-nodeports:
-	kubectl --kubeconfig $(KUBECONFIG) apply -f k8s/system/traefik-trade-nodeports.yaml
+# Trade NodePort entryPoints (:30880–30882) + cross-namespace IngressRoute backends
+k3s-apply-traefik-helmchartconfig:
+	kubectl --kubeconfig $(KUBECONFIG) apply -f k8s/system/traefik-helmchartconfig.yaml
 
 k3s-cleanup-legacy-ib-deployments:
 	@chmod +x scripts/k3s/cleanup-legacy-ib-deployments.sh
