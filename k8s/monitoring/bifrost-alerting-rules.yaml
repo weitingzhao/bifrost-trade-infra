@@ -454,6 +454,19 @@ spec:
             summary: "IB market ingest silent for {{ $value | humanizeDuration }}"
             description: "The gateway holds a session but has received no message for over 30m. Outside market hours this is expected; during a session it means the subscription died without the connection dropping."
 
+        - alert: BifrostIBGatewayOptCacheStalled
+          # The heartbeat advances every loop iteration whether or not the host slot
+          # is up, so no slot condition. max: collapse duplicate platform-api scrapes.
+          # Absent until ib-gateway 0.2.5 + the platform-api that exports it.
+          expr: |
+            max(bifrost_ib_gateway_opt_cache_progress_age_seconds) > 300
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "IB gateway option quote cache loop stalled for {{ $value | humanizeDuration }}"
+            description: "The gateway's one-shot option quote loop has made no progress, so ib:option:cache:* is no longer refreshed and Trade's option quotes go missing after their 300s TTL. On 2026-09-28 this happened silently in a 20-day-old pod with both slots connected. The pod logs 'opt cache loop has made no progress'; restarting the ib-gateway Deployment clears it."
+
         - alert: BifrostPluginUnreachable
           # max: one replica timing out on a slow probe is not an outage; all
           # of them failing is.
