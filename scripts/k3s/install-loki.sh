@@ -8,6 +8,9 @@ export KUBECONFIG
 RELEASE_NAME="${RELEASE_NAME:-loki}"
 MONITORING_NAMESPACE="${MONITORING_NAMESPACE:-monitoring}"
 CHART_REF="${CHART_REF:-grafana/loki}"
+# Pinned: an unpinned `helm upgrade` takes the repo's latest chart (7.3.0 when 7.0.0 was deployed).
+CHART_VERSION="${CHART_VERSION:-7.0.0}"
+PROMTAIL_CHART_VERSION="${PROMTAIL_CHART_VERSION:-6.17.1}"
 VALUES_FILE="${VALUES_FILE:-$(dirname "$0")/values-loki.yaml}"
 
 if ! command -v kubectl >/dev/null 2>&1; then
@@ -36,6 +39,7 @@ HELM_ARGS=(
   --install
   "${RELEASE_NAME}"
   "${CHART_REF}"
+  --version "${CHART_VERSION}"
   --namespace "${MONITORING_NAMESPACE}"
   --create-namespace
   --wait
@@ -52,6 +56,7 @@ helm "${HELM_ARGS[@]}"
 echo "==> Promtail (log shipper → Loki)"
 PROMTAIL_VALUES="${PROMTAIL_VALUES:-$(dirname "$0")/values-promtail.yaml}"
 helm upgrade --install promtail grafana/promtail \
+  --version "${PROMTAIL_CHART_VERSION}" \
   --namespace "${MONITORING_NAMESPACE}" \
   --wait \
   --timeout 8m \

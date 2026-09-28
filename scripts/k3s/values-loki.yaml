@@ -1,10 +1,16 @@
-# Conservative Loki stack for STG K3s (SingleBinary + Promtail).
+# Loki for the whole K3s cluster (SingleBinary + Promtail). Chart pinned in install-loki.sh.
 deploymentMode: SingleBinary
 
 loki:
   auth_enabled: false
   commonConfig:
     replication_factor: 1
+  # 30-day retention: with persistence on, nothing else bounds the PVC (~0.17 GiB/day measured 2026-09).
+  compactor:
+    retention_enabled: true
+    delete_request_store: filesystem
+  limits_config:
+    retention_period: 720h
   storage:
     type: filesystem
   schemaConfig:
@@ -26,21 +32,29 @@ write:
 
 singleBinary:
   replicas: 1
+  # 512Mi / 500m sat at the memory ceiling: GC pegged the CPU limit, /ready (1s timeout) failed and the
+  # loki Service lost its endpoints 58 times in 7 days (2026-09-28). GOMEMLIMIT makes the Go GC work
+  # below the cgroup limit instead of at it.
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: 500m
+      cpu: 200m
       memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  extraEnv:
+    - name: GOMEMLIMIT
+      value: 900MiB
+  # Keep Loki's disk and memory off the Postgres nodes; local-path pins it to the node of first bind.
+  nodeSelector:
+    bifrost.io/workload-pool: general
   persistence:
-    enabled: false
-  extraVolumes:
-    - name: loki-storage
-      emptyDir: {}
-  extraVolumeMounts:
-    - name: loki-storage
-      mountPath: /var/loki
+    enabled: true
+    size: 20Gi
+    storageClass: local-path
+    # Chart default deletes the PVC with the StatefulSet; keep the logs.
+    whenDeleted: Retain
+    whenScaled: Retain
 
 gateway:
   enabled: false
