@@ -53,9 +53,13 @@ kubectl -n bifrost-stg rollout restart deploy/daemon deploy/account-sync
 
 ## Rotate Platform role tokens (cluster platform-api)
 
-The overlay `config/platform-auth.yaml` files carry no inline tokens — a role without its env
-var cannot sign in. The inline values in `bifrost-platform/config/platform-auth.yaml` are public
-local-dev defaults for `:8780`; `scripts/sync_platform_k8s_config.sh` strips them on copy.
+No `platform-auth.yaml` carries inline tokens — a role without its env var cannot sign in.
+`scripts/sync_platform_k8s_config.sh` still strips any `token:` line on copy as a guard.
+
+Local `:8780` reads `PLATFORM_{VIEWER,REPORTER,OPERATOR,ADMIN,SATELLITE_AUDIT}_TOKEN` from
+`bifrost-platform/.env` (the only copy). MCP servers read the same file when their API URL is
+loopback; the Console has no build-time token (sign in via header Connect). To rotate: replace
+the values, `bdev restart platform-api`, reload MCP servers, re-Connect in the Console.
 
 1. Replace `PLATFORM_{STG,PROD}_{VIEWER,OPERATOR,ADMIN}_TOKEN` in infra `.env` (e.g. `python3 -c 'import secrets;print(secrets.token_urlsafe(32))'`).
 2. `make k3s-apply-platform-role-tokens` (also rewrites `alertmanager-webhook-auth`).

@@ -8,7 +8,7 @@
       ],
       "env": {
         "PLATFORM_API_URL": "http://127.0.0.1:8780",
-        "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_OPERATOR_TOKEN:-platform-operator-dev}"
+        "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_OPERATOR_TOKEN:-}"
       }
     },
     "bifrost-kubernetes": {
@@ -19,7 +19,7 @@
       ],
       "env": {
         "PLATFORM_API_URL": "http://127.0.0.1:8780",
-        "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_OPERATOR_TOKEN:-platform-operator-dev}",
+        "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_OPERATOR_TOKEN:-}",
         "MCP_BRIDGE_FOCUS": "kubernetes"
       }
     },
@@ -31,8 +31,9 @@
       ],
       "env": {
         "PLATFORM_API_URL": "http://127.0.0.1:8780",
-        "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_VIEWER_TOKEN:-platform-viewer-dev}",
-        "MCP_BRIDGE_FOCUS": "redis"
+        "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_VIEWER_TOKEN:-}",
+        "MCP_BRIDGE_FOCUS": "redis",
+        "PLATFORM_TOKEN_ENV_KEY": "PLATFORM_VIEWER_TOKEN"
       }
     },
     "bifrost-postgres": {
@@ -43,8 +44,9 @@
       ],
       "env": {
         "PLATFORM_API_URL": "http://127.0.0.1:8780",
-        "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_VIEWER_TOKEN:-platform-viewer-dev}",
-        "MCP_BRIDGE_FOCUS": "postgres"
+        "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_VIEWER_TOKEN:-}",
+        "MCP_BRIDGE_FOCUS": "postgres",
+        "PLATFORM_TOKEN_ENV_KEY": "PLATFORM_VIEWER_TOKEN"
       }
     },
     "bifrost-prometheus": {
@@ -55,8 +57,9 @@
       ],
       "env": {
         "PLATFORM_API_URL": "http://127.0.0.1:8780",
-        "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_VIEWER_TOKEN:-platform-viewer-dev}",
-        "MCP_BRIDGE_FOCUS": "prometheus"
+        "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_VIEWER_TOKEN:-}",
+        "MCP_BRIDGE_FOCUS": "prometheus",
+        "PLATFORM_TOKEN_ENV_KEY": "PLATFORM_VIEWER_TOKEN"
       }
     },
     "bifrost-trade-api": {

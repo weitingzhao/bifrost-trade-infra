@@ -3,7 +3,7 @@
 # Prefer Console → Promote → Run release gate; this script is the bootstrap executor.
 #
 # Usage:
-#   PLATFORM_ADMIN_TOKEN=platform-admin-dev ./scripts/release_gate.sh
+#   PLATFORM_ADMIN_TOKEN=<admin token from bifrost-platform/.env> ./scripts/release_gate.sh
 #   make release-gate
 set -euo pipefail
 
