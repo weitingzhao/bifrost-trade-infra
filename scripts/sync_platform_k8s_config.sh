@@ -21,7 +21,12 @@ for f in environments.yaml clusters.yaml topology.yaml ops-context.yaml platform
     echo "WARN: missing ${PLATFORM_ROOT}/config/${f} — skip" >&2
     continue
   fi
-  cp "${PLATFORM_ROOT}/config/${f}" "${DEST_STG}/${f}"
+  if [[ "${f}" == platform-auth.yaml ]]; then
+    # The source carries local-dev defaults; the cluster reads every role from token_env.
+    grep -vE '^[[:space:]]*token:[[:space:]]' "${PLATFORM_ROOT}/config/${f}" > "${DEST_STG}/${f}"
+  else
+    cp "${PLATFORM_ROOT}/config/${f}" "${DEST_STG}/${f}"
+  fi
 done
 if [[ -d "${PLATFORM_ROOT}/config/programs" ]]; then
   cp "${PLATFORM_ROOT}/config/programs/"*.yaml "${DEST_STG}/programs/"

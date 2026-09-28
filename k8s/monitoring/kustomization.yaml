@@ -12,7 +12,8 @@ resources:
   - bifrost-market-data.yaml
   - bifrost-platform-api.yaml
   - bifrost-alerting-rules.yaml
-  - alertmanager-webhook-auth-secret.yaml
+  # Secret alertmanager-webhook-auth (bearer for the platform-api STG webhook) is not
+  # here: scripts/k3s/apply-platform-role-tokens.sh writes it from .env.
   - alertmanager-webhook-network-policy.yaml
   - grafana-dashboards-configmap.yaml
   - grafana-dashboard-data-layer.yaml

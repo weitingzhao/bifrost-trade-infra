@@ -1,0 +1,31 @@
+# Viewer / operator / admin tokens — Secret bifrost-platform-role-tokens, written by
+# scripts/k3s/apply-platform-role-tokens.sh from .env. config/platform-auth.yaml has
+# no inline values: without this Secret the three roles simply cannot sign in.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform-api
+          env:
+            - name: PLATFORM_VIEWER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bifrost-platform-role-tokens
+                  key: PLATFORM_VIEWER_TOKEN
+                  optional: true
+            - name: PLATFORM_OPERATOR_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bifrost-platform-role-tokens
+                  key: PLATFORM_OPERATOR_TOKEN
+                  optional: true
+            - name: PLATFORM_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bifrost-platform-role-tokens
+                  key: PLATFORM_ADMIN_TOKEN
+                  optional: true

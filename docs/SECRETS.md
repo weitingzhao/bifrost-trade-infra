@@ -9,6 +9,8 @@ Secrets must not live in git-tracked ConfigMap YAML. Use K8s Secrets + env overr
 | Trade NS `bifrost-{dev,stg,prod}-secrets` | gitignored `k8s/base/secrets/bifrost-*-secrets.yaml` | `REDIS_IB_*`, `PGPASSWORD`, `GOLDEN_SOURCE_PASSWORD`, `OPS_*`, `MASSIVE_API_KEY` / `POLYGON_API_KEY`, `MARKET_DATA_WRITE_TOKEN` |
 | Plugin `redis-ib-acl` | `bifrost-platform-plugin` `.env` → `make install-redis-ib` | ACL file on redis-ib |
 | Platform `redis-ib-platform` | gitignored Secret in `bifrost-platform-{stg,prod}` | `REDIS_IB_PLATFORM_PASS` |
+| Platform `bifrost-platform-role-tokens` | infra `.env` `PLATFORM_{STG,PROD}_{VIEWER,OPERATOR,ADMIN}_TOKEN` → `make k3s-apply-platform-role-tokens` | STG `PLATFORM_{VIEWER,OPERATOR,ADMIN}_TOKEN` · PROD `PLATFORM_PROD_{VIEWER,OPERATOR,ADMIN}_TOKEN` |
+| Monitoring `alertmanager-webhook-auth` | same target (key `token` = STG operator) | Alertmanager `bearer_token_file` |
 | Local Compose | infra `.env` | same env keys |
 
 Examples (placeholders only): `k8s/base/secrets/bifrost-*-secrets.example.yaml`.
@@ -48,6 +50,17 @@ kubectl -n bifrost-stg rollout restart deploy/daemon deploy/account-sync
 2. Put them in gitignored `bifrost-*-secrets.yaml` (`OPS_OPERATOR_TOKEN` / `OPS_ADMIN_TOKEN`) and local `.env`.
 3. `kubectl apply` Secrets → restart `api-monitor` (ops absorbed).
 4. Re-Authenticate in Trade UI.
+
+## Rotate Platform role tokens (cluster platform-api)
+
+The overlay `config/platform-auth.yaml` files carry no inline tokens — a role without its env
+var cannot sign in. The inline values in `bifrost-platform/config/platform-auth.yaml` are public
+local-dev defaults for `:8780`; `scripts/sync_platform_k8s_config.sh` strips them on copy.
+
+1. Replace `PLATFORM_{STG,PROD}_{VIEWER,OPERATOR,ADMIN}_TOKEN` in infra `.env` (e.g. `python3 -c 'import secrets;print(secrets.token_urlsafe(32))'`).
+2. `make k3s-apply-platform-role-tokens` (also rewrites `alertmanager-webhook-auth`).
+3. `kubectl -n bifrost-platform-{stg,prod} rollout restart deploy/platform-api`.
+4. Re-enter the token in Ops Console (STG / PROD).
 
 ## Rotate Polygon API key
 

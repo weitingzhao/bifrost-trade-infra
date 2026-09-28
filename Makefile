@@ -559,6 +559,11 @@ k3s-apply-monitoring-scrape:
 	@chmod +x scripts/k3s/apply-monitoring-scrape.sh
 	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/apply-monitoring-scrape.sh
 
+# Cluster platform-api viewer/operator/admin + Alertmanager webhook bearer, from .env
+k3s-apply-platform-role-tokens:
+	@chmod +x scripts/k3s/apply-platform-role-tokens.sh
+	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/apply-platform-role-tokens.sh
+
 k3s-verify-phase4-observability:
 	@chmod +x scripts/k3s/verify-phase4-observability.sh
 	KUBECONFIG=$(KUBECONFIG) PLATFORM_API=$(PLATFORM_API) ./scripts/k3s/verify-phase4-observability.sh
