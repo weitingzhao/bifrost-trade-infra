@@ -14,6 +14,7 @@ resources:
   - bifrost-flex-query.yaml
   - bifrost-market-data.yaml
   - bifrost-platform-api.yaml
+  - promtail.yaml
   - bifrost-alerting-rules.yaml
   # Secret alertmanager-webhook-auth (bearer for the platform-api STG webhook) is not
   # here: scripts/k3s/apply-platform-role-tokens.sh writes it from .env.
