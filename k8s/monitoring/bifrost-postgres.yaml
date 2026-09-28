@@ -3,7 +3,11 @@ apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
   name: bifrost-postgres
+  namespace: monitoring
   labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
     app.kubernetes.io/component: postgres
 spec:
   namespaceSelector:

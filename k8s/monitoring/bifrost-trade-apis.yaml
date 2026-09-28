@@ -3,7 +3,11 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: bifrost-trade-apis
+  namespace: monitoring
   labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
     app.kubernetes.io/component: api
 spec:
   namespaceSelector:
@@ -19,3 +23,10 @@ spec:
     - port: http
       path: /metrics
       interval: 30s
+      # One target per pod. api-docs/api-ops (→ api-monitor pod) and
+      # api-trading/api-strategy/api-portfolio (→ api-account pod) are routing
+      # aliases in k8s/base/apis; scraping them stored each pod's series 3-4×.
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_service_name]
+          regex: api-(monitor|account|market|research)
+          action: keep

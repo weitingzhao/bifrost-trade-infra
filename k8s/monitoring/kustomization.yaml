@@ -1,4 +1,7 @@
 # Prometheus Operator scrape configs — always namespace: monitoring (not transformed by trade overlays).
+# Not under Argo: apply with `make k3s-apply-monitoring-scrape`. Each file also carries the namespace and
+# the labels below itself, so a single-file `kubectl apply -f` yields the same object (without them it
+# landed in `default`, or stripped `release` — and Prometheus silently dropped the rules).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 

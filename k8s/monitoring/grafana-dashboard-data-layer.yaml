@@ -3,7 +3,11 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: bifrost-dashboard-data-layer
+  namespace: monitoring
   labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
     grafana_dashboard: "1"
 data:
   bifrost-data-layer.json: |

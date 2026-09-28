@@ -13,7 +13,11 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: bifrost-platform-api
+  namespace: monitoring
   labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
     app.kubernetes.io/component: control-plane
 spec:
   namespaceSelector:
