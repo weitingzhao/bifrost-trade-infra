@@ -18,7 +18,11 @@ metadata:
   labels:
     bifrost.io/purpose: deliver-research
 spec:
-  description: Roll research-api onto the freshly built image and wait for readiness.
+  description: >-
+    Roll research-api onto the freshly built image and wait for readiness.
+    With expectTag set, waits for Argo CD to apply the pinned manifest (the
+    Deployment spec carrying the tag) and then for that rollout to finish;
+    without it, restarts the Deployment in place.
   params:
     - name: namespace
       type: string
@@ -26,22 +30,47 @@ spec:
     - name: deployment
       type: string
       default: research-api
+    - name: expectTag
+      type: string
+      default: ""
+    - name: applyTimeoutSeconds
+      type: string
+      default: "300"
   steps:
-    - name: rollout-restart
+    - name: rollout
       image: alpine/k8s:1.31.4
       script: |
         #!/bin/sh
         set -eu
         NS="$(params.namespace)"
         DEP="$(params.deployment)"
+        WANT="$(params.expectTag)"
 
         if ! kubectl get "deployment/${DEP}" -n "${NS}" >/dev/null 2>&1; then
           echo "ERROR: deployment/${DEP} not found in ${NS}" >&2
           exit 1
         fi
 
-        echo "Rolling out deployment/${DEP} in ${NS}"
-        kubectl rollout restart "deployment/${DEP}" -n "${NS}"
+        if [ -z "${WANT}" ]; then
+          echo "Restarting deployment/${DEP} in ${NS}"
+          kubectl rollout restart "deployment/${DEP}" -n "${NS}"
+        else
+          deadline=$(( $(date +%s) + $(params.applyTimeoutSeconds) ))
+          while :; do
+            image="$(kubectl get deployment "${DEP}" -n "${NS}" \
+              -o jsonpath='{.spec.template.spec.containers[0].image}')"
+            case "${image}" in
+              *:"${WANT}") echo "deployment spec carries ${WANT}"; break ;;
+            esac
+            if [ "$(date +%s)" -ge "${deadline}" ]; then
+              echo "ERROR: deployment spec still ${image} after $(params.applyTimeoutSeconds)s." >&2
+              echo "Argo CD has not applied the manifest pinning ${WANT}." >&2
+              exit 1
+            fi
+            echo "waiting for Argo CD to apply ${WANT} (spec now ${image})"
+            sleep 10
+          done
+        fi
         kubectl rollout status "deployment/${DEP}" -n "${NS}" --timeout=180s
         echo "Rollout complete"
 ---
@@ -99,8 +128,8 @@ spec:
           *:"${WANT}") echo "image assertion OK" ;;
           *)
             echo "ERROR: deployment is not running the tag this run built." >&2
-            echo "The image was pushed, but k8s/api/deployment.yaml still points" >&2
-            echo "elsewhere. Bump the manifest and let Argo CD converge." >&2
+            echo "The manifest at this revision pins it, so the Deployment" >&2
+            echo "drifted after rollout — check Argo CD sync of bifrost-research." >&2
             exit 1
             ;;
         esac

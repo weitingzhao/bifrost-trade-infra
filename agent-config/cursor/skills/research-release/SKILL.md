@@ -5,7 +5,7 @@ description: >-
   research-api / research-mcp, bumping the research image version, running
   bifrost-deliver-research, or debugging ImagePullBackOff / mirror-sync /
   kaniko failures in the research namespace.
-parity-id: research-release-v1
+parity-id: research-release-v2
 ---
 
 # Research 发布流程
@@ -72,11 +72,14 @@ curl -s -X POST -H "Authorization: Bearer $PLATFORM_OPERATOR_TOKEN" \
   http://127.0.0.1:8780/api/v1/delivery/pipelines/bifrost-deliver-research/runs
 ```
 
-链条：`mirror-sync → clone → kaniko → rollout → verify → gitops-sync`
+链条：`mirror-sync → clone → kaniko ∥ pin-check →(已钉版本?)→ gitops-sync → rollout → verify`
 
-> 首次构建某个新版本时 `verify-research` **会失败**，这是**正确的** ——
-> 它断言 Deployment 实际跑的 tag == 本次构建的 tag，而此时 manifest 还没 bump。
-> 前四步成功 + registry 出现新 tag 即表示构建成功，继续第 3 步。
+`pin-check` 读本次 revision 的 `k8s/api/deployment.yaml`：manifest 还没钉到本 tag 时
+（首次构建必然如此）`gitops-sync` / `rollout-research` / `verify-research` 三步被 **skipped**，
+整条 run **Succeeded** —— 这就是「只构建」。Console 上三个阶段显示 skipped，
+Research 步骤条显示 `Image landed — pin next`。继续第 3 步。
+
+> 这一轮 **Failed 就是真失败**（clone / kaniko 出错），不再有「预期失败」。
 
 ### 3. 确认 tag 已入库
 
@@ -101,11 +104,14 @@ curl -s http://192.168.10.73:30500/v2/bifrost-research/tags/list | grep -o '"0.3
 > `research-mcp` 里。2026-08-28 就踩过：api 升到 0.30.0 后工具仍未上线，
 > 因为 mcp 还停在 0.28.1。
 
-推 GitHub 后 ArgoCD 自动收敛，或手动催：
+推 GitHub 后，**用同一个 tag 再跑一次** `bifrost-deliver-research`（同第 2 步）。
+这次 `pin-check` 报 pinned=true，完整验证：
 
-```bash
-# MCP: mcp__bifrost-platform__gitops_sync_app { name: "bifrost-research" }
-```
+1. `gitops-sync` —— 请求 ArgoCD 同步 `bifrost-research`
+2. `rollout-research` —— 等 ArgoCD 把本 tag 写上 Deployment spec（≤5 分钟），再等 rollout 就绪
+3. `verify-research` —— 断言 Deployment 跑的是本 tag + `/health` `startup_ok: true`
+
+这一轮 Succeeded = 已发布且已验证。
 
 ### 5. 验收
 
@@ -127,7 +133,9 @@ curl -s http://192.168.10.73:30882/api/plugin/research/health
 | `clone-research` 失败 | Gitea 镜像里没有该 repo 或未同步 | `make k3s-bootstrap-gitea-mirrors`（`MIRROR_REPOS` 含 `bifrost-research`） |
 | kaniko `exec format error` | 调度到了 ARM 节点 | PipelineRun 必须带 `nodeSelector: kubernetes.io/arch=amd64`（platform-api 自动注入） |
 | `rollout-research` 403 | SA 权限 | `rollout-research` / `verify-research` / `gitops-sync` 须用 `tekton-deliver` SA |
-| `verify-research` 报 tag 不匹配 | manifest 未 bump | 正常 —— 走第 3、4 步 |
+| 只跑了 build，gitops/rollout/verify 是 skipped | manifest 尚未钉本 tag | 正常 —— 走第 3、4 步，再跑一次同 tag |
+| `rollout-research` 报 `Argo CD has not applied the manifest pinning <tag>` | 钉版本的 commit 没到 GitHub main，或 ArgoCD 未同步 | 查 push 是否成功；`gitops_sync_app bifrost-research` 后重跑 |
+| `verify-research` 报 tag 不匹配（pinned run） | ArgoCD 同步后 Deployment 又被改回 | 查 Application 状态与 `research` ns 里的手动改动 |
 | 工具/行为没变化 | 升错了 Deployment | 见第 4 步的组件对照表 |
 
 ## 相关文件

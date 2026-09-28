@@ -4,7 +4,16 @@
 # (execution payload) — not a subcontractor. It therefore gets the full
 # payload-grade chain modelled on pipeline-deliver-platform.yaml:
 #
-#   mirror-sync → clone → kaniko → rollout → verify → gitops-sync
+#   mirror-sync → clone ─┬─ kaniko ────┬─(pinned?)→ gitops-sync → rollout → verify
+#                        └─ pin-check ─┘
+#
+# A release is two runs of this pipeline with the same tag:
+#   1. manifest not yet pinned to the tag → build-only. pin-check reports
+#      pinned=false, so gitops-sync / rollout / verify are skipped and the run
+#      Succeeds with the image in the registry. Then bump k8s/*.yaml and push.
+#   2. manifest pinned → full chain. rollout-research waits for Argo CD to
+#      apply the pin, then verify-research must see the Deployment running
+#      this tag; a Failed run here is a real failure, not a pin gap.
 #
 # Contrast with bifrost-build-flex-query (plugin grade), which stops after
 # kaniko — no rollout, no verify, no GitOps. That gap is exactly why Research
@@ -28,8 +37,9 @@ metadata:
 spec:
   description: >-
     Research OLAP payload delivery — Gitea mirror sync, Kaniko build of the
-    bifrost-research base target, rollout of research-api, health verify, and
-    Argo CD sync of the bifrost-research Application.
+    bifrost-research base target, then — only when k8s/api/deployment.yaml
+    already pins the built tag — Argo CD sync of the bifrost-research
+    Application, rollout of research-api, and tag + health verify.
   params:
     - name: revision
       type: string
@@ -50,7 +60,8 @@ spec:
       description: >-
         Image tag to build. For a real release pass the target version (e.g.
         0.30.0) — it MUST match what k8s/api/deployment.yaml will pin once the
-        image is in the registry. verify-research asserts the running Deployment
+        image is in the registry. Until the manifest pins it the run is
+        build-only; once pinned, verify-research asserts the running Deployment
         actually carries this tag.
   workspaces:
     - name: build-context
@@ -110,16 +121,84 @@ spec:
               - --skip-tls-verify
               - --insecure-registry=registry.cicd.svc.cluster.local:5000
 
+    # Reads the pin from the same revision this run built, so "pinned" means
+    # "this commit's manifest deploys this tag" — not whatever Argo last synced.
+    - name: pin-check
+      runAfter: [clone-research]
+      params:
+        - name: tag
+          value: $(params.tag)
+      workspaces:
+        - name: source
+          workspace: build-context
+      taskSpec:
+        params:
+          - name: tag
+            type: string
+        workspaces:
+          - name: source
+        results:
+          - name: pinned
+            description: '"true" when k8s/api/deployment.yaml pins bifrost-research:<tag>'
+          - name: manifestTag
+            description: tag the manifest currently pins (empty when none found)
+        steps:
+          - name: read-pin
+            image: alpine:3.20
+            script: |
+              #!/bin/sh
+              set -eu
+              manifest="$(workspaces.source.path)/k8s/api/deployment.yaml"
+              pin="$(grep -oE 'bifrost-research:[A-Za-z0-9._-]+' "$manifest" | head -1 | cut -d: -f2 || true)"
+              printf '%s' "$pin" > "$(results.manifestTag.path)"
+              if [ -n "$pin" ] && [ "$pin" = "$(params.tag)" ]; then
+                printf true > "$(results.pinned.path)"
+                echo "manifest pins $(params.tag) — gitops-sync, rollout and verify will run"
+              else
+                printf false > "$(results.pinned.path)"
+                echo "manifest pins ${pin:-nothing}, this run builds $(params.tag) — build-only"
+                echo "next: confirm the tag in the registry, bump k8s/*.yaml, push, re-run"
+              fi
+
+    # Pinned runs only from here on. The sync goes first: rollout-research waits
+    # for Argo CD to put the pinned tag on the Deployment spec, so verify never
+    # races the Argo poll interval.
+    #
+    # Reuses the Trade sync task verbatim — it is pure parameterised logic
+    # (kubectl patch application ... sync), nothing Trade-specific in it.
+    - name: gitops-sync
+      runAfter: [build-research, pin-check]
+      when:
+        - input: $(tasks.pin-check.results.pinned)
+          operator: in
+          values: ["true"]
+      taskRef:
+        name: bifrost-argocd-sync-stg
+      params:
+        - name: application
+          value: bifrost-research
+
     - name: rollout-research
-      runAfter: [build-research]
+      runAfter: [gitops-sync]
+      when:
+        - input: $(tasks.pin-check.results.pinned)
+          operator: in
+          values: ["true"]
       taskRef:
         name: bifrost-rollout-research
+      params:
+        - name: expectTag
+          value: $(params.tag)
 
     # NOTE: verify-research reads the Deployment, so its TaskRun must also run as
     # tekton-deliver (see taskRunSpecs in the PipelineRun / platform-api
     # service.go). The default SA has no read access to the research namespace.
     - name: verify-research
       runAfter: [rollout-research]
+      when:
+        - input: $(tasks.pin-check.results.pinned)
+          operator: in
+          values: ["true"]
       taskRef:
         name: bifrost-verify-research
       params:
@@ -127,13 +206,3 @@ spec:
         # alone would go green against the previously running pod.
         - name: expectTag
           value: $(params.tag)
-
-    # Reuses the Trade sync task verbatim — it is pure parameterised logic
-    # (kubectl patch application ... sync), nothing Trade-specific in it.
-    - name: gitops-sync
-      runAfter: [verify-research]
-      taskRef:
-        name: bifrost-argocd-sync-stg
-      params:
-        - name: application
-          value: bifrost-research
