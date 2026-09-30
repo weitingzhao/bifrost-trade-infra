@@ -391,6 +391,25 @@ spec:
               value: research
             - name: MARKET_DATA_PLUGIN_URL
               value: http://market-data-api.plugin-market-data.svc.cluster.local:8790/market
+            # Golden Source read path for the tier / momentum-grade screens
+            # (analytics_reader.get_conn). DEV and STG had these from a manual
+            # kubectl patch (2026-08-24) and PROD never did, so every tier read
+            # answered "no password supplied" there. The secret is created per
+            # namespace out of band and never committed.
+            - name: ANALYTICS_PG_HOST
+              value: bifrost-postgres-rw.data.svc.cluster.local
+            - name: ANALYTICS_PG_PORT
+              value: "5432"
+            - name: ANALYTICS_PG_USER
+              value: analytics_writer
+            - name: ANALYTICS_PG_DATABASE
+              value: bifrost_golden_source
+            - name: ANALYTICS_PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bifrost-analytics-secrets
+                  key: ANALYTICS_PG_PASSWORD
+                  optional: true
             - name: MARKET_DATA_WRITE_TOKEN
               valueFrom:
                 secretKeyRef:
