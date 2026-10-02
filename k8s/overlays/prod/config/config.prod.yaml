@@ -96,7 +96,6 @@ ops:
     namespace: bifrost-prod
   auth:
     default_role: operator
-    allow_unauthenticated_reads: false
     tokens: []
   # Ops actuations are appended to the PROD platform audit (egress: api-monitor-platform-audit-egress).
   # `audit.persist` was a dead key — nothing reads it — and left PROD with no audit trail (TD-05).

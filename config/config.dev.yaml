@@ -91,7 +91,6 @@ ops:
   daemon_scale_guard: freeze
   auth:
     default_role: "admin" # dev convenience: unauthenticated = admin
-    allow_unauthenticated_reads: true
     tokens: []
   platform_audit:
     enabled: false

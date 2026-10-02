@@ -92,7 +92,6 @@ ops:
   # kubernetes:
   #   namespace: bifrost-stg
   auth:
-    allow_unauthenticated_reads: true
     # Dev tokens (operator/admin for UI Authenticate): see config/config.dev.yaml ops.auth.tokens
     # Prod: config.prod.yaml or OPS_OPERATOR_TOKEN / OPS_ADMIN_TOKEN env overrides
     # tokens:

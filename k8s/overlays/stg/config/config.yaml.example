@@ -102,7 +102,6 @@ ops:
   # kubernetes:
   #   namespace: bifrost-stg  # or bifrost-prod / bifrost-dev
   auth:
-    allow_unauthenticated_reads: true
     # Tokens: set OPS_OPERATOR_TOKEN / OPS_ADMIN_TOKEN in .env or K8s Secret (docs/SECRETS.md).
     # Do not commit plaintext tokens in YAML.
     # tokens: []

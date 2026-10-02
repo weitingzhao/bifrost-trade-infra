@@ -63,12 +63,28 @@ Owner-run, from `bifrost-platform-plugin` (passwords never leave `.env` and the 
 4. `python3 scripts/materialize_k8s_trade_secrets.py --apply` (or kubectl apply Secrets).
 5. Rollout Trade consumers + platform-api + ib-gateway.
 
-## Rotate Ops tokens
+## Trade operator / admin tokens (TD-23)
 
-1. Generate new operator/admin tokens.
-2. Put them in gitignored `bifrost-*-secrets.yaml` (`OPS_OPERATOR_TOKEN` / `OPS_ADMIN_TOKEN`) and local `.env`.
-3. `kubectl apply` Secrets → restart `api-monitor` (ops absorbed).
-4. Re-Authenticate in Trade UI.
+Every write on the Trade API needs a role (`bifrost-trade-api` 0.2.0, `write_guard.py`): operator
+for a change, admin for a process exit or an IB disconnect / reconnect. The role comes from
+`Authorization: Bearer`, matched against `OPS_OPERATOR_TOKEN` / `OPS_ADMIN_TOKEN` in
+`bifrost-<env>-secrets`; without a token the caller is `ops.auth.default_role`. Tokens are never read
+from a URL (`?token=` is gone) and never from YAML here.
+
+`scripts/trade-operator-tokens.sh` (Owner-run; no subcommand prints a token):
+
+1. `check <env>`: whether both tokens are set.
+2. `ensure <env>`: generate the missing ones, patch the Secret, update the gitignored local copy,
+   restart api-monitor / api-account / api-market / api-research. It never replaces a set token.
+3. `copy <env> operator|admin`: the token on the macOS clipboard; paste it into the desk's
+   **Operator sign-in** (user centre). One slot per browser; an admin token covers operator.
+4. `vite-local <env>`: write the operator token as `TRADE_OPERATOR_TOKEN` into the frontend's
+   `.env.development.local`; the `:5173` dev proxy adds it server-side (`bdev restart trade-ui`).
+
+To rotate: clear the key in the Secret, `ensure`, then re-paste in each browser.
+
+`default_role` is lowered to `viewer` one env at a time (DEV → STG → PROD), only after that env's
+tokens are set and pasted. Until then an anonymous caller is still operator there (admin in DEV).
 
 ## Rotate Platform role tokens (cluster platform-api)
 
