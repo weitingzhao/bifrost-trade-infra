@@ -64,7 +64,8 @@ dev-health:
 	@./scripts/check_dev_stack.sh
 
 # DEV's backend :dev tags catch up with STG (worker + the four DEV APIs). The worker has no
-# DEV-only build, so after TD-34 this is how DEV gets a new worker. RESTART=1 also restarts DEV.
+# DEV-only build, so after TD-34 this is how DEV gets a new worker. RESTART=1 then restarts
+# only the DEV deployments whose pods do not run the current :dev.
 dev-sync-backend-images:
 	@./scripts/registry/dev-sync-backend-images.sh
 

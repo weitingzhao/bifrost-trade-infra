@@ -9,7 +9,8 @@
 #
 #   scripts/registry/dev-sync-backend-images.sh              copy :stg → :dev, print old and new digests
 #   SRC=sha256:<digest> IMAGES=bifrost-worker scripts/…      put one image back (rollback)
-#   RESTART=1 scripts/…                                      then restart DEV's Trade deployments
+#   RESTART=1 scripts/…                                      then restart the DEV deployments whose
+#                                                            pods do not run the current :dev
 set -euo pipefail
 
 REGISTRY="${REGISTRY:-http://192.168.10.73:30500}"
@@ -44,8 +45,28 @@ done
 if [[ "${RESTART:-0}" == 1 ]]; then
   export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/bifrost-k3s.yaml}"
   # DEV pulls :dev with imagePullPolicy Always (dev-images-pull-always.patch.yaml), so a restart
-  # is what picks the new digests up.
-  deploys=(api-account api-market api-monitor api-research daemon)
-  for d in "${deploys[@]}"; do kubectl -n bifrost-dev rollout restart "deploy/$d"; done
-  for d in "${deploys[@]}"; do kubectl -n bifrost-dev rollout status "deploy/$d" --timeout=240s; done
+  # is what picks the new digests up. Restart only a deployment whose pods run something other
+  # than the current :dev — that also catches a tag synced earlier without a restart.
+  pods="$(kubectl -n bifrost-dev get pods -o jsonpath='{range .items[*]}{.metadata.name} {.status.containerStatuses[*].imageID}{"\n"}{end}')"
+  stale=()
+  for img in "${IMAGES[@]}"; do
+    case "$img" in
+      bifrost-worker) d=daemon ;;
+      bifrost-api-*) d="${img#bifrost-}" ;;
+      *) continue ;;
+    esac
+    want="$(digest_of "$img" dev)"
+    running="$(awk -v p="$d-" 'index($1, p) == 1 {$1 = ""; print}' <<<"$pods")"
+    if [[ -n "$running" ]] && ! grep -qv "@$want" <<<"$(tr ' ' '\n' <<<"$running" | grep '@')"; then
+      echo "$d already runs $img:dev ($want)"
+    else
+      stale+=("$d")
+    fi
+  done
+  if (( ${#stale[@]} == 0 )); then
+    echo "nothing to restart: every DEV deployment already runs the current :dev"
+  else
+    for d in "${stale[@]}"; do kubectl -n bifrost-dev rollout restart "deploy/$d"; done
+    for d in "${stale[@]}"; do kubectl -n bifrost-dev rollout status "deploy/$d" --timeout=240s; done
+  fi
 fi
