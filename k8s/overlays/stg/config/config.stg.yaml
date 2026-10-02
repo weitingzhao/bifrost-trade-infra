@@ -26,7 +26,6 @@ ib_operator:
   health_key: "bifrost:health:ws_ib_operator"
   result_ttl_sec: 300
   request_timeout_sec: 120
-  bars_backfill_request_timeout_sec: 7200
   health_refresh_sec: 30
   max_result_bytes: 4194304
   block_ms: 5000
@@ -106,8 +105,6 @@ ops:
   control_profile: stg
   # Wave A: D10 freeze — block daemon scale-up via api-ops until Owner unlock.
   daemon_scale_guard: freeze
-  project_root: /build/bifrost-trade-worker
-  socket_project_root: /build/bifrost-trade-socket
   executor_mode: kubernetes
   kubernetes:
     namespace: bifrost-stg
@@ -121,11 +118,9 @@ ops:
     timeout_ms: 2000
 
 # api_key: Prefer env MASSIVE_API_KEY / POLYGON_API_KEY from Secret in pods.
-# Polygon WS ingest (ws_url, ws_enabled, trades_enabled) retired; Trade no longer uses these.
+# Polygon WS ingest retired; only features.trades_enabled is still read (Research REST, option discovery).
 massive:
   api_key: ""
   tier: starter
-  ws_url: wss://delayed.polygon.io/options
   features:
     trades_enabled: false
-    ws_enabled: false

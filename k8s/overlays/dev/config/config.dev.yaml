@@ -95,7 +95,6 @@ ib_operator:
   health_key: "bifrost:health:ws_ib_operator"
   result_ttl_sec: 300
   request_timeout_sec: 120
-  bars_backfill_request_timeout_sec: 7200
   health_refresh_sec: 30
   max_result_bytes: 4194304
   block_ms: 5000
