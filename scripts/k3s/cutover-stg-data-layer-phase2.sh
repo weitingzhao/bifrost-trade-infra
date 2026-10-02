@@ -53,11 +53,7 @@ else
 fi
 
 echo "==> 3/6 Sync stg config (IB from .env; postgres host stays CNPG)"
-if [[ -f "${ROOT}/.env" ]]; then
-  "${ROOT}/scripts/sync_stg_config.sh"
-else
-  cp "${ROOT}/config/config.stg.yaml" "${ROOT}/k8s/overlays/stg/config/config.stg.yaml"
-fi
+# The overlay config is the only STG config (TD-06); it is applied as committed.
 
 echo "==> 4/6 Apply bifrost-stg overlay (CNPG config; no embedded postgres)"
 kubectl apply -k "${ROOT}/k8s/overlays/stg"

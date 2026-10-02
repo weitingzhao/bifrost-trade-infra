@@ -31,10 +31,10 @@ if [[ "${SYNC_GITEA}" == "1" ]]; then
     "${ROOT}/scripts/k3s/bootstrap-gitea-mirrors.sh"
 fi
 
-if [[ -f "${ROOT}/.env" ]]; then
-  echo "==> sync-prod-k8s-config (PG .80 + in-cluster Redis)"
-  "${ROOT}/scripts/sync_prod_k8s_config.sh"
-fi
+# The overlay config (k8s/overlays/prod/config/config.prod.yaml) is the only PROD config;
+# nothing regenerates it before a deliver any more (TD-06).
+echo "==> Check overlay configs (ports, D10 scale guard, platform audit)"
+python3 "${ROOT}/scripts/check_overlay_configs.py"
 
 if [[ "${APPLY_OVERLAY}" == "1" ]]; then
   echo "==> Apply bifrost-prod overlay"

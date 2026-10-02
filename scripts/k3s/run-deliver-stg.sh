@@ -46,13 +46,10 @@ if [[ "${SYNC_GITEA}" == "1" ]]; then
     "${ROOT}/scripts/k3s/bootstrap-gitea-mirrors.sh"
 fi
 
-if [[ -f "${ROOT}/.env" ]]; then
-  echo "==> sync-stg-config (IB from .env)"
-  "${ROOT}/scripts/sync_stg_config.sh"
-elif [[ "${APPLY_OVERLAY}" == "1" ]]; then
-  mkdir -p "${ROOT}/k8s/overlays/stg/config"
-  cp "${ROOT}/config/config.stg.yaml" "${ROOT}/k8s/overlays/stg/config/config.stg.yaml"
-fi
+# The overlay config (k8s/overlays/stg/config/config.stg.yaml) is the only STG config;
+# nothing regenerates it before a deliver any more (TD-06).
+echo "==> Check overlay configs (ports, D10 scale guard, platform audit)"
+python3 "${ROOT}/scripts/check_overlay_configs.py"
 
 if [[ "${APPLY_OVERLAY}" == "1" ]]; then
   echo "==> Apply bifrost-stg overlay"

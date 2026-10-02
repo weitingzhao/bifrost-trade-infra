@@ -90,20 +90,24 @@ redis_ib:
 ops:
   control_profile: prod
   executor_mode: kubernetes
+  # D10: Ops start/restart of the daemon is refused (the code default too; stated, as in DEV and STG).
+  daemon_scale_guard: freeze
   kubernetes:
     namespace: bifrost-prod
   auth:
     default_role: operator
     allow_unauthenticated_reads: false
     tokens: []
-  audit:
-    persist: true
+  # Ops actuations are appended to the PROD platform audit (egress: api-monitor-platform-audit-egress).
+  # `audit.persist` was a dead key — nothing reads it — and left PROD with no audit trail (TD-05).
+  platform_audit:
+    enabled: true
+    url: http://platform-api.bifrost-platform-prod.svc.cluster.local:8780
+    timeout_ms: 2000
 
 # api_key + rest_base still used by Research REST (polygon_http); Polygon WS ingest retired
 massive:
   api_key: ""
   tier: starter
-  ws_url: wss://delayed.polygon.io/options
   features:
     trades_enabled: false
-    ws_enabled: false

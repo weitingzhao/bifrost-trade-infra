@@ -40,12 +40,7 @@ MIRROR_REPOS="bifrost-trade-core bifrost-trade-worker bifrost-trade-api bifrost-
   "${ROOT}/scripts/k3s/bootstrap-gitea-mirrors.sh"
 
 echo "==> Sync stg config into kustomize overlay"
-if [[ -f "${ROOT}/.env" ]]; then
-  "${ROOT}/scripts/sync_stg_config.sh"
-else
-  mkdir -p "${ROOT}/k8s/overlays/stg/config"
-  cp "${ROOT}/config/config.stg.yaml" "${ROOT}/k8s/overlays/stg/config/config.stg.yaml"
-fi
+# The overlay config is the only STG config (TD-06); it is applied as committed.
 
 if [[ -f "${ROOT}/k8s/base/secrets/bifrost-stg-secrets.yaml" ]]; then
   echo "==> Apply bifrost-stg-secrets"
