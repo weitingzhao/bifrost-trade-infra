@@ -2,7 +2,7 @@
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
-  name: bifrost-kaniko-worker-socket-stg
+  name: bifrost-kaniko-worker-stg
   namespace: cicd
   labels:
     bifrost.io/purpose: stg-build

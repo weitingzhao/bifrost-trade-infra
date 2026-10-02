@@ -75,7 +75,7 @@ kubectl delete configmap bifrost-socket-stg-dockerfile -n "${CICD_NAMESPACE}" --
 echo "==> Register Tekton deliver pipeline"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-git-clone-gitea.yaml"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-kaniko-all-apis-stg.yaml"
-kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-kaniko-worker-socket-stg.yaml"
+kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-kaniko-worker-stg.yaml"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-kaniko-frontend-real.yaml"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-prepare-deliver-stg.yaml"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-verify-stg-deliver.yaml"

@@ -243,7 +243,7 @@ spec:
     - name: build-worker
       runAfter: [prepare, clone-core, clone-worker]
       taskRef:
-        name: bifrost-kaniko-worker-socket-stg
+        name: bifrost-kaniko-worker-stg
       params:
         - name: registry
           value: $(params.registry)

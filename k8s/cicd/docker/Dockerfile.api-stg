@@ -1,8 +1,10 @@
 # CI build — context must contain sibling repos from Gitea:
-#   bifrost-trade-core/  bifrost-trade-worker/  bifrost-trade-api/
+#   bifrost-trade-core/  bifrost-trade-api/
+# The worker package is not installed: no api or core module imports bifrost_worker,
+# and installing it tied API images to daemon code (debt TD-70).
 # Wave 14G-F: bifrost-trade-socket no longer installed into API images (IB edge = Plugin).
 # Build arg API_DOMAIN selects which FastAPI domain this image runs (monitor|massive|...).
-# Layered pip install matches docker/Dockerfile.prod-local-api (non-editable; deps resolved).
+# Layered pip install (non-editable; deps resolved).
 FROM python:3.11-slim AS base-api
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -16,11 +18,6 @@ COPY bifrost-trade-core/src /build/bifrost-trade-core/src
 COPY bifrost-trade-core/scripts /build/bifrost-trade-core/scripts
 RUN pip install --no-cache-dir /build/bifrost-trade-core \
     && pip install --no-cache-dir "psycopg2-binary>=2.9.0" "PyYAML>=6.0" "redis>=4.5.0" "py_vollib>=1.0.1"
-
-COPY bifrost-trade-worker/pyproject.toml bifrost-trade-worker/README.md /build/bifrost-trade-worker/
-COPY bifrost-trade-worker/src /build/bifrost-trade-worker/src
-COPY bifrost-trade-worker/scripts /build/bifrost-trade-worker/scripts
-RUN pip install --no-cache-dir --no-deps /build/bifrost-trade-worker
 
 FROM base-api AS api
 
