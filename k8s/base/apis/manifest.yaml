@@ -164,6 +164,12 @@ spec:
             - name: API_DOMAIN
               value: account
             # Phase B: merged trading + portfolio (paths /executions*, /portfolio*, /position-categories*).
+            # The account app reads the plugin's last daily close when a live quote is stale --
+            # Positions' stock price and the short legs' spot (core quote_freshness). Without
+            # this it called localhost:8790, every fallback came back empty, and stale March
+            # quotes were shown instead (debt TD-02).
+            - name: MARKET_DATA_PLUGIN_URL
+              value: http://market-data-api.plugin-market-data.svc.cluster.local:8790/market
           envFrom:
             - secretRef:
                 name: bifrost-stg-secrets
