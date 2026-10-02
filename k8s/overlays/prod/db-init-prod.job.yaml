@@ -14,8 +14,24 @@ spec:
         app.kubernetes.io/name: db-init
     spec:
       restartPolicy: OnFailure
-      nodeSelector:
-        bifrost.io/host-id: mini-pc-a
+      # Same placement as every Prod workload (node-prod.patch.yaml): any Prod-capable node,
+      # mini-pc-a preferred. The hard pin left the schema refresh unschedulable whenever
+      # that one host was down (2026-09-06; debt TD-68).
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: bifrost.io/workload-pool
+                    operator: In
+                    values: [prod-pool, general]
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: bifrost.io/host-id
+                    operator: In
+                    values: [mini-pc-a]
       volumes:
         - name: bifrost-config
           configMap:
