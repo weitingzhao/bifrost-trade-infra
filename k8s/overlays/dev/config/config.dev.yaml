@@ -108,7 +108,9 @@ ops:
   executor_mode: kubernetes
   daemon_scale_guard: freeze
   auth:
-    default_role: "admin" # dev convenience: unauthenticated = admin
+    # TD-23: an anonymous caller reads; a write needs the Operator sign-in
+    # (OPS_OPERATOR_TOKEN / OPS_ADMIN_TOKEN, scripts/trade-operator-tokens.sh).
+    default_role: viewer
     tokens: []
   platform_audit:
     enabled: false
