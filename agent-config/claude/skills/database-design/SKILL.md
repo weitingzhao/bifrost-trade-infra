@@ -4,7 +4,7 @@ description: >-
   PostgreSQL 设计标准 — 表命名、主键/外键列名、strategy_* 与 gate_safety_* 边界表、
   jsonb vs 子表、dim 枚举、环境隔离。Use when adding or changing any PostgreSQL table,
   column, DDL, or migration in bifrost-trade-core / api / worker / research.
-parity-id: database-design-v2
+parity-id: database-design-v3
 ---
 
 # Database Design Standards (数据库设计标准)
@@ -23,12 +23,12 @@ When adding or changing **PostgreSQL** tables in any `bifrost-trade-*` repo, fol
   - Retired (merged into `gate_safety_strategy` in core `0.8.1`): `gate_safety_state`, `gate_safety_intent`, `gate_safety_guard`.
 - **Plugin job queues** (Golden Source): `ops_jobs.job_ingest` (Market Data Plugin); Trade `public.job_*` Celery tables retired (0.10.6).
 - **User-preference tables**: use prefix **`preference_`** (e.g. `preference_market_streams_symbol_order` for Market Streams symbol order per category).
-- Other domain tables keep existing names (e.g. `status_current`, `account`, `settings`).
+- Other per-env tables keep existing names (`settings`, `watchlist`, `trade_review`). Daemon IPC (heartbeat / run_status / control) is **not** in PostgreSQL — it is per-env Redis (`bifrost_core.persistence.redis_daemon_state`, core 0.8.0); do not recreate `daemon_*` / `status_*` tables.
 
 ## 2. Primary Key Column Name
 
 - **Multi-row tables**：主键列名必须使用 **`<table_name>_id`**（如 `strategy_structure` → `strategy_structure_id`；`gate_safety_strategy` → `gate_safety_strategy_id`）。不得使用通用列名 `id`。
-- **Single-row tables（单行表）**：允许使用 **`id`** 作为主键列名，且通常取固定值（如 1）。单行表仍需主键以支持 `UPDATE WHERE …` 与 `INSERT … ON CONFLICT (id) DO UPDATE`；列名 `id` 作为项目约定写入本规则，例如 `settings`、`daemon_heartbeat`、`daemon_run_status`。
+- **Single-row tables（单行表）**：允许使用 **`id`** 作为主键列名，且通常取固定值（如 1）。单行表仍需主键以支持 `UPDATE WHERE …` 与 `INSERT … ON CONFLICT (id) DO UPDATE`；列名 `id` 作为项目约定写入本规则。Trade 库里唯一的单行表是 `settings`（`id = 1`）。
 
 ## 3. Foreign Key Column Names
 
@@ -52,10 +52,43 @@ When adding or changing **PostgreSQL** tables in any `bifrost-trade-*` repo, fol
 
 ## 6. Where to Define and Update Schemas
 
-- **All** new or changed tables and columns must be documented in **`bifrost-trade-core/docs/DATABASE.md`**（该文件已存在，是唯一权威）。
+- **All** new or changed tables and columns must be documented in **`bifrost-trade-core/docs/DATABASE.md`**（该文件已存在，是唯一权威）。末尾的 public 列附录按 DEV 实库生成，改表后同步更新；`raw_broker.*` 的列写进 `BROKERAGE_GOLDEN_SOURCE.md`。
 - After changing the design, add an entry to the change log section.
 
-## 7. Dev/Prod Database Isolation
+## 7. Exemption: `raw_broker.*` is vendor-shaped
+
+`bifrost_golden_source.raw_broker.*`（per-env 经 FDW 看到的是 `brokerage.*`）是 IB / Flex 形状的落地层，Rev .111 plan C
+决定不改名。§2 / §3 的命名规则**不适用于它**；新增列沿用该表现有风格即可，但新建的 per-env 表仍须守 §1–§3。
+豁免范围（列定义见 `bifrost-trade-core/docs/BROKERAGE_GOLDEN_SOURCE.md`）：
+
+- 通用 `id` 主键的多行表：`open_orders.id`（旧 `daemon_open_orders`）、`settings_flex.id`（旧 `settings_ib_flex`）
+- 沿用旧表名的键：`transactions.account_transactions_id`；视图 `executions*` 的 `account_executions_id`（per-env 桥表也按它关联）；
+  `executions_raw_*.legacy_account_executions_id`（拆表前 `account_executions` 的 id，现写 NULL、无读者）
+- 指向 per-env 表却无 FK 的 `executions_raw_*.strategy_opportunity_id` / `strategy_instance_id`（跨库，三环境共用同一行）
+- IB 字段名：`commissions.yield_` / `yield_redemption_date`（IB `CommissionReport`，`yield` 是 Python 关键字）
+
+**旧名对照**（迁移前 per-env `public` 名 → `raw_broker` / `brokerage` 名）：
+
+| 旧 public 名 | 现名 |
+|--------------|------|
+| `account` | `account` |
+| `account_positions` | `positions` |
+| `account_execution_commissions` | `commissions` |
+| `account_transactions` | `transactions` |
+| `daemon_open_orders` | `open_orders` |
+| `contract_quote_live` | `contract_quote_live` |
+| `settings_ib_flex` | `settings_flex` |
+| `executions_raw_{tws,flex,journal}` | 同名 |
+| 视图 `account_executions` / `_final` / `_fly` | 视图 `executions` / `executions_final` / `executions_fly` |
+
+权威映射：`bifrost_core.persistence.postgres.brokerage_tables.LEGACY_TO_BROKERAGE`。
+
+**`public` 里的已知偏差（未豁免，改到这些表时一并修正，改名属架构级变更、先问 Owner）**：
+`preference_position_categories.id`（多行表用 `id`）；引用它的 `preference_position_category_tags.category_id` 与
+`watchlist.category_id`（FK 名不等于 PK 名，且是 int4 引用 bigint）。带角色前缀的 FK 名（`default_gate_safety_strategy_id`、
+`settings.active_*_id`、`parent_strategy_plan_id`、`option_` / `stock_account_executions_id`）以被引用 PK 名结尾，属现行写法。
+
+## 8. Dev/Prod Database Isolation
 
 - Trade (OLTP) 三环境隔离：`bifrost_dev` / `bifrost_stg` / `bifrost_prod`（CloudNativePG @ `data` NS，spine **D2-prime**）
 - Research (OLAP) 单实例：`bifrost_golden_source`（无环境隔离）。Research **禁止**写 Trade DB（spine **D13**）
