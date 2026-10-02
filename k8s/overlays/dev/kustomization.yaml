@@ -39,6 +39,8 @@ images:
   # whatever STG last built and DEV-only builds pushed :stg, which STG -- the smoke gate before
   # PROD -- then ran on its next restart. :dev is pushed by the DEV-only builds
   # (bifrost-build-frontend-stg, the dev-api-only runs); STG and PROD delivers never touch it.
+  # The worker has no DEV-only build: `make dev-sync-backend-images` copies the backend :stg
+  # tags to :dev (it froze before TD-04 and DEV's daemon read no account snapshot, 2026-10-02).
   # Keep api-monitor on the shared registry (same pattern as account/market/research).
   # A previous local tag (dev-live-fix-*) is not on nodes and caused ImagePullBackOff,
   # which blocked rollout after Secret rotation → stale PGPASSWORD → empty Accounts.
