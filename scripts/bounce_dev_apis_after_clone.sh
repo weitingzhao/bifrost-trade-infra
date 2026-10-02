@@ -7,14 +7,13 @@ EXECUTE=0
 NS="${TRADE_DEV_NS:-bifrost-dev}"
 PLATFORM_BASE="${PLATFORM_API_BASE:-http://127.0.0.1:8780}"
 
+# The four API Deployments. api-trading / api-strategy / api-portfolio are Services that
+# select the api-account pods, and api-ops / api-docs select api-monitor — restarting those
+# names does nothing; api-account is the main DB consumer and must be bounced (TD-32).
 DEPLOYMENTS=(
   api-monitor
+  api-account
   api-market
-  api-trading
-  api-strategy
-  api-portfolio
-  api-ops
-  api-docs
   api-research
 )
 
