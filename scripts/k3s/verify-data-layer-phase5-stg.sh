@@ -45,7 +45,7 @@ else
 fi
 
 if kubectl exec -n "${STG_NAMESPACE}" deploy/api-monitor -- \
-  grep -q 'redis-live-stg.data.svc' /app/config/config.stg.yaml 2>/dev/null; then
+  grep -q 'redis-live-stg.data.svc' /app/config/runtime.yaml 2>/dev/null; then
   pass "api-monitor config has redis-live host"
 else
   fail "api-monitor config missing data NS redis-live host"

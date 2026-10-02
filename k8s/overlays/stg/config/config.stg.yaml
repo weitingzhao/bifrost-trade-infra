@@ -1,5 +1,6 @@
-# K3s bifrost-stg — full stack (Tier A+B). Secrets: MASSIVE_API_KEY via bifrost-stg-secrets.
-# Sync: make sync-stg-config (from .env). PG: CNPG @ data NS (phase ③); password = bifrost-postgres-app secret.
+# K3s bifrost-stg — the only config for this env, mounted into every pod as
+# /app/config/runtime.yaml (TD-06, TD-52). Nothing is merged under it. Secrets come from
+# bifrost-stg-secrets env (passwords and tokens stay empty here).
 server:
   skip_monitor_ib: false
   architecture:
@@ -18,9 +19,13 @@ server:
 
 sink: postgres
 
+# One ib_operator block (TD-53): a second one further down set the stream, and YAML kept
+# only that one, silently dropping these keys. STG's own command stream: trade-stg may write
+# only this one, and the gateway answers read ops only here — STG cannot disconnect or
+# reconnect the gateway PROD uses (TD-21).
 ib_operator:
   enabled: true
-  stream: "ib:operator:cmd"
+  stream: "ib:operator:cmd:stg"
   consumer_group: ib-operator
   result_prefix: "ib:operator:result:"
   health_key: "bifrost:health:ws_ib_operator"
@@ -103,11 +108,6 @@ redis_ib:
   username: trade-stg
   password: ""
 
-# STG's own command stream: trade-stg may write only this one, and the gateway answers read ops
-# only here — STG cannot disconnect or reconnect the gateway PROD uses (TD-21). Other keys default.
-ib_operator:
-  stream: "ib:operator:cmd:stg"
-
 ops:
   control_profile: stg
   # Wave A: D10 freeze — block daemon scale-up via api-ops until Owner unlock.
@@ -132,3 +132,18 @@ massive:
   tier: starter
   features:
     trades_enabled: false
+
+# Reference indices for the market strip and Refresh Index (TD-53). They lived only in the
+# core example, which K3s never merges, so /status served [] and Refresh Index answered ok
+# with nothing updated. ^IXIC (Polygon I:COMP) is not listed: it is index data, and the
+# Indices plan is not subscribed (0 of 1255 sessions), so it could only ever fail.
+reference_indices:
+  - symbol: "^GSPC"
+    label: "S&P 500 (SPY)"
+    polygon_ticker: "SPY"
+  - symbol: "^DJI"
+    label: "Dow 30 (DIA)"
+    polygon_ticker: "DIA"
+  - symbol: "^VIX"
+    label: "VIX (VIXY)"
+    polygon_ticker: "VIXY"

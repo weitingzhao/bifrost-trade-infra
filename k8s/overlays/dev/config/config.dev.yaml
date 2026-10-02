@@ -1,6 +1,6 @@
-# Dev overlay — deep-merged over config.yaml (from core example).
-# NOTE: LOCAL Docker Compose fallback (non-K3s). Canonical K3s config:
-#   k8s/overlays/dev/config/config.dev.yaml (CNPG @ data NS, bifrost_dev).
+# K3s bifrost-dev — the only config for this env, mounted into every pod as
+# /app/config/runtime.yaml (TD-06, TD-52). Nothing is merged under it; the old header said
+# "deep-merged over config.yaml", which never happened in K3s (TD-53).
 # Local LAN access: NodePort 30432 on any Ready node (see k8s/data/postgres-nodeport.yaml).
 # ops.auth.tokens：UI Authenticate 用此处 token (Settings → API Health / Socket)。
 
@@ -120,3 +120,18 @@ ops:
 # api_key + rest_base still used by Research REST (polygon_http); Polygon WS ingest retired
 massive:
   api_key: ""
+
+# Reference indices for the market strip and Refresh Index (TD-53). They lived only in the
+# core example, which K3s never merges, so /status served [] and Refresh Index answered ok
+# with nothing updated. ^IXIC (Polygon I:COMP) is not listed: it is index data, and the
+# Indices plan is not subscribed (0 of 1255 sessions), so it could only ever fail.
+reference_indices:
+  - symbol: "^GSPC"
+    label: "S&P 500 (SPY)"
+    polygon_ticker: "SPY"
+  - symbol: "^DJI"
+    label: "Dow 30 (DIA)"
+    polygon_ticker: "DIA"
+  - symbol: "^VIX"
+    label: "VIX (VIXY)"
+    polygon_ticker: "VIXY"
