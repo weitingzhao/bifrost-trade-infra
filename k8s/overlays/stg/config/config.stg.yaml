@@ -116,7 +116,9 @@ ops:
   kubernetes:
     namespace: bifrost-stg
   auth:
-    default_role: operator
+    # TD-23: an anonymous caller reads; a write needs the Operator sign-in
+    # (OPS_OPERATOR_TOKEN / OPS_ADMIN_TOKEN, scripts/trade-operator-tokens.sh).
+    default_role: viewer
     tokens: []
   platform_audit:
     enabled: true
