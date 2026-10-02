@@ -35,22 +35,31 @@ patches:
   - path: dev-write-token-secret.patch.yaml
 
 images:
+  # DEV runs its own :dev tags (TD-34). They used to inherit :stg, so a DEV restart picked up
+  # whatever STG last built and DEV-only builds pushed :stg, which STG -- the smoke gate before
+  # PROD -- then ran on its next restart. :dev is pushed by the DEV-only builds
+  # (bifrost-build-frontend-stg, the dev-api-only runs); STG and PROD delivers never touch it.
   # Keep api-monitor on the shared registry (same pattern as account/market/research).
   # A previous local tag (dev-live-fix-*) is not on nodes and caused ImagePullBackOff,
   # which blocked rollout after Secret rotation → stale PGPASSWORD → empty Accounts.
   - name: registry.cicd.svc.cluster.local:5000/bifrost-api-monitor
     newName: 192.168.10.73:30500/bifrost-api-monitor
-    newTag: stg
+    newTag: dev
   - name: registry.cicd.svc.cluster.local:5000/bifrost-api-account
     newName: 192.168.10.73:30500/bifrost-api-account
+    newTag: dev
   - name: registry.cicd.svc.cluster.local:5000/bifrost-api-market
     newName: 192.168.10.73:30500/bifrost-api-market
+    newTag: dev
   - name: registry.cicd.svc.cluster.local:5000/bifrost-api-research
     newName: 192.168.10.73:30500/bifrost-api-research
+    newTag: dev
   - name: registry.cicd.svc.cluster.local:5000/bifrost-frontend
     newName: 192.168.10.73:30500/bifrost-frontend
+    newTag: dev
   - name: registry.cicd.svc.cluster.local:5000/bifrost-worker
     newName: 192.168.10.73:30500/bifrost-worker
+    newTag: dev
 
 commonAnnotations:
   bifrost.io/environment: dev

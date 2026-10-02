@@ -1,4 +1,4 @@
-# Session S8 — Gitea clone bifrost-trade-frontend + bifrost-ui → Kaniko → registry :stg
+# Session S8 — Gitea clone bifrost-trade-frontend + bifrost-ui → Kaniko → registry :dev (DEV-only build; TD-34 — STG/PROD builds come from the deliver pipelines)
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
@@ -20,7 +20,7 @@ spec:
       default: main
     - name: frontendImage
       type: string
-      default: registry.cicd.svc.cluster.local:5000/bifrost-frontend:stg
+      default: registry.cicd.svc.cluster.local:5000/bifrost-frontend:dev
   workspaces:
     - name: build-context
   tasks:
