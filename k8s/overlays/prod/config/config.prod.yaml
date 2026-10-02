@@ -1,6 +1,6 @@
-# Prod overlay — deep-merged over config.yaml (from config.yaml.example).
-# NOTE: This file is the LOCAL Docker Compose fallback (non-K3s). The canonical prod config
-#   is k8s/overlays/prod/config/config.prod.yaml (CNPG @ data NS, bifrost_prod).
+# K3s bifrost-prod — the only config for this env, mounted into every pod as
+# /app/config/runtime.yaml (TD-06, TD-52). Nothing is merged under it; the old header said
+# "deep-merged over config.yaml", which never happened in K3s (TD-53).
 # ops.auth.tokens：生产 token 勿提交 git；通过 .env OPS_* 或部署密钥注入。
 
 server:
@@ -112,3 +112,18 @@ massive:
   tier: starter
   features:
     trades_enabled: false
+
+# Reference indices for the market strip and Refresh Index (TD-53). They lived only in the
+# core example, which K3s never merges, so /status served [] and Refresh Index answered ok
+# with nothing updated. ^IXIC (Polygon I:COMP) is not listed: it is index data, and the
+# Indices plan is not subscribed (0 of 1255 sessions), so it could only ever fail.
+reference_indices:
+  - symbol: "^GSPC"
+    label: "S&P 500 (SPY)"
+    polygon_ticker: "SPY"
+  - symbol: "^DJI"
+    label: "Dow 30 (DIA)"
+    polygon_ticker: "DIA"
+  - symbol: "^VIX"
+    label: "VIX (VIXY)"
+    polygon_ticker: "VIXY"

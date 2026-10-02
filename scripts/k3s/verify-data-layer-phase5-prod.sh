@@ -27,7 +27,7 @@ for dep in redis-live-prod; do
 done
 
 if kubectl exec -n "${PROD_NAMESPACE}" deploy/api-monitor -- \
-  sh -c 'grep -q redis-live-prod.data.svc /app/config/config.prod.yaml || grep -q redis-live-prod.data.svc /app/config/config.stg.yaml' 2>/dev/null; then
+  sh -c 'grep -q redis-live-prod.data.svc /app/config/runtime.yaml' 2>/dev/null; then
   pass "api-monitor config has redis-live-prod"
 else
   fail "api-monitor config missing redis-live-prod"

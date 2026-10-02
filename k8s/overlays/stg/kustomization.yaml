@@ -13,7 +13,8 @@ resources:
 configMapGenerator:
   - name: bifrost-config
     files:
-      - config/config.stg.yaml
+      # Every pod mounts its env's config as runtime.yaml (TD-52).
+      - runtime.yaml=config/config.stg.yaml
       - config/config.yaml.example
     options:
       disableNameSuffixHash: true

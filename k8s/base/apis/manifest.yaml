@@ -29,7 +29,7 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: BIFROST_CONFIG
-              value: /app/config/config.stg.yaml
+              value: /app/config/runtime.yaml
             - name: BIFROST_ENV
               value: stg
             - name: ENABLE_METRICS
@@ -53,8 +53,8 @@ spec:
               containerPort: 8765
           volumeMounts:
             - name: bifrost-config
-              mountPath: /app/config/config.stg.yaml
-              subPath: config.stg.yaml
+              mountPath: /app/config/runtime.yaml
+              subPath: runtime.yaml
           readinessProbe:
             httpGet:
               path: /health
@@ -156,7 +156,7 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: BIFROST_CONFIG
-              value: /app/config/config.stg.yaml
+              value: /app/config/runtime.yaml
             - name: BIFROST_ENV
               value: stg
             - name: ENABLE_METRICS
@@ -179,8 +179,8 @@ spec:
               containerPort: 8769
           volumeMounts:
             - name: bifrost-config
-              mountPath: /app/config/config.stg.yaml
-              subPath: config.stg.yaml
+              mountPath: /app/config/runtime.yaml
+              subPath: runtime.yaml
           readinessProbe:
             httpGet:
               path: /health
@@ -297,7 +297,7 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: BIFROST_CONFIG
-              value: /app/config/config.stg.yaml
+              value: /app/config/runtime.yaml
             - name: BIFROST_ENV
               value: stg
             - name: ENABLE_METRICS
@@ -321,8 +321,8 @@ spec:
               containerPort: 8772
           volumeMounts:
             - name: bifrost-config
-              mountPath: /app/config/config.stg.yaml
-              subPath: config.stg.yaml
+              mountPath: /app/config/runtime.yaml
+              subPath: runtime.yaml
           readinessProbe:
             httpGet:
               path: /health
@@ -388,7 +388,7 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: BIFROST_CONFIG
-              value: /app/config/config.stg.yaml
+              value: /app/config/runtime.yaml
             - name: BIFROST_ENV
               value: stg
             - name: ENABLE_METRICS
@@ -431,8 +431,8 @@ spec:
               containerPort: 8773
           volumeMounts:
             - name: bifrost-config
-              mountPath: /app/config/config.stg.yaml
-              subPath: config.stg.yaml
+              mountPath: /app/config/runtime.yaml
+              subPath: runtime.yaml
           readinessProbe:
             httpGet:
               path: /health
