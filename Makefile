@@ -1,128 +1,25 @@
-.PHONY: up down build logs ps prod-build prod-build-local prod-base-local prod-up-local prod-rebuild-local prod-rebuild-local-api prod-pull-base-images prod-preflight prod-preflight-local prod-preflight-local-build prod-preflight-local-up prod-preflight-local-health prod-health release-gate prod-down-local prod-embedded-infra sync-prod-config sync-stg-config verify-2c-a1 local-prod-final-gate dev dev-docker-infra dev-down dev-build dev-reinstall-deps dev-preflight dev-health verify-domain-apis verify-wave-a-sessions switch-cutover-domain signoff-start check-cutover-env check-entrypoint-paths sync-dev-config sync-dev-db-password db-init db-init-dev db-shell shell-redis k3s-install-remote k3s-install-remote-run k3s-verify-remote k3s-fetch-kubeconfig k3s-install-metrics-remote k3s-install-observability-remote k3s-install-argocd k3s-verify-argocd k3s-install-cicd-stack k3s-verify-cicd-stack k3s-install-bifrost-stg k3s-verify-bifrost-stg k3s-install-gitea-persistent k3s-bootstrap-gitea-mirrors k3s-sync-gitea-mirrors k3s-deliver-stg k3s-install-ci-frontend-git k3s-verify-ci-frontend-git k3s-install-ci-frontend-build k3s-verify-ci-frontend-build k3s-install-ci-deliver-stg k3s-verify-ci-deliver-stg k3s-install-phase-b-stg k3s-verify-phase-b-stg k3s-verify-phase-b-stg-v2 k3s-apply-cicd-platform-pipeline k3s-join-agent-remote clean docs docs-build sync-flex-tokens check-agent-parity check-code-health check-overlay-configs k3s-install-ci-triggers k3s-verify-ci-triggers k3s-install-ci-webhooks
+.PHONY: release-gate sync-stg-config verify-2c-a1 dev dev-docker-infra dev-down dev-build dev-reinstall-deps dev-preflight dev-health verify-domain-apis verify-wave-a-sessions switch-cutover-domain signoff-start check-cutover-env check-entrypoint-paths sync-dev-config sync-dev-db-password db-init db-init-dev db-shell shell-redis k3s-install-remote k3s-install-remote-run k3s-verify-remote k3s-fetch-kubeconfig k3s-install-metrics-remote k3s-install-observability-remote k3s-install-argocd k3s-verify-argocd k3s-install-cicd-stack k3s-verify-cicd-stack k3s-install-bifrost-stg k3s-verify-bifrost-stg k3s-install-gitea-persistent k3s-bootstrap-gitea-mirrors k3s-sync-gitea-mirrors k3s-deliver-stg k3s-install-ci-frontend-git k3s-verify-ci-frontend-git k3s-install-ci-frontend-build k3s-verify-ci-frontend-build k3s-install-ci-deliver-stg k3s-verify-ci-deliver-stg k3s-install-phase-b-stg k3s-verify-phase-b-stg k3s-verify-phase-b-stg-v2 k3s-apply-cicd-platform-pipeline k3s-join-agent-remote clean docs docs-build sync-flex-tokens check-agent-parity check-code-health check-overlay-configs k3s-install-ci-triggers k3s-verify-ci-triggers k3s-install-ci-webhooks
 
-COMPOSE        = docker compose
-COMPOSE_LOCAL  = docker compose -f docker-compose.yml -f docker-compose.local.yml
 COMPOSE_DEV    = docker compose -f docker-compose.dev.yml
 
-# ── Production ────────────────────────────────────────────────────────────────
-
-up:
-	$(COMPOSE) up -d
-
-down:
-	$(COMPOSE) down
-
-build: prod-build
-
-prod-build: ensure-env sync-prod-config
-	$(COMPOSE) build
-
-prod-build-local: ensure-env sync-prod-config prod-base-local
-	export DOCKER_BUILDKIT=$${DOCKER_BUILDKIT:-1}; \
-	$(COMPOSE_LOCAL) build
-
-# Shared deps layers only (core/worker/socket). Run after pyproject or base Dockerfile changes.
-prod-base-local: ensure-env
-	export DOCKER_BUILDKIT=$${DOCKER_BUILDKIT:-1}; \
-	$(COMPOSE_LOCAL) --profile build-base build \
-		bifrost-base-worker bifrost-base-socket bifrost-base-api
-
-# Start prod-local stack without rebuilding images.
-prod-up-local: ensure-env sync-prod-config
-	$(COMPOSE_LOCAL) up -d --no-build
-	$(COMPOSE_LOCAL) restart nginx
-
-# Rebuild one service, recreate it, refresh nginx upstream DNS.
-# Usage: make prod-rebuild-local SERVICE=api-monitor
-prod-rebuild-local: ensure-env sync-prod-config
-ifndef SERVICE
-	$(error SERVICE is required, e.g. make prod-rebuild-local SERVICE=api-monitor)
-endif
-	export DOCKER_BUILDKIT=$${DOCKER_BUILDKIT:-1}; \
-	$(COMPOSE_LOCAL) build $(SERVICE)
-	$(COMPOSE_LOCAL) up -d --no-build $(SERVICE)
-	$(COMPOSE_LOCAL) restart nginx
-
-# Rebuild all 8 API domains (shared bifrost-api:local image) after api-only code changes.
-# P7: api-massive REST retired — use Market Data Plugin.
-prod-rebuild-local-api: ensure-env sync-prod-config
-	export DOCKER_BUILDKIT=$${DOCKER_BUILDKIT:-1}; \
-	$(COMPOSE_LOCAL) build api-monitor
-	$(COMPOSE_LOCAL) up -d --no-build \
-		api-monitor api-docs api-ops api-trading api-strategy \
-		api-portfolio api-market api-research
-	$(COMPOSE_LOCAL) restart nginx
-
-prod-pull-base-images:
-	docker pull python:3.11-slim
-	docker pull node:20-slim
-	docker pull nginx:alpine
-	docker pull postgres:16-alpine
-	docker pull redis:7-alpine
-
-prod-preflight:
-	@chmod +x scripts/prod_preflight.sh
-	@./scripts/prod_preflight.sh
-
-prod-preflight-local:
-	@chmod +x scripts/prod_preflight.sh
-	@./scripts/prod_preflight.sh local
-
-prod-preflight-local-build: ensure-env sync-prod-config
-	@chmod +x scripts/prod_preflight.sh
-	@./scripts/prod_preflight.sh local build
-
-prod-preflight-local-up: ensure-env sync-prod-config
-	@chmod +x scripts/prod_preflight.sh
-	@./scripts/prod_preflight.sh local up
-
-prod-preflight-local-health:
-	@chmod +x scripts/prod_preflight.sh
-	@./scripts/prod_preflight.sh local health
-
-prod-down-local:
-	$(COMPOSE_LOCAL) down
-
-prod-health:
-	@chmod +x scripts/check_prod_stack.sh
-	@./scripts/check_prod_stack.sh
+# ── Production (K3s) ──────────────────────────────────────────────────────────
+# Production runs on K3s (bifrost-prod, Argo + the deliver pipelines). The docker-compose
+# "prod" stack and its targets were retired 2026-10-02 (debt TD-33): it started an
+# unguarded daemon and account-sync against the dev DB and proxied to services that no
+# longer exist. Local development keeps the dev stack (make dev).
 
 release-gate:
 	@chmod +x scripts/release_gate.sh
 	@./scripts/release_gate.sh
-
-local-prod-final-gate:
-	@chmod +x scripts/local_prod_final_gate.sh
-	@./scripts/local_prod_final_gate.sh
-
-local-prod-final-owner:
-	@chmod +x scripts/local_prod_final_owner.sh
-	@./scripts/local_prod_final_owner.sh $(SESSION)
 
 # C4 — Ops executor K8s-only gate (legacy name verify-2c-a1 retained for Makefile compatibility).
 verify-2c-a1:
 	@chmod +x scripts/verify_2c_a1_control_plane.sh
 	@./scripts/verify_2c_a1_control_plane.sh
 
-sync-prod-config:
-	@chmod +x scripts/sync_prod_config.sh
-	@./scripts/sync_prod_config.sh
-
 sync-prod-k8s-config:
 	@chmod +x scripts/sync_prod_k8s_config.sh
 	@./scripts/sync_prod_k8s_config.sh
-
-# Optional isolated PG+Redis for prod compose smoke (greenfield/CI).
-prod-embedded-infra: ensure-env sync-prod-config
-	$(COMPOSE) --profile embedded-infra up -d postgres redis
-	$(COMPOSE) up -d
-	@echo "Prod stack with embedded-infra. Run: make prod-health"
-
-logs:
-	$(COMPOSE) logs -f
-
-ps:
-	$(COMPOSE) ps
 
 # ── Development ───────────────────────────────────────────────────────────────
 
@@ -227,12 +124,12 @@ db-init-dev: sync-dev-config
 		python /workspace/bifrost-trade-core/scripts/db/db_refresh_schema.py
 
 db-shell:
-	$(COMPOSE) exec postgres psql -U $${POSTGRES_USER:-bifrost} -d $${POSTGRES_DB:-bifrost_dev}
+	$(COMPOSE_DEV) exec postgres psql -U $${POSTGRES_USER:-bifrost} -d $${POSTGRES_DB:-bifrost_dev}
 
 # ── Debug shells ──────────────────────────────────────────────────────────────
 
 shell-redis:
-	$(COMPOSE) exec redis redis-cli
+	$(COMPOSE_DEV) exec redis redis-cli
 
 # ── Documentation (MkDocs) ────────────────────────────────────────────────────
 
@@ -715,7 +612,7 @@ gpu-install-power-manager:
 
 # WARNING: prune removes Docker builder cache — avoid during active 2C signoff rebuild loops.
 clean:
-	$(COMPOSE) down -v --remove-orphans
+	$(COMPOSE_DEV) down --remove-orphans
 	docker system prune -f
 
 # Wave 4: Flex tokens → plugin-flex-query/bifrost-flex-tokens

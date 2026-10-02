@@ -23,9 +23,8 @@
 
 本 repo 是整个 Bifrost Trade 系统的**部署和基础设施**中心：
 
-- `docker-compose.yml` — 生产环境全栈编排
+- `k8s/` — 生产与各环境的部署（K3s：overlays `dev` / `stg` / `prod`，Argo + Tekton 发布链）；compose「生产」栈 2026-10-02 已退役（TD-33）
 - `docker-compose.dev.yml` — 本地开发环境（源码挂载 + 热重载）
-- `nginx/` — 反向代理配置（统一入口、路径路由、SSE 支持）
 - `config/` — 共享 YAML 配置文件（挂载到各容器）
 - `Makefile` — 常用操作快捷命令
 - `docs/DOCKER_BUILD.md` — 何时 rebuild、local 镜像分层、BuildKit 缓存
@@ -40,9 +39,6 @@
 ```bash
 # 1. 复制并填写环境变量
 cp .env.example .env
-
-# 2. 生产环境启动
-make up
 
 # 3. 本地开发（源码挂载）
 make dev

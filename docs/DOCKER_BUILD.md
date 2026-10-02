@@ -1,5 +1,7 @@
 # Docker 构建优化 — 重构期 local prod 冒烟
 
+> **已退役（2026-10-02，TD-33）**：compose「生产」栈（`docker-compose.yml` / `.local.yml`、`nginx/`、`Dockerfile.prod-local-*`）与 `prod-*` make 目标已删除。生产在 K3s；本地开发用 `make dev`。下文仅作历史参考。
+
 日常开发用 `make dev`（volume 挂载，**不 rebuild**）。2C 签验收用 `make prod-health`（**仅探针，不 rebuild**）。
 
 ## 何时需要 rebuild

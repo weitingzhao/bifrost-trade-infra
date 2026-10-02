@@ -9,7 +9,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FILES = [
     ROOT / "config/config.dev.yaml",
-    ROOT / "config/config.prod.yaml",
     ROOT / "k8s/overlays/dev/config/config.dev.yaml",
     ROOT / "k8s/overlays/stg/config/config.stg.yaml",
     ROOT / "k8s/overlays/prod/config/config.prod.yaml",
