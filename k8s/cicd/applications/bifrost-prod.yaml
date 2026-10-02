@@ -14,9 +14,8 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: bifrost-prod
+  # Manual sync, as the live Application runs: the deliver pipeline's gitops-sync step syncs it.
+  # Never re-add `automated` here — re-applying this file would turn on prune + selfHeal (TD-12).
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
