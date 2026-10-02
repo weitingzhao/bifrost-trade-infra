@@ -25,7 +25,10 @@ spec:
           port: 8765
           responseForwarding:
             flushInterval: 1ms
-    - match: Host(`dev.trader.bifrost.lan`) && PathPrefix(`/api/docs`)
+    # /api/docs and /api/ops are aliases for the api-monitor pods. Route only the paths
+    # they own, so monitor's /control/*, /account-sync/control/* and /config/* stay
+    # reachable at /api/monitor only, where the D10 preflight guard looks (debt TD-07).
+    - match: Host(`dev.trader.bifrost.lan`) && (Path(`/api/docs/health`) || PathPrefix(`/api/docs/research/docs/`))
       kind: Rule
       priority: 100
       middlewares:
@@ -36,7 +39,7 @@ spec:
           port: 8765
           responseForwarding:
             flushInterval: 1ms
-    - match: Host(`dev.trader.bifrost.lan`) && PathPrefix(`/api/ops`)
+    - match: Host(`dev.trader.bifrost.lan`) && (Path(`/api/ops/health`) || PathPrefix(`/api/ops/ops/`))
       kind: Rule
       priority: 100
       middlewares:
