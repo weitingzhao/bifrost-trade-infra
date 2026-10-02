@@ -14,8 +14,22 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: bifrost-prod
+  ignoreDifferences:
+    # A finished db-init-prod Job lingers for its TTL (1 day) and its pod template is immutable.
+    # Without this, any change to db-init-prod.job.yaml failed the next sync -- and the deliver
+    # with it -- until the old Job expired. With RespectIgnoreDifferences the sync leaves the
+    # existing Job alone; the new spec applies when Argo recreates it after the TTL (TD-68).
+    - group: batch
+      kind: Job
+      name: db-init-prod
+      jsonPointers:
+        - /spec
+        - /status
+        - /metadata/annotations
+        - /metadata/labels
   # Manual sync, as the live Application runs: the deliver pipeline's gitops-sync step syncs it.
   # Never re-add `automated` here — re-applying this file would turn on prune + selfHeal (TD-12).
   syncPolicy:
     syncOptions:
       - CreateNamespace=true
+      - RespectIgnoreDifferences=true
