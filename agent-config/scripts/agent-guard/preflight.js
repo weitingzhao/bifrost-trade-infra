@@ -82,10 +82,21 @@ const AUTHORITY =
 
 /** 仅在 spine D10 !== UNLOCKED 时生效。 */
 function d10Rules(cmd) {
-  // 1. 写 ib:operator:cmd（唯一合法写入方是 Daemon 本身）
+  // 1. 写 ib:operator:cmd（及 :dev / :stg 等派生流；唯一合法写入方是 Daemon 本身）
+  //    只拦"真的在写"：redis-cli 带写命令（参数、管道、heredoc 都算），或代码里调用 redis
+  //    客户端的写方法 / IbOperatorClient.request。改源码、grep、写 ACL 文件里出现流名与
+  //    xadd 字样不算 —— 旧规则按整段文本匹配，连注释里的 "set" 都会误拦（TD-21）。
   const OP_STREAM = 'ib:operator:' + 'cmd'
-  if (cmd.includes(OP_STREAM) && /\b(xadd|lpush|rpush|publish|set|hset|del)\b/i.test(cmd)) {
+  const W = 'xadd|xdel|xtrim|xgroup|lpush|rpush|publish|set|hset|del|unlink|rename'
+  const cliWrite = /\bredis-cli\b/.test(cmd) && new RegExp('\\b(' + W + ')\\b', 'i').test(cmd)
+  const clientWrite =
+    new RegExp('\\.(' + W + '|delete)\\s*\\(', 'i').test(cmd) ||
+    new RegExp('execute_command\\s*\\(\\s*[\'"](' + W + ')\\b', 'i').test(cmd)
+  if (cmd.includes(OP_STREAM) && (cliWrite || clientWrite)) {
     return '写入 `' + OP_STREAM + '` — 唯一合法写入方是 Daemon 本身，Agent 永远不写这个 Stream'
+  }
+  if (/\bIbOperatorClient\b[\s\S]*\.request(_async)?\s*\(/.test(cmd)) {
+    return '经 `IbOperatorClient` 向 `' + OP_STREAM + '` 发命令 — 唯一合法写入方是 Daemon 本身'
   }
 
   // 2. Monitor 控制端点写操作。monitor 在每个指向它的网关前缀和直连 :8765 下都答
