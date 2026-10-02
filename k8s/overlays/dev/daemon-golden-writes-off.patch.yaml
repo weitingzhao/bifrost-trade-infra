@@ -4,9 +4,12 @@
 # bifrost_golden_source, which every environment shares; account/positions
 # are written by the PROD daemon's PostgresSink. Without this flag the DEV
 # daemon writes them too: write_snapshot's accounts sync and ib_edge's
-# write_open_orders / write_account_executions stand down only when
-# ACCOUNT_SYNC_DAEMON_ENABLED is set. account-sync stays at replicas 0 in DEV,
-# so nothing in DEV writes those tables.
+# write_open_orders / write_account_executions stand down only when the
+# broker-writes-off flag is set, which leaves DEV with no writer of those tables.
+#
+# DAEMON_BROKER_WRITES_OFF is the flag's name. ACCOUNT_SYNC_DAEMON_ENABLED is
+# its old name, which core still accepts; it stays here until the DEV :dev
+# images carry a core release that reads DAEMON_BROKER_WRITES_OFF — drop it then.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -17,5 +20,7 @@ spec:
       containers:
         - name: daemon
           env:
+            - name: DAEMON_BROKER_WRITES_OFF
+              value: "1"
             - name: ACCOUNT_SYNC_DAEMON_ENABLED
               value: "1"

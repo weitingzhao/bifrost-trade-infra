@@ -190,6 +190,8 @@ make verify-2c-a1
 
 ### 3.3 account_sync_daemon
 
+> account-sync 已于 2026-10-02 退役并删除（TD-22），本决策点不再适用。
+
 **决策点（Owner）**：
 
 - **A**：暂不纳入 compose；Daemon 页该行标 `not deployed`，隐藏 Start/Stop

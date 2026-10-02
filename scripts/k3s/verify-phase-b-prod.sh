@@ -18,7 +18,7 @@ gateway_curl() {
 
 DOMAINS="monitor docs ops trading strategy portfolio market research"
 # P1: gateway + APIs only. Set PROD_VERIFY_FULL=1 after deliver-prod refreshes :prod images.
-WORKER_DEPLOY="daemon account-sync"
+WORKER_DEPLOY="daemon"
 # Trade massive-ws retired (P7); Polygon WS ingest retired entirely (2026-09-27)
 FULL_VERIFY="${PROD_VERIFY_FULL:-0}"
 

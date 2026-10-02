@@ -18,7 +18,7 @@ gateway_curl() {
 }
 
 DOMAINS="monitor docs ops trading strategy portfolio market research"
-WORKER_DEPLOY="daemon account-sync"
+WORKER_DEPLOY="daemon"
 SOCKET_LEGACY_STS="ib-market-gateway ib-account-agent ib-operator"
 # Trade massive-ws retired (P7); Polygon WS ingest retired entirely (2026-09-27)
 

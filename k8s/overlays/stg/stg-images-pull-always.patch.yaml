@@ -67,17 +67,3 @@ spec:
         - name: daemon
           imagePullPolicy: Always
 ---
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: account-sync
-spec:
-  template:
-    spec:
-      initContainers:
-        - name: wait-for-data
-          imagePullPolicy: Always
-      containers:
-        - name: account-sync
-          imagePullPolicy: Always
----

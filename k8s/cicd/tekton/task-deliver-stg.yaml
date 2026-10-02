@@ -48,7 +48,7 @@ spec:
           fi
         done
         APIS="api-monitor api-account api-market api-research"
-        WORKER="daemon account-sync"
+        WORKER="daemon"
         DEPLOY="${APIS} ${WORKER}"
         # IBGP3 retired — legacy IB StatefulSets removed from kustomize; do not rollout/restart.
         # massive-ws retired; Polygon WS ingest retired entirely (2026-09-27) — nothing to roll out.

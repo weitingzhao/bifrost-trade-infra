@@ -1,6 +1,11 @@
-# Phase B stg v2 — trading daemon, account-sync (shared bifrost-worker:stg image).
+# Trading daemon (bifrost-worker image).
 # W8 trade-k8s-native: daemon Deployment uses K8s Lease (R-DV3) — replicas:2 hot standby,
 # only the Lease holder runs the GsTrading FSM loop.
+#
+# raw_broker.account / .positions in the shared Golden Source are written by this
+# daemon's PostgresSink in STG and PROD (STG currently runs it at replicas 0).
+# DEV's daemon does not write them (overlays/dev/daemon-golden-writes-off.patch.yaml).
+# The retired account-sync Deployment that used to sit here was deleted 2026-10-02 (TD-22).
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -100,91 +105,3 @@ spec:
             limits:
               cpu: "2"
               memory: 1Gi
----
-# Retired 2026-09-08 — replicas:0, kept for the record and for a future cutover.
-#
-# This daemon was never the writer. `raw_broker.account` / `.positions` are
-# written by the trading daemon's PostgresSink, which stands down only when
-# ACCOUNT_SYNC_DAEMON_ENABLED is set — never in STG/PROD; DEV sets it so its
-# daemon keeps out of the shared Golden Source (overlays/dev/
-# daemon-golden-writes-off.patch.yaml). account-sync ignored the flag and ran anyway, consuming
-# ib:account:stream:v1 and failing every entry: its diff_engine issues the
-# per-env FDW alias `brokerage.*` against the Golden Source connection, where
-# the schema is `raw_broker.*` (core 0.18.1 migrated the writers; this caller
-# was missed). last_sync_version sat at 0 for the pod's whole 14-day life.
-#
-# Do not scale this up without also fixing diff_engine's table constants AND
-# setting ACCOUNT_SYNC_DAEMON_ENABLED=1 on the daemon — otherwise two writers
-# race on the same rows, and this one DELETEs what the other just wrote.
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: account-sync
-  labels:
-    app.kubernetes.io/name: account-sync
-    app.kubernetes.io/component: worker
-spec:
-  replicas: 0
-  strategy:
-    type: Recreate
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: account-sync
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: account-sync
-        app.kubernetes.io/component: worker
-    spec:
-      volumes:
-        - name: bifrost-config
-          configMap:
-            name: bifrost-config
-      # W7: wait for CNPG + Redis before account sync starts writing.
-      initContainers:
-        - name: wait-for-data
-          image: registry.cicd.svc.cluster.local:5000/bifrost-worker:stg
-          imagePullPolicy: Always
-          command: ["python", "scripts/wait_for_data.py"]
-          workingDir: /src/bifrost-trade-worker
-          env:
-            - name: BIFROST_CONFIG
-              value: /app/config/config.stg.yaml
-            - name: BIFROST_ENV
-              value: stg
-          volumeMounts:
-            - name: bifrost-config
-              mountPath: /app/config/config.stg.yaml
-              subPath: config.stg.yaml
-      containers:
-        - name: account-sync
-          image: registry.cicd.svc.cluster.local:5000/bifrost-worker:stg
-          imagePullPolicy: IfNotPresent
-          command: ["python", "scripts/run_account_sync_daemon.py"]
-          workingDir: /src/bifrost-trade-worker
-          env:
-            - name: BIFROST_CONFIG
-              value: /app/config/config.stg.yaml
-            - name: BIFROST_ENV
-              value: stg
-          envFrom:
-            - secretRef:
-                name: bifrost-stg-secrets
-                optional: true
-          volumeMounts:
-            - name: bifrost-config
-              mountPath: /app/config/config.stg.yaml
-              subPath: config.stg.yaml
-          readinessProbe:
-            exec:
-              command: ["python", "scripts/wait_for_data.py", "--once"]
-            initialDelaySeconds: 10
-            periodSeconds: 30
-            timeoutSeconds: 10
-          resources:
-            requests:
-              cpu: 50m
-              memory: 128Mi
-            limits:
-              cpu: "1"
-              memory: 512Mi

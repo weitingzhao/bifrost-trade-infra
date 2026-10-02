@@ -223,37 +223,3 @@ spec:
           operator: Exists
           effect: NoExecute
           tolerationSeconds: 45
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: account-sync
-spec:
-  template:
-    spec:
-      affinity:
-        nodeAffinity:
-          # Hard: somewhere that can actually run Prod.
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: bifrost.io/workload-pool
-                    operator: In
-                    values: [prod-pool, general]
-          # Soft: mini-pc-a whenever it is available.
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              preference:
-                matchExpressions:
-                  - key: bifrost.io/host-id
-                    operator: In
-                    values: [mini-pc-a]
-      tolerations:
-        - key: node.kubernetes.io/not-ready
-          operator: Exists
-          effect: NoExecute
-          tolerationSeconds: 45
-        - key: node.kubernetes.io/unreachable
-          operator: Exists
-          effect: NoExecute
-          tolerationSeconds: 45

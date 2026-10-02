@@ -50,8 +50,9 @@ spec:
           responseForwarding:
             flushInterval: 1ms
     # /api/docs and /api/ops are aliases for the api-monitor pods. Route only the paths
-    # they own, so monitor's /control/*, /account-sync/control/* and /config/* stay
-    # reachable at /api/monitor only, where the D10 preflight guard looks (debt TD-07).
+    # they own, so monitor's /control/* and /config/* stay reachable at /api/monitor
+    # only, where the D10 preflight guard looks (debt TD-07). The /account-sync/control/*
+    # routes this also covered were removed with account-sync (2026-10-02, TD-22).
     - match: Host(`trader.bifrost.lan`) && (Path(`/api/docs/health`) || PathPrefix(`/api/docs/research/docs/`))
       kind: Rule
       priority: 100
