@@ -90,10 +90,12 @@ function d10Rules(cmd) {
 
   // 2. Monitor 控制端点写操作。monitor 在每个指向它的网关前缀和直连 :8765 下都答
   //    /control/* 与 /account-sync/control/*，按路径尾部匹配，不按前缀（TD-07）。
-  //    curl 带 -d / --data / --json / -F 时默认就是 POST，也算写。
+  //    curl 带 -d / --data / --json / -F 时默认就是 POST，也算写 —— 只认 curl 自己的参数
+  //    且区分大小写，否则 `tr -d`、`curl -f` 这类只读命令会被误拦。
   if (
     /\/(account-sync\/)?control\/[\w-]+/.test(cmd) &&
-    /-X\s*(POST|PUT|DELETE)|--request\s*(POST|PUT|DELETE)|\s(-d|--data[\w-]*|--json|-F|--form)\b/i.test(cmd)
+    (/-X\s*(POST|PUT|DELETE)|--request\s*(POST|PUT|DELETE)/i.test(cmd) ||
+      /\bcurl\b[^|;&]*\s(-d|--data[\w-]*|--json|-F|--form)\b/.test(cmd))
   ) {
     return 'Monitor `POST …/control/*`（任一网关前缀或 :8765）— 可能武装实盘交易'
   }
