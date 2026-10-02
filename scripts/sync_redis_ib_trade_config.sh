@@ -13,21 +13,27 @@ fi
 # shellcheck disable=SC1090
 source "$PLUGIN_ENV"
 
-PROD_PASS="${REDIS_IB_TRADE_PROD_PASS:?REDIS_IB_TRADE_PROD_PASS missing in plugin .env}"
-USER_NAME="${REDIS_IB_TRADE_PROD_USER:-trade-prod}"
+# Each env authenticates as its own redis-ib user (TD-21): trade-prod is PROD's alone.
+: "${REDIS_IB_TRADE_DEV_PASS:?REDIS_IB_TRADE_DEV_PASS missing in plugin .env}"
+: "${REDIS_IB_TRADE_STG_PASS:?REDIS_IB_TRADE_STG_PASS missing in plugin .env (scripts/redis-ib-env-users.sh acl creates it)}"
+: "${REDIS_IB_TRADE_PROD_PASS:?REDIS_IB_TRADE_PROD_PASS missing in plugin .env}"
+export REDIS_IB_TRADE_DEV_PASS REDIS_IB_TRADE_STG_PASS REDIS_IB_TRADE_PROD_PASS
 
-python3 - "$ROOT" "$PROD_PASS" "$USER_NAME" <<'PY'
+python3 - "$ROOT" <<'PY'
 import os
 import re
 import sys
 from pathlib import Path
 
 root = Path(sys.argv[1])
-pw = sys.argv[2]
-user = sys.argv[3]
+USERS = {
+    "dev": ("trade-dev", os.environ["REDIS_IB_TRADE_DEV_PASS"]),
+    "stg": ("trade-stg", os.environ["REDIS_IB_TRADE_STG_PASS"]),
+    "prod": ("trade-prod", os.environ["REDIS_IB_TRADE_PROD_PASS"]),
+}
 
 
-def upsert(path: Path, name: str) -> None:
+def upsert(path: Path, name: str, user: str, pw: str) -> None:
     if path.is_file():
         text = path.read_text(encoding="utf-8")
     else:
@@ -62,11 +68,11 @@ def upsert(path: Path, name: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
     os.chmod(path, 0o600)
-    print(f"Updated {path} REDIS_IB_PASSWORD (value omitted)")
+    print(f"Updated {path} → {user} (password omitted)")
 
 
-for env in ("dev", "stg", "prod"):
-    upsert(root / f"k8s/base/secrets/bifrost-{env}-secrets.yaml", f"bifrost-{env}-secrets")
+for env, (user, pw) in USERS.items():
+    upsert(root / f"k8s/base/secrets/bifrost-{env}-secrets.yaml", f"bifrost-{env}-secrets", user, pw)
 PY
 
 echo "redis_ib Trade Secrets updated from plugin .env (YAML overlays untouched)"

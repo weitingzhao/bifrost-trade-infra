@@ -98,8 +98,15 @@ redis_ib:
   host: redis-ib
   port: 6379
   db: 0
-  username: trade-prod
+  # STG's own redis-ib user (TD-21). REDIS_IB_USERNAME / REDIS_IB_PASSWORD in bifrost-stg-secrets
+  # override this; bifrost-platform-plugin scripts/redis-ib-env-users.sh switches them.
+  username: trade-stg
   password: ""
+
+# STG's own command stream: trade-stg may write only this one, and the gateway answers read ops
+# only here — STG cannot disconnect or reconnect the gateway PROD uses (TD-21). Other keys default.
+ib_operator:
+  stream: "ib:operator:cmd:stg"
 
 ops:
   control_profile: stg

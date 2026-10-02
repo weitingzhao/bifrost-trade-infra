@@ -36,11 +36,30 @@ kubectl -n bifrost-stg rollout restart deploy/api-monitor deploy/api-account dep
 kubectl -n bifrost-stg rollout restart deploy/daemon
 ```
 
+## redis-ib users per Trade env (TD-21)
+
+Each Trade env authenticates to redis-ib as its own user: `trade-dev`, `trade-stg`, `trade-prod`.
+`trade-prod` is PROD's alone. `trade-dev` / `trade-stg` read the bus and write only their own
+operator stream (`ib:operator:cmd:dev` / `:stg`, set in the overlay config) plus on-demand quote
+registrations; on those streams the gateway answers read ops only. The plugin's
+`tests/test_redis_ib_acl.py` pins what each user may do.
+
+Owner-run, from `bifrost-platform-plugin` (passwords never leave `.env` and the Secrets, never printed):
+
+1. `scripts/redis-ib-env-users.sh acl [--rotate-dev]` — adds the STG password to `.env`, updates
+   Secret `redis-ib-acl`, waits for the pod to see it, `ACL LOAD`. No redis-ib restart: it keeps
+   nothing on disk, so a restart empties the bus. A file Redis rejects leaves the old users in force.
+2. `scripts/redis-ib-env-users.sh switch dev` (then `stg`) — points `bifrost-<env>-secrets` at the
+   env's user and restarts that env's Trade pods. Refuses until the env's config sends RPCs to its own stream.
+3. `scripts/redis-ib-env-users.sh check` — connections per user and anything redis-ib refused.
+4. `scripts/redis-ib-env-users.sh rollback dev|stg` — back to `trade-prod`.
+
 ## Rotate redis-ib
 
 1. Generate new passwords in plugin `.env` (`REDIS_IB_TRADE_PROD_PASS`, …).
-2. `make -C ../bifrost-platform-plugin install-redis-ib`.
-3. `make -C ../bifrost-platform-plugin sync-redis-ib-secrets` (updates Trade Secrets + platform `.env` only — **not** tracked YAML).
+2. `make -C ../bifrost-platform-plugin install-redis-ib`, then `scripts/redis-ib-env-users.sh acl`
+   in the plugin repo so the running redis-ib loads the file (install alone does not reload it).
+3. `make -C ../bifrost-platform-plugin sync-redis-ib-secrets` (updates Trade Secrets — each env its own user — + platform `.env` only — **not** tracked YAML).
 4. `python3 scripts/materialize_k8s_trade_secrets.py --apply` (or kubectl apply Secrets).
 5. Rollout Trade consumers + platform-api + ib-gateway.
 

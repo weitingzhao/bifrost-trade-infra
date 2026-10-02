@@ -84,12 +84,16 @@ redis_ib:
   host: redis-ib
   port: 6379
   db: 0
-  username: trade-prod
+  # DEV's own redis-ib user (TD-21). REDIS_IB_USERNAME / REDIS_IB_PASSWORD in bifrost-dev-secrets
+  # override this; bifrost-platform-plugin scripts/redis-ib-env-users.sh switches them.
+  username: trade-dev
   password: ""
 
 ib_operator:
   enabled: true
-  stream: "ib:operator:cmd"
+  # DEV's own command stream: trade-dev may write only this one, and the gateway answers read
+  # ops only here — DEV cannot disconnect or reconnect the gateway PROD uses (TD-21).
+  stream: "ib:operator:cmd:dev"
   consumer_group: ib-operator
   result_prefix: "ib:operator:result:"
   health_key: "bifrost:health:ws_ib_operator"
