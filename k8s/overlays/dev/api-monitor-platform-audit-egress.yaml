@@ -54,3 +54,18 @@ spec:
         port: 6379
       - protocol: TCP
         port: 6443
+  # Sibling Trade APIs' OpenAPI documents for the merged /research/docs aggregate
+  # (docs_api._sibling_openapi; debt TD-28). Same namespace, these three ports only.
+  - to:
+      - podSelector:
+          matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values: [api-account, api-market, api-research]
+    ports:
+      - protocol: TCP
+        port: 8769
+      - protocol: TCP
+        port: 8772
+      - protocol: TCP
+        port: 8773
