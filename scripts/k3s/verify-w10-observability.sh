@@ -13,8 +13,9 @@ if kubectl get configmap ib-data-line-budget -n "${NS}" >/dev/null 2>&1; then
   echo "OK ${NS}/ib-data-line-budget"
   kubectl get configmap ib-data-line-budget -n "${NS}" -o jsonpath='gateway_max={.data.gateway_max_subscriptions} account={.data.account_budget}{"\n"}' 2>/dev/null || true
 else
-  echo "FAIL missing ${NS}/ib-data-line-budget" >&2
-  fail=1
+  # The ib-data-line-budget manifest was never in any kustomization and was deleted (TD-67);
+  # its absence is the expected state, not a failure.
+  echo "INFO ${NS}/ib-data-line-budget not deployed (manifest retired)"
 fi
 
 if [[ "${RUN_W10_PROBE:-0}" == "1" ]]; then

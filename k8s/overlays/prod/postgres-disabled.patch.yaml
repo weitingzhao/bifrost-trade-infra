@@ -1,8 +1,0 @@
-# Prod uses CNPG @ data NS (bifrost-postgres-rw.data.svc) — no in-cluster PG in this overlay.
-# (legacy bare-metal PostgreSQL .80 decommissioned 2026-06-29)
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: postgres
-spec:
-  replicas: 0

@@ -9,4 +9,4 @@ Polygon Options WS retired (Trade `massive-ws`, then Plugin `polygon-ws-ingestor
 - Repo: `bifrost-trade-socket/ARCHIVED.md`
 
 Archived Trade `massive-ws` manifest: `k8s/legacy/massive-ws-manifest.yaml`.
-Remaining files here (`ib-socket-rbac.yaml`) are **not** included in kustomize — do not re-apply.
+The leftover `ib-socket-rbac.yaml` (never in kustomize) was deleted on 2026-10-02 (debt TD-67).
