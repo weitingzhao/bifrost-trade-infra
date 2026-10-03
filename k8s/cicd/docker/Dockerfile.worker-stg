@@ -21,7 +21,16 @@ COPY bifrost-trade-worker/scripts /src/bifrost-trade-worker/scripts
 
 WORKDIR /src/bifrost-trade-worker
 
-ENV PYTHONUNBUFFERED=1 \
+# Which core shipped: the deliver pipelines pass clone-core's commit and the
+# pyproject version (TD-37). One version string has named several commits, so
+# the SHA is the release identity (env BIFROST_CORE_SHA and the image label;
+# the api images report it on /health as core_sha).
+ARG BIFROST_CORE_SHA=unknown
+ARG BIFROST_CORE_VERSION=unknown
+LABEL io.bifrost.core.sha="${BIFROST_CORE_SHA}" \
+      io.bifrost.core.version="${BIFROST_CORE_VERSION}"
+ENV BIFROST_CORE_SHA=${BIFROST_CORE_SHA} \
+    PYTHONUNBUFFERED=1 \
     BIFROST_CONFIG=/app/config/runtime.yaml \
     BIFROST_ENV=stg
 

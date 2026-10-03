@@ -89,10 +89,15 @@ curl -s -H "Authorization: Bearer <operator-token>" http://localhost:8768/ops/au
 
 > **P7:** Massive REST API (`api-massive` / port 8766) retired — Polygon public market data is served by **Market Data Plugin** (`market-data-api:8790` via Trade `/api/plugin/market-data` or platform-api). Celery Massive workers removed from base (ingest is Plugin Cron/PG-broker). Trade `massive-ws` Deployment retired; its Plugin successor `polygon-ws-ingestor` and the `redis-massive` bus were retired too (Owner 2026-09-27 — Options Starter has no real-time WS). There is no Polygon WS ingest anywhere. Config key `massive_port` / `massive:` YAML blocks may remain as **legacy** schema fields (API key for Plugin consumers); they do not mean a Trade `api-massive` or `massive-ws` Deployment.
 
-## bifrost-core 版本管理
+## bifrost-core 版本管理（TD-37，Owner 2026-10-03 选 B）
 
-各服务 Docker 镜像通过 `BIFROST_CORE_REF` 变量控制安装的 bifrost-core 版本：
-- `BIFROST_CORE_REF=main` — 最新主干（开发用）
-- `BIFROST_CORE_REF=v0.9.0` — 指定 tag（生产用；与 bifrost-trade-core 当前版本对齐）
+- **STG/PROD**：`bifrost-deliver-{stg,prod}` 把 core 与 api、worker 一起从 Gitea 克隆（STG 按分支头，PROD 钉版本 run 按逐仓 SHA），
+  `k8s/cicd/docker/Dockerfile.{api,worker}-stg` 直接安装那份克隆。**core 的发布身份是这个 SHA**：clone-core 的 `commit`
+  结果作为 build-arg 写进镜像（env `BIFROST_CORE_SHA`、label `io.bifrost.core.sha` / `io.bifrost.core.version`），
+  api 各域 `GET /health` 返回 `core_sha` 与 `core_version`。`pyproject.toml` 的版本号只是下游的兼容下限，同一版本号可能对应多个提交。
+- **PROD tag**：PROD 发布成功后跑 `scripts/release/tag_core_release.sh <core_sha>`（默认 dry-run，`--push` 才打 `v<version>` 并推送）；
+  `v<version>` 已指向别的提交时脚本拒绝——给新内容 bump 版本，不要挪 tag。
+- **`BIFROST_CORE_REF`**（`.env`）只给各 repo 自带的 `Dockerfile` 与本地 docker-compose 用：`main` 或某个已有 tag，改后 `make build`。
+  它不影响 STG/PROD。
 
-在 `.env` 中修改后 `make build` 重新构建镜像。
+规则全文：`bifrost-trade-core/.cursor/rules/versioning.mdc`。

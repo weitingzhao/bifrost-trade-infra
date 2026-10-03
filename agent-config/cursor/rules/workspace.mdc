@@ -2,7 +2,7 @@
 description: Bifrost 工作区结构、三域架构、双飞轮边界与双轨维护规范
 globs: ["**/*"]
 alwaysApply: true
-parity-id: workspace-v8
+parity-id: workspace-v9
 ---
 
 # Bifrost 工作区规范
@@ -43,7 +43,7 @@ Bifrost = 三个域，边界不可跨越（spine **D13**）：
 | Repo | 额外规范 |
 |------|---------|
 | `bifrost-trade-frontend` | `AGENTS.md` · Dense UI（`.cursor/rules/dense-ui-system.mdc` + `.cursor/skills/dense-ui/`）· 大改版用 `.cursor/skills/frontend-design/` · DEV Inner Loop（D-IL1：验收在本机 Vite `:5173`，不是 Prod） |
-| `bifrost-trade-core` | `.cursor/rules/versioning.mdc` — 改公开接口必须同 PR bump `pyproject.toml` |
+| `bifrost-trade-core` | `.cursor/rules/versioning.mdc` — 发布身份是与 api、worker 同一次交付克隆的 core SHA（`/health` 的 `core_sha`）；改公开接口必须同 PR bump `pyproject.toml`（版本号是下游的兼容下限），破坏性变更需列出受影响下游并抬高其下限；tag 只标到达 PROD 的提交（`bifrost-trade-infra/scripts/release/tag_core_release.sh`）；`BIFROST_CORE_REF` 只管本地构建 |
 | `bifrost-research` | D13 边界：只读 `raw_market.*`；写 `dw_stock.*` / `features.*` / `research.*` / `journal.*`（journal 按 research user 键，D-Journal-Stores）；不触交易执行；`ops_feedback.*` 归 trade-api，Research 不写 |
 | `bifrost-analytics` | **已归档**，勿再改（已并入 `bifrost-research/src/bifrost_research/dbt/`） |
 

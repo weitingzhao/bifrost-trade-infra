@@ -15,6 +15,12 @@ spec:
     - name: tag
       type: string
       default: stg
+    - name: coreSha
+      type: string
+      default: unknown
+      description: >-
+        bifrost-trade-core commit cloned into the build context (clone-core's
+        commit result). Baked in as BIFROST_CORE_SHA and an image label (TD-37).
   workspaces:
     - name: source
   volumes:
@@ -49,14 +55,23 @@ spec:
           value: $(params.registry)
         - name: TAG
           value: $(params.tag)
+        - name: CORE_SHA
+          value: $(params.coreSha)
       script: |
         #!/busybox/sh
         set -eu
         ctx="$(workspaces.source.path)"
+        # Release identity of core is the cloned SHA; the pyproject version is a
+        # compatibility floor. Record both in the image (TD-37).
+        core_ver="$(sed -n 's/^version *= *"\([^"]*\)".*/\1/p' "${ctx}/bifrost-trade-core/pyproject.toml" | head -n 1)"
+        core_ver="${core_ver:-unknown}"
+        echo "=== bifrost-core ${core_ver} @ ${CORE_SHA} ==="
         /kaniko/executor \
           --dockerfile="${ctx}/Dockerfile.worker-stg" \
           --context="${ctx}" \
           --destination="${REGISTRY}/bifrost-worker:${TAG}" \
+          --build-arg="BIFROST_CORE_SHA=${CORE_SHA}" \
+          --build-arg="BIFROST_CORE_VERSION=${core_ver}" \
           --custom-platform=linux/amd64 \
           --insecure \
           --skip-tls-verify \

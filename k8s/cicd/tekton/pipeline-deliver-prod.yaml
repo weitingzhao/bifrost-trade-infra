@@ -205,6 +205,8 @@ spec:
           value: $(params.registry)
         - name: tag
           value: $(params.tag)
+        - name: coreSha
+          value: $(tasks.clone-core.results.commit)
       workspaces:
         - name: source
           workspace: build-context
@@ -249,6 +251,8 @@ spec:
           value: $(params.registry)
         - name: tag
           value: $(params.tag)
+        - name: coreSha
+          value: $(tasks.clone-core.results.commit)
       workspaces:
         - name: source
           workspace: build-context

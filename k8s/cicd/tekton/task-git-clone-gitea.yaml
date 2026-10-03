@@ -19,6 +19,11 @@ spec:
       type: string
       default: ""
       description: Optional subdirectory under workspace (e.g. bifrost-trade-frontend)
+  results:
+    - name: commit
+      description: >-
+        Full SHA of the commit checked out (git rev-parse HEAD). The deliver
+        pipelines pass core's to the image builds as BIFROST_CORE_SHA (TD-37).
   workspaces:
     - name: output
   steps:
@@ -75,6 +80,8 @@ spec:
           git clone --depth=1 --branch "${rev}" "${clone_url}" "${target}"
           cd "${target}"
         fi
-        echo "=== HEAD $(git rev-parse HEAD) ==="
+        head_sha="$(git rev-parse HEAD)"
+        echo "=== HEAD ${head_sha} ==="
+        printf '%s' "${head_sha}" > "$(results.commit.path)"
         git log -1 --oneline
         ls -la

@@ -1,5 +1,5 @@
 <!--
-parity-ids: workspace-v8, language-v1, agent-modes-v2, trade-execution-freeze-v2, dev-services-v2, phase-execution-v2, shared-worktree-v1, business-first-v1
+parity-ids: workspace-v9, language-v1, agent-modes-v2, trade-execution-freeze-v2, dev-services-v2, phase-execution-v2, shared-worktree-v1, business-first-v1
 对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
 改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
 -->
@@ -167,7 +167,7 @@ git commit                      # 不带 -a
 | Repo | 额外规范 |
 |------|---------|
 | `bifrost-trade-frontend` | `AGENTS.md` · Dense UI 系统（`.claude/skills/dense-ui/`）· 大改版用 `.claude/skills/frontend-design/` · DEV Inner Loop（D-IL1：验收在本机 Vite `:5173`，不是 Prod） |
-| `bifrost-trade-core` | 版本管理：改公开接口必须同 PR bump `pyproject.toml`，破坏性变更需列出受影响下游并同步 `BIFROST_CORE_REF` |
+| `bifrost-trade-core` | 版本管理（`.cursor/rules/versioning.mdc`）：发布身份是与 api、worker 同一次交付克隆的 core SHA（`/health` 的 `core_sha`）；改公开接口必须同 PR bump `pyproject.toml`（版本号是下游的兼容下限），破坏性变更需列出受影响下游并抬高其下限；tag 只标到达 PROD 的提交（`bifrost-trade-infra/scripts/release/tag_core_release.sh`）；`BIFROST_CORE_REF` 只管本地构建 |
 | `bifrost-research` | D13 边界：只读 `raw_market.*`；写 `dw_stock.*` / `features.*` / `research.*` / `journal.*`（journal 按 research user 键，D-Journal-Stores）；不触交易执行；`ops_feedback.*` 归 trade-api，Research 不写 |
 | `bifrost-analytics` | **已归档**，勿再改（已并入 `bifrost-research/src/bifrost_research/dbt/`） |
 
