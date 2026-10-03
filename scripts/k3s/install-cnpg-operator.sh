@@ -6,8 +6,11 @@ KUBECONFIG="${KUBECONFIG:-${PLATFORM_KUBECONFIG:-$HOME/.kube/bifrost-k3s.yaml}}"
 export KUBECONFIG
 
 # >=1.26 supports declarative offline major-version upgrades (bump cluster imageName → operator runs pg_upgrade).
-CNPG_VERSION="${CNPG_VERSION:-1.27.4}"
-CNPG_MANIFEST="${CNPG_MANIFEST:-https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/v${CNPG_VERSION}/releases/cnpg-${CNPG_VERSION}.yaml}"
+# The version is pinned in the kustomization's upstream manifest URL; upgrade by bumping it there.
+# The kustomization also sizes the manager (upstream 100m / 200Mi crash-loops once the cluster
+# holds a few thousand Pods; see manager-resources.patch.yaml).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CNPG_KUSTOMIZE_DIR="${CNPG_KUSTOMIZE_DIR:-${SCRIPT_DIR}/../../k8s/system/cnpg-operator}"
 ROLLOUT_TIMEOUT="${ROLLOUT_TIMEOUT:-300}"
 
 if ! command -v kubectl >/dev/null 2>&1; then
@@ -20,10 +23,12 @@ if [[ ! -f "${KUBECONFIG}" ]]; then
   exit 1
 fi
 
-echo "==> CloudNativePG operator v${CNPG_VERSION}"
-echo "    manifest: ${CNPG_MANIFEST}"
+CNPG_MANIFEST="$(grep -oE 'https://[^ ]+/releases/cnpg-[0-9.]+\.yaml' "${CNPG_KUSTOMIZE_DIR}/kustomization.yaml")"
+echo "==> CloudNativePG operator"
+echo "    manifest:  ${CNPG_MANIFEST}"
+echo "    kustomize: ${CNPG_KUSTOMIZE_DIR}"
 
-kubectl apply --server-side -f "${CNPG_MANIFEST}"
+kubectl apply --server-side -k "${CNPG_KUSTOMIZE_DIR}"
 
 echo "==> waiting for cnpg-controller-manager rollout"
 kubectl rollout status deployment/cnpg-controller-manager -n cnpg-system --timeout="${ROLLOUT_TIMEOUT}s"

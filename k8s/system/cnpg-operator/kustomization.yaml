@@ -1,0 +1,9 @@
+# CloudNativePG operator — upstream release manifest + Bifrost resource sizing.
+# Applied by scripts/k3s/install-cnpg-operator.sh (kubectl apply --server-side -k).
+# Upgrade = bump the version in the URL below (the only place it is pinned).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/v1.27.4/releases/cnpg-1.27.4.yaml
+patches:
+  - path: manager-resources.patch.yaml

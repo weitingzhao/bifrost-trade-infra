@@ -1,0 +1,25 @@
+# Upstream ships 100m / 100Mi request, 100m / 200Mi limit. The operator caches every Pod in
+# the cluster, so its heap follows the cluster Pod count (Tekton keeps ~7 days of TaskRun Pods):
+# 66 MiB at ~300 Pods (2026-09-23), 178 MiB at ~3,400 Pods (2026-10-03). A relist after an
+# apiserver restart then crossed 200Mi (OOMKilled), and 100m CPU throttled ~90% so /readyz
+# missed the 1 s liveness timeout and the restarts crash-looped.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cnpg-controller-manager
+  namespace: cnpg-system
+spec:
+  template:
+    spec:
+      containers:
+        - name: manager
+          env:
+            - name: GOMEMLIMIT
+              value: 640MiB
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
