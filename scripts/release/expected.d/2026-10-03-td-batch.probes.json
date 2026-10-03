@@ -1,0 +1,7 @@
+{
+  "_comment": "Example per-release probes (pass with --probes). A deprecated route logs every hit as a caller (TD-40), so probes of one stay disabled unless the release changes that list.",
+  "probes": [
+    {"name": "executions is not deprecated", "path": "/api/trading/executions?limit=1", "json": true, "absent_headers": ["Deprecation"]},
+    {"name": "market trading-day carries Deprecation (TD-40)", "path": "/api/market/market/trading-day", "headers": {"Deprecation": "true"}, "enabled": false}
+  ]
+}

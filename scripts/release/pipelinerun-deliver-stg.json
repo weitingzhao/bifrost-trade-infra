@@ -1,0 +1,77 @@
+{
+  "apiVersion": "tekton.dev/v1",
+  "kind": "PipelineRun",
+  "metadata": {
+    "generateName": "bifrost-deliver-stg-",
+    "namespace": "cicd",
+    "labels": {
+      "bifrost.io/purpose": "stg-deliver",
+      "tekton.dev/pipeline": "bifrost-deliver-stg"
+    }
+  },
+  "spec": {
+    "params": [
+      {
+        "name": "revision",
+        "value": "main"
+      }
+    ],
+    "pipelineRef": {
+      "name": "bifrost-deliver-stg"
+    },
+    "taskRunSpecs": [
+      {
+        "pipelineTaskName": "prepare",
+        "serviceAccountName": "tekton-deliver"
+      },
+      {
+        "pipelineTaskName": "rollout",
+        "serviceAccountName": "tekton-deliver"
+      },
+      {
+        "pipelineTaskName": "gitops-sync",
+        "serviceAccountName": "tekton-deliver"
+      }
+    ],
+    "taskRunTemplate": {
+      "podTemplate": {
+        "nodeSelector": {
+          "kubernetes.io/arch": "amd64"
+        },
+        "tolerations": [
+          {
+            "effect": "NoSchedule",
+            "key": "node-role.kubernetes.io/control-plane",
+            "operator": "Exists"
+          }
+        ]
+      },
+      "serviceAccountName": "default"
+    },
+    "timeouts": {
+      "pipeline": "1h0m0s"
+    },
+    "workspaces": [
+      {
+        "name": "build-context",
+        "volumeClaimTemplate": {
+          "metadata": {
+            "creationTimestamp": null
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "10Gi"
+              }
+            },
+            "storageClassName": "local-path"
+          },
+          "status": {}
+        }
+      }
+    ]
+  }
+}

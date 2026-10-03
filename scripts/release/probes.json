@@ -1,0 +1,14 @@
+{
+  "_comment": "release-check.sh probes, run on every `after` (and by `release-check.sh <env> probes`). Fields: name, path, envs (default all), status (default 200), json (body must parse), headers {name: value, or null = only present}, absent_headers [..], contains (substring), enabled (default true). Requests carry User-Agent bifrost-release-check/1, so a probe of a deprecated route (TD-40 caller log) is recognisable as ours. Per-release probes go in expected.d/<date>-<name>.probes.json and are passed with --probes.",
+  "probes": [
+    {"name": "monitor health", "path": "/api/monitor/health", "json": true},
+    {"name": "trading health (account domain)", "path": "/api/trading/health", "json": true},
+    {"name": "portfolio health", "path": "/api/portfolio/health", "json": true},
+    {"name": "market health", "path": "/api/market/health", "json": true},
+    {"name": "strategy health", "path": "/api/strategy/health", "json": true},
+    {"name": "research health", "path": "/api/research/health", "json": true},
+    {"name": "ops health", "path": "/api/ops/health", "json": true},
+    {"name": "docs health", "path": "/api/docs/health", "json": true},
+    {"name": "frontend index", "path": "/", "contains": "<div id=\"root\""}
+  ]
+}

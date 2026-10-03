@@ -25,6 +25,7 @@ make dev                      # dev compose (hot reload)
 | **Migration status** | [Migration Tracking](MIGRATION_TRACKING.md) |
 | **Trade DEV Inner Loop** | [TRADE_DEV_INNER_LOOP](TRADE_DEV_INNER_LOOP.md) — Program `trade-dev-inner-loop` (D-IL1–D-IL4) |
 | **2C-A sign-off** | [Phase 2C Sign-off Master](PHASE2C_SIGNOFF_MASTER.md) |
+| **Trade release** | [RELEASE](RELEASE.md) — `scripts/release/release.sh stg\|prod\|dev`, release window, before/after checks |
 | **Docker rebuild** | [Docker Build](DOCKER_BUILD.md) |
 | **Secrets** | [SECRETS](SECRETS.md) — ConfigMap YAML → K8s Secret + rotation |
 

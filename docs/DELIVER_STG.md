@@ -113,6 +113,12 @@ Ops Console：**Delivery → bifrost-deliver-stg → Run**（Platform API 创建
 - PROD 发布成功后打 tag：`scripts/release/tag_core_release.sh <core_sha>` 先 dry-run，确认后加 `--push`。
   `v<version>` 已指向别的提交时拒绝（一个版本号装了两份内容）。
 
+## 发布脚本（TD-84）
+
+STG → PROD → DEV 的整套步骤（窗口锁、并发检查、钉版本 spec、before/after 核对、DB 步骤闸门、计时）见
+[RELEASE.md](RELEASE.md)：`scripts/release/release.sh stg|prod|dev [--dry-run]`。推 Trade 仓库的 `main` 或起任何
+`bifrost-deliver-*` run 之前先跑 `scripts/release/release.sh window`（exit 0 = 没有发布在进行）。
+
 ## 已退役的热补丁
 
 以下 ConfigMap / patch **已从 overlay 移除**，改由镜像承载：

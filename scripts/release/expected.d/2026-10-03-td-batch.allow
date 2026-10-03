@@ -1,0 +1,14 @@
+# Expected changes of the 2026-10-03 Trade batch release (td-batch/2026-10-03).
+# One glob per line, matched against the paths `release-check.sh` prints:
+#   `*` matches anything, `[*]` is a list row (index or key=value), `execs.*.q` is a fill field.
+# Added keys never need listing; changed, removed and length differences do.
+
+# TD-09 attribution migration ran with this release: realized P&L regroups by strategy instance / opportunity.
+perf.realized_by_strategy_instance[*]
+perf.realized_by_strategy_instance[*].*
+perf.realized_by_strategy_opportunity[*]
+perf.realized_by_strategy_opportunity[*].*
+# win_rate moved together with the new fill_count / pair_count fields (10-03 PROD before/after).
+perf.summary.win_rate
+perf.calendar[*].win_rate
+perf.calendar_by_sec_type[*].win_rate
