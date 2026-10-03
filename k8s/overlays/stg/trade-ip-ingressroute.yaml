@@ -129,6 +129,7 @@ spec:
       priority: 110
       middlewares:
         - name: strip-api-plugin-research
+        - name: research-env-header
         - name: sse-streaming
       services:
         - name: research-api
