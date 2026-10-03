@@ -28,7 +28,7 @@ set -euo pipefail
 # shellcheck source=scripts/release/lib.sh
 source "$(dirname "$0")/lib.sh"
 
-usage() { sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; }
+release_usage() { sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; }
 
 WINDOW="${RELEASE_HOME}/window.json"
 DONE_FILE="${RELEASE_HOME}/db-steps.done"
@@ -187,8 +187,8 @@ case "${1:-}" in
   db-steps) shift; cmd_db_steps "$@"; exit 0 ;;
   db-done) shift; cmd_db_done "$@"; exit 0 ;;
   dev|stg|prod) ENV_NAME="$1"; shift ;;
-  -h|--help|"") usage; exit 0 ;;
-  *) usage >&2; exit 2 ;;
+  -h|--help|"") release_usage; exit 0 ;;
+  *) release_usage >&2; exit 2 ;;
 esac
 
 DRY_RUN=0 FROM_STG="" WHAT="" WHO="${BIFROST_RELEASE_WHO:-${USER}@$(hostname -s)}" TIMEOUT=3600
@@ -202,7 +202,7 @@ while [[ $# -gt 0 ]]; do
     --what) WHAT="${2:?}"; shift 2 ;;
     --who) WHO="${2:?}"; shift 2 ;;
     --timeout) TIMEOUT="${2:?}"; shift 2 ;;
-    -h|--help) usage; exit 0 ;;
+    -h|--help) release_usage; exit 0 ;;
     *) rel_die "unknown argument: $1" ;;
   esac
 done

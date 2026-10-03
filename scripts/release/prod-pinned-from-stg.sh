@@ -18,18 +18,18 @@ set -euo pipefail
 # shellcheck source=scripts/release/lib.sh
 source "$(dirname "$0")/lib.sh"
 
-usage() { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; }
+pinned_usage() { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; }
 
 run="" out=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -o|--output) out="${2:?-o needs a file}"; shift 2 ;;
-    -h|--help) usage; exit 0 ;;
-    -*) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
+    -h|--help) pinned_usage; exit 0 ;;
+    -*) echo "unknown option: $1" >&2; pinned_usage >&2; exit 2 ;;
     *) [[ -z "${run}" ]] || rel_die "only one <stg-run> please"; run="$1"; shift ;;
   esac
 done
-[[ -n "${run}" ]] || { usage >&2; exit 2; }
+[[ -n "${run}" ]] || { pinned_usage >&2; exit 2; }
 rel_require_kubeconfig
 
 args=(pinned-spec "${run}" --template "${RELEASE_DIR}/pipelinerun-deliver-stg.json")

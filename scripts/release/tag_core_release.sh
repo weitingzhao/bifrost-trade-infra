@@ -23,7 +23,7 @@
 #             2 = refused: v<version> already names a different commit
 set -euo pipefail
 
-usage() { sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; }
+tag_release_usage() { sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; }
 
 push=0
 remote="origin"
@@ -36,15 +36,15 @@ while [[ $# -gt 0 ]]; do
     --push) push=1; shift ;;
     --repo) repo="${2:?--repo needs a path}"; shift 2 ;;
     --remote) remote="${2:?--remote needs a name}"; shift 2 ;;
-    -h|--help) usage; exit 0 ;;
-    -*) echo "unknown option: $1" >&2; usage >&2; exit 1 ;;
+    -h|--help) tag_release_usage; exit 0 ;;
+    -*) echo "unknown option: $1" >&2; tag_release_usage >&2; exit 1 ;;
     *)
       if [[ -n "${sha_arg}" ]]; then echo "only one <core_sha> please" >&2; exit 1; fi
       sha_arg="$1"; shift ;;
   esac
 done
 
-if [[ -z "${sha_arg}" ]]; then usage >&2; exit 1; fi
+if [[ -z "${sha_arg}" ]]; then tag_release_usage >&2; exit 1; fi
 if ! git -C "${repo}" rev-parse --git-dir >/dev/null 2>&1; then
   echo "not a git checkout: ${repo}" >&2
   exit 1

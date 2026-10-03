@@ -29,11 +29,11 @@ set -euo pipefail
 # shellcheck source=scripts/release/lib.sh
 source "$(dirname "$0")/lib.sh"
 
-usage() { sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; }
+check_usage() { sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; }
 
 if [[ "${1:-}" == "diff" ]]; then
   shift
-  [[ $# -ge 2 ]] || { usage >&2; exit 2; }
+  [[ $# -ge 2 ]] || { check_usage >&2; exit 2; }
   before="$1" after="$2"; shift 2
   dargs=()
   while [[ $# -gt 0 ]]; do
@@ -46,10 +46,10 @@ if [[ "${1:-}" == "diff" ]]; then
   exec "${RELEASE_TOOL[@]}" diff "${before}" "${after}" ${dargs[@]+"${dargs[@]}"}
 fi
 
-[[ $# -ge 2 ]] || { usage >&2; exit 2; }
+[[ $# -ge 2 ]] || { check_usage >&2; exit 2; }
 env="$1" phase="$2"; shift 2
 rel_check_env "${env}"
-case "${phase}" in before|after|probes) ;; *) usage >&2; exit 2 ;; esac
+case "${phase}" in before|after|probes) ;; *) check_usage >&2; exit 2 ;; esac
 
 dir="" run="" expect_sha="" accounts="" no_diff=0
 allow=() probes=()
@@ -63,7 +63,7 @@ while [[ $# -gt 0 ]]; do
     --allow) allow+=(--allow "${2:?}"); shift 2 ;;
     --probes) probes+=(--file "${2:?}"); shift 2 ;;
     --no-diff) no_diff=1; shift ;;
-    -h|--help) usage; exit 0 ;;
+    -h|--help) check_usage; exit 0 ;;
     *) rel_die "unknown argument: $1" ;;
   esac
 done
