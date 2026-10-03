@@ -21,6 +21,21 @@ kubeScheduler:
 kubeProxy:
   enabled: false
 
+# etcd is embedded in k3s-server on ubt-k3s-01 (single member) and has no pod, so the
+# chart's headless kube-etcd Service gets its endpoints from this list. k3s serves
+# etcd metrics on <node-ip>:2381 only with `etcd-expose-metrics: true`
+# (/etc/rancher/k3s/config.yaml, written by install-server.sh); without it they
+# stay on 127.0.0.1. The chart's etcd alert group (etcdHighFsyncDurations, …)
+# had no data until 2026-10-03.
+kubeEtcd:
+  enabled: true
+  endpoints:
+    - 192.168.10.73
+  service:
+    enabled: true
+    port: 2381
+    targetPort: 2381
+
 prometheus:
   prometheusSpec:
     retention: 10d

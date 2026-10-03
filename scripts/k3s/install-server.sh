@@ -42,6 +42,16 @@ if systemctl is-active --quiet k3s 2>/dev/null; then
   exit 0
 fi
 
+# k3s reads /etc/rancher/k3s/config.yaml on top of the install flags below.
+# etcd-expose-metrics: serve etcd /metrics on <node-ip>:2381 (default is 127.0.0.1 only),
+# scraped through kube-prometheus-stack kubeEtcd.endpoints (values-kube-prometheus.yaml).
+# The running ubt-k3s-01 got this same file on 2026-10-03; changing it needs `systemctl restart k3s`.
+echo "==> Writing /etc/rancher/k3s/config.yaml"
+install -d -m 0755 /etc/rancher/k3s
+cat > /etc/rancher/k3s/config.yaml <<'EOF'
+etcd-expose-metrics: true
+EOF
+
 export INSTALL_K3S_CHANNEL
 if [[ -n "${K3S_VERSION}" ]]; then
   export INSTALL_K3S_VERSION="${K3S_VERSION}"
