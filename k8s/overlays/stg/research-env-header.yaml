@@ -1,0 +1,16 @@
+# TD-73: Research is one instance behind all three Trade gateways, and a trade id
+# only names one trade inside one environment (DEV #158 and PROD #158 differ).
+# This gateway tells Research which environment a request comes from, so the
+# journal stores trade refs as `stg:<id>`. Set here, server-side: Traefik's
+# customRequestHeaders overwrites a value the browser sent, so a page cannot
+# claim another environment. Research answers 400 to a trade ref without it.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: research-env-header
+  labels:
+    app.kubernetes.io/name: trade-gateway
+spec:
+  headers:
+    customRequestHeaders:
+      X-Bifrost-Env: "stg"
