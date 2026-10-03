@@ -36,3 +36,12 @@ spec:
       kubernetesCRD:
         allowCrossNamespace: true
         allowEmptyServices: true
+    # Access log to stdout (→ promtail → Loki), only for 4xx/5xx, so a gateway 404/503 can be told
+    # apart from a backend one after the fact. Request headers stay dropped (chart default), so
+    # Authorization never reaches the log; no Bifrost client puts a token in the URL.
+    logs:
+      access:
+        enabled: true
+        format: json
+        filters:
+          statuscodes: "400-599"
