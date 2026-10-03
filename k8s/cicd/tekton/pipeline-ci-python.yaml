@@ -1,5 +1,6 @@
 # CI gate for Python Trade repos (core / api / worker). Socket retired Wave 14G-F.
 # Lightweight: clone → install → lint → test. No image build, no deploy.
+# Core also runs its DB tests against a postgres sidecar (db-test, TD-48).
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
@@ -10,8 +11,9 @@ metadata:
     bifrost.io/layer: L2
 spec:
   description: >-
-    CI gate for Python repos — ruff lint + pytest (skipping IB/DB markers).
-    Triggered by Gitea push webhook or manual Console run.
+    CI gate for Python repos — ruff lint + pytest (skipping IB/DB markers);
+    for bifrost-trade-core also the DB-marked tests against a throwaway
+    postgres sidecar (db-test). Triggered by Gitea push webhook or manual Console run.
   params:
     - name: repo
       type: string
@@ -220,6 +222,76 @@ spec:
       params:
         - name: repo
           value: $(params.repo)
+    # Core's `db`-marked tests (TD-48): `pytest -m db` against a throwaway postgres in a
+    # sidecar of this task's own pod -- no Docker here, no cluster database, no Secret.
+    # The sidecar listens on 127.0.0.1 only (a pod's loopback is that pod's alone), trusts
+    # local connections and dies with the pod. `scripts/test_db.sh --sidecar` accepts a
+    # loopback PGHOST only and refuses a server without `bifrost.throwaway=on`, which only
+    # this sidecar (and `make test-db`'s container) is started with.
+    # The step tests a copy of the repo under /tmp: `pip install -e` writes egg-info into the
+    # source tree, and lint-test is installing from the same workspace at the same time.
+    - name: db-test
+      runAfter: [clone]
+      when:
+        - input: $(params.repo)
+          operator: in
+          values: [bifrost-trade-core]
+      workspaces:
+        - name: source
+          workspace: source
+      taskSpec:
+        workspaces:
+          - name: source
+        sidecars:
+          - name: postgres
+            # Same image as `make test-db` (scripts/test_db.sh TEST_DB_IMAGE default).
+            image: postgres:16-alpine
+            args: ["-c", "listen_addresses=127.0.0.1", "-c", "bifrost.throwaway=on"]
+            env:
+              - name: POSTGRES_USER
+                value: bifrost
+              - name: POSTGRES_DB
+                value: bifrost
+              - name: POSTGRES_HOST_AUTH_METHOD
+                value: trust
+            # The image restarts postgres once after initdb; the first server listens on the
+            # unix socket only, so TCP readiness means the final one.
+            readinessProbe:
+              exec:
+                command: [pg_isready, -h, 127.0.0.1, -U, bifrost, -d, bifrost, -q]
+              periodSeconds: 2
+              failureThreshold: 60
+            computeResources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                cpu: "1"
+                memory: 1Gi
+        steps:
+          - name: pytest-db
+            image: python:3.11-slim-bookworm
+            env:
+              - name: PGHOST
+                value: 127.0.0.1
+              - name: PGPORT
+                value: "5432"
+            computeResources:
+              requests:
+                cpu: 250m
+                memory: 512Mi
+              limits:
+                cpu: "2"
+                memory: 2Gi
+            script: |
+              #!/usr/bin/env bash
+              set -euo pipefail
+              mkdir -p /tmp/core
+              tar -C "$(workspaces.source.path)/repo" --exclude=./.git -cf - . | tar -C /tmp/core -xf -
+              cd /tmp/core
+              pip install --quiet --upgrade pip
+              pip install --quiet -e ".[dev]"
+              bash scripts/test_db.sh --sidecar
     # Python ratchet coverage: research + Trade OLTP (api/core/worker).
     # socket / infra intentionally not in scan.sh KNOWN_REPOS.
     - name: code-health
