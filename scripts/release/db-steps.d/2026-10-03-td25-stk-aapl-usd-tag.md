@@ -1,7 +1,7 @@
 ---
 id: 2026-10-03-td25-stk-aapl-usd-tag
 envs: dev stg prod
-when: before
+when: after
 done:
 ---
 # TD-25: delete the one position-category tag keyed 'STK-AAPL-USD'
@@ -12,7 +12,7 @@ No code writes that format any more and it never matches a position (a stock pos
 deletion to the Owner (REQUEST-td-ddl-batch-plans-2026-10-03.md, TD-25 item 2). **Not reversible** except
 from the export: run the dry-run first (it writes the row to `~/bifrost-backups/trade-<env>/`), then the
 commit, which refuses unless exactly 1 row goes. The alternative -- re-key it to `AAPL|STK|||` so AAPL reads
-as category 2 -- would change what the Positions page shows, so it is not done here. Independent of the deliver.
+as category 2 -- would change what the Positions page shows, so it is not done here. Independent of the deliver, so it is listed after the run (`when: after`) rather than holding it; the dry-run exports were taken 2026-10-03 before batch c.
 
 Commands run from the `bifrost-trade-infra` checkout with `KUBECONFIG=~/.kube/bifrost-k3s.yaml`.
 

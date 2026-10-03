@@ -2,7 +2,7 @@
 id: 2026-10-03-td43-56-71-wave14-constraints
 envs: dev stg prod
 when: before
-done:
+done: dev stg prod
 ---
 # TD-43 / TD-56 / TD-71: Wave 14 constraints (core 0.41.0)
 

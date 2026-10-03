@@ -1,7 +1,7 @@
 ---
 id: 2026-10-03-td56-option-pool-orphans
 envs: dev stg prod
-when: before
+when: after
 done:
 ---
 # TD-56: delete the 3 orphan 'Option Pool' symbol-order rows
@@ -11,7 +11,7 @@ per env (NVDA, TSLA, GOOG, written 2026-04-23) sit under `Option Pool`, which no
 approved deleting them (2026-10-03). **Not reversible** except from the export: run the dry-run first -- it
 writes the rows to `~/bifrost-backups/trade-<env>/` -- then the commit, which refuses unless exactly 3 rows go
 and refuses if a category named Option Pool exists by then. From core 0.41.0 a category rename / delete carries
-its order rows, so no new orphans appear. Independent of the deliver (no code depends on it).
+its order rows, so no new orphans appear. Independent of the deliver (no code depends on it), so it is listed after the run (`when: after`); the dry-run exports were taken 2026-10-03 before batch c.
 
 Commands run from the `bifrost-trade-infra` checkout with `KUBECONFIG=~/.kube/bifrost-k3s.yaml`.
 
