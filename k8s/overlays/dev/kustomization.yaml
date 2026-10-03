@@ -17,7 +17,6 @@ configMapGenerator:
     files:
       # Every pod mounts its env's config as runtime.yaml (TD-52).
       - runtime.yaml=config/config.dev.yaml
-      - config.yaml.example=config/config.yaml.example
     options:
       disableNameSuffixHash: true
 

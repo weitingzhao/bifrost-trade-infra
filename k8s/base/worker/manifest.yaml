@@ -89,9 +89,6 @@ spec:
             - name: bifrost-config
               mountPath: /app/config/runtime.yaml
               subPath: runtime.yaml
-            - name: bifrost-config
-              mountPath: /app/config/config.yaml.example
-              subPath: config.yaml.example
           readinessProbe:
             exec:
               command: ["python", "scripts/wait_for_data.py", "--once"]

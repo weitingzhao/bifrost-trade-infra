@@ -17,7 +17,6 @@ configMapGenerator:
       # Every pod mounts its env's config as runtime.yaml (TD-52); it used to be
       # config.stg.yaml here, so PROD pods advertised a STG config path.
       - runtime.yaml=config/config.prod.yaml
-      - config.yaml.example=config/config.yaml.example
     options:
       disableNameSuffixHash: true
 
