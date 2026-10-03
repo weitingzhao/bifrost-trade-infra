@@ -86,7 +86,7 @@ spec:
           port: 8765
           responseForwarding:
             flushInterval: 1ms
-    - match: Host(`trader.bifrost.lan`) && (Path(`/api/ops/health`) || PathPrefix(`/api/ops/ops/`))
+    - match: Host(`trader.bifrost.lan`) && (Path(`/api/ops/health`) || Path(`/api/ops/data-probe`) || PathPrefix(`/api/ops/ops/`))
       kind: Rule
       priority: 100
       middlewares:
@@ -97,7 +97,7 @@ spec:
           port: 8765
           responseForwarding:
             flushInterval: 1ms
-    - match: Host(`192.168.10.70`) && (Path(`/api/ops/health`) || PathPrefix(`/api/ops/ops/`))
+    - match: Host(`192.168.10.70`) && (Path(`/api/ops/health`) || Path(`/api/ops/data-probe`) || PathPrefix(`/api/ops/ops/`))
       kind: Rule
       priority: 100
       middlewares:
@@ -108,7 +108,7 @@ spec:
           port: 8765
           responseForwarding:
             flushInterval: 1ms
-    - match: Host(`192.168.10.100`) && (Path(`/api/ops/health`) || PathPrefix(`/api/ops/ops/`))
+    - match: Host(`192.168.10.100`) && (Path(`/api/ops/health`) || Path(`/api/ops/data-probe`) || PathPrefix(`/api/ops/ops/`))
       kind: Rule
       priority: 100
       middlewares:

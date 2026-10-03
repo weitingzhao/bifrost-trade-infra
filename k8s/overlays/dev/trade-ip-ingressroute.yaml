@@ -39,7 +39,7 @@ spec:
           port: 8765
           responseForwarding:
             flushInterval: 1ms
-    - match: (Path(`/api/ops/health`) || PathPrefix(`/api/ops/ops/`))
+    - match: (Path(`/api/ops/health`) || Path(`/api/ops/data-probe`) || PathPrefix(`/api/ops/ops/`))
       kind: Rule
       priority: 100
       middlewares:
