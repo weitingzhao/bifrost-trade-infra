@@ -514,3 +514,49 @@ spec:
           annotations:
             summary: "Promtail {{ $labels.pod }} /metrics not being scraped"
             description: "BifrostPromtailDroppingLogs is blind for that node while this fires. On 2026-09-28 the ubt-k3s-04 promtail was CPU-throttled 99% at a 500m limit and its /metrics timed out."
+
+    - name: bifrost-gateway
+      rules:
+        # 404s Traefik answered itself because no router matched, per trade entrypoint (cumulative).
+        # Every trade-* entrypoint is bound only by its namespace's IngressRoute trade-gateway-ip, whose
+        # services are all named bifrost-<env>-trade-gateway-ip-<sha256(match)[:20]>; the entrypoint
+        # counter counts router misses too, the service counter only what a backend answered.
+        # Raw counters, not increase(): a service series seen for the first time then still counts its
+        # first 404. A Traefik restart resets both sides, so the difference only drops.
+        - record: bifrost:traefik_route_miss_404:total
+          expr: |
+            sum by (entrypoint) (traefik_entrypoint_requests_total{entrypoint=~"trade-(stg|prod|dev)",code="404"})
+            - (
+                sum by (entrypoint) (
+                  label_replace(
+                    traefik_service_requests_total{code="404",service=~"bifrost-(stg|prod|dev)-trade-gateway-ip-.*"},
+                    "entrypoint", "trade-$1", "service", "bifrost-(stg|prod|dev)-trade-gateway-ip-.*"
+                  )
+                )
+                or on (entrypoint)
+                0 * sum by (entrypoint) (traefik_entrypoint_requests_total{entrypoint=~"trade-(stg|prod|dev)",code="404"})
+              )
+
+        - alert: BifrostTraefikRouteMiss404
+          # STG/PROD only: DEV's gateway-ip routes change with day-to-day work. No `for`: a miss is a
+          # served error already; the 5m offset keeps it firing ~5m after the last one.
+          expr: |
+            (
+              bifrost:traefik_route_miss_404:total{entrypoint=~"trade-(stg|prod)"}
+              - bifrost:traefik_route_miss_404:total{entrypoint=~"trade-(stg|prod)"} offset 5m
+            ) > 0.5
+          labels:
+            severity: warning
+          annotations:
+            summary: "Traefik {{ $labels.entrypoint }}: {{ $value | humanize }} requests in 5m matched no router (404 from the gateway itself)"
+            description: "Requests on {{ $labels.entrypoint }} got Traefik's own 404 because no router matched, so they never reached an API pod. Check IngressRoute trade-gateway-ip and its Middlewares in that namespace (a missing Middleware drops the whole router and Traefik logs an ERROR) and the Traefik pod log. Backends with no endpoints answer 503, not 404 (allowEmptyServices). Known false positive: a service series Traefik expires after its route was removed or renamed shrinks the subtraction. From 2026-09-06 to 2026-10-03 the count was 0 on both entrypoints."
+
+        - alert: BifrostTraefikScrapeDown
+          expr: |
+            up{job="monitoring/traefik"} == 0 or absent(up{job="monitoring/traefik"})
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Traefik /metrics not being scraped"
+            description: "BifrostTraefikRouteMiss404 is blind while this fires. Traefik serves metrics on its metrics entrypoint (:9100) in kube-system; the PodMonitor is monitoring/traefik."

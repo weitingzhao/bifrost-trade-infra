@@ -1,0 +1,27 @@
+# Scrape Traefik (k3s-bundled, kube-system) — it has served Prometheus metrics on the `metrics`
+# entrypoint (:9100) since install, but nothing scraped them. Needed to tell a gateway 404 (no
+# router matched) from a backend 404: the entrypoint counter counts both, the service counter only
+# the latter. See BifrostTraefikRouteMiss404 in bifrost-alerting-rules.yaml.
+# Scraping is read-only; it does not touch the HelmChartConfig or restart Traefik.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: traefik
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: gateway
+spec:
+  namespaceSelector:
+    matchNames:
+      - kube-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: traefik-kube-system
+      app.kubernetes.io/name: traefik
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
