@@ -32,6 +32,39 @@ spec:
           default: true
         exposedPort: 30882
         protocol: TCP
+    # Two replicas on two different nodes, so losing one node does not take every gateway down.
+    # On 2026-09-06 the single replica sat on the node that died (mini-pc-a) and Traefik itself was
+    # gone for ~5 minutes until the default 300s eviction; Prod then answered 503 for five hours.
+    # The Service is externalTrafficPolicy Cluster, so every NodePort reaches either replica.
+    deployment:
+      replicas: 2
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: traefik
+                app.kubernetes.io/instance: traefik-kube-system
+            topologyKey: kubernetes.io/hostname
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+    # Helm replaces lists, so the first two entries repeat the k3s packaged defaults. The last two
+    # evict a replica off a dead node after 45s instead of 300s, matching the Prod workloads.
+    tolerations:
+      - key: CriticalAddonsOnly
+        operator: Exists
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+      - key: node.kubernetes.io/not-ready
+        operator: Exists
+        effect: NoExecute
+        tolerationSeconds: 45
+      - key: node.kubernetes.io/unreachable
+        operator: Exists
+        effect: NoExecute
+        tolerationSeconds: 45
     providers:
       kubernetesCRD:
         allowCrossNamespace: true
