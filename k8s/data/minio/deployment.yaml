@@ -20,6 +20,11 @@ spec:
     spec:
       containers:
         - name: minio
+          # docker.io/minio/minio can no longer be pulled (pull access denied, 2026-10-03).
+          # This tag runs from the containerd cache, imported on ubt-k3s-01/02/04/05/06
+          # (pull policy IfNotPresent). Copies: 192.168.10.73:30500/minio/minio (amd64;
+          # the registry has no volume) and ~/bifrost-backups/images/ on the Owner's Mac.
+          # A new node needs `k3s ctr -n k8s.io images import` before MinIO can land there.
           image: minio/minio:RELEASE.2024-12-18T13-15-44Z
           args:
             - server
