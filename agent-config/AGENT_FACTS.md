@@ -1,6 +1,6 @@
 ---
-parity-id: agent-facts-v3
-generated: 2026-09-22
+parity-id: agent-facts-v4
+generated: 2026-10-03
 authority: bifrost-platform/config/ops-context.yaml (spine) + 磁盘扫描
 ---
 
@@ -278,6 +278,33 @@ Infra guards（未解锁前不得"修复"）：
 |------|-----------|
 | STG | `bifrost-trade-infra/k8s/overlays/stg/daemon-scale-zero.patch.yaml`（`replicas: 0`） |
 | PROD | `bifrost-trade-infra/k8s/overlays/prod/daemon-observe-safe.patch.yaml`（observe 模式，模拟对冲） |
+
+---
+
+## 8a. 交易 daemon 的名字（术语表）
+
+D10 冻结的那个进程只有一个，但在代码、集群与界面上有十几个名字（TD-75，2026-10-03 实测）。**规范名是 `daemon`**
+（K8s Deployment 名）：§8 的两个 D10 overlay、`preflight.js`、trade-api 的扩容闸门、platform patrol 都按它匹配。
+写规则、告警、grep 时以它为准，再按下表找别名。**下表里标「不得改名」的，改了就会让某个 D10 闸门失效或让主备选主出错。**
+
+| 名字 | 是什么 | 在哪 | 备注 |
+|------|--------|------|------|
+| `daemon` | Deployment / 容器 / `app.kubernetes.io/name` 标签（ns `bifrost-{dev,stg,prod}`） | infra `k8s/base/worker/manifest.yaml` | **规范名，不得改名**（D10 overlay 按名打补丁） |
+| `GsTrading` | 主类，Gs = Gamma Scalping；入口 `scripts/run_daemon.py` | worker `daemon/app/gs_trading.py` | 代码里的规范名（Owner 2026-10-03：不改名） |
+| `bifrost-worker` | 镜像名（worker 镜像里只有 daemon） | registry `bifrost-worker:<tag>` | |
+| `daemon-worker` | ServiceAccount（Lease RBAC，Role `daemon-lease`） | infra `k8s/base/worker/daemon-rbac.yaml` | |
+| `bifrost-daemon` | coordination Lease，主备选主，只有持有者跑 FSM | worker `daemon/lease.py` 默认值 | **不得改名**（滚动期间会出现两个主） |
+| `trading_engine` | trade-api Ops 服务 id（market-ingest 服务表） | api `ops/market_ingest_config.py`；FE / Ops Console 读 | **不得改名**（api 的 D10 扩容闸门按此字面量判断） |
+| `bifrost-engine(.service)` | 旧 systemd unit 名，现为 Ops 白名单 unit id，映射到 `daemon` | api `ops/workload_map.py`、`ops/app.py` | 遗留但在用 |
+| `bifrost:health:daemon_strategy_trading` | Redis 健康 hash，含 Ops Dev/Prod lease 字段 `engine_ops_active` | per-env Redis；常量 `BIFROST_HEALTH_DAEMON_STRATEGY_TRADING`（core 0.39.0 起；旧名 `BIFROST_HEALTH_DAEMON_TRADING_ENGINE` 是一版别名） | **键值不得改**（redis-ib ACL 按 `daemon_*` 放行） |
+| `bifrost:daemon:trading:state` / `:control` | daemon IPC 状态 hash / 控制 stream（consumer group `trading_daemon`） | core `persistence/redis_daemon_state.py` | 键值与组名不得改 |
+| `TradingDaemonSink` | daemon 的 StatusSink：IPC 写 Redis，账户/成交/报价/未成交订单写 GS `raw_broker`，per-env PG 只读 | core `persistence/postgres/postgres_sink.py` | core 0.39.0 前叫 `PostgreSQLSink`（保留一版作别名） |
+| `Strategy Trading Daemon` · `Strategy Trading` · `Engine` · `Strategy Daemon` · `Trading daemon` · `GsTrading daemon` | 界面标签 | api / FE / Ops Console | 只是显示 |
+| `Gamma Scalping Engine` | 配置模板头注释里的旧产品名 | `config/config.yaml.example` | 文档 |
+
+已不存在、只剩代码兜底的名字（2026-10-03 三个 Redis 实测都没有）：`bifrost:health:daemon_trading_engine`、
+`bifrost:ops:trading_engine`（api 只在 Ops YAML 归一化时认）；`bifrost:console:{dev,prod}:daemon_trading` 与 account-sync
+的键已无写入方（前者的常量与函数 core 0.39.0 删除，account-sync 随 TD-22 退役）。
 
 ---
 
