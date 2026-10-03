@@ -167,6 +167,44 @@ spec:
               {{ $value | humanize1024 }}B of WAL. Postgres cannot recycle it
               while the slot lags.
 
+        # Base backups. The 2026-10-03 daily backup failed (barman
+        # CompleteMultipartUpload InvalidPart) and nothing alerted. CNPG moves
+        # cnpg_collector_last_available_backup_timestamp at the end of every
+        # backup, failed ones included (10-03: available 04:16:58, failed
+        # 04:17:00), so it only says a backup ran. A failure shows as a
+        # last_failed within minutes of last_available; the next successful
+        # backup moves last_available hours ahead and resolves it. Replicas
+        # export 0 for both, hence the > 0 guard.
+        - alert: BifrostPostgresBackupFailed
+          expr: |
+            cnpg_collector_last_failed_backup_timestamp{namespace="data"} > 0
+            and
+            cnpg_collector_last_failed_backup_timestamp{namespace="data"}
+              > cnpg_collector_last_available_backup_timestamp{namespace="data"} - 300
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PostgreSQL base backup failed"
+            description: >-
+              The most recent base backup reported by {{ $labels.pod }} failed.
+              WAL archiving is separate, so point-in-time recovery still works
+              from the previous base backup, with more WAL to replay. Check the
+              Backup CRs in namespace data.
+
+        - alert: BifrostPostgresBackupMissing
+          expr: |
+            time() - max(cnpg_collector_last_available_backup_timestamp{namespace="data"}) > 93600
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "No PostgreSQL base backup has run for 26 hours"
+            description: >-
+              The last base backup ended {{ $value | humanizeDuration }} ago. The
+              daily ScheduledBackup runs at 03:00 UTC; it needs the CNPG operator
+              (cnpg-system) to be up at that time.
+
     # Elastic / WOL standby — marker for Alertmanager inhibit (no GPU/warehouse demand).
     # Does NOT fire when ai/ollama or data-warehouse/minio want replicas > 0.
     - name: bifrost-elastic-standby
