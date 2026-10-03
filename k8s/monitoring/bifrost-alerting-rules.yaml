@@ -551,6 +551,44 @@ spec:
             summary: "Traefik {{ $labels.entrypoint }}: {{ $value | humanize }} requests in 5m matched no router (404 from the gateway itself)"
             description: "Requests on {{ $labels.entrypoint }} got Traefik's own 404 because no router matched, so they never reached an API pod. Check IngressRoute trade-gateway-ip and its Middlewares in that namespace (a missing Middleware drops the whole router and Traefik logs an ERROR) and the Traefik pod log. Backends with no endpoints answer 503, not 404 (allowEmptyServices). Known false positive: a service series Traefik expires after its route was removed or renamed shrinks the subtraction. From 2026-09-06 to 2026-10-03 the count was 0 on both entrypoints."
 
+        # 503s Traefik answered itself because the backend had no server to pick, per trade entrypoint
+        # (cumulative). The load balancer writes "no available server" (20 bytes) when the Service has no
+        # serving endpoint (allowEmptyServices=true) or every endpoint is terminating, and Traefik wraps
+        # the service metrics handler around each server, so these never reach the service counter; a
+        # backend's own 503 does. The `or` on the entrypoint side keeps the series at 0 until the first
+        # 503, so the first burst after a Traefik restart still shows as a step.
+        - record: bifrost:traefik_empty_backend_503:total
+          expr: |
+            (
+              sum by (entrypoint) (traefik_entrypoint_requests_total{entrypoint=~"trade-(stg|prod|dev)",code="503"})
+              or on (entrypoint)
+              0 * sum by (entrypoint) (traefik_entrypoint_requests_total{entrypoint=~"trade-(stg|prod|dev)"})
+            )
+            - (
+                sum by (entrypoint) (
+                  label_replace(
+                    traefik_service_requests_total{code="503",service=~"bifrost-(stg|prod|dev)-trade-gateway-ip-.*"},
+                    "entrypoint", "trade-$1", "service", "bifrost-(stg|prod|dev)-trade-gateway-ip-.*"
+                  )
+                )
+                or on (entrypoint)
+                0 * sum by (entrypoint) (traefik_entrypoint_requests_total{entrypoint=~"trade-(stg|prod|dev)"})
+              )
+
+        - alert: BifrostTraefikNoBackend503
+          # STG/PROD only. The platform probe hits each gateway route about every 18s, so one route with
+          # no backend for 5 minutes is ~17 of these; > 5 ignores a single pod swap. No `for`, as with 404.
+          expr: |
+            (
+              bifrost:traefik_empty_backend_503:total{entrypoint=~"trade-(stg|prod)"}
+              - bifrost:traefik_empty_backend_503:total{entrypoint=~"trade-(stg|prod)"} offset 5m
+            ) > 5
+          labels:
+            severity: critical
+          annotations:
+            summary: "Traefik {{ $labels.entrypoint }}: {{ $value | humanize }} requests in 5m got 503 because a backend had no ready pod"
+            description: "Traefik answered these itself (\"no available server\"): the Service behind the route had no serving endpoint, or all of them were terminating. Find the route in the Traefik access log (Loki {namespace=\"kube-system\",pod=~\"traefik-.*\"} | json | DownstreamStatus=\"503\", fields RouterName / ServiceName), then check that Deployment's ready replicas. The research-api, market-data-api and flex-query-api Deployments use strategy Recreate, so every release of them empties /api/plugin/* for a while. On 2026-09-06 the node all of Prod was pinned to went down and this count reached 45,041 over about five hours with nobody told. A Traefik restart resets its counters, so the difference drops and the alert can miss 503s for the next 5 minutes."
+
         - alert: BifrostTraefikScrapeDown
           expr: |
             up{job="monitoring/traefik"} == 0 or absent(up{job="monitoring/traefik"})
