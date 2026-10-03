@@ -15,14 +15,14 @@ resources:
 configMapGenerator:
   - name: bifrost-config
     files:
-      # Every pod mounts its env's config as runtime.yaml (TD-52).
-      - runtime.yaml=config/config.dev.yaml
+      # Base manifests mount config.stg.yaml — alias dev content (same pattern as prod overlay).
+      - config.stg.yaml=config/config.dev.yaml
+      - config.dev.yaml=config/config.dev.yaml
       - config.yaml.example=config/config.yaml.example
     options:
       disableNameSuffixHash: true
 
 patches:
-  - path: bifrost-env.patch.yaml
   - path: daemon-scale-one.patch.yaml
   - path: daemon-golden-writes-off.patch.yaml
   - path: node-control-plane.patch.yaml

@@ -44,13 +44,13 @@ spec:
           workingDir: /src/bifrost-trade-worker
           env:
             - name: BIFROST_CONFIG
-              value: /app/config/runtime.yaml
+              value: /app/config/config.stg.yaml
             - name: BIFROST_ENV
               value: stg
           volumeMounts:
             - name: bifrost-config
-              mountPath: /app/config/runtime.yaml
-              subPath: runtime.yaml
+              mountPath: /app/config/config.stg.yaml
+              subPath: config.stg.yaml
       containers:
         - name: daemon
           image: registry.cicd.svc.cluster.local:5000/bifrost-worker:stg
@@ -59,7 +59,7 @@ spec:
           workingDir: /src/bifrost-trade-worker
           env:
             - name: BIFROST_CONFIG
-              value: /app/config/runtime.yaml
+              value: /app/config/config.stg.yaml
             - name: BIFROST_ENV
               value: stg
             - name: MARKET_DATA_PLUGIN_URL
@@ -87,8 +87,8 @@ spec:
                 optional: true
           volumeMounts:
             - name: bifrost-config
-              mountPath: /app/config/runtime.yaml
-              subPath: runtime.yaml
+              mountPath: /app/config/config.stg.yaml
+              subPath: config.stg.yaml
             - name: bifrost-config
               mountPath: /app/config/config.yaml.example
               subPath: config.yaml.example

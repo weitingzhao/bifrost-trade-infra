@@ -32,7 +32,7 @@ WORKDIR /build/bifrost-trade-api
 ARG API_DOMAIN=monitor
 ENV API_DOMAIN=${API_DOMAIN} \
     PYTHONUNBUFFERED=1 \
-    BIFROST_CONFIG=/app/config/runtime.yaml \
+    BIFROST_CONFIG=/app/config/config.stg.yaml \
     BIFROST_ENV=stg
 
 EXPOSE 8765

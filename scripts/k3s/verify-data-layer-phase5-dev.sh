@@ -25,7 +25,7 @@ ready="$(kubectl get deployment redis-dev -n "${DATA_NAMESPACE}" -o jsonpath='{.
 [[ "${ready}" == "1" ]] && pass "redis-dev ready" || fail "redis-dev not ready"
 
 if kubectl exec -n "${DEV_NAMESPACE}" deploy/api-monitor -- \
-  sh -c 'grep -q redis-dev.data.svc /app/config/runtime.yaml' 2>/dev/null; then
+  sh -c 'grep -q redis-dev.data.svc /app/config/config.dev.yaml || grep -q redis-dev.data.svc /app/config/config.stg.yaml' 2>/dev/null; then
   pass "api-monitor config points at redis-dev"
 else
   fail "api-monitor config not on redis-dev"

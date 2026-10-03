@@ -46,7 +46,7 @@ spec:
             - /build/bifrost-trade-api/scripts/run_db_refresh_schema.py
           env:
             - name: BIFROST_CONFIG
-              value: /app/config/runtime.yaml
+              value: /app/config/config.prod.yaml
             - name: BIFROST_ENV
               value: prod
           envFrom:
@@ -55,8 +55,8 @@ spec:
                 optional: true
           volumeMounts:
             - name: bifrost-config
-              mountPath: /app/config/runtime.yaml
-              subPath: runtime.yaml
+              mountPath: /app/config/config.prod.yaml
+              subPath: config.prod.yaml
           resources:
             requests:
               cpu: 100m

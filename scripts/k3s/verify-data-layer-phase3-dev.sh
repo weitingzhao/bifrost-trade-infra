@@ -68,7 +68,7 @@ else
 fi
 
 if kubectl exec -n "${DEV_NAMESPACE}" deploy/api-monitor -- \
-  grep -q 'bifrost-postgres-rw' /app/config/runtime.yaml 2>/dev/null; then
+  grep -q 'bifrost-postgres-rw' /app/config/config.stg.yaml 2>/dev/null; then
   pass "api-monitor pod config points at CNPG"
 else
   fail "api-monitor pod config not on CNPG endpoint"

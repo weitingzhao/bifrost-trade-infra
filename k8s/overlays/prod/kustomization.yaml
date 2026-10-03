@@ -14,15 +14,14 @@ resources:
 configMapGenerator:
   - name: bifrost-config
     files:
-      # Every pod mounts its env's config as runtime.yaml (TD-52); it used to be
-      # config.stg.yaml here, so PROD pods advertised a STG config path.
-      - runtime.yaml=config/config.prod.yaml
+      # Base manifests mount config.stg.yaml — alias prod content for bifrost-prod namespace.
+      - config.stg.yaml=config/config.prod.yaml
+      - config.prod.yaml=config/config.prod.yaml
       - config.yaml.example=config/config.yaml.example
     options:
       disableNameSuffixHash: true
 
 patches:
-  - path: bifrost-env.patch.yaml
   - path: node-prod.patch.yaml
   - path: daemon-observe-safe.patch.yaml
   - path: prod-secrets-env.patch.yaml

@@ -30,7 +30,7 @@ spec:
             - /build/bifrost-trade-api/scripts/run_db_refresh_schema.py
           env:
             - name: BIFROST_CONFIG
-              value: /app/config/runtime.yaml
+              value: /app/config/config.stg.yaml
             - name: BIFROST_ENV
               value: stg
           envFrom:
@@ -39,8 +39,8 @@ spec:
                 optional: true
           volumeMounts:
             - name: bifrost-config
-              mountPath: /app/config/runtime.yaml
-              subPath: runtime.yaml
+              mountPath: /app/config/config.stg.yaml
+              subPath: config.stg.yaml
           resources:
             requests:
               cpu: 100m

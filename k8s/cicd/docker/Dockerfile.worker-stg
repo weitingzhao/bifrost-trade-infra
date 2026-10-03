@@ -22,7 +22,7 @@ COPY bifrost-trade-worker/scripts /src/bifrost-trade-worker/scripts
 WORKDIR /src/bifrost-trade-worker
 
 ENV PYTHONUNBUFFERED=1 \
-    BIFROST_CONFIG=/app/config/runtime.yaml \
+    BIFROST_CONFIG=/app/config/config.stg.yaml \
     BIFROST_ENV=stg
 
 # Default entry; K8s Deployment overrides command per workload.

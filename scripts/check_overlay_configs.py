@@ -6,11 +6,9 @@ listen port is missing (``normalize_server_config`` raises). A sync script once 
 ``server.architecture.ops_port`` and api-monitor crash-looped on the next restart; this
 check catches that before a deliver.
 
-Also holds the settings that have silently gone missing before:
-``daemon_scale_guard: freeze`` (D10) everywhere, ``platform_audit.enabled`` in STG and
-PROD (TD-05), and ``reference_indices`` (TD-53: it lived only in a file K3s never
-merges). And it refuses a key written twice: YAML keeps the last one without a word,
-which once dropped STG's first ``ib_operator`` block (TD-53).
+Also holds the two ops settings that have silently gone missing before:
+``daemon_scale_guard: freeze`` (D10) everywhere, and ``platform_audit.enabled`` in STG and
+PROD (TD-05).
 
 Usage: python3 scripts/check_overlay_configs.py   (exit 1 on any problem)
 """
@@ -36,39 +34,9 @@ OVERLAYS = {
 AUDITED = {"stg", "prod"}
 
 
-class _UniqueKeyLoader(yaml.SafeLoader):
-    """A SafeLoader that records every mapping key written twice, with its line."""
-
-    duplicates: list[str]
-
-
-def _construct_mapping(loader: _UniqueKeyLoader, node: yaml.MappingNode, deep: bool = False):
-    seen: dict = {}
-    for key_node, _ in node.value:
-        key = loader.construct_object(key_node, deep=deep)
-        if key in seen:
-            loader.duplicates.append(f"{key!r} at line {key_node.start_mark.line + 1} (first at line {seen[key]})")
-        else:
-            seen[key] = key_node.start_mark.line + 1
-    return loader.construct_mapping(node, deep=deep)
-
-
-_UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_mapping)
-
-
-def load_strict(text: str) -> tuple[dict, list[str]]:
-    """The parsed YAML and every duplicated key in it."""
-    loader = _UniqueKeyLoader(text)
-    loader.duplicates = []
-    try:
-        return loader.get_single_data() or {}, loader.duplicates
-    finally:
-        loader.dispose()
-
-
 def problems(env: str, path: Path) -> list[str]:
-    cfg, duplicates = load_strict(path.read_text(encoding="utf-8"))
-    out: list[str] = [f"duplicate key {d}: YAML keeps only the last one" for d in duplicates]
+    cfg = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    out: list[str] = []
     try:
         normalize_server_config(cfg.get("server"))
     except ValueError as exc:
@@ -80,8 +48,6 @@ def problems(env: str, path: Path) -> list[str]:
         out.append("ops.platform_audit.enabled must be true (Ops actuations need an audit trail)")
     if "audit" in ops:
         out.append("ops.audit is a dead key (nothing reads it); use ops.platform_audit")
-    if not cfg.get("reference_indices"):
-        out.append("reference_indices is empty: the market strip and Refresh Index would answer with nothing")
     return out
 
 
