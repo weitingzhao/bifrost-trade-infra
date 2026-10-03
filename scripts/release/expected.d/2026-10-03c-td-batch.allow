@@ -1,0 +1,6 @@
+# Expected changes of Trade batch c (td-batch/2026-10-03c): core 0.42.0, api 0.7.0.
+# Format: see 2026-10-03-td-batch.allow. Added keys (trade_id, realized_by_trade, state, closed_on) need no line.
+
+# Naming R0 (decision pack D9 / TD-19): the old fill-counting `trade_count` goes from the performance
+# summary, realized_by_* and calendar rows; fill_count (and pair_count on OPT pair rows) carries the value.
+perf.*trade_count
