@@ -45,7 +45,7 @@ check "executions list" "http://127.0.0.1:8769/executions?limit=10" "2xx"
 echo ""
 echo "--- Session 4: strategy ---"
 check "strategy health" "http://127.0.0.1:8770/health"
-check "strategy instances" "http://127.0.0.1:8770/strategies/instances?limit=5" "2xx"
+check "trades" "http://127.0.0.1:8770/trades" "2xx"
 
 echo ""
 echo "--- Session 5: research ---"
