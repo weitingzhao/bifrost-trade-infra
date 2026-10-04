@@ -32,8 +32,8 @@ ORDER BY 1, 2;
 
 -- 4. Effective privileges (inheritance included) of each role on ops_feedback and on a sample of
 --    what feedback_writer must NOT reach. Rows only for roles that exist.
---    Expected after the commit, for feedback_writer: ops_feedback tables S/I/U/D true, no CREATE on
---    the schema; every other object false.
+--    Expected after the commit, for feedback_writer: ops_feedback tables sel/ins/upd true and del
+--    FALSE (no DELETE, Owner 2026-10-04), no CREATE on the schema; every other object all false.
 WITH roles AS (
   SELECT oid, rolname FROM pg_roles
   WHERE rolname IN ('feedback_writer', 'analytics_writer', 'analytics_reader', 'bifrost')

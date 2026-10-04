@@ -12,8 +12,9 @@
 -- feedback_writer gets DML only, no CREATE on the schema. ALTER DEFAULT PRIVILEGES FOR ROLE bifrost
 -- covers a table or sequence a later feedback_schema step creates; a new column is covered by the
 -- table grant.
--- The store uses SELECT / INSERT / UPDATE today; DELETE is granted as approved (a report delete
--- would cascade to report_image). Identity columns need no sequence privilege; USAGE is granted so
+-- SELECT / INSERT / UPDATE only: what the store uses. No DELETE (Owner 2026-10-04, decision C): a
+-- report is closed by status (wontfix), never deleted by the service. Identity columns need no
+-- sequence privilege; USAGE is granted so
 -- a future serial column or explicit nextval() works too.
 BEGIN;
 SET LOCAL lock_timeout = '10s';
@@ -34,10 +35,10 @@ COMMENT ON ROLE feedback_writer IS
 
 GRANT CONNECT ON DATABASE bifrost_golden_source TO feedback_writer;
 GRANT USAGE ON SCHEMA ops_feedback TO feedback_writer;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ops_feedback TO feedback_writer;
+GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA ops_feedback TO feedback_writer;
 GRANT USAGE ON ALL SEQUENCES IN SCHEMA ops_feedback TO feedback_writer;
 ALTER DEFAULT PRIVILEGES FOR ROLE bifrost IN SCHEMA ops_feedback
-  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO feedback_writer;
+  GRANT SELECT, INSERT, UPDATE ON TABLES TO feedback_writer;
 ALTER DEFAULT PRIVILEGES FOR ROLE bifrost IN SCHEMA ops_feedback
   GRANT USAGE ON SEQUENCES TO feedback_writer;
 

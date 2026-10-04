@@ -29,23 +29,26 @@ done: all 8 objects are `bifrost`'s, read-only 2026-10-04). `feedback_writer` ge
 | 2 | `COMMENT ON ROLE feedback_writer IS …` | role comment | — | yes | goes with the role |
 | 3 | `GRANT CONNECT ON DATABASE bifrost_golden_source TO feedback_writer` | database ACL (PUBLIC has CONNECT today; explicit so a later PUBLIC revoke does not cut feedback) | `bifrost` (db owner) | yes | `REVOKE ALL ON DATABASE bifrost_golden_source FROM feedback_writer` |
 | 4 | `GRANT USAGE ON SCHEMA ops_feedback TO feedback_writer` | schema ACL | `bifrost` | yes | `REVOKE ALL ON SCHEMA ops_feedback FROM feedback_writer` |
-| 5 | `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ops_feedback TO feedback_writer` | `report`, `report_image` | `bifrost` | yes | `REVOKE ALL ON ALL TABLES IN SCHEMA ops_feedback FROM feedback_writer` |
+| 5 | `GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA ops_feedback TO feedback_writer` | `report`, `report_image` | `bifrost` | yes | `REVOKE ALL ON ALL TABLES IN SCHEMA ops_feedback FROM feedback_writer` |
 | 6 | `GRANT USAGE ON ALL SEQUENCES IN SCHEMA ops_feedback TO feedback_writer` | `report_report_id_seq`, `report_image_report_image_id_seq` | `bifrost` | yes | `REVOKE ALL ON ALL SEQUENCES IN SCHEMA ops_feedback FROM feedback_writer` |
-| 7 | `ALTER DEFAULT PRIVILEGES FOR ROLE bifrost IN SCHEMA ops_feedback GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO feedback_writer` | `pg_default_acl` row (bifrost, ops_feedback, r) | `bifrost` | yes | `… REVOKE ALL ON TABLES FROM feedback_writer` |
+| 7 | `ALTER DEFAULT PRIVILEGES FOR ROLE bifrost IN SCHEMA ops_feedback GRANT SELECT, INSERT, UPDATE ON TABLES TO feedback_writer` | `pg_default_acl` row (bifrost, ops_feedback, r) | `bifrost` | yes | `… REVOKE ALL ON TABLES FROM feedback_writer` |
 | 8 | `ALTER DEFAULT PRIVILEGES FOR ROLE bifrost IN SCHEMA ops_feedback GRANT USAGE ON SEQUENCES TO feedback_writer` | `pg_default_acl` row (bifrost, ops_feedback, S) | `bifrost` | yes | `… REVOKE ALL ON SEQUENCES FROM feedback_writer` |
 | 9 | `ALTER ROLE feedback_writer PASSWORD 'SCRAM-SHA-256$4096:…'` (sent by `scripts/feedback-writer-secret.sh password`; never in a file) | role password | — | yes | `ALTER ROLE feedback_writer PASSWORD NULL`, or the rollback file |
 
 No data is read or changed; no table is locked beyond the catalog rows of the GRANTs (lock_timeout 10s). The store
-uses SELECT / INSERT / UPDATE today; DELETE is in the approved set (a report delete cascades to `report_image`).
+uses SELECT / INSERT / UPDATE, and that is all it gets: **no DELETE** (Owner 2026-10-04, decision C; a report is
+closed by status, not deleted).
 The rollback leaves the ACLs as explicit owner-only entries (`{bifrost=arwdDxtm/bifrost}`) instead of NULL: the
 same rights.
 
-Rehearsed 2026-10-04 on a throwaway docker postgres:17 with the live roles, memberships and database ACL mirrored:
-`ensure_feedback_schema` as bifrost → commit twice → `password` → api 0.7.5's `feedback_store` as feedback_writer:
-insert with image, list, image, status, reply, read, summary and an update of a row analytics_writer wrote: all ok;
-CREATE TABLE in ops_feedback / public, CREATE SCHEMA, ALTER / DROP / TRUNCATE on ops_feedback, SELECT
-raw_broker.account, INSERT journal.note, SET ROLE bifrost: all `42501`; a table and a column bifrost added later:
-usable (default privileges); `ensure_feedback_schema` as bifrost again: ok; rollback twice, then commit again: ok.
+Rehearsed 2026-10-04 (again after decision C, grant set S/I/U) on a throwaway docker postgres:17 with the live
+roles, memberships and database ACL mirrored: `ensure_feedback_schema` as bifrost → commit twice → `password` →
+api 0.7.5's `feedback_store` as feedback_writer: insert with image, list, image, status, reply, read, summary and an
+update of a row analytics_writer wrote: all ok; DELETE on report / report_image, CREATE TABLE in ops_feedback /
+public, CREATE SCHEMA, ALTER / DROP / TRUNCATE on ops_feedback, SELECT raw_broker.account, INSERT journal.note,
+SET ROLE bifrost: all `42501`; a table (serial) and a column bifrost added later: INSERT / UPDATE ok, DELETE `42501`
+(default privileges `arw`); `ensure_feedback_schema` as bifrost again: ok; dry-run shows `arw` and del f; rollback
+twice, then commit again: ok.
 
 ## Owner checklist (in order; every step but 5 is yours)
 
@@ -78,7 +81,7 @@ manifest (DEV is not under Argo): kubectl diff -k k8s/overlays/dev -l app.kubern
          then kubectl apply -k k8s/overlays/dev -l app.kubernetes.io/name=api-research
          (adds the five FEEDBACK_PG_* env to Deployment api-research and nothing else; the pod restarts on the
          current :dev image, which ignores them; release.sh dev then brings 0.7.5)
-verify:  the dry-run again (feedback_writer: login t, scram t; ops_feedback tables S/I/U/D t for it, schema CREATE f)
+verify:  the dry-run again (feedback_writer: login t, scram t; ops_feedback tables sel/ins/upd t and del f for it, schema CREATE f)
          and, after release.sh dev: curl -s http://192.168.10.73:30882/api/research/research/feedback/summary
 
 ## stg
