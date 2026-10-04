@@ -6,6 +6,7 @@ config/secrets/
 k8s/base/secrets/bifrost-stg-secrets.yaml
 k8s/base/secrets/bifrost-dev-secrets.yaml
 k8s/base/secrets/bifrost-prod-secrets.yaml
+k8s/base/secrets/bifrost-*-db-owner.yaml
 k8s/cicd/gitea/secret.yaml
 k8s/overlays/platform-stg/secrets/
 k8s/overlays/platform-prod/secrets/

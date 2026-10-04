@@ -49,6 +49,35 @@ spec:
               value: /app/config/runtime.yaml
             - name: BIFROST_ENV
               value: prod
+            # TD-85: db-init runs the DDL as bifrost (owner of the Trade tables and of raw_broker /
+            # ops_feedback); the runtime Pods sign in as trade_app_prod through PGUSER /
+            # GOLDEN_SOURCE_USER in bifrost-prod-secrets. Explicit env wins over envFrom. optional: until
+            # the Owner creates bifrost-prod-db-owner (scripts/trade-app-role.sh owner-secret prod) the
+            # keys fall through to bifrost-prod-secrets, which is still on bifrost then.
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: bifrost-prod-db-owner
+                  key: PGUSER
+                  optional: true
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bifrost-prod-db-owner
+                  key: PGPASSWORD
+                  optional: true
+            - name: GOLDEN_SOURCE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: bifrost-prod-db-owner
+                  key: GOLDEN_SOURCE_USER
+                  optional: true
+            - name: GOLDEN_SOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bifrost-prod-db-owner
+                  key: GOLDEN_SOURCE_PASSWORD
+                  optional: true
           envFrom:
             - secretRef:
                 name: bifrost-prod-secrets

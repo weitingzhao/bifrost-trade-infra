@@ -3,6 +3,11 @@
 
 Never prints secret values. Writes:
   k8s/base/secrets/bifrost-{dev,stg,prod}-secrets.yaml
+  k8s/base/secrets/bifrost-{dev,stg,prod}-db-owner.yaml   (db-init's bifrost login, TD-85)
+
+TD-85: once scripts/trade-app-role.sh has switched an env, its runtime Secret carries
+PGUSER / GOLDEN_SOURCE_USER = trade_app_<env> and that role's password (TRADE_APP_<ENV>_PG_PASSWORD
+in this repo's .env); this script keeps them. bifrost's password goes only to the db-owner Secret.
 
 Usage:
   python3 scripts/materialize_k8s_trade_secrets.py
@@ -32,6 +37,7 @@ SECRET_PATHS = {
     "stg": ROOT / "k8s/base/secrets/bifrost-stg-secrets.yaml",
     "prod": ROOT / "k8s/base/secrets/bifrost-prod-secrets.yaml",
 }
+OWNER_SECRET_PATHS = {env: ROOT / f"k8s/base/secrets/bifrost-{env}-db-owner.yaml" for env in SECRET_PATHS}
 
 PLACEHOLDERS = frozenset({"", "REPLACE_ME", "CHANGE_ME", "changeme", "change-me"})
 
@@ -135,7 +141,7 @@ def _build_secret(env_name: str, text: str, extras: dict[str, str], existing: di
     )
     pg_pw = _block_field(text, "postgres", "password")
     gs_pw = _block_field(text, "golden_source", "password")
-    return {
+    out = {
         "MASSIVE_API_KEY": _pick(polygon, existing.get("MASSIVE_API_KEY")),
         "POLYGON_API_KEY": _pick(polygon, existing.get("POLYGON_API_KEY")),
         "OPS_OPERATOR_TOKEN": _pick(op, extras.get("OPS_OPERATOR_TOKEN"), existing.get("OPS_OPERATOR_TOKEN")),
@@ -170,6 +176,36 @@ def _build_secret(env_name: str, text: str, extras: dict[str, str], existing: di
             existing.get("GOLDEN_SOURCE_PASSWORD"),
         ),
     }
+    # TD-85: an env switched to trade_app_<env> keeps its login; the password is that role's.
+    runtime_user = _nonempty(existing.get("PGUSER"))
+    if runtime_user.startswith("trade_app_"):
+        app_pw = _pick(extras.get(f"TRADE_APP_{env_name.upper()}_PG_PASSWORD"), existing.get("PGPASSWORD"))
+        out["PGPASSWORD"] = app_pw
+        out["GOLDEN_SOURCE_PASSWORD"] = app_pw
+    if runtime_user:
+        out["PGUSER"] = runtime_user
+        out["GOLDEN_SOURCE_USER"] = _pick(existing.get("GOLDEN_SOURCE_USER"), runtime_user)
+    return out
+
+
+def _build_owner_secret(text: str, extras: dict[str, str], existing_owner: dict[str, str],
+                        existing_runtime: dict[str, str]) -> dict[str, str]:
+    """bifrost-<env>-db-owner: what the db-init Job signs in with (TD-85). Never trade_app's values."""
+    runtime_on_bifrost = _nonempty(existing_runtime.get("PGUSER")) in ("", "bifrost")
+    pw = _pick(
+        _block_field(text, "postgres", "password"),
+        extras.get("POSTGRES_PASSWORD"),
+        existing_owner.get("PGPASSWORD"),
+        existing_runtime.get("PGPASSWORD") if runtime_on_bifrost else "",
+    )
+    gs = _pick(
+        _block_field(text, "golden_source", "password"),
+        extras.get("GOLDEN_SOURCE_PASSWORD") if runtime_on_bifrost else "",
+        existing_owner.get("GOLDEN_SOURCE_PASSWORD"),
+        existing_runtime.get("GOLDEN_SOURCE_PASSWORD") if runtime_on_bifrost else "",
+        pw,
+    )
+    return {"PGUSER": "bifrost", "GOLDEN_SOURCE_USER": "bifrost", "PGPASSWORD": pw, "GOLDEN_SOURCE_PASSWORD": gs}
 
 
 def _write_secret(path: Path, name: str, string_data: dict[str, str]) -> list[str]:
@@ -241,20 +277,18 @@ def main() -> int:
         print(f"Wrote {dest.relative_to(ROOT)} keys={filled}/{len(data)} missing={missing or 'none'}")
         if missing:
             any_missing = True
+        owner_dest = OWNER_SECRET_PATHS[env_name]
+        owner = _build_owner_secret(text, extras, _existing_string_data(owner_dest), existing)
+        owner_missing = _write_secret(owner_dest, f"bifrost-{env_name}-db-owner", owner)
+        print(f"Wrote {owner_dest.relative_to(ROOT)} missing={owner_missing or 'none'}")
+        if owner_missing:
+            any_missing = True
         if args.apply:
             ns = f"bifrost-{env_name}"
-            cmd = [
-                "kubectl",
-                "--kubeconfig",
-                kubeconfig,
-                "apply",
-                "-n",
-                ns,
-                "-f",
-                str(dest),
-            ]
-            print(f"Applying Secret bifrost-{env_name}-secrets in {ns}")
-            subprocess.run(cmd, check=True)
+            for path in (dest, owner_dest):
+                cmd = ["kubectl", "--kubeconfig", kubeconfig, "apply", "-n", ns, "-f", str(path)]
+                print(f"Applying Secret {path.stem} in {ns}")
+                subprocess.run(cmd, check=True)
 
     compose_keys = {
         "REDIS_IB_USERNAME": "trade-prod",
@@ -267,6 +301,11 @@ def main() -> int:
         "MASSIVE_API_KEY": "",
     }
     stg_secret = _existing_string_data(SECRET_PATHS["stg"])
+    # The local stack signs in as bifrost: its two DB passwords come from the db-owner file
+    # (the runtime Secret carries trade_app_stg's once STG is switched, TD-85).
+    stg_owner = _existing_string_data(OWNER_SECRET_PATHS["stg"])
+    for k in ("PGPASSWORD", "GOLDEN_SOURCE_PASSWORD"):
+        stg_secret[k] = _pick(stg_owner.get(k), stg_secret.get(k) if not _nonempty(stg_secret.get("PGUSER", "")).startswith("trade_app_") else "")
     for k in list(compose_keys):
         compose_keys[k] = _pick(stg_secret.get(k), extras.get(k), compose_keys.get(k))
     if SECRET_PATHS["dev"].is_file():

@@ -6,7 +6,8 @@ Secrets must not live in git-tracked ConfigMap YAML. Use K8s Secrets + env overr
 
 | Secret | Where | Env keys consumed by code |
 |--------|-------|---------------------------|
-| Trade NS `bifrost-{dev,stg,prod}-secrets` | gitignored `k8s/base/secrets/bifrost-*-secrets.yaml` | `REDIS_IB_*`, `PGPASSWORD`, `GOLDEN_SOURCE_PASSWORD`, `OPS_*`, `MASSIVE_API_KEY` / `POLYGON_API_KEY`, `MARKET_DATA_WRITE_TOKEN` |
+| Trade NS `bifrost-{dev,stg,prod}-secrets` | gitignored `k8s/base/secrets/bifrost-*-secrets.yaml` | `REDIS_IB_*`, `PGUSER` / `GOLDEN_SOURCE_USER` (once switched, TD-85), `PGPASSWORD`, `GOLDEN_SOURCE_PASSWORD`, `OPS_*`, `MASSIVE_API_KEY` / `POLYGON_API_KEY`, `MARKET_DATA_WRITE_TOKEN` |
+| Trade NS `bifrost-{dev,stg,prod}-db-owner` (TD-85) | gitignored `k8s/base/secrets/bifrost-*-db-owner.yaml` | db-init Job only (explicit env over its envFrom): `PGUSER` / `GOLDEN_SOURCE_USER` = `bifrost`, `PGPASSWORD`, `GOLDEN_SOURCE_PASSWORD` |
 | Trade NS `bifrost-feedback-secrets` (dev, stg, prod) | infra `.env` `FEEDBACK_PG_PASSWORD` → `scripts/feedback-writer-secret.sh ensure / password / secret <env> / check` (db-step `2026-10-04-td49-feedback-writer-role`) | api-research `FEEDBACK_PG_PASSWORD` (Golden Source role `feedback_writer`, `ops_feedback` DML only; api ≥ 0.7.5) |
 | Trade NS `bifrost-analytics-secrets` (until db-step `2026-10-04-td49-revoke-analytics-from-trade-api`) | copy of Research's | api-research ≤ 0.7.3 `ANALYTICS_PG_PASSWORD` (role `analytics_writer`) |
 | Plugin `redis-ib-acl` | `bifrost-platform-plugin` `.env` → `make install-redis-ib` | ACL file on redis-ib |
@@ -15,7 +16,7 @@ Secrets must not live in git-tracked ConfigMap YAML. Use K8s Secrets + env overr
 | Monitoring `alertmanager-webhook-auth` | same target (key `token` = STG operator) | Alertmanager `bearer_token_file` |
 | Local Compose | infra `.env` | same env keys |
 
-Examples (placeholders only): `k8s/base/secrets/bifrost-*-secrets.example.yaml`.
+Examples (placeholders only): `k8s/base/secrets/bifrost-*-secrets.example.yaml`, `k8s/base/secrets/bifrost-db-owner.example.yaml`.
 
 `REDIS_MASSIVE_*` / `redis-massive` are retired together with the Polygon WS ingestor (2026-09-27);
 leftover keys in existing Secrets or `.env` are unused and can be dropped on the next refresh.
@@ -37,6 +38,29 @@ kubectl apply -k k8s/overlays/stg   # or dev / prod
 kubectl -n bifrost-stg rollout restart deploy/api-monitor deploy/api-account deploy/api-market deploy/api-research
 kubectl -n bifrost-stg rollout restart deploy/daemon
 ```
+
+## Trade runtime Postgres role per env (TD-85)
+
+The Trade runtime (api-account / api-market / api-monitor / api-research, daemon) signs in as
+`trade_app_<env>`: DML on its own `bifrost_<env>` (no DDL, no other env's database) and on Golden
+Source `raw_broker` (TRUNCATE only on `open_orders`), nothing else in Golden Source. `bifrost` stays
+the owner and is used only by the db-init Job, through `bifrost-<env>-db-owner`. Core reads env before
+the config file (TD-54), so the four Secret keys decide the login; the ConfigMap `user:` lines are the
+fallback only.
+
+Owner-run, `scripts/trade-app-role.sh` (no subcommand prints a password; they travel on stdin):
+
+1. Roles and grants: the db-step `scripts/release/db-steps.d/2026-10-04-td85-trade-app-roles.md`.
+2. `ensure` — `TRADE_APP_{DEV,STG,PROD}_PG_PASSWORD` into this repo's `.env`; `password dev stg prod`
+   — the roles' SCRAM verifiers.
+3. `owner-secret dev stg prod` — `bifrost-<env>-db-owner` from what `bifrost-<env>-secrets` carries
+   while it is still on bifrost. It is also where `rollback` takes bifrost's values from.
+4. `switch <env>` (DEV, then STG, then PROD after the close) — one patch of `PGUSER`,
+   `GOLDEN_SOURCE_USER`, `PGPASSWORD`, `GOLDEN_SOURCE_PASSWORD`, then a restart of the five
+   Deployments. `check <env>` answers yes / no. `rollback <env>` puts the four keys back on bifrost.
+
+`materialize_k8s_trade_secrets.py` keeps a switched env's login (`PGUSER` in the local Secret file
++ `TRADE_APP_<ENV>_PG_PASSWORD`) and writes the db-owner files with bifrost's password.
 
 ## redis-ib users per Trade env (TD-21)
 
@@ -118,8 +142,13 @@ Note: after YAML scrub, the key lives only in K8s Secret / `.env`. Git history s
 ## Rotate Postgres (`bifrost` user)
 
 1. Change password via CNPG / `ALTER ROLE` (and `bifrost-postgres-app` Secret if applicable).
-2. Update `PGPASSWORD` + `GOLDEN_SOURCE_PASSWORD` in Trade Secrets + `.env`.
-3. Restart all Trade API/worker Deployments.
+2. Update `PGPASSWORD` + `GOLDEN_SOURCE_PASSWORD` in `bifrost-<env>-db-owner` (and in
+   `bifrost-<env>-secrets` for an env not yet switched to `trade_app_<env>`), the market-data /
+   flex-query plugin Secrets and `.env` (TD-85 D5 rotates them together).
+3. Restart the Deployments that still sign in as bifrost; a switched env's Trade pods do not.
+
+`trade_app_<env>`: replace `TRADE_APP_<ENV>_PG_PASSWORD` in `.env`, `scripts/trade-app-role.sh password <env>`,
+then `switch <env>` again (it rewrites the Secret and restarts).
 
 ## Sync scripts (no password write-back)
 
