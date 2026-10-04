@@ -10,6 +10,8 @@ Secrets must not live in git-tracked ConfigMap YAML. Use K8s Secrets + env overr
 | Trade NS `bifrost-{dev,stg,prod}-db-owner` (TD-85) | gitignored `k8s/base/secrets/bifrost-*-db-owner.yaml` | db-init Job only (explicit env over its envFrom): `PGUSER` / `GOLDEN_SOURCE_USER` = `bifrost`, `PGPASSWORD`, `GOLDEN_SOURCE_PASSWORD` |
 | Trade NS `bifrost-feedback-secrets` (dev, stg, prod) | infra `.env` `FEEDBACK_PG_PASSWORD` → `scripts/feedback-writer-secret.sh ensure / password / secret <env> / check` (db-step `2026-10-04-td49-feedback-writer-role`) | api-research `FEEDBACK_PG_PASSWORD` (Golden Source role `feedback_writer`, `ops_feedback` DML only; api ≥ 0.7.5) |
 | ~~Trade NS `bifrost-analytics-secrets`~~ | retired: api-research no longer gets `ANALYTICS_PG_*` (api ≥ 0.7.5 never read it; all envs on 0.8.1). The Secret leaves `bifrost-{dev,stg,prod}` and `plugin-market-data` with db-step `2026-10-04-td49-revoke-analytics-from-trade-api`; Research keeps its own copy in `research` | — |
+| Plugin NS `plugin-market-data/market-data-secrets` (TD-85 D6) | infra `.env` `DATA_WRITER_PG_PASSWORD` → `scripts/plugin-db-roles.sh ensure / password data_writer / switch market-data / rollback market-data / check` (db-step `2026-10-04-d6-plugins-off-bifrost`) | `postgres-user` → `POSTGRES_USER` (market-data ≥ 0.76.0; optional, absent = ConfigMap `postgres.user`), `postgres-password`, `postgres-host`, `polygon-api-key`, `write-token` |
+| Plugin NS `plugin-flex-query/flex-query-secrets` (TD-85 D6) | infra `.env` `FLEX_WRITER_PG_PASSWORD` → `scripts/plugin-db-roles.sh … flex` (same db-step) | `postgres-user` → `POSTGRES_USER`, `GOLDEN_SOURCE_USER`, `FLEX_TRADE_PG_USER` (flex-query ≥ 0.9.0; optional), `postgres-password`, `trade-pg-password` (same role, same value), `trade-pg-db`, `postgres-host`, `trade-pg-host` |
 | Plugin `redis-ib-acl` | `bifrost-platform-plugin` `.env` → `make install-redis-ib` | ACL file on redis-ib |
 | Platform `redis-ib-platform` | gitignored Secret in `bifrost-platform-{stg,prod}` | `REDIS_IB_PLATFORM_PASS` |
 | Platform `bifrost-platform-role-tokens` | infra `.env` `PLATFORM_{STG,PROD}_{VIEWER,OPERATOR,ADMIN}_TOKEN` → `make k3s-apply-platform-role-tokens` | STG `PLATFORM_{VIEWER,OPERATOR,ADMIN}_TOKEN` · PROD `PLATFORM_PROD_{VIEWER,OPERATOR,ADMIN}_TOKEN` |
@@ -144,11 +146,16 @@ Note: after YAML scrub, the key lives only in K8s Secret / `.env`. Git history s
 1. Change password via CNPG / `ALTER ROLE` (and `bifrost-postgres-app` Secret if applicable).
 2. Update `PGPASSWORD` + `GOLDEN_SOURCE_PASSWORD` in `bifrost-<env>-db-owner` (and in
    `bifrost-<env>-secrets` for an env not yet switched to `trade_app_<env>`), the market-data /
-   flex-query plugin Secrets and `.env` (TD-85 D5 rotates them together).
+   flex-query plugin Secrets while they still sign in as bifrost (no `postgres-user`, or `postgres-user: bifrost`;
+   after the D6 switch they hold data_writer / flex_writer, not bifrost) and `.env` (TD-85 D5 rotates them together).
 3. Restart the Deployments that still sign in as bifrost; a switched env's Trade pods do not.
 
 `trade_app_<env>`: replace `TRADE_APP_<ENV>_PG_PASSWORD` in `.env`, `scripts/trade-app-role.sh password <env>`,
 then `switch <env>` again (it rewrites the Secret and restarts).
+
+`data_writer` / `flex_writer` (D6): replace `DATA_WRITER_PG_PASSWORD` / `FLEX_WRITER_PG_PASSWORD` in `.env`,
+`scripts/plugin-db-roles.sh password data_writer` (or `flex_writer`), then `switch market-data` (or `flex`) again.
+Do not run the flex repo's `make sync-k8s-secrets` after the switch (0.9.0 refuses: it writes bifrost's PGPASSWORD).
 
 ## Sync scripts (no password write-back)
 
