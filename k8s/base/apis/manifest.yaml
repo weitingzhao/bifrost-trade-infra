@@ -397,11 +397,28 @@ spec:
               value: research
             - name: MARKET_DATA_PLUGIN_URL
               value: http://market-data-api.plugin-market-data.svc.cluster.local:8790/market
-            # Golden Source read path for the tier / momentum-grade screens
-            # (analytics_reader.get_conn). DEV and STG had these from a manual
-            # kubectl patch (2026-08-24) and PROD never did, so every tier read
-            # answered "no password supplied" there. The secret is created per
-            # namespace out of band and never committed.
+            # The feedback store's own Golden Source connection (api >= 0.7.5,
+            # TD-49 D4 / TD-77 E5): role feedback_writer, DML on ops_feedback only.
+            # Secret bifrost-feedback-secrets is created per namespace by the Owner
+            # (scripts/feedback-writer-secret.sh secret <env>) and never committed.
+            # Not optional: a pod without it stays Pending (CreateContainerConfigError)
+            # and the old one keeps serving, instead of starting with no password.
+            - name: FEEDBACK_PG_HOST
+              value: bifrost-postgres-rw.data.svc.cluster.local
+            - name: FEEDBACK_PG_PORT
+              value: "5432"
+            - name: FEEDBACK_PG_USER
+              value: feedback_writer
+            - name: FEEDBACK_PG_DATABASE
+              value: bifrost_golden_source
+            - name: FEEDBACK_PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bifrost-feedback-secrets
+                  key: FEEDBACK_PG_PASSWORD
+            # api <= 0.7.3 only (analytics_reader.get_conn, role analytics_writer).
+            # Removed with Secret bifrost-analytics-secrets in the Trade namespaces
+            # once every env runs api >= 0.7.5: db-step 2026-10-04-td49-revoke-analytics-from-trade-api.
             - name: ANALYTICS_PG_HOST
               value: bifrost-postgres-rw.data.svc.cluster.local
             - name: ANALYTICS_PG_PORT

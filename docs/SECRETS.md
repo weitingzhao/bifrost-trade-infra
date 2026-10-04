@@ -7,6 +7,8 @@ Secrets must not live in git-tracked ConfigMap YAML. Use K8s Secrets + env overr
 | Secret | Where | Env keys consumed by code |
 |--------|-------|---------------------------|
 | Trade NS `bifrost-{dev,stg,prod}-secrets` | gitignored `k8s/base/secrets/bifrost-*-secrets.yaml` | `REDIS_IB_*`, `PGPASSWORD`, `GOLDEN_SOURCE_PASSWORD`, `OPS_*`, `MASSIVE_API_KEY` / `POLYGON_API_KEY`, `MARKET_DATA_WRITE_TOKEN` |
+| Trade NS `bifrost-feedback-secrets` (dev, stg, prod) | infra `.env` `FEEDBACK_PG_PASSWORD` → `scripts/feedback-writer-secret.sh ensure / password / secret <env> / check` (db-step `2026-10-04-td49-feedback-writer-role`) | api-research `FEEDBACK_PG_PASSWORD` (Golden Source role `feedback_writer`, `ops_feedback` DML only; api ≥ 0.7.5) |
+| Trade NS `bifrost-analytics-secrets` (until db-step `2026-10-04-td49-revoke-analytics-from-trade-api`) | copy of Research's | api-research ≤ 0.7.3 `ANALYTICS_PG_PASSWORD` (role `analytics_writer`) |
 | Plugin `redis-ib-acl` | `bifrost-platform-plugin` `.env` → `make install-redis-ib` | ACL file on redis-ib |
 | Platform `redis-ib-platform` | gitignored Secret in `bifrost-platform-{stg,prod}` | `REDIS_IB_PLATFORM_PASS` |
 | Platform `bifrost-platform-role-tokens` | infra `.env` `PLATFORM_{STG,PROD}_{VIEWER,OPERATOR,ADMIN}_TOKEN` → `make k3s-apply-platform-role-tokens` | STG `PLATFORM_{VIEWER,OPERATOR,ADMIN}_TOKEN` · PROD `PLATFORM_PROD_{VIEWER,OPERATOR,ADMIN}_TOKEN` |
