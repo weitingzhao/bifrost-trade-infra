@@ -2,7 +2,7 @@
 id: 2026-10-03-td56-option-pool-orphans
 envs: dev stg prod
 when: after
-done:
+done: dev stg prod
 ---
 # TD-56: delete the 3 orphan 'Option Pool' symbol-order rows
 

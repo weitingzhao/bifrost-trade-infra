@@ -2,7 +2,7 @@
 id: 2026-10-03-td25-stk-aapl-usd-tag
 envs: dev stg prod
 when: after
-done:
+done: dev stg prod
 ---
 # TD-25: delete the one position-category tag keyed 'STK-AAPL-USD'
 
