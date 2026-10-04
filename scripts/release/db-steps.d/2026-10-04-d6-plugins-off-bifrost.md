@@ -2,7 +2,7 @@
 id: 2026-10-04-d6-plugins-off-bifrost
 envs: prod
 when: after
-done:
+done: prod
 ---
 # TD-85 D6: the two Ops plugins stop signing in as bifrost (Golden Source + bifrost_dev, bifrost_stg, bifrost_prod)
 
