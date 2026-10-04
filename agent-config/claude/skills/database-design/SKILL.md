@@ -4,7 +4,7 @@ description: >-
   PostgreSQL 设计标准 — 表命名、主键/外键列名、strategy_* 与 gate_safety_* 边界表、
   jsonb vs 子表、dim 枚举、环境隔离。Use when adding or changing any PostgreSQL table,
   column, DDL, or migration in bifrost-trade-core / api / worker / research.
-parity-id: database-design-v4
+parity-id: database-design-v5
 ---
 
 # Database Design Standards (数据库设计标准)
@@ -29,7 +29,9 @@ When adding or changing **PostgreSQL** tables in any `bifrost-trade-*` repo, fol
   不带 `strategy_` 前缀（决策包 D1-A / D6）；`strategy_*` 只放规则链（template / structure / opportunity / allocation / plan）。
   `allocation` 只指资金规则（`strategy_allocation`）；一笔成交按数量分给几个 Trade 叫 **fill split**（`split_quantity`、
   视图 `brokerage.trade_fill_splits`，D7-A）。旧名 `strategy_instance` / `strategy_instance_execution` /
-  `brokerage.instance_allocations` 在 R3 → R4 之间只作为兼容视图存在一版：不得在旧名下新建对象或写新代码。
+  `brokerage.instance_allocations` 只是 R3 → R4 的一版兼容视图，冻结表 `account_execution_instance_allocation` 同批退役：
+  core 0.47.0 起代码与行键只用新名，Owner 的 db-step `2026-10-08-r4-drop-compat` 删除它们（删表前导出 CSV）。
+  该步执行前它们仍在库里，但不得在旧名下新建对象、写新代码或再读它们。
 - **Plugin job queues** (Golden Source): `ops_jobs.job_ingest` (Market Data Plugin); Trade `public.job_*` Celery tables retired (0.10.6).
 - **User-preference tables**: use prefix **`preference_`** (e.g. `preference_market_streams_symbol_order` for Market Streams symbol order per category).
 - Other per-env tables keep existing names (`settings`, `watchlist`, `trade_review`). Daemon IPC (heartbeat / run_status / control) is **not** in PostgreSQL — it is per-env Redis (`bifrost_core.persistence.redis_daemon_state`, core 0.8.0); do not recreate `daemon_*` / `status_*` tables.
@@ -79,7 +81,8 @@ When adding or changing **PostgreSQL** tables in any `bifrost-trade-*` repo, fol
 
 **per-env 环境视图不是 vendor 形状**（naming R3，core 0.45.0）：`brokerage.executions` / `executions_final` /
 `executions_fly` / `executions_tws` 把 IB 的 `trade_id` / `related_trade_id` 改叫 **`ib_trade_id` / `ib_related_trade_id`**，
-`trade_id` 专指本环境的 Trade（TD-13：一个名字只有一个意思），`strategy_instance_id`（= `trade_id`）兼容列只留一版（R4 删）。
+`trade_id` 专指本环境的 Trade（TD-13：一个名字只有一个意思）；R3 留的兼容列 `strategy_instance_id`（= `trade_id`）由 R4 的
+db-step 重建视图时去掉（db-init 的 FDW 步骤在 dev / stg / prod 不重建这些视图，改视图定义要随 Owner 的 db-step 一起发）。
 Golden Source 的 `raw_broker.executions*` 视图与原表保持 vendor 名。列对照见 `BROKERAGE_GOLDEN_SOURCE.md`。
 
 **旧名对照**（迁移前 per-env `public` 名 → `raw_broker` / `brokerage` 名）：
