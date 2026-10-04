@@ -2,7 +2,7 @@
 id: 2026-10-04-d2-analytics-writer-off-bifrost
 envs: prod
 when: after
-done:
+done: prod
 ---
 # TD-85 D2: Research's analytics_writer stops inheriting bifrost (Golden Source only)
 

@@ -2,7 +2,7 @@
 id: 2026-10-04-d5-bifrost-password-rotate
 envs: prod
 when: after
-done:
+done: prod
 ---
 # TD-85 D5: rotate bifrost's password, together with the plugin Secrets
 
