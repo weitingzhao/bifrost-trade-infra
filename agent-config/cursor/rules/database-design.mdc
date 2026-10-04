@@ -1,7 +1,7 @@
 ---
 description: Database design standards — naming, PK/FK, strategy & safety boundary tables
 alwaysApply: false
-parity-id: database-design-v3
+parity-id: database-design-v4
 ---
 
 # Database Design Standards (数据库设计标准)
@@ -15,9 +15,18 @@ When adding or changing **PostgreSQL** tables in any `bifrost-trade-*` repo, fol
 - **Strategy-related tables** (option structure, opportunity, allocation): use prefix **`strategy_`**.
   - `strategy_structure`, `strategy_opportunity`, `strategy_allocation`.
 - **Safety-boundary tables** (gates): use prefix **`gate_safety_`**.
-  - `gate_safety_strategy` (metadata + six dims + `params_json`).
+  - `gate_safety_strategy` (metadata + six dims + `params_json`). **遗留名**：它的意思是 **gate set**（一组限额参数；
+    API `/gate-sets`、类 `GateSet*`、界面「Gate」）。表名不改（命名决策包 2026-10-03 D6-A：改表要动 daemon 启动读门禁的
+    路径），新代码与文档一律叫 gate set；FK 列名照表名（`gate_safety_strategy_id`）。
   - Retired (Wave 9): `gate_safety_strategy_earnings_dates` (folded into `params_json.strategy.earnings.dates`).
   - Retired (merged into `gate_safety_strategy` in core `0.8.1`): `gate_safety_state`, `gate_safety_intent`, `gate_safety_guard`.
+- **Trade entity tables** (naming R3, core 0.45.0): **`trade`**（PK `trade_id`；原 `strategy_instance`）、
+  成交归属 **`trade_execution`**（`trade_id`、拆分数量 `split_quantity`；原 `strategy_instance_execution` /
+  `allocated_quantity`）、**`trade_review`**（`trade_id`、`tags_added_json` / `tags_dropped_json`）。Trade 不是规则，所以
+  不带 `strategy_` 前缀（决策包 D1-A / D6）；`strategy_*` 只放规则链（template / structure / opportunity / allocation / plan）。
+  `allocation` 只指资金规则（`strategy_allocation`）；一笔成交按数量分给几个 Trade 叫 **fill split**（`split_quantity`、
+  视图 `brokerage.trade_fill_splits`，D7-A）。旧名 `strategy_instance` / `strategy_instance_execution` /
+  `brokerage.instance_allocations` 在 R3 → R4 之间只作为兼容视图存在一版：不得在旧名下新建对象或写新代码。
 - **Plugin job queues** (Golden Source): `ops_jobs.job_ingest` (Market Data Plugin); Trade `public.job_*` Celery tables retired (0.10.6).
 - **User-preference tables**: use prefix **`preference_`** (e.g. `preference_market_streams_symbol_order` for Market Streams symbol order per category).
 - Other per-env tables keep existing names (`settings`, `watchlist`, `trade_review`). Daemon IPC (heartbeat / run_status / control) is **not** in PostgreSQL — it is per-env Redis (`bifrost_core.persistence.redis_daemon_state`, core 0.8.0); do not recreate `daemon_*` / `status_*` tables.
@@ -61,8 +70,14 @@ When adding or changing **PostgreSQL** tables in any `bifrost-trade-*` repo, fol
 - 通用 `id` 主键的多行表：`open_orders.id`（旧 `daemon_open_orders`）、`settings_flex.id`（旧 `settings_ib_flex`）
 - 沿用旧表名的键：`transactions.account_transactions_id`；视图 `executions*` 的 `account_executions_id`（per-env 桥表也按它关联）；
   `executions_raw_*.legacy_account_executions_id`（拆表前 `account_executions` 的 id，现写 NULL、无读者）
-- 指向 per-env 表却无 FK 的 `executions_raw_*.strategy_opportunity_id` / `strategy_instance_id`（跨库，三环境共用同一行）
+- 指向 per-env 表却无 FK 的 `executions_raw_*.strategy_opportunity_id` / `strategy_instance_id`（跨库，三环境共用同一行；
+  per-env 的表现名 `strategy_opportunity` / `trade`。TD-09 起冻结，不读不写，删除另议 D10′）
 - IB 字段名：`commissions.yield_` / `yield_redemption_date`（IB `CommissionReport`，`yield` 是 Python 关键字）
+
+**per-env 环境视图不是 vendor 形状**（naming R3，core 0.45.0）：`brokerage.executions` / `executions_final` /
+`executions_fly` / `executions_tws` 把 IB 的 `trade_id` / `related_trade_id` 改叫 **`ib_trade_id` / `ib_related_trade_id`**，
+`trade_id` 专指本环境的 Trade（TD-13：一个名字只有一个意思），`strategy_instance_id`（= `trade_id`）兼容列只留一版（R4 删）。
+Golden Source 的 `raw_broker.executions*` 视图与原表保持 vendor 名。列对照见 `BROKERAGE_GOLDEN_SOURCE.md`。
 
 **旧名对照**（迁移前 per-env `public` 名 → `raw_broker` / `brokerage` 名）：
 
