@@ -2,7 +2,7 @@
 id: 2026-10-04-td49-revoke-analytics-from-trade-api
 envs: dev stg prod
 when: after
-done:
+done: dev stg prod
 ---
 # TD-49 D4 / TD-77 E5, last part: take analytics_writer away from trade-api
 
