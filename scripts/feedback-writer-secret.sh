@@ -25,7 +25,7 @@ PG=(kubectl -n data exec -i bifrost-postgres-1 -c postgres --)
 SECRET=bifrost-feedback-secrets
 KEY=FEEDBACK_PG_PASSWORD
 
-usage() { sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+feedback_usage() { sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 
 # Prints the local value on stdout, for a pipe only. Exits 1 when it is absent.
 local_value() {
@@ -49,7 +49,7 @@ envs_or_all() { if [[ $# -gt 0 ]]; then echo "$@"; else echo dev stg prod; fi; }
 check_env_name() { case "$1" in dev | stg | prod) ;; *) echo "unknown env: $1" >&2; exit 2 ;; esac; }
 
 cmd="${1:-}"
-[[ -n "$cmd" ]] || usage
+[[ -n "$cmd" ]] || feedback_usage
 shift
 
 case "$cmd" in
@@ -89,7 +89,7 @@ print(f"ALTER ROLE feedback_writer PASSWORD $v$SCRAM-SHA-256${it}:{b(salt)}${b(h
   ;;
 
 secret)
-  [[ $# -gt 0 ]] || usage
+  [[ $# -gt 0 ]] || feedback_usage
   for env in "$@"; do check_env_name "$env"; done
   local_value >/dev/null
   for env in "$@"; do
@@ -130,6 +130,6 @@ print("no key" if raw is None else "equal to local" if base64.b64decode(raw).dec
   ;;
 
 *)
-  usage
+  feedback_usage
   ;;
 esac
