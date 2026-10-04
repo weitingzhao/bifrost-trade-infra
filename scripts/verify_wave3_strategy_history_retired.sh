@@ -3,8 +3,8 @@
 #
 # Checks (per env: dev, stg, prod):
 #   1. to_regclass('public.strategy_history') IS NULL
-#   2. GET /api/strategy/strategies/history returns 404 (or 405)
-#      (nginx strips /api/strategy/ → backend /strategies/history)
+#   2. GET /api/account/strategies/history returns 404 (or 405)
+#      (Traefik strips /api/account/ → api-account /strategies/history; TD-55 B1)
 #
 # Usage: ./scripts/verify_wave3_strategy_history_retired.sh [dev|stg|prod|all]
 #
@@ -61,8 +61,8 @@ for ENV in $ENVS; do
 
   if [[ -n "$URL" ]]; then
     CODE="$(/usr/bin/curl -sS -o /tmp/wave3_hist_body -w '%{http_code}' --max-time 6 \
-      "${URL}/api/strategy/strategies/history" 2>/dev/null || echo "000")"
-    echo "[$ENV] GET /api/strategy/strategies/history → HTTP $CODE"
+      "${URL}/api/account/strategies/history" 2>/dev/null || echo "000")"
+    echo "[$ENV] GET /api/account/strategies/history → HTTP $CODE"
     if [[ "$CODE" == "404" || "$CODE" == "405" ]]; then
       echo "[$ENV] API history retired OK"
     elif [[ "$CODE" == "200" ]]; then

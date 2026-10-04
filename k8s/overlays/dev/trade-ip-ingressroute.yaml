@@ -83,6 +83,20 @@ spec:
           port: 8769
           responseForwarding:
             flushInterval: 1ms
+    # /api/account is api-account's own prefix (TD-55 B1, Owner 2026-10-04 option B).
+    # /api/trading, /api/strategy and /api/portfolio above are aliases of the same process;
+    # they keep answering until B2 removes them after 7 days of zero traffic.
+    - match: PathPrefix(`/api/account`)
+      kind: Rule
+      priority: 100
+      middlewares:
+        - name: strip-api-account
+        - name: sse-streaming
+      services:
+        - name: api-account
+          port: 8769
+          responseForwarding:
+            flushInterval: 1ms
     - match: PathPrefix(`/api/market`)
       kind: Rule
       priority: 100

@@ -1,6 +1,48 @@
 # TD-55 — one gateway prefix per process (migration plan)
 
-Status: proposal for the Owner, 2026-10-03. Nothing here is applied.
+Status: **Owner approved option B on 2026-10-04** (`/stocks/REQUEST-td55-gateway-prefix-plan-2026-10-04.md`,
+"Owner 批复"): one prefix per process, add first, retire later. Phases A–B below are **B1** (implemented,
+lane AB, not yet released); C–D are **B2** (after 7 days of zero traffic on the old prefixes; removal is a
+separate Owner nod). Phase E is not planned.
+
+### B1 as built
+
+| Prefix | Process (Service) | Role |
+|---|---|---|
+| `/api/monitor` | api-monitor (`api-monitor`) | process prefix; ops at `/api/monitor/ops/*`, docs at `/api/monitor/research/docs/*` |
+| `/api/account` | api-account (`api-account`) | **new** process prefix (`strip-api-account`) |
+| `/api/market` | api-market (`api-market`) | process prefix |
+| `/api/research` | api-research (`api-research`) | process prefix |
+| `/api/docs`, `/api/ops` | api-monitor (`api-docs`, `api-ops`) | alias until B2 |
+| `/api/trading`, `/api/strategy`, `/api/portfolio` | api-account (`api-trading`, `api-strategy`, `api-portfolio`) | alias until B2 |
+
+- `make check-trade-gateway-routes` (`scripts/check_trade_gateway_routes.py`) renders the three overlays and
+  checks every prefix above in both IngressRoutes and on every Host: route → Service:port, strip of exactly
+  that prefix, Service selector → process. On `main` before B1 it reports the 8 missing `/api/account` routes.
+- Callers moved: frontend (`devApiUrl`, `tradeFetch`, health board), platform (matrix, release smoke,
+  Tier B, Satellite, data probe, probe bridge, Trade MCP, registry), Research (the `api-account` Service),
+  release checks (`scripts/release/probes.json`, snapshot reads). Nothing removed.
+- **Order:** infra first (an env without the `/api/account` route answers it with the SPA), then frontend,
+  platform and Research.
+
+### B2 measurement (Traefik per-route counts)
+
+Traefik exposes no per-router metric here; `traefik_service_requests_total` is per route service, named
+`<namespace>-<ingressroute>-<sha256(match)[:20]>@kubernetescrd`. `python3 scripts/check_trade_gateway_routes.py
+--promql 7d` renders the overlays, hashes every alias route's `match` and prints the query (and one
+`# service  env gateway host prefix` line per route to read the result). Run it through the apiserver proxy:
+
+```bash
+export KUBECONFIG=~/.kube/bifrost-k3s.yaml
+q="$(python3 scripts/check_trade_gateway_routes.py --promql 7d | tail -1)"
+kubectl get --raw "/api/v1/namespaces/monitoring/services/kube-prometheus-stack-prometheus:9090/proxy/api/v1/query?query=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$q")"
+```
+
+An empty result = zero requests on every alias route for 7 days. The query adds `(X unless X offset 7d)` to
+`increase(X[7d])` because a series only appears on its first request and `increase()` never counts the sample
+that creates it. Prometheus keeps 10 days. Traefik metrics do not see in-cluster callers that use the alias
+**Services** by name (Research did, until 0.162.0): before deleting the Services, also run
+`kubectl get deploy,sts,cronjob,job -A -o yaml | grep -nE 'api-(trading|strategy|portfolio|ops|docs)\.'` (expect no lines).
 
 ## Why
 

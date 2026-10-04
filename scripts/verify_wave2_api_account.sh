@@ -8,7 +8,7 @@
 #      and strategy_template.characteristics_json exist; strategy_structure.meta_json
 #      exists; the 3 old KV tables no longer exist.
 #   3. public.ops_audit_log absent (Wave 6 retired → platform-api audit).
-#   4. api-account serves /api/strategy/strategies/templates/{id} with
+#   4. api-account serves /api/account/strategies/templates/{id} with
 #      meta_params + characteristics hydrated from jsonb (Wave 2 contract).
 #
 # Fails loudly (exit 1) on any regression; keeps going through all envs.
@@ -103,7 +103,7 @@ SELECT json_build_object(
 
   # (3) params round-trip — template detail must expose meta_params from params_json
   if [[ -n "$URL" ]]; then
-    SAMPLE="$(/usr/bin/curl -sS --max-time 6 "${URL}/api/strategy/strategies/templates/1" 2>/dev/null \
+    SAMPLE="$(/usr/bin/curl -sS --max-time 6 "${URL}/api/account/strategies/templates/1" 2>/dev/null \
       | /usr/bin/python3 -c 'import json,sys
 try:
   row=json.load(sys.stdin)
@@ -122,7 +122,7 @@ print(json.dumps({
 ' 2>/dev/null || true)"
     echo "[$ENV] api contract: ${SAMPLE:-<no response>}"
     if [[ -z "$SAMPLE" || "$SAMPLE" == ERR:* ]]; then
-      echo "[$ENV] WARN: api-account not answering /api/strategy/strategies/templates/1 (check ingress)"
+      echo "[$ENV] WARN: api-account not answering /api/account/strategies/templates/1 (check ingress)"
     elif [[ "$SAMPLE" != *'"has_meta_params": true'* ]]; then
       echo "[$ENV] FAIL: /templates/1 missing non-empty meta_params (params_json hydration)"
       FAIL=1

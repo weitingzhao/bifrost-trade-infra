@@ -106,8 +106,8 @@ Ops Console：**Delivery → bifrost-deliver-stg → Run**（Platform API 创建
   传给 `bifrost-kaniko-all-apis-stg` 与 `bifrost-kaniko-worker-stg`，Kaniko 以 build-arg `BIFROST_CORE_SHA` /
   `BIFROST_CORE_VERSION`（读克隆里的 `pyproject.toml`）写进镜像：env `BIFROST_CORE_SHA`、label `io.bifrost.core.sha` /
   `io.bifrost.core.version`。不传 `coreSha` 的旧 run 得到 `unknown`。
-- 核对：`curl -s http://192.168.10.73:30880/api/monitor/health`（PROD `:30881`；account 域走 `/api/trading/health`，
-  market / research 走 `/api/<domain>/health`）看 `core_sha` / `core_version`。
+- 核对：`curl -s http://192.168.10.73:30880/api/monitor/health`（PROD `:30881`；account 进程走 `/api/account/health`（TD-55 B1 起；
+  之前是别名 `/api/trading/health`），market / research 走 `/api/<domain>/health`）看 `core_sha` / `core_version`。
 - PROD 的钉版本内联 run（`bifrost-deliver-prod-pinned-*`）复制的是 `pipeline/bifrost-deliver-prod` 的 spec：本改动上线后，
   要从新的 pipeline spec 重新生成 JSON，旧 JSON 构建出的镜像 `core_sha` 是 `unknown`。
 - PROD 发布成功后打 tag：`scripts/release/tag_core_release.sh <core_sha>` 先 dry-run，确认后加 `--push`。

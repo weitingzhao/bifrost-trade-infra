@@ -21,9 +21,15 @@ GATEWAYS = {
     "prod": "http://192.168.10.73:30881",
     "dev": "http://192.168.10.73:30882",
 }
-# The domains whose /health reports core_version / core_sha (account is served by trading;
-# /api/account/health returns the frontend's HTML, not the api).
-CORE_HEALTH_DOMAINS = ("monitor", "trading", "market", "research")
+# One gateway prefix per process (TD-55 option B): the domains whose /health reports
+# core_version / core_sha. api-account answers at /api/account from B1 on; before B1 is
+# applied that path is the frontend's HTML, so account_prefix() falls back to the
+# /api/trading alias. The checks read the account process through /api/account so that the
+# old prefixes see no release-check traffic during the B2 zero-traffic window.
+CORE_HEALTH_DOMAINS = ("monitor", "account", "market", "research")
+ACCOUNT_PREFIX = "/api/account"
+ACCOUNT_LEGACY_PREFIX = "/api/trading"
+_account_prefix_cache: Dict[str, str] = {}
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 USER_AGENT = "bifrost-release-check/1"
 MISSING = object()
@@ -67,6 +73,26 @@ def get_json(url: str) -> Any:
     return json.loads(body)
 
 
+def account_prefix(base: str) -> str:
+    """/api/account when the gateway routes it to api-account, else the pre-B1 /api/trading alias."""
+    if base not in _account_prefix_cache:
+        prefix = ACCOUNT_LEGACY_PREFIX
+        try:
+            status, _, body = http_get(base + ACCOUNT_PREFIX + "/health", tries=2, timeout=60)
+            if status == 200 and (json.loads(body) or {}).get("service") == "bifrost-account":
+                prefix = ACCOUNT_PREFIX
+        except (ValueError, RuntimeError, AttributeError):
+            pass
+        if prefix != ACCOUNT_PREFIX:
+            print(f"note: {base}{ACCOUNT_PREFIX} is not routed yet (pre TD-55 B1); using {prefix}", file=sys.stderr)
+        _account_prefix_cache[base] = prefix
+    return _account_prefix_cache[base]
+
+
+def domain_prefix(base: str, domain: str) -> str:
+    return account_prefix(base) if domain == "account" else f"/api/{domain}"
+
+
 def discover_accounts(base: str, executions: List[Dict[str, Any]]) -> List[str]:
     found = {str(r["account_id"]) for r in executions if r.get("account_id")}
     try:
@@ -82,7 +108,8 @@ def discover_accounts(base: str, executions: List[Dict[str, Any]]) -> List[str]:
 def cmd_snapshot(args: argparse.Namespace) -> int:
     base = gateway(args.env)
     rows: List[Dict[str, Any]] = []
-    url = base + "/api/trading/executions?limit=0"
+    acct = account_prefix(base)
+    url = base + acct + "/executions?limit=0"
     body = get_json(url)
     rows.extend(body.get("items", body.get("executions", [])))
     while body.get("next_cursor"):
@@ -100,15 +127,15 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
         for r in rows
     }
     accounts = args.accounts.split(",") if args.accounts else discover_accounts(base, rows)
-    perf = get_json(base + "/api/trading/performance")
+    perf = get_json(base + acct + "/performance")
     model = {
-        a: get_json(base + f"/api/portfolio/portfolio/model-analysis?account_id={urllib.request.quote(a)}")
+        a: get_json(base + acct + f"/portfolio/model-analysis?account_id={urllib.request.quote(a)}")
         for a in accounts
     }
     health = {}
     for d in CORE_HEALTH_DOMAINS:
         try:
-            h = get_json(f"{base}/api/{d}/health")
+            h = get_json(f"{base}{domain_prefix(base, d)}/health")
             health[d] = {"core_sha": h.get("core_sha"), "core_version": h.get("core_version")}
         except Exception as e:  # recorded, not fatal: the snapshot is about the data
             health[d] = {"error": str(e)}
@@ -329,7 +356,7 @@ def cmd_health(args: argparse.Namespace) -> int:
     failures = 0
     for d in CORE_HEALTH_DOMAINS:
         try:
-            h = get_json(f"{base}/api/{d}/health")
+            h = get_json(f"{base}{domain_prefix(base, d)}/health")
         except Exception as e:
             print(f"  !! {d:<9} {e}")
             failures += 1

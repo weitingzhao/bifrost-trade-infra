@@ -94,6 +94,7 @@ spec:
       targetPort: http
 ---
 # Phase B: docs absorbed into api-monitor (IngressRoute /api/docs → monitor)
+# TD-55 alias: retires in B2 (after 7 days of zero traffic); docs answer at /api/monitor/research/docs/*.
 apiVersion: v1
 kind: Service
 metadata:
@@ -111,6 +112,7 @@ spec:
       targetPort: http
 ---
 # Phase B Wave B4: ops absorbed into api-monitor (IngressRoute /api/ops → monitor)
+# TD-55 alias: retires in B2 (after 7 days of zero traffic); ops answer at /api/monitor/ops/*.
 apiVersion: v1
 kind: Service
 metadata:
@@ -201,6 +203,7 @@ spec:
               cpu: "1"
               memory: 512Mi
 ---
+# api-account's own Service; gateway prefix /api/account (TD-55 B1). In-cluster callers use this name.
 apiVersion: v1
 kind: Service
 metadata:
@@ -218,6 +221,7 @@ spec:
       targetPort: http
 ---
 # Compatibility alias: IngressRoute /api/trading → account pod
+# TD-55 alias: retires in B2, after Research stops naming it and 7 days of zero gateway traffic.
 apiVersion: v1
 kind: Service
 metadata:
@@ -235,6 +239,7 @@ spec:
       targetPort: http
 ---
 # Phase B: strategy absorbed into api-account (IngressRoute /api/strategy → account)
+# TD-55 alias: retires in B2, after Research stops naming it and 7 days of zero gateway traffic.
 apiVersion: v1
 kind: Service
 metadata:
@@ -252,6 +257,7 @@ spec:
       targetPort: http
 ---
 # Compatibility alias: IngressRoute /api/portfolio → account pod (port unified to 8769)
+# TD-55 alias: retires in B2 (after 7 days of zero traffic).
 apiVersion: v1
 kind: Service
 metadata:

@@ -8,13 +8,13 @@
 #   release-check.sh diff <before.json> <after.json> [--allow F]...
 #
 # env is dev, stg or prod. `before` snapshots fills (contract_key, side, quantity per
-# account_executions_id), /api/trading/performance and model-analysis for every account
+# account_executions_id), /api/account/performance and model-analysis for every account
 # the API names, plus the core each /health reports, into <dir>/<env>-before.json.
 # `after` takes the same snapshot and
 #   - diffs it: "identical", "only added keys" or "changed values" per section; changed,
 #     removed and length differences fail unless an --allow file lists them (glob per line,
 #     `[*]` = a list row; see expected.d/). Added keys and new fills never fail.
-#   - checks /health on monitor/trading/market/research: core_sha = the clone-core commit of
+#   - checks /health on monitor/account/market/research: core_sha = the clone-core commit of
 #     --run (or --expect-core-sha) and core_version = that commit's pyproject version
 #     (read from BIFROST_CORE_REPO, default ../bifrost-trade-core; not cross-checked when the
 #     commit is not there).

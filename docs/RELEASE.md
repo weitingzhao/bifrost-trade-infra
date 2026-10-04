@@ -60,8 +60,9 @@ scripts/release/release-check.sh dev after --expect-core-sha <sha> --no-diff
 scripts/release/release-check.sh diff old.json new.json --allow <file>
 ```
 
-- **快照**：`GET /api/trading/executions?limit=0`（每个 `account_executions_id` 的 contract_key / side / quantity）、
-  `/api/trading/performance`、每个账户的 `/api/portfolio/portfolio/model-analysis?account_id=`。账户从 API 取
+- **快照**：`GET /api/account/executions?limit=0`（每个 `account_executions_id` 的 contract_key / side / quantity）、
+  `/api/account/performance`、每个账户的 `/api/account/portfolio/model-analysis?account_id=`（TD-55：一个进程一个前缀；
+  网关还没有 `/api/account` 路由时自动退回别名 `/api/trading` 并在 stderr 说明，B2 删别名时一并删掉退回）。账户从 API 取
   （executions 的 account_id ∪ `/api/monitor/status` 的 portfolio.accounts），repo 里不写账户号。
   快照含账户内容：只放在本机 /tmp，**不进任何 repo**。
 - **diff**：每段给出 `identical` / `only added keys` / `changed values`。列表按行的标识字段（最具体的 `*_id`，否则
