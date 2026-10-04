@@ -422,23 +422,6 @@ spec:
                 secretKeyRef:
                   name: bifrost-feedback-secrets
                   key: FEEDBACK_PG_PASSWORD
-            # api <= 0.7.3 only (analytics_reader.get_conn, role analytics_writer).
-            # Removed with Secret bifrost-analytics-secrets in the Trade namespaces
-            # once every env runs api >= 0.7.5: db-step 2026-10-04-td49-revoke-analytics-from-trade-api.
-            - name: ANALYTICS_PG_HOST
-              value: bifrost-postgres-rw.data.svc.cluster.local
-            - name: ANALYTICS_PG_PORT
-              value: "5432"
-            - name: ANALYTICS_PG_USER
-              value: analytics_writer
-            - name: ANALYTICS_PG_DATABASE
-              value: bifrost_golden_source
-            - name: ANALYTICS_PG_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: bifrost-analytics-secrets
-                  key: ANALYTICS_PG_PASSWORD
-                  optional: true
             - name: MARKET_DATA_WRITE_TOKEN
               valueFrom:
                 secretKeyRef:
