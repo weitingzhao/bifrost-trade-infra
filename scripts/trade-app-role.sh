@@ -32,10 +32,10 @@ export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/bifrost-k3s.yaml}"
 # db-init Job is not here: it reads bifrost-<env>-db-owner and runs with the next deliver.
 TRADE_DEPLOYS=(api-account api-market api-monitor api-research daemon)
 
-usage() { sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
-die() { echo "ERROR: $*" >&2; exit 1; }
+show_help() { sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+abort() { echo "ERROR: $*" >&2; exit 1; }
 
-check_env_name() { case "${1:-}" in dev | stg | prod) ;; *) die "unknown env: '${1:-}' (dev, stg or prod)" ;; esac; }
+check_env_name() { case "${1:-}" in dev | stg | prod) ;; *) abort "unknown env: '${1:-}' (dev, stg or prod)" ;; esac; }
 upper() { tr '[:lower:]' '[:upper:]' <<<"$1"; }
 key_for() { echo "TRADE_APP_$(upper "$1")_PG_PASSWORD"; }
 
@@ -198,7 +198,7 @@ json.dump({"apiVersion": "v1", "kind": "Secret", "type": "Opaque", "metadata": m
 PY
 
 cmd="${1:-}"
-[[ -n "$cmd" ]] || usage
+[[ -n "$cmd" ]] || show_help
 shift
 
 case "$cmd" in
@@ -226,12 +226,12 @@ PY
   ;;
 
 password)
-  [[ $# -gt 0 ]] || usage
+  [[ $# -gt 0 ]] || show_help
   for env in "$@"; do check_env_name "$env"; done
   for env in "$@"; do
     role="trade_app_$env"
     state="$(role_state "$role")"
-    [[ "$state" != missing ]] || die "$role does not exist: run the db-step 2026-10-04-td85-trade-app-roles first"
+    [[ "$state" != missing ]] || abort "$role does not exist: run the db-step 2026-10-04-td85-trade-app-roles first"
     local_value "$(key_for "$env")" >/dev/null
     # SCRAM-SHA-256 verifier (RFC 5802 / 7677, what psql's \password sends). token_urlsafe values
     # are ASCII, so SASLprep is the identity.
@@ -252,7 +252,7 @@ print(f"ALTER ROLE {role} PASSWORD $v$SCRAM-SHA-256${it}:{b(salt)}${b(hashlib.sh
   ;;
 
 owner-secret)
-  [[ $# -gt 0 ]] || usage
+  [[ $# -gt 0 ]] || show_help
   for env in "$@"; do check_env_name "$env"; done
   for env in "$@"; do
     ns="bifrost-$env"
@@ -267,7 +267,7 @@ d = (json.loads(raw).get("data") or {}) if raw.strip() else {}
 user = base64.b64decode(d.get("PGUSER", "")).decode() or "bifrost"
 print("ok" if d.get("PGPASSWORD") and user == "bifrost" else "refuse:" + ("no PGPASSWORD" if not d.get("PGPASSWORD") else "PGUSER is " + user))
 ')"
-    [[ "$src" == ok ]] || die "$ns/bifrost-$env-secrets cannot seed the owner Secret (${src#refuse:}); create bifrost-$env-db-owner by hand from the bifrost password"
+    [[ "$src" == ok ]] || abort "$ns/bifrost-$env-secrets cannot seed the owner Secret (${src#refuse:}); create bifrost-$env-db-owner by hand from the bifrost password"
     # Built from the live Secret in one pipe: the values go from kubectl to kubectl, and into the
     # gitignored local copy, never to the terminal.
     secret_json "$ns" "bifrost-$env-secrets" | python3 -c "$OWNER_SECRET_PY" "$env" "$ROOT/k8s/base/secrets/bifrost-$env-db-owner.yaml" |
@@ -283,13 +283,13 @@ switch)
   ns="bifrost-$env"
   role="trade_app_$env"
   if [[ "$env" == prod && "${2:-}" != --during-market-hours ]] && us_market_open; then
-    die "US regular session is open; switch PROD after the close (or pass --during-market-hours)"
+    abort "US regular session is open; switch PROD after the close (or pass --during-market-hours)"
   fi
-  [[ "$(role_state "$role")" == "present, password set" ]] || die "$role: $(role_state "$role"); run the db-step, then: $0 password $env"
+  [[ "$(role_state "$role")" == "present, password set" ]] || abort "$role: $(role_state "$role"); run the db-step, then: $0 password $env"
   local_value "$(key_for "$env")" >/dev/null
-  local_value "$(key_for "$env")" | signs_in "$role" "bifrost_$env" || die "the local $(key_for "$env") does not sign in as $role to bifrost_$env"
-  local_value "$(key_for "$env")" | signs_in "$role" bifrost_golden_source || die "the local $(key_for "$env") does not sign in as $role to bifrost_golden_source"
-  owner_secret_ok "$env" || die "$ns/bifrost-$env-db-owner is missing, incomplete or does not sign in as bifrost: $0 owner-secret $env (rollback needs it)"
+  local_value "$(key_for "$env")" | signs_in "$role" "bifrost_$env" || abort "the local $(key_for "$env") does not sign in as $role to bifrost_$env"
+  local_value "$(key_for "$env")" | signs_in "$role" bifrost_golden_source || abort "the local $(key_for "$env") does not sign in as $role to bifrost_golden_source"
+  owner_secret_ok "$env" || abort "$ns/bifrost-$env-db-owner is missing, incomplete or does not sign in as bifrost: $0 owner-secret $env (rollback needs it)"
   # db-init must keep signing in as bifrost: the manifest in this checkout has the override, and a
   # db-init Job still running from the old template would sign in as trade_app_<env> and fail.
   case "$env" in
@@ -298,7 +298,7 @@ switch)
     prod) job_manifest="$ROOT/k8s/overlays/prod/db-init-prod.job.yaml" ;;
   esac
   grep -q "bifrost-$env-db-owner" "$job_manifest" ||
-    die "$job_manifest has no bifrost-$env-db-owner override: merge the TD-85 infra change first"
+    abort "$job_manifest has no bifrost-$env-db-owner override: merge the TD-85 infra change first"
   if kubectl -n "$ns" get job "db-init-$env" >/dev/null 2>&1; then
     job_state="$(kubectl -n "$ns" get job "db-init-$env" -o json | python3 -c '
 import json, sys
@@ -308,7 +308,7 @@ active = (j.get("status") or {}).get("active", 0)
 print("ok" if has else ("running-old" if active else "finished-old"))
 ' "bifrost-$env-db-owner")"
     [[ "$job_state" != running-old ]] ||
-      die "a db-init-$env Job from the old template is running in $ns; wait for it to finish"
+      abort "a db-init-$env Job from the old template is running in $ns; wait for it to finish"
     [[ "$job_state" != finished-old ]] ||
       echo "note: the finished db-init-$env Job in $ns is from the old template; the next one (after its TTL) comes from git with the override"
   fi
@@ -321,7 +321,7 @@ rollback)
   env="${1:-}"
   check_env_name "$env"
   ns="bifrost-$env"
-  owner_secret_ok "$env" || die "$ns/bifrost-$env-db-owner is missing or does not sign in as bifrost; nothing changed"
+  owner_secret_ok "$env" || abort "$ns/bifrost-$env-db-owner is missing or does not sign in as bifrost; nothing changed"
   secret_field "$ns" "bifrost-$env-db-owner" PGPASSWORD | set_runtime_login "$env" bifrost
   restart_trade "$ns"
   echo "done. Now: $0 check $env"
@@ -365,6 +365,6 @@ else:
   ;;
 
 *)
-  usage
+  show_help
   ;;
 esac
