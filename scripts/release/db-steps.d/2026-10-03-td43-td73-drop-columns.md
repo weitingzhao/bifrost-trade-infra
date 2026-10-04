@@ -2,7 +2,7 @@
 id: 2026-10-03-td43-td73-drop-columns
 envs: dev stg prod
 when: after
-done:
+done: dev stg prod
 ---
 # TD-43 / TD-73: drop `strategy_plan.filled_at`, `strategy_instance.notes`, `trade_review.note` (core 0.43.0)
 
