@@ -144,8 +144,16 @@ def alias_route_services() -> list[tuple[str, str, str, str]]:
 
 
 def promql(window: str) -> str:
-    names = sorted({n for n, *_ in alias_route_services()})
-    sel = 'traefik_service_requests_total{service=~"' + "|".join(names) + '"}'
+    # One regex over namespace x gateway x hash. It matches exactly the alias routes: a hash is
+    # sha256 of the full match, which carries the Host on the hostname gateway, so a hash from
+    # one gateway or env never names a route of another.
+    services = alias_route_services()
+    hashes = sorted({n.rsplit("-", 1)[1].split("@")[0] for n, *_ in services})
+    sel = (
+        'traefik_service_requests_total{service=~"bifrost-(dev|stg|prod)-trade-gateway(-ip)?-('
+        + "|".join(hashes)
+        + ')@kubernetescrd"}'
+    )
     return (
         f"sum by (service) (increase({sel}[{window}]) or ({sel} unless {sel} offset {window})) > 0"
     )
