@@ -2,7 +2,10 @@
 -- Expect (2026-10-04, all three envs): env_views_with_compat_column = 5 and instance_allocations_view = t --
 -- db-init does not rebuild the env views (its FDW step is skipped), the R4 step does; the 9 objects owned by
 -- bifrost; legacy_rows = 2 = legacy_rows_in_trade_execution; no other view depending on them; core_version
--- of the env = 0.47.0 (checked over HTTP, see the step file).
+-- of the env = 0.47.0 (checked over HTTP, see the step file). TD-85: role_exists = t, bifrost may use
+-- TEMP and CREATE in brokerage (the step creates a temp table and the views as bifrost), bifrost's
+-- default privileges in brokerage name trade_app_<env> (the step also grants explicitly), and
+-- trade_app_<env> reads the five env views today (runtime_select = t).
 SELECT current_database() AS db, now() AS read_at;
 
 SELECT o AS object, c.relkind, pg_get_userbyid(c.relowner) AS owner
@@ -42,3 +45,19 @@ SELECT (SELECT count(*) FROM public.trade) AS trade,
        (SELECT count(*) FROM public.trade_execution WHERE split_quantity IS NOT NULL) AS splits,
        (SELECT count(*) FROM brokerage.executions WHERE trade_id IS NOT NULL) AS view_attributed,
        (SELECT count(*) FROM brokerage.trade_fill_splits) AS view_splits;
+
+-- TD-85 (runtime role trade_app_<env>, derived from the database name; read-only).
+SELECT 'trade_app_' || substr(current_database(), 9) AS runtime_role,
+       to_regrole('trade_app_' || substr(current_database(), 9)) IS NOT NULL AS role_exists,
+       has_database_privilege('bifrost', current_database(), 'TEMP') AS bifrost_temp,
+       has_schema_privilege('bifrost', 'brokerage', 'CREATE') AS bifrost_create_brokerage;
+SELECT pg_get_userbyid(d.defaclrole) AS for_role, n.nspname AS in_schema, d.defaclobjtype AS objtype, d.defaclacl
+FROM pg_default_acl d JOIN pg_namespace n ON n.oid = d.defaclnamespace
+WHERE n.nspname = 'brokerage' ORDER BY 1, 3;
+SELECT v AS env_view,
+       CASE WHEN to_regrole('trade_app_' || substr(current_database(), 9)) IS NULL THEN NULL
+            ELSE has_table_privilege('trade_app_' || substr(current_database(), 9), v, 'SELECT') END AS runtime_select
+FROM unnest(ARRAY['brokerage.executions', 'brokerage.executions_final', 'brokerage.executions_fly',
+                  'brokerage.executions_tws', 'brokerage.trade_fill_splits']) v
+WHERE to_regclass(v) IS NOT NULL
+ORDER BY 1;

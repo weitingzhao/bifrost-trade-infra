@@ -195,6 +195,12 @@ CREATE OR REPLACE VIEW brokerage.trade_fill_splits AS
         ) x ON x.account_id = s.account_id AND x.exec_id = s.exec_id
         WHERE s.split_quantity IS NOT NULL;
 
+DO $r4$ BEGIN
+  IF to_regrole('trade_app_stg') IS NOT NULL THEN
+    GRANT SELECT ON brokerage.executions, brokerage.executions_final, brokerage.executions_fly, brokerage.executions_tws, brokerage.trade_fill_splits TO trade_app_stg;
+  END IF;
+END $r4$;
+
 DROP TABLE IF EXISTS public.account_execution_instance_allocation;
 
 SELECT what, before, after, before = after AS same FROM (
@@ -207,6 +213,8 @@ UNION ALL SELECT 'view_splits' AS what, b.view_splits AS before, (SELECT count(*
 
 SELECT o AS dropped, to_regclass(o) IS NULL AS gone FROM unnest(ARRAY['public.strategy_instance_execution', 'public.strategy_instance', 'brokerage.instance_allocations', 'public.account_execution_instance_allocation']) o;
 
+SELECT v AS env_view, CASE WHEN to_regrole('trade_app_stg') IS NULL THEN NULL ELSE has_table_privilege('trade_app_stg', v, 'SELECT') END AS trade_app_stg_select FROM unnest(ARRAY['brokerage.executions', 'brokerage.executions_final', 'brokerage.executions_fly', 'brokerage.executions_tws', 'brokerage.trade_fill_splits']) v;
+
 DO $r4$ BEGIN
   IF EXISTS (SELECT 1 FROM r4_before b WHERE b.trade <> (SELECT count(*) FROM public.trade)
   OR b.trade_execution <> (SELECT count(*) FROM public.trade_execution)
@@ -217,6 +225,11 @@ DO $r4$ BEGIN
   END IF;
   IF to_regclass('public.strategy_instance_execution') IS NOT NULL OR to_regclass('public.strategy_instance') IS NOT NULL OR to_regclass('brokerage.instance_allocations') IS NOT NULL OR to_regclass('public.account_execution_instance_allocation') IS NOT NULL OR EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'brokerage' AND table_name IN ('executions', 'executions_final', 'executions_fly', 'executions_tws', 'trade_fill_splits') AND column_name = 'strategy_instance_id') THEN
     RAISE EXCEPTION 'R4: an object is still there (see the report above); nothing is kept';
+  END IF;
+  IF to_regrole('trade_app_stg') IS NOT NULL THEN  -- nested: AND does not short-circuit in SQL
+    IF NOT (has_table_privilege('trade_app_stg', 'brokerage.executions', 'SELECT') AND has_table_privilege('trade_app_stg', 'brokerage.executions_final', 'SELECT') AND has_table_privilege('trade_app_stg', 'brokerage.executions_fly', 'SELECT') AND has_table_privilege('trade_app_stg', 'brokerage.executions_tws', 'SELECT') AND has_table_privilege('trade_app_stg', 'brokerage.trade_fill_splits', 'SELECT')) THEN
+      RAISE EXCEPTION 'R4: trade_app_stg cannot read a rebuilt env view (see the report above); nothing is kept';
+    END IF;
   END IF;
 END $r4$;
 

@@ -12,12 +12,19 @@ diverge (TD-74). Core has not read them since 0.39.0, and the TD-74 core commit 
 (`_ensure_tables` neither creates them on a fresh database nor adds them back; wave 13's NOT NULL step that
 named them is gone).
 
-**Gate: one week of Flex >= 0.7.0 on Golden Source, i.e. not before 2026-10-10** (Owner: "observe one week").
+**Gate: waived by the Owner (2026-10-04, batch j: "the system has one user" -- do it now).** The one-week
+observation of Flex >= 0.7.0 on Golden Source (originally "not before 2026-10-10") no longer applies; step 0
+below is kept as a read-only sanity check (Flex images >= 0.7.0 and the Golden Source row present), not a wait.
+The step id keeps its 2026-10-10 date so `release.sh db-done` records stay stable.
 Order: deliver the core that carries the TD-74 commit, then this step in each env (`when: after`). Rehearsed
 2026-10-04 in a throwaway postgres:17 built from a read-only `pg_dump --schema-only` of bifrost_dev: core
 0.45.0 (origin/main) and the TD-74 core both run `_ensure_tables` twice on the dropped schema without error
 and without adding the columns back, so the order is not load-bearing -- it is "after" so a fresh database
 built in between does not grow them again.
+
+Rehearsed again in batch j (2026-10-04, with the R4 drop in the same sitting; see `2026-10-08-r4-drop-compat.md`
+"Rehearsal 2"): commit, verify and rollback clean; core 0.46.0 and 0.47.0 read the settings row with the
+columns present and absent (the write path is covered by core's TD-74 db tests); 0.46.0 db-init after the drop does not add them back.
 
 Read 2026-10-04 (read-only):
 
@@ -40,10 +47,10 @@ so the Golden Source row must stay; the fallback can go in the next Flex release
 
 Steps per env (commands below, run from the `bifrost-trade-infra` checkout with `KUBECONFIG=~/.kube/bifrost-k3s.yaml`):
 
-0. Once, before the first env -- the gate (read-only):
+0. Once, before the first env -- sanity check (read-only; the week-long wait is waived):
    - Flex images: `kubectl -n plugin-flex-query get deploy -o 'custom-columns=NAME:.metadata.name,IMAGE:.spec.template.spec.containers[0].image'` -- both >= 0.7.0 (quoted: zsh reads `[0]` as a glob).
    - Golden Source row: `kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_golden_source -X -c "SET default_transaction_read_only=on;" -c "SELECT * FROM ops_jobs.flex_settings;"` -- one row, 30 / 270.
-   - A week of Flex jobs on it: `kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_golden_source -X -c "SET default_transaction_read_only=on;" -c "SELECT kind, status, count(*), max(finished_at) FROM ops_jobs.job_flex_ingest WHERE created_at >= '2026-10-05' GROUP BY 1, 2 ORDER BY 1, 2;" -c "SELECT pod, version, seen_at, jobs_done, jobs_failed, last_error_category FROM ops_jobs.flex_worker_heartbeat;"` -- jobs done on every US trading day since 10-05, none failed for a settings / range reason.
+   - A week of Flex jobs on it: `kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_golden_source -X -c "SET default_transaction_read_only=on;" -c "SELECT kind, status, count(*), max(finished_at) FROM ops_jobs.job_flex_ingest WHERE created_at >= '2026-10-05' GROUP BY 1, 2 ORDER BY 1, 2;" -c "SELECT pod, version, seen_at, jobs_done, jobs_failed, last_error_category FROM ops_jobs.flex_worker_heartbeat;"` -- informational now (the week is waived): no job failed for a settings / range reason.
 1. `dry-run` (read-only): both columns present, the values, 1 row, 0 dependents, 0 column grants.
 2. `export`: the row's values to `~/bifrost-backups/trade-settings/td74-settings-flex/<db>.csv` (outside any repo),
    then `shasum -a 256 *.csv > SHA256SUMS` in that folder. Must print `1,30,270` (or whatever the dry-run showed).
@@ -61,25 +68,25 @@ from an env that still has the columns into one that has dropped them fails on `
 one sitting, or do not clone between envs while they differ.
 
 ## dev
-gate:    not before 2026-10-10 (one week of Flex >= 0.7.0 on Golden Source), after step 0 of this file passed and the core carrying the TD-74 commit is delivered to dev
+gate:    waived by the Owner (2026-10-04); run after step 0's sanity check and once dev runs core 0.47.0 (it carries the TD-74 commit)
 dry-run: kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_dev -X -v ON_ERROR_STOP=1 -c "SET default_transaction_read_only=on;" -f - < scripts/release/db-steps.d/sql/2026-10-10-td74-precheck.sql
-export:  mkdir -p ~/bifrost-backups/trade-settings/td74-settings-flex && kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_dev -X -q -v ON_ERROR_STOP=1 -c "SET default_transaction_read_only=on;" -c "COPY (SELECT id, flex_default_range_days, flex_init_range_days FROM public.settings ORDER BY id) TO STDOUT WITH (FORMAT csv, HEADER)" > ~/bifrost-backups/trade-settings/td74-settings-flex/bifrost_dev.csv && cat ~/bifrost-backups/trade-settings/td74-settings-flex/bifrost_dev.csv
+export:  mkdir -p ~/bifrost-backups/trade-settings/td74-settings-flex && kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_dev -X -q -v ON_ERROR_STOP=1 -c "SET default_transaction_read_only=on;" -c "COPY (SELECT id, flex_default_range_days, flex_init_range_days FROM public.settings ORDER BY id) TO STDOUT WITH (FORMAT csv, HEADER)" < /dev/null > ~/bifrost-backups/trade-settings/td74-settings-flex/bifrost_dev.csv && cat ~/bifrost-backups/trade-settings/td74-settings-flex/bifrost_dev.csv
 commit:  kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_dev -X -v ON_ERROR_STOP=1 -f - < scripts/release/db-steps.d/sql/2026-10-10-td74-drop-settings-flex-columns.sql
 verify:  kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_dev -X -c "SET default_transaction_read_only=on;" -f - < scripts/release/db-steps.d/sql/2026-10-10-td74-verify.sql
 rollback (values from the export CSV): kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_dev -X -v ON_ERROR_STOP=1 -v default_days=30 -v init_days=270 -f - < scripts/release/db-steps.d/sql/2026-10-10-td74-rollback.sql
 
 ## stg
-gate:    not before 2026-10-10 (one week of Flex >= 0.7.0 on Golden Source), after step 0 of this file passed and the core carrying the TD-74 commit is delivered to stg
+gate:    waived by the Owner (2026-10-04); run after step 0's sanity check and once stg runs core 0.47.0 (it carries the TD-74 commit)
 dry-run: kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_stg -X -v ON_ERROR_STOP=1 -c "SET default_transaction_read_only=on;" -f - < scripts/release/db-steps.d/sql/2026-10-10-td74-precheck.sql
-export:  mkdir -p ~/bifrost-backups/trade-settings/td74-settings-flex && kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_stg -X -q -v ON_ERROR_STOP=1 -c "SET default_transaction_read_only=on;" -c "COPY (SELECT id, flex_default_range_days, flex_init_range_days FROM public.settings ORDER BY id) TO STDOUT WITH (FORMAT csv, HEADER)" > ~/bifrost-backups/trade-settings/td74-settings-flex/bifrost_stg.csv && cat ~/bifrost-backups/trade-settings/td74-settings-flex/bifrost_stg.csv
+export:  mkdir -p ~/bifrost-backups/trade-settings/td74-settings-flex && kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_stg -X -q -v ON_ERROR_STOP=1 -c "SET default_transaction_read_only=on;" -c "COPY (SELECT id, flex_default_range_days, flex_init_range_days FROM public.settings ORDER BY id) TO STDOUT WITH (FORMAT csv, HEADER)" < /dev/null > ~/bifrost-backups/trade-settings/td74-settings-flex/bifrost_stg.csv && cat ~/bifrost-backups/trade-settings/td74-settings-flex/bifrost_stg.csv
 commit:  kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_stg -X -v ON_ERROR_STOP=1 -f - < scripts/release/db-steps.d/sql/2026-10-10-td74-drop-settings-flex-columns.sql
 verify:  kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_stg -X -c "SET default_transaction_read_only=on;" -f - < scripts/release/db-steps.d/sql/2026-10-10-td74-verify.sql
 rollback (values from the export CSV): kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_stg -X -v ON_ERROR_STOP=1 -v default_days=30 -v init_days=270 -f - < scripts/release/db-steps.d/sql/2026-10-10-td74-rollback.sql
 
 ## prod
-gate:    not before 2026-10-10 (one week of Flex >= 0.7.0 on Golden Source), after step 0 of this file passed and the core carrying the TD-74 commit is delivered to prod
+gate:    waived by the Owner (2026-10-04); run after step 0's sanity check and once prod runs core 0.47.0 (it carries the TD-74 commit)
 dry-run: kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_prod -X -v ON_ERROR_STOP=1 -c "SET default_transaction_read_only=on;" -f - < scripts/release/db-steps.d/sql/2026-10-10-td74-precheck.sql
-export:  mkdir -p ~/bifrost-backups/trade-settings/td74-settings-flex && kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_prod -X -q -v ON_ERROR_STOP=1 -c "SET default_transaction_read_only=on;" -c "COPY (SELECT id, flex_default_range_days, flex_init_range_days FROM public.settings ORDER BY id) TO STDOUT WITH (FORMAT csv, HEADER)" > ~/bifrost-backups/trade-settings/td74-settings-flex/bifrost_prod.csv && cat ~/bifrost-backups/trade-settings/td74-settings-flex/bifrost_prod.csv
+export:  mkdir -p ~/bifrost-backups/trade-settings/td74-settings-flex && kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_prod -X -q -v ON_ERROR_STOP=1 -c "SET default_transaction_read_only=on;" -c "COPY (SELECT id, flex_default_range_days, flex_init_range_days FROM public.settings ORDER BY id) TO STDOUT WITH (FORMAT csv, HEADER)" < /dev/null > ~/bifrost-backups/trade-settings/td74-settings-flex/bifrost_prod.csv && cat ~/bifrost-backups/trade-settings/td74-settings-flex/bifrost_prod.csv
 commit:  kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_prod -X -v ON_ERROR_STOP=1 -f - < scripts/release/db-steps.d/sql/2026-10-10-td74-drop-settings-flex-columns.sql
 verify:  kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_prod -X -c "SET default_transaction_read_only=on;" -f - < scripts/release/db-steps.d/sql/2026-10-10-td74-verify.sql
 rollback (values from the export CSV): kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_prod -X -v ON_ERROR_STOP=1 -v default_days=30 -v init_days=270 -f - < scripts/release/db-steps.d/sql/2026-10-10-td74-rollback.sql
