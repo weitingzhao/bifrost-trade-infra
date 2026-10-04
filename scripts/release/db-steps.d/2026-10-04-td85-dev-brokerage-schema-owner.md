@@ -2,7 +2,7 @@
 id: 2026-10-04-td85-dev-brokerage-schema-owner
 envs: dev
 when: before
-done:
+done: dev
 ---
 # TD-85 D8 complement: DEV schema `brokerage` owned by bifrost
 

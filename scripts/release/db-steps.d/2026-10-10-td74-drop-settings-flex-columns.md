@@ -2,7 +2,7 @@
 id: 2026-10-10-td74-drop-settings-flex-columns
 envs: dev stg prod
 when: after
-done:
+done: dev stg prod
 ---
 # TD-74: drop `settings.flex_default_range_days` / `settings.flex_init_range_days` (Trade dev / stg / prod)
 

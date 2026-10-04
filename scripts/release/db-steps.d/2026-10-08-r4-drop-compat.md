@@ -2,7 +2,7 @@
 id: 2026-10-08-r4-drop-compat
 envs: dev stg prod
 when: after
-done:
+done: dev stg prod
 ---
 # Naming R4: drop R3's one-version objects and the frozen split table (core 0.47.0 / api 0.9.0)
 
