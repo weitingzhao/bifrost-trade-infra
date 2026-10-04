@@ -1,0 +1,7 @@
+# Expected changes of Trade batch j (td-batch/2026-10-04j): core 0.47.0, api 0.9.0.
+# Naming R4 (TD-26): the one-version compatibility names go -- performance drops the old
+# realized_by_strategy_instance list and the strategy_instance_id key beside trade_id in realized_by_trade.
+perf.realized_by_strategy_instance
+perf.realized_by_strategy_instance*
+perf.realized_by_trade[*].strategy_instance_id
+execs.*.strategy_instance_id
