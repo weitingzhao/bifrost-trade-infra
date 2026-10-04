@@ -2,7 +2,7 @@
 description: Bifrost 工作区结构、三域架构、双飞轮边界与双轨维护规范
 globs: ["**/*"]
 alwaysApply: true
-parity-id: workspace-v9
+parity-id: workspace-v10
 ---
 
 # Bifrost 工作区规范
@@ -60,6 +60,22 @@ Bifrost = 三个域，边界不可跨越（spine **D13**）：
 | 业务优先（有数据就要放 · 先实测再写「没有」 · 缺数据分权限/Bug） | `.cursor/rules/business-first.mdc` |
 
 已退役的规则归档在 `.cursor/_archive/`（不再加载，见其 README）。
+
+### 发布窗口 — 推 main 或起 deliver 之前先看
+
+任何会话在**推 Trade 任一仓库的 `main`**、或**起任何 `bifrost-deliver-*` run** 之前，先跑：
+
+```bash
+bifrost-trade-infra/scripts/release/release.sh window   # 没有窗口 exit 0；有窗口打印持有者并 exit 1
+```
+
+- **窗口开着：等它关，或者问 Owner**，不推、不起 run。持有进程已不在时脚本会提示是残留锁，
+  要不要 `release.sh window --clear` 由 Owner 决定。
+- **一次发布只由一个会话执行**：窗口在 `release.sh` 运行期间由它持有；别的会话不并行发同一批，也不替它续跑。
+- 检查和推送写在同一条命令里（`release.sh window && git push origin <sha>:refs/heads/main`），不要拆进两次并行调用。
+- 细则见 `bifrost-trade-infra/docs/RELEASE.md`「发布窗口」。
+
+> 事故：2026-09-27 两个会话同时发 core 0.24.0；2026-09-28 插件 0.61.0 的 registry tag 被另一会话覆盖。
 
 ---
 
