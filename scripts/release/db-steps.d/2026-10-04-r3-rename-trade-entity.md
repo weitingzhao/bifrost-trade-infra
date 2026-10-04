@@ -2,7 +2,7 @@
 id: 2026-10-04-r3-rename-trade-entity
 envs: dev stg prod
 when: before
-done:
+done: dev stg prod
 ---
 # Naming R3: rename the Trade entity's tables (core 0.45.0 / api 0.7.3)
 
