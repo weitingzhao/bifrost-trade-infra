@@ -2,7 +2,7 @@
 id: 2026-10-04-td49-feedback-writer-role
 envs: dev stg prod
 when: before
-done:
+done: dev stg prod
 ---
 # TD-49 D4 / TD-77 E5: role feedback_writer for trade-api's feedback store (api 0.7.5)
 

@@ -2,7 +2,7 @@
 id: 2026-10-04-td85-dev-fdw-owner
 envs: dev
 when: before
-done:
+done: dev
 ---
 # TD-85 D8: DEV's brokerage / market FDW objects owned by bifrost, as in STG and PROD
 

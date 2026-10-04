@@ -2,7 +2,7 @@
 id: 2026-10-04-td85-trade-app-roles
 envs: dev stg prod
 when: before
-done:
+done: dev stg prod
 ---
 # TD-85 D1: the Trade runtime gets its own role per env, trade_app_<env>
 
