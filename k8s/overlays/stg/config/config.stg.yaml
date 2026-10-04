@@ -73,7 +73,9 @@ utilized:
 postgres:
   host: bifrost-postgres-rw.data.svc.cluster.local
   port: 5432
-  user: bifrost
+  # TD-85: the Trade runtime's role. PGUSER / GOLDEN_SOURCE_USER in bifrost-stg-secrets win over
+  # these lines (env first, TD-54); db-init signs in as bifrost through bifrost-stg-db-owner.
+  user: trade_app_stg
   password: ""
   database: bifrost_stg
 
@@ -82,7 +84,7 @@ golden_source:
   host: bifrost-postgres-rw.data.svc.cluster.local
   port: 5432
   database: bifrost_golden_source
-  user: bifrost
+  user: trade_app_stg
   password: ""
   fdw_user: brokerage_reader
   fdw_password: ""
