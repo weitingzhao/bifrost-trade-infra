@@ -8,8 +8,8 @@
 #                                                 Secret changes and on every primary start / failover,
 #                                                 so it must end up holding the new value.
 #   bifrost-<env>/bifrost-<env>-db-owner          PGPASSWORD, GOLDEN_SOURCE_PASSWORD   db-init Jobs
-#   plugin-market-data/market-data-secrets        postgres-password        3 Deployments, 14 CronJobs
-#   plugin-flex-query/flex-query-secrets          postgres-password, trade-pg-password   2 Deployments
+#   (the market-data / flex-query plugin Secrets left this list with TD-85 D6: they hold data_writer /
+#    flex_writer since scripts/plugin-db-roles.sh switched them)
 #   local gitignored files on this Mac            any value equal to the old password in the files
 #                                                 listed by `holders` (.env of infra / plugins / research,
 #                                                 k8s/base/secrets/*.yaml, k8s/data/secrets/*.yaml)
@@ -48,8 +48,6 @@ HOLDERS=(
   bifrost-dev/bifrost-dev-db-owner:PGPASSWORD,GOLDEN_SOURCE_PASSWORD
   bifrost-stg/bifrost-stg-db-owner:PGPASSWORD,GOLDEN_SOURCE_PASSWORD
   bifrost-prod/bifrost-prod-db-owner:PGPASSWORD,GOLDEN_SOURCE_PASSWORD
-  plugin-market-data/market-data-secrets:postgres-password
-  plugin-flex-query/flex-query-secrets:postgres-password,trade-pg-password
 )
 # Gitignored local files that may carry the value (KEY=value or YAML key: value lines).
 LOCAL_FILES=(
