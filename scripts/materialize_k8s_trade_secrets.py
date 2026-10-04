@@ -58,6 +58,15 @@ def _load_dotenv(path: Path) -> dict[str, str]:
     return out
 
 
+def _bifrost_login_only(env: dict[str, str]) -> dict[str, str]:
+    """A plugin .env whose POSTGRES_USER is not bifrost (market-data's is data_writer) must not lend its
+    POSTGRES_PASSWORD to bifrost's Secrets: it would override this repo's .env and land in the db-owner
+    Secret (TD-85 D5)."""
+    if _nonempty(env.get("POSTGRES_USER")) in ("", "bifrost"):
+        return env
+    return {k: v for k, v in env.items() if k not in ("POSTGRES_PASSWORD", "PGPASSWORD", "GOLDEN_SOURCE_PASSWORD")}
+
+
 def _nonempty(val: object) -> str:
     if val is None:
         return ""
@@ -260,7 +269,7 @@ def main() -> int:
     extras: dict[str, str] = {}
     extras.update(_load_dotenv(ROOT / ".env"))
     extras.update(_load_dotenv(PLUGIN_ENV))
-    extras.update(_load_dotenv(MD_ENV))
+    extras.update(_bifrost_login_only(_load_dotenv(MD_ENV)))
 
     kubeconfig = os.environ.get("KUBECONFIG") or str(Path.home() / ".kube/bifrost-k3s.yaml")
     any_missing = False
