@@ -109,7 +109,12 @@ Trade 页面经 Ask Copilot 读 Research 后端（Positions / Instances / Live 3
 | market | `bifrost_api.market` | 8772 | **market** |
 | research | `bifrost_api.research` | 8773 | **research** |
 
-`bifrost_api.account` 目录 = account 域实现。前端 API 路径保持 `/api/{domain}/`。
+`bifrost_api.account` 目录 = account 域实现。
+
+**网关前缀：一个进程一个前缀**（TD-55，Owner 2026-10-04 选 B）：`/api/monitor`（monitor 进程；ops 在 `/api/monitor/ops/*`、docs 在
+`/api/monitor/research/docs/*`）· `/api/account`（account 进程）· `/api/market` · `/api/research`。`/api/trading|strategy|portfolio|ops|docs`
+与 Service `api-trading|strategy|portfolio|ops|docs` 是别名，B1 只加不删；B2 在 Traefik 每路由计数 7 天为零后删除
+（量法：infra `scripts/check_trade_gateway_routes.py --promql 7d`）。新代码只写四个进程前缀；没配路由的 `/api/<x>/…` 是 SPA 兜底（200 HTML）。
 
 ### 其余服务
 
