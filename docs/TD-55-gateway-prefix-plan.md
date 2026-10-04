@@ -1,11 +1,37 @@
 # TD-55 — one gateway prefix per process (migration plan)
 
 Status: **Owner approved option B on 2026-10-04** (`/stocks/REQUEST-td55-gateway-prefix-plan-2026-10-04.md`,
-"Owner 批复"): one prefix per process, add first, retire later. Phases A–B below are **B1** (implemented,
-lane AB, not yet released); C–D are **B2** (after 7 days of zero traffic on the old prefixes; removal is a
-separate Owner nod). Phase E is not planned.
+"Owner 批复"): one prefix per process, add first, retire later. Phases A–B below are **B1** (released
+2026-10-04); C–D are **B2**, which the Owner approved on 2026-10-04 without the 7-day window (one user) —
+built in batch j (`td-batch/2026-10-04j`). Phase E is not planned.
 
-### B1 as built
+### B2 as built (batch j)
+
+| Prefix | Process (Service) | Role |
+|---|---|---|
+| `/api/monitor` | api-monitor (`api-monitor`) | process prefix; ops at `/api/monitor/ops/*`, docs at `/api/monitor/research/docs/*` |
+| `/api/account` | api-account (`api-account`) | process prefix |
+| `/api/market` | api-market (`api-market`) | process prefix |
+| `/api/research` | api-research (`api-research`) | process prefix |
+| `/api/docs`, `/api/ops`, `/api/trading`, `/api/strategy`, `/api/portfolio` | — | **removed**: 40 routes (5 prefixes × 3 envs × both gateways, PROD's hostname gateway on 3 Hosts), the 5 `strip-api-*` Middlewares and the 5 alias Services |
+
+- `make check-trade-gateway-routes` checks the four process prefixes and that no route, strip Middleware or
+  Service of a retired prefix is rendered (`RETIRED`). `--promql` has nothing left to measure.
+- `release_checks.py` reads api-account at `/api/account` only (the pre-B1 `/api/trading` fallback is gone).
+- Frontend: `tradeFetch` knows the four process prefixes only. Platform: the alias catalog rows, the console's
+  alias list and the Trade MCP alias tools are gone.
+- Measured before deleting (2026-10-04 ~14:30 UTC): no live workload names an alias Service (only three
+  finished `research-harness` Jobs of 09-30..10-02, from images before Research 0.162.0, still carry the old
+  env); the IP gateways' alias traffic (83,218 requests in the day, ~0 between 10:00 and 13:00 UTC after the
+  cluster platform's B1 deploy) came back with the Mac awake: the bdev `platform-api` on the Mac runs a binary
+  built 2026-09-27 (before B1) and holds connections to :30880-:30882 (lsof); the hostname gateways saw ~100
+  browser requests that day and none in the last hour.
+- **Rollout:** after B2, a request on a removed prefix falls through to the SPA (200 HTML). Rebuild and restart
+  every local platform-api / probe bridge / Trade MCP from `main` and reload open Trade tabs. Argo's manual sync
+  of `bifrost-stg` / `bifrost-prod` does not prune: the Owner deletes the 5 Services and 5 Middlewares per env
+  (DEV entirely by hand).
+
+### B1 as built (released 2026-10-04)
 
 | Prefix | Process (Service) | Role |
 |---|---|---|

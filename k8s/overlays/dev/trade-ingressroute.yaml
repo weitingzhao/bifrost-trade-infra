@@ -25,68 +25,9 @@ spec:
           port: 8765
           responseForwarding:
             flushInterval: 1ms
-    # /api/docs and /api/ops are aliases for the api-monitor pods. Route only the paths
-    # they own, so monitor's /control/* and /config/* stay reachable at /api/monitor
-    # only, where the D10 preflight guard looks (debt TD-07). The /account-sync/control/*
-    # routes this also covered were removed with account-sync (2026-10-02, TD-22).
-    - match: Host(`dev.trader.bifrost.lan`) && (Path(`/api/docs/health`) || PathPrefix(`/api/docs/research/docs/`))
-      kind: Rule
-      priority: 100
-      middlewares:
-        - name: strip-api-docs
-        - name: sse-streaming
-      services:
-        - name: api-docs
-          port: 8765
-          responseForwarding:
-            flushInterval: 1ms
-    - match: Host(`dev.trader.bifrost.lan`) && (Path(`/api/ops/health`) || Path(`/api/ops/data-probe`) || PathPrefix(`/api/ops/ops/`))
-      kind: Rule
-      priority: 100
-      middlewares:
-        - name: strip-api-ops
-        - name: sse-streaming
-      services:
-        - name: api-ops
-          port: 8765
-          responseForwarding:
-            flushInterval: 1ms
-    - match: Host(`dev.trader.bifrost.lan`) && PathPrefix(`/api/trading`)
-      kind: Rule
-      priority: 100
-      middlewares:
-        - name: strip-api-trading
-        - name: sse-streaming
-      services:
-        - name: api-trading
-          port: 8769
-          responseForwarding:
-            flushInterval: 1ms
-    - match: Host(`dev.trader.bifrost.lan`) && PathPrefix(`/api/strategy`)
-      kind: Rule
-      priority: 100
-      middlewares:
-        - name: strip-api-strategy
-        - name: sse-streaming
-      services:
-        - name: api-strategy
-          port: 8769
-          responseForwarding:
-            flushInterval: 1ms
-    - match: Host(`dev.trader.bifrost.lan`) && PathPrefix(`/api/portfolio`)
-      kind: Rule
-      priority: 100
-      middlewares:
-        - name: strip-api-portfolio
-        - name: sse-streaming
-      services:
-        - name: api-portfolio
-          port: 8769
-          responseForwarding:
-            flushInterval: 1ms
-    # /api/account is api-account's own prefix (TD-55 B1, Owner 2026-10-04 option B).
-    # /api/trading, /api/strategy and /api/portfolio above are aliases of the same process;
-    # they keep answering until B2 removes them after 7 days of zero traffic.
+    # /api/account is api-account's own prefix (TD-55 B1, Owner 2026-10-04 option B). The aliases
+    # /api/trading, /api/strategy, /api/portfolio (api-account) and /api/docs, /api/ops (api-monitor)
+    # went in B2 (Owner 2026-10-04): ops and docs are /api/monitor/ops/* and /api/monitor/research/docs/*.
     - match: Host(`dev.trader.bifrost.lan`) && PathPrefix(`/api/account`)
       kind: Rule
       priority: 100

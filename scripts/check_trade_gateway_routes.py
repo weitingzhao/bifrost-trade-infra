@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Check the Trade gateway prefix map in the rendered overlays (TD-55, Owner option B).
 
-One gateway prefix per API process. B1 adds ``/api/account`` (api-account's own prefix) next
-to the alias prefixes, which keep answering until B2 removes them after 7 days of zero
-traffic. For every env (dev, stg, prod) this renders ``kubectl kustomize k8s/overlays/<env>``
+One gateway prefix per API process. B1 added ``/api/account`` (api-account's own prefix) next
+to the alias prefixes; B2 (Owner 2026-10-04, without the 7-day window: one user) removed the
+aliases, their strip Middlewares and their Services. For every env (dev, stg, prod) this renders ``kubectl kustomize k8s/overlays/<env>``
 and checks, in both Trade IngressRoutes (hostname ``trade-gateway`` and NodePort
 ``trade-gateway-ip``) and for every Host rule of them:
 
@@ -12,13 +12,14 @@ and checks, in both Trade IngressRoutes (hostname ``trade-gateway`` and NodePort
 - the Service selects the process listed there (alias Services select the real process).
 
 So a prefix that would fall through to the SPA (200 HTML) or land on the wrong process
-fails here, before a deliver. After B2 the alias rows move to RETIRED and the check
-asserts they are gone.
+fails here, before a deliver. The alias prefixes are in RETIRED: the check asserts no route,
+strip Middleware or Service of theirs comes back.
 
 Usage: python3 scripts/check_trade_gateway_routes.py   (exit 1 on any problem)
        python3 scripts/check_trade_gateway_routes.py --promql [WINDOW]   (default 7d)
 
-``--promql`` prints the PromQL for B2: requests on the alias prefixes' routes in the last WINDOW.
+``--promql`` prints the PromQL B2 was measured with: requests on the alias prefixes' routes in the
+last WINDOW (it needs alias rows in PREFIXES; after B2 there are none and it says so).
 Traefik has no per-router metric here, only ``traefik_service_requests_total`` per route
 service, named ``<namespace>-<ingressroute>-<sha256(match)[:20]>@kubernetescrd``; the script
 renders the overlays and hashes every alias route's match, so the list cannot go stale. A
@@ -47,15 +48,17 @@ PREFIXES: dict[str, tuple[str, int, str, str]] = {
     "/api/account": ("api-account", 8769, "api-account", "process"),
     "/api/market": ("api-market", 8772, "api-market", "process"),
     "/api/research": ("api-research", 8773, "api-research", "process"),
-    # Aliases until B2 (Owner 2026-10-04): removed after 7 days of zero traffic.
-    "/api/trading": ("api-trading", 8769, "api-account", "alias"),
-    "/api/strategy": ("api-strategy", 8769, "api-account", "alias"),
-    "/api/portfolio": ("api-portfolio", 8769, "api-account", "alias"),
-    "/api/ops": ("api-ops", 8765, "api-monitor", "alias"),
-    "/api/docs": ("api-docs", 8765, "api-monitor", "alias"),
 }
-# Prefixes that must have no route (B2 moves the alias rows here).
-RETIRED: tuple[str, ...] = ()
+# Prefixes that must have no route, strip Middleware or Service: the aliases B2 removed
+# (Owner 2026-10-04). ops and docs answer at /api/monitor/ops/* and /api/monitor/research/docs/*.
+RETIRED: dict[str, tuple[str, str]] = {
+    # prefix -> (strip Middleware, Service) that went with it
+    "/api/trading": ("strip-api-trading", "api-trading"),
+    "/api/strategy": ("strip-api-strategy", "api-strategy"),
+    "/api/portfolio": ("strip-api-portfolio", "api-portfolio"),
+    "/api/ops": ("strip-api-ops", "api-ops"),
+    "/api/docs": ("strip-api-docs", "api-docs"),
+}
 
 _PREFIX_IN_MATCH = re.compile(r"(?:PathPrefix|Path)\(`(/api/[a-z-]+)[/`]")
 _HOST_IN_MATCH = re.compile(r"Host\(`([^`]+)`\)")
@@ -121,6 +124,11 @@ def check_env(env: str) -> list[str]:
             for prefix in RETIRED:
                 if (host, prefix) in seen:
                     problems.append(f"{env}/{gw} host={host} {prefix}: retired prefix still routed")
+    for prefix, (mw, svc) in RETIRED.items():
+        if mw in middlewares:
+            problems.append(f"{env}: Middleware {mw} of retired prefix {prefix} still rendered")
+        if svc in services:
+            problems.append(f"{env}: Service {svc} of retired prefix {prefix} still rendered")
     return problems
 
 
@@ -162,6 +170,9 @@ def promql(window: str) -> str:
 def main() -> int:
     if len(sys.argv) > 1 and sys.argv[1] == "--promql":
         window = sys.argv[2] if len(sys.argv) > 2 else "7d"
+        if not alias_route_services():
+            print("# no alias routes left in the overlays (TD-55 B2): nothing to measure", file=sys.stderr)
+            return 0
         for name, env, where, prefix in alias_route_services():
             print(f"# {name}  {env} {where} {prefix}")
         print(promql(window))

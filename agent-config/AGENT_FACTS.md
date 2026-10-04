@@ -1,6 +1,6 @@
 ---
-parity-id: agent-facts-v4
-generated: 2026-10-03
+parity-id: agent-facts-v5
+generated: 2026-10-04
 authority: bifrost-platform/config/ops-context.yaml (spine) + 磁盘扫描
 ---
 
@@ -112,9 +112,10 @@ Trade 页面经 Ask Copilot 读 Research 后端（Positions / Instances / Live 3
 `bifrost_api.account` 目录 = account 域实现。
 
 **网关前缀：一个进程一个前缀**（TD-55，Owner 2026-10-04 选 B）：`/api/monitor`（monitor 进程；ops 在 `/api/monitor/ops/*`、docs 在
-`/api/monitor/research/docs/*`）· `/api/account`（account 进程）· `/api/market` · `/api/research`。`/api/trading|strategy|portfolio|ops|docs`
-与 Service `api-trading|strategy|portfolio|ops|docs` 是别名，B1 只加不删；B2 在 Traefik 每路由计数 7 天为零后删除
-（量法：infra `scripts/check_trade_gateway_routes.py --promql 7d`）。新代码只写四个进程前缀；没配路由的 `/api/<x>/…` 是 SPA 兜底（200 HTML）。
+`/api/monitor/research/docs/*`）· `/api/account`（account 进程）· `/api/market` · `/api/research`。旧别名前缀
+`/api/trading|strategy|portfolio|ops|docs`、它们的 strip 中间件与别名 Service `api-trading|strategy|portfolio|ops|docs` 已在
+B2 删除（Owner 2026-10-04：单用户，不等 7 天；`make check-trade-gateway-routes` 断言它们不再出现）。集群内调用一律用进程
+Service 名 `api-monitor|account|market|research`。没配路由的 `/api/<x>/…`（含已删的别名）是 SPA 兜底（200 HTML），只看状态码分不出来。
 
 ### 其余服务
 

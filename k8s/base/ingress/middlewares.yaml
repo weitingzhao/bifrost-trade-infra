@@ -16,61 +16,6 @@ spec:
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
-  name: strip-api-docs
-  labels:
-    app.kubernetes.io/name: trade-gateway
-spec:
-  stripPrefix:
-    prefixes:
-      - /api/docs
----
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: strip-api-ops
-  labels:
-    app.kubernetes.io/name: trade-gateway
-spec:
-  stripPrefix:
-    prefixes:
-      - /api/ops
----
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: strip-api-trading
-  labels:
-    app.kubernetes.io/name: trade-gateway
-spec:
-  stripPrefix:
-    prefixes:
-      - /api/trading
----
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: strip-api-strategy
-  labels:
-    app.kubernetes.io/name: trade-gateway
-spec:
-  stripPrefix:
-    prefixes:
-      - /api/strategy
----
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: strip-api-portfolio
-  labels:
-    app.kubernetes.io/name: trade-gateway
-spec:
-  stripPrefix:
-    prefixes:
-      - /api/portfolio
----
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
   name: strip-api-account
   labels:
     app.kubernetes.io/name: trade-gateway

@@ -22,14 +22,11 @@ GATEWAYS = {
     "dev": "http://192.168.10.73:30882",
 }
 # One gateway prefix per process (TD-55 option B): the domains whose /health reports
-# core_version / core_sha. api-account answers at /api/account from B1 on; before B1 is
-# applied that path is the frontend's HTML, so account_prefix() falls back to the
-# /api/trading alias. The checks read the account process through /api/account so that the
-# old prefixes see no release-check traffic during the B2 zero-traffic window.
+# core_version / core_sha. api-account answers at /api/account (B1); the /api/trading,
+# /api/strategy and /api/portfolio aliases went in B2 (Owner 2026-10-04), so there is no
+# fallback any more: an env without the /api/account route fails its account checks.
 CORE_HEALTH_DOMAINS = ("monitor", "account", "market", "research")
 ACCOUNT_PREFIX = "/api/account"
-ACCOUNT_LEGACY_PREFIX = "/api/trading"
-_account_prefix_cache: Dict[str, str] = {}
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 USER_AGENT = "bifrost-release-check/1"
 MISSING = object()
@@ -74,19 +71,8 @@ def get_json(url: str) -> Any:
 
 
 def account_prefix(base: str) -> str:
-    """/api/account when the gateway routes it to api-account, else the pre-B1 /api/trading alias."""
-    if base not in _account_prefix_cache:
-        prefix = ACCOUNT_LEGACY_PREFIX
-        try:
-            status, _, body = http_get(base + ACCOUNT_PREFIX + "/health", tries=2, timeout=60)
-            if status == 200 and (json.loads(body) or {}).get("service") == "bifrost-account":
-                prefix = ACCOUNT_PREFIX
-        except (ValueError, RuntimeError, AttributeError):
-            pass
-        if prefix != ACCOUNT_PREFIX:
-            print(f"note: {base}{ACCOUNT_PREFIX} is not routed yet (pre TD-55 B1); using {prefix}", file=sys.stderr)
-        _account_prefix_cache[base] = prefix
-    return _account_prefix_cache[base]
+    """api-account's gateway prefix (TD-55 B1; the aliases went in B2)."""
+    return ACCOUNT_PREFIX
 
 
 def domain_prefix(base: str, domain: str) -> str:

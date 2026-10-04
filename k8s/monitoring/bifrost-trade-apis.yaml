@@ -23,9 +23,9 @@ spec:
     - port: http
       path: /metrics
       interval: 30s
-      # One target per pod. api-docs/api-ops (→ api-monitor pod) and
-      # api-trading/api-strategy/api-portfolio (→ api-account pod) are routing
-      # aliases in k8s/base/apis; scraping them stored each pod's series 3-4×.
+      # One target per pod: keep the four process Services only. The routing
+      # aliases api-docs/api-ops/api-trading/api-strategy/api-portfolio (they
+      # stored each pod's series 3-4×) were deleted in TD-55 B2 (2026-10-04).
       relabelings:
         - sourceLabels: [__meta_kubernetes_service_name]
           regex: api-(monitor|account|market|research)
