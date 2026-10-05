@@ -1,0 +1,119 @@
+# W4 daily book snapshot (core 0.48.0, bifrost_core.portfolio.snapshot): position_snapshot_daily
+# + account_nav_daily in bifrost_dev. Read-only towards brokerage.* and the market-data plugin;
+# no order, no Redis, no daemon (D10). Signs in as the runtime role (bifrost-dev-secrets, TD-85).
+# After the close: the broker book and NAV (forward-only: a missed day is lost).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: position-snapshot-capture
+  labels:
+    app.kubernetes.io/name: position-snapshot
+    app.kubernetes.io/component: capture
+spec:
+  schedule: "20 16 * * 1-5"
+  timeZone: America/New_York
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      ttlSecondsAfterFinished: 604800
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: position-snapshot
+        spec:
+          restartPolicy: OnFailure
+          volumes:
+            - name: bifrost-config
+              configMap:
+                name: bifrost-config
+          containers:
+            - name: position-snapshot
+              image: 192.168.10.73:30500/bifrost-api-monitor:dev
+              imagePullPolicy: Always
+              command: [python, -m, bifrost_core.portfolio.snapshot, capture]
+              env:
+                - name: BIFROST_CONFIG
+                  value: /app/config/runtime.yaml
+                - name: BIFROST_ENV
+                  value: dev
+                - name: MARKET_DATA_PLUGIN_URL
+                  value: http://market-data-api.plugin-market-data.svc.cluster.local:8790/market
+              envFrom:
+                - secretRef:
+                    name: bifrost-dev-secrets
+                    optional: true
+              volumeMounts:
+                - name: bifrost-config
+                  mountPath: /app/config/runtime.yaml
+                  subPath: runtime.yaml
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 384Mi
+---
+# W4 daily book snapshot (core 0.48.0, bifrost_core.portfolio.snapshot): position_snapshot_daily
+# + account_nav_daily in bifrost_dev. Read-only towards brokerage.* and the market-data plugin;
+# no order, no Redis, no daemon (D10). Signs in as the runtime role (bifrost-dev-secrets, TD-85).
+# Evening: vendor EOD Greeks / IV / closes (the 16:00 anchor; only NULLs are filled).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: position-snapshot-enrich
+  labels:
+    app.kubernetes.io/name: position-snapshot
+    app.kubernetes.io/component: enrich
+spec:
+  schedule: "30 20 * * 1-5"
+  timeZone: America/New_York
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      ttlSecondsAfterFinished: 604800
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: position-snapshot
+        spec:
+          restartPolicy: OnFailure
+          volumes:
+            - name: bifrost-config
+              configMap:
+                name: bifrost-config
+          containers:
+            - name: position-snapshot
+              image: 192.168.10.73:30500/bifrost-api-monitor:dev
+              imagePullPolicy: Always
+              command: [python, -m, bifrost_core.portfolio.snapshot, enrich]
+              env:
+                - name: BIFROST_CONFIG
+                  value: /app/config/runtime.yaml
+                - name: BIFROST_ENV
+                  value: dev
+                - name: MARKET_DATA_PLUGIN_URL
+                  value: http://market-data-api.plugin-market-data.svc.cluster.local:8790/market
+              envFrom:
+                - secretRef:
+                    name: bifrost-dev-secrets
+                    optional: true
+              volumeMounts:
+                - name: bifrost-config
+                  mountPath: /app/config/runtime.yaml
+                  subPath: runtime.yaml
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 384Mi

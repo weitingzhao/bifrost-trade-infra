@@ -10,6 +10,7 @@ resources:
   - trade-ip-ingressroute.yaml
   - research-env-header.yaml
   - api-monitor-platform-audit-egress.yaml
+  - position-snapshot.cronjob.yaml
 
 configMapGenerator:
   - name: bifrost-config

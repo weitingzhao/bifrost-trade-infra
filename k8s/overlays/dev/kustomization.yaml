@@ -12,6 +12,7 @@ resources:
   - research-env-header.yaml
   - db-init-dev.job.yaml
   - api-monitor-platform-audit-egress.yaml
+  - position-snapshot.cronjob.yaml
 
 configMapGenerator:
   - name: bifrost-config
