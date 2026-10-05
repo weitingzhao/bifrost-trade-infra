@@ -1,0 +1,78 @@
+# Build the pine-runner image (bifrost-research/pine-runner, AGPL-3.0, W6).
+#
+# A separate Node process that runs Pine Script for Research over HTTP; its own
+# Deployment (bifrost-research k8s/pine/deployment.yaml), so it gets its own
+# build-only pipeline, like the Dagster image. Build only — bump
+# k8s/pine/deployment.yaml once the tag is in the registry:
+#   curl -s http://192.168.10.73:30500/v2/bifrost-research-pine/tags/list
+#
+# Kaniko clones from Gitea. Refresh the mirror first:
+#   make k3s-sync-gitea-mirrors
+#
+# Create the run from its template:
+#   kubectl -n cicd create -f k8s/cicd/tekton/pipelinerun-build-research-pine.yaml
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: bifrost-build-research-pine
+  namespace: cicd
+  labels:
+    bifrost.io/payload: research
+    bifrost.io/purpose: pine-build
+spec:
+  description: >-
+    Clone bifrost-research from Gitea and build the pine-runner image
+    (pine-runner/Dockerfile) with Kaniko.
+  params:
+    - name: revision
+      type: string
+      default: main
+    - name: giteaBase
+      type: string
+      default: http://gitea.cicd.svc.cluster.local:3000/bifrost
+    - name: image
+      type: string
+      default: registry.cicd.svc.cluster.local:5000/bifrost-research-pine:0.1.0
+  workspaces:
+    - name: build-context
+  tasks:
+    - name: clone-research
+      taskRef:
+        kind: Task
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-research.git
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: research
+      workspaces:
+        - name: output
+          workspace: build-context
+    - name: kaniko
+      runAfter:
+        - clone-research
+      params:
+        - name: image
+          value: $(params.image)
+      workspaces:
+        - name: source
+          workspace: build-context
+      taskSpec:
+        params:
+          - name: image
+            type: string
+        workspaces:
+          - name: source
+        steps:
+          - name: build-and-push
+            image: gcr.io/kaniko-project/executor:v1.23.2
+            args:
+              - --dockerfile=Dockerfile
+              - --context=$(workspaces.source.path)/research/pine-runner
+              - --destination=$(params.image)
+              - --custom-platform=linux/amd64
+              - --insecure
+              - --skip-tls-verify
+              - --insecure-registry=registry.cicd.svc.cluster.local:5000
