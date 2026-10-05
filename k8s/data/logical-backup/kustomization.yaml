@@ -1,0 +1,24 @@
+# Phase 0 W5 — daily logical dump of hand-entered data to the NAS.
+# Apply on its own:  kubectl apply -k k8s/data/logical-backup
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: data
+
+resources:
+  - nas-volumes.yaml
+  - network-policy.yaml
+  - cronjob-backup.yaml
+  - cronjob-drill.yaml
+
+configMapGenerator:
+  - name: logical-backup-scripts
+    files:
+      - backup.sh
+      - drill.sh
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: bifrost
+      app.kubernetes.io/component: logical-backup
+    includeSelectors: false

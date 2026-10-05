@@ -1,0 +1,27 @@
+# NAS folders for the logical backup: one dynamic claim per share, the same
+# way W3's market-data archive does it (plugin-market-data/market-data-archive).
+# nfs-subdir puts each claim at /volume1/<share>/data-<claim>-<pv name>, and
+# both StorageClasses Retain, so deleting a claim never deletes a backup.
+#   logical-backup-hot   (nfs-hot)   daily runs, 14 kept
+#   logical-backup-cold  (nfs-cold)  weekly copies, kept
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: logical-backup-hot
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: nfs-hot
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: logical-backup-cold
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: nfs-cold
+  resources:
+    requests:
+      storage: 50Gi

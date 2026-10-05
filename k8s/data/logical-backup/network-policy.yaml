@@ -1,0 +1,23 @@
+# Let the logical-backup job reach PostgreSQL. Every other ingress to the CNPG
+# pods is denied once any NetworkPolicy selects them
+# (see ../postgres-ingress-network-policy.yaml).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-logical-backup-ingress
+  labels:
+    app.kubernetes.io/component: postgres
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: bifrost-postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: logical-backup
+      ports:
+        - protocol: TCP
+          port: 5432

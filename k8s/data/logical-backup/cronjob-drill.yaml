@@ -1,0 +1,79 @@
+# Monthly restore drill (phase 0 W5), see drill.sh.
+#
+# Restores the newest daily run into a throwaway PostgreSQL inside the pod
+# (emptyDir) and requires every table's row count to equal the manifest. Never
+# connects to the CNPG cluster. Reports land in <hot>/drills/. Run one now with
+#   kubectl -n data create job --from=cronjob/logical-backup-drill drill-manual-$(date +%s)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: logical-backup-drill
+  labels:
+    app.kubernetes.io/name: logical-backup-drill
+spec:
+  schedule: "0 6 1 * *"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 2592000
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: logical-backup-drill
+        spec:
+          restartPolicy: Never
+          nodeSelector:
+            node-role: postgres
+          securityContext:
+            runAsUser: 26
+            runAsGroup: 26
+            runAsNonRoot: true
+          containers:
+            - name: drill
+              image: ghcr.io/cloudnative-pg/postgresql:17.9
+              imagePullPolicy: IfNotPresent
+              command: ["bash", "/scripts/drill.sh", "latest"]
+              env:
+                - name: PGDATA_DIR
+                  value: /work/pgdata
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: "1"
+                  memory: 1Gi
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: work
+                  mountPath: /work
+                - name: hot
+                  mountPath: /backup/hot
+                - name: cold
+                  mountPath: /backup/cold
+                  readOnly: true
+          volumes:
+            - name: scripts
+              configMap:
+                name: logical-backup-scripts
+            - name: work
+              emptyDir:
+                sizeLimit: 2Gi
+            - name: hot
+              persistentVolumeClaim:
+                claimName: logical-backup-hot
+            - name: cold
+              persistentVolumeClaim:
+                claimName: logical-backup-cold

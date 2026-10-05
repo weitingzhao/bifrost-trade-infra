@@ -205,6 +205,36 @@ spec:
               daily ScheduledBackup runs at 03:00 UTC; it needs the CNPG operator
               (cnpg-system) to be up at that time.
 
+        # Logical dump of hand-entered data (k8s/data/logical-backup, phase 0 W5).
+        # Separate from the Barman backup above: it is the table-level copy on
+        # the NAS that survives a broken CNPG / MinIO.
+        - alert: BifrostLogicalBackupMissing
+          expr: |
+            time() - max(kube_cronjob_status_last_successful_time{namespace="data",cronjob="logical-backup"}) > 93600
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "No successful logical backup of hand-entered data for 26 hours"
+            description: >-
+              CronJob data/logical-backup last succeeded {{ $value | humanizeDuration }} ago
+              (it runs 04:30 UTC). A run that dumped some targets but not others
+              still fails; read `kubectl -n data logs job/<latest logical-backup job>`
+              and the STATUS file of the newest daily/ folder on k3s-hot.
+
+        - alert: BifrostLogicalBackupDrillStale
+          expr: |
+            time() - max(kube_cronjob_status_last_successful_time{namespace="data",cronjob="logical-backup-drill"}) > 3024000
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Monthly restore drill has not passed for 35 days"
+            description: >-
+              The restore drill (CronJob data/logical-backup-drill, 1st of the month
+              06:00 UTC) last passed {{ $value | humanizeDuration }} ago. Its reports
+              are under drills/ in the logical-backup-hot folder on k3s-hot.
+
     # Elastic / WOL standby — marker for Alertmanager inhibit (no GPU/warehouse demand).
     # Does NOT fire when ai/ollama or data-warehouse/minio want replicas > 0.
     - name: bifrost-elastic-standby
