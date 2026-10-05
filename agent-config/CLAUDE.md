@@ -1,5 +1,5 @@
 <!--
-parity-ids: workspace-v10, language-v1, agent-modes-v2, trade-execution-freeze-v2, dev-services-v2, phase-execution-v2, shared-worktree-v1, business-first-v1
+parity-ids: workspace-v11, language-v1, agent-modes-v2, trade-execution-freeze-v2, dev-services-v2, phase-execution-v2, shared-worktree-v1, business-first-v1
 对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
 改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
 -->
@@ -173,6 +173,16 @@ bifrost-trade-infra/scripts/release/release.sh window   # 没有窗口 exit 0；
 - 细则见 `bifrost-trade-infra/docs/RELEASE.md`「发布窗口」。
 
 > 事故：2026-09-27 两个会话同时发 core 0.24.0；2026-09-28 插件 0.61.0 的 registry tag 被另一会话覆盖。
+
+### 放行规则只省「复制到终端」（Owner 2026-10-05）
+
+用户级 `permissions` 里有一组发布类放行规则（payload `.claude/auto-mode/release-permissions.json`）：
+release.sh、db-init Job、dev/stg overlay、插件 ConfigMap 与 rollout、research ddl-apply 与 pin 推送等，不再被 auto mode 拦下。
+
+- **规则不是批准**。发版（release.sh stg / prod / dev、research pin 推 main、start_pipeline_run、gitops_sync_app）
+  和 PROD DDL（db-init-prod、ddl-apply、任何写 bifrost_prod / bifrost_golden_source 的 DDL）仍要 Owner 先在线程里点头，批准按动作算。
+- 放行的命令照常先过 `release.sh window`，一次发布一个会话。
+- 跑 ddl-apply Job 前先 `grep -niE 'drop|truncate'` 它要执行的 SQL：命令行规则看不到 Job 里的 SQL，有命中就停下问 Owner。
 
 ---
 

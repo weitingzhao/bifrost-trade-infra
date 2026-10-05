@@ -1,0 +1,42 @@
+{
+  "allow": [
+    "Bash(export KUBECONFIG=~/.kube/bifrost-k3s.yaml)",
+    "Bash(kubectl -n plugin-market-data apply -f *)",
+    "Bash(kubectl -n plugin-flex-query apply -f *)",
+    "Bash(kubectl -n plugin-market-data rollout restart deploy/*)",
+    "Bash(kubectl -n plugin-flex-query rollout restart deploy/*)",
+    "Bash(kubectl -n bifrost-dev delete job db-init-dev)",
+    "Bash(kubectl -n bifrost-stg delete job db-init-stg)",
+    "Bash(kubectl -n bifrost-prod delete job db-init-prod)",
+    "Bash(kubectl apply -k k8s/overlays/dev)",
+    "Bash(kubectl apply -k k8s/overlays/stg)",
+    "mcp__bifrost-platform__gitops_sync_app",
+    "Bash(kubectl -n data apply -k k8s/data/logical-backup)",
+    "Bash(kubectl -n research create -f k8s/jobs/ddl-apply.yaml)",
+    "Bash(kubectl -n research delete job research-ddl-apply-*)",
+    "Bash(bash scripts/release/release.sh *)",
+    "Bash(scripts/release/release.sh *)",
+    "Bash(bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/release/release.sh *)",
+    "Bash(/Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/release/release.sh *)",
+    "mcp__bifrost-platform__start_pipeline_run",
+    "Bash(git -C /private/tmp/claude-501/research-pin push origin HEAD:refs/heads/main)"
+  ],
+  "ask": [
+    "Bash(kubectl *delete pvc*)",
+    "Bash(kubectl *delete persistentvolume*)",
+    "Bash(kubectl *delete pv *)",
+    "Bash(kubectl *delete pv/*)",
+    "Bash(kubectl *delete namespace*)",
+    "Bash(kubectl *delete ns *)",
+    "Bash(kubectl *delete ns/*)",
+    "Bash(kubectl *delete cluster*)",
+    "Bash(kubectl *--prune*)",
+    "Bash(*psql*DROP *)",
+    "Bash(*psql*TRUNCATE*)",
+    "Bash(*psql*drop *)",
+    "Bash(*psql*truncate*)",
+    "Bash(*release.sh window --clear*)",
+    "Bash(git *push*--force*)",
+    "Bash(git *push* -f*)"
+  ]
+}

@@ -2,7 +2,7 @@
 description: Bifrost 工作区结构、三域架构、双飞轮边界与双轨维护规范
 globs: ["**/*"]
 alwaysApply: true
-parity-id: workspace-v10
+parity-id: workspace-v11
 ---
 
 # Bifrost 工作区规范
@@ -76,6 +76,15 @@ bifrost-trade-infra/scripts/release/release.sh window   # 没有窗口 exit 0；
 - 细则见 `bifrost-trade-infra/docs/RELEASE.md`「发布窗口」。
 
 > 事故：2026-09-27 两个会话同时发 core 0.24.0；2026-09-28 插件 0.61.0 的 registry tag 被另一会话覆盖。
+
+### 放行规则只省「复制到终端」（Owner 2026-10-05）
+
+Claude 侧用户级 `permissions` 有一组发布类放行规则（payload `claude/auto-mode/release-permissions.json`）；两侧同一条约定：
+
+- **放行不是批准**。发版（release.sh stg / prod / dev、research pin 推 main、start_pipeline_run、gitops_sync_app）
+  和 PROD DDL（db-init-prod、ddl-apply、任何写 bifrost_prod / bifrost_golden_source 的 DDL）仍要 Owner 先在对话里点头，批准按动作算。
+- 放行的命令照常先过 `release.sh window`，一次发布一个会话。
+- 跑 ddl-apply Job 前先 `grep -niE 'drop|truncate'` 它要执行的 SQL，有命中就停下问 Owner。
 
 ---
 
