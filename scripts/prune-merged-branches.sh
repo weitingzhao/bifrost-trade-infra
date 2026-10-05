@@ -11,8 +11,8 @@
 # commit of the same subject on main -- lanes are rebased or folded into a batch before they land,
 # so their patch ids change but their subjects stay. Kept regardless:
 #   - a branch with an open PR, or whose tip is younger than --min-age-hours (default 24)
-#   - a worktree with a file changed in the last --min-age-hours, or with changes other than an
-#     untracked node_modules
+#   - a worktree with a file changed in the last --min-age-hours, a process running from it, or
+#     changes other than an untracked node_modules
 # --apply writes a bundle of every ref it deletes, plus a name -> sha list, to
 # $BACKUP_ROOT/<date>/<repo>.{bundle,refs.tsv} first. Restore one: git push origin <sha>:refs/heads/<name>
 #
@@ -67,6 +67,8 @@ merged() {
 # worktree_quiet <path>: 0 when nothing but an untracked node_modules differs and nothing changed lately
 worktree_quiet() {
   [[ -z "$(git -C "$1" status --porcelain | grep -v -E '^\?\? (.*/)?node_modules/?$')" ]] || return 1
+  # a process still running from it (a forgotten vite preview) writes nothing for days
+  ! lsof -d cwd -Fn 2>/dev/null | grep -Fq -- "n$1" || return 1
   [[ -z "$(find "$1" -maxdepth 4 -newermt "-${MIN_AGE_HOURS} hours" -not -path '*/node_modules*' -not -path '*/.git*' 2>/dev/null | head -1)" ]]
 }
 
