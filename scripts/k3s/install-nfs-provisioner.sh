@@ -21,6 +21,12 @@ NFS_COLD_PATH="${NFS_COLD_PATH:-/volume1/k3s-cold}"
 NFS_CHART_REPO="${NFS_CHART_REPO:-https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/}"
 NFS_CHART="${NFS_CHART:-nfs-subdir-external-provisioner/nfs-subdir-external-provisioner}"
 NFS_NAMESPACE="${NFS_NAMESPACE:-kube-system}"
+NFS_CHART_VERSION="${NFS_CHART_VERSION:-4.0.18}"
+# The NAS also offers NFSv4, and a mount without a version tries v4 first: the
+# NAS answers "No such file or directory" for /volume1/..., and the client
+# either fails or falls back to v3 minutes later (2026-10-05, phase 0 W5).
+# Every mount must ask for v3.
+NFS_MOUNT_OPTIONS="${NFS_MOUNT_OPTIONS:-nfsvers=3,hard}"
 
 if ! command -v kubectl >/dev/null 2>&1; then
   echo "kubectl not found in PATH" >&2
@@ -65,9 +71,19 @@ install_release() {
   local nfs_path="$3"
   local archive_on_delete="$4"
 
+  # StorageClass mountOptions are immutable: a class created without them has
+  # to be deleted before helm can recreate it. Bound PVs are not affected.
+  if kubectl get storageclass "${sc_name}" >/dev/null 2>&1 \
+     && [[ "$(kubectl get storageclass "${sc_name}" -o jsonpath='{.mountOptions}')" != *nfsvers=3* ]]; then
+    echo "---- recreating StorageClass ${sc_name} to add mountOptions ${NFS_MOUNT_OPTIONS}"
+    kubectl delete storageclass "${sc_name}"
+  fi
+
   echo "---- helm upgrade --install ${release} (storageClass=${sc_name}, path=${nfs_path})"
   helm upgrade --install "${release}" "${NFS_CHART}" \
+    --version "${NFS_CHART_VERSION}" \
     --namespace "${NFS_NAMESPACE}" \
+    --set "nfs.mountOptions={${NFS_MOUNT_OPTIONS}}" \
     --set nfs.server="${NFS_SERVER}" \
     --set nfs.path="${nfs_path}" \
     --set storageClass.name="${sc_name}" \
@@ -78,6 +94,17 @@ install_release() {
 
 install_release nfs-provisioner-hot nfs-hot "${NFS_HOT_PATH}" false
 install_release nfs-provisioner-cold nfs-cold "${NFS_COLD_PATH}" true
+
+# PVs provisioned before the class had mountOptions keep their old spec; the
+# next remount (pod moved to another node) would hit the v4 problem.
+echo "==> Existing nfs-hot / nfs-cold PVs without nfsvers=3"
+kubectl get pv -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.storageClassName}{"\t"}{.spec.mountOptions}{"\n"}{end}' \
+  | awk -F'\t' '($2 == "nfs-hot" || $2 == "nfs-cold") && $3 !~ /nfsvers=3/ { print $1 }' \
+  | while read -r pv; do
+      echo "---- patch pv ${pv}"
+      kubectl patch pv "${pv}" --type merge \
+        -p "{\"spec\":{\"mountOptions\":[\"$(echo "${NFS_MOUNT_OPTIONS}" | sed 's/,/","/g')\"]}}"
+    done
 
 echo "==> Waiting for provisioner pods"
 for deploy in \
