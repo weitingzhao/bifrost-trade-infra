@@ -3,7 +3,7 @@
 #
 #   release.sh stg  [options]                    bifrost-deliver-stg (revision main)
 #   release.sh prod --from-stg <run> [options]   bifrost-deliver-prod-pinned-* at that STG run's commits
-#   release.sh dev  [options]                    make dev-sync-backend-images RESTART=1 (:stg -> :dev)
+#   release.sh dev  [options]                    make dev-sync-backend-images RESTART=1 (:stg -> :dev, backend + frontend)
 #   release.sh window [--clear]                  show the release window (exit 1 while one is open)
 #   release.sh db-steps [<env>]                  list one-off DB steps and their state
 #   release.sh db-done <env> <step-id>           record that the Owner ran a step
@@ -302,7 +302,7 @@ case "${ENV_NAME}" in
     fi
     step_end ;;
   dev)
-    step "DEV backend images :stg -> :dev and restart"
+    step "DEV images :stg -> :dev (backend + frontend) and restart"
     STG_CORE="$("${RELEASE_TOOL[@]}" core-sha stg)"
     echo "STG runs core ${STG_CORE}; DEV should after the copy"
     if [[ "${DRY_RUN}" -eq 1 ]]; then
@@ -373,9 +373,9 @@ case "${ENV_NAME}" in
     echo "core tag (dry-run of scripts/release/tag_core_release.sh ${core_sha}):"
     "${RELEASE_DIR}/tag_core_release.sh" "${core_sha}" | sed 's/^/  /' || echo "  (tag dry-run failed: see above)"
     echo "next (unless it says nothing to do): bash ${RELEASE_DIR}/tag_core_release.sh --push ${core_sha}"
-    echo "then: $0 dev     (DEV :dev backend images follow STG)" ;;
+    echo "then: $0 dev     (DEV :dev images, backend and frontend, follow STG)" ;;
   dev)
-    echo "after the copy DEV runs the :stg backend images (core ${STG_CORE})." ;;
+    echo "after the copy DEV runs the :stg images (core ${STG_CORE}) and the :stg frontend." ;;
 esac
 step_end
 

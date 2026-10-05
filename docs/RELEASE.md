@@ -25,7 +25,7 @@ scripts/release/release.sh stg --allow scripts/release/expected.d/<date>-<name>.
 scripts/release/release.sh prod --from-stg bifrost-deliver-stg-xxxxx --allow scripts/release/expected.d/<date>-<name>.allow
 #   → 结尾打印 tag_core_release.sh 的 dry-run 和下一条命令（--push 不自动执行）
 bash scripts/release/tag_core_release.sh --push <core_sha>
-scripts/release/release.sh dev                          # make dev-sync-backend-images RESTART=1 + 核对
+scripts/release/release.sh dev                          # make dev-sync-backend-images RESTART=1（后端 + 前端）+ 核对
 ```
 
 `--dry-run` 跑所有只读检查（窗口、并发、STG run 状态、核对记录、生成 spec、DB 步骤），其余命令只打印；
@@ -45,7 +45,7 @@ scripts/release/release.sh dev                          # make dev-sync-backend-
    脚本永远不对 stg / prod / golden_source 跑 `psql`。格式见 `scripts/release/db-steps.d/README.md`。
 5. **before 快照** → `${BIFROST_RELEASE_DIR:-/tmp/claude-501/release}/<date>/<env>-<HHMMSS>/`。
 6. **建 run**：STG `kubectl create -f scripts/release/pipelinerun-deliver-stg.json`（revision main）；
-   PROD 先 `--dry-run=server` 再 create；DEV 是 `RESTART=1 make dev-sync-backend-images`。
+   PROD 先 `--dry-run=server` 再 create；DEV 是 `RESTART=1 make dev-sync-backend-images`：worker、四个 API 和前端的 `:dev` 一起跟 `:stg`（前端镜像不分环境；2026-10-05 前前端不在内，DEV 前端曾停在 10-02）。
 7. **等待**：每 15 秒看一次，直到离开 Unknown，打印每个 TaskRun 的耗时（10-03 实测 STG 约 4 分钟、PROD 约 5 分钟）。
    超过 `--timeout`（默认 3600 秒）以 3 退出——run 仍在跑，不要再起一个。
 8. **after 核对**（见下）；PROD 另外核对它克隆的 6 个提交与 STG 完全一致。

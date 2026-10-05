@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Point DEV's backend :dev tags at what STG runs (worker + the four API images DEV deploys).
+# Point DEV's :dev tags at what STG runs: the worker, the four API images DEV deploys, and the frontend.
 #
-# Since TD-34 DEV runs its own :dev tags and STG/PROD delivers never touch them. The frontend and
-# the API have DEV-only builds that push :dev; the worker has none, so without this DEV's worker
-# froze at the copy TD-34 made — before TD-04, reading the account snapshot from the per-env
-# Redis instead of redis-ib (empty Accounts on DEV, 2026-10-02). Run this after an STG release
-# when DEV should catch up. It never touches :stg / :prod or the frontend's :dev.
+# Since TD-34 DEV runs its own :dev tags and STG/PROD delivers never touch them. The worker has no
+# DEV-only build, so without this DEV's worker froze at the copy TD-34 made — before TD-04, reading
+# the account snapshot from the per-env Redis instead of redis-ib (empty Accounts on DEV, 2026-10-02).
+# The frontend's :dev build is DEV-only too and nothing runs it, so dev.trader.bifrost.lan froze at
+# 2026-10-02 while PROD took every release of 10-04. The frontend image is the same for every env
+# (one .env.production + nginx; Traefik routes /api per env), so :stg is safe for DEV. Run this after
+# an STG release (release.sh dev does) when DEV should catch up. It never touches :stg / :prod.
+# The name still says "backend": callers (release.sh, make dev-sync-backend-images) keep it.
 #
 #   scripts/registry/dev-sync-backend-images.sh              copy :stg → :dev, print old and new digests
 #   SRC=sha256:<digest> IMAGES=bifrost-worker scripts/…      put one image back (rollback)
@@ -15,7 +18,7 @@ set -euo pipefail
 
 REGISTRY="${REGISTRY:-http://192.168.10.73:30500}"
 SRC="${SRC:-stg}"
-read -r -a IMAGES <<<"${IMAGES:-bifrost-worker bifrost-api-account bifrost-api-market bifrost-api-monitor bifrost-api-research}"
+read -r -a IMAGES <<<"${IMAGES:-bifrost-worker bifrost-api-account bifrost-api-market bifrost-api-monitor bifrost-api-research bifrost-frontend}"
 ACCEPT='application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json'
 
 digest_of() {
@@ -53,6 +56,7 @@ if [[ "${RESTART:-0}" == 1 ]]; then
     case "$img" in
       bifrost-worker) d=daemon ;;
       bifrost-api-*) d="${img#bifrost-}" ;;
+      bifrost-frontend) d=frontend ;;
       *) continue ;;
     esac
     want="$(digest_of "$img" dev)"
