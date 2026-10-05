@@ -73,15 +73,27 @@ for dump in "$run"/*.dump; do
   done < <(tail -n +2 "$run/extensions.tsv")
 
   # A fresh database already has schema public; skip that one CREATE SCHEMA.
+  # Views go in a second pass: Trade's public views read the FDW schema
+  # market, which is not part of the backup (core DDL recreates it), so a
+  # view that cannot be created on its own is reported, not failed.
   schema="${target#*.}"
-  toc="$(mktemp)"
-  if [[ "$schema" == public ]]; then
-    pg_restore -l "$dump" | grep -v ' SCHEMA - public ' >"$toc"
-  else
-    pg_restore -l "$dump" >"$toc"
-  fi
+  full="$(mktemp)" toc="$(mktemp)" views="$(mktemp)"
+  view_re=' (VIEW|MATERIALIZED VIEW|MATERIALIZED VIEW DATA) '
+  pg_restore -l "$dump" | grep -v " SCHEMA - $schema " >"$full"
+  [[ "$schema" == public ]] || pg_restore -l "$dump" >"$full"
+  grep -E "$view_re" "$full" >"$views"
+  grep -v -E "$view_re" "$full" >"$toc"
   if ! pg_restore -d "$db" --no-owner --no-acl --exit-on-error -L "$toc" "$dump" >>"$report" 2>&1; then
     say "[$target] pg_restore FAILED"; fail=1; continue
+  fi
+  nviews="$(grep -c . "$views" || true)"
+  if ((nviews)); then
+    vfail=0
+    while IFS= read -r entry; do
+      printf '%s\n' "$entry" >"$toc"
+      pg_restore -d "$db" --no-owner --no-acl --exit-on-error -L "$toc" "$dump" >>"$report" 2>&1 || vfail=$((vfail + 1))
+    done <"$views"
+    say "[$target] views: $((nviews - vfail)) of $nviews restored; $vfail depend on objects outside this dump"
   fi
 
   n=0; bad=0
