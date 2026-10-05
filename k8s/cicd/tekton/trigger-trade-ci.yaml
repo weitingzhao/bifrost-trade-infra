@@ -32,6 +32,25 @@ spec:
       value: $(body.repository.clone_url)
 
 ---
+# --- TriggerBinding: a bifrost-ui push runs the frontend gate against that ui commit ---
+# The pushed SHA is bifrost-ui's: it goes to uiRevision, and the frontend under test stays on
+# main. Bound as `revision` (the frontend's) it named a commit the frontend repo does not have,
+# and every ui push failed the gate at clone (ci-frontend-5jvmh, 2026-10-05).
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: bifrost-gitea-push-ui
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: ci-trigger
+spec:
+  params:
+    - name: revision
+      value: main
+    - name: uiRevision
+      value: $(body.after)
+
+---
 # --- TriggerTemplate: Python repos → bifrost-ci-python pipeline ---
 apiVersion: triggers.tekton.dev/v1beta1
 kind: TriggerTemplate
@@ -94,6 +113,8 @@ spec:
   params:
     - name: revision
       default: main
+    - name: uiRevision
+      default: main
   resourcetemplates:
     - apiVersion: tekton.dev/v1
       kind: PipelineRun
@@ -110,6 +131,8 @@ spec:
         params:
           - name: revision
             value: $(tt.params.revision)
+          - name: uiRevision
+            value: $(tt.params.uiRevision)
         taskRunTemplate:
           podTemplate:
             nodeSelector:
@@ -209,7 +232,7 @@ spec:
         - ref: bifrost-gitea-push
       template:
         ref: bifrost-ci-python-template
-    # L2: Frontend repo (+ bifrost-ui triggers frontend CI too)
+    # L2: Frontend repo — the pushed SHA is the frontend's
     - name: frontend-ci
       interceptors:
         - ref:
@@ -218,9 +241,23 @@ spec:
             - name: filter
               value: >-
                 body.ref == 'refs/heads/main' &&
-                body.repository.name in ['bifrost-trade-frontend', 'bifrost-ui']
+                body.repository.name == 'bifrost-trade-frontend'
       bindings:
         - ref: bifrost-gitea-push
+      template:
+        ref: bifrost-ci-frontend-template
+    # L2: bifrost-ui — the same frontend gate, frontend on main, ui at the pushed SHA
+    - name: frontend-ci-ui
+      interceptors:
+        - ref:
+            name: "cel"
+          params:
+            - name: filter
+              value: >-
+                body.ref == 'refs/heads/main' &&
+                body.repository.name == 'bifrost-ui'
+      bindings:
+        - ref: bifrost-gitea-push-ui
       template:
         ref: bifrost-ci-frontend-template
     # L1: Platform repo (control plane)
