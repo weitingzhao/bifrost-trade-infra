@@ -1,0 +1,17 @@
+# Expected changes of the W6 frontend release (frontend#2, 2026-10-06): frontend only.
+# Buying power is marked to live quotes and moves between the before and after
+# snapshots on its own; nothing in this release touches account data.
+model.*.account_summary.buying_power
+# The same live marks move current equity, so every return built on it shifts in the
+# fourth decimal (PROD after-check 2026-10-06: equity +8.62, net liquidation +2.86 / +5.76).
+model.*.account_summary.net_liquidation
+perf.unrealized.current_equity
+perf.unrealized.return_pct
+perf.transaction.capital_base
+perf.transaction.start_equity
+perf.summary.return_pct
+perf.calendar[*].return_pct
+perf.calendar_by_sec_type[*].return_pct
+perf.realized_by_sec_type[*].return_pct
+perf.realized_by_strategy_opportunity[*].return_pct
+perf.realized_by_trade[*].return_pct
