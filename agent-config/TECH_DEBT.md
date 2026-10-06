@@ -13,9 +13,9 @@
 
 ## 待你签收
 
-（暂无）
+- **TD-154** — api 测试里 76 处裸 `reader = MagicMock()` 换成 `create_autospec(StatusReader)`，`test_an_unknown_field_is_422_named_and_writes_nothing` 改为对路由能走到的每个 writer 断言未调用（api 0805fb1，只改测试） · 验收 PASS（10-06，1002 passed；只做 spec 化时旧断言 12/12 失败） · 防线：`bifrost-trade-api/tests/test_reader_mocks_have_spec.py`（AST 扫描，*reader 的 Mock 必须带 spec） · 无后续：同类断言已全部 spec 化
 
-**未结 72 项**：P0 0 · P1 5 · P2 29 · P3 38；要你批的 34 项（从总览表的审批列算）。
+**未结 73 项**：P0 0 · P1 5 · P2 29 · P3 39；要你批的 35 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -83,7 +83,7 @@
 
 目标：Data Gaps 看板上未结的 15 项并入台账：先把每日快照的写入修对（TD-137）再接读侧和三页，归因行补上价格，Research 侧已就绪的一个版本（0.185.0）发出去，长期限 IV 锥在 10-31 前从 option_daily 回填，其余按 Owner 已定的口径排。
 
-项：TD-137, TD-138, TD-139, TD-140, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-151, TD-158, TD-159 · 已还：TD-141, TD-147
+项：TD-137, TD-138, TD-139, TD-140, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-151, TD-158, TD-159, TD-171 · 已还：TD-141, TD-147
 
 ## 数据边界（接受并留座）
 
@@ -237,6 +237,7 @@
 | [TD-168](#td-168) | P3 | market-data | The doctor's stale:* detail says the dimension row is one 'which other slots also write' even for calendar and fundamentals-rotate, whose dimensions are not shared | 不用批 |
 | [TD-169](#td-169) | P3 | market-data | ops_jobs.ingest_freshness.option_expiration is a fossil row frozen since 09-06 and still listed as ok | 不用批 |
 | [TD-170](#td-170) | P3 | research-control | dagster-daemon logs one line over 256 KB at the 22:45 and 03:00 UTC schedule ticks every night | 不用批 |
+| [TD-171](#td-171) | P3 | frontend | Positions shows the attribution price_last as if it were live: no EOD label or date now that core 0.51.0 fills it from the vendor EOD mark | 不用批 |
 
 ## 条目
 
@@ -902,7 +903,7 @@
 - **状态**：在做（代码就绪，已推为分支、未合并：core `fix/w4-snapshot-stale-accounts` = 9013ba2（0.51.0，基于 0.50.0；lint 过、单测 1287 过、test-db 100 过）· infra `fix/w4-snapshot-evening-all` = deaa2ca。**接手步骤**：① 等 Code Refactor 那批 Trade 发布（core 0.49.0 / 0.50.0 + api 0.10.0）在 PROD 通过——它会直接告诉 Owner；② 把 core 分支 rebase 到最新 main，若 0.51.0 已被占用就改下一个号（pyproject、DATABASE.md change log、snapshot_ddl.py / daily.py 注释与两个测试文件里的版本），重跑 `make lint && make test && make test-db`；③ Owner 逐项确认 PROD DDL：`account_nav_daily` ADD COLUMN IF NOT EXISTS `cushion` / `excess_liquidity` / `maint_margin_req`（double precision、可空、无默认、不回填），无自加项、无不可逆步骤，行为变化见本条 Fix；④ `release.sh window && git push` core main，Owner 跑 release.sh stg → prod（单独一批）；**每个环境在当天 16:20 ET 前跑完 db-init**，否则 capture 因缺列失败、丢一整天；⑤ api 镜像带上新 core 之后再合并推 infra 分支并同步 bifrost-stg / bifrost-prod（旧镜像跑晚间 `all` 会重读 attribution 而在 enrich 前退出）；⑥ 次日核 `account_nav_daily` 的 `account_updated_at ≥ 收盘` 与三列非空，写验收结果）
 - **验收**：每个 Trade 库（`bifrost_dev` / `bifrost_stg` / `bifrost_prod`）发布后的 session：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data exec -i bifrost-postgres-3 -c postgres -- env PGOPTIONS='-c default_transaction_read_only=on' psql -U postgres -d bifrost_prod -X -At -c "SELECT count(*) FROM account_nav_daily WHERE snapshot_date >= '<发布日>' AND account_updated_at < (snapshot_date + time '16:00') AT TIME ZONE 'America/New_York'"` 为 0（NYSE 提前收盘日按提前收盘时间比），且 `SELECT snapshot_date, count(cushion), count(*) FROM account_nav_daily GROUP BY 1 ORDER BY 1 DESC LIMIT 3` 最新一天 count(cushion) = count(*)
 - **现在**：Owner 10-06 定：B1.b (a) 跳过陈旧账户、晚间补抓，不加 stale 列；B1.c (a) 加三列，不存整份 summary_extra。修复已 rebase 到 core 0.50.0 并改号 0.51.0：lint 通过；单测 1287 passed（跳过已知的本机 py_vollib 失败）；test-db 100 passed；kustomize 三环境可渲染。10-06 的 16:20 抓取仍按 0.48.2 跑。
-- **下一步**：Code Refactor 那批 PROD 通过（它会通知）→ 推 core 9013ba2 / infra deaa2ca → `release.sh stg` / `prod`（要你批）→ 每环境先跑 db-init 建列再换镜像 → 同步 bifrost-stg / bifrost-prod。20:05–20:40 UTC 不起发布。在此之前不推 core / api / infra / frontend 的 main。
+- **下一步**：0.51.0 已被 TD-140（core 4dbd316）占用：分支 rebase 到新 main 并改号 0.52.0（保留 capture 里的 `attribution_live_marks_only`，测试 fixture 带价行加 `mark_source="quote_live"`）→ 推 core / infra → `release.sh stg` / `prod`（要你批）→ 每环境先跑 db-init 建列再换镜像 → 同步 bifrost-stg / bifrost-prod。20:05–20:40 UTC 不起发布
 - **Claim**: capture() inserts NAV and positions with ON CONFLICT DO NOTHING, so the first run of a date wins, and it copies every brokerage.account row with no freshness test. The secondary account's TWS logs off at 11:00 New York every weekday (TWS Auto log off), so the 16:20 capture stores that account's intraday values as the day's; the 20:30 job only enriches marks and Greeks. An account last synced 2026-05-11 (U17113214) still gets a NAV row every day. Separately, account_nav_daily has no column for Cushion / ExcessLiquidity / MaintMarginReq although brokerage.account.summary_extra carries all three keys for all three accounts; this history only accumulates forward, so every night without the columns is a day that cannot be refilled (SNAPSHOT-SPEC §1.1 pressure history).
 - **Measured**: MEASURED 10-06 on the CNPG replica: 10-05 rows for U8829175 in DEV and STG have account_updated_at and positions_updated_at 15:48 UTC (11:48 New York, intraday); the PROD 10-05 row is a manual re-capture by another session at 22:48 UTC. First night 10-05: DEV 31 / STG 30 / PROD 31 position rows, NAV 3 rows per database. summary_extra: the three keys present on all three accounts (key names only were read).
 - **Evidence**:
@@ -957,8 +958,10 @@
 
 **P2 · trade-data · Position attribution rows have no price, intraday or after the close: their only price source is contract_quote_live, which only the frozen daemon writes**
 
-- **状态**：在做（还债第二批 · 道 I，10-06 开工）
+- **状态**：在做（代码已推 core 4dbd316 = 0.51.0，不改 DDL；等 Trade 发版后验收）
 - **验收**：收盘 enrich 之后：`curl -s http://192.168.10.73:30881/api/account/executions/position-attribution | python3 -c 'import json,sys;r=json.load(sys.stdin)["items"];print(len(r),sum(x.get("price_mid") is None and x.get("price_last") is None for x in r),sorted({str(x.get("mark_source")) for x in r}))'` → 第二个数为 0，第三项不含 None
+- **下一步**：Owner 跑 Trade 发版（core 0.51.0，api 不改代码、下限不动）→ 跑验收命令，DEV 端口 30882；前端没有把这个价格标成 EOD，记为 TD-171
+- **现在**：改前实测 10-06 18:41 UTC：DEV / PROD 各 31 行全无价格、无 mark_source；position_snapshot_daily 三环境只有 10-05 一个 session，DEV / PROD 29/29 持仓有 vendor_eod 标记。0.51.0：无新鲜 live quote 时取最新 vendor_eod 快照标记（股票取插件 benchmark 日收盘中更新的那个），每行加 `mark_source` / `mark_date`；capture 用 `fallback_marks=False`，`split_rows` 只认 `quote_live`，旧收盘价不会被回灌成当天 mark。门禁：core lint 0、1287 passed、test-db 99 passed；api 在 0.51.0 上 1002 passed
 - **Claim**: get_position_instance_attribution takes price_mid / price_last only from a LEFT JOIN on brokerage.contract_quote_live, filtered to rows younger than 4 hours (TD-02, core 0.28.2). Under D10 the daemon does not run, so the table has 13 rows, newest 2026-03-28, and every attribution row has no price and no unrealized_pnl_est, intraday and after the close. The 09-29 reading that stocks had prices was March prices the freshness rule now excludes.
 - **Measured**: MEASURED 10-06 after the close: GET /api/account/executions/position-attribution → PROD and DEV 31 rows each; OPT 13/13 and non-OPT 18/18 with price_mid, price_last and unrealized_pnl_est null; brokerage.contract_quote_live 13 rows, max(updated_at) 2026-03-28. (09-29: 30 rows, OPT 12/12 null, non-OPT 2/18 null.)
 - **Evidence**:
@@ -1165,7 +1168,9 @@
 
 **P3 · trade (round 1) · api test_request_bodies asserts on a plain MagicMock that removed facade methods were not called — it can never fail**
 
-- **状态**：在做（还债第二批 · 道 I，10-06 开工）
+- **状态**：待你签收
+- **验收**：`cd bifrost-trade-api && make lint && make test`：全过，且 `tests/test_reader_mocks_have_spec.py` 在内
+- **验收结果**：PASS 2026-10-06 api 0805fb1（1002 passed，core 0.51.0）；只做 spec 化时旧断言 12/12 失败，证明旧断言原来永远不会失败
 - **Claim**: After core 0.49.0 the facade write methods no longer exist; the test still asserts on a bare MagicMock that create_position_category / set_position_category_tag / … were not called. A MagicMock accepts any attribute, so the assertion passes whatever the route does.
 - **Measured**: code-read 10-06 (paydown lane F).
 - **Evidence**:
@@ -1419,6 +1424,21 @@
 - **Fix**: After 10-07 find the truncated line in Loki (`{namespace="research", app="dagster-daemon"}` with promtail_mutated_entries_total line_too_long), trace it to the logger call and log a summary (counts, ids) instead of the object.
 - **Ratchet**: A test or log filter in research that caps log message length (e.g. a logging.Filter that truncates over 16 KB and counts it), plus the existing promtail mutated-entries metric.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
+
+### TD-171
+
+**P3 · frontend · Positions shows the attribution price_last as if it were live: no EOD label or date now that core 0.51.0 fills it from the vendor EOD mark**
+
+- **状态**：未开始
+- **Claim**: core 0.51.0 (TD-140) fills price_last from the newest vendor_eod snapshot mark when there is no live quote and labels each row mark_source / mark_date. The frontend type has only price_mid / price_last and buildTradeGroups falls back to price_last without saying it is a dated close.
+- **Measured**: code-read 10-06 by paydown lane I.
+- **Evidence**:
+  - `bifrost-trade-frontend/src/types/positions.ts:107` — `price_last: number | null`
+  - `bifrost-trade-frontend/src/utils/buildTradeGroups.ts:124` — `: a.price_last != null && Number.isFinite(Number(a.price_last))`
+- **Impact**: Under D10 every attribution price is an EOD close; a reader cannot tell yesterday's close from a live mark.
+- **Fix**: Add mark_source / mark_date to the attribution type (and the zod schema); where price_last is shown or used as the mark, tag it EOD with the date.
+- **Ratchet**: A vitest on buildTradeGroups: a row with mark_source vendor_eod yields a mark labelled EOD with its date.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
 
 ## 没覆盖到的（下一轮从这里开始）
 
