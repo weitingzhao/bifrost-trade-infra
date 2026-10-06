@@ -14,6 +14,7 @@ resources:
   - bifrost-minio-nas.yaml
   - bifrost-flex-query.yaml
   - bifrost-market-data.yaml
+  - bifrost-research.yaml
   - bifrost-platform-api.yaml
   - promtail.yaml
   - traefik.yaml

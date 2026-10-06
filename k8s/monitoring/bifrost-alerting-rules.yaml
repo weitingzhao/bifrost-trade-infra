@@ -14,8 +14,10 @@ spec:
     - name: bifrost-trade
       rules:
         - alert: BifrostAPICrashLooping
+          # research and the plugin namespaces too (TD-99): on 2026-09-24 the
+          # dagster daemon crash-looped for ~27 minutes and nothing fired.
           expr: |
-            kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff",namespace=~"bifrost-.*"} == 1
+            kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff",namespace=~"bifrost-.*|research|plugin-.*"} == 1
           for: 5m
           labels:
             severity: warning
@@ -554,6 +556,148 @@ spec:
             summary: "Market data {{ $labels.deployment }} has no available replica"
             description: "{{ $labels.deployment }} in plugin-market-data is not running; its queued ingest jobs will not be claimed."
 
+
+    # Research scheduler liveness (TD-99). bifrost_run_failure_alert, a sensor
+    # inside dagster-daemon, reports a run that failed. Nothing reported a schedule
+    # that stopped producing runs: STOPPED in the instance DB, renamed in code, a
+    # daemon alive but not ticking, a tick that failed before it launched a run, a
+    # hung run (research_trading_day sat STARTED for 20.5h in September; forecast
+    # had no producer from 08-30 while every page was green). These read
+    # research-api /metrics. Every liveness value there is a timestamp and the age
+    # is computed here; "last due" is the code's cron evaluated at scrape time, so a
+    # weekday or monthly schedule is never late on a day it is not due.
+    - name: bifrost-research-orchestration
+      rules:
+        - alert: BifrostDagsterDaemonHeartbeatStale
+          expr: |
+            time() - bifrost_dagster_daemon_heartbeat_timestamp_seconds{daemon_type=~"SCHEDULER|SENSOR|MONITORING"} > 300
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Dagster {{ $labels.daemon_type }} daemon has not heartbeated for {{ $value | humanizeDuration }}"
+            description: "ops_dagster.daemon_heartbeats has no recent {{ $labels.daemon_type }} beat. With SCHEDULER stale no schedule fires; with SENSOR stale the run-failure alert is silent too. Check the dagster-daemon pod in research (restarts, OOMKilled, 'No heartbeat' lines) before trusting any research freshness."
+
+        - alert: BifrostDagsterScheduleNotRunning
+          expr: |
+            bifrost_dagster_schedule_running == 0
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Dagster schedule {{ $labels.schedule }} is {{ $labels.state }}"
+            description: "The schedule is in research's roster but the Dagster instance has it {{ $labels.state }} (missing = the daemon never loaded it: renamed, or the dagster image is older than research-api's). It produces no runs and no failures. STOPPED: make -C bifrost-research dagster-ensure-schedule; missing: release the dagster image."
+
+        - alert: BifrostDagsterScheduleMissedTick
+          # tracked_since: a fire before the instance first saw the schedule is not owed.
+          expr: |
+            (
+              bifrost_dagster_schedule_last_due_timestamp_seconds
+                > bifrost_dagster_schedule_last_tick_timestamp_seconds
+            )
+            and (time() - bifrost_dagster_schedule_last_due_timestamp_seconds > 900)
+            and (
+              bifrost_dagster_schedule_last_due_timestamp_seconds
+                > bifrost_dagster_schedule_tracked_since_timestamp_seconds
+            )
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Dagster schedule {{ $labels.schedule }} did not tick at its last due time"
+            description: "The cron came due over 15 minutes ago and the daemon recorded no tick for it (a tick that was skipped still counts). The scheduler is running but not evaluating this schedule, or the daemon was down at that time — compare BifrostDagsterDaemonHeartbeatStale and the dagster-daemon restarts."
+
+        - alert: BifrostDagsterScheduleTickFailed
+          expr: |
+            bifrost_dagster_schedule_last_tick_status{status="FAILURE"} == 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Dagster schedule {{ $labels.schedule }}: last tick failed"
+            description: "The tick errored before it launched a run, so no run exists and the run-failure alert cannot fire (2026-09-27: research_memory_distill_schedule failed every tick with DagsterInvalidSubsetError). Dagster UI → Schedules → {{ $labels.schedule }} → tick history has the error."
+
+        - alert: BifrostDagsterRunStuck
+          # Normal runs finish in minutes; the weekly vol backfill, the longest, in ~4h.
+          # run_monitoring only marks a run failed after 9h.
+          expr: |
+            time() - bifrost_dagster_job_oldest_inflight_start_timestamp_seconds > 6 * 3600
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Dagster job {{ $labels.job }} has a run unfinished for {{ $value | humanizeDuration }}"
+            description: "A run of {{ $labels.job }} has been queued or started for over 6h. If dagster-daemon restarted or was OOMKilled after it began, the run is a corpse that stays STARTED until the 9h run_monitoring limit; check for step processes before calling it healthy, and terminate it from the Dagster UI."
+
+        - alert: BifrostResearchMetricsScrapeDown
+          expr: |
+            up{job="research-api"} == 0 or absent(up{job="research-api"})
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "research-api /metrics not being scraped"
+            description: "Prometheus cannot reach research-api in research; every bifrost-research-orchestration alert is blind while this fires."
+
+        - alert: BifrostResearchMetricsProbeFailing
+          expr: |
+            bifrost_research_metrics_probe_ok == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "research-api /metrics probe {{ $labels.probe }} failing"
+            description: "research-api could not read ops_dagster (or the Event Radar tables) for 15m, so the series that probe feeds are absent and the alerts on them are blind. research-api logs 'metrics: … probe failed' with the database error."
+
+        - alert: BifrostEventRadarSecBacklog
+          # TD-100: the SEC feed ran from a Mac tmux loop that failed 157 ticks unnoticed.
+          expr: |
+            bifrost_research_event_radar_timestamp_seconds{signal="sec_filing_fetched"}
+              - ignoring (signal) bifrost_research_event_radar_timestamp_seconds{signal="sec_row_computed"}
+              > 2 * 3600
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "SEC 8-K filings are waiting {{ $value | humanizeDuration }} for Event Radar"
+            description: "raw_market.sec_8k_filing has filings newer than the newest SEC row in features.event_signal_radar_daily. research_event_radar_schedule (every 30 minutes) should have ingested them; check its last runs in Dagster."
+
+        - alert: BifrostEventRadarStale
+          # The plugin writes filings Tue-Sat around 04:30 UTC: Saturday to Tuesday
+          # is three days, a holiday makes four.
+          expr: |
+            time() - bifrost_research_event_radar_timestamp_seconds{signal="sec_row_computed"} > 4 * 86400
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "No SEC Event Radar row for {{ $value | humanizeDuration }}"
+            description: "No SEC 8-K line reached features.event_signal_radar_daily in four days. Either the plugin wrote no filings (fundamentals-market slot) or the radar ingest is failing."
+
+        - alert: BifrostResearchWorkloadUnavailable
+          expr: |
+            kube_deployment_status_replicas_available{namespace="research"} == 0
+            and
+            kube_deployment_spec_replicas{namespace="research"} > 0
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "research/{{ $labels.deployment }} has no available replica"
+            description: "research/{{ $labels.deployment }} wants {{ $value }} replica(s) and has none available. dagster-daemon down means no schedule fires; research-api down means Research pages and these alerts are blind."
+
+        - alert: BifrostResearchCronJobStale
+          # research-harness is the one research CronJob outside Dagster (weekdays).
+          expr: |
+            (time() - kube_cronjob_status_last_successful_time{namespace="research"} > 4 * 86400)
+            unless on (namespace, cronjob)
+            (kube_cronjob_spec_suspend{namespace="research"} == 1)
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "research CronJob {{ $labels.cronjob }} has not succeeded for {{ $value | humanizeDuration }}"
+            description: "An unsuspended CronJob in research has no successful Job in four days. kubectl -n research get jobs | grep {{ $labels.cronjob }} shows the failed or missing runs."
 
     # The plugins Trade runs on had no alerting until now. On 2026-09-07 the IB
     # gateway could not reach TWS for 17.5 hours — 1876 failed connects — and

@@ -1,0 +1,26 @@
+# Scrape research-api /metrics (research namespace): Dagster scheduler liveness
+# (daemon heartbeats, per-schedule state / last due / last tick, last success and
+# oldest unfinished run per job) and Event Radar freshness. The
+# bifrost-research-orchestration alert group reads these (TD-99, TD-100).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bifrost-research
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: research
+spec:
+  namespaceSelector:
+    matchNames:
+      - research
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: research-api
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 20s
