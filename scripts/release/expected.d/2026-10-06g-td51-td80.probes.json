@@ -1,0 +1,9 @@
+{
+  "_comment": "Trade release 2026-10-06g: core 0.49.0 (TD-80 C2-b, StatusReader read-only; no HTTP change) + api 0.10.0 (TD-51: the old query spellings are a 422 retired_query_param, the rename is gone). No data diff is expected, so there is no .allow file. Each refused probe logs one 'retired query params' line with user_agent=bifrost-release-check/1 -- that is this probe, not a caller.",
+  "probes": [
+    {"name": "TD-51 /executions refuses since_ts (api 0.10.0)", "path": "/api/account/executions?limit=1&since_ts=0", "status": 422, "json": true, "contains": "retired_query_param"},
+    {"name": "TD-51 /executions takes from_ts", "path": "/api/account/executions?limit=1&from_ts=0", "status": 200, "json": true},
+    {"name": "TD-51 /research/option-snapshots refuses expiration", "path": "/api/research/research/option-snapshots?symbol=ZZQ&expiration=20261016", "status": 422, "json": true, "contains": "retired_query_param"},
+    {"name": "TD-51 /research/greeks refuses right", "path": "/api/research/research/greeks?symbol=ZZQ&trade_date=2026-10-01&right=P", "status": 422, "json": true, "contains": "retired_query_param"}
+  ]
+}
