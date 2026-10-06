@@ -1339,8 +1339,9 @@
 
 **P2 · ops-platform · Ops Console Market Data › Ingest crashes to a blank page while the doctor is recomputing (its 'computing' answer has no universe)**
 
-- **状态**：在做（platform a4e1e72 已提交、门禁通过；等血缘会话的 platform 发布结束后推 main 并发 STG / PROD）
+- **状态**：观察中（到下一次 market-data 插件重启——道 J 的发版，看 PROD Ingest 页在 doctor 计算中时显示 computing）
 - **验收**：PROD Console 的 doctor 返回计算中空壳时，Ingest 页显示 `computing` 而不白屏；`__tests__/DoctorPanel.computing.test.ts` 通过
+- **现在**：platform 13f1f68 已上 STG（bifrost-deliver-platform-1791312501）和 PROD（bifrost-deliver-platform-prod-1791312712），两次 clone HEAD 都是 13f1f68；PROD 控制台 bundle 含新文案；PROD Ingest 页正常路径渲染无错（doctor 非计算中：degraded、0 critical）。计算中路径目前只由 `DoctorPanel.computing.test.ts` 覆盖，线上要等插件重启才会出现
 - **Claim**: GET /market/doctor answers {age_sec, computing, findings, generated_at, ok} while a recompute runs (after a plugin restart the cache is empty). DoctorPanel renders `report.universe.optionable` unguarded, so the whole Ingest tab throws and React unmounts the root until a full reload after the doctor is done.
 - **Measured**: MEASURED 10-06 18:15 UTC on PROD (market-data 0.79.0 had just restarted): TypeError 'Cannot read properties of undefined (reading optionable)' in DoctorPanel, #root empty; after the doctor finished (18:16:48) a full reload rendered normally.
 - **Evidence**:
