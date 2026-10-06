@@ -16,7 +16,7 @@
 - **TD-177** — 假设卡（active / validated）加「＋ Plan」，打开现有 PlanForm 并预填 source_kind=hypothesis、source_ref=假设 id（单 symbol 时带 symbol），存草稿前不写任何东西（frontend 0e0b69a3）· 验收 PASS（10-06，3 个用例 + 本地点击）· 防线：`src/pages/research/loop/HypothesisBoardPage.plan.test.tsx` · 后续：TD-143 正向验收要你在 DEV 从假设卡建 plan 并成交；随 10-07 Trade 发版上线
 - **TD-179** — Stock screen 不选模型时可按财报日排序（逾期在前、无估计在后），RankDrawer 启用 Earnings（frontend 0e0c9637）· 验收 PASS（10-06，4 个用例；DEV 真数据 3,794 名）· 防线：`stockScreenEarnings.test.ts` 排序用例 + `RankDrawer.test.tsx` · 无后续；随 10-07 Trade 发版上线
 
-**未结 75 项**：P0 0 · P1 5 · P2 30 · P3 40；要你批的 39 项（从总览表的审批列算）。
+**未结 78 项**：P0 0 · P1 5 · P2 30 · P3 43；要你批的 40 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -84,7 +84,7 @@
 
 目标：Data Gaps 看板上未结的 15 项并入台账：先把每日快照的写入修对（TD-137）再接读侧和三页，归因行补上价格，Research 侧已就绪的一个版本（0.185.0）发出去，长期限 IV 锥在 10-31 前从 option_daily 回填，其余按 Owner 已定的口径排。
 
-项：TD-137, TD-138, TD-139, TD-140, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-151, TD-158, TD-159, TD-171, TD-172, TD-177, TD-178, TD-179 · 已还：TD-141, TD-147
+项：TD-137, TD-138, TD-139, TD-140, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-151, TD-158, TD-159, TD-171, TD-172, TD-177, TD-178, TD-179, TD-180, TD-181, TD-182 · 已还：TD-141, TD-147
 
 ## 数据边界（接受并留座）
 
@@ -241,6 +241,9 @@
 | [TD-177](#td-177) | P3 | frontend | No way to create a plan from a hypothesis: PlanThisButton writes source_kind 'symbol' and PlanForm takes a hand-typed slug, so TD-143's hypothesis → trade link never forms | 不用批 |
 | [TD-178](#td-178) | P3 | trade-api | GET /strategies/plans has no source_kind filter: Research reads the newest 500 filled plans and filters itself, marking truncated at the cap | 改公开接口 |
 | [TD-179](#td-179) | P3 | frontend | Stock screen with No model cannot sort by Earnings: RankDrawer still disables it although the batch read now serves the dates | 不用批 |
+| [TD-180](#td-180) | P3 | research-data | The macro calendar has no CPI dates after 2026-12-10 and no payrolls at all: bls.gov answers 403 from this host, so they could not be read | 不用批 |
+| [TD-181](#td-181) | P3 | research-data | /events/calendar takes its macro rows from a hand-dropped radar file (ends 2026-12-10) instead of macro_event_daily, and radar ids include the collection date so a re-drop duplicates them | 不用批 |
+| [TD-182](#td-182) | P3 | research-data | Macro gap (actual vs expected) is always empty: consensus is not in the subscription, and the entitled /fed/v1/inflation actuals have no raw table | 改表（要你批） |
 
 ## 条目
 
@@ -1123,8 +1126,10 @@
 
 **P3 · research-data · The macro calendar is empty: features.macro_event_daily has 0 rows because macro_ingest has no scheduled caller**
 
-- **状态**：在做（还债第三批 · 道 O，10-06 开工；发版前停下等你批）
-- **验收**：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data exec -i bifrost-postgres-3 -c postgres -- env PGOPTIONS='-c default_transaction_read_only=on' psql -U postgres -d bifrost_golden_source -X -At -c "SELECT count(*), max(event_date) FROM features.macro_event_daily"` → count > 0 且 max(event_date) ≥ 今天 + 30 天；`git -C bifrost-research grep -n macro_ingest origin/main -- src/bifrost_research/orchestration` 至少一行
+- **状态**：在做（代码在 research main 4f1e34e = 0.197.0；镜像未建——auto mode 拒绝了道 O 起 deliver-research；构建与发布等你批）
+- **验收**：上线并手动跑一次 `research_macro_calendar_job` 后：GS 只读 `SELECT count(*), max(event_date) FROM features.macro_event_daily` = `19|2027-12-08`；`/research/event-radar/macro/forward?days=30` count ≥ 2（10-14 CPI、10-28 FOMC）
+- **下一步**：你批：① 起 `bifrost-deliver-research`（tag 0.197.0，revision 4f1e34e）与 `bifrost-build-research-dagster`（同 revision，在 mirror-sync 之后）② 推 pin ③ apply `dagster.yaml` 到 0.197.0-dagster（先确认无在途 run）④ 手动跑一次 job。后续：TD-180、TD-181、TD-182
+- **现在**：实测：macro_event_daily 0 行，Dagster 里从没有 macro 的 job / run / asset，`macro_ingest` 只是读 Mac 路径的 CSV 投放目录（没实现 / 从未调度 → 修）。前瞻日历：0.197.0 新增包内维护源 `scheduler/data/macro_calendar.csv`（FOMC 2026–2027 共 16 条，10-06 读自 federalreserve.gov，2027 为官方 tentative；CPI 10-14 / 11-10 / 12-10），`macro_ingest` 改为按 (country, indicator, date) 稳定 id、删除已移除的 seed 行；新 asset `engines/macro_calendar` + `research_macro_calendar_job`（周一 10:00 UTC），roster 已同步。Macro gap（actual 对一致预期）：一致预期不在订阅里 = 权限缺口，接受并留座（见后续）。防线：asset output check（覆盖不到今天 + 30 天报 ERROR、序列将尽报 WARN）+ `tests/orchestration/test_macro_calendar.py`
 - **Claim**: features.macro_event_daily is filled only by scheduler/macro_ingest.py, a CSV drop-zone ingest from Wave R4, and no Dagster schedule, job or CronJob calls it. /research/event-radar/macro/forward and /macro/gap answer 0 rows; the macro rows in /research/events/calendar come from a hand-placed ws:macro file.
 - **Measured**: MEASURED 10-06: 0 rows; both routes 0 rows. CODE-READ: `git grep macro_ingest` on origin/main finds no caller in bifrost_research/orchestration or bifrost-trade-infra.
 - **Evidence**:
@@ -1493,6 +1498,48 @@
 - **Fix**: In StockScreenPage's model==='none' branch sort by data.earnings daysAway and pass the sort state to RankDrawer.
 - **Ratchet**: A vitest: No model + Earnings sort orders names by days to the expected date, unknown last.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
+
+### TD-180
+
+**P3 · research-data · The macro calendar has no CPI dates after 2026-12-10 and no payrolls at all: bls.gov answers 403 from this host, so they could not be read**
+
+- **状态**：未开始
+- **Claim**: TD-151's seed file carries FOMC through 2027 but CPI only for three 2026 releases (copied from a hand-dropped file) and no Employment Situation dates.
+- **Measured**: MEASURED 10-06 by paydown lane O: bls.gov returned 403 to the Mac; federalreserve.gov answered.
+- **Evidence**:
+  - `bifrost-research/src/bifrost_research/scheduler/data/macro_calendar.csv:35` — `2026-12-10,08:30,US,CPI,November 2026`
+- **Impact**: From 11-05 the asset check warns; from 12-10 the forward calendar has no CPI and never had payrolls.
+- **Fix**: Someone who can open bls.gov adds the 2027 CPI and Employment Situation schedules to the CSV.
+- **Ratchet**: Already in place: the macro_calendar asset check warns when any series has under 30 days left.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
+
+### TD-181
+
+**P3 · research-data · /events/calendar takes its macro rows from a hand-dropped radar file (ends 2026-12-10) instead of macro_event_daily, and radar ids include the collection date so a re-drop duplicates them**
+
+- **状态**：未开始
+- **Claim**: Two macro paths exist: features.macro_event_daily (TD-151) and event_signal_radar_daily rows with source ws:macro-calendar-2026q4. The calendar page reads the latter; _stable_id hashes the collection date, so each weekly re-drop writes new ids for the same events.
+- **Measured**: code-read 10-06 by paydown lane O.
+- **Evidence**:
+  - `bifrost-research/src/bifrost_research/engines/event_radar/pipeline.py:172` — `def _stable_id(source: str, collected: date, idx: int, text: str) -> str:`
+- **Impact**: The calendar loses macro events after 12-10 and can show the same release twice.
+- **Fix**: Have /events/calendar read macro rows from macro_event_daily and retire the ws:macro radar file, or give radar a macro writer with a date-free stable id.
+- **Ratchet**: A research test: /events/calendar macro rows equal macro_event_daily for the window.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
+
+### TD-182
+
+**P3 · research-data · Macro gap (actual vs expected) is always empty: consensus is not in the subscription, and the entitled /fed/v1/inflation actuals have no raw table**
+
+- **状态**：未开始
+- **Claim**: The MacroPanel gap view needs expected and actual. Consensus estimates are not entitled (entitlement gap: accept and name it). Actuals for inflation are entitled via Massive /fed/v1/inflation but the plugin has no raw table for them. The front-end empty state still blames a CSV forward_flag.
+- **Measured**: MEASURED 10-06 by paydown lane O: /macro/gap 0 rows; Benzinga 403; /fed/v1/inflation entitled.
+- **Evidence**:
+  - `bifrost-trade-frontend/src/components/research/EventRadarDashboard.tsx:213` — `'Forward releases appear when macro CSV includes forward_flag rows',`
+- **Impact**: Readers see an empty panel with a wrong explanation.
+- **Fix**: Now: change the empty-state copy to name the entitlement gap. Later (Owner): a plugin raw table for /fed/v1/inflation actuals feeding macro_event_daily.actual.
+- **Ratchet**: None feasible for the gap itself (entitlement); the copy fix is covered by the existing EventRadarDashboard tests once updated.
+- 审批 改表（要你批） · 代价 S · 风险 low · repos: bifrost-trade-frontend, bifrost-platform-plugin-market-data, bifrost-research
 
 ## 没覆盖到的（下一轮从这里开始）
 
