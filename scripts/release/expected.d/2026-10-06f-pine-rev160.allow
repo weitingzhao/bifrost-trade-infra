@@ -1,0 +1,15 @@
+# Expected changes of the Pine Rev .160 release (frontend e6c6710c, 2026-10-06): frontend only — Signal Decay groups Pine (v2) and
+# Indicators (v1) by basis; Simulator / Pine library / Stock screen copy per RESPONSE-2026-10-06-pine-receipt. No backend or DDL change;
+# account values move only with live quotes (same list as 2026-10-06e-event-backtest-offsets).
+model.*.account_summary.buying_power
+model.*.account_summary.net_liquidation
+perf.unrealized.current_equity
+perf.unrealized.return_pct
+perf.transaction.capital_base
+perf.transaction.start_equity
+perf.summary.return_pct
+perf.calendar[*].return_pct
+perf.calendar_by_sec_type[*].return_pct
+perf.realized_by_sec_type[*].return_pct
+perf.realized_by_strategy_opportunity[*].return_pct
+perf.realized_by_trade[*].return_pct
