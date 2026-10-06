@@ -13,9 +13,9 @@
 
 ## 待你签收
 
-（暂无）
+- **TD-108** — Dagster 调度名单只留一份：research 的 `api/schedule_roster.py` 是唯一来源，`/research/orchestration/status` 带 `market_slots`，Console 按它把 slot 对上调度，删掉两张手抄映射表（research 0.188.0、platform d63cf90） · 验收 PASS（10-06，接口 + PROD Console）· 防线：research `test_schedule_names_in_docs_and_scripts_exist` + platform `slotScheduler.test.ts`（console 里每个 `*_schedule` 字面量都要在名单 fixture 里） · 后续：TD-165（Ingest 页在 doctor 重算时整页崩溃，验收时发现）
 
-**未结 67 项**：P0 0 · P1 5 · P2 28 · P3 34；要你批的 34 项（从总览表的审批列算）。
+**未结 68 项**：P0 0 · P1 5 · P2 29 · P3 34；要你批的 34 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -47,7 +47,7 @@
 
 目标：先让失败变红。错数据先修数据（TD-87 restate），再把引擎、闸门、写入方从「出错也报成功」改成失败即失败：引擎资产按输出判定、husbandry gate 失败即关、日历读失败报错、写入方失败抛错。不需要 Owner 批的先做。
 
-项：TD-87, TD-91, TD-92, TD-94, TD-97, TD-101, TD-136, TD-156, TD-157 · 已还：TD-88, TD-89, TD-90, TD-113, TD-93
+项：TD-87, TD-91, TD-92, TD-94, TD-97, TD-101, TD-136, TD-156, TD-157, TD-165 · 已还：TD-88, TD-89, TD-90, TD-113, TD-93
 
 ### 第 2 波 · 让闸门真的卡住
 
@@ -232,6 +232,7 @@
 | [TD-162](#td-162) | P2 | ops-platform | Research and plugin releases have no release window: sessions collide on pins and on deliver runs | 跨仓库发版 |
 | [TD-163](#td-163) | P3 | research-control | Two research tests import dagster without importorskip, so they fail in any venv without the orchestration extra | 不用批 |
 | [TD-164](#td-164) | P3 | research-data | dbt reports MissingArgumentsPropertyInGenericTestDeprecation 18 times: generic test arguments use the pre-1.10 layout | 不用批 |
+| [TD-165](#td-165) | P2 | ops-platform | Ops Console Market Data › Ingest crashes to a blank page while the doctor is recomputing (its 'computing' answer has no universe) | 不用批 |
 
 ## 条目
 
@@ -528,8 +529,9 @@
 
 **P2 · research-control · Three hand-kept copies of the Dagster schedule roster have drifted; Console looks up a renamed corporate schedule and has no mapping for seven newer slots**
 
-- **状态**：在做（research 一半已随 0.188.0 上线；platform 一半在分支 debt-c-td108 b9c475d，Owner 10-06 选 A：等另一会话的 a332cff 备份 MinIO 改动确认可上线后一起发）
+- **状态**：待你签收
 - **验收**：`/research/orchestration/status` 里 `market_corporate_schedule` 的 `market_slots` 为 `["corporate"]`，且 Console Ingest 页的 corporate slot 显示 `Dagster market_corporate_schedule`
+- **验收结果**：PASS 2026-10-06：research 0.188.0 `/research/orchestration/status` 里 market_corporate_schedule 的 market_slots = ["corporate"]（39 个调度中 20 个带 market_slots）；platform d63cf90（STG / PROD 都已发）的 PROD Console Ingest 页 corporate slot 显示 `dagster=market_corporate_schedule · last_run=SUCCESS`，旧名不再出现
 - **Claim**: The canonical roster is HUSBANDRY_SCHEDULE_JOBS in research. (1) Platform Console maps corporate/option-trades to market_corporate_trades_schedule, which no longer exists (now market_corporate_schedule), and has no mapping for fundamentals-market, ratios-market, intraday-chain, treasury, ticker-details, corporate-backfill, option-depth. (2) verify_husbandry_schedulers.sh asserts retired schedules and only WARNs when absent. (3) k8s/orchestration/README lists research_morning_prep_schedule, a wrong ratios cron, and 'Outside Dagster: IB only' though research-harness runs as a CronJob.
 - **Measured**: MEASURED. ops_dagster.runs: market_corporate_trades_job last ran 2026-09-05; market_corporate_job 30 runs through 10-05. Live roster lists 40 schedules, none market_corporate_trades_schedule. Code ratios cron '10 5-8,11,14,20 * * *'. Console miss itself CODE-READ.
 - **Evidence**:
@@ -1332,6 +1334,21 @@
 - **Fix**: Move test parameters under `arguments:` in the model yml files.
 - **Ratchet**: Run dbt parse with `--warn-error-options '{"error": ["MissingArgumentsPropertyInGenericTestDeprecation"]}'` in the dbt grain ratchet test.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
+
+### TD-165
+
+**P2 · ops-platform · Ops Console Market Data › Ingest crashes to a blank page while the doctor is recomputing (its 'computing' answer has no universe)**
+
+- **状态**：未开始
+- **Claim**: GET /market/doctor answers {age_sec, computing, findings, generated_at, ok} while a recompute runs (after a plugin restart the cache is empty). DoctorPanel renders `report.universe.optionable` unguarded, so the whole Ingest tab throws and React unmounts the root until a full reload after the doctor is done.
+- **Measured**: MEASURED 10-06 18:15 UTC on PROD (market-data 0.79.0 had just restarted): TypeError 'Cannot read properties of undefined (reading optionable)' in DoctorPanel, #root empty; after the doctor finished (18:16:48) a full reload rendered normally.
+- **Evidence**:
+  - `bifrost-platform/console/src/components/market-data/DoctorPanel.tsx:105` — `Optionable underlyings: ${report.universe.optionable} of ${report.universe.underlyings}.`
+  - `bifrost-platform/console/src/components/market-data/doctorModel.ts:92` — ``Universe: watchlist ${report.universe.watchlist} · underlyings ${report.universe.underlyings} · optionable ${report.universe.optionable}`,`
+- **Impact**: Every plugin release or restart blanks the Ingest tab for the 1–4 minutes the doctor takes, exactly when an operator looks at it.
+- **Fix**: Type the doctor response as a union (computing stub | report); render 'computing…' for the stub; guard universe with optional chaining in DoctorPanel and doctorModel; wrap the tab in an error boundary so one panel cannot blank the page.
+- **Ratchet**: A DoctorPanel test rendering the real computing stub (fixture captured from /market/doctor) — must not throw.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
 ## 没覆盖到的（下一轮从这里开始）
 
