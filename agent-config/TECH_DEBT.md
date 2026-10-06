@@ -13,9 +13,9 @@
 
 ## 待你签收
 
-（暂无）
+- **TD-87** — SEPA 日期戳历史重排（Owner 10-06 执行 restate.py：101,673 → 94,759 行、周末行 21,016 → 0、27 个交易日）+ SEPA lens 重走（写 69 / 删 22）· 验收 PASS（10-06 副本核对：周末 0、无源 lens 行 0） · 防线：dbt 测试 `sepa_session_is_newest_trading_day` + Dagster asset check `sepa_projection:sessions_are_trading_days`（research 0.180.0）· 后续：TD-189（四个从未计算的 session）
 
-**未结 79 项**：P0 0 · P1 5 · P2 29 · P3 45；要你批的 41 项（从总览表的审批列算）。
+**未结 80 项**：P0 0 · P1 5 · P2 29 · P3 46；要你批的 41 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -47,7 +47,7 @@
 
 目标：先让失败变红。错数据先修数据（TD-87 restate），再把引擎、闸门、写入方从「出错也报成功」改成失败即失败：引擎资产按输出判定、husbandry gate 失败即关、日历读失败报错、写入方失败抛错。不需要 Owner 批的先做。
 
-项：TD-87, TD-91, TD-92, TD-94, TD-97, TD-101, TD-136, TD-156, TD-157, TD-166 · 已还：TD-88, TD-89, TD-90, TD-113, TD-93, TD-165, TD-167
+项：TD-87, TD-91, TD-92, TD-94, TD-97, TD-101, TD-136, TD-156, TD-157, TD-166, TD-189 · 已还：TD-88, TD-89, TD-90, TD-113, TD-93, TD-165, TD-167
 
 ### 第 2 波 · 让闸门真的卡住
 
@@ -250,6 +250,7 @@
 | [TD-185](#td-185) | P3 | research-control | The Pine-vs-TradingView roadmap ledger is a point-in-time judgement: its scores and next steps need a re-evaluation around 11-06 | 不用批 |
 | [TD-186](#td-186) | P3 | frontend | "My levels" (plan stop / target and price alerts as horizontal lines) on the Symbol chart waits on Design: ASK-symbol-chart-my-levels-2026-10-06 | 要你批 |
 | [TD-188](#td-188) | P3 | frontend | The app's design registry is still at Rev .157: packages .158–.162 are built but designRoutes / adoption were not re-synced (the Design project's DS mirror was synced to 0.13.0 on 10-06) | 不用批 |
+| [TD-189](#td-189) | P3 | research-data | SEPA has no rows for four sessions (08-28, 08-31, 09-08, 09-16): those nights never computed it, so the SEPA lens and its hit rate skip them | 不用批 |
 
 ## 条目
 
@@ -272,8 +273,9 @@
 
 **P1 · research-data · SEPA features are stamped with the next calendar day (UTC current_date at 02:30 UTC): every SEPA row is one session late and Friday sessions land on Saturday**
 
-- **状态**：在做（代码已上线；等 Owner 跑历史数据重排）
-- **验收**：`SELECT count(*) FROM features.stock_signal_sepa_daily WHERE extract(isodow FROM trade_date) IN (6,7)` 为 0，且下一次 research_trading_day 里 asset check `sepa_projection:sessions_are_trading_days` 通过
+- **状态**：待你签收
+- **验收**：GS 只读：`features.stock_signal_sepa_daily` 无周末 / 节假日 / 未来日期，最新日期 = 最近交易日；`stock_signal_lens_hit_daily` 的 sepa 行都有同日 SEPA 源
+- **验收结果**：PASS 2026-10-06 22:2x UTC（Owner 执行）：restate.py 预演计数与 dry run 一致后提交（101,673 → 94,759 行，删碰撞 6,914，周末行 21,016 → 0，27 个交易日、最新 10-05，删 08-28 两条孤儿 lens_hit）；SEPA lens 重走写 69 / 删 22。副本核对：SEPA 94,759 行 / 27 日 / 周末 0；sepa lens_hit 69 行 / 22 日 / 周末 0 / 无源 0
 - **现在**：代码已修并上线（research 0.180.0，10-06）：七张 SEPA mart 改用 `sepa_session()`（源表最新交易日），`sepa_projection` 写纽约 session；防线 dbt 测试 `sepa_session_is_newest_trading_day` + Dagster asset check `sepa_projection:sessions_are_trading_days` + 静态测试。历史行还没改：写 PROD Golden Source 被 auto mode 拦下，交 Owner。
 - **下一步**：Owner 跑 `~/bifrost-backups/golden-source/2026-10-06_td87-sepa-restate/` 里的 restate.py（101,673 → 94,759 行，删碰撞 6,914 行，09-01 的行实为 08-27 收盘、按数据改到 08-27）和 SEPA lens 重走；须在 10-07 02:30 UTC 批处理前，否则先重跑 dry run。跑完删掉本条。（10-07）
 - **Claim**: All seven SEPA marts set eval_date = current_date. The database runs in Etc/UTC and research_trading_day fires at 22:30 New York (02:30 UTC the next day). mart_sepa_feature_daily turns eval_date into trade_date, and sepa_projection copies MAX(trade_date) into features.stock_signal_sepa_daily. So the Monday 10-05 session is stored as 2026-10-06 and Friday sessions as Saturday. signal_hit (_load_sepa_triggers WHERE trade_date = %s), the backtest event source and every join on trade_date pair SEPA with the following session; signal_hit walks only trading days, so Friday SEPA triggers are never read and Monday sessions have no SEPA input.
@@ -1568,6 +1570,20 @@
 - **Fix**: Run design-sync for Rev .162 and the 0.13.0 DS mirror; re-stamp the touched pages' notes.
 - **Ratchet**: None new; the existing adoption tests catch drift once the registry is current.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend, design
+
+### TD-189
+
+**P3 · research-data · SEPA has no rows for four sessions (08-28, 08-31, 09-08, 09-16): those nights never computed it, so the SEPA lens and its hit rate skip them**
+
+- **状态**：未开始
+- **Claim**: After the TD-87 restate every stored SEPA date is a real session, which exposes the gaps: between 08-21 and 10-05 there are 31 sessions and 27 carry SEPA. The lens re-walk reports lenses_without_source ['sepa'] for exactly those four days.
+- **Measured**: MEASURED 10-06 22:26 UTC (signal_hit sepa re-walk output; replica: 27 distinct SEPA dates).
+- **Evidence**:
+  - `bifrost-backups/golden-source/2026-10-06_td87-sepa-restate/README.md:28` — `08-28 and 08-31 then have no SEPA (never computed)`
+- **Impact**: Four missing days in the SEPA history understate its sample and hide any setup that fired only on those days.
+- **Fix**: Find why the batch skipped those nights (Dagster run history), and if SEPA can be recomputed for a past session from stock_daily, backfill the four days through the mart with an as-of parameter and re-walk the lens.
+- **Ratchet**: The TD-87 asset check already flags non-trading dates; add a coverage check: SEPA dates over the last 30 sessions = trading sessions (warn on any gap).
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
 
 ## 没覆盖到的（下一轮从这里开始）
 
