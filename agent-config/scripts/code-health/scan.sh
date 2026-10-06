@@ -346,10 +346,12 @@ fi
 
 # ---------------------------------------------------------------- metric 4
 # Distinct research image tags pinned across k8s. Each extra tier is a
-# component running code that no release actually tracked.
+# component running code that no release actually tracked. Only the
+# bifrost-research image itself: bifrost-research-pine (the pine-runner, W6)
+# is a separate artifact with its own version line.
 if want bifrost-research; then
 rs_k8s="$(tracked bifrost-research 'k8s/*')"
-tiers="$(grep_files bifrost-research "$rs_k8s" 'image:[[:space:]]*[^ ]*bifrost-research[^ ]*' \
+tiers="$(grep_files bifrost-research "$rs_k8s" 'image:[[:space:]]*[^ ]*bifrost-research:[^ ]*' \
   | sed -E 's/.*://' | sort -u)"
 tiers_n=$(printf '%s' "$tiers" | grep -c . || true)
 add_metric code.image-version-spread.research "distinct research image tags" research bifrost-research \
