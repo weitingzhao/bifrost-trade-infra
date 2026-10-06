@@ -22,6 +22,12 @@ services:
     container_name: minio-backup
     command: ["server", "/data", "--console-address", ":9001"]
     env_file: .env
+    environment:
+      # Prometheus scrapes /minio/v2/metrics/cluster without a token
+      # (k8s/monitoring/bifrost-minio-nas.yaml). The metrics carry bucket and
+      # capacity figures, no credentials, and the ports are bound to the LAN
+      # address only.
+      MINIO_PROMETHEUS_AUTH_TYPE: public
     ports:
       - "192.168.10.20:9000:9000"
       - "192.168.10.20:9001:9001"

@@ -11,6 +11,7 @@ resources:
   - bifrost-trade-apis.yaml
   - bifrost-redis.yaml
   - bifrost-postgres.yaml
+  - bifrost-minio-nas.yaml
   - bifrost-flex-query.yaml
   - bifrost-market-data.yaml
   - bifrost-platform-api.yaml

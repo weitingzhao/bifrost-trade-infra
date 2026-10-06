@@ -1,0 +1,27 @@
+# MinIO for the Postgres backups runs on the NAS (k8s/data/minio/nas/compose.yaml),
+# so it is scraped as a static target. Not through the Service data/minio: that
+# Service has a hand-written EndpointSlice, and this Prometheus discovers
+# ServiceMonitor targets from v1 Endpoints, which are not mirrored back from
+# EndpointSlices (a ServiceMonitor here found nothing, 2026-10-06). The metrics
+# endpoint is public on the LAN (MINIO_PROMETHEUS_AUTH_TYPE=public in the compose
+# file). Alerts: BifrostMinIONas* in bifrost-alerting-rules.yaml.
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: bifrost-minio-nas
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: minio
+spec:
+  metricsPath: /minio/v2/metrics/cluster
+  scrapeInterval: 60s
+  scrapeTimeout: 30s
+  staticConfigs:
+    - targets:
+        - 192.168.10.20:9000
+      labels:
+        namespace: data
+        service: minio-nas

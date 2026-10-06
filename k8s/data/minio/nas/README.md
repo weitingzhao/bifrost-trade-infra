@@ -52,8 +52,26 @@ Do not run `docker compose up` yet.
 `kubectl -n data scale deploy/minio --replicas=1`. Same directory, nothing to copy.
 At no point may both MinIO servers run on this directory.
 
+## Operating it
+
+- `k8s_admin` may run exactly these without a password (`/etc/sudoers.d/k8s_admin-minio`,
+  set up by the Owner 2026-10-06); everything else needs the Owner. The directory,
+  `compose.yaml` and `.env` are root-owned, so changing the configuration is the Owner's.
+
+  ```bash
+  sudo -n docker compose -f /volume1/docker/minio-backup/compose.yaml ps
+  sudo -n docker compose -f /volume1/docker/minio-backup/compose.yaml logs --tail 200 minio
+  sudo -n docker compose -f /volume1/docker/minio-backup/compose.yaml restart minio
+  sudo -n docker compose -f /volume1/docker/minio-backup/compose.yaml up -d
+  ```
+
+  A UGOS update may reset `/etc/sudoers.d`; re-add the rule if `sudo -n` asks for a password.
+- Monitoring: `k8s/monitoring/bifrost-minio-nas.yaml` (ScrapeConfig, static target
+  192.168.10.20:9000, `/minio/v2/metrics/cluster`, public on the LAN) and the alerts
+  `BifrostMinIONasDown`, `BifrostMinIONasDriveOffline`, `BifrostMinIONasSpaceLow`.
+
 ## After a week of good backups
 
 Move the directory to its own shared folder (a rename inside `/volume1` is instant
 on btrfs) and update the volume path; retire `data/minio`, its PVC and
-`k8s/data/backup-retry.yaml`; add the NAS MinIO to monitoring.
+`k8s/data/backup-retry.yaml`.
