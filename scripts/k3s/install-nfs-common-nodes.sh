@@ -19,6 +19,7 @@ DEFAULT_NODES=(
   "vision@192.168.10.70"
   "vision@192.168.10.75"
   "vision@192.168.10.77"
+  "vision@192.168.10.79"  # ubt-k3s-06, reinstalled 2026-10-06 without nfs-common (TD-173)
 )
 
 if [[ -n "${K3S_NFS_NODES:-}" ]]; then

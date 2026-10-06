@@ -25,6 +25,19 @@ spec:
             summary: "Bifrost API pod crash looping"
             description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} container {{ $labels.container }} is in CrashLoopBackOff."
 
+        - alert: BifrostPodStuckCreating
+          # TD-173: on 2026-10-06 market-data-api landed three times on ubt-k3s-06, which had no
+          # nfs-common; the pod sat in ContainerCreating (FailedMount, exit 32) and the rollout hung
+          # behind maxUnavailable 0 with nothing firing. Any volume / image / CNI failure looks the same.
+          expr: |
+            kube_pod_container_status_waiting_reason{reason="ContainerCreating",namespace=~"bifrost-.*|research|plugin-.*"} == 1
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Bifrost pod stuck in ContainerCreating"
+            description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has been ContainerCreating for 15m. Check its events: FailedMount with exit 32 means the node lacks nfs-common (scripts/k3s/install-nfs-common-nodes.sh)."
+
         - alert: BifrostAPIHighErrorRate
           expr: |
             (

@@ -13,7 +13,8 @@
 
 ## 待你签收
 
-（暂无）
+- **TD-173** — ubt-k3s-06 装上 nfs-common（Owner 10-06 跑脚本），脚本 DEFAULT_NODES 加 .79；新告警 `BifrostPodStuckCreating`（bifrost / research / plugin 命名空间 ContainerCreating 超 15 分钟）· 验收 PASS（10-06，卡住的 0.81.0 API pod 在 06 上挂上 NFS 并 Running）· 防线：`bifrost-trade-infra/k8s/monitoring/bifrost-alerting-rules.yaml` BifrostPodStuckCreating · 无后续：新节点漏装由告警兜住
+- **TD-175** — ticker-details 只数自己的 detail 作业、读 `slot:ticker-details` 行（market-data 0.81.0，不进 POLICED_SLOTS 所以 doctor findings 不变）· 验收 PASS（10-06 上线，dashboard 读到 slot 行）· 防线：`tests/test_slot_freshness.py` 新增 4 条 + `test_naming_ticker_details_adds_no_doctor_finding` · 无后续
 
 **未结 76 项**：P0 0 · P1 5 · P2 30 · P3 41；要你批的 40 项（从总览表的审批列算）。
 
@@ -1393,7 +1394,9 @@
 
 **P2 · infra · ubt-k3s-06 has no nfs-common: pods with an NFS volume scheduled there hang in ContainerCreating (mount exit 32)**
 
-- **状态**：未开始
+- **状态**：待你签收
+- **验收**：06 上 `dpkg -s nfs-common` 已装且 NFS 挂载冒烟通过；落在 06 上挂 NFS 卷的 pod Running；`BifrostPodStuckCreating` 规则已加载
+- **验收结果**：PASS 2026-10-06：Owner 跑 install-nfs-common-nodes.sh（nfs-common + k3s-hot 挂载冒烟 OK）；卡住的 market-data-api 0.81.0 pod 随即在 06 上挂上 market-data-archive 并 Running；infra 规则 apply 后 `kubectl diff -k k8s/monitoring` 为空
 - **现在**：10-06 20:01 UTC market-data 0.81.0 发布时 API 新 pod 第三次落到 06，FailedMount `bad option … need a /sbin/mount.nfs helper`；maxUnavailable 0 所以旧 pod 继续服务、无中断，但发布卡住
 - **Claim**: 06 was reinstalled 10-06 and is not in install-nfs-common-nodes.sh DEFAULT_NODES. market-data-api mounts market-data-archive (nfs-cold); twice on 10-06 its new pod landed on 06 and failed `mount failed: exit status 32`.
 - **Measured**: MEASURED 10-06 by paydown lane J: on 192.168.10.79 `dpkg-query: package 'nfs-common' is not installed`, /sbin/mount.nfs absent; two FailedMount rollouts 19:08 and 19:11 UTC (lane J cordoned 06 ~10 s each time to reschedule, then uncordoned).
@@ -1408,7 +1411,8 @@
 
 **P3 · market-data · Console marks fundamentals-rotate missed every Monday 03:45 → Tuesday 03:00 UTC: the trading-day check uses the UTC date of the fire**
 
-- **状态**：在做（Owner 10-06 批准 0.81.0；b75b4f6 已 apply，workers 已是 92af622d…；API 新 pod 被调度到 ubt-k3s-06 因缺 nfs-common 挂不上（TD-173），旧 0.80.1 pod 继续服务）
+- **状态**：观察中（0.81.0 已上线；到 10-12 周一 03:45–10-13 03:00 UTC 看 fundamentals-rotate 仍 on_plan、last_fire 2026-10-10T03:00Z）
+- **验收结果**：部分 PASS 2026-10-06 market-data 0.81.0：已上线，当前 fundamentals-rotate on_plan；周一窗口待 10-12
 - **下一步**：你批 market-data 0.81.0 发布（避开 21:05–23:15 UTC）→ deploy 提交 + `kubectl apply -k` → 验收：pod imageID 为 92af622d…、queue-dashboard 里 ticker-details 读 `slot:ticker-details`；10-12 周一 03:45 之后 fundamentals-rotate 仍 on_plan
 - **现在**：按纽约日期判交易日，三处都改（`_slot_adherence` 的 trading_last、`_previous_expected_fire` 的 last / prev——只改 727 行会在后者里照样记 missed）。只读回放 09-29→10-06 六个 slot 12,102 个时点：翻转 288 个，全是 fundamentals-rotate 周一 03:05→周二 03:00 的假 missed。防线 `tests/test_ingest_dashboard.py` 三个用例（两条在老代码上失败）
 - **Claim**: _slot_adherence asks is_trading_day(conn, cron_last.date()) on the UTC date; Monday 03:00 UTC is Sunday in New York, the slot rightly enqueues nothing, and the dashboard calls it missed. Platform's market_batch lane reports the miss once a week.
@@ -1424,7 +1428,9 @@
 
 **P3 · market-data · ticker-details adherence still credits the shared ticker_sync freshness row, so a stopped ticker-details reads on_plan after reference's 21:30 walk**
 
-- **状态**：在做（Owner 10-06 批准 0.81.0；b75b4f6 已 apply，workers 已是 92af622d…；API 新 pod 被调度到 ubt-k3s-06 因缺 nfs-common 挂不上（TD-173），旧 0.80.1 pod 继续服务）
+- **状态**：待你签收
+- **验收**：pod imageID 为 `sha256:92af622d…`；queue-dashboard 里 ticker-details 的 freshness_dimension 为 `slot:ticker-details`
+- **验收结果**：PASS 2026-10-06 20:2x UTC market-data 0.81.0（b75b4f6）：api 与两组 worker 全部 92af622d…；`slot:ticker-details on_plan 200`；doctor 重启后算完，degraded / 0 critical · 2 warning（与发布前同）
 - **下一步**：你批 market-data 0.81.0 发布（避开 21:05–23:15 UTC）→ deploy 提交 + `kubectl apply -k` → 验收：pod imageID 为 92af622d…、queue-dashboard 里 ticker-details 读 `slot:ticker-details`；10-12 周一 03:45 之后 fundamentals-rotate 仍 on_plan
 - **现在**：ticker-details 加进 `SHAPE_NAMED_SLOTS`（不进 `POLICED_SLOTS`，避免新增 doctor finding）：只数自己的 `ticker_sync mode=detail` 作业，读新的 `slot:ticker-details` 行。回放 0 翻转；反事实删掉 detail 作业后新代码在 72 个时点判 missed、老代码判 on_plan。防线 `tests/test_slot_freshness.py` 新增 4 条（老代码上失败）+ `test_naming_ticker_details_adds_no_doctor_finding`
 - **Claim**: Mirror of TD-167 for the one slot outside the policed list: ticker-details and reference both enqueue ticker_sync and both bump freshness.ticker_sync.
