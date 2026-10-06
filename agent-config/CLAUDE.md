@@ -1,5 +1,5 @@
 <!--
-parity-ids: workspace-v11, language-v1, agent-modes-v2, trade-execution-freeze-v2, dev-services-v2, phase-execution-v2, shared-worktree-v1, business-first-v1
+parity-ids: workspace-v12, language-v1, agent-modes-v2, trade-execution-freeze-v2, dev-services-v2, phase-execution-v2, shared-worktree-v1, business-first-v1
 对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
 改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
 -->
@@ -183,6 +183,14 @@ release.sh、db-init Job、dev/stg overlay、插件 ConfigMap 与 rollout、rese
   和 PROD DDL（db-init-prod、ddl-apply、任何写 bifrost_prod / bifrost_golden_source 的 DDL）仍要 Owner 先在线程里点头，批准按动作算。
 - 放行的命令照常先过 `release.sh window`，一次发布一个会话。
 - 跑 ddl-apply Job 前先 `grep -niE 'drop|truncate'` 它要执行的 SQL：命令行规则看不到 Job 里的 SQL，有命中就停下问 Owner。
+
+
+### 技术债与防线 — 内容在仓库，不在记忆（Owner 2026-10-06）
+
+- **未结的债**只在 `bifrost-trade-infra/agent-config/TECH_DEBT.md`。审计扫出来的、日常工作里撞上的，都直接加一条（证据 `文件:行`、修法、防线），编号接着最大号往下排。
+- **修完就删**：修复上线、对应防线到位后，删掉那一条；提交信息写上对应的防线。历史留在 git 里，台账里不留。
+- **防线**登记在同目录的 `RATCHETS.md`。每关掉一项债，要么加一条或扩大一条防线，要么写明为什么没有可行的防线。
+- 记忆只记判断和教训，不记债的状态。
 
 ---
 
