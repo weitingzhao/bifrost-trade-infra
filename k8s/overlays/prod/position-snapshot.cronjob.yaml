@@ -1,7 +1,8 @@
 # W4 daily book snapshot (core 0.48.0, bifrost_core.portfolio.snapshot): position_snapshot_daily
 # + account_nav_daily in bifrost_prod. Read-only towards brokerage.* and the market-data plugin;
 # no order, no Redis, no daemon (D10). Signs in as the runtime role (bifrost-prod-secrets, TD-85).
-# After the close: the broker book and NAV (forward-only: a missed day is lost).
+# After the close: the broker book and NAV (forward-only: a missed day is lost). From core 0.52.0 an
+# account whose broker sync is older than the close (TWS logged off) is skipped and listed as stale.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -69,7 +70,9 @@ spec:
 # W4 daily book snapshot (core 0.48.0, bifrost_core.portfolio.snapshot): position_snapshot_daily
 # + account_nav_daily in bifrost_prod. Read-only towards brokerage.* and the market-data plugin;
 # no order, no Redis, no daemon (D10). Signs in as the runtime role (bifrost-prod-secrets, TD-85).
-# Evening: vendor EOD Greeks / IV / closes (the 16:00 anchor; only NULLs are filled).
+# Evening: `all` = capture again for accounts stale at 16:20 that have synced since the close
+# (accounts already captured are left alone; core 0.52.0), then vendor EOD Greeks / IV / closes
+# (the 16:00 anchor; only NULLs are filled). Enrich still runs when that capture fails.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -110,7 +113,7 @@ spec:
             - name: position-snapshot
               image: 192.168.10.73:30500/bifrost-api-monitor:prod
               imagePullPolicy: Always
-              command: [python, -m, bifrost_core.portfolio.snapshot, enrich]
+              command: [python, -m, bifrost_core.portfolio.snapshot, all]
               env:
                 - name: BIFROST_CONFIG
                   value: /app/config/runtime.yaml
