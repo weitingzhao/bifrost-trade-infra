@@ -5,7 +5,7 @@ The two Markdown files are the only source. This script parses them and lays the
 page out the way the round-1 ledger was laid out (Owner 2026-10-06: one layout for
 every round), so a reader learns it once:
 
-    stats · 先看这几条 · 主题 · 还债顺序 · 需要你拍板 · 台账 (filters) · 防线 · 没覆盖到的 · 怎么做的
+    待你签收 · 自上次以来 · stats · 先看这几条 · 主题 · 还债顺序 · 需要你拍板 · 台账 (filters) · 防线 · 没覆盖到的 · 怎么做的
 
 Ids listed in a wave's 已还 part, or in a theme but no longer in 条目, render struck
 through: the plan keeps its progress although closed items are deleted from the file.
@@ -62,7 +62,8 @@ def parse_items(body: str) -> list[dict]:
                 key = m.group(1)
                 val = m.group(2).strip()
                 k = {"现在": "now", "下一步": "next", "Claim": "claim", "Measured": "measured", "Impact": "impact",
-                     "Fix": "fix", "Ratchet": "ratchet"}.get(key)
+                     "Fix": "fix", "Ratchet": "ratchet", "状态": "state", "验收": "accept",
+                     "验收结果": "accept_result"}.get(key)
                 if key == "Evidence":
                     continue
                 if k:
@@ -85,8 +86,49 @@ def parse_items(body: str) -> list[dict]:
         it.setdefault("domain", "")
         it.setdefault("title", tid)
         it.setdefault("gate", "不用批")
+        it["state_explicit"] = "state" in it
+        it.setdefault("state", "未开始")
+        it["state_key"] = re.split(r"[（(]", it["state"], 1)[0].strip()
         items.append(it)
     return items
+
+
+def since_last(base: str, debt_now: str, ratchets_now: str) -> dict | None:
+    """What changed in the two files since the commit the Owner last looked at (git is the baseline)."""
+    root = HERE.parent
+
+    def git(*args: str) -> str:
+        r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+        return r.stdout if r.returncode == 0 else ""
+
+    old_debt = git("show", f"{base}:agent-config/TECH_DEBT.md")
+    old_rat = git("show", f"{base}:agent-config/RATCHETS.md")
+    if not old_debt:
+        return None
+    old = {x["id"]: x for x in parse_items(section(sections(old_debt, "## "), "条目"))}
+    new = {x["id"]: x for x in parse_items(section(sections(debt_now, "## "), "条目"))}
+
+    def rat_names(text: str) -> list[str]:
+        body = section(sections(text, "## "), "现有防线")
+        return [ln.strip().strip("|").split(" | ")[0].strip() for ln in body.split("\n")
+                if ln.startswith("| ") and not ln.startswith("| 防线") and not ln.startswith("|---")]
+
+    ro, rn = rat_names(old_rat), rat_names(ratchets_now)
+    changes = []
+    for tid in sorted(set(old) & set(new), key=lambda t: int(t[3:])):
+        a, b = old[tid].get("state", "未开始"), new[tid].get("state", "未开始")
+        if a != b and old[tid]["state_explicit"]:
+            changes.append({"id": tid, "from": a, "to": b})
+    log = git("log", "--format=%h %cs %s", f"{base}..HEAD", "--", "agent-config/TECH_DEBT.md", "agent-config/RATCHETS.md")
+    return {
+        "base": base,
+        "added": [{"id": t, "title": new[t]["title"]} for t in sorted(set(new) - set(old), key=lambda t: int(t[3:]))],
+        "closed": [{"id": t, "title": old[t]["title"]} for t in sorted(set(old) - set(new), key=lambda t: int(t[3:]))],
+        "states": changes,
+        "ratchets_added": [r for r in rn if r not in ro],
+        "ratchets_removed": [r for r in ro if r not in rn],
+        "commits": [ln for ln in log.split("\n") if ln.strip()],
+    }
 
 
 def parse(debt: str, ratchets: str) -> dict:
@@ -100,6 +142,14 @@ def parse(debt: str, ratchets: str) -> dict:
         m = re.match(r"^\*\*(.+?)\*\* — (.*?)\s*\(([^()]*)\)\s*$", b)
         if m:
             data["themes"].append({"t": m.group(1), "s": m.group(2), "ids": TD.findall(m.group(3))})
+
+    data["signoff"] = []
+    for b in bullets(section(top, "待你签收")):
+        m = re.match(r"^\*\*(TD-\d+)\*\* — (.*)$", b)
+        if m:
+            data["signoff"].append({"id": m.group(1), "text": m.group(2)})
+    seen = re.search(r"^上次查看：([0-9a-f]{7,40})(?:（([^）]*)）)?", debt, re.M)
+    data["seen"] = {"sha": seen.group(1), "when": seen.group(2) or ""} if seen else None
 
     data["urgent"] = []
     for b in bullets(section(top, "先看这几条")):
@@ -239,6 +289,14 @@ code{background:var(--sunk);padding:1px 5px;border-radius:4px;word-break:break-w
 .ev .loc{font-family:var(--mono);font-size:11.5px;color:var(--accent);word-break:break-all}
 .ev pre{margin:3px 0 0;font-family:var(--mono);font-size:12px;white-space:pre-wrap;word-break:break-word;color:var(--ink2)}
 .item.flash{box-shadow:0 0 0 2px var(--accent)}
+.scard{background:var(--panel);border:1px solid var(--rule);border-left:3px solid var(--ok);border-radius:8px;padding:12px 14px;min-width:0}
+.scard .reply{margin-top:8px;font-size:12.5px;color:var(--ink2)}
+.empty{background:var(--panel);border:1px dashed var(--rule);border-radius:8px;padding:12px 14px;color:var(--mute)}
+.since{background:var(--panel);border:1px solid var(--rule);border-radius:8px;padding:12px 16px;display:grid;gap:10px}
+.since h4{margin:0;font-size:12px;color:var(--mute);font-weight:600}
+.since ul{margin:4px 0 0;padding-left:18px}
+.st{font-size:11.5px;border-radius:999px;padding:1px 8px;white-space:nowrap;background:var(--sunk);color:var(--ink2)}
+.st.s1{color:var(--p1);background:var(--p1-soft)} .st.s2{color:var(--p2);background:var(--p2-soft)} .st.s3{color:var(--ok);background:var(--ok-soft)}
 .tablewrap{overflow-x:auto;border:1px solid var(--rule);border-radius:8px;background:var(--panel)}
 table{border-collapse:collapse;width:100%;font-size:12.5px;min-width:900px}
 th,td{text-align:left;vertical-align:top;padding:7px 10px;border-bottom:1px solid var(--rule)}
@@ -266,6 +324,15 @@ details.more>summary{cursor:pointer;color:var(--accent);margin:10px 0}
   <h1>Trade 技术债台账</h1>
   <div class="meta" id="meta"></div>
   <p class="lede" id="lede"></p>
+  <h2>待你签收</h2>
+  <p class="sub">验收已重跑通过、防线已到位的项。回复「签收 TD-n」或「打回 TD-n：原因」。</p>
+  <div class="urgent" id="signoff"></div>
+
+  <h2>自上次以来</h2>
+  <p class="sub" id="since-sub"></p>
+  <div class="since" id="since"></div>
+
+  <h2>概况</h2>
   <div class="stats" id="stats"></div>
 
   <h2>先看这几条</h2>
@@ -288,6 +355,7 @@ details.more>summary{cursor:pointer;color:var(--accent);margin:10px 0}
   <p class="sub">只列没还完的。条目正文保留英文原文，标识符照抄。</p>
   <div class="filters" role="search">
     <div class="seg" id="prio" aria-label="Priority"></div>
+    <select id="sta" aria-label="State"></select>
     <select id="dom" aria-label="Domain"></select>
     <select id="gate" aria-label="Owner gate"></select>
     <select id="repo" aria-label="Repo"></select>
@@ -320,15 +388,35 @@ details.more>summary{cursor:pointer;color:var(--accent);margin:10px 0}
   function el(tag, attrs, html){ var e = document.createElement(tag); if (attrs) for (var k in attrs) e.setAttribute(k, attrs[k]); if (html != null) e.innerHTML = html; return e }
   function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c] }) }
   function md(s){ return esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>') }
+  var SK = {'在做':'s1','观察中':'s2','待你签收':'s3'};
+  function stPill(x){ return x.state_key && x.state_key !== '未开始' ? '<span class="st ' + (SK[x.state_key] || '') + '" title="' + esc(x.state) + '">' + esc(x.state_key) + '</span>' : '' }
+  function active(x){ return x && x.state_key && x.state_key !== '未开始' }
   function idBtn(id){ var x = byId[id];
     if (!x) return '<button class="tid done" title="已还">' + esc(id) + '</button>';
-    return '<button class="tid' + (x.now ? ' inprog' : '') + '" data-go="' + esc(id) + '" title="' + esc(x.title + (x.now ? ' — 进行中' : '')) + '">' + esc(id) + '</button>' }
+    return '<button class="tid' + (active(x) ? ' inprog' : '') + '" data-go="' + esc(id) + '" title="' + esc(x.title + (active(x) ? ' — ' + x.state : '')) + '">' + esc(id) + '</button>' }
 
   document.getElementById('meta').textContent = D.meta;
   document.getElementById('src').textContent = D.src;
   var doneAll = []; D.waves.forEach(function(w){ doneAll = doneAll.concat(w.done) });
   document.getElementById('lede').innerHTML = md(D.summary + ' 按 ' + D.waves.length + ' 波偿还，计划内已还 ' + doneAll.length + ' 项；要你定的 ' + D.decisions.length + ' 件事在「需要你拍板」。');
 
+  var so = document.getElementById('signoff');
+  if (!D.signoff.length) so.outerHTML = '<div class="empty">暂无待签收的项。</div>';
+  else D.signoff.forEach(function(x){ so.appendChild(el('div', {class:'scard'}, '<div class="hd">' + idBtn(x.id) + '</div><p>' + md(x.text) + '</p><div class="reply">回复：<code>签收 ' + esc(x.id) + '</code> 或 <code>打回 ' + esc(x.id) + '：原因</code></div>')) });
+  var S = D.since, sv = document.getElementById('since');
+  if (!S){ document.getElementById('since-sub').textContent = '还没有记录上次查看的提交。'; sv.outerHTML = '' }
+  else {
+    document.getElementById('since-sub').innerHTML = md('从你上次看过的提交 `' + S.base + '`' + (D.seen.when ? '（' + D.seen.when + '）' : '') + ' 到现在。看完回复「看过了」，基线移到当前提交。');
+    var parts = [];
+    function lst(h, arr, f){ if (arr.length) parts.push('<div><h4>' + h + ' · ' + arr.length + '</h4><ul>' + arr.map(function(a){ return '<li>' + f(a) + '</li>' }).join('') + '</ul></div>') }
+    lst('新增', S.added, function(a){ return idBtn(a.id) + ' ' + esc(a.title) });
+    lst('关闭（已签收）', S.closed, function(a){ return '<span class="tid done">' + esc(a.id) + '</span> ' + esc(a.title) });
+    lst('状态变化', S.states, function(a){ return idBtn(a.id) + ' ' + esc(a.from) + ' → <b>' + esc(a.to) + '</b>' });
+    lst('防线新增', S.ratchets_added, function(a){ return md(a) });
+    lst('防线移除或放宽', S.ratchets_removed, function(a){ return md(a) });
+    lst('提交', S.commits, function(a){ return '<span class="mono">' + esc(a) + '</span>' });
+    sv.innerHTML = parts.length ? parts.join('') : '<div>从 <code>' + esc(S.base) + '</code> 起没有变化。</div>';
+  }
   var pc = {P0:0,P1:0,P2:0,P3:0}; L.forEach(function(x){ pc[x.priority]++ });
   var gated = L.filter(function(x){ return x.gate !== '不用批' }).length;
   var bar = ['P0','P1','P2','P3'].map(function(p){ return '<i style="width:' + (pc[p] / Math.max(L.length,1) * 100) + '%;background:var(--' + p.toLowerCase() + ')"></i>' }).join('');
@@ -338,22 +426,22 @@ details.more>summary{cursor:pointer;color:var(--accent);margin:10px 0}
    [(L.length - gated) + ' / ' + gated, '不用你批 / 要你批'],
    [T ? (T[1] + T[2]) + ' / ' + T[0] : '—', '条发现经得住反向核实（本轮）'],
    [doneAll.length + ' / ' + (doneAll.length + L.length), '计划内已还'],
-   [L.filter(function(x){ return x.now }).length, '进行中（已部分上线或等你）'],
+   [L.filter(active).length, '在做 / 观察中 / 待签收'],
    [D.ratchets.length, '条现有防线'],
    [D.ratchet_plan.length, '条待建防线']
   ].forEach(function(a){ document.getElementById('stats').appendChild(el('div', {class:'stat'}, '<b>' + a[0] + '</b><span>' + a[1] + '</span>')) });
 
   var u = document.getElementById('urgent');
   D.urgent.forEach(function(x){ var it = byId[x.id] || {priority:'P3'};
-    u.appendChild(el('div', {class:'ucard'}, '<div class="hd">' + idBtn(x.id) + '<span class="pill ' + it.priority + '">' + it.priority + '</span>' + (it.now ? '<span class="prog">进行中</span>' : '') + '</div><p>' + md(x.text) + '</p>')) });
+    u.appendChild(el('div', {class:'ucard'}, '<div class="hd">' + idBtn(x.id) + '<span class="pill ' + it.priority + '">' + it.priority + '</span>' + stPill(it) + '</div><p>' + md(x.text) + '</p>')) });
 
   document.getElementById('themes-h').textContent = D.themes.length + ' 个主题';
   var th = document.getElementById('themes');
   D.themes.forEach(function(t){ th.appendChild(el('div', {class:'theme'}, '<h3>' + esc(t.t) + '</h3><p>' + md(t.s) + '</p><div class="ids">' + t.ids.map(idBtn).join('') + '</div>')) });
 
   var wv = document.getElementById('waves');
-  D.waves.forEach(function(w){ var all = w.ids.length + w.done.length, prog = w.ids.filter(function(i){ return byId[i] && byId[i].now }).length;
-    wv.appendChild(el('div', {class:'wave'}, '<div><h3>' + esc(w.n) + '</h3><div class="cnt">' + all + ' 项 · 已还 ' + w.done.length + ' · 进行中 ' + prog + '</div><div class="wbar"><i style="width:' + (all ? w.done.length / all * 100 : 0) + '%"></i></div></div><div><p>' + md(w.g) + '</p><div class="ids">' + w.done.map(idBtn).join('') + w.ids.map(idBtn).join('') + '</div></div>')) });
+  D.waves.forEach(function(w){ var all = w.ids.length + w.done.length, prog = w.ids.filter(function(i){ return active(byId[i]) }).length;
+    wv.appendChild(el('div', {class:'wave'}, '<div><h3>' + esc(w.n) + '</h3><div class="cnt">' + all + ' 项 · 已还 ' + w.done.length + ' · 在做 ' + prog + '</div><div class="wbar"><i style="width:' + (all ? w.done.length / all * 100 : 0) + '%"></i></div></div><div><p>' + md(w.g) + '</p><div class="ids">' + w.done.map(idBtn).join('') + w.ids.map(idBtn).join('') + '</div></div>')) });
 
   var dc = document.getElementById('decisions');
   D.decisions.forEach(function(o){ var d = el('details', {class:'dec'});
@@ -362,6 +450,7 @@ details.more>summary{cursor:pointer;color:var(--accent);margin:10px 0}
 
   function opts(sel, label, values){ sel.innerHTML = '<option value="">' + label + '</option>' + values.map(function(v){ return '<option value="' + esc(v) + '">' + esc(v) + '</option>' }).join('') }
   function uniq(f){ var s = {}; L.forEach(function(x){ [].concat(f(x) || []).forEach(function(v){ if (v) s[v] = 1 }) }); return Object.keys(s).sort() }
+  opts(document.getElementById('sta'), '全部状态', ['未开始','在做','观察中','待你签收'].filter(function(k){ return L.some(function(x){ return x.state_key === k }) }));
   opts(document.getElementById('dom'), '全部领域', uniq(function(x){ return x.domain }));
   opts(document.getElementById('gate'), '全部审批', uniq(function(x){ return x.gate }));
   opts(document.getElementById('repo'), '全部仓库', uniq(function(x){ return x.repos }));
@@ -375,7 +464,7 @@ details.more>summary{cursor:pointer;color:var(--accent);margin:10px 0}
     var ev = (x.evidence || []).map(function(e){ return '<li><div class="loc">' + esc(e.file) + (e.line ? ':' + e.line : '') + '</div><pre>' + esc(e.quote) + '</pre></li>' }).join('');
     function sec(h, v){ return v ? '<div><h4>' + h + '</h4><p>' + md(v) + '</p></div>' : '' }
     d.innerHTML = '<summary><span class="tid">' + esc(x.id) + '</span><span class="pill ' + x.priority + '">' + x.priority + '</span><span class="t">' + esc(x.title) + '</span><span class="tags">' + (x.now ? '<span class="prog">进行中</span>' : '') + '<span class="tag">' + esc(x.domain) + '</span>' + (x.risk ? '<span class="tag">风险 ' + esc(x.risk) + ' · 代价 ' + esc(x.cost) + '</span>' : '') + (x.gate !== '不用批' ? '<span class="tag gate">' + esc(x.gate) + '</span>' : '') + '</span></summary>' +
-      '<div class="body">' + (x.now || x.next ? '<div class="state">' + (x.now ? '<p><b>现在：</b>' + md(x.now) + '</p>' : '') + (x.next ? '<p><b>下一步：</b>' + md(x.next) + '</p>' : '') + '</div>' : '') +
+      '<div class="body"><div class="state"><p><b>状态：</b>' + md(x.state) + '</p>' + (x.accept ? '<p><b>验收：</b>' + md(x.accept) + '</p>' : '<p><b>验收：</b>还没写（进「待你签收」前必须有）</p>') + (x.accept_result ? '<p><b>验收结果：</b>' + md(x.accept_result) + '</p>' : '') + (x.now ? '<p><b>现在：</b>' + md(x.now) + '</p>' : '') + (x.next ? '<p><b>下一步：</b>' + md(x.next) + '</p>' : '') + '</div>' +
       sec('Claim', x.claim) + sec('Measured', x.measured) + sec('Impact', x.impact) + sec('Fix', x.fix) + sec('Ratchet', x.ratchet) +
       (x.notes || []).map(function(n){ return '<div><p>' + md(n) + '</p></div>' }).join('') +
       (ev ? '<div><h4>Evidence · ' + x.evidence.length + '</h4><ul class="ev">' + ev + '</ul></div>' : '') +
@@ -384,19 +473,19 @@ details.more>summary{cursor:pointer;color:var(--accent);margin:10px 0}
     lg.appendChild(d) });
 
   function render(){
-    var dm = document.getElementById('dom').value, g = document.getElementById('gate').value, r = document.getElementById('repo').value, q = document.getElementById('q').value.trim().toLowerCase(), n = 0;
+    var sk = document.getElementById('sta').value, dm = document.getElementById('dom').value, g = document.getElementById('gate').value, r = document.getElementById('repo').value, q = document.getElementById('q').value.trim().toLowerCase(), n = 0;
     [].forEach.call(lg.children, function(d){ var x = d._x;
-      var show = (!prio || x.priority === prio) && (!dm || x.domain === dm) && (!g || x.gate === g) && (!r || (x.repos || []).indexOf(r) >= 0) && (!q || d._text.indexOf(q) >= 0);
+      var show = (!sk || x.state_key === sk) && (!prio || x.priority === prio) && (!dm || x.domain === dm) && (!g || x.gate === g) && (!r || (x.repos || []).indexOf(r) >= 0) && (!q || d._text.indexOf(q) >= 0);
       d.hidden = !show; if (show) n++ });
     document.getElementById('count').textContent = n + ' / ' + L.length;
   }
-  ['dom','gate','repo'].forEach(function(id){ document.getElementById(id).onchange = render });
+  ['sta','dom','gate','repo'].forEach(function(id){ document.getElementById(id).onchange = render });
   document.getElementById('q').oninput = render;
   render();
 
   document.addEventListener('click', function(e){ var b = e.target.closest('[data-go]'); if (!b) return; e.preventDefault();
     var d = document.getElementById(b.getAttribute('data-go')); if (!d) return;
-    if (d.hidden){ prio = ''; [].forEach.call(pr.children, function(c, i){ c.setAttribute('aria-pressed', i === 0 ? 'true' : 'false') }); ['dom','gate','repo','q'].forEach(function(id){ document.getElementById(id).value = '' }); render() }
+    if (d.hidden){ prio = ''; [].forEach.call(pr.children, function(c, i){ c.setAttribute('aria-pressed', i === 0 ? 'true' : 'false') }); ['sta','dom','gate','repo','q'].forEach(function(id){ document.getElementById(id).value = '' }); render() }
     d.open = true; d.scrollIntoView({block:'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'});
     d.classList.add('flash'); setTimeout(function(){ d.classList.remove('flash') }, 1600) });
 
@@ -419,7 +508,9 @@ details.more>summary{cursor:pointer;color:var(--accent);margin:10px 0}
 
 def main() -> int:
     debt = DEBT.read_text(encoding="utf-8")
-    data = parse(debt, RATCHETS.read_text(encoding="utf-8"))
+    ratchets = RATCHETS.read_text(encoding="utf-8")
+    data = parse(debt, ratchets)
+    data["since"] = since_last(data["seen"]["sha"], debt, ratchets) if data["seen"] else None
     sha = subprocess.run(["git", "-C", str(HERE), "log", "-1", "--format=%h %cs", "--", str(DEBT), str(RATCHETS)],
                          capture_output=True, text=True).stdout.strip() or "uncommitted"
     data["src"] = f"source: bifrost-trade-infra/agent-config/TECH_DEBT.md + RATCHETS.md @ {sha}"
