@@ -13,9 +13,9 @@
 
 ## 待你签收
 
-- **TD-108** — Dagster 调度名单只留一份：research 的 `api/schedule_roster.py` 是唯一来源，`/research/orchestration/status` 带 `market_slots`，Console 按它把 slot 对上调度，删掉两张手抄映射表（research 0.188.0、platform d63cf90） · 验收 PASS（10-06，接口 + PROD Console）· 防线：research `test_schedule_names_in_docs_and_scripts_exist` + platform `slotScheduler.test.ts`（console 里每个 `*_schedule` 字面量都要在名单 fixture 里） · 后续：TD-165（Ingest 页在 doctor 重算时整页崩溃，验收时发现）
+（暂无）
 
-**未结 68 项**：P0 0 · P1 5 · P2 29 · P3 34；要你批的 34 项（从总览表的审批列算）。
+**未结 67 项**：P0 0 · P1 5 · P2 28 · P3 34；要你批的 34 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -71,7 +71,7 @@
 
 目标：删掉没人用的（挂起的 CronJob、退役脚本、无调用路由），手抄的副本改成从一处生成（调度名单、max-pain / PCR），清单的应用顺序与 Argo 归属理顺。
 
-项：TD-102, TD-106, TD-107, TD-108, TD-118, TD-119, TD-120, TD-123, TD-124, TD-125, TD-154, TD-160, TD-163 · 已还：TD-126
+项：TD-102, TD-106, TD-107, TD-118, TD-119, TD-120, TD-123, TD-124, TD-125, TD-154, TD-160, TD-163 · 已还：TD-126, TD-108
 
 ### 第 6 波 · 备份链与自动修复（10-06 日常发现）
 
@@ -182,7 +182,6 @@
 | [TD-105](#td-105) | P2 | flex-ib | DEV/STG operator streams accept every op except two (a denylist), so any op added later is open to DEV and STG by default | 安全/凭据（要你批） |
 | [TD-106](#td-106) | P2 | market-data | Nightly trim (now with W3 archive) runs synchronously behind Dagster's 60s HTTP timeout; retries start overlapping trims and the recorded outcome is the retry's | 跨仓库发版 |
 | [TD-107](#td-107) | P2 | market-data | Indexes declared for the six financials entity tables never reach a deployed DB (the migration returns early); live differs from fresh install | 改表 |
-| [TD-108](#td-108) | P2 | research-control | Three hand-kept copies of the Dagster schedule roster have drifted; Console looks up a renamed corporate schedule and has no mapping for seven newer slots | 不用批 |
 | [TD-109](#td-109) | P2 | ops-platform | PROD platform-api reads a deployed ops-context.yaml copy last synced 2026-08-24: about 33 spine decisions missing (D-Journal-Stores, D-Ops-Split, D-Wave-10..13) | 跨仓库发版 |
 | [TD-110](#td-110) | P3 | research-data | Stored IV features solve Black-Scholes at r=0 while the backtester uses treasury rates from two separate readers; further BS copies in gex and opex | 不用批 |
 | [TD-111](#td-111) | P3 | research-data | dbt: the pass_count range generic test sits in the singular folder (errors when selected, never applied); key intermediates lack grain tests; nothing ties eval_date to the session | 不用批 |
@@ -524,25 +523,6 @@
 - **Fix**: Remove symbol_period_date from code (redundant with PK prefix). Move period_date_symbol into an unconditional idempotent step on the superuser apply_ddl path (tables owned by postgres), built CONCURRENTLY with Owner DDL approval.
 - **Ratchet**: CI applies plugin DDL to an empty Postgres and snapshots the index catalog; weekly read-only diff of the snapshot vs live pg_index in GS fails on any declared-but-absent index.
 - 审批 改表 · 代价 M · 风险 med · repos: bifrost-platform-plugin-market-data
-
-### TD-108
-
-**P2 · research-control · Three hand-kept copies of the Dagster schedule roster have drifted; Console looks up a renamed corporate schedule and has no mapping for seven newer slots**
-
-- **状态**：待你签收
-- **验收**：`/research/orchestration/status` 里 `market_corporate_schedule` 的 `market_slots` 为 `["corporate"]`，且 Console Ingest 页的 corporate slot 显示 `Dagster market_corporate_schedule`
-- **验收结果**：PASS 2026-10-06：research 0.188.0 `/research/orchestration/status` 里 market_corporate_schedule 的 market_slots = ["corporate"]（39 个调度中 20 个带 market_slots）；platform d63cf90（STG / PROD 都已发）的 PROD Console Ingest 页 corporate slot 显示 `dagster=market_corporate_schedule · last_run=SUCCESS`，旧名不再出现
-- **Claim**: The canonical roster is HUSBANDRY_SCHEDULE_JOBS in research. (1) Platform Console maps corporate/option-trades to market_corporate_trades_schedule, which no longer exists (now market_corporate_schedule), and has no mapping for fundamentals-market, ratios-market, intraday-chain, treasury, ticker-details, corporate-backfill, option-depth. (2) verify_husbandry_schedulers.sh asserts retired schedules and only WARNs when absent. (3) k8s/orchestration/README lists research_morning_prep_schedule, a wrong ratios cron, and 'Outside Dagster: IB only' though research-harness runs as a CronJob.
-- **Measured**: MEASURED. ops_dagster.runs: market_corporate_trades_job last ran 2026-09-05; market_corporate_job 30 runs through 10-05. Live roster lists 40 schedules, none market_corporate_trades_schedule. Code ratios cron '10 5-8,11,14,20 * * *'. Console miss itself CODE-READ.
-- **Evidence**:
-  - `bifrost-platform/console/src/lib/market-data/slotScheduler.ts:35` — `corporate: 'market_corporate_trades_schedule',`
-  - `bifrost-platform/console/src/lib/market-data/queuePulseModel.ts:41` — `corporate: 'market_corporate_trades_schedule',`
-  - `bifrost-research/scripts/verify_husbandry_schedulers.sh:130` — `market_corporate_trades_schedule \`
-  - `bifrost-research/k8s/orchestration/README.md:29` — `| `market_ratios_market_schedule` | `10 2-20/3 * * *` UTC |`
-- **Impact**: Ops Console shows wrong state for the corporate slot and none for seven slots; the runbook script passes regardless; the README misleads the next agent.
-- **Fix**: Research roster is the only source: /research/orchestration/status returns slot→schedule; Console drops SLOT_TO_DAGSTER_SCHEDULE/KIND_TO_DAGSTER_SCHEDULE literals. Rewrite verify_husbandry_schedulers.sh to iterate `dagster schedule list` and fail on missing/STOPPED. Generate or delete the README table.
-- **Ratchet**: Research test: every *_schedule name in k8s README and scripts/*.sh exists in RESEARCH_SCHEDULES. Platform test against a fixture captured from /research/orchestration/status (or remove the maps).
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform, bifrost-research
 
 ### TD-109
 

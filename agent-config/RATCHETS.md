@@ -51,6 +51,7 @@
 | Dagster 调度存活告警（TD-99） | `bifrost-trade-infra/k8s/monitoring/bifrost-alerting-rules.yaml` 组 `bifrost-research-orchestration`（11 条）+ ServiceMonitor `bifrost-research`；`bifrost-research/tests/orchestration/test_definitions.py::test_schedule_roster_matches_the_definitions_field_by_field` | 调度停跑、改名、漏触发、触发失败；daemon 心跳停；run 卡住 > 6h；Event Radar 积压或陈旧；research /metrics 抓不到 | alert（规则）+ warning（名单测试） | API 错误率 / 延迟仍看不到 research（TD-161） |
 | 退役查询名返回 422（TD-51） | `bifrost-trade-api/tests/test_query_vocab.py`；中间件 `RetiredQueryNames`；发布探针 `scripts/release/expected.d/2026-10-06g-td51-td80.probes.json` | 旧查询参数名被静默忽略（如 `/executions?since_ts` 去掉过滤返回全部）或别名改写机制回来 | warning（测试；CI 不卡发布，见 TD-95）+ 运行时 422 | Loki 闸门看不全被拒的调用方（TD-152、TD-153） |
 | StatusReader 只读（TD-80） | `bifrost-trade-core/tests/test_status_reader_read_only.py` | 门面 `StatusReader` 重新长出写方法，或委托的函数写库 / Redis | warning（测试；CI 不卡发布） | api 里还有一处空转的 MagicMock 断言（TD-154） |
+| Dagster 调度名单只有一份（TD-108） | `bifrost-research/src/bifrost_research/api/schedule_roster.py` + `tests/test_schedule_names_in_docs_and_scripts_exist`；`bifrost-platform/console/src/lib/market-data/__tests__/slotScheduler.test.ts`（console 里每个 `*_schedule` 字面量都要在名单 fixture 里） | 调度名单的手抄副本漂移（Console 查改过名的调度、新 slot 没有映射） | warning（测试；CI 不卡发布） | fixture 由名单代码生成，名单改了要重新生成 |
 
 ## 各类债现在挡没挡住
 
