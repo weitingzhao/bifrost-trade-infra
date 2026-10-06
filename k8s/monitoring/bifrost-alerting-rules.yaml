@@ -798,7 +798,7 @@ spec:
             severity: warning
           annotations:
             summary: "Promtail on {{ $labels.node }} dropped {{ $value | humanize }} log lines ({{ $labels.reason }})"
-            description: "Those lines never reached Loki and cannot be recovered. ingester_error means pushes kept failing until retries ran out, usually because loki-0 was NotReady (the loki Service had no endpoints); check loki-0 readiness and memory against its 1Gi limit. Until 2026-09-28 this happened silently, about 1.9M lines in total."
+            description: "Those lines never reached Loki and cannot be recovered, and every Loki release gate (scripts/release/loki_gate.py) over this hour reads INCONCLUSIVE. ingester_error has two causes; promtail's own log says which (kubectl logs -n monitoring {{ $labels.pod }} | grep 'error sending batch'). A 5xx or no answer: pushes kept failing until retries ran out, usually because loki-0 was NotReady (the loki Service had no endpoints); check loki-0 readiness and memory against its 1Gi limit. A 400: Loki refused one entry (e.g. 'max entry size exceeded', a line over 256KB), kept the rest of the batch, and promtail counted the whole batch; promtail truncates at 250KB since TD-152 (scripts/k3s/values-promtail.yaml extraLimitsConfig), so a 400 now names a different limit. Until 2026-09-28 drops happened silently, about 1.9M lines in total."
 
         - alert: BifrostPromtailScrapeDown
           expr: |

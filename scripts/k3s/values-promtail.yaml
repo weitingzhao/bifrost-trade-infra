@@ -11,6 +11,18 @@ config:
       - source_labels: [__meta_kubernetes_pod_phase]
         regex: Succeeded
         action: drop
+    # Truncate a line before Loki refuses it. Loki's max_line_size is 256 KiB (262144 B, the
+    # default) and a longer line gets the push answered 400 "max entry size exceeded"; promtail
+    # does not retry a 400 and counts the WHOLE batch in promtail_dropped_entries_total
+    # (reason ingester_error) although Loki kept the batch's other lines. One dagster-daemon
+    # line at the 22:45 and 03:00 UTC schedule ticks did that every night 09-28..10-06
+    # (17-20 "dropped" per batch on the node the daemon ran on), and loki_gate.py then called
+    # every release gate INCONCLUSIVE (TD-152). 250KB (promtail reads KB as 1024 B, so 256000 B;
+    # "KiB" does not parse and promtail would not start) leaves room under Loki's limit, which
+    # counts structured metadata too. Truncations: promtail_mutated_entries_total{reason="line_too_long"}.
+    extraLimitsConfig: |
+      max_line_size: 250KB
+      max_line_size_truncate: true
 
 # cicd node tails hundreds of Tekton step pods; 256Mi/512Mi OOMKilled (444+ restarts).
 # Keep request modest so quiet nodes are not over-reserved; raise limit for CI spikes.
