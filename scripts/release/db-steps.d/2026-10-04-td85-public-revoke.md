@@ -2,7 +2,7 @@
 id: 2026-10-04-td85-public-revoke
 envs: dev stg prod
 when: after
-done:
+done: dev stg prod
 ---
 # TD-85 D4: PUBLIC loses CONNECT on the Trade databases and CREATE in their public schema
 

@@ -2,7 +2,7 @@
 id: 2026-10-05-d2-executions-final-regrant
 envs: prod
 when: after
-done:
+done: prod
 ---
 # TD-85 D2 follow-up: analytics_writer gets SELECT on raw_broker.executions_final back (Golden Source only)
 
