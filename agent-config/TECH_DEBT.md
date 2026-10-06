@@ -13,9 +13,9 @@
 
 ## 待你签收
 
-- **TD-154** — api 测试里 76 处裸 `reader = MagicMock()` 换成 `create_autospec(StatusReader)`，`test_an_unknown_field_is_422_named_and_writes_nothing` 改为对路由能走到的每个 writer 断言未调用（api 0805fb1，只改测试） · 验收 PASS（10-06，1002 passed；只做 spec 化时旧断言 12/12 失败） · 防线：`bifrost-trade-api/tests/test_reader_mocks_have_spec.py`（AST 扫描，*reader 的 Mock 必须带 spec） · 无后续：同类断言已全部 spec 化
+（暂无）
 
-**未结 74 项**：P0 0 · P1 5 · P2 30 · P3 39；要你批的 36 项（从总览表的审批列算）。
+**未结 72 项**：P0 0 · P1 5 · P2 29 · P3 38；要你批的 36 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -47,7 +47,7 @@
 
 目标：先让失败变红。错数据先修数据（TD-87 restate），再把引擎、闸门、写入方从「出错也报成功」改成失败即失败：引擎资产按输出判定、husbandry gate 失败即关、日历读失败报错、写入方失败抛错。不需要 Owner 批的先做。
 
-项：TD-87, TD-91, TD-92, TD-94, TD-97, TD-101, TD-136, TD-156, TD-157, TD-165, TD-166, TD-167 · 已还：TD-88, TD-89, TD-90, TD-113, TD-93
+项：TD-87, TD-91, TD-92, TD-94, TD-97, TD-101, TD-136, TD-156, TD-157, TD-166, TD-167 · 已还：TD-88, TD-89, TD-90, TD-113, TD-93, TD-165
 
 ### 第 2 波 · 让闸门真的卡住
 
@@ -71,7 +71,7 @@
 
 目标：删掉没人用的（挂起的 CronJob、退役脚本、无调用路由），手抄的副本改成从一处生成（调度名单、max-pain / PCR），清单的应用顺序与 Argo 归属理顺。
 
-项：TD-102, TD-106, TD-107, TD-118, TD-119, TD-120, TD-123, TD-124, TD-125, TD-154, TD-160, TD-163, TD-168, TD-169, TD-170 · 已还：TD-126, TD-108
+项：TD-102, TD-106, TD-107, TD-118, TD-119, TD-120, TD-123, TD-124, TD-125, TD-160, TD-163, TD-168, TD-169, TD-170 · 已还：TD-126, TD-108, TD-154
 
 ### 第 6 波 · 备份链与自动修复（10-06 日常发现）
 
@@ -222,7 +222,6 @@
 | [TD-159](#td-159) | P3 | market-data | No read says how many standard and adjusted option contracts a name has, so "only adjusted contracts are listed" is inferred in the browser from ticker shapes | 不用批 |
 | [TD-152](#td-152) | P2 | ops-platform | promtail drops log lines (ingester_error) around 02:00–03:15 and 22:xx UTC, so every Loki-based release gate can come out INCONCLUSIVE | 不用批 |
 | [TD-153](#td-153) | P3 | ops-platform | loki_gate.py only knows the pre-0.10.0 log line ('deprecated query params'); after api 0.10.0 refused callers log 'retired query params' and the gate cannot see them | 不用批 |
-| [TD-154](#td-154) | P3 | trade (round 1) | api test_request_bodies asserts on a plain MagicMock that removed facade methods were not called — it can never fail | 不用批 |
 | [TD-155](#td-155) | P2 | ops-platform | Pushes to GitHub main do not trigger CI until the Gitea pull mirror syncs, so a commit can be released before its CI ever ran | 跨仓库发版 |
 | [TD-156](#td-156) | P2 | research-control | research_signal_hit_schedule fires at 00:10 UTC, before the 02:30 UTC batch writes the night's features, so it judges the previous night's features | 不用批 |
 | [TD-157](#td-157) | P3 | research-data | GEX writes a wall on an arbitrary strike when one side of an expiry has no gamma exposure: 1,762 levels rows on 244 names, terrain reads both walls | 已批（观察中） |
@@ -231,7 +230,6 @@
 | [TD-162](#td-162) | P2 | ops-platform | Research and plugin releases have no release window: sessions collide on pins and on deliver runs | 跨仓库发版 |
 | [TD-163](#td-163) | P3 | research-control | Two research tests import dagster without importorskip, so they fail in any venv without the orchestration extra | 不用批 |
 | [TD-164](#td-164) | P3 | research-data | dbt reports MissingArgumentsPropertyInGenericTestDeprecation 18 times: generic test arguments use the pre-1.10 layout | 不用批 |
-| [TD-165](#td-165) | P2 | ops-platform | Ops Console Market Data › Ingest crashes to a blank page while the doctor is recomputing (its 'computing' answer has no universe) | 不用批 |
 | [TD-166](#td-166) | P2 | research-data | GEX zero_gamma was the strike nearest spot on 38% of daily levels rows (no change of sign), and a step out of zero counted as a crossing; terrain read it as a flip at spot | 已批（观察中） |
 | [TD-167](#td-167) | P3 | market-data | Console slot adherence still credits a policed slot with its sibling's jobs (reference counts ticker-details detail jobs as its evidence) | 不用批 |
 | [TD-168](#td-168) | P3 | market-data | The doctor's stale:* detail says the dimension row is one 'which other slots also write' even for calendar and fundamentals-rotate, whose dimensions are not shared | 不用批 |
@@ -1165,22 +1163,6 @@
 - **Ratchet**: A loki_gate test that every gate name has a needle matching the log line the current api version emits (fixture lines from both versions).
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra
 
-### TD-154
-
-**P3 · trade (round 1) · api test_request_bodies asserts on a plain MagicMock that removed facade methods were not called — it can never fail**
-
-- **状态**：待你签收
-- **验收**：`cd bifrost-trade-api && make lint && make test`：全过，且 `tests/test_reader_mocks_have_spec.py` 在内
-- **验收结果**：PASS 2026-10-06 api 0805fb1（1002 passed，core 0.51.0）；只做 spec 化时旧断言 12/12 失败，证明旧断言原来永远不会失败
-- **Claim**: After core 0.49.0 the facade write methods no longer exist; the test still asserts on a bare MagicMock that create_position_category / set_position_category_tag / … were not called. A MagicMock accepts any attribute, so the assertion passes whatever the route does.
-- **Measured**: code-read 10-06 (paydown lane F).
-- **Evidence**:
-  - `bifrost-trade-api/tests/test_request_bodies.py:338` — `for fn in ("create_position_category", "set_position_category_tag", "set_market_streams_symbol_order",`
-- **Impact**: A regression that writes through an old path would not be caught by the test that claims to guard it.
-- **Fix**: Assert that the matching `*_strict` writers were (or were not) called, on a MagicMock with spec= the real module, so a removed name raises.
-- **Ratchet**: Lint rule or test helper: mocks of core facades/modules must use spec= (autospec), so asserting on a non-existent attribute fails.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-api
-
 ### TD-155
 
 **P2 · ops-platform · Pushes to GitHub main do not trigger CI until the Gitea pull mirror syncs, so a commit can be released before its CI ever ran**
@@ -1335,23 +1317,6 @@
 - **Fix**: Move test parameters under `arguments:` in the model yml files.
 - **Ratchet**: Run dbt parse with `--warn-error-options '{"error": ["MissingArgumentsPropertyInGenericTestDeprecation"]}'` in the dbt grain ratchet test.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
-
-### TD-165
-
-**P2 · ops-platform · Ops Console Market Data › Ingest crashes to a blank page while the doctor is recomputing (its 'computing' answer has no universe)**
-
-- **状态**：观察中（到下一次 market-data 插件重启——道 J 的发版，看 PROD Ingest 页在 doctor 计算中时显示 computing）
-- **验收**：PROD Console 的 doctor 返回计算中空壳时，Ingest 页显示 `computing` 而不白屏；`__tests__/DoctorPanel.computing.test.ts` 通过
-- **现在**：platform 13f1f68 已上 STG（bifrost-deliver-platform-1791312501）和 PROD（bifrost-deliver-platform-prod-1791312712），两次 clone HEAD 都是 13f1f68；PROD 控制台 bundle 含新文案；PROD Ingest 页正常路径渲染无错（doctor 非计算中：degraded、0 critical）。计算中路径目前只由 `DoctorPanel.computing.test.ts` 覆盖，线上要等插件重启才会出现
-- **Claim**: GET /market/doctor answers {age_sec, computing, findings, generated_at, ok} while a recompute runs (after a plugin restart the cache is empty). DoctorPanel renders `report.universe.optionable` unguarded, so the whole Ingest tab throws and React unmounts the root until a full reload after the doctor is done.
-- **Measured**: MEASURED 10-06 18:15 UTC on PROD (market-data 0.79.0 had just restarted): TypeError 'Cannot read properties of undefined (reading optionable)' in DoctorPanel, #root empty; after the doctor finished (18:16:48) a full reload rendered normally.
-- **Evidence**:
-  - `bifrost-platform/console/src/components/market-data/DoctorPanel.tsx:105` — `Optionable underlyings: ${report.universe.optionable} of ${report.universe.underlyings}.`
-  - `bifrost-platform/console/src/components/market-data/doctorModel.ts:92` — ``Universe: watchlist ${report.universe.watchlist} · underlyings ${report.universe.underlyings} · optionable ${report.universe.optionable}`,`
-- **Impact**: Every plugin release or restart blanks the Ingest tab for the 1–4 minutes the doctor takes, exactly when an operator looks at it.
-- **Fix**: Type the doctor response as a union (computing stub | report); render 'computing…' for the stub; guard universe with optional chaining in DoctorPanel and doctorModel; wrap the tab in an error boundary so one panel cannot blank the page.
-- **Ratchet**: A DoctorPanel test rendering the real computing stub (fixture captured from /market/doctor) — must not throw.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-166
 
