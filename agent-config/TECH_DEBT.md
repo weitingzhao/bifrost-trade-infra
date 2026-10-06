@@ -1396,7 +1396,9 @@
 
 **P3 · frontend · Positions shows the attribution price_last as if it were live: no EOD label or date now that core 0.51.0 fills it from the vendor EOD mark**
 
-- **状态**：在做（道 L，10-06 开工）
+- **状态**：观察中（到 10-07 Trade 发版——core 0.51.0 上线后，看 Positions 上 vendor 收盘价的腿标 EOD MM-DD）
+- **验收**：发版后 DEV：`curl -s http://192.168.10.73:30882/api/account/executions/position-attribution | python3 -c "import sys,json,collections;it=json.load(sys.stdin)['items'];print(collections.Counter(r.get('mark_source','<absent>') for r in it))"` 出现 vendor_eod；:5173 Positions Trade 视图展开分组，vendor_eod 的期权腿 UN PNL 后缀为 `EOD MM-DD`
+- **现在**：frontend 4860e7cd 已推 main：`attributionMark` 只在价格取自 attribution 行时带上 mark_source / mark_date；`eodMarkLabel` 给出 `EOD MM-DD`（沿用 TradeRecord 的格式）；TradeOptionSubTable 的 UN PNL 后缀与 OptionContractDetail 的警告用它。门禁 tsc / lint / vitest 4022 passed / build / legacy-css / code-health 全 0，未调基线。防线 `src/utils/buildTradeGroups.test.ts` 4 个新用例。DEV 现在 30/30 行无 mark_source，页面与今天一样
 - **Claim**: core 0.51.0 (TD-140) fills price_last from the newest vendor_eod snapshot mark when there is no live quote and labels each row mark_source / mark_date. The frontend type has only price_mid / price_last and buildTradeGroups falls back to price_last without saying it is a dated close.
 - **Measured**: code-read 10-06 by paydown lane I.
 - **Evidence**:
