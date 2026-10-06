@@ -1,0 +1,136 @@
+# Retry the nightly base backup once when it did not complete.
+#
+# The 03:00 UTC ScheduledBackup (backup-scheduled.yaml) failed on 2026-10-03 and
+# 2026-10-04 with InvalidPart: MinIO, a single drive on the NAS's NFS export, lost
+# an early multipart part underneath itself (see the MinIO notes in
+# minio/deployment.yaml). On-demand backups taken an hour later went through.
+# Until MinIO moves off NFS, this keeps a failed night from leaving the cluster a
+# day older than planned.
+#
+# Every 15 min from 04:00 to 09:45 UTC it lists today's (UTC) Backups of
+# bifrost-postgres and:
+#   - one completed            -> nothing to do;
+#   - one still pending/running -> wait for the next run;
+#   - today's retry exists     -> nothing more (one retry a day; a failed retry is
+#                                 left to BifrostPostgresBackupFailed);
+#   - otherwise (failed, or no backup at all today) -> create
+#     bifrost-postgres-retry-<YYYYMMDD>, same method and target as the schedule.
+# DRY_RUN=1 sends the create with --dry-run=server (RBAC and the CNPG webhook are
+# still checked; nothing is created).
+#
+# Not in k8s/data/kustomization.yaml: apply with
+#   kubectl apply -f k8s/data/backup-retry.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backup-retry
+  namespace: data
+  labels:
+    app.kubernetes.io/name: backup-retry
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: backup-retry
+  namespace: data
+  labels:
+    app.kubernetes.io/name: backup-retry
+rules:
+  - apiGroups: [postgresql.cnpg.io]
+    resources: [backups]
+    verbs: [get, list, create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backup-retry
+  namespace: data
+  labels:
+    app.kubernetes.io/name: backup-retry
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: backup-retry
+subjects:
+  - kind: ServiceAccount
+    name: backup-retry
+    namespace: data
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup-retry
+  namespace: data
+  labels:
+    app.kubernetes.io/name: backup-retry
+spec:
+  schedule: "*/15 4-9 * * *"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 86400
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: backup-retry
+        spec:
+          serviceAccountName: backup-retry
+          restartPolicy: Never
+          nodeSelector:
+            kubernetes.io/arch: amd64
+          containers:
+            - name: retry
+              image: alpine/k8s:1.31.4
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: CLUSTER
+                  value: bifrost-postgres
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  cpu: 200m
+                  memory: 128Mi
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  NS=data
+                  TODAY="$(date -u +%Y-%m-%d)"
+                  RETRY="${CLUSTER}-retry-$(date -u +%Y%m%d)"
+                  DRY="${DRY_RUN:+--dry-run=server}"
+                  list="$(mktemp)"
+                  kubectl get backups.postgresql.cnpg.io -n "${NS}" \
+                    -o jsonpath='{range .items[*]}{.spec.cluster.name}{"|"}{.metadata.name}{"|"}{.metadata.creationTimestamp}{"|"}{.status.phase}{"\n"}{end}' >"${list}"
+                  today="$(awk -F'|' -v c="${CLUSTER}" -v d="${TODAY}" '$1 == c && index($3, d) == 1' "${list}")"
+                  echo "today's backups (${TODAY}):"; echo "${today:-  none}"
+                  if echo "${today}" | awk -F'|' '$4 == "completed" {f=1} END {exit !f}'; then
+                    echo "ok: a backup completed today"; exit 0
+                  fi
+                  if echo "${today}" | awk -F'|' 'NF && $4 != "completed" && $4 != "failed" {f=1} END {exit !f}'; then
+                    echo "wait: a backup is still in progress"; exit 0
+                  fi
+                  if kubectl get backups.postgresql.cnpg.io -n "${NS}" "${RETRY}" >/dev/null 2>&1; then
+                    echo "done: ${RETRY} already exists, not retrying again today"; exit 0
+                  fi
+                  echo "retry: no completed backup today; creating ${RETRY}${DRY:+ (dry run)}"
+                  cat <<EOF | kubectl create ${DRY} -f -
+                  apiVersion: postgresql.cnpg.io/v1
+                  kind: Backup
+                  metadata:
+                    name: ${RETRY}
+                    namespace: ${NS}
+                    labels:
+                      app.kubernetes.io/name: backup-retry
+                  spec:
+                    cluster:
+                      name: ${CLUSTER}
+                    method: barmanObjectStore
+                  EOF
