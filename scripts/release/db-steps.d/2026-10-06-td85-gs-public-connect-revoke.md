@@ -2,7 +2,7 @@
 id: 2026-10-06-td85-gs-public-connect-revoke
 envs: prod
 when: after
-done:
+done: prod
 ---
 # TD-85 GS follow-up: PUBLIC loses CONNECT on bifrost_golden_source
 
