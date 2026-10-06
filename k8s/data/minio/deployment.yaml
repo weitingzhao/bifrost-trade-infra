@@ -56,6 +56,19 @@ spec:
               port: api
             initialDelaySeconds: 5
             periodSeconds: 10
+          # /minio/health/live and /ready keep answering 200 when MinIO has marked
+          # its only drive offline; /cluster answers 503. On 2026-10-05 the NAS
+          # stopped responding for ~8 min (19:15-19:23), MinIO never brought the
+          # drive back, and WAL archiving failed for 6h40m behind a Ready pod.
+          # A restart re-attaches the drive; 4 x 30 s rides out a short NAS blip.
+          livenessProbe:
+            httpGet:
+              path: /minio/health/cluster
+              port: api
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 4
           resources:
             requests:
               cpu: 100m
