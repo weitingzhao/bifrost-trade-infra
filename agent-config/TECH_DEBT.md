@@ -15,7 +15,7 @@
 
 （暂无）
 
-**未结 72 项**：P0 0 · P1 5 · P2 30 · P3 37；要你批的 38 项（从总览表的审批列算）。
+**未结 75 项**：P0 0 · P1 5 · P2 30 · P3 40；要你批的 39 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -83,7 +83,7 @@
 
 目标：Data Gaps 看板上未结的 15 项并入台账：先把每日快照的写入修对（TD-137）再接读侧和三页，归因行补上价格，Research 侧已就绪的一个版本（0.185.0）发出去，长期限 IV 锥在 10-31 前从 option_daily 回填，其余按 Owner 已定的口径排。
 
-项：TD-137, TD-138, TD-139, TD-140, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-151, TD-158, TD-159, TD-171, TD-172 · 已还：TD-141, TD-147
+项：TD-137, TD-138, TD-139, TD-140, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-151, TD-158, TD-159, TD-171, TD-172, TD-177, TD-178, TD-179 · 已还：TD-141, TD-147
 
 ## 数据边界（接受并留座）
 
@@ -237,6 +237,9 @@
 | [TD-174](#td-174) | P3 | market-data | Console marks fundamentals-rotate missed every Monday 03:45 → Tuesday 03:00 UTC: the trading-day check uses the UTC date of the fire | 不用批 |
 | [TD-175](#td-175) | P3 | market-data | ticker-details adherence still credits the shared ticker_sync freshness row, so a stopped ticker-details reads on_plan after reference's 21:30 walk | 不用批 |
 | [TD-176](#td-176) | P3 | research-control | Suspended CronJobs cronjob-signal-hit.yaml and cronjob-alert-scan.yaml still ship and get re-pinned every release though Dagster runs both | 删除（要你批） |
+| [TD-177](#td-177) | P3 | frontend | No way to create a plan from a hypothesis: PlanThisButton writes source_kind 'symbol' and PlanForm takes a hand-typed slug, so TD-143's hypothesis → trade link never forms | 不用批 |
+| [TD-178](#td-178) | P3 | trade-api | GET /strategies/plans has no source_kind filter: Research reads the newest 500 filled plans and filters itself, marking truncated at the cap | 改公开接口 |
+| [TD-179](#td-179) | P3 | frontend | Stock screen with No model cannot sort by Earnings: RankDrawer still disables it although the batch read now serves the dates | 不用批 |
 
 ## 条目
 
@@ -993,8 +996,11 @@
 
 **P3 · research-data · Hypotheses never link to trades: linked_opportunity_ids is empty on all 91 rows, and only Research's own create / patch writes it**
 
-- **状态**：在做（还债第二批 · 道 G2，10-06 开工）
+- **状态**：观察中（读时派生已上线 research 0.193.0，前端 357f237d 随 10-07 Trade 发版；正向验收要你在 DEV 走一遍）
 - **验收**：在 DEV 上用一个 hypothesis 建 plan（source_kind='hypothesis'）并关联成交后，Research 的 hypothesis 读接口带出该 trade_id；`git -C bifrost-trade-frontend grep -n 'BROKEN_LINK' origin/main -- src/pages/review/objectives` 指向派生链接而不是 `hypothesis.linked_opportunity_ids`
+- **验收结果**：部分 PASS 2026-10-06：`BROKEN_LINK` 已指向 `hypothesis.linked_trade_ids`；dev / stg / prod 各读 94 个假设、0 条 hypothesis 来源的已成交 plan、error 为空；`trade_env=qa` 返回 422。正向（真链出 trade_id）未做：要写 DEV Trade 库
+- **下一步**：你在 DEV 用一个假设 id 建 plan（source_kind=hypothesis、source_ref=该 id）并让它成交后，看 `/research/hypothesis/<id>?trade_env=dev` 的 `linked_trade_ids`；前端还没有「从假设建 plan」的入口（TD-177）；trade-api plans 没有 source_kind 过滤（TD-178）
+- **现在**：research 0.193.0：假设 list / get 每行加 `linked_trade_ids` / `linked_trades` / `trade_link_basis`，读 trade-api 现有 `GET /strategies/plans?status=filled&limit=500` 后筛 `source_kind='hypothesis'`，新参数 `?trade_env=dev|stg|prod`（默认 prod），读失败为 null 带错误、到上限标 truncated；两个库都没有新写入方（D13）。前端 `useTradeEnv` + Review › Objectives 链按本环境读。防线：`tests/repositories/test_hypothesis_trade_links.py`、`objectiveChainModel.test.ts`
 - **Claim**: research.hypothesis holds 91 rows (active 65 · archived 25 · validated 1) and none has linked_opportunity_ids; the objective chain in the frontend names exactly that column as its broken link. Trade's strategy_plan already carries source_kind='hypothesis' with source_ref and trade_id, so the link can be derived, but plans are PROD 0 · STG 0 · DEV 3 (all manual) and trade-api GET /plans has no source_kind filter.
 - **Measured**: MEASURED 10-06 on the replica (Golden Source and the three Trade databases).
 - **Evidence**:
@@ -1217,8 +1223,11 @@
 
 **P3 · research-data · Earnings estimates are served one name per request, so no universe-wide page can show an Earn column**
 
-- **状态**：在做（还债第二批 · 道 G2，10-06 开工）
+- **状态**：观察中（Research 部分已上线 0.193.0 / 0.196.0；前端 301c9bee / 357f237d 在 main，随 10-07 Trade 发版上线后看 Stock screen 的 Earn 列与 catalyst chip）
 - **验收**：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n research exec deploy/research-api -- python -c "import urllib.request,json;d=json.loads(urllib.request.urlopen('http://127.0.0.1:8795/research/narrative/earnings/batch?symbols=NVDA,AAPL,KO').read());print(sorted(d['data']))"` → `['AAPL', 'KO', 'NVDA']`，每个都带 `expected_next`（或带原因的空）；`git -C bifrost-trade-frontend grep -n "is served across the universe" origin/main -- src` → 0 行
+- **验收结果**：部分 PASS 2026-10-06：batch NVDA/AAPL/KO 24 ms、逐名与单名路由相等；全宇宙 3,742 名 8 次请求 1.4 s、525 名有预计日；前端 grep 0 行（357f237d）。页面未部署
+- **下一步**：10-07 Trade 发版后在 :5173 看 Stock screen；No-model 下的 Earnings 排序仍未实现（TD-179）；`src/lib/schemas/research.ts` 已到 800 行上限，下次加 schema 先拆
+- **现在**：research 0.193.0（212941e）新增 `GET /research/narrative/earnings/batch?symbols=`（≤ 500，一条 SQL，与单名共用 `_earnings_reading`）；0.196.0（7db30fa）`stock_screen.v2` catalyst 加 `earn_lt_10d` / `earn_10_30d` / `earn_gt_10d`（只增）。前端 `useNamesEarnings` 每 500 名一次 batch 并回填单名缓存。防线：`tests/api/test_narrative_api.py`、`tests/api/test_saved_screen.py`、`src/hooks/useNamesEarnings.test.tsx`（列表必须走 batch，白名单）、`stockScreenVocabulary.test.ts`
 - **Claim**: GET /research/narrative/earnings takes exactly one symbol. The frontend's useNamesEarnings issues one query per name, so pages that list hundreds of names (Stock screen, Scan with All, Vol ratings) either fan out hundreds of requests or show no earnings estimate. The data-gap wording batch (TD-150) caps Scan at 60 names and reads only the selected row under All; Stock screen still says no earnings date is served across the universe.
 - **Measured**: CODE-READ 10-06 on origin/main: the route signature is `symbol: str = Query(..., min_length=1, max_length=16)`; no batch route exists in api/narrative.py. Stock screen copy states the gap in four places.
 - **Evidence**:
@@ -1237,8 +1246,10 @@
 
 **P3 · market-data · No read says how many standard and adjusted option contracts a name has, so "only adjusted contracts are listed" is inferred in the browser from ticker shapes**
 
-- **状态**：在做（还债第二批 · 道 G2，10-06 开工）
+- **状态**：观察中（Research 部分已上线 0.193.0；前端 301c9bee 随 10-07 Trade 发版上线后看 CUE 的 Symbol 页提示）
 - **验收**：对 CUE（或任一只有调整合约的名字）调用新增的计数读法 → `standard = 0`、`adjusted > 0`；对 NVDA → `standard > 0`；`git -C bifrost-trade-frontend grep -n "isAdjustedOptionTicker" origin/main -- src` → 只剩测试或 0 行
+- **验收结果**：部分 PASS 2026-10-06：composite 对 CUE standard 0 / adjusted 14 {CUE1}，NVDA 4,180 / 0，APTV 70 / 40；前端 `isAdjustedOptionTicker` 只剩防线测试里的正则。页面未部署
+- **现在**：research 0.193.0：`GET /research/exhibit/composite` 加 `option_listing`（as_of、standard / adjusted 计数、adjusted_roots，用共享谓词 `not_adjusted_contract_sql`）；前端 `useDossier` 读同一缓存，`SymbolAdjustedOnlyNote` 只按 Research 的计数显示。防线：`tests/engines/test_adjusted_contracts.py`、`tests/api/test_exhibit_lenses.py`、`SymbolAdjustedOnlyNote.test.tsx`（src 里不准从 ticker 推导调整 root）
 - **Claim**: Research excludes adjusted contracts (OCC root ending in a digit) from every option metric, so a name with only adjusted contracts has empty max pain, ATM IV, GEX, flow and PCR by rule. Nothing served says so. The TD-150 frontend batch infers it by fetching the nearest expiry's snapshot rows and testing each option_ticker's root, copying Research's SQL rule into TypeScript; it reads one expiry only and costs two extra requests on names whose four option exhibits are all missing.
 - **Measured**: CODE-READ 10-06: the rule lives in Research `not_adjusted_contract_sql` (27 call sites) and, on the wording branch, in frontend `adjustedListing.ts`; the plugin's `/market/options/snapshots` returns rows with option_ticker but no per-name counts. MEASURED 10-05: CUE 14 open-interest rows, all `CUE1…`.
 - **Evidence**:
@@ -1430,6 +1441,48 @@
 - **Fix**: Delete both manifests (and their kustomization entries) once Owner approves.
 - **Ratchet**: A research test: no CronJob manifest names an engine that Dagster also runs (read from the roster).
 - 审批 删除（要你批） · 代价 S · 风险 low · repos: bifrost-research
+
+### TD-177
+
+**P3 · frontend · No way to create a plan from a hypothesis: PlanThisButton writes source_kind 'symbol' and PlanForm takes a hand-typed slug, so TD-143's hypothesis → trade link never forms**
+
+- **状态**：未开始
+- **Claim**: TD-143 derives hypothesis → trade from filled plans with source_kind='hypothesis' and source_ref = the hypothesis id. Nothing in the UI writes such a plan; on 10-06 dev / stg / prod each had 0.
+- **Measured**: MEASURED 10-06 by paydown lane G2: 94 hypotheses per env, 0 hypothesis-sourced filled plans.
+- **Evidence**:
+  - `bifrost-trade-frontend/src/components/research/PlanThisButton.tsx:63` — `source_kind: 'symbol',`
+- **Impact**: Review › Objectives breaks at `traded` for every objective; the hypothesis hit rate can never be measured.
+- **Fix**: A Plan action on the hypothesis card that pre-fills source_kind='hypothesis' and source_ref=<id>.
+- **Ratchet**: A vitest: the hypothesis card's Plan action submits source_kind hypothesis with the card's id.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
+
+### TD-178
+
+**P3 · trade-api · GET /strategies/plans has no source_kind filter: Research reads the newest 500 filled plans and filters itself, marking truncated at the cap**
+
+- **状态**：未开始
+- **Claim**: TD-143's read-time link pulls status=filled&limit=500 and filters source_kind='hypothesis' in Research; once filled plans approach 500 the oldest links drop out (flagged truncated, not silent).
+- **Measured**: code-read 10-06 by paydown lane G2.
+- **Evidence**:
+  - `bifrost-trade-api/src/bifrost_api/strategy/routers/plans.py:70` — `def list_plans_endpoint(`
+- **Impact**: Links silently age out of reach as the plan book grows (the truncated flag says so, but the link is gone).
+- **Fix**: Additive `source_kind` (and `source_ref`) query params on core list_plans and the api route; Research passes them.
+- **Ratchet**: An api test: source_kind=hypothesis returns only those plans and keeps the 500 cap per filter.
+- 审批 改公开接口 · 代价 S · 风险 low · repos: bifrost-trade-core, bifrost-trade-api, bifrost-research
+
+### TD-179
+
+**P3 · frontend · Stock screen with No model cannot sort by Earnings: RankDrawer still disables it although the batch read now serves the dates**
+
+- **状态**：未开始
+- **Claim**: TD-158 made earnings dates available for the whole list; the No-model branch never sorts by them and RankDrawer keeps the option disabled (its hint now says so honestly).
+- **Measured**: code-read 10-06 by paydown lane G2.
+- **Evidence**:
+  - `bifrost-trade-frontend/src/pages/research/stocks/RankDrawer.tsx:124` — `disabled: true,`
+- **Impact**: A reader cannot rank a screen by the nearest earnings without picking a model.
+- **Fix**: In StockScreenPage's model==='none' branch sort by data.earnings daysAway and pass the sort state to RankDrawer.
+- **Ratchet**: A vitest: No model + Earnings sort orders names by days to the expected date, unknown last.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
 
 ## 没覆盖到的（下一轮从这里开始）
 
