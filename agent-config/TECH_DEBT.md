@@ -13,9 +13,9 @@
 
 ## 待你签收
 
-- **TD-151** — 宏观前瞻日历有了维护源和调度：包内 `scheduler/data/macro_calendar.csv`（FOMC 2026–2027 16 条、CPI 3 条）+ `research_macro_calendar_job`（周一 10:00 UTC），稳定 id、只删已移除的 seed 行（research 0.197.0） · 验收 PASS（10-06：19 行到 2027-12-08，forward 30 天 2 条）· 防线：macro_calendar asset check（覆盖不到 +30 天报 ERROR）+ `tests/orchestration/test_macro_calendar.py` · 后续：TD-180（2027 CPI / 非农日期）、TD-181（/events/calendar 仍读手放 radar 文件）、TD-182（Macro gap 权限缺口与空态文案）
+（暂无）
 
-**未结 79 项**：P0 0 · P1 4 · P2 29 · P3 46；要你批的 41 项（从总览表的审批列算）。
+**未结 78 项**：P0 0 · P1 4 · P2 29 · P3 45；要你批的 41 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -82,7 +82,7 @@
 
 目标：Data Gaps 看板上未结的 15 项并入台账：先把每日快照的写入修对（TD-137）再接读侧和三页，归因行补上价格，Research 侧已就绪的一个版本（0.185.0）发出去，长期限 IV 锥在 10-31 前从 option_daily 回填，其余按 Owner 已定的口径排。
 
-项：TD-137, TD-138, TD-139, TD-140, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-151, TD-158, TD-159, TD-171, TD-172, TD-178, TD-180, TD-181, TD-182 · 已还：TD-141, TD-147, TD-177, TD-179
+项：TD-137, TD-138, TD-139, TD-140, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-158, TD-159, TD-171, TD-172, TD-178, TD-180, TD-181, TD-182 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151
 
 ### 第 8 波 · Pine 线程收尾后的跟进（10-06）
 
@@ -221,7 +221,6 @@
 | [TD-148](#td-148) | P3 | trade-data | A trade cannot name the lens or backtest run it came from: trade has no such column and strategy_plan.source_kind does not allow lens / backtest_run | 改表（要你批） |
 | [TD-149](#td-149) | P2 | market-data | CTVA's adjusted daily bars ignore its 2026-10-01 spin-off, so every return-based feature on CTVA sees an ~84% one-day drop | 不用批 |
 | [TD-150](#td-150) | P3 | frontend | Pages report gaps that are not there: 'no earnings date reaches this side', 'carry nothing at all' for names the vendor answered, and no note that CUE lists only adjusted contracts | 不用批 |
-| [TD-151](#td-151) | P3 | research-data | The macro calendar is empty: features.macro_event_daily has 0 rows because macro_ingest has no scheduled caller | 不用批 |
 | [TD-158](#td-158) | P3 | research-data | Earnings estimates are served one name per request, so no universe-wide page can show an Earn column | 不用批 |
 | [TD-159](#td-159) | P3 | market-data | No read says how many standard and adjusted option contracts a name has, so "only adjusted contracts are listed" is inferred in the browser from ticker shapes | 不用批 |
 | [TD-152](#td-152) | P2 | ops-platform | promtail drops log lines (ingester_error) around 02:00–03:15 and 22:xx UTC, so every Loki-based release gate can come out INCONCLUSIVE | 不用批 |
@@ -1107,26 +1106,6 @@
 - **Fix**: The four earnings sites read the shared earnings read and say estimated ◎ · confirmed dates not in the subscription (see 数据边界); Corporate Actions says 'vendor answered none' / 'one event on record'; CUE's option metric cells say only adjusted contracts are listed (CUE1, 1:30 reverse split) and the exchange lists no standard series.
 - **Ratchet**: A frontend test that searches src (outside designNotes) for the retired phrases and fails on a hit. Manual strength until vitest runs in CI (RATCHETS: FE 守卫测试).
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
-
-### TD-151
-
-**P3 · research-data · The macro calendar is empty: features.macro_event_daily has 0 rows because macro_ingest has no scheduled caller**
-
-- **状态**：待你签收
-- **验收**：上线并手动跑一次 `research_macro_calendar_job` 后：GS 只读 `SELECT count(*), max(event_date) FROM features.macro_event_daily` = `19|2027-12-08`；`/research/event-radar/macro/forward?days=30` count ≥ 2（10-14 CPI、10-28 FOMC）
-- **验收结果**：PASS 2026-10-06 23:2x UTC research 0.197.0（构建 deliver-research-1791328208 / build-research-dagster-1791328230，clone HEAD 4f1e34e；pin 2f61fc0，Argo Synced；Dagster 0.197.0-dagster 已 apply）：手动跑 `research_macro_calendar_job`（run 0e845e63）SUCCESS、asset check output_ok SUCCEEDED；`macro_event_daily` = `19|2027-12-08`（FOMC 16、CPI 3）；`/macro/forward?days=30` count 2（10-14 CPI、10-28 FOMC）
-- **下一步**：发版是父会话按 Owner 10-06 批准执行；第一次手动启动用了 `-m` 代码位置名，不在 daemon 工作区里而被丢弃（run 16395f63 FAILURE，未执行任何步骤）——手动启动要用 `dagster job launch -w /opt/dagster/workspace.yaml -j <job>`
-- **现在**：实测：macro_event_daily 0 行，Dagster 里从没有 macro 的 job / run / asset，`macro_ingest` 只是读 Mac 路径的 CSV 投放目录（没实现 / 从未调度 → 修）。前瞻日历：0.197.0 新增包内维护源 `scheduler/data/macro_calendar.csv`（FOMC 2026–2027 共 16 条，10-06 读自 federalreserve.gov，2027 为官方 tentative；CPI 10-14 / 11-10 / 12-10），`macro_ingest` 改为按 (country, indicator, date) 稳定 id、删除已移除的 seed 行；新 asset `engines/macro_calendar` + `research_macro_calendar_job`（周一 10:00 UTC），roster 已同步。Macro gap（actual 对一致预期）：一致预期不在订阅里 = 权限缺口，接受并留座（见后续）。防线：asset output check（覆盖不到今天 + 30 天报 ERROR、序列将尽报 WARN）+ `tests/orchestration/test_macro_calendar.py`
-- **Claim**: features.macro_event_daily is filled only by scheduler/macro_ingest.py, a CSV drop-zone ingest from Wave R4, and no Dagster schedule, job or CronJob calls it. /research/event-radar/macro/forward and /macro/gap answer 0 rows; the macro rows in /research/events/calendar come from a hand-placed ws:macro file.
-- **Measured**: MEASURED 10-06: 0 rows; both routes 0 rows. CODE-READ: `git grep macro_ingest` on origin/main finds no caller in bifrost_research/orchestration or bifrost-trade-infra.
-- **Evidence**:
-  - `bifrost-research/src/bifrost_research/scheduler/macro_ingest.py:1` — `"""Macro economic calendar CSV ingest (manual drop zone, Wave R4)."""`
-  - `bifrost-research/src/bifrost_research/scheduler/macro_ingest.py:98` — `def run_macro_ingest_from_env() -> dict[str, Any]:`
-  - `bifrost-research/src/bifrost_research/api/wave4.py:859` — `FROM features.macro_event_daily`
-- **Impact**: Event radar has no macro look-ahead (FOMC, CPI, payrolls) from the store.
-- **Fix**: Schedule macro_ingest weekly from Dagster over one maintained source (the ws:macro file the calendar already reads, or a vendor feed if the subscription has one). Or, if the calendar's ws:macro rows are enough, retire the two macro routes and the empty table instead (delete, not build).
-- **Ratchet**: A Dagster asset check that features.macro_event_daily has a row dated within the next 30 days.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
 
 ### TD-152
 
