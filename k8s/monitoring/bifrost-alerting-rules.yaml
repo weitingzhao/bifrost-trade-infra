@@ -39,11 +39,16 @@ spec:
             description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has been ContainerCreating for 15m. Check its events: FailedMount with exit 32 means the node lacks nfs-common (scripts/k3s/install-nfs-common-nodes.sh)."
 
         - alert: BifrostAPIHighErrorRate
+          # research and the plugin namespaces too (TD-161): research-api, market-data-api and
+          # flex-query-api export the Trade APIs' http_requests_total{handler,method,status}
+          # (market-data 0.82.0, flex 0.12.0, research from its TD-161 release). The namespace regex is the same
+          # string in this rule, BifrostAPIHighLatency and BifrostAPIWithoutHttpMetrics;
+          # scripts/check_http_metrics_coverage.py fails if they drift apart.
           expr: |
             (
-              sum(rate(http_requests_total{namespace=~"bifrost-.*",status="5xx"}[5m])) by (namespace, service)
+              sum(rate(http_requests_total{namespace=~"bifrost-.*|research|plugin-.*",status="5xx"}[5m])) by (namespace, service)
               /
-              sum(rate(http_requests_total{namespace=~"bifrost-.*"}[5m])) by (namespace, service)
+              sum(rate(http_requests_total{namespace=~"bifrost-.*|research|plugin-.*"}[5m])) by (namespace, service)
             ) > 0.05
           for: 5m
           labels:
@@ -53,10 +58,15 @@ spec:
             description: "Service {{ $labels.service }} in {{ $labels.namespace }} has 5xx rate above 5%."
 
         - alert: BifrostAPIHighLatency
+          # Caveat (measured 2026-10-06): these buckets are 0.1 / 0.5 / 1 s, so histogram_quantile
+          # never returns more than 1 here and `> 2` cannot fire. The fine histogram
+          # http_request_duration_highr_seconds_bucket (to 60 s, no handler label) is exported by
+          # every API; over the 7 days to 10-06 it was above 2 s for 5m+ about 20 times on PROD
+          # api-monitor and 17 on api-market, so switching is left to an Owner decision.
           expr: |
             histogram_quantile(
               0.99,
-              sum(rate(http_request_duration_seconds_bucket{namespace=~"bifrost-.*"}[5m])) by (le, namespace, service)
+              sum(rate(http_request_duration_seconds_bucket{namespace=~"bifrost-.*|research|plugin-.*"}[5m])) by (le, namespace, service)
             ) > 2
           for: 5m
           labels:
@@ -64,6 +74,24 @@ spec:
           annotations:
             summary: "Bifrost API high P99 latency"
             description: "Service {{ $labels.service }} in {{ $labels.namespace }} P99 latency exceeds 2s."
+
+        - alert: BifrostAPIWithoutHttpMetrics
+          # TD-161 ratchet: every API target scraped in these namespaces must export
+          # http_requests_total, or the two rules above cannot see it. Until 2026-10 research-api
+          # and both plugin APIs exported none, so their 5xx went unalerted. /health is counted
+          # (kubelet probes it every few seconds), so a healthy pod has series within a minute.
+          # platform-api (bifrost-platform-*) is exempt until it exports them; that exemption
+          # is the only one and may only shrink.
+          expr: |
+            count by (namespace, job) (up{namespace=~"bifrost-.*|research|plugin-.*", job!="platform-api"} == 1)
+            unless on (namespace, job)
+            count by (namespace, job) (http_requests_total{namespace=~"bifrost-.*|research|plugin-.*"})
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Bifrost API exports no http_requests_total"
+            description: "{{ $labels.job }} in {{ $labels.namespace }} is scraped but exports no http_requests_total, so BifrostAPIHighErrorRate / HighLatency cannot see it. Add the request middleware (Trade: bifrost_core.observability.prometheus; research / plugins: api/http_metrics.py)."
 
         - alert: BifrostRedisDown
           expr: |

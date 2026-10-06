@@ -6,6 +6,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 KUBECONFIG="${KUBECONFIG:-${PLATFORM_KUBECONFIG:-$HOME/.kube/bifrost-k3s.yaml}}"
 export KUBECONFIG
 
+echo "==> Check: every API monitor is inside the API alert rules (TD-161)"
+python3 "${ROOT}/scripts/check_http_metrics_coverage.py"
+
 echo "==> Apply k8s/monitoring (ServiceMonitor + PodMonitor)"
 kubectl apply -k "${ROOT}/k8s/monitoring"
 

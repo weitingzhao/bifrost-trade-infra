@@ -1,4 +1,4 @@
-.PHONY: release-gate sync-stg-config verify-2c-a1 dev dev-sync-backend-images dev-docker-infra dev-down dev-build dev-reinstall-deps dev-preflight dev-health verify-domain-apis verify-wave-a-sessions switch-cutover-domain signoff-start check-cutover-env check-entrypoint-paths sync-dev-config sync-dev-db-password db-init db-init-dev db-shell shell-redis k3s-install-remote k3s-install-remote-run k3s-verify-remote k3s-fetch-kubeconfig k3s-install-metrics-remote k3s-install-observability-remote k3s-install-argocd k3s-verify-argocd k3s-install-cicd-stack k3s-verify-cicd-stack k3s-install-bifrost-stg k3s-verify-bifrost-stg k3s-install-gitea-persistent k3s-bootstrap-gitea-mirrors k3s-sync-gitea-mirrors k3s-deliver-stg k3s-install-ci-frontend-git k3s-verify-ci-frontend-git k3s-install-ci-frontend-build k3s-verify-ci-frontend-build k3s-install-ci-deliver-stg k3s-verify-ci-deliver-stg k3s-install-phase-b-stg k3s-verify-phase-b-stg k3s-verify-phase-b-stg-v2 k3s-apply-cicd-platform-pipeline k3s-join-agent-remote clean docs docs-build sync-flex-tokens check-agent-parity check-code-health check-overlay-configs check-trade-gateway-routes k3s-install-ci-triggers k3s-verify-ci-triggers k3s-install-ci-webhooks
+.PHONY: release-gate sync-stg-config verify-2c-a1 dev dev-sync-backend-images dev-docker-infra dev-down dev-build dev-reinstall-deps dev-preflight dev-health verify-domain-apis verify-wave-a-sessions switch-cutover-domain signoff-start check-cutover-env check-entrypoint-paths sync-dev-config sync-dev-db-password db-init db-init-dev db-shell shell-redis k3s-install-remote k3s-install-remote-run k3s-verify-remote k3s-fetch-kubeconfig k3s-install-metrics-remote k3s-install-observability-remote k3s-install-argocd k3s-verify-argocd k3s-install-cicd-stack k3s-verify-cicd-stack k3s-install-bifrost-stg k3s-verify-bifrost-stg k3s-install-gitea-persistent k3s-bootstrap-gitea-mirrors k3s-sync-gitea-mirrors k3s-deliver-stg k3s-install-ci-frontend-git k3s-verify-ci-frontend-git k3s-install-ci-frontend-build k3s-verify-ci-frontend-build k3s-install-ci-deliver-stg k3s-verify-ci-deliver-stg k3s-install-phase-b-stg k3s-verify-phase-b-stg k3s-verify-phase-b-stg-v2 k3s-apply-cicd-platform-pipeline k3s-join-agent-remote clean docs docs-build sync-flex-tokens check-agent-parity check-code-health check-overlay-configs check-trade-gateway-routes check-http-metrics-coverage k3s-install-ci-triggers k3s-verify-ci-triggers k3s-install-ci-webhooks
 
 COMPOSE_DEV    = docker compose -f docker-compose.dev.yml
 
@@ -428,6 +428,11 @@ check-overlay-configs:
 # TD-55: every Trade gateway prefix routes to its process and strips only itself (renders all 3 overlays).
 check-trade-gateway-routes:
 	python3 scripts/check_trade_gateway_routes.py
+
+# TD-161: API monitors inside the API alert rules; LIVE=1 also asks Prometheus which API
+# targets export no http_requests_total.
+check-http-metrics-coverage:
+	python3 scripts/check_http_metrics_coverage.py $(if $(LIVE),--live,)
 
 sync-stg-config:
 	@chmod +x scripts/sync_stg_config.sh
