@@ -2,7 +2,7 @@
 id: 2026-10-07-td137-nav-margin-columns
 envs: dev stg prod
 when: before
-done:
+done: dev stg prod
 ---
 # TD-137: account_nav_daily margin columns (core 0.52.0)
 
