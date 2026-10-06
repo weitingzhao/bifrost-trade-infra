@@ -15,7 +15,7 @@
 
 （暂无）
 
-**未结 71 项**：P0 0 · P1 5 · P2 28 · P3 38；要你批的 35 项（从总览表的审批列算）。
+**未结 72 项**：P0 0 · P1 5 · P2 28 · P3 39；要你批的 35 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -71,7 +71,7 @@
 
 目标：删掉没人用的（挂起的 CronJob、退役脚本、无调用路由），手抄的副本改成从一处生成（调度名单、max-pain / PCR），清单的应用顺序与 Argo 归属理顺。
 
-项：TD-102, TD-106, TD-107, TD-118, TD-119, TD-120, TD-123, TD-124, TD-125, TD-154, TD-160, TD-163, TD-168, TD-169 · 已还：TD-126, TD-108
+项：TD-102, TD-106, TD-107, TD-118, TD-119, TD-120, TD-123, TD-124, TD-125, TD-154, TD-160, TD-163, TD-168, TD-169, TD-170 · 已还：TD-126, TD-108
 
 ### 第 6 波 · 备份链与自动修复（10-06 日常发现）
 
@@ -236,6 +236,7 @@
 | [TD-167](#td-167) | P3 | market-data | Console slot adherence still credits a policed slot with its sibling's jobs (reference counts ticker-details detail jobs as its evidence) | 不用批 |
 | [TD-168](#td-168) | P3 | market-data | The doctor's stale:* detail says the dimension row is one 'which other slots also write' even for calendar and fundamentals-rotate, whose dimensions are not shared | 不用批 |
 | [TD-169](#td-169) | P3 | market-data | ops_jobs.ingest_freshness.option_expiration is a fossil row frozen since 09-06 and still listed as ok | 不用批 |
+| [TD-170](#td-170) | P3 | research-control | dagster-daemon logs one line over 256 KB at the 22:45 and 03:00 UTC schedule ticks every night | 不用批 |
 
 ## 条目
 
@@ -1130,7 +1131,10 @@
 
 **P2 · ops-platform · promtail drops log lines (ingester_error) around 02:00–03:15 and 22:xx UTC, so every Loki-based release gate can come out INCONCLUSIVE**
 
-- **状态**：在做（还债第二批 · 道 H，10-06 开工）
+- **状态**：观察中（到 10-07 03:30 UTC，看夜间 dagster 批次不再丢日志）
+- **验收**：10-07 03:30 UTC 之后经 Prometheus：`sum(increase(promtail_dropped_entries_total[12h]))` = 0，且 `sum(increase(promtail_mutated_entries_total{reason="line_too_long"}[12h]))` ≥ 1（超长行被截断而不是整批丢）
+- **下一步**：那一行超长日志本身记为 TD-170
+- **现在**：根因不是 Loki 背压：09-28..10-06 的 12 次全是 `{namespace="research", app="dagster-daemon"}` 在 22:45 / 03:00 UTC 有一行超过 256 KB，Loki 回 400，promtail 不重试、把整批 17–20 条记作 ingester_error。infra 677beb2：promtail `max_line_size: 250KB` + `max_line_size_truncate: true`（helm revision 7，5 个 pod 已加载）；`BifrostPromtailDroppingLogs` 说明补上 400 情形
 - **Claim**: Release gates that prove 'nobody calls X any more' read Loki. promtail dropped 35 entries 10-02..10-05 and 18 more by 10-06 with reason ingester_error, clustered on ubt-k3s-04 (STG/DEV api pods) at ~03:00Z and ubt-k3s-02 (PROD) at 22:xxZ. loki_gate.py counts the drops and refuses to call a zero a zero.
 - **Measured**: MEASURED 10-06 by paydown lane F: TD-51 gate dev 0 / stg 0 / prod 0 hits but INCONCLUSIVE (exit 3) because of 18 dropped entries; Prometheus `sum by (instance,reason)(increase(promtail_dropped_entries_total[1h]))`.
 - **Evidence**:
@@ -1144,7 +1148,9 @@
 
 **P3 · ops-platform · loki_gate.py only knows the pre-0.10.0 log line ('deprecated query params'); after api 0.10.0 refused callers log 'retired query params' and the gate cannot see them**
 
-- **状态**：在做（还债第二批 · 道 H，10-06 开工）
+- **状态**：观察中（到 10-07 03:30 UTC，看 `td51-retired` 在无丢失窗口里给 PASS）
+- **验收**：`python3 scripts/release/loki_gate.py td51-retired --since 2026-10-07T03:30:00Z` 退出 0（三环境 caller 0，release probe 行 > 0）
+- **现在**：infra fc9961a：新 gate `td51-retired`（排除 bifrost-release-check，单列 release_probe_lines）；`GATE_FIXTURES` + `check_gate_fixtures()` 在 self-test 和每次运行前断言每个 gate 读得到它那版 api 的真实日志行。首跑 10-05 18:41Z..10-06 18:41Z：caller dev 0 / stg 0 / prod 0，probe 行 3/6/6，因窗口内有 TD-152 的 18 条丢失判 INCONCLUSIVE
 - **Claim**: api 0.10.0 (TD-51) replaces the silent rewrite with a 422 and a WARNING 'retired query params: … user_agent=…'. loki_gate.py's TD-51 check builds its needle from the deprecated-params line only, so after the release a caller still sending old names is invisible to the gate that was built to find it.
 - **Measured**: code-read 10-06 (paydown lane F).
 - **Evidence**:
@@ -1399,6 +1405,20 @@
 - **Fix**: Either emit freshness_extra={'option_expiration': n_exp} from option_contract, or delete the row (the delete is a data write: Owner).
 - **Ratchet**: A freshness test: every dimension listed in ingest_freshness must have a current writer (kind → dimension map).
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data
+
+### TD-170
+
+**P3 · research-control · dagster-daemon logs one line over 256 KB at the 22:45 and 03:00 UTC schedule ticks every night**
+
+- **状态**：未开始
+- **Claim**: Some logger call in the Dagster daemon / run path writes a single line larger than Loki's 256 KB max_line_size each night (probably a whole result object). Until 10-06 Loki rejected it with 400 and promtail dropped the whole batch (TD-152); from 10-07 promtail truncates it to 250 KB.
+- **Measured**: MEASURED 10-06 by paydown lane H: 12 promtail 'final error sending batch status=400 max entry size 262144 bytes exceeded' lines 09-28..10-06, all for stream {namespace="research", app="dagster-daemon"}; 03:00 runs include market_fundamentals_rotate_job, research_forecast_job, research_event_radar_job. No file:line yet: the line never reached Loki and the daemon restarted ~18:30Z 10-06.
+- **Evidence**:
+  - `bifrost-trade-infra/scripts/k3s/values-promtail.yaml:25` — `max_line_size_truncate: true`
+- **Impact**: A 256 KB log line is unreadable and costs Loki ingestion; any future truncation hides whatever is at its tail.
+- **Fix**: After 10-07 find the truncated line in Loki (`{namespace="research", app="dagster-daemon"}` with promtail_mutated_entries_total line_too_long), trace it to the logger call and log a summary (counts, ids) instead of the object.
+- **Ratchet**: A test or log filter in research that caps log message length (e.g. a logging.Filter that truncates over 16 KB and counts it), plus the existing promtail mutated-entries metric.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
 
 ## 没覆盖到的（下一轮从这里开始）
 
