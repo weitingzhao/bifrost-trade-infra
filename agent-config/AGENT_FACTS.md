@@ -1,6 +1,6 @@
 ---
-parity-id: agent-facts-v5
-generated: 2026-10-04
+parity-id: agent-facts-v6
+generated: 2026-10-05
 authority: bifrost-platform/config/ops-context.yaml (spine) + 磁盘扫描
 ---
 
@@ -390,6 +390,9 @@ Tekton 流水线：`bifrost-ci-{frontend,platform,python}` · `bifrost-deliver-{
 
 - CloudNativePG `bifrost-postgres` @ `data`，2 实例，库 `bifrost_dev` / `bifrost_stg` / `bifrost_prod` + `bifrost_golden_source`；
   Barman 备份 → MinIO `minio.data.svc.cluster.local:9000` 桶 `s3://bifrost-postgres-backup/`（删改即毁 PITR）。
+- 登录角色（TD-85，2026-10-04 起）：Trade 运行时每环境 `trade_app_<env>`（只连本环境库 + GS 的 `raw_broker` / `ops_feedback` 所需）；
+  `bifrost` 只是属主，只有 db-init 用它登录（Secret `bifrost-<env>-db-owner`）；market-data 插件 `data_writer`、flex 插件 `flex_writer`、
+  Research `analytics_writer`（不再继承 `bifrost`）。登录名以各 Secret 的 `PGUSER` / `postgres-user` 为准，ConfigMap 里的 `user:` 只是回落。
 - 第二个 MinIO @ `data-warehouse`（gpu-server）供 Research / Golden Source 对象。
 - `redis-ib` @ `data`：共享 IB 事件总线；`redis-live` / `redis-queue` 每环境一套。
 
