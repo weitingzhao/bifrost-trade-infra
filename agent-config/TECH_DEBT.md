@@ -13,11 +13,11 @@
 
 ## 待你签收
 
-（暂无）
+- **TD-113** — playbook 触发失败记日志并计数，查不到前一状态时报错而不是写一条假 snapshot（research 0.184.0）· 验收 PASS（10-06，trigger_ok 713 / failures 0）· 防线：`bifrost-research/tests/test_silent_swallow.py`（不记日志也不重抛的宽 except 101 → 91，只许降）· 后续：TD-156（signal_hit 在批处理写入前就判）
+- **TD-115** — 资金路径补齐真库测试：core 12 个、flex 解析器测试（顺手修了裸 ISO 日期被截断）· 验收 PASS（10-06）· 防线：`test_public_accounts_writers_have_db_tests`（accounts 每个公开写函数都要有 `*_db.py` 测试，豁免名单只许缩）· 后续：无后续：剩下的两个豁免随 TD-91 / TD-103 处理
+- **TD-116** — Flex 只读 Golden Source，读失败即失败、不再回落到 DEV 库（flex 0.11.0）· 验收 PASS（10-06，worker pod 实测）· 防线：`bifrost-platform-plugin-flex-query/tests/test_gs_only_reads.py` · 后续：可选清理 Secret `flex-query-secrets` 里三个已无人读的 `trade-pg-*` 键（不在仓库里，Owner 决定）
 
-更新：2026-10-06 · 第 1 轮（Trade UI 之下，10-01）剩 3 项 · 第 2 轮（Research + 插件，10-06：40 条发现，反向核实 22 成立、18 修正、0 推翻、3 合并）+ 日常发现 + 数据缺口 15 项（10-06 并入）
-
-**未结 63 项**：P0 0 · P1 5 · P2 27 · P3 31；要你批的 21 项。
+**未结 68 项**：P0 0 · P1 5 · P2 30 · P3 33；要你批的 33 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -49,13 +49,13 @@
 
 目标：先让失败变红。错数据先修数据（TD-87 restate），再把引擎、闸门、写入方从「出错也报成功」改成失败即失败：引擎资产按输出判定、husbandry gate 失败即关、日历读失败报错、写入方失败抛错。不需要 Owner 批的先做。
 
-项：TD-87, TD-91, TD-92, TD-93, TD-94, TD-97, TD-101, TD-113, TD-136 · 已还：TD-88, TD-89, TD-90
+项：TD-87, TD-91, TD-92, TD-93, TD-94, TD-97, TD-101, TD-113, TD-136, TD-156 · 已还：TD-88, TD-89, TD-90
 
 ### 第 2 波 · 让闸门真的卡住
 
 目标：一个开关让所有测试类防线生效（CI 卡发布），再补上调度存活告警、D10 闸门的非 curl 写法、operator 流白名单、本机常驻任务和密钥轮换的盲区、spine 副本同步。
 
-项：TD-95, TD-96, TD-99, TD-100, TD-105, TD-109, TD-121
+项：TD-95, TD-96, TD-99, TD-100, TD-105, TD-109, TD-121, TD-152, TD-153, TD-155
 
 ### 第 3 波 · 交易日与日历只有一个来源
 
@@ -73,7 +73,7 @@
 
 目标：删掉没人用的（挂起的 CronJob、退役脚本、无调用路由），手抄的副本改成从一处生成（调度名单、max-pain / PCR），清单的应用顺序与 Argo 归属理顺。
 
-项：TD-102, TD-106, TD-107, TD-108, TD-118, TD-119, TD-120, TD-123, TD-124, TD-125 · 已还：TD-126
+项：TD-102, TD-106, TD-107, TD-108, TD-118, TD-119, TD-120, TD-123, TD-124, TD-125, TD-154 · 已还：TD-126
 
 ### 第 6 波 · 备份链与自动修复（10-06 日常发现）
 
@@ -230,6 +230,11 @@
 | [TD-149](#td-149) | P2 | market-data | CTVA's adjusted daily bars ignore its 2026-10-01 spin-off, so every return-based feature on CTVA sees an ~84% one-day drop | 不用批 |
 | [TD-150](#td-150) | P3 | frontend | Pages report gaps that are not there: 'no earnings date reaches this side', 'carry nothing at all' for names the vendor answered, and no note that CUE lists only adjusted contracts | 不用批 |
 | [TD-151](#td-151) | P3 | research-data | The macro calendar is empty: features.macro_event_daily has 0 rows because macro_ingest has no scheduled caller | 不用批 |
+| [TD-152](#td-152) | P2 | ops-platform | promtail drops log lines (ingester_error) around 02:00–03:15 and 22:xx UTC, so every Loki-based release gate can come out INCONCLUSIVE | 不用批 |
+| [TD-153](#td-153) | P3 | ops-platform | loki_gate.py only knows the pre-0.10.0 log line ('deprecated query params'); after api 0.10.0 refused callers log 'retired query params' and the gate cannot see them | 不用批 |
+| [TD-154](#td-154) | P3 | trade (round 1) | api test_request_bodies asserts on a plain MagicMock that removed facade methods were not called — it can never fail | 不用批 |
+| [TD-155](#td-155) | P2 | ops-platform | Pushes to GitHub main do not trigger CI until the Gitea pull mirror syncs, so a commit can be released before its CI ever ran | 跨仓库发版 |
+| [TD-156](#td-156) | P2 | research-control | research_signal_hit_schedule fires at 00:10 UTC, before the 02:30 UTC batch writes the night's features, so it judges the previous night's features | 不用批 |
 
 ## 条目
 
@@ -289,7 +294,7 @@
 
 **P2 · trade (round 1) · Query-parameter vocabulary drift for expiry, option side, time ranges and limits; no pagination**
 
-- **状态**：在做（10-06 还债第 F 路：Loki 闸门、合入 main、备好发布命令交 Owner）
+- **状态**：在做（api 0.10.0 在 main、CI 绿；等 Owner 跑合并 Trade 发布）
 - **验收**：`python3 scripts/release/loki_gate.py td51-query-aliases` 零命中；发布后 PROD `/health` 的 api 版本为删除旧名的那一版，旧查询名返回 422
 - **现在**：Research 和 Dagster 已改用新的查询参数名（research 0.161.0 起）。api 侧删除旧名与整套别名机制的提交 `a4757c5` 已备好。
 - **下一步**：跑 Loki 闸门（`loki_gate.py td51-query-aliases`），10-05 夜批后旧名零命中就随下一次 Trade 发布上线。（10-06）
@@ -307,7 +312,9 @@
 
 **P2 · research-control · Engine assets never fail: per-symbol failures, zero-row writes and skips are only metadata, reasons are discarded, and research_trading_day is green regardless of output**
 
-- **状态**：在做（10-06 还债第 A 路：Research 出错报成功）
+- **状态**：观察中（到 10-07 02:30 UTC 批处理，看 16 个引擎的 output_ok 检查都执行了）
+- **验收**：`kubectl -n research logs deploy/dagster-daemon --since=3h | grep ASSET_CHECK_EVALUATION` 在 research_trading_day 里有 16 个 engines 的 output_ok；ERROR 级失败会发 `BifrostDagsterAssetCheckFailed`
+- **验收结果**：部分 PASS 2026-10-06 a242b22：32 个 output_ok 检查已加载，intraday run 两个检查通过；批处理待今晚
 - **Claim**: engine_assets._metadata wraps any result into MaterializeResult; run_gex/run_iv_surface/run_flow do `failed += 1` and drop result['error']; run_slot returns a non-raising 'skipped: no symbols'. No Dagster asset checks exist; only gex_intraday raises on zero output (added after three green weeks of 646-669/669 failures). The only other net is signal_health's 36h/72h computed_at freshness on a subset of tables, which misses partial failures, zero-row writes, wrong-date writes and tables such as research.option_pinned_contract. Silent failures like TD-89 and TD-97 are visible only by reading run metadata by hand.
 - **Measured**: MEASURED. ops_dagster.runs research*/market*, 14 days: 1,026 SUCCESS, 1 FAILURE (memory_distill, TD-86), 1 CANCELED. 10-06 run metadata: gex 42 failed / 1,366 ok over 2 sessions (~3%, about 15-22 names a night), flow 41, surface 41, momentum skipped 4, vrp skipped 7, option_pinned rows_written 0, all green. Most failing names entered option_universe in the last few days (onboarding lag); persistent invisible gaps: NVR (in universe since 09-08, 0 OI rows since 08-01, never a GEX row) and GRML (since 09-24, no OI); QRVO stock_daily stops at 10-02.
 - **Evidence**:
@@ -341,7 +348,8 @@
 
 **P2 · research-control · husbandry_gate fails open: a probe exception leaves verdict 'unknown', which passes, and the gate never checks that the doctor's session is the one being closed**
 
-- **状态**：在做（10-06 还债第 A 路：Research 出错报成功）
+- **状态**：观察中（到 10-07 02:30 UTC 批处理，看闸门放行且 expected_session = market_session）
+- **验收**：今晚 husbandry_gate 的 metadata：`gate=pass`、`expected_session == market_session`；探针失败时 run 变红（12 个单测覆盖）
 - **Claim**: Since research a241f30/47af11e (09-28) the gate reads a freshly computed doctor report (refresh=true, 600s timeout), which fixed the stale-session and empty-report runs of 09-16..09-26. What remains: any doctor/Flex probe exception is logged as a warning and the verdict stays 'unknown'; the gate raises only on critical/failed/stale/none, so 'unknown' passes, and no assertion ties doctor.session to the session being closed. dbt and every engine then run with the EOD gate off.
 - **Measured**: MEASURED. Before the 09-28 fix: unknown verdicts passed on 09-16, 09-25, 09-26; wrong-session 'healthy' on 09-22 (gated 09-18) and 09-24 (gated 09-22). All 6 runs since 09-29 carry the right session and generated_at. tests/orchestration/test_husbandry_gate.py has no all-probes-fail case.
 - **Evidence**:
@@ -387,7 +395,8 @@
 
 **P2 · research-data · alert_scan judges each session once, a day late, and never revisits; composite_high has never fired because every >=90 score appeared on a later scan recompute**
 
-- **状态**：在做（10-06 还债第 A 路：Research 出错报成功）
+- **状态**：观察中（到 10-07 02:30 UTC 批处理，看 alert_scan 判的是当天 session）
+- **验收**：今晚 alert_scan 的 metadata：`as_of == session == 2026-10-06`；`--dry-run --rejudge 25` 能重新判出 composite_high
 - **Claim**: alert_scan runs at 22:30 UTC and takes as_of = MAX(trade_date) of the scan table, so session X is judged at 18:30 ET on X+1. It writes each date once. The scan engine re-walks the last 3 sessions, and the only composite_score >= 90 rows (META 08-31; AVGO/HUM/NKE/PEP/PSX/VLO 09-24) appeared on those later recomputes, so composite_high has produced nothing and the job is green.
 - **Measured**: MEASURED. features.stock_signal_alert_daily since 08-28 (21 dates): hit_rate_drop 38, weight_shift 51, composite_high 0. META 08-31 was written 09-03 02:32; the six 09-24 names 09-29 02:36. 99th percentile score since 09-01 is 78.6; 7 qualifying rows ever.
 - **Evidence**:
@@ -404,6 +413,7 @@
 **P2 · research-data · 'Today' is resolved by 11 private helpers plus 44 bare date.today() calls on UTC pods; option_universe stamps tomorrow's date**
 
 - **状态**：在做（10-06 还债第 B 路：Research 日期/日历/dbt/定价）
+- **Also (paydown lane A, 10-06)**：`engines/pine/build.py:191` `end = as_of or date.today()` — UTC date on the 02:30 UTC run, the next calendar day.
 - **Claim**: Eight helpers return the New York date (_today_ny), three return the UTC date (_today in option_universe, option_pinned, terrain_backfill), and 44 date.today() calls return UTC because no research pod sets TZ. db/calendar.fetch_recent_trading_days also defaults to the UTC date. decline_memory.py documents the wrong 'same host' assumption, and the `noqa: DTZ011` there does nothing because ruff selects only E4/E7/E9/F. Anything run by research_trading_day (02:30 UTC) through _today()/date.today() gets the next calendar day.
 - **Measured**: MEASURED. No TZ env on research-api, dagster-daemon, dagster-webserver, research-mcp, research-pine or api-research. In dagster-daemon, date.today() = 2026-10-06 while NY was 10-05. research.option_universe: 678 rows last_seen 2026-10-06; entered_on on Saturdays (10-03: 6, 09-26: 9, 09-19: 24). candidate_pool path is latent (writers run when UTC and NY agree).
 - **Evidence**:
@@ -598,7 +608,7 @@
 
 **P3 · trade (round 1) · Core facade: an 85-method read/write StatusReader inside 'monitor.reader', alias import paths, verb drift**
 
-- **状态**：在做（10-06 还债第 F 路：C2-b 改号 core 0.49.0，与 TD-51 同发）
+- **状态**：在做（core 0.49.0 在 main、CI 绿；等 Owner 跑合并 Trade 发布）
 - **验收**：core 0.49.0 的 `make test` 与 api 的 `make test` 通过；PROD `/api/account/health` 的 `core_version` 为 0.49.0
 - **现在**：C1、C2-a 已上线。C2-b（`StatusReader` 门面只读、删 5 个写方法和 R4 别名）已备在分支 `td-batch/2026-10-04-lane-aj`。
 - **下一步**：0.48.0 / 0.48.1 / 0.48.2 已被其他改动占用，C2-b 改号为 core 0.49.0，和 TD-51 一起发。（10-06）
@@ -660,7 +670,9 @@
 
 **P3 · research-data · Playbook trigger emission fails with no log in four places; a failed previous-state lookup records a fresh 'snapshot' instead of comparing**
 
-- **状态**：在做（10-06 还债第 A 路：Research 出错报成功）
+- **状态**：待你签收
+- **验收**：research_intraday_job 一次 run 的 terrain_intraday 结果里 `trigger_failures` = 0 且 `trigger_ok` > 0；`tests/test_silent_swallow.py` 通过
+- **验收结果**：PASS 2026-10-06 research a242b22（0.184.0；16:45 UTC run：trigger_ok 713、trigger_failures 0）
 - **Claim**: emit_triggers_for_session and emit_triggers_for_terrain_intraday are wrapped in `except Exception: rollback; pass` with no logger (playbook.py:529, scheduler/engines.py:341); their previous-state lookups (playbook.py:756, 827) also swallow and fall back to prev=None, which emits a first-observation 'snapshot'. Representative of 99 broad except handlers with no logger and no raise in engines/lenses/repositories/db/scheduler/orchestration.
 - **Measured**: MEASURED healthy today: stock_signal_playbook_trigger_intraday ~2,000 rows over ~700 symbols per session 09-23..10-05. Swallows CODE-READ. AST census: 99 silent broad-except handlers.
 - **Evidence**:
@@ -676,7 +688,8 @@
 
 **P3 · flex-ib · raw_broker.commissions mixes two sign conventions: Flex writes cost as negative, the TWS/gateway path writes it as positive**
 
-- **状态**：在做（10-06 还债第 E 路：Flex 资金路径）
+- **状态**：在做（core 0.50.0 在 main，随合并 Trade 发布上线；之后 Owner 跑 6 行存量改写）
+- **验收**：GS 上跑 `db-steps.d/sql/2026-10-06-td114-commission-sign-dryrun.sql`：三个环境都上 0.50.0 且改写后需改写行数为 0（现在 6）
 - **Claim**: Flex stores ibCommission as IB sends it (negative charge, positive rebate); the TWS commissionReport path writes IB API's positive cost into the same column and key. Flex re-imports overwrite to the Flex sign; TWS-only fills keep the opposite sign. No reader normalises (accounts_helpers.py:402-404 adds commission into period totals).
 - **Measured**: MEASURED. Flex-backed: 435 negative, 15 positive (all rebates matching net_cash - proceeds to 4 dp), 32 NULL. TWS-only: 4 positive (~1.04-1.05), 0 negative, 33 NULL. 12 orphan commission rows. Reading TWS positives as costs relies on IB API docs.
 - **Evidence**:
@@ -691,7 +704,9 @@
 
 **P3 · flex-ib · Money-path tests missing: cash parser untested, cash upsert tested only on connect failure (pinning the silent 0), Flex branches of the executions writer untested; commission INSERT in four copies**
 
-- **状态**：在做（10-06 还债第 E 路：Flex 资金路径）
+- **状态**：待你签收
+- **验收**：core `make test-db PYTEST_ARGS=tests/test_money_writers_db.py` 12 passed；flex `make test` 151 passed、1 xfailed（TD-103 的 strict xfail）
+- **验收结果**：PASS 2026-10-06 core 59fdb9d / flex f4d7b77
 - **Claim**: No test of parse_cash_transactions_xml. upsert_account_transactions is tested only in test_connect_helpers.py:118, asserting the silent 0. write_account_executions_to_db is reached only for contract keys; the synthetic flex_{account}_{tradeID} exec_id, the executions_raw_flex conflict update and the commission keep-nonzero upsert have no test. The commission INSERT exists four times (accounts.py 1053, 1122, 1240, 1554).
 - **Measured**: CODE-READ grep of both test trees; live: all 33 BookTrade rows carry flex_* synthetic ids, so the branch is in use.
 - **Evidence**:
@@ -706,7 +721,9 @@
 
 **P3 · flex-ib · The Flex ingest routes query-id, stats and range-day reads through the DEV DB (bifrost_dev) via FDW, with silent fallbacks that can widen the run to 270 days**
 
-- **状态**：在做（10-06 还债第 E 路：Flex 资金路径）
+- **状态**：待你签收
+- **验收**：worker pod 里只读执行 `read_flex_executions_stats` 与 `get_flex_config`：连的是 `bifrost_golden_source` / `flex_writer`，读到 query id、range days 与成交统计
+- **验收结果**：PASS 2026-10-06 flex 0.11.0（镜像 sha256:ee5985…；query 1428383/1428413、range (30, 270)、count 482）
 - **Claim**: The plugin's trade_postgres is bifrost_dev; brokerage.settings_flex and brokerage.executions there are FDW views back to raw_broker on Golden Source, which the plugin already connects to. open_trade_conn falls back silently to core connection params; get_flex_executions_stats turns any error into count=0, which switches the run to init mode (270-day window, extra IB requests against the 1018 throttle).
 - **Measured**: MEASURED: live ConfigMap trade_postgres dbname bifrost_dev; in bifrost_dev brokerage.executions is a view and settings_flex a foreign table on golden_source_server; flex_writer already has SELECT on raw_broker.settings_flex in GS. No failure in history.
 - **Evidence**:
@@ -722,7 +739,8 @@
 
 **P3 · flex-ib · 'Latest Flex date in DB' after an import is one run behind: read through FDW in the same transaction as the pre-import read**
 
-- **状态**：在做（10-06 还债第 E 路：Flex 资金路径）
+- **状态**：观察中（到 10-07 06:30 ET 定时运行，看 after = data_to）
+- **验收**：`select result->'result'->>'data_to', result->'result'->>'last_flex_date_after' from ops_jobs.job_flex_ingest where kind='flex-trades' order by id desc limit 1` 两值相等
 - **Claim**: fetch_flex_trades_and_upsert_executions reads stats_before and stats_after on one Trade-DB connection with no commit between; brokerage.executions is a postgres_fdw view whose remote snapshot lasts the local transaction, so stats_after cannot see rows just written. The value reaches the UI.
 - **Measured**: MEASURED in ops_jobs.job_flex_ingest: job 183 data_to 10-02 but after = 09-30; job 178 09-30 vs 09-28; job 172 09-28 vs 09-22. Each 'after' equals the previous run's data.
 - **Evidence**:
@@ -1261,6 +1279,79 @@
 - **Impact**: Event radar has no macro look-ahead (FOMC, CPI, payrolls) from the store.
 - **Fix**: Schedule macro_ingest weekly from Dagster over one maintained source (the ws:macro file the calendar already reads, or a vendor feed if the subscription has one). Or, if the calendar's ws:macro rows are enough, retire the two macro routes and the empty table instead (delete, not build).
 - **Ratchet**: A Dagster asset check that features.macro_event_daily has a row dated within the next 30 days.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
+
+### TD-152
+
+**P2 · ops-platform · promtail drops log lines (ingester_error) around 02:00–03:15 and 22:xx UTC, so every Loki-based release gate can come out INCONCLUSIVE**
+
+- **状态**：未开始
+- **Claim**: Release gates that prove 'nobody calls X any more' read Loki. promtail dropped 35 entries 10-02..10-05 and 18 more by 10-06 with reason ingester_error, clustered on ubt-k3s-04 (STG/DEV api pods) at ~03:00Z and ubt-k3s-02 (PROD) at 22:xxZ. loki_gate.py counts the drops and refuses to call a zero a zero.
+- **Measured**: MEASURED 10-06 by paydown lane F: TD-51 gate dev 0 / stg 0 / prod 0 hits but INCONCLUSIVE (exit 3) because of 18 dropped entries; Prometheus `sum by (instance,reason)(increase(promtail_dropped_entries_total[1h]))`.
+- **Evidence**:
+  - `bifrost-trade-infra/scripts/release/loki_gate.py:241` — `res = prom_instant(f"sum(increase(promtail_dropped_entries_total[{secs}s]))", end)`
+- **Impact**: Every compatibility-removal gate (TD-51 today, naming gates before it) needs an Owner judgement instead of a mechanical pass; real drops could hide a real caller.
+- **Fix**: Find the Loki ingester limit or back-pressure hit at those times (rate / stream limits, ingester memory, the nightly batch log burst) and raise it or shape the burst; alert on promtail_dropped_entries_total > 0.
+- **Ratchet**: PrometheusRule on increase(promtail_dropped_entries_total[1h]) > 0 (warning), so a gate's blind spot is visible the day it opens.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra
+
+### TD-153
+
+**P3 · ops-platform · loki_gate.py only knows the pre-0.10.0 log line ('deprecated query params'); after api 0.10.0 refused callers log 'retired query params' and the gate cannot see them**
+
+- **状态**：未开始
+- **Claim**: api 0.10.0 (TD-51) replaces the silent rewrite with a 422 and a WARNING 'retired query params: … user_agent=…'. loki_gate.py's TD-51 check builds its needle from the deprecated-params line only, so after the release a caller still sending old names is invisible to the gate that was built to find it.
+- **Measured**: code-read 10-06 (paydown lane F).
+- **Evidence**:
+  - `bifrost-trade-infra/scripts/release/loki_gate.py:348` — `needle = f'|~ "{td51_group_regex(group)}"'`
+  - `bifrost-trade-infra/scripts/release/loki_gate.py:55` — `TD51_NAMES = ("since_ts", "until_ts", "opened_at_from", "opened_at_until", "trade_date_from", "trade_date_to",`
+- **Impact**: The 24-hour post-release check for TD-51 has to be done by hand with a raw LogQL query.
+- **Fix**: Add a `td51-retired` check that counts 'retired query params' lines (excluding bifrost-release-check) and use it in the post-release step.
+- **Ratchet**: A loki_gate test that every gate name has a needle matching the log line the current api version emits (fixture lines from both versions).
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra
+
+### TD-154
+
+**P3 · trade (round 1) · api test_request_bodies asserts on a plain MagicMock that removed facade methods were not called — it can never fail**
+
+- **状态**：未开始
+- **Claim**: After core 0.49.0 the facade write methods no longer exist; the test still asserts on a bare MagicMock that create_position_category / set_position_category_tag / … were not called. A MagicMock accepts any attribute, so the assertion passes whatever the route does.
+- **Measured**: code-read 10-06 (paydown lane F).
+- **Evidence**:
+  - `bifrost-trade-api/tests/test_request_bodies.py:338` — `for fn in ("create_position_category", "set_position_category_tag", "set_market_streams_symbol_order",`
+- **Impact**: A regression that writes through an old path would not be caught by the test that claims to guard it.
+- **Fix**: Assert that the matching `*_strict` writers were (or were not) called, on a MagicMock with spec= the real module, so a removed name raises.
+- **Ratchet**: Lint rule or test helper: mocks of core facades/modules must use spec= (autospec), so asserting on a non-existent attribute fails.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-api
+
+### TD-155
+
+**P2 · ops-platform · Pushes to GitHub main do not trigger CI until the Gitea pull mirror syncs, so a commit can be released before its CI ever ran**
+
+- **状态**：未开始
+- **Claim**: CI is triggered by Gitea webhooks; Gitea mirrors GitHub on a pull interval. On 10-06 core 0.49.0/0.50.0 (16:15/16:23 UTC) and api 0.10.0 had no CI run at all until `make k3s-sync-gitea-mirrors` was run by hand at ~16:30; core's previous CI was 14 h earlier. Together with TD-95 this means release.sh can deliver a SHA that CI has not seen.
+- **Measured**: MEASURED 10-06: no ci-python-bifrost-trade-core/api PipelineRun after the pushes; the manual mirror sync created ci-python-bifrost-trade-core-9vgjk and -api-h7scl within seconds.
+- **Evidence**:
+  - `bifrost-trade-infra/k8s/cicd/tekton/trigger-trade-ci.yaml:225` — `body.repository.name in ['bifrost-trade-core', 'bifrost-trade-api',`
+  - `bifrost-trade-infra/scripts/k3s/bootstrap-gitea-mirrors.sh:2` — `# Bootstrap Gitea org + GitHub pull mirrors (Session S7).`
+- **Impact**: CI results lag pushes by up to the mirror interval; releases and reviews see 'no CI' and proceed anyway.
+- **Fix**: Either a GitHub → Gitea push-mirror / webhook that syncs on push, or have release.sh (and the deliver pipelines, TD-95) sync the mirror and wait for the SHA's CI run before building.
+- **Ratchet**: release.sh refuses a SHA with no Succeeded CI run (TD-95's switch) — which makes a missing run as visible as a red one.
+- 审批 跨仓库发版 · 代价 S · 风险 med · repos: bifrost-trade-infra
+
+### TD-156
+
+**P2 · research-control · research_signal_hit_schedule fires at 00:10 UTC, before the 02:30 UTC batch writes the night's features, so it judges the previous night's features**
+
+- **状态**：未开始
+- **Claim**: signal_hit runs on its own cron ('10 0 * * 1-6' UTC) instead of inside research_trading_day after the feature writers. At 00:10 UTC the night's SEPA / IV / scan features are not written yet, so each walk reads the previous session's features — the same class as TD-97 (judge before writer).
+- **Measured**: code-read 10-06 by paydown lane A; not measured.
+- **Evidence**:
+  - `bifrost-research/src/bifrost_research/orchestration/research_aux_schedules.py:548` — `"research_signal_hit_schedule",`
+  - `bifrost-research/src/bifrost_research/orchestration/research_aux_schedules.py:551` — `"10 0 * * 1-6",`
+- **Impact**: Lens hit-rates and the alerts and drafts that read them lag a session and can pair features with the wrong session.
+- **Fix**: Move signal_hit into research_trading_day after its sources and register it in READS_TRADING_DAY_OUTPUT (the TD-97 ratchet).
+- **Ratchet**: tests/orchestration/test_judge_after_writer.py (added for TD-97) covers it once signal_hit is registered as a trading-day reader.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
 
 ## 没覆盖到的（下一轮从这里开始）
