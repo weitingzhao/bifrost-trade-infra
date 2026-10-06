@@ -718,7 +718,7 @@
 
 **P3 · research-control · 39 permanently suspended CronJobs (25 research, 14 market-data, plus an orphan pinned to 0.10.0) are still deployed and re-pinned every release; research ones carry a stale 26-name watchlist and the verify script contradicts the one active CronJob**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-06 晚批准；道 R 开工；集群里的删除与发版由你执行）
 - **Claim**: Since the Dagster migration all engine CronJobs are suspend: true but still applied (research by Argo auto-sync; market-data via k8s/base), and each release rewrites their image tags. Research manifests hardcode RESEARCH_WATCHLIST to 26 names including SATS (renamed ECHO); unsuspending one would double a writer on the wrong universe. verify_husbandry_schedulers.sh requires research-harness suspended while it is suspend: false, so the landing check can only fail. market-data k8s/cronjob-option-backfill.yaml sits outside kustomization at 0.10.0; each slot cron is written in three places.
 - **Measured**: MEASURED. research: 25 CronJobs SUSPEND=True (17 manifest files, 12 set RESEARCH_WATCHLIST), harness active; all pinned 0.175.0. plugin-market-data: 14 CronJobs SUSPEND=True, last scheduled 08-29/30, image 0.77.0. Market-data skill says 'Do not unsuspend'.
 - **Evidence**:
@@ -1379,7 +1379,7 @@
 
 **P3 · research-control · Suspended CronJobs cronjob-signal-hit.yaml and cronjob-alert-scan.yaml still ship and get re-pinned every release though Dagster runs both**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-06 晚批准；道 R 开工；集群里的删除与发版由你执行）
 - **Claim**: Both engines run inside research_trading_day (alert_scan since TD-97, signal_hit since TD-156); the suspended CronJob manifests have no runtime effect but every release bumps their image pins.
 - **Measured**: code-read 10-06 by paydown lane G1.
 - **Evidence**:
@@ -1394,7 +1394,7 @@
 
 **P3 · trade-api · GET /strategies/plans has no source_kind filter: Research reads the newest 500 filled plans and filters itself, marking truncated at the cap**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-06 晚批准；道 S 开工；集群里的删除与发版由你执行）
 - **Claim**: TD-143's read-time link pulls status=filled&limit=500 and filters source_kind='hypothesis' in Research; once filled plans approach 500 the oldest links drop out (flagged truncated, not silent).
 - **Measured**: code-read 10-06 by paydown lane G2.
 - **Evidence**:
