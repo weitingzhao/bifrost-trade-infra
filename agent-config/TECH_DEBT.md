@@ -13,7 +13,8 @@
 
 ## 待你签收
 
-（暂无）
+- **TD-177** — 假设卡（active / validated）加「＋ Plan」，打开现有 PlanForm 并预填 source_kind=hypothesis、source_ref=假设 id（单 symbol 时带 symbol），存草稿前不写任何东西（frontend 0e0b69a3）· 验收 PASS（10-06，3 个用例 + 本地点击）· 防线：`src/pages/research/loop/HypothesisBoardPage.plan.test.tsx` · 后续：TD-143 正向验收要你在 DEV 从假设卡建 plan 并成交；随 10-07 Trade 发版上线
+- **TD-179** — Stock screen 不选模型时可按财报日排序（逾期在前、无估计在后），RankDrawer 启用 Earnings（frontend 0e0c9637）· 验收 PASS（10-06，4 个用例；DEV 真数据 3,794 名）· 防线：`stockScreenEarnings.test.ts` 排序用例 + `RankDrawer.test.tsx` · 无后续；随 10-07 Trade 发版上线
 
 **未结 75 项**：P0 0 · P1 5 · P2 30 · P3 40；要你批的 39 项（从总览表的审批列算）。
 
@@ -1447,7 +1448,9 @@
 
 **P3 · frontend · No way to create a plan from a hypothesis: PlanThisButton writes source_kind 'symbol' and PlanForm takes a hand-typed slug, so TD-143's hypothesis → trade link never forms**
 
-- **状态**：在做（还债第三批 · 道 N，10-06 开工；发版前停下等你批）
+- **状态**：待你签收
+- **验收**：`git -C bifrost-trade-frontend grep -n hypothesisPlanHref origin/main -- src/pages/research/loop/HypothesisBoardPage.tsx` 命中；`npx vitest run src/pages/research/loop/HypothesisBoardPage.plan.test.tsx` 3 passed
+- **验收结果**：PASS 2026-10-06 frontend 0e0b69a3（main 0e0c9637）；本地 Vite 上点「＋ Plan」进入 `/trade/plans?new=1&source_kind=hypothesis&source_ref=<id>&symbol=QQQ`，表单预填正确，未写任何 plan（假设列表用编造数据：research 读接口要 research user）
 - **Claim**: TD-143 derives hypothesis → trade from filled plans with source_kind='hypothesis' and source_ref = the hypothesis id. Nothing in the UI writes such a plan; on 10-06 dev / stg / prod each had 0.
 - **Measured**: MEASURED 10-06 by paydown lane G2: 94 hypotheses per env, 0 hypothesis-sourced filled plans.
 - **Evidence**:
@@ -1475,7 +1478,9 @@
 
 **P3 · frontend · Stock screen with No model cannot sort by Earnings: RankDrawer still disables it although the batch read now serves the dates**
 
-- **状态**：在做（还债第三批 · 道 N，10-06 开工；发版前停下等你批）
+- **状态**：待你签收
+- **验收**：`npx vitest run src/pages/research/stocks/stockScreenEarnings.test.ts src/pages/research/stocks/RankDrawer.test.tsx` 4 passed；`/research/stocks?model=none` Sort 选 Earnings
+- **验收结果**：PASS 2026-10-06 frontend 0e0c9637；本地 Vite 连 DEV 真数据：3,794 名「by next print」，逾期在前（AEHR / STZ 1d late），有日期的 527 名后接 3,267 名「—」按 A–Z
 - **Claim**: TD-158 made earnings dates available for the whole list; the No-model branch never sorts by them and RankDrawer keeps the option disabled (its hint now says so honestly).
 - **Measured**: code-read 10-06 by paydown lane G2.
 - **Evidence**:
