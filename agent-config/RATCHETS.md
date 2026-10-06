@@ -57,7 +57,7 @@
 | dagster 测试在没装 extra 时跳过（TD-163） | `bifrost-research/tests/test_dagster_import_guard.py`（AST 扫描 tests/ 下直接或经 bifrost_research 模块间接加载 dagster 的 import） | 普通 dev venv 里 2 个测试必挂，教人无视红灯 | warning（测试；CI 不卡发布，见 TD-95） | 只看 import 路径，运行时动态 import 看不到 |
 | dbt generic test 参数在 `arguments:` 下（TD-164） | `bifrost-research/tests/test_dbt_grain_ratchet.py::test_generic_test_parameters_sit_under_arguments`；Dockerfile orchestration 构建与 `make dbt-parse` 的 `--warn-error-options MissingArgumentsPropertyInGenericTestDeprecation` | 旧布局的测试参数（dbt 升级后会被拒） | blocking（Dagster 镜像构建失败）+ warning（测试） | 只管这一条弃用，其它 dbt deprecation 仍是警告 |
 | slot adherence 只认本 slot 的 job（TD-167） | `bifrost-platform-plugin-market-data/tests/test_slot_freshness.py`（walk 停而 ticker-details 照跑判 missed、共享行不算证据、`SHAPE_NAMED_SLOTS == doctor.POLICED_SLOTS`、计数累加） | 别的 slot 的同 kind job 或共享 freshness 行给停跑的 slot 记功 | warning（测试） | ticker-details 仍读共享行（TD-175）；周一 UTC 日期误报（TD-174） |
-| doctor 只对真共享的维度说「共享」（TD-168） | `bifrost-platform-plugin-market-data/tests/…::test_the_sharing_clause_appears_only_for_a_shared_dimension`（五个 slot 参数化，读 SLOT_EVIDENCE） | stale:* 文案把独占维度说成共享，误导排查 | warning（测试） | — |
+| doctor 只对真共享的维度说「共享」（TD-168） | `bifrost-platform-plugin-market-data/tests/test_slot_freshness.py::test_the_sharing_clause_appears_only_for_a_shared_dimension`（五个 slot 参数化，读 SLOT_EVIDENCE） | stale:* 文案把独占维度说成共享，误导排查 | warning（测试） | — |
 
 ## 各类债现在挡没挡住
 
