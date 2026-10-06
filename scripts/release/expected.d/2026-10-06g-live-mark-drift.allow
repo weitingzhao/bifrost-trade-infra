@@ -7,3 +7,24 @@ perf.realized_by_account_and_sec_type[*].return_pct
 # IB's TotalCashValue passes straight through raw_broker.account (core model/core.py reads it as is); on PROD
 # 99wkl the row was refreshed by the IB account snapshot at 17:53:21Z, 3 s before the after snapshot (+28.02).
 model.*.account_summary.total_cash
+# The rest of the same drift, measured on STG kk259 (18:27:21 -> 18:30:55Z, market hours; api/core/worker/ui
+# commits identical to wtvk2). Two accounts' net liquidation rose 72.85 + 0.21 = 73.06, and current_equity,
+# start_equity (+73.06) and capital_base (+73.05) followed. All 45 changed return_pct equal
+# old x 1099010.24 / 1099083.29 to the 4th decimal; executions and every P&L amount were identical.
+perf.calendar[*].return_pct
+perf.calendar_by_sec_type[*].return_pct
+perf.realized_by_sec_type[*].return_pct
+perf.realized_by_strategy_opportunity[*].return_pct
+perf.realized_by_trade[*].return_pct
+perf.summary.return_pct
+perf.unrealized.return_pct   # divides by current_equity, not capital_base (PROD 99wkl: 475367.75 / 1082689.77)
+perf.transaction.capital_base
+perf.transaction.start_equity
+perf.unrealized.current_equity
+# IB pass-throughs, like total_cash above.
+model.*.account_summary.buying_power
+model.*.account_summary.net_liquidation
+# Replayed on every 10-06 snapshot pair: only this file passes stg-124347 (82), prod-124831 (95) and stg-132718 (51),
+# each explained by live equity (NLV -188.92 / +295.42 / +73.06; no P&L amount, no execution changed).
+# Not listed on purpose: unrealized P&L (perf.unrealized.total_pnl, *_by_*[*].total_pnl, summary.total_unrealized_pnl)
+# did not move while equity moved 73 — it is not a live mark here, so a change there is a real difference.
