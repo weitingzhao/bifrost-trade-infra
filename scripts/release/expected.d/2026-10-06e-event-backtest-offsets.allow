@@ -1,0 +1,15 @@
+# Expected changes of the Event backtest offsets + thresholds release (frontend 811bbdb8, 8ff918f8, 2026-10-06): frontend only.
+# Rides along: Pine Rev .158-.159 pages, K-line spec (5ba9a4b3, 55ede17f, 2b3c90e3, 9479fde3, c9527e86, 51dad5ce). No backend or DDL change;
+# account values move only with live quotes (same list as 2026-10-06-w6-frontend).
+model.*.account_summary.buying_power
+model.*.account_summary.net_liquidation
+perf.unrealized.current_equity
+perf.unrealized.return_pct
+perf.transaction.capital_base
+perf.transaction.start_equity
+perf.summary.return_pct
+perf.calendar[*].return_pct
+perf.calendar_by_sec_type[*].return_pct
+perf.realized_by_sec_type[*].return_pct
+perf.realized_by_strategy_opportunity[*].return_pct
+perf.realized_by_trade[*].return_pct
