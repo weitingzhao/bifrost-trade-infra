@@ -1516,9 +1516,9 @@
 
 **P3 · frontend · The app's design registry is still at Rev .157: packages .158–.162 are built but designRoutes / adoption were not re-synced, and the Design project's DS mirror is 0.11.0 against @bifrost/ui 0.13.0**
 
-- **状态**：在做
+- **状态**：在做（10-06 晚由 Code Refactor 会话接手：原会话「Pine 信号业务与实现」已归档；道 T 做 app 侧 Rev .162 补登记）
 - **验收**：`bifrost-trade-frontend/src/lib/design/designRoutes.generated.ts` 的 `DESIGN_REV` 是 `2026-10-06.162`（或之后的 Rev），adoption 测试全绿；Design 项目的 DS 镜像是 0.13.0；Pine library 的 Check 小 K 线在有 Research 身份的 DEV 上走查过并写进 designNotes
-- **现在**：Design 侧 DS 镜像已同步到 0.13.0（10-06，`bifrost-ui` 2271260；128 个组件、render check 0 bad；FilterChip 新增 MethodRail 卡（sm / dashed / missing）、DenseDataTable 新增 ListWithDetail 卡，conventions 补 0.12.0 两条）。还没做：app 侧设计登记仍停在 Rev .157（Package .63 @ Rev .162 写明 .158–.162 的施工都已在 main 和三环境，只是登记与 adoption 没跟上）
+- **现在**：DS 镜像那一半已完成（Pine 会话核过：远端 _ds_sync.json 对 bifrost-ui 2271260，fence 已清）。app 侧：researchPipeline / routeTable.research 停在 .160；.161 已建成（fe 198a8ccf + 60ed2368）未补戳；.162 Design 回执写明 app 无需改代码，纯补登记
 - **下一步**：app 侧把设计登记同步到 Rev .162（`DESIGN_REV` 与 adoption）；Design 现在可以把 Stock screen 原型里本地画的 `.ss-chip` 换成包内 `FilterChip`。Check 小 K 线走查要 Owner 在浏览器里填 Research 身份
 - **Claim**: Code is ahead of the registry: the adoption view reads stale revs for the pages these five packages touched (Research Symbol, Backtest, Signal Decay, Stock Screen), so "aligned / stale" says nothing true about them until re-synced.
 - **Evidence**:
