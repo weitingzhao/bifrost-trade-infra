@@ -1122,7 +1122,7 @@
 
 **P3 · research-data · The macro calendar is empty: features.macro_event_daily has 0 rows because macro_ingest has no scheduled caller**
 
-- **状态**：未开始（优先级低，可选）
+- **状态**：在做（还债第三批 · 道 O，10-06 开工；发版前停下等你批）
 - **验收**：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data exec -i bifrost-postgres-3 -c postgres -- env PGOPTIONS='-c default_transaction_read_only=on' psql -U postgres -d bifrost_golden_source -X -At -c "SELECT count(*), max(event_date) FROM features.macro_event_daily"` → count > 0 且 max(event_date) ≥ 今天 + 30 天；`git -C bifrost-research grep -n macro_ingest origin/main -- src/bifrost_research/orchestration` 至少一行
 - **Claim**: features.macro_event_daily is filled only by scheduler/macro_ingest.py, a CSV drop-zone ingest from Wave R4, and no Dagster schedule, job or CronJob calls it. /research/event-radar/macro/forward and /macro/gap answer 0 rows; the macro rows in /research/events/calendar come from a hand-placed ws:macro file.
 - **Measured**: MEASURED 10-06: 0 rows; both routes 0 rows. CODE-READ: `git grep macro_ingest` on origin/main finds no caller in bifrost_research/orchestration or bifrost-trade-infra.
@@ -1403,7 +1403,7 @@
 
 **P3 · market-data · Console marks fundamentals-rotate missed every Monday 03:45 → Tuesday 03:00 UTC: the trading-day check uses the UTC date of the fire**
 
-- **状态**：未开始
+- **状态**：在做（还债第三批 · 道 M，10-06 开工；发版前停下等你批）
 - **Claim**: _slot_adherence asks is_trading_day(conn, cron_last.date()) on the UTC date; Monday 03:00 UTC is Sunday in New York, the slot rightly enqueues nothing, and the dashboard calls it missed. Platform's market_batch lane reports the miss once a week.
 - **Measured**: MEASURED 10-06 by paydown lane J (replay): 280 of 2017 five-minute instants over 7 days, identical on old and new code.
 - **Evidence**:
@@ -1417,7 +1417,7 @@
 
 **P3 · market-data · ticker-details adherence still credits the shared ticker_sync freshness row, so a stopped ticker-details reads on_plan after reference's 21:30 walk**
 
-- **状态**：未开始
+- **状态**：在做（还债第三批 · 道 M，10-06 开工；发版前停下等你批）
 - **Claim**: Mirror of TD-167 for the one slot outside the policed list: ticker-details and reference both enqueue ticker_sync and both bump freshness.ticker_sync.
 - **Measured**: code-read 10-06 by paydown lane J.
 - **Evidence**:
@@ -1446,7 +1446,7 @@
 
 **P3 · frontend · No way to create a plan from a hypothesis: PlanThisButton writes source_kind 'symbol' and PlanForm takes a hand-typed slug, so TD-143's hypothesis → trade link never forms**
 
-- **状态**：未开始
+- **状态**：在做（还债第三批 · 道 N，10-06 开工；发版前停下等你批）
 - **Claim**: TD-143 derives hypothesis → trade from filled plans with source_kind='hypothesis' and source_ref = the hypothesis id. Nothing in the UI writes such a plan; on 10-06 dev / stg / prod each had 0.
 - **Measured**: MEASURED 10-06 by paydown lane G2: 94 hypotheses per env, 0 hypothesis-sourced filled plans.
 - **Evidence**:
@@ -1474,7 +1474,7 @@
 
 **P3 · frontend · Stock screen with No model cannot sort by Earnings: RankDrawer still disables it although the batch read now serves the dates**
 
-- **状态**：未开始
+- **状态**：在做（还债第三批 · 道 N，10-06 开工；发版前停下等你批）
 - **Claim**: TD-158 made earnings dates available for the whole list; the No-model branch never sorts by them and RankDrawer keeps the option disabled (its hint now says so honestly).
 - **Measured**: code-read 10-06 by paydown lane G2.
 - **Evidence**:
