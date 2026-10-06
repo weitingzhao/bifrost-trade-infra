@@ -13,7 +13,7 @@
 
 ## 待你签收
 
-（暂无）
+- **TD-151** — 宏观前瞻日历有了维护源和调度：包内 `scheduler/data/macro_calendar.csv`（FOMC 2026–2027 16 条、CPI 3 条）+ `research_macro_calendar_job`（周一 10:00 UTC），稳定 id、只删已移除的 seed 行（research 0.197.0） · 验收 PASS（10-06：19 行到 2027-12-08，forward 30 天 2 条）· 防线：macro_calendar asset check（覆盖不到 +30 天报 ERROR）+ `tests/orchestration/test_macro_calendar.py` · 后续：TD-180（2027 CPI / 非农日期）、TD-181（/events/calendar 仍读手放 radar 文件）、TD-182（Macro gap 权限缺口与空态文案）
 
 **未结 79 项**：P0 0 · P1 4 · P2 29 · P3 46；要你批的 41 项（从总览表的审批列算）。
 
@@ -1112,9 +1112,10 @@
 
 **P3 · research-data · The macro calendar is empty: features.macro_event_daily has 0 rows because macro_ingest has no scheduled caller**
 
-- **状态**：在做（代码在 research main 4f1e34e = 0.197.0；镜像未建——auto mode 拒绝了道 O 起 deliver-research；构建与发布等你批）
+- **状态**：待你签收
 - **验收**：上线并手动跑一次 `research_macro_calendar_job` 后：GS 只读 `SELECT count(*), max(event_date) FROM features.macro_event_daily` = `19|2027-12-08`；`/research/event-radar/macro/forward?days=30` count ≥ 2（10-14 CPI、10-28 FOMC）
-- **下一步**：你批：① 起 `bifrost-deliver-research`（tag 0.197.0，revision 4f1e34e）与 `bifrost-build-research-dagster`（同 revision，在 mirror-sync 之后）② 推 pin ③ apply `dagster.yaml` 到 0.197.0-dagster（先确认无在途 run）④ 手动跑一次 job。后续：TD-180、TD-181、TD-182
+- **验收结果**：PASS 2026-10-06 23:2x UTC research 0.197.0（构建 deliver-research-1791328208 / build-research-dagster-1791328230，clone HEAD 4f1e34e；pin 2f61fc0，Argo Synced；Dagster 0.197.0-dagster 已 apply）：手动跑 `research_macro_calendar_job`（run 0e845e63）SUCCESS、asset check output_ok SUCCEEDED；`macro_event_daily` = `19|2027-12-08`（FOMC 16、CPI 3）；`/macro/forward?days=30` count 2（10-14 CPI、10-28 FOMC）
+- **下一步**：发版是父会话按 Owner 10-06 批准执行；第一次手动启动用了 `-m` 代码位置名，不在 daemon 工作区里而被丢弃（run 16395f63 FAILURE，未执行任何步骤）——手动启动要用 `dagster job launch -w /opt/dagster/workspace.yaml -j <job>`
 - **现在**：实测：macro_event_daily 0 行，Dagster 里从没有 macro 的 job / run / asset，`macro_ingest` 只是读 Mac 路径的 CSV 投放目录（没实现 / 从未调度 → 修）。前瞻日历：0.197.0 新增包内维护源 `scheduler/data/macro_calendar.csv`（FOMC 2026–2027 共 16 条，10-06 读自 federalreserve.gov，2027 为官方 tentative；CPI 10-14 / 11-10 / 12-10），`macro_ingest` 改为按 (country, indicator, date) 稳定 id、删除已移除的 seed 行；新 asset `engines/macro_calendar` + `research_macro_calendar_job`（周一 10:00 UTC），roster 已同步。Macro gap（actual 对一致预期）：一致预期不在订阅里 = 权限缺口，接受并留座（见后续）。防线：asset output check（覆盖不到今天 + 30 天报 ERROR、序列将尽报 WARN）+ `tests/orchestration/test_macro_calendar.py`
 - **Claim**: features.macro_event_daily is filled only by scheduler/macro_ingest.py, a CSV drop-zone ingest from Wave R4, and no Dagster schedule, job or CronJob calls it. /research/event-radar/macro/forward and /macro/gap answer 0 rows; the macro rows in /research/events/calendar come from a hand-placed ws:macro file.
 - **Measured**: MEASURED 10-06: 0 rows; both routes 0 rows. CODE-READ: `git grep macro_ingest` on origin/main finds no caller in bifrost_research/orchestration or bifrost-trade-infra.
