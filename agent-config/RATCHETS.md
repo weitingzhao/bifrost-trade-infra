@@ -49,6 +49,8 @@
 | candidate-outcome /rows 过滤（TD-147） | `bifrost-research/tests/api/test_candidate_outcome_rows_regime.py` | `/rows` 与 `/summary` 的 source / days 语义分叉；不带参数时结果被改变 | warning（CI 不卡发布，见 TD-95） | 只覆盖这两个端点 |
 | 日历与标的池读失败即报错（TD-93） | `bifrost-research/tests/test_calendar_failures.py` | 节假日或 K 线读失败被当成「没有节假日」；标的池读失败悄悄换成 OI 来源或空集 | warning（CI 不卡发布，见 TD-95） | `cached_closed_days` 仍按周末降级（只给不盖日期的调用方），带告警日志 |
 | Dagster 调度存活告警（TD-99） | `bifrost-trade-infra/k8s/monitoring/bifrost-alerting-rules.yaml` 组 `bifrost-research-orchestration`（11 条）+ ServiceMonitor `bifrost-research`；`bifrost-research/tests/orchestration/test_definitions.py::test_schedule_roster_matches_the_definitions_field_by_field` | 调度停跑、改名、漏触发、触发失败；daemon 心跳停；run 卡住 > 6h；Event Radar 积压或陈旧；research /metrics 抓不到 | alert（规则）+ warning（名单测试） | API 错误率 / 延迟仍看不到 research（TD-161） |
+| 退役查询名返回 422（TD-51） | `bifrost-trade-api/tests/test_query_vocab.py`；中间件 `RetiredQueryNames`；发布探针 `scripts/release/expected.d/2026-10-06g-td51-td80.probes.json` | 旧查询参数名被静默忽略（如 `/executions?since_ts` 去掉过滤返回全部）或别名改写机制回来 | warning（测试；CI 不卡发布，见 TD-95）+ 运行时 422 | Loki 闸门看不全被拒的调用方（TD-152、TD-153） |
+| StatusReader 只读（TD-80） | `bifrost-trade-core/tests/test_status_reader_read_only.py` | 门面 `StatusReader` 重新长出写方法，或委托的函数写库 / Redis | warning（测试；CI 不卡发布） | api 里还有一处空转的 MagicMock 断言（TD-154） |
 
 ## 各类债现在挡没挡住
 

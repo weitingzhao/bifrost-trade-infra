@@ -13,10 +13,9 @@
 
 ## 待你签收
 
-- **TD-51** — 查询参数旧写法（since_ts、expiration、right 等 8 个）一律返回 422 并指明新名，别名改写机制整体删除（api 0.10.0）· 验收 PASS（10-06，STG/PROD/DEV 探针） · 防线：`bifrost-trade-api/tests/test_query_vocab.py` · 后续：TD-152、TD-153（Loki 闸门看不全）
-- **TD-80** — `StatusReader` 改为只读：删掉门面的 5 个写方法、6 个名字和 5 个 R4 别名（core 0.49.0，随 0.50.0 上线）· 验收 PASS（10-06，三个环境 core 0.50.0） · 防线：`bifrost-trade-core/tests/test_status_reader_read_only.py` · 后续：TD-154（api 测试里空转的 MagicMock 断言）
+（暂无）
 
-**未结 69 项**：P0 0 · P1 5 · P2 29 · P3 35；要你批的 36 项（从总览表的审批列算）。
+**未结 67 项**：P0 0 · P1 5 · P2 28 · P3 34；要你批的 34 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -42,7 +41,7 @@
 
 目标：第 1 轮剩下的三项按已排的日期收掉。TD-85 剩 Golden Source 的 PUBLIC CONNECT；TD-51 等 Loki 闸门后随下一次 Trade 发布；TD-80 C2-b 改号 core 0.49.0 与 TD-51 同发。
 
-项：TD-85, TD-51, TD-80 · 已还：TD-21
+项：TD-85 · 已还：TD-21, TD-51, TD-80
 
 ### 第 1 波 · 正在出错的数据与「绿着的失败」
 
@@ -169,7 +168,6 @@
 | [TD-85](#td-85) | P1 | trade (round 1) | One database password reaches everything: any DEV pod can write PROD Trade and all of Golden Source | 安全/凭据（要你批） |
 | [TD-87](#td-87) | P1 | research-data | SEPA features are stamped with the next calendar day (UTC current_date at 02:30 UTC): every SEPA row is one session late and Friday sessions land on Saturday | 不用批 |
 | [TD-91](#td-91) | P1 | flex-ib | A failed cash-transactions write is recorded as a successful run: core returns 0 on any exception and the job counts it as 'ok, 0 rows' | 改公开接口 |
-| [TD-51](#td-51) | P2 | trade (round 1) | Query-parameter vocabulary drift for expiry, option side, time ranges and limits; no pagination | 改公开接口 |
 | [TD-92](#td-92) | P2 | research-control | Engine assets never fail: per-symbol failures, zero-row writes and skips are only metadata, reasons are discarded, and research_trading_day is green regardless of output | 不用批 |
 | [TD-94](#td-94) | P2 | research-control | husbandry_gate fails open: a probe exception leaves verdict 'unknown', which passes, and the gate never checks that the doctor's session is the one being closed | 不用批 |
 | [TD-95](#td-95) | P2 | research-control | No release path is gated on CI: deliver-research ships SHAs whose CI is red (CI starts 7s after deliver), and release.sh never checks CI for Trade | 跨仓库发版 |
@@ -186,7 +184,6 @@
 | [TD-107](#td-107) | P2 | market-data | Indexes declared for the six financials entity tables never reach a deployed DB (the migration returns early); live differs from fresh install | 改表 |
 | [TD-108](#td-108) | P2 | research-control | Three hand-kept copies of the Dagster schedule roster have drifted; Console looks up a renamed corporate schedule and has no mapping for seven newer slots | 不用批 |
 | [TD-109](#td-109) | P2 | ops-platform | PROD platform-api reads a deployed ops-context.yaml copy last synced 2026-08-24: about 33 spine decisions missing (D-Journal-Stores, D-Ops-Split, D-Wave-10..13) | 跨仓库发版 |
-| [TD-80](#td-80) | P3 | trade (round 1) | Core facade: an 85-method read/write StatusReader inside 'monitor.reader', alias import paths, verb drift | 改公开接口 |
 | [TD-110](#td-110) | P3 | research-data | Stored IV features solve Black-Scholes at r=0 while the backtester uses treasury rates from two separate readers; further BS copies in gex and opex | 不用批 |
 | [TD-111](#td-111) | P3 | research-data | dbt: the pass_count range generic test sits in the singular folder (errors when selected, never applied); key intermediates lack grain tests; nothing ties eval_date to the session | 不用批 |
 | [TD-112](#td-112) | P3 | research-data | option_surface_iv_daily upserts per (symbol, trade_date, expiry) and never deletes, so expiries a re-walk dropped keep their old smile | 不用批 |
@@ -289,25 +286,6 @@
 - **Fix**: Make upsert_account_transactions raise on DB errors (or return (written, skipped) and let the caller raise). Update test_connect_helpers.py:118 and bump core per the versioning rule since the plugin depends on the return. In the plugin treat parsed rows > 0 with written == 0 as ok:false; report skipped separately.
 - **Ratchet**: Core test: a raising cursor must propagate. Plugin test: rows>0 with written 0 must raise. code-health metric: `except Exception` blocks in persistence writers ending in return 0/False without re-raise; baseline may only fall.
 - 审批 改公开接口 · 代价 S · 风险 low · repos: bifrost-trade-core, bifrost-platform-plugin-flex-query
-
-### TD-51
-
-**P2 · trade (round 1) · Query-parameter vocabulary drift for expiry, option side, time ranges and limits; no pagination**
-
-- **状态**：待你签收
-- **验收**：`python3 scripts/release/loki_gate.py td51-query-aliases` 零命中；发布后 PROD `/health` 的 api 版本为删除旧名的那一版，旧查询名返回 422
-- **验收结果**：PASS 2026-10-06 api 0.10.0（efcf747）：STG wtvk2 / PROD 99wkl / DEV 三处探针 `/executions?since_ts` → 422、`from_ts` → 200、`/research/option-snapshots?expiration` 与 `/research/greeks?right` → 422
-- **现在**：Research 和 Dagster 已改用新的查询参数名（research 0.161.0 起）。api 侧删除旧名与整套别名机制的提交 `a4757c5` 已备好。
-- **下一步**：跑 Loki 闸门（`loki_gate.py td51-query-aliases`），10-05 夜批后旧名零命中就随下一次 Trade 发布上线。（10-06）
-- **Claim**: Expiry has two names (expiry/expiration) and four format rules: YYYYMMDD on /bars, YYYY-MM-DD on /research/greeks, either format on option-snapshots and similar, and 'any format' on link-candidates. Option side is option_right in some routes and right in others. Time ranges are spelled four ways: since_ts/until_ts, opened_at_from/until, trade_date_from/to and date_from/to. limit=0 means unlimited on GET /executions, and the FE always sends it; the /transactions limit is unbounded. No route takes offset, page or cursor, and at least 12 lists return count = len(page). The tier screener is the only one that returns a real total.
-- **Evidence**:
-  - `bifrost-trade-api/src/bifrost_api/market/routers/market_data.py:71` — `expiry: Optional[str] = Query(None, description="Option expiry YYYYMMDD (with asset=option)")`
-  - `bifrost-trade-api/src/bifrost_api/research/routers/greeks.py:300` — `expiry: Optional[str] = Query(None, description="Filter to one expiry YYYY-MM-DD")`
-  - `bifrost-trade-frontend/src/api/trading.ts:40` — `tradingUrl(`/executions?limit=0&source_scope=${scope}`)`
-  - `bifrost-trade-api/src/bifrost_api/strategy/routers/plans.py:74` — `return {"items": items, "count": len(items)}`
-- **Impact**: Callers send the wrong format. Readers treat a truncated count as the total (memory a_limited_count_is_a_floor). Unbounded /executions grows with history.
-- **Fix**: Publish one shared Query vocabulary (expiry YYYY-MM-DD, option_right, from/to with a unit) and accept the old names as aliases. Add total plus a cursor, starting with /executions and /transactions.
-- 审批 改公开接口 · 代价 M · 风险 med · repos: bifrost-trade-api, bifrost-trade-frontend
 
 ### TD-92
 
@@ -577,24 +555,6 @@
 - **Fix**: Generate the ConfigMap at build/deliver time from the platform repo's config/ops-context.yaml (delete the infra copy), or add a sync step plus CI parity check.
 - **Ratchet**: CI check (ci-infra or ci-platform): deployed copies' decision-id set equals platform main's; better, the copy no longer exists.
 - 审批 跨仓库发版 · 代价 S · 风险 low · repos: bifrost-trade-infra, bifrost-platform
-
-### TD-80
-
-**P3 · trade (round 1) · Core facade: an 85-method read/write StatusReader inside 'monitor.reader', alias import paths, verb drift**
-
-- **状态**：待你签收
-- **验收**：core 0.49.0 的 `make test` 与 api 的 `make test` 通过；PROD `/api/account/health` 的 `core_version` 为 0.49.0
-- **验收结果**：PASS 2026-10-06：DEV / STG / PROD 四个域 `core_version=0.50.0`、`core_sha=59fdb9d…`（含 0.49.0 的 C2-b）；tag v0.50.0
-- **现在**：C1、C2-a 已上线。C2-b（`StatusReader` 门面只读、删 5 个写方法和 R4 别名）已备在分支 `td-batch/2026-10-04-lane-aj`。
-- **下一步**：0.48.0 / 0.48.1 / 0.48.2 已被其他改动占用，C2-b 改号为 core 0.49.0，和 TD-51 一起发。（10-06）
-- **Claim**: StatusReader, documented as 'Read status from Redis daemon IPC + PostgreSQL', has 85 methods, many of which write (instances, categories, watchlist, instrument classes). monitor.reader exports write functions, and *_write modules sit in the reader directory. Model analysis passes through 4 hops. Pure re-export modules (monitor/redis_url, config/startup, daemon_ib_edge, ib_probe_derived) give one symbol several import paths. Facade names differ from module names (list_strategy_instances wraps list_instances; list_dims_for_type wraps list_dims_by_type, and two different modules both define list_dims_by_type). get_ has 121 unique names and list_ has 20, with mixed create/insert/save/set/write/upsert verbs. ingestor and ingester are both used (92 vs 45 occurrences).
-- **Evidence**:
-  - `bifrost-trade-core/src/bifrost_core/monitor/reader/common.py:33` — `"""Read status from Redis daemon IPC + PostgreSQL for business tables."""`
-  - `bifrost-trade-core/src/bifrost_core/monitor/reader/__init__.py:1` — `"""Reader package: DB read/write facade.`
-  - `bifrost-trade-core/src/bifrost_core/monitor/reader/common.py:418` — `result = template_config_module.list_dims_by_type(self._conn, dim_type)`
-- **Impact**: Package names say nothing about domain or side effects, so a 'reader' change can write. Grep-based discovery misses the implementations.
-- **Fix**: Split by domain (strategy/, portfolio/, market/, status/) into read and write modules, keeping monitor.reader as a re-export shim for one minor release. Make facade names match module names, adopt a verb table for new code, and delete the pure re-exports. Do TD-20 first.
-- 审批 改公开接口 · 代价 L · 风险 med · repos: bifrost-trade-core, bifrost-trade-api, bifrost-trade-worker
 
 ### TD-110
 
