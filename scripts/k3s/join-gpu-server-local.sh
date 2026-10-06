@@ -9,17 +9,18 @@ K3S_NODE_NAME="${K3S_NODE_NAME:-gpu-server}"
 K3S_NODE_LABELS="${K3S_NODE_LABELS:-workload=gpu,node-role=warehouse,bifrost.io/host-id=gpu-server,bifrost.io/workload-pool=compute,bifrost.io/wol=enabled}"
 
 : "${K3S_TOKEN:?export K3S_TOKEN from bootstrap node-token}"
+: "${INSTALL_K3S_VERSION:?export INSTALL_K3S_VERSION (scripts/k3s/control-plane-version.sh on the MacBook)}"
 
 if [[ "${EUID}" -ne 0 ]]; then
   exec sudo K3S_URL="${K3S_URL}" K3S_TOKEN="${K3S_TOKEN}" K3S_NODE_IP="${K3S_NODE_IP}" \
-    K3S_NODE_NAME="${K3S_NODE_NAME}" K3S_NODE_LABELS="${K3S_NODE_LABELS}" \
+    K3S_NODE_NAME="${K3S_NODE_NAME}" K3S_NODE_LABELS="${K3S_NODE_LABELS}" INSTALL_K3S_VERSION="${INSTALL_K3S_VERSION}" \
     bash "$0"
 fi
 
 VISION_HOME="${VISION_HOME:-/home/vision}"
 cd "${VISION_HOME}"
 
-bash install-agent.sh
+INSTALL_K3S_VERSION="${INSTALL_K3S_VERSION}" bash install-agent.sh
 REGISTRY_HOSTS="192.168.10.73:30500 registry.cicd.svc.cluster.local:5000" bash configure-insecure-registry.sh
 
 IF=eno1

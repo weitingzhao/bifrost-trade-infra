@@ -7,8 +7,9 @@ set -euo pipefail
 
 NODE_IP="${K3S_NODE_IP:-192.168.10.73}"
 NODE_NAME="${K3S_NODE_NAME:-ubt-k3s-01}"
-K3S_VERSION="${K3S_VERSION:-}"
-INSTALL_K3S_CHANNEL="${INSTALL_K3S_CHANNEL:-stable}"
+# The bootstrap server sets the cluster version; pin it so a rebuild does not
+# land on whatever the "stable" channel points at (agents join at this version).
+K3S_VERSION="${K3S_VERSION:?set K3S_VERSION, e.g. v1.35.5+k3s1 (the version the agents run)}"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Run as root: sudo K3S_NODE_IP=${NODE_IP} bash $0" >&2
@@ -17,7 +18,7 @@ fi
 
 echo "==> K3s server bootstrap"
 echo "    node: ${NODE_NAME} @ ${NODE_IP}"
-echo "    channel: ${INSTALL_K3S_CHANNEL}"
+echo "    version: ${K3S_VERSION}"
 
 if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
   echo "==> Opening UFW ports for K3s"
@@ -52,10 +53,7 @@ cat > /etc/rancher/k3s/config.yaml <<'EOF'
 etcd-expose-metrics: true
 EOF
 
-export INSTALL_K3S_CHANNEL
-if [[ -n "${K3S_VERSION}" ]]; then
-  export INSTALL_K3S_VERSION="${K3S_VERSION}"
-fi
+export INSTALL_K3S_VERSION="${K3S_VERSION}"
 
 curl -sfL https://get.k3s.io | sh -s - server \
   --cluster-init \

@@ -390,6 +390,26 @@ spec:
             summary: "Postgres cluster is short a streaming replica"
             description: "The CloudNativePG cluster has fewer streaming replicas than expected for 10 minutes — HA is degraded and a primary loss would mean downtime."
 
+        # ubt-k3s-06 joined on 2026-06-29 from the moving "stable" channel and ran
+        # v1.36.2 against a v1.35.5 control plane for three months unnoticed (a
+        # kubelet newer than the API server is outside the skew policy). Joins now
+        # pin scripts/k3s/control-plane-version.sh; this catches anything else.
+        - alert: BifrostKubeletVersionSkew
+          expr: |
+            max by (node, kubelet_version) (kube_node_info)
+            unless on (kubelet_version)
+            (
+              max by (kubelet_version) (
+                kube_node_info * on (node) group_left () kube_node_role{role="control-plane"}
+              )
+            )
+          for: 2h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Node {{ $labels.node }} runs a different k3s version than the control plane"
+            description: "{{ $labels.node }} runs {{ $labels.kubelet_version }}, which no control-plane node runs. Rolling upgrades finish well inside 2h; past that the node was joined or upgraded off-pin. Reinstall it at scripts/k3s/control-plane-version.sh."
+
     # IB Flex ingest (plugin-flex-query). Every scheduled run from 2026-08-30 to
     # 09-05 failed and nobody was told: the Dagster asset only confirms the
     # enqueue and the plugin exported nothing. These read the plugin's /metrics.

@@ -17,6 +17,8 @@ K3S_URL="${K3S_URL:-https://192.168.10.73:6443}"
 K3S_NODE_IP="${K3S_NODE_IP:-192.168.10.79}"
 K3S_NODE_NAME="${K3S_NODE_NAME:-ubt-k3s-06}"
 KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/bifrost-k3s.yaml}"
+# Same version as the control plane — never the moving "stable" channel.
+INSTALL_K3S_VERSION="${INSTALL_K3S_VERSION:-$(KUBECONFIG="${KUBECONFIG}" "${ROOT}/scripts/k3s/control-plane-version.sh")}"
 SSH_OPTS=(-o ConnectTimeout=15 -o ServerAliveInterval=30)
 
 K3S_NODE_LABELS="${K3S_NODE_LABELS:-bifrost.io/host-id=ubt-k3s-06,bifrost.io/workload-pool=general}"
@@ -27,6 +29,7 @@ echo "== ubt-k3s-06 K3s agent join =="
 echo "Bootstrap: ${BOOTSTRAP_HOST}"
 echo "Target:    ${AGENT_HOST} (${K3S_NODE_IP}) node name ${K3S_NODE_NAME}"
 echo "Labels:    ${K3S_NODE_LABELS}"
+echo "Version:   ${INSTALL_K3S_VERSION}"
 echo ""
 
 ensure_token() {
@@ -77,7 +80,7 @@ echo "==> Step 3/4: Installing k3s-agent on ${K3S_NODE_NAME}"
 echo "    Enter sudo password for ${AGENT_HOST} when prompted (may take 1–2 min)..."
 ssh -t "${SSH_OPTS[@]}" "${AGENT_HOST}" "sudo K3S_URL='${K3S_URL}' K3S_TOKEN='${K3S_TOKEN}' \
   K3S_NODE_IP='${K3S_NODE_IP}' K3S_NODE_NAME='${K3S_NODE_NAME}' \
-  K3S_NODE_LABELS='${K3S_NODE_LABELS}' bash ~/install-agent.sh"
+  K3S_NODE_LABELS='${K3S_NODE_LABELS}' INSTALL_K3S_VERSION='${INSTALL_K3S_VERSION}' bash ~/install-agent.sh"
 
 echo ""
 echo "==> Step 4/4: Registry on ${K3S_NODE_NAME}..."

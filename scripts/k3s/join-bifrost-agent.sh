@@ -3,7 +3,7 @@
 # Prereq: install-agent.sh, configure-insecure-registry.sh, .join-env in same dir.
 #
 # On target (.70):
-#   echo 'K3S_TOKEN=<from bootstrap>' > ~/.join-env && chmod 600 ~/.join-env
+#   printf 'K3S_TOKEN=<from bootstrap>\nINSTALL_K3S_VERSION=<control-plane version>\n' > ~/.join-env && chmod 600 ~/.join-env
 #   ssh -t vision@192.168.10.70 'bash ~/join-bifrost-agent.sh'
 set -euo pipefail
 
@@ -15,13 +15,15 @@ K3S_URL="${K3S_URL:-https://192.168.10.73:6443}"
 K3S_TOKEN="${K3S_TOKEN:?set K3S_TOKEN in ${VISION_HOME}/.join-env}"
 K3S_NODE_IP="${K3S_NODE_IP:?set K3S_NODE_IP}"
 K3S_NODE_NAME="${K3S_NODE_NAME:-$(hostname -s)}"
+INSTALL_K3S_VERSION="${INSTALL_K3S_VERSION:?set INSTALL_K3S_VERSION in ${VISION_HOME}/.join-env (scripts/k3s/control-plane-version.sh on the MacBook)}"
 
 if [[ "${EUID}" -ne 0 ]]; then
   exec sudo K3S_URL="${K3S_URL}" K3S_TOKEN="${K3S_TOKEN}" K3S_NODE_IP="${K3S_NODE_IP}" K3S_NODE_NAME="${K3S_NODE_NAME}" \
+    INSTALL_K3S_VERSION="${INSTALL_K3S_VERSION}" \
     VISION_HOME="${VISION_HOME}" bash "${VISION_HOME}/join-bifrost-agent.sh"
 fi
 
-export K3S_URL K3S_TOKEN K3S_NODE_IP K3S_NODE_NAME
+export K3S_URL K3S_TOKEN K3S_NODE_IP K3S_NODE_NAME INSTALL_K3S_VERSION
 bash "${VISION_HOME}/install-agent.sh"
 
 REGISTRY_HOSTS="${REGISTRY_HOSTS:-192.168.10.73:30500 registry.cicd.svc.cluster.local:5000}"

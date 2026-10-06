@@ -6,6 +6,7 @@
 #   K3S_URL   — e.g. https://192.168.10.73:6443
 #   K3S_TOKEN — bootstrap node-token
 #   K3S_NODE_IP — LAN IP of this server
+#   INSTALL_K3S_VERSION — e.g. v1.35.5+k3s1; must equal the existing server
 #
 # Optional:
 #   K3S_NODE_NAME — default: hostname -s
@@ -20,7 +21,10 @@ K3S_URL="${K3S_URL:?set K3S_URL}"
 K3S_TOKEN="${K3S_TOKEN:?set K3S_TOKEN}"
 K3S_NODE_IP="${K3S_NODE_IP:?set K3S_NODE_IP}"
 K3S_NODE_NAME="${K3S_NODE_NAME:-$(hostname -s)}"
-INSTALL_K3S_CHANNEL="${INSTALL_K3S_CHANNEL:-stable}"
+# Pin the version: the "stable" channel moves, and a node that joins from it can
+# come up newer than the API server (ubt-k3s-06, 2026-06-29: v1.36.2 against a
+# v1.35.5 control plane). The join wrappers pass control-plane-version.sh.
+INSTALL_K3S_VERSION="${INSTALL_K3S_VERSION:?set INSTALL_K3S_VERSION to the control-plane version (scripts/k3s/control-plane-version.sh)}"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Run as root: sudo K3S_URL=... K3S_TOKEN=... K3S_NODE_IP=... bash $0" >&2
@@ -36,7 +40,7 @@ if swapon --show | grep -q .; then
   swapoff -a
 fi
 
-export INSTALL_K3S_CHANNEL
+export INSTALL_K3S_VERSION
 curl -sfL https://get.k3s.io | K3S_URL="${K3S_URL}" K3S_TOKEN="${K3S_TOKEN}" sh -s - server \
   --server "${K3S_URL}" \
   --node-name "${K3S_NODE_NAME}" \

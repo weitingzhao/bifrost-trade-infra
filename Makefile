@@ -151,17 +151,19 @@ docs-build:
 K3S_HOST ?= vision@192.168.10.73
 K3S_NODE_IP ?= 192.168.10.73
 # install-server.sh sets kubeconfig mode 644 — vision can kubectl without sudo over SSH
+# Pinned cluster version for a server rebuild (agents join at the control-plane version).
+K3S_VERSION ?= v1.35.5+k3s1
 K3S_REMOTE_KUBECTL = KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl
 
 k3s-install-remote:
 	@chmod +x scripts/k3s/install-server.sh scripts/k3s/fetch-kubeconfig.sh
 	scp scripts/k3s/install-server.sh $(K3S_HOST):~/install-k3s-server.sh
-	@echo "Run on server (interactive sudo): ssh -t $(K3S_HOST) 'sudo bash ~/install-k3s-server.sh'"
+	@echo "Run on server (interactive sudo): ssh -t $(K3S_HOST) 'sudo K3S_VERSION=$(K3S_VERSION) bash ~/install-k3s-server.sh'"
 
 k3s-install-remote-run:
 	@chmod +x scripts/k3s/install-server.sh
 	scp scripts/k3s/install-server.sh $(K3S_HOST):~/install-k3s-server.sh
-	ssh -t $(K3S_HOST) 'sudo bash ~/install-k3s-server.sh'
+	ssh -t $(K3S_HOST) 'sudo K3S_VERSION=$(K3S_VERSION) bash ~/install-k3s-server.sh'
 
 k3s-verify-remote:
 	ssh $(K3S_HOST) '$(K3S_REMOTE_KUBECTL) get nodes -o wide && $(K3S_REMOTE_KUBECTL) get ns | grep -E "cicd|bifrost|data"'
@@ -532,7 +534,7 @@ k3s-join-agent-remote:
 	@chmod +x scripts/k3s/install-agent.sh
 	scp scripts/k3s/install-agent.sh $(K3S_JOIN_HOST):~/install-k3s-agent.sh
 	@echo "On target (interactive sudo):"
-	@echo "  ssh -t $(K3S_JOIN_HOST) 'sudo K3S_URL=$(K3S_URL) K3S_TOKEN=<token> K3S_NODE_IP=<lan-ip> bash ~/install-k3s-agent.sh'"
+	@echo "  ssh -t $(K3S_JOIN_HOST) 'sudo K3S_URL=$(K3S_URL) K3S_TOKEN=<token> K3S_NODE_IP=<lan-ip> INSTALL_K3S_VERSION=$$(./scripts/k3s/control-plane-version.sh) bash ~/install-k3s-agent.sh'"
 
 # P5a — 4090 gpu-server @ 192.168.10.60 (warehouse + compute + GPU)
 K3S_GPU_HOST ?= vision@192.168.10.60
