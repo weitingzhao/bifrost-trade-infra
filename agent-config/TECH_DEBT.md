@@ -17,7 +17,7 @@
 
 更新：2026-10-06 · 第 1 轮（Trade UI 之下，10-01）剩 3 项 · 第 2 轮（Research + 插件，10-06：40 条发现，反向核实 22 成立、18 修正、0 推翻、3 合并）+ 日常发现
 
-**未结 41 项**：P0 0 · P1 3 · P2 19 · P3 19；要你批的 9 项。
+**未结 47 项**：P0 0 · P1 4 · P2 22 · P3 21；要你批的 15 项。
 
 ## 主题（第 2 轮）
 
@@ -34,6 +34,8 @@
 - **TD-92** — Research 的引擎资产永远是绿的：按标的失败、0 行写入、跳过都只进元数据。TD-89 停了三天没人发现就是这一类。
 - **TD-95** — 没有任何发布等 CI：research 0.172–0.174 是在 CI 红着的时候发的，trade-api main 从 10-04 起 CI 是红的，三个插件仓库自 09-29 起 32 次提交 0 次 CI。`RATCHETS.md` 里的测试类防线在这之前都只是提醒。
 - **TD-96** — preflight 的 D10 闸门只认 curl；修改稿在 `REQUEST-td96-preflight-d10-2026-10-06/`，等 Owner 审。
+
+- **TD-130** — 真正在生产数据层上动手的 Ops 自动修复跑在 Owner 的笔记本上（本机 bdev 的 platform-api），集群里 STG/PROD 那两份在空转；10-05 到 10-06 对备份 MinIO 的重启和补备份都是它做的。
 
 ## 还债顺序
 
@@ -72,6 +74,12 @@
 目标：删掉没人用的（挂起的 CronJob、退役脚本、无调用路由），手抄的副本改成从一处生成（调度名单、max-pain / PCR），清单的应用顺序与 Argo 归属理顺。
 
 项：TD-102, TD-106, TD-107, TD-108, TD-118, TD-119, TD-120, TD-123, TD-124, TD-125 · 已还：TD-126
+
+### 第 6 波 · 备份链与自动修复（10-06 日常发现）
+
+目标：备份 MinIO 已搬到 NAS（infra 1ee0ac2，已接监控 ba03488），把剩下的收尾：自动修复只在 PROD 一处动手、失败记录不再被删、platform 的新检查上线、稳定一周后退役集群里的 MinIO 残留，再处理 WAL 体量和 CNPG 1.30 的备份插件。
+
+项：TD-130, TD-131, TD-132, TD-133, TD-134, TD-135
 
 ## 需要你拍板
 
@@ -116,6 +124,18 @@
 - 推荐：B。先加 Deprecation 头和访问日志观察一个版本，零命中再删（同第 1 轮 TD-40）；Agent / 蒸馏的手动触发改成「启动对应的 Dagster job」。
 - 选项：A：直接删 · B：先观察一版再删 · C：保留
 - 项：TD-123
+
+### Ops 自动修复只在 PROD 动手吗？失败的备份记录保留吗？
+
+- 推荐：A。本机 bdev 的 platform-api 设 `PLATFORM_ROLE=api`（不跑后台循环，Console 照常可用）；PROD 的 platform-workers 作为唯一会动手的 autopilot，先干看一遍它拿到真实检查清单后会触发什么再接上（09-22 那条顾虑）；STG 只观测不动手。修复工具不再删除失败的 Backup 记录，30 天后再清理。
+- 选项：A：只 PROD 动手 + 保留失败记录 · B：本机先停，其余以后再定 · C：维持现状
+- 项：TD-130, TD-131
+
+### 备份链的三项后续
+
+- 推荐：TD-132 现在发布（STG 再 PROD，只带 a332cff 一个提交）；TD-134 调大检查点间隔并开 `wal_compression`（只需 reload，不重启）；TD-135 在把 CNPG 升到 1.30 之前装 cert-manager 并换 Barman Cloud Plugin，单独排期。
+- 选项：A：三项都按推荐 · B：先做 TD-132、TD-134 · C：只做 TD-132
+- 项：TD-132, TD-134, TD-135
 
 ## 总览
 
@@ -162,6 +182,12 @@
 | [TD-125](#td-125) | P3 | flex-ib | Retired IB topology still referenced: TIBM-era verify scripts at the top of scripts/, flex_ops compat SQL for a schema that no longer exists | 删除（要你批） |
 | [TD-128](#td-128) | P3 | research-data | Pine signal rows mix adjustment bases: nightly runs rewrite only the last ~10 sessions on today's adjusted bars, older rows stay on the basis of their last full rebuild | 不用批 |
 | [TD-129](#td-129) | P3 | research-data | The event backtest picks option legs from option_daily only; since mid-August 2026 it keeps ~10 strikes a side, so a target delta silently lands on the nearest strike that is left | 不用批 |
+| [TD-130](#td-130) | P1 | ops-control | ops-autopilot acts on the shared cluster's data layer from the Owner's laptop (local bdev platform-api, role all); the in-cluster STG/PROD autopilots idle on an empty checklist, and each of the three keeps its own throttle | 要你批 |
+| [TD-131](#td-131) | P2 | ops-control | repair_cnpg_wal_store deletes failed Backup CRs, erasing the record of failed backups | 要你批 |
+| [TD-132](#td-132) | P2 | ops-control | bifrost-platform a332cff (checks and WAL repair aware of the NAS MinIO) is on main but not released to STG/PROD | 发布（要你批） |
+| [TD-133](#td-133) | P3 | data | Leftovers of the in-cluster MinIO after the move to the NAS (deploy/minio at 0, its PVC/PV, an empty EndpointSlice, the backup-retry CronJob) | 要你批 |
+| [TD-134](#td-134) | P2 | data | WAL is ~19.5 GiB/day (4.2 GiB compressed) because checkpoints run every 5 minutes without wal_compression | 要你批 |
+| [TD-135](#td-135) | P3 | data | Native barmanObjectStore backups are removed in CloudNativePG 1.30; the Barman Cloud Plugin that replaces them needs cert-manager, which the cluster does not have | 新依赖（要你批） |
 
 ## 条目
 
@@ -819,6 +845,98 @@
 - **Fix**: Read the snapshot day bars where option_daily lacks the contract (walk.snapshot_day_bars) and skip legs further than 0.05 from the target delta, counting the skip.
 - **Ratchet**: A test with an option_daily chain thinned to ATM ±10 strikes that asserts either the target delta within 0.05 or an off-target skip.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
+
+### TD-130
+
+**P1 · ops-control · ops-autopilot acts on the shared cluster's data layer from the Owner's laptop (local bdev platform-api, role all); the in-cluster STG/PROD autopilots idle on an empty checklist, and each of the three keeps its own throttle**
+
+- **状态**：未开始（要你批）
+- **Claim**: Three platform-api processes run the patrol autopilot loop against the one k3s cluster: platform-workers in bifrost-platform-stg and bifrost-platform-prod (PLATFORM_ROLE=workers) and the Owner's local bdev platform-api, where PLATFORM_ROLE is unset and therefore `all`. Only the local one reads the real checklist; the in-cluster ones idle on an empty checklist (Owner 2026-09-22: leave as is). So the actions on data/minio and the backups came from a dev laptop: repair_cnpg_wal_store every 15 minutes from 10-05 19:30 to 10-06 02:00 (all failed), a rollout restart of deploy/minio plus an on-demand Backup at 10-06 04:45, another restart at 05:15. The "same target not twice in 24h" throttle is kept per process.
+- **Measured**: MEASURED 2026-10-06. Audit log of the local platform-api (MCP bifrost-platform → http://127.0.0.1:8780, get_audit_log) lists those actions; `curl 127.0.0.1:8780/health` → role all, background_loops true; kubectl: platform-workers 1 replica with PLATFORM_ROLE=workers in both namespaces.
+- **Evidence**:
+  - `bifrost-platform/api/internal/config/role.go:33` — `PLATFORM_ROLE`; unset or unknown means all
+  - `bifrost-platform/api/internal/server/server.go` — `role.RunsWorkers()` gates the patrol, ibgateway auto-repair and data-clone loops
+  - `bifrost-platform/config/patrol-skills/ops-autopilot.yaml` — every 15 minutes; tools include rollout_restart_deployment and trigger_cnpg_backup
+- **Impact**: The process that restarts production backup infrastructure and starts backups is the least controlled one: it sleeps with the laptop, runs whatever is in the shared checkout and restarts on every bdev change. Several copies can each restart or back up the same target.
+- **Fix**: Local bdev: `PLATFORM_ROLE=api` in bifrost-platform/.env. One acting autopilot, PROD platform-workers, given the real checklist after a dry look at what it would trigger. STG: observe only (a switch such as `PATROL_AUTOPILOT=off`, or report-only).
+- **Ratchet**: Outside the cluster, background loops start only with an explicit opt-in (for example `PLATFORM_ALLOW_LOCAL_LOOPS=1`); a test on the role default.
+- **验收**: `curl -s 127.0.0.1:8780/health` shows background_loops false; the PROD audit log shows the autopilot's actions and the local one shows none.
+- 审批 要你批 · 代价 M · 风险 med · repos: bifrost-platform
+
+### TD-131
+
+**P2 · ops-control · repair_cnpg_wal_store deletes failed Backup CRs, erasing the record of failed backups**
+
+- **状态**：未开始（要你批）
+- **Claim**: RepairPostgresWalStore calls deleteStuckBackupCRs, which deletes every bifrost-postgres-* Backup in phase failed or walArchivingFailing before it starts an on-demand Backup. CloudNativePG itself only deletes completed backups that are no longer in the object-store catalog. The failed 10-03 and 10-04 03:00 backups and the failed 10-03 manual one were gone from the cluster within hours; only Prometheus and a MinIO trace kept the evidence.
+- **Measured**: MEASURED 2026-10-06: the Backup CRs of those three runs are absent; CNPG v1.27.4 `pkg/management/postgres/backup.go` deleteBackupsNotInCatalog skips every phase but completed.
+- **Evidence**:
+  - `bifrost-platform/api/internal/cluster/postgres_wal_repair.go` — `pickStuckBackupNames`, `deleteStuckBackupCRs`
+- **Impact**: Failure history for postmortems exists only in metrics; whoever looks at the cluster after the repair ran sees no failed backup.
+- **Fix**: Stop deleting failed Backups; a separate sweep removes failed Backup CRs older than 30 days.
+- **Ratchet**: A test that RepairPostgresWalStore issues no delete for a failed Backup.
+- **验收**: After a failed backup and a repair run, `kubectl -n data get backups` still lists the failed one.
+- 审批 要你批 · 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-132
+
+**P2 · ops-control · bifrost-platform a332cff (checks and WAL repair aware of the NAS MinIO) is on main but not released to STG/PROD**
+
+- **状态**：在做（下一步：Owner 批发布，STG 后 PROD）
+- **Claim**: Since the MinIO cutover (infra 1ee0ac2) the in-cluster Console reports "MinIO backup … scaled to zero" and "WAL archive … MinIO not ready" (degraded) for a healthy store, and the in-cluster repair tool would rollout-restart the 0-replica deploy/minio. a332cff reads Service data/minio, checks the external MinIO's /minio/health/cluster and never touches deploy/minio for an external MinIO.
+- **Measured**: Local platform-api against the cluster after a332cff: MinIO backup ok "MinIO @ 192.168.10.20:9000 healthy", WAL archive ok (both degraded before). Last STG and PROD builds were a6794c4, bifrost-ui unchanged since: the release ships only a332cff.
+- **Evidence**:
+  - `bifrost-platform/api/internal/cluster/minio_backend.go` — `resolveMinioBackend`
+  - `bifrost-platform/api/internal/cluster/postgres_wal_repair.go` — external branch of `RepairPostgresWalStore`
+- **Fix**: Run bifrost-deliver-platform, then bifrost-deliver-platform-prod.
+- **Ratchet**: `minio_backend_test.go` TestRepairWithUnhealthyExternalMinioLeavesDeploymentAlone (fails on the old code).
+- **验收**: STG and PROD `GET /api/v1/cluster/postgres` → minio.id minio-backup-external, reachability ok; the clone-platform result commit is a332cff or later.
+- 审批 发布（要你批） · 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-133
+
+**P3 · data · Leftovers of the in-cluster MinIO after the move to the NAS (deploy/minio at 0, its PVC/PV, an empty EndpointSlice, the backup-retry CronJob)**
+
+- **状态**：观察中（到 10-13，看每天 03:00 的备份都 completed、BifrostMinIONas* 没有告警）
+- **Claim**: Kept for a week as the rollback path: deploy/minio (replicas 0 on purpose), PVC data/minio-data and PV pvc-871b4689-… (nfs-hot; its directory is the live data directory of the NAS MinIO), the controller's empty EndpointSlice minio-wv44q, the CronJob data/backup-retry (only needed while backups failed on NFS), and the data directory still under the provisioner's /volume1/k3s-hot path.
+- **Evidence**:
+  - `bifrost-trade-infra/k8s/data/minio/deployment.yaml` — replicas 0
+  - `bifrost-trade-infra/k8s/data/backup-retry.yaml`
+  - `bifrost-trade-infra/k8s/data/minio/nas/README.md` — "After a week of good backups"
+- **Fix**: After 10-13: delete deploy/minio and backup-retry; delete the PVC and PV objects only (reclaim policy Retain, archiveOnDelete false: the directory stays — check again first); move the directory to its own share by a rename inside /volume1 and update the compose volume path (Owner, sudo); delete minio-wv44q.
+- **Ratchet**: None new: BifrostMinIONasDown / DriveOffline / SpaceLow cover the store itself.
+- **验收**: `kubectl -n data get deploy,pvc,cronjob | grep -E 'minio|backup-retry'` is empty; the NAS MinIO lists 272+ GiB and the next 03:00 backup completes.
+- 审批 要你批 · 代价 S · 风险 med · repos: bifrost-trade-infra
+
+### TD-134
+
+**P2 · data · WAL is ~19.5 GiB/day (4.2 GiB compressed) because checkpoints run every 5 minutes without wal_compression**
+
+- **状态**：未开始（要你批）
+- **Claim**: bifrost-postgres runs with checkpoint_timeout 300 s, max_wal_size 1024 MB and wal_compression off. Each checkpoint makes the next change to every page write a full page image, so WAL is dominated by full pages. Archived WAL is 129 of the 272 GiB backup bucket.
+- **Measured**: MEASURED 2026-10-06: cnpg_collector_wal_bytes 7-day average 19.48 GiB/day; 1,986 timed checkpoints in 7 days; full-page-image byte share upper bound 0.98 (8 KiB per FPI).
+- **Evidence**:
+  - `bifrost-trade-infra/k8s/data/cluster.yaml` — spec.postgresql.parameters (no checkpoint or wal_compression settings)
+- **Impact**: Backup storage and the WAL replay after a restore grow with it; the 30-day backup bucket is about 300 GiB and rising.
+- **Fix**: checkpoint_timeout 15min, max_wal_size 4GB, wal_compression lz4 (reload, no restart); measure WAL per day for a week. Cost: crash recovery replays more WAL (about a minute instead of seconds).
+- **Ratchet**: An alert when WAL per day goes above the new baseline by a margin.
+- **验收**: A week after the change, cnpg_collector_wal_bytes per day is at most half of 19.48 GiB.
+- 审批 要你批 · 代价 S · 风险 low · repos: bifrost-trade-infra
+
+### TD-135
+
+**P3 · data · Native barmanObjectStore backups are removed in CloudNativePG 1.30; the Barman Cloud Plugin that replaces them needs cert-manager, which the cluster does not have**
+
+- **状态**：未开始（要你批：新依赖）
+- **Claim**: Applying the Cluster on 10-06 printed "Native support for Barman Cloud backups and recovery is deprecated and will be completely removed in CloudNativePG 1.30.0". The operator is 1.27.4. The plugin needs cert-manager; no cert-manager namespace or CRDs exist.
+- **Evidence**:
+  - `bifrost-trade-infra/k8s/data/cluster.yaml` — spec.backup.barmanObjectStore
+  - `bifrost-trade-infra/k8s/system/cnpg-operator/kustomization.yaml` — operator version pin
+- **Impact**: An operator upgrade past 1.29 would stop WAL archiving and backups.
+- **Fix**: Before that upgrade: install cert-manager, deploy plugin-barman-cloud, move the Cluster to an ObjectStore plus plugin configuration, verify a backup and a restore drill.
+- **Ratchet**: install-cnpg-operator.sh refuses a version of 1.30 or later while the Cluster still uses barmanObjectStore.
+- **验收**: A completed Backup with method plugin and a restore drill that passes.
+- 审批 要你批 · 代价 M · 风险 med · repos: bifrost-trade-infra
 
 ## 没覆盖到的（下一轮从这里开始）
 
