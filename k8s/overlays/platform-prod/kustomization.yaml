@@ -19,6 +19,7 @@ configMapGenerator:
       - config/agent-tasks.yaml
       - config/platform-auth.yaml
       - config/sessions-catalog.yaml
+      - config/release-rules.yaml
     options:
       disableNameSuffixHash: true
   - name: bifrost-platform-programs
