@@ -380,6 +380,19 @@ spec:
             summary: "Flex ingest {{ $labels.kind }} stale for 4 days"
             description: "No completed {{ $labels.kind }} run in 96h (a Saturday run keeps Monday night under the limit). The Research husbandry gate blocks dbt on the same rule."
 
+        # TD-88: raw_broker.transactions lost 2025-03 and 2026-03..07 while every run said ok
+        # (fixed window, no catch-up). flex-query 0.10.0 exports, per account, the closed months
+        # that have executions but no cash transactions; 0 since the 2026-10-06 backfill.
+        - alert: BifrostFlexCashCoverageGap
+          expr: |
+            max by (account) (bifrost_flex_coverage_gap_months) > 0
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Flex cash transactions missing for {{ $value }} month(s) on {{ $labels.account }}"
+            description: "A closed month has Flex executions but no raw_broker.transactions rows, so fees, dividends and interest are missing from Transfer & Pay and net cash flow. GET /flex/ops/check (coverage) lists the months; backfill with a flex-transactions job carrying from_date/to_date."
+
         - alert: BifrostFlexIngestScrapeDown
           expr: |
             up{job="flex-query-api"} == 0 or absent(up{job="flex-query-api"})
