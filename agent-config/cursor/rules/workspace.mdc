@@ -2,7 +2,7 @@
 description: Bifrost 工作区结构、三域架构、双飞轮边界与双轨维护规范
 globs: ["**/*"]
 alwaysApply: true
-parity-id: workspace-v11
+parity-id: workspace-v12
 ---
 
 # Bifrost 工作区规范
@@ -87,6 +87,12 @@ Claude 侧用户级 `permissions` 有一组发布类放行规则（payload `clau
 - 跑 ddl-apply Job 前先 `grep -niE 'drop|truncate'` 它要执行的 SQL，有命中就停下问 Owner。
 
 ---
+
+### 技术债与防线 — 内容在仓库（Owner 2026-10-06）
+
+- 未结的债只在 `bifrost-trade-infra/agent-config/TECH_DEBT.md`：审计和日常发现都直接加一条（证据 `文件:行`、修法、防线），编号接着最大号往下排。
+- 修复上线、对应防线到位后删掉那一条，提交信息写上对应的防线；历史留在 git 里。
+- 防线登记在同目录的 `RATCHETS.md`：每关掉一项，要么加一条或扩大一条防线，要么写明为什么没有可行的防线。
 
 ## 4. 双轨维护（Cursor ↔ Claude）
 
