@@ -6,8 +6,8 @@
 # k8s/pine/deployment.yaml once the tag is in the registry:
 #   curl -s http://192.168.10.73:30500/v2/bifrost-research-pine/tags/list
 #
-# Kaniko clones from Gitea. Refresh the mirror first:
-#   make k3s-sync-gitea-mirrors
+# Kaniko clones from Gitea; the run syncs the research mirror first, so a
+# revision pushed to GitHub moments ago (a branch SHA works) is there.
 #
 # Create the run from its template:
 #   kubectl -n cicd create -f k8s/cicd/tekton/pipelinerun-build-research-pine.yaml
@@ -36,7 +36,16 @@ spec:
   workspaces:
     - name: build-context
   tasks:
+    - name: mirror-sync
+      taskRef:
+        name: bifrost-gitea-mirror-sync
+      params:
+        - name: giteaBase
+          value: $(params.giteaBase)
+        - name: mirrorRepos
+          value: "bifrost-research"
     - name: clone-research
+      runAfter: [mirror-sync]
       taskRef:
         kind: Task
         name: bifrost-git-clone-gitea
