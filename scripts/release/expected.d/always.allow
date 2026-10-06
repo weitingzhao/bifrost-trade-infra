@@ -1,3 +1,9 @@
+# always.allow — read by release-check.sh on EVERY after-check and diff (dev, stg, prod), no --allow needed.
+# Owner 2026-10-06: live-mark drift is not a release difference. During market hours the snapshots read live
+# equity, so these move between the before and after snapshot of any release, whatever it ships.
+# Only fields measured to move with live equity belong here; a release's own expected changes go in a dated
+# file passed with --allow. Was 2026-10-06g-live-mark-drift.allow (infra 1c0bb85).
+#
 # Live-quote drift missing from the 10-06 allow lists (release 2026-10-06g: core 0.49.0/0.50.0, api 0.10.0,
 # fe saved-screen v2). During market hours capital_base follows live equity, so every return_pct that divides
 # by it moves; realized P&L itself is identical. Measured on STG wtvk2: capital_base 1097455.65 -> 1097266.72

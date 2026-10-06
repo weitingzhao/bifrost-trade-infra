@@ -69,7 +69,9 @@ scripts/release/release-check.sh diff old.json new.json --allow <file>
   period / symbol）对齐，顺序变化不算变化。新增的键和新成交永远放行；改值、删除、长度变化要在 `--allow` 文件里列出
   （每行一个 glob，`*` 任意，`[*]` 表示列表行，例：`perf.summary.win_rate`、`execs.*.q`），否则 exit 1。
   每次发布的预期变化放 `scripts/release/expected.d/<date>-<name>.allow`（示例：`2026-10-03-td-batch.allow`）；
-  `expected.d/always.allow` 存在时每次都带上。
+  `expected.d/always.allow` 每次都带上（Owner 2026-10-06：里面只放盘中随实时权益移动的字段——按 capital_base /
+  current_equity 算的各组 return_pct、capital_base / start_equity / current_equity、IB 透传的 total_cash /
+  buying_power / net_liquidation；未实现盈亏金额不在里面，它们不随实时报价动）。
 - **/health**：monitor / trading / market / research 的 `core_sha` 必须等于 `--run` 的 clone-core 提交，
   `core_version` 必须等于该提交 `pyproject.toml` 的版本（从 `BIFROST_CORE_REPO`，默认 `../bifrost-trade-core` 读；
   本地没有这个提交时只要求四个域一致且不是 unknown，并提示没交叉核对）。
