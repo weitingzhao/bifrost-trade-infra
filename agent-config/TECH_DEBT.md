@@ -16,7 +16,7 @@
 - **TD-124** — 删掉永久挂起的 CronJob：research 18 个（60e9c2d，逐个核过都在 Dagster）、market-data 14 个 + 0.10.0 孤儿文件（91fe2c1），Owner 删除集群对象；保留 harness 与 7 个触发模板（去掉其中 5 个的旧 RESEARCH_WATCHLIST）· 验收 PASS（10-06，挂起 39 → 7）· 防线：`bifrost-research/tests/test_k8s_cronjobs.py`、`bifrost-platform-plugin-market-data/tests/test_k8s_no_cronjobs.py`，两个 verify 脚本翻成「必须不存在」· 后续：TD-190（触发路由与 7 个模板）、TD-191（schedule.yaml 注释）
 - **TD-176** — signal-hit / alert-scan 两个挂起清单随 TD-124 删除（research 60e9c2d）· 验收 PASS（10-06）· 防线：同 TD-124 · 无后续
 
-**未结 80 项**：P0 0 · P1 4 · P2 29 · P3 47；要你批的 42 项（从总览表的审批列算）。
+**未结 82 项**：P0 0 · P1 4 · P2 30 · P3 48；要你批的 43 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -47,7 +47,7 @@
 
 目标：先让失败变红。错数据先修数据（TD-87 restate），再把引擎、闸门、写入方从「出错也报成功」改成失败即失败：引擎资产按输出判定、husbandry gate 失败即关、日历读失败报错、写入方失败抛错。不需要 Owner 批的先做。
 
-项：TD-91, TD-92, TD-94, TD-97, TD-101, TD-136, TD-156, TD-157, TD-166, TD-189 · 已还：TD-88, TD-89, TD-90, TD-113, TD-93, TD-165, TD-167, TD-87
+项：TD-91, TD-92, TD-94, TD-97, TD-101, TD-136, TD-156, TD-157, TD-166, TD-189, TD-192 · 已还：TD-88, TD-89, TD-90, TD-113, TD-93, TD-165, TD-167, TD-87
 
 ### 第 2 波 · 让闸门真的卡住
 
@@ -83,7 +83,7 @@
 
 目标：Data Gaps 看板上未结的 15 项并入台账：先把每日快照的写入修对（TD-137）再接读侧和三页，归因行补上价格，Research 侧已就绪的一个版本（0.185.0）发出去，长期限 IV 锥在 10-31 前从 option_daily 回填，其余按 Owner 已定的口径排。
 
-项：TD-137, TD-138, TD-139, TD-140, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-158, TD-159, TD-171, TD-172, TD-178, TD-180, TD-181, TD-182 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151
+项：TD-137, TD-138, TD-139, TD-140, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-158, TD-159, TD-171, TD-172, TD-178, TD-180, TD-181, TD-182, TD-193 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151
 
 ### 第 8 波 · Pine 线程收尾后的跟进（10-06）
 
@@ -251,6 +251,8 @@
 | [TD-189](#td-189) | P3 | research-data | SEPA has no rows for four sessions (08-28, 08-31, 09-08, 09-16): those nights never computed it, so the SEPA lens and its hit rate skip them | 不用批 |
 | [TD-190](#td-190) | P3 | ops-platform | Platform's research CronJob trigger route has no caller but keeps seven suspended CronJob templates alive in the research namespace | 改公开接口 |
 | [TD-191](#td-191) | P3 | market-data | market-data config/schedule.yaml still says K8s CronJob YAML is the runtime schedule source; after TD-124 there are no CronJobs and Dagster fires every slot | 不用批 |
+| [TD-192](#td-192) | P2 | research-control | One IB Flex failure loses that night's SEPA for good: husbandry_gate blocks sepa_projection although SEPA reads nothing from Flex, and the projection never back-fills a missed night | 要你批 |
+| [TD-193](#td-193) | P3 | frontend | The Events calendar view's Date column shows collected_at, not event_date: macro rows show when they were computed, radar rows when the file was dropped | 不用批 |
 
 ## 条目
 
@@ -1432,7 +1434,9 @@
 
 **P3 · research-data · /events/calendar takes its macro rows from a hand-dropped radar file (ends 2026-12-10) instead of macro_event_daily, and radar ids include the collection date so a re-drop duplicates them**
 
-- **状态**：在做（还债第四批 · 道 P，10-06 晚开工；发版与 Golden Source 写入前停下等你批）
+- **状态**：在做（代码在 research main 3744ffb，版本 0.198.0 = 775af73；镜像未建——auto mode 拒绝道 P 起构建；发布等你批）
+- **验收**：research 0.198.0 上线后：research-api pod 里 GET `/research/events/calendar` → `macro_read_path` = features.macro_event_daily、`macro_rows` 14（随日期滚动）、`superseded_macro_rows` 5、宏观最晚 2027-12-08
+- **现在**：/events/calendar 宏观行改读 macro_event_daily（窗口纽约今天 − 31 天起），雷达行跳过 `ws:macro*`；ingest 遇 ws:macro 文件只归档不读。响应只增字段（origin / indicator / country / release_ts；顶层 superseded_macro_rows 等）。现存 5 行 ws:macro 雷达行一一对应 macro_event_daily、无重复，不需清理、无 Owner SQL。副本预演：17 行（14 宏观到 2027-12-08 + 3 分红），superseded 5。防线 `tests/engines/test_event_calendar_macro.py`（6 个）
 - **Claim**: Two macro paths exist: features.macro_event_daily (TD-151) and event_signal_radar_daily rows with source ws:macro-calendar-2026q4. The calendar page reads the latter; _stable_id hashes the collection date, so each weekly re-drop writes new ids for the same events.
 - **Measured**: code-read 10-06 by paydown lane O.
 - **Evidence**:
@@ -1544,7 +1548,9 @@
 
 **P3 · research-data · SEPA has no rows for four sessions (08-28, 08-31, 09-08, 09-16): those nights never computed it, so the SEPA lens and its hit rate skip them**
 
-- **状态**：在做（还债第四批 · 道 P，10-06 晚开工；发版与 Golden Source 写入前停下等你批）
+- **状态**：在做（代码在 research main 6fdc161，随 0.198.0；镜像未建，发布等你批）
+- **验收**：0.198.0-dagster apply 后的下一次 research_trading_day：`features/sepa_projection` 的 `sepa_covers_recent_sessions` passed，metadata accepted_gaps 为四个日期、missing_sessions 0
+- **现在**：诊断（副本 ops_dagster）：08-28 / 08-31 是 dbt 步骤加入批次前投影了过期 mart（写的是 08-27 收盘，已被 TD-87 改写）；09-08 / 09-16 是 husbandry_gate 因 IB Flex [1003] 失败、sepa_projection 被跳过。无法忠实回补：基本面 99.3% 在 09-29 后按 v1 重建、IV 库在之间被改写（09-15 的 iv_percentile 518 只对上 3）、dim_universe 只有当前态。所以不回补；新增 WARN 资产检查 `sepa_covers_recent_sessions`（近 30 个交易日缺 SEPA 即告警），四个已判定日期列在 `ACCEPTED_GAPS` 并写明原因（偏离原文「任何缺口都 warn」：否则会红约 3 周，删掉名单即可恢复严格）。防线 `tests/orchestration/test_sepa_session.py`（+6）。后续 TD-192
 - **Claim**: After the TD-87 restate every stored SEPA date is a real session, which exposes the gaps: between 08-21 and 10-05 there are 31 sessions and 27 carry SEPA. The lens re-walk reports lenses_without_source ['sepa'] for exactly those four days.
 - **Measured**: MEASURED 10-06 22:26 UTC (signal_hit sepa re-walk output; replica: 27 distinct SEPA dates).
 - **Evidence**:
@@ -1581,6 +1587,34 @@
 - **Fix**: Fix the comment to name Dagster's market_slot_schedules.py as the source, or derive the plugin's cron fields from the Dagster roster.
 - **Ratchet**: A test comparing the plugin's slot crons with the Dagster roster (or asserting the fields are documentation only).
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data, bifrost-research
+
+### TD-192
+
+**P2 · research-control · One IB Flex failure loses that night's SEPA for good: husbandry_gate blocks sepa_projection although SEPA reads nothing from Flex, and the projection never back-fills a missed night**
+
+- **状态**：未开始
+- **Claim**: husbandry_gate raises when Flex is failed / stale / none (fail-closed per TD-94) and sepa_projection depends on the gate. Two of the four SEPA gaps (09-08, 09-16) are Flex [1003] nights. The projection only writes latest_closed_session, so a skipped night is lost unless research_trading_day is re-run before the next close.
+- **Measured**: MEASURED 10-06 by paydown lane P (ops_dagster runs 831ad92b, f638e59b, f9d10c09).
+- **Evidence**:
+  - `bifrost-research/src/bifrost_research/orchestration/plugin_batch_assets.py:235` — `raise RuntimeError(f"husbandry_gate: Flex ingest {flex_verdict} ({flex_reason}) — block dbt")`
+- **Impact**: Every Flex outage (TWS log-off, report not generated) silently drops a day of SEPA history and its lens hits.
+- **Fix**: Split the gate so Flex only blocks Flex-dependent assets (or make sepa_projection depend on market_eod only); optionally a run config that projects a named session while the mart still holds it. Changes TD-94's fail-closed design, so Owner decides.
+- **Ratchet**: TD-189's sepa_covers_recent_sessions check already warns on a new gap.
+- 审批 要你批 · 代价 S · 风险 med · repos: bifrost-research
+
+### TD-193
+
+**P3 · frontend · The Events calendar view's Date column shows collected_at, not event_date: macro rows show when they were computed, radar rows when the file was dropped**
+
+- **状态**：未开始
+- **Claim**: EventsBoard renders row.collected_at in the calendar's Date column; for a calendar the reader expects the event's own date.
+- **Measured**: code-read 10-06 by paydown lane P.
+- **Evidence**:
+  - `bifrost-trade-frontend/src/pages/research/events/EventsBoard.tsx:400` — `{row.collected_at ?? '—'}`
+- **Impact**: Calendar rows are dated wrongly (e.g. a 10-14 CPI shows 10-06).
+- **Fix**: Use event_date (fall back to collected_at only for rows without one) in both places (:301, :400).
+- **Ratchet**: A vitest: a calendar row with event_date renders that date.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
 
 ## 没覆盖到的（下一轮从这里开始）
 
