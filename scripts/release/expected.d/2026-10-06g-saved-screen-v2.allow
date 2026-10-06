@@ -1,0 +1,15 @@
+# Expected changes of the saved-screen v2 frontend release (frontend d1254adc, 2026-10-06): frontend only — Save screen writes
+# stock_screen.v2 (research 0.181.0, already live). No backend or DDL change from this release;
+# account values move only with live quotes (same list as 2026-10-06f-pine-rev160).
+model.*.account_summary.buying_power
+model.*.account_summary.net_liquidation
+perf.unrealized.current_equity
+perf.unrealized.return_pct
+perf.transaction.capital_base
+perf.transaction.start_equity
+perf.summary.return_pct
+perf.calendar[*].return_pct
+perf.calendar_by_sec_type[*].return_pct
+perf.realized_by_sec_type[*].return_pct
+perf.realized_by_strategy_opportunity[*].return_pct
+perf.realized_by_trade[*].return_pct
