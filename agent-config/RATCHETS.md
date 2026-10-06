@@ -62,6 +62,7 @@
 | 不选模型时按财报日排序（TD-179） | `bifrost-trade-frontend/src/pages/research/stocks/stockScreenEarnings.test.ts`（逾期在前、无估计在后）+ `RankDrawer.test.tsx`（Earnings 已启用） | 排序选项被禁用或无估计的名字混在前面 | warning（测试） | — |
 | Pod 卡在 ContainerCreating 告警（TD-173） | `bifrost-trade-infra/k8s/monitoring/bifrost-alerting-rules.yaml` BifrostPodStuckCreating（bifrost-* / research / plugin-* 命名空间 15 分钟）；`scripts/k3s/install-nfs-common-nodes.sh` DEFAULT_NODES 含 .79 | 新节点漏装 nfs-common 等挂载 / 镜像 / CNI 故障让 pod 卡在创建、滚动发布在 maxUnavailable 0 后面静默挂起 | alert | 节点重装时仍需人跑脚本；install-agent 本身不装 nfs-common |
 | ticker-details 只认自己的作业（TD-175） | `bifrost-platform-plugin-market-data/tests/test_slot_freshness.py`（ticker-details 停而 reference 照跑判 missed、slot 行承担证据、`test_naming_ticker_details_adds_no_doctor_finding`） | 共享的 ticker_sync 行给停跑的 ticker-details 记功 | warning（测试） | — |
+| SEPA 日期戳只落在交易日（TD-87） | `bifrost-research` dbt 测试 `sepa_session_is_newest_trading_day` + Dagster asset check `sepa_projection:sessions_are_trading_days` + 静态测试（research 0.180.0） | SEPA 按 UTC 日历日盖章（周末 / 下一天），lens 与回测按错日读 | blocking（asset check ERROR）+ warning（dbt / 测试） | 只管新写入；未计算的 session 由 TD-189 跟踪 |
 
 ## 各类债现在挡没挡住
 

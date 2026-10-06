@@ -13,9 +13,9 @@
 
 ## 待你签收
 
-- **TD-87** — SEPA 日期戳历史重排（Owner 10-06 执行 restate.py：101,673 → 94,759 行、周末行 21,016 → 0、27 个交易日）+ SEPA lens 重走（写 69 / 删 22）· 验收 PASS（10-06 副本核对：周末 0、无源 lens 行 0） · 防线：dbt 测试 `sepa_session_is_newest_trading_day` + Dagster asset check `sepa_projection:sessions_are_trading_days`（research 0.180.0）· 后续：TD-189（四个从未计算的 session）
+（暂无）
 
-**未结 80 项**：P0 0 · P1 5 · P2 29 · P3 46；要你批的 41 项（从总览表的审批列算）。
+**未结 79 项**：P0 0 · P1 4 · P2 29 · P3 46；要你批的 41 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -27,7 +27,6 @@
 
 ## 先看这几条
 
-- **TD-87** — SEPA 全部晚一个交易日、周五落到周六。代码已修（research 0.180.0）；历史 101,673 行要在 10-07 02:30 UTC 批处理前由 Owner 跑 restate，命令在备份目录 README。
 - **TD-91** — 现金流水写库失败被记成「成功、0 行」。TD-88 刚补完五个月的洞，这个写入方再静默失败一次，新的覆盖告警要到月底才响。
 - **TD-92** — Research 的引擎资产永远是绿的：按标的失败、0 行写入、跳过都只进元数据。TD-89 停了三天没人发现就是这一类。
 - **TD-95** — 没有任何发布等 CI：research 0.172–0.174 是在 CI 红着的时候发的，trade-api main 从 10-04 起 CI 是红的，三个插件仓库自 09-29 起 32 次提交 0 次 CI。`RATCHETS.md` 里的测试类防线在这之前都只是提醒。
@@ -47,7 +46,7 @@
 
 目标：先让失败变红。错数据先修数据（TD-87 restate），再把引擎、闸门、写入方从「出错也报成功」改成失败即失败：引擎资产按输出判定、husbandry gate 失败即关、日历读失败报错、写入方失败抛错。不需要 Owner 批的先做。
 
-项：TD-87, TD-91, TD-92, TD-94, TD-97, TD-101, TD-136, TD-156, TD-157, TD-166, TD-189 · 已还：TD-88, TD-89, TD-90, TD-113, TD-93, TD-165, TD-167
+项：TD-91, TD-92, TD-94, TD-97, TD-101, TD-136, TD-156, TD-157, TD-166, TD-189 · 已还：TD-88, TD-89, TD-90, TD-113, TD-93, TD-165, TD-167, TD-87
 
 ### 第 2 波 · 让闸门真的卡住
 
@@ -172,7 +171,6 @@
 | 编号 | 级别 | 领域 | 标题 | 审批 |
 |---|---|---|---|---|
 | [TD-85](#td-85) | P1 | trade (round 1) | One database password reaches everything: any DEV pod can write PROD Trade and all of Golden Source | 安全/凭据（要你批） |
-| [TD-87](#td-87) | P1 | research-data | SEPA features are stamped with the next calendar day (UTC current_date at 02:30 UTC): every SEPA row is one session late and Friday sessions land on Saturday | 不用批 |
 | [TD-91](#td-91) | P1 | flex-ib | A failed cash-transactions write is recorded as a successful run: core returns 0 on any exception and the job counts it as 'ok, 0 rows' | 改公开接口 |
 | [TD-92](#td-92) | P2 | research-control | Engine assets never fail: per-symbol failures, zero-row writes and skips are only metadata, reasons are discarded, and research_trading_day is green regardless of output | 不用批 |
 | [TD-94](#td-94) | P2 | research-control | husbandry_gate fails open: a probe exception leaves verdict 'unknown', which passes, and the gate never checks that the doctor's session is the one being closed | 不用批 |
@@ -268,27 +266,6 @@
 - **Impact**: A compromised or misconfigured DEV workload can modify PROD trading data and the Research store; Research can write Trade tables.
 - **Fix**: Per-env runtime roles trade_app_<env> (NOINHERIT, own database only; Golden Source only raw_broker and ops_feedback), bifrost kept for db-init/CNPG; Secret switch per env with one-patch rollback; then revoke PUBLIC CONNECT/CREATE, rotate the bifrost password, and separately drop analytics_writer's bifrost membership after Research gets explicit grants.
 - 审批 安全/凭据（要你批） · 代价 L · 风险 medium · repos: bifrost-trade-infra, bifrost-research
-
-### TD-87
-
-**P1 · research-data · SEPA features are stamped with the next calendar day (UTC current_date at 02:30 UTC): every SEPA row is one session late and Friday sessions land on Saturday**
-
-- **状态**：待你签收
-- **验收**：GS 只读：`features.stock_signal_sepa_daily` 无周末 / 节假日 / 未来日期，最新日期 = 最近交易日；`stock_signal_lens_hit_daily` 的 sepa 行都有同日 SEPA 源
-- **验收结果**：PASS 2026-10-06 22:2x UTC（Owner 执行）：restate.py 预演计数与 dry run 一致后提交（101,673 → 94,759 行，删碰撞 6,914，周末行 21,016 → 0，27 个交易日、最新 10-05，删 08-28 两条孤儿 lens_hit）；SEPA lens 重走写 69 / 删 22。副本核对：SEPA 94,759 行 / 27 日 / 周末 0；sepa lens_hit 69 行 / 22 日 / 周末 0 / 无源 0
-- **现在**：代码已修并上线（research 0.180.0，10-06）：七张 SEPA mart 改用 `sepa_session()`（源表最新交易日），`sepa_projection` 写纽约 session；防线 dbt 测试 `sepa_session_is_newest_trading_day` + Dagster asset check `sepa_projection:sessions_are_trading_days` + 静态测试。历史行还没改：写 PROD Golden Source 被 auto mode 拦下，交 Owner。
-- **下一步**：Owner 跑 `~/bifrost-backups/golden-source/2026-10-06_td87-sepa-restate/` 里的 restate.py（101,673 → 94,759 行，删碰撞 6,914 行，09-01 的行实为 08-27 收盘、按数据改到 08-27）和 SEPA lens 重走；须在 10-07 02:30 UTC 批处理前，否则先重跑 dry run。跑完删掉本条。（10-07）
-- **Claim**: All seven SEPA marts set eval_date = current_date. The database runs in Etc/UTC and research_trading_day fires at 22:30 New York (02:30 UTC the next day). mart_sepa_feature_daily turns eval_date into trade_date, and sepa_projection copies MAX(trade_date) into features.stock_signal_sepa_daily. So the Monday 10-05 session is stored as 2026-10-06 and Friday sessions as Saturday. signal_hit (_load_sepa_triggers WHERE trade_date = %s), the backtest event source and every join on trade_date pair SEPA with the following session; signal_hit walks only trading days, so Friday SEPA triggers are never read and Monday sessions have no SEPA input.
-- **Measured**: MEASURED (re-checked by verifier). show timezone = Etc/UTC; no role/profile timezone override. dw_stock.mart_sepa_feature_daily holds only 2026-10-06 (3,742 rows) while int_stock_daily_enriched max(trade_date) = 2026-10-05. features.stock_signal_sepa_daily since 07-01: 5 Saturday dates, 1 Sunday, 1 Monday (09-28, a manual run); 21,016 of 101,673 rows in the last 60 days fall on a weekend. It is the only features/research/dw_stock/journal table with weekend trade_dates. lens_hit lens='sepa' has 1 Monday vs 3-5 for every other weekday.
-- **Evidence**:
-  - `bifrost-research/src/bifrost_research/dbt/models/marts/mart_sepa_technical_eval.sql:45` — `current_date as eval_date,`
-  - `bifrost-research/src/bifrost_research/dbt/models/marts/mart_sepa_feature_daily.sql:9` — `w.eval_date as trade_date,`
-  - `bifrost-research/src/bifrost_research/orchestration/sepa_projection.py:80` — `SELECT MAX(trade_date) FROM dw_stock.mart_sepa_feature_daily`
-  - `bifrost-research/src/bifrost_research/orchestration/schedules.py:85` — `cron_schedule="30 22 * * 1-5",`
-- **Impact**: Stored data is wrong now. SEPA lens hit rate, forward returns, SEPA backtests (entries one session late; Friday signals enter Monday) and the screener eval_date all describe the wrong session. Friday SEPA triggers never reach lens_hit; Monday lens_hit has no SEPA input.
-- **Fix**: Derive the session from the data, not the clock: eval_date = (select max(trade_date) from int_stock_daily_enriched), or pass --vars '{as_of: <NY session>}' from the Dagster asset; sepa_projection passes the NY session explicitly. Then restate stock_signal_sepa_daily (Research-owned) by shifting each row to the last session on or before trade_date - 1 (dry run first) and re-walk the SEPA lens with delete-then-insert.
-- **Ratchet**: (1) dbt test on mart_sepa_feature_daily: trade_date = max(bar_date) of source and is_trading_day (gives dim_trading_calendar a reader or replaces it). (2) Nightly session-date sweep (~30 lines SQL) as asset check/Prometheus rule: no features.*/research.* row with trade_date on a weekend, holiday or later than the newest SPY bar.
-- 审批 不用批 · 代价 M · 风险 med · repos: bifrost-research
 
 ### TD-91
 
