@@ -1,0 +1,14 @@
+# Expected changes of the design Rev .157 release (bifrost-ui#1 0.12.0 + frontend#4, 2026-10-06): frontend and UI library only.
+# No backend or DDL change; account values move only with live quotes (same list as 2026-10-06-w6-frontend).
+model.*.account_summary.buying_power
+model.*.account_summary.net_liquidation
+perf.unrealized.current_equity
+perf.unrealized.return_pct
+perf.transaction.capital_base
+perf.transaction.start_equity
+perf.summary.return_pct
+perf.calendar[*].return_pct
+perf.calendar_by_sec_type[*].return_pct
+perf.realized_by_sec_type[*].return_pct
+perf.realized_by_strategy_opportunity[*].return_pct
+perf.realized_by_trade[*].return_pct
