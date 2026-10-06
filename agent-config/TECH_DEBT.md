@@ -15,7 +15,7 @@
 
 （暂无）
 
-**未结 68 项**：P0 0 · P1 5 · P2 28 · P3 35；要你批的 34 项（从总览表的审批列算）。
+**未结 71 项**：P0 0 · P1 5 · P2 28 · P3 38；要你批的 35 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -47,7 +47,7 @@
 
 目标：先让失败变红。错数据先修数据（TD-87 restate），再把引擎、闸门、写入方从「出错也报成功」改成失败即失败：引擎资产按输出判定、husbandry gate 失败即关、日历读失败报错、写入方失败抛错。不需要 Owner 批的先做。
 
-项：TD-87, TD-91, TD-92, TD-94, TD-97, TD-101, TD-136, TD-156, TD-157, TD-165, TD-166 · 已还：TD-88, TD-89, TD-90, TD-113, TD-93
+项：TD-87, TD-91, TD-92, TD-94, TD-97, TD-101, TD-136, TD-156, TD-157, TD-165, TD-166, TD-167 · 已还：TD-88, TD-89, TD-90, TD-113, TD-93
 
 ### 第 2 波 · 让闸门真的卡住
 
@@ -71,7 +71,7 @@
 
 目标：删掉没人用的（挂起的 CronJob、退役脚本、无调用路由），手抄的副本改成从一处生成（调度名单、max-pain / PCR），清单的应用顺序与 Argo 归属理顺。
 
-项：TD-102, TD-106, TD-107, TD-118, TD-119, TD-120, TD-123, TD-124, TD-125, TD-154, TD-160, TD-163 · 已还：TD-126, TD-108
+项：TD-102, TD-106, TD-107, TD-118, TD-119, TD-120, TD-123, TD-124, TD-125, TD-154, TD-160, TD-163, TD-168, TD-169 · 已还：TD-126, TD-108
 
 ### 第 6 波 · 备份链与自动修复（10-06 日常发现）
 
@@ -233,6 +233,9 @@
 | [TD-164](#td-164) | P3 | research-data | dbt reports MissingArgumentsPropertyInGenericTestDeprecation 18 times: generic test arguments use the pre-1.10 layout | 不用批 |
 | [TD-165](#td-165) | P2 | ops-platform | Ops Console Market Data › Ingest crashes to a blank page while the doctor is recomputing (its 'computing' answer has no universe) | 不用批 |
 | [TD-166](#td-166) | P3 | research-data | GEX zero_gamma falls back to the strike nearest spot when cumulative gamma never crosses zero: by construction on all 1,762 one-sided expiries, and stored as if it were a flip | 要你批 |
+| [TD-167](#td-167) | P3 | market-data | Console slot adherence still credits a policed slot with its sibling's jobs (reference counts ticker-details detail jobs as its evidence) | 不用批 |
+| [TD-168](#td-168) | P3 | market-data | The doctor's stale:* detail says the dimension row is one 'which other slots also write' even for calendar and fundamentals-rotate, whose dimensions are not shared | 不用批 |
+| [TD-169](#td-169) | P3 | market-data | ops_jobs.ingest_freshness.option_expiration is a fossil row frozen since 09-06 and still listed as ok | 不用批 |
 
 ## 条目
 
@@ -414,7 +417,9 @@
 
 **P2 · market-data · Doctor slot staleness reads a per-kind freshness row that other slots and zero-row jobs also refresh, so a stopped policed slot still reads fresh**
 
-- **状态**：在做（10-06 还债第 D 路：market-data）
+- **状态**：观察中（到 10-07 03:10 UTC，看五个 policed slot 都有自己的 slot:<slot> 新鲜度行）
+- **验收**：`SELECT dimension, last_run_at FROM ops_jobs.ingest_freshness WHERE dimension LIKE 'slot:%'` 有 calendar / corporate / fundamentals-rotate / option-refresh / reference 五行，且 doctor 每条 `stale:*` 的 detail 写着 `by freshness.slot:<slot>`
+- **验收结果**：部分 PASS 2026-10-06 market-data 0.79.0（7bf05b8）：slot:option-refresh 已写入（18:20，29,478 行）；其余四个在各自下一次运行时写入
 - **Claim**: After any done job the worker upserts ops_jobs.ingest_freshness keyed by dimension only, bumping last_run_at even for 0-row or skipped jobs, with status always 'ok'. The doctor's stale:<slot> check (and Console adherence, ingest_dashboard._evidence_for_fire) reads that row by dimension, and several policed slots share a dimension: reference with ticker-details (ticker_sync), option-refresh with option-contract-expired (option_contract), corporate with corporate-backfill (dividends). If the reference walk stops, stale:reference stays ok while ticker-details runs.
 - **Measured**: MEASURED. ingest_freshness.ticker_sync last_run_at 2026-10-06 03:30:26 rows_written=1 (a detail job) while the last universe walk finished 10-05 21:30:27 (600 detail vs 2 universe jobs). option_expiration frozen since 09-06 and stock_daily_unadjusted at 10-02, both 'ok'. All 23 rows status 'ok'.
 - **Evidence**:
@@ -625,7 +630,9 @@
 
 **P3 · market-data · option-refresh re-enumerates names with no listed options every run; its 7-day 'finished' lookback reads a table kept 48h**
 
-- **状态**：在做（10-06 还债第 D 路：market-data）
+- **状态**：观察中（到 10-07 00:20 UTC 那一轮 option-refresh）
+- **验收**：10-07 00:15–01:00 UTC 之间 live `option_contract` 任务里 rows_written = 0 的个数为 0（改前每轮 17–20 个）
+- **验收结果**：前提已到位 2026-10-06：18:20 记下 20 个 no-listed-options 判定（market-data 0.79.0）
 - **Claim**: stalest_underlyings sorts never-enumerated names first, so names with no listed options are re-fetched at the head of every six-hourly batch forever. The 7-day finished-jobs guard feeds only the fresh ramp list (not the rotation) and is bounded by TRIM_KEEP_HOURS=48.
 - **Measured**: MEASURED: 136 of 1,240 option_contract jobs in 48h wrote 0 rows; 17 names (ATLCL, ESQ, PLPC, NVR, NPK…) enqueued every run, always 0 rows.
 - **Evidence**:
@@ -1321,7 +1328,8 @@
 
 **P2 · ops-platform · Ops Console Market Data › Ingest crashes to a blank page while the doctor is recomputing (its 'computing' answer has no universe)**
 
-- **状态**：未开始
+- **状态**：在做（platform a4e1e72 已提交、门禁通过；等血缘会话的 platform 发布结束后推 main 并发 STG / PROD）
+- **验收**：PROD Console 的 doctor 返回计算中空壳时，Ingest 页显示 `computing` 而不白屏；`__tests__/DoctorPanel.computing.test.ts` 通过
 - **Claim**: GET /market/doctor answers {age_sec, computing, findings, generated_at, ok} while a recompute runs (after a plugin restart the cache is empty). DoctorPanel renders `report.universe.optionable` unguarded, so the whole Ingest tab throws and React unmounts the root until a full reload after the doctor is done.
 - **Measured**: MEASURED 10-06 18:15 UTC on PROD (market-data 0.79.0 had just restarted): TypeError 'Cannot read properties of undefined (reading optionable)' in DoctorPanel, #root empty; after the doctor finished (18:16:48) a full reload rendered normally.
 - **Evidence**:
@@ -1348,6 +1356,49 @@
 - **Ratchet**: A test that a one-sided distribution yields zero_gamma None; nightly check: no row with exactly one NULL wall and a non-null zero_gamma.
 - **验收**: `SELECT count(*) FROM features.option_metric_gex_levels_daily WHERE (major_call_wall IS NULL) <> (major_put_wall IS NULL) AND zero_gamma IS NOT NULL` returns 0 after two nightly runs.
 - 审批 要你批 · 代价 S · 风险 low · repos: bifrost-research
+
+### TD-167
+
+**P3 · market-data · Console slot adherence still credits a policed slot with its sibling's jobs (reference counts ticker-details detail jobs as its evidence)**
+
+- **状态**：未开始
+- **Claim**: _evidence_for_fire counts any created job of the slot's kinds. reference and ticker-details both declare kind ticker_sync, so a ticker-details detail job counts as evidence that the reference universe walk ran. TD-101 fixed the doctor's freshness; the Console schedule-adherence verdict (which the Research gate reads) still has the old credit.
+- **Measured**: code-read 10-06 by paydown lane D; left alone because changing it moves the schedule verdict the Research gate reads.
+- **Evidence**:
+  - `bifrost-platform-plugin-market-data/src/bifrost_market_data/api/ingest_dashboard.py:64` — `"reference": {"kinds": ["ticker_sync"], …}`
+  - `bifrost-platform-plugin-market-data/src/bifrost_market_data/api/ingest_dashboard.py:523` — `evidence_ok = (counts["created"] > 0) or fresh_hit`
+- **Impact**: A stopped reference walk can still show 'on schedule' in the Console while the doctor now says stale.
+- **Fix**: Filter fire evidence by freshness.policed_slot_for_job and use the slot:<id> freshness row as evidence.
+- **Ratchet**: Extend tests/test_slot_freshness.py: adherence for reference must not count a ticker-details job.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data
+
+### TD-168
+
+**P3 · market-data · The doctor's stale:* detail says the dimension row is one 'which other slots also write' even for calendar and fundamentals-rotate, whose dimensions are not shared**
+
+- **状态**：未开始
+- **Claim**: The detail text after TD-101 always adds 'which other slots also write' when quoting the dimension row. For calendar and fundamentals-rotate the dimension is written only by that slot, so the sentence tells an operator to distrust a row that is in fact theirs.
+- **Measured**: code-read 10-06 by paydown lane D.
+- **Evidence**:
+  - `bifrost-platform-plugin-market-data/src/bifrost_market_data/doctor.py:1416` — `which other slots also write`
+- **Impact**: Misleading wording in the finding an operator acts on.
+- **Fix**: Say 'bumped by any job of that table', or mention sharing only when the dimension really is shared (the TD-101 test already pins which slots share one).
+- **Ratchet**: A doctor test asserting the sharing clause appears only for slots whose dimension is shared.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data
+
+### TD-169
+
+**P3 · market-data · ops_jobs.ingest_freshness.option_expiration is a fossil row frozen since 09-06 and still listed as ok**
+
+- **状态**：未开始
+- **Claim**: Expirations now come from option_contract jobs, which return no freshness_extra for option_expiration, so the row has not moved since 2026-09-06; nothing polices it, yet freshness listings show it with status ok.
+- **Measured**: MEASURED 10-06 by paydown lane D (ingest_freshness row last_run_at 2026-09-06).
+- **Evidence**:
+  - `bifrost-platform-plugin-market-data/src/bifrost_market_data/ingest/option_contract.py:1` — `option_contract handler (no freshness_extra for option_expiration)`
+- **Impact**: A frozen 'ok' row in a freshness view teaches readers to ignore staleness.
+- **Fix**: Either emit freshness_extra={'option_expiration': n_exp} from option_contract, or delete the row (the delete is a data write: Owner).
+- **Ratchet**: A freshness test: every dimension listed in ingest_freshness must have a current writer (kind → dimension map).
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data
 
 ## 没覆盖到的（下一轮从这里开始）
 
