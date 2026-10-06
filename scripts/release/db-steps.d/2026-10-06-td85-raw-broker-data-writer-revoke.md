@@ -2,7 +2,7 @@
 id: 2026-10-06-td85-raw-broker-data-writer-revoke
 envs: prod
 when: after
-done:
+done: prod
 ---
 # TD-85 D6 follow-up: data_writer loses everything in raw_broker (Golden Source only)
 
