@@ -4,15 +4,15 @@
 > 审计扫出来的、日常工作里撞上的，都直接在这里加一条，编号接着当前最大号往下排。每条必须有证据（`文件:行`）、修法和防线。
 > 防线登记在同目录的 [`RATCHETS.md`](RATCHETS.md)。条目正文保留英文，标识符照抄。
 
-更新：2026-10-06 · 第 1 轮（Trade UI 之下，10-01）剩 3 项 · 第 2 轮（Research + 插件，10-06：40 条发现，反向核实 22 成立、18 修正、0 推翻、3 合并）+ Build Desk
+更新：2026-10-06 · 第 1 轮（Trade UI 之下，10-01）剩 3 项 · 第 2 轮（Research + 插件，10-06：40 条发现，反向核实 22 成立、18 修正、0 推翻、3 合并）+ 日常发现
 
-**未结 45 项**：P0 0 · P1 6 · P2 19 · P3 20；要你批的 10 项。
+**未结 41 项**：P0 0 · P1 3 · P2 19 · P3 19；要你批的 9 项。
 
 ## 主题（第 2 轮）
 
-- **Green while wrong: jobs succeed on zero, partial or garbage output** — The dominant round-2 class. Engines, gates, ingest handlers and writers convert failures into success: empty lists read as answers, exceptions become 0 or 'unknown', truncation is a field nobody checks, freshness bumps on zero-row jobs. Dagster and Flex show green; only manual metadata reading finds it. Fix pattern: raise or record reasons, and add output checks per asset. (TD-89, TD-90, TD-91, TD-92, TD-93, TD-94, TD-97, TD-100, TD-101, TD-106, TD-113, TD-116)
+- **Green while wrong: jobs succeed on zero, partial or garbage output** — The dominant round-2 class. Engines, gates, ingest handlers and writers convert failures into success: empty lists read as answers, exceptions become 0 or 'unknown', truncation is a field nobody checks, freshness bumps on zero-row jobs. Dagster and Flex show green; only manual metadata reading finds it. Fix pattern: raise or record reasons, and add output checks per asset. (TD-91, TD-92, TD-93, TD-94, TD-97, TD-100, TD-101, TD-106, TD-113, TD-116)
 - **Session and calendar truth comes from the wall clock on UTC pods** — Session dates are derived from current_date/date.today() on UTC hosts at 02:30 UTC, producing next-day and Saturday stamps (SEPA, option_universe), a day-late alert judge, and a calendar that silently forgets holidays on a failed read. One session_today() helper plus a nightly session-date sweep closes the class. (TD-87, TD-98, TD-93, TD-97, TD-111)
-- **Broker money ledger integrity (Flex / IB)** — The cash and commission ledgers have a 5-month hole the fixed window cannot refill, a writer that reports failure as success, a dedupe key that ignores IB's own id, mixed commission signs, DEV-routed reads and no tests on the money path; the gateway health signal is permanently false-red. (TD-88, TD-91, TD-103, TD-114, TD-115, TD-116, TD-117, TD-104, TD-122)
+- **Broker money ledger integrity (Flex / IB)** — The cash and commission ledgers have a 5-month hole the fixed window cannot refill, a writer that reports failure as success, a dedupe key that ignores IB's own id, mixed commission signs, DEV-routed reads and no tests on the money path; the gateway health signal is permanently false-red. (TD-91, TD-103, TD-114, TD-115, TD-116, TD-117, TD-104, TD-122)
 - **Gates that do not gate** — CI runs after delivery and never blocks it (research and Trade); plugins and infra have code-health baselines but no CI; preflight D10 matching misses non-curl clients and in-place edits; operator streams use a denylist; no alert watches Dagster schedules or research/plugin 5xx. Making CI gate release is the single highest-leverage ratchet. (TD-95, TD-96, TD-105, TD-99, TD-109)
 - **Hand-kept copies and dead config drift** — Schedule rosters, max-pain/PCR math, Black-Scholes and risk-free readers, declared indexes, spine copies, instance configs and suspended CronJobs exist in several places that have drifted from the source of truth. Generate from one source or delete; ratchet with manifest and catalog checks. (TD-108, TD-102, TD-110, TD-107, TD-112, TD-118, TD-119, TD-120, TD-121, TD-123, TD-124, TD-125)
 
@@ -22,9 +22,6 @@
 |---|---|---|---|---|
 | [TD-85](#td-85) | P1 | trade (round 1) | One database password reaches everything: any DEV pod can write PROD Trade and all of Golden Source | 安全/凭据（要你批） |
 | [TD-87](#td-87) | P1 | research-data | SEPA features are stamped with the next calendar day (UTC current_date at 02:30 UTC): every SEPA row is one session late and Friday sessions land on Saturday | 不用批 |
-| [TD-88](#td-88) | P1 | flex-ib | raw_broker.transactions has no rows for 2026-03-06..2026-08-03, and the fixed 30-day window can never refill it | 不用批 |
-| [TD-89](#td-89) | P1 | research-data | option_pinned_contract reads the Trade API list keys that api 0.4.0 removed; the 10-06 run saw 0 held legs and 0 executions and reported success | 不用批 |
-| [TD-90](#td-90) | P1 | market-data | option_contract (and option_backfill_plan) report truncated:true as success; SPX already uses 118 of its 120-page cap because the page size is 250, not 1,000 | 不用批 |
 | [TD-91](#td-91) | P1 | flex-ib | A failed cash-transactions write is recorded as a successful run: core returns 0 on any exception and the job counts it as 'ok, 0 rows' | 改公开接口 |
 | [TD-51](#td-51) | P2 | trade (round 1) | Query-parameter vocabulary drift for expiry, option side, time ranges and limits; no pagination | 改公开接口 |
 | [TD-92](#td-92) | P2 | research-control | Engine assets never fail: per-symbol failures, zero-row writes and skips are only metadata, reasons are discarded, and research_trading_day is green regardless of output | 不用批 |
@@ -62,7 +59,6 @@
 | [TD-123](#td-123) | P3 | research-control | About 19 deployed research-api routes have no caller in frontend, platform, trade-api or MCP, including manual POST triggers that run engine code outside Dagster | 改公开接口 |
 | [TD-124](#td-124) | P3 | research-control | 39 permanently suspended CronJobs (25 research, 14 market-data, plus an orphan pinned to 0.10.0) are still deployed and re-pinned every release; research ones carry a stale 26-name watchlist and the verify script contradicts the one active CronJob | 删除（要你批） |
 | [TD-125](#td-125) | P3 | flex-ib | Retired IB topology still referenced: TIBM-era verify scripts at the top of scripts/, flex_ops compat SQL for a schema that no longer exists | 删除（要你批） |
-| [TD-126](#td-126) | P3 | ops-platform | Build Desk (Ops Console Engineer strip: Briefing / In Flight / Delivery) is a Cursor-era program tracker nobody uses | 删除（要你批） |
 | [TD-128](#td-128) | P3 | research-data | Pine signal rows mix adjustment bases: nightly runs rewrite only the last ~10 sessions on today's adjusted bars, older rows stay on the basis of their last full rebuild | 不用批 |
 | [TD-129](#td-129) | P3 | research-data | The event backtest picks option legs from option_daily only; since mid-August 2026 it keeps ~10 strikes a side, so a target delta silently lands on the nearest strike that is left | 不用批 |
 
@@ -85,6 +81,8 @@
 
 **P1 · research-data · SEPA features are stamped with the next calendar day (UTC current_date at 02:30 UTC): every SEPA row is one session late and Friday sessions land on Saturday**
 
+- **现在**：代码已修并上线（research 0.180.0，10-06）：七张 SEPA mart 改用 `sepa_session()`（源表最新交易日），`sepa_projection` 写纽约 session；防线 dbt 测试 `sepa_session_is_newest_trading_day` + Dagster asset check `sepa_projection:sessions_are_trading_days` + 静态测试。历史行还没改：写 PROD Golden Source 被 auto mode 拦下，交 Owner。
+- **下一步**：Owner 跑 `~/bifrost-backups/golden-source/2026-10-06_td87-sepa-restate/` 里的 restate.py（101,673 → 94,759 行，删碰撞 6,914 行，09-01 的行实为 08-27 收盘、按数据改到 08-27）和 SEPA lens 重走；须在 10-07 02:30 UTC 批处理前，否则先重跑 dry run。跑完删掉本条。（10-07）
 - **Claim**: All seven SEPA marts set eval_date = current_date. The database runs in Etc/UTC and research_trading_day fires at 22:30 New York (02:30 UTC the next day). mart_sepa_feature_daily turns eval_date into trade_date, and sepa_projection copies MAX(trade_date) into features.stock_signal_sepa_daily. So the Monday 10-05 session is stored as 2026-10-06 and Friday sessions as Saturday. signal_hit (_load_sepa_triggers WHERE trade_date = %s), the backtest event source and every join on trade_date pair SEPA with the following session; signal_hit walks only trading days, so Friday SEPA triggers are never read and Monday sessions have no SEPA input.
 - **Measured**: MEASURED (re-checked by verifier). show timezone = Etc/UTC; no role/profile timezone override. dw_stock.mart_sepa_feature_daily holds only 2026-10-06 (3,742 rows) while int_stock_daily_enriched max(trade_date) = 2026-10-05. features.stock_signal_sepa_daily since 07-01: 5 Saturday dates, 1 Sunday, 1 Monday (09-28, a manual run); 21,016 of 101,673 rows in the last 60 days fall on a weekend. It is the only features/research/dw_stock/journal table with weekend trade_dates. lens_hit lens='sepa' has 1 Monday vs 3-5 for every other weekday.
 - **Evidence**:
@@ -96,53 +94,6 @@
 - **Fix**: Derive the session from the data, not the clock: eval_date = (select max(trade_date) from int_stock_daily_enriched), or pass --vars '{as_of: <NY session>}' from the Dagster asset; sepa_projection passes the NY session explicitly. Then restate stock_signal_sepa_daily (Research-owned) by shifting each row to the last session on or before trade_date - 1 (dry run first) and re-walk the SEPA lens with delete-then-insert.
 - **Ratchet**: (1) dbt test on mart_sepa_feature_daily: trade_date = max(bar_date) of source and is_trading_day (gives dim_trading_calendar a reader or replaces it). (2) Nightly session-date sweep (~30 lines SQL) as asset check/Prometheus rule: no features.*/research.* row with trade_date on a weekend, holiday or later than the newest SPY bar.
 - 审批 不用批 · 代价 M · 风险 med · repos: bifrost-research
-
-### TD-88
-
-**P1 · flex-ib · raw_broker.transactions has no rows for 2026-03-06..2026-08-03, and the fixed 30-day window can never refill it**
-
-- **Claim**: The cash-transactions job always requests a fixed window of default range days (30) ending yesterday. Unlike trades (days_since_last + default_days) it has no catch-up from the last stored date, and worker/catchup.py only re-enqueues a slot missed within the last day. Five months of fees, dividends, interest and deposits missed while ingest was down will never be fetched by any scheduled run, and /flex/ops/check still says ok.
-- **Measured**: MEASURED (read-only on bifrost_golden_source). raw_broker.transactions: max(ts) before July is 2026-03-05, next row 2026-08-04, zero rows for both accounts across 5 months, while executions_raw_flex has 129/41/33/23/41 rows for Mar-Jul. Monthly fees and SGOV monthly dividends recur in Jan-Mar and Aug-Oct, so the hole is missing data. ops_jobs.flex_settings default=30, init=270. GET /api/plugin/flex-query/flex/ops/check verdict 'ok' for flex-transactions.
-- **Evidence**:
-  - `bifrost-platform-plugin-flex-query/src/bifrost_flex_query/orchestration/transactions.py:64` — `from_date, to_date = get_flex_default_range_dates(config, conn)`
-  - `bifrost-platform-plugin-flex-query/src/bifrost_flex_query/orchestration/config_rw.py:316` — `days, _ = resolve_flex_range_days(config, trade_conn)`
-  - `bifrost-platform-plugin-flex-query/src/bifrost_flex_query/orchestration/trades.py:177` — `total_days = days_since_last + default_days`
-- **Impact**: Transfer & Pay and every net cash-flow / performance read (core get_net_cash_flow sums raw_broker.transactions) under-count fees, dividends and interest for Mar-Jul 2026 without any signal. Any future outage longer than 30 days loses data the same way.
-- **Fix**: Apply the trades window rule to transactions: from = min(last stored ts per account, yesterday - default_days), capped at 366 days per IB request. One-time manual backfill 2026-03-01..2026-08-05 via from_date/to_date payload after Owner approval. Add a /flex/ops/check coverage rule flagging any month with executions but zero transactions for an account.
-- **Ratchet**: Exported metric bifrost_flex_coverage_gap_months (months with executions_raw_flex rows but zero raw_broker.transactions rows, per account) with a Prometheus rule = 0. Unit test: stored max ts 60 days ago must produce a request window reaching back at least 60 days.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-flex-query, bifrost-trade-infra
-
-### TD-89
-
-**P1 · research-data · option_pinned_contract reads the Trade API list keys that api 0.4.0 removed; the 10-06 run saw 0 held legs and 0 executions and reported success**
-
-- **Claim**: load_held_legs reads payload['attributions'] and load_option_executions reads payload['executions']. Trade API 0.4.0 (3545779, TD-16/TD-17) returns {items, count}. The engine skips only on HTTP exceptions, so an empty list is an answer: mode=written, rows_written=0, and the pins froze at the 10-03 state. The sibling copy forecast/terrain_backfill._rows already reads 'items' first, so the copies have drifted; the unit test still feeds the retired keys and stays green. A downstream regression of TD-17, not a duplicate.
-- **Measured**: MEASURED. Dagster materializations 09-25..10-03: held_legs 11-12, executions_seen 330-331, rows_written 60-61. 10-06 02:39 UTC: held_legs 0, closed_recent 0, executions_seen 0, rows_written 0, mode 'written'. PROD /executions/position-attribution?sec_type=OPT returns {items:13, count}; /executions returns {items:519,...} with 331 OPT rows. research.option_pinned_contract unchanged since 2026-10-03 02:39 UTC (held 12, closed_recent 64). No option fills since 10-03, so nothing lost yet.
-- **Evidence**:
-  - `bifrost-research/src/bifrost_research/engines/option_pinned/entry.py:123` — `rows = (payload or {}).get("attributions") or []`
-  - `bifrost-research/src/bifrost_research/engines/option_pinned/entry.py:136` — `rows = (payload or {}).get("executions") or []`
-  - `bifrost-research/src/bifrost_research/engines/forecast/terrain_backfill.py:77` — `"""A Trade API list: ``items`` (api 0.2.3+), else the route's old key."""`
-  - `bifrost-research/tests/engines/test_option_pinned_contract.py:211` — `"attributions": [`
-- **Impact**: Latent data loss: the market-data plugin uses these pins to backfill contracts and to exempt them from retention delete. The next option leg opened or closed is never pinned and its bars can age out; closed_recent pins stop refreshing. Every run stays green.
-- **Fix**: Read 'items' with the old key as fallback via one shared list helper (move terrain_backfill._rows into mcp/tools/_trade_api_client). Treat 'API answered, zero held legs, while the table holds live held pins' as a raising skip. Update fixtures to the current envelope.
-- **Ratchet**: (1) Research tests load Trade API envelopes from one shared fixture (or trade-api OpenAPI in CI); grep ratchet fails on .get("attributions"|"executions"|"transactions") outside the shared helper. (2) Dagster asset check: fail when held_legs = 0 while option_pinned_contract has reason='held' rows with pin_until > now().
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research, bifrost-trade-api
-
-### TD-90
-
-**P1 · market-data · option_contract (and option_backfill_plan) report truncated:true as success; SPX already uses 118 of its 120-page cap because the page size is 250, not 1,000**
-
-- **Claim**: Whole-market handlers raise on truncation; the per-underlying catalogue handlers do not. option_contract stops at 120 pages (index) / 60 pages, writes what it got and returns done with an unchecked 'truncated' field, with no continuation. The real cap is tighter than the comments assume: polygon/endpoints.py defaults limit=250 while client docstring and handler comment assume 1,000 per page, so '120 pages' is 30,000 contracts. The option-bars slot and the doctor's >=95% chain-coverage denominator both come from this catalogue, so a truncated catalogue drops contracts and inflates coverage. option_backfill_plan behaves the same at 200 pages.
-- **Measured**: MEASURED in ops_jobs.job_ingest (48h). SPX live runs used 115/118/118/116 pages for 28,690-29,282 contracts (~248 per page), 97.6% of the effective 30,000 cap. SPY 53/60, SNDK 47/60, QQQ 46/60. 0 of 1,525 option_contract/option_backfill_plan jobs truncated yet.
-- **Evidence**:
-  - `bifrost-platform-plugin-market-data/src/bifrost_market_data/ingest/option_contract.py:48` — `max_pages = int(payload.get("max_pages") or (120 if is_index_option_underlying(storage) else 60))`
-  - `bifrost-platform-plugin-market-data/src/bifrost_market_data/ingest/option_contract.py:151` — `"truncated": bool(data.get("truncated")),`
-  - `bifrost-platform-plugin-market-data/src/bifrost_market_data/ingest/option_backfill.py:268` — `"truncated": bool(data.get("truncated")),`
-  - `bifrost-platform-plugin-market-data/src/bifrost_market_data/ingest/financials_market.py:27` — `if data.get("truncated"):`
-- **Impact**: Within a few listing cycles (new quarterlies/LEAPS) SPX silently loses its catalogue tail (late SPXW far expiries); bars and chains for those contracts stop, and nothing turns red because the coverage denominator shrinks with it.
-- **Fix**: Pass limit=1000 for /v3/reference/options/contracts (builder already clamps to 1000): 4x capacity at no request cost; correct the comments. Make option_contract and option_backfill_plan raise on truncated (as _reject_truncation does) or continue from next_cursor.
-- **Ratchet**: Worker-level guard: a result with truncated=true fails the job unless the kind is allowlisted as enqueuing a continuation; a registry test iterates build_handler_registry to assert it. Unit test that the contracts page limit equals the per-page figure the cap math assumes. Doctor finding when pages/max_pages > 0.9.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data
 
 ### TD-91
 
@@ -279,6 +230,7 @@
   - `bifrost-research/src/bifrost_research/db/calendar.py:181` — `end = as_of or datetime.now(timezone.utc).date()`
 - **Impact**: option_universe stores wrong dates and its liquidity/liveness windows shift a day; any engine adopting date.today() for a session stamp repeats TD-87. Each copy is a place the session rule can drift.
 - **Fix**: One session_today() (latest NYSE session <= NY date) and ny_now() in db/calendar.py; replace the 11 helpers and stamp-carrying date.today() calls. Set TZ=America/New_York on Dagster/research pods only as a defensive layer.
+- **Also (found by the TD-87 fix, 10-06)**: `engines/option_pinned/entry.py` `_today()` and `engines/forecast/terrain_backfill.py` `_today()` (UTC); `engines/backtest/event_query.py:160,1322`, `engines/brief/synth.py:79,486`, `copilot/agents/_context.py:26`, `copilot/harness/readiness.py:29` (`date.today()`); `lenses/exhibit_lenses.py:532` (`CURRENT_DATE - 30`). `db/calendar.latest_closed_session` (0.180.0) is the shared NY-session helper to adopt.
 - **Ratchet**: Enable ruff DTZ (DTZ005/DTZ011) for src/ with a falling baseline; code-health grep fails on a new `def _today`/`def _today_ny` outside db/calendar.py.
 - 审批 不用批 · 代价 M · 风险 low · repos: bifrost-research
 
@@ -693,21 +645,6 @@
 - **Fix**: Move TIBM-wave and cutover verify scripts with Makefile targets into scripts/archive; delete the two flex_ops SQL files and their CLAUDE.md mention on Owner approval; trade-api service rows are retargeted under TD-104.
 - **Ratchet**: Per-repo CI grep ratchet: references to ib-operator/ib-market-gateway/ib-account-agent outside scripts/archive, falling baseline.
 - 审批 删除（要你批） · 代价 S · 风险 low · repos: bifrost-platform-plugin, bifrost-platform-plugin-flex-query, bifrost-trade-api
-
-### TD-126
-
-**P3 · ops-platform · Build Desk (Ops Console Engineer strip: Briefing / In Flight / Delivery) is a Cursor-era program tracker nobody uses**
-
-- **下一步**：Owner 2026-10-06：倾向删除；拆解清单在修法里，点头后执行。
-- **Claim**: Build Desk tracks phased programs from config/programs/*.yaml, lanes from config/lanes.yaml and runtime JSON in $PLATFORM_DATA_DIR/programs (emptyDir in the cluster, wiped on restart), and writes data/briefing/active-pack.md for Cursor's /briefing. No program YAML changed since 2026-09-08, local runtime state since 09-14, the briefing pack since 08-13; three active programs still have every phase pending. Claude Code sessions do not use it (memory, workflows, release.sh).
-- **Measured**: git log on bifrost-platform origin/main 1a3327e; data/ file dates on the Mac (2026-10-06).
-- **Evidence**:
-  - `bifrost-platform/console/src/lib/consoleNavConfig.ts:87` — `ENGINEER_LIFECYCLE_ITEMS`
-  - `bifrost-platform/api/internal/devagent/store.go:119` — `programs/*.json`
-- **Impact**: About 17.5k console LOC, 4.5k Go LOC, 4k test LOC and 16 MCP tools to keep compiling and reviewing for a workflow that no longer runs; its sidebar badges suggest work queues that are stale.
-- **Fix**: Delete the three Build Desk pages, lib/briefing, components/briefing, the Build Desk part of components/delivery, the devagent/lanes/briefing/sessions/sessionsnapshot Go packages, their MCP tools, config/lanes.yaml and config/programs. Untangle first: the operate queue and post-completion → operate hand-off are shared with Ops Desk; skills phase-execution / batch-execution (both sides) and CLAUDE.md §5 point at /programs; verify-three-desks.mjs, consoleNavZones.test.ts and navLens.test.ts assert the label.
-- **Ratchet**: Code-health 'unused route' check for platform-api (route with no console/MCP caller fails), same as the trade-api route listing.
-- 审批 删除（要你批） · 代价 M · 风险 med · repos: bifrost-platform, bifrost-trade-infra
 
 ### TD-128
 

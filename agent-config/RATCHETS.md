@@ -4,7 +4,7 @@
 > **规则**：每关掉 `TECH_DEBT.md` 里的一项，要么在这里加一条（或扩大已有一条的范围），要么在提交信息里写明为什么没有可行的防线。删掉或放宽一条防线要写理由。
 > 强度：blocking＝不过就不能提交/发布；warning＝报出来但不拦；alert＝运行时告警；manual＝要人手跑。
 
-更新：2026-10-06（第 2 轮扫描的防线盘点）
+更新：2026-10-06（第 2 轮扫描的防线盘点；同日加 TD-87/88/89/90 的防线）
 
 ## 现有防线
 
@@ -37,7 +37,10 @@
 | Dagster run_failure_sensor → BifrostDagsterRunFailed | `bifrost-research/src/bifrost_research/orchestration/failure_alerts.py` | Research 定时作业静默失败 | alert | 只报 FAILURE 状态；“成功但写了 0 行”看不见。MEASURED：7 天 539 次 SUCCESS、1 次 FAILURE（research_memory_distill_job，即 TD-86） |
 | auto-mode 分类器规则 + release-permissions 放行规则 | `bifrost-trade-infra/agent-config/claude/auto-mode/project.autoMode.json（由 Owner 应用到 ~/.claude/settings.json）` | Agent 越权（PROD DDL、force push、动 guard）；放行已批准的发布步骤 | blocking | 只管 Claude 会话，由 LLM 分类器判断而不是确定性规则；生效与否以 `claude auto-mode config` 为准 |
 | permissions.deny：禁止 Edit/Write 已归档的 bifrost-analytics | `bifrost-trade-infra/agent-config/claude/settings.json` | 改动已归档的 repo | blocking | 只管 Claude |
-
+| SEPA session 不变量（TD-87） | `bifrost-research/src/bifrost_research/dbt/tests/generic/sepa_session_is_newest_trading_day.sql`；asset check `features/sepa_projection:sessions_are_trading_days`（`orchestration/sepa_projection_asset.py`）；`tests/orchestration/test_sepa_session.py` | SEPA 用挂钟日期当 session：周末 / 节假日 / 未来日期、比源表最新 bar 新的 trade_date；`mart_sepa_*.sql` 里出现 current_date / now() | blocking（Dagster 里 dbt 测试与 asset check 失败即红） | 只覆盖 SEPA 路径；其余 UTC 日期见 TD-98 |
+| Trade API 列表读取契约（TD-89） | `bifrost-research/tests/engines/test_trade_api_list_contract.py` + `tests/fixtures/trade_api/*.json`；`mcp/tools/_trade_api_client.list_items`（形状不对抛 `TradeApiShapeError`） | Research 读 Trade API 的列表键漂移（api 0.4.0 改 items 后读成 0 行还报成功）；手写 `.get("attributions"/"executions")` | warning（CI 不卡发布，见 TD-95）；运行时形状错误会让 option_pinned 失败 | 夹具键集取自 PROD api 0.9.0；api 改形状时要同步夹具 |
+| Flex 现金流水覆盖（TD-88） | `bifrost-platform-plugin-flex-query/tests/test_transactions_window.py`；`src/bifrost_flex_query/ops/coverage.py`（`/flex/ops/check` coverage）；指标 `bifrost_flex_coverage_gap_months`；告警 `BifrostFlexCashCoverageGap`（`bifrost-trade-infra/k8s/monitoring/bifrost-alerting-rules.yaml`） | 抓取窗口不接续导致整月缺现金流水（2025-03、2026-03..07 曾缺）；已结束月份有成交没流水 | alert + warning | 插件仓库没有 CI（TD-95），单测要手跑 |
+| 期权合约目录不截断（TD-90） | `bifrost-platform-plugin-market-data/tests/test_contract_pages.py`；doctor finding `page_cap:<kind>`（`src/bifrost_market_data/doctor.py` `_page_cap_findings`） | 分页截断被当成成功、目录与覆盖率分母悄悄缩水；任一标的用量 > 80% 页上限 | warning（doctor warn；任务截断即失败） | 插件仓库没有 CI（TD-95） |
 ## 各类债现在挡没挡住
 
 | 债的类别 | 挡住了吗 | 靠什么 | 缺口怎么补 |
