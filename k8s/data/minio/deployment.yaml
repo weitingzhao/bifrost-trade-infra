@@ -6,7 +6,10 @@ metadata:
     app.kubernetes.io/name: minio
     app.kubernetes.io/component: backup
 spec:
-  replicas: 1
+  # 0 since the move to the NAS (k8s/data/minio/nas/compose.yaml): the NAS MinIO
+  # serves the same data directory, and two MinIO servers on one directory corrupt
+  # it. Kept as the rollback path; see service.yaml for the order.
+  replicas: 0
   strategy:
     type: Recreate
   selector:
