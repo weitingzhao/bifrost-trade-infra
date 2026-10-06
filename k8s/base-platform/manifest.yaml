@@ -45,9 +45,6 @@ spec:
             - name: platform-config
               mountPath: /app/config
               readOnly: true
-            - name: platform-programs
-              mountPath: /app/config/programs
-              readOnly: true
             - name: kubeconfig
               mountPath: /var/kubeconfig
               readOnly: true
@@ -76,9 +73,6 @@ spec:
         - name: platform-config
           configMap:
             name: bifrost-platform-config
-        - name: platform-programs
-          configMap:
-            name: bifrost-platform-programs
         - name: kubeconfig
           secret:
             secretName: bifrost-platform-kubeconfig
@@ -143,9 +137,6 @@ spec:
             - name: platform-config
               mountPath: /app/config
               readOnly: true
-            - name: platform-programs
-              mountPath: /app/config/programs
-              readOnly: true
             - name: kubeconfig
               mountPath: /var/kubeconfig
               readOnly: true
@@ -174,9 +165,6 @@ spec:
         - name: platform-config
           configMap:
             name: bifrost-platform-config
-        - name: platform-programs
-          configMap:
-            name: bifrost-platform-programs
         - name: kubeconfig
           secret:
             secretName: bifrost-platform-kubeconfig

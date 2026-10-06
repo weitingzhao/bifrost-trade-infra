@@ -15,7 +15,7 @@ if [[ ! -d "${PLATFORM_ROOT}/config" ]]; then
   exit 1
 fi
 
-mkdir -p "${DEST_STG}" "${DEST_STG}/programs" "${DEST_PROD}"
+mkdir -p "${DEST_STG}" "${DEST_PROD}"
 for f in environments.yaml clusters.yaml topology.yaml ops-context.yaml platform-auth.yaml sessions-catalog.yaml; do
   if [[ ! -f "${PLATFORM_ROOT}/config/${f}" ]]; then
     echo "WARN: missing ${PLATFORM_ROOT}/config/${f} — skip" >&2
@@ -28,9 +28,6 @@ for f in environments.yaml clusters.yaml topology.yaml ops-context.yaml platform
     cp "${PLATFORM_ROOT}/config/${f}" "${DEST_STG}/${f}"
   fi
 done
-if [[ -d "${PLATFORM_ROOT}/config/programs" ]]; then
-  cp "${PLATFORM_ROOT}/config/programs/"*.yaml "${DEST_STG}/programs/"
-fi
 
 # Sessions catalog is shared STG/PROD allowlist — keep overlays in lockstep.
 if [[ -f "${PLATFORM_ROOT}/config/sessions-catalog.yaml" ]]; then

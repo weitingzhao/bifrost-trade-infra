@@ -22,14 +22,6 @@ configMapGenerator:
       - config/release-rules.yaml
     options:
       disableNameSuffixHash: true
-  - name: bifrost-platform-programs
-    files:
-      - config/programs/_schema.yaml
-      - config/programs/dap-smoke-test.yaml
-      - config/programs/example-template.yaml
-      - config/programs/trade-ib-client-migration.yaml
-    options:
-      disableNameSuffixHash: true
 
 patches:
   - path: images-pull-always.patch.yaml
