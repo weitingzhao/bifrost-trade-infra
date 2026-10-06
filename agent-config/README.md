@@ -16,7 +16,7 @@ Bifrost 工作区（`/stocks`）的 Agent 治理资产。**实体在这里，工
 | `/stocks/.mcp.json.README.md` | `.mcp.json.README.md` | MCP 说明（focus 桥、令牌分级） |
 | `/stocks/.claude` | `claude/` | settings.json · skills · agents · commands · hooks |
 | `/stocks/.cursor` | `cursor/` | rules · skills · commands · hooks · _archive |
-| `/stocks/scripts` | `scripts/` | **两侧共用**的 agent-guard 与 parity 校验 |
+| `/stocks/scripts` | `scripts/` | **两侧共用**的 agent-guard、parity 校验与提交血缘 git hook（`git-hooks/`） |
 
 > 目录名故意用 `claude/` / `cursor/` 而非 `.claude/` / `.cursor/`：
 > 避免 Cursor 把 `bifrost-trade-infra/agent-config/.cursor/` 误当成 infra repo 自己的规则目录而重复加载。
@@ -35,6 +35,9 @@ cd /path/to/stocks && AC=bifrost-trade-infra/agent-config && \
 ```
 
 ## 路径约定
+
+- **提交血缘 hook 写在各 repo 的本地 git config 里**（`core.hooksPath` / `bifrost.hooksDir`，用真实绝对路径），不入库。
+  克隆到新机器后在工作区根跑 `sh scripts/git-hooks/install.sh`；frontend、platform、research 里入库的转调存根在没跑过 install 的机器上什么也不做。
 
 - **`claude/settings.json` 里的 hook 命令用本目录的绝对真实路径**，不经符号链接 —— 少一层解析、少一个故障点。
   换机器时这些绝对路径需要改（见上方 `AC` 变量）。

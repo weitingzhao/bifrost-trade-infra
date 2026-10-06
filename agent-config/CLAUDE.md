@@ -1,5 +1,5 @@
 <!--
-parity-ids: workspace-v13, language-v1, agent-modes-v2, trade-execution-freeze-v2, dev-services-v2, phase-execution-v3, shared-worktree-v1, business-first-v1
+parity-ids: workspace-v13, language-v1, agent-modes-v2, trade-execution-freeze-v2, dev-services-v2, phase-execution-v3, shared-worktree-v2, business-first-v1
 对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
 改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
 -->
@@ -157,6 +157,13 @@ git commit                      # 不带 -a
 > 两次事故：2026-09-07 与 2026-09-22。第二次一整组 greeks 修复被并进了一个标题完全无关的提交，
 > 35 个提交之后才发现。git 不认为整树暂存是破坏性操作（什么都没丢），所以 auto mode 的
 > [Git Destructive] 分类器不管它 —— 这条闸门补的就是这个缺口。
+
+**提交血缘（Owner 2026-10-06）**：每个提交由 git hook 自动带三个尾注，不用手写，也不要删：
+`Claude-Session`（侧栏线程 id `local_…`）、`Claude-Transcript`（CLI 会话 id = scratchpad 目录名）、
+`Change-Id`（rebase / cherry-pick / amend 都不变，按它判断「这个 lane 落地了没有」，不要按标题判断）。
+rebase 和 cherry-pick 不改已有尾注。实现与接线：`scripts/git-hooks/`（`sh scripts/git-hooks/install.sh --check`）。
+查某个线程碰过的提交：`git log --all --format='%h %s' --grep='Claude-Session: local_…'`。
+husky 仓库（frontend、platform）新开的 worktree 不执行任何钩子，在那里提交时自己补 `--trailer`。
 
 ### 发布窗口 — 推 main 或起 deliver 之前先看
 

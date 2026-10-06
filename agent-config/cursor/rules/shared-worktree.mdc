@@ -1,7 +1,7 @@
 ---
 description: Shared single checkout — stage only the files you touched
 alwaysApply: true
-parity-id: shared-worktree-v1
+parity-id: shared-worktree-v2
 ---
 # 共享工作树 — 只暂存自己碰过的文件
 
@@ -28,6 +28,13 @@ git commit                      # 不带 -a
 `git add -p`、`git commit --amend` 同样放行。
 
 `git stash` 不在拦截范围内，但它同样会把别的会话的在制品从工作树里抽走 —— 用之前先看 `git status`。
+
+## 提交血缘（Owner 2026-10-06）
+
+每个提交由 git hook（`scripts/git-hooks/`，`sh scripts/git-hooks/install.sh --check`）自动带 `Change-Id` 尾注，
+rebase / cherry-pick / amend 都不会变：判断一个 lane 是否已落地时按它找，不要按标题找。不要删这个尾注。
+Claude 会话还会自动带 `Claude-Session` / `Claude-Transcript`；Cursor 的终端拿不到会话 id，所以没有这两个尾注。
+husky 仓库（frontend、platform）新开的 worktree 不执行任何钩子。
 
 ## 为什么是机械闸门而不是规矩
 
