@@ -13,7 +13,8 @@
 
 ## 待你签收
 
-（暂无）
+- **TD-51** — 查询参数旧写法（since_ts、expiration、right 等 8 个）一律返回 422 并指明新名，别名改写机制整体删除（api 0.10.0）· 验收 PASS（10-06，STG/PROD/DEV 探针） · 防线：`bifrost-trade-api/tests/test_query_vocab.py` · 后续：TD-152、TD-153（Loki 闸门看不全）
+- **TD-80** — `StatusReader` 改为只读：删掉门面的 5 个写方法、6 个名字和 5 个 R4 别名（core 0.49.0，随 0.50.0 上线）· 验收 PASS（10-06，三个环境 core 0.50.0） · 防线：`bifrost-trade-core/tests/test_status_reader_read_only.py` · 后续：TD-154（api 测试里空转的 MagicMock 断言）
 
 **未结 69 项**：P0 0 · P1 5 · P2 29 · P3 35；要你批的 36 项（从总览表的审批列算）。
 
@@ -293,8 +294,9 @@
 
 **P2 · trade (round 1) · Query-parameter vocabulary drift for expiry, option side, time ranges and limits; no pagination**
 
-- **状态**：在做（api 0.10.0 在 main、CI 绿；等 Owner 跑合并 Trade 发布）
+- **状态**：待你签收
 - **验收**：`python3 scripts/release/loki_gate.py td51-query-aliases` 零命中；发布后 PROD `/health` 的 api 版本为删除旧名的那一版，旧查询名返回 422
+- **验收结果**：PASS 2026-10-06 api 0.10.0（efcf747）：STG wtvk2 / PROD 99wkl / DEV 三处探针 `/executions?since_ts` → 422、`from_ts` → 200、`/research/option-snapshots?expiration` 与 `/research/greeks?right` → 422
 - **现在**：Research 和 Dagster 已改用新的查询参数名（research 0.161.0 起）。api 侧删除旧名与整套别名机制的提交 `a4757c5` 已备好。
 - **下一步**：跑 Loki 闸门（`loki_gate.py td51-query-aliases`），10-05 夜批后旧名零命中就随下一次 Trade 发布上线。（10-06）
 - **Claim**: Expiry has two names (expiry/expiration) and four format rules: YYYYMMDD on /bars, YYYY-MM-DD on /research/greeks, either format on option-snapshots and similar, and 'any format' on link-candidates. Option side is option_right in some routes and right in others. Time ranges are spelled four ways: since_ts/until_ts, opened_at_from/until, trade_date_from/to and date_from/to. limit=0 means unlimited on GET /executions, and the FE always sends it; the /transactions limit is unbounded. No route takes offset, page or cursor, and at least 12 lists return count = len(page). The tier screener is the only one that returns a real total.
@@ -580,8 +582,9 @@
 
 **P3 · trade (round 1) · Core facade: an 85-method read/write StatusReader inside 'monitor.reader', alias import paths, verb drift**
 
-- **状态**：在做（core 0.49.0 在 main、CI 绿；等 Owner 跑合并 Trade 发布）
+- **状态**：待你签收
 - **验收**：core 0.49.0 的 `make test` 与 api 的 `make test` 通过；PROD `/api/account/health` 的 `core_version` 为 0.49.0
+- **验收结果**：PASS 2026-10-06：DEV / STG / PROD 四个域 `core_version=0.50.0`、`core_sha=59fdb9d…`（含 0.49.0 的 C2-b）；tag v0.50.0
 - **现在**：C1、C2-a 已上线。C2-b（`StatusReader` 门面只读、删 5 个写方法和 R4 别名）已备在分支 `td-batch/2026-10-04-lane-aj`。
 - **下一步**：0.48.0 / 0.48.1 / 0.48.2 已被其他改动占用，C2-b 改号为 core 0.49.0，和 TD-51 一起发。（10-06）
 - **Claim**: StatusReader, documented as 'Read status from Redis daemon IPC + PostgreSQL', has 85 methods, many of which write (instances, categories, watchlist, instrument classes). monitor.reader exports write functions, and *_write modules sit in the reader directory. Model analysis passes through 4 hops. Pure re-export modules (monitor/redis_url, config/startup, daemon_ib_edge, ib_probe_derived) give one symbol several import paths. Facade names differ from module names (list_strategy_instances wraps list_instances; list_dims_for_type wraps list_dims_by_type, and two different modules both define list_dims_by_type). get_ has 121 unique names and list_ has 20, with mixed create/insert/save/set/write/upsert verbs. ingestor and ingester are both used (92 vs 45 occurrences).
@@ -647,7 +650,7 @@
 
 **P3 · flex-ib · raw_broker.commissions mixes two sign conventions: Flex writes cost as negative, the TWS/gateway path writes it as positive**
 
-- **状态**：在做（core 0.50.0 在 main，随合并 Trade 发布上线；之后 Owner 跑 6 行存量改写）
+- **状态**：在做（三个环境已上 core 0.50.0；等 Owner 跑 6 行存量改写，预演 10-06 18:0x 仍为 6、Flex 符号不符 0）
 - **验收**：GS 上跑 `db-steps.d/sql/2026-10-06-td114-commission-sign-dryrun.sql`：三个环境都上 0.50.0 且改写后需改写行数为 0（现在 6）
 - **Claim**: Flex stores ibCommission as IB sends it (negative charge, positive rebate); the TWS commissionReport path writes IB API's positive cost into the same column and key. Flex re-imports overwrite to the Flex sign; TWS-only fills keep the opposite sign. No reader normalises (accounts_helpers.py:402-404 adds commission into period totals).
 - **Measured**: MEASURED. Flex-backed: 435 negative, 15 positive (all rebates matching net_cash - proceeds to 4 dp), 32 NULL. TWS-only: 4 positive (~1.04-1.05), 0 negative, 33 NULL. 12 orphan commission rows. Reading TWS positives as costs relies on IB API docs.
