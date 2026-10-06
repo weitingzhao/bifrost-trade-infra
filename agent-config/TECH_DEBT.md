@@ -16,7 +16,7 @@
 - **TD-124** — 删掉永久挂起的 CronJob：research 18 个（60e9c2d，逐个核过都在 Dagster）、market-data 14 个 + 0.10.0 孤儿文件（91fe2c1），Owner 删除集群对象；保留 harness 与 7 个触发模板（去掉其中 5 个的旧 RESEARCH_WATCHLIST）· 验收 PASS（10-06，挂起 39 → 7）· 防线：`bifrost-research/tests/test_k8s_cronjobs.py`、`bifrost-platform-plugin-market-data/tests/test_k8s_no_cronjobs.py`，两个 verify 脚本翻成「必须不存在」· 后续：TD-190（触发路由与 7 个模板）、TD-191（schedule.yaml 注释）
 - **TD-176** — signal-hit / alert-scan 两个挂起清单随 TD-124 删除（research 60e9c2d）· 验收 PASS（10-06）· 防线：同 TD-124 · 无后续
 
-**未结 82 项**：P0 0 · P1 4 · P2 30 · P3 48；要你批的 43 项（从总览表的审批列算）。
+**未结 84 项**：P0 0 · P1 4 · P2 31 · P3 49；要你批的 44 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -53,7 +53,7 @@
 
 目标：一个开关让所有测试类防线生效（CI 卡发布），再补上调度存活告警、D10 闸门的非 curl 写法、operator 流白名单、本机常驻任务和密钥轮换的盲区、spine 副本同步。
 
-项：TD-95, TD-96, TD-100, TD-105, TD-109, TD-121, TD-152, TD-153, TD-155, TD-161, TD-162 · 已还：TD-99
+项：TD-95, TD-96, TD-100, TD-105, TD-109, TD-121, TD-152, TD-153, TD-155, TD-161, TD-162, TD-194, TD-195 · 已还：TD-99
 
 ### 第 3 波 · 交易日与日历只有一个来源
 
@@ -253,6 +253,8 @@
 | [TD-191](#td-191) | P3 | market-data | market-data config/schedule.yaml still says K8s CronJob YAML is the runtime schedule source; after TD-124 there are no CronJobs and Dagster fires every slot | 不用批 |
 | [TD-192](#td-192) | P2 | research-control | One IB Flex failure loses that night's SEPA for good: husbandry_gate blocks sepa_projection although SEPA reads nothing from Flex, and the projection never back-fills a missed night | 要你批 |
 | [TD-193](#td-193) | P3 | frontend | The Events calendar view's Date column shows collected_at, not event_date: macro rows show when they were computed, radar rows when the file was dropped | 不用批 |
+| [TD-194](#td-194) | P2 | ops-platform | BifrostAPIHighLatency can never fire: the histogram it reads tops out at a 1 s bucket, so histogram_quantile returns at most 1 and `> 2` is impossible | 要你批 |
+| [TD-195](#td-195) | P3 | ops-platform | platform-api exports no http_requests_total (hand-written /metrics, no Prometheus client), so the API error-rate and latency alerts cannot see it | 不用批 |
 
 ## 条目
 
@@ -1261,7 +1263,9 @@
 
 **P3 · ops-platform · BifrostAPIHighErrorRate / HighLatency only see bifrost-* namespaces with http_requests_total; research-api and the plugins export no HTTP metrics, so their 5xx and latency go unalerted**
 
-- **状态**：在做（还债第四批 · 道 Q，10-06 晚开工；发版与 Golden Source 写入前停下等你批）
+- **状态**：在做（代码与镜像就绪、未发布：market-data 0.82.0、flex-query 0.12.0、research 0.199.0；规则改动在 infra 47f5c49 未 apply——要等三个 API 先上线；发布等你批）
+- **验收**：发布并 apply 规则后：`KUBECONFIG=~/.kube/bifrost-k3s.yaml python3 scripts/check_http_metrics_coverage.py --live` → `ok: every API monitor is inside the API rules and exports http_requests_total`；`count by (namespace,job)(http_requests_total{namespace=~"research|plugin-.*"})` 3 行
+- **现在**：道 Q：三个 repo 各加同一份纯 ASGI 中间件 `api/http_metrics.py`（无新依赖），导出与 Trade 同名同标签的 `http_requests_total` 与 `http_request_duration_seconds`（handler = 路由模板，/metrics 不记，/health 不进延迟）。镜像：market-data 0.82.0 sha256:5ce69bcf…（29b5dbe）、flex-query 0.12.0 sha256:43db0945…（49cd73b，本机构建）、research 0.199.0 sha256:5992072a…（60ea5a2，含 0.198.0 的 TD-181/189 与 main 上的 TD-178 research 部分；未建 -dagster）。两条 API 规则命名空间扩到 `bifrost-.*|research|plugin-.*`。防线：告警 `BifrostAPIWithoutHttpMetrics`（platform-api 唯一豁免，见 TD-195）+ `scripts/check_http_metrics_coverage.py`（`make check-http-metrics-coverage`，apply-monitoring-scrape 前跑）+ 三个 repo 的 `test_http_metrics.py`
 - **Claim**: The two API alerts select http_requests_total in namespace=~"bifrost-.*". research-api (and the market-data / flex plugin APIs) export no http_requests_* series, so widening the namespace regex would change nothing; a research-api returning 5xx all night raises no alert.
 - **Measured**: code-read 10-06 by paydown lane C (it checked the rule expressions against live Prometheus).
 - **Evidence**:
@@ -1615,6 +1619,34 @@
 - **Fix**: Use event_date (fall back to collected_at only for rows without one) in both places (:301, :400).
 - **Ratchet**: A vitest: a calendar row with event_date renders that date.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
+
+### TD-194
+
+**P2 · ops-platform · BifrostAPIHighLatency can never fire: the histogram it reads tops out at a 1 s bucket, so histogram_quantile returns at most 1 and `> 2` is impossible**
+
+- **状态**：未开始
+- **Claim**: prometheus-fastapi-instrumentator's default http_request_duration_seconds buckets are 0.1 / 0.5 / 1 / +Inf (core observability/prometheus.py). The rule asks p99 > 2 s. The fine histogram (http_request_duration_highr_seconds, no handler label, 0.01–60 s) would fire: over 7 days PROD api-monitor had ~20 and api-market ~17 windows of ≥5 min with p99 > 2 s — possibly streaming routes timed to response end (unverified).
+- **Measured**: MEASURED 10-06 by paydown lane Q (Prometheus via apiserver proxy).
+- **Evidence**:
+  - `bifrost-trade-infra/k8s/monitoring/bifrost-alerting-rules.yaml:60` — `- alert: BifrostAPIHighLatency`
+- **Impact**: Slow APIs are never alerted; the rule looks like coverage and is not.
+- **Fix**: Either add a 2.5 s / 5 s bucket to the instrumentator config in core (and the three new middlewares) or switch the rule to the highr histogram; exclude streaming routes (SSE) from latency first, then set the threshold from the measured distribution.
+- **Ratchet**: check_http_metrics_coverage.py can assert the rule's threshold is below the largest finite bucket of the histogram it reads.
+- 审批 要你批 · 代价 S · 风险 low · repos: bifrost-trade-core, bifrost-trade-infra, bifrost-research, bifrost-platform-plugin-market-data, bifrost-platform-plugin-flex-query
+
+### TD-195
+
+**P3 · ops-platform · platform-api exports no http_requests_total (hand-written /metrics, no Prometheus client), so the API error-rate and latency alerts cannot see it**
+
+- **状态**：未开始
+- **Claim**: It is the one exemption in BifrostAPIWithoutHttpMetrics (job!="platform-api").
+- **Measured**: code-read 10-06 by paydown lane Q.
+- **Evidence**:
+  - `bifrost-platform/api/internal/server/metrics.go:35` — `func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {`
+- **Impact**: A platform-api returning 5xx raises no API alert.
+- **Fix**: Add request count / latency with the same names and labels to platform-api (hand-written like the rest of metrics.go, or the Go Prometheus client if the Owner accepts the dependency), then drop the exemption.
+- **Ratchet**: The exemption in BifrostAPIWithoutHttpMetrics may only shrink (checked by check_http_metrics_coverage.py).
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
 
 ## 没覆盖到的（下一轮从这里开始）
 
