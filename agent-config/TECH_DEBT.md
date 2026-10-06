@@ -15,7 +15,7 @@
 
 （暂无）
 
-**未结 67 项**：P0 0 · P1 5 · P2 28 · P3 34；要你批的 34 项（从总览表的审批列算）。
+**未结 68 项**：P0 0 · P1 5 · P2 28 · P3 35；要你批的 34 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -47,7 +47,7 @@
 
 目标：先让失败变红。错数据先修数据（TD-87 restate），再把引擎、闸门、写入方从「出错也报成功」改成失败即失败：引擎资产按输出判定、husbandry gate 失败即关、日历读失败报错、写入方失败抛错。不需要 Owner 批的先做。
 
-项：TD-87, TD-91, TD-92, TD-94, TD-97, TD-101, TD-136, TD-156, TD-157, TD-165 · 已还：TD-88, TD-89, TD-90, TD-113, TD-93
+项：TD-87, TD-91, TD-92, TD-94, TD-97, TD-101, TD-136, TD-156, TD-157, TD-165, TD-166 · 已还：TD-88, TD-89, TD-90, TD-113, TD-93
 
 ### 第 2 波 · 让闸门真的卡住
 
@@ -225,13 +225,14 @@
 | [TD-154](#td-154) | P3 | trade (round 1) | api test_request_bodies asserts on a plain MagicMock that removed facade methods were not called — it can never fail | 不用批 |
 | [TD-155](#td-155) | P2 | ops-platform | Pushes to GitHub main do not trigger CI until the Gitea pull mirror syncs, so a commit can be released before its CI ever ran | 跨仓库发版 |
 | [TD-156](#td-156) | P2 | research-control | research_signal_hit_schedule fires at 00:10 UTC, before the 02:30 UTC batch writes the night's features, so it judges the previous night's features | 不用批 |
-| [TD-157](#td-157) | P3 | research-data | GEX writes a wall on an arbitrary strike when one side of an expiry has no gamma exposure: 1,762 levels rows on 244 names, terrain reads both walls | 要你批 |
+| [TD-157](#td-157) | P3 | research-data | GEX writes a wall on an arbitrary strike when one side of an expiry has no gamma exposure: 1,762 levels rows on 244 names, terrain reads both walls | 已批（观察中） |
 | [TD-160](#td-160) | P3 | research-data | features.event_signal_radar_daily keeps the pre-rename copies of two indexes (event_radar_batch_collected, event_radar_importance) beside the current ones | 改表 |
 | [TD-161](#td-161) | P3 | ops-platform | BifrostAPIHighErrorRate / HighLatency only see bifrost-* namespaces with http_requests_total; research-api and the plugins export no HTTP metrics, so their 5xx and latency go unalerted | 不用批 |
 | [TD-162](#td-162) | P2 | ops-platform | Research and plugin releases have no release window: sessions collide on pins and on deliver runs | 跨仓库发版 |
 | [TD-163](#td-163) | P3 | research-control | Two research tests import dagster without importorskip, so they fail in any venv without the orchestration extra | 不用批 |
 | [TD-164](#td-164) | P3 | research-data | dbt reports MissingArgumentsPropertyInGenericTestDeprecation 18 times: generic test arguments use the pre-1.10 layout | 不用批 |
 | [TD-165](#td-165) | P2 | ops-platform | Ops Console Market Data › Ingest crashes to a blank page while the doctor is recomputing (its 'computing' answer has no universe) | 不用批 |
+| [TD-166](#td-166) | P3 | research-data | GEX zero_gamma falls back to the strike nearest spot when cumulative gamma never crosses zero: by construction on all 1,762 one-sided expiries, and stored as if it were a flip | 要你批 |
 
 ## 条目
 
@@ -1195,7 +1196,8 @@
 
 **P3 · research-data · GEX writes a wall on an arbitrary strike when one side of an expiry has no gamma exposure: 1,762 levels rows on 244 names, terrain reads both walls**
 
-- **状态**：未开始（要你批：改写行）
+- **状态**：观察中（到 10-08，看 10-07 与 10-08 两次夜批后「验收」的 SQL 仍为 0）
+- **进展（10-06，Owner 批「TD-157 一起做」）**：research 0.191.0（ddf5642，pin e19d5cc）上线：`engines/gex/exposure_guards.drop_empty_side_walls`，日线 levels 中没有暴露的一侧，wall 和 wall gex 写 NULL（`has_gamma_exposure` 同时移入该模块，exposure.py 回到 800 行以内）；只改日线，盘中快照汇总全部到期日，且前端 GexTimelineChart 会把空 wall 画在 0。读 wall 的地方（terrain、mart_sepa_tier_options、brief、Symbol 各面、DealerHistory）都按缺失处理，已逐个核对。Dagster 0.191.0-dagster 18:24 UTC apply。回填 Job `research-gex-one-sided-walls-0191b`（`zero_exposure_purge --one-sided`）：置空 call 侧 820、put 侧 942，terrain 重算 237 行（156 行分数有变，regime 翻转 7 个，含与当前输入的其他漂移），scan 237 行。核对：空侧 wall 剩 0；TD-136 的整行无暴露仍为 0；scan 与 terrain 一致。备份 `~/bifrost-backups/golden-source/2026-10-06_gex-one-sided-walls-td157/`。同一天先跑了一次参数写错的 Job（`-0191`，执行的是 TD-136 那一步，0 行、无写入）。防线：`tests/engines/test_gex_zero_exposure.py` 的单边用例（签收时登记进 RATCHETS.md）。后续：TD-166（zero_gamma 兜底）。
 - **Claim**: compute_gex_levels picks the call wall with max(call_gex) and the put wall with min(put_gex) independently. When only one side has exposure (every call gex 0, or every put gex 0), that side's wall is still written: the first strike in the distribution, with wall gex 0. TD-136 (0.185.0) covers only expiries where both sides are empty.
 - **Measured**: MEASURED 10-06 after the TD-136 purge, read-only: of 69,440 levels rows, 820 have call_wall_gex 0 with a non-zero put wall and 942 the reverse; 244 names; 169 since 10-01.
 - **Evidence**:
@@ -1205,7 +1207,7 @@
 - **Fix**: Write NULL for a wall whose side has no exposure (call_wall_gex / put_wall_gex 0), so readers treat it as missing (terrain already handles a None wall). One-off: null those walls on the 1,762 rows and recompute terrain and scan on the name-sessions that read them (pattern: engines/gex/zero_exposure_purge).
 - **Ratchet**: Extend tests/engines/test_gex_zero_exposure.py with a one-sided distribution; nightly check: no levels row with a non-null wall whose wall gex is 0.
 - **验收**: `SELECT count(*) FROM features.option_metric_gex_levels_daily WHERE (major_call_wall IS NOT NULL AND COALESCE(call_wall_gex,0) = 0) OR (major_put_wall IS NOT NULL AND COALESCE(put_wall_gex,0) = 0)` returns 0 after two nightly runs.
-- 审批 要你批 · 代价 S · 风险 low · repos: bifrost-research
+- 审批 已批（Owner 10-06）· 代价 S · 风险 low · repos: bifrost-research
 
 ### TD-158
 
@@ -1329,6 +1331,23 @@
 - **Fix**: Type the doctor response as a union (computing stub | report); render 'computing…' for the stub; guard universe with optional chaining in DoctorPanel and doctorModel; wrap the tab in an error boundary so one panel cannot blank the page.
 - **Ratchet**: A DoctorPanel test rendering the real computing stub (fixture captured from /market/doctor) — must not throw.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-166
+
+**P3 · research-data · GEX zero_gamma falls back to the strike nearest spot when cumulative gamma never crosses zero: by construction on all 1,762 one-sided expiries, and stored as if it were a flip**
+
+- **状态**：未开始（要你批：改写行）
+- **Claim**: compute_gex_levels interpolates zero_gamma at a sign change of cumulative net gex; with none, it stores the strike nearest spot. On an expiry where only one side has exposure (TD-157) cumulative gamma is monotone and never changes sign, so zero_gamma there is always that fallback; two-sided expiries whose cumulative never flips get it too (not measured). Nothing in the row says which.
+- **Measured**: MEASURED 10-06 after the TD-157 pass, read-only: 1,762 levels rows have exactly one wall NULL (820 call, 942 put), every one of them a fallback zero_gamma by construction; two-sided no-flip rows need the distribution to count (features.option_metric_gex_daily), not done.
+- **Evidence**:
+  - `bifrost-research/src/bifrost_research/engines/gex/exposure.py:217` — `# Fallback: strike with net_gex closest to zero near spot` then `zero_gamma = float(nearest["strike"])`
+  - `bifrost-research/src/bifrost_research/engines/forecast/terrain.py:93` — pin_score_from_gex scores spot's distance to zero_gamma
+  - `bifrost-research/src/bifrost_research/engines/scan/entry.py:105` — scan's zero_gamma_offset reads it
+- **Impact**: terrain's pin score and scan's zero_gamma_offset treat the nearest strike as a gamma flip that does not exist.
+- **Fix**: Store NULL zero_gamma when cumulative gamma never changes sign (or add a source column, e.g. `zero_gamma_source` flip|none, which is a DDL change). One-off: recompute or NULL the affected rows and recompute terrain and scan (pattern: engines/gex/zero_exposure_purge).
+- **Ratchet**: A test that a one-sided distribution yields zero_gamma None; nightly check: no row with exactly one NULL wall and a non-null zero_gamma.
+- **验收**: `SELECT count(*) FROM features.option_metric_gex_levels_daily WHERE (major_call_wall IS NULL) <> (major_put_wall IS NULL) AND zero_gamma IS NOT NULL` returns 0 after two nightly runs.
+- 审批 要你批 · 代价 S · 风险 low · repos: bifrost-research
 
 ## 没覆盖到的（下一轮从这里开始）
 
