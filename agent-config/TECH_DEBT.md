@@ -15,7 +15,7 @@
 
 （暂无）
 
-**未结 78 项**：P0 0 · P1 5 · P2 29 · P3 44；要你批的 41 项（从总览表的审批列算）。
+**未结 79 项**：P0 0 · P1 5 · P2 29 · P3 45；要你批的 41 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -89,7 +89,7 @@
 
 目标：Pine 与路线图那条线（会话「Pine 信号业务与实现」）收尾时留下的日后核对：W3 两次真正的归档、一个只差发布的前端修复、路线图台账的月度重评、「我的价位」等 Design、auto mode 规则重新应用。
 
-项：TD-183, TD-184, TD-185, TD-186 · 已还：TD-187
+项：TD-183, TD-184, TD-185, TD-186, TD-188 · 已还：TD-187
 
 ## 数据边界（接受并留座）
 
@@ -249,6 +249,7 @@
 | [TD-184](#td-184) | P3 | frontend | The Simulator says "stored with the run" for runs that were not stored: the fix (fe 53d6939e) is on main but not in STG/PROD | 发布（要你批） |
 | [TD-185](#td-185) | P3 | research-control | The Pine-vs-TradingView roadmap ledger is a point-in-time judgement: its scores and next steps need a re-evaluation around 11-06 | 不用批 |
 | [TD-186](#td-186) | P3 | frontend | "My levels" (plan stop / target and price alerts as horizontal lines) on the Symbol chart waits on Design: ASK-symbol-chart-my-levels-2026-10-06 | 要你批 |
+| [TD-188](#td-188) | P3 | frontend | The app's design registry is still at Rev .157: packages .158–.162 are built but designRoutes / adoption were not re-synced, and the Design project's DS mirror is 0.11.0 against @bifrost/ui 0.13.0 | 不用批 |
 
 ## 条目
 
@@ -1540,7 +1541,7 @@
 
 - **状态**：未开始（等 Owner 把 ASK 带给 Design，Design 回复）
 - **验收**：Design 的回复（RESPONSE 或 Rev 说明）在 `design/trade/` 里；按回复落地后，Symbol › Price 图有对应图层，或台账 G5 改成「➖ 不做」并写明理由
-- **现在**：ASK 写在 `design/uploads/ASK-symbol-chart-my-levels-2026-10-06.md`。实测：`strategy_plan` 有 `stop_kind/target_kind = underlying_price`，但 PROD 0 行；价格提醒没有存储（`/research/alerts` 是镜头级）
+- **现在**：Design 10-06 带回的 Package .63 @ Rev .162 只回了 Rev .161 回执，**没有回答这份 ASK**，继续等。ASK 写在 `design/uploads/ASK-symbol-chart-my-levels-2026-10-06.md`。实测：`strategy_plan` 有 `stop_kind/target_kind = underlying_price`，但 PROD 0 行；价格提醒没有存储（`/research/alerts` 是镜头级）
 - **下一步**：Design 定形态；计划止损和止盈部分不需要新表，app 直接做；价格提醒要新表，先列方案给 Owner 批
 - **Claim**: TradingView's drawing tools are useful to an option seller mainly as horizontal levels (planned strike, invalidation stop, alert price). K-LINE-SPEC / RESPONSE A7 keeps drawing tools off the chart, so the exception needs Design's ruling.
 - **Evidence**:
@@ -1550,6 +1551,23 @@
 - **Fix**: Per Design's answer; plan levels from strategy_plan, alerts via a new store (Owner approval).
 - **Ratchet**: Decide with the implementation.
 - 审批 要你批 · 代价 M · 风险 low · repos: bifrost-trade-frontend, design
+
+### TD-188
+
+**P3 · frontend · The app's design registry is still at Rev .157: packages .158–.162 are built but designRoutes / adoption were not re-synced, and the Design project's DS mirror is 0.11.0 against @bifrost/ui 0.13.0**
+
+- **状态**：未开始
+- **验收**：`bifrost-trade-frontend/src/lib/design/designRoutes.generated.ts` 的 `DESIGN_REV` 是 `2026-10-06.162`（或之后的 Rev），adoption 测试全绿；Design 项目的 DS 镜像是 0.13.0；Pine library 的 Check 小 K 线在有 Research 身份的 DEV 上走查过并写进 designNotes
+- **现在**：Package .63 @ Rev .162（10-06）写明「app 本轮无需再改」：.158–.162 的施工都已在 main 和三环境（K 线 K-LINE-SPEC、Pine 四页、P1 的 Rev .161 四处）。但 design-sync 最后一次停在 Rev .157，设计登记和 adoption 状态没有跟上；Design 侧 DS 镜像 0.11.0（Rev .162 回执第 3 部分：镜像不手改，要从 `stocks/bifrost-ui` 同步到 0.13.0）
+- **下一步**：一次 design-sync（app 与 Design 两侧）到 Rev .162 和 DS 0.13.0；同步后 Design 会把 Stock screen 原型里本地画的 `.ss-chip` 换成包内 `FilterChip`。Check 小 K 线走查要 Owner 在浏览器里填 Research 身份
+- **Claim**: Code is ahead of the registry: the adoption view reads stale revs for the pages these five packages touched (Research Symbol, Backtest, Signal Decay, Stock Screen), so "aligned / stale" says nothing true about them until re-synced.
+- **Evidence**:
+  - `bifrost-trade-frontend/src/lib/design/designRoutes.generated.ts:311` — `export const DESIGN_REV = "2026-10-04.157"`
+  - `design/trade/RESPONSE-2026-10-06-rev161-receipt.md` 第 3 部分 — Design 侧 DS 镜像仍是 0.11.0
+- **Impact**: The adoption page under-reports what is landed; the Design prototypes draw chips the DS already ships.
+- **Fix**: Run design-sync for Rev .162 and the 0.13.0 DS mirror; re-stamp the touched pages' notes.
+- **Ratchet**: None new; the existing adoption tests catch drift once the registry is current.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend, design
 
 ## 没覆盖到的（下一轮从这里开始）
 
