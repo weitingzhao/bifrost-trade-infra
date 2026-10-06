@@ -13,9 +13,10 @@
 
 ## 待你签收
 
-（暂无）
+- **TD-99** — Dagster 调度存活告警：research-api 的 `/metrics` 按时间戳导出每个调度的状态、上次应触发 / 实际触发、每个 job 的最后成功，infra 新增 `bifrost-research-orchestration` 11 条规则（research 0.188.0、infra f517317）· 验收 PASS（10-06，up 1、39 个调度、无告警） · 防线：这 11 条规则 + `bifrost-research/tests/orchestration/test_definitions.py::test_schedule_roster_matches_the_definitions_field_by_field` · 后续：TD-161（API 错误率 / 延迟告警看不到 research 与插件）
+- **TD-93** — 日历与标的池读失败即报错：节假日或 K 线读不到抛 `CalendarUnavailable`，标的池只在表缺失时回退、全空抛 `UniverseUnavailable`（research 0.189.0） · 验收 PASS（10-06，抛错 + 标的池 713）· 防线：`bifrost-research/tests/test_calendar_failures.py` · 后续：各引擎 summary 带 `universe_source`（今天只在日志里），并入 TD-92 的产出检查一起做
 
-**未结 66 项**：P0 0 · P1 5 · P2 30 · P3 31；要你批的 34 项（从总览表的审批列算）。
+**未结 71 项**：P0 0 · P1 5 · P2 31 · P3 35；要你批的 36 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -53,13 +54,13 @@
 
 目标：一个开关让所有测试类防线生效（CI 卡发布），再补上调度存活告警、D10 闸门的非 curl 写法、operator 流白名单、本机常驻任务和密钥轮换的盲区、spine 副本同步。
 
-项：TD-95, TD-96, TD-99, TD-100, TD-105, TD-109, TD-121, TD-152, TD-153, TD-155
+项：TD-95, TD-96, TD-99, TD-100, TD-105, TD-109, TD-121, TD-152, TD-153, TD-155, TD-161, TD-162
 
 ### 第 3 波 · 交易日与日历只有一个来源
 
 目标：所有「今天 / 本 session」都从 `db/calendar` 的一个函数来，代替 11 个私有 helper 和 44 处 `date.today()`；dbt 补 grain 测试；IV / 回测的定价参数统一。
 
-项：TD-98, TD-110, TD-111, TD-112, TD-128, TD-129
+项：TD-98, TD-110, TD-111, TD-112, TD-128, TD-129, TD-164
 
 ### 第 4 波 · 券商资金账本（Flex / IB）
 
@@ -71,7 +72,7 @@
 
 目标：删掉没人用的（挂起的 CronJob、退役脚本、无调用路由），手抄的副本改成从一处生成（调度名单、max-pain / PCR），清单的应用顺序与 Argo 归属理顺。
 
-项：TD-102, TD-106, TD-107, TD-108, TD-118, TD-119, TD-120, TD-123, TD-124, TD-125, TD-154 · 已还：TD-126
+项：TD-102, TD-106, TD-107, TD-108, TD-118, TD-119, TD-120, TD-123, TD-124, TD-125, TD-154, TD-160, TD-163 · 已还：TD-126
 
 ### 第 6 波 · 备份链与自动修复（10-06 日常发现）
 
@@ -231,6 +232,11 @@
 | [TD-155](#td-155) | P2 | ops-platform | Pushes to GitHub main do not trigger CI until the Gitea pull mirror syncs, so a commit can be released before its CI ever ran | 跨仓库发版 |
 | [TD-156](#td-156) | P2 | research-control | research_signal_hit_schedule fires at 00:10 UTC, before the 02:30 UTC batch writes the night's features, so it judges the previous night's features | 不用批 |
 | [TD-157](#td-157) | P3 | research-data | GEX writes a wall on an arbitrary strike when one side of an expiry has no gamma exposure: 1,762 levels rows on 244 names, terrain reads both walls | 要你批 |
+| [TD-160](#td-160) | P3 | research-data | features.event_signal_radar_daily keeps the pre-rename copies of two indexes (event_radar_batch_collected, event_radar_importance) beside the current ones | 改表 |
+| [TD-161](#td-161) | P3 | ops-platform | BifrostAPIHighErrorRate / HighLatency only see bifrost-* namespaces with http_requests_total; research-api and the plugins export no HTTP metrics, so their 5xx and latency go unalerted | 不用批 |
+| [TD-162](#td-162) | P2 | ops-platform | Research and plugin releases have no release window: sessions collide on pins and on deliver runs | 跨仓库发版 |
+| [TD-163](#td-163) | P3 | research-control | Two research tests import dagster without importorskip, so they fail in any venv without the orchestration extra | 不用批 |
+| [TD-164](#td-164) | P3 | research-data | dbt reports MissingArgumentsPropertyInGenericTestDeprecation 18 times: generic test arguments use the pre-1.10 layout | 不用批 |
 
 ## 条目
 
@@ -327,7 +333,9 @@
 
 **P2 · research-data · db/calendar.py turns read failures into wrong answers: a failed holiday read makes holidays sessions, a failed universe read swaps the engine universe for 'whatever OI was ingested' or nothing**
 
-- **状态**：在做（10-06 还债第 B 路：Research 日期/日历/dbt/定价）
+- **状态**：待你签收
+- **验收**：research-api pod 里：给 `fetch_recent_trading_days` 一个会抛错的连接应得到 `CalendarUnavailable`；`load_symbols_from_env_or_query` 用真实连接返回标的池（今天 713）
+- **验收结果**：PASS 2026-10-06 research 0.189.0（ad7fe03）：抛出 CalendarUnavailable，标的池 713
 - **Claim**: fetch_closed_holiday_dates' inner _rows() catches any exception, rolls back and returns [] with no log, so today and every future holiday become sessions (past dates fall back to index bars); cached_closed_days' warning cannot fire and fetch_recent_trading_days (6 callers) gets no signal. In the same module, load_symbols_from_universe_rule catches every exception and returns []; load_symbols_from_env_or_query then falls back to SELECT DISTINCT underlying FROM raw_market.option_open_interest LIMIT 5000, also swallowing errors, and RESEARCH_WATCHLIST overrides the rule entirely. ~12 engines share this loader and materialize SUCCESS on a different universe or none. dw_stock.dim_trading_calendar is a third calendar definition with no reader anywhere.
 - **Measured**: Partly MEASURED. git grep finds no reader of dim_trading_calendar in any repo. research.option_universe has 713 readable rows today; TD-86 shows unrelated db-init runs do drop grants on Research-read objects. Both swallows are CODE-READ; no failure observed tonight.
 - **Evidence**:
@@ -408,7 +416,9 @@
 
 **P2 · research-data · 'Today' is resolved by 11 private helpers plus 44 bare date.today() calls on UTC pods; option_universe stamps tomorrow's date**
 
-- **状态**：在做（10-06 还债第 B 路：Research 日期/日历/dbt/定价）
+- **状态**：观察中（到 10-07 02:40 UTC，看 option_universe 不再盖明天的日期）
+- **验收**：10-07 02:40 UTC 之后 `select max(last_seen) from research.option_universe` = `2026-10-06`（若是 2026-10-07 即 FAIL）；ruff DTZ 基线 0
+- **下一步**：已有错误盖章（10-06 那次 678 行 last_seen、44 行周六 entered_on）属于改写 Golden Source，由 Owner 决定是否修正；`orchestration/research_aux_schedules.py:108` 还剩一处内联纽约日期
 - **Also (paydown lane A, 10-06)**：`engines/pine/build.py:191` `end = as_of or date.today()` — UTC date on the 02:30 UTC run, the next calendar day.
 - **Claim**: Eight helpers return the New York date (_today_ny), three return the UTC date (_today in option_universe, option_pinned, terrain_backfill), and 44 date.today() calls return UTC because no research pod sets TZ. db/calendar.fetch_recent_trading_days also defaults to the UTC date. decline_memory.py documents the wrong 'same host' assumption, and the `noqa: DTZ011` there does nothing because ruff selects only E4/E7/E9/F. Anything run by research_trading_day (02:30 UTC) through _today()/date.today() gets the next calendar day.
 - **Measured**: MEASURED. No TZ env on research-api, dagster-daemon, dagster-webserver, research-mcp, research-pine or api-research. In dagster-daemon, date.today() = 2026-10-06 while NY was 10-05. research.option_universe: 678 rows last_seen 2026-10-06; entered_on on Saturdays (10-03: 6, 09-26: 9, 09-19: 24). candidate_pool path is latent (writers run when UTC and NY agree).
@@ -427,7 +437,9 @@
 
 **P2 · research-control · No scheduler liveness alarm: a stopped, renamed or never-ticking Dagster schedule, or a hung daemon, produces no alert; no PrometheusRule targets research**
 
-- **状态**：在做（10-06 还债第 C 路：调度与编排）
+- **状态**：待你签收
+- **验收**：Prometheus：`up{job="research-api"}` = 1，`count(bifrost_dagster_schedule_running)` = 39，`bifrost-research-orchestration` 组 11 条规则已加载，`ALERTS{alertname=~"BifrostDagster.*"}` 为空
+- **验收结果**：PASS 2026-10-06 research 0.188.0（6cf4266）+ infra f517317：up 1、39 个调度、11 条规则、无告警
 - **Claim**: bifrost_run_failure_alert fires only on FAILURE runs and executes inside dagster-daemon. Nothing alerts on a schedule that stops producing runs (STOPPED in the instance DB, which the Makefile warns about), a schedule renamed/removed in code, or a daemon alive but not ticking. /research/orchestration/status computes overdue only for research_trading_day and only when the page (or the platform checklist handler) is requested. BifrostAPIHighErrorRate/CrashLooping match bifrost-* namespaces only; research-api and plugins have no http_requests_total.
 - **Measured**: MEASURED. All PrometheusRules: only three freshness-type alerts (backup drill, Flex ingest, market-data doctor); none for research/Dagster. ops_dagster.daemon_heartbeats is live but unread. A 49-min gap in event_radar cadence on 09-24 matches the 0.108/0.109-dagster crash loop. Today all 40 schedules RUNNING/DECLARED_IN_CODE.
 - **Evidence**:
@@ -442,7 +454,9 @@
 
 **P2 · research-control · Event Radar SEC ingest runs from a Mac tmux loop on the shared checkout; it read .env once and failed 157 ticks over ~35.6h after a password rotation; the cluster event_radar slot never ingests and stays green**
 
-- **状态**：在做（10-06 还债第 C 路：调度与编排）
+- **状态**：观察中（到 10-07 04:30 UTC 之后，看当天新申报由集群写入）
+- **验收**：`research_event_radar_job` 最新 run 为 SUCCESS 且 metadata `mode: sec_8k`；10-07 04:30 UTC 批次后 `source LIKE 'ws:sec-8k-%'` 的 `max(computed_at)` ≥ `raw_market.sec_8k_filing` 的 `max(fetched_at)`
+- **验收结果**：部分 PASS 2026-10-06：17:30 UTC run 8384e946 SUCCESS、mode sec_8k、读 736 条、新增 0（已全部入库）；Mac 上的 bdev 会话改为只处理投放目录文件（17:3x）
 - **Claim**: The only producer of SEC 8-K input for features.event_signal_radar_daily is scripts/event_radar_watch.sh under bdev on the Owner's Mac, running uncommitted shared-checkout code as Trade role 'bifrost'. It sources .env once and swallows every failure with '|| echo ... will retry'. The cluster's event_radar_cron asset has no input mount and returns idle/sample_fallback every 30 minutes, green. (The Mac placement is a documented choice: no PVC mount, launchd lacks LAN permission.)
 - **Measured**: MEASURED. ~/.bifrost-dev/logs/event-radar-watch.log: 158 'sec source failed' lines (1 on 09-28 QueryCanceled; 84 on 10-04; 73 on 10-05) from 10-04 09:15 to 10-05 20:52, all password auth failures for 'bifrost', until a manual restart at 20:54:31. Watermark kept loss at zero because no new filings landed in that window (145 filings written after restart). event_radar_cron, 30 days: 684 idle, 332 sample_fallback, 0 file_ingest.
 - **Evidence**:
@@ -573,7 +587,8 @@
 
 **P2 · research-control · Three hand-kept copies of the Dagster schedule roster have drifted; Console looks up a renamed corporate schedule and has no mapping for seven newer slots**
 
-- **状态**：在做（10-06 还债第 C 路：调度与编排）
+- **状态**：在做（research 一半已随 0.188.0 上线；platform 一半在分支 debt-c-td108 b9c475d，Owner 10-06 选 A：等另一会话的 a332cff 备份 MinIO 改动确认可上线后一起发）
+- **验收**：`/research/orchestration/status` 里 `market_corporate_schedule` 的 `market_slots` 为 `["corporate"]`，且 Console Ingest 页的 corporate slot 显示 `Dagster market_corporate_schedule`
 - **Claim**: The canonical roster is HUSBANDRY_SCHEDULE_JOBS in research. (1) Platform Console maps corporate/option-trades to market_corporate_trades_schedule, which no longer exists (now market_corporate_schedule), and has no mapping for fundamentals-market, ratios-market, intraday-chain, treasury, ticker-details, corporate-backfill, option-depth. (2) verify_husbandry_schedulers.sh asserts retired schedules and only WARNs when absent. (3) k8s/orchestration/README lists research_morning_prep_schedule, a wrong ratios cron, and 'Outside Dagster: IB only' though research-harness runs as a CronJob.
 - **Measured**: MEASURED. ops_dagster.runs: market_corporate_trades_job last ran 2026-09-05; market_corporate_job 30 runs through 10-05. Live roster lists 40 schedules, none market_corporate_trades_schedule. Code ratios cron '10 5-8,11,14,20 * * *'. Console miss itself CODE-READ.
 - **Evidence**:
@@ -621,7 +636,9 @@
 
 **P3 · research-data · Stored IV features solve Black-Scholes at r=0 while the backtester uses treasury rates from two separate readers; further BS copies in gex and opex**
 
-- **状态**：在做（10-06 还债第 B 路：Research 日期/日历/dbt/定价）
+- **状态**：观察中（到 10-07 批处理，看新写入的 vendor_snapshot mid 按当日国债利率算）
+- **验收**：`rate` 在所有定价函数里是必填关键字；`risk_free_rate(conn, 2026-10-02)` = 0.0404；今晚之后新写入行的 `mid_price` 等于按当日国债利率的 `bs_price`
+- **下一步**：历史 IV 特征未重述（r=0 → 国债利率：call IV 中位 −0.74、put +0.94 vol pts，近 ATM call-put 差 2.37 → 0.20）；canonical_pnl 标记价仍按 r=0，是否重述 `mart_canonical_pnl_daily` 由 Owner 决定
 - **Claim**: iv_solver.solve_iv/bs_price/bs_delta default rate=0.0, and iv_solver.py:346/350/520/533, atm_iv.py:389, earnings_moves.py:54 and canonical_pnl omit rate. backtest/event_query._risk_free_rate and sim/chain.py each read raw_market.treasury_yield on their own; gex/exposure.approx_bs_gamma and opex_cycle/vanna_charm._norm_cdf are more BS copies. Features and backtests compute different IV/delta for the same contract. TD-42 fixed this class only in Trade.
 - **Measured**: Inconclusive. Most stored IV since 08-05 is vendor_snapshot (4.26M rows); 19,435 Brent 'ok' rows (06-24..09-25) show median near-ATM put-call gap -2.3/-3.0 vol pts vs vendor -1.5/-2.3, partly carry/dividends. Copy drift CODE-READ; _risk_free_rate's own docstring admits research BS ran at r=0.
 - **Evidence**:
@@ -637,7 +654,8 @@
 
 **P3 · research-data · dbt: the pass_count range generic test sits in the singular folder (errors when selected, never applied); key intermediates lack grain tests; nothing ties eval_date to the session**
 
-- **状态**：在做（10-06 还债第 B 路：Research 日期/日历/dbt/定价）
+- **状态**：观察中（到 10-07 夜间 dbt build，看新测试全部 pass）
+- **验收**：10-07 build 后 `ops_dbt.dbt_run_results` 里 `assert_pass_count_range%`、`dbt_utils_unique_combination%`、`sepa_session_is_newest%` 全部 pass
 - **Claim**: tests/assert_pass_count_range.sql defines a {% test %} block under the singular-test path; it errors whenever selected and no yml applies it, so pass_count has only warn-level anomaly checks. int_stock_daily_enriched (incremental on symbol, trade_date) and int_stock_crs have only not_null tests. mart_sepa_tier_options is absent from yml. No test checks eval_date/trade_date against the session, which let TD-87 through.
 - **Measured**: MEASURED. ops_dbt.dbt_run_results: 14 error rows for assert_pass_count_range (08-21..09-28 manual full selections), never pass. Nightly builds run 82 tests, all pass, none on pass_count range or session. Grain clean today (1,656,685 = distinct; 382,026 = distinct).
 - **Evidence**:
@@ -652,7 +670,9 @@
 
 **P3 · research-data · option_surface_iv_daily upserts per (symbol, trade_date, expiry) and never deletes, so expiries a re-walk dropped keep their old smile**
 
-- **状态**：在做（10-06 还债第 B 路：Research 日期/日历/dbt/定价）
+- **状态**：观察中（到 10-07 批处理；存量清理待 Owner）
+- **验收**：`trade_date > '2026-10-06'` 的 (symbol, trade_date) 组里没有比本组最新拟合早 1 小时以上的行
+- **下一步**：存量 122 行（98 组）的清理脚本 `bifrost-research/scripts/oneoff/2026-10-06-td112-surface-stale-expiries.sql`（计数不符不提交）会改写 Golden Source，由 Owner 跑
 - **Claim**: engines/volatility/surface.py writes with batch_upsert on (symbol, trade_date, expiry) and has no DELETE; expiries a later re-walk no longer produces keep the old fit beside the new one. Same class already fixed for signal_hit, gex, flow, pcr and max_pain.
 - **Measured**: MEASURED. 122 rows in 98 of 12,635 (symbol, trade_date) groups are >1h older than their group's newest fit, up to 6d 21h; span 2026-07-14..09-03; only 10 are 0DTE.
 - **Evidence**:
@@ -1317,6 +1337,77 @@
 - **Fix**: Serve per-name counts once: Research adds `standard_contracts` / `adjusted_contracts` for the latest session (from option_open_interest, using not_adjusted_contract_sql) to an existing per-name read the Symbol page already loads (dossier or options coverage), additive. Frontend reads those fields and deletes its own ticker test.
 - **Ratchet**: A frontend ratchet that no file outside tests matches the adjusted-root regex once the field is served; Research test that the counts agree with not_adjusted_contract_sql on a fixture.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research, bifrost-trade-frontend
+
+### TD-160
+
+**P3 · research-data · features.event_signal_radar_daily keeps the pre-rename copies of two indexes (event_radar_batch_collected, event_radar_importance) beside the current ones**
+
+- **状态**：未开始
+- **Claim**: The table was renamed from event_radar; ddl.py creates event_signal_radar_daily_batch_collected and _importance, but the old event_radar_batch_collected and event_radar_importance survived, so every write maintains two identical indexes each.
+- **Measured**: MEASURED 10-06 (pg_indexes, read-only): event_radar_batch_collected 160 kB, event_radar_importance 152 kB beside event_signal_radar_daily_batch_collected 160 kB / _importance 152 kB; event_radar_pkey is the primary key (keep, name only).
+- **Evidence**:
+  - `bifrost-research/src/bifrost_research/schema/ddl.py:1572` — `CREATE INDEX IF NOT EXISTS event_signal_radar_daily_batch_collected`
+  - `bifrost-research/src/bifrost_research/schema/ddl.py:1578` — `CREATE INDEX IF NOT EXISTS event_signal_radar_daily_importance`
+- **Impact**: Small today (~300 kB, double write cost on a low-volume table); the pattern (renames leave old indexes) repeats on bigger tables.
+- **Fix**: Owner DDL step: DROP INDEX CONCURRENTLY features.event_radar_batch_collected, features.event_radar_importance (optionally rename event_radar_pkey).
+- **Ratchet**: A schema check that lists indexes in research schemas whose definition duplicates another index on the same table (pg_index indkey + indpred equal) — warning in code-health or a db test.
+- 审批 改表 · 代价 S · 风险 low · repos: bifrost-research
+
+### TD-161
+
+**P3 · ops-platform · BifrostAPIHighErrorRate / HighLatency only see bifrost-* namespaces with http_requests_total; research-api and the plugins export no HTTP metrics, so their 5xx and latency go unalerted**
+
+- **状态**：未开始
+- **Claim**: The two API alerts select http_requests_total in namespace=~"bifrost-.*". research-api (and the market-data / flex plugin APIs) export no http_requests_* series, so widening the namespace regex would change nothing; a research-api returning 5xx all night raises no alert.
+- **Measured**: code-read 10-06 by paydown lane C (it checked the rule expressions against live Prometheus).
+- **Evidence**:
+  - `bifrost-trade-infra/k8s/monitoring/bifrost-alerting-rules.yaml:31` — `sum(rate(http_requests_total{namespace=~"bifrost-.*",status="5xx"}[5m])) by (namespace, service)`
+- **Impact**: Research and plugin API outages are seen only by users or by indirect checks.
+- **Fix**: Add the same HTTP middleware metrics to research-api and the plugin APIs (request count by status, latency histogram), then widen the two rules' namespace selector to research and plugin-.*.
+- **Ratchet**: An alert-coverage test: every Deployment with a ServiceMonitor must export http_requests_total (checked against /metrics in CI or a release probe).
+- 审批 不用批 · 代价 M · 风险 low · repos: bifrost-research, bifrost-platform-plugin-market-data, bifrost-platform-plugin-flex-query, bifrost-trade-infra
+
+### TD-162
+
+**P2 · ops-platform · Research and plugin releases have no release window: sessions collide on pins and on deliver runs**
+
+- **状态**：未开始
+- **Claim**: release.sh window serializes Trade releases only. Research and plugin releases have no equivalent; on 10-06 a session started deliver-research for 0.185.0 while another waited on an ad-hoc lock in /tmp, and the S4 session built 0.187.0 while lane C built 0.188.0, leaving the pins two releases behind the images until the Owner approved one combined pin push.
+- **Measured**: MEASURED 10-06: research 0.185.0 started via platform-api during another session's lock wait; 0.187.0 and 0.188.0 built back to back with one pin push (6cf4266).
+- **Evidence**:
+  - `bifrost-trade-infra/scripts/release/release.sh:2` — `# One entry for a Trade release (TD-84): STG from main, PROD pinned to an STG run, DEV catch-up.`
+- **Impact**: Two sessions can ship over each other (pins pointing at an image that lacks the other's change, or a Dagster apply that drops one), and nobody can see who is releasing research right now.
+- **Fix**: Extend release.sh window to cover research and the plugins (one window file, the repo in `what`), and have the deliver-research / build pipelines (and platform-api's start_pipeline_run) refuse while a window is held by someone else; document it in CLAUDE.md §5 next to the Trade window.
+- **Ratchet**: deliver-research / plugin build PipelineRuns check the window as their first task (fail fast), the same way the Trade PROD pipeline checks its STG run.
+- 审批 跨仓库发版 · 代价 M · 风险 med · repos: bifrost-trade-infra, bifrost-research, bifrost-platform
+
+### TD-163
+
+**P3 · research-control · Two research tests import dagster without importorskip, so they fail in any venv without the orchestration extra**
+
+- **状态**：未开始
+- **Claim**: tests/engines/test_alert_scan_rejudge.py (TD-97) and tests/orchestration/test_event_radar_runner.py (TD-100) import dagster at module level. CI installs the extra so it passes there; a plain dev venv reports 2 failures on origin/main, which trains people to ignore red.
+- **Measured**: MEASURED 10-06 by paydown lane B: full run 2025 passed, 2 failed (these two) in a venv without [orchestration].
+- **Evidence**:
+  - `bifrost-research/tests/orchestration/test_event_radar_runner.py:87` — `import dagster`
+- **Impact**: Local gates look red for reasons unrelated to the change being tested.
+- **Fix**: Add `pytest.importorskip("dagster")` to both (or a conftest marker for orchestration tests), or make the Makefile test target install the extra.
+- **Ratchet**: A conftest check: any test module importing dagster must be under tests/orchestration with the importorskip guard.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
+
+### TD-164
+
+**P3 · research-data · dbt reports MissingArgumentsPropertyInGenericTestDeprecation 18 times: generic test arguments use the pre-1.10 layout**
+
+- **状态**：未开始
+- **Claim**: Generic tests pass their parameters at the top level instead of under `arguments:`; dbt 1.10+ warns on each, and a future dbt will stop accepting it.
+- **Measured**: MEASURED 10-06 by paydown lane B (dbt parse on dbt-core 1.10.23 and 1.12.3; the Dagster image runs 1.12.5).
+- **Evidence**:
+  - `bifrost-research/src/bifrost_research/dbt/models/intermediate/_intermediate__models.yml:29` — `combination_of_columns:`
+- **Impact**: Noise in every dbt run today; a hard break on a future dbt upgrade.
+- **Fix**: Move test parameters under `arguments:` in the model yml files.
+- **Ratchet**: Run dbt parse with `--warn-error-options '{"error": ["MissingArgumentsPropertyInGenericTestDeprecation"]}'` in the dbt grain ratchet test.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
 
 ## 没覆盖到的（下一轮从这里开始）
 
