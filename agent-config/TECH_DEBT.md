@@ -13,12 +13,9 @@
 
 ## 待你签收
 
-- **TD-163** — 两个 import dagster 的测试加 `pytest.importorskip`（research e96c360）· 验收 PASS（10-06，无 extra 2055 passed / 0 failed）· 防线：`bifrost-research/tests/test_dagster_import_guard.py`（AST 扫描，含间接加载）· 无后续
-- **TD-164** — 18 个 dbt generic test 的参数移进 `arguments:`，dbt-core 下限升到 1.10（research e96c360）· 验收 PASS（10-06，严格 parse exit 0，manifest 前后一致）· 防线：`tests/test_dbt_grain_ratchet.py::test_generic_test_parameters_sit_under_arguments` + Dockerfile / Makefile 的 `--warn-error-options` · 无后续
-- **TD-167** — Console slot adherence 对五个受巡检 slot 只认本 slot 的 job，证据读 `slot:<id>` 行（market-data 0.80.0 / 0.80.1 修计数）· 验收 PASS（10-06 19:12 UTC；7 天重放 0 次翻转）· 防线：`tests/test_slot_freshness.py` 新用例 + `SHAPE_NAMED_SLOTS == doctor.POLICED_SLOTS` · 更正：这个判定的读者是 Platform Data Husbandry 的 market_batch 泳道，不是 Research gate · 后续：TD-174、TD-175
-- **TD-168** — doctor stale:* 只在维度真共享时点名共享方（market-data 0.80.0）· 验收 PASS（10-06 19:13 UTC）· 防线：`test_the_sharing_clause_appears_only_for_a_shared_dimension` · 无后续
+（暂无）
 
-**未结 76 项**：P0 0 · P1 5 · P2 30 · P3 41；要你批的 38 项（从总览表的审批列算）。
+**未结 72 项**：P0 0 · P1 5 · P2 30 · P3 37；要你批的 38 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -50,7 +47,7 @@
 
 目标：先让失败变红。错数据先修数据（TD-87 restate），再把引擎、闸门、写入方从「出错也报成功」改成失败即失败：引擎资产按输出判定、husbandry gate 失败即关、日历读失败报错、写入方失败抛错。不需要 Owner 批的先做。
 
-项：TD-87, TD-91, TD-92, TD-94, TD-97, TD-101, TD-136, TD-156, TD-157, TD-166, TD-167 · 已还：TD-88, TD-89, TD-90, TD-113, TD-93, TD-165
+项：TD-87, TD-91, TD-92, TD-94, TD-97, TD-101, TD-136, TD-156, TD-157, TD-166 · 已还：TD-88, TD-89, TD-90, TD-113, TD-93, TD-165, TD-167
 
 ### 第 2 波 · 让闸门真的卡住
 
@@ -62,7 +59,7 @@
 
 目标：所有「今天 / 本 session」都从 `db/calendar` 的一个函数来，代替 11 个私有 helper 和 44 处 `date.today()`；dbt 补 grain 测试；IV / 回测的定价参数统一。
 
-项：TD-98, TD-110, TD-111, TD-112, TD-128, TD-129, TD-164, TD-174, TD-175
+项：TD-98, TD-110, TD-111, TD-112, TD-128, TD-129, TD-174, TD-175 · 已还：TD-164
 
 ### 第 4 波 · 券商资金账本（Flex / IB）
 
@@ -74,7 +71,7 @@
 
 目标：删掉没人用的（挂起的 CronJob、退役脚本、无调用路由），手抄的副本改成从一处生成（调度名单、max-pain / PCR），清单的应用顺序与 Argo 归属理顺。
 
-项：TD-102, TD-106, TD-107, TD-118, TD-119, TD-120, TD-123, TD-124, TD-125, TD-160, TD-163, TD-168, TD-169, TD-170, TD-176 · 已还：TD-126, TD-108, TD-154
+项：TD-102, TD-106, TD-107, TD-118, TD-119, TD-120, TD-123, TD-124, TD-125, TD-160, TD-169, TD-170, TD-176 · 已还：TD-126, TD-108, TD-154, TD-163, TD-168
 
 ### 第 6 波 · 备份链与自动修复（10-06 日常发现）
 
@@ -231,11 +228,7 @@
 | [TD-160](#td-160) | P3 | research-data | features.event_signal_radar_daily keeps the pre-rename copies of two indexes (event_radar_batch_collected, event_radar_importance) beside the current ones | 改表 |
 | [TD-161](#td-161) | P3 | ops-platform | BifrostAPIHighErrorRate / HighLatency only see bifrost-* namespaces with http_requests_total; research-api and the plugins export no HTTP metrics, so their 5xx and latency go unalerted | 不用批 |
 | [TD-162](#td-162) | P2 | ops-platform | Research and plugin releases have no release window: sessions collide on pins and on deliver runs | 跨仓库发版 |
-| [TD-163](#td-163) | P3 | research-control | Two research tests import dagster without importorskip, so they fail in any venv without the orchestration extra | 不用批 |
-| [TD-164](#td-164) | P3 | research-data | dbt reports MissingArgumentsPropertyInGenericTestDeprecation 18 times: generic test arguments use the pre-1.10 layout | 不用批 |
 | [TD-166](#td-166) | P2 | research-data | GEX zero_gamma was the strike nearest spot on 38% of daily levels rows (no change of sign), and a step out of zero counted as a crossing; terrain read it as a flip at spot | 已批（观察中） |
-| [TD-167](#td-167) | P3 | market-data | Console slot adherence still credits a policed slot with its sibling's jobs (reference counts ticker-details detail jobs as its evidence) | 不用批 |
-| [TD-168](#td-168) | P3 | market-data | The doctor's stale:* detail says the dimension row is one 'which other slots also write' even for calendar and fundamentals-rotate, whose dimensions are not shared | 不用批 |
 | [TD-169](#td-169) | P3 | market-data | ops_jobs.ingest_freshness.option_expiration is a fossil row frozen since 09-06 and still listed as ok | 不用批 |
 | [TD-170](#td-170) | P3 | research-control | dagster-daemon logs one line over 256 KB at the 22:45 and 03:00 UTC schedule ticks every night | 不用批 |
 | [TD-171](#td-171) | P3 | frontend | Positions shows the attribution price_last as if it were live: no EOD label or date now that core 0.51.0 fills it from the vendor EOD mark | 不用批 |
@@ -1300,38 +1293,6 @@
 - **Ratchet**: deliver-research / plugin build PipelineRuns check the window as their first task (fail fast), the same way the Trade PROD pipeline checks its STG run.
 - 审批 跨仓库发版 · 代价 M · 风险 med · repos: bifrost-trade-infra, bifrost-research, bifrost-platform
 
-### TD-163
-
-**P3 · research-control · Two research tests import dagster without importorskip, so they fail in any venv without the orchestration extra**
-
-- **状态**：待你签收
-- **验收**：不装 orchestration extra 的 venv 跑全量 `pytest -q` 0 failed，且 `tests/test_dagster_import_guard.py` 通过
-- **验收结果**：PASS 2026-10-06 research e96c360：无 extra 2055 passed / 23 skipped（改前 2 failed），带 extra 2149 passed
-- **Claim**: tests/engines/test_alert_scan_rejudge.py (TD-97) and tests/orchestration/test_event_radar_runner.py (TD-100) import dagster at module level. CI installs the extra so it passes there; a plain dev venv reports 2 failures on origin/main, which trains people to ignore red.
-- **Measured**: MEASURED 10-06 by paydown lane B: full run 2025 passed, 2 failed (these two) in a venv without [orchestration].
-- **Evidence**:
-  - `bifrost-research/tests/orchestration/test_event_radar_runner.py:87` — `import dagster`
-- **Impact**: Local gates look red for reasons unrelated to the change being tested.
-- **Fix**: Add `pytest.importorskip("dagster")` to both (or a conftest marker for orchestration tests), or make the Makefile test target install the extra.
-- **Ratchet**: A conftest check: any test module importing dagster must be under tests/orchestration with the importorskip guard.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
-
-### TD-164
-
-**P3 · research-data · dbt reports MissingArgumentsPropertyInGenericTestDeprecation 18 times: generic test arguments use the pre-1.10 layout**
-
-- **状态**：待你签收
-- **验收**：`make dbt-parse`（严格模式，MissingArguments 当错误）exit 0；dbt-core 1.10.23 与 1.12.5 parse 无 deprecation；`tests/test_dbt_grain_ratchet.py` 通过
-- **验收结果**：PASS 2026-10-06 research e96c360：dbt-parse exit 0，两版 dbt 0 条 deprecation；manifest 前后 105 个 test 节点 kwargs 一致；0.195.0-dagster 构建里的严格 parse 通过
-- **Claim**: Generic tests pass their parameters at the top level instead of under `arguments:`; dbt 1.10+ warns on each, and a future dbt will stop accepting it.
-- **Measured**: MEASURED 10-06 by paydown lane B (dbt parse on dbt-core 1.10.23 and 1.12.3; the Dagster image runs 1.12.5).
-- **Evidence**:
-  - `bifrost-research/src/bifrost_research/dbt/models/intermediate/_intermediate__models.yml:29` — `combination_of_columns:`
-- **Impact**: Noise in every dbt run today; a hard break on a future dbt upgrade.
-- **Fix**: Move test parameters under `arguments:` in the model yml files.
-- **Ratchet**: Run dbt parse with `--warn-error-options '{"error": ["MissingArgumentsPropertyInGenericTestDeprecation"]}'` in the dbt grain ratchet test.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
-
 ### TD-166
 
 **P2 · research-data · GEX zero_gamma was the strike nearest spot on 38% of daily levels rows (no change of sign), and a step out of zero counted as a crossing; terrain read it as a flip at spot**
@@ -1348,39 +1309,6 @@
 - **Ratchet**: tests/engines/test_gex_zero_exposure.py (leaving zero and touching zero are not crossings; the nearest crossing wins; daily rows store NULL without one; the pass counts read-only and refuses a mismatched update).
 - **验收**: `python -m bifrost_research.engines.gex.zero_exposure_purge --zero-gamma` (dry run, read-only) reports `changed: 0` after two nightly runs.
 - 审批 已批（Owner 10-06，选 A）· 代价 M · 风险 med · repos: bifrost-research
-
-### TD-167
-
-**P3 · market-data · Console slot adherence still credits a policed slot with its sibling's jobs (reference counts ticker-details detail jobs as its evidence)**
-
-- **状态**：待你签收
-- **验收**：queue-dashboard：reference = `on_plan slot:reference jobs_created=1`，corporate 的证据为 `slot:corporate`，ticker-details 仍读 `ticker_sync`
-- **验收结果**：PASS 2026-10-06 19:12 UTC market-data 0.80.1（9fdb151）；只读重放 7 天 × 6 个 slot × 2017 个时刻 0 次翻转，最坏过渡 721 个时刻 0 次翻转
-- **Claim**: _evidence_for_fire counts any created job of the slot's kinds. reference and ticker-details both declare kind ticker_sync, so a ticker-details detail job counts as evidence that the reference universe walk ran. TD-101 fixed the doctor's freshness; the Console schedule-adherence verdict (which the Research gate reads) still has the old credit.
-- **Measured**: code-read 10-06 by paydown lane D; left alone because changing it moves the schedule verdict the Research gate reads.
-- **Evidence**:
-  - `bifrost-platform-plugin-market-data/src/bifrost_market_data/api/ingest_dashboard.py:64` — `"reference": {"kinds": ["ticker_sync"], …}`
-  - `bifrost-platform-plugin-market-data/src/bifrost_market_data/api/ingest_dashboard.py:523` — `evidence_ok = (counts["created"] > 0) or fresh_hit`
-- **Impact**: A stopped reference walk can still show 'on schedule' in the Console while the doctor now says stale.
-- **Fix**: Filter fire evidence by freshness.policed_slot_for_job and use the slot:<id> freshness row as evidence.
-- **Ratchet**: Extend tests/test_slot_freshness.py: adherence for reference must not count a ticker-details job.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data
-
-### TD-168
-
-**P3 · market-data · The doctor's stale:* detail says the dimension row is one 'which other slots also write' even for calendar and fundamentals-rotate, whose dimensions are not shared**
-
-- **状态**：待你签收
-- **验收**：`/market/doctor` 的 stale:* detail：calendar、fundamentals-rotate 不含 also；reference、corporate、option-refresh 点名共享方
-- **验收结果**：PASS 2026-10-06 19:13:11 UTC doctor 报告（market-data 0.80.1）
-- **Claim**: The detail text after TD-101 always adds 'which other slots also write' when quoting the dimension row. For calendar and fundamentals-rotate the dimension is written only by that slot, so the sentence tells an operator to distrust a row that is in fact theirs.
-- **Measured**: code-read 10-06 by paydown lane D.
-- **Evidence**:
-  - `bifrost-platform-plugin-market-data/src/bifrost_market_data/doctor.py:1416` — `which other slots also write`
-- **Impact**: Misleading wording in the finding an operator acts on.
-- **Fix**: Say 'bumped by any job of that table', or mention sharing only when the dimension really is shared (the TD-101 test already pins which slots share one).
-- **Ratchet**: A doctor test asserting the sharing clause appears only for slots whose dimension is shared.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data
 
 ### TD-169
 
