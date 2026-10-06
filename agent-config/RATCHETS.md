@@ -44,6 +44,8 @@
 | 静默吞错棘轮（TD-113） | `bifrost-research/tests/test_silent_swallow.py` | engines / lenses / repositories / db / scheduler / orchestration 里既不记日志也不重抛的宽 except；playbook 触发失败不留痕 | warning（只许降：101 → 91；CI 不卡发布，见 TD-95） | 只覆盖 research；跨仓库版本见待建「Silent-swallow…」 |
 | 资金写入方必须有真库测试（TD-115） | `bifrost-trade-core/tests/test_money_writers_db.py` + `test_public_accounts_writers_have_db_tests`；`bifrost-platform-plugin-flex-query/tests/test_cash_parser.py` | accounts 的公开写函数没有 `*_db.py` 测试；现金解析器无测试 | warning（豁免名单只许缩：剩 `sync_accounts_snapshot_to_db`、`delete_one_execution`） | 插件仓库无 CI（TD-95/155），要手跑 |
 | Flex 只读 Golden Source（TD-116） | `bifrost-platform-plugin-flex-query/tests/test_gs_only_reads.py` | 配置或代码里出现 Trade 库连接（bifrost_dev/stg/prod、trade_postgres）；读失败悄悄回落 | warning | 插件仓库无 CI，要手跑 |
+| IV cone 7 天期限（TD-141） | `bifrost-research/tests/repositories/test_iv_cone.py` | 7 天档的内插与单侧读数回退；只有月度期权的名字被当成双侧 | warning（CI 不卡发布，见 TD-95） | 只覆盖 iv-cone |
+| candidate-outcome /rows 过滤（TD-147） | `bifrost-research/tests/api/test_candidate_outcome_rows_regime.py` | `/rows` 与 `/summary` 的 source / days 语义分叉；不带参数时结果被改变 | warning（CI 不卡发布，见 TD-95） | 只覆盖这两个端点 |
 
 ## 各类债现在挡没挡住
 

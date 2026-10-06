@@ -13,10 +13,9 @@
 
 ## 待你签收
 
-- **TD-141** — iv-cone 加 7d 期限（1–21 DTE 内插、单侧取最近），每档新增 `one_sided`（research 0.186.0）· 验收 PASS（10-06，NVDA 7d 252 个 session，30/60/90 不变）· 防线：`bifrost-research/tests/repositories/test_iv_cone.py`（7d 插值与单侧两例）· 后续：无后续：只有月度期权的名字 7d 多为单侧读数，已由 `one_sided` 标出
-- **TD-147** — `/research/candidate-outcome/rows` 加 `source` / `days` 过滤，语义同 `/summary`，不传参数时结果不变（research 0.186.0）· 验收 PASS（10-06）· 防线：`bifrost-research/tests/api/test_candidate_outcome_rows_regime.py`（锁住不带参数时 params 只有 `(limit,)`，以及过滤两例）· 后续：前端 Journal Settled 的 Right / Wrong 拆分改读它，随 TD-145 的前端一起做
+（暂无）
 
-**未结 68 项**：P0 0 · P1 5 · P2 30 · P3 33；要你批的 34 项（从总览表的审批列算）。
+**未结 66 项**：P0 0 · P1 5 · P2 30 · P3 31；要你批的 34 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -84,7 +83,7 @@
 
 目标：Data Gaps 看板上未结的 15 项并入台账：先把每日快照的写入修对（TD-137）再接读侧和三页，归因行补上价格，Research 侧已就绪的一个版本（0.185.0）发出去，长期限 IV 锥在 10-31 前从 option_daily 回填，其余按 Owner 已定的口径排。
 
-项：TD-137, TD-138, TD-139, TD-140, TD-141, TD-142, TD-143, TD-144, TD-145, TD-146, TD-147, TD-148, TD-149, TD-150, TD-151, TD-158, TD-159
+项：TD-137, TD-138, TD-139, TD-140, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-151, TD-158, TD-159 · 已还：TD-141, TD-147
 
 ## 数据边界（接受并留座）
 
@@ -215,13 +214,11 @@
 | [TD-138](#td-138) | P2 | trade-data | The daily position and NAV snapshots have no reader: no trade-api route, no Research or frontend read, and three pages still say the snapshot does not exist | 不用批 |
 | [TD-139](#td-139) | P3 | trade-data | Snapshot Greeks carry no quality flag (vendor / degraded / missing): only mark_source and greeks_asof are stored | 不用批 |
 | [TD-140](#td-140) | P2 | trade-data | Position attribution rows have no price, intraday or after the close: their only price source is contract_quote_live, which only the frozen daemon writes | 不用批 |
-| [TD-141](#td-141) | P3 | research-data | The IV cone has no 7-day tenor although the data is there: iv-cone serves 30 / 60 / 90 only | 不用批 |
 | [TD-142](#td-142) | P2 | research-data | The 90-day IV cone has 31–39 sessions of history and there is no 180-day tenor: ATM IV was stored only to 90 DTE before 2026-08-05 | 要你批 |
 | [TD-143](#td-143) | P3 | research-data | Hypotheses never link to trades: linked_opportunity_ids is empty on all 91 rows, and only Research's own create / patch writes it | 不用批 |
 | [TD-144](#td-144) | P3 | research-data | Settled candidates are not attributed to the judge (persona) that put them forward, so the Personas bench track-record columns stay grey | 要你批 |
 | [TD-145](#td-145) | P3 | research-data | Settled candidates carry no regime label, so the Personas bench 'Best regime' column has nothing to group by | 不用批 |
 | [TD-146](#td-146) | P3 | research-data | No store accepts a hand verdict, so the Personas bench 'Agrees with you' column cannot be computed | 要你批 |
-| [TD-147](#td-147) | P3 | research-data | /research/candidate-outcome/rows has no source / days filter, so Journal Settled cannot split Right / Wrong by source and window | 不用批 |
 | [TD-148](#td-148) | P3 | trade-data | A trade cannot name the lens or backtest run it came from: trade has no such column and strategy_plan.source_kind does not allow lens / backtest_run | 改表（要你批） |
 | [TD-149](#td-149) | P2 | market-data | CTVA's adjusted daily bars ignore its 2026-10-01 spin-off, so every return-based feature on CTVA sees an ~84% one-day drop | 不用批 |
 | [TD-150](#td-150) | P3 | frontend | Pages report gaps that are not there: 'no earnings date reaches this side', 'carry nothing at all' for names the vendor answered, and no note that CUE lists only adjusted contracts | 不用批 |
@@ -1038,23 +1035,6 @@
 - **Ratchet**: core test: with contract_quote_live empty and a snapshot mark present, the row carries that price with mark_source vendor EOD; with a fresh live quote, the live one wins.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-core, bifrost-trade-frontend
 
-### TD-141
-
-**P3 · research-data · The IV cone has no 7-day tenor although the data is there: iv-cone serves 30 / 60 / 90 only**
-
-- **状态**：待你签收
-- **验收**：`kubectl -n research exec deploy/research-api -- python -c "import urllib.request,json;d=json.loads(urllib.request.urlopen('http://127.0.0.1:8795/research/volatility/iv-cone?symbol=NVDA').read());print([(t['tenor_days'],t['n'],t.get('withheld')) for t in d['tenors']])"` → 有 `(7, n, False)` 且 n ≥ 60；30 / 60 / 90 三档与发布前相同
-- **验收结果**：PASS 2026-10-06 research 995a890（0.186.0；17:01 UTC：NVDA iv-cone tenors (7, 252)、(30, 252)、(60, 207)、(90, 39 withheld)，30/60/90 与发布前相同）
-- **Claim**: repositories/iv_cone.py reads 30, 60 and 90 days only. For NVDA, 186 of 252 sessions have an expiry within 7 DTE and all 252 have one at 7–14 DTE, so a 7-day horizon is readable from what is stored.
-- **Measured**: MEASURED 10-06 (expiry coverage above). 3109b04 trial on real rows, 252 sessions: NVDA 7d reads 252 (66 one-sided), p50 0.378; PLTR 170 one-sided, KO 183 (monthly-only names take the nearest expiry past 7 days); 30/60/90 unchanged; 18% of name-sessions in the store have an expiry within 7 DTE. ruff clean; pytest 1954 passed / 14 skipped.
-- **Evidence**:
-  - `bifrost-research/src/bifrost_research/repositories/iv_cone.py:34` — `TENORS: tuple[int, ...] = (30, 60, 90)`
-  - `bifrost-research/src/bifrost_research/repositories/iv_cone.py:53` — `if IV30_MIN_DTE <= dte <= 3 * tenor:`
-- **Impact**: The History volatility cone has no short end, so front-week event and pin regimes do not show.
-- **Fix**: 3109b04: TENORS adds 7; within 1–21 DTE interpolate, otherwise take the nearest expiry on the one side that exists; a new one_sided field per tenor says which.
-- **Ratchet**: tests/repositories/test_iv_cone.py in 3109b04 (7-day interpolation and the one-sided case).
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
-
 ### TD-142
 
 **P2 · research-data · The 90-day IV cone has 31–39 sessions of history and there is no 180-day tenor: ATM IV was stored only to 90 DTE before 2026-08-05**
@@ -1136,24 +1116,6 @@
 - **Fix**: If wanted: a journal.* table keyed by research user (D-Journal-Stores), one row per (user, symbol, trade_date) verdict with an optional note, written from the bench; designed with the database-design skill before any DDL. If not: the column keeps its stated reason and this item is closed as not wanted.
 - **Ratchet**: If built: a DB test of the store and the frontend column test. If not built: none needed (the page already states why).
 - 审批 要你批 · 代价 M · 风险 low · repos: bifrost-research, bifrost-trade-frontend
-
-### TD-147
-
-**P3 · research-data · /research/candidate-outcome/rows has no source / days filter, so Journal Settled cannot split Right / Wrong by source and window**
-
-- **状态**：待你签收
-- **验收**：`git -C bifrost-research show origin/main:src/bifrost_research/api/candidate_outcome.py | grep -n 'Query('` 在 get_rows 下有 source 与 days；research-api 版本 ≥ 0.185.0（TD-145 的命令）
-- **验收结果**：PASS 2026-10-06 research 995a890（0.186.0；origin/main 的 get_rows 有 `source: str | None = Query(None…)` 与 `days: int | None = Query(…)`；research-api /health 0.186.0）
-- **Claim**: /rows takes symbol, horizon_days and limit only, while /summary already takes source and days; both require an Owner login since 0.167.0.
-- **Measured**: CODE-READ 10-06 on origin/main a242b22. 3109b04: /rows adds source and days (1–730) with /summary's meaning; without them the result is unchanged, and a test pins that the query params are then only (limit,).
-- **Evidence**:
-  - `bifrost-research/src/bifrost_research/api/candidate_outcome.py:137` — `def get_rows(`
-  - `bifrost-research/src/bifrost_research/api/candidate_outcome.py:140` — `limit: int = Query(100, ge=1, le=500),`
-  - `bifrost-research/src/bifrost_research/api/candidate_outcome.py:116` — `source: str | None = Query(None),`
-- **Impact**: Journal's Settled view cannot split Right / Wrong per source or window.
-- **Fix**: 3109b04 as above, still require_owner; then Journal Settled passes source and days.
-- **Ratchet**: The 3109b04 test pinning the unfiltered query plus the filtered cases.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research, bifrost-trade-frontend
 
 ### TD-148
 
