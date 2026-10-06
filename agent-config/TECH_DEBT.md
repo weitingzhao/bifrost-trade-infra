@@ -13,10 +13,9 @@
 
 ## 待你签收
 
-- **TD-99** — Dagster 调度存活告警：research-api 的 `/metrics` 按时间戳导出每个调度的状态、上次应触发 / 实际触发、每个 job 的最后成功，infra 新增 `bifrost-research-orchestration` 11 条规则（research 0.188.0、infra f517317）· 验收 PASS（10-06，up 1、39 个调度、无告警） · 防线：这 11 条规则 + `bifrost-research/tests/orchestration/test_definitions.py::test_schedule_roster_matches_the_definitions_field_by_field` · 后续：TD-161（API 错误率 / 延迟告警看不到 research 与插件）
-- **TD-93** — 日历与标的池读失败即报错：节假日或 K 线读不到抛 `CalendarUnavailable`，标的池只在表缺失时回退、全空抛 `UniverseUnavailable`（research 0.189.0） · 验收 PASS（10-06，抛错 + 标的池 713）· 防线：`bifrost-research/tests/test_calendar_failures.py` · 后续：各引擎 summary 带 `universe_source`（今天只在日志里），并入 TD-92 的产出检查一起做
+（暂无）
 
-**未结 71 项**：P0 0 · P1 5 · P2 31 · P3 35；要你批的 36 项（从总览表的审批列算）。
+**未结 69 项**：P0 0 · P1 5 · P2 29 · P3 35；要你批的 36 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -48,13 +47,13 @@
 
 目标：先让失败变红。错数据先修数据（TD-87 restate），再把引擎、闸门、写入方从「出错也报成功」改成失败即失败：引擎资产按输出判定、husbandry gate 失败即关、日历读失败报错、写入方失败抛错。不需要 Owner 批的先做。
 
-项：TD-87, TD-91, TD-92, TD-93, TD-94, TD-97, TD-101, TD-136, TD-156, TD-157 · 已还：TD-88, TD-89, TD-90, TD-113
+项：TD-87, TD-91, TD-92, TD-94, TD-97, TD-101, TD-136, TD-156, TD-157 · 已还：TD-88, TD-89, TD-90, TD-113, TD-93
 
 ### 第 2 波 · 让闸门真的卡住
 
 目标：一个开关让所有测试类防线生效（CI 卡发布），再补上调度存活告警、D10 闸门的非 curl 写法、operator 流白名单、本机常驻任务和密钥轮换的盲区、spine 副本同步。
 
-项：TD-95, TD-96, TD-99, TD-100, TD-105, TD-109, TD-121, TD-152, TD-153, TD-155, TD-161, TD-162
+项：TD-95, TD-96, TD-100, TD-105, TD-109, TD-121, TD-152, TD-153, TD-155, TD-161, TD-162 · 已还：TD-99
 
 ### 第 3 波 · 交易日与日历只有一个来源
 
@@ -171,13 +170,11 @@
 | [TD-91](#td-91) | P1 | flex-ib | A failed cash-transactions write is recorded as a successful run: core returns 0 on any exception and the job counts it as 'ok, 0 rows' | 改公开接口 |
 | [TD-51](#td-51) | P2 | trade (round 1) | Query-parameter vocabulary drift for expiry, option side, time ranges and limits; no pagination | 改公开接口 |
 | [TD-92](#td-92) | P2 | research-control | Engine assets never fail: per-symbol failures, zero-row writes and skips are only metadata, reasons are discarded, and research_trading_day is green regardless of output | 不用批 |
-| [TD-93](#td-93) | P2 | research-data | db/calendar.py turns read failures into wrong answers: a failed holiday read makes holidays sessions, a failed universe read swaps the engine universe for 'whatever OI was ingested' or nothing | 不用批 |
 | [TD-94](#td-94) | P2 | research-control | husbandry_gate fails open: a probe exception leaves verdict 'unknown', which passes, and the gate never checks that the doctor's session is the one being closed | 不用批 |
 | [TD-95](#td-95) | P2 | research-control | No release path is gated on CI: deliver-research ships SHAs whose CI is red (CI starts 7s after deliver), and release.sh never checks CI for Trade | 跨仓库发版 |
 | [TD-96](#td-96) | P2 | agent-governance | preflight.js D10 rule only recognises curl: python requests, wget --post-data and sed -i on the daemon scale-zero patch all pass | 安全/凭据（要你批） |
 | [TD-97](#td-97) | P2 | research-data | alert_scan judges each session once, a day late, and never revisits; composite_high has never fired because every >=90 score appeared on a later scan recompute | 不用批 |
 | [TD-98](#td-98) | P2 | research-data | 'Today' is resolved by 11 private helpers plus 44 bare date.today() calls on UTC pods; option_universe stamps tomorrow's date | 不用批 |
-| [TD-99](#td-99) | P2 | research-control | No scheduler liveness alarm: a stopped, renamed or never-ticking Dagster schedule, or a hung daemon, produces no alert; no PrometheusRule targets research | 不用批 |
 | [TD-100](#td-100) | P2 | research-control | Event Radar SEC ingest runs from a Mac tmux loop on the shared checkout; it read .env once and failed 157 ticks over ~35.6h after a password rotation; the cluster event_radar slot never ingests and stays green | 不用批 |
 | [TD-101](#td-101) | P2 | market-data | Doctor slot staleness reads a per-kind freshness row that other slots and zero-row jobs also refresh, so a stopped policed slot still reads fresh | 不用批 |
 | [TD-102](#td-102) | P2 | market-data | Plugin's deprecated live max-pain and PCR routes duplicate Research and skip the adjusted-contract filter: different strikes on the same day, and trade-api SEPA PCR reads the contaminated one | 改公开接口 |
@@ -329,25 +326,6 @@
 - **Ratchet**: Test enumerating ENGINE_ASSETS and RESEARCH_AUX_ASSETS: each has a registered asset check or an explicit opt-out with reason. Unit test: every slot summary carrying symbols_failed carries a failures-by-reason dict. code-health metric: bare `failed += 1` in scheduler/ (baseline 3, falling).
 - 审批 不用批 · 代价 M · 风险 low · repos: bifrost-research
 
-### TD-93
-
-**P2 · research-data · db/calendar.py turns read failures into wrong answers: a failed holiday read makes holidays sessions, a failed universe read swaps the engine universe for 'whatever OI was ingested' or nothing**
-
-- **状态**：待你签收
-- **验收**：research-api pod 里：给 `fetch_recent_trading_days` 一个会抛错的连接应得到 `CalendarUnavailable`；`load_symbols_from_env_or_query` 用真实连接返回标的池（今天 713）
-- **验收结果**：PASS 2026-10-06 research 0.189.0（ad7fe03）：抛出 CalendarUnavailable，标的池 713
-- **Claim**: fetch_closed_holiday_dates' inner _rows() catches any exception, rolls back and returns [] with no log, so today and every future holiday become sessions (past dates fall back to index bars); cached_closed_days' warning cannot fire and fetch_recent_trading_days (6 callers) gets no signal. In the same module, load_symbols_from_universe_rule catches every exception and returns []; load_symbols_from_env_or_query then falls back to SELECT DISTINCT underlying FROM raw_market.option_open_interest LIMIT 5000, also swallowing errors, and RESEARCH_WATCHLIST overrides the rule entirely. ~12 engines share this loader and materialize SUCCESS on a different universe or none. dw_stock.dim_trading_calendar is a third calendar definition with no reader anywhere.
-- **Measured**: Partly MEASURED. git grep finds no reader of dim_trading_calendar in any repo. research.option_universe has 713 readable rows today; TD-86 shows unrelated db-init runs do drop grants on Research-read objects. Both swallows are CODE-READ; no failure observed tonight.
-- **Evidence**:
-  - `bifrost-research/src/bifrost_research/db/calendar.py:61` — `except Exception:`
-  - `bifrost-research/src/bifrost_research/db/calendar.py:66` — `return []`
-  - `bifrost-research/src/bifrost_research/db/calendar.py:223` — `LIMIT 5000`
-  - `bifrost-research/src/bifrost_research/db/calendar.py:209` — `env = (os_environ_watchlist())`
-- **Impact**: One grant or timeout regression silently brings back holiday sessions in forward projections (forecast sessions, settlement, opex) or writes features for the plugin's whole ingested set (resident tier is ~7x storage) or for nothing, under green runs. The dead dbt model invites a fourth calendar copy.
-- **Fix**: Log at warning and propagate: holiday read failure raises or tags the result 'calendar_degraded' surfaced in metadata/asset check; universe read errors propagate, OI fallback only on UndefinedTable/empty table; engines raise when the resolved universe is empty on a trading day and log universe_source + count in every summary. Make dim_trading_calendar the single SQL calendar bounded by the NY date, or delete it.
-- **Ratchet**: Tests: holiday query raising → fetch_recent_trading_days does not return a known holiday (or raises); universe loader re-raises InsufficientPrivilege and QueryCanceled; engine summary carries universe_source and symbols>0 on a trading day. Shared broad-except grep ratchet (see TD-113).
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
-
 ### TD-94
 
 **P2 · research-control · husbandry_gate fails open: a probe exception leaves verdict 'unknown', which passes, and the gate never checks that the doctor's session is the one being closed**
@@ -432,23 +410,6 @@
 - **Also (found by the TD-87 fix, 10-06)**: `engines/option_pinned/entry.py` `_today()` and `engines/forecast/terrain_backfill.py` `_today()` (UTC); `engines/backtest/event_query.py:160,1322`, `engines/brief/synth.py:79,486`, `copilot/agents/_context.py:26`, `copilot/harness/readiness.py:29` (`date.today()`); `lenses/exhibit_lenses.py:532` (`CURRENT_DATE - 30`). `db/calendar.latest_closed_session` (0.180.0) is the shared NY-session helper to adopt.
 - **Ratchet**: Enable ruff DTZ (DTZ005/DTZ011) for src/ with a falling baseline; code-health grep fails on a new `def _today`/`def _today_ny` outside db/calendar.py.
 - 审批 不用批 · 代价 M · 风险 low · repos: bifrost-research
-
-### TD-99
-
-**P2 · research-control · No scheduler liveness alarm: a stopped, renamed or never-ticking Dagster schedule, or a hung daemon, produces no alert; no PrometheusRule targets research**
-
-- **状态**：待你签收
-- **验收**：Prometheus：`up{job="research-api"}` = 1，`count(bifrost_dagster_schedule_running)` = 39，`bifrost-research-orchestration` 组 11 条规则已加载，`ALERTS{alertname=~"BifrostDagster.*"}` 为空
-- **验收结果**：PASS 2026-10-06 research 0.188.0（6cf4266）+ infra f517317：up 1、39 个调度、11 条规则、无告警
-- **Claim**: bifrost_run_failure_alert fires only on FAILURE runs and executes inside dagster-daemon. Nothing alerts on a schedule that stops producing runs (STOPPED in the instance DB, which the Makefile warns about), a schedule renamed/removed in code, or a daemon alive but not ticking. /research/orchestration/status computes overdue only for research_trading_day and only when the page (or the platform checklist handler) is requested. BifrostAPIHighErrorRate/CrashLooping match bifrost-* namespaces only; research-api and plugins have no http_requests_total.
-- **Measured**: MEASURED. All PrometheusRules: only three freshness-type alerts (backup drill, Flex ingest, market-data doctor); none for research/Dagster. ops_dagster.daemon_heartbeats is live but unread. A 49-min gap in event_radar cadence on 09-24 matches the 0.108/0.109-dagster crash loop. Today all 40 schedules RUNNING/DECLARED_IN_CODE.
-- **Evidence**:
-  - `bifrost-research/src/bifrost_research/orchestration/failure_alerts.py:64` — `@run_failure_sensor(`
-  - `bifrost-research/Makefile:45` — `# Instance DB may keep STOPPED even when DefaultScheduleStatus.RUNNING — flip explicitly.`
-- **Impact**: The September failure class (forecast had no producer from 08-30 while green; trading_day STARTED for 20.5h) is caught only when a human looks; a stopped schedule looks like a quiet night.
-- **Fix**: Export bifrost_dagster_schedule_last_success_seconds{schedule} from ops_dagster (research-api /metrics or a small exporter) with expected cadence from the roster; add BifrostDagsterScheduleOverdue (age > 2x cadence, calendar-aware) and BifrostDagsterDaemonHeartbeatStale (> 5 min); extend crash-loop/workload/5xx rules to namespace research and plugin-*.
-- **Ratchet**: The PrometheusRules themselves, plus a research test that every ScheduleDefinition has a cadence entry in the exporter table so new schedules are covered automatically.
-- 审批 不用批 · 代价 M · 风险 low · repos: bifrost-research, bifrost-trade-infra
 
 ### TD-100
 
