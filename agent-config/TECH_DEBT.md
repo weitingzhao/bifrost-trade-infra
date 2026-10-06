@@ -900,7 +900,7 @@
 
 **P1 · trade-data · The daily snapshot capture locks an account's intraday book into the day (first write wins, no freshness test) and account_nav_daily stores no margin-pressure fields**
 
-- **状态**：在做（代码就绪，已推为分支、未合并：core `fix/w4-snapshot-stale-accounts` = 9013ba2（0.51.0，基于 0.50.0；lint 过、单测 1287 过、test-db 100 过）· infra `fix/w4-snapshot-evening-all` = deaa2ca。**接手步骤**：① 等 Code Refactor 那批 Trade 发布（core 0.49.0 / 0.50.0 + api 0.10.0）在 PROD 通过——它会直接告诉 Owner；② 把 core 分支 rebase 到最新 main，若 0.51.0 已被占用就改下一个号（pyproject、DATABASE.md change log、snapshot_ddl.py / daily.py 注释与两个测试文件里的版本），重跑 `make lint && make test && make test-db`；③ Owner 逐项确认 PROD DDL：`account_nav_daily` ADD COLUMN IF NOT EXISTS `cushion` / `excess_liquidity` / `maint_margin_req`（double precision、可空、无默认、不回填），无自加项、无不可逆步骤，行为变化见本条 Fix；④ `release.sh window && git push` core main，Owner 跑 release.sh stg → prod（单独一批）；**每个环境在当天 16:20 ET 前跑完 db-init**，否则 capture 因缺列失败、丢一整天；⑤ api 镜像带上新 core 之后再合并推 infra 分支并同步 bifrost-stg / bifrost-prod（旧镜像跑晚间 `all` 会重读 attribution 而在 enrich 前退出）；⑥ 次日核 `account_nav_daily` 的 `account_updated_at ≥ 收盘` 与三列非空，写验收结果）
+- **状态**：在做（道 K 10-06：rebase 到 core 0.51.0 之上改号 0.52.0，只推分支；PROD DDL 三列等你逐项批）
 - **验收**：每个 Trade 库（`bifrost_dev` / `bifrost_stg` / `bifrost_prod`）发布后的 session：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data exec -i bifrost-postgres-3 -c postgres -- env PGOPTIONS='-c default_transaction_read_only=on' psql -U postgres -d bifrost_prod -X -At -c "SELECT count(*) FROM account_nav_daily WHERE snapshot_date >= '<发布日>' AND account_updated_at < (snapshot_date + time '16:00') AT TIME ZONE 'America/New_York'"` 为 0（NYSE 提前收盘日按提前收盘时间比），且 `SELECT snapshot_date, count(cushion), count(*) FROM account_nav_daily GROUP BY 1 ORDER BY 1 DESC LIMIT 3` 最新一天 count(cushion) = count(*)
 - **现在**：Owner 10-06 定：B1.b (a) 跳过陈旧账户、晚间补抓，不加 stale 列；B1.c (a) 加三列，不存整份 summary_extra。修复已 rebase 到 core 0.50.0 并改号 0.51.0：lint 通过；单测 1287 passed（跳过已知的本机 py_vollib 失败）；test-db 100 passed；kustomize 三环境可渲染。10-06 的 16:20 抓取仍按 0.48.2 跑。
 - **下一步**：0.51.0 已被 TD-140（core 4dbd316）占用：分支 rebase 到新 main 并改号 0.52.0（保留 capture 里的 `attribution_live_marks_only`，测试 fixture 带价行加 `mark_source="quote_live"`）→ 推 core / infra → `release.sh stg` / `prod`（要你批）→ 每环境先跑 db-init 建列再换镜像 → 同步 bifrost-stg / bifrost-prod。20:05–20:40 UTC 不起发布
@@ -1429,7 +1429,7 @@
 
 **P3 · frontend · Positions shows the attribution price_last as if it were live: no EOD label or date now that core 0.51.0 fills it from the vendor EOD mark**
 
-- **状态**：未开始
+- **状态**：在做（道 L，10-06 开工）
 - **Claim**: core 0.51.0 (TD-140) fills price_last from the newest vendor_eod snapshot mark when there is no live quote and labels each row mark_source / mark_date. The frontend type has only price_mid / price_last and buildTradeGroups falls back to price_last without saying it is a dated close.
 - **Measured**: code-read 10-06 by paydown lane I.
 - **Evidence**:
