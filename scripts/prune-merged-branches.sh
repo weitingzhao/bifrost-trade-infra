@@ -8,8 +8,10 @@
 #   scripts/prune-merged-branches.sh --apply --local also remove merged worktrees + local branches
 #
 # A branch counts as merged when every commit it has that main lacks (git cherry, patch-id) has a
-# commit of the same subject on main -- lanes are rebased or folded into a batch before they land,
-# so their patch ids change but their subjects stay. Kept regardless:
+# twin on main: the same Change-Id trailer anywhere in a main commit message (agent-config/scripts/
+# git-hooks stamps one since 2026-10-06; it survives rebase, amend, a version bump and a squash), or,
+# for a commit without one, the same subject -- lanes are rebased or folded into a batch before they
+# land, so their patch ids change. Kept regardless:
 #   - a branch with an open PR, or whose tip is younger than --min-age-hours (default 24)
 #   - a worktree with a file changed in the last --min-age-hours, a process running from it, or
 #     changes other than an untracked node_modules
@@ -34,7 +36,7 @@ while [[ $# -gt 0 ]]; do
     --local) LOCAL=1 ;;
     --repos) REPOS="$2"; shift ;;
     --min-age-hours) MIN_AGE_HOURS="$2"; shift ;;
-    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
   shift
@@ -54,10 +56,13 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 FAILED=0
 
-# merged <repo-dir> <ref> <main-subjects-file>: 0 when every commit main lacks has a same-subject twin on main
+# merged <repo-dir> <ref> <main-subjects-file> <main-change-ids-file>: 0 when every commit main lacks
+# has a twin on main -- same Change-Id when it carries one, else same subject
 merged() {
-  local c subj
+  local c subj cid
   for c in $(git -C "$1" cherry origin/main "$2" | awk '/^\+/{print $2}'); do
+    cid=$(git -C "$1" log -1 --format='%(trailers:key=Change-Id,valueonly)' "$c" | head -1)
+    if [[ -n "$cid" ]] && grep -Fxq -- "$cid" "$4"; then continue; fi
     subj=$(git -C "$1" log -1 --format=%s "$c")
     grep -Fxq -- "$subj" "$3" || return 1
   done
@@ -80,6 +85,8 @@ for repo in $REPOS; do
     echo "skip    $repo: origin has no main"; REPOS=$(echo " $REPOS " | sed "s/ $repo / /"); continue
   fi
   git -C "$dir" log origin/main --format=%s > "$TMP/$repo.subjects"
+  # whole message, not just the trailer block: a squash keeps each folded commit's Change-Id in the body
+  git -C "$dir" log origin/main --format=%B | sed -nE 's/^Change-Id: (I[0-9a-f]{40})[[:space:]]*$/\1/p' > "$TMP/$repo.changeids"
   gh pr list -R "$slug" --state open --json headRefName --jq '.[].headRefName' > "$TMP/$repo.prs" 2>/dev/null || : > "$TMP/$repo.prs"
 
   : > "$TMP/$repo.remote"
@@ -88,7 +95,7 @@ for repo in $REPOS; do
     [[ "$b" == main || "$b" == HEAD || "$ref" == origin ]] && continue
     if grep -Fxq -- "$b" "$TMP/$repo.prs"; then why="open PR"
     elif (( NOW - ts < MIN_AGE_SECS )); then why="younger than ${MIN_AGE_HOURS}h"
-    elif ! merged "$dir" "$ref" "$TMP/$repo.subjects"; then why="not on main"
+    elif ! merged "$dir" "$ref" "$TMP/$repo.subjects" "$TMP/$repo.changeids"; then why="not on main"
     else echo "$b" >> "$TMP/$repo.remote"; continue
     fi
     printf '  keep   %-24s %-44s %s\n' "$repo" "$b" "$why"
@@ -101,7 +108,7 @@ for repo in $REPOS; do
       [[ "$path" == "$dir" ]] && continue
       if [[ "$br" == "(detached)" ]]; then
         git -C "$dir" merge-base --is-ancestor "$(git -C "$path" rev-parse HEAD)" origin/main || { printf '  keep   %-24s %-44s %s\n' "$repo" "$path" "detached, not on main"; continue; }
-      elif ! merged "$dir" "refs/heads/$br" "$TMP/$repo.subjects"; then
+      elif ! merged "$dir" "refs/heads/$br" "$TMP/$repo.subjects" "$TMP/$repo.changeids"; then
         printf '  keep   %-24s %-44s %s\n' "$repo" "$path" "$br not on main"; continue
       fi
       if ! worktree_quiet "$path"; then printf '  keep   %-24s %-44s %s\n' "$repo" "$path" "changes or recent edits"; continue; fi
@@ -113,7 +120,7 @@ for repo in $REPOS; do
       [[ "$b" == main ]] && continue
       out=$(git -C "$dir" worktree list --porcelain | awk -v r="refs/heads/$b" '/^worktree /{p=substr($0,10)} $1=="branch" && $2==r {print p}')
       if [[ -n "$out" ]] && ! grep -Fq -- "$out"$'\t' "$TMP/$repo.worktrees"; then continue; fi
-      if merged "$dir" "refs/heads/$b" "$TMP/$repo.subjects"; then echo "$b" >> "$TMP/$repo.local"; fi
+      if merged "$dir" "refs/heads/$b" "$TMP/$repo.subjects" "$TMP/$repo.changeids"; then echo "$b" >> "$TMP/$repo.local"; fi
     done
   fi
 
