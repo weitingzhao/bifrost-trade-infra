@@ -1,0 +1,46 @@
+# MinIO for the CNPG backups (bucket bifrost-postgres-backup), run on the NAS itself.
+#
+# Replaces data/minio in the cluster, which reached the same directory over NFS:
+# on that path MinIO lost multipart parts underneath itself (InvalidPart, 10-03 and
+# 10-04) and kept its only drive offline for 6h40m after an 8-minute NAS stall
+# (10-05). Here MinIO writes the NAS's own btrfs volume; the cluster reaches it
+# over S3 (HTTP) through the Service data/minio, so the Cluster spec is unchanged.
+#
+# The data directory is the one the cluster MinIO used (no copy). NEVER run this
+# while data/minio in the cluster is up: two MinIO servers on one directory corrupt
+# it. See README.md for the order of the cutover.
+#
+# Lives in /volume1/docker/minio-backup/ on the NAS with .env (credentials, not in
+# git) next to it. Run as root: sudo docker compose up -d
+name: minio-backup
+
+services:
+  minio:
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    # docker.io no longer serves minio/minio; the image is loaded from the tarball.
+    pull_policy: never
+    container_name: minio-backup
+    command: ["server", "/data", "--console-address", ":9001"]
+    env_file: .env
+    ports:
+      - "192.168.10.20:9000:9000"
+      - "192.168.10.20:9001:9001"
+    volumes:
+      - /volume1/k3s-hot/data-minio-data-pvc-871b4689-434d-4731-926f-1ea4d42bbece:/data
+    restart: unless-stopped
+    # In the cluster it peaked at 690 MiB (1 GiB limit); the NAS has 7.4 GiB.
+    mem_limit: 1536m
+    # /minio/health/cluster is the endpoint that turns 503 when the drive is offline
+    # (live and ready keep answering 200). Docker only marks the container
+    # unhealthy; it does not restart it.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:9000/minio/health/cluster"]
+      interval: 30s
+      timeout: 10s
+      retries: 4
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
