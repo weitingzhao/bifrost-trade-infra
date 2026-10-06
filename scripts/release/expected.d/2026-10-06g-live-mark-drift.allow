@@ -1,0 +1,6 @@
+# Live-quote drift missing from the 10-06 allow lists (release 2026-10-06g: core 0.49.0/0.50.0, api 0.10.0,
+# fe saved-screen v2). During market hours capital_base follows live equity, so every return_pct that divides
+# by it moves; realized P&L itself is identical. Measured on STG wtvk2: capital_base 1097455.65 -> 1097266.72
+# (x1.000172) reproduces each changed value to the 4th decimal (7.0589 -> 7.0601, 4.2548 -> 4.2555, ...).
+perf.realized_by_account[*].return_pct
+perf.realized_by_account_and_sec_type[*].return_pct
