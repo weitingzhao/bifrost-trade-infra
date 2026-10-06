@@ -13,9 +13,9 @@
 
 ## 待你签收
 
-- **TD-187** — auto mode payload 的 PROD dump 路径改成 `~/bifrost-backups/trade-prod/2026-07-30_pre-p9-drop/`，Owner 10-06 已重新应用（56 条自定义规则生效）。验收：PASS 2026-10-06 9255bed（`claude auto-mode config` 含新路径，旧路径 0 处）。防线：无新增，AGENT_FACTS 与 payload 文字一致由 parity 检查覆盖。后续：无后续：路径只在这两处出现，都已更新。
+（暂无）
 
-**未结 79 项**：P0 0 · P1 5 · P2 29 · P3 45；要你批的 42 项（从总览表的审批列算）。
+**未结 78 项**：P0 0 · P1 5 · P2 29 · P3 44；要你批的 41 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -89,7 +89,7 @@
 
 目标：Pine 与路线图那条线（会话「Pine 信号业务与实现」）收尾时留下的日后核对：W3 两次真正的归档、一个只差发布的前端修复、路线图台账的月度重评、「我的价位」等 Design、auto mode 规则重新应用。
 
-项：TD-183, TD-184, TD-185, TD-186, TD-187
+项：TD-183, TD-184, TD-185, TD-186 · 已还：TD-187
 
 ## 数据边界（接受并留座）
 
@@ -249,7 +249,6 @@
 | [TD-184](#td-184) | P3 | frontend | The Simulator says "stored with the run" for runs that were not stored: the fix (fe 53d6939e) is on main but not in STG/PROD | 发布（要你批） |
 | [TD-185](#td-185) | P3 | research-control | The Pine-vs-TradingView roadmap ledger is a point-in-time judgement: its scores and next steps need a re-evaluation around 11-06 | 不用批 |
 | [TD-186](#td-186) | P3 | frontend | "My levels" (plan stop / target and price alerts as horizontal lines) on the Symbol chart waits on Design: ASK-symbol-chart-my-levels-2026-10-06 | 要你批 |
-| [TD-187](#td-187) | P3 | agent-config | The auto mode payload names the PROD dump at its old workspace path; the text is fixed, the Owner has to re-apply it | 要你批 |
 
 ## 条目
 
@@ -1551,23 +1550,6 @@
 - **Fix**: Per Design's answer; plan levels from strategy_plan, alerts via a new store (Owner approval).
 - **Ratchet**: Decide with the implementation.
 - 审批 要你批 · 代价 M · 风险 low · repos: bifrost-trade-frontend, design
-
-### TD-187
-
-**P3 · agent-config · The auto mode payload names the PROD dump at its old workspace path; the text is fixed, the Owner has to re-apply it**
-
-- **状态**：待你签收
-- **验收结果**：PASS 2026-10-06 9255bed：Owner 已跑 `apply-auto-mode.sh`（56 条自定义规则生效），`claude auto-mode config` 含新路径，旧路径 0 处
-- **验收**：`claude auto-mode config` 的输出里，敏感位置写的是 `~/bifrost-backups/trade-prod/2026-07-30_pre-p9-drop/`，不再有 `backups/bifrost_prod_pre_p9`
-- **现在**：10-06 按 Owner 指示把 PROD dump 从工作区根 `stocks/backups/` 挪到 `~/bifrost-backups/trade-prod/2026-07-30_pre-p9-drop/`（校验和与原记录一致）；`AGENT_FACTS.md` 与 payload `claude/auto-mode/project.autoMode.json` 的文字已改
-- **下一步**：Owner 在终端跑 `bash bifrost-trade-infra/agent-config/claude/auto-mode/apply-auto-mode.sh`（Agent 不能改写自己的 auto mode 规则）
-- **Claim**: The classifier's sensitive-location rule points at a path that no longer exists, so the new location is not named as sensitive until the payload is re-applied.
-- **Evidence**:
-  - `agent-config/claude/auto-mode/project.autoMode.json:19` — sensitive data locations
-- **Impact**: The dump's new location is protected by convention only until re-applied.
-- **Fix**: Re-apply the payload.
-- **Ratchet**: None new; the existing parity of AGENT_FACTS and the payload text covers the wording.
-- 审批 要你批 · 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ## 没覆盖到的（下一轮从这里开始）
 
