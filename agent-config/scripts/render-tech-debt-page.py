@@ -5,7 +5,7 @@ The two Markdown files are the only source. This script parses them and lays the
 page out the way the round-1 ledger was laid out (Owner 2026-10-06: one layout for
 every round), so a reader learns it once:
 
-    待你签收 · 自上次以来 · stats · 先看这几条 · 主题 · 还债顺序 · 需要你拍板 · 台账 (filters) · 防线 · 没覆盖到的 · 怎么做的
+    待你签收 · 自上次以来 · stats · 先看这几条 · 主题 · 还债顺序 · 数据边界 · 需要你拍板 · 台账 (filters) · 防线 · 没覆盖到的 · 怎么做的
 
 Ids listed in a wave's 已还 part, or in a theme but no longer in 条目, render struck
 through: the plan keeps its progress although closed items are deleted from the file.
@@ -163,6 +163,8 @@ def parse(debt: str, ratchets: str) -> dict:
         ids = (re.search(r"^项：(.+)$", body, re.M) or [None, ""])[1]
         open_part, _, done_part = ids.partition("已还：")
         data["waves"].append({"n": name, "g": goal, "ids": TD.findall(open_part), "done": TD.findall(done_part)})
+
+    data["boundaries"] = bullets(section(top, "数据边界"))
 
     data["decisions"] = []
     for q, body in sections(section(top, "需要你拍板"), "### ").items():
@@ -347,6 +349,9 @@ details.more>summary{cursor:pointer;color:var(--accent);margin:10px 0}
   <p class="sub">按波次还。绿条是这一波已还的比例；划掉的编号已还，带虚线的正在做。</p>
   <div class="waves" id="waves"></div>
 
+  <h2>数据边界（接受并留座）</h2>
+  <p class="sub">订阅或市场本身没有的数据：接受，页面留座写明原因；不算债，订阅或市场变化时重开。</p>
+  <ul class="gaps" id="bounds"></ul>
   <h2>需要你拍板</h2>
   <p class="sub">涉及改表、改公开接口、跨仓库发版、安全或删除的，列选项和推荐，等你定。</p>
   <div id="decisions"></div>
@@ -443,6 +448,8 @@ details.more>summary{cursor:pointer;color:var(--accent);margin:10px 0}
   D.waves.forEach(function(w){ var all = w.ids.length + w.done.length, prog = w.ids.filter(function(i){ return active(byId[i]) }).length;
     wv.appendChild(el('div', {class:'wave'}, '<div><h3>' + esc(w.n) + '</h3><div class="cnt">' + all + ' 项 · 已还 ' + w.done.length + ' · 在做 ' + prog + '</div><div class="wbar"><i style="width:' + (all ? w.done.length / all * 100 : 0) + '%"></i></div></div><div><p>' + md(w.g) + '</p><div class="ids">' + w.done.map(idBtn).join('') + w.ids.map(idBtn).join('') + '</div></div>')) });
 
+  var bd = document.getElementById('bounds');
+  (D.boundaries || []).forEach(function(g){ bd.appendChild(el('li', null, md(g))) });
   var dc = document.getElementById('decisions');
   D.decisions.forEach(function(o){ var d = el('details', {class:'dec'});
     d.innerHTML = '<summary><span class="q">' + esc(o.q) + '</span><span class="ids">' + o.ids.map(idBtn).join('') + '</span></summary><div class="body"><div class="rec"><b>推荐：</b>' + md(o.r) + '</div><ol>' + o.o.map(function(x){ return '<li>' + md(x) + '</li>' }).join('') + '</ol></div>';

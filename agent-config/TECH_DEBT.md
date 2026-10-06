@@ -15,9 +15,9 @@
 
 （暂无）
 
-更新：2026-10-06 · 第 1 轮（Trade UI 之下，10-01）剩 3 项 · 第 2 轮（Research + 插件，10-06：40 条发现，反向核实 22 成立、18 修正、0 推翻、3 合并）+ 日常发现
+更新：2026-10-06 · 第 1 轮（Trade UI 之下，10-01）剩 3 项 · 第 2 轮（Research + 插件，10-06：40 条发现，反向核实 22 成立、18 修正、0 推翻、3 合并）+ 日常发现 + 数据缺口 15 项（10-06 并入）
 
-**未结 48 项**：P0 0 · P1 4 · P2 23 · P3 21；要你批的 16 项。
+**未结 63 项**：P0 0 · P1 5 · P2 27 · P3 31；要你批的 21 项。
 
 ## 主题（第 2 轮）
 
@@ -81,6 +81,20 @@
 
 项：TD-130, TD-131, TD-132, TD-133, TD-134, TD-135
 
+### 第 7 波 · 数据缺口（10-06 由 Data Gaps 看板并入）
+
+目标：Data Gaps 看板上未结的 15 项并入台账：先把每日快照的写入修对（TD-137）再接读侧和三页，归因行补上价格，Research 侧已就绪的一个版本（0.185.0）发出去，长期限 IV 锥在 10-31 前从 option_daily 回填，其余按 Owner 已定的口径排。
+
+项：TD-137, TD-138, TD-139, TD-140, TD-141, TD-142, TD-143, TD-144, TD-145, TD-146, TD-147, TD-148, TD-149, TD-150, TD-151
+
+## 数据边界（接受并留座）
+
+> 订阅或市场本身没有的数据：接受，页面留座并写明原因；不算债、不编号，订阅或市场变化时重开（§5「缺数据先分原因」）。来自 Data Gaps 看板，10-06 并入。
+
+- **已确认的财报日历（◉）** — 订阅里没有：10-06 `/research/events/calendar?days=60` 8 行，全是 ws:macro 与 ws:corporate，财报 0 行；插件只有 8-K Item 2.02 的过去财报。页面写 estimated · confirmed dates not in the subscription；预计日 expected_next 在跑（NVDA → 2026-11-18，track n=4、中位误差 0 天）。依据：看板 R2.a，10-06 实测。还在写「no earnings date reaches this side」的四处在 TD-150。
+- **merger / spinoff 与 IB Flex 公司行为报表** — Owner 2026-09-17 裁定不做，除非重开：vendor 只给 dividend 与 split（抽样 17 名 833 行，0 merger、0 spinoff），能填的只有 Flex 的公司行为报表，没有接。依据：`bifrost-trade-frontend/src/layout/designNotes/portfolio.ts:76`；看板 B4.2-3。
+- **CUE 只有调整合约** — CUE 1:30 合股（除权 2026-04-24）后交易所没有挂标准系列，只剩 10-16 到期的 14 个 CUE1 合约（10-05 OI 14 行）：市场本来没有，max pain / ATM IV / GEX / flow / PCR 留空是对的。依据：看板 R10.CUE，10-06 实测。页面上的说明在 TD-150。
+
 ## 需要你拍板
 
 ### 现金写入失败要改成抛错吗？（改 core 公开接口）
@@ -137,6 +151,18 @@
 - 选项：A：三项都按推荐 · B：先做 TD-132、TD-134 · C：只做 TD-132
 - 项：TD-132, TD-134, TD-135
 
+### 快照三列的 PROD DDL 与 core 0.51.0 单独发布
+
+- 推荐：A。等 Code Refactor 那批（core 0.49.0 / 0.50.0 + api 0.10.0）PROD 通过后单独发 core 0.51.0 + infra deaa2ca。DDL 只有三条：`account_nav_daily` ADD COLUMN IF NOT EXISTS `cushion` / `excess_liquidity` / `maint_margin_req`（double precision、可空、无默认、不回填，10-05 起已存的行留 NULL）；无自加项；无不可逆步骤（不要时可 DROP COLUMN）。行为变化：收盘时陈旧的账户当天不写、20:30 的 `all` 补抓，U17113214 不再每天写 NAV。每个环境先跑 db-init 再换镜像，否则 capture 的 INSERT 缺列失败。
+- 选项：A：按这三列确认并单独发 · B：并进下一批 Trade 发布一起发 · C：先不发（每晚继续锁进副账户的盘中值，压力历史继续丢）
+- 项：TD-137
+
+### 数据缺口的三处设计 / DDL
+
+- 推荐：TD-144 做，评判记在 `candidate_pool.source_ref.persona`（零 DDL，只往后记，不回填）；TD-146 先不建，Agrees with you 列保持灰显并写明原因，等你要开始记手动判词时再按 database-design 出 `journal.*` 新表设计；TD-148 按清单确认：`strategy_plan` 的 source_kind CHECK 先删后加、只放宽（加 `lens`、`backtest_run`），PROD 0 行、无新列、无回填，core 的两处词表同改（改公开接口，core 抬小版本）。
+- 选项：A：按推荐 · B：TD-144、TD-146 都出新表设计，TD-148 照做 · C：只做 TD-148，两列都保持灰显
+- 项：TD-144, TD-146, TD-148
+
 ## 总览
 
 | 编号 | 级别 | 领域 | 标题 | 审批 |
@@ -189,6 +215,21 @@
 | [TD-134](#td-134) | P2 | data | WAL is ~19.5 GiB/day (4.2 GiB compressed) because checkpoints run every 5 minutes without wal_compression | 要你批 |
 | [TD-135](#td-135) | P3 | data | Native barmanObjectStore backups are removed in CloudNativePG 1.30; the Barman Cloud Plugin that replaces them needs cert-manager, which the cluster does not have | 新依赖（要你批） |
 | [TD-136](#td-136) | P2 | research-data | GEX writes levels for an expiry whose open interest is all zero: walls and zero_gamma fall on an arbitrary strike, 1,534 rows on 496 names, and terrain and scan copy them | 要你批 |
+| [TD-137](#td-137) | P1 | trade-data | The daily snapshot capture locks an account's intraday book into the day (first write wins, no freshness test) and account_nav_daily stores no margin-pressure fields | 改表 + 发布（要你批） |
+| [TD-138](#td-138) | P2 | trade-data | The daily position and NAV snapshots have no reader: no trade-api route, no Research or frontend read, and three pages still say the snapshot does not exist | 不用批 |
+| [TD-139](#td-139) | P3 | trade-data | Snapshot Greeks carry no quality flag (vendor / degraded / missing): only mark_source and greeks_asof are stored | 不用批 |
+| [TD-140](#td-140) | P2 | trade-data | Position attribution rows have no price, intraday or after the close: their only price source is contract_quote_live, which only the frozen daemon writes | 不用批 |
+| [TD-141](#td-141) | P3 | research-data | The IV cone has no 7-day tenor although the data is there: iv-cone serves 30 / 60 / 90 only | 不用批 |
+| [TD-142](#td-142) | P2 | research-data | The 90-day IV cone has 31–39 sessions of history and there is no 180-day tenor: ATM IV was stored only to 90 DTE before 2026-08-05 | 要你批 |
+| [TD-143](#td-143) | P3 | research-data | Hypotheses never link to trades: linked_opportunity_ids is empty on all 91 rows, and only Research's own create / patch writes it | 不用批 |
+| [TD-144](#td-144) | P3 | research-data | Settled candidates are not attributed to the judge (persona) that put them forward, so the Personas bench track-record columns stay grey | 要你批 |
+| [TD-145](#td-145) | P3 | research-data | Settled candidates carry no regime label, so the Personas bench 'Best regime' column has nothing to group by | 不用批 |
+| [TD-146](#td-146) | P3 | research-data | No store accepts a hand verdict, so the Personas bench 'Agrees with you' column cannot be computed | 要你批 |
+| [TD-147](#td-147) | P3 | research-data | /research/candidate-outcome/rows has no source / days filter, so Journal Settled cannot split Right / Wrong by source and window | 不用批 |
+| [TD-148](#td-148) | P3 | trade-data | A trade cannot name the lens or backtest run it came from: trade has no such column and strategy_plan.source_kind does not allow lens / backtest_run | 改表（要你批） |
+| [TD-149](#td-149) | P2 | market-data | CTVA's adjusted daily bars ignore its 2026-10-01 spin-off, so every return-based feature on CTVA sees an ~84% one-day drop | 不用批 |
+| [TD-150](#td-150) | P3 | frontend | Pages report gaps that are not there: 'no earnings date reaches this side', 'carry nothing at all' for names the vendor answered, and no note that CUE lists only adjusted contracts | 不用批 |
+| [TD-151](#td-151) | P3 | research-data | The macro calendar is empty: features.macro_event_daily has 0 rows because macro_ingest has no scheduled caller | 不用批 |
 
 ## 条目
 
@@ -956,6 +997,271 @@
 - **Ratchet**: A test that compute_gex_for_symbol writes nothing for an expiry whose contracts all have open_interest 0; a nightly check that features.option_metric_gex_levels_daily has no row with total_net_gex = 0 and both wall gex = 0.
 - **验收**: `SELECT count(*) FROM features.option_metric_gex_levels_daily WHERE total_net_gex = 0 AND COALESCE(call_wall_gex,0) = 0 AND COALESCE(put_wall_gex,0) = 0` returns 0 after two nightly runs.
 - 审批 要你批 · 代价 S · 风险 low · repos: bifrost-research
+
+### TD-137
+
+**P1 · trade-data · The daily snapshot capture locks an account's intraday book into the day (first write wins, no freshness test) and account_nav_daily stores no margin-pressure fields**
+
+- **状态**：在做（代码就绪：core 9013ba2 0.51.0 · infra deaa2ca，均未推；排在 Code Refactor 那批 Trade 发布（core 0.49.0 / 0.50.0 + api 0.10.0）PROD 通过之后单独发；PROD DDL 三列要你逐项确认）
+- **验收**：每个 Trade 库（`bifrost_dev` / `bifrost_stg` / `bifrost_prod`）发布后的 session：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data exec -i bifrost-postgres-3 -c postgres -- env PGOPTIONS='-c default_transaction_read_only=on' psql -U postgres -d bifrost_prod -X -At -c "SELECT count(*) FROM account_nav_daily WHERE snapshot_date >= '<发布日>' AND account_updated_at < (snapshot_date + time '16:00') AT TIME ZONE 'America/New_York'"` 为 0（NYSE 提前收盘日按提前收盘时间比），且 `SELECT snapshot_date, count(cushion), count(*) FROM account_nav_daily GROUP BY 1 ORDER BY 1 DESC LIMIT 3` 最新一天 count(cushion) = count(*)
+- **现在**：Owner 10-06 定：B1.b (a) 跳过陈旧账户、晚间补抓，不加 stale 列；B1.c (a) 加三列，不存整份 summary_extra。修复已 rebase 到 core 0.50.0 并改号 0.51.0：lint 通过；单测 1287 passed（跳过已知的本机 py_vollib 失败）；test-db 100 passed；kustomize 三环境可渲染。10-06 的 16:20 抓取仍按 0.48.2 跑。
+- **下一步**：Code Refactor 那批 PROD 通过（它会通知）→ 推 core 9013ba2 / infra deaa2ca → `release.sh stg` / `prod`（要你批）→ 每环境先跑 db-init 建列再换镜像 → 同步 bifrost-stg / bifrost-prod。20:05–20:40 UTC 不起发布。在此之前不推 core / api / infra / frontend 的 main。
+- **Claim**: capture() inserts NAV and positions with ON CONFLICT DO NOTHING, so the first run of a date wins, and it copies every brokerage.account row with no freshness test. The secondary account's TWS logs off at 11:00 New York every weekday (TWS Auto log off), so the 16:20 capture stores that account's intraday values as the day's; the 20:30 job only enriches marks and Greeks. An account last synced 2026-05-11 (U17113214) still gets a NAV row every day. Separately, account_nav_daily has no column for Cushion / ExcessLiquidity / MaintMarginReq although brokerage.account.summary_extra carries all three keys for all three accounts; this history only accumulates forward, so every night without the columns is a day that cannot be refilled (SNAPSHOT-SPEC §1.1 pressure history).
+- **Measured**: MEASURED 10-06 on the CNPG replica: 10-05 rows for U8829175 in DEV and STG have account_updated_at and positions_updated_at 15:48 UTC (11:48 New York, intraday); the PROD 10-05 row is a manual re-capture by another session at 22:48 UTC. First night 10-05: DEV 31 / STG 30 / PROD 31 position rows, NAV 3 rows per database. summary_extra: the three keys present on all three accounts (key names only were read).
+- **Evidence**:
+  - `bifrost-trade-core/src/bifrost_core/portfolio/snapshot/daily.py:174` — `SELECT %s, account_id, net_liquidation, total_cash, buying_power, updated_at`
+  - `bifrost-trade-core/src/bifrost_core/portfolio/snapshot/daily.py:177` — `ON CONFLICT (snapshot_date, account_id) DO NOTHING`
+  - `bifrost-trade-core/src/bifrost_core/portfolio/snapshot/daily.py:187` — `ON CONFLICT ON CONSTRAINT position_snapshot_daily_uq DO NOTHING`
+  - `bifrost-trade-core/src/bifrost_core/persistence/postgres/snapshot_ddl.py:69` — `buying_power double precision,`
+  - `bifrost-trade-infra/k8s/overlays/prod/position-snapshot.cronjob.yaml:13` — `schedule: "20 16 * * 1-5"`
+  - `bifrost-trade-infra/k8s/overlays/prod/position-snapshot.cronjob.yaml:113` — `command: [python, -m, bifrost_core.portfolio.snapshot, enrich]`
+- **Impact**: P&L Explain, the Performance return basis and the Accounts curve (TD-138) will read the secondary account's intraday values as its close; a dead account adds a constant NAV row; Backing's pressure history and the Room-to-add lookback have nothing to read.
+- **Fix**: core 9013ba2 (0.51.0): capture works per account; an account whose brokerage.account updated_at is older than the session close (16:00 New York, or the NYSE early close from market.us_market_holiday) is skipped with its positions and listed in stale_accounts; an account already captured for the date is left alone; the empty-attribution refusal counts only the accounts being written. infra deaa2ca: the 20:30 CronJob runs `all` (capture, then enrich), which takes an account that came back after the close. account_nav_daily gains cushion / excess_liquidity / maint_margin_req (ADD COLUMN IF NOT EXISTS, double precision, nullable, no default, no backfill; parsed from summary_extra, non-finite → NULL). Ordering risk: an image at 0.51.0 in an environment whose db-init has not run fails the capture INSERT on the missing columns.
+- **Ratchet**: core tests in 9013ba2: test_capture_skips_a_stale_account_whole_and_lists_it, test_evening_rerun_takes_only_the_account_that_came_back, test_positions_without_an_account_row_count_as_stale, test_session_close_reads_an_early_close (db), test_margin_columns_are_additive_and_idempotent (db). No separate nightly check: the writer itself refuses a stale account and prints it as stale_accounts in the Job log; the 验收 SQL is the spot check.
+- 审批 改表 + 发布（要你批） · 代价 S · 风险 med · repos: bifrost-trade-core, bifrost-trade-infra
+
+### TD-138
+
+**P2 · trade-data · The daily position and NAV snapshots have no reader: no trade-api route, no Research or frontend read, and three pages still say the snapshot does not exist**
+
+- **状态**：未开始
+- **验收**：PROD 读接口返回 200 且有行：`curl -s -o /dev/null -w '%{http_code}' http://192.168.10.73:30881/api/account/portfolio/nav-history` → 200（若实现时取了别的路由名，把命令改成那个）；`git -C bifrost-trade-api grep -c 'position_snapshot_daily\|account_nav_daily' origin/main -- src` 至少 1 个文件；`git -C bifrost-trade-frontend grep -n 'Nothing stores one' origin/main -- src/pages/portfolio/pnlExplain` 无输出
+- **下一步**：等 10-06 收盘后有两天数据再开工：api 读接口 → 前端按 SNAPSHOT-SPEC §5 改三页；TD-139 的 quality 在这一步一起定。TD-137 上线前读侧要按 account_updated_at 过滤盘中行。
+- **Claim**: Since 10-05 position_snapshot_daily and account_nav_daily are written nightly in all three Trade databases, but trade-api, Research and the frontend have no reference to either table, and GET /api/account/portfolio/nav-history, /snapshots and /api/monitor/status/history answer 404 on PROD. PnlExplainPage, PerformanceReturnBasis, the Transfer & Pay downstream band and the Accounts net-liquidation curve keep their not-wired state, and the P&L Explain model text still says nothing stores a snapshot.
+- **Measured**: MEASURED 10-06: 10-05 rows DEV 31 / STG 30 / PROD 31, option Greeks 13/13; `git grep` for both table names on origin/main: 0 files in bifrost-trade-api (8a78042) and bifrost-research (a242b22), only core's writer; the three routes 404 on PROD.
+- **Evidence**:
+  - `bifrost-trade-core/src/bifrost_core/persistence/postgres/snapshot_ddl.py:24` — `POSITION_SNAPSHOT_DAILY = "position_snapshot_daily"`
+  - `bifrost-trade-frontend/src/pages/portfolio/pnlExplain/PnlExplainPage.tsx:348` — `⚠ needs the daily snapshot`
+  - `bifrost-trade-frontend/src/pages/portfolio/pnlExplain/pnlExplainModel.ts:47` — `'The four attributions need a per-day snapshot of positions, marks and vendor Greeks. Nothing stores one, so Δ, Γ, vega and θ have no reading`
+  - `bifrost-trade-frontend/src/pages/portfolio/performance/PerformanceReturnBasis.tsx:95` — `per account — net liquidation plus its snapshot time (SNAPSHOT-SPEC §1.1).`
+- **Impact**: The stored history reaches no page: P&L Explain attribution and its Today / WTD / MTD windows, the Performance return basis, Transfer & Pay downstream and the Accounts curve stay grey while the data accumulates.
+- **Fix**: trade-api read routes over both tables through a core reader (per account and date range, NAV history; positions per session with a trade_id rollup for SNAPSHOT-SPEC §2), then the three frontend items in SNAPSHOT-SPEC §5. Until TD-137 ships, the reader drops NAV rows whose account_updated_at is before that session's close.
+- **Ratchet**: trade-api route test that reads the snapshot tables on a seeded DB; frontend test that P&L Explain stops rendering the not-wired text when the route returns rows.
+- 审批 不用批 · 代价 M · 风险 low · repos: bifrost-trade-core, bifrost-trade-api, bifrost-trade-frontend
+
+### TD-139
+
+**P3 · trade-data · Snapshot Greeks carry no quality flag (vendor / degraded / missing): only mark_source and greeks_asof are stored**
+
+- **状态**：未开始（随 TD-138 读侧一起定：派生还是加列）
+- **验收**：TD-138 的读接口对每个 OPT 行都给出 `greeks_quality` ∈ {vendor, degraded, missing}，且 missing 的个数等于 `SELECT count(*) FILTER (WHERE sec_type='OPT' AND delta IS NULL) FROM position_snapshot_daily WHERE snapshot_date = (SELECT max(snapshot_date) FROM position_snapshot_daily)`（同上的 CNPG 副本只读命令）
+- **Claim**: SNAPSHOT-SPEC §1.3 asks for a quality field per option row so P&L Explain phase 2 can mark degraded Greeks instead of reading them as exact; position_snapshot_daily stores mark_source and greeks_asof only. Not biting yet: every option row of 10-05 has vendor values.
+- **Measured**: MEASURED 10-06: 10-05 OPT rows 13/13 with delta present in all three databases.
+- **Evidence**:
+  - `bifrost-trade-core/src/bifrost_core/persistence/postgres/snapshot_ddl.py:44` — `mark_source text,`
+  - `bifrost-trade-core/src/bifrost_core/persistence/postgres/snapshot_ddl.py:51` — `greeks_asof timestamptz,`
+  - `design/trade/SNAPSHOT-SPEC.md:61` — `(vendor / degraded / missing)`
+- **Impact**: The first night a vendor Greek is missing or stale, P&L Explain phase 2 has no way to say so.
+- **Fix**: Prefer deriving on read in the TD-138 reader: vendor when greeks_asof is that session and delta is present; missing when delta is null; degraded when greeks_asof is older than the session or mark_source is not vendor. Add a column only if the read cannot tell degraded apart (that would be 改表, back to the Owner).
+- **Ratchet**: Unit test of the derivation over the three cases; the route contract test asserts the field on every OPT row.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-core, bifrost-trade-api
+
+### TD-140
+
+**P2 · trade-data · Position attribution rows have no price, intraday or after the close: their only price source is contract_quote_live, which only the frozen daemon writes**
+
+- **状态**：未开始（口径 Owner 10-06 已定：(a) 没有活报价时读最近一次 vendor EOD 并标 mark_source）
+- **验收**：收盘 enrich 之后：`curl -s http://192.168.10.73:30881/api/account/executions/position-attribution | python3 -c 'import json,sys;r=json.load(sys.stdin)["items"];print(len(r),sum(x.get("price_mid") is None and x.get("price_last") is None for x in r),sorted({str(x.get("mark_source")) for x in r}))'` → 第二个数为 0，第三项不含 None
+- **Claim**: get_position_instance_attribution takes price_mid / price_last only from a LEFT JOIN on brokerage.contract_quote_live, filtered to rows younger than 4 hours (TD-02, core 0.28.2). Under D10 the daemon does not run, so the table has 13 rows, newest 2026-03-28, and every attribution row has no price and no unrealized_pnl_est, intraday and after the close. The 09-29 reading that stocks had prices was March prices the freshness rule now excludes.
+- **Measured**: MEASURED 10-06 after the close: GET /api/account/executions/position-attribution → PROD and DEV 31 rows each; OPT 13/13 and non-OPT 18/18 with price_mid, price_last and unrealized_pnl_est null; brokerage.contract_quote_live 13 rows, max(updated_at) 2026-03-28. (09-29: 30 rows, OPT 12/12 null, non-OPT 2/18 null.)
+- **Evidence**:
+  - `bifrost-trade-core/src/bifrost_core/portfolio/reader/executions.py:1576` — `cql.mid AS price_mid, cql.last AS price_last`
+  - `bifrost-trade-core/src/bifrost_core/portfolio/reader/executions.py:1578` — `LEFT JOIN {CONTRACT_QUOTE_LIVE} cql`
+  - `bifrost-trade-core/src/bifrost_core/portfolio/quote_freshness.py:33` — `def fresh_quote_sql(alias: str) -> str:`
+- **Impact**: Positions and Ledger show no unrealized P&L for any position; anything that reads attribution prices reads nothing.
+- **Fix**: Where no fresh live quote exists, take the newest position_snapshot_daily.mark for the contract (vendor EOD, written by the nightly enrich) and return mark_source and its date; intraday stocks may use the plugin daily-close fallback TD-02 already uses. The snapshot capture itself calls this reader, so the fallback must not become the snapshot's own mark (enrich stays its source). Nothing here writes contract_quote_live or touches the daemon (D10).
+- **Ratchet**: core test: with contract_quote_live empty and a snapshot mark present, the row carries that price with mark_source vendor EOD; with a fresh live quote, the live one wins.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-core, bifrost-trade-frontend
+
+### TD-141
+
+**P3 · research-data · The IV cone has no 7-day tenor although the data is there: iv-cone serves 30 / 60 / 90 only**
+
+- **状态**：在做（代码就绪：research 3109b04，分支 fix/data-gaps-r4a-r6，未推；暂标 0.185.0，发前 rebase 到最新 origin/main 并重新取号；Owner 已批发布，与 TD-145、TD-147 同一版本）
+- **验收**：`kubectl -n research exec deploy/research-api -- python -c "import urllib.request,json;d=json.loads(urllib.request.urlopen('http://127.0.0.1:8795/research/volatility/iv-cone?symbol=NVDA').read());print([(t['tenor_days'],t['n'],t.get('withheld')) for t in d['tenors']])"` → 有 `(7, n, False)` 且 n ≥ 60；30 / 60 / 90 三档与发布前相同
+- **Claim**: repositories/iv_cone.py reads 30, 60 and 90 days only. For NVDA, 186 of 252 sessions have an expiry within 7 DTE and all 252 have one at 7–14 DTE, so a 7-day horizon is readable from what is stored.
+- **Measured**: MEASURED 10-06 (expiry coverage above). 3109b04 trial on real rows, 252 sessions: NVDA 7d reads 252 (66 one-sided), p50 0.378; PLTR 170 one-sided, KO 183 (monthly-only names take the nearest expiry past 7 days); 30/60/90 unchanged; 18% of name-sessions in the store have an expiry within 7 DTE. ruff clean; pytest 1954 passed / 14 skipped.
+- **Evidence**:
+  - `bifrost-research/src/bifrost_research/repositories/iv_cone.py:34` — `TENORS: tuple[int, ...] = (30, 60, 90)`
+  - `bifrost-research/src/bifrost_research/repositories/iv_cone.py:53` — `if IV30_MIN_DTE <= dte <= 3 * tenor:`
+- **Impact**: The History volatility cone has no short end, so front-week event and pin regimes do not show.
+- **Fix**: 3109b04: TENORS adds 7; within 1–21 DTE interpolate, otherwise take the nearest expiry on the one side that exists; a new one_sided field per tenor says which.
+- **Ratchet**: tests/repositories/test_iv_cone.py in 3109b04 (7-day interpolation and the one-sided case).
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
+
+### TD-142
+
+**P2 · research-data · The 90-day IV cone has 31–39 sessions of history and there is no 180-day tenor: ATM IV was stored only to 90 DTE before 2026-08-05**
+
+- **状态**：未开始（方向 Owner 10-06 已采纳：从 option_daily 回填；执行前列范围交你确认；须在 10-31 前做，W3 11-01 起删 option_daily 最老一个月，之后只能读归档）
+- **验收**：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data exec -i bifrost-postgres-3 -c postgres -- env PGOPTIONS='-c default_transaction_read_only=on' psql -U postgres -d bifrost_golden_source -X -At -c "SELECT count(DISTINCT trade_date) FROM features.option_metric_atm_iv_daily WHERE symbol='NVDA' AND expiry-trade_date>90 AND atm_iv IS NOT NULL"` ≥ 150（回填前 39 左右）；TD-141 的 iv-cone 命令里 NVDA 的 90 档 n ≥ 60、withheld 为 False，且出现 180 档
+- **Claim**: The ATM IV store kept only expiries up to 90 DTE before 2026-08-05 (the Brent pass is still capped at DTE_MAX = 90), so the cone's 90-day horizon has fewer than MIN_SESSIONS (60) sessions and its percentiles are withheld; there is no 180-day horizon at all. It fills by itself around early November. raw_market.option_daily holds the long-dated bars to backfill from.
+- **Measured**: MEASURED 10-06: iv-cone 90d NVDA 39, SPY 31, AAPL 32 sessions; no 180d. raw_market.option_daily: NVDA bars with trades at 150–220 DTE on 154 sessions, earliest 2025-11-10.
+- **Evidence**:
+  - `bifrost-research/src/bifrost_research/engines/volatility/iv_solver.py:53` — `DTE_MAX = 90`
+  - `bifrost-research/src/bifrost_research/engines/volatility/atm_iv.py:366` — `AND (o.expiry - o.bar_date) BETWEEN {DTE_MIN} AND {DTE_MAX}`
+  - `bifrost-research/src/bifrost_research/repositories/iv_cone.py:36` — `MIN_SESSIONS = 60`
+- **Impact**: History's cone withholds 90-day percentiles for every name and has no long tenor for calendars and longer-dated structures.
+- **Fix**: One-off Research backfill of long-tenor ATM IV into features.option_metric_atm_iv_daily from option_daily with the Brent method and the DTE cap lifted to about 220 for that pass only; first list the range (symbols × sessions × expected rows, which sessions already have >90 DTE rows) for the Owner. Then add 180 to the cone's tenors. Writes Research-owned features.* only (D13).
+- **Ratchet**: A test that the longest cone tenor is inside the DTE range the ATM IV writers store, so the cone and the store cannot drift apart again.
+- 审批 要你批 · 代价 M · 风险 med · repos: bifrost-research
+
+### TD-143
+
+**P3 · research-data · Hypotheses never link to trades: linked_opportunity_ids is empty on all 91 rows, and only Research's own create / patch writes it**
+
+- **状态**：未开始（口径 Owner 10-06 已定：Research 读 Trade 的 plan 派生，不新增跨载荷写入方；链到 trade_id）
+- **验收**：在 DEV 上用一个 hypothesis 建 plan（source_kind='hypothesis'）并关联成交后，Research 的 hypothesis 读接口带出该 trade_id；`git -C bifrost-trade-frontend grep -n 'BROKEN_LINK' origin/main -- src/pages/review/objectives` 指向派生链接而不是 `hypothesis.linked_opportunity_ids`
+- **Claim**: research.hypothesis holds 91 rows (active 65 · archived 25 · validated 1) and none has linked_opportunity_ids; the objective chain in the frontend names exactly that column as its broken link. Trade's strategy_plan already carries source_kind='hypothesis' with source_ref and trade_id, so the link can be derived, but plans are PROD 0 · STG 0 · DEV 3 (all manual) and trade-api GET /plans has no source_kind filter.
+- **Measured**: MEASURED 10-06 on the replica (Golden Source and the three Trade databases).
+- **Evidence**:
+  - `bifrost-research/src/bifrost_research/api/hypothesis.py:69` — `linked_opportunity_ids: list[str] = Field(default_factory=list)`
+  - `bifrost-trade-frontend/src/pages/review/objectives/objectiveChainModel.ts:48` — `export const BROKEN_LINK = 'hypothesis.linked_opportunity_ids'`
+  - `bifrost-trade-api/src/bifrost_api/strategy/routers/plans.py:72` — `status: Optional[str] = Query(None, description="draft, intended, filled or cancelled"),`
+- **Impact**: /review/objectives shows the chain broken at the hypothesis for every objective; the Hypothesis Board's record stays thin.
+- **Fix**: Research derives hypothesis → trade_id at read time from Trade plans with source_kind='hypothesis', source_ref = the hypothesis id and trade_id set. Read path (trade-api GET /plans with a source_kind filter, or another read path) is listed with the build; no new writer into either store (D13). The frontend chain reads the derived link. Links appear only once plans are used.
+- **Ratchet**: Research test: a plan with source_kind hypothesis and a trade_id yields the link, a cancelled plan does not; frontend test that the chain is not broken when the link exists.
+- 审批 不用批 · 代价 M · 风险 low · repos: bifrost-research, bifrost-trade-api, bifrost-trade-frontend
+
+### TD-144
+
+**P3 · research-data · Settled candidates are not attributed to the judge (persona) that put them forward, so the Personas bench track-record columns stay grey**
+
+- **状态**：未开始（要你定：要不要做、记在哪；见「需要你拍板」）
+- **验收**：选 A 时，上线后：`SELECT count(*), count(*) FILTER (WHERE source_ref ? 'persona') FROM research.candidate_pool WHERE source='harness' AND trade_date >= '<上线日>'`（Golden Source 副本只读）两数相等且 > 0
+- **Claim**: research.candidate_pool has 129 rows and none carries a persona key in source_ref; no other table records which judge proposed which candidate. JudgeTrackRecord's four track-record columns and the Pilot Console bench bar have nothing to read.
+- **Measured**: MEASURED 10-06 on the Golden Source replica.
+- **Evidence**:
+  - `bifrost-research/src/bifrost_research/repositories/candidate_pool.py:24` — `"source_ref",`
+  - `bifrost-trade-frontend/src/pages/copilot/personas/JudgeTrackRecord.tsx:15` — `*   a per-judge verdict against the outcome that followed, so the design's`
+- **Impact**: The bench cannot say which judge earns its weight.
+- **Fix**: Recommended: the harness writes source_ref.persona (and the judge model) when it inserts a candidate; forward only, no DDL, no backfill; candidate-outcome /summary groups by it. Alternative: a new research.* table if one candidate can carry several judges' votes (design first, database-design skill).
+- **Ratchet**: Test that the harness insert path sets source_ref.persona; an asset check that new harness candidates without it are 0.
+- 审批 要你批 · 代价 S · 风险 low · repos: bifrost-research, bifrost-trade-frontend
+
+### TD-145
+
+**P3 · research-data · Settled candidates carry no regime label, so the Personas bench 'Best regime' column has nothing to group by**
+
+- **状态**：在做（代码就绪：research 3109b04，与 TD-141 同一版本，Owner 已批发布；口径 Owner 10-06 已定：名字自己的 terrain regime，没有就用 SPY，不是市场级 regime）
+- **验收**：`kubectl -n research exec deploy/research-api -- python -c "import bifrost_research;print(bifrost_research.__version__)"` ≥ 0.185.0；在 research origin/main 上 `python -m pytest tests/api/test_candidate_outcome_rows_regime.py -q` 通过；前端接上后 `git -C bifrost-trade-frontend grep -n 'by_regime' origin/main -- src` 至少一行
+- **Claim**: No candidate's lens_snapshot has a regime key and Golden Source has no market-level regime table; the per-name regime lives in features.stock_forecast_terrain_daily (06-24 → 10-05). SPY was range on 25 of the 26 candidate days, so a market label would separate nothing.
+- **Measured**: MEASURED 10-06: 0 candidates with lens_snapshot ? 'regime'. With 3109b04 on the replica: of 127 settled candidates 111 take the name's regime, 16 fall back to SPY, 0 unlabelled (the join takes that session or the newest within 7 days before it, since 15 candidate dates fall on weekends); the LATERAL join runs in about 2 ms. Side reading, small sample: harness 5d hit trending 19/24, range 24/64.
+- **Evidence**:
+  - `bifrost-research/src/bifrost_research/api/candidate_outcome.py:136` — `@router.get("/rows", dependencies=[Depends(require_owner)])`
+  - `bifrost-trade-frontend/src/pages/copilot/personas/JudgeTrackRecord.tsx:56` — `{ column: 'Best regime', missing: 'settled outcomes carry no regime label' },`
+- **Impact**: The bench cannot say in which market a judge is right.
+- **Fix**: 3109b04: /rows adds regime, regime_scope and regime_date per row, derived at read time as COALESCE(name terrain, SPY) (precedent: /research/signal-decay); /summary?by_regime=true groups by it. No table or column. Then JudgeTrackRecord's Best regime reads /summary?by_regime=true with a sample floor.
+- **Ratchet**: tests/api/test_candidate_outcome_rows_regime.py (3109b04).
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research, bifrost-trade-frontend
+
+### TD-146
+
+**P3 · research-data · No store accepts a hand verdict, so the Personas bench 'Agrees with you' column cannot be computed**
+
+- **状态**：未开始（要你定：要不要建手动判词库；要的话是新表，先出设计；见「需要你拍板」）
+- **验收**：建了的话：`git -C bifrost-research grep -n 'verdict' origin/main -- src/bifrost_research/schema` 出现新表的 DDL，且 `git -C bifrost-trade-frontend grep -n "column: 'Agrees with you'" origin/main -- src` 无输出（列不再登记为缺数据）
+- **Claim**: Nothing records a hand verdict beside the machine's on the same name; JudgeTrackRecord greys 'Agrees with you' for that reason.
+- **Measured**: CODE-READ 10-06: no verdict table under bifrost_research/schema on origin/main a242b22.
+- **Evidence**:
+  - `bifrost-trade-frontend/src/pages/copilot/personas/JudgeTrackRecord.tsx:23` — `* - **Agrees with you** needs a hand verdict beside a machine one on the same`
+  - `bifrost-trade-frontend/src/pages/copilot/personas/JudgeTrackRecord.tsx:24` — `*   name. The hand-verdict store (Vision §4 · §9.3) does not exist yet.`
+- **Impact**: One of the bench's columns stays grey; no agreement rate between the Owner and the judges.
+- **Fix**: If wanted: a journal.* table keyed by research user (D-Journal-Stores), one row per (user, symbol, trade_date) verdict with an optional note, written from the bench; designed with the database-design skill before any DDL. If not: the column keeps its stated reason and this item is closed as not wanted.
+- **Ratchet**: If built: a DB test of the store and the frontend column test. If not built: none needed (the page already states why).
+- 审批 要你批 · 代价 M · 风险 low · repos: bifrost-research, bifrost-trade-frontend
+
+### TD-147
+
+**P3 · research-data · /research/candidate-outcome/rows has no source / days filter, so Journal Settled cannot split Right / Wrong by source and window**
+
+- **状态**：在做（代码就绪：research 3109b04，与 TD-141 同一版本，Owner 已批发布）
+- **验收**：`git -C bifrost-research show origin/main:src/bifrost_research/api/candidate_outcome.py | grep -n 'Query('` 在 get_rows 下有 source 与 days；research-api 版本 ≥ 0.185.0（TD-145 的命令）
+- **Claim**: /rows takes symbol, horizon_days and limit only, while /summary already takes source and days; both require an Owner login since 0.167.0.
+- **Measured**: CODE-READ 10-06 on origin/main a242b22. 3109b04: /rows adds source and days (1–730) with /summary's meaning; without them the result is unchanged, and a test pins that the query params are then only (limit,).
+- **Evidence**:
+  - `bifrost-research/src/bifrost_research/api/candidate_outcome.py:137` — `def get_rows(`
+  - `bifrost-research/src/bifrost_research/api/candidate_outcome.py:140` — `limit: int = Query(100, ge=1, le=500),`
+  - `bifrost-research/src/bifrost_research/api/candidate_outcome.py:116` — `source: str | None = Query(None),`
+- **Impact**: Journal's Settled view cannot split Right / Wrong per source or window.
+- **Fix**: 3109b04 as above, still require_owner; then Journal Settled passes source and days.
+- **Ratchet**: The 3109b04 test pinning the unfiltered query plus the filtered cases.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research, bifrost-trade-frontend
+
+### TD-148
+
+**P3 · trade-data · A trade cannot name the lens or backtest run it came from: trade has no such column and strategy_plan.source_kind does not allow lens / backtest_run**
+
+- **状态**：未开始（口径 Owner 10-06 已定：(b) plan 的 source_kind 加 lens / backtest_run，经 plan → trade 派生；DDL 清单待你逐项确认，见「需要你拍板」）
+- **验收**：三个 Trade 库各跑：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data exec -i bifrost-postgres-3 -c postgres -- env PGOPTIONS='-c default_transaction_read_only=on' psql -U postgres -d bifrost_prod -X -At -c "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='strategy_plan'::regclass AND contype='c' AND pg_get_constraintdef(oid) LIKE '%source_kind%'"` 含 `'lens'` 与 `'backtest_run'`
+- **Claim**: PROD trade has trade_id, strategy_opportunity_id, account_id, opened_at, label, created_at, updated_at and no public table has a lens, backtest or run_id column. strategy_plan.source_kind is checked against manual | symbol | hypothesis | inbox_draft | roll, and core repeats the same five in the reader and the request schema. Outcome / Lineage keep the lens and run chips grey (design D3, Owner 2026-09-17).
+- **Measured**: MEASURED 10-06 on bifrost_prod (columns of trade; the CHECK definition).
+- **Evidence**:
+  - `bifrost-trade-core/src/bifrost_core/persistence/postgres/trade_ddl.py:124` — `CHECK (source_kind IN ('manual', 'symbol', 'hypothesis', 'inbox_draft', 'roll')),`
+  - `bifrost-trade-core/src/bifrost_core/monitor/reader/strategy_plan.py:593` — `_SOURCE_KINDS = ("manual", "symbol", "hypothesis", "inbox_draft", "roll")`
+  - `bifrost-trade-core/src/bifrost_core/monitor/schemas/strategy_plans.py:17` — `SourceKind = Literal["manual", "symbol", "hypothesis", "inbox_draft", "roll"]`
+  - `design/trade/DECISIONS.md:1232` — `**D3 · Outcome 的 lens / run 链条**(Owner 2026-09-17)`
+- **Impact**: Record's Lens cut has a single 'no lens recorded' row and 'vs backtest' is a dash everywhere.
+- **Fix**: DDL per environment through db-init: drop the source_kind CHECK on strategy_plan (name read from pg_constraint; default strategy_plan_source_kind_check) and add it back with 'lens' and 'backtest_run'. Widening only: existing rows pass, PROD has 0 plans, no new column, no backfill, reversible while no row uses the new values. Code: core _SOURCE_KINDS and SourceKind gain the two values (public interface: core minor bump, trade-api lower bound raised), source_ref carries the lens id or backtest run id; frontend Outcome / Lineage read them through the trade's plan.
+- **Ratchet**: core test that the DDL CHECK list, _SOURCE_KINDS and SourceKind are the same set (three copies pinned together).
+- 审批 改表（要你批） · 代价 S · 风险 low · repos: bifrost-trade-core, bifrost-trade-api, bifrost-trade-frontend
+
+### TD-149
+
+**P2 · market-data · CTVA's adjusted daily bars ignore its 2026-10-01 spin-off, so every return-based feature on CTVA sees an ~84% one-day drop**
+
+- **状态**：观察中（到 10-16，看数据源 adjusted=true 是否把分拆算进去）
+- **验收**：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data exec -i bifrost-postgres-3 -c postgres -- env PGOPTIONS='-c default_transaction_read_only=on' psql -U postgres -d bifrost_golden_source -X -At -c "SELECT bar_date, close, close_unadjusted FROM raw_market.stock_daily WHERE symbol='CTVA' AND bar_date BETWEEN '2026-09-28' AND '2026-10-02' ORDER BY 1"` 中 09-30 的 close ≠ close_unadjusted；且 `SELECT trade_date, rv_20d FROM features.stock_signal_vrp_daily WHERE symbol='CTVA' AND trade_date >= '2026-10-01' ORDER BY 1` 全部 < 1.0
+- **现在**：每日定时任务 daily-ctva-adjust-and-unadjusted-close-check 在查（10-02、10-05、10-06 都未复权）。第 2 步 Owner 10-02 已批：数据源复权后重抓 CTVA 日线并重算 10-01 起的派生。
+- **下一步**：复权后按已批的第 2 步做；到 10-16 仍不复权，另议：Research 按分拆比例自算（另批）。（10-16）
+- **Claim**: The vendor's adjusted and unadjusted CTVA series are identical across the 10-01 spin-off (09-30 77.65 → 10-01 12.57), so raw_market.stock_daily.close carries the drop. VRP takes log(close_t / close_{t-1}) from that column and gives rv_20d about 6.4 from 10-01; momentum, SEPA, terrain and scan read the same bars; each session adds one more affected day, up to 252. The option metrics recovered separately once the standard series listed (closed on the board).
+- **Measured**: MEASURED 10-06 13:33 UTC (scheduled check): 09-28 → 10-05 adjusted = unadjusted every day; close_unadjusted coverage on 10-05 100.00% (12,605/12,605, 0 rows off by more than 0.1%); CTVA rv_20d 09-30 0.209 → 10-01 6.438 · 10-02 6.433 · 10-05 6.444.
+- **Evidence**:
+  - `bifrost-platform-plugin-market-data/src/bifrost_market_data/ingest/stock_daily_grouped.py:8` — `the adjusted series folds in spin-offs as well as splits (HON 2025-10-29 reads`
+  - `bifrost-research/src/bifrost_research/engines/vrp/compute.py:91` — `log_returns.append(math.log(cur / prev))`
+  - `bifrost-research/src/bifrost_research/engines/vrp/compute.py:133` — `SELECT bar_date, close`
+- **Impact**: CTVA's VRP, momentum, SEPA, terrain and scan are wrong from 10-01 and one more day wrong every session.
+- **Fix**: Approved step 2: once the vendor restates, re-pull CTVA daily bars and recompute the derived features from 10-01. If not by 10-16: Research applies the spin ratio to the pre-spin bars itself (separate approval).
+- **Ratchet**: For this case the daily scheduled check. For the class (proposed): a nightly sweep that flags any name whose close-to-close |log return| exceeds ln 3 on a day with no split in corporate_action, which catches the next unadjusted spin-off within one night.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data, bifrost-research
+
+### TD-150
+
+**P3 · frontend · Pages report gaps that are not there: 'no earnings date reaches this side', 'carry nothing at all' for names the vendor answered, and no note that CUE lists only adjusted contracts**
+
+- **状态**：在做（另一线程，frontend 分支 fix/data-gap-wording；10-06 该分支相对 origin/main 还没有提交）
+- **验收**：`git -C bifrost-trade-frontend grep -n -i 'earnings date reaches this side\|No earnings date on this side\|carry nothing at all\|cannot say whether they pay' origin/main -- src ':!src/layout/designNotes'` 无输出，且 `git -C bifrost-trade-frontend grep -n -i 'only adjusted contracts' origin/main -- src` 至少一行
+- **Claim**: Three wording gaps, one batch. (1) Earnings (board R2.b): the shared earnings read from 10-04 (c85b0079 / 1b0baa53 / ca3694a2) gives estimated next dates, but Today checks, Limits, Scan and Vol ratings still say no earnings date reaches this side; TodayFace and stockRatingsModel already changed. (2) Corporate Actions (B4.tail): a name with a single row is treated as not backfilled and names with none are 'carry nothing at all'; after the 09-29 backfill CAOS's one split is a complete answer and CBRS · FN · HIMS · NBIS · NNE · RKLB really have 0 events. (3) CUE (R10.CUE): after the 1:30 reverse split (ex 2026-04-24) only 14 adjusted CUE1 contracts expiring 10-16 exist and no standard series is listed; the pages show empty max pain / ATM IV / GEX / flow / PCR with no reason.
+- **Measured**: MEASURED 10-06 on bifrost-trade-frontend origin/main a9cbd02a: the lines below; 'only adjusted contracts' 0 hits; CUE 10-05 open interest 14 rows, all CUE1.
+- **Evidence**:
+  - `bifrost-trade-frontend/src/pages/home/today/useTodayChecks.ts:186` — `'no future earnings date reaches this side for any name in the book, so the week ahead cannot be read',`
+  - `bifrost-trade-frontend/src/utils/limitsModel.ts:284` — `noReading: 'no future earnings date reaches this side, so no window can be drawn',`
+  - `bifrost-trade-frontend/src/pages/research/discover/ScanPage.tsx:490` — `title="Days to the next print. No forward earnings date reaches this side — /research/events/calendar answers count 0, and the gap behind it`
+  - `bifrost-trade-frontend/src/pages/research/discover/ScanPage.tsx:567` — `title="No earnings date on this side — see the column header."`
+  - `bifrost-trade-frontend/src/lib/research/volRatingsModel.ts:46` — `* - an **Earn** column. No forward earnings date reaches this side:`
+  - `bifrost-trade-frontend/src/pages/portfolio/corporateActions/corporateActionsModel.ts:211` — `/** Symbols with nothing at all — the feed cannot say whether they pay. */`
+  - `bifrost-trade-frontend/src/pages/portfolio/corporateActions/CorporateActionsPage.tsx:391` — `${reach.silent.length} carry nothing at all: ${reach.silent.join(', ')}`
+- **Impact**: The pages tell the Owner data is missing where an estimate exists or where the vendor answered zero; CUE's empty metrics read as a failure.
+- **Fix**: The four earnings sites read the shared earnings read and say estimated ◎ · confirmed dates not in the subscription (see 数据边界); Corporate Actions says 'vendor answered none' / 'one event on record'; CUE's option metric cells say only adjusted contracts are listed (CUE1, 1:30 reverse split) and the exchange lists no standard series.
+- **Ratchet**: A frontend test that searches src (outside designNotes) for the retired phrases and fails on a hit. Manual strength until vitest runs in CI (RATCHETS: FE 守卫测试).
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
+
+### TD-151
+
+**P3 · research-data · The macro calendar is empty: features.macro_event_daily has 0 rows because macro_ingest has no scheduled caller**
+
+- **状态**：未开始（优先级低，可选）
+- **验收**：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data exec -i bifrost-postgres-3 -c postgres -- env PGOPTIONS='-c default_transaction_read_only=on' psql -U postgres -d bifrost_golden_source -X -At -c "SELECT count(*), max(event_date) FROM features.macro_event_daily"` → count > 0 且 max(event_date) ≥ 今天 + 30 天；`git -C bifrost-research grep -n macro_ingest origin/main -- src/bifrost_research/orchestration` 至少一行
+- **Claim**: features.macro_event_daily is filled only by scheduler/macro_ingest.py, a CSV drop-zone ingest from Wave R4, and no Dagster schedule, job or CronJob calls it. /research/event-radar/macro/forward and /macro/gap answer 0 rows; the macro rows in /research/events/calendar come from a hand-placed ws:macro file.
+- **Measured**: MEASURED 10-06: 0 rows; both routes 0 rows. CODE-READ: `git grep macro_ingest` on origin/main finds no caller in bifrost_research/orchestration or bifrost-trade-infra.
+- **Evidence**:
+  - `bifrost-research/src/bifrost_research/scheduler/macro_ingest.py:1` — `"""Macro economic calendar CSV ingest (manual drop zone, Wave R4)."""`
+  - `bifrost-research/src/bifrost_research/scheduler/macro_ingest.py:98` — `def run_macro_ingest_from_env() -> dict[str, Any]:`
+  - `bifrost-research/src/bifrost_research/api/wave4.py:859` — `FROM features.macro_event_daily`
+- **Impact**: Event radar has no macro look-ahead (FOMC, CPI, payrolls) from the store.
+- **Fix**: Schedule macro_ingest weekly from Dagster over one maintained source (the ws:macro file the calendar already reads, or a vendor feed if the subscription has one). Or, if the calendar's ws:macro rows are enough, retire the two macro routes and the empty table instead (delete, not build).
+- **Ratchet**: A Dagster asset check that features.macro_event_daily has a row dated within the next 30 days.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
 
 ## 没覆盖到的（下一轮从这里开始）
 
