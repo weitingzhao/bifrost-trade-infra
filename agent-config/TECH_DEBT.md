@@ -13,9 +13,12 @@
 
 ## 待你签收
 
-（暂无）
+- **TD-163** — 两个 import dagster 的测试加 `pytest.importorskip`（research e96c360）· 验收 PASS（10-06，无 extra 2055 passed / 0 failed）· 防线：`bifrost-research/tests/test_dagster_import_guard.py`（AST 扫描，含间接加载）· 无后续
+- **TD-164** — 18 个 dbt generic test 的参数移进 `arguments:`，dbt-core 下限升到 1.10（research e96c360）· 验收 PASS（10-06，严格 parse exit 0，manifest 前后一致）· 防线：`tests/test_dbt_grain_ratchet.py::test_generic_test_parameters_sit_under_arguments` + Dockerfile / Makefile 的 `--warn-error-options` · 无后续
+- **TD-167** — Console slot adherence 对五个受巡检 slot 只认本 slot 的 job，证据读 `slot:<id>` 行（market-data 0.80.0 / 0.80.1 修计数）· 验收 PASS（10-06 19:12 UTC；7 天重放 0 次翻转）· 防线：`tests/test_slot_freshness.py` 新用例 + `SHAPE_NAMED_SLOTS == doctor.POLICED_SLOTS` · 更正：这个判定的读者是 Platform Data Husbandry 的 market_batch 泳道，不是 Research gate · 后续：TD-174、TD-175
+- **TD-168** — doctor stale:* 只在维度真共享时点名共享方（market-data 0.80.0）· 验收 PASS（10-06 19:13 UTC）· 防线：`test_the_sharing_clause_appears_only_for_a_shared_dimension` · 无后续
 
-**未结 72 项**：P0 0 · P1 5 · P2 29 · P3 38；要你批的 36 项（从总览表的审批列算）。
+**未结 76 项**：P0 0 · P1 5 · P2 30 · P3 41；要你批的 38 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -59,7 +62,7 @@
 
 目标：所有「今天 / 本 session」都从 `db/calendar` 的一个函数来，代替 11 个私有 helper 和 44 处 `date.today()`；dbt 补 grain 测试；IV / 回测的定价参数统一。
 
-项：TD-98, TD-110, TD-111, TD-112, TD-128, TD-129, TD-164
+项：TD-98, TD-110, TD-111, TD-112, TD-128, TD-129, TD-164, TD-174, TD-175
 
 ### 第 4 波 · 券商资金账本（Flex / IB）
 
@@ -71,13 +74,13 @@
 
 目标：删掉没人用的（挂起的 CronJob、退役脚本、无调用路由），手抄的副本改成从一处生成（调度名单、max-pain / PCR），清单的应用顺序与 Argo 归属理顺。
 
-项：TD-102, TD-106, TD-107, TD-118, TD-119, TD-120, TD-123, TD-124, TD-125, TD-160, TD-163, TD-168, TD-169, TD-170 · 已还：TD-126, TD-108, TD-154
+项：TD-102, TD-106, TD-107, TD-118, TD-119, TD-120, TD-123, TD-124, TD-125, TD-160, TD-163, TD-168, TD-169, TD-170, TD-176 · 已还：TD-126, TD-108, TD-154
 
 ### 第 6 波 · 备份链与自动修复（10-06 日常发现）
 
 目标：备份 MinIO 已搬到 NAS（infra 1ee0ac2，已接监控 ba03488），把剩下的收尾：自动修复只在 PROD 一处动手、失败记录不再被删、platform 的新检查上线、稳定一周后退役集群里的 MinIO 残留，再处理 WAL 体量和 CNPG 1.30 的备份插件。
 
-项：TD-130, TD-131, TD-132, TD-133, TD-134, TD-135
+项：TD-130, TD-131, TD-132, TD-133, TD-134, TD-135, TD-173
 
 ### 第 7 波 · 数据缺口（10-06 由 Data Gaps 看板并入）
 
@@ -237,6 +240,10 @@
 | [TD-170](#td-170) | P3 | research-control | dagster-daemon logs one line over 256 KB at the 22:45 and 03:00 UTC schedule ticks every night | 不用批 |
 | [TD-171](#td-171) | P3 | frontend | Positions shows the attribution price_last as if it were live: no EOD label or date now that core 0.51.0 fills it from the vendor EOD mark | 不用批 |
 | [TD-172](#td-172) | P2 | research-data | ATM IV has almost no 50–90 DTE expiry from 2026-07-06 to 09-25 (the EOD chain stopped at the third listed expiry until plugin 0.39.0); the fix was forward-only, so term structure reads na for that stretch | 要你批 |
+| [TD-173](#td-173) | P2 | infra | ubt-k3s-06 has no nfs-common: pods with an NFS volume scheduled there hang in ContainerCreating (mount exit 32) | 要你批 |
+| [TD-174](#td-174) | P3 | market-data | Console marks fundamentals-rotate missed every Monday 03:45 → Tuesday 03:00 UTC: the trading-day check uses the UTC date of the fire | 不用批 |
+| [TD-175](#td-175) | P3 | market-data | ticker-details adherence still credits the shared ticker_sync freshness row, so a stopped ticker-details reads on_plan after reference's 21:30 walk | 不用批 |
+| [TD-176](#td-176) | P3 | research-control | Suspended CronJobs cronjob-signal-hit.yaml and cronjob-alert-scan.yaml still ship and get re-pinned every release though Dagster runs both | 删除（要你批） |
 
 ## 条目
 
@@ -1182,7 +1189,10 @@
 
 **P2 · research-control · research_signal_hit_schedule fires at 00:10 UTC, before the 02:30 UTC batch writes the night's features, so it judges the previous night's features**
 
-- **状态**：在做（还债第二批 · 道 G1，10-06 开工）
+- **状态**：观察中（到 10-07 02:30 UTC 批次之后；需 S6 会话把 research 0.195.0 + 0.195.0-dagster 上线，它包含 e96c360）
+- **验收**：10-07 批次后 GS 只读：`features.stock_signal_lens_hit_daily` 的 2026-10-06 ≥ 约 1,000 行、6–7 个 lens，max(computed_at) 晚于同日 iv_percentile；`research_trading_day` 的 STEP_START 顺序为 terrain / flow / vrp / sepa_projection → `engines__signal_hit` → `signal_hit_fwd_fill` → `alert_scan`；`dagster schedule list` 里没有 `research_signal_hit_schedule`
+- **下一步**：已 suspend 的 `cronjob-signal-hit.yaml` / `cronjob-alert-scan.yaml` 还在跟着升 pin，记为 TD-176
+- **现在**：research e96c360（0.194.0，未单独发布；0.195.0 叠在其上）：signal_hit 进 `TRADING_DAY_JUDGES`，依赖各特征写入方，终点改为 `latest_closed_session`；`research_signal_hit_schedule` 从代码与 roster 删除；`alert_scan` 依赖 `signal_hit_fwd_fill`。基线 10-05：lens_hit 只有 10 行、1 个 lens（02:31:58 写入，早于 iv_percentile 的 02:34:02）。防线 `tests/orchestration/test_judge_after_writer.py`（扩展）+ `tests/engines/test_signal_hit_session.py`。前端文案已同步（frontend e2c338f5）
 - **Claim**: signal_hit runs on its own cron ('10 0 * * 1-6' UTC) instead of inside research_trading_day after the feature writers. At 00:10 UTC the night's SEPA / IV / scan features are not written yet, so each walk reads the previous session's features — the same class as TD-97 (judge before writer).
 - **Measured**: code-read 10-06 by paydown lane A; not measured.
 - **Evidence**:
@@ -1294,7 +1304,9 @@
 
 **P3 · research-control · Two research tests import dagster without importorskip, so they fail in any venv without the orchestration extra**
 
-- **状态**：在做（还债第二批 · 道 G1，10-06 开工）
+- **状态**：待你签收
+- **验收**：不装 orchestration extra 的 venv 跑全量 `pytest -q` 0 failed，且 `tests/test_dagster_import_guard.py` 通过
+- **验收结果**：PASS 2026-10-06 research e96c360：无 extra 2055 passed / 23 skipped（改前 2 failed），带 extra 2149 passed
 - **Claim**: tests/engines/test_alert_scan_rejudge.py (TD-97) and tests/orchestration/test_event_radar_runner.py (TD-100) import dagster at module level. CI installs the extra so it passes there; a plain dev venv reports 2 failures on origin/main, which trains people to ignore red.
 - **Measured**: MEASURED 10-06 by paydown lane B: full run 2025 passed, 2 failed (these two) in a venv without [orchestration].
 - **Evidence**:
@@ -1308,7 +1320,9 @@
 
 **P3 · research-data · dbt reports MissingArgumentsPropertyInGenericTestDeprecation 18 times: generic test arguments use the pre-1.10 layout**
 
-- **状态**：在做（还债第二批 · 道 G1，10-06 开工）
+- **状态**：待你签收
+- **验收**：`make dbt-parse`（严格模式，MissingArguments 当错误）exit 0；dbt-core 1.10.23 与 1.12.5 parse 无 deprecation；`tests/test_dbt_grain_ratchet.py` 通过
+- **验收结果**：PASS 2026-10-06 research e96c360：dbt-parse exit 0，两版 dbt 0 条 deprecation；manifest 前后 105 个 test 节点 kwargs 一致；0.195.0-dagster 构建里的严格 parse 通过
 - **Claim**: Generic tests pass their parameters at the top level instead of under `arguments:`; dbt 1.10+ warns on each, and a future dbt will stop accepting it.
 - **Measured**: MEASURED 10-06 by paydown lane B (dbt parse on dbt-core 1.10.23 and 1.12.3; the Dagster image runs 1.12.5).
 - **Evidence**:
@@ -1339,7 +1353,9 @@
 
 **P3 · market-data · Console slot adherence still credits a policed slot with its sibling's jobs (reference counts ticker-details detail jobs as its evidence)**
 
-- **状态**：在做（还债第二批 · 道 J，10-06 开工）
+- **状态**：待你签收
+- **验收**：queue-dashboard：reference = `on_plan slot:reference jobs_created=1`，corporate 的证据为 `slot:corporate`，ticker-details 仍读 `ticker_sync`
+- **验收结果**：PASS 2026-10-06 19:12 UTC market-data 0.80.1（9fdb151）；只读重放 7 天 × 6 个 slot × 2017 个时刻 0 次翻转，最坏过渡 721 个时刻 0 次翻转
 - **Claim**: _evidence_for_fire counts any created job of the slot's kinds. reference and ticker-details both declare kind ticker_sync, so a ticker-details detail job counts as evidence that the reference universe walk ran. TD-101 fixed the doctor's freshness; the Console schedule-adherence verdict (which the Research gate reads) still has the old credit.
 - **Measured**: code-read 10-06 by paydown lane D; left alone because changing it moves the schedule verdict the Research gate reads.
 - **Evidence**:
@@ -1354,7 +1370,9 @@
 
 **P3 · market-data · The doctor's stale:* detail says the dimension row is one 'which other slots also write' even for calendar and fundamentals-rotate, whose dimensions are not shared**
 
-- **状态**：在做（还债第二批 · 道 J，10-06 开工）
+- **状态**：待你签收
+- **验收**：`/market/doctor` 的 stale:* detail：calendar、fundamentals-rotate 不含 also；reference、corporate、option-refresh 点名共享方
+- **验收结果**：PASS 2026-10-06 19:13:11 UTC doctor 报告（market-data 0.80.1）
 - **Claim**: The detail text after TD-101 always adds 'which other slots also write' when quoting the dimension row. For calendar and fundamentals-rotate the dimension is written only by that slot, so the sentence tells an operator to distrust a row that is in fact theirs.
 - **Measured**: code-read 10-06 by paydown lane D.
 - **Evidence**:
@@ -1368,7 +1386,9 @@
 
 **P3 · market-data · ops_jobs.ingest_freshness.option_expiration is a fossil row frozen since 09-06 and still listed as ok**
 
-- **状态**：在做（还债第二批 · 道 J，10-06 开工）
+- **状态**：观察中（到 10-07 00:20 UTC option-refresh 之后，看 option_expiration 行被写）
+- **验收**：`SELECT last_run_at FROM ops_jobs.ingest_freshness WHERE dimension='option_expiration'` ≥ 2026-10-07 00:20 UTC（现在仍是 2026-09-06 12:58）
+- **现在**：market-data 0.80.0（8e39aab）：option_contract 在写了 expiration 时返回 `freshness_extra={'option_expiration': n}`；防线 `tests/test_freshness_writers.py`：表里与 contracts / SLOT_EVIDENCE / quality 读到的每个维度都必须有现行写入方
 - **Claim**: Expirations now come from option_contract jobs, which return no freshness_extra for option_expiration, so the row has not moved since 2026-09-06; nothing polices it, yet freshness listings show it with status ok.
 - **Measured**: MEASURED 10-06 by paydown lane D (ingest_freshness row last_run_at 2026-09-06).
 - **Evidence**:
@@ -1425,6 +1445,63 @@
 - **Fix**: List the range for the Owner first (names × sessions × contracts). Then (a) the plugin re-pulls option_daily bars for the 50–90 DTE contracts of 2026-07-06..09-25 from the vendor's history (Options Starter has two years), and (b) Research recomputes ATM IV for those sessions; from 08-05 the 16:00 snapshots are a second source if the bars stay thin. Writes raw_market.option_daily (plugin) and features.* (Research) only.
 - **Ratchet**: The plugin doctor's option_daily breadth (0.59.0 counts 5–90 DTE) also counts names with a 50–90 DTE bar per session and warns below 0.8 of the trailing median, so a bound that stops short shows within a day.
 - 审批 要你批 · 代价 M · 风险 low · repos: bifrost-platform-plugin-market-data, bifrost-research
+
+### TD-173
+
+**P2 · infra · ubt-k3s-06 has no nfs-common: pods with an NFS volume scheduled there hang in ContainerCreating (mount exit 32)**
+
+- **状态**：未开始
+- **Claim**: 06 was reinstalled 10-06 and is not in install-nfs-common-nodes.sh DEFAULT_NODES. market-data-api mounts market-data-archive (nfs-cold); twice on 10-06 its new pod landed on 06 and failed `mount failed: exit status 32`.
+- **Measured**: MEASURED 10-06 by paydown lane J: on 192.168.10.79 `dpkg-query: package 'nfs-common' is not installed`, /sbin/mount.nfs absent; two FailedMount rollouts 19:08 and 19:11 UTC (lane J cordoned 06 ~10 s each time to reschedule, then uncordoned).
+- **Evidence**:
+  - `bifrost-trade-infra/scripts/k3s/install-nfs-common-nodes.sh:17` — `DEFAULT_NODES=(`
+- **Impact**: 06 is the emptiest node so the scheduler prefers it; an evicted market-data-api (or any NFS-mounting pod) lands there and stays down — Dagster enqueue and the Trade gateway answer 503.
+- **Fix**: Owner runs `K3S_NFS_NODES="vision@192.168.10.79" ./scripts/k3s/install-nfs-common-nodes.sh`; add .79 to DEFAULT_NODES.
+- **Ratchet**: install-agent preflight installs or checks `dpkg -s nfs-common`; plus a FailedMount warning alert (kube_pod_container_status_waiting_reason ContainerCreating > 10m with FailedMount events).
+- 审批 要你批 · 代价 S · 风险 low · repos: bifrost-trade-infra
+
+### TD-174
+
+**P3 · market-data · Console marks fundamentals-rotate missed every Monday 03:45 → Tuesday 03:00 UTC: the trading-day check uses the UTC date of the fire**
+
+- **状态**：未开始
+- **Claim**: _slot_adherence asks is_trading_day(conn, cron_last.date()) on the UTC date; Monday 03:00 UTC is Sunday in New York, the slot rightly enqueues nothing, and the dashboard calls it missed. Platform's market_batch lane reports the miss once a week.
+- **Measured**: MEASURED 10-06 by paydown lane J (replay): 280 of 2017 five-minute instants over 7 days, identical on old and new code.
+- **Evidence**:
+  - `bifrost-platform-plugin-market-data/src/bifrost_market_data/api/ingest_dashboard.py:727` — `trading_last = is_trading_day(conn, cron_last.date())`
+- **Impact**: A weekly false miss trains readers to ignore the Data Husbandry market_batch lane.
+- **Fix**: Judge the trading day on the New York date of the fire, as doctor's _closed_days_since does.
+- **Ratchet**: A dashboard test: a Monday 03:00 UTC fire is not missed.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data
+
+### TD-175
+
+**P3 · market-data · ticker-details adherence still credits the shared ticker_sync freshness row, so a stopped ticker-details reads on_plan after reference's 21:30 walk**
+
+- **状态**：未开始
+- **Claim**: Mirror of TD-167 for the one slot outside the policed list: ticker-details and reference both enqueue ticker_sync and both bump freshness.ticker_sync.
+- **Measured**: code-read 10-06 by paydown lane J.
+- **Evidence**:
+  - `bifrost-platform-plugin-market-data/src/bifrost_market_data/api/ingest_dashboard.py:93` — `"ticker-details": {"kinds": ["ticker_sync"], "freshness": "ticker_sync"},`
+- **Impact**: If ticker-details stops, the Console and the market_batch lane keep calling it on plan.
+- **Fix**: Give ticker-details its own slot:<id> freshness row and job-shape filter like the five policed slots (or add it to POLICED_SLOTS).
+- **Ratchet**: Extend tests/test_slot_freshness.py: ticker-details stopped while reference runs → missed.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data
+
+### TD-176
+
+**P3 · research-control · Suspended CronJobs cronjob-signal-hit.yaml and cronjob-alert-scan.yaml still ship and get re-pinned every release though Dagster runs both**
+
+- **状态**：未开始
+- **Claim**: Both engines run inside research_trading_day (alert_scan since TD-97, signal_hit since TD-156); the suspended CronJob manifests have no runtime effect but every release bumps their image pins.
+- **Measured**: code-read 10-06 by paydown lane G1.
+- **Evidence**:
+  - `bifrost-research/k8s/engines/cronjob-signal-hit.yaml:14` — `suspend: true`
+  - `bifrost-research/k8s/engines/cronjob-alert-scan.yaml:15` — `suspend: true`
+- **Impact**: Dead manifests suggest a second scheduler exists; someone unsuspending one would run the engine twice.
+- **Fix**: Delete both manifests (and their kustomization entries) once Owner approves.
+- **Ratchet**: A research test: no CronJob manifest names an engine that Dagster also runs (read from the roster).
+- 审批 删除（要你批） · 代价 S · 风险 low · repos: bifrost-research
 
 ## 没覆盖到的（下一轮从这里开始）
 
