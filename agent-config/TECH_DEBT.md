@@ -13,7 +13,8 @@
 
 ## 待你签收
 
-（暂无）
+- **TD-124** — 删掉永久挂起的 CronJob：research 18 个（60e9c2d，逐个核过都在 Dagster）、market-data 14 个 + 0.10.0 孤儿文件（91fe2c1），Owner 删除集群对象；保留 harness 与 7 个触发模板（去掉其中 5 个的旧 RESEARCH_WATCHLIST）· 验收 PASS（10-06，挂起 39 → 7）· 防线：`bifrost-research/tests/test_k8s_cronjobs.py`、`bifrost-platform-plugin-market-data/tests/test_k8s_no_cronjobs.py`，两个 verify 脚本翻成「必须不存在」· 后续：TD-190（触发路由与 7 个模板）、TD-191（schedule.yaml 注释）
+- **TD-176** — signal-hit / alert-scan 两个挂起清单随 TD-124 删除（research 60e9c2d）· 验收 PASS（10-06）· 防线：同 TD-124 · 无后续
 
 **未结 80 项**：P0 0 · P1 4 · P2 29 · P3 47；要你批的 42 项（从总览表的审批列算）。
 
@@ -720,8 +721,9 @@
 
 **P3 · research-control · 39 permanently suspended CronJobs (25 research, 14 market-data, plus an orphan pinned to 0.10.0) are still deployed and re-pinned every release; research ones carry a stale 26-name watchlist and the verify script contradicts the one active CronJob**
 
-- **状态**：在做（清单已删：research 60e9c2d、market-data 91fe2c1；集群里剩 32 个挂起 CronJob 等你执行删除——research Argo 没开 prune，market-data 用 apply -k）
+- **状态**：待你签收
 - **验收**：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl get cronjob -A | grep -c True` = 7（只剩 7 个触发模板）；research 26 → 8、plugin-market-data 14 → 0；Argo bifrost-research Synced；`verify_husbandry_schedulers.sh` 与 `make verify-market-data` 第 3/6 步 PASS
+- **验收结果**：PASS 2026-10-06 23:5x UTC：Owner 执行两条 kubectl delete 后全集群挂起 CronJob 39 → 7，research 26 → 8，plugin-market-data 14 → 0；Argo bifrost-research Synced / Healthy；`verify_husbandry_schedulers.sh` PASSED；`verify-market-data.sh` 第 3/6 步「0 CronJobs」（data quality 一行是原有的 pending，与本项无关）
 - **现在**：道 R 盘点：39 个 CronJob（research 26 = 25 挂起 + harness；market-data 14 全挂起，最后调度 08-29/08-30）；0.10.0 孤儿只剩文件、集群无对象。保留 harness（活跃）和 7 个挂起模板（platform 的触发白名单按名字用它们，见 TD-190），并从其中 5 个去掉过时的 RESEARCH_WATCHLIST（已同步，live 为 0）。删 research 18 个（含 TD-176 的 signal-hit / alert-scan，逐个核过都在 Dagster）、market-data 14 个 + 孤儿文件。防线：`bifrost-research/tests/test_k8s_cronjobs.py`、`bifrost-platform-plugin-market-data/tests/test_k8s_no_cronjobs.py`；两个 verify 脚本翻成「必须不存在」
 - **Claim**: Since the Dagster migration all engine CronJobs are suspend: true but still applied (research by Argo auto-sync; market-data via k8s/base), and each release rewrites their image tags. Research manifests hardcode RESEARCH_WATCHLIST to 26 names including SATS (renamed ECHO); unsuspending one would double a writer on the wrong universe. verify_husbandry_schedulers.sh requires research-harness suspended while it is suspend: false, so the landing check can only fail. market-data k8s/cronjob-option-backfill.yaml sits outside kustomization at 0.10.0; each slot cron is written in three places.
 - **Measured**: MEASURED. research: 25 CronJobs SUSPEND=True (17 manifest files, 12 set RESEARCH_WATCHLIST), harness active; all pinned 0.175.0. plugin-market-data: 14 CronJobs SUSPEND=True, last scheduled 08-29/30, image 0.77.0. Market-data skill says 'Do not unsuspend'.
@@ -1383,8 +1385,9 @@
 
 **P3 · research-control · Suspended CronJobs cronjob-signal-hit.yaml and cronjob-alert-scan.yaml still ship and get re-pinned every release though Dagster runs both**
 
-- **状态**：在做（清单已删：research 60e9c2d、market-data 91fe2c1；集群里剩 32 个挂起 CronJob 等你执行删除——research Argo 没开 prune，market-data 用 apply -k）
+- **状态**：待你签收
 - **验收**：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl get cronjob -A | grep -c True` = 7（只剩 7 个触发模板）；research 26 → 8、plugin-market-data 14 → 0；Argo bifrost-research Synced；`verify_husbandry_schedulers.sh` 与 `make verify-market-data` 第 3/6 步 PASS
+- **验收结果**：PASS 2026-10-06 23:5x UTC：Owner 执行两条 kubectl delete 后全集群挂起 CronJob 39 → 7，research 26 → 8，plugin-market-data 14 → 0；Argo bifrost-research Synced / Healthy；`verify_husbandry_schedulers.sh` PASSED；`verify-market-data.sh` 第 3/6 步「0 CronJobs」（data quality 一行是原有的 pending，与本项无关）
 - **Claim**: Both engines run inside research_trading_day (alert_scan since TD-97, signal_hit since TD-156); the suspended CronJob manifests have no runtime effect but every release bumps their image pins.
 - **Measured**: code-read 10-06 by paydown lane G1.
 - **Evidence**:
