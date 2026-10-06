@@ -15,6 +15,11 @@ no port-forward) and answers PASS / FAIL / INCONCLUSIVE with the evidence:
                         bifrost_api.common.query_vocab). --group td51 (the TD-51 spellings,
                         api 0.8.3), r1 (strategy_instance_id(s), api 0.8.4, decision D4-A)
                         or all.
+  td51-retired          "retired query params: <METHOD> <path> <old> (use <new>) ... client=
+                        forwarded_for= user_agent=" (api 0.10.0 on: the TD-51 spellings are a
+                        422 retired_query_param, bifrost_api.common.query_vocab). Lines from the
+                        release probes (user_agent=bifrost-release-check/...) are not callers:
+                        they are counted apart, as proof the line still reaches Loki.
 
 Every run also reports, for the same window and envs: lines per env and 6-hour bucket from
 the api pods (a bucket with none is a hole in the evidence), the api's other WARNING lines
@@ -23,6 +28,11 @@ the api pods (a bucket with none is a hole in the evidence), the api's other WAR
   python3 scripts/release/loki_gate.py td24-unknown-fields --since 2026-10-02T00:00:00Z
   python3 scripts/release/loki_gate.py td51-query-aliases --since 2026-10-05T13:30:00Z \\
       --until 2026-10-06T12:00:00Z --group td51
+  python3 scripts/release/loki_gate.py td51-retired            # the last 24 h, after api 0.10.0
+
+Every gate's line filter is checked against a line of the api version that emits it before a
+run (GATE_FIXTURES, also `self-test`): a needle that no longer matches what the api logs would
+read as a clean zero.
 
 Exit: 0 PASS, 1 FAIL (lines found; each one is listed with its caller), 3 INCONCLUSIVE
 (a hole in the logs, or promtail dropped entries: the hours and promtail pods are listed,
@@ -55,6 +65,7 @@ FETCH_LIMIT = 500
 TD51_NAMES = ("since_ts", "until_ts", "opened_at_from", "opened_at_until", "trade_date_from", "trade_date_to",
               "expiration", "right")
 R1_NAMES = ("strategy_instance_id", "strategy_instance_ids")
+RELEASE_PROBE_UA = "bifrost-release-check"  # release_checks.USER_AGENT is bifrost-release-check/1
 
 # The routes whose body was a LenientBody (api 0.3.x .. 0.8.4). {id} is any path segment.
 TD24_ROUTES = (
@@ -135,6 +146,10 @@ _TD51_RE = re.compile(
     r"deprecated query params: (?P<method>\S+) (?P<path>\S+) (?P<used>.*?) client=(?P<client>\S+)"
     r" forwarded_for=(?P<fwd>\S+) user_agent=(?P<ua>.*)$"
 )
+_TD51_RETIRED_RE = re.compile(
+    r"retired query params: (?P<method>\S+) (?P<path>\S+) (?P<used>.*?) client=(?P<client>\S+)"
+    r" forwarded_for=(?P<fwd>\S+) user_agent=(?P<ua>.*)$"
+)
 _ACCESS_RE = re.compile(r'uvicorn\.access:(?P<client>[0-9a-fA-F.:]+):\d+ - "(?P<method>[A-Z]+) (?P<path>[^ ?"]+)'
                         r'[^"]*" (?P<status>\d{3})')
 
@@ -162,9 +177,114 @@ def parse_td51(line: str) -> Optional[Dict[str, Any]]:
     }
 
 
+def parse_td51_retired(line: str) -> Optional[Dict[str, Any]]:
+    m = _TD51_RETIRED_RE.search(line)
+    if not m:
+        return None
+    used = re.findall(r"(\w+) \(use (\w+)\)", m.group("used"))
+    return {
+        "method": m.group("method"),
+        "path": m.group("path"),
+        "old": sorted({old for old, _new in used}),
+        "client": m.group("client"),
+        "forwarded_for": m.group("fwd"),
+        "user_agent": m.group("ua").strip(),
+    }
+
+
 def td51_group_regex(group: str) -> str:
     names = {"td51": TD51_NAMES, "r1": R1_NAMES, "all": TD51_NAMES + R1_NAMES}[group]
     return "deprecated query params: .*(^| )(" + "|".join(names) + ")->"
+
+
+# --- what each gate reads (pure) ------------------------------------------------------------
+
+Filter = Tuple[str, str]  # (LogQL line-filter operator, operand)
+
+
+def gate_filters(check: str, group: str = "td51") -> List[Filter]:
+    """The LogQL line filters that select a gate's lines."""
+    if check == "td24-unknown-fields":
+        return [("|=", "unknown request fields: ")]
+    if check == "td51-query-aliases":
+        return [("|~", td51_group_regex(group))]
+    if check == "td51-retired":
+        return [("|=", "retired query params: "), ("!=", RELEASE_PROBE_UA)]
+    raise ValueError(f"no line filter for gate {check}")
+
+
+def probe_filters(check: str) -> Optional[List[Filter]]:
+    """The release probes' own lines for a gate, when it excludes them (a positive control)."""
+    if check == "td51-retired":
+        return [("|=", "retired query params: "), ("|=", RELEASE_PROBE_UA)]
+    return None
+
+
+def logql_filters(filters: List[Filter]) -> str:
+    return " ".join(f'{op} "{_logql_quote(v)}"' for op, v in filters)
+
+
+def _logql_quote(v: str) -> str:
+    return v.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def filters_match(filters: List[Filter], line: str) -> bool:
+    """What Loki would answer for one line (|= != substring, |~ !~ regex)."""
+    for op, v in filters:
+        hit = (v in line) if op in ("|=", "!=") else bool(re.search(v, line))
+        if hit != (op in ("|=", "|~")):
+            return False
+    return True
+
+
+PARSERS = {"td24-unknown-fields": parse_td24, "td51-query-aliases": parse_td51, "td51-retired": parse_td51_retired}
+CHECKS = tuple(PARSERS)
+
+# Per gate: lines the api version that emits it writes, copied from its logger call
+# (bifrost_api.common.request_bodies, .query_vocab). A gate whose filter stops matching the
+# line its api writes reads every caller as zero; self_test() fails before any run does.
+GATE_FIXTURES: Dict[str, List[Tuple[str, str]]] = {
+    "td24-unknown-fields": [
+        ("api 0.3.x..0.8.4", "WARNING:bifrost_api.common.request_bodies:unknown request fields: PUT "
+                             "/strategies/templates/{strategy_template_id}/legs ignored ['legs[].leg_uid', 'x']"),
+    ],
+    "td51-query-aliases": [
+        ("api 0.6.6..0.9.0", "WARNING:bifrost_api.common.query_vocab:deprecated query params: GET /executions "
+                             "since_ts->from_ts client=10.42.8.39 forwarded_for=10.42.0.204 user_agent=python-httpx/0.28.1"),
+    ],
+    "td51-retired": [
+        ("api 0.10.0", "WARNING:bifrost_api.common.query_vocab:retired query params: GET /transactions "
+                       "since_ts (use from_ts) until_ts (use to_ts) client=10.42.8.39 forwarded_for=- "
+                       "user_agent=python-httpx/0.28.1"),
+        ("api 0.10.0", "WARNING:bifrost_api.common.query_vocab:retired query params: GET /research/greeks "
+                       "right (use option_right) client=10.42.8.39 forwarded_for=10.42.0.204 "
+                       "user_agent=Mozilla/5.0 (Macintosh)"),
+    ],
+}
+PROBE_FIXTURES: Dict[str, str] = {
+    "td51-retired": ("WARNING:bifrost_api.common.query_vocab:retired query params: GET /executions since_ts "
+                     "(use from_ts) client=10.42.8.39 forwarded_for=10.42.0.1 user_agent=bifrost-release-check/1"),
+}
+
+
+def check_gate_fixtures() -> None:
+    """Every gate has a fixture line of the api that emits it, and its filter and parser read it."""
+    for check in CHECKS:
+        fixtures = GATE_FIXTURES.get(check)
+        assert fixtures, f"{check}: no fixture line (GATE_FIXTURES)"
+        for version, line in fixtures:
+            assert filters_match(gate_filters(check), line), f"{check}: filter misses the {version} line"
+            assert PARSERS[check](line), f"{check}: parser misses the {version} line"
+        probe = probe_filters(check)
+        if probe:
+            assert filters_match(probe, PROBE_FIXTURES[check]), f"{check}: probe filter misses the probe line"
+            assert not filters_match(gate_filters(check), PROBE_FIXTURES[check]), f"{check}: counts the release probe"
+    # The gates do not read each other's lines: api 0.10.0 refuses what 0.9.0 renamed.
+    for check in CHECKS:
+        for other in CHECKS:
+            if other != check:
+                for version, line in GATE_FIXTURES[other]:
+                    assert not filters_match(gate_filters(check), line), f"{check} reads the {other} {version} line"
 
 
 def route_regex(template: str) -> "re.Pattern[str]":
@@ -249,7 +369,7 @@ def promtail_drops(start: datetime, end: datetime) -> Tuple[Optional[float], Lis
                 for t, v in r["values"]:
                     if float(v) >= 0.5:
                         t0 = datetime.fromtimestamp(float(t) - 3600, tz=timezone.utc)
-                        hours.append(f"{t0:%m-%d %H:00}-{t0 + timedelta(hours=1):%H:00}Z "
+                        hours.append(f"{t0:%m-%d %H:%M}-{t0 + timedelta(hours=1):%H:%M}Z "
                                      f"promtail {r['metric'].get('instance', '?')}: {float(v):.0f}")
     except Unavailable:
         return None, []
@@ -291,10 +411,11 @@ def _chunks(start: datetime, end: datetime, size_s: int) -> Iterable[Tuple[datet
 
 
 def check_td24(envs: List[str], start: datetime, end: datetime) -> Tuple[int, Dict[str, Any]]:
-    hits = count_by_env(envs, '|= "unknown request fields"', start, end)
+    needle = logql_filters(gate_filters("td24-unknown-fields"))
+    hits = count_by_env(envs, needle, start, end)
     report: Dict[str, Any] = {"lines": hits, "callers": []}
     if sum(hits.values()):
-        for t, stream, line in fetch_lines(envs, '|= "unknown request fields"', start, end):
+        for t, stream, line in fetch_lines(envs, needle, start, end):
             p = parse_td24(line) or {"raw": line[:300]}
             p.update(time=f"{t:%Y-%m-%d %H:%M:%S}Z", env=stream.get("namespace"), pod=stream.get("pod"))
             p["access_log_near"] = _access_near(stream, t, p.get("method"))
@@ -345,32 +466,47 @@ def _access_near(stream: Dict[str, str], t: datetime, method: Optional[str]) -> 
 
 
 def check_td51(envs: List[str], start: datetime, end: datetime, group: str) -> Tuple[int, Dict[str, Any]]:
-    needle = f'|~ "{td51_group_regex(group)}"'
+    needle = logql_filters(gate_filters("td51-query-aliases", group))
     hits = count_by_env(envs, needle, start, end)
     report: Dict[str, Any] = {"group": group, "lines": hits, "callers": []}
     if sum(hits.values()):
-        agg: Dict[Tuple[str, ...], Dict[str, Any]] = {}
-        for t, stream, line in fetch_lines(envs, needle, start, end):
-            p = parse_td51(line)
-            if not p:
-                continue
-            key = (stream.get("namespace", "?"), p["method"], p["path"], ",".join(p["old"]),
-                   p["client"], p["forwarded_for"], p["user_agent"])
-            row = agg.setdefault(key, {"env": key[0], "request": f"{p['method']} {p['path']}", "old": p["old"],
-                                       "client": p["client"], "forwarded_for": p["forwarded_for"], "user_agent": p["user_agent"],
-                                       "kind": caller_kind(p["user_agent"]), "count": 0,
-                                       "first": f"{t:%m-%d %H:%M:%S}Z"})
-            row["count"] += 1
-            row["last"] = f"{t:%m-%d %H:%M:%S}Z"
-        ips = pod_ips()
-        for row in agg.values():
-            row["client_pod"] = ips.get(row["client"], "-")  # traefik when it came through the gateway
-            pod = ips.get(row["forwarded_for"], "")
-            row["forwarded_for_pod"] = pod or "-"
-            if "svclb-traefik" in pod:
-                row["from"] = "outside the cluster, through a node's LoadBalancer port (Mac / LAN)"
-        report["callers"] = list(agg.values())
+        report["callers"] = _callers(envs, needle, start, end, parse_td51)
     return sum(hits.values()), report
+
+
+def check_td51_retired(envs: List[str], start: datetime, end: datetime) -> Tuple[int, Dict[str, Any]]:
+    """api 0.10.0 on: a caller still sending a TD-51 spelling got a 422 and left this line."""
+    needle = logql_filters(gate_filters("td51-retired"))
+    hits = count_by_env(envs, needle, start, end)
+    probes = count_by_env(envs, logql_filters(probe_filters("td51-retired") or []), start, end)
+    report: Dict[str, Any] = {"lines": hits, "release_probe_lines": probes, "callers": []}
+    if sum(hits.values()):
+        report["callers"] = _callers(envs, needle, start, end, parse_td51_retired)
+    return sum(hits.values()), report
+
+
+def _callers(envs: List[str], needle: str, start: datetime, end: datetime, parse: Any) -> List[Dict[str, Any]]:
+    agg: Dict[Tuple[str, ...], Dict[str, Any]] = {}
+    for t, stream, line in fetch_lines(envs, needle, start, end):
+        p = parse(line)
+        if not p:
+            continue
+        key = (stream.get("namespace", "?"), p["method"], p["path"], ",".join(p["old"]),
+               p["client"], p["forwarded_for"], p["user_agent"])
+        row = agg.setdefault(key, {"env": key[0], "request": f"{p['method']} {p['path']}", "old": p["old"],
+                                   "client": p["client"], "forwarded_for": p["forwarded_for"], "user_agent": p["user_agent"],
+                                   "kind": caller_kind(p["user_agent"]), "count": 0,
+                                   "first": f"{t:%m-%d %H:%M:%S}Z"})
+        row["count"] += 1
+        row["last"] = f"{t:%m-%d %H:%M:%S}Z"
+    ips = pod_ips()
+    for row in agg.values():
+        row["client_pod"] = ips.get(row["client"], "-")  # traefik when it came through the gateway
+        pod = ips.get(row["forwarded_for"], "")
+        row["forwarded_for_pod"] = pod or "-"
+        if "svclb-traefik" in pod:
+            row["from"] = "outside the cluster, through a node's LoadBalancer port (Mac / LAN)"
+    return list(agg.values())
 
 
 # --- main ---------------------------------------------------------------------------------
@@ -401,12 +537,19 @@ def self_test() -> None:
     m = _ACCESS_RE.search('INFO:uvicorn.access:10.42.9.4:36126 - "PUT /executions/-7 HTTP/1.1" 200')
     assert m and m.group("path") == "/executions/-7" and m.group("status") == "200"
     assert caller_kind("curl/8.9.1") == "agent / manual check" and caller_kind("Mozilla/5.0 (Mac)") == "browser"
+    p = parse_td51_retired(GATE_FIXTURES["td51-retired"][0][1])
+    assert p and p["old"] == ["since_ts", "until_ts"] and p["forwarded_for"] == "-" and p["path"] == "/transactions"
+    p = parse_td51_retired(GATE_FIXTURES["td51-retired"][1][1])
+    assert p and p["old"] == ["right"] and p["user_agent"] == "Mozilla/5.0 (Macintosh)"
+    assert logql_filters(gate_filters("td51-retired")) == '|= "retired query params: " != "bifrost-release-check"'
+    assert logql_filters([("|~", 'a"b\\d')]) == '|~ "a\\"b\\\\d"'
+    check_gate_fixtures()
     print("self-test ok")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("check", choices=["td24-unknown-fields", "td51-query-aliases", "self-test"])
+    ap.add_argument("check", choices=[*CHECKS, "self-test"])
     ap.add_argument("--since", help="ISO time, UTC (default: td24 2026-10-02T00:00Z, td51 24 h ago)")
     ap.add_argument("--until", help="ISO time, UTC (default: now)")
     ap.add_argument("--envs", default="dev,stg,prod")
@@ -416,6 +559,7 @@ def main() -> int:
     if a.check == "self-test":
         self_test()
         return 0
+    check_gate_fixtures()  # a filter that misses what the api logs would read as a clean zero
     envs = [e.strip() for e in a.envs.split(",") if e.strip()]
     for e in envs:
         if e not in ENV_NS:
@@ -430,6 +574,8 @@ def main() -> int:
     try:
         if a.check == "td24-unknown-fields":
             found, report = check_td24(envs, start, end)
+        elif a.check == "td51-retired":
+            found, report = check_td51_retired(envs, start, end)
         else:
             found, report = check_td51(envs, start, end, a.group)
         holes, totals = coverage(envs, start, end)
@@ -452,6 +598,8 @@ def main() -> int:
         return code
     print(f"{a.check}{' (' + a.group + ')' if a.check == 'td51-query-aliases' else ''}  {report['window']}")
     print(f"  lines found:          {report['lines']}")
+    if "release_probe_lines" in report:
+        print(f"  release probe lines:  {report['release_probe_lines']}   (bifrost-release-check, not callers)")
     print(f"  api lines per env:    {totals}   (holes, 6 h buckets with none: {len(holes)})")
     for h in holes[:20]:
         print(f"    hole {h}")
