@@ -9,7 +9,7 @@
 > 4. **签收后**：删掉这一项和「待你签收」里那一行；「还债顺序」里把编号移到「已还」，计划进度一直看得见。提交信息写签收、防线和后续。打回的，状态回到 `在做`，原因写进 `下一步`。
 > 5. **自上次以来**：下面「上次查看」记着 Owner 上次看过的提交。台账页从那个提交起生成变化清单（新增、关闭、状态变化、防线增减）。Owner 说「看过了」，就把它改成当前提交。
 
-上次查看：8bc3357（2026-10-06）
+上次查看：4b4c957（2026-10-06，Owner 说「看过了」）
 
 ## 待你签收
 
@@ -221,7 +221,7 @@
 
 **P2 · trade (round 1) · Query-parameter vocabulary drift for expiry, option side, time ranges and limits; no pagination**
 
-- **状态**：在做（等 Loki 闸门）
+- **状态**：在做（10-06 还债第 F 路：Loki 闸门、合入 main、备好发布命令交 Owner）
 - **验收**：`python3 scripts/release/loki_gate.py td51-query-aliases` 零命中；发布后 PROD `/health` 的 api 版本为删除旧名的那一版，旧查询名返回 422
 - **现在**：Research 和 Dagster 已改用新的查询参数名（research 0.161.0 起）。api 侧删除旧名与整套别名机制的提交 `a4757c5` 已备好。
 - **下一步**：跑 Loki 闸门（`loki_gate.py td51-query-aliases`），10-05 夜批后旧名零命中就随下一次 Trade 发布上线。（10-06）
@@ -239,7 +239,7 @@
 
 **P2 · research-control · Engine assets never fail: per-symbol failures, zero-row writes and skips are only metadata, reasons are discarded, and research_trading_day is green regardless of output**
 
-- **状态**：未开始
+- **状态**：在做（10-06 还债第 A 路：Research 出错报成功）
 - **Claim**: engine_assets._metadata wraps any result into MaterializeResult; run_gex/run_iv_surface/run_flow do `failed += 1` and drop result['error']; run_slot returns a non-raising 'skipped: no symbols'. No Dagster asset checks exist; only gex_intraday raises on zero output (added after three green weeks of 646-669/669 failures). The only other net is signal_health's 36h/72h computed_at freshness on a subset of tables, which misses partial failures, zero-row writes, wrong-date writes and tables such as research.option_pinned_contract. Silent failures like TD-89 and TD-97 are visible only by reading run metadata by hand.
 - **Measured**: MEASURED. ops_dagster.runs research*/market*, 14 days: 1,026 SUCCESS, 1 FAILURE (memory_distill, TD-86), 1 CANCELED. 10-06 run metadata: gex 42 failed / 1,366 ok over 2 sessions (~3%, about 15-22 names a night), flow 41, surface 41, momentum skipped 4, vrp skipped 7, option_pinned rows_written 0, all green. Most failing names entered option_universe in the last few days (onboarding lag); persistent invisible gaps: NVR (in universe since 09-08, 0 OI rows since 08-01, never a GEX row) and GRML (since 09-24, no OI); QRVO stock_daily stops at 10-02.
 - **Evidence**:
@@ -256,7 +256,7 @@
 
 **P2 · research-data · db/calendar.py turns read failures into wrong answers: a failed holiday read makes holidays sessions, a failed universe read swaps the engine universe for 'whatever OI was ingested' or nothing**
 
-- **状态**：未开始
+- **状态**：在做（10-06 还债第 B 路：Research 日期/日历/dbt/定价）
 - **Claim**: fetch_closed_holiday_dates' inner _rows() catches any exception, rolls back and returns [] with no log, so today and every future holiday become sessions (past dates fall back to index bars); cached_closed_days' warning cannot fire and fetch_recent_trading_days (6 callers) gets no signal. In the same module, load_symbols_from_universe_rule catches every exception and returns []; load_symbols_from_env_or_query then falls back to SELECT DISTINCT underlying FROM raw_market.option_open_interest LIMIT 5000, also swallowing errors, and RESEARCH_WATCHLIST overrides the rule entirely. ~12 engines share this loader and materialize SUCCESS on a different universe or none. dw_stock.dim_trading_calendar is a third calendar definition with no reader anywhere.
 - **Measured**: Partly MEASURED. git grep finds no reader of dim_trading_calendar in any repo. research.option_universe has 713 readable rows today; TD-86 shows unrelated db-init runs do drop grants on Research-read objects. Both swallows are CODE-READ; no failure observed tonight.
 - **Evidence**:
@@ -273,7 +273,7 @@
 
 **P2 · research-control · husbandry_gate fails open: a probe exception leaves verdict 'unknown', which passes, and the gate never checks that the doctor's session is the one being closed**
 
-- **状态**：未开始
+- **状态**：在做（10-06 还债第 A 路：Research 出错报成功）
 - **Claim**: Since research a241f30/47af11e (09-28) the gate reads a freshly computed doctor report (refresh=true, 600s timeout), which fixed the stale-session and empty-report runs of 09-16..09-26. What remains: any doctor/Flex probe exception is logged as a warning and the verdict stays 'unknown'; the gate raises only on critical/failed/stale/none, so 'unknown' passes, and no assertion ties doctor.session to the session being closed. dbt and every engine then run with the EOD gate off.
 - **Measured**: MEASURED. Before the 09-28 fix: unknown verdicts passed on 09-16, 09-25, 09-26; wrong-session 'healthy' on 09-22 (gated 09-18) and 09-24 (gated 09-22). All 6 runs since 09-29 carry the right session and generated_at. tests/orchestration/test_husbandry_gate.py has no all-probes-fail case.
 - **Evidence**:
@@ -319,7 +319,7 @@
 
 **P2 · research-data · alert_scan judges each session once, a day late, and never revisits; composite_high has never fired because every >=90 score appeared on a later scan recompute**
 
-- **状态**：未开始
+- **状态**：在做（10-06 还债第 A 路：Research 出错报成功）
 - **Claim**: alert_scan runs at 22:30 UTC and takes as_of = MAX(trade_date) of the scan table, so session X is judged at 18:30 ET on X+1. It writes each date once. The scan engine re-walks the last 3 sessions, and the only composite_score >= 90 rows (META 08-31; AVGO/HUM/NKE/PEP/PSX/VLO 09-24) appeared on those later recomputes, so composite_high has produced nothing and the job is green.
 - **Measured**: MEASURED. features.stock_signal_alert_daily since 08-28 (21 dates): hit_rate_drop 38, weight_shift 51, composite_high 0. META 08-31 was written 09-03 02:32; the six 09-24 names 09-29 02:36. 99th percentile score since 09-01 is 78.6; 7 qualifying rows ever.
 - **Evidence**:
@@ -335,7 +335,7 @@
 
 **P2 · research-data · 'Today' is resolved by 11 private helpers plus 44 bare date.today() calls on UTC pods; option_universe stamps tomorrow's date**
 
-- **状态**：未开始
+- **状态**：在做（10-06 还债第 B 路：Research 日期/日历/dbt/定价）
 - **Claim**: Eight helpers return the New York date (_today_ny), three return the UTC date (_today in option_universe, option_pinned, terrain_backfill), and 44 date.today() calls return UTC because no research pod sets TZ. db/calendar.fetch_recent_trading_days also defaults to the UTC date. decline_memory.py documents the wrong 'same host' assumption, and the `noqa: DTZ011` there does nothing because ruff selects only E4/E7/E9/F. Anything run by research_trading_day (02:30 UTC) through _today()/date.today() gets the next calendar day.
 - **Measured**: MEASURED. No TZ env on research-api, dagster-daemon, dagster-webserver, research-mcp, research-pine or api-research. In dagster-daemon, date.today() = 2026-10-06 while NY was 10-05. research.option_universe: 678 rows last_seen 2026-10-06; entered_on on Saturdays (10-03: 6, 09-26: 9, 09-19: 24). candidate_pool path is latent (writers run when UTC and NY agree).
 - **Evidence**:
@@ -353,7 +353,7 @@
 
 **P2 · research-control · No scheduler liveness alarm: a stopped, renamed or never-ticking Dagster schedule, or a hung daemon, produces no alert; no PrometheusRule targets research**
 
-- **状态**：未开始
+- **状态**：在做（10-06 还债第 C 路：调度与编排）
 - **Claim**: bifrost_run_failure_alert fires only on FAILURE runs and executes inside dagster-daemon. Nothing alerts on a schedule that stops producing runs (STOPPED in the instance DB, which the Makefile warns about), a schedule renamed/removed in code, or a daemon alive but not ticking. /research/orchestration/status computes overdue only for research_trading_day and only when the page (or the platform checklist handler) is requested. BifrostAPIHighErrorRate/CrashLooping match bifrost-* namespaces only; research-api and plugins have no http_requests_total.
 - **Measured**: MEASURED. All PrometheusRules: only three freshness-type alerts (backup drill, Flex ingest, market-data doctor); none for research/Dagster. ops_dagster.daemon_heartbeats is live but unread. A 49-min gap in event_radar cadence on 09-24 matches the 0.108/0.109-dagster crash loop. Today all 40 schedules RUNNING/DECLARED_IN_CODE.
 - **Evidence**:
@@ -368,7 +368,7 @@
 
 **P2 · research-control · Event Radar SEC ingest runs from a Mac tmux loop on the shared checkout; it read .env once and failed 157 ticks over ~35.6h after a password rotation; the cluster event_radar slot never ingests and stays green**
 
-- **状态**：未开始
+- **状态**：在做（10-06 还债第 C 路：调度与编排）
 - **Claim**: The only producer of SEC 8-K input for features.event_signal_radar_daily is scripts/event_radar_watch.sh under bdev on the Owner's Mac, running uncommitted shared-checkout code as Trade role 'bifrost'. It sources .env once and swallows every failure with '|| echo ... will retry'. The cluster's event_radar_cron asset has no input mount and returns idle/sample_fallback every 30 minutes, green. (The Mac placement is a documented choice: no PVC mount, launchd lacks LAN permission.)
 - **Measured**: MEASURED. ~/.bifrost-dev/logs/event-radar-watch.log: 158 'sec source failed' lines (1 on 09-28 QueryCanceled; 84 on 10-04; 73 on 10-05) from 10-04 09:15 to 10-05 20:52, all password auth failures for 'bifrost', until a manual restart at 20:54:31. Watermark kept loss at zero because no new filings landed in that window (145 filings written after restart). event_radar_cron, 30 days: 684 idle, 332 sample_fallback, 0 file_ingest.
 - **Evidence**:
@@ -384,7 +384,7 @@
 
 **P2 · market-data · Doctor slot staleness reads a per-kind freshness row that other slots and zero-row jobs also refresh, so a stopped policed slot still reads fresh**
 
-- **状态**：未开始
+- **状态**：在做（10-06 还债第 D 路：market-data）
 - **Claim**: After any done job the worker upserts ops_jobs.ingest_freshness keyed by dimension only, bumping last_run_at even for 0-row or skipped jobs, with status always 'ok'. The doctor's stale:<slot> check (and Console adherence, ingest_dashboard._evidence_for_fire) reads that row by dimension, and several policed slots share a dimension: reference with ticker-details (ticker_sync), option-refresh with option-contract-expired (option_contract), corporate with corporate-backfill (dividends). If the reference walk stops, stale:reference stays ok while ticker-details runs.
 - **Measured**: MEASURED. ingest_freshness.ticker_sync last_run_at 2026-10-06 03:30:26 rows_written=1 (a detail job) while the last universe walk finished 10-05 21:30:27 (600 detail vs 2 universe jobs). option_expiration frozen since 09-06 and stock_daily_unadjusted at 10-02, both 'ok'. All 23 rows status 'ok'.
 - **Evidence**:
@@ -499,7 +499,7 @@
 
 **P2 · research-control · Three hand-kept copies of the Dagster schedule roster have drifted; Console looks up a renamed corporate schedule and has no mapping for seven newer slots**
 
-- **状态**：未开始
+- **状态**：在做（10-06 还债第 C 路：调度与编排）
 - **Claim**: The canonical roster is HUSBANDRY_SCHEDULE_JOBS in research. (1) Platform Console maps corporate/option-trades to market_corporate_trades_schedule, which no longer exists (now market_corporate_schedule), and has no mapping for fundamentals-market, ratios-market, intraday-chain, treasury, ticker-details, corporate-backfill, option-depth. (2) verify_husbandry_schedulers.sh asserts retired schedules and only WARNs when absent. (3) k8s/orchestration/README lists research_morning_prep_schedule, a wrong ratios cron, and 'Outside Dagster: IB only' though research-harness runs as a CronJob.
 - **Measured**: MEASURED. ops_dagster.runs: market_corporate_trades_job last ran 2026-09-05; market_corporate_job 30 runs through 10-05. Live roster lists 40 schedules, none market_corporate_trades_schedule. Code ratios cron '10 5-8,11,14,20 * * *'. Console miss itself CODE-READ.
 - **Evidence**:
@@ -530,7 +530,7 @@
 
 **P3 · trade (round 1) · Core facade: an 85-method read/write StatusReader inside 'monitor.reader', alias import paths, verb drift**
 
-- **状态**：在做（C2-b 待改号 core 0.49.0）
+- **状态**：在做（10-06 还债第 F 路：C2-b 改号 core 0.49.0，与 TD-51 同发）
 - **验收**：core 0.49.0 的 `make test` 与 api 的 `make test` 通过；PROD `/api/account/health` 的 `core_version` 为 0.49.0
 - **现在**：C1、C2-a 已上线。C2-b（`StatusReader` 门面只读、删 5 个写方法和 R4 别名）已备在分支 `td-batch/2026-10-04-lane-aj`。
 - **下一步**：0.48.0 / 0.48.1 / 0.48.2 已被其他改动占用，C2-b 改号为 core 0.49.0，和 TD-51 一起发。（10-06）
@@ -547,7 +547,7 @@
 
 **P3 · research-data · Stored IV features solve Black-Scholes at r=0 while the backtester uses treasury rates from two separate readers; further BS copies in gex and opex**
 
-- **状态**：未开始
+- **状态**：在做（10-06 还债第 B 路：Research 日期/日历/dbt/定价）
 - **Claim**: iv_solver.solve_iv/bs_price/bs_delta default rate=0.0, and iv_solver.py:346/350/520/533, atm_iv.py:389, earnings_moves.py:54 and canonical_pnl omit rate. backtest/event_query._risk_free_rate and sim/chain.py each read raw_market.treasury_yield on their own; gex/exposure.approx_bs_gamma and opex_cycle/vanna_charm._norm_cdf are more BS copies. Features and backtests compute different IV/delta for the same contract. TD-42 fixed this class only in Trade.
 - **Measured**: Inconclusive. Most stored IV since 08-05 is vendor_snapshot (4.26M rows); 19,435 Brent 'ok' rows (06-24..09-25) show median near-ATM put-call gap -2.3/-3.0 vol pts vs vendor -1.5/-2.3, partly carry/dividends. Copy drift CODE-READ; _risk_free_rate's own docstring admits research BS ran at r=0.
 - **Evidence**:
@@ -563,7 +563,7 @@
 
 **P3 · research-data · dbt: the pass_count range generic test sits in the singular folder (errors when selected, never applied); key intermediates lack grain tests; nothing ties eval_date to the session**
 
-- **状态**：未开始
+- **状态**：在做（10-06 还债第 B 路：Research 日期/日历/dbt/定价）
 - **Claim**: tests/assert_pass_count_range.sql defines a {% test %} block under the singular-test path; it errors whenever selected and no yml applies it, so pass_count has only warn-level anomaly checks. int_stock_daily_enriched (incremental on symbol, trade_date) and int_stock_crs have only not_null tests. mart_sepa_tier_options is absent from yml. No test checks eval_date/trade_date against the session, which let TD-87 through.
 - **Measured**: MEASURED. ops_dbt.dbt_run_results: 14 error rows for assert_pass_count_range (08-21..09-28 manual full selections), never pass. Nightly builds run 82 tests, all pass, none on pass_count range or session. Grain clean today (1,656,685 = distinct; 382,026 = distinct).
 - **Evidence**:
@@ -578,7 +578,7 @@
 
 **P3 · research-data · option_surface_iv_daily upserts per (symbol, trade_date, expiry) and never deletes, so expiries a re-walk dropped keep their old smile**
 
-- **状态**：未开始
+- **状态**：在做（10-06 还债第 B 路：Research 日期/日历/dbt/定价）
 - **Claim**: engines/volatility/surface.py writes with batch_upsert on (symbol, trade_date, expiry) and has no DELETE; expiries a later re-walk no longer produces keep the old fit beside the new one. Same class already fixed for signal_hit, gex, flow, pcr and max_pain.
 - **Measured**: MEASURED. 122 rows in 98 of 12,635 (symbol, trade_date) groups are >1h older than their group's newest fit, up to 6d 21h; span 2026-07-14..09-03; only 10 are 0DTE.
 - **Evidence**:
@@ -592,7 +592,7 @@
 
 **P3 · research-data · Playbook trigger emission fails with no log in four places; a failed previous-state lookup records a fresh 'snapshot' instead of comparing**
 
-- **状态**：未开始
+- **状态**：在做（10-06 还债第 A 路：Research 出错报成功）
 - **Claim**: emit_triggers_for_session and emit_triggers_for_terrain_intraday are wrapped in `except Exception: rollback; pass` with no logger (playbook.py:529, scheduler/engines.py:341); their previous-state lookups (playbook.py:756, 827) also swallow and fall back to prev=None, which emits a first-observation 'snapshot'. Representative of 99 broad except handlers with no logger and no raise in engines/lenses/repositories/db/scheduler/orchestration.
 - **Measured**: MEASURED healthy today: stock_signal_playbook_trigger_intraday ~2,000 rows over ~700 symbols per session 09-23..10-05. Swallows CODE-READ. AST census: 99 silent broad-except handlers.
 - **Evidence**:
@@ -608,7 +608,7 @@
 
 **P3 · flex-ib · raw_broker.commissions mixes two sign conventions: Flex writes cost as negative, the TWS/gateway path writes it as positive**
 
-- **状态**：未开始
+- **状态**：在做（10-06 还债第 E 路：Flex 资金路径）
 - **Claim**: Flex stores ibCommission as IB sends it (negative charge, positive rebate); the TWS commissionReport path writes IB API's positive cost into the same column and key. Flex re-imports overwrite to the Flex sign; TWS-only fills keep the opposite sign. No reader normalises (accounts_helpers.py:402-404 adds commission into period totals).
 - **Measured**: MEASURED. Flex-backed: 435 negative, 15 positive (all rebates matching net_cash - proceeds to 4 dp), 32 NULL. TWS-only: 4 positive (~1.04-1.05), 0 negative, 33 NULL. 12 orphan commission rows. Reading TWS positives as costs relies on IB API docs.
 - **Evidence**:
@@ -623,7 +623,7 @@
 
 **P3 · flex-ib · Money-path tests missing: cash parser untested, cash upsert tested only on connect failure (pinning the silent 0), Flex branches of the executions writer untested; commission INSERT in four copies**
 
-- **状态**：未开始
+- **状态**：在做（10-06 还债第 E 路：Flex 资金路径）
 - **Claim**: No test of parse_cash_transactions_xml. upsert_account_transactions is tested only in test_connect_helpers.py:118, asserting the silent 0. write_account_executions_to_db is reached only for contract keys; the synthetic flex_{account}_{tradeID} exec_id, the executions_raw_flex conflict update and the commission keep-nonzero upsert have no test. The commission INSERT exists four times (accounts.py 1053, 1122, 1240, 1554).
 - **Measured**: CODE-READ grep of both test trees; live: all 33 BookTrade rows carry flex_* synthetic ids, so the branch is in use.
 - **Evidence**:
@@ -638,7 +638,7 @@
 
 **P3 · flex-ib · The Flex ingest routes query-id, stats and range-day reads through the DEV DB (bifrost_dev) via FDW, with silent fallbacks that can widen the run to 270 days**
 
-- **状态**：未开始
+- **状态**：在做（10-06 还债第 E 路：Flex 资金路径）
 - **Claim**: The plugin's trade_postgres is bifrost_dev; brokerage.settings_flex and brokerage.executions there are FDW views back to raw_broker on Golden Source, which the plugin already connects to. open_trade_conn falls back silently to core connection params; get_flex_executions_stats turns any error into count=0, which switches the run to init mode (270-day window, extra IB requests against the 1018 throttle).
 - **Measured**: MEASURED: live ConfigMap trade_postgres dbname bifrost_dev; in bifrost_dev brokerage.executions is a view and settings_flex a foreign table on golden_source_server; flex_writer already has SELECT on raw_broker.settings_flex in GS. No failure in history.
 - **Evidence**:
@@ -654,7 +654,7 @@
 
 **P3 · flex-ib · 'Latest Flex date in DB' after an import is one run behind: read through FDW in the same transaction as the pre-import read**
 
-- **状态**：未开始
+- **状态**：在做（10-06 还债第 E 路：Flex 资金路径）
 - **Claim**: fetch_flex_trades_and_upsert_executions reads stats_before and stats_after on one Trade-DB connection with no commit between; brokerage.executions is a postgres_fdw view whose remote snapshot lasts the local transaction, so stats_after cannot see rows just written. The value reaches the UI.
 - **Measured**: MEASURED in ops_jobs.job_flex_ingest: job 183 data_to 10-02 but after = 09-30; job 178 09-30 vs 09-28; job 172 09-28 vs 09-22. Each 'after' equals the previous run's data.
 - **Evidence**:
@@ -669,7 +669,7 @@
 
 **P3 · market-data · option-refresh re-enumerates names with no listed options every run; its 7-day 'finished' lookback reads a table kept 48h**
 
-- **状态**：未开始
+- **状态**：在做（10-06 还债第 D 路：market-data）
 - **Claim**: stalest_underlyings sorts never-enumerated names first, so names with no listed options are re-fetched at the head of every six-hourly batch forever. The 7-day finished-jobs guard feeds only the fresh ramp list (not the rotation) and is bounded by TRIM_KEEP_HOURS=48.
 - **Measured**: MEASURED: 136 of 1,240 option_contract jobs in 48h wrote 0 rows; 17 names (ATLCL, ESQ, PLPC, NVR, NPK…) enqueued every run, always 0 rows.
 - **Evidence**:
@@ -794,7 +794,7 @@
 
 **P3 · research-data · Pine signal rows mix adjustment bases: nightly runs rewrite only the last ~10 sessions on today's adjusted bars, older rows stay on the basis of their last full rebuild**
 
-- **状态**：未开始
+- **状态**：未开始（归 Pine 线程）
 - **Claim**: The Pine build runs scripts on raw_market.stock_daily adjusted closes. Nightly (incremental) runs replace only the last ~10 sessions; a split or large dividend re-adjusts the whole history, so after one the older rows of that name were computed on a different price basis than the new ones until a script's next full rebuild (which happens only when its source changes or on a manual --full).
 - **Measured**: Design reading (thread B, 2026-10-06); last full rebuild 2026-10-06 04:17–04:25 UTC (8 scripts, about 7 minutes with CHUNK 25).
 - **Evidence**:
@@ -809,7 +809,7 @@
 
 **P3 · research-data · The event backtest picks option legs from option_daily only; since mid-August 2026 it keeps ~10 strikes a side, so a target delta silently lands on the nearest strike that is left**
 
-- **状态**：未开始
+- **状态**：未开始（归 Pine 线程）
 - **Claim**: `_pick_option` reads candidate contracts from raw_market.option_daily. Since mid-August 2026 option_daily keeps about ten strikes either side of spot per expiry, so a 20–30 delta leg 30–45 days out is usually missing and the nearest remaining strike (often 35–40 delta) is priced instead, with no skip or flag. The simulator (0.175.0) and the suggestion ledger (0.174.1) fill from the 16:00 option_snapshot and skip off-target picks; the event backtest does not.
 - **Measured**: Thread B 2026-10-06 on the simulator path: without the fill a 20-delta SPY put picked −0.35, QQQ −0.38 (2026-08-17..10-02); with it −0.20 ± 0.003. The event backtest path shares the option_daily source.
 - **Evidence**:
