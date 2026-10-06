@@ -1405,7 +1405,9 @@
 
 **P3 · market-data · Console marks fundamentals-rotate missed every Monday 03:45 → Tuesday 03:00 UTC: the trading-day check uses the UTC date of the fire**
 
-- **状态**：在做（还债第三批 · 道 M，10-06 开工；发版前停下等你批）
+- **状态**：在做（代码在 main 767a5ac = market-data 0.81.0，镜像已建 digest 92af622d…；等你批发布）
+- **下一步**：你批 market-data 0.81.0 发布（避开 21:05–23:15 UTC）→ deploy 提交 + `kubectl apply -k` → 验收：pod imageID 为 92af622d…、queue-dashboard 里 ticker-details 读 `slot:ticker-details`；10-12 周一 03:45 之后 fundamentals-rotate 仍 on_plan
+- **现在**：按纽约日期判交易日，三处都改（`_slot_adherence` 的 trading_last、`_previous_expected_fire` 的 last / prev——只改 727 行会在后者里照样记 missed）。只读回放 09-29→10-06 六个 slot 12,102 个时点：翻转 288 个，全是 fundamentals-rotate 周一 03:05→周二 03:00 的假 missed。防线 `tests/test_ingest_dashboard.py` 三个用例（两条在老代码上失败）
 - **Claim**: _slot_adherence asks is_trading_day(conn, cron_last.date()) on the UTC date; Monday 03:00 UTC is Sunday in New York, the slot rightly enqueues nothing, and the dashboard calls it missed. Platform's market_batch lane reports the miss once a week.
 - **Measured**: MEASURED 10-06 by paydown lane J (replay): 280 of 2017 five-minute instants over 7 days, identical on old and new code.
 - **Evidence**:
@@ -1419,7 +1421,9 @@
 
 **P3 · market-data · ticker-details adherence still credits the shared ticker_sync freshness row, so a stopped ticker-details reads on_plan after reference's 21:30 walk**
 
-- **状态**：在做（还债第三批 · 道 M，10-06 开工；发版前停下等你批）
+- **状态**：在做（代码在 main 767a5ac = market-data 0.81.0，镜像已建 digest 92af622d…；等你批发布）
+- **下一步**：你批 market-data 0.81.0 发布（避开 21:05–23:15 UTC）→ deploy 提交 + `kubectl apply -k` → 验收：pod imageID 为 92af622d…、queue-dashboard 里 ticker-details 读 `slot:ticker-details`；10-12 周一 03:45 之后 fundamentals-rotate 仍 on_plan
+- **现在**：ticker-details 加进 `SHAPE_NAMED_SLOTS`（不进 `POLICED_SLOTS`，避免新增 doctor finding）：只数自己的 `ticker_sync mode=detail` 作业，读新的 `slot:ticker-details` 行。回放 0 翻转；反事实删掉 detail 作业后新代码在 72 个时点判 missed、老代码判 on_plan。防线 `tests/test_slot_freshness.py` 新增 4 条（老代码上失败）+ `test_naming_ticker_details_adds_no_doctor_finding`
 - **Claim**: Mirror of TD-167 for the one slot outside the policed list: ticker-details and reference both enqueue ticker_sync and both bump freshness.ticker_sync.
 - **Measured**: code-read 10-06 by paydown lane J.
 - **Evidence**:
