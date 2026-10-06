@@ -6,7 +6,7 @@ description: >-
   Copilot reading runs and composing one daily digest, unattended auto-accept on a
   leash. Use when executing program research-loop-automation phases (A1–D4) or when the
   Owner says Loop automation / lens registry / Analyze hubs / daily digest / persona models.
-parity-id: research-loop-automation-v1
+parity-id: research-loop-automation-v2
 ---
 
 # Research Loop Automation (Waves A–D)
@@ -14,7 +14,7 @@ parity-id: research-loop-automation-v1
 ## Program
 
 - **id:** `research-loop-automation`
-- **Blueprint:** `bifrost-platform/config/programs/active/research-loop-automation.yaml`
+- **Blueprint (history):** `git -C bifrost-platform show 1a3327e:config/programs/active/research-loop-automation.yaml` (program YAML deleted with Build Desk 2026-10-06)
 - **Plan (phase detail, files, acceptance):** `bifrost-research/docs/plans/RESEARCH_LOOP_AUTOMATION_PLAN.md`
 - **Repos:** `bifrost-research` · `bifrost-trade-frontend` · Console Trust level only in `bifrost-platform`
 - **D10:** BLOCKED — research drafts and advisory verdicts only; `order_intent` and `policy_suggestion` never auto-accept

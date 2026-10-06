@@ -13,7 +13,7 @@ Execute Program `trade-dev-inner-loop` (Trade DEV Inner Loop).
 ## Authority
 
 1. `bifrost-trade-infra/docs/TRADE_DEV_INNER_LOOP.md` — contract
-2. `bifrost-platform/config/programs/active/trade-dev-inner-loop.yaml` — phases
+2. Program phases (history): `git -C bifrost-platform show 1a3327e:config/programs/completed/trade-dev-inner-loop.yaml` (deleted with Build Desk 2026-10-06)
 3. `bifrost-platform/console/src/lib/architecture/tradeDevInnerLoopCatalog.ts` — Console/Agent pack
 4. Locked: D-IL1–D-IL4 · D10 BLOCKED
 

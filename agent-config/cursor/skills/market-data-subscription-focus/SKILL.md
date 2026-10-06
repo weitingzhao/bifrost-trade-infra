@@ -15,7 +15,7 @@ Execute Program `market-data-subscription-focus` (Massive Plugin, three subscrip
 ## Authority
 
 1. `bifrost-platform-plugin-market-data/docs/SUBSCRIPTION_FOCUS_PROGRAM.md` — entitlement matrix, phase progress, Owner decisions
-2. `bifrost-platform/config/programs/active/market-data-subscription-focus.yaml` — phases, verify_cmd, acceptance
+2. Program YAML (phases, verify_cmd, acceptance) — history only: `git -C bifrost-platform show 1a3327e:config/programs/active/market-data-subscription-focus.yaml` (deleted with Build Desk 2026-10-06; progress lives in doc 1)
 3. Assessment page: https://claude.ai/code/artifact/727e00e9-5903-48cd-9c50-118171f1823a
 4. Locked: D10 BLOCKED · unentitled data (trades / quotes / last-trade / indices) is not pulled until an upgrade
 

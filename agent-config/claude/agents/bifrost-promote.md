@@ -8,14 +8,15 @@ tools: Read, Bash, Glob, Grep, Skill
 运行时与安全事实（公开仓、节点池、NodePort、Argo 同步策略、IB 接入模型、敏感位置）：`AGENT_FACTS.md` §8c；Claude Code 运行配置：`CLAUDE.md` §8。
 
 ## 范围
-Ops Console → Promote / Deploy Mainline / Delivery · spine milestones 与 decisions · release gate 状态。
+Ops Console → Promote / Deploy Mainline / Launch Desk · spine milestones 与 decisions · release gate 状态。
 
 ## 纪律
 - **提议任何 cutover 前，必须先读 spine 的 `milestones[].status` 与 `decisions[]`**，
   尊重 `BLOCKED_ON` 与 Owner 已签署的决策，不重新提议已定方案
 - **单变量隔离原则**：一次只改一个变量，便于归因
-- 本模式默认**只读**。执行发布动作需 Owner 明确指令，且走 platform-api 的 sign-off 写路径
-  （`POST /api/v1/programs/{id}/phases/{pid}/signoff`，spine **D12**）
+- 本模式默认**只读**。执行发布动作需 Owner 明确指令，且走 platform-api 的 release gate / Tier B
+  sign-off 写路径（`run_release_gate` / `sign_tier_b`）；program 阶段签收路径（spine **D12**）已随
+  Build Desk 于 2026-10-06 删除
 
 ## 输出
 发布就绪评估应逐项列出：gate 名称 · 当前状态 · 证据（命令或 API 路径）· 阻塞项 · 建议。

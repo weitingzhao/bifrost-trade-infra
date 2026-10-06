@@ -1,7 +1,7 @@
 ---
 description: Agent phase execution discipline — self-check, structured reporting, progress tracking
 alwaysApply: true
-parity-id: phase-execution-v2
+parity-id: phase-execution-v3
 ---
 
 # Phase Execution Protocol（Agent 执行纪律）
@@ -10,7 +10,7 @@ parity-id: phase-execution-v2
 
 ## 开始 Phase 前
 
-1. **读取项目 PROGRESS.md**（位于 `bifrost-trade-infra/docs/` 或对应项目根目录），确认：
+1. **读取 program 自己的文档**（PROGRESS.md 或计划文档，位于对应 repo 的 `docs/` 或项目根目录；program skill 会写明位置），确认：
    - 当前 Phase 编号与状态
    - 前置 Phase 已完成
    - Owner 已做的架构决策（Decision Log）
@@ -19,6 +19,11 @@ parity-id: phase-execution-v2
    - 验证命令
    - 架构约束
 3. **若存在 Owner 决策记录，严格遵守**，不重新提议已定的方案。
+
+Phase 进度只记在 program 自己的文档和会话里的 Phase 报告中。Ops Console 不跟踪 program：
+Build Desk（Briefing / In Flight / Delivery、`/api/v1/programs`、`config/programs/*.yaml`、
+`report_phase_progress` 等 MCP 工具）已于 2026-10-06 删除。旧 program YAML 在 git 历史里：
+`git -C bifrost-platform show 1a3327e:config/programs/<active|completed>/<id>.yaml`。
 
 ## 执行过程中
 
@@ -77,12 +82,12 @@ parity-id: phase-execution-v2
 
 - **允许自动推进**到下一个 Phase，无需每 Phase 等待「继续」
 - **仅在以下情况暂停**并报告 Owner：
-  - 该 Phase 的 `verify_cmd` / 自检在 **2 次重试后仍失败**
+  - 该 Phase 的验证命令 / 自检在 **2 次重试后仍失败**
   - 遇到架构级决策（rule 5）
-  - Blueprint acceptance 未覆盖的新需求
+  - program 文档的验收标准未覆盖的新需求
   - Owner 明确说「停」/「pause」
 - Batch 全部 Phase 完成后仍须输出 **Batch Execution Report**（见 batch-execution SKILL）并走 Global QA
-- `sign_off.required: true` 的 Phase：batch 模式下若 Owner 未预授权自动 sign-off，在 verify 通过后暂停等待 Console/API sign-off
+- Owner 要求逐 Phase 签收的 Phase：batch 模式下若 Owner 未预授权，在验证通过后暂停，等 Owner 在对话里确认；签收记进 program 文档
 
 ## Sign-off 流程
 

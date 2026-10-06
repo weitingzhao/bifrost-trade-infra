@@ -1,5 +1,5 @@
 <!--
-parity-ids: workspace-v12, language-v1, agent-modes-v2, trade-execution-freeze-v2, dev-services-v2, phase-execution-v2, shared-worktree-v1, business-first-v1
+parity-ids: workspace-v12, language-v1, agent-modes-v2, trade-execution-freeze-v2, dev-services-v2, phase-execution-v3, shared-worktree-v1, business-first-v1
 对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
 改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
 -->

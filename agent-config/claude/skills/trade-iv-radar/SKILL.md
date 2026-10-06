@@ -12,7 +12,7 @@ description: >-
 
 - **id:** `trade-iv-radar`
 - **lane:** `trade-iv-radar` (Satellite · Build · Trade IV Radar — independent lane)
-- **Blueprint:** `bifrost-platform/config/programs/active/trade-iv-radar.yaml`
+- **Blueprint (history):** `git -C bifrost-platform show 1a3327e:config/programs/active/trade-iv-radar.yaml` (program YAML deleted with Build Desk 2026-10-06)
 - **D10:** observe-only — no place_order / no daemon arming
 - **Out of scope:** A2 Event Radar, GEX, full-market scanner, live trading
 
@@ -66,6 +66,6 @@ description: >-
 ## Agent protocol
 
 - Batch: `.claude/skills/batch-execution/SKILL.md`
-- Per phase: MCP `create_session` then work then `report_phase_progress`
+- Per phase: work, verify, then record the phase in the program doc and the in-chat Phase report (phase-execution)
 - UI Chinese dialogue; UI strings English
 - Dense UI mandatory for P3

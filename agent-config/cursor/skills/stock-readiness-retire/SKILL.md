@@ -11,7 +11,7 @@ description: >-
 
 - **id:** `stock-readiness-retire`
 - **lane:** `stock-readiness-retire` (Satellite · Migrate)
-- **Blueprint:** `bifrost-platform/config/programs/active/stock-readiness-retire.yaml`
+- **Blueprint (history):** `git -C bifrost-platform show 1a3327e:config/programs/completed/stock-readiness-retire.yaml` (program YAML deleted with Build Desk 2026-10-06)
 - **D10:** BLOCKED — do not unsuspend `market-data-readiness-refresh`
 
 ## What the table was
