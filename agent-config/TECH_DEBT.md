@@ -15,7 +15,7 @@
 
 （暂无）
 
-**未结 72 项**：P0 0 · P1 5 · P2 28 · P3 39；要你批的 35 项（从总览表的审批列算）。
+**未结 72 项**：P0 0 · P1 5 · P2 29 · P3 38；要你批的 34 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -232,7 +232,7 @@
 | [TD-163](#td-163) | P3 | research-control | Two research tests import dagster without importorskip, so they fail in any venv without the orchestration extra | 不用批 |
 | [TD-164](#td-164) | P3 | research-data | dbt reports MissingArgumentsPropertyInGenericTestDeprecation 18 times: generic test arguments use the pre-1.10 layout | 不用批 |
 | [TD-165](#td-165) | P2 | ops-platform | Ops Console Market Data › Ingest crashes to a blank page while the doctor is recomputing (its 'computing' answer has no universe) | 不用批 |
-| [TD-166](#td-166) | P3 | research-data | GEX zero_gamma falls back to the strike nearest spot when cumulative gamma never crosses zero: by construction on all 1,762 one-sided expiries, and stored as if it were a flip | 要你批 |
+| [TD-166](#td-166) | P2 | research-data | GEX zero_gamma was the strike nearest spot on 38% of daily levels rows (no change of sign), and a step out of zero counted as a crossing; terrain read it as a flip at spot | 已批（观察中） |
 | [TD-167](#td-167) | P3 | market-data | Console slot adherence still credits a policed slot with its sibling's jobs (reference counts ticker-details detail jobs as its evidence) | 不用批 |
 | [TD-168](#td-168) | P3 | market-data | The doctor's stale:* detail says the dimension row is one 'which other slots also write' even for calendar and fundamentals-rotate, whose dimensions are not shared | 不用批 |
 | [TD-169](#td-169) | P3 | market-data | ops_jobs.ingest_freshness.option_expiration is a fossil row frozen since 09-06 and still listed as ok | 不用批 |
@@ -1348,20 +1348,20 @@
 
 ### TD-166
 
-**P3 · research-data · GEX zero_gamma falls back to the strike nearest spot when cumulative gamma never crosses zero: by construction on all 1,762 one-sided expiries, and stored as if it were a flip**
+**P2 · research-data · GEX zero_gamma was the strike nearest spot on 38% of daily levels rows (no change of sign), and a step out of zero counted as a crossing; terrain read it as a flip at spot**
 
-- **状态**：未开始（要你批：改写行）
-- **Claim**: compute_gex_levels interpolates zero_gamma at a sign change of cumulative net gex; with none, it stores the strike nearest spot. On an expiry where only one side has exposure (TD-157) cumulative gamma is monotone and never changes sign, so zero_gamma there is always that fallback; two-sided expiries whose cumulative never flips get it too (not measured). Nothing in the row says which.
-- **Measured**: MEASURED 10-06 after the TD-157 pass, read-only: 1,762 levels rows have exactly one wall NULL (820 call, 942 put), every one of them a fallback zero_gamma by construction; two-sided no-flip rows need the distribution to count (features.option_metric_gex_daily), not done.
+- **状态**：观察中（到 10-08，看 10-07 与 10-08 两次夜批后「验收」的重算结果仍为 0 变化）
+- **Claim**: compute_gex_levels interpolated zero gamma wherever `prev_cum * cum <= 0`, so leaving zero counted as a crossing (an expiry whose low strikes carry no gamma "flipped" at the first strike that did), and without any crossing it stored the strike nearest spot. Nothing in the row said which. Terrain's pin score gives up to 40 points for spot near zero gamma, so a fallback at the nearest strike read as a pin.
+- **Measured**: MEASURED 10-06, read-only on Golden Source (first written as "the 1,762 one-sided rows"; the real scope, measured before the fix, went back to the Owner, who chose A): of 69,440 daily levels rows, 26,518 (38%, 676 names) have no change of sign of cumulative net gex; 5,408 of those had a "crossing" out of zero; 360 more had a real crossing that a crossing out of zero beat on distance. Since 10-01, 565 of 2,040 front-expiry readings had no crossing. The old rule reproduces every stored value from the stored distribution (10,718 of 10,718 on three sample days).
 - **Evidence**:
-  - `bifrost-research/src/bifrost_research/engines/gex/exposure.py:217` — `# Fallback: strike with net_gex closest to zero near spot` then `zero_gamma = float(nearest["strike"])`
+  - `bifrost-research/src/bifrost_research/engines/gex/exposure.py:217` (before 0.192.0) — the `prev_cum * cum <= 0` test and the nearest-strike fallback
   - `bifrost-research/src/bifrost_research/engines/forecast/terrain.py:93` — pin_score_from_gex scores spot's distance to zero_gamma
   - `bifrost-research/src/bifrost_research/engines/scan/entry.py:105` — scan's zero_gamma_offset reads it
-- **Impact**: terrain's pin score and scan's zero_gamma_offset treat the nearest strike as a gamma flip that does not exist.
-- **Fix**: Store NULL zero_gamma when cumulative gamma never changes sign (or add a source column, e.g. `zero_gamma_source` flip|none, which is a DDL change). One-off: recompute or NULL the affected rows and recompute terrain and scan (pattern: engines/gex/zero_exposure_purge).
-- **Ratchet**: A test that a one-sided distribution yields zero_gamma None; nightly check: no row with exactly one NULL wall and a non-null zero_gamma.
-- **验收**: `SELECT count(*) FROM features.option_metric_gex_levels_daily WHERE (major_call_wall IS NULL) <> (major_put_wall IS NULL) AND zero_gamma IS NOT NULL` returns 0 after two nightly runs.
-- 审批 要你批 · 代价 S · 风险 low · repos: bifrost-research
+- **Fix**: research 0.192.0 (a53ee25, pin 0ed959f), Owner chose A on 10-06: `exposure_guards.zero_gamma_crossing` counts only a change of sign between non-zero cumulative values; `compute_gex_levels` says `zero_gamma_source` flip | nearest_strike; `drop_fallback_zero_gamma` stores NULL in daily levels without a crossing (intraday keeps the fallback, its timeline chart draws a missing value at zero). Readers checked for NULL: terrain, scan, mart_sepa_tier_options, sepa_fusion, exhibit lens, brief, frontend daily faces.
+- **进展（10-06）**：Dagster 0.192.0-dagster 18:47 UTC apply。回填 Job `research-gex-zero-gamma-0192`（`zero_exposure_purge --zero-gamma`，从分布逐行重算）：更新 26,878 行（置空 26,518，换成真实翻转点 360），terrain 重算 4,526 行，scan 重算 6,810 行，45 秒。核对：重跑干跑 0 变化；空 zero_gamma 26,518；scan 与 terrain 一致；TD-136 / TD-157 的检查仍为 0。影响：terrain pin_score 有 3,389 行变化，其中 3,382 行下降，中位 −32 点；regime 翻转 338 个（range→trending 290）；scan 的 zero_gamma_offset 有 5,391 行变空，综合分 5,489 行变化，中位 −6.9。备份（三张整表）`~/bifrost-backups/golden-source/2026-10-06_gex-zero-gamma-td166/`。防线：`tests/engines/test_gex_zero_exposure.py` 的 TD-166 用例（签收时登记进 RATCHETS.md）。后续：前端可把空的 zero-γ 写成「无翻转」（未立项，Product）。
+- **Ratchet**: tests/engines/test_gex_zero_exposure.py (leaving zero and touching zero are not crossings; the nearest crossing wins; daily rows store NULL without one; the pass counts read-only and refuses a mismatched update).
+- **验收**: `python -m bifrost_research.engines.gex.zero_exposure_purge --zero-gamma` (dry run, read-only) reports `changed: 0` after two nightly runs.
+- 审批 已批（Owner 10-06，选 A）· 代价 M · 风险 med · repos: bifrost-research
 
 ### TD-167
 
