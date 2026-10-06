@@ -13,10 +13,9 @@
 
 ## 待你签收
 
-- **TD-173** — ubt-k3s-06 装上 nfs-common（Owner 10-06 跑脚本），脚本 DEFAULT_NODES 加 .79；新告警 `BifrostPodStuckCreating`（bifrost / research / plugin 命名空间 ContainerCreating 超 15 分钟）· 验收 PASS（10-06，卡住的 0.81.0 API pod 在 06 上挂上 NFS 并 Running）· 防线：`bifrost-trade-infra/k8s/monitoring/bifrost-alerting-rules.yaml` BifrostPodStuckCreating · 无后续：新节点漏装由告警兜住
-- **TD-175** — ticker-details 只数自己的 detail 作业、读 `slot:ticker-details` 行（market-data 0.81.0，不进 POLICED_SLOTS 所以 doctor findings 不变）· 验收 PASS（10-06 上线，dashboard 读到 slot 行）· 防线：`tests/test_slot_freshness.py` 新增 4 条 + `test_naming_ticker_details_adds_no_doctor_finding` · 无后续
+（暂无）
 
-**未结 76 项**：P0 0 · P1 5 · P2 30 · P3 41；要你批的 40 项（从总览表的审批列算）。
+**未结 74 项**：P0 0 · P1 5 · P2 29 · P3 40；要你批的 39 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -60,7 +59,7 @@
 
 目标：所有「今天 / 本 session」都从 `db/calendar` 的一个函数来，代替 11 个私有 helper 和 44 处 `date.today()`；dbt 补 grain 测试；IV / 回测的定价参数统一。
 
-项：TD-98, TD-110, TD-111, TD-112, TD-128, TD-129, TD-174, TD-175 · 已还：TD-164
+项：TD-98, TD-110, TD-111, TD-112, TD-128, TD-129, TD-174 · 已还：TD-164, TD-175
 
 ### 第 4 波 · 券商资金账本（Flex / IB）
 
@@ -78,7 +77,7 @@
 
 目标：备份 MinIO 已搬到 NAS（infra 1ee0ac2，已接监控 ba03488），把剩下的收尾：自动修复只在 PROD 一处动手、失败记录不再被删、platform 的新检查上线、稳定一周后退役集群里的 MinIO 残留，再处理 WAL 体量和 CNPG 1.30 的备份插件。
 
-项：TD-130, TD-131, TD-132, TD-133, TD-134, TD-135, TD-173
+项：TD-130, TD-131, TD-132, TD-133, TD-134, TD-135 · 已还：TD-173
 
 ### 第 7 波 · 数据缺口（10-06 由 Data Gaps 看板并入）
 
@@ -234,9 +233,7 @@
 | [TD-170](#td-170) | P3 | research-control | dagster-daemon logs one line over 256 KB at the 22:45 and 03:00 UTC schedule ticks every night | 不用批 |
 | [TD-171](#td-171) | P3 | frontend | Positions shows the attribution price_last as if it were live: no EOD label or date now that core 0.51.0 fills it from the vendor EOD mark | 不用批 |
 | [TD-172](#td-172) | P2 | research-data | ATM IV has almost no 50–90 DTE expiry from 2026-07-06 to 09-25 (the EOD chain stopped at the third listed expiry until plugin 0.39.0); the fix was forward-only, so term structure reads na for that stretch | 要你批 |
-| [TD-173](#td-173) | P2 | infra | ubt-k3s-06 has no nfs-common: pods with an NFS volume scheduled there hang in ContainerCreating (mount exit 32) | 要你批 |
 | [TD-174](#td-174) | P3 | market-data | Console marks fundamentals-rotate missed every Monday 03:45 → Tuesday 03:00 UTC: the trading-day check uses the UTC date of the fire | 不用批 |
-| [TD-175](#td-175) | P3 | market-data | ticker-details adherence still credits the shared ticker_sync freshness row, so a stopped ticker-details reads on_plan after reference's 21:30 walk | 不用批 |
 | [TD-176](#td-176) | P3 | research-control | Suspended CronJobs cronjob-signal-hit.yaml and cronjob-alert-scan.yaml still ship and get re-pinned every release though Dagster runs both | 删除（要你批） |
 | [TD-178](#td-178) | P3 | trade-api | GET /strategies/plans has no source_kind filter: Research reads the newest 500 filled plans and filters itself, marking truncated at the cap | 改公开接口 |
 | [TD-180](#td-180) | P3 | research-data | The macro calendar has no CPI dates after 2026-12-10 and no payrolls at all: bls.gov answers 403 from this host, so they could not be read | 不用批 |
@@ -1390,23 +1387,6 @@
 - **Ratchet**: The plugin doctor's option_daily breadth (0.59.0 counts 5–90 DTE) also counts names with a 50–90 DTE bar per session and warns below 0.8 of the trailing median, so a bound that stops short shows within a day.
 - 审批 要你批 · 代价 M · 风险 low · repos: bifrost-platform-plugin-market-data, bifrost-research
 
-### TD-173
-
-**P2 · infra · ubt-k3s-06 has no nfs-common: pods with an NFS volume scheduled there hang in ContainerCreating (mount exit 32)**
-
-- **状态**：待你签收
-- **验收**：06 上 `dpkg -s nfs-common` 已装且 NFS 挂载冒烟通过；落在 06 上挂 NFS 卷的 pod Running；`BifrostPodStuckCreating` 规则已加载
-- **验收结果**：PASS 2026-10-06：Owner 跑 install-nfs-common-nodes.sh（nfs-common + k3s-hot 挂载冒烟 OK）；卡住的 market-data-api 0.81.0 pod 随即在 06 上挂上 market-data-archive 并 Running；infra 规则 apply 后 `kubectl diff -k k8s/monitoring` 为空
-- **现在**：10-06 20:01 UTC market-data 0.81.0 发布时 API 新 pod 第三次落到 06，FailedMount `bad option … need a /sbin/mount.nfs helper`；maxUnavailable 0 所以旧 pod 继续服务、无中断，但发布卡住
-- **Claim**: 06 was reinstalled 10-06 and is not in install-nfs-common-nodes.sh DEFAULT_NODES. market-data-api mounts market-data-archive (nfs-cold); twice on 10-06 its new pod landed on 06 and failed `mount failed: exit status 32`.
-- **Measured**: MEASURED 10-06 by paydown lane J: on 192.168.10.79 `dpkg-query: package 'nfs-common' is not installed`, /sbin/mount.nfs absent; two FailedMount rollouts 19:08 and 19:11 UTC (lane J cordoned 06 ~10 s each time to reschedule, then uncordoned).
-- **Evidence**:
-  - `bifrost-trade-infra/scripts/k3s/install-nfs-common-nodes.sh:17` — `DEFAULT_NODES=(`
-- **Impact**: 06 is the emptiest node so the scheduler prefers it; an evicted market-data-api (or any NFS-mounting pod) lands there and stays down — Dagster enqueue and the Trade gateway answer 503.
-- **Fix**: Owner runs `K3S_NFS_NODES="vision@192.168.10.79" ./scripts/k3s/install-nfs-common-nodes.sh`; add .79 to DEFAULT_NODES.
-- **Ratchet**: install-agent preflight installs or checks `dpkg -s nfs-common`; plus a FailedMount warning alert (kube_pod_container_status_waiting_reason ContainerCreating > 10m with FailedMount events).
-- 审批 要你批 · 代价 S · 风险 low · repos: bifrost-trade-infra
-
 ### TD-174
 
 **P3 · market-data · Console marks fundamentals-rotate missed every Monday 03:45 → Tuesday 03:00 UTC: the trading-day check uses the UTC date of the fire**
@@ -1422,24 +1402,6 @@
 - **Impact**: A weekly false miss trains readers to ignore the Data Husbandry market_batch lane.
 - **Fix**: Judge the trading day on the New York date of the fire, as doctor's _closed_days_since does.
 - **Ratchet**: A dashboard test: a Monday 03:00 UTC fire is not missed.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data
-
-### TD-175
-
-**P3 · market-data · ticker-details adherence still credits the shared ticker_sync freshness row, so a stopped ticker-details reads on_plan after reference's 21:30 walk**
-
-- **状态**：待你签收
-- **验收**：pod imageID 为 `sha256:92af622d…`；queue-dashboard 里 ticker-details 的 freshness_dimension 为 `slot:ticker-details`
-- **验收结果**：PASS 2026-10-06 20:2x UTC market-data 0.81.0（b75b4f6）：api 与两组 worker 全部 92af622d…；`slot:ticker-details on_plan 200`；doctor 重启后算完，degraded / 0 critical · 2 warning（与发布前同）
-- **下一步**：你批 market-data 0.81.0 发布（避开 21:05–23:15 UTC）→ deploy 提交 + `kubectl apply -k` → 验收：pod imageID 为 92af622d…、queue-dashboard 里 ticker-details 读 `slot:ticker-details`；10-12 周一 03:45 之后 fundamentals-rotate 仍 on_plan
-- **现在**：ticker-details 加进 `SHAPE_NAMED_SLOTS`（不进 `POLICED_SLOTS`，避免新增 doctor finding）：只数自己的 `ticker_sync mode=detail` 作业，读新的 `slot:ticker-details` 行。回放 0 翻转；反事实删掉 detail 作业后新代码在 72 个时点判 missed、老代码判 on_plan。防线 `tests/test_slot_freshness.py` 新增 4 条（老代码上失败）+ `test_naming_ticker_details_adds_no_doctor_finding`
-- **Claim**: Mirror of TD-167 for the one slot outside the policed list: ticker-details and reference both enqueue ticker_sync and both bump freshness.ticker_sync.
-- **Measured**: code-read 10-06 by paydown lane J.
-- **Evidence**:
-  - `bifrost-platform-plugin-market-data/src/bifrost_market_data/api/ingest_dashboard.py:93` — `"ticker-details": {"kinds": ["ticker_sync"], "freshness": "ticker_sync"},`
-- **Impact**: If ticker-details stops, the Console and the market_batch lane keep calling it on plan.
-- **Fix**: Give ticker-details its own slot:<id> freshness row and job-shape filter like the five policed slots (or add it to POLICED_SLOTS).
-- **Ratchet**: Extend tests/test_slot_freshness.py: ticker-details stopped while reference runs → missed.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data
 
 ### TD-176

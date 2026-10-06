@@ -60,6 +60,8 @@
 | doctor 只对真共享的维度说「共享」（TD-168） | `bifrost-platform-plugin-market-data/tests/test_slot_freshness.py::test_the_sharing_clause_appears_only_for_a_shared_dimension`（五个 slot 参数化，读 SLOT_EVIDENCE） | stale:* 文案把独占维度说成共享，误导排查 | warning（测试） | — |
 | 从假设建 plan 的入口带上来源（TD-177） | `bifrost-trade-frontend/src/pages/research/loop/HypothesisBoardPage.plan.test.tsx`（点「＋ Plan」→ 存草稿，提交体 source_kind=hypothesis、source_ref=卡片 id；archived 卡片无入口） | 假设 → 成交的关联（TD-143）因为没有入口写出 hypothesis 来源的 plan 而永远形成不了 | warning（测试；CI 不卡发布） | 只测 Hypothesis Board 一处入口 |
 | 不选模型时按财报日排序（TD-179） | `bifrost-trade-frontend/src/pages/research/stocks/stockScreenEarnings.test.ts`（逾期在前、无估计在后）+ `RankDrawer.test.tsx`（Earnings 已启用） | 排序选项被禁用或无估计的名字混在前面 | warning（测试） | — |
+| Pod 卡在 ContainerCreating 告警（TD-173） | `bifrost-trade-infra/k8s/monitoring/bifrost-alerting-rules.yaml` BifrostPodStuckCreating（bifrost-* / research / plugin-* 命名空间 15 分钟）；`scripts/k3s/install-nfs-common-nodes.sh` DEFAULT_NODES 含 .79 | 新节点漏装 nfs-common 等挂载 / 镜像 / CNI 故障让 pod 卡在创建、滚动发布在 maxUnavailable 0 后面静默挂起 | alert | 节点重装时仍需人跑脚本；install-agent 本身不装 nfs-common |
+| ticker-details 只认自己的作业（TD-175） | `bifrost-platform-plugin-market-data/tests/test_slot_freshness.py`（ticker-details 停而 reference 照跑判 missed、slot 行承担证据、`test_naming_ticker_details_adds_no_doctor_finding`） | 共享的 ticker_sync 行给停跑的 ticker-details 记功 | warning（测试） | — |
 
 ## 各类债现在挡没挡住
 
