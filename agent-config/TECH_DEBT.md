@@ -956,7 +956,7 @@
 
 **P2 · trade-data · Position attribution rows have no price, intraday or after the close: their only price source is contract_quote_live, which only the frozen daemon writes**
 
-- **状态**：未开始（口径 Owner 10-06 已定：(a) 没有活报价时读最近一次 vendor EOD 并标 mark_source）
+- **状态**：在做（还债第二批 · 道 I，10-06 开工）
 - **验收**：收盘 enrich 之后：`curl -s http://192.168.10.73:30881/api/account/executions/position-attribution | python3 -c 'import json,sys;r=json.load(sys.stdin)["items"];print(len(r),sum(x.get("price_mid") is None and x.get("price_last") is None for x in r),sorted({str(x.get("mark_source")) for x in r}))'` → 第二个数为 0，第三项不含 None
 - **Claim**: get_position_instance_attribution takes price_mid / price_last only from a LEFT JOIN on brokerage.contract_quote_live, filtered to rows younger than 4 hours (TD-02, core 0.28.2). Under D10 the daemon does not run, so the table has 13 rows, newest 2026-03-28, and every attribution row has no price and no unrealized_pnl_est, intraday and after the close. The 09-29 reading that stocks had prices was March prices the freshness rule now excludes.
 - **Measured**: MEASURED 10-06 after the close: GET /api/account/executions/position-attribution → PROD and DEV 31 rows each; OPT 13/13 and non-OPT 18/18 with price_mid, price_last and unrealized_pnl_est null; brokerage.contract_quote_live 13 rows, max(updated_at) 2026-03-28. (09-29: 30 rows, OPT 12/12 null, non-OPT 2/18 null.)
@@ -990,7 +990,7 @@
 
 **P3 · research-data · Hypotheses never link to trades: linked_opportunity_ids is empty on all 91 rows, and only Research's own create / patch writes it**
 
-- **状态**：未开始（口径 Owner 10-06 已定：Research 读 Trade 的 plan 派生，不新增跨载荷写入方；链到 trade_id）
+- **状态**：在做（还债第二批 · 道 G2，10-06 开工）
 - **验收**：在 DEV 上用一个 hypothesis 建 plan（source_kind='hypothesis'）并关联成交后，Research 的 hypothesis 读接口带出该 trade_id；`git -C bifrost-trade-frontend grep -n 'BROKEN_LINK' origin/main -- src/pages/review/objectives` 指向派生链接而不是 `hypothesis.linked_opportunity_ids`
 - **Claim**: research.hypothesis holds 91 rows (active 65 · archived 25 · validated 1) and none has linked_opportunity_ids; the objective chain in the frontend names exactly that column as its broken link. Trade's strategy_plan already carries source_kind='hypothesis' with source_ref and trade_id, so the link can be derived, but plans are PROD 0 · STG 0 · DEV 3 (all manual) and trade-api GET /plans has no source_kind filter.
 - **Measured**: MEASURED 10-06 on the replica (Golden Source and the three Trade databases).
@@ -1130,7 +1130,7 @@
 
 **P2 · ops-platform · promtail drops log lines (ingester_error) around 02:00–03:15 and 22:xx UTC, so every Loki-based release gate can come out INCONCLUSIVE**
 
-- **状态**：未开始
+- **状态**：在做（还债第二批 · 道 H，10-06 开工）
 - **Claim**: Release gates that prove 'nobody calls X any more' read Loki. promtail dropped 35 entries 10-02..10-05 and 18 more by 10-06 with reason ingester_error, clustered on ubt-k3s-04 (STG/DEV api pods) at ~03:00Z and ubt-k3s-02 (PROD) at 22:xxZ. loki_gate.py counts the drops and refuses to call a zero a zero.
 - **Measured**: MEASURED 10-06 by paydown lane F: TD-51 gate dev 0 / stg 0 / prod 0 hits but INCONCLUSIVE (exit 3) because of 18 dropped entries; Prometheus `sum by (instance,reason)(increase(promtail_dropped_entries_total[1h]))`.
 - **Evidence**:
@@ -1144,7 +1144,7 @@
 
 **P3 · ops-platform · loki_gate.py only knows the pre-0.10.0 log line ('deprecated query params'); after api 0.10.0 refused callers log 'retired query params' and the gate cannot see them**
 
-- **状态**：未开始
+- **状态**：在做（还债第二批 · 道 H，10-06 开工）
 - **Claim**: api 0.10.0 (TD-51) replaces the silent rewrite with a 422 and a WARNING 'retired query params: … user_agent=…'. loki_gate.py's TD-51 check builds its needle from the deprecated-params line only, so after the release a caller still sending old names is invisible to the gate that was built to find it.
 - **Measured**: code-read 10-06 (paydown lane F).
 - **Evidence**:
@@ -1159,7 +1159,7 @@
 
 **P3 · trade (round 1) · api test_request_bodies asserts on a plain MagicMock that removed facade methods were not called — it can never fail**
 
-- **状态**：未开始
+- **状态**：在做（还债第二批 · 道 I，10-06 开工）
 - **Claim**: After core 0.49.0 the facade write methods no longer exist; the test still asserts on a bare MagicMock that create_position_category / set_position_category_tag / … were not called. A MagicMock accepts any attribute, so the assertion passes whatever the route does.
 - **Measured**: code-read 10-06 (paydown lane F).
 - **Evidence**:
@@ -1188,7 +1188,7 @@
 
 **P2 · research-control · research_signal_hit_schedule fires at 00:10 UTC, before the 02:30 UTC batch writes the night's features, so it judges the previous night's features**
 
-- **状态**：未开始
+- **状态**：在做（还债第二批 · 道 G1，10-06 开工）
 - **Claim**: signal_hit runs on its own cron ('10 0 * * 1-6' UTC) instead of inside research_trading_day after the feature writers. At 00:10 UTC the night's SEPA / IV / scan features are not written yet, so each walk reads the previous session's features — the same class as TD-97 (judge before writer).
 - **Measured**: code-read 10-06 by paydown lane A; not measured.
 - **Evidence**:
@@ -1220,7 +1220,7 @@
 
 **P3 · research-data · Earnings estimates are served one name per request, so no universe-wide page can show an Earn column**
 
-- **状态**：未开始（Owner 10-06 加入）
+- **状态**：在做（还债第二批 · 道 G2，10-06 开工）
 - **验收**：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n research exec deploy/research-api -- python -c "import urllib.request,json;d=json.loads(urllib.request.urlopen('http://127.0.0.1:8795/research/narrative/earnings/batch?symbols=NVDA,AAPL,KO').read());print(sorted(d['data']))"` → `['AAPL', 'KO', 'NVDA']`，每个都带 `expected_next`（或带原因的空）；`git -C bifrost-trade-frontend grep -n "is served across the universe" origin/main -- src` → 0 行
 - **Claim**: GET /research/narrative/earnings takes exactly one symbol. The frontend's useNamesEarnings issues one query per name, so pages that list hundreds of names (Stock screen, Scan with All, Vol ratings) either fan out hundreds of requests or show no earnings estimate. The data-gap wording batch (TD-150) caps Scan at 60 names and reads only the selected row under All; Stock screen still says no earnings date is served across the universe.
 - **Measured**: CODE-READ 10-06 on origin/main: the route signature is `symbol: str = Query(..., min_length=1, max_length=16)`; no batch route exists in api/narrative.py. Stock screen copy states the gap in four places.
@@ -1240,7 +1240,7 @@
 
 **P3 · market-data · No read says how many standard and adjusted option contracts a name has, so "only adjusted contracts are listed" is inferred in the browser from ticker shapes**
 
-- **状态**：未开始（Owner 10-06 加入）
+- **状态**：在做（还债第二批 · 道 G2，10-06 开工）
 - **验收**：对 CUE（或任一只有调整合约的名字）调用新增的计数读法 → `standard = 0`、`adjusted > 0`；对 NVDA → `standard > 0`；`git -C bifrost-trade-frontend grep -n "isAdjustedOptionTicker" origin/main -- src` → 只剩测试或 0 行
 - **Claim**: Research excludes adjusted contracts (OCC root ending in a digit) from every option metric, so a name with only adjusted contracts has empty max pain, ATM IV, GEX, flow and PCR by rule. Nothing served says so. The TD-150 frontend batch infers it by fetching the nearest expiry's snapshot rows and testing each option_ticker's root, copying Research's SQL rule into TypeScript; it reads one expiry only and costs two extra requests on names whose four option exhibits are all missing.
 - **Measured**: CODE-READ 10-06: the rule lives in Research `not_adjusted_contract_sql` (27 call sites) and, on the wording branch, in frontend `adjustedListing.ts`; the plugin's `/market/options/snapshots` returns rows with option_ticker but no per-name counts. MEASURED 10-05: CUE 14 open-interest rows, all `CUE1…`.
@@ -1300,7 +1300,7 @@
 
 **P3 · research-control · Two research tests import dagster without importorskip, so they fail in any venv without the orchestration extra**
 
-- **状态**：未开始
+- **状态**：在做（还债第二批 · 道 G1，10-06 开工）
 - **Claim**: tests/engines/test_alert_scan_rejudge.py (TD-97) and tests/orchestration/test_event_radar_runner.py (TD-100) import dagster at module level. CI installs the extra so it passes there; a plain dev venv reports 2 failures on origin/main, which trains people to ignore red.
 - **Measured**: MEASURED 10-06 by paydown lane B: full run 2025 passed, 2 failed (these two) in a venv without [orchestration].
 - **Evidence**:
@@ -1314,7 +1314,7 @@
 
 **P3 · research-data · dbt reports MissingArgumentsPropertyInGenericTestDeprecation 18 times: generic test arguments use the pre-1.10 layout**
 
-- **状态**：未开始
+- **状态**：在做（还债第二批 · 道 G1，10-06 开工）
 - **Claim**: Generic tests pass their parameters at the top level instead of under `arguments:`; dbt 1.10+ warns on each, and a future dbt will stop accepting it.
 - **Measured**: MEASURED 10-06 by paydown lane B (dbt parse on dbt-core 1.10.23 and 1.12.3; the Dagster image runs 1.12.5).
 - **Evidence**:
@@ -1361,7 +1361,7 @@
 
 **P3 · market-data · Console slot adherence still credits a policed slot with its sibling's jobs (reference counts ticker-details detail jobs as its evidence)**
 
-- **状态**：未开始
+- **状态**：在做（还债第二批 · 道 J，10-06 开工）
 - **Claim**: _evidence_for_fire counts any created job of the slot's kinds. reference and ticker-details both declare kind ticker_sync, so a ticker-details detail job counts as evidence that the reference universe walk ran. TD-101 fixed the doctor's freshness; the Console schedule-adherence verdict (which the Research gate reads) still has the old credit.
 - **Measured**: code-read 10-06 by paydown lane D; left alone because changing it moves the schedule verdict the Research gate reads.
 - **Evidence**:
@@ -1376,7 +1376,7 @@
 
 **P3 · market-data · The doctor's stale:* detail says the dimension row is one 'which other slots also write' even for calendar and fundamentals-rotate, whose dimensions are not shared**
 
-- **状态**：未开始
+- **状态**：在做（还债第二批 · 道 J，10-06 开工）
 - **Claim**: The detail text after TD-101 always adds 'which other slots also write' when quoting the dimension row. For calendar and fundamentals-rotate the dimension is written only by that slot, so the sentence tells an operator to distrust a row that is in fact theirs.
 - **Measured**: code-read 10-06 by paydown lane D.
 - **Evidence**:
@@ -1390,7 +1390,7 @@
 
 **P3 · market-data · ops_jobs.ingest_freshness.option_expiration is a fossil row frozen since 09-06 and still listed as ok**
 
-- **状态**：未开始
+- **状态**：在做（还债第二批 · 道 J，10-06 开工）
 - **Claim**: Expirations now come from option_contract jobs, which return no freshness_extra for option_expiration, so the row has not moved since 2026-09-06; nothing polices it, yet freshness listings show it with status ok.
 - **Measured**: MEASURED 10-06 by paydown lane D (ingest_freshness row last_run_at 2026-09-06).
 - **Evidence**:
