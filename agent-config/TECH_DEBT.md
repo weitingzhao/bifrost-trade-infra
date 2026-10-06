@@ -1253,7 +1253,7 @@
 
 **P3 · ops-platform · BifrostAPIHighErrorRate / HighLatency only see bifrost-* namespaces with http_requests_total; research-api and the plugins export no HTTP metrics, so their 5xx and latency go unalerted**
 
-- **状态**：未开始
+- **状态**：在做（还债第四批 · 道 Q，10-06 晚开工；发版与 Golden Source 写入前停下等你批）
 - **Claim**: The two API alerts select http_requests_total in namespace=~"bifrost-.*". research-api (and the market-data / flex plugin APIs) export no http_requests_* series, so widening the namespace regex would change nothing; a research-api returning 5xx all night raises no alert.
 - **Measured**: code-read 10-06 by paydown lane C (it checked the rule expressions against live Prometheus).
 - **Evidence**:
@@ -1422,7 +1422,7 @@
 
 **P3 · research-data · /events/calendar takes its macro rows from a hand-dropped radar file (ends 2026-12-10) instead of macro_event_daily, and radar ids include the collection date so a re-drop duplicates them**
 
-- **状态**：未开始
+- **状态**：在做（还债第四批 · 道 P，10-06 晚开工；发版与 Golden Source 写入前停下等你批）
 - **Claim**: Two macro paths exist: features.macro_event_daily (TD-151) and event_signal_radar_daily rows with source ws:macro-calendar-2026q4. The calendar page reads the latter; _stable_id hashes the collection date, so each weekly re-drop writes new ids for the same events.
 - **Measured**: code-read 10-06 by paydown lane O.
 - **Evidence**:
@@ -1533,7 +1533,7 @@
 
 **P3 · research-data · SEPA has no rows for four sessions (08-28, 08-31, 09-08, 09-16): those nights never computed it, so the SEPA lens and its hit rate skip them**
 
-- **状态**：未开始
+- **状态**：在做（还债第四批 · 道 P，10-06 晚开工；发版与 Golden Source 写入前停下等你批）
 - **Claim**: After the TD-87 restate every stored SEPA date is a real session, which exposes the gaps: between 08-21 and 10-05 there are 31 sessions and 27 carry SEPA. The lens re-walk reports lenses_without_source ['sepa'] for exactly those four days.
 - **Measured**: MEASURED 10-06 22:26 UTC (signal_hit sepa re-walk output; replica: 27 distinct SEPA dates).
 - **Evidence**:
