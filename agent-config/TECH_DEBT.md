@@ -6,7 +6,7 @@
 
 更新：2026-10-06 · 第 1 轮（Trade UI 之下，10-01）剩 3 项 · 第 2 轮（Research + 插件，10-06：40 条发现，反向核实 22 成立、18 修正、0 推翻、3 合并）+ Build Desk
 
-**未结 46 项**：P0 0 · P1 6 · P2 20 · P3 20；要你批的 10 项。
+**未结 45 项**：P0 0 · P1 6 · P2 19 · P3 20；要你批的 10 项。
 
 ## 主题（第 2 轮）
 
@@ -63,7 +63,6 @@
 | [TD-124](#td-124) | P3 | research-control | 39 permanently suspended CronJobs (25 research, 14 market-data, plus an orphan pinned to 0.10.0) are still deployed and re-pinned every release; research ones carry a stale 26-name watchlist and the verify script contradicts the one active CronJob | 删除（要你批） |
 | [TD-125](#td-125) | P3 | flex-ib | Retired IB topology still referenced: TIBM-era verify scripts at the top of scripts/, flex_ops compat SQL for a schema that no longer exists | 删除（要你批） |
 | [TD-126](#td-126) | P3 | ops-platform | Build Desk (Ops Console Engineer strip: Briefing / In Flight / Delivery) is a Cursor-era program tracker nobody uses | 删除（要你批） |
-| [TD-127](#td-127) | P2 | research-control | A one-year simulator run on SPY peaks near 620 MB and OOM-kills research-api (limit 512Mi); the route runs synchronously in the API pod | 不用批 |
 | [TD-128](#td-128) | P3 | research-data | Pine signal rows mix adjustment bases: nightly runs rewrite only the last ~10 sessions on today's adjusted bars, older rows stay on the basis of their last full rebuild | 不用批 |
 | [TD-129](#td-129) | P3 | research-data | The event backtest picks option legs from option_daily only; since mid-August 2026 it keeps ~10 strikes a side, so a target delta silently lands on the nearest strike that is left | 不用批 |
 
@@ -709,20 +708,6 @@
 - **Fix**: Delete the three Build Desk pages, lib/briefing, components/briefing, the Build Desk part of components/delivery, the devagent/lanes/briefing/sessions/sessionsnapshot Go packages, their MCP tools, config/lanes.yaml and config/programs. Untangle first: the operate queue and post-completion → operate hand-off are shared with Ops Desk; skills phase-execution / batch-execution (both sides) and CLAUDE.md §5 point at /programs; verify-three-desks.mjs, consoleNavZones.test.ts and navLens.test.ts assert the label.
 - **Ratchet**: Code-health 'unused route' check for platform-api (route with no console/MCP caller fails), same as the trade-api route listing.
 - 审批 删除（要你批） · 代价 M · 风险 med · repos: bifrost-platform, bifrost-trade-infra
-
-### TD-127
-
-**P2 · research-control · A one-year simulator run on SPY peaks near 620 MB and OOM-kills research-api (limit 512Mi); the route runs synchronously in the API pod**
-
-- **Claim**: POST /research/backtest/sim loads each symbol's chain for the whole window into memory inside research-api. One year of SPY peaks at about 620 MB against a 512Mi limit, so the pod is OOM-killed and every Research page loses its API until it restarts. Behaviour since 0.174.1; up to 10 symbols are accepted per request.
-- **Measured**: Reported by the P1 thread on 2026-10-06: about 620 MB peak measured locally; two requests at 05:25–05:26 UTC restarted research-api twice. Thread B ran the same kind of year-long SPY/QQQ runs in a separate 2Gi probe pod without trouble.
-- **Evidence**:
-  - `bifrost-research/k8s/api/deployment.yaml:115` — `memory: 512Mi`
-  - `bifrost-research/src/bifrost_research/api/backtest_sim.py:34` — `MAX_SYMBOLS = 10`, run in-process by `simulate` (`:124`)
-- **Impact**: Any owner-token user can take the whole Research API down with one ordinary request; the simulator is not usable for its main case (a liquid index over a year) on the deployed API.
-- **Fix**: Run simulations off the API pod (a Job or Dagster run that stores into backtest_run, API returns the run id), or cap window × symbols by an estimate of bars and refuse above it; as a stopgap raise the limit with a memory budget measured per symbol-year.
-- **Ratchet**: A test that runs the simulator on a synthetic SPY-sized chain under a tracemalloc budget, plus a 400 for requests above the budget.
-- 审批 不用批 · 代价 M · 风险 med · repos: bifrost-research
 
 ### TD-128
 
