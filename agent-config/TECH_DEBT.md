@@ -13,7 +13,8 @@
 
 ## 待你签收
 
-（暂无）
+- **TD-141** — iv-cone 加 7d 期限（1–21 DTE 内插、单侧取最近），每档新增 `one_sided`（research 0.186.0）· 验收 PASS（10-06，NVDA 7d 252 个 session，30/60/90 不变）· 防线：`bifrost-research/tests/repositories/test_iv_cone.py`（7d 插值与单侧两例）· 后续：无后续：只有月度期权的名字 7d 多为单侧读数，已由 `one_sided` 标出
+- **TD-147** — `/research/candidate-outcome/rows` 加 `source` / `days` 过滤，语义同 `/summary`，不传参数时结果不变（research 0.186.0）· 验收 PASS（10-06）· 防线：`bifrost-research/tests/api/test_candidate_outcome_rows_regime.py`（锁住不带参数时 params 只有 `(limit,)`，以及过滤两例）· 后续：前端 Journal Settled 的 Right / Wrong 拆分改读它，随 TD-145 的前端一起做
 
 **未结 68 项**：P0 0 · P1 5 · P2 30 · P3 33；要你批的 34 项（从总览表的审批列算）。
 
@@ -1041,8 +1042,9 @@
 
 **P3 · research-data · The IV cone has no 7-day tenor although the data is there: iv-cone serves 30 / 60 / 90 only**
 
-- **状态**：在做（代码就绪：research 3109b04，分支 fix/data-gaps-r4a-r6，未推；暂标 0.185.0，发前 rebase 到最新 origin/main 并重新取号；Owner 已批发布，与 TD-145、TD-147 同一版本）
+- **状态**：待你签收
 - **验收**：`kubectl -n research exec deploy/research-api -- python -c "import urllib.request,json;d=json.loads(urllib.request.urlopen('http://127.0.0.1:8795/research/volatility/iv-cone?symbol=NVDA').read());print([(t['tenor_days'],t['n'],t.get('withheld')) for t in d['tenors']])"` → 有 `(7, n, False)` 且 n ≥ 60；30 / 60 / 90 三档与发布前相同
+- **验收结果**：PASS 2026-10-06 research 995a890（0.186.0；17:01 UTC：NVDA iv-cone tenors (7, 252)、(30, 252)、(60, 207)、(90, 39 withheld)，30/60/90 与发布前相同）
 - **Claim**: repositories/iv_cone.py reads 30, 60 and 90 days only. For NVDA, 186 of 252 sessions have an expiry within 7 DTE and all 252 have one at 7–14 DTE, so a 7-day horizon is readable from what is stored.
 - **Measured**: MEASURED 10-06 (expiry coverage above). 3109b04 trial on real rows, 252 sessions: NVDA 7d reads 252 (66 one-sided), p50 0.378; PLTR 170 one-sided, KO 183 (monthly-only names take the nearest expiry past 7 days); 30/60/90 unchanged; 18% of name-sessions in the store have an expiry within 7 DTE. ruff clean; pytest 1954 passed / 14 skipped.
 - **Evidence**:
@@ -1107,7 +1109,7 @@
 
 **P3 · research-data · Settled candidates carry no regime label, so the Personas bench 'Best regime' column has nothing to group by**
 
-- **状态**：在做（代码就绪：research 3109b04，与 TD-141 同一版本，Owner 已批发布；口径 Owner 10-06 已定：名字自己的 terrain regime，没有就用 SPY，不是市场级 regime）
+- **状态**：在做（后端已上 research 0.186.0（995a890）：/rows 每行带 regime / regime_scope / regime_date，/summary?by_regime=true 按 regime 分组；10-06 GS 副本实测 127 个已结算候选 111 个名字 regime、16 个 SPY、0 个无标签；`tests/api/test_candidate_outcome_rows_regime.py` 5 passed。剩前端：JudgeTrackRecord 的 Best regime 列接 /summary?by_regime=true，设样本数门槛）
 - **验收**：`kubectl -n research exec deploy/research-api -- python -c "import bifrost_research;print(bifrost_research.__version__)"` ≥ 0.185.0；在 research origin/main 上 `python -m pytest tests/api/test_candidate_outcome_rows_regime.py -q` 通过；前端接上后 `git -C bifrost-trade-frontend grep -n 'by_regime' origin/main -- src` 至少一行
 - **Claim**: No candidate's lens_snapshot has a regime key and Golden Source has no market-level regime table; the per-name regime lives in features.stock_forecast_terrain_daily (06-24 → 10-05). SPY was range on 25 of the 26 candidate days, so a market label would separate nothing.
 - **Measured**: MEASURED 10-06: 0 candidates with lens_snapshot ? 'regime'. With 3109b04 on the replica: of 127 settled candidates 111 take the name's regime, 16 fall back to SPY, 0 unlabelled (the join takes that session or the newest within 7 days before it, since 15 candidate dates fall on weekends); the LATERAL join runs in about 2 ms. Side reading, small sample: harness 5d hit trending 19/24, range 24/64.
@@ -1139,8 +1141,9 @@
 
 **P3 · research-data · /research/candidate-outcome/rows has no source / days filter, so Journal Settled cannot split Right / Wrong by source and window**
 
-- **状态**：在做（代码就绪：research 3109b04，与 TD-141 同一版本，Owner 已批发布）
+- **状态**：待你签收
 - **验收**：`git -C bifrost-research show origin/main:src/bifrost_research/api/candidate_outcome.py | grep -n 'Query('` 在 get_rows 下有 source 与 days；research-api 版本 ≥ 0.185.0（TD-145 的命令）
+- **验收结果**：PASS 2026-10-06 research 995a890（0.186.0；origin/main 的 get_rows 有 `source: str | None = Query(None…)` 与 `days: int | None = Query(…)`；research-api /health 0.186.0）
 - **Claim**: /rows takes symbol, horizon_days and limit only, while /summary already takes source and days; both require an Owner login since 0.167.0.
 - **Measured**: CODE-READ 10-06 on origin/main a242b22. 3109b04: /rows adds source and days (1–730) with /summary's meaning; without them the result is unchanged, and a test pins that the query params are then only (limit,).
 - **Evidence**:
