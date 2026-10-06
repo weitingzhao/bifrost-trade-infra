@@ -13,10 +13,9 @@
 
 ## 待你签收
 
-- **TD-177** — 假设卡（active / validated）加「＋ Plan」，打开现有 PlanForm 并预填 source_kind=hypothesis、source_ref=假设 id（单 symbol 时带 symbol），存草稿前不写任何东西（frontend 0e0b69a3）· 验收 PASS（10-06，3 个用例 + 本地点击）· 防线：`src/pages/research/loop/HypothesisBoardPage.plan.test.tsx` · 后续：TD-143 正向验收要你在 DEV 从假设卡建 plan 并成交；随 10-07 Trade 发版上线
-- **TD-179** — Stock screen 不选模型时可按财报日排序（逾期在前、无估计在后），RankDrawer 启用 Earnings（frontend 0e0c9637）· 验收 PASS（10-06，4 个用例；DEV 真数据 3,794 名）· 防线：`stockScreenEarnings.test.ts` 排序用例 + `RankDrawer.test.tsx` · 无后续；随 10-07 Trade 发版上线
+（暂无）
 
-**未结 78 项**：P0 0 · P1 5 · P2 30 · P3 43；要你批的 40 项（从总览表的审批列算）。
+**未结 76 项**：P0 0 · P1 5 · P2 30 · P3 41；要你批的 40 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -84,7 +83,7 @@
 
 目标：Data Gaps 看板上未结的 15 项并入台账：先把每日快照的写入修对（TD-137）再接读侧和三页，归因行补上价格，Research 侧已就绪的一个版本（0.185.0）发出去，长期限 IV 锥在 10-31 前从 option_daily 回填，其余按 Owner 已定的口径排。
 
-项：TD-137, TD-138, TD-139, TD-140, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-151, TD-158, TD-159, TD-171, TD-172, TD-177, TD-178, TD-179, TD-180, TD-181, TD-182 · 已还：TD-141, TD-147
+项：TD-137, TD-138, TD-139, TD-140, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-151, TD-158, TD-159, TD-171, TD-172, TD-178, TD-180, TD-181, TD-182 · 已还：TD-141, TD-147, TD-177, TD-179
 
 ## 数据边界（接受并留座）
 
@@ -238,9 +237,7 @@
 | [TD-174](#td-174) | P3 | market-data | Console marks fundamentals-rotate missed every Monday 03:45 → Tuesday 03:00 UTC: the trading-day check uses the UTC date of the fire | 不用批 |
 | [TD-175](#td-175) | P3 | market-data | ticker-details adherence still credits the shared ticker_sync freshness row, so a stopped ticker-details reads on_plan after reference's 21:30 walk | 不用批 |
 | [TD-176](#td-176) | P3 | research-control | Suspended CronJobs cronjob-signal-hit.yaml and cronjob-alert-scan.yaml still ship and get re-pinned every release though Dagster runs both | 删除（要你批） |
-| [TD-177](#td-177) | P3 | frontend | No way to create a plan from a hypothesis: PlanThisButton writes source_kind 'symbol' and PlanForm takes a hand-typed slug, so TD-143's hypothesis → trade link never forms | 不用批 |
 | [TD-178](#td-178) | P3 | trade-api | GET /strategies/plans has no source_kind filter: Research reads the newest 500 filled plans and filters itself, marking truncated at the cap | 改公开接口 |
-| [TD-179](#td-179) | P3 | frontend | Stock screen with No model cannot sort by Earnings: RankDrawer still disables it although the batch read now serves the dates | 不用批 |
 | [TD-180](#td-180) | P3 | research-data | The macro calendar has no CPI dates after 2026-12-10 and no payrolls at all: bls.gov answers 403 from this host, so they could not be read | 不用批 |
 | [TD-181](#td-181) | P3 | research-data | /events/calendar takes its macro rows from a hand-dropped radar file (ends 2026-12-10) instead of macro_event_daily, and radar ids include the collection date so a re-drop duplicates them | 不用批 |
 | [TD-182](#td-182) | P3 | research-data | Macro gap (actual vs expected) is always empty: consensus is not in the subscription, and the entitled /fed/v1/inflation actuals have no raw table | 改表（要你批） |
@@ -1453,22 +1450,6 @@
 - **Ratchet**: A research test: no CronJob manifest names an engine that Dagster also runs (read from the roster).
 - 审批 删除（要你批） · 代价 S · 风险 low · repos: bifrost-research
 
-### TD-177
-
-**P3 · frontend · No way to create a plan from a hypothesis: PlanThisButton writes source_kind 'symbol' and PlanForm takes a hand-typed slug, so TD-143's hypothesis → trade link never forms**
-
-- **状态**：待你签收
-- **验收**：`git -C bifrost-trade-frontend grep -n hypothesisPlanHref origin/main -- src/pages/research/loop/HypothesisBoardPage.tsx` 命中；`npx vitest run src/pages/research/loop/HypothesisBoardPage.plan.test.tsx` 3 passed
-- **验收结果**：PASS 2026-10-06 frontend 0e0b69a3（main 0e0c9637）；本地 Vite 上点「＋ Plan」进入 `/trade/plans?new=1&source_kind=hypothesis&source_ref=<id>&symbol=QQQ`，表单预填正确，未写任何 plan（假设列表用编造数据：research 读接口要 research user）
-- **Claim**: TD-143 derives hypothesis → trade from filled plans with source_kind='hypothesis' and source_ref = the hypothesis id. Nothing in the UI writes such a plan; on 10-06 dev / stg / prod each had 0.
-- **Measured**: MEASURED 10-06 by paydown lane G2: 94 hypotheses per env, 0 hypothesis-sourced filled plans.
-- **Evidence**:
-  - `bifrost-trade-frontend/src/components/research/PlanThisButton.tsx:63` — `source_kind: 'symbol',`
-- **Impact**: Review › Objectives breaks at `traded` for every objective; the hypothesis hit rate can never be measured.
-- **Fix**: A Plan action on the hypothesis card that pre-fills source_kind='hypothesis' and source_ref=<id>.
-- **Ratchet**: A vitest: the hypothesis card's Plan action submits source_kind hypothesis with the card's id.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
-
 ### TD-178
 
 **P3 · trade-api · GET /strategies/plans has no source_kind filter: Research reads the newest 500 filled plans and filters itself, marking truncated at the cap**
@@ -1482,22 +1463,6 @@
 - **Fix**: Additive `source_kind` (and `source_ref`) query params on core list_plans and the api route; Research passes them.
 - **Ratchet**: An api test: source_kind=hypothesis returns only those plans and keeps the 500 cap per filter.
 - 审批 改公开接口 · 代价 S · 风险 low · repos: bifrost-trade-core, bifrost-trade-api, bifrost-research
-
-### TD-179
-
-**P3 · frontend · Stock screen with No model cannot sort by Earnings: RankDrawer still disables it although the batch read now serves the dates**
-
-- **状态**：待你签收
-- **验收**：`npx vitest run src/pages/research/stocks/stockScreenEarnings.test.ts src/pages/research/stocks/RankDrawer.test.tsx` 4 passed；`/research/stocks?model=none` Sort 选 Earnings
-- **验收结果**：PASS 2026-10-06 frontend 0e0c9637；本地 Vite 连 DEV 真数据：3,794 名「by next print」，逾期在前（AEHR / STZ 1d late），有日期的 527 名后接 3,267 名「—」按 A–Z
-- **Claim**: TD-158 made earnings dates available for the whole list; the No-model branch never sorts by them and RankDrawer keeps the option disabled (its hint now says so honestly).
-- **Measured**: code-read 10-06 by paydown lane G2.
-- **Evidence**:
-  - `bifrost-trade-frontend/src/pages/research/stocks/RankDrawer.tsx:124` — `disabled: true,`
-- **Impact**: A reader cannot rank a screen by the nearest earnings without picking a model.
-- **Fix**: In StockScreenPage's model==='none' branch sort by data.earnings daysAway and pass the sort state to RankDrawer.
-- **Ratchet**: A vitest: No model + Earnings sort orders names by days to the expected date, unknown last.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
 
 ### TD-180
 
