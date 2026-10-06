@@ -13,7 +13,7 @@
 
 ## 待你签收
 
-（暂无）
+- **TD-187** — auto mode payload 的 PROD dump 路径改成 `~/bifrost-backups/trade-prod/2026-07-30_pre-p9-drop/`，Owner 10-06 已重新应用（56 条自定义规则生效）。验收：PASS 2026-10-06 9255bed（`claude auto-mode config` 含新路径，旧路径 0 处）。防线：无新增，AGENT_FACTS 与 payload 文字一致由 parity 检查覆盖。后续：无后续：路径只在这两处出现，都已更新。
 
 **未结 79 项**：P0 0 · P1 5 · P2 29 · P3 45；要你批的 42 项（从总览表的审批列算）。
 
@@ -1556,7 +1556,8 @@
 
 **P3 · agent-config · The auto mode payload names the PROD dump at its old workspace path; the text is fixed, the Owner has to re-apply it**
 
-- **状态**：未开始（等 Owner 跑 `apply-auto-mode.sh`）
+- **状态**：待你签收
+- **验收结果**：PASS 2026-10-06 9255bed：Owner 已跑 `apply-auto-mode.sh`（56 条自定义规则生效），`claude auto-mode config` 含新路径，旧路径 0 处
 - **验收**：`claude auto-mode config` 的输出里，敏感位置写的是 `~/bifrost-backups/trade-prod/2026-07-30_pre-p9-drop/`，不再有 `backups/bifrost_prod_pre_p9`
 - **现在**：10-06 按 Owner 指示把 PROD dump 从工作区根 `stocks/backups/` 挪到 `~/bifrost-backups/trade-prod/2026-07-30_pre-p9-drop/`（校验和与原记录一致）；`AGENT_FACTS.md` 与 payload `claude/auto-mode/project.autoMode.json` 的文字已改
 - **下一步**：Owner 在终端跑 `bash bifrost-trade-infra/agent-config/claude/auto-mode/apply-auto-mode.sh`（Agent 不能改写自己的 auto mode 规则）
