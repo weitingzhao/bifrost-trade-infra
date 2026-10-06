@@ -513,7 +513,27 @@ details.more>summary{cursor:pointer;color:var(--accent);margin:10px 0}
 """
 
 
+def behind_origin() -> list[str]:
+    """Commits on origin/main that touch the two files and are not in this checkout.
+
+    The page is published by whoever renders it; a render from a stale checkout sends the
+    page back in time (10-06: a render from ab2c086 replaced one from deeea31's parent).
+    """
+    root = HERE.parent
+    subprocess.run(["git", "-C", str(root), "fetch", "-q", "origin", "main"], capture_output=True)
+    r = subprocess.run(["git", "-C", str(root), "log", "--format=%h %s", "HEAD..origin/main", "--",
+                        "agent-config/TECH_DEBT.md", "agent-config/RATCHETS.md"], capture_output=True, text=True)
+    return [ln for ln in r.stdout.split("\n") if ln.strip()] if r.returncode == 0 else []
+
+
 def main() -> int:
+    stale = behind_origin()
+    if stale and "--allow-stale" not in sys.argv:
+        print("refusing to render: this checkout is behind origin/main for TECH_DEBT.md / RATCHETS.md:", file=sys.stderr)
+        for ln in stale:
+            print("  " + ln, file=sys.stderr)
+        print("rebase onto origin/main (or render from a fresh worktree), or pass --allow-stale", file=sys.stderr)
+        return 2
     debt = DEBT.read_text(encoding="utf-8")
     ratchets = RATCHETS.read_text(encoding="utf-8")
     data = parse(debt, ratchets)

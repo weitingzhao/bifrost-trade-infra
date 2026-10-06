@@ -41,6 +41,10 @@
 | Trade API 列表读取契约（TD-89） | `bifrost-research/tests/engines/test_trade_api_list_contract.py` + `tests/fixtures/trade_api/*.json`；`mcp/tools/_trade_api_client.list_items`（形状不对抛 `TradeApiShapeError`） | Research 读 Trade API 的列表键漂移（api 0.4.0 改 items 后读成 0 行还报成功）；手写 `.get("attributions"/"executions")` | warning（CI 不卡发布，见 TD-95）；运行时形状错误会让 option_pinned 失败 | 夹具键集取自 PROD api 0.9.0；api 改形状时要同步夹具 |
 | Flex 现金流水覆盖（TD-88） | `bifrost-platform-plugin-flex-query/tests/test_transactions_window.py`；`src/bifrost_flex_query/ops/coverage.py`（`/flex/ops/check` coverage）；指标 `bifrost_flex_coverage_gap_months`；告警 `BifrostFlexCashCoverageGap`（`bifrost-trade-infra/k8s/monitoring/bifrost-alerting-rules.yaml`） | 抓取窗口不接续导致整月缺现金流水（2025-03、2026-03..07 曾缺）；已结束月份有成交没流水 | alert + warning | 插件仓库没有 CI（TD-95），单测要手跑 |
 | 期权合约目录不截断（TD-90） | `bifrost-platform-plugin-market-data/tests/test_contract_pages.py`；doctor finding `page_cap:<kind>`（`src/bifrost_market_data/doctor.py` `_page_cap_findings`） | 分页截断被当成成功、目录与覆盖率分母悄悄缩水；任一标的用量 > 80% 页上限 | warning（doctor warn；任务截断即失败） | 插件仓库没有 CI（TD-95） |
+| 静默吞错棘轮（TD-113） | `bifrost-research/tests/test_silent_swallow.py` | engines / lenses / repositories / db / scheduler / orchestration 里既不记日志也不重抛的宽 except；playbook 触发失败不留痕 | warning（只许降：101 → 91；CI 不卡发布，见 TD-95） | 只覆盖 research；跨仓库版本见待建「Silent-swallow…」 |
+| 资金写入方必须有真库测试（TD-115） | `bifrost-trade-core/tests/test_money_writers_db.py` + `test_public_accounts_writers_have_db_tests`；`bifrost-platform-plugin-flex-query/tests/test_cash_parser.py` | accounts 的公开写函数没有 `*_db.py` 测试；现金解析器无测试 | warning（豁免名单只许缩：剩 `sync_accounts_snapshot_to_db`、`delete_one_execution`） | 插件仓库无 CI（TD-95/155），要手跑 |
+| Flex 只读 Golden Source（TD-116） | `bifrost-platform-plugin-flex-query/tests/test_gs_only_reads.py` | 配置或代码里出现 Trade 库连接（bifrost_dev/stg/prod、trade_postgres）；读失败悄悄回落 | warning | 插件仓库无 CI，要手跑 |
+
 ## 各类债现在挡没挡住
 
 | 债的类别 | 挡住了吗 | 靠什么 | 缺口怎么补 |

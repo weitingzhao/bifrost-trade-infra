@@ -13,11 +13,9 @@
 
 ## 待你签收
 
-- **TD-113** — playbook 触发失败记日志并计数，查不到前一状态时报错而不是写一条假 snapshot（research 0.184.0）· 验收 PASS（10-06，trigger_ok 713 / failures 0）· 防线：`bifrost-research/tests/test_silent_swallow.py`（不记日志也不重抛的宽 except 101 → 91，只许降）· 后续：TD-156（signal_hit 在批处理写入前就判）
-- **TD-115** — 资金路径补齐真库测试：core 12 个、flex 解析器测试（顺手修了裸 ISO 日期被截断）· 验收 PASS（10-06）· 防线：`test_public_accounts_writers_have_db_tests`（accounts 每个公开写函数都要有 `*_db.py` 测试，豁免名单只许缩）· 后续：无后续：剩下的两个豁免随 TD-91 / TD-103 处理
-- **TD-116** — Flex 只读 Golden Source，读失败即失败、不再回落到 DEV 库（flex 0.11.0）· 验收 PASS（10-06，worker pod 实测）· 防线：`bifrost-platform-plugin-flex-query/tests/test_gs_only_reads.py` · 后续：可选清理 Secret `flex-query-secrets` 里三个已无人读的 `trade-pg-*` 键（不在仓库里，Owner 决定）
+（暂无）
 
-**未结 69 项**：P0 0 · P1 5 · P2 30 · P3 34；要你批的 33 项（从总览表的审批列算）。
+**未结 66 项**：P0 0 · P1 5 · P2 30 · P3 31；要你批的 34 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -49,7 +47,7 @@
 
 目标：先让失败变红。错数据先修数据（TD-87 restate），再把引擎、闸门、写入方从「出错也报成功」改成失败即失败：引擎资产按输出判定、husbandry gate 失败即关、日历读失败报错、写入方失败抛错。不需要 Owner 批的先做。
 
-项：TD-87, TD-91, TD-92, TD-93, TD-94, TD-97, TD-101, TD-113, TD-136, TD-156, TD-157 · 已还：TD-88, TD-89, TD-90
+项：TD-87, TD-91, TD-92, TD-93, TD-94, TD-97, TD-101, TD-136, TD-156, TD-157 · 已还：TD-88, TD-89, TD-90, TD-113
 
 ### 第 2 波 · 让闸门真的卡住
 
@@ -67,7 +65,7 @@
 
 目标：现金与佣金账本可信：按 IB transactionID 去重（改表）、佣金一种符号、资金路径有测试、Flex 不再经 DEV 库读配置、IB Gateway 健康与镜像可追溯。
 
-项：TD-103, TD-104, TD-114, TD-115, TD-116, TD-117, TD-122
+项：TD-103, TD-104, TD-114, TD-117, TD-122 · 已还：TD-115, TD-116
 
 ### 第 5 波 · 副本、死重与清单
 
@@ -193,10 +191,7 @@
 | [TD-110](#td-110) | P3 | research-data | Stored IV features solve Black-Scholes at r=0 while the backtester uses treasury rates from two separate readers; further BS copies in gex and opex | 不用批 |
 | [TD-111](#td-111) | P3 | research-data | dbt: the pass_count range generic test sits in the singular folder (errors when selected, never applied); key intermediates lack grain tests; nothing ties eval_date to the session | 不用批 |
 | [TD-112](#td-112) | P3 | research-data | option_surface_iv_daily upserts per (symbol, trade_date, expiry) and never deletes, so expiries a re-walk dropped keep their old smile | 不用批 |
-| [TD-113](#td-113) | P3 | research-data | Playbook trigger emission fails with no log in four places; a failed previous-state lookup records a fresh 'snapshot' instead of comparing | 不用批 |
 | [TD-114](#td-114) | P3 | flex-ib | raw_broker.commissions mixes two sign conventions: Flex writes cost as negative, the TWS/gateway path writes it as positive | 不用批 |
-| [TD-115](#td-115) | P3 | flex-ib | Money-path tests missing: cash parser untested, cash upsert tested only on connect failure (pinning the silent 0), Flex branches of the executions writer untested; commission INSERT in four copies | 不用批 |
-| [TD-116](#td-116) | P3 | flex-ib | The Flex ingest routes query-id, stats and range-day reads through the DEV DB (bifrost_dev) via FDW, with silent fallbacks that can widen the run to 270 days | 不用批 |
 | [TD-117](#td-117) | P3 | flex-ib | 'Latest Flex date in DB' after an import is one run behind: read through FDW in the same transaction as the pre-import read | 不用批 |
 | [TD-118](#td-118) | P3 | market-data | option-refresh re-enumerates names with no listed options every run; its 7-day 'finished' lookback reads a table kept 48h | 不用批 |
 | [TD-119](#td-119) | P3 | market-data | Schema-migrate Job and worker Deployments are applied in one `kubectl apply -k` with no ordering; a table-adding release fails the jobs that land in the DDL window | 改表 |
@@ -667,24 +662,6 @@
 - **Ratchet**: code-health metric listing batch_upsert targets whose conflict key is wider than (symbol, trade_date) with no DELETE in the module; fails on a new one without an allowlist comment.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
 
-### TD-113
-
-**P3 · research-data · Playbook trigger emission fails with no log in four places; a failed previous-state lookup records a fresh 'snapshot' instead of comparing**
-
-- **状态**：待你签收
-- **验收**：research_intraday_job 一次 run 的 terrain_intraday 结果里 `trigger_failures` = 0 且 `trigger_ok` > 0；`tests/test_silent_swallow.py` 通过
-- **验收结果**：PASS 2026-10-06 research a242b22（0.184.0；16:45 UTC run：trigger_ok 713、trigger_failures 0）
-- **Claim**: emit_triggers_for_session and emit_triggers_for_terrain_intraday are wrapped in `except Exception: rollback; pass` with no logger (playbook.py:529, scheduler/engines.py:341); their previous-state lookups (playbook.py:756, 827) also swallow and fall back to prev=None, which emits a first-observation 'snapshot'. Representative of 99 broad except handlers with no logger and no raise in engines/lenses/repositories/db/scheduler/orchestration.
-- **Measured**: MEASURED healthy today: stock_signal_playbook_trigger_intraday ~2,000 rows over ~700 symbols per session 09-23..10-05. Swallows CODE-READ. AST census: 99 silent broad-except handlers.
-- **Evidence**:
-  - `bifrost-research/src/bifrost_research/engines/forecast/playbook.py:529` — `# Trigger log is best-effort — do not fail the forecast write path`
-  - `bifrost-research/src/bifrost_research/scheduler/engines.py:341` — `except Exception:`
-  - `bifrost-research/src/bifrost_research/engines/forecast/playbook.py:827` — `except Exception:`
-- **Impact**: If the trigger table breaks (grant, DDL drift, partition) the trigger log stops with no trace and readers see 'no transitions'.
-- **Fix**: Keep the forecast path best-effort but log.warning with symbol and exception and count trigger_failures into the slot result for the asset check.
-- **Ratchet**: Silent-swallow AST metric in code-health (broad except with no logger and no raise), research baseline 99, may only fall.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
-
 ### TD-114
 
 **P3 · flex-ib · raw_broker.commissions mixes two sign conventions: Flex writes cost as negative, the TWS/gateway path writes it as positive**
@@ -700,41 +677,6 @@
 - **Fix**: Normalise at write time (keep Flex sign, negate TWS commissionReport value), backfill TWS-only rows, decide on the 12 orphans.
 - **Ratchet**: Data-gaps/doctor SQL check: no exec_id whose commission sign disagrees with sign(net_cash - proceeds - taxes) on its Flex row; unit test on the TWS writer's sign.
 - 审批 不用批 · 代价 S · 风险 med · repos: bifrost-trade-core
-
-### TD-115
-
-**P3 · flex-ib · Money-path tests missing: cash parser untested, cash upsert tested only on connect failure (pinning the silent 0), Flex branches of the executions writer untested; commission INSERT in four copies**
-
-- **状态**：待你签收
-- **验收**：core `make test-db PYTEST_ARGS=tests/test_money_writers_db.py` 12 passed；flex `make test` 151 passed、1 xfailed（TD-103 的 strict xfail）
-- **验收结果**：PASS 2026-10-06 core 59fdb9d / flex f4d7b77
-- **Claim**: No test of parse_cash_transactions_xml. upsert_account_transactions is tested only in test_connect_helpers.py:118, asserting the silent 0. write_account_executions_to_db is reached only for contract keys; the synthetic flex_{account}_{tradeID} exec_id, the executions_raw_flex conflict update and the commission keep-nonzero upsert have no test. The commission INSERT exists four times (accounts.py 1053, 1122, 1240, 1554).
-- **Measured**: CODE-READ grep of both test trees; live: all 33 BookTrade rows carry flex_* synthetic ids, so the branch is in use.
-- **Evidence**:
-  - `bifrost-trade-core/src/bifrost_core/portfolio/reader/accounts.py:812` — `exec_id = f"flex_{account_id}_{trade_id}"`
-  - `bifrost-trade-core/src/bifrost_core/portfolio/reader/accounts.py:1053` — `INSERT INTO {GOLDEN_COMMISSIONS} (exec_id, commission, currency, realized_pnl, yield_, yield_redemption_date)`
-- **Impact**: Changes to executions, commissions and cash ledgers ship unverified; TD-91 and TD-103 are bugs these tests would have caught.
-- **Fix**: Fixture-driven tests with made-up values (never DEV data): attribute-only CashTransaction XML, ExchTrade/BookTrade XML, commission 0 then non-zero. Fold the four commission upserts into one helper.
-- **Ratchet**: code-health contract-coverage metric: each public writer in bifrost_core.portfolio.reader.accounts named in at least one test (falling baseline); duplication ratchet on the commission upsert.
-- 审批 不用批 · 代价 M · 风险 low · repos: bifrost-trade-core, bifrost-platform-plugin-flex-query
-
-### TD-116
-
-**P3 · flex-ib · The Flex ingest routes query-id, stats and range-day reads through the DEV DB (bifrost_dev) via FDW, with silent fallbacks that can widen the run to 270 days**
-
-- **状态**：待你签收
-- **验收**：worker pod 里只读执行 `read_flex_executions_stats` 与 `get_flex_config`：连的是 `bifrost_golden_source` / `flex_writer`，读到 query id、range days 与成交统计
-- **验收结果**：PASS 2026-10-06 flex 0.11.0（镜像 sha256:ee5985…；query 1428383/1428413、range (30, 270)、count 482）
-- **Claim**: The plugin's trade_postgres is bifrost_dev; brokerage.settings_flex and brokerage.executions there are FDW views back to raw_broker on Golden Source, which the plugin already connects to. open_trade_conn falls back silently to core connection params; get_flex_executions_stats turns any error into count=0, which switches the run to init mode (270-day window, extra IB requests against the 1018 throttle).
-- **Measured**: MEASURED: live ConfigMap trade_postgres dbname bifrost_dev; in bifrost_dev brokerage.executions is a view and settings_flex a foreign table on golden_source_server; flex_writer already has SELECT on raw_broker.settings_flex in GS. No failure in history.
-- **Evidence**:
-  - `bifrost-platform-plugin-flex-query/k8s/base/configmap.yaml:18` — `dbname: bifrost_dev`
-  - `bifrost-platform-plugin-flex-query/src/bifrost_flex_query/orchestration/config_rw.py:93` — `return psycopg2.connect(**get_conn_params(config))`
-  - `bifrost-platform-plugin-flex-query/src/bifrost_flex_query/orchestration/config_rw.py:351` — `return {"count": 0, "accounts": 0, "min_date": None, "max_date": None}`
-- **Impact**: A DEV clone, FDW change or grant reset can stop or widen the real-account ingest: DEV sits upstream of PROD-grade data.
-- **Fix**: Read settings_flex and execution stats from GS raw_broker directly; drop trade_postgres once the legacy range-day fallback is removed; make stats failure raise.
-- **Ratchet**: Config test fails if any plugin config section names bifrost_dev/stg/prod; test that get_flex_executions_stats errors propagate.
-- 审批 不用批 · 代价 M · 风险 med · repos: bifrost-platform-plugin-flex-query
 
 ### TD-117
 
