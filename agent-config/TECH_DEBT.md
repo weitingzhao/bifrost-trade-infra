@@ -15,7 +15,7 @@
 
 （暂无）
 
-**未结 74 项**：P0 0 · P1 5 · P2 29 · P3 40；要你批的 39 项（从总览表的审批列算）。
+**未结 79 项**：P0 0 · P1 5 · P2 29 · P3 45；要你批的 42 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -84,6 +84,12 @@
 目标：Data Gaps 看板上未结的 15 项并入台账：先把每日快照的写入修对（TD-137）再接读侧和三页，归因行补上价格，Research 侧已就绪的一个版本（0.185.0）发出去，长期限 IV 锥在 10-31 前从 option_daily 回填，其余按 Owner 已定的口径排。
 
 项：TD-137, TD-138, TD-139, TD-140, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-151, TD-158, TD-159, TD-171, TD-172, TD-178, TD-180, TD-181, TD-182 · 已还：TD-141, TD-147, TD-177, TD-179
+
+### 第 8 波 · Pine 线程收尾后的跟进（10-06）
+
+目标：Pine 与路线图那条线（会话「Pine 信号业务与实现」）收尾时留下的日后核对：W3 两次真正的归档、一个只差发布的前端修复、路线图台账的月度重评、「我的价位」等 Design、auto mode 规则重新应用。
+
+项：TD-183, TD-184, TD-185, TD-186, TD-187
 
 ## 数据边界（接受并留座）
 
@@ -239,6 +245,11 @@
 | [TD-180](#td-180) | P3 | research-data | The macro calendar has no CPI dates after 2026-12-10 and no payrolls at all: bls.gov answers 403 from this host, so they could not be read | 不用批 |
 | [TD-181](#td-181) | P3 | research-data | /events/calendar takes its macro rows from a hand-dropped radar file (ends 2026-12-10) instead of macro_event_daily, and radar ids include the collection date so a re-drop duplicates them | 不用批 |
 | [TD-182](#td-182) | P3 | research-data | Macro gap (actual vs expected) is always empty: consensus is not in the subscription, and the entitled /fed/v1/inflation actuals have no raw table | 改表（要你批） |
+| [TD-183](#td-183) | P3 | market-data | W3 archive-before-delete has never archived for real: the first intraday option_snapshot archive is ~10-08 02:15 UTC and option_daily / short_volume on 11-01 | 不用批 |
+| [TD-184](#td-184) | P3 | frontend | The Simulator says "stored with the run" for runs that were not stored: the fix (fe 53d6939e) is on main but not in STG/PROD | 发布（要你批） |
+| [TD-185](#td-185) | P3 | research-control | The Pine-vs-TradingView roadmap ledger is a point-in-time judgement: its scores and next steps need a re-evaluation around 11-06 | 不用批 |
+| [TD-186](#td-186) | P3 | frontend | "My levels" (plan stop / target and price alerts as horizontal lines) on the Symbol chart waits on Design: ASK-symbol-chart-my-levels-2026-10-06 | 要你批 |
+| [TD-187](#td-187) | P3 | agent-config | The auto mode payload names the PROD dump at its old workspace path; the text is fixed, the Owner has to re-apply it | 要你批 |
 
 ## 条目
 
@@ -1474,6 +1485,88 @@
 - **Fix**: Now: change the empty-state copy to name the entitlement gap. Later (Owner): a plugin raw table for /fed/v1/inflation actuals feeding macro_event_daily.actual.
 - **Ratchet**: None feasible for the gap itself (entitlement); the copy fix is covered by the existing EventRadarDashboard tests once updated.
 - 审批 改表（要你批） · 代价 S · 风险 low · repos: bifrost-trade-frontend, bifrost-platform-plugin-market-data, bifrost-research
+
+### TD-183
+
+**P3 · market-data · W3 archive-before-delete has never archived for real: the first intraday option_snapshot archive is ~10-08 02:15 UTC and option_daily / short_volume on 11-01**
+
+- **状态**：观察中（到 11-01，看三张表第一次真正的归档）
+- **验收**：10-08 与 11-01 的 trim 日志里，每张表 `archived_rows == deleted_rows`，归档文件在 NAS `nfs-cold` 上可读、行数与日志一致；没做完的行留在库里，不被删
+- **现在**：market-data 0.77.0 起三张表（option_snapshot 盘中行、option_daily、short_volume）都改成先归档后删（10-05）；到今天为止还没有一次真正触发
+- **下一步**：10-08 看盘中快照那一次；11-01 看两张大表（option_daily 一次约 180 万行，单事务，trim 调用可能超过 `dated_budget_sec` 60 秒，分几晚做完）。全部通过后把 `/stocks/REQUEST-w3-archive-before-delete-2026-10-05.md` 移到 `/stocks/archive/`
+- **Claim**: The archive path is new and has only been exercised in tests. option_snapshot is not reproducible from the vendor after its window, so a broken archive that still deletes would lose data for good.
+- **Evidence**:
+  - `/stocks/REQUEST-w3-archive-before-delete-2026-10-05.md:20` — `option_snapshot 盘中行 | 2026-09-08 | 约 10-08 02:15 UTC（30 天窗口）`
+  - `/stocks/REQUEST-w3-archive-before-delete-2026-10-05.md:21` — `option_daily | 2024-10-01 | 11-01 02:15 UTC`
+- **Impact**: Irreversible loss of option snapshots if the first real archive fails silently.
+- **Fix**: Watch the two runs; if archived and deleted counts differ, hold deletion (`retention_hold`) and fix before the next night.
+- **Ratchet**: The retention hold already takes precedence over archive; a check that fails the trim when archived_rows != deleted_rows belongs in the plugin if the first run shows a gap.
+- 审批 不用批 · 代价 S · 风险 med · repos: bifrost-platform-plugin-market-data
+
+### TD-184
+
+**P3 · frontend · The Simulator says "stored with the run" for runs that were not stored: the fix (fe 53d6939e) is on main but not in STG/PROD**
+
+- **状态**：观察中（到下一次 `release.sh`，看前端克隆的提交包含 53d6939e）
+- **验收**：最新 `bifrost-deliver-prod-pinned-*` 的 `clone-frontend` 提交是 53d6939e 的后代：`git -C bifrost-trade-frontend merge-base --is-ancestor 53d6939e <clone commit>`
+- **现在**：10-06 STG `kk259` 与 PROD `cdw6r` 克隆的是 `60ed2368`，不含 53d6939e
+- **下一步**：随下一次 Trade 发布带出，不单独发
+- **Claim**: Found while walking P1 on DEV (10-06): a simulator run sent with persist:false still showed "stored with the run". The copy claims a record that does not exist.
+- **Evidence**:
+  - `bifrost-trade-frontend` commit `53d6939e` — `fix(research/sim): drop "stored with the run" for runs that were not stored`
+- **Impact**: A reader can look for a stored run that is not there.
+- **Fix**: Already on main; release it.
+- **Ratchet**: The fix ships with a unit test on the label; no further ratchet needed.
+- 审批 发布（要你批） · 代价 S · 风险 low · repos: bifrost-trade-frontend
+
+### TD-185
+
+**P3 · research-control · The Pine-vs-TradingView roadmap ledger is a point-in-time judgement: its scores and next steps need a re-evaluation around 11-06**
+
+- **状态**：观察中（到 11-06，重评 `/stocks/LEDGER-pine-tradingview-gaps.md` §0）
+- **验收**：台账 §0 的标题日期是 11 月、§7 有一行重评记录，且 V2（Pine 建议来源）、B4、B5、G5 的状态与当时的实测一致
+- **现在**：10-06 晚的重评：五轮预注册回放 41 个候选都没有超过机械基准，Pine 建议来源按预注册停止；P1 与 S6 已在三环境上线；门槛 thresholds 2026-10-06.3（IV 两段各 ≥ 10 条，research 0.190.0）
+- **下一步**：11-06 前后看：机械来源在新门槛下攒了多少已结算样本（高、低 IV 各几条）；有没有新的信号假设值得写预注册；G5 的 Design 回复（TD-186）
+- **Claim**: The roadmap ledger scores capability against TradingView by business value for option trading; it is not self-updating, and several rows depend on forward samples that accrue over weeks.
+- **Evidence**:
+  - `/stocks/LEDGER-pine-tradingview-gaps.md` §8 — next re-evaluation after a month of the ledger running
+- **Impact**: Without a dated review the ledger goes stale and stops being the place the Owner tracks the gap.
+- **Fix**: Re-evaluate §0 and the open rows against the month's reports and ledger samples.
+- **Ratchet**: None feasible (a judgement, not a mechanism); this entry is the reminder.
+- 审批 不用批 · 代价 S · 风险 low · repos: (workspace doc)
+
+### TD-186
+
+**P3 · frontend · "My levels" (plan stop / target and price alerts as horizontal lines) on the Symbol chart waits on Design: ASK-symbol-chart-my-levels-2026-10-06**
+
+- **状态**：未开始（等 Owner 把 ASK 带给 Design，Design 回复）
+- **验收**：Design 的回复（RESPONSE 或 Rev 说明）在 `design/trade/` 里；按回复落地后，Symbol › Price 图有对应图层，或台账 G5 改成「➖ 不做」并写明理由
+- **现在**：ASK 写在 `design/uploads/ASK-symbol-chart-my-levels-2026-10-06.md`。实测：`strategy_plan` 有 `stop_kind/target_kind = underlying_price`，但 PROD 0 行；价格提醒没有存储（`/research/alerts` 是镜头级）
+- **下一步**：Design 定形态；计划止损和止盈部分不需要新表，app 直接做；价格提醒要新表，先列方案给 Owner 批
+- **Claim**: TradingView's drawing tools are useful to an option seller mainly as horizontal levels (planned strike, invalidation stop, alert price). K-LINE-SPEC / RESPONSE A7 keeps drawing tools off the chart, so the exception needs Design's ruling.
+- **Evidence**:
+  - `bifrost-trade-core/src/bifrost_core/monitor/schemas/strategy_plans.py:48` — `target_kind: Optional[TargetKind] = None`（TargetKind 含 `underlying_price`）
+  - `design/trade/RESPONSE-2026-10-05-price-chart-pine.md` A7 — 仍不放：均线、画线工具
+- **Impact**: The chart cannot show where the trader's own plan says it is wrong; plans and alerts stay off price.
+- **Fix**: Per Design's answer; plan levels from strategy_plan, alerts via a new store (Owner approval).
+- **Ratchet**: Decide with the implementation.
+- 审批 要你批 · 代价 M · 风险 low · repos: bifrost-trade-frontend, design
+
+### TD-187
+
+**P3 · agent-config · The auto mode payload names the PROD dump at its old workspace path; the text is fixed, the Owner has to re-apply it**
+
+- **状态**：未开始（等 Owner 跑 `apply-auto-mode.sh`）
+- **验收**：`claude auto-mode config` 的输出里，敏感位置写的是 `~/bifrost-backups/trade-prod/2026-07-30_pre-p9-drop/`，不再有 `backups/bifrost_prod_pre_p9`
+- **现在**：10-06 按 Owner 指示把 PROD dump 从工作区根 `stocks/backups/` 挪到 `~/bifrost-backups/trade-prod/2026-07-30_pre-p9-drop/`（校验和与原记录一致）；`AGENT_FACTS.md` 与 payload `claude/auto-mode/project.autoMode.json` 的文字已改
+- **下一步**：Owner 在终端跑 `bash bifrost-trade-infra/agent-config/claude/auto-mode/apply-auto-mode.sh`（Agent 不能改写自己的 auto mode 规则）
+- **Claim**: The classifier's sensitive-location rule points at a path that no longer exists, so the new location is not named as sensitive until the payload is re-applied.
+- **Evidence**:
+  - `agent-config/claude/auto-mode/project.autoMode.json:19` — sensitive data locations
+- **Impact**: The dump's new location is protected by convention only until re-applied.
+- **Fix**: Re-apply the payload.
+- **Ratchet**: None new; the existing parity of AGENT_FACTS and the payload text covers the wording.
+- 审批 要你批 · 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ## 没覆盖到的（下一轮从这里开始）
 

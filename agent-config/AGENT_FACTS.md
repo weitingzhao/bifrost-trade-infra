@@ -1,6 +1,6 @@
 ---
-parity-id: agent-facts-v6
-generated: 2026-10-05
+parity-id: agent-facts-v7
+generated: 2026-10-06
 authority: bifrost-platform/config/ops-context.yaml (spine) + 磁盘扫描
 ---
 
@@ -89,7 +89,7 @@ Trade 页面经 Ask Copilot 读 Research 后端（Positions / Instances / Live 3
 | `bifrost-ui` | `@bifrost/ui` (ts) | 共享 | shadcn 原语、Dense Data Table、Shell 导航 |
 | `bifrost-analytics` | — | **已归档** | 见 §4 |
 
-非 repo 目录：`Research-workspace/`（分析案例草稿）、`backups/`（PG dump）。
+非 repo 目录：`Research-workspace/`（分析案例草稿）。PG dump 不放工作区，在 `~/bifrost-backups/`（10-06 起）。
 
 ---
 
@@ -406,7 +406,7 @@ Tekton 流水线：`bifrost-ci-{frontend,platform,python}` · `bifrost-deliver-{
 
 ### 本机敏感位置（只对 Owner 可见，不得进入任何仓库或外部服务）
 
-`backups/bifrost_prod_pre_p9_*.dump`（PROD 全量 dump）· 各 repo 未跟踪 `.env`（platform、research、plugin ×3、infra、frontend `.env.development.local`）·
+`~/bifrost-backups/trade-prod/2026-07-30_pre-p9-drop/bifrost_prod_pre_p9_*.dump`（PROD 全量 dump，10-06 从工作区根 `backups/` 移来）· 各 repo 未跟踪 `.env`（platform、research、plugin ×3、infra、frontend `.env.development.local`）·
 未跟踪 Secret YAML（`k8s/base/secrets`、`k8s/data/secrets`、`k8s/cicd/gitea/secret.yaml`、`k8s/overlays/*/…token*.yaml`）·
 `~/.kube/bifrost-k3s.yaml` · `~/.bifrost-dev/`。
 
