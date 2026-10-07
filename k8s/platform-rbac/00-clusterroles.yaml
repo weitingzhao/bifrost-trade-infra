@@ -1,0 +1,171 @@
+# Ops platform identity (TD-204, Owner 2026-10-07: option A).
+#
+# Until 2026-10-07 platform-api and platform-workers in STG and PROD ran as
+# system:masters through a copy of the k3s admin kubeconfig. They now run as the
+# ServiceAccount bifrost-platform of their namespace, with only these rules:
+#
+#   both envs   observer (cluster-wide read, no Secrets), logs in Bifrost
+#               namespaces, state ConfigMaps in their own namespace and cicd,
+#               the Gitea credentials Secret in cicd
+#   PROD only   workload actuation (rollout restart, scale, delete pod) in
+#               Bifrost namespaces, node cordon, data-layer actuation in data
+#               (pods/exec on Postgres, CNPG Backups), delivery in cicd
+#               (PipelineRuns, Argo sync/rollback)
+#
+# STG observes, PROD maintains (Owner 2026-10-07). Not granted anywhere:
+# creating Namespaces or Secrets (the Console's "ensure namespaces" and
+# "sync kubeconfig" actions are for the Owner's Mac, which keeps admin access).
+#
+# Not under Argo (the platform overlays rewrite every namespace): apply with
+#   kubectl apply -k k8s/platform-rbac
+# and check with  python3 scripts/check_platform_rbac.py --live
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: bifrost-platform-observer
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+rules:
+  - apiGroups: [""]
+    resources: [nodes, namespaces, pods, services, endpoints, events, configmaps,
+                persistentvolumeclaims, persistentvolumes, serviceaccounts]
+    verbs: [get, list, watch]
+  # plugin health and freshness reads go through the API server's service proxy
+  - apiGroups: [""]
+    resources: [services/proxy]
+    verbs: [get]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, daemonsets, replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get, list, watch]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, watch]
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses]
+    verbs: [get, list]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies, ingresses]
+    verbs: [get, list]
+  - apiGroups: [postgresql.cnpg.io]
+    resources: [clusters, backups, scheduledbackups, poolers]
+    verbs: [get, list, watch]
+  - apiGroups: [tekton.dev]
+    resources: [pipelines, pipelineruns, tasks, taskruns]
+    verbs: [get, list, watch]
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    verbs: [get, list, watch]
+  - apiGroups: [traefik.io]
+    resources: [ingressroutes, middlewares]
+    verbs: [get, list]
+  - apiGroups: [monitoring.coreos.com]
+    resources: [servicemonitors, podmonitors, prometheusrules, scrapeconfigs]
+    verbs: [get, list]
+  - apiGroups: [metrics.k8s.io]
+    resources: [nodes, pods]
+    verbs: [get, list]
+---
+# Pod logs only in Bifrost namespaces (bound per namespace in 10-stg / 20-prod).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: bifrost-platform-logs
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+rules:
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+---
+# State and record ConfigMaps (TD-196 platform-state-*, release records,
+# lineage thread titles): bound in the env's own namespace and in cicd.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: bifrost-platform-state
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch, create, update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: bifrost-platform-gitea-creds
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [gitea-bootstrap]
+    verbs: [get]
+---
+# PROD only, bound per Bifrost namespace: rollout restart, scale, delete a pod.
+# The D10 daemon guard stays in platform code (TD-222): RBAC cannot exclude one
+# Deployment by name.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: bifrost-platform-workload-actuator
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+rules:
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [update, patch]
+  - apiGroups: [apps]
+    resources: [deployments/scale]
+    verbs: [get, update, patch]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [delete]
+---
+# PROD only, cluster-wide: cordon / uncordon.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: bifrost-platform-node-actuator
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+rules:
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [update, patch]
+---
+# PROD only, in data: SQL on the Postgres primary (data clone, freshness
+# probes), CNPG Backups, the IB gateway mode ConfigMap, the MinIO credentials
+# the manual WAL repair reads.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: bifrost-platform-data-actuator
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+rules:
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create, get]
+  - apiGroups: [postgresql.cnpg.io]
+    resources: [backups]
+    verbs: [create, delete]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [update, patch]
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [minio-backup]
+    verbs: [get]
+---
+# PROD only, in cicd: start / delete PipelineRuns and TaskRuns, Argo sync and
+# rollback.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: bifrost-platform-delivery
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+rules:
+  - apiGroups: [tekton.dev]
+    resources: [pipelineruns, taskruns]
+    verbs: [create, delete]
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    verbs: [update, patch]

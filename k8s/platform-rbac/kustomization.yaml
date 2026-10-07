@@ -1,0 +1,7 @@
+# Ops platform RBAC (TD-204). Not under Argo: kubectl apply -k k8s/platform-rbac
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - 00-clusterroles.yaml
+  - 10-stg.yaml
+  - 20-prod.yaml

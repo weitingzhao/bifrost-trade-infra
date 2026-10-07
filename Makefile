@@ -448,6 +448,11 @@ check-http-metrics-coverage:
 check-alert-routing:
 	python3 scripts/check_alert_routing.py $(if $(LIVE),--live,)
 
+# TD-204: the Ops platform ServiceAccounts can do what platform code needs and nothing more
+# (STG observes, PROD maintains). Asks the API server; read-only.
+check-platform-rbac:
+	python3 scripts/check_platform_rbac.py
+
 # TD-205: stg/prod data pods (Redis) have no LAN NodePort and no ipBlock ingress; LIVE=1 reads the cluster.
 check-data-lan-exposure:
 	python3 scripts/check_data_lan_exposure.py $(if $(LIVE),--live,)
