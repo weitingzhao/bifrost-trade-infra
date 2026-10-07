@@ -695,3 +695,4 @@ check-agent-parity:
 # 否则让出来的地会被悄悄吃回去。缺失的 repo 报 NOT MEASURED，绝不当作 0。
 check-code-health:
 	bash agent-config/scripts/code-health/scan.sh
+check-maintainers: ; python3 scripts/check_maintainers.py

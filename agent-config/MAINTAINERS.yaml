@@ -1,0 +1,454 @@
+# Maintainer inventory (ADR §7). A maintainer runs by itself and reads or writes
+# the system or its data. --live reconciles only these id prefixes:
+#   cronjob/  scheduledbackup/  dagster/schedules|sensors members  launchd/
+# Platform loops, plugin timers, and Mac Pro entries are registered here and
+# checked for complete fields; they are not in the live reconcile.
+#
+# env: prod = the writes are production data (prod DB, Golden Source, the
+# shared data/plugin namespaces). shared = the job's writes stay in STG or in
+# cicd. dev-only = this Mac Pro, or bifrost-dev.
+# max_tier: ADR §5. The highest action the process can take, not only what it
+# did on the day this file was filled (2026-10-07, read-only).
+maintainers:
+  - id: cronjob/bifrost-prod/position-snapshot-capture
+    what: "Weekday 16:20 America/New_York capture of position_snapshot_daily and account_nav_daily in bifrost_prod."
+    runs_on: cluster:bifrost-prod/CronJob
+    schedule: "20 16 * * 1-5 America/New_York"
+    env: prod
+    max_tier: B
+    detected_by: "none: no PrometheusRule names position-snapshot"
+    status: active
+  - id: cronjob/bifrost-prod/position-snapshot-enrich
+    what: "Weekday 20:30 America/New_York recapture of stale prod accounts, then fill of vendor EOD Greeks, IV, and closes."
+    runs_on: cluster:bifrost-prod/CronJob
+    schedule: "30 20 * * 1-5 America/New_York"
+    env: prod
+    max_tier: B
+    detected_by: "none: no PrometheusRule names position-snapshot"
+    status: active
+  - id: cronjob/bifrost-stg/position-snapshot-capture
+    what: "Same capture as prod, writing only bifrost_stg."
+    runs_on: cluster:bifrost-stg/CronJob
+    schedule: "20 16 * * 1-5 America/New_York"
+    env: shared
+    max_tier: B
+    detected_by: "none: no PrometheusRule names position-snapshot"
+    status: active
+  - id: cronjob/bifrost-stg/position-snapshot-enrich
+    what: "Same enrich as prod, writing only bifrost_stg."
+    runs_on: cluster:bifrost-stg/CronJob
+    schedule: "30 20 * * 1-5 America/New_York"
+    env: shared
+    max_tier: B
+    detected_by: "none: no PrometheusRule names position-snapshot"
+    status: active
+  - id: cronjob/bifrost-dev/position-snapshot-capture
+    what: "Same capture as prod, writing only bifrost_dev."
+    runs_on: cluster:bifrost-dev/CronJob
+    schedule: "20 16 * * 1-5 America/New_York"
+    env: dev-only
+    max_tier: B
+    detected_by: "none: no PrometheusRule names position-snapshot"
+    status: active
+  - id: cronjob/bifrost-dev/position-snapshot-enrich
+    what: "Same enrich as prod, writing only bifrost_dev."
+    runs_on: cluster:bifrost-dev/CronJob
+    schedule: "30 20 * * 1-5 America/New_York"
+    env: dev-only
+    max_tier: B
+    detected_by: "none: no PrometheusRule names position-snapshot"
+    status: active
+  - id: cronjob/data/logical-backup
+    what: "Nightly logical dump of the CNPG databases, including bifrost_prod and bifrost_golden_source."
+    runs_on: cluster:data/CronJob
+    schedule: "30 4 * * * UTC"
+    env: prod
+    max_tier: B
+    detected_by: BifrostLogicalBackupMissing
+    status: active
+  - id: cronjob/data/logical-backup-drill
+    what: "Monthly restore drill of the latest logical dump. Has not had a successful run yet (last schedule empty on 2026-10-07)."
+    runs_on: cluster:data/CronJob
+    schedule: "0 6 1 * * UTC"
+    env: prod
+    max_tier: B
+    detected_by: BifrostLogicalBackupDrillStale
+    status: active
+  - id: cronjob/data/backup-retry
+    what: "Every 15 minutes in the 04:00-09:00 UTC window, creates a retry Backup if today's CNPG backup failed."
+    runs_on: cluster:data/CronJob
+    schedule: "*/15 4-9 * * * UTC"
+    env: prod
+    max_tier: B
+    detected_by: "none: no rule names this CronJob; the backup it retries is BifrostPostgresBackupFailed"
+    status: active
+  - id: cronjob/cicd/tekton-pipelinerun-ttl
+    what: "Hourly deletion of terminal Tekton PipelineRuns older than 7 days."
+    runs_on: cluster:cicd/CronJob
+    schedule: "20 * * * * UTC"
+    env: shared
+    max_tier: B
+    detected_by: "none: no PrometheusRule names the PipelineRun janitor"
+    status: active
+  - id: cronjob/research/research-harness
+    what: "Weekday copilot harness batch (daily_open) outside Dagster, writing the research store."
+    runs_on: cluster:research/CronJob
+    schedule: "30 13 * * 1-5 UTC"
+    env: prod
+    max_tier: B
+    detected_by: BifrostResearchCronJobStale
+    status: active
+  - id: scheduledbackup/data/bifrost-postgres-daily
+    what: "CNPG ScheduledBackup of bifrost-postgres to the Barman object store (all databases on the cluster)."
+    runs_on: cluster:data/ScheduledBackup
+    schedule: "0 0 3 * * * UTC"
+    env: prod
+    max_tier: B
+    detected_by: BifrostPostgresBackupMissing
+    status: active
+  - id: dagster/schedules/market-slots
+    what: "Dagster crons that enqueue Massive plugin ingest slots. All RUNNING on 2026-10-07. Trim and self-heal are separate entries."
+    runs_on: cluster:research/dagster
+    schedule: "per member; UTC or America/New_York"
+    env: prod
+    max_tier: B
+    detected_by: BifrostDagsterScheduleMissedTick
+    status: active
+    members:
+      - market_corporate_backfill_schedule
+      - market_corporate_schedule
+      - market_fundamentals_market_schedule
+      - market_fundamentals_rotate_schedule
+      - market_intraday_chain_1030_schedule
+      - market_intraday_chain_1300_schedule
+      - market_intraday_chain_1530_schedule
+      - market_minute_bars_schedule
+      - market_movers_schedule
+      - market_option_bars_schedule
+      - market_option_depth_schedule
+      - market_option_refresh_schedule
+      - market_ratios_market_schedule
+      - market_reference_schedule
+      - market_related_schedule
+      - market_snapshot_schedule
+      - market_ticker_details_schedule
+      - market_treasury_schedule
+      - market_universe_calendar_schedule
+  - id: dagster/schedules/market-self-heal
+    what: "Doctor, heal (re-enqueue), drain, recheck. Does not rollout workers; the rollout prescription is auto_fixable false."
+    runs_on: cluster:research/dagster
+    schedule: "45 0 * * 2-6 UTC; 30 5 * * 2-6 UTC"
+    env: prod
+    max_tier: B
+    detected_by: BifrostDagsterScheduleMissedTick
+    status: active
+    members:
+      - market_self_heal_schedule
+      - market_self_heal_late_schedule
+  - id: dagster/schedules/market-trim
+    what: "Nightly retention. Deletes old ingest-job rows, queue samples, and option_snapshot rows past the keep window."
+    runs_on: cluster:research/dagster
+    schedule: "15 2 * * * UTC"
+    env: prod
+    max_tier: D
+    detected_by: BifrostDagsterScheduleMissedTick
+    status: active
+    members:
+      - market_trim_schedule
+  - id: dagster/schedules/research
+    what: "Research batch, flex trigger, forecasts, and copilot schedules. All RUNNING on 2026-10-07. Partition DDL is a separate entry."
+    runs_on: cluster:research/dagster
+    schedule: "per member; UTC or America/New_York"
+    env: prod
+    max_tier: B
+    detected_by: BifrostDagsterScheduleMissedTick
+    status: active
+    members:
+      - research_canonical_pnl_schedule
+      - research_daily_digest_schedule
+      - research_eod_review_schedule
+      - research_event_radar_schedule
+      - research_flex_morning_schedule
+      - research_forecast_schedule
+      - research_intraday_schedule
+      - research_iv_solver_schedule
+      - research_macro_calendar_schedule
+      - research_memory_distill_schedule
+      - research_opex_schedule
+      - research_settlement_schedule
+      - research_trading_day_schedule
+      - research_vol_surface_svi_schedule
+      - research_vol_weekly_backfill_schedule
+      - research_weekly_policy_review_schedule
+  - id: dagster/schedules/ensure-partitions
+    what: "Monthly call of ensure_month_partitions (CREATE of month partitions on the research database)."
+    runs_on: cluster:research/dagster
+    schedule: "30 0 1 * * UTC"
+    env: prod
+    max_tier: D
+    detected_by: BifrostDagsterScheduleMissedTick
+    status: active
+    members:
+      - research_ensure_partitions_schedule
+  - id: dagster/sensors/failure-alerts
+    what: "Run-failure and asset-check sensors. Both RUNNING. They POST alerts into Alertmanager; they do not fix the run."
+    runs_on: cluster:research/dagster
+    schedule: "daemon sensor tick"
+    env: prod
+    max_tier: B
+    detected_by: BifrostDagsterDaemonHeartbeatStale
+    status: active
+    members:
+      - bifrost_run_failure_alert
+      - bifrost_asset_check_alert
+  - id: platform/prod/ib-autorepair
+    what: "PROD workers loop. OPS_IB_AUTOREPAIR_ENABLED=true, so every 30s it may rollout-restart the IB gateway after a stale streak. STG has the flag false and does not start it."
+    runs_on: cluster:bifrost-platform-prod/platform-workers
+    schedule: "every 30s"
+    env: prod
+    max_tier: B
+    detected_by: "none: the loop has no heartbeat series; BifrostIBGatewayDisconnected pages the symptom"
+    status: active
+  - id: platform/prod/data-clone-scheduler
+    what: "Hourly clone check on PROD workers. Starts whenever the workers role starts. ConfigMap platform-state-data-clone-schedule-json is absent, so the default (enabled false, source bifrost_prod) no-ops."
+    runs_on: cluster:bifrost-platform-prod/platform-workers
+    schedule: "every 1h"
+    env: prod
+    max_tier: B
+    detected_by: "none: no PrometheusRule for the clone scheduler"
+    status: active
+  - id: platform/prod/failed-backup-sweep
+    what: "Daily deletion of failed CNPG Backup objects older than 30 days. PLATFORM_BACKUP_CR_SWEEP=1 on PROD only. Logged a run at process start on 2026-10-07."
+    runs_on: cluster:bifrost-platform-prod/platform-workers
+    schedule: "every 24h"
+    env: prod
+    max_tier: D
+    detected_by: "none: no PrometheusRule for the sweeper"
+    status: active
+  - id: platform/prod/patrol-autopilot
+    what: "30s scanner over ops-autopilot, fleet-drift-scan, and cert-expiry-check. PATROL_MODE=report, so it records the rollout it would do and does not call it. The massive-polygon fix is a rollout restart of polygon-worker-stocks."
+    runs_on: cluster:bifrost-platform-prod/platform-workers
+    schedule: "scan every 30s; skills */15 * * * *, 5 * * * *, 0 6 * * 1"
+    env: prod
+    max_tier: C
+    detected_by: "none: no PrometheusRule for the patrol loop"
+    status: active
+    members:
+      - ops-autopilot
+      - fleet-drift-scan
+      - cert-expiry-check
+  - id: platform/prod/checklist-prober
+    what: "CHECKLIST_PROBER=on. Every 10m it reads the platform API and writes checklist signals. Logged runs on 2026-10-07. It does not dispatch fixes."
+    runs_on: cluster:bifrost-platform-prod/platform-workers
+    schedule: "every 10m"
+    env: prod
+    max_tier: B
+    detected_by: "none: no PrometheusRule for the checklist prober"
+    status: active
+  - id: platform/prod/release-recorder
+    what: "In-cluster default (PLATFORM_RELEASE_RECORDER unset). Every 5m it records PipelineRuns from release-rules.yaml. First tick logged on 2026-10-07. STG sets the recorder off."
+    runs_on: cluster:bifrost-platform-prod/platform-workers
+    schedule: "every 5m"
+    env: prod
+    max_tier: B
+    detected_by: "none: no PrometheusRule for the release recorder"
+    status: active
+  - id: platform/stg/data-clone-scheduler
+    what: "Same hourly loop as PROD, started because STG workers role is on. Its schedule ConfigMap is also absent, so it no-ops. Default source if someone enables it is bifrost_prod. PATROL_MODE is not set here."
+    runs_on: cluster:bifrost-platform-stg/platform-workers
+    schedule: "every 1h"
+    env: shared
+    max_tier: B
+    detected_by: "none: no PrometheusRule for the clone scheduler"
+    status: active
+  - id: platform/stg/patrol-autopilot
+    what: "Patrol loop starts (no OPERATOR_PLANE_URL) but /app/config/patrol-skills does not exist, so the scan has no skills. PATROL_MODE is unset, which is act, not report."
+    runs_on: cluster:bifrost-platform-stg/platform-workers
+    schedule: "scan every 30s"
+    env: shared
+    max_tier: C
+    detected_by: "none: no PrometheusRule for the patrol loop"
+    status: active
+  - id: plugin/flex-query-worker
+    what: "Queue poll every 5s plus a catch-up that enqueues a missed flex slot after catchup_grace_sec. The planned fire is Dagster research_flex_morning_schedule; schedule.yaml is the slot table the catch-up reads."
+    runs_on: cluster:plugin-flex-query/flex-query-worker
+    schedule: "poll 5s; catch-up against 30 6 * * 1-6 America/New_York"
+    env: prod
+    max_tier: B
+    detected_by: BifrostFlexWorkerSilent
+    status: active
+  - id: plugin/polygon-worker-stocks
+    what: "Stocks ingest pool. Claims the market queue about every 5s and writes Golden Source market tables. 3 replicas on 2026-10-07."
+    runs_on: cluster:plugin-market-data/polygon-worker-stocks
+    schedule: "poll 5s"
+    env: prod
+    max_tier: B
+    detected_by: BifrostMarketDataWorkersDown
+    status: active
+  - id: plugin/polygon-worker-options
+    what: "Options ingest pool. Same poll loop as the stocks pool. 8 replicas on 2026-10-07."
+    runs_on: cluster:plugin-market-data/polygon-worker-options
+    schedule: "poll 5s"
+    env: prod
+    max_tier: B
+    detected_by: BifrostMarketDataWorkersDown
+    status: active
+  - id: plugin/market-data-api-queue-sampler
+    what: "Thread inside market-data-api. Every 300s it writes ops_jobs.queue_sample so a Dagster miss is visible without Dagster."
+    runs_on: cluster:plugin-market-data/market-data-api
+    schedule: "every 300s"
+    env: prod
+    max_tier: B
+    detected_by: "none: the sampler thread has no series; API scrape death is BifrostMarketDataScrapeDown"
+    status: active
+  - id: launchd/.50/com.bifrost.nightly-drift
+    what: "03:00 local nightly_drift.sh (curl, python3). Loaded in launchctl."
+    runs_on: mini:.50/launchd
+    schedule: "03:00 local"
+    env: prod
+    max_tier: A
+    detected_by: "none: no PrometheusRule for the mini drift job"
+    status: active
+  - id: launchd/.50/com.bifrost.nightly-health-check
+    what: "03:00 local nightly-health-check.sh (curl only). This is the nightly LLM check ADR §11 records as failing quietly. Loaded in launchctl."
+    runs_on: mini:.50/launchd
+    schedule: "03:00 local"
+    env: prod
+    max_tier: B
+    detected_by: "none: no PrometheusRule for the mini health check"
+    status: active
+  - id: launchd/.50/com.bifrost.operator-plane
+    what: "Keep-alive operator-plane on :8783. Health on 2026-10-07 said autopilot false and alert_relay false."
+    runs_on: mini:.50/launchd
+    schedule: "keep-alive"
+    env: prod
+    max_tier: C
+    detected_by: "none: relay death is not a PrometheusRule in this repo"
+    status: active
+  - id: launchd/.50/com.bifrost.peer-watchdog
+    what: "Every 60s. The script uses curl, ssh, and launchctl, so it can restart the peer mini."
+    runs_on: mini:.50/launchd
+    schedule: "every 60s"
+    env: prod
+    max_tier: B
+    detected_by: "none: no PrometheusRule for the peer watchdog"
+    status: active
+  - id: launchd/.50/com.bifrost.remediation-runner
+    what: "Keep-alive remediation runner, role primary. Executes jobs the platform posts."
+    runs_on: mini:.50/launchd
+    schedule: "keep-alive"
+    env: prod
+    max_tier: D
+    detected_by: "none: no PrometheusRule for the remediation runner"
+    status: active
+  - id: launchd/.52/com.bifrost.hermes-gateway
+    what: "Keep-alive Hermes gateway on :8782. Health on 2026-10-07 reported 4 skills and an empty failing_skills list."
+    runs_on: mini:.52/launchd
+    schedule: "keep-alive"
+    env: prod
+    max_tier: C
+    detected_by: "none: no PrometheusRule for the Hermes gateway"
+    status: active
+  - id: launchd/.52/com.bifrost.nightly-drift
+    what: "Plist is installed for 03:00 local nightly_drift.sh. launchctl list did not show the label on 2026-10-07, so it is not firing."
+    runs_on: mini:.52/launchd
+    schedule: "03:00 local"
+    env: prod
+    max_tier: A
+    detected_by: "none: no PrometheusRule for the mini drift job"
+    status: active
+  - id: launchd/.52/com.bifrost.operator-plane
+    what: "Keep-alive operator-plane on :8783. Health on 2026-10-07 said autopilot false and alert_relay false."
+    runs_on: mini:.52/launchd
+    schedule: "keep-alive"
+    env: prod
+    max_tier: C
+    detected_by: "none: relay death is not a PrometheusRule in this repo"
+    status: active
+  - id: launchd/.52/com.bifrost.peer-watchdog
+    what: "Every 60s. The script uses curl, ssh, launchctl, and ntfy."
+    runs_on: mini:.52/launchd
+    schedule: "every 60s"
+    env: prod
+    max_tier: D
+    detected_by: "none: no PrometheusRule for the peer watchdog"
+    status: active
+  - id: launchd/.52/com.bifrost.remediation-runner
+    what: "Keep-alive remediation runner, role standby."
+    runs_on: mini:.52/launchd
+    schedule: "keep-alive"
+    env: prod
+    max_tier: D
+    detected_by: "none: no PrometheusRule for the remediation runner"
+    status: active
+  - id: mac-pro/bdev/platform-api
+    what: "Local platform-api on :8780 under bdev. It uses the Owner admin kubeconfig and does not start the workers loops."
+    runs_on: mac-pro:bdev
+    schedule: "bdev restart=on-failure"
+    env: dev-only
+    max_tier: D
+    detected_by: "none: dev-only; not on the prod alert path"
+    status: active
+  - id: mac-pro/bdev/git-bridge
+    what: "Local git-bridge on :8785. PROD platform-workers sets GIT_BRIDGE_URL to this Mac (192.168.10.40)."
+    runs_on: mac-pro:bdev
+    schedule: "bdev restart=always"
+    env: dev-only
+    max_tier: B
+    detected_by: "none: dev-only; not on the prod alert path"
+    status: active
+  - id: mac-pro/bdev/event-radar-watch
+    what: "Every 10 minutes, if the local drop zone has files, ingests them into the research schema. SEC 8-K no longer comes through here."
+    runs_on: mac-pro:bdev
+    schedule: "every 600s when the drop zone has files"
+    env: dev-only
+    max_tier: B
+    detected_by: "none: dev-only; the cluster radar schedule is BifrostEventRadarStale, not this watcher"
+    status: active
+  - id: mac-pro/bdev/local-services
+    what: "Other bdev sessions on this Mac. Local console, port-forward, probe bridge, local flex and research APIs, and the Trade Vite dev server."
+    runs_on: mac-pro:bdev
+    schedule: "bdev supervise"
+    env: dev-only
+    max_tier: A
+    detected_by: "none: dev-only; not on the prod alert path"
+    status: active
+    members:
+      - platform-console
+      - prometheus-pf
+      - probe-bridge
+      - flex-query-api
+      - research-api
+      - research-mcp
+      - trade-ui
+  - id: mac-pro/claude-scheduled-tasks
+    what: "Directories under ~/.claude/scheduled-tasks. Most say read-only. ratios-arrival-narrow-cron says it will change the Dagster cron and release Research. avb-wbs-post-monday-purge-check says it will rerun a purge."
+    runs_on: mac-pro:claude-scheduled-tasks
+    schedule: "Claude scheduled task; cadence is not in the SKILL file"
+    env: dev-only
+    max_tier: D
+    detected_by: "none: dev-only; not on the prod alert path"
+    status: active
+    members:
+      - avb-wbs-post-monday-purge-check
+      - daily-ctva-adjust-and-unadjusted-close-check
+      - massive-eod-check-2026-09-28
+      - massive-eod-volume-check
+      - massive-eod-volume-check-tonight
+      - option-depth-first-run-holes-unread-check
+      - ratios-arrival-narrow-cron-2026-09-29
+      - remeasure-svi-slope-smoothing-1014
+      - s4-pine-first-batch-check
+      - s4-pine-next-day-entry-check
+      - suggestion-ledger-weekly-watch
+      - td24-unknown-fields-review
+      - verify-canonical-nightly-2026-09-26
+      - verify-ctva-recovery-1006
+      - verify-ctva-standard-chain-1002
+      - verify-gex-td136-157-166-1008
+      - verify-max-pain-nightly-0155
+      - verify-svi-nightly-fit-0930
+      - verify-trading-day-edges-2026-09-30
+      - w3-verify-first-snapshot-archive
+      - w3-verify-monthly-archive-2026-11
+      - weekly-data-gaps-remeasure
