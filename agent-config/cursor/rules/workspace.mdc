@@ -2,7 +2,7 @@
 description: Bifrost 工作区结构、三域架构、双飞轮边界与双轨维护规范
 globs: ["**/*"]
 alwaysApply: true
-parity-id: workspace-v13
+parity-id: workspace-v14
 ---
 
 # Bifrost 工作区规范
@@ -68,6 +68,12 @@ Bifrost = 三个域，边界不可跨越（spine **D13**）：
 ```bash
 bifrost-trade-infra/scripts/release/release.sh window   # 没有窗口 exit 0；有窗口打印持有者并 exit 1
 ```
+
+Research 与插件发布用**同一个**窗口文件（`~/.bifrost-release/window.json`）。`what` 是仓库名（逗号分隔）。
+先 `release.sh hold --what <repo>`，它把窗口镜像到 ConfigMap `cicd/bifrost-release-window`。
+deliver-research、Dagster 构建和插件构建流水线的第一个 task 会读它：窗口不是这个仓库的就拒绝。
+platform-api `start_pipeline_run` 还要求请求里的 `who` 等于窗口里的持有者。
+`release.sh stg|prod` 会先同步 Gitea 镜像，再要求该 SHA 有 Succeeded 的 `ci-*`（Owner 用 `--allow-red <原因>` 放行，原因写进日志）。
 
 - **窗口开着：等它关，或者问 Owner**，不推、不起 run。持有进程已不在时脚本会提示是残留锁，
   要不要 `release.sh window --clear` 由 Owner 决定。

@@ -40,7 +40,14 @@ spec:
   workspaces:
     - name: build-context
   tasks:
+    - name: release-window
+      taskRef:
+        name: bifrost-release-window
+      params:
+        - name: pipeline
+          value: bifrost-build-market-data
     - name: clone-plugin
+      runAfter: [release-window]
       taskRef:
         kind: Task
         name: bifrost-git-clone-gitea

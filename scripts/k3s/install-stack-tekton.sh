@@ -55,6 +55,14 @@ if [[ -f "${ROOT}/k8s/cicd/tekton/pipeline-build-stg.yaml" ]]; then
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-prepare-deliver-stg.yaml"
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-verify-stg-deliver.yaml"
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-gitea-mirror-sync.yaml"
+  kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-release-window.yaml"
+  kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-validate-git-sha.yaml"
+  kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-research-lint-test.yaml"
+  kubectl apply -f "${ROOT}/k8s/cicd/tekton/rbac-release-window.yaml"
+  kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-build-ib-gateway.yaml"
+  kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-deliver-research.yaml"
+  kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-build-research-dagster.yaml"
+  kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-build-market-data.yaml"
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-refresh-dockerfile-cms.yaml"
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/rbac-deliver-stg.yaml" 2>/dev/null || true
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-deliver-stg.yaml" 2>/dev/null || true

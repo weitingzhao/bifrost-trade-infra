@@ -1,0 +1,146 @@
+# First task of research deliver and plugin builds (TD-162).
+# Reads ConfigMap cicd/bifrost-release-window (the mirror of ~/.bifrost-release/window.json)
+# and refuses when that window is missing (guarded pipelines) or held for another repo.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-release-window
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: release-window
+spec:
+  description: >-
+    Fail fast unless the release window is open for this pipeline's repo.
+  params:
+    - name: pipeline
+      type: string
+      description: Pipeline name, matched against the window's what repos.
+  steps:
+    - name: check
+      image: python:3.11-slim-bookworm
+      env:
+        - name: PIPELINE
+          value: $(params.pipeline)
+      script: |
+        #!/usr/bin/env python3
+        """Inlined from scripts/release/window_decision.py. Do not edit one side only."""
+        from __future__ import annotations
+
+        import json
+        import os
+        import ssl
+        import urllib.error
+        import urllib.request
+
+        GUARDED = {
+            "bifrost-deliver-research": frozenset({"bifrost-research"}),
+            "bifrost-build-research-dagster": frozenset({"bifrost-research"}),
+            "bifrost-build-market-data": frozenset({"bifrost-platform-plugin-market-data"}),
+            "bifrost-build-flex-query": frozenset({"bifrost-platform-plugin-flex-query"}),
+            "bifrost-build-ib-gateway": frozenset({"bifrost-platform-plugin"}),
+        }
+
+        TRADE_REPOS = frozenset({
+            "bifrost-trade-core",
+            "bifrost-trade-api",
+            "bifrost-trade-worker",
+            "bifrost-trade-frontend",
+            "bifrost-trade-infra",
+        })
+
+        TRADE_PIPELINES = {
+            "bifrost-deliver-stg": TRADE_REPOS,
+            "bifrost-deliver-prod": TRADE_REPOS,
+            "bifrost-deliver-platform": frozenset({"bifrost-platform", "bifrost-ui"}),
+            "bifrost-deliver-platform-prod": frozenset({"bifrost-platform", "bifrost-ui"}),
+        }
+
+        MUST_HOLD = frozenset(GUARDED)
+
+        # Pipelines whose revision must be a 40-char lowercase SHA (TD-95, TD-122).
+        SHA_PIPELINES = frozenset({
+            "bifrost-deliver-research",
+            "bifrost-build-research-dagster",
+            "bifrost-build-ib-gateway",
+        })
+
+
+        def parse_what(what: str) -> frozenset[str]:
+            return frozenset(part.strip() for part in (what or "").split(",") if part.strip())
+
+
+        def is_full_sha(revision: str) -> bool:
+            rev = (revision or "").strip()
+            return len(rev) == 40 and all(c in "0123456789abcdef" for c in rev)
+
+
+        def decide(window: dict | None, pipeline: str) -> str:
+            """Return "" to allow, or a REFUSED message.
+
+            Research and plugin build pipelines refuse when no window is open, and when
+            the open window's `what` does not name their repo (held by someone else).
+            Any other known pipeline is allowed with no window, and refused when a
+            window is open for a different repo. An unknown pipeline is refused while
+            any window is open.
+            """
+            required = GUARDED.get(pipeline) or TRADE_PIPELINES.get(pipeline)
+            if window is None:
+                if pipeline in MUST_HOLD:
+                    repo = ",".join(sorted(GUARDED[pipeline]))
+                    return (
+                        f"REFUSED: no release window for {pipeline}. "
+                        f"Open one first: release.sh hold --what {repo}"
+                    )
+                return ""
+            what = parse_what(str(window.get("what", "")))
+            holder = window.get("who") or "unknown"
+            held = window.get("what", "")
+            if required is None:
+                return (
+                    f"REFUSED: release window held by {holder} (what={held}); "
+                    f"{pipeline} is not part of that release"
+                )
+            if what & required:
+                return ""
+            return (
+                f"REFUSED: release window held by someone else "
+                f"(who={holder} what={held}); "
+                f"{pipeline} needs one of {','.join(sorted(required))}"
+            )
+
+        def load_window():
+            token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+            ca = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+            url = "https://kubernetes.default.svc/api/v1/namespaces/cicd/configmaps/bifrost-release-window"
+            if not os.path.exists(token_path):
+                raise SystemExit("REFUSED: no service account token; cannot read the release window")
+            token = open(token_path, encoding="utf-8").read().strip()
+            req = urllib.request.Request(url, headers={"Authorization": "Bearer " + token})
+            ctx = ssl.create_default_context(cafile=ca)
+            try:
+                with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
+                    doc = json.loads(resp.read().decode())
+            except urllib.error.HTTPError as exc:
+                if exc.code == 404:
+                    return None
+                raise SystemExit(f"REFUSED: reading the release window failed: HTTP {exc.code}")
+            raw = ((doc.get("data") or {}).get("window.json")) or ""
+            if not raw:
+                return None
+            return json.loads(raw)
+
+
+        def main():
+            pipeline = os.environ["PIPELINE"]
+            window = load_window()
+            msg = decide(window, pipeline)
+            if msg:
+                print(msg)
+                raise SystemExit(1)
+            who = (window or {}).get("who", "")
+            what = (window or {}).get("what", "")
+            print(f"release window allows {pipeline} (who={who} what={what})")
+
+
+        if __name__ == "__main__":
+            main()

@@ -14,6 +14,14 @@ spec:
     - name: mirrorRepos
       type: string
       default: "bifrost-trade-core bifrost-trade-worker bifrost-trade-api bifrost-trade-frontend bifrost-trade-infra bifrost-ui bifrost-platform"
+    - name: expectSha
+      type: string
+      default: ""
+      description: When a 40-character SHA, poll until this commit is on expectRepo (or every mirrorRepos entry).
+    - name: expectRepo
+      type: string
+      default: ""
+      description: Repo that must contain expectSha. Empty polls every repo in mirrorRepos.
   steps:
     - name: mirror-sync
       image: curlimages/curl:8.11.1
@@ -47,7 +55,36 @@ spec:
             *) exit 1 ;;
           esac
         done
-        # Gitea mirror-sync is async; clones must not start until fetch settles.
+        # Gitea mirror-sync is async. A release passes expectSha so the clone
+        # cannot start on the previous mirror contents (TD-155).
+        sha="$(params.expectSha)"
+        repo_filter="$(params.expectRepo)"
+        if echo "${sha}" | grep -qxE '[0-9a-f]{40}'; then
+          i=0
+          while [ "${i}" -lt 30 ]; do
+            ready=1
+            for repo in $(params.mirrorRepos); do
+              if [ -n "${repo_filter}" ] && [ "${repo}" != "${repo_filter}" ]; then
+                continue
+              fi
+              code="$(curl -s -o /dev/null -w '%{http_code}' \
+                -H "Authorization: token ${GITEA_TOKEN}" \
+                "${api}/repos/${org}/${repo}/git/commits/${sha}")"
+              echo "commit ${org}/${repo}@${sha} → HTTP ${code}"
+              if [ "${code}" != "200" ]; then
+                ready=0
+              fi
+            done
+            if [ "${ready}" -eq 1 ]; then
+              echo "Gitea mirror has ${sha}"
+              exit 0
+            fi
+            i=$((i + 1))
+            sleep 4
+          done
+          echo "ERROR: ${sha} was not on the Gitea mirror after mirror-sync" >&2
+          exit 1
+        fi
         echo "waiting 8s for Gitea mirror fetch to settle"
         sleep 8
         echo "Gitea mirror-sync complete"

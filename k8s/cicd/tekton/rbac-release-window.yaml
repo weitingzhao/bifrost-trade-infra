@@ -1,0 +1,45 @@
+# The release-window task reads one ConfigMap. Nothing else in cicd is granted here.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tekton-release-window
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: release-window
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["bifrost-release-window"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-release-window-default
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: release-window
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: cicd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tekton-release-window
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-release-window-deliver
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: release-window
+subjects:
+  - kind: ServiceAccount
+    name: tekton-deliver
+    namespace: cicd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tekton-release-window

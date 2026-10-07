@@ -1,0 +1,29 @@
+# Reject a revision that is not a 40-character lowercase git SHA (TD-95).
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-validate-git-sha
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: release-gate
+spec:
+  description: Fail the run unless params.revision is a full git SHA. Branch names are refused.
+  params:
+    - name: revision
+      type: string
+  steps:
+    - name: sha
+      image: python:3.11-slim-bookworm
+      env:
+        - name: REVISION
+          value: $(params.revision)
+      script: |
+        #!/usr/bin/env python3
+        import os
+        import sys
+        rev = os.environ.get("REVISION", "").strip()
+        ok = len(rev) == 40 and all(c in "0123456789abcdef" for c in rev)
+        if not ok:
+            print(f"REFUSED: revision must be a 40-character lowercase git SHA, got {rev!r}", file=sys.stderr)
+            sys.exit(1)
+        print(f"revision {rev}")

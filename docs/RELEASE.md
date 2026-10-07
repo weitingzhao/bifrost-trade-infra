@@ -88,7 +88,11 @@ scripts/release/release.sh window && git push origin <sha>:refs/heads/main
 或**起任何 `bifrost-deliver-*` run** 之前都先跑它：窗口开着就等它关，或者问 Owner。持有进程已不在
 （同一台机器上 pid 不存在）时它会提示是残留锁，由 Owner 决定 `release.sh window --clear`；进程还在时 `--clear` 拒绝。
 
-窗口只在 `release.sh` 运行期间存在。STG 与 PROD 之间（等 Owner 看 STG）没有锁——这段时间推 main 不影响 PROD，
+窗口只在 `release.sh` 运行期间存在（`hold` 一直占到进程退出）。Research 与插件用同一个文件，
+`what` 写仓库名；`hold` 把它镜像到 ConfigMap `cicd/bifrost-release-window`。对应流水线的第一个 task
+和 platform-api 的 `start_pipeline_run` 在窗口被别人持有时拒绝。`stg` / `prod` 在创建 run 之前同步
+Gitea 镜像，并要求所发 SHA 有 Succeeded 的 `ci-*`，`--allow-red <原因>` 才放行。
+STG 与 PROD 之间（等 Owner 看 STG）没有锁——这段时间推 main 不影响 PROD，
 因为 PROD 钉的是 STG 克隆的提交，不是 `main`。
 
 ## 一次性 DB 步骤

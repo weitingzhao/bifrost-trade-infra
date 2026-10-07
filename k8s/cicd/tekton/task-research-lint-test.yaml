@@ -1,0 +1,79 @@
+# ruff + pytest + code-health on the cloned research SHA, before the image build (TD-95).
+# The research checkout is a workspace subdir (sourceDir). bifrost-trade-infra must
+# already be cloned beside it: code-health reads agent-config from that checkout.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-research-lint-test
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: release-gate
+spec:
+  description: >-
+    Lint and test the cloned bifrost-research SHA (ruff, pytest, code-health)
+    before an image build. Fails the pipeline on a red result.
+  params:
+    - name: sourceDir
+      type: string
+      description: Workspace subdirectory that holds the bifrost-research checkout.
+  workspaces:
+    - name: source
+  steps:
+    - name: ruff-pytest
+      image: python:3.11-slim-bookworm
+      computeResources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+        limits:
+          cpu: "2"
+          memory: 2Gi
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        ws="$(workspaces.source.path)"
+        cd "${ws}/$(params.sourceDir)"
+        echo "==> Installing bifrost-research extras"
+        pip install --quiet --upgrade pip
+        extras="$(python -c "import tomllib,sys; d=tomllib.load(open('pyproject.toml','rb')); sys.stdout.write(','.join(sorted(d.get('project',{}).get('optional-dependencies',{}))))")"
+        if [ -z "${extras}" ]; then
+          echo "ERROR: pyproject.toml declares no extras; ruff and pytest would be missing" >&2
+          exit 1
+        fi
+        pip install --quiet -e ".[${extras}]"
+        if ! command -v ruff >/dev/null 2>&1; then
+          echo "ERROR: the repo extras installed no ruff" >&2
+          exit 1
+        fi
+        echo "==> Lint (ruff)"
+        ruff --version
+        ruff check --output-format=concise .
+        for sqlfluff_cfg in $(find . -name .sqlfluff -not -path '*/.venv*' -not -path '*/dbt_packages/*'); do
+          dbt_dir="$(dirname "${sqlfluff_cfg}")"
+          [ -d "${dbt_dir}/models" ] || continue
+          echo "==> SQL lint (sqlfluff) in ${dbt_dir#./}"
+          command -v sqlfluff >/dev/null 2>&1 || { echo "ERROR: .sqlfluff present but sqlfluff is not installed" >&2; exit 1; }
+          (cd "${dbt_dir}" && sqlfluff lint models/)
+        done
+        echo "==> Test (pytest)"
+        pytest -m 'not ib and not db' --tb=short -q
+        echo "==> lint-test passed"
+    - name: code-health
+      image: alpine:3.20
+      script: |
+        #!/bin/sh
+        set -eu
+        ws="$(workspaces.source.path)"
+        src="$(params.sourceDir)"
+        apk add --no-cache bash git >/dev/null 2>&1
+        scan="${ws}/bifrost-trade-infra/agent-config/scripts/code-health/scan.sh"
+        if [ ! -f "${scan}" ]; then
+          echo "ERROR: ${scan} not found — clone bifrost-trade-infra into the workspace first" >&2
+          exit 1
+        fi
+        if [ "${src}" != "bifrost-research" ]; then
+          rm -rf "${ws}/bifrost-research"
+          ln -s "${ws}/${src}" "${ws}/bifrost-research"
+        fi
+        echo "==> Code-health ratchet for bifrost-research"
+        bash "${scan}" --root "${ws}" --repo bifrost-research

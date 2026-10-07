@@ -5,15 +5,25 @@
 #   release.sh prod --from-stg <run> [options]   bifrost-deliver-prod-pinned-* at that STG run's commits
 #   release.sh dev  [options]                    make dev-sync-backend-images RESTART=1 (:stg -> :dev, backend + frontend)
 #   release.sh window [--clear]                  show the release window (exit 1 while one is open)
+#   release.sh hold --what <repo>[,<repo>...]    hold that same window until this process exits
 #   release.sh db-steps [<env>]                  list one-off DB steps and their state
 #   release.sh db-done <env> <step-id>           record that the Owner ran a step
 #
 # options: --dry-run         run the read-only checks, print every other command, change nothing
 #          --allow <file>    expected changes for the after-check diff (repeatable; see expected.d/)
 #          --probes <file>   extra probes for the after-check (repeatable)
-#          --what <text>     what is being released (goes into the window lock)
+#          --what <repos>    comma-separated repo names in the window (default: the Trade repos)
+#          --allow-red <why> ship stg/prod even if a SHA's CI is red or missing (Owner)
 #          --who <name>      who releases (default $BIFROST_RELEASE_WHO, else user@host)
 #          --timeout <s>     how long to wait for the run (default 3600)
+#
+# Research and the plugins use this same window file. `what` is the repo list.
+# `hold` publishes it to ConfigMap cicd/bifrost-release-window. deliver-research,
+# the Dagster build, and the plugin build pipelines read that ConfigMap as their
+# first task and refuse when it is missing or names another repo. platform-api
+# start_pipeline_run also refuses unless the caller's `who` is the holder.
+# stg/prod sync the Gitea mirrors, then refuse unless each shipped SHA has a
+# Succeeded ci-* run (--allow-red <reason> overrides, and the reason is logged).
 #
 # Steps: open the release window (~/.bifrost-release/window.json; refuses if one is open) ->
 # no bifrost-deliver-* run running or created in the last 2 minutes -> [prod: the STG run
@@ -28,9 +38,12 @@ set -euo pipefail
 # shellcheck source=scripts/release/lib.sh
 source "$(dirname "$0")/lib.sh"
 
-release_usage() { sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; }
+release_usage() { sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; }
 
 WINDOW="${RELEASE_HOME}/window.json"
+WINDOW_CM="bifrost-release-window"
+# `what` names the repos this window covers. Comma-separated, no spaces.
+TRADE_WHAT="bifrost-trade-core,bifrost-trade-api,bifrost-trade-worker,bifrost-trade-frontend,bifrost-trade-infra"
 DONE_FILE="${RELEASE_HOME}/db-steps.done"
 DB_STEPS_DIR="${BIFROST_DB_STEPS_DIR:-${RELEASE_DIR}/db-steps.d}"
 STG_TEMPLATE="${RELEASE_DIR}/pipelinerun-deliver-stg.json"
@@ -62,8 +75,34 @@ window_clear() {
     rel_die "the release holding the window (pid ${pid}) is still running; let it finish" 1
   fi
   cat "${WINDOW}"
+  window_unpublish
   rm -f "${WINDOW}"
   echo "cleared"
+}
+
+window_publish() {
+  # Mirror the local window into the cluster so Tekton and platform-api can see it.
+  if [[ "${BIFROST_RELEASE_WINDOW_PUBLISH:-1}" != "1" ]]; then
+    return 0
+  fi
+  if [[ ! -f "${KUBECONFIG:-}" ]]; then
+    echo "window: no kubeconfig, not publishing ConfigMap ${WINDOW_CM}" >&2
+    return 0
+  fi
+  kubectl -n "${CICD_NAMESPACE}" create configmap "${WINDOW_CM}" \
+    --from-file=window.json="${WINDOW}" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  echo "published ConfigMap ${CICD_NAMESPACE}/${WINDOW_CM}"
+}
+
+window_unpublish() {
+  if [[ "${BIFROST_RELEASE_WINDOW_PUBLISH:-1}" != "1" ]]; then
+    return 0
+  fi
+  if [[ ! -f "${KUBECONFIG:-}" ]]; then
+    return 0
+  fi
+  kubectl -n "${CICD_NAMESPACE}" delete configmap "${WINDOW_CM}" --ignore-not-found >/dev/null || true
 }
 
 window_open() {
@@ -84,10 +123,14 @@ PY
   fi
   WINDOW_OWNED=1
   trap window_close EXIT
+  trap 'window_close; exit 130' INT
+  trap 'window_close; exit 143' TERM
+  window_publish
 }
 
 window_close() {
   if [[ "${WINDOW_OWNED:-0}" -eq 1 ]]; then
+    window_unpublish
     rm -f "${WINDOW}"
     WINDOW_OWNED=0
   fi
@@ -120,6 +163,72 @@ deliver_free() {
   if ! "${RELEASE_TOOL[@]}" deliver-busy; then
     refuse "a deliver run is running or just started (one release at a time)"
   fi
+}
+
+# SHAs whose CI must be green before stg (origin/main) or prod (the STG clones).
+ci_pairs_from_origin() {
+  local root repo sha
+  root="$(cd "${INFRA_ROOT}/.." && pwd)"
+  for repo in bifrost-trade-core bifrost-trade-api bifrost-trade-worker bifrost-trade-frontend; do
+    sha="$(git -C "${root}/${repo}" rev-parse origin/main 2>/dev/null || true)"
+    [[ "${sha}" =~ ^[0-9a-f]{40}$ ]] || rel_die "${repo}: origin/main is not a 40-char SHA (git fetch origin in that checkout first)" 2
+    printf '%s=%s\n' "${repo}" "${sha}"
+  done
+}
+
+ci_pairs_from_stg_commits() {
+  local task sha repo
+  [[ -f "${OUT_DIR}/stg-commits.txt" ]] || rel_die "STG clone SHAs are missing; cannot check CI" 2
+  while read -r task sha _; do
+    case "${task}" in
+      clone-core) repo=bifrost-trade-core ;;
+      clone-api) repo=bifrost-trade-api ;;
+      clone-worker) repo=bifrost-trade-worker ;;
+      clone-frontend) repo=bifrost-trade-frontend ;;
+      *) continue ;;
+    esac
+    [[ "${sha}" =~ ^[0-9a-f]{40}$ ]] || rel_die "${task} SHA is not 40 hex chars (got '${sha}')" 2
+    printf '%s=%s\n' "${repo}" "${sha}"
+  done <"${OUT_DIR}/stg-commits.txt"
+}
+
+# Reads repo=sha pairs on stdin. Syncs the Gitea mirrors, then waits until each
+# SHA has a Succeeded ci-* run. --allow-red skips the refusal and logs the reason.
+wait_for_ci() {
+  local runs_py="${OUT_DIR}/ci-python.json" runs_fe="${OUT_DIR}/ci-frontend.json"
+  local -a pairs=()
+  local line deadline code
+  while IFS= read -r line; do
+    [[ -n "${line}" ]] && pairs+=("${line}")
+  done
+  [[ ${#pairs[@]} -gt 0 ]] || rel_die "no repo=sha pairs for the CI gate" 2
+  if [[ "${BIFROST_RELEASE_MIRROR:-1}" == "1" ]]; then
+    echo "syncing Gitea mirrors so CI can see these SHAs"
+    "${INFRA_ROOT}/scripts/k3s/bootstrap-gitea-mirrors.sh"
+  else
+    echo "mirror sync skipped (BIFROST_RELEASE_MIRROR != 1)"
+  fi
+  deadline=$((SECONDS + ${BIFROST_RELEASE_CI_WAIT:-900}))
+  while true; do
+    kubectl -n "${CICD_NAMESPACE}" get pipelineruns -l tekton.dev/pipeline=bifrost-ci-python -o json >"${runs_py}"
+    kubectl -n "${CICD_NAMESPACE}" get pipelineruns -l tekton.dev/pipeline=bifrost-ci-frontend -o json >"${runs_fe}"
+    code=0
+    python3 "${RELEASE_DIR}/ci_gate.py" --runs "${runs_py}" --runs "${runs_fe}" \
+      --allow-red "${ALLOW_RED:-}" "${pairs[@]}" || code=$?
+    if [[ "${code}" -eq 0 ]]; then
+      return 0
+    fi
+    if [[ "${code}" -eq 1 ]]; then
+      refuse "CI failed for a SHA this release ships (see above). Re-run with --allow-red <reason> if the Owner accepts it"
+      return 0
+    fi
+    if [[ "${SECONDS}" -ge "${deadline}" ]]; then
+      refuse "CI did not succeed within ${BIFROST_RELEASE_CI_WAIT:-900}s. Re-run with --allow-red <reason> if the Owner accepts the gap"
+      return 0
+    fi
+    echo "CI has not finished; waiting 20s"
+    sleep 20
+  done
 }
 
 db_steps_gate() {
@@ -184,6 +293,27 @@ case "${1:-}" in
     shift
     if [[ "${1:-}" == "--clear" ]]; then window_clear; exit $?; fi
     window_show; exit $? ;;
+  hold)
+    shift
+    WHAT=""
+    WHO="${BIFROST_RELEASE_WHO:-${USER}@$(hostname -s)}"
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --what) WHAT="${2:?--what needs a repo}"; shift 2 ;;
+        --who) WHO="${2:?}"; shift 2 ;;
+        *) rel_die "unknown argument: $1" ;;
+      esac
+    done
+    [[ -n "${WHAT}" ]] || rel_die "hold needs --what <repo>[,<repo>...] (repo names, no spaces)"
+    python3 -c 'import re,sys; sys.exit(0 if re.fullmatch(r"[a-z0-9-]+(,[a-z0-9-]+)*", sys.argv[1]) else 1)' "${WHAT}" \
+      || rel_die "--what must be comma-separated repo names (got '${WHAT}')"
+    ENV_NAME="hold"
+    rel_require_kubeconfig
+    window_open
+    echo "holding ${WINDOW} for ${WHAT} as ${WHO}"
+    echo "start_pipeline_run for that repo must send who=${WHO}. Ctrl-C closes the window."
+    while true; do sleep 3600; done
+    ;;
   db-steps) shift; cmd_db_steps "$@"; exit 0 ;;
   db-done) shift; cmd_db_done "$@"; exit 0 ;;
   dev|stg|prod) ENV_NAME="$1"; shift ;;
@@ -191,7 +321,7 @@ case "${1:-}" in
   *) release_usage >&2; exit 2 ;;
 esac
 
-DRY_RUN=0 FROM_STG="" WHAT="" WHO="${BIFROST_RELEASE_WHO:-${USER}@$(hostname -s)}" TIMEOUT=3600
+DRY_RUN=0 FROM_STG="" WHAT="" ALLOW_RED="" WHO="${BIFROST_RELEASE_WHO:-${USER}@$(hostname -s)}" TIMEOUT=3600
 ALLOW=() PROBES=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -200,6 +330,7 @@ while [[ $# -gt 0 ]]; do
     --allow) ALLOW+=(--allow "${2:?}"); shift 2 ;;
     --probes) PROBES+=(--probes "${2:?}"); shift 2 ;;
     --what) WHAT="${2:?}"; shift 2 ;;
+    --allow-red) ALLOW_RED="${2:?--allow-red needs a reason}"; shift 2 ;;
     --who) WHO="${2:?}"; shift 2 ;;
     --timeout) TIMEOUT="${2:?}"; shift 2 ;;
     -h|--help) release_usage; exit 0 ;;
@@ -210,7 +341,9 @@ if [[ "${ENV_NAME}" == "prod" && -z "${FROM_STG}" ]]; then
   rel_die "prod needs --from-stg <bifrost-deliver-stg run> (the STG run of this release that passed its check)"
 fi
 [[ "${ENV_NAME}" == "prod" || -z "${FROM_STG}" ]] || rel_die "--from-stg is for prod only"
-WHAT="${WHAT:-${ENV_NAME} release${FROM_STG:+ from ${FROM_STG}}}"
+WHAT="${WHAT:-${TRADE_WHAT}}"
+python3 -c 'import re,sys; sys.exit(0 if re.fullmatch(r"[a-z0-9-]+(,[a-z0-9-]+)*", sys.argv[1]) else 1)' "${WHAT}" \
+  || rel_die "--what must be comma-separated repo names (got '${WHAT}')"
 rel_require_kubeconfig
 
 OUT_DIR="${RELEASE_SNAP_BASE}/$(date +%F)/${ENV_NAME}-$(date +%H%M%S)"
@@ -229,6 +362,17 @@ else
   echo "opened ${WINDOW}"
 fi
 step_end
+
+if [[ "${ENV_NAME}" == "stg" ]]; then
+  step "Gitea mirror and CI for origin/main"
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    echo "[dry-run] would sync Gitea mirrors and require a Succeeded ci-* run for origin/main of core, api, worker, frontend"
+    [[ -n "${ALLOW_RED}" ]] && echo "[dry-run] --allow-red ${ALLOW_RED}"
+  else
+    wait_for_ci < <(ci_pairs_from_origin)
+  fi
+  step_end
+fi
 
 step "no deliver run in flight"
 deliver_free
@@ -260,6 +404,15 @@ if [[ "${ENV_NAME}" == "prod" ]]; then
   else
     cat "${OUT_DIR}/pinned.log" >&2
     refuse "could not generate the pinned spec from ${FROM_STG}"
+  fi
+  step_end
+
+  step "Gitea mirror and CI for the STG SHAs"
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    echo "[dry-run] would sync Gitea mirrors and require a Succeeded ci-* run for each SHA in ${OUT_DIR}/stg-commits.txt"
+    [[ -n "${ALLOW_RED}" ]] && echo "[dry-run] --allow-red ${ALLOW_RED}"
+  else
+    wait_for_ci < <(ci_pairs_from_stg_commits)
   fi
   step_end
 fi

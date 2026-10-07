@@ -1,5 +1,5 @@
 <!--
-parity-ids: workspace-v13, language-v1, agent-modes-v2, trade-execution-freeze-v3, dev-services-v3, phase-execution-v3, shared-worktree-v3, business-first-v1
+parity-ids: workspace-v14, language-v1, agent-modes-v2, trade-execution-freeze-v3, dev-services-v3, phase-execution-v3, shared-worktree-v3, business-first-v1
 对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
 改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
 -->
@@ -175,6 +175,12 @@ husky 仓库（frontend、platform）新开的 worktree 不执行任何钩子，
 ```bash
 bifrost-trade-infra/scripts/release/release.sh window   # 没有窗口 exit 0；有窗口打印持有者并 exit 1
 ```
+
+Research 与插件发布用**同一个**窗口文件（`~/.bifrost-release/window.json`）。`what` 是仓库名（逗号分隔）。
+先 `release.sh hold --what <repo>`，它把窗口镜像到 ConfigMap `cicd/bifrost-release-window`。
+deliver-research、Dagster 构建和插件构建流水线的第一个 task 会读它：窗口不是这个仓库的就拒绝。
+platform-api `start_pipeline_run` 还要求请求里的 `who` 等于窗口里的持有者。
+`release.sh stg|prod` 会先同步 Gitea 镜像，再要求该 SHA 有 Succeeded 的 `ci-*`（Owner 用 `--allow-red <原因>` 放行，原因写进日志）。
 
 - **窗口开着：等它关，或者问 Owner**，不推、不起 run。持有进程已不在时脚本会提示是残留锁，
   要不要 `release.sh window --clear` 由 Owner 决定。

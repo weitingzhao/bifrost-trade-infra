@@ -43,7 +43,7 @@ spec:
   params:
     - name: revision
       type: string
-      default: main
+      description: 40-character lowercase git SHA. Branch names, including main, are refused.
     - name: giteaBase
       type: string
       default: http://gitea.cicd.svc.cluster.local:3000/bifrost
@@ -66,9 +66,25 @@ spec:
   workspaces:
     - name: build-context
   tasks:
+    # Fail fast: the window must name bifrost-research, and revision must be a SHA.
+    - name: release-window
+      taskRef:
+        name: bifrost-release-window
+      params:
+        - name: pipeline
+          value: bifrost-deliver-research
+    - name: validate-revision
+      taskRef:
+        name: bifrost-validate-git-sha
+      params:
+        - name: revision
+          value: $(params.revision)
+
     # Trade deliver pipelines do not clone research, so this run syncs only the
-    # research mirror rather than the full 8-repo Trade list.
+    # research mirror rather than the full 8-repo Trade list. expectSha waits
+    # until Gitea has that commit (TD-155) before the clone.
     - name: mirror-sync
+      runAfter: [release-window, validate-revision]
       taskRef:
         name: bifrost-gitea-mirror-sync
       params:
@@ -76,6 +92,10 @@ spec:
           value: $(params.giteaBase)
         - name: mirrorRepos
           value: "bifrost-research"
+        - name: expectSha
+          value: $(params.revision)
+        - name: expectRepo
+          value: bifrost-research
 
     - name: clone-research
       runAfter: [mirror-sync]
@@ -86,12 +106,40 @@ spec:
           value: $(params.giteaBase)/bifrost-research.git
         - name: revision
           value: $(params.revision)
+        - name: subdir
+          value: bifrost-research
       workspaces:
         - name: output
           workspace: build-context
 
-    - name: build-research
+    - name: clone-infra
       runAfter: [clone-research]
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-trade-infra.git
+        - name: revision
+          value: main
+        - name: subdir
+          value: bifrost-trade-infra
+      workspaces:
+        - name: output
+          workspace: build-context
+
+    - name: lint-test
+      runAfter: [clone-research, clone-infra]
+      taskRef:
+        name: bifrost-research-lint-test
+      params:
+        - name: sourceDir
+          value: bifrost-research
+      workspaces:
+        - name: source
+          workspace: build-context
+
+    - name: build-research
+      runAfter: [lint-test]
       params:
         - name: image
           value: $(params.registry)/bifrost-research:$(params.tag)
@@ -109,7 +157,7 @@ spec:
             image: gcr.io/kaniko-project/executor:v1.23.2
             args:
               - --dockerfile=Dockerfile
-              - --context=$(workspaces.source.path)
+              - --context=$(workspaces.source.path)/bifrost-research
               # base = Research API + CronJob engines. The Dagster image is a
               # different artifact rolled out to a different Deployment, so it
               # gets its own build-only pipeline (bifrost-build-research-dagster)
@@ -148,7 +196,7 @@ spec:
             script: |
               #!/bin/sh
               set -eu
-              manifest="$(workspaces.source.path)/k8s/api/deployment.yaml"
+              manifest="$(workspaces.source.path)/bifrost-research/k8s/api/deployment.yaml"
               pin="$(grep -oE 'bifrost-research:[A-Za-z0-9._-]+' "$manifest" | head -1 | cut -d: -f2 || true)"
               printf '%s' "$pin" > "$(results.manifestTag.path)"
               if [ -n "$pin" ] && [ "$pin" = "$(params.tag)" ]; then

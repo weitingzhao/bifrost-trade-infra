@@ -5,12 +5,9 @@
 # Deployment (k8s/orchestration/dagster.yaml) and must not trigger that rollout.
 # Build only — bump k8s/orchestration/dagster.yaml once the tag is in registry.
 #
-# Kaniko clones from Gitea. Refresh the mirror first:
-#   make k3s-sync-gitea-mirrors
-#
-# platform-api's generic runner injects neither params nor the build-context
-# workspace for this pipeline, so create the run from its template:
-#   kubectl -n cicd create -f k8s/cicd/tekton/pipelinerun-build-research-dagster.yaml
+# The run refuses a non-SHA revision, refuses while the release window is held
+# for another repo, syncs the Gitea mirror until that SHA is present, then
+# runs ruff + pytest + code-health on the clone before Kaniko.
 #
 # The orchestration stage runs `dbt deps && dbt parse` so the image ships
 # dbt/target/manifest.json. Without it dagster-dbt loads zero assets and the
@@ -25,12 +22,12 @@ metadata:
     bifrost.io/purpose: dagster-build
 spec:
   description: >-
-    Clone bifrost-research from Gitea and build the Dagster (orchestration)
-    image with Kaniko.
+    Clone one bifrost-research SHA from Gitea, lint and test it, then build
+    the Dagster (orchestration) image with Kaniko.
   params:
     - name: revision
       type: string
-      default: main
+      description: 40-character lowercase git SHA. Branch names, including main, are refused.
     - name: giteaBase
       type: string
       default: http://gitea.cicd.svc.cluster.local:3000/bifrost
@@ -40,7 +37,33 @@ spec:
   workspaces:
     - name: build-context
   tasks:
+    - name: release-window
+      taskRef:
+        name: bifrost-release-window
+      params:
+        - name: pipeline
+          value: bifrost-build-research-dagster
+    - name: validate-revision
+      taskRef:
+        name: bifrost-validate-git-sha
+      params:
+        - name: revision
+          value: $(params.revision)
+    - name: mirror-sync
+      runAfter: [release-window, validate-revision]
+      taskRef:
+        name: bifrost-gitea-mirror-sync
+      params:
+        - name: giteaBase
+          value: $(params.giteaBase)
+        - name: mirrorRepos
+          value: "bifrost-research"
+        - name: expectSha
+          value: $(params.revision)
+        - name: expectRepo
+          value: bifrost-research
     - name: clone-research
+      runAfter: [mirror-sync]
       taskRef:
         kind: Task
         name: bifrost-git-clone-gitea
@@ -54,9 +77,33 @@ spec:
       workspaces:
         - name: output
           workspace: build-context
+    - name: clone-infra
+      runAfter: [clone-research]
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-trade-infra.git
+        - name: revision
+          value: main
+        - name: subdir
+          value: bifrost-trade-infra
+      workspaces:
+        - name: output
+          workspace: build-context
+    - name: lint-test
+      runAfter: [clone-research, clone-infra]
+      taskRef:
+        name: bifrost-research-lint-test
+      params:
+        - name: sourceDir
+          value: research
+      workspaces:
+        - name: source
+          workspace: build-context
     - name: kaniko
       runAfter:
-        - clone-research
+        - lint-test
       params:
         - name: image
           value: $(params.image)
