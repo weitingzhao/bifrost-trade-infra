@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-220 / TD-231 / TD-252** — platform 写路由全部要角色、LoadAuth 失败可见；环境名单与 IB 样本合约改由配置给出；research 的 dbt 通用测试打进镜像、10-06 夜间批次已补跑（platform 26cd884 STG+PROD，research 0.204.0） · 验收 PASS（10-07：匿名 POST 401、auth_loaded=true、readiness 三环境齐全、research_trading_day 24 步 SUCCESS、lens_hit 10-06 1144 行） · 防线：`auth_routes_test.go` TestEveryMutatingRouteRequiresARole、`tradevocab` TestTradeVocabularyOnlyShrinks、`bifrost-research/tests/test_dbt_package_data.py` · 后续：TD-231 余下 32 行 Trade 词汇（预算表在 tradevocab 测试里，只降不升，无新编号）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
@@ -1689,8 +1690,8 @@
 
 **P3 · ops-platform · No test enumerates platform-api routes for auth: POST /cluster/sync-kubeconfig and the plane's POST /hermes/run-first-task are unauthenticated, and a failed LoadAuth is not logged**
 
-- **状态**：观察中（Cursor LANE-P 已完成：platform 分支 cursor/td-platform，infra 分支 cursor/td-platform；要你批：合并两分支 + platform 发版；infra 告警 BifrostPlatformAuthNotLoaded 随 Argo 生效）
-- **验收结果**：PASS（代码层）Claude 10-07 复验：五个 platform 提交叠到 main 22863e2 无冲突，go build/vet/test 54 包 ok、点名验收 18 个 PASS、console tsc/lint/vitest 118 文件 801 passed/build、mcp tsc 全过；infra 三分支叠到 main 无冲突，check_ui_revision / check_redis_config / check_alert_routing / check_http_metrics_coverage 全过。上线后：`curl -s -o /dev/null -w '%{http_code}' -X POST <platform>/api/v1/cluster/sync-kubeconfig` → 401
+- **状态**：待你签收（platform STG 1791348331 + PROD 1791348579 已上 26cd884（10-07）；告警 BifrostPlatformAuthNotLoaded 已 apply，infra 32bcd35）
+- **验收结果**：PASS 2026-10-07 26cd884：STG/PROD 匿名 POST /api/v1/cluster/sync-kubeconfig → 401，/health auth_loaded=true；Go 56 包 ok（含 TestEveryMutatingRouteRequiresARole）
 - **Claim**: TestRouterRequiresAuthForOperatorRoutes spot-checks only /agent/nightly-run and /patrol/trigger. The only chi.Walk test (operatorplane/plane_test.go) checks route-set parity, not auth. So mutating routes outside Require groups ship unnoticed. Besides /console/ws (TD-203) and /checklist/husbandry-sync (TD-208), there are two more. POST /cluster/sync-kubeconfig runs the ssh kubeconfig-sync script and overwrites ~/.kube/bifrost-k3s.yaml on the bdev instance, where PLATFORM_CLUSTER_SYNC_ENABLED=1; it answers 200 with OK:false when sync is disabled. The plane's POST /hermes/run-first-task is operator=false; it runs readiness and appends an insight record. Separately, server.New replaces a failed LoadAuth with an empty AuthService without logging. That fails closed (every gated route answers 401) but looks like a token problem.
 - **Measured**: MEASURED: a chi.Walk over a scratch copy (reading middleware names only, no requests sent) found 3 of 83 non-GET routes without Require: husbandry-sync, sync-kubeconfig and run-first-task. A POST without a token to /api/v1/patrol/trigger/does-not-exist-x on PROD returns 401, so the gated routes work. The bdev process env has PLATFORM_CLUSTER_SYNC_ENABLED=1. No POST was sent to the ungated routes.
 - **Evidence**:
@@ -1761,7 +1762,7 @@
 
 **P3 · ops-console · Read-only MCP bridges fail open: an unknown or misspelled MCP_BRIDGE_FOCUS registers all 74 tools, and PLATFORM_OPERATOR_TOKEN in env overrides the viewer-token pin**
 
-- **状态**：观察中（Cursor LANE-P 已完成：platform 分支 cursor/td-platform，infra 分支 cursor/td-platform；要你批：合并两分支 + platform 发版；合并 infra 的 .mcp.json 前，本机要先有 PLATFORM_VIEWER_TOKEN，否则三座只读桥 401）
+- **状态**：观察中（platform 侧已上 PROD 26cd884：未知 focus 退出 1、pin 只读 pin 键；infra 的 .mcp.json（Cursor 分支 cursor/td-platform 的 bcd36b4）**未合**——等你本机配好 PLATFORM_VIEWER_TOKEN 再合，否则三座只读桥 401）
 - **验收结果**：PASS（代码层）Claude 10-07 复验：五个 platform 提交叠到 main 22863e2 无冲突，go build/vet/test 54 包 ok、点名验收 18 个 PASS、console tsc/lint/vitest 118 文件 801 passed/build、mcp tsc 全过；infra 三分支叠到 main 无冲突，check_ui_revision / check_redis_config / check_alert_routing / check_http_metrics_coverage 全过（mcpFocusBridges.test.ts 4 passed）
 - **Claim**: focusAllowList returns null for an unknown focus ('for backward compatibility'), and index.ts treats null as 'register everything', so a typo on a bridge documented as read-only L0 (redis, postgres) serves drain, data-clone and rollback. In platformClient.resolveToken, PLATFORM_OPERATOR_TOKEN from env wins before the PLATFORM_TOKEN_ENV_KEY viewer pin is consulted, and .mcp.json passes a PLATFORM_OPERATOR_TOKEN reference to the redis, postgres and prometheus bridges. Today the reference expands to empty in this shell, so the pin holds; the risk needs a focus typo plus an exported operator token.
 - **Measured**: CODE-READ. Live: the configured bridges expose the expected sliced tool lists in this session. Only .mcp.json key names and the first two characters of values were read; PLATFORM_OPERATOR_TOKEN is unset in the session shell.
@@ -1799,8 +1800,8 @@
 
 **P3 · ops-platform · Trust overrides resolve to $HOME in the cluster and swallow read and write errors: the Owner's 09-07 L0 grant for research-loop-batch never reached the harness that reads PROD**
 
-- **状态**：观察中（Cursor LANE-P 已完成：platform 分支 cursor/td-platform，infra 分支 cursor/td-platform；要你批：合并两分支 + platform 发版；PROD 发版后要重新 PUT 一次 research-loop-batch 的 L0 trust override，旧授权在 HOME 文件里不迁移）
-- **验收结果**：PASS（代码层）Claude 10-07 复验：五个 platform 提交叠到 main 22863e2 无冲突，go build/vet/test 54 包 ok、点名验收 18 个 PASS、console tsc/lint/vitest 118 文件 801 passed/build、mcp tsc 全过；infra 三分支叠到 main 无冲突，check_ui_revision / check_redis_config / check_alert_routing / check_http_metrics_coverage 全过。上线后 GET /api/v1/agent/governance/trust-overrides 的 store = configmap <ns>/platform-trust-overrides
+- **状态**：观察中（platform STG 1791348331 + PROD 1791348579 已上 26cd884（10-07）；PROD store=configmap bifrost-platform-prod/platform-trust-overrides，当前为空——要你在 Console Governance 页重新授予 research-loop-batch 的 L0（需要 operator 令牌，Agent 不碰））
+- **验收结果**：PASS（代码层）2026-10-07 26cd884：STG/PROD GET trust-overrides 返回 store=configmap …/platform-trust-overrides；待 L0 重新授予后再验 research harness 读到
 - **Claim**: In both cluster overlays, TrustOverrideStore resolves to $HOME/.bifrost-platform/governance, outside even the /app/data emptyDir, because PLATFORM_GOVERNANCE_DIR and PLATFORM_PROJECT_ROOT are unset. Put discards the os.WriteFile error, and List returns {} on a read error. The Owner's 2026-09-07 L0 for research-loop-batch exists only as a file in the shared checkout (bifrost-platform/agent/governance/trust_overrides.json). PROD and STG serve {} and L1, so research-harness records trust L1 every weekday. As of 00:57 UTC the local bdev platform-api also serves {}, although its PLATFORM_PROJECT_ROOT points at that file, so the read fails silently there too. The same silent read failure hides the local release_gate_state*.json (TD-230). TD-196's planned ratchet checks only PLATFORM_DATA_DIR paths and would miss this.
 - **Measured**: MEASURED 2026-10-07 00:57 UTC: trust-overrides returns {} on local 127.0.0.1:8780, PROD 30876 and STG 30878; trust-matrix is L1 everywhere. The last research-harness Job logs 'research-loop-batch at Trust L1', trust_l0_override=false. The checkout file holds L0 dated 2026-09-07.
 - **Evidence**:
@@ -1817,8 +1818,8 @@
 
 **P3 · ops-platform · Platform's IB feed verdict hangs on one hard-coded NVDA sample tick, and Trade namespaces and DB names are Go literals (53 matches), with no ratchet against growth**
 
-- **状态**：观察中（Cursor LANE-P 已完成：platform 分支 cursor/td-platform，infra 分支 cursor/td-platform；要你批：合并两分支 + platform 发版；infra 的 platform-{prod,stg}/config/environments.yaml 必须先于或同时于 platform 发版落地，否则 readiness/cutover 为空）
-- **验收结果**：PASS（代码层）Claude 10-07 复验：五个 platform 提交叠到 main 22863e2 无冲突，go build/vet/test 54 包 ok、点名验收 18 个 PASS、console tsc/lint/vitest 118 文件 801 passed/build、mcp tsc 全过；infra 三分支叠到 main 无冲突，check_ui_revision / check_redis_config / check_alert_routing / check_http_metrics_coverage 全过；Trade 词汇行 53→32，防线 tradevocab TestTradeVocabularyOnlyShrinks
+- **状态**：待你签收（platform STG 1791348331 + PROD 1791348579 已上 26cd884（10-07）；infra 939d8a2 的 environments.yaml 先行由 Argo 同步）
+- **验收结果**：PASS 2026-10-07 26cd884：STG/PROD /api/v1/cluster/service-readiness 列出 bifrost-dev/stg/prod；Go tradevocab/config/cluster/ibgateway 测试 ok；Trade 词汇行 53→32
 - **Claim**: In live mode, platform's IB gateway verdict uses one hard-coded sample contract, ib:ingester:tick:NVDA|STK|||: a missing tick yields degraded, and a tick older than 180 s yields fail. Trade namespaces, DB names and daemon auto_status parsing are Go literals across ibgateway, cluster, satellite and others. IB-gateway health living in platform is sanctioned by the signed D-IB-Heal (authority api/internal/ibgateway), so the defect is the hard-coded contract and the literals, not the package's existence. Separately, 32 Console/MCP files outside the architecture catalog carry Trade vocabulary (SEPA, Greeks).
 - **Measured**: MEASURED by grep on origin/main non-test Go under api/internal: 53 matches for NVDA|"ib:|ws_ib_|auto_status|"bifrost-(prod|stg|dev)". PROD /plugins/ib-gateway/status exposes sample_tick_nvda (fresh). 32 non-catalog Console/MCP files carry Trade vocabulary.
 - **Evidence**:
@@ -1835,8 +1836,8 @@
 
 **P3 · trade-worker · @bifrost/ui is unversioned for the Ops Console: a ui push never runs platform CI, and platform deliver builds whatever ui main is without recording its SHA**
 
-- **状态**：观察中（Cursor LANE-U：infra 分支 cursor/td-ui-pin + platform 分支 cursor/td-ui-pin；要你批，顺序固定：先合 infra 并把 Tekton Pipeline/Trigger apply 到集群，再合 platform 并发版；以后 PROD platform 可用 platform-prod-pinned-from-stg.sh 钉 ui）
-- **验收结果**：PASS（代码层）Claude 10-07 复验：五个 platform 提交叠到 main 22863e2 无冲突，go build/vet/test 54 包 ok、点名验收 18 个 PASS、console tsc/lint/vitest 118 文件 801 passed/build、mcp tsc 全过；infra 三分支叠到 main 无冲突，check_ui_revision / check_redis_config / check_alert_routing / check_http_metrics_coverage 全过；防线 scripts/check_ui_revision.py（origin/main 11 处 → 分支 0）
+- **状态**：观察中（infra 2d04455 的 5 条 Pipeline + trigger 已 apply 到集群，platform 26cd884 已上 PROD；到下一次 bifrost-ui 推 main 时看 ci-platform 是否带 uiRevision=<40hex> 起跑）
+- **验收结果**：PASS（代码层 + 集群对象）2026-10-07：check_ui_revision.py 0；kubectl apply 5 Pipeline configured、bifrost-ci-platform-template 与 EventListener bifrost-ci configured
 - **Claim**: Both consumers take @bifrost/ui as file:../../bifrost-ui, with Vite and tsconfig aliases to its dist, so no version is pinned. A ui push triggers only frontend-ci-ui, never ci-platform. pipeline-deliver-platform(-prod) clones bifrost-ui at $(params.revision), which can only be main, and nothing records the ui commit. Type breaks are still caught by the deliver build, but default and behaviour changes marked 'Ops 同变' reach the PROD Console untested, and a Console rollback cannot restore the ui it was built with. The Trade UserCenter UI_VERSION_NOW is a hand constant.
 - **Measured**: MEASURED in cicd: ci-frontend runs carry uiRevision=<ui SHA> for 4 ui pushes; no ci-platform run in retention has a non-main uiRevision, and every bifrost-deliver-platform run binds revision=main. ui 0.10.0–0.13.0 landed 10-04..10-06 with Console defaults changed.
 - **Evidence**:
@@ -1889,7 +1890,7 @@
 
 **P3 · data · The three per-env Redis instances run --appendonly yes with no volume, and with noeviction but no maxmemory the only memory bound is an OOMKill**
 
-- **状态**：观察中（Cursor LANE-U：infra 分支 cursor/td-redis；要你批：合并后手工 `kubectl diff -k k8s/data/redis` 再 apply，会重启 redis-live-prod / -stg / redis-dev，内存 key 丢失（PROD 实测 3 个带 TTL 的 key），并顺带纠正 redis-dev 三个对象的标签漂移）
+- **状态**：观察中（Owner 10-07 批准合并并 apply；Claude 推 main + apply 被 auto mode 拦下，未执行。提交已备好：infra worktree scratchpad/ir 的 e991af7（= Cursor ce91d81 叠到 2da36f6），要你在终端推送并 apply）
 - **验收结果**：PASS（静态）2026-10-07：check_redis_config.py self-test ok、全仓 exit 0（origin/main 12 处 → 0）。上线后 redis-cli CONFIG GET appendonly maxmemory → no / 838860800（PROD）
 - **Claim**: instances.yaml starts redis-live-prod, redis-live-stg and redis-dev with --appendonly yes and --maxmemory-policy noeviction, with no volumes and no --maxmemory. AOF and RDB go to the container's writable layer and vanish on any pod recreate, while about 29 MB of AOF is written for 3 keys. With maxmemory 0, noeviction never applies, so a runaway writer is OOM-killed at the limit instead of getting write errors.
 - **Measured**: MEASURED 2026-10-07 via read-only INFO on PROD: aof_enabled 1, aof_current_size 29728464, maxmemory 0, policy noeviction, DBSIZE 3, used_memory 1.59M. The Deployments have no volumes.
@@ -1938,7 +1939,7 @@
 
 **P3 · agent-governance · RATCHETS.md, TECH_DEBT.md and agent docs state facts the round-3 scan measured as no longer true**
 
-- **状态**：在做（Cursor LANE-D 已出逐条更正表 cursor-tasks/reports/LANE-D.md：13 条中 9 成立、2 部分、2 已修好，另新发现 2 条；等你选 D-IB-Heal 措辞 A/B/C 后由 Claude 一次落表）
+- **状态**：在做（Owner 10-07 选 A；Cursor LANE-G 落地更正表（cursor-tasks/LANE-G-governance-docs.md））
 - **Claim**: (1) RATCHETS: BifrostAPIHighErrorRate says it matches only namespace=~"bifrost-.*"; bifrost-alerting-rules.yaml:49 now matches "bifrost-.*|research|plugin-.*". (2) RATCHETS: the TD-161 row names research/market-data test_http_metrics.py under tests/; the real path is tests/api/test_http_metrics.py (only flex-query uses tests/). (3) RATCHETS: the ci-python row says trade-api main has been CI-red since 10-04; ci-python-bifrost-trade-api-5jndn (10-06 18:56Z) is Completed (green). (4) RATCHETS: the FE eslint row says 0 error / 65 warning; measured now: 0 error / 1 warning. (5) RATCHETS: DoctorPanel.computing (TD-165) and slotScheduler (TD-108) are registered as warning (in CI), but ci-platform runs no Console vitest, so they are manual. (6) RATCHETS: the FE husky pre-commit is registered as blocking but was bypassed: origin/main dfb7858e pushed frontend duplicated-function-names to 1/0 (four `pct` definitions with four unit conventions), and scan.sh exits 1 on clean and shared trees. (7) RATCHETS: OVERSIZED_UI_BASELINE has a baseline, but no CI job runs code-health --repo bifrost-ui. (8) TECH_DEBT TD-140: the stated cause ('only the frozen daemon writes contract_quote_live') is wrong; the daemon runs, and the mirror is gated off by mock_hedging (see merged_into_existing). (9) TECH_DEBT TD-196: its acceptance checks only survival across a rollout, not api→workers visibility, and the data-clone store caches its file at construction. (10) Docs: CLAUDE.md §3 and agentProtocolCatalog FORBIDDEN_ACTIONS say only the daemon writes ib:operator:cmd, which contradicts the signed D-IB-Heal (TD-221). AGENT_FACTS §8c omits NodePorts 30379/30380/30382/30432 (TD-205) and lists a data-warehouse MinIO that never ran (TD-237). Worker CLAUDE.md:62 claims open orders and TWS fills are persisted (TD-211).
 - **Measured**: MEASURED by the round-3 ratchet-inventory agent (2026-10-07); not adversarially re-verified.
 - **Evidence**:
@@ -1968,7 +1969,7 @@
 
 **P3 · frontend · 42 frontend modules are unreachable from src/main.tsx (largest clusters: components/cockpit/ 8, utils/dataOverview/ 6); dead code invites fixes and false audit findings**
 
-- **状态**：未开始（Owner 10-07 批准删；Cursor LANE-D 已按目录列出 8 批 42 个文件，在 cursor-tasks/reports/LANE-D.md 里逐批勾选，勾完由 Cursor 删）
+- **状态**：在做（Owner 10-07 勾选 B1–B8；Cursor LANE-O 删除 40 个文件，winRate.ts 先核对对账规则、designInks.generated.ts 保留并排除统计（cursor-tasks/LANE-O-orphans.md））
 - **Claim**: TD-199's orphan-module ratchet lists them in KNOWN_ORPHANS; each is imported by nothing reachable from the app entry.
 - **Measured**: MEASURED 10-07 by paydown lane EE (import-graph walk from src/main.tsx).
 - **Evidence**:
@@ -2045,8 +2046,9 @@
 
 **P1 · research-data · The dbt generic tests are not in the wheel: research_trading_day failed to compile on 10-07 and no engine ran for the 10-06 session**
 
-- **状态**：在做（0.204.0 = f717fbb 已推 main，镜像 0.204.0 / 0.204.0-dagster 已入 registry；pin 提交 8524e62 在本地未推——推 pin、apply Dagster、补跑 10-06 的 research_trading_day 要你批）
+- **状态**：待你签收（research 0.204.0 已上线 10-07 04:29 UTC：pin 8524e62，api/mcp 0.204.0，Dagster 0.204.0-dagster；镜像里有 dbt/tests/generic）
 - **验收**：补跑后：Dagster research_trading_day SUCCESS，`features.stock_signal_lens_hit_daily` 有 trade_date=2026-10-06 的行（6 个 lens），elementary 无 Compilation Error
+- **验收结果**：PASS 2026-10-07：补跑 research_trading_day a5a88fe2 SUCCESS（24 步全过，04:31–04:42 UTC）；lens_hit 10-06 1144 行 / 6 lens，10-05 也补齐为 1127 / 6；防线 tests/test_dbt_package_data.py
 - **Claim**: pyproject package-data lists dbt models, macros, seeds and snapshots but not dbt/tests/**, so tests/generic/sepa_session_is_newest_trading_day.sql and assert_pass_count_range.sql (0.180.0 / TD-111) never reached the container. dbt build exited 1 on compilation errors; sepa_projection, scan, signal_hit, option_universe, pine, suggestion_ledger and alert_scan were skipped. Editable installs read the source tree, so local runs passed.
 - **Measured**: MEASURED 10-07: Dagster run 45915b44 (02:30 UTC) FAILURE at bifrost_research_dbt_assets; elementary_test_results 02:38:54 'Compilation Error … test_sepa_session_is_newest_trading_day'; /usr/local/lib/python3.11/site-packages/bifrost_research/dbt has no tests/ in 0.202.0-dagster or 0.203.0-dagster.
 - **Evidence**:
