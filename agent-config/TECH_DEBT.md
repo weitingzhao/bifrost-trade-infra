@@ -1550,7 +1550,7 @@
 
 **P3 · data · The recovery-drill staleness alert assumes a monthly CronJob that does not exist; the Owner set the drill to quarterly and manual**
 
-- **状态**：未开始（Owner 10-07：按季度手工演练、保留 MinIO 只读用户。与 ops-arch LANE-A6 重叠，已提议交「找新的债务」会话在 A6 内处理并合并两套演练件（k8s/data/recovery-drill 与 k8s/data/drills）；Cursor LANE-Q 已暂停）
+- **状态**：在做（10-07 由 ops-arch 会话接手，并入 `agent-config/work/ops-arch/LANE-A6R.md`：两套演练件合成一套、核对脚本三处修复、按「最近一次 PASS 超过约 100 天」告警并补记 10-07 的 PASS；还债会话的 Cursor LANE-Q 已停）
 - **Claim**: k8s/monitoring/td-d2-postgres-rules.yaml BifrostPostgresRecoveryDrillStale checks the last success of a CronJob pg-recovery-drill within 35 days. The 10-07 drill was run by hand (no CronJob), so the rule would fire permanently; it was taken out of the monitoring kustomization (infra 3791768). Owner 10-07: drill quarterly at most, keep the MinIO read-only user pg-recovery-drill.
 - **Measured**: MEASURED 10-07: first drill PASS 2026-10-07 (compare.sh + A6 104/105); no CronJob pg-recovery-drill exists.
 - **Evidence**:
