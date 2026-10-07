@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-222 / TD-131 / TD-109** — daemon 任何扩容在 D10 未解锁时都拒；修 WAL 不再删失败的 Backup 记录（只清 30 天前的）；PROD 的 ops-context 从 22 个 decision 补到 55 个并加对齐检查（Cursor LANE-S2，platform d8bdf41 + infra 1aff307） · 验收 PASS（10-07：Go 56 包 ok、点名 10 个测试 PASS、PROD 55 decisions D10 BLOCKED、workers 带清扫开关） · 防线：`api/internal/cluster/actuation_scale_test.go`、`postgres_wal_repair_test.go`、`bifrost-trade-infra/scripts/check_ops_context_parity.py`（ci-platform task check-ops-context） · 后续：ci-platform 仍不挡 release.sh（已在「闸门本身不挡发布」，无新编号）
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-254** — 备份只归 CNPG 每日备份 + backup-retry：autopilot 遇到备份不新鲜只报告、不再调 repair_cnpg_wal_store（不再删失败的 Backup、不再盘中补全量备份；工具留给人手动用）。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「autopilot 备份不动手测试」。后续：无后续：剩下的收敛在 TD-130（观察到 10-12）
@@ -608,8 +609,8 @@
 
 **P2 · ops-platform · PROD platform-api reads a deployed ops-context.yaml copy last synced 2026-08-24: about 33 spine decisions missing (D-Journal-Stores, D-Ops-Split, D-Wave-10..13)**
 
-- **状态**：观察中（Cursor LANE-S2 已完成并经 Claude 复验：platform 分支 cursor/s2-platform 3f0408f、infra 分支 cursor/s2-infra da9376a（rebase 后 Makefile 冲突已解）；待 Owner 在对话里确认：合 infra（Argo 换 STG/PROD ops-context + PROD 打开 Backup 清扫）、合 platform 并发版、apply bifrost-ci-platform Pipeline）
-- **验收结果**：PASS（代码层）2026-10-07：check_ops_context_parity.py self-test ok，对 platform main 55 decisions 一致、D10=BLOCKED；PROD 旧副本缺 33 个 decision，合 infra 后由 Argo 换新
+- **状态**：待你签收（infra 1aff307 经 Argo 同步，bifrost-ci-platform Pipeline 已 apply 新 task check-ops-context）
+- **验收结果**：PASS 2026-10-07 1aff307：PROD ConfigMap bifrost-platform-config 的 ops-context 55 个 decision（原 22）、D10 BLOCKED；check_ops_context_parity.py 对 platform main 一致；make check-platform-maintenance ok
 - **Claim**: bifrost-trade-infra/k8s/overlays/platform-prod/config/ops-context.yaml is mounted as ConfigMap bifrost-platform-config by PROD platform-api and platform-workers. It is a hand-kept copy of bifrost-platform config/ops-context.yaml and has not been synced since 0170331 (2026-08-24), so Ops Console on the cluster shows a spine ~6 weeks stale. platform CI's check_spine_catalog.sh does not compare the deployed copies.
 - **Measured**: MEASURED by the ratchet-inventory pass: 17 decision ids in the PROD copy vs 50 on platform origin/main (diff 502/538 lines); a quick regex recount here gives 22 vs 55 '- id: D…' lines. Last commit touching the copy: 0170331 2026-08-24. Not adversarially re-verified; whether D10 state read by preflight comes from this copy was not checked (preflight reads the workspace spine).
 - **Evidence**:
@@ -848,7 +849,7 @@
 
 **P2 · ops-control · repair_cnpg_wal_store deletes failed Backup CRs, erasing the record of failed backups**
 
-- **状态**：观察中（Cursor LANE-S2 已完成并经 Claude 复验：platform 分支 cursor/s2-platform 3f0408f、infra 分支 cursor/s2-infra da9376a（rebase 后 Makefile 冲突已解）；待 Owner 在对话里确认：合 infra（Argo 换 STG/PROD ops-context + PROD 打开 Backup 清扫）、合 platform 并发版、apply bifrost-ci-platform Pipeline）
+- **状态**：待你签收（platform d8bdf41（STG 1791353349 + PROD 1791353570，10-07）；infra 1aff307 让 PROD platform-workers 打开 PLATFORM_BACKUP_CR_SWEEP=1）
 - **验收结果**：PASS（代码层）2026-10-07 Claude 复验：S2 叠到 platform d8833e5 + b5dccde 后 go build/vet ok、55 包 ok（唯一红的是血缘会话 checklist/prober.go 的 safego，与本项无关），点名 10 个测试 PASS（repair 不再 delete Backup；只清 30 天前失败的）；check_platform_rbac.py 82 项一致
 - **Claim**: RepairPostgresWalStore calls deleteStuckBackupCRs, which deletes every bifrost-postgres-* Backup in phase failed or walArchivingFailing before it starts an on-demand Backup. CloudNativePG itself only deletes completed backups that are no longer in the object-store catalog. The failed 10-03 and 10-04 03:00 backups and the failed 10-03 manual one were gone from the cluster within hours; only Prometheus and a MinIO trace kept the evidence. On 10-06 16:15 UTC it deleted bifrost-postgres-ondemand-20261006-044532 (stopped on the Owner's request during the MinIO cutover) the same way. Independent of TD-130: can be fixed while the local autopilot is still the acting one.
 - **Measured**: MEASURED 2026-10-06: the Backup CRs of those three runs are absent; CNPG v1.27.4 `pkg/management/postgres/backup.go` deleteBackupsNotInCatalog skips every phase but completed.
@@ -1708,7 +1709,7 @@
 
 **P3 · ops-platform · Platform's D10 scale guard only blocks daemon 0→n: the PROD daemon (2, observe-safe) and DEV (1) can be scaled to 20 by any operator-token caller that bypasses preflight**
 
-- **状态**：观察中（Cursor LANE-S2 已完成并经 Claude 复验：platform 分支 cursor/s2-platform 3f0408f、infra 分支 cursor/s2-infra da9376a（rebase 后 Makefile 冲突已解）；待 Owner 在对话里确认：合 infra（Argo 换 STG/PROD ops-context + PROD 打开 Backup 清扫）、合 platform 并发版、apply bifrost-ci-platform Pipeline）
+- **状态**：待你签收（platform d8bdf41（STG 1791353349 + PROD 1791353570，10-07））
 - **验收结果**：PASS（代码层）2026-10-07 Claude 复验：S2 叠到 platform d8833e5 + b5dccde 后 go build/vet ok、55 包 ok（唯一红的是血缘会话 checklist/prober.go 的 safego，与本项无关），点名 10 个测试 PASS（TestScaleDaemon* 覆盖 0→1/1→2/2→3 拒绝、缩容放行、spine 缺 D10 视为 BLOCKED）
 - **Claim**: Scale refuses only when Name=='daemon' and current==0. The PROD daemon runs at 2 and DEV at 1, so 2→20 and 1→20 pass. Claude sessions are covered: preflight d10McpRule blocks MCP scale_deployment of daemon to any replicas>0. The remediation runner, the Console and a direct HTTP call with an operator token are not covered. Argo does not auto-sync bifrost-prod or bifrost-stg, so a manual scale persists. The only test covers 0→2 in stg and 2→0 in prod.
 - **Measured**: MEASURED 2026-10-07: bifrost-prod/daemon 2/2, bifrost-dev/daemon 1/1, bifrost-stg/daemon 0/0. syncPolicy.automated is empty on Argo apps bifrost-prod and bifrost-stg. The scale endpoint was not called.
