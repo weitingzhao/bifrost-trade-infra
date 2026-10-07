@@ -1538,7 +1538,7 @@
 
 **P3 · market-data · market-data code strings and scripts still mention CronJobs: the dashboard label 'CronJob archived' and verify-market-data.sh's hint are user-visible**
 
-- **状态**：未开始
+- **状态**：在做（还债循环 · 道 L1，10-07 03:1x UTC 开工；发版前停下）
 - **Claim**: TD-201's guard scans Markdown only. ingest_dashboard.py:194 renders 'CronJob archived'; scripts/verify-market-data.sh:121 prints 'CronJobs may still be running'; comments in quality.py:22 and scheduler/daily.py:725, :2927.
 - **Measured**: code-read 10-07 by paydown lane Y.
 - **Evidence**:
@@ -1706,7 +1706,7 @@
 
 **P2 · frontend · Risk › Limits 'Daily loss on the allocation' sums the realised P&L of every trade the allocation ever closed, not today's, so a losing day reads 0 consumed**
 
-- **状态**：未开始
+- **状态**：在做（还债循环 · 道 L3，10-07 03:1x UTC 开工；发版前停下）
 - **Claim**: useLimitBook builds lossToday from closedToday, but that filter keeps every closed or expired trade of the running allocation (`i.closed && i.openedOn != null`) and never compares a close date with today. The UTC date only decides whether any reading is shown at all (a fill with trade_date == UTC today). On any day with a fill, the gate-daily-loss row compares the allocation's lifetime realised P&L with guard.max_daily_loss_usd. TradeReading drops closed_on, although all closed trades carry it. readTrades also multiplies every fill by 100, including STK fills; none are attached to trades today, so that part is latent.
 - **Measured**: MEASURED on PROD with GETs only, at origin/main dfb7858e. Gate set 1 has guard.risk.max_daily_loss_usd=5000; status.strategy.active is allocation 1 on gate 1. Recomputing the hook's formula for opportunities {1,2} (53 closed or expired trades) gives lifetime realised of about +$23.5k, so on any fill day the row reads 0 consumed. All 79 closed or expired trades carry closed_on.
 - **Evidence**:
@@ -1898,7 +1898,7 @@
 
 **P3 · ops-console · The release desk's Launch verdict says 'Clear to launch' and enables Agent Deploy when readiness probes failed or are still loading**
 
-- **状态**：未开始
+- **状态**：在做（还债循环 · 道 L2，10-07 03:1x UTC 开工；发版前停下）
 - **Claim**: The readiness helpers return 'unknown' when their fetch has no data (gate, socket, matrix or promote is null). Both blocking predicates treat only 'fail' and 'degraded' as blocking, so 'unknown' falls through to kind 'GO'. buildLaunchCheckpoints sets ok = !blocked, and the signal defaults to 'ok', so the checkpoints render green. TradeReleasePage enables deploy on GO, behind canOperate. Tests cover clear and blocked prod but not unknown.
 - **Measured**: CODE-READ only; no browser was opened, because the Cluster page auto-dispatches.
 - **Evidence**:
@@ -1916,7 +1916,7 @@
 
 **P3 · ops-console · The cockpit mission snapshot keeps a failing probe's last good verdict, under a 'Last probe' stamp that is the newest of seven queries**
 
-- **状态**：未开始
+- **状态**：在做（还债循环 · 道 L2，10-07 03:1x UTC 开工；发版前停下）
 - **Claim**: useMissionSnapshot builds the Control Room and FocusStrip verdict from seven useQuery results. It never reads isError, and TanStack v5 keeps data from the last success when a refetch fails. dataUpdatedAt is the max over all seven queries, so if one probe (matrix or cluster) keeps failing while others succeed, its stale verdict shows under a fresh stamp. A full platform-api outage is visible, because the stamp ages. 11 files use the hook.
 - **Measured**: CODE-READ only (TanStack ^5.100.14; main.tsx sets retry:1).
 - **Evidence**:
@@ -1969,7 +1969,7 @@
 
 **P3 · ops-platform · The platform release gate passes when required checks are 'unknown', and its 'ready' never expires**
 
-- **状态**：未开始
+- **状态**：在做（还债循环 · 道 L2，10-07 03:1x UTC 开工；发版前停下）
 - **Claim**: RunReleaseGate fails only on ReachFail. Required checks that return ReachUnknown (spine milestone missing, smoke URLs unset, an empty probe matrix) produce result=pass, and narrativeBlockers does not treat Unknown as a blocker. responseFromRecord sets ready=true for any past pass with no age bound. checkProdMatrix fails when cfg is nil or prod is missing, but reports OK when the matrix has zero targets. The stale-ready display could not be reproduced on 10-07: the local instance serves no records although the state files exist (the same silent read as TD-229), and PROD's store is empty (TD-196).
 - **Measured**: CODE-READ for unknown→pass. MEASURED 00:59 UTC: local GET release-gate answers 'No … release gate recorded yet' for all four tiers while bifrost-platform/data/release_gate_state*.json exists (newest prod record 08-31). The gate has not run for over a month; releases go through release.sh and Tekton.
 - **Evidence**:
@@ -2173,7 +2173,7 @@
 
 **P2 · market-data · market-data /ingest/queue-dashboard takes 5–25 s per call, and the platform-api proxy carries the same delay: with the new latency rule live it will page whenever someone keeps the queue dashboard open**
 
-- **状态**：未开始
+- **状态**：在做（还债循环 · 道 L1，10-07 03:1x UTC 开工；发版前停下）
 - **Claim**: 164 requests over 1 s in 90 minutes on plugin-market-data; PROD platform-api p99 2.5–7.4 s from /api/v1/plugins/market-data/api/*.
 - **Measured**: MEASURED 10-07 by paydown lane CC (Prometheus, the TD-161 / TD-195 metrics).
 - **Evidence**:
@@ -2215,7 +2215,7 @@
 
 **P3 · ops-console · Console agent-pack text still says husbandry_gate blocks dbt when Flex fails (stale after TD-192)**
 
-- **状态**：未开始
+- **状态**：在做（还债循环 · 道 L2，10-07 03:1x UTC 开工；发版前停下）
 - **Claim**: flexAgentPack.ts:316, massiveAgentPack.ts:335, researchEngineAgentPack.ts:462 describe the old single gate.
 - **Measured**: code-read 10-07 by paydown lane BB.
 - **Evidence**:
@@ -2243,7 +2243,7 @@
 
 **P3 · frontend · Look-back starts are still computed in the browser's time zone (new Date(Date.now() - N*86400000).toISOString().slice(0,10)), and three private New York date helpers duplicate @/lib/freshness**
 
-- **状态**：未开始
+- **状态**：在做（还债循环 · 道 L3，10-07 03:1x UTC 开工；发版前停下）
 - **Claim**: TD-232's ratchet only catches argument-less new Date(); SymbolForecastSessions.tsx:50, SymbolVolatilityFace.tsx:216, SymbolDealerHistory.tsx:57, useMarketSessions.ts:16 and PlaybookRecord snapFrom build look-back starts from UTC instants. bookLive.etDate, agentActivity.nyDate and sizingTodayModel.nyDate re-implement the NY date.
 - **Measured**: code-read 10-07 by paydown lane GG.
 - **Evidence**:
