@@ -13,7 +13,7 @@
 
 ## 待你签收
 
-（暂无）
+- **TD-191** — 插件的 slot cron 跟 Dagster 对齐（intraday-chain 纽约时区三次、corporate-backfill 月度），注释改为「Dagster 触发、这里是判定用副本」（market-data 0.83.0）· 验收 PASS（10-07，dashboard 读到三次触发与月度行，husbandry healthy）· 防线：`tests/test_dagster_slot_roster.py` + `scripts/snapshot_dagster_roster.py --check` · 后续：TD-200（research 侧反向防线）、TD-201（插件文档仍写 CronJob）
 
 **未结 84 项**：P0 0 · P1 4 · P2 31 · P3 49；要你批的 44 项（从总览表的审批列算）。
 
@@ -1506,8 +1506,9 @@
 
 **P3 · market-data · market-data config/schedule.yaml still says K8s CronJob YAML is the runtime schedule source; after TD-124 there are no CronJobs and Dagster fires every slot**
 
-- **状态**：在做（修复在 market-data main d0b1c9e = 0.83.0，镜像已建 sha256:5286c8dc…；ConfigMap 变了，发布等你批）
+- **状态**：待你签收
 - **验收**：发布后 queue-dashboard：intraday-chain 的 cron 为 `30 10 * * 1-5 | 0 13 * * 1-5 | 30 15 * * 1-5 (America/New_York)`、工作日 3 次触发；出现 corporate-backfill 行（last_fire 2026-10-01T07:00:00Z）；husbandry 不是 missed。注意：不能只 apply ConfigMap——旧镜像读新 ConfigMap 会报 unsupported_cron，镜像和 ConfigMap 同一次 `apply -k`
+- **验收结果**：PASS 2026-10-07 00:4x UTC market-data 0.83.0（ff1e2a0，镜像与 ConfigMap 同一次 apply，pods 5286c8dc…）：queue-dashboard 里 intraday-chain = `30 10 * * 1-5 | 0 13 * * 1-5 | 30 15 * * 1-5 (America/New_York)`、窗口内 3 次触发、on_plan；corporate-backfill 行 `0 7 1 * *`、last_fire 2026-10-01T07:00:00Z、maintenance；husbandry healthy「18 slots on plan · queue idle」；无 unsupported_cron
 - **现在**：道 V：这些 cron 不是「仅供参考」——`_slot_adherence` 用它判 on_plan / missed，Platform Market batch lane 与 Console 都读。实测与 Dagster（roster = market_slot_schedules = 线上 /research/orchestration/status）对不上 2 处：intraday-chain 插件写 `30 14 * * 1-5` UTC 一次，Dagster 是纽约时区三次（10:30 / 13:00 / 15:30）——夏令时恰好对上，**11-02 起每个工作日 15:15–15:30 UTC 会误判 missed、把 husbandry 拉红**；corporate-backfill 插件写「无 cron」，Dagster 每月 1 号 07:00 UTC 触发。修复：cronutil 支持多条 cron + 时区 + 月度；两份 schedule 改对并改正注释；`scripts/snapshot_dagster_roster.py` 生成 / 校验 Dagster 快照（插件运行时不依赖 research）。防线 `tests/test_dagster_slot_roster.py`（修复前的 config 会准确报这两项）。门禁 pytest 1240 passed。后续 TD-200、TD-201
 - **Claim**: Slot cron strings live in config/schedule.yaml and k8s/base/configmap-schedule.yaml; the real firing is Dagster's market_slot_schedules.py. The header comment now points readers at a source that no longer exists.
 - **Measured**: code-read 10-06 by paydown lane R.
