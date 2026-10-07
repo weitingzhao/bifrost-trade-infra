@@ -8,6 +8,7 @@ resources:
   - ../../base-platform
   - ops-ingressroute.yaml
   - ops-http-redirect.yaml
+  - sa-kubeconfig.yaml
 
 configMapGenerator:
   - name: bifrost-platform-config
@@ -24,6 +25,7 @@ configMapGenerator:
       disableNameSuffixHash: true
 
 patches:
+  - path: platform-serviceaccount.patch.yaml
   - path: images-pull-always.patch.yaml
   - path: platform-workers-env.patch.yaml
   - path: platform-api-observability-env.patch.yaml
