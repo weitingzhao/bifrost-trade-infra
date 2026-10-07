@@ -13,7 +13,7 @@
 
 ## 待你签收
 
-- **TD-197** 线程标题由会话自己上报：Stop hook `report-thread-title.js` 读本会话 transcript 的标题，用 reporter 令牌 PUT 到 platform（本机同步保留作兜底）。验收 PASS 2026-10-06（PROD 上对方会话的线程带标题显示，标题由 hook 写入）。防线：`RATCHETS.md`「report-thread-title.test.js」。后续：无后续：Cursor 没有会话标题，已写进 shared-worktree 规则；镜像滞后已由 platform d0b6943 修掉
+- **TD-197** — 线程标题由会话自己上报：Stop hook `report-thread-title.js` 读本会话 transcript 的标题，用 reporter 令牌 PUT 到 platform（本机同步保留作兜底）。验收 PASS 2026-10-06（PROD 上对方会话的线程带标题显示，标题由 hook 写入）。防线：`RATCHETS.md`「report-thread-title.test.js」。后续：无后续：Cursor 没有会话标题，已写进 shared-worktree 规则；镜像滞后已由 platform d0b6943 修掉
 - **TD-198** — STG platform-api 也被 Prometheus 抓取（ServiceMonitor 加 bifrost-platform-stg，infra ac7b2e6）· 验收 PASS（10-07，up = 1，无新告警）· 防线：`scripts/check_http_metrics_coverage.py`（PLATFORM_NAMESPACES 每个都要被某个 ServiceMonitor 选中，`--live` 要 up == 1）· 无后续
 
 **未结 80 项**：P0 0 · P1 4 · P2 30 · P3 46；要你批的 44 项（从总览表的审批列算）。
