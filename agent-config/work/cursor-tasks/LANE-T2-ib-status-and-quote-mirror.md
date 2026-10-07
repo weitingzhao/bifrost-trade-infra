@@ -27,3 +27,7 @@ ib-gateway 三个健康 hash 已经带 `updated_at`（实测 6.5 秒前）与 `g
 `bifrost-platform/scripts/agent/deploy_mac_mini.sh` 的「Post-deploy tool smoke」用匿名 `curl` 调 runner 的 `GET /smoke`，
 TD-207 之后 `/smoke` 要令牌，所以部署输出「could not parse smoke results」。改为从 `${PLATFORM_LOCAL}/.env` 取
 `REMEDIATION_RUNNER_TOKEN` 作为 bearer（不打印值），401 时明确报「token rejected」而不是 parse 失败。platform 分支 `cursor/t2-platform`。
+
+**注意（10-07 追加）**：`deploy_mac_mini.sh` 里 `ALERT_RELAY` / `PEER_RELAY_URL` 的处理已由另一个会话改好（4646441：保留主机现值、--disable-alert-relay 才关）。本道只改 tool smoke 那几行，**不要碰** relay 相关的环境变量逻辑；若冲突，停下写进报告。
+
+**注意（10-07 再追加）**：platform main 已由另一个会话快进到 4646441（含 894a88f 的 A5 与 A8 的 relay 保留逻辑）（LANE-A5：从 agent/deploy 与 deploy_mac_mini.sh 删掉 03:00 nightly 段）。platform 分支起点用最新 origin/main，在它之上改 deploy_mac_mini.sh 的 tool smoke。
