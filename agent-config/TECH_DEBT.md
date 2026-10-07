@@ -13,10 +13,9 @@
 
 ## 待你签收
 
-- **TD-200** — research 侧也锁住 market slot 调度快照：`tests/fixtures/dagster_slot_roster.json` 与插件同一份，改 Dagster 调度不更新快照即失败并提示同步插件（research 8d07edf）· 验收 PASS（10-07，线上 in step）· 防线：research `test_market_slot_roster_snapshot.py` + 插件 `test_the_research_copy_is_this_file` · 无后续
-- **TD-201** — 插件文档改为 Dagster 触发每个 slot、无 CronJob（market-data cf48396）· 验收 PASS（10-07）· 防线：`tests/test_k8s_no_cronjobs.py::test_docs_do_not_describe_a_cronjob_scheduler` + `test_every_history_line_still_exists` · 后续：TD-202（代码字符串 / 脚本里的残留）
+（暂无）
 
-**未结 118 项**：P0 1 · P1 12 · P2 38 · P3 67；要你批的 61 项（从总览表的审批列算）。
+**未结 116 项**：P0 1 · P1 12 · P2 38 · P3 65；要你批的 61 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -79,7 +78,7 @@
 
 目标：删掉没人用的（挂起的 CronJob、退役脚本、无调用路由），手抄的副本改成从一处生成（调度名单、max-pain / PCR），清单的应用顺序与 Argo 归属理顺。
 
-项：TD-102, TD-106, TD-107, TD-118, TD-119, TD-120, TD-123, TD-125, TD-160, TD-170, TD-190, TD-200, TD-201, TD-202 · 已还：TD-126, TD-108, TD-154, TD-163, TD-168, TD-124, TD-176, TD-191, TD-169
+项：TD-102, TD-106, TD-107, TD-118, TD-119, TD-120, TD-123, TD-125, TD-160, TD-170, TD-190, TD-202 · 已还：TD-126, TD-108, TD-154, TD-163, TD-168, TD-124, TD-176, TD-191, TD-169, TD-200, TD-201
 
 ### 第 6 波 · 备份链与自动修复（10-06 日常发现）
 
@@ -303,8 +302,6 @@
 | [TD-195](#td-195) | P3 | ops-platform | platform-api exports no http_requests_total (hand-written /metrics, no Prometheus client), so the API error-rate and latency alerts cannot see it | 不用批 |
 | [TD-196](#td-196) | P2 | ops-platform | platform-api and platform-workers keep their state in per-pod emptyDir: every rollout erases release cycles, gate history, the operate queue and checklist signals, and the audit log is memory-only | 已批 |
 | [TD-199](#td-199) | P3 | frontend | EventsBoard.tsx and EventRadarDashboard.tsx have had no importer since 09-24 (c81e5a29); a comment still says EventRadarBody 'stays the Explorer tab's body' though Explorer was retired in 594a3f3f | 删除（要你批） |
-| [TD-200](#td-200) | P3 | research-control | Changing a Dagster market schedule in research does not fail any test: the plugin's slot-cron snapshot only catches drift when someone regenerates it | 不用批 |
-| [TD-201](#td-201) | P3 | market-data | market-data docs still describe a CronJob scheduler (README, CLAUDE.md, docs/STG_PROMOTE.md) after TD-124 removed every CronJob | 不用批 |
 | [TD-202](#td-202) | P3 | market-data | market-data code strings and scripts still mention CronJobs: the dashboard label 'CronJob archived' and verify-market-data.sh's hint are user-visible | 不用批 |
 | [TD-203](#td-203) | P0 | ops-platform | GET /api/v1/console/ws hands out an interactive SSH shell with no token: the bdev platform-api listens on *:8780 with the Owner's SSH key, and the Mac firewall is off | 安全/凭据（要你批） |
 | [TD-204](#td-204) | P1 | ops-platform | STG and PROD platform-api and platform-workers run as system:masters through a copy of the k3s admin kubeconfig, and anonymous GETs use it to read pod logs in any namespace | 安全/凭据（要你批） |
@@ -1615,38 +1612,6 @@
 - **Fix**: Owner confirms by eye (CLAUDE.md §15 rule: deletion is the Owner's call), then delete both files and correct the two comments.
 - **Ratchet**: An orphan-module check (knip or a vitest over the import graph) in code-health, with the current orphans as a baseline that can only shrink.
 - 审批 删除（要你批） · 代价 S · 风险 low · repos: bifrost-trade-frontend
-
-### TD-200
-
-**P3 · research-control · Changing a Dagster market schedule in research does not fail any test: the plugin's slot-cron snapshot only catches drift when someone regenerates it**
-
-- **状态**：待你签收
-- **验收**：`snapshot_dagster_roster.py --check --status-json <线上 /research/orchestration/status>` → in step；research `tests/orchestration/test_market_slot_roster_snapshot.py` 与插件 `test_dagster_slot_roster.py` 通过
-- **验收结果**：PASS 2026-10-07 research 8d07edf / market-data cf48396：线上 Dagster 调度 in step，两份 fixture 逐字节相同；把 intraday `30 15` 改成 `45 15` 时 research 测试失败并点名 intraday-chain
-- **Claim**: TD-191 added tests/fixtures/dagster_slot_roster.json on the plugin side; neither market_slot_schedules.py nor api/schedule_roster.py in research refers to it.
-- **Measured**: code-read 10-07 by paydown lane V.
-- **Evidence**:
-  - `bifrost-research/src/bifrost_research/orchestration/market_slot_schedules.py:36` — `# (MARKET_SLOTS_BY_SCHEDULE, below) is derived from it, so the slot names live`
-- **Impact**: A schedule moved in Dagster silently desynchronises the plugin's adherence verdicts again (the TD-191 failure mode).
-- **Fix**: Add a research test beside test_definitions that compares market slot schedules with a checked-in copy and points at the plugin snapshot, or a scheduled check comparing live /research/orchestration/status with the plugin queue-dashboard crons (snapshot_dagster_roster.py --check already exists).
-- **Ratchet**: The test itself.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research, bifrost-platform-plugin-market-data
-
-### TD-201
-
-**P3 · market-data · market-data docs still describe a CronJob scheduler (README, CLAUDE.md, docs/STG_PROMOTE.md) after TD-124 removed every CronJob**
-
-- **状态**：待你签收
-- **验收**：`cd bifrost-platform-plugin-market-data && PYTHONPATH=src pytest -q tests/test_k8s_no_cronjobs.py -k docs` 通过
-- **验收结果**：PASS 2026-10-07 market-data cf48396：README / CLAUDE.md / STG_PROMOTE / ANALYTICS / SCHEMA / MASSIVE_BLUEPRINT 等改为 Dagster 说法；白名单 3 条历史行。代码字符串与脚本里的残留记为 TD-202
-- **Claim**: README.md:28 'scheduler/ # CronJob enqueue'; CLAUDE.md:27 'CronJob scheduler'; CLAUDE.md:66 verify line mentions CronJobs; docs/STG_PROMOTE.md:13,28-30,109-112 give CronJob-based steps.
-- **Measured**: code-read 10-07 by paydown lane V.
-- **Evidence**:
-  - `bifrost-platform-plugin-market-data/README.md:28` — `scheduler/`
-- **Impact**: An agent following the plugin's own docs looks for or recreates CronJobs.
-- **Fix**: Rewrite those lines to say Dagster (research market_slot_schedules.py) fires every slot via POST /market/ingest/enqueue-slot.
-- **Ratchet**: Extend test_k8s_no_cronjobs.py to grep the plugin's docs for 'CronJob' outside an allowlisted history section.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data
 
 ### TD-202
 
