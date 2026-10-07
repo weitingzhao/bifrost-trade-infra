@@ -46,6 +46,7 @@ patches:
   - path: platform-api-satellite-audit-token.patch.yaml
   - path: platform-api-reporter-token.patch.yaml
   - path: platform-api-role-tokens.patch.yaml
+  - path: platform-approval-notify.patch.yaml
   - path: platform-runner-token.patch.yaml
 
 images:
