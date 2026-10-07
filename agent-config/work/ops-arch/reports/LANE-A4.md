@@ -10,7 +10,7 @@
   - `git -C bifrost-trade-infra ls-files agent-config/work | grep -v '^agent-config/work/ops-arch/' | wc -l` → `38`（与下面的清单条数相同）。原始 `git ls-files agent-config/work | wc -l` 还包含已有的 `ops-arch/`（本报告也在其下），所以大于 38。
 - 要 Owner 批：没有。三个扫描命中文件留在工作区根，内容没有改写。
 - 后续：
-  - 共享 checkout（`bifrost-trade-infra`，本道开工时落后 `origin/main`）的工作区里有这些文件的未跟踪副本，符号链接靠它们解析。下次在那个 checkout 里 fast-forward 时，git 会因未跟踪文件挡住同名路径。
+  - 推送后，共享 checkout 里同内容的未跟踪副本已移开，并 fast-forward 到当时的 `main`。开工前该 checkout 对 `bifrost-trade.code-workspace` 的本地修改还在，没有纳入本次提交。
   - `cursor-tasks/LANE-F-flex-txid-writer.md` 在本道扫描之后出现（mtime 2026-10-07 14:07），是别的会话新写的。没有搬，也没有提交。
   - `cursor-tasks/` 没有整目录换成一条符号链接：下面三个命中文件，加上后出现的 `LANE-F`，必须仍是工作区根上的普通文件。干净文件各自 `mv` 后 `ln -s`。
 
