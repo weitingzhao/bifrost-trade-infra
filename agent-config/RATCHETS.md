@@ -101,6 +101,10 @@
 | 发布台 readiness 未测不给 GO（TD-226） | `bifrost-platform/console/src/lib/task-mode/__tests__/satelliteLaunchVerdict.test.ts`「unknown readiness is not GO」 | 探针失败或加载中显示 Clear to launch | warning（测试） | isProdReleaseBlocked 未统一 |
 | release gate 必需检查 unknown 不算 pass、ready 24h 过期（TD-230） | `bifrost-platform/api/internal/promote/service_test.go`（RequiredUnknown / StaleRecord 5 个）+ `console/.../releaseGateSignal.test.ts` | 必需检查 unknown 仍 ready、旧 pass 永远 ready | error（Go 测试） | 新 tier 不自动带 MAX_AGE |
 | mission snapshot 过期来源转 unknown（TD-227） | `bifrost-platform/console/src/hooks/__tests__/useMissionSnapshot.test.tsx`「mission snapshot stale」 | 失败探针保留上次好的结论 | warning（测试） | 其他快照 hook 无同类测试 |
+| 页面加载不派发修复 Agent、start 按 scope 去重（TD-224） | `bifrost-platform/api/internal/remediation` TestStartDedupsActiveScope | Cluster 页加载即派发 full-auto 修复 | error（Go 测试） | 其他页面的自动派发未逐页枚举 |
+| 控制室文案与裁决条点名 inconclusive / 过期探针（TD-249） | `bifrost-platform/console/src/lib/__tests__/releaseGateAgentCopy.test.ts` + `components/control-room/__tests__/ControlRoomVerdictStrip.test.tsx` | 文案只认 pass/fail、裁决条不说哪个来源过期 | warning（测试） | — |
+| 一个任务只有一个执行方（TD-251） | `bifrost-platform/agent/hermes-gateway/src/skills.test.ts`「no enabled skill runs a script a launchd plist already runs」 | Hermes 技能与 launchd 重复执行同一脚本 | warning（测试） | 只查 agent/deploy 下的 plist |
+| ui 构建失败不删 dist（TD-235） | `bifrost-ui/scripts/build.test.mjs`（`npm test`） | build 先 rm -rf dist，tsc 失败白屏 | warning（测试，未进 CI） | ui 的 npm test 不在 CI |
 
 ## 各类债现在挡没挡住
 

@@ -13,11 +13,9 @@
 
 ## 待你签收
 
-- **TD-235** — @bifrost/ui 构建先编译到临时目录、成功才替换 dist，tsc 失败时 dev server 不再白屏（bifrost-ui b65af13，Cursor LANE-U） · 验收 PASS（10-07：npm test 3 passed、lint/build 通过）· 防线：`bifrost-ui/scripts/build.test.mjs` · 后续：ui 的 npm test 不在任何 CI 里（建议在 ci-platform test-console 装完 ui 后加一行，并入 TD-234 合并时一起做）
-- **TD-224 / TD-249 / TD-251** — Cluster 页加载不再派发修复 Agent、start 按 scope 去重；修复 Agent 文案与控制室裁决条点名 inconclusive 与过期探针；Hermes 的 peer-watchdog / nightly-drift 只留 launchd（platform 22863e2，STG+PROD 10-07；.52 网关 v0.2.0） · 验收 PASS（10-07：remediation Go 测试 ok、console 4 passed、gateway 4 passed、.52 /skills 两项 disabled） · 防线：`api/internal/remediation` TestStartDedupsActiveScope、`releaseGateAgentCopy.test.ts`、`ControlRoomVerdictStrip.test.tsx`、`agent/hermes-gateway/src/skills.test.ts`（TD-251） · 后续：TD-228 观察到 06:00 UTC；deploy_hermes_gateway.sh 的 npm 在远端找不到（无新编号，并入 TD-228 观察）
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 105 项**：P0 0 · P1 11 · P2 33 · P3 61；要你批的 58 项（从总览表的审批列算）。
+**未结 101 项**：P0 0 · P1 11 · P2 33 · P3 57；要你批的 57 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -59,7 +57,7 @@
 
 目标：一个开关让所有测试类防线生效（CI 卡发布），再补上调度存活告警、D10 闸门的非 curl 写法、operator 流白名单、本机常驻任务和密钥轮换的盲区、spine 副本同步。
 
-项：TD-95, TD-96, TD-100, TD-105, TD-109, TD-121, TD-152, TD-153, TD-155, TD-162, TD-249 · 已还：TD-99, TD-161, TD-198, TD-195, TD-194
+项：TD-95, TD-96, TD-100, TD-105, TD-109, TD-121, TD-152, TD-153, TD-155, TD-162 · 已还：TD-99, TD-161, TD-198, TD-195, TD-194, TD-249
 
 ### 第 3 波 · 交易日与日历只有一个来源
 
@@ -101,7 +99,7 @@
 
 目标：先关门再修代码。本机 platform-api 只监听本机、PROD/STG Redis 的局域网 NodePort 删掉，然后 git-bridge、修复 runner、Hermes、husbandry-sync 都要令牌；platform 换成按需授权的 ServiceAccount，停用管理员 kubeconfig；路由鉴权测试卡住回退。
 
-项：TD-206, TD-207, TD-208, TD-204, TD-220, TD-225, TD-221, TD-222, TD-223, TD-224, TD-231 · 已还：TD-205, TD-203
+项：TD-206, TD-207, TD-208, TD-204, TD-220, TD-225, TD-221, TD-222, TD-223, TD-231 · 已还：TD-205, TD-203, TD-224
 
 ### 第 10 波 · 告警有人收、备份能恢复（第 3 轮）
 
@@ -113,7 +111,7 @@
 
 目标：挂单与 IB 读失败不再被当真写库；Risk / Performance / 告警计数按交易日算；Console 的裁决条在探针失败时不再显示绿色；ui 的发布可追溯；台账与文档的过时说法改正。
 
-项：TD-211, TD-212, TD-213, TD-228, TD-229, TD-234, TD-235, TD-236, TD-239, TD-240, TD-241, TD-251, TD-252 · 已还：TD-214, TD-219, TD-232, TD-233, TD-226, TD-230, TD-227
+项：TD-211, TD-212, TD-213, TD-228, TD-229, TD-234, TD-236, TD-239, TD-240, TD-241, TD-252 · 已还：TD-214, TD-219, TD-232, TD-233, TD-226, TD-230, TD-227, TD-251, TD-235
 
 ## 数据边界（接受并留座）
 
@@ -308,13 +306,11 @@
 | [TD-221](#td-221) | P3 | ops-console | The governance catalog says nobody but the daemon writes ib:operator:cmd, but platform-api does (sanctioned by D-IB-Heal), and the runner's ib_gateway_control can switch the PROD gateway to mock with only a prompt-level approval | 安全/凭据（要你批） |
 | [TD-222](#td-222) | P3 | ops-platform | Platform's D10 scale guard only blocks daemon 0→n: the PROD daemon (2, observe-safe) and DEV (1) can be scaled to 20 by any operator-token caller that bypasses preflight | 安全/凭据（要你批） |
 | [TD-223](#td-223) | P3 | ops-platform | STG and PROD platform-workers both run the IB gateway auto-repair loop against the one live data/ib-gateway, each with its own 15-minute cooldown | PROD 变更（要你批） |
-| [TD-224](#td-224) | P3 | ops-console | Opening the Cluster page as an operator auto-starts a full-auto remediation run, and neither platform-api nor the runner deduplicates by scope or active job | 不用批 |
 | [TD-225](#td-225) | P3 | ops-console | Read-only MCP bridges fail open: an unknown or misspelled MCP_BRIDGE_FOCUS registers all 74 tools, and PLATFORM_OPERATOR_TOKEN in env overrides the viewer-token pin | 不用批 |
 | [TD-228](#td-228) | P3 | ops-console | Every scheduled Hermes skill run on .52 fails with 'No such file or directory', while /health returns status ok and the checklist counts the gateway healthy | 不用批 |
 | [TD-229](#td-229) | P3 | ops-platform | Trust overrides resolve to $HOME in the cluster and swallow read and write errors: the Owner's 09-07 L0 grant for research-loop-batch never reached the harness that reads PROD | 不用批 |
 | [TD-231](#td-231) | P3 | ops-platform | Platform's IB feed verdict hangs on one hard-coded NVDA sample tick, and Trade namespaces and DB names are Go literals (53 matches), with no ratchet against growth | 不用批 |
 | [TD-234](#td-234) | P3 | trade-worker | @bifrost/ui is unversioned for the Ops Console: a ui push never runs platform CI, and platform deliver builds whatever ui main is without recording its SHA | 不用批 |
-| [TD-235](#td-235) | P3 | bifrost-ui | bifrost-ui's build starts with rm -rf dist (and prepare runs it on every npm install), white-screening both running dev servers until it finishes, or for good if tsc fails | 不用批 |
 | [TD-236](#td-236) | P3 | trade-worker | Leftovers of the deleted Account Sync daemon: the plugin still XADDs every account snapshot to ib:account:stream:v1, which nothing reads | 跨仓库发版 |
 | [TD-237](#td-237) | P3 | data | The data-warehouse 'second MinIO' never ran (PVC Pending 109 days, Deployment 0/0), yet AGENT_FACTS lists it, and its placeholder root Secret is committed to a PUBLIC repo and applied | 删除（要你批） |
 | [TD-238](#td-238) | P3 | data | The three per-env Redis instances run --appendonly yes with no volume, and with noeviction but no maxmemory the only memory bound is an OOMKill | 不用批 |
@@ -326,9 +322,7 @@
 | [TD-244](#td-244) | P3 | research-control | agents/journal_distill reads raw_broker.executions_final with no Flex freshness check (own 23:55 UTC schedule, outside any gate) | 不用批 |
 | [TD-246](#td-246) | P3 | trade-data | Snapshot enrich stores a vendor 'day close' that can sit below the option's intrinsic value (a stale last trade), and P&L attribution then books it as unexplained | 已批（Owner 10-07「做」） |
 | [TD-247](#td-247) | P3 | frontend | Look-back starts are still computed in the browser's time zone (new Date(Date.now() - N*86400000).toISOString().slice(0,10)), and three private New York date helpers duplicate @/lib/freshness | 不用批 |
-| [TD-249](#td-249) | P3 | ops-console | After TD-230/227: remediation agent copy still says the gate result is pass/fail (no inconclusive), and Control Room does not list which sources are stale | 不用批 |
 | [TD-250](#td-250) | P3 | trade-data | A stale vendor close above intrinsic is still stored as vendor_eod: the plugin's snapshot read does not return last_trade_ts, so enrich cannot tell a morning trade from a session close | 不用批 |
-| [TD-251](#td-251) | P3 | ops-agent | Hermes peer-watchdog and nightly-drift-scan duplicate jobs that launchd already runs on the Minis | 要你定 |
 | [TD-252](#td-252) | P1 | research-data | The dbt generic tests are not in the wheel: research_trading_day failed to compile on 10-07 and no engine ran for the 10-06 session | 发版（要你批） |
 
 ## 条目
@@ -1749,24 +1743,6 @@
 - **验收**: `curl -s -m10 http://192.168.10.73:30878/api/v1/plugins/ib-gateway/self-heal | grep -o '"auto_repair_enabled":[a-z]*'  # false on STG; PROD 30876 stays true`
 - 审批 PROD 变更（要你批） · 代价 S · 风险 low · repos: bifrost-trade-infra, bifrost-platform
 
-### TD-224
-
-**P3 · ops-console · Opening the Cluster page as an operator auto-starts a full-auto remediation run, and neither platform-api nor the runner deduplicates by scope or active job**
-
-- **状态**：待你签收（platform STG 1791346065 + PROD 1791346310 已上 22863e2（10-07））
-- **验收结果**：PASS 2026-10-07 22863e2（已上 PROD）：TestStartDedupsActiveScope ok；Cluster 页加载只显示裁决，派发改为显式按钮 + 确认
-- **Claim**: For an authenticated operator, ClusterOpsIssuesPanel auto-starts a remediation run from a useEffect whenever issues exist; ClusterPage always passes autoAssess. Its once-per-signature guard is a per-tab useRef, which resets on reload or in a new tab, and the signature changes whenever a row flips between degraded and fail. The client skips only while its own activeRemediationJob is running. platform-api HandleStart has no active-job or same-scope dedupe, and neither does the runner's POST /run. The HusbandryStrip path is covered by TD-208.
-- **Measured**: CODE-READ only; no browser was opened. Matches the known Owner memory note 'Cluster page load dispatches repair agents'.
-- **Evidence**:
-  - `bifrost-platform/console/src/components/cluster/ClusterOpsIssuesPanel.tsx:339` — `autoAssessKeyRef.current = key`
-  - `bifrost-platform/console/src/components/cluster/ClusterOpsIssuesPanel.tsx:340` — `onAutoCheck()`
-  - `bifrost-platform/api/internal/remediation/handler.go:72` — `job, err := h.StartInternal(r.Context(), runReq)`
-- **Impact**: Two tabs, or the Owner plus an agent session, start parallel full-auto agents with operator tokens against the same cluster issue. Cost and churn scale with page views, not incidents.
-- **Fix**: Dedupe server-side: HandleStart returns 409 with the existing job id when a non-terminal job with the same scope exists, or one with the same issue signature finished within N minutes. Gate client auto-start explicitly on Dock Auto mode.
-- **Ratchet**: Go test TestStartDedupsActiveScope (a second HandleStart with the same scope while the first is running returns 409 with the first job id). A Console vitest/grep bans mutating API calls inside useEffect without an allowlist comment.
-- **验收**: `cd bifrost-platform/api && go test ./internal/remediation -run TestStartDedupsActiveScope -count=1`
-- 审批 不用批 · 代价 M · 风险 low · repos: bifrost-platform
-
 ### TD-225
 
 **P3 · ops-console · Read-only MCP bridges fail open: an unknown or misspelled MCP_BRIDGE_FOCUS registers all 74 tools, and PLATFORM_OPERATOR_TOKEN in env overrides the viewer-token pin**
@@ -1859,24 +1835,6 @@
 - **Ratchet**: Infra pipeline check: every pipeline that clones bifrost-ui takes a distinct uiRevision param, and trigger-trade-ci has a ui-push binding for each of them.
 - **验收**: `KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n cicd get pipelineruns -o go-template='{{range .items}}{{.metadata.name}} {{range .spec.params}}{{.name}}={{.value}} {{end}}{{"\n"}}{{end}}' </dev/null | grep ci-platform | grep -cE 'uiRevision=[0-9a-f]{40}'  # ≥1 after the next ui push`
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra, bifrost-platform, bifrost-ui
-
-### TD-235
-
-**P3 · bifrost-ui · bifrost-ui's build starts with rm -rf dist (and prepare runs it on every npm install), white-screening both running dev servers until it finishes, or for good if tsc fails**
-
-- **状态**：待你签收（bifrost-ui main b65af13，10-07 快进合入）
-- **验收结果**：PASS 2026-10-07 b65af13：origin/main package.json 无 `rm -rf dist &&`；npm test 3 passed（tsc 失败时旧 dist 保留）；lint/build 通过、无残留临时目录
-- **Claim**: Both consumers resolve @bifrost/ui to bifrost-ui/dist. The build script deletes dist before tsc, and prepare runs the build on any npm install in bifrost-ui. On the shared checkout, another session's install or build removes dist under the running :5173 trade-ui and :5180 platform-console; if tsc then fails, dist stays missing. This is a known memory pitfall with no guard.
-- **Measured**: CODE-READ only; no build was run (shared checkout, live dev servers).
-- **Evidence**:
-  - `bifrost-ui/package.json:8` — `"build": "rm -rf dist && tsc -p tsconfig.build.json && mkdir -p dist/styles`
-  - `bifrost-ui/package.json:11` — `"prepare": "npm run build"`
-  - `bifrost-trade-frontend/vite.config.ts:188` — `{ find: '@bifrost/ui', replacement: resolve(uiRoot, 'dist/index.js') },`
-- **Impact**: Local DEV acceptance (D-IL1 on :5173) and the Ops Console dev server break for every session at once.
-- **Fix**: Build into dist.tmp (tsc --outDir dist.tmp, copy styles) and swap it in with an atomic mv only on success. Alternatively drop rm -rf and keep a separate clean script.
-- **Ratchet**: A line in bifrost-ui's lint or code-health scan that fails if the build script contains 'rm -rf dist &&' before the compile step.
-- **验收**: `git -C bifrost-ui show origin/main:package.json | grep -c 'rm -rf dist &&'  # 0`
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-ui
 
 ### TD-236
 
@@ -2053,21 +2011,6 @@
 - **Ratchet**: Extend src/lib/utcTodayRatchet.test.ts.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
 
-### TD-249
-
-**P3 · ops-console · After TD-230/227: remediation agent copy still says the gate result is pass/fail (no inconclusive), and Control Room does not list which sources are stale**
-
-- **状态**：待你签收（platform STG 1791346065 + PROD 1791346310 已上 22863e2（10-07））
-- **验收结果**：PASS 2026-10-07 22863e2（已上 PROD）：releaseGateAgentCopy.test.ts + ControlRoomVerdictStrip.test.tsx 4 passed
-- **Claim**: agent/remediation/src/prompt.ts:253 and tools/deliveryTools.ts:183 describe gate results as pass/fail; useMissionSnapshot now returns staleSources but ControlRoomPage / MissionControlHeader do not pass it to ControlRoomVerdictStrip.
-- **Measured**: code-read 10-07 by loop lane L2.
-- **Evidence**:
-  - `bifrost-platform/agent/remediation/src/prompt.ts:253` — `'15. Report the gate result (pass/fail, checks, blockers).',`
-- **Impact**: Remediation agents misread an inconclusive gate; Control Room shows the oldest probe time without naming the stale source.
-- **Fix**: Add inconclusive to the two agent texts; thread staleSources into the Control Room verdict strip.
-- **Ratchet**: None new: copy; covered by the existing pack / snapshot tests once extended.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
-
 ### TD-250
 
 **P3 · trade-data · A stale vendor close above intrinsic is still stored as vendor_eod: the plugin's snapshot read does not return last_trade_ts, so enrich cannot tell a morning trade from a session close**
@@ -2083,22 +2026,6 @@
 - **Fix**: Plugin: add last_trade_ts to the snapshot read (additive field). Core: when the trade is not from that session, or is older than N minutes before the close and deviates from the vendor-IV model by more than a threshold, store vendor_iv_model.
 - **Ratchet**: Extend test_snapshot_mark_intrinsic.py's grid with a last_trade_ts dimension.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data, bifrost-trade-core
-
-### TD-251
-
-**P3 · ops-agent · Hermes peer-watchdog and nightly-drift-scan duplicate jobs that launchd already runs on the Minis**
-
-- **状态**：待你签收（platform main 22863e2：peer-watchdog / nightly-drift-scan 在 skills.yaml 里 disabled，launchd 继续跑；.52 已重部署）
-- **验收**：`curl -s http://192.168.10.52:8782/skills` 里 peer-watchdog 与 nightly-drift-scan 为 disabled；`cd bifrost-platform/agent/hermes-gateway && npm test` 含 TD-251 测试
-- **验收结果**：PASS 2026-10-07 22863e2：.52 /skills 两项 disabled、stale-pipeline-triage enabled；gateway npm test 4 passed（防线 skills.test.ts「TD-251: no enabled skill runs a script a launchd plist already runs」）
-- **Claim**: The two Hermes skills on .52 re-run work that launchd jobs on the Mac minis already do (peer watchdog, nightly drift). Once TD-228 makes the scripts reachable they would run twice; until then they failed 500/500 unnoticed.
-- **Measured**: MEASURED 10-07 by paydown lane L6 while fixing TD-228 (.52:8782 /executions; the skills' scripts have launchd twins).
-- **Evidence**:
-  - `bifrost-platform/agent/hermes-gateway/skills.yaml:6` — `- id: peer-watchdog`
-- **Impact**: Double pages / double drift proposals after the TD-228 redeploy, or two owners for one job.
-- **Fix**: Owner picks one runner per job: disable both skills in skills.yaml (L6's recommendation; it offers the commit) or retire the launchd twins.
-- **Ratchet**: A gateway test: no enabled skill's script is also referenced by a launchd plist in agent/deploy.
-- 审批 要你定 · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-252
 
