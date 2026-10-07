@@ -14,6 +14,9 @@
 ## 待你签收
 
 - **TD-191** — 插件的 slot cron 跟 Dagster 对齐（intraday-chain 纽约时区三次、corporate-backfill 月度），注释改为「Dagster 触发、这里是判定用副本」（market-data 0.83.0）· 验收 PASS（10-07，dashboard 读到三次触发与月度行，husbandry healthy）· 防线：`tests/test_dagster_slot_roster.py` + `scripts/snapshot_dagster_roster.py --check` · 后续：TD-200（research 侧反向防线）、TD-201（插件文档仍写 CronJob）
+- **TD-140** — 无新鲜实时报价时持仓归因取最新 vendor EOD 标记并标明来源与日期，快照抓取不回灌旧价（core 0.51.0，随 0.52.0 上三环境）· 验收 PASS（10-07，PROD 31 行全部有价）· 防线：`bifrost-trade-core/tests/test_attribution_marks.py` + 两个 db 测试 · 无后续：前端标注由 TD-171 完成
+- **TD-169** — option_contract 写到期日时上报 `option_expiration` 新鲜度（market-data 0.80.0）· 验收 PASS（10-07 00:20 UTC 写入）· 防线：`tests/test_freshness_writers.py`（每个维度都要有现行写入方）· 无后续
+- **TD-171** — Positions 上取自 vendor 收盘价的腿标 `EOD MM-DD`（frontend 4860e7cd）· 验收 PASS（10-07 PROD 页面可见 EOD 10-06）· 防线：`src/utils/buildTradeGroups.test.ts` 四个用例 · 无后续
 
 **未结 84 项**：P0 0 · P1 4 · P2 31 · P3 49；要你批的 44 项（从总览表的审批列算）。
 
@@ -928,9 +931,9 @@
 
 **P2 · trade-data · Position attribution rows have no price, intraday or after the close: their only price source is contract_quote_live, which only the frozen daemon writes**
 
-- **状态**：观察中（0.51.0 随 0.52.0 上三环境；到 10-07 00:30 UTC 晚间 enrich 后看最后 1 行有价）
+- **状态**：待你签收
 - **验收**：收盘 enrich 之后：`curl -s http://192.168.10.73:30881/api/account/executions/position-attribution | python3 -c 'import json,sys;r=json.load(sys.stdin)["items"];print(len(r),sum(x.get("price_mid") is None and x.get("price_last") is None for x in r),sorted({str(x.get("mark_source")) for x in r}))'` → 第二个数为 0，第三项不含 None
-- **验收结果**：部分 PASS 2026-10-06 23:0x UTC：DEV / PROD 各 31 行，30 行 `vendor_eod` 有价，1 行（DAVE 20270115 270 P，10-05 快照之后才有的持仓）无快照价，待今晚 enrich 写入 10-06 标记
+- **验收结果**：PASS 2026-10-07 00:4x UTC：晚间 `all` Job（position-snapshot-enrich-29855550）Complete 后，PROD position-attribution 31 行、无价 0、mark_source 全部 vendor_eod（DAVE 那行补上 10-06 标记）
 - **下一步**：Owner 跑 Trade 发版（core 0.51.0，api 不改代码、下限不动）→ 跑验收命令，DEV 端口 30882；前端没有把这个价格标成 EOD，记为 TD-171
 - **现在**：改前实测 10-06 18:41 UTC：DEV / PROD 各 31 行全无价格、无 mark_source；position_snapshot_daily 三环境只有 10-05 一个 session，DEV / PROD 29/29 持仓有 vendor_eod 标记。0.51.0：无新鲜 live quote 时取最新 vendor_eod 快照标记（股票取插件 benchmark 日收盘中更新的那个），每行加 `mark_source` / `mark_date`；capture 用 `fallback_marks=False`，`split_rows` 只认 `quote_live`，旧收盘价不会被回灌成当天 mark。门禁：core lint 0、1287 passed、test-db 99 passed；api 在 0.51.0 上 1002 passed
 - **Claim**: get_position_instance_attribution takes price_mid / price_last only from a LEFT JOIN on brokerage.contract_quote_live, filtered to rows younger than 4 hours (TD-02, core 0.28.2). Under D10 the daemon does not run, so the table has 13 rows, newest 2026-03-28, and every attribution row has no price and no unrealized_pnl_est, intraday and after the close. The 09-29 reading that stocks had prices was March prices the freshness rule now excludes.
@@ -1264,8 +1267,9 @@
 
 **P3 · market-data · ops_jobs.ingest_freshness.option_expiration is a fossil row frozen since 09-06 and still listed as ok**
 
-- **状态**：观察中（到 10-07 00:20 UTC option-refresh 之后，看 option_expiration 行被写）
+- **状态**：待你签收
 - **验收**：`SELECT last_run_at FROM ops_jobs.ingest_freshness WHERE dimension='option_expiration'` ≥ 2026-10-07 00:20 UTC（现在仍是 2026-09-06 12:58）
+- **验收结果**：PASS 2026-10-07：`ops_jobs.ingest_freshness` 的 option_expiration last_run_at = 2026-10-07 00:20:40 UTC（之前停在 2026-09-06 12:58）
 - **现在**：market-data 0.80.0（8e39aab）：option_contract 在写了 expiration 时返回 `freshness_extra={'option_expiration': n}`；防线 `tests/test_freshness_writers.py`：表里与 contracts / SLOT_EVIDENCE / quality 读到的每个维度都必须有现行写入方
 - **Claim**: Expirations now come from option_contract jobs, which return no freshness_extra for option_expiration, so the row has not moved since 2026-09-06; nothing polices it, yet freshness listings show it with status ok.
 - **Measured**: MEASURED 10-06 by paydown lane D (ingest_freshness row last_run_at 2026-09-06).
@@ -1296,8 +1300,9 @@
 
 **P3 · frontend · Positions shows the attribution price_last as if it were live: no EOD label or date now that core 0.51.0 fills it from the vendor EOD mark**
 
-- **状态**：观察中（前端随 10-06 晚 Trade 发版上三环境；DEV API 已返回 mark_source，待在 :5173 Positions 上看 EOD MM-DD 标签）
+- **状态**：待你签收
 - **验收**：发版后 DEV：`curl -s http://192.168.10.73:30882/api/account/executions/position-attribution | python3 -c "import sys,json,collections;it=json.load(sys.stdin)['items'];print(collections.Counter(r.get('mark_source','<absent>') for r in it))"` 出现 vendor_eod；:5173 Positions Trade 视图展开分组，vendor_eod 的期权腿 UN PNL 后缀为 `EOD MM-DD`
+- **验收结果**：PASS 2026-10-07：PROD 前端（:30881 /portfolio/positions，Trade 分组视图展开后）期权腿 UN PNL 后缀显示 `EOD 10-06`；API 31 行 mark_source 全部 vendor_eod
 - **现在**：frontend 4860e7cd 已推 main：`attributionMark` 只在价格取自 attribution 行时带上 mark_source / mark_date；`eodMarkLabel` 给出 `EOD MM-DD`（沿用 TradeRecord 的格式）；TradeOptionSubTable 的 UN PNL 后缀与 OptionContractDetail 的警告用它。门禁 tsc / lint / vitest 4022 passed / build / legacy-css / code-health 全 0，未调基线。防线 `src/utils/buildTradeGroups.test.ts` 4 个新用例。DEV 现在 30/30 行无 mark_source，页面与今天一样
 - **Claim**: core 0.51.0 (TD-140) fills price_last from the newest vendor_eod snapshot mark when there is no live quote and labels each row mark_source / mark_date. The frontend type has only price_mid / price_last and buildTradeGroups falls back to price_last without saying it is a dated close.
 - **Measured**: code-read 10-06 by paydown lane I.
