@@ -51,8 +51,10 @@ API_RULES = (
     "BifrostAPIHighLatency",
     "BifrostAPIWithoutHttpMetrics",
 )
-#: Monitors that scrape an HTTP API Deployment; their namespaces must be inside the rules.
-APP_COMPONENTS = frozenset({"api", "research", "plugin", "control-plane"})
+#: Monitors that scrape an HTTP endpoint of ours; their namespaces must be inside the rules.
+#: `worker` is the Trade daemon (TD-215): its /metrics and /health server counts /health in
+#: http_requests_total like the APIs do, so the ratchet alert holds for it without an exemption.
+APP_COMPONENTS = frozenset({"api", "research", "plugin", "control-plane", "worker"})
 #: Monitors that scrape exporters / infrastructure, not an API of ours.
 INFRA_COMPONENTS = frozenset({"postgres", "redis", "minio", "logging", "gateway"})
 #: platform-api's namespaces; its request series must reach the API rules like everyone's.

@@ -347,6 +347,77 @@ spec:
               06:00 UTC) last passed {{ $value | humanizeDuration }} ago. Its reports
               are under drills/ in the logical-backup-hot folder on k3s-hot.
 
+    # TD-215: the PROD daemon's Lease holder is the only writer of raw_broker.account and
+    # raw_broker.positions (Positions, attribution, the 16:20 ET snapshot capture). worker >= 0.2.7
+    # exports timestamps on /metrics (PodMonitor bifrost-trade-daemon); the standby pod exports
+    # none, so `max by (namespace)` is the leader's. PROD only: DEV's daemon has broker writes off
+    # and STG runs no daemon. Observability only (D10): nothing here scales or arms the daemon.
+    - name: bifrost-trade-daemon
+      rules:
+        - alert: BifrostTradeDaemonRawBrokerStale
+          # Since worker 0.2.6 an account is written when its summary or positions change, and
+          # every account in a fresh plugin snapshot is force-written hourly. Measured 2026-10-07
+          # 01:4x UTC (after hours): a write every ~2 min. So: 30 min without one inside
+          # 14:30-20:00 UTC Mon-Fri (inside the session in both EDT and EST), 90 min at any hour.
+          # Both only while some IB gateway slot holds a TWS session: when every TWS is logged off
+          # (host 07:00 ET / secondary 11:00 ET auto log off, weekends) the plugin snapshot goes
+          # stale, the daemon correctly writes nothing, and BifrostIBGatewayDisconnected covers it.
+          # A weekday market holiday with no account changes can reach 30 min (expected; the
+          # hourly force write bounds it).
+          expr: |
+            (
+              (
+                time() - max by (namespace) (bifrost_daemon_raw_broker_last_write_timestamp_seconds{namespace="bifrost-prod"}) > 1800
+                and on ()
+                (
+                  day_of_week() >= 1 and on () day_of_week() <= 5
+                  and on () hour() * 60 + minute() >= 870
+                  and on () hour() < 20
+                )
+              )
+              or
+              time() - max by (namespace) (bifrost_daemon_raw_broker_last_write_timestamp_seconds{namespace="bifrost-prod"}) > 5400
+            )
+            and on ()
+            max(bifrost_ib_gateway_slot_connected) == 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "raw_broker account/positions not written for {{ $value | humanizeDuration }}"
+            description: "The PROD daemon leader has not written raw_broker.account / positions for {{ $value | humanizeDuration }} while a TWS session is up, so Positions and attribution show an old book and the 16:20 ET capture can store it as the day's. Check `kubectl -n bifrost-prod logs deploy/daemon` for '[account_push]' warnings (plugin snapshot too old, raw_broker write failed, listener error) and bifrost_daemon_raw_broker_write_failures_total."
+
+        - alert: BifrostTradeDaemonHeartbeatStale
+          # The heartbeat loop passes at least every 120 s (interval clamped to [5, 120]); 300 s
+          # without a pass is a stuck loop. The livenessProbe restarts the leader at 600 s.
+          expr: |
+            time() - max by (namespace) (bifrost_daemon_heartbeat_timestamp_seconds{namespace="bifrost-prod"}) > 300
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PROD daemon heartbeat loop stuck for {{ $value | humanizeDuration }}"
+            description: "The Lease holder exports metrics but its heartbeat loop has not passed for {{ $value | humanizeDuration }}: no status writes, no hourly account refresh, no control commands. Its /health answers 503 and the livenessProbe restarts it after 600 s; if this keeps firing, read the pod's last log lines before the restart."
+
+        - alert: BifrostTradeDaemonMetricsAbsent
+          # absent() twin of the two rules above: no leader exporting a heartbeat (daemon down, no
+          # Lease holder, scrape failing, image older than worker 0.2.7), or a leader that has not
+          # written raw_broker once while a TWS session is up.
+          expr: |
+            absent(bifrost_daemon_heartbeat_timestamp_seconds{namespace="bifrost-prod"})
+            or
+            (
+              absent(bifrost_daemon_raw_broker_last_write_timestamp_seconds{namespace="bifrost-prod"})
+              and on ()
+              max(bifrost_ib_gateway_slot_connected) == 1
+            )
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PROD daemon liveness metrics missing"
+            description: "Prometheus has no heartbeat or no raw_broker write timestamp from the PROD daemon leader, so BifrostTradeDaemonRawBrokerStale / HeartbeatStale cannot fire. Check `kubectl -n bifrost-prod get pods -l app.kubernetes.io/name=daemon`, the Lease holder, the bifrost-trade-daemon PodMonitor target in Prometheus, and that the worker image is >= 0.2.7."
+
     # Elastic / WOL standby — marker for Alertmanager inhibit (no GPU/warehouse demand).
     # Does NOT fire when ai/ollama or data-warehouse/minio want replicas > 0.
     - name: bifrost-elastic-standby

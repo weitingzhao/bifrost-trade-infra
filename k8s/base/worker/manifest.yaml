@@ -89,12 +89,39 @@ spec:
             - name: bifrost-config
               mountPath: /app/config/runtime.yaml
               subPath: runtime.yaml
+          # TD-215: worker >= 0.2.7 serves /metrics (scraped by k8s/monitoring/bifrost-trade-daemon.yaml)
+          # and /health on 9108 (BIFROST_DAEMON_METRICS_PORT).
+          ports:
+            - name: metrics
+              containerPort: 9108
           readinessProbe:
             exec:
               command: ["python", "scripts/wait_for_data.py", "--once"]
             initialDelaySeconds: 10
             periodSeconds: 30
             timeoutSeconds: 10
+          # TD-215: restart the Lease holder when its heartbeat loop has not passed for 600 s
+          # (/health answers 503; a standby pod always answers 200). Fails only on that explicit
+          # 503: an image without the endpoint (worker < 0.2.7) or a server that never bound
+          # refuses the connection, which passes, so syncing this manifest ahead of the image
+          # cannot put the only raw_broker writer into a restart loop.
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - |
+                  import sys, urllib.error, urllib.request
+                  try:
+                      urllib.request.urlopen("http://127.0.0.1:9108/health", timeout=5)
+                  except urllib.error.HTTPError as e:
+                      sys.exit(1 if e.code == 503 else 0)
+                  except Exception:
+                      sys.exit(0)
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
           resources:
             requests:
               cpu: 100m

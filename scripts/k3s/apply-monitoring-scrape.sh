@@ -9,6 +9,9 @@ export KUBECONFIG
 echo "==> Check: every API monitor is inside the API alert rules (TD-161)"
 python3 "${ROOT}/scripts/check_http_metrics_coverage.py"
 
+echo "==> Check: daemon /health probe, scrape and liveness rules are wired (TD-215)"
+python3 "${ROOT}/scripts/check_daemon_liveness.py"
+
 echo "==> Apply k8s/monitoring (ServiceMonitor + PodMonitor)"
 kubectl apply -k "${ROOT}/k8s/monitoring"
 

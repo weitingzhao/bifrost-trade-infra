@@ -9,6 +9,7 @@ namespace: monitoring
 
 resources:
   - bifrost-trade-apis.yaml
+  - bifrost-trade-daemon.yaml
   - bifrost-redis.yaml
   - bifrost-postgres.yaml
   - bifrost-minio-nas.yaml

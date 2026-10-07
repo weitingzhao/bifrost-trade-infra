@@ -1,0 +1,32 @@
+# Scrape the Trade daemon (TD-215): worker >= 0.2.7 serves /metrics on its `metrics` port (9108).
+# The Lease holder exports when it last passed its heartbeat loop and last wrote
+# raw_broker.account / positions (timestamps; the standby exports neither); the
+# BifrostTradeDaemon* rules in bifrost-alerting-rules.yaml read them. No Service: the two
+# pods are scraped one by one, and the rules take max by namespace.
+# It also exports http_requests_total for its /health probe, so BifrostAPIWithoutHttpMetrics
+# holds for it like for every other target in bifrost-* (component `worker` in
+# scripts/check_http_metrics_coverage.py APP_COMPONENTS).
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: bifrost-trade-daemon
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: worker
+spec:
+  namespaceSelector:
+    matchNames:
+      - bifrost-stg
+      - bifrost-dev
+      - bifrost-prod
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: daemon
+      app.kubernetes.io/component: worker
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
