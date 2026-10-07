@@ -696,5 +696,9 @@ check-agent-parity:
 # 否则让出来的地会被悄悄吃回去。缺失的 repo 报 NOT MEASURED，绝不当作 0。
 check-code-health:
 	bash agent-config/scripts/code-health/scan.sh
+
+# TD-85 role matrix: ACL parser and the expected-vs-actual compare. No database.
+test-role-matrix:
+	python3 -m unittest discover -s k8s/data/role-matrix -p 'test_*.py'
 check-maintainers: ; python3 scripts/check_maintainers.py
 check-pitr-drill: ; python3 scripts/check_pitr_drill_manifest.py

@@ -1,0 +1,23 @@
+# Let the role-matrix job reach PostgreSQL. Any NetworkPolicy that selects the
+# CNPG pods denies other ingress (see ../postgres-ingress-network-policy.yaml).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-role-matrix-ingress
+  labels:
+    app.kubernetes.io/component: postgres
+    app.kubernetes.io/name: db-role-matrix
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: bifrost-postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: db-role-matrix
+      ports:
+        - protocol: TCP
+          port: 5432

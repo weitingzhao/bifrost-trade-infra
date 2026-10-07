@@ -1,0 +1,23 @@
+# TD-85 role-matrix check. Apply on its own:
+#   kubectl apply -k k8s/data/role-matrix
+# Not referenced from k8s/data/kustomization.yaml, so a merge does not install it.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: data
+
+resources:
+  - network-policy.yaml
+  - cronjob.yaml
+
+configMapGenerator:
+  - name: db-role-matrix
+    files:
+      - check_role_matrix.py
+      - expected.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: bifrost
+      app.kubernetes.io/component: db-role-matrix
+    includeSelectors: false
