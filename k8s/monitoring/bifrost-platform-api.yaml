@@ -1,4 +1,4 @@
-# Scrape platform-api's /metrics (bifrost-platform-prod namespace).
+# Scrape platform-api's /metrics in both platform namespaces (prod and stg).
 #
 # platform-api reports how the plugins under Trade are doing — market-data,
 # flex-query, ib-gateway, research — from the same probes its
@@ -9,6 +9,13 @@
 # gateway could not reach TWS for seventeen hours while its pod stayed 1/1
 # Running, so nothing derived from Kubernetes fired and no Bifrost rule covered
 # it.
+#
+# STG is scraped too (TD-198), so a broken STG platform-api shows up as a
+# down target and, once it exports http_requests_total, in the API error-rate
+# and latency rules under its own namespace. Both namespaces probe the same
+# plugin instances, so the bifrost-platform-plugins rules aggregate without
+# namespace (max / min, as they already did across replicas) and a plugin
+# outage still pages once.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -23,6 +30,7 @@ spec:
   namespaceSelector:
     matchNames:
       - bifrost-platform-prod
+      - bifrost-platform-stg
   selector:
     matchLabels:
       app.kubernetes.io/name: platform-api
