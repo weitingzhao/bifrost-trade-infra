@@ -975,8 +975,9 @@
 
 **P2 · trade-data · The daily position and NAV snapshots have no reader: no trade-api route, no Research or frontend read, and three pages still say the snapshot does not exist**
 
-- **状态**：在做（代码已上 main：core 0.54.0 e95e1a9（+0f24757）、api 0.12.0 199ffea、frontend 7d33c3a9 / 3990ebfd；无 DDL；等 Trade 发版后验收）
+- **状态**：待你签收
 - **验收**：发版后：`curl -s -o /dev/null -w '%{http_code}' http://192.168.10.73:30881/api/account/portfolio/nav-history` → 200；`git -C bifrost-trade-api grep -l get_nav_history origin/main -- src` 有输出；`git -C bifrost-trade-frontend grep -n 'Nothing stores one' origin/main -- src/pages/portfolio/pnlExplain` 无输出（已 PASS 3990ebfd）
+- **验收结果**：PASS 2026-10-07 10-07 Trade 发版（STG q478s → PROD 7ws6b → DEV，core 0.55.1 cd6f5a2 / api 0.12.0 / worker 0.2.7 / frontend 3990ebfd；tag v0.55.1）：PROD `nav-history` / `position-snapshots` / `pnl-attribution` 都 200；STG 同；前端 grep 无 'Nothing stores one'
 - **现在**：道 AA：core `portfolio/reader/snapshots.py`（nav_history / position_snapshots / pnl_attribution，盘中 NAV 行按 session_closes_at 丢弃）；api 三条 GET：`/portfolio/nav-history`、`/position-snapshots`、`/pnl-attribution`（core 下限 ≥0.54.0）；前端 P&L Explain 归因段、Performance Return basis（TWR + Modified Dietz 交叉校验）、Transfer & Pay Downstream、Accounts NAV 曲线、Review 两处引用，旧 API 404 时保留未接通态并写明原因。DEV（Pod 内只读跑新代码）：nav-history 保留 3 / 丢 3 行盘中读数；position-snapshots 最新 session 31 行、13 个 OPT 都有 greeks_quality；pnl-attribution 10-06 对 10-05 ok，Δ+Γ+vega+θ+unexplained = held 成立，unexplained 约为 held 的 3.9 倍，其中一大块来自一行 mark 低于内在价值的 LEAP（见 TD-246）。PROD 只读被 auto mode 拦，未测。防线：core `test_snapshot_reader.py` / `_db.py`、api `test_portfolio_snapshots_routes.py` / `_db.py`、前端 `PnlAttributionBand.test.tsx` 等
 - **下一步**：等 10-06 收盘后有两天数据再开工：api 读接口 → 前端按 SNAPSHOT-SPEC §5 改三页；TD-139 的 quality 在这一步一起定。TD-137 上线前读侧要按 account_updated_at 过滤盘中行。
 - **Claim**: Since 10-05 position_snapshot_daily and account_nav_daily are written nightly in all three Trade databases, but trade-api, Research and the frontend have no reference to either table, and GET /api/account/portfolio/nav-history, /snapshots and /api/monitor/status/history answer 404 on PROD. PnlExplainPage, PerformanceReturnBasis, the Transfer & Pay downstream band and the Accounts net-liquidation curve keep their not-wired state, and the P&L Explain model text still says nothing stores a snapshot.
@@ -995,8 +996,9 @@
 
 **P3 · trade-data · Snapshot Greeks carry no quality flag (vendor / degraded / missing): only mark_source and greeks_asof are stored**
 
-- **状态**：在做（代码已上 main：core 0.54.0 e95e1a9（+0f24757）、api 0.12.0 199ffea、frontend 7d33c3a9 / 3990ebfd；无 DDL；等 Trade 发版后验收）
+- **状态**：待你签收
 - **验收**：TD-138 的读接口对每个 OPT 行都给出 `greeks_quality` ∈ {vendor, degraded, missing}，且 missing 的个数等于 `SELECT count(*) FILTER (WHERE sec_type='OPT' AND delta IS NULL) FROM position_snapshot_daily WHERE snapshot_date = (SELECT max(snapshot_date) FROM position_snapshot_daily)`（同上的 CNPG 副本只读命令）
+- **验收结果**：PASS 2026-10-07 10-07 Trade 发版（STG q478s → PROD 7ws6b → DEV，core 0.55.1 cd6f5a2 / api 0.12.0 / worker 0.2.7 / frontend 3990ebfd；tag v0.55.1）：PROD position-snapshots 14 个 OPT 行 greeks_quality 全有值、missing 0（= delta IS NULL 数 0）
 - **现在**：读时派生，不加列：vendor = greeks_asof 的纽约日期等于该 session 且五个值齐全且 mark 为 vendor_eod；degraded = 日期不对 / 缺 gamma·vega·theta·iv / mark 非 vendor；missing = 无 delta；每行另带 greeks_quality_reason。DEV 10-05、10-06 都是 vendor 13 / degraded 0 / missing 0，missing 数 = delta IS NULL 数（0 = 0）
 - **Claim**: SNAPSHOT-SPEC §1.3 asks for a quality field per option row so P&L Explain phase 2 can mark degraded Greeks instead of reading them as exact; position_snapshot_daily stores mark_source and greeks_asof only. Not biting yet: every option row of 10-05 has vendor values.
 - **Measured**: MEASURED 10-06: 10-05 OPT rows 13/13 with delta present in all three databases.
@@ -1379,8 +1381,9 @@
 
 **P3 · trade-api · GET /strategies/plans has no source_kind filter: Research reads the newest 500 filled plans and filters itself, marking truncated at the cap**
 
-- **状态**：在做（research 部分已随 0.199.0 上线；core 0.53.0 / api 0.11.0 等 Trade 发版）
+- **状态**：待你签收
 - **验收**：发版后：`curl -s -o /dev/null -w '%{http_code}' 'http://192.168.10.73:30881/api/account/strategies/plans?source_kind=bogus&limit=1'` = 422（三个网关同）；DEV `?source_kind=hypothesis` count 0、`manual` count 3；research 发布后 `/research/hypothesis?trade_env=dev` 的 `trade_link_basis.source` 含 `source_kind=hypothesis`
+- **验收结果**：PASS 2026-10-07 10-07 Trade 发版（STG q478s → PROD 7ws6b → DEV，core 0.55.1 cd6f5a2 / api 0.12.0 / worker 0.2.7 / frontend 3990ebfd；tag v0.55.1）：三网关 `source_kind=bogus` → 422（发版前 200）；research 侧随 0.199.0 已发 source_kind=hypothesis
 - **现在**：发版前基线 10-06 23:31 UTC：三网关 `source_kind=bogus` 都是 200（api 0.10.0 忽略参数）；DEV plans 3 行。EXPLAIN（副本）走 `strategy_plan_status_created`，行数 DEV 3 / STG 0 / PROD 0，不需新索引。门禁：core lint 0 / 1301 passed / test-db 103 passed；api 1005 passed；research 2091 passed。防线：api `tests/test_strategy_plans_routes.py`（hypothesis 只回 hypothesis、上限按过滤后计、未知 kind 422、不撞退役名）、core `tests/test_strategy_plan.py` + `test_strategy_plan_db.py::test_list_filters_by_source_kind_and_ref`、research `test_hypothesis_trade_links.py::test_the_kind_is_sent_and_still_checked_here`
 - **Claim**: TD-143's read-time link pulls status=filled&limit=500 and filters source_kind='hypothesis' in Research; once filled plans approach 500 the oldest links drop out (flagged truncated, not silent).
 - **Measured**: code-read 10-06 by paydown lane G2.
@@ -1555,7 +1558,7 @@
 
 **P2 · ops-platform · BifrostAPIHighLatency can never fire: the histogram it reads tops out at a 1 s bucket, so histogram_quantile returns at most 1 and `> 2` is impossible**
 
-- **状态**：在做（core 0.55.0 = 0203b94 与 infra 7780a7e 已上 main，**规则未 apply**——要等三环境 Trade 都跑到 core ≥ 0203b94；先 apply 会在旧数据上误报，DEV 一周约 25 次。有人在此之前 `kubectl apply -k k8s/monitoring` 也会带上它）
+- **状态**：观察中（core 0.55.x 已上三环境、规则已 apply：延迟告警读 highr、`> 5 for 10m`；**发现回归**：api-monitor 不再导出 http_requests_total（同进程 instrument 了 api-monitor 与 api-docs 两个 app），道 II 在修 core 0.55.2）
 - **下一步**：发版顺序：Trade 发版带 core ≥ 0.55.0 到 DEV / STG / PROD（`/health` core_sha ≥ 0203b94）→ 再 `kubectl apply -k k8s/monitoring` → `check_http_metrics_coverage.py --live`。Owner 10-07 已确认 /health 计数不计时
 - **现在**：道 CC 实测（7 天）：trade-api 只有两个流式路由（/quotes/stream、/api/messages/stream，25 s keepalive SSE），旧计时按连接结束算，平均约 40 s；PROD api-monitor >1 s 的 211 个观测里 172 个是 SSE。另：kubelet 的 /health 占延迟观测 87–97%，把 p99 稀释成真实请求的约 p70。core 0.55.0：两个延迟直方图都计时到响应头（库自带 should_exclude_streaming_duration），/health 计数不计时（**超出原话「排除 SSE」的范围，待你确认**），指标名与标签不变、默认桶不变。规则改读 highr p99，`or` 低精度直方图（只对 platform-api），阈值 `> 5 for 10m`：按新口径 7 天回放 PROD 0、STG 0、DEV 3–9 次（都是真慢窗口）。防线：core `tests/test_prometheus_instrumentation.py`（6 个）+ `check_http_metrics_coverage.py`（延迟规则须读 highr、阈值低于所读直方图的最大有限桶，`--live` 核真实桶）。后续 TD-242
 - **Claim**: prometheus-fastapi-instrumentator's default http_request_duration_seconds buckets are 0.1 / 0.5 / 1 / +Inf (core observability/prometheus.py). The rule asks p99 > 2 s. The fine histogram (http_request_duration_highr_seconds, no handler label, 0.01–60 s) would fire: over 7 days PROD api-monitor had ~20 and api-market ~17 windows of ≥5 min with p99 > 2 s — possibly streaming routes timed to response end (unverified).
@@ -1813,7 +1816,8 @@
 
 **P2 · trade-worker · Nothing alerts when the only writer of raw_broker.account and positions stops: the daemon has no liveness probe and no freshness rule**
 
-- **状态**：未开始
+- **状态**：待你签收
+- **验收结果**：PASS 2026-10-07 10-07 Trade 发版（STG q478s → PROD 7ws6b → DEV，core 0.55.1 cd6f5a2 / api 0.12.0 / worker 0.2.7 / frontend 3990ebfd；tag v0.55.1） + monitoring apply（PodMonitor bifrost-trade-daemon 新建、规则组 bifrost-trade-daemon 生效）：PROD daemon 2 个 pod 0 重启、livenessProbe 生效；leader 心跳 14 s 前、raw_broker 最后写入时间有值；`check_daemon_liveness.py --live` ok。BifrostTradeDaemonMetricsAbsent 在首抓前进入 pending，指标到位后会自行解除
 - **Claim**: The daemon leader pod is the only writer of raw_broker.account and raw_broker.positions, which feed Positions, attribution and the nightly NAV and position snapshots. Its readinessProbe only checks that CNPG and Redis accept connections, and it has no livenessProbe, so a hung FSM loop or a dead pub/sub listener keeps the pod Ready. No live PrometheusRule covers the Trade daemon or raw_broker freshness. A 'per-table last_nonzero_write for raw_broker' stale rule is planned in RATCHETS.md but not implemented.
 - **Measured**: MEASURED 2026-10-07: live alert names matching daemon|broker|account|worker|stale|fresh are only Flex*, MarketData*, DagsterDaemonHeartbeat, EventRadar, ResearchCronJob and LogicalBackupDrill. PROD deploy/daemon has an empty livenessProbe. raw_broker.account also still holds U17113214, last written 2026-05-11 (adjacent to TD-137; not re-reported).
 - **Evidence**:
@@ -1829,7 +1833,8 @@
 
 **P2 · trade-worker · The daemon never configures logging: every INFO line is dropped, and write failures logged at debug are invisible**
 
-- **状态**：未开始
+- **状态**：待你签收
+- **验收结果**：PASS 2026-10-07 10-07 Trade 发版（STG q478s → PROD 7ws6b → DEV，core 0.55.1 cd6f5a2 / api 0.12.0 / worker 0.2.7 / frontend 3990ebfd；tag v0.55.1）：PROD daemon 新镜像起来后 10 分钟内 22 行 INFO 日志（之前 2 小时 0 行）
 - **Claim**: Nothing in worker src or scripts calls logging.basicConfig or dictConfig or adds a handler, so Python's lastResort handler emits only WARNING and above. The leader-election lines were raised to warning just so they would show. Everything at INFO disappears, including '[ib_edge] snapshot applied', account_push, heartbeat state and control commands. Failures of write_open_orders, write_account_executions and the contract_quote_live sync are logged at debug. The in-process Metrics class is never exported.
 - **Measured**: MEASURED 2026-10-07: `kubectl -n bifrost-prod logs deploy/daemon --since=3h` shows only 'Defaulted container' and the 'standby until acquired' WARNING; the leader pod (114 min old) had 3 lines in total. A 2 h Loki query for 'ib_edge' in bifrost-prod returns 0 lines, although raw_broker.account was written at 00:07 and 00:27 UTC.
 - **Evidence**:
