@@ -15,7 +15,7 @@
 
 （暂无）
 
-**未结 81 项**：P0 0 · P1 4 · P2 31 · P3 46；要你批的 43 项（从总览表的审批列算）。
+**未结 82 项**：P0 0 · P1 4 · P2 31 · P3 47；要你批的 43 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -52,7 +52,7 @@
 
 目标：一个开关让所有测试类防线生效（CI 卡发布），再补上调度存活告警、D10 闸门的非 curl 写法、operator 流白名单、本机常驻任务和密钥轮换的盲区、spine 副本同步。
 
-项：TD-95, TD-96, TD-100, TD-105, TD-109, TD-121, TD-152, TD-153, TD-155, TD-162, TD-194, TD-195 · 已还：TD-99, TD-161
+项：TD-95, TD-96, TD-100, TD-105, TD-109, TD-121, TD-152, TD-153, TD-155, TD-162, TD-194, TD-195, TD-198 · 已还：TD-99, TD-161
 
 ### 第 3 波 · 交易日与日历只有一个来源
 
@@ -257,6 +257,7 @@
 | [TD-195](#td-195) | P3 | ops-platform | platform-api exports no http_requests_total (hand-written /metrics, no Prometheus client), so the API error-rate and latency alerts cannot see it | 不用批 |
 | [TD-196](#td-196) | P2 | ops-platform | platform-api and platform-workers keep their state in per-pod emptyDir: every rollout erases release cycles, gate history, the operate queue and checklist signals, and the audit log is memory-only | 已批 |
 | [TD-197](#td-197) | P3 | ops-platform | Lineage thread titles are synced only by the platform-api on the Owner's workstation (bdev): when it is down, or sessions run elsewhere, new threads stay unnamed | 已批 |
+| [TD-198](#td-198) | P3 | ops-platform | STG platform-api is not scraped: the platform-api ServiceMonitor selects only bifrost-platform-prod, so STG platform 5xx / latency and plugin health come from PROD only | 不用批 |
 
 ## 条目
 
@@ -1557,7 +1558,9 @@
 
 **P3 · ops-platform · platform-api exports no http_requests_total (hand-written /metrics, no Prometheus client), so the API error-rate and latency alerts cannot see it**
 
-- **状态**：在做（还债第五批 · 道 W，10-07 00:2x UTC 开工；发版前停下等你批）
+- **状态**：在做（代码已上 main：platform e95be35、infra 4daeb8e（去掉豁免，**未 apply**——要在 platform PROD 发布后才 apply，否则 30 分钟后误报）；发版等你批）
+- **验收**：platform PROD 发布并 apply 规则后：`KUBECONFIG=~/.kube/bifrost-k3s.yaml python3 bifrost-trade-infra/scripts/check_http_metrics_coverage.py --live` → ok；`sum by (handler,status)(rate(http_requests_total{namespace="bifrost-platform-prod"}[5m]))` 有 /health 2xx
+- **现在**：道 W：`api/internal/server/httpmetrics.go` 手写 chi 中间件（无新依赖），`http_requests_total{handler,method,status}`（handler = chi 路由模式，未匹配路由不记）+ `http_request_duration_seconds` 桶 0.1/0.5/1/2.5/5/10（/health、SSE、websocket 不进直方图）。规则去掉 `job!="platform-api"` 豁免，`check_http_metrics_coverage.py` 新增「不许任何豁免」「平台命名空间在正则内」。门禁 go build/vet/test（-race）0。防线 `httpmetrics_test.go`（真实路由器，最大有限桶须 > 2 s）+ 覆盖脚本。注意：**有人在 platform 发布前 `kubectl apply -k k8s/monitoring` 会让新规则对 PROD platform-api 误报**。后续 TD-198
 - **Claim**: It is the one exemption in BifrostAPIWithoutHttpMetrics (job!="platform-api").
 - **Measured**: code-read 10-06 by paydown lane Q.
 - **Evidence**:
@@ -1606,6 +1609,20 @@
 - **Ratchet**: `agent-config/claude/hooks/report-thread-title.test.js` (11 checks: custom over generated, unchanged not resent, half-written line held, failed request retried, rewritten file re-read).
 - **验收**: With the bdev platform-api stopped, a new session's first commit shows its title on PROD Commit Lineage after its first Stop.
 - 审批 已批（Stop hook） · 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
+
+### TD-198
+
+**P3 · ops-platform · STG platform-api is not scraped: the platform-api ServiceMonitor selects only bifrost-platform-prod, so STG platform 5xx / latency and plugin health come from PROD only**
+
+- **状态**：未开始
+- **Claim**: The ServiceMonitor's namespaceSelector.matchNames lists bifrost-platform-prod alone.
+- **Measured**: code-read 10-07 by paydown lane W.
+- **Evidence**:
+  - `bifrost-trade-infra/k8s/monitoring/bifrost-platform-api.yaml:25` — `- bifrost-platform-prod`
+- **Impact**: A broken STG platform-api raises no API alert; STG release gates cannot read platform metrics.
+- **Fix**: Add bifrost-platform-stg to matchNames; check that plugin-health alerts then fire per namespace without duplicating PROD pages (add namespace to their grouping or limit them to prod).
+- **Ratchet**: check_http_metrics_coverage.py: every namespace in PLATFORM_NAMESPACES is selected by some ServiceMonitor.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ## 没覆盖到的（下一轮从这里开始）
 
