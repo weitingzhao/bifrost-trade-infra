@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-148 / TD-160 / TD-107** — strategy_plan 允许 lens / backtest_run 来源；删 GS 两个改名残留的重复索引；6 张 financials 表补上 (period_date, symbol) 索引（Owner 10-07 批第一组，均已执行并核对） · 验收 PASS（三库约束含新值、旧索引已删、6 个新索引 valid） · 防线：core `tests/test_td148_source_kind_prepare.py`、research TD-160 核对 SQL、market-data `tests/test_td107_financials_period_index.py`（apply_ddl 路径建索引） · 后续：TD-134 观察一周 WAL 量（同批 apply，到 10-14）
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-253** — 检查信号不再是几周前的：每条带观测时间和来源，超过 2 小时读 unknown、autopilot 不会按它动手；PROD platform-workers 自己每 10 分钟探测一次（不再靠 Mac 上报）。验收 PASS 2026-10-07 d8bdf41（22/22 带时间）。防线：`RATCHETS.md`「检查信号的时效与来源」测试 + `check_platform_maintenance.py`（探测器只在 PROD workers）。后续：无后续：放开 autopilot 动手在 TD-130（观察到 10-12）
@@ -530,8 +531,8 @@
 
 **P2 · market-data · Indexes declared for the six financials entity tables never reach a deployed DB (the migration returns early); live differs from fresh install**
 
-- **状态**：观察中（Cursor LANE-D2 已完成并复验；待你批：在 GS 跑 financials 索引 SQL（CONCURRENTLY））
-- **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
+- **状态**：待你签收（Owner 10-07 批；GS 6 张 financials 表已有 (period_date, symbol) 索引）
+- **验收结果**：PASS 2026-10-07：CREATE INDEX CONCURRENTLY 5 个新建、short_volume 已存在跳过；6 个 indisvalid=t；market-data 0.86.0 代码不再声明 symbol_period_date
 - **Claim**: create_financials_entity_tables declares {table}_symbol_period_date and {table}_period_date_symbol for ratios, short_interest, short_volume, income_statement, balance_sheet and cash_flow, but is reachable only via migrate_stock_financials_split, which returns when stock_financials is already a view (true everywhere). period_date_symbol was written to stop the full scan behind 'who is held on the latest day' that blew a 120s budget; only short_volume has it (added by hand).
 - **Measured**: MEASURED pg_indexes on bifrost_golden_source: the six tables have only pkey + filing_date (short_volume also period_date_symbol); 11 declared indexes absent. pg_stat_user_tables: ratios 4,197 seq scans / 278M tuples, balance_sheet 1,451 / 267M, short_volume (4.98 GB) 1,524 / 3.58B.
 - **Evidence**:
@@ -728,8 +729,8 @@
 
 **P2 · data · WAL is ~19.5 GiB/day (4.2 GiB compressed) because checkpoints run every 5 minutes without wal_compression**
 
-- **状态**：观察中（Cursor LANE-D2 已完成并复验；待你批：apply CNPG 参数（reload，不重启））
-- **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
+- **状态**：观察中（Owner 10-07 批第一组；已 apply 到 data/bifrost-postgres，reload 生效、两个 pod 未重启；到 10-14 看一周 WAL 量（apply 前约 18 GiB/天））
+- **验收结果**：PASS（生效）2026-10-07：pg_settings checkpoint_timeout=900s、max_wal_size=4096MB、wal_compression=lz4；bifrost-postgres-1/-3 restartCount 未变
 - **Claim**: bifrost-postgres runs with checkpoint_timeout 300 s, max_wal_size 1024 MB and wal_compression off. Each checkpoint makes the next change to every page write a full page image, so WAL is dominated by full pages. Archived WAL is 129 of the 272 GiB backup bucket.
 - **Measured**: MEASURED 2026-10-06: cnpg_collector_wal_bytes 7-day average 19.48 GiB/day; 1,986 timed checkpoints in 7 days; full-page-image byte share upper bound 0.98 (8 KiB per FPI).
 - **Evidence**:
@@ -886,9 +887,9 @@
 
 **P3 · trade-data · A trade cannot name the lens or backtest run it came from: trade has no such column and strategy_plan.source_kind does not allow lens / backtest_run**
 
-- **状态**：观察中（core 0.58.0 已带新装 DDL；三个 Trade 库的 CHECK 放宽 SQL 在第 4 批，要你逐项点头）
+- **状态**：待你签收（Owner 10-07 批；bifrost_dev / stg / prod 已执行）
 - **验收**：三个 Trade 库各跑：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data exec -i bifrost-postgres-3 -c postgres -- env PGOPTIONS='-c default_transaction_read_only=on' psql -U postgres -d bifrost_prod -X -At -c "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='strategy_plan'::regclass AND contype='c' AND pg_get_constraintdef(oid) LIKE '%source_kind%'"` 含 `'lens'` 与 `'backtest_run'`
-- **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
+- **验收结果**：PASS 2026-10-07：三库 strategy_plan_source_kind_check 现含 'lens' 与 'backtest_run'，约束名不变；单事务执行（-1）
 - **Claim**: PROD trade has trade_id, strategy_opportunity_id, account_id, opened_at, label, created_at, updated_at and no public table has a lens, backtest or run_id column. strategy_plan.source_kind is checked against manual | symbol | hypothesis | inbox_draft | roll, and core repeats the same five in the reader and the request schema. Outcome / Lineage keep the lens and run chips grey (design D3, Owner 2026-09-17).
 - **Measured**: MEASURED 10-06 on bifrost_prod (columns of trade; the CHECK definition).
 - **Evidence**:
@@ -1073,8 +1074,8 @@
 
 **P3 · research-data · features.event_signal_radar_daily keeps the pre-rename copies of two indexes (event_radar_batch_collected, event_radar_importance) beside the current ones**
 
-- **状态**：观察中（Cursor LANE-D2 已完成并复验；待你批：在 GS DROP INDEX CONCURRENTLY 两个旧索引）
-- **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
+- **状态**：待你签收（Owner 10-07 批；GS 已 DROP INDEX CONCURRENTLY）
+- **验收结果**：PASS 2026-10-07：执行前两个旧索引与新索引定义相同、idx_scan=0；执行后 features.event_signal_radar_daily 只剩 pkey + 两个 event_signal_radar_daily_* 索引
 - **Claim**: The table was renamed from event_radar; ddl.py creates event_signal_radar_daily_batch_collected and _importance, but the old event_radar_batch_collected and event_radar_importance survived, so every write maintains two identical indexes each.
 - **Measured**: MEASURED 10-06 (pg_indexes, read-only): event_radar_batch_collected 160 kB, event_radar_importance 152 kB beside event_signal_radar_daily_batch_collected 160 kB / _importance 152 kB; event_radar_pkey is the primary key (keep, name only).
 - **Evidence**:
