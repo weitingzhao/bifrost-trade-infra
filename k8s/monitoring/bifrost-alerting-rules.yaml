@@ -934,6 +934,19 @@ spec:
             summary: "Platform plugin {{ $labels.plugin }} degraded for 2h"
             description: "{{ $labels.plugin }} answers but reports degraded — for market-data this is usually stale freshness on part of the universe. Long window on purpose: degraded is common and self-clearing, and a short one would join the alerts that have been firing since August."
 
+        - alert: BifrostPlatformAuthNotLoaded
+          # min: one replica with a broken platform-auth.yaml already answers 401
+          # to every gated call routed to it. Absent until the platform-api that
+          # exports it (TD-220).
+          expr: |
+            min by (namespace) (bifrost_platform_auth_loaded) == 0
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "platform-api in {{ $labels.namespace }} runs without platform-auth.yaml"
+            description: "LoadAuth failed, so every operator, admin and reporter route answers 401 — it looks like a bad token but is not. platform-api logs 'platform auth not loaded' with the path and error at startup, and /health shows auth_loaded=false. Fix the mounted platform-auth.yaml (Secret) and restart the Deployment."
+
     - name: bifrost-logging
       rules:
         - alert: BifrostPromtailDroppingLogs
