@@ -13,10 +13,11 @@
 
 ## 待你签收
 
+- **TD-209** — 告警现在会呼到你：critical 与备份、WAL、NAS MinIO 告警经 Mac mini .50 的 operator-plane 发到 ntfy，Watchdog 当心跳、停了也呼你；原来的 webhook 照旧收。验收 PASS 2026-10-07（线上路由与心跳实测）。防线：`RATCHETS.md`「check_alert_routing.py」与「alertrelay/relay_test.go」。后续：TD-248（转发只在 .50 一处，.50 宕机时没人知道）；你要在手机 ntfy 里订阅本机 `bifrost-platform/.env` 里的 `NTFY_TOPIC`
 - **TD-194** — 延迟告警真能响了：core 计时到响应头、/health 只计数不计时（Owner 确认），规则读 highr p99 `> 5 for 10m`；中途回归（api-monitor 丢计数，同进程两个 app）由 core 0.55.2 修复 · 验收 PASS（10-07 live 覆盖检查 ok）· 防线：core `test_prometheus_instrumentation.py`（含多 app 用例）+ api `test_monitor_http_metrics.py` + `check_http_metrics_coverage.py`（阈值须低于所读直方图最大有限桶）· 后续：TD-242（队列看板慢）
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 113 项**：P0 0 · P1 11 · P2 36 · P3 66；要你批的 59 项（从总览表的审批列算）。
+**未结 114 项**：P0 0 · P1 11 · P2 36 · P3 67；要你批的 59 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -107,7 +108,7 @@
 
 目标：数据层告警有一个人能收到的通道和外部心跳；逻辑备份先修好等库就绪；做一次 Barman 恢复演练；决定异地副本；daemon 停写与日志丢失要能被看见。
 
-项：TD-209, TD-210, TD-217, TD-218, TD-238, TD-237 · 已还：TD-215, TD-216
+项：TD-209, TD-210, TD-217, TD-218, TD-238, TD-237, TD-248 · 已还：TD-215, TD-216
 
 ### 第 11 波 · 账本与页面读数、绿着的未知（第 3 轮）
 
@@ -338,6 +339,7 @@
 | [TD-245](#td-245) | P3 | ops-console | Console agent-pack text still says husbandry_gate blocks dbt when Flex fails (stale after TD-192) | 不用批 |
 | [TD-246](#td-246) | P3 | trade-data | Snapshot enrich stores a vendor 'day close' that can sit below the option's intrinsic value (a stale last trade), and P&L attribution then books it as unexplained | 要你批 |
 | [TD-247](#td-247) | P3 | frontend | Look-back starts are still computed in the browser's time zone (new Date(Date.now() - N*86400000).toISOString().slice(0,10)), and three private New York date helpers duplicate @/lib/freshness | 不用批 |
+| [TD-248](#td-248) | P3 | ops-platform | The ntfy alert relay runs on one Mac mini (.50) and nothing watches it: if .50 or its operator-plane is down, no alert and no dead-man page reaches the Owner | 不用批 |
 
 ## 条目
 
@@ -1627,7 +1629,8 @@
 
 **P1 · data · Every data-layer alert (backup failed, WAL archive stalled, NAS MinIO down, logical backup missing) goes to one webhook that writes it to STG platform-api's in-memory audit log and returns 200: no human is ever told**
 
-- **状态**：未开始
+- **状态**：待你签收
+- **现在**：10-07 上线。operator-plane（platform 8803ee8）在 Mac mini .50 上 `ALERT_RELAY=on`：`POST /api/v1/alerts/alertmanager` 逐条发 ntfy（critical 紧急、warning 高、恢复低，按 fingerprint+状态 30 分钟去重，ntfy 失败回 502 让 Alertmanager 重试），`POST /api/v1/alerts/heartbeat` 收 Watchdog，15 分钟没收到就呼你、每小时重呼、恢复时说一声。Alertmanager（helm rev 14，infra 9eee4ae）：critical 与 `Bifrost(PostgresBackup*|PostgresWalArchiveStalled|LogicalBackup*|MinIONas*)` 加送 `owner-ntfy`（continue），Watchdog 每 5 分钟送 `owner-heartbeat`，其余照旧进 webhook；出站策略放行 192.168.10.50:8783。ntfy 服务用公共 ntfy.sh，topic 只在本机 `bifrost-platform/.env` 与 .50 的 `config/.env`，令牌同时在 Secret `alertmanager-relay-auth`
 - **Claim**: Alertmanager's root route and only real receiver is bifrost-ops-agent, a webhook to platform-api.bifrost-platform-stg. HandleAlertmanager runs a static Diagnose(), writes one line to the memory-only audit log (NewAuditLog("")) and returns 200. There is no email, chat or push channel, and Watchdog routes to "null" with no external dead-man's switch. Alertmanager counts this as successful delivery, so alerting looks healthy while nobody is told. TD-196 covers the audit log's persistence, not this routing.
 - **Measured**: MEASURED 2026-10-07 00:45 UTC. The live config has two receivers, "null" and bifrost-ops-agent (webhook_configs only). Over 24 h, notifications_total is non-zero only for webhook (~41) and failed_total is 0 for every integration. BifrostLogicalBackupMissing has been active since 22:33Z with receivers ['bifrost-ops-agent'] and no one acting on it. platform and infra contain no telegram, ntfy, pushover, smtp or dead-man configuration.
 - **Evidence**:
@@ -1639,6 +1642,7 @@
 - **Fix**: Add a human receiver for severity=critical and for Bifrost(Postgres|MinIONas|LogicalBackup).* (for example ntfy, Pushover or email, sent from the Mac mini operator-plane outside the cluster), and keep the webhook with continue: true. Route Watchdog to an external heartbeat check (healthchecks on the NAS or a Mac mini) that pages when the heartbeat stops. Persist webhook receipts once TD-196 lands.
 - **Ratchet**: Infra alerting test (ratchet proposal 'alerting-contract'): load values-kube-prometheus.yaml and fail unless every critical and Bifrost backup/WAL/MinIO alert routes to at least one receiver that is not an in-cluster webhook, and Watchdog routes to a non-null receiver.
 - **验收**: `KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl get --raw "/api/v1/namespaces/monitoring/services/kube-prometheus-stack-alertmanager:9093/proxy/api/v2/alerts?active=true" </dev/null | python3 -c "import json,sys;a=json.load(sys.stdin);print(sorted({(x['labels']['alertname'],tuple(sorted(r['name'] for r in x['receivers']))) for x in a if x['labels']['alertname'] in ('Watchdog','BifrostLogicalBackupMissing') or x['labels'].get('severity')=='critical'}))"  # every critical/backup alert lists a receiver other than bifrost-ops-agent; Watchdog lists a non-null receiver`
+- **验收结果**：PASS 2026-10-07 9eee4ae：验收命令输出 `BifrostLogicalBackupMissing → (bifrost-ops-agent, owner-ntfy)`、`Watchdog → (owner-heartbeat)`；.50 的 relay 状态 `last_heartbeat` 03:00:48Z → 03:05:48Z（每 5 分钟），已发 2 条（测试一条 + LogicalBackupMissing）；`LIVE=1 make check-alert-routing` ok
 - 审批 PROD 变更（要你批） · 代价 M · 风险 low · repos: bifrost-trade-infra, bifrost-platform
 
 ### TD-210
@@ -2248,6 +2252,22 @@
 - **Fix**: Add an etDaysAgoIso(n) helper to @/lib/freshness, route the five sites through it, fold the three NY-date copies into it; extend utcTodayRatchet to the `new Date(Date.now() - …)` form.
 - **Ratchet**: Extend src/lib/utcTodayRatchet.test.ts.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
+
+### TD-248
+
+**P3 · ops-platform · The ntfy alert relay runs on one Mac mini (.50) and nothing watches it: if .50 or its operator-plane is down, no alert and no dead-man page reaches the Owner**
+
+- **状态**：未开始
+- **Claim**: TD-209 made Mac mini .50's operator plane the only path from Alertmanager to the Owner's phone, and also the only dead-man's switch. .52 runs the same binary with `ALERT_RELAY=off` (a second relay would page "heartbeat missing" forever, since Alertmanager sends Watchdog only to .50). When .50 is off, asleep or its plane crashes, Alertmanager's webhook to .50 fails (counted in `alertmanager_notifications_failed_total`) and nothing pages.
+- **Measured**: MEASURED 2026-10-07: .50 `pmset` sleep 0, autorestart 1; .52 autorestart 0. No check reads `http://192.168.10.50:8783/api/v1/alerts/relay`.
+- **Evidence**:
+  - `bifrost-trade-infra/scripts/k3s/values-kube-prometheus.yaml` — `url: http://192.168.10.50:8783/api/v1/alerts/heartbeat`
+  - `bifrost-platform/api/cmd/operator-plane/main.go` — `On for exactly one Mini (ALERT_RELAY=on)`
+- **Impact**: A failure of .50 silences every page while the cluster looks fine; found only when the Owner wonders why it is quiet.
+- **Fix**: Let the .52 peer watchdog (already polls .50) read .50's `/api/v1/alerts/relay` and publish to ntfy directly when it fails or reports `heartbeat_ok: false` for 20 min; and add a Prometheus alert on `alertmanager_notifications_failed_total{integration="webhook"}` increasing (it would then page via .52 too).
+- **Ratchet**: The check above is itself the ratchet; plus `check_alert_routing.py` keeps the routes.
+- **验收**: Stop the operator plane on .50 (`launchctl bootout gui/$(id -u)/com.bifrost.operator-plane` on .50) for 25 min: the phone gets a page from .52.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
 ## 没覆盖到的（下一轮从这里开始）
 

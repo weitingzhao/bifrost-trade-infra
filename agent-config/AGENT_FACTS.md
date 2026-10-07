@@ -387,6 +387,12 @@ Tekton 流水线：`bifrost-ci-{frontend,platform,python}` · `bifrost-deliver-{
 `bifrost-build-{stg,frontend-stg,market-data,flex-query,research-dagster}` · `bifrost-smoke` · `bifrost-clone-frontend-smoke`。
 镜像仓库 `registry.cicd.svc.cluster.local:5000`。PROD 清单只走 git + Argo；`kubectl apply` prod overlay 会剥掉 Argo 跟踪注解。
 
+### 告警送达（TD-209，2026-10-07）
+
+- Alertmanager（helm `scripts/k3s/values-kube-prometheus.yaml`）：所有告警进 STG platform-api 的 webhook（内存审计日志）；critical 与 `Bifrost(PostgresBackup*|PostgresWalArchiveStalled|LogicalBackup*|MinIONas*)` 另送 `owner-ntfy`，Watchdog 每 5 分钟送 `owner-heartbeat`。
+- 两者都指向 Mac mini .50 的 operator-plane（`:8783/api/v1/alerts/*`，`ALERT_RELAY=on` 只在 .50），它发公共 ntfy.sh，并在 15 分钟没心跳时呼叫。topic 与令牌只在本机 `bifrost-platform/.env`、.50 的 `config/.env` 和 Secret `monitoring/alertmanager-relay-auth`，不进仓库。状态：`curl http://192.168.10.50:8783/api/v1/alerts/relay`。
+- helm upgrade 不要加 `--wait`：gpu-server 是可唤醒的待机节点，关机时 node-exporter 永远 5/6，升级会被记成 failed。
+
 ### 数据层
 
 - CloudNativePG `bifrost-postgres` @ `data`，2 实例，库 `bifrost_dev` / `bifrost_stg` / `bifrost_prod` + `bifrost_golden_source`；
