@@ -13,7 +13,7 @@
 
 ## 待你签收
 
-- **TD-217** — Golden Source 的 Barman 备份第一次实际恢复：NAS MinIO 只读凭证、恢复到 18:37:26Z 约 23 分钟，三表行数一致；A6 校验 105 表 104 PASS、1 张为目标后写入（10-07） · 验收 PASS（compare.sh PASS；A6 104/105，差异可解释） · 防线：`k8s/data/recovery-drill/`（可重复执行的清单 + compare.sh）；告警 BifrostPostgresRecoveryDrillStale 依赖 CronJob，手工演练满足不了，未 apply · 后续：要不要做成每月 CronJob（每次建 80Gi 临时集群，需 RBAC 评审）由 Owner 定；MinIO 用户 pg-recovery-drill 留或删由 Owner 定
+- **TD-217** — Golden Source 的 Barman 备份第一次实际恢复：NAS MinIO 只读凭证、恢复到 18:37:26Z 约 23 分钟，三表行数一致；A6 校验 105 表 104 PASS、1 张为目标后写入（10-07） · 验收 PASS（compare.sh PASS；A6 104/105，差异可解释） · 防线：`k8s/data/recovery-drill/`（可重复执行的清单 + compare.sh）；告警 BifrostPostgresRecoveryDrillStale 依赖 CronJob，手工演练满足不了，未 apply · 后续：TD-258（Owner 10-07 定按季度手工演练、保留 MinIO 只读用户；告警改为看上次通过时间，交 Cursor LANE-Q）
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-253** — 检查信号不再是几周前的：每条带观测时间和来源，超过 2 小时读 unknown、autopilot 不会按它动手；PROD platform-workers 自己每 10 分钟探测一次（不再靠 Mac 上报）。验收 PASS 2026-10-07 d8bdf41（22/22 带时间）。防线：`RATCHETS.md`「检查信号的时效与来源」测试 + `check_platform_maintenance.py`（探测器只在 PROD workers）。后续：无后续：放开 autopilot 动手在 TD-130（观察到 10-12）
