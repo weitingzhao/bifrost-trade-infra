@@ -1480,7 +1480,7 @@
 
 **P3 · market-data · market-data code strings and scripts still mention CronJobs: the dashboard label 'CronJob archived' and verify-market-data.sh's hint are user-visible**
 
-- **状态**：观察中（代码与镜像就绪：market-data 0.84.0 = 932f97c（分支 td-l1-2026-10-07，main 推送被 auto mode 以 [Production Deploy] 拦下，未绕过），镜像 sha256:0d09ad6d…；推 main + 部署提交 + apply 等你批）
+- **状态**：观察中（market-data 0.84.0 已上线 10-07 03:4x UTC：932f97c 快进进 main、deploy 637bfd6、12 个 pod 都是 0d09ad6d…；到 04:45 UTC 看过去 1 小时 queue-dashboard > 1 s 的请求数）
 - **验收结果**：PASS 2026-10-07 932f97c：五处措辞改为 Dagster；`tests/test_k8s_no_cronjobs.py` 扩到 src / scripts 的字符串与注释、scripts/*.sh；线上 queue-dashboard 本来就不显示该标签（readiness-refresh 不在 slots 里）
 - **Claim**: TD-201's guard scans Markdown only. ingest_dashboard.py:194 renders 'CronJob archived'; scripts/verify-market-data.sh:121 prints 'CronJobs may still be running'; comments in quality.py:22 and scheduler/daily.py:725, :2927.
 - **Measured**: code-read 10-07 by paydown lane Y.
@@ -2027,7 +2027,7 @@
 
 **P2 · market-data · market-data /ingest/queue-dashboard takes 5–25 s per call, and the platform-api proxy carries the same delay: with the new latency rule live it will page whenever someone keeps the queue dashboard open**
 
-- **状态**：观察中（代码与镜像就绪：market-data 0.84.0 = 932f97c（分支 td-l1-2026-10-07，main 推送被 auto mode 以 [Production Deploy] 拦下，未绕过），镜像 sha256:0d09ad6d…；推 main + 部署提交 + apply 等你批）
+- **状态**：观察中（market-data 0.84.0 已上线 10-07 03:4x UTC：932f97c 快进进 main、deploy 637bfd6、12 个 pod 都是 0d09ad6d…；到 04:45 UTC 看过去 1 小时 queue-dashboard > 1 s 的请求数）
 - **验收结果**：代码层 PASS 2026-10-07：PROD pod 内插桩，未命中缓存一次 1.6 s 里 SQL 只占 0.06 s，98% 花在 `cronutil.iter_cron_fires` 逐分钟判断（每 slot 前后 14 天，一次约 100 万次）；改为按本地日期逐天、只枚举 cron 指定的时分 → 1.66 s → 0.06–0.16 s、CPU 0.81 → 0.02 s，返回逐字节一致。防线 `tests/test_cronutil_fires.py`（旧实现作参照、全 slot + DST）+ `test_a_dashboard_miss_is_a_handful_of_reads_and_little_cpu`（CPU < 0.15 s）。线上 0.83.0 仍每小时 107 次 > 1 s
 - **Claim**: 164 requests over 1 s in 90 minutes on plugin-market-data; PROD platform-api p99 2.5–7.4 s from /api/v1/plugins/market-data/api/*.
 - **Measured**: MEASURED 10-07 by paydown lane CC (Prometheus, the TD-161 / TD-195 metrics).
