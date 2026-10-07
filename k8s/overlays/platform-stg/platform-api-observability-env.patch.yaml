@@ -20,7 +20,5 @@ spec:
               value: "http://192.168.10.50:8781"
             - name: REMEDIATION_RUNNER_STANDBY_URL
               value: "http://192.168.10.52:8781"
-            - name: GIT_BRIDGE_URL
-              value: "http://192.168.10.40:8785"
             - name: NOUS_HERMES_URL
               value: "http://192.168.10.50:9119"

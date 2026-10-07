@@ -1,4 +1,5 @@
-# In-cluster platform-api must reach Mac Mini runners + Mac Pro Git Bridge on LAN.
+# In-cluster platform-api must reach Mac Mini runners on the LAN.
+# The workstation git bridge is not a cluster feature.
 # Without these, /api/v1/agent/bridge defaults to http://127.0.0.1:8781 (Runner down).
 # LAN URLs are non-secret (same as bifrost-platform/.env); do not put passwords here.
 apiVersion: apps/v1
@@ -18,8 +19,6 @@ spec:
               value: "http://192.168.10.50:8781"
             - name: REMEDIATION_RUNNER_STANDBY_URL
               value: "http://192.168.10.52:8781"
-            - name: GIT_BRIDGE_URL
-              value: "http://192.168.10.40:8785"
             - name: NOUS_HERMES_URL
               value: "http://192.168.10.50:9119"
             - name: PLATFORM_GRAFANA_URL
