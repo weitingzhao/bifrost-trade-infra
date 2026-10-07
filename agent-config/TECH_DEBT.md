@@ -15,7 +15,7 @@
 
 - **TD-199** — 删掉自 09-24 起无人引用的 EventsBoard.tsx / EventRadarDashboard.tsx，改正两处注释（frontend e98afbf0）· 验收 PASS（10-07）· 防线：`src/lib/orphanModules.test.ts`（从 main.tsx 走导入图，KNOWN_ORPHANS 只许缩短）· 后续：TD-243（其余 42 个孤儿模块）
 
-**未结 119 项**：P0 1 · P1 12 · P2 39 · P3 67；要你批的 62 项（从总览表的审批列算）。
+**未结 120 项**：P0 1 · P1 12 · P2 39 · P3 68；要你批的 63 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -90,7 +90,7 @@
 
 目标：Data Gaps 看板上未结的 15 项并入台账：先把每日快照的写入修对（TD-137）再接读侧和三页，归因行补上价格，Research 侧已就绪的一个版本（0.185.0）发出去，长期限 IV 锥在 10-31 前从 option_daily 回填，其余按 Owner 已定的口径排。
 
-项：TD-137, TD-138, TD-139, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-158, TD-159, TD-172, TD-178, TD-180, TD-182, TD-199, TD-243 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181, TD-193, TD-140, TD-171
+项：TD-137, TD-138, TD-139, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-158, TD-159, TD-172, TD-178, TD-180, TD-182, TD-199, TD-243, TD-246 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181, TD-193, TD-140, TD-171
 
 ### 第 8 波 · Pine 线程收尾后的跟进（10-06）
 
@@ -345,6 +345,7 @@
 | [TD-243](#td-243) | P3 | frontend | 42 frontend modules are unreachable from src/main.tsx (largest clusters: components/cockpit/ 8, utils/dataOverview/ 6); dead code invites fixes and false audit findings | 删除（要你批） |
 | [TD-244](#td-244) | P3 | research-control | agents/journal_distill reads raw_broker.executions_final with no Flex freshness check (own 23:55 UTC schedule, outside any gate) | 不用批 |
 | [TD-245](#td-245) | P3 | ops-console | Console agent-pack text still says husbandry_gate blocks dbt when Flex fails (stale after TD-192) | 不用批 |
+| [TD-246](#td-246) | P3 | trade-data | Snapshot enrich stores a vendor 'day close' that can sit below the option's intrinsic value (a stale last trade), and P&L attribution then books it as unexplained | 要你批 |
 
 ## 条目
 
@@ -977,8 +978,9 @@
 
 **P2 · trade-data · The daily position and NAV snapshots have no reader: no trade-api route, no Research or frontend read, and three pages still say the snapshot does not exist**
 
-- **状态**：在做（道 AA，10-07 01:1x UTC 开工：两天快照已在（PROD 10-05 31 行、10-06 32 行），读侧 core → api → 前端三页；发版前停下）
-- **验收**：PROD 读接口返回 200 且有行：`curl -s -o /dev/null -w '%{http_code}' http://192.168.10.73:30881/api/account/portfolio/nav-history` → 200（若实现时取了别的路由名，把命令改成那个）；`git -C bifrost-trade-api grep -c 'position_snapshot_daily\|account_nav_daily' origin/main -- src` 至少 1 个文件；`git -C bifrost-trade-frontend grep -n 'Nothing stores one' origin/main -- src/pages/portfolio/pnlExplain` 无输出
+- **状态**：在做（代码已上 main：core 0.54.0 e95e1a9（+0f24757）、api 0.12.0 199ffea、frontend 7d33c3a9 / 3990ebfd；无 DDL；等 Trade 发版后验收）
+- **验收**：发版后：`curl -s -o /dev/null -w '%{http_code}' http://192.168.10.73:30881/api/account/portfolio/nav-history` → 200；`git -C bifrost-trade-api grep -l get_nav_history origin/main -- src` 有输出；`git -C bifrost-trade-frontend grep -n 'Nothing stores one' origin/main -- src/pages/portfolio/pnlExplain` 无输出（已 PASS 3990ebfd）
+- **现在**：道 AA：core `portfolio/reader/snapshots.py`（nav_history / position_snapshots / pnl_attribution，盘中 NAV 行按 session_closes_at 丢弃）；api 三条 GET：`/portfolio/nav-history`、`/position-snapshots`、`/pnl-attribution`（core 下限 ≥0.54.0）；前端 P&L Explain 归因段、Performance Return basis（TWR + Modified Dietz 交叉校验）、Transfer & Pay Downstream、Accounts NAV 曲线、Review 两处引用，旧 API 404 时保留未接通态并写明原因。DEV（Pod 内只读跑新代码）：nav-history 保留 3 / 丢 3 行盘中读数；position-snapshots 最新 session 31 行、13 个 OPT 都有 greeks_quality；pnl-attribution 10-06 对 10-05 ok，Δ+Γ+vega+θ+unexplained = held 成立，unexplained 约为 held 的 3.9 倍，其中一大块来自一行 mark 低于内在价值的 LEAP（见 TD-246）。PROD 只读被 auto mode 拦，未测。防线：core `test_snapshot_reader.py` / `_db.py`、api `test_portfolio_snapshots_routes.py` / `_db.py`、前端 `PnlAttributionBand.test.tsx` 等
 - **下一步**：等 10-06 收盘后有两天数据再开工：api 读接口 → 前端按 SNAPSHOT-SPEC §5 改三页；TD-139 的 quality 在这一步一起定。TD-137 上线前读侧要按 account_updated_at 过滤盘中行。
 - **Claim**: Since 10-05 position_snapshot_daily and account_nav_daily are written nightly in all three Trade databases, but trade-api, Research and the frontend have no reference to either table, and GET /api/account/portfolio/nav-history, /snapshots and /api/monitor/status/history answer 404 on PROD. PnlExplainPage, PerformanceReturnBasis, the Transfer & Pay downstream band and the Accounts net-liquidation curve keep their not-wired state, and the P&L Explain model text still says nothing stores a snapshot.
 - **Measured**: MEASURED 10-06: 10-05 rows DEV 31 / STG 30 / PROD 31, option Greeks 13/13; `git grep` for both table names on origin/main: 0 files in bifrost-trade-api (8a78042) and bifrost-research (a242b22), only core's writer; the three routes 404 on PROD.
@@ -996,8 +998,9 @@
 
 **P3 · trade-data · Snapshot Greeks carry no quality flag (vendor / degraded / missing): only mark_source and greeks_asof are stored**
 
-- **状态**：在做（道 AA，10-07 01:1x UTC 开工：两天快照已在（PROD 10-05 31 行、10-06 32 行），读侧 core → api → 前端三页；发版前停下）
+- **状态**：在做（代码已上 main：core 0.54.0 e95e1a9（+0f24757）、api 0.12.0 199ffea、frontend 7d33c3a9 / 3990ebfd；无 DDL；等 Trade 发版后验收）
 - **验收**：TD-138 的读接口对每个 OPT 行都给出 `greeks_quality` ∈ {vendor, degraded, missing}，且 missing 的个数等于 `SELECT count(*) FILTER (WHERE sec_type='OPT' AND delta IS NULL) FROM position_snapshot_daily WHERE snapshot_date = (SELECT max(snapshot_date) FROM position_snapshot_daily)`（同上的 CNPG 副本只读命令）
+- **现在**：读时派生，不加列：vendor = greeks_asof 的纽约日期等于该 session 且五个值齐全且 mark 为 vendor_eod；degraded = 日期不对 / 缺 gamma·vega·theta·iv / mark 非 vendor；missing = 无 delta；每行另带 greeks_quality_reason。DEV 10-05、10-06 都是 vendor 13 / degraded 0 / missing 0，missing 数 = delta IS NULL 数（0 = 0）
 - **Claim**: SNAPSHOT-SPEC §1.3 asks for a quality field per option row so P&L Explain phase 2 can mark degraded Greeks instead of reading them as exact; position_snapshot_daily stores mark_source and greeks_asof only. Not biting yet: every option row of 10-05 has vendor values.
 - **Measured**: MEASURED 10-06: 10-05 OPT rows 13/13 with delta present in all three databases.
 - **Evidence**:
@@ -2356,6 +2359,20 @@
 - **Fix**: Reword the three packs: husbandry_gate = Market only; flex_gate blocks only Flex readers (option_pinned_contract).
 - **Ratchet**: None new: copy, covered by review.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-246
+
+**P3 · trade-data · Snapshot enrich stores a vendor 'day close' that can sit below the option's intrinsic value (a stale last trade), and P&L attribution then books it as unexplained**
+
+- **状态**：未开始
+- **Claim**: DEV 10-05 has one LEAP call whose vendor_eod mark is below intrinsic; on 10-06 it accounts for most of the attribution's unexplained residual. TD-138's reader flags it (mark_below_intrinsic) but the writer keeps storing the last trade.
+- **Measured**: MEASURED 10-07 by paydown lane AA (DEV, read-only).
+- **Evidence**:
+  - `bifrost-trade-core/src/bifrost_core/portfolio/snapshot/daily.py:547` — `vals["mark"] = _finite(hit.get("day_close"))`
+- **Impact**: P&L Explain reports a large unexplained share driven by a bad mark, not by risk.
+- **Fix**: At enrich, when day_close < intrinsic (or outside the session bid/ask), use the vendor mid or bid/ask and label mark_source accordingly (new value, no DDL). Restating existing rows is an Owner decision.
+- **Ratchet**: A core test: enrich never stores a mark below intrinsic without a distinct mark_source.
+- 审批 要你批 · 代价 S · 风险 low · repos: bifrost-trade-core
 
 ## 没覆盖到的（下一轮从这里开始）
 
