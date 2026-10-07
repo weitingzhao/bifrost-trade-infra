@@ -1,0 +1,38 @@
+# Dedicated identity for the cluster-state backup. get/list on secrets and
+# configmaps only — no watch, no write, no other resources.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cluster-state-backup
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: cluster-state-backup
+    app.kubernetes.io/part-of: bifrost
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cluster-state-backup
+  labels:
+    app.kubernetes.io/name: cluster-state-backup
+    app.kubernetes.io/part-of: bifrost
+rules:
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cluster-state-backup
+  labels:
+    app.kubernetes.io/name: cluster-state-backup
+    app.kubernetes.io/part-of: bifrost
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-state-backup
+subjects:
+  - kind: ServiceAccount
+    name: cluster-state-backup
+    namespace: kube-system

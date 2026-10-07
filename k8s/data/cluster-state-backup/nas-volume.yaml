@@ -1,0 +1,21 @@
+# NAS folder for the cluster-state backup. Same pattern as
+# logical-backup-cold: nfs-subdir puts the claim at
+# /volume1/k3s-cold/kube-system-cluster-state-backup-<pv>, and nfs-cold
+# is Retain, so deleting the claim does not delete the copies.
+#
+# Sizing: one etcd snapshot is about 170MiB. 30 daily copies + 12 monthly
+# copies are about 7GiB before etcd growth. 30Gi leaves room.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cluster-state-backup
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: cluster-state-backup
+    app.kubernetes.io/part-of: bifrost
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: nfs-cold
+  resources:
+    requests:
+      storage: 30Gi

@@ -1,0 +1,14 @@
+# Age public key for the cluster-state backup. Not a secret.
+# Published by the Owner on 2026-10-07 (LANE-A2). The private key stays
+# with the Owner and is not in this repo. Applying this manifest is what
+# writes the key into the cluster.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-state-backup-recipient
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: cluster-state-backup
+    app.kubernetes.io/part-of: bifrost
+data:
+  recipient: age10s4l6p55wh22gsmr3ga40lad7269hn8yt356m5kuhcyg67c80ayqutqxkf
