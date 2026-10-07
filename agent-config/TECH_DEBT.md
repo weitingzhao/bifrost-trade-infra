@@ -13,9 +13,9 @@
 
 ## 待你签收
 
-- **TD-195** — platform-api 导出与 Trade 同名同标签的 HTTP 指标（手写 chi 中间件，桶到 10 s），告警去掉 platform-api 豁免（platform e95be35，infra 4daeb8e）· 验收 PASS（10-07，live 覆盖检查 ok、无告警）· 防线：`bifrost-platform/api/internal/server/httpmetrics_test.go`（最大有限桶须 > 2 s）+ `check_http_metrics_coverage.py`（不许任何豁免）· 无后续
+（暂无）
 
-**未结 117 项**：P0 1 · P1 12 · P2 39 · P3 65；要你批的 61 项（从总览表的审批列算）。
+**未结 116 项**：P0 1 · P1 12 · P2 39 · P3 64；要你批的 61 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -60,7 +60,7 @@
 
 目标：一个开关让所有测试类防线生效（CI 卡发布），再补上调度存活告警、D10 闸门的非 curl 写法、operator 流白名单、本机常驻任务和密钥轮换的盲区、spine 副本同步。
 
-项：TD-95, TD-96, TD-100, TD-105, TD-109, TD-121, TD-152, TD-153, TD-155, TD-162, TD-194, TD-195 · 已还：TD-99, TD-161, TD-198
+项：TD-95, TD-96, TD-100, TD-105, TD-109, TD-121, TD-152, TD-153, TD-155, TD-162, TD-194 · 已还：TD-99, TD-161, TD-198, TD-195
 
 ### 第 3 波 · 交易日与日历只有一个来源
 
@@ -299,7 +299,6 @@
 | [TD-190](#td-190) | P3 | ops-platform | Platform's research CronJob trigger route has no caller but keeps seven suspended CronJob templates alive in the research namespace | 改公开接口 |
 | [TD-192](#td-192) | P2 | research-control | One IB Flex failure loses that night's SEPA for good: husbandry_gate blocks sepa_projection although SEPA reads nothing from Flex, and the projection never back-fills a missed night | 要你批 |
 | [TD-194](#td-194) | P2 | ops-platform | BifrostAPIHighLatency can never fire: the histogram it reads tops out at a 1 s bucket, so histogram_quantile returns at most 1 and `> 2` is impossible | 要你批 |
-| [TD-195](#td-195) | P3 | ops-platform | platform-api exports no http_requests_total (hand-written /metrics, no Prometheus client), so the API error-rate and latency alerts cannot see it | 不用批 |
 | [TD-196](#td-196) | P2 | ops-platform | platform-api and platform-workers keep their state in per-pod emptyDir: every rollout erases release cycles, gate history, the operate queue and checklist signals, and the audit log is memory-only | 已批 |
 | [TD-199](#td-199) | P3 | frontend | EventsBoard.tsx and EventRadarDashboard.tsx have had no importer since 09-24 (c81e5a29); a comment still says EventRadarBody 'stays the Explorer tab's body' though Explorer was retired in 594a3f3f | 删除（要你批） |
 | [TD-202](#td-202) | P3 | market-data | market-data code strings and scripts still mention CronJobs: the dashboard label 'CronJob archived' and verify-market-data.sh's hint are user-visible | 不用批 |
@@ -1551,7 +1550,7 @@
 **P2 · ops-platform · BifrostAPIHighLatency can never fire: the histogram it reads tops out at a 1 s bucket, so histogram_quantile returns at most 1 and `> 2` is impossible**
 
 - **状态**：在做（core 0.55.0 = 0203b94 与 infra 7780a7e 已上 main，**规则未 apply**——要等三环境 Trade 都跑到 core ≥ 0203b94；先 apply 会在旧数据上误报，DEV 一周约 25 次。有人在此之前 `kubectl apply -k k8s/monitoring` 也会带上它）
-- **下一步**：发版顺序：Trade 发版带 core ≥ 0.55.0 到 DEV / STG / PROD（`/health` core_sha ≥ 0203b94）→ 再 `kubectl apply -k k8s/monitoring` → `check_http_metrics_coverage.py --live`。另请确认 /health 不计时这一处扩展
+- **下一步**：发版顺序：Trade 发版带 core ≥ 0.55.0 到 DEV / STG / PROD（`/health` core_sha ≥ 0203b94）→ 再 `kubectl apply -k k8s/monitoring` → `check_http_metrics_coverage.py --live`。Owner 10-07 已确认 /health 计数不计时
 - **现在**：道 CC 实测（7 天）：trade-api 只有两个流式路由（/quotes/stream、/api/messages/stream，25 s keepalive SSE），旧计时按连接结束算，平均约 40 s；PROD api-monitor >1 s 的 211 个观测里 172 个是 SSE。另：kubelet 的 /health 占延迟观测 87–97%，把 p99 稀释成真实请求的约 p70。core 0.55.0：两个延迟直方图都计时到响应头（库自带 should_exclude_streaming_duration），/health 计数不计时（**超出原话「排除 SSE」的范围，待你确认**），指标名与标签不变、默认桶不变。规则改读 highr p99，`or` 低精度直方图（只对 platform-api），阈值 `> 5 for 10m`：按新口径 7 天回放 PROD 0、STG 0、DEV 3–9 次（都是真慢窗口）。防线：core `tests/test_prometheus_instrumentation.py`（6 个）+ `check_http_metrics_coverage.py`（延迟规则须读 highr、阈值低于所读直方图的最大有限桶，`--live` 核真实桶）。后续 TD-242
 - **Claim**: prometheus-fastapi-instrumentator's default http_request_duration_seconds buckets are 0.1 / 0.5 / 1 / +Inf (core observability/prometheus.py). The rule asks p99 > 2 s. The fine histogram (http_request_duration_highr_seconds, no handler label, 0.01–60 s) would fire: over 7 days PROD api-monitor had ~20 and api-market ~17 windows of ≥5 min with p99 > 2 s — possibly streaming routes timed to response end (unverified).
 - **Measured**: MEASURED 10-06 by paydown lane Q (Prometheus via apiserver proxy).
@@ -1561,24 +1560,6 @@
 - **Fix**: Either add a 2.5 s / 5 s bucket to the instrumentator config in core (and the three new middlewares) or switch the rule to the highr histogram; exclude streaming routes (SSE) from latency first, then set the threshold from the measured distribution.
 - **Ratchet**: check_http_metrics_coverage.py can assert the rule's threshold is below the largest finite bucket of the histogram it reads.
 - 审批 要你批 · 代价 S · 风险 low · repos: bifrost-trade-core, bifrost-trade-infra, bifrost-research, bifrost-platform-plugin-market-data, bifrost-platform-plugin-flex-query
-
-### TD-195
-
-**P3 · ops-platform · platform-api exports no http_requests_total (hand-written /metrics, no Prometheus client), so the API error-rate and latency alerts cannot see it**
-
-- **状态**：待你签收
-- **验收**：platform PROD 发布并 apply 规则后：`KUBECONFIG=~/.kube/bifrost-k3s.yaml python3 bifrost-trade-infra/scripts/check_http_metrics_coverage.py --live` → ok；`sum by (handler,status)(rate(http_requests_total{namespace="bifrost-platform-prod"}[5m]))` 有 /health 2xx
-- **验收结果**：PASS 2026-10-07 01:3x UTC：platform d0b6943（含 e95be35）由血缘会话发到 STG（bifrost-deliver-platform-1791335619）与 PROD（bifrost-deliver-platform-prod-1791335846）；Prometheus `http_requests_total` STG 2 条、PROD 42 条序列；之后 apply 规则（diff 只有去掉 `job!="platform-api"` 豁免），`kubectl diff -k k8s/monitoring` 为空；`check_http_metrics_coverage.py --live` → ok；BifrostAPIWithoutHttpMetrics 0 条告警
-- **下一步**：发布顺序：platform STG → PROD 都到 e95be35 之后，**再** apply 规则（10-07 起 STG 也被抓取，任一边没指标都会触发去掉豁免后的 BifrostAPIWithoutHttpMetrics）
-- **现在**：道 W：`api/internal/server/httpmetrics.go` 手写 chi 中间件（无新依赖），`http_requests_total{handler,method,status}`（handler = chi 路由模式，未匹配路由不记）+ `http_request_duration_seconds` 桶 0.1/0.5/1/2.5/5/10（/health、SSE、websocket 不进直方图）。规则去掉 `job!="platform-api"` 豁免，`check_http_metrics_coverage.py` 新增「不许任何豁免」「平台命名空间在正则内」。门禁 go build/vet/test（-race）0。防线 `httpmetrics_test.go`（真实路由器，最大有限桶须 > 2 s）+ 覆盖脚本。注意：**有人在 platform 发布前 `kubectl apply -k k8s/monitoring` 会让新规则对 PROD platform-api 误报**。后续 TD-198
-- **Claim**: It is the one exemption in BifrostAPIWithoutHttpMetrics (job!="platform-api").
-- **Measured**: code-read 10-06 by paydown lane Q.
-- **Evidence**:
-  - `bifrost-platform/api/internal/server/metrics.go:35` — `func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {`
-- **Impact**: A platform-api returning 5xx raises no API alert.
-- **Fix**: Add request count / latency with the same names and labels to platform-api (hand-written like the rest of metrics.go, or the Go Prometheus client if the Owner accepts the dependency), then drop the exemption.
-- **Ratchet**: The exemption in BifrostAPIWithoutHttpMetrics may only shrink (checked by check_http_metrics_coverage.py).
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
 
 ### TD-196
 
