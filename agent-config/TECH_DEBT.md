@@ -13,8 +13,6 @@
 
 ## 待你签收
 
-- **TD-207 / TD-221** — Mac mini 上的修复执行器与 Hermes 网关所有写操作要共享令牌；修复执行器的 IB 控制工具不能再把 PROD gateway 切到 mock（platform 79ed8db + 三台重部署，10-07） · 验收 PASS（匿名写一律 401、健康 200、PROD bridge 全 ok） · 防线：`agent/remediation` 与 `agent/hermes-gateway` 的鉴权测试、部署脚本缺键即退出、`068c121` 工具 schema 测试 · 后续：deploy_mac_mini.sh 的 tool smoke 不带令牌（并入 LANE-T2）；Hermes GET /executions 仍匿名（只读，TD 原 Fix 只覆盖写）
-- **TD-122 / TD-211 / TD-105 / TD-212** — ib-gateway 改走 Tekton 构建、按 digest 钉、健康 hash 带 git SHA；账户快照只读带上 open orders 与成交；operator 流用显式白名单；读失败的快照不再清空持仓（ib-gateway 0.4.0 + core 0.58.0，10-07） · 验收 PASS（pod digest 对上、git_sha=30bd974、快照有 open_orders；core/worker/插件测试全过） · 防线：`bifrost-platform-plugin/tests/test_ib_gateway_image_pin.py`（要求 digest）、`check_ui_revision`/release-window 流水线、core operator 集合测试、worker account_push 拒写测试 · 后续：TD-104 的 Trade Ops 读状态仍未通（LANE-T2）
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-253** — 检查信号不再是几周前的：每条带观测时间和来源，超过 2 小时读 unknown、autopilot 不会按它动手；PROD platform-workers 自己每 10 分钟探测一次（不再靠 Mac 上报）。验收 PASS 2026-10-07 d8bdf41（22/22 带时间）。防线：`RATCHETS.md`「检查信号的时效与来源」测试 + `check_platform_maintenance.py`（探测器只在 PROD workers）。后续：无后续：放开 autopilot 动手在 TD-130（观察到 10-12）
@@ -22,7 +20,7 @@
 - **TD-255** — 漂移扫描不再删失败现场：只删被驱逐的 Pod，失败的备份 Job Pod 留着（日志可读），只报告模式下一个不删。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「漂移扫描只删 Evicted 测试」。后续：无后续：Job 历史上限与 TTL 负责回收
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 85 项**：P0 0 · P1 10 · P2 30 · P3 45；要你批的 45 项（从总览表的审批列算）。
+**未结 79 项**：P0 0 · P1 8 · P2 28 · P3 43；要你批的 39 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -64,7 +62,7 @@
 
 目标：一个开关让所有测试类防线生效（CI 卡发布），再补上调度存活告警、D10 闸门的非 curl 写法、operator 流白名单、本机常驻任务和密钥轮换的盲区、spine 副本同步。
 
-项：TD-95, TD-96, TD-100, TD-105, TD-121, TD-152, TD-153, TD-155, TD-162 · 已还：TD-99, TD-161, TD-198, TD-195, TD-194, TD-249, TD-109
+项：TD-95, TD-96, TD-100, TD-121, TD-152, TD-153, TD-155, TD-162 · 已还：TD-99, TD-161, TD-198, TD-195, TD-194, TD-249, TD-109, TD-105
 
 ### 第 3 波 · 交易日与日历只有一个来源
 
@@ -76,7 +74,7 @@
 
 目标：现金与佣金账本可信：按 IB transactionID 去重（改表）、佣金一种符号、资金路径有测试、Flex 不再经 DEV 库读配置、IB Gateway 健康与镜像可追溯。
 
-项：TD-103, TD-104, TD-117, TD-122 · 已还：TD-115, TD-116, TD-114
+项：TD-103, TD-104, TD-117 · 已还：TD-115, TD-116, TD-114, TD-122
 
 ### 第 5 波 · 副本、死重与清单
 
@@ -106,7 +104,7 @@
 
 目标：先关门再修代码。本机 platform-api 只监听本机、PROD/STG Redis 的局域网 NodePort 删掉，然后 git-bridge、修复 runner、Hermes、husbandry-sync 都要令牌；platform 换成按需授权的 ServiceAccount，停用管理员 kubeconfig；路由鉴权测试卡住回退。
 
-项：TD-206, TD-207, TD-208, TD-221 · 已还：TD-205, TD-203, TD-224, TD-220, TD-231, TD-225, TD-222
+项：TD-206, TD-208 · 已还：TD-205, TD-203, TD-224, TD-220, TD-231, TD-225, TD-222, TD-207, TD-221
 
 ### 第 10 波 · 告警有人收、备份能恢复（第 3 轮）
 
@@ -118,7 +116,7 @@
 
 目标：挂单与 IB 读失败不再被当真写库；Risk / Performance / 告警计数按交易日算；Console 的裁决条在探针失败时不再显示绿色；ui 的发布可追溯；台账与文档的过时说法改正。
 
-项：TD-211, TD-212, TD-228, TD-234, TD-236, TD-240 · 已还：TD-214, TD-219, TD-232, TD-233, TD-226, TD-230, TD-227, TD-251, TD-235, TD-252, TD-229, TD-241, TD-213, TD-239
+项：TD-228, TD-234, TD-236, TD-240 · 已还：TD-214, TD-219, TD-232, TD-233, TD-226, TD-230, TD-227, TD-251, TD-235, TD-252, TD-229, TD-241, TD-213, TD-239, TD-211, TD-212
 
 ### 第 12 波 · Ops 维护只在 PROD 一处（Owner 10-07）
 
@@ -248,7 +246,6 @@
 | [TD-101](#td-101) | P2 | market-data | Doctor slot staleness reads a per-kind freshness row that other slots and zero-row jobs also refresh, so a stopped policed slot still reads fresh | 不用批 |
 | [TD-103](#td-103) | P2 | flex-ib | The cash parser never stores IB's transactionID, so dedupe falls back to (account, day, amount, type, report_date) and same-amount items overwrite each other | 改表 |
 | [TD-104](#td-104) | P2 | flex-ib | Trade Ops reports all three IB Gateway services 'offline' on PROD: the gateway's health hashes have no updated_at, and the service rows point at retired StatefulSets | 跨仓库发版 |
-| [TD-105](#td-105) | P2 | flex-ib | DEV/STG operator streams accept every op except two (a denylist), so any op added later is open to DEV and STG by default | 安全/凭据（要你批） |
 | [TD-107](#td-107) | P2 | market-data | Indexes declared for the six financials entity tables never reach a deployed DB (the migration returns early); live differs from fresh install | 改表 |
 | [TD-110](#td-110) | P3 | research-data | Stored IV features solve Black-Scholes at r=0 while the backtester uses treasury rates from two separate readers; further BS copies in gex and opex | 不用批 |
 | [TD-111](#td-111) | P3 | research-data | dbt: the pass_count range generic test sits in the singular folder (errors when selected, never applied); key intermediates lack grain tests; nothing ties eval_date to the session | 不用批 |
@@ -257,7 +254,6 @@
 | [TD-118](#td-118) | P3 | market-data | option-refresh re-enumerates names with no listed options every run; its 7-day 'finished' lookback reads a table kept 48h | 不用批 |
 | [TD-120](#td-120) | P3 | research-control | Dagster Deployments are applied by hand outside Argo; a second, unmounted dagster_instance.yaml lacks the run_monitoring that catches zombie runs | 跨仓库发版 |
 | [TD-121](#td-121) | P3 | research-control | Research pods read bifrost-research-secrets once at start (optional: true); the OpenAI key rotation helper restarts only research-api | 安全/凭据（要你批） |
-| [TD-122](#td-122) | P3 | flex-ib | The IB Gateway image is built on the Mac and imported to nodes with ctr under a reused tag: no registry, no digest, no recorded source SHA | 跨仓库发版 |
 | [TD-128](#td-128) | P3 | research-data | Pine signal rows mix adjustment bases: nightly runs rewrite only the last ~10 sessions on today's adjusted bars, older rows stay on the basis of their last full rebuild | 不用批 |
 | [TD-129](#td-129) | P3 | research-data | The event backtest picks option legs from option_daily only; since mid-August 2026 it keeps ~10 strikes a side, so a target delta silently lands on the nearest strike that is left | 不用批 |
 | [TD-130](#td-130) | P1 | ops-control | ops-autopilot acts on the shared cluster's data layer from the Owner's laptop (local bdev platform-api, role all); the in-cluster STG/PROD autopilots idle on an empty checklist, and each of the three keeps its own throttle | 要你批 |
@@ -299,14 +295,10 @@
 | [TD-202](#td-202) | P3 | market-data | market-data code strings and scripts still mention CronJobs: the dashboard label 'CronJob archived' and verify-market-data.sh's hint are user-visible | 不用批 |
 | [TD-204](#td-204) | P1 | ops-platform | STG and PROD platform-api and platform-workers run as system:masters through a copy of the k3s admin kubeconfig, and anonymous GETs use it to read pod logs in any namespace | 安全/凭据（要你批） |
 | [TD-206](#td-206) | P1 | ops-console | git-bridge answers anyone on the LAN, and its /commit runs `git add -A` on the shared checkout; /push pushes the current branch with no release-window check | 安全/凭据（要你批） |
-| [TD-207](#td-207) | P1 | ops-console | The remediation runner (:8781) and the Hermes gateway (:8782) on the Mac minis start, approve and cancel agent jobs for anyone on the LAN: POST /run, /run/:id/respond and /skills/:id/trigger have no auth | 安全/凭据（要你批） |
 | [TD-208](#td-208) | P1 | ops-platform | Anonymous POST /checklist/husbandry-sync starts full-auto remediation agents: it merges the stored checklist and dispatches every failing item, and three Console pages call it on load | 安全/凭据（要你批） |
 | [TD-210](#td-210) | P1 | data | The nightly logical backup of hand-entered data failed on its first scheduled run: it connects before the new pod's NetworkPolicy is programmed and gets Connection refused | 不用批 |
-| [TD-211](#td-211) | P1 | trade-worker | Working orders are never persisted: the plugin's snapshot has no open_orders, the daemon TRUNCATEs raw_broker.open_orders every hour, and the UI says 'No working orders at IB.' | 跨仓库发版 |
-| [TD-212](#td-212) | P2 | trade-worker | A failed IB positions or summary read is written as truth: the daemon deletes every raw_broker.positions row of the account and nulls its NAV until the slot reconnects | 跨仓库发版 |
 | [TD-217](#td-217) | P2 | data | The Barman base+WAL backup, the only copy of the 34 GB Golden Source history, has never been restored, and has not been tried at all against the NAS MinIO it moved to on 10-06 | PROD 变更（要你批） |
 | [TD-218](#td-218) | P2 | data | Every backup copy (Barman base+WAL, logical dumps hot and cold, the W3 archive) is on the one NAS 192.168.10.20:/volume1, and the open offsite decision is not in the ledger | PROD 变更（要你批） |
-| [TD-221](#td-221) | P3 | ops-console | The governance catalog says nobody but the daemon writes ib:operator:cmd, but platform-api does (sanctioned by D-IB-Heal), and the runner's ib_gateway_control can switch the PROD gateway to mock with only a prompt-level approval | 安全/凭据（要你批） |
 | [TD-223](#td-223) | P3 | ops-platform | STG and PROD platform-workers both run the IB gateway auto-repair loop against the one live data/ib-gateway, each with its own 15-minute cooldown | PROD 变更（要你批） |
 | [TD-228](#td-228) | P3 | ops-console | Every scheduled Hermes skill run on .52 fails with 'No such file or directory', while /health returns status ok and the checklist counts the gateway healthy | 不用批 |
 | [TD-234](#td-234) | P3 | trade-worker | @bifrost/ui is unversioned for the Ops Console: a ui push never runs platform CI, and platform deliver builds whatever ui main is without recording its SHA | 不用批 |
@@ -535,23 +527,6 @@
 - **Ratchet**: Extend tests/contracts/redis_ib_keys.json with required hash fields per health key (updated_at, connected/host_connected): plugin test asserts the writer emits them; core and trade-api tests assert readers use only listed fields.
 - 审批 跨仓库发版 · 代价 S · 风险 low · repos: bifrost-platform-plugin, bifrost-trade-api, bifrost-trade-core
 
-### TD-105
-
-**P2 · flex-ib · DEV/STG operator streams accept every op except two (a denylist), so any op added later is open to DEV and STG by default**
-
-- **状态**：待你签收（ib-gateway 0.4.0 已上 PROD 10-07 17:19 UTC（digest sha256:278c4c07…，插件 e335bd6）+ Trade core 0.58.0；worker 已随 Trade 10-07）
-- **验收结果**：PASS（代码层 + 已上线）2026-10-07：core 13463、worker 180、插件 84 passed；线上未遇到可触发的事件（白名单外 op / 读失败的快照）
-- **Claim**: READ_ONLY_OPS = ALL_OPS minus disconnect_all/reconnect_all, and op_allowed_on_stream accepts READ_ONLY_OPS on the env streams, whose ACL users may XADD. The guard test asserts ALL_OPS - READ_ONLY_OPS == {disconnect_all, reconnect_all}, which still passes after a new op is added, and the env-stream test parametrises over READ_ONLY_OPS itself.
-- **Measured**: CODE-READ. ALL_OPS today = fetch, refresh, ping and the two connection ops, so nothing is exposed now.
-- **Evidence**:
-  - `bifrost-platform-plugin/src/bifrost_plugin/ib_gateway/protocol.py:27` — `READ_ONLY_OPS: Tuple[str, ...] = tuple(op for op in ALL_OPS if op not in ("disconnect_all", "reconnect_all"))`
-  - `bifrost-platform-plugin/src/bifrost_plugin/ib_gateway/operator.py:89` — `return stream not in IB_OPERATOR_ENV_CMD_STREAMS or op in READ_ONLY_OPS`
-  - `bifrost-platform-plugin/tests/test_operator_streams.py:27` — `assert set(ALL_OPS) - set(READ_ONLY_OPS) == {"disconnect_all", "reconnect_all"}`
-- **Impact**: Under D10, a future execution-adjacent op would be reachable from DEV/STG without anyone choosing it; the TD-21 boundary depends on reviewers remembering to extend a denylist.
-- **Fix**: Make READ_ONLY_OPS an explicit literal allowlist and PROD_ONLY_OPS explicit; assert every op in ALL_OPS is in exactly one set.
-- **Ratchet**: Test fails when ALL_OPS gains a member not classified in exactly one of READ_ONLY_OPS/PROD_ONLY_OPS; optionally a preflight warning on diffs adding to ALL_OPS.
-- 审批 安全/凭据（要你批） · 代价 S · 风险 low · repos: bifrost-platform-plugin
-
 ### TD-107
 
 **P2 · market-data · Indexes declared for the six financials entity tables never reach a deployed DB (the migration returns early); live differs from fresh install**
@@ -685,22 +660,6 @@
 - **Fix**: Restart every Deployment in namespace research that mounts the secret (derive the list as infra holder_deployments() does); add a checksum/secret annotation or reloader; drop optional: true for required keys.
 - **Ratchet**: Lint over k8s/: every Deployment envFrom-ing bifrost-research-secrets carries the checksum annotation and none mark required keys optional; grep check that rotation helpers never hard-code one deployment.
 - 审批 安全/凭据（要你批） · 代价 S · 风险 low · repos: bifrost-research
-
-### TD-122
-
-**P3 · flex-ib · The IB Gateway image is built on the Mac and imported to nodes with ctr under a reused tag: no registry, no digest, no recorded source SHA**
-
-- **状态**：待你签收（ib-gateway 0.4.0 已上 PROD 10-07 17:19 UTC（digest sha256:278c4c07…，插件 e335bd6）+ Trade core 0.58.0）
-- **验收结果**：PASS 2026-10-07：Tekton bifrost-build-ib-gateway-q2zk7 经 release-window / validate-revision 构建；Deployment 按 digest 钉；pod imageID = sha256:278c4c07…；三个健康 hash git_sha=30bd974
-- **Claim**: deployment.yaml runs bifrost-platform-plugin-ib-gateway:0.3.0 with IfNotPresent; the tag exists only in each node's containerd and the repo has no build pipeline (unlike flex-query). Different code can run under the same version and nothing reports which commit is live.
-- **Measured**: MEASURED: live pod on ubt-k3s-04 runs a bare tag with local imageID sha256:cd51d656…; flex-query uses 192.168.10.73:30500/bifrost-flex-query:0.9.0; no k8s/cicd in the repo.
-- **Evidence**:
-  - `bifrost-platform-plugin/k8s/ib-gateway/base/deployment.yaml:22` — `image: bifrost-platform-plugin-ib-gateway:0.3.0`
-  - `bifrost-platform-plugin/k8s/ib-gateway/base/deployment.yaml:23` — `imagePullPolicy: IfNotPresent`
-- **Impact**: The process holding both TWS connections and redis-ib writes is the least reproducible deploy; rollback and audit depend on one laptop.
-- **Fix**: Tekton build to the in-cluster registry (copy flex-query's pipeline-build.yaml), pin by digest, expose git SHA in the health hash.
-- **Ratchet**: code-health metric: manifests whose image lacks registry host or digest = 0 for plugin repos; preflight warning on `ctr images import`.
-- 审批 跨仓库发版 · 代价 M · 风险 med · repos: bifrost-platform-plugin, bifrost-trade-infra
 
 ### TD-128
 
@@ -1421,26 +1380,6 @@
 - **验收**: `curl -s -o /dev/null -w '%{http_code}\n' http://192.168.20.74:8785/status  # expect 401 or connection refused; git -C bifrost-platform grep -n "'add', '-A'" origin/main -- agent  # expect no output`
 - 审批 安全/凭据（要你批） · 代价 M · 风险 med · repos: bifrost-platform
 
-### TD-207
-
-**P1 · ops-console · The remediation runner (:8781) and the Hermes gateway (:8782) on the Mac minis start, approve and cancel agent jobs for anyone on the LAN: POST /run, /run/:id/respond and /skills/:id/trigger have no auth**
-
-- **状态**：待你签收（platform 79ed8db 已上 STG/PROD；REMEDIATION_RUNNER_TOKEN 已进两个环境 Secret（infra 4c08e9f overlay）；.50 primary / .52 standby / .52 Hermes 已重部署 10-07）
-- **验收结果**：PASS 2026-10-07：.50 与 .52 runner GET /health 200、匿名 POST /run、/run/x/respond、/run/x/cancel 均 401；.52 Hermes 匿名 POST /run 与 /skills/*/run 均 401、/health ok v0.2.0；PROD platform /agent/bridge：remediation_runner / hermes_mcp / nous_hermes 均 ok
-- **Claim**: deploy_mac_mini.sh exports REMEDIATION_RUNNER_BIND=0.0.0.0 on both minis, and the runner registers no auth middleware. POST /run starts a Cursor agent with a caller-supplied prompt, and that agent holds the runner's PLATFORM_OPERATOR token (or the ADMIN token as fallback). POST /run/:id/respond answers the agent's request_operator_approval gate, which is only a prompt-level guard over cordon, rollout, IB Gateway control and git_push. The Hermes gateway on .52 also binds the LAN and exposes POST /skills/:id/trigger and /reload with no auth.
-- **Measured**: MEASURED 2026-10-07: anonymous GET http://192.168.10.50:8781/run and http://192.168.10.52:8781/run both return 200 (job list), and 192.168.10.52:8782/health and /executions answer anonymously. No POST was sent.
-- **Evidence**:
-  - `bifrost-platform/agent/remediation/src/server.ts:184` — `app.post('/run', (req, res) => {`
-  - `bifrost-platform/agent/remediation/src/server.ts:211` — `app.post('/run/:id/respond', (req, res) => {`
-  - `bifrost-platform/scripts/agent/deploy_mac_mini.sh:154` — `export REMEDIATION_RUNNER_BIND=0.0.0.0`
-  - `bifrost-platform/agent/remediation/src/platformClient.ts:5` — `process.env.PLATFORM_OPERATOR_TOKEN?.trim() ||`
-  - `bifrost-platform/agent/hermes-gateway/src/server.ts:89` — `app.post('/skills/:id/trigger', async (req, res) => {`
-- **Impact**: The operator/admin tier of platform-api, including the IB Gateway control path and git push, is reachable without a token: start a runner job, then approve its own approval request. Audit records show the runner's identity, not the caller's.
-- **Fix**: Add a shared-secret bearer check (a runner token in each mini's .env, sent by platform-api's remediation client) to every non-GET runner and gateway route. Refuse to start when bound off-loopback without a token. /run/:id/respond requires the operator token, never the runner token, so a job cannot approve itself.
-- **Ratchet**: Server tests in agent/remediation and agent/hermes-gateway walk the express router stack and assert that every POST/PUT/DELETE layer sits behind the auth middleware (allowlist empty). A startup assertion exits 1 when bindHost != 127.0.0.1 and no token is configured.
-- **验收**: `for h in 192.168.10.50 192.168.10.52; do curl -s -o /dev/null -w "$h %{http_code}\n" http://$h:8781/run; done  # expect 401 on both`
-- 审批 安全/凭据（要你批） · 代价 M · 风险 med · repos: bifrost-platform
-
 ### TD-208
 
 **P1 · ops-platform · Anonymous POST /checklist/husbandry-sync starts full-auto remediation agents: it merges the stored checklist and dispatches every failing item, and three Console pages call it on load**
@@ -1482,46 +1421,6 @@
 - **验收**: `KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data get jobs -l app.kubernetes.io/name=logical-backup -o custom-columns=N:.metadata.name,S:.status.succeeded,F:.status.failed --sort-by=.metadata.creationTimestamp </dev/null | grep -v manual  # newest three scheduled jobs show S=1 and F <none>`
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra
 
-### TD-211
-
-**P1 · trade-worker · Working orders are never persisted: the plugin's snapshot has no open_orders, the daemon TRUNCATEs raw_broker.open_orders every hour, and the UI says 'No working orders at IB.'**
-
-- **状态**：待你签收（ib-gateway 0.4.0 已上 PROD 10-07 17:19 UTC（digest sha256:278c4c07…，插件 e335bd6）+ Trade core 0.58.0）
-- **验收结果**：PASS 2026-10-07：ib:account:snapshot:v1 带 open_orders（当前 0 条）与 last_execution_rows；core 只在键存在时写 open_orders
-- **Claim**: The IB Gateway plugin's account snapshot carries only host_connected, secondary_connected, accounts_snapshot, accounts_count and mode; it never includes open_orders or last_execution_rows. On every hourly accounts refresh (and every refresh_accounts command), core refresh_accounts_from_redis_edge reads `data.get("open_orders") or []`, so it always gets [], and calls write_open_orders([]), which TRUNCATEs the table and writes nothing. /api/monitor/open-orders and /status portfolio.open_orders therefore always return [], and the Trade menubar states 'No working orders at IB.' as fact. The intraday TWS fills path (last_execution_rows → write_account_executions) is dead the same way and has written nothing since June. The worker CLAUDE.md and the ib_account_keys docstring still describe both as persisted.
-- **Measured**: MEASURED 2026-10-07 00:44 UTC. raw_broker.open_orders has 0 rows. /api/monitor/open-orders returns {"open_orders":[]}. executions_raw_tws max(created_at) for tws_client is 2026-06-10 03:51 (plus one null-source row dated 08-08), while executions_raw_flex has fills on 7 trade dates since 09-16. `git grep open_orders|last_execution_rows` on plugin origin/main src returns nothing. The PROD daemon runs 2/2 with broker writes on. The TRUNCATE itself is CODE-READ, because the daemon logs no INFO (TD-216).
-- **Evidence**:
-  - `bifrost-platform-plugin/src/bifrost_plugin/ib_gateway/live.py:304` — `"accounts_snapshot": snap_accounts,`
-  - `bifrost-trade-core/src/bifrost_core/portfolio/ib_edge.py:107` — `oo = data.get("open_orders") or []`
-  - `bifrost-trade-core/src/bifrost_core/persistence/postgres/postgres_sink.py:541` — `cur.execute(f"TRUNCATE TABLE {GOLDEN_OPEN_ORDERS}")`
-  - `bifrost-trade-frontend/src/layout/menubar/BookControl.tsx:272` — `? 'No working orders at IB.'`
-  - `bifrost-trade-worker/CLAUDE.md:62` — `账户、持仓、未成交订单、TWS 成交 → Golden Source 'raw_broker.*'`
-- **Impact**: The Owner places orders by hand in TWS (D10 does not stop that). Every working order is reported as nonexistent on the Live page, in the BookControl ORD list and in the Research MCP trade_context, and same-day fills reach the system only through next-day Flex.
-- **Fix**: Owner chooses. (A) The plugin adds read-only reqOpenOrders/reqExecutions output to the snapshot (no order path, D10-safe), and core writes open_orders only when the key is present, because absent is not empty. (B) Retire raw_broker.open_orders and the TWS-fill branch, and change the UI to 'Working orders are not tracked'. In both cases stop the TRUNCATE when the key is missing, and fix the worker CLAUDE.md and the ib_account_keys docstring.
-- **Ratchet**: Redis-ib snapshot contract (ratchet proposal 'redis-ib-snapshot-contract'): tests/contracts/redis_ib_keys.json in core and plugin lists every snapshot key core reads, with its producer; a key core reads but the plugin never writes fails. Core test: refresh_accounts_from_redis_edge with a snapshot lacking 'open_orders' does not call write_open_orders.
-- **验收**: `git -C bifrost-trade-core grep -n 'data.get("open_orders") or \[\]' origin/main -- src/bifrost_core/portfolio/ib_edge.py | wc -l  # 0; and either git -C bifrost-platform-plugin grep -c '"open_orders"' origin/main -- src/bifrost_plugin/ib_gateway/live.py ≥ 1 (A) or the string 'No working orders at IB.' is gone from the frontend (B)`
-- 审批 跨仓库发版 · 代价 M · 风险 med · repos: bifrost-platform-plugin, bifrost-trade-core, bifrost-trade-worker, bifrost-trade-frontend
-
-### TD-212
-
-**P2 · trade-worker · A failed IB positions or summary read is written as truth: the daemon deletes every raw_broker.positions row of the account and nulls its NAV until the slot reconnects**
-
-- **状态**：待你签收（ib-gateway 0.4.0 已上 PROD 10-07 17:19 UTC（digest sha256:278c4c07…，插件 e335bd6）+ Trade core 0.58.0；worker 已随 Trade 10-07）
-- **验收结果**：PASS（代码层 + 已上线）2026-10-07：core 13463、worker 180、插件 84 passed；线上未遇到可触发的事件（白名单外 op / 读失败的快照）
-- **Claim**: When reqPositionsAsync or accountSummaryAsync fails on a session that still lists managedAccounts, the plugin publishes the account with positions [] and a summary holding only {account}. Since worker 0.2.6, account_push writes any snapshot younger than 120 s whose fingerprint changed, with no sanity check. Core sync_accounts_snapshot_to_tables then runs DELETE FROM raw_broker.positions WHERE account_id = %s (seen_keys is empty) and upserts net_liquidation, total_cash and buying_power as NULL. TD-137's freshness check (core 0.52.0) keeps a 07:00 or 11:00 ET wipe out of the 16:20 capture. It does not stop a wipe written after 16:00, because the wipe itself stamps updated_at=now().
-- **Measured**: MEASURED trigger via Loki {namespace=data, app=ib-gateway}: 2026-10-06 10:59:58 UTC (host TWS auto log-off, 07:00 ET) shows 'reqPositionsAsync: Socket disconnect' and 'accountSummaryAsync U17123565: Not connected'; there was also a 'positions request timed out' at 04:15 UTC. The write path is CODE-READ, and worker tests/test_account_push.py has no degraded case. No stored damage was found: bifrost_prod account_nav_daily for 10-05 and 10-06 has non-null NAV for all accounts. How long the wipe window lasts was not measured.
-- **Evidence**:
-  - `bifrost-platform-plugin/src/bifrost_plugin/ib_gateway/ib_ops.py:76` — `all_positions = []`
-  - `bifrost-platform-plugin/src/bifrost_plugin/ib_gateway/ib_ops.py:91` — `summary["account"] = aid`
-  - `bifrost-trade-worker/src/bifrost_worker/daemon/app/account_push.py:92` — `if aid and self._written.get(aid) != _fingerprint(a):`
-  - `bifrost-trade-core/src/bifrost_core/persistence/postgres/accounts_sync.py:212` — `f"DELETE FROM {GOLDEN_POSITIONS} WHERE account_id = %s", (account_id,)`
-  - `bifrost-trade-core/src/bifrost_core/persistence/postgres/accounts_sync.py:117` — `net_liquidation = EXCLUDED.net_liquidation,`
-- **Impact**: After a routine IB disconnect (daily at 07:00 ET), Positions, attribution and the Research trade context read the account as flat with no NAV until the slot reconnects. A degraded write between 16:00 and 16:20 ET would store a wrong day permanently.
-- **Fix**: Worker account_push: refuse to write an account whose summary lacks NetLiquidation, or whose positions went from non-empty to empty unless the snapshot marks the positions read as successful; log the refusal at warning. Plugin: omit the account row (or emit positions_ok=false) when reqPositionsAsync or accountSummaryAsync failed. Core sync: never null an existing NAV from an empty summary.
-- **Ratchet**: Worker unit test test_degraded_snapshot_is_not_written (summary {account} only, or positions [] after a non-empty write → writer.write returns 0). Plugin test: a reqPositionsAsync exception → the row is omitted or flagged. Both are part of ratchet proposal 'redis-ib-snapshot-contract'.
-- **验收**: `KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_golden_source -X -At </dev/null -c "SET default_transaction_read_only=on;" -c "select count(*) from raw_broker.account where net_liquidation is null and updated_at > now()-interval '2 days'"  # 0 after two weekdays that include the 07:00 / 11:00 ET log-offs; plus the worker test passes`
-- 审批 跨仓库发版 · 代价 S · 风险 low · repos: bifrost-trade-worker, bifrost-platform-plugin, bifrost-trade-core
-
 ### TD-217
 
 **P2 · data · The Barman base+WAL backup, the only copy of the 34 GB Golden Source history, has never been restored, and has not been tried at all against the NAS MinIO it moved to on 10-06**
@@ -1555,25 +1454,6 @@
 - **Ratchet**: Alert BifrostOffsiteCopyStale on the mirror job's last-success timestamp (> 8 days, or absent()).
 - **验收**: `KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl get --raw "/api/v1/namespaces/monitoring/services/kube-prometheus-stack-prometheus:9090/proxy/api/v1/query?query=time()-max(kube_cronjob_status_last_successful_time%7Bcronjob%3D%22offsite-mirror%22%7D)" </dev/null  # value < 691200`
 - 审批 PROD 变更（要你批） · 代价 M · 风险 low · repos: bifrost-trade-infra
-
-### TD-221
-
-**P3 · ops-console · The governance catalog says nobody but the daemon writes ib:operator:cmd, but platform-api does (sanctioned by D-IB-Heal), and the runner's ib_gateway_control can switch the PROD gateway to mock with only a prompt-level approval**
-
-- **状态**：待你签收（runner 去掉 ib_gateway_control 的 mode，随 .50/.52 重部署上线 10-07）
-- **验收结果**：PASS 2026-10-07：platform 068c121 已随 runner 部署到 .50/.52；platform Go 56 包与 agent 测试通过
-- **Claim**: platform-api XADDs op=reconnect_all to ib:operator:cmd. That is sanctioned by spine D-IB-Heal (SIGNED 2026-08-27: 'L1 platform-api reconnect soft-first then rollout … D10 BLOCKED — reconnect/observe only'). But FORBIDDEN_ACTIONS ('ib:operator:cmd RPC', all modes), CLAUDE.md §3 ('only the daemon writes it') and probe.go ('Platform must not access ib:operator:cmd') all still say otherwise. Separately, the remediation runner's ib_gateway_control tool can call reconnect and also mode live|mock|maintenance on the PROD gateway. Its only approval is a prompt instruction (request_operator_approval), and the respond endpoint behind it is unauthenticated (TD-207). preflight.js does not see this path.
-- **Measured**: CODE-READ. Live: PROD platform-api runs with OPS_IB_AUTOREPAIR_ENABLED=true and REDIS_IB_PLATFORM_PASS present (env names only). The autorepair loop only rolls out; it does not XADD.
-- **Evidence**:
-  - `bifrost-platform/console/src/lib/architecture/agentProtocolCatalog.ts:105` — `{ action: 'ib:operator:cmd RPC', scope: 'All modes' },`
-  - `bifrost-platform/api/internal/ibgateway/operator_cmd.go:55` — `"XADD", operatorCmdStream, "*",`
-  - `bifrost-platform/api/internal/ibgateway/service.go:183` — `softErr := s.sendOperatorCommand(ctx, "reconnect_all", 30*time.Second)`
-  - `bifrost-platform/agent/remediation/src/tools/platformTools.ts:294` — `'/api/v1/plugins/ib-gateway/control/${encodeURIComponent(action)}',`
-- **Impact**: Agents and the Owner read a boundary that matches neither the code nor the spine. An agent can switch the PROD gateway to mock without an enforced approval, after which downstream consumers see non-live market data.
-- **Fix**: Record platform-api as the sanctioned writer of exactly {reconnect_all} in FORBIDDEN_ACTIONS, AGENT_FACTS and CLAUDE.md §3 (with the Cursor parity bump), optionally enforced with a Redis ACL. Remove 'mode' from the runner tool, or require an admin token server-side for /control/mode. Add a preflight rule for POST /plugins/ib-gateway/control/(mode|reconnect).
-- **Ratchet**: Go AST test: sendOperatorCommand's op argument is only ever "reconnect_all", and operatorCmdStream appears only in ibgateway/operator_cmd.go. A code-health check compares the set of XADD writers to the operator stream across repos with an allowlist in AGENT_FACTS.
-- **验收**: `git -C bifrost-platform grep -n "'mode'" origin/main -- agent/remediation/src/tools/platformTools.ts  # no mode action; git -C bifrost-platform grep -n 'ib:operator:cmd' origin/main -- console/src/lib/architecture/agentProtocolCatalog.ts  # the catalog names the sanctioned reconnect_all writer`
-- 审批 安全/凭据（要你批） · 代价 M · 风险 med · repos: bifrost-platform, bifrost-trade-infra
 
 ### TD-223
 

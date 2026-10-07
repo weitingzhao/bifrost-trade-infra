@@ -129,6 +129,12 @@
 | 前端「今天」按纽约交易日（TD-213 / TD-247） | 前端 ESLint no-restricted-syntax + 日期测试 | UTC 日界错日 | error（lint） | — |
 | @bifrost/ui 无未用导出（TD-239） | `bifrost-ui/scripts/public-exports.test.mjs` | 新导出无人使用 | warning（测试，未进 CI） | ui npm test 不在 CI |
 | 插件旧 max-pain/PCR 路由不回来（TD-102） | trade-api / market-data 退役路由测试 | 绕过调整合约过滤的重复实现 | warning（测试） | — |
+| ib-gateway 按 digest 钉、走 Tekton（TD-122） | `bifrost-platform-plugin/tests/test_ib_gateway_image_pin.py`（要求 @sha256）+ `pipeline-build-ib-gateway`（release-window、validate-revision） | 笔记本镜像 ctr 导入、可变 tag | warning（测试）+ 流水线 | install-ib-gateway.sh 已拒绝旧路径 |
+| 快照缺键不等于空簿（TD-211） | core open_orders 写入测试（键缺失不写） | 每小时把工作中订单清空 | warning（测试） | — |
+| operator 流显式白名单（TD-105） | core operator 集合测试（ALL_OPS 每个 op 恰属一个集合） | 新增 op 在 DEV/STG 默认放行 | warning（测试） | — |
+| 读失败快照不清持仓（TD-212） | worker account_push 拒写测试 + core positions_ok 守卫 | 降级快照写成真 | warning（测试） | worker 内存里的「上一笔非空」重启后丢失 |
+| Mac mini 写接口要令牌（TD-207） | `agent/remediation` 与 `agent/hermes-gateway` 路由鉴权测试；部署脚本缺键即退出 | 局域网匿名启动/批准 Agent | warning（测试） | Hermes GET /executions 仍匿名（只读） |
+| runner 不能切 PROD gateway 到 mock（TD-221） | `agent/remediation/src/tools/ibGatewayControl.test.ts` | Agent 把 PROD 行情切成模拟 | warning（测试） | — |
 
 ## 各类债现在挡没挡住
 
