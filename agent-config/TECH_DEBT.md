@@ -16,7 +16,7 @@
 - **TD-205** — STG/PROD Redis 不再对局域网开放：删掉 30380 / 30382 两个 NodePort 和它们的局域网策略，platform 改走集群内地址探测。验收 PASS 2026-10-07（局域网连 30382 失败、Service NotFound、PROD daemon 与 Trade 正常）。防线：`RATCHETS.md`「check_data_lan_exposure.py」。后续：platform b0a8dc0 随下一次 platform 发布（只是面板显示）；redis-dev 的 30379 保留（无密码，只 DEV）
 - **TD-199** — 删掉自 09-24 起无人引用的 EventsBoard.tsx / EventRadarDashboard.tsx，改正两处注释（frontend e98afbf0）· 验收 PASS（10-07）· 防线：`src/lib/orphanModules.test.ts`（从 main.tsx 走导入图，KNOWN_ORPHANS 只许缩短）· 后续：TD-243（其余 42 个孤儿模块）
 
-**未结 119 项**：P0 0 · P1 12 · P2 39 · P3 68；要你批的 62 项（从总览表的审批列算）。
+**未结 120 项**：P0 0 · P1 12 · P2 39 · P3 69；要你批的 62 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -66,7 +66,7 @@
 
 目标：所有「今天 / 本 session」都从 `db/calendar` 的一个函数来，代替 11 个私有 helper 和 44 处 `date.today()`；dbt 补 grain 测试；IV / 回测的定价参数统一。
 
-项：TD-98, TD-110, TD-111, TD-112, TD-128, TD-129, TD-174, TD-242 · 已还：TD-164, TD-175
+项：TD-98, TD-110, TD-111, TD-112, TD-128, TD-129, TD-174, TD-242, TD-247 · 已还：TD-164, TD-175
 
 ### 第 4 波 · 券商资金账本（Flex / IB）
 
@@ -345,6 +345,7 @@
 | [TD-244](#td-244) | P3 | research-control | agents/journal_distill reads raw_broker.executions_final with no Flex freshness check (own 23:55 UTC schedule, outside any gate) | 不用批 |
 | [TD-245](#td-245) | P3 | ops-console | Console agent-pack text still says husbandry_gate blocks dbt when Flex fails (stale after TD-192) | 不用批 |
 | [TD-246](#td-246) | P3 | trade-data | Snapshot enrich stores a vendor 'day close' that can sit below the option's intrinsic value (a stale last trade), and P&L attribution then books it as unexplained | 要你批 |
+| [TD-247](#td-247) | P3 | frontend | Look-back starts are still computed in the browser's time zone (new Date(Date.now() - N*86400000).toISOString().slice(0,10)), and three private New York date helpers duplicate @/lib/freshness | 不用批 |
 
 ## 条目
 
@@ -1816,7 +1817,8 @@
 
 **P2 · frontend · Performance and Portfolio Overview summaries start the range at UTC midnight, so they include the previous month's last Chicago day**
 
-- **状态**：未开始
+- **状态**：观察中（代码在 frontend main 119726cc，晚于 10-07 02:0x 这次 Trade 发版的 STG 构建 3990ebfd，随下一次 Trade 发版上线；上线后在页面核对再交签收）
+- **验收结果**：PASS 2026-10-07 frontend 119726cc：`getTimeRangeStamps` 两端都由 `getChicagoDayRange` 算；DEV / PROD Q3 实测旧起点 111 fills / 41 wins → 新 110 / 40（与日历一致）；TZ=UTC / America/Chicago / Asia/Tokyo 下用例都过。防线 `performanceUtils.test.ts`
 - **Claim**: getTimeRangeStamps parses sinceStr ('YYYY-MM-01') with new Date(), which reads a date-only string as UTC midnight, while untilStr is parsed as local 23:59:59. trade-api compares from_ts/to_ts as the calendar day in America/Chicago. UTC midnight on the 1st is 19:00 Chicago on the previous day, so every month, quarter, half-year and year summary also counts the fills of the day before the range. The by-day path uses getChicagoDayRange (defined in the same file) correctly, so the strip and the calendar under it disagree.
 - **Measured**: MEASURED on PROD /api/account/performance (granularity=day, source_scope=performance_book) with to_ts=1790830799. Q3 2026: from_ts=1782864000 (the client's UTC midnight) gives fill_count 111 and win_count 41; 1782882000 (Chicago midnight) gives 110 and 40, and realised P&L differs by a 06-30 fill. May 2026: 36 vs 33 fills (three 04-30 fills). Sep and Q2 2026 match only because the prior month-end had no fills.
 - **Evidence**:
@@ -1901,7 +1903,8 @@
 
 **P2 · frontend · The rail's amber 'alerts fired today' count can never be non-zero: it matches trade_date against the UTC date, and alerts are stamped with an earlier session**
 
-- **状态**：未开始
+- **状态**：观察中（代码在 frontend main 119726cc，晚于 10-07 02:0x 这次 Trade 发版的 STG 构建 3990ebfd，随下一次 Trade 发版上线；上线后在页面核对再交签收）
+- **验收结果**：PASS 2026-10-07 frontend 119726cc：`firedOn` 按 computed_at 的纽约日判「今天」，侧栏计数 / Alerts 文案 / Dock 共用；DEV / PROD 89 条重放 10-05 19:00 / 21:30 / 23:30 ET：旧 0 → 新 7。防线 `src/hooks/useFiredAlerts.test.ts`（8 个）
 - **Claim**: firedTodayCount keeps alerts whose trade_date equals the UTC date of the browser clock. alert_scan stamps each alert with the session it judges and writes it on a later day: today at 22:30 UTC the next weekday, and after TD-97's planned move into the 02:30 UTC batch still the next UTC day. No alert can have trade_date == UTC today, so the Market group's amber count is always 0 and its tooltip says '0 alerts fired today'. TD-97 fixes the backend lag only; this reader stays broken afterwards.
 - **Measured**: MEASURED: GET /api/plugin/research/research/alerts?limit=200&days=90 returned 89 alerts. In 0 of 89 does trade_date equal the UTC day of computed_at, and in 0 of 89 the NY day (for example computed_at 2026-10-05T22:30Z with trade_date 2026-10-02).
 - **Evidence**:
@@ -2127,7 +2130,8 @@
 
 **P3 · frontend · 24 frontend sites take 'today' as the UTC date although four session helpers exist: from 20:00 ET until midnight they read tomorrow, and one writes a default opened_at**
 
-- **状态**：未开始
+- **状态**：观察中（代码在 frontend main 119726cc，晚于 10-07 02:0x 这次 Trade 发版的 STG 构建 3990ebfd，随下一次 Trade 发版上线；上线后在页面核对再交签收）
+- **验收结果**：PASS 2026-10-07 frontend 119726cc：UTC today 构造 23/24 改走 `etTodayIso`（FillsPage 的 todayUtc 与 Flex UTC 戳比较，白名单 1 处）；四个 helper 收拢，浏览器时区的 todayIso / localDayStamp 删除；grep 剩 0。防线：eslint `no-restricted-syntax` + `src/lib/utcTodayRatchet.test.ts`（白名单只减）+ TradeCreateModal 23:30 ET 用例
 - **Claim**: 24 inline `new Date().toISOString().slice(0,10)` sites take 'today' as the UTC date, although etTodayIso, chicagoTodayDateStr, todayIso and localDayStamp exist. From 20:00 ET (19:00 CDT) until midnight they read the next day: the Trade create form's default opened_at (POSTed as `${dateStr}T12:00:00.000Z`, but editable), event and corporate-action countdowns, the Review queue, habits and fit, Shares band yields, and the Alerts page. There are also 3 todayIso copies with different zones. FillsPage's `todayUtc` is intentionally UTC. This is the frontend half of the TD-98 class.
 - **Measured**: Counted on origin/main dfb7858e: 24 sites outside tests against 4 helpers (77 helper call sites). PROD public.trade: 89 rows, all noon-UTC stamps, 0 dated after their NY creation day, so there is no stored damage yet. Per-site consequences are CODE-READ.
 - **Evidence**:
@@ -2145,7 +2149,8 @@
 
 **P3 · frontend · fetchIvPercentileForSymbols turns every non-404 failure into 'no data', so IV Radar and the Watch book report a plugin outage as names without an IV rank**
 
-- **状态**：未开始
+- **状态**：观察中（代码在 frontend main 119726cc，晚于 10-07 02:0x 这次 Trade 发版的 STG 构建 3990ebfd，随下一次 Trade 发版上线；上线后在页面核对再交签收）
+- **验收结果**：PASS 2026-10-07 frontend 119726cc：`fetchIvPercentileForSymbols` 每名返回 row / absent（404 或空）/ error；IV Radar 失败行标「read failed」并计数，全部失败抛错；Watch book 同。防线 `src/api/research/ivRadar.test.ts`、`watchBookModel.test.ts`
 - **Claim**: fetchIvPercentile maps a 404 to null (a real absence) and rethrows everything else. fetchIvPercentileForSymbols then catches every error (5xx, timeout, network; 'Treat hard errors as no data') and stores null. useIvRadarData counts it as noData with isError false, and useWatchBook renders the IV column as absent. The fan-out is one request per symbol every 120 s, although the same route returns the whole universe in one call.
 - **Measured**: CODE-READ for the failure path; no failure was induced. The route answers 200 today with sane values (iv_current max 1.216 over 500 rows).
 - **Evidence**:
@@ -2360,6 +2365,20 @@
 - **Fix**: At enrich, when day_close < intrinsic (or outside the session bid/ask), use the vendor mid or bid/ask and label mark_source accordingly (new value, no DDL). Restating existing rows is an Owner decision.
 - **Ratchet**: A core test: enrich never stores a mark below intrinsic without a distinct mark_source.
 - 审批 要你批 · 代价 S · 风险 low · repos: bifrost-trade-core
+
+### TD-247
+
+**P3 · frontend · Look-back starts are still computed in the browser's time zone (new Date(Date.now() - N*86400000).toISOString().slice(0,10)), and three private New York date helpers duplicate @/lib/freshness**
+
+- **状态**：未开始
+- **Claim**: TD-232's ratchet only catches argument-less new Date(); SymbolForecastSessions.tsx:50, SymbolVolatilityFace.tsx:216, SymbolDealerHistory.tsx:57, useMarketSessions.ts:16 and PlaybookRecord snapFrom build look-back starts from UTC instants. bookLive.etDate, agentActivity.nyDate and sizingTodayModel.nyDate re-implement the NY date.
+- **Measured**: code-read 10-07 by paydown lane GG.
+- **Evidence**:
+  - `bifrost-trade-frontend/src/pages/research/analyze/symbol/SymbolForecastSessions.tsx:50` — `const daysAgoIso = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10)`
+- **Impact**: Off-by-one-day windows near midnight; short look-backs (Forecast sessions) are the most affected.
+- **Fix**: Add an etDaysAgoIso(n) helper to @/lib/freshness, route the five sites through it, fold the three NY-date copies into it; extend utcTodayRatchet to the `new Date(Date.now() - …)` form.
+- **Ratchet**: Extend src/lib/utcTodayRatchet.test.ts.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
 
 ## 没覆盖到的（下一轮从这里开始）
 
