@@ -15,10 +15,8 @@
 
 - **TD-209** — 告警现在会呼到你：critical 与备份、WAL、NAS MinIO 告警经 Mac mini .50 的 operator-plane 发到 ntfy，Watchdog 当心跳、停了也呼你；原来的 webhook 照旧收。验收 PASS 2026-10-07（线上路由与心跳实测）。防线：`RATCHETS.md`「check_alert_routing.py」与「alertrelay/relay_test.go」。后续：TD-248（转发只在 .50 一处，.50 宕机时没人知道）；你要在手机 ntfy 里订阅本机 `bifrost-platform/.env` 里的 `NTFY_TOPIC`
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
-- **TD-114** — 6 行正数佣金（非 Flex 来源）按 Flex 约定改为负数（core 0.50.0 的写入方已修）· 验收 PASS（10-07 预演 6 → 提交 6 → 再预演 0）· 防线：core 0.50.0 写入侧符号测试 + db-step 的计数守卫 · 无后续
-- **TD-190** — 删掉无人调用的 research CronJob 触发路由（platform 3e9eadd）与 7 个挂起模板（research bbf80db + 集群删除）· 验收 PASS（10-07 只剩 harness、路由 405）· 防线：platform `TestResearchRoutesAreReadOnly`（research 路径下不许非 GET 或含 cronjob 的路由）+ research `test_k8s_cronjobs.py` 只认 harness · 无后续（event-radar-input-pvc 声明保留，删不删另定）
 
-**未结 109 项**：P0 0 · P1 11 · P2 33 · P3 65；要你批的 58 项（从总览表的审批列算）。
+**未结 107 项**：P0 0 · P1 11 · P2 33 · P3 63；要你批的 57 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -73,13 +71,13 @@
 
 目标：现金与佣金账本可信：按 IB transactionID 去重（改表）、佣金一种符号、资金路径有测试、Flex 不再经 DEV 库读配置、IB Gateway 健康与镜像可追溯。
 
-项：TD-103, TD-104, TD-114, TD-117, TD-122 · 已还：TD-115, TD-116
+项：TD-103, TD-104, TD-117, TD-122 · 已还：TD-115, TD-116, TD-114
 
 ### 第 5 波 · 副本、死重与清单
 
 目标：删掉没人用的（挂起的 CronJob、退役脚本、无调用路由），手抄的副本改成从一处生成（调度名单、max-pain / PCR），清单的应用顺序与 Argo 归属理顺。
 
-项：TD-102, TD-106, TD-107, TD-118, TD-119, TD-120, TD-123, TD-125, TD-160, TD-170, TD-190, TD-202 · 已还：TD-126, TD-108, TD-154, TD-163, TD-168, TD-124, TD-176, TD-191, TD-169, TD-200, TD-201
+项：TD-102, TD-106, TD-107, TD-118, TD-119, TD-120, TD-123, TD-125, TD-160, TD-170, TD-202 · 已还：TD-126, TD-108, TD-154, TD-163, TD-168, TD-124, TD-176, TD-191, TD-169, TD-200, TD-201, TD-190
 
 ### 第 6 波 · 备份链与自动修复（10-06 日常发现）
 
@@ -247,7 +245,6 @@
 | [TD-110](#td-110) | P3 | research-data | Stored IV features solve Black-Scholes at r=0 while the backtester uses treasury rates from two separate readers; further BS copies in gex and opex | 不用批 |
 | [TD-111](#td-111) | P3 | research-data | dbt: the pass_count range generic test sits in the singular folder (errors when selected, never applied); key intermediates lack grain tests; nothing ties eval_date to the session | 不用批 |
 | [TD-112](#td-112) | P3 | research-data | option_surface_iv_daily upserts per (symbol, trade_date, expiry) and never deletes, so expiries a re-walk dropped keep their old smile | 不用批 |
-| [TD-114](#td-114) | P3 | flex-ib | raw_broker.commissions mixes two sign conventions: Flex writes cost as negative, the TWS/gateway path writes it as positive | 不用批 |
 | [TD-117](#td-117) | P3 | flex-ib | 'Latest Flex date in DB' after an import is one run behind: read through FDW in the same transaction as the pre-import read | 不用批 |
 | [TD-118](#td-118) | P3 | market-data | option-refresh re-enumerates names with no listed options every run; its 7-day 'finished' lookback reads a table kept 48h | 不用批 |
 | [TD-119](#td-119) | P3 | market-data | Schema-migrate Job and worker Deployments are applied in one `kubectl apply -k` with no ordering; a table-adding release fails the jobs that land in the DDL window | 改表 |
@@ -294,7 +291,6 @@
 | [TD-186](#td-186) | P3 | frontend | "My levels" (plan stop / target and price alerts as horizontal lines) on the Symbol chart waits on Design: ASK-symbol-chart-my-levels-2026-10-06 | 要你批 |
 | [TD-188](#td-188) | P3 | frontend | The app's design registry is still at Rev .157: packages .158–.162 are built but designRoutes / adoption were not re-synced (the Design project's DS mirror was synced to 0.13.0 on 10-06) | 不用批 |
 | [TD-189](#td-189) | P3 | research-data | SEPA has no rows for four sessions (08-28, 08-31, 09-08, 09-16): those nights never computed it, so the SEPA lens and its hit rate skip them | 不用批 |
-| [TD-190](#td-190) | P3 | ops-platform | Platform's research CronJob trigger route has no caller but keeps seven suspended CronJob templates alive in the research namespace | 改公开接口 |
 | [TD-192](#td-192) | P2 | research-control | One IB Flex failure loses that night's SEPA for good: husbandry_gate blocks sepa_projection although SEPA reads nothing from Flex, and the projection never back-fills a missed night | 要你批 |
 | [TD-196](#td-196) | P2 | ops-platform | platform-api and platform-workers keep their state in per-pod emptyDir: every rollout erases release cycles, gate history, the operate queue and checklist signals, and the audit log is memory-only | 已批 |
 | [TD-202](#td-202) | P3 | market-data | market-data code strings and scripts still mention CronJobs: the dashboard label 'CronJob archived' and verify-market-data.sh's hint are user-visible | 不用批 |
@@ -673,23 +669,6 @@
 - **Fix**: Delete-then-insert per (symbol, trade_date) in one transaction; one-off cleanup of the 122 rows (Research-owned).
 - **Ratchet**: code-health metric listing batch_upsert targets whose conflict key is wider than (symbol, trade_date) with no DELETE in the module; fails on a new one without an allowlist comment.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
-
-### TD-114
-
-**P3 · flex-ib · raw_broker.commissions mixes two sign conventions: Flex writes cost as negative, the TWS/gateway path writes it as positive**
-
-- **状态**：待你签收
-- **验收**：GS 上跑 `db-steps.d/sql/2026-10-06-td114-commission-sign-dryrun.sql`：三个环境都上 0.50.0 且改写后需改写行数为 0（现在 6）
-- **验收结果**：PASS 2026-10-07 03:1x UTC（Owner 批准、本会话执行）：预演 6 行候选、Flex 符号不符 0 → restate 提交 6 行（count_matches_expected、none_left 都为 1）→ 再预演候选 0；db-step 记 done prod。另：验证时误把 restate 脚本又跑了一次，命中 0 行、计数守卫除零中止并回滚，无改动
-- **Claim**: Flex stores ibCommission as IB sends it (negative charge, positive rebate); the TWS commissionReport path writes IB API's positive cost into the same column and key. Flex re-imports overwrite to the Flex sign; TWS-only fills keep the opposite sign. No reader normalises (accounts_helpers.py:402-404 adds commission into period totals).
-- **Measured**: MEASURED. Flex-backed: 435 negative, 15 positive (all rebates matching net_cash - proceeds to 4 dp), 32 NULL. TWS-only: 4 positive (~1.04-1.05), 0 negative, 33 NULL. 12 orphan commission rows. Reading TWS positives as costs relies on IB API docs.
-- **Evidence**:
-  - `bifrost-platform-plugin-flex-query/src/bifrost_flex_query/client/flex_client.py:551` — `commission = _f("ibCommission")`
-  - `bifrost-trade-core/src/bifrost_core/portfolio/reader/accounts.py:1053` — `INSERT INTO {GOLDEN_COMMISSIONS} (exec_id, commission, currency, realized_pnl, yield_, yield_redemption_date)`
-- **Impact**: Small amounts today, but per-trade cost and PnL reads including TWS-only fills get the cost sign backwards.
-- **Fix**: Normalise at write time (keep Flex sign, negate TWS commissionReport value), backfill TWS-only rows, decide on the 12 orphans.
-- **Ratchet**: Data-gaps/doctor SQL check: no exec_id whose commission sign disagrees with sign(net_cash - proceeds - taxes) on its Flex row; unit test on the TWS writer's sign.
-- 审批 不用批 · 代价 S · 风险 med · repos: bifrost-trade-core
 
 ### TD-117
 
@@ -1459,22 +1438,6 @@
 - **Fix**: Find why the batch skipped those nights (Dagster run history), and if SEPA can be recomputed for a past session from stock_daily, backfill the four days through the mart with an as-of parameter and re-walk the lens.
 - **Ratchet**: The TD-87 asset check already flags non-trading dates; add a coverage check: SEPA dates over the last 30 sessions = trading sessions (warn on any gap).
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
-
-### TD-190
-
-**P3 · ops-platform · Platform's research CronJob trigger route has no caller but keeps seven suspended CronJob templates alive in the research namespace**
-
-- **状态**：待你签收
-- **验收**：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n research get cronjob -o name` 只剩 `cronjob.batch/research-harness`；`bifrost-research/scripts/verify_husbandry_schedulers.sh` PASSED；STG / PROD `POST /api/v1/research/cronjobs/<name>/trigger` = 405
-- **验收结果**：PASS 2026-10-07：platform 3e9eadd 上 STG / PROD，触发路由 405；research bbf80db 删清单后，Owner 批准、本会话执行 `kubectl delete` 7 个模板；`kubectl -n research get cronjob` 只剩 research-harness；`verify_husbandry_schedulers.sh` PASSED
-- **Claim**: POST /research/cronjobs/{name}/trigger builds a Job from a whitelist of seven CronJob names (bifrost-analytics-daily, research-engines-event-radar/-forecast/-momentum, research-gex-intraday, research-iv-percentile, research-terrain-intraday). Lane R found no caller in console/src; researchEngineCatalog.ts marks them legacy. Because of the route, TD-124 had to keep the seven templates.
-- **Measured**: code-read 10-06 by paydown lane R (grep of console/src and platform api).
-- **Evidence**:
-  - `bifrost-platform/api/internal/research/cronjob_trigger.go:15` — `var cronJobTriggers = map[string]string{`
-- **Impact**: Seven dead CronJobs keep shipping and getting re-pinned; anyone triggering them runs an engine outside Dagster's ordering.
-- **Fix**: Remove the route and whitelist (and the legacy catalog rows), then delete the seven templates and empty the names in test_k8s_cronjobs.py and verify_husbandry_schedulers.sh.
-- **Ratchet**: test_k8s_cronjobs.py already allows the template set only to shrink; after the fix it becomes harness-only.
-- 审批 改公开接口 · 代价 S · 风险 low · repos: bifrost-platform, bifrost-research
 
 ### TD-192
 

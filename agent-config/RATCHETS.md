@@ -94,6 +94,8 @@
 | 区间按芝加哥日界（TD-214） | `bifrost-trade-frontend/src/utils/ledger/performanceUtils.test.ts`（getTimeRangeStamps，多时区） | Performance / Overview 区间起点漂到 UTC 午夜 | warning（测试） | — |
 | 告警「今天触发」按 computed_at 纽约日（TD-219） | `bifrost-trade-frontend/src/hooks/useFiredAlerts.test.ts` | 侧栏计数永远为 0 | warning（测试） | — |
 | IV 读失败不显示成没数据（TD-233） | `bifrost-trade-frontend/src/api/research/ivRadar.test.ts` + `watchBookModel.test.ts` | 读失败被当成「无 IV 数据」 | warning（测试） | catch 后返回空的通用扫描未建 |
+| 佣金符号单一约定（TD-114） | core 0.50.0 写入侧符号测试 + `bifrost-trade-infra/scripts/release/db-steps.d/sql/2026-10-06-td114-commission-sign-dryrun.sql`（预演三项：按来源分符号、候选数、Flex 符号不符）与 restate 的 expected 计数守卫 | 非 Flex 来源写入正数佣金，与 Flex 约定相反 | warning（测试）+ 手动 db-step | — |
+| research 不再有 CronJob 触发路由与挂起模板（TD-190） | `bifrost-platform/api/internal/server/research_routes_test.go::TestResearchRoutesAreReadOnly` + `bifrost-research/tests/test_k8s_cronjobs.py`（CronJob 只许 harness）+ `scripts/verify_husbandry_schedulers.sh` | 绕开 Dagster 编排的手工触发入口 | warning（测试）+ 手动 verify | event-radar-input-pvc 保留待定 |
 
 ## 各类债现在挡没挡住
 
