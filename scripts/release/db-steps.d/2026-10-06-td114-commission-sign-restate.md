@@ -2,7 +2,7 @@
 id: 2026-10-06-td114-commission-sign-restate
 envs: prod
 when: after
-done:
+done: prod
 ---
 # TD-114: restate the commission rows stored cost-positive before core 0.50.0 (Golden Source only)
 

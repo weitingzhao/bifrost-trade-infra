@@ -15,6 +15,8 @@
 
 - **TD-209** — 告警现在会呼到你：critical 与备份、WAL、NAS MinIO 告警经 Mac mini .50 的 operator-plane 发到 ntfy，Watchdog 当心跳、停了也呼你；原来的 webhook 照旧收。验收 PASS 2026-10-07（线上路由与心跳实测）。防线：`RATCHETS.md`「check_alert_routing.py」与「alertrelay/relay_test.go」。后续：TD-248（转发只在 .50 一处，.50 宕机时没人知道）；你要在手机 ntfy 里订阅本机 `bifrost-platform/.env` 里的 `NTFY_TOPIC`
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
+- **TD-114** — 6 行正数佣金（非 Flex 来源）按 Flex 约定改为负数（core 0.50.0 的写入方已修）· 验收 PASS（10-07 预演 6 → 提交 6 → 再预演 0）· 防线：core 0.50.0 写入侧符号测试 + db-step 的计数守卫 · 无后续
+- **TD-190** — 删掉无人调用的 research CronJob 触发路由（platform 3e9eadd）与 7 个挂起模板（research bbf80db + 集群删除）· 验收 PASS（10-07 只剩 harness、路由 405）· 防线：platform `TestResearchRoutesAreReadOnly`（research 路径下不许非 GET 或含 cronjob 的路由）+ research `test_k8s_cronjobs.py` 只认 harness · 无后续（event-radar-input-pvc 声明保留，删不删另定）
 
 **未结 109 项**：P0 0 · P1 11 · P2 33 · P3 65；要你批的 58 项（从总览表的审批列算）。
 
@@ -676,8 +678,9 @@
 
 **P3 · flex-ib · raw_broker.commissions mixes two sign conventions: Flex writes cost as negative, the TWS/gateway path writes it as positive**
 
-- **状态**：在做（三个环境已上 core 0.50.0；等 Owner 跑 6 行存量改写，预演 10-06 18:0x 仍为 6、Flex 符号不符 0）
+- **状态**：待你签收
 - **验收**：GS 上跑 `db-steps.d/sql/2026-10-06-td114-commission-sign-dryrun.sql`：三个环境都上 0.50.0 且改写后需改写行数为 0（现在 6）
+- **验收结果**：PASS 2026-10-07 03:1x UTC（Owner 批准、本会话执行）：预演 6 行候选、Flex 符号不符 0 → restate 提交 6 行（count_matches_expected、none_left 都为 1）→ 再预演候选 0；db-step 记 done prod。另：验证时误把 restate 脚本又跑了一次，命中 0 行、计数守卫除零中止并回滚，无改动
 - **Claim**: Flex stores ibCommission as IB sends it (negative charge, positive rebate); the TWS commissionReport path writes IB API's positive cost into the same column and key. Flex re-imports overwrite to the Flex sign; TWS-only fills keep the opposite sign. No reader normalises (accounts_helpers.py:402-404 adds commission into period totals).
 - **Measured**: MEASURED. Flex-backed: 435 negative, 15 positive (all rebates matching net_cash - proceeds to 4 dp), 32 NULL. TWS-only: 4 positive (~1.04-1.05), 0 negative, 33 NULL. 12 orphan commission rows. Reading TWS positives as costs relies on IB API docs.
 - **Evidence**:
@@ -1461,8 +1464,9 @@
 
 **P3 · ops-platform · Platform's research CronJob trigger route has no caller but keeps seven suspended CronJob templates alive in the research namespace**
 
-- **状态**：在做（platform 3e9eadd 已上 STG / PROD，路由 405；research bbf80db 删掉 7 个模板清单已推 main（PVC 声明保留）；Argo 不 prune，线上 7 个 CronJob 等你 `kubectl delete`）
+- **状态**：待你签收
 - **验收**：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n research get cronjob -o name` 只剩 `cronjob.batch/research-harness`；`bifrost-research/scripts/verify_husbandry_schedulers.sh` PASSED；STG / PROD `POST /api/v1/research/cronjobs/<name>/trigger` = 405
+- **验收结果**：PASS 2026-10-07：platform 3e9eadd 上 STG / PROD，触发路由 405；research bbf80db 删清单后，Owner 批准、本会话执行 `kubectl delete` 7 个模板；`kubectl -n research get cronjob` 只剩 research-harness；`verify_husbandry_schedulers.sh` PASSED
 - **Claim**: POST /research/cronjobs/{name}/trigger builds a Job from a whitelist of seven CronJob names (bifrost-analytics-daily, research-engines-event-radar/-forecast/-momentum, research-gex-intraday, research-iv-percentile, research-terrain-intraday). Lane R found no caller in console/src; researchEngineCatalog.ts marks them legacy. Because of the route, TD-124 had to keep the seven templates.
 - **Measured**: code-read 10-06 by paydown lane R (grep of console/src and platform api).
 - **Evidence**:
@@ -1626,7 +1630,8 @@
 
 **P1 · data · The nightly logical backup of hand-entered data failed on its first scheduled run: it connects before the new pod's NetworkPolicy is programmed and gets Connection refused**
 
-- **状态**：在做（连库竞态已修并 apply：infra be91aca 加 wait-pg initContainer；手动复验又暴露 research 序列权限不足，等你批一条 PROD Golden Source 授权）
+- **状态**：观察中（授权与修复都已生效；到连续三个夜间定时 Job 都 S=1）
+- **验收结果**：部分 PASS 2026-10-07：Owner 批准后本会话执行 GS 授权（2 个 research 序列 + analytics_writer 默认权限）；手动 Job logical-backup-manual-202610070314 成功，7 个目标全 ok（research 25 表 1.9M）；README Prerequisite 补上 research
 - **下一步**：你以 postgres 身份在 Golden Source 跑授权（命令见线程）→ 我起一次手动 Job 复验 → 观察三个夜间定时 Job 都 S=1；README 的 Prerequisite 补上 research。旧的两个 logical-backup-scripts ConfigMap（g48f6c8k6b、tf98d5m6g7）无人引用，删不删由你定
 - **现在**：道 FF：10-06 04:30Z 定时那次两次尝试前 6 个目标都 `Connection refused`（新 pod 与 NetworkPolicy 的竞态，同 memory probe-pod-networkpolicy-race），10-05 手动「成功」靠的是第二次尝试。修复：CronJob 加 `wait-pg` initContainer（同一 postgres 镜像），backup.sh 首个目标前 pg_isready 最多等 60 s；内容与写入位置不变；该目录不归 Argo，apply 前 diff 为空、apply 后只剩本改动。手动复验 `logical-backup-manual-20261007`：wait-pg 打印 `wait 1 → ready`（竞态确认被挡住），prod / stg / dev public、journal、ops_feedback、raw_broker 都 ok，**只有 `bifrost_golden_source:research` 失败：`permission denied for sequence suggestion_adoption_suggestion_adoption_id_seq`**（建议账本新表，10-05 时还没有），所以仍 PARTIAL，BifrostLogicalBackupMissing 仍 firing。防线 `scripts/check_pg_wait.py`（连 CNPG 的 Job / CronJob 必须有 wait-pg 或带理由注解；`make check-pg-wait`，并接进 run-deliver-stg / prod 发布前检查）
 - **Claim**: CronJob data/logical-backup starts psql against bifrost-postgres-rw within the pod's first second. It has no wait-pg initContainer and no connect retry. The only rule letting the pod reach Postgres is a podSelector NetworkPolicy, which the k3s policy controller programs a few seconds after the pod IP exists. On 2026-10-06 04:30 UTC both attempts (backoffLimit 1) got Connection refused on 6 of 7 targets. raw_broker, the last target, dumped fine 2 s later, which is the signature of the known new-pod race, not a policy gap. The run wrote PARTIAL folders and the Job failed. Only the manual run on 10-05 has ever succeeded (and that manual job also shows one failed attempt).

@@ -40,6 +40,9 @@ needs to:
 ```sql
 GRANT SELECT ON SEQUENCE journal.memory_mem_no_seq, journal.visit_visit_id_seq TO bifrost;
 ALTER DEFAULT PRIVILEGES FOR ROLE analytics_writer IN SCHEMA journal GRANT SELECT ON SEQUENCES TO bifrost;
+-- research (2026-10-07, TD-210: the suggestion ledger's sequences broke the research dump)
+GRANT SELECT ON SEQUENCE research.suggestion_adoption_suggestion_adoption_id_seq, research.suggestion_settlement_suggestion_settlement_id_seq TO bifrost;
+ALTER DEFAULT PRIVILEGES FOR ROLE analytics_writer IN SCHEMA research GRANT SELECT ON SEQUENCES TO bifrost;
 ```
 
 Without it the `journal` dump fails and the run ends `PARTIAL`.
