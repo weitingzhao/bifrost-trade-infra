@@ -22,7 +22,7 @@ resources:
   - bifrost-alerting-rules.yaml
   # td-d2-postgres-rules.yaml is applied by hand, not here: BifrostPostgresRecoveryDrillStale
   # pages at once until the TD-217 drill passes, and the WAL rule waits a day after TD-134.
-  # Secret alertmanager-webhook-auth (bearer for the platform-api STG webhook) is not
+  # Secret alertmanager-webhook-auth (bearer for the platform-api PROD webhook) is not
   # here: scripts/k3s/apply-platform-role-tokens.sh writes it from .env.
   - alertmanager-webhook-network-policy.yaml
   - grafana-dashboards-configmap.yaml

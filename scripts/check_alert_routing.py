@@ -1,31 +1,44 @@
 #!/usr/bin/env python3
-"""Alerts that matter reach a person, not only an in-cluster webhook (TD-209 ratchet).
+"""Alerts that matter reach a person, and the audit webhook is PROD (TD-209, LANE-A1).
 
 Until 2026-10-07 every alert went to one webhook that wrote STG platform-api's
 in-memory audit log and returned 200: Alertmanager counted it as delivered and nobody
-was told, while BifrostLogicalBackupMissing fired for hours. This check walks the
-Alertmanager route tree the way Alertmanager does (first match, ``continue``) and fails
-unless:
+was told, while BifrostLogicalBackupMissing fired for hours. LANE-A1 points that
+default receiver at PROD platform-api and drops STG from the alert path. This check
+walks the Alertmanager route tree the way Alertmanager does (first match, ``continue``)
+and fails unless:
 
 - Watchdog reaches a receiver outside the cluster (the relay's dead-man's switch);
-- an alert with severity=critical, and every backup / WAL / NAS MinIO alert defined in
-  k8s/monitoring PrometheusRules, reaches a receiver outside the cluster;
+- an alert with severity=critical, and every backup / WAL / NAS MinIO / cluster-state
+  backup alert defined in k8s/monitoring PrometheusRules, reaches a receiver outside
+  the cluster; ``BifrostClusterStateBackupFailed`` is checked even before its
+  PrometheusRule lands (LANE-A2);
 - those alerts still reach the in-cluster webhook too (nothing lost from the audit trail);
 - every receiver outside the cluster has an egress rule in
-  k8s/monitoring/alertmanager-webhook-network-policy.yaml (else Alertmanager cannot send).
+  k8s/monitoring/alertmanager-webhook-network-policy.yaml (else Alertmanager cannot send);
+- no receiver URL contains ``bifrost-platform-stg``;
+- the default receiver's webhook is
+  ``platform-api.bifrost-platform-prod.svc.cluster.local:8780/api/v1/ops-agent/alertmanager``;
+- Alertmanager's egress policy allows monitoring → that PROD Service port and does not
+  name the STG namespace.
 
 "Outside the cluster" means a webhook URL whose host is not ``*.svc.cluster.local``.
 
-Static (default): reads scripts/k3s/values-kube-prometheus.yaml.
-Live (``--live``; needs KUBECONFIG, read-only): walks the running Alertmanager's routes.
-Its status API masks webhook URLs, so which receivers are outside the cluster is taken
-from the values file, by receiver name.
+Static (default): reads scripts/k3s/values-kube-prometheus.yaml and the egress policy file.
+Live (``--live``; needs KUBECONFIG, read-only): reads the running config from Secret
+``monitoring/alertmanager-kube-prometheus-stack-alertmanager`` key ``alertmanager.yaml``.
+The status API masks every webhook URL as ``<secret>``, so it cannot prove the target.
+The Secret holds the same document with URLs in the clear and ``bearer_token_file``
+paths (not the token). The live egress check reads NetworkPolicy
+``alertmanager-webhook-egress``.
 
 Usage: python3 scripts/check_alert_routing.py [--live]   (exit 1 on any problem)
 """
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import ipaddress
 import json
 import pathlib
@@ -39,8 +52,20 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 VALUES = ROOT / "scripts/k3s/values-kube-prometheus.yaml"
 EGRESS = ROOT / "k8s/monitoring/alertmanager-webhook-network-policy.yaml"
-PAGED = re.compile(r"Bifrost(PostgresBackup.*|PostgresWalArchiveStalled|LogicalBackup.*|MinIONas.*)")
+PAGED = re.compile(
+    r"Bifrost(PostgresBackup.*|PostgresWalArchiveStalled|LogicalBackup.*|MinIONas.*|ClusterStateBackup.*)"
+)
+# LANE-A2's rule file is not in this branch. The page matcher must already accept the name.
+SYNTHETIC_PAGED = (("BifrostClusterStateBackupFailed", "warning"),)
 WEBHOOK = "bifrost-ops-agent"
+STG_MARK = "bifrost-platform-stg"
+PROD_HOST = "platform-api.bifrost-platform-prod.svc.cluster.local"
+PROD_PATH = "/api/v1/ops-agent/alertmanager"
+PROD_NS = "bifrost-platform-prod"
+AM_SECRET = "alertmanager-kube-prometheus-stack-alertmanager"
+EGRESS_NAME = "alertmanager-webhook-egress"
+TOKEN_SCRIPT = ROOT / "scripts/k3s/apply-platform-role-tokens.sh"
+WEBHOOK_TOKEN_LINE = 'printf \'token=%s\\n\' "$(env_value PLATFORM_PROD_OPERATOR_TOKEN)"'
 
 
 def parse_matcher(m: str):
@@ -108,26 +133,197 @@ def rule_alerts() -> list[tuple[str, str]]:
     return out
 
 
-def load_config(live: bool) -> dict:
+def kubectl(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["kubectl", *args], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+
+
+def webhook_urls(receiver: dict) -> list[str]:
+    return [w.get("url") or "" for w in receiver.get("webhook_configs") or []]
+
+
+def assert_webhook_targets(cfg: dict, problems: list[str], where: str) -> None:
+    """No receiver URL may name STG; the default receiver must be the PROD audit webhook."""
+    receivers = {r["name"]: r for r in cfg.get("receivers") or []}
+    for name, rec in receivers.items():
+        for url in webhook_urls(rec):
+            if url == "<secret>":
+                problems.append(f"{where}: receiver {name} URL is masked; cannot verify the target")
+            if STG_MARK in url:
+                problems.append(f"{where}: receiver {name} URL contains {STG_MARK}")
+    default = (cfg.get("route") or {}).get("receiver")
+    urls = webhook_urls(receivers.get(default) or {})
+    ok = False
+    hosts: list[str] = []
+    for url in urls:
+        parsed = urlparse(url)
+        hosts.append(parsed.hostname or url)
+        if parsed.hostname == PROD_HOST and (parsed.port or 80) == 8780 and parsed.path == PROD_PATH:
+            ok = True
+    if not ok:
+        problems.append(
+            f"{where}: default receiver {default!r} is not {PROD_HOST}:8780{PROD_PATH} (hosts={hosts})"
+        )
+
+
+def policy_allows_prod(pol: dict) -> bool:
+    for rule in (pol.get("spec") or {}).get("egress") or []:
+        ports = {p.get("port") for p in rule.get("ports") or []}
+        proto_ok = all(p.get("protocol", "TCP") == "TCP" for p in rule.get("ports") or [])
+        if 8780 not in ports or not proto_ok:
+            continue
+        for peer in rule.get("to") or []:
+            ns = ((peer.get("namespaceSelector") or {}).get("matchLabels") or {}).get(
+                "kubernetes.io/metadata.name")
+            app = ((peer.get("podSelector") or {}).get("matchLabels") or {}).get(
+                "app.kubernetes.io/name")
+            if ns == PROD_NS and app == "platform-api":
+                return True
+    return False
+
+
+def assert_token_source(problems: list[str]) -> None:
+    """The webhook bearer written for the next apply must be the PROD operator token.
+    PROD platform-api's operator role reads PLATFORM_PROD_OPERATOR_TOKEN; the STG
+    token is a different secret and the route returns 401."""
+    text = TOKEN_SCRIPT.read_text()
+    if WEBHOOK_TOKEN_LINE not in text:
+        problems.append(
+            f"{TOKEN_SCRIPT.relative_to(ROOT)}: webhook secret is not filled from PLATFORM_PROD_OPERATOR_TOKEN"
+        )
+    stale = 'printf \'token=%s\\n\' "$(env_value PLATFORM_STG_OPERATOR_TOKEN)"'
+    if stale in text:
+        problems.append(
+            f"{TOKEN_SCRIPT.relative_to(ROOT)}: webhook secret is still filled from PLATFORM_STG_OPERATOR_TOKEN"
+        )
+
+
+def secret_sha256(namespace: str, name: str, key: str) -> str | None:
+    r = kubectl("-n", namespace, "get", "secret", name, "-o", "json")
+    if r.returncode != 0:
+        return None
+    try:
+        encoded = json.loads(r.stdout)["data"][key]
+    except (KeyError, TypeError, json.JSONDecodeError):
+        return None
+    return hashlib.sha256(base64.b64decode(encoded)).hexdigest()
+
+
+def assert_live_bearer(problems: list[str]) -> None:
+    """Compare digests only. Never print either secret."""
+    webhook = secret_sha256("monitoring", "alertmanager-webhook-auth", "token")
+    prod = secret_sha256("bifrost-platform-prod", "bifrost-platform-role-tokens", "PLATFORM_PROD_OPERATOR_TOKEN")
+    if not webhook or not prod:
+        problems.append("live: cannot read the webhook bearer or the PROD operator token")
+        return
+    if webhook != prod:
+        problems.append(
+            "live: alertmanager-webhook-auth is not the PROD operator token; "
+            "PROD platform-api would reject the audit webhook"
+        )
+
+
+def assert_egress_policy(pol: dict, raw: str, problems: list[str], where: str) -> None:
+    if STG_MARK in raw:
+        problems.append(f"{where}: egress policy still names {STG_MARK}")
+    if not policy_allows_prod(pol):
+        problems.append(
+            f"{where}: egress policy does not allow {PROD_NS} platform-api TCP 8780"
+        )
+
+
+def load_config(live: bool) -> tuple[dict, str]:
+    """Return (alertmanager config, raw text that was parsed). Live raw is the Secret
+    document; it is never printed."""
     if not live:
-        return yaml.safe_load(VALUES.read_text())["alertmanager"]["config"]
-    r = subprocess.run(["kubectl", "get", "--raw",
-                        "/api/v1/namespaces/monitoring/services/kube-prometheus-stack-alertmanager:9093/proxy/api/v2/status"],
-                       capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        raw = VALUES.read_text()
+        return yaml.safe_load(raw)["alertmanager"]["config"], raw
+    r = kubectl("-n", "monitoring", "get", "secret", AM_SECRET, "-o", "json")
     if r.returncode != 0:
         print(f"kubectl: {r.stderr.strip()}", file=sys.stderr)
         sys.exit(1)
-    return yaml.safe_load(json.loads(r.stdout)["config"]["original"])
+    try:
+        encoded = json.loads(r.stdout)["data"]["alertmanager.yaml"]
+        raw = base64.b64decode(encoded).decode()
+        cfg = yaml.safe_load(raw)
+    except (KeyError, ValueError, TypeError) as e:
+        print(f"alertmanager config secret: {e}", file=sys.stderr)
+        sys.exit(1)
+    if not isinstance(cfg, dict) or "route" not in cfg:
+        print("alertmanager config secret: no route", file=sys.stderr)
+        sys.exit(1)
+    return cfg, raw
+
+
+def load_policy(live: bool) -> tuple[dict, str]:
+    if not live:
+        raw = EGRESS.read_text()
+        return yaml.safe_load(raw), raw
+    r = kubectl("-n", "monitoring", "get", "networkpolicy", EGRESS_NAME, "-o", "yaml")
+    if r.returncode != 0:
+        print(f"kubectl: {r.stderr.strip()}", file=sys.stderr)
+        sys.exit(1)
+    return yaml.safe_load(r.stdout), r.stdout
+
+
+def self_test() -> None:
+    """The new assertions must pass a PROD default and fail a STG URL."""
+    prod_url = f"http://{PROD_HOST}:8780{PROD_PATH}"
+    good = {
+        "route": {
+            "receiver": WEBHOOK,
+            "routes": [
+                {"receiver": "owner-ntfy", "matchers": [
+                    'alertname=~"Bifrost(PostgresBackup.*|PostgresWalArchiveStalled|LogicalBackup.*|MinIONas.*|ClusterStateBackup.*)"'
+                ], "continue": True},
+                {"receiver": WEBHOOK},
+            ],
+        },
+        "receivers": [
+            {"name": WEBHOOK, "webhook_configs": [{"url": prod_url}]},
+            {"name": "owner-ntfy", "webhook_configs": [
+                {"url": "http://192.168.10.50:8783/api/v1/alerts/alertmanager"}]},
+        ],
+    }
+    good_problems: list[str] = []
+    assert_webhook_targets(good, good_problems, "self-test")
+    if good_problems:
+        raise SystemExit("self-test: PROD config was rejected: " + "; ".join(good_problems))
+    reached = route_to(good["route"], {"alertname": "BifrostClusterStateBackupFailed", "severity": "warning"})
+    if "owner-ntfy" not in reached or WEBHOOK not in reached:
+        raise SystemExit(f"self-test: cluster-state backup route reached {reached}")
+    bad_problems: list[str] = []
+    assert_webhook_targets({
+        "route": {"receiver": WEBHOOK},
+        "receivers": [{"name": WEBHOOK, "webhook_configs": [{
+            "url": "http://platform-api.bifrost-platform-stg.svc.cluster.local:8780/api/v1/ops-agent/alertmanager"}]}],
+    }, bad_problems, "self-test")
+    if not any(STG_MARK in p for p in bad_problems) or not any(PROD_HOST in p for p in bad_problems):
+        raise SystemExit(f"self-test: STG URL was not rejected ({bad_problems})")
+    masked: list[str] = []
+    assert_webhook_targets({
+        "route": {"receiver": WEBHOOK},
+        "receivers": [{"name": WEBHOOK, "webhook_configs": [{"url": "<secret>"}]}],
+    }, masked, "self-test")
+    if not any("masked" in p for p in masked):
+        raise SystemExit("self-test: masked URL was not rejected")
 
 
 def main() -> int:
+    self_test()
     live = "--live" in sys.argv[1:]
-    cfg = load_config(live)
-    static_receivers = {r["name"]: r for r in load_config(False).get("receivers") or []}
-    outside_names = {n for n, r in static_receivers.items() if outside(r)}
+    cfg, raw_cfg = load_config(live)
     receivers = {r["name"]: r for r in cfg.get("receivers") or []}
+    outside_names = {n for n, r in receivers.items() if outside(r)}
     route = cfg["route"]
     problems: list[str] = []
+    where = "live Alertmanager" if live else VALUES.name
+
+    if STG_MARK in raw_cfg:
+        problems.append(f"{where}: config still contains {STG_MARK}")
+    assert_webhook_targets(cfg, problems, where)
+    assert_token_source(problems)
+    if live:
+        assert_live_bearer(problems)
 
     def reach(labels):
         return [x for x in route_to(route, labels) if x]
@@ -140,6 +336,10 @@ def main() -> int:
         problems.append(f"Watchdog reaches {hb}: no receiver outside the cluster (dead-man's switch)")
 
     cases = [("AnyCritical", "critical")] + [(a, s) for a, s in rule_alerts() if PAGED.fullmatch(a)]
+    seen = {a for a, _ in cases}
+    for name, sev in SYNTHETIC_PAGED:
+        if name not in seen:
+            cases.append((name, sev))
     for name, sev in cases:
         got = reach({"alertname": name, "severity": sev, "namespace": "data"})
         if not paged(got):
@@ -147,19 +347,22 @@ def main() -> int:
         if WEBHOOK not in got:
             problems.append(f"{name} (severity={sev}) no longer reaches {WEBHOOK}")
 
+    pol, raw_pol = load_policy(live)
+    pol_where = f"live {EGRESS_NAME}" if live else str(EGRESS.relative_to(ROOT))
+    assert_egress_policy(pol, raw_pol, problems, pol_where)
     if not live:
         for n, r in receivers.items():
             for u in outside(r):
                 if not egress_allows(u):
                     problems.append(f"receiver {n}: {u} has no egress rule in {EGRESS.relative_to(ROOT)}")
 
-    where = "live Alertmanager" if live else VALUES.name
     if problems:
         print(f"FAIL ({where}):")
         for p in problems:
             print(f"  - {p}")
         return 1
-    print(f"ok ({where}): Watchdog and {len(cases)} paged alert kinds reach a receiver outside the cluster")
+    print(f"ok ({where}): Watchdog and {len(cases)} paged alert kinds reach a receiver outside the cluster; "
+          f"default receiver is {PROD_HOST}")
     return 0
 
 

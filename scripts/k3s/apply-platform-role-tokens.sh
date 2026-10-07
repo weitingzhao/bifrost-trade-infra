@@ -4,7 +4,7 @@
 #
 #   bifrost-platform-stg/bifrost-platform-role-tokens   PLATFORM_{VIEWER,OPERATOR,ADMIN}_TOKEN
 #   bifrost-platform-prod/bifrost-platform-role-tokens  PLATFORM_PROD_{VIEWER,OPERATOR,ADMIN}_TOKEN
-#   monitoring/alertmanager-webhook-auth                token (= STG operator)
+#   monitoring/alertmanager-webhook-auth                token (= PROD operator)
 #
 # .env keys: PLATFORM_STG_{VIEWER,OPERATOR,ADMIN}_TOKEN, PLATFORM_PROD_{VIEWER,OPERATOR,ADMIN}_TOKEN.
 # Optional REMEDIATION_RUNNER_TOKEN (TD-207): the shared bearer the Mac mini runner and
@@ -61,6 +61,15 @@ apply_secret() {
     | kubectl apply -f -
 }
 
+# WEBHOOK_ONLY=1 updates monitoring/alertmanager-webhook-auth and leaves the
+# role-token Secrets alone. The full run below still writes that same bearer.
+if [[ "${WEBHOOK_ONLY:-}" == "1" ]]; then
+  printf 'token=%s\n' "$(env_value PLATFORM_PROD_OPERATOR_TOKEN)" > "${TMP}"
+  apply_secret monitoring alertmanager-webhook-auth app.kubernetes.io/component=alertmanager
+  echo "alertmanager-webhook-auth set to the PROD operator token."
+  exit 0
+fi
+
 for role in VIEWER OPERATOR ADMIN; do
   printf 'PLATFORM_%s_TOKEN=%s\n' "${role}" "$(env_value "PLATFORM_STG_${role}_TOKEN")"
 done > "${TMP}"
@@ -73,7 +82,10 @@ done > "${TMP}"
 [[ -n "${RUNNER_TOKEN}" ]] && printf 'REMEDIATION_RUNNER_TOKEN=%s\n' "${RUNNER_TOKEN}" >> "${TMP}"
 apply_secret bifrost-platform-prod bifrost-platform-role-tokens app.kubernetes.io/part-of=bifrost-platform
 
-printf 'token=%s\n' "$(env_value PLATFORM_STG_OPERATOR_TOKEN)" > "${TMP}"
+# PROD platform-api authenticates this route with PLATFORM_PROD_OPERATOR_TOKEN
+# (k8s/overlays/platform-prod/config/platform-auth.yaml). The STG operator token
+# is a different secret and would 401.
+printf 'token=%s\n' "$(env_value PLATFORM_PROD_OPERATOR_TOKEN)" > "${TMP}"
 apply_secret monitoring alertmanager-webhook-auth app.kubernetes.io/component=alertmanager
 
 echo "Platform role tokens applied. platform-api picks them up on its next rollout."
