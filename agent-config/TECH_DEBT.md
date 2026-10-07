@@ -1434,7 +1434,7 @@
 
 **P3 · ops-platform · Platform's research CronJob trigger route has no caller but keeps seven suspended CronJob templates alive in the research namespace**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 「按推荐」批准：删 platform 触发路由与白名单（随下一次平台发布），平台上线后再删 research 的 7 个模板（先推分支）；道 DD）
 - **Claim**: POST /research/cronjobs/{name}/trigger builds a Job from a whitelist of seven CronJob names (bifrost-analytics-daily, research-engines-event-radar/-forecast/-momentum, research-gex-intraday, research-iv-percentile, research-terrain-intraday). Lane R found no caller in console/src; researchEngineCatalog.ts marks them legacy. Because of the route, TD-124 had to keep the seven templates.
 - **Measured**: code-read 10-06 by paydown lane R (grep of console/src and platform api).
 - **Evidence**:
@@ -1448,7 +1448,7 @@
 
 **P2 · research-control · One IB Flex failure loses that night's SEPA for good: husbandry_gate blocks sepa_projection although SEPA reads nothing from Flex, and the projection never back-fills a missed night**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 「按推荐」批准：拆门禁：Flex 只挡读 Flex 数据的资产，sepa_projection 只依赖 market_eod；其余仍失败即关闭；道 BB）
 - **Claim**: husbandry_gate raises when Flex is failed / stale / none (fail-closed per TD-94) and sepa_projection depends on the gate. Two of the four SEPA gaps (09-08, 09-16) are Flex [1003] nights. The projection only writes latest_closed_session, so a skipped night is lost unless research_trading_day is re-run before the next close.
 - **Measured**: MEASURED 10-06 by paydown lane P (ops_dagster runs 831ad92b, f638e59b, f9d10c09).
 - **Evidence**:
@@ -1462,7 +1462,7 @@
 
 **P2 · ops-platform · BifrostAPIHighLatency can never fire: the histogram it reads tops out at a 1 s bucket, so histogram_quantile returns at most 1 and `> 2` is impossible**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 「按推荐」批准：延迟告警改读 highr 直方图，先在 core 把流式接口排除出延迟统计，再按实测分布定阈值；不改 core 默认桶；道 CC）
 - **Claim**: prometheus-fastapi-instrumentator's default http_request_duration_seconds buckets are 0.1 / 0.5 / 1 / +Inf (core observability/prometheus.py). The rule asks p99 > 2 s. The fine histogram (http_request_duration_highr_seconds, no handler label, 0.01–60 s) would fire: over 7 days PROD api-monitor had ~20 and api-market ~17 windows of ≥5 min with p99 > 2 s — possibly streaming routes timed to response end (unverified).
 - **Measured**: MEASURED 10-06 by paydown lane Q (Prometheus via apiserver proxy).
 - **Evidence**:
@@ -1534,7 +1534,7 @@
 
 **P3 · frontend · EventsBoard.tsx and EventRadarDashboard.tsx have had no importer since 09-24 (c81e5a29); a comment still says EventRadarBody 'stays the Explorer tab's body' though Explorer was retired in 594a3f3f**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 「按推荐」批准：删两个孤儿前端文件并改正注释，加孤儿模块防线；道 EE）
 - **Claim**: Lane U grepped src: the two modules are referenced only in comments (EventsPage.tsx:145, AlertsPage.tsx:16). TD-193 was filed against EventsBoard because the code looked live.
 - **Measured**: MEASURED 10-07 by paydown lane U (grep of origin/main src for imports).
 - **Evidence**:
