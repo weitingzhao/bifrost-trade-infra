@@ -14,6 +14,7 @@
 ## 待你签收
 
 - **TD-197** 线程标题由会话自己上报：Stop hook `report-thread-title.js` 读本会话 transcript 的标题，用 reporter 令牌 PUT 到 platform（本机同步保留作兜底）。验收 PASS 2026-10-06（PROD 上对方会话的线程带标题显示，标题由 hook 写入）。防线：`RATCHETS.md`「report-thread-title.test.js」。后续：无后续：Cursor 没有会话标题，已写进 shared-worktree 规则；镜像滞后已由 platform d0b6943 修掉
+- **TD-198** — STG platform-api 也被 Prometheus 抓取（ServiceMonitor 加 bifrost-platform-stg，infra ac7b2e6）· 验收 PASS（10-07，up = 1，无新告警）· 防线：`scripts/check_http_metrics_coverage.py`（PLATFORM_NAMESPACES 每个都要被某个 ServiceMonitor 选中，`--live` 要 up == 1）· 无后续
 
 **未结 80 项**：P0 0 · P1 4 · P2 30 · P3 46；要你批的 44 项（从总览表的审批列算）。
 
@@ -1479,6 +1480,7 @@
 
 - **状态**：在做（代码已上 main：platform e95be35、infra 4daeb8e（去掉豁免，**未 apply**——要在 platform PROD 发布后才 apply，否则 30 分钟后误报）；发版等你批）
 - **验收**：platform PROD 发布并 apply 规则后：`KUBECONFIG=~/.kube/bifrost-k3s.yaml python3 bifrost-trade-infra/scripts/check_http_metrics_coverage.py --live` → ok；`sum by (handler,status)(rate(http_requests_total{namespace="bifrost-platform-prod"}[5m]))` 有 /health 2xx
+- **下一步**：发布顺序：platform STG → PROD 都到 e95be35 之后，**再** apply 规则（10-07 起 STG 也被抓取，任一边没指标都会触发去掉豁免后的 BifrostAPIWithoutHttpMetrics）
 - **现在**：道 W：`api/internal/server/httpmetrics.go` 手写 chi 中间件（无新依赖），`http_requests_total{handler,method,status}`（handler = chi 路由模式，未匹配路由不记）+ `http_request_duration_seconds` 桶 0.1/0.5/1/2.5/5/10（/health、SSE、websocket 不进直方图）。规则去掉 `job!="platform-api"` 豁免，`check_http_metrics_coverage.py` 新增「不许任何豁免」「平台命名空间在正则内」。门禁 go build/vet/test（-race）0。防线 `httpmetrics_test.go`（真实路由器，最大有限桶须 > 2 s）+ 覆盖脚本。注意：**有人在 platform 发布前 `kubectl apply -k k8s/monitoring` 会让新规则对 PROD platform-api 误报**。后续 TD-198
 - **Claim**: It is the one exemption in BifrostAPIWithoutHttpMetrics (job!="platform-api").
 - **Measured**: code-read 10-06 by paydown lane Q.
@@ -1534,7 +1536,9 @@
 
 **P3 · ops-platform · STG platform-api is not scraped: the platform-api ServiceMonitor selects only bifrost-platform-prod, so STG platform 5xx / latency and plugin health come from PROD only**
 
-- **状态**：在做（还债第六批 · 道 Z，10-07 01:0x UTC 开工）
+- **状态**：待你签收
+- **验收**：`KUBECONFIG=~/.kube/bifrost-k3s.yaml python3 bifrost-trade-infra/scripts/check_http_metrics_coverage.py` → ok；Prometheus `up{namespace="bifrost-platform-stg",job="platform-api"}` = 1
+- **验收结果**：PASS 2026-10-07 01:00 UTC infra ac7b2e6：ServiceMonitor 加 bifrost-platform-stg（只 apply 这一个文件，未动 TD-195 的规则），up = 1；apply 前后告警快照对比无新增 platform / plugin 告警（STG 与 PROD 探测同一批插件，插件告警都不按 namespace 聚合，不会重复）
 - **Claim**: The ServiceMonitor's namespaceSelector.matchNames lists bifrost-platform-prod alone.
 - **Measured**: code-read 10-07 by paydown lane W.
 - **Evidence**:
