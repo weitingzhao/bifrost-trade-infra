@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-238** — 三个 Redis 声明为易失（无 AOF、无 RDB）并设 maxmemory 低于容器上限（infra 096262e，10-07 apply） · 验收 PASS（CONFIG GET：appendonly no、maxmemory 800/400/400 MiB）· 防线：`bifrost-trade-infra/scripts/check_redis_config.py`（`make check-redis-config`） · 后续：`scripts/k3s/verify-data-layer-phase5-data.sh` 只校验 maxmemory-policy，可顺带校验 appendonly/maxmemory（可选，无新编号）
 - **TD-220 / TD-231 / TD-252** — platform 写路由全部要角色、LoadAuth 失败可见；环境名单与 IB 样本合约改由配置给出；research 的 dbt 通用测试打进镜像、10-06 夜间批次已补跑（platform 26cd884 STG+PROD，research 0.204.0） · 验收 PASS（10-07：匿名 POST 401、auth_loaded=true、readiness 三环境齐全、research_trading_day 24 步 SUCCESS、lens_hit 10-06 1144 行） · 防线：`auth_routes_test.go` TestEveryMutatingRouteRequiresARole、`tradevocab` TestTradeVocabularyOnlyShrinks、`bifrost-research/tests/test_dbt_package_data.py` · 后续：TD-231 余下 32 行 Trade 词汇（预算表在 tradevocab 测试里，只降不升，无新编号）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
@@ -1890,8 +1891,8 @@
 
 **P3 · data · The three per-env Redis instances run --appendonly yes with no volume, and with noeviction but no maxmemory the only memory bound is an OOMKill**
 
-- **状态**：观察中（Owner 10-07 批准合并并 apply；Claude 推 main + apply 被 auto mode 拦下，未执行。提交已备好：infra worktree scratchpad/ir 的 e991af7（= Cursor ce91d81 叠到 2da36f6），要你在终端推送并 apply）
-- **验收结果**：PASS（静态）2026-10-07：check_redis_config.py self-test ok、全仓 exit 0（origin/main 12 处 → 0）。上线后 redis-cli CONFIG GET appendonly maxmemory → no / 838860800（PROD）
+- **状态**：待你签收（infra 096262e，Owner 10-07 推送并 apply）
+- **验收结果**：PASS 2026-10-07 096262e：redis-live-prod appendonly no / save 空 / maxmemory 838860800；redis-live-stg 与 redis-dev 419430400；policy 均 noeviction；三个 pod 重启后 Running，PROD 键已回填（DBSIZE 2），Trade 三个 namespace 无异常 pod；防线 scripts/check_redis_config.py（origin/main 12 处 → 0）
 - **Claim**: instances.yaml starts redis-live-prod, redis-live-stg and redis-dev with --appendonly yes and --maxmemory-policy noeviction, with no volumes and no --maxmemory. AOF and RDB go to the container's writable layer and vanish on any pod recreate, while about 29 MB of AOF is written for 3 keys. With maxmemory 0, noeviction never applies, so a runaway writer is OOM-killed at the limit instead of getting write errors.
 - **Measured**: MEASURED 2026-10-07 via read-only INFO on PROD: aof_enabled 1, aof_current_size 29728464, maxmemory 0, policy noeviction, DBSIZE 3, used_memory 1.59M. The Deployments have no volumes.
 - **Evidence**:
