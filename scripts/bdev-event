@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# bdev-event — record one supervision event (start / restart / stop / crash) for a bdev session.
+#
+# Usage:
+#   bdev-event <name> <message> [--tail]
+#
+# Env:
+#   BDEV_LOG_FILE     service log (~/.bifrost-dev/logs/<name>.log); the event line is appended
+#                     so `bdev logs` shows it in context.
+#   BDEV_EVENTS_FILE  per-session event log (~/.bifrost-dev/logs/<name>.events.log). The service
+#                     log is trimmed to a few MiB of app output, so restart reasons are lost within
+#                     hours; this file holds only events and keeps the last BDEV_EVENTS_KEEP lines.
+#
+# With --tail, the last BDEV_EVENT_TAIL_LINES lines of the service log (what the process printed
+# right before it died) are copied under the event in the events log.
+# BDEV_EVENT_SINCE_BYTE limits that to output written after the given byte offset.
+
+set -uo pipefail
+
+NAME="${1:-}"
+MSG="${2:-}"
+WANT_TAIL="${3:-}"
+[[ -n "$NAME" && -n "$MSG" ]] || { echo "Usage: bdev-event <name> <message> [--tail]" >&2; exit 2; }
+
+LOG_FILE="${BDEV_LOG_FILE:-}"
+EVENTS_FILE="${BDEV_EVENTS_FILE:-}"
+TAIL_LINES="${BDEV_EVENT_TAIL_LINES:-12}"
+KEEP="${BDEV_EVENTS_KEEP:-2000}"
+
+line="$(date '+%Y-%m-%d %H:%M:%S %Z') [bdev-event] $NAME $MSG"
+
+# BDEV_EVENT_SINCE_BYTE (set by bdev-supervise): service-log size when the current run started, so
+# the context shows only this run's output. Ignored if the log was trimmed below it since.
+context=""
+if [[ "$WANT_TAIL" == "--tail" && -n "$LOG_FILE" && -f "$LOG_FILE" ]]; then
+  since="${BDEV_EVENT_SINCE_BYTE:-0}"
+  size=$(wc -c < "$LOG_FILE" 2>/dev/null || echo 0)
+  [[ "$since" =~ ^[0-9]+$ ]] && (( since <= size )) || since=0
+  context="$(tail -c +$(( since + 1 )) "$LOG_FILE" 2>/dev/null | grep -v '\[bdev-event\]' | tail -n "$TAIL_LINES" | sed 's/^/    | /')"
+fi
+
+echo "$line" >&2
+if [[ -n "$LOG_FILE" ]]; then
+  echo "$line" >> "$LOG_FILE" 2>/dev/null || true
+fi
+if [[ -n "$EVENTS_FILE" ]]; then
+  {
+    echo "$line"
+    if [[ -n "$context" ]]; then
+      printf '%s\n' "$context"
+    fi
+  } >> "$EVENTS_FILE" 2>/dev/null || true
+  lines=$(wc -l < "$EVENTS_FILE" 2>/dev/null || echo 0)
+  if (( lines > KEEP )); then
+    tmp="$EVENTS_FILE.tmp"
+    tail -n "$KEEP" "$EVENTS_FILE" > "$tmp" 2>/dev/null && mv "$tmp" "$EVENTS_FILE"
+  fi
+fi
+exit 0

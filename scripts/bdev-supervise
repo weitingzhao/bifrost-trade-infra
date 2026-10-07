@@ -11,6 +11,8 @@
 #
 # Stop: create $HOME/.bifrost-dev/state/<name>.stop (bdev stop) or SIGINT/SIGTERM.
 # State: $HOME/.bifrost-dev/state/<name>.json (restarts, consecutive_failures, crashed, started_at)
+# Events: every start / restart / crash / stop is recorded with its reason (exit code or signal,
+# run time, last lines of output) via bdev-event — see BDEV_LOG_FILE / BDEV_EVENTS_FILE there.
 #
 # After restart_max_failures consecutive short failures, enter a cooldown
 # (default: max(120, max_delay*2) seconds), clear the streak, and retry —
@@ -39,6 +41,29 @@ mkdir -p "$STATE_DIR"
 STATE_FILE="$STATE_DIR/${NAME}.json"
 STOP_FILE="$STATE_DIR/${NAME}.stop"
 CRASH_FILE="$STATE_DIR/${NAME}.crashed"
+EVENT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/bdev-event"
+
+# record_event <message> [--tail] — never fails the supervisor.
+record_event() {
+  if [[ -x "$EVENT" ]]; then
+    "$EVENT" "$NAME" "$@" || true
+  else
+    echo "[bdev-supervise] $NAME $1" >&2
+  fi
+}
+
+# describe_exit <code> → "exited 1" / "killed by signal 15 (SIGTERM)"
+describe_exit() {
+  local code="$1"
+  if (( code > 128 && code < 160 )); then
+    local sig=$(( code - 128 ))
+    local sig_name
+    sig_name="$(kill -l "$sig" 2>/dev/null || true)"
+    echo "killed by signal ${sig}${sig_name:+ (SIG${sig_name#SIG})}"
+  else
+    echo "exited $code"
+  fi
+}
 
 CHILD_PID=""
 CHILD_PGID=""
@@ -109,6 +134,7 @@ PY
 
 on_signal() {
   STOPPING=1
+  record_event "supervisor received stop signal — stopping child (not counted as restart)"
   kill_child_group TERM
   for _ in 1 2 3 4 5 6 7 8 9 10; do
     if [[ -z "$CHILD_PID" ]] || ! kill -0 "$CHILD_PID" 2>/dev/null; then
@@ -168,6 +194,10 @@ while true; do
   fi
 
   echo "[bdev-supervise] $NAME starting: $*"
+  # Context for this run's exit event starts here (taken before the child can write anything).
+  if [[ -n "${BDEV_LOG_FILE:-}" && -f "$BDEV_LOG_FILE" ]]; then
+    export BDEV_EVENT_SINCE_BYTE="$(wc -c < "$BDEV_LOG_FILE" | tr -d ' ')"
+  fi
   # New session/process-group so leftover children (orphans holding log fds) can be reaped.
   if command -v setsid >/dev/null 2>&1; then
     setsid "$@" &
@@ -179,6 +209,7 @@ while true; do
   CHILD_PID=$!
   CHILD_PGID="$CHILD_PID"
   started_at=$(date +%s)
+  record_event "started pid=$CHILD_PID policy=$POLICY restarts_total=$restarts"
   write_state "$restarts" "$consec" "0" "" 0 "$started_at" 0
   set +e
   wait "$CHILD_PID"
@@ -193,8 +224,10 @@ while true; do
   ended_at=$(date +%s)
   ran=$(( ended_at - started_at ))
 
+  reason="$(describe_exit "$code") after ${ran}s"
+
   if [[ -f "$STOP_FILE" || "$STOPPING" -eq 1 ]]; then
-    echo "[bdev-supervise] $NAME stop after exit $code — not restarting"
+    record_event "STOPPED by request (bdev stop/restart): child $reason — not restarting, not counted"
     exit 0
   fi
 
@@ -213,7 +246,7 @@ while true; do
 
   if [[ "$should_restart" -eq 0 ]]; then
     write_state "$restarts" "$consec" "0" "$code" "0" "" 0
-    echo "[bdev-supervise] $NAME exited $code — policy=$POLICY, not restarting"
+    record_event "EXITED: child $reason — policy=$POLICY, not restarting" --tail
     exit "$code"
   fi
 
@@ -226,8 +259,7 @@ while true; do
     cooling_until=$(( crash_ts + COOLDOWN ))
     write_state "$restarts" "$consec" "1" "$code" "$crash_ts" "" "$cooling_until"
     touch "$CRASH_FILE"
-    echo "[bdev-supervise] $NAME CRASHED after $consec consecutive failures (exit $code)" >&2
-    echo "[bdev-supervise] $NAME cooling ${COOLDOWN}s then retry — or run: bdev restart $NAME" >&2
+    record_event "CRASHED by supervise: child $reason; $consec consecutive failures — restart #${restarts} after ${COOLDOWN}s cooldown (or: bdev restart $NAME)" --tail
     # Stay alive during cooldown so the pane does not go dead; clear and retry.
     slept=0
     while (( slept < COOLDOWN )); do
@@ -246,7 +278,7 @@ while true; do
     continue
   fi
 
-  echo "[bdev-supervise] $NAME exited $code; restart #${restarts} in ${delay}s (streak ${consec}/${MAX_FAILS})" >&2
+  record_event "RESTART #${restarts} by supervise: child $reason; next start in ${delay}s (streak ${consec}/${MAX_FAILS})" --tail
   sleep "$delay"
   delay=$(( delay * 2 ))
   if (( delay > MAX_DELAY )); then

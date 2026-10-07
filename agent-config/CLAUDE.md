@@ -1,5 +1,5 @@
 <!--
-parity-ids: workspace-v13, language-v1, agent-modes-v2, trade-execution-freeze-v2, dev-services-v2, phase-execution-v3, shared-worktree-v2, business-first-v1
+parity-ids: workspace-v13, language-v1, agent-modes-v2, trade-execution-freeze-v2, dev-services-v3, phase-execution-v3, shared-worktree-v2, business-first-v1
 对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
 改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
 -->
@@ -108,6 +108,7 @@ Ops Platform（火箭）与 Trade（载荷）必须先稳定；研究与分析�
 
 **优先用 MCP 工具而非 shell**：`list_dev_sessions` / `restart_dev_session` / `get_dev_session_logs`。
 `bdev` 命令作为 fallback。读日志：`~/.bifrost-dev/logs/<name>.log` 或 `bdev logs <name> -n 200`。
+查重启原因：`bdev events <name>`（`~/.bifrost-dev/logs/<name>.events.log`：每次启动/重启/停止的触发方、退出码或信号、死前最后几行输出；服务日志会被截断，这里不会）。
 
 ---
 

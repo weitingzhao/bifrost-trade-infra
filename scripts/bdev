@@ -18,6 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "$_BDEV_SRC")" && pwd)"
 unset _BDEV_SRC
 LOG_TEE="$SCRIPT_DIR/bdev-log-tee"
 SUPERVISE="$SCRIPT_DIR/bdev-supervise"
+EVENT="$SCRIPT_DIR/bdev-event"
 # Soft cap for on-disk session logs (bdev-log-tee enforces while streaming).
 BDEV_LOG_MAX_BYTES="${BDEV_LOG_MAX_BYTES:-5242880}"   # 5 MiB
 BDEV_LOG_KEEP_BYTES="${BDEV_LOG_KEEP_BYTES:-2097152}" # 2 MiB after rotate
@@ -41,6 +42,23 @@ require_config() {
 
 ensure_dirs() {
   mkdir -p "$LOG_DIR" "$STATE_DIR"
+}
+
+events_file_for() { echo "$LOG_DIR/${1}.events.log"; }
+
+# record_event <name> <message> [--tail] — append to the service log and <name>.events.log.
+record_event() {
+  local name="$1"; shift
+  [[ -x "$EVENT" ]] || return 0
+  BDEV_LOG_FILE="$LOG_DIR/${name}.log" BDEV_EVENTS_FILE="$(events_file_for "$name")" \
+    "$EVENT" "$name" "$@" 2>/dev/null || true
+}
+
+# Who asked for a stop/restart: the command line of bdev's parent (terminal shell, Claude session, platform-api …).
+caller_desc() {
+  local cmd
+  cmd="$(ps -o command= -p "$PPID" 2>/dev/null | cut -c1-120)"
+  echo "${cmd:-unknown}"
 }
 
 # Trim an existing log file if over max (used on start / log-gc).
@@ -289,7 +307,7 @@ build_run_cmd() {
   fi
 
   printf "bash -lc %q" \
-    "export PATH=\"/opt/homebrew/bin:/usr/local/bin:\${HOME}/.local/bin:\${PATH}\"; export PYTHONUNBUFFERED=1; export BDEV_STATE_DIR=$(printf %q "$STATE_DIR"); cd $(printf %q "$cwd") && exec ${run}"
+    "export PATH=\"/opt/homebrew/bin:/usr/local/bin:\${HOME}/.local/bin:\${PATH}\"; export PYTHONUNBUFFERED=1; export BDEV_STATE_DIR=$(printf %q "$STATE_DIR"); export BDEV_LOG_FILE=$(printf %q "$log_file"); export BDEV_EVENTS_FILE=$(printf %q "$(events_file_for "$name")"); cd $(printf %q "$cwd") && exec ${run}"
 }
 
 clear_stop_flag() {
@@ -637,6 +655,7 @@ cmd_stop() {
       return 0
     fi
     set_stop_flag "$target"
+    record_event "$target" "STOP requested via bdev ${BDEV_ACTION:-stop} by: $(caller_desc)"
     tmux send-keys -t "$TMUX_SESSION:$target" C-c 2>/dev/null || true
     sleep 1
     if pane_is_alive "$target" 2>/dev/null; then
@@ -679,7 +698,7 @@ cmd_restart() {
     cmd_restart platform-console
     return 0
   fi
-  cmd_stop "$target"
+  BDEV_ACTION=restart cmd_stop "$target"
   sleep 1
   cmd_start "$target"
 }
@@ -887,6 +906,27 @@ cmd_logs() {
   fi
 }
 
+cmd_events() {
+  require_config
+  local name="" lines=40
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -n) shift; lines="${1:-40}" ;;
+      *)  name="$1" ;;
+    esac
+    shift
+  done
+  [[ -n "$name" ]] || die "Usage: bdev events <name> [-n N]"
+  [[ -n "$(get_session "$name")" ]] || die "Unknown service: $name"
+  local events_file
+  events_file="$(events_file_for "$name")"
+  if [[ ! -f "$events_file" ]]; then
+    echo "No events recorded yet: $events_file"
+    return 0
+  fi
+  tail -n "$lines" "$events_file"
+}
+
 cmd_log_gc() {
   require_config
   ensure_dirs
@@ -950,6 +990,7 @@ cmd_watchdog_loop() {
       # this recovers if the whole wrapper died).
       if session_exists && window_exists "$name" && ! pane_is_alive "$name" 2>/dev/null; then
         echo "[bdev-watchdog] $name pane dead — respawning (policy=$restart)"
+        record_event "$name" "RESPAWN by watchdog: supervisor pane was dead (policy=$restart; not counted)" --tail
         clear_stop_flag "$name"
         local log_file="$LOG_DIR/${name}.log"
         local run_cmd
@@ -983,6 +1024,7 @@ cmd_watchdog_loop() {
       echo "[bdev-watchdog] $name health fail $fails/$health_fails ($health)"
       if (( fails >= health_fails )); then
         echo "[bdev-watchdog] $name unhealthy ×$fails — restarting"
+        record_event "$name" "RESTART #$(( $(read_state_field "$name" "restarts" 0) + 1 )) by watchdog: health check failed ${fails}× in a row ($health, every ${health_interval}s)" --tail
         reset_health_fail "$name"
         clear_stop_flag "$name"
         set_stop_flag "$name"
@@ -1060,7 +1102,7 @@ cmd_install_system() {
   local cmd_q
   cmd_q=$(printf %q "$command")
   local launch_cmd
-  launch_cmd="export PATH=\"/opt/homebrew/bin:/usr/local/bin:\$HOME/.local/bin:\$PATH\"; export BDEV_STATE_DIR=\"$STATE_DIR\"; exec \"$SUPERVISE\" \"$name\" \"$restart\" \"$delay\" \"$max_delay\" \"$max_fails\" -- bash -lc $cmd_q"
+  launch_cmd="export PATH=\"/opt/homebrew/bin:/usr/local/bin:\$HOME/.local/bin:\$PATH\"; export BDEV_STATE_DIR=\"$STATE_DIR\"; export BDEV_EVENTS_FILE=\"$(events_file_for "$name")\"; exec \"$SUPERVISE\" \"$name\" \"$restart\" \"$delay\" \"$max_delay\" \"$max_fails\" -- bash -lc $cmd_q"
 
   python3 - "$plist_path" "$plist_id" "$cwd" "$launch_cmd" "$keep_alive" "$out_log" "$err_log" <<'PY'
 import sys, xml.sax.saxutils
@@ -1123,6 +1165,7 @@ Usage:
   bdev restart <name>         Restart a single service
   bdev status [--json]        Show status of all services
   bdev logs <name> [-n N] [-f]  View service logs (default: last 50 lines)
+  bdev events <name> [-n N]     Start/restart/stop history with reasons (exit code, signal, trigger, last output)
   bdev log-gc [name]          Trim oversized on-disk logs to cap (default 5 MiB)
   bdev install-system <name>  Generate launchd KeepAlive plist (macOS)
   bdev help                   Show this help
@@ -1168,6 +1211,7 @@ case "${1:-help}" in
   restart) shift; cmd_restart "$@" ;;
   status)  shift; cmd_status "$@" ;;
   logs)    shift; cmd_logs "$@" ;;
+  events)  shift; cmd_events "$@" ;;
   log-gc)  shift; cmd_log_gc "$@" ;;
   install-system) shift; cmd_install_system "$@" ;;
   watchdog-loop) shift; cmd_watchdog_loop "$@" ;;

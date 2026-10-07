@@ -1,7 +1,7 @@
 ---
 description: Dev service management via bdev + tmux
 alwaysApply: true
-parity-id: dev-services-v2
+parity-id: dev-services-v3
 ---
 # Dev Services Management
 
@@ -18,6 +18,7 @@ parity-id: dev-services-v2
 - 需要查看服务状态：`bdev status`
 - 需要读日志时：读取 `~/.bifrost-dev/logs/<name>.log`
 - 需要看最近 N 行日志：`bdev logs <name> -n 200`
+- 需要查重启原因：`bdev events <name>`（`~/.bifrost-dev/logs/<name>.events.log`：触发方、退出码或信号、死前最后几行输出；不随服务日志截断）
 - 磁盘日志封顶（默认 5 MiB）：`bdev-log-tee` / watchdog trim；手动清理 `bdev log-gc`
 
 ## 可用服务名
