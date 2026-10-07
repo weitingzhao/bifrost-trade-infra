@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-207 / TD-221** — Mac mini 上的修复执行器与 Hermes 网关所有写操作要共享令牌；修复执行器的 IB 控制工具不能再把 PROD gateway 切到 mock（platform 79ed8db + 三台重部署，10-07） · 验收 PASS（匿名写一律 401、健康 200、PROD bridge 全 ok） · 防线：`agent/remediation` 与 `agent/hermes-gateway` 的鉴权测试、部署脚本缺键即退出、`068c121` 工具 schema 测试 · 后续：deploy_mac_mini.sh 的 tool smoke 不带令牌（并入 LANE-T2）；Hermes GET /executions 仍匿名（只读，TD 原 Fix 只覆盖写）
 - **TD-122 / TD-211 / TD-105 / TD-212** — ib-gateway 改走 Tekton 构建、按 digest 钉、健康 hash 带 git SHA；账户快照只读带上 open orders 与成交；operator 流用显式白名单；读失败的快照不再清空持仓（ib-gateway 0.4.0 + core 0.58.0，10-07） · 验收 PASS（pod digest 对上、git_sha=30bd974、快照有 open_orders；core/worker/插件测试全过） · 防线：`bifrost-platform-plugin/tests/test_ib_gateway_image_pin.py`（要求 digest）、`check_ui_revision`/release-window 流水线、core operator 集合测试、worker account_push 拒写测试 · 后续：TD-104 的 Trade Ops 读状态仍未通（LANE-T2）
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
@@ -1405,7 +1406,7 @@
 
 **P1 · ops-console · git-bridge answers anyone on the LAN, and its /commit runs `git add -A` on the shared checkout; /push pushes the current branch with no release-window check**
 
-- **状态**：观察中（platform 79ed8db 已上 STG/PROD 10-07；待你在 Mac mini 的 bifrost-platform/.env 加 REMEDIATION_RUNNER_TOKEN 键后重部署 runner / Hermes / git-bridge）
+- **状态**：观察中（platform 79ed8db 已上 STG/PROD；REMEDIATION_RUNNER_TOKEN 已进两个环境 Secret（infra 4c08e9f overlay）；.50 primary / .52 standby / .52 Hermes 已重部署 10-07；本机 git-bridge 跑在共享 platform checkout（e504020，落后 34 个提交）——要你 pull --ff-only 后 bdev restart git-bridge / platform-api）
 - **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
 - **Claim**: agent/git-bridge listens on 0.0.0.0:8785 and has no auth middleware (only express.json). POST /commit stages the whole tree (`git add -A`) in any of 9 repos of the multi-session shared checkout and commits. That is exactly the action preflight.js blocks for agents (the 09-07 and 09-22 incidents). POST /push pushes HEAD's branch, normally main, to the PUBLIC origin and never runs `release.sh window`. The remediation runner's git_commit and git_push tools call these endpoints, so preflight never sees them.
 - **Measured**: MEASURED 2026-10-07: node PID 65068 listens on *:8785. From LAN IP 192.168.20.74, an anonymous GET /status returns 200, and /health reports workspace=/Users/vision-mac-trader/Desktop/stocks with repos=9. PROD platform-api /api/v1/agent/bridge reports git_bridge http://192.168.10.40:8785 status=ok (the same Mac, another interface). No POST was sent.
@@ -1424,8 +1425,8 @@
 
 **P1 · ops-console · The remediation runner (:8781) and the Hermes gateway (:8782) on the Mac minis start, approve and cancel agent jobs for anyone on the LAN: POST /run, /run/:id/respond and /skills/:id/trigger have no auth**
 
-- **状态**：观察中（platform 79ed8db 已上 STG/PROD 10-07；待你在 Mac mini 的 bifrost-platform/.env 加 REMEDIATION_RUNNER_TOKEN 键后重部署 runner / Hermes / git-bridge）
-- **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
+- **状态**：待你签收（platform 79ed8db 已上 STG/PROD；REMEDIATION_RUNNER_TOKEN 已进两个环境 Secret（infra 4c08e9f overlay）；.50 primary / .52 standby / .52 Hermes 已重部署 10-07）
+- **验收结果**：PASS 2026-10-07：.50 与 .52 runner GET /health 200、匿名 POST /run、/run/x/respond、/run/x/cancel 均 401；.52 Hermes 匿名 POST /run 与 /skills/*/run 均 401、/health ok v0.2.0；PROD platform /agent/bridge：remediation_runner / hermes_mcp / nous_hermes 均 ok
 - **Claim**: deploy_mac_mini.sh exports REMEDIATION_RUNNER_BIND=0.0.0.0 on both minis, and the runner registers no auth middleware. POST /run starts a Cursor agent with a caller-supplied prompt, and that agent holds the runner's PLATFORM_OPERATOR token (or the ADMIN token as fallback). POST /run/:id/respond answers the agent's request_operator_approval gate, which is only a prompt-level guard over cordon, rollout, IB Gateway control and git_push. The Hermes gateway on .52 also binds the LAN and exposes POST /skills/:id/trigger and /reload with no auth.
 - **Measured**: MEASURED 2026-10-07: anonymous GET http://192.168.10.50:8781/run and http://192.168.10.52:8781/run both return 200 (job list), and 192.168.10.52:8782/health and /executions answer anonymously. No POST was sent.
 - **Evidence**:
@@ -1559,8 +1560,8 @@
 
 **P3 · ops-console · The governance catalog says nobody but the daemon writes ib:operator:cmd, but platform-api does (sanctioned by D-IB-Heal), and the runner's ib_gateway_control can switch the PROD gateway to mock with only a prompt-level approval**
 
-- **状态**：观察中（platform 79ed8db 已上 STG/PROD 10-07；待你在 Mac mini 的 bifrost-platform/.env 加 REMEDIATION_RUNNER_TOKEN 键后重部署 runner / Hermes / git-bridge）
-- **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
+- **状态**：待你签收（runner 去掉 ib_gateway_control 的 mode，随 .50/.52 重部署上线 10-07）
+- **验收结果**：PASS 2026-10-07：platform 068c121 已随 runner 部署到 .50/.52；platform Go 56 包与 agent 测试通过
 - **Claim**: platform-api XADDs op=reconnect_all to ib:operator:cmd. That is sanctioned by spine D-IB-Heal (SIGNED 2026-08-27: 'L1 platform-api reconnect soft-first then rollout … D10 BLOCKED — reconnect/observe only'). But FORBIDDEN_ACTIONS ('ib:operator:cmd RPC', all modes), CLAUDE.md §3 ('only the daemon writes it') and probe.go ('Platform must not access ib:operator:cmd') all still say otherwise. Separately, the remediation runner's ib_gateway_control tool can call reconnect and also mode live|mock|maintenance on the PROD gateway. Its only approval is a prompt instruction (request_operator_approval), and the respond endpoint behind it is unauthenticated (TD-207). preflight.js does not see this path.
 - **Measured**: CODE-READ. Live: PROD platform-api runs with OPS_IB_AUTOREPAIR_ENABLED=true and REDIS_IB_PLATFORM_PASS present (env names only). The autorepair loop only rolls out; it does not XADD.
 - **Evidence**:
