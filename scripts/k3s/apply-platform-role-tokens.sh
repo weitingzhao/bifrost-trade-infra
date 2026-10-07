@@ -4,7 +4,7 @@
 #
 #   bifrost-platform-stg/bifrost-platform-role-tokens   PLATFORM_{VIEWER,OPERATOR,ADMIN}_TOKEN
 #   bifrost-platform-prod/bifrost-platform-role-tokens  PLATFORM_PROD_{VIEWER,OPERATOR,ADMIN}_TOKEN
-#   monitoring/alertmanager-webhook-auth                token (= PROD operator)
+#   monitoring/alertmanager-webhook-auth                token (= PROD reporter)
 #
 # .env keys: PLATFORM_STG_{VIEWER,OPERATOR,ADMIN}_TOKEN, PLATFORM_PROD_{VIEWER,OPERATOR,ADMIN}_TOKEN.
 # Optional REMEDIATION_RUNNER_TOKEN (TD-207): the shared bearer the Mac mini runner and
@@ -61,12 +61,36 @@ apply_secret() {
     | kubectl apply -f -
 }
 
+# The audit webhook only writes diagnostics. It accepts reporter or above, so
+# Alertmanager must not hold the operator token (LANE-B4).
+# Prefer PLATFORM_PROD_REPORTER_TOKEN in this .env. When that key is absent,
+# copy the key PROD platform-api already mounts (secret bifrost-platform-reporter-token).
+# The value is written to a mode-600 file and never echoed.
+webhook_token() {
+  if grep -qE "^PLATFORM_PROD_REPORTER_TOKEN=." "${ENV_FILE}"; then
+    env_value PLATFORM_PROD_REPORTER_TOKEN
+    return
+  fi
+  local b64
+  b64="$(kubectl -n bifrost-platform-prod get secret bifrost-platform-reporter-token \
+    -o "jsonpath={.data.PLATFORM_PROD_REPORTER_TOKEN}")"
+  if [[ -z "${b64}" ]]; then
+    echo "missing PLATFORM_PROD_REPORTER_TOKEN in ${ENV_FILE} and in secret bifrost-platform-prod/bifrost-platform-reporter-token" >&2
+    exit 1
+  fi
+  printf '%s' "${b64}" | base64 -d
+}
+
+write_webhook_auth() {
+  printf 'token=%s\n' "$(webhook_token)" > "${TMP}"
+  apply_secret monitoring alertmanager-webhook-auth app.kubernetes.io/component=alertmanager
+}
+
 # WEBHOOK_ONLY=1 updates monitoring/alertmanager-webhook-auth and leaves the
 # role-token Secrets alone. The full run below still writes that same bearer.
 if [[ "${WEBHOOK_ONLY:-}" == "1" ]]; then
-  printf 'token=%s\n' "$(env_value PLATFORM_PROD_OPERATOR_TOKEN)" > "${TMP}"
-  apply_secret monitoring alertmanager-webhook-auth app.kubernetes.io/component=alertmanager
-  echo "alertmanager-webhook-auth set to the PROD operator token."
+  write_webhook_auth
+  echo "alertmanager-webhook-auth set to the PROD reporter token."
   exit 0
 fi
 
@@ -82,10 +106,9 @@ done > "${TMP}"
 [[ -n "${RUNNER_TOKEN}" ]] && printf 'REMEDIATION_RUNNER_TOKEN=%s\n' "${RUNNER_TOKEN}" >> "${TMP}"
 apply_secret bifrost-platform-prod bifrost-platform-role-tokens app.kubernetes.io/part-of=bifrost-platform
 
-# PROD platform-api authenticates this route with PLATFORM_PROD_OPERATOR_TOKEN
-# (k8s/overlays/platform-prod/config/platform-auth.yaml). The STG operator token
-# is a different secret and would 401.
-printf 'token=%s\n' "$(env_value PLATFORM_PROD_OPERATOR_TOKEN)" > "${TMP}"
-apply_secret monitoring alertmanager-webhook-auth app.kubernetes.io/component=alertmanager
+# PROD platform-api authenticates this route at reporter or above
+# (PLATFORM_PROD_REPORTER_TOKEN). The operator token would still be accepted,
+# and that is the credential this webhook must stop holding.
+write_webhook_auth
 
 echo "Platform role tokens applied. platform-api picks them up on its next rollout."

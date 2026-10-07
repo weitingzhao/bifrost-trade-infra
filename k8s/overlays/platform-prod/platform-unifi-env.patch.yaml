@@ -1,0 +1,62 @@
+# UniFi credentials for PROD only (ADR §10). The Secret is not in git.
+# Owner creates bifrost-platform-unifi from the laptop bifrost-platform/.env
+# (UNIFI_HOST, UNIFI_USER, UNIFI_PASS). optional so a missing Secret does not
+# crash the pod; network reads then fail closed with "UNIFI_USER and UNIFI_PASS required".
+# B2 owns APPROVAL_NOTIFY_* on these same Deployments — this patch only adds UNIFI_*.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform-api
+          env:
+            - name: UNIFI_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: bifrost-platform-unifi
+                  key: UNIFI_HOST
+                  optional: true
+            - name: UNIFI_USER
+              valueFrom:
+                secretKeyRef:
+                  name: bifrost-platform-unifi
+                  key: UNIFI_USER
+                  optional: true
+            - name: UNIFI_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: bifrost-platform-unifi
+                  key: UNIFI_PASS
+                  optional: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-workers
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform-api
+          env:
+            - name: UNIFI_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: bifrost-platform-unifi
+                  key: UNIFI_HOST
+                  optional: true
+            - name: UNIFI_USER
+              valueFrom:
+                secretKeyRef:
+                  name: bifrost-platform-unifi
+                  key: UNIFI_USER
+                  optional: true
+            - name: UNIFI_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: bifrost-platform-unifi
+                  key: UNIFI_PASS
+                  optional: true

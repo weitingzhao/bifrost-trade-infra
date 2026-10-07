@@ -250,6 +250,14 @@ roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: bifrost-
 subjects: [{kind: ServiceAccount, name: bifrost-platform, namespace: bifrost-platform-prod}]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: bifrost-platform-node-drain-prod
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: bifrost-platform-node-drain}
+subjects: [{kind: ServiceAccount, name: bifrost-platform, namespace: bifrost-platform-prod}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: bifrost-platform-data-actuator-prod
