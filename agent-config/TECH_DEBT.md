@@ -13,7 +13,7 @@
 
 ## 待你签收
 
-（暂无）
+- **TD-197** 线程标题由会话自己上报：Stop hook `report-thread-title.js` 读本会话 transcript 的标题，用 reporter 令牌 PUT 到 platform（本机同步保留作兜底）。验收 PASS 2026-10-06（PROD 上对方会话的线程带标题显示，标题由 hook 写入）。防线：`RATCHETS.md`「report-thread-title.test.js」。后续：无后续：Cursor 没有会话标题，已写进 shared-worktree 规则；镜像滞后已由 platform d0b6943 修掉
 
 **未结 80 项**：P0 0 · P1 4 · P2 30 · P3 46；要你批的 44 项（从总览表的审批列算）。
 
@@ -1515,7 +1515,7 @@
 
 **P3 · ops-platform · Lineage thread titles are synced only by the platform-api on the Owner's workstation (bdev): when it is down, or sessions run elsewhere, new threads stay unnamed**
 
-- **状态**：观察中（到 10-07，看 Gitea 的 infra 镜像同步到 cefbb25 之后，线程 `local_27525066` 在 PROD Commit Lineage 上带标题显示）。已上线：platform `PUT /api/v1/lineage/transcript-title`（STG/PROD）、hook 接进 `on-session-stop.js`（6d44426，共享 checkout 10-06 已快进）、本机 reporter 令牌文件。已核：PROD `lineage-thread-titles` 里 `53652b28…` 的标题 23:33:51Z 由 hook 写入（hook 缓存同刻记下上报；本机同步器同期无变更记录）。页面还看不到，只因 infra 镜像停在 2eef610（17:28；Gitea 默认 8 小时同步一次，只有 deliver run 会先触发同步）
+- **状态**：待你签收
 - **Claim**: Thread titles come from Claude Code transcripts, which exist only on the machine that ran the session. `SyncWanted` turns the syncer on only outside the cluster, and `StartSync` runs inside the local platform-api's workers role; nothing else writes ConfigMap `lineage-thread-titles`. If the bdev platform-api is stopped or crashed, or a session runs on another machine (cloud, Cursor, a second Mac), the cluster keeps the last titles and new threads show their id.
 - **Measured**: MEASURED 2026-10-06. `lineage-thread-titles` holds 99 titles, all written by the local platform-api (log `thread titles sync first=true transcripts=98`). The cloud session `session_01Du5yDL` has no title (no local transcript); PROD Commit Lineage shows 8 of 9 threads titled.
 - **Evidence**:
@@ -1527,6 +1527,7 @@
 - **Fix**: Let each session report its own title: a Claude Code Stop hook (agent-config `claude/settings.json` already has a Stop hook) reads the latest `custom-title` / `ai-title` of its own transcript and PUTs it with a reporter-level token, so the title travels with whichever machine ran the session; keep the bdev syncer as backfill. Cursor has no session titles: document it.
 - **Ratchet**: `agent-config/claude/hooks/report-thread-title.test.js` (11 checks: custom over generated, unchanged not resent, half-written line held, failed request retried, rewritten file re-read).
 - **验收**: With the bdev platform-api stopped, a new session's first commit shows its title on PROD Commit Lineage after its first Stop.
+- **验收结果**：PASS 2026-10-06 6d44426（infra hook）· 470a31e（platform 上报端点）：PROD `GET /api/v1/lineage?days=2&refresh=true` 里线程 `local_27525066…` 标题「本地 Trade System 和 Ops Platform 服务状态」、`title_source: transcript`；这条标题 23:33:51Z 由该会话的 Stop hook 写入，本机同步器同期无变更记录（代替「停掉 bdev platform-api」：它是共享服务）。页面上晚到约 1.5 小时，是 Gitea 的 infra 镜像落后（8 小时一同步），platform d0b6943 已改成扫描前先让镜像同步
 - 审批 已批（Stop hook） · 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
 
 ### TD-198
