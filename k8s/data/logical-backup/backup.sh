@@ -41,6 +41,14 @@ if [[ ! -d "$COLD_DIR" || ! -w "$COLD_DIR" ]] || { [[ "$REQUIRE_MOUNT" == 1 ]] &
   cold_ok=0
 fi
 
+# The CronJob's wait-pg init container already waits for the server; this
+# covers runs without it (and a server that restarts in between). TD-210.
+for i in $(seq 1 30); do
+  pg_isready -q -t 2 && break
+  ((i == 30)) && die "PGHOST ${PGHOST:-<unset>} not accepting connections after 60 s"
+  sleep 2
+done
+
 stamp="$(date -u +%Y-%m-%dT%H%M%SZ)"
 daily="$HOT_DIR/daily"
 work="$daily/.partial-$stamp"

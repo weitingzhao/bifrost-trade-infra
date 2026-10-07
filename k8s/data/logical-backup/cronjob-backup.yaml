@@ -39,6 +39,40 @@ spec:
           securityContext:
             runAsUser: 0
             runAsGroup: 0
+          # wait-pg (TD-210): the only rule that lets this pod reach Postgres is
+          # the podSelector policy in network-policy.yaml, and the k3s policy
+          # controller programs it for a new pod IP a few seconds after the pod
+          # starts. Until then connections get "Connection refused"; on
+          # 2026-10-06 that failed 6 of 7 targets on both attempts. The init
+          # container shares the pod IP, so once it connects the dump will too.
+          # Same image as the backup container (cached on the postgres nodes).
+          initContainers:
+            - name: wait-pg
+              image: ghcr.io/cloudnative-pg/postgresql:17.9
+              imagePullPolicy: IfNotPresent
+              command:
+                - bash
+                - -c
+                - |
+                  for i in $(seq 1 60); do
+                    if pg_isready -q -t 2; then echo ready; exit 0; fi
+                    echo "wait $i"; sleep 2
+                  done
+                  echo "bifrost-postgres-rw not reachable after 120 s"; exit 1
+              env:
+                - name: PGHOST
+                  value: bifrost-postgres-rw
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  cpu: 100m
+                  memory: 64Mi
           containers:
             - name: backup
               image: ghcr.io/cloudnative-pg/postgresql:17.9

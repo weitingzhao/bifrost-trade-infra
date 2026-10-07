@@ -35,6 +35,8 @@ fi
 # nothing regenerates it before a deliver any more (TD-06).
 echo "==> Check overlay configs (ports, D10 scale guard, platform audit)"
 python3 "${ROOT}/scripts/check_overlay_configs.py"
+echo "==> Check Postgres client Jobs wait for the server (TD-210)"
+python3 "${ROOT}/scripts/check_pg_wait.py"
 
 if [[ "${APPLY_OVERLAY}" == "1" ]]; then
   echo "==> Apply bifrost-prod overlay"
