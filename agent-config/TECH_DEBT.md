@@ -13,7 +13,6 @@
 
 ## 待你签收
 
-- **TD-237** — 从未运行的 data-warehouse MinIO（含提交过的占位 Secret）连同两个测试残留 PV、一条无主 NetworkPolicy 一并删除（Owner 10-07 批） · 验收 PASS（namespace NotFound、无 Released PV、清单与 Secret 均不在 infra） · 防线：`bifrost-trade-infra/scripts/check-no-k8s-secrets.sh`（k8s 下不许提交 Secret）；gpu-workload.sh 的 warehouse-up 直接拒绝 · 后续：AGENT_FACTS 的 namespace 清单去掉 data-warehouse（文档，下一次事实更正带上）
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-253** — 检查信号不再是几周前的：每条带观测时间和来源，超过 2 小时读 unknown、autopilot 不会按它动手；PROD platform-workers 自己每 10 分钟探测一次（不再靠 Mac 上报）。验收 PASS 2026-10-07 d8bdf41（22/22 带时间）。防线：`RATCHETS.md`「检查信号的时效与来源」测试 + `check_platform_maintenance.py`（探测器只在 PROD workers）。后续：无后续：放开 autopilot 动手在 TD-130（观察到 10-12）
@@ -21,7 +20,7 @@
 - **TD-255** — 漂移扫描不再删失败现场：只删被驱逐的 Pod，失败的备份 Job Pod 留着（日志可读），只报告模式下一个不删。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「漂移扫描只删 Evicted 测试」。后续：无后续：Job 历史上限与 TTL 负责回收
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 73 项**：P0 0 · P1 7 · P2 26 · P3 40；要你批的 33 项（从总览表的审批列算）。
+**未结 72 项**：P0 0 · P1 7 · P2 26 · P3 39；要你批的 32 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -110,7 +109,7 @@
 
 目标：数据层告警有一个人能收到的通道和外部心跳；逻辑备份先修好等库就绪；做一次 Barman 恢复演练；决定异地副本；daemon 停写与日志丢失要能被看见。
 
-项：TD-210, TD-217, TD-218, TD-237 · 已还：TD-248, TD-209, TD-215, TD-216, TD-238
+项：TD-210, TD-217, TD-218 · 已还：TD-248, TD-209, TD-215, TD-216, TD-238, TD-237
 
 ### 第 11 波 · 账本与页面读数、绿着的未知（第 3 轮）
 
@@ -297,7 +296,6 @@
 | [TD-223](#td-223) | P3 | ops-platform | STG and PROD platform-workers both run the IB gateway auto-repair loop against the one live data/ib-gateway, each with its own 15-minute cooldown | PROD 变更（要你批） |
 | [TD-228](#td-228) | P3 | ops-console | Every scheduled Hermes skill run on .52 fails with 'No such file or directory', while /health returns status ok and the checklist counts the gateway healthy | 不用批 |
 | [TD-234](#td-234) | P3 | trade-worker | @bifrost/ui is unversioned for the Ops Console: a ui push never runs platform CI, and platform deliver builds whatever ui main is without recording its SHA | 不用批 |
-| [TD-237](#td-237) | P3 | data | The data-warehouse 'second MinIO' never ran (PVC Pending 109 days, Deployment 0/0), yet AGENT_FACTS lists it, and its placeholder root Secret is committed to a PUBLIC repo and applied | 删除（要你批） |
 | [TD-240](#td-240) | P3 | trade-worker | The running PROD daemon never writes contract_quote_live: the observe-only quote mirror sits under mock_hedging, which is hard-coded True | 跨仓库发版 |
 | [TD-242](#td-242) | P2 | market-data | market-data /ingest/queue-dashboard takes 5–25 s per call, and the platform-api proxy carries the same delay: with the new latency rule live it will page whenever someone keeps the queue dashboard open | 不用批 |
 | [TD-244](#td-244) | P3 | research-control | agents/journal_distill reads raw_broker.executions_final with no Flex freshness check (own 23:55 UTC schedule, outside any gate) | 不用批 |
@@ -1419,24 +1417,6 @@
 - **Ratchet**: Infra pipeline check: every pipeline that clones bifrost-ui takes a distinct uiRevision param, and trigger-trade-ci has a ui-push binding for each of them.
 - **验收**: `KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n cicd get pipelineruns -o go-template='{{range .items}}{{.metadata.name}} {{range .spec.params}}{{.name}}={{.value}} {{end}}{{"\n"}}{{end}}' </dev/null | grep ci-platform | grep -cE 'uiRevision=[0-9a-f]{40}'  # ≥1 after the next ui push`
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra, bifrost-platform, bifrost-ui
-
-### TD-237
-
-**P3 · data · The data-warehouse 'second MinIO' never ran (PVC Pending 109 days, Deployment 0/0), yet AGENT_FACTS lists it, and its placeholder root Secret is committed to a PUBLIC repo and applied**
-
-- **状态**：待你签收（Owner 10-07 批删：namespace data-warehouse、两个 Released PV、data/np-redis-fresh-ingress 已删；清单在 infra main 已删）
-- **验收结果**：PASS 2026-10-07：kubectl get ns data-warehouse → NotFound；集群无 Released PV；无 redis-fresh NetworkPolicy；infra 无 warehouse 清单、无提交的 Secret
-- **Claim**: k8s/compute/warehouse/minio.yaml commits a kind: Secret with a literal placeholder MINIO_ROOT_PASSWORD. It is the only committed Secret manifest under k8s outside the examples, and it was applied as-is. PVC data-warehouse/minio-data has been Pending since creation (gpu-server NotReady,SchedulingDisabled) and deploy/minio is 0/0, so the store never held data. AGENT_FACTS still says it serves Research and Golden Source objects. The data namespace also carries an unmanaged Service np-redis-fresh with no endpoints for 98 days, and two Released test-nfs-hot PVs. TD-133 covers only the in-cluster MinIO leftovers in data.
-- **Measured**: MEASURED 2026-10-07: PVC Pending at 109d; deploy 0/0; secret minio-root carries last-applied-configuration and was created 2026-06-19T09:13:12Z together with deploy/minio; svc data/np-redis-fresh has no endpoints and no source in any repo; two test-nfs-hot PVs are Released. The live secret value was not read.
-- **Evidence**:
-  - `bifrost-trade-infra/k8s/compute/warehouse/minio.yaml:4` — `kind: Secret`
-  - `bifrost-trade-infra/k8s/compute/warehouse/minio.yaml:11` — `MINIO_ROOT_PASSWORD:`
-  - `bifrost-trade-infra/agent-config/AGENT_FACTS.md:396` — `第二个 MinIO @ 'data-warehouse'（gpu-server）供 Research / Golden Source 对象。`
-- **Impact**: Agents and the Owner reason from a data location that does not exist. If gpu-server comes back, a MinIO would start with a root password published on GitHub.
-- **Fix**: Either delete the data-warehouse objects and the k8s/compute/warehouse manifests (an Owner delete), or replace the committed Secret with a .example plus a .gitignore entry and generate the password out of band. Fix the AGENT_FACTS line. Delete np-redis-fresh and the two Released test PVs.
-- **Ratchet**: CI check in infra: `git grep -l '^kind: Secret' -- k8s ':!*.example.yaml' ':!*.example'` must be empty. A gitleaks step covers the broader committed-secret class (ratchet proposal 'secret-scan').
-- **验收**: `cd bifrost-trade-infra && git grep -l '^kind: Secret' origin/main -- k8s ':!*.example.yaml' ':!*.example'  # no output; KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl get pvc -A </dev/null | grep -c Pending  # 0`
-- 审批 删除（要你批） · 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ### TD-240
 

@@ -141,6 +141,7 @@
 | financials 表有 (period_date, symbol) 索引（TD-107） | market-data `tests/test_td107_financials_period_index.py`（apply_ddl 路径建索引） | 声明的索引从未到达部署库 | warning（测试） | 是否存在仍要看 pg_index |
 | preflight D10 闸门覆盖非 curl 客户端（TD-96） | `agent-config/scripts/agent-guard/test.js`（74 例，含不得误拦） | Python/wget/httpie/node 写 /control/*、改闸门文件 | error（闸门本身） | test.js 不在 CI |
 | 退役的账户流不复活（TD-236） | 插件 `tests/test_redis_key_manifest.py`（与 core 键清单一致） | 无人读取的流被重新写入 | warning（测试） | — |
+| 不提交 Secret / 不复活从未运行的 MinIO（TD-237） | `bifrost-trade-infra/scripts/check-no-k8s-secrets.sh`；gpu-workload.sh warehouse-up 直接拒绝 | 占位口令进公开仓、死对象长期挂着 | warning（脚本） | 未进 CI |
 
 ## 各类债现在挡没挡住
 
