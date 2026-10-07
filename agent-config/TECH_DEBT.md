@@ -13,7 +13,7 @@
 
 ## 待你签收
 
-（暂无）
+- **TD-195** — platform-api 导出与 Trade 同名同标签的 HTTP 指标（手写 chi 中间件，桶到 10 s），告警去掉 platform-api 豁免（platform e95be35，infra 4daeb8e）· 验收 PASS（10-07，live 覆盖检查 ok、无告警）· 防线：`bifrost-platform/api/internal/server/httpmetrics_test.go`（最大有限桶须 > 2 s）+ `check_http_metrics_coverage.py`（不许任何豁免）· 无后续
 
 **未结 116 项**：P0 1 · P1 12 · P2 38 · P3 65；要你批的 61 项（从总览表的审批列算）。
 
@@ -1563,8 +1563,9 @@
 
 **P3 · ops-platform · platform-api exports no http_requests_total (hand-written /metrics, no Prometheus client), so the API error-rate and latency alerts cannot see it**
 
-- **状态**：在做（代码已上 main：platform e95be35、infra 4daeb8e（去掉豁免，**未 apply**——要在 platform PROD 发布后才 apply，否则 30 分钟后误报）；发版等你批）
+- **状态**：待你签收
 - **验收**：platform PROD 发布并 apply 规则后：`KUBECONFIG=~/.kube/bifrost-k3s.yaml python3 bifrost-trade-infra/scripts/check_http_metrics_coverage.py --live` → ok；`sum by (handler,status)(rate(http_requests_total{namespace="bifrost-platform-prod"}[5m]))` 有 /health 2xx
+- **验收结果**：PASS 2026-10-07 01:3x UTC：platform d0b6943（含 e95be35）由血缘会话发到 STG（bifrost-deliver-platform-1791335619）与 PROD（bifrost-deliver-platform-prod-1791335846）；Prometheus `http_requests_total` STG 2 条、PROD 42 条序列；之后 apply 规则（diff 只有去掉 `job!="platform-api"` 豁免），`kubectl diff -k k8s/monitoring` 为空；`check_http_metrics_coverage.py --live` → ok；BifrostAPIWithoutHttpMetrics 0 条告警
 - **下一步**：发布顺序：platform STG → PROD 都到 e95be35 之后，**再** apply 规则（10-07 起 STG 也被抓取，任一边没指标都会触发去掉豁免后的 BifrostAPIWithoutHttpMetrics）
 - **现在**：道 W：`api/internal/server/httpmetrics.go` 手写 chi 中间件（无新依赖），`http_requests_total{handler,method,status}`（handler = chi 路由模式，未匹配路由不记）+ `http_request_duration_seconds` 桶 0.1/0.5/1/2.5/5/10（/health、SSE、websocket 不进直方图）。规则去掉 `job!="platform-api"` 豁免，`check_http_metrics_coverage.py` 新增「不许任何豁免」「平台命名空间在正则内」。门禁 go build/vet/test（-race）0。防线 `httpmetrics_test.go`（真实路由器，最大有限桶须 > 2 s）+ 覆盖脚本。注意：**有人在 platform 发布前 `kubectl apply -k k8s/monitoring` 会让新规则对 PROD platform-api 误报**。后续 TD-198
 - **Claim**: It is the one exemption in BifrostAPIWithoutHttpMetrics (job!="platform-api").
