@@ -13,12 +13,11 @@
 
 ## 待你签收
 
-- **TD-257** — k3s 管理员客户端证书曾被 STG/PROD platform 拷贝：Owner 选 A，不轮换（拷贝只在集群内 Secret，已随 TD-204 删除，证书按年自然过期） · 验收 PASS（10-07 Owner 决定）· 防线：无可行防线——证书轮换是年度运维事件；平台不再持有 kubeconfig 由 TD-204 的 check_platform_rbac.py 守 · 后续：无后续
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 99 项**：P0 0 · P1 10 · P2 35 · P3 54；要你批的 56 项（从总览表的审批列算）。
+**未结 98 项**：P0 0 · P1 10 · P2 35 · P3 53；要你批的 55 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -120,7 +119,7 @@
 
 目标：会动手的维护只由 PROD 的 platform-workers 做，本机与 STG 只观测。已做：本机停手（TD-130 第一步）、STG 不修 IB 也不写发布记录（TD-223）、页面不再触发维护、状态持久化（TD-196）。接着：PROD 自己探测、带时间戳的检查信号，只给 PROD 挂技能并先只报告，再逐项放开；备份只归 CNPG 与 backup-retry；不再清掉失败现场。
 
-项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255, TD-256, TD-257
+项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255, TD-256 · 已还：TD-257
 
 ## 数据边界（接受并留座）
 
@@ -330,7 +329,6 @@
 | [TD-254](#td-254) | P2 | ops-platform | Two mechanisms repair the same failed backup: the autopilot's repair_cnpg_wal_store (every 15 min) and the backup-retry CronJob | 不用批 |
 | [TD-255](#td-255) | P3 | ops-platform | The hourly drift scan deletes every Failed pod it may, including failed backup Job pods in data | 不用批 |
 | [TD-256](#td-256) | P3 | ops-platform | Plugin freshness probes read Postgres by exec into the primary as superuser: STG cannot run them, PROD keeps pods/exec for a read | 不用批 |
-| [TD-257](#td-257) | P3 | ops-platform | The k3s admin client certificate the platform held a copy of was never rotated | 安全/凭据（要你批） |
 
 ## 条目
 
@@ -2000,22 +1998,6 @@
 - **Ratchet**: code-health metric: ExecSQLOnPrimary call sites outside cluster/data_clone*.go, baseline 2, falling.
 - **验收**: `git -C bifrost-platform grep -n 'ExecSQLOnPrimary' origin/main -- api/internal/marketdata api/internal/flexquery  # no output`
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
-
-### TD-257
-
-**P3 · ops-platform · The k3s admin client certificate that STG and PROD platform held a copy of (Secret bifrost-platform-kubeconfig, 06-28 → 10-07) was never rotated**
-
-- **状态**：待你签收（Owner 10-07 选 A：不轮换。拷贝只存在于集群内 Secret，TD-204 已删除；证书按 k3s 年度周期自然过期）
-- **验收结果**：PASS 2026-10-07：Owner 决定不处理；bifrost-platform-kubeconfig 类 Secret 已由 TD-204 删除（血缘会话核对）
-- **Claim**: Until TD-204 both platform namespaces held a copy of the k3s admin kubeconfig (system:admin, group system:masters) in a Secret readable by anyone with Secret access there. The copies are deleted, but the client certificate itself stays valid until it expires or the k3s client CA is rotated. Its copies existed only inside the cluster; no leak is known.
-- **Measured**: MEASURED 2026-10-07: Secrets created 2026-06-28T19:04Z in both namespaces, deleted 2026-10-07; `kubectl auth whoami` on the source file → system:admin / system:masters.
-- **Evidence**:
-  - `bifrost-trade-infra/k8s/base-platform/secrets/platform-kubeconfig.example.yaml` — `# Replace with cluster admin kubeconfig (make k3s-fetch-kubeconfig).`
-- **Impact**: Low while no copy is known outside; rotation is the only way to invalidate one if it existed.
-- **Fix**: Owner decides: (A) leave it, the k3s client certs expire on their own yearly cycle; (B) `k3s certificate rotate` for the admin client during a maintenance window and re-fetch the Owner's kubeconfig (every local tool and the MCP servers use it).
-- **Ratchet**: `scripts/check_platform_rbac.py` keeps the platform off Secrets; no ratchet for the cert itself.
-- **验收**: (B) `KUBECONFIG=<old copy> kubectl get ns` fails with Unauthorized
-- 审批 安全/凭据（要你批） · 代价 S · 风险 med · repos: bifrost-trade-infra
 
 ## 没覆盖到的（下一轮从这里开始）
 
