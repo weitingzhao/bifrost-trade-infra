@@ -13,10 +13,11 @@
 
 ## 待你签收
 
+- **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 99 项**：P0 0 · P1 10 · P2 35 · P3 54；要你批的 56 项（从总览表的审批列算）。
+**未结 101 项**：P0 0 · P1 10 · P2 35 · P3 56；要你批的 57 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -100,7 +101,7 @@
 
 目标：先关门再修代码。本机 platform-api 只监听本机、PROD/STG Redis 的局域网 NodePort 删掉，然后 git-bridge、修复 runner、Hermes、husbandry-sync 都要令牌；platform 换成按需授权的 ServiceAccount，停用管理员 kubeconfig；路由鉴权测试卡住回退。
 
-项：TD-206, TD-207, TD-208, TD-204, TD-221, TD-222 · 已还：TD-205, TD-203, TD-224, TD-220, TD-231, TD-225
+项：TD-206, TD-207, TD-208, TD-221, TD-222 · 已还：TD-205, TD-203, TD-224, TD-220, TD-231, TD-225
 
 ### 第 10 波 · 告警有人收、备份能恢复（第 3 轮）
 
@@ -118,7 +119,7 @@
 
 目标：会动手的维护只由 PROD 的 platform-workers 做，本机与 STG 只观测。已做：本机停手（TD-130 第一步）、STG 不修 IB 也不写发布记录（TD-223）、页面不再触发维护、状态持久化（TD-196）。接着：PROD 自己探测、带时间戳的检查信号，只给 PROD 挂技能并先只报告，再逐项放开；备份只归 CNPG 与 backup-retry；不再清掉失败现场。
 
-项：TD-130, TD-196, TD-223, TD-253, TD-254, TD-255
+项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255, TD-256, TD-257
 
 ## 数据边界（接受并留座）
 
@@ -329,6 +330,8 @@
 | [TD-253](#td-253) | P2 | ops-platform | The autopilot acts on checklist signals that are weeks old: signals carry no time of their own, and nothing marks a stale one unknown | 不用批 |
 | [TD-254](#td-254) | P2 | ops-platform | Two mechanisms repair the same failed backup: the autopilot's repair_cnpg_wal_store (every 15 min) and the backup-retry CronJob | 不用批 |
 | [TD-255](#td-255) | P3 | ops-platform | The hourly drift scan deletes every Failed pod it may, including failed backup Job pods in data | 不用批 |
+| [TD-256](#td-256) | P3 | ops-platform | Plugin freshness probes read Postgres by exec into the primary as superuser: STG cannot run them, PROD keeps pods/exec for a read | 不用批 |
+| [TD-257](#td-257) | P3 | ops-platform | The k3s admin client certificate the platform held a copy of was never rotated | 安全/凭据（要你批） |
 
 ## 条目
 
@@ -1475,6 +1478,7 @@
 - **Fix**: Move the small stores to ConfigMaps in the platform namespace behind one store interface (same pattern as `internal/releases` and `internal/threadtitles`: get-or-create, update with retry on conflict, capped size), the audit log to a capped ConfigMap (or ship it to Loki and read back); then drop the emptyDir mount. Postgres only if HA or audit volume needs it.
 - **Ratchet**: A platform test that no store resolves a path under `PLATFORM_DATA_DIR` once migrated, and a manifest check that no platform Deployment mounts an emptyDir at `/app/data`.
 - **验收**: After a PROD platform rollout, `GET /api/v1/promote/release-cycles?lane=platform` and `GET /api/v1/audit` still list the entries recorded before it.
+- **验收结果**：部分 PASS 2026-10-07：STG 上 04:43Z 写入的审计记录（Alertmanager webhook）在 04:45 与 04:59 两次 Pod 重启后仍由 `GET /api/v1/audit` 返回（ConfigMap `platform-state-audit-audit-api-json`）；PROD 还没有发生过写入
 - 审批 已批（ConfigMap） · 代价 M · 风险 med · repos: bifrost-platform, bifrost-trade-infra
 - **Also (round 3, 10-07)**: the data-clone schedule is written by the api pod and read by the workers pod's scheduler, each with its own emptyDir, and `DataCloneScheduleStore` loads its file only once at construction, so a schedule enabled in the Console never fires in-cluster (all three GETs answer enabled:false today). The ConfigMap store must be re-read on every `maybeAutoClone` tick; acceptance gains: a schedule PUT through the api pod is visible to the workers pod (`bifrost-platform/api/internal/cluster/data_clone.go:285`, `server.go:129`).
 
@@ -1497,7 +1501,8 @@
 
 **P1 · ops-platform · STG and PROD platform-api and platform-workers run as system:masters through a copy of the k3s admin kubeconfig, and anonymous GETs use it to read pod logs in any namespace**
 
-- **状态**：未开始
+- **状态**：待你签收
+- **现在**：10-07（Owner 批 A）：`k8s/platform-rbac/`（手工 apply，infra d5aad06）给每个 platform 命名空间建 ServiceAccount `bifrost-platform`：两环境都有全集群只读（无 Secret）、只在 Bifrost 命名空间读日志、自己命名空间与 cicd 的状态 ConfigMap、`gitea-bootstrap`；只 PROD 有 Bifrost 命名空间的重启/扩缩/删 Pod、节点 cordon、data 里的 pods/exec 与 CNPG Backup 与 `minio-backup`、cicd 的 PipelineRun 与 Argo 同步。切换不改代码：kubeconfig 仍在原路径，但来自一个指向 Pod 自身令牌的 ConfigMap（STG bc03d27、PROD 27829fb）；两份管理员 kubeconfig Secret 已删除。读 Pod 日志的路由改为要 viewer（platform a162fe8，Console 带令牌）。权限按实测调用清单定（typed 27 类 + CNPG/Tekton/Argo/Traefik）
 - **Claim**: No platform namespace binds a ServiceAccount: platform-api, platform-console and platform-workers have SA <none> in STG and PROD. Both Deployments instead mount Secret bifrost-platform-kubeconfig and set PLATFORM_KUBECONFIG to it. EnsureKubeconfigSecret creates the Secret by copying the local ~/.kube/bifrost-k3s.yaml, which is system:admin in group system:masters, a client certificate that cannot be revoked without rotating the k3s CA. Every cluster call runs as cluster-admin: actuation, pod logs, exec, secrets, deleting Backup CRs. The anonymous GET /cluster/workloads/pods/{namespace}/{name}/logs takes any namespace. validateDeploymentTarget checks only kind, with no namespace allowlist, so an STG operator token can scale or restart PROD Trade and data Deployments. A STG workload can read bifrost-postgres-app, minio-backup and every per-env DB password, which bypasses the DB-level isolation TD-85 is building.
 - **Measured**: MEASURED 2026-10-07. Bindings that mention platform: only tekton-deliver-rollout. Secret bifrost-platform-kubeconfig (single key bifrost-k3s.yaml) exists in bifrost-platform-stg (2026-06-28T19:04:35Z) and -prod (19:04:36Z). `kubectl auth whoami` on the local source file gives system:admin / [system:masters system:authenticated]. Secret contents were not read, so the in-cluster identity is inferred from the code path that copies that file. An unauthenticated GET of a kube-system coredns pod's logs (tailLines=1) returned 200 via PROD 30876, via STG 30878, and via Host ops.bifrost.lan.
 - **Evidence**:
@@ -1510,6 +1515,7 @@
 - **Fix**: Create ServiceAccounts platform-api and platform-workers per namespace, and bind only what the code uses: cluster-wide get/list/watch on core, apps and CNPG; for PROD only, the named actuations (patch deployments/scale and rollout in listed namespaces, patch nodes for cordon, create Backups in data). STG gets read-only. Restrict pods/log by RoleBinding to platform-relevant namespaces and put the route behind RoleViewer. Add a namespace allowlist to validateDeploymentTarget. Switch to in-cluster config, delete the kubeconfig Secret, and later rotate the admin client cert.
 - **Ratchet**: Infra manifest policy check (ratchet proposal 'infra-manifest-policy'): no Deployment mounts a Secret whose name matches *kubeconfig*, and every platform Deployment sets serviceAccountName. Platform test: the pod-logs route returns 401 without a token. Optionally, platform-api exports a gauge when SelfSubjectReview shows system:masters, and an alert fires on it.
 - **验收**: `KUBECONFIG=~/.kube/bifrost-k3s.yaml sh -c 'kubectl -n bifrost-platform-stg get secret bifrost-platform-kubeconfig </dev/null; kubectl auth can-i get secrets -n data --as=system:serviceaccount:bifrost-platform-stg:platform-api </dev/null'  # expect NotFound, then no; and an anonymous GET of a kube-system pod's logs on 30876 returns 401`
+- **验收结果**：PASS 2026-10-07 infra 27829fb / platform a162fe8：STG `bifrost-platform-kubeconfig` NotFound（PROD 同）；两环境 `kubectl auth can-i get secrets -n data --as=system:serviceaccount:bifrost-platform-<env>:bifrost-platform` → no；匿名读 kube-system 与 data 的 Pod 日志在 30876/30878 都 401；`make check-platform-rbac` 82/82；切换后两环境 api/workers 日志 0 条 forbidden，STG 与 PROD 共有的矩阵格子状态一致
 - 审批 安全/凭据（要你批） · 代价 M · 风险 med · repos: bifrost-platform, bifrost-trade-infra
 
 ### TD-206
@@ -2010,6 +2016,37 @@
 - **Ratchet**: Unit test on isSafeToDelete: a Failed Job-owned pod in data younger than 7 days is not safe to delete.
 - **验收**: `cd bifrost-platform/api && go test ./internal/patrol -run 'SafeToDelete' -count=1`
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-256
+
+**P3 · ops-platform · Plugin freshness probes read Postgres by exec into the primary as superuser: STG (read-only since TD-204) cannot run them, and PROD needs pods/exec in data only for this read**
+
+- **状态**：未开始
+- **Claim**: marketdata and flexquery `probeFreshness` run `SELECT … FROM ops_jobs.ingest_freshness` / `flex_ingest_freshness` through `ExecSQLOnPrimary` (pods/exec into bifrost-postgres, psql as postgres). Since the STG platform runs as the read-only ServiceAccount (TD-204) these probes fail on STG; on PROD they keep pods/exec in data, a superuser-equivalent right, for a read the plugins already serve over HTTP.
+- **Measured**: CODE-READ; RBAC measured 2026-10-07: STG `can-i create pods --subresource=exec -n data` → no, PROD → yes.
+- **Evidence**:
+  - `bifrost-platform/api/internal/marketdata/service.go` — `out, err := s.cluster.ExecSQLOnPrimary(ctx, db, sql)`
+  - `bifrost-platform/api/internal/flexquery/service.go` — `out, err := s.cluster.ExecSQLOnPrimary(ctx, db, sql)`
+- **Impact**: STG plugin freshness views read unavailable; PROD keeps a broader right than reads need (the data clone still needs exec).
+- **Fix**: Read freshness from the plugins' own HTTP endpoints through the service proxy (observer already allows services/proxy), as other plugin health reads do; then pods/exec in data serves only the data clone.
+- **Ratchet**: code-health metric: ExecSQLOnPrimary call sites outside cluster/data_clone*.go, baseline 2, falling.
+- **验收**: `git -C bifrost-platform grep -n 'ExecSQLOnPrimary' origin/main -- api/internal/marketdata api/internal/flexquery  # no output`
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-257
+
+**P3 · ops-platform · The k3s admin client certificate that STG and PROD platform held a copy of (Secret bifrost-platform-kubeconfig, 06-28 → 10-07) was never rotated**
+
+- **状态**：未开始（要你批）
+- **Claim**: Until TD-204 both platform namespaces held a copy of the k3s admin kubeconfig (system:admin, group system:masters) in a Secret readable by anyone with Secret access there. The copies are deleted, but the client certificate itself stays valid until it expires or the k3s client CA is rotated. Its copies existed only inside the cluster; no leak is known.
+- **Measured**: MEASURED 2026-10-07: Secrets created 2026-06-28T19:04Z in both namespaces, deleted 2026-10-07; `kubectl auth whoami` on the source file → system:admin / system:masters.
+- **Evidence**:
+  - `bifrost-trade-infra/k8s/base-platform/secrets/platform-kubeconfig.example.yaml` — `# Replace with cluster admin kubeconfig (make k3s-fetch-kubeconfig).`
+- **Impact**: Low while no copy is known outside; rotation is the only way to invalidate one if it existed.
+- **Fix**: Owner decides: (A) leave it, the k3s client certs expire on their own yearly cycle; (B) `k3s certificate rotate` for the admin client during a maintenance window and re-fetch the Owner's kubeconfig (every local tool and the MCP servers use it).
+- **Ratchet**: `scripts/check_platform_rbac.py` keeps the platform off Secrets; no ratchet for the cert itself.
+- **验收**: (B) `KUBECONFIG=<old copy> kubectl get ns` fails with Unauthorized
+- 审批 安全/凭据（要你批） · 代价 S · 风险 med · repos: bifrost-trade-infra
 
 ## 没覆盖到的（下一轮从这里开始）
 

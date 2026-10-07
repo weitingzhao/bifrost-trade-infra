@@ -387,6 +387,12 @@ Tekton 流水线：`bifrost-ci-{frontend,platform,python}` · `bifrost-deliver-{
 `bifrost-build-{stg,frontend-stg,market-data,flex-query,research-dagster}` · `bifrost-smoke` · `bifrost-clone-frontend-smoke`。
 镜像仓库 `registry.cicd.svc.cluster.local:5000`。PROD 清单只走 git + Argo；`kubectl apply` prod overlay 会剥掉 Argo 跟踪注解。
 
+### Ops platform 的集群身份（TD-204，2026-10-07）
+
+- STG / PROD 的 platform-api 与 platform-workers 以各自命名空间的 ServiceAccount `bifrost-platform` 运行（不再是 system:masters）；规则在 `bifrost-trade-infra/k8s/platform-rbac/`（手工 `kubectl apply -k`，绑定由 `scripts/gen_platform_rbac.py` 生成）。STG 只读；只有 PROD 能重启/扩缩、cordon、在 data 里 exec 与建 Backup、起 PipelineRun 与 Argo 同步。
+- `PLATFORM_KUBECONFIG` 路径不变，内容是 ConfigMap `bifrost-platform-sa-kubeconfig`（指向 Pod 自己的令牌）；`bifrost-platform-kubeconfig` Secret 已删。platform 代码新增 Kubernetes 调用时要同时加规则，否则集群里 403：`make check-platform-rbac`。
+- 本机 bdev platform-api 仍用 Owner 的管理员 kubeconfig（只做 API、不跑维护循环）。
+
 ### 告警送达（TD-209，2026-10-07）
 
 - Alertmanager（helm `scripts/k3s/values-kube-prometheus.yaml`）：所有告警进 STG platform-api 的 webhook（内存审计日志）；critical 与 `Bifrost(PostgresBackup*|PostgresWalArchiveStalled|LogicalBackup*|MinIONas*)` 另送 `owner-ntfy`，Watchdog 每 5 分钟送 `owner-heartbeat`。
