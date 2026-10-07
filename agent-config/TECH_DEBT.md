@@ -13,10 +13,9 @@
 
 ## 待你签收
 
-- **TD-161** — research-api、market-data、flex-query 导出与 Trade 同名同标签的 HTTP 指标（无新依赖，同一份 ASGI 中间件），两条 API 告警扩到 research / plugin-*（market-data 0.82.0、flex 0.12.0、research 0.199.0、infra 47f5c49）· 验收 PASS（10-07，live 覆盖检查 ok）· 防线：告警 `BifrostAPIWithoutHttpMetrics` + `scripts/check_http_metrics_coverage.py` + 三个 repo 的 `test_http_metrics.py` · 后续：TD-194（延迟告警永不触发）、TD-195（platform-api 无指标）
-- **TD-181** — /events/calendar 的宏观行读 macro_event_daily，手放 ws:macro 文件只归档（research 0.199.0）· 验收 PASS（10-07：14 行宏观到 2027-12-08，superseded 5）· 防线：`tests/engines/test_event_calendar_macro.py` · 后续：TD-193（日历 Date 列显示采集日期）
+（暂无）
 
-**未结 83 项**：P0 0 · P1 4 · P2 31 · P3 48；要你批的 43 项（从总览表的审批列算）。
+**未结 81 项**：P0 0 · P1 4 · P2 31 · P3 46；要你批的 43 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -53,7 +52,7 @@
 
 目标：一个开关让所有测试类防线生效（CI 卡发布），再补上调度存活告警、D10 闸门的非 curl 写法、operator 流白名单、本机常驻任务和密钥轮换的盲区、spine 副本同步。
 
-项：TD-95, TD-96, TD-100, TD-105, TD-109, TD-121, TD-152, TD-153, TD-155, TD-161, TD-162, TD-194, TD-195 · 已还：TD-99
+项：TD-95, TD-96, TD-100, TD-105, TD-109, TD-121, TD-152, TD-153, TD-155, TD-162, TD-194, TD-195 · 已还：TD-99, TD-161
 
 ### 第 3 波 · 交易日与日历只有一个来源
 
@@ -83,7 +82,7 @@
 
 目标：Data Gaps 看板上未结的 15 项并入台账：先把每日快照的写入修对（TD-137）再接读侧和三页，归因行补上价格，Research 侧已就绪的一个版本（0.185.0）发出去，长期限 IV 锥在 10-31 前从 option_daily 回填，其余按 Owner 已定的口径排。
 
-项：TD-137, TD-138, TD-139, TD-140, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-158, TD-159, TD-171, TD-172, TD-178, TD-180, TD-181, TD-182, TD-193 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151
+项：TD-137, TD-138, TD-139, TD-140, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-158, TD-159, TD-171, TD-172, TD-178, TD-180, TD-182, TD-193 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181
 
 ### 第 8 波 · Pine 线程收尾后的跟进（10-06）
 
@@ -234,7 +233,6 @@
 | [TD-156](#td-156) | P2 | research-control | research_signal_hit_schedule fires at 00:10 UTC, before the 02:30 UTC batch writes the night's features, so it judges the previous night's features | 不用批 |
 | [TD-157](#td-157) | P3 | research-data | GEX writes a wall on an arbitrary strike when one side of an expiry has no gamma exposure: 1,762 levels rows on 244 names, terrain reads both walls | 已批（观察中） |
 | [TD-160](#td-160) | P3 | research-data | features.event_signal_radar_daily keeps the pre-rename copies of two indexes (event_radar_batch_collected, event_radar_importance) beside the current ones | 改表 |
-| [TD-161](#td-161) | P3 | ops-platform | BifrostAPIHighErrorRate / HighLatency only see bifrost-* namespaces with http_requests_total; research-api and the plugins export no HTTP metrics, so their 5xx and latency go unalerted | 不用批 |
 | [TD-162](#td-162) | P2 | ops-platform | Research and plugin releases have no release window: sessions collide on pins and on deliver runs | 跨仓库发版 |
 | [TD-166](#td-166) | P2 | research-data | GEX zero_gamma was the strike nearest spot on 38% of daily levels rows (no change of sign), and a step out of zero counted as a crossing; terrain read it as a flip at spot | 已批（观察中） |
 | [TD-169](#td-169) | P3 | market-data | ops_jobs.ingest_freshness.option_expiration is a fossil row frozen since 09-06 and still listed as ok | 不用批 |
@@ -244,7 +242,6 @@
 | [TD-174](#td-174) | P3 | market-data | Console marks fundamentals-rotate missed every Monday 03:45 → Tuesday 03:00 UTC: the trading-day check uses the UTC date of the fire | 不用批 |
 | [TD-178](#td-178) | P3 | trade-api | GET /strategies/plans has no source_kind filter: Research reads the newest 500 filled plans and filters itself, marking truncated at the cap | 改公开接口 |
 | [TD-180](#td-180) | P3 | research-data | The macro calendar has no CPI dates after 2026-12-10 and no payrolls at all: bls.gov answers 403 from this host, so they could not be read | 不用批 |
-| [TD-181](#td-181) | P3 | research-data | /events/calendar takes its macro rows from a hand-dropped radar file (ends 2026-12-10) instead of macro_event_daily, and radar ids include the collection date so a re-drop duplicates them | 不用批 |
 | [TD-182](#td-182) | P3 | research-data | Macro gap (actual vs expected) is always empty: consensus is not in the subscription, and the entitled /fed/v1/inflation actuals have no raw table | 改表（要你批） |
 | [TD-183](#td-183) | P3 | market-data | W3 archive-before-delete has never archived for real: the first intraday option_snapshot archive is ~10-08 02:15 UTC and option_daily / short_volume on 11-01 | 不用批 |
 | [TD-184](#td-184) | P3 | frontend | The Simulator says "stored with the run" for runs that were not stored: the fix (fe 53d6939e) is on main but not in STG/PROD | 发布（要你批） |
@@ -1229,23 +1226,6 @@
 - **Ratchet**: A schema check that lists indexes in research schemas whose definition duplicates another index on the same table (pg_index indkey + indpred equal) — warning in code-health or a db test.
 - 审批 改表 · 代价 S · 风险 low · repos: bifrost-research
 
-### TD-161
-
-**P3 · ops-platform · BifrostAPIHighErrorRate / HighLatency only see bifrost-* namespaces with http_requests_total; research-api and the plugins export no HTTP metrics, so their 5xx and latency go unalerted**
-
-- **状态**：待你签收
-- **验收**：发布并 apply 规则后：`KUBECONFIG=~/.kube/bifrost-k3s.yaml python3 scripts/check_http_metrics_coverage.py --live` → `ok: every API monitor is inside the API rules and exports http_requests_total`；`count by (namespace,job)(http_requests_total{namespace=~"research|plugin-.*"})` 3 行
-- **验收结果**：PASS 2026-10-07 00:1x UTC：market-data 0.82.0（377b54e，pods 5ce69bcf…，`/metrics` 出 `http_requests_total{handler=…}`，doctor 重算后 degraded / 0 critical · 2 warning 与发布前同）；flex-query 0.12.0（cf33a41，pods 43db0945…）；research 0.199.0 + 0.199.0-dagster（pin 0cd259f，Argo Synced，/health 0.199.0）；规则 apply 后 `kubectl diff -k k8s/monitoring` 为空；`check_http_metrics_coverage.py --live` → ok: every API monitor is inside the API rules and exports http_requests_total
-- **现在**：道 Q：三个 repo 各加同一份纯 ASGI 中间件 `api/http_metrics.py`（无新依赖），导出与 Trade 同名同标签的 `http_requests_total` 与 `http_request_duration_seconds`（handler = 路由模板，/metrics 不记，/health 不进延迟）。镜像：market-data 0.82.0 sha256:5ce69bcf…（29b5dbe）、flex-query 0.12.0 sha256:43db0945…（49cd73b，本机构建）、research 0.199.0 sha256:5992072a…（60ea5a2，含 0.198.0 的 TD-181/189 与 main 上的 TD-178 research 部分；未建 -dagster）。两条 API 规则命名空间扩到 `bifrost-.*|research|plugin-.*`。防线：告警 `BifrostAPIWithoutHttpMetrics`（platform-api 唯一豁免，见 TD-195）+ `scripts/check_http_metrics_coverage.py`（`make check-http-metrics-coverage`，apply-monitoring-scrape 前跑）+ 三个 repo 的 `test_http_metrics.py`
-- **Claim**: The two API alerts select http_requests_total in namespace=~"bifrost-.*". research-api (and the market-data / flex plugin APIs) export no http_requests_* series, so widening the namespace regex would change nothing; a research-api returning 5xx all night raises no alert.
-- **Measured**: code-read 10-06 by paydown lane C (it checked the rule expressions against live Prometheus).
-- **Evidence**:
-  - `bifrost-trade-infra/k8s/monitoring/bifrost-alerting-rules.yaml:31` — `sum(rate(http_requests_total{namespace=~"bifrost-.*",status="5xx"}[5m])) by (namespace, service)`
-- **Impact**: Research and plugin API outages are seen only by users or by indirect checks.
-- **Fix**: Add the same HTTP middleware metrics to research-api and the plugin APIs (request count by status, latency histogram), then widen the two rules' namespace selector to research and plugin-.*.
-- **Ratchet**: An alert-coverage test: every Deployment with a ServiceMonitor must export http_requests_total (checked against /metrics in CI or a release probe).
-- 审批 不用批 · 代价 M · 风险 low · repos: bifrost-research, bifrost-platform-plugin-market-data, bifrost-platform-plugin-flex-query, bifrost-trade-infra
-
 ### TD-162
 
 **P2 · ops-platform · Research and plugin releases have no release window: sessions collide on pins and on deliver runs**
@@ -1386,23 +1366,6 @@
 - **Impact**: From 11-05 the asset check warns; from 12-10 the forward calendar has no CPI and never had payrolls.
 - **Fix**: Someone who can open bls.gov adds the 2027 CPI and Employment Situation schedules to the CSV.
 - **Ratchet**: Already in place: the macro_calendar asset check warns when any series has under 30 days left.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
-
-### TD-181
-
-**P3 · research-data · /events/calendar takes its macro rows from a hand-dropped radar file (ends 2026-12-10) instead of macro_event_daily, and radar ids include the collection date so a re-drop duplicates them**
-
-- **状态**：待你签收
-- **验收**：research 0.198.0 上线后：research-api pod 里 GET `/research/events/calendar` → `macro_read_path` = features.macro_event_daily、`macro_rows` 14（随日期滚动）、`superseded_macro_rows` 5、宏观最晚 2027-12-08
-- **验收结果**：PASS 2026-10-07 research 0.199.0：GET /research/events/calendar → `features.macro_event_daily 14 5 2027-12-08`（macro_read_path / macro_rows / superseded_macro_rows / 宏观最晚日期）
-- **现在**：/events/calendar 宏观行改读 macro_event_daily（窗口纽约今天 − 31 天起），雷达行跳过 `ws:macro*`；ingest 遇 ws:macro 文件只归档不读。响应只增字段（origin / indicator / country / release_ts；顶层 superseded_macro_rows 等）。现存 5 行 ws:macro 雷达行一一对应 macro_event_daily、无重复，不需清理、无 Owner SQL。副本预演：17 行（14 宏观到 2027-12-08 + 3 分红），superseded 5。防线 `tests/engines/test_event_calendar_macro.py`（6 个）
-- **Claim**: Two macro paths exist: features.macro_event_daily (TD-151) and event_signal_radar_daily rows with source ws:macro-calendar-2026q4. The calendar page reads the latter; _stable_id hashes the collection date, so each weekly re-drop writes new ids for the same events.
-- **Measured**: code-read 10-06 by paydown lane O.
-- **Evidence**:
-  - `bifrost-research/src/bifrost_research/engines/event_radar/pipeline.py:172` — `def _stable_id(source: str, collected: date, idx: int, text: str) -> str:`
-- **Impact**: The calendar loses macro events after 12-10 and can show the same release twice.
-- **Fix**: Have /events/calendar read macro rows from macro_event_daily and retire the ws:macro radar file, or give radar a macro writer with a date-free stable id.
-- **Ratchet**: A research test: /events/calendar macro rows equal macro_event_daily for the window.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
 
 ### TD-182
