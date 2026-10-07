@@ -13,12 +13,12 @@
 
 ## 待你签收
 
-- **TD-229** — trust override 在集群里存进本命名空间的 ConfigMap，读写失败返回 5xx；Owner 的 L0 授权不再随 pod 重启丢失（platform 26cd884，PROD 已重新授予） · 验收 PASS（10-07：PROD store=configmap、research-loop-batch L0、research harness 闸门求值 True） · 防线：`api/internal/agentgovernance/trust_override_store_test.go`、`api/internal/trustoverrides/configmap_test.go`、`api/internal/storedurability/home_paths_test.go` TestNoNewStoreUnderHome（HOME 白名单只减不增） · 后续：白名单里仍有 13 个从 HOME 推导路径的 store（其中 7 个已由 TD-196 在集群里改走 ConfigMap，本机仍回退 HOME），无新编号
+- **TD-243** — 42 个前端孤儿模块删掉 41 个（designInks.generated.ts 是生成文件，登记白名单保留），KNOWN_ORPHANS 归零（frontend 6d861329，Cursor LANE-O） · 验收 PASS（10-07：孤儿测试 2 passed、tsc/lint/vitest 4080 passed）· 防线：`bifrost-trade-frontend/src/lib/orphanModules.test.ts`（只降不升，现为 0） · 后续：无后续（winRate 的隐含和规则经 DEV 实测不需要）
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 101 项**：P0 0 · P1 10 · P2 35 · P3 56；要你批的 57 项（从总览表的审批列算）。
+**未结 100 项**：P0 0 · P1 10 · P2 35 · P3 55；要你批的 57 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -114,7 +114,7 @@
 
 目标：挂单与 IB 读失败不再被当真写库；Risk / Performance / 告警计数按交易日算；Console 的裁决条在探针失败时不再显示绿色；ui 的发布可追溯；台账与文档的过时说法改正。
 
-项：TD-211, TD-212, TD-213, TD-228, TD-229, TD-234, TD-236, TD-239, TD-240, TD-241 · 已还：TD-214, TD-219, TD-232, TD-233, TD-226, TD-230, TD-227, TD-251, TD-235, TD-252
+项：TD-211, TD-212, TD-213, TD-228, TD-234, TD-236, TD-239, TD-240, TD-241 · 已还：TD-214, TD-219, TD-232, TD-233, TD-226, TD-230, TD-227, TD-251, TD-235, TD-252, TD-229
 
 ### 第 12 波 · Ops 维护只在 PROD 一处（Owner 10-07）
 
@@ -315,7 +315,6 @@
 | [TD-222](#td-222) | P3 | ops-platform | Platform's D10 scale guard only blocks daemon 0→n: the PROD daemon (2, observe-safe) and DEV (1) can be scaled to 20 by any operator-token caller that bypasses preflight | 安全/凭据（要你批） |
 | [TD-223](#td-223) | P3 | ops-platform | STG and PROD platform-workers both run the IB gateway auto-repair loop against the one live data/ib-gateway, each with its own 15-minute cooldown | PROD 变更（要你批） |
 | [TD-228](#td-228) | P3 | ops-console | Every scheduled Hermes skill run on .52 fails with 'No such file or directory', while /health returns status ok and the checklist counts the gateway healthy | 不用批 |
-| [TD-229](#td-229) | P3 | ops-platform | Trust overrides resolve to $HOME in the cluster and swallow read and write errors: the Owner's 09-07 L0 grant for research-loop-batch never reached the harness that reads PROD | 不用批 |
 | [TD-234](#td-234) | P3 | trade-worker | @bifrost/ui is unversioned for the Ops Console: a ui push never runs platform CI, and platform deliver builds whatever ui main is without recording its SHA | 不用批 |
 | [TD-236](#td-236) | P3 | trade-worker | Leftovers of the deleted Account Sync daemon: the plugin still XADDs every account snapshot to ib:account:stream:v1, which nothing reads | 跨仓库发版 |
 | [TD-237](#td-237) | P3 | data | The data-warehouse 'second MinIO' never ran (PVC Pending 109 days, Deployment 0/0), yet AGENT_FACTS lists it, and its placeholder root Secret is committed to a PUBLIC repo and applied | 删除（要你批） |
@@ -1759,24 +1758,6 @@
 - **验收**: `curl -s 'http://192.168.10.52:8782/executions?limit=50' | python3 -c "import json,sys;e=json.load(sys.stdin)['executions'];print(sum(x['result']=='failure' for x in e),len(e))"  # failures far below total, and /health is not ok while any enabled skill is failing`
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
-### TD-229
-
-**P3 · ops-platform · Trust overrides resolve to $HOME in the cluster and swallow read and write errors: the Owner's 09-07 L0 grant for research-loop-batch never reached the harness that reads PROD**
-
-- **状态**：待你签收（platform 26cd884 已上 PROD；Owner 10-07 05:18 UTC 在 PROD Console 重新授予 research-loop-batch L0）
-- **验收结果**：PASS 2026-10-07 26cd884：PROD GET trust-overrides → research-loop-batch L0（applied_by operator），ConfigMap bifrost-platform-prod/platform-trust-overrides 里有同一条；research-api pod 内 trust_gate.matrix_level() = L0，按 research-harness 的 BIFROST_LOOP_BATCH_MODE=1 求值 trust_l0_research_loop_batch() = True；TD-204 切最小权限 SA 后 can-i get/create/update 该 ConfigMap 均 yes
-- **Claim**: In both cluster overlays, TrustOverrideStore resolves to $HOME/.bifrost-platform/governance, outside even the /app/data emptyDir, because PLATFORM_GOVERNANCE_DIR and PLATFORM_PROJECT_ROOT are unset. Put discards the os.WriteFile error, and List returns {} on a read error. The Owner's 2026-09-07 L0 for research-loop-batch exists only as a file in the shared checkout (bifrost-platform/agent/governance/trust_overrides.json). PROD and STG serve {} and L1, so research-harness records trust L1 every weekday. As of 00:57 UTC the local bdev platform-api also serves {}, although its PLATFORM_PROJECT_ROOT points at that file, so the read fails silently there too. The same silent read failure hides the local release_gate_state*.json (TD-230). TD-196's planned ratchet checks only PLATFORM_DATA_DIR paths and would miss this.
-- **Measured**: MEASURED 2026-10-07 00:57 UTC: trust-overrides returns {} on local 127.0.0.1:8780, PROD 30876 and STG 30878; trust-matrix is L1 everywhere. The last research-harness Job logs 'research-loop-batch at Trust L1', trust_l0_override=false. The checkout file holds L0 dated 2026-09-07.
-- **Evidence**:
-  - `bifrost-platform/api/internal/agentgovernance/trust_override_store.go:31` — `dir = filepath.Join(os.Getenv("HOME"), ".bifrost-platform", "governance")`
-  - `bifrost-platform/api/internal/agentgovernance/trust_override_store.go:70` — `_ = os.WriteFile(s.path, raw, 0o644)`
-  - `bifrost-research/src/bifrost_research/copilot/harness/trust_gate.py:68` — `return matrix_level() == "L0"`
-- **Impact**: An Owner autonomy decision never reached the process it governs, and because List and Put swallow errors, losing a grant (or a demotion) is invisible. All three instances now agree on L1, so the Console no longer shows a misleading L0.
-- **Fix**: Move trust overrides into a ConfigMap store in the platform namespace (the internal/releases and internal/threadtitles pattern, alongside TD-196). Return 5xx on store read or write errors, and show which platform instance the Console is editing. The Owner then re-applies the intended level on PROD.
-- **Ratchet**: Unit test: HandlePutTrustOverride returns non-2xx when the store write fails, and List surfaces read errors. Extend TD-196's store check to flag any store path derived from $HOME or os.UserHomeDir in non-test platform code (ratchet proposal 'platform-store-durability').
-- **验收**: `curl -s -m10 http://192.168.10.73:30876/api/v1/agent/governance/trust-overrides; cd bifrost-platform/api && go test ./internal/agentgovernance -run 'TrustOverride.*(WriteFail|ReadFail)' -count=1  # PROD shows the override from a ConfigMap; store errors surface as 5xx`
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform, bifrost-research
-
 ### TD-234
 
 **P3 · trade-worker · @bifrost/ui is unversioned for the Ops Console: a ui push never runs platform CI, and platform deliver builds whatever ui main is without recording its SHA**
@@ -1867,7 +1848,8 @@
 
 **P3 · agent-governance · RATCHETS.md, TECH_DEBT.md and agent docs state facts the round-3 scan measured as no longer true**
 
-- **状态**：在做（Owner 10-07 选 A；Cursor LANE-G 落地更正表（cursor-tasks/LANE-G-governance-docs.md））
+- **状态**：观察中（Cursor LANE-G：infra b348609 + worker 7cddef4 已在 main；platform 分支 cursor/td-241（7cc0844，只改 agentProtocolCatalog.ts 与 probe.go 文案）等血缘会话当前 platform 发布结束后合 main，随下一次 platform 发版）
+- **验收结果**：部分 PASS 2026-10-07（Claude 复验）：RATCHETS 旧说法 grep 0 行、TD-161 行写全路径、CLAUDE.md 与 Cursor mdc 都是 trade-execution-freeze-v3、AGENT_FACTS 补 30883/30301 并删「第二个 MinIO」、TD-196 验收行含 maybeAutoClone、worker CLAUDE.md 改为「实际不落库」；preflight.js 只改两行注释，agent-guard test.js 42/42；platform 分支 go test ./internal/probe ok
 - **Claim**: (1) RATCHETS: BifrostAPIHighErrorRate says it matches only namespace=~"bifrost-.*"; bifrost-alerting-rules.yaml:49 now matches "bifrost-.*|research|plugin-.*". (2) RATCHETS: the TD-161 row names research/market-data test_http_metrics.py under tests/; the real path is tests/api/test_http_metrics.py (only flex-query uses tests/). (3) RATCHETS: the ci-python row says trade-api main has been CI-red since 10-04; ci-python-bifrost-trade-api-5jndn (10-06 18:56Z) is Completed (green). (4) RATCHETS: the FE eslint row says 0 error / 65 warning; measured now: 0 error / 1 warning. (5) RATCHETS: DoctorPanel.computing (TD-165) and slotScheduler (TD-108) are registered as warning (in CI), but ci-platform runs no Console vitest, so they are manual. (6) RATCHETS: the FE husky pre-commit is registered as blocking but was bypassed: origin/main dfb7858e pushed frontend duplicated-function-names to 1/0 (four `pct` definitions with four unit conventions), and scan.sh exits 1 on clean and shared trees. (7) RATCHETS: OVERSIZED_UI_BASELINE has a baseline, but no CI job runs code-health --repo bifrost-ui. (8) TECH_DEBT TD-140: the stated cause ('only the frozen daemon writes contract_quote_live') is wrong; the daemon runs, and the mirror is gated off by mock_hedging (see merged_into_existing). (9) TECH_DEBT TD-196: its acceptance checks only survival across a rollout, not api→workers visibility, and the data-clone store caches its file at construction. (10) Docs: CLAUDE.md §3 and agentProtocolCatalog FORBIDDEN_ACTIONS say only the daemon writes ib:operator:cmd, which contradicts the signed D-IB-Heal (TD-221). AGENT_FACTS §8c omits NodePorts 30379/30380/30382/30432 (TD-205) and lists a data-warehouse MinIO that never ran (TD-237). Worker CLAUDE.md:62 claims open orders and TWS fills are persisted (TD-211).
 - **Measured**: MEASURED by the round-3 ratchet-inventory agent (2026-10-07); not adversarially re-verified.
 - **Evidence**:
@@ -1897,7 +1879,8 @@
 
 **P3 · frontend · 42 frontend modules are unreachable from src/main.tsx (largest clusters: components/cockpit/ 8, utils/dataOverview/ 6); dead code invites fixes and false audit findings**
 
-- **状态**：在做（Owner 10-07 勾选 B1–B8；Cursor LANE-O 删除 40 个文件，winRate.ts 先核对对账规则、designInks.generated.ts 保留并排除统计（cursor-tasks/LANE-O-orphans.md））
+- **状态**：待你签收（frontend main 6d861329，Cursor LANE-O，10-07）
+- **验收结果**：PASS 2026-10-07 6d861329（Claude 复验 frontend origin/main 干净 worktree）：orphanModules.test.ts 2 passed、KNOWN_ORPHANS 0；tsc -b 0、lint 0 error / 67 warning、vitest 541 文件 4080 passed；删 41 个模块 + 8 个测试（-5,033 行）；winRate.ts 经 DEV 只读 GET /api/account/trades/win-rate 实测：残差都是「均价舍入到分再乘回」的舍入（≤ 半分×笔数），Playbook record 用服务端 total_profit，不需要隐含和规则，已删；designInks.generated.ts 保留并登记为生成文件
 - **Claim**: TD-199's orphan-module ratchet lists them in KNOWN_ORPHANS; each is imported by nothing reachable from the app entry.
 - **Measured**: MEASURED 10-07 by paydown lane EE (import-graph walk from src/main.tsx).
 - **Evidence**:
