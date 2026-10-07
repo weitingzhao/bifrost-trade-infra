@@ -13,12 +13,11 @@
 
 ## 待你签收
 
-- **TD-241** — 台账、RATCHETS、CLAUDE.md / Cursor 规则、AGENT_FACTS、worker 文档与 Console 治理目录里已不成立的事实全部更正；D-IB-Heal 按方案 A 写明「Agent 不得写，platform-api 只发 reconnect_all」（Cursor LANE-G） · 验收 PASS（10-07：旧说法 grep 0、parity-id v3、agent-guard 42/42、PROD Console 含新文案） · 防线：`check-agent-config-parity.sh`（parity-id）、`agent-guard/test.js`；RATCHETS 第 2 列写全路径以便渲染脚本做存在性检查 · 后续：preflight 拦截后的返回文字仍写「唯一合法写入方是 Daemon」（只改了注释），要不要改由 Owner 定（无新编号）
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 98 项**：P0 0 · P1 10 · P2 35 · P3 53；要你批的 55 项（从总览表的审批列算）。
+**未结 97 项**：P0 0 · P1 10 · P2 35 · P3 52；要你批的 55 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -114,7 +113,7 @@
 
 目标：挂单与 IB 读失败不再被当真写库；Risk / Performance / 告警计数按交易日算；Console 的裁决条在探针失败时不再显示绿色；ui 的发布可追溯；台账与文档的过时说法改正。
 
-项：TD-211, TD-212, TD-213, TD-228, TD-234, TD-236, TD-239, TD-240, TD-241 · 已还：TD-214, TD-219, TD-232, TD-233, TD-226, TD-230, TD-227, TD-251, TD-235, TD-252, TD-229
+项：TD-211, TD-212, TD-213, TD-228, TD-234, TD-236, TD-239, TD-240 · 已还：TD-214, TD-219, TD-232, TD-233, TD-226, TD-230, TD-227, TD-251, TD-235, TD-252, TD-229, TD-241
 
 ### 第 12 波 · Ops 维护只在 PROD 一处（Owner 10-07）
 
@@ -320,7 +319,6 @@
 | [TD-237](#td-237) | P3 | data | The data-warehouse 'second MinIO' never ran (PVC Pending 109 days, Deployment 0/0), yet AGENT_FACTS lists it, and its placeholder root Secret is committed to a PUBLIC repo and applied | 删除（要你批） |
 | [TD-239](#td-239) | P3 | trade-worker | Up to about 40 runtime exports of @bifrost/ui have no importer in either consumer (ContextMenu family, KpiStrip, holidayLine, shellNav* constants); dead-code share unmeasured | 改公开接口 |
 | [TD-240](#td-240) | P3 | trade-worker | The running PROD daemon never writes contract_quote_live: the observe-only quote mirror sits under mock_hedging, which is hard-coded True | 跨仓库发版 |
-| [TD-241](#td-241) | P3 | agent-governance | RATCHETS.md, TECH_DEBT.md and agent docs state facts the round-3 scan measured as no longer true | 不用批 |
 | [TD-242](#td-242) | P2 | market-data | market-data /ingest/queue-dashboard takes 5–25 s per call, and the platform-api proxy carries the same delay: with the new latency rule live it will page whenever someone keeps the queue dashboard open | 不用批 |
 | [TD-244](#td-244) | P3 | research-control | agents/journal_distill reads raw_broker.executions_final with no Flex freshness check (own 23:55 UTC schedule, outside any gate) | 不用批 |
 | [TD-246](#td-246) | P3 | trade-data | Snapshot enrich stores a vendor 'day close' that can sit below the option's intrinsic value (a stale last trade), and P&L attribution then books it as unexplained | 已批（Owner 10-07「做」） |
@@ -1841,22 +1839,6 @@
 - **Ratchet**: (A) worker test: with mock_hedging=True and quotes in Redis, one heartbeat writes contract_quote_live. (B) a dead-symbol check (vulture baseline) failing on _on_ticker*.
 - **验收**: `KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_prod -X -At -c "select max(updated_at) from raw_broker.contract_quote_live" </dev/null  # (A) within the last trading session; (B) table and code gone`
 - 审批 跨仓库发版 · 代价 S · 风险 low · repos: bifrost-trade-worker
-
-### TD-241
-
-**P3 · agent-governance · RATCHETS.md, TECH_DEBT.md and agent docs state facts the round-3 scan measured as no longer true**
-
-- **状态**：待你签收（infra b348609 + worker 7cddef4 + platform cad1258；platform 随血缘会话 2727eb0 于 10-07 上 STG/PROD）
-- **验收结果**：PASS 2026-10-07：RATCHETS 旧说法 grep 0 行、TD-161 行写全路径、CLAUDE.md 与 Cursor mdc 同为 trade-execution-freeze-v3、AGENT_FACTS 补 30883/30301 并删「第二个 MinIO」、TD-196 验收行含 maybeAutoClone、worker CLAUDE.md 改为「实际不落库」；preflight.js 只改注释，agent-guard test.js 42/42；PROD deliver 1791351668 克隆 2727eb0（含 cad1258），PROD Console 包内含「platform-api reconnect_all is D-IB-Heal L1」
-- **Claim**: (1) RATCHETS: BifrostAPIHighErrorRate says it matches only namespace=~"bifrost-.*"; bifrost-alerting-rules.yaml:49 now matches "bifrost-.*|research|plugin-.*". (2) RATCHETS: the TD-161 row names research/market-data test_http_metrics.py under tests/; the real path is tests/api/test_http_metrics.py (only flex-query uses tests/). (3) RATCHETS: the ci-python row says trade-api main has been CI-red since 10-04; ci-python-bifrost-trade-api-5jndn (10-06 18:56Z) is Completed (green). (4) RATCHETS: the FE eslint row says 0 error / 65 warning; measured now: 0 error / 1 warning. (5) RATCHETS: DoctorPanel.computing (TD-165) and slotScheduler (TD-108) are registered as warning (in CI), but ci-platform runs no Console vitest, so they are manual. (6) RATCHETS: the FE husky pre-commit is registered as blocking but was bypassed: origin/main dfb7858e pushed frontend duplicated-function-names to 1/0 (four `pct` definitions with four unit conventions), and scan.sh exits 1 on clean and shared trees. (7) RATCHETS: OVERSIZED_UI_BASELINE has a baseline, but no CI job runs code-health --repo bifrost-ui. (8) TECH_DEBT TD-140: the stated cause ('only the frozen daemon writes contract_quote_live') is wrong; the daemon runs, and the mirror is gated off by mock_hedging (see merged_into_existing). (9) TECH_DEBT TD-196: its acceptance checks only survival across a rollout, not api→workers visibility, and the data-clone store caches its file at construction. (10) Docs: CLAUDE.md §3 and agentProtocolCatalog FORBIDDEN_ACTIONS say only the daemon writes ib:operator:cmd, which contradicts the signed D-IB-Heal (TD-221). AGENT_FACTS §8c omits NodePorts 30379/30380/30382/30432 (TD-205) and lists a data-warehouse MinIO that never ran (TD-237). Worker CLAUDE.md:62 claims open orders and TWS fills are persisted (TD-211).
-- **Measured**: MEASURED by the round-3 ratchet-inventory agent (2026-10-07); not adversarially re-verified.
-- **Evidence**:
-  - `bifrost-trade-infra/agent-config/RATCHETS.md` — `rows named in the claim`
-- **Impact**: The registry overstates what is enforced (a pre-commit hook registered as blocking was bypassed; Console vitest guards registered as CI warnings run nowhere) and the docs mislead agents about who writes ib:operator:cmd.
-- **Fix**: Correct each row in RATCHETS.md; downgrade the Console vitest rows to manual until ci-platform runs vitest; fix CLAUDE.md §3 / agentProtocolCatalog FORBIDDEN_ACTIONS to name D-IB-Heal (Owner rule text); add the missing NodePorts to AGENT_FACTS §8c and drop the data-warehouse MinIO.
-- **Ratchet**: None practical for prose; the render script could flag RATCHETS rows whose file path does not exist on origin/main.
-- **验收**: `Re-run the ratchet-inventory prompt from round 3 against origin/main: stale_registry is empty.`
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra, bifrost-platform
 
 ### TD-242
 
