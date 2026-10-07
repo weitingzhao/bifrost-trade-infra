@@ -166,9 +166,9 @@
 - 选项：A：按推荐 · B：TD-144、TD-146 都出新表设计，TD-148 照做 · C：只做 TD-148，两列都保持灰显
 - 项：TD-144, TD-146, TD-148
 
-### 平台状态存哪里？线程标题改由会话自己上报吗？
+### 平台状态存哪里？线程标题改由会话自己上报吗？（Owner 2026-10-06 已定：按推荐）
 
-- 推荐：TD-196 选 A：门禁历史、发布 cycle、操作队列、checklist 信号改存平台命名空间的 ConfigMap（和发布记录、线程标题同一个做法，不加依赖），审计日志写一个有上限的 ConfigMap；以后要 HA 或审计量变大再上 Postgres。TD-197 做：会话自己的 Stop hook 上报标题，本机同步保留作回填。
+- 已定：TD-196 选 A：门禁历史、发布 cycle、操作队列、checklist 信号改存平台命名空间的 ConfigMap（和发布记录、线程标题同一个做法，不加依赖），审计日志写一个有上限的 ConfigMap；以后要 HA 或审计量变大再上 Postgres。TD-197 做：会话自己的 Stop hook 上报标题，本机同步保留作回填。
 - 选项：A：ConfigMap · B：Postgres（新依赖、DDL、凭据）· C：PVC（local-path，重装节点会丢，仍是每个 pod 一份）
 - 项：TD-196, TD-197
 
@@ -255,8 +255,8 @@
 | [TD-193](#td-193) | P3 | frontend | The Events calendar view's Date column shows collected_at, not event_date: macro rows show when they were computed, radar rows when the file was dropped | 不用批 |
 | [TD-194](#td-194) | P2 | ops-platform | BifrostAPIHighLatency can never fire: the histogram it reads tops out at a 1 s bucket, so histogram_quantile returns at most 1 and `> 2` is impossible | 要你批 |
 | [TD-195](#td-195) | P3 | ops-platform | platform-api exports no http_requests_total (hand-written /metrics, no Prometheus client), so the API error-rate and latency alerts cannot see it | 不用批 |
-| [TD-196](#td-196) | P2 | ops-platform | platform-api and platform-workers keep their state in per-pod emptyDir: every rollout erases release cycles, gate history, the operate queue and checklist signals, and the audit log is memory-only | 要你批 |
-| [TD-197](#td-197) | P3 | ops-platform | Lineage thread titles are synced only by the platform-api on the Owner's workstation (bdev): when it is down, or sessions run elsewhere, new threads stay unnamed | 要你批 |
+| [TD-196](#td-196) | P2 | ops-platform | platform-api and platform-workers keep their state in per-pod emptyDir: every rollout erases release cycles, gate history, the operate queue and checklist signals, and the audit log is memory-only | 已批 |
+| [TD-197](#td-197) | P3 | ops-platform | Lineage thread titles are synced only by the platform-api on the Owner's workstation (bdev): when it is down, or sessions run elsewhere, new threads stay unnamed | 已批 |
 
 ## 条目
 
@@ -1571,7 +1571,7 @@
 
 **P2 · ops-platform · platform-api and platform-workers keep their state in per-pod emptyDir: every rollout erases release cycles, gate history, the operate queue and checklist signals, and the audit log is memory-only**
 
-- **状态**：未开始（要你批：存储方案）
+- **状态**：未开始（Owner 10-06 已批 A：ConfigMap + 审计长尾进 Loki；排在 TD-197 之后）
 - **Claim**: Both platform Deployments mount `/app/data` as an emptyDir, one per pod (the api pod and the workers pod do not share it). Every file store resolves under it: release-gate state and history, release cycles (including `agent_session_id`), the operate queue, checklist signals, patrol state, the escape-hatch drill and agent-deploy last. The audit log is built with `NewAuditLog("")` and `PLATFORM_AUDIT_LOG` is set in no overlay, so audit records only live in memory. A rollout, crash or reschedule erases all of it.
 - **Measured**: MEASURED 2026-10-06 23:40Z. Five platform deliveries were started through platform-api today (STG/PROD 17:53–23:34). PROD `GET /api/v1/promote/release-cycles?lane=platform` → `{"entries":[]}` and `GET /api/v1/audit?limit=5` → `{"records":[]}`; the PROD pods started 23:33 with the last rollout.
 - **Evidence**:
@@ -1587,13 +1587,13 @@
 - **Fix**: Move the small stores to ConfigMaps in the platform namespace behind one store interface (same pattern as `internal/releases` and `internal/threadtitles`: get-or-create, update with retry on conflict, capped size), the audit log to a capped ConfigMap (or ship it to Loki and read back); then drop the emptyDir mount. Postgres only if HA or audit volume needs it.
 - **Ratchet**: A platform test that no store resolves a path under `PLATFORM_DATA_DIR` once migrated, and a manifest check that no platform Deployment mounts an emptyDir at `/app/data`.
 - **验收**: After a PROD platform rollout, `GET /api/v1/promote/release-cycles?lane=platform` and `GET /api/v1/audit` still list the entries recorded before it.
-- 审批 要你批（存储方案） · 代价 M · 风险 med · repos: bifrost-platform, bifrost-trade-infra
+- 审批 已批（ConfigMap） · 代价 M · 风险 med · repos: bifrost-platform, bifrost-trade-infra
 
 ### TD-197
 
 **P3 · ops-platform · Lineage thread titles are synced only by the platform-api on the Owner's workstation (bdev): when it is down, or sessions run elsewhere, new threads stay unnamed**
 
-- **状态**：未开始（要你批：改治理层 hook）
+- **状态**：在做（Owner 10-06 已批：Stop hook 上报 + 本机同步兜底）。现在：platform `PUT /api/v1/lineage/transcript-title`（reporter）与 hook `claude/hooks/report-thread-title.js` 已写好、本机端到端通过（11 MB transcript 首读 0.10 s、未变不发）；下一步：platform 发布、本机放 reporter 令牌文件、按验收在 PROD 上看
 - **Claim**: Thread titles come from Claude Code transcripts, which exist only on the machine that ran the session. `SyncWanted` turns the syncer on only outside the cluster, and `StartSync` runs inside the local platform-api's workers role; nothing else writes ConfigMap `lineage-thread-titles`. If the bdev platform-api is stopped or crashed, or a session runs on another machine (cloud, Cursor, a second Mac), the cluster keeps the last titles and new threads show their id.
 - **Measured**: MEASURED 2026-10-06. `lineage-thread-titles` holds 99 titles, all written by the local platform-api (log `thread titles sync first=true transcripts=98`). The cloud session `session_01Du5yDL` has no title (no local transcript); PROD Commit Lineage shows 8 of 9 threads titled.
 - **Evidence**:
@@ -1603,9 +1603,9 @@
   - `bifrost-platform/api/internal/server/server.go:242` — `if dir := threadtitles.TranscriptDir(); role.RunsWorkers() && threadtitles.SyncWanted(dir) {`
 - **Impact**: Display only: the Commit Lineage page falls back to ids for new threads; hand-set names (`PUT /api/v1/lineage/thread-title`) are unaffected.
 - **Fix**: Let each session report its own title: a Claude Code Stop hook (agent-config `claude/settings.json` already has a Stop hook) reads the latest `custom-title` / `ai-title` of its own transcript and PUTs it with a reporter-level token, so the title travels with whichever machine ran the session; keep the bdev syncer as backfill. Cursor has no session titles: document it.
-- **Ratchet**: An agent-guard-style regression test that the Stop hook posts the title for a sample transcript.
+- **Ratchet**: `agent-config/claude/hooks/report-thread-title.test.js` (11 checks: custom over generated, unchanged not resent, half-written line held, failed request retried, rewritten file re-read).
 - **验收**: With the bdev platform-api stopped, a new session's first commit shows its title on PROD Commit Lineage after its first Stop.
-- 审批 要你批（改治理层 hook，parity） · 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
+- 审批 已批（Stop hook） · 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
 
 ## 没覆盖到的（下一轮从这里开始）
 

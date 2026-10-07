@@ -14,11 +14,15 @@
  * （Go 侧无此路由，返回 405）。Cursor 侧的同名 hook 也一直在静默失败。
  * 本适配层对 404/405 静默跳过 —— 端点上线后自动生效。
  *
+ * 同时上报本会话的标题给 Commit Lineage（TD-197，见 report-thread-title.js）。
+ * Cursor 没有会话标题，所以 Cursor 侧没有这一步。
+ *
  * 对等文件: .cursor/hooks/on-session-stop.js
  */
 'use strict'
 
 const fs = require('node:fs')
+const { reportThreadTitle } = require('./report-thread-title.js')
 
 async function main() {
   let payload = {}
@@ -30,6 +34,13 @@ async function main() {
 
   // stop_hook_active = 本次 Stop 是由上一个 Stop hook 触发的续跑，不重复上报。
   if (payload.stop_hook_active === true) return
+
+  // 标题上报（TD-197）：失败一律吞掉，不影响下面的 session-stop。
+  try {
+    await reportThreadTitle(payload)
+  } catch {
+    // never block a session
+  }
 
   const base = process.env.PLATFORM_API_URL || 'http://127.0.0.1:8780'
   const token = process.env.PLATFORM_OPERATOR_TOKEN || ''

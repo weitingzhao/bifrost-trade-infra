@@ -1,7 +1,7 @@
 ---
 description: Shared single checkout — stage only the files you touched
 alwaysApply: true
-parity-id: shared-worktree-v2
+parity-id: shared-worktree-v3
 ---
 # 共享工作树 — 只暂存自己碰过的文件
 
@@ -35,6 +35,7 @@ git commit                      # 不带 -a
 rebase / cherry-pick / amend 都不会变：判断一个 lane 是否已落地时按它找，不要按标题找。不要删这个尾注。
 Claude 会话还会自动带 `Claude-Session` / `Claude-Transcript`；Cursor 的终端拿不到会话 id，所以没有这两个尾注。
 husky 仓库（frontend、platform）新开的 worktree 不执行任何钩子。
+Commit Lineage 的线程标题由 Claude 的 Stop hook 上报（TD-197）；Cursor 没有会话标题，没有这一步。
 
 ## 为什么是机械闸门而不是规矩
 

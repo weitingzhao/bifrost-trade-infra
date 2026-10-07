@@ -1,5 +1,5 @@
 <!--
-parity-ids: workspace-v13, language-v1, agent-modes-v2, trade-execution-freeze-v2, dev-services-v3, phase-execution-v3, shared-worktree-v2, business-first-v1
+parity-ids: workspace-v13, language-v1, agent-modes-v2, trade-execution-freeze-v2, dev-services-v3, phase-execution-v3, shared-worktree-v3, business-first-v1
 对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
 改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
 -->
@@ -165,6 +165,8 @@ git commit                      # 不带 -a
 rebase 和 cherry-pick 不改已有尾注。实现与接线：`scripts/git-hooks/`（`sh scripts/git-hooks/install.sh --check`）。
 查某个线程碰过的提交：`git log --all --format='%h %s' --grep='Claude-Session: local_…'`。
 husky 仓库（frontend、platform）新开的 worktree 不执行任何钩子，在那里提交时自己补 `--trailer`。
+线程标题（Commit Lineage 显示用）由 Stop hook `claude/hooks/report-thread-title.js` 上报（TD-197）：令牌只放
+`~/.config/bifrost/lineage-reporter.token`（600）或 `PLATFORM_REPORTER_TOKEN`，不进仓库；没有令牌就不发，本机 platform-api 的同步兜底。
 
 ### 发布窗口 — 推 main 或起 deliver 之前先看
 
