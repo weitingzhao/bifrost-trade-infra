@@ -13,11 +13,10 @@
 
 ## 待你签收
 
-- **TD-132** — bifrost-platform a332cff（NAS 上 MinIO 的检查与 WAL 修复）已随 platform 发布上 STG/PROD：首发 STG `bifrost-deliver-platform-1791309231` / PROD `bifrost-deliver-platform-prod-1791309521`（10-06 17:53–18:02，Owner 批准随 540c945 一起发），现行 07551db 也包含它 · 验收 PASS（10-06，STG/PROD `minio.id` = minio-backup-external、reachability ok）· 防线：`bifrost-platform/api/internal/cluster/minio_backend_test.go`（已登记 `RATCHETS.md`）· 无后续：TD-133（集群内 MinIO 残留）按原计划在稳定一周后单独处理
 - **TD-161** — research-api、market-data、flex-query 导出与 Trade 同名同标签的 HTTP 指标（无新依赖，同一份 ASGI 中间件），两条 API 告警扩到 research / plugin-*（market-data 0.82.0、flex 0.12.0、research 0.199.0、infra 47f5c49）· 验收 PASS（10-07，live 覆盖检查 ok）· 防线：告警 `BifrostAPIWithoutHttpMetrics` + `scripts/check_http_metrics_coverage.py` + 三个 repo 的 `test_http_metrics.py` · 后续：TD-194（延迟告警永不触发）、TD-195（platform-api 无指标）
 - **TD-181** — /events/calendar 的宏观行读 macro_event_daily，手放 ws:macro 文件只归档（research 0.199.0）· 验收 PASS（10-07：14 行宏观到 2027-12-08，superseded 5）· 防线：`tests/engines/test_event_calendar_macro.py` · 后续：TD-193（日历 Date 列显示采集日期）
 
-**未结 84 项**：P0 0 · P1 4 · P2 32 · P3 48；要你批的 44 项（从总览表的审批列算）。
+**未结 83 项**：P0 0 · P1 4 · P2 31 · P3 48；要你批的 43 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -78,7 +77,7 @@
 
 目标：备份 MinIO 已搬到 NAS（infra 1ee0ac2，已接监控 ba03488），把剩下的收尾：自动修复只在 PROD 一处动手、失败记录不再被删、platform 的新检查上线、稳定一周后退役集群里的 MinIO 残留，再处理 WAL 体量和 CNPG 1.30 的备份插件。
 
-项：TD-130, TD-131, TD-132, TD-133, TD-134, TD-135, TD-196, TD-197 · 已还：TD-173
+项：TD-130, TD-131, TD-133, TD-134, TD-135, TD-196, TD-197 · 已还：TD-173, TD-132
 
 ### 第 7 波 · 数据缺口（10-06 由 Data Gaps 看板并入）
 
@@ -152,7 +151,7 @@
 
 ### 备份链的三项后续
 
-- 推荐：TD-132 已随 10-06 的 platform 发布上线（待你签收）；TD-134 调大检查点间隔并开 `wal_compression`（只需 reload，不重启）；TD-135 在把 CNPG 升到 1.30 之前装 cert-manager 并换 Barman Cloud Plugin，单独排期。
+- 推荐：TD-132 已上线并签收（10-06）；TD-134 调大检查点间隔并开 `wal_compression`（只需 reload，不重启）；TD-135 在把 CNPG 升到 1.30 之前装 cert-manager 并换 Barman Cloud Plugin，单独排期。
 - 选项：A：三项都按推荐 · B：先做 TD-132、TD-134 · C：只做 TD-132
 - 项：TD-132, TD-134, TD-135
 
@@ -211,7 +210,6 @@
 | [TD-129](#td-129) | P3 | research-data | The event backtest picks option legs from option_daily only; since mid-August 2026 it keeps ~10 strikes a side, so a target delta silently lands on the nearest strike that is left | 不用批 |
 | [TD-130](#td-130) | P1 | ops-control | ops-autopilot acts on the shared cluster's data layer from the Owner's laptop (local bdev platform-api, role all); the in-cluster STG/PROD autopilots idle on an empty checklist, and each of the three keeps its own throttle | 要你批 |
 | [TD-131](#td-131) | P2 | ops-control | repair_cnpg_wal_store deletes failed Backup CRs, erasing the record of failed backups | 要你批 |
-| [TD-132](#td-132) | P2 | ops-control | bifrost-platform a332cff (checks and WAL repair aware of the NAS MinIO) is on main but not released to STG/PROD | 发布（要你批） |
 | [TD-133](#td-133) | P3 | data | Leftovers of the in-cluster MinIO after the move to the NAS (deploy/minio at 0, its PVC/PV, an empty EndpointSlice, the backup-retry CronJob) | 要你批 |
 | [TD-134](#td-134) | P2 | data | WAL is ~19.5 GiB/day (4.2 GiB compressed) because checkpoints run every 5 minutes without wal_compression | 要你批 |
 | [TD-135](#td-135) | P3 | data | Native barmanObjectStore backups are removed in CloudNativePG 1.30; the Barman Cloud Plugin that replaces them needs cert-manager, which the cluster does not have | 新依赖（要你批） |
@@ -803,22 +801,6 @@
 - **Ratchet**: A test that RepairPostgresWalStore issues no delete for a failed Backup.
 - **验收**: After a failed backup and a repair run, `kubectl -n data get backups` still lists the failed one.
 - 审批 要你批 · 代价 S · 风险 low · repos: bifrost-platform
-
-### TD-132
-
-**P2 · ops-control · bifrost-platform a332cff (checks and WAL repair aware of the NAS MinIO) is on main but not released to STG/PROD**
-
-- **状态**：待你签收（发布已完成：首发 STG `bifrost-deliver-platform-1791309231`、PROD `bifrost-deliver-platform-prod-1791309521`，10-06）
-- **Claim**: Since the MinIO cutover (infra 1ee0ac2) the in-cluster Console reports "MinIO backup … scaled to zero" and "WAL archive … MinIO not ready" (degraded) for a healthy store, and the in-cluster repair tool would rollout-restart the 0-replica deploy/minio. a332cff reads Service data/minio, checks the external MinIO's /minio/health/cluster and never touches deploy/minio for an external MinIO.
-- **Measured**: Local platform-api against the cluster after a332cff: MinIO backup ok "MinIO @ 192.168.10.20:9000 healthy", WAL archive ok (both degraded before). Last STG and PROD builds were a6794c4, bifrost-ui unchanged since: the release ships only a332cff.
-- **Evidence**:
-  - `bifrost-platform/api/internal/cluster/minio_backend.go` — `resolveMinioBackend`
-  - `bifrost-platform/api/internal/cluster/postgres_wal_repair.go` — external branch of `RepairPostgresWalStore`
-- **Fix**: Run bifrost-deliver-platform, then bifrost-deliver-platform-prod.
-- **Ratchet**: `minio_backend_test.go` TestRepairWithUnhealthyExternalMinioLeavesDeploymentAlone (fails on the old code).
-- **验收**: STG and PROD `GET /api/v1/cluster/postgres` → minio.id minio-backup-external, reachability ok; the clone-platform result commit is a332cff or later.
-- **验收结果**：PASS 2026-10-06 07551db — STG 与 PROD 都是 minio.id minio-backup-external、reachability ok（"MinIO @ 192.168.10.20:9000 healthy (outside the cluster)"）；PROD 现行 clone-platform 07551db 含 a332cff；防线测试 5 例全过。
-- 审批 发布（要你批） · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-133
 
