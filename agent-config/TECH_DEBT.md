@@ -15,6 +15,8 @@
 
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
+- **TD-254** — 备份只归 CNPG 每日备份 + backup-retry：autopilot 遇到备份不新鲜只报告、不再调 repair_cnpg_wal_store（不再删失败的 Backup、不再盘中补全量备份；工具留给人手动用）。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「autopilot 备份不动手测试」。后续：无后续：剩下的收敛在 TD-130（观察到 10-12）
+- **TD-255** — 漂移扫描不再删失败现场：只删被驱逐的 Pod，失败的备份 Job Pod 留着（日志可读），只报告模式下一个不删。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「漂移扫描只删 Evicted 测试」。后续：无后续：Job 历史上限与 TTL 负责回收
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
 **未结 97 项**：P0 0 · P1 10 · P2 35 · P3 52；要你批的 55 项（从总览表的审批列算）。
@@ -827,9 +829,9 @@
 
 **P1 · ops-control · ops-autopilot acts on the shared cluster's data layer from the Owner's laptop (local bdev platform-api, role all); the in-cluster STG/PROD autopilots idle on an empty checklist, and each of the three keeps its own throttle**
 
-- **状态**：在做（Owner 10-07 改了顺序：本机先停，告警已能呼到人，所以不再需要「先接上 PROD 再停本机」）
-- **现在**：10-07 本机 `bifrost-platform/.env` 设 `PLATFORM_ROLE=api`、bdev 重启：`/health` background_loops=false，04:15 那一轮本机没再跑（最后一次 04:05）。实测：集群里 STG/PROD workers 的 patrol 技能列表为空（Pod 里没有挂载 `config/patrol-skills`），api Pod 把 patrol 路由转发给 .50 的 operator-plane（autopilot 关）——所以此前三份里只有本机这份在动手。备份由 CNPG 每日备份 + `backup-retry` 负责，出事 ntfy 呼人（TD-209）
-- **下一步**：Ops 维护收敛计划第 4 步（Owner 10-07 已批）：PROD 自己探测检查信号并带时间戳（TD-253）→ 只给 PROD 挂技能、先只报告不动手 3–5 天 → 逐项放开；前提 TD-196（已上线、观察中）与 TD-204（安全，待批）
+- **状态**：观察中（到 10-12，看 PROD platform-workers 的只报告 autopilot：每 15 分钟一轮，它写「REPORT-ONLY: would …」的每一项是不是真该做、有没有漏掉该做的）
+- **现在**：10-07 第 4 步上线。本机 `PLATFORM_ROLE=api`（background_loops=false）；STG 只观测、不挂技能；PROD platform-workers 挂 PROD 专用技能（ops-autopilot、fleet-drift-scan、cert-expiry-check），`PATROL_MODE=report`、`PATROL_DISPATCH=local`、`CHECKLIST_PROBER=on`（infra 5d1c208，platform 2727eb0 起）。第一轮 06:00Z：22 个信号、2 红（argo-apps 是 rollout 中的假红，已由 d8833e5 修掉、待上 PROD；hermes-tooling 只观测），0 动作。补备份交还 CNPG + backup-retry（TD-254），漂移扫描不再删失败现场（TD-255），信号自带时间、过期读 unknown（TD-253）
+- **下一步**：观察到 10-12 后，把只报告记录整理给 Owner，逐项放开（每放开一项改 `check_platform_maintenance.py` 的 REPORT_ONLY 规则与 overlay 同一提交）；防线 `make check-platform-maintenance` 已在
 - **Claim**: Three platform-api processes run the patrol autopilot loop against the one k3s cluster: platform-workers in bifrost-platform-stg and bifrost-platform-prod (PLATFORM_ROLE=workers) and the Owner's local bdev platform-api, where PLATFORM_ROLE is unset and therefore `all`. Only the local one reads the real checklist; the in-cluster ones idle on an empty checklist (Owner 2026-09-22: leave as is). So the actions on data/minio and the backups came from a dev laptop: repair_cnpg_wal_store every 15 minutes from 10-05 19:30 to 10-06 02:00 (all failed), a rollout restart of deploy/minio plus an on-demand Backup at 10-06 04:45, another restart at 05:15. The "same target not twice in 24h" throttle is kept per process.
 - **Measured**: MEASURED 2026-10-06. Audit log of the local platform-api (MCP bifrost-platform → http://127.0.0.1:8780, get_audit_log) lists those actions; `curl 127.0.0.1:8780/health` → role all, background_loops true; kubectl: platform-workers 1 replica with PLATFORM_ROLE=workers in both namespaces. Again at 2026-10-06 16:15:07 UTC (12:15 New York, market hours): the local autopilot ran repair_cnpg_wal_store, deleted the failed Backup bifrost-postgres-ondemand-20261006-044532 and started bifrost-postgres-ondemand-20261006-161507, a full base backup.
 - **Evidence**:
@@ -1925,7 +1927,7 @@
 
 **P2 · ops-platform · The autopilot acts on checklist signals that are weeks old: signals carry no time of their own, and nothing marks a stale one unknown**
 
-- **状态**：未开始
+- **状态**：在做（代码全部上线到 main：信号带 observed_at/source、超过 `CHECKLIST_SIGNAL_TTL`（2h）读 unknown（1eaffd2）；PROD workers 进程内探测器每 10 分钟写一次（2727eb0 + d8833e5 + b08d009）；实时 husbandry 三项也带时间（dc1488e）。PROD 现在跑 2727eb0，验收要等 dc1488e 随 d8bdf41 上 PROD 再跑——那次发布由 Refactor 线程执行，因为同一提交带着它那边要 Owner 批的 LANE-S2）
 - **Claim**: The checklist store keeps one `updated_at` for the whole record; each item signal (`ItemSignal`) has no time of its own. The autopilot fixes whatever reads `fail`, whenever that was observed. On the Owner's Mac (the only acting autopilot until 10-07) 19 of 22 signals dated from 09-29 or earlier: `db-backup-fresh` still cited a July backup, `nodes-ready` said 6/6 while gpu-server was off. Since TD-203 (local platform-api loopback-only) the .50 runner can no longer report there at all.
 - **Measured**: MEASURED 2026-10-07 04:06 UTC: `GET /api/v1/checklist/signals` on the local platform-api → updated_at 2026-09-29T03:32:01Z; `db-backup-fresh` detail `bifrost-postgres-daily-20260711030000`.
 - **Evidence**:
@@ -1941,7 +1943,8 @@
 
 **P2 · ops-platform · Two mechanisms repair the same failed backup: the autopilot's repair_cnpg_wal_store (every 15 min) and the backup-retry CronJob; the autopilot started a full base backup in market hours after the day's backup had completed**
 
-- **状态**：未开始
+- **状态**：待你签收
+- **验收结果**：PASS 2026-10-07 dc1488e（`git grep repairCnpgWalStore` 无输出；`go test ./internal/patrol -run 'StaleBackup|ReportOnly'` ok）。PROD 自 2727eb0 起生效
 - **Claim**: When `db-backup-fresh` reads fail the autopilot calls repair_cnpg_wal_store, which deletes failed Backup CRs (TD-131) and starts an on-demand base backup. The in-cluster CronJob `data/backup-retry` (*/15 04–09 UTC) also starts one retry Backup when no backup completed today. Neither knows the other. On 10-06 the daily backup completed at 03:00 and a manual one at 05:16, yet the autopilot started `bifrost-postgres-ondemand-20261006-161507` (a full base backup) at 16:15 UTC, in US market hours.
 - **Measured**: MEASURED 2026-10-07: local autopilot runs 10-05 06:21 → 10-07 03:45: `db-backup-fresh` handled 54 times, `repair_cnpg_wal_store` HTTP 502 52 times, 202 twice. `kubectl -n data get backups` lists the 10-06 daily (completed 03:00), manual-nas (05:16) and ondemand-161507.
 - **Evidence**:
@@ -1957,7 +1960,8 @@
 
 **P3 · ops-platform · The hourly drift scan deletes every Failed pod it may, including failed backup Job pods in data: the evidence of a failed backup is gone within the hour**
 
-- **状态**：未开始
+- **状态**：待你签收
+- **验收结果**：PASS 2026-10-07 dc1488e（`go test ./internal/patrol -run ChainCleanup -count=1`：两例 PASS）。修法比原写的更窄：漂移扫描只删被驱逐（Evicted）的 Pod，Failed/Succeeded 一律保留并记一行 KEEP（Job 历史上限与 TTL 会回收）；只报告模式下一个也不删。PROD 自 2727eb0 起生效
 - **Claim**: fleet-drift-scan's chain cleanup deletes terminal pods that pass `isSafeToDelete` (phase Succeeded or Failed, not a protected prefix). Failed `logical-backup-*` pods in `data` qualify, so their logs vanish within an hour; investigating TD-210 needed Loki.
 - **Measured**: MEASURED 2026-10-07: local patrol evidence 10-05 20:05 → 10-07 02:05 shows six `DELETE data/logical-backup-…` (phase=Failed) HTTP 200.
 - **Evidence**:
@@ -1966,7 +1970,7 @@
 - **Impact**: Failed backup and drill runs leave no pod or log in the cluster to read; Kubernetes already garbage-collects Job pods by the Job's history limits.
 - **Fix**: Never delete pods owned by a Job, or in namespace data, younger than 7 days (let Job history limits and TTL handle them). Part of plan step 4.
 - **Ratchet**: Unit test on isSafeToDelete: a Failed Job-owned pod in data younger than 7 days is not safe to delete.
-- **验收**: `cd bifrost-platform/api && go test ./internal/patrol -run 'SafeToDelete' -count=1`
+- **验收**: `cd bifrost-platform/api && go test ./internal/patrol -run 'ChainCleanup' -count=1`
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-256
