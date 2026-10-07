@@ -13,14 +13,9 @@
 
 ## 待你签收
 
-- **TD-199** — 删掉自 09-24 起无人引用的 EventsBoard.tsx / EventRadarDashboard.tsx，改正两处注释（frontend e98afbf0）· 验收 PASS（10-07）· 防线：`src/lib/orphanModules.test.ts`（从 main.tsx 走导入图，KNOWN_ORPHANS 只许缩短）· 后续：TD-243（其余 42 个孤儿模块）
-- **TD-138** — 日快照有了读侧：core 0.54.0 reader + api 0.12.0 三条 GET（nav-history / position-snapshots / pnl-attribution）+ 前端 P&L Explain、Return basis、Transfer & Pay、Accounts 曲线、Review 两处 · 验收 PASS（10-07 PROD 三路由 200）· 防线：core `test_snapshot_reader*.py`、api `test_portfolio_snapshots_routes.py`、前端 `PnlAttributionBand.test.tsx` · 后续：TD-246（陈旧 vendor mark）
-- **TD-139** — 期权快照行读时派生 greeks_quality（vendor / degraded / missing + reason），不加列 · 验收 PASS（10-07 PROD 14 行、missing 0 = delta 空 0）· 防线：api 路由契约测试断言每个 OPT 行带该字段 · 无后续
-- **TD-178** — plans 列表按 source_kind / source_ref 过滤（core 0.53.0、api 0.11.0），research 假设关联带上过滤 · 验收 PASS（10-07 bogus → 422）· 防线：api `test_strategy_plans_routes.py`（上限按过滤后计、未知 kind 422、不撞退役名）· 无后续
-- **TD-215** — daemon 导出心跳与 raw_broker 最后写入时间（worker 0.2.7 :9108），PROD 三条告警（交易时段 30 分钟 / 任何时段 90 分钟未写、心跳 > 300 s、指标缺失），TWS 登出与周末不报 · 验收 PASS（10-07 live 检查 ok）· 防线：`scripts/check_daemon_liveness.py` · 后续：库侧「每表最后非零写入」规则（要 apply k8s/data，待你定）
-- **TD-216** — daemon 入口配置日志（INFO），写失败升 WARNING（core 0.55.1、worker 0.2.7）· 验收 PASS（10-07 PROD 10 分钟 22 行）· 防线：worker `test_daemon_observability.py`、core `test_write_failure_log_levels.py`（except 内点名写入的 debug 基线 0）· 无后续
+（暂无）
 
-**未结 119 项**：P0 0 · P1 11 · P2 39 · P3 69；要你批的 61 项（从总览表的审批列算）。
+**未结 113 项**：P0 0 · P1 11 · P2 36 · P3 66；要你批的 59 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -93,7 +88,7 @@
 
 目标：Data Gaps 看板上未结的 15 项并入台账：先把每日快照的写入修对（TD-137）再接读侧和三页，归因行补上价格，Research 侧已就绪的一个版本（0.185.0）发出去，长期限 IV 锥在 10-31 前从 option_daily 回填，其余按 Owner 已定的口径排。
 
-项：TD-137, TD-138, TD-139, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-158, TD-159, TD-172, TD-178, TD-180, TD-182, TD-199, TD-243, TD-246 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181, TD-193, TD-140, TD-171
+项：TD-137, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-158, TD-159, TD-172, TD-180, TD-182, TD-243, TD-246 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181, TD-193, TD-140, TD-171, TD-138, TD-139, TD-178, TD-199
 
 ### 第 8 波 · Pine 线程收尾后的跟进（10-06）
 
@@ -111,7 +106,7 @@
 
 目标：数据层告警有一个人能收到的通道和外部心跳；逻辑备份先修好等库就绪；做一次 Barman 恢复演练；决定异地副本；daemon 停写与日志丢失要能被看见。
 
-项：TD-209, TD-210, TD-217, TD-218, TD-215, TD-216, TD-238, TD-237
+项：TD-209, TD-210, TD-217, TD-218, TD-238, TD-237 · 已还：TD-215, TD-216
 
 ### 第 11 波 · 账本与页面读数、绿着的未知（第 3 轮）
 
@@ -267,8 +262,6 @@
 | [TD-135](#td-135) | P3 | data | Native barmanObjectStore backups are removed in CloudNativePG 1.30; the Barman Cloud Plugin that replaces them needs cert-manager, which the cluster does not have | 新依赖（要你批） |
 | [TD-136](#td-136) | P2 | research-data | GEX writes levels for an expiry whose open interest is all zero: walls and zero_gamma fall on an arbitrary strike, 1,534 rows on 496 names, and terrain and scan copy them | 已批（观察中） |
 | [TD-137](#td-137) | P1 | trade-data | The daily snapshot capture locks an account's intraday book into the day (first write wins, no freshness test) and account_nav_daily stores no margin-pressure fields | 改表 + 发布（要你批） |
-| [TD-138](#td-138) | P2 | trade-data | The daily position and NAV snapshots have no reader: no trade-api route, no Research or frontend read, and three pages still say the snapshot does not exist | 不用批 |
-| [TD-139](#td-139) | P3 | trade-data | Snapshot Greeks carry no quality flag (vendor / degraded / missing): only mark_source and greeks_asof are stored | 不用批 |
 | [TD-142](#td-142) | P2 | research-data | The 90-day IV cone has 31–39 sessions of history and there is no 180-day tenor: ATM IV was stored only to 90 DTE before 2026-08-05 | 要你批 |
 | [TD-143](#td-143) | P3 | research-data | Hypotheses never link to trades: linked_opportunity_ids is empty on all 91 rows, and only Research's own create / patch writes it | 不用批 |
 | [TD-144](#td-144) | P3 | research-data | Settled candidates are not attributed to the judge (persona) that put them forward, so the Personas bench track-record columns stay grey | 要你批 |
@@ -290,7 +283,6 @@
 | [TD-170](#td-170) | P3 | research-control | dagster-daemon logs one line over 256 KB at the 22:45 and 03:00 UTC schedule ticks every night | 不用批 |
 | [TD-172](#td-172) | P2 | research-data | ATM IV has almost no 50–90 DTE expiry from 2026-07-06 to 09-25 (the EOD chain stopped at the third listed expiry until plugin 0.39.0); the fix was forward-only, so term structure reads na for that stretch | 要你批 |
 | [TD-174](#td-174) | P3 | market-data | Console marks fundamentals-rotate missed every Monday 03:45 → Tuesday 03:00 UTC: the trading-day check uses the UTC date of the fire | 不用批 |
-| [TD-178](#td-178) | P3 | trade-api | GET /strategies/plans has no source_kind filter: Research reads the newest 500 filled plans and filters itself, marking truncated at the cap | 改公开接口 |
 | [TD-180](#td-180) | P3 | research-data | The macro calendar has no CPI dates after 2026-12-10 and no payrolls at all: bls.gov answers 403 from this host, so they could not be read | 不用批 |
 | [TD-182](#td-182) | P3 | research-data | Macro gap (actual vs expected) is always empty: consensus is not in the subscription, and the entitled /fed/v1/inflation actuals have no raw table | 改表（要你批） |
 | [TD-183](#td-183) | P3 | market-data | W3 archive-before-delete has never archived for real: the first intraday option_snapshot archive is ~10-08 02:15 UTC and option_daily / short_volume on 11-01 | 不用批 |
@@ -303,7 +295,6 @@
 | [TD-192](#td-192) | P2 | research-control | One IB Flex failure loses that night's SEPA for good: husbandry_gate blocks sepa_projection although SEPA reads nothing from Flex, and the projection never back-fills a missed night | 要你批 |
 | [TD-194](#td-194) | P2 | ops-platform | BifrostAPIHighLatency can never fire: the histogram it reads tops out at a 1 s bucket, so histogram_quantile returns at most 1 and `> 2` is impossible | 要你批 |
 | [TD-196](#td-196) | P2 | ops-platform | platform-api and platform-workers keep their state in per-pod emptyDir: every rollout erases release cycles, gate history, the operate queue and checklist signals, and the audit log is memory-only | 已批 |
-| [TD-199](#td-199) | P3 | frontend | EventsBoard.tsx and EventRadarDashboard.tsx have had no importer since 09-24 (c81e5a29); a comment still says EventRadarBody 'stays the Explorer tab's body' though Explorer was retired in 594a3f3f | 删除（要你批） |
 | [TD-202](#td-202) | P3 | market-data | market-data code strings and scripts still mention CronJobs: the dashboard label 'CronJob archived' and verify-market-data.sh's hint are user-visible | 不用批 |
 | [TD-204](#td-204) | P1 | ops-platform | STG and PROD platform-api and platform-workers run as system:masters through a copy of the k3s admin kubeconfig, and anonymous GETs use it to read pod logs in any namespace | 安全/凭据（要你批） |
 | [TD-206](#td-206) | P1 | ops-console | git-bridge answers anyone on the LAN, and its /commit runs `git add -A` on the shared checkout; /push pushes the current branch with no release-window check | 安全/凭据（要你批） |
@@ -315,8 +306,6 @@
 | [TD-212](#td-212) | P2 | trade-worker | A failed IB positions or summary read is written as truth: the daemon deletes every raw_broker.positions row of the account and nulls its NAV until the slot reconnects | 跨仓库发版 |
 | [TD-213](#td-213) | P2 | frontend | Risk › Limits 'Daily loss on the allocation' sums the realised P&L of every trade the allocation ever closed, not today's, so a losing day reads 0 consumed | 不用批 |
 | [TD-214](#td-214) | P2 | frontend | Performance and Portfolio Overview summaries start the range at UTC midnight, so they include the previous month's last Chicago day | 不用批 |
-| [TD-215](#td-215) | P2 | trade-worker | Nothing alerts when the only writer of raw_broker.account and positions stops: the daemon has no liveness probe and no freshness rule | 不用批 |
-| [TD-216](#td-216) | P2 | trade-worker | The daemon never configures logging: every INFO line is dropped, and write failures logged at debug are invisible | 不用批 |
 | [TD-217](#td-217) | P2 | data | The Barman base+WAL backup, the only copy of the 34 GB Golden Source history, has never been restored, and has not been tried at all against the NAS MinIO it moved to on 10-06 | PROD 变更（要你批） |
 | [TD-218](#td-218) | P2 | data | Every backup copy (Barman base+WAL, logical dumps hot and cold, the W3 archive) is on the one NAS 192.168.10.20:/volume1, and the open offsite decision is not in the ledger | PROD 变更（要你批） |
 | [TD-219](#td-219) | P2 | frontend | The rail's amber 'alerts fired today' count can never be non-zero: it matches trade_date against the UTC date, and alerts are stamped with an earlier session | 不用批 |
@@ -976,46 +965,6 @@
 - **Ratchet**: core tests in 9013ba2: test_capture_skips_a_stale_account_whole_and_lists_it, test_evening_rerun_takes_only_the_account_that_came_back, test_positions_without_an_account_row_count_as_stale, test_session_close_reads_an_early_close (db), test_margin_columns_are_additive_and_idempotent (db). No separate nightly check: the writer itself refuses a stale account and prints it as stale_accounts in the Job log; the 验收 SQL is the spot check.
 - 审批 改表 + 发布（要你批） · 代价 S · 风险 med · repos: bifrost-trade-core, bifrost-trade-infra
 
-### TD-138
-
-**P2 · trade-data · The daily position and NAV snapshots have no reader: no trade-api route, no Research or frontend read, and three pages still say the snapshot does not exist**
-
-- **状态**：待你签收
-- **验收**：发版后：`curl -s -o /dev/null -w '%{http_code}' http://192.168.10.73:30881/api/account/portfolio/nav-history` → 200；`git -C bifrost-trade-api grep -l get_nav_history origin/main -- src` 有输出；`git -C bifrost-trade-frontend grep -n 'Nothing stores one' origin/main -- src/pages/portfolio/pnlExplain` 无输出（已 PASS 3990ebfd）
-- **验收结果**：PASS 2026-10-07 10-07 Trade 发版（STG q478s → PROD 7ws6b → DEV，core 0.55.1 cd6f5a2 / api 0.12.0 / worker 0.2.7 / frontend 3990ebfd；tag v0.55.1）：PROD `nav-history` / `position-snapshots` / `pnl-attribution` 都 200；STG 同；前端 grep 无 'Nothing stores one'
-- **现在**：道 AA：core `portfolio/reader/snapshots.py`（nav_history / position_snapshots / pnl_attribution，盘中 NAV 行按 session_closes_at 丢弃）；api 三条 GET：`/portfolio/nav-history`、`/position-snapshots`、`/pnl-attribution`（core 下限 ≥0.54.0）；前端 P&L Explain 归因段、Performance Return basis（TWR + Modified Dietz 交叉校验）、Transfer & Pay Downstream、Accounts NAV 曲线、Review 两处引用，旧 API 404 时保留未接通态并写明原因。DEV（Pod 内只读跑新代码）：nav-history 保留 3 / 丢 3 行盘中读数；position-snapshots 最新 session 31 行、13 个 OPT 都有 greeks_quality；pnl-attribution 10-06 对 10-05 ok，Δ+Γ+vega+θ+unexplained = held 成立，unexplained 约为 held 的 3.9 倍，其中一大块来自一行 mark 低于内在价值的 LEAP（见 TD-246）。PROD 只读被 auto mode 拦，未测。防线：core `test_snapshot_reader.py` / `_db.py`、api `test_portfolio_snapshots_routes.py` / `_db.py`、前端 `PnlAttributionBand.test.tsx` 等
-- **下一步**：等 10-06 收盘后有两天数据再开工：api 读接口 → 前端按 SNAPSHOT-SPEC §5 改三页；TD-139 的 quality 在这一步一起定。TD-137 上线前读侧要按 account_updated_at 过滤盘中行。
-- **Claim**: Since 10-05 position_snapshot_daily and account_nav_daily are written nightly in all three Trade databases, but trade-api, Research and the frontend have no reference to either table, and GET /api/account/portfolio/nav-history, /snapshots and /api/monitor/status/history answer 404 on PROD. PnlExplainPage, PerformanceReturnBasis, the Transfer & Pay downstream band and the Accounts net-liquidation curve keep their not-wired state, and the P&L Explain model text still says nothing stores a snapshot.
-- **Measured**: MEASURED 10-06: 10-05 rows DEV 31 / STG 30 / PROD 31, option Greeks 13/13; `git grep` for both table names on origin/main: 0 files in bifrost-trade-api (8a78042) and bifrost-research (a242b22), only core's writer; the three routes 404 on PROD.
-- **Evidence**:
-  - `bifrost-trade-core/src/bifrost_core/persistence/postgres/snapshot_ddl.py:24` — `POSITION_SNAPSHOT_DAILY = "position_snapshot_daily"`
-  - `bifrost-trade-frontend/src/pages/portfolio/pnlExplain/PnlExplainPage.tsx:348` — `⚠ needs the daily snapshot`
-  - `bifrost-trade-frontend/src/pages/portfolio/pnlExplain/pnlExplainModel.ts:47` — `'The four attributions need a per-day snapshot of positions, marks and vendor Greeks. Nothing stores one, so Δ, Γ, vega and θ have no reading`
-  - `bifrost-trade-frontend/src/pages/portfolio/performance/PerformanceReturnBasis.tsx:95` — `per account — net liquidation plus its snapshot time (SNAPSHOT-SPEC §1.1).`
-- **Impact**: The stored history reaches no page: P&L Explain attribution and its Today / WTD / MTD windows, the Performance return basis, Transfer & Pay downstream and the Accounts curve stay grey while the data accumulates.
-- **Fix**: trade-api read routes over both tables through a core reader (per account and date range, NAV history; positions per session with a trade_id rollup for SNAPSHOT-SPEC §2), then the three frontend items in SNAPSHOT-SPEC §5. Until TD-137 ships, the reader drops NAV rows whose account_updated_at is before that session's close.
-- **Ratchet**: trade-api route test that reads the snapshot tables on a seeded DB; frontend test that P&L Explain stops rendering the not-wired text when the route returns rows.
-- 审批 不用批 · 代价 M · 风险 low · repos: bifrost-trade-core, bifrost-trade-api, bifrost-trade-frontend
-
-### TD-139
-
-**P3 · trade-data · Snapshot Greeks carry no quality flag (vendor / degraded / missing): only mark_source and greeks_asof are stored**
-
-- **状态**：待你签收
-- **验收**：TD-138 的读接口对每个 OPT 行都给出 `greeks_quality` ∈ {vendor, degraded, missing}，且 missing 的个数等于 `SELECT count(*) FILTER (WHERE sec_type='OPT' AND delta IS NULL) FROM position_snapshot_daily WHERE snapshot_date = (SELECT max(snapshot_date) FROM position_snapshot_daily)`（同上的 CNPG 副本只读命令）
-- **验收结果**：PASS 2026-10-07 10-07 Trade 发版（STG q478s → PROD 7ws6b → DEV，core 0.55.1 cd6f5a2 / api 0.12.0 / worker 0.2.7 / frontend 3990ebfd；tag v0.55.1）：PROD position-snapshots 14 个 OPT 行 greeks_quality 全有值、missing 0（= delta IS NULL 数 0）
-- **现在**：读时派生，不加列：vendor = greeks_asof 的纽约日期等于该 session 且五个值齐全且 mark 为 vendor_eod；degraded = 日期不对 / 缺 gamma·vega·theta·iv / mark 非 vendor；missing = 无 delta；每行另带 greeks_quality_reason。DEV 10-05、10-06 都是 vendor 13 / degraded 0 / missing 0，missing 数 = delta IS NULL 数（0 = 0）
-- **Claim**: SNAPSHOT-SPEC §1.3 asks for a quality field per option row so P&L Explain phase 2 can mark degraded Greeks instead of reading them as exact; position_snapshot_daily stores mark_source and greeks_asof only. Not biting yet: every option row of 10-05 has vendor values.
-- **Measured**: MEASURED 10-06: 10-05 OPT rows 13/13 with delta present in all three databases.
-- **Evidence**:
-  - `bifrost-trade-core/src/bifrost_core/persistence/postgres/snapshot_ddl.py:44` — `mark_source text,`
-  - `bifrost-trade-core/src/bifrost_core/persistence/postgres/snapshot_ddl.py:51` — `greeks_asof timestamptz,`
-  - `design/trade/SNAPSHOT-SPEC.md:61` — `(vendor / degraded / missing)`
-- **Impact**: The first night a vendor Greek is missing or stale, P&L Explain phase 2 has no way to say so.
-- **Fix**: Prefer deriving on read in the TD-138 reader: vendor when greeks_asof is that session and delta is present; missing when delta is null; degraded when greeks_asof is older than the session or mark_source is not vendor. Add a column only if the read cannot tell degraded apart (that would be 改表, back to the Owner).
-- **Ratchet**: Unit test of the derivation over the three cases; the route contract test asserts the field on every OPT row.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-core, bifrost-trade-api
-
 ### TD-142
 
 **P2 · research-data · The 90-day IV cone has 31–39 sessions of history and there is no 180-day tenor: ATM IV was stored only to 90 DTE before 2026-08-05**
@@ -1382,23 +1331,6 @@
 - **Ratchet**: A dashboard test: a Monday 03:00 UTC fire is not missed.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data
 
-### TD-178
-
-**P3 · trade-api · GET /strategies/plans has no source_kind filter: Research reads the newest 500 filled plans and filters itself, marking truncated at the cap**
-
-- **状态**：待你签收
-- **验收**：发版后：`curl -s -o /dev/null -w '%{http_code}' 'http://192.168.10.73:30881/api/account/strategies/plans?source_kind=bogus&limit=1'` = 422（三个网关同）；DEV `?source_kind=hypothesis` count 0、`manual` count 3；research 发布后 `/research/hypothesis?trade_env=dev` 的 `trade_link_basis.source` 含 `source_kind=hypothesis`
-- **验收结果**：PASS 2026-10-07 10-07 Trade 发版（STG q478s → PROD 7ws6b → DEV，core 0.55.1 cd6f5a2 / api 0.12.0 / worker 0.2.7 / frontend 3990ebfd；tag v0.55.1）：三网关 `source_kind=bogus` → 422（发版前 200）；research 侧随 0.199.0 已发 source_kind=hypothesis
-- **现在**：发版前基线 10-06 23:31 UTC：三网关 `source_kind=bogus` 都是 200（api 0.10.0 忽略参数）；DEV plans 3 行。EXPLAIN（副本）走 `strategy_plan_status_created`，行数 DEV 3 / STG 0 / PROD 0，不需新索引。门禁：core lint 0 / 1301 passed / test-db 103 passed；api 1005 passed；research 2091 passed。防线：api `tests/test_strategy_plans_routes.py`（hypothesis 只回 hypothesis、上限按过滤后计、未知 kind 422、不撞退役名）、core `tests/test_strategy_plan.py` + `test_strategy_plan_db.py::test_list_filters_by_source_kind_and_ref`、research `test_hypothesis_trade_links.py::test_the_kind_is_sent_and_still_checked_here`
-- **Claim**: TD-143's read-time link pulls status=filled&limit=500 and filters source_kind='hypothesis' in Research; once filled plans approach 500 the oldest links drop out (flagged truncated, not silent).
-- **Measured**: code-read 10-06 by paydown lane G2.
-- **Evidence**:
-  - `bifrost-trade-api/src/bifrost_api/strategy/routers/plans.py:70` — `def list_plans_endpoint(`
-- **Impact**: Links silently age out of reach as the plan book grows (the truncated flag says so, but the link is gone).
-- **Fix**: Additive `source_kind` (and `source_ref`) query params on core list_plans and the api route; Research passes them.
-- **Ratchet**: An api test: source_kind=hypothesis returns only those plans and keeps the 500 cap per filter.
-- 审批 改公开接口 · 代价 S · 风险 low · repos: bifrost-trade-core, bifrost-trade-api, bifrost-research
-
 ### TD-180
 
 **P3 · research-data · The macro calendar has no CPI dates after 2026-12-10 and no payrolls at all: bls.gov answers 403 from this host, so they could not be read**
@@ -1597,22 +1529,6 @@
 - **验收**: After a PROD platform rollout, `GET /api/v1/promote/release-cycles?lane=platform` and `GET /api/v1/audit` still list the entries recorded before it.
 - 审批 已批（ConfigMap） · 代价 M · 风险 med · repos: bifrost-platform, bifrost-trade-infra
 - **Also (round 3, 10-07)**: the data-clone schedule is written by the api pod and read by the workers pod's scheduler, each with its own emptyDir, and `DataCloneScheduleStore` loads its file only once at construction, so a schedule enabled in the Console never fires in-cluster (all three GETs answer enabled:false today). The ConfigMap store must be re-read on every `maybeAutoClone` tick; acceptance gains: a schedule PUT through the api pod is visible to the workers pod (`bifrost-platform/api/internal/cluster/data_clone.go:285`, `server.go:129`).
-
-### TD-199
-
-**P3 · frontend · EventsBoard.tsx and EventRadarDashboard.tsx have had no importer since 09-24 (c81e5a29); a comment still says EventRadarBody 'stays the Explorer tab's body' though Explorer was retired in 594a3f3f**
-
-- **状态**：待你签收
-- **验收**：`git -C bifrost-trade-frontend ls-tree -r --name-only origin/main | grep -cE 'EventsBoard.tsx|EventRadarDashboard.tsx'` = 0；`npx vitest run src/lib/orphanModules.test.ts src/pages/research/events/eventDate.test.tsx` 通过
-- **验收结果**：PASS 2026-10-07 frontend e98afbf0：0 个匹配、6/6 通过；删前复核无生产导入、只被它俩导入的模块 0 个；两处注释已改正。另修了 origin/main 上 Pine 会话两次提交造成的 code-health 超线（`pct` / `signed` 各 4 处定义 → `simRuns.ts` 导出 `signedPct`，显示不变）。门禁 tsc / lint / vitest 4067 / build / legacy-css / code-health 全 0。孤儿基线 42 个记为 TD-243
-- **Claim**: Lane U grepped src: the two modules are referenced only in comments (EventsPage.tsx:145, AlertsPage.tsx:16). TD-193 was filed against EventsBoard because the code looked live.
-- **Measured**: MEASURED 10-07 by paydown lane U (grep of origin/main src for imports).
-- **Evidence**:
-  - `bifrost-trade-frontend/src/pages/research/events/EventsPage.tsx:145` — ``EventRadarBody` stays the Explorer tab's body — nothing deleted. */`
-- **Impact**: Dead pages attract fixes (this round fixed one) and mislead audits into filing debt against code nobody sees.
-- **Fix**: Owner confirms by eye (CLAUDE.md §15 rule: deletion is the Owner's call), then delete both files and correct the two comments.
-- **Ratchet**: An orphan-module check (knip or a vitest over the import graph) in code-health, with the current orphans as a baseline that can only shrink.
-- 审批 删除（要你批） · 代价 S · 风险 low · repos: bifrost-trade-frontend
 
 ### TD-202
 
@@ -1816,42 +1732,6 @@
 - **Ratchet**: A unit test run under TZ=UTC and TZ=America/Chicago: getTimeRangeStamps('quarter','2026-09') returns sinceTs 1782882000 and untilTs 1790830799 in both. ESLint no-restricted-syntax bans new Date(<date-only identifier>) and Date.parse on *Str/*Date/*Iso variables without an explicit time and zone (ratchet proposal 'frontend-vitest-and-date-lint').
 - **验收**: `cd bifrost-trade-frontend && TZ=UTC npx vitest run src/utils/ledger/performanceUtils.test.ts -t getTimeRangeStamps && TZ=America/Chicago npx vitest run src/utils/ledger/performanceUtils.test.ts -t getTimeRangeStamps`
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
-
-### TD-215
-
-**P2 · trade-worker · Nothing alerts when the only writer of raw_broker.account and positions stops: the daemon has no liveness probe and no freshness rule**
-
-- **状态**：待你签收
-- **验收结果**：PASS 2026-10-07 10-07 Trade 发版（STG q478s → PROD 7ws6b → DEV，core 0.55.1 cd6f5a2 / api 0.12.0 / worker 0.2.7 / frontend 3990ebfd；tag v0.55.1） + monitoring apply（PodMonitor bifrost-trade-daemon 新建、规则组 bifrost-trade-daemon 生效）：PROD daemon 2 个 pod 0 重启、livenessProbe 生效；leader 心跳 14 s 前、raw_broker 最后写入时间有值；`check_daemon_liveness.py --live` ok。BifrostTradeDaemonMetricsAbsent 在首抓前进入 pending，指标到位后会自行解除
-- **Claim**: The daemon leader pod is the only writer of raw_broker.account and raw_broker.positions, which feed Positions, attribution and the nightly NAV and position snapshots. Its readinessProbe only checks that CNPG and Redis accept connections, and it has no livenessProbe, so a hung FSM loop or a dead pub/sub listener keeps the pod Ready. No live PrometheusRule covers the Trade daemon or raw_broker freshness. A 'per-table last_nonzero_write for raw_broker' stale rule is planned in RATCHETS.md but not implemented.
-- **Measured**: MEASURED 2026-10-07: live alert names matching daemon|broker|account|worker|stale|fresh are only Flex*, MarketData*, DagsterDaemonHeartbeat, EventRadar, ResearchCronJob and LogicalBackupDrill. PROD deploy/daemon has an empty livenessProbe. raw_broker.account also still holds U17113214, last written 2026-05-11 (adjacent to TD-137; not re-reported).
-- **Evidence**:
-  - `bifrost-trade-infra/k8s/base/worker/manifest.yaml:94` — `command: ["python", "scripts/wait_for_data.py", "--once"]`
-  - `bifrost-trade-worker/src/bifrost_worker/daemon/app/account_push.py:198` — `logger.warning("[account_push] listener error: %s; re-subscribing", e)`
-- **Impact**: If account sync stops during market hours, pages keep showing the last book as current, and once the account has been written after 16:00 ET the 16:20 capture can store it as the day's.
-- **Fix**: Add a freshness gauge (daemon /metrics, or a postgres-exporter query on max(updated_at) per account in raw_broker.account) and a PrometheusRule that fires when the host account has not been written for 15 minutes during RTH while the gateway reports host_connected. Add a livenessProbe that checks the heartbeat timestamp the daemon writes to Redis. Neither scales nor arms the daemon (D10-safe).
-- **Ratchet**: The alert rule itself, with an absent() twin. An infra check that every Deployment writing Golden Source has a livenessProbe or is on an allowlist (ratchet proposal 'infra-manifest-policy').
-- **验收**: `KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl get prometheusrules -A -o go-template='{{range .items}}{{range .spec.groups}}{{range .rules}}{{if .alert}}{{.alert}}{{"\n"}}{{end}}{{end}}{{end}}{{end}}' </dev/null | grep -ci 'broker.*stale\|daemon.*stale'  # ≥1; and kubectl -n bifrost-prod get deploy daemon -o jsonpath='{.spec.template.spec.containers[0].livenessProbe}' </dev/null  # non-empty`
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra, bifrost-trade-worker
-
-### TD-216
-
-**P2 · trade-worker · The daemon never configures logging: every INFO line is dropped, and write failures logged at debug are invisible**
-
-- **状态**：待你签收
-- **验收结果**：PASS 2026-10-07 10-07 Trade 发版（STG q478s → PROD 7ws6b → DEV，core 0.55.1 cd6f5a2 / api 0.12.0 / worker 0.2.7 / frontend 3990ebfd；tag v0.55.1）：PROD daemon 新镜像起来后 10 分钟内 22 行 INFO 日志（之前 2 小时 0 行）
-- **Claim**: Nothing in worker src or scripts calls logging.basicConfig or dictConfig or adds a handler, so Python's lastResort handler emits only WARNING and above. The leader-election lines were raised to warning just so they would show. Everything at INFO disappears, including '[ib_edge] snapshot applied', account_push, heartbeat state and control commands. Failures of write_open_orders, write_account_executions and the contract_quote_live sync are logged at debug. The in-process Metrics class is never exported.
-- **Measured**: MEASURED 2026-10-07: `kubectl -n bifrost-prod logs deploy/daemon --since=3h` shows only 'Defaulted container' and the 'standby until acquired' WARNING; the leader pod (114 min old) had 3 lines in total. A 2 h Loki query for 'ib_edge' in bifrost-prod returns 0 lines, although raw_broker.account was written at 00:07 and 00:27 UTC.
-- **Evidence**:
-  - `bifrost-trade-worker/scripts/run_daemon.py:13` — `from bifrost_worker.daemon.app.entry import run_daemon`
-  - `bifrost-trade-worker/src/bifrost_worker/daemon/lease.py:632` — `on_started_leading=lambda: logger.warning(`
-  - `bifrost-trade-core/src/bifrost_core/portfolio/ib_edge.py:113` — `logger.debug("[ib_edge] write_open_orders: %s", e)`
-  - `bifrost-trade-worker/src/bifrost_worker/daemon/core/metrics.py:11` — `"""In-memory counters and running averages; log on update or periodically."""`
-- **Impact**: A write path can fail or never run (TD-211, the contract_quote_live mirror under TD-140) and nothing appears in Loki or kubectl logs. Debugging the only writer of raw_broker account and positions data means reading the database.
-- **Fix**: Configure logging at process start in run_daemon (level from LOG_LEVEL, default INFO, one-line format to stdout). Raise the sink and edge write-failure logs from debug to warning. Optionally export a few counters (accounts written, writes failed, last write ts) on /metrics, which also feeds TD-215.
-- **Ratchet**: Worker test: the entry's logging setup leaves the root logger at INFO with a stream handler. A grep test that no logger.debug call sits on a line that names write_ (baseline 0).
-- **验收**: `KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n bifrost-prod logs deploy/daemon --since=2h </dev/null | grep -c -E 'ib_edge|account_push'  # > 0`
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-worker, bifrost-trade-core
 
 ### TD-217
 

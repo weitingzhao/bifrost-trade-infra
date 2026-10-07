@@ -81,6 +81,12 @@
 | market slot 调度快照双向锁定（TD-200） | `bifrost-research/tests/orchestration/test_market_slot_roster_snapshot.py`（从 schedule_roster 重建 = 检入快照，失败提示同步插件）+ `bifrost-platform-plugin-market-data/tests/test_dagster_slot_roster.py::test_the_research_copy_is_this_file`（相邻 checkout 时两份逐字节相同） | 在 research 改 Dagster 调度而插件的 adherence 判定仍按旧 cron | warning（测试） | — |
 | 插件文档不再描述 CronJob 调度（TD-201） | `bifrost-platform-plugin-market-data/tests/test_k8s_no_cronjobs.py::test_docs_do_not_describe_a_cronjob_scheduler` + `test_every_history_line_still_exists` | 文档把读者引向已删除的 CronJob 调度 | warning（测试） | 只扫 Markdown；代码字符串与脚本见 TD-202 |
 | platform-api 的 HTTP 指标（TD-195） | `bifrost-platform/api/internal/server/httpmetrics_test.go`（真实路由器；序列消失、未匹配路径变标签、最大有限桶 ≤ 2 s 都失败）+ `bifrost-trade-infra/scripts/check_http_metrics_coverage.py`（BifrostAPIWithoutHttpMetrics 不许任何豁免） | platform-api 的 5xx / 延迟告警看不见 | warning（测试 / 脚本）+ alert | — |
+| 日快照读侧（TD-138） | `bifrost-trade-core/tests/test_snapshot_reader.py` + `test_snapshot_reader_db.py`（盘中 NAV 行丢弃、归因恒等式）；`bifrost-trade-api/tests/test_portfolio_snapshots_routes.py` + `_db.py`；`bifrost-trade-frontend/src/pages/portfolio/pnlExplain/PnlAttributionBand.test.tsx`（有读数时不渲染未接通文字） | 快照写了没人读、页面一直说没有快照 | warning（测试） | api CI 不跑 db 测试 |
+| 期权快照行的 Greeks 质量（TD-139） | api `test_portfolio_snapshots_routes.py`（每个 OPT 行带 greeks_quality，missing 数 = delta 为空数）+ core `test_snapshot_reader.py` 三种情形 | 陈旧 / 缺失的 Greeks 被当成准确值 | warning（测试） | — |
+| plans 按来源过滤（TD-178） | `bifrost-trade-api/tests/test_strategy_plans_routes.py`（hypothesis 只回 hypothesis、上限按过滤后计、未知 kind 422、不撞退役名）+ core `test_strategy_plan.py` / `_db.py` | 关联读取随 plan 增多被上限截断 | warning（测试） | — |
+| raw_broker 唯一写入方的存活（TD-215） | 规则组 `bifrost-trade-daemon`（`bifrost-trade-infra/k8s/monitoring/bifrost-alerting-rules.yaml`）+ PodMonitor `bifrost-trade-daemon` + `scripts/check_daemon_liveness.py`（端口、/health 探针、规则读 worker 指标、带 slot_connected 条件、absent 兜底） | daemon 停写 raw_broker 无人知 | alert + warning（脚本） | 只看 daemon 自报的写入时间，库侧每表最后写入规则未建 |
+| daemon 日志可见（TD-216） | `bifrost-trade-worker/tests/test_daemon_observability.py`（入口先配 INFO）+ `bifrost-trade-core/tests/test_write_failure_log_levels.py`（except 内点名写入不许 debug，基线 0） | 写失败只在 debug、生产日志一行没有 | warning（测试） | — |
+| 前端孤儿模块（TD-199） | `bifrost-trade-frontend/src/lib/orphanModules.test.ts`（从 main.tsx 走导入图，KNOWN_ORPHANS 只许缩短） | 没人引用的页面招来误修与误报 | warning（测试） | 现存 42 个见 TD-243 |
 
 ## 各类债现在挡没挡住
 
