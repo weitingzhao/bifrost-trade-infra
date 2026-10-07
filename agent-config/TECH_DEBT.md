@@ -13,7 +13,6 @@
 
 ## 待你签收
 
-- **TD-217** — Golden Source 的 Barman 备份第一次实际恢复：NAS MinIO 只读凭证、恢复到 18:37:26Z 约 23 分钟，三表行数一致；A6 校验 105 表 104 PASS、1 张为目标后写入（10-07） · 验收 PASS（compare.sh PASS；A6 104/105，差异可解释） · 防线：`k8s/data/recovery-drill/`（可重复执行的清单 + compare.sh）；告警 BifrostPostgresRecoveryDrillStale 依赖 CronJob，手工演练满足不了，未 apply · 后续：TD-258（Owner 10-07 定按季度手工演练、保留 MinIO 只读用户；告警改为看上次通过时间，交 Cursor LANE-Q）
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-253** — 检查信号不再是几周前的：每条带观测时间和来源，超过 2 小时读 unknown、autopilot 不会按它动手；PROD platform-workers 自己每 10 分钟探测一次（不再靠 Mac 上报）。验收 PASS 2026-10-07 d8bdf41（22/22 带时间）。防线：`RATCHETS.md`「检查信号的时效与来源」测试 + `check_platform_maintenance.py`（探测器只在 PROD workers）。后续：无后续：放开 autopilot 动手在 TD-130（观察到 10-12）
@@ -21,7 +20,7 @@
 - **TD-255** — 漂移扫描不再删失败现场：只删被驱逐的 Pod，失败的备份 Job Pod 留着（日志可读），只报告模式下一个不删。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「漂移扫描只删 Evicted 测试」。后续：无后续：Job 历史上限与 TTL 负责回收
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 73 项**：P0 0 · P1 7 · P2 26 · P3 40；要你批的 32 项（从总览表的审批列算）。
+**未结 72 项**：P0 0 · P1 7 · P2 25 · P3 40；要你批的 31 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -110,7 +109,7 @@
 
 目标：数据层告警有一个人能收到的通道和外部心跳；逻辑备份先修好等库就绪；做一次 Barman 恢复演练；决定异地副本；daemon 停写与日志丢失要能被看见。
 
-项：TD-210, TD-217, TD-218, TD-258 · 已还：TD-248, TD-209, TD-215, TD-216, TD-238, TD-237
+项：TD-210, TD-218, TD-258 · 已还：TD-248, TD-209, TD-215, TD-216, TD-238, TD-237, TD-217
 
 ### 第 11 波 · 账本与页面读数、绿着的未知（第 3 轮）
 
@@ -292,7 +291,6 @@
 | [TD-204](#td-204) | P1 | ops-platform | STG and PROD platform-api and platform-workers run as system:masters through a copy of the k3s admin kubeconfig, and anonymous GETs use it to read pod logs in any namespace | 安全/凭据（要你批） |
 | [TD-208](#td-208) | P1 | ops-platform | Anonymous POST /checklist/husbandry-sync starts full-auto remediation agents: it merges the stored checklist and dispatches every failing item, and three Console pages call it on load | 安全/凭据（要你批） |
 | [TD-210](#td-210) | P1 | data | The nightly logical backup of hand-entered data failed on its first scheduled run: it connects before the new pod's NetworkPolicy is programmed and gets Connection refused | 不用批 |
-| [TD-217](#td-217) | P2 | data | The Barman base+WAL backup, the only copy of the 34 GB Golden Source history, has never been restored, and has not been tried at all against the NAS MinIO it moved to on 10-06 | PROD 变更（要你批） |
 | [TD-218](#td-218) | P2 | data | Every backup copy (Barman base+WAL, logical dumps hot and cold, the W3 archive) is on the one NAS 192.168.10.20:/volume1, and the open offsite decision is not in the ledger | PROD 变更（要你批） |
 | [TD-223](#td-223) | P3 | ops-platform | STG and PROD platform-workers both run the IB gateway auto-repair loop against the one live data/ib-gateway, each with its own 15-minute cooldown | PROD 变更（要你批） |
 | [TD-228](#td-228) | P3 | ops-console | Every scheduled Hermes skill run on .52 fails with 'No such file or directory', while /health returns status ok and the checklist counts the gateway healthy | 不用批 |
@@ -1328,24 +1326,6 @@
 - **Ratchet**: Infra manifest policy check: every Job/CronJob whose pod is a source in a postgres ingress NetworkPolicy, or whose env sets PGHOST, must have an initContainer named wait-pg (or a declared retry). BifrostLogicalBackupMissing stays as the runtime backstop, with an absent() twin.
 - **验收**: `KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data get jobs -l app.kubernetes.io/name=logical-backup -o custom-columns=N:.metadata.name,S:.status.succeeded,F:.status.failed --sort-by=.metadata.creationTimestamp </dev/null | grep -v manual  # newest three scheduled jobs show S=1 and F <none>`
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra
-
-### TD-217
-
-**P2 · data · The Barman base+WAL backup, the only copy of the 34 GB Golden Source history, has never been restored, and has not been tried at all against the NAS MinIO it moved to on 10-06**
-
-- **状态**：待你签收（10-07 首次恢复演练 PASS；A6 105 表只读校验 104/105 PASS（option_open_interest 125,860 行为目标时间后 19:30Z upsert 改了时间戳，总数两侧相同）；演练集群、namespace 与 80Gi 卷已清理）
-- **验收结果**：PASS 2026-10-07：pg-recovery-drill 从 s3://bifrost-postgres-backup（NAS MinIO，只读凭证 pg-recovery-drill：list ok、put AccessDenied）恢复到 targetTime 2026-10-07T18:37:26Z，full-recovery 约 23 分钟（19:37→20:00Z，ubt-k3s-06）；compare.sh：atm_iv 1,325,029、stock_daily 14,154,579、transactions 177，最新时间戳两侧一致。注意：BifrostPostgresRecoveryDrillStale 依赖 CronJob pg-recovery-drill 的成功时间，手工演练满足不了，在有 CronJob 之前不能 apply（否则常响）
-- **Claim**: The CNPG cluster has a 30-day recoverability window (firstRecoverabilityPoint 2026-09-06), but infra has never had a bootstrap.recovery or externalClusters manifest, and only one Cluster has ever existed. The monthly drill in k8s/data/logical-backup restores only the logical dump of 7 hand-entered schemas into an emptyDir Postgres and never reads the Barman object store. So nobody knows whether barman-cloud-restore works against the NAS MinIO the bucket moved to on 10-06, with its credentials, gzip WAL and serverName. TD-135 mentions a restore drill only as a one-off step of the plugin migration.
-- **Measured**: MEASURED 2026-10-07. Only data/bifrost-postgres exists. firstRecoverabilityPoint is 2026-09-06T06:19:40Z, lastSuccessfulBackup 2026-10-06T17:32:39Z. `git grep` over infra finds no recovery bootstrap (the only 'bootstrap:' is initdb at cluster.yaml:19). 10-03 and 10-04 do have completed ondemand backups; only the scheduled 'daily' names are missing for those days. The first NAS backup is bifrost-postgres-manual-20261006-nas.
-- **Evidence**:
-  - `bifrost-trade-infra/k8s/data/cluster.yaml:43` — `barmanObjectStore:`
-  - `bifrost-trade-infra/k8s/data/logical-backup/cronjob-drill.yaml:4` — `# (emptyDir) and requires every table's row count to equal the manifest. Never`
-  - `bifrost-trade-infra/k8s/data/logical-backup/README.md:24` — `RPO is one day for this copy. Point-in-time recovery to the minute is still`
-- **Impact**: If both instances or the cluster are lost, restoring market data, features and research history is untested exactly when it is needed. Credential, endpoint, compression, serverName or WAL-gap problems would surface only during the incident.
-- **Fix**: Add a monthly CNPG recovery drill: a scratch Cluster (1 instance, bootstrap.recovery from the bifrost-postgres object store with targetTime about 1 h ago, a different serverName, read-only creds) in its own namespace on a node with about 80 GB free. Compare row counts of a fixed table list with PROD at the target time, record the result as a metric or ConfigMap, then delete the scratch Cluster. Coordinate with TD-135's plugin migration.
-- **Ratchet**: Alert BifrostPostgresRecoveryDrillStale: time() - max(kube_cronjob_status_last_successful_time{cronjob="pg-recovery-drill"}) > 35d, plus absent() of the series, so a drill that has never run also fires.
-- **验收**: `KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data get cronjob pg-recovery-drill -o jsonpath='{.status.lastSuccessfulTime}' </dev/null  # a date within the last 35 days`
-- 审批 PROD 变更（要你批） · 代价 M · 风险 med · repos: bifrost-trade-infra
 
 ### TD-218
 
