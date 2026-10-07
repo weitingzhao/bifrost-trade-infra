@@ -13,7 +13,8 @@
 
 ## 待你签收
 
-（暂无）
+- **TD-194** — 延迟告警真能响了：core 计时到响应头、/health 只计数不计时（Owner 确认），规则读 highr p99 `> 5 for 10m`；中途回归（api-monitor 丢计数，同进程两个 app）由 core 0.55.2 修复 · 验收 PASS（10-07 live 覆盖检查 ok）· 防线：core `test_prometheus_instrumentation.py`（含多 app 用例）+ api `test_monitor_http_metrics.py` + `check_http_metrics_coverage.py`（阈值须低于所读直方图最大有限桶）· 后续：TD-242（队列看板慢）
+- **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
 **未结 113 项**：P0 0 · P1 11 · P2 36 · P3 66；要你批的 59 项（从总览表的审批列算）。
 
@@ -1495,7 +1496,8 @@
 
 **P2 · ops-platform · BifrostAPIHighLatency can never fire: the histogram it reads tops out at a 1 s bucket, so histogram_quantile returns at most 1 and `> 2` is impossible**
 
-- **状态**：观察中（规则已 apply；回归已修：core 0.55.2 = 7bf56de、api 0.12.1 = 0146840 已上 main，等下一次 Trade 发版；之后 `check_http_metrics_coverage.py --live` 应 ok）
+- **状态**：待你签收
+- **验收结果**：PASS 2026-10-07 03:0x UTC 10-07 第二轮 Trade 发版（STG gt9jp → PROD 9s8s9 → DEV，core 0.55.2 = 7bf56de，tag v0.55.2；api 0.12.1；frontend 119726cc）：`check_http_metrics_coverage.py --live` → ok（三环境 api-monitor 重新导出 http_requests_total，STG 实测 /health、/status、/ops/health 都在计数）；BifrostAPIWithoutHttpMetrics / HighLatency 无告警；延迟规则读 highr、`> 5 for 10m` 已生效
 - **下一步**：回归根因（道 II）：monitor 进程先为只复制路由的 docs app 调 instrument_app，0.55.0 起在调用时即建序列、instrumentator 遇同名序列返回 None，于是序列全挂在从不接请求的 docs app 上，api-monitor 只剩 in-progress gauge。修复：每个 registry 只注册一次、所有 app 共享，in-progress gauge 也走传入的 registry，同名序列被外部注册时抛错。防线：core `test_prometheus_instrumentation.py` 新增三个多 app 用例 + api `tests/test_monitor_http_metrics.py`（真实 monitor app 的 /metrics 有 http_requests_total）。发版前 BifrostAPIWithoutHttpMetrics 会对三环境 api-monitor 告警（预期）
 - **现在**：道 CC 实测（7 天）：trade-api 只有两个流式路由（/quotes/stream、/api/messages/stream，25 s keepalive SSE），旧计时按连接结束算，平均约 40 s；PROD api-monitor >1 s 的 211 个观测里 172 个是 SSE。另：kubelet 的 /health 占延迟观测 87–97%，把 p99 稀释成真实请求的约 p70。core 0.55.0：两个延迟直方图都计时到响应头（库自带 should_exclude_streaming_duration），/health 计数不计时（**超出原话「排除 SSE」的范围，待你确认**），指标名与标签不变、默认桶不变。规则改读 highr p99，`or` 低精度直方图（只对 platform-api），阈值 `> 5 for 10m`：按新口径 7 天回放 PROD 0、STG 0、DEV 3–9 次（都是真慢窗口）。防线：core `tests/test_prometheus_instrumentation.py`（6 个）+ `check_http_metrics_coverage.py`（延迟规则须读 highr、阈值低于所读直方图的最大有限桶，`--live` 核真实桶）。后续 TD-242
 - **Claim**: prometheus-fastapi-instrumentator's default http_request_duration_seconds buckets are 0.1 / 0.5 / 1 / +Inf (core observability/prometheus.py). The rule asks p99 > 2 s. The fine histogram (http_request_duration_highr_seconds, no handler label, 0.01–60 s) would fire: over 7 days PROD api-monitor had ~20 and api-market ~17 windows of ≥5 min with p99 > 2 s — possibly streaming routes timed to response end (unverified).
@@ -1718,8 +1720,8 @@
 
 **P2 · frontend · Performance and Portfolio Overview summaries start the range at UTC midnight, so they include the previous month's last Chicago day**
 
-- **状态**：观察中（代码在 frontend main 119726cc，晚于 10-07 02:0x 这次 Trade 发版的 STG 构建 3990ebfd，随下一次 Trade 发版上线；上线后在页面核对再交签收）
-- **验收结果**：PASS 2026-10-07 frontend 119726cc：`getTimeRangeStamps` 两端都由 `getChicagoDayRange` 算；DEV / PROD Q3 实测旧起点 111 fills / 41 wins → 新 110 / 40（与日历一致）；TZ=UTC / America/Chicago / Asia/Tokyo 下用例都过。防线 `performanceUtils.test.ts`
+- **状态**：待你签收
+- **验收结果**：PASS 2026-10-07 frontend 119726cc：`getTimeRangeStamps` 两端都由 `getChicagoDayRange` 算；DEV / PROD Q3 实测旧起点 111 fills / 41 wins → 新 110 / 40（与日历一致）；TZ=UTC / America/Chicago / Asia/Tokyo 下用例都过。防线 `performanceUtils.test.ts`；已随 10-07 第二轮 Trade 发版（STG gt9jp → PROD 9s8s9 → DEV，core 0.55.2 = 7bf56de，tag v0.55.2；api 0.12.1；frontend 119726cc） 上三环境
 - **Claim**: getTimeRangeStamps parses sinceStr ('YYYY-MM-01') with new Date(), which reads a date-only string as UTC midnight, while untilStr is parsed as local 23:59:59. trade-api compares from_ts/to_ts as the calendar day in America/Chicago. UTC midnight on the 1st is 19:00 Chicago on the previous day, so every month, quarter, half-year and year summary also counts the fills of the day before the range. The by-day path uses getChicagoDayRange (defined in the same file) correctly, so the strip and the calendar under it disagree.
 - **Measured**: MEASURED on PROD /api/account/performance (granularity=day, source_scope=performance_book) with to_ts=1790830799. Q3 2026: from_ts=1782864000 (the client's UTC midnight) gives fill_count 111 and win_count 41; 1782882000 (Chicago midnight) gives 110 and 40, and realised P&L differs by a 06-30 fill. May 2026: 36 vs 33 fills (three 04-30 fills). Sep and Q2 2026 match only because the prior month-end had no fills.
 - **Evidence**:
@@ -1770,8 +1772,8 @@
 
 **P2 · frontend · The rail's amber 'alerts fired today' count can never be non-zero: it matches trade_date against the UTC date, and alerts are stamped with an earlier session**
 
-- **状态**：观察中（代码在 frontend main 119726cc，晚于 10-07 02:0x 这次 Trade 发版的 STG 构建 3990ebfd，随下一次 Trade 发版上线；上线后在页面核对再交签收）
-- **验收结果**：PASS 2026-10-07 frontend 119726cc：`firedOn` 按 computed_at 的纽约日判「今天」，侧栏计数 / Alerts 文案 / Dock 共用；DEV / PROD 89 条重放 10-05 19:00 / 21:30 / 23:30 ET：旧 0 → 新 7。防线 `src/hooks/useFiredAlerts.test.ts`（8 个）
+- **状态**：待你签收
+- **验收结果**：PASS 2026-10-07 frontend 119726cc：`firedOn` 按 computed_at 的纽约日判「今天」，侧栏计数 / Alerts 文案 / Dock 共用；DEV / PROD 89 条重放 10-05 19:00 / 21:30 / 23:30 ET：旧 0 → 新 7。防线 `src/hooks/useFiredAlerts.test.ts`（8 个）；已随 10-07 第二轮 Trade 发版（STG gt9jp → PROD 9s8s9 → DEV，core 0.55.2 = 7bf56de，tag v0.55.2；api 0.12.1；frontend 119726cc） 上三环境
 - **Claim**: firedTodayCount keeps alerts whose trade_date equals the UTC date of the browser clock. alert_scan stamps each alert with the session it judges and writes it on a later day: today at 22:30 UTC the next weekday, and after TD-97's planned move into the 02:30 UTC batch still the next UTC day. No alert can have trade_date == UTC today, so the Market group's amber count is always 0 and its tooltip says '0 alerts fired today'. TD-97 fixes the backend lag only; this reader stays broken afterwards.
 - **Measured**: MEASURED: GET /api/plugin/research/research/alerts?limit=200&days=90 returned 89 alerts. In 0 of 89 does trade_date equal the UTC day of computed_at, and in 0 of 89 the NY day (for example computed_at 2026-10-05T22:30Z with trade_date 2026-10-02).
 - **Evidence**:
@@ -1997,8 +1999,8 @@
 
 **P3 · frontend · 24 frontend sites take 'today' as the UTC date although four session helpers exist: from 20:00 ET until midnight they read tomorrow, and one writes a default opened_at**
 
-- **状态**：观察中（代码在 frontend main 119726cc，晚于 10-07 02:0x 这次 Trade 发版的 STG 构建 3990ebfd，随下一次 Trade 发版上线；上线后在页面核对再交签收）
-- **验收结果**：PASS 2026-10-07 frontend 119726cc：UTC today 构造 23/24 改走 `etTodayIso`（FillsPage 的 todayUtc 与 Flex UTC 戳比较，白名单 1 处）；四个 helper 收拢，浏览器时区的 todayIso / localDayStamp 删除；grep 剩 0。防线：eslint `no-restricted-syntax` + `src/lib/utcTodayRatchet.test.ts`（白名单只减）+ TradeCreateModal 23:30 ET 用例
+- **状态**：待你签收
+- **验收结果**：PASS 2026-10-07 frontend 119726cc：UTC today 构造 23/24 改走 `etTodayIso`（FillsPage 的 todayUtc 与 Flex UTC 戳比较，白名单 1 处）；四个 helper 收拢，浏览器时区的 todayIso / localDayStamp 删除；grep 剩 0。防线：eslint `no-restricted-syntax` + `src/lib/utcTodayRatchet.test.ts`（白名单只减）+ TradeCreateModal 23:30 ET 用例；已随 10-07 第二轮 Trade 发版（STG gt9jp → PROD 9s8s9 → DEV，core 0.55.2 = 7bf56de，tag v0.55.2；api 0.12.1；frontend 119726cc） 上三环境
 - **Claim**: 24 inline `new Date().toISOString().slice(0,10)` sites take 'today' as the UTC date, although etTodayIso, chicagoTodayDateStr, todayIso and localDayStamp exist. From 20:00 ET (19:00 CDT) until midnight they read the next day: the Trade create form's default opened_at (POSTed as `${dateStr}T12:00:00.000Z`, but editable), event and corporate-action countdowns, the Review queue, habits and fit, Shares band yields, and the Alerts page. There are also 3 todayIso copies with different zones. FillsPage's `todayUtc` is intentionally UTC. This is the frontend half of the TD-98 class.
 - **Measured**: Counted on origin/main dfb7858e: 24 sites outside tests against 4 helpers (77 helper call sites). PROD public.trade: 89 rows, all noon-UTC stamps, 0 dated after their NY creation day, so there is no stored damage yet. Per-site consequences are CODE-READ.
 - **Evidence**:
@@ -2016,8 +2018,8 @@
 
 **P3 · frontend · fetchIvPercentileForSymbols turns every non-404 failure into 'no data', so IV Radar and the Watch book report a plugin outage as names without an IV rank**
 
-- **状态**：观察中（代码在 frontend main 119726cc，晚于 10-07 02:0x 这次 Trade 发版的 STG 构建 3990ebfd，随下一次 Trade 发版上线；上线后在页面核对再交签收）
-- **验收结果**：PASS 2026-10-07 frontend 119726cc：`fetchIvPercentileForSymbols` 每名返回 row / absent（404 或空）/ error；IV Radar 失败行标「read failed」并计数，全部失败抛错；Watch book 同。防线 `src/api/research/ivRadar.test.ts`、`watchBookModel.test.ts`
+- **状态**：待你签收
+- **验收结果**：PASS 2026-10-07 frontend 119726cc：`fetchIvPercentileForSymbols` 每名返回 row / absent（404 或空）/ error；IV Radar 失败行标「read failed」并计数，全部失败抛错；Watch book 同。防线 `src/api/research/ivRadar.test.ts`、`watchBookModel.test.ts`；已随 10-07 第二轮 Trade 发版（STG gt9jp → PROD 9s8s9 → DEV，core 0.55.2 = 7bf56de，tag v0.55.2；api 0.12.1；frontend 119726cc） 上三环境
 - **Claim**: fetchIvPercentile maps a 404 to null (a real absence) and rethrows everything else. fetchIvPercentileForSymbols then catches every error (5xx, timeout, network; 'Treat hard errors as no data') and stores null. useIvRadarData counts it as noData with isError false, and useWatchBook renders the IV column as absent. The fan-out is one request per symbol every 120 s, although the same route returns the whole universe in one call.
 - **Measured**: CODE-READ for the failure path; no failure was induced. The route answers 200 today with sane values (iv_current max 1.216 over 500 rows).
 - **Evidence**:
