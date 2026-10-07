@@ -26,10 +26,15 @@ spec:
           image: redis:7-alpine
           command:
             - redis-server
+            # Ephemeral by design (TD-238): there is no volume, so no AOF and no RDB
+            # snapshot; a recreated pod starts empty. maxmemory sits below the 512Mi
+            # limit so noeviction answers a runaway writer with write errors, not an OOMKill.
             - --appendonly
-            - "yes"
-            - --appendfsync
-            - everysec
+            - "no"
+            - --save
+            - ""
+            - --maxmemory
+            - 400mb
             - --maxmemory-policy
             - noeviction
           ports:
@@ -113,10 +118,15 @@ spec:
           image: redis:7-alpine
           command:
             - redis-server
+            # Ephemeral by design (TD-238): there is no volume, so no AOF and no RDB
+            # snapshot; a recreated pod starts empty. maxmemory sits below the 1Gi
+            # limit so noeviction answers a runaway writer with write errors, not an OOMKill.
             - --appendonly
-            - "yes"
-            - --appendfsync
-            - everysec
+            - "no"
+            - --save
+            - ""
+            - --maxmemory
+            - 800mb
             - --maxmemory-policy
             - noeviction
           ports:
@@ -200,10 +210,15 @@ spec:
           image: redis:7-alpine
           command:
             - redis-server
+            # Ephemeral by design (TD-238): there is no volume, so no AOF and no RDB
+            # snapshot; a recreated pod starts empty. maxmemory sits below the 512Mi
+            # limit so noeviction answers a runaway writer with write errors, not an OOMKill.
             - --appendonly
-            - "yes"
-            - --appendfsync
-            - everysec
+            - "no"
+            - --save
+            - ""
+            - --maxmemory
+            - 400mb
             - --maxmemory-policy
             - noeviction
           ports:

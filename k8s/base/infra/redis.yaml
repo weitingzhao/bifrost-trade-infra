@@ -19,7 +19,8 @@ spec:
       containers:
         - name: redis
           image: redis:7-alpine
-          command: ["redis-server", "--appendonly", "yes"]
+          # Ephemeral (TD-238): no volume, so no AOF / RDB; maxmemory below the 256Mi limit.
+          command: ["redis-server", "--appendonly", "no", "--save", "", "--maxmemory", "200mb", "--maxmemory-policy", "noeviction"]
           ports:
             - name: redis
               containerPort: 6379

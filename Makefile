@@ -457,6 +457,11 @@ check-platform-rbac:
 check-data-lan-exposure:
 	python3 scripts/check_data_lan_exposure.py $(if $(LIVE),--live,)
 
+# TD-238: a redis-server without a /data volume declares itself ephemeral (no AOF, --save ""),
+# and every redis-server sets --maxmemory below its container memory limit.
+check-redis-config:
+	python3 scripts/check_redis_config.py
+
 # TD-215: daemon port + /health livenessProbe, its PodMonitor and the BifrostTradeDaemon* rules
 # (absent() twin, raw_broker rule gated on a TWS session). LIVE=1 also wants the PROD leader's
 # heartbeat and raw_broker write timestamps in Prometheus.
