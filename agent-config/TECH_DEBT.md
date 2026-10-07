@@ -15,7 +15,7 @@
 
 - **TD-193** — 事件行日期改用 event_date（无则退回 collected_at 并标注），宏观行带发布时间（frontend 18e003fe）· 验收 PASS（10-07）· 防线：`src/pages/research/events/eventDate.test.tsx`（回退到 collected_at 即失败） · 更正：原文说的 EventsBoard 自 09-24 起已是孤儿，线上看不到错日期 · 后续：TD-199（删孤儿文件，要你肉眼定）
 
-**未结 83 项**：P0 0 · P1 4 · P2 31 · P3 48；要你批的 44 项（从总览表的审批列算）。
+**未结 85 项**：P0 0 · P1 4 · P2 31 · P3 50；要你批的 44 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -70,7 +70,7 @@
 
 目标：删掉没人用的（挂起的 CronJob、退役脚本、无调用路由），手抄的副本改成从一处生成（调度名单、max-pain / PCR），清单的应用顺序与 Argo 归属理顺。
 
-项：TD-102, TD-106, TD-107, TD-118, TD-119, TD-120, TD-123, TD-125, TD-160, TD-169, TD-170, TD-190, TD-191 · 已还：TD-126, TD-108, TD-154, TD-163, TD-168, TD-124, TD-176
+项：TD-102, TD-106, TD-107, TD-118, TD-119, TD-120, TD-123, TD-125, TD-160, TD-169, TD-170, TD-190, TD-191, TD-200, TD-201 · 已还：TD-126, TD-108, TD-154, TD-163, TD-168, TD-124, TD-176
 
 ### 第 6 波 · 备份链与自动修复（10-06 日常发现）
 
@@ -259,6 +259,8 @@
 | [TD-197](#td-197) | P3 | ops-platform | Lineage thread titles are synced only by the platform-api on the Owner's workstation (bdev): when it is down, or sessions run elsewhere, new threads stay unnamed | 已批 |
 | [TD-198](#td-198) | P3 | ops-platform | STG platform-api is not scraped: the platform-api ServiceMonitor selects only bifrost-platform-prod, so STG platform 5xx / latency and plugin health come from PROD only | 不用批 |
 | [TD-199](#td-199) | P3 | frontend | EventsBoard.tsx and EventRadarDashboard.tsx have had no importer since 09-24 (c81e5a29); a comment still says EventRadarBody 'stays the Explorer tab's body' though Explorer was retired in 594a3f3f | 删除（要你批） |
+| [TD-200](#td-200) | P3 | research-control | Changing a Dagster market schedule in research does not fail any test: the plugin's slot-cron snapshot only catches drift when someone regenerates it | 不用批 |
+| [TD-201](#td-201) | P3 | market-data | market-data docs still describe a CronJob scheduler (README, CLAUDE.md, docs/STG_PROMOTE.md) after TD-124 removed every CronJob | 不用批 |
 
 ## 条目
 
@@ -1505,7 +1507,9 @@
 
 **P3 · market-data · market-data config/schedule.yaml still says K8s CronJob YAML is the runtime schedule source; after TD-124 there are no CronJobs and Dagster fires every slot**
 
-- **状态**：在做（还债第五批 · 道 V，10-07 00:2x UTC 开工；发版前停下等你批）
+- **状态**：在做（修复在 market-data main d0b1c9e = 0.83.0，镜像已建 sha256:5286c8dc…；ConfigMap 变了，发布等你批）
+- **验收**：发布后 queue-dashboard：intraday-chain 的 cron 为 `30 10 * * 1-5 | 0 13 * * 1-5 | 30 15 * * 1-5 (America/New_York)`、工作日 3 次触发；出现 corporate-backfill 行（last_fire 2026-10-01T07:00:00Z）；husbandry 不是 missed。注意：不能只 apply ConfigMap——旧镜像读新 ConfigMap 会报 unsupported_cron，镜像和 ConfigMap 同一次 `apply -k`
+- **现在**：道 V：这些 cron 不是「仅供参考」——`_slot_adherence` 用它判 on_plan / missed，Platform Market batch lane 与 Console 都读。实测与 Dagster（roster = market_slot_schedules = 线上 /research/orchestration/status）对不上 2 处：intraday-chain 插件写 `30 14 * * 1-5` UTC 一次，Dagster 是纽约时区三次（10:30 / 13:00 / 15:30）——夏令时恰好对上，**11-02 起每个工作日 15:15–15:30 UTC 会误判 missed、把 husbandry 拉红**；corporate-backfill 插件写「无 cron」，Dagster 每月 1 号 07:00 UTC 触发。修复：cronutil 支持多条 cron + 时区 + 月度；两份 schedule 改对并改正注释；`scripts/snapshot_dagster_roster.py` 生成 / 校验 Dagster 快照（插件运行时不依赖 research）。防线 `tests/test_dagster_slot_roster.py`（修复前的 config 会准确报这两项）。门禁 pytest 1240 passed。后续 TD-200、TD-201
 - **Claim**: Slot cron strings live in config/schedule.yaml and k8s/base/configmap-schedule.yaml; the real firing is Dagster's market_slot_schedules.py. The header comment now points readers at a source that no longer exists.
 - **Measured**: code-read 10-06 by paydown lane R.
 - **Evidence**:
@@ -1642,6 +1646,34 @@
 - **Fix**: Owner confirms by eye (CLAUDE.md §15 rule: deletion is the Owner's call), then delete both files and correct the two comments.
 - **Ratchet**: An orphan-module check (knip or a vitest over the import graph) in code-health, with the current orphans as a baseline that can only shrink.
 - 审批 删除（要你批） · 代价 S · 风险 low · repos: bifrost-trade-frontend
+
+### TD-200
+
+**P3 · research-control · Changing a Dagster market schedule in research does not fail any test: the plugin's slot-cron snapshot only catches drift when someone regenerates it**
+
+- **状态**：未开始
+- **Claim**: TD-191 added tests/fixtures/dagster_slot_roster.json on the plugin side; neither market_slot_schedules.py nor api/schedule_roster.py in research refers to it.
+- **Measured**: code-read 10-07 by paydown lane V.
+- **Evidence**:
+  - `bifrost-research/src/bifrost_research/orchestration/market_slot_schedules.py:36` — `# (MARKET_SLOTS_BY_SCHEDULE, below) is derived from it, so the slot names live`
+- **Impact**: A schedule moved in Dagster silently desynchronises the plugin's adherence verdicts again (the TD-191 failure mode).
+- **Fix**: Add a research test beside test_definitions that compares market slot schedules with a checked-in copy and points at the plugin snapshot, or a scheduled check comparing live /research/orchestration/status with the plugin queue-dashboard crons (snapshot_dagster_roster.py --check already exists).
+- **Ratchet**: The test itself.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research, bifrost-platform-plugin-market-data
+
+### TD-201
+
+**P3 · market-data · market-data docs still describe a CronJob scheduler (README, CLAUDE.md, docs/STG_PROMOTE.md) after TD-124 removed every CronJob**
+
+- **状态**：未开始
+- **Claim**: README.md:28 'scheduler/ # CronJob enqueue'; CLAUDE.md:27 'CronJob scheduler'; CLAUDE.md:66 verify line mentions CronJobs; docs/STG_PROMOTE.md:13,28-30,109-112 give CronJob-based steps.
+- **Measured**: code-read 10-07 by paydown lane V.
+- **Evidence**:
+  - `bifrost-platform-plugin-market-data/README.md:28` — `scheduler/`
+- **Impact**: An agent following the plugin's own docs looks for or recreates CronJobs.
+- **Fix**: Rewrite those lines to say Dagster (research market_slot_schedules.py) fires every slot via POST /market/ingest/enqueue-slot.
+- **Ratchet**: Extend test_k8s_no_cronjobs.py to grep the plugin's docs for 'CronJob' outside an allowlisted history section.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data
 
 ## 没覆盖到的（下一轮从这里开始）
 
