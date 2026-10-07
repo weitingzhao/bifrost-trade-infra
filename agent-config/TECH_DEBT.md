@@ -14,9 +14,8 @@
 ## 待你签收
 
 - **TD-197** — 线程标题由会话自己上报：Stop hook `report-thread-title.js` 读本会话 transcript 的标题，用 reporter 令牌 PUT 到 platform（本机同步保留作兜底）。验收 PASS 2026-10-06（PROD 上对方会话的线程带标题显示，标题由 hook 写入）。防线：`RATCHETS.md`「report-thread-title.test.js」。后续：无后续：Cursor 没有会话标题，已写进 shared-worktree 规则；镜像滞后已由 platform d0b6943 修掉
-- **TD-198** — STG platform-api 也被 Prometheus 抓取（ServiceMonitor 加 bifrost-platform-stg，infra ac7b2e6）· 验收 PASS（10-07，up = 1，无新告警）· 防线：`scripts/check_http_metrics_coverage.py`（PLATFORM_NAMESPACES 每个都要被某个 ServiceMonitor 选中，`--live` 要 up == 1）· 无后续
 
-**未结 80 项**：P0 0 · P1 4 · P2 30 · P3 46；要你批的 44 项（从总览表的审批列算）。
+**未结 79 项**：P0 0 · P1 4 · P2 30 · P3 45；要你批的 44 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -53,7 +52,7 @@
 
 目标：一个开关让所有测试类防线生效（CI 卡发布），再补上调度存活告警、D10 闸门的非 curl 写法、operator 流白名单、本机常驻任务和密钥轮换的盲区、spine 副本同步。
 
-项：TD-95, TD-96, TD-100, TD-105, TD-109, TD-121, TD-152, TD-153, TD-155, TD-162, TD-194, TD-195, TD-198 · 已还：TD-99, TD-161
+项：TD-95, TD-96, TD-100, TD-105, TD-109, TD-121, TD-152, TD-153, TD-155, TD-162, TD-194, TD-195 · 已还：TD-99, TD-161, TD-198
 
 ### 第 3 波 · 交易日与日历只有一个来源
 
@@ -253,7 +252,6 @@
 | [TD-195](#td-195) | P3 | ops-platform | platform-api exports no http_requests_total (hand-written /metrics, no Prometheus client), so the API error-rate and latency alerts cannot see it | 不用批 |
 | [TD-196](#td-196) | P2 | ops-platform | platform-api and platform-workers keep their state in per-pod emptyDir: every rollout erases release cycles, gate history, the operate queue and checklist signals, and the audit log is memory-only | 已批 |
 | [TD-197](#td-197) | P3 | ops-platform | Lineage thread titles are synced only by the platform-api on the Owner's workstation (bdev): when it is down, or sessions run elsewhere, new threads stay unnamed | 已批 |
-| [TD-198](#td-198) | P3 | ops-platform | STG platform-api is not scraped: the platform-api ServiceMonitor selects only bifrost-platform-prod, so STG platform 5xx / latency and plugin health come from PROD only | 不用批 |
 | [TD-199](#td-199) | P3 | frontend | EventsBoard.tsx and EventRadarDashboard.tsx have had no importer since 09-24 (c81e5a29); a comment still says EventRadarBody 'stays the Explorer tab's body' though Explorer was retired in 594a3f3f | 删除（要你批） |
 | [TD-200](#td-200) | P3 | research-control | Changing a Dagster market schedule in research does not fail any test: the plugin's slot-cron snapshot only catches drift when someone regenerates it | 不用批 |
 | [TD-201](#td-201) | P3 | market-data | market-data docs still describe a CronJob scheduler (README, CLAUDE.md, docs/STG_PROMOTE.md) after TD-124 removed every CronJob | 不用批 |
@@ -1531,22 +1529,6 @@
 - **验收**: With the bdev platform-api stopped, a new session's first commit shows its title on PROD Commit Lineage after its first Stop.
 - **验收结果**：PASS 2026-10-06 6d44426（infra hook）· 470a31e（platform 上报端点）：PROD `GET /api/v1/lineage?days=2&refresh=true` 里线程 `local_27525066…` 标题「本地 Trade System 和 Ops Platform 服务状态」、`title_source: transcript`；这条标题 23:33:51Z 由该会话的 Stop hook 写入，本机同步器同期无变更记录（代替「停掉 bdev platform-api」：它是共享服务）。页面上晚到约 1.5 小时，是 Gitea 的 infra 镜像落后（8 小时一同步），platform d0b6943 已改成扫描前先让镜像同步
 - 审批 已批（Stop hook） · 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
-
-### TD-198
-
-**P3 · ops-platform · STG platform-api is not scraped: the platform-api ServiceMonitor selects only bifrost-platform-prod, so STG platform 5xx / latency and plugin health come from PROD only**
-
-- **状态**：待你签收
-- **验收**：`KUBECONFIG=~/.kube/bifrost-k3s.yaml python3 bifrost-trade-infra/scripts/check_http_metrics_coverage.py` → ok；Prometheus `up{namespace="bifrost-platform-stg",job="platform-api"}` = 1
-- **验收结果**：PASS 2026-10-07 01:00 UTC infra ac7b2e6：ServiceMonitor 加 bifrost-platform-stg（只 apply 这一个文件，未动 TD-195 的规则），up = 1；apply 前后告警快照对比无新增 platform / plugin 告警（STG 与 PROD 探测同一批插件，插件告警都不按 namespace 聚合，不会重复）
-- **Claim**: The ServiceMonitor's namespaceSelector.matchNames lists bifrost-platform-prod alone.
-- **Measured**: code-read 10-07 by paydown lane W.
-- **Evidence**:
-  - `bifrost-trade-infra/k8s/monitoring/bifrost-platform-api.yaml:25` — `- bifrost-platform-prod`
-- **Impact**: A broken STG platform-api raises no API alert; STG release gates cannot read platform metrics.
-- **Fix**: Add bifrost-platform-stg to matchNames; check that plugin-health alerts then fire per namespace without duplicating PROD pages (add namespace to their grouping or limit them to prod).
-- **Ratchet**: check_http_metrics_coverage.py: every namespace in PLATFORM_NAMESPACES is selected by some ServiceMonitor.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ### TD-199
 

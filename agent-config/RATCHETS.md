@@ -75,6 +75,7 @@
 | 持仓归因的价格来源（TD-140） | `bifrost-trade-core/tests/test_attribution_marks.py` + `tests/test_signed_qty_db.py::test_attribution_prices_from_a_live_quote_else_the_vendor_eod_mark` + `tests/test_position_snapshot_db.py::test_attribution_reads_the_newest_vendor_eod_mark_and_capture_does_not_keep_it` | 无实时报价时归因行无价；快照把前一日收盘当当天标记写入 | warning（测试） | — |
 | 每个新鲜度维度都有现行写入方（TD-169） | `bifrost-platform-plugin-market-data/tests/test_freshness_writers.py` | 新鲜度行变成化石（写入方消失后永远陈旧） | warning（测试） | — |
 | EOD 标记在页面上标明（TD-171） | `bifrost-trade-frontend/src/utils/buildTradeGroups.test.ts`（vendor_eod 行得到 `EOD MM-DD`，quote_live / 旧 API / IB 实时价不带） | 把带日期的收盘价当实时价显示 | warning（测试） | — |
+| 平台命名空间都被抓取（TD-198） | `bifrost-trade-infra/scripts/check_http_metrics_coverage.py`（PLATFORM_NAMESPACES 每个都要被某个 ServiceMonitor 的 matchNames 选中；`--live` 要 `up{job="platform-api"} == 1`） | 某个环境的 platform-api 没被抓取，它的 5xx / 延迟 / 宕机都无告警 | warning（脚本，apply-monitoring-scrape 前跑） | — |
 
 ## 各类债现在挡没挡住
 
