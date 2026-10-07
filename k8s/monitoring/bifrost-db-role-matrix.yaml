@@ -1,0 +1,41 @@
+# TD-85. Fires when the daily role-matrix CronJob was scheduled and did not succeed.
+# No series until the CronJob exists, so applying this rule alone does not page.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bifrost-db-role-matrix
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: alerting
+spec:
+  groups:
+    - name: bifrost-db-role-matrix
+      rules:
+        - alert: BifrostDbPrivilegeDrift
+          # kube-state-metrics already exports CronJob times (same path as
+          # BifrostLogicalBackupMissing). There is no Pushgateway in this cluster.
+          # A run that exits 1 never advances last_successful_time, so the next
+          # schedule stays ahead of the last success. The 1200s gap covers the
+          # job deadline (600s) plus the NetworkPolicy wait.
+          expr: |
+            (
+              time() - kube_cronjob_status_last_schedule_time{namespace="data", cronjob="db-role-matrix"} > 1200
+            )
+            unless
+            (
+              kube_cronjob_status_last_successful_time{namespace="data", cronjob="db-role-matrix"}
+              >= kube_cronjob_status_last_schedule_time{namespace="data", cronjob="db-role-matrix"}
+            )
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Database role grants drifted from the D13 matrix"
+            description: >-
+              CronJob data/db-role-matrix did not succeed after its last schedule
+              (05:15 UTC). The job exits 1 when live CONNECT, schema CREATE, or
+              table INSERT/UPDATE/DELETE differ from k8s/data/role-matrix/expected.yaml.
+              Read `kubectl -n data logs job/<latest db-role-matrix job>`.

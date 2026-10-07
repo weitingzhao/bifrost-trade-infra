@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Before/after checks of a Trade release (TD-84). Read-only: HTTP GETs and `kubectl get`.
+# Before/after checks of a Trade release (TD-84). Read-only: HTTP GETs, `kubectl get`,
+# and the TD-85 role-matrix check (kubectl exec, session forced read-only).
 #
 #   release-check.sh <env> before [--dir D] [--accounts a,b]
 #   release-check.sh <env> after  (--run <pipelinerun> | --expect-core-sha <sha>) [--dir D]
@@ -10,6 +11,8 @@
 # env is dev, stg or prod. `before` snapshots fills (contract_key, side, quantity per
 # account_executions_id), /api/account/performance and model-analysis for every account
 # the API names, plus the core each /health reports, into <dir>/<env>-before.json.
+# `before` then runs k8s/data/role-matrix/check_role_matrix.py against the CNPG primary.
+# Drift there exits 1. The check reads kubeconfig and does not write.
 # `after` takes the same snapshot and
 #   - diffs it: "identical", "only added keys" or "changed values" per section; changed,
 #     removed and length differences fail unless an --allow file lists them (glob per line,
@@ -24,12 +27,12 @@
 #
 # Default dir: ${BIFROST_RELEASE_DIR:-/tmp/claude-501/release}/<date>/<env>. Snapshots hold
 # account content: never copy them into a repo.
-# Exit: 0 pass, 1 unexpected change / health / probe failure, 2 usage or read error.
+# Exit: 0 pass, 1 unexpected change / health / probe / role-matrix failure, 2 usage or read error.
 set -euo pipefail
 # shellcheck source=scripts/release/lib.sh
 source "$(dirname "$0")/lib.sh"
 
-check_usage() { sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; }
+check_usage() { sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; }
 
 if [[ "${1:-}" == "diff" ]]; then
   shift
@@ -82,6 +85,11 @@ if [[ "${phase}" == "before" ]]; then
   [[ ! -f "${out}" ]] || mv "${out}" "${out%.json}.prev.json"
   rel_log "snapshot ${env} before"
   "${RELEASE_TOOL[@]}" snapshot "${env}" -o "${out}" ${snap_args[@]+"${snap_args[@]}"}
+  rel_require_kubeconfig
+  rel_log "role matrix"
+  python3 "${INFRA_ROOT}/k8s/data/role-matrix/check_role_matrix.py" \
+    --matrix "${INFRA_ROOT}/k8s/data/role-matrix/expected.yaml" \
+    --via kubectl
   exit 0
 fi
 

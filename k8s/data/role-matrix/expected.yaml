@@ -1,0 +1,238 @@
+# D13 expected effective privileges for login roles.
+# Deny by omission: a schema with no entry means create=false and no INSERT/UPDATE/DELETE.
+# This is the boundary, not a copy of today's ACLs. Known live gaps (analytics_writer
+# CREATE on raw_market / raw_broker / ops_jobs, its DML on three ops_jobs tables, and
+# market_reader DML on raw_market.ticker_related) are absent here on purpose.
+version: 1
+databases:
+  - bifrost_dev
+  - bifrost_golden_source
+  - bifrost_prod
+  - bifrost_stg
+schemas:
+  bifrost_dev:
+    - brokerage
+    - market
+    - public
+  bifrost_golden_source:
+    - dw_stock
+    - features
+    - journal
+    - ops_dagster
+    - ops_dbt
+    - ops_feedback
+    - ops_jobs
+    - public
+    - raw_broker
+    - raw_market
+    - research
+  bifrost_prod:
+    - brokerage
+    - market
+    - public
+  bifrost_stg:
+    - brokerage
+    - market
+    - public
+roles:
+  # Research writer. Writable set is dw_stock / features / research / journal,
+  # plus the Research-owned ops_dbt (dbt) and ops_dagster schemas.
+  # ops_jobs CREATE is not required: ensure_month_partitions is SECURITY INVOKER
+  # and creates partitions in features, where analytics_writer already owns the
+  # parents. EXECUTE on the helper is enough. raw_market and raw_broker stay
+  # read-only (no CREATE, no DML): D13 forbids Research writing ingest or brokerage.
+  analytics_writer:
+    connect:
+      - bifrost_golden_source
+    grants:
+      bifrost_golden_source:
+        dw_stock:
+          create: true
+          dml: [insert, update, delete]
+        features:
+          create: true
+          dml: [insert, update, delete]
+        journal:
+          create: true
+          dml: [insert, update, delete]
+        ops_dagster:
+          create: true
+          dml: [insert, update, delete]
+        ops_dbt:
+          create: true
+          dml: [insert, update, delete]
+        research:
+          create: true
+          dml: [insert, update, delete]
+  # db-init / database owner. Not an application login. Cells are the owner
+  # footprint TD-85 kept (DDL plus grants analytics_writer already gave bifrost
+  # on Research tables). Application roles are the D13 boundary above.
+  bifrost:
+    connect:
+      - bifrost_dev
+      - bifrost_golden_source
+      - bifrost_prod
+      - bifrost_stg
+    grants:
+      bifrost_dev:
+        brokerage:
+          create: true
+          dml: [insert, update, delete]
+        market:
+          create: true
+          dml: [insert, update, delete]
+        public:
+          create: true
+          dml: [insert, update, delete]
+      bifrost_golden_source:
+        dw_stock:
+          create: true
+          dml: []
+        features:
+          create: false
+          dml: [insert, update, delete]
+        journal:
+          create: false
+          dml: [insert, update, delete]
+        ops_dbt:
+          create: true
+          dml: [insert, update, delete]
+        ops_feedback:
+          create: true
+          dml: [insert, update, delete]
+        public:
+          create: true
+          dml: []
+        raw_broker:
+          create: true
+          dml: [insert, update, delete]
+        research:
+          create: false
+          dml: [insert, update, delete]
+      bifrost_prod:
+        brokerage:
+          create: true
+          dml: [insert, update, delete]
+        market:
+          create: true
+          dml: [insert, update, delete]
+        public:
+          create: true
+          dml: [insert, update, delete]
+      bifrost_stg:
+        brokerage:
+          create: true
+          dml: [insert, update, delete]
+        market:
+          create: true
+          dml: [insert, update, delete]
+        public:
+          create: true
+          dml: [insert, update, delete]
+  # FDW read identity. CONNECT on the trade databases is explicit and carries
+  # no schema CREATE and no table DML.
+  brokerage_reader:
+    connect:
+      - bifrost_dev
+      - bifrost_golden_source
+      - bifrost_prod
+      - bifrost_stg
+  # FDW writer identity used by the DEV view-owner mapping. DML on raw_broker
+  # only; no CREATE.
+  brokerage_writer:
+    connect:
+      - bifrost_golden_source
+    grants:
+      bifrost_golden_source:
+        raw_broker:
+          create: false
+          dml: [insert, update, delete]
+  # Market-data plugin. Owns raw_market and the market side of ops_jobs.
+  data_writer:
+    connect:
+      - bifrost_golden_source
+    grants:
+      bifrost_golden_source:
+        ops_jobs:
+          create: true
+          dml: [insert, update, delete]
+        raw_market:
+          create: true
+          dml: [insert, update, delete]
+  # trade-api feedback store. INSERT and UPDATE only; reports are not deleted.
+  feedback_writer:
+    connect:
+      - bifrost_golden_source
+    grants:
+      bifrost_golden_source:
+        ops_feedback:
+          create: false
+          dml: [insert, update]
+  # Flex plugin. CREATE on ops_jobs because CREATE TABLE IF NOT EXISTS checks
+  # CREATE before it checks existence. raw_broker DML, no CREATE. Trade CONNECT
+  # is bifrost_dev only, and that login has no table DML there.
+  flex_writer:
+    connect:
+      - bifrost_dev
+      - bifrost_golden_source
+    grants:
+      bifrost_golden_source:
+        ops_jobs:
+          create: true
+          dml: [insert, update, delete]
+        raw_broker:
+          create: false
+          dml: [insert, update, delete]
+  # No workload signs in as market_reader. PUBLIC CONNECT is gone, so it cannot
+  # connect. It also must not hold table DML.
+  market_reader:
+    connect: []
+  postgres:
+    superuser: true
+    connect:
+      - bifrost_dev
+      - bifrost_golden_source
+      - bifrost_prod
+      - bifrost_stg
+  # Replication does not consult database CONNECT.
+  streaming_replica:
+    connect: []
+  trade_app_dev:
+    connect:
+      - bifrost_dev
+      - bifrost_golden_source
+    grants:
+      bifrost_dev:
+        public:
+          create: false
+          dml: [insert, update, delete]
+      bifrost_golden_source:
+        raw_broker:
+          create: false
+          dml: [insert, update, delete]
+  trade_app_prod:
+    connect:
+      - bifrost_golden_source
+      - bifrost_prod
+    grants:
+      bifrost_golden_source:
+        raw_broker:
+          create: false
+          dml: [insert, update, delete]
+      bifrost_prod:
+        public:
+          create: false
+          dml: [insert, update, delete]
+  trade_app_stg:
+    connect:
+      - bifrost_golden_source
+      - bifrost_stg
+    grants:
+      bifrost_golden_source:
+        raw_broker:
+          create: false
+          dml: [insert, update, delete]
+      bifrost_stg:
+        public:
+          create: false
+          dml: [insert, update, delete]
