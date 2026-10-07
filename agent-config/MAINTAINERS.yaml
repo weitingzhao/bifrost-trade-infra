@@ -301,22 +301,6 @@ maintainers:
     max_tier: B
     detected_by: "none: the sampler thread has no series; API scrape death is BifrostMarketDataScrapeDown"
     status: active
-  - id: launchd/.50/com.bifrost.nightly-drift
-    what: "03:00 local nightly_drift.sh (curl, python3). Loaded in launchctl."
-    runs_on: mini:.50/launchd
-    schedule: "03:00 local"
-    env: prod
-    max_tier: A
-    detected_by: "none: no PrometheusRule for the mini drift job"
-    status: active
-  - id: launchd/.50/com.bifrost.nightly-health-check
-    what: "03:00 local nightly-health-check.sh (curl only). This is the nightly LLM check ADR §11 records as failing quietly. Loaded in launchctl."
-    runs_on: mini:.50/launchd
-    schedule: "03:00 local"
-    env: prod
-    max_tier: B
-    detected_by: "none: no PrometheusRule for the mini health check"
-    status: active
   - id: launchd/.50/com.bifrost.operator-plane
     what: "Keep-alive operator-plane on :8783. Health on 2026-10-07 said autopilot false and alert_relay false."
     runs_on: mini:.50/launchd
@@ -348,14 +332,6 @@ maintainers:
     env: prod
     max_tier: C
     detected_by: "none: no PrometheusRule for the Hermes gateway"
-    status: active
-  - id: launchd/.52/com.bifrost.nightly-drift
-    what: "Plist is installed for 03:00 local nightly_drift.sh. launchctl list did not show the label on 2026-10-07, so it is not firing."
-    runs_on: mini:.52/launchd
-    schedule: "03:00 local"
-    env: prod
-    max_tier: A
-    detected_by: "none: no PrometheusRule for the mini drift job"
     status: active
   - id: launchd/.52/com.bifrost.operator-plane
     what: "Keep-alive operator-plane on :8783. Health on 2026-10-07 said autopilot false and alert_relay false."

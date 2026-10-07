@@ -2,12 +2,12 @@
 
 | 道 | 结论 | 分支 · SHA | 验收（重跑） | 状态 |
 |---|---|---|---|---|
-| A1 告警改道 | PASS | infra `cursor/a1-infra` `53b527bb` | `PATH=/usr/bin:$PATH make check-alert-routing` → ok，默认 receiver 为 PROD | 等 Owner 批 apply，合并与 apply 同步做 |
+| A1 告警改道 | PASS | infra `cursor/a1-infra` `53b527bb` | `PATH=/usr/bin:$PATH make check-alert-routing` → ok，默认 receiver 为 PROD | **已上线**（Owner 10-07 批）：main 128036e，网络策略 + webhook 令牌 + helm rev 15；`LIVE=1` 通过；PROD 审计出现 `ops-agent.alertmanager` |
 | A2 集群状态第二份 | **返工** | infra `cursor/a2-infra` `2e4f4172` | 静态检查通过，但快照明文复制到 NAS（k3s 未开 Secret 静态加密） | 见 `LANE-A2R.md` |
 | A3 维护者清单 | PASS | 已合入 main `ebd019d` | `make check-maintainers` ok 45；`--live` drift 0 | 完成 |
 | A4 文件进版本控制 | PASS | main `16b9716` | 38 个文件、根上符号链接全部有效；复扫无密钥 / 金额 | 完成（3 个命中金额规则的文件按规矩留在根上） |
-| A5 停夜间 LLM / 不依赖笔记本 | PASS | platform `cursor/a5-platform` `894a88f4`；infra `cursor/a5-infra` `8da7b1ed` | 两条 grep 无输出；checklist、agentbridge 测试 ok | 等 Owner 批：卸载、合并（会改集群）、发版、STG `set env` |
-| A6 PITR 演练材料 | PASS | 已合入 main `b0a7f2e` | `make check-pitr-drill` ok；`pitr_verify.sh --self-test` ok；清单无 `backup:` | 等 Owner：建只读 MinIO 账号 + 定演练时间 |
+| A5 停夜间 LLM / 不依赖笔记本 | PASS | platform `cursor/a5-platform` `894a88f4`；infra `cursor/a5-infra` `8da7b1ed` | 两条 grep 无输出；checklist、agentbridge 测试 ok | **已上线**（Owner 10-07 批）：.50 / .52 夜间任务已卸载（plist 与脚本移到 `~/bifrost-agent/backup/launchd-nightly-20261007/`）；platform 894a88f 发到 STG / PROD；infra 3013bea（Argo 已去掉 GIT_BRIDGE_URL，git-bridge 读 local-only）；STG `AGENT_DEPLOY_*` 已删；清单去掉 3 个退役任务，对账 drift 0 |
+| A6 PITR 演练材料 | PASS | 已合入 main `b0a7f2e` | `make check-pitr-drill` ok；`pitr_verify.sh --self-test` ok；清单无 `backup:` | Owner 定 **10-10（周六）** 演练；前提：Owner 在 NAS MinIO 建只读账号（只读备份桶） |
 | A7 节点补丁 | **返工** | infra `cursor/a7-infra` `d1ec0f3d` | dry-run 与报告一致，但主库写死为 04；实测主库在 02 | 见 `LANE-A7R.md` |
 | A8 部署脚本保留告警中转 | 新增 | — | — | 见 `LANE-A8.md` |
 
