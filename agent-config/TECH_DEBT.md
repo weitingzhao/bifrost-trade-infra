@@ -13,12 +13,9 @@
 
 ## 待你签收
 
-- **TD-191** — 插件的 slot cron 跟 Dagster 对齐（intraday-chain 纽约时区三次、corporate-backfill 月度），注释改为「Dagster 触发、这里是判定用副本」（market-data 0.83.0）· 验收 PASS（10-07，dashboard 读到三次触发与月度行，husbandry healthy）· 防线：`tests/test_dagster_slot_roster.py` + `scripts/snapshot_dagster_roster.py --check` · 后续：TD-200（research 侧反向防线）、TD-201（插件文档仍写 CronJob）
-- **TD-140** — 无新鲜实时报价时持仓归因取最新 vendor EOD 标记并标明来源与日期，快照抓取不回灌旧价（core 0.51.0，随 0.52.0 上三环境）· 验收 PASS（10-07，PROD 31 行全部有价）· 防线：`bifrost-trade-core/tests/test_attribution_marks.py` + 两个 db 测试 · 无后续：前端标注由 TD-171 完成
-- **TD-169** — option_contract 写到期日时上报 `option_expiration` 新鲜度（market-data 0.80.0）· 验收 PASS（10-07 00:20 UTC 写入）· 防线：`tests/test_freshness_writers.py`（每个维度都要有现行写入方）· 无后续
-- **TD-171** — Positions 上取自 vendor 收盘价的腿标 `EOD MM-DD`（frontend 4860e7cd）· 验收 PASS（10-07 PROD 页面可见 EOD 10-06）· 防线：`src/utils/buildTradeGroups.test.ts` 四个用例 · 无后续
+（暂无）
 
-**未结 84 项**：P0 0 · P1 4 · P2 31 · P3 49；要你批的 44 项（从总览表的审批列算）。
+**未结 80 项**：P0 0 · P1 4 · P2 30 · P3 46；要你批的 44 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -73,7 +70,7 @@
 
 目标：删掉没人用的（挂起的 CronJob、退役脚本、无调用路由），手抄的副本改成从一处生成（调度名单、max-pain / PCR），清单的应用顺序与 Argo 归属理顺。
 
-项：TD-102, TD-106, TD-107, TD-118, TD-119, TD-120, TD-123, TD-125, TD-160, TD-169, TD-170, TD-190, TD-191, TD-200, TD-201 · 已还：TD-126, TD-108, TD-154, TD-163, TD-168, TD-124, TD-176
+项：TD-102, TD-106, TD-107, TD-118, TD-119, TD-120, TD-123, TD-125, TD-160, TD-170, TD-190, TD-200, TD-201 · 已还：TD-126, TD-108, TD-154, TD-163, TD-168, TD-124, TD-176, TD-191, TD-169
 
 ### 第 6 波 · 备份链与自动修复（10-06 日常发现）
 
@@ -85,7 +82,7 @@
 
 目标：Data Gaps 看板上未结的 15 项并入台账：先把每日快照的写入修对（TD-137）再接读侧和三页，归因行补上价格，Research 侧已就绪的一个版本（0.185.0）发出去，长期限 IV 锥在 10-31 前从 option_daily 回填，其余按 Owner 已定的口径排。
 
-项：TD-137, TD-138, TD-139, TD-140, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-158, TD-159, TD-171, TD-172, TD-178, TD-180, TD-182, TD-199 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181, TD-193
+项：TD-137, TD-138, TD-139, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-158, TD-159, TD-172, TD-178, TD-180, TD-182, TD-199 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181, TD-193, TD-140, TD-171
 
 ### 第 8 波 · Pine 线程收尾后的跟进（10-06）
 
@@ -219,7 +216,6 @@
 | [TD-137](#td-137) | P1 | trade-data | The daily snapshot capture locks an account's intraday book into the day (first write wins, no freshness test) and account_nav_daily stores no margin-pressure fields | 改表 + 发布（要你批） |
 | [TD-138](#td-138) | P2 | trade-data | The daily position and NAV snapshots have no reader: no trade-api route, no Research or frontend read, and three pages still say the snapshot does not exist | 不用批 |
 | [TD-139](#td-139) | P3 | trade-data | Snapshot Greeks carry no quality flag (vendor / degraded / missing): only mark_source and greeks_asof are stored | 不用批 |
-| [TD-140](#td-140) | P2 | trade-data | Position attribution rows have no price, intraday or after the close: their only price source is contract_quote_live, which only the frozen daemon writes | 不用批 |
 | [TD-142](#td-142) | P2 | research-data | The 90-day IV cone has 31–39 sessions of history and there is no 180-day tenor: ATM IV was stored only to 90 DTE before 2026-08-05 | 要你批 |
 | [TD-143](#td-143) | P3 | research-data | Hypotheses never link to trades: linked_opportunity_ids is empty on all 91 rows, and only Research's own create / patch writes it | 不用批 |
 | [TD-144](#td-144) | P3 | research-data | Settled candidates are not attributed to the judge (persona) that put them forward, so the Personas bench track-record columns stay grey | 要你批 |
@@ -238,9 +234,7 @@
 | [TD-160](#td-160) | P3 | research-data | features.event_signal_radar_daily keeps the pre-rename copies of two indexes (event_radar_batch_collected, event_radar_importance) beside the current ones | 改表 |
 | [TD-162](#td-162) | P2 | ops-platform | Research and plugin releases have no release window: sessions collide on pins and on deliver runs | 跨仓库发版 |
 | [TD-166](#td-166) | P2 | research-data | GEX zero_gamma was the strike nearest spot on 38% of daily levels rows (no change of sign), and a step out of zero counted as a crossing; terrain read it as a flip at spot | 已批（观察中） |
-| [TD-169](#td-169) | P3 | market-data | ops_jobs.ingest_freshness.option_expiration is a fossil row frozen since 09-06 and still listed as ok | 不用批 |
 | [TD-170](#td-170) | P3 | research-control | dagster-daemon logs one line over 256 KB at the 22:45 and 03:00 UTC schedule ticks every night | 不用批 |
-| [TD-171](#td-171) | P3 | frontend | Positions shows the attribution price_last as if it were live: no EOD label or date now that core 0.51.0 fills it from the vendor EOD mark | 不用批 |
 | [TD-172](#td-172) | P2 | research-data | ATM IV has almost no 50–90 DTE expiry from 2026-07-06 to 09-25 (the EOD chain stopped at the third listed expiry until plugin 0.39.0); the fix was forward-only, so term structure reads na for that stretch | 要你批 |
 | [TD-174](#td-174) | P3 | market-data | Console marks fundamentals-rotate missed every Monday 03:45 → Tuesday 03:00 UTC: the trading-day check uses the UTC date of the fire | 不用批 |
 | [TD-178](#td-178) | P3 | trade-api | GET /strategies/plans has no source_kind filter: Research reads the newest 500 filled plans and filters itself, marking truncated at the cap | 改公开接口 |
@@ -253,7 +247,6 @@
 | [TD-188](#td-188) | P3 | frontend | The app's design registry is still at Rev .157: packages .158–.162 are built but designRoutes / adoption were not re-synced (the Design project's DS mirror was synced to 0.13.0 on 10-06) | 不用批 |
 | [TD-189](#td-189) | P3 | research-data | SEPA has no rows for four sessions (08-28, 08-31, 09-08, 09-16): those nights never computed it, so the SEPA lens and its hit rate skip them | 不用批 |
 | [TD-190](#td-190) | P3 | ops-platform | Platform's research CronJob trigger route has no caller but keeps seven suspended CronJob templates alive in the research namespace | 改公开接口 |
-| [TD-191](#td-191) | P3 | market-data | market-data config/schedule.yaml still says K8s CronJob YAML is the runtime schedule source; after TD-124 there are no CronJobs and Dagster fires every slot | 不用批 |
 | [TD-192](#td-192) | P2 | research-control | One IB Flex failure loses that night's SEPA for good: husbandry_gate blocks sepa_projection although SEPA reads nothing from Flex, and the projection never back-fills a missed night | 要你批 |
 | [TD-194](#td-194) | P2 | ops-platform | BifrostAPIHighLatency can never fire: the histogram it reads tops out at a 1 s bucket, so histogram_quantile returns at most 1 and `> 2` is impossible | 要你批 |
 | [TD-195](#td-195) | P3 | ops-platform | platform-api exports no http_requests_total (hand-written /metrics, no Prometheus client), so the API error-rate and latency alerts cannot see it | 不用批 |
@@ -927,26 +920,6 @@
 - **Ratchet**: Unit test of the derivation over the three cases; the route contract test asserts the field on every OPT row.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-core, bifrost-trade-api
 
-### TD-140
-
-**P2 · trade-data · Position attribution rows have no price, intraday or after the close: their only price source is contract_quote_live, which only the frozen daemon writes**
-
-- **状态**：待你签收
-- **验收**：收盘 enrich 之后：`curl -s http://192.168.10.73:30881/api/account/executions/position-attribution | python3 -c 'import json,sys;r=json.load(sys.stdin)["items"];print(len(r),sum(x.get("price_mid") is None and x.get("price_last") is None for x in r),sorted({str(x.get("mark_source")) for x in r}))'` → 第二个数为 0，第三项不含 None
-- **验收结果**：PASS 2026-10-07 00:4x UTC：晚间 `all` Job（position-snapshot-enrich-29855550）Complete 后，PROD position-attribution 31 行、无价 0、mark_source 全部 vendor_eod（DAVE 那行补上 10-06 标记）
-- **下一步**：Owner 跑 Trade 发版（core 0.51.0，api 不改代码、下限不动）→ 跑验收命令，DEV 端口 30882；前端没有把这个价格标成 EOD，记为 TD-171
-- **现在**：改前实测 10-06 18:41 UTC：DEV / PROD 各 31 行全无价格、无 mark_source；position_snapshot_daily 三环境只有 10-05 一个 session，DEV / PROD 29/29 持仓有 vendor_eod 标记。0.51.0：无新鲜 live quote 时取最新 vendor_eod 快照标记（股票取插件 benchmark 日收盘中更新的那个），每行加 `mark_source` / `mark_date`；capture 用 `fallback_marks=False`，`split_rows` 只认 `quote_live`，旧收盘价不会被回灌成当天 mark。门禁：core lint 0、1287 passed、test-db 99 passed；api 在 0.51.0 上 1002 passed
-- **Claim**: get_position_instance_attribution takes price_mid / price_last only from a LEFT JOIN on brokerage.contract_quote_live, filtered to rows younger than 4 hours (TD-02, core 0.28.2). Under D10 the daemon does not run, so the table has 13 rows, newest 2026-03-28, and every attribution row has no price and no unrealized_pnl_est, intraday and after the close. The 09-29 reading that stocks had prices was March prices the freshness rule now excludes.
-- **Measured**: MEASURED 10-06 after the close: GET /api/account/executions/position-attribution → PROD and DEV 31 rows each; OPT 13/13 and non-OPT 18/18 with price_mid, price_last and unrealized_pnl_est null; brokerage.contract_quote_live 13 rows, max(updated_at) 2026-03-28. (09-29: 30 rows, OPT 12/12 null, non-OPT 2/18 null.)
-- **Evidence**:
-  - `bifrost-trade-core/src/bifrost_core/portfolio/reader/executions.py:1576` — `cql.mid AS price_mid, cql.last AS price_last`
-  - `bifrost-trade-core/src/bifrost_core/portfolio/reader/executions.py:1578` — `LEFT JOIN {CONTRACT_QUOTE_LIVE} cql`
-  - `bifrost-trade-core/src/bifrost_core/portfolio/quote_freshness.py:33` — `def fresh_quote_sql(alias: str) -> str:`
-- **Impact**: Positions and Ledger show no unrealized P&L for any position; anything that reads attribution prices reads nothing.
-- **Fix**: Where no fresh live quote exists, take the newest position_snapshot_daily.mark for the contract (vendor EOD, written by the nightly enrich) and return mark_source and its date; intraday stocks may use the plugin daily-close fallback TD-02 already uses. The snapshot capture itself calls this reader, so the fallback must not become the snapshot's own mark (enrich stays its source). Nothing here writes contract_quote_live or touches the daemon (D10).
-- **Ratchet**: core test: with contract_quote_live empty and a snapshot mark present, the row carries that price with mark_source vendor EOD; with a fresh live quote, the live one wins.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-core, bifrost-trade-frontend
-
 ### TD-142
 
 **P2 · research-data · The 90-day IV cone has 31–39 sessions of history and there is no 180-day tenor: ATM IV was stored only to 90 DTE before 2026-08-05**
@@ -1263,23 +1236,6 @@
 - **验收**: `python -m bifrost_research.engines.gex.zero_exposure_purge --zero-gamma` (dry run, read-only) reports `changed: 0` after two nightly runs.
 - 审批 已批（Owner 10-06，选 A）· 代价 M · 风险 med · repos: bifrost-research
 
-### TD-169
-
-**P3 · market-data · ops_jobs.ingest_freshness.option_expiration is a fossil row frozen since 09-06 and still listed as ok**
-
-- **状态**：待你签收
-- **验收**：`SELECT last_run_at FROM ops_jobs.ingest_freshness WHERE dimension='option_expiration'` ≥ 2026-10-07 00:20 UTC（现在仍是 2026-09-06 12:58）
-- **验收结果**：PASS 2026-10-07：`ops_jobs.ingest_freshness` 的 option_expiration last_run_at = 2026-10-07 00:20:40 UTC（之前停在 2026-09-06 12:58）
-- **现在**：market-data 0.80.0（8e39aab）：option_contract 在写了 expiration 时返回 `freshness_extra={'option_expiration': n}`；防线 `tests/test_freshness_writers.py`：表里与 contracts / SLOT_EVIDENCE / quality 读到的每个维度都必须有现行写入方
-- **Claim**: Expirations now come from option_contract jobs, which return no freshness_extra for option_expiration, so the row has not moved since 2026-09-06; nothing polices it, yet freshness listings show it with status ok.
-- **Measured**: MEASURED 10-06 by paydown lane D (ingest_freshness row last_run_at 2026-09-06).
-- **Evidence**:
-  - `bifrost-platform-plugin-market-data/src/bifrost_market_data/ingest/option_contract.py:1` — `option_contract handler (no freshness_extra for option_expiration)`
-- **Impact**: A frozen 'ok' row in a freshness view teaches readers to ignore staleness.
-- **Fix**: Either emit freshness_extra={'option_expiration': n_exp} from option_contract, or delete the row (the delete is a data write: Owner).
-- **Ratchet**: A freshness test: every dimension listed in ingest_freshness must have a current writer (kind → dimension map).
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data
-
 ### TD-170
 
 **P3 · research-control · dagster-daemon logs one line over 256 KB at the 22:45 and 03:00 UTC schedule ticks every night**
@@ -1295,24 +1251,6 @@
 - **Fix**: After 10-07 find the truncated line in Loki (`{namespace="research", app="dagster-daemon"}` with promtail_mutated_entries_total line_too_long), trace it to the logger call and log a summary (counts, ids) instead of the object.
 - **Ratchet**: A test or log filter in research that caps log message length (e.g. a logging.Filter that truncates over 16 KB and counts it), plus the existing promtail mutated-entries metric.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
-
-### TD-171
-
-**P3 · frontend · Positions shows the attribution price_last as if it were live: no EOD label or date now that core 0.51.0 fills it from the vendor EOD mark**
-
-- **状态**：待你签收
-- **验收**：发版后 DEV：`curl -s http://192.168.10.73:30882/api/account/executions/position-attribution | python3 -c "import sys,json,collections;it=json.load(sys.stdin)['items'];print(collections.Counter(r.get('mark_source','<absent>') for r in it))"` 出现 vendor_eod；:5173 Positions Trade 视图展开分组，vendor_eod 的期权腿 UN PNL 后缀为 `EOD MM-DD`
-- **验收结果**：PASS 2026-10-07：PROD 前端（:30881 /portfolio/positions，Trade 分组视图展开后）期权腿 UN PNL 后缀显示 `EOD 10-06`；API 31 行 mark_source 全部 vendor_eod
-- **现在**：frontend 4860e7cd 已推 main：`attributionMark` 只在价格取自 attribution 行时带上 mark_source / mark_date；`eodMarkLabel` 给出 `EOD MM-DD`（沿用 TradeRecord 的格式）；TradeOptionSubTable 的 UN PNL 后缀与 OptionContractDetail 的警告用它。门禁 tsc / lint / vitest 4022 passed / build / legacy-css / code-health 全 0，未调基线。防线 `src/utils/buildTradeGroups.test.ts` 4 个新用例。DEV 现在 30/30 行无 mark_source，页面与今天一样
-- **Claim**: core 0.51.0 (TD-140) fills price_last from the newest vendor_eod snapshot mark when there is no live quote and labels each row mark_source / mark_date. The frontend type has only price_mid / price_last and buildTradeGroups falls back to price_last without saying it is a dated close.
-- **Measured**: code-read 10-06 by paydown lane I.
-- **Evidence**:
-  - `bifrost-trade-frontend/src/types/positions.ts:107` — `price_last: number | null`
-  - `bifrost-trade-frontend/src/utils/buildTradeGroups.ts:124` — `: a.price_last != null && Number.isFinite(Number(a.price_last))`
-- **Impact**: Under D10 every attribution price is an EOD close; a reader cannot tell yesterday's close from a live mark.
-- **Fix**: Add mark_source / mark_date to the attribution type (and the zod schema); where price_last is shown or used as the mark, tag it EOD with the date.
-- **Ratchet**: A vitest on buildTradeGroups: a row with mark_source vendor_eod yields a mark labelled EOD with its date.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
 
 ### TD-172
 
@@ -1506,23 +1444,6 @@
 - **Fix**: Remove the route and whitelist (and the legacy catalog rows), then delete the seven templates and empty the names in test_k8s_cronjobs.py and verify_husbandry_schedulers.sh.
 - **Ratchet**: test_k8s_cronjobs.py already allows the template set only to shrink; after the fix it becomes harness-only.
 - 审批 改公开接口 · 代价 S · 风险 low · repos: bifrost-platform, bifrost-research
-
-### TD-191
-
-**P3 · market-data · market-data config/schedule.yaml still says K8s CronJob YAML is the runtime schedule source; after TD-124 there are no CronJobs and Dagster fires every slot**
-
-- **状态**：待你签收
-- **验收**：发布后 queue-dashboard：intraday-chain 的 cron 为 `30 10 * * 1-5 | 0 13 * * 1-5 | 30 15 * * 1-5 (America/New_York)`、工作日 3 次触发；出现 corporate-backfill 行（last_fire 2026-10-01T07:00:00Z）；husbandry 不是 missed。注意：不能只 apply ConfigMap——旧镜像读新 ConfigMap 会报 unsupported_cron，镜像和 ConfigMap 同一次 `apply -k`
-- **验收结果**：PASS 2026-10-07 00:4x UTC market-data 0.83.0（ff1e2a0，镜像与 ConfigMap 同一次 apply，pods 5286c8dc…）：queue-dashboard 里 intraday-chain = `30 10 * * 1-5 | 0 13 * * 1-5 | 30 15 * * 1-5 (America/New_York)`、窗口内 3 次触发、on_plan；corporate-backfill 行 `0 7 1 * *`、last_fire 2026-10-01T07:00:00Z、maintenance；husbandry healthy「18 slots on plan · queue idle」；无 unsupported_cron
-- **现在**：道 V：这些 cron 不是「仅供参考」——`_slot_adherence` 用它判 on_plan / missed，Platform Market batch lane 与 Console 都读。实测与 Dagster（roster = market_slot_schedules = 线上 /research/orchestration/status）对不上 2 处：intraday-chain 插件写 `30 14 * * 1-5` UTC 一次，Dagster 是纽约时区三次（10:30 / 13:00 / 15:30）——夏令时恰好对上，**11-02 起每个工作日 15:15–15:30 UTC 会误判 missed、把 husbandry 拉红**；corporate-backfill 插件写「无 cron」，Dagster 每月 1 号 07:00 UTC 触发。修复：cronutil 支持多条 cron + 时区 + 月度；两份 schedule 改对并改正注释；`scripts/snapshot_dagster_roster.py` 生成 / 校验 Dagster 快照（插件运行时不依赖 research）。防线 `tests/test_dagster_slot_roster.py`（修复前的 config 会准确报这两项）。门禁 pytest 1240 passed。后续 TD-200、TD-201
-- **Claim**: Slot cron strings live in config/schedule.yaml and k8s/base/configmap-schedule.yaml; the real firing is Dagster's market_slot_schedules.py. The header comment now points readers at a source that no longer exists.
-- **Measured**: code-read 10-06 by paydown lane R.
-- **Evidence**:
-  - `bifrost-platform-plugin-market-data/config/schedule.yaml:2` — `# Cron strings are informational; K8s CronJob YAML is the runtime schedule source.`
-- **Impact**: Someone changing a slot time edits the plugin's cron and nothing changes (or two copies drift).
-- **Fix**: Fix the comment to name Dagster's market_slot_schedules.py as the source, or derive the plugin's cron fields from the Dagster roster.
-- **Ratchet**: A test comparing the plugin's slot crons with the Dagster roster (or asserting the fields are documentation only).
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data, bifrost-research
 
 ### TD-192
 

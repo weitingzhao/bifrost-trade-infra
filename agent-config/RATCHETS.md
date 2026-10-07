@@ -69,6 +69,10 @@
 | API 都导出 http_requests_total（TD-161） | 告警 `BifrostAPIWithoutHttpMetrics`（`bifrost-trade-infra/k8s/monitoring/bifrost-alerting-rules.yaml`，platform-api 唯一豁免且只许缩小）+ `bifrost-trade-infra/scripts/check_http_metrics_coverage.py`（`make check-http-metrics-coverage`，apply-monitoring-scrape 前跑；`--live` 实跑）+ research / market-data / flex-query 的 `test_http_metrics.py` | 新 API 或新命名空间没有 HTTP 指标，错误率 / 延迟告警看不见它 | alert + warning（脚本 / 测试） | 延迟告警本身不触发（TD-194）；platform-api 无指标（TD-195） |
 | 事件日历的宏观行只有一个来源（TD-181） | `bifrost-research/tests/engines/test_event_calendar_macro.py`（日历宏观行 = 窗口内 macro_event_daily，ws:macro 行不返回、ingest 只归档） | 手放宏观文件与 macro_event_daily 两条线漂移、重复投放产生重复行 | warning（测试） | Date 列显示采集日期（TD-193） |
 | 事件行显示 event_date（TD-193） | `bifrost-trade-frontend/src/pages/research/events/eventDate.test.tsx`（Calendar 视图带 event_date 的行显示该日期与发布时间、回退到 collected_at 时标注；Forward 面板显示 HH:MM ET） | 事件 / 日历行按采集日期显示，宏观发布被标成计算当天 | warning（测试） | 孤儿文件待删（TD-199） |
+| 插件 slot cron 跟 Dagster 一致（TD-191） | `bifrost-platform-plugin-market-data/tests/test_dagster_slot_roster.py`（两份 schedule 的 cron 集合与时区 = Dagster 快照，跨夏令时与月度触发）+ `scripts/snapshot_dagster_roster.py --check` | 插件按错的 cron / 时区判 adherence，husbandry 与 Market batch lane 误报 | warning（测试） | research 侧改调度不会让测试失败（TD-200） |
+| 持仓归因的价格来源（TD-140） | `bifrost-trade-core/tests/test_attribution_marks.py` + `tests/test_signed_qty_db.py::test_attribution_prices_from_a_live_quote_else_the_vendor_eod_mark` + `tests/test_position_snapshot_db.py::test_attribution_reads_the_newest_vendor_eod_mark_and_capture_does_not_keep_it` | 无实时报价时归因行无价；快照把前一日收盘当当天标记写入 | warning（测试） | — |
+| 每个新鲜度维度都有现行写入方（TD-169） | `bifrost-platform-plugin-market-data/tests/test_freshness_writers.py` | 新鲜度行变成化石（写入方消失后永远陈旧） | warning（测试） | — |
+| EOD 标记在页面上标明（TD-171） | `bifrost-trade-frontend/src/utils/buildTradeGroups.test.ts`（vendor_eod 行得到 `EOD MM-DD`，quote_live / 旧 API / IB 实时价不带） | 把带日期的收盘价当实时价显示 | warning（测试） | — |
 
 ## 各类债现在挡没挡住
 
