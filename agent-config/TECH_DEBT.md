@@ -1331,8 +1331,8 @@
 
 **P2 · data · The Barman base+WAL backup, the only copy of the 34 GB Golden Source history, has never been restored, and has not been tried at all against the NAS MinIO it moved to on 10-06**
 
-- **状态**：在做（节点空间已核：general 池 ubt-k3s-05 可用 160.5 GiB、ubt-k3s-06 可用 239.8 GiB，local-path 在根分区；待你建只读 MinIO Secret minio-backup-readonly，之后 Claude apply、比对、清理）
-- **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
+- **状态**：观察中（10-07 首次恢复演练 PASS；演练集群暂留给「找新的债务」会话跑 A6 的 105 表只读校验，它回「done」后 Claude 清理 namespace pg-recovery-drill）
+- **验收结果**：PASS 2026-10-07：pg-recovery-drill 从 s3://bifrost-postgres-backup（NAS MinIO，只读凭证 pg-recovery-drill：list ok、put AccessDenied）恢复到 targetTime 2026-10-07T18:37:26Z，full-recovery 约 23 分钟（19:37→20:00Z，ubt-k3s-06）；compare.sh：atm_iv 1,325,029、stock_daily 14,154,579、transactions 177，最新时间戳两侧一致。注意：BifrostPostgresRecoveryDrillStale 依赖 CronJob pg-recovery-drill 的成功时间，手工演练满足不了，在有 CronJob 之前不能 apply（否则常响）
 - **Claim**: The CNPG cluster has a 30-day recoverability window (firstRecoverabilityPoint 2026-09-06), but infra has never had a bootstrap.recovery or externalClusters manifest, and only one Cluster has ever existed. The monthly drill in k8s/data/logical-backup restores only the logical dump of 7 hand-entered schemas into an emptyDir Postgres and never reads the Barman object store. So nobody knows whether barman-cloud-restore works against the NAS MinIO the bucket moved to on 10-06, with its credentials, gzip WAL and serverName. TD-135 mentions a restore drill only as a one-off step of the plugin migration.
 - **Measured**: MEASURED 2026-10-07. Only data/bifrost-postgres exists. firstRecoverabilityPoint is 2026-09-06T06:19:40Z, lastSuccessfulBackup 2026-10-06T17:32:39Z. `git grep` over infra finds no recovery bootstrap (the only 'bootstrap:' is initdb at cluster.yaml:19). 10-03 and 10-04 do have completed ondemand backups; only the scheduled 'daily' names are missing for those days. The first NAS backup is bifrost-postgres-manual-20261006-nas.
 - **Evidence**:
