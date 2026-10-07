@@ -17,3 +17,12 @@
 ## 台账待登记（Claude Code）
 
 `TestWriteRoutesAreCataloguedOrExempt`（新写端点必须进目录或豁免清单）、`check_mcp_cutover.py`、preflight 审批拦截 → `RATCHETS.md`。
+
+## 返工验收（2026-10-07）
+
+| 道 | 结论 | 分支 · SHA | 重跑 |
+|---|---|---|---|
+| B1R | API / Console **PASS**；MCP 侧要再修 | platform `cursor/phase2-platform` `816a8039` | `go build/vet/test ./...` 全过；漏洞修复：`executorContextKey` 未导出，直调 C/D 一律 403；`ProdPipeline` = deliver-prod / deliver-platform-prod / deliver-research（另核：build-research-dagster、build-research-pine、build-market-data、build-flex-query、build-ib-gateway 都只到 kaniko，B 级正确）；Approvals 页面 3 测试、`mcp/platform` 14 测试 ok |
+| B3R | **PASS**（依赖 B1R2 修 Cursor 模板） | infra `cursor/b3-infra` `27ecfaed` | preflight 85/85（含审批绕过拦截与放行）；`check_mcp_cutover.py` ok；`--cursor` 对 platform 模板 fail（MCP_WRITES=off，B1R2 修） |
+
+MCP 侧问题：没设 `MCP_WRITES` 时默认不发写（共享检出一更新就会断所有线程的写工具）；级别在 MCP 里抄了一份且与 API 不一致；4 个动作没映射 → `LANE-B1R2.md`。
