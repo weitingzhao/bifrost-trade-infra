@@ -136,6 +136,11 @@
 | Mac mini 写接口要令牌（TD-207） | `agent/remediation` 与 `agent/hermes-gateway` 路由鉴权测试；部署脚本缺键即退出 | 局域网匿名启动/批准 Agent | warning（测试） | Hermes GET /executions 仍匿名（只读） |
 | runner 不能切 PROD gateway 到 mock（TD-221） | `agent/remediation/src/tools/ibGatewayControl.test.ts` | Agent 把 PROD 行情切成模拟 | warning（测试） | — |
 | git-bridge 写要令牌、只暂存点名路径（TD-206） | `bifrost-platform/agent/git-bridge/src/server.test.ts`（无令牌拒绝、空路径拒绝、不 add -A） | 局域网匿名整树提交与推送 | warning（测试） | git-bridge 测试不在 CI |
+| strategy_plan 来源取值（TD-148） | core `tests/test_td148_source_kind_prepare.py`（新装 DDL 与放宽 SQL 一致） | 新来源写入被 CHECK 拒绝 | warning（测试） | — |
+| GS 无改名残留重复索引（TD-160） | research `scripts/oneoff/2026-10-07-td160-event-radar-index-check.sql`（手跑） | 重复索引白占写放大 | manual | 无自动检查 |
+| financials 表有 (period_date, symbol) 索引（TD-107） | market-data `tests/test_td107_financials_period_index.py`（apply_ddl 路径建索引） | 声明的索引从未到达部署库 | warning（测试） | 是否存在仍要看 pg_index |
+| preflight D10 闸门覆盖非 curl 客户端（TD-96） | `agent-config/scripts/agent-guard/test.js`（74 例，含不得误拦） | Python/wget/httpie/node 写 /control/*、改闸门文件 | error（闸门本身） | test.js 不在 CI |
+| 退役的账户流不复活（TD-236） | 插件 `tests/test_redis_key_manifest.py`（与 core 键清单一致） | 无人读取的流被重新写入 | warning（测试） | — |
 
 ## 各类债现在挡没挡住
 
