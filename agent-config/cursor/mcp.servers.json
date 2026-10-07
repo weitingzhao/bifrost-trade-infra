@@ -1,5 +1,5 @@
 {
-  "comment": "Cursor-side MCP template. Same servers as Claude .mcp.json except chat approval is absent. Merge into ~/.cursor/mcp.json. Do not paste token values.",
+  "comment": "Cursor-side MCP template. Same servers as Claude .mcp.json except chat approval is absent. bifrost-platform and bifrost-kubernetes keep MCP_WRITES=on. Merge into ~/.cursor/mcp.json. Do not paste token values.",
   "mcpServers": {
     "bifrost-platform": {
       "command": "npx",
@@ -10,7 +10,7 @@
       "env": {
         "PLATFORM_API_URL": "http://192.168.10.100:30876",
         "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_OPERATOR_TOKEN:-}",
-        "MCP_WRITES": "off"
+        "MCP_WRITES": "on"
       }
     },
     "bifrost-kubernetes": {
@@ -23,7 +23,7 @@
         "PLATFORM_API_URL": "http://192.168.10.100:30876",
         "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_OPERATOR_TOKEN:-}",
         "MCP_BRIDGE_FOCUS": "kubernetes",
-        "MCP_WRITES": "off"
+        "MCP_WRITES": "on"
       }
     },
     "bifrost-redis": {

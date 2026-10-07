@@ -1,5 +1,5 @@
 ---
-parity-id: agent-facts-v10
+parity-id: agent-facts-v11
 generated: 2026-10-07
 authority: bifrost-platform/config/ops-context.yaml (spine) + 磁盘扫描
 ---
@@ -321,7 +321,7 @@ D10 冻结的那个进程只有一个，但在代码、集群与界面上有十�
 
 | server | focus | 工具 | 令牌角色 | 哪一侧 |
 |--------|-------|------|---------|--------|
-| `bifrost-platform` | — | 75 | operator | 两侧。`MCP_WRITES=off` 时写不发出 |
+| `bifrost-platform` | — | 75 | operator | 两侧。`MCP_WRITES=on`（合并时的状态） |
 | `bifrost-kubernetes` | `kubernetes` | 18 | operator | 两侧。同上 |
 | `bifrost-redis` | `redis` | 6 | **viewer** | 两侧 |
 | `bifrost-postgres` | `postgres` | 8 | **viewer** | 两侧 |
@@ -330,10 +330,11 @@ D10 冻结的那个进程只有一个，但在代码、集群与界面上有十�
 | `bifrost-local` | `local` | 5 | operator | 两侧。唯一的 `127.0.0.1:8780`（bdev / git-bridge） |
 | `bifrost-approve` | `approve` | 3 | **admin**（钉 `PLATFORM_ADMIN_TOKEN`） | **仅 Claude** |
 
-- **令牌分级是机械强制**：只读桥钉 viewer（TD-225）；`bifrost-approve` 用同一钉法钉 admin。非回环地址不读 `.env`
-- 写分两步：现在只切读；`MCP_WRITES=on` 之后 B 级直调，C/D 级改为创建申请并返回申请号。见 `.mcp.json.README.md`
+- **令牌分级是机械强制**：只读桥钉 viewer（TD-225）；`bifrost-approve` 用同一钉法钉 admin。进程环境优先；没有时从 `~/.config/bifrost/mcp-tokens.env`（权限 600）读 `PLATFORM_VIEWER_TOKEN`、`PLATFORM_OPERATOR_TOKEN`、`PLATFORM_ADMIN_TOKEN`。非回环地址不读 `bifrost-platform/.env`。生成命令不打印值，见 `.mcp.json.README.md`。Mac mini 上的线程以后同样需要这份文件
+- 写开关在合并时就是 `on`：这个分支等 B1R 在 PROD 上线之后才合并，以 `off` 合并会让所有线程的写工具中断。B 级直调，C/D 级改为创建申请并返回申请号。见 `.mcp.json.README.md`
 - focus 白名单在 `mcp/platform/src/focusBridges.ts`。`local` 与 `approve` 在 `index.ts` 里单独注册，不进这张表
-- 令牌只写 `${PLATFORM_*_TOKEN:-}`，不落盘
+- 配置里的令牌只写 `${PLATFORM_*_TOKEN:-}`，值不进仓库
+- `preflight.js` 拦截直接请求 `/api/v1/approvals/<id>/approve|reject`、浏览器打开 `#approvals` 去点，以及读取或引用 `PLATFORM_ADMIN_TOKEN` 与 `mcp-tokens.env`。`mcp__bifrost-approve__*` 放行。ADR §5「已知的接受风险」
 - `mcp/unifi/` 未注册（D9 网络执行路径）
 - 详见 `.mcp.json.README.md`
 

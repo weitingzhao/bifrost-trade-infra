@@ -9,7 +9,7 @@
       "env": {
         "PLATFORM_API_URL": "http://192.168.10.100:30876",
         "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_OPERATOR_TOKEN:-}",
-        "MCP_WRITES": "off"
+        "MCP_WRITES": "on"
       }
     },
     "bifrost-kubernetes": {
@@ -22,7 +22,7 @@
         "PLATFORM_API_URL": "http://192.168.10.100:30876",
         "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_OPERATOR_TOKEN:-}",
         "MCP_BRIDGE_FOCUS": "kubernetes",
-        "MCP_WRITES": "off"
+        "MCP_WRITES": "on"
       }
     },
     "bifrost-redis": {

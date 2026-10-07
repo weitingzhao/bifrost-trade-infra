@@ -14,6 +14,12 @@ const PK = 'p' + K
 const SVC_API = 'platform' + '-api'
 const SVC_CON = 'platform' + '-console'
 const OPCMD = 'ib:operator' + ':cmd'
+const APPR = '/api/v1/' + 'approvals/'
+const APPROVE_URL = APPR + 'req-1/' + 'approve'
+const REJECT_URL = APPR + 'req-1/' + 'reject'
+const TOKEN_FILE = 'mcp-tokens' + '.env'
+const ADMIN_KEY = 'PLATFORM_' + 'ADMIN_TOKEN'
+const HASH_PAGE = '#' + 'approvals'
 
 const cases = [
   // ── D10 应拦截 ──
@@ -127,6 +133,30 @@ const cases = [
     bash("cat > /tmp/t.sh <<'EOF'\n" + PK + ' -f ' + SVC_API + '\nEOF')],
   ['ok', 'ALLOW', 'grep ' + K + ' 日志（只读）', bash('grep -rn ' + K + ' ' + SVC_API + '.log')],
 
+  // ── 审批旁路（ADR §5）──
+  ['appr', 'DENY', 'curl POST ' + APPROVE_URL,
+    bash('curl -sS -X POST http://192.168.10.100:30876' + APPROVE_URL + ' -H "content-type: application/json" -d \'{"channel":"chat"}\'')],
+  ['appr', 'DENY', 'cat ' + TOKEN_FILE, bash('cat ~/.config/bifrost/' + TOKEN_FILE)],
+  ['appr', 'ALLOW', 'mcp__bifrost-approve__approve_request',
+    tool('mcp__bifrost-approve__' + 'approve_request', { id: 'req-1' })],
+  ['appr', 'DENY', 'wget ' + REJECT_URL, bash('wget -qO- http://192.168.10.100:30876' + REJECT_URL)],
+  ['appr', 'DENY', 'printenv ' + ADMIN_KEY, bash('printenv ' + ADMIN_KEY)],
+  ['appr', 'DENY', 'Read ' + TOKEN_FILE, tool('Read', { file_path: '/Users/x/.config/bifrost/' + TOKEN_FILE })],
+  ['appr', 'DENY', 'browser open ' + HASH_PAGE,
+    tool('browser_navigate', { url: 'http://192.168.10.100:30880/' + HASH_PAGE })],
+  ['appr', 'DENY', 'browser click approvals',
+    tool('browser_click', { element: 'Approve', url: 'http://ops.example/' + HASH_PAGE })],
+  ['appr', 'ALLOW', 'Edit 文档正文可以提到令牌文件名',
+    tool('Edit', {
+      file_path: '/x/agent-config/.mcp.json.README.md',
+      old_string: 'x',
+      new_string: 'see ~/.config/bifrost/' + TOKEN_FILE + ' and ' + ADMIN_KEY,
+    })],
+  ['appr', 'ALLOW', 'GET /api/v1/approvals（列表，不是 approve）',
+    bash('curl -sS http://192.168.10.100:30876/api/v1/' + 'approvals')],
+  ['appr', 'ALLOW', '其他 MCP 写工具',
+    tool('mcp__bifrost-platform__start_pipeline_run', { name: 'ci-example' })],
+
   // ── 畸形输入 ──
   ['edge', 'ALLOW', '空输入', null],
 ]
@@ -134,10 +164,13 @@ const cases = [
 let pass = 0, fail = 0
 let group = ''
 for (const [g, want, name, payload] of cases) {
-  if (g !== group) { group = g; console.log(`\n── ${{ D10: 'D10 交易执行冻结', dev: 'dev-services', ok: '合法操作（不得误拦）', edge: '边界输入' }[g]} ──`) }
+  if (g !== group) { group = g; console.log(`\n── ${{ D10: 'D10 交易执行冻结', dev: 'dev-services', ok: '合法操作（不得误拦）', appr: '审批旁路（ADR §5）', edge: '边界输入' }[g]} ──`) }
   const r = spawnSync('node', [GUARD], { input: payload ? JSON.stringify(payload) : '', encoding: 'utf8' })
   const got = (r.stdout || '').trim() ? 'DENY' : 'ALLOW'
-  const ok = got === want
+  let ok = got === want
+  if (ok && g === 'appr' && want === 'DENY' && !String(r.stdout).includes('ADR §5')) {
+    ok = false
+  }
   ok ? pass++ : fail++
   console.log(`  ${ok ? '✓' : '✗'} ${got.padEnd(5)} ${name}${ok ? '' : `   ← 期望 ${want}`}`)
 }

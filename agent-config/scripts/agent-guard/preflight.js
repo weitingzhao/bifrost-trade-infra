@@ -19,6 +19,11 @@
  *     与写文件命令豁免，避免把"提到某命令的文本"误判成"要执行该命令"。
  *
  * 回归测试见 scripts/agent-guard/README.md。
+ *
+ * 审批旁路（ADR §5，始终生效，与 D10 是否解锁无关）：
+ *  非 mcp__bifrost-approve__* 的工具调用里，直接打审批 approve/reject、
+ *  用浏览器打开 #approvals 去点、以及读取或引用 admin 令牌文件，都拒绝。
+ *  聊天批准本身仍走 bifrost-approve（permissions.ask 弹窗）。
  */
 'use strict'
 
@@ -275,6 +280,77 @@ function sharedWorktreeRules(cmd) {
   return null
 }
 
+// ─────────────────────── 审批旁路（ADR §5，始终生效） ───────────────────────
+//
+// Owner 2026-10-07：聊天批准保留。admin 令牌在本机进程可读是已知的接受风险，
+// 这条文本拦截挡的是「不走弹窗、直接批准」和「把令牌读出来自己用」。
+// 防的是善意误操作，不是有决心的绕过（同本文件其他规则）。
+//
+// Edit / Write 只看目标路径，不看正文：说明文档必须能写这些名字。
+// Bash、Read、浏览器和其他工具调用看整段输入。
+
+const ADMIN_TOKEN_NAME = 'PLATFORM_' + 'ADMIN_TOKEN'
+const TOKEN_FILE_NAME = 'mcp-tokens' + '.env'
+const APPROVALS_HASH = '#' + 'approvals'
+const APPROVAL_API = new RegExp(
+  '/api/v1/' + 'approvals/[^/\\s"\'`?#]+/(approve|reject)\\b',
+)
+
+function approvalText(toolName, input, cmd) {
+  const name = String(toolName || '')
+  if (/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(name)) {
+    return String((input && (input.file_path || input.notebook_path)) || '')
+  }
+  const parts = []
+  if (cmd) parts.push(String(cmd))
+  if (input && typeof input === 'object') {
+    try {
+      parts.push(JSON.stringify(input))
+    } catch {
+      parts.push(String(input))
+    }
+  } else if (input) {
+    parts.push(String(input))
+  }
+  return parts.join('\n')
+}
+
+function approvalGuard(toolName, input, cmd) {
+  const name = String(toolName || '')
+  if (/^mcp__bifrost-approve__/.test(name)) return null
+
+  const text = approvalText(name, input, cmd)
+  if (!text) return null
+
+  if (text.includes(ADMIN_TOKEN_NAME) || text.includes(TOKEN_FILE_NAME)) {
+    return (
+      '读取或引用 `' + ADMIN_TOKEN_NAME + '` 或 `' + TOKEN_FILE_NAME +
+      '`。ADR §5：admin 令牌留在本机只为聊天批准弹窗，不给 Agent 拿去直接用'
+    )
+  }
+  if (APPROVAL_API.test(text)) {
+    return (
+      '直接请求 `/api/v1/approvals/<id>/approve` 或 `/reject`（curl、wget、fetch 等都算）。' +
+      'ADR §5：批准只走会弹窗的 bifrost-approve'
+    )
+  }
+
+  const browserName = /browser|WebFetch|playwright|puppeteer|selenium/i.test(name)
+  const opensPage =
+    text.includes(APPROVALS_HASH) &&
+    (browserName ||
+      /\b(curl|wget|fetch|open|xdg-open|chrome|chromium|osascript|browse|click|locator|getByRole|getByText|playwright|puppeteer|selenium)\b/i.test(
+        text,
+      ))
+  if (opensPage) {
+    return '用浏览器或 HTTP 客户端打开 `#approvals`。ADR §5：Agent 不得绕过聊天弹窗去点审批页'
+  }
+  if (browserName && /approvals/.test(text) && /\b(approve|reject|click)\b/i.test(text)) {
+    return '在浏览器里对审批页点批准或驳回。ADR §5：批准只走 `mcp__bifrost-approve__*` 的弹窗'
+  }
+  return null
+}
+
 // ─────────────────────────────── 判定 ───────────────────────────────
 
 function evaluate(payload) {
@@ -285,6 +361,9 @@ function evaluate(payload) {
 
   const locked = d10Status() !== 'UNLOCKED'
   const cmd = String(input.command ?? payload.command ?? '')
+
+  const approval = approvalGuard(toolName, input, cmd)
+  if (approval) return { deny: true, kind: 'approval', reason: approval }
 
   if (cmd) {
     const dev = devServiceRules(cmd)
@@ -317,6 +396,19 @@ function denyMessage(kind, reason) {
       `解锁需要两个条件同时满足：Owner 明文书面指令，且 spine 中 decisions[id=D10].status → UNLOCKED。\n` +
       `不要绕过本闸门、不要"修复" guard 文件 —— 直接向 Owner 报告。\n` +
       `权威源：${AUTHORITY}`
+    )
+  }
+  if (kind === 'approval') {
+    return (
+      '【审批旁路 — ADR §5】拦截原因：' + reason + '。\n' +
+      'Owner 2026-10-07 决定聊天批准保留（bifrost-approve + permissions.ask），' +
+      '并接受「本机 Agent 理论上能读到 admin 令牌」的风险；这条文本拦截是当前的缓解。' +
+      '见 ADR §5「已知的接受风险」。\n' +
+      '批准或驳回只走 `mcp__bifrost-approve__*`（会弹「允许」）。\n' +
+      '不要直接请求 /api/v1/approvals/<id>/approve 或 /reject，不要打开 #' +
+      'approvals 自己点，不要读 ' + ADMIN_TOKEN_NAME + ' 或 ~/.config/bifrost/' +
+      TOKEN_FILE_NAME + '。\n' +
+      '收权可以以后再做。不要绕过本闸门。'
     )
   }
   if (kind === 'shared-worktree') {
@@ -359,6 +451,8 @@ function main() {
     : (() => {
         const dev = devServiceRules(raw)
         if (dev) return { deny: true, kind: 'dev-services', reason: dev }
+        const approval = approvalGuard('', null, raw)
+        if (approval) return { deny: true, kind: 'approval', reason: approval }
         if (d10Status() !== 'UNLOCKED') {
           const d10 = d10Rules(raw)
           if (d10) return { deny: true, kind: 'D10', reason: d10 }

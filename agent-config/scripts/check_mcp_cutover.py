@@ -3,6 +3,8 @@
 
 - Only the server named bifrost-local may point at 127.0.0.1 / localhost.
 - bifrost-approve is registered only on the Claude side (.mcp.json).
+- bifrost-platform and bifrost-kubernetes must set MCP_WRITES=on (the at-merge state).
+  Any other server that sets MCP_WRITES must also be on.
 - Token env values stay interpolations. This script never prints those values.
 
     python3 agent-config/scripts/check_mcp_cutover.py
@@ -20,6 +22,7 @@ from pathlib import Path
 
 PROD = "http://192.168.10.100:30876"
 LOOPBACK = ("127.0.0.1", "localhost", "[::1]")
+WRITE_SWITCH = ("bifrost-platform", "bifrost-kubernetes")
 AGENT_CONFIG = Path(__file__).resolve().parents[1]
 
 
@@ -82,6 +85,11 @@ def check_servers(path: Path, role: str, data: dict) -> list[str]:
                 errors.append(f"{path}: bifrost-approve must pin PLATFORM_TOKEN_ENV_KEY=PLATFORM_ADMIN_TOKEN")
             if env.get("MCP_BRIDGE_FOCUS") != "approve":
                 errors.append(f"{path}: bifrost-approve must set MCP_BRIDGE_FOCUS=approve")
+        writes = env.get("MCP_WRITES")
+        if name in WRITE_SWITCH and writes != "on":
+            errors.append(f"{path}: {name} MCP_WRITES must be on")
+        elif writes is not None and writes != "on":
+            errors.append(f"{path}: {name} MCP_WRITES must be on")
     return errors
 
 
@@ -124,7 +132,7 @@ def self_test() -> int:
                     "env": {
                         "PLATFORM_API_URL": PROD,
                         "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_OPERATOR_TOKEN:-}",
-                        "MCP_WRITES": "off",
+                        "MCP_WRITES": "on",
                     },
                 },
                 "bifrost-local": {
@@ -181,6 +189,39 @@ def self_test() -> int:
         leak = check_paths([(claude, "claude")])
         if not any("interpolation" in item for item in leak):
             print("self-test did not catch a literal token:", leak)
+            return 1
+
+        writes_off = json.loads(json.dumps(good_claude))
+        writes_off["mcpServers"]["bifrost-platform"]["env"]["MCP_WRITES"] = "off"
+        claude.write_text(json.dumps(writes_off))
+        off = check_paths([(claude, "claude")])
+        if not any("MCP_WRITES" in item for item in off):
+            print("self-test did not catch MCP_WRITES=off:", off)
+            return 1
+
+        missing = json.loads(json.dumps(good_claude))
+        del missing["mcpServers"]["bifrost-platform"]["env"]["MCP_WRITES"]
+        claude.write_text(json.dumps(missing))
+        gone = check_paths([(claude, "claude")])
+        if not any("MCP_WRITES" in item for item in gone):
+            print("self-test did not catch a missing MCP_WRITES:", gone)
+            return 1
+
+        bridge = json.loads(json.dumps(good_cursor))
+        bridge["mcpServers"]["bifrost-kubernetes-bridge"] = {
+            "command": "npx",
+            "args": ["tsx", "index.ts"],
+            "env": {
+                "PLATFORM_API_URL": PROD,
+                "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_OPERATOR_TOKEN:-}",
+                "MCP_BRIDGE_FOCUS": "kubernetes",
+                "MCP_WRITES": "off",
+            },
+        }
+        cursor.write_text(json.dumps(bridge))
+        bridged = check_paths([(cursor, "cursor")])
+        if not any("MCP_WRITES" in item for item in bridged):
+            print("self-test did not catch MCP_WRITES=off on a bridge server:", bridged)
             return 1
     print("self-test ok")
     return 0

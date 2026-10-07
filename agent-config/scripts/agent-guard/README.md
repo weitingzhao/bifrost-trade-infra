@@ -8,7 +8,7 @@ Cursor 与 Claude **共用同一份实现**。双轨维护（`CLAUDE.md` §7）�
 | 文件 | 作用 |
 |------|------|
 | `preflight.js` | 拦截器本体。读 stdin JSON，输出 deny 决策或静默放行 |
-| `test.js` | 回归测试（25 例）。`node scripts/agent-guard/test.js` |
+| `test.js` | 回归测试。`node scripts/agent-guard/test.js` |
 
 ## 接线
 
@@ -35,6 +35,19 @@ Cursor 与 Claude **共用同一份实现**。双轨维护（`CLAUDE.md` §7）�
 | 删除 daemon overlay/patch | `kubectl delete … daemon … overlay` |
 | Edit/Write 命中 guard 文件 | `Edit(k8s/overlays/prod/daemon-observe-safe.patch.yaml)` |
 | MCP `scale_deployment` daemon >0 | `{name:"daemon", replicas:2}` |
+
+### 审批旁路（ADR §5，始终生效）
+
+聊天批准保留（`bifrost-approve` + `permissions.ask`）。Owner 接受「本机 Agent 理论上能读到 admin 令牌」，用这条文本拦截挡旁路。拦截提示写明 ADR §5「已知的接受风险」。
+
+| 规则 | 例 |
+|------|-----|
+| 直接请求 `/api/v1/approvals/<id>/approve` 或 `/reject` | `curl` / `wget` / `fetch` |
+| 浏览器打开 `#approvals` 再点 | `browser_navigate`、`open`、`browser_click` |
+| 读取或引用 `PLATFORM_ADMIN_TOKEN`、`mcp-tokens.env` | `cat ~/.config/bifrost/mcp-tokens.env`、`printenv`、`Read` 该文件 |
+| 放行 | `mcp__bifrost-approve__approve_request`（弹窗在 permissions.ask，不在这里） |
+
+`Edit` / `Write` 只看目标路径，不看正文，说明文档可以写这些名字。Bash、`Read`、浏览器和其他工具调用看整段输入。Claude 的 `PreToolUse` matcher 含 `Read` 与 `WebFetch`；Cursor 的浏览器 MCP 走 `beforeMCPExecution`。
 
 ### dev-services 卫生规则（始终生效）
 
@@ -70,7 +83,7 @@ Owner 把 D10 改成 `UNLOCKED`，拦截自动停止 —— 不需要改代码�
 - **数据当命令**：`cat > f <<'EOF' … pkill -f platform-api … EOF` 是在写文件，
   不是在执行。现对 dev-services 规则豁免写文件类命令。
 
-改规则后**必须**跑 `node scripts/agent-guard/test.js`，25 例全绿才算通过。
+改规则后**必须**跑 `node scripts/agent-guard/test.js`，全部用例绿才算通过。
 
 ### 4. 非对抗性设计
 
@@ -84,7 +97,7 @@ Owner 把 D10 改成 `UNLOCKED`，拦截自动停止 —— 不需要改代码�
 
 1. 先跑 `node scripts/agent-guard/test.js` 确认现有用例仍全绿
 2. 在 `test.js` 里**先加一条应为 ALLOW 的用例**（复现误报）
-3. 再改 `preflight.js` 让它变绿，且原有 25 例不许变红
+3. 再改 `preflight.js` 让它变绿，且原有用例不许变红
 4. 跑 `bash scripts/check-agent-config-parity.sh`
 
 **不要**为了绕过而删规则或改 spine 的 D10 —— 那是 Owner 的决定。
