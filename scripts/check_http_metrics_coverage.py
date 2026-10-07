@@ -16,11 +16,17 @@ Static (default; no cluster needed), on ``k8s/monitoring``:
   some ServiceMonitor (TD-198: STG platform-api went unscraped, so it could fail with no alert);
 - every namespace scraped by a ServiceMonitor / PodMonitor whose component is an API
   (APP_COMPONENTS) matches that regex, and every monitor's component is classified, so a new
-  API monitor cannot land outside the rules unnoticed.
+  API monitor cannot land outside the rules unnoticed;
+- BifrostAPIHighLatency reads http_request_duration_highr_seconds first, and its threshold is
+  below the largest finite bucket of every histogram it reads (TD-194: it read a histogram that
+  tops out at 1 s and alerted on `> 2`, so it could never fire).
 
 Live (``--live``; needs KUBECONFIG, read-only via the apiserver proxy): runs the ratchet
 alert's own expression and lists every scraped API target that exports no
-``http_requests_total``, and checks that every platform namespace has a platform-api target up.
+``http_requests_total``, checks that every platform namespace has a platform-api target up, and
+for every service with request series finds the histogram the latency rule takes its p99 from
+(highr if the service exports it, else the per-handler one) and checks the threshold is below
+that histogram's largest finite bucket as exported.
 
 Usage: python3 scripts/check_http_metrics_coverage.py [--live]   (exit 1 on any problem)
 """
@@ -53,6 +59,15 @@ INFRA_COMPONENTS = frozenset({"postgres", "redis", "minio", "logging", "gateway"
 PLATFORM_NAMESPACES = ("bifrost-platform-prod", "bifrost-platform-stg")
 #: A label matcher other than namespace in the ratchet's selectors is an exemption.
 EXEMPTION = re.compile(r'\b(?!namespace\b)\w+\s*(?:!=|!~|=~|=)\s*"[^"]*"')
+#: The latency rule's first histogram (TD-194): to 60 s, exported by every Python API.
+HIGHR = "http_request_duration_highr_seconds"
+#: Largest finite bucket of each histogram the latency rule may read, for the exporters whose p99
+#: the rule takes from it. highr: prometheus-fastapi-instrumentator's default (Trade, via
+#: bifrost-trade-core observability/prometheus.py) and HIGHR_BUCKETS of the research / plugin
+#: api/http_metrics.py. http_request_duration_seconds: used only by `or` for services with no
+#: highr series, i.e. platform-api (api/internal/server/httpmetrics.go, buckets to 10 s); the
+#: Python APIs' copy tops out at 1 s and is never reached. --live checks the exported buckets.
+LARGEST_FINITE_BUCKET = {HIGHR: 60.0, "http_request_duration_seconds": 10.0}
 PROMETHEUS = "/api/v1/namespaces/monitoring/services/kube-prometheus-stack-prometheus:9090/proxy/api/v1"
 
 
@@ -64,6 +79,37 @@ def _rule_exprs() -> dict[str, str]:
             if rule.get("alert") in API_RULES:
                 out[rule["alert"]] = " ".join(str(rule["expr"]).split())
     return out
+
+
+def latency_threshold(expr: str) -> tuple[float | None, list[str]]:
+    """The latency rule's threshold (the number after its last ``>``) and its histograms."""
+    m = re.search(r">\s*([0-9]+(?:\.[0-9]+)?)\s*$", expr)
+    return (float(m.group(1)) if m else None), re.findall(r"(\w+)_bucket\b", expr)
+
+
+def check_latency_rule(expr: str) -> list[str]:
+    problems: list[str] = []
+    threshold, histograms = latency_threshold(expr)
+    if threshold is None:
+        return [f"{RULES.name}: BifrostAPIHighLatency has no `> <seconds>` threshold at its end"]
+    if not histograms or histograms[0] != HIGHR:
+        problems.append(
+            f"{RULES.name}: BifrostAPIHighLatency must read {HIGHR}_bucket first (reads "
+            f"{histograms}); the per-handler histogram of the Python APIs tops out at 1 s (TD-194)"
+        )
+    for h in histograms:
+        top = LARGEST_FINITE_BUCKET.get(h)
+        if top is None:
+            problems.append(
+                f"{RULES.name}: BifrostAPIHighLatency reads {h}, whose buckets this check does not "
+                "know; add it to LARGEST_FINITE_BUCKET"
+            )
+        elif threshold >= top:
+            problems.append(
+                f"{RULES.name}: BifrostAPIHighLatency alerts on p99 > {threshold:g} s but {h} has no "
+                f"finite bucket above {top:g} s, so histogram_quantile can never pass it (TD-194)"
+            )
+    return problems
 
 
 def check_static() -> list[str]:
@@ -86,6 +132,8 @@ def check_static() -> list[str]:
                 f"{RULES.name}: platform namespace {ns!r} is outside the API rules' namespace "
                 f"regex {regex.pattern!r}"
             )
+    if "BifrostAPIHighLatency" in exprs:
+        problems += check_latency_rule(exprs["BifrostAPIHighLatency"])
     ratchet = exprs.get("BifrostAPIWithoutHttpMetrics", "")
     for selector in re.findall(r"\{([^}]*)\}", ratchet):
         for m in EXEMPTION.finditer(selector):
@@ -145,11 +193,60 @@ def _query(expr: str) -> tuple[list[dict], str | None]:
     return json.loads(proc.stdout)["data"]["result"], None
 
 
-def check_live() -> list[str]:
-    result, err = _query(_rule_exprs()["BifrostAPIWithoutHttpMetrics"])
+def _largest_finite(rows: list[dict]) -> dict[tuple[str, str], float]:
+    out: dict[tuple[str, str], float] = {}
+    for r in rows:
+        le = r["metric"].get("le", "+Inf")
+        if le == "+Inf":
+            continue
+        key = (r["metric"].get("namespace", ""), r["metric"].get("service", ""))
+        out[key] = max(out.get(key, 0.0), float(le))
+    return out
+
+
+def check_latency_live(expr: str) -> list[str]:
+    """Per service: the histogram the latency rule takes its p99 from tops out above the threshold."""
+    threshold, histograms = latency_threshold(expr)
+    regex = re.search(r'namespace=~"([^"]+)"', expr)
+    if threshold is None or regex is None:
+        return []  # check_static already failed on it
+    sel = f'{{namespace=~"{regex.group(1)}"}}'
+    # /health is counted but never timed, so a service that has served nothing else has no
+    # histogram series yet (platform-api's are created on the first timed request).
+    timed = f'{{namespace=~"{regex.group(1)}",handler!="/health"}}'
+    services, err = _query(f"count by (namespace, service) (http_requests_total{timed})")
     if err:
         return [err]
-    problems = [
+    tops: list[dict[tuple[str, str], float]] = []
+    for h in dict.fromkeys(histograms):
+        rows, err = _query(f"count by (namespace, service, le) ({h}_bucket{sel})")
+        if err:
+            return [err]
+        tops.append(_largest_finite(rows))
+    problems = []
+    for r in services:
+        key = (r["metric"].get("namespace", ""), r["metric"].get("service", ""))
+        top = next((t[key] for t in tops if key in t), None)
+        if top is None:
+            problems.append(
+                f"{key[0]}/{key[1]} serves requests other than /health but exports none of "
+                f"{histograms}, so BifrostAPIHighLatency cannot see it"
+            )
+        elif threshold >= top:
+            problems.append(
+                f"{key[0]}/{key[1]}: the histogram BifrostAPIHighLatency reads for it tops out at "
+                f"{top:g} s, not above the {threshold:g} s threshold"
+            )
+    return problems
+
+
+def check_live() -> list[str]:
+    exprs = _rule_exprs()
+    result, err = _query(exprs["BifrostAPIWithoutHttpMetrics"])
+    if err:
+        return [err]
+    problems = check_latency_live(exprs["BifrostAPIHighLatency"])
+    problems += [
         f"{r['metric'].get('namespace')}/{r['metric'].get('job')} is scraped but exports no "
         "http_requests_total"
         for r in result

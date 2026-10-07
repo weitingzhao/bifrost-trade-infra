@@ -429,8 +429,9 @@ check-overlay-configs:
 check-trade-gateway-routes:
 	python3 scripts/check_trade_gateway_routes.py
 
-# TD-161: API monitors inside the API alert rules; LIVE=1 also asks Prometheus which API
-# targets export no http_requests_total.
+# TD-161: API monitors inside the API alert rules; TD-194: the latency rule reads the fine histogram
+# and its threshold is below the largest finite bucket. LIVE=1 also asks Prometheus which API
+# targets export no http_requests_total and which buckets each service's histogram really has.
 check-http-metrics-coverage:
 	python3 scripts/check_http_metrics_coverage.py $(if $(LIVE),--live,)
 
