@@ -13,9 +13,10 @@
 
 ## 待你签收
 
+- **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 101 项**：P0 0 · P1 11 · P2 33 · P3 57；要你批的 57 项（从总览表的审批列算）。
+**未结 104 项**：P0 0 · P1 11 · P2 35 · P3 58；要你批的 57 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -81,7 +82,7 @@
 
 目标：备份 MinIO 已搬到 NAS（infra 1ee0ac2，已接监控 ba03488），把剩下的收尾：自动修复只在 PROD 一处动手、失败记录不再被删、platform 的新检查上线、稳定一周后退役集群里的 MinIO 残留，再处理 WAL 体量和 CNPG 1.30 的备份插件。
 
-项：TD-130, TD-131, TD-133, TD-134, TD-135, TD-196 · 已还：TD-197, TD-173, TD-132
+项：TD-131, TD-133, TD-134, TD-135 · 已还：TD-197, TD-173, TD-132
 
 ### 第 7 波 · 数据缺口（10-06 由 Data Gaps 看板并入）
 
@@ -99,7 +100,7 @@
 
 目标：先关门再修代码。本机 platform-api 只监听本机、PROD/STG Redis 的局域网 NodePort 删掉，然后 git-bridge、修复 runner、Hermes、husbandry-sync 都要令牌；platform 换成按需授权的 ServiceAccount，停用管理员 kubeconfig；路由鉴权测试卡住回退。
 
-项：TD-206, TD-207, TD-208, TD-204, TD-220, TD-225, TD-221, TD-222, TD-223, TD-231 · 已还：TD-205, TD-203, TD-224
+项：TD-206, TD-207, TD-208, TD-204, TD-220, TD-225, TD-221, TD-222, TD-231 · 已还：TD-205, TD-203, TD-224
 
 ### 第 10 波 · 告警有人收、备份能恢复（第 3 轮）
 
@@ -112,6 +113,12 @@
 目标：挂单与 IB 读失败不再被当真写库；Risk / Performance / 告警计数按交易日算；Console 的裁决条在探针失败时不再显示绿色；ui 的发布可追溯；台账与文档的过时说法改正。
 
 项：TD-211, TD-212, TD-213, TD-228, TD-229, TD-234, TD-236, TD-239, TD-240, TD-241, TD-252 · 已还：TD-214, TD-219, TD-232, TD-233, TD-226, TD-230, TD-227, TD-251, TD-235
+
+### 第 12 波 · Ops 维护只在 PROD 一处（Owner 10-07）
+
+目标：会动手的维护只由 PROD 的 platform-workers 做，本机与 STG 只观测。已做：本机停手（TD-130 第一步）、STG 不修 IB 也不写发布记录（TD-223）、页面不再触发维护、状态持久化（TD-196）。接着：PROD 自己探测、带时间戳的检查信号，只给 PROD 挂技能并先只报告，再逐项放开；备份只归 CNPG 与 backup-retry；不再清掉失败现场。
+
+项：TD-130, TD-196, TD-223, TD-253, TD-254, TD-255
 
 ## 数据边界（接受并留座）
 
@@ -324,6 +331,9 @@
 | [TD-247](#td-247) | P3 | frontend | Look-back starts are still computed in the browser's time zone (new Date(Date.now() - N*86400000).toISOString().slice(0,10)), and three private New York date helpers duplicate @/lib/freshness | 不用批 |
 | [TD-250](#td-250) | P3 | trade-data | A stale vendor close above intrinsic is still stored as vendor_eod: the plugin's snapshot read does not return last_trade_ts, so enrich cannot tell a morning trade from a session close | 不用批 |
 | [TD-252](#td-252) | P1 | research-data | The dbt generic tests are not in the wheel: research_trading_day failed to compile on 10-07 and no engine ran for the 10-06 session | 发版（要你批） |
+| [TD-253](#td-253) | P2 | ops-platform | The autopilot acts on checklist signals that are weeks old: signals carry no time of their own, and nothing marks a stale one unknown | 不用批 |
+| [TD-254](#td-254) | P2 | ops-platform | Two mechanisms repair the same failed backup: the autopilot's repair_cnpg_wal_store (every 15 min) and the backup-retry CronJob | 不用批 |
+| [TD-255](#td-255) | P3 | ops-platform | The hourly drift scan deletes every Failed pod it may, including failed backup Job pods in data | 不用批 |
 
 ## 条目
 
@@ -822,7 +832,9 @@
 
 **P1 · ops-control · ops-autopilot acts on the shared cluster's data layer from the Owner's laptop (local bdev platform-api, role all); the in-cluster STG/PROD autopilots idle on an empty checklist, and each of the three keeps its own throttle**
 
-- **状态**：未开始（要你批）。依赖：本机这份先不停（Owner 2026-10-06）——停了就没有任何一份 autopilot 在动手；等 PROD 接上真实清单之后再停本机。
+- **状态**：在做（Owner 10-07 改了顺序：本机先停，告警已能呼到人，所以不再需要「先接上 PROD 再停本机」）
+- **现在**：10-07 本机 `bifrost-platform/.env` 设 `PLATFORM_ROLE=api`、bdev 重启：`/health` background_loops=false，04:15 那一轮本机没再跑（最后一次 04:05）。实测：集群里 STG/PROD workers 的 patrol 技能列表为空（Pod 里没有挂载 `config/patrol-skills`），api Pod 把 patrol 路由转发给 .50 的 operator-plane（autopilot 关）——所以此前三份里只有本机这份在动手。备份由 CNPG 每日备份 + `backup-retry` 负责，出事 ntfy 呼人（TD-209）
+- **下一步**：Ops 维护收敛计划第 4 步（Owner 10-07 已批）：PROD 自己探测检查信号并带时间戳（TD-253）→ 只给 PROD 挂技能、先只报告不动手 3–5 天 → 逐项放开；前提 TD-196（已上线、观察中）与 TD-204（安全，待批）
 - **Claim**: Three platform-api processes run the patrol autopilot loop against the one k3s cluster: platform-workers in bifrost-platform-stg and bifrost-platform-prod (PLATFORM_ROLE=workers) and the Owner's local bdev platform-api, where PLATFORM_ROLE is unset and therefore `all`. Only the local one reads the real checklist; the in-cluster ones idle on an empty checklist (Owner 2026-09-22: leave as is). So the actions on data/minio and the backups came from a dev laptop: repair_cnpg_wal_store every 15 minutes from 10-05 19:30 to 10-06 02:00 (all failed), a rollout restart of deploy/minio plus an on-demand Backup at 10-06 04:45, another restart at 05:15. The "same target not twice in 24h" throttle is kept per process.
 - **Measured**: MEASURED 2026-10-06. Audit log of the local platform-api (MCP bifrost-platform → http://127.0.0.1:8780, get_audit_log) lists those actions; `curl 127.0.0.1:8780/health` → role all, background_loops true; kubectl: platform-workers 1 replica with PLATFORM_ROLE=workers in both namespaces. Again at 2026-10-06 16:15:07 UTC (12:15 New York, market hours): the local autopilot ran repair_cnpg_wal_store, deleted the failed Backup bifrost-postgres-ondemand-20261006-044532 and started bifrost-postgres-ondemand-20261006-161507, a full base backup.
 - **Evidence**:
@@ -1451,7 +1463,8 @@
 
 **P2 · ops-platform · platform-api and platform-workers keep their state in per-pod emptyDir: every rollout erases release cycles, gate history, the operate queue and checklist signals, and the audit log is memory-only**
 
-- **状态**：未开始（Owner 10-06 已批 A：ConfigMap + 审计长尾进 Loki；排在 TD-197 之后）
+- **状态**：观察中（platform 87965ce 已上 STG/PROD 10-07；看第一次真实写入后，下一次 PROD 发版 release-cycles 与 audit 仍在）
+- **现在**：新包 `internal/statefile`：各 store 照旧用原路径读写；集群里 `PLATFORM_DATA_DIR` 下的每个状态文件存成本命名空间的 ConfigMap `platform-state-<key>`（STG/PROD 分开，900 KiB 预算，后写为准），本机与 operator-plane 仍是文件。迁移：checklist、operate queue + briefs、release gate 状态与历史、release cycles、patrol、hermes insights、escape hatch、agent deploy、data-clone 计划与最近一次。审计按角色存 `audit-api.json` / `audit-workers.json`（各留 500 条），api 的 `GET /audit` 合并两份，每条同时打一行日志进 Loki。data-clone 计划 `Get` 每次重读（api 写、workers 读）。写入时截断：闸门历史 100 条、已结束的队列条目 200 条。两 Pod 启动日志都有「platform state in ConfigMaps」。未迁：data-clone 任务记录（一个目录，按 Pod 保存）
 - **Claim**: Both platform Deployments mount `/app/data` as an emptyDir, one per pod (the api pod and the workers pod do not share it). Every file store resolves under it: release-gate state and history, release cycles (including `agent_session_id`), the operate queue, checklist signals, patrol state, the escape-hatch drill and agent-deploy last. The audit log is built with `NewAuditLog("")` and `PLATFORM_AUDIT_LOG` is set in no overlay, so audit records only live in memory. A rollout, crash or reschedule erases all of it.
 - **Measured**: MEASURED 2026-10-06 23:40Z. Five platform deliveries were started through platform-api today (STG/PROD 17:53–23:34). PROD `GET /api/v1/promote/release-cycles?lane=platform` → `{"entries":[]}` and `GET /api/v1/audit?limit=5` → `{"records":[]}`; the PROD pods started 23:33 with the last rollout.
 - **Evidence**:
@@ -1730,7 +1743,7 @@
 
 **P3 · ops-platform · STG and PROD platform-workers both run the IB gateway auto-repair loop against the one live data/ib-gateway, each with its own 15-minute cooldown**
 
-- **状态**：未开始
+- **状态**：待你签收
 - **Claim**: Both platform overlays set OPS_IB_AUTOREPAIR_ENABLED=true for platform-workers (and for platform-api, where the role gate makes it inert). Both read the same redis-ib health, and both may roll out data/Deployment/ib-gateway. lastAutoRollout is a local variable in each process, so the 900 s cooldown is not shared. D-IB-Heal sanctions one optional auto-repair loop, not two. The trigger bar is high: stale streak ≥3, rollout_recommended, mode live and host_connected, so it has never been seen to fire.
 - **Measured**: MEASURED 2026-10-07: /api/v1/plugins/ib-gateway/self-heal returns auto_repair_enabled:true on both 30876 and 30878, with identical last_action_ts (1790169059.9). ib-gateway restartedAt is 2026-09-08. The audit log is memory-only (TD-196).
 - **Evidence**:
@@ -1741,6 +1754,7 @@
 - **Fix**: Set OPS_IB_AUTOREPAIR_ENABLED=false in the platform-stg overlays (workers and api) so STG only observes, consistent with TD-130 step (4) for the autopilot. Optionally take a coordination.k8s.io Lease in data before any rollout.
 - **Ratchet**: Infra manifest policy check: across `kustomize build overlays/platform-*`, exactly one Deployment has OPS_IB_AUTOREPAIR_ENABLED=true with PLATFORM_ROLE in {workers, all}.
 - **验收**: `curl -s -m10 http://192.168.10.73:30878/api/v1/plugins/ib-gateway/self-heal | grep -o '"auto_repair_enabled":[a-z]*'  # false on STG; PROD 30876 stays true`
+- **验收结果**：PASS 2026-10-07 infra 7b82568：STG `"auto_repair_enabled":false`、PROD `"auto_repair_enabled":true`；STG workers 另设 `PLATFORM_RELEASE_RECORDER=off`（发布记录只由 PROD 写）
 - 审批 PROD 变更（要你批） · 代价 S · 风险 low · repos: bifrost-trade-infra, bifrost-platform
 
 ### TD-225
@@ -2041,6 +2055,54 @@
 - **Fix**: research 0.204.0 (f717fbb): add dbt/tests/**/*.sql to package-data; pin 0.204.0 + Dagster apply before 10-07 02:30 UTC; re-run research_trading_day for the 10-06 session.
 - **Ratchet**: tests/test_dbt_package_data.py: every file under the dbt_project.yml paths matches a package-data glob (fails on 0.203.0).
 - 审批 发版（要你批） · 代价 S · 风险 low · repos: bifrost-research
+
+### TD-253
+
+**P2 · ops-platform · The autopilot acts on checklist signals that are weeks old: signals carry no time of their own, and nothing marks a stale one unknown**
+
+- **状态**：未开始
+- **Claim**: The checklist store keeps one `updated_at` for the whole record; each item signal (`ItemSignal`) has no time of its own. The autopilot fixes whatever reads `fail`, whenever that was observed. On the Owner's Mac (the only acting autopilot until 10-07) 19 of 22 signals dated from 09-29 or earlier: `db-backup-fresh` still cited a July backup, `nodes-ready` said 6/6 while gpu-server was off. Since TD-203 (local platform-api loopback-only) the .50 runner can no longer report there at all.
+- **Measured**: MEASURED 2026-10-07 04:06 UTC: `GET /api/v1/checklist/signals` on the local platform-api → updated_at 2026-09-29T03:32:01Z; `db-backup-fresh` detail `bifrost-postgres-daily-20260711030000`.
+- **Evidence**:
+  - `bifrost-platform/api/internal/checklist/types.go:14` — `type ItemSignal struct {`
+  - `bifrost-platform/api/internal/patrol/autopilot.go:220` — `case "db-backup-fresh":`
+- **Impact**: An autopilot can repair what is already fine (or miss what broke) based on a snapshot nobody refreshed.
+- **Fix**: Each signal carries `observed_at` and `source`; signals older than their TTL read `unknown` and are never fixed; in PROD the signals are probed in-cluster by the workers (not reported from a Mac). Part of the Ops maintenance plan step 4 (TD-130).
+- **Ratchet**: Test: an item signal older than its TTL is reported unknown and the autopilot skips it.
+- **验收**: `curl -s -m10 http://192.168.10.73:30876/api/v1/checklist/signals | python3 -c "import json,sys;print(all(x.get('observed_at') for x in json.load(sys.stdin)['signals']))"  # True`
+- 审批 不用批 · 代价 M · 风险 low · repos: bifrost-platform
+
+### TD-254
+
+**P2 · ops-platform · Two mechanisms repair the same failed backup: the autopilot's repair_cnpg_wal_store (every 15 min) and the backup-retry CronJob; the autopilot started a full base backup in market hours after the day's backup had completed**
+
+- **状态**：未开始
+- **Claim**: When `db-backup-fresh` reads fail the autopilot calls repair_cnpg_wal_store, which deletes failed Backup CRs (TD-131) and starts an on-demand base backup. The in-cluster CronJob `data/backup-retry` (*/15 04–09 UTC) also starts one retry Backup when no backup completed today. Neither knows the other. On 10-06 the daily backup completed at 03:00 and a manual one at 05:16, yet the autopilot started `bifrost-postgres-ondemand-20261006-161507` (a full base backup) at 16:15 UTC, in US market hours.
+- **Measured**: MEASURED 2026-10-07: local autopilot runs 10-05 06:21 → 10-07 03:45: `db-backup-fresh` handled 54 times, `repair_cnpg_wal_store` HTTP 502 52 times, 202 twice. `kubectl -n data get backups` lists the 10-06 daily (completed 03:00), manual-nas (05:16) and ondemand-161507.
+- **Evidence**:
+  - `bifrost-platform/api/internal/patrol/autopilot.go:220` — `case "db-backup-fresh":`
+  - `bifrost-platform/api/internal/patrol/autopilot.go:221` — `return a.repairCnpgWalStore(ctx)`
+- **Impact**: Extra full backups load the primary (shares a node with PROD) and the NAS; repeated repair attempts delete the failed-backup record.
+- **Fix**: Backups belong to CNPG (ScheduledBackup) and backup-retry only: drop `db-backup-fresh` from the autopilot's fix map (report + page instead), keep repair_cnpg_wal_store as a manual operator tool. Part of plan step 4.
+- **Ratchet**: Test: the autopilot fix map has no entry that creates a Backup or touches data/minio.
+- **验收**: `git -C bifrost-platform grep -n 'repairCnpgWalStore' origin/main -- api/internal/patrol  # no call from the fix map`
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-255
+
+**P3 · ops-platform · The hourly drift scan deletes every Failed pod it may, including failed backup Job pods in data: the evidence of a failed backup is gone within the hour**
+
+- **状态**：未开始
+- **Claim**: fleet-drift-scan's chain cleanup deletes terminal pods that pass `isSafeToDelete` (phase Succeeded or Failed, not a protected prefix). Failed `logical-backup-*` pods in `data` qualify, so their logs vanish within an hour; investigating TD-210 needed Loki.
+- **Measured**: MEASURED 2026-10-07: local patrol evidence 10-05 20:05 → 10-07 02:05 shows six `DELETE data/logical-backup-…` (phase=Failed) HTTP 200.
+- **Evidence**:
+  - `bifrost-platform/api/internal/patrol/local.go:131` — `fmt.Fprintf(&b, "- DELETE %s/%s (phase=%s) … ", p.Namespace, p.Name, p.Phase)`
+  - `bifrost-platform/api/internal/patrol/local.go:280` — `func isSafeToDelete(p stalePod) bool {`
+- **Impact**: Failed backup and drill runs leave no pod or log in the cluster to read; Kubernetes already garbage-collects Job pods by the Job's history limits.
+- **Fix**: Never delete pods owned by a Job, or in namespace data, younger than 7 days (let Job history limits and TTL handle them). Part of plan step 4.
+- **Ratchet**: Unit test on isSafeToDelete: a Failed Job-owned pod in data younger than 7 days is not safe to delete.
+- **验收**: `cd bifrost-platform/api && go test ./internal/patrol -run 'SafeToDelete' -count=1`
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
 ## 没覆盖到的（下一轮从这里开始）
 
