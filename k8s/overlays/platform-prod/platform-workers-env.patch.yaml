@@ -21,6 +21,10 @@ spec:
               value: "90"
             - name: OPS_IB_SNAPSHOT_STALE_MAX_BEFORE_ROLLOUT
               value: "3"
+            # TD-131: this process is the one allowed to delete Backup CRs, and
+            # only failed ones older than 30 days. STG does not set this.
+            - name: PLATFORM_BACKUP_CR_SWEEP
+              value: "1"
             - name: REMEDIATION_RUNNER_URL
               value: "http://192.168.10.50:8781"
             - name: REMEDIATION_RUNNER_STANDBY_URL

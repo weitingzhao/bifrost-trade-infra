@@ -144,6 +144,9 @@ rules:
   - apiGroups: [""]
     resources: [pods/exec]
     verbs: [create, get]
+  # create is the on-demand Backup. delete is only the 30-day failed-Backup
+  # sweep (TD-131); repair_cnpg_wal_store does not delete Backup CRs.
+  # list/get/watch of backups stay on bifrost-platform-observer.
   - apiGroups: [postgresql.cnpg.io]
     resources: [backups]
     verbs: [create, delete]

@@ -2,7 +2,8 @@
 # Monorepo: Go API (api/) + TypeScript Console (console/) + spine check.
 # The Console imports @bifrost/ui from its sibling checkout (file:../../bifrost-ui,
 # tsconfig paths → bifrost-ui/dist), so bifrost-ui is cloned and built first.
-# Lightweight: clone → go test → npm type-check → check-spine. No deploy.
+# Lightweight: clone → go test → npm type-check → check-spine →
+# ops-context parity against the infra copies. No deploy.
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
@@ -13,7 +14,8 @@ metadata:
     bifrost.io/layer: L1
 spec:
   description: >-
-    CI gate for bifrost-platform — go test + npm type-check + check-spine.
+    CI gate for bifrost-platform — go test + npm type-check + check-spine
+    + ops-context parity against the infra overlay copies.
     Triggered by Gitea push webhook or manual Console run.
     L1 control plane: conservative gate, must not break ops visibility.
   params:
@@ -176,6 +178,29 @@ spec:
               fi
 
               echo "==> Spine catalog check passed"
+    - name: check-ops-context
+      runAfter: [clone, clone-infra]
+      workspaces:
+        - name: source
+          workspace: source
+      taskSpec:
+        workspaces:
+          - name: source
+        steps:
+          - name: ops-context-parity
+            image: alpine:3.20
+            script: |
+              #!/usr/bin/env sh
+              set -eu
+              apk add --no-cache python3 >/dev/null
+              ws="$(workspaces.source.path)"
+              # The platform SHA under test must match the spine copies on
+              # infraRevision (default main). A spine edit fails here until
+              # those copies are synced.
+              export PLATFORM_ROOT="${ws}/bifrost-platform"
+              python3 "${ws}/bifrost-trade-infra/scripts/check_ops_context_parity.py" --self-test
+              python3 "${ws}/bifrost-trade-infra/scripts/check_ops_context_parity.py"
+              echo "==> ops-context parity passed"
     - name: code-health
       runAfter: [clone, clone-infra]
       taskRef:

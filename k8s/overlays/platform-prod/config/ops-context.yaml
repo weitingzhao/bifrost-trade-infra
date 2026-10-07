@@ -156,7 +156,7 @@ milestones:
       status: NOT_STARTED
       pipeline_lane: parallel
       pipeline_after: vision-v5-convergence
-      authority: config/lanes.yaml · GET/POST /api/v1/lanes
+      authority: agent/drift (nightly drift scan) · Ops Desk → Queue → Review
     - id: legacy-retirement
       label: Phase 3 Legacy retirement
       status: SIGNED
@@ -179,7 +179,7 @@ milestones:
       status: DONE
       pipeline_lane: parallel
       pipeline_after: k3s-data-layer
-      authority: config/programs/completed/market-data-subcontractor.yaml
+      authority: console/src/lib/architecture/marketDataSubcontractorCatalog.ts (program YAML in git history; Build Desk retired 2026-10-06)
       note: "Program signed off 2026-07-30 (P0–P9). Post-P9 follow-on: STG/PROD promote + compat cleanup."
     - id: research-foundation
       label: Research Engine foundation (OLAP domain + dbt merge)
@@ -193,8 +193,8 @@ milestones:
       status: DONE
       pipeline_lane: parallel
       pipeline_after: research-foundation
-      authority: config/programs/active/research-runtime-ignition.yaml · bifrost-research/CLAUDE.md
-      note: "2026-08-21 — research NS, research-api:8795, dbt/volatility/engines/intraday CronJobs, Trade Intelligence honest empty states. Dagster stays replicas:0. Follow-ons: news source + options tape."
+      authority: bifrost-research/CLAUDE.md (program YAML in git history; Build Desk retired 2026-10-06)
+      note: "2026-08-21 — research NS, research-api:8795, dbt/volatility/engines/intraday CronJobs, Trade Intelligence honest empty states. Follow-ons: news source + options tape. 2026-08-30 — Dagster webserver/daemon replicas:1; research_trading_day_schedule default RUNNING; husbandry closed-loop."
 decisions:
     - id: D1
       status: SIGNED
@@ -267,13 +267,13 @@ decisions:
       topic: Operate Queue — post-completion handoff contract (Wave 3 P0)
       conclusion: "Approved post-completion items inject into a dedicated Projection-layer Operate Queue API (GET/POST /api/v1/operate/queue), persisted under data/operate/queue.json — not spine tracks.operate. Backward-compatible structured extension: Program completion remains NOT ASSESSED until Briefing Owner decision; flow is submit_post_completion → pending_review → Owner approve or reject / explicit NO HANDOFF → queue open → Agent Desk execution_job_id → evidence-gated close with recent_closed history. Handoffs carry source/operate lane, kind, reason, validated agent task, acceptance criteria, verification steps, risk, owner/due, execution and completion evidence. Lane metadata is only a default and never decides handoff. Spine tracks.operate remains strategic flywheel classification only."
       signed_at: "2026-07-07"
-      authority: "console/src/lib/architecture/agentProtocolCatalog.ts · config/programs/_schema.yaml"
+      authority: "console/src/lib/architecture/agentProtocolCatalog.ts · api/internal/operatequeue (program post-completion hand-off retired with Build Desk 2026-10-06)"
     - id: D12
       status: SIGNED
       topic: Delivery Board sign-off — single write path api (Wave 3 P0)
       conclusion: "All program phase sign-offs converge on POST /api/v1/programs/{id}/phases/{pid}/signoff → data/programs/{id}.json phase_sign_offs. Deprecate sign_off_mechanism enums dev_agent and vision_gate; schema default and only mechanism is api. Dev Agent Mark as Verified and Vision gate Owner sign-off become adapters that call the same programs signoff API. Vision gate run/check artifacts remain on /api/v1/vision/*/gate; Delivery Board reads unified programs state only."
       signed_at: "2026-07-07"
-      authority: "console/src/lib/architecture/agentProtocolCatalog.ts · api/internal/devagent/programs_delivery.go"
+      authority: "console/src/lib/architecture/agentProtocolCatalog.ts (programs API and sign-off path retired with Build Desk 2026-10-06)"
     - id: D13
       status: SIGNED
       topic: Research Engine independent — OLAP domain separated from Trade/Ops
@@ -298,6 +298,36 @@ decisions:
       conclusion: "Drop features_daily/option/signals/forecasts/backtests view schemas; canonical features.* only; bifrost-research 0.7.0; db-init drops legacy schemas idempotently."
       signed_at: "2026-08-24"
       authority: "bifrost-research/scripts/wave_6_6_drop_legacy_features_schemas.sql"
+    - id: D-Wave-9-strategy-collapse
+      status: SIGNED
+      topic: Trade strategy_* + gate_safety collapse (Wave 9)
+      conclusion: "strategy_* 10 tables → 7 (legs/symbols/entry_conditions → jsonb); gate_safety_strategy 36 cols → metadata + params_json; strategy_dim → six dim_*_t enums + read-only catalog; bifrost-core 0.17.0 breaking migration migrate_wave9_strategy_collapse()."
+      signed_at: "2026-08-24"
+      authority: "bifrost-trade-core/src/bifrost_core/persistence/postgres/wave9_migrations.py · bifrost-trade-core/src/bifrost_core/monitor/schemas/gate_params.py"
+    - id: D-Wave-10
+      status: SIGNED
+      topic: Wave 9 dead code + dim enum catalog sync (Wave 10)
+      conclusion: "Remove Wave 1 _upgrade_gate_safety_strategy path; ensure_dim_enum_types() from catalog; CREATE TABLE uses dim_*_t; bifrost-core 0.17.2."
+      signed_at: "2026-08-24"
+      authority: "bifrost-trade-core/src/bifrost_core/persistence/postgres/wave9_migrations.py · tests/test_wave10_dim_consistency.py"
+    - id: D-Wave-11
+      status: SIGNED
+      topic: Flex token Secret-only + DROP Trade DB columns (Wave 11)
+      conclusion: "DROP settings.ib_flex_host_token / ib_flex_secondary_token; Flex Plugin 0.5.0 Secret-only resolve_flex_tokens; bifrost-core 0.18.0 BREAKING."
+      signed_at: "2026-08-24"
+      authority: "bifrost-platform-plugin-flex-query/src/bifrost_flex_query/orchestration/config_rw.py · bifrost-trade-core/src/bifrost_core/persistence/postgres/wave11_migrations.py"
+    - id: D-Wave-13
+      status: SIGNED
+      topic: DB over-design slimming (Wave 13 — except Elementary)
+      conclusion: "mart_sepa_criteria_stats table→view; mart_sepa_tier_options sparse mart (only symbols with option_metric data); Elementary retained; strategy_template 20 cols and strategy_instance/alloc/link tables unchanged; bifrost-research 0.8.3."
+      signed_at: "2026-08-24"
+      authority: "bifrost-research/src/bifrost_research/dbt/models/marts/mart_sepa_criteria_stats.sql · mart_sepa_tier_options.sql"
+    - id: D-Wave-12
+      status: SIGNED
+      topic: SEPA single owner dbt + PIT semantics (Wave 12)
+      conclusion: "dbt mart_sepa_composite_score weights 30F/35T/20M/15O from features.option_metric_*; delete engines/sepa Cron slot; sepa_projection only writer; asof_ts = last projection ts; bifrost-research 0.8.2."
+      signed_at: "2026-08-24"
+      authority: "bifrost-research/src/bifrost_research/dbt/models/marts/mart_sepa_feature_daily.sql · orchestration/sepa_projection.py"
     - id: D-Wave-8
       status: EXECUTED
       topic: Golden Source Wave 8 (financials split + OI partition + Trade public FK)
@@ -328,6 +358,508 @@ decisions:
       conclusion: "Canonical schema naming in DATABASE.md and Console catalogs; GOLDEN_SOURCE_RETENTION matrix; settings active_*_id write guard (core 0.15.2); flex_ops compat DEPRECATED; SEPA canonical read = dw_stock.mart_sepa_* (API switch deferred Wave 6.5). No DDL breaking changes."
       signed_at: "2026-08-24"
       authority: "bifrost-trade-core/docs/DATABASE.md · bifrost-trade-infra/docs/GOLDEN_SOURCE_RETENTION.md"
+    - id: D-IB-Heal
+      status: SIGNED
+      topic: IB Gateway self-heal ladder (L0/L1)
+      conclusion: "L0 Plugin snapshot-stale → reconnect_all in-process; L1 platform-api reconnect soft-first then rollout; optional OPS_IB_AUTOREPAIR_ENABLED auto rollout with cooldown. D10 BLOCKED — reconnect/observe only; no TWS host automation."
+      signed_at: "2026-08-27"
+      authority: "bifrost-platform-plugin 0.2.0 · console/src/lib/architecture/ibGatewayPluginCatalog.ts · api/internal/ibgateway"
+    - id: D-IDS-1
+      status: SIGNED
+      topic: Historical IV Solver (dual-source)
+      conclusion: "Write features.option_iv_reconstructed_daily from vendor_snapshot (Polygon option_snapshot IV) + Brent BS inversion on option_daily OHLCV; ATM/VRP/canonical PnL prefer reconstructed then snapshot fallback. Gates IDS-2…IDS-5 in bifrost-research docs/IV_SOLVER_SPEC.md; package ≥0.35.0; D10 BLOCKED."
+      signed_at: "2026-08-28"
+      authority: "bifrost-research docs/IV_SOLVER_SPEC.md · engines/volatility/iv_solver.py · GET /research/signal-health"
+    - id: D-Analyze-ABC
+      status: SIGNED
+      topic: Analyze pages Wave A/B/C enhancement
+      conclusion: "Wave A — SaveAsHypothesis + decision-oriented verdicts on all 9 Analyze pages. Wave B — Vol Surface 2D/residuals, SimilarRegime lenses term_slope+pin_distance, IV Rank sparks, OpEx WoW, Terrain sparks. Wave C — forecast hit-rate from stock_backtest_settlement (no duplicate realized table), playbook trigger event-log features.stock_signal_playbook_trigger_intraday, regime-transition stats. Package ≥0.36.0; D10 BLOCKED."
+      signed_at: "2026-08-29"
+      authority: "bifrost-research 0.36.0 · bifrost-trade-frontend Analyze pages · GET /research/forecast/hit-rate · GET /research/playbook/triggers"
+    - id: D-Analyze-D
+      status: SIGNED
+      topic: Analyze Wave D materialized Scan
+      conclusion: "features.stock_signal_scan_daily + Dagster/Cron scan asset + GET /research/scan + FE Scan page (watchlist∪holdings cross-lens). CANONICAL_FEATURE_TABLES=24. D10 BLOCKED."
+      signed_at: "2026-08-29"
+      authority: "bifrost-research ≥0.37.0 · GET /research/scan · FE /research/scan"
+    - id: D-Playbook-Live
+      status: PENDING_STG
+      topic: Playbook trigger live path (DEV first)
+      conclusion: "DEV: apply playbook_trigger + scan DDL; roll research image ≥0.37.0 so intraday Cron emits triggers; FE hit-rate KPI via GET /research/playbook/hit-rate. STG/PROD: Owner runbook docs/PLAYBOOK_TRIGGER_ROLLOUT_RUNBOOK.md. D10 BLOCKED."
+      signed_at: "2026-08-29"
+      authority: "bifrost-research playbook triggers · docs/PLAYBOOK_TRIGGER_ROLLOUT_RUNBOOK.md"
+    - id: D-Analyze-DEF
+      status: SIGNED
+      topic: Analyze Waves D/E/F
+      conclusion: "D Scan materialized table+UI; E playbook hit-rate + DEV live path; F SimilarRegime gex_notional+regime lenses on GEX/Analysis Model + ForecastPathOverlay realized curve. Package ≥0.38.0; D10 BLOCKED."
+      signed_at: "2026-08-29"
+      authority: "bifrost-research 0.38.0 · bifrost-trade-frontend Analyze Scan/Playbook/Forecast"
+    - id: D-Analyze-G
+      status: SIGNED
+      topic: Analyze Wave G DEV deploy + data fill
+      conclusion: "Build/push bifrost-research:0.38.0; roll research CronJobs + research-api/mcp; scan 60d backfill (≥60 trade dates); delete residual bifrost-analytics-daily CronJob. Playbook trigger live path waits next weekday session (weekend no spot). D10 BLOCKED."
+      signed_at: "2026-08-29"
+      authority: "bifrost-research 0.38.0 · research NS CronJobs · features.stock_signal_scan_daily"
+    - id: D-Analyze-H
+      status: SIGNED
+      topic: Analyze Wave H Scan decision desk
+      conclusion: "GET /research/scan presets (neutral|momentum|mean_revert) + per-lens flag AND filters; FE ScanPage URL-synced filters, weight caption, SimilarRegime lens picker, holding/watchlist DenseTag. Package ≥0.39.0; D10 BLOCKED."
+      signed_at: "2026-08-29"
+      authority: "bifrost-research 0.39.0 · FE /research/scan"
+    - id: D-Analyze-I
+      status: SIGNED
+      topic: Analyze Wave I Signal Decay MVP
+      conclusion: "features.stock_signal_lens_hit_daily (IV Rank/VRP/OpEx Pin) + Cron research-signal-hit + GET /research/signal-decay + FE Validate Signal Decay page + Scan preset=adaptive_30d. CANONICAL_FEATURE_TABLES=25. Package ≥0.40.0; D10 BLOCKED."
+      signed_at: "2026-08-29"
+      authority: "bifrost-research 0.40.0 · FE /research/signal-decay"
+    - id: D-Analyze-J
+      status: SIGNED
+      topic: Analyze Wave J data integrity closeout
+      conclusion: "K8s YAML image tags aligned to 0.40.0→0.41.0; OPEX_PIN_HOT_ABS 0.005→0.010 (opex hot 21→51 rows, hit_5d 61.5%); lens_hit 252d clear/rebuild; signal-decay pending_5d/20d; playbook_trigger still 4 rows (weekend — wait Mon EOD). Package ≥0.41.0; D10 BLOCKED."
+      signed_at: "2026-08-29"
+      authority: "bifrost-research 0.41.0 · research NS CronJobs"
+    - id: D-Analyze-K
+      status: SIGNED
+      topic: Analyze Wave K portfolio-aware Analyze
+      conclusion: "usePortfolioSymbols + PortfolioTag on IvRadar/VRP/GEX/OpEx/AnalysisModel/Playbook + Universe SegmentControl (all|holdings|watchlist|both). FE-only; D10 BLOCKED."
+      signed_at: "2026-08-29"
+      authority: "bifrost-trade-frontend PortfolioTag · DENSE_UI.md"
+    - id: D-Analyze-L
+      status: SIGNED
+      topic: Analyze Wave L Signal Decay deep dive
+      conclusion: "GET /research/signal-decay?regime= + recent_triggers; GET /research/signal-decay/intersect; FE per-symbol route + 2x2 Combined lenses matrix + Copilot snapshot enrichment. Package ≥0.42.0 (shipped in 0.43.0 with M); D10 BLOCKED."
+      signed_at: "2026-08-29"
+      authority: "bifrost-research signal-decay intersect · FE /research/signal-decay/:symbol"
+    - id: D-Analyze-M
+      status: SIGNED
+      topic: Analyze Wave M alert + notification bridge
+      conclusion: "features.stock_signal_alert_daily (CANONICAL=26) + engines/alert_scan + Cron research-alert-scan + GET /research/alerts + FE AppHeader AlertBell (Radar). Informational only — no order path. Package ≥0.43.0; D10 BLOCKED."
+      signed_at: "2026-08-29"
+      authority: "bifrost-research 0.43.0 · FE AlertBell"
+    - id: D-Loop-v1
+      status: SIGNED
+      topic: Research Loop v1 IA + candidate pool
+      conclusion: "Wave Z+R Research Loop v1 — IA regroup + candidate_pool + Loop sidebar (Candidate/Hypothesis/Decision). Package ≥0.44.0 shipped in 0.47.0; D10 BLOCKED."
+      signed_at: "2026-08-29"
+      authority: "bifrost-research 0.47.0 · FE /research/loop"
+    - id: D-Loop-Copilot
+      status: SIGNED
+      topic: Research Loop Copilot write tools
+      conclusion: "Wave C — research.loop.* MCP write tools + loop_curator persona + DiffApproval kinds. Package ≥0.45.0 shipped in 0.47.0; D10 BLOCKED."
+      signed_at: "2026-08-29"
+      authority: "bifrost-research 0.47.0 · research.loop.* MCP"
+    - id: D-Research-Harness
+      status: SIGNED
+      topic: Research Harness propose-only runtime
+      conclusion: "Wave A+O — research.objective/objective_run + harness runtime (propose-only) + order_intent advisory drafts on Trade Opportunities. Domain: write research.* only; forbid Trade DB writes and ib:operator:cmd. Harness is D10 unlock precondition, not unlock itself. Package ≥0.47.0; D10 remains BLOCKED."
+      signed_at: "2026-08-29"
+      authority: "bifrost-research 0.47.0 · FE /research/loop/harness"
+    - id: D-Trade-FE-Poll-Contract
+      status: SIGNED
+      topic: Trade FE poll & focus contract (Cursor-Browser compat)
+      conclusion: |
+        FE-only performance contract for TanStack Query poll + SSE lifecycle.
+        Rationale: Cursor's embedded browser keeps `document.visibilityState`
+        always "visible", so TanStack Query's default background-throttle
+        never fires and layout-level polls (5s/6s/8s) starve the IDE main
+        thread.
+        Contract v1:
+          1. `src/lib/appFocus.ts` is the single source of app focus/idle;
+             all queries + SSE derive pause/resume from `focusManager` +
+             `subscribeAppFocus`.  Idle threshold = 60s of no keyboard /
+             pointer activity, OR window blur, OR document hidden.
+          2. `queryClient` sets `refetchIntervalInBackground: false`; do
+             not override at the query call site — use idle-safe patterns.
+          3. `openSseWithBackoff` pauses connections while idle by default;
+             opt out only for streams that must stay open.
+          4. Layout-level poll floor: 15s (daemon status, open orders),
+             30s (system topology).  Anything faster requires spine
+             follow-up (`D-Trade-FE-Poll-Contract` amendment).
+        Scope: Trade FE only (Product mode).  Ops Console and Plugins
+        may adopt independently.
+      signed_at: "2026-08-29"
+      authority: "bifrost-trade-frontend src/lib/{appFocus,queryClient,sse}.ts"
+    - id: D-Loop-Usability
+      status: SIGNED
+      topic: Research Loop Wave X — Owner-manual entry surfaces
+      conclusion: |
+        Wave X (Loop Usability) closes three UX gaps identified during the
+        post-Loop v1 review, before investing in Wave Y (Loop Smartness):
+          1. Harness Console: New Objective dialog (title / description /
+             schedule / policy.max_candidates / policy.seed_symbols) posts
+             to POST /research/objectives.  Empty state no longer says
+             "via API or harness CLI".
+          2. Trade Opportunities → Research Proposals: "Open in form"
+             button maps `order_intent` payload (strategy_template /
+             hypothesis_id / legs[].symbol) into `PrefillData` and opens
+             the existing OpportunityFormModal (name / scope / symbols).
+             Copy JSON remains as auxiliary button.  D10 BLOCKED
+             advisory tag remains on the panel.
+          3. bifrost-research 0.47.1: `POST /research/drafts` (owner-manual
+             create) accepts only three kinds — hypothesis_suggestion /
+             morning_brief / eod_verdict — to keep loop/harness/order_intent
+             provenance clean.  Backed by `NewDraftDialog` on Decision
+             Inbox page header.  Approve/dismiss paths unchanged.
+        No new database columns; no Trade DB writes; no ib:operator:cmd.
+        Wave X does not change harness runtime behavior (still heuristic).
+      signed_at: "2026-08-29"
+      authority: "bifrost-research 0.47.1 · bifrost-trade-frontend HarnessConsole/OpportunitiesPage/DecisionInbox"
+    - id: D-Loop-Smartness-Y1
+      status: SIGNED
+      topic: Research Loop Wave Y.1 — Harness data-driven propose (scan-first)
+      conclusion: |
+        Wave Y.1 turns the harness runtime from heuristic (seed_symbols[:max_n])
+        into a data-driven propose stage that reads Golden Source `features.*`:
+          1. `bifrost_research.copilot.harness.data_sources` (new, in-process):
+             - `top_scan_symbols(conn, *, limit, flag_filter, min_composite_score)`
+               reads `features.stock_signal_scan_daily` latest snapshot,
+               AND-composes `lens_flags->>'iv_rank'='hot'` etc.
+             - `global_signal_decay_summary(conn, *, window_days)` returns
+               hit_rate_5d / hit_rate_20d per lens from
+               `features.stock_signal_lens_hit_daily`.  Advisory trace only —
+               Y.3 will lift this to per-symbol `must_pass` gating.
+             - Both fail soft (empty list / n=0 entries) so the runtime never
+               raises on transient DB errors.
+          2. `runtime.run_objective` new plan: scan_universe → signal_decay_check
+             → propose_candidates → await_approval.
+             Data source resolution (spine decision B):
+               scan_symbols  → "scan"
+               seed_symbols  → "fallback_seed_symbols"
+               both empty    → status=failed, reason=no_data
+             Every candidate row records `lens_snapshot.data_source` +
+             composite_score / iv_rank_1y / trade_date; tags include
+             ["harness", <data_source>].  Draft payload embeds
+             `signal_decay` summary.
+          3. `policy_json` extends: `preset` (neutral / momentum / mean_revert
+             / adaptive_30d), `flag_filter` (e.g. "iv_rank:hot,vrp:hot"),
+             `min_composite_score`, `min_hit_rate` (last two accepted but
+             gated in Y.3).
+          4. `NewObjectiveDialog` FE: adds Scan preset (Select) + Flag filter
+             (Input).  Seed symbols relabelled "Seed symbols (fallback)".
+             Advanced fields deferred to policy_json JSON path.
+        Decision A2 chosen: in-process direct read of `features.*`, not MCP
+        cross-process nor local HTTP.  Decision B1: fallback to seed_symbols.
+        Decision C1: FE gets preset + flag_filter; min_* via API only in Y.1.
+        Wave Y.1 does not touch Trade DB, IB Operator, or place_order paths.
+      signed_at: "2026-08-29"
+      authority: "bifrost-research 0.48.0 harness/{data_sources,runtime}.py · bifrost-trade-frontend NewObjectiveDialog"
+    - id: D-Loop-Smartness-Y2
+      status: SIGNED
+      topic: Research Loop Wave Y.2 — Harness LLM plan step
+      conclusion: |
+        Wave Y.2 upgrades `_plan_for_objective` from a static 4-step template
+        into a dynamic plan produced by DeepSeek Reasoner (OpenAI-compatible
+        endpoint via `DEEPSEEK_BASE_URL`, default https://api.deepseek.com/v1).
+
+        Owner decisions (2026-08-29):
+          A1 — Trigger: env `BIFROST_HARNESS_LLM_PLAN=1` global switch;
+               `objective.policy_json.use_llm_plan` (bool) may override
+               (true forces on even when env is off; false forces off even
+               when env is on).  Default: heuristic template.
+          B2 — LLM authority: may add/remove/reorder steps whose `op` is in
+               the whitelist `{scan_universe, signal_decay_check,
+               propose_candidates, await_approval}`, and may emit
+               `plan.policy_suggestion` as advisory.  Runtime NEVER mutates
+               `objective.policy_json` from LLM output — Owner still owns
+               policy changes.
+          C1 — No data reflow: LLM sees only objective (title/description/
+               persona/schedule) + `policy_json`.  Scan/decay reads stay in
+               the propose stage.  Prompt is a stable JSON envelope; no
+               `features.*` snapshots leak into the LLM context in Y.2.
+          E3 — Default model `deepseek-reasoner`;
+               `policy_json.llm_model` may override (e.g. `deepseek-chat`
+               for a faster/cheaper mode).
+
+        Implementation (`bifrost_research.copilot.harness.plan_llm`):
+          - Pydantic `LLMPlanResponse` with `steps: list[LLMPlanStep]`
+            (min_length=1, max_length=12), `reasoning`, `policy_suggestion`.
+          - `LLMPlanStep.op` is whitelist-validated.
+          - `generate_plan_llm()` is fully fail-soft — returns `None` (so the
+            runtime uses heuristic) on:
+              disabled (env off & policy unset / policy=false),
+              missing `DEEPSEEK_API_KEY`, httpx timeout (default 15.0s) /
+              network error / HTTP 4xx-5xx, non-JSON body, empty choices,
+              content that cannot be parsed to a JSON object (supports
+              ```json ... ``` fences + prose preamble), Pydantic schema
+              violation (e.g. op not in whitelist, empty steps).
+          - Runtime `_plan_for_objective` merges LLM steps onto the static
+            scaffold; plan carries `generated_by` (`"llm" | "heuristic"`),
+            optional `llm_model` / `llm_reasoning` / `policy_suggestion`,
+            and `fallback_reason` when heuristic was chosen.  Trace's
+            `step: plan` event now visibly reports which planner produced
+            the plan.
+
+        Testing: 20 new tests in `test_harness_plan_llm.py`
+          (env / policy matrix, JSON parse variants, happy path, model
+           override, base_url override, timeout, connection error, HTTP
+           4xx, non-JSON body, empty choices, unparseable content,
+           missing steps, empty steps, op-not-in-whitelist, fenced JSON).
+          Plus 3 new tests in `test_harness_runtime.py` covering the
+          heuristic / LLM / fallback branches of `_plan_for_objective`.
+
+        Cost & safety: harness invokes DeepSeek once per objective run
+        (short prompt, no tool loop).  15s hard timeout keeps the run
+        latency-bounded; runs never fail because the LLM failed.  D10
+        BLOCKED — the plan step describes *what to do next*, it does not
+        touch Trade DB, IB Operator, or place_order.  No new external
+        Python dependency (uses existing `httpx>=0.27`).
+
+        Deferred to Y.3: converting `min_hit_rate` from advisory to
+        must-pass gating; per-symbol decay gate; policy_suggestion review UI.
+      signed_at: "2026-08-29"
+      authority: "bifrost-research 0.48.1 harness/plan_llm.py + runtime._plan_for_objective"
+    - id: D-Loop-Smartness-Y3
+      status: SIGNED
+      topic: Research Loop Wave Y.3 — Hit-rate gate + policy_suggestion approval loop
+      conclusion: |
+        Wave Y.3 closes the Loop Smartness arc by turning two Y.1/Y.2
+        advisories into effective decision surfaces WITHOUT weakening
+        Owner authority (D10 stays BLOCKED).
+
+        Owner decisions (2026-08-29):
+          A1 — policy_suggestion falls into Decision Inbox as an
+               independent draft (kind=`policy_suggestion`).  On approve,
+               `objective_repo.patch_policy_json` merges the suggestion
+               onto `objective.policy_json` via jsonb `||`.  Reject leaves
+               the objective untouched.  Runtime NEVER auto-applies.
+          B3 — filter-scoped hit-rate gate: when
+               `policy.min_hit_rate` and `policy.flag_filter` are BOTH
+               set, only lenses named in the flag_filter are checked
+               (e.g. `flag_filter=iv_rank:hot,vrp:hot` → check
+               `iv_rank` and `vrp` in `global_signal_decay_summary`).
+               A lens fails when `hit_rate_20d < min_hit_rate` OR `n == 0`.
+          C3 — Gate failure is a WARN, not a stop: the run still ends in
+               `awaiting_approval`, candidate_batch draft carries
+               `hit_rate_warn: true` plus the full `hit_rate_gate`
+               diagnostic (`applied / ok / failing / lens_results`), and
+               Owner decides in Decision Inbox.  No new run-status enum.
+          R3 — Ship A + B + C together in a single wave.
+
+        Implementation
+          - `repositories.objective.patch_policy_json(conn, oid, patch, *,
+             whitelist=POLICY_SUGGESTION_WHITELIST)`: jsonb `||` merge with
+             a `{preset, flag_filter, min_composite_score, min_hit_rate,
+             max_candidates}` whitelist.  Empty filtered patch → returns
+             current objective row unchanged.  Non-mapping input →
+             TypeError.
+          - `copilot.harness.plan_llm.LLMPlanResponse` gains a
+             `policy_suggestion` field_validator (mode="before") that
+             silently drops out-of-whitelist keys before schema validation.
+             Non-object input raises `ValueError` (Pydantic wraps →
+             ValidationError → fail-soft None).  Double defense: the
+             repository layer filters again at approve time.
+          - `copilot.harness.runtime`:
+              * `_apply_hit_rate_gate(policy, decay_summary, flag_filter)`
+                returns a rich diagnostic dict.  Gate is skipped when
+                either config knob is missing.
+              * `_policy_suggestion_from_plan(plan, current_policy)`
+                emits the actionable diff (only keys that changed value).
+                Empty diff → no draft created.
+              * `run_objective`: step 2b runs the gate and appends a
+                `hit_rate_gate` trace event; step 5 adds `hit_rate_warn`
+                to the candidate_batch payload when gate.applied ∧ !ok;
+                step 6 (new) inserts an independent `policy_suggestion`
+                draft + action pair when the LLM plan surfaced a
+                non-trivial diff.  `outputs` now carries
+                `policy_suggestion_draft_id` (nullable) +
+                `hit_rate_gate` copy so Console can render without
+                re-reading the run trace.
+          - `api.agents.approve_draft`: new branch for kind
+             `policy_suggestion` — fetches the target objective (404 if
+             missing), calls `patch_policy_json` with the suggestion,
+             stamps `executed.objective` + `executed.applied_suggestion`.
+             Rejects malformed drafts (missing objective_id / suggestion)
+             with 400.  Draft transitions to `approved`; linked action
+             promoted to `executed` via the existing pathway.
+
+        Testing (35 new tests, 497 backend passed total):
+          - runtime: 4 gate branches, 5 gate helpers, 5 suggestion diff,
+            4 integration tests (gate pass no warn, gate fail with warn,
+            LLM policy_suggestion creates draft, no-diff = no draft,
+            heuristic path = no draft).
+          - plan_llm: 3 whitelist enforcement tests (partial-drop,
+            all-dropped-becomes-none, non-object rejected).
+          - repositories: 6 patch_policy_json tests (whitelist filter,
+            empty patch, multi-key merge SQL, whitelist=None disable,
+            non-mapping raises, missing objective).
+          - api: 5 approve_policy_suggestion tests (happy path merge,
+            missing objective_id, missing suggestion, unknown objective
+            404, non-pending draft 409).
+
+        D10 posture: Y.3 only writes `research.objective.policy_json` on
+        Owner-approved drafts.  No new touchpoints to Trade DB, IB
+        Operator, `ib:operator:cmd`, or `place_order`.  LLM output is
+        filtered TWICE (pydantic + repositories) before it can influence
+        harness behavior on the next run.
+
+        FE follow-up (Wave Y.3-FE, same day):
+          * `bifrost-trade-frontend/src/api/researchDrafts.ts` — DraftKind
+            union extended with `candidate_batch` + `policy_suggestion`.
+          * `src/lib/harness/harnessDraftHelpers.ts` (new) — pure helpers
+            `computePolicySuggestionRows` (whitelist-scoped diff rows),
+            `isHitRateWarnActive`, `hitRateFailingLenses`,
+            `candidateBatchItems`, `formatPolicyValue`.  12 vitest cases.
+          * `src/components/cockpit/DraftCard.tsx` — kind switch:
+              - candidate_batch → items list + `data_source` badge +
+                warn banner when `hit_rate_warn === true` (yellow border
+                + failing lens callout).
+              - policy_suggestion → side-by-side diff table (current →
+                proposed) with changed rows highlighted; LLM model tag +
+                reasoning quote.
+          * `src/pages/research/loop/DecisionInboxPage.tsx` — new
+            "Loop" filter chip surfacing candidate_batch +
+            policy_suggestion; existing "Decisions" chip unchanged.
+          * FE gate: 48/48 vitest files pass (351 total; +12 for
+            harnessDraftHelpers), `npm run lint / build /
+            check:legacy-css` clean.
+
+        Deferred (post-Y.3):
+          * Per-symbol hit-rate gate (requires new
+            `features.stock_signal_lens_hit_daily` per-symbol projection).
+          * Auto-scheduling: currently the Owner still triggers each run
+            manually.
+      signed_at: "2026-08-29"
+      authority: "bifrost-research 0.48.2 harness/runtime + repositories/objective + api/agents; bifrost-trade-frontend cockpit/DraftCard + lib/harness"
+    - id: D-Loop-Cleanup
+      status: SIGNED
+      topic: Research Loop Wave Z — cleanup + D10/D13 boundary audit
+      conclusion: |
+        Wave Z closes out the Y.1/Y.2/Y.3 Loop Smartness arc with three
+        clean-up actions.  No new API contracts, no schema changes; the
+        deliverable is a maintainable code base and a documented
+        boundary audit.
+
+        Z1 — Backend split (harness/runtime.py 384→~275 lines)
+          * `bifrost_research/copilot/harness/gate.py` (new) —
+             `apply_hit_rate_gate` + `lenses_from_flag_filter` moved out
+             of runtime.py.  Public names; module docstring reiterates
+             D10 posture (gate reads decay summaries only).
+          * `bifrost_research/copilot/harness/suggestion.py` (new) —
+             `policy_suggestion_from_plan` moved out.  Reuses
+             `plan_llm.POLICY_SUGGESTION_KEYS` for the diff filter.
+          * `runtime.py` — imports + re-exports `_apply_hit_rate_gate`,
+             `_lenses_from_flag_filter`, `_policy_suggestion_from_plan`
+             so existing tests (`tests/copilot/test_harness_runtime.py`)
+             and any external callers keep working without churn.
+          * `run_objective` internal call sites updated to the new
+             public names; behaviour identical.
+
+        Z2 — Frontend split (cockpit/DraftCard.tsx 308→147 lines)
+          * `src/components/research/harness/CandidateBatchBody.tsx` (new)
+             — the candidate_batch renderer with `hit_rate_warn` banner,
+             data-source badge, and truncated item grid.
+          * `src/components/research/harness/PolicySuggestionBody.tsx`
+             (new) — the policy diff table + LLM reasoning blockquote.
+          * `src/components/research/harness/index.ts` — barrel export
+             (matches sibling `components/research/*` conventions).
+          * `src/components/cockpit/DraftCard.tsx` — now only owns
+             `kindLabel` + `payloadMarkdown` + card chrome + kind
+             switch.  Deep harness knowledge lives with the harness
+             components.
+
+        Z3 — D10 / D13 / LLM 二重过滤 audit
+          * D10 (BLOCKED, unchanged) — grep across
+             `bifrost_research/copilot/harness/*` +
+             `bifrost_research/api/agents.py` for
+             `ib:operator | place_order | OrderIntent | bifrost_dev |
+             bifrost_stg | bifrost_prod | daemon:cmd | holdings`.
+             Findings:
+               - `harness/order_intent_schema.py::OrderIntent` docstring
+                 explicitly states "advisory proposal only — never
+                 placed as a live IB order (D10)."
+               - `harness/plan_llm.py` line 125: LLM prompt tells the
+                 model "D10 BLOCKED — you are proposing research
+                 candidates only, never orders."
+               - `api/agents.py` line 342: comment on the loop-kinds
+                 approval branch confirms "no Trade DB / ib:operator:cmd
+                 side effects (D10)."
+             No writes to Trade DB, `ib:operator:cmd`, or
+             `redis.publish` anywhere in the harness/API surface.
+          * D13 (research/features boundary) — repositories.* write
+             SQL targets checked against `schema/schemas.py`:
+               - `TABLE_RESEARCH_*` → `research.*` (11 tables)
+               - `TABLE_STOCK_* / TABLE_OPTION_* / TABLE_EVENT_*` →
+                 `features.*` (18 tables)
+               - `TABLE_MART_CANONICAL_PNL_DAILY` → `dw_stock.*`
+                 (canonical PnL mart, owned by research)
+             No writes to `raw_market.*` or `bifrost_{dev,stg,prod}`.
+             `harness/data_sources.py` is read-only (grep for
+             INSERT|UPDATE|DELETE returns empty).
+          * LLM policy_suggestion double-filter — TWO frozensets:
+               - `plan_llm.POLICY_SUGGESTION_KEYS` (pydantic-side)
+               - `objective_repo.POLICY_SUGGESTION_WHITELIST` (DB-side)
+             Content is identical today, but hand-written duplication
+             invites drift.  New guard test
+             `tests/copilot/test_policy_suggestion_contract.py` asserts
+             `plan_llm.POLICY_SUGGESTION_KEYS ==
+              objective_repo.POLICY_SUGGESTION_WHITELIST` (with a
+             diff-printing error message) and non-emptiness.  A future
+             key added to one side but not the other now fails CI.
+
+        Testing (2 new tests, 499 backend passed / 351 frontend passed)
+          - `tests/copilot/test_policy_suggestion_contract.py` — 2
+            contract tests.
+          - Frontend: `npm run lint / build / check:legacy-css` clean;
+            48/48 vitest files pass (351 tests) after Z2 split.
+          - No behaviour changes elsewhere; existing test suites remain
+            green through the runtime re-exports.
+
+        D10 posture: unchanged.  Z1/Z2 are structure-only; Z3 tightens
+        the LLM double-filter with a lockstep contract test.  Live
+        trading remains BLOCKED per D10.
+
+        Next-cut (2026-08-29, package 0.48.4) — five live-path closures.
+        No new tables or RPCs.  D10 still BLOCKED.
+          1. Local research-api loads workspace source (editable venv;
+             restart, not a stale 0.47.0 process).
+          2. Approve-all reuses Inbox apply_draft_approval so
+             policy_suggestion merges objective.policy_json.
+          3. candidate_batch approve creates a lightweight hypothesis
+             per open pool row and promote_candidate; missing/non-open
+             items are skipped into executed.skipped (no 500).
+          4. harness top_scan_symbols applies Scan resolve_preset /
+             recompute_composite (in-process; no self-HTTP).
+          5. Shared FLAG_TO_DECAY_LENS (pin→opex_pin); unmapped keys
+             (atm_slope, terrain) and mapped lenses with no decay row
+             are skipped/unmapped — they do not enter failing.
+      signed_at: "2026-08-29"
+      authority: "bifrost-research 0.48.4 api/agents.apply_draft_approval + harness/{data_sources,gate,runtime} + tests/api/test_approve_{all_policy_suggestion,candidate_batch}.py; bifrost-trade-frontend HarnessConsolePage + CandidateBatchBody"
+    - id: D-Loop-Orchestrator-0
+      status: SIGNED
+      topic: Loop Orchestrator LO-0 — operational baseline
+      conclusion: "Seed objective + DEV Cron unsuspend + scan freshness gate + LOOP_ORCHESTRATOR_RUNBOOK. Package ≥0.55.0; D10 BLOCKED."
+      signed_at: "2026-08-31"
+      authority: "bifrost-research scripts/seed_loop_objective.py · k8s/engines/cronjob-harness.yaml"
+    - id: D-Loop-Orchestrator-1
+      status: SIGNED
+      topic: Loop Orchestrator LO-1 — headless CuratorRun
+      conclusion: "copilot/curator/* + POST /research/objective-runs/{id}/curate + batch HMAC pass. D10 BLOCKED."
+      signed_at: "2026-08-31"
+      authority: "bifrost-research 0.55.0 copilot/curator/runtime.py"
+    - id: D-Loop-Orchestrator-4
+      status: SIGNED
+      topic: Loop Orchestrator LO-4 — Trust L0 batch auto-accept
+      conclusion: "research-loop-batch skill + --batch-mode Cron; auto-accept research draft kinds only when Trust L0. D10 BLOCKED."
+      signed_at: "2026-08-31"
+      authority: "bifrost-platform config/agent-tasks.yaml · bifrost-research copilot/harness/{trust_gate,entry}.py"
+    - id: D-Market-Option-History
+      status: SIGNED
+      topic: Option history backfill program LO-5
+      conclusion: "Suspended Cron market-data-option-backfill + worker/backfill.py enqueue stub; Owner Polygon tier decision gate."
+      signed_at: "2026-08-31"
+      authority: "bifrost-platform-plugin-market-data k8s/cronjob-option-backfill.yaml"
+    - id: D-Ops-Split
+      status: SIGNED
+      topic: Ops Platform split by fate — L-1 operator plane out of the cluster (implements D7)
+      conclusion: "Five work surfaces (Mission Control / Launch Desk / Plugin / Build Desk / Engineer) were assessed for splitting. Only one cut line was worth taking: the other four all operate the same cluster and are correctly fate-shared, so splitting them would turn the 53% of API commits that touch the shared kernel into cross-repo coordination. Engineer (L-1) was the exception — it repairs L0–L2 while living inside what it repairs, which D7 had already declared must never happen. Executed in three steps, process isolation rather than repo isolation. 1) recover() guards on all 26 background goroutines via internal/safego, so one surface's panic no longer blinds the other four (8f0b097; the count was 26, not the 13 first grepped — go func(arg) fan-outs and bare go h.method() were missed). 2) PLATFORM_ROLE splits one image into platform-api (requests) and platform-workers (patrol autopilot, IB auto-repair, hourly data-clone), each loop running once; unknown role falls back to all, because a visible duplicate beats a silent zero (8b55ea1 + infra 7ab569c). prod platform-api went to 1 replica: its state is emptyDir, so a second copy split state rather than providing HA (infra 8dd0b66). 3) The L-1 surface — 8 packages, 26 routes, asserted cluster-free by server/layering_test.go — became cmd/operator-plane, running on both Mac Minis beside the remediation runners with no kubeconfig (b1852bd). platform-api forwards those routes when OPERATOR_PLANE_URL is set and then builds no plane of its own (59f950a); live in stg and prod since 2026-09-22 (infra 9d9d870 / 17ca085). A bad platform-api release no longer removes the surface used to roll it back, and platform-api being down entirely still leaves the L-1 routes answerable at 192.168.10.50:8783. Deliberately NOT done: moving remediation + agentgovernance out too (Option B), which would put a network hop in the self-healing path — deferred until platform file state moves off emptyDir to Postgres; and the patrol autopilot stays in platform-workers, since the cluster copy idles against an empty checklist while the Minis read the real config, so relocating it changes behaviour rather than location. Operational constraint for when that moves: OPERATOR_PLANE_URL on workers IS the patrol off-switch, so the Minis autopilot must be enabled first or there is a window with zero autopilots. macOS gates local-network access per executable and launchd jobs do not inherit it, so the plane needs a stable code identity (Makefile signs it com.bifrost.operator-plane) and a one-time Owner grant per Mini."
+      signed_at: "2026-09-22"
+      authority: "bifrost-platform api/internal/operatorplane + api/cmd/operator-plane + api/internal/server/layering_test.go; bifrost-trade-infra k8s/overlays/platform-{stg,prod}/platform-api-operator-plane.patch.yaml"
+    - id: D-Journal-Stores
+      status: SIGNED
+      topic: Notes / Feedback / Memory store placement (design Rev .99 §20 contracts) — amends D13's writable set
+      conclusion: "Owner 2026-09-27, both options A. (1) notes + memory + visits live in bifrost_golden_source under a new `journal.*` schema, keyed by research user (Spec §20.5: the portrait is the person's); research-api is the sole writer/reader and the Dagster nightly distillation reads its sources in the same database. D13's Research writable set therefore extends to dw_stock.* / features.* / research.* / journal.* — everything else in D13 stands unchanged, including never writing Trade DB. (2) feedback lives in bifrost_golden_source under `ops_feedback.*`, keyed to the installation (Spec §20.5: reports are the system's, one stream across dev/stg/prod); it is written and read by trade-api over its existing Golden Source connection (the analytics_reader path), following the ops_jobs.* precedent of non-Research schemas hosted in Golden Source. Research does not write ops_feedback.*; Trade does not write journal.*. A third service was considered and rejected at single-trader scale. Behaviour contracts for all three stores are design Shell Spec §20 (notes lock on distillation-reference; Forget is a topic-level tombstone; fading archives, never auto-deletes; visits roll 90 days with evidence-referenced rows kept; Not-relevant counts live in the store)."
+      signed_at: "2026-09-27"
+      authority: "design/trade/Shell Spec.md §20 · bifrost-research (journal.* DDL + API) · bifrost-trade-api (ops_feedback.*) · workspace CLAUDE.md §2 Research row"
 platform_phases:
     - id: A
       label: Gate
@@ -349,7 +881,7 @@ coupling_surfaces:
     - unifi_session_v2
 promotion:
     last_gate:
-        at: "2026-08-18T15:56:08Z"
+        at: "2026-09-01T03:34:53Z"
         result: pass
         log_path: bifrost-trade-infra/scripts/release_gate.log
 environments_extended:
@@ -369,12 +901,6 @@ tracks:
               status: done
             - id: p1-pod-logs
               label: "Pod log streaming in Cluster page"
-              status: done
-            - id: p1-session-loop
-              label: "Briefing session delta + Control Room recent actions"
-              status: done
-            - id: p1-track-model
-              label: "Work Track model (build/migrate/operate)"
               status: done
             - id: p2-node-lifecycle
               label: "Node join/drain via platform-api"
@@ -566,7 +1092,7 @@ tracks:
               done: 4
               status: closed
               next_task: ""
-              note: "① Layer 1 catalog scan ✓ ② Layer 2 API probes ✓ ③ Layer 3 spine semantic ✓ ④ Layer 4 Owner approval gate + auto-fix remediation ✓ · Briefing DriftProposalPanel · Session delta lists agent tasks since last copy"
+              note: "① Layer 1 catalog scan ✓ ② Layer 2 API probes ✓ ③ Layer 3 spine semantic ✓ ④ Layer 4 Owner approval gate + auto-fix remediation ✓ · DriftProposalPanel on Ops Desk → Queue → Review"
             - id: agent-mcp-integration
               label: "Agent Desk + MCP bridge"
               total: 3
@@ -581,7 +1107,7 @@ tracks:
               total: 3
               done: 0
               status: not_started
-              note: "PARKED — aspirational; no delivery program / no executable phases until Owner opens one. Briefing lane agent-trade-advisory-parked is Ready (empty queue); not projected on agent-services Doing queue. Scope when resumed: ① Morning trade briefing ② Position risk alerts ③ SEPA opportunity notifications"
+              note: "PARKED — aspirational; no delivery program / no executable phases until Owner opens one. Scope when resumed: ① Morning trade briefing ② Position risk alerts ③ SEPA opportunity notifications"
               prerequisites:
                 - "agent-mcp-integration stream closed"
                 - "Trade API read endpoints stable"
@@ -658,7 +1184,7 @@ tracks:
               total: 5
               done: 0
               status: not_started
-              note: "PARKED — aspirational after Hermes L0; no delivery program until Owner opens one. Briefing lane flight-director-parked is Ready (empty queue); not projected on agent-services Doing queue. Depends on hermes-gateway-integration ⑥ + retrospective-agent. Scope when resumed: ① Agent performance dashboard ② Trust & Autonomy matrix ③ Capability Map ④ Earned autonomy engine ⑤ Flight Director daily digest. (D8 was Legacy UI gate — SIGNED; not a blocker for this vision.)"
+              note: "PARKED — aspirational after Hermes L0; no delivery program until Owner opens one. Depends on hermes-gateway-integration ⑥ + retrospective-agent. Scope when resumed: ① Agent performance dashboard ② Trust & Autonomy matrix ③ Capability Map ④ Earned autonomy engine ⑤ Flight Director daily digest. (D8 was Legacy UI gate — SIGNED; not a blocker for this vision.)"
               prerequisites:
                 - "hermes-gateway-integration stream ③ skills API done"
                 - "retrospective-agent stream closed"
@@ -702,7 +1228,7 @@ tracks:
               total: 5
               done: 0
               status: not_started
-              note: "PARKED — no delivery program / no executable phases until Owner opens one. Briefing lane ai-network is Ready (empty queue), not Planned. L0 dashboard/anomaly/predictive-lite already shipped via network-monitoring-ops; UniFi MCP foundation closed (unifi-mcp-server 4/4). Aspirational scope only (not a phase contract): ① Home Assistant + UniFi presence detection ② Automated network anomaly response (isolate + alert) ③ Ops Console unified Network dashboard (LAN + WiFi + IoT) ④ Predictive maintenance (node connectivity pattern → preemptive fix) ⑤ Self-healing network (auto-restart port, re-route traffic, failover)"
+              note: "PARKED — no delivery program / no executable phases until Owner opens one. L0 dashboard/anomaly/predictive-lite already shipped via network-monitoring-ops; UniFi MCP foundation closed (unifi-mcp-server 4/4). Aspirational scope only (not a phase contract): ① Home Assistant + UniFi presence detection ② Automated network anomaly response (isolate + alert) ③ Ops Console unified Network dashboard (LAN + WiFi + IoT) ④ Predictive maintenance (node connectivity pattern → preemptive fix) ⑤ Self-healing network (auto-restart port, re-route traffic, failover)"
               prerequisites:
                 - "unifi-mcp-server stream closed"
                 - "network-upgrade-wifi stream closed"
@@ -726,4 +1252,4 @@ probe_hints:
       hint: "Daemon status and control overview"
     - target_id: api-ops
       trade_route: /operations/logs
-      hint: "Ops API health and log streams"
+      hint: "Trade ops router (answered by the api-monitor process): health and log streams"

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Copy bifrost-platform config into k8s/overlays/platform-{stg,prod} for ConfigMap generation.
-# Full config sync targets STG; PROD receives sessions-catalog.yaml only (other PROD
-# config files are maintained in-overlay and must not be overwritten blindly).
+# Full config sync targets STG. PROD receives sessions-catalog.yaml and
+# ops-context.yaml (one spine, TD-109). Other PROD config files stay
+# overlay-local and must not be overwritten blindly.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -34,10 +35,17 @@ if [[ -f "${PLATFORM_ROOT}/config/sessions-catalog.yaml" ]]; then
   cp "${PLATFORM_ROOT}/config/sessions-catalog.yaml" "${DEST_PROD}/sessions-catalog.yaml"
 fi
 
+# The spine is one document. Argo applies these copies; a hand-kept PROD file
+# drifted (TD-109). check_ops_context_parity.py fails when they diverge.
+if [[ -f "${PLATFORM_ROOT}/config/ops-context.yaml" ]]; then
+  cp "${PLATFORM_ROOT}/config/ops-context.yaml" "${DEST_STG}/ops-context.yaml"
+  cp "${PLATFORM_ROOT}/config/ops-context.yaml" "${DEST_PROD}/ops-context.yaml"
+fi
+
 # Ensure platform-stg namespace is registered for cluster probes.
 if ! grep -q 'bifrost-platform-stg' "${DEST_STG}/clusters.yaml"; then
   echo "WARN: add bifrost-platform-stg to clusters.yaml bifrost_namespaces after sync" >&2
 fi
 
 echo "Synced platform config → ${DEST_STG}"
-echo "Synced sessions-catalog.yaml → ${DEST_PROD}"
+echo "Synced sessions-catalog.yaml and ops-context.yaml → ${DEST_PROD}"

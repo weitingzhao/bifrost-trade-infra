@@ -458,6 +458,12 @@ check-platform-rbac:
 check-platform-maintenance:
 	python3 scripts/check_platform_maintenance.py
 
+# TD-109: the ops-context.yaml mounted by platform STG and PROD is the platform
+# repo's spine, byte for byte. PLATFORM_ROOT overrides the sibling checkout.
+check-ops-context-parity:
+	PLATFORM_ROOT="$${PLATFORM_ROOT:-$(abspath ../bifrost-platform)}" python3 scripts/check_ops_context_parity.py --self-test
+	PLATFORM_ROOT="$${PLATFORM_ROOT:-$(abspath ../bifrost-platform)}" python3 scripts/check_ops_context_parity.py
+
 # TD-205: stg/prod data pods (Redis) have no LAN NodePort and no ipBlock ingress; LIVE=1 reads the cluster.
 check-data-lan-exposure:
 	python3 scripts/check_data_lan_exposure.py $(if $(LIVE),--live,)
