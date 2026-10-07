@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-96** — preflight 的 D10 闸门不再只认 curl：Python/wget/httpie/node 写 /control/*、patch 扩容 daemon、各种方式改闸门文件都会被拦（Owner 应用，infra 560e58c） · 验收 PASS（agent-guard test.js 74/74） · 防线：`agent-config/scripts/agent-guard/test.js`（74 例，含 28 条不得误拦） · 后续：test.js 不在 infra CI 里（只在改闸门时手跑）
 - **TD-148 / TD-160 / TD-107** — strategy_plan 允许 lens / backtest_run 来源；删 GS 两个改名残留的重复索引；6 张 financials 表补上 (period_date, symbol) 索引（Owner 10-07 批第一组，均已执行并核对） · 验收 PASS（三库约束含新值、旧索引已删、6 个新索引 valid） · 防线：core `tests/test_td148_source_kind_prepare.py`、research TD-160 核对 SQL、market-data `tests/test_td107_financials_period_index.py`（apply_ddl 路径建索引） · 后续：TD-134 观察一周 WAL 量（同批 apply，到 10-14）
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
@@ -406,7 +407,8 @@
 
 **P2 · agent-governance · preflight.js D10 rule only recognises curl: python requests, wget --post-data and sed -i on the daemon scale-zero patch all pass**
 
-- **状态**：观察中（Cursor LANE-S1 已更新草案 REQUEST-td96-preflight-d10-2026-10-06/；待你应用到 scripts/agent-guard/preflight.js）
+- **状态**：待你签收（Owner 10-07 应用草案：infra 560e58c，工作区根 scripts/agent-guard 即这份）
+- **验收结果**：PASS 2026-10-07 560e58c：agent-guard test.js 74 通过 / 0 失败（D10 新增 python requests/httpx/urllib、wget、httpie、node fetch 写 /control/*，kubectl patch daemon 扩容，sed -i / perl -pi / cp / tee / > / kubectl apply|patch|edit / git rm / open(w) 改 guard 文件均 DENY；只读与无关操作 ALLOW）
 - **Claim**: The monitor /control/* rule requires curl-style -X/--request/-d/--data/--json/-F flags, and guard-file protection recognises rm/mv/truncate. A POST via python requests/httpx, wget --post-data, or an in-place edit of k8s/overlays/stg/daemon-scale-zero.patch.yaml with sed -i/tee/cp is allowed. The gate covers only agent tool calls; humans and CI do not pass through it.
 - **Measured**: MEASURED by the ratchet-inventory pass (sample strings fed to preflight.js locally): `sed -i … daemon-scale-zero.patch.yaml`, `python3 -c requests.post('…/api/monitor/control/arm')` and `wget --post-data … /control/arm` each returned ALLOW. test.js (42 cases) passes but has no case for these forms and runs in no CI. Not adversarially re-verified.
 - **Evidence**:
