@@ -13,11 +13,10 @@
 
 ## 待你签收
 
-- **TD-225** — 只读 MCP 桥：未知 focus 直接退出、pin 住的桥只读 viewer 令牌，不再被 operator 令牌顶替（platform 26cd884 + infra f11e0b4） · 验收 PASS（10-07：4 passed、拼错 focus exit 1）· 防线：`bifrost-platform/console/src/lib/architecture/__tests__/mcpFocusBridges.test.ts` · 后续：工作区根的 .mcp.json 是共享 checkout 的链接，共享 infra checkout 前进、会话重启后才生效（无新编号）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 100 项**：P0 0 · P1 10 · P2 35 · P3 55；要你批的 56 项（从总览表的审批列算）。
+**未结 99 项**：P0 0 · P1 10 · P2 35 · P3 54；要你批的 56 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -101,7 +100,7 @@
 
 目标：先关门再修代码。本机 platform-api 只监听本机、PROD/STG Redis 的局域网 NodePort 删掉，然后 git-bridge、修复 runner、Hermes、husbandry-sync 都要令牌；platform 换成按需授权的 ServiceAccount，停用管理员 kubeconfig；路由鉴权测试卡住回退。
 
-项：TD-206, TD-207, TD-208, TD-204, TD-225, TD-221, TD-222 · 已还：TD-205, TD-203, TD-224, TD-220, TD-231
+项：TD-206, TD-207, TD-208, TD-204, TD-221, TD-222 · 已还：TD-205, TD-203, TD-224, TD-220, TD-231, TD-225
 
 ### 第 10 波 · 告警有人收、备份能恢复（第 3 轮）
 
@@ -313,7 +312,6 @@
 | [TD-221](#td-221) | P3 | ops-console | The governance catalog says nobody but the daemon writes ib:operator:cmd, but platform-api does (sanctioned by D-IB-Heal), and the runner's ib_gateway_control can switch the PROD gateway to mock with only a prompt-level approval | 安全/凭据（要你批） |
 | [TD-222](#td-222) | P3 | ops-platform | Platform's D10 scale guard only blocks daemon 0→n: the PROD daemon (2, observe-safe) and DEV (1) can be scaled to 20 by any operator-token caller that bypasses preflight | 安全/凭据（要你批） |
 | [TD-223](#td-223) | P3 | ops-platform | STG and PROD platform-workers both run the IB gateway auto-repair loop against the one live data/ib-gateway, each with its own 15-minute cooldown | PROD 变更（要你批） |
-| [TD-225](#td-225) | P3 | ops-console | Read-only MCP bridges fail open: an unknown or misspelled MCP_BRIDGE_FOCUS registers all 74 tools, and PLATFORM_OPERATOR_TOKEN in env overrides the viewer-token pin | 不用批 |
 | [TD-228](#td-228) | P3 | ops-console | Every scheduled Hermes skill run on .52 fails with 'No such file or directory', while /health returns status ok and the checklist counts the gateway healthy | 不用批 |
 | [TD-229](#td-229) | P3 | ops-platform | Trust overrides resolve to $HOME in the cluster and swallow read and write errors: the Owner's 09-07 L0 grant for research-loop-batch never reached the harness that reads PROD | 不用批 |
 | [TD-234](#td-234) | P3 | trade-worker | @bifrost/ui is unversioned for the Ops Console: a ui push never runs platform CI, and platform deliver builds whatever ui main is without recording its SHA | 不用批 |
@@ -1733,24 +1731,6 @@
 - **验收**: `curl -s -m10 http://192.168.10.73:30878/api/v1/plugins/ib-gateway/self-heal | grep -o '"auto_repair_enabled":[a-z]*'  # false on STG; PROD 30876 stays true`
 - **验收结果**：PASS 2026-10-07 infra 7b82568：STG `"auto_repair_enabled":false`、PROD `"auto_repair_enabled":true`；STG workers 另设 `PLATFORM_RELEASE_RECORDER=off`（发布记录只由 PROD 写）
 - 审批 PROD 变更（要你批） · 代价 S · 风险 low · repos: bifrost-trade-infra, bifrost-platform
-
-### TD-225
-
-**P3 · ops-console · Read-only MCP bridges fail open: an unknown or misspelled MCP_BRIDGE_FOCUS registers all 74 tools, and PLATFORM_OPERATOR_TOKEN in env overrides the viewer-token pin**
-
-- **状态**：待你签收（platform 26cd884 已上 PROD；infra f11e0b4 的 .mcp.json 三座只读桥改传 PLATFORM_VIEWER_TOKEN 并 pin）
-- **验收结果**：PASS 2026-10-07 26cd884 + f11e0b4：mcpFocusBridges.test.ts 4 passed；MCP_BRIDGE_FOCUS 拼错 → exit 1；只读桥连 loopback :8780，令牌从 bifrost-platform/.env 的 PLATFORM_VIEWER_TOKEN 回退读取（键已存在，未读值），无需 Owner 另配
-- **Claim**: focusAllowList returns null for an unknown focus ('for backward compatibility'), and index.ts treats null as 'register everything', so a typo on a bridge documented as read-only L0 (redis, postgres) serves drain, data-clone and rollback. In platformClient.resolveToken, PLATFORM_OPERATOR_TOKEN from env wins before the PLATFORM_TOKEN_ENV_KEY viewer pin is consulted, and .mcp.json passes a PLATFORM_OPERATOR_TOKEN reference to the redis, postgres and prometheus bridges. Today the reference expands to empty in this shell, so the pin holds; the risk needs a focus typo plus an exported operator token.
-- **Measured**: CODE-READ. Live: the configured bridges expose the expected sliced tool lists in this session. Only .mcp.json key names and the first two characters of values were read; PLATFORM_OPERATOR_TOKEN is unset in the session shell.
-- **Evidence**:
-  - `bifrost-platform/mcp/platform/src/focusBridges.ts:88` — `if (!list) return null`
-  - `bifrost-platform/mcp/platform/src/index.ts:27` — `if (allow && !allow.has(String(args[0]))) return undefined`
-  - `bifrost-platform/mcp/platform/src/platformClient.ts:42` — `process.env.PLATFORM_OPERATOR_TOKEN?.trim() || (pinnedKey ? '' : process.env.PLATFORM_ADMIN_TOKEN?.trim() || '')`
-- **Impact**: One config typo silently turns a viewer bridge into a full operator/admin surface for any agent that loads it, with no error.
-- **Fix**: An unknown focus prints an error and exits 1; the full surface only when MCP_BRIDGE_FOCUS is empty. When PLATFORM_TOKEN_ENV_KEY is set, read only that key. Drop PLATFORM_OPERATOR_TOKEN from the read-only bridges' env in .mcp.json.
-- **Ratchet**: A vitest next to mcpStdioParity.test.ts: focusAllowList('postgress') throws, and every non-kubernetes focus list contains only catalog tools with level=read (runs once ci-platform runs vitest).
-- **验收**: `cd bifrost-platform/console && npx vitest run src/lib/architecture/__tests__ -t 'focus bridge'`
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
 
 ### TD-228
 

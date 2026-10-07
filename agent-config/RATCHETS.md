@@ -109,6 +109,7 @@
 | platform 不再写死 Trade 词汇（TD-231） | `bifrost-platform/api/internal/tradevocab/literals_test.go` TestTradeVocabularyOnlyShrinks（按文件预算只降不升）+ `config/app_envs_test.go` | 新增 bifrost-prod / NVDA / ib: 字面量 | error（Go 测试） | 余 32 行在预算表里 |
 | dbt 读的文件都进 wheel（TD-252） | `bifrost-research/tests/test_dbt_package_data.py` | package-data 漏目录，容器里 dbt 编译失败、整夜引擎不跑 | error（pytest） | — |
 | Redis 易失且有 maxmemory（TD-238） | `bifrost-trade-infra/scripts/check_redis_config.py`（`make check-redis-config`） | 无卷却开 AOF、无 maxmemory 只能 OOMKill | error（脚本，手工跑） | 未进 CI |
+| 只读 MCP 桥只拿 viewer 令牌（TD-225） | `bifrost-platform/console/src/lib/architecture/__tests__/mcpFocusBridges.test.ts`（未知 focus 抛错、pin 忽略 operator/admin 令牌、focus 工具都是 read 级） | 拼错 focus 退化成全量 operator 桥 | warning（测试） | mcp/platform 自身无测试脚本 |
 
 ## 各类债现在挡没挡住
 
