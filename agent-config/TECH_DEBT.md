@@ -13,9 +13,9 @@
 
 ## 待你签收
 
-- **TD-193** — 事件行日期改用 event_date（无则退回 collected_at 并标注），宏观行带发布时间（frontend 18e003fe）· 验收 PASS（10-07）· 防线：`src/pages/research/events/eventDate.test.tsx`（回退到 collected_at 即失败） · 更正：原文说的 EventsBoard 自 09-24 起已是孤儿，线上看不到错日期 · 后续：TD-199（删孤儿文件，要你肉眼定）
+（暂无）
 
-**未结 85 项**：P0 0 · P1 4 · P2 31 · P3 50；要你批的 44 项（从总览表的审批列算）。
+**未结 84 项**：P0 0 · P1 4 · P2 31 · P3 49；要你批的 44 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -82,7 +82,7 @@
 
 目标：Data Gaps 看板上未结的 15 项并入台账：先把每日快照的写入修对（TD-137）再接读侧和三页，归因行补上价格，Research 侧已就绪的一个版本（0.185.0）发出去，长期限 IV 锥在 10-31 前从 option_daily 回填，其余按 Owner 已定的口径排。
 
-项：TD-137, TD-138, TD-139, TD-140, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-158, TD-159, TD-171, TD-172, TD-178, TD-180, TD-182, TD-193, TD-199 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181
+项：TD-137, TD-138, TD-139, TD-140, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-158, TD-159, TD-171, TD-172, TD-178, TD-180, TD-182, TD-199 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181, TD-193
 
 ### 第 8 波 · Pine 线程收尾后的跟进（10-06）
 
@@ -252,7 +252,6 @@
 | [TD-190](#td-190) | P3 | ops-platform | Platform's research CronJob trigger route has no caller but keeps seven suspended CronJob templates alive in the research namespace | 改公开接口 |
 | [TD-191](#td-191) | P3 | market-data | market-data config/schedule.yaml still says K8s CronJob YAML is the runtime schedule source; after TD-124 there are no CronJobs and Dagster fires every slot | 不用批 |
 | [TD-192](#td-192) | P2 | research-control | One IB Flex failure loses that night's SEPA for good: husbandry_gate blocks sepa_projection although SEPA reads nothing from Flex, and the projection never back-fills a missed night | 要你批 |
-| [TD-193](#td-193) | P3 | frontend | The Events calendar view's Date column shows collected_at, not event_date: macro rows show when they were computed, radar rows when the file was dropped | 不用批 |
 | [TD-194](#td-194) | P2 | ops-platform | BifrostAPIHighLatency can never fire: the histogram it reads tops out at a 1 s bucket, so histogram_quantile returns at most 1 and `> 2` is impossible | 要你批 |
 | [TD-195](#td-195) | P3 | ops-platform | platform-api exports no http_requests_total (hand-written /metrics, no Prometheus client), so the API error-rate and latency alerts cannot see it | 不用批 |
 | [TD-196](#td-196) | P2 | ops-platform | platform-api and platform-workers keep their state in per-pod emptyDir: every rollout erases release cycles, gate history, the operate queue and checklist signals, and the audit log is memory-only | 已批 |
@@ -1532,22 +1531,6 @@
 - **Fix**: Split the gate so Flex only blocks Flex-dependent assets (or make sepa_projection depend on market_eod only); optionally a run config that projects a named session while the mart still holds it. Changes TD-94's fail-closed design, so Owner decides.
 - **Ratchet**: TD-189's sepa_covers_recent_sessions check already warns on a new gap.
 - 审批 要你批 · 代价 S · 风险 med · repos: bifrost-research
-
-### TD-193
-
-**P3 · frontend · The Events calendar view's Date column shows collected_at, not event_date: macro rows show when they were computed, radar rows when the file was dropped**
-
-- **状态**：待你签收
-- **验收**：`git -C bifrost-trade-frontend show origin/main:src/pages/research/events/EventsBoard.tsx | grep -c 'row.collected_at ??'` = 0；`eventDate.test.tsx` 通过
-- **验收结果**：PASS 2026-10-07 frontend 18e003fe（grep 0、vitest 4050 passed）。**更正原文**：EventsBoard.tsx 自 c81e5a29（09-24）起已无人引用，错日期在任何可打开的页面上都看不到；线上 Events Market face 的 Forward 面板本来就按 event_date 显示。这次修了孤儿文件并给 Forward 面板的宏观行加上发布时间（DEV 数据本机 Vite 实测：`14OCT26 08:30 ET … CPI`、`28OCT26 14:00 ET … FOMC`），随下一次 Trade 前端发布上线。DEV 17 行日历、200 行事件全部有 event_date。孤儿文件记为 TD-199
-- **Claim**: EventsBoard renders row.collected_at in the calendar's Date column; for a calendar the reader expects the event's own date.
-- **Measured**: code-read 10-06 by paydown lane P.
-- **Evidence**:
-  - `bifrost-trade-frontend/src/pages/research/events/EventsBoard.tsx:400` — `{row.collected_at ?? '—'}`
-- **Impact**: Calendar rows are dated wrongly (e.g. a 10-14 CPI shows 10-06).
-- **Fix**: Use event_date (fall back to collected_at only for rows without one) in both places (:301, :400).
-- **Ratchet**: A vitest: a calendar row with event_date renders that date.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
 
 ### TD-194
 

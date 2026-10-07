@@ -68,6 +68,7 @@
 | platform MinIO 后端测试（外部 MinIO 时不碰 deploy/minio） | `bifrost-platform/api/internal/cluster/minio_backend_test.go（TestResolveMinioBackendExternal、TestRepairWithUnhealthyExternalMinioLeavesDeploymentAlone 等 5 例）` | 备份 MinIO 搬到 NAS 后，检查把健康的外部存储报成 degraded、修复工具去重启 0 副本的集群内 deploy/minio（TD-132） | warning | 在 ci-platform 里跑，push 之后才跑、不挡发布（同 TD-95）；只覆盖 MinIO 后端的识别与修复分支 |
 | API 都导出 http_requests_total（TD-161） | 告警 `BifrostAPIWithoutHttpMetrics`（`bifrost-trade-infra/k8s/monitoring/bifrost-alerting-rules.yaml`，platform-api 唯一豁免且只许缩小）+ `bifrost-trade-infra/scripts/check_http_metrics_coverage.py`（`make check-http-metrics-coverage`，apply-monitoring-scrape 前跑；`--live` 实跑）+ research / market-data / flex-query 的 `test_http_metrics.py` | 新 API 或新命名空间没有 HTTP 指标，错误率 / 延迟告警看不见它 | alert + warning（脚本 / 测试） | 延迟告警本身不触发（TD-194）；platform-api 无指标（TD-195） |
 | 事件日历的宏观行只有一个来源（TD-181） | `bifrost-research/tests/engines/test_event_calendar_macro.py`（日历宏观行 = 窗口内 macro_event_daily，ws:macro 行不返回、ingest 只归档） | 手放宏观文件与 macro_event_daily 两条线漂移、重复投放产生重复行 | warning（测试） | Date 列显示采集日期（TD-193） |
+| 事件行显示 event_date（TD-193） | `bifrost-trade-frontend/src/pages/research/events/eventDate.test.tsx`（Calendar 视图带 event_date 的行显示该日期与发布时间、回退到 collected_at 时标注；Forward 面板显示 HH:MM ET） | 事件 / 日历行按采集日期显示，宏观发布被标成计算当天 | warning（测试） | 孤儿文件待删（TD-199） |
 
 ## 各类债现在挡没挡住
 
