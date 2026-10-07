@@ -23,11 +23,19 @@ configMapGenerator:
       - config/release-rules.yaml
     options:
       disableNameSuffixHash: true
+  # PROD-only patrol skill set; see platform-workers-patrol.patch.yaml. Hashed
+  # name, so a skill change rolls platform-workers.
+  - name: bifrost-platform-patrol-skills
+    files:
+      - config/patrol-skills/ops-autopilot.yaml
+      - config/patrol-skills/fleet-drift-scan.yaml
+      - config/patrol-skills/cert-expiry-check.yaml
 
 patches:
   - path: platform-serviceaccount.patch.yaml
   - path: images-pull-always.patch.yaml
   - path: platform-workers-env.patch.yaml
+  - path: platform-workers-patrol.patch.yaml
   - path: replicas-ha.patch.yaml
   - path: nodeport-prod.patch.yaml
   - path: platform-api-agent-bridge-env.patch.yaml

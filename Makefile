@@ -453,6 +453,11 @@ check-alert-routing:
 check-platform-rbac:
 	python3 scripts/check_platform_rbac.py
 
+# TD-253: patrol skills and the checklist prober only in PROD platform-workers, dispatch local,
+# report-only during the trial.
+check-platform-maintenance:
+	python3 scripts/check_platform_maintenance.py
+
 # TD-205: stg/prod data pods (Redis) have no LAN NodePort and no ipBlock ingress; LIVE=1 reads the cluster.
 check-data-lan-exposure:
 	python3 scripts/check_data_lan_exposure.py $(if $(LIVE),--live,)

@@ -1,0 +1,41 @@
+# PROD is the one place maintenance runs (Owner 2026-10-07; TECH_DEBT wave 12).
+# This gives platform-workers the patrol skills and the checklist prober, and
+# holds the autopilot to report-only while it earns trust (TD-253):
+#
+#   PATROL_MODE=report      every fix the autopilot would make is logged as
+#                           "REPORT-ONLY: would …" and skipped; drift scan
+#                           deletes nothing.
+#   PATROL_DISPATCH=local   no skill goes to Cursor Cloud, whatever its trust.
+#   CHECKLIST_PROBER=on     in-process prober refreshes /checklist/signals
+#                           every 10 minutes, so the autopilot reads minutes-old
+#                           observations rather than a stale report.
+#
+# The skill set is config/patrol-skills/ (copies from bifrost-platform
+# config/patrol-skills; stale-pod-cleanup is left out, it is disabled there).
+# STG and local get neither the skills nor the prober.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-workers
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform-api
+          env:
+            - name: PATROL_SKILLS_DIR
+              value: /app/patrol-skills
+            - name: PATROL_MODE
+              value: report
+            - name: PATROL_DISPATCH
+              value: local
+            - name: CHECKLIST_PROBER
+              value: "on"
+          volumeMounts:
+            - name: patrol-skills
+              mountPath: /app/patrol-skills
+              readOnly: true
+      volumes:
+        - name: patrol-skills
+          configMap:
+            name: bifrost-platform-patrol-skills
