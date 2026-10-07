@@ -54,11 +54,45 @@ record_event() {
     "$EVENT" "$name" "$@" 2>/dev/null || true
 }
 
-# Who asked for a stop/restart: the command line of bdev's parent (terminal shell, Claude session, platform-api …).
+# Who asked for a stop/restart, as a readable label, found by walking bdev's ancestors:
+#   Claude Code session local_… (transcript …) — only when CLAUDE_PID is really an ancestor:
+#     tmux's global env carries stale CLAUDE_* from whichever session started the server, so
+#     services started by bdev (platform-api …) inherit them.
+#   platform-api (MCP restart_dev_session / Ops Console / autopilot) · terminal <App> · ssh · tmux pane
 caller_desc() {
-  local cmd
-  cmd="$(ps -o command= -p "$PPID" 2>/dev/null | cut -c1-120)"
-  echo "${cmd:-unknown}"
+  local pid="$PPID" depth=0 comm name first="" tty
+  tty="$(ps -o tty= -p $$ 2>/dev/null | tr -d ' ')"
+  [[ -n "$tty" && "$tty" != "??" ]] && tty=" on $tty" || tty=""
+  while [[ -n "$pid" && "$pid" -gt 1 && "$depth" -lt 20 ]]; do
+    comm="$(ps -o comm= -p "$pid" 2>/dev/null || true)"
+    [[ -n "$comm" ]] || break
+    name="$(basename "$comm")"
+    [[ -n "$first" ]] || first="$name pid $pid"
+    if [[ -n "${CLAUDE_PID:-}" && "$pid" == "$CLAUDE_PID" ]]; then
+      local sid="${CLAUDE_CODE_HOST_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-unknown}}"
+      local label="Claude Code session $sid"
+      if [[ -n "${CLAUDE_CODE_SESSION_ID:-}" && "$sid" != "$CLAUDE_CODE_SESSION_ID" ]]; then
+        label="$label (transcript $CLAUDE_CODE_SESSION_ID)"
+      fi
+      echo "$label"
+      return 0
+    fi
+    case "$name" in
+      platform-api|bifrost-platform-api)
+        echo "platform-api pid $pid (MCP restart_dev_session / Ops Console / autopilot)"; return 0 ;;
+      sshd|sshd-session)
+        echo "ssh session${tty}"; return 0 ;;
+      tmux|tmux:*)
+        echo "tmux pane${tty}"; return 0 ;;
+    esac
+    if [[ "$comm" =~ /([^/]+)\.app/ ]]; then
+      echo "terminal ${BASH_REMATCH[1]}${tty} ($first)"
+      return 0
+    fi
+    pid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')"
+    depth=$(( depth + 1 ))
+  done
+  echo "${first:-unknown}${tty}"
 }
 
 # Trim an existing log file if over max (used on start / log-gc).
