@@ -31,7 +31,7 @@ spec:
             description: >-
               CronJob kube-system/cluster-state-backup last succeeded
               {{ $value | humanizeDuration }} ago (it runs 05:15 UTC).
-              It copies the newest k3s etcd snapshot to the nfs-cold claim
-              cluster-state-backup and age-encrypts Secrets there. Read
-              `kubectl -n kube-system logs job/<latest cluster-state-backup job> -c backup`
+              It age-encrypts the newest k3s etcd snapshot onto the nfs-cold
+              claim cluster-state-backup, and age-encrypts Secrets there.
+              Read `kubectl -n kube-system logs job/<latest cluster-state-backup job> -c backup`
               and docs/runbooks/cluster-state-restore.md.

@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
-"""Cluster-state backup stays an age-encrypted copy on nfs-cold (LANE-A2).
+"""Cluster-state backup stays age ciphertext on nfs-cold (LANE-A2R).
 
 Static (default): the CronJob exists, the script shells out to age, the PVC
-is nfs-cold, and nothing in the backup script redirects Secret or ConfigMap
-YAML onto a file. The age recipient in git is the Owner's published public
-key. The private key is not in this repo; this check does not look for it
-and does not talk to the cluster.
+is nfs-cold, and nothing in the backup script writes Secret or ConfigMap
+YAML, or an etcd snapshot, onto the target as plaintext. A snapshot path
+reaches the target directory only through age. Source sha256 is computed
+before that encryption. The age recipient in git is the Owner's published
+public key. The private key is not in this repo; this check does not look
+for it and does not talk to the cluster.
 
 Live (``--live``; needs KUBECONFIG, read-only): a successful Job finished
-less than 36 hours ago, and its backup container log contains today's UTC
-verification line. That line is printed only after the snapshot sha256
-matched and the age headers checked. The log is not printed here.
+less than 36 hours ago, its backup container log contains today's UTC
+verification line, and the target directory (a local read-only view of the
+PVC, never a newly created pod or mount) has today's MANIFEST and no
+``etcd-snapshot-*`` file that does not end in ``.age``. The log and the
+MANIFEST contents are not printed here.
 
 Usage: python3 scripts/check_cluster_state_backup.py [--live] [--self-test]
 """
@@ -21,6 +25,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -64,11 +69,46 @@ def redirect_targets(line: str) -> list[str]:
     return targets
 
 
+_SNAPSHOT_SRC = ("$newest", "${newest}", "$SNAPSHOT_DIR", "${SNAPSHOT_DIR}", "/snapshots")
+_TARGET_DIR = ("$WORK", "${WORK}", "$BACKUP_ROOT", "${BACKUP_ROOT}", "$DAILY", "$MONTHLY", "$MTMP", "/backup")
+_COPY = re.compile(r"(?:^|[;&|]\s*)(?:cp|mv|dd|install|rsync|ln|cat)\b")
+
+
+def _age_writer(code: str) -> bool:
+    return "-o" in code and re.search(r"(?:^|[;&|(]\s*)age\b", code) is not None
+
+
+def snapshot_target_problems(text: str) -> list[str]:
+    """Every snapshot written into the target directory has to go through age.
+
+    Copying ciphertext (``*.age``) onward is a different path: the source is
+    not the hostPath snapshot. A plaintext ``cp`` of ``$newest`` (or of
+    ``$SNAPSHOT_DIR``) into the target is always a failure.
+    """
+    problems: list[str] = []
+    for lineno, line in enumerate(text.splitlines(), 1):
+        code = code_of(line).strip()
+        if not code or _age_writer(code):
+            continue
+        mentions_src = any(mark in code for mark in _SNAPSHOT_SRC)
+        mentions_target = any(mark in code for mark in _TARGET_DIR)
+        writes = _COPY.search(code) is not None or redirect_targets(line) != []
+        if mentions_src and mentions_target and writes:
+            problems.append(
+                f"backup.sh:{lineno}: plaintext snapshot copied to the target without age"
+            )
+        if re.search(r"\bcp\b", code) and "-a" in code and "$DAILY" in code:
+            problems.append(f"backup.sh:{lineno}: cp -a of a daily directory")
+    return problems
+
+
 def script_problems(text: str) -> list[str]:
     """Plaintext-to-disk and age-use checks for backup.sh."""
     problems: list[str] = []
     if "age-keygen" in text or "AGE-SECRET-KEY-" in text:
         problems.append("backup.sh mentions key generation or a private key")
+    if "not age-wrapped" in text or "exact copy" in text:
+        problems.append("backup.sh still describes a plaintext snapshot copy")
     if re.search(r"(?m)^\s*set\s+-[^\n]*x|set\s+-o\s+xtrace\b", text):
         problems.append("backup.sh enables xtrace (commands would hit the log)")
     if re.search(r"(?m)^\s*tee\b", text) or re.search(r"[|&]\s*tee\b", text):
@@ -78,12 +118,22 @@ def script_problems(text: str) -> list[str]:
         'kubectl get secrets --all-namespaces -o yaml | encrypt_stdin',
         "export_platform_state | encrypt_stdin",
         'encrypt_stdin "$WORK/server-token.age" < "$TOKEN_FILE"',
+        'encrypt_stdin "$WORK/$snap_age" < "$newest"',
+        'src_sum=$(sha256_of "$newest")',
+        "plaintext_sha256",
+        "plaintext_bytes",
+        "ciphertext_sha256",
+        "allowed_backup_name",
         "age_header_ok",
         'rm -f "$tmp"',
     )
     for snippet in required:
         if snippet not in text:
             problems.append(f"backup.sh is missing {snippet!r}")
+    hash_at = text.find('src_sum=$(sha256_of "$newest")')
+    enc_at = text.find('encrypt_stdin "$WORK/$snap_age" < "$newest"')
+    if hash_at < 0 or enc_at < 0 or hash_at > enc_at:
+        problems.append("backup.sh does not hash the snapshot before encryption")
     # The recipient is rejected before any kubectl get of secrets.
     reject_at = text.find("placeholder AGE_RECIPIENT")
     secrets_at = text.find("kubectl get secrets")
@@ -98,8 +148,12 @@ def script_problems(text: str) -> list[str]:
                 problems.append(f"backup.sh:{lineno}: redirect writes YAML ({target})")
             if "token" in target and not target.endswith(".age"):
                 problems.append(f"backup.sh:{lineno}: redirect writes the server token ({target})")
+            base = target.rstrip("/").rsplit("/", 1)[-1]
+            if base.startswith("etcd-snapshot-") and not base.endswith(".age"):
+                problems.append(f"backup.sh:{lineno}: redirect writes a plaintext snapshot ({target})")
         if re.search(r"\bcp\b", code) and re.search(r"token|secret|\.ya?ml", code, re.I):
             problems.append(f"backup.sh:{lineno}: cp of a secret, token, or yaml file")
+    problems += snapshot_target_problems(text)
     return problems
 
 
@@ -235,9 +289,20 @@ def runbook_problems(path: Path) -> list[str]:
         return ["restore runbook is missing"]
     text = path.read_text()
     problems = []
-    for snippet in ("--cluster-reset", "--cluster-reset-restore-path", "age --decrypt"):
+    for snippet in (
+        "--cluster-reset",
+        "--cluster-reset-restore-path",
+        "age --decrypt",
+        "plaintext_sha256",
+        "MANIFEST",
+        "解密后先对照 MANIFEST 的 plaintext_sha256，通过之后才执行 k3s 恢复",
+    ):
         if snippet not in text:
             problems.append(f"runbook is missing {snippet}")
+    if "SHA256SUMS" in text:
+        problems.append("runbook still verifies a plaintext snapshot via SHA256SUMS")
+    if "没有 age 加密" in text:
+        problems.append("runbook still says the snapshot is not age-encrypted")
     return problems
 
 
@@ -257,6 +322,11 @@ def check(root: Path) -> list[str]:
     rule = root / "k8s/monitoring/bifrost-cluster-state-rules.yaml"
     problems += rule_problems(rule)
     problems += runbook_problems(root / "docs/runbooks/cluster-state-restore.md")
+    readme = backup / "README.md"
+    if not readme.is_file():
+        problems.append("cluster-state-backup README is missing")
+    elif "downloads age and kubectl at runtime" not in readme.read_text():
+        problems.append("README does not document the init-container download risk")
     # The shared alerting file is not this lane's. Refuse to have grown a copy of the alert there
     # only when this function is pointed at the repo (self-test trees have no such file).
     shared = root / "k8s/monitoring/bifrost-alerting-rules.yaml"
@@ -280,8 +350,86 @@ def kubectl(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def target_tree_problems(root: Path, today: str) -> list[str]:
+    """Read a backup tree. Flag plaintext snapshot names and a missing MANIFEST."""
+    problems: list[str] = []
+    manifest = root / "daily" / today / "MANIFEST"
+    if not manifest.is_file():
+        problems.append(f"today's MANIFEST is missing under {root}/daily/{today}")
+    if not root.is_dir():
+        return problems
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        dirnames[:] = [
+            name for name in dirnames if not os.path.islink(os.path.join(dirpath, name))
+        ]
+        for name in filenames:
+            if name.startswith("etcd-snapshot-") and not name.endswith(".age"):
+                problems.append(
+                    "etcd-snapshot file on the target does not end in .age: "
+                    + os.path.join(dirpath, name)
+                )
+    return problems
+
+
+def find_readonly_dir(nfs_path: str) -> Path | None:
+    """Locate the PVC directory on an existing local path. Never mounts it."""
+    override = os.environ.get("CLUSTER_STATE_BACKUP_DIR")
+    if override:
+        path = Path(override)
+        return path if path.is_dir() else None
+    leaf = Path(nfs_path).name
+    if not leaf or leaf in {".", "/"}:
+        return None
+    candidates = [
+        Path(nfs_path),
+        Path("/Volumes/k3s-cold") / leaf,
+        Path("/volume1/k3s-cold") / leaf,
+        Path("/mnt/k3s-cold") / leaf,
+    ]
+    for cand in candidates:
+        if cand.is_dir():
+            return cand
+    return None
+
+
+def live_target_problems() -> list[str]:
+    """Read the PVC through kubectl get and a local directory. No pod, no mount."""
+    pvc = kubectl("get", "pvc", "-n", "kube-system", "cluster-state-backup", "-o", "json")
+    if pvc.returncode != 0:
+        detail = pvc.stderr.strip() or "kubectl failed"
+        return [f"cannot read PVC cluster-state-backup: {detail}"]
+    try:
+        meta = json.loads(pvc.stdout)
+    except json.JSONDecodeError:
+        return ["PVC cluster-state-backup is not JSON"]
+    volume = (meta.get("spec") or {}).get("volumeName") or ""
+    if not volume:
+        return ["PVC cluster-state-backup has no volumeName; not creating a pod to read it"]
+    pv = kubectl("get", "pv", volume, "-o", "json")
+    if pv.returncode != 0:
+        detail = pv.stderr.strip() or "kubectl failed"
+        return [f"cannot read PV {volume}: {detail}"]
+    try:
+        spec = json.loads(pv.stdout).get("spec") or {}
+    except json.JSONDecodeError:
+        return [f"PV {volume} is not JSON"]
+    nfs = spec.get("nfs") or {}
+    path = nfs.get("path") or ""
+    if not path:
+        return [f"PV {volume} has no nfs.path; not mounting it"]
+    root = find_readonly_dir(path)
+    if root is None:
+        server = nfs.get("server") or "?"
+        return [
+            f"target dir {server}:{path} is not on a local read-only path; "
+            "not creating a pod or mount to read it"
+        ]
+    today = datetime.now(timezone.utc).date().isoformat()
+    return target_tree_problems(root, today)
+
+
 def live_check() -> list[str]:
-    """Read-only. Does not print job logs."""
+    """Read-only. Does not print job logs or MANIFEST contents."""
     problems: list[str] = []
     jobs = kubectl(
         "get", "jobs", "-n", "kube-system",
@@ -318,6 +466,7 @@ def live_check() -> list[str]:
         problems.append(f"job {name} log has no verification line for daily/{today}")
     if SECRET_LOG.search(logs.stdout):
         problems.append(f"job {name} log contains secret material; not printing it")
+    problems += live_target_problems()
     return problems
 
 
@@ -329,12 +478,55 @@ def self_test() -> int:
     if not script_problems("age-keygen -o /tmp/key\n"):
         print("self-test FAILED: key generation not flagged")
         return 1
+    plain_cp = script_problems('cp -f "$newest" "$WORK/etcd-snapshot-node"\n')
+    if not any("plaintext snapshot copied to the target without age" in item for item in plain_cp):
+        print(f"self-test FAILED: plaintext snapshot cp not flagged: {plain_cp}")
+        return 1
+    host_cp = 'cp "$SNAPSHOT_DIR/etcd-snapshot-node" "$BACKUP_ROOT/daily/etcd-snapshot-node"\n'
+    if not any("plaintext snapshot" in item for item in script_problems(host_cp)):
+        print("self-test FAILED: snapshot dir cp not flagged")
+        return 1
+    aged = 'age -r "$RECIPIENT" -o "$WORK/etcd-snapshot-node.age" < "$newest"\n'
+    if snapshot_target_problems(aged):
+        print(f"self-test FAILED: age write flagged: {snapshot_target_problems(aged)}")
+        return 1
+    via_fn = 'encrypt_stdin "$WORK/$snap_age" < "$newest"\n'
+    if snapshot_target_problems(via_fn):
+        print(f"self-test FAILED: encrypt_stdin of the snapshot flagged: {snapshot_target_problems(via_fn)}")
+        return 1
     good = script_problems((BACKUP / "backup.sh").read_text())
     if good:
         print("self-test FAILED: backup.sh rejected:")
         for item in good:
             print(f"  {item}")
         return 1
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        day = root / "daily" / "2026-10-07"
+        day.mkdir(parents=True)
+        (day / "MANIFEST").write_text("timestamp 2026-10-07T00:00:00Z\n", encoding="utf-8")
+        (day / "etcd-snapshot-node").write_bytes(b"not a snapshot")
+        flagged = target_tree_problems(root, "2026-10-07")
+        if not any("does not end in .age" in item for item in flagged):
+            print(f"self-test FAILED: plaintext snapshot file not flagged: {flagged}")
+            return 1
+        (day / "etcd-snapshot-node").unlink()
+        (day / "etcd-snapshot-node.age.partial").write_bytes(b"partial")
+        partial = target_tree_problems(root, "2026-10-07")
+        if not any("does not end in .age" in item for item in partial):
+            print(f"self-test FAILED: snapshot temp name not flagged: {partial}")
+            return 1
+        (day / "etcd-snapshot-node.age.partial").unlink()
+        (day / "etcd-snapshot-node.age").write_bytes(b"age-encryption.org/v1\n")
+        clean = target_tree_problems(root, "2026-10-07")
+        if clean:
+            print(f"self-test FAILED: ciphertext tree rejected: {clean}")
+            return 1
+        (day / "MANIFEST").unlink()
+        missing = target_tree_problems(root, "2026-10-07")
+        if not any("MANIFEST" in item for item in missing):
+            print(f"self-test FAILED: missing MANIFEST not flagged: {missing}")
+            return 1
     tree = check(ROOT)
     if tree:
         print("self-test FAILED: tree rejected:")
@@ -357,9 +549,12 @@ def main(argv: list[str]) -> int:
         print(f"cluster-state-backup: {len(problems)} problem(s)")
         return 1
     if "--live" in argv:
-        print("cluster-state-backup: static ok, live success is under 36h and today's files were verified")
+        print(
+            "cluster-state-backup: static ok, live success is under 36h, "
+            "today's MANIFEST exists, no plaintext snapshot"
+        )
     else:
-        print("cluster-state-backup: cronjob, age, nfs-cold, no plaintext-to-disk step")
+        print("cluster-state-backup: cronjob, age, nfs-cold, snapshot ciphertext only")
     return 0
 
 
