@@ -1533,7 +1533,7 @@
 
 **P3 · ops-platform · STG platform-api is not scraped: the platform-api ServiceMonitor selects only bifrost-platform-prod, so STG platform 5xx / latency and plugin health come from PROD only**
 
-- **状态**：未开始
+- **状态**：在做（还债第六批 · 道 Z，10-07 01:0x UTC 开工）
 - **Claim**: The ServiceMonitor's namespaceSelector.matchNames lists bifrost-platform-prod alone.
 - **Measured**: code-read 10-07 by paydown lane W.
 - **Evidence**:
@@ -1561,7 +1561,7 @@
 
 **P3 · research-control · Changing a Dagster market schedule in research does not fail any test: the plugin's slot-cron snapshot only catches drift when someone regenerates it**
 
-- **状态**：未开始
+- **状态**：在做（还债第六批 · 道 Y，10-07 01:0x UTC 开工）
 - **Claim**: TD-191 added tests/fixtures/dagster_slot_roster.json on the plugin side; neither market_slot_schedules.py nor api/schedule_roster.py in research refers to it.
 - **Measured**: code-read 10-07 by paydown lane V.
 - **Evidence**:
@@ -1575,7 +1575,7 @@
 
 **P3 · market-data · market-data docs still describe a CronJob scheduler (README, CLAUDE.md, docs/STG_PROMOTE.md) after TD-124 removed every CronJob**
 
-- **状态**：未开始
+- **状态**：在做（还债第六批 · 道 Y，10-07 01:0x UTC 开工）
 - **Claim**: README.md:28 'scheduler/ # CronJob enqueue'; CLAUDE.md:27 'CronJob scheduler'; CLAUDE.md:66 verify line mentions CronJobs; docs/STG_PROMOTE.md:13,28-30,109-112 give CronJob-based steps.
 - **Measured**: code-read 10-07 by paydown lane V.
 - **Evidence**:
