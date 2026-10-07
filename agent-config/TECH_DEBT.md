@@ -13,9 +13,9 @@
 
 ## 待你签收
 
-（暂无）
+- **TD-199** — 删掉自 09-24 起无人引用的 EventsBoard.tsx / EventRadarDashboard.tsx，改正两处注释（frontend e98afbf0）· 验收 PASS（10-07）· 防线：`src/lib/orphanModules.test.ts`（从 main.tsx 走导入图，KNOWN_ORPHANS 只许缩短）· 后续：TD-243（其余 42 个孤儿模块）
 
-**未结 116 项**：P0 1 · P1 12 · P2 39 · P3 64；要你批的 61 项（从总览表的审批列算）。
+**未结 117 项**：P0 1 · P1 12 · P2 39 · P3 65；要你批的 62 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -90,7 +90,7 @@
 
 目标：Data Gaps 看板上未结的 15 项并入台账：先把每日快照的写入修对（TD-137）再接读侧和三页，归因行补上价格，Research 侧已就绪的一个版本（0.185.0）发出去，长期限 IV 锥在 10-31 前从 option_daily 回填，其余按 Owner 已定的口径排。
 
-项：TD-137, TD-138, TD-139, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-158, TD-159, TD-172, TD-178, TD-180, TD-182, TD-199 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181, TD-193, TD-140, TD-171
+项：TD-137, TD-138, TD-139, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-158, TD-159, TD-172, TD-178, TD-180, TD-182, TD-199, TD-243 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181, TD-193, TD-140, TD-171
 
 ### 第 8 波 · Pine 线程收尾后的跟进（10-06）
 
@@ -342,6 +342,7 @@
 | [TD-240](#td-240) | P3 | trade-worker | The running PROD daemon never writes contract_quote_live: the observe-only quote mirror sits under mock_hedging, which is hard-coded True | 跨仓库发版 |
 | [TD-241](#td-241) | P3 | agent-governance | RATCHETS.md, TECH_DEBT.md and agent docs state facts the round-3 scan measured as no longer true | 不用批 |
 | [TD-242](#td-242) | P2 | market-data | market-data /ingest/queue-dashboard takes 5–25 s per call, and the platform-api proxy carries the same delay: with the new latency rule live it will page whenever someone keeps the queue dashboard open | 不用批 |
+| [TD-243](#td-243) | P3 | frontend | 42 frontend modules are unreachable from src/main.tsx (largest clusters: components/cockpit/ 8, utils/dataOverview/ 6); dead code invites fixes and false audit findings | 删除（要你批） |
 
 ## 条目
 
@@ -1588,7 +1589,9 @@
 
 **P3 · frontend · EventsBoard.tsx and EventRadarDashboard.tsx have had no importer since 09-24 (c81e5a29); a comment still says EventRadarBody 'stays the Explorer tab's body' though Explorer was retired in 594a3f3f**
 
-- **状态**：在做（Owner 10-07 「按推荐」批准：删两个孤儿前端文件并改正注释，加孤儿模块防线；道 EE）
+- **状态**：待你签收
+- **验收**：`git -C bifrost-trade-frontend ls-tree -r --name-only origin/main | grep -cE 'EventsBoard.tsx|EventRadarDashboard.tsx'` = 0；`npx vitest run src/lib/orphanModules.test.ts src/pages/research/events/eventDate.test.tsx` 通过
+- **验收结果**：PASS 2026-10-07 frontend e98afbf0：0 个匹配、6/6 通过；删前复核无生产导入、只被它俩导入的模块 0 个；两处注释已改正。另修了 origin/main 上 Pine 会话两次提交造成的 code-health 超线（`pct` / `signed` 各 4 处定义 → `simRuns.ts` 导出 `signedPct`，显示不变）。门禁 tsc / lint / vitest 4067 / build / legacy-css / code-health 全 0。孤儿基线 42 个记为 TD-243
 - **Claim**: Lane U grepped src: the two modules are referenced only in comments (EventsPage.tsx:145, AlertsPage.tsx:16). TD-193 was filed against EventsBoard because the code looked live.
 - **Measured**: MEASURED 10-07 by paydown lane U (grep of origin/main src for imports).
 - **Evidence**:
@@ -2306,6 +2309,20 @@
 - **Fix**: Cache the dashboard per minute (it is a derived read), or make its job_ingest / queue_sample reads cheap (EXPLAIN first; see memory plan-follows-anchor-estimate).
 - **Ratchet**: A test or check that the dashboard's p99 stays under the latency rule threshold on PROD-sized data (or a cache hit test).
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data
+
+### TD-243
+
+**P3 · frontend · 42 frontend modules are unreachable from src/main.tsx (largest clusters: components/cockpit/ 8, utils/dataOverview/ 6); dead code invites fixes and false audit findings**
+
+- **状态**：未开始
+- **Claim**: TD-199's orphan-module ratchet lists them in KNOWN_ORPHANS; each is imported by nothing reachable from the app entry.
+- **Measured**: MEASURED 10-07 by paydown lane EE (import-graph walk from src/main.tsx).
+- **Evidence**:
+  - `bifrost-trade-frontend/src/lib/orphanModules.test.ts:9` — `* KNOWN_ORPHANS is the 2026-10-07 baseline (42). It may only shrink:`
+- **Impact**: Dead pages and helpers get fixed, audited and reported as bugs (TD-193 was one).
+- **Fix**: Owner reviews in batches by directory (deletion is the Owner's call, §15); delete and drop each from KNOWN_ORPHANS.
+- **Ratchet**: orphanModules.test.ts already fails on any new orphan and forces the list to shrink.
+- 审批 删除（要你批） · 代价 S · 风险 low · repos: bifrost-trade-frontend
 
 ## 没覆盖到的（下一轮从这里开始）
 
