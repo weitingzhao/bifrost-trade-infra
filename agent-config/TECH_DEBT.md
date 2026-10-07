@@ -15,7 +15,7 @@
 
 - **TD-199** — 删掉自 09-24 起无人引用的 EventsBoard.tsx / EventRadarDashboard.tsx，改正两处注释（frontend e98afbf0）· 验收 PASS（10-07）· 防线：`src/lib/orphanModules.test.ts`（从 main.tsx 走导入图，KNOWN_ORPHANS 只许缩短）· 后续：TD-243（其余 42 个孤儿模块）
 
-**未结 117 项**：P0 1 · P1 12 · P2 39 · P3 65；要你批的 62 项（从总览表的审批列算）。
+**未结 119 项**：P0 1 · P1 12 · P2 39 · P3 67；要你批的 62 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -54,7 +54,7 @@
 
 目标：先让失败变红。错数据先修数据（TD-87 restate），再把引擎、闸门、写入方从「出错也报成功」改成失败即失败：引擎资产按输出判定、husbandry gate 失败即关、日历读失败报错、写入方失败抛错。不需要 Owner 批的先做。
 
-项：TD-91, TD-92, TD-94, TD-97, TD-101, TD-136, TD-156, TD-157, TD-166, TD-189, TD-192 · 已还：TD-88, TD-89, TD-90, TD-113, TD-93, TD-165, TD-167, TD-87
+项：TD-91, TD-92, TD-94, TD-97, TD-101, TD-136, TD-156, TD-157, TD-166, TD-189, TD-192, TD-244, TD-245 · 已还：TD-88, TD-89, TD-90, TD-113, TD-93, TD-165, TD-167, TD-87
 
 ### 第 2 波 · 让闸门真的卡住
 
@@ -343,6 +343,8 @@
 | [TD-241](#td-241) | P3 | agent-governance | RATCHETS.md, TECH_DEBT.md and agent docs state facts the round-3 scan measured as no longer true | 不用批 |
 | [TD-242](#td-242) | P2 | market-data | market-data /ingest/queue-dashboard takes 5–25 s per call, and the platform-api proxy carries the same delay: with the new latency rule live it will page whenever someone keeps the queue dashboard open | 不用批 |
 | [TD-243](#td-243) | P3 | frontend | 42 frontend modules are unreachable from src/main.tsx (largest clusters: components/cockpit/ 8, utils/dataOverview/ 6); dead code invites fixes and false audit findings | 删除（要你批） |
+| [TD-244](#td-244) | P3 | research-control | agents/journal_distill reads raw_broker.executions_final with no Flex freshness check (own 23:55 UTC schedule, outside any gate) | 不用批 |
+| [TD-245](#td-245) | P3 | ops-console | Console agent-pack text still says husbandry_gate blocks dbt when Flex fails (stale after TD-192) | 不用批 |
 
 ## 条目
 
@@ -1327,7 +1329,7 @@
 
 **P3 · research-control · dagster-daemon logs one line over 256 KB at the 22:45 and 03:00 UTC schedule ticks every night**
 
-- **状态**：在做（修复在 research main 2583cc6，未建镜像；要随下一个 research 版本连同 Dagster 镜像一起上线，等你批）
+- **状态**：观察中（修复随 research 0.202.0-dagster 10-07 01:4x UTC 上线；到 22:45 / 03:00 UTC tick 之后看 line_too_long 不再增长）
 - **验收**：Dagster 镜像含 2583cc6 上线后，下一个 22:45 与 03:00 UTC tick 之后：`sum(increase(promtail_mutated_entries_total{reason="line_too_long"}[1d]))` = 0；Loki 里 22:45 那行形如 `'jobs': {'count': …, 'first': […]}`
 - **现在**：道 X 在 Loki 找到那一行：10-06 22:45:33 UTC `market_option_bars_job`，`plugin_http.py:106` 的 `context.log.info("market slot=%s result=%s", slot, result)` 把插件 enqueue-slot 响应里 91,431 条 job 整个打成一行，原始约 17 MB（promtail_mutated_bytes 17,264,403），截断到 256,000。flex 侧 `plugin_batch_assets.py:102` 同样写法一并修。修复：`summarize_result` / `summary_line`（标量原样、列表变 {count, first 3}、长字符串截断、整行上限 16 KB）；job 列表本来无人读，资产 metadata 不变。门禁 lint 0、2196 passed。防线 `tests/orchestration/test_plugin_enqueue_log_size.py`（10 万条 job 的响应，每行 ≤ LOG_LINE_MAX_CHARS；回退旧写法即失败）。03:00 那次（fundamentals-rotate）同一函数，按代码推断、无日志实证，由验收一并覆盖
 - **Claim**: Some logger call in the Dagster daemon / run path writes a single line larger than Loki's 256 KB max_line_size each night (probably a whole result object). Until 10-06 Loki rejected it with 400 and promtail dropped the whole batch (TD-152); from 10-07 promtail truncates it to 250 KB.
@@ -1522,7 +1524,8 @@
 
 **P3 · ops-platform · Platform's research CronJob trigger route has no caller but keeps seven suspended CronJob templates alive in the research namespace**
 
-- **状态**：在做（platform 3e9eadd 已上 STG / PROD，触发路由 405；research 删 7 个模板的提交 630db76 等研究锁后推 main（PVC 声明保留，删 PVC 另行决定）；之后线上 CronJob 要你 `kubectl delete`）
+- **状态**：在做（platform 3e9eadd 已上 STG / PROD，路由 405；research bbf80db 删掉 7 个模板清单已推 main（PVC 声明保留）；Argo 不 prune，线上 7 个 CronJob 等你 `kubectl delete`）
+- **验收**：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n research get cronjob -o name` 只剩 `cronjob.batch/research-harness`；`bifrost-research/scripts/verify_husbandry_schedulers.sh` PASSED；STG / PROD `POST /api/v1/research/cronjobs/<name>/trigger` = 405
 - **Claim**: POST /research/cronjobs/{name}/trigger builds a Job from a whitelist of seven CronJob names (bifrost-analytics-daily, research-engines-event-radar/-forecast/-momentum, research-gex-intraday, research-iv-percentile, research-terrain-intraday). Lane R found no caller in console/src; researchEngineCatalog.ts marks them legacy. Because of the route, TD-124 had to keep the seven templates.
 - **Measured**: code-read 10-06 by paydown lane R (grep of console/src and platform api).
 - **Evidence**:
@@ -1536,7 +1539,9 @@
 
 **P2 · research-control · One IB Flex failure loses that night's SEPA for good: husbandry_gate blocks sepa_projection although SEPA reads nothing from Flex, and the projection never back-fills a missed night**
 
-- **状态**：在做（Owner 10-07 「按推荐」批准：拆门禁：Flex 只挡读 Flex 数据的资产，sepa_projection 只依赖 market_eod；其余仍失败即关闭；道 BB）
+- **状态**：观察中（research 0.202.0 + 0.202.0-dagster 10-07 01:4x UTC 上线；到下一个 Flex [1003] 夜看 flex_gate 失败而 sepa_projection 成功）
+- **验收**：下一个 Flex [1003] 夜：同一 research_trading_day run 里 `batch__flex_gate` STEP_FAILURE 且 `features__sepa_projection` STEP_SUCCESS（`ops_dagster.event_logs` 按 run_id 查）
+- **现在**：道 BB：husbandry_gate 下游 77 个资产（54 dbt + 23 Python）里只有 `engines/option_pinned_contract` 读 Flex 派生数据（Trade /executions）。`batch/husbandry_gate` key 不变、只判 Market（fail-closed）；新增 `batch/flex_gate`（failed / stale / none / unknown 都 raise），唯一下游 option_pinned_contract；dbt 源若出现 raw_broker 自动挂 flex_gate。Flex 失败的夜里 run 仍红、告警照常，SEPA / dbt / 引擎照常产出。线上已核：flex_gate 存在，子节点只有 option_pinned_contract。防线 `tests/orchestration/test_flex_gate.py`（16 个：从代码扫 raw_broker. / "/executions 读取方，须与 FLEX_READERS 及 flex_gate 下游一致）+ `test_trading_day_edges.py` 重放 [1003] 夜。后续 TD-244、TD-245
 - **Claim**: husbandry_gate raises when Flex is failed / stale / none (fail-closed per TD-94) and sepa_projection depends on the gate. Two of the four SEPA gaps (09-08, 09-16) are Flex [1003] nights. The projection only writes latest_closed_session, so a skipped night is lost unless research_trading_day is re-run before the next close.
 - **Measured**: MEASURED 10-06 by paydown lane P (ops_dagster runs 831ad92b, f638e59b, f9d10c09).
 - **Evidence**:
@@ -2323,6 +2328,34 @@
 - **Fix**: Owner reviews in batches by directory (deletion is the Owner's call, §15); delete and drop each from KNOWN_ORPHANS.
 - **Ratchet**: orphanModules.test.ts already fails on any new orphan and forces the list to shrink.
 - 审批 删除（要你批） · 代价 S · 风险 low · repos: bifrost-trade-frontend
+
+### TD-244
+
+**P3 · research-control · agents/journal_distill reads raw_broker.executions_final with no Flex freshness check (own 23:55 UTC schedule, outside any gate)**
+
+- **状态**：未开始
+- **Claim**: TD-192 mapped every Flex reader; journal_distill is one of the four outside the batch and was never gated (before or after the split).
+- **Measured**: code-read 10-07 by paydown lane BB.
+- **Evidence**:
+  - `bifrost-research/src/bifrost_research/engines/journal_distill.py:383` — `executions_final`
+- **Impact**: On a Flex-failed night the distill writes journal rows from a stale ledger.
+- **Fix**: Gate its job on flex_gate, or read freshness-kpis inside distill and skip when not fresh; tighten its FLEX_READERS entry from None.
+- **Ratchet**: test_flex_gate.py's FLEX_READERS check (None entries must name a reason; drop the exemption).
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
+
+### TD-245
+
+**P3 · ops-console · Console agent-pack text still says husbandry_gate blocks dbt when Flex fails (stale after TD-192)**
+
+- **状态**：未开始
+- **Claim**: flexAgentPack.ts:316, massiveAgentPack.ts:335, researchEngineAgentPack.ts:462 describe the old single gate.
+- **Measured**: code-read 10-07 by paydown lane BB.
+- **Evidence**:
+  - `bifrost-platform/console/src/components/flex-query/flexAgentPack.ts:316` — `husbandry_gate`
+- **Impact**: Agents dispatched from the Console reason about the wrong gate on Flex-failed nights.
+- **Fix**: Reword the three packs: husbandry_gate = Market only; flex_gate blocks only Flex readers (option_pinned_contract).
+- **Ratchet**: None new: copy, covered by review.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
 ## 没覆盖到的（下一轮从这里开始）
 
