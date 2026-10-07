@@ -1521,7 +1521,7 @@
 
 **P3 · ops-platform · Platform's research CronJob trigger route has no caller but keeps seven suspended CronJob templates alive in the research namespace**
 
-- **状态**：在做（Owner 10-07 「按推荐」批准：删 platform 触发路由与白名单（随下一次平台发布），平台上线后再删 research 的 7 个模板（先推分支）；道 DD）
+- **状态**：在做（platform 3e9eadd 已上 STG / PROD，触发路由 405；research 删 7 个模板的提交 630db76 等研究锁后推 main（PVC 声明保留，删 PVC 另行决定）；之后线上 CronJob 要你 `kubectl delete`）
 - **Claim**: POST /research/cronjobs/{name}/trigger builds a Job from a whitelist of seven CronJob names (bifrost-analytics-daily, research-engines-event-radar/-forecast/-momentum, research-gex-intraday, research-iv-percentile, research-terrain-intraday). Lane R found no caller in console/src; researchEngineCatalog.ts marks them legacy. Because of the route, TD-124 had to keep the seven templates.
 - **Measured**: code-read 10-06 by paydown lane R (grep of console/src and platform api).
 - **Evidence**:
