@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-122 / TD-211 / TD-105 / TD-212** — ib-gateway 改走 Tekton 构建、按 digest 钉、健康 hash 带 git SHA；账户快照只读带上 open orders 与成交；operator 流用显式白名单；读失败的快照不再清空持仓（ib-gateway 0.4.0 + core 0.58.0，10-07） · 验收 PASS（pod digest 对上、git_sha=30bd974、快照有 open_orders；core/worker/插件测试全过） · 防线：`bifrost-platform-plugin/tests/test_ib_gateway_image_pin.py`（要求 digest）、`check_ui_revision`/release-window 流水线、core operator 集合测试、worker account_push 拒写测试 · 后续：TD-104 的 Trade Ops 读状态仍未通（LANE-T2）
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-253** — 检查信号不再是几周前的：每条带观测时间和来源，超过 2 小时读 unknown、autopilot 不会按它动手；PROD platform-workers 自己每 10 分钟探测一次（不再靠 Mac 上报）。验收 PASS 2026-10-07 d8bdf41（22/22 带时间）。防线：`RATCHETS.md`「检查信号的时效与来源」测试 + `check_platform_maintenance.py`（探测器只在 PROD workers）。后续：无后续：放开 autopilot 动手在 TD-130（观察到 10-12）
@@ -519,7 +520,7 @@
 
 **P2 · flex-ib · Trade Ops reports all three IB Gateway services 'offline' on PROD: the gateway's health hashes have no updated_at, and the service rows point at retired StatefulSets**
 
-- **状态**：观察中（core / worker / trade-api 已随 Trade 10-07 三环境：STG bifrost-deliver-stg-6wrjs、PROD bifrost-deliver-prod-pinned-ntfpf（core 0.58.0 @ 3c79f41，tag v0.58.0）、DEV 跟随；ib-gateway 0.4.0 收盘后部署）
+- **状态**：在做（ib-gateway 0.4.0 已上 PROD 10-07 17:19 UTC（digest sha256:278c4c07…，插件 e335bd6）+ Trade core 0.58.0：三个健康 hash 已带 updated_at（实测 6.5 s）；但 PROD trade-api /api/monitor/ops/market-ingest/services 三行仍 process_active=inactive、k8s_replicas=0——api-ops SA 读不了 data/ib-gateway（can-i no），hash 也未读到；交 Cursor LANE-T2）
 - **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
 - **Claim**: trade-api judges liveness from the health hash's updated_at (missing = dead). The gateway writes ws_ib_ingestor/ws_ib_account_agent/ws_ib_operator without updated_at and never has since 07-04. /ops/market-ingest/services shows runtime_status=inactive 'managed@platform-ib-gateway (offline)'; platform satellite maps 'inactive' to ReachFail and the endpoint is a Tier-B probe. The rows also name retired ib-operator/ib-market-gateway/ib-account-agent workloads and systemd units. TD-31's contract covers key names, not field names.
 - **Measured**: MEASURED: PROD /api/monitor/ops/market-ingest/services returns inactive/offline for all three, naming deployments that do not exist, while data/ib-gateway has been Running 3d12h with 0 restarts. git log -S shows the gateway never wrote updated_at into these hashes.
@@ -537,8 +538,8 @@
 
 **P2 · flex-ib · DEV/STG operator streams accept every op except two (a denylist), so any op added later is open to DEV and STG by default**
 
-- **状态**：观察中（core / worker / trade-api 已随 Trade 10-07 三环境：STG bifrost-deliver-stg-6wrjs、PROD bifrost-deliver-prod-pinned-ntfpf（core 0.58.0 @ 3c79f41，tag v0.58.0）、DEV 跟随；ib-gateway 0.4.0 收盘后部署）
-- **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
+- **状态**：待你签收（ib-gateway 0.4.0 已上 PROD 10-07 17:19 UTC（digest sha256:278c4c07…，插件 e335bd6）+ Trade core 0.58.0；worker 已随 Trade 10-07）
+- **验收结果**：PASS（代码层 + 已上线）2026-10-07：core 13463、worker 180、插件 84 passed；线上未遇到可触发的事件（白名单外 op / 读失败的快照）
 - **Claim**: READ_ONLY_OPS = ALL_OPS minus disconnect_all/reconnect_all, and op_allowed_on_stream accepts READ_ONLY_OPS on the env streams, whose ACL users may XADD. The guard test asserts ALL_OPS - READ_ONLY_OPS == {disconnect_all, reconnect_all}, which still passes after a new op is added, and the env-stream test parametrises over READ_ONLY_OPS itself.
 - **Measured**: CODE-READ. ALL_OPS today = fetch, refresh, ping and the two connection ops, so nothing is exposed now.
 - **Evidence**:
@@ -688,8 +689,8 @@
 
 **P3 · flex-ib · The IB Gateway image is built on the Mac and imported to nodes with ctr under a reused tag: no registry, no digest, no recorded source SHA**
 
-- **状态**：观察中（ib-gateway 0.4.0 首次 Tekton 构建成功 bifrost-build-ib-gateway-q2zk7，digest sha256:278c4c07…，插件 e335bd6 已按 digest 钉；收盘后与 Trade 发版一起 apply）
-- **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
+- **状态**：待你签收（ib-gateway 0.4.0 已上 PROD 10-07 17:19 UTC（digest sha256:278c4c07…，插件 e335bd6）+ Trade core 0.58.0）
+- **验收结果**：PASS 2026-10-07：Tekton bifrost-build-ib-gateway-q2zk7 经 release-window / validate-revision 构建；Deployment 按 digest 钉；pod imageID = sha256:278c4c07…；三个健康 hash git_sha=30bd974
 - **Claim**: deployment.yaml runs bifrost-platform-plugin-ib-gateway:0.3.0 with IfNotPresent; the tag exists only in each node's containerd and the repo has no build pipeline (unlike flex-query). Different code can run under the same version and nothing reports which commit is live.
 - **Measured**: MEASURED: live pod on ubt-k3s-04 runs a bare tag with local imageID sha256:cd51d656…; flex-query uses 192.168.10.73:30500/bifrost-flex-query:0.9.0; no k8s/cicd in the repo.
 - **Evidence**:
@@ -1484,8 +1485,8 @@
 
 **P1 · trade-worker · Working orders are never persisted: the plugin's snapshot has no open_orders, the daemon TRUNCATEs raw_broker.open_orders every hour, and the UI says 'No working orders at IB.'**
 
-- **状态**：观察中（core / worker / trade-api 已随 Trade 10-07 三环境：STG bifrost-deliver-stg-6wrjs、PROD bifrost-deliver-prod-pinned-ntfpf（core 0.58.0 @ 3c79f41，tag v0.58.0）、DEV 跟随；ib-gateway 0.4.0 收盘后部署）
-- **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
+- **状态**：待你签收（ib-gateway 0.4.0 已上 PROD 10-07 17:19 UTC（digest sha256:278c4c07…，插件 e335bd6）+ Trade core 0.58.0）
+- **验收结果**：PASS 2026-10-07：ib:account:snapshot:v1 带 open_orders（当前 0 条）与 last_execution_rows；core 只在键存在时写 open_orders
 - **Claim**: The IB Gateway plugin's account snapshot carries only host_connected, secondary_connected, accounts_snapshot, accounts_count and mode; it never includes open_orders or last_execution_rows. On every hourly accounts refresh (and every refresh_accounts command), core refresh_accounts_from_redis_edge reads `data.get("open_orders") or []`, so it always gets [], and calls write_open_orders([]), which TRUNCATEs the table and writes nothing. /api/monitor/open-orders and /status portfolio.open_orders therefore always return [], and the Trade menubar states 'No working orders at IB.' as fact. The intraday TWS fills path (last_execution_rows → write_account_executions) is dead the same way and has written nothing since June. The worker CLAUDE.md and the ib_account_keys docstring still describe both as persisted.
 - **Measured**: MEASURED 2026-10-07 00:44 UTC. raw_broker.open_orders has 0 rows. /api/monitor/open-orders returns {"open_orders":[]}. executions_raw_tws max(created_at) for tws_client is 2026-06-10 03:51 (plus one null-source row dated 08-08), while executions_raw_flex has fills on 7 trade dates since 09-16. `git grep open_orders|last_execution_rows` on plugin origin/main src returns nothing. The PROD daemon runs 2/2 with broker writes on. The TRUNCATE itself is CODE-READ, because the daemon logs no INFO (TD-216).
 - **Evidence**:
@@ -1504,8 +1505,8 @@
 
 **P2 · trade-worker · A failed IB positions or summary read is written as truth: the daemon deletes every raw_broker.positions row of the account and nulls its NAV until the slot reconnects**
 
-- **状态**：观察中（core / worker / trade-api 已随 Trade 10-07 三环境：STG bifrost-deliver-stg-6wrjs、PROD bifrost-deliver-prod-pinned-ntfpf（core 0.58.0 @ 3c79f41，tag v0.58.0）、DEV 跟随；ib-gateway 0.4.0 收盘后部署）
-- **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
+- **状态**：待你签收（ib-gateway 0.4.0 已上 PROD 10-07 17:19 UTC（digest sha256:278c4c07…，插件 e335bd6）+ Trade core 0.58.0；worker 已随 Trade 10-07）
+- **验收结果**：PASS（代码层 + 已上线）2026-10-07：core 13463、worker 180、插件 84 passed；线上未遇到可触发的事件（白名单外 op / 读失败的快照）
 - **Claim**: When reqPositionsAsync or accountSummaryAsync fails on a session that still lists managedAccounts, the plugin publishes the account with positions [] and a summary holding only {account}. Since worker 0.2.6, account_push writes any snapshot younger than 120 s whose fingerprint changed, with no sanity check. Core sync_accounts_snapshot_to_tables then runs DELETE FROM raw_broker.positions WHERE account_id = %s (seen_keys is empty) and upserts net_liquidation, total_cash and buying_power as NULL. TD-137's freshness check (core 0.52.0) keeps a 07:00 or 11:00 ET wipe out of the 16:20 capture. It does not stop a wipe written after 16:00, because the wipe itself stamps updated_at=now().
 - **Measured**: MEASURED trigger via Loki {namespace=data, app=ib-gateway}: 2026-10-06 10:59:58 UTC (host TWS auto log-off, 07:00 ET) shows 'reqPositionsAsync: Socket disconnect' and 'accountSummaryAsync U17123565: Not connected'; there was also a 'positions request timed out' at 04:15 UTC. The write path is CODE-READ, and worker tests/test_account_push.py has no degraded case. No stored damage was found: bifrost_prod account_nav_daily for 10-05 and 10-06 has non-null NAV for all accounts. How long the wipe window lasts was not measured.
 - **Evidence**:
@@ -1634,7 +1635,7 @@
 
 **P3 · trade-worker · Leftovers of the deleted Account Sync daemon: the plugin still XADDs every account snapshot to ib:account:stream:v1, which nothing reads**
 
-- **状态**：观察中（core / worker / trade-api 已随 Trade 10-07 三环境：STG bifrost-deliver-stg-6wrjs、PROD bifrost-deliver-prod-pinned-ntfpf（core 0.58.0 @ 3c79f41，tag v0.58.0）、DEV 跟随；ib-gateway 0.4.0 收盘后部署）
+- **状态**：观察中（ib-gateway 0.4.0 已上 PROD 10-07 17:19 UTC（digest sha256:278c4c07…，插件 e335bd6）+ Trade core 0.58.0：插件不再 XADD；待你在 redis-ib 上 DEL ib:account:stream:v1，当前键仍存在）
 - **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
 - **Claim**: TD-22 deleted the Account Sync daemon, the only consumer of ib:account:stream:v1. The IB Gateway plugin still XADDs the full snapshot (all accounts, summaries, positions) to that stream on every snapshot write, capped at about 1000 entries on redis-ib. Core still defines the key and a health-key comment describing the retired consumer, and the Console architecture catalog lists the stream as live. The key is also pinned in core and plugin tests/contracts/redis_ib_keys.json (and core test_redis_ib_contract.py:75-76), so removing it means updating both contract files together.
 - **Measured**: CODE-READ. `git grep` over origin/main of core, api, worker, platform, research, frontend, infra and the market-data and flex plugins finds no XREAD or consumer. redis-ib memory was not measured.
@@ -1671,7 +1672,7 @@
 
 **P3 · trade-worker · The running PROD daemon never writes contract_quote_live: the observe-only quote mirror sits under mock_hedging, which is hard-coded True**
 
-- **状态**：在做（方案 B 停手：Cursor 查到 contract_quote_live 仍有读取方——core portfolio model / quote_freshness / executions、monitor 报价、trade-api /quotes 的 OPT 回落；不能删。要你改选：A 给镜像单独开关（observe-only），或保持现状）
+- **状态**：在做（Owner 10-07 选 A：给报价镜像单独开关 daemon.quote_mirror，默认关；交 Cursor LANE-T2）
 - **Claim**: Both contract_quote_live write sites in the heartbeat are inside `if not getattr(app, "mock_hedging", True)`, and GsTrading sets mock_hedging = True in __init__ and _reload_config as the D10 hedging guard. The PROD daemon runs (2/2), so the Redis→raw_broker.contract_quote_live mirror, which is observe-only, never runs; _on_ticker / _on_ticker_for_contract_key have no caller. Closed TD-140 recorded the cause as 'the daemon does not run'; its fix (vendor EOD fallback, core 0.51.0) routes around the table.
 - **Measured**: MEASURED 2026-10-07 00:45 UTC: bifrost-prod deploy/daemon 2/2; raw_broker.contract_quote_live 13 rows, max(updated_at) 2026-03-28 06:16; no caller of _on_ticker* in worker src/tests.
 - **Evidence**:
