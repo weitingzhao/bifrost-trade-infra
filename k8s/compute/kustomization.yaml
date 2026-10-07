@@ -9,5 +9,3 @@ resources:
   - namespaces.yaml
   - ai/ollama-pvc.yaml
   - ai/ollama.yaml
-  - warehouse/minio-pvc.yaml
-  - warehouse/minio.yaml

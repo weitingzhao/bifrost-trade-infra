@@ -21,23 +21,18 @@ case "${cmd}" in
     echo ""
     echo "== compute workloads =="
     kubectl get deploy,pvc -n ai 2>/dev/null || true
-    kubectl get deploy,pvc -n data-warehouse 2>/dev/null || true
     echo ""
     echo "== pods on gpu-server =="
     kubectl get pods -A --field-selector spec.nodeName=gpu-server -o wide 2>/dev/null || true
     ;;
   ollama-up)   scale_deploy ai ollama "${replicas}" ;;
   ollama-down) scale_deploy ai ollama 0 ;;
-  warehouse-up)   scale_deploy data-warehouse minio "${replicas}" ;;
-  warehouse-down) scale_deploy data-warehouse minio 0 ;;
-  all-up)
-    scale_deploy ai ollama "${replicas}"
-    scale_deploy data-warehouse minio "${replicas}"
+  warehouse-up|warehouse-down)
+    echo "TD-237: data-warehouse MinIO is removed. Refusing to scale it." >&2
+    exit 1
     ;;
-  all-down)
-    scale_deploy ai ollama 0
-    scale_deploy data-warehouse minio 0
-    ;;
+  all-up)   scale_deploy ai ollama "${replicas}" ;;
+  all-down) scale_deploy ai ollama 0 ;;
   *)
     echo "Usage: $0 {status|ollama-up|ollama-down|warehouse-up|warehouse-down|all-up|all-down} [replicas]" >&2
     exit 1

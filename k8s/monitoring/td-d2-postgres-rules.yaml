@@ -1,0 +1,62 @@
+# TD-134 and TD-217. Prepared, not applied.
+# Do not kubectl apply this file until the notes in k8s/data/recovery-drill/README.md
+# and the TD-134 section of the LANE-D2 report: the WAL alert fires on today's
+# volume (~18 GiB/day) until a full day has passed under the new parameters, and
+# the drill alert fires while cronjob pg-recovery-drill has never succeeded.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: td-d2-postgres-rules
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: alerting
+spec:
+  groups:
+    - name: bifrost-postgres-wal
+      rules:
+        - alert: BifrostPostgresWalDailyHigh
+          # TD-134. Pre-change baseline measured 2026-10-07: sum(increase(
+          # cnpg_collector_wal_bytes[7d]))/7 on the primary was 18.0 GiB/day
+          # (the ledger's 19.48 GiB/day was the 7-day average on 2026-10-06).
+          # The budget after checkpoint_timeout 15min / max_wal_size 4GB /
+          # wal_compression lz4 is half of 19.48 GiB, about 9.74 GiB/day.
+          # 12 GiB is above that budget and still under the old volume, so a
+          # change that did not land keeps firing and ordinary noise around
+          # the new baseline does not. Primary pod only: the replica reports 0.
+          expr: |
+            sum(increase(cnpg_collector_wal_bytes{pod="bifrost-postgres-1"}[1d])) > 12884901888
+          for: 2h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Postgres WAL is still above the TD-134 daily budget"
+            description: >-
+              bifrost-postgres-1 wrote {{ $value | humanize1024 }}B of WAL in the
+              last day. The budget is 12 GiB. The first day after the parameter
+              change still includes pre-change WAL.
+
+    - name: bifrost-postgres-recovery-drill
+      rules:
+        - alert: BifrostPostgresRecoveryDrillStale
+          # TD-217. 35 days, and absent() so a drill that has never run also fires.
+          # This is the Barman PITR drill (cronjob pg-recovery-drill), not
+          # logical-backup-drill.
+          expr: |
+            (
+              time() - max(kube_cronjob_status_last_successful_time{cronjob="pg-recovery-drill"})
+                > 3024000
+            )
+            or
+            absent(kube_cronjob_status_last_successful_time{cronjob="pg-recovery-drill"})
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Barman recovery drill has not passed for 35 days"
+            description: >-
+              CronJob pg-recovery-drill last succeeded {{ $value | humanizeDuration }}
+              ago, or has never succeeded. The scratch Cluster manifest is
+              k8s/data/recovery-drill/.

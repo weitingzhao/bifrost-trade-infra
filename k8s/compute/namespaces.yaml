@@ -5,11 +5,3 @@ metadata:
   labels:
     app.kubernetes.io/part-of: bifrost
     bifrost.io/tier: compute
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: data-warehouse
-  labels:
-    app.kubernetes.io/part-of: bifrost
-    bifrost.io/tier: warehouse

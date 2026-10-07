@@ -25,6 +25,14 @@ spec:
   postgresql:
     parameters:
       max_connections: "200"
+      # TD-134. Reload (SIGHUP), not a restart: checkpoint_timeout, max_wal_size
+      # and wal_compression are all sighup in PostgreSQL 17. Defaults in force
+      # on 2026-10-07 were checkpoint_timeout 5min, max_wal_size 1GB,
+      # wal_compression off, and cnpg_collector_wal_bytes averaged about 18 GiB/day
+      # over 7 days (primary pod only). Crash recovery replays more WAL after this.
+      checkpoint_timeout: 15min
+      max_wal_size: 4GB
+      wal_compression: lz4
       # CNPG requires resources.requests.memory >= shared_buffers (tune up on .80 join).
       shared_buffers: 512MB
       effective_cache_size: 1536MB

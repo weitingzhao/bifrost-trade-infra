@@ -1,5 +1,5 @@
 ---
-parity-id: agent-facts-v8
+parity-id: agent-facts-v9
 generated: 2026-10-07
 authority: bifrost-platform/config/ops-context.yaml (spine) + 磁盘扫描
 ---
@@ -199,11 +199,12 @@ Owner **2026-08-31** 签批 D-14GF.1–6（R1）；同日 GitHub Archive + 授�
 - **部署阶段**：`deployment.phase: k3s_partial`（`topology.yaml`）。不是 Docker Compose。
 - **集群**：`bifrost-bootstrap`，K3s，apiserver `https://192.168.10.73:6443`
 - **Namespaces**：`cicd` · `data` · `bifrost-dev` · `bifrost-stg` · `bifrost-prod` ·
-  `bifrost-platform-stg` · `bifrost-platform-prod` · `monitoring` · `ai` · `data-warehouse`
+  `bifrost-platform-stg` · `bifrost-platform-prod` · `monitoring` · `ai`
   · `research` · `plugin-market-data` · `plugin-flex-query`
+  （`data-warehouse` 的清单已从 `k8s/compute` 删除，TD-237。集群里的 namespace 还在，等 Owner 删掉之后这里不再出现。）
 - **数据层**：CloudNativePG @ `data` NS；`redis-live` + `redis-queue` per env；`redis-ib` @ `data` NS（共享 IB 总线）
 - **TWS**：Win11 专用机（Host + Secondary），**永不调度进 K3s**，Socket/Gateway 经 LAN 连接
-- **GPU**：`gpu-server` @ 192.168.10.60（RTX 4090）— Ollama @ `ai` NS。data-warehouse：从未运行，TD-237 待删
+- **GPU**：`gpu-server` @ 192.168.10.60（RTX 4090）— Ollama @ `ai` NS。data-warehouse 的 MinIO 从未运行；清单已删（TD-237），namespace 等 Owner 删。
 - **Dev 拓扑**：Mac 本地 = IDE + Vite(:5173) + 当前正在编辑的那一个 API；其余全在 K3s
 - **本地 dev 服务**：`bdev` CLI + tmux session `bifrost`，声明在 `~/.bifrost-dev/sessions.yaml`
 
@@ -360,7 +361,7 @@ kubeconfig：`~/.kube/bifrost-k3s.yaml`（需 `KUBECONFIG=` 显式指定；默�
 | ubt-k3s-04 | 192.168.10.75 | ubt-k3s-04 | data-primary | CloudNativePG |
 | ubt-k3s-05 | 192.168.10.77 | ubt-k3s-05 | general | STG runtime、CI build |
 | ubt-k3s-06 | 192.168.10.79 | ubt-k3s-06 | general | 通用 |
-| gpu-server | 192.168.10.60 | gpu-server | compute | RTX 4090：Ollama（`ai`）、重型 Tekton。data-warehouse：从未运行，TD-237 待删 |
+| gpu-server | 192.168.10.60 | gpu-server | compute | RTX 4090：Ollama（`ai`）、重型 Tekton。data-warehouse MinIO 从未运行，清单已删（TD-237） |
 
 集群外：Win11 TWS ×2（topology `win11-host` / `win11-secondary`；`bifrost-platform-plugin/config/gateway.yaml` 模板写的是 `.30` / `.32`；永不调度进 K3s）、
 Mac mini `.50` / `.52`（agent host）、NAS `.20`（归档与备份目标）、本机 MacBook（kubectl / MCP / Vite）。

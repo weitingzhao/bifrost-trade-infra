@@ -627,7 +627,8 @@ k3s-label-gpu-server:
 	@chmod +x scripts/k3s/label-gpu-server.sh
 	KUBECONFIG=$(KUBECONFIG) GPU_NODE_NAME=gpu-server ./scripts/k3s/label-gpu-server.sh
 
-# Step 2 — compute workloads on gpu-server (Ollama + MinIO, scale-to-zero)
+# Step 2 — compute workloads on gpu-server (Ollama, scale-to-zero).
+# gpu-warehouse-up/down refuse: data-warehouse MinIO was removed (TD-237).
 gpu-install-compute-stack:
 	@chmod +x scripts/k3s/install-compute-stack.sh scripts/k3s/gpu-workload.sh
 	KUBECONFIG=$(KUBECONFIG) ./scripts/k3s/install-compute-stack.sh

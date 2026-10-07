@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Step 2 — Install ai + data-warehouse stacks on gpu-server (scale-to-zero defaults).
+# Step 2 — Install the ai stack on gpu-server (scale-to-zero defaults).
+# data-warehouse MinIO was removed (TD-237): it never ran, and its root Secret
+# was committed. Do not recreate it from this script.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -10,14 +12,14 @@ WOL_IFACE="${WOL_IFACE:-eno1}"
 
 export KUBECONFIG
 
-echo "== Step 2: compute stack (ai + data-warehouse) =="
+echo "== Step 2: compute stack (ai) =="
 
 if ! kubectl get node "${GPU_NODE}" >/dev/null 2>&1; then
   echo "ERROR: node ${GPU_NODE} not in cluster. Run make k3s-join-gpu-server first." >&2
   exit 1
 fi
 
-echo "==> Applying k8s/compute (Ollama + MinIO, replicas=0)..."
+echo "==> Applying k8s/compute (Ollama, replicas=0)..."
 kubectl apply -k "${ROOT}/k8s/compute"
 
 echo "==> Annotating ${GPU_NODE} for WOL / power manager..."
@@ -32,5 +34,4 @@ echo ""
 echo ""
 echo "PASS compute stack installed (idle at replicas=0)."
 echo "  make gpu-ollama-up      — start Ollama on gpu-server"
-echo "  make gpu-warehouse-up   — start MinIO warehouse"
 echo "  make gpu-workloads-status"
