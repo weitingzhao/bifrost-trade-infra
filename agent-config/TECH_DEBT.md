@@ -14,6 +14,11 @@
 ## 待你签收
 
 - **TD-199** — 删掉自 09-24 起无人引用的 EventsBoard.tsx / EventRadarDashboard.tsx，改正两处注释（frontend e98afbf0）· 验收 PASS（10-07）· 防线：`src/lib/orphanModules.test.ts`（从 main.tsx 走导入图，KNOWN_ORPHANS 只许缩短）· 后续：TD-243（其余 42 个孤儿模块）
+- **TD-138** — 日快照有了读侧：core 0.54.0 reader + api 0.12.0 三条 GET（nav-history / position-snapshots / pnl-attribution）+ 前端 P&L Explain、Return basis、Transfer & Pay、Accounts 曲线、Review 两处 · 验收 PASS（10-07 PROD 三路由 200）· 防线：core `test_snapshot_reader*.py`、api `test_portfolio_snapshots_routes.py`、前端 `PnlAttributionBand.test.tsx` · 后续：TD-246（陈旧 vendor mark）
+- **TD-139** — 期权快照行读时派生 greeks_quality（vendor / degraded / missing + reason），不加列 · 验收 PASS（10-07 PROD 14 行、missing 0 = delta 空 0）· 防线：api 路由契约测试断言每个 OPT 行带该字段 · 无后续
+- **TD-178** — plans 列表按 source_kind / source_ref 过滤（core 0.53.0、api 0.11.0），research 假设关联带上过滤 · 验收 PASS（10-07 bogus → 422）· 防线：api `test_strategy_plans_routes.py`（上限按过滤后计、未知 kind 422、不撞退役名）· 无后续
+- **TD-215** — daemon 导出心跳与 raw_broker 最后写入时间（worker 0.2.7 :9108），PROD 三条告警（交易时段 30 分钟 / 任何时段 90 分钟未写、心跳 > 300 s、指标缺失），TWS 登出与周末不报 · 验收 PASS（10-07 live 检查 ok）· 防线：`scripts/check_daemon_liveness.py` · 后续：库侧「每表最后非零写入」规则（要 apply k8s/data，待你定）
+- **TD-216** — daemon 入口配置日志（INFO），写失败升 WARNING（core 0.55.1、worker 0.2.7）· 验收 PASS（10-07 PROD 10 分钟 22 行）· 防线：worker `test_daemon_observability.py`、core `test_write_failure_log_levels.py`（except 内点名写入的 debug 基线 0）· 无后续
 
 **未结 119 项**：P0 0 · P1 11 · P2 39 · P3 69；要你批的 61 项（从总览表的审批列算）。
 
