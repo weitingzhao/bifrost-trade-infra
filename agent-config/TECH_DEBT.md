@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-213 / TD-247 / TD-239 / TD-102** — 前端今日 / 回看起点按纽约交易日；@bifrost/ui 删掉无人使用的导出（0.14.0）；插件下线旧 max-pain/PCR 路由、trade-api 改读 Research PCR（Trade 10-07 三环境 + market-data 0.86.0） · 验收 PASS（release-check STG/PROD/DEV 全 PASS；trade-api 1018、market-data 1288、ui 5 passed） · 防线：前端 ESLint no-restricted-syntax + 日期测试、`bifrost-ui/scripts/public-exports.test.mjs`、trade-api/market-data 退役路由测试 · 后续：无
 - **TD-123 / TD-106 / TD-119 / TD-125** — research 删掉约 19 条无人调用的路由；market-data 夜间 trim 改单飞后台任务 + Dagster 轮询；market-data 迁移 Job 先于主体部署；退役 IB 脚本归档（research 0.205.0、market-data 0.86.0、插件与 flex main，10-07） · 验收 PASS（research 2132、market-data 1288、插件 84、flex 160 passed；make deploy 先迁移后 base） · 防线：`bifrost-research/tests/.../test_retired_routes.py`、market-data `tests/test_trim_single_flight*`、`k8s/migrate` 拆分 + login wiring 测试 · 后续：TD-106 今晚 market_trim 首跑再看一次 ops_jobs 结果（无新编号）
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
@@ -351,7 +352,7 @@
 
 **P1 · flex-ib · A failed cash-transactions write is recorded as a successful run: core returns 0 on any exception and the job counts it as 'ok, 0 rows'**
 
-- **状态**：观察中（flex 0.13.0 已上线 10-07；core 0.58.0 随下一次 Trade 发版）
+- **状态**：观察中（core 0.58.0 + flex 0.13.0 均已上线 10-07；到 10-08 看 flex 现金流水作业结果）
 - **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
 - **Claim**: core upsert_account_transactions catches every exception, logs a warning and returns 0; the plugin turns that into ok:true 'Upserted 0 transaction(s)', _require_ok accepts it, record_freshness(ok=True) advances last_success, and no BifrostFlexIngest* alert fires. A lost grant (TD-86 class), lock timeout or type error drops a day's cash rows silently. It also returns len(rows), including rows skipped for missing account_id/report_date. core tests/test_connect_helpers.py:118 currently pins the silent 0 return, so this is a deliberate contract change. The trades path does not have this flaw (returns False → ok:false).
 - **Measured**: CODE-READ for the failure path; jobs 151-185 all wrote 11-16 rows. Precedent is real: TD-86 broke a different writer on 10-05 via dropped grants.
@@ -511,8 +512,8 @@
 
 **P2 · market-data · Plugin's deprecated live max-pain and PCR routes duplicate Research and skip the adjusted-contract filter: different strikes on the same day, and trade-api SEPA PCR reads the contaminated one**
 
-- **状态**：观察中（插件侧 market-data 0.86.0 已上线；trade-api 的 fetch_pcr_aggregate 改读 Research PCR 随下一次 Trade 发版）
-- **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
+- **状态**：待你签收（market-data 0.86.0 下线旧路由；trade-api d7cdc3f 改读 Research PCR，Trade 10-07 三环境：STG bifrost-deliver-stg-6wrjs、PROD bifrost-deliver-prod-pinned-ntfpf（core 0.58.0 @ 3c79f41，tag v0.58.0）、DEV 跟随）
+- **验收结果**：PASS 2026-10-07：trade-api 1018 passed、market-data 1288 passed；PROD release-check probes 7/7
 - **Claim**: The plugin keeps a 'transition' copy of Research's max-pain math plus its own PCR query, both reading raw_market.option_open_interest with no adjusted-root predicate (Research added not_adjusted_contract_sql on 10-01). OI from adjusted roots (O:HON2…, O:MOD1…) is summed into standard chains. trade-api sepa_engine/stock_option_pcr.py calls fetch_pcr_aggregate against this route.
 - **Measured**: MEASURED (re-run by verifier) for 2026-10-05: plugin vs Research max pain HON 12-18 210 vs 220, FDX 12-18 310 vs 300, GME 10-16 23 vs 22.5, MOD 10-16 same strike but OI 19,510 vs 9,848. 424 adjusted-root OI rows across 19 underlyings that day. Loki 7 days: /max-pain/compute called only by the probe; /options/analytics/pcr 4 times (trade-api SEPA PCR).
 - **Evidence**:
@@ -545,7 +546,7 @@
 
 **P2 · flex-ib · Trade Ops reports all three IB Gateway services 'offline' on PROD: the gateway's health hashes have no updated_at, and the service rows point at retired StatefulSets**
 
-- **状态**：观察中（core 0.58.0 / worker / trade-api 已在 main，随下一次 Trade 发版；ib-gateway 0.4.0 已构建，收盘后 apply）
+- **状态**：观察中（core / worker / trade-api 已随 Trade 10-07 三环境：STG bifrost-deliver-stg-6wrjs、PROD bifrost-deliver-prod-pinned-ntfpf（core 0.58.0 @ 3c79f41，tag v0.58.0）、DEV 跟随；ib-gateway 0.4.0 收盘后部署）
 - **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
 - **Claim**: trade-api judges liveness from the health hash's updated_at (missing = dead). The gateway writes ws_ib_ingestor/ws_ib_account_agent/ws_ib_operator without updated_at and never has since 07-04. /ops/market-ingest/services shows runtime_status=inactive 'managed@platform-ib-gateway (offline)'; platform satellite maps 'inactive' to ReachFail and the endpoint is a Tier-B probe. The rows also name retired ib-operator/ib-market-gateway/ib-account-agent workloads and systemd units. TD-31's contract covers key names, not field names.
 - **Measured**: MEASURED: PROD /api/monitor/ops/market-ingest/services returns inactive/offline for all three, naming deployments that do not exist, while data/ib-gateway has been Running 3d12h with 0 restarts. git log -S shows the gateway never wrote updated_at into these hashes.
@@ -563,7 +564,7 @@
 
 **P2 · flex-ib · DEV/STG operator streams accept every op except two (a denylist), so any op added later is open to DEV and STG by default**
 
-- **状态**：观察中（core 0.58.0 / worker / trade-api 已在 main，随下一次 Trade 发版；ib-gateway 0.4.0 已构建，收盘后 apply）
+- **状态**：观察中（core / worker / trade-api 已随 Trade 10-07 三环境：STG bifrost-deliver-stg-6wrjs、PROD bifrost-deliver-prod-pinned-ntfpf（core 0.58.0 @ 3c79f41，tag v0.58.0）、DEV 跟随；ib-gateway 0.4.0 收盘后部署）
 - **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
 - **Claim**: READ_ONLY_OPS = ALL_OPS minus disconnect_all/reconnect_all, and op_allowed_on_stream accepts READ_ONLY_OPS on the env streams, whose ACL users may XADD. The guard test asserts ALL_OPS - READ_ONLY_OPS == {disconnect_all, reconnect_all}, which still passes after a new op is added, and the env-stream test parametrises over READ_ONLY_OPS itself.
 - **Measured**: CODE-READ. ALL_OPS today = fetch, refresh, ping and the two connection ops, so nothing is exposed now.
@@ -1019,7 +1020,7 @@
 
 **P3 · trade-data · A trade cannot name the lens or backtest run it came from: trade has no such column and strategy_plan.source_kind does not allow lens / backtest_run**
 
-- **状态**：观察中（Cursor LANE-D2 已完成并复验；待你批：对 bifrost_dev / stg / prod 各跑一次 CHECK 放宽 SQL）
+- **状态**：观察中（core 0.58.0 已带新装 DDL；三个 Trade 库的 CHECK 放宽 SQL 在第 4 批，要你逐项点头）
 - **验收**：三个 Trade 库各跑：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data exec -i bifrost-postgres-3 -c postgres -- env PGOPTIONS='-c default_transaction_read_only=on' psql -U postgres -d bifrost_prod -X -At -c "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='strategy_plan'::regclass AND contype='c' AND pg_get_constraintdef(oid) LIKE '%source_kind%'"` 含 `'lens'` 与 `'backtest_run'`
 - **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
 - **Claim**: PROD trade has trade_id, strategy_opportunity_id, account_id, opened_at, label, created_at, updated_at and no public table has a lens, backtest or run_id column. strategy_plan.source_kind is checked against manual | symbol | hypothesis | inbox_draft | roll, and core repeats the same five in the reader and the request schema. Outcome / Lineage keep the lens and run chips grey (design D3, Owner 2026-09-17).
@@ -1112,7 +1113,7 @@
 
 **P2 · ops-platform · Pushes to GitHub main do not trigger CI until the Gitea pull mirror syncs, so a commit can be released before its CI ever ran**
 
-- **状态**：观察中（infra 7a346b1：release.sh stg|prod 先同步镜像再要求该 SHA 的 ci-* 成功；下一次 Trade 发版首用）
+- **状态**：观察中（release.sh 10-07 首用：镜像同步与 CI 检查生效；ci_gate 漏认前端 CI 已修 infra 403ba7f，下一次发版应不再需要 --allow-red）
 - **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
 - **Claim**: CI is triggered by Gitea webhooks; Gitea mirrors GitHub on a pull interval. On 10-06 core 0.49.0/0.50.0 (16:15/16:23 UTC) and api 0.10.0 had no CI run at all until `make k3s-sync-gitea-mirrors` was run by hand at ~16:30; core's previous CI was 14 h earlier. Together with TD-95 this means release.sh can deliver a SHA that CI has not seen.
 - **Measured**: MEASURED 10-06: no ci-python-bifrost-trade-core/api PipelineRun after the pushes; the manual mirror sync created ci-python-bifrost-trade-core-9vgjk and -api-h7scl within seconds.
@@ -1577,7 +1578,7 @@
 
 **P1 · trade-worker · Working orders are never persisted: the plugin's snapshot has no open_orders, the daemon TRUNCATEs raw_broker.open_orders every hour, and the UI says 'No working orders at IB.'**
 
-- **状态**：观察中（core 0.58.0 / worker / trade-api 已在 main，随下一次 Trade 发版；ib-gateway 0.4.0 已构建，收盘后 apply）
+- **状态**：观察中（core / worker / trade-api 已随 Trade 10-07 三环境：STG bifrost-deliver-stg-6wrjs、PROD bifrost-deliver-prod-pinned-ntfpf（core 0.58.0 @ 3c79f41，tag v0.58.0）、DEV 跟随；ib-gateway 0.4.0 收盘后部署）
 - **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
 - **Claim**: The IB Gateway plugin's account snapshot carries only host_connected, secondary_connected, accounts_snapshot, accounts_count and mode; it never includes open_orders or last_execution_rows. On every hourly accounts refresh (and every refresh_accounts command), core refresh_accounts_from_redis_edge reads `data.get("open_orders") or []`, so it always gets [], and calls write_open_orders([]), which TRUNCATEs the table and writes nothing. /api/monitor/open-orders and /status portfolio.open_orders therefore always return [], and the Trade menubar states 'No working orders at IB.' as fact. The intraday TWS fills path (last_execution_rows → write_account_executions) is dead the same way and has written nothing since June. The worker CLAUDE.md and the ib_account_keys docstring still describe both as persisted.
 - **Measured**: MEASURED 2026-10-07 00:44 UTC. raw_broker.open_orders has 0 rows. /api/monitor/open-orders returns {"open_orders":[]}. executions_raw_tws max(created_at) for tws_client is 2026-06-10 03:51 (plus one null-source row dated 08-08), while executions_raw_flex has fills on 7 trade dates since 09-16. `git grep open_orders|last_execution_rows` on plugin origin/main src returns nothing. The PROD daemon runs 2/2 with broker writes on. The TRUNCATE itself is CODE-READ, because the daemon logs no INFO (TD-216).
@@ -1597,7 +1598,7 @@
 
 **P2 · trade-worker · A failed IB positions or summary read is written as truth: the daemon deletes every raw_broker.positions row of the account and nulls its NAV until the slot reconnects**
 
-- **状态**：观察中（core 0.58.0 / worker / trade-api 已在 main，随下一次 Trade 发版；ib-gateway 0.4.0 已构建，收盘后 apply）
+- **状态**：观察中（core / worker / trade-api 已随 Trade 10-07 三环境：STG bifrost-deliver-stg-6wrjs、PROD bifrost-deliver-prod-pinned-ntfpf（core 0.58.0 @ 3c79f41，tag v0.58.0）、DEV 跟随；ib-gateway 0.4.0 收盘后部署）
 - **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
 - **Claim**: When reqPositionsAsync or accountSummaryAsync fails on a session that still lists managedAccounts, the plugin publishes the account with positions [] and a summary holding only {account}. Since worker 0.2.6, account_push writes any snapshot younger than 120 s whose fingerprint changed, with no sanity check. Core sync_accounts_snapshot_to_tables then runs DELETE FROM raw_broker.positions WHERE account_id = %s (seen_keys is empty) and upserts net_liquidation, total_cash and buying_power as NULL. TD-137's freshness check (core 0.52.0) keeps a 07:00 or 11:00 ET wipe out of the 16:20 capture. It does not stop a wipe written after 16:00, because the wipe itself stamps updated_at=now().
 - **Measured**: MEASURED trigger via Loki {namespace=data, app=ib-gateway}: 2026-10-06 10:59:58 UTC (host TWS auto log-off, 07:00 ET) shows 'reqPositionsAsync: Socket disconnect' and 'accountSummaryAsync U17123565: Not connected'; there was also a 'positions request timed out' at 04:15 UTC. The write path is CODE-READ, and worker tests/test_account_push.py has no degraded case. No stored damage was found: bifrost_prod account_nav_daily for 10-05 and 10-06 has non-null NAV for all accounts. How long the wipe window lasts was not measured.
@@ -1617,8 +1618,8 @@
 
 **P2 · frontend · Risk › Limits 'Daily loss on the allocation' sums the realised P&L of every trade the allocation ever closed, not today's, so a losing day reads 0 consumed**
 
-- **状态**：观察中（frontend daf31b26 已上 main，随下一次 Trade 发版上线）
-- **验收结果**：PASS 2026-10-07 frontend daf31b26：`npx vitest run src/hooks/useLimitBook.test.ts src/utils/tradeReadings.test.ts` 全过。DEV 实测：没有按 allocation 的日已实现盈亏接口，但 81 笔 closed / expired trade 都带 closed_on（芝加哥账本日），改为只累加当天平仓的 trade；重放 allocation 1：旧公式每天读同一个累计盈利（永远 0 consumed），新公式有 5 个成交日净亏、最大一天超过 gate 5000 上限
+- **状态**：待你签收（Trade 10-07 三环境：STG bifrost-deliver-stg-6wrjs、PROD bifrost-deliver-prod-pinned-ntfpf（core 0.58.0 @ 3c79f41，tag v0.58.0）、DEV 跟随，前端 6d86132 + @bifrost/ui 9b635b2）
+- **验收结果**：PASS 2026-10-07：前端 6d86132 已上 STG/PROD/DEV，release-check 三环境 PASS
 - **Claim**: useLimitBook builds lossToday from closedToday, but that filter keeps every closed or expired trade of the running allocation (`i.closed && i.openedOn != null`) and never compares a close date with today. The UTC date only decides whether any reading is shown at all (a fill with trade_date == UTC today). On any day with a fill, the gate-daily-loss row compares the allocation's lifetime realised P&L with guard.max_daily_loss_usd. TradeReading drops closed_on, although all closed trades carry it. readTrades also multiplies every fill by 100, including STK fills; none are attached to trades today, so that part is latent.
 - **Measured**: MEASURED on PROD with GETs only, at origin/main dfb7858e. Gate set 1 has guard.risk.max_daily_loss_usd=5000; status.strategy.active is allocation 1 on gate 1. Recomputing the hook's formula for opportunities {1,2} (53 closed or expired trades) gives lifetime realised of about +$23.5k, so on any fill day the row reads 0 consumed. All 79 closed or expired trades carry closed_on.
 - **Evidence**:
@@ -1746,7 +1747,7 @@
 
 **P3 · trade-worker · Leftovers of the deleted Account Sync daemon: the plugin still XADDs every account snapshot to ib:account:stream:v1, which nothing reads**
 
-- **状态**：观察中（core 0.58.0 / worker / trade-api 已在 main，随下一次 Trade 发版；ib-gateway 0.4.0 已构建，收盘后 apply）
+- **状态**：观察中（core / worker / trade-api 已随 Trade 10-07 三环境：STG bifrost-deliver-stg-6wrjs、PROD bifrost-deliver-prod-pinned-ntfpf（core 0.58.0 @ 3c79f41，tag v0.58.0）、DEV 跟随；ib-gateway 0.4.0 收盘后部署）
 - **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
 - **Claim**: TD-22 deleted the Account Sync daemon, the only consumer of ib:account:stream:v1. The IB Gateway plugin still XADDs the full snapshot (all accounts, summaries, positions) to that stream on every snapshot write, capped at about 1000 entries on redis-ib. Core still defines the key and a health-key comment describing the retired consumer, and the Console architecture catalog lists the stream as live. The key is also pinned in core and plugin tests/contracts/redis_ib_keys.json (and core test_redis_ib_contract.py:75-76), so removing it means updating both contract files together.
 - **Measured**: CODE-READ. `git grep` over origin/main of core, api, worker, platform, research, frontend, infra and the market-data and flex plugins finds no XREAD or consumer. redis-ib memory was not measured.
@@ -1783,8 +1784,8 @@
 
 **P3 · trade-worker · Up to about 40 runtime exports of @bifrost/ui have no importer in either consumer (ContextMenu family, KpiStrip, holidayLine, shellNav* constants); dead-code share unmeasured**
 
-- **状态**：观察中（ui 9b635b2 / 0.14.0 已在 main；platform 79ed8db 已带上，Trade 前端随下一次 Trade 发版）
-- **验收结果**：PASS 2026-10-07：对 frontend origin/main 与合并后的 platform console 跑导出检查 5 passed，ui lint/build 通过；不再导出 holidayLine / useMorph / KpiStripProps，保留项标 design-keep
+- **状态**：待你签收（Trade 10-07 三环境：STG bifrost-deliver-stg-6wrjs、PROD bifrost-deliver-prod-pinned-ntfpf（core 0.58.0 @ 3c79f41，tag v0.58.0）、DEV 跟随，前端 6d86132 + @bifrost/ui 9b635b2）
+- **验收结果**：PASS 2026-10-07：ui 0.14.0 随 Trade 前端与 platform 79ed8db 上线；导出检查 5 passed
 - **Claim**: Of 283 names re-exported from src/index.ts, 85 have no textual hit in either consumer's src, about 45 of them Props types. Of the remaining runtime exports, some (useMorph and composeRefs, used in 5 internal files) are live inside bifrost-ui and only need not be public. Others (KpiStrip, the ContextMenu wrappers, holidayLine) may be fully unused. No tool measures unused exports.
 - **Measured**: MEASURED by script on origin/main: 85 of 283 names have no consumer hit. A spot check of 7 names confirmed 0 consumer hits; useMorph and composeRefs are used internally. Internal use was not subtracted overall.
 - **Evidence**:
@@ -1847,7 +1848,7 @@
 
 **P3 · trade-data · Snapshot enrich stores a vendor 'day close' that can sit below the option's intrinsic value (a stale last trade), and P&L attribution then books it as unexplained**
 
-- **状态**：观察中（core 0.56.0 = 668c63f 已上 main，等下一次 Trade 发版；已有行是否改写由你定，预演 SQL `bifrost-trade-core/scripts/db/td246_marks_under_intrinsic_dryrun.sql`：DEV / STG 各 1 行，PROD 只读被拦未测）
+- **状态**：观察中（Trade 10-07 三环境：STG bifrost-deliver-stg-6wrjs、PROD bifrost-deliver-prod-pinned-ntfpf（core 0.58.0 @ 3c79f41，tag v0.58.0）、DEV 跟随；看发布后第一次 enrich 的 OPT 行 mark_source）
 - **验收**：下一次 Trade 发版后 api-monitor `/health` core_sha = 668c63f；之后每环境跑 dry-run SQL，snapshot_date ≥ 发版日的行里不再有 mark 低于内在价值且标 vendor_eod 的
 - **现在**：道 L4 实测：低于内在价值的 OPT 行 DEV / STG 10-05 各 1 行（DAVE 2027-01-15 280C，close 74.3 < 内在 88.94，最后成交停在 09-24），10-06 各 0 行；插件不存 NBBO，拿不到 mid；vendor IV 每个快照都在变（按报价算），BS(vendor iv) 对其余 22 个合约·日有 19 个在 ±4% 内。修法 `snapshot.daily.option_eod_mark`：close ≥ 内在 − 0.01 照旧 `vendor_eod`；否则存 BS(标的收盘, vendor IV, r 0.04) 并以内在为下限，标 `vendor_iv_model`；无 IV / 当天到期 / 模型仍低于内在 → 内在价值，标 `intrinsic_floor`。下游：greeks_quality `vendor_iv_model` → vendor、`intrinsic_floor` → degraded（一行可改：reader/snapshots.py MARKS_WITH_THE_GREEKS）；TD-140 兜底读三种日终来源里最新的一条。防线 `tests/test_snapshot_mark_intrinsic.py`（1728 组合网格、day_close 只经 option_eod_mark 读的 AST 扫描、每个 mark_source 必须归入 greeks 分级之一）+ db 测试。后续 TD-250
 - **Claim**: DEV 10-05 has one LEAP call whose vendor_eod mark is below intrinsic; on 10-06 it accounts for most of the attribution's unexplained residual. TD-138's reader flags it (mark_below_intrinsic) but the writer keeps storing the last trade.
@@ -1863,8 +1864,8 @@
 
 **P3 · frontend · Look-back starts are still computed in the browser's time zone (new Date(Date.now() - N*86400000).toISOString().slice(0,10)), and three private New York date helpers duplicate @/lib/freshness**
 
-- **状态**：观察中（frontend 1d471e48 已上 main，随下一次 Trade 发版上线）
-- **验收结果**：PASS 2026-10-07 frontend 1d471e48：新增 `etDaysAgoIso`，5 处回看起点改用它；四份私有纽约日期副本收进 @/lib/freshness；`utcTodayRatchet.test.ts` 加 `new Date(Date.now() ± …)` 扫描（无白名单）+ eslint 选择器；vitest 4118 passed
+- **状态**：待你签收（Trade 10-07 三环境：STG bifrost-deliver-stg-6wrjs、PROD bifrost-deliver-prod-pinned-ntfpf（core 0.58.0 @ 3c79f41，tag v0.58.0）、DEV 跟随，前端 6d86132 + @bifrost/ui 9b635b2）
+- **验收结果**：PASS 2026-10-07：前端 6d86132 已上 STG/PROD/DEV，release-check 三环境 PASS
 - **Claim**: TD-232's ratchet only catches argument-less new Date(); SymbolForecastSessions.tsx:50, SymbolVolatilityFace.tsx:216, SymbolDealerHistory.tsx:57, useMarketSessions.ts:16 and PlaybookRecord snapFrom build look-back starts from UTC instants. bookLive.etDate, agentActivity.nyDate and sizingTodayModel.nyDate re-implement the NY date.
 - **Measured**: code-read 10-07 by paydown lane GG.
 - **Evidence**:
@@ -1878,7 +1879,7 @@
 
 **P3 · trade-data · A stale vendor close above intrinsic is still stored as vendor_eod: the plugin's snapshot read does not return last_trade_ts, so enrich cannot tell a morning trade from a session close**
 
-- **状态**：观察中（插件 0.85.0 已上线 10-07 04:00 UTC：部署提交 a7beb5b，12 个 pod 摘要 sha256:107935a4…；core 0.57.0 = 549a656 跟下一次 Trade 发版——要你批）
+- **状态**：观察中（Trade 10-07 三环境：STG bifrost-deliver-stg-6wrjs、PROD bifrost-deliver-prod-pinned-ntfpf（core 0.58.0 @ 3c79f41，tag v0.58.0）、DEV 跟随；看发布后第一次 enrich 的 OPT 行 mark_source）
 - **验收**：插件上线后：`curl -s 'http://127.0.0.1:8780/api/v1/plugins/market-data/api/market/options/snapshots?symbol=DAVE&expiration=2027-01-15&as_of=2026-10-06'` 里 O:DAVE270115C00280000 带 last_trade_ts=2026-10-06T13:48:03.112000+00:00；core 上线后 api-monitor /health core_sha=549a656，且之后第一次 enrich 里 last_trade_ts 早于本 session 的 OPT 行不再是 vendor_eod
 - **验收结果**：插件 PASS 2026-10-07 a7beb5b：DAVE 2027-01-15 280C 返回 last_trade_ts=2026-10-06T13:48:03.112000+00:00，husbandry healthy。core FAIL（未发版，预期）。代码层：插件 pytest 1281 passed，core make test 13459 / test-db 110 passed，防线 tests/test_api_session_and_filters.py 3 个 + test_snapshot_mark_intrinsic.py 网格 12,096 组
 - **Claim**: query_snapshots in the market-data plugin selects iv / greeks / OI / day_volume / day_close / day_vwap but not last_trade_ts (present in raw_market.option_snapshot). DEV 10-06 DAVE 280C close 110.5 came from a 09:48 ET trade, 32% above the vendor-IV model price, and still drives a large unexplained residual.
