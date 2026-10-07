@@ -469,6 +469,24 @@ spec:
     # label so a sleeping WOL node stays quiet.
     - name: bifrost-infrastructure
       rules:
+        # TD-248: Alertmanager reports a webhook it cannot deliver to — the ntfy
+        # relay on Mac mini .50 or the STG platform-api audit webhook. When it is
+        # the relay, this page cannot reach the Owner through it; the .52 peer
+        # watchdog pages ntfy directly for that case.
+        - alert: BifrostAlertmanagerWebhookFailing
+          expr: |
+            sum(increase(alertmanager_notifications_failed_total{integration="webhook"}[30m])) > 0
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Alertmanager keeps failing to deliver to a webhook receiver"
+            description: >-
+              {{ $value | humanize }} failed webhook notifications in 30 minutes.
+              Check http://192.168.10.50:8783/api/v1/alerts/relay (the ntfy relay)
+              and the STG platform-api; Alertmanager logs name the receiver:
+              kubectl -n monitoring logs alertmanager-kube-prometheus-stack-alertmanager-0 -c alertmanager.
+
         - alert: BifrostClusterNodeDown
           expr: |
             (

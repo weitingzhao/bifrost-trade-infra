@@ -4,7 +4,7 @@
 > **规则**：每关掉 `TECH_DEBT.md` 里的一项，要么在这里加一条（或扩大已有一条的范围），要么在提交信息里写明为什么没有可行的防线。删掉或放宽一条防线要写理由。
 > 强度：blocking＝不过就不能提交/发布；warning＝报出来但不拦；alert＝运行时告警；manual＝要人手跑。
 
-更新：2026-10-06（第 2 轮扫描的防线盘点；同日加 TD-87/88/89/90 的防线；同日登记 TD-132 的 MinIO 后端测试；同日登记 TD-197 的标题上报测试与 lineage 镜像同步测试；10-07 登记 TD-203/208 的终端与派发鉴权测试、TD-205 的数据层局域网暴露检查、TD-209 的告警路由检查与中转测试）
+更新：2026-10-06（第 2 轮扫描的防线盘点；同日加 TD-87/88/89/90 的防线；同日登记 TD-132 的 MinIO 后端测试；同日登记 TD-197 的标题上报测试与 lineage 镜像同步测试；10-07 登记 TD-203/208 的终端与派发鉴权测试、TD-205 的数据层局域网暴露检查、TD-209 的告警路由检查与中转测试、TD-248 的中转互看）
 
 ## 现有防线
 
@@ -29,6 +29,7 @@
 | check_overlay_configs.py（listen 端口、daemon_scale_guard: freeze、platform_audit、reference_indices、重复键） | `bifrost-trade-infra/scripts/check_overlay_configs.py；Makefile check-overlay-configs` | overlay 配置丢键（TD-06/05/53）以及 D10 freeze 标志被去掉 | manual | 只有 Makefile 入口：没有 CI，release.sh 也不调它。MEASURED：dev/stg/prod 当前 ok |
 | check_trade_gateway_routes.py（每个进程一个前缀、strip 恰好是自己的前缀、RETIRED 里的别名不得回来） | `bifrost-trade-infra/scripts/check_trade_gateway_routes.py；Makefile check-trade-gateway-routes` | 别名前缀复活：这正是 TD-07 绕过 D10 正则的那条路，也是 TD-55 | manual | 只有 Makefile 入口：没有 CI，不在 release.sh 里。MEASURED：三个 env 都 ok（各 4 个前缀） |
 | report-thread-title.test.js（11 例：自定义标题优先于生成标题、未变不重发、写了一半的行先不读、请求失败下次重试、文件被重写后从头读） | `bifrost-trade-infra/agent-config/claude/hooks/report-thread-title.test.js` | Stop hook 不再上报或重复上报线程标题，Commit Lineage 回退成显示 id（TD-197） | manual | infra 没有 CI，只有 Agent 自检时 `node` 跑；hook 运行时吞掉所有错误，坏了不报——看 PROD `lineage-thread-titles` 有没有新会话的条目 |
+| peer watchdog 中转检查（.52 每 60 秒读 .50 的 `/api/v1/alerts/relay`，5 分钟不通就直接发 ntfy）+ 告警 `BifrostAlertmanagerWebhookFailing` | `bifrost-platform/scripts/agent/peer_watchdog.sh（PEER_RELAY_URL）；bifrost-trade-infra/k8s/monitoring/bifrost-alerting-rules.yaml` | 唯一的告警中转（.50）宕机时没人知道（TD-248） | alert | 本身就是运行时告警，没有测试守它的逻辑；两台 mini 同时宕机时两条路都断。实测：10-07 停 .50 中转 6 分钟，.52 呼叫并在恢复后发 RESOLVED |
 | check_alert_routing.py（按 Alertmanager 的规则走路由：Watchdog、任何 critical、规则文件里每条备份 / WAL / NAS MinIO 告警都要到达集群外的接收器，且仍到达 webhook；集群外接收器的地址要有出站策略） | `bifrost-trade-infra/scripts/check_alert_routing.py；Makefile check-alert-routing（LIVE=1 走线上配置）` | 告警只进集群内 webhook、没人收到（TD-209） | manual | infra 没有 CI；Alertmanager 状态接口把 webhook 地址打码，所以 `LIVE=1` 按接收器名对照 values 文件。实测：旧 values 与改前线上各报 10 处，现在 0 处 |
 | alertrelay/relay_test.go（中转令牌、按级别的优先级、按 fingerprint 去重、ntfy 失败回 502 让 Alertmanager 重试、心跳缺失时呼叫 / 每小时重呼 / 恢复通知、启动后一直没心跳也呼叫）+ layering_test 的 cluster-free 名单 | `bifrost-platform/api/internal/alertrelay/relay_test.go；bifrost-platform/api/internal/server/layering_test.go` | 转发静默失败或心跳检测失效（TD-209） | warning | 在 ci-platform 的 go test 里跑（push 后，不挡发布）；转发只在 .50 一处，它本身宕机没人知道（TD-248） |
 | check_data_lan_exposure.py（`data` 里名字带 stg/prod 的 Pod 不得被 NodePort / LoadBalancer 选中，策略不得放行 ipBlock；白名单：Postgres 30432） | `bifrost-trade-infra/scripts/check_data_lan_exposure.py；Makefile check-data-lan-exposure（LIVE=1 读集群）` | STG/PROD Redis 重新对局域网开放（TD-205：无密码，PROD daemon 控制流） | manual | infra 没有 CI，只能手动或 Agent 自检跑；`data` 下的清单是手工 apply 的，所以 `LIVE=1` 才是线上真相。实测：对删除前的清单报出 2 个 NodePort 与 14 条 ipBlock，现在清单与线上均 ok |
