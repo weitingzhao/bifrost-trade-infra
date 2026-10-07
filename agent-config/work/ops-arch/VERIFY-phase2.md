@@ -32,3 +32,18 @@ MCP 侧问题：没设 `MCP_WRITES` 时默认不发写（共享检出一更新�
 PASS。platform `cursor/phase2-platform` `e6b825b9`（在 `816a8039` 之后，基于 main `4646441`）：`mcp/platform` tsc + 18 测试 ok；`api` `go test ./...` ok（含 `config/actions-catalog.json` 与目录一致的测试）；`check_mcp_cutover.py --cursor`（取自 `cursor/b3-infra`）ok；`writeGate.ts`：没设 `MCP_WRITES` → `legacy`（原路由直调），`on` → 审批感知，其余 → 不写。七个写工具不在目录（ensure_bifrost_namespaces、operate queue 三个、report_checklist_signals、run_release_gate、sign_tier_b），`on` 时明确拒绝——前两类第 3 阶段处理，后两个第 3 阶段退场。
 
 **第 2 阶段可以上线**：步骤见上文「上线顺序」。
+
+## 第 1、2 步上线（Owner 2026-10-07 批）
+
+- platform main `4646441 → e6b825b9`；STG `bifrost-deliver-platform-1791414404`、PROD `bifrost-deliver-platform-prod-1791414636` Succeeded。PROD `/api/v1/actions` 31 条（B10 / C10 / D11）；operator 令牌直调 C 级（uncordon）→ `403 approval required`。
+- infra `289ec03`（b2-infra + b4-infra）：Argo 已给 PROD 加 `APPROVAL_NOTIFY_*` / `UNIFI_*`；STG workers 日志 `data-clone scheduler not started`、`patrol loop not started`。
+- Secret `bifrost-platform-approval-notify`、`bifrost-platform-unifi` 已建（PROD 读 UniFi：reachable，session_user bifrost-agent）。**事故**：核对时把这两个 Secret 的 base64 值打进了对话 → `ALERT_RELAY_TOKEN` 与 UniFi `bifrost-agent` 密码需要轮换（待 Owner）。
+- `kubectl apply -k k8s/platform-rbac`：`check_platform_rbac.py` 138/138。
+- `monitoring/alertmanager-webhook-auth` 换成 PROD reporter 令牌（从 `bifrost-platform-prod/bifrost-platform-reporter-token` 直接复制）；`LIVE=1 check-alert-routing` ok。
+- .50 用干净检出（origin/main e6b825b9）重部署 agent 栈：`alert_relay:true`，`POST /api/v1/alerts/notify` 无令牌 401。部署脚本的末尾核对发现 **.52 `PEER_RELAY_URL` 自 13:24（S1 重部署）起为空**，互看停了约 10 小时；已改回并重启，watchdog 记 RECOVERED。
+- 端到端：PROD 建申请 `appr_2c5a716eddbbed56`（uncordon ubt-k3s-05，C，无操作），中转 published 0→1（推送到 Owner 手机）。留给第 3 步测聊天批准。
+- 部署脚本会把本机 admin kubeconfig 与 `PLATFORM_ADMIN_TOKEN` 同步到 mini（第 5 阶段收回）。
+
+## 后续（新增）
+
+- prober 的 argo-apps：Trade `bifrost-prod` / `bifrost-stg` 的 OutOfSync 只来自已跑完被 TTL 回收的 `db-init-*` Job（还债会话核实），不应同步（会重跑 PROD DDL）。prober 应忽略这类已完成的一次性 Job。
