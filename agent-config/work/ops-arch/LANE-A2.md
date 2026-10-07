@@ -7,7 +7,7 @@ ADR §9（1 级数据）。仓库：bifrost-trade-infra，分支 `cursor/a2-infr
 - k3s 只有一个 server 节点：`ubt-k3s-01`（192.168.10.73）。etcd 快照每 12 小时一次，**只在本机** `/var/lib/rancher/k3s/server/db/snapshots/`（root 可读，单个约 170 MB）。
 - 所有 Secret（数据库密码、各类令牌）与 platform 状态 ConfigMap（`platform-state-*`，TD-196）只存在于 etcd。
 - NAS 存储类：`nfs-cold`（`/volume1/k3s-cold`）、`nfs-hot`。参考已有的逻辑备份：`data/logical-backup` CronJob 与 PVC `logical-backup-cold`。
-- 加密用 [age](https://age-encryption.org)。**公钥**由 Owner 生成后交给 Claude Code，写进 ConfigMap（公钥不是秘密）；私钥只在 Owner 手里。清单里先用占位 `AGE_RECIPIENT`。
+- 加密用 [age](https://age-encryption.org)。Owner 已生成密钥（10-07），**公钥**：`age10s4l6p55wh22gsmr3ga40lad7269hn8yt356m5kuhcyg67c80ayqutqxkf`——写进 ConfigMap（公钥不是秘密）。私钥只在 Owner 手里，任何 Agent 不得读取或要求它；已用占位 `AGE_RECIPIENT` 的分支请换成这个值。
 
 ## 要做
 
