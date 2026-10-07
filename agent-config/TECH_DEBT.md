@@ -13,8 +13,6 @@
 
 ## 待你签收
 
-- **TD-213 / TD-247 / TD-239 / TD-102** — 前端今日 / 回看起点按纽约交易日；@bifrost/ui 删掉无人使用的导出（0.14.0）；插件下线旧 max-pain/PCR 路由、trade-api 改读 Research PCR（Trade 10-07 三环境 + market-data 0.86.0） · 验收 PASS（release-check STG/PROD/DEV 全 PASS；trade-api 1018、market-data 1288、ui 5 passed） · 防线：前端 ESLint no-restricted-syntax + 日期测试、`bifrost-ui/scripts/public-exports.test.mjs`、trade-api/market-data 退役路由测试 · 后续：无
-- **TD-123 / TD-106 / TD-119 / TD-125** — research 删掉约 19 条无人调用的路由；market-data 夜间 trim 改单飞后台任务 + Dagster 轮询；market-data 迁移 Job 先于主体部署；退役 IB 脚本归档（research 0.205.0、market-data 0.86.0、插件与 flex main，10-07） · 验收 PASS（research 2132、market-data 1288、插件 84、flex 160 passed；make deploy 先迁移后 base） · 防线：`bifrost-research/tests/.../test_retired_routes.py`、market-data `tests/test_trim_single_flight*`、`k8s/migrate` 拆分 + login wiring 测试 · 后续：TD-106 今晚 market_trim 首跑再看一次 ops_jobs 结果（无新编号）
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-253** — 检查信号不再是几周前的：每条带观测时间和来源，超过 2 小时读 unknown、autopilot 不会按它动手；PROD platform-workers 自己每 10 分钟探测一次（不再靠 Mac 上报）。验收 PASS 2026-10-07 d8bdf41（22/22 带时间）。防线：`RATCHETS.md`「检查信号的时效与来源」测试 + `check_platform_maintenance.py`（探测器只在 PROD workers）。后续：无后续：放开 autopilot 动手在 TD-130（观察到 10-12）
@@ -22,7 +20,7 @@
 - **TD-255** — 漂移扫描不再删失败现场：只删被驱逐的 Pod，失败的备份 Job Pod 留着（日志可读），只报告模式下一个不删。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「漂移扫描只删 Evicted 测试」。后续：无后续：Job 历史上限与 TTL 负责回收
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 93 项**：P0 0 · P1 10 · P2 33 · P3 50；要你批的 51 项（从总览表的审批列算）。
+**未结 85 项**：P0 0 · P1 10 · P2 30 · P3 45；要你批的 45 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -70,7 +68,7 @@
 
 目标：所有「今天 / 本 session」都从 `db/calendar` 的一个函数来，代替 11 个私有 helper 和 44 处 `date.today()`；dbt 补 grain 测试；IV / 回测的定价参数统一。
 
-项：TD-98, TD-110, TD-111, TD-112, TD-128, TD-129, TD-174, TD-242, TD-247 · 已还：TD-164, TD-175
+项：TD-98, TD-110, TD-111, TD-112, TD-128, TD-129, TD-174, TD-242 · 已还：TD-164, TD-175, TD-247
 
 ### 第 4 波 · 券商资金账本（Flex / IB）
 
@@ -82,7 +80,7 @@
 
 目标：删掉没人用的（挂起的 CronJob、退役脚本、无调用路由），手抄的副本改成从一处生成（调度名单、max-pain / PCR），清单的应用顺序与 Argo 归属理顺。
 
-项：TD-102, TD-106, TD-107, TD-118, TD-119, TD-120, TD-123, TD-125, TD-160, TD-170, TD-202 · 已还：TD-126, TD-108, TD-154, TD-163, TD-168, TD-124, TD-176, TD-191, TD-169, TD-200, TD-201, TD-190
+项：TD-107, TD-118, TD-120, TD-160, TD-170, TD-202 · 已还：TD-126, TD-108, TD-154, TD-163, TD-168, TD-124, TD-176, TD-191, TD-169, TD-200, TD-201, TD-190, TD-123, TD-106, TD-119, TD-125, TD-102
 
 ### 第 6 波 · 备份链与自动修复（10-06 日常发现）
 
@@ -118,7 +116,7 @@
 
 目标：挂单与 IB 读失败不再被当真写库；Risk / Performance / 告警计数按交易日算；Console 的裁决条在探针失败时不再显示绿色；ui 的发布可追溯；台账与文档的过时说法改正。
 
-项：TD-211, TD-212, TD-213, TD-228, TD-234, TD-236, TD-239, TD-240 · 已还：TD-214, TD-219, TD-232, TD-233, TD-226, TD-230, TD-227, TD-251, TD-235, TD-252, TD-229, TD-241
+项：TD-211, TD-212, TD-228, TD-234, TD-236, TD-240 · 已还：TD-214, TD-219, TD-232, TD-233, TD-226, TD-230, TD-227, TD-251, TD-235, TD-252, TD-229, TD-241, TD-213, TD-239
 
 ### 第 12 波 · Ops 维护只在 PROD 一处（Owner 10-07）
 
@@ -246,23 +244,18 @@
 | [TD-98](#td-98) | P2 | research-data | 'Today' is resolved by 11 private helpers plus 44 bare date.today() calls on UTC pods; option_universe stamps tomorrow's date | 不用批 |
 | [TD-100](#td-100) | P2 | research-control | Event Radar SEC ingest runs from a Mac tmux loop on the shared checkout; it read .env once and failed 157 ticks over ~35.6h after a password rotation; the cluster event_radar slot never ingests and stays green | 不用批 |
 | [TD-101](#td-101) | P2 | market-data | Doctor slot staleness reads a per-kind freshness row that other slots and zero-row jobs also refresh, so a stopped policed slot still reads fresh | 不用批 |
-| [TD-102](#td-102) | P2 | market-data | Plugin's deprecated live max-pain and PCR routes duplicate Research and skip the adjusted-contract filter: different strikes on the same day, and trade-api SEPA PCR reads the contaminated one | 改公开接口 |
 | [TD-103](#td-103) | P2 | flex-ib | The cash parser never stores IB's transactionID, so dedupe falls back to (account, day, amount, type, report_date) and same-amount items overwrite each other | 改表 |
 | [TD-104](#td-104) | P2 | flex-ib | Trade Ops reports all three IB Gateway services 'offline' on PROD: the gateway's health hashes have no updated_at, and the service rows point at retired StatefulSets | 跨仓库发版 |
 | [TD-105](#td-105) | P2 | flex-ib | DEV/STG operator streams accept every op except two (a denylist), so any op added later is open to DEV and STG by default | 安全/凭据（要你批） |
-| [TD-106](#td-106) | P2 | market-data | Nightly trim (now with W3 archive) runs synchronously behind Dagster's 60s HTTP timeout; retries start overlapping trims and the recorded outcome is the retry's | 跨仓库发版 |
 | [TD-107](#td-107) | P2 | market-data | Indexes declared for the six financials entity tables never reach a deployed DB (the migration returns early); live differs from fresh install | 改表 |
 | [TD-110](#td-110) | P3 | research-data | Stored IV features solve Black-Scholes at r=0 while the backtester uses treasury rates from two separate readers; further BS copies in gex and opex | 不用批 |
 | [TD-111](#td-111) | P3 | research-data | dbt: the pass_count range generic test sits in the singular folder (errors when selected, never applied); key intermediates lack grain tests; nothing ties eval_date to the session | 不用批 |
 | [TD-112](#td-112) | P3 | research-data | option_surface_iv_daily upserts per (symbol, trade_date, expiry) and never deletes, so expiries a re-walk dropped keep their old smile | 不用批 |
 | [TD-117](#td-117) | P3 | flex-ib | 'Latest Flex date in DB' after an import is one run behind: read through FDW in the same transaction as the pre-import read | 不用批 |
 | [TD-118](#td-118) | P3 | market-data | option-refresh re-enumerates names with no listed options every run; its 7-day 'finished' lookback reads a table kept 48h | 不用批 |
-| [TD-119](#td-119) | P3 | market-data | Schema-migrate Job and worker Deployments are applied in one `kubectl apply -k` with no ordering; a table-adding release fails the jobs that land in the DDL window | 改表 |
 | [TD-120](#td-120) | P3 | research-control | Dagster Deployments are applied by hand outside Argo; a second, unmounted dagster_instance.yaml lacks the run_monitoring that catches zombie runs | 跨仓库发版 |
 | [TD-121](#td-121) | P3 | research-control | Research pods read bifrost-research-secrets once at start (optional: true); the OpenAI key rotation helper restarts only research-api | 安全/凭据（要你批） |
 | [TD-122](#td-122) | P3 | flex-ib | The IB Gateway image is built on the Mac and imported to nodes with ctr under a reused tag: no registry, no digest, no recorded source SHA | 跨仓库发版 |
-| [TD-123](#td-123) | P3 | research-control | About 19 deployed research-api routes have no caller in frontend, platform, trade-api or MCP, including manual POST triggers that run engine code outside Dagster | 改公开接口 |
-| [TD-125](#td-125) | P3 | flex-ib | Retired IB topology still referenced: TIBM-era verify scripts at the top of scripts/, flex_ops compat SQL for a schema that no longer exists | 删除（要你批） |
 | [TD-128](#td-128) | P3 | research-data | Pine signal rows mix adjustment bases: nightly runs rewrite only the last ~10 sessions on today's adjusted bars, older rows stay on the basis of their last full rebuild | 不用批 |
 | [TD-129](#td-129) | P3 | research-data | The event backtest picks option legs from option_daily only; since mid-August 2026 it keeps ~10 strikes a side, so a target delta silently lands on the nearest strike that is left | 不用批 |
 | [TD-130](#td-130) | P1 | ops-control | ops-autopilot acts on the shared cluster's data layer from the Owner's laptop (local bdev platform-api, role all); the in-cluster STG/PROD autopilots idle on an empty checklist, and each of the three keeps its own throttle | 要你批 |
@@ -309,7 +302,6 @@
 | [TD-210](#td-210) | P1 | data | The nightly logical backup of hand-entered data failed on its first scheduled run: it connects before the new pod's NetworkPolicy is programmed and gets Connection refused | 不用批 |
 | [TD-211](#td-211) | P1 | trade-worker | Working orders are never persisted: the plugin's snapshot has no open_orders, the daemon TRUNCATEs raw_broker.open_orders every hour, and the UI says 'No working orders at IB.' | 跨仓库发版 |
 | [TD-212](#td-212) | P2 | trade-worker | A failed IB positions or summary read is written as truth: the daemon deletes every raw_broker.positions row of the account and nulls its NAV until the slot reconnects | 跨仓库发版 |
-| [TD-213](#td-213) | P2 | frontend | Risk › Limits 'Daily loss on the allocation' sums the realised P&L of every trade the allocation ever closed, not today's, so a losing day reads 0 consumed | 不用批 |
 | [TD-217](#td-217) | P2 | data | The Barman base+WAL backup, the only copy of the 34 GB Golden Source history, has never been restored, and has not been tried at all against the NAS MinIO it moved to on 10-06 | PROD 变更（要你批） |
 | [TD-218](#td-218) | P2 | data | Every backup copy (Barman base+WAL, logical dumps hot and cold, the W3 archive) is on the one NAS 192.168.10.20:/volume1, and the open offsite decision is not in the ledger | PROD 变更（要你批） |
 | [TD-221](#td-221) | P3 | ops-console | The governance catalog says nobody but the daemon writes ib:operator:cmd, but platform-api does (sanctioned by D-IB-Heal), and the runner's ib_gateway_control can switch the PROD gateway to mock with only a prompt-level approval | 安全/凭据（要你批） |
@@ -318,12 +310,10 @@
 | [TD-234](#td-234) | P3 | trade-worker | @bifrost/ui is unversioned for the Ops Console: a ui push never runs platform CI, and platform deliver builds whatever ui main is without recording its SHA | 不用批 |
 | [TD-236](#td-236) | P3 | trade-worker | Leftovers of the deleted Account Sync daemon: the plugin still XADDs every account snapshot to ib:account:stream:v1, which nothing reads | 跨仓库发版 |
 | [TD-237](#td-237) | P3 | data | The data-warehouse 'second MinIO' never ran (PVC Pending 109 days, Deployment 0/0), yet AGENT_FACTS lists it, and its placeholder root Secret is committed to a PUBLIC repo and applied | 删除（要你批） |
-| [TD-239](#td-239) | P3 | trade-worker | Up to about 40 runtime exports of @bifrost/ui have no importer in either consumer (ContextMenu family, KpiStrip, holidayLine, shellNav* constants); dead-code share unmeasured | 改公开接口 |
 | [TD-240](#td-240) | P3 | trade-worker | The running PROD daemon never writes contract_quote_live: the observe-only quote mirror sits under mock_hedging, which is hard-coded True | 跨仓库发版 |
 | [TD-242](#td-242) | P2 | market-data | market-data /ingest/queue-dashboard takes 5–25 s per call, and the platform-api proxy carries the same delay: with the new latency rule live it will page whenever someone keeps the queue dashboard open | 不用批 |
 | [TD-244](#td-244) | P3 | research-control | agents/journal_distill reads raw_broker.executions_final with no Flex freshness check (own 23:55 UTC schedule, outside any gate) | 不用批 |
 | [TD-246](#td-246) | P3 | trade-data | Snapshot enrich stores a vendor 'day close' that can sit below the option's intrinsic value (a stale last trade), and P&L attribution then books it as unexplained | 已批（Owner 10-07「做」） |
-| [TD-247](#td-247) | P3 | frontend | Look-back starts are still computed in the browser's time zone (new Date(Date.now() - N*86400000).toISOString().slice(0,10)), and three private New York date helpers duplicate @/lib/freshness | 不用批 |
 | [TD-250](#td-250) | P3 | trade-data | A stale vendor close above intrinsic is still stored as vendor_eod: the plugin's snapshot read does not return last_trade_ts, so enrich cannot tell a morning trade from a session close | 不用批 |
 | [TD-253](#td-253) | P2 | ops-platform | The autopilot acts on checklist signals that are weeks old: signals carry no time of their own, and nothing marks a stale one unknown | 不用批 |
 | [TD-254](#td-254) | P2 | ops-platform | Two mechanisms repair the same failed backup: the autopilot's repair_cnpg_wal_store (every 15 min) and the backup-retry CronJob | 不用批 |
@@ -508,23 +498,6 @@
 - **Ratchet**: Unit test derived from the slot→kinds map and contracts.staleness_by_slot(): no policed slot shares a freshness dimension with another slot (explicit allowlist otherwise).
 - 审批 不用批 · 代价 M · 风险 low · repos: bifrost-platform-plugin-market-data
 
-### TD-102
-
-**P2 · market-data · Plugin's deprecated live max-pain and PCR routes duplicate Research and skip the adjusted-contract filter: different strikes on the same day, and trade-api SEPA PCR reads the contaminated one**
-
-- **状态**：待你签收（market-data 0.86.0 下线旧路由；trade-api d7cdc3f 改读 Research PCR，Trade 10-07 三环境：STG bifrost-deliver-stg-6wrjs、PROD bifrost-deliver-prod-pinned-ntfpf（core 0.58.0 @ 3c79f41，tag v0.58.0）、DEV 跟随）
-- **验收结果**：PASS 2026-10-07：trade-api 1018 passed、market-data 1288 passed；PROD release-check probes 7/7
-- **Claim**: The plugin keeps a 'transition' copy of Research's max-pain math plus its own PCR query, both reading raw_market.option_open_interest with no adjusted-root predicate (Research added not_adjusted_contract_sql on 10-01). OI from adjusted roots (O:HON2…, O:MOD1…) is summed into standard chains. trade-api sepa_engine/stock_option_pcr.py calls fetch_pcr_aggregate against this route.
-- **Measured**: MEASURED (re-run by verifier) for 2026-10-05: plugin vs Research max pain HON 12-18 210 vs 220, FDX 12-18 310 vs 300, GME 10-16 23 vs 22.5, MOD 10-16 same strike but OI 19,510 vs 9,848. 424 adjusted-root OI rows across 19 underlyings that day. Loki 7 days: /max-pain/compute called only by the probe; /options/analytics/pcr 4 times (trade-api SEPA PCR).
-- **Evidence**:
-  - `bifrost-platform-plugin-market-data/src/bifrost_market_data/api/analytics.py:613` — `FROM raw_market.option_open_interest`
-  - `bifrost-platform-plugin-market-data/src/bifrost_market_data/api/pcr.py:65` — `FROM raw_market.option_open_interest`
-  - `bifrost-research/src/bifrost_research/engines/adjusted_contracts.py:22` — `return f"substr({column}, 3, length({column}) - 17) !~ '[0-9]$'"`
-- **Impact**: Wrong pin strikes for names with corporate-action roots from the plugin route; SEPA option-PCR condition in trade-api computed from contaminated OI; two implementations already disagree.
-- **Fix**: Retire /market/analytics/max-pain/compute(+history) and analytics/max_pain_math.py (no real callers); point trade-api fetch_pcr_aggregate at Research's filtered PCR. Until then add the adjusted predicate to every plugin aggregate read of option_open_interest/snapshot/daily.
-- **Ratchet**: Plugin test grepping api/*.py: aggregate reads of raw_market.option_(open_interest|snapshot|daily) must contain the adjusted-root predicate or be allowlisted. Register max-pain in the cross-repo duplication metric so a second compute_max_pain_curve fails the scan.
-- 审批 改公开接口 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data, bifrost-trade-api
-
 ### TD-103
 
 **P2 · flex-ib · The cash parser never stores IB's transactionID, so dedupe falls back to (account, day, amount, type, report_date) and same-amount items overwrite each other**
@@ -576,24 +549,6 @@
 - **Fix**: Make READ_ONLY_OPS an explicit literal allowlist and PROD_ONLY_OPS explicit; assert every op in ALL_OPS is in exactly one set.
 - **Ratchet**: Test fails when ALL_OPS gains a member not classified in exactly one of READ_ONLY_OPS/PROD_ONLY_OPS; optionally a preflight warning on diffs adding to ALL_OPS.
 - 审批 安全/凭据（要你批） · 代价 S · 风险 low · repos: bifrost-platform-plugin
-
-### TD-106
-
-**P2 · market-data · Nightly trim (now with W3 archive) runs synchronously behind Dagster's 60s HTTP timeout; retries start overlapping trims and the recorded outcome is the retry's**
-
-- **状态**：待你签收（market-data 0.86.0 + research 0.205.0 已上线 10-07；今晚 market_trim 首次走单飞轮询）
-- **验收结果**：PASS（代码层）2026-10-07：market-data 1288 passed、research 2132 passed；线上验收看今晚 market_trim 的 ops_jobs 结果（含 archive_runs）
-- **Claim**: The trim runs inline in POST /market/ingest/enqueue-slot with budgets totalling ~960s (240 job trim, 2x300 snapshot, 2x60 dated, statements up to 900s), while the Dagster client gives up at 60s and RetryPolicy fires a second trim during the first. The archive is safe under overlap (REPEATABLE READ + rowcount check makes the second pass error and roll back, 'never raises'), but Dagster's SUCCESS/FAILURE and logged result describe the retry, and overlapping passes contend on the same rows. From the first night with real rows to archive (~345k intraday option_snapshot rows/session at ~1,550 rows/s ≈ 220s) every first attempt will time out.
-- **Measured**: MEASURED. ops_dagster.event_logs: 8 STEP_UP_FOR_RETRY for market_trim_job in 30 days, 2 FAILURE runs (09-09 883s, 09-10 821s). Run f70b9294 (10-01): STEP_START 02:15:07.43, retry 02:16:07.52 (exactly 60s), restart 02:17:10, success in 14s with trimmed: 0. /archive is empty; 10-06 retention_archive 0 rows on all passes.
-- **Evidence**:
-  - `bifrost-research/src/bifrost_research/orchestration/plugin_http.py:25` — `timeout: float = 60.0,`
-  - `bifrost-research/src/bifrost_research/orchestration/market_slot_schedules.py:32` — `ENQUEUE_RETRY = RetryPolicy(max_retries=3, delay=60, backoff=Backoff.EXPONENTIAL)`
-  - `bifrost-platform-plugin-market-data/src/bifrost_market_data/api/ingest.py:225` — `result = enqueue_slot(`
-  - `bifrost-platform-plugin-market-data/k8s/base/configmap-schedule.yaml:181` — `snapshot_budget_sec: 300`
-- **Impact**: Dagster and Console show trim outcomes from the retry; a FAILURE run (as 09-09/09-10) does not mean the trim failed. Once archiving has real rows, every night runs a timed-out attempt plus duplicate, contended scans. No archived row is lost or duplicated.
-- **Fix**: Single-flight async trim: endpoint takes pg_try_advisory_lock, returns 202 'already running' to a second caller, runs in a background task and writes its full result (including archive_runs) to ops_jobs; the Dagster asset polls, or uses a trim-specific client timeout larger than the budget sum.
-- **Ratchet**: Plugin test: sum of trim budget keys < exported TRIM_CLIENT_TIMEOUT_SEC; cross-repo parity test that Research's market_trim asset uses it. Test: two concurrent enqueue_slot('trim') produce exactly one trim. Alert on any STEP_UP_FOR_RETRY for market_trim_job.
-- 审批 跨仓库发版 · 代价 M · 风险 med · repos: bifrost-platform-plugin-market-data, bifrost-research
 
 ### TD-107
 
@@ -696,22 +651,6 @@
 - **Ratchet**: Unit test: a name with a recent zero-row void is excluded from both lists; lint that no job_ingest lookback interval exceeds TRIM_KEEP_HOURS.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data
 
-### TD-119
-
-**P3 · market-data · Schema-migrate Job and worker Deployments are applied in one `kubectl apply -k` with no ordering; a table-adding release fails the jobs that land in the DDL window**
-
-- **状态**：待你签收（market-data 0.86.0 已按新顺序部署 10-07：先删旧 Job、迁移 Job 完成，再 apply base）
-- **验收结果**：PASS 2026-10-07 market-data 1c51ecc：make deploy 输出「Wave 8 migrations applied」后才 apply base，12 个 pod sha256:dbd5d744…，husbandry healthy
-- **Claim**: k8s/base lists job-wave8-schema-migrate next to the Deployments, and `make deploy` applies base before waiting on the Job. Ordering lives only in a skill procedure. Jobs in the 30-60s DDL window fail loudly (failed:<kind>, doctor-retryable), not silently.
-- **Measured**: CODE-READ plus documented 09-24 incident (56 sec_filings_symbol jobs died during a 40s gap). Live Deployments have no initContainers.
-- **Evidence**:
-  - `bifrost-platform-plugin-market-data/k8s/base/kustomization.yaml:23` — `- job-wave8-schema-migrate.yaml`
-  - `bifrost-platform-plugin-market-data/src/bifrost_market_data/db/schema_guard.py:24` — `def assert_no_legacy_schemas(conn: Any) -> None:`
-- **Impact**: Operator toil and delayed slot data on each table-adding release; depends on a manual three-step order.
-- **Fix**: Move the Job into its own kustomization; `make deploy` deletes the old Job, applies the migration, waits for complete, then applies base. A schema_version gate in workers is optional hardening.
-- **Ratchet**: Test that `kustomize build k8s/base` contains no kind: Job and that the deploy target applies the migration kustomization and waits before base.
-- 审批 改表 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data
-
 ### TD-120
 
 **P3 · research-control · Dagster Deployments are applied by hand outside Argo; a second, unmounted dagster_instance.yaml lacks the run_monitoring that catches zombie runs**
@@ -760,39 +699,6 @@
 - **Fix**: Tekton build to the in-cluster registry (copy flex-query's pipeline-build.yaml), pin by digest, expose git SHA in the health hash.
 - **Ratchet**: code-health metric: manifests whose image lacks registry host or digest = 0 for plugin repos; preflight warning on `ctr images import`.
 - 审批 跨仓库发版 · 代价 M · 风险 med · repos: bifrost-platform-plugin, bifrost-trade-infra
-
-### TD-123
-
-**P3 · research-control · About 19 deployed research-api routes have no caller in frontend, platform, trade-api or MCP, including manual POST triggers that run engine code outside Dagster**
-
-- **状态**：待你签收（research 0.205.0 已上线 10-07，删除的路由随之下线）
-- **验收结果**：PASS 2026-10-07 research 0.205.0：research 2132 passed（含 test_retired_routes 防线），research-api /health version 0.205.0
-- **Claim**: Uncalled GETs: /analytics/sepa/technical-filter, /analytics/sepa/screening-ranked, /research/sepa/candidates, /research/volatility/surface, /research/forecast/{hourly,settlement,backtest}, /research/backtest/regime-stats, /research/canonical-pnl/coverage. Uncalled POSTs: forecast/terrain/compute, forecast/sessions/compute, forecast/settle, event-radar/run, events/ingest, backtest/aggregate, journal/memory/distill, agents/digest/run, agents/weekly-policy/run, hypothesis/{id}/retire. Most POSTs run engine code synchronously in the API pod with no run record or failure alert, and distill/digest can race their scheduled runs.
-- **Measured**: MEASURED: live /openapi.json (208 path×methods) vs git grep on origin/main of frontend, platform, trade-api, infra and research mcp/copilot, with manual re-check. Callers outside these repos (Hermes, curl) not checked.
-- **Evidence**:
-  - `bifrost-research/src/bifrost_research/api/wave4.py:1191` — `@router.post("/forecast/settle", dependencies=[Depends(require_owner)])`
-  - `bifrost-research/src/bifrost_research/api/agents.py:80` — `@agents_router.post("/digest/run", dependencies=[Depends(require_owner)])`
-  - `bifrost-research/src/bifrost_research/api/journal.py:327` — `@router.post("/memory/distill")`
-  - `bifrost-research/src/bifrost_research/api/sepa.py:153` — `@router.get("/screening-ranked")`
-- **Impact**: Extra surface to secure and test after the 0.163-0.168 auth work; a second, unobserved write path beside Dagster.
-- **Fix**: Delete uncalled read routes and calculator POSTs; move agent/distill triggers to 'launch the Dagster job' via GraphQL; follow trade-api's TD-40 retirement pattern (test_retired_routes.py).
-- **Ratchet**: Port the TD-40 route-caller check: CI diffs app.routes against a committed callers manifest; test that no research-api route imports engines.*.entry run functions directly.
-- 审批 改公开接口 · 代价 M · 风险 low · repos: bifrost-research
-
-### TD-125
-
-**P3 · flex-ib · Retired IB topology still referenced: TIBM-era verify scripts at the top of scripts/, flex_ops compat SQL for a schema that no longer exists**
-
-- **状态**：待你签收（脚本归档已在插件与 flex main，10-07）
-- **验收结果**：PASS 2026-10-07：TIBM 期 verify 脚本已移入 scripts/archive，flex_ops SQL 已删；插件 84 passed、flex 160 passed
-- **Claim**: Five plugin scripts reference the retired ib-operator/ib-market-gateway/ib-account-agent StatefulSets, plus per-wave verify-trade-ib-w{1,2,3}-* scripts, although TIBM rollout scripts already moved to scripts/archive. The flex repo keeps golden_source_flex_ops_compat_views.sql and drop_trade_flex_ops_legacy.sql for a flex_ops schema that does not exist. Current-gateway verify scripts (verify-ib-gateway*.sh, verify-redis-ib.sh) are live.
-- **Measured**: MEASURED: no sts/deploy named ib-operator/ib-market-gateway/ib-account-agent; pg_namespace has no flex_ops.
-- **Evidence**:
-  - `bifrost-platform-plugin/scripts/verify-trade-cutover.sh:17` — `LEGACY_STS=(ib-market-gateway ib-account-agent ib-operator)`
-- **Impact**: Readers and agents treat these as live procedures.
-- **Fix**: Move TIBM-wave and cutover verify scripts with Makefile targets into scripts/archive; delete the two flex_ops SQL files and their CLAUDE.md mention on Owner approval; trade-api service rows are retargeted under TD-104.
-- **Ratchet**: Per-repo CI grep ratchet: references to ib-operator/ib-market-gateway/ib-account-agent outside scripts/archive, falling baseline.
-- 审批 删除（要你批） · 代价 S · 风险 low · repos: bifrost-platform-plugin, bifrost-platform-plugin-flex-query, bifrost-trade-api
 
 ### TD-128
 
@@ -1614,25 +1520,6 @@
 - **验收**: `KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_golden_source -X -At </dev/null -c "SET default_transaction_read_only=on;" -c "select count(*) from raw_broker.account where net_liquidation is null and updated_at > now()-interval '2 days'"  # 0 after two weekdays that include the 07:00 / 11:00 ET log-offs; plus the worker test passes`
 - 审批 跨仓库发版 · 代价 S · 风险 low · repos: bifrost-trade-worker, bifrost-platform-plugin, bifrost-trade-core
 
-### TD-213
-
-**P2 · frontend · Risk › Limits 'Daily loss on the allocation' sums the realised P&L of every trade the allocation ever closed, not today's, so a losing day reads 0 consumed**
-
-- **状态**：待你签收（Trade 10-07 三环境：STG bifrost-deliver-stg-6wrjs、PROD bifrost-deliver-prod-pinned-ntfpf（core 0.58.0 @ 3c79f41，tag v0.58.0）、DEV 跟随，前端 6d86132 + @bifrost/ui 9b635b2）
-- **验收结果**：PASS 2026-10-07：前端 6d86132 已上 STG/PROD/DEV，release-check 三环境 PASS
-- **Claim**: useLimitBook builds lossToday from closedToday, but that filter keeps every closed or expired trade of the running allocation (`i.closed && i.openedOn != null`) and never compares a close date with today. The UTC date only decides whether any reading is shown at all (a fill with trade_date == UTC today). On any day with a fill, the gate-daily-loss row compares the allocation's lifetime realised P&L with guard.max_daily_loss_usd. TradeReading drops closed_on, although all closed trades carry it. readTrades also multiplies every fill by 100, including STK fills; none are attached to trades today, so that part is latent.
-- **Measured**: MEASURED on PROD with GETs only, at origin/main dfb7858e. Gate set 1 has guard.risk.max_daily_loss_usd=5000; status.strategy.active is allocation 1 on gate 1. Recomputing the hook's formula for opportunities {1,2} (53 closed or expired trades) gives lifetime realised of about +$23.5k, so on any fill day the row reads 0 consumed. All 79 closed or expired trades carry closed_on.
-- **Evidence**:
-  - `bifrost-trade-frontend/src/hooks/useLimitBook.ts:188` — `const closedToday = mine.filter((i) => i.closed && i.openedOn != null)`
-  - `bifrost-trade-frontend/src/hooks/useLimitBook.ts:201` — `lossToday: todayFills.length === 0 ? null : closedToday.reduce((a, i) => a + (i.realised ?? 0), 0),`
-  - `bifrost-trade-frontend/src/utils/limitsModel.ts:405` — `current: r.lossToday == null ? null : Math.max(0, -r.lossToday),`
-  - `bifrost-trade-frontend/src/utils/tradeReadings.ts:71` — `return a + (isBuySide(e.side) ? -(price * qty * 100 + commission) : price * qty * 100 - commission)`
-- **Impact**: The one written daily-loss limit on the Risk page cannot show a losing day while the allocation is up overall: a breach hidden behind a green row. Nothing enforces the gate today (paper_trade true, daemon under D10), so the harm is a misleading risk reading, not a missed halt.
-- **Fix**: Carry closed_on into TradeReading (closedOn). Filter closedToday by closedOn === the session day (etTodayIso, or the Chicago day if the ledger's day is meant), and gate todayFills on the same day. In readTrades use the execution's multiplier (1 for STK) instead of a hard-coded 100.
-- **Ratchet**: Extract the gateReadings derivation into a pure function and test it: a trade closed yesterday with a large loss plus a fill today gives lossToday 0, and a trade closed today counts. A readTrades test with an STK fill is not multiplied by 100. These run once ci-frontend runs vitest (ratchet proposal 'frontend-vitest-and-date-lint').
-- **验收**: `cd bifrost-trade-frontend && npx vitest run src/hooks/useLimitBook.test.ts src/utils/tradeReadings.test.ts  # new cases: closed-yesterday excluded, closed-today counted, STK fill ×1`
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
-
 ### TD-217
 
 **P2 · data · The Barman base+WAL backup, the only copy of the 34 GB Golden Source history, has never been restored, and has not been tried at all against the NAS MinIO it moved to on 10-06**
@@ -1780,23 +1667,6 @@
 - **验收**: `cd bifrost-trade-infra && git grep -l '^kind: Secret' origin/main -- k8s ':!*.example.yaml' ':!*.example'  # no output; KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl get pvc -A </dev/null | grep -c Pending  # 0`
 - 审批 删除（要你批） · 代价 S · 风险 low · repos: bifrost-trade-infra
 
-### TD-239
-
-**P3 · trade-worker · Up to about 40 runtime exports of @bifrost/ui have no importer in either consumer (ContextMenu family, KpiStrip, holidayLine, shellNav* constants); dead-code share unmeasured**
-
-- **状态**：待你签收（Trade 10-07 三环境：STG bifrost-deliver-stg-6wrjs、PROD bifrost-deliver-prod-pinned-ntfpf（core 0.58.0 @ 3c79f41，tag v0.58.0）、DEV 跟随，前端 6d86132 + @bifrost/ui 9b635b2）
-- **验收结果**：PASS 2026-10-07：ui 0.14.0 随 Trade 前端与 platform 79ed8db 上线；导出检查 5 passed
-- **Claim**: Of 283 names re-exported from src/index.ts, 85 have no textual hit in either consumer's src, about 45 of them Props types. Of the remaining runtime exports, some (useMorph and composeRefs, used in 5 internal files) are live inside bifrost-ui and only need not be public. Others (KpiStrip, the ContextMenu wrappers, holidayLine) may be fully unused. No tool measures unused exports.
-- **Measured**: MEASURED by script on origin/main: 85 of 283 names have no consumer hit. A spot check of 7 names confirmed 0 consumer hits; useMorph and composeRefs are used internally. Internal use was not subtracted overall.
-- **Evidence**:
-  - `bifrost-ui/src/data-display/Kpi.tsx:62` — `export function KpiStrip({ children, inset = false, state, className }: KpiStripProps) {`
-  - `bifrost-ui/src/index.ts:1` — `297 lines of re-exports; 14 ContextMenu entries`
-- **Impact**: Low: extra public surface that every DS default change must keep compatible, and noise in design-sync inventories.
-- **Fix**: Run knip (or ts-prune) over bifrost-ui with both consumers as entry points. Drop exports with no user, and mark the ones kept on purpose for Design.
-- **Ratchet**: code-health metric UI_UNUSED_EXPORTS in scan.sh with a baseline in baselines.env, run by a CI job that actually scans --repo bifrost-ui (none does today).
-- **验收**: `bash /Users/vision-mac-trader/Desktop/stocks/scripts/code-health/scan.sh --repo bifrost-ui | grep UI_UNUSED_EXPORTS  # value ≤ baseline`
-- 审批 改公开接口 · 代价 S · 风险 low · repos: bifrost-ui, bifrost-trade-infra
-
 ### TD-240
 
 **P3 · trade-worker · The running PROD daemon never writes contract_quote_live: the observe-only quote mirror sits under mock_hedging, which is hard-coded True**
@@ -1859,21 +1729,6 @@
 - **Fix**: At enrich, when day_close < intrinsic (or outside the session bid/ask), use the vendor mid or bid/ask and label mark_source accordingly (new value, no DDL). Restating existing rows is an Owner decision.
 - **Ratchet**: A core test: enrich never stores a mark below intrinsic without a distinct mark_source.
 - 审批 已批（Owner 10-07「做」）· 代价 S · 风险 low · repos: bifrost-trade-core
-
-### TD-247
-
-**P3 · frontend · Look-back starts are still computed in the browser's time zone (new Date(Date.now() - N*86400000).toISOString().slice(0,10)), and three private New York date helpers duplicate @/lib/freshness**
-
-- **状态**：待你签收（Trade 10-07 三环境：STG bifrost-deliver-stg-6wrjs、PROD bifrost-deliver-prod-pinned-ntfpf（core 0.58.0 @ 3c79f41，tag v0.58.0）、DEV 跟随，前端 6d86132 + @bifrost/ui 9b635b2）
-- **验收结果**：PASS 2026-10-07：前端 6d86132 已上 STG/PROD/DEV，release-check 三环境 PASS
-- **Claim**: TD-232's ratchet only catches argument-less new Date(); SymbolForecastSessions.tsx:50, SymbolVolatilityFace.tsx:216, SymbolDealerHistory.tsx:57, useMarketSessions.ts:16 and PlaybookRecord snapFrom build look-back starts from UTC instants. bookLive.etDate, agentActivity.nyDate and sizingTodayModel.nyDate re-implement the NY date.
-- **Measured**: code-read 10-07 by paydown lane GG.
-- **Evidence**:
-  - `bifrost-trade-frontend/src/pages/research/analyze/symbol/SymbolForecastSessions.tsx:50` — `const daysAgoIso = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10)`
-- **Impact**: Off-by-one-day windows near midnight; short look-backs (Forecast sessions) are the most affected.
-- **Fix**: Add an etDaysAgoIso(n) helper to @/lib/freshness, route the five sites through it, fold the three NY-date copies into it; extend utcTodayRatchet to the `new Date(Date.now() - …)` form.
-- **Ratchet**: Extend src/lib/utcTodayRatchet.test.ts.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
 
 ### TD-250
 

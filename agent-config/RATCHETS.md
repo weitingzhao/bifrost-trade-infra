@@ -122,6 +122,13 @@
 | 修 WAL 不删失败 Backup 记录（TD-131） | `bifrost-platform/api/internal/cluster/postgres_wal_repair_test.go`（repair 无 delete；只清 30 天前失败的） | 失败备份的记录被修复动作抹掉 | error（Go 测试） | — |
 | 部署的 ops-context 与 platform spine 逐字节一致（TD-109） | `bifrost-trade-infra/scripts/check_ops_context_parity.py` + ci-platform task check-ops-context | PROD 读到过期的 spine（缺 33 个 decision） | warning（CI 不挡发布） | ci-platform 不挡 release.sh |
 | 宏观面板错误文案（TD-182） | 组件已删；`orphanModules.test.ts` | 组件再出现且无人引用 | warning（测试） | — |
+| research 无人调用的路由不复活（TD-123） | `bifrost-research/tests/...test_retired_routes.py` | 删掉的路由被加回 | warning（测试） | — |
+| 夜间 trim 单飞（TD-106） | market-data trim 单飞测试 + research market_trim 轮询测试 | 并发 trim 重叠、Dagster 60s 超时重试 | warning（测试） | — |
+| 迁移先于主体部署（TD-119） | market-data `k8s/migrate` 拆分 + login wiring 测试，`make deploy` 顺序 | 新列在迁移前被 worker 读 | warning（测试 + Makefile） | 手工 apply -k base 仍可绕过 |
+| 退役 IB 脚本归档（TD-125） | 无可行防线：一次性清理 | — | — | — |
+| 前端「今天」按纽约交易日（TD-213 / TD-247） | 前端 ESLint no-restricted-syntax + 日期测试 | UTC 日界错日 | error（lint） | — |
+| @bifrost/ui 无未用导出（TD-239） | `bifrost-ui/scripts/public-exports.test.mjs` | 新导出无人使用 | warning（测试，未进 CI） | ui npm test 不在 CI |
+| 插件旧 max-pain/PCR 路由不回来（TD-102） | trade-api / market-data 退役路由测试 | 绕过调整合约过滤的重复实现 | warning（测试） | — |
 
 ## 各类债现在挡没挡住
 
