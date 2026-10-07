@@ -696,3 +696,4 @@ check-agent-parity:
 check-code-health:
 	bash agent-config/scripts/code-health/scan.sh
 check-maintainers: ; python3 scripts/check_maintainers.py
+check-pitr-drill: ; python3 scripts/check_pitr_drill_manifest.py

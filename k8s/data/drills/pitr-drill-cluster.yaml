@@ -1,0 +1,100 @@
+# Quarterly PITR drill. Prepared, not applied. Not in k8s/data/kustomization.yaml,
+# so Argo will not create it. Apply only from docs/runbooks/pitr-drill.md.
+#
+# One instance, bootstrap.recovery from the production Barman bucket, no
+# recoveryTarget (replay to the end of archived WAL). There is no backup
+# section and no archive_command: this Cluster must never write
+# s3://bifrost-postgres-backup/. Credentials are a read-only Secret the Owner
+# creates in namespace pitr-drill. Do not copy Secret data/minio-backup.
+#
+# Sizing, read 2026-10-07 (read-only). kubelet node.fs.availableBytes, not
+# allocatable ephemeral-storage (that figure is ~442Gi on every node):
+#   ubt-k3s-02 prod-pool, primary pod   133.9Gi free  (avoid)
+#   ubt-k3s-04 data-primary, replica    160.0Gi free  (avoid)
+#   ubt-k3s-05 general                  160.4Gi free
+#   ubt-k3s-06 general                  239.8Gi free  (preferred)
+# Database sizes on the replica: bifrost_golden_source 36567004851 bytes
+# (34 GB), bifrost_dev 17 MB, bifrost_stg 20 MB, bifrost_prod 19 MB.
+# The 80Gi request is about 2.3x that data, leaving room for WAL replay.
+# Recent base backups of this cluster took ~76 minutes
+# (bifrost-postgres-daily-20261007030000, 03:00:00Z to 04:15:50Z).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pitr-drill
+  labels:
+    app.kubernetes.io/name: bifrost-postgres-pitr-drill
+    app.kubernetes.io/part-of: bifrost
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: bifrost-postgres-pitr-drill
+  namespace: pitr-drill
+  labels:
+    app.kubernetes.io/name: bifrost-postgres-pitr-drill
+    app.kubernetes.io/part-of: bifrost
+    bifrost.io/purpose: pitr-drill
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.9
+  primaryUpdateStrategy: unsupervised
+  storage:
+    size: 80Gi
+    storageClass: local-path
+  affinity:
+    enablePodAntiAffinity: false
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: bifrost.io/workload-pool
+                operator: In
+                values: ["general"]
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values: ["ubt-k3s-02", "ubt-k3s-04"]
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values: ["ubt-k3s-06"]
+  bootstrap:
+    recovery:
+      source: bifrost-postgres
+  externalClusters:
+    - name: bifrost-postgres
+      barmanObjectStore:
+        destinationPath: s3://bifrost-postgres-backup/
+        endpointURL: http://minio.data.svc.cluster.local:9000
+        serverName: bifrost-postgres
+        s3Credentials:
+          accessKeyId:
+            name: minio-backup-readonly
+            key: ACCESS_KEY_ID
+          secretAccessKey:
+            name: minio-backup-readonly
+            key: SECRET_ACCESS_KEY
+        wal:
+          compression: gzip
+          maxParallel: 1
+        data:
+          compression: gzip
+  postgresql:
+    parameters:
+      shared_buffers: 256MB
+      effective_cache_size: 1GB
+      work_mem: 4MB
+      maintenance_work_mem: 64MB
+      max_connections: "40"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 1Gi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+  monitoring:
+    enablePodMonitor: false
