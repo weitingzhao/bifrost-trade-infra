@@ -20,7 +20,9 @@ and fails unless:
 - the default receiver's webhook is
   ``platform-api.bifrost-platform-prod.svc.cluster.local:8780/api/v1/ops-agent/alertmanager``;
 - Alertmanager's egress policy allows monitoring → that PROD Service port and does not
-  name the STG namespace.
+  name the STG namespace;
+- the webhook bearer the apply script writes is the PROD reporter token, not the
+  operator token (the route accepts reporter or above and only writes diagnostics).
 
 "Outside the cluster" means a webhook URL whose host is not ``*.svc.cluster.local``.
 
@@ -65,7 +67,9 @@ PROD_NS = "bifrost-platform-prod"
 AM_SECRET = "alertmanager-kube-prometheus-stack-alertmanager"
 EGRESS_NAME = "alertmanager-webhook-egress"
 TOKEN_SCRIPT = ROOT / "scripts/k3s/apply-platform-role-tokens.sh"
-WEBHOOK_TOKEN_LINE = 'printf \'token=%s\\n\' "$(env_value PLATFORM_PROD_OPERATOR_TOKEN)"'
+# The webhook bearer is the PROD reporter token. The operator printf must not come back.
+WEBHOOK_TOKEN_FN = "webhook_token"
+WEBHOOK_REPORTER_KEY = "PLATFORM_PROD_REPORTER_TOKEN"
 
 
 def parse_matcher(m: str):
@@ -182,19 +186,21 @@ def policy_allows_prod(pol: dict) -> bool:
 
 
 def assert_token_source(problems: list[str]) -> None:
-    """The webhook bearer written for the next apply must be the PROD operator token.
-    PROD platform-api's operator role reads PLATFORM_PROD_OPERATOR_TOKEN; the STG
-    token is a different secret and the route returns 401."""
+    """The webhook bearer written for the next apply must be the PROD reporter token.
+    The route accepts reporter or above and only writes diagnostics and audit, so
+    Alertmanager must not hold PLATFORM_PROD_OPERATOR_TOKEN."""
     text = TOKEN_SCRIPT.read_text()
-    if WEBHOOK_TOKEN_LINE not in text:
-        problems.append(
-            f"{TOKEN_SCRIPT.relative_to(ROOT)}: webhook secret is not filled from PLATFORM_PROD_OPERATOR_TOKEN"
-        )
-    stale = 'printf \'token=%s\\n\' "$(env_value PLATFORM_STG_OPERATOR_TOKEN)"'
-    if stale in text:
-        problems.append(
-            f"{TOKEN_SCRIPT.relative_to(ROOT)}: webhook secret is still filled from PLATFORM_STG_OPERATOR_TOKEN"
-        )
+    rel = TOKEN_SCRIPT.relative_to(ROOT)
+    if WEBHOOK_TOKEN_FN not in text or WEBHOOK_REPORTER_KEY not in text:
+        problems.append(f"{rel}: webhook secret is not filled from {WEBHOOK_REPORTER_KEY}")
+    if 'printf \'token=%s\\n\' "$(webhook_token)"' not in text:
+        problems.append(f"{rel}: webhook secret is not written by webhook_token")
+    for stale, label in (
+        ('printf \'token=%s\\n\' "$(env_value PLATFORM_PROD_OPERATOR_TOKEN)"', "PLATFORM_PROD_OPERATOR_TOKEN"),
+        ('printf \'token=%s\\n\' "$(env_value PLATFORM_STG_OPERATOR_TOKEN)"', "PLATFORM_STG_OPERATOR_TOKEN"),
+    ):
+        if stale in text:
+            problems.append(f"{rel}: webhook secret is still filled from {label}")
 
 
 def secret_sha256(namespace: str, name: str, key: str) -> str | None:
@@ -211,14 +217,15 @@ def secret_sha256(namespace: str, name: str, key: str) -> str | None:
 def assert_live_bearer(problems: list[str]) -> None:
     """Compare digests only. Never print either secret."""
     webhook = secret_sha256("monitoring", "alertmanager-webhook-auth", "token")
-    prod = secret_sha256("bifrost-platform-prod", "bifrost-platform-role-tokens", "PLATFORM_PROD_OPERATOR_TOKEN")
+    prod = secret_sha256(
+        "bifrost-platform-prod", "bifrost-platform-reporter-token", "PLATFORM_PROD_REPORTER_TOKEN")
     if not webhook or not prod:
-        problems.append("live: cannot read the webhook bearer or the PROD operator token")
+        problems.append("live: cannot read the webhook bearer or the PROD reporter token")
         return
     if webhook != prod:
         problems.append(
-            "live: alertmanager-webhook-auth is not the PROD operator token; "
-            "PROD platform-api would reject the audit webhook"
+            "live: alertmanager-webhook-auth is not the PROD reporter token; "
+            "the audit webhook would 401 once the route is reporter-or-above"
         )
 
 

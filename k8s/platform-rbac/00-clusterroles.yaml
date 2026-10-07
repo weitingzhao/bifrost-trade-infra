@@ -8,7 +8,8 @@
 #               namespaces, state ConfigMaps in their own namespace and cicd,
 #               the Gitea credentials Secret in cicd
 #   PROD only   workload actuation (rollout restart, scale, delete pod) in
-#               Bifrost namespaces, node cordon, data-layer actuation in data
+#               Bifrost namespaces, node cordon, node drain (pod eviction and
+#               PDB list — power-off drains first), data-layer actuation in data
 #               (pods/exec on Postgres, CNPG Backups), delivery in cicd
 #               (PipelineRuns, Argo sync/rollback)
 #
@@ -172,3 +173,25 @@ rules:
   - apiGroups: [argoproj.io]
     resources: [applications]
     verbs: [update, patch]
+---
+# PROD only, cluster-wide: drain and power-off. kubectl drain cordons (that is
+# bifrost-platform-node-actuator) then creates pods/eviction and lists
+# PodDisruptionBudgets in every namespace on the node, including kube-system.
+# Pod delete stays on bifrost-platform-workload-actuator, Bifrost namespaces
+# only — this role does not grant delete, so kube-system pods cannot be deleted.
+# Stack install / node join shell out to scripts that create Namespaces, CRDs
+# and ClusterRoles; those stay with the Owner's admin kubeconfig (TD-204).
+# Daemon scale-up stays tier X in platform code (refuseDaemonScaleUp, D10);
+# RBAC still cannot exclude one Deployment by name.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: bifrost-platform-node-drain
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+rules:
+  - apiGroups: [""]
+    resources: [pods/eviction]
+    verbs: [create]
+  - apiGroups: ["policy"]
+    resources: [poddisruptionbudgets]
+    verbs: [get, list, watch]

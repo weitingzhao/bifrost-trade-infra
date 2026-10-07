@@ -48,6 +48,7 @@ patches:
   - path: platform-api-role-tokens.patch.yaml
   - path: platform-approval-notify.patch.yaml
   - path: platform-runner-token.patch.yaml
+  - path: platform-unifi-env.patch.yaml
 
 images:
   - name: registry.cicd.svc.cluster.local:5000/bifrost-platform-api

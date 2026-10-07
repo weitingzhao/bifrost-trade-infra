@@ -20,6 +20,12 @@ spec:
               value: "false"
             - name: PLATFORM_RELEASE_RECORDER
               value: "off"
+            # LANE-B4: code defaults both loops on. STG observes (ADR §4), so
+            # this overlay is the only place they are off. PROD leaves them unset.
+            - name: PLATFORM_DATA_CLONE_SCHEDULER
+              value: "off"
+            - name: PLATFORM_PATROL_LOOP
+              value: "off"
             - name: OPS_IB_AUTO_ROLLOUT_COOLDOWN_SEC
               value: "900"
             - name: OPS_IB_SNAPSHOT_STALE_SEC
