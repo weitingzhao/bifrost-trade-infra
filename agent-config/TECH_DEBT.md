@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-206** — git-bridge 写操作要令牌、只暂存点名路径（platform 79ed8db；本机已切换） · 验收 PASS（匿名 /commit、/push 401，带令牌的 /status 通过） · 防线：`agent/git-bridge/src/server.test.ts`（无令牌拒绝、空路径列表拒绝、不 add -A） · 后续：本机 platform-api 跑预编译二进制，pull 后要 make build-api（已记入记忆，无新编号）
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-253** — 检查信号不再是几周前的：每条带观测时间和来源，超过 2 小时读 unknown、autopilot 不会按它动手；PROD platform-workers 自己每 10 分钟探测一次（不再靠 Mac 上报）。验收 PASS 2026-10-07 d8bdf41（22/22 带时间）。防线：`RATCHETS.md`「检查信号的时效与来源」测试 + `check_platform_maintenance.py`（探测器只在 PROD workers）。后续：无后续：放开 autopilot 动手在 TD-130（观察到 10-12）
@@ -1365,8 +1366,8 @@
 
 **P1 · ops-console · git-bridge answers anyone on the LAN, and its /commit runs `git add -A` on the shared checkout; /push pushes the current branch with no release-window check**
 
-- **状态**：观察中（platform 79ed8db 已上 STG/PROD；REMEDIATION_RUNNER_TOKEN 已进两个环境 Secret（infra 4c08e9f overlay）；.50 primary / .52 standby / .52 Hermes 已重部署 10-07；本机 git-bridge 跑在共享 platform checkout（e504020，落后 34 个提交）——要你 pull --ff-only 后 bdev restart git-bridge / platform-api）
-- **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
+- **状态**：待你签收（platform 79ed8db：集群 STG/PROD 已上；本机共享 checkout 已快进、platform-api 重编译、git-bridge 重启，10-07）
+- **验收结果**：PASS 2026-10-07：本机 git-bridge 日志 auth=bearer、匿名 POST /commit 与 /push 均 401、GET /health 200；本机 platform-api /agent/bridge git_bridge=ok（带令牌探 /status 通过）
 - **Claim**: agent/git-bridge listens on 0.0.0.0:8785 and has no auth middleware (only express.json). POST /commit stages the whole tree (`git add -A`) in any of 9 repos of the multi-session shared checkout and commits. That is exactly the action preflight.js blocks for agents (the 09-07 and 09-22 incidents). POST /push pushes HEAD's branch, normally main, to the PUBLIC origin and never runs `release.sh window`. The remediation runner's git_commit and git_push tools call these endpoints, so preflight never sees them.
 - **Measured**: MEASURED 2026-10-07: node PID 65068 listens on *:8785. From LAN IP 192.168.20.74, an anonymous GET /status returns 200, and /health reports workspace=/Users/vision-mac-trader/Desktop/stocks with repos=9. PROD platform-api /api/v1/agent/bridge reports git_bridge http://192.168.10.40:8785 status=ok (the same Mac, another interface). No POST was sent.
 - **Evidence**:
