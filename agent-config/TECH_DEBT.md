@@ -335,10 +335,11 @@
 
 **P1 · trade (round 1) · One database password reaches everything: any DEV pod can write PROD Trade and all of Golden Source**
 
-- **状态**：观察中（到 10-07，看 `data_writer` 撤掉 `raw_broker` 权限后一个插件日内有无权限报错）
+- **状态**：在做（验收已 PASS，只差防线：`RATCHETS.md` 里 TD-85 那行的 role-matrix 检查还没建）
+- **验收结果**：PASS 2026-10-07 eaf68ac — GS `datacl` 里 PUBLIC 只剩 `=T`（无 CONNECT）；10-06 16:43 → 10-07 16:43 UTC 两个实例的 Postgres 日志里 `data_writer` / `flex_writer` 的 `permission denied` 为 0；`flex_writer` 10-07 10:30 UTC 照常写入 raw_broker（5 行）。日志里另有 2 条是 `bifrost` 的 pg_dump 读不了 `research.suggestion_adoption_suggestion_adoption_id_seq`（10-07 01:42 手动逻辑备份，已失败；之后 03:14 手动与 04:30 定时两次都 Complete），不属于本项
 - **验收**：Golden Source 的 `datacl` 里没有 PUBLIC 的 CONNECT（`=c`），且 Postgres 日志 24 小时内 `data_writer` / `flex_writer` 的 `permission denied` 为 0：`kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_golden_source -X -At -c "SELECT datacl FROM pg_database WHERE datname = current_database()"`
-- **现在**：D1–D8 全部执行完：三环境 Trade 运行时用 `trade_app_<env>` 登录；D4 已在三个 Trade 库收回 PUBLIC 的 CONNECT 和 CREATE（10-06，验证 74/74）；D7 ConfigMap 已合入；D6 收口完成，`data_writer` 在 `raw_broker` 上的写权已撤（core 0.48.2，10-06）。
-- **下一步**：Golden Source 上 PUBLIC 仍能 CONNECT（D6 范围，未排期，要你批）；`data_writer` 撤权后再看一个插件日的权限报错。（10-07）
+- **现在**：D1–D8 与 GS 的 PUBLIC CONNECT 收回（10-06，eaf68ac）全部执行完：三环境 Trade 运行时用 `trade_app_<env>` 登录；D4 已在三个 Trade 库收回 PUBLIC 的 CONNECT 和 CREATE（10-06，验证 74/74）；D7 ConfigMap 已合入；D6 收口完成，`data_writer` 在 `raw_broker` 上的写权已撤（core 0.48.2，10-06）。
+- **下一步**：建 role-matrix 防线（只读脚本 + 期望矩阵，每日 CronJob，`BifrostDbPrivilegeDrift`），落地后进「待你签收」。（10-07）
 - **Claim**: Measured 2026-10-04 (read-only): nine Secret keys hold the same value, the bifrost password (PGPASSWORD and GOLDEN_SOURCE_PASSWORD in bifrost-{dev,stg,prod}-secrets, flex-query postgres-password / trade-pg-password, market-data postgres-password). bifrost can INSERT into 320 Golden Source tables and CREATE in raw_broker and research; analytics_writer inherits bifrost and can write all 19 tables of bifrost_prod.public. PUBLIC has CONNECT/TEMP on all four databases and CREATE on public in the Trade databases. D13 is not enforced at the database layer in either direction.
 - **Evidence**:
   - `REQUEST-trade-runtime-db-role-plan-2026-10-04.md:1` — ``
