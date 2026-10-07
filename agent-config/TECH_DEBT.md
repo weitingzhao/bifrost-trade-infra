@@ -21,7 +21,7 @@
 - **TD-255** — 漂移扫描不再删失败现场：只删被驱逐的 Pod，失败的备份 Job Pod 留着（日志可读），只报告模式下一个不删。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「漂移扫描只删 Evicted 测试」。后续：无后续：Job 历史上限与 TTL 负责回收
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 72 项**：P0 0 · P1 7 · P2 26 · P3 39；要你批的 32 项（从总览表的审批列算）。
+**未结 73 项**：P0 0 · P1 7 · P2 26 · P3 40；要你批的 32 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -110,7 +110,7 @@
 
 目标：数据层告警有一个人能收到的通道和外部心跳；逻辑备份先修好等库就绪；做一次 Barman 恢复演练；决定异地副本；daemon 停写与日志丢失要能被看见。
 
-项：TD-210, TD-217, TD-218 · 已还：TD-248, TD-209, TD-215, TD-216, TD-238, TD-237
+项：TD-210, TD-217, TD-218, TD-258 · 已还：TD-248, TD-209, TD-215, TD-216, TD-238, TD-237
 
 ### 第 11 波 · 账本与页面读数、绿着的未知（第 3 轮）
 
@@ -306,6 +306,7 @@
 | [TD-254](#td-254) | P2 | ops-platform | Two mechanisms repair the same failed backup: the autopilot's repair_cnpg_wal_store (every 15 min) and the backup-retry CronJob | 不用批 |
 | [TD-255](#td-255) | P3 | ops-platform | The hourly drift scan deletes every Failed pod it may, including failed backup Job pods in data | 不用批 |
 | [TD-256](#td-256) | P3 | ops-platform | Plugin freshness probes read Postgres by exec into the primary as superuser: STG cannot run them, PROD keeps pods/exec for a read | 不用批 |
+| [TD-258](#td-258) | P3 | data | The recovery-drill staleness alert assumes a monthly CronJob that does not exist; the Owner set the drill to quarterly and manual | 不用批 |
 
 ## 条目
 
@@ -1564,6 +1565,20 @@
 - **Ratchet**: code-health metric: ExecSQLOnPrimary call sites outside cluster/data_clone*.go, baseline 2, falling.
 - **验收**: `git -C bifrost-platform grep -n 'ExecSQLOnPrimary' origin/main -- api/internal/marketdata api/internal/flexquery  # no output`
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-258
+
+**P3 · data · The recovery-drill staleness alert assumes a monthly CronJob that does not exist; the Owner set the drill to quarterly and manual**
+
+- **状态**：未开始（Owner 10-07：演练按季度、手工；保留 MinIO 只读用户 pg-recovery-drill）
+- **Claim**: k8s/monitoring/td-d2-postgres-rules.yaml BifrostPostgresRecoveryDrillStale checks the last success of a CronJob pg-recovery-drill within 35 days. The 10-07 drill was run by hand (no CronJob), so the rule would fire permanently; it was taken out of the monitoring kustomization (infra 3791768). Owner 10-07: drill quarterly at most, keep the MinIO read-only user pg-recovery-drill.
+- **Measured**: MEASURED 10-07: first drill PASS 2026-10-07 (compare.sh + A6 104/105); no CronJob pg-recovery-drill exists.
+- **Evidence**:
+  - `bifrost-trade-infra/k8s/monitoring/td-d2-postgres-rules.yaml:43` — `- alert: BifrostPostgresRecoveryDrillStale`
+- **Impact**: Either no alert ever tells the Owner a quarter has passed without a drill, or the rule pages forever.
+- **Fix**: On PASS, compare.sh records the pass (e.g. recreate ConfigMap data/pg-recovery-drill-last-pass so kube_configmap_created moves); the rule fires when time() - that timestamp > ~100 days (or the ConfigMap is absent after the first record). Seed it with the 10-07 pass. Keep the WAL rule from the same file once TD-134 has a day of data. Then add the file back to the monitoring kustomization.
+- **Ratchet**: check_alert_routing.py covers the rule; a self-test for the 100-day expression.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ## 没覆盖到的（下一轮从这里开始）
 
