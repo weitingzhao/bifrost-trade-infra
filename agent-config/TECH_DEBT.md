@@ -13,10 +13,9 @@
 
 ## 待你签收
 
-- **TD-205** — STG/PROD Redis 不再对局域网开放：删掉 30380 / 30382 两个 NodePort 和它们的局域网策略，platform 改走集群内地址探测。验收 PASS 2026-10-07（局域网连 30382 失败、Service NotFound、PROD daemon 与 Trade 正常）。防线：`RATCHETS.md`「check_data_lan_exposure.py」。后续：platform b0a8dc0 随下一次 platform 发布（只是面板显示）；redis-dev 的 30379 保留（无密码，只 DEV）
 - **TD-199** — 删掉自 09-24 起无人引用的 EventsBoard.tsx / EventRadarDashboard.tsx，改正两处注释（frontend e98afbf0）· 验收 PASS（10-07）· 防线：`src/lib/orphanModules.test.ts`（从 main.tsx 走导入图，KNOWN_ORPHANS 只许缩短）· 后续：TD-243（其余 42 个孤儿模块）
 
-**未结 120 项**：P0 0 · P1 12 · P2 39 · P3 69；要你批的 62 项（从总览表的审批列算）。
+**未结 119 项**：P0 0 · P1 11 · P2 39 · P3 69；要你批的 61 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -39,7 +38,6 @@
 - **TD-96** — preflight 的 D10 闸门只认 curl；修改稿在 `REQUEST-td96-preflight-d10-2026-10-06/`，等 Owner 审。
 
 - **TD-130** — 真正在生产数据层上动手的 Ops 自动修复跑在 Owner 的笔记本上（本机 bdev 的 platform-api），集群里 STG/PROD 那两份在空转；10-05 到 10-06 对备份 MinIO 的重启和补备份都是它做的。
-- **TD-205** — PROD Redis 没有密码、局域网 NodePort 30382 可达，里面是 PROD daemon 的控制键：局域网任何设备都能让 daemon stop / flatten，绕过 trade-api 的控制闸门和审计。
 - **TD-209** — 所有数据层告警（备份失败、WAL 停、NAS MinIO 掉线、逻辑备份缺失）只进 STG platform-api 的内存审计日志，没有人会收到；`BifrostLogicalBackupMissing` 从 10-06 22:03Z 起一直在响。
 
 ## 还债顺序
@@ -102,7 +100,7 @@
 
 目标：先关门再修代码。本机 platform-api 只监听本机、PROD/STG Redis 的局域网 NodePort 删掉，然后 git-bridge、修复 runner、Hermes、husbandry-sync 都要令牌；platform 换成按需授权的 ServiceAccount，停用管理员 kubeconfig；路由鉴权测试卡住回退。
 
-项：TD-205, TD-206, TD-207, TD-208, TD-204, TD-220, TD-225, TD-221, TD-222, TD-223, TD-224, TD-231 · 已还：TD-203
+项：TD-206, TD-207, TD-208, TD-204, TD-220, TD-225, TD-221, TD-222, TD-223, TD-224, TD-231 · 已还：TD-205, TD-203
 
 ### 第 10 波 · 告警有人收、备份能恢复（第 3 轮）
 
@@ -303,7 +301,6 @@
 | [TD-199](#td-199) | P3 | frontend | EventsBoard.tsx and EventRadarDashboard.tsx have had no importer since 09-24 (c81e5a29); a comment still says EventRadarBody 'stays the Explorer tab's body' though Explorer was retired in 594a3f3f | 删除（要你批） |
 | [TD-202](#td-202) | P3 | market-data | market-data code strings and scripts still mention CronJobs: the dashboard label 'CronJob archived' and verify-market-data.sh's hint are user-visible | 不用批 |
 | [TD-204](#td-204) | P1 | ops-platform | STG and PROD platform-api and platform-workers run as system:masters through a copy of the k3s admin kubeconfig, and anonymous GETs use it to read pod logs in any namespace | 安全/凭据（要你批） |
-| [TD-205](#td-205) | P1 | data | PROD Redis, which holds the daemon's control stream and state hash, has no password and is open on NodePort 30382 to two LAN /24s and, through NodePort SNAT, to every pod in the cluster | 安全/凭据（要你批） |
 | [TD-206](#td-206) | P1 | ops-console | git-bridge answers anyone on the LAN, and its /commit runs `git add -A` on the shared checkout; /push pushes the current branch with no release-window check | 安全/凭据（要你批） |
 | [TD-207](#td-207) | P1 | ops-console | The remediation runner (:8781) and the Hermes gateway (:8782) on the Mac minis start, approve and cancel agent jobs for anyone on the LAN: POST /run, /run/:id/respond and /skills/:id/trigger have no auth | 安全/凭据（要你批） |
 | [TD-208](#td-208) | P1 | ops-platform | Anonymous POST /checklist/husbandry-sync starts full-auto remediation agents: it merges the stored checklist and dispatches every failing item, and three Console pages call it on load | 安全/凭据（要你批） |
@@ -1641,26 +1638,6 @@
 - **Ratchet**: Infra manifest policy check (ratchet proposal 'infra-manifest-policy'): no Deployment mounts a Secret whose name matches *kubeconfig*, and every platform Deployment sets serviceAccountName. Platform test: the pod-logs route returns 401 without a token. Optionally, platform-api exports a gauge when SelfSubjectReview shows system:masters, and an alert fires on it.
 - **验收**: `KUBECONFIG=~/.kube/bifrost-k3s.yaml sh -c 'kubectl -n bifrost-platform-stg get secret bifrost-platform-kubeconfig </dev/null; kubectl auth can-i get secrets -n data --as=system:serviceaccount:bifrost-platform-stg:platform-api </dev/null'  # expect NotFound, then no; and an anonymous GET of a kube-system pod's logs on 30876 returns 401`
 - 审批 安全/凭据（要你批） · 代价 M · 风险 med · repos: bifrost-platform, bifrost-trade-infra
-
-### TD-205
-
-**P1 · data · PROD Redis, which holds the daemon's control stream and state hash, has no password and is open on NodePort 30382 to two LAN /24s and, through NodePort SNAT, to every pod in the cluster**
-
-- **状态**：待你签收
-- **现在**：10-07 已删 `redis-live-stg-lan`（30380）、`redis-live-prod-lan`（30382）及两条 `-lan-ingress` 策略（infra c4d7c63，线上已删，删前对象备份在会话 scratchpad）。platform 改走集群内 Service（overlay 配置 + 重启 STG/PROD 的 api 与 workers），`redis-live-{stg,prod}-ingress` 放行 `bifrost-platform-{stg,prod}`（已 apply）；矩阵里 STG/PROD Redis 仍为 ok（地址显示 `cluster://`）。PROD daemon 2/2、PROD Trade health 200。platform b0a8dc0（局域网访问表只列 DEV，不再把 STG/PROD 标黄）已上 main，等下一次 platform 发布
-- **Claim**: redis-live-prod-lan-ingress allows 192.168.10.0/24, 192.168.20.0/24 and the five flannel.1 /32 addresses, which are the SNAT source of any NodePort connection, including one from a pod in bifrost-dev, research or a plugin namespace. The NodePort file says 'dev only' but exposes redis-live-stg (30380) and redis-live-prod (30382). The server has no requirepass and no ACL. The live keys include bifrost:daemon:trading:control, which the PROD daemon consumes (poll_and_consume_control accepts 'flatten' and maps unknown commands to 'stop'), and bifrost:daemon:trading:state. Any LAN device can therefore stop or un-suspend the 2-replica PROD daemon, bypassing the trade-api /control gates and the audit trail. The NodePorts 30379/30380/30382/30432 are missing from the AGENT_FACTS §8c table.
-- **Measured**: MEASURED 2026-10-07. From 192.168.20.74, PING to 192.168.10.73:30382 (PROD) and to 30380 (STG) both return +PONG with no AUTH. svc list in data: redis-live-prod-lan 30382, redis-live-stg-lan 30380, redis-dev-lan 30379, bifrost-postgres-lan 30432. redis-cli --scan in redis-live-prod lists the three daemon keys. PROD reaches this instance through ExternalName redis → redis-live-prod. bifrost-prod/daemon is 2/2 (observe-safe). Pod-to-NodePort reachability is CODE-READ; no probe pod was started.
-- **Evidence**:
-  - `bifrost-trade-infra/k8s/data/redis/redis-nodeport.yaml:4` — `# No password is configured on these phase-⑥ single-replica instances (dev only).`
-  - `bifrost-trade-infra/k8s/data/redis/redis-nodeport.yaml:74` — `nodePort: 30382`
-  - `bifrost-trade-infra/k8s/data/redis/network-policies.yaml:169` — `cidr: 192.168.10.0/24`
-  - `bifrost-trade-core/src/bifrost_core/persistence/redis_daemon_state.py:20` — `TRADING_CONTROL_STREAM = "bifrost:daemon:trading:control"`
-- **Impact**: A boundary hole next to D10. PROD daemon control and state are writable by any LAN device, and by any compromised pod, with no credential and no audit. Observe-safe mode prevents real orders today, but nothing protects control once execution is unlocked. Namespace isolation of the STG and PROD Redis instances is void.
-- **Fix**: Delete the redis-live-prod-lan and redis-live-stg-lan NodePorts and their -lan-ingress policies; use kubectl port-forward for Redis Insight. If LAN access must stay, enable ACL users (read-only for Insight, a writer for trade) and drop the flannel.1 /32 entries. Add every remaining NodePort to AGENT_FACTS §8c.
-- **Ratchet**: Infra manifest policy check: fail if a NodePort Service selects a pod labelled bifrost.io/environment in {prod, stg} without an allowlist entry, or if a NetworkPolicy for a prod/stg data pod has an ipBlock wider than /32.
-- **验收**: `nc -z -w3 192.168.10.73 30382; echo $?  # expect 1; and KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data get svc redis-live-prod-lan </dev/null  # expect NotFound`
-- **验收结果**：PASS 2026-10-07 c4d7c63：`nc -z -w3 192.168.10.73 30382` 退出码 1；`kubectl -n data get svc redis-live-prod-lan` NotFound；30380 同样无应答；`make check-data-lan-exposure` 与 `LIVE=1` 均 ok
-- 审批 安全/凭据（要你批） · 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ### TD-206
 
