@@ -15,7 +15,7 @@
 
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 107 项**：P0 0 · P1 10 · P2 33 · P3 64；要你批的 56 项（从总览表的审批列算）。
+**未结 108 项**：P0 0 · P1 10 · P2 33 · P3 65；要你批的 56 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -87,7 +87,7 @@
 
 目标：Data Gaps 看板上未结的 15 项并入台账：先把每日快照的写入修对（TD-137）再接读侧和三页，归因行补上价格，Research 侧已就绪的一个版本（0.185.0）发出去，长期限 IV 锥在 10-31 前从 option_daily 回填，其余按 Owner 已定的口径排。
 
-项：TD-137, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-158, TD-159, TD-172, TD-180, TD-182, TD-243, TD-246 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181, TD-193, TD-140, TD-171, TD-138, TD-139, TD-178, TD-199
+项：TD-137, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-158, TD-159, TD-172, TD-180, TD-182, TD-243, TD-246, TD-250 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181, TD-193, TD-140, TD-171, TD-138, TD-139, TD-178, TD-199
 
 ### 第 8 波 · Pine 线程收尾后的跟进（10-06）
 
@@ -330,6 +330,7 @@
 | [TD-247](#td-247) | P3 | frontend | Look-back starts are still computed in the browser's time zone (new Date(Date.now() - N*86400000).toISOString().slice(0,10)), and three private New York date helpers duplicate @/lib/freshness | 不用批 |
 | [TD-248](#td-248) | P3 | ops-platform | The ntfy alert relay runs on one Mac mini (.50) and nothing watches it: if .50 or its operator-plane is down, no alert and no dead-man page reaches the Owner | 不用批 |
 | [TD-249](#td-249) | P3 | ops-console | After TD-230/227: remediation agent copy still says the gate result is pass/fail (no inconclusive), and Control Room does not list which sources are stale | 不用批 |
+| [TD-250](#td-250) | P3 | trade-data | A stale vendor close above intrinsic is still stored as vendor_eod: the plugin's snapshot read does not return last_trade_ts, so enrich cannot tell a morning trade from a session close | 不用批 |
 
 ## 条目
 
@@ -2085,7 +2086,9 @@
 
 **P3 · trade-data · Snapshot enrich stores a vendor 'day close' that can sit below the option's intrinsic value (a stale last trade), and P&L attribution then books it as unexplained**
 
-- **状态**：在做（还债循环 · 道 L4，10-07 03:2x UTC 开工；Owner 已批「做」；改写已有行仍要单独批）
+- **状态**：观察中（core 0.56.0 = 668c63f 已上 main，等下一次 Trade 发版；已有行是否改写由你定，预演 SQL `bifrost-trade-core/scripts/db/td246_marks_under_intrinsic_dryrun.sql`：DEV / STG 各 1 行，PROD 只读被拦未测）
+- **验收**：下一次 Trade 发版后 api-monitor `/health` core_sha = 668c63f；之后每环境跑 dry-run SQL，snapshot_date ≥ 发版日的行里不再有 mark 低于内在价值且标 vendor_eod 的
+- **现在**：道 L4 实测：低于内在价值的 OPT 行 DEV / STG 10-05 各 1 行（DAVE 2027-01-15 280C，close 74.3 < 内在 88.94，最后成交停在 09-24），10-06 各 0 行；插件不存 NBBO，拿不到 mid；vendor IV 每个快照都在变（按报价算），BS(vendor iv) 对其余 22 个合约·日有 19 个在 ±4% 内。修法 `snapshot.daily.option_eod_mark`：close ≥ 内在 − 0.01 照旧 `vendor_eod`；否则存 BS(标的收盘, vendor IV, r 0.04) 并以内在为下限，标 `vendor_iv_model`；无 IV / 当天到期 / 模型仍低于内在 → 内在价值，标 `intrinsic_floor`。下游：greeks_quality `vendor_iv_model` → vendor、`intrinsic_floor` → degraded（一行可改：reader/snapshots.py MARKS_WITH_THE_GREEKS）；TD-140 兜底读三种日终来源里最新的一条。防线 `tests/test_snapshot_mark_intrinsic.py`（1728 组合网格、day_close 只经 option_eod_mark 读的 AST 扫描、每个 mark_source 必须归入 greeks 分级之一）+ db 测试。后续 TD-250
 - **Claim**: DEV 10-05 has one LEAP call whose vendor_eod mark is below intrinsic; on 10-06 it accounts for most of the attribution's unexplained residual. TD-138's reader flags it (mark_below_intrinsic) but the writer keeps storing the last trade.
 - **Measured**: MEASURED 10-07 by paydown lane AA (DEV, read-only).
 - **Evidence**:
@@ -2139,6 +2142,20 @@
 - **Fix**: Add inconclusive to the two agent texts; thread staleSources into the Control Room verdict strip.
 - **Ratchet**: None new: copy; covered by the existing pack / snapshot tests once extended.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-250
+
+**P3 · trade-data · A stale vendor close above intrinsic is still stored as vendor_eod: the plugin's snapshot read does not return last_trade_ts, so enrich cannot tell a morning trade from a session close**
+
+- **状态**：在做（还债循环 · 道 L7，10-07 03:5x UTC 开工）
+- **Claim**: query_snapshots in the market-data plugin selects iv / greeks / OI / day_volume / day_close / day_vwap but not last_trade_ts (present in raw_market.option_snapshot). DEV 10-06 DAVE 280C close 110.5 came from a 09:48 ET trade, 32% above the vendor-IV model price, and still drives a large unexplained residual.
+- **Measured**: MEASURED 10-07 by loop lane L4 (DEV / STG, read-only).
+- **Evidence**:
+  - `bifrost-platform-plugin-market-data/src/bifrost_market_data/api/options.py:186` — `s.iv, s.delta, s.gamma, s.theta, s.vega,`
+- **Impact**: P&L attribution keeps a large unexplained share on thinly traded contracts.
+- **Fix**: Plugin: add last_trade_ts to the snapshot read (additive field). Core: when the trade is not from that session, or is older than N minutes before the close and deviates from the vendor-IV model by more than a threshold, store vendor_iv_model.
+- **Ratchet**: Extend test_snapshot_mark_intrinsic.py's grid with a last_trade_ts dimension.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data, bifrost-trade-core
 
 ## 没覆盖到的（下一轮从这里开始）
 
