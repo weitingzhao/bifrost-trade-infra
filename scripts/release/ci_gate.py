@@ -4,7 +4,8 @@ Exit 0: a Succeeded ci-* run matches the repo and SHA, or --allow-red is set.
 Exit 1: a terminal failure and no --allow-red.
 Exit 2: no terminal run yet (the caller may wait and retry).
 
-A run matches when spec.params repo + revision equal the pair, and the
+A run matches when its repo (spec.params repo, else the bifrost.io/repo label)
+and spec.params revision equal the pair, and the
 PipelineRun belongs to bifrost-ci-python or bifrost-ci-frontend.
 """
 
@@ -26,6 +27,15 @@ def _params(run: dict) -> dict[str, str]:
         if name:
             out[name] = str(item.get("value", ""))
     return out
+
+
+def _repo(run: dict, params: dict[str, str]) -> str:
+    """The repo a CI run checked. bifrost-ci-python carries it as a param;
+    bifrost-ci-frontend (and the ui-push binding) only as the bifrost.io/repo label."""
+    if params.get("repo"):
+        return params["repo"]
+    labels = ((run.get("metadata") or {}).get("labels") or {})
+    return str(labels.get("bifrost.io/repo") or "")
 
 
 def _pipeline_name(run: dict) -> str:
@@ -57,7 +67,7 @@ def classify(runs: Iterable[dict], repo: str, sha: str) -> str:
         if _pipeline_name(run) not in CI_PIPELINES:
             continue
         params = _params(run)
-        if params.get("repo") != repo or params.get("revision") != sha:
+        if _repo(run, params) != repo or params.get("revision") != sha:
             continue
         state = _succeeded(run)
         if state == "True":
