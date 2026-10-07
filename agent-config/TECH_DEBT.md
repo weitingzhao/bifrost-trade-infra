@@ -13,10 +13,9 @@
 
 ## 待你签收
 
-- **TD-248** — 告警中转本身也有人盯了：.52 每分钟检查 .50 的中转，挂了 5 分钟就直接用 ntfy 呼你，恢复时说一声；另加 Alertmanager webhook 投递失败告警。验收 PASS 2026-10-07（实地停掉 .50 中转，6 分钟后手机收到呼叫、恢复后收到 RESOLVED）。防线：`RATCHETS.md`「peer watchdog 中转检查」。后续：无后续：两台 mini 同时宕机时两条路都断，这种情况由 Watchdog 心跳以外的外部服务才能覆盖，不值得为它再引入依赖
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 108 项**：P0 0 · P1 10 · P2 33 · P3 65；要你批的 56 项（从总览表的审批列算）。
+**未结 107 项**：P0 0 · P1 10 · P2 33 · P3 64；要你批的 56 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -106,7 +105,7 @@
 
 目标：数据层告警有一个人能收到的通道和外部心跳；逻辑备份先修好等库就绪；做一次 Barman 恢复演练；决定异地副本；daemon 停写与日志丢失要能被看见。
 
-项：TD-210, TD-217, TD-218, TD-238, TD-237, TD-248 · 已还：TD-209, TD-215, TD-216
+项：TD-210, TD-217, TD-218, TD-238, TD-237 · 已还：TD-248, TD-209, TD-215, TD-216
 
 ### 第 11 波 · 账本与页面读数、绿着的未知（第 3 轮）
 
@@ -329,7 +328,6 @@
 | [TD-245](#td-245) | P3 | ops-console | Console agent-pack text still says husbandry_gate blocks dbt when Flex fails (stale after TD-192) | 不用批 |
 | [TD-246](#td-246) | P3 | trade-data | Snapshot enrich stores a vendor 'day close' that can sit below the option's intrinsic value (a stale last trade), and P&L attribution then books it as unexplained | 已批（Owner 10-07「做」） |
 | [TD-247](#td-247) | P3 | frontend | Look-back starts are still computed in the browser's time zone (new Date(Date.now() - N*86400000).toISOString().slice(0,10)), and three private New York date helpers duplicate @/lib/freshness | 不用批 |
-| [TD-248](#td-248) | P3 | ops-platform | The ntfy alert relay runs on one Mac mini (.50) and nothing watches it: if .50 or its operator-plane is down, no alert and no dead-man page reaches the Owner | 不用批 |
 | [TD-249](#td-249) | P3 | ops-console | After TD-230/227: remediation agent copy still says the gate result is pass/fail (no inconclusive), and Control Room does not list which sources are stale | 不用批 |
 | [TD-250](#td-250) | P3 | trade-data | A stale vendor close above intrinsic is still stored as vendor_eod: the plugin's snapshot read does not return last_trade_ts, so enrich cannot tell a morning trade from a session close | 不用批 |
 
@@ -2113,24 +2111,6 @@
 - **Fix**: Add an etDaysAgoIso(n) helper to @/lib/freshness, route the five sites through it, fold the three NY-date copies into it; extend utcTodayRatchet to the `new Date(Date.now() - …)` form.
 - **Ratchet**: Extend src/lib/utcTodayRatchet.test.ts.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
-
-### TD-248
-
-**P3 · ops-platform · The ntfy alert relay runs on one Mac mini (.50) and nothing watches it: if .50 or its operator-plane is down, no alert and no dead-man page reaches the Owner**
-
-- **状态**：待你签收
-- **现在**：10-07 上线。.52 的 peer watchdog（platform b077796，每 60 秒）读 `PEER_RELAY_URL`（.50 的 `/api/v1/alerts/relay`）：连不上或 `enabled` 不是 true 持续 5 分钟就直接发 ntfy，没恢复每小时重呼，恢复时说一声；.52 的 `config/.env` 有 `NTFY_URL` / `NTFY_TOPIC`（无中转令牌）。另加 Prometheus 告警 `BifrostAlertmanagerWebhookFailing`（30 分钟内 webhook 投递失败、持续 15 分钟，critical；infra 已 apply）
-- **Claim**: TD-209 made Mac mini .50's operator plane the only path from Alertmanager to the Owner's phone, and also the only dead-man's switch. .52 runs the same binary with `ALERT_RELAY=off` (a second relay would page "heartbeat missing" forever, since Alertmanager sends Watchdog only to .50). When .50 is off, asleep or its plane crashes, Alertmanager's webhook to .50 fails (counted in `alertmanager_notifications_failed_total`) and nothing pages.
-- **Measured**: MEASURED 2026-10-07: .50 `pmset` sleep 0, autorestart 1; .52 autorestart 0. No check reads `http://192.168.10.50:8783/api/v1/alerts/relay`.
-- **Evidence**:
-  - `bifrost-trade-infra/scripts/k3s/values-kube-prometheus.yaml` — `url: http://192.168.10.50:8783/api/v1/alerts/heartbeat`
-  - `bifrost-platform/api/cmd/operator-plane/main.go` — `On for exactly one Mini (ALERT_RELAY=on)`
-- **Impact**: A failure of .50 silences every page while the cluster looks fine; found only when the Owner wonders why it is quiet.
-- **Fix**: Let the .52 peer watchdog (already polls .50) read .50's `/api/v1/alerts/relay` and publish to ntfy directly when it fails or reports `heartbeat_ok: false` for 20 min; and add a Prometheus alert on `alertmanager_notifications_failed_total{integration="webhook"}` increasing (it would then page via .52 too).
-- **Ratchet**: The check above is itself the ratchet; plus `check_alert_routing.py` keeps the routes.
-- **验收**: Stop the operator plane on .50 (`launchctl bootout gui/$(id -u)/com.bifrost.operator-plane` on .50) for 25 min: the phone gets a page from .52.
-- **验收结果**：PASS 2026-10-07 b077796：实地演练，03:27:04Z 停掉 .50 的 operator-plane，.52 在 03:32:57Z 呼叫（「CRITICAL alert relay on the peer Mini is down」），03:33:08Z 恢复后一分钟内发出 RESOLVED；.50 重启即收到心跳（03:33:11Z）；本机假 ntfy 模拟三种状态也通过
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-249
 
