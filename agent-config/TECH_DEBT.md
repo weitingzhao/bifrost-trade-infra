@@ -330,10 +330,10 @@
 | [TD-240](#td-240) | P3 | trade-worker | The running PROD daemon never writes contract_quote_live: the observe-only quote mirror sits under mock_hedging, which is hard-coded True | 跨仓库发版 |
 | [TD-241](#td-241) | P3 | agent-governance | RATCHETS.md, TECH_DEBT.md and agent docs state facts the round-3 scan measured as no longer true | 不用批 |
 | [TD-242](#td-242) | P2 | market-data | market-data /ingest/queue-dashboard takes 5–25 s per call, and the platform-api proxy carries the same delay: with the new latency rule live it will page whenever someone keeps the queue dashboard open | 不用批 |
-| [TD-243](#td-243) | P3 | frontend | 42 frontend modules are unreachable from src/main.tsx (largest clusters: components/cockpit/ 8, utils/dataOverview/ 6); dead code invites fixes and false audit findings | 删除（要你批） |
+| [TD-243](#td-243) | P3 | frontend | 42 frontend modules are unreachable from src/main.tsx (largest clusters: components/cockpit/ 8, utils/dataOverview/ 6); dead code invites fixes and false audit findings | 已批（Owner 10-07「做」） |
 | [TD-244](#td-244) | P3 | research-control | agents/journal_distill reads raw_broker.executions_final with no Flex freshness check (own 23:55 UTC schedule, outside any gate) | 不用批 |
 | [TD-245](#td-245) | P3 | ops-console | Console agent-pack text still says husbandry_gate blocks dbt when Flex fails (stale after TD-192) | 不用批 |
-| [TD-246](#td-246) | P3 | trade-data | Snapshot enrich stores a vendor 'day close' that can sit below the option's intrinsic value (a stale last trade), and P&L attribution then books it as unexplained | 要你批 |
+| [TD-246](#td-246) | P3 | trade-data | Snapshot enrich stores a vendor 'day close' that can sit below the option's intrinsic value (a stale last trade), and P&L attribution then books it as unexplained | 已批（Owner 10-07「做」） |
 | [TD-247](#td-247) | P3 | frontend | Look-back starts are still computed in the browser's time zone (new Date(Date.now() - N*86400000).toISOString().slice(0,10)), and three private New York date helpers duplicate @/lib/freshness | 不用批 |
 | [TD-248](#td-248) | P3 | ops-platform | The ntfy alert relay runs on one Mac mini (.50) and nothing watches it: if .50 or its operator-plane is down, no alert and no dead-man page reaches the Owner | 不用批 |
 
@@ -2095,7 +2095,7 @@
 
 **P3 · frontend · 42 frontend modules are unreachable from src/main.tsx (largest clusters: components/cockpit/ 8, utils/dataOverview/ 6); dead code invites fixes and false audit findings**
 
-- **状态**：未开始
+- **状态**：未开始（Owner 10-07 批准删：按目录分批，每批先列清单给 Owner 过目再删）
 - **Claim**: TD-199's orphan-module ratchet lists them in KNOWN_ORPHANS; each is imported by nothing reachable from the app entry.
 - **Measured**: MEASURED 10-07 by paydown lane EE (import-graph walk from src/main.tsx).
 - **Evidence**:
@@ -2103,7 +2103,7 @@
 - **Impact**: Dead pages and helpers get fixed, audited and reported as bugs (TD-193 was one).
 - **Fix**: Owner reviews in batches by directory (deletion is the Owner's call, §15); delete and drop each from KNOWN_ORPHANS.
 - **Ratchet**: orphanModules.test.ts already fails on any new orphan and forces the list to shrink.
-- 审批 删除（要你批） · 代价 S · 风险 low · repos: bifrost-trade-frontend
+- 审批 已批（Owner 10-07「做」）· 代价 S · 风险 low · repos: bifrost-trade-frontend
 
 ### TD-244
 
@@ -2137,7 +2137,7 @@
 
 **P3 · trade-data · Snapshot enrich stores a vendor 'day close' that can sit below the option's intrinsic value (a stale last trade), and P&L attribution then books it as unexplained**
 
-- **状态**：未开始
+- **状态**：未开始（Owner 10-07 批准做：写入侧换掉低于内在价值的 vendor 收盘价、标新的 mark_source；改写已有行仍要单独批）
 - **Claim**: DEV 10-05 has one LEAP call whose vendor_eod mark is below intrinsic; on 10-06 it accounts for most of the attribution's unexplained residual. TD-138's reader flags it (mark_below_intrinsic) but the writer keeps storing the last trade.
 - **Measured**: MEASURED 10-07 by paydown lane AA (DEV, read-only).
 - **Evidence**:
@@ -2145,7 +2145,7 @@
 - **Impact**: P&L Explain reports a large unexplained share driven by a bad mark, not by risk.
 - **Fix**: At enrich, when day_close < intrinsic (or outside the session bid/ask), use the vendor mid or bid/ask and label mark_source accordingly (new value, no DDL). Restating existing rows is an Owner decision.
 - **Ratchet**: A core test: enrich never stores a mark below intrinsic without a distinct mark_source.
-- 审批 要你批 · 代价 S · 风险 low · repos: bifrost-trade-core
+- 审批 已批（Owner 10-07「做」）· 代价 S · 风险 low · repos: bifrost-trade-core
 
 ### TD-247
 
