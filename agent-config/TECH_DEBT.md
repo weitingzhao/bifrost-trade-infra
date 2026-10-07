@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-229** — trust override 在集群里存进本命名空间的 ConfigMap，读写失败返回 5xx；Owner 的 L0 授权不再随 pod 重启丢失（platform 26cd884，PROD 已重新授予） · 验收 PASS（10-07：PROD store=configmap、research-loop-batch L0、research harness 闸门求值 True） · 防线：`api/internal/agentgovernance/trust_override_store_test.go`、`api/internal/trustoverrides/configmap_test.go`、`api/internal/storedurability/home_paths_test.go` TestNoNewStoreUnderHome（HOME 白名单只减不增） · 后续：白名单里仍有 13 个从 HOME 推导路径的 store（其中 7 个已由 TD-196 在集群里改走 ConfigMap，本机仍回退 HOME），无新编号
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
@@ -1762,8 +1763,8 @@
 
 **P3 · ops-platform · Trust overrides resolve to $HOME in the cluster and swallow read and write errors: the Owner's 09-07 L0 grant for research-loop-batch never reached the harness that reads PROD**
 
-- **状态**：观察中（platform STG 1791348331 + PROD 1791348579 已上 26cd884（10-07）；PROD store=configmap bifrost-platform-prod/platform-trust-overrides，当前为空——要你在 Console Governance 页重新授予 research-loop-batch 的 L0（需要 operator 令牌，Agent 不碰））
-- **验收结果**：PASS（代码层）2026-10-07 26cd884：STG/PROD GET trust-overrides 返回 store=configmap …/platform-trust-overrides；待 L0 重新授予后再验 research harness 读到
+- **状态**：待你签收（platform 26cd884 已上 PROD；Owner 10-07 05:18 UTC 在 PROD Console 重新授予 research-loop-batch L0）
+- **验收结果**：PASS 2026-10-07 26cd884：PROD GET trust-overrides → research-loop-batch L0（applied_by operator），ConfigMap bifrost-platform-prod/platform-trust-overrides 里有同一条；research-api pod 内 trust_gate.matrix_level() = L0，按 research-harness 的 BIFROST_LOOP_BATCH_MODE=1 求值 trust_l0_research_loop_batch() = True；TD-204 切最小权限 SA 后 can-i get/create/update 该 ConfigMap 均 yes
 - **Claim**: In both cluster overlays, TrustOverrideStore resolves to $HOME/.bifrost-platform/governance, outside even the /app/data emptyDir, because PLATFORM_GOVERNANCE_DIR and PLATFORM_PROJECT_ROOT are unset. Put discards the os.WriteFile error, and List returns {} on a read error. The Owner's 2026-09-07 L0 for research-loop-batch exists only as a file in the shared checkout (bifrost-platform/agent/governance/trust_overrides.json). PROD and STG serve {} and L1, so research-harness records trust L1 every weekday. As of 00:57 UTC the local bdev platform-api also serves {}, although its PLATFORM_PROJECT_ROOT points at that file, so the read fails silently there too. The same silent read failure hides the local release_gate_state*.json (TD-230). TD-196's planned ratchet checks only PLATFORM_DATA_DIR paths and would miss this.
 - **Measured**: MEASURED 2026-10-07 00:57 UTC: trust-overrides returns {} on local 127.0.0.1:8780, PROD 30876 and STG 30878; trust-matrix is L1 everywhere. The last research-harness Job logs 'research-loop-batch at Trust L1', trust_l0_override=false. The checkout file holds L0 dated 2026-09-07.
 - **Evidence**:
