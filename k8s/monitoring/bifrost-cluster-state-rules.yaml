@@ -1,0 +1,37 @@
+# LANE-A2. Staleness of the kube-system/cluster-state-backup CronJob.
+# Not wired into bifrost-alerting-rules.yaml (that file is shared with other
+# lanes). The name prefix BifrostClusterStateBackup is what LANE-A1 pages on.
+# kube-state-metrics emits kube_cronjob_status_last_successful_time only after
+# a CronJob-scheduled success, so a manual job does not arm or clear this alert.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bifrost-cluster-state-rules
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: alerting
+spec:
+  groups:
+    - name: bifrost-cluster-state
+      rules:
+        - alert: BifrostClusterStateBackupStale
+          # 129600 seconds = 36h. The job runs daily at 05:15 UTC, so one
+          # missed night still pages with a few hours of margin. `for: 5m`
+          # only debounces a missed scrape.
+          expr: |
+            time() - max(kube_cronjob_status_last_successful_time{namespace="kube-system",cronjob="cluster-state-backup"}) > 129600
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "No successful cluster-state backup for 36 hours"
+            description: >-
+              CronJob kube-system/cluster-state-backup last succeeded
+              {{ $value | humanizeDuration }} ago (it runs 05:15 UTC).
+              It copies the newest k3s etcd snapshot to the nfs-cold claim
+              cluster-state-backup and age-encrypts Secrets there. Read
+              `kubectl -n kube-system logs job/<latest cluster-state-backup job> -c backup`
+              and docs/runbooks/cluster-state-restore.md.

@@ -1,0 +1,157 @@
+# Daily copy of the k3s etcd snapshot and age-encrypted Secrets / platform
+# state to nfs-cold. See backup.sh and docs/runbooks/cluster-state-restore.md.
+#
+# 05:15 UTC: after the 03:00 physical backup and the 04:30 logical backup.
+# The snapshot files are root-only, so the pod runs as uid 0 with every
+# capability dropped. hostPath mounts are read-only. Secret YAML never
+# lands on disk: backup.sh pipes kubectl into age.
+#
+# ubt-k3s-01 had no taints when this was written (2026-10-07). The
+# control-plane toleration is here so a later NoSchedule taint still
+# lets the job run on the only server node.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cluster-state-backup
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: cluster-state-backup
+spec:
+  schedule: "15 5 * * *"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cluster-state-backup
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 604800
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: cluster-state-backup
+        spec:
+          restartPolicy: Never
+          serviceAccountName: cluster-state-backup
+          automountServiceAccountToken: true
+          enableServiceLinks: false
+          nodeSelector:
+            kubernetes.io/hostname: ubt-k3s-01
+          tolerations:
+            - key: node-role.kubernetes.io/control-plane
+              operator: Exists
+              effect: NoSchedule
+            - key: node-role.kubernetes.io/master
+              operator: Exists
+              effect: NoSchedule
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          initContainers:
+            - name: fetch-tools
+              image: alpine:3.22
+              imagePullPolicy: IfNotPresent
+              command: ["sh", "/scripts/fetch-tools.sh"]
+              env:
+                - name: HOME
+                  value: /tools
+                - name: TMPDIR
+                  value: /tools
+                - name: PATH
+                  value: /tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 32Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: tools
+                  mountPath: /tools
+          containers:
+            - name: backup
+              image: alpine:3.22
+              imagePullPolicy: IfNotPresent
+              command: ["sh", "/scripts/backup.sh"]
+              env:
+                - name: PATH
+                  value: /tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+                - name: KEEP_DAILY
+                  value: "30"
+                - name: KEEP_MONTHLY
+                  value: "12"
+                - name: HOME
+                  value: /tmp
+                - name: TMPDIR
+                  value: /tmp
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: "1"
+                  memory: 1Gi
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: tools
+                  mountPath: /tools
+                  readOnly: true
+                - name: scratch
+                  mountPath: /tmp
+                - name: recipient
+                  mountPath: /etc/cluster-state-backup
+                  readOnly: true
+                - name: snapshots
+                  mountPath: /snapshots
+                  readOnly: true
+                - name: server-token
+                  mountPath: /host/k3s-server-token
+                  readOnly: true
+                - name: backup
+                  mountPath: /backup
+          volumes:
+            - name: scripts
+              configMap:
+                name: cluster-state-backup-scripts
+            - name: tools
+              emptyDir:
+                sizeLimit: 256Mi
+            - name: scratch
+              emptyDir:
+                medium: Memory
+                sizeLimit: 32Mi
+            - name: recipient
+              configMap:
+                name: cluster-state-backup-recipient
+            - name: snapshots
+              hostPath:
+                path: /var/lib/rancher/k3s/server/db/snapshots
+                type: Directory
+            - name: server-token
+              hostPath:
+                path: /var/lib/rancher/k3s/server/token
+                type: File
+            - name: backup
+              persistentVolumeClaim:
+                claimName: cluster-state-backup

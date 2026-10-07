@@ -1,0 +1,25 @@
+# Cluster-state backup: etcd snapshot + age-encrypted Secrets to nfs-cold.
+# Not under Argo. Apply on its own:
+#   kubectl apply -k k8s/data/cluster-state-backup
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: kube-system
+
+resources:
+  - nas-volume.yaml
+  - rbac.yaml
+  - recipient-configmap.yaml
+  - cronjob.yaml
+
+configMapGenerator:
+  - name: cluster-state-backup-scripts
+    files:
+      - backup.sh
+      - fetch-tools.sh
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: bifrost
+      app.kubernetes.io/component: cluster-state-backup
+    includeSelectors: false
