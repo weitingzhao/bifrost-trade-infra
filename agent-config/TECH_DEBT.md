@@ -15,7 +15,7 @@
 
 - **TD-195** — platform-api 导出与 Trade 同名同标签的 HTTP 指标（手写 chi 中间件，桶到 10 s），告警去掉 platform-api 豁免（platform e95be35，infra 4daeb8e）· 验收 PASS（10-07，live 覆盖检查 ok、无告警）· 防线：`bifrost-platform/api/internal/server/httpmetrics_test.go`（最大有限桶须 > 2 s）+ `check_http_metrics_coverage.py`（不许任何豁免）· 无后续
 
-**未结 116 项**：P0 1 · P1 12 · P2 38 · P3 65；要你批的 61 项（从总览表的审批列算）。
+**未结 117 项**：P0 1 · P1 12 · P2 39 · P3 65；要你批的 61 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -66,7 +66,7 @@
 
 目标：所有「今天 / 本 session」都从 `db/calendar` 的一个函数来，代替 11 个私有 helper 和 44 处 `date.today()`；dbt 补 grain 测试；IV / 回测的定价参数统一。
 
-项：TD-98, TD-110, TD-111, TD-112, TD-128, TD-129, TD-174 · 已还：TD-164, TD-175
+项：TD-98, TD-110, TD-111, TD-112, TD-128, TD-129, TD-174, TD-242 · 已还：TD-164, TD-175
 
 ### 第 4 波 · 券商资金账本（Flex / IB）
 
@@ -342,6 +342,7 @@
 | [TD-239](#td-239) | P3 | trade-worker | Up to about 40 runtime exports of @bifrost/ui have no importer in either consumer (ContextMenu family, KpiStrip, holidayLine, shellNav* constants); dead-code share unmeasured | 改公开接口 |
 | [TD-240](#td-240) | P3 | trade-worker | The running PROD daemon never writes contract_quote_live: the observe-only quote mirror sits under mock_hedging, which is hard-coded True | 跨仓库发版 |
 | [TD-241](#td-241) | P3 | agent-governance | RATCHETS.md, TECH_DEBT.md and agent docs state facts the round-3 scan measured as no longer true | 不用批 |
+| [TD-242](#td-242) | P2 | market-data | market-data /ingest/queue-dashboard takes 5–25 s per call, and the platform-api proxy carries the same delay: with the new latency rule live it will page whenever someone keeps the queue dashboard open | 不用批 |
 
 ## 条目
 
@@ -1549,7 +1550,9 @@
 
 **P2 · ops-platform · BifrostAPIHighLatency can never fire: the histogram it reads tops out at a 1 s bucket, so histogram_quantile returns at most 1 and `> 2` is impossible**
 
-- **状态**：在做（Owner 10-07 「按推荐」批准：延迟告警改读 highr 直方图，先在 core 把流式接口排除出延迟统计，再按实测分布定阈值；不改 core 默认桶；道 CC）
+- **状态**：在做（core 0.55.0 = 0203b94 与 infra 7780a7e 已上 main，**规则未 apply**——要等三环境 Trade 都跑到 core ≥ 0203b94；先 apply 会在旧数据上误报，DEV 一周约 25 次。有人在此之前 `kubectl apply -k k8s/monitoring` 也会带上它）
+- **下一步**：发版顺序：Trade 发版带 core ≥ 0.55.0 到 DEV / STG / PROD（`/health` core_sha ≥ 0203b94）→ 再 `kubectl apply -k k8s/monitoring` → `check_http_metrics_coverage.py --live`。另请确认 /health 不计时这一处扩展
+- **现在**：道 CC 实测（7 天）：trade-api 只有两个流式路由（/quotes/stream、/api/messages/stream，25 s keepalive SSE），旧计时按连接结束算，平均约 40 s；PROD api-monitor >1 s 的 211 个观测里 172 个是 SSE。另：kubelet 的 /health 占延迟观测 87–97%，把 p99 稀释成真实请求的约 p70。core 0.55.0：两个延迟直方图都计时到响应头（库自带 should_exclude_streaming_duration），/health 计数不计时（**超出原话「排除 SSE」的范围，待你确认**），指标名与标签不变、默认桶不变。规则改读 highr p99，`or` 低精度直方图（只对 platform-api），阈值 `> 5 for 10m`：按新口径 7 天回放 PROD 0、STG 0、DEV 3–9 次（都是真慢窗口）。防线：core `tests/test_prometheus_instrumentation.py`（6 个）+ `check_http_metrics_coverage.py`（延迟规则须读 highr、阈值低于所读直方图的最大有限桶，`--live` 核真实桶）。后续 TD-242
 - **Claim**: prometheus-fastapi-instrumentator's default http_request_duration_seconds buckets are 0.1 / 0.5 / 1 / +Inf (core observability/prometheus.py). The rule asks p99 > 2 s. The fine histogram (http_request_duration_highr_seconds, no handler label, 0.01–60 s) would fire: over 7 days PROD api-monitor had ~20 and api-market ~17 windows of ≥5 min with p99 > 2 s — possibly streaming routes timed to response end (unverified).
 - **Measured**: MEASURED 10-06 by paydown lane Q (Prometheus via apiserver proxy).
 - **Evidence**:
@@ -2308,6 +2311,20 @@
 - **Ratchet**: None practical for prose; the render script could flag RATCHETS rows whose file path does not exist on origin/main.
 - **验收**: `Re-run the ratchet-inventory prompt from round 3 against origin/main: stale_registry is empty.`
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra, bifrost-platform
+
+### TD-242
+
+**P2 · market-data · market-data /ingest/queue-dashboard takes 5–25 s per call, and the platform-api proxy carries the same delay: with the new latency rule live it will page whenever someone keeps the queue dashboard open**
+
+- **状态**：未开始
+- **Claim**: 164 requests over 1 s in 90 minutes on plugin-market-data; PROD platform-api p99 2.5–7.4 s from /api/v1/plugins/market-data/api/*.
+- **Measured**: MEASURED 10-07 by paydown lane CC (Prometheus, the TD-161 / TD-195 metrics).
+- **Evidence**:
+  - `bifrost-platform-plugin-market-data/src/bifrost_market_data/api/ingest_dashboard.py:891` — `def build_queue_dashboard(`
+- **Impact**: A slow Console page, and (after TD-194) a real-but-noisy latency alert about every 90 minutes of dashboard use.
+- **Fix**: Cache the dashboard per minute (it is a derived read), or make its job_ingest / queue_sample reads cheap (EXPLAIN first; see memory plan-follows-anchor-estimate).
+- **Ratchet**: A test or check that the dashboard's p99 stays under the latency rule threshold on PROD-sized data (or a cache hit test).
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data
 
 ## 没覆盖到的（下一轮从这里开始）
 
