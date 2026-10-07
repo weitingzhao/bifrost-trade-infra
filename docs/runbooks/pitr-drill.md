@@ -113,4 +113,4 @@ kubectl delete namespace pitr-drill
 
 | 日期 | 恢复耗时 | 核对 | 节点 | 备注 |
 |---|---|---|---|---|
-| | | | | |
+| 2026-10-07 | 约 23 分钟（34 GB，全量 + WAL 回放到 18:37:26Z） | 104/105 PASS；`option_open_interest` 的 125,860 行被目标时间之后 19:30Z 的 upsert 改了 `fetched_at`，两边总行数相同（6,548,559），差数恰为目标后更新的行数，判为通过 | ubt-k3s-06 | 借用 TD-217 的演练库 `pg-recovery-drill/pg-recovery-drill`（只读凭证 `minio-backup-readonly`，无 backup 段）。核对用 `PITR_RECOVERY_POINT=2026-10-07T18:37:26Z`。脚本三处要修，见 `agent-config/work/ops-arch/VERIFY-phase1.md` |
