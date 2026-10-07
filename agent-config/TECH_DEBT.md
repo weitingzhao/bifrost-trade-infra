@@ -14,6 +14,8 @@
 ## 待你签收
 
 - **TD-132** — bifrost-platform a332cff（NAS 上 MinIO 的检查与 WAL 修复）已随 platform 发布上 STG/PROD：首发 STG `bifrost-deliver-platform-1791309231` / PROD `bifrost-deliver-platform-prod-1791309521`（10-06 17:53–18:02，Owner 批准随 540c945 一起发），现行 07551db 也包含它 · 验收 PASS（10-06，STG/PROD `minio.id` = minio-backup-external、reachability ok）· 防线：`bifrost-platform/api/internal/cluster/minio_backend_test.go`（已登记 `RATCHETS.md`）· 无后续：TD-133（集群内 MinIO 残留）按原计划在稳定一周后单独处理
+- **TD-161** — research-api、market-data、flex-query 导出与 Trade 同名同标签的 HTTP 指标（无新依赖，同一份 ASGI 中间件），两条 API 告警扩到 research / plugin-*（market-data 0.82.0、flex 0.12.0、research 0.199.0、infra 47f5c49）· 验收 PASS（10-07，live 覆盖检查 ok）· 防线：告警 `BifrostAPIWithoutHttpMetrics` + `scripts/check_http_metrics_coverage.py` + 三个 repo 的 `test_http_metrics.py` · 后续：TD-194（延迟告警永不触发）、TD-195（platform-api 无指标）
+- **TD-181** — /events/calendar 的宏观行读 macro_event_daily，手放 ws:macro 文件只归档（research 0.199.0）· 验收 PASS（10-07：14 行宏观到 2027-12-08，superseded 5）· 防线：`tests/engines/test_event_calendar_macro.py` · 后续：TD-193（日历 Date 列显示采集日期）
 
 **未结 84 项**：P0 0 · P1 4 · P2 32 · P3 48；要你批的 44 项（从总览表的审批列算）。
 
@@ -1249,8 +1251,9 @@
 
 **P3 · ops-platform · BifrostAPIHighErrorRate / HighLatency only see bifrost-* namespaces with http_requests_total; research-api and the plugins export no HTTP metrics, so their 5xx and latency go unalerted**
 
-- **状态**：在做（代码与镜像就绪、未发布：market-data 0.82.0、flex-query 0.12.0、research 0.199.0；规则改动在 infra 47f5c49 未 apply——要等三个 API 先上线；发布等你批）
+- **状态**：待你签收
 - **验收**：发布并 apply 规则后：`KUBECONFIG=~/.kube/bifrost-k3s.yaml python3 scripts/check_http_metrics_coverage.py --live` → `ok: every API monitor is inside the API rules and exports http_requests_total`；`count by (namespace,job)(http_requests_total{namespace=~"research|plugin-.*"})` 3 行
+- **验收结果**：PASS 2026-10-07 00:1x UTC：market-data 0.82.0（377b54e，pods 5ce69bcf…，`/metrics` 出 `http_requests_total{handler=…}`，doctor 重算后 degraded / 0 critical · 2 warning 与发布前同）；flex-query 0.12.0（cf33a41，pods 43db0945…）；research 0.199.0 + 0.199.0-dagster（pin 0cd259f，Argo Synced，/health 0.199.0）；规则 apply 后 `kubectl diff -k k8s/monitoring` 为空；`check_http_metrics_coverage.py --live` → ok: every API monitor is inside the API rules and exports http_requests_total
 - **现在**：道 Q：三个 repo 各加同一份纯 ASGI 中间件 `api/http_metrics.py`（无新依赖），导出与 Trade 同名同标签的 `http_requests_total` 与 `http_request_duration_seconds`（handler = 路由模板，/metrics 不记，/health 不进延迟）。镜像：market-data 0.82.0 sha256:5ce69bcf…（29b5dbe）、flex-query 0.12.0 sha256:43db0945…（49cd73b，本机构建）、research 0.199.0 sha256:5992072a…（60ea5a2，含 0.198.0 的 TD-181/189 与 main 上的 TD-178 research 部分；未建 -dagster）。两条 API 规则命名空间扩到 `bifrost-.*|research|plugin-.*`。防线：告警 `BifrostAPIWithoutHttpMetrics`（platform-api 唯一豁免，见 TD-195）+ `scripts/check_http_metrics_coverage.py`（`make check-http-metrics-coverage`，apply-monitoring-scrape 前跑）+ 三个 repo 的 `test_http_metrics.py`
 - **Claim**: The two API alerts select http_requests_total in namespace=~"bifrost-.*". research-api (and the market-data / flex plugin APIs) export no http_requests_* series, so widening the namespace regex would change nothing; a research-api returning 5xx all night raises no alert.
 - **Measured**: code-read 10-06 by paydown lane C (it checked the rule expressions against live Prometheus).
@@ -1377,7 +1380,7 @@
 
 **P3 · trade-api · GET /strategies/plans has no source_kind filter: Research reads the newest 500 filled plans and filters itself, marking truncated at the cap**
 
-- **状态**：在做（代码已上 main：core 53378bf = 0.53.0、api 630ca41 = 0.11.0（core 下限 ≥0.53.0）、research d61ecc6；等 Trade 发版，research 部分随下一次 research 发布）
+- **状态**：在做（research 部分已随 0.199.0 上线；core 0.53.0 / api 0.11.0 等 Trade 发版）
 - **验收**：发版后：`curl -s -o /dev/null -w '%{http_code}' 'http://192.168.10.73:30881/api/account/strategies/plans?source_kind=bogus&limit=1'` = 422（三个网关同）；DEV `?source_kind=hypothesis` count 0、`manual` count 3；research 发布后 `/research/hypothesis?trade_env=dev` 的 `trade_link_basis.source` 含 `source_kind=hypothesis`
 - **现在**：发版前基线 10-06 23:31 UTC：三网关 `source_kind=bogus` 都是 200（api 0.10.0 忽略参数）；DEV plans 3 行。EXPLAIN（副本）走 `strategy_plan_status_created`，行数 DEV 3 / STG 0 / PROD 0，不需新索引。门禁：core lint 0 / 1301 passed / test-db 103 passed；api 1005 passed；research 2091 passed。防线：api `tests/test_strategy_plans_routes.py`（hypothesis 只回 hypothesis、上限按过滤后计、未知 kind 422、不撞退役名）、core `tests/test_strategy_plan.py` + `test_strategy_plan_db.py::test_list_filters_by_source_kind_and_ref`、research `test_hypothesis_trade_links.py::test_the_kind_is_sent_and_still_checked_here`
 - **Claim**: TD-143's read-time link pulls status=filled&limit=500 and filters source_kind='hypothesis' in Research; once filled plans approach 500 the oldest links drop out (flagged truncated, not silent).
@@ -1407,8 +1410,9 @@
 
 **P3 · research-data · /events/calendar takes its macro rows from a hand-dropped radar file (ends 2026-12-10) instead of macro_event_daily, and radar ids include the collection date so a re-drop duplicates them**
 
-- **状态**：在做（代码在 research main 3744ffb，版本 0.198.0 = 775af73；镜像未建——auto mode 拒绝道 P 起构建；发布等你批）
+- **状态**：待你签收
 - **验收**：research 0.198.0 上线后：research-api pod 里 GET `/research/events/calendar` → `macro_read_path` = features.macro_event_daily、`macro_rows` 14（随日期滚动）、`superseded_macro_rows` 5、宏观最晚 2027-12-08
+- **验收结果**：PASS 2026-10-07 research 0.199.0：GET /research/events/calendar → `features.macro_event_daily 14 5 2027-12-08`（macro_read_path / macro_rows / superseded_macro_rows / 宏观最晚日期）
 - **现在**：/events/calendar 宏观行改读 macro_event_daily（窗口纽约今天 − 31 天起），雷达行跳过 `ws:macro*`；ingest 遇 ws:macro 文件只归档不读。响应只增字段（origin / indicator / country / release_ts；顶层 superseded_macro_rows 等）。现存 5 行 ws:macro 雷达行一一对应 macro_event_daily、无重复，不需清理、无 Owner SQL。副本预演：17 行（14 宏观到 2027-12-08 + 3 分红），superseded 5。防线 `tests/engines/test_event_calendar_macro.py`（6 个）
 - **Claim**: Two macro paths exist: features.macro_event_daily (TD-151) and event_signal_radar_daily rows with source ws:macro-calendar-2026q4. The calendar page reads the latter; _stable_id hashes the collection date, so each weekly re-drop writes new ids for the same events.
 - **Measured**: code-read 10-06 by paydown lane O.
@@ -1521,8 +1525,9 @@
 
 **P3 · research-data · SEPA has no rows for four sessions (08-28, 08-31, 09-08, 09-16): those nights never computed it, so the SEPA lens and its hit rate skip them**
 
-- **状态**：在做（代码在 research main 6fdc161，随 0.198.0；镜像未建，发布等你批）
+- **状态**：观察中（0.199.0-dagster 已 apply；到 10-07 02:30 UTC research_trading_day 之后看 `sepa_covers_recent_sessions`）
 - **验收**：0.198.0-dagster apply 后的下一次 research_trading_day：`features/sepa_projection` 的 `sepa_covers_recent_sessions` passed，metadata accepted_gaps 为四个日期、missing_sessions 0
+- **验收结果**：部分 PASS 2026-10-07：research-api 里 `missing_sessions` = 08-28 / 08-31 / 09-08 / 09-16 + 10-06（10-06 今晚批次才投影，检查在投影之后跑）
 - **现在**：诊断（副本 ops_dagster）：08-28 / 08-31 是 dbt 步骤加入批次前投影了过期 mart（写的是 08-27 收盘，已被 TD-87 改写）；09-08 / 09-16 是 husbandry_gate 因 IB Flex [1003] 失败、sepa_projection 被跳过。无法忠实回补：基本面 99.3% 在 09-29 后按 v1 重建、IV 库在之间被改写（09-15 的 iv_percentile 518 只对上 3）、dim_universe 只有当前态。所以不回补；新增 WARN 资产检查 `sepa_covers_recent_sessions`（近 30 个交易日缺 SEPA 即告警），四个已判定日期列在 `ACCEPTED_GAPS` 并写明原因（偏离原文「任何缺口都 warn」：否则会红约 3 周，删掉名单即可恢复严格）。防线 `tests/orchestration/test_sepa_session.py`（+6）。后续 TD-192
 - **Claim**: After the TD-87 restate every stored SEPA date is a real session, which exposes the gaps: between 08-21 and 10-05 there are 31 sessions and 27 carry SEPA. The lens re-walk reports lenses_without_source ['sepa'] for exactly those four days.
 - **Measured**: MEASURED 10-06 22:26 UTC (signal_hit sepa re-walk output; replica: 27 distinct SEPA dates).
