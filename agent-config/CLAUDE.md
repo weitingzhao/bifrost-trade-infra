@@ -1,5 +1,5 @@
 <!--
-parity-ids: workspace-v13, language-v1, agent-modes-v2, trade-execution-freeze-v2, dev-services-v3, phase-execution-v3, shared-worktree-v3, business-first-v1
+parity-ids: workspace-v13, language-v1, agent-modes-v2, trade-execution-freeze-v3, dev-services-v3, phase-execution-v3, shared-worktree-v3, business-first-v1
 对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
 改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
 -->
@@ -71,7 +71,7 @@ Ops Platform（火箭）与 Trade（载荷）必须先稳定；研究与分析�
 - 移除或绕过 `k8s/overlays/{stg/daemon-scale-zero,prod/daemon-observe-safe}.patch.yaml`
 - 在没有新的 Owner 批准 program 的情况下，把 S08 daemon execution / 实盘 `place_order` 接到 Gateway RPC
 - 用 Monitor `POST /control/*` 武装实盘交易
-- 写 `ib:operator:cmd`（唯一合法写入方是 Daemon 本身）
+- **Agent** 不得写 `ib:operator:cmd`（任何模式）。系统内合法写入方：Daemon；platform-api 只发 `op=reconnect_all`（D-IB-Heal L1，SIGNED 2026-08-27）。其余 op 只能由 Daemon 发出
 - 推进任何**主要目的是启用实盘发单**的变更
 
 ### 允许

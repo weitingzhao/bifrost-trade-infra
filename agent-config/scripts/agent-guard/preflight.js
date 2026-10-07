@@ -78,11 +78,11 @@ const AUTHORITY =
 // ─────────────────────────────── D10 规则（高风险，不豁免） ───────────────────────────────
 // Research domain writes are ALLOWED while D10 is BLOCKED:
 //   research.ai_draft kind=order_intent · research.candidate_pool · harness propose-only
-// ib:operator:cmd remains blocked (only Daemon may write that stream).
+// Agents must not write ib:operator:cmd (any mode). Legitimate writers: the Daemon, and platform-api for op=reconnect_all only (D-IB-Heal L1, SIGNED 2026-08-27). Every other op is Daemon-only. This gate still blocks Agent writes.
 
 /** 仅在 spine D10 !== UNLOCKED 时生效。 */
 function d10Rules(cmd) {
-  // 1. 写 ib:operator:cmd（及 :dev / :stg 等派生流；唯一合法写入方是 Daemon 本身）
+  // 1. Agent 不得写 ib:operator:cmd（及 :dev / :stg 等派生流；任何模式）。合法写入方：Daemon；platform-api 只发 op=reconnect_all（D-IB-Heal L1，SIGNED 2026-08-27）。其余 op 只能由 Daemon 发出。本闸门只拦 Agent 的写。
   //    只拦"真的在写"：redis-cli 带写命令（参数、管道、heredoc 都算），或代码里调用 redis
   //    客户端的写方法 / IbOperatorClient.request。改源码、grep、写 ACL 文件里出现流名与
   //    xadd 字样不算 —— 旧规则按整段文本匹配，连注释里的 "set" 都会误拦（TD-21）。

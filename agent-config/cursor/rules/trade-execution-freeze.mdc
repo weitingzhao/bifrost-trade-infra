@@ -2,7 +2,7 @@
 description: Trade execution freeze — live trading BLOCKED until Owner explicit unlock (spine D10)
 globs:
 alwaysApply: true
-parity-id: trade-execution-freeze-v2
+parity-id: trade-execution-freeze-v3
 ---
 
 # Trade execution freeze (D10)
@@ -18,7 +18,7 @@ Live trading (auto-order, daemon FSM place_order, live hedge, real IB order plac
 ## Agent behavior (all modes: Product, Ops, Promote)
 
 **Must not:**
-- Write `ib:operator:cmd` (the only legitimate writer is the Daemon itself)
+- **Agent** 不得写 `ib:operator:cmd`（任何模式）。系统内合法写入方：Daemon；platform-api 只发 `op=reconnect_all`（D-IB-Heal L1，SIGNED 2026-08-27）。其余 op 只能由 Daemon 发出
 - Scale `daemon` Deployment for live auto-trade (STG must stay `replicas: 0` per `daemon-scale-zero.patch.yaml`)
 - Remove or bypass `k8s/overlays/prod/daemon-observe-safe.patch.yaml`
 - Wire S08 daemon execution / live `place_order` to Gateway RPC without a new Owner-approved program

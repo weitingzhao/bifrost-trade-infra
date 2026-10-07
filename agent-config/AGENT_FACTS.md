@@ -1,6 +1,6 @@
 ---
-parity-id: agent-facts-v7
-generated: 2026-10-06
+parity-id: agent-facts-v8
+generated: 2026-10-07
 authority: bifrost-platform/config/ops-context.yaml (spine) + 磁盘扫描
 ---
 
@@ -203,7 +203,7 @@ Owner **2026-08-31** 签批 D-14GF.1–6（R1）；同日 GitHub Archive + 授�
   · `research` · `plugin-market-data` · `plugin-flex-query`
 - **数据层**：CloudNativePG @ `data` NS；`redis-live` + `redis-queue` per env；`redis-ib` @ `data` NS（共享 IB 总线）
 - **TWS**：Win11 专用机（Host + Secondary），**永不调度进 K3s**，Socket/Gateway 经 LAN 连接
-- **GPU**：`gpu-server` @ 192.168.10.60（RTX 4090）— Ollama @ `ai` NS，MinIO @ `data-warehouse` NS
+- **GPU**：`gpu-server` @ 192.168.10.60（RTX 4090）— Ollama @ `ai` NS。data-warehouse：从未运行，TD-237 待删
 - **Dev 拓扑**：Mac 本地 = IDE + Vite(:5173) + 当前正在编辑的那一个 API；其余全在 K3s
 - **本地 dev 服务**：`bdev` CLI + tmux session `bifrost`，声明在 `~/.bifrost-dev/sessions.yaml`
 
@@ -360,7 +360,7 @@ kubeconfig：`~/.kube/bifrost-k3s.yaml`（需 `KUBECONFIG=` 显式指定；默�
 | ubt-k3s-04 | 192.168.10.75 | ubt-k3s-04 | data-primary | CloudNativePG |
 | ubt-k3s-05 | 192.168.10.77 | ubt-k3s-05 | general | STG runtime、CI build |
 | ubt-k3s-06 | 192.168.10.79 | ubt-k3s-06 | general | 通用 |
-| gpu-server | 192.168.10.60 | gpu-server | compute | RTX 4090：Ollama（`ai`）、MinIO（`data-warehouse`）、重型 Tekton |
+| gpu-server | 192.168.10.60 | gpu-server | compute | RTX 4090：Ollama（`ai`）、重型 Tekton。data-warehouse：从未运行，TD-237 待删 |
 
 集群外：Win11 TWS ×2（topology `win11-host` / `win11-secondary`；`bifrost-platform-plugin/config/gateway.yaml` 模板写的是 `.30` / `.32`；永不调度进 K3s）、
 Mac mini `.50` / `.52`（agent host）、NAS `.20`（归档与备份目标）、本机 MacBook（kubectl / MCP / Vite）。
@@ -374,6 +374,8 @@ Mac mini `.50` / `.52`（agent host）、NAS `.20`（归档与备份目标）、
 | Ops Console / API | `.73:30876`–`30879` |
 | registry / gitea / apiserver | `.73:30500` · `.73:30300` · `.73:6443` |
 | 数据层（局域网，无 TLS） | Postgres `.73:30432`（`bifrost-postgres-lan`）· redis-dev `.73:30379`（无密码，只 DEV）。STG / PROD Redis 不对局域网开放（30380 / 30382 于 2026-10-07 删除，TD-205）；Redis Insight 用 `kubectl -n data port-forward svc/redis-live-prod 16382:6379` |
+| Grafana | `.73:30883`（`monitoring/kube-prometheus-stack-grafana`） |
+| Dagster webserver | `.73:30301`（`research/dagster-webserver`） |
 
 ### 交付链（Argo CD @ `cicd`）
 
@@ -406,7 +408,6 @@ Tekton 流水线：`bifrost-ci-{frontend,platform,python}` · `bifrost-deliver-{
 - 登录角色（TD-85，2026-10-04 起）：Trade 运行时每环境 `trade_app_<env>`（只连本环境库 + GS 的 `raw_broker` / `ops_feedback` 所需）；
   `bifrost` 只是属主，只有 db-init 用它登录（Secret `bifrost-<env>-db-owner`）；market-data 插件 `data_writer`、flex 插件 `flex_writer`、
   Research `analytics_writer`（不再继承 `bifrost`）。登录名以各 Secret 的 `PGUSER` / `postgres-user` 为准，ConfigMap 里的 `user:` 只是回落。
-- 第二个 MinIO @ `data-warehouse`（gpu-server）供 Research / Golden Source 对象。
 - `redis-ib` @ `data`：共享 IB 事件总线；`redis-live` / `redis-queue` 每环境一套。
 
 ### IB 接入模型（账户号不是秘密 — Owner 2026-09-06 明确）
