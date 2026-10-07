@@ -13,10 +13,9 @@
 
 ## 待你签收
 
-- **TD-209** — 告警现在会呼到你：critical 与备份、WAL、NAS MinIO 告警经 Mac mini .50 的 operator-plane 发到 ntfy，Watchdog 当心跳、停了也呼你；原来的 webhook 照旧收。验收 PASS 2026-10-07（线上路由与心跳实测）。防线：`RATCHETS.md`「check_alert_routing.py」与「alertrelay/relay_test.go」。后续：TD-248（转发只在 .50 一处，.50 宕机时没人知道）；你要在手机 ntfy 里订阅本机 `bifrost-platform/.env` 里的 `NTFY_TOPIC`
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 107 项**：P0 0 · P1 11 · P2 33 · P3 63；要你批的 57 项（从总览表的审批列算）。
+**未结 106 项**：P0 0 · P1 10 · P2 33 · P3 63；要你批的 56 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -39,7 +38,6 @@
 - **TD-96** — preflight 的 D10 闸门只认 curl；修改稿在 `REQUEST-td96-preflight-d10-2026-10-06/`，等 Owner 审。
 
 - **TD-130** — 真正在生产数据层上动手的 Ops 自动修复跑在 Owner 的笔记本上（本机 bdev 的 platform-api），集群里 STG/PROD 那两份在空转；10-05 到 10-06 对备份 MinIO 的重启和补备份都是它做的。
-- **TD-209** — 所有数据层告警（备份失败、WAL 停、NAS MinIO 掉线、逻辑备份缺失）只进 STG platform-api 的内存审计日志，没有人会收到；`BifrostLogicalBackupMissing` 从 10-06 22:03Z 起一直在响。
 
 ## 还债顺序
 
@@ -107,7 +105,7 @@
 
 目标：数据层告警有一个人能收到的通道和外部心跳；逻辑备份先修好等库就绪；做一次 Barman 恢复演练；决定异地副本；daemon 停写与日志丢失要能被看见。
 
-项：TD-209, TD-210, TD-217, TD-218, TD-238, TD-237, TD-248 · 已还：TD-215, TD-216
+项：TD-210, TD-217, TD-218, TD-238, TD-237, TD-248 · 已还：TD-209, TD-215, TD-216
 
 ### 第 11 波 · 账本与页面读数、绿着的未知（第 3 轮）
 
@@ -298,7 +296,6 @@
 | [TD-206](#td-206) | P1 | ops-console | git-bridge answers anyone on the LAN, and its /commit runs `git add -A` on the shared checkout; /push pushes the current branch with no release-window check | 安全/凭据（要你批） |
 | [TD-207](#td-207) | P1 | ops-console | The remediation runner (:8781) and the Hermes gateway (:8782) on the Mac minis start, approve and cancel agent jobs for anyone on the LAN: POST /run, /run/:id/respond and /skills/:id/trigger have no auth | 安全/凭据（要你批） |
 | [TD-208](#td-208) | P1 | ops-platform | Anonymous POST /checklist/husbandry-sync starts full-auto remediation agents: it merges the stored checklist and dispatches every failing item, and three Console pages call it on load | 安全/凭据（要你批） |
-| [TD-209](#td-209) | P1 | data | Every data-layer alert (backup failed, WAL archive stalled, NAS MinIO down, logical backup missing) goes to one webhook that writes it to STG platform-api's in-memory audit log and returns 200: no human is ever told | PROD 变更（要你批） |
 | [TD-210](#td-210) | P1 | data | The nightly logical backup of hand-entered data failed on its first scheduled run: it connects before the new pod's NetworkPolicy is programmed and gets Connection refused | 不用批 |
 | [TD-211](#td-211) | P1 | trade-worker | Working orders are never persisted: the plugin's snapshot has no open_orders, the daemon TRUNCATEs raw_broker.open_orders every hour, and the UI says 'No working orders at IB.' | 跨仓库发版 |
 | [TD-212](#td-212) | P2 | trade-worker | A failed IB positions or summary read is written as truth: the daemon deletes every raw_broker.positions row of the account and nulls its NAV until the slot reconnects | 跨仓库发版 |
@@ -1568,26 +1565,6 @@
 - **Ratchet**: Route-auth walk test (no non-GET route outside Require, allowlist empty). A checklist test that HandleHusbandrySync dispatches only the ids it probed. A Console vitest/grep that bans mutating API calls inside useEffect without an allowlist comment.
 - **验收**: `cd bifrost-platform/api && go test ./internal/server ./internal/checklist -run 'RouteAuth|HusbandrySync' -count=1; curl -s -m5 -o /dev/null -w '%{http_code}\n' -X POST http://192.168.10.73:30876/api/v1/checklist/husbandry-sync  # expect 401`
 - 审批 安全/凭据（要你批） · 代价 S · 风险 low · repos: bifrost-platform
-
-### TD-209
-
-**P1 · data · Every data-layer alert (backup failed, WAL archive stalled, NAS MinIO down, logical backup missing) goes to one webhook that writes it to STG platform-api's in-memory audit log and returns 200: no human is ever told**
-
-- **状态**：待你签收
-- **现在**：10-07 上线。operator-plane（platform 8803ee8）在 Mac mini .50 上 `ALERT_RELAY=on`：`POST /api/v1/alerts/alertmanager` 逐条发 ntfy（critical 紧急、warning 高、恢复低，按 fingerprint+状态 30 分钟去重，ntfy 失败回 502 让 Alertmanager 重试），`POST /api/v1/alerts/heartbeat` 收 Watchdog，15 分钟没收到就呼你、每小时重呼、恢复时说一声。Alertmanager（helm rev 14，infra 9eee4ae）：critical 与 `Bifrost(PostgresBackup*|PostgresWalArchiveStalled|LogicalBackup*|MinIONas*)` 加送 `owner-ntfy`（continue），Watchdog 每 5 分钟送 `owner-heartbeat`，其余照旧进 webhook；出站策略放行 192.168.10.50:8783。ntfy 服务用公共 ntfy.sh，topic 只在本机 `bifrost-platform/.env` 与 .50 的 `config/.env`，令牌同时在 Secret `alertmanager-relay-auth`
-- **Claim**: Alertmanager's root route and only real receiver is bifrost-ops-agent, a webhook to platform-api.bifrost-platform-stg. HandleAlertmanager runs a static Diagnose(), writes one line to the memory-only audit log (NewAuditLog("")) and returns 200. There is no email, chat or push channel, and Watchdog routes to "null" with no external dead-man's switch. Alertmanager counts this as successful delivery, so alerting looks healthy while nobody is told. TD-196 covers the audit log's persistence, not this routing.
-- **Measured**: MEASURED 2026-10-07 00:45 UTC. The live config has two receivers, "null" and bifrost-ops-agent (webhook_configs only). Over 24 h, notifications_total is non-zero only for webhook (~41) and failed_total is 0 for every integration. BifrostLogicalBackupMissing has been active since 22:33Z with receivers ['bifrost-ops-agent'] and no one acting on it. platform and infra contain no telegram, ntfy, pushover, smtp or dead-man configuration.
-- **Evidence**:
-  - `bifrost-platform/api/internal/opsagent/handler.go:77` — `h.audit.RecordDirect("ops-agent", actuation.RoleOperator, "ops-agent.alertmanager", payload.Receiver, "ok", detail)`
-  - `bifrost-platform/api/internal/server/server.go:113` — `audit := actuation.NewAuditLog("")`
-  - `bifrost-trade-infra/scripts/k3s/values-kube-prometheus.yaml:148` — `- url: http://platform-api.bifrost-platform-stg.svc.cluster.local:8780/api/v1/ops-agent/alertmanager`
-  - `bifrost-trade-infra/scripts/k3s/values-kube-prometheus.yaml:122` — `alertname: 'Watchdog|InfoInhibitor'`
-- **Impact**: A failing backup, a stalled WAL archive or an offline NAS drive is noticed only if someone opens the Console. The 10-05 MinIO drive-offline outage ran 6h40m with BifrostPostgresWalArchiveStalled firing and no one handling it, and the same path applies today (TD-210 is firing now). Any STG platform-api rollout erases even the audit record.
-- **Fix**: Add a human receiver for severity=critical and for Bifrost(Postgres|MinIONas|LogicalBackup).* (for example ntfy, Pushover or email, sent from the Mac mini operator-plane outside the cluster), and keep the webhook with continue: true. Route Watchdog to an external heartbeat check (healthchecks on the NAS or a Mac mini) that pages when the heartbeat stops. Persist webhook receipts once TD-196 lands.
-- **Ratchet**: Infra alerting test (ratchet proposal 'alerting-contract'): load values-kube-prometheus.yaml and fail unless every critical and Bifrost backup/WAL/MinIO alert routes to at least one receiver that is not an in-cluster webhook, and Watchdog routes to a non-null receiver.
-- **验收**: `KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl get --raw "/api/v1/namespaces/monitoring/services/kube-prometheus-stack-alertmanager:9093/proxy/api/v2/alerts?active=true" </dev/null | python3 -c "import json,sys;a=json.load(sys.stdin);print(sorted({(x['labels']['alertname'],tuple(sorted(r['name'] for r in x['receivers']))) for x in a if x['labels']['alertname'] in ('Watchdog','BifrostLogicalBackupMissing') or x['labels'].get('severity')=='critical'}))"  # every critical/backup alert lists a receiver other than bifrost-ops-agent; Watchdog lists a non-null receiver`
-- **验收结果**：PASS 2026-10-07 9eee4ae：验收命令输出 `BifrostLogicalBackupMissing → (bifrost-ops-agent, owner-ntfy)`、`Watchdog → (owner-heartbeat)`；.50 的 relay 状态 `last_heartbeat` 03:00:48Z → 03:05:48Z（每 5 分钟），已发 2 条（测试一条 + LogicalBackupMissing）；`LIVE=1 make check-alert-routing` ok
-- 审批 PROD 变更（要你批） · 代价 M · 风险 low · repos: bifrost-trade-infra, bifrost-platform
 
 ### TD-210
 
