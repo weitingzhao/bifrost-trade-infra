@@ -133,6 +133,22 @@ spec:
             exit 1
             ;;
         esac
+        # TD-120: orchestration/** is outside Argo, so a research release can
+        # ship an API pin whose daemon image was never rolled. The daemon tag
+        # is the API pin plus -dagster; a miss fails this deliver.
+        DAEMON="$(kubectl get deployment dagster-daemon -n "${NS}" \
+          -o jsonpath='{.spec.template.spec.containers[0].image}')"
+        echo "dagster-daemon image: ${DAEMON}"
+        echo "expected daemon tag:  ${WANT}-dagster"
+        case "${DAEMON}" in
+          *:"${WANT}-dagster") echo "dagster-daemon image assertion OK" ;;
+          *)
+            echo "ERROR: dagster-daemon is not running ${WANT}-dagster." >&2
+            echo "Roll the daemon (and webserver) image to match the pin." >&2
+            echo "orchestration/** is not applied by this pipeline." >&2
+            exit 1
+            ;;
+        esac
     - name: http-smoke
       image: curlimages/curl:8.11.1
       script: |
