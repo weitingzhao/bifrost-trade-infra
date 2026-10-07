@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-205** — STG/PROD Redis 不再对局域网开放：删掉 30380 / 30382 两个 NodePort 和它们的局域网策略，platform 改走集群内地址探测。验收 PASS 2026-10-07（局域网连 30382 失败、Service NotFound、PROD daemon 与 Trade 正常）。防线：`RATCHETS.md`「check_data_lan_exposure.py」。后续：platform b0a8dc0 随下一次 platform 发布（只是面板显示）；redis-dev 的 30379 保留（无密码，只 DEV）
 - **TD-199** — 删掉自 09-24 起无人引用的 EventsBoard.tsx / EventRadarDashboard.tsx，改正两处注释（frontend e98afbf0）· 验收 PASS（10-07）· 防线：`src/lib/orphanModules.test.ts`（从 main.tsx 走导入图，KNOWN_ORPHANS 只许缩短）· 后续：TD-243（其余 42 个孤儿模块）
 
 **未结 119 项**：P0 0 · P1 12 · P2 39 · P3 68；要你批的 62 项（从总览表的审批列算）。
@@ -1644,7 +1645,8 @@
 
 **P1 · data · PROD Redis, which holds the daemon's control stream and state hash, has no password and is open on NodePort 30382 to two LAN /24s and, through NodePort SNAT, to every pod in the cluster**
 
-- **状态**：未开始
+- **状态**：待你签收
+- **现在**：10-07 已删 `redis-live-stg-lan`（30380）、`redis-live-prod-lan`（30382）及两条 `-lan-ingress` 策略（infra c4d7c63，线上已删，删前对象备份在会话 scratchpad）。platform 改走集群内 Service（overlay 配置 + 重启 STG/PROD 的 api 与 workers），`redis-live-{stg,prod}-ingress` 放行 `bifrost-platform-{stg,prod}`（已 apply）；矩阵里 STG/PROD Redis 仍为 ok（地址显示 `cluster://`）。PROD daemon 2/2、PROD Trade health 200。platform b0a8dc0（局域网访问表只列 DEV，不再把 STG/PROD 标黄）已上 main，等下一次 platform 发布
 - **Claim**: redis-live-prod-lan-ingress allows 192.168.10.0/24, 192.168.20.0/24 and the five flannel.1 /32 addresses, which are the SNAT source of any NodePort connection, including one from a pod in bifrost-dev, research or a plugin namespace. The NodePort file says 'dev only' but exposes redis-live-stg (30380) and redis-live-prod (30382). The server has no requirepass and no ACL. The live keys include bifrost:daemon:trading:control, which the PROD daemon consumes (poll_and_consume_control accepts 'flatten' and maps unknown commands to 'stop'), and bifrost:daemon:trading:state. Any LAN device can therefore stop or un-suspend the 2-replica PROD daemon, bypassing the trade-api /control gates and the audit trail. The NodePorts 30379/30380/30382/30432 are missing from the AGENT_FACTS §8c table.
 - **Measured**: MEASURED 2026-10-07. From 192.168.20.74, PING to 192.168.10.73:30382 (PROD) and to 30380 (STG) both return +PONG with no AUTH. svc list in data: redis-live-prod-lan 30382, redis-live-stg-lan 30380, redis-dev-lan 30379, bifrost-postgres-lan 30432. redis-cli --scan in redis-live-prod lists the three daemon keys. PROD reaches this instance through ExternalName redis → redis-live-prod. bifrost-prod/daemon is 2/2 (observe-safe). Pod-to-NodePort reachability is CODE-READ; no probe pod was started.
 - **Evidence**:
@@ -1656,6 +1658,7 @@
 - **Fix**: Delete the redis-live-prod-lan and redis-live-stg-lan NodePorts and their -lan-ingress policies; use kubectl port-forward for Redis Insight. If LAN access must stay, enable ACL users (read-only for Insight, a writer for trade) and drop the flannel.1 /32 entries. Add every remaining NodePort to AGENT_FACTS §8c.
 - **Ratchet**: Infra manifest policy check: fail if a NodePort Service selects a pod labelled bifrost.io/environment in {prod, stg} without an allowlist entry, or if a NetworkPolicy for a prod/stg data pod has an ipBlock wider than /32.
 - **验收**: `nc -z -w3 192.168.10.73 30382; echo $?  # expect 1; and KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data get svc redis-live-prod-lan </dev/null  # expect NotFound`
+- **验收结果**：PASS 2026-10-07 c4d7c63：`nc -z -w3 192.168.10.73 30382` 退出码 1；`kubectl -n data get svc redis-live-prod-lan` NotFound；30380 同样无应答；`make check-data-lan-exposure` 与 `LIVE=1` 均 ok
 - 审批 安全/凭据（要你批） · 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ### TD-206

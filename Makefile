@@ -439,6 +439,10 @@ check-trade-gateway-routes:
 check-http-metrics-coverage:
 	python3 scripts/check_http_metrics_coverage.py $(if $(LIVE),--live,)
 
+# TD-205: stg/prod data pods (Redis) have no LAN NodePort and no ipBlock ingress; LIVE=1 reads the cluster.
+check-data-lan-exposure:
+	python3 scripts/check_data_lan_exposure.py $(if $(LIVE),--live,)
+
 # TD-215: daemon port + /health livenessProbe, its PodMonitor and the BifrostTradeDaemon* rules
 # (absent() twin, raw_broker rule gated on a TWS session). LIVE=1 also wants the PROD leader's
 # heartbeat and raw_broker write timestamps in Prometheus.
