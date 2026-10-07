@@ -13,9 +13,10 @@
 
 ## 待你签收
 
+- **TD-245 / TD-226 / TD-230 / TD-227** — Console agent-pack 文案跟上 TD-192；发布台 Launch 在 readiness 未测时给 PROBING 不给 GO；release gate 必需检查 unknown → inconclusive、pass 超 24h 不再 ready；mission snapshot 过期来源转 unknown（platform b077796，STG+PROD 10-07 已上） · 验收 PASS（10-07，pack 15 passed、launch 11 passed、Go promote 4 PASS、snapshot 3 passed；PROD gate 实读 ready:false） · 防线：三个 pack 测试、`satelliteLaunchVerdict.test.ts`、`promote/service_test.go`（5 个）+ `releaseGateSignal.test.ts`、`useMissionSnapshot.test.tsx` · 后续：本机 bdev 跑的共享 checkout 停在 e504020，前进后本机/DEV 发布台会因 gate 36 天未重跑转 NO_GO——要重跑一次 platform gate；无新编号
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 107 项**：P0 0 · P1 10 · P2 33 · P3 64；要你批的 56 项（从总览表的审批列算）。
+**未结 108 项**：P0 0 · P1 10 · P2 33 · P3 65；要你批的 57 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -111,7 +112,7 @@
 
 目标：挂单与 IB 读失败不再被当真写库；Risk / Performance / 告警计数按交易日算；Console 的裁决条在探针失败时不再显示绿色；ui 的发布可追溯；台账与文档的过时说法改正。
 
-项：TD-211, TD-212, TD-213, TD-226, TD-227, TD-228, TD-229, TD-230, TD-234, TD-235, TD-236, TD-239, TD-240, TD-241 · 已还：TD-214, TD-219, TD-232, TD-233
+项：TD-211, TD-212, TD-213, TD-226, TD-227, TD-228, TD-229, TD-230, TD-234, TD-235, TD-236, TD-239, TD-240, TD-241, TD-251 · 已还：TD-214, TD-219, TD-232, TD-233
 
 ## 数据边界（接受并留座）
 
@@ -330,6 +331,7 @@
 | [TD-247](#td-247) | P3 | frontend | Look-back starts are still computed in the browser's time zone (new Date(Date.now() - N*86400000).toISOString().slice(0,10)), and three private New York date helpers duplicate @/lib/freshness | 不用批 |
 | [TD-249](#td-249) | P3 | ops-console | After TD-230/227: remediation agent copy still says the gate result is pass/fail (no inconclusive), and Control Room does not list which sources are stale | 不用批 |
 | [TD-250](#td-250) | P3 | trade-data | A stale vendor close above intrinsic is still stored as vendor_eod: the plugin's snapshot read does not return last_trade_ts, so enrich cannot tell a morning trade from a session close | 不用批 |
+| [TD-251](#td-251) | P3 | ops-agent | Hermes peer-watchdog and nightly-drift-scan duplicate jobs that launchd already runs on the Minis | 要你定 |
 
 ## 条目
 
@@ -1752,7 +1754,8 @@
 
 **P3 · ops-console · Opening the Cluster page as an operator auto-starts a full-auto remediation run, and neither platform-api nor the runner deduplicates by scope or active job**
 
-- **状态**：在做（还债循环 · 道 L6）
+- **状态**：观察中（platform 分支 td-l6 = b066d99，未进 main；进 main 要下一次 platform 发版——要你批）
+- **验收结果**：PASS（代码层）2026-10-07 2ccf5d7：Cluster 页加载不再派发修复 Agent（改为显式按钮 + 确认）；remediation start 按 scope 去重；TestStartDedupsActiveScope
 - **Claim**: For an authenticated operator, ClusterOpsIssuesPanel auto-starts a remediation run from a useEffect whenever issues exist; ClusterPage always passes autoAssess. Its once-per-signature guard is a per-tab useRef, which resets on reload or in a new tab, and the signature changes whenever a row flips between degraded and fail. The client skips only while its own activeRemediationJob is running. platform-api HandleStart has no active-job or same-scope dedupe, and neither does the runner's POST /run. The HusbandryStrip path is covered by TD-208.
 - **Measured**: CODE-READ only; no browser was opened. Matches the known Owner memory note 'Cluster page load dispatches repair agents'.
 - **Evidence**:
@@ -1786,8 +1789,8 @@
 
 **P3 · ops-console · The release desk's Launch verdict says 'Clear to launch' and enables Agent Deploy when readiness probes failed or are still loading**
 
-- **状态**：观察中（platform main f7a4d9a 已推（8803ee8..f7a4d9a），等 platform 发版——要你批，并与血缘会话协调，一次只一个会话发）
-- **验收结果**：PASS 2026-10-07 f7a4d9a：新增结论 PROBING（Readiness not measured，黄色），把关维度任一 unknown / 缺失即不给 GO，checkpoint 只有实测 ok 才算绿；`satelliteLaunchVerdict.test.ts`「unknown readiness is not GO」11 passed。偏离台账：isProdReleaseBlocked 未改（会在加载时误报阻断），闸门统一走 resolveLaunchVerdict
+- **状态**：待你签收（platform STG 1791344064 + PROD 1791344349 已上 b077796，10-07）
+- **验收结果**：PASS 2026-10-07 b077796（已上 PROD）：satelliteLaunchVerdict -t unknown 11 passed；PROD bifrost-deliver-platform-prod-1791344349（克隆 HEAD b077796，含 f7a4d9a）。偏离台账：isProdReleaseBlocked 未改，闸门统一走 resolveLaunchVerdict
 - **Claim**: The readiness helpers return 'unknown' when their fetch has no data (gate, socket, matrix or promote is null). Both blocking predicates treat only 'fail' and 'degraded' as blocking, so 'unknown' falls through to kind 'GO'. buildLaunchCheckpoints sets ok = !blocked, and the signal defaults to 'ok', so the checkpoints render green. TradeReleasePage enables deploy on GO, behind canOperate. Tests cover clear and blocked prod but not unknown.
 - **Measured**: CODE-READ only; no browser was opened, because the Cluster page auto-dispatches.
 - **Evidence**:
@@ -1805,8 +1808,8 @@
 
 **P3 · ops-console · The cockpit mission snapshot keeps a failing probe's last good verdict, under a 'Last probe' stamp that is the newest of seven queries**
 
-- **状态**：观察中（platform main f7a4d9a 已推（8803ee8..f7a4d9a），等 platform 发版——要你批，并与血缘会话协调，一次只一个会话发）
-- **验收结果**：PASS 2026-10-07 f7a4d9a：useMissionSnapshot 只用 40 s 内无错应答的来源，过期即 unknown，freshness 取最旧应答，新增 staleSources；`useMissionSnapshot.test.tsx`「mission snapshot stale」3 passed
+- **状态**：待你签收（platform STG 1791344064 + PROD 1791344349 已上 b077796，10-07）
+- **验收结果**：PASS 2026-10-07 b077796（已上 PROD）：useMissionSnapshot -t 'mission snapshot stale' 3 passed；PROD bifrost-deliver-platform-prod-1791344349（克隆 HEAD b077796，含 f7a4d9a）
 - **Claim**: useMissionSnapshot builds the Control Room and FocusStrip verdict from seven useQuery results. It never reads isError, and TanStack v5 keeps data from the last success when a refetch fails. dataUpdatedAt is the max over all seven queries, so if one probe (matrix or cluster) keeps failing while others succeed, its stale verdict shows under a fresh stamp. A full platform-api outage is visible, because the stamp ages. 11 files use the hook.
 - **Measured**: CODE-READ only (TanStack ^5.100.14; main.tsx sets retry:1).
 - **Evidence**:
@@ -1823,7 +1826,8 @@
 
 **P3 · ops-console · Every scheduled Hermes skill run on .52 fails with 'No such file or directory', while /health returns status ok and the checklist counts the gateway healthy**
 
-- **状态**：在做（还债循环 · 道 L6）
+- **状态**：观察中（platform 分支 td-l6 = b066d99，未进 main；进 main 要下一次 platform 发版——要你批）
+- **验收结果**：PASS（代码层）2026-10-07 a52b13c：实测 .52:8782 /executions 500/500 失败（498 peer-watchdog、2 nightly-drift-scan，10-05 09:50 起，脚本相对路径在主机上不存在）而 /health ok。修：脚本随网关部署到 HERMES_SCRIPTS_DIR；缺脚本的技能不排程且 /skills 报 error；/health 在技能缺脚本或连续 3 次失败时 degraded（HTTP 仍 200）；网关 0.2.0；platform-api 与 Console 跟随 degraded。主机重部署是 Owner 步骤：先定 skills.yaml 里 peer-watchdog / nightly-drift 停不停（L6 建议都停，见 TD-251），再跑 `./scripts/agent/deploy_hermes_gateway.sh vision@192.168.10.52`
 - **Claim**: skills.yaml points at ../../scripts/agent/*.sh, resolved with cwd = the skills.yaml directory. deploy_hermes_gateway.sh rsyncs only agent/hermes-gateway to ~/bifrost-agent/hermes-gateway, so the scripts path (~/scripts/agent) never exists on the host. The deployed copy is also stale: 3 skills versus 4 in the repo. /health hard-codes status 'ok', and the hermes-tooling checklist item is healthy when hermes_mcp.status=ok. Runner failover is still covered, because a separate launchd peer_watchdog is deployed by deploy_mac_mini.sh.
 - **Measured**: MEASURED 2026-10-07 01:00 UTC: .52:8782/executions?limit=50 shows 50/50 peer-watchdog failures ('bash: ../../scripts/agent/peer_watchdog.sh: No such file or directory'). /health returns ok, skill_count 3, uptime ~4.74M s (~55 days). The local bdev ring shows 500/500 failures since 10-05, including nightly-drift-scan daily at 11:00Z.
 - **Evidence**:
@@ -1859,8 +1863,8 @@
 
 **P3 · ops-platform · The platform release gate passes when required checks are 'unknown', and its 'ready' never expires**
 
-- **状态**：观察中（platform main f7a4d9a 已推（8803ee8..f7a4d9a），等 platform 发版——要你批，并与血缘会话协调，一次只一个会话发）
-- **验收结果**：PASS（代码层）2026-10-07 f7a4d9a：必需检查有 unknown → result `inconclusive`；pass 超过 `PLATFORM_RELEASE_GATE_MAX_AGE`（默认 24h）→ ready=false 并给 blocker；prod matrix 零目标记 Unknown；无新存储，result 多一个取值（消费方都按 === 'pass' 比较）。实测今天本机 gate 记录四个 tier 都是 pass / ready 且最新是 09-01——上线后 DEV / 本机发布台会从 GO 变 NO_GO（gate 36 天未重跑），要重跑一次 gate 才绿；PROD store 本来就空（TD-196）不受影响。防线 promote/service_test.go 5 个 + console releaseGateSignal.test.ts
+- **状态**：待你签收（platform STG 1791344064 + PROD 1791344349 已上 b077796，10-07）
+- **验收结果**：PASS 2026-10-07 b077796（已上 PROD）：RequiredUnknown / StaleRecord 4 个 Go 测试 PASS；PROD 实读 /promote/release-gate?tier=platform-prod → ready:false「No platform-prod release gate recorded yet」（PROD store 本来就空，TD-196）。本机 bdev platform-api 仍跑共享 checkout e504020（未含此修复），本机发布台转 NO_GO 要等共享 checkout 前进并重跑 gate
 - **Claim**: RunReleaseGate fails only on ReachFail. Required checks that return ReachUnknown (spine milestone missing, smoke URLs unset, an empty probe matrix) produce result=pass, and narrativeBlockers does not treat Unknown as a blocker. responseFromRecord sets ready=true for any past pass with no age bound. checkProdMatrix fails when cfg is nil or prod is missing, but reports OK when the matrix has zero targets. The stale-ready display could not be reproduced on 10-07: the local instance serves no records although the state files exist (the same silent read as TD-229), and PROD's store is empty (TD-196).
 - **Measured**: CODE-READ for unknown→pass. MEASURED 00:59 UTC: local GET release-gate answers 'No … release gate recorded yet' for all four tiers while bifrost-platform/data/release_gate_state*.json exists (newest prod record 08-31). The gate has not run for over a month; releases go through release.sh and Tekton.
 - **Evidence**:
@@ -2056,7 +2060,9 @@
 
 **P3 · research-control · agents/journal_distill reads raw_broker.executions_final with no Flex freshness check (own 23:55 UTC schedule, outside any gate)**
 
-- **状态**：在做（还债循环 · 道 L5，10-07 03:3x UTC 开工）
+- **状态**：观察中（research 0.203.0 已构建：main fb1808e + b814178，registry 有 0.203.0 / 0.203.0-dagster；pin 提交 a79d661 未推——推 pin + 手工 apply Dagster 要你批）
+- **验收**：上线后下一个 Flex 失败夜：`agents/journal_distill` 的结果带 `fills_skip_reason`、输出检查 WARN，decisions/visits/notes 照跑；单元证据 `cd bifrost-research && pytest tests/orchestration/test_flex_gate.py tests/engines -k distill -q`
+- **验收结果**：PASS（代码层）2026-10-07 fb1808e：run_distill 先问 flex_gate 的判定（同一 freshness-kpis 探针与规则，重试一次、不抛错），failed/stale/unknown 只跳过 fills 记忆并写原因；FLEX_READERS 里 journal_distill 从豁免改为挂 gate，原测试强制。手工 POST /research/journal/memory/distill 走同一闸门
 - **Claim**: TD-192 mapped every Flex reader; journal_distill is one of the four outside the batch and was never gated (before or after the split).
 - **Measured**: code-read 10-07 by paydown lane BB.
 - **Evidence**:
@@ -2070,8 +2076,8 @@
 
 **P3 · ops-console · Console agent-pack text still says husbandry_gate blocks dbt when Flex fails (stale after TD-192)**
 
-- **状态**：观察中（platform main f7a4d9a 已推（8803ee8..f7a4d9a），等 platform 发版——要你批，并与血缘会话协调，一次只一个会话发）
-- **验收结果**：PASS 2026-10-07 f7a4d9a：三个 agent pack 改为 husbandry_gate 只看 Market、flex_gate 只拦 option_pinned_contract；三个 pack 测试各加一例（含 flex_gate / option_pinned_contract、不许旧说法）3 passed
+- **状态**：待你签收（platform STG 1791344064 + PROD 1791344349 已上 b077796，10-07）
+- **验收结果**：PASS 2026-10-07 b077796（已上 PROD）：三个 agent pack 测试 15 passed；PROD bifrost-deliver-platform-prod-1791344349（克隆 HEAD b077796，含 f7a4d9a）
 - **Claim**: flexAgentPack.ts:316, massiveAgentPack.ts:335, researchEngineAgentPack.ts:462 describe the old single gate.
 - **Measured**: code-read 10-07 by paydown lane BB.
 - **Evidence**:
@@ -2116,7 +2122,8 @@
 
 **P3 · ops-console · After TD-230/227: remediation agent copy still says the gate result is pass/fail (no inconclusive), and Control Room does not list which sources are stale**
 
-- **状态**：在做（还债循环 · 道 L6）
+- **状态**：观察中（platform 分支 td-l6 = b066d99，未进 main；进 main 要下一次 platform 发版——要你批）
+- **验收结果**：PASS（代码层）2026-10-07 b066d99：修复 Agent 文案与 deliveryTools 写明 gate 的 inconclusive；useMissionSnapshot 的 staleSources 接到 ControlRoomVerdictStrip，点名过期探针
 - **Claim**: agent/remediation/src/prompt.ts:253 and tools/deliveryTools.ts:183 describe gate results as pass/fail; useMissionSnapshot now returns staleSources but ControlRoomPage / MissionControlHeader do not pass it to ControlRoomVerdictStrip.
 - **Measured**: code-read 10-07 by loop lane L2.
 - **Evidence**:
@@ -2139,6 +2146,20 @@
 - **Fix**: Plugin: add last_trade_ts to the snapshot read (additive field). Core: when the trade is not from that session, or is older than N minutes before the close and deviates from the vendor-IV model by more than a threshold, store vendor_iv_model.
 - **Ratchet**: Extend test_snapshot_mark_intrinsic.py's grid with a last_trade_ts dimension.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data, bifrost-trade-core
+
+### TD-251
+
+**P3 · ops-agent · Hermes peer-watchdog and nightly-drift-scan duplicate jobs that launchd already runs on the Minis**
+
+- **状态**：未开始
+- **Claim**: The two Hermes skills on .52 re-run work that launchd jobs on the Mac minis already do (peer watchdog, nightly drift). Once TD-228 makes the scripts reachable they would run twice; until then they failed 500/500 unnoticed.
+- **Measured**: MEASURED 10-07 by paydown lane L6 while fixing TD-228 (.52:8782 /executions; the skills' scripts have launchd twins).
+- **Evidence**:
+  - `bifrost-platform/agent/hermes-gateway/skills.yaml:6` — `- id: peer-watchdog`
+- **Impact**: Double pages / double drift proposals after the TD-228 redeploy, or two owners for one job.
+- **Fix**: Owner picks one runner per job: disable both skills in skills.yaml (L6's recommendation; it offers the commit) or retire the launchd twins.
+- **Ratchet**: A gateway test: no enabled skill's script is also referenced by a launchd plist in agent/deploy.
+- 审批 要你定 · 代价 S · 风险 low · repos: bifrost-platform
 
 ## 没覆盖到的（下一轮从这里开始）
 
