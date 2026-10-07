@@ -1,0 +1,38 @@
+# api-ops may GET Deployment ib-gateway in namespace data (TD-104).
+# Apply with: kubectl apply -f k8s/data/api-ops-ib-gateway-rbac.yaml
+# Not part of kustomization.yaml. One named resource, verb get only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: api-ops-ib-gateway-reader
+  namespace: data
+  labels:
+    app.kubernetes.io/name: api-ops
+    app.kubernetes.io/component: ib-gateway-observe
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["ib-gateway"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: api-ops-ib-gateway-reader
+  namespace: data
+  labels:
+    app.kubernetes.io/name: api-ops
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: api-ops-ib-gateway-reader
+subjects:
+  - kind: ServiceAccount
+    name: api-ops
+    namespace: bifrost-prod
+  - kind: ServiceAccount
+    name: api-ops
+    namespace: bifrost-stg
+  - kind: ServiceAccount
+    name: api-ops
+    namespace: bifrost-dev
