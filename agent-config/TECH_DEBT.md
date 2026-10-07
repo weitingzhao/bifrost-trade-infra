@@ -1292,7 +1292,7 @@
 
 - **状态**：在做
 - **现在**：鉴权一半已上线（platform e504020，STG/PROD）：`POST /checklist/husbandry-sync` 移进 operator 组，HusbandryStrip 只在有令牌时发送；无令牌 401 已在三处实测
-- **下一步**：只派发本次探到的 husbandry 项、不再派发整个合并后的清单（或改成 workers 侧定时），之后进签收
+- **下一步**：并入 ops-arch 第 3 阶段（10-07 由 ops-arch 会话接手）：ADR §6 让 Console / 检查清单驱动的 Agent 派发整体退场，`husbandry-sync` 不再调用 `executeDispatch`（只更新信号），派发路径随之删除；Console 一侧的调用已在 c10aeed 去掉
 - **Claim**: POST /api/v1/checklist/signals is operator-gated; POST /api/v1/checklist/husbandry-sync sits outside every auth group. It merges the husbandry probe into the stored checklist and runs executeDispatch over the whole merged set, not just the husbandry items. Every stored FixFullAuto item that is fail or degraded (failing-pods, redis, nginx-edge, trade-apis) is therefore started through remediation.StartInternal with scope cluster_issues_full_auto, with no role or trust check. The job's Actor is 'checklist-dispatch'; only the audit line records 'anonymous'. HusbandryStrip, mounted on Market Data Overview, Flex Query and Research Engine, POSTs it without a token from a useEffect whenever the strip shows degraded or caution. The only throttle is a per-tab sessionStorage key. Existing mitigations, a 24 h per-item dedupe and maxConcurrentAuto=1, limit how often it fires but not who can fire it.
 - **Measured**: CODE-READ for the dispatch path; the POST was deliberately not sent. MEASURED: the local checklist store holds 22 signals, all ok or unknown, with empty last_dispatch, so nothing would fire right now. config/agent-tasks.yaml marks cluster_issues_full_auto as `tier: manual`. Remediation runners receive PLATFORM_OPERATOR_TOKEN (deploy_mac_mini.sh:201).
 - **Evidence**:
