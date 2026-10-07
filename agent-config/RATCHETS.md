@@ -105,6 +105,10 @@
 | 控制室文案与裁决条点名 inconclusive / 过期探针（TD-249） | `bifrost-platform/console/src/lib/__tests__/releaseGateAgentCopy.test.ts` + `components/control-room/__tests__/ControlRoomVerdictStrip.test.tsx` | 文案只认 pass/fail、裁决条不说哪个来源过期 | warning（测试） | — |
 | 一个任务只有一个执行方（TD-251） | `bifrost-platform/agent/hermes-gateway/src/skills.test.ts`「no enabled skill runs a script a launchd plist already runs」 | Hermes 技能与 launchd 重复执行同一脚本 | warning（测试） | 只查 agent/deploy 下的 plist |
 | ui 构建失败不删 dist（TD-235） | `bifrost-ui/scripts/build.test.mjs`（`npm test`） | build 先 rm -rf dist，tsc 失败白屏 | warning（测试，未进 CI） | ui 的 npm test 不在 CI |
+| platform 写路由全部要角色（TD-220） | `bifrost-platform/api/internal/server/auth_routes_test.go` TestEveryMutatingRouteRequiresARole（chi.Walk 遍历，白名单为空）+ 告警 BifrostPlatformAuthNotLoaded | 新写路由匿名可调、LoadAuth 失败无声 | error（Go 测试）+ critical 告警 | Go 测试未卡发布（ci-platform 不阻断） |
+| platform 不再写死 Trade 词汇（TD-231） | `bifrost-platform/api/internal/tradevocab/literals_test.go` TestTradeVocabularyOnlyShrinks（按文件预算只降不升）+ `config/app_envs_test.go` | 新增 bifrost-prod / NVDA / ib: 字面量 | error（Go 测试） | 余 32 行在预算表里 |
+| dbt 读的文件都进 wheel（TD-252） | `bifrost-research/tests/test_dbt_package_data.py` | package-data 漏目录，容器里 dbt 编译失败、整夜引擎不跑 | error（pytest） | — |
+| Redis 易失且有 maxmemory（TD-238） | `bifrost-trade-infra/scripts/check_redis_config.py`（`make check-redis-config`） | 无卷却开 AOF、无 maxmemory 只能 OOMKill | error（脚本，手工跑） | 未进 CI |
 
 ## 各类债现在挡没挡住
 

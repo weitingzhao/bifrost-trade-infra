@@ -13,12 +13,11 @@
 
 ## 待你签收
 
-- **TD-238** — 三个 Redis 声明为易失（无 AOF、无 RDB）并设 maxmemory 低于容器上限（infra 096262e，10-07 apply） · 验收 PASS（CONFIG GET：appendonly no、maxmemory 800/400/400 MiB）· 防线：`bifrost-trade-infra/scripts/check_redis_config.py`（`make check-redis-config`） · 后续：`scripts/k3s/verify-data-layer-phase5-data.sh` 只校验 maxmemory-policy，可顺带校验 appendonly/maxmemory（可选，无新编号）
-- **TD-220 / TD-231 / TD-252** — platform 写路由全部要角色、LoadAuth 失败可见；环境名单与 IB 样本合约改由配置给出；research 的 dbt 通用测试打进镜像、10-06 夜间批次已补跑（platform 26cd884 STG+PROD，research 0.204.0） · 验收 PASS（10-07：匿名 POST 401、auth_loaded=true、readiness 三环境齐全、research_trading_day 24 步 SUCCESS、lens_hit 10-06 1144 行） · 防线：`auth_routes_test.go` TestEveryMutatingRouteRequiresARole、`tradevocab` TestTradeVocabularyOnlyShrinks、`bifrost-research/tests/test_dbt_package_data.py` · 后续：TD-231 余下 32 行 Trade 词汇（预算表在 tradevocab 测试里，只降不升，无新编号）
+- **TD-225** — 只读 MCP 桥：未知 focus 直接退出、pin 住的桥只读 viewer 令牌，不再被 operator 令牌顶替（platform 26cd884 + infra f11e0b4） · 验收 PASS（10-07：4 passed、拼错 focus exit 1）· 防线：`bifrost-platform/console/src/lib/architecture/__tests__/mcpFocusBridges.test.ts` · 后续：工作区根的 .mcp.json 是共享 checkout 的链接，共享 infra checkout 前进、会话重启后才生效（无新编号）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 104 项**：P0 0 · P1 11 · P2 35 · P3 58；要你批的 57 项（从总览表的审批列算）。
+**未结 100 项**：P0 0 · P1 10 · P2 35 · P3 55；要你批的 56 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -102,19 +101,19 @@
 
 目标：先关门再修代码。本机 platform-api 只监听本机、PROD/STG Redis 的局域网 NodePort 删掉，然后 git-bridge、修复 runner、Hermes、husbandry-sync 都要令牌；platform 换成按需授权的 ServiceAccount，停用管理员 kubeconfig；路由鉴权测试卡住回退。
 
-项：TD-206, TD-207, TD-208, TD-204, TD-220, TD-225, TD-221, TD-222, TD-231 · 已还：TD-205, TD-203, TD-224
+项：TD-206, TD-207, TD-208, TD-204, TD-225, TD-221, TD-222 · 已还：TD-205, TD-203, TD-224, TD-220, TD-231
 
 ### 第 10 波 · 告警有人收、备份能恢复（第 3 轮）
 
 目标：数据层告警有一个人能收到的通道和外部心跳；逻辑备份先修好等库就绪；做一次 Barman 恢复演练；决定异地副本；daemon 停写与日志丢失要能被看见。
 
-项：TD-210, TD-217, TD-218, TD-238, TD-237 · 已还：TD-248, TD-209, TD-215, TD-216
+项：TD-210, TD-217, TD-218, TD-237 · 已还：TD-248, TD-209, TD-215, TD-216, TD-238
 
 ### 第 11 波 · 账本与页面读数、绿着的未知（第 3 轮）
 
 目标：挂单与 IB 读失败不再被当真写库；Risk / Performance / 告警计数按交易日算；Console 的裁决条在探针失败时不再显示绿色；ui 的发布可追溯；台账与文档的过时说法改正。
 
-项：TD-211, TD-212, TD-213, TD-228, TD-229, TD-234, TD-236, TD-239, TD-240, TD-241, TD-252 · 已还：TD-214, TD-219, TD-232, TD-233, TD-226, TD-230, TD-227, TD-251, TD-235
+项：TD-211, TD-212, TD-213, TD-228, TD-229, TD-234, TD-236, TD-239, TD-240, TD-241 · 已还：TD-214, TD-219, TD-232, TD-233, TD-226, TD-230, TD-227, TD-251, TD-235, TD-252
 
 ### 第 12 波 · Ops 维护只在 PROD 一处（Owner 10-07）
 
@@ -311,18 +310,15 @@
 | [TD-213](#td-213) | P2 | frontend | Risk › Limits 'Daily loss on the allocation' sums the realised P&L of every trade the allocation ever closed, not today's, so a losing day reads 0 consumed | 不用批 |
 | [TD-217](#td-217) | P2 | data | The Barman base+WAL backup, the only copy of the 34 GB Golden Source history, has never been restored, and has not been tried at all against the NAS MinIO it moved to on 10-06 | PROD 变更（要你批） |
 | [TD-218](#td-218) | P2 | data | Every backup copy (Barman base+WAL, logical dumps hot and cold, the W3 archive) is on the one NAS 192.168.10.20:/volume1, and the open offsite decision is not in the ledger | PROD 变更（要你批） |
-| [TD-220](#td-220) | P3 | ops-platform | No test enumerates platform-api routes for auth: POST /cluster/sync-kubeconfig and the plane's POST /hermes/run-first-task are unauthenticated, and a failed LoadAuth is not logged | 不用批 |
 | [TD-221](#td-221) | P3 | ops-console | The governance catalog says nobody but the daemon writes ib:operator:cmd, but platform-api does (sanctioned by D-IB-Heal), and the runner's ib_gateway_control can switch the PROD gateway to mock with only a prompt-level approval | 安全/凭据（要你批） |
 | [TD-222](#td-222) | P3 | ops-platform | Platform's D10 scale guard only blocks daemon 0→n: the PROD daemon (2, observe-safe) and DEV (1) can be scaled to 20 by any operator-token caller that bypasses preflight | 安全/凭据（要你批） |
 | [TD-223](#td-223) | P3 | ops-platform | STG and PROD platform-workers both run the IB gateway auto-repair loop against the one live data/ib-gateway, each with its own 15-minute cooldown | PROD 变更（要你批） |
 | [TD-225](#td-225) | P3 | ops-console | Read-only MCP bridges fail open: an unknown or misspelled MCP_BRIDGE_FOCUS registers all 74 tools, and PLATFORM_OPERATOR_TOKEN in env overrides the viewer-token pin | 不用批 |
 | [TD-228](#td-228) | P3 | ops-console | Every scheduled Hermes skill run on .52 fails with 'No such file or directory', while /health returns status ok and the checklist counts the gateway healthy | 不用批 |
 | [TD-229](#td-229) | P3 | ops-platform | Trust overrides resolve to $HOME in the cluster and swallow read and write errors: the Owner's 09-07 L0 grant for research-loop-batch never reached the harness that reads PROD | 不用批 |
-| [TD-231](#td-231) | P3 | ops-platform | Platform's IB feed verdict hangs on one hard-coded NVDA sample tick, and Trade namespaces and DB names are Go literals (53 matches), with no ratchet against growth | 不用批 |
 | [TD-234](#td-234) | P3 | trade-worker | @bifrost/ui is unversioned for the Ops Console: a ui push never runs platform CI, and platform deliver builds whatever ui main is without recording its SHA | 不用批 |
 | [TD-236](#td-236) | P3 | trade-worker | Leftovers of the deleted Account Sync daemon: the plugin still XADDs every account snapshot to ib:account:stream:v1, which nothing reads | 跨仓库发版 |
 | [TD-237](#td-237) | P3 | data | The data-warehouse 'second MinIO' never ran (PVC Pending 109 days, Deployment 0/0), yet AGENT_FACTS lists it, and its placeholder root Secret is committed to a PUBLIC repo and applied | 删除（要你批） |
-| [TD-238](#td-238) | P3 | data | The three per-env Redis instances run --appendonly yes with no volume, and with noeviction but no maxmemory the only memory bound is an OOMKill | 不用批 |
 | [TD-239](#td-239) | P3 | trade-worker | Up to about 40 runtime exports of @bifrost/ui have no importer in either consumer (ContextMenu family, KpiStrip, holidayLine, shellNav* constants); dead-code share unmeasured | 改公开接口 |
 | [TD-240](#td-240) | P3 | trade-worker | The running PROD daemon never writes contract_quote_live: the observe-only quote mirror sits under mock_hedging, which is hard-coded True | 跨仓库发版 |
 | [TD-241](#td-241) | P3 | agent-governance | RATCHETS.md, TECH_DEBT.md and agent docs state facts the round-3 scan measured as no longer true | 不用批 |
@@ -332,7 +328,6 @@
 | [TD-246](#td-246) | P3 | trade-data | Snapshot enrich stores a vendor 'day close' that can sit below the option's intrinsic value (a stale last trade), and P&L attribution then books it as unexplained | 已批（Owner 10-07「做」） |
 | [TD-247](#td-247) | P3 | frontend | Look-back starts are still computed in the browser's time zone (new Date(Date.now() - N*86400000).toISOString().slice(0,10)), and three private New York date helpers duplicate @/lib/freshness | 不用批 |
 | [TD-250](#td-250) | P3 | trade-data | A stale vendor close above intrinsic is still stored as vendor_eod: the plugin's snapshot read does not return last_trade_ts, so enrich cannot tell a morning trade from a session close | 不用批 |
-| [TD-252](#td-252) | P1 | research-data | The dbt generic tests are not in the wheel: research_trading_day failed to compile on 10-07 and no engine ran for the 10-06 session | 发版（要你批） |
 | [TD-253](#td-253) | P2 | ops-platform | The autopilot acts on checklist signals that are weeks old: signals carry no time of their own, and nothing marks a stale one unknown | 不用批 |
 | [TD-254](#td-254) | P2 | ops-platform | Two mechanisms repair the same failed backup: the autopilot's repair_cnpg_wal_store (every 15 min) and the backup-retry CronJob | 不用批 |
 | [TD-255](#td-255) | P3 | ops-platform | The hourly drift scan deletes every Failed pod it may, including failed backup Job pods in data | 不用批 |
@@ -1687,26 +1682,6 @@
 - **验收**: `KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl get --raw "/api/v1/namespaces/monitoring/services/kube-prometheus-stack-prometheus:9090/proxy/api/v1/query?query=time()-max(kube_cronjob_status_last_successful_time%7Bcronjob%3D%22offsite-mirror%22%7D)" </dev/null  # value < 691200`
 - 审批 PROD 变更（要你批） · 代价 M · 风险 low · repos: bifrost-trade-infra
 
-### TD-220
-
-**P3 · ops-platform · No test enumerates platform-api routes for auth: POST /cluster/sync-kubeconfig and the plane's POST /hermes/run-first-task are unauthenticated, and a failed LoadAuth is not logged**
-
-- **状态**：待你签收（platform STG 1791348331 + PROD 1791348579 已上 26cd884（10-07）；告警 BifrostPlatformAuthNotLoaded 已 apply，infra 32bcd35）
-- **验收结果**：PASS 2026-10-07 26cd884：STG/PROD 匿名 POST /api/v1/cluster/sync-kubeconfig → 401，/health auth_loaded=true；Go 56 包 ok（含 TestEveryMutatingRouteRequiresARole）
-- **Claim**: TestRouterRequiresAuthForOperatorRoutes spot-checks only /agent/nightly-run and /patrol/trigger. The only chi.Walk test (operatorplane/plane_test.go) checks route-set parity, not auth. So mutating routes outside Require groups ship unnoticed. Besides /console/ws (TD-203) and /checklist/husbandry-sync (TD-208), there are two more. POST /cluster/sync-kubeconfig runs the ssh kubeconfig-sync script and overwrites ~/.kube/bifrost-k3s.yaml on the bdev instance, where PLATFORM_CLUSTER_SYNC_ENABLED=1; it answers 200 with OK:false when sync is disabled. The plane's POST /hermes/run-first-task is operator=false; it runs readiness and appends an insight record. Separately, server.New replaces a failed LoadAuth with an empty AuthService without logging. That fails closed (every gated route answers 401) but looks like a token problem.
-- **Measured**: MEASURED: a chi.Walk over a scratch copy (reading middleware names only, no requests sent) found 3 of 83 non-GET routes without Require: husbandry-sync, sync-kubeconfig and run-first-task. A POST without a token to /api/v1/patrol/trigger/does-not-exist-x on PROD returns 401, so the gated routes work. The bdev process env has PLATFORM_CLUSTER_SYNC_ENABLED=1. No POST was sent to the ungated routes.
-- **Evidence**:
-  - `bifrost-platform/api/internal/server/server_test.go:196` — `func TestRouterRequiresAuthForOperatorRoutes(t *testing.T) {`
-  - `bifrost-platform/api/internal/server/server.go:524` — `r.Post("/sync-kubeconfig", s.cluster.HandleSyncKubeconfig)`
-  - `bifrost-platform/api/internal/operatorplane/plane.go:132` — `{"POST", "/hermes/run-first-task", false,`
-  - `bifrost-platform/api/internal/server/server.go:111` — `auth = &actuation.AuthService{}`
-- **Impact**: The unauthenticated-route class (TD-203, TD-208) comes back with every new route. Today anyone on the LAN can repeatedly trigger an ssh sync that rewrites the Owner's kubeconfig, and fill the Hermes insight store. A broken auth file is mistaken for a token problem.
-- **Fix**: Move /cluster/sync-kubeconfig into the operator group, set operator=true for /hermes/run-first-task, and switch Console callers (clusterActuation.ts:62) to authedFetch. Log slog.Error on LoadAuth failure and expose auth_loaded in /health. Return non-2xx when the sync is disabled.
-- **Ratchet**: TestEveryMutatingRouteRequiresARole: chi.Walk srv.Router(); every POST/PUT/PATCH/DELETE route, plus /console/ws, must carry auth.Require, against an explicit allowlist with a reason per entry (empty today). The same walk over operatorplane.routeTable() asserts operator=true for every non-GET entry. Alert BifrostPlatformAuthNotLoaded on auth_loaded=false.
-- **验收**: `cd bifrost-platform/api && go test ./internal/server ./internal/operatorplane -run 'TestEveryMutatingRouteRequiresARole|TestPlaneWritesRequireOperator' -count=1`
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
-- **Also (TD-203 sign-off, 10-07)**: Owner keeps the local bdev platform-api loopback-only (`PLATFORM_LISTEN=127.0.0.1:8780` in bifrost-platform/.env) until this item lands, because the remaining anonymous routes here would reopen to the LAN with it. Meanwhile the .50 remediation runner, whose `config/env.local.sh` sets `PLATFORM_API_URL=http://192.168.10.40:8780`, cannot reach the Mac (overlaps TD-130).
-
 ### TD-221
 
 **P3 · ops-console · The governance catalog says nobody but the daemon writes ib:operator:cmd, but platform-api does (sanctioned by D-IB-Heal), and the runner's ib_gateway_control can switch the PROD gateway to mock with only a prompt-level approval**
@@ -1763,8 +1738,8 @@
 
 **P3 · ops-console · Read-only MCP bridges fail open: an unknown or misspelled MCP_BRIDGE_FOCUS registers all 74 tools, and PLATFORM_OPERATOR_TOKEN in env overrides the viewer-token pin**
 
-- **状态**：观察中（platform 侧已上 PROD 26cd884：未知 focus 退出 1、pin 只读 pin 键；infra 的 .mcp.json（Cursor 分支 cursor/td-platform 的 bcd36b4）**未合**——等你本机配好 PLATFORM_VIEWER_TOKEN 再合，否则三座只读桥 401）
-- **验收结果**：PASS（代码层）Claude 10-07 复验：五个 platform 提交叠到 main 22863e2 无冲突，go build/vet/test 54 包 ok、点名验收 18 个 PASS、console tsc/lint/vitest 118 文件 801 passed/build、mcp tsc 全过；infra 三分支叠到 main 无冲突，check_ui_revision / check_redis_config / check_alert_routing / check_http_metrics_coverage 全过（mcpFocusBridges.test.ts 4 passed）
+- **状态**：待你签收（platform 26cd884 已上 PROD；infra f11e0b4 的 .mcp.json 三座只读桥改传 PLATFORM_VIEWER_TOKEN 并 pin）
+- **验收结果**：PASS 2026-10-07 26cd884 + f11e0b4：mcpFocusBridges.test.ts 4 passed；MCP_BRIDGE_FOCUS 拼错 → exit 1；只读桥连 loopback :8780，令牌从 bifrost-platform/.env 的 PLATFORM_VIEWER_TOKEN 回退读取（键已存在，未读值），无需 Owner 另配
 - **Claim**: focusAllowList returns null for an unknown focus ('for backward compatibility'), and index.ts treats null as 'register everything', so a typo on a bridge documented as read-only L0 (redis, postgres) serves drain, data-clone and rollback. In platformClient.resolveToken, PLATFORM_OPERATOR_TOKEN from env wins before the PLATFORM_TOKEN_ENV_KEY viewer pin is consulted, and .mcp.json passes a PLATFORM_OPERATOR_TOKEN reference to the redis, postgres and prometheus bridges. Today the reference expands to empty in this shell, so the pin holds; the risk needs a focus typo plus an exported operator token.
 - **Measured**: CODE-READ. Live: the configured bridges expose the expected sliced tool lists in this session. Only .mcp.json key names and the first two characters of values were read; PLATFORM_OPERATOR_TOKEN is unset in the session shell.
 - **Evidence**:
@@ -1814,24 +1789,6 @@
 - **Ratchet**: Unit test: HandlePutTrustOverride returns non-2xx when the store write fails, and List surfaces read errors. Extend TD-196's store check to flag any store path derived from $HOME or os.UserHomeDir in non-test platform code (ratchet proposal 'platform-store-durability').
 - **验收**: `curl -s -m10 http://192.168.10.73:30876/api/v1/agent/governance/trust-overrides; cd bifrost-platform/api && go test ./internal/agentgovernance -run 'TrustOverride.*(WriteFail|ReadFail)' -count=1  # PROD shows the override from a ConfigMap; store errors surface as 5xx`
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform, bifrost-research
-
-### TD-231
-
-**P3 · ops-platform · Platform's IB feed verdict hangs on one hard-coded NVDA sample tick, and Trade namespaces and DB names are Go literals (53 matches), with no ratchet against growth**
-
-- **状态**：待你签收（platform STG 1791348331 + PROD 1791348579 已上 26cd884（10-07）；infra 939d8a2 的 environments.yaml 先行由 Argo 同步）
-- **验收结果**：PASS 2026-10-07 26cd884：STG/PROD /api/v1/cluster/service-readiness 列出 bifrost-dev/stg/prod；Go tradevocab/config/cluster/ibgateway 测试 ok；Trade 词汇行 53→32
-- **Claim**: In live mode, platform's IB gateway verdict uses one hard-coded sample contract, ib:ingester:tick:NVDA|STK|||: a missing tick yields degraded, and a tick older than 180 s yields fail. Trade namespaces, DB names and daemon auto_status parsing are Go literals across ibgateway, cluster, satellite and others. IB-gateway health living in platform is sanctioned by the signed D-IB-Heal (authority api/internal/ibgateway), so the defect is the hard-coded contract and the literals, not the package's existence. Separately, 32 Console/MCP files outside the architecture catalog carry Trade vocabulary (SEPA, Greeks).
-- **Measured**: MEASURED by grep on origin/main non-test Go under api/internal: 53 matches for NVDA|"ib:|ws_ib_|auto_status|"bifrost-(prod|stg|dev)". PROD /plugins/ib-gateway/status exposes sample_tick_nvda (fresh). 32 non-catalog Console/MCP files carry Trade vocabulary.
-- **Evidence**:
-  - `bifrost-platform/api/internal/ibgateway/service.go:78` — `tick, _ := s.redisGet("ib:ingester:tick:NVDA|STK|||")`
-  - `bifrost-platform/api/internal/ibgateway/config.go:21` — `var tradeCutoverNamespaces = []string{"bifrost-dev", "bifrost-stg", "bifrost-prod"}`
-  - `bifrost-platform/api/internal/satellite/service.go:385` — `AutoStatus:   mapFromAny(raw.Daemon.Trading["auto_status"]),`
-- **Impact**: IB health turns wrong if NVDA leaves the subscription set, and Trade renames break platform verdicts silently. The 'clone platform elsewhere' test of Flywheel B fails on these literals.
-- **Fix**: Let the IB plugin publish its own sample-contract or feed-quality verdict, or read the sample contract from config. Move the Trade namespace and DB lists into environments.yaml. Leave a broader plugin-owned health contract to the Ops-split program.
-- **Ratchet**: code-health metric PLATFORM_TRADE_VOCAB (Go plus Console files outside architecture catalogs and prompt packs that match the vocabulary regex), baselined today and only allowed to fall, blocking in ci-platform.
-- **验收**: `bash bifrost-trade-infra/agent-config/scripts/code-health/scan.sh --repo bifrost-platform | grep PLATFORM_TRADE_VOCAB  # ok and ≤ baseline; grep -c 'NVDA' bifrost-platform/api/internal/ibgateway/service.go  # 0`
-- 审批 不用批 · 代价 L · 风险 med · repos: bifrost-platform, bifrost-platform-plugin
 
 ### TD-234
 
@@ -1886,23 +1843,6 @@
 - **Ratchet**: CI check in infra: `git grep -l '^kind: Secret' -- k8s ':!*.example.yaml' ':!*.example'` must be empty. A gitleaks step covers the broader committed-secret class (ratchet proposal 'secret-scan').
 - **验收**: `cd bifrost-trade-infra && git grep -l '^kind: Secret' origin/main -- k8s ':!*.example.yaml' ':!*.example'  # no output; KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl get pvc -A </dev/null | grep -c Pending  # 0`
 - 审批 删除（要你批） · 代价 S · 风险 low · repos: bifrost-trade-infra
-
-### TD-238
-
-**P3 · data · The three per-env Redis instances run --appendonly yes with no volume, and with noeviction but no maxmemory the only memory bound is an OOMKill**
-
-- **状态**：待你签收（infra 096262e，Owner 10-07 推送并 apply）
-- **验收结果**：PASS 2026-10-07 096262e：redis-live-prod appendonly no / save 空 / maxmemory 838860800；redis-live-stg 与 redis-dev 419430400；policy 均 noeviction；三个 pod 重启后 Running，PROD 键已回填（DBSIZE 2），Trade 三个 namespace 无异常 pod；防线 scripts/check_redis_config.py（origin/main 12 处 → 0）
-- **Claim**: instances.yaml starts redis-live-prod, redis-live-stg and redis-dev with --appendonly yes and --maxmemory-policy noeviction, with no volumes and no --maxmemory. AOF and RDB go to the container's writable layer and vanish on any pod recreate, while about 29 MB of AOF is written for 3 keys. With maxmemory 0, noeviction never applies, so a runaway writer is OOM-killed at the limit instead of getting write errors.
-- **Measured**: MEASURED 2026-10-07 via read-only INFO on PROD: aof_enabled 1, aof_current_size 29728464, maxmemory 0, policy noeviction, DBSIZE 3, used_memory 1.59M. The Deployments have no volumes.
-- **Evidence**:
-  - `bifrost-trade-infra/k8s/data/redis/instances.yaml:116` — `- --appendonly`
-  - `bifrost-trade-infra/k8s/data/redis/instances.yaml:120` — `- --maxmemory-policy`
-- **Impact**: Low today (TTL'd IPC), but the config reads as durable, and anyone who adds real state would lose it on the next reschedule.
-- **Fix**: Declare the live Redis instances ephemeral: drop --appendonly, set --save "", and set --maxmemory a little below the container limit. Or add a PVC if persistence is really wanted.
-- **Ratchet**: Infra manifest policy check: fail on a redis-server command with '--appendonly yes' but no volumeMount at /data, or '--maxmemory-policy noeviction' without '--maxmemory'.
-- **验收**: `KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data exec deploy/redis-live-prod -c redis </dev/null -- redis-cli CONFIG GET appendonly maxmemory  # appendonly no and maxmemory > 0`
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ### TD-239
 
@@ -2042,22 +1982,6 @@
 - **Fix**: Plugin: add last_trade_ts to the snapshot read (additive field). Core: when the trade is not from that session, or is older than N minutes before the close and deviates from the vendor-IV model by more than a threshold, store vendor_iv_model.
 - **Ratchet**: Extend test_snapshot_mark_intrinsic.py's grid with a last_trade_ts dimension.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data, bifrost-trade-core
-
-### TD-252
-
-**P1 · research-data · The dbt generic tests are not in the wheel: research_trading_day failed to compile on 10-07 and no engine ran for the 10-06 session**
-
-- **状态**：待你签收（research 0.204.0 已上线 10-07 04:29 UTC：pin 8524e62，api/mcp 0.204.0，Dagster 0.204.0-dagster；镜像里有 dbt/tests/generic）
-- **验收**：补跑后：Dagster research_trading_day SUCCESS，`features.stock_signal_lens_hit_daily` 有 trade_date=2026-10-06 的行（6 个 lens），elementary 无 Compilation Error
-- **验收结果**：PASS 2026-10-07：补跑 research_trading_day a5a88fe2 SUCCESS（24 步全过，04:31–04:42 UTC）；lens_hit 10-06 1144 行 / 6 lens，10-05 也补齐为 1127 / 6；防线 tests/test_dbt_package_data.py
-- **Claim**: pyproject package-data lists dbt models, macros, seeds and snapshots but not dbt/tests/**, so tests/generic/sepa_session_is_newest_trading_day.sql and assert_pass_count_range.sql (0.180.0 / TD-111) never reached the container. dbt build exited 1 on compilation errors; sepa_projection, scan, signal_hit, option_universe, pine, suggestion_ledger and alert_scan were skipped. Editable installs read the source tree, so local runs passed.
-- **Measured**: MEASURED 10-07: Dagster run 45915b44 (02:30 UTC) FAILURE at bifrost_research_dbt_assets; elementary_test_results 02:38:54 'Compilation Error … test_sepa_session_is_newest_trading_day'; /usr/local/lib/python3.11/site-packages/bifrost_research/dbt has no tests/ in 0.202.0-dagster or 0.203.0-dagster.
-- **Evidence**:
-  - `bifrost-research/pyproject.toml:76` — `"dbt/macros/**/*.sql",`
-- **Impact**: No SEPA projection, scan, signal hits, option universe, Pine or suggestion ledger for 10-06; every night until fixed.
-- **Fix**: research 0.204.0 (f717fbb): add dbt/tests/**/*.sql to package-data; pin 0.204.0 + Dagster apply before 10-07 02:30 UTC; re-run research_trading_day for the 10-06 session.
-- **Ratchet**: tests/test_dbt_package_data.py: every file under the dbt_project.yml paths matches a package-data glob (fails on 0.203.0).
-- 审批 发版（要你批） · 代价 S · 风险 low · repos: bifrost-research
 
 ### TD-253
 
