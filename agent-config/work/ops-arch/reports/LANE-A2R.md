@@ -1,0 +1,25 @@
+## LANE-A2R
+
+- Claim：成立。这台 k3s 没有 Secret 静态加密，A2 在 `backup.sh` 里用 `cp` 把 etcd 快照逐字节写上 NAS（返工前 `cursor/a2-infra` `2e4f4172` 的 `cp -f "$newest" "$WORK/$base"`）。完整性可以在加密前算，不构成明文落盘的理由。
+- 改动：bifrost-trade-infra · `cursor/a2-infra` · `e4251ab157e7281547c1e4257b481191e7a507fb`
+  - 已 rebase 到当时的 `origin/main`，推送后再次 `git fetch`，`origin/main` 仍是祖先。`k8s/monitoring/kustomization.yaml` 与 main 的冲突按约定解决：不把 `td-d2-postgres-rules.yaml` 加回 resources（注释仍在），保留 `bifrost-cluster-state-rules.yaml`，并保留 main 上告警 webhook 注释里的 PROD（`128036e`）。该解决在父提交 `a6119caf99fa7e650f5f357e90df866d0c8f279a`（原 Change-Id `I24c3504c60a24fe9317ae697a70ae31da29aa9b0` 还在）。
+  - 本提交 Change-Id：`I3ee5b00a300e65854e973120ba08c9de3cca88d1`。已 `--force-with-lease` 推到 `origin/cursor/a2-infra`。没有推 main。
+- 防线：`scripts/check_cluster_state_backup.py`
+  - `snapshot_target_problems`：写到目标目录的快照路径必须经过 `age`；从 `$newest` / `$SNAPSHOT_DIR` / `/snapshots` 明文复制到目标即失败。
+  - `--self-test` 含 `cp -f "$newest" "$WORK/etcd-snapshot-node"`，以及目标树上非 `.age` 结尾的 `etcd-snapshot-*`。
+  - `--live`：只读 `kubectl get` PVC/PV，在本机已有的只读路径上检查目标目录。不建 Pod、不挂载。当天 `daily/<UTC>/MANIFEST` 必须在，且整个目标目录里不能有不以 `.age` 结尾的 `etcd-snapshot-*`。
+  - 加密前的源 sha256 必须出现在加密调用之前（`src_sum=$(sha256_of "$newest")` 在 `encrypt_stdin "$WORK/$snap_age" < "$newest"` 之前）。
+- 门禁：
+  - `PATH=/usr/bin:$PATH make check-cluster-state-backup` → exit 0，`cluster-state-backup: cronjob, age, nfs-cold, snapshot ciphertext only`
+  - `PATH=/usr/bin:$PATH python3 scripts/check_cluster_state_backup.py --self-test` → exit 0，`self-test ok`
+  - 本仓库 Makefile 没有 `lint` 目标。没有跑 `kubectl apply`、没有建 Job、没有碰集群。
+- 验收：
+  - `make check-cluster-state-backup` → 打印 `cluster-state-backup: cronjob, age, nfs-cold, snapshot ciphertext only`，退出码 0
+  - `python3 scripts/check_cluster_state_backup.py --self-test` → `self-test ok`，退出码 0
+  - `grep -n "cp " k8s/data/cluster-state-backup/backup.sh` 只有一行：`125:  cp -f "$src" "$dest_dir/$name"`。它在 `allowed_backup_name` 之后，只允许 `etcd-snapshot-*.age`、三个既有 `.age` 文件和 `MANIFEST`。没有把 hostPath 上的快照明文复制进目标目录。
+- 要 Owner 批：没有变化。仍是 apply 加手动触发一次，由 Claude Code 验收后提交给 Owner。命令（不要在本报告之外由 Cursor 执行）：
+  - `kubectl apply -k k8s/data/cluster-state-backup`
+  - `kubectl apply -f k8s/monitoring/bifrost-cluster-state-rules.yaml`
+  - `kubectl -n kube-system create job --from=cronjob/cluster-state-backup cluster-state-backup-manual-$(date +%s)`
+  - 跑完后：`python3 scripts/check_cluster_state_backup.py --live`（本机需要已有的只读 `k3s-cold` 路径，或设 `CLUSTER_STATE_BACKUP_DIR`；脚本不会自己挂载、也不会建 Pod）
+- 后续：init 容器仍在运行时从 GitHub / dl.k8s.io 下载 age 和 kubectl（校验和钉在 `fetch-tools.sh`）。风险已写进 `k8s/data/cluster-state-backup/README.md`、`docs/runbooks/cluster-state-restore.md` 和 CronJob 注释；按规格保留，没有换成固定镜像。本轮尚未 apply，NAS 上不应已有这份明文快照。公钥未改，没有读取或生成私钥。
