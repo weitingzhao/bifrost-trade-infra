@@ -69,3 +69,7 @@
 - 状态：`pending → executed | failed`；`pending → rejected | expired`（24 小时）。一次批准只执行一次。
 - C / D 级动作的原有直调端点：没有对应已执行的申请就返回 `403 {"error":"approval required","action":…}`。
 - 申请单存平台状态（statefile，PROD 落 ConfigMap）；每次创建、批准、拒绝、执行都写审计。
+
+### 第 2 阶段验收后（2026-10-07）
+
+B2、B4 通过；B1、B3 要返工，Owner 选择聊天批准方案 B（见 ADR §5）。返工道：`LANE-B1R.md`（platform 集成分支 `cursor/phase2-platform`）、`LANE-B3R.md`（infra `cursor/b3-infra`）。上线顺序：B1R 发版到 PROD → 合 b2-infra、b4-infra → 建两个 Secret、apply RBAC、换 webhook 令牌、.50 重部署 operator-plane → 合 B3R 并让 Owner 应用权限与令牌文件。详见 `VERIFY-phase2.md`。
