@@ -17,9 +17,22 @@ Bifrost 工作区（`/stocks`）的 Agent 治理资产。**实体在这里，工
 | `/stocks/.claude` | `claude/` | settings.json · skills · agents · commands · hooks |
 | `/stocks/.cursor` | `cursor/` | rules · skills · commands · hooks · _archive |
 | `/stocks/scripts` | `scripts/` | **两侧共用**的 agent-guard、parity 校验与提交血缘 git hook（`git-hooks/`） |
+| `/stocks/PLAN-phase0-foundation-2026-10-05.md` | `work/PLAN-phase0-foundation-2026-10-05.md` | 阶段 0 计划 |
+| `/stocks/REVIEW-architecture-discussion-round1-2026-10-05.md` | `work/` 下同名 | 架构讨论第一轮 |
+| `/stocks/REVIEW-system-architecture-2026-10-05.md` | `work/` 下同名 | 系统架构评审 |
+| `/stocks/REVIEW-trade-system-completeness-and-backtest-2026-10-04.md` | `work/` 下同名 | Trade 完整度与回测评审 |
+| `/stocks/LEDGER-pine-tradingview-gaps.md` | `work/` 下同名 | Pine / TradingView 缺口账本 |
+| `/stocks/REQUEST-symbol-paired-ddl-2026-10-06.md` | `work/` 下同名 | symbol 成对 DDL 申请 |
+| `/stocks/REQUEST-w3-archive-before-delete-2026-10-05.md` | `work/` 下同名 | W3 删除前归档申请 |
+| `/stocks/REQUEST-td96-preflight-d10-2026-10-06` | `work/REQUEST-td96-preflight-d10-2026-10-06/` | TD-96 preflight 草案（整个目录一条链接） |
+| `/stocks/cursor-tasks/` 下已迁入的文件 | `work/cursor-tasks/` 同相对路径 | Cursor 还债任务与报告。目录本身留在工作区根 |
 
 > 目录名故意用 `claude/` / `cursor/` 而非 `.claude/` / `.cursor/`：
 > 避免 Cursor 把 `bifrost-trade-infra/agent-config/.cursor/` 误当成 infra repo 自己的规则目录而重复加载。
+
+`cursor-tasks/` 不是整目录一条链接：扫描命中的三个文件留在工作区根，仍是普通文件
+（`cursor-tasks/LANE-O-orphans.md`、`cursor-tasks/reports/LANE-D.md`、`cursor-tasks/reports/LANE-O.md`）。
+下面的重建命令只链接已入库的路径。
 
 ## 重建符号链接
 
@@ -31,7 +44,42 @@ cd /path/to/stocks && AC=bifrost-trade-infra/agent-config && \
   ln -sfn "$AC/scripts" scripts && \
   ln -sf "$AC/CLAUDE.md" CLAUDE.md && ln -sf "$AC/AGENT_FACTS.md" AGENT_FACTS.md && \
   ln -sf "$AC/DESIGN_CONTRACTS.md" DESIGN_CONTRACTS.md && \
-  ln -sf "$AC/.mcp.json" .mcp.json && ln -sf "$AC/.mcp.json.README.md" .mcp.json.README.md
+  ln -sf "$AC/.mcp.json" .mcp.json && ln -sf "$AC/.mcp.json.README.md" .mcp.json.README.md && \
+  mkdir -p cursor-tasks/reports && \
+  for f in \
+    PLAN-phase0-foundation-2026-10-05.md \
+    REVIEW-architecture-discussion-round1-2026-10-05.md \
+    REVIEW-system-architecture-2026-10-05.md \
+    REVIEW-trade-system-completeness-and-backtest-2026-10-04.md \
+    LEDGER-pine-tradingview-gaps.md \
+    REQUEST-symbol-paired-ddl-2026-10-06.md \
+    REQUEST-w3-archive-before-delete-2026-10-05.md \
+    REQUEST-td96-preflight-d10-2026-10-06 \
+    cursor-tasks/LANE-D-docs-inventory.md \
+    cursor-tasks/LANE-D2-db-prepare.md \
+    cursor-tasks/LANE-G-governance-docs.md \
+    cursor-tasks/LANE-M-db-role-matrix.md \
+    cursor-tasks/LANE-P-platform.md \
+    cursor-tasks/LANE-R1-release-chain.md \
+    cursor-tasks/LANE-R2-research-marketdata.md \
+    cursor-tasks/LANE-S1-agent-security.md \
+    cursor-tasks/LANE-S2-platform-api.md \
+    cursor-tasks/LANE-T-trade-ib.md \
+    cursor-tasks/LANE-T2-ib-status-and-quote-mirror.md \
+    cursor-tasks/LANE-U-ui-infra.md \
+    cursor-tasks/LANE-U2-ui-frontend.md \
+    cursor-tasks/README.md \
+    cursor-tasks/reports/LANE-D2.md \
+    cursor-tasks/reports/LANE-G.md \
+    cursor-tasks/reports/LANE-P.md \
+    cursor-tasks/reports/LANE-R1.md \
+    cursor-tasks/reports/LANE-R2.md \
+    cursor-tasks/reports/LANE-S1.md \
+    cursor-tasks/reports/LANE-S2.md \
+    cursor-tasks/reports/LANE-T.md \
+    cursor-tasks/reports/LANE-U.md \
+    cursor-tasks/reports/LANE-U2.md \
+  ; do ln -sfn "$AC/work/$f" "$f"; done
 ```
 
 ## 路径约定
