@@ -24,7 +24,7 @@
 | A1 | 告警改道：warning 送 PROD，STG 退出告警链路 | infra · `cursor/a1-infra` | helm upgrade |
 | A2 | 集群状态第二份：etcd 快照 + Secret 加密件每天到 NAS | infra · `cursor/a2-infra` | kubectl apply |
 | A3 | 维护者清单 v1 + 对账检查 | infra · `cursor/a3-infra` | 无 |
-| A4 | 工作区根的计划 / 评审 / 任务文件进版本控制 | infra · main（纯文档） | **开工前 Owner 确认这些文件可以公开** |
+| A4 | 工作区根的计划 / 评审 / 任务文件进版本控制 | infra · main（纯文档） | 无（Owner 10-07 已确认可公开） |
 | A5 | 停掉 .50 夜间 LLM；PROD 不再依赖笔记本 git-bridge | platform · `cursor/a5-platform`，infra · `cursor/a5-infra` | 在 .50 卸载两个 launchd 任务 |
 | A6 | 第一次时间点恢复演练的清单、核对脚本与手册 | infra · `cursor/a6-infra` | 建临时恢复库、删除 |
 | A7 | 节点补丁调查（只读）+ 滚动重启脚本（不执行） | infra · `cursor/a7-infra` | 周末滚动重启 |
@@ -35,7 +35,7 @@
 
 1. **生成加密密钥给 A2**：Mac Pro 上 `brew install age && age-keygen -o ~/bifrost-cluster-state.agekey`；私钥另存一份到 NAS 与离线介质，**不要发给任何 Agent**；把输出里 `age1…` 开头的公钥贴给 Claude Code。
 2. **Mac Pro 备份到 NAS**：系统设置 → 时间机器，目标选 NAS 的 SMB 共享（绿联 NAS 支持）。覆盖 Claude 记忆、`~/bifrost-backups`、本机 `.env` 等只在这台机器上的东西。
-3. **A4 开工前**：确认工作区根的 `PLAN-* / REVIEW-* / REQUEST-* / LEDGER-*` 与 `cursor-tasks/` 放进**公开**仓库没问题（见 A4）。
+3. ~~A4 开工前确认可公开~~：Owner 10-07 已确认。
 
 ## Cursor 共用规则
 
