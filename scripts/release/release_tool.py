@@ -12,6 +12,7 @@ Subcommands (all print to stdout; errors to stderr):
   timings <run>                            print each TaskRun's duration and the run's total
   wait <run> [--timeout S] [--interval S]  poll until the run leaves Unknown; exit 0 on success
   pinned-spec <stg-run> --template F [-o F] [--pipeline NAME]
+  platform-pinned-spec <stg-run> [-o F]    bifrost-deliver-platform-prod run at an STG run's commits
   snapshot <env> -o F [--accounts a,b]     GET executions / performance / model-analysis
   diff <before> <after> [--allow F ...] [--json F]
   health <env> --expect-sha SHA [--core-repo DIR] [--json F]
@@ -257,6 +258,58 @@ def cmd_pinned_spec(args: argparse.Namespace) -> int:
     return 0
 
 
+PLATFORM_CLONES = {"clone-platform": "revision", "clone-ui": "uiRevision"}
+
+
+def platform_pinned_run(stg: Dict[str, Any], commits: Dict[str, Optional[str]]) -> Dict[str, Any]:
+    """The bifrost-deliver-platform-prod run that rebuilds what an STG platform run cloned (TD-234).
+
+    Both platform deliver pipelines take the platform ref as `revision` and the ui ref as
+    `uiRevision`, so pinning is two params; the rest of the spec is the STG run's own.
+    """
+    name = stg["metadata"]["name"]
+    status, reason = condition(stg)
+    if pipeline_of(stg) != "bifrost-deliver-platform":
+        die(f"REFUSED: {name} is a run of {pipeline_of(stg)}, not bifrost-deliver-platform", 1)
+    if status != "True":
+        die(f"REFUSED: {name} did not succeed ({status} {reason})", 1)
+    problems = [f"{task}: {commits.get(task)!r}" for task in PLATFORM_CLONES if not SHA_RE.match(commits.get(task) or "")]
+    if problems:
+        die("REFUSED: STG run lacks a full commit for: " + ", ".join(problems), 1)
+    spec = {k: v for k, v in (stg.get("spec") or {}).items() if k in ("taskRunSpecs", "taskRunTemplate", "timeouts", "workspaces")}
+    return {
+        "apiVersion": "tekton.dev/v1",
+        "kind": "PipelineRun",
+        "metadata": {
+            "generateName": "bifrost-deliver-platform-prod-pinned-",
+            "namespace": NAMESPACE,
+            "labels": {
+                "bifrost.io/purpose": "platform-prod-pinned",
+                "bifrost.io/from-stg-run": name,
+            },
+        },
+        "spec": {
+            "pipelineRef": {"name": "bifrost-deliver-platform-prod"},
+            "params": [{"name": param, "value": commits[task]} for task, param in PLATFORM_CLONES.items()],
+            **spec,
+        },
+    }
+
+
+def cmd_platform_pinned_spec(args: argparse.Namespace) -> int:
+    stg = kget("pipelinerun", args.stg_run)
+    commits = {t: (sha or "").strip() or None for t, sha in clone_commits(args.stg_run, list(PLATFORM_CLONES)).items()}
+    text = json.dumps(platform_pinned_run(stg, commits), indent=2) + "\n"
+    if args.output:
+        with open(args.output, "w") as fh:
+            fh.write(text)
+    else:
+        sys.stdout.write(text)
+    for task, sha in commits.items():
+        print(f"{task} {sha}", file=sys.stderr)
+    return 0
+
+
 # ── one-off DB steps registry ────────────────────────────────────────────────
 
 
@@ -339,6 +392,10 @@ def main(argv: List[str]) -> int:
     p.add_argument("--pipeline", default="bifrost-deliver-prod")
     p.add_argument("-o", "--output")
     p.set_defaults(fn=cmd_pinned_spec)
+    p = sub.add_parser("platform-pinned-spec")
+    p.add_argument("stg_run")
+    p.add_argument("-o", "--output")
+    p.set_defaults(fn=cmd_platform_pinned_spec)
     p = sub.add_parser("snapshot")
     p.add_argument("env")
     p.add_argument("-o", "--output", required=True)

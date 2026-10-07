@@ -8,6 +8,7 @@ CICD_NAMESPACE="${CICD_NAMESPACE:-cicd}"
 PROD_NAMESPACE="${PROD_NAMESPACE:-bifrost-prod}"
 DELIVER_TIMEOUT="${DELIVER_TIMEOUT:-7200}"
 REVISION="${REVISION:-main}"
+UI_REVISION="${UI_REVISION:-${REVISION}}"
 TRIGGER="${TRIGGER:-deliver-prod}"
 SYNC_GITEA="${SYNC_GITEA:-1}"
 APPLY_OVERLAY="${APPLY_OVERLAY:-0}"
@@ -37,6 +38,8 @@ echo "==> Check overlay configs (ports, D10 scale guard, platform audit)"
 python3 "${ROOT}/scripts/check_overlay_configs.py"
 echo "==> Check Postgres client Jobs wait for the server (TD-210)"
 python3 "${ROOT}/scripts/check_pg_wait.py"
+echo "==> Check every bifrost-ui clone takes uiRevision (TD-234)"
+python3 "${ROOT}/scripts/check_ui_revision.py"
 
 if [[ "${APPLY_OVERLAY}" == "1" ]]; then
   echo "==> Apply bifrost-prod overlay"
@@ -62,7 +65,7 @@ kubectl apply -f "${ROOT}/k8s/cicd/tekton/rbac-deliver-prod.yaml"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-deliver-prod.yaml"
 
 RUN_NAME="bifrost-deliver-prod-$(date +%s)"
-echo "==> PipelineRun ${RUN_NAME} (revision=${REVISION})"
+echo "==> PipelineRun ${RUN_NAME} (revision=${REVISION}, uiRevision=${UI_REVISION})"
 kubectl apply -f - <<EOF
 apiVersion: tekton.dev/v1
 kind: PipelineRun
@@ -78,6 +81,8 @@ spec:
   params:
     - name: revision
       value: "${REVISION}"
+    - name: uiRevision
+      value: "${UI_REVISION}"
   taskRunTemplate:
     podTemplate:
       nodeSelector:

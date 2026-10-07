@@ -18,6 +18,11 @@ spec:
     - name: revision
       type: string
       default: main
+    # bifrost-ui is its own repo, so it gets its own ref: a pinned run names the ui
+    # commit here (TD-234). Callers pass the same ref as revision unless they pin.
+    - name: uiRevision
+      type: string
+      default: main
     - name: giteaBase
       type: string
       default: http://gitea.cicd.svc.cluster.local:3000/bifrost
@@ -147,7 +152,7 @@ spec:
         - name: url
           value: $(params.giteaBase)/bifrost-ui.git
         - name: revision
-          value: $(params.revision)
+          value: $(params.uiRevision)
         - name: subdir
           value: bifrost-ui
       workspaces:

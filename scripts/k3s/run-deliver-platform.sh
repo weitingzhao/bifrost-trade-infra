@@ -17,6 +17,7 @@ CICD_NAMESPACE="${CICD_NAMESPACE:-cicd}"
 PLATFORM_NAMESPACE="${PLATFORM_NAMESPACE:-bifrost-platform-stg}"
 DELIVER_TIMEOUT="${DELIVER_TIMEOUT:-3600}"
 REVISION="${REVISION:-main}"
+UI_REVISION="${UI_REVISION:-${REVISION}}"
 TRIGGER="${TRIGGER:-deliver-platform}"
 SYNC_GITEA="${SYNC_GITEA:-1}"
 APPLY_OVERLAY="${APPLY_OVERLAY:-0}"
@@ -33,6 +34,9 @@ if ! kubectl get secret gitea-git-credentials -n "${CICD_NAMESPACE}" >/dev/null 
   echo "Missing gitea-git-credentials in ${CICD_NAMESPACE}" >&2
   exit 1
 fi
+
+echo "==> Check every bifrost-ui clone takes uiRevision (TD-234)"
+python3 "${ROOT}/scripts/check_ui_revision.py"
 
 echo "==> Sync platform overlay config from bifrost-platform"
 "${ROOT}/scripts/sync_platform_k8s_config.sh"
@@ -71,7 +75,7 @@ echo "==> Register Tekton platform deliver pipeline"
 SYNC_CONFIG=0 APPLY_OVERLAY=0 "${ROOT}/scripts/k3s/apply-cicd-platform-pipeline.sh"
 
 RUN_NAME="bifrost-deliver-platform-$(date +%s)"
-echo "==> PipelineRun ${RUN_NAME} (revision=${REVISION}, timeout=${DELIVER_TIMEOUT}s)"
+echo "==> PipelineRun ${RUN_NAME} (revision=${REVISION}, uiRevision=${UI_REVISION}, timeout=${DELIVER_TIMEOUT}s)"
 kubectl apply -f - <<EOF
 apiVersion: tekton.dev/v1
 kind: PipelineRun
@@ -87,6 +91,8 @@ spec:
   params:
     - name: revision
       value: "${REVISION}"
+    - name: uiRevision
+      value: "${UI_REVISION}"
   taskRunTemplate:
     podTemplate:
       nodeSelector:
