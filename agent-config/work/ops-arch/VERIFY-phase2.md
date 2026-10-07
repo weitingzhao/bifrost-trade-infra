@@ -26,3 +26,9 @@
 | B3R | **PASS**（依赖 B1R2 修 Cursor 模板） | infra `cursor/b3-infra` `27ecfaed` | preflight 85/85（含审批绕过拦截与放行）；`check_mcp_cutover.py` ok；`--cursor` 对 platform 模板 fail（MCP_WRITES=off，B1R2 修） |
 
 MCP 侧问题：没设 `MCP_WRITES` 时默认不发写（共享检出一更新就会断所有线程的写工具）；级别在 MCP 里抄了一份且与 API 不一致；4 个动作没映射 → `LANE-B1R2.md`。
+
+## B1R2 验收（2026-10-07）
+
+PASS。platform `cursor/phase2-platform` `e6b825b9`（在 `816a8039` 之后，基于 main `4646441`）：`mcp/platform` tsc + 18 测试 ok；`api` `go test ./...` ok（含 `config/actions-catalog.json` 与目录一致的测试）；`check_mcp_cutover.py --cursor`（取自 `cursor/b3-infra`）ok；`writeGate.ts`：没设 `MCP_WRITES` → `legacy`（原路由直调），`on` → 审批感知，其余 → 不写。七个写工具不在目录（ensure_bifrost_namespaces、operate queue 三个、report_checklist_signals、run_release_gate、sign_tier_b），`on` 时明确拒绝——前两类第 3 阶段处理，后两个第 3 阶段退场。
+
+**第 2 阶段可以上线**：步骤见上文「上线顺序」。
