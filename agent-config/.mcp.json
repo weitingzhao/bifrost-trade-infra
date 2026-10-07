@@ -31,7 +31,7 @@
       ],
       "env": {
         "PLATFORM_API_URL": "http://127.0.0.1:8780",
-        "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_VIEWER_TOKEN:-}",
+        "PLATFORM_VIEWER_TOKEN": "${PLATFORM_VIEWER_TOKEN:-}",
         "MCP_BRIDGE_FOCUS": "redis",
         "PLATFORM_TOKEN_ENV_KEY": "PLATFORM_VIEWER_TOKEN"
       }
@@ -44,7 +44,7 @@
       ],
       "env": {
         "PLATFORM_API_URL": "http://127.0.0.1:8780",
-        "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_VIEWER_TOKEN:-}",
+        "PLATFORM_VIEWER_TOKEN": "${PLATFORM_VIEWER_TOKEN:-}",
         "MCP_BRIDGE_FOCUS": "postgres",
         "PLATFORM_TOKEN_ENV_KEY": "PLATFORM_VIEWER_TOKEN"
       }
@@ -57,7 +57,7 @@
       ],
       "env": {
         "PLATFORM_API_URL": "http://127.0.0.1:8780",
-        "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_VIEWER_TOKEN:-}",
+        "PLATFORM_VIEWER_TOKEN": "${PLATFORM_VIEWER_TOKEN:-}",
         "MCP_BRIDGE_FOCUS": "prometheus",
         "PLATFORM_TOKEN_ENV_KEY": "PLATFORM_VIEWER_TOKEN"
       }
