@@ -13,9 +13,10 @@
 
 ## 待你签收
 
+- **TD-224 / TD-249 / TD-251** — Cluster 页加载不再派发修复 Agent、start 按 scope 去重；修复 Agent 文案与控制室裁决条点名 inconclusive 与过期探针；Hermes 的 peer-watchdog / nightly-drift 只留 launchd（platform 22863e2，STG+PROD 10-07；.52 网关 v0.2.0） · 验收 PASS（10-07：remediation Go 测试 ok、console 4 passed、gateway 4 passed、.52 /skills 两项 disabled） · 防线：`api/internal/remediation` TestStartDedupsActiveScope、`releaseGateAgentCopy.test.ts`、`ControlRoomVerdictStrip.test.tsx`、`agent/hermes-gateway/src/skills.test.ts`（TD-251） · 后续：TD-228 观察到 06:00 UTC；deploy_hermes_gateway.sh 的 npm 在远端找不到（无新编号，并入 TD-228 观察）
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 104 项**：P0 0 · P1 10 · P2 33 · P3 61；要你批的 57 项（从总览表的审批列算）。
+**未结 105 项**：P0 0 · P1 11 · P2 33 · P3 61；要你批的 58 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -111,7 +112,7 @@
 
 目标：挂单与 IB 读失败不再被当真写库；Risk / Performance / 告警计数按交易日算；Console 的裁决条在探针失败时不再显示绿色；ui 的发布可追溯；台账与文档的过时说法改正。
 
-项：TD-211, TD-212, TD-213, TD-228, TD-229, TD-234, TD-235, TD-236, TD-239, TD-240, TD-241, TD-251 · 已还：TD-214, TD-219, TD-232, TD-233, TD-226, TD-230, TD-227
+项：TD-211, TD-212, TD-213, TD-228, TD-229, TD-234, TD-235, TD-236, TD-239, TD-240, TD-241, TD-251, TD-252 · 已还：TD-214, TD-219, TD-232, TD-233, TD-226, TD-230, TD-227
 
 ## 数据边界（接受并留座）
 
@@ -327,6 +328,7 @@
 | [TD-249](#td-249) | P3 | ops-console | After TD-230/227: remediation agent copy still says the gate result is pass/fail (no inconclusive), and Control Room does not list which sources are stale | 不用批 |
 | [TD-250](#td-250) | P3 | trade-data | A stale vendor close above intrinsic is still stored as vendor_eod: the plugin's snapshot read does not return last_trade_ts, so enrich cannot tell a morning trade from a session close | 不用批 |
 | [TD-251](#td-251) | P3 | ops-agent | Hermes peer-watchdog and nightly-drift-scan duplicate jobs that launchd already runs on the Minis | 要你定 |
+| [TD-252](#td-252) | P1 | research-data | The dbt generic tests are not in the wheel: research_trading_day failed to compile on 10-07 and no engine ran for the 10-06 session | 发版（要你批） |
 
 ## 条目
 
@@ -1749,8 +1751,8 @@
 
 **P3 · ops-console · Opening the Cluster page as an operator auto-starts a full-auto remediation run, and neither platform-api nor the runner deduplicates by scope or active job**
 
-- **状态**：观察中（platform 分支 td-l6 = b066d99，未进 main；进 main 要下一次 platform 发版——要你批）
-- **验收结果**：PASS（代码层）2026-10-07 2ccf5d7：Cluster 页加载不再派发修复 Agent（改为显式按钮 + 确认）；remediation start 按 scope 去重；TestStartDedupsActiveScope
+- **状态**：待你签收（platform STG 1791346065 + PROD 1791346310 已上 22863e2（10-07））
+- **验收结果**：PASS 2026-10-07 22863e2（已上 PROD）：TestStartDedupsActiveScope ok；Cluster 页加载只显示裁决，派发改为显式按钮 + 确认
 - **Claim**: For an authenticated operator, ClusterOpsIssuesPanel auto-starts a remediation run from a useEffect whenever issues exist; ClusterPage always passes autoAssess. Its once-per-signature guard is a per-tab useRef, which resets on reload or in a new tab, and the signature changes whenever a row flips between degraded and fail. The client skips only while its own activeRemediationJob is running. platform-api HandleStart has no active-job or same-scope dedupe, and neither does the runner's POST /run. The HusbandryStrip path is covered by TD-208.
 - **Measured**: CODE-READ only; no browser was opened. Matches the known Owner memory note 'Cluster page load dispatches repair agents'.
 - **Evidence**:
@@ -1784,8 +1786,8 @@
 
 **P3 · ops-console · Every scheduled Hermes skill run on .52 fails with 'No such file or directory', while /health returns status ok and the checklist counts the gateway healthy**
 
-- **状态**：观察中（platform 分支 td-l6 = b066d99，未进 main；进 main 要下一次 platform 发版——要你批）
-- **验收结果**：PASS（代码层）2026-10-07 a52b13c：实测 .52:8782 /executions 500/500 失败（498 peer-watchdog、2 nightly-drift-scan，10-05 09:50 起，脚本相对路径在主机上不存在）而 /health ok。修：脚本随网关部署到 HERMES_SCRIPTS_DIR；缺脚本的技能不排程且 /skills 报 error；/health 在技能缺脚本或连续 3 次失败时 degraded（HTTP 仍 200）；网关 0.2.0；platform-api 与 Console 跟随 degraded。主机重部署是 Owner 步骤：先定 skills.yaml 里 peer-watchdog / nightly-drift 停不停（L6 建议都停，见 TD-251），再跑 `./scripts/agent/deploy_hermes_gateway.sh vision@192.168.10.52`
+- **状态**：观察中（platform STG 1791346065 + PROD 1791346310 已上 22863e2（10-07）；.52 网关 10-07 04:12 UTC 重部署为 v0.2.0、scripts_dir=~/bifrost-agent/hermes-scripts；到 10-07 06:00 UTC 看 stale-pipeline-triage 05:55 那次是否 success）
+- **验收结果**：部分 PASS 2026-10-07：.52 /health ok、failing_skills []、v0.2.0、4 skills；PROD platform 读到 hermes_mcp ok v0.2.0。待首个排程运行。注：deploy 脚本里 `npm install` 在远端非交互 shell 找不到 npm（旧依赖仍在，服务正常）
 - **Claim**: skills.yaml points at ../../scripts/agent/*.sh, resolved with cwd = the skills.yaml directory. deploy_hermes_gateway.sh rsyncs only agent/hermes-gateway to ~/bifrost-agent/hermes-gateway, so the scripts path (~/scripts/agent) never exists on the host. The deployed copy is also stale: 3 skills versus 4 in the repo. /health hard-codes status 'ok', and the hermes-tooling checklist item is healthy when hermes_mcp.status=ok. Runner failover is still covered, because a separate launchd peer_watchdog is deployed by deploy_mac_mini.sh.
 - **Measured**: MEASURED 2026-10-07 01:00 UTC: .52:8782/executions?limit=50 shows 50/50 peer-watchdog failures ('bash: ../../scripts/agent/peer_watchdog.sh: No such file or directory'). /health returns ok, skill_count 3, uptime ~4.74M s (~55 days). The local bdev ring shows 500/500 failures since 10-05, including nightly-drift-scan daily at 11:00Z.
 - **Evidence**:
@@ -2000,7 +2002,7 @@
 
 **P3 · research-control · agents/journal_distill reads raw_broker.executions_final with no Flex freshness check (own 23:55 UTC schedule, outside any gate)**
 
-- **状态**：观察中（research 0.203.0 已构建：main fb1808e + b814178，registry 有 0.203.0 / 0.203.0-dagster；pin 提交 a79d661 未推——推 pin + 手工 apply Dagster 要你批）
+- **状态**：观察中（research 0.203.0 已上线 10-07 04:04 UTC：api/mcp 0.203.0、Dagster 0.203.0-dagster；等下一个 Flex 失败夜看 fills_skip_reason）
 - **验收**：上线后下一个 Flex 失败夜：`agents/journal_distill` 的结果带 `fills_skip_reason`、输出检查 WARN，decisions/visits/notes 照跑；单元证据 `cd bifrost-research && pytest tests/orchestration/test_flex_gate.py tests/engines -k distill -q`
 - **验收结果**：PASS（代码层）2026-10-07 fb1808e：run_distill 先问 flex_gate 的判定（同一 freshness-kpis 探针与规则，重试一次、不抛错），failed/stale/unknown 只跳过 fills 记忆并写原因；FLEX_READERS 里 journal_distill 从豁免改为挂 gate，原测试强制。手工 POST /research/journal/memory/distill 走同一闸门
 - **Claim**: TD-192 mapped every Flex reader; journal_distill is one of the four outside the batch and was never gated (before or after the split).
@@ -2047,8 +2049,8 @@
 
 **P3 · ops-console · After TD-230/227: remediation agent copy still says the gate result is pass/fail (no inconclusive), and Control Room does not list which sources are stale**
 
-- **状态**：观察中（platform 分支 td-l6 = b066d99，未进 main；进 main 要下一次 platform 发版——要你批）
-- **验收结果**：PASS（代码层）2026-10-07 b066d99：修复 Agent 文案与 deliveryTools 写明 gate 的 inconclusive；useMissionSnapshot 的 staleSources 接到 ControlRoomVerdictStrip，点名过期探针
+- **状态**：待你签收（platform STG 1791346065 + PROD 1791346310 已上 22863e2（10-07））
+- **验收结果**：PASS 2026-10-07 22863e2（已上 PROD）：releaseGateAgentCopy.test.ts + ControlRoomVerdictStrip.test.tsx 4 passed
 - **Claim**: agent/remediation/src/prompt.ts:253 and tools/deliveryTools.ts:183 describe gate results as pass/fail; useMissionSnapshot now returns staleSources but ControlRoomPage / MissionControlHeader do not pass it to ControlRoomVerdictStrip.
 - **Measured**: code-read 10-07 by loop lane L2.
 - **Evidence**:
@@ -2078,7 +2080,9 @@
 
 **P3 · ops-agent · Hermes peer-watchdog and nightly-drift-scan duplicate jobs that launchd already runs on the Minis**
 
-- **状态**：未开始
+- **状态**：待你签收（platform main 22863e2：peer-watchdog / nightly-drift-scan 在 skills.yaml 里 disabled，launchd 继续跑；.52 已重部署）
+- **验收**：`curl -s http://192.168.10.52:8782/skills` 里 peer-watchdog 与 nightly-drift-scan 为 disabled；`cd bifrost-platform/agent/hermes-gateway && npm test` 含 TD-251 测试
+- **验收结果**：PASS 2026-10-07 22863e2：.52 /skills 两项 disabled、stale-pipeline-triage enabled；gateway npm test 4 passed（防线 skills.test.ts「TD-251: no enabled skill runs a script a launchd plist already runs」）
 - **Claim**: The two Hermes skills on .52 re-run work that launchd jobs on the Mac minis already do (peer watchdog, nightly drift). Once TD-228 makes the scripts reachable they would run twice; until then they failed 500/500 unnoticed.
 - **Measured**: MEASURED 10-07 by paydown lane L6 while fixing TD-228 (.52:8782 /executions; the skills' scripts have launchd twins).
 - **Evidence**:
@@ -2087,6 +2091,21 @@
 - **Fix**: Owner picks one runner per job: disable both skills in skills.yaml (L6's recommendation; it offers the commit) or retire the launchd twins.
 - **Ratchet**: A gateway test: no enabled skill's script is also referenced by a launchd plist in agent/deploy.
 - 审批 要你定 · 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-252
+
+**P1 · research-data · The dbt generic tests are not in the wheel: research_trading_day failed to compile on 10-07 and no engine ran for the 10-06 session**
+
+- **状态**：在做（0.204.0 = f717fbb 已推 main，镜像 0.204.0 / 0.204.0-dagster 已入 registry；pin 提交 8524e62 在本地未推——推 pin、apply Dagster、补跑 10-06 的 research_trading_day 要你批）
+- **验收**：补跑后：Dagster research_trading_day SUCCESS，`features.stock_signal_lens_hit_daily` 有 trade_date=2026-10-06 的行（6 个 lens），elementary 无 Compilation Error
+- **Claim**: pyproject package-data lists dbt models, macros, seeds and snapshots but not dbt/tests/**, so tests/generic/sepa_session_is_newest_trading_day.sql and assert_pass_count_range.sql (0.180.0 / TD-111) never reached the container. dbt build exited 1 on compilation errors; sepa_projection, scan, signal_hit, option_universe, pine, suggestion_ledger and alert_scan were skipped. Editable installs read the source tree, so local runs passed.
+- **Measured**: MEASURED 10-07: Dagster run 45915b44 (02:30 UTC) FAILURE at bifrost_research_dbt_assets; elementary_test_results 02:38:54 'Compilation Error … test_sepa_session_is_newest_trading_day'; /usr/local/lib/python3.11/site-packages/bifrost_research/dbt has no tests/ in 0.202.0-dagster or 0.203.0-dagster.
+- **Evidence**:
+  - `bifrost-research/pyproject.toml:76` — `"dbt/macros/**/*.sql",`
+- **Impact**: No SEPA projection, scan, signal hits, option universe, Pine or suggestion ledger for 10-06; every night until fixed.
+- **Fix**: research 0.204.0 (f717fbb): add dbt/tests/**/*.sql to package-data; pin 0.204.0 + Dagster apply before 10-07 02:30 UTC; re-run research_trading_day for the 10-06 session.
+- **Ratchet**: tests/test_dbt_package_data.py: every file under the dbt_project.yml paths matches a package-data glob (fails on 0.203.0).
+- 审批 发版（要你批） · 代价 S · 风险 low · repos: bifrost-research
 
 ## 没覆盖到的（下一轮从这里开始）
 
