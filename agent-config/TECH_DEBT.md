@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-236** — 已删除的 Account Sync daemon 的残留清掉：插件不再写 ib:account:stream:v1，core / Console / 两份 redis_ib_keys.json 去掉该流，旧键已删（ib-gateway 0.4.0 + Owner DEL，10-07） · 验收 PASS（键不存在且未重建、快照正常） · 防线：插件 `tests/test_redis_key_manifest.py`（键清单与 core 一致） · 后续：无
 - **TD-96** — preflight 的 D10 闸门不再只认 curl：Python/wget/httpie/node 写 /control/*、patch 扩容 daemon、各种方式改闸门文件都会被拦（Owner 应用，infra 560e58c） · 验收 PASS（agent-guard test.js 74/74） · 防线：`agent-config/scripts/agent-guard/test.js`（74 例，含 28 条不得误拦） · 后续：test.js 不在 infra CI 里（只在改闸门时手跑）
 - **TD-148 / TD-160 / TD-107** — strategy_plan 允许 lens / backtest_run 来源；删 GS 两个改名残留的重复索引；6 张 financials 表补上 (period_date, symbol) 索引（Owner 10-07 批第一组，均已执行并核对） · 验收 PASS（三库约束含新值、旧索引已删、6 个新索引 valid） · 防线：core `tests/test_td148_source_kind_prepare.py`、research TD-160 核对 SQL、market-data `tests/test_td107_financials_period_index.py`（apply_ddl 路径建索引） · 后续：TD-134 观察一周 WAL 量（同批 apply，到 10-14）
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）
@@ -1499,8 +1500,8 @@
 
 **P3 · trade-worker · Leftovers of the deleted Account Sync daemon: the plugin still XADDs every account snapshot to ib:account:stream:v1, which nothing reads**
 
-- **状态**：观察中（ib-gateway 0.4.0 已上 PROD 10-07 17:19 UTC（digest sha256:278c4c07…，插件 e335bd6）+ Trade core 0.58.0：插件不再 XADD；待你在 redis-ib 上 DEL ib:account:stream:v1，当前键仍存在）
-- **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
+- **状态**：待你签收（ib-gateway 0.4.0 不再 XADD；Owner 10-07 在 redis-ib 上 DEL ib:account:stream:v1）
+- **验收结果**：PASS 2026-10-07：DEL 返回 1；之后 ib:account:stream:v1 不存在且未被重建，ib:account:snapshot:v1 正常；core / Console 已不引用该流
 - **Claim**: TD-22 deleted the Account Sync daemon, the only consumer of ib:account:stream:v1. The IB Gateway plugin still XADDs the full snapshot (all accounts, summaries, positions) to that stream on every snapshot write, capped at about 1000 entries on redis-ib. Core still defines the key and a health-key comment describing the retired consumer, and the Console architecture catalog lists the stream as live. The key is also pinned in core and plugin tests/contracts/redis_ib_keys.json (and core test_redis_ib_contract.py:75-76), so removing it means updating both contract files together.
 - **Measured**: CODE-READ. `git grep` over origin/main of core, api, worker, platform, research, frontend, infra and the market-data and flex plugins finds no XREAD or consumer. redis-ib memory was not measured.
 - **Evidence**:
