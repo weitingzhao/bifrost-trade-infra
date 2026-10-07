@@ -1480,7 +1480,8 @@
 
 **P3 · market-data · market-data code strings and scripts still mention CronJobs: the dashboard label 'CronJob archived' and verify-market-data.sh's hint are user-visible**
 
-- **状态**：在做（还债循环 · 道 L1，10-07 03:1x UTC 开工；发版前停下）
+- **状态**：观察中（代码与镜像就绪：market-data 0.84.0 = 932f97c（分支 td-l1-2026-10-07，main 推送被 auto mode 以 [Production Deploy] 拦下，未绕过），镜像 sha256:0d09ad6d…；推 main + 部署提交 + apply 等你批）
+- **验收结果**：PASS 2026-10-07 932f97c：五处措辞改为 Dagster；`tests/test_k8s_no_cronjobs.py` 扩到 src / scripts 的字符串与注释、scripts/*.sh；线上 queue-dashboard 本来就不显示该标签（readiness-refresh 不在 slots 里）
 - **Claim**: TD-201's guard scans Markdown only. ingest_dashboard.py:194 renders 'CronJob archived'; scripts/verify-market-data.sh:121 prints 'CronJobs may still be running'; comments in quality.py:22 and scheduler/daily.py:725, :2927.
 - **Measured**: code-read 10-07 by paydown lane Y.
 - **Evidence**:
@@ -1751,7 +1752,7 @@
 
 **P3 · ops-console · Opening the Cluster page as an operator auto-starts a full-auto remediation run, and neither platform-api nor the runner deduplicates by scope or active job**
 
-- **状态**：未开始
+- **状态**：在做（还债循环 · 道 L6）
 - **Claim**: For an authenticated operator, ClusterOpsIssuesPanel auto-starts a remediation run from a useEffect whenever issues exist; ClusterPage always passes autoAssess. Its once-per-signature guard is a per-tab useRef, which resets on reload or in a new tab, and the signature changes whenever a row flips between degraded and fail. The client skips only while its own activeRemediationJob is running. platform-api HandleStart has no active-job or same-scope dedupe, and neither does the runner's POST /run. The HusbandryStrip path is covered by TD-208.
 - **Measured**: CODE-READ only; no browser was opened. Matches the known Owner memory note 'Cluster page load dispatches repair agents'.
 - **Evidence**:
@@ -1822,7 +1823,7 @@
 
 **P3 · ops-console · Every scheduled Hermes skill run on .52 fails with 'No such file or directory', while /health returns status ok and the checklist counts the gateway healthy**
 
-- **状态**：未开始
+- **状态**：在做（还债循环 · 道 L6）
 - **Claim**: skills.yaml points at ../../scripts/agent/*.sh, resolved with cwd = the skills.yaml directory. deploy_hermes_gateway.sh rsyncs only agent/hermes-gateway to ~/bifrost-agent/hermes-gateway, so the scripts path (~/scripts/agent) never exists on the host. The deployed copy is also stale: 3 skills versus 4 in the repo. /health hard-codes status 'ok', and the hermes-tooling checklist item is healthy when hermes_mcp.status=ok. Runner failover is still covered, because a separate launchd peer_watchdog is deployed by deploy_mac_mini.sh.
 - **Measured**: MEASURED 2026-10-07 01:00 UTC: .52:8782/executions?limit=50 shows 50/50 peer-watchdog failures ('bash: ../../scripts/agent/peer_watchdog.sh: No such file or directory'). /health returns ok, skill_count 3, uptime ~4.74M s (~55 days). The local bdev ring shows 500/500 failures since 10-05, including nightly-drift-scan daily at 11:00Z.
 - **Evidence**:
@@ -2026,7 +2027,8 @@
 
 **P2 · market-data · market-data /ingest/queue-dashboard takes 5–25 s per call, and the platform-api proxy carries the same delay: with the new latency rule live it will page whenever someone keeps the queue dashboard open**
 
-- **状态**：在做（还债循环 · 道 L1，10-07 03:1x UTC 开工；发版前停下）
+- **状态**：观察中（代码与镜像就绪：market-data 0.84.0 = 932f97c（分支 td-l1-2026-10-07，main 推送被 auto mode 以 [Production Deploy] 拦下，未绕过），镜像 sha256:0d09ad6d…；推 main + 部署提交 + apply 等你批）
+- **验收结果**：代码层 PASS 2026-10-07：PROD pod 内插桩，未命中缓存一次 1.6 s 里 SQL 只占 0.06 s，98% 花在 `cronutil.iter_cron_fires` 逐分钟判断（每 slot 前后 14 天，一次约 100 万次）；改为按本地日期逐天、只枚举 cron 指定的时分 → 1.66 s → 0.06–0.16 s、CPU 0.81 → 0.02 s，返回逐字节一致。防线 `tests/test_cronutil_fires.py`（旧实现作参照、全 slot + DST）+ `test_a_dashboard_miss_is_a_handful_of_reads_and_little_cpu`（CPU < 0.15 s）。线上 0.83.0 仍每小时 107 次 > 1 s
 - **Claim**: 164 requests over 1 s in 90 minutes on plugin-market-data; PROD platform-api p99 2.5–7.4 s from /api/v1/plugins/market-data/api/*.
 - **Measured**: MEASURED 10-07 by paydown lane CC (Prometheus, the TD-161 / TD-195 metrics).
 - **Evidence**:
@@ -2128,7 +2130,7 @@
 
 **P3 · ops-console · After TD-230/227: remediation agent copy still says the gate result is pass/fail (no inconclusive), and Control Room does not list which sources are stale**
 
-- **状态**：未开始
+- **状态**：在做（还债循环 · 道 L6）
 - **Claim**: agent/remediation/src/prompt.ts:253 and tools/deliveryTools.ts:183 describe gate results as pass/fail; useMissionSnapshot now returns staleSources but ControlRoomPage / MissionControlHeader do not pass it to ControlRoomVerdictStrip.
 - **Measured**: code-read 10-07 by loop lane L2.
 - **Evidence**:
