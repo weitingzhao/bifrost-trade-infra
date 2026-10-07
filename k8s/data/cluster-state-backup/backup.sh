@@ -1,11 +1,14 @@
 #!/bin/sh
-# Daily NAS copy of the newest k3s etcd snapshot, plus age-encrypted
-# Kubernetes Secrets, platform-state-* ConfigMaps, and the k3s server token.
+# Daily NAS copy of the newest k3s etcd snapshot, plus Kubernetes Secrets,
+# platform-state-* ConfigMaps, and the k3s server token. All four are
+# age-encrypted before they touch the target disk.
 #
-# Secret and ConfigMap YAML is piped into `age -o`. This script never
-# redirects that YAML to a file. A failed or unrecognizable age run deletes
-# its partial output before the script exits. The etcd snapshot is an exact
-# copy (sha256 must match the source file); it is not age-wrapped.
+# The snapshot is read from the read-only hostPath. age writes ciphertext
+# straight to a temp name in the target directory and that name is renamed
+# only after the age header checks. No unencrypted snapshot is written to
+# the target, including temp files. Source size and sha256 are computed
+# before encryption and recorded in MANIFEST (filenames, sizes, sha256,
+# timestamp only). Monthly keeps ciphertext and MANIFEST, nothing else.
 # See docs/runbooks/cluster-state-restore.md.
 set -eu
 set -o pipefail
@@ -63,6 +66,10 @@ mtime() {
   stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"
 }
 
+sha256_of() {
+  sha256sum "$1" | awk 'NR==1 { print $1 }'
+}
+
 # Reject anything that is not an age ciphertext header. Do not print the
 # file: a rejection may be plaintext that must not reach the log.
 age_header_ok() {
@@ -76,7 +83,8 @@ age_header_ok() {
   return 0
 }
 
-# Read plaintext on stdin. The only file created is ciphertext.
+# Read plaintext on stdin. The only file created is ciphertext: age writes
+# a temp name, the header is checked, then the temp name is renamed.
 encrypt_stdin() {
   dest=$1
   tmp="${dest}.partial"
@@ -92,6 +100,64 @@ encrypt_stdin() {
     return 1
   fi
   mv "$tmp" "$dest"
+}
+
+allowed_backup_name() {
+  case "$1" in
+    etcd-snapshot-*.age|secrets.yaml.age|platform-state.yaml.age|server-token.age|MANIFEST)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+# Monthly replication. The source name is checked before the copy, so a
+# plaintext snapshot cannot be written to the target by this path.
+copy_age_or_manifest() {
+  src=$1
+  dest_dir=$2
+  name=$(basename "$src")
+  if ! allowed_backup_name "$name"; then
+    die "refusing to copy $name onto the monthly target"
+  fi
+  cp -f "$src" "$dest_dir/$name"
+}
+
+field() {
+  file=$1
+  name=$2
+  key=$3
+  awk -v name="$name" -v key="$key" '
+    $1 == "file" && $2 == name {
+      for (i = 1; i <= NF; i++) if ($i == key) { print $(i + 1); exit }
+    }
+  ' "$file"
+}
+
+refuse_plaintext_snapshot() {
+  dir=$1
+  for f in "$dir"/etcd-snapshot-*; do
+    [ -e "$f" ] || continue
+    case "$f" in
+      *.age) ;;
+      *) die "plaintext snapshot on the target: $(basename "$f")" ;;
+    esac
+  done
+}
+
+verify_ciphertext() {
+  dir=$1
+  name=$2
+  manifest=$3
+  age_header_ok "$dir/$name" || die "age header rejected for $name"
+  want_size=$(field "$manifest" "$name" ciphertext_bytes)
+  got_size=$(file_size "$dir/$name")
+  [ -n "$want_size" ] && [ "$got_size" = "$want_size" ] || die "ciphertext size mismatch for $name"
+  want_sum=$(field "$manifest" "$name" ciphertext_sha256)
+  got_sum=$(sha256_of "$dir/$name")
+  [ -n "$want_sum" ] && [ "$got_sum" = "$want_sum" ] || die "ciphertext sha256 mismatch for $name"
 }
 
 if [ "$REQUIRE_MOUNT" = 1 ] && ! is_mount "$BACKUP_ROOT"; then
@@ -123,7 +189,7 @@ for f in "$SNAPSHOT_DIR"/*; do
   fi
   base=$(basename "$f")
   case "$base" in
-    .*|*.tmp) continue ;;
+    .*|*.tmp|*.partial|*.age) continue ;;
   esac
   m=$(mtime "$f")
   if [ "$m" -gt "$newest_m" ]; then
@@ -132,8 +198,27 @@ for f in "$SNAPSHOT_DIR"/*; do
   fi
 done
 [ -n "$newest" ] || die "no snapshot file in $SNAPSHOT_DIR"
-src_size=$(file_size "$newest")
+
+base=$(basename "$newest")
+case "$base" in
+  *[!A-Za-z0-9._-]*) die "snapshot name rejected" ;;
+esac
+case "$base" in
+  etcd-snapshot-*) snap_age="${base}.age" ;;
+  *) snap_age="etcd-snapshot-${base}.age" ;;
+esac
+case "$snap_age" in
+  etcd-snapshot-*.age) ;;
+  *) die "snapshot ciphertext name rejected" ;;
+esac
+
+# Integrity of the plaintext is recorded before encryption. k3s publishes a
+# snapshot by rename, so this file is complete. The hash is what restore
+# checks after decrypting; it is not a reason to store the plaintext.
+src_size=$(file_size "$newest") || die "cannot stat snapshot"
 [ "$src_size" -gt 0 ] || die "newest snapshot is empty"
+src_sum=$(sha256_of "$newest") || die "cannot hash snapshot"
+printf '%s\n' "$src_sum" | grep -E '^[0-9a-f]{64}$' >/dev/null || die "snapshot sha256 unreadable"
 
 day=$(date -u +%Y-%m-%d)
 DAILY="$BACKUP_ROOT/daily"
@@ -143,14 +228,9 @@ WORK="$DAILY/.partial-$day"
 rm -rf "$WORK"
 mkdir -p "$WORK"
 
-base=$(basename "$newest")
-cp -f "$newest" "$WORK/$base"
-src_sum=$(sha256sum "$newest" | awk 'NR==1 { print $1 }')
-dst_sum=$(sha256sum "$WORK/$base" | awk 'NR==1 { print $1 }')
-[ "$src_sum" = "$dst_sum" ] || die "snapshot sha256 mismatch"
-dst_size=$(file_size "$WORK/$base")
-[ "$dst_size" -gt 0 ] || die "copied snapshot is empty"
-printf '%s  %s\n' "$dst_sum" "$base" > "$WORK/SHA256SUMS"
+# Stdin is the read-only hostPath. age creates only ciphertext in $WORK.
+encrypt_stdin "$WORK/$snap_age" < "$newest" || die "snapshot encryption failed"
+age_header_ok "$WORK/$snap_age" || die "snapshot age header rejected"
 
 # Names only. The YAML is the following pipeline, into age.
 list_configmap_names() {
@@ -182,13 +262,25 @@ export_platform_state | encrypt_stdin "$WORK/platform-state.yaml.age" \
 encrypt_stdin "$WORK/server-token.age" < "$TOKEN_FILE" \
   || die "server token encryption failed"
 
+snap_ct=$(file_size "$WORK/$snap_age")
+snap_ct_sum=$(sha256_of "$WORK/$snap_age")
+sec_ct=$(file_size "$WORK/secrets.yaml.age")
+sec_ct_sum=$(sha256_of "$WORK/secrets.yaml.age")
+cm_ct=$(file_size "$WORK/platform-state.yaml.age")
+cm_ct_sum=$(sha256_of "$WORK/platform-state.yaml.age")
+tok_ct=$(file_size "$WORK/server-token.age")
+tok_ct_sum=$(sha256_of "$WORK/server-token.age")
+ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 {
-  printf 'snapshot %s bytes %s sha256 %s\n' "$base" "$dst_size" "$dst_sum"
-  printf 'secrets.yaml.age bytes %s age_header ok\n' "$(file_size "$WORK/secrets.yaml.age")"
-  printf 'platform-state.yaml.age bytes %s age_header ok\n' "$(file_size "$WORK/platform-state.yaml.age")"
-  printf 'server-token.age bytes %s age_header ok\n' "$(file_size "$WORK/server-token.age")"
+  printf 'timestamp %s\n' "$ts"
+  printf 'file %s plaintext_bytes %s plaintext_sha256 %s ciphertext_bytes %s ciphertext_sha256 %s\n' \
+    "$snap_age" "$src_size" "$src_sum" "$snap_ct" "$snap_ct_sum"
+  printf 'file %s ciphertext_bytes %s ciphertext_sha256 %s\n' secrets.yaml.age "$sec_ct" "$sec_ct_sum"
+  printf 'file %s ciphertext_bytes %s ciphertext_sha256 %s\n' platform-state.yaml.age "$cm_ct" "$cm_ct_sum"
+  printf 'file %s ciphertext_bytes %s ciphertext_sha256 %s\n' server-token.age "$tok_ct" "$tok_ct_sum"
 } > "$WORK/MANIFEST"
 printf 'OK\n' > "$WORK/STATUS"
+refuse_plaintext_snapshot "$WORK"
 
 if [ -d "$DAILY/$day" ]; then
   rm -rf "$DAILY/.old-$day"
@@ -202,18 +294,36 @@ if ! mv "$WORK" "$DAILY/$day"; then
 fi
 rm -rf "$DAILY/.old-$day"
 WORK=""
+refuse_plaintext_snapshot "$DAILY/$day"
 
 month=$(printf '%s' "$day" | cut -c1-7)
 MTMP="$MONTHLY/.partial-$month"
 rm -rf "$MTMP"
-cp -a "$DAILY/$day" "$MTMP"
-snap=$(awk '$1 == "snapshot" { print $2 }' "$MTMP/MANIFEST")
-sum=$(awk '$1 == "snapshot" { print $6 }' "$MTMP/MANIFEST")
-got=$(sha256sum "$MTMP/$snap" | awk 'NR==1 { print $1 }')
-[ "$got" = "$sum" ] || die "monthly snapshot sha256 mismatch"
-age_header_ok "$MTMP/secrets.yaml.age" || die "monthly secrets age header failed"
-age_header_ok "$MTMP/platform-state.yaml.age" || die "monthly platform-state age header failed"
-age_header_ok "$MTMP/server-token.age" || die "monthly server-token age header failed"
+mkdir -p "$MTMP"
+copy_age_or_manifest "$DAILY/$day/$snap_age" "$MTMP"
+copy_age_or_manifest "$DAILY/$day/secrets.yaml.age" "$MTMP"
+copy_age_or_manifest "$DAILY/$day/platform-state.yaml.age" "$MTMP"
+copy_age_or_manifest "$DAILY/$day/server-token.age" "$MTMP"
+copy_age_or_manifest "$DAILY/$day/MANIFEST" "$MTMP"
+for f in "$MTMP"/*; do
+  [ -f "$f" ] || continue
+  name=$(basename "$f")
+  if ! allowed_backup_name "$name"; then
+    die "monthly directory has $name, which is not ciphertext or MANIFEST"
+  fi
+  if [ "$name" = "MANIFEST" ]; then
+    continue
+  fi
+  verify_ciphertext "$MTMP" "$name" "$MTMP/MANIFEST"
+done
+[ -f "$MTMP/MANIFEST" ] || die "monthly copy missing MANIFEST"
+[ -f "$MTMP/$snap_age" ] || die "monthly copy missing snapshot ciphertext"
+awk '$1 == "timestamp" && $2 ~ /^[0-9]{4}-[0-9]{2}-[0-9]{2}T/ { ok = 1 } END { exit !ok }' \
+  "$MTMP/MANIFEST" || die "monthly MANIFEST has no timestamp"
+plain_sum=$(field "$MTMP/MANIFEST" "$snap_age" plaintext_sha256)
+printf '%s\n' "$plain_sum" | grep -E '^[0-9a-f]{64}$' >/dev/null \
+  || die "monthly MANIFEST missing plaintext_sha256"
+refuse_plaintext_snapshot "$MTMP"
 rm -rf "$MONTHLY/.old-$month"
 if [ -d "$MONTHLY/$month" ]; then
   mv "$MONTHLY/$month" "$MONTHLY/.old-$month"
@@ -256,5 +366,5 @@ for dir in "$DAILY" "$MONTHLY"; do
   done
 done
 
-log "verified daily/${day} snapshot_sha256=ok age_header=ok files=${base},secrets.yaml.age,platform-state.yaml.age,server-token.age"
+log "verified daily/${day} snapshot_sha256=ok age_header=ok files=${snap_age},secrets.yaml.age,platform-state.yaml.age,server-token.age"
 exit 0
