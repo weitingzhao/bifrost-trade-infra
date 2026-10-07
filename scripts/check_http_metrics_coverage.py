@@ -10,13 +10,16 @@ Static (default; no cluster needed), on ``k8s/monitoring``:
 
 - the two API rules and the runtime ratchet BifrostAPIWithoutHttpMetrics use one and the same
   namespace regex;
+- the ratchet exempts no target: its expression filters on nothing but that namespace regex
+  (platform-api was the last exemption, until it exported the series — TD-195);
+- the platform namespaces (PLATFORM_NAMESPACES) are inside that regex;
 - every namespace scraped by a ServiceMonitor / PodMonitor whose component is an API
   (APP_COMPONENTS) matches that regex, and every monitor's component is classified, so a new
   API monitor cannot land outside the rules unnoticed.
 
 Live (``--live``; needs KUBECONFIG, read-only via the apiserver proxy): runs the ratchet
 alert's own expression and lists every scraped API target that exports no
-``http_requests_total`` (platform-api is exempt in the expression until it exports them).
+``http_requests_total``.
 
 Usage: python3 scripts/check_http_metrics_coverage.py [--live]   (exit 1 on any problem)
 """
@@ -45,6 +48,10 @@ API_RULES = (
 APP_COMPONENTS = frozenset({"api", "research", "plugin", "control-plane"})
 #: Monitors that scrape exporters / infrastructure, not an API of ours.
 INFRA_COMPONENTS = frozenset({"postgres", "redis", "minio", "logging", "gateway"})
+#: platform-api's namespaces; its request series must reach the API rules like everyone's.
+PLATFORM_NAMESPACES = ("bifrost-platform-prod", "bifrost-platform-stg")
+#: A label matcher other than namespace in the ratchet's selectors is an exemption.
+EXEMPTION = re.compile(r'\b(?!namespace\b)\w+\s*(?:!=|!~|=~|=)\s*"[^"]*"')
 PROMETHEUS = "/api/v1/namespaces/monitoring/services/kube-prometheus-stack-prometheus:9090/proxy/api/v1"
 
 
@@ -71,6 +78,20 @@ def check_static() -> list[str]:
         )
         return problems
     regex = re.compile(next(iter(flat)))
+
+    for ns in PLATFORM_NAMESPACES:
+        if not regex.fullmatch(ns):
+            problems.append(
+                f"{RULES.name}: platform namespace {ns!r} is outside the API rules' namespace "
+                f"regex {regex.pattern!r}"
+            )
+    ratchet = exprs.get("BifrostAPIWithoutHttpMetrics", "")
+    for selector in re.findall(r"\{([^}]*)\}", ratchet):
+        for m in EXEMPTION.finditer(selector):
+            problems.append(
+                f"{RULES.name}: BifrostAPIWithoutHttpMetrics filters on {m.group(0).strip()!r}; "
+                "the ratchet exempts no target (TD-195 removed the last one)"
+            )
 
     for path in sorted(MONITORING.glob("*.yaml")):
         for doc in yaml.safe_load_all(path.read_text()):

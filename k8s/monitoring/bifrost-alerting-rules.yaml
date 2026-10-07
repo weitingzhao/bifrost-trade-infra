@@ -80,10 +80,11 @@ spec:
           # http_requests_total, or the two rules above cannot see it. Until 2026-10 research-api
           # and both plugin APIs exported none, so their 5xx went unalerted. /health is counted
           # (kubelet probes it every few seconds), so a healthy pod has series within a minute.
-          # platform-api (bifrost-platform-*) is exempt until it exports them; that exemption
-          # is the only one and may only shrink.
+          # No target is exempt: platform-api (bifrost-platform-*) was until it exported them
+          # (TD-195, bifrost-platform e95be35); check_http_metrics_coverage.py fails if an
+          # exemption comes back.
           expr: |
-            count by (namespace, job) (up{namespace=~"bifrost-.*|research|plugin-.*", job!="platform-api"} == 1)
+            count by (namespace, job) (up{namespace=~"bifrost-.*|research|plugin-.*"} == 1)
             unless on (namespace, job)
             count by (namespace, job) (http_requests_total{namespace=~"bifrost-.*|research|plugin-.*"})
           for: 30m
@@ -91,7 +92,7 @@ spec:
             severity: warning
           annotations:
             summary: "Bifrost API exports no http_requests_total"
-            description: "{{ $labels.job }} in {{ $labels.namespace }} is scraped but exports no http_requests_total, so BifrostAPIHighErrorRate / HighLatency cannot see it. Add the request middleware (Trade: bifrost_core.observability.prometheus; research / plugins: api/http_metrics.py)."
+            description: "{{ $labels.job }} in {{ $labels.namespace }} is scraped but exports no http_requests_total, so BifrostAPIHighErrorRate / HighLatency cannot see it. Add the request middleware (Trade: bifrost_core.observability.prometheus; research / plugins: api/http_metrics.py; platform-api: api/internal/server/httpmetrics.go)."
 
         - alert: BifrostRedisDown
           expr: |
