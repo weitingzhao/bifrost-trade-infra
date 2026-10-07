@@ -2137,9 +2137,9 @@
 
 **P3 · trade-data · A stale vendor close above intrinsic is still stored as vendor_eod: the plugin's snapshot read does not return last_trade_ts, so enrich cannot tell a morning trade from a session close**
 
-- **状态**：观察中（插件 0.85.0 = 708a024、core 0.57.0 = 549a656 都已推 main；插件镜像未构建：mirror-sync 被 auto mode 拦，要你跑；之后插件 apply 与 Trade 发版要你批）
+- **状态**：观察中（插件 0.85.0 已上线 10-07 04:00 UTC：部署提交 a7beb5b，12 个 pod 摘要 sha256:107935a4…；core 0.57.0 = 549a656 跟下一次 Trade 发版——要你批）
 - **验收**：插件上线后：`curl -s 'http://127.0.0.1:8780/api/v1/plugins/market-data/api/market/options/snapshots?symbol=DAVE&expiration=2027-01-15&as_of=2026-10-06'` 里 O:DAVE270115C00280000 带 last_trade_ts=2026-10-06T13:48:03.112000+00:00；core 上线后 api-monitor /health core_sha=549a656，且之后第一次 enrich 里 last_trade_ts 早于本 session 的 OPT 行不再是 vendor_eod
-- **验收结果**：PASS（代码层）2026-10-07：插件 pytest 1281 passed、ruff 通过，防线 tests/test_api_session_and_filters.py 3 个；core make test 13459 passed、test-db 110 passed，防线 test_snapshot_mark_intrinsic.py 网格 12,096 组 + 2 个 db 测试。规则：close ≥ 内在价值时，成交早于本 session，或成交戳早于收盘 ≥30 分钟且偏差 > max(20%, $0.25) → 按 0.56.0 替换；GS 三个 session 实测新鲜成交误触发 2.3%；三环境持仓只有 10-06 DAVE 2027-01-15 280C 一行会变。线上 FAIL（未发版，预期）
+- **验收结果**：插件 PASS 2026-10-07 a7beb5b：DAVE 2027-01-15 280C 返回 last_trade_ts=2026-10-06T13:48:03.112000+00:00，husbandry healthy。core FAIL（未发版，预期）。代码层：插件 pytest 1281 passed，core make test 13459 / test-db 110 passed，防线 tests/test_api_session_and_filters.py 3 个 + test_snapshot_mark_intrinsic.py 网格 12,096 组
 - **Claim**: query_snapshots in the market-data plugin selects iv / greeks / OI / day_volume / day_close / day_vwap but not last_trade_ts (present in raw_market.option_snapshot). DEV 10-06 DAVE 280C close 110.5 came from a 09:48 ET trade, 32% above the vendor-IV model price, and still drives a large unexplained residual.
 - **Measured**: MEASURED 10-07 by loop lane L4 (DEV / STG, read-only).
 - **Evidence**:
