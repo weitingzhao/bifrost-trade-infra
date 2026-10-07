@@ -89,6 +89,11 @@
 | raw_broker 唯一写入方的存活（TD-215） | 规则组 `bifrost-trade-daemon`（`bifrost-trade-infra/k8s/monitoring/bifrost-alerting-rules.yaml`）+ PodMonitor `bifrost-trade-daemon` + `scripts/check_daemon_liveness.py`（端口、/health 探针、规则读 worker 指标、带 slot_connected 条件、absent 兜底） | daemon 停写 raw_broker 无人知 | alert + warning（脚本） | 只看 daemon 自报的写入时间，库侧每表最后写入规则未建 |
 | daemon 日志可见（TD-216） | `bifrost-trade-worker/tests/test_daemon_observability.py`（入口先配 INFO）+ `bifrost-trade-core/tests/test_write_failure_log_levels.py`（except 内点名写入不许 debug，基线 0） | 写失败只在 debug、生产日志一行没有 | warning（测试） | — |
 | 前端孤儿模块（TD-199） | `bifrost-trade-frontend/src/lib/orphanModules.test.ts`（从 main.tsx 走导入图，KNOWN_ORPHANS 只许缩短） | 没人引用的页面招来误修与误报 | warning（测试） | 现存 42 个见 TD-243 |
+| 延迟告警可触发（TD-194） | `bifrost-trade-core/tests/test_prometheus_instrumentation.py`（/health 计数不计时、流式按响应头计时、多 app 同进程共享序列）+ `bifrost-trade-api/tests/test_monitor_http_metrics.py` + `bifrost-trade-infra/scripts/check_http_metrics_coverage.py`（延迟规则读 highr、阈值低于所读直方图最大有限桶） | 告警阈值高于直方图上限而永不触发；同进程第二个 app 丢计数 | warning（测试 / 脚本）+ alert | — |
+| 前端「今天」按纽约交易日（TD-232） | `bifrost-trade-frontend/eslint.config.js` no-restricted-syntax + `src/lib/utcTodayRatchet.test.ts`（白名单只减） | 按 UTC 取「今天」，20:00 ET 后跳到次日 | blocking（lint）+ warning（测试） | 带参数的 new Date(Date.now() - …) 见 TD-247 |
+| 区间按芝加哥日界（TD-214） | `bifrost-trade-frontend/src/utils/ledger/performanceUtils.test.ts`（getTimeRangeStamps，多时区） | Performance / Overview 区间起点漂到 UTC 午夜 | warning（测试） | — |
+| 告警「今天触发」按 computed_at 纽约日（TD-219） | `bifrost-trade-frontend/src/hooks/useFiredAlerts.test.ts` | 侧栏计数永远为 0 | warning（测试） | — |
+| IV 读失败不显示成没数据（TD-233） | `bifrost-trade-frontend/src/api/research/ivRadar.test.ts` + `watchBookModel.test.ts` | 读失败被当成「无 IV 数据」 | warning（测试） | catch 后返回空的通用扫描未建 |
 
 ## 各类债现在挡没挡住
 

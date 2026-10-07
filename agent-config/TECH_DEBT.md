@@ -14,10 +14,9 @@
 ## 待你签收
 
 - **TD-209** — 告警现在会呼到你：critical 与备份、WAL、NAS MinIO 告警经 Mac mini .50 的 operator-plane 发到 ntfy，Watchdog 当心跳、停了也呼你；原来的 webhook 照旧收。验收 PASS 2026-10-07（线上路由与心跳实测）。防线：`RATCHETS.md`「check_alert_routing.py」与「alertrelay/relay_test.go」。后续：TD-248（转发只在 .50 一处，.50 宕机时没人知道）；你要在手机 ntfy 里订阅本机 `bifrost-platform/.env` 里的 `NTFY_TOPIC`
-- **TD-194** — 延迟告警真能响了：core 计时到响应头、/health 只计数不计时（Owner 确认），规则读 highr p99 `> 5 for 10m`；中途回归（api-monitor 丢计数，同进程两个 app）由 core 0.55.2 修复 · 验收 PASS（10-07 live 覆盖检查 ok）· 防线：core `test_prometheus_instrumentation.py`（含多 app 用例）+ api `test_monitor_http_metrics.py` + `check_http_metrics_coverage.py`（阈值须低于所读直方图最大有限桶）· 后续：TD-242（队列看板慢）
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 114 项**：P0 0 · P1 11 · P2 36 · P3 67；要你批的 59 项（从总览表的审批列算）。
+**未结 109 项**：P0 0 · P1 11 · P2 33 · P3 65；要你批的 58 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -60,7 +59,7 @@
 
 目标：一个开关让所有测试类防线生效（CI 卡发布），再补上调度存活告警、D10 闸门的非 curl 写法、operator 流白名单、本机常驻任务和密钥轮换的盲区、spine 副本同步。
 
-项：TD-95, TD-96, TD-100, TD-105, TD-109, TD-121, TD-152, TD-153, TD-155, TD-162, TD-194 · 已还：TD-99, TD-161, TD-198, TD-195
+项：TD-95, TD-96, TD-100, TD-105, TD-109, TD-121, TD-152, TD-153, TD-155, TD-162 · 已还：TD-99, TD-161, TD-198, TD-195, TD-194
 
 ### 第 3 波 · 交易日与日历只有一个来源
 
@@ -114,7 +113,7 @@
 
 目标：挂单与 IB 读失败不再被当真写库；Risk / Performance / 告警计数按交易日算；Console 的裁决条在探针失败时不再显示绿色；ui 的发布可追溯；台账与文档的过时说法改正。
 
-项：TD-211, TD-212, TD-213, TD-214, TD-219, TD-232, TD-233, TD-226, TD-227, TD-228, TD-229, TD-230, TD-234, TD-235, TD-236, TD-239, TD-240, TD-241
+项：TD-211, TD-212, TD-213, TD-226, TD-227, TD-228, TD-229, TD-230, TD-234, TD-235, TD-236, TD-239, TD-240, TD-241 · 已还：TD-214, TD-219, TD-232, TD-233
 
 ## 数据边界（接受并留座）
 
@@ -295,7 +294,6 @@
 | [TD-189](#td-189) | P3 | research-data | SEPA has no rows for four sessions (08-28, 08-31, 09-08, 09-16): those nights never computed it, so the SEPA lens and its hit rate skip them | 不用批 |
 | [TD-190](#td-190) | P3 | ops-platform | Platform's research CronJob trigger route has no caller but keeps seven suspended CronJob templates alive in the research namespace | 改公开接口 |
 | [TD-192](#td-192) | P2 | research-control | One IB Flex failure loses that night's SEPA for good: husbandry_gate blocks sepa_projection although SEPA reads nothing from Flex, and the projection never back-fills a missed night | 要你批 |
-| [TD-194](#td-194) | P2 | ops-platform | BifrostAPIHighLatency can never fire: the histogram it reads tops out at a 1 s bucket, so histogram_quantile returns at most 1 and `> 2` is impossible | 要你批 |
 | [TD-196](#td-196) | P2 | ops-platform | platform-api and platform-workers keep their state in per-pod emptyDir: every rollout erases release cycles, gate history, the operate queue and checklist signals, and the audit log is memory-only | 已批 |
 | [TD-202](#td-202) | P3 | market-data | market-data code strings and scripts still mention CronJobs: the dashboard label 'CronJob archived' and verify-market-data.sh's hint are user-visible | 不用批 |
 | [TD-204](#td-204) | P1 | ops-platform | STG and PROD platform-api and platform-workers run as system:masters through a copy of the k3s admin kubeconfig, and anonymous GETs use it to read pod logs in any namespace | 安全/凭据（要你批） |
@@ -307,10 +305,8 @@
 | [TD-211](#td-211) | P1 | trade-worker | Working orders are never persisted: the plugin's snapshot has no open_orders, the daemon TRUNCATEs raw_broker.open_orders every hour, and the UI says 'No working orders at IB.' | 跨仓库发版 |
 | [TD-212](#td-212) | P2 | trade-worker | A failed IB positions or summary read is written as truth: the daemon deletes every raw_broker.positions row of the account and nulls its NAV until the slot reconnects | 跨仓库发版 |
 | [TD-213](#td-213) | P2 | frontend | Risk › Limits 'Daily loss on the allocation' sums the realised P&L of every trade the allocation ever closed, not today's, so a losing day reads 0 consumed | 不用批 |
-| [TD-214](#td-214) | P2 | frontend | Performance and Portfolio Overview summaries start the range at UTC midnight, so they include the previous month's last Chicago day | 不用批 |
 | [TD-217](#td-217) | P2 | data | The Barman base+WAL backup, the only copy of the 34 GB Golden Source history, has never been restored, and has not been tried at all against the NAS MinIO it moved to on 10-06 | PROD 变更（要你批） |
 | [TD-218](#td-218) | P2 | data | Every backup copy (Barman base+WAL, logical dumps hot and cold, the W3 archive) is on the one NAS 192.168.10.20:/volume1, and the open offsite decision is not in the ledger | PROD 变更（要你批） |
-| [TD-219](#td-219) | P2 | frontend | The rail's amber 'alerts fired today' count can never be non-zero: it matches trade_date against the UTC date, and alerts are stamped with an earlier session | 不用批 |
 | [TD-220](#td-220) | P3 | ops-platform | No test enumerates platform-api routes for auth: POST /cluster/sync-kubeconfig and the plane's POST /hermes/run-first-task are unauthenticated, and a failed LoadAuth is not logged | 不用批 |
 | [TD-221](#td-221) | P3 | ops-console | The governance catalog says nobody but the daemon writes ib:operator:cmd, but platform-api does (sanctioned by D-IB-Heal), and the runner's ib_gateway_control can switch the PROD gateway to mock with only a prompt-level approval | 安全/凭据（要你批） |
 | [TD-222](#td-222) | P3 | ops-platform | Platform's D10 scale guard only blocks daemon 0→n: the PROD daemon (2, observe-safe) and DEV (1) can be scaled to 20 by any operator-token caller that bypasses preflight | 安全/凭据（要你批） |
@@ -323,8 +319,6 @@
 | [TD-229](#td-229) | P3 | ops-platform | Trust overrides resolve to $HOME in the cluster and swallow read and write errors: the Owner's 09-07 L0 grant for research-loop-batch never reached the harness that reads PROD | 不用批 |
 | [TD-230](#td-230) | P3 | ops-platform | The platform release gate passes when required checks are 'unknown', and its 'ready' never expires | 不用批 |
 | [TD-231](#td-231) | P3 | ops-platform | Platform's IB feed verdict hangs on one hard-coded NVDA sample tick, and Trade namespaces and DB names are Go literals (53 matches), with no ratchet against growth | 不用批 |
-| [TD-232](#td-232) | P3 | frontend | 24 frontend sites take 'today' as the UTC date although four session helpers exist: from 20:00 ET until midnight they read tomorrow, and one writes a default opened_at | 不用批 |
-| [TD-233](#td-233) | P3 | frontend | fetchIvPercentileForSymbols turns every non-404 failure into 'no data', so IV Radar and the Watch book report a plugin outage as names without an IV rank | 不用批 |
 | [TD-234](#td-234) | P3 | trade-worker | @bifrost/ui is unversioned for the Ops Console: a ui push never runs platform CI, and platform deliver builds whatever ui main is without recording its SHA | 不用批 |
 | [TD-235](#td-235) | P3 | bifrost-ui | bifrost-ui's build starts with rm -rf dist (and prepare runs it on every npm install), white-screening both running dev servers until it finishes, or for good if tsc fails | 不用批 |
 | [TD-236](#td-236) | P3 | trade-worker | Leftovers of the deleted Account Sync daemon: the plugin still XADDs every account snapshot to ib:account:stream:v1, which nothing reads | 跨仓库发版 |
@@ -1494,23 +1488,6 @@
 - **Ratchet**: TD-189's sepa_covers_recent_sessions check already warns on a new gap.
 - 审批 要你批 · 代价 S · 风险 med · repos: bifrost-research
 
-### TD-194
-
-**P2 · ops-platform · BifrostAPIHighLatency can never fire: the histogram it reads tops out at a 1 s bucket, so histogram_quantile returns at most 1 and `> 2` is impossible**
-
-- **状态**：待你签收
-- **验收结果**：PASS 2026-10-07 03:0x UTC 10-07 第二轮 Trade 发版（STG gt9jp → PROD 9s8s9 → DEV，core 0.55.2 = 7bf56de，tag v0.55.2；api 0.12.1；frontend 119726cc）：`check_http_metrics_coverage.py --live` → ok（三环境 api-monitor 重新导出 http_requests_total，STG 实测 /health、/status、/ops/health 都在计数）；BifrostAPIWithoutHttpMetrics / HighLatency 无告警；延迟规则读 highr、`> 5 for 10m` 已生效
-- **下一步**：回归根因（道 II）：monitor 进程先为只复制路由的 docs app 调 instrument_app，0.55.0 起在调用时即建序列、instrumentator 遇同名序列返回 None，于是序列全挂在从不接请求的 docs app 上，api-monitor 只剩 in-progress gauge。修复：每个 registry 只注册一次、所有 app 共享，in-progress gauge 也走传入的 registry，同名序列被外部注册时抛错。防线：core `test_prometheus_instrumentation.py` 新增三个多 app 用例 + api `tests/test_monitor_http_metrics.py`（真实 monitor app 的 /metrics 有 http_requests_total）。发版前 BifrostAPIWithoutHttpMetrics 会对三环境 api-monitor 告警（预期）
-- **现在**：道 CC 实测（7 天）：trade-api 只有两个流式路由（/quotes/stream、/api/messages/stream，25 s keepalive SSE），旧计时按连接结束算，平均约 40 s；PROD api-monitor >1 s 的 211 个观测里 172 个是 SSE。另：kubelet 的 /health 占延迟观测 87–97%，把 p99 稀释成真实请求的约 p70。core 0.55.0：两个延迟直方图都计时到响应头（库自带 should_exclude_streaming_duration），/health 计数不计时（**超出原话「排除 SSE」的范围，待你确认**），指标名与标签不变、默认桶不变。规则改读 highr p99，`or` 低精度直方图（只对 platform-api），阈值 `> 5 for 10m`：按新口径 7 天回放 PROD 0、STG 0、DEV 3–9 次（都是真慢窗口）。防线：core `tests/test_prometheus_instrumentation.py`（6 个）+ `check_http_metrics_coverage.py`（延迟规则须读 highr、阈值低于所读直方图的最大有限桶，`--live` 核真实桶）。后续 TD-242
-- **Claim**: prometheus-fastapi-instrumentator's default http_request_duration_seconds buckets are 0.1 / 0.5 / 1 / +Inf (core observability/prometheus.py). The rule asks p99 > 2 s. The fine histogram (http_request_duration_highr_seconds, no handler label, 0.01–60 s) would fire: over 7 days PROD api-monitor had ~20 and api-market ~17 windows of ≥5 min with p99 > 2 s — possibly streaming routes timed to response end (unverified).
-- **Measured**: MEASURED 10-06 by paydown lane Q (Prometheus via apiserver proxy).
-- **Evidence**:
-  - `bifrost-trade-infra/k8s/monitoring/bifrost-alerting-rules.yaml:60` — `- alert: BifrostAPIHighLatency`
-- **Impact**: Slow APIs are never alerted; the rule looks like coverage and is not.
-- **Fix**: Either add a 2.5 s / 5 s bucket to the instrumentator config in core (and the three new middlewares) or switch the rule to the highr histogram; exclude streaming routes (SSE) from latency first, then set the threshold from the measured distribution.
-- **Ratchet**: check_http_metrics_coverage.py can assert the rule's threshold is below the largest finite bucket of the histogram it reads.
-- 审批 要你批 · 代价 S · 风险 low · repos: bifrost-trade-core, bifrost-trade-infra, bifrost-research, bifrost-platform-plugin-market-data, bifrost-platform-plugin-flex-query
-
 ### TD-196
 
 **P2 · ops-platform · platform-api and platform-workers keep their state in per-pod emptyDir: every rollout erases release cycles, gate history, the operate queue and checklist signals, and the audit log is memory-only**
@@ -1720,25 +1697,6 @@
 - **验收**: `cd bifrost-trade-frontend && npx vitest run src/hooks/useLimitBook.test.ts src/utils/tradeReadings.test.ts  # new cases: closed-yesterday excluded, closed-today counted, STK fill ×1`
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
 
-### TD-214
-
-**P2 · frontend · Performance and Portfolio Overview summaries start the range at UTC midnight, so they include the previous month's last Chicago day**
-
-- **状态**：待你签收
-- **验收结果**：PASS 2026-10-07 frontend 119726cc：`getTimeRangeStamps` 两端都由 `getChicagoDayRange` 算；DEV / PROD Q3 实测旧起点 111 fills / 41 wins → 新 110 / 40（与日历一致）；TZ=UTC / America/Chicago / Asia/Tokyo 下用例都过。防线 `performanceUtils.test.ts`；已随 10-07 第二轮 Trade 发版（STG gt9jp → PROD 9s8s9 → DEV，core 0.55.2 = 7bf56de，tag v0.55.2；api 0.12.1；frontend 119726cc） 上三环境
-- **Claim**: getTimeRangeStamps parses sinceStr ('YYYY-MM-01') with new Date(), which reads a date-only string as UTC midnight, while untilStr is parsed as local 23:59:59. trade-api compares from_ts/to_ts as the calendar day in America/Chicago. UTC midnight on the 1st is 19:00 Chicago on the previous day, so every month, quarter, half-year and year summary also counts the fills of the day before the range. The by-day path uses getChicagoDayRange (defined in the same file) correctly, so the strip and the calendar under it disagree.
-- **Measured**: MEASURED on PROD /api/account/performance (granularity=day, source_scope=performance_book) with to_ts=1790830799. Q3 2026: from_ts=1782864000 (the client's UTC midnight) gives fill_count 111 and win_count 41; 1782882000 (Chicago midnight) gives 110 and 40, and realised P&L differs by a 06-30 fill. May 2026: 36 vs 33 fills (three 04-30 fills). Sep and Q2 2026 match only because the prior month-end had no fills.
-- **Evidence**:
-  - `bifrost-trade-frontend/src/utils/ledger/performanceUtils.ts:162` — `sinceTs: Math.floor(new Date(sinceStr).getTime() / 1000),`
-  - `bifrost-trade-frontend/src/utils/ledger/performanceUtils.ts:163` — `untilTs: Math.floor(new Date('${untilStr}T23:59:59').getTime() / 1000),`
-  - `bifrost-trade-api/src/bifrost_api/trading/routers/executions.py:179` — `_TRADE_DATE_NOTE = "Compared as a date: the timestamp's calendar day in America/Chicago."`
-  - `bifrost-trade-frontend/src/pages/portfolio/overview/PortfolioOverviewPage.tsx:154` — `const range = useMemo(() => getTimeRangeStamps('quarter', anchorMonth), [anchorMonth])`
-- **Impact**: Headline realised P&L, win rate, fills and return on Performance and Portfolio Overview are wrong whenever the previous month's last day had trades, and they disagree with the by-day calendar on the same page.
-- **Fix**: Build both ends from getChicagoDayRange: sinceTs = getChicagoDayRange(sinceStr).since_ts and untilTs = getChicagoDayRange(untilStr).until_ts, independent of the browser's time zone.
-- **Ratchet**: A unit test run under TZ=UTC and TZ=America/Chicago: getTimeRangeStamps('quarter','2026-09') returns sinceTs 1782882000 and untilTs 1790830799 in both. ESLint no-restricted-syntax bans new Date(<date-only identifier>) and Date.parse on *Str/*Date/*Iso variables without an explicit time and zone (ratchet proposal 'frontend-vitest-and-date-lint').
-- **验收**: `cd bifrost-trade-frontend && TZ=UTC npx vitest run src/utils/ledger/performanceUtils.test.ts -t getTimeRangeStamps && TZ=America/Chicago npx vitest run src/utils/ledger/performanceUtils.test.ts -t getTimeRangeStamps`
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
-
 ### TD-217
 
 **P2 · data · The Barman base+WAL backup, the only copy of the 34 GB Golden Source history, has never been restored, and has not been tried at all against the NAS MinIO it moved to on 10-06**
@@ -1771,24 +1729,6 @@
 - **Ratchet**: Alert BifrostOffsiteCopyStale on the mirror job's last-success timestamp (> 8 days, or absent()).
 - **验收**: `KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl get --raw "/api/v1/namespaces/monitoring/services/kube-prometheus-stack-prometheus:9090/proxy/api/v1/query?query=time()-max(kube_cronjob_status_last_successful_time%7Bcronjob%3D%22offsite-mirror%22%7D)" </dev/null  # value < 691200`
 - 审批 PROD 变更（要你批） · 代价 M · 风险 low · repos: bifrost-trade-infra
-
-### TD-219
-
-**P2 · frontend · The rail's amber 'alerts fired today' count can never be non-zero: it matches trade_date against the UTC date, and alerts are stamped with an earlier session**
-
-- **状态**：待你签收
-- **验收结果**：PASS 2026-10-07 frontend 119726cc：`firedOn` 按 computed_at 的纽约日判「今天」，侧栏计数 / Alerts 文案 / Dock 共用；DEV / PROD 89 条重放 10-05 19:00 / 21:30 / 23:30 ET：旧 0 → 新 7。防线 `src/hooks/useFiredAlerts.test.ts`（8 个）；已随 10-07 第二轮 Trade 发版（STG gt9jp → PROD 9s8s9 → DEV，core 0.55.2 = 7bf56de，tag v0.55.2；api 0.12.1；frontend 119726cc） 上三环境
-- **Claim**: firedTodayCount keeps alerts whose trade_date equals the UTC date of the browser clock. alert_scan stamps each alert with the session it judges and writes it on a later day: today at 22:30 UTC the next weekday, and after TD-97's planned move into the 02:30 UTC batch still the next UTC day. No alert can have trade_date == UTC today, so the Market group's amber count is always 0 and its tooltip says '0 alerts fired today'. TD-97 fixes the backend lag only; this reader stays broken afterwards.
-- **Measured**: MEASURED: GET /api/plugin/research/research/alerts?limit=200&days=90 returned 89 alerts. In 0 of 89 does trade_date equal the UTC day of computed_at, and in 0 of 89 the NY day (for example computed_at 2026-10-05T22:30Z with trade_date 2026-10-02).
-- **Evidence**:
-  - `bifrost-trade-frontend/src/hooks/useFiredAlerts.ts:27` — `return (data?.items ?? []).filter((i) => i.trade_date === today).length`
-  - `bifrost-trade-frontend/src/layout/EquipRail.tsx:433` — `const firedToday = firedTodayCount(alerts, new Date().toISOString().slice(0, 10))`
-  - `bifrost-trade-frontend/src/layout/EquipRail.tsx:469` — `'${firedToday} alert${firedToday === 1 ? '' : 's'} fired today'`
-- **Impact**: Silent green. The one ambient signal that Research alerts fired has been quiet for at least 90 days, while 89 alerts were written.
-- **Fix**: Define 'today' for alerts the way the store writes them: count alerts on the newest session (trade_date == max(trade_date)) whose computed_at falls on the current NY day, or count by computed_at's NY day. Share that definition with AlertsPage's firedStanding.
-- **Ratchet**: Unit test with a fixture shaped like the live store (trade_date 2026-10-02, computed_at 2026-10-05T22:30Z, now 2026-10-05T23:00Z → count 1). The UTC-today lint in ratchet proposal 'frontend-vitest-and-date-lint' blocks the pattern.
-- **验收**: `cd bifrost-trade-frontend && npx vitest run src/hooks/useFiredAlerts.test.ts`
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
 
 ### TD-220
 
@@ -1998,43 +1938,6 @@
 - **Ratchet**: code-health metric PLATFORM_TRADE_VOCAB (Go plus Console files outside architecture catalogs and prompt packs that match the vocabulary regex), baselined today and only allowed to fall, blocking in ci-platform.
 - **验收**: `bash bifrost-trade-infra/agent-config/scripts/code-health/scan.sh --repo bifrost-platform | grep PLATFORM_TRADE_VOCAB  # ok and ≤ baseline; grep -c 'NVDA' bifrost-platform/api/internal/ibgateway/service.go  # 0`
 - 审批 不用批 · 代价 L · 风险 med · repos: bifrost-platform, bifrost-platform-plugin
-
-### TD-232
-
-**P3 · frontend · 24 frontend sites take 'today' as the UTC date although four session helpers exist: from 20:00 ET until midnight they read tomorrow, and one writes a default opened_at**
-
-- **状态**：待你签收
-- **验收结果**：PASS 2026-10-07 frontend 119726cc：UTC today 构造 23/24 改走 `etTodayIso`（FillsPage 的 todayUtc 与 Flex UTC 戳比较，白名单 1 处）；四个 helper 收拢，浏览器时区的 todayIso / localDayStamp 删除；grep 剩 0。防线：eslint `no-restricted-syntax` + `src/lib/utcTodayRatchet.test.ts`（白名单只减）+ TradeCreateModal 23:30 ET 用例；已随 10-07 第二轮 Trade 发版（STG gt9jp → PROD 9s8s9 → DEV，core 0.55.2 = 7bf56de，tag v0.55.2；api 0.12.1；frontend 119726cc） 上三环境
-- **Claim**: 24 inline `new Date().toISOString().slice(0,10)` sites take 'today' as the UTC date, although etTodayIso, chicagoTodayDateStr, todayIso and localDayStamp exist. From 20:00 ET (19:00 CDT) until midnight they read the next day: the Trade create form's default opened_at (POSTed as `${dateStr}T12:00:00.000Z`, but editable), event and corporate-action countdowns, the Review queue, habits and fit, Shares band yields, and the Alerts page. There are also 3 todayIso copies with different zones. FillsPage's `todayUtc` is intentionally UTC. This is the frontend half of the TD-98 class.
-- **Measured**: Counted on origin/main dfb7858e: 24 sites outside tests against 4 helpers (77 helper call sites). PROD public.trade: 89 rows, all noon-UTC stamps, 0 dated after their NY creation day, so there is no stored damage yet. Per-site consequences are CODE-READ.
-- **Evidence**:
-  - `bifrost-trade-frontend/src/components/strategy/TradeCreateModal.tsx:48` — `return new Date().toISOString().slice(0, 10)`
-  - `bifrost-trade-frontend/src/pages/trade/expiration/AssignmentSection.tsx:59` — `const [today] = useState(() => new Date().toISOString().slice(0, 10))`
-  - `bifrost-trade-frontend/src/pages/research/events/EventsBookFace.tsx:110` — `const today = new Date().toISOString().slice(0, 10)`
-  - `bifrost-trade-frontend/src/utils/localDayStamp.test.ts:11` — `// UTC would roll this to the 6th and stamp every leg stale after 7pm.`
-- **Impact**: Every evening, countdowns, review queues and the default trade date read the wrong day, and one of them can be written to the Trade DB.
-- **Fix**: Pick one session helper per meaning (etTodayIso for the session, chicagoTodayDateStr for the ledger day), collapse the 3 todayIso copies, and replace the sites. Name the zone in each, and make the useState-frozen ones re-evaluate at the NY day boundary.
-- **Ratchet**: ESLint no-restricted-syntax on the zero-argument `new Date().toISOString().slice(...)` pattern, with inline-disable allowed only for sites that are UTC on purpose and say so in the variable name (todayUtc). The baseline is the allowlist count and may only fall. A fake-clock vitest at 23:30 ET asserts TradeCreateModal's default is still the same day.
-- **验收**: `cd bifrost-trade-frontend && grep -rnE "new Date\(\)\.toISOString\(\)\.(slice\(0, ?10\)|split|substring)" src --include='*.ts' --include='*.tsx' | grep -v '\.test\.' | grep -v 'todayUtc' | wc -l  # 0`
-- 审批 不用批 · 代价 M · 风险 low · repos: bifrost-trade-frontend
-
-### TD-233
-
-**P3 · frontend · fetchIvPercentileForSymbols turns every non-404 failure into 'no data', so IV Radar and the Watch book report a plugin outage as names without an IV rank**
-
-- **状态**：待你签收
-- **验收结果**：PASS 2026-10-07 frontend 119726cc：`fetchIvPercentileForSymbols` 每名返回 row / absent（404 或空）/ error；IV Radar 失败行标「read failed」并计数，全部失败抛错；Watch book 同。防线 `src/api/research/ivRadar.test.ts`、`watchBookModel.test.ts`；已随 10-07 第二轮 Trade 发版（STG gt9jp → PROD 9s8s9 → DEV，core 0.55.2 = 7bf56de，tag v0.55.2；api 0.12.1；frontend 119726cc） 上三环境
-- **Claim**: fetchIvPercentile maps a 404 to null (a real absence) and rethrows everything else. fetchIvPercentileForSymbols then catches every error (5xx, timeout, network; 'Treat hard errors as no data') and stores null. useIvRadarData counts it as noData with isError false, and useWatchBook renders the IV column as absent. The fan-out is one request per symbol every 120 s, although the same route returns the whole universe in one call.
-- **Measured**: CODE-READ for the failure path; no failure was induced. The route answers 200 today with sane values (iv_current max 1.216 over 500 rows).
-- **Evidence**:
-  - `bifrost-trade-frontend/src/api/research/ivRadar.ts:91` — `return [sym, null] as const`
-  - `bifrost-trade-frontend/src/api/research/ivRadar.ts:49` — `if (e instanceof HttpError && e.status === 404) return null`
-  - `bifrost-trade-frontend/src/hooks/useIvRadarData.ts:74` — `else noData++`
-- **Impact**: An outage reads as missing data, which is the class CLAUDE.md §5 forbids, and every refresh costs N requests where one would do.
-- **Fix**: Return a tri-state per symbol ({row} | {absent} | {error}). Count errors separately and set isError when all fail; render 'read failed' in amber. Optionally read the bulk list once and join client-side.
-- **Ratchet**: Unit test: a mocked 500 yields the error state, and a 404 yields absent. code-health metric: `catch {` blocks in src/api that return null or [] without checking HttpError status; the baseline may only fall.
-- **验收**: `cd bifrost-trade-frontend && npx vitest run src/api/research/ivRadar.test.ts`
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
 
 ### TD-234
 
