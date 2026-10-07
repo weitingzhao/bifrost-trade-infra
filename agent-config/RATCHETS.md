@@ -135,6 +135,7 @@
 | 读失败快照不清持仓（TD-212） | worker account_push 拒写测试 + core positions_ok 守卫 | 降级快照写成真 | warning（测试） | worker 内存里的「上一笔非空」重启后丢失 |
 | Mac mini 写接口要令牌（TD-207） | `agent/remediation` 与 `agent/hermes-gateway` 路由鉴权测试；部署脚本缺键即退出 | 局域网匿名启动/批准 Agent | warning（测试） | Hermes GET /executions 仍匿名（只读） |
 | runner 不能切 PROD gateway 到 mock（TD-221） | `agent/remediation/src/tools/ibGatewayControl.test.ts` | Agent 把 PROD 行情切成模拟 | warning（测试） | — |
+| git-bridge 写要令牌、只暂存点名路径（TD-206） | `bifrost-platform/agent/git-bridge/src/server.test.ts`（无令牌拒绝、空路径拒绝、不 add -A） | 局域网匿名整树提交与推送 | warning（测试） | git-bridge 测试不在 CI |
 
 ## 各类债现在挡没挡住
 

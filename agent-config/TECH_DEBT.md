@@ -13,7 +13,6 @@
 
 ## 待你签收
 
-- **TD-206** — git-bridge 写操作要令牌、只暂存点名路径（platform 79ed8db；本机已切换） · 验收 PASS（匿名 /commit、/push 401，带令牌的 /status 通过） · 防线：`agent/git-bridge/src/server.test.ts`（无令牌拒绝、空路径列表拒绝、不 add -A） · 后续：本机 platform-api 跑预编译二进制，pull 后要 make build-api（已记入记忆，无新编号）
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-253** — 检查信号不再是几周前的：每条带观测时间和来源，超过 2 小时读 unknown、autopilot 不会按它动手；PROD platform-workers 自己每 10 分钟探测一次（不再靠 Mac 上报）。验收 PASS 2026-10-07 d8bdf41（22/22 带时间）。防线：`RATCHETS.md`「检查信号的时效与来源」测试 + `check_platform_maintenance.py`（探测器只在 PROD workers）。后续：无后续：放开 autopilot 动手在 TD-130（观察到 10-12）
@@ -21,7 +20,7 @@
 - **TD-255** — 漂移扫描不再删失败现场：只删被驱逐的 Pod，失败的备份 Job Pod 留着（日志可读），只报告模式下一个不删。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「漂移扫描只删 Evicted 测试」。后续：无后续：Job 历史上限与 TTL 负责回收
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 79 项**：P0 0 · P1 8 · P2 28 · P3 43；要你批的 39 项（从总览表的审批列算）。
+**未结 78 项**：P0 0 · P1 7 · P2 28 · P3 43；要你批的 38 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -105,7 +104,7 @@
 
 目标：先关门再修代码。本机 platform-api 只监听本机、PROD/STG Redis 的局域网 NodePort 删掉，然后 git-bridge、修复 runner、Hermes、husbandry-sync 都要令牌；platform 换成按需授权的 ServiceAccount，停用管理员 kubeconfig；路由鉴权测试卡住回退。
 
-项：TD-206, TD-208 · 已还：TD-205, TD-203, TD-224, TD-220, TD-231, TD-225, TD-222, TD-207, TD-221
+项：TD-208 · 已还：TD-205, TD-203, TD-224, TD-220, TD-231, TD-225, TD-222, TD-207, TD-221, TD-206
 
 ### 第 10 波 · 告警有人收、备份能恢复（第 3 轮）
 
@@ -295,7 +294,6 @@
 | [TD-196](#td-196) | P2 | ops-platform | platform-api and platform-workers keep their state in per-pod emptyDir: every rollout erases release cycles, gate history, the operate queue and checklist signals, and the audit log is memory-only | 已批 |
 | [TD-202](#td-202) | P3 | market-data | market-data code strings and scripts still mention CronJobs: the dashboard label 'CronJob archived' and verify-market-data.sh's hint are user-visible | 不用批 |
 | [TD-204](#td-204) | P1 | ops-platform | STG and PROD platform-api and platform-workers run as system:masters through a copy of the k3s admin kubeconfig, and anonymous GETs use it to read pod logs in any namespace | 安全/凭据（要你批） |
-| [TD-206](#td-206) | P1 | ops-console | git-bridge answers anyone on the LAN, and its /commit runs `git add -A` on the shared checkout; /push pushes the current branch with no release-window check | 安全/凭据（要你批） |
 | [TD-208](#td-208) | P1 | ops-platform | Anonymous POST /checklist/husbandry-sync starts full-auto remediation agents: it merges the stored checklist and dispatches every failing item, and three Console pages call it on load | 安全/凭据（要你批） |
 | [TD-210](#td-210) | P1 | data | The nightly logical backup of hand-entered data failed on its first scheduled run: it connects before the new pod's NetworkPolicy is programmed and gets Connection refused | 不用批 |
 | [TD-217](#td-217) | P2 | data | The Barman base+WAL backup, the only copy of the 34 GB Golden Source history, has never been restored, and has not been tried at all against the NAS MinIO it moved to on 10-06 | PROD 变更（要你批） |
@@ -1361,25 +1359,6 @@
 - **验收**: `KUBECONFIG=~/.kube/bifrost-k3s.yaml sh -c 'kubectl -n bifrost-platform-stg get secret bifrost-platform-kubeconfig </dev/null; kubectl auth can-i get secrets -n data --as=system:serviceaccount:bifrost-platform-stg:platform-api </dev/null'  # expect NotFound, then no; and an anonymous GET of a kube-system pod's logs on 30876 returns 401`
 - **验收结果**：PASS 2026-10-07 infra 27829fb / platform a162fe8：STG `bifrost-platform-kubeconfig` NotFound（PROD 同）；两环境 `kubectl auth can-i get secrets -n data --as=system:serviceaccount:bifrost-platform-<env>:bifrost-platform` → no；匿名读 kube-system 与 data 的 Pod 日志在 30876/30878 都 401；`make check-platform-rbac` 82/82；切换后两环境 api/workers 日志 0 条 forbidden，STG 与 PROD 共有的矩阵格子状态一致
 - 审批 安全/凭据（要你批） · 代价 M · 风险 med · repos: bifrost-platform, bifrost-trade-infra
-
-### TD-206
-
-**P1 · ops-console · git-bridge answers anyone on the LAN, and its /commit runs `git add -A` on the shared checkout; /push pushes the current branch with no release-window check**
-
-- **状态**：待你签收（platform 79ed8db：集群 STG/PROD 已上；本机共享 checkout 已快进、platform-api 重编译、git-bridge 重启，10-07）
-- **验收结果**：PASS 2026-10-07：本机 git-bridge 日志 auth=bearer、匿名 POST /commit 与 /push 均 401、GET /health 200；本机 platform-api /agent/bridge git_bridge=ok（带令牌探 /status 通过）
-- **Claim**: agent/git-bridge listens on 0.0.0.0:8785 and has no auth middleware (only express.json). POST /commit stages the whole tree (`git add -A`) in any of 9 repos of the multi-session shared checkout and commits. That is exactly the action preflight.js blocks for agents (the 09-07 and 09-22 incidents). POST /push pushes HEAD's branch, normally main, to the PUBLIC origin and never runs `release.sh window`. The remediation runner's git_commit and git_push tools call these endpoints, so preflight never sees them.
-- **Measured**: MEASURED 2026-10-07: node PID 65068 listens on *:8785. From LAN IP 192.168.20.74, an anonymous GET /status returns 200, and /health reports workspace=/Users/vision-mac-trader/Desktop/stocks with repos=9. PROD platform-api /api/v1/agent/bridge reports git_bridge http://192.168.10.40:8785 status=ok (the same Mac, another interface). No POST was sent.
-- **Evidence**:
-  - `bifrost-platform/agent/git-bridge/src/server.ts:308` — `await git(dir, ['add', '-A'])`
-  - `bifrost-platform/agent/git-bridge/src/server.ts:346` — `const output = await git(dir, ['push', 'origin', branch])`
-  - `bifrost-platform/agent/git-bridge/src/server.ts:372` — `const server = app.listen(PORT, '0.0.0.0', () => {`
-  - `bifrost-platform/agent/remediation/src/tools/gitTools.ts:64` — `const data = await gitBridgePost('/commit', { repos, message })`
-- **Impact**: Any LAN host, or any prompt run by the runner, can sweep other sessions' in-progress work into one commit and push it to a public main. That repeats the shared-worktree incident and bypasses the release window and the Owner's per-release approval. Untracked files that are not gitignored would be published too.
-- **Fix**: Require a bearer token (from platform-auth.yaml) on every non-GET route, and bind to 127.0.0.1 unless the token is set. Replace `add -A` with an explicit paths[] list (`git add -- <paths>`) and reject an empty list. Make /push refuse main on Trade repos unless `release.sh window` exits 0, or drop /push and return a pull/new link.
-- **Ratchet**: Code-health grep (scan.sh) that fails on argv arrays `'add', '-A'`, `'add', '.'` or `'commit', '-a'` in any repo's src. A server test asserts 401 on POST /commit without Authorization (ratchet proposal 'agent-host-route-auth').
-- **验收**: `curl -s -o /dev/null -w '%{http_code}\n' http://192.168.20.74:8785/status  # expect 401 or connection refused; git -C bifrost-platform grep -n "'add', '-A'" origin/main -- agent  # expect no output`
-- 审批 安全/凭据（要你批） · 代价 M · 风险 med · repos: bifrost-platform
 
 ### TD-208
 
