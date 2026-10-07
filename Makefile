@@ -439,6 +439,11 @@ check-trade-gateway-routes:
 check-http-metrics-coverage:
 	python3 scripts/check_http_metrics_coverage.py $(if $(LIVE),--live,)
 
+# TD-209: critical, backup / WAL / NAS MinIO alerts and Watchdog reach a receiver outside the
+# cluster (the ntfy relay on Mac mini .50); LIVE=1 walks the running Alertmanager's routes.
+check-alert-routing:
+	python3 scripts/check_alert_routing.py $(if $(LIVE),--live,)
+
 # TD-205: stg/prod data pods (Redis) have no LAN NodePort and no ipBlock ingress; LIVE=1 reads the cluster.
 check-data-lan-exposure:
 	python3 scripts/check_data_lan_exposure.py $(if $(LIVE),--live,)

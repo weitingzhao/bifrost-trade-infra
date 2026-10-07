@@ -39,3 +39,12 @@ spec:
       ports:
         - protocol: TCP
           port: 8780
+    # TD-209: the Owner's pager. The alert relay runs in the operator plane on
+    # Mac mini .50 (outside the cluster) and publishes to ntfy; it also takes the
+    # Watchdog heartbeat and pages when it stops.
+    - to:
+        - ipBlock:
+            cidr: 192.168.10.50/32
+      ports:
+        - protocol: TCP
+          port: 8783
