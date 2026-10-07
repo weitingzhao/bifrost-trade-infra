@@ -4,7 +4,7 @@
 > **规则**：每关掉 `TECH_DEBT.md` 里的一项，要么在这里加一条（或扩大已有一条的范围），要么在提交信息里写明为什么没有可行的防线。删掉或放宽一条防线要写理由。
 > 强度：blocking＝不过就不能提交/发布；warning＝报出来但不拦；alert＝运行时告警；manual＝要人手跑。
 
-更新：2026-10-06（第 2 轮扫描的防线盘点；同日加 TD-87/88/89/90 的防线；同日登记 TD-132 的 MinIO 后端测试；同日登记 TD-197 的标题上报测试与 lineage 镜像同步测试）
+更新：2026-10-06（第 2 轮扫描的防线盘点；同日加 TD-87/88/89/90 的防线；同日登记 TD-132 的 MinIO 后端测试；同日登记 TD-197 的标题上报测试与 lineage 镜像同步测试；10-07 登记 TD-203/208 的终端与派发鉴权测试）
 
 ## 现有防线
 
@@ -29,6 +29,7 @@
 | check_overlay_configs.py（listen 端口、daemon_scale_guard: freeze、platform_audit、reference_indices、重复键） | `bifrost-trade-infra/scripts/check_overlay_configs.py；Makefile check-overlay-configs` | overlay 配置丢键（TD-06/05/53）以及 D10 freeze 标志被去掉 | manual | 只有 Makefile 入口：没有 CI，release.sh 也不调它。MEASURED：dev/stg/prod 当前 ok |
 | check_trade_gateway_routes.py（每个进程一个前缀、strip 恰好是自己的前缀、RETIRED 里的别名不得回来） | `bifrost-trade-infra/scripts/check_trade_gateway_routes.py；Makefile check-trade-gateway-routes` | 别名前缀复活：这正是 TD-07 绕过 D10 正则的那条路，也是 TD-55 | manual | 只有 Makefile 入口：没有 CI，不在 release.sh 里。MEASURED：三个 env 都 ok（各 4 个前缀） |
 | report-thread-title.test.js（11 例：自定义标题优先于生成标题、未变不重发、写了一半的行先不读、请求失败下次重试、文件被重写后从头读） | `bifrost-trade-infra/agent-config/claude/hooks/report-thread-title.test.js` | Stop hook 不再上报或重复上报线程标题，Commit Lineage 回退成显示 id（TD-197） | manual | infra 没有 CI，只有 Agent 自检时 `node` 跑；hook 运行时吞掉所有错误，坏了不报——看 PROD `lineage-thread-titles` 有没有新会话的条目 |
+| platform 终端与修复派发鉴权：console_auth_test.go（`POST /console/ws-ticket`、`POST /checklist/husbandry-sync`、`GET /console/ws` 无令牌必须 401）+ ticket_test.go（票据一次性、绑定主机、30 秒过期；空或外来 Origin 拒绝；known_hosts 未知或不符的主机密钥拒绝；只协商已知密钥类型） | `bifrost-platform/api/internal/server/console_auth_test.go；bifrost-platform/api/internal/console/ticket_test.go` | 匿名 SSH 终端（TD-203）与匿名触发全自动修复（TD-208）回来 | warning | 在 ci-platform 的 go test 里跑（push 后，不挡发布）；只守这三个路由，全路由的鉴权遍历测试还没有（TD-218）|
 | lineage 镜像同步测试 mirrors_test.go（每 2 分钟最多请求一次、单个镜像同步失败不让扫描失败、慢镜像只等到超时） | `bifrost-platform/api/internal/lineage/mirrors_test.go` | Commit Lineage 读到落后数小时的 Gitea 镜像（10-06 infra 落后 33 个提交、对方线程晚 1.5 小时才出现） | warning | 在 ci-platform 的 go test 里跑（push 后，不挡发布）；响应里 `mirror_sync.settled` 与 Coverage 的 Mirror fetched 列是运行时可见的信号，没有告警 |
 | check_entrypoint_paths.py | `bifrost-trade-infra/scripts/check_entrypoint_paths.py；Makefile check-entrypoint-paths` | Job / 部署指向不存在的脚本路径（db-init 08-24→09-26 那类） | manual | Makefile 入口 |
 | release.sh：发布窗口锁、2 分钟内 deliver 去重、PROD 只能钉一个 release-check 通过的 STG run、未执行的 db-steps 拦住发布 | `bifrost-trade-infra/scripts/release/release.sh` | 两个会话同时发布（09-27 / 09-28）；PROD 拿未验证的 STG 构建；跳过 Owner 的 DB 步骤 | blocking | 只管 Trade 走 release.sh 的发布；不查 CI 是否绿，也不跑 overlay / gateway 检查 |

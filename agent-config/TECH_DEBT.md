@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-203** — 匿名 SSH 终端关掉：先让本机 platform-api 只听本机（局域网与 .50 均连不上），再上线 platform e504020：一次性 operator 票据、拒绝空 Origin、按 known_hosts 校验主机密钥。验收 PASS 2026-10-07（局域网连不上；本机与 STG/PROD 无票据或无令牌 401，合法票据 101）。防线：`RATCHETS.md`「console_auth_test.go + ticket_test.go」。后续：本机是否恢复局域网监听要你定——恢复后 .50 的修复 runner 能再连本机，但 TD-218 的匿名路由（如 `POST /cluster/sync-kubeconfig`）也会重新对局域网敞开；TD-208 的派发范围一半仍在做
 - **TD-199** — 删掉自 09-24 起无人引用的 EventsBoard.tsx / EventRadarDashboard.tsx，改正两处注释（frontend e98afbf0）· 验收 PASS（10-07）· 防线：`src/lib/orphanModules.test.ts`（从 main.tsx 走导入图，KNOWN_ORPHANS 只许缩短）· 后续：TD-243（其余 42 个孤儿模块）
 
 **未结 120 项**：P0 1 · P1 12 · P2 39 · P3 68；要你批的 63 项（从总览表的审批列算）。
@@ -1627,7 +1628,8 @@
 
 **P0 · ops-platform · GET /api/v1/console/ws hands out an interactive SSH shell with no token: the bdev platform-api listens on *:8780 with the Owner's SSH key, and the Mac firewall is off**
 
-- **状态**：未开始
+- **状态**：待你签收
+- **现在**：10-07 止血：本机 `.env` 设 `PLATFORM_LISTEN=127.0.0.1:8780`（局域网与 .50 连 8780 均被拒）。platform e504020（STG/PROD 已发，本机已重建）：`POST /console/ws-ticket`（operator）发一次性、30 秒、绑定主机的票据，`/console/ws` 无票据在升级前 401；空 Origin 拒绝；主机密钥按 `known_hosts` 校验，并只协商该主机已知的密钥类型（.50 只记了 ed25519、Go 默认先要 ecdsa）。7 台在线主机实测通过校验
 - **Claim**: The console WebSocket route is registered outside every auth group. HandleWebSocket checks only the host allowlist, then upgrades and dials SSH. CheckOrigin returns true for an empty Origin, so any non-browser LAN client passes. It dials SSH as `vision` to any allowlisted host (both Mac minis, the gpu-server and all 5 K3s nodes) using the Owner's ssh-agent or key, and it never verifies host keys. The default listen address is all interfaces. One allowlisted host is ubt-k3s-01 (.73), where `vision` can read /etc/rancher/k3s/k3s.yaml; fetch-kubeconfig.sh does exactly that. So anonymous LAN access leads to a shell on 7 hosts and from there to cluster-admin.
 - **Measured**: MEASURED 2026-10-07 00:4x and again at 00:57 UTC; no SSH session was opened. lsof shows platform-api PID 64432 bound to *:8780, and the bdev env sets PLATFORM_LISTEN=:8780 explicitly. socketfilterfw reports 'Firewall is disabled'. From LAN IP 192.168.20.74 with no token, /api/v1/console/ws?node=ubt-k3s-04 returns 400: the request reached the websocket upgrader, so no 401 stage exists. An unknown host returns 403. /console/hosts lists 8 targets anonymously (7 reachable, all user vision), and ssh-agent holds a key. The same route answers 400 on PROD NodePort 30876. PROD/STG pods mount no SSH key, so the shell is live on the bdev instance; this was not verified by exec.
 - **Evidence**:
@@ -1640,6 +1642,7 @@
 - **Fix**: (1) Put /console/ws behind Require(RoleAdmin or RoleOperator). The Console gets a short-lived single-use ticket from an authenticated POST and passes it as a query parameter or Sec-WebSocket-Protocol. (2) Make the default listen 127.0.0.1:8780 in config.go and run_platform_api.sh; LAN exposure becomes opt-in. (3) Check host keys against a known_hosts file. (4) Reject an empty Origin on this route.
 - **Ratchet**: Route-auth matrix test (see ratchet proposal 'platform-route-auth-walk'): chi.Walk the router, and every route outside an explicit, commented public allowlist must answer 401 without a token. /console/ws must never be on the allowlist. A config test asserts that the default PLATFORM_LISTEN host is loopback.
 - **验收**: `curl -s -m5 -o /dev/null -w '%{http_code}\n' 'http://192.168.20.74:8780/api/v1/console/ws?node=ubt-k3s-04'  # expect 401 or connection refused (today: 400)`
+- **验收结果**：PASS 2026-10-07 e504020：从局域网 IP 连 `:8780/api/v1/console/ws` 被拒（curl 退出码 7）；本机无票据 401、跨主机或重复用票 401、无 Origin 403、合法票据 101；STG/PROD 无令牌三路由均 401
 - 审批 安全/凭据（要你批） · 代价 M · 风险 med · repos: bifrost-platform
 
 ### TD-204
@@ -1720,7 +1723,9 @@
 
 **P1 · ops-platform · Anonymous POST /checklist/husbandry-sync starts full-auto remediation agents: it merges the stored checklist and dispatches every failing item, and three Console pages call it on load**
 
-- **状态**：未开始
+- **状态**：在做
+- **现在**：鉴权一半已上线（platform e504020，STG/PROD）：`POST /checklist/husbandry-sync` 移进 operator 组，HusbandryStrip 只在有令牌时发送；无令牌 401 已在三处实测
+- **下一步**：只派发本次探到的 husbandry 项、不再派发整个合并后的清单（或改成 workers 侧定时），之后进签收
 - **Claim**: POST /api/v1/checklist/signals is operator-gated; POST /api/v1/checklist/husbandry-sync sits outside every auth group. It merges the husbandry probe into the stored checklist and runs executeDispatch over the whole merged set, not just the husbandry items. Every stored FixFullAuto item that is fail or degraded (failing-pods, redis, nginx-edge, trade-apis) is therefore started through remediation.StartInternal with scope cluster_issues_full_auto, with no role or trust check. The job's Actor is 'checklist-dispatch'; only the audit line records 'anonymous'. HusbandryStrip, mounted on Market Data Overview, Flex Query and Research Engine, POSTs it without a token from a useEffect whenever the strip shows degraded or caution. The only throttle is a per-tab sessionStorage key. Existing mitigations, a 24 h per-item dedupe and maxConcurrentAuto=1, limit how often it fires but not who can fire it.
 - **Measured**: CODE-READ for the dispatch path; the POST was deliberately not sent. MEASURED: the local checklist store holds 22 signals, all ok or unknown, with empty last_dispatch, so nothing would fire right now. config/agent-tasks.yaml marks cluster_issues_full_auto as `tier: manual`. Remediation runners receive PLATFORM_OPERATOR_TOKEN (deploy_mac_mini.sh:201).
 - **Evidence**:
