@@ -1277,7 +1277,7 @@
 
 **P3 · research-control · dagster-daemon logs one line over 256 KB at the 22:45 and 03:00 UTC schedule ticks every night**
 
-- **状态**：未开始
+- **状态**：在做（还债第五批 · 道 X，10-07 00:2x UTC 开工；发版前停下等你批）
 - **Claim**: Some logger call in the Dagster daemon / run path writes a single line larger than Loki's 256 KB max_line_size each night (probably a whole result object). Until 10-06 Loki rejected it with 400 and promtail dropped the whole batch (TD-152); from 10-07 promtail truncates it to 250 KB.
 - **Measured**: MEASURED 10-06 by paydown lane H: 12 promtail 'final error sending batch status=400 max entry size 262144 bytes exceeded' lines 09-28..10-06, all for stream {namespace="research", app="dagster-daemon"}; 03:00 runs include market_fundamentals_rotate_job, research_forecast_job, research_event_radar_job. No file:line yet: the line never reached Loki and the daemon restarted ~18:30Z 10-06.
 - **Evidence**:
@@ -1501,7 +1501,7 @@
 
 **P3 · market-data · market-data config/schedule.yaml still says K8s CronJob YAML is the runtime schedule source; after TD-124 there are no CronJobs and Dagster fires every slot**
 
-- **状态**：未开始
+- **状态**：在做（还债第五批 · 道 V，10-07 00:2x UTC 开工；发版前停下等你批）
 - **Claim**: Slot cron strings live in config/schedule.yaml and k8s/base/configmap-schedule.yaml; the real firing is Dagster's market_slot_schedules.py. The header comment now points readers at a source that no longer exists.
 - **Measured**: code-read 10-06 by paydown lane R.
 - **Evidence**:
@@ -1529,7 +1529,7 @@
 
 **P3 · frontend · The Events calendar view's Date column shows collected_at, not event_date: macro rows show when they were computed, radar rows when the file was dropped**
 
-- **状态**：未开始
+- **状态**：在做（还债第五批 · 道 U，10-07 00:2x UTC 开工；发版前停下等你批）
 - **Claim**: EventsBoard renders row.collected_at in the calendar's Date column; for a calendar the reader expects the event's own date.
 - **Measured**: code-read 10-06 by paydown lane P.
 - **Evidence**:
@@ -1557,7 +1557,7 @@
 
 **P3 · ops-platform · platform-api exports no http_requests_total (hand-written /metrics, no Prometheus client), so the API error-rate and latency alerts cannot see it**
 
-- **状态**：未开始
+- **状态**：在做（还债第五批 · 道 W，10-07 00:2x UTC 开工；发版前停下等你批）
 - **Claim**: It is the one exemption in BifrostAPIWithoutHttpMetrics (job!="platform-api").
 - **Measured**: code-read 10-06 by paydown lane Q.
 - **Evidence**:
