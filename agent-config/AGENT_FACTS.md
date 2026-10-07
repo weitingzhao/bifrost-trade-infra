@@ -1,5 +1,5 @@
 ---
-parity-id: agent-facts-v9
+parity-id: agent-facts-v10
 generated: 2026-10-07
 authority: bifrost-platform/config/ops-context.yaml (spine) + 磁盘扫描
 ---
@@ -317,20 +317,23 @@ D10 冻结的那个进程只有一个，但在代码、集群与界面上有十�
 
 ## 8b. MCP 工具面（Claude 侧 `.mcp.json` · Cursor 侧 `~/.cursor/mcp.json`）
 
-源码 `bifrost-platform/mcp/`（stdio + 官方 SDK）。Claude 侧注册 6 个 server，共 133 个工具（含重叠）：
+源码 `bifrost-platform/mcp/`（stdio + 官方 SDK）。平台 server 指向 PROD `http://192.168.10.100:30876`（VIP + NodePort 30876）。Claude 侧 8 个 server；Cursor 模板不含 `bifrost-approve`。工具数是 `reg()` / focus 白名单的实测，含跨 server 重叠：
 
-| server | focus | 工具 | 令牌角色 |
-|--------|-------|------|---------|
-| `bifrost-platform` | — | 85 | operator |
-| `bifrost-kubernetes` | `kubernetes` | 18 | operator |
-| `bifrost-redis` | `redis` | 6 | **viewer** |
-| `bifrost-postgres` | `postgres` | 8 | **viewer** |
-| `bifrost-prometheus` | `prometheus` | 4 | **viewer** |
-| `bifrost-trade-api` | — | 12 | Trade 网关（只读） |
+| server | focus | 工具 | 令牌角色 | 哪一侧 |
+|--------|-------|------|---------|--------|
+| `bifrost-platform` | — | 75 | operator | 两侧。`MCP_WRITES=off` 时写不发出 |
+| `bifrost-kubernetes` | `kubernetes` | 18 | operator | 两侧。同上 |
+| `bifrost-redis` | `redis` | 6 | **viewer** | 两侧 |
+| `bifrost-postgres` | `postgres` | 8 | **viewer** | 两侧 |
+| `bifrost-prometheus` | `prometheus` | 4 | **viewer** | 两侧 |
+| `bifrost-trade-api` | — | 12 | Trade 网关（只读） | 两侧 |
+| `bifrost-local` | `local` | 5 | operator | 两侧。唯一的 `127.0.0.1:8780`（bdev / git-bridge） |
+| `bifrost-approve` | `approve` | 3 | **admin**（钉 `PLATFORM_ADMIN_TOKEN`） | **仅 Claude** |
 
-- **令牌分级是机械强制**：只读桥拿 viewer 角色，写路由被 platform-api 服务端 RBAC 拒绝
-- focus 白名单定义在 `mcp/platform/src/focusBridges.ts`，依据 `api/internal/mcp/catalog.go` 权威目录
-- 令牌走 `${PLATFORM_*_TOKEN:-<dev 默认>}` 环境变量展开，不落盘
+- **令牌分级是机械强制**：只读桥钉 viewer（TD-225）；`bifrost-approve` 用同一钉法钉 admin。非回环地址不读 `.env`
+- 写分两步：现在只切读；`MCP_WRITES=on` 之后 B 级直调，C/D 级改为创建申请并返回申请号。见 `.mcp.json.README.md`
+- focus 白名单在 `mcp/platform/src/focusBridges.ts`。`local` 与 `approve` 在 `index.ts` 里单独注册，不进这张表
+- 令牌只写 `${PLATFORM_*_TOKEN:-}`，不落盘
 - `mcp/unifi/` 未注册（D9 网络执行路径）
 - 详见 `.mcp.json.README.md`
 

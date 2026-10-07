@@ -1,4 +1,5 @@
 {
+  "comment": "Cursor-side MCP template. Same servers as Claude .mcp.json except chat approval is absent. Merge into ~/.cursor/mcp.json. Do not paste token values.",
   "mcpServers": {
     "bifrost-platform": {
       "command": "npx",
@@ -86,19 +87,6 @@
         "PLATFORM_API_URL": "http://127.0.0.1:8780",
         "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_OPERATOR_TOKEN:-}",
         "MCP_BRIDGE_FOCUS": "local"
-      }
-    },
-    "bifrost-approve": {
-      "command": "npx",
-      "args": [
-        "tsx",
-        "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform/mcp/platform/src/index.ts"
-      ],
-      "env": {
-        "PLATFORM_API_URL": "http://192.168.10.100:30876",
-        "PLATFORM_ADMIN_TOKEN": "${PLATFORM_ADMIN_TOKEN:-}",
-        "PLATFORM_TOKEN_ENV_KEY": "PLATFORM_ADMIN_TOKEN",
-        "MCP_BRIDGE_FOCUS": "approve"
       }
     }
   }

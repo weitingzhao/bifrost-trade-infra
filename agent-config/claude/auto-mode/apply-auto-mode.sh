@@ -17,6 +17,14 @@
 # The run fails if any custom entry is missing from `claude auto-mode config` afterwards.
 #
 #   bash bifrost-trade-infra/agent-config/claude/auto-mode/apply-auto-mode.sh
+#
+# Chat approval (LANE-B3) is not an autoMode rule. permissions.ask entries
+#   mcp__bifrost-approve__approve_request
+#   mcp__bifrost-approve__reject_request
+# live in release-permissions.json. This script does not write permissions.ask.
+# The Owner applies them with apply-release-permissions.sh (do not run it from an agent).
+# Whether auto mode actually pops an allow dialog for those two MCP tools has to be
+# verified live; a payload on disk does not prove the dialog appears.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PROJECT="$HERE/../settings.local.json"

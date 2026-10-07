@@ -22,6 +22,8 @@
     "Bash(git -C /private/tmp/claude-501/research-pin push origin HEAD:refs/heads/main)"
   ],
   "ask": [
+    "mcp__bifrost-approve__approve_request",
+    "mcp__bifrost-approve__reject_request",
     "Bash(kubectl *delete pvc*)",
     "Bash(kubectl *delete persistentvolume*)",
     "Bash(kubectl *delete pv *)",

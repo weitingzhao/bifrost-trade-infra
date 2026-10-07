@@ -1,5 +1,5 @@
 <!--
-parity-ids: workspace-v14, language-v1, agent-modes-v2, trade-execution-freeze-v3, dev-services-v3, phase-execution-v3, shared-worktree-v3, business-first-v1
+parity-ids: workspace-v15, language-v1, agent-modes-v2, trade-execution-freeze-v3, dev-services-v3, phase-execution-v3, shared-worktree-v3, business-first-v1
 对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
 改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
 -->
@@ -241,6 +241,8 @@ release.sh、db-init Job、dev/stg overlay、插件 ConfigMap 与 rollout、rese
 
 **改动任一侧的规则，必须同步另一侧并 bump 两侧的 `parity-id`。**
 提交前跑 `bash scripts/check-agent-config-parity.sh` 校验。
+
+MCP：Claude `.mcp.json` 把平台 server 指到 PROD VIP `http://192.168.10.100:30876`，并多一个只在 Claude 侧的 `bifrost-approve`。Cursor 模板（`cursor/mcp.servers.json`、`bifrost-platform/config/cursor-mcp-bridges.json`）不含它。只有 `bifrost-local` 可以指向 `127.0.0.1`。
 
 事实与硬边界**只有一份实现**（`AGENT_FACTS.md` + `preflight.js`），不复制到两侧。
 
