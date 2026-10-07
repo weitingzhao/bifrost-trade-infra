@@ -1628,7 +1628,8 @@
 
 **P2 · frontend · Risk › Limits 'Daily loss on the allocation' sums the realised P&L of every trade the allocation ever closed, not today's, so a losing day reads 0 consumed**
 
-- **状态**：在做（还债循环 · 道 L3，10-07 03:1x UTC 开工；发版前停下）
+- **状态**：观察中（frontend daf31b26 已上 main，随下一次 Trade 发版上线）
+- **验收结果**：PASS 2026-10-07 frontend daf31b26：`npx vitest run src/hooks/useLimitBook.test.ts src/utils/tradeReadings.test.ts` 全过。DEV 实测：没有按 allocation 的日已实现盈亏接口，但 81 笔 closed / expired trade 都带 closed_on（芝加哥账本日），改为只累加当天平仓的 trade；重放 allocation 1：旧公式每天读同一个累计盈利（永远 0 consumed），新公式有 5 个成交日净亏、最大一天超过 gate 5000 上限
 - **Claim**: useLimitBook builds lossToday from closedToday, but that filter keeps every closed or expired trade of the running allocation (`i.closed && i.openedOn != null`) and never compares a close date with today. The UTC date only decides whether any reading is shown at all (a fill with trade_date == UTC today). On any day with a fill, the gate-daily-loss row compares the allocation's lifetime realised P&L with guard.max_daily_loss_usd. TradeReading drops closed_on, although all closed trades carry it. readTrades also multiplies every fill by 100, including STK fills; none are attached to trades today, so that part is latent.
 - **Measured**: MEASURED on PROD with GETs only, at origin/main dfb7858e. Gate set 1 has guard.risk.max_daily_loss_usd=5000; status.strategy.active is allocation 1 on gate 1. Recomputing the hook's formula for opportunities {1,2} (53 closed or expired trades) gives lifetime realised of about +$23.5k, so on any fill day the row reads 0 consumed. All 79 closed or expired trades carry closed_on.
 - **Evidence**:
@@ -2077,7 +2078,7 @@
 
 **P3 · trade-data · Snapshot enrich stores a vendor 'day close' that can sit below the option's intrinsic value (a stale last trade), and P&L attribution then books it as unexplained**
 
-- **状态**：未开始（Owner 10-07 批准做：写入侧换掉低于内在价值的 vendor 收盘价、标新的 mark_source；改写已有行仍要单独批）
+- **状态**：在做（还债循环 · 道 L4，10-07 03:2x UTC 开工；Owner 已批「做」；改写已有行仍要单独批）
 - **Claim**: DEV 10-05 has one LEAP call whose vendor_eod mark is below intrinsic; on 10-06 it accounts for most of the attribution's unexplained residual. TD-138's reader flags it (mark_below_intrinsic) but the writer keeps storing the last trade.
 - **Measured**: MEASURED 10-07 by paydown lane AA (DEV, read-only).
 - **Evidence**:
@@ -2091,7 +2092,8 @@
 
 **P3 · frontend · Look-back starts are still computed in the browser's time zone (new Date(Date.now() - N*86400000).toISOString().slice(0,10)), and three private New York date helpers duplicate @/lib/freshness**
 
-- **状态**：在做（还债循环 · 道 L3，10-07 03:1x UTC 开工；发版前停下）
+- **状态**：观察中（frontend 1d471e48 已上 main，随下一次 Trade 发版上线）
+- **验收结果**：PASS 2026-10-07 frontend 1d471e48：新增 `etDaysAgoIso`，5 处回看起点改用它；四份私有纽约日期副本收进 @/lib/freshness；`utcTodayRatchet.test.ts` 加 `new Date(Date.now() ± …)` 扫描（无白名单）+ eslint 选择器；vitest 4118 passed
 - **Claim**: TD-232's ratchet only catches argument-less new Date(); SymbolForecastSessions.tsx:50, SymbolVolatilityFace.tsx:216, SymbolDealerHistory.tsx:57, useMarketSessions.ts:16 and PlaybookRecord snapFrom build look-back starts from UTC instants. bookLive.etDate, agentActivity.nyDate and sizingTodayModel.nyDate re-implement the NY date.
 - **Measured**: code-read 10-07 by paydown lane GG.
 - **Evidence**:
