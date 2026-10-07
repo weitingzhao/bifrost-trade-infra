@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-257** — k3s 管理员客户端证书曾被 STG/PROD platform 拷贝：Owner 选 A，不轮换（拷贝只在集群内 Secret，已随 TD-204 删除，证书按年自然过期） · 验收 PASS（10-07 Owner 决定）· 防线：无可行防线——证书轮换是年度运维事件；平台不再持有 kubeconfig 由 TD-204 的 check_platform_rbac.py 守 · 后续：无后续
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
@@ -352,7 +353,7 @@
 
 **P1 · flex-ib · A failed cash-transactions write is recorded as a successful run: core returns 0 on any exception and the job counts it as 'ok, 0 rows'**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-T，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: core upsert_account_transactions catches every exception, logs a warning and returns 0; the plugin turns that into ok:true 'Upserted 0 transaction(s)', _require_ok accepts it, record_freshness(ok=True) advances last_success, and no BifrostFlexIngest* alert fires. A lost grant (TD-86 class), lock timeout or type error drops a day's cash rows silently. It also returns len(rows), including rows skipped for missing account_id/report_date. core tests/test_connect_helpers.py:118 currently pins the silent 0 return, so this is a deliberate contract change. The trades path does not have this flaw (returns False → ok:false).
 - **Measured**: CODE-READ for the failure path; jobs 151-185 all wrote 11-16 rows. Precedent is real: TD-86 broke a different writer on 10-05 via dropped grants.
 - **Evidence**:
@@ -404,7 +405,7 @@
 
 **P2 · research-control · No release path is gated on CI: deliver-research ships SHAs whose CI is red (CI starts 7s after deliver), and release.sh never checks CI for Trade**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-R1，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: pipeline-deliver-research goes mirror-sync → clone → build/pin-check → gitops-sync → rollout → verify and never reads the bifrost-ci-python result for the revision it ships; both start from the same push ~7s apart, so a red CI cannot stop a release. It also accepts revision=main instead of a SHA. release.sh (Trade) likewise does not check CI status. CI is a post-hoc report.
 - **Measured**: MEASURED. research 0.172.0, 0.173.0 (twice) and 0.174.0 delivered while their CI runs (hkrvq, bjgln, z96rg, sccxz) Failed; the only failed task was a code-health false positive (pine image tag counted), fixed in infra 1984dac; lint-test passed, so nothing broken shipped. Ratchet inventory: trade-api main CI red since 10-04 (test_bs_core_switch::test_core_reproduces_the_recorded_research_math), 14 of 28 runs failed in 7 days, api 0.9.0 released anyway; the three plugin repos had 32 commits and infra 120 commits since 09-29 with 0 CI runs; Tekton metrics are not scraped.
 - **Evidence**:
@@ -420,7 +421,7 @@
 
 **P2 · agent-governance · preflight.js D10 rule only recognises curl: python requests, wget --post-data and sed -i on the daemon scale-zero patch all pass**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor 只改草案，preflight 本体由 Owner 应用；Cursor LANE-S1，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: The monitor /control/* rule requires curl-style -X/--request/-d/--data/--json/-F flags, and guard-file protection recognises rm/mv/truncate. A POST via python requests/httpx, wget --post-data, or an in-place edit of k8s/overlays/stg/daemon-scale-zero.patch.yaml with sed -i/tee/cp is allowed. The gate covers only agent tool calls; humans and CI do not pass through it.
 - **Measured**: MEASURED by the ratchet-inventory pass (sample strings fed to preflight.js locally): `sed -i … daemon-scale-zero.patch.yaml`, `python3 -c requests.post('…/api/monitor/control/arm')` and `wget --post-data … /control/arm` each returned ALLOW. test.js (42 cases) passes but has no case for these forms and runs in no CI. Not adversarially re-verified.
 - **Evidence**:
@@ -510,7 +511,7 @@
 
 **P2 · market-data · Plugin's deprecated live max-pain and PCR routes duplicate Research and skip the adjusted-contract filter: different strikes on the same day, and trade-api SEPA PCR reads the contaminated one**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-R2，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: The plugin keeps a 'transition' copy of Research's max-pain math plus its own PCR query, both reading raw_market.option_open_interest with no adjusted-root predicate (Research added not_adjusted_contract_sql on 10-01). OI from adjusted roots (O:HON2…, O:MOD1…) is summed into standard chains. trade-api sepa_engine/stock_option_pcr.py calls fetch_pcr_aggregate against this route.
 - **Measured**: MEASURED (re-run by verifier) for 2026-10-05: plugin vs Research max pain HON 12-18 210 vs 220, FDX 12-18 310 vs 300, GME 10-16 23 vs 22.5, MOD 10-16 same strike but OI 19,510 vs 9,848. 424 adjusted-root OI rows across 19 underlyings that day. Loki 7 days: /max-pain/compute called only by the probe; /options/analytics/pcr 4 times (trade-api SEPA PCR).
 - **Evidence**:
@@ -526,7 +527,7 @@
 
 **P2 · flex-ib · The cash parser never stores IB's transactionID, so dedupe falls back to (account, day, amount, type, report_date) and same-amount items overwrite each other**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-D2，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: parse_cash_transactions_xml reads transactionID only from a child element; the attribute fallback covers every other field but not this one, so on IB's attribute-style rows flex_transaction_id is always NULL. The UNIQUE key then uses a date-only ts, amount, and a type that maps fees/interest/withholding to 'other'. Two distinct same-day same-amount transactions collapse and the second DO UPDATE overwrites symbol/description/raw_extra. A row with no dateTime gets ts=now(), re-inserted every run.
 - **Measured**: MEASURED: flex_transaction_id NULL on 121/121 rows while raw_extra->>'transactionID' is present on all 121. 89 rows typed 'other'. 30 (account, ts, type, report_date) groups hold >1 row, separated only by amount; 6 have coinciding absolute amounts. A collapse leaves no trace, so none observed directly.
 - **Evidence**:
@@ -542,7 +543,7 @@
 
 **P2 · flex-ib · Trade Ops reports all three IB Gateway services 'offline' on PROD: the gateway's health hashes have no updated_at, and the service rows point at retired StatefulSets**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-T，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: trade-api judges liveness from the health hash's updated_at (missing = dead). The gateway writes ws_ib_ingestor/ws_ib_account_agent/ws_ib_operator without updated_at and never has since 07-04. /ops/market-ingest/services shows runtime_status=inactive 'managed@platform-ib-gateway (offline)'; platform satellite maps 'inactive' to ReachFail and the endpoint is a Tier-B probe. The rows also name retired ib-operator/ib-market-gateway/ib-account-agent workloads and systemd units. TD-31's contract covers key names, not field names.
 - **Measured**: MEASURED: PROD /api/monitor/ops/market-ingest/services returns inactive/offline for all three, naming deployments that do not exist, while data/ib-gateway has been Running 3d12h with 0 restarts. git log -S shows the gateway never wrote updated_at into these hashes.
 - **Evidence**:
@@ -559,7 +560,7 @@
 
 **P2 · flex-ib · DEV/STG operator streams accept every op except two (a denylist), so any op added later is open to DEV and STG by default**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-T，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: READ_ONLY_OPS = ALL_OPS minus disconnect_all/reconnect_all, and op_allowed_on_stream accepts READ_ONLY_OPS on the env streams, whose ACL users may XADD. The guard test asserts ALL_OPS - READ_ONLY_OPS == {disconnect_all, reconnect_all}, which still passes after a new op is added, and the env-stream test parametrises over READ_ONLY_OPS itself.
 - **Measured**: CODE-READ. ALL_OPS today = fetch, refresh, ping and the two connection ops, so nothing is exposed now.
 - **Evidence**:
@@ -575,7 +576,7 @@
 
 **P2 · market-data · Nightly trim (now with W3 archive) runs synchronously behind Dagster's 60s HTTP timeout; retries start overlapping trims and the recorded outcome is the retry's**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-R2，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: The trim runs inline in POST /market/ingest/enqueue-slot with budgets totalling ~960s (240 job trim, 2x300 snapshot, 2x60 dated, statements up to 900s), while the Dagster client gives up at 60s and RetryPolicy fires a second trim during the first. The archive is safe under overlap (REPEATABLE READ + rowcount check makes the second pass error and roll back, 'never raises'), but Dagster's SUCCESS/FAILURE and logged result describe the retry, and overlapping passes contend on the same rows. From the first night with real rows to archive (~345k intraday option_snapshot rows/session at ~1,550 rows/s ≈ 220s) every first attempt will time out.
 - **Measured**: MEASURED. ops_dagster.event_logs: 8 STEP_UP_FOR_RETRY for market_trim_job in 30 days, 2 FAILURE runs (09-09 883s, 09-10 821s). Run f70b9294 (10-01): STEP_START 02:15:07.43, retry 02:16:07.52 (exactly 60s), restart 02:17:10, success in 14s with trimmed: 0. /archive is empty; 10-06 retention_archive 0 rows on all passes.
 - **Evidence**:
@@ -592,7 +593,7 @@
 
 **P2 · market-data · Indexes declared for the six financials entity tables never reach a deployed DB (the migration returns early); live differs from fresh install**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-D2，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: create_financials_entity_tables declares {table}_symbol_period_date and {table}_period_date_symbol for ratios, short_interest, short_volume, income_statement, balance_sheet and cash_flow, but is reachable only via migrate_stock_financials_split, which returns when stock_financials is already a view (true everywhere). period_date_symbol was written to stop the full scan behind 'who is held on the latest day' that blew a 120s budget; only short_volume has it (added by hand).
 - **Measured**: MEASURED pg_indexes on bifrost_golden_source: the six tables have only pkey + filing_date (short_volume also period_date_symbol); 11 declared indexes absent. pg_stat_user_tables: ratios 4,197 seq scans / 278M tuples, balance_sheet 1,451 / 267M, short_volume (4.98 GB) 1,524 / 3.58B.
 - **Evidence**:
@@ -608,7 +609,7 @@
 
 **P2 · ops-platform · PROD platform-api reads a deployed ops-context.yaml copy last synced 2026-08-24: about 33 spine decisions missing (D-Journal-Stores, D-Ops-Split, D-Wave-10..13)**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-S2，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: bifrost-trade-infra/k8s/overlays/platform-prod/config/ops-context.yaml is mounted as ConfigMap bifrost-platform-config by PROD platform-api and platform-workers. It is a hand-kept copy of bifrost-platform config/ops-context.yaml and has not been synced since 0170331 (2026-08-24), so Ops Console on the cluster shows a spine ~6 weeks stale. platform CI's check_spine_catalog.sh does not compare the deployed copies.
 - **Measured**: MEASURED by the ratchet-inventory pass: 17 decision ids in the PROD copy vs 50 on platform origin/main (diff 502/538 lines); a quick regex recount here gives 22 vs 55 '- id: D…' lines. Last commit touching the copy: 0170331 2026-08-24. Not adversarially re-verified; whether D10 state read by preflight comes from this copy was not checked (preflight reads the workspace spine).
 - **Evidence**:
@@ -706,7 +707,7 @@
 
 **P3 · market-data · Schema-migrate Job and worker Deployments are applied in one `kubectl apply -k` with no ordering; a table-adding release fails the jobs that land in the DDL window**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-R2，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: k8s/base lists job-wave8-schema-migrate next to the Deployments, and `make deploy` applies base before waiting on the Job. Ordering lives only in a skill procedure. Jobs in the 30-60s DDL window fail loudly (failed:<kind>, doctor-retryable), not silently.
 - **Measured**: CODE-READ plus documented 09-24 incident (56 sec_filings_symbol jobs died during a 40s gap). Live Deployments have no initContainers.
 - **Evidence**:
@@ -721,7 +722,7 @@
 
 **P3 · research-control · Dagster Deployments are applied by hand outside Argo; a second, unmounted dagster_instance.yaml lacks the run_monitoring that catches zombie runs**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-R2，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: Argo app bifrost-research excludes orchestration/**, and pipeline-build-research-dagster only builds; nothing checks the -dagster tag matches the release pin. k8s/orchestration/dagster_instance.yaml is an unreferenced second instance config missing the run_monitoring block added after trading_day sat STARTED 20.5h on 09-08.
 - **Measured**: MEASURED. Argo exclude '{orchestration/**,dbt/Dockerfile,**/_archived/**,_archived/**}'. kubectl diff of dagster.yaml rc=0 today; daemon and webserver run 0.175.0-dagster = pin. dagster_instance.yaml lacks the 15-line run_monitoring block and has no references.
 - **Evidence**:
@@ -737,7 +738,7 @@
 
 **P3 · research-control · Research pods read bifrost-research-secrets once at start (optional: true); the OpenAI key rotation helper restarts only research-api**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；research 部分在 LANE-R2；Cursor LANE-R1，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: research-api, research-mcp, dagster-daemon and dagster-webserver envFrom bifrost-research-secrets with optional: true. sync_openai_secret.sh patches the key and restarts only deployment/research-api, so the daemon (scheduled LLM agents) and MCP keep the old key until the next release. No rotation helper exists for analytics_writer. (DB rotation of 'bifrost' does not touch these pods; infra bifrost-password-rotate.sh already derives holder Deployments.)
 - **Measured**: CODE-READ for cluster pods; secret key names checked live (OPENAI_API_KEY, DEEPSEEK_API_KEY, ANALYTICS_PG_PASSWORD present).
 - **Evidence**:
@@ -752,7 +753,7 @@
 
 **P3 · flex-ib · The IB Gateway image is built on the Mac and imported to nodes with ctr under a reused tag: no registry, no digest, no recorded source SHA**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-R1，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: deployment.yaml runs bifrost-platform-plugin-ib-gateway:0.3.0 with IfNotPresent; the tag exists only in each node's containerd and the repo has no build pipeline (unlike flex-query). Different code can run under the same version and nothing reports which commit is live.
 - **Measured**: MEASURED: live pod on ubt-k3s-04 runs a bare tag with local imageID sha256:cd51d656…; flex-query uses 192.168.10.73:30500/bifrost-flex-query:0.9.0; no k8s/cicd in the repo.
 - **Evidence**:
@@ -767,7 +768,7 @@
 
 **P3 · research-control · About 19 deployed research-api routes have no caller in frontend, platform, trade-api or MCP, including manual POST triggers that run engine code outside Dagster**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-R2，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: Uncalled GETs: /analytics/sepa/technical-filter, /analytics/sepa/screening-ranked, /research/sepa/candidates, /research/volatility/surface, /research/forecast/{hourly,settlement,backtest}, /research/backtest/regime-stats, /research/canonical-pnl/coverage. Uncalled POSTs: forecast/terrain/compute, forecast/sessions/compute, forecast/settle, event-radar/run, events/ingest, backtest/aggregate, journal/memory/distill, agents/digest/run, agents/weekly-policy/run, hypothesis/{id}/retire. Most POSTs run engine code synchronously in the API pod with no run record or failure alert, and distill/digest can race their scheduled runs.
 - **Measured**: MEASURED: live /openapi.json (208 path×methods) vs git grep on origin/main of frontend, platform, trade-api, infra and research mcp/copilot, with manual re-check. Callers outside these repos (Hermes, curl) not checked.
 - **Evidence**:
@@ -784,7 +785,7 @@
 
 **P3 · flex-ib · Retired IB topology still referenced: TIBM-era verify scripts at the top of scripts/, flex_ops compat SQL for a schema that no longer exists**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-T，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: Five plugin scripts reference the retired ib-operator/ib-market-gateway/ib-account-agent StatefulSets, plus per-wave verify-trade-ib-w{1,2,3}-* scripts, although TIBM rollout scripts already moved to scripts/archive. The flex repo keeps golden_source_flex_ops_compat_views.sql and drop_trade_flex_ops_legacy.sql for a flex_ops schema that does not exist. Current-gateway verify scripts (verify-ib-gateway*.sh, verify-redis-ib.sh) are live.
 - **Measured**: MEASURED: no sts/deploy named ib-operator/ib-market-gateway/ib-account-agent; pg_namespace has no flex_ops.
 - **Evidence**:
@@ -847,7 +848,7 @@
 
 **P2 · ops-control · repair_cnpg_wal_store deletes failed Backup CRs, erasing the record of failed backups**
 
-- **状态**：未开始（要你批）
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-S2，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: RepairPostgresWalStore calls deleteStuckBackupCRs, which deletes every bifrost-postgres-* Backup in phase failed or walArchivingFailing before it starts an on-demand Backup. CloudNativePG itself only deletes completed backups that are no longer in the object-store catalog. The failed 10-03 and 10-04 03:00 backups and the failed 10-03 manual one were gone from the cluster within hours; only Prometheus and a MinIO trace kept the evidence. On 10-06 16:15 UTC it deleted bifrost-postgres-ondemand-20261006-044532 (stopped on the Owner's request during the MinIO cutover) the same way. Independent of TD-130: can be fixed while the local autopilot is still the acting one.
 - **Measured**: MEASURED 2026-10-06: the Backup CRs of those three runs are absent; CNPG v1.27.4 `pkg/management/postgres/backup.go` deleteBackupsNotInCatalog skips every phase but completed.
 - **Evidence**:
@@ -877,7 +878,7 @@
 
 **P2 · data · WAL is ~19.5 GiB/day (4.2 GiB compressed) because checkpoints run every 5 minutes without wal_compression**
 
-- **状态**：未开始（要你批）
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-D2，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: bifrost-postgres runs with checkpoint_timeout 300 s, max_wal_size 1024 MB and wal_compression off. Each checkpoint makes the next change to every page write a full page image, so WAL is dominated by full pages. Archived WAL is 129 of the 272 GiB backup bucket.
 - **Measured**: MEASURED 2026-10-06: cnpg_collector_wal_bytes 7-day average 19.48 GiB/day; 1,986 timed checkpoints in 7 days; full-page-image byte share upper bound 0.98 (8 KiB per FPI).
 - **Evidence**:
@@ -892,7 +893,7 @@
 
 **P3 · data · Native barmanObjectStore backups are removed in CloudNativePG 1.30; the Barman Cloud Plugin that replaces them needs cert-manager, which the cluster does not have**
 
-- **状态**：未开始（要你批：新依赖）
+- **状态**：未开始（Owner 10-07 暂缓）
 - **Claim**: Applying the Cluster on 10-06 printed "Native support for Barman Cloud backups and recovery is deprecated and will be completely removed in CloudNativePG 1.30.0". The operator is 1.27.4. The plugin needs cert-manager; no cert-manager namespace or CRDs exist.
 - **Evidence**:
   - `bifrost-trade-infra/k8s/data/cluster.yaml` — spec.backup.barmanObjectStore
@@ -948,7 +949,7 @@
 
 **P2 · research-data · The 90-day IV cone has 31–39 sessions of history and there is no 180-day tenor: ATM IV was stored only to 90 DTE before 2026-08-05**
 
-- **状态**：未开始（方向 Owner 10-06 已采纳：从 option_daily 回填；执行前列范围交你确认；须在 10-31 前做，W3 11-01 起删 option_daily 最老一个月，之后只能读归档）
+- **状态**：在做（Owner 10-07 批准实现；只列范围；Cursor LANE-D2，只推分支，发版 / DDL / apply 另行请示）
 - **验收**：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data exec -i bifrost-postgres-3 -c postgres -- env PGOPTIONS='-c default_transaction_read_only=on' psql -U postgres -d bifrost_golden_source -X -At -c "SELECT count(DISTINCT trade_date) FROM features.option_metric_atm_iv_daily WHERE symbol='NVDA' AND expiry-trade_date>90 AND atm_iv IS NOT NULL"` ≥ 150（回填前 39 左右）；TD-141 的 iv-cone 命令里 NVDA 的 90 档 n ≥ 60、withheld 为 False，且出现 180 档
 - **Claim**: The ATM IV store kept only expiries up to 90 DTE before 2026-08-05 (the Brent pass is still capped at DTE_MAX = 90), so the cone's 90-day horizon has fewer than MIN_SESSIONS (60) sessions and its percentiles are withheld; there is no 180-day horizon at all. It fills by itself around early November. raw_market.option_daily holds the long-dated bars to backfill from.
 - **Measured**: MEASURED 10-06: iv-cone 90d NVDA 39, SPY 31, AAPL 32 sessions; no 180d. raw_market.option_daily: NVDA bars with trades at 150–220 DTE on 154 sessions, earliest 2025-11-10.
@@ -985,7 +986,7 @@
 
 **P3 · research-data · Settled candidates are not attributed to the judge (persona) that put them forward, so the Personas bench track-record columns stay grey**
 
-- **状态**：未开始（要你定：要不要做、记在哪；见「需要你拍板」）
+- **状态**：未开始（Owner 10-07 暂缓）
 - **验收**：选 A 时，上线后：`SELECT count(*), count(*) FILTER (WHERE source_ref ? 'persona') FROM research.candidate_pool WHERE source='harness' AND trade_date >= '<上线日>'`（Golden Source 副本只读）两数相等且 > 0
 - **Claim**: research.candidate_pool has 129 rows and none carries a persona key in source_ref; no other table records which judge proposed which candidate. JudgeTrackRecord's four track-record columns and the Pilot Console bench bar have nothing to read.
 - **Measured**: MEASURED 10-06 on the Golden Source replica.
@@ -1017,7 +1018,7 @@
 
 **P3 · research-data · No store accepts a hand verdict, so the Personas bench 'Agrees with you' column cannot be computed**
 
-- **状态**：未开始（要你定：要不要建手动判词库；要的话是新表，先出设计；见「需要你拍板」）
+- **状态**：未开始（Owner 10-07 暂缓）
 - **验收**：建了的话：`git -C bifrost-research grep -n 'verdict' origin/main -- src/bifrost_research/schema` 出现新表的 DDL，且 `git -C bifrost-trade-frontend grep -n "column: 'Agrees with you'" origin/main -- src` 无输出（列不再登记为缺数据）
 - **Claim**: Nothing records a hand verdict beside the machine's on the same name; JudgeTrackRecord greys 'Agrees with you' for that reason.
 - **Measured**: CODE-READ 10-06: no verdict table under bifrost_research/schema on origin/main a242b22.
@@ -1033,7 +1034,7 @@
 
 **P3 · trade-data · A trade cannot name the lens or backtest run it came from: trade has no such column and strategy_plan.source_kind does not allow lens / backtest_run**
 
-- **状态**：未开始（口径 Owner 10-06 已定：(b) plan 的 source_kind 加 lens / backtest_run，经 plan → trade 派生；DDL 清单待你逐项确认，见「需要你拍板」）
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-D2，只推分支，发版 / DDL / apply 另行请示）
 - **验收**：三个 Trade 库各跑：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data exec -i bifrost-postgres-3 -c postgres -- env PGOPTIONS='-c default_transaction_read_only=on' psql -U postgres -d bifrost_prod -X -At -c "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='strategy_plan'::regclass AND contype='c' AND pg_get_constraintdef(oid) LIKE '%source_kind%'"` 含 `'lens'` 与 `'backtest_run'`
 - **Claim**: PROD trade has trade_id, strategy_opportunity_id, account_id, opened_at, label, created_at, updated_at and no public table has a lens, backtest or run_id column. strategy_plan.source_kind is checked against manual | symbol | hypothesis | inbox_draft | roll, and core repeats the same five in the reader and the request schema. Outcome / Lineage keep the lens and run chips grey (design D3, Owner 2026-09-17).
 - **Measured**: MEASURED 10-06 on bifrost_prod (columns of trade; the CHECK definition).
@@ -1125,7 +1126,7 @@
 
 **P2 · ops-platform · Pushes to GitHub main do not trigger CI until the Gitea pull mirror syncs, so a commit can be released before its CI ever ran**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-R1，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: CI is triggered by Gitea webhooks; Gitea mirrors GitHub on a pull interval. On 10-06 core 0.49.0/0.50.0 (16:15/16:23 UTC) and api 0.10.0 had no CI run at all until `make k3s-sync-gitea-mirrors` was run by hand at ~16:30; core's previous CI was 14 h earlier. Together with TD-95 this means release.sh can deliver a SHA that CI has not seen.
 - **Measured**: MEASURED 10-06: no ci-python-bifrost-trade-core/api PipelineRun after the pushes; the manual mirror sync created ci-python-bifrost-trade-core-9vgjk and -api-h7scl within seconds.
 - **Evidence**:
@@ -1218,7 +1219,7 @@
 
 **P3 · research-data · features.event_signal_radar_daily keeps the pre-rename copies of two indexes (event_radar_batch_collected, event_radar_importance) beside the current ones**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-D2，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: The table was renamed from event_radar; ddl.py creates event_signal_radar_daily_batch_collected and _importance, but the old event_radar_batch_collected and event_radar_importance survived, so every write maintains two identical indexes each.
 - **Measured**: MEASURED 10-06 (pg_indexes, read-only): event_radar_batch_collected 160 kB, event_radar_importance 152 kB beside event_signal_radar_daily_batch_collected 160 kB / _importance 152 kB; event_radar_pkey is the primary key (keep, name only).
 - **Evidence**:
@@ -1233,7 +1234,7 @@
 
 **P2 · ops-platform · Research and plugin releases have no release window: sessions collide on pins and on deliver runs**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-R1，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: release.sh window serializes Trade releases only. Research and plugin releases have no equivalent; on 10-06 a session started deliver-research for 0.185.0 while another waited on an ad-hoc lock in /tmp, and the S4 session built 0.187.0 while lane C built 0.188.0, leaving the pins two releases behind the images until the Owner approved one combined pin push.
 - **Measured**: MEASURED 10-06: research 0.185.0 started via platform-api during another session's lock wait; 0.187.0 and 0.188.0 built back to back with one pin push (6cf4266).
 - **Evidence**:
@@ -1280,7 +1281,7 @@
 
 **P2 · research-data · ATM IV has almost no 50–90 DTE expiry from 2026-07-06 to 09-25 (the EOD chain stopped at the third listed expiry until plugin 0.39.0); the fix was forward-only, so term structure reads na for that stretch**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；只列范围；Cursor LANE-D2，只推分支，发版 / DDL / apply 另行请示）
 - **验收**：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data exec -i bifrost-postgres-3 -c postgres -- env PGOPTIONS='-c default_transaction_read_only=on' psql -U postgres -d bifrost_golden_source -X -At -c "WITH d AS (SELECT symbol, trade_date, bool_or(expiry - trade_date BETWEEN 50 AND 100) b FROM features.option_metric_atm_iv_daily WHERE trade_date BETWEEN '2026-07-06' AND '2026-09-25' AND symbol IN (SELECT symbol FROM research.option_universe) GROUP BY 1,2) SELECT date_trunc('week', trade_date)::date, round(avg(b::int), 2) FROM d GROUP BY 1 ORDER BY 1"` — every week ≥ 0.85 (06-22/06-29 read 0.88–0.91; 07-06..09-21 read 0.02–0.59 before the fix)
 - **Claim**: Until market-data plugin 0.39.0 (2026-09-25, `54b05be`) the EOD chain was bounded at the third listed expiry, so from 2026-07-06 most names' option_daily held nothing past ~45 DTE. ATM IV is solved from option_daily (Brent) and the reconstructed table, so its 50–100 DTE expiries went missing with it. 0.39.0 fixed the bound forward only; nothing refilled the stretch. IV30 is unaffected (about 640 names a day throughout).
 - **Measured**: MEASURED 10-06 (S6 context survey, `REPORT-pine-s6-context-series-2026-10-06.md`). Share of universe name-days with an ATM IV at 50–100 DTE, by week: 06-22 0.88 · 06-29 0.91 · 07-06 0.15 · 07-13 0.12 · 08-03 0.02 · 08-10 0.02 · 08-24 0.35 · 09-14 0.43 · 09-21 0.59 · 09-28 0.97. option_daily itself with a 50–90 DTE bar: 06-22 0.99 · 07-06 0.25 · 08-10 0.005.
@@ -1328,7 +1329,7 @@
 
 **P3 · research-data · Macro gap (actual vs expected) is always empty: consensus is not in the subscription, and the entitled /fed/v1/inflation actuals have no raw table**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；先改空状态文案；Cursor LANE-U2，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: The MacroPanel gap view needs expected and actual. Consensus estimates are not entitled (entitlement gap: accept and name it). Actuals for inflation are entitled via Massive /fed/v1/inflation but the plugin has no raw table for them. The front-end empty state still blames a CSV forward_flag.
 - **Measured**: MEASURED 10-06 by paydown lane O: /macro/gap 0 rows; Benzinga 403; /fed/v1/inflation entitled.
 - **Evidence**:
@@ -1391,7 +1392,7 @@
 
 **P3 · frontend · "My levels" (plan stop / target and price alerts as horizontal lines) on the Symbol chart waits on Design: ASK-symbol-chart-my-levels-2026-10-06**
 
-- **状态**：未开始（等 Owner 把 ASK 带给 Design，Design 回复）
+- **状态**：未开始（Owner 10-07 暂缓）
 - **验收**：Design 的回复（RESPONSE 或 Rev 说明）在 `design/trade/` 里；按回复落地后，Symbol › Price 图有对应图层，或台账 G5 改成「➖ 不做」并写明理由
 - **现在**：Design 10-06 带回的 Package .63 @ Rev .162 只回了 Rev .161 回执，**没有回答这份 ASK**，继续等。ASK 写在 `design/uploads/ASK-symbol-chart-my-levels-2026-10-06.md`。实测：`strategy_plan` 有 `stop_kind/target_kind = underlying_price`，但 PROD 0 行；价格提醒没有存储（`/research/alerts` 是镜头级）
 - **下一步**：Design 定形态；计划止损和止盈部分不需要新表，app 直接做；价格提醒要新表，先列方案给 Owner 批
@@ -1520,7 +1521,7 @@
 
 **P1 · ops-console · git-bridge answers anyone on the LAN, and its /commit runs `git add -A` on the shared checkout; /push pushes the current branch with no release-window check**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-S1，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: agent/git-bridge listens on 0.0.0.0:8785 and has no auth middleware (only express.json). POST /commit stages the whole tree (`git add -A`) in any of 9 repos of the multi-session shared checkout and commits. That is exactly the action preflight.js blocks for agents (the 09-07 and 09-22 incidents). POST /push pushes HEAD's branch, normally main, to the PUBLIC origin and never runs `release.sh window`. The remediation runner's git_commit and git_push tools call these endpoints, so preflight never sees them.
 - **Measured**: MEASURED 2026-10-07: node PID 65068 listens on *:8785. From LAN IP 192.168.20.74, an anonymous GET /status returns 200, and /health reports workspace=/Users/vision-mac-trader/Desktop/stocks with repos=9. PROD platform-api /api/v1/agent/bridge reports git_bridge http://192.168.10.40:8785 status=ok (the same Mac, another interface). No POST was sent.
 - **Evidence**:
@@ -1538,7 +1539,7 @@
 
 **P1 · ops-console · The remediation runner (:8781) and the Hermes gateway (:8782) on the Mac minis start, approve and cancel agent jobs for anyone on the LAN: POST /run, /run/:id/respond and /skills/:id/trigger have no auth**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-S1，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: deploy_mac_mini.sh exports REMEDIATION_RUNNER_BIND=0.0.0.0 on both minis, and the runner registers no auth middleware. POST /run starts a Cursor agent with a caller-supplied prompt, and that agent holds the runner's PLATFORM_OPERATOR token (or the ADMIN token as fallback). POST /run/:id/respond answers the agent's request_operator_approval gate, which is only a prompt-level guard over cordon, rollout, IB Gateway control and git_push. The Hermes gateway on .52 also binds the LAN and exposes POST /skills/:id/trigger and /reload with no auth.
 - **Measured**: MEASURED 2026-10-07: anonymous GET http://192.168.10.50:8781/run and http://192.168.10.52:8781/run both return 200 (job list), and 192.168.10.52:8782/health and /executions answer anonymously. No POST was sent.
 - **Evidence**:
@@ -1598,7 +1599,7 @@
 
 **P1 · trade-worker · Working orders are never persisted: the plugin's snapshot has no open_orders, the daemon TRUNCATEs raw_broker.open_orders every hour, and the UI says 'No working orders at IB.'**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；方案 A：插件只读 open orders / executions；Cursor LANE-T，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: The IB Gateway plugin's account snapshot carries only host_connected, secondary_connected, accounts_snapshot, accounts_count and mode; it never includes open_orders or last_execution_rows. On every hourly accounts refresh (and every refresh_accounts command), core refresh_accounts_from_redis_edge reads `data.get("open_orders") or []`, so it always gets [], and calls write_open_orders([]), which TRUNCATEs the table and writes nothing. /api/monitor/open-orders and /status portfolio.open_orders therefore always return [], and the Trade menubar states 'No working orders at IB.' as fact. The intraday TWS fills path (last_execution_rows → write_account_executions) is dead the same way and has written nothing since June. The worker CLAUDE.md and the ib_account_keys docstring still describe both as persisted.
 - **Measured**: MEASURED 2026-10-07 00:44 UTC. raw_broker.open_orders has 0 rows. /api/monitor/open-orders returns {"open_orders":[]}. executions_raw_tws max(created_at) for tws_client is 2026-06-10 03:51 (plus one null-source row dated 08-08), while executions_raw_flex has fills on 7 trade dates since 09-16. `git grep open_orders|last_execution_rows` on plugin origin/main src returns nothing. The PROD daemon runs 2/2 with broker writes on. The TRUNCATE itself is CODE-READ, because the daemon logs no INFO (TD-216).
 - **Evidence**:
@@ -1617,7 +1618,7 @@
 
 **P2 · trade-worker · A failed IB positions or summary read is written as truth: the daemon deletes every raw_broker.positions row of the account and nulls its NAV until the slot reconnects**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-T，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: When reqPositionsAsync or accountSummaryAsync fails on a session that still lists managedAccounts, the plugin publishes the account with positions [] and a summary holding only {account}. Since worker 0.2.6, account_push writes any snapshot younger than 120 s whose fingerprint changed, with no sanity check. Core sync_accounts_snapshot_to_tables then runs DELETE FROM raw_broker.positions WHERE account_id = %s (seen_keys is empty) and upserts net_liquidation, total_cash and buying_power as NULL. TD-137's freshness check (core 0.52.0) keeps a 07:00 or 11:00 ET wipe out of the 16:20 capture. It does not stop a wipe written after 16:00, because the wipe itself stamps updated_at=now().
 - **Measured**: MEASURED trigger via Loki {namespace=data, app=ib-gateway}: 2026-10-06 10:59:58 UTC (host TWS auto log-off, 07:00 ET) shows 'reqPositionsAsync: Socket disconnect' and 'accountSummaryAsync U17123565: Not connected'; there was also a 'positions request timed out' at 04:15 UTC. The write path is CODE-READ, and worker tests/test_account_push.py has no degraded case. No stored damage was found: bifrost_prod account_nav_daily for 10-05 and 10-06 has non-null NAV for all accounts. How long the wipe window lasts was not measured.
 - **Evidence**:
@@ -1655,7 +1656,7 @@
 
 **P2 · data · The Barman base+WAL backup, the only copy of the 34 GB Golden Source history, has never been restored, and has not been tried at all against the NAS MinIO it moved to on 10-06**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-D2，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: The CNPG cluster has a 30-day recoverability window (firstRecoverabilityPoint 2026-09-06), but infra has never had a bootstrap.recovery or externalClusters manifest, and only one Cluster has ever existed. The monthly drill in k8s/data/logical-backup restores only the logical dump of 7 hand-entered schemas into an emptyDir Postgres and never reads the Barman object store. So nobody knows whether barman-cloud-restore works against the NAS MinIO the bucket moved to on 10-06, with its credentials, gzip WAL and serverName. TD-135 mentions a restore drill only as a one-off step of the plugin migration.
 - **Measured**: MEASURED 2026-10-07. Only data/bifrost-postgres exists. firstRecoverabilityPoint is 2026-09-06T06:19:40Z, lastSuccessfulBackup 2026-10-06T17:32:39Z. `git grep` over infra finds no recovery bootstrap (the only 'bootstrap:' is initdb at cluster.yaml:19). 10-03 and 10-04 do have completed ondemand backups; only the scheduled 'daily' names are missing for those days. The first NAS backup is bifrost-postgres-manual-20261006-nas.
 - **Evidence**:
@@ -1672,7 +1673,7 @@
 
 **P2 · data · Every backup copy (Barman base+WAL, logical dumps hot and cold, the W3 archive) is on the one NAS 192.168.10.20:/volume1, and the open offsite decision is not in the ledger**
 
-- **状态**：未开始
+- **状态**：未开始（Owner 10-07 暂缓）
 - **Claim**: Every backup copy sits on the one NAS: the Barman bucket on the NAS-native MinIO (since 10-06), the logical dumps in k3s-hot and k3s-cold, and the W3 market-data archive. The weekly 'cold' tier is on the same /volume1 as 'hot'. An offsite copy is an open W5 item in PLAN-phase0 (Owner to choose the target), and the logical-backup README notes it, but TECH_DEBT.md has no entry.
 - **Measured**: MEASURED 2026-10-07. Every NFS PV (logical-backup-hot/cold, market-data-archive, both provisioner PVs, the retired minio-data PV) points at server 192.168.10.20 under /volume1/k3s-hot or /volume1/k3s-cold. NAS MinIO usage is 284.2 GiB on the same 22.3 TiB volume. No CronJob in any namespace matches offsite, mirror, rclone or sync. PLAN-phase0-foundation-2026-10-05.md lines 42/101/135 record the pending decision.
 - **Evidence**:
@@ -1688,7 +1689,7 @@
 
 **P3 · ops-console · The governance catalog says nobody but the daemon writes ib:operator:cmd, but platform-api does (sanctioned by D-IB-Heal), and the runner's ib_gateway_control can switch the PROD gateway to mock with only a prompt-level approval**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；剩余部分：runner 工具去掉 mode；Cursor LANE-S1，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: platform-api XADDs op=reconnect_all to ib:operator:cmd. That is sanctioned by spine D-IB-Heal (SIGNED 2026-08-27: 'L1 platform-api reconnect soft-first then rollout … D10 BLOCKED — reconnect/observe only'). But FORBIDDEN_ACTIONS ('ib:operator:cmd RPC', all modes), CLAUDE.md §3 ('only the daemon writes it') and probe.go ('Platform must not access ib:operator:cmd') all still say otherwise. Separately, the remediation runner's ib_gateway_control tool can call reconnect and also mode live|mock|maintenance on the PROD gateway. Its only approval is a prompt instruction (request_operator_approval), and the respond endpoint behind it is unauthenticated (TD-207). preflight.js does not see this path.
 - **Measured**: CODE-READ. Live: PROD platform-api runs with OPS_IB_AUTOREPAIR_ENABLED=true and REDIS_IB_PLATFORM_PASS present (env names only). The autorepair loop only rolls out; it does not XADD.
 - **Evidence**:
@@ -1706,7 +1707,7 @@
 
 **P3 · ops-platform · Platform's D10 scale guard only blocks daemon 0→n: the PROD daemon (2, observe-safe) and DEV (1) can be scaled to 20 by any operator-token caller that bypasses preflight**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-S2，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: Scale refuses only when Name=='daemon' and current==0. The PROD daemon runs at 2 and DEV at 1, so 2→20 and 1→20 pass. Claude sessions are covered: preflight d10McpRule blocks MCP scale_deployment of daemon to any replicas>0. The remediation runner, the Console and a direct HTTP call with an operator token are not covered. Argo does not auto-sync bifrost-prod or bifrost-stg, so a manual scale persists. The only test covers 0→2 in stg and 2→0 in prod.
 - **Measured**: MEASURED 2026-10-07: bifrost-prod/daemon 2/2, bifrost-dev/daemon 1/1, bifrost-stg/daemon 0/0. syncPolicy.automated is empty on Argo apps bifrost-prod and bifrost-stg. The scale endpoint was not called.
 - **Evidence**:
@@ -1779,7 +1780,7 @@
 
 **P3 · trade-worker · Leftovers of the deleted Account Sync daemon: the plugin still XADDs every account snapshot to ib:account:stream:v1, which nothing reads**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-T，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: TD-22 deleted the Account Sync daemon, the only consumer of ib:account:stream:v1. The IB Gateway plugin still XADDs the full snapshot (all accounts, summaries, positions) to that stream on every snapshot write, capped at about 1000 entries on redis-ib. Core still defines the key and a health-key comment describing the retired consumer, and the Console architecture catalog lists the stream as live. The key is also pinned in core and plugin tests/contracts/redis_ib_keys.json (and core test_redis_ib_contract.py:75-76), so removing it means updating both contract files together.
 - **Measured**: CODE-READ. `git grep` over origin/main of core, api, worker, platform, research, frontend, infra and the market-data and flex plugins finds no XREAD or consumer. redis-ib memory was not measured.
 - **Evidence**:
@@ -1797,7 +1798,7 @@
 
 **P3 · data · The data-warehouse 'second MinIO' never ran (PVC Pending 109 days, Deployment 0/0), yet AGENT_FACTS lists it, and its placeholder root Secret is committed to a PUBLIC repo and applied**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-D2，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: k8s/compute/warehouse/minio.yaml commits a kind: Secret with a literal placeholder MINIO_ROOT_PASSWORD. It is the only committed Secret manifest under k8s outside the examples, and it was applied as-is. PVC data-warehouse/minio-data has been Pending since creation (gpu-server NotReady,SchedulingDisabled) and deploy/minio is 0/0, so the store never held data. AGENT_FACTS still says it serves Research and Golden Source objects. The data namespace also carries an unmanaged Service np-redis-fresh with no endpoints for 98 days, and two Released test-nfs-hot PVs. TD-133 covers only the in-cluster MinIO leftovers in data.
 - **Measured**: MEASURED 2026-10-07: PVC Pending at 109d; deploy 0/0; secret minio-root carries last-applied-configuration and was created 2026-06-19T09:13:12Z together with deploy/minio; svc data/np-redis-fresh has no endpoints and no source in any repo; two test-nfs-hot PVs are Released. The live secret value was not read.
 - **Evidence**:
@@ -1814,7 +1815,7 @@
 
 **P3 · trade-worker · Up to about 40 runtime exports of @bifrost/ui have no importer in either consumer (ContextMenu family, KpiStrip, holidayLine, shellNav* constants); dead-code share unmeasured**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；Cursor LANE-U2，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: Of 283 names re-exported from src/index.ts, 85 have no textual hit in either consumer's src, about 45 of them Props types. Of the remaining runtime exports, some (useMorph and composeRefs, used in 5 internal files) are live inside bifrost-ui and only need not be public. Others (KpiStrip, the ContextMenu wrappers, holidayLine) may be fully unused. No tool measures unused exports.
 - **Measured**: MEASURED by script on origin/main: 85 of 283 names have no consumer hit. A spot check of 7 names confirmed 0 consumer hits; useMorph and composeRefs are used internally. Internal use was not subtracted overall.
 - **Evidence**:
@@ -1830,7 +1831,7 @@
 
 **P3 · trade-worker · The running PROD daemon never writes contract_quote_live: the observe-only quote mirror sits under mock_hedging, which is hard-coded True**
 
-- **状态**：未开始
+- **状态**：在做（Owner 10-07 批准实现；方案 B：删除，先确认 contract_quote_live 无读取方；Cursor LANE-T，只推分支，发版 / DDL / apply 另行请示）
 - **Claim**: Both contract_quote_live write sites in the heartbeat are inside `if not getattr(app, "mock_hedging", True)`, and GsTrading sets mock_hedging = True in __init__ and _reload_config as the D10 hedging guard. The PROD daemon runs (2/2), so the Redis→raw_broker.contract_quote_live mirror, which is observe-only, never runs; _on_ticker / _on_ticker_for_contract_key have no caller. Closed TD-140 recorded the cause as 'the daemon does not run'; its fix (vendor EOD fallback, core 0.51.0) routes around the table.
 - **Measured**: MEASURED 2026-10-07 00:45 UTC: bifrost-prod deploy/daemon 2/2; raw_broker.contract_quote_live 13 rows, max(updated_at) 2026-03-28 06:16; no caller of _on_ticker* in worker src/tests.
 - **Evidence**:
@@ -2004,7 +2005,8 @@
 
 **P3 · ops-platform · The k3s admin client certificate that STG and PROD platform held a copy of (Secret bifrost-platform-kubeconfig, 06-28 → 10-07) was never rotated**
 
-- **状态**：未开始（要你批）
+- **状态**：待你签收（Owner 10-07 选 A：不轮换。拷贝只存在于集群内 Secret，TD-204 已删除；证书按 k3s 年度周期自然过期）
+- **验收结果**：PASS 2026-10-07：Owner 决定不处理；bifrost-platform-kubeconfig 类 Secret 已由 TD-204 删除（血缘会话核对）
 - **Claim**: Until TD-204 both platform namespaces held a copy of the k3s admin kubeconfig (system:admin, group system:masters) in a Secret readable by anyone with Secret access there. The copies are deleted, but the client certificate itself stays valid until it expires or the k3s client CA is rotated. Its copies existed only inside the cluster; no leak is known.
 - **Measured**: MEASURED 2026-10-07: Secrets created 2026-06-28T19:04Z in both namespaces, deleted 2026-10-07; `kubectl auth whoami` on the source file → system:admin / system:masters.
 - **Evidence**:
