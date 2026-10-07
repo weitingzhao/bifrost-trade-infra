@@ -1594,7 +1594,7 @@
 
 **P3 · ops-platform · Lineage thread titles are synced only by the platform-api on the Owner's workstation (bdev): when it is down, or sessions run elsewhere, new threads stay unnamed**
 
-- **状态**：在做（Owner 10-06 已批：Stop hook 上报 + 本机同步兜底）。现在：platform `PUT /api/v1/lineage/transcript-title`（reporter）与 hook `claude/hooks/report-thread-title.js` 已写好、本机端到端通过（11 MB transcript 首读 0.10 s、未变不发）；下一步：platform 发布、本机放 reporter 令牌文件、按验收在 PROD 上看
+- **状态**：观察中（到 10-07，看 Gitea 的 infra 镜像同步到 cefbb25 之后，线程 `local_27525066` 在 PROD Commit Lineage 上带标题显示）。已上线：platform `PUT /api/v1/lineage/transcript-title`（STG/PROD）、hook 接进 `on-session-stop.js`（6d44426，共享 checkout 10-06 已快进）、本机 reporter 令牌文件。已核：PROD `lineage-thread-titles` 里 `53652b28…` 的标题 23:33:51Z 由 hook 写入（hook 缓存同刻记下上报；本机同步器同期无变更记录）。页面还看不到，只因 infra 镜像停在 2eef610（17:28；Gitea 默认 8 小时同步一次，只有 deliver run 会先触发同步）
 - **Claim**: Thread titles come from Claude Code transcripts, which exist only on the machine that ran the session. `SyncWanted` turns the syncer on only outside the cluster, and `StartSync` runs inside the local platform-api's workers role; nothing else writes ConfigMap `lineage-thread-titles`. If the bdev platform-api is stopped or crashed, or a session runs on another machine (cloud, Cursor, a second Mac), the cluster keeps the last titles and new threads show their id.
 - **Measured**: MEASURED 2026-10-06. `lineage-thread-titles` holds 99 titles, all written by the local platform-api (log `thread titles sync first=true transcripts=98`). The cloud session `session_01Du5yDL` has no title (no local transcript); PROD Commit Lineage shows 8 of 9 threads titled.
 - **Evidence**:
