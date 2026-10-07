@@ -15,7 +15,7 @@
 
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 106 项**：P0 0 · P1 10 · P2 33 · P3 63；要你批的 56 项（从总览表的审批列算）。
+**未结 107 项**：P0 0 · P1 10 · P2 33 · P3 64；要你批的 56 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -57,7 +57,7 @@
 
 目标：一个开关让所有测试类防线生效（CI 卡发布），再补上调度存活告警、D10 闸门的非 curl 写法、operator 流白名单、本机常驻任务和密钥轮换的盲区、spine 副本同步。
 
-项：TD-95, TD-96, TD-100, TD-105, TD-109, TD-121, TD-152, TD-153, TD-155, TD-162 · 已还：TD-99, TD-161, TD-198, TD-195, TD-194
+项：TD-95, TD-96, TD-100, TD-105, TD-109, TD-121, TD-152, TD-153, TD-155, TD-162, TD-249 · 已还：TD-99, TD-161, TD-198, TD-195, TD-194
 
 ### 第 3 波 · 交易日与日历只有一个来源
 
@@ -329,6 +329,7 @@
 | [TD-246](#td-246) | P3 | trade-data | Snapshot enrich stores a vendor 'day close' that can sit below the option's intrinsic value (a stale last trade), and P&L attribution then books it as unexplained | 已批（Owner 10-07「做」） |
 | [TD-247](#td-247) | P3 | frontend | Look-back starts are still computed in the browser's time zone (new Date(Date.now() - N*86400000).toISOString().slice(0,10)), and three private New York date helpers duplicate @/lib/freshness | 不用批 |
 | [TD-248](#td-248) | P3 | ops-platform | The ntfy alert relay runs on one Mac mini (.50) and nothing watches it: if .50 or its operator-plane is down, no alert and no dead-man page reaches the Owner | 不用批 |
+| [TD-249](#td-249) | P3 | ops-console | After TD-230/227: remediation agent copy still says the gate result is pass/fail (no inconclusive), and Control Room does not list which sources are stale | 不用批 |
 
 ## 条目
 
@@ -1784,7 +1785,8 @@
 
 **P3 · ops-console · The release desk's Launch verdict says 'Clear to launch' and enables Agent Deploy when readiness probes failed or are still loading**
 
-- **状态**：在做（还债循环 · 道 L2，10-07 03:1x UTC 开工；发版前停下）
+- **状态**：观察中（platform main f7a4d9a 已推（8803ee8..f7a4d9a），等 platform 发版——要你批，并与血缘会话协调，一次只一个会话发）
+- **验收结果**：PASS 2026-10-07 f7a4d9a：新增结论 PROBING（Readiness not measured，黄色），把关维度任一 unknown / 缺失即不给 GO，checkpoint 只有实测 ok 才算绿；`satelliteLaunchVerdict.test.ts`「unknown readiness is not GO」11 passed。偏离台账：isProdReleaseBlocked 未改（会在加载时误报阻断），闸门统一走 resolveLaunchVerdict
 - **Claim**: The readiness helpers return 'unknown' when their fetch has no data (gate, socket, matrix or promote is null). Both blocking predicates treat only 'fail' and 'degraded' as blocking, so 'unknown' falls through to kind 'GO'. buildLaunchCheckpoints sets ok = !blocked, and the signal defaults to 'ok', so the checkpoints render green. TradeReleasePage enables deploy on GO, behind canOperate. Tests cover clear and blocked prod but not unknown.
 - **Measured**: CODE-READ only; no browser was opened, because the Cluster page auto-dispatches.
 - **Evidence**:
@@ -1802,7 +1804,8 @@
 
 **P3 · ops-console · The cockpit mission snapshot keeps a failing probe's last good verdict, under a 'Last probe' stamp that is the newest of seven queries**
 
-- **状态**：在做（还债循环 · 道 L2，10-07 03:1x UTC 开工；发版前停下）
+- **状态**：观察中（platform main f7a4d9a 已推（8803ee8..f7a4d9a），等 platform 发版——要你批，并与血缘会话协调，一次只一个会话发）
+- **验收结果**：PASS 2026-10-07 f7a4d9a：useMissionSnapshot 只用 40 s 内无错应答的来源，过期即 unknown，freshness 取最旧应答，新增 staleSources；`useMissionSnapshot.test.tsx`「mission snapshot stale」3 passed
 - **Claim**: useMissionSnapshot builds the Control Room and FocusStrip verdict from seven useQuery results. It never reads isError, and TanStack v5 keeps data from the last success when a refetch fails. dataUpdatedAt is the max over all seven queries, so if one probe (matrix or cluster) keeps failing while others succeed, its stale verdict shows under a fresh stamp. A full platform-api outage is visible, because the stamp ages. 11 files use the hook.
 - **Measured**: CODE-READ only (TanStack ^5.100.14; main.tsx sets retry:1).
 - **Evidence**:
@@ -1855,7 +1858,8 @@
 
 **P3 · ops-platform · The platform release gate passes when required checks are 'unknown', and its 'ready' never expires**
 
-- **状态**：在做（还债循环 · 道 L2，10-07 03:1x UTC 开工；发版前停下）
+- **状态**：观察中（platform main f7a4d9a 已推（8803ee8..f7a4d9a），等 platform 发版——要你批，并与血缘会话协调，一次只一个会话发）
+- **验收结果**：PASS（代码层）2026-10-07 f7a4d9a：必需检查有 unknown → result `inconclusive`；pass 超过 `PLATFORM_RELEASE_GATE_MAX_AGE`（默认 24h）→ ready=false 并给 blocker；prod matrix 零目标记 Unknown；无新存储，result 多一个取值（消费方都按 === 'pass' 比较）。实测今天本机 gate 记录四个 tier 都是 pass / ready 且最新是 09-01——上线后 DEV / 本机发布台会从 GO 变 NO_GO（gate 36 天未重跑），要重跑一次 gate 才绿；PROD store 本来就空（TD-196）不受影响。防线 promote/service_test.go 5 个 + console releaseGateSignal.test.ts
 - **Claim**: RunReleaseGate fails only on ReachFail. Required checks that return ReachUnknown (spine milestone missing, smoke URLs unset, an empty probe matrix) produce result=pass, and narrativeBlockers does not treat Unknown as a blocker. responseFromRecord sets ready=true for any past pass with no age bound. checkProdMatrix fails when cfg is nil or prod is missing, but reports OK when the matrix has zero targets. The stale-ready display could not be reproduced on 10-07: the local instance serves no records although the state files exist (the same silent read as TD-229), and PROD's store is empty (TD-196).
 - **Measured**: CODE-READ for unknown→pass. MEASURED 00:59 UTC: local GET release-gate answers 'No … release gate recorded yet' for all four tiers while bifrost-platform/data/release_gate_state*.json exists (newest prod record 08-31). The gate has not run for over a month; releases go through release.sh and Tekton.
 - **Evidence**:
@@ -2050,7 +2054,7 @@
 
 **P3 · research-control · agents/journal_distill reads raw_broker.executions_final with no Flex freshness check (own 23:55 UTC schedule, outside any gate)**
 
-- **状态**：未开始
+- **状态**：在做（还债循环 · 道 L5，10-07 03:3x UTC 开工）
 - **Claim**: TD-192 mapped every Flex reader; journal_distill is one of the four outside the batch and was never gated (before or after the split).
 - **Measured**: code-read 10-07 by paydown lane BB.
 - **Evidence**:
@@ -2064,7 +2068,8 @@
 
 **P3 · ops-console · Console agent-pack text still says husbandry_gate blocks dbt when Flex fails (stale after TD-192)**
 
-- **状态**：在做（还债循环 · 道 L2，10-07 03:1x UTC 开工；发版前停下）
+- **状态**：观察中（platform main f7a4d9a 已推（8803ee8..f7a4d9a），等 platform 发版——要你批，并与血缘会话协调，一次只一个会话发）
+- **验收结果**：PASS 2026-10-07 f7a4d9a：三个 agent pack 改为 husbandry_gate 只看 Market、flex_gate 只拦 option_pinned_contract；三个 pack 测试各加一例（含 flex_gate / option_pinned_contract、不许旧说法）3 passed
 - **Claim**: flexAgentPack.ts:316, massiveAgentPack.ts:335, researchEngineAgentPack.ts:462 describe the old single gate.
 - **Measured**: code-read 10-07 by paydown lane BB.
 - **Evidence**:
@@ -2117,6 +2122,20 @@
 - **Fix**: Let the .52 peer watchdog (already polls .50) read .50's `/api/v1/alerts/relay` and publish to ntfy directly when it fails or reports `heartbeat_ok: false` for 20 min; and add a Prometheus alert on `alertmanager_notifications_failed_total{integration="webhook"}` increasing (it would then page via .52 too).
 - **Ratchet**: The check above is itself the ratchet; plus `check_alert_routing.py` keeps the routes.
 - **验收**: Stop the operator plane on .50 (`launchctl bootout gui/$(id -u)/com.bifrost.operator-plane` on .50) for 25 min: the phone gets a page from .52.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-249
+
+**P3 · ops-console · After TD-230/227: remediation agent copy still says the gate result is pass/fail (no inconclusive), and Control Room does not list which sources are stale**
+
+- **状态**：未开始
+- **Claim**: agent/remediation/src/prompt.ts:253 and tools/deliveryTools.ts:183 describe gate results as pass/fail; useMissionSnapshot now returns staleSources but ControlRoomPage / MissionControlHeader do not pass it to ControlRoomVerdictStrip.
+- **Measured**: code-read 10-07 by loop lane L2.
+- **Evidence**:
+  - `bifrost-platform/agent/remediation/src/prompt.ts:253` — `'15. Report the gate result (pass/fail, checks, blockers).',`
+- **Impact**: Remediation agents misread an inconclusive gate; Control Room shows the oldest probe time without naming the stale source.
+- **Fix**: Add inconclusive to the two agent texts; thread staleSources into the Control Room verdict strip.
+- **Ratchet**: None new: copy; covered by the existing pack / snapshot tests once extended.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
 ## 没覆盖到的（下一轮从这里开始）
