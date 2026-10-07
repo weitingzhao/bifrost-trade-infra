@@ -13,8 +13,6 @@
 
 ## 待你签收
 
-- **TD-182** — 宏观缺口面板的错误空状态已随组件删除（TD-199），不用再改文案（Cursor LANE-U2 核实） · 验收 PASS（10-07：origin/main 无该文案、组件不存在）· 防线：`orphanModules.test.ts`（组件再出现且无人引用会失败） · 后续：/fed/v1/inflation 原始表灌 macro_event_daily.actual 是数据扩展，不在台账（要的话另立编号）
-- **TD-222 / TD-131 / TD-109** — daemon 任何扩容在 D10 未解锁时都拒；修 WAL 不再删失败的 Backup 记录（只清 30 天前的）；PROD 的 ops-context 从 22 个 decision 补到 55 个并加对齐检查（Cursor LANE-S2，platform d8bdf41 + infra 1aff307） · 验收 PASS（10-07：Go 56 包 ok、点名 10 个测试 PASS、PROD 55 decisions D10 BLOCKED、workers 带清扫开关） · 防线：`api/internal/cluster/actuation_scale_test.go`、`postgres_wal_repair_test.go`、`bifrost-trade-infra/scripts/check_ops_context_parity.py`（ci-platform task check-ops-context） · 后续：ci-platform 仍不挡 release.sh（已在「闸门本身不挡发布」，无新编号）
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-253** — 检查信号不再是几周前的：每条带观测时间和来源，超过 2 小时读 unknown、autopilot 不会按它动手；PROD platform-workers 自己每 10 分钟探测一次（不再靠 Mac 上报）。验收 PASS 2026-10-07 d8bdf41（22/22 带时间）。防线：`RATCHETS.md`「检查信号的时效与来源」测试 + `check_platform_maintenance.py`（探测器只在 PROD workers）。后续：无后续：放开 autopilot 动手在 TD-130（观察到 10-12）
@@ -22,7 +20,7 @@
 - **TD-255** — 漂移扫描不再删失败现场：只删被驱逐的 Pod，失败的备份 Job Pod 留着（日志可读），只报告模式下一个不删。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「漂移扫描只删 Evicted 测试」。后续：无后续：Job 历史上限与 TTL 负责回收
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 97 项**：P0 0 · P1 10 · P2 35 · P3 52；要你批的 55 项（从总览表的审批列算）。
+**未结 93 项**：P0 0 · P1 10 · P2 33 · P3 50；要你批的 51 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -64,7 +62,7 @@
 
 目标：一个开关让所有测试类防线生效（CI 卡发布），再补上调度存活告警、D10 闸门的非 curl 写法、operator 流白名单、本机常驻任务和密钥轮换的盲区、spine 副本同步。
 
-项：TD-95, TD-96, TD-100, TD-105, TD-109, TD-121, TD-152, TD-153, TD-155, TD-162 · 已还：TD-99, TD-161, TD-198, TD-195, TD-194, TD-249
+项：TD-95, TD-96, TD-100, TD-105, TD-121, TD-152, TD-153, TD-155, TD-162 · 已还：TD-99, TD-161, TD-198, TD-195, TD-194, TD-249, TD-109
 
 ### 第 3 波 · 交易日与日历只有一个来源
 
@@ -88,13 +86,13 @@
 
 目标：备份 MinIO 已搬到 NAS（infra 1ee0ac2，已接监控 ba03488），把剩下的收尾：自动修复只在 PROD 一处动手、失败记录不再被删、platform 的新检查上线、稳定一周后退役集群里的 MinIO 残留，再处理 WAL 体量和 CNPG 1.30 的备份插件。
 
-项：TD-131, TD-133, TD-134, TD-135 · 已还：TD-197, TD-173, TD-132
+项：TD-133, TD-134, TD-135 · 已还：TD-197, TD-173, TD-132, TD-131
 
 ### 第 7 波 · 数据缺口（10-06 由 Data Gaps 看板并入）
 
 目标：Data Gaps 看板上未结的 15 项并入台账：先把每日快照的写入修对（TD-137）再接读侧和三页，归因行补上价格，Research 侧已就绪的一个版本（0.185.0）发出去，长期限 IV 锥在 10-31 前从 option_daily 回填，其余按 Owner 已定的口径排。
 
-项：TD-137, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-158, TD-159, TD-172, TD-180, TD-182, TD-246, TD-250 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181, TD-193, TD-140, TD-171, TD-138, TD-139, TD-178, TD-199, TD-243
+项：TD-137, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-158, TD-159, TD-172, TD-180, TD-246, TD-250 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181, TD-193, TD-140, TD-171, TD-138, TD-139, TD-178, TD-199, TD-243, TD-182
 
 ### 第 8 波 · Pine 线程收尾后的跟进（10-06）
 
@@ -106,7 +104,7 @@
 
 目标：先关门再修代码。本机 platform-api 只监听本机、PROD/STG Redis 的局域网 NodePort 删掉，然后 git-bridge、修复 runner、Hermes、husbandry-sync 都要令牌；platform 换成按需授权的 ServiceAccount，停用管理员 kubeconfig；路由鉴权测试卡住回退。
 
-项：TD-206, TD-207, TD-208, TD-221, TD-222 · 已还：TD-205, TD-203, TD-224, TD-220, TD-231, TD-225
+项：TD-206, TD-207, TD-208, TD-221 · 已还：TD-205, TD-203, TD-224, TD-220, TD-231, TD-225, TD-222
 
 ### 第 10 波 · 告警有人收、备份能恢复（第 3 轮）
 
@@ -252,7 +250,6 @@
 | [TD-105](#td-105) | P2 | flex-ib | DEV/STG operator streams accept every op except two (a denylist), so any op added later is open to DEV and STG by default | 安全/凭据（要你批） |
 | [TD-106](#td-106) | P2 | market-data | Nightly trim (now with W3 archive) runs synchronously behind Dagster's 60s HTTP timeout; retries start overlapping trims and the recorded outcome is the retry's | 跨仓库发版 |
 | [TD-107](#td-107) | P2 | market-data | Indexes declared for the six financials entity tables never reach a deployed DB (the migration returns early); live differs from fresh install | 改表 |
-| [TD-109](#td-109) | P2 | ops-platform | PROD platform-api reads a deployed ops-context.yaml copy last synced 2026-08-24: about 33 spine decisions missing (D-Journal-Stores, D-Ops-Split, D-Wave-10..13) | 跨仓库发版 |
 | [TD-110](#td-110) | P3 | research-data | Stored IV features solve Black-Scholes at r=0 while the backtester uses treasury rates from two separate readers; further BS copies in gex and opex | 不用批 |
 | [TD-111](#td-111) | P3 | research-data | dbt: the pass_count range generic test sits in the singular folder (errors when selected, never applied); key intermediates lack grain tests; nothing ties eval_date to the session | 不用批 |
 | [TD-112](#td-112) | P3 | research-data | option_surface_iv_daily upserts per (symbol, trade_date, expiry) and never deletes, so expiries a re-walk dropped keep their old smile | 不用批 |
@@ -267,7 +264,6 @@
 | [TD-128](#td-128) | P3 | research-data | Pine signal rows mix adjustment bases: nightly runs rewrite only the last ~10 sessions on today's adjusted bars, older rows stay on the basis of their last full rebuild | 不用批 |
 | [TD-129](#td-129) | P3 | research-data | The event backtest picks option legs from option_daily only; since mid-August 2026 it keeps ~10 strikes a side, so a target delta silently lands on the nearest strike that is left | 不用批 |
 | [TD-130](#td-130) | P1 | ops-control | ops-autopilot acts on the shared cluster's data layer from the Owner's laptop (local bdev platform-api, role all); the in-cluster STG/PROD autopilots idle on an empty checklist, and each of the three keeps its own throttle | 要你批 |
-| [TD-131](#td-131) | P2 | ops-control | repair_cnpg_wal_store deletes failed Backup CRs, erasing the record of failed backups | 要你批 |
 | [TD-133](#td-133) | P3 | data | Leftovers of the in-cluster MinIO after the move to the NAS (deploy/minio at 0, its PVC/PV, an empty EndpointSlice, the backup-retry CronJob) | 要你批 |
 | [TD-134](#td-134) | P2 | data | WAL is ~19.5 GiB/day (4.2 GiB compressed) because checkpoints run every 5 minutes without wal_compression | 要你批 |
 | [TD-135](#td-135) | P3 | data | Native barmanObjectStore backups are removed in CloudNativePG 1.30; the Barman Cloud Plugin that replaces them needs cert-manager, which the cluster does not have | 新依赖（要你批） |
@@ -295,7 +291,6 @@
 | [TD-172](#td-172) | P2 | research-data | ATM IV has almost no 50–90 DTE expiry from 2026-07-06 to 09-25 (the EOD chain stopped at the third listed expiry until plugin 0.39.0); the fix was forward-only, so term structure reads na for that stretch | 要你批 |
 | [TD-174](#td-174) | P3 | market-data | Console marks fundamentals-rotate missed every Monday 03:45 → Tuesday 03:00 UTC: the trading-day check uses the UTC date of the fire | 不用批 |
 | [TD-180](#td-180) | P3 | research-data | The macro calendar has no CPI dates after 2026-12-10 and no payrolls at all: bls.gov answers 403 from this host, so they could not be read | 不用批 |
-| [TD-182](#td-182) | P3 | research-data | Macro gap (actual vs expected) is always empty: consensus is not in the subscription, and the entitled /fed/v1/inflation actuals have no raw table | 改表（要你批） |
 | [TD-183](#td-183) | P3 | market-data | W3 archive-before-delete has never archived for real: the first intraday option_snapshot archive is ~10-08 02:15 UTC and option_daily / short_volume on 11-01 | 不用批 |
 | [TD-184](#td-184) | P3 | frontend | The Simulator says "stored with the run" for runs that were not stored: the fix (fe 53d6939e) is on main but not in STG/PROD | 发布（要你批） |
 | [TD-185](#td-185) | P3 | research-control | The Pine-vs-TradingView roadmap ledger is a point-in-time judgement: its scores and next steps need a re-evaluation around 11-06 | 不用批 |
@@ -316,7 +311,6 @@
 | [TD-217](#td-217) | P2 | data | The Barman base+WAL backup, the only copy of the 34 GB Golden Source history, has never been restored, and has not been tried at all against the NAS MinIO it moved to on 10-06 | PROD 变更（要你批） |
 | [TD-218](#td-218) | P2 | data | Every backup copy (Barman base+WAL, logical dumps hot and cold, the W3 archive) is on the one NAS 192.168.10.20:/volume1, and the open offsite decision is not in the ledger | PROD 变更（要你批） |
 | [TD-221](#td-221) | P3 | ops-console | The governance catalog says nobody but the daemon writes ib:operator:cmd, but platform-api does (sanctioned by D-IB-Heal), and the runner's ib_gateway_control can switch the PROD gateway to mock with only a prompt-level approval | 安全/凭据（要你批） |
-| [TD-222](#td-222) | P3 | ops-platform | Platform's D10 scale guard only blocks daemon 0→n: the PROD daemon (2, observe-safe) and DEV (1) can be scaled to 20 by any operator-token caller that bypasses preflight | 安全/凭据（要你批） |
 | [TD-223](#td-223) | P3 | ops-platform | STG and PROD platform-workers both run the IB gateway auto-repair loop against the one live data/ib-gateway, each with its own 15-minute cooldown | PROD 变更（要你批） |
 | [TD-228](#td-228) | P3 | ops-console | Every scheduled Hermes skill run on .52 fails with 'No such file or directory', while /health returns status ok and the checklist counts the gateway healthy | 不用批 |
 | [TD-234](#td-234) | P3 | trade-worker | @bifrost/ui is unversioned for the Ops Console: a ui push never runs platform CI, and platform deliver builds whatever ui main is without recording its SHA | 不用批 |
@@ -615,21 +609,6 @@
 - **Ratchet**: CI applies plugin DDL to an empty Postgres and snapshots the index catalog; weekly read-only diff of the snapshot vs live pg_index in GS fails on any declared-but-absent index.
 - 审批 改表 · 代价 M · 风险 med · repos: bifrost-platform-plugin-market-data
 
-### TD-109
-
-**P2 · ops-platform · PROD platform-api reads a deployed ops-context.yaml copy last synced 2026-08-24: about 33 spine decisions missing (D-Journal-Stores, D-Ops-Split, D-Wave-10..13)**
-
-- **状态**：待你签收（infra 1aff307 经 Argo 同步，bifrost-ci-platform Pipeline 已 apply 新 task check-ops-context）
-- **验收结果**：PASS 2026-10-07 1aff307：PROD ConfigMap bifrost-platform-config 的 ops-context 55 个 decision（原 22）、D10 BLOCKED；check_ops_context_parity.py 对 platform main 一致；make check-platform-maintenance ok
-- **Claim**: bifrost-trade-infra/k8s/overlays/platform-prod/config/ops-context.yaml is mounted as ConfigMap bifrost-platform-config by PROD platform-api and platform-workers. It is a hand-kept copy of bifrost-platform config/ops-context.yaml and has not been synced since 0170331 (2026-08-24), so Ops Console on the cluster shows a spine ~6 weeks stale. platform CI's check_spine_catalog.sh does not compare the deployed copies.
-- **Measured**: MEASURED by the ratchet-inventory pass: 17 decision ids in the PROD copy vs 50 on platform origin/main (diff 502/538 lines); a quick regex recount here gives 22 vs 55 '- id: D…' lines. Last commit touching the copy: 0170331 2026-08-24. Not adversarially re-verified; whether D10 state read by preflight comes from this copy was not checked (preflight reads the workspace spine).
-- **Evidence**:
-  - `bifrost-trade-infra/k8s/overlays/platform-prod/config/ops-context.yaml:41` — `headline: "TIBM W3 signed — STG read-path complete (D10 BLOCKED)"`
-- **Impact**: Owner and agents reading the cluster Console see a stale decision set (missing D-Journal-Stores and later program decisions), undermining 'code → Console Governance catalogs → spine' priority.
-- **Fix**: Generate the ConfigMap at build/deliver time from the platform repo's config/ops-context.yaml (delete the infra copy), or add a sync step plus CI parity check.
-- **Ratchet**: CI check (ci-infra or ci-platform): deployed copies' decision-id set equals platform main's; better, the copy no longer exists.
-- 审批 跨仓库发版 · 代价 S · 风险 low · repos: bifrost-trade-infra, bifrost-platform
-
 ### TD-110
 
 **P3 · research-data · Stored IV features solve Black-Scholes at r=0 while the backtester uses treasury rates from two separate readers; further BS copies in gex and opex**
@@ -860,22 +839,6 @@
 - **Ratchet**: Outside the cluster, background loops start only with an explicit opt-in (for example `PLATFORM_ALLOW_LOCAL_LOOPS=1`); a test on the role default.
 - **验收**: `curl -s 127.0.0.1:8780/health` shows background_loops false; the PROD audit log shows the autopilot's actions and the local one shows none.
 - 审批 要你批 · 代价 M · 风险 med · repos: bifrost-platform
-
-### TD-131
-
-**P2 · ops-control · repair_cnpg_wal_store deletes failed Backup CRs, erasing the record of failed backups**
-
-- **状态**：待你签收（platform d8bdf41（STG 1791353349 + PROD 1791353570，10-07）；infra 1aff307 让 PROD platform-workers 打开 PLATFORM_BACKUP_CR_SWEEP=1）
-- **验收结果**：PASS（代码层）2026-10-07 Claude 复验：S2 叠到 platform d8833e5 + b5dccde 后 go build/vet ok、55 包 ok（唯一红的是血缘会话 checklist/prober.go 的 safego，与本项无关），点名 10 个测试 PASS（repair 不再 delete Backup；只清 30 天前失败的）；check_platform_rbac.py 82 项一致
-- **Claim**: RepairPostgresWalStore calls deleteStuckBackupCRs, which deletes every bifrost-postgres-* Backup in phase failed or walArchivingFailing before it starts an on-demand Backup. CloudNativePG itself only deletes completed backups that are no longer in the object-store catalog. The failed 10-03 and 10-04 03:00 backups and the failed 10-03 manual one were gone from the cluster within hours; only Prometheus and a MinIO trace kept the evidence. On 10-06 16:15 UTC it deleted bifrost-postgres-ondemand-20261006-044532 (stopped on the Owner's request during the MinIO cutover) the same way. Independent of TD-130: can be fixed while the local autopilot is still the acting one.
-- **Measured**: MEASURED 2026-10-06: the Backup CRs of those three runs are absent; CNPG v1.27.4 `pkg/management/postgres/backup.go` deleteBackupsNotInCatalog skips every phase but completed.
-- **Evidence**:
-  - `bifrost-platform/api/internal/cluster/postgres_wal_repair.go` — `pickStuckBackupNames`, `deleteStuckBackupCRs`
-- **Impact**: Failure history for postmortems exists only in metrics; whoever looks at the cluster after the repair ran sees no failed backup.
-- **Fix**: Stop deleting failed Backups; a separate sweep removes failed Backup CRs older than 30 days.
-- **Ratchet**: A test that RepairPostgresWalStore issues no delete for a failed Backup.
-- **验收**: After a failed backup and a repair run, `kubectl -n data get backups` still lists the failed one.
-- 审批 要你批 · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-133
 
@@ -1350,21 +1313,6 @@
 - **Ratchet**: Already in place: the macro_calendar asset check warns when any series has under 30 days left.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
 
-### TD-182
-
-**P3 · research-data · Macro gap (actual vs expected) is always empty: consensus is not in the subscription, and the entitled /fed/v1/inflation actuals have no raw table**
-
-- **状态**：待你签收（前半「改空状态文案」不再成立：EventRadarDashboard 已在 TD-199 删除，origin/main 上没有这段文案；后半「/fed/v1/inflation 原始表」仍归 Owner）
-- **验收结果**：PASS 2026-10-07：frontend origin/main 上 grep 'forward_flag rows' 无结果，EventRadarDashboard.tsx 不存在
-- **Claim**: The MacroPanel gap view needs expected and actual. Consensus estimates are not entitled (entitlement gap: accept and name it). Actuals for inflation are entitled via Massive /fed/v1/inflation but the plugin has no raw table for them. The front-end empty state still blames a CSV forward_flag.
-- **Measured**: MEASURED 10-06 by paydown lane O: /macro/gap 0 rows; Benzinga 403; /fed/v1/inflation entitled.
-- **Evidence**:
-  - `bifrost-trade-frontend/src/components/research/EventRadarDashboard.tsx:213` — `'Forward releases appear when macro CSV includes forward_flag rows',`
-- **Impact**: Readers see an empty panel with a wrong explanation.
-- **Fix**: Now: change the empty-state copy to name the entitlement gap. Later (Owner): a plugin raw table for /fed/v1/inflation actuals feeding macro_event_daily.actual.
-- **Ratchet**: None feasible for the gap itself (entitlement); the copy fix is covered by the existing EventRadarDashboard tests once updated.
-- 审批 改表（要你批） · 代价 S · 风险 low · repos: bifrost-trade-frontend, bifrost-platform-plugin-market-data, bifrost-research
-
 ### TD-183
 
 **P3 · market-data · W3 archive-before-delete has never archived for real: the first intraday option_snapshot archive is ~10-08 02:15 UTC and option_daily / short_volume on 11-01**
@@ -1734,23 +1682,6 @@
 - **Ratchet**: Go AST test: sendOperatorCommand's op argument is only ever "reconnect_all", and operatorCmdStream appears only in ibgateway/operator_cmd.go. A code-health check compares the set of XADD writers to the operator stream across repos with an allowlist in AGENT_FACTS.
 - **验收**: `git -C bifrost-platform grep -n "'mode'" origin/main -- agent/remediation/src/tools/platformTools.ts  # no mode action; git -C bifrost-platform grep -n 'ib:operator:cmd' origin/main -- console/src/lib/architecture/agentProtocolCatalog.ts  # the catalog names the sanctioned reconnect_all writer`
 - 审批 安全/凭据（要你批） · 代价 M · 风险 med · repos: bifrost-platform, bifrost-trade-infra
-
-### TD-222
-
-**P3 · ops-platform · Platform's D10 scale guard only blocks daemon 0→n: the PROD daemon (2, observe-safe) and DEV (1) can be scaled to 20 by any operator-token caller that bypasses preflight**
-
-- **状态**：待你签收（platform d8bdf41（STG 1791353349 + PROD 1791353570，10-07））
-- **验收结果**：PASS（代码层）2026-10-07 Claude 复验：S2 叠到 platform d8833e5 + b5dccde 后 go build/vet ok、55 包 ok（唯一红的是血缘会话 checklist/prober.go 的 safego，与本项无关），点名 10 个测试 PASS（TestScaleDaemon* 覆盖 0→1/1→2/2→3 拒绝、缩容放行、spine 缺 D10 视为 BLOCKED）
-- **Claim**: Scale refuses only when Name=='daemon' and current==0. The PROD daemon runs at 2 and DEV at 1, so 2→20 and 1→20 pass. Claude sessions are covered: preflight d10McpRule blocks MCP scale_deployment of daemon to any replicas>0. The remediation runner, the Console and a direct HTTP call with an operator token are not covered. Argo does not auto-sync bifrost-prod or bifrost-stg, so a manual scale persists. The only test covers 0→2 in stg and 2→0 in prod.
-- **Measured**: MEASURED 2026-10-07: bifrost-prod/daemon 2/2, bifrost-dev/daemon 1/1, bifrost-stg/daemon 0/0. syncPolicy.automated is empty on Argo apps bifrost-prod and bifrost-stg. The scale endpoint was not called.
-- **Evidence**:
-  - `bifrost-platform/api/internal/cluster/actuation.go:149` — `if req.Name == "daemon" && current == 0 && req.Replicas > 0 {`
-  - `bifrost-trade-infra/k8s/overlays/prod/daemon-observe-safe.patch.yaml:8` — `replicas: 2`
-- **Impact**: Non-Claude callers can start several observe-mode daemon FSM writers in PROD without an Owner unlock, and those writers are not designed for N replicas. Live orders stay unarmed while the observe-safe patch holds.
-- **Fix**: Block any replica increase (requested > current) for Deployment daemon in the Trade namespaces until spine D10 reads UNLOCKED, reading D10 from ops-context as preflight does.
-- **Ratchet**: actuation_scale_test.go: TestScaleDaemonUpFromNonZeroBlocked (2→3 in bifrost-prod), plus a table test over all three Trade namespaces.
-- **验收**: `cd bifrost-platform/api && go test ./internal/cluster -run 'TestScaleDaemon' -count=1 -v | grep -E 'NonZero|PASS|FAIL'`
-- 审批 安全/凭据（要你批） · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-223
 

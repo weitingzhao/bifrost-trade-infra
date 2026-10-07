@@ -118,6 +118,10 @@
 | trust override 不落 HOME、读写错误不吞（TD-229） | `bifrost-platform/api/internal/agentgovernance/trust_override_store_test.go` + `api/internal/trustoverrides/configmap_test.go` + `api/internal/storedurability/home_paths_test.go` TestNoNewStoreUnderHome（HOME 白名单只减不增） | Owner 授权随 pod 重启丢失、写失败仍回 200 | error（Go 测试） | 白名单里仍有本机回退 HOME 的 store |
 | 前端孤儿模块归零（TD-243，接 TD-199） | `bifrost-trade-frontend/src/lib/orphanModules.test.ts`（KNOWN_ORPHANS 长度 0；生成文件白名单只登记 designInks.generated.ts） | 新增没人 import 的模块 | warning（测试；ci-frontend 不跑 vitest） | 不在 CI |
 | 治理文档与代码里的事实保持一致（TD-241） | `bifrost-trade-infra/agent-config/scripts/check-agent-config-parity.sh`（parity-id）+ `agent-guard/test.js`（42 例，匹配不变）；RATCHETS 第 2 列写全路径 | 文档写着已不成立的事实（告警范围、CI 结果、NodePort、写入方） | warning（脚本） | 事实漂移本身没有自动检查 |
+| daemon 任何扩容在 D10 未解锁时都拒（TD-222） | `bifrost-platform/api/internal/cluster/actuation_scale_test.go`（0→1、1→2、2→3 拒，缩容放行，spine 缺 D10 视为 BLOCKED） | 只拦 0→n，PROD 2→3 能被扩 | error（Go 测试） | 只覆盖 platform-api 这一条执行路径 |
+| 修 WAL 不删失败 Backup 记录（TD-131） | `bifrost-platform/api/internal/cluster/postgres_wal_repair_test.go`（repair 无 delete；只清 30 天前失败的） | 失败备份的记录被修复动作抹掉 | error（Go 测试） | — |
+| 部署的 ops-context 与 platform spine 逐字节一致（TD-109） | `bifrost-trade-infra/scripts/check_ops_context_parity.py` + ci-platform task check-ops-context | PROD 读到过期的 spine（缺 33 个 decision） | warning（CI 不挡发布） | ci-platform 不挡 release.sh |
+| 宏观面板错误文案（TD-182） | 组件已删；`orphanModules.test.ts` | 组件再出现且无人引用 | warning（测试） | — |
 
 ## 各类债现在挡没挡住
 
