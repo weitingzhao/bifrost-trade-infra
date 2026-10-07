@@ -1625,12 +1625,14 @@
 - **Claim**: Both platform Deployments mount `/app/data` as an emptyDir, one per pod (the api pod and the workers pod do not share it). Every file store resolves under it: release-gate state and history, release cycles (including `agent_session_id`), the operate queue, checklist signals, patrol state, the escape-hatch drill and agent-deploy last. The audit log is built with `NewAuditLog("")` and `PLATFORM_AUDIT_LOG` is set in no overlay, so audit records only live in memory. A rollout, crash or reschedule erases all of it.
 - **Measured**: MEASURED 2026-10-06 23:40Z. Five platform deliveries were started through platform-api today (STG/PROD 17:53–23:34). PROD `GET /api/v1/promote/release-cycles?lane=platform` → `{"entries":[]}` and `GET /api/v1/audit?limit=5` → `{"records":[]}`; the PROD pods started 23:33 with the last rollout.
 - **Evidence**:
-  - `bifrost-trade-infra/k8s/base-platform/manifest.yaml:87` — `emptyDir: {}` (platform-api; workers at :185; `PLATFORM_DATA_DIR` at :42 / :140)
-  - `bifrost-trade-infra/k8s/overlays/platform-prod/replicas-ha.patch.yaml:12` — `One replica is the honest configuration until that state moves to Postgres.`
+  - `bifrost-trade-infra/k8s/base-platform/manifest.yaml:87` — `emptyDir: {}`
+  - `bifrost-trade-infra/k8s/base-platform/manifest.yaml:185` — `emptyDir: {}`
+  - `bifrost-trade-infra/k8s/overlays/platform-prod/replicas-ha.patch.yaml:12` — `# One replica is the honest configuration until that state moves to Postgres.`
   - `bifrost-platform/api/internal/promote/cycle_store.go:23` — `dataDir := os.Getenv("PLATFORM_DATA_DIR")`
-  - `bifrost-platform/api/internal/promote/store.go:19` — `PLATFORM_RELEASE_GATE_STATE`, else `PLATFORM_DATA_DIR`
-  - `bifrost-platform/api/internal/operatequeue/store.go:29` — `queue.json` under the data dir
-  - `bifrost-platform/api/internal/server/server.go:112` — `audit := actuation.NewAuditLog("")` (`actuation/audit.go:32` falls back to `PLATFORM_AUDIT_LOG`, unset)
+  - `bifrost-platform/api/internal/promote/store.go:19` — `path := os.Getenv("PLATFORM_RELEASE_GATE_STATE")`
+  - `bifrost-platform/api/internal/operatequeue/store.go:29` — `return &Store{path: filepath.Join(dir, "queue.json")}`
+  - `bifrost-platform/api/internal/server/server.go:112` — `audit := actuation.NewAuditLog("")`
+  - `bifrost-platform/api/internal/actuation/audit.go:34` — `path = os.Getenv("PLATFORM_AUDIT_LOG")`
 - **Impact**: The Console's Promote history, release cycles and Audit view only show what happened since the last rollout; "who released what, when" has no durable record on the platform side; PROD platform-api is pinned to one replica because of it. The commit-lineage release records and thread titles avoided this by writing ConfigMaps (platform f53713b, 45277ce).
 - **Fix**: Move the small stores to ConfigMaps in the platform namespace behind one store interface (same pattern as `internal/releases` and `internal/threadtitles`: get-or-create, update with retry on conflict, capped size), the audit log to a capped ConfigMap (or ship it to Loki and read back); then drop the emptyDir mount. Postgres only if HA or audit volume needs it.
 - **Ratchet**: A platform test that no store resolves a path under `PLATFORM_DATA_DIR` once migrated, and a manifest check that no platform Deployment mounts an emptyDir at `/app/data`.
@@ -1645,9 +1647,10 @@
 - **Claim**: Thread titles come from Claude Code transcripts, which exist only on the machine that ran the session. `SyncWanted` turns the syncer on only outside the cluster, and `StartSync` runs inside the local platform-api's workers role; nothing else writes ConfigMap `lineage-thread-titles`. If the bdev platform-api is stopped or crashed, or a session runs on another machine (cloud, Cursor, a second Mac), the cluster keeps the last titles and new threads show their id.
 - **Measured**: MEASURED 2026-10-06. `lineage-thread-titles` holds 99 titles, all written by the local platform-api (log `thread titles sync first=true transcripts=98`). The cloud session `session_01Du5yDL` has no title (no local transcript); PROD Commit Lineage shows 8 of 9 threads titled.
 - **Evidence**:
-  - `bifrost-platform/api/internal/threadtitles/threadtitles.go:182` — `func SyncWanted(dir string) bool {` (off when `KUBERNETES_SERVICE_HOST` is set, :189)
-  - `bifrost-platform/api/internal/threadtitles/threadtitles.go:296` — `func StartSync(`
-  - `bifrost-platform/api/internal/server/server.go:242` — sync starts only in a local workers role
+  - `bifrost-platform/api/internal/threadtitles/threadtitles.go:182` — `func SyncWanted(dir string) bool {`
+  - `bifrost-platform/api/internal/threadtitles/threadtitles.go:189` — `if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {`
+  - `bifrost-platform/api/internal/threadtitles/threadtitles.go:296` — `func StartSync(ctx context.Context, store *Store, sc *Scanner, interval time.Duration) {`
+  - `bifrost-platform/api/internal/server/server.go:242` — `if dir := threadtitles.TranscriptDir(); role.RunsWorkers() && threadtitles.SyncWanted(dir) {`
 - **Impact**: Display only: the Commit Lineage page falls back to ids for new threads; hand-set names (`PUT /api/v1/lineage/thread-title`) are unaffected.
 - **Fix**: Let each session report its own title: a Claude Code Stop hook (agent-config `claude/settings.json` already has a Stop hook) reads the latest `custom-title` / `ai-title` of its own transcript and PUTs it with a reporter-level token, so the title travels with whichever machine ran the session; keep the bdev syncer as backfill. Cursor has no session titles: document it.
 - **Ratchet**: An agent-guard-style regression test that the Stop hook posts the title for a sample transcript.
