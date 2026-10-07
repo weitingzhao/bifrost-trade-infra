@@ -474,7 +474,7 @@
 
 **P2 · flex-ib · The cash parser never stores IB's transactionID, so dedupe falls back to (account, day, amount, type, report_date) and same-amount items overwrite each other**
 
-- **状态**：观察中（flex 0.13.0 解析器已保存 transactionID；GS 回填 UPDATE 与唯一索引在第 4 批，要你逐项点头）
+- **状态**：在做（flex 0.13.0 已保存 transactionID；GS 回填 UPDATE（10-07 dry-run：177 行可填、0 重复组）待你批；唯一索引要等 core writer 改冲突键——交 Cursor LANE-F）
 - **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
 - **Claim**: parse_cash_transactions_xml reads transactionID only from a child element; the attribute fallback covers every other field but not this one, so on IB's attribute-style rows flex_transaction_id is always NULL. The UNIQUE key then uses a date-only ts, amount, and a type that maps fees/interest/withholding to 'other'. Two distinct same-day same-amount transactions collapse and the second DO UPDATE overwrites symbol/description/raw_extra. A row with no dateTime gets ts=now(), re-inserted every run.
 - **Measured**: MEASURED: flex_transaction_id NULL on 121/121 rows while raw_extra->>'transactionID' is present on all 121. 89 rows typed 'other'. 30 (account, ts, type, report_date) groups hold >1 row, separated only by amount; 6 have coinciding absolute amounts. A collapse leaves no trace, so none observed directly.
@@ -1332,7 +1332,7 @@
 
 **P2 · data · The Barman base+WAL backup, the only copy of the 34 GB Golden Source history, has never been restored, and has not been tried at all against the NAS MinIO it moved to on 10-06**
 
-- **状态**：观察中（Cursor LANE-D2 已完成并复验；待你批：建临时恢复集群演练、演练完删除）
+- **状态**：在做（演练清单在 infra k8s/data/recovery-drill/；要你先确认节点空间并建只读 MinIO Secret minio-backup-readonly，之后由 Claude apply、比对、清理；BifrostPostgresRecoveryDrillStale 已移出 monitoring kustomization（infra 3791768），演练通过后再手工 apply）
 - **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
 - **Claim**: The CNPG cluster has a 30-day recoverability window (firstRecoverabilityPoint 2026-09-06), but infra has never had a bootstrap.recovery or externalClusters manifest, and only one Cluster has ever existed. The monthly drill in k8s/data/logical-backup restores only the logical dump of 7 hand-entered schemas into an emptyDir Postgres and never reads the Barman object store. So nobody knows whether barman-cloud-restore works against the NAS MinIO the bucket moved to on 10-06, with its credentials, gzip WAL and serverName. TD-135 mentions a restore drill only as a one-off step of the plugin migration.
 - **Measured**: MEASURED 2026-10-07. Only data/bifrost-postgres exists. firstRecoverabilityPoint is 2026-09-06T06:19:40Z, lastSuccessfulBackup 2026-10-06T17:32:39Z. `git grep` over infra finds no recovery bootstrap (the only 'bootstrap:' is initdb at cluster.yaml:19). 10-03 and 10-04 do have completed ondemand backups; only the scheduled 'daily' names are missing for those days. The first NAS backup is bifrost-postgres-manual-20261006-nas.
@@ -1423,7 +1423,7 @@
 
 **P3 · data · The data-warehouse 'second MinIO' never ran (PVC Pending 109 days, Deployment 0/0), yet AGENT_FACTS lists it, and its placeholder root Secret is committed to a PUBLIC repo and applied**
 
-- **状态**：观察中（Cursor LANE-D2 已完成并复验；待你批：删 data-warehouse namespace、两个 Released PV 与 np-redis-fresh）
+- **状态**：观察中（清单已在 infra main 删除；待你批删集群对象：namespace data-warehouse（minio 0/0、PVC Pending、占位 Secret）、两个 Released PV（default/test-nfs-hot 测试残留，Retain，NAS 目录不动）、data/np-redis-fresh-ingress（无匹配 pod））
 - **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
 - **Claim**: k8s/compute/warehouse/minio.yaml commits a kind: Secret with a literal placeholder MINIO_ROOT_PASSWORD. It is the only committed Secret manifest under k8s outside the examples, and it was applied as-is. PVC data-warehouse/minio-data has been Pending since creation (gpu-server NotReady,SchedulingDisabled) and deploy/minio is 0/0, so the store never held data. AGENT_FACTS still says it serves Research and Golden Source objects. The data namespace also carries an unmanaged Service np-redis-fresh with no endpoints for 98 days, and two Released test-nfs-hot PVs. TD-133 covers only the in-cluster MinIO leftovers in data.
 - **Measured**: MEASURED 2026-10-07: PVC Pending at 109d; deploy 0/0; secret minio-root carries last-applied-configuration and was created 2026-06-19T09:13:12Z together with deploy/minio; svc data/np-redis-fresh has no endpoints and no source in any repo; two test-nfs-hot PVs are Released. The live secret value was not read.
