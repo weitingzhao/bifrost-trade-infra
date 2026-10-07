@@ -13,8 +13,13 @@ spec:
           env:
             - name: OPS_VIEWER_ENV
               value: "stg"
+            # Owner 2026-10-07: STG observes, PROD maintains. Exactly one IB
+            # auto-repair loop (PROD) acts on the one live data/ib-gateway (TD-223),
+            # and only PROD records releases (both wrote the same cicd records).
             - name: OPS_IB_AUTOREPAIR_ENABLED
-              value: "true"
+              value: "false"
+            - name: PLATFORM_RELEASE_RECORDER
+              value: "off"
             - name: OPS_IB_AUTO_ROLLOUT_COOLDOWN_SEC
               value: "900"
             - name: OPS_IB_SNAPSHOT_STALE_SEC

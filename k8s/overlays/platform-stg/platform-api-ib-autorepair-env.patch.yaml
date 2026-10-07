@@ -11,7 +11,7 @@ spec:
         - name: platform-api
           env:
             - name: OPS_IB_AUTOREPAIR_ENABLED
-              value: "true"
+              value: "false" # STG observes; see platform-workers-env.patch.yaml
             - name: OPS_IB_AUTO_ROLLOUT_COOLDOWN_SEC
               value: "900"
             - name: OPS_IB_SNAPSHOT_STALE_SEC
