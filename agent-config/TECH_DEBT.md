@@ -13,10 +13,9 @@
 
 ## 待你签收
 
-- **TD-245 / TD-226 / TD-230 / TD-227** — Console agent-pack 文案跟上 TD-192；发布台 Launch 在 readiness 未测时给 PROBING 不给 GO；release gate 必需检查 unknown → inconclusive、pass 超 24h 不再 ready；mission snapshot 过期来源转 unknown（platform b077796，STG+PROD 10-07 已上） · 验收 PASS（10-07，pack 15 passed、launch 11 passed、Go promote 4 PASS、snapshot 3 passed；PROD gate 实读 ready:false） · 防线：三个 pack 测试、`satelliteLaunchVerdict.test.ts`、`promote/service_test.go`（5 个）+ `releaseGateSignal.test.ts`、`useMissionSnapshot.test.tsx` · 后续：本机 bdev 跑的共享 checkout 停在 e504020，前进后本机/DEV 发布台会因 gate 36 天未重跑转 NO_GO——要重跑一次 platform gate；无新编号
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 108 项**：P0 0 · P1 10 · P2 33 · P3 65；要你批的 57 项（从总览表的审批列算）。
+**未结 104 项**：P0 0 · P1 10 · P2 33 · P3 61；要你批的 57 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -52,7 +51,7 @@
 
 目标：先让失败变红。错数据先修数据（TD-87 restate），再把引擎、闸门、写入方从「出错也报成功」改成失败即失败：引擎资产按输出判定、husbandry gate 失败即关、日历读失败报错、写入方失败抛错。不需要 Owner 批的先做。
 
-项：TD-91, TD-92, TD-94, TD-97, TD-101, TD-136, TD-156, TD-157, TD-166, TD-189, TD-192, TD-244, TD-245 · 已还：TD-88, TD-89, TD-90, TD-113, TD-93, TD-165, TD-167, TD-87
+项：TD-91, TD-92, TD-94, TD-97, TD-101, TD-136, TD-156, TD-157, TD-166, TD-189, TD-192, TD-244 · 已还：TD-88, TD-89, TD-90, TD-113, TD-93, TD-165, TD-167, TD-87, TD-245
 
 ### 第 2 波 · 让闸门真的卡住
 
@@ -112,7 +111,7 @@
 
 目标：挂单与 IB 读失败不再被当真写库；Risk / Performance / 告警计数按交易日算；Console 的裁决条在探针失败时不再显示绿色；ui 的发布可追溯；台账与文档的过时说法改正。
 
-项：TD-211, TD-212, TD-213, TD-226, TD-227, TD-228, TD-229, TD-230, TD-234, TD-235, TD-236, TD-239, TD-240, TD-241, TD-251 · 已还：TD-214, TD-219, TD-232, TD-233
+项：TD-211, TD-212, TD-213, TD-228, TD-229, TD-234, TD-235, TD-236, TD-239, TD-240, TD-241, TD-251 · 已还：TD-214, TD-219, TD-232, TD-233, TD-226, TD-230, TD-227
 
 ## 数据边界（接受并留座）
 
@@ -309,11 +308,8 @@
 | [TD-223](#td-223) | P3 | ops-platform | STG and PROD platform-workers both run the IB gateway auto-repair loop against the one live data/ib-gateway, each with its own 15-minute cooldown | PROD 变更（要你批） |
 | [TD-224](#td-224) | P3 | ops-console | Opening the Cluster page as an operator auto-starts a full-auto remediation run, and neither platform-api nor the runner deduplicates by scope or active job | 不用批 |
 | [TD-225](#td-225) | P3 | ops-console | Read-only MCP bridges fail open: an unknown or misspelled MCP_BRIDGE_FOCUS registers all 74 tools, and PLATFORM_OPERATOR_TOKEN in env overrides the viewer-token pin | 不用批 |
-| [TD-226](#td-226) | P3 | ops-console | The release desk's Launch verdict says 'Clear to launch' and enables Agent Deploy when readiness probes failed or are still loading | 不用批 |
-| [TD-227](#td-227) | P3 | ops-console | The cockpit mission snapshot keeps a failing probe's last good verdict, under a 'Last probe' stamp that is the newest of seven queries | 不用批 |
 | [TD-228](#td-228) | P3 | ops-console | Every scheduled Hermes skill run on .52 fails with 'No such file or directory', while /health returns status ok and the checklist counts the gateway healthy | 不用批 |
 | [TD-229](#td-229) | P3 | ops-platform | Trust overrides resolve to $HOME in the cluster and swallow read and write errors: the Owner's 09-07 L0 grant for research-loop-batch never reached the harness that reads PROD | 不用批 |
-| [TD-230](#td-230) | P3 | ops-platform | The platform release gate passes when required checks are 'unknown', and its 'ready' never expires | 不用批 |
 | [TD-231](#td-231) | P3 | ops-platform | Platform's IB feed verdict hangs on one hard-coded NVDA sample tick, and Trade namespaces and DB names are Go literals (53 matches), with no ratchet against growth | 不用批 |
 | [TD-234](#td-234) | P3 | trade-worker | @bifrost/ui is unversioned for the Ops Console: a ui push never runs platform CI, and platform deliver builds whatever ui main is without recording its SHA | 不用批 |
 | [TD-235](#td-235) | P3 | bifrost-ui | bifrost-ui's build starts with rm -rf dist (and prepare runs it on every npm install), white-screening both running dev servers until it finishes, or for good if tsc fails | 不用批 |
@@ -326,7 +322,6 @@
 | [TD-242](#td-242) | P2 | market-data | market-data /ingest/queue-dashboard takes 5–25 s per call, and the platform-api proxy carries the same delay: with the new latency rule live it will page whenever someone keeps the queue dashboard open | 不用批 |
 | [TD-243](#td-243) | P3 | frontend | 42 frontend modules are unreachable from src/main.tsx (largest clusters: components/cockpit/ 8, utils/dataOverview/ 6); dead code invites fixes and false audit findings | 已批（Owner 10-07「做」） |
 | [TD-244](#td-244) | P3 | research-control | agents/journal_distill reads raw_broker.executions_final with no Flex freshness check (own 23:55 UTC schedule, outside any gate) | 不用批 |
-| [TD-245](#td-245) | P3 | ops-console | Console agent-pack text still says husbandry_gate blocks dbt when Flex fails (stale after TD-192) | 不用批 |
 | [TD-246](#td-246) | P3 | trade-data | Snapshot enrich stores a vendor 'day close' that can sit below the option's intrinsic value (a stale last trade), and P&L attribution then books it as unexplained | 已批（Owner 10-07「做」） |
 | [TD-247](#td-247) | P3 | frontend | Look-back starts are still computed in the browser's time zone (new Date(Date.now() - N*86400000).toISOString().slice(0,10)), and three private New York date helpers duplicate @/lib/freshness | 不用批 |
 | [TD-249](#td-249) | P3 | ops-console | After TD-230/227: remediation agent copy still says the gate result is pass/fail (no inconclusive), and Control Room does not list which sources are stale | 不用批 |
@@ -1785,43 +1780,6 @@
 - **验收**: `cd bifrost-platform/console && npx vitest run src/lib/architecture/__tests__ -t 'focus bridge'`
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
 
-### TD-226
-
-**P3 · ops-console · The release desk's Launch verdict says 'Clear to launch' and enables Agent Deploy when readiness probes failed or are still loading**
-
-- **状态**：待你签收（platform STG 1791344064 + PROD 1791344349 已上 b077796，10-07）
-- **验收结果**：PASS 2026-10-07 b077796（已上 PROD）：satelliteLaunchVerdict -t unknown 11 passed；PROD bifrost-deliver-platform-prod-1791344349（克隆 HEAD b077796，含 f7a4d9a）。偏离台账：isProdReleaseBlocked 未改，闸门统一走 resolveLaunchVerdict
-- **Claim**: The readiness helpers return 'unknown' when their fetch has no data (gate, socket, matrix or promote is null). Both blocking predicates treat only 'fail' and 'degraded' as blocking, so 'unknown' falls through to kind 'GO'. buildLaunchCheckpoints sets ok = !blocked, and the signal defaults to 'ok', so the checkpoints render green. TradeReleasePage enables deploy on GO, behind canOperate. Tests cover clear and blocked prod but not unknown.
-- **Measured**: CODE-READ only; no browser was opened, because the Cluster page auto-dispatches.
-- **Evidence**:
-  - `bifrost-platform/console/src/lib/task-mode/satelliteLaunchVerdict.ts:81` — `return s === 'fail' || s === 'degraded'`
-  - `bifrost-platform/console/src/components/task-mode/readiness/utils.ts:220` — `if (gate == null) return { signal: 'unknown', detail: 'probing' }`
-  - `bifrost-platform/console/src/components/task-mode/readiness/hooks.ts:109` — `const promoteSignal: Signal = promote != null ? promoteVerifySignal(promote) : 'unknown'`
-  - `bifrost-platform/console/src/pages/TradeReleasePage.tsx:408` — `const deployDispatchAllowed = !aiDeploy.disabled && satelliteVerdict.kind === 'GO'`
-- **Impact**: An authenticated operator sees 'Clear to launch' with all checkpoints green while readiness is unmeasured, and can start a deploy agent on it. The release window and Owner per-action approval still apply downstream.
-- **Fix**: signalBlocksLaunch and isProdReleaseBlocked return true for 'unknown'. Add a PROBING verdict that disables Launch with the reason 'readiness not measured'. A checkpoint is ok only when signal === 'ok'.
-- **Ratchet**: vitest in satelliteLaunchVerdict.test.ts and researchLaunchVerdict.test.ts: each of rocket/tradeProd/promote = 'unknown' gives kind !== 'GO' and no ok:true checkpoint. This is part of the 'unknown is not green' suite in ratchet proposal 'console-and-frontend-vitest-in-ci'.
-- **验收**: `cd bifrost-platform/console && npx vitest run src/lib/task-mode/__tests__/satelliteLaunchVerdict.test.ts -t unknown`
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
-
-### TD-227
-
-**P3 · ops-console · The cockpit mission snapshot keeps a failing probe's last good verdict, under a 'Last probe' stamp that is the newest of seven queries**
-
-- **状态**：待你签收（platform STG 1791344064 + PROD 1791344349 已上 b077796，10-07）
-- **验收结果**：PASS 2026-10-07 b077796（已上 PROD）：useMissionSnapshot -t 'mission snapshot stale' 3 passed；PROD bifrost-deliver-platform-prod-1791344349（克隆 HEAD b077796，含 f7a4d9a）
-- **Claim**: useMissionSnapshot builds the Control Room and FocusStrip verdict from seven useQuery results. It never reads isError, and TanStack v5 keeps data from the last success when a refetch fails. dataUpdatedAt is the max over all seven queries, so if one probe (matrix or cluster) keeps failing while others succeed, its stale verdict shows under a fresh stamp. A full platform-api outage is visible, because the stamp ages. 11 files use the hook.
-- **Measured**: CODE-READ only (TanStack ^5.100.14; main.tsx sets retry:1).
-- **Evidence**:
-  - `bifrost-platform/console/src/hooks/useMissionSnapshot.ts:26` — `const matrixQ = useQuery({ queryKey: ['cockpit', 'matrix'], queryFn: () => fetchMatrix(), refetchInterval: REFETCH })`
-  - `bifrost-platform/console/src/hooks/useMissionSnapshot.ts:51` — `const dataUpdatedAt = Math.max(`
-  - `bifrost-platform/console/src/components/FocusStrip.tsx:277` — `{dataUpdatedAt > 0 ? 'Last probe ${formatAge(dataUpdatedAt)}' : 'Probing…'}`
-- **Impact**: During a partial probe outage, the cockpit and the Launch verdict can show a stale green for the failing dimension with a fresh timestamp.
-- **Fix**: Per query, when isError is set or dataUpdatedAt is older than 2× REFETCH, feed undefined ('unknown') into buildMissionSnapshot for that dimension. Report freshness as the minimum over queries, plus a list of stale sources.
-- **Ratchet**: vitest with a mocked QueryClient: the matrix query fails after one success → snapshot.tradeProd.signal === 'unknown' and freshness reflects the stale query.
-- **验收**: `cd bifrost-platform/console && npx vitest run src/hooks/__tests__ -t 'mission snapshot stale'`
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
-
 ### TD-228
 
 **P3 · ops-console · Every scheduled Hermes skill run on .52 fails with 'No such file or directory', while /health returns status ok and the checklist counts the gateway healthy**
@@ -1858,24 +1816,6 @@
 - **Ratchet**: Unit test: HandlePutTrustOverride returns non-2xx when the store write fails, and List surfaces read errors. Extend TD-196's store check to flag any store path derived from $HOME or os.UserHomeDir in non-test platform code (ratchet proposal 'platform-store-durability').
 - **验收**: `curl -s -m10 http://192.168.10.73:30876/api/v1/agent/governance/trust-overrides; cd bifrost-platform/api && go test ./internal/agentgovernance -run 'TrustOverride.*(WriteFail|ReadFail)' -count=1  # PROD shows the override from a ConfigMap; store errors surface as 5xx`
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform, bifrost-research
-
-### TD-230
-
-**P3 · ops-platform · The platform release gate passes when required checks are 'unknown', and its 'ready' never expires**
-
-- **状态**：待你签收（platform STG 1791344064 + PROD 1791344349 已上 b077796，10-07）
-- **验收结果**：PASS 2026-10-07 b077796（已上 PROD）：RequiredUnknown / StaleRecord 4 个 Go 测试 PASS；PROD 实读 /promote/release-gate?tier=platform-prod → ready:false「No platform-prod release gate recorded yet」（PROD store 本来就空，TD-196）。本机 bdev platform-api 仍跑共享 checkout e504020（未含此修复），本机发布台转 NO_GO 要等共享 checkout 前进并重跑 gate
-- **Claim**: RunReleaseGate fails only on ReachFail. Required checks that return ReachUnknown (spine milestone missing, smoke URLs unset, an empty probe matrix) produce result=pass, and narrativeBlockers does not treat Unknown as a blocker. responseFromRecord sets ready=true for any past pass with no age bound. checkProdMatrix fails when cfg is nil or prod is missing, but reports OK when the matrix has zero targets. The stale-ready display could not be reproduced on 10-07: the local instance serves no records although the state files exist (the same silent read as TD-229), and PROD's store is empty (TD-196).
-- **Measured**: CODE-READ for unknown→pass. MEASURED 00:59 UTC: local GET release-gate answers 'No … release gate recorded yet' for all four tiers while bifrost-platform/data/release_gate_state*.json exists (newest prod record 08-31). The gate has not run for over a month; releases go through release.sh and Tekton.
-- **Evidence**:
-  - `bifrost-platform/api/internal/promote/service.go:102` — `if c.Reachability == probe.ReachFail {`
-  - `bifrost-platform/api/internal/promote/service.go:332` — `check.Detail = "milestone 2c-b-prod-cutover not found in spine"`
-  - `bifrost-platform/api/internal/promote/service.go:785` — `ready := rec.Result == "pass" && len(blockers) == 0`
-- **Impact**: Promote surfaces (Console, MCP get_release_gate) can show a green 'ready' earned weeks ago, or earned with required checks never run. This is the same 'unknown passes' class as TD-94, on the platform side.
-- **Fix**: Treat ReachUnknown on Required checks as not-pass ('inconclusive'). Make ready false when rec.At is older than a configurable window (for example 24 h), and say so in blockers. A zero-target matrix is Unknown, not OK.
-- **Ratchet**: promote/service_test.go: a required Unknown check gives result not-pass, and a record older than the window gives ready=false.
-- **验收**: `cd bifrost-platform/api && go test ./internal/promote -run 'RequiredUnknown|StaleRecord' -count=1 -v | grep -E '^(--- )?(PASS|FAIL)'`
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-231
 
@@ -2071,21 +2011,6 @@
 - **Fix**: Gate its job on flex_gate, or read freshness-kpis inside distill and skip when not fresh; tighten its FLEX_READERS entry from None.
 - **Ratchet**: test_flex_gate.py's FLEX_READERS check (None entries must name a reason; drop the exemption).
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
-
-### TD-245
-
-**P3 · ops-console · Console agent-pack text still says husbandry_gate blocks dbt when Flex fails (stale after TD-192)**
-
-- **状态**：待你签收（platform STG 1791344064 + PROD 1791344349 已上 b077796，10-07）
-- **验收结果**：PASS 2026-10-07 b077796（已上 PROD）：三个 agent pack 测试 15 passed；PROD bifrost-deliver-platform-prod-1791344349（克隆 HEAD b077796，含 f7a4d9a）
-- **Claim**: flexAgentPack.ts:316, massiveAgentPack.ts:335, researchEngineAgentPack.ts:462 describe the old single gate.
-- **Measured**: code-read 10-07 by paydown lane BB.
-- **Evidence**:
-  - `bifrost-platform/console/src/components/flex-query/flexAgentPack.ts:316` — `husbandry_gate`
-- **Impact**: Agents dispatched from the Console reason about the wrong gate on Flex-failed nights.
-- **Fix**: Reword the three packs: husbandry_gate = Market only; flex_gate blocks only Flex readers (option_pinned_contract).
-- **Ratchet**: None new: copy, covered by review.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-246
 

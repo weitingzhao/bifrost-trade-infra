@@ -97,6 +97,10 @@
 | IV 读失败不显示成没数据（TD-233） | `bifrost-trade-frontend/src/api/research/ivRadar.test.ts` + `watchBookModel.test.ts` | 读失败被当成「无 IV 数据」 | warning（测试） | catch 后返回空的通用扫描未建 |
 | 佣金符号单一约定（TD-114） | core 0.50.0 写入侧符号测试 + `bifrost-trade-infra/scripts/release/db-steps.d/sql/2026-10-06-td114-commission-sign-dryrun.sql`（预演三项：按来源分符号、候选数、Flex 符号不符）与 restate 的 expected 计数守卫 | 非 Flex 来源写入正数佣金，与 Flex 约定相反 | warning（测试）+ 手动 db-step | — |
 | research 不再有 CronJob 触发路由与挂起模板（TD-190） | `bifrost-platform/api/internal/server/research_routes_test.go::TestResearchRoutesAreReadOnly` + `bifrost-research/tests/test_k8s_cronjobs.py`（CronJob 只许 harness）+ `scripts/verify_husbandry_schedulers.sh` | 绕开 Dagster 编排的手工触发入口 | warning（测试）+ 手动 verify | event-radar-input-pvc 保留待定 |
+| Console agent-pack 文案跟 husbandry/flex 闸门一致（TD-245） | `bifrost-platform/console/src/components/{research,market-data,flex-query}/__tests__/*AgentPack.test.ts`（不许旧说法） | pack 文案说 Flex 失败会卡 dbt | warning（测试） | 新 pack 没有同类测试 |
+| 发布台 readiness 未测不给 GO（TD-226） | `bifrost-platform/console/src/lib/task-mode/__tests__/satelliteLaunchVerdict.test.ts`「unknown readiness is not GO」 | 探针失败或加载中显示 Clear to launch | warning（测试） | isProdReleaseBlocked 未统一 |
+| release gate 必需检查 unknown 不算 pass、ready 24h 过期（TD-230） | `bifrost-platform/api/internal/promote/service_test.go`（RequiredUnknown / StaleRecord 5 个）+ `console/.../releaseGateSignal.test.ts` | 必需检查 unknown 仍 ready、旧 pass 永远 ready | error（Go 测试） | 新 tier 不自动带 MAX_AGE |
+| mission snapshot 过期来源转 unknown（TD-227） | `bifrost-platform/console/src/hooks/__tests__/useMissionSnapshot.test.tsx`「mission snapshot stale」 | 失败探针保留上次好的结论 | warning（测试） | 其他快照 hook 无同类测试 |
 
 ## 各类债现在挡没挡住
 
