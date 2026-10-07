@@ -114,7 +114,6 @@
 | trust override 不落 HOME、读写错误不吞（TD-229） | `bifrost-platform/api/internal/agentgovernance/trust_override_store_test.go` + `api/internal/trustoverrides/configmap_test.go` + `api/internal/storedurability/home_paths_test.go` TestNoNewStoreUnderHome（HOME 白名单只减不增） | Owner 授权随 pod 重启丢失、写失败仍回 200 | error（Go 测试） | 白名单里仍有本机回退 HOME 的 store |
 | 前端孤儿模块归零（TD-243，接 TD-199） | `bifrost-trade-frontend/src/lib/orphanModules.test.ts`（KNOWN_ORPHANS 长度 0；生成文件白名单只登记 designInks.generated.ts） | 新增没人 import 的模块 | warning（测试；ci-frontend 不跑 vitest） | 不在 CI |
 
-
 ## 各类债现在挡没挡住
 
 | 债的类别 | 挡住了吗 | 靠什么 | 缺口怎么补 |
