@@ -13,12 +13,11 @@
 
 ## 待你签收
 
-- **TD-243** — 42 个前端孤儿模块删掉 41 个（designInks.generated.ts 是生成文件，登记白名单保留），KNOWN_ORPHANS 归零（frontend 6d861329，Cursor LANE-O） · 验收 PASS（10-07：孤儿测试 2 passed、tsc/lint/vitest 4080 passed）· 防线：`bifrost-trade-frontend/src/lib/orphanModules.test.ts`（只降不升，现为 0） · 后续：无后续（winRate 的隐含和规则经 DEV 实测不需要）
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 100 项**：P0 0 · P1 10 · P2 35 · P3 55；要你批的 57 项（从总览表的审批列算）。
+**未结 99 项**：P0 0 · P1 10 · P2 35 · P3 54；要你批的 56 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -90,7 +89,7 @@
 
 目标：Data Gaps 看板上未结的 15 项并入台账：先把每日快照的写入修对（TD-137）再接读侧和三页，归因行补上价格，Research 侧已就绪的一个版本（0.185.0）发出去，长期限 IV 锥在 10-31 前从 option_daily 回填，其余按 Owner 已定的口径排。
 
-项：TD-137, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-158, TD-159, TD-172, TD-180, TD-182, TD-243, TD-246, TD-250 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181, TD-193, TD-140, TD-171, TD-138, TD-139, TD-178, TD-199
+项：TD-137, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-158, TD-159, TD-172, TD-180, TD-182, TD-246, TD-250 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181, TD-193, TD-140, TD-171, TD-138, TD-139, TD-178, TD-199, TD-243
 
 ### 第 8 波 · Pine 线程收尾后的跟进（10-06）
 
@@ -322,7 +321,6 @@
 | [TD-240](#td-240) | P3 | trade-worker | The running PROD daemon never writes contract_quote_live: the observe-only quote mirror sits under mock_hedging, which is hard-coded True | 跨仓库发版 |
 | [TD-241](#td-241) | P3 | agent-governance | RATCHETS.md, TECH_DEBT.md and agent docs state facts the round-3 scan measured as no longer true | 不用批 |
 | [TD-242](#td-242) | P2 | market-data | market-data /ingest/queue-dashboard takes 5–25 s per call, and the platform-api proxy carries the same delay: with the new latency rule live it will page whenever someone keeps the queue dashboard open | 不用批 |
-| [TD-243](#td-243) | P3 | frontend | 42 frontend modules are unreachable from src/main.tsx (largest clusters: components/cockpit/ 8, utils/dataOverview/ 6); dead code invites fixes and false audit findings | 已批（Owner 10-07「做」） |
 | [TD-244](#td-244) | P3 | research-control | agents/journal_distill reads raw_broker.executions_final with no Flex freshness check (own 23:55 UTC schedule, outside any gate) | 不用批 |
 | [TD-246](#td-246) | P3 | trade-data | Snapshot enrich stores a vendor 'day close' that can sit below the option's intrinsic value (a stale last trade), and P&L attribution then books it as unexplained | 已批（Owner 10-07「做」） |
 | [TD-247](#td-247) | P3 | frontend | Look-back starts are still computed in the browser's time zone (new Date(Date.now() - N*86400000).toISOString().slice(0,10)), and three private New York date helpers duplicate @/lib/freshness | 不用批 |
@@ -1874,21 +1872,6 @@
 - **Fix**: Cache the dashboard per minute (it is a derived read), or make its job_ingest / queue_sample reads cheap (EXPLAIN first; see memory plan-follows-anchor-estimate).
 - **Ratchet**: A test or check that the dashboard's p99 stays under the latency rule threshold on PROD-sized data (or a cache hit test).
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data
-
-### TD-243
-
-**P3 · frontend · 42 frontend modules are unreachable from src/main.tsx (largest clusters: components/cockpit/ 8, utils/dataOverview/ 6); dead code invites fixes and false audit findings**
-
-- **状态**：待你签收（frontend main 6d861329，Cursor LANE-O，10-07）
-- **验收结果**：PASS 2026-10-07 6d861329（Claude 复验 frontend origin/main 干净 worktree）：orphanModules.test.ts 2 passed、KNOWN_ORPHANS 0；tsc -b 0、lint 0 error / 67 warning、vitest 541 文件 4080 passed；删 41 个模块 + 8 个测试（-5,033 行）；winRate.ts 经 DEV 只读 GET /api/account/trades/win-rate 实测：残差都是「均价舍入到分再乘回」的舍入（≤ 半分×笔数），Playbook record 用服务端 total_profit，不需要隐含和规则，已删；designInks.generated.ts 保留并登记为生成文件
-- **Claim**: TD-199's orphan-module ratchet lists them in KNOWN_ORPHANS; each is imported by nothing reachable from the app entry.
-- **Measured**: MEASURED 10-07 by paydown lane EE (import-graph walk from src/main.tsx).
-- **Evidence**:
-  - `bifrost-trade-frontend/src/lib/orphanModules.test.ts:9` — `* KNOWN_ORPHANS is the 2026-10-07 baseline (42). It may only shrink:`
-- **Impact**: Dead pages and helpers get fixed, audited and reported as bugs (TD-193 was one).
-- **Fix**: Owner reviews in batches by directory (deletion is the Owner's call, §15); delete and drop each from KNOWN_ORPHANS.
-- **Ratchet**: orphanModules.test.ts already fails on any new orphan and forces the list to shrink.
-- 审批 已批（Owner 10-07「做」）· 代价 S · 风险 low · repos: bifrost-trade-frontend
 
 ### TD-244
 

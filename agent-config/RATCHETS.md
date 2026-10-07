@@ -112,6 +112,7 @@
 | Redis 易失且有 maxmemory（TD-238） | `bifrost-trade-infra/scripts/check_redis_config.py`（`make check-redis-config`） | 无卷却开 AOF、无 maxmemory 只能 OOMKill | error（脚本，手工跑） | 未进 CI |
 | 只读 MCP 桥只拿 viewer 令牌（TD-225） | `bifrost-platform/console/src/lib/architecture/__tests__/mcpFocusBridges.test.ts`（未知 focus 抛错、pin 忽略 operator/admin 令牌、focus 工具都是 read 级） | 拼错 focus 退化成全量 operator 桥 | warning（测试） | mcp/platform 自身无测试脚本 |
 | trust override 不落 HOME、读写错误不吞（TD-229） | `bifrost-platform/api/internal/agentgovernance/trust_override_store_test.go` + `api/internal/trustoverrides/configmap_test.go` + `api/internal/storedurability/home_paths_test.go` TestNoNewStoreUnderHome（HOME 白名单只减不增） | Owner 授权随 pod 重启丢失、写失败仍回 200 | error（Go 测试） | 白名单里仍有本机回退 HOME 的 store |
+| 前端孤儿模块归零（TD-243，接 TD-199） | `bifrost-trade-frontend/src/lib/orphanModules.test.ts`（KNOWN_ORPHANS 长度 0；生成文件白名单只登记 designInks.generated.ts） | 新增没人 import 的模块 | warning（测试；ci-frontend 不跑 vitest） | 不在 CI |
 
 ## 各类债现在挡没挡住
 
