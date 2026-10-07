@@ -13,10 +13,9 @@
 
 ## 待你签收
 
-- **TD-203** — 匿名 SSH 终端关掉：先让本机 platform-api 只听本机（局域网与 .50 均连不上），再上线 platform e504020：一次性 operator 票据、拒绝空 Origin、按 known_hosts 校验主机密钥。验收 PASS 2026-10-07（局域网连不上；本机与 STG/PROD 无票据或无令牌 401，合法票据 101）。防线：`RATCHETS.md`「console_auth_test.go + ticket_test.go」。后续：本机是否恢复局域网监听要你定——恢复后 .50 的修复 runner 能再连本机，但 TD-218 的匿名路由（如 `POST /cluster/sync-kubeconfig`）也会重新对局域网敞开；TD-208 的派发范围一半仍在做
 - **TD-199** — 删掉自 09-24 起无人引用的 EventsBoard.tsx / EventRadarDashboard.tsx，改正两处注释（frontend e98afbf0）· 验收 PASS（10-07）· 防线：`src/lib/orphanModules.test.ts`（从 main.tsx 走导入图，KNOWN_ORPHANS 只许缩短）· 后续：TD-243（其余 42 个孤儿模块）
 
-**未结 120 项**：P0 1 · P1 12 · P2 39 · P3 68；要你批的 63 项（从总览表的审批列算）。
+**未结 119 项**：P0 0 · P1 12 · P2 39 · P3 68；要你批的 62 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -39,7 +38,6 @@
 - **TD-96** — preflight 的 D10 闸门只认 curl；修改稿在 `REQUEST-td96-preflight-d10-2026-10-06/`，等 Owner 审。
 
 - **TD-130** — 真正在生产数据层上动手的 Ops 自动修复跑在 Owner 的笔记本上（本机 bdev 的 platform-api），集群里 STG/PROD 那两份在空转；10-05 到 10-06 对备份 MinIO 的重启和补备份都是它做的。
-- **TD-203** — 本机 platform-api 的 `/console/ws` 不要令牌就给局域网任何设备一个 SSH 终端（用你的 key，7 台主机，含能读集群管理员 kubeconfig 的 k3s 控制节点）；本机监听 *:8780、防火墙关着。最小止血：本机 `.env` 设 `PLATFORM_LISTEN=127.0.0.1:8780` 后 `bdev restart platform-api`。
 - **TD-205** — PROD Redis 没有密码、局域网 NodePort 30382 可达，里面是 PROD daemon 的控制键：局域网任何设备都能让 daemon stop / flatten，绕过 trade-api 的控制闸门和审计。
 - **TD-209** — 所有数据层告警（备份失败、WAL 停、NAS MinIO 掉线、逻辑备份缺失）只进 STG platform-api 的内存审计日志，没有人会收到；`BifrostLogicalBackupMissing` 从 10-06 22:03Z 起一直在响。
 
@@ -103,7 +101,7 @@
 
 目标：先关门再修代码。本机 platform-api 只监听本机、PROD/STG Redis 的局域网 NodePort 删掉，然后 git-bridge、修复 runner、Hermes、husbandry-sync 都要令牌；platform 换成按需授权的 ServiceAccount，停用管理员 kubeconfig；路由鉴权测试卡住回退。
 
-项：TD-203, TD-205, TD-206, TD-207, TD-208, TD-204, TD-220, TD-225, TD-221, TD-222, TD-223, TD-224, TD-231
+项：TD-205, TD-206, TD-207, TD-208, TD-204, TD-220, TD-225, TD-221, TD-222, TD-223, TD-224, TD-231 · 已还：TD-203
 
 ### 第 10 波 · 告警有人收、备份能恢复（第 3 轮）
 
@@ -303,7 +301,6 @@
 | [TD-196](#td-196) | P2 | ops-platform | platform-api and platform-workers keep their state in per-pod emptyDir: every rollout erases release cycles, gate history, the operate queue and checklist signals, and the audit log is memory-only | 已批 |
 | [TD-199](#td-199) | P3 | frontend | EventsBoard.tsx and EventRadarDashboard.tsx have had no importer since 09-24 (c81e5a29); a comment still says EventRadarBody 'stays the Explorer tab's body' though Explorer was retired in 594a3f3f | 删除（要你批） |
 | [TD-202](#td-202) | P3 | market-data | market-data code strings and scripts still mention CronJobs: the dashboard label 'CronJob archived' and verify-market-data.sh's hint are user-visible | 不用批 |
-| [TD-203](#td-203) | P0 | ops-platform | GET /api/v1/console/ws hands out an interactive SSH shell with no token: the bdev platform-api listens on *:8780 with the Owner's SSH key, and the Mac firewall is off | 安全/凭据（要你批） |
 | [TD-204](#td-204) | P1 | ops-platform | STG and PROD platform-api and platform-workers run as system:masters through a copy of the k3s admin kubeconfig, and anonymous GETs use it to read pod logs in any namespace | 安全/凭据（要你批） |
 | [TD-205](#td-205) | P1 | data | PROD Redis, which holds the daemon's control stream and state hash, has no password and is open on NodePort 30382 to two LAN /24s and, through NodePort SNAT, to every pod in the cluster | 安全/凭据（要你批） |
 | [TD-206](#td-206) | P1 | ops-console | git-bridge answers anyone on the LAN, and its /commit runs `git add -A` on the shared checkout; /push pushes the current branch with no release-window check | 安全/凭据（要你批） |
@@ -1624,27 +1621,6 @@
 - **Ratchet**: The extended scan.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data
 
-### TD-203
-
-**P0 · ops-platform · GET /api/v1/console/ws hands out an interactive SSH shell with no token: the bdev platform-api listens on *:8780 with the Owner's SSH key, and the Mac firewall is off**
-
-- **状态**：待你签收
-- **现在**：10-07 止血：本机 `.env` 设 `PLATFORM_LISTEN=127.0.0.1:8780`（局域网与 .50 连 8780 均被拒）。platform e504020（STG/PROD 已发，本机已重建）：`POST /console/ws-ticket`（operator）发一次性、30 秒、绑定主机的票据，`/console/ws` 无票据在升级前 401；空 Origin 拒绝；主机密钥按 `known_hosts` 校验，并只协商该主机已知的密钥类型（.50 只记了 ed25519、Go 默认先要 ecdsa）。7 台在线主机实测通过校验
-- **Claim**: The console WebSocket route is registered outside every auth group. HandleWebSocket checks only the host allowlist, then upgrades and dials SSH. CheckOrigin returns true for an empty Origin, so any non-browser LAN client passes. It dials SSH as `vision` to any allowlisted host (both Mac minis, the gpu-server and all 5 K3s nodes) using the Owner's ssh-agent or key, and it never verifies host keys. The default listen address is all interfaces. One allowlisted host is ubt-k3s-01 (.73), where `vision` can read /etc/rancher/k3s/k3s.yaml; fetch-kubeconfig.sh does exactly that. So anonymous LAN access leads to a shell on 7 hosts and from there to cluster-admin.
-- **Measured**: MEASURED 2026-10-07 00:4x and again at 00:57 UTC; no SSH session was opened. lsof shows platform-api PID 64432 bound to *:8780, and the bdev env sets PLATFORM_LISTEN=:8780 explicitly. socketfilterfw reports 'Firewall is disabled'. From LAN IP 192.168.20.74 with no token, /api/v1/console/ws?node=ubt-k3s-04 returns 400: the request reached the websocket upgrader, so no 401 stage exists. An unknown host returns 403. /console/hosts lists 8 targets anonymously (7 reachable, all user vision), and ssh-agent holds a key. The same route answers 400 on PROD NodePort 30876. PROD/STG pods mount no SSH key, so the shell is live on the bdev instance; this was not verified by exec.
-- **Evidence**:
-  - `bifrost-platform/api/internal/server/server.go:503` — `r.Get("/console/ws", s.console.HandleWebSocket)`
-  - `bifrost-platform/api/internal/console/ssh_ws.go:32` — `if origin == "" {`
-  - `bifrost-platform/api/internal/console/ssh_ws.go:289` — `HostKeyCallback: ssh.InsecureIgnoreHostKey(),`
-  - `bifrost-platform/api/internal/config/config.go:70` — `listen = ":8780"`
-  - `bifrost-trade-infra/scripts/k3s/fetch-kubeconfig.sh:10` — `ssh "${REMOTE}" 'cat /etc/rancher/k3s/k3s.yaml' >"${OUT}.tmp"`
-- **Impact**: Any device on the home LAN gets a full shell on every cluster node and both Mac minis without credentials. On the k3s server node that shell can read the cluster-admin kubeconfig. This is the largest blast radius in the system, and it bypasses D10, preflight and all platform role tiers.
-- **Fix**: (1) Put /console/ws behind Require(RoleAdmin or RoleOperator). The Console gets a short-lived single-use ticket from an authenticated POST and passes it as a query parameter or Sec-WebSocket-Protocol. (2) Make the default listen 127.0.0.1:8780 in config.go and run_platform_api.sh; LAN exposure becomes opt-in. (3) Check host keys against a known_hosts file. (4) Reject an empty Origin on this route.
-- **Ratchet**: Route-auth matrix test (see ratchet proposal 'platform-route-auth-walk'): chi.Walk the router, and every route outside an explicit, commented public allowlist must answer 401 without a token. /console/ws must never be on the allowlist. A config test asserts that the default PLATFORM_LISTEN host is loopback.
-- **验收**: `curl -s -m5 -o /dev/null -w '%{http_code}\n' 'http://192.168.20.74:8780/api/v1/console/ws?node=ubt-k3s-04'  # expect 401 or connection refused (today: 400)`
-- **验收结果**：PASS 2026-10-07 e504020：从局域网 IP 连 `:8780/api/v1/console/ws` 被拒（curl 退出码 7）；本机无票据 401、跨主机或重复用票 401、无 Origin 403、合法票据 101；STG/PROD 无令牌三路由均 401
-- 审批 安全/凭据（要你批） · 代价 M · 风险 med · repos: bifrost-platform
-
 ### TD-204
 
 **P1 · ops-platform · STG and PROD platform-api and platform-workers run as system:masters through a copy of the k3s admin kubeconfig, and anonymous GETs use it to read pod logs in any namespace**
@@ -1952,6 +1928,7 @@
 - **Ratchet**: TestEveryMutatingRouteRequiresARole: chi.Walk srv.Router(); every POST/PUT/PATCH/DELETE route, plus /console/ws, must carry auth.Require, against an explicit allowlist with a reason per entry (empty today). The same walk over operatorplane.routeTable() asserts operator=true for every non-GET entry. Alert BifrostPlatformAuthNotLoaded on auth_loaded=false.
 - **验收**: `cd bifrost-platform/api && go test ./internal/server ./internal/operatorplane -run 'TestEveryMutatingRouteRequiresARole|TestPlaneWritesRequireOperator' -count=1`
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
+- **Also (TD-203 sign-off, 10-07)**: Owner keeps the local bdev platform-api loopback-only (`PLATFORM_LISTEN=127.0.0.1:8780` in bifrost-platform/.env) until this item lands, because the remaining anonymous routes here would reopen to the LAN with it. Meanwhile the .50 remediation runner, whose `config/env.local.sh` sets `PLATFORM_API_URL=http://192.168.10.40:8780`, cannot reach the Mac (overlaps TD-130).
 
 ### TD-221
 
