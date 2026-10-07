@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-123 / TD-106 / TD-119 / TD-125** — research 删掉约 19 条无人调用的路由；market-data 夜间 trim 改单飞后台任务 + Dagster 轮询；market-data 迁移 Job 先于主体部署；退役 IB 脚本归档（research 0.205.0、market-data 0.86.0、插件与 flex main，10-07） · 验收 PASS（research 2132、market-data 1288、插件 84、flex 160 passed；make deploy 先迁移后 base） · 防线：`bifrost-research/tests/.../test_retired_routes.py`、market-data `tests/test_trim_single_flight*`、`k8s/migrate` 拆分 + login wiring 测试 · 后续：TD-106 今晚 market_trim 首跑再看一次 ops_jobs 结果（无新编号）
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-253** — 检查信号不再是几周前的：每条带观测时间和来源，超过 2 小时读 unknown、autopilot 不会按它动手；PROD platform-workers 自己每 10 分钟探测一次（不再靠 Mac 上报）。验收 PASS 2026-10-07 d8bdf41（22/22 带时间）。防线：`RATCHETS.md`「检查信号的时效与来源」测试 + `check_platform_maintenance.py`（探测器只在 PROD workers）。后续：无后续：放开 autopilot 动手在 TD-130（观察到 10-12）
