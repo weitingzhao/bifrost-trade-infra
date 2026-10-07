@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-237** — 从未运行的 data-warehouse MinIO（含提交过的占位 Secret）连同两个测试残留 PV、一条无主 NetworkPolicy 一并删除（Owner 10-07 批） · 验收 PASS（namespace NotFound、无 Released PV、清单与 Secret 均不在 infra） · 防线：`bifrost-trade-infra/scripts/check-no-k8s-secrets.sh`（k8s 下不许提交 Secret）；gpu-workload.sh 的 warehouse-up 直接拒绝 · 后续：AGENT_FACTS 的 namespace 清单去掉 data-warehouse（文档，下一次事实更正带上）
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-253** — 检查信号不再是几周前的：每条带观测时间和来源，超过 2 小时读 unknown、autopilot 不会按它动手；PROD platform-workers 自己每 10 分钟探测一次（不再靠 Mac 上报）。验收 PASS 2026-10-07 d8bdf41（22/22 带时间）。防线：`RATCHETS.md`「检查信号的时效与来源」测试 + `check_platform_maintenance.py`（探测器只在 PROD workers）。后续：无后续：放开 autopilot 动手在 TD-130（观察到 10-12）
@@ -474,8 +475,8 @@
 
 **P2 · flex-ib · The cash parser never stores IB's transactionID, so dedupe falls back to (account, day, amount, type, report_date) and same-amount items overwrite each other**
 
-- **状态**：在做（flex 0.13.0 已保存 transactionID；GS 回填 UPDATE（10-07 dry-run：177 行可填、0 重复组）待你批；唯一索引要等 core writer 改冲突键——交 Cursor LANE-F）
-- **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
+- **状态**：在做（Owner 10-07 批回填：GS raw_broker.transactions 177 行 flex_transaction_id 已填（单事务，行数守卫 177）；唯一索引等 core writer 改冲突键——Cursor LANE-F）
+- **验收结果**：部分 PASS 2026-10-07：回填后 rows=177、still_null=0、matches_raw=177；索引未建（前置是 LANE-F）
 - **Claim**: parse_cash_transactions_xml reads transactionID only from a child element; the attribute fallback covers every other field but not this one, so on IB's attribute-style rows flex_transaction_id is always NULL. The UNIQUE key then uses a date-only ts, amount, and a type that maps fees/interest/withholding to 'other'. Two distinct same-day same-amount transactions collapse and the second DO UPDATE overwrites symbol/description/raw_extra. A row with no dateTime gets ts=now(), re-inserted every run.
 - **Measured**: MEASURED: flex_transaction_id NULL on 121/121 rows while raw_extra->>'transactionID' is present on all 121. 89 rows typed 'other'. 30 (account, ts, type, report_date) groups hold >1 row, separated only by amount; 6 have coinciding absolute amounts. A collapse leaves no trace, so none observed directly.
 - **Evidence**:
@@ -1332,7 +1333,7 @@
 
 **P2 · data · The Barman base+WAL backup, the only copy of the 34 GB Golden Source history, has never been restored, and has not been tried at all against the NAS MinIO it moved to on 10-06**
 
-- **状态**：在做（演练清单在 infra k8s/data/recovery-drill/；要你先确认节点空间并建只读 MinIO Secret minio-backup-readonly，之后由 Claude apply、比对、清理；BifrostPostgresRecoveryDrillStale 已移出 monitoring kustomization（infra 3791768），演练通过后再手工 apply）
+- **状态**：在做（节点空间已核：general 池 ubt-k3s-05 可用 160.5 GiB、ubt-k3s-06 可用 239.8 GiB，local-path 在根分区；待你建只读 MinIO Secret minio-backup-readonly，之后 Claude apply、比对、清理）
 - **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
 - **Claim**: The CNPG cluster has a 30-day recoverability window (firstRecoverabilityPoint 2026-09-06), but infra has never had a bootstrap.recovery or externalClusters manifest, and only one Cluster has ever existed. The monthly drill in k8s/data/logical-backup restores only the logical dump of 7 hand-entered schemas into an emptyDir Postgres and never reads the Barman object store. So nobody knows whether barman-cloud-restore works against the NAS MinIO the bucket moved to on 10-06, with its credentials, gzip WAL and serverName. TD-135 mentions a restore drill only as a one-off step of the plugin migration.
 - **Measured**: MEASURED 2026-10-07. Only data/bifrost-postgres exists. firstRecoverabilityPoint is 2026-09-06T06:19:40Z, lastSuccessfulBackup 2026-10-06T17:32:39Z. `git grep` over infra finds no recovery bootstrap (the only 'bootstrap:' is initdb at cluster.yaml:19). 10-03 and 10-04 do have completed ondemand backups; only the scheduled 'daily' names are missing for those days. The first NAS backup is bifrost-postgres-manual-20261006-nas.
@@ -1423,8 +1424,8 @@
 
 **P3 · data · The data-warehouse 'second MinIO' never ran (PVC Pending 109 days, Deployment 0/0), yet AGENT_FACTS lists it, and its placeholder root Secret is committed to a PUBLIC repo and applied**
 
-- **状态**：观察中（清单已在 infra main 删除；待你批删集群对象：namespace data-warehouse（minio 0/0、PVC Pending、占位 Secret）、两个 Released PV（default/test-nfs-hot 测试残留，Retain，NAS 目录不动）、data/np-redis-fresh-ingress（无匹配 pod））
-- **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
+- **状态**：待你签收（Owner 10-07 批删：namespace data-warehouse、两个 Released PV、data/np-redis-fresh-ingress 已删；清单在 infra main 已删）
+- **验收结果**：PASS 2026-10-07：kubectl get ns data-warehouse → NotFound；集群无 Released PV；无 redis-fresh NetworkPolicy；infra 无 warehouse 清单、无提交的 Secret
 - **Claim**: k8s/compute/warehouse/minio.yaml commits a kind: Secret with a literal placeholder MINIO_ROOT_PASSWORD. It is the only committed Secret manifest under k8s outside the examples, and it was applied as-is. PVC data-warehouse/minio-data has been Pending since creation (gpu-server NotReady,SchedulingDisabled) and deploy/minio is 0/0, so the store never held data. AGENT_FACTS still says it serves Research and Golden Source objects. The data namespace also carries an unmanaged Service np-redis-fresh with no endpoints for 98 days, and two Released test-nfs-hot PVs. TD-133 covers only the in-cluster MinIO leftovers in data.
 - **Measured**: MEASURED 2026-10-07: PVC Pending at 109d; deploy 0/0; secret minio-root carries last-applied-configuration and was created 2026-06-19T09:13:12Z together with deploy/minio; svc data/np-redis-fresh has no endpoints and no source in any repo; two test-nfs-hot PVs are Released. The live secret value was not read.
 - **Evidence**:
