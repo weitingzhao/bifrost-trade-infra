@@ -7,8 +7,8 @@
 
 | 阶段 | 目标 | 道 | 退出条件 |
 |---|---|---|---|
-| **1 地基与止血** | 告警送对地方；集群状态有第二份；维护者有清单；计划文件进版本控制；停掉 .50 夜间 LLM；第一次时间点恢复演练；查清节点补丁 | A1–A7（本目录） | 各道验收 PASS，Owner 批准的 apply 已执行 |
-| 2 PROD 成为唯一控制面 | 申请单 + 审批（聊天 / 手机 / Console）；动作目录；MCP 改连 PROD（先读后写）；PROD RBAC 补齐；UniFi 凭证进 PROD | 第 1 阶段验收后再写 | 当天的发布与同步全部出现在 PROD 审计里 |
+| 1 地基与止血（**已验收**，见 VERIFY-phase1.md） | 告警送对地方；集群状态有第二份；维护者有清单；计划文件进版本控制；停掉 .50 夜间 LLM；第一次时间点恢复演练；查清节点补丁 | A1–A7（本目录） | 各道验收 PASS，Owner 批准的 apply 已执行 |
+| **2 PROD 成为唯一控制面**（进行中） | 申请单 + 审批（聊天 / 手机 / Console）；动作目录；MCP 改连 PROD（先读后写）；PROD RBAC 补齐；UniFi 凭证进 PROD | B1–B4（见下） | 当天的发布与同步全部出现在 PROD 审计里 |
 | 3 Console 按 7 个问题重组 | 先出「每页去向表」给 Owner 过目，再实现；退场 Agent 派发、Vision / Tier-B、发布驾驶舱、Guides | 同上 | Owner 过目通过 |
 | 4 工作项与进度 | 工作项登记覆盖全部工作线；`Work:` 尾注 + 防线；进度视图（Console ⑦ + 导出页） | 同上 | 进度页能列出待签、在途、本周上线、卡住 |
 | 5 维护者治理与凭证收口 | 平台后台循环导出上次成功时间；每晚集群内对账；滚动重启动作；Agent 交出管理员 kubeconfig | 同上 | 对账 0 漂移；Agent 侧无管理员凭证 |
@@ -46,3 +46,26 @@
   `bifrost-trade-infra/scripts/release/release.sh window && git push origin <sha>:refs/heads/main`（同一条命令）。
 - 报告格式：每一项一节——改动（仓库 · 分支 · 完整 SHA）、防线（文件 + 测试名）、门禁（命令 → 结果）、**验收（一条命令 + 预期）**、要 Owner 批（具体命令，原样可执行）、后续（新发现：`文件:行` + 一句话）。
 - 访问 Mac mini（只读）：`ssh -o IdentitiesOnly=yes -i ~/.ssh/id_ed25519 vision@192.168.10.50`（.52 同）。访问 k3s 节点（只读）：`ssh -o IdentitiesOnly=yes -i ~/.ssh/bifrost_deploy vision@<ip>`。集群：`KUBECONFIG=~/.kube/bifrost-k3s.yaml`，**只读**命令。
+
+## 第 2 阶段：四条道，可以同时开
+
+| 道 | 内容 | 仓库 · 分支 | 要 Owner 批的动作 |
+|---|---|---|---|
+| B1 | 动作目录 + 申请单 / 审批 API（平台执行、审计） | platform · `cursor/b1-platform` | 发版（Claude Code 申请） |
+| B2 | Console「待你批」页 + 手机推送（relay 加 notify） | platform · `cursor/b2-platform`；infra · `cursor/b2-infra` | 发版；在 .50 重新部署 operator-plane；建推送用 Secret |
+| B3 | MCP 改连 PROD（先读后写）+ 聊天里批准的工具 | infra · `cursor/b3-infra`（agent-config）；platform · `cursor/b3-platform`（mcp/） | 应用 Claude 用户级权限（`apply-auto-mode.sh`）；切换写操作 |
+| B4 | PROD 权限补齐、STG 关掉残留维护、UniFi 凭证进 PROD、告警 webhook 改用 reporter | infra · `cursor/b4-infra`；platform · `cursor/b4-platform` | 建 UniFi Secret；合并（Argo 会改集群） |
+
+合并顺序：B1 先合，B2 / B3 在 B1 上 rebase 后合；B4 独立。三条道都按下面的接口约定写，不要等 B1 合并。
+
+### 接口约定（B1 实现，B2 / B3 照此调用）
+
+- `GET /api/v1/actions` → `[{id, tier, description, params}]`，`tier` ∈ `A|B|C|D|X`（ADR §5）。
+- `POST /api/v1/approvals`（operator 及以上）`{action, params, reason, rollback}` → `201 {id, action, tier, params_hash, status:"pending", requester, expires_at}`。
+  B 级动作返回 `400`（直接调用即可）；X 级返回 `403`。请求头 `X-Bifrost-Session` 记为 `requester`。
+- `GET /api/v1/approvals?status=pending|all`、`GET /api/v1/approvals/{id}`（viewer 及以上）。
+- `POST /api/v1/approvals/{id}/approve`（**admin**）`{channel: "chat"|"phone"|"console"}` → 平台**用批准时的参数**立即执行，返回 `{status:"executed"|"failed", result|error}`。
+- `POST /api/v1/approvals/{id}/reject`（admin）`{reason}`。
+- 状态：`pending → executed | failed`；`pending → rejected | expired`（24 小时）。一次批准只执行一次。
+- C / D 级动作的原有直调端点：没有对应已执行的申请就返回 `403 {"error":"approval required","action":…}`。
+- 申请单存平台状态（statefile，PROD 落 ConfigMap）；每次创建、批准、拒绝、执行都写审计。
