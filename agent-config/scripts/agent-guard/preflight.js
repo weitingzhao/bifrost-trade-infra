@@ -78,11 +78,11 @@ const AUTHORITY =
 // ─────────────────────────────── D10 规则（高风险，不豁免） ───────────────────────────────
 // Research domain writes are ALLOWED while D10 is BLOCKED:
 //   research.ai_draft kind=order_intent · research.candidate_pool · harness propose-only
-// Agents must not write ib:operator:cmd (any mode). Legitimate writers: the Daemon, and platform-api for op=reconnect_all only (D-IB-Heal L1, SIGNED 2026-08-27). Every other op is Daemon-only. This gate still blocks Agent writes.
+// ib:operator:cmd remains blocked (only Daemon may write that stream).
 
 /** 仅在 spine D10 !== UNLOCKED 时生效。 */
 function d10Rules(cmd) {
-  // 1. Agent 不得写 ib:operator:cmd（及 :dev / :stg 等派生流；任何模式）。合法写入方：Daemon；platform-api 只发 op=reconnect_all（D-IB-Heal L1，SIGNED 2026-08-27）。其余 op 只能由 Daemon 发出。本闸门只拦 Agent 的写。
+  // 1. 写 ib:operator:cmd（及 :dev / :stg 等派生流；唯一合法写入方是 Daemon 本身）
   //    只拦"真的在写"：redis-cli 带写命令（参数、管道、heredoc 都算），或代码里调用 redis
   //    客户端的写方法 / IbOperatorClient.request。改源码、grep、写 ACL 文件里出现流名与
   //    xadd 字样不算 —— 旧规则按整段文本匹配，连注释里的 "set" 都会误拦（TD-21）。
@@ -103,25 +103,50 @@ function d10Rules(cmd) {
   //    /control/* 与 /account-sync/control/*，按路径尾部匹配，不按前缀（TD-07）。
   //    curl 带 -d / --data / --json / -F 时默认就是 POST，也算写 —— 只认 curl 自己的参数
   //    且区分大小写，否则 `tr -d`、`curl -f` 这类只读命令会被误拦。
-  if (
-    /\/(account-sync\/)?control\/[\w-]+/.test(cmd) &&
-    (/-X\s*(POST|PUT|DELETE)|--request\s*(POST|PUT|DELETE)/i.test(cmd) ||
-      /\bcurl\b[^|;&]*\s(-d|--data[\w-]*|--json|-F|--form)\b/.test(cmd))
-  ) {
-    return 'Monitor `POST …/control/*`（任一网关前缀或 :8765）— 可能武装实盘交易'
+  //    TD-96：写法不止 curl。wget / httpie / xh 的写参数，以及 Python / Node / PowerShell
+  //    代码里的 HTTP 写调用（requests.post、httpx.put、fetch(…, {method: 'POST'})、urllib 带 data=）
+  //    都算写。仍只在同一条命令里同时出现 /control/ 路径时才拦，只读 GET 照常放行。
+  const controlPath = /\/(account-sync\/)?control\/[\w-]+/.test(cmd)
+  const httpWrite =
+    /-X\s*(POST|PUT|DELETE|PATCH)|--request\s*(POST|PUT|DELETE|PATCH)/i.test(cmd) ||
+    /\bcurl\b[^|;&]*\s(-d|--data[\w-]*|--json|-F|--form)\b/.test(cmd) ||
+    /\bwget\b[^|;&]*\s--(post-data|post-file|body-data|body-file|method[= ]\s*(POST|PUT|DELETE|PATCH))\b/i.test(cmd) ||
+    /\b(http|https|xh|xhs)\s+(POST|PUT|DELETE|PATCH)\b/i.test(cmd) ||
+    /\.\s*(post|put|delete|patch)\s*\(/i.test(cmd) ||
+    /\.\s*request\s*\(\s*['"`](POST|PUT|DELETE|PATCH)/i.test(cmd) ||
+    /\bfetch\s*\([\s\S]*\bmethod\s*:\s*['"`](POST|PUT|DELETE|PATCH)/i.test(cmd) ||
+    /\burllib\b[\s\S]*(\bmethod\s*=\s*['"](POST|PUT|DELETE|PATCH)|\bdata\s*=)/i.test(cmd) ||
+    /\bInvoke-(WebRequest|RestMethod)\b[\s\S]*-Method\s+(Post|Put|Delete|Patch)/i.test(cmd)
+  if (controlPath && httpWrite) {
+    return 'Monitor `POST …/control/*`（任一网关前缀或 :8765，任一 HTTP 客户端）— 可能武装实盘交易'
   }
 
-  // 3. 把 daemon 扩到 >0 副本
-  if (/kubectl[^;|&]*\bscale\b/.test(cmd) && /daemon/.test(cmd)) {
-    const m = /--replicas[= ]+(\d+)/.exec(cmd)
+  // 3. 把 daemon 扩到 >0 副本。TD-96：不止 `kubectl scale`，`kubectl patch / set / apply / replace`
+  //    把 spec.replicas 改成 >0 也是扩容（`--replicas=N` 或 JSON/YAML 里的 `"replicas": N`）。
+  if (/kubectl[^;|&]*\b(scale|patch|set|apply|replace|edit)\b/.test(cmd) && /daemon/.test(cmd)) {
+    const m = /--replicas[= ]+(\d+)/.exec(cmd) || /["']?\breplicas["']?\s*:\s*(\d+)/.exec(cmd)
     if (m && Number(m[1]) > 0) {
       return `为 daemon 扩容到 ${m[1]} 副本 — STG 必须保持 replicas: 0`
     }
   }
 
-  // 4. 删除 / 移动 / 截断 D10 guard 文件
-  if (GUARD_FILES.test(cmd) && /\b(rm|mv|truncate|kubectl\s+delete)\b/.test(cmd)) {
-    return '删除或移动 D10 infra guard（daemon-scale-zero / daemon-observe-safe）'
+  // 4. 删除 / 移动 / 截断 / 原地改写 D10 guard 文件。TD-96：`sed -i`、`perl -i`、重定向写入、
+  //    cp / ln / tee / install / rsync / dd 覆盖、`kubectl patch|edit|apply|replace` 指向 guard 文件、
+  //    git rm / mv / checkout / restore 都会让 guard 失效。
+  //    只读（cat / grep / sed -n / git log / git diff）照常放行。宁可误报：拿 guard 文件当 cp 源也拦。
+  if (
+    GUARD_FILES.test(cmd) &&
+    (/\b(rm|mv|truncate|unlink|shred|kubectl\s+delete)\b/.test(cmd) ||
+      /\bkubectl\b[^|;&]*\b(patch|edit|apply|replace)\b/.test(cmd) ||
+      /\bsed\b[^|;&]*\s(-[a-zA-Z]*i[a-zA-Z]*|--in-place)(\s|=|$)/.test(cmd) ||
+      /\bperl\b[^|;&]*\s-[a-zA-Z]*i/.test(cmd) ||
+      /\b(cp|ln|tee|install|rsync|dd)\b/.test(cmd) ||
+      />>?\s*['"]?[^\s'"|;&]*(daemon-scale-zero|daemon-observe-safe)\.patch\.yaml/.test(cmd) ||
+      /\bgit\b[^|;&]*\b(rm|mv|checkout|restore)\b/.test(cmd) ||
+      /\bopen\s*\([^)]*(daemon-scale-zero|daemon-observe-safe)[^)]*,\s*['"][wax+]/.test(cmd) ||
+      /\.write_text\s*\(|\bwriteFileSync\s*\(|\bwriteFile\s*\(/.test(cmd))
+  ) {
+    return '删除、移动或改写 D10 infra guard（daemon-scale-zero / daemon-observe-safe）'
   }
 
   // 5. 删除 daemon overlay/patch —— 等同解除 guard
