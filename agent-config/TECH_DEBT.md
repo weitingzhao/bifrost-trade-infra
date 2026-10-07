@@ -13,10 +13,9 @@
 
 ## 待你签收
 
-- **TD-124** — 删掉永久挂起的 CronJob：research 18 个（60e9c2d，逐个核过都在 Dagster）、market-data 14 个 + 0.10.0 孤儿文件（91fe2c1），Owner 删除集群对象；保留 harness 与 7 个触发模板（去掉其中 5 个的旧 RESEARCH_WATCHLIST）· 验收 PASS（10-06，挂起 39 → 7）· 防线：`bifrost-research/tests/test_k8s_cronjobs.py`、`bifrost-platform-plugin-market-data/tests/test_k8s_no_cronjobs.py`，两个 verify 脚本翻成「必须不存在」· 后续：TD-190（触发路由与 7 个模板）、TD-191（schedule.yaml 注释）
-- **TD-176** — signal-hit / alert-scan 两个挂起清单随 TD-124 删除（research 60e9c2d）· 验收 PASS（10-06）· 防线：同 TD-124 · 无后续
+（暂无）
 
-**未结 84 项**：P0 0 · P1 4 · P2 31 · P3 49；要你批的 44 项（从总览表的审批列算）。
+**未结 82 项**：P0 0 · P1 4 · P2 31 · P3 47；要你批的 42 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -71,7 +70,7 @@
 
 目标：删掉没人用的（挂起的 CronJob、退役脚本、无调用路由），手抄的副本改成从一处生成（调度名单、max-pain / PCR），清单的应用顺序与 Argo 归属理顺。
 
-项：TD-102, TD-106, TD-107, TD-118, TD-119, TD-120, TD-123, TD-124, TD-125, TD-160, TD-169, TD-170, TD-176, TD-190, TD-191 · 已还：TD-126, TD-108, TD-154, TD-163, TD-168
+项：TD-102, TD-106, TD-107, TD-118, TD-119, TD-120, TD-123, TD-125, TD-160, TD-169, TD-170, TD-190, TD-191 · 已还：TD-126, TD-108, TD-154, TD-163, TD-168, TD-124, TD-176
 
 ### 第 6 波 · 备份链与自动修复（10-06 日常发现）
 
@@ -199,7 +198,6 @@
 | [TD-121](#td-121) | P3 | research-control | Research pods read bifrost-research-secrets once at start (optional: true); the OpenAI key rotation helper restarts only research-api | 安全/凭据（要你批） |
 | [TD-122](#td-122) | P3 | flex-ib | The IB Gateway image is built on the Mac and imported to nodes with ctr under a reused tag: no registry, no digest, no recorded source SHA | 跨仓库发版 |
 | [TD-123](#td-123) | P3 | research-control | About 19 deployed research-api routes have no caller in frontend, platform, trade-api or MCP, including manual POST triggers that run engine code outside Dagster | 改公开接口 |
-| [TD-124](#td-124) | P3 | research-control | 39 permanently suspended CronJobs (25 research, 14 market-data, plus an orphan pinned to 0.10.0) are still deployed and re-pinned every release; research ones carry a stale 26-name watchlist and the verify script contradicts the one active CronJob | 删除（要你批） |
 | [TD-125](#td-125) | P3 | flex-ib | Retired IB topology still referenced: TIBM-era verify scripts at the top of scripts/, flex_ops compat SQL for a schema that no longer exists | 删除（要你批） |
 | [TD-128](#td-128) | P3 | research-data | Pine signal rows mix adjustment bases: nightly runs rewrite only the last ~10 sessions on today's adjusted bars, older rows stay on the basis of their last full rebuild | 不用批 |
 | [TD-129](#td-129) | P3 | research-data | The event backtest picks option legs from option_daily only; since mid-August 2026 it keeps ~10 strikes a side, so a target delta silently lands on the nearest strike that is left | 不用批 |
@@ -238,7 +236,6 @@
 | [TD-171](#td-171) | P3 | frontend | Positions shows the attribution price_last as if it were live: no EOD label or date now that core 0.51.0 fills it from the vendor EOD mark | 不用批 |
 | [TD-172](#td-172) | P2 | research-data | ATM IV has almost no 50–90 DTE expiry from 2026-07-06 to 09-25 (the EOD chain stopped at the third listed expiry until plugin 0.39.0); the fix was forward-only, so term structure reads na for that stretch | 要你批 |
 | [TD-174](#td-174) | P3 | market-data | Console marks fundamentals-rotate missed every Monday 03:45 → Tuesday 03:00 UTC: the trading-day check uses the UTC date of the fire | 不用批 |
-| [TD-176](#td-176) | P3 | research-control | Suspended CronJobs cronjob-signal-hit.yaml and cronjob-alert-scan.yaml still ship and get re-pinned every release though Dagster runs both | 删除（要你批） |
 | [TD-178](#td-178) | P3 | trade-api | GET /strategies/plans has no source_kind filter: Research reads the newest 500 filled plans and filters itself, marking truncated at the cap | 改公开接口 |
 | [TD-180](#td-180) | P3 | research-data | The macro calendar has no CPI dates after 2026-12-10 and no payrolls at all: bls.gov answers 403 from this host, so they could not be read | 不用批 |
 | [TD-181](#td-181) | P3 | research-data | /events/calendar takes its macro rows from a hand-dropped radar file (ends 2026-12-10) instead of macro_event_daily, and radar ids include the collection date so a re-drop duplicates them | 不用批 |
@@ -720,26 +717,6 @@
 - **Fix**: Delete uncalled read routes and calculator POSTs; move agent/distill triggers to 'launch the Dagster job' via GraphQL; follow trade-api's TD-40 retirement pattern (test_retired_routes.py).
 - **Ratchet**: Port the TD-40 route-caller check: CI diffs app.routes against a committed callers manifest; test that no research-api route imports engines.*.entry run functions directly.
 - 审批 改公开接口 · 代价 M · 风险 low · repos: bifrost-research
-
-### TD-124
-
-**P3 · research-control · 39 permanently suspended CronJobs (25 research, 14 market-data, plus an orphan pinned to 0.10.0) are still deployed and re-pinned every release; research ones carry a stale 26-name watchlist and the verify script contradicts the one active CronJob**
-
-- **状态**：待你签收
-- **验收**：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl get cronjob -A | grep -c True` = 7（只剩 7 个触发模板）；research 26 → 8、plugin-market-data 14 → 0；Argo bifrost-research Synced；`verify_husbandry_schedulers.sh` 与 `make verify-market-data` 第 3/6 步 PASS
-- **验收结果**：PASS 2026-10-06 23:5x UTC：Owner 执行两条 kubectl delete 后全集群挂起 CronJob 39 → 7，research 26 → 8，plugin-market-data 14 → 0；Argo bifrost-research Synced / Healthy；`verify_husbandry_schedulers.sh` PASSED；`verify-market-data.sh` 第 3/6 步「0 CronJobs」（data quality 一行是原有的 pending，与本项无关）
-- **现在**：道 R 盘点：39 个 CronJob（research 26 = 25 挂起 + harness；market-data 14 全挂起，最后调度 08-29/08-30）；0.10.0 孤儿只剩文件、集群无对象。保留 harness（活跃）和 7 个挂起模板（platform 的触发白名单按名字用它们，见 TD-190），并从其中 5 个去掉过时的 RESEARCH_WATCHLIST（已同步，live 为 0）。删 research 18 个（含 TD-176 的 signal-hit / alert-scan，逐个核过都在 Dagster）、market-data 14 个 + 孤儿文件。防线：`bifrost-research/tests/test_k8s_cronjobs.py`、`bifrost-platform-plugin-market-data/tests/test_k8s_no_cronjobs.py`；两个 verify 脚本翻成「必须不存在」
-- **Claim**: Since the Dagster migration all engine CronJobs are suspend: true but still applied (research by Argo auto-sync; market-data via k8s/base), and each release rewrites their image tags. Research manifests hardcode RESEARCH_WATCHLIST to 26 names including SATS (renamed ECHO); unsuspending one would double a writer on the wrong universe. verify_husbandry_schedulers.sh requires research-harness suspended while it is suspend: false, so the landing check can only fail. market-data k8s/cronjob-option-backfill.yaml sits outside kustomization at 0.10.0; each slot cron is written in three places.
-- **Measured**: MEASURED. research: 25 CronJobs SUSPEND=True (17 manifest files, 12 set RESEARCH_WATCHLIST), harness active; all pinned 0.175.0. plugin-market-data: 14 CronJobs SUSPEND=True, last scheduled 08-29/30, image 0.77.0. Market-data skill says 'Do not unsuspend'.
-- **Evidence**:
-  - `bifrost-research/k8s/engines/cronjob-scan.yaml:67` — `value: "SPY,QQQ,IWM,SPX,NVDA,AAPL,META,GOOG,AMZN,MSFT,TSLA,PLTR,MU,MRVL,ANET,CAVA,CBRS,DAVE,DDOG,ECHO,HIMS,NBIS,NNE,RKLB,SATS,SPCX"`
-  - `bifrost-research/k8s/engines/cronjob-harness.yaml:17` — `suspend: false`
-  - `bifrost-research/scripts/verify_husbandry_schedulers.sh:67` — `research-harness \`
-  - `bifrost-platform-plugin-market-data/k8s/base/cronjob-daily.yaml:25` — `# last three forever: these have all been suspended since 2026-08-29`
-- **Impact**: Release churn and review noise; a one-line footgun that doubles writers; the documented landing check is permanently red so nobody runs it.
-- **Fix**: Delete suspended CronJob manifests in both repos (keep research-harness or move it into Dagster) and the orphan backfill CronJob; flip the verify script's CronJob block to 'must not exist'. Deletes in Argo-pruned paths need Owner sign-off.
-- **Ratchet**: CI check: `kustomize build` contains no kind: CronJob unless allowlisted with a reason (research baseline 26 → 1, market-data 14 → 0); test that no k8s manifest sets RESEARCH_WATCHLIST.
-- 审批 删除（要你批） · 代价 S · 风险 low · repos: bifrost-research, bifrost-platform-plugin-market-data
 
 ### TD-125
 
@@ -1386,23 +1363,6 @@
 - **Fix**: Judge the trading day on the New York date of the fire, as doctor's _closed_days_since does.
 - **Ratchet**: A dashboard test: a Monday 03:00 UTC fire is not missed.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data
-
-### TD-176
-
-**P3 · research-control · Suspended CronJobs cronjob-signal-hit.yaml and cronjob-alert-scan.yaml still ship and get re-pinned every release though Dagster runs both**
-
-- **状态**：待你签收
-- **验收**：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl get cronjob -A | grep -c True` = 7（只剩 7 个触发模板）；research 26 → 8、plugin-market-data 14 → 0；Argo bifrost-research Synced；`verify_husbandry_schedulers.sh` 与 `make verify-market-data` 第 3/6 步 PASS
-- **验收结果**：PASS 2026-10-06 23:5x UTC：Owner 执行两条 kubectl delete 后全集群挂起 CronJob 39 → 7，research 26 → 8，plugin-market-data 14 → 0；Argo bifrost-research Synced / Healthy；`verify_husbandry_schedulers.sh` PASSED；`verify-market-data.sh` 第 3/6 步「0 CronJobs」（data quality 一行是原有的 pending，与本项无关）
-- **Claim**: Both engines run inside research_trading_day (alert_scan since TD-97, signal_hit since TD-156); the suspended CronJob manifests have no runtime effect but every release bumps their image pins.
-- **Measured**: code-read 10-06 by paydown lane G1.
-- **Evidence**:
-  - `bifrost-research/k8s/engines/cronjob-signal-hit.yaml:14` — `suspend: true`
-  - `bifrost-research/k8s/engines/cronjob-alert-scan.yaml:15` — `suspend: true`
-- **Impact**: Dead manifests suggest a second scheduler exists; someone unsuspending one would run the engine twice.
-- **Fix**: Delete both manifests (and their kustomization entries) once Owner approves.
-- **Ratchet**: A research test: no CronJob manifest names an engine that Dagster also runs (read from the roster).
-- 审批 删除（要你批） · 代价 S · 风险 low · repos: bifrost-research
 
 ### TD-178
 
