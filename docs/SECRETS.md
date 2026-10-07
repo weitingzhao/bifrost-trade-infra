@@ -15,7 +15,7 @@ Secrets must not live in git-tracked ConfigMap YAML. Use K8s Secrets + env overr
 | Plugin `redis-ib-acl` | `bifrost-platform-plugin` `.env` → `make install-redis-ib` | ACL file on redis-ib |
 | Platform `redis-ib-platform` | gitignored Secret in `bifrost-platform-{stg,prod}` | `REDIS_IB_PLATFORM_PASS` |
 | Platform `bifrost-platform-role-tokens` | infra `.env` `PLATFORM_{STG,PROD}_{VIEWER,OPERATOR,ADMIN}_TOKEN` → `make k3s-apply-platform-role-tokens` | STG `PLATFORM_{VIEWER,OPERATOR,ADMIN}_TOKEN` · PROD `PLATFORM_PROD_{VIEWER,OPERATOR,ADMIN}_TOKEN` |
-| Monitoring `alertmanager-webhook-auth` | same target (key `token` = STG operator) | Alertmanager `bearer_token_file` |
+| Monitoring `alertmanager-webhook-auth` | same target (key `token` = PROD operator, `PLATFORM_PROD_OPERATOR_TOKEN`) | Alertmanager `bearer_token_file` |
 | Local Compose | infra `.env` | same env keys |
 
 Examples (placeholders only): `k8s/base/secrets/bifrost-*-secrets.example.yaml`, `k8s/base/secrets/bifrost-db-owner.example.yaml`.

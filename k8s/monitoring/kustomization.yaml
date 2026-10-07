@@ -21,7 +21,7 @@ resources:
   - traefik.yaml
   - bifrost-alerting-rules.yaml
   - td-d2-postgres-rules.yaml
-  # Secret alertmanager-webhook-auth (bearer for the platform-api STG webhook) is not
+  # Secret alertmanager-webhook-auth (bearer for the platform-api PROD webhook) is not
   # here: scripts/k3s/apply-platform-role-tokens.sh writes it from .env.
   - alertmanager-webhook-network-policy.yaml
   - grafana-dashboards-configmap.yaml
