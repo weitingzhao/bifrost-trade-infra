@@ -13,9 +13,9 @@
 
 ## 待你签收
 
-（暂无）
+- **TD-193** — 事件行日期改用 event_date（无则退回 collected_at 并标注），宏观行带发布时间（frontend 18e003fe）· 验收 PASS（10-07）· 防线：`src/pages/research/events/eventDate.test.tsx`（回退到 collected_at 即失败） · 更正：原文说的 EventsBoard 自 09-24 起已是孤儿，线上看不到错日期 · 后续：TD-199（删孤儿文件，要你肉眼定）
 
-**未结 82 项**：P0 0 · P1 4 · P2 31 · P3 47；要你批的 43 项（从总览表的审批列算）。
+**未结 83 项**：P0 0 · P1 4 · P2 31 · P3 48；要你批的 44 项（从总览表的审批列算）。
 
 ## 主题（第 2 轮）
 
@@ -82,7 +82,7 @@
 
 目标：Data Gaps 看板上未结的 15 项并入台账：先把每日快照的写入修对（TD-137）再接读侧和三页，归因行补上价格，Research 侧已就绪的一个版本（0.185.0）发出去，长期限 IV 锥在 10-31 前从 option_daily 回填，其余按 Owner 已定的口径排。
 
-项：TD-137, TD-138, TD-139, TD-140, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-158, TD-159, TD-171, TD-172, TD-178, TD-180, TD-182, TD-193 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181
+项：TD-137, TD-138, TD-139, TD-140, TD-142, TD-143, TD-144, TD-145, TD-146, TD-148, TD-149, TD-150, TD-158, TD-159, TD-171, TD-172, TD-178, TD-180, TD-182, TD-193, TD-199 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181
 
 ### 第 8 波 · Pine 线程收尾后的跟进（10-06）
 
@@ -258,6 +258,7 @@
 | [TD-196](#td-196) | P2 | ops-platform | platform-api and platform-workers keep their state in per-pod emptyDir: every rollout erases release cycles, gate history, the operate queue and checklist signals, and the audit log is memory-only | 已批 |
 | [TD-197](#td-197) | P3 | ops-platform | Lineage thread titles are synced only by the platform-api on the Owner's workstation (bdev): when it is down, or sessions run elsewhere, new threads stay unnamed | 已批 |
 | [TD-198](#td-198) | P3 | ops-platform | STG platform-api is not scraped: the platform-api ServiceMonitor selects only bifrost-platform-prod, so STG platform 5xx / latency and plugin health come from PROD only | 不用批 |
+| [TD-199](#td-199) | P3 | frontend | EventsBoard.tsx and EventRadarDashboard.tsx have had no importer since 09-24 (c81e5a29); a comment still says EventRadarBody 'stays the Explorer tab's body' though Explorer was retired in 594a3f3f | 删除（要你批） |
 
 ## 条目
 
@@ -1532,7 +1533,9 @@
 
 **P3 · frontend · The Events calendar view's Date column shows collected_at, not event_date: macro rows show when they were computed, radar rows when the file was dropped**
 
-- **状态**：在做（还债第五批 · 道 U，10-07 00:2x UTC 开工；发版前停下等你批）
+- **状态**：待你签收
+- **验收**：`git -C bifrost-trade-frontend show origin/main:src/pages/research/events/EventsBoard.tsx | grep -c 'row.collected_at ??'` = 0；`eventDate.test.tsx` 通过
+- **验收结果**：PASS 2026-10-07 frontend 18e003fe（grep 0、vitest 4050 passed）。**更正原文**：EventsBoard.tsx 自 c81e5a29（09-24）起已无人引用，错日期在任何可打开的页面上都看不到；线上 Events Market face 的 Forward 面板本来就按 event_date 显示。这次修了孤儿文件并给 Forward 面板的宏观行加上发布时间（DEV 数据本机 Vite 实测：`14OCT26 08:30 ET … CPI`、`28OCT26 14:00 ET … FOMC`），随下一次 Trade 前端发布上线。DEV 17 行日历、200 行事件全部有 event_date。孤儿文件记为 TD-199
 - **Claim**: EventsBoard renders row.collected_at in the calendar's Date column; for a calendar the reader expects the event's own date.
 - **Measured**: code-read 10-06 by paydown lane P.
 - **Evidence**:
@@ -1625,6 +1628,20 @@
 - **Fix**: Add bifrost-platform-stg to matchNames; check that plugin-health alerts then fire per namespace without duplicating PROD pages (add namespace to their grouping or limit them to prod).
 - **Ratchet**: check_http_metrics_coverage.py: every namespace in PLATFORM_NAMESPACES is selected by some ServiceMonitor.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra
+
+### TD-199
+
+**P3 · frontend · EventsBoard.tsx and EventRadarDashboard.tsx have had no importer since 09-24 (c81e5a29); a comment still says EventRadarBody 'stays the Explorer tab's body' though Explorer was retired in 594a3f3f**
+
+- **状态**：未开始
+- **Claim**: Lane U grepped src: the two modules are referenced only in comments (EventsPage.tsx:145, AlertsPage.tsx:16). TD-193 was filed against EventsBoard because the code looked live.
+- **Measured**: MEASURED 10-07 by paydown lane U (grep of origin/main src for imports).
+- **Evidence**:
+  - `bifrost-trade-frontend/src/pages/research/events/EventsPage.tsx:145` — ``EventRadarBody` stays the Explorer tab's body — nothing deleted. */`
+- **Impact**: Dead pages attract fixes (this round fixed one) and mislead audits into filing debt against code nobody sees.
+- **Fix**: Owner confirms by eye (CLAUDE.md §15 rule: deletion is the Owner's call), then delete both files and correct the two comments.
+- **Ratchet**: An orphan-module check (knip or a vitest over the import graph) in code-health, with the current orphans as a baseline that can only shrink.
+- 审批 删除（要你批） · 代价 S · 风险 low · repos: bifrost-trade-frontend
 
 ## 没覆盖到的（下一轮从这里开始）
 
