@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
+import os
 import subprocess
 import sys
 import unittest
@@ -130,6 +132,37 @@ class CiGateTests(unittest.TestCase):
         finally:
             fixture.unlink(missing_ok=True)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+
+def _load_check_release_chain():
+    path = Path(__file__).resolve().parents[1] / "check-release-chain.py"
+    spec = importlib.util.spec_from_file_location("check_release_chain", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+class GuardedPipelineReleaseWindowTests(unittest.TestCase):
+    """TD-263: MUST_HOLD pipelines (incl. flex-query sibling YAML) start with release-window."""
+
+    def test_guarded_pipelines_release_window_first(self) -> None:
+        workspace = Path(os.environ.get("BIFROST_WORKSPACE", Path(__file__).resolve().parents[2].parent))
+        if not (workspace / "bifrost-platform-plugin-flex-query").is_dir():
+            self.skipTest("BIFROST_WORKSPACE must name a checkout with bifrost-platform-plugin-flex-query")
+        prev = os.environ.get("BIFROST_WORKSPACE")
+        os.environ["BIFROST_WORKSPACE"] = str(workspace)
+        try:
+            crc = _load_check_release_chain()
+            failures: list[str] = []
+            crc.failures = failures
+            crc.assert_guarded_pipelines_release_window_first()
+            self.assertEqual(failures, [])
+        finally:
+            if prev is None:
+                os.environ.pop("BIFROST_WORKSPACE", None)
+            else:
+                os.environ["BIFROST_WORKSPACE"] = prev
 
 
 if __name__ == "__main__":

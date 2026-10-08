@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ratchet for the release-chain lane (TD-162, TD-155, TD-95, TD-122, TD-121).
+"""Ratchet for the release-chain lane (TD-162, TD-155, TD-95, TD-122, TD-121, TD-263).
 
 No cluster. Fails if a deliver/build pipeline drops its lint-test or window
 check, if the Tekton window decision drifts from window_decision.py, or if
@@ -8,6 +8,7 @@ the research rotation helper hard-codes one Deployment.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -29,6 +30,70 @@ def check(cond: bool, msg: str) -> None:
 def task_block(text: str, name: str) -> str:
     match = re.search(rf"\n    - name: {re.escape(name)}\n(.*?)(?=\n    - name: |\Z)", text, re.S)
     return match.group(1) if match else ""
+
+
+def workspace_root() -> Path:
+    return Path(os.environ.get("BIFROST_WORKSPACE", str(ROOT.parent)))
+
+
+def collect_build_deliver_pipeline_paths() -> dict[str, Path]:
+    """Map Pipeline metadata.name -> YAML for bifrost-build-* / bifrost-deliver-*."""
+    paths: dict[str, Path] = {}
+    tekton = ROOT / "k8s/cicd/tekton"
+    for path in sorted(tekton.glob("pipeline-*.yaml")):
+        text = path.read_text(encoding="utf-8")
+        match = re.search(r"\n  name: (bifrost-(?:build|deliver)-[^\n]+)", text)
+        if match:
+            paths[match.group(1).strip()] = path
+    flex_root = os.environ.get("FLEX_QUERY_ROOT")
+    if flex_root:
+        flex_repo = Path(flex_root)
+    else:
+        flex_repo = workspace_root() / "bifrost-platform-plugin-flex-query"
+    flex_yaml = flex_repo / "k8s/cicd/pipeline-build.yaml"
+    if flex_yaml.is_file():
+        text = flex_yaml.read_text(encoding="utf-8")
+        match = re.search(r"\n  name: (bifrost-(?:build|deliver)-[^\n]+)", text)
+        if match:
+            paths[match.group(1).strip()] = flex_yaml
+    return paths
+
+
+def first_task_name(pipeline_yaml: str) -> str | None:
+    match = re.search(
+        r"\n  tasks:\n(?:    #.*\n)*    - name: ([^\n]+)",
+        pipeline_yaml,
+    )
+    return match.group(1).strip() if match else None
+
+
+def assert_guarded_pipelines_release_window_first() -> None:
+    """TD-263: every window_decision.MUST_HOLD pipeline runs release-window first.
+
+    Trade STG/PROD deliver pipelines are gated at platform-api; Tekton runs
+    release-window first only for GUARDED plugin/research builds. flex-query
+    YAML lives in bifrost-platform-plugin-flex-query — set BIFROST_WORKSPACE or
+    FLEX_QUERY_ROOT when this repo is checked out without its sibling.
+    """
+    paths = collect_build_deliver_pipeline_paths()
+    for pipeline in sorted(wd.MUST_HOLD):
+        path = paths.get(pipeline)
+        if path is None:
+            check(
+                False,
+                f"{pipeline}: pipeline YAML not found "
+                "(sibling bifrost-platform-plugin-flex-query or FLEX_QUERY_ROOT)",
+            )
+            continue
+        text = path.read_text(encoding="utf-8")
+        first = first_task_name(text)
+        label = path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
+        check(
+            first == "release-window",
+            f"{label}: first task is {first!r}, want release-window ({pipeline})",
+        )
+        block = task_block(text, "release-window")
+        check("runAfter" not in block, f"{label}: release-window is not the first task ({pipeline})")
 
 
 def load_task_decide():
@@ -76,14 +141,7 @@ def main() -> int:
         check("default: main" not in rev, f"{rel} still defaults revision to main")
         check("40-character" in text, f"{rel} does not document the SHA revision")
 
-    for rel in (
-        "k8s/cicd/tekton/pipeline-build-market-data.yaml",
-        "k8s/cicd/tekton/pipeline-build-ib-gateway.yaml",
-    ):
-        text = (ROOT / rel).read_text()
-        check("name: release-window" in text, f"{rel} has no release-window task")
-        first = task_block(text, "release-window")
-        check("runAfter" not in first, f"{rel} release-window is not the first task")
+    assert_guarded_pipelines_release_window_first()
 
     mirror = (ROOT / "k8s/cicd/tekton/task-gitea-mirror-sync.yaml").read_text()
     check("expectSha" in mirror and "git/commits" in mirror, "mirror-sync does not poll for the SHA")
