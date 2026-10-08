@@ -124,13 +124,17 @@ spec:
               The PipelineRun janitor Job failed. Terminal runs older than
               7 days are then left in the cicd namespace.
     - name: bifrost-maintainer-loops
+      # The gauges live in platform-workers memory, so every rollout clears them
+      # until each loop's next success (fleet-drift hourly, cert-expiry weekly).
+      # absent_over_time over the stale threshold (floor 5m, one scrape is 60s)
+      # reads Prometheus history instead, so a restart is not an outage.
       rules:
         - alert: BifrostMaintainerIBAutoRepairStale
           expr: |
             (
               time() - bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/ib-autorepair"} > 60
             )
-            or absent(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/ib-autorepair"})
+            or absent_over_time(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/ib-autorepair"}[5m])
           for: 3m
           labels:
             severity: warning
@@ -145,7 +149,7 @@ spec:
             (
               time() - bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/data-clone-scheduler"} > 7200
             )
-            or absent(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/data-clone-scheduler"})
+            or absent_over_time(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/data-clone-scheduler"}[2h])
           for: 15m
           labels:
             severity: warning
@@ -159,7 +163,7 @@ spec:
             (
               time() - bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/failed-backup-sweep"} > 172800
             )
-            or absent(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/failed-backup-sweep"})
+            or absent_over_time(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/failed-backup-sweep"}[2d])
           for: 30m
           labels:
             severity: warning
@@ -173,7 +177,7 @@ spec:
             (
               time() - bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/patrol-autopilot"} > 60
             )
-            or absent(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/patrol-autopilot"})
+            or absent_over_time(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/patrol-autopilot"}[5m])
           for: 3m
           labels:
             severity: warning
@@ -187,7 +191,7 @@ spec:
             (
               time() - bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/patrol-autopilot/ops-autopilot"} > 1800
             )
-            or absent(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/patrol-autopilot/ops-autopilot"})
+            or absent_over_time(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/patrol-autopilot/ops-autopilot"}[30m])
           for: 15m
           labels:
             severity: warning
@@ -199,7 +203,7 @@ spec:
             (
               time() - bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/patrol-autopilot/fleet-drift-scan"} > 7200
             )
-            or absent(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/patrol-autopilot/fleet-drift-scan"})
+            or absent_over_time(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/patrol-autopilot/fleet-drift-scan"}[2h])
           for: 15m
           labels:
             severity: warning
@@ -211,7 +215,7 @@ spec:
             (
               time() - bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/patrol-autopilot/cert-expiry-check"} > 1209600
             )
-            or absent(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/patrol-autopilot/cert-expiry-check"})
+            or absent_over_time(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/patrol-autopilot/cert-expiry-check"}[14d])
           for: 30m
           labels:
             severity: warning
@@ -223,7 +227,7 @@ spec:
             (
               time() - bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/checklist-prober"} > 1200
             )
-            or absent(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/checklist-prober"})
+            or absent_over_time(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/checklist-prober"}[20m])
           for: 15m
           labels:
             severity: warning
@@ -237,7 +241,7 @@ spec:
             (
               time() - bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/release-recorder"} > 600
             )
-            or absent(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/release-recorder"})
+            or absent_over_time(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/release-recorder"}[10m])
           for: 10m
           labels:
             severity: warning

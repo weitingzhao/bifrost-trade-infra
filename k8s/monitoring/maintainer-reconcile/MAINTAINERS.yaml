@@ -85,6 +85,14 @@ maintainers:
     max_tier: B
     detected_by: BifrostMaintainerBackupRetryStale
     status: active
+  - id: cronjob/data/db-role-matrix
+    what: "Daily read-only check that live database grants (CONNECT, schema CREATE, table INSERT/UPDATE/DELETE) match k8s/data/role-matrix/expected.yaml; exits 1 on any difference (TD-85)."
+    runs_on: cluster:data/CronJob
+    schedule: "15 5 * * * UTC"
+    env: prod
+    max_tier: A
+    detected_by: BifrostDbPrivilegeDrift
+    status: active
   - id: cronjob/cicd/tekton-pipelinerun-ttl
     what: "Hourly deletion of terminal Tekton PipelineRuns older than 7 days."
     runs_on: cluster:cicd/CronJob
@@ -92,6 +100,14 @@ maintainers:
     env: shared
     max_tier: B
     detected_by: BifrostTektonPipelineRunTTLStale
+    status: active
+  - id: cronjob/kube-system/cluster-state-backup
+    what: "Daily age-encrypted copy of the newest k3s etcd snapshot and the cluster Secrets onto the nfs-cold claim cluster-state-backup (LANE-A2)."
+    runs_on: cluster:kube-system/CronJob
+    schedule: "15 5 * * * UTC"
+    env: prod
+    max_tier: B
+    detected_by: BifrostClusterStateBackupStale
     status: active
   - id: cronjob/research/research-harness
     what: "Weekday copilot harness batch (daily_open) outside Dagster, writing the research store."

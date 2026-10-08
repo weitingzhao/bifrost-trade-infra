@@ -242,7 +242,11 @@ def prometheus_series() -> set[str]:
     base = os.environ.get(
         "PROMETHEUS_URL", "http://kube-prometheus-stack-prometheus.monitoring.svc:9090"
     ).rstrip("/")
-    query = urllib.parse.urlencode({"query": "bifrost_maintainer_last_success_timestamp_seconds"})
+    # A rollout clears the in-memory gauges; look back as far as the longest
+    # stale threshold in bifrost-maintainer-rules.yaml (cert-expiry, 14d).
+    query = urllib.parse.urlencode(
+        {"query": "last_over_time(bifrost_maintainer_last_success_timestamp_seconds[14d])"}
+    )
     with urllib.request.urlopen(f"{base}/api/v1/query?{query}", timeout=60) as resp:
         data = json.loads(resp.read().decode())
     if data.get("status") != "success":
