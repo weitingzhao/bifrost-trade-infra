@@ -379,12 +379,16 @@
 - **类别**：计划
 - **状态**：在做
 - **现在**：
-  - 议题已扩成多 Agent 运行时，同时服务开发和业务两个租户。ADR §1 已改写（bf27c80）；讨论稿是 `work/multi-agent/DESIGN-agent-runtime-2026-10-08.md`（v3，未实施），已定和待定的列在它的第 12 节。
-  - 2026-10-08 从 ops-arch 接手：第 4 阶段剩下的部分（W-4、W-10）和第 6 阶段（W-6）。
-  - Grok Bot 暂停中。
-- **下一步**：讨论稿的待定项定完后改写 ADR §12，再拆道。Owner 确认之前不落地
-- **验收**：第 1 期上 PROD 之后，当天所有发版（含 STG、research、插件）在 PROD 发布队列里都有记录，`~/.bifrost-release/window.json` 不再是权威
-- **关联**：`agent-config/ADR-ops-architecture.md` §12、`agent-config/work/multi-agent/BRIEF-2026-10-08.md`、`agent-config/work/multi-agent/PHASE1-OPTIONS-2026-10-08.md`
+  - 设计 v4 已定稿：`work/multi-agent/DESIGN-agent-runtime-2026-10-08.md`。
+  - ADR §1（Owner 的三件事）、§5（规则集）、§12（整节改写）已写入。
+  - 2026-10-08 从 ops-arch 接手 W-4、W-6、W-10 的剩余部分。
+  - Grok Bot 作为总调度的角色退场。
+  - 「Code 代码 - 还债」已停，改作本架构的试点。
+- **下一步**：等 ops-arch（瘦身）完成后，从第 0 步开始（设计第 10 节），先拆道，再按阶段推进。唯一待定的是：低频定时任务能不能用订阅额度，等 Owner 读完条款再定
+- **验收**：
+  - 第 0 步：新节点测试通过、Gitea 做主、根目录白名单的防线为 0。
+  - 第 0 阶段：Gate A（T01、T02、T08、T10）通过，基准集出第一份报告。
+- **关联**：`agent-config/ADR-ops-architecture.md` §1、§5、§12；`agent-config/work/multi-agent/`
 
 ### W-32
 
