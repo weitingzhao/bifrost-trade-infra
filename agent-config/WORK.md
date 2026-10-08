@@ -388,6 +388,7 @@
 - **验收**：
   - 第 0 步：新节点测试通过、Gitea 做主、根目录白名单的防线为 0。
   - 第 0 阶段：Gate A（T01、T02、T08、T10）通过，基准集出第一份报告。
+  - 发布队列：当天所有发布与同步都出现在 PROD 审计里，包括 Trade 的 `release.sh`、插件构建和手工建的 run。这条是 ops-arch 第 2 阶段的退出条件，Owner 10-08 移交给本议题。10-08 实测的基线是 21 个 run 里只有 5 个进了审计。
 - **关联**：`agent-config/ADR-ops-architecture.md` §1、§5、§12；`agent-config/work/multi-agent/`
 
 ### W-32
