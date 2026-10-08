@@ -411,7 +411,7 @@
 - **现在**：Owner 10-08 定合并四件：① 凭证收口（mini 不再持有管理员 kubeconfig 与 admin 令牌、部署脚本不再同步、remediation runner 与 .52 hermes-gateway 定去留）；② PROD 经代理转到 mini 的 operator 级路由认 PROD 令牌；③ Console 显示待重启节点、滚动重启做成审批动作；④ ⑤ 页给 Research 与插件显示 STG / PROD 两列版本。先讨论分步，任务文件还没写
 - **下一步**：W-32 上线后与 Owner 讨论，再写 `LANE-W33.md`
 - **验收**：第 5 阶段退出条件——对账 0 漂移；Agent 侧没有管理员凭证
-- **关联**：`agent-config/work/ops-arch/README.md`「剩下的三波」、W-5
+- **关联**：`agent-config/work/ops-arch/README.md`「剩下的两波」、W-5
 
 ## 本批没有登记的
 
