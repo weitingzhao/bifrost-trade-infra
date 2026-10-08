@@ -1,0 +1,37 @@
+# TD-258. Quarterly manual PITR drill. Warning only: an audit record, not a page.
+# pitr_verify.sh recreates ConfigMap data/pg-recovery-drill-last-pass on a full
+# PASS (delete, then create) so kube_configmap_created is that pass. 8640000
+# seconds is 100 days. absent() also fires when the ConfigMap has never been
+# written. This file does not contain the TD-134 WAL rule.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bifrost-postgres-recovery-drill-rules
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: alerting
+spec:
+  groups:
+    - name: bifrost-postgres-recovery-drill
+      rules:
+        - alert: BifrostPostgresRecoveryDrillStale
+          expr: |
+            (
+              time() - kube_configmap_created{namespace="data",configmap="pg-recovery-drill-last-pass"}
+                > 8640000
+            )
+            or
+            absent(kube_configmap_created{namespace="data",configmap="pg-recovery-drill-last-pass"})
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Postgres recovery drill has not passed in 100 days"
+            description: >-
+              ConfigMap data/pg-recovery-drill-last-pass is absent, or its age
+              is over 100 days ({{ $value | humanizeDuration }} when the age
+              series is present). The PITR drill is manual and quarterly.
+              Runbook: docs/runbooks/pitr-drill.md.

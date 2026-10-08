@@ -25,7 +25,10 @@ and fails unless:
   operator token (the route accepts reporter or above and only writes diagnostics);
 - no alert in k8s/monitoring/bifrost-maintainer-rules.yaml matches a paging route
   (maintainer liveness is an audit record; backup failures already page under
-  the existing backup names).
+  the existing backup names);
+- ``BifrostPostgresRecoveryDrillStale`` (k8s/monitoring/bifrost-postgres-recovery-drill-rules.yaml)
+  is severity warning, its threshold is 100 days (8640000 seconds) or the
+  last-pass ConfigMap is absent, and it does not match a paging route.
 
 "Outside the cluster" means a webhook URL whose host is not ``*.svc.cluster.local``.
 
@@ -58,6 +61,11 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 VALUES = ROOT / "scripts/k3s/values-kube-prometheus.yaml"
 EGRESS = ROOT / "k8s/monitoring/alertmanager-webhook-network-policy.yaml"
 MAINTAINER_RULES = ROOT / "k8s/monitoring/bifrost-maintainer-rules.yaml"
+DRILL_RULES = ROOT / "k8s/monitoring/bifrost-postgres-recovery-drill-rules.yaml"
+DRILL_STALE_ALERT = "BifrostPostgresRecoveryDrillStale"
+# 100 days. The rule uses `>` so an age of exactly this many seconds does not fire.
+DRILL_STALE_SECONDS = 100 * 24 * 60 * 60
+DRILL_CM = 'kube_configmap_created{namespace="data",configmap="pg-recovery-drill-last-pass"}'
 PAGED = re.compile(
     r"Bifrost(PostgresBackup.*|PostgresWalArchiveStalled|LogicalBackup.*|MinIONas.*|ClusterStateBackup.*)"
 )
@@ -168,6 +176,57 @@ def assert_maintainer_rules_unpaged(route: dict, outside_names: set[str], receiv
         hit = [n for n in got if n in outside_names and n in receivers]
         if hit:
             problems.append(f"{rel}: {name} reaches a paging receiver {hit}")
+
+
+def drill_stale(age_seconds: float | None) -> bool:
+    """BifrostPostgresRecoveryDrillStale: the ConfigMap is missing, or older than 100 days."""
+    if age_seconds is None:
+        return True
+    return age_seconds > DRILL_STALE_SECONDS
+
+
+def drill_stale_rule() -> dict:
+    docs = [
+        doc for doc in yaml.safe_load_all(DRILL_RULES.read_text())
+        if doc and doc.get("kind") == "PrometheusRule"
+    ]
+    if len(docs) != 1:
+        raise ValueError(f"{DRILL_RULES.name}: expected one PrometheusRule")
+    rules = []
+    for group in docs[0]["spec"]["groups"]:
+        for rule in group.get("rules") or []:
+            if "alert" in rule:
+                rules.append(rule)
+    if len(rules) != 1:
+        raise ValueError(f"{DRILL_RULES.name}: expected one alert, found {len(rules)}")
+    return rules[0]
+
+
+def assert_drill_stale_unpaged(route: dict, outside_names: set[str], receivers: dict, problems: list[str]) -> None:
+    """The quarterly drill alert is an audit record. It must not page."""
+    rel = DRILL_RULES.relative_to(ROOT)
+    try:
+        rule = drill_stale_rule()
+    except (OSError, ValueError, KeyError, yaml.YAMLError) as exc:
+        problems.append(f"{rel}: {exc}")
+        return
+    name = rule.get("alert") or ""
+    sev = (rule.get("labels") or {}).get("severity", "")
+    expr = rule.get("expr") or ""
+    if name != DRILL_STALE_ALERT:
+        problems.append(f"{rel}: alert is {name or 'missing'}, want {DRILL_STALE_ALERT}")
+    if sev != "warning":
+        problems.append(f"{rel}: {name} severity is {sev or 'missing'}, want warning (audit, not a page)")
+    if str(DRILL_STALE_SECONDS) not in expr:
+        problems.append(f"{rel}: expr is not the {DRILL_STALE_SECONDS}-second (100-day) threshold")
+    if "absent(" not in expr or DRILL_CM not in expr or ">" not in expr:
+        problems.append(f"{rel}: expr must age {DRILL_CM} with '>' and alert when it is absent")
+    if PAGED.fullmatch(name):
+        problems.append(f"{rel}: {name} matches the paging alertname route")
+    got = [n for n in route_to(route, {"alertname": name or DRILL_STALE_ALERT, "severity": sev or "warning"}) if n]
+    hit = [n for n in got if n in outside_names and n in receivers]
+    if hit:
+        problems.append(f"{rel}: {name} reaches a paging receiver {hit}")
 
 
 def kubectl(*args: str) -> subprocess.CompletedProcess[str]:
@@ -338,6 +397,28 @@ def self_test() -> None:
     maintainer_reached = route_to(good["route"], {"alertname": "BifrostMaintainerBackupSweepStale", "severity": "warning"})
     if "owner-ntfy" in maintainer_reached:
         raise SystemExit(f"self-test: maintainer liveness reached {maintainer_reached}")
+    if DRILL_STALE_SECONDS != 8_640_000:
+        raise SystemExit("self-test: 100 days is not 8640000 seconds")
+    if not drill_stale(None) or not drill_stale(DRILL_STALE_SECONDS + 1):
+        raise SystemExit("self-test: 100-day predicate did not fire for absent or stale")
+    if drill_stale(0) or drill_stale(DRILL_STALE_SECONDS):
+        raise SystemExit("self-test: 100-day predicate fired at or under 100 days")
+    try:
+        drill_rule = drill_stale_rule()
+    except (OSError, ValueError, KeyError, yaml.YAMLError) as exc:
+        raise SystemExit(f"self-test: drill rule: {exc}") from exc
+    drill_expr = drill_rule.get("expr") or ""
+    if str(DRILL_STALE_SECONDS) not in drill_expr or "absent(" not in drill_expr or DRILL_CM not in drill_expr:
+        raise SystemExit("self-test: drill rule expr is not the 100-day or-absent form")
+    if (drill_rule.get("labels") or {}).get("severity") != "warning":
+        raise SystemExit("self-test: drill rule is not severity warning")
+    if drill_rule.get("alert") != DRILL_STALE_ALERT:
+        raise SystemExit("self-test: drill rule was renamed")
+    if PAGED.fullmatch(DRILL_STALE_ALERT):
+        raise SystemExit("self-test: recovery drill stale matches the pager")
+    drill_reached = route_to(good["route"], {"alertname": DRILL_STALE_ALERT, "severity": "warning"})
+    if "owner-ntfy" in drill_reached:
+        raise SystemExit(f"self-test: recovery drill stale reached {drill_reached}")
     bad_problems: list[str] = []
     assert_webhook_targets({
         "route": {"receiver": WEBHOOK},
@@ -383,6 +464,7 @@ def main() -> int:
         problems.append(f"Watchdog reaches {hb}: no receiver outside the cluster (dead-man's switch)")
 
     assert_maintainer_rules_unpaged(route, outside_names, receivers, problems)
+    assert_drill_stale_unpaged(route, outside_names, receivers, problems)
 
     cases = [("AnyCritical", "critical")] + [(a, s) for a, s in rule_alerts() if PAGED.fullmatch(a)]
     seen = {a for a, _ in cases}

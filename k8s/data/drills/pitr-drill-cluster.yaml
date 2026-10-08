@@ -1,11 +1,15 @@
 # Quarterly PITR drill. Prepared, not applied. Not in k8s/data/kustomization.yaml,
-# so Argo will not create it. Apply only from docs/runbooks/pitr-drill.md.
+# so Argo will not create it. Do not apply this file raw: render-cluster.sh
+# fills targetTime. Apply only from docs/runbooks/pitr-drill.md.
 #
-# One instance, bootstrap.recovery from the production Barman bucket, no
-# recoveryTarget (replay to the end of archived WAL). There is no backup
-# section and no archive_command: this Cluster must never write
-# s3://bifrost-postgres-backup/. Credentials are a read-only Secret the Owner
-# creates in namespace pitr-drill. Do not copy Secret data/minio-backup.
+# One instance in namespace pg-recovery-drill. The read-only Secret
+# minio-backup-readonly already lives there (MinIO user pg-recovery-drill:
+# list is allowed, put is AccessDenied). bootstrap.recovery reads the
+# production Barman bucket and stops at targetTime. There is no backup
+# section and no plugins section: this Cluster must never write
+# s3://bifrost-postgres-backup/. Its name is pg-recovery-drill, not
+# bifrost-postgres, so an archive would not reuse the production server
+# name. Do not copy Secret data/minio-backup.
 #
 # Sizing, read 2026-10-07 (read-only). kubelet node.fs.availableBytes, not
 # allocatable ephemeral-storage (that figure is ~442Gi on every node):
@@ -18,23 +22,25 @@
 # The 80Gi request is about 2.3x that data, leaving room for WAL replay.
 # Recent base backups of this cluster took ~76 minutes
 # (bifrost-postgres-daily-20261007030000, 03:00:00Z to 04:15:50Z).
+# The 2026-10-07 drill on this namespace restored in about 23 minutes.
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: pitr-drill
+  name: pg-recovery-drill
   labels:
-    app.kubernetes.io/name: bifrost-postgres-pitr-drill
+    app.kubernetes.io/name: pg-recovery-drill
     app.kubernetes.io/part-of: bifrost
+    bifrost.io/purpose: recovery-drill
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
-  name: bifrost-postgres-pitr-drill
-  namespace: pitr-drill
+  name: pg-recovery-drill
+  namespace: pg-recovery-drill
   labels:
-    app.kubernetes.io/name: bifrost-postgres-pitr-drill
+    app.kubernetes.io/name: pg-recovery-drill
     app.kubernetes.io/part-of: bifrost
-    bifrost.io/purpose: pitr-drill
+    bifrost.io/purpose: recovery-drill
 spec:
   instances: 1
   imageName: ghcr.io/cloudnative-pg/postgresql:17.9
@@ -64,6 +70,8 @@ spec:
   bootstrap:
     recovery:
       source: bifrost-postgres
+      recoveryTarget:
+        targetTime: "__TARGET_TIME__"
   externalClusters:
     - name: bifrost-postgres
       barmanObjectStore:

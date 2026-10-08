@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 """The PITR drill Cluster must not write the production backup bucket.
 
-CloudNativePG archives WAL only when a Cluster has a ``spec.backup`` section.
-This check fails the drill manifest when:
+CloudNativePG archives WAL when a Cluster has a ``spec.backup`` section or a
+``spec.plugins`` section that installs an archiver. This check fails the drill
+manifest when:
 
-- any ``backup:`` key appears in the Cluster document (that section writes WAL
-  into the Barman bucket);
+- any ``backup:`` or ``plugins:`` key appears in the Cluster document;
 - the Cluster name is ``bifrost-postgres`` (the production name, and the
-  serverName CNPG uses when ``serverName`` is omitted);
+  serverName CNPG uses when ``serverName`` is omitted) or is not
+  ``pg-recovery-drill``;
+- the Cluster is not in namespace ``pg-recovery-drill``, or that Namespace
+  document is missing;
 - recovery does not read ``externalClusters`` ``serverName: bifrost-postgres``
-  on ``s3://bifrost-postgres-backup/``.
+  on ``s3://bifrost-postgres-backup/``;
+- the Barman credentials are not Secret ``minio-backup-readonly``;
+- ``bootstrap.recovery.recoveryTarget.targetTime`` is not the render placeholder.
 
 Stdlib only. Exit 1 on any problem. ``--self-test`` checks the walker itself.
 """
@@ -24,9 +29,15 @@ ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "k8s" / "data" / "drills" / "pitr-drill-cluster.yaml"
 
 PRODUCTION_NAME = "bifrost-postgres"
-DRILL_NAME = "bifrost-postgres-pitr-drill"
+DRILL_NAME = "pg-recovery-drill"
+DRILL_NAMESPACE = "pg-recovery-drill"
+SECRET_NAME = "minio-backup-readonly"
+TARGET_PLACEHOLDER = "__TARGET_TIME__"
 PRODUCTION_BUCKET = "s3://bifrost-postgres-backup"
 BACKUP_KEY = re.compile(r"(^|[\[{,\s])backup\s*:")
+PLUGINS_KEY = re.compile(r"(^|[\[{,\s])plugins\s*:")
+if DRILL_NAME == PRODUCTION_NAME:
+    raise RuntimeError("drill Cluster name must not be the production name")
 
 
 def _strip_comment(line: str) -> str:
@@ -55,7 +66,7 @@ def _unquote(value: str) -> str:
     return value
 
 
-def _cluster_documents(text: str) -> list[str]:
+def _documents(text: str) -> list[str]:
     chunks: list[str] = []
     current: list[str] = []
     for line in text.splitlines():
@@ -68,9 +79,14 @@ def _cluster_documents(text: str) -> list[str]:
     docs = []
     for chunk in chunks:
         body = "\n".join(_strip_comment(line) for line in chunk.splitlines())
-        if re.search(r"(?m)^kind:\s*Cluster\s*$", body):
+        if body.strip():
             docs.append(body)
     return docs
+
+
+def _of_kind(docs: list[str], kind: str) -> list[str]:
+    pattern = re.compile(rf"(?m)^kind:\s*{kind}\s*$")
+    return [body for body in docs if pattern.search(body)]
 
 
 class _Walker:
@@ -80,10 +96,14 @@ class _Walker:
         self.stack: list[tuple[int, str]] = []
         self.kind = ""
         self.name = ""
+        self.namespace = ""
         self.recovery_source = ""
+        self.target_time = ""
         self.externals: list[dict[str, str]] = []
+        self.secret_names: list[str] = []
         self._current: dict[str, str] | None = None
         self.backup_key = False
+        self.plugins_key = False
         self.archive_mode = ""
         self.archive_command = ""
         self._walk(body)
@@ -102,8 +122,12 @@ class _Walker:
             self.kind = value
         elif path == ["metadata", "name"]:
             self.name = value
+        elif path == ["metadata", "namespace"]:
+            self.namespace = value
         elif path == ["spec", "bootstrap", "recovery", "source"]:
             self.recovery_source = value
+        elif path == ["spec", "bootstrap", "recovery", "recoveryTarget", "targetTime"]:
+            self.target_time = value
         if path[-1:] == ["archive_mode"] and "parameters" in path:
             self.archive_mode = value.strip().lower()
         elif path[-1:] == ["archive_command"] and "parameters" in path:
@@ -115,12 +139,16 @@ class _Walker:
             self._current["serverName"] = value
         elif self._current is not None and path[-1:] == ["destinationPath"] and "barmanObjectStore" in path:
             self._current["destinationPath"] = value
+        elif path[-2:] == ["accessKeyId", "name"] or path[-2:] == ["secretAccessKey", "name"]:
+            self.secret_names.append(value)
 
     def _on_key(self, indent: int, key: str, raw: str) -> None:
         self._pop_to(indent, strict=True)
         parent = self._path()
         if key == "backup" and parent == ["spec"]:
             self.backup_key = True
+        if key == "plugins" and parent == ["spec"]:
+            self.plugins_key = True
         self.stack.append((indent, key))
         if raw != "":
             self._note(raw)
@@ -147,24 +175,40 @@ class _Walker:
 
 
 def problems_in_text(text: str) -> list[str]:
-    docs = _cluster_documents(text)
-    if len(docs) != 1:
-        return [f"expected one Cluster document, found {len(docs)}"]
-    body = docs[0]
-    if any(BACKUP_KEY.search(line) for line in body.splitlines()):
-        raw_backup = True
-    else:
-        raw_backup = False
+    docs = _documents(text)
+    clusters = _of_kind(docs, "Cluster")
+    namespaces = _of_kind(docs, "Namespace")
+    if len(clusters) != 1:
+        return [f"expected one Cluster document, found {len(clusters)}"]
+    body = clusters[0]
+    raw_backup = any(BACKUP_KEY.search(line) for line in body.splitlines())
+    raw_plugins = any(PLUGINS_KEY.search(line) for line in body.splitlines())
     walked = _Walker(body)
     found: list[str] = []
+    ns_names = [_Walker(item).name for item in namespaces]
+    if ns_names != [DRILL_NAMESPACE]:
+        found.append(f"Namespace documents are {ns_names or ['missing']}, want [{DRILL_NAMESPACE}]")
     if walked.kind != "Cluster":
         found.append(f"kind is {walked.kind or 'missing'}, want Cluster")
     if walked.name == PRODUCTION_NAME:
         found.append(f"Cluster name is {PRODUCTION_NAME}; that is the production cluster")
     if walked.name != DRILL_NAME:
         found.append(f"Cluster name is {walked.name or 'missing'}, want {DRILL_NAME}")
+    if walked.namespace != DRILL_NAMESPACE:
+        found.append(f"Cluster namespace is {walked.namespace or 'missing'}, want {DRILL_NAMESPACE}")
     if raw_backup or walked.backup_key:
         found.append("Cluster document has a backup key; CNPG would archive WAL")
+    if raw_plugins or walked.plugins_key:
+        found.append("Cluster document has a plugins key; a plugin can archive WAL")
+    if walked.target_time != TARGET_PLACEHOLDER:
+        found.append(
+            f"recoveryTarget.targetTime is {walked.target_time or 'missing'}, want {TARGET_PLACEHOLDER}"
+        )
+    if not walked.secret_names or any(item != SECRET_NAME for item in walked.secret_names):
+        found.append(
+            "Barman credentials are "
+            f"{walked.secret_names or ['missing']}, want {SECRET_NAME}"
+        )
     if walked.archive_mode in {"on", "always"}:
         found.append(f"archive_mode is {walked.archive_mode}")
     if walked.archive_command:
@@ -188,23 +232,34 @@ _GOOD = """\
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: pitr-drill
+  name: pg-recovery-drill
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
-  name: bifrost-postgres-pitr-drill
+  name: pg-recovery-drill
+  namespace: pg-recovery-drill
 spec:
   instances: 1
   # backup: must stay absent
+  # plugins: must stay absent
   bootstrap:
     recovery:
       source: bifrost-postgres
+      recoveryTarget:
+        targetTime: "__TARGET_TIME__"
   externalClusters:
     - name: bifrost-postgres
       barmanObjectStore:
         destinationPath: s3://bifrost-postgres-backup/
         serverName: bifrost-postgres
+        s3Credentials:
+          accessKeyId:
+            name: minio-backup-readonly
+            key: ACCESS_KEY_ID
+          secretAccessKey:
+            name: minio-backup-readonly
+            key: SECRET_ACCESS_KEY
 """
 
 _WITH_BACKUP = _GOOD.replace(
@@ -228,12 +283,38 @@ def self_test() -> list[str]:
     expect("flow backup", _GOOD.replace("instances: 1", "instances: 1\n  extra: {backup: {}}"), bad=True)
     expect(
         "production name",
-        _GOOD.replace("name: bifrost-postgres-pitr-drill", "name: bifrost-postgres"),
+        _GOOD.replace(
+            "  name: pg-recovery-drill\n  namespace: pg-recovery-drill",
+            "  name: bifrost-postgres\n  namespace: pg-recovery-drill",
+        ),
         bad=True,
     )
     expect(
         "wrong serverName",
-        _GOOD.replace("serverName: bifrost-postgres", "serverName: bifrost-postgres-pitr-drill"),
+        _GOOD.replace("serverName: bifrost-postgres", "serverName: pg-recovery-drill"),
+        bad=True,
+    )
+    expect(
+        "plugins section",
+        _GOOD.replace(
+            "  instances: 1\n",
+            "  instances: 1\n  plugins:\n    - name: barman-cloud.cloudnative-pg.io\n",
+        ),
+        bad=True,
+    )
+    expect(
+        "wrong namespace",
+        _GOOD.replace("namespace: pg-recovery-drill", "namespace: pitr-drill"),
+        bad=True,
+    )
+    expect(
+        "missing targetTime",
+        _GOOD.replace("      recoveryTarget:\n        targetTime: \"__TARGET_TIME__\"\n", ""),
+        bad=True,
+    )
+    expect(
+        "wrong secret",
+        _GOOD.replace("minio-backup-readonly", "minio-backup"),
         bad=True,
     )
     expect("commented backup", _GOOD, bad=False)

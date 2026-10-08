@@ -1,8 +1,9 @@
-# TD-134 and TD-217. Prepared, not applied.
-# Do not kubectl apply this file until the notes in k8s/data/recovery-drill/README.md
-# and the TD-134 section of the LANE-D2 report: the WAL alert fires on today's
-# volume (~18 GiB/day) until a full day has passed under the new parameters, and
-# the drill alert fires while cronjob pg-recovery-drill has never succeeded.
+# TD-134. Prepared, not applied.
+# Do not kubectl apply this file until a full day has passed under the new WAL
+# parameters: BifrostPostgresWalDailyHigh fires on today's volume (~18 GiB/day)
+# until then. See the TD-134 section of the LANE-D2 report.
+# The recovery-drill alert moved to bifrost-postgres-recovery-drill-rules.yaml
+# (TD-258) and does not wait on this rule.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -37,26 +38,3 @@ spec:
               bifrost-postgres-1 wrote {{ $value | humanize1024 }}B of WAL in the
               last day. The budget is 12 GiB. The first day after the parameter
               change still includes pre-change WAL.
-
-    - name: bifrost-postgres-recovery-drill
-      rules:
-        - alert: BifrostPostgresRecoveryDrillStale
-          # TD-217. 35 days, and absent() so a drill that has never run also fires.
-          # This is the Barman PITR drill (cronjob pg-recovery-drill), not
-          # logical-backup-drill.
-          expr: |
-            (
-              time() - max(kube_cronjob_status_last_successful_time{cronjob="pg-recovery-drill"})
-                > 3024000
-            )
-            or
-            absent(kube_cronjob_status_last_successful_time{cronjob="pg-recovery-drill"})
-          for: 1h
-          labels:
-            severity: warning
-          annotations:
-            summary: "Barman recovery drill has not passed for 35 days"
-            description: >-
-              CronJob pg-recovery-drill last succeeded {{ $value | humanizeDuration }}
-              ago, or has never succeeded. The scratch Cluster manifest is
-              k8s/data/recovery-drill/.

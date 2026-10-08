@@ -1,8 +1,0 @@
-# Scratch namespace for the TD-217 Barman recovery drill. Not applied by this lane.
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: pg-recovery-drill
-  labels:
-    app.kubernetes.io/part-of: bifrost
-    bifrost.io/purpose: recovery-drill
