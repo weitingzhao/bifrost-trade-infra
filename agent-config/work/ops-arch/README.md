@@ -8,12 +8,14 @@
 | 阶段 | 目标 | 道 | 退出条件 |
 |---|---|---|---|
 | 1 地基与止血（**已验收**，见 VERIFY-phase1.md） | 告警送对地方；集群状态有第二份；维护者有清单；计划文件进版本控制；停掉 .50 夜间 LLM；第一次时间点恢复演练；查清节点补丁 | A1–A7（本目录） | 各道验收 PASS，Owner 批准的 apply 已执行 |
-| **2 PROD 成为唯一控制面**（进行中） | 申请单 + 审批（聊天 / 手机 / Console）；动作目录；MCP 改连 PROD（先读后写）；PROD RBAC 补齐；UniFi 凭证进 PROD | B1–B4（见下） | 当天的发布与同步全部出现在 PROD 审计里 |
-| **3 Console 按 7 个问题重组**（进行中） | 去向表 `PHASE3-pages.md`（Owner 10-08 批准）；任务 `LANE-C.md`（一条集成分支 `cursor/phase3-platform`）；并入 TD-208 剩余一半 | LANE-C | STG 上 Owner 过目通过后发 PROD |
-| **4 工作项与进度**（后台进行中） | 工作项登记覆盖全部工作线；`Work:` 尾注 + 防线；进度视图（Console ⑦ + 导出页） | `LANE-D1`（后台：WORK.md、Work 尾注、`/api/v1/progress`）；⑦ 页面待第 3 阶段合并后 | 进度页能列出待签、在途、本周上线、卡住 |
-| **5 维护者治理与凭证收口**（第一部分进行中） | 平台后台循环导出上次成功时间；每晚集群内对账；滚动重启动作；Agent 交出管理员 kubeconfig | `LANE-E1`（workers 进监控、存活指标、补告警、每晚对账）；凭证收口先与 Owner 讨论分步 | 对账 0 漂移；Agent 侧无管理员凭证 |
+| 2 PROD 成为唯一控制面（**已上线**） | 申请单 + 审批（聊天 / 手机 / Console）；动作目录；MCP 改连 PROD（先读后写）；PROD RBAC 补齐；UniFi 凭证进 PROD | B1–B4（见下） | 当天的发布与同步全部出现在 PROD 审计里 |
+| **3 Console 按 7 个问题重组**（Cursor 已做完，**待验收**） | 去向表 `PHASE3-pages.md`（Owner 10-08 批准）；任务 `LANE-C.md`（一条集成分支 `cursor/phase3-platform`）；并入 TD-208 剩余一半 | LANE-C | STG 上 Owner 过目通过后发 PROD |
+| **4 工作项与进度**（一半：infra 已合；platform 与 ⑦ 未做） | 工作项登记覆盖全部工作线；`Work:` 尾注 + 防线；进度视图（Console ⑦ + 导出页） | `LANE-D1`（后台：WORK.md、Work 尾注、`/api/v1/progress`）；⑦ 页面待第 3 阶段合并后 | 进度页能列出待签、在途、本周上线、卡住 |
+| **5 维护者治理与凭证收口**（E1 一半；凭证收口未开始） | 平台后台循环导出上次成功时间；每晚集群内对账；滚动重启动作；Agent 交出管理员 kubeconfig | `LANE-E1`（workers 进监控、存活指标、补告警、每晚对账）；凭证收口先与 Owner 讨论分步 | 对账 0 漂移；Agent 侧无管理员凭证 |
 | 6 Mac mini A 方案与网络分区 | 带外服务用独立账户；Agent 进虚拟机与 Agent 区；集群与存储区、运维区；UniFi VPN | 同上 | 分区规则在 git、经 Owner 审批生效 |
 | 7 TWS 与交易区 | TWS 自动重启；交易区迁移（换 IP、IB Gateway 配置） | 最后单独谈 | — |
+
+**现状盘点**：`STATUS-2026-10-08.md`（计划 vs 实际落地、恢复后的顺序）。Owner 10-08：本计划暂停，等多 Agent 协作框架（`../multi-agent/`）落地后再继续。
 
 每个阶段的道在上一阶段验收后才写，细节会根据上一阶段的结果调整。
 
