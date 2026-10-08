@@ -8,7 +8,7 @@
 | 阶段 | 目标 | 道 | 退出条件 |
 |---|---|---|---|
 | 1 地基与止血（**已验收**，见 VERIFY-phase1.md） | 告警送对地方；集群状态有第二份；维护者有清单；计划文件进版本控制；停掉 .50 夜间 LLM；第一次时间点恢复演练；查清节点补丁 | A1–A7（本目录） | 各道验收 PASS，Owner 批准的 apply 已执行 |
-| 2 PROD 成为唯一控制面（**已上线**；退出条件 10-08 实测**未满足**，见 STATUS） | 申请单 + 审批（聊天 / 手机 / Console）；动作目录；MCP 改连 PROD（先读后写）；PROD RBAC 补齐；UniFi 凭证进 PROD | B1–B4（见下） | 当天的发布与同步全部出现在 PROD 审计里 |
+| 2 PROD 成为唯一控制面（**已上线**；退出条件 10-08 实测未满足，**Owner 当天移交 W-31**，本阶段在 ops-arch 内关闭） | 申请单 + 审批（聊天 / 手机 / Console）；动作目录；MCP 改连 PROD（先读后写）；PROD RBAC 补齐；UniFi 凭证进 PROD | B1–B4（见下） | 当天的发布与同步全部出现在 PROD 审计里 |
 | **3 Console 按 7 个问题重组**（**10-08 已上 PROD**，platform `f9f696f`；清理道 W-32 在做） | 去向表 `PHASE3-pages.md`（Owner 10-08 批准）；任务 `LANE-C.md`（一条集成分支 `cursor/phase3-platform`）；并入 TD-208 剩余一半 | LANE-C | STG 上 Owner 过目通过后发 PROD |
 | 4 工作项与进度（infra 部分已合；**剩余部分 2026-10-08 移交多 Agent 线程 W-31**） | 工作项登记覆盖全部工作线；`Work:` 尾注 + 防线。进度视图不在本计划：D1 的 platform 部分（`cursor/d1-platform`）本线程不合，Console ⑦ 保持第 3 阶段之后的样子 | `LANE-D1` 的 infra 部分 | 移交 W-31 |
 | **5 维护者治理与凭证收口**（E1 10-08 落地，对账 0 漂移；凭证收口未开始） | 平台后台循环导出上次成功时间；每晚集群内对账；滚动重启动作；Agent 交出管理员 kubeconfig | `LANE-E1`（workers 进监控、存活指标、补告警、每晚对账）；凭证收口先与 Owner 讨论分步 | 对账 0 漂移；Agent 侧无管理员凭证 |

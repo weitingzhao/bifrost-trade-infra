@@ -27,10 +27,14 @@
 **阶段 2 · PROD 成为唯一控制面**
 
 - **类别**：计划
-- **状态**：在做
-- **现在**：README 仍标进行中。B2、B4、B1R、B1R2、B3R 在 `VERIFY-phase2.md` 为 PASS；退出条件是当天的发布与同步都出现在 PROD 审计里
-- **下一步**：按 VERIFY 的上线顺序收口，直到退出条件成立
-- **验收**：当天的发布与同步全部出现在 PROD 审计里（README 阶段表）
+- **状态**：已验收
+- **现在**：
+  - B1–B4 和返工道在 `VERIFY-phase2.md` 都是 PASS；
+  - 退出条件「当天的发布与同步全部出现在 PROD 审计里」，10-08 实测未满足：21 个发布和构建 run 里只有 5 个进了 PROD 审计，Trade `release.sh`、插件构建和手工建的 run 都绕过了；
+  - **Owner 2026-10-08 把这条退出条件移交 W-31**：它就是 W-31 第 1 期「发布队列」的验收。本阶段在 ops-arch 内关闭。
+- **下一步**：没有（归 W-31）
+- **验收**：原退出条件已移交 W-31；本阶段只看 `VERIFY-phase2.md` 全部 PASS
+- **验收结果**：PASS 2026-10-08（VERIFY-phase2 全部 PASS；退出条件移交 W-31，实测记录见 `STATUS-2026-10-08.md`「第 2 阶段退出条件核对」）
 - **关联**：`agent-config/work/ops-arch/README.md`、`agent-config/work/ops-arch/VERIFY-phase2.md`
 
 ### W-3

@@ -23,10 +23,7 @@
 - **TD-157** — 只有一侧有暴露时，空的那侧 wall 和 wall gex 写 NULL（research 0.191.0；回填置空 1,762 个）。验收 PASS 2026-10-08 481c96c（空侧仍写 wall 0 行；10-06 / 10-07 新写入空 call wall 10 / 4、空 put wall 14 / 10）。防线：同上测试文件的 `test_a_side_without_exposure_names_no_wall` 等单边五例。后续：TD-166（zero_gamma 兜底）
 - **TD-166** — 只有累计 net gex 在非零值之间换号才算翻转，没有翻转时日线 `zero_gamma` 写 NULL（research 0.192.0；回填更新 26,878 行）。验收 PASS 2026-10-08 481c96c（从分布重算干跑 changed 0；10-06 / 10-07 新写入空 zero_gamma 33.5% / 35.0%）。防线：同上测试文件的 `test_leaving_zero_is_not_a_crossing` 等 TD-166 九例。后续：前端把空 zero-γ 写成「无翻转」，未立项
 
-
-- **TD-258** — 恢复演练过期告警改成看「最近一次 PASS」：ConfigMap `data/pg-recovery-drill-last-pass` 超过 100 天或不存在就报 warning，不再假设一个不存在的每月 CronJob；两套演练件合成一套，核对脚本三处修复（LANE-A6R，infra `42dba0d` / `f6b76f1`）；已补记 10-07 的 PASS 并 apply 规则。验收 PASS 2026-10-08 `f6b76f1`（告警路由与核对脚本自测都 exit 0，规则已加载，告警不响）。防线：`RATCHETS.md`「Golden Source 备份能恢复（TD-217）」一行（`check_alert_routing.py` 的 `drill_stale` / `assert_drill_stale_unpaged`、`pitr_verify.sh --self-test`、`make check-pitr-drill`）。后续：无后续——下次演练前按手册第 2 节从 MinIO 取只读密钥重建 Secret（演练件已写明，不另立项）
-
-**未结 73 项**：P0 0 · P1 6 · P2 25 · P3 42；要你批的 30 项（从总览表的审批列算）。
+**未结 72 项**：P0 0 · P1 6 · P2 25 · P3 41；要你批的 30 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -115,7 +112,7 @@
 
 目标：数据层告警有一个人能收到的通道和外部心跳；逻辑备份先修好等库就绪；做一次 Barman 恢复演练；决定异地副本；daemon 停写与日志丢失要能被看见。
 
-项：TD-210, TD-218, TD-258 · 已还：TD-248, TD-209, TD-215, TD-216, TD-238, TD-237, TD-217
+项：TD-210, TD-218 · 已还：TD-248, TD-209, TD-215, TD-216, TD-238, TD-237, TD-217, TD-258
 
 ### 第 11 波 · 账本与页面读数、绿着的未知（第 3 轮）
 
@@ -291,7 +288,6 @@
 | [TD-253](#td-253) | P2 | ops-platform | The autopilot acts on checklist signals that are weeks old: signals carry no time of their own, and nothing marks a stale one unknown | 不用批 |
 | [TD-254](#td-254) | P2 | ops-platform | Two mechanisms repair the same failed backup: the autopilot's repair_cnpg_wal_store (every 15 min) and the backup-retry CronJob | 不用批 |
 | [TD-255](#td-255) | P3 | ops-platform | The hourly drift scan deletes every Failed pod it may, including failed backup Job pods in data | 不用批 |
-| [TD-258](#td-258) | P3 | data | The recovery-drill staleness alert assumes a monthly CronJob that does not exist; the Owner set the drill to quarterly and manual | 不用批 |
 
 ## 条目
 
@@ -1536,28 +1532,6 @@
 - **Fix**: Give `flex-query-worker` the live Redis address the other plugin workloads use (env or the plugin's config block), then confirm the topic arrives. Decide separately whether a failed publish should raise rather than warn — on its own, a warning here is the thing that hid it.
 - **Ratchet**: A plugin test that `notify` refuses to fall back to a loopback address when it runs with no explicit Redis configuration (so the next deployment cannot inherit the default silently).
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-flex-query
-
-### TD-258
-
-**P3 · data · The recovery-drill staleness alert assumes a monthly CronJob that does not exist; the Owner set the drill to quarterly and manual**
-
-- **状态**：待你签收
-- **现在**：
-  - LANE-A6R 已合 infra main（`42dba0d` 和 `f6b76f1`）；
-  - 演练告警移到 `k8s/monitoring/bifrost-postgres-recovery-drill-rules.yaml`，已放回 monitoring kustomization：最近一次 PASS 超过 100 天，或 ConfigMap 不存在，就报 warning（记账、不呼人）；
-  - `pitr_verify.sh` 全部通过时会先删再建 ConfigMap `data/pg-recovery-drill-last-pass`；
-  - Owner 10-08 批准后已补记 10-07 的 PASS，并 apply 了规则（22:11Z）；
-  - WAL 规则留在 `td-d2-postgres-rules.yaml`，继续等 TD-134。
-- **Claim**: k8s/monitoring/td-d2-postgres-rules.yaml BifrostPostgresRecoveryDrillStale checks the last success of a CronJob pg-recovery-drill within 35 days. The 10-07 drill was run by hand (no CronJob), so the rule would fire permanently; it was taken out of the monitoring kustomization (infra 3791768). Owner 10-07: drill quarterly at most, keep the MinIO read-only user pg-recovery-drill.
-- **Measured**: MEASURED 10-07: first drill PASS 2026-10-07 (compare.sh + A6 104/105); no CronJob pg-recovery-drill exists.
-- **Evidence**:
-  - `bifrost-trade-infra/k8s/monitoring/td-d2-postgres-rules.yaml:43` — `- alert: BifrostPostgresRecoveryDrillStale`
-- **Impact**: Either no alert ever tells the Owner a quarter has passed without a drill, or the rule pages forever.
-- **Fix**: On PASS, compare.sh records the pass (e.g. recreate ConfigMap data/pg-recovery-drill-last-pass so kube_configmap_created moves); the rule fires when time() - that timestamp > ~100 days (or the ConfigMap is absent after the first record). Seed it with the 10-07 pass. Keep the WAL rule from the same file once TD-134 has a day of data. Then add the file back to the monitoring kustomization.
-- **Ratchet**: check_alert_routing.py covers the rule; a self-test for the 100-day expression.
-- **验收**: `PATH="/usr/bin:$PATH" python3 scripts/check_alert_routing.py && bash scripts/drills/pitr_verify.sh --self-test`（都 exit 0，呼人种类仍是 11）；Prometheus `ALERTS{alertname="BifrostPostgresRecoveryDrillStale"}` 为空，`time() - kube_configmap_created{namespace="data",configmap="pg-recovery-drill-last-pass"}` 远小于 8640000
-- **验收结果**：PASS 2026-10-08 infra `f6b76f1`：两项检查都 exit 0，呼人种类 11；规则组已加载；ConfigMap 年龄 110 秒；告警没有 pending / firing
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ## 没覆盖到的（下一轮从这里开始）
 
