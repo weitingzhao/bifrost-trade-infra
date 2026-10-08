@@ -47,3 +47,14 @@ PASS。platform `cursor/phase2-platform` `e6b825b9`（在 `816a8039` 之后，�
 ## 后续（新增）
 
 - prober 的 argo-apps：Trade `bifrost-prod` / `bifrost-stg` 的 OutOfSync 只来自已跑完被 TTL 回收的 `db-init-*` Job（还债会话核实），不应同步（会重跑 PROD DDL）。prober 应忽略这类已完成的一次性 Job。
+
+## 第 3 步完成（2026-10-08 00:08Z）——第 2 阶段结束
+
+- 中转令牌轮换（Owner 批）：本机 `.env`、.50 / .52 配置、`monitoring/alertmanager-relay-auth`、`bifrost-platform-approval-notify` 全换；旧令牌 401；心跳与推送通。
+- B3R 合 infra `839e480`（README 的令牌文件改取 `bifrost-trade-infra/.env` 的 PROD 令牌——`bifrost-platform/.env` 的三个令牌是本机 api 的，指纹与 PROD 不同）；共享检出快进（platform `e6b825b`、infra `839e480`）。
+- Owner 建 MCP 令牌文件（600）并应用 `permissions.ask`（ask +2）。
+- **实测（新线程）**：批准时弹出「允许」框。`appr_2a65bd8bfceed521` → executed（channel=chat，uncordon ubt-k3s-06，`changed: false`）；`appr_2c5a716eddbbed56` → rejected（「测试」）。PROD 审计：create（operator，requester=会话 id）→ approve（channel=chat）→ execute → `cluster.node.uncordon`；reject。
+- preflight 新规则当场生效：本记录第一次提交因正文提到 admin 令牌变量名与令牌文件名被拦（文本匹配），改写后提交。
+- 防线登记进 `RATCHETS.md`：写路由进目录、审批护栏测试、`check_mcp_cutover.py` + writeGate 三态、preflight 审批绕过拦截。
+
+未完：UniFi `bifrost-agent` 密码轮换（Owner 在 UniFi 控制台改后更新 `.env` 与 Secret）；A6R（Cursor）；第 3 阶段并入 TD-208 剩余一半。
