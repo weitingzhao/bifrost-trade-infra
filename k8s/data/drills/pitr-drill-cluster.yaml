@@ -2,9 +2,10 @@
 # so Argo will not create it. Do not apply this file raw: render-cluster.sh
 # fills targetTime. Apply only from docs/runbooks/pitr-drill.md.
 #
-# One instance in namespace pg-recovery-drill. The read-only Secret
-# minio-backup-readonly already lives there (MinIO user pg-recovery-drill:
-# list is allowed, put is AccessDenied). bootstrap.recovery reads the
+# One instance in namespace pg-recovery-drill (k8s/data/drills/namespace.yaml).
+# The read-only Secret minio-backup-readonly must exist there first; it is not
+# in git and was deleted with the namespace on 2026-10-07 (runbook section 2).
+# MinIO user pg-recovery-drill: list is allowed, put is AccessDenied. bootstrap.recovery reads the
 # production Barman bucket and stops at targetTime. There is no backup
 # section and no plugins section: this Cluster must never write
 # s3://bifrost-postgres-backup/. Its name is pg-recovery-drill, not

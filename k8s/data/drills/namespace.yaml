@@ -1,0 +1,10 @@
+# Namespace for the quarterly PITR drill (docs/runbooks/pitr-drill.md).
+# Not in any kustomization. Apply by hand before a drill; do not delete it after
+# one: the read-only Secret minio-backup-readonly lives here between drills.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pg-recovery-drill
+  labels:
+    app.kubernetes.io/part-of: bifrost
+    bifrost.io/purpose: recovery-drill

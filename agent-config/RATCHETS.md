@@ -159,7 +159,7 @@
 | preflight D10 闸门覆盖非 curl 客户端（TD-96） | `agent-config/scripts/agent-guard/test.js`（74 例，含不得误拦） | Python/wget/httpie/node 写 /control/*、改闸门文件 | error（闸门本身） | test.js 不在 CI |
 | 退役的账户流不复活（TD-236） | 插件 `tests/test_redis_key_manifest.py`（与 core 键清单一致） | 无人读取的流被重新写入 | warning（测试） | — |
 | 不提交 Secret / 不复活从未运行的 MinIO（TD-237） | `bifrost-trade-infra/scripts/check-no-k8s-secrets.sh`；gpu-workload.sh warehouse-up 直接拒绝 | 占位口令进公开仓、死对象长期挂着 | warning（脚本） | 未进 CI |
-| Golden Source 备份能恢复（TD-217） | `bifrost-trade-infra/k8s/data/recovery-drill/`（清单 + compare.sh，可重复执行）；季度告警见 TD-258 | 备份从未恢复过、坏了没人知道 | manual（季度演练） | 告警待 TD-258 |
+| Golden Source 备份能恢复（TD-217） | `bifrost-trade-infra/k8s/data/drills/`（`pitr-drill-cluster.yaml` + `render-cluster.sh` + `namespace.yaml`）、`scripts/drills/pitr_verify.sh`（`--self-test`）、`scripts/check_pitr_drill_manifest.py`（`make check-pitr-drill`）；手册 `docs/runbooks/pitr-drill.md`；过期告警 `BifrostPostgresRecoveryDrillStale`（`k8s/monitoring/bifrost-postgres-recovery-drill-rules.yaml`，100 天或从未通过，warning） | 备份从未恢复过、坏了没人知道；演练件或核对脚本悄悄失效 | manual（季度演练）+ warning（告警） | 只读凭证不在 git 里，每次演练前要 Owner 从 MinIO 取出；核对脚本只认 `option_open_interest` 一张主键冲突更新表 |
 | GEX 无暴露不写 wall 与 zero-γ（TD-136 / TD-157 / TD-166） | `bifrost-research/tests/engines/test_gex_zero_exposure.py`（21 例） | 三条规则：(1) 没有任何 gamma 暴露的到期日不写分布与 levels，盘中同样不写（TD-136）；(2) 只有一侧有暴露时，空侧的 wall 与 wall gex 写 NULL（TD-157）；(3) 只有累计 net gex 在非零值之间换号才算翻转（离开 0、碰到 0 都不算，取离现价最近的翻转），日线没有翻转时 `zero_gamma` 写 NULL（TD-166）；另锁住 `zero_exposure_purge` 不带 --apply 只计数、计数不符时拒绝写 | warning（测试） | 只测引擎逻辑，没有对 `features.option_metric_gex_levels_daily` 的夜间数据检查；10-08 验收时手跑三条 SQL 与干跑 Job 均为 0 |
 
 ## 各类债现在挡没挡住

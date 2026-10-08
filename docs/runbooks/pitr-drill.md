@@ -57,15 +57,39 @@ PY
 
 优先节点至少要有 80Gi 空闲。不够就停，不要改亲和性把卷调度到 ubt-k3s-02 或 ubt-k3s-04。
 
-### 2. 只读凭证
+### 2. 命名空间与只读凭证
 
-Secret `pg-recovery-drill/minio-backup-readonly` 已经在集群里，不在 git 里。策略只有 `s3:GetObject` 和 `s3:ListBucket`，桶是 `bifrost-postgres-backup`（list 可以，put 是 AccessDenied）。不要复制 `data/minio-backup`，那份能写，写进备份桶会破坏时间点恢复。不要删这个命名空间，Secret 跟它在一起。
+现状（2026-10-08 核对）：命名空间 `pg-recovery-drill` 和其中的 Secret `minio-backup-readonly` **都不在集群里**。10-07 演练结束拆环境时（infra `a2e94bc`）连命名空间一起删了。MinIO 里的只读用户 `pg-recovery-drill` 保留着（TD-258）：策略只有 `s3:GetObject` 和 `s3:ListBucket`，桶是 `bifrost-postgres-backup`（list 可以，put 是 AccessDenied）。
 
-```bash
-kubectl -n pg-recovery-drill get secret minio-backup-readonly -o jsonpath='{.metadata.name}{"\n"}'
-```
+演练前按顺序做：
 
-应打印 `minio-backup-readonly`。没有就停，不要现造一份写凭证。
+1. 建命名空间：
+
+   ```bash
+   kubectl apply -f k8s/data/drills/namespace.yaml
+   ```
+
+2. Owner 在 MinIO 里取出（或重置）只读用户 `pg-recovery-drill` 的 access key 和 secret key，然后从标准输入建 Secret。值不进 git，也不出现在命令行参数里：
+
+   ```bash
+   read -rs AK; read -rs SK   # 依次粘贴 access key、secret key，不回显
+   kubectl -n pg-recovery-drill create secret generic minio-backup-readonly \
+     --from-file=ACCESS_KEY_ID=<(printf %s "$AK") \
+     --from-file=SECRET_ACCESS_KEY=<(printf %s "$SK")
+   unset AK SK
+   ```
+
+   **不要复制 `data/minio-backup`**：那份能写，写进备份桶会破坏时间点恢复。
+
+3. 确认：
+
+   ```bash
+   kubectl -n pg-recovery-drill get secret minio-backup-readonly -o jsonpath='{.metadata.name}{"\n"}'
+   ```
+
+   应打印 `minio-backup-readonly`。没有就停，不要现造一份写凭证。
+
+演练结束只删 Cluster 和 PVC，不删命名空间（见第 6 节），Secret 留给下次。
 
 ### 3. 渲染并创建
 
