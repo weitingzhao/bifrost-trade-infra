@@ -358,6 +358,17 @@
 - **验收**：PROD 上存在一个用户脚本，台账 §7 有对应的一行
 - **关联**：`agent-config/work/LEDGER-pine-tradingview-gaps.md`
 
+### W-31
+
+**多 Agent 协作（ADR §12）**
+
+- **类别**：计划
+- **状态**：在做
+- **现在**：ADR §12 已写。第 1 期（发布队列）的接口与存储、编号方案，待 Owner 从 `work/multi-agent/PHASE1-OPTIONS-2026-10-08.md` 里选。Grok Bot 暂停，恢复条件是第 1 期上 PROD
+- **下一步**：Owner 定了方案后，写第 1 期的 Cursor 任务，放在 `agent-config/work/multi-agent/`
+- **验收**：第 1 期上 PROD 之后，当天所有发版（含 STG、research、插件）在 PROD 发布队列里都有记录，`~/.bifrost-release/window.json` 不再是权威
+- **关联**：`agent-config/ADR-ops-architecture.md` §12、`agent-config/work/multi-agent/BRIEF-2026-10-08.md`、`agent-config/work/multi-agent/PHASE1-OPTIONS-2026-10-08.md`
+
 ## 本批没有登记的
 
 - 阶段 0 的 W3：`REQUEST-w3-archive-before-delete-2026-10-05.md` 状态节写 A、B、C 全部完成。
