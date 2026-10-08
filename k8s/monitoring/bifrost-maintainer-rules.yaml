@@ -1,0 +1,279 @@
+# LANE-E1. Liveness of maintainers that had no PrometheusRule.
+# severity is warning. Names that match the backup pager
+# (BifrostPostgresBackup*) still page; everything else is the PROD audit webhook.
+# Apply: kubectl apply -f k8s/monitoring/bifrost-maintainer-rules.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bifrost-maintainer-rules
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: alerting
+spec:
+  groups:
+    - name: bifrost-maintainer-cronjobs
+      rules:
+        # Weekday 16:20 / 20:30 America/New_York. Friday to Monday is ~72h, so
+        # 2x a 24h period (48h) fires over the weekend. 96h is the Friday–Monday
+        # gap plus one missed weekday.
+        - alert: BifrostPositionSnapshotStale
+          expr: |
+            (
+              time() - kube_cronjob_status_last_successful_time{cronjob=~"position-snapshot-(capture|enrich)",namespace=~"bifrost-(prod|stg|dev)"}
+              > 345600
+            )
+            or absent(kube_cronjob_status_last_successful_time{cronjob="position-snapshot-capture",namespace="bifrost-prod"})
+            or absent(kube_cronjob_status_last_successful_time{cronjob="position-snapshot-enrich",namespace="bifrost-prod"})
+            or absent(kube_cronjob_status_last_successful_time{cronjob="position-snapshot-capture",namespace="bifrost-stg"})
+            or absent(kube_cronjob_status_last_successful_time{cronjob="position-snapshot-enrich",namespace="bifrost-stg"})
+            or absent(kube_cronjob_status_last_successful_time{cronjob="position-snapshot-capture",namespace="bifrost-dev"})
+            or absent(kube_cronjob_status_last_successful_time{cronjob="position-snapshot-enrich",namespace="bifrost-dev"})
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Position snapshot CronJob has not succeeded within 96 hours"
+            description: >-
+              capture is weekday 16:20 America/New_York and enrich is weekday
+              20:30, in bifrost-prod, bifrost-stg, and bifrost-dev.
+              Read `kubectl -n <ns> get cronjob,job -l app.kubernetes.io/name=position-snapshot`.
+        - alert: BifrostPositionSnapshotJobFailed
+          expr: |
+            (
+              kube_job_status_failed{namespace=~"bifrost-(prod|stg|dev)",job_name=~"position-snapshot-(capture|enrich)-.+"} > 0
+            )
+            and
+            (
+              time() - kube_job_status_start_time{namespace=~"bifrost-(prod|stg|dev)",job_name=~"position-snapshot-(capture|enrich)-.+"} < 86400
+            )
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "A position-snapshot Job failed in the last 24 hours"
+            description: >-
+              kube_job_status_failed is 1 for a capture or enrich Job started
+              in the last day. Read `kubectl -n <ns> logs job/<job_name>`.
+        # The retry window is */15 04:00-09:00 UTC. A quiet night is normal;
+        # 26h means yesterday's window produced no successful run.
+        - alert: BifrostPostgresBackupRetryStale
+          expr: |
+            (
+              time() - kube_cronjob_status_last_successful_time{namespace="data",cronjob="backup-retry"} > 93600
+            )
+            or absent(kube_cronjob_status_last_successful_time{namespace="data",cronjob="backup-retry"})
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "backup-retry has not succeeded for 26 hours"
+            description: >-
+              CronJob data/backup-retry creates one retry Backup when today's
+              CNPG backup failed. The backup itself is BifrostPostgresBackupFailed.
+              Read `kubectl -n data logs job/<latest backup-retry job>`.
+        - alert: BifrostPostgresBackupRetryJobFailed
+          expr: |
+            (
+              kube_job_status_failed{namespace="data",job_name=~"backup-retry-.+"} > 0
+            )
+            and
+            (
+              time() - kube_job_status_start_time{namespace="data",job_name=~"backup-retry-.+"} < 21600
+            )
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "A backup-retry Job failed in the last 6 hours"
+            description: >-
+              The retry CronJob's own Job failed. A failed retry is also
+              visible as BifrostPostgresBackupFailed when the Backup object fails.
+        - alert: BifrostTektonPipelineRunTTLStale
+          expr: |
+            (
+              time() - kube_cronjob_status_last_successful_time{namespace="cicd",cronjob="tekton-pipelinerun-ttl"} > 7200
+            )
+            or absent(kube_cronjob_status_last_successful_time{namespace="cicd",cronjob="tekton-pipelinerun-ttl"})
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "tekton-pipelinerun-ttl has not succeeded for 2 hours"
+            description: >-
+              The janitor runs at minute 20 of every hour. 2 hours is twice
+              that period. Read `kubectl -n cicd logs job/<latest tekton-pipelinerun-ttl job>`.
+        - alert: BifrostTektonPipelineRunTTLJobFailed
+          expr: |
+            (
+              kube_job_status_failed{namespace="cicd",job_name=~"tekton-pipelinerun-ttl-.+"} > 0
+            )
+            and
+            (
+              time() - kube_job_status_start_time{namespace="cicd",job_name=~"tekton-pipelinerun-ttl-.+"} < 21600
+            )
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "A tekton-pipelinerun-ttl Job failed in the last 6 hours"
+            description: >-
+              The PipelineRun janitor Job failed. Terminal runs older than
+              7 days are then left in the cicd namespace.
+    - name: bifrost-maintainer-loops
+      rules:
+        - alert: BifrostMaintainerIBAutoRepairStale
+          expr: |
+            (
+              time() - bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/ib-autorepair"} > 60
+            )
+            or absent(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/ib-autorepair"})
+          for: 3m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PROD IB auto-repair loop has not completed a pass"
+            description: >-
+              platform-workers records a success every 30s tick. Twice that
+              period is 60s. BifrostIBGatewayDisconnected still pages the
+              gateway symptom. This rule is the loop itself.
+        - alert: BifrostMaintainerDataCloneStale
+          expr: |
+            (
+              time() - bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/data-clone-scheduler"} > 7200
+            )
+            or absent(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/data-clone-scheduler"})
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PROD data-clone scheduler has not completed a pass for 2 hours"
+            description: >-
+              The loop checks the schedule every hour, including the no-op
+              when the schedule ConfigMap is absent. 2 hours is twice that.
+        - alert: BifrostPostgresBackupSweepStale
+          expr: |
+            (
+              time() - bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/failed-backup-sweep"} > 172800
+            )
+            or absent(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/failed-backup-sweep"})
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PROD failed-Backup sweeper has not completed a pass for 48 hours"
+            description: >-
+              PLATFORM_BACKUP_CR_SWEEP=1 deletes failed CNPG Backup objects
+              older than 30 days, once a day. 48 hours is twice that period.
+        - alert: BifrostMaintainerPatrolScanStale
+          expr: |
+            (
+              time() - bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/patrol-autopilot"} > 60
+            )
+            or absent(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/patrol-autopilot"})
+          for: 3m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PROD patrol scanner has not completed a pass"
+            description: >-
+              The scanner ticks every 30s. Skill passes are separate series
+              under maintainer="platform/prod/patrol-autopilot/<skill>".
+        - alert: BifrostMaintainerPatrolOpsAutopilotStale
+          expr: |
+            (
+              time() - bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/patrol-autopilot/ops-autopilot"} > 1800
+            )
+            or absent(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/patrol-autopilot/ops-autopilot"})
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ops-autopilot has not succeeded for 30 minutes"
+            description: The skill cron is */15. 30 minutes is twice that.
+        - alert: BifrostMaintainerPatrolFleetDriftStale
+          expr: |
+            (
+              time() - bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/patrol-autopilot/fleet-drift-scan"} > 7200
+            )
+            or absent(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/patrol-autopilot/fleet-drift-scan"})
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "fleet-drift-scan has not succeeded for 2 hours"
+            description: The skill cron is hourly at minute 5. 2 hours is twice that.
+        - alert: BifrostMaintainerPatrolCertExpiryStale
+          expr: |
+            (
+              time() - bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/patrol-autopilot/cert-expiry-check"} > 1209600
+            )
+            or absent(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/patrol-autopilot/cert-expiry-check"})
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "cert-expiry-check has not succeeded for 14 days"
+            description: The skill cron is Monday 06:00. 14 days is twice that week.
+        - alert: BifrostMaintainerChecklistProberStale
+          expr: |
+            (
+              time() - bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/checklist-prober"} > 1200
+            )
+            or absent(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/checklist-prober"})
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PROD checklist prober has not merged a pass for 20 minutes"
+            description: >-
+              CHECKLIST_PROBER=on probes every 10 minutes. 20 minutes is twice
+              that. This is the prober loop, not a dispatched fix.
+        - alert: BifrostMaintainerReleaseRecorderStale
+          expr: |
+            (
+              time() - bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/release-recorder"} > 600
+            )
+            or absent(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/release-recorder"})
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PROD release recorder has not completed a pass for 10 minutes"
+            description: The recorder ticks every 5 minutes. 10 minutes is twice that.
+    - name: bifrost-maintainer-reconcile
+      rules:
+        # The CronJob deletes this ConfigMap when drift > 0 and recreates it
+        # when drift is 0, so kube_configmap_created is the last clean pass
+        # (same idea as the recovery-drill ConfigMap, TD-258). for: 15m covers
+        # the delete-then-create gap of a clean run.
+        - alert: BifrostMaintainerReconcileDrift
+          expr: |
+            absent(kube_configmap_created{namespace="monitoring",configmap="maintainer-reconcile-clean"})
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Maintainer reconcile is not clean"
+            description: >-
+              ConfigMap monitoring/maintainer-reconcile-clean is missing.
+              The 07:00 UTC CronJob deletes it when inventory and the cluster
+              disagree, and recreates it when they match. Read
+              `kubectl -n monitoring logs job/<latest maintainer-reconcile job>`.
+        - alert: BifrostMaintainerReconcileStale
+          expr: |
+            (
+              time() - kube_cronjob_status_last_successful_time{namespace="monitoring",cronjob="maintainer-reconcile"} > 129600
+            )
+            or absent(kube_cronjob_status_last_successful_time{namespace="monitoring",cronjob="maintainer-reconcile"})
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Maintainer reconcile CronJob has not succeeded for 36 hours"
+            description: >-
+              CronJob monitoring/maintainer-reconcile runs at 07:00 UTC.
+              A successful run can still have deleted the clean ConfigMap;
+              this rule is only "the job itself did not finish".

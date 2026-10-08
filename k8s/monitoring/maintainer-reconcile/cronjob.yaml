@@ -1,0 +1,149 @@
+# Nightly inventory reconcile (LANE-E1). Read-only on CronJobs, ScheduledBackups,
+# Dagster, and Prometheus. The only write is ConfigMap
+# monitoring/maintainer-reconcile-clean: recreated when drift is 0, deleted
+# when drift is greater than 0. kube-state-metrics turns that into
+# kube_configmap_created. There is no Pushgateway in this cluster.
+#
+# Not under Argo. Apply (Owner approval), from bifrost-trade-infra:
+#   kubectl apply -k k8s/monitoring/maintainer-reconcile
+# The viewer token is not in git. Before the first run:
+#   kubectl -n monitoring create secret generic maintainer-reconcile-auth \
+#     --from-literal=token="$(kubectl -n bifrost-platform-prod get secret \
+#     bifrost-platform-reporter-token -o jsonpath='{.data.PLATFORM_PROD_REPORTER_TOKEN}' | base64 -d)"
+# Reporter is above viewer, so it may call GET /api/v1/agent/launchd on the minis.
+# The Secret key is optional: without it the job still reconciles the cluster
+# and records launchd as unread (drift).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: maintainer-reconcile
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: maintainer-reconcile
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: maintainer-reconcile
+  labels:
+    app.kubernetes.io/name: maintainer-reconcile
+rules:
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    verbs: ["get", "list"]
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["scheduledbackups"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: maintainer-reconcile
+  labels:
+    app.kubernetes.io/name: maintainer-reconcile
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: maintainer-reconcile
+subjects:
+  - kind: ServiceAccount
+    name: maintainer-reconcile
+    namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: maintainer-reconcile
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: maintainer-reconcile
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: maintainer-reconcile
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: maintainer-reconcile
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: maintainer-reconcile
+subjects:
+  - kind: ServiceAccount
+    name: maintainer-reconcile
+    namespace: monitoring
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: maintainer-reconcile
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: maintainer-reconcile
+spec:
+  schedule: "0 7 * * *"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 600
+      ttlSecondsAfterFinished: 604800
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: maintainer-reconcile
+        spec:
+          restartPolicy: Never
+          serviceAccountName: maintainer-reconcile
+          automountServiceAccountToken: true
+          enableServiceLinks: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: reconcile
+              image: python:3.11-slim-bookworm
+              imagePullPolicy: IfNotPresent
+              command: ["python3", "/etc/maintainer/reconcile.py"]
+              env:
+                - name: PYTHONDONTWRITEBYTECODE
+                  value: "1"
+                - name: INVENTORY_PATH
+                  value: /etc/maintainer/MAINTAINERS.yaml
+                - name: OPERATOR_PLANE_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: maintainer-reconcile-auth
+                      key: token
+                      optional: true
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 20m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
+              volumeMounts:
+                - name: scripts
+                  mountPath: /etc/maintainer
+                  readOnly: true
+          volumes:
+            - name: scripts
+              configMap:
+                name: maintainer-reconcile

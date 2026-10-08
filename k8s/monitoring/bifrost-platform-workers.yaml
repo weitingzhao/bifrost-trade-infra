@@ -1,0 +1,35 @@
+# Scrape platform-workers /metrics in STG and PROD.
+#
+# There is no Service: the Deployment comment says nothing should route here.
+# It listens on :8780 (port name http) for kubelet probes and for /metrics.
+# Prometheus then has up{pod=~"platform-workers.*"} and the maintainer gauges.
+#
+# Not under Argo. Apply with the rest of k8s/monitoring (Owner approval):
+#   kubectl apply -k k8s/monitoring
+# or only this object:
+#   kubectl apply -f k8s/monitoring/bifrost-platform-workers.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: bifrost-platform-workers
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: control-plane
+spec:
+  namespaceSelector:
+    matchNames:
+      - bifrost-platform-prod
+      - bifrost-platform-stg
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: platform-workers
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics
+      # Same budget as the platform-api ServiceMonitor: the handler probes
+      # four plugins and caps each at 8s.
+      interval: 60s
+      scrapeTimeout: 20s
