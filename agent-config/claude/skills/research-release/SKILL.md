@@ -5,7 +5,7 @@ description: >-
   research-api / research-mcp, bumping the research image version, running
   bifrost-deliver-research, or debugging ImagePullBackOff / mirror-sync /
   kaniko failures in the research namespace.
-parity-id: research-release-v2
+parity-id: research-release-v3
 ---
 
 # Research 发布流程
@@ -62,7 +62,7 @@ bump `pyproject.toml` + `src/bifrost_research/__init__.py` + `tests/test_package
 
 ### 2. 构建镜像（集群内）
 
-**推荐 —— 经 Ops Console：** Launch Desk → Research → 填 image tag → Launch Research
+**推荐 —— MCP `start_pipeline_run`**：`name=bifrost-deliver-research`、`revision=main`、`tag=<semver>`；发布窗口开着时带 `who`（与 `release.sh hold` 打印的一致）。Ops Console 第 3 阶段（2026-10）起 ⑤ Releases 只读，不再从页面起 run。
 
 **或经 platform-api：**
 
