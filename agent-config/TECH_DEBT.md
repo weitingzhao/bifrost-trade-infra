@@ -23,7 +23,7 @@
 - **TD-157** — 只有一侧有暴露时，空的那侧 wall 和 wall gex 写 NULL（research 0.191.0；回填置空 1,762 个）。验收 PASS 2026-10-08 481c96c（空侧仍写 wall 0 行；10-06 / 10-07 新写入空 call wall 10 / 4、空 put wall 14 / 10）。防线：同上测试文件的 `test_a_side_without_exposure_names_no_wall` 等单边五例。后续：TD-166（zero_gamma 兜底）
 - **TD-166** — 只有累计 net gex 在非零值之间换号才算翻转，没有翻转时日线 `zero_gamma` 写 NULL（research 0.192.0；回填更新 26,878 行）。验收 PASS 2026-10-08 481c96c（从分布重算干跑 changed 0；10-06 / 10-07 新写入空 zero_gamma 33.5% / 35.0%）。防线：同上测试文件的 `test_leaving_zero_is_not_a_crossing` 等 TD-166 九例。后续：前端把空 zero-γ 写成「无翻转」，未立项
 
-**未结 70 项**：P0 0 · P1 7 · P2 23 · P3 40；要你批的 31 项（从总览表的审批列算）。
+**未结 75 项**：P0 0 · P1 7 · P2 24 · P3 44；要你批的 31 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -1045,7 +1045,7 @@
 
 **P3 · research-data · The macro calendar has no CPI dates after 2026-12-10 and no payrolls at all: bls.gov answers 403 from this host, so they could not be read**
 
-- **状态**：在做（LANE-E 2026-10-07 查证：BLS 官方只排到 2026-12，**2027 全年日程尚未发布**——`/schedule/2027/home.htm` 404，官方 ICS 80672 字节全文无 `2027`；Claude 2026-10-08 用 `empsit.htm` 独立复核，最后一行是 Dec. 04, 2026，页面明确没有 2027。所以 TD-180 的 2027 部分**等 BLS 发布**，不是我们能做的工作。能做的那半已交 LANE-E2：把官方已确认的两行非农写进 CSV——`2026-11-06,08:30,US,NFP,October 2026` 与 `2026-12-04,08:30,US,NFP,November 2026`，三处来源一致）
+- **状态**：在做（**2026 那半已合入** research 481c96c：`2026-11-06` 与 `2026-12-04` 两行 NFP 写进 `macro_calendar.csv`，`MACRO_IMPORTANCE` 给 `NFP` 设 2（与 CPI 同级，否则页面会标成 low、和分红同列）；防线 `test_every_series_has_a_future_date`（注入日期，不读时钟）+ 反例测试；`make test` 2135 passed。**预期告警**：11-05 起 NFP、11-11 起 CPI 会报 WARN（剩余不足 30 天），这是对的，等 2027 日程补上就消失。证据行号从 `:35` 变 `:39`。2027 那半仍等 BLS —— LANE-E 2026-10-07 查证：BLS 官方只排到 2026-12，**2027 全年日程尚未发布**——`/schedule/2027/home.htm` 404，官方 ICS 80672 字节全文无 `2027`；Claude 2026-10-08 用 `empsit.htm` 独立复核，最后一行是 Dec. 04, 2026，页面明确没有 2027。所以 TD-180 的 2027 部分**等 BLS 发布**，不是我们能做的工作。能做的那半已交 LANE-E2：把官方已确认的两行非农写进 CSV——`2026-11-06,08:30,US,NFP,October 2026` 与 `2026-12-04,08:30,US,NFP,November 2026`，三处来源一致）
 - **Claim**: TD-151's seed file carries FOMC through 2027 but CPI only for three 2026 releases (copied from a hand-dropped file) and no Employment Situation dates.
 - **Measured**: MEASURED 10-06 by paydown lane O: bls.gov returned 403 to the Mac; federalreserve.gov answered.
 - **Evidence**:
@@ -1465,7 +1465,7 @@
 
 **P3 · ops-platform · The market-data freshness probe now pays a whole-database count: /market/coverage/db-summary takes 4.3–5.5 s and the Console polls plugin status every 30 s**
 
-- **状态**：未开始
+- **状态**：在做（**插件已上线**：market-data 0.87.0（21dfe04，镜像 `bifrost-build-market-data-9685m`，部署 1dfc937）三个 Deployment 均已 rollout。10-08 经 PROD 网关实测：`GET /market/coverage/freshness` 三次 **0.020 / 0.019 / 0.019 s**、29 行、不带 counts；同窗口 `db-summary` 三次 **5.10 / 4.95 / 5.00 s** —— 约 250 倍。两端共用 `query_freshness`，没有第二份 SQL。**platform 侧待发**：`cursor/w-platform` a7ecb08 只改探测路径，必须排在插件之后（旧插件对新路径 404）；受我自己的残留发布锁阻塞，见「要你执行」）
 - **Claim**: TD-256 moved `probeFreshness` off `pods/exec` onto `GET /market/coverage/db-summary`. That endpoint returns the 29 freshness rows the probe needs *and* whole-database `counts`, so the probe pays for rows it discards. Measured 2026-10-07 through the Trade gateway: DEV 5.46 s, PROD 4.35 s, 5035 B. The Console polls `/plugins/market-data/status` every 30 s, and that handler calls the probe inline. `/market/status`'s `freshness_summary` answers in 0.04 s but is `ORDER BY last_run_at DESC LIMIT 20`, so it drops 9 dimensions (financials, ratios, sec_filings, short_interest, short_volume, job_trim, slot:fundamentals-rotate, slot:ticker-details, stock_daily_unadjusted) — not equivalent.
 - **Measured**: MEASURED 2026-10-07 by LANE-P2 (DEV 5.46 s / PROD 4.35 s, 29 rows, byte-identical bodies). Not a correctness problem: `proxyTimeout` is 60 s and platform-api sets no HTTP `WriteTimeout`, so nothing is cut off — verified 2026-10-08.
 - **Evidence**:
@@ -1473,14 +1473,14 @@
   - `bifrost-platform-plugin-market-data` — `/market/coverage/db-summary` builds whole-DB counts alongside `freshness`
 - **Impact**: Every 30 s Console poll carries a ~5 s plugin call and a whole-database count the caller throws away.
 - **Fix**: Add a freshness-only endpoint to the market-data plugin (`GET /market/coverage/freshness`, the same 29 rows, no counts) and point `probeFreshness` at it; keep `db-summary` for the pages that want counts. Plugin-side change, so it ships on the plugin chain, not the platform one.
-- **Ratchet**: Extend `freshness_http_test.go` to assert the probe's path is the freshness-only one; a plugin test that the new endpoint returns the same row set as `db-summary`'s `freshness`.
+- **Ratchet**: 插件 `tests/test_coverage_freshness.py`（新端点与 `db-summary` 同一套夹具逐字段比对、断言不做 count、`coverage.py` 里只能有一条新鲜度 SELECT）+ platform `TestProbeFreshnessHTTP`（探测只发 1 个请求，路径必须是 `/market/coverage/freshness`）
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data, bifrost-platform
 
 ### TD-260
 
 **P3 · trade-core · Four LEFT JOINs still read raw_broker.contract_quote_live, which has had no writer since March and none at all after TD-240: the quote columns they feed can only ever come back NULL**
 
-- **状态**：未开始
+- **状态**：观察中（到 10-09，看四页的价格读数；**已上 PROD** `bifrost-deliver-prod-pinned-j4vg9`，core **0.60.0**（385b0f8，tag v0.60.0）+ frontend 81a796b）。LANE-X 先量后改：发现这四处（Accounts 环形图、Performance 固收市值、Ledger STK 快照、Watchlist Sizing / risk power）直接读 `/status` 的股票价格，读到的是 3 月旧价。core 删掉死 JOIN 后 `/status` 不再带股票价格——10-08 STG 实测持仓行只剩 `avgCost` / `position` / `category`，无价格字段——所以同一批在前端补了 `spotPrice.ts` / `usePricedStatus.ts` / `repriceAccounts`：取价顺序 live → 带日期的收盘 → 仅当 broker mark 比收盘更新才用，三者都没有就留空，**不拿成本价或行权价顶**，来源与时间跟着数字走
 - **Claim**: TD-240 deleted the only writers (`write_contract_quote_live`, the mirror). Owner kept the table, so four read sites remain and each filters on `fresh_quote_sql(alias)` = `updated_at >= now() - make_interval(secs => LIVE_QUOTE_MAX_AGE_SEC)`. The newest row in PROD is 2026-03-28, so every one of these JOINs now matches nothing, for good. They are not broken — they are a live-looking quote path that cannot return a quote, which is the project's own "unmeasured shown as green" class.
 - **Measured**: MEASURED 2026-10-08 (code read + the TD-240 measurement): `raw_broker.contract_quote_live` 13 rows, `max(updated_at)` 2026-03-28 06:16; after TD-240 no code writes it.
 - **Evidence**:
@@ -1491,8 +1491,85 @@
   - `bifrost-trade-worker/CLAUDE.md:61` — still documents `contract_quote_live`（来自 Redis 报价）as a daemon write
 - **Impact**: Unknown until measured — whichever page columns these four feed read as an empty quote. The risk is a page that prints 0 or a dash where it means "nothing writes this any more". The worker doc also still tells the next reader the daemon mirrors quotes.
 - **Fix**: Measure first (LANE-X): for each of the four, find what page column it feeds and what that column shows with a NULL quote. Then per site: drop the JOIN if the page has a live source already (`GET /quotes` reads Redis directly), or keep it and say on the page that the reading is not served. Do not give the table a writer — Owner chose B on 2026-10-08. Fix `bifrost-trade-worker/CLAUDE.md:61` either way.
-- **Ratchet**: Whatever survives: a test that the page column reads as "not served" rather than 0 when the quote is NULL; plus the existing TD-240 removal tests, which already stop a writer coming back.
+- **Ratchet**: core `tests/test_accounts_price_not_served.py`、`test_accounts_stk_live_stale.py`（价格取不到时读作「没有供给」而不是 0）+ frontend `src/utils/spotPrice.test.ts`、`equityDelta.test.ts`、`accountsBrokerRows.test.ts`；合并态 core 13464 passed、frontend 4111 passed
+- **残留**：portfolio model 仍 JOIN `contract_quote_live` 取**期权 mid**，那些行永远取不到，于是对应腿的 Greeks 记为 degraded（`degraded_leg_count`）——而前端没有任何地方显示这个计数，见 TD-264
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-core, bifrost-trade-worker, bifrost-trade-frontend
+
+### TD-261
+
+**P2 · ops-platform · The Console approval list never renders: it reads `{items}` and the API answers `{approvals: [...]}`, and the page test mocks the wrong shape so it never caught it**
+
+- **状态**：未开始
+- **Claim**: The Console's approval list parses `{items}`, while the list route answers `{"approvals": [...]}`. The list therefore renders empty whatever is waiting. The page's own test mocks `{items}`, so it passes against a shape the API never sends. Found by LANE-RP while wiring the release policy; not introduced by it.
+- **Measured**: MEASURED 2026-10-08 (LANE-RP, code read). The live shape is confirmed by this session's own MCP listing, which returned an `approvals` array.
+- **Evidence**:
+  - `bifrost-platform/console/src/…` approval list — parses `items`
+  - `bifrost-platform/api/internal/approvals/handler.go` — list route answers `approvals`
+- **Impact**: The Console is one of the three ways the Owner is meant to decide a tier C release (chat, phone, Console). That third way shows an empty list, so the Owner cannot decide from the Console at all — and the test suite says it works.
+- **Fix**: Parse `approvals`, and build the page test's fixture from the Go handler's response type instead of a hand-written literal.
+- **Ratchet**: A console test whose fixture is generated from the handler's response type, so the two cannot drift again.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-262
+
+**P3 · ops-platform · MCP `start_pipeline_run` sends no `who`, so a release started through MCP can never satisfy the policy's "requester holds the window"**
+
+- **状态**：未开始
+- **Claim**: The signed release policy requires `window_held_by_requester`. The MCP tool `start_pipeline_run` takes `name` / `revision` / `tag` and sends no `who`, so the engine cannot match the caller against the window holder. Every MCP-initiated release falls through to a manual decision — the one path the policy exists to remove.
+- **Measured**: CODE-READ 2026-10-08 (LANE-RP). Consistent with this session's own MCP call, which produced a pending request rather than an automatic one.
+- **Evidence**:
+  - `bifrost-platform/mcp/…` `start_pipeline_run` input schema — `name`, `revision`, `tag` only
+  - `bifrost-platform/api/internal/releasepolicy/engine.go` — `window_held_by_requester`
+- **Impact**: Once a policy is signed, releases started from a Claude session through MCP still queue for a human; only the `release.sh` paths benefit.
+- **Fix**: Add `who` to the MCP tool and pass it through; the server keeps requiring it to equal the window holder.
+- **Ratchet**: A test that `start_pipeline_run` without `who` is refused rather than silently falling back to the manual path.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-263
+
+**P3 · ops-platform · The release freeze does not reach the flex-query build: its pipeline has no release-window task, so a frozen workspace can still ship that plugin**
+
+- **状态**：未开始
+- **Claim**: deliver-research, the Dagster build and the market-data build each run a `release-window` task first, which is where the freeze ConfigMap is read. `bifrost-build-flex-query` has no such task, so neither the window nor the freeze binds it at the Tekton layer.
+- **Measured**: CODE-READ 2026-10-08 (LANE-RP).
+- **Evidence**:
+  - `bifrost-platform-plugin-flex-query/k8s/cicd/pipeline-build.yaml` — tasks are `clone-plugin`, `clone-core`, `kaniko`
+  - `bifrost-trade-infra/k8s/cicd/tekton/task-release-window.yaml` — the task the others run
+- **Impact**: A freeze the Owner sets to stop everything would not stop a flex-query build, and nothing reports that this one pipeline is unbound.
+- **Fix**: Add `release-window` as the first task of `bifrost-build-flex-query`, matching the other plugin builds.
+- **Ratchet**: `check-release-chain.py` asserts every `bifrost-build-*` / `bifrost-deliver-*` pipeline has `release-window` first.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-flex-query, bifrost-trade-infra
+
+### TD-264
+
+**P3 · trade-frontend · Three quote-path leftovers after TD-260: a dead section, an option-price precedence that would shadow EOD, and a degraded-leg count nothing shows**
+
+- **状态**：未开始
+- **Claim**: (1) `StockPositionSection` has no importer. (2) `buildTradeGroups.ts:45` prefers the `/status` price for option rows — harmless today because option rows carry no price, but it would shadow the EOD mark the moment `/status` carries a stale option price again. (3) core's model returns `degraded_leg_count`, the count of legs whose Greeks are degraded because the option mid never arrives (TD-260's residual), and no frontend site displays it.
+- **Measured**: MEASURED 2026-10-08 by LANE-X's field-tracing subagent, after the TD-260 repricing landed.
+- **Evidence**:
+  - `bifrost-trade-frontend/src/…` `StockPositionSection` — no importer
+  - `bifrost-trade-frontend/src/…/buildTradeGroups.ts:45`
+  - `bifrost-trade-core` portfolio model — `degraded_leg_count`
+- **Impact**: (3) is the live one: legs are silently degraded and the page says nothing — the "unmeasured shown as green" class. (1) and (2) are dead weight and a latent precedence bug.
+- **Fix**: Delete (1). Invert (2) so the dated EOD mark wins unless the live source is newer, the same rule `spotPrice.ts` already applies to stocks. Show (3) where the Greeks are shown, as a count with its reason.
+- **Ratchet**: `spotPrice.test.ts`'s precedence tests extended to option rows; a test that a non-zero `degraded_leg_count` is rendered.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend, bifrost-trade-core
+
+### TD-265
+
+**P3 · research-data · Non-farm payrolls rows get no theme: the pipeline's theme regex does not recognise `NFP`, so they never join the rate-path group**
+
+- **状态**：未开始
+- **Claim**: TD-180's first half wrote `NFP` rows into `macro_calendar.csv`. The theme regex matches CPI and FOMC wording but not `NFP`, so those rows carry an empty theme and are not grouped with the rate path. The same regex classifies rows on the way into the event radar.
+- **Measured**: MEASURED 2026-10-08 by LANE-E2, which did not change the regex: out of its lane.
+- **Evidence**:
+  - `bifrost-research/src/bifrost_research/…/pipeline.py:357` — the theme regex
+  - `bifrost-research/src/bifrost_research/scheduler/data/macro_calendar.csv` — the two `NFP` rows
+- **Impact**: The macro calendar shows payrolls, but a theme view of the next rate decision is missing the single biggest input to it.
+- **Fix**: Add payrolls to the theme regex (`NFP`, plus the spelled-out `Employment Situation` if the radar ever ingests that wording), with a test per matched term.
+- **Ratchet**: A table-driven test: every indicator present in `macro_calendar.csv` resolves to a non-empty theme.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
 
 ### TD-256
 
