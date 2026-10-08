@@ -2,7 +2,7 @@
 description: Trade execution freeze — live trading BLOCKED until Owner explicit unlock (spine D10)
 globs:
 alwaysApply: true
-parity-id: trade-execution-freeze-v3
+parity-id: trade-execution-freeze-v4
 ---
 
 # Trade execution freeze (D10)
@@ -34,7 +34,7 @@ Live trading (auto-order, daemon FSM place_order, live hedge, real IB order plac
 
 1. `bifrost-platform/config/ops-context.yaml` → decisions **D10**
 2. `bifrost-platform/console/src/lib/architecture/tradeIbClientMigrationRolloutCatalog.ts`
-3. `bifrost-platform/console/src/lib/architecture/agentProtocolCatalog.ts` → FORBIDDEN_ACTIONS
+3. `agent-config/AGENT_MODES.md` → FORBIDDEN_ACTIONS
 4. Ops Console → Architecture → Plugins → **Trade IB Migration** → Rollout section
 
 ## Mechanical enforcement

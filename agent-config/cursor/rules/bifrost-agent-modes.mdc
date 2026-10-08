@@ -2,7 +2,7 @@
 description: Bifrost Agent modes — Product / Ops / Promote / Research flywheel discipline
 globs:
 alwaysApply: true
-parity-id: agent-modes-v3
+parity-id: agent-modes-v4
 ---
 
 # Bifrost Agent modes (flywheel discipline)
@@ -17,7 +17,7 @@ Before non-trivial work, infer or ask which mode applies:
 | **Research** | dbt / OLAP engines / Golden Source analytics | `bifrost-research` (D13) |
 
 **Spine (milestones, decisions D1–D13 + D-Wave-*):** `bifrost-platform/config/ops-context.yaml` → `GET /api/v1/context`  
-**Agent modes (authoritative):** `bifrost-platform/console/src/lib/architecture/agentProtocolCatalog.ts`  
+**Agent modes (authoritative):** `agent-config/AGENT_MODES.md`  
 **Governance priority:** code → Console Governance catalogs → spine. No `docs/` directory exists in `bifrost-platform`.
 
 - Product mode: do not migrate `bifrost-trade-api` or change compose prod (migration-protocol Phase 1).
