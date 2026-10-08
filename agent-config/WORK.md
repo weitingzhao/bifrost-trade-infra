@@ -50,8 +50,8 @@
 
 - **类别**：计划
 - **状态**：在做
-- **现在**：后台部分是 LANE-D1（本文件、`Work:` 尾注、`GET /api/v1/progress`）。Console ⑦ 等第 3 阶段合并后另开
-- **下一步**：D1 合并后做进度页
+- **现在**：infra 部分（本文件、`Work:` 尾注）已在 main。**2026-10-08 起剩余部分移交 W-31**（多 Agent 协作）：D1 的 platform 部分不合，⑦ 进度视图由运行时的任务数据给出（ADR §12 范围移交）
+- **下一步**：由 W-31 决定 `cursor/d1-platform` 的去留，并在运行时设计里给出进度视图
 - **验收**：进度页能列出待签、在途、本周上线、卡住（README 阶段表）
 - **关联**：`agent-config/work/ops-arch/README.md`、`agent-config/ADR-ops-architecture.md`
 
@@ -72,8 +72,8 @@
 
 - **类别**：计划
 - **状态**：未开始
-- **现在**：README 写带外服务用独立账户、Agent 进虚拟机与 Agent 区、集群与存储区和运维区分开、UniFi VPN。道还没有写
-- **下一步**：上一阶段验收后再写道
+- **现在**：README 写带外服务用独立账户、Agent 进虚拟机与 Agent 区、集群与存储区和运维区分开、UniFi VPN。道还没有写。**2026-10-08 移交 W-31**（多 Agent 协作）：它就是运行时 Agent 主机层（`agentd` 进 mini 虚拟机）的宿主（ADR §12 范围移交）
+- **下一步**：由 W-31 在运行时第 2 阶段之前写道
 - **验收**：分区规则在 git、经 Owner 审批生效（README 阶段表）
 - **关联**：`agent-config/work/ops-arch/README.md`、`agent-config/ADR-ops-architecture.md`
 
@@ -119,8 +119,8 @@
 - **类别**：道
 - **匹配**：LANE-D1
 - **状态**：在做
-- **现在**：本道。登记、`Work:` 尾注、`GET /api/v1/progress`、MCP `get_progress`。不做 Console 页
-- **下一步**：报告入库、两条分支只推不发版
+- **现在**：infra 分支已合（登记、`Work:` 尾注）。platform 分支 `cursor/d1-platform` a7b8681（`GET /api/v1/progress`、MCP `get_progress`）**没合，2026-10-08 移交 W-31**，ops-arch 不再合它
+- **下一步**：W-31 决定它是并进运行时，还是废弃
 - **验收**：hook 测试、`check_work_trailers.py`、parity；platform `go test ./...` 与 `mcp/platform` 的 `tsc` 和 `npm test`
 - **关联**：`agent-config/work/ops-arch/LANE-D1.md`
 
@@ -364,8 +364,11 @@
 
 - **类别**：计划
 - **状态**：在做
-- **现在**：ADR §12 已写。第 1 期（发布队列）的接口与存储、编号方案，待 Owner 从 `work/multi-agent/PHASE1-OPTIONS-2026-10-08.md` 里选。Grok Bot 暂停，恢复条件是第 1 期上 PROD
-- **下一步**：Owner 定了方案后，写第 1 期的 Cursor 任务，放在 `agent-config/work/multi-agent/`
+- **现在**：
+  - 议题已扩成多 Agent 运行时，同时服务开发和业务两个租户。ADR §1 已改写（bf27c80）；讨论稿是 `work/multi-agent/DESIGN-agent-runtime-2026-10-08.md`（v3，未实施），已定和待定的列在它的第 12 节。
+  - 2026-10-08 从 ops-arch 接手：第 4 阶段剩下的部分（W-4、W-10）和第 6 阶段（W-6）。
+  - Grok Bot 暂停中。
+- **下一步**：讨论稿的待定项定完后改写 ADR §12，再拆道。Owner 确认之前不落地
 - **验收**：第 1 期上 PROD 之后，当天所有发版（含 STG、research、插件）在 PROD 发布队列里都有记录，`~/.bifrost-release/window.json` 不再是权威
 - **关联**：`agent-config/ADR-ops-architecture.md` §12、`agent-config/work/multi-agent/BRIEF-2026-10-08.md`、`agent-config/work/multi-agent/PHASE1-OPTIONS-2026-10-08.md`
 

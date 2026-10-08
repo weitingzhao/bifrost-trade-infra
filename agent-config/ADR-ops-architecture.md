@@ -159,6 +159,11 @@ Server 区一分为四，其余网段（Work、Family、Home/IoT）不变：
   - 12.3 的认领与待办箱，将由运行时的任务租约和交互总线取代；
   - 12.4 的发布队列保留，作为对外副作用的闸门；
   - 下面 12.1–12.7 是改写前的版本，讨论定稿后整体替换。
+- **范围移交（Owner 2026-10-08）**：ops-arch 线程（「Ops Platform 瘦身」）只做瘦身。下面两项从它那里移交给多 Agent 协作线程（W-31），因为它们会由运行时的任务数据与 Agent 主机层给出：
+  - 第 4 阶段剩下的部分：D1 的 platform 部分（`/api/v1/progress`、MCP `get_progress`）不合并，Console ⑦ 的进度视图也不做；
+  - 第 6 阶段：mini A 方案、Agent 虚拟机、网络分区。
+  
+  ops-arch 也不碰下面这些：运行时、发布队列、RP 发版策略、认领 / 待办箱、工作项编号规则。
 - **适用**：任何 Agent（Claude Code 线程、Cursor、Grok Bot，以后的 Codex），不论在哪台主机，认领工作、发版、交接、请 Owner 批或签。
 
 ### 12.1 问题
