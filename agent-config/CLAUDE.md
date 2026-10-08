@@ -1,5 +1,5 @@
 <!--
-parity-ids: workspace-v16, language-v1, agent-modes-v3, trade-execution-freeze-v3, dev-services-v3, phase-execution-v3, shared-worktree-v4, business-first-v1
+parity-ids: workspace-v16, language-v1, agent-modes-v4, trade-execution-freeze-v4, dev-services-v3, phase-execution-v3, shared-worktree-v4, business-first-v1
 对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
 改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
 -->
@@ -49,7 +49,7 @@ Bifrost = 三个域，边界不可跨越（spine **D13**）：
 | **Promote** | 发布 / prod cutover / 环境提升 | Ops Console ⑤ Releases（只读）+ spine | 提议 cutover 前必须尊重 spine 的 `BLOCKED_ON` 与 Owner 决策 |
 | **Research** | dbt / OLAP engines / Golden Source | `bifrost-research` | 只写 `dw_stock.*` / `features.*` / `research.*` / `journal.*`（D-Journal-Stores 2026-09-27）；**不得**写 Trade DB 或 `raw_market.*` ingest |
 
-**权威源**：`bifrost-platform/console/src/lib/architecture/agentProtocolCatalog.ts`（`AGENT_MODES` + `FORBIDDEN_ACTIONS`）
+**权威源**：`agent-config/AGENT_MODES.md`（`AGENT_MODES` + `FORBIDDEN_ACTIONS`）
 **治理优先级**：代码 → Console Governance catalogs → spine
 
 **所有模式**：实盘交易 BLOCKED，见 §3。

@@ -183,7 +183,7 @@ Owner **2026-08-31** 签批 D-14GF.1–6（R1）；同日 GitHub Archive + 授�
 | 主题 | 权威源 |
 |------|--------|
 | 里程碑、决策 D1–D13、D-Wave-*、north star、focus | `bifrost-platform/config/ops-context.yaml` → `GET /api/v1/context` |
-| Agent 模式 · 禁止动作 · D10 冻结 | `bifrost-platform/console/src/lib/architecture/agentProtocolCatalog.ts`（`FORBIDDEN_ACTIONS`） |
+| Agent 模式 · 禁止动作 · D10 冻结 | `agent-config/AGENT_MODES.md`（`FORBIDDEN_ACTIONS`） |
 | 数据库 schema | `bifrost-trade-core/docs/DATABASE.md` |
 | 硬件 / 网络拓扑 | `bifrost-platform/config/topology.yaml` · `clusters.yaml` · Console Runtime Map |
 | K8s workload 放置 | `console/src/lib/architecture/workloadPlacementCatalog.ts` · `GET /api/v1/cluster/placement` |
@@ -451,7 +451,7 @@ Tekton 流水线：`bifrost-ci-{frontend,platform,python}` · `bifrost-deliver-{
 本文件会随项目演进过期。刷新时：
 
 1. 读 spine `bifrost-platform/config/ops-context.yaml` 的 `deployment` / `focus` / `milestones` / `decisions`
-2. 读 `agentProtocolCatalog.ts` 的 `FORBIDDEN_ACTIONS` 与 `AGENT_MODES`
+2. 读 `agent-config/AGENT_MODES.md` 的 `FORBIDDEN_ACTIONS` 与 `AGENT_MODES`
 3. 磁盘扫描核对 repo 清单、端口、页面数
 4. bump `parity-id`（`agent-facts-v<n+1>`）+ 更新 `generated:`
 5. 跑 `bash scripts/check-agent-config-parity.sh`
