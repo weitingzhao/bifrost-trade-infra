@@ -132,7 +132,7 @@ spec:
         - alert: BifrostMaintainerIBAutoRepairStale
           expr: |
             (
-              time() - bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/ib-autorepair"} > 60
+              time() - bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/ib-autorepair"} > 180
             )
             or absent_over_time(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/ib-autorepair"}[5m])
           for: 3m
@@ -141,8 +141,10 @@ spec:
           annotations:
             summary: "PROD IB auto-repair loop has not completed a pass"
             description: >-
-              platform-workers records a success every 30s tick. Twice that
-              period is 60s. BifrostIBGatewayDisconnected still pages the
+              platform-workers records a success every 30s tick. Prometheus
+              scrapes every 60s, so a healthy loop reads up to 90s old between
+              scrapes; 180s is one tick, one scrape and a margin (60s flapped
+              on 10-08). BifrostIBGatewayDisconnected still pages the
               gateway symptom. This rule is the loop itself.
         - alert: BifrostMaintainerDataCloneStale
           expr: |
@@ -175,7 +177,7 @@ spec:
         - alert: BifrostMaintainerPatrolScanStale
           expr: |
             (
-              time() - bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/patrol-autopilot"} > 60
+              time() - bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/patrol-autopilot"} > 180
             )
             or absent_over_time(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/patrol-autopilot"}[5m])
           for: 3m
@@ -184,7 +186,8 @@ spec:
           annotations:
             summary: "PROD patrol scanner has not completed a pass"
             description: >-
-              The scanner ticks every 30s. Skill passes are separate series
+              The scanner ticks every 30s; 180s allows one tick plus the 60s
+              scrape interval. Skill passes are separate series
               under maintainer="platform/prod/patrol-autopilot/<skill>".
         - alert: BifrostMaintainerPatrolOpsAutopilotStale
           expr: |
