@@ -23,7 +23,7 @@
 - **TD-157** — 只有一侧有暴露时，空的那侧 wall 和 wall gex 写 NULL（research 0.191.0；回填置空 1,762 个）。验收 PASS 2026-10-08 481c96c（空侧仍写 wall 0 行；10-06 / 10-07 新写入空 call wall 10 / 4、空 put wall 14 / 10）。防线：同上测试文件的 `test_a_side_without_exposure_names_no_wall` 等单边五例。后续：TD-166（zero_gamma 兜底）
 - **TD-166** — 只有累计 net gex 在非零值之间换号才算翻转，没有翻转时日线 `zero_gamma` 写 NULL（research 0.192.0；回填更新 26,878 行）。验收 PASS 2026-10-08 481c96c（从分布重算干跑 changed 0；10-06 / 10-07 新写入空 zero_gamma 33.5% / 35.0%）。防线：同上测试文件的 `test_leaving_zero_is_not_a_crossing` 等 TD-166 九例。后续：前端把空 zero-γ 写成「无翻转」，未立项
 
-**未结 75 项**：P0 0 · P1 7 · P2 24 · P3 44；要你批的 31 项（从总览表的审批列算）。
+**未结 75 项**：P0 0 · P1 7 · P2 23 · P3 45；要你批的 31 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -76,7 +76,7 @@
 
 目标：现金与佣金账本可信：按 IB transactionID 去重（改表）、佣金一种符号、资金路径有测试、Flex 不再经 DEV 库读配置、IB Gateway 健康与镜像可追溯。
 
-项：TD-103, TD-117 · 已还：TD-115, TD-116, TD-114, TD-122, TD-104
+项：TD-117 · 已还：TD-115, TD-116, TD-114, TD-122, TD-104, TD-103
 
 ### 第 5 波 · 副本、死重与清单
 
@@ -147,12 +147,6 @@
 - 推荐：A。`release.sh stg/prod` 和 deliver-research / build-research-dagster 在该 SHA 的 CI 未成功时拒绝（Owner 可用 `--allow-red <理由>` 放行）；先修好 trade-api main 的红，三个插件仓库补上 CI 触发。
 - 选项：A：发布前要求同 SHA 的 CI 成功 · B：deliver 流水线里先跑 lint-test 再构建 · C：维持现状，只在发布后告警
 - 项：TD-95
-
-### 三个改表 / 迁移顺序项一起批吗？
-
-- 推荐：一起批，分开执行。TD-103 加 `flex_transaction_id` 列、从 `raw_extra` 回填（169 行都有）、部分唯一索引；TD-107 用 CONCURRENTLY 补建 financials 的索引；TD-119 迁移 Job 拆成单独的 kustomization，先迁移后部署。
-- 选项：A：三项都做 · B：只做 TD-103（钱）· C：都推后
-- 项：TD-103, TD-107, TD-119
 
 ### 安全收口四项
 
@@ -245,7 +239,6 @@
 | [TD-98](#td-98) | P2 | research-data | 'Today' is resolved by 11 private helpers plus 44 bare date.today() calls on UTC pods; option_universe stamps tomorrow's date | 不用批 |
 | [TD-100](#td-100) | P2 | research-control | Event Radar SEC ingest runs from a Mac tmux loop on the shared checkout; it read .env once and failed 157 ticks over ~35.6h after a password rotation; the cluster event_radar slot never ingests and stays green | 不用批 |
 | [TD-101](#td-101) | P2 | market-data | Doctor slot staleness reads a per-kind freshness row that other slots and zero-row jobs also refresh, so a stopped policed slot still reads fresh | 不用批 |
-| [TD-103](#td-103) | P2 | flex-ib | The cash parser never stores IB's transactionID, so dedupe falls back to (account, day, amount, type, report_date) and same-amount items overwrite each other | 改表 |
 | [TD-110](#td-110) | P3 | research-data | Stored IV features solve Black-Scholes at r=0 while the backtester uses treasury rates from two separate readers; further BS copies in gex and opex | 不用批 |
 | [TD-111](#td-111) | P3 | research-data | dbt: the pass_count range generic test sits in the singular folder (errors when selected, never applied); key intermediates lack grain tests; nothing ties eval_date to the session | 不用批 |
 | [TD-112](#td-112) | P3 | research-data | option_surface_iv_daily upserts per (symbol, trade_date, expiry) and never deletes, so expiries a re-walk dropped keep their old smile | 不用批 |
@@ -466,24 +459,6 @@
 - **Fix**: Key freshness by (dimension, slot) via a slot field in job payloads, or have the doctor check slot adherence from job evidence of the slot's own payload shape. Bump last_run_at only when rows_written > 0 (or add last_nonzero_at). Drop the constant status column or write real statuses.
 - **Ratchet**: Unit test derived from the slot→kinds map and contracts.staleness_by_slot(): no policed slot shares a freshness dimension with another slot (explicit allowlist otherwise).
 - 审批 不用批 · 代价 M · 风险 low · repos: bifrost-platform-plugin-market-data
-
-### TD-103
-
-**P2 · flex-ib · The cash parser never stores IB's transactionID, so dedupe falls back to (account, day, amount, type, report_date) and same-amount items overwrite each other**
-
-- **状态**：观察中（到 10-08，看 06:30 ET 那次 flex 现金作业：写入无报错，同一交易号不重复）。10-08 00:3x UTC 全部落地：GS 部分唯一索引 `raw_broker.transactions_account_flex_tx_uidx`（CONCURRENTLY，`indisvalid=t`、`indisunique=t`、谓词 `flex_transaction_id IS NOT NULL`）→ core 0.58.1（3eccebd，有交易号时 `ON CONFLICT (account_id, flex_transaction_id) WHERE flex_transaction_id IS NOT NULL`）→ flex-query 0.13.1（907ab28 下限 `bifrost-core>=0.58.1`；镜像 `bifrost-build-flex-query-drzmr`，构建日志 bifrost_core-0.58.1 @3eccebd；部署 cbe8f6c，api / worker 1/1 Ready）
-- **验收**：`kubectl -n data exec -i bifrost-postgres-1 -c postgres -- env PGOPTIONS='-c default_transaction_read_only=on' psql -U postgres -d bifrost_golden_source -X -At -c "select count(*), count(*) filter (where flex_transaction_id is null), count(distinct (account_id, flex_transaction_id)) from raw_broker.transactions"`（预期：第二列 0，第三列等于第一列）+ flex 现金作业 10-08 运行无 `there is no unique or exclusion constraint` / unique violation
-- **验收结果**：部分 PASS 2026-10-07：回填后 rows=177、still_null=0、matches_raw=177；索引未建（前置是 LANE-F）
-- **Claim**: parse_cash_transactions_xml reads transactionID only from a child element; the attribute fallback covers every other field but not this one, so on IB's attribute-style rows flex_transaction_id is always NULL. The UNIQUE key then uses a date-only ts, amount, and a type that maps fees/interest/withholding to 'other'. Two distinct same-day same-amount transactions collapse and the second DO UPDATE overwrites symbol/description/raw_extra. A row with no dateTime gets ts=now(), re-inserted every run.
-- **Measured**: MEASURED: flex_transaction_id NULL on 121/121 rows while raw_extra->>'transactionID' is present on all 121. 89 rows typed 'other'. 30 (account, ts, type, report_date) groups hold >1 row, separated only by amount; 6 have coinciding absolute amounts. A collapse leaves no trace, so none observed directly.
-- **Evidence**:
-  - `bifrost-platform-plugin-flex-query/src/bifrost_flex_query/client/flex_client.py:288` — `transaction_id = _text(elem, "transactionID") or _text(elem, "TransactionID")`
-  - `bifrost-platform-plugin-flex-query/src/bifrost_flex_query/client/flex_client.py:367` — `ts_parsed = datetime.now(timezone.utc)`
-  - `bifrost-trade-core/src/bifrost_core/portfolio/reader/accounts.py:1372` — `ON CONFLICT (account_id, ts, amount, type, report_date) DO UPDATE SET`
-- **Impact**: Fees, dividends or withholding can be under-counted by exact duplicates, and the surviving row's description can belong to the other transaction, on a money table read by Transfer & Pay and net cash-flow.
-- **Fix**: Read transactionID from the attribute too; backfill flex_transaction_id from raw_extra; add a partial UNIQUE index on (account_id, flex_transaction_id) as the conflict target when present (old key only for id-less rows); drop the now() fallback (skip and count dateless rows).
-- **Ratchet**: After backfill, NOT NULL/CHECK on flex_transaction_id for flex-sourced rows. Parser test with an attribute-only <CashTransaction> fixture (made-up values): id set, two same-day same-amount rows yield two dicts with different ids.
-- 审批 改表 · 代价 M · 风险 med · repos: bifrost-platform-plugin-flex-query, bifrost-trade-core
 
 ### TD-110
 
@@ -1465,7 +1440,7 @@
 
 **P3 · ops-platform · The market-data freshness probe now pays a whole-database count: /market/coverage/db-summary takes 4.3–5.5 s and the Console polls plugin status every 30 s**
 
-- **状态**：在做（**插件已上线**：market-data 0.87.0（21dfe04，镜像 `bifrost-build-market-data-9685m`，部署 1dfc937）三个 Deployment 均已 rollout。10-08 经 PROD 网关实测：`GET /market/coverage/freshness` 三次 **0.020 / 0.019 / 0.019 s**、29 行、不带 counts；同窗口 `db-summary` 三次 **5.10 / 4.95 / 5.00 s** —— 约 250 倍。两端共用 `query_freshness`，没有第二份 SQL。**platform 侧待发**：`cursor/w-platform` a7ecb08 只改探测路径，必须排在插件之后（旧插件对新路径 404）；受我自己的残留发布锁阻塞，见「要你执行」）
+- **状态**：在做（**插件已上线**：market-data 0.87.0（21dfe04，镜像 `bifrost-build-market-data-9685m`，部署 1dfc937）三个 Deployment 均已 rollout。10-08 经 PROD 网关实测：`GET /market/coverage/freshness` 三次 **0.020 / 0.019 / 0.019 s**、29 行、不带 counts；同窗口 `db-summary` 三次 **5.10 / 4.95 / 5.00 s** —— 约 250 倍。两端共用 `query_freshness`，没有第二份 SQL。**platform 侧已上 STG**：a7ecb08 合入 platform main，`bifrost-deliver-platform-w5lsr`。10-08 STG 实测 `/plugins/market-data/status` 三次 **0.038 / 0.035 / 0.035 s**（原约 5 s），`freshness_reachability: ok`、29 行；flex 同样 ok、2 行。**PROD 待人批**：单据 `appr_cb8b3f52329cbe8c`，与 TD-256 同一次发出）
 - **Claim**: TD-256 moved `probeFreshness` off `pods/exec` onto `GET /market/coverage/db-summary`. That endpoint returns the 29 freshness rows the probe needs *and* whole-database `counts`, so the probe pays for rows it discards. Measured 2026-10-07 through the Trade gateway: DEV 5.46 s, PROD 4.35 s, 5035 B. The Console polls `/plugins/market-data/status` every 30 s, and that handler calls the probe inline. `/market/status`'s `freshness_summary` answers in 0.04 s but is `ORDER BY last_run_at DESC LIMIT 20`, so it drops 9 dimensions (financials, ratios, sec_filings, short_interest, short_volume, job_trim, slot:fundamentals-rotate, slot:ticker-details, stock_daily_unadjusted) — not equivalent.
 - **Measured**: MEASURED 2026-10-07 by LANE-P2 (DEV 5.46 s / PROD 4.35 s, 29 rows, byte-identical bodies). Not a correctness problem: `proxyTimeout` is 60 s and platform-api sets no HTTP `WriteTimeout`, so nothing is cut off — verified 2026-10-08.
 - **Evidence**:
@@ -1571,11 +1546,27 @@
 - **Ratchet**: A table-driven test: every indicator present in `macro_calendar.csv` resolves to a non-empty theme.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
 
+### TD-266
+
+**P3 · flex-ib · The flex worker's system messages never leave the pod: it publishes to 127.0.0.1:6379, which is refused in-cluster, so the UI toast for a cash-ingest run is dropped with only a WARNING**
+
+- **状态**：未开始
+- **Claim**: `bifrost_flex_query/orchestration/notify.py:64` builds its Redis URL from `effective_redis_dict(config, default_db=0)`. The `flex-query-worker` Deployment carries no `REDIS*` env at all, so the default resolves to `127.0.0.1:6379` and the publish is refused inside the cluster. The message center has real consumers — trade-api runs a blocking XREAD reader loop and the frontend turns those events into toasts and alerts — so the notification for a flex run is lost, not merely unused.
+- **Measured**: MEASURED 2026-10-08 in the 10:30 UTC flex cash run (Der ran the TD-103 acceptance): `WARNING [bifrost_core.core.message_center] message center xadd failed topic=portfolio.flex_executions …: Error 111 connecting to 127.0.0.1:6379. Connection refused.` CODE-READ confirms the default and the absent env; `kubectl get deploy flex-query-worker -o jsonpath=…env` shows no `REDIS*` key.
+- **Evidence**:
+  - `bifrost-platform-plugin-flex-query/src/bifrost_flex_query/orchestration/notify.py:64` — `format_redis_url(effective_redis_dict(config, default_db=0))`
+  - `bifrost-trade-api/src/bifrost_api/monitor/routers/messages.py:32` — `_message_center_reader_loop`, the consumer
+  - `bifrost-trade-frontend/src/components/MessageCenter/MessageToastStack.tsx` — where the event would surface
+- **Impact**: The cash ingest itself is fine (TD-103's acceptance passed, 177/0/177), so no data is lost. What is lost is the signal: a run that ingests money data produces no UI message, and the only trace is a WARNING nobody reads. Same class as "failure as a warning".
+- **Fix**: Give `flex-query-worker` the live Redis address the other plugin workloads use (env or the plugin's config block), then confirm the topic arrives. Decide separately whether a failed publish should raise rather than warn — on its own, a warning here is the thing that hid it.
+- **Ratchet**: A plugin test that `notify` refuses to fall back to a loopback address when it runs with no explicit Redis configuration (so the next deployment cannot inherit the default silently).
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-flex-query
+
 ### TD-256
 
 **P3 · ops-platform · Plugin freshness probes read Postgres by exec into the primary as superuser: STG (read-only since TD-204) cannot run them, and PROD needs pods/exec in data only for this read**
 
-- **状态**：在做（platform main 286c305 已上 **STG**：两个 probeFreshness 改走插件 HTTP。STG 实测 `freshness_reachability: ok`、market-data 29 行、flex-query 2 行——TD-204 之后 STG 本来探不到。**PROD 待发**：auto mode 拦了 [Production Deploy]，清单已备好交 Owner 执行）
+- **状态**：在做（platform main 286c305 已上 **STG**：两个 probeFreshness 改走插件 HTTP。STG 实测 `freshness_reachability: ok`、market-data 29 行、flex-query 2 行——TD-204 之后 STG 本来探不到。**PROD 待人批**：与 TD-259 的 platform 半合成一次发（platform PROD 从 main 构建、钉不了 SHA，所以同一次才能保证 PROD 不经历 TD-259 之前那 5 秒的探测）。单据 `appr_cb8b3f52329cbe8c`，覆盖 platform main a7ecb08，到期 2026-10-09T14:55Z。旧单据 `appr_cc999dddd9ac6d44` 按 Owner 决定自然过期）
 - **Claim**: marketdata and flexquery `probeFreshness` run `SELECT … FROM ops_jobs.ingest_freshness` / `flex_ingest_freshness` through `ExecSQLOnPrimary` (pods/exec into bifrost-postgres, psql as postgres). Since the STG platform runs as the read-only ServiceAccount (TD-204) these probes fail on STG; on PROD they keep pods/exec in data, a superuser-equivalent right, for a read the plugins already serve over HTTP.
 - **Measured**: CODE-READ; RBAC measured 2026-10-07: STG `can-i create pods --subresource=exec -n data` → no, PROD → yes.
 - **Evidence**:
