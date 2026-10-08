@@ -23,7 +23,7 @@
 - **TD-157** — 只有一侧有暴露时，空的那侧 wall 和 wall gex 写 NULL（research 0.191.0；回填置空 1,762 个）。验收 PASS 2026-10-08 481c96c（空侧仍写 wall 0 行；10-06 / 10-07 新写入空 call wall 10 / 4、空 put wall 14 / 10）。防线：同上测试文件的 `test_a_side_without_exposure_names_no_wall` 等单边五例。后续：TD-166（zero_gamma 兜底）
 - **TD-166** — 只有累计 net gex 在非零值之间换号才算翻转，没有翻转时日线 `zero_gamma` 写 NULL（research 0.192.0；回填更新 26,878 行）。验收 PASS 2026-10-08 481c96c（从分布重算干跑 changed 0；10-06 / 10-07 新写入空 zero_gamma 33.5% / 35.0%）。防线：同上测试文件的 `test_leaving_zero_is_not_a_crossing` 等 TD-166 九例。后续：前端把空 zero-γ 写成「无翻转」，未立项
 
-**未结 72 项**：P0 0 · P1 7 · P2 23 · P3 42；要你批的 31 项（从总览表的审批列算）。
+**未结 74 项**：P0 0 · P1 7 · P2 23 · P3 44；要你批的 31 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -1468,6 +1468,37 @@
 - **Fix**: Separate the decision from the execution. On a **transient** refusal (window held by another repo set, CI not finished, a run in flight) keep the request `pending` — or move it to a `retryable` state with the reason — and let it execute when the precondition clears, rather than consuming it. Keep `failed` for permanent errors. Decide explicitly whether a retry needs a fresh click; if it does, say so in the record so the requester does not have to guess.
 - **Ratchet**: A Go test that an executor returning a transient refusal leaves the request approvable (not `failed`), and that a permanent error still terminates it.
 - 审批 不用批 · 代价 M · 风险 low · repos: bifrost-platform
+
+### TD-268
+
+**P3 · ops-platform · `ExecSQLOnPrimary` is dead code: TD-256 and TD-259 took its last caller, and the ratchet that counted call sites now guards a function nobody calls**
+
+- **状态**：未开始
+- **Claim**: After TD-256 (286c305) and TD-259 (a7ecb08) moved both plugin freshness probes onto plugin HTTP, `api/internal/cluster/pod_exec.go:65` `ExecSQLOnPrimary` has **no non-test caller**. What remains is the definition plus two test files that exist only to constrain it: `execsql_callers_test.go` (the LANE-P2 ratchet, baseline 2 → 0, now satisfied) and `pod_exec_live_test.go`. A ratchet counting call sites of a function with no call sites protects nothing.
+- **Measured**: MEASURED 2026-10-08 on platform main 634e305, verified in this session rather than taken from the report that raised it: `git grep -n ExecSQLOnPrimary origin/main -- 'api/**/*.go' | grep -v _test` returns only the definition at `pod_exec.go:62,65`; test references are `execsql_callers_test.go` (5) and `pod_exec_live_test.go` (4).
+- **Evidence**:
+  - `bifrost-platform/api/internal/cluster/pod_exec.go:65` — the definition, now unreachable from production code
+  - `bifrost-platform/api/internal/cluster/execsql_callers_test.go` — the call-site ratchet
+  - `bifrost-platform/api/internal/cluster/pod_exec_live_test.go` — a live test against it
+- **Impact**: A `psql -tAc` helper that execs into the CNPG primary stays available to the next person who needs a quick read, which is how the privilege got entrenched in the first place. Deleting it makes the HTTP path the only way.
+- **Fix**: Delete `ExecSQLOnPrimary` and the two tests that exist only for it, and replace the call-site ratchet with one asserting **zero** references to the symbol anywhere outside its own removal test. **Do not narrow PROD `pods/exec` in `data`**: `execOnPrimary` is used throughout `data_clone.go` / `data_clone_fk.go`, and `execOnMinio` by `postgres_wal_repair.go` — both verified still in use on 634e305.
+- **Ratchet**: A Go test (or a code-health count) asserting 0 references to `ExecSQLOnPrimary` in the repo, so it cannot come back quietly.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-269
+
+**P3 · ops-platform · `release.sh hold` cannot be stopped cleanly: SIGTERM waits behind its `sleep 3600`, and SIGKILL leaves a stale lock only the Owner may clear**
+
+- **状态**：未开始
+- **Claim**: `release.sh hold` ends in `while true; do sleep 3600; done`. Bash defers a trapped signal until the foreground command returns, so `kill -TERM <holder>` does nothing for up to an hour. `kill -9` works but skips the EXIT trap, so the window file and ConfigMap survive as a stale lock — and clearing that is `release.sh window --clear`, which the rules reserve for the Owner. The working way is to signal the `sleep` child instead, which lets bash return and run its trap; that is not written down anywhere.
+- **Measured**: MEASURED 2026-10-08, twice in one session. First time: `kill -9` on the holder left a stale lock and cost an Owner round-trip to clear. Second time: `kill -TERM` on the holder did nothing (process still alive after the signal); `pgrep -P <holder>` then `kill -TERM` on the `sleep` child exited the holder and the trap removed both the window file and `cicd/bifrost-release-window` cleanly.
+- **Evidence**:
+  - `bifrost-trade-infra/scripts/release/release.sh` — the `hold` branch: `while true; do sleep 3600; done`
+  - the same file's `window_open` trap, which is what SIGKILL skips
+- **Impact**: Every held window that has to end early either blocks releases for up to an hour or needs the Owner to clear a lock. It is pure friction on a path agents take often, and it makes the stale-lock warning appear for a reason that has nothing to do with a crash.
+- **Fix**: Make `hold` interruptible — wait on something a signal can break (`sleep` in a background job plus `wait`, or a `read` with a timeout), so SIGTERM runs the trap immediately. Then say in `docs/RELEASE.md` how to end a hold.
+- **Ratchet**: A shell test that sends SIGTERM to a `hold` and asserts the window file is gone within a couple of seconds.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ### TD-261
 
