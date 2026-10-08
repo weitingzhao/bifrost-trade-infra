@@ -4,7 +4,7 @@
 
 ## 分支
 
-集成分支 **`cursor/phase3-platform`**，最终 SHA **`e63ec329ea28255b6ee8e678afee7f8b258162c7`**。已推送 `origin/cursor/phase3-platform`。
+集成分支 **`cursor/phase3-platform`**，最终 SHA **`4f52663c7081ba6bea901ea3666083356c245999`**。已推送 `origin/cursor/phase3-platform`。
 
 Worktree：`/Users/vision-mac-trader/Desktop/stocks/bifrost-platform-phase3-int`（本次新建，从 `origin/main` `67b63cf8738988c27102a9b72641f1a01c2a36bb` 开出）。主检出 `bifrost-platform` 未改。
 
@@ -16,6 +16,7 @@ Worktree：`/Users/vision-mac-trader/Desktop/stocks/bifrost-platform-phase3-int`
 | `origin/cursor/phase3-s4` | `2e86b38d54c3e396c0420ac88464983c6118a356` | merge |
 | `origin/cursor/phase3-s5` | `4949b92a45ffb460725172f9be3e6408f2ab7493` | merge |
 | S6（同一条集成分支） | `e63ec329ea28255b6ee8e678afee7f8b258162c7` | 提交 `Remove the retired Ops Console pages…` |
+| 补删未挂载旧页 | `4f52663c7081ba6bea901ea3666083356c245999` | 提交 `Remove the unmounted bus, operator-plane, and patrol-log pages.`，Change-Id `I5675a1d4e0860288ffa515b79e44526d2a6a9830` |
 
 `shellPages.tsx` 三边各自把占位函数换成 re-export，ort 自动合并后七个 re-export 都在：Status、Data、IB、Maintenance、Releases、Infrastructure、Progress。S6 删掉了已经没人用的占位函数 `ShellQuestion`。
 
@@ -26,7 +27,7 @@ Worktree：`/Users/vision-mac-trader/Desktop/stocks/bifrost-platform-phase3-int`
 | | 文件数 | 行数 |
 |---|---|---|
 | 改前 `origin/main` `67b63cf` | 883 | 165556 |
-| 改后 `e63ec32` | 703 | 120303 |
+| 改后 `4f52663` | 685 | 116426 |
 
 构建产物只测了集成分支这次 `npm run build`（vite 6.4.3）。没有在 `origin/main` 上重编，没有改前体积。
 
@@ -156,7 +157,7 @@ S6 从仍会在运行时打到这些名字的调用方拿掉了：
 ### ③ IB `#ib`
 
 - 主体：`IbGatewayManagePage`（连接、重连 B、自愈 B 仍直调；模式切换 / 维护走 `RequestActionButton`）
-- Bus：`IbBusStatus`。先 `GET /api/v1/self-health` 取 `viewer_env`，再 `GET /api/v1/satellite/bus-deep?env=<viewer_env>`。没有 viewer 时不发 bus-deep。旧 `SatelliteBusPage` 没有挂上这一页。
+- Bus：`IbBusStatus`。先 `GET /api/v1/self-health` 取 `viewer_env`，再 `GET /api/v1/satellite/bus-deep?env=<viewer_env>`。没有 viewer 时不发 bus-deep。旧 `SatelliteBusPage.tsx` 已删。IB 仍用的 `TradeDaemonOperatePanel.tsx` 与 `useSatelliteBusQueries.tsx` 留下。
 
 ### ④ Maintenance `#maintenance`
 
@@ -166,7 +167,7 @@ S6 从仍会在运行时打到这些名字的调用方拿掉了：
 | Autopilot | `AutonomousSkillsPage`：技能、运行记录（含 REPORT-ONLY）、手动运行一次 |
 | History | `AuditPage` + Download JSON |
 
-没有再挂 `ExecutionLogPage`，避免两份运行历史。
+`ExecutionLogPage.tsx` 已删，避免两份运行历史。
 
 ### ⑤ Releases `#releases`
 
@@ -206,12 +207,12 @@ S6 从仍会在运行时打到这些名字的调用方拿掉了：
 | Agent（agent-release） | 做到 | ⑥ mini 卡片：runner 版本与心跳。没有 Update primary / standby。旧页已删 |
 | Commit Lineage | 做到 | ⑦ 原样 |
 | Queue | 做到 | 页、后端、MCP、drain 循环已删。Status 不再打这些端点 |
-| Patrol + Patrol Log | 做到 | ④ Autopilot 用技能页（含 REPORT-ONLY 与手动跑一次）。没有再挂 Execution Log，避免两份历史。`ExecutionLogPage.tsx` 文件还在，没有路由 |
-| Operator Plane | 做到 | ⑥ mini 卡片。没有 AI Fix、nightly-run。`OperatorPlanePage.tsx` 文件还在，没有路由 |
+| Patrol + Patrol Log | 做到 | ④ Autopilot 用技能页（含 REPORT-ONLY 与手动跑一次）。`ExecutionLogPage.tsx` 已删 |
+| Operator Plane | 做到 | ⑥ mini 卡片。没有 AI Fix、nightly-run。`OperatorPlanePage.tsx` 已删。`operatorPlaneFixPrompt.ts` 留下：检查清单仍引用 `OPERATOR_PLANE_FIX_SCOPE` |
 | Trust & Autonomy | 做到 | 页已删。信任覆盖后端保留，见上 |
 | Agent Capability | 做到 | 页与 view model 已删。没有专用端点 |
 | Analysis Workspace / Insight Log / Hermes Status | 做到 | 三页已删。Hermes 健康在 ⑥ 一行。insights / first task 端点已删 |
-| Bus Status | 做到 | ③ 只看 viewer 环境。旧 `SatelliteBusPage.tsx` 没挂上新页，文件还在，没有路由 |
+| Bus Status | 做到 | ③ 只看 viewer 环境。旧 `SatelliteBusPage.tsx` 已删。`SatelliteApiHealthPage.tsx` 与 `SatelliteTelemetryPage.tsx` 留下：`SatelliteHealthPage` 仍 import 它们，Status 仍 import `SatelliteHealthPage` |
 | IB Client | 做到 | ③ 首页。重连 / 自愈直调。模式 / 维护走申请 |
 | Research Engine | 做到 | ②。打开 Agent Desk 的 Diagnose 不传。健康页里标题叫 Diagnose 的发现列表还在 |
 | Plugin Gallery | 做到 | ② 顶部状态条 |
@@ -282,6 +283,8 @@ Owner 2026-10-08：Code Health 并入 ⑦、Trust 退场、Guides 连关卡删�
 | `console/`：`npx tsc -b && npm run lint && npx vitest run && npm run build` | tsc 通过。lint 0 error、3 warning（flex-query 原有）。vitest 109 files / 723 tests 通过。build 通过，体积见上 |
 | `mcp/platform`：`npx tsc -b && npm test` | tsc 通过。18 tests，0 fail |
 
+补删三个旧页之后，在同一 worktree 的 `console/` 重跑 `npx tsc -b && npm run lint && npx vitest run && npm run build`，第一次通过：tsc 通过，lint 仍是 0 error / 3 条 flex-query warning，vitest 108 files / 708 tests，build 通过（JS 2166.53 kB / gzip 634.06 kB，CSS 376.66 kB / gzip 52.92 kB）。api 与 mcp 没有再跑。
+
 `node_modules` 用硬链接指到主检出，未入库。
 
 超长文件：本 worktree 17，基线 23。钩子打印 “lower OVERSIZED_PLATFORM_BASELINE”，exit 0（低于基线不失败）。基线在 infra `scripts/code-health/baselines.env`，本阶段不改。合并进 main 之前需要有人把这条基线降到 17，否则下一次在主检出上提交会先看到旧的 24（主检出 `ConsolePage.tsx` 仍是 1190 行）。
@@ -296,6 +299,7 @@ Owner 2026-10-08：Code Health 并入 ⑦、Trust 退场、Guides 连关卡删�
 | s4 `2e86b38` | `I27b2cb8754a43ab8edbb84e8ad31199ca15e47ef` |
 | s5 `4949b92` | 没有 |
 | S6 `e63ec32` | `I4c200bbbf82a81138c9dca72a090ea00d06ce71c` |
+| 补删 `4f52663` | `I5675a1d4e0860288ffa515b79e44526d2a6a9830` |
 
 s1 / s3 / s5 没有 Change-Id 的原因：worktree 第一次提交时没有 gitignore 的 `.husky/_`，`core.hooksPath` 仍是 `.husky/_`，hook 没跑。补上指向主检出的 shim 后再 amend，pre-commit 的 `scan.sh` 向上找到主检出 `bifrost-platform`（`ConsolePage.tsx` 1190 行，超 800 行的文件 24，基线 23），本 worktree 自己是 23。没有 `--no-verify`，没有 force push，已推送的提交不能改。
 
@@ -309,7 +313,7 @@ S6 把 `.husky/pre-commit` 改成：用临时目录把 **当前** `git rev-parse
 
 新 7 页仍引用的实现留着：Massive、IB Flex、Research Engine、Cluster、Approvals、Patrol（Autonomous Skills）、Audit、Commit Lineage、Code Health、IB Client、Network、Runtime Map、Control Room、Observability、Rocket Health、Satellite Health。
 
-并入之后新页不再 import、S6 名单里也没有、所以文件还在且没有路由：`SatelliteBusPage`、`OperatorPlanePage`、`ExecutionLogPage`、`SatelliteTelemetryPage`、`SatelliteApiHealthPage`。
+补删（`4f52663`）：零引用的 `SatelliteBusPage.tsx`、`OperatorPlanePage.tsx`、`ExecutionLogPage.tsx` 已删，连带只被它们引用的表体、inspect、`contextSectionSignal`、`BusActuationStrip`、`AgentMcpPanel`。`SatelliteApiHealthPage.tsx` 与 `SatelliteTelemetryPage.tsx` 留下，因为 `SatelliteHealthPage` 仍 import 它们，而 Status 的 `StatusPage.tsx` import 了 `SatelliteHealthPage`。
 
 ## 未完成
 
@@ -317,4 +321,4 @@ S6 把 `.husky/pre-commit` 改成：用临时目录把 **当前** `git rev-parse
 - 上表「部分」的行：Research / 插件没有 STG/PROD 版本源；待重启节点没有信号；选择性克隆补表在申请之后修不了。
 - `MAINTAINERS.yaml` 里的 Operate Queue drain 登记没有改。
 - 超长文件基线仍是 23，本树已是 17。
-- 上节列出的五份并入旧页文件还在磁盘上。
+- 五份并入旧页里，三个零引用的已删（`SatelliteBusPage`、`OperatorPlanePage`、`ExecutionLogPage`）。`SatelliteApiHealthPage` 与 `SatelliteTelemetryPage` 因 Status 仍在用而留。
