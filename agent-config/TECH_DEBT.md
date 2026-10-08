@@ -19,7 +19,7 @@
 - **TD-254** — 备份只归 CNPG 每日备份 + backup-retry：autopilot 遇到备份不新鲜只报告、不再调 repair_cnpg_wal_store（不再删失败的 Backup、不再盘中补全量备份；工具留给人手动用）。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「autopilot 备份不动手测试」。后续：无后续：剩下的收敛在 TD-130（观察到 10-12）
 - **TD-255** — 漂移扫描不再删失败现场：只删被驱逐的 Pod，失败的备份 Job Pod 留着（日志可读），只报告模式下一个不删。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「漂移扫描只删 Evicted 测试」。后续：无后续：Job 历史上限与 TTL 负责回收
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
-- **TD-104** — Trade Ops 的三条 IB Gateway 行不再永远离线：进程状态按 `data/ib-gateway` 的副本数判断，`updated_at` 从 IB 的 Redis 读；api-ops 加了只读、只限这一个 Deployment 的 Role（三个环境）。验收 PASS 2026-10-08（PROD 三行 active 1/1、updated_at 5 秒内；STG 同）。防线：api `tests/test_ib_gateway_row_active.py`（4 例）+ infra `scripts/check_api_ops_ib_gateway_rbac.py`（Role 只有 get、只点名 ib-gateway；infra 合并待做，RBAC 已从分支 apply）。后续：无后续：台账原写的 redis_ib_keys 合约字段测试由上面两条覆盖读写两端
+- **TD-104** — Trade Ops 的三条 IB Gateway 行不再永远离线：进程状态按 `data/ib-gateway` 的副本数判断，`updated_at` 从 IB 的 Redis 读；api-ops 加了只读、只限这一个 Deployment 的 Role（三个环境）。验收 PASS 2026-10-08（PROD 三行 active 1/1、updated_at 5 秒内；STG 同）。防线：api `tests/test_ib_gateway_row_active.py`（4 例）+ infra `scripts/check_api_ops_ib_gateway_rbac.py`（Role 只有 get、只点名 ib-gateway；infra 42d3715）。后续：无后续：台账原写的 redis_ib_keys 合约字段测试由上面两条覆盖读写两端
 
 **未结 72 项**：P0 0 · P1 7 · P2 25 · P3 40；要你批的 31 项（从总览表的审批列算）。
 
@@ -313,11 +313,11 @@
 
 **P1 · trade (round 1) · One database password reaches everything: any DEV pod can write PROD Trade and all of Golden Source**
 
-- **状态**：在做（验收已 PASS，只差防线：`RATCHETS.md` 里 TD-85 那行的 role-matrix 检查还没建）
+- **状态**：在做（防线一半已落地：infra 5ff1624 的期望矩阵 + 只读检查 `k8s/data/role-matrix/check_role_matrix.py` 接进了 `release-check.sh <env> before`，每次 Trade 发布前都比对；10-08 Owner 执行 db-step `2026-10-07-td85-analytics-writer-create`（撤 analytics_writer 在 raw_market / raw_broker / ops_jobs 的 CREATE、三张 ops_jobs 表的写权、market_reader 对 ticker_related 的写权）后检查 `role-matrix: 0 difference(s)`。剩每日 CronJob 与告警）
 - **验收结果**：PASS 2026-10-07 eaf68ac — GS `datacl` 里 PUBLIC 只剩 `=T`（无 CONNECT）；10-06 16:43 → 10-07 16:43 UTC 两个实例的 Postgres 日志里 `data_writer` / `flex_writer` 的 `permission denied` 为 0；`flex_writer` 10-07 10:30 UTC 照常写入 raw_broker（5 行）。日志里另有 2 条是 `bifrost` 的 pg_dump 读不了 `research.suggestion_adoption_suggestion_adoption_id_seq`（10-07 01:42 手动逻辑备份，已失败；之后 03:14 手动与 04:30 定时两次都 Complete），不属于本项
 - **验收**：Golden Source 的 `datacl` 里没有 PUBLIC 的 CONNECT（`=c`），且 Postgres 日志 24 小时内 `data_writer` / `flex_writer` 的 `permission denied` 为 0：`kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_golden_source -X -At -c "SELECT datacl FROM pg_database WHERE datname = current_database()"`
 - **现在**：D1–D8 与 GS 的 PUBLIC CONNECT 收回（10-06，eaf68ac）全部执行完：三环境 Trade 运行时用 `trade_app_<env>` 登录；D4 已在三个 Trade 库收回 PUBLIC 的 CONNECT 和 CREATE（10-06，验证 74/74）；D7 ConfigMap 已合入；D6 收口完成，`data_writer` 在 `raw_broker` 上的写权已撤（core 0.48.2，10-06）。
-- **下一步**：建 role-matrix 防线（只读脚本 + 期望矩阵，每日 CronJob，`BifrostDbPrivilegeDrift`），落地后进「待你签收」。已交 Cursor：`cursor-tasks/LANE-M-db-role-matrix.md`（含 analytics_writer 在 raw_market / raw_broker 的 CREATE 要另写 db-step 撤掉）。（10-07）
+- **下一步**：要你批一组：建 `role_matrix_reader`（db-step `2026-10-07-td85-role-matrix-reader`，只 CONNECT）+ Secret `data/db-role-matrix-reader`（密码本地生成、不打印）+ 先核实 CNPG 镜像里有 python3 → `kubectl apply -k k8s/data/role-matrix` 与告警 `BifrostDbPrivilegeDrift`；手动触发一次 Job 看到 0 difference 后进「待你签收」
 - **Claim**: Measured 2026-10-04 (read-only): nine Secret keys hold the same value, the bifrost password (PGPASSWORD and GOLDEN_SOURCE_PASSWORD in bifrost-{dev,stg,prod}-secrets, flex-query postgres-password / trade-pg-password, market-data postgres-password). bifrost can INSERT into 320 Golden Source tables and CREATE in raw_broker and research; analytics_writer inherits bifrost and can write all 19 tables of bifrost_prod.public. PUBLIC has CONNECT/TEMP on all four databases and CREATE on public in the Trade databases. D13 is not enforced at the database layer in either direction.
 - **Evidence**:
   - `REQUEST-trade-runtime-db-role-plan-2026-10-04.md:1` — ``
@@ -474,7 +474,8 @@
 
 **P2 · flex-ib · The cash parser never stores IB's transactionID, so dedupe falls back to (account, day, amount, type, report_date) and same-amount items overwrite each other**
 
-- **状态**：在做（Owner 10-07 批回填：GS raw_broker.transactions 177 行 flex_transaction_id 已填（单事务，行数守卫 177）；唯一索引等 core writer 改冲突键——Cursor LANE-F）
+- **状态**：观察中（到 10-08，看 06:30 ET 那次 flex 现金作业：写入无报错，同一交易号不重复）。10-08 00:3x UTC 全部落地：GS 部分唯一索引 `raw_broker.transactions_account_flex_tx_uidx`（CONCURRENTLY，`indisvalid=t`、`indisunique=t`、谓词 `flex_transaction_id IS NOT NULL`）→ core 0.58.1（3eccebd，有交易号时 `ON CONFLICT (account_id, flex_transaction_id) WHERE flex_transaction_id IS NOT NULL`）→ flex-query 0.13.1（907ab28 下限 `bifrost-core>=0.58.1`；镜像 `bifrost-build-flex-query-drzmr`，构建日志 bifrost_core-0.58.1 @3eccebd；部署 cbe8f6c，api / worker 1/1 Ready）
+- **验收**：`kubectl -n data exec -i bifrost-postgres-1 -c postgres -- env PGOPTIONS='-c default_transaction_read_only=on' psql -U postgres -d bifrost_golden_source -X -At -c "select count(*), count(*) filter (where flex_transaction_id is null), count(distinct (account_id, flex_transaction_id)) from raw_broker.transactions"`（预期：第二列 0，第三列等于第一列）+ flex 现金作业 10-08 运行无 `there is no unique or exclusion constraint` / unique violation
 - **验收结果**：部分 PASS 2026-10-07：回填后 rows=177、still_null=0、matches_raw=177；索引未建（前置是 LANE-F）
 - **Claim**: parse_cash_transactions_xml reads transactionID only from a child element; the attribute fallback covers every other field but not this one, so on IB's attribute-style rows flex_transaction_id is always NULL. The UNIQUE key then uses a date-only ts, amount, and a type that maps fees/interest/withholding to 'other'. Two distinct same-day same-amount transactions collapse and the second DO UPDATE overwrites symbol/description/raw_extra. A row with no dateTime gets ts=now(), re-inserted every run.
 - **Measured**: MEASURED: flex_transaction_id NULL on 121/121 rows while raw_extra->>'transactionID' is present on all 121. 89 rows typed 'other'. 30 (account, ts, type, report_date) groups hold >1 row, separated only by amount; 6 have coinciding absolute amounts. A collapse leaves no trace, so none observed directly.

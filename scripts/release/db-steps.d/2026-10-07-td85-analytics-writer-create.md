@@ -2,6 +2,7 @@
 id: 2026-10-07-td85-analytics-writer-create
 envs: prod
 when: after
+done: prod
 ---
 # TD-85: analytics_writer loses schema CREATE on ingest and brokerage
 
