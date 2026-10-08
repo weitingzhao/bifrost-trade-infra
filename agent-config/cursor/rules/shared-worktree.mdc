@@ -1,7 +1,7 @@
 ---
 description: Shared single checkout — stage only the files you touched
 alwaysApply: true
-parity-id: shared-worktree-v3
+parity-id: shared-worktree-v4
 ---
 # 共享工作树 — 只暂存自己碰过的文件
 
@@ -33,6 +33,7 @@ git commit                      # 不带 -a
 
 每个提交由 git hook（`scripts/git-hooks/`，`sh scripts/git-hooks/install.sh --check`）自动带 `Change-Id` 尾注，
 rebase / cherry-pick / amend 都不会变：判断一个 lane 是否已落地时按它找，不要按标题找。不要删这个尾注。
+同一钩子在 `commit-msg` 再写 `Work:`：从标题和正文提取 `TD-n`、`W-n`、`LANE-…`（可多个、去重）；提取不到就写 `Work: unassigned`。已经有 `Work:` 的不改。
 Claude 会话还会自动带 `Claude-Session` / `Claude-Transcript`；Cursor 的终端拿不到会话 id，所以没有这两个尾注。
 husky 仓库（frontend、platform）新开的 worktree 不执行任何钩子。
 Commit Lineage 的线程标题由 Claude 的 Stop hook 上报（TD-197）；Cursor 没有会话标题，没有这一步。
