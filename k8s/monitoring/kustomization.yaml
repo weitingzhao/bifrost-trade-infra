@@ -22,8 +22,10 @@ resources:
   - traefik.yaml
   - bifrost-alerting-rules.yaml
   - bifrost-db-role-matrix.yaml
-  # td-d2-postgres-rules.yaml is applied by hand, not here: BifrostPostgresRecoveryDrillStale
-  # pages at once until the TD-217 drill passes, and the WAL rule waits a day after TD-134.
+  # td-d2-postgres-rules.yaml stays out of this kustomization: BifrostPostgresWalDailyHigh
+  # waits until a full day has passed under the TD-134 parameters.
+  # The recovery-drill alert does not wait on that rule (TD-258).
+  - bifrost-postgres-recovery-drill-rules.yaml
   - bifrost-cluster-state-rules.yaml
   - bifrost-maintainer-rules.yaml
   - maintainer-reconcile

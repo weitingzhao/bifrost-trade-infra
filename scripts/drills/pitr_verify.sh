@@ -6,20 +6,30 @@
 # journal, research, ops_feedback, raw_broker on bifrost_golden_source) and
 # tier 2 (raw_market.option_snapshot, raw_market.option_open_interest).
 #
-# Recovery point R is the "last completed transaction" log line from the drill
-# pod (the end of WAL replay). Rows with a write-time at or before R must
-# match. Rows on the live side after R are writes made after the recovery
-# point and are not a failure. A difference inside the at-or-before-R slice
-# fails. Tables with no timestamp fail only when the counts differ, because
-# that difference cannot be attributed to later writes.
+# Recovery point R is, in order: PITR_RECOVERY_POINT, the drill Cluster's
+# bootstrap.recovery.recoveryTarget.targetTime, the "last completed transaction"
+# log line, and only then an estimate of postmaster start minus 7 minutes.
+# The estimate prints a banner; it can be far from the real restore point.
+# Rows with a write-time at or before R must match. Rows on the live side
+# after R are writes made after the recovery point and are not a failure.
+# A difference inside the at-or-before-R slice fails. Tables with no timestamp
+# fail only when the counts differ, because that difference cannot be
+# attributed to later writes. Upserted tables (an update-timestamp column, or
+# raw_market.option_open_interest, whose fetched_at moves on PK conflict)
+# pass when the totals match and the rows rewritten after R equal the gap in
+# the at-or-before-R counts.
 #
-# Exit 0 when every table passes, 1 when a comparison fails or the drill is
-# archiving, 2 when the drill is not ready. --self-test does not touch a
-# cluster.
+# A full pass deletes and recreates ConfigMap data/pg-recovery-drill-last-pass
+# so kube_configmap_created is this pass. The data keys are only the date,
+# the recovery point, the table count, and the duration.
+#
+# Exit 0 when every table passes and the ConfigMap was rewritten, 1 when a
+# comparison fails, the drill is archiving, or the ConfigMap write fails,
+# 2 when the drill is not ready. --self-test does not touch a cluster.
 set -euo pipefail
 
-DRILL_NS="${PITR_DRILL_NS:-pitr-drill}"
-DRILL_CLUSTER="${PITR_DRILL_CLUSTER:-bifrost-postgres-pitr-drill}"
+DRILL_NS="${PITR_DRILL_NS:-pg-recovery-drill}"
+DRILL_CLUSTER="${PITR_DRILL_CLUSTER:-pg-recovery-drill}"
 LIVE_NS="${PITR_LIVE_NS:-data}"
 LIVE_CLUSTER="${PITR_LIVE_CLUSTER:-bifrost-postgres}"
 export KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/bifrost-k3s.yaml}"
@@ -33,6 +43,7 @@ cat > "${tmp}/brain.py" <<'PY'
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 
@@ -51,6 +62,13 @@ UPDATE_COLS = {
     "modified_at",
     "positions_updated_at",
 }
+# fetched_at is an insert clock on most tables. option_open_interest rewrites it
+# on INSERT ... ON CONFLICT DO UPDATE, so the at-or-before-R count moves without
+# the row count changing. Other upserts are recognized by an update-timestamp column.
+UPSERT_TABLES = {
+    ("bifrost_golden_source", "raw_market", "option_open_interest"),
+}
+PASS_KEYS = ("date", "recovery_point", "table_count", "duration")
 
 CATALOG_SQL = r"""
 SELECT current_database(), n.nspname, c.relname,
@@ -216,7 +234,35 @@ def _n(value: str) -> int:
     return int(value or "0")
 
 
-def judge(live: dict[str, str] | None, drill: dict[str, str] | None) -> tuple[bool, str]:
+def is_upsert_table(db: str, schema: str, table: str, kind: str) -> bool:
+    if (db, schema, table) in UPSERT_TABLES:
+        return True
+    return kind == "upd"
+
+
+def _judge_upsert(live: dict[str, str], drill: dict[str, str]) -> tuple[bool, str]:
+    """10-07 manual rule: totals match, and rows rewritten after R equal the le-count gap."""
+    if _n(drill["after"]) or _n(drill["band"]):
+        return False, "drill has rows after the recovery point"
+    if totals(live) != totals(drill):
+        return False, "upsert table total row count differs"
+    gap = _n(drill["le"]) - _n(live["le"])
+    rewritten = _n(live["after"])
+    if rewritten != gap:
+        return False, "rows rewritten after the target time do not equal the at-or-before count gap"
+    if drill["max_all"] and live["max_all"] and drill["max_all"] > live["max_all"]:
+        return False, "drill max is newer than live"
+    if rewritten:
+        return True, f"upsert rewrote {rewritten} rows after the recovery point; totals match"
+    return True, ""
+
+
+def judge(
+    live: dict[str, str] | None,
+    drill: dict[str, str] | None,
+    *,
+    upsert: bool = False,
+) -> tuple[bool, str]:
     """Fail only when the at-or-before-R slice differs by more than later writes."""
     if live is None:
         return False, "missing on live"
@@ -229,6 +275,8 @@ def judge(live: dict[str, str] | None, drill: dict[str, str] | None) -> tuple[bo
     if drill["status"] == "MISSING":
         return False, "missing on drill"
     kind = live["kind"]
+    if upsert or kind == "upd":
+        return _judge_upsert(live, drill)
     live_le, drill_le = _n(live["le"]), _n(drill["le"])
     live_band, drill_band = _n(live["band"]), _n(drill["band"])
     live_after, drill_after = _n(live["after"]), _n(drill["after"])
@@ -236,7 +284,7 @@ def judge(live: dict[str, str] | None, drill: dict[str, str] | None) -> tuple[bo
         if live_le == drill_le:
             return True, ""
         return False, "no timestamp column; count difference is not attributable to later writes"
-    if kind in {"ts", "upd"} and drill_after:
+    if kind == "ts" and drill_after:
         return False, "drill has rows after the recovery point"
     if kind == "ts":
         if live_le != drill_le:
@@ -247,17 +295,6 @@ def judge(live: dict[str, str] | None, drill: dict[str, str] | None) -> tuple[bo
             return False, "drill max is newer than live"
         if live_after:
             return True, f"live is ahead by {live_after} rows written after the recovery point"
-        return True, ""
-    if kind == "upd":
-        if live_le > drill_le:
-            return False, "live has more rows at or before the recovery point than the drill"
-        vanished = drill_le - live_le
-        if vanished > live_after:
-            return False, "rows missing on live exceed post-recovery timestamp touches"
-        if drill["max_all"] and live["max_all"] and drill["max_all"] > live["max_all"]:
-            return False, "drill max is newer than live"
-        if live_after or vanished:
-            return True, f"post-recovery touches {live_after}; rows moved off the old timestamp {vanished}"
         return True, ""
     if live_le != drill_le:
         return False, "rows before the recovery date differ"
@@ -299,9 +336,13 @@ def render(live_rows: dict, drill_rows: dict) -> tuple[str, bool]:
     for key in keys:
         live = live_rows.get(key)
         drill = drill_rows.get(key)
-        passed, note = judge(live, drill)
-        ok = ok and passed
         sample = live or drill or {}
+        passed, note = judge(
+            live,
+            drill,
+            upsert=is_upsert_table(key[0], key[1], key[2], sample.get("kind", "")),
+        )
+        ok = ok and passed
         after = ""
         if live and live["status"] != "MISSING":
             after = str(_n(live["after"]) + _n(live["band"]))
@@ -352,6 +393,70 @@ def recovery_from_log(text: str) -> str:
     return found
 
 
+def _section_set(spec: dict, key: str) -> bool:
+    if key not in spec:
+        return False
+    value = spec[key]
+    return value is not None
+
+
+def cluster_archive_block(cluster: dict, archive_command: str) -> str:
+    """Block when the drill Cluster can archive, or its archive_command names the bucket.
+
+    archived_count is not an input. CNPG increments it when the archive command
+    is a no-op, so a non-zero count is not evidence of a write to the bucket.
+    """
+    spec = cluster.get("spec") or {}
+    if _section_set(spec, "backup"):
+        return "drill Cluster has spec.backup"
+    if _section_set(spec, "plugins"):
+        return "drill Cluster has spec.plugins"
+    command = (archive_command or "").lower()
+    if "barman" in command or "s3://" in command or "bifrost-postgres-backup" in command:
+        return "archive_command names barman, s3, or the backup bucket"
+    return ""
+
+
+def choose_recovery(target_time: str, log_text: str, estimate: str) -> tuple[str, str, bool]:
+    """Prefer targetTime, then the postgres log, and only then the estimate.
+
+    The third value is true when the point is the postmaster-start estimate.
+    """
+    target = target_time.strip()
+    if target and target != "__TARGET_TIME__":
+        return target, "cluster-targetTime", False
+    found = recovery_from_log(log_text)
+    if found:
+        return found, "postgres-log", False
+    return estimate.strip(), "postmaster-start-minus-7m", True
+
+
+def pass_record(date: str, recovery: str, report: str, duration_s: int) -> dict[str, str]:
+    """Four fields only: date, recovery point, table count, duration."""
+    last = ""
+    for line in report.splitlines():
+        if line.strip():
+            last = line.strip()
+    match = re.fullmatch(r"(\d+) passed, (\d+) failed", last)
+    if not match:
+        raise ValueError(f"report has no pass line: {last!r}")
+    passed, failed = int(match.group(1)), int(match.group(2))
+    if failed:
+        raise ValueError("not a full pass")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        raise ValueError("bad date")
+    if not recovery.strip():
+        raise ValueError("empty recovery point")
+    if duration_s < 0:
+        raise ValueError("bad duration")
+    return {
+        "date": date,
+        "recovery_point": recovery,
+        "table_count": str(passed),
+        "duration": f"{duration_s}s",
+    }
+
+
 def self_test() -> int:
     failures: list[str] = []
 
@@ -381,6 +486,36 @@ def self_test() -> int:
     upd_live = dict(base, kind="upd", le="8", after="2", max_all="2026-10-07T18:00:00.000000Z")
     check("updates move the timestamp", upd_live, upd_drill, True)
     check("unexplained vanish", dict(upd_live, after="1"), upd_drill, False)
+    check("upsert extra inserts fail", dict(upd_live, after="4"), upd_drill, False)
+    oi_drill = dict(
+        base,
+        column="fetched_at",
+        le="6548559",
+        max_le="2026-10-07T18:37:26.000000Z",
+        max_all="2026-10-07T18:37:26.000000Z",
+    )
+    oi_live = dict(
+        oi_drill,
+        le="6422699",
+        after="125860",
+        max_all="2026-10-07T19:30:00.000000Z",
+    )
+    oi_passed, oi_note = judge(oi_live, oi_drill, upsert=True)
+    if not oi_passed:
+        failures.append(f"10-07 option_open_interest: got {oi_passed} ({oi_note})")
+    plain_passed, _plain_note = judge(oi_live, oi_drill)
+    if plain_passed:
+        failures.append("fetched_at without the upsert rule was accepted")
+    oi_key = ("bifrost_golden_source", "raw_market", "option_open_interest")
+    _oi_text, oi_ok = render({oi_key: oi_live}, {oi_key: oi_drill})
+    if not oi_ok:
+        failures.append("render did not pass option_open_interest")
+    snap_key = ("bifrost_golden_source", "raw_market", "option_snapshot")
+    _snap_text, snap_ok = render({snap_key: oi_live}, {snap_key: oi_drill})
+    if snap_ok:
+        failures.append("option_snapshot used the upsert rule")
+    if not is_upsert_table("bifrost_prod", "public", "positions", "upd"):
+        failures.append("update-timestamp column was not treated as upsert")
     check("drill newer than recovery", base, dict(base, after="1"), False)
     date_drill = {
         "column": "as_of",
@@ -416,6 +551,54 @@ def self_test() -> int:
     )
     if recovery_from_log(log) != "2026-10-07 18:40:01.25+00":
         failures.append(f"log parse got {recovery_from_log(log)!r}")
+    target_point, target_source, target_estimated = choose_recovery(
+        "2026-10-07T18:37:26Z", log, "2026-10-07T18:00:00Z"
+    )
+    if (target_point, target_source, target_estimated) != (
+        "2026-10-07T18:37:26Z",
+        "cluster-targetTime",
+        False,
+    ):
+        failures.append(f"targetTime did not win: {(target_point, target_source, target_estimated)}")
+    log_point, log_source, log_estimated = choose_recovery("", log, "2026-10-07T18:00:00Z")
+    if log_source != "postgres-log" or log_estimated or log_point != "2026-10-07 18:40:01.25+00":
+        failures.append(f"log did not win: {(log_point, log_source, log_estimated)}")
+    placeholder_point, placeholder_source, _placeholder_estimated = choose_recovery(
+        "__TARGET_TIME__", log, "2026-10-07T18:00:00Z"
+    )
+    if placeholder_source != "postgres-log" or placeholder_point == "__TARGET_TIME__":
+        failures.append("placeholder targetTime was used as a recovery point")
+    estimate_point, estimate_source, estimate_flag = choose_recovery("", "no match", "2026-10-07T18:00:00Z")
+    if (estimate_point, estimate_source, estimate_flag) != (
+        "2026-10-07T18:00:00Z",
+        "postmaster-start-minus-7m",
+        True,
+    ):
+        failures.append(f"estimate was not last: {(estimate_point, estimate_source, estimate_flag)}")
+    if cluster_archive_block({"spec": {}}, ""):
+        failures.append("archived-count-only case was blocked; the count is not an input")
+    if cluster_archive_block({"spec": {"backup": None}}, "/bin/true"):
+        failures.append("null spec.backup was treated as archiving")
+    for label, spec, command in (
+        ("backup section", {"backup": {"retentionPolicy": "30d"}}, ""),
+        ("empty backup key", {"backup": {}}, ""),
+        ("plugins section", {"plugins": [{"name": "barman-cloud.cloudnative-pg.io"}]}, ""),
+        ("barman command", {}, "barman-cloud-wal-archive host"),
+        ("s3 command", {}, "upload s3://bifrost-postgres-backup/x"),
+        ("bucket name", {}, "dest=bifrost-postgres-backup"),
+    ):
+        if not cluster_archive_block({"spec": spec}, command):
+            failures.append(f"{label}: expected a block")
+    if cluster_archive_block({"spec": {}}, "/bin/true"):
+        failures.append("noop archive_command was blocked")
+    record = pass_record("2026-10-07", "2026-10-07T18:37:26Z", "PASS x\n1 passed, 0 failed\n", 1380)
+    if tuple(record) != PASS_KEYS or record["table_count"] != "1" or record["duration"] != "1380s":
+        failures.append(f"pass record keys or values: {record}")
+    try:
+        pass_record("2026-10-07", "2026-10-07T18:37:26Z", "0 passed, 1 failed\n", 1)
+        failures.append("partial pass was recorded")
+    except ValueError:
+        pass
     if failures:
         print("\n".join(failures), file=sys.stderr)
         return 1
@@ -432,6 +615,42 @@ def main() -> int:
         return 0
     if args[:1] == ["--recovery-from-log"]:
         sys.stdout.write(recovery_from_log(open(args[1], encoding="utf-8", errors="replace").read()))
+        return 0
+    if args[:1] == ["--cluster-guard"]:
+        cluster = json.loads(open(args[1], encoding="utf-8").read())
+        command = open(args[2], encoding="utf-8", errors="replace").read()
+        reason = cluster_archive_block(cluster, command)
+        if reason:
+            print(reason, file=sys.stderr)
+            return 1
+        return 0
+    if args[:1] == ["--choose-recovery"]:
+        point, source, estimated = choose_recovery(
+            open(args[1], encoding="utf-8", errors="replace").read(),
+            open(args[2], encoding="utf-8", errors="replace").read(),
+            open(args[3], encoding="utf-8", errors="replace").read(),
+        )
+        sys.stdout.write(f"{point}\t{source}\t{'yes' if estimated else 'no'}\n")
+        return 0
+    if args[:1] == ["--pass-fields"]:
+        # --pass-fields DATE RECOVERY REPORT DURATION OUT_DIR
+        try:
+            record = pass_record(
+                args[1],
+                args[2],
+                open(args[3], encoding="utf-8").read(),
+                int(args[4]),
+            )
+        except ValueError as exc:
+            print(exc, file=sys.stderr)
+            return 1
+        if tuple(record) != PASS_KEYS:
+            print("pass record keys drifted", file=sys.stderr)
+            return 1
+        out_dir = args[5]
+        for key in PASS_KEYS:
+            with open(out_dir + "/" + key, "w", encoding="utf-8") as handle:
+                handle.write(record[key])
         return 0
     if args[:1] == ["--sql-for"]:
         # --sql-for RECOVERY CATALOG_TSV OUT_DIR
@@ -470,6 +689,8 @@ if [[ "${1:-}" == "--self-test" ]]; then
   exit
 fi
 
+pass_started="$(date +%s)"
+
 pod_by_role() {
   local ns="$1" cluster="$2" role="$3"
   kubectl -n "${ns}" get pods \
@@ -506,34 +727,52 @@ if [[ "${recovering}" != "f" ]]; then
   exit 2
 fi
 
-archive_row="$(psql_ro "${DRILL_NS}" "${drill_pod}" postgres -F $'\t' -c \
-  "SELECT current_setting('archive_mode'), current_setting('archive_command'), archived_count::text FROM pg_stat_archiver" </dev/null)"
-IFS=$'\t' read -r archive_mode archive_command archived_count <<<"${archive_row}"
-if [[ "${archived_count}" != "0" ]] || [[ "${archive_command}" == *barman* ]] \
-  || [[ "${archive_command}" == *s3://* ]] || [[ "${archive_command}" == *bifrost-postgres-backup* ]]; then
-  echo "drill is archiving WAL (mode=${archive_mode} command=${archive_command} archived=${archived_count})" >&2
+archive_command="$(psql_ro "${DRILL_NS}" "${drill_pod}" postgres -c "SELECT current_setting('archive_command')" </dev/null)"
+if ! kubectl -n "${DRILL_NS}" get cluster "${DRILL_CLUSTER}" -o json > "${tmp}/cluster.json"; then
+  echo "could not read Cluster ${DRILL_NS}/${DRILL_CLUSTER}" >&2
+  exit 2
+fi
+printf '%s' "${archive_command}" > "${tmp}/archive_command.txt"
+if ! python3 "${tmp}/brain.py" --cluster-guard "${tmp}/cluster.json" "${tmp}/archive_command.txt"; then
+  echo "drill is archiving WAL (command=${archive_command})" >&2
   exit 1
 fi
 
 recovery=""
 recovery_source=""
+estimated="no"
 if [[ -n "${PITR_RECOVERY_POINT:-}" ]]; then
   recovery="${PITR_RECOVERY_POINT}"
   recovery_source="PITR_RECOVERY_POINT"
 else
-  if ! kubectl -n "${DRILL_NS}" logs "${drill_pod}" -c postgres > "${tmp}/pg.log"; then
-    echo "could not read drill logs" >&2
-    exit 2
-  fi
-  recovery="$(python3 "${tmp}/brain.py" --recovery-from-log "${tmp}/pg.log")"
-  if [[ -n "${recovery}" ]]; then
-    recovery_source="postgres-log"
+  target_time="$(kubectl -n "${DRILL_NS}" get cluster "${DRILL_CLUSTER}" -o jsonpath='{.spec.bootstrap.recovery.recoveryTarget.targetTime}')"
+  printf '%s' "${target_time}" > "${tmp}/target.txt"
+  if [[ -n "${target_time}" && "${target_time}" != "__TARGET_TIME__" ]]; then
+    : > "${tmp}/pg.log"
+    printf '%s' "" > "${tmp}/estimate.txt"
   else
-    recovery="$(psql_ro "${DRILL_NS}" "${drill_pod}" postgres -c \
+    if ! kubectl -n "${DRILL_NS}" logs "${drill_pod}" -c postgres > "${tmp}/pg.log"; then
+      echo "could not read drill logs" >&2
+      exit 2
+    fi
+    estimate="$(psql_ro "${DRILL_NS}" "${drill_pod}" postgres -c \
       "SELECT to_char(pg_postmaster_start_time() - interval '7 minutes', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')" </dev/null)"
-    recovery_source="postmaster-start-minus-7m"
-    echo "warning: recovery log line not found; allowing writes in the 7 minutes before postmaster start" >&2
+    printf '%s' "${estimate}" > "${tmp}/estimate.txt"
   fi
+  IFS=$'\t' read -r recovery recovery_source estimated < <(
+    python3 "${tmp}/brain.py" --choose-recovery "${tmp}/target.txt" "${tmp}/pg.log" "${tmp}/estimate.txt"
+  )
+fi
+if [[ "${estimated}" == "yes" ]]; then
+  echo "================================================================" >&2
+  echo "WARNING: recovery point is an ESTIMATE (postmaster start minus 7 minutes)." >&2
+  echo "WARNING: that estimate can miss the real restore point by a wide margin." >&2
+  echo "WARNING: set spec.bootstrap.recovery.recoveryTarget.targetTime or PITR_RECOVERY_POINT." >&2
+  echo "================================================================" >&2
+fi
+if [[ -z "${recovery}" ]]; then
+  echo "could not determine a recovery point" >&2
+  exit 2
 fi
 
 python3 "${tmp}/brain.py" --catalog-sql > "${tmp}/catalog.sql"
@@ -573,4 +812,27 @@ for db in "${dbs[@]}"; do
 done
 
 echo "recovery_point=${recovery} source=${recovery_source} live_pod=${live_pod} drill_pod=${drill_pod}"
-python3 "${tmp}/brain.py" --judge "${tmp}/live.tsv" "${tmp}/drill.tsv"
+if ! python3 "${tmp}/brain.py" --judge "${tmp}/live.tsv" "${tmp}/drill.tsv" | tee "${tmp}/report.txt"; then
+  exit 1
+fi
+duration_s="$(( $(date +%s) - pass_started ))"
+date_utc="$(date -u '+%Y-%m-%d')"
+mkdir -p "${tmp}/pass"
+if ! python3 "${tmp}/brain.py" --pass-fields "${date_utc}" "${recovery}" "${tmp}/report.txt" "${duration_s}" "${tmp}/pass"; then
+  echo "compare passed but the pass record was rejected" >&2
+  exit 1
+fi
+# Delete then create so kube_configmap_created is this pass, not an earlier one.
+if ! kubectl -n data delete configmap pg-recovery-drill-last-pass --ignore-not-found=true; then
+  echo "compare passed but could not delete data/pg-recovery-drill-last-pass" >&2
+  exit 1
+fi
+if ! kubectl -n data create configmap pg-recovery-drill-last-pass \
+  --from-literal="date=$(cat "${tmp}/pass/date")" \
+  --from-literal="recovery_point=$(cat "${tmp}/pass/recovery_point")" \
+  --from-literal="table_count=$(cat "${tmp}/pass/table_count")" \
+  --from-literal="duration=$(cat "${tmp}/pass/duration")"; then
+  echo "compare passed but could not create data/pg-recovery-drill-last-pass" >&2
+  exit 1
+fi
+echo "recorded configmap data/pg-recovery-drill-last-pass"
