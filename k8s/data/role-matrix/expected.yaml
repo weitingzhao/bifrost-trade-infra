@@ -1,8 +1,8 @@
 # D13 expected effective privileges for login roles.
 # Deny by omission: a schema with no entry means create=false and no INSERT/UPDATE/DELETE.
-# This is the boundary, not a copy of today's ACLs. Known live gaps (analytics_writer
-# CREATE on raw_market / raw_broker / ops_jobs, its DML on three ops_jobs tables, and
-# market_reader DML on raw_market.ticker_related) are absent here on purpose.
+# This is the boundary, not a copy of today's ACLs. The live gaps it was written against
+# (analytics_writer CREATE on raw_market / raw_broker / ops_jobs, its DML on three ops_jobs
+# tables, market_reader DML on raw_market.ticker_related) were revoked 2026-10-08.
 version: 1
 databases:
   - bifrost_dev
@@ -195,6 +195,14 @@ roles:
       - bifrost_prod
       - bifrost_stg
   # Replication does not consult database CONNECT.
+  # Login for the daily role-matrix CronJob (db-step 2026-10-07-td85-role-matrix-reader).
+  # CONNECT on the four databases; no schema CREATE and no table DML anywhere.
+  role_matrix_reader:
+    connect:
+      - bifrost_dev
+      - bifrost_golden_source
+      - bifrost_prod
+      - bifrost_stg
   streaming_replica:
     connect: []
   trade_app_dev:
