@@ -9,7 +9,7 @@
  *
  * 权威源：
  *   D10 状态      → bifrost-platform/config/ops-context.yaml · decisions[id=D10].status
- *   禁止动作清单  → bifrost-platform/console/src/lib/architecture/agentProtocolCatalog.ts · FORBIDDEN_ACTIONS
+ *   禁止动作清单  → bifrost-trade-infra/agent-config/AGENT_MODES.md · FORBIDDEN_ACTIONS
  *   dev-services  → .cursor/rules/dev-services.mdc · CLAUDE.md §4
  *
  * 设计要点：
@@ -78,7 +78,7 @@ const isFileWrite = cmd =>
 const GUARD_FILES = /daemon-scale-zero\.patch\.yaml|daemon-observe-safe\.patch\.yaml/
 
 const AUTHORITY =
-  'spine D10 · bifrost-platform/config/ops-context.yaml · agentProtocolCatalog.ts FORBIDDEN_ACTIONS'
+  'spine D10 · bifrost-platform/config/ops-context.yaml · agent-config/AGENT_MODES.md FORBIDDEN_ACTIONS'
 
 // ─────────────────────────────── D10 规则（高风险，不豁免） ───────────────────────────────
 // Research domain writes are ALLOWED while D10 is BLOCKED:
