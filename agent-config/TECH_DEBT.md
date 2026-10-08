@@ -23,7 +23,7 @@
 - **TD-157** — 只有一侧有暴露时，空的那侧 wall 和 wall gex 写 NULL（research 0.191.0；回填置空 1,762 个）。验收 PASS 2026-10-08 481c96c（空侧仍写 wall 0 行；10-06 / 10-07 新写入空 call wall 10 / 4、空 put wall 14 / 10）。防线：同上测试文件的 `test_a_side_without_exposure_names_no_wall` 等单边五例。后续：TD-166（zero_gamma 兜底）
 - **TD-166** — 只有累计 net gex 在非零值之间换号才算翻转，没有翻转时日线 `zero_gamma` 写 NULL（research 0.192.0；回填更新 26,878 行）。验收 PASS 2026-10-08 481c96c（从分布重算干跑 changed 0；10-06 / 10-07 新写入空 zero_gamma 33.5% / 35.0%）。防线：同上测试文件的 `test_leaving_zero_is_not_a_crossing` 等 TD-166 九例。后续：前端把空 zero-γ 写成「无翻转」，未立项
 
-**未结 74 项**：P0 0 · P1 7 · P2 24 · P3 43；要你批的 31 项（从总览表的审批列算）。
+**未结 72 项**：P0 0 · P1 7 · P2 23 · P3 42；要你批的 31 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -124,7 +124,7 @@
 
 目标：会动手的维护只由 PROD 的 platform-workers 做，本机与 STG 只观测。已做：本机停手（TD-130 第一步）、STG 不修 IB 也不写发布记录（TD-223）、页面不再触发维护、状态持久化（TD-196）。接着：PROD 自己探测、带时间戳的检查信号，只给 PROD 挂技能并先只报告，再逐项放开；备份只归 CNPG 与 backup-retry；不再清掉失败现场。
 
-项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255, TD-256 · 已还：TD-257
+项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255 · 已还：TD-256, TD-257
 
 ## 数据边界（接受并留座）
 
@@ -295,7 +295,6 @@
 | [TD-253](#td-253) | P2 | ops-platform | The autopilot acts on checklist signals that are weeks old: signals carry no time of their own, and nothing marks a stale one unknown | 不用批 |
 | [TD-254](#td-254) | P2 | ops-platform | Two mechanisms repair the same failed backup: the autopilot's repair_cnpg_wal_store (every 15 min) and the backup-retry CronJob | 不用批 |
 | [TD-255](#td-255) | P3 | ops-platform | The hourly drift scan deletes every Failed pod it may, including failed backup Job pods in data | 不用批 |
-| [TD-256](#td-256) | P3 | ops-platform | Plugin freshness probes read Postgres by exec into the primary as superuser: STG cannot run them, PROD keeps pods/exec for a read | 不用批 |
 | [TD-258](#td-258) | P3 | data | The recovery-drill staleness alert assumes a monthly CronJob that does not exist; the Owner set the drill to quarterly and manual | 不用批 |
 
 ## 条目
@@ -1436,21 +1435,6 @@
 - **验收**: `cd bifrost-platform/api && go test ./internal/patrol -run 'ChainCleanup' -count=1`
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
-### TD-259
-
-**P3 · ops-platform · The market-data freshness probe now pays a whole-database count: /market/coverage/db-summary takes 4.3–5.5 s and the Console polls plugin status every 30 s**
-
-- **状态**：在做（**插件已上线**：market-data 0.87.0（21dfe04，镜像 `bifrost-build-market-data-9685m`，部署 1dfc937）三个 Deployment 均已 rollout。10-08 经 PROD 网关实测：`GET /market/coverage/freshness` 三次 **0.020 / 0.019 / 0.019 s**、29 行、不带 counts；同窗口 `db-summary` 三次 **5.10 / 4.95 / 5.00 s** —— 约 250 倍。两端共用 `query_freshness`，没有第二份 SQL。**platform 侧已上 STG**：a7ecb08 合入 platform main，`bifrost-deliver-platform-w5lsr`。10-08 STG 实测 `/plugins/market-data/status` 三次 **0.038 / 0.035 / 0.035 s**（原约 5 s），`freshness_reachability: ok`、29 行；flex 同样 ok、2 行。**PROD 待人批**：单据 `appr_cb8b3f52329cbe8c`，与 TD-256 同一次发出）
-- **Claim**: TD-256 moved `probeFreshness` off `pods/exec` onto `GET /market/coverage/db-summary`. That endpoint returns the 29 freshness rows the probe needs *and* whole-database `counts`, so the probe pays for rows it discards. Measured 2026-10-07 through the Trade gateway: DEV 5.46 s, PROD 4.35 s, 5035 B. The Console polls `/plugins/market-data/status` every 30 s, and that handler calls the probe inline. `/market/status`'s `freshness_summary` answers in 0.04 s but is `ORDER BY last_run_at DESC LIMIT 20`, so it drops 9 dimensions (financials, ratios, sec_filings, short_interest, short_volume, job_trim, slot:fundamentals-rotate, slot:ticker-details, stock_daily_unadjusted) — not equivalent.
-- **Measured**: MEASURED 2026-10-07 by LANE-P2 (DEV 5.46 s / PROD 4.35 s, 29 rows, byte-identical bodies). Not a correctness problem: `proxyTimeout` is 60 s and platform-api sets no HTTP `WriteTimeout`, so nothing is cut off — verified 2026-10-08.
-- **Evidence**:
-  - `bifrost-platform/api/internal/marketdata/service.go` — `body, err := s.fetchPluginJSON(ctx, "/market/coverage/db-summary")`
-  - `bifrost-platform-plugin-market-data` — `/market/coverage/db-summary` builds whole-DB counts alongside `freshness`
-- **Impact**: Every 30 s Console poll carries a ~5 s plugin call and a whole-database count the caller throws away.
-- **Fix**: Add a freshness-only endpoint to the market-data plugin (`GET /market/coverage/freshness`, the same 29 rows, no counts) and point `probeFreshness` at it; keep `db-summary` for the pages that want counts. Plugin-side change, so it ships on the plugin chain, not the platform one.
-- **Ratchet**: 插件 `tests/test_coverage_freshness.py`（新端点与 `db-summary` 同一套夹具逐字段比对、断言不做 count、`coverage.py` 里只能有一条新鲜度 SELECT）+ platform `TestProbeFreshnessHTTP`（探测只发 1 个请求，路径必须是 `/market/coverage/freshness`）
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data, bifrost-platform
-
 ### TD-260
 
 **P3 · trade-core · Four LEFT JOINs still read raw_broker.contract_quote_live, which has had no writer since March and none at all after TD-240: the quote columns they feed can only ever come back NULL**
@@ -1546,22 +1530,6 @@
 - **Fix**: Give `flex-query-worker` the live Redis address the other plugin workloads use (env or the plugin's config block), then confirm the topic arrives. Decide separately whether a failed publish should raise rather than warn — on its own, a warning here is the thing that hid it.
 - **Ratchet**: A plugin test that `notify` refuses to fall back to a loopback address when it runs with no explicit Redis configuration (so the next deployment cannot inherit the default silently).
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-flex-query
-
-### TD-256
-
-**P3 · ops-platform · Plugin freshness probes read Postgres by exec into the primary as superuser: STG (read-only since TD-204) cannot run them, and PROD needs pods/exec in data only for this read**
-
-- **状态**：在做（platform main 286c305 已上 **STG**：两个 probeFreshness 改走插件 HTTP。STG 实测 `freshness_reachability: ok`、market-data 29 行、flex-query 2 行——TD-204 之后 STG 本来探不到。**PROD 待人批**：与 TD-259 的 platform 半合成一次发（platform PROD 从 main 构建、钉不了 SHA，所以同一次才能保证 PROD 不经历 TD-259 之前那 5 秒的探测）。单据 `appr_cb8b3f52329cbe8c`，覆盖 platform main a7ecb08，到期 2026-10-09T14:55Z。旧单据 `appr_cc999dddd9ac6d44` 按 Owner 决定自然过期）
-- **Claim**: marketdata and flexquery `probeFreshness` run `SELECT … FROM ops_jobs.ingest_freshness` / `flex_ingest_freshness` through `ExecSQLOnPrimary` (pods/exec into bifrost-postgres, psql as postgres). Since the STG platform runs as the read-only ServiceAccount (TD-204) these probes fail on STG; on PROD they keep pods/exec in data, a superuser-equivalent right, for a read the plugins already serve over HTTP.
-- **Measured**: CODE-READ; RBAC measured 2026-10-07: STG `can-i create pods --subresource=exec -n data` → no, PROD → yes.
-- **Evidence**:
-  - `bifrost-platform/api/internal/marketdata/service.go` — `out, err := s.cluster.ExecSQLOnPrimary(ctx, db, sql)`
-  - `bifrost-platform/api/internal/flexquery/service.go` — `out, err := s.cluster.ExecSQLOnPrimary(ctx, db, sql)`
-- **Impact**: STG plugin freshness views read unavailable; PROD keeps a broader right than reads need (the data clone still needs exec).
-- **Fix**: Read freshness from the plugins' own HTTP endpoints through the service proxy (observer already allows services/proxy), as other plugin health reads do; then pods/exec in data serves only the data clone.
-- **Ratchet**: `bifrost-platform/api/internal/cluster/execsql_callers_test.go::TestExecSQLOnPrimaryCallSitesOnlyDataClone`——非测试 Go 文件里 `internal/cluster/data_clone*.go` 以外的 `.ExecSQLOnPrimary(` 必须为 0（基线 2 → 0，只降不升）。另有 9 条行为测试（marketdata / flexquery 的 `freshness_http_test.go`：HTTP 解析与 SQL 口径一致、不可达≠空、空≠不可达、坏 JSON→degraded）。改用 Go 测试而非 code-health 指标，因为它能同时锁住调用点和口径
-- **验收**: `git -C bifrost-platform grep -n 'ExecSQLOnPrimary' origin/main -- api/internal/marketdata api/internal/flexquery`（无输出，已 PASS 2026-10-08 286c305）+ `curl -s http://192.168.10.73:30876/api/v1/plugins/market-data/status` 的 `freshness_reachability` 为 ok 且 `freshness` 29 行（**PROD 待发**；STG :30878 已 PASS）
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-258
 
