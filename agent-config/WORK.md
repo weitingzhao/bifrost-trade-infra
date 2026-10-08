@@ -372,6 +372,21 @@
 - **验收**：第 1 期上 PROD 之后，当天所有发版（含 STG、research、插件）在 PROD 发布队列里都有记录，`~/.bifrost-release/window.json` 不再是权威
 - **关联**：`agent-config/ADR-ops-architecture.md` §12、`agent-config/work/multi-agent/BRIEF-2026-10-08.md`、`agent-config/work/multi-agent/PHASE1-OPTIONS-2026-10-08.md`
 
+### W-32
+
+**ops-arch · 第 3 阶段之后的清理道（删留复核落地）**
+
+- **类别**：道
+- **状态**：未开始
+- **匹配**：LANE-W32
+- **现在**：
+  - Owner 2026-10-08 确认 `PHASE3-review-2026-10-08.md` 第四节的删除清单 A 全部删；
+  - 四件待定事按推荐：Console 直接启动修复 Agent 的入口删掉；信任覆盖改成 git 文件；`agentProtocolCatalog.ts` 先迁到 agent-config 再删；`join_cluster_node` 删掉；
+  - 任务在 `LANE-W32.md`。
+- **下一步**：Cursor 执行，推 `cursor/w32-platform` 和 `cursor/w32-infra`，写 `reports/LANE-W32.md`；Claude 照报告验收，然后发 STG，再申请 PROD
+- **验收**：`agent-config/work/ops-arch/reports/LANE-W32.md` 存在，四组门禁全过；STG 上本道删除的路由全部返回 404，`trust-matrix` 仍带 `research-loop-batch` 那条覆盖
+- **关联**：`agent-config/work/ops-arch/LANE-W32.md`、`agent-config/work/ops-arch/PHASE3-review-2026-10-08.md`
+
 ## 本批没有登记的
 
 - 阶段 0 的 W3：`REQUEST-w3-archive-before-delete-2026-10-05.md` 状态节写 A、B、C 全部完成。
