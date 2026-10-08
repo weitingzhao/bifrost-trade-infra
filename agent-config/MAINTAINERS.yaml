@@ -83,7 +83,7 @@ maintainers:
     schedule: "*/15 4-9 * * * UTC"
     env: prod
     max_tier: B
-    detected_by: BifrostPostgresBackupRetryStale
+    detected_by: BifrostMaintainerBackupRetryStale
     status: active
   - id: cronjob/cicd/tekton-pipelinerun-ttl
     what: "Hourly deletion of terminal Tekton PipelineRuns older than 7 days."
@@ -226,7 +226,7 @@ maintainers:
     schedule: "every 24h"
     env: prod
     max_tier: D
-    detected_by: BifrostPostgresBackupSweepStale
+    detected_by: BifrostMaintainerBackupSweepStale
     status: active
   - id: platform/prod/patrol-autopilot
     what: "30s scanner over ops-autopilot, fleet-drift-scan, and cert-expiry-check. PATROL_MODE=report, so it records the rollout it would do and does not call it. The massive-polygon fix is a rollout restart of polygon-worker-stocks."

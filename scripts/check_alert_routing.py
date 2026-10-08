@@ -22,7 +22,10 @@ and fails unless:
 - Alertmanager's egress policy allows monitoring → that PROD Service port and does not
   name the STG namespace;
 - the webhook bearer the apply script writes is the PROD reporter token, not the
-  operator token (the route accepts reporter or above and only writes diagnostics).
+  operator token (the route accepts reporter or above and only writes diagnostics);
+- no alert in k8s/monitoring/bifrost-maintainer-rules.yaml matches a paging route
+  (maintainer liveness is an audit record; backup failures already page under
+  the existing backup names).
 
 "Outside the cluster" means a webhook URL whose host is not ``*.svc.cluster.local``.
 
@@ -54,6 +57,7 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 VALUES = ROOT / "scripts/k3s/values-kube-prometheus.yaml"
 EGRESS = ROOT / "k8s/monitoring/alertmanager-webhook-network-policy.yaml"
+MAINTAINER_RULES = ROOT / "k8s/monitoring/bifrost-maintainer-rules.yaml"
 PAGED = re.compile(
     r"Bifrost(PostgresBackup.*|PostgresWalArchiveStalled|LogicalBackup.*|MinIONas.*|ClusterStateBackup.*)"
 )
@@ -135,6 +139,35 @@ def rule_alerts() -> list[tuple[str, str]]:
                         if "alert" in r:
                             out.append((r["alert"], (r.get("labels") or {}).get("severity", "")))
     return out
+
+
+def maintainer_rule_alerts() -> list[tuple[str, str]]:
+    """Alerts whose only job is maintainer liveness. They must not page."""
+    out = []
+    for d in yaml.safe_load_all(MAINTAINER_RULES.read_text()):
+        if d and d.get("kind") == "PrometheusRule":
+            for g in d["spec"]["groups"]:
+                for r in g.get("rules") or []:
+                    if "alert" in r:
+                        out.append((r["alert"], (r.get("labels") or {}).get("severity", "")))
+    return out
+
+
+def assert_maintainer_rules_unpaged(route: dict, outside_names: set[str], receivers: dict, problems: list[str]) -> None:
+    """bifrost-maintainer-rules.yaml is an audit trail. A name that matches the
+    backup pager, or a route that reaches a receiver outside the cluster, fails."""
+    rel = MAINTAINER_RULES.relative_to(ROOT)
+    alerts = maintainer_rule_alerts()
+    if not alerts:
+        problems.append(f"{rel}: no alerts found")
+        return
+    for name, sev in alerts:
+        if PAGED.fullmatch(name):
+            problems.append(f"{rel}: {name} matches the paging alertname route")
+        got = [n for n in route_to(route, {"alertname": name, "severity": sev or "warning"}) if n]
+        hit = [n for n in got if n in outside_names and n in receivers]
+        if hit:
+            problems.append(f"{rel}: {name} reaches a paging receiver {hit}")
 
 
 def kubectl(*args: str) -> subprocess.CompletedProcess[str]:
@@ -298,6 +331,13 @@ def self_test() -> None:
     reached = route_to(good["route"], {"alertname": "BifrostClusterStateBackupFailed", "severity": "warning"})
     if "owner-ntfy" not in reached or WEBHOOK not in reached:
         raise SystemExit(f"self-test: cluster-state backup route reached {reached}")
+    if not PAGED.fullmatch("BifrostPostgresBackupFailed"):
+        raise SystemExit("self-test: backup pager no longer matches BifrostPostgresBackup*")
+    if PAGED.fullmatch("BifrostMaintainerBackupSweepStale"):
+        raise SystemExit("self-test: maintainer liveness name matches the pager")
+    maintainer_reached = route_to(good["route"], {"alertname": "BifrostMaintainerBackupSweepStale", "severity": "warning"})
+    if "owner-ntfy" in maintainer_reached:
+        raise SystemExit(f"self-test: maintainer liveness reached {maintainer_reached}")
     bad_problems: list[str] = []
     assert_webhook_targets({
         "route": {"receiver": WEBHOOK},
@@ -341,6 +381,8 @@ def main() -> int:
     hb = reach({"alertname": "Watchdog", "severity": "none"})
     if not paged(hb):
         problems.append(f"Watchdog reaches {hb}: no receiver outside the cluster (dead-man's switch)")
+
+    assert_maintainer_rules_unpaged(route, outside_names, receivers, problems)
 
     cases = [("AnyCritical", "critical")] + [(a, s) for a, s in rule_alerts() if PAGED.fullmatch(a)]
     seen = {a for a, _ in cases}
