@@ -1,0 +1,43 @@
+# 发版策略草稿（Owner 10-08 选 §3）。签发后变成 ConfigMap cicd/bifrost-release-policy 里的 policy.yaml + policy.sig。
+# 这是草稿：未签名、未 apply。签发命令在 LANE-RP 落地后是 `release.sh policy sign`。
+version: 1
+policy_id: rp-YYYYMMDD-N          # sign 时生成
+signed_by: owner                  # 由签名公钥决定，不是自报
+signed_at: null                   # sign 时填
+expires_at: null                  # sign 时填 = signed_at + valid_days
+valid_days: 7
+
+# 哪些发布可以不等人。名字按 Tekton Pipeline / release.sh 子命令写；不在列表里的一律等人。
+allow:
+  - bifrost-deliver-stg               # release.sh stg
+  - bifrost-deliver-prod-pinned       # release.sh prod --from-stg <run>
+  - trade-dev-sync                    # release.sh dev
+  - bifrost-deliver-platform          # platform STG
+  - bifrost-deliver-platform-prod     # platform PROD
+  - bifrost-deliver-research
+  - bifrost-build-research-dagster
+  - bifrost-build-market-data
+  - bifrost-build-flex-query
+  - bifrost-build-ib-gateway
+  - merge-to-main                     # release.sh merge <repo> <sha>（推 main 的唯一入口）
+
+# 全部满足才自动放行；任何一条不满足 → 照旧生成审批单并推送给 Owner。
+conditions:
+  revision: main-or-tag               # 只发 main 头或已有 tag，不发任意分支
+  ci_succeeded: true                  # 每个要发的 SHA 都有 Succeeded 的 ci-*
+  window_held_by_requester: true      # 申请方持有发布窗口
+  no_pending_before_db_steps: true    # 该环境没有未做的 before DB 步骤
+  no_ddl: true                        # 本次 diff 不碰 DDL：**/ddl*.py、**/*.sql、db-steps.d/、k8s/jobs/ddl-apply.yaml、db-init
+  no_d10_paths: true                  # diff 不碰 preflight 的 D10 路径（daemon overlay、下单 / 对冲 / ib:operator:cmd 相关）
+  no_trust_anchor_change: true        # diff 不碰本策略的信任根：签名公钥、approvals 代码、release.sh 的策略校验、preflight.js
+
+limits:
+  rolling_24h: none                   # Owner 10-08：不设次数上限
+  concurrency: 1                      # 发布窗口保证
+
+# 到期提醒（Owner 10-08：不能默默卡住）
+reminders:
+  before_expiry_hours: [48, 24, 2]    # 手机推送 + Console 横幅，消息里带签发命令
+  on_blocked_after_expiry: true       # 过期后有发布在等 → 立即再推一次
+
+# 冻结（另一份 ConfigMap cicd/bifrost-release-freeze）：Owner 一设，新发布一律拒绝；读不出来按冻结处理。
