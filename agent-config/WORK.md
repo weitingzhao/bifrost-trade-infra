@@ -396,13 +396,13 @@
 **ops-arch · 第 3 阶段之后的清理道（删留复核落地）**
 
 - **类别**：道
-- **状态**：未开始
+- **状态**：在做
 - **匹配**：LANE-W32
 - **现在**：
-  - Owner 2026-10-08 确认 `PHASE3-review-2026-10-08.md` 第四节的删除清单 A 全部删；
-  - 四件待定事按推荐：Console 直接启动修复 Agent 的入口删掉；信任覆盖改成 git 文件；`agentProtocolCatalog.ts` 先迁到 agent-config 再删；`join_cluster_node` 删掉；
-  - 任务在 `LANE-W32.md`。
-- **下一步**：Cursor 执行，推 `cursor/w32-platform` 和 `cursor/w32-infra`，写 `reports/LANE-W32.md`；Claude 照报告验收，然后发 STG，再申请 PROD
+  - Cursor 交付，Claude 10-08 验收通过，补了 B1 漏掉的三处和死代码；
+  - platform main `3d3ea8a`（本道 7 个提交 + 收尾），infra 是 B3 和基线 13；
+  - 还没发版。
+- **下一步**：发 STG 给 Owner 过目 → PROD（审批）→ 重部署两台 mini → Owner 批准后删两个环境的旧 ConfigMap `platform-trust-overrides`
 - **验收**：`agent-config/work/ops-arch/reports/LANE-W32.md` 存在，四组门禁全过；STG 上本道删除的路由全部返回 404，`trust-matrix` 仍带 `research-loop-batch` 那条覆盖
 - **关联**：`agent-config/work/ops-arch/LANE-W32.md`、`agent-config/work/ops-arch/PHASE3-review-2026-10-08.md`
 

@@ -331,3 +331,33 @@ Console 树（`console/` 全部文件，`console/src` 行数）：
 | platform `cd console && npm run lint && npm test && npm run build` | exit 0；vitest 108 files / 695 tests；最后一次在删除 catalog 之后 |
 | infra `bash agent-config/scripts/check-agent-config-parity.sh` | exit 0；读的是工作区符号链接，不是 worktree |
 | infra `make check-maintainers` | exit 0；ok 45 maintainers |
+
+## Claude 验收与收尾（2026-10-08）
+
+验收（独立复跑，不引用 Cursor 的结果）：
+
+- **diff 范围**：platform 分支 7 个提交、161 个文件，都在本道范围内；infra 分支 1 个提交、6 个文件，都没有带进别人的在制品。三处敏感文件逐行看过：`config/ops-context.yaml` 只改了权威源路径，D10 仍是 BLOCKED；`actuation/auth.go` 只改注释；`config/clusters.yaml` 只删 join profiles。
+- **删除清单与代码一致**：stdio 工具 50 个；`TestRetiredRoutesAre404` 覆盖 53 条 404 和 2 条 405；`AGENT_MODES.md` 有 4 个模式和 14 条禁止动作，与原 TS 一致。
+- **infra rebase**：分支当时落后 main 12 个提交，两边都改过的只有 `RATCHETS.md`，rebase 无冲突。
+- **门禁**：
+  - Go build、vet、test 都是 0；
+  - MCP 20/20；
+  - Console lint 0 个错误（3 个原有警告），vitest 108 个文件 / 695 个测试，build 通过；
+  - parity **测的是分支内容**：搭了一个临时工作区根，infra 和 platform 指向本道分支，结果两侧一致；`check-maintainers` 45 项通过。
+
+收尾（platform `3d3ea8a`，已与本道 7 个提交一起快进进 main）：
+
+- **B1 补漏**：Console 还有三处直接 POST `/api/v1/remediation/start`：Cluster 每行的 Fix、Control Room、Observability 的 attention Fix 和批量 Fix。都删了。查看和停止运行中 job 的抽屉留着，W-33 撤 runner 时一起删。
+- `focusBridges.ts` 去掉四个已退役的工具名。
+- 删掉路由已去掉的 handler：agentgovernance 的 performance / tasks / capability-map / snapshot、agentbridge 的 smoke、agentdeploy 的 start、promote 的 release-cycles 读取链路。
+- 删掉 12 个没人读的 `config/vision_*_gate*.json`，3 个引用已删目录的 console 脚本，以及 `test:governance-pack`。
+- 收尾后门禁同上，全部通过。code-health：platform 超过 800 行的文件 16 → 13，基线跟着降到 13（infra，本提交）。
+- `preflight.js` 第 12、81 行的文字引用由 Owner 手改（Agent 不得改闸门文件），infra `2db250b`；闸门测试 85/0。
+
+留到 W-33 或以后（不在本道）：
+
+- promote 其余没有路由的 handler（release-gate、gate-history、release-state、tier-b）；cycle store 现在只写不读。
+- `remediation.RunnerClient.ActiveURL` 包外没有调用方。W-33 撤 runner 时一起处理。
+- Console 里只有测试在用的导出、过时的注释、`.cluster-remediation-session-chip*` 样式，以及改动前就没人引用的 `useAgentJobLiveSession.ts`、`DockRecentAgentTasks.tsx`。
+- Grafana（C4）：Owner 选 A，走 ops 网关子路径，并入 W-33 第 ⑤ 项。
+
