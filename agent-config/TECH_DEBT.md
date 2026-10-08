@@ -23,7 +23,7 @@
 - **TD-157** — 只有一侧有暴露时，空的那侧 wall 和 wall gex 写 NULL（research 0.191.0；回填置空 1,762 个）。验收 PASS 2026-10-08 481c96c（空侧仍写 wall 0 行；10-06 / 10-07 新写入空 call wall 10 / 4、空 put wall 14 / 10）。防线：同上测试文件的 `test_a_side_without_exposure_names_no_wall` 等单边五例。后续：TD-166（zero_gamma 兜底）
 - **TD-166** — 只有累计 net gex 在非零值之间换号才算翻转，没有翻转时日线 `zero_gamma` 写 NULL（research 0.192.0；回填更新 26,878 行）。验收 PASS 2026-10-08 481c96c（从分布重算干跑 changed 0；10-06 / 10-07 新写入空 zero_gamma 33.5% / 35.0%）。防线：同上测试文件的 `test_leaving_zero_is_not_a_crossing` 等 TD-166 九例。后续：前端把空 zero-γ 写成「无翻转」，未立项
 
-**未结 75 项**：P0 0 · P1 7 · P2 23 · P3 45；要你批的 31 项（从总览表的审批列算）。
+**未结 73 项**：P0 0 · P1 7 · P2 23 · P3 43；要你批的 31 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -1474,7 +1474,8 @@
 
 **P2 · ops-platform · The Console approval list never renders: it reads `{items}` and the API answers `{approvals: [...]}`, and the page test mocks the wrong shape so it never caught it**
 
-- **状态**：未开始
+- **状态**：在做（LANE-A 已就绪、**未合**：`cursor/a-platform` 3bd067f。`parseApprovalList` 读 `approvals` 信封，遇到 `{items}` 抛错；`ApprovalsPage` 待决单不再显示 Go 零值时间。防线是真的——`console/src/api/__tests__/approvals.test.ts` 在**运行时读** `api/internal/approvals/types.go` 与 `handler.go`，解析 `Approval` 的 json tag 逐个比对夹具，并断言 handler 发 `"approvals": list` 而非 `"items": list`。门禁 tsc / lint / vitest（809 passed）/ build 全 0。**platform main 现冻在 a7ecb08 等 `appr_cb8b3f52329cbe8c`，所以没合**）
+- **下一步**：合并前补一处——`approvalJsonTagsFromGo` 的正则匹配不到 `type Approval struct {` 时返回空列表，循环体不执行，这条契约测试会**空过**。加一句 `expect(tags.length).toBeGreaterThan(8)` 之类的下界即可。合并顺序见「要你执行」
 - **Claim**: The Console's approval list parses `{items}`, while the list route answers `{"approvals": [...]}`. The list therefore renders empty whatever is waiting. The page's own test mocks `{items}`, so it passes against a shape the API never sends. Found by LANE-RP while wiring the release policy; not introduced by it.
 - **Measured**: MEASURED 2026-10-08 (LANE-RP, code read). The live shape is confirmed by this session's own MCP listing, which returned an `approvals` array.
 - **Evidence**:
@@ -1489,7 +1490,7 @@
 
 **P3 · ops-platform · MCP `start_pipeline_run` sends no `who`, so a release started through MCP can never satisfy the policy's "requester holds the window"**
 
-- **状态**：未开始
+- **状态**：在做（LANE-B 已就绪、**未合**：`cursor/b-platform` 5b0e511。MCP `start_pipeline_run` 增可选 `who` 写进请求体，不在 MCP 侧推断身份；`decideReleaseWindow` 在窗口与 pipeline 已匹配但 `callerWho` 为空时返回 `REFUSED: missing who; …`，不再误读成 "someone else"、也不静默退回人工。防线 `TestMissingWhoIsRefusedWhenWindowMatches` + MCP `startPipelineRun.test.ts`。门禁 go build / vet / test 全 0、MCP tsc + 20 passed。**同 TD-261，等 platform main 解冻**）
 - **Claim**: The signed release policy requires `window_held_by_requester`. The MCP tool `start_pipeline_run` takes `name` / `revision` / `tag` and sends no `who`, so the engine cannot match the caller against the window holder. Every MCP-initiated release falls through to a manual decision — the one path the policy exists to remove.
 - **Measured**: CODE-READ 2026-10-08 (LANE-RP). Consistent with this session's own MCP call, which produced a pending request rather than an automatic one.
 - **Evidence**:
@@ -1500,42 +1501,11 @@
 - **Ratchet**: A test that `start_pipeline_run` without `who` is refused rather than silently falling back to the manual path.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
-### TD-263
-
-**P3 · ops-platform · The release freeze does not reach the flex-query build: its pipeline has no release-window task, so a frozen workspace can still ship that plugin**
-
-- **状态**：未开始
-- **Claim**: deliver-research, the Dagster build and the market-data build each run a `release-window` task first, which is where the freeze ConfigMap is read. `bifrost-build-flex-query` has no such task, so neither the window nor the freeze binds it at the Tekton layer.
-- **Measured**: CODE-READ 2026-10-08 (LANE-RP).
-- **Evidence**:
-  - `bifrost-platform-plugin-flex-query/k8s/cicd/pipeline-build.yaml` — tasks are `clone-plugin`, `clone-core`, `kaniko`
-  - `bifrost-trade-infra/k8s/cicd/tekton/task-release-window.yaml` — the task the others run
-- **Impact**: A freeze the Owner sets to stop everything would not stop a flex-query build, and nothing reports that this one pipeline is unbound.
-- **Fix**: Add `release-window` as the first task of `bifrost-build-flex-query`, matching the other plugin builds.
-- **Ratchet**: `check-release-chain.py` asserts every `bifrost-build-*` / `bifrost-deliver-*` pipeline has `release-window` first.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-flex-query, bifrost-trade-infra
-
-### TD-264
-
-**P3 · trade-frontend · Three quote-path leftovers after TD-260: a dead section, an option-price precedence that would shadow EOD, and a degraded-leg count nothing shows**
-
-- **状态**：未开始
-- **Claim**: (1) `StockPositionSection` has no importer. (2) `buildTradeGroups.ts:45` prefers the `/status` price for option rows — harmless today because option rows carry no price, but it would shadow the EOD mark the moment `/status` carries a stale option price again. (3) core's model returns `degraded_leg_count`, the count of legs whose Greeks are degraded because the option mid never arrives (TD-260's residual), and no frontend site displays it.
-- **Measured**: MEASURED 2026-10-08 by LANE-X's field-tracing subagent, after the TD-260 repricing landed.
-- **Evidence**:
-  - `bifrost-trade-frontend/src/…` `StockPositionSection` — no importer
-  - `bifrost-trade-frontend/src/…/buildTradeGroups.ts:45`
-  - `bifrost-trade-core` portfolio model — `degraded_leg_count`
-- **Impact**: (3) is the live one: legs are silently degraded and the page says nothing — the "unmeasured shown as green" class. (1) and (2) are dead weight and a latent precedence bug.
-- **Fix**: Delete (1). Invert (2) so the dated EOD mark wins unless the live source is newer, the same rule `spotPrice.ts` already applies to stocks. Show (3) where the Greeks are shown, as a count with its reason.
-- **Ratchet**: `spotPrice.test.ts`'s precedence tests extended to option rows; a test that a non-zero `degraded_leg_count` is rendered.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend, bifrost-trade-core
-
 ### TD-265
 
 **P3 · research-data · Non-farm payrolls rows get no theme: the pipeline's theme regex does not recognise `NFP`, so they never join the rate-path group**
 
-- **状态**：未开始
+- **状态**：在做（已合入 research main **5029084**，随下次 Research 发布上线）。LANE-E3 在 `THEME_LINES` 的利率路径正则加 `\bNFP\b` 与 `Employment Situation`；`macro_calendar.csv` 的三类指标（`CPI` / `FOMC rate decision` / `NFP`）修前只有 NFP 无主题，修后都归「利率路径重定价」。防线 `test_every_macro_calendar_indicator_resolves_theme`（表驱动，CSV 里每个指标都要解析出非空主题）+ 雷达侧 `test_theme_matcher_lines`；两条我单独跑过，2 passed
 - **Claim**: TD-180's first half wrote `NFP` rows into `macro_calendar.csv`. The theme regex matches CPI and FOMC wording but not `NFP`, so those rows carry an empty theme and are not grouped with the rate path. The same regex classifies rows on the way into the event radar.
 - **Measured**: MEASURED 2026-10-08 by LANE-E2, which did not change the regex: out of its lane.
 - **Evidence**:
