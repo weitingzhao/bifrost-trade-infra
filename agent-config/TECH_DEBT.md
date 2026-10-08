@@ -23,6 +23,8 @@
 - **TD-157** — 只有一侧有暴露时，空的那侧 wall 和 wall gex 写 NULL（research 0.191.0；回填置空 1,762 个）。验收 PASS 2026-10-08 481c96c（空侧仍写 wall 0 行；10-06 / 10-07 新写入空 call wall 10 / 4、空 put wall 14 / 10）。防线：同上测试文件的 `test_a_side_without_exposure_names_no_wall` 等单边五例。后续：TD-166（zero_gamma 兜底）
 - **TD-166** — 只有累计 net gex 在非零值之间换号才算翻转，没有翻转时日线 `zero_gamma` 写 NULL（research 0.192.0；回填更新 26,878 行）。验收 PASS 2026-10-08 481c96c（从分布重算干跑 changed 0；10-06 / 10-07 新写入空 zero_gamma 33.5% / 35.0%）。防线：同上测试文件的 `test_leaving_zero_is_not_a_crossing` 等 TD-166 九例。后续：前端把空 zero-γ 写成「无翻转」，未立项
 
+- **TD-208** — 匿名请求不能再启动修复 Agent：`husbandry-sync` 要 operator 令牌（e504020），检查清单驱动的派发整段删除（ops-arch 第 3 阶段，platform f9f696f，10-08 上 PROD），`husbandry-sync` 和 prober 只合并信号。验收 PASS 2026-10-08 platform 7871534（4 个测试、PROD 匿名 POST 401、派发代码 0 处；台账原验收命令匹配不到测试，已改）。防线：`RATCHETS.md`「platform 终端与修复派发鉴权」扩为含 `TestChecklistNeverImportsRemediation`（checklist 包 import remediation 即失败），加上「platform 写路由全部要角色」。后续：无后续：剩下的 `husbandry-sync` 端点本身是否删，在 ops-arch 第 3 阶段删留复核里等你定（`PHASE3-review-2026-10-08.md` 第四节）
+
 **未结 74 项**：P0 0 · P1 7 · P2 23 · P3 44；要你批的 31 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
@@ -1211,9 +1213,9 @@
 
 **P1 · ops-platform · Anonymous POST /checklist/husbandry-sync starts full-auto remediation agents: it merges the stored checklist and dispatches every failing item, and three Console pages call it on load**
 
-- **状态**：在做
-- **现在**：鉴权一半已上线（platform e504020，STG/PROD）：`POST /checklist/husbandry-sync` 移进 operator 组，HusbandryStrip 只在有令牌时发送；无令牌 401 已在三处实测
-- **下一步**：并入 ops-arch 第 3 阶段（10-07 由 ops-arch 会话接手）：ADR §6 让 Console / 检查清单驱动的 Agent 派发整体退场，`husbandry-sync` 不再调用 `executeDispatch`（只更新信号），派发路径随之删除；Console 一侧的调用已在 c10aeed 去掉
+- **状态**：待你签收
+- **现在**：两半都已上线 PROD。鉴权（platform e504020）：`POST /checklist/husbandry-sync` 在 operator 组，无令牌 401。派发（ops-arch 第 3 阶段，platform f9f696f，PROD run `bifrost-deliver-platform-prod-1791491771`，10-08）：`husbandry-sync` 和 prober 只合并信号，`executeDispatch` / `dispatch.go` 已删，`internal/checklist` 不再 import `internal/remediation`；Console 一侧的调用已在 c10aeed 去掉
+- **下一步**：等你签收
 - **Claim**: POST /api/v1/checklist/signals is operator-gated; POST /api/v1/checklist/husbandry-sync sits outside every auth group. It merges the husbandry probe into the stored checklist and runs executeDispatch over the whole merged set, not just the husbandry items. Every stored FixFullAuto item that is fail or degraded (failing-pods, redis, nginx-edge, trade-apis) is therefore started through remediation.StartInternal with scope cluster_issues_full_auto, with no role or trust check. The job's Actor is 'checklist-dispatch'; only the audit line records 'anonymous'. HusbandryStrip, mounted on Market Data Overview, Flex Query and Research Engine, POSTs it without a token from a useEffect whenever the strip shows degraded or caution. The only throttle is a per-tab sessionStorage key. Existing mitigations, a 24 h per-item dedupe and maxConcurrentAuto=1, limit how often it fires but not who can fire it.
 - **Measured**: CODE-READ for the dispatch path; the POST was deliberately not sent. MEASURED: the local checklist store holds 22 signals, all ok or unknown, with empty last_dispatch, so nothing would fire right now. config/agent-tasks.yaml marks cluster_issues_full_auto as `tier: manual`. Remediation runners receive PLATFORM_OPERATOR_TOKEN (deploy_mac_mini.sh:201).
 - **Evidence**:
@@ -1225,7 +1227,8 @@
 - **Impact**: Anyone who can reach :8780, 30876 or ops.bifrost.lan, or anyone who just opens one of three Console pages, can start an autonomous repair agent holding an operator token over a cluster-admin identity (TD-204). The checklist's own operator-gated write path is bypassed.
 - **Fix**: Put husbandry-sync behind RoleOperator, or move it to a timer on the workers side. Dispatch only the item ids it just probed, not the merged store. The Console calls it with authedFetch or only reads; no page effect POSTs.
 - **Ratchet**: Route-auth walk test (no non-GET route outside Require, allowlist empty). A checklist test that HandleHusbandrySync dispatches only the ids it probed. A Console vitest/grep that bans mutating API calls inside useEffect without an allowlist comment.
-- **验收**: `cd bifrost-platform/api && go test ./internal/server ./internal/checklist -run 'RouteAuth|HusbandrySync' -count=1; curl -s -m5 -o /dev/null -w '%{http_code}\n' -X POST http://192.168.10.73:30876/api/v1/checklist/husbandry-sync  # expect 401`
+- **验收**: `cd bifrost-platform/api && go test ./internal/server ./internal/checklist -run 'TestEveryMutatingRouteRequiresARole|TestShellAndRemediationRoutesNeedAToken|TestChecklistNeverImportsRemediation|TestProberMergesFreshSignalsWithoutDispatch' -count=1 -v | grep -c '^--- PASS'  # expect 4; curl -s -m5 -o /dev/null -w '%{http_code}\n' -X POST http://192.168.10.73:30876/api/v1/checklist/husbandry-sync  # expect 401`（原命令的 `-run 'RouteAuth|HusbandrySync'` 匹配不到任何测试，10-08 改成实际的测试名）
+- **验收结果**：PASS 2026-10-08 platform 7871534（PROD 跑的是 f9f696f，之后只加了测试）：4 个测试 PASS；PROD 匿名 POST `husbandry-sync` → 401；f9f696f 的 `internal/checklist` 里 `executeDispatch` / `StartInternal` 0 处
 - 审批 安全/凭据（要你批） · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-210
