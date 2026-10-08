@@ -39,10 +39,10 @@
 
 - **类别**：计划
 - **状态**：在做
-- **现在**：去向表已由 Owner 批准；实现在 LANE-C，集成分支 `cursor/phase3-platform`。本登记不跟踪那条分支
-- **下一步**：STG 上 Owner 过目通过后发 PROD
+- **现在**：已验收并合进 platform main `f9f696f`（含 E1 的 platform 部分），STG 已发，Owner 2026-10-08 回「STG 通过」。PROD 发布单待建（见 `STATUS-2026-10-08.md`「交接」）
+- **下一步**：发 PROD；之后按删留复核（`PHASE3-review-2026-10-08.md`）写清理道
 - **验收**：README 退出条件：STG 上 Owner 过目通过后发 PROD
-- **关联**：`agent-config/work/ops-arch/README.md`、`agent-config/work/ops-arch/PHASE3-pages.md`
+- **关联**：`agent-config/work/ops-arch/README.md`、`agent-config/work/ops-arch/PHASE3-pages.md`、`agent-config/work/ops-arch/PHASE3-review-2026-10-08.md`
 
 ### W-4
 
@@ -61,7 +61,7 @@
 
 - **类别**：计划
 - **状态**：在做
-- **现在**：第一部分是 LANE-E1（workers 进监控、存活指标、补告警、每晚对账）。凭证收口 README 写明先与 Owner 讨论分步
+- **现在**：第一部分是 LANE-E1（workers 进监控、存活指标、补告警、每晚对账）。infra 部分已合；platform 部分已随阶段 3 合进 main `f9f696f`、STG 已上，待发 PROD；集群里的存活规则、PodMonitor、对账 CronJob 等 PROD 上线后经 Owner 批准再 apply。凭证收口 README 写明先与 Owner 讨论分步
 - **下一步**：对账 0 漂移；Agent 侧无管理员凭证
 - **验收**：对账 0 漂移；Agent 侧无管理员凭证（README 阶段表）
 - **关联**：`agent-config/work/ops-arch/README.md`
