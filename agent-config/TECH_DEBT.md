@@ -23,9 +23,8 @@
 - **TD-157** — 只有一侧有暴露时，空的那侧 wall 和 wall gex 写 NULL（research 0.191.0；回填置空 1,762 个）。验收 PASS 2026-10-08 481c96c（空侧仍写 wall 0 行；10-06 / 10-07 新写入空 call wall 10 / 4、空 put wall 14 / 10）。防线：同上测试文件的 `test_a_side_without_exposure_names_no_wall` 等单边五例。后续：TD-166（zero_gamma 兜底）
 - **TD-166** — 只有累计 net gex 在非零值之间换号才算翻转，没有翻转时日线 `zero_gamma` 写 NULL（research 0.192.0；回填更新 26,878 行）。验收 PASS 2026-10-08 481c96c（从分布重算干跑 changed 0；10-06 / 10-07 新写入空 zero_gamma 33.5% / 35.0%）。防线：同上测试文件的 `test_leaving_zero_is_not_a_crossing` 等 TD-166 九例。后续：前端把空 zero-γ 写成「无翻转」，未立项
 
-- **TD-208** — 匿名请求不能再启动修复 Agent：`husbandry-sync` 要 operator 令牌（e504020），检查清单驱动的派发整段删除（ops-arch 第 3 阶段，platform f9f696f，10-08 上 PROD），`husbandry-sync` 和 prober 只合并信号。验收 PASS 2026-10-08 platform 7871534（4 个测试、PROD 匿名 POST 401、派发代码 0 处；台账原验收命令匹配不到测试，已改）。防线：`RATCHETS.md`「platform 终端与修复派发鉴权」扩为含 `TestChecklistNeverImportsRemediation`（checklist 包 import remediation 即失败），加上「platform 写路由全部要角色」。后续：无后续：剩下的 `husbandry-sync` 端点本身是否删，在 ops-arch 第 3 阶段删留复核里等你定（`PHASE3-review-2026-10-08.md` 第四节）
 
-**未结 74 项**：P0 0 · P1 7 · P2 23 · P3 44；要你批的 31 项（从总览表的审批列算）。
+**未结 73 项**：P0 0 · P1 6 · P2 25 · P3 42；要你批的 30 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -108,7 +107,7 @@
 
 目标：先关门再修代码。本机 platform-api 只监听本机、PROD/STG Redis 的局域网 NodePort 删掉，然后 git-bridge、修复 runner、Hermes、husbandry-sync 都要令牌；platform 换成按需授权的 ServiceAccount，停用管理员 kubeconfig；路由鉴权测试卡住回退。
 
-项：TD-208 · 已还：TD-205, TD-203, TD-224, TD-220, TD-231, TD-225, TD-222, TD-207, TD-221, TD-206
+项：（无） · 已还：TD-205, TD-203, TD-224, TD-220, TD-231, TD-225, TD-222, TD-207, TD-221, TD-206, TD-208
 
 ### 第 10 波 · 告警有人收、备份能恢复（第 3 轮）
 
@@ -204,12 +203,6 @@
 - 选项：A：ConfigMap · B：Postgres（新依赖、DDL、凭据）· C：PVC（local-path，重装节点会丢，仍是每个 pod 一份）
 - 项：TD-196, TD-197
 
-### 局域网敞开的几处先怎么关？（安全，第 3 轮）
-
-- 推荐：A。今天先止血：本机 platform-api 只监听本机（TD-203）、删掉 PROD/STG Redis 的局域网 NodePort 改用 port-forward（TD-205，PROD 变更）；随后一个 platform 版本给 `/console/ws`、husbandry-sync 加鉴权并检查主机密钥，git-bridge / runner / Hermes 加令牌并默认只听本机。
-- 选项：A：先止血再修代码 · B：只修代码随下一版发（期间仍敞开）· C：只开 macOS 防火墙（你来做，挡不住 Redis 与 mini）
-- 项：TD-203, TD-205, TD-206, TD-207, TD-208
-
 ### platform 换成按需授权的身份吗？（安全）
 
 - 推荐：A。每个 namespace 建 platform-api / platform-workers 两个 ServiceAccount：集群范围只读；只有 PROD 有点名的动作权限（指定 namespace 的 scale/rollout、节点 cordon、data 里建 Backup）；STG 只读。删除 kubeconfig Secret，之后轮换管理员客户端证书。
@@ -284,7 +277,6 @@
 | [TD-196](#td-196) | P2 | ops-platform | platform-api and platform-workers keep their state in per-pod emptyDir: every rollout erases release cycles, gate history, the operate queue and checklist signals, and the audit log is memory-only | 已批 |
 | [TD-202](#td-202) | P3 | market-data | market-data code strings and scripts still mention CronJobs: the dashboard label 'CronJob archived' and verify-market-data.sh's hint are user-visible | 不用批 |
 | [TD-204](#td-204) | P1 | ops-platform | STG and PROD platform-api and platform-workers run as system:masters through a copy of the k3s admin kubeconfig, and anonymous GETs use it to read pod logs in any namespace | 安全/凭据（要你批） |
-| [TD-208](#td-208) | P1 | ops-platform | Anonymous POST /checklist/husbandry-sync starts full-auto remediation agents: it merges the stored checklist and dispatches every failing item, and three Console pages call it on load | 安全/凭据（要你批） |
 | [TD-210](#td-210) | P1 | data | The nightly logical backup of hand-entered data failed on its first scheduled run: it connects before the new pod's NetworkPolicy is programmed and gets Connection refused | 不用批 |
 | [TD-218](#td-218) | P2 | data | Every backup copy (Barman base+WAL, logical dumps hot and cold, the W3 archive) is on the one NAS 192.168.10.20:/volume1, and the open offsite decision is not in the ledger | PROD 变更（要你批） |
 | [TD-223](#td-223) | P3 | ops-platform | STG and PROD platform-workers both run the IB gateway auto-repair loop against the one live data/ib-gateway, each with its own 15-minute cooldown | PROD 变更（要你批） |
@@ -1208,28 +1200,6 @@
 - **验收**: `KUBECONFIG=~/.kube/bifrost-k3s.yaml sh -c 'kubectl -n bifrost-platform-stg get secret bifrost-platform-kubeconfig </dev/null; kubectl auth can-i get secrets -n data --as=system:serviceaccount:bifrost-platform-stg:platform-api </dev/null'  # expect NotFound, then no; and an anonymous GET of a kube-system pod's logs on 30876 returns 401`
 - **验收结果**：PASS 2026-10-07 infra 27829fb / platform a162fe8：STG `bifrost-platform-kubeconfig` NotFound（PROD 同）；两环境 `kubectl auth can-i get secrets -n data --as=system:serviceaccount:bifrost-platform-<env>:bifrost-platform` → no；匿名读 kube-system 与 data 的 Pod 日志在 30876/30878 都 401；`make check-platform-rbac` 82/82；切换后两环境 api/workers 日志 0 条 forbidden，STG 与 PROD 共有的矩阵格子状态一致
 - 审批 安全/凭据（要你批） · 代价 M · 风险 med · repos: bifrost-platform, bifrost-trade-infra
-
-### TD-208
-
-**P1 · ops-platform · Anonymous POST /checklist/husbandry-sync starts full-auto remediation agents: it merges the stored checklist and dispatches every failing item, and three Console pages call it on load**
-
-- **状态**：待你签收
-- **现在**：两半都已上线 PROD。鉴权（platform e504020）：`POST /checklist/husbandry-sync` 在 operator 组，无令牌 401。派发（ops-arch 第 3 阶段，platform f9f696f，PROD run `bifrost-deliver-platform-prod-1791491771`，10-08）：`husbandry-sync` 和 prober 只合并信号，`executeDispatch` / `dispatch.go` 已删，`internal/checklist` 不再 import `internal/remediation`；Console 一侧的调用已在 c10aeed 去掉
-- **下一步**：等你签收
-- **Claim**: POST /api/v1/checklist/signals is operator-gated; POST /api/v1/checklist/husbandry-sync sits outside every auth group. It merges the husbandry probe into the stored checklist and runs executeDispatch over the whole merged set, not just the husbandry items. Every stored FixFullAuto item that is fail or degraded (failing-pods, redis, nginx-edge, trade-apis) is therefore started through remediation.StartInternal with scope cluster_issues_full_auto, with no role or trust check. The job's Actor is 'checklist-dispatch'; only the audit line records 'anonymous'. HusbandryStrip, mounted on Market Data Overview, Flex Query and Research Engine, POSTs it without a token from a useEffect whenever the strip shows degraded or caution. The only throttle is a per-tab sessionStorage key. Existing mitigations, a 24 h per-item dedupe and maxConcurrentAuto=1, limit how often it fires but not who can fire it.
-- **Measured**: CODE-READ for the dispatch path; the POST was deliberately not sent. MEASURED: the local checklist store holds 22 signals, all ok or unknown, with empty last_dispatch, so nothing would fire right now. config/agent-tasks.yaml marks cluster_issues_full_auto as `tier: manual`. Remediation runners receive PLATFORM_OPERATOR_TOKEN (deploy_mac_mini.sh:201).
-- **Evidence**:
-  - `bifrost-platform/api/internal/server/server.go:418` — `r.Post("/checklist/husbandry-sync", s.checklist.HandleHusbandrySync)`
-  - `bifrost-platform/api/internal/checklist/handler.go:111` — `actions := h.executeDispatch(r.Context(), resp.Signals)`
-  - `bifrost-platform/api/internal/checklist/dispatch.go:162` — `job, err := h.remediation.StartInternal(ctx, remediation.StartRunnerRequest{`
-  - `bifrost-platform/console/src/api/checklist.ts:63` — `const r = await fetch('/api/v1/checklist/husbandry-sync', { method: 'POST' })`
-  - `bifrost-platform/console/src/components/delivery/HusbandryStrip.tsx:71` — `void syncHusbandryChecklist()`
-- **Impact**: Anyone who can reach :8780, 30876 or ops.bifrost.lan, or anyone who just opens one of three Console pages, can start an autonomous repair agent holding an operator token over a cluster-admin identity (TD-204). The checklist's own operator-gated write path is bypassed.
-- **Fix**: Put husbandry-sync behind RoleOperator, or move it to a timer on the workers side. Dispatch only the item ids it just probed, not the merged store. The Console calls it with authedFetch or only reads; no page effect POSTs.
-- **Ratchet**: Route-auth walk test (no non-GET route outside Require, allowlist empty). A checklist test that HandleHusbandrySync dispatches only the ids it probed. A Console vitest/grep that bans mutating API calls inside useEffect without an allowlist comment.
-- **验收**: `cd bifrost-platform/api && go test ./internal/server ./internal/checklist -run 'TestEveryMutatingRouteRequiresARole|TestShellAndRemediationRoutesNeedAToken|TestChecklistNeverImportsRemediation|TestProberMergesFreshSignalsWithoutDispatch' -count=1 -v | grep -c '^--- PASS'  # expect 4; curl -s -m5 -o /dev/null -w '%{http_code}\n' -X POST http://192.168.10.73:30876/api/v1/checklist/husbandry-sync  # expect 401`（原命令的 `-run 'RouteAuth|HusbandrySync'` 匹配不到任何测试，10-08 改成实际的测试名）
-- **验收结果**：PASS 2026-10-08 platform 7871534（PROD 跑的是 f9f696f，之后只加了测试）：4 个测试 PASS；PROD 匿名 POST `husbandry-sync` → 401；f9f696f 的 `internal/checklist` 里 `executeDispatch` / `StartInternal` 0 处
-- 审批 安全/凭据（要你批） · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-210
 
