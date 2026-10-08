@@ -80,6 +80,17 @@ Owner 本人留着管理员凭证兜底。ADR 定的做法是「先把写收进�
 
 A 的第 2 步不做，Agent 要写时把命令写给 Owner 去跑。按 30 天约 1,100 次写算，Owner 每天要手工执行几十条，摩擦太大，不推荐。
 
+## 〇、Owner 的决定（2026-10-08 晚，六件全部按推荐）
+
+1. 「Agent 侧」包括这台 Mac 上的 Claude 和 Cursor 会话。
+2. 选方案 A，三步走，第 1 步先做。
+3. 撤掉 mini 上的 remediation runner、.52 hermes-gateway 和定时巡检链。
+4. 停掉 .50 的 Nous Hermes，等 W-31 的 Agent 虚拟机。
+5. 第 2 步按五个通用动作做（`apply_manifest`、`create_job_from_cronjob`、清理类、`run_probe_pod`、兜底的 `owner_run_command`）；新增这些动作属于新增公开接口，已获 Owner 同意。只读数据库账号也一起建（新增角色，DDL 执行前仍要 Owner 逐次批）。
+6. 管理员 kubeconfig 和 `bifrost_deploy` 放到 Owner 专用目录，由 preflight 按路径拦；不用 Face ID / passkey。
+
+下一步：W-32 上线后写 `LANE-W33.md`（第 1 步和 ③④ 先派；第 2、3 步按依赖顺序派）。
+
 ## 五、要 Owner 定的事
 
 1. 「Agent 侧」是否包括这台 Mac 上的 Claude 和 Cursor 会话？（推荐：包括，按 ADR）
