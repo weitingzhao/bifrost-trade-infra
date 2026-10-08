@@ -95,6 +95,16 @@ Gitea 镜像，并要求所发 SHA 有 Succeeded 的 `ci-*`，`--allow-red <原�
 STG 与 PROD 之间（等 Owner 看 STG）没有锁——这段时间推 main 不影响 PROD，
 因为 PROD 钉的是 STG 克隆的提交，不是 `main`。
 
+### 正常结束 `hold`
+
+`hold` 占着窗口直到**该 shell 进程退出**；退出时 trap 会删掉本地 `window.json` 并 unpublish ConfigMap。
+
+- **推荐**：对 `release.sh hold` 进程发 `kill -TERM <pid>`，或在前台按 Ctrl-C（SIGINT）。几秒内应看到进程结束，`release.sh window` 恢复 exit 0。
+- **不要**对 holder 发 `kill -9`：会跳过 EXIT trap，窗口文件和 ConfigMap 会留成残留锁。
+- **残留锁**（`window` 提示 pid 已不在、或你误用了 `kill -9`）：只有 Owner 可跑 `release.sh window --clear`（规则见上文）；不要用 `--clear` 去杀还在跑的 holder。
+
+旧版实现用前台 `sleep 3600`，`kill -TERM` 可能要等一小时才生效；若你仍看到这种现象，升级到含 TD-269 修复的 `release.sh`。
+
 ## 一次性 DB 步骤
 
 ```bash

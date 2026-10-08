@@ -166,6 +166,10 @@ def main() -> int:
         proc = subprocess.run(["bash", "-n", str(ROOT / script)], capture_output=True, text=True)
         check(proc.returncode == 0, f"bash -n {script} failed: {proc.stderr.strip()}")
 
+    hold_test = ROOT / "scripts/release/test_release_hold_interrupt.sh"
+    proc = subprocess.run(["bash", str(hold_test)], capture_output=True, text=True)
+    check(proc.returncode == 0, f"test_release_hold_interrupt.sh failed: {proc.stderr.strip() or proc.stdout.strip()}")
+
     if failures:
         print("\n".join(failures))
         return 1

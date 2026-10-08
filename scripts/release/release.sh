@@ -311,8 +311,9 @@ case "${1:-}" in
     rel_require_kubeconfig
     window_open
     echo "holding ${WINDOW} for ${WHAT} as ${WHO}"
-    echo "start_pipeline_run for that repo must send who=${WHO}. Ctrl-C closes the window."
-    while true; do sleep 3600; done
+    echo "start_pipeline_run for that repo must send who=${WHO}. Ctrl-C or kill -TERM $$ closes the window; avoid kill -9 (skips cleanup)."
+    # Foreground sleep defers traps; background sleep + wait returns on SIGTERM so window_close runs.
+    while true; do sleep 3600 & wait; done
     ;;
   db-steps) shift; cmd_db_steps "$@"; exit 0 ;;
   db-done) shift; cmd_db_done "$@"; exit 0 ;;
