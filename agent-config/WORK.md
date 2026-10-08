@@ -82,20 +82,20 @@
 - **类别**：计划
 - **状态**：未开始
 - **现在**：README 写带外服务用独立账户、Agent 进虚拟机与 Agent 区、集群与存储区和运维区分开、UniFi VPN。道还没有写。**2026-10-08 移交 W-31**（多 Agent 协作）：它就是运行时 Agent 主机层（`agentd` 进 mini 虚拟机）的宿主（ADR §12 范围移交）
-- **下一步**：由 W-31 在运行时第 2 阶段之前写道
-- **验收**：分区规则在 git、经 Owner 审批生效（README 阶段表）
+- **下一步**：由 W-31 在运行时第 2 阶段之前写道。**Owner 2026-10-08 晚：其中的网络分区（Server 区一分为四、UniFi 规则）暂缓，不在瘦身范围，时机成熟再单独立项**；带外独立账户与 Agent 虚拟机仍归 W-31
+- **验收**：分区规则在 git、经 Owner 审批生效（README 阶段表；网络分区暂缓后由 W-31 重定）
 - **关联**：`agent-config/work/ops-arch/README.md`、`agent-config/ADR-ops-architecture.md`
 
 ### W-7
 
-**阶段 7 · TWS 与交易区**
+**阶段 7 · TWS 与交易区（暂缓，不在瘦身范围）**
 
 - **类别**：计划
 - **状态**：未开始
-- **现在**：Owner 10-08 拆开：TWS 自动重启留本计划，第三波；交易区迁移（换 IP、IB Gateway 配置）随第 6 阶段移交 W-31
-- **下一步**：第二波之后单独谈
-- **验收**：谈定后再写命令（TWS 掉线后能自己回来）
-- **关联**：`agent-config/work/ops-arch/README.md`
+- **现在**：Owner 2026-10-08 晚定为暂缓，不在 Ops Platform 瘦身范围：TWS 自动重启、交易区迁移（换 IP、IB Gateway 配置）都等时机成熟再单独立项
+- **下一步**：没有；重新立项时另写计划
+- **验收**：—（重新立项时再定）
+- **关联**：`agent-config/work/ops-arch/README.md`「范围」
 
 ### W-8
 
