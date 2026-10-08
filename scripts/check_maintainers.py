@@ -16,10 +16,12 @@ treats as discovered objects:
 - ``launchd/.50/…`` and ``launchd/.52/…`` against ``launchctl list`` union the
   ``~/Library/LaunchAgents/com.bifrost.*`` plists on the two Mac minis
 
+An extra or a missing object in those sources exits 1.
+
 Platform loops, plugin timers, and Mac Pro bdev / Claude tasks are in the
-inventory but are not part of this reconcile: the lane's live sources are
-kubectl, Dagster, and launchctl. An extra or a missing object in those sources
-exits 1.
+inventory but are not part of this script's --live reconcile. Platform loops
+whose detected_by is an alert, and the launchd rows, are reconciled in-cluster
+by CronJob monitoring/maintainer-reconcile.
 
 Usage: python3 scripts/check_maintainers.py [--live]
 """
@@ -313,12 +315,21 @@ def live_check(items: list[dict]) -> None:
     )
 
 
+def inventory_copy() -> None:
+    copy = ROOT / "k8s" / "monitoring" / "maintainer-reconcile" / "MAINTAINERS.yaml"
+    if not copy.is_file():
+        fail(f"missing {copy.relative_to(ROOT)}")
+    if copy.read_bytes() != INVENTORY.read_bytes():
+        fail(f"{copy.relative_to(ROOT)} is not a byte copy of {INVENTORY.relative_to(ROOT)}")
+
+
 def main() -> None:
     live = "--live" in sys.argv[1:]
     if any(a not in {"--live"} for a in sys.argv[1:]):
         fail("usage: python3 scripts/check_maintainers.py [--live]")
     items = parse_inventory(INVENTORY.read_text(encoding="utf-8"))
     static_check(items)
+    inventory_copy()
     none = sum(1 for i in items if str(i["detected_by"]).startswith("none:"))
     print(f"ok {len(items)} maintainers; static; no-alert {none}")
     if live:

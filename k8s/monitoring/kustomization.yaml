@@ -17,6 +17,7 @@ resources:
   - bifrost-market-data.yaml
   - bifrost-research.yaml
   - bifrost-platform-api.yaml
+  - bifrost-platform-workers.yaml
   - promtail.yaml
   - traefik.yaml
   - bifrost-alerting-rules.yaml
@@ -24,6 +25,8 @@ resources:
   # td-d2-postgres-rules.yaml is applied by hand, not here: BifrostPostgresRecoveryDrillStale
   # pages at once until the TD-217 drill passes, and the WAL rule waits a day after TD-134.
   - bifrost-cluster-state-rules.yaml
+  - bifrost-maintainer-rules.yaml
+  - maintainer-reconcile
   # Secret alertmanager-webhook-auth (PROD reporter bearer for the platform-api
   # webhook) is not here: scripts/k3s/apply-platform-role-tokens.sh writes it.
   - alertmanager-webhook-network-policy.yaml
