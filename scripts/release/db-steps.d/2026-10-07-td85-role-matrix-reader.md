@@ -2,6 +2,7 @@
 id: 2026-10-07-td85-role-matrix-reader
 envs: prod
 when: after
+done: prod
 ---
 # TD-85: login for the daily role-matrix CronJob
 
