@@ -94,10 +94,15 @@
 
 - **类别**：道
 - **匹配**：LANE-A6R
-- **状态**：在做
-- **现在**：任务在 `LANE-A6R.md`。`reports/` 没有 `LANE-A6R.md`。阶段 1 的 A6 本身已在 VERIFY 里 PASS
-- **下一步**：做完写 `reports/LANE-A6R.md`
+- **状态**：已验收
+- **现在**：
+  - 代码 `42dba0d`（Cursor 的 `8d37a16` rebase 后）已合 main；
+  - 验收时发现演练命名空间和只读 Secret 在 10-07 拆环境时已删，手册写错了，Claude 在 `f6b76f1` 改正并恢复了命名空间清单；
+  - Owner 批准后已补记 10-07 的 PASS（ConfigMap `data/pg-recovery-drill-last-pass`），并 apply 了告警规则（10-08 22:11Z）；
+  - TD-258 已进「待你签收」。
+- **下一步**：没有。下一次演练是 2027 年 1 月第一个周一，演练前先按手册第 2 节重建只读 Secret
 - **验收**：`agent-config/work/ops-arch/reports/LANE-A6R.md` 存在，且写明核对脚本自测通过
+- **验收结果**：PASS 2026-10-08 `f6b76f1`（五个门禁在干净 worktree 复现 exit 0）
 - **关联**：`agent-config/work/ops-arch/LANE-A6R.md`
 
 ### W-9
