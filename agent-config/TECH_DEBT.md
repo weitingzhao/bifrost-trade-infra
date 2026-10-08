@@ -1385,17 +1385,16 @@
 
 **P3 · trade-worker · The running PROD daemon never writes contract_quote_live: the observe-only quote mirror sits under mock_hedging, which is hard-coded True**
 
-- **状态**：在做（代码已上 PROD：worker f9046bd 随 `bifrost-deliver-prod-pinned-mtbjw` 10-08 上线，报价镜像改由 `daemon.quote_mirror` 控制、默认关、`mock_hedging = True` 不变，测试 `tests/test_quote_mirror_flag.py` 4 passed（含「镜像开时不调对冲与下单」）。开关仍关，所以验收命令的 max(updated_at) 不会动）
-- **下一步**：要你定是否在 PROD daemon 配置里打开 `daemon.quote_mirror: true`（只写 contract_quote_live，不走下单路径）；打开后一个交易时段内跑验收
+- **状态**：在做（Owner 10-08 改选 B：开关保持关闭，删掉镜像与期权兜底；交 Cursor `cursor-tasks/LANE-T3-drop-quote-mirror.md`）。10-08 核实：镜像只写持仓 STK 行，全系统唯一的读者是 `GET /quotes` 的 OPT 兜底（`bifrost-trade-api/src/bifrost_api/market/routers/quotes.py:135-141` → core `get_contract_quotes`），只查期权键；写期权行的 `on_ticker_for_contract_key` 没有调用方，表里期权行停在 03-28，读侧 `fresh_quote_sql` 过滤后兜底永远为空。写的没人读，读的没人写。worker f9046bd 的开关（默认关）已在 PROD，T3 合并后连开关一起删
 - **Claim**: Both contract_quote_live write sites in the heartbeat are inside `if not getattr(app, "mock_hedging", True)`, and GsTrading sets mock_hedging = True in __init__ and _reload_config as the D10 hedging guard. The PROD daemon runs (2/2), so the Redis→raw_broker.contract_quote_live mirror, which is observe-only, never runs; _on_ticker / _on_ticker_for_contract_key have no caller. Closed TD-140 recorded the cause as 'the daemon does not run'; its fix (vendor EOD fallback, core 0.51.0) routes around the table.
 - **Measured**: MEASURED 2026-10-07 00:45 UTC: bifrost-prod deploy/daemon 2/2; raw_broker.contract_quote_live 13 rows, max(updated_at) 2026-03-28 06:16; no caller of _on_ticker* in worker src/tests.
 - **Evidence**:
   - `bifrost-trade-worker/src/bifrost_worker/daemon/app/control_heartbeat.py:259` — `if not getattr(app, "mock_hedging", True):`
   - `bifrost-trade-worker/src/bifrost_worker/daemon/app/gs_trading.py:85` — `self.mock_hedging = True`
-- **Impact**: Attribution and Positions have no intraday price; the closed item recorded the wrong cause, so the fallback looked like the only option.
+- **Impact**: CORRECTED 10-08: no page loses a price. Nothing reads the STK rows the mirror would write (STK quotes come from Redis directly), and the OPT fallback that reads the table has had no writer since March. What remains is dead code in four repos that looks like a live quote path.
 - **Fix**: Owner decides: (A) give the observe-only STK quote mirror its own flag (daemon.quote_mirror) outside mock_hedging, no order path; or (B) delete the mirror, the _on_ticker* callbacks and the write path. Do not keep a write path that can never run.
 - **Ratchet**: (A) worker test: with mock_hedging=True and quotes in Redis, one heartbeat writes contract_quote_live. (B) a dead-symbol check (vulture baseline) failing on _on_ticker*.
-- **验收**: `KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_prod -X -At -c "select max(updated_at) from raw_broker.contract_quote_live" </dev/null  # (A) within the last trading session; (B) table and code gone`
+- **验收**: `for r in bifrost-trade-worker bifrost-trade-api bifrost-trade-core; do git -C $r grep -nE "write_contract_quote_live|get_contract_quotes|quote_mirror" origin/main -- src; done` 无输出；PROD 发布后 `GET /quotes` 带一个期权合约键仍 200
 - 审批 跨仓库发版 · 代价 S · 风险 low · repos: bifrost-trade-worker
 
 ### TD-242
