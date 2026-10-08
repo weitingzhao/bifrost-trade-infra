@@ -8,14 +8,28 @@
 #   release.sh hold --what <repo>[,<repo>...]    hold that same window until this process exits
 #   release.sh db-steps [<env>]                  list one-off DB steps and their state
 #   release.sh db-done <env> <step-id>           record that the Owner ran a step
+#   release.sh merge <repo> <sha> [options]      push <sha> to <repo> main: window, CI, policy (LANE-RP)
+#   release.sh policy status                     the signed release policy in the cluster, and the freeze
+#   release.sh policy sign [--days 7] [--key k]  Owner: sign a new policy, print the kubectl apply command
+#   release.sh policy verify [--policy f --sig f] check a local policy.yaml + policy.sig
+#   release.sh freeze --reason <r>               stop every new release (anyone may)
+#   release.sh unfreeze [--key k]                Owner: lift the freeze with a signed text
 #
 # options: --dry-run         run the read-only checks, print every other command, change nothing
 #          --allow <file>    expected changes for the after-check diff (repeatable; see expected.d/)
 #          --probes <file>   extra probes for the after-check (repeatable)
 #          --what <repos>    comma-separated repo names in the window (default: the Trade repos)
 #          --allow-red <why> ship stg/prod even if a SHA's CI is red or missing (Owner)
+#          --owner-approved <note>  the Owner approved this release outside the policy (not a freeze)
 #          --who <name>      who releases (default $BIFROST_RELEASE_WHO, else user@host)
 #          --timeout <s>     how long to wait for the run (default 3600)
+#
+# Release policy (LANE-RP): stg, prod, dev and merge read ConfigMaps cicd/bifrost-release-policy
+# (policy.yaml + policy.sig, signed by the Owner) and cicd/bifrost-release-freeze before they
+# create anything. A valid, unexpired policy that allows the release and whose path table no
+# changed file hits auto-approves it ("auto-approved by <policy_id>" in the log). Otherwise the
+# script exits 3 with the reasons and the sign command, unless --owner-approved is given.
+# A freeze always exits 3. policy_check.py holds the rules; platform-api applies the same ones.
 #
 # Research and the plugins use this same window file. `what` is the repo list.
 # `hold` publishes it to ConfigMap cicd/bifrost-release-window. deliver-research,
@@ -27,18 +41,19 @@
 #
 # Steps: open the release window (~/.bifrost-release/window.json; refuses if one is open) ->
 # no bifrost-deliver-* run running or created in the last 2 minutes -> [prod: the STG run
-# succeeded and its release-check passed; generate the pinned spec] -> pending one-off DB steps
+# succeeded and its release-check passed; generate the pinned spec] -> the release policy and
+# the freeze (exit 3 unless auto-approved or --owner-approved) -> pending one-off DB steps
 # for this env stop the release (they are the Owner's, see db-steps.d/README.md) -> before
 # snapshot -> create the run -> wait, with each TaskRun's duration -> after-check -> summary
 # with timings and the next command. The window closes when the script exits, however it exits.
 #
 # Exit: 0 done, 1 a check or the run failed, 2 usage / refused before starting, 3 waiting on
-# the Owner (DB steps) or the run outlived --timeout (it is still running).
+# the Owner (DB steps, the release policy, a freeze) or the run outlived --timeout (it is still running).
 set -euo pipefail
 # shellcheck source=scripts/release/lib.sh
 source "$(dirname "$0")/lib.sh"
 
-release_usage() { sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; }
+release_usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
 
 WINDOW="${RELEASE_HOME}/window.json"
 WINDOW_CM="bifrost-release-window"
@@ -47,6 +62,18 @@ TRADE_WHAT="bifrost-trade-core,bifrost-trade-api,bifrost-trade-worker,bifrost-tr
 DONE_FILE="${RELEASE_HOME}/db-steps.done"
 DB_STEPS_DIR="${BIFROST_DB_STEPS_DIR:-${RELEASE_DIR}/db-steps.d}"
 STG_TEMPLATE="${RELEASE_DIR}/pipelinerun-deliver-stg.json"
+WORKSPACE_ROOT="${BIFROST_WORKSPACE_ROOT:-$(cd "${INFRA_ROOT}/.." && pwd)}"
+POLICY_TOOL=(python3 "${RELEASE_DIR}/policy_check.py")
+POLICY_CM="bifrost-release-policy"
+FREEZE_CM="bifrost-release-freeze"
+POLICY_DIR="${INFRA_ROOT}/agent-config/release-policy"
+ALLOWED_SIGNERS="${BIFROST_RELEASE_ALLOWED_SIGNERS:-${POLICY_DIR}/allowed_signers}"
+POLICY_PATHS="${POLICY_DIR}/paths.json"
+POLICY_TEMPLATE="${INFRA_ROOT}/agent-config/work/release-approval/release-policy.draft.yaml"
+POLICY_KEY="${BIFROST_RELEASE_KEY:-${HOME}/.ssh/bifrost_release_owner}"
+FREEZE_SEEN="${RELEASE_HOME}/freeze-seen"
+DEV_COMMITS="${RELEASE_HOME}/dev-commits.txt"
+OWNER_APPROVED=""
 
 # ── window ───────────────────────────────────────────────────────────────────
 
@@ -286,6 +313,274 @@ cmd_db_done() {
   echo "recorded: $1 $2 (also add '$1' to the step's done: line in the next infra commit)"
 }
 
+# ── release policy and freeze (LANE-RP) ──────────────────────────────────────
+
+# kubectl get configmap -o json into $2. Missing or unreadable leaves an empty file,
+# which policy_check.py reads as "no policy" / "frozen".
+fetch_cm() {
+  if ! kubectl -n "${CICD_NAMESPACE}" get configmap "$1" -o json >"$2" 2>"$2.err"; then
+    grep -q NotFound "$2.err" || sed 's/^/  /' "$2.err" >&2
+    : >"$2"
+  fi
+  rm -f "$2.err"
+}
+
+# repo=sha lines in $1 (deployed) and $2 (about to ship) -> repo=old..new, one per repo in $2.
+# A repo with no deployed commit gets old=missing, which the check sends to the Owner.
+policy_pairs() {
+  python3 - "$1" "$2" <<'PY'
+import sys
+
+def load(path):
+    out = {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                repo, _, sha = line.strip().partition("=")
+                if repo and sha:
+                    out[repo] = sha
+    except OSError:
+        pass
+    return out
+
+old, new = load(sys.argv[1]), load(sys.argv[2])
+for repo in sorted(new):
+    print(f"{repo}={old.get(repo, 'missing')}..{new[repo]}")
+PY
+}
+
+# $1 lane, $2 env, $3 run (optional), $4 output file: repo=sha of the newest matching release record.
+deployed_commits() {
+  local records="${OUT_DIR}/release-records.json"
+  [[ -s "${records}" ]] || kubectl -n "${CICD_NAMESPACE}" get configmaps -l bifrost.io/release-record -o json >"${records}"
+  "${POLICY_TOOL[@]}" deployed --records "${records}" --lane "$1" --env "$2" --run "${3:-}" >"$4" || : >"$4"
+}
+
+# repo=sha of origin/main for each repo named in $1, into $2.
+origin_main_commits() {
+  local repo sha
+  : >"$2"
+  while IFS='=' read -r repo _; do
+    [[ -n "${repo}" ]] || continue
+    sha="$(git -C "${WORKSPACE_ROOT}/${repo}" rev-parse origin/main 2>/dev/null || echo missing)"
+    printf '%s=%s\n' "${repo}" "${sha}" >>"$2"
+  done <"$1"
+}
+
+# policy_gate <allow name> <pairs file>: returns when the policy auto-approves (or the Owner
+# approved outside it with --owner-approved); otherwise exits 3. A freeze always exits 3.
+policy_gate() {
+  local action="$1" pairs_file="$2" rc=0 p
+  fetch_cm "${POLICY_CM}" "${OUT_DIR}/policy-cm.json"
+  fetch_cm "${FREEZE_CM}" "${OUT_DIR}/freeze-cm.json"
+  local -a args=(check --policy-cm "${OUT_DIR}/policy-cm.json" --freeze-cm "${OUT_DIR}/freeze-cm.json"
+    --allowed-signers "${ALLOWED_SIGNERS}" --seen-file "${FREEZE_SEEN}" --action "${action}" --root "${WORKSPACE_ROOT}")
+  while IFS= read -r p; do
+    [[ -n "${p}" ]] && args+=(--pair "${p}")
+  done <"${pairs_file}"
+  [[ -n "${ALLOW_RED:-}" ]] && args+=(--block "--allow-red was used (${ALLOW_RED}); shipping a red or missing CI needs the Owner")
+  [[ -n "${GATE_BLOCK:-}" ]] && args+=(--block "${GATE_BLOCK}")
+  "${POLICY_TOOL[@]}" "${args[@]}" | tee "${OUT_DIR}/policy-check.txt" || rc=$?
+  case "${rc}" in
+    0) return 0 ;;
+    3)
+      if [[ -n "${OWNER_APPROVED}" ]]; then
+        echo "Owner approved this release outside the policy: ${OWNER_APPROVED}"
+        return 0
+      fi ;;
+    4) [[ -n "${OWNER_APPROVED}" ]] && echo "--owner-approved does not lift a freeze" ;;
+    *) rel_die "policy check failed (exit ${rc}); see above" 2 ;;
+  esac
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    echo "WOULD WAIT ON THE OWNER (exit 3) for ${action}"
+    REFUSALS=$((REFUSALS + 1))
+    return 0
+  fi
+  exit 3
+}
+
+cmd_policy() {
+  local sub="${1:-}" tmp rc=0
+  shift || true
+  case "${sub}" in
+    status)
+      rel_require_kubeconfig
+      tmp="$(mktemp -d)"
+      fetch_cm "${POLICY_CM}" "${tmp}/policy.json"
+      fetch_cm "${FREEZE_CM}" "${tmp}/freeze.json"
+      "${POLICY_TOOL[@]}" status --policy-cm "${tmp}/policy.json" --freeze-cm "${tmp}/freeze.json" \
+        --allowed-signers "${ALLOWED_SIGNERS}" --seen-file "${FREEZE_SEEN}" || rc=$?
+      rm -rf "${tmp}"
+      return "${rc}" ;;
+    verify)
+      local policy="${RELEASE_HOME}/policy/current/policy.yaml" sig=""
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --policy) policy="${2:?}"; shift 2 ;;
+          --sig) sig="${2:?}"; shift 2 ;;
+          *) rel_die "unknown argument: $1" ;;
+        esac
+      done
+      sig="${sig:-$(dirname "${policy}")/policy.sig}"
+      [[ -f "${policy}" && -f "${sig}" ]] || rel_die "need ${policy} and ${sig} (release.sh policy sign writes them)"
+      "${POLICY_TOOL[@]}" verify --policy "${policy}" --sig "${sig}" --allowed-signers "${ALLOWED_SIGNERS}" ;;
+    sign)
+      local days="" key="${POLICY_KEY}" id dir
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --days) days="${2:?}"; shift 2 ;;
+          --key) key="${2:?}"; shift 2 ;;
+          *) rel_die "unknown argument: $1" ;;
+        esac
+      done
+      [[ -f "${key}" ]] || rel_die "no signing key at ${key} (generate it first: see the LANE-RP runbook)"
+      mkdir -p "${RELEASE_HOME}/policy"
+      tmp="$(mktemp -d "${RELEASE_HOME}/policy/new.XXXXXX")"
+      "${POLICY_TOOL[@]}" render --template "${POLICY_TEMPLATE}" --paths "${POLICY_PATHS}" \
+        ${days:+--days "${days}"} --out "${tmp}/policy.yaml" | tee "${tmp}/render.txt"
+      id="$(awk '$1 == "policy_id" { print $2 }' "${tmp}/render.txt")"
+      [[ -n "${id}" ]] || rel_die "render printed no policy_id"
+      dir="${RELEASE_HOME}/policy/${id}"
+      rm -rf "${dir}"
+      mv "${tmp}" "${dir}"
+      echo "signing ${dir}/policy.yaml with ${key} (ssh-keygen asks for the passphrase or Touch ID)"
+      ssh-keygen -Y sign -f "${key}" -n bifrost-release-policy "${dir}/policy.yaml"
+      mv "${dir}/policy.yaml.sig" "${dir}/policy.sig"
+      "${POLICY_TOOL[@]}" verify --policy "${dir}/policy.yaml" --sig "${dir}/policy.sig" \
+        --allowed-signers "${ALLOWED_SIGNERS}" || rel_die "the new signature does not verify against ${ALLOWED_SIGNERS}" 1
+      ln -sfn "${dir}" "${RELEASE_HOME}/policy/current"
+      echo
+      echo "Apply it (Owner):"
+      printf '  kubectl -n %s create configmap %s --from-file=policy.yaml=%q --from-file=policy.sig=%q --from-file=allowed_signers=%q --dry-run=client -o yaml | kubectl apply -f -\n' \
+        "${CICD_NAMESPACE}" "${POLICY_CM}" "${dir}/policy.yaml" "${dir}/policy.sig" "${ALLOWED_SIGNERS}"
+      echo "Then: $0 policy status" ;;
+    *) rel_die "usage: $0 policy status | sign [--days N] [--key <path>] | verify [--policy f --sig f]" ;;
+  esac
+}
+
+cmd_freeze() {
+  local reason="" who="${BIFROST_RELEASE_WHO:-${USER}@$(hostname -s)}" at
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --reason) reason="${2:?--reason needs text}"; shift 2 ;;
+      --who) who="${2:?}"; shift 2 ;;
+      *) rel_die "unknown argument: $1" ;;
+    esac
+  done
+  [[ -n "${reason}" ]] || rel_die "freeze needs --reason <text>"
+  rel_require_kubeconfig
+  at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  kubectl -n "${CICD_NAMESPACE}" create configmap "${FREEZE_CM}" \
+    --from-literal=frozen=true --from-literal=reason="${reason}" \
+    --from-literal=who="${who}" --from-literal=frozen_at="${at}" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  mkdir -p "${RELEASE_HOME}"
+  printf '%s\n' "${at}" >"${FREEZE_SEEN}"
+  echo "frozen at ${at}: ${reason}. Lifting it needs the Owner: $0 unfreeze"
+}
+
+cmd_unfreeze() {
+  local key="${POLICY_KEY}" who="${BIFROST_RELEASE_WHO:-${USER}@$(hostname -s)}" tmp state frozen_at reason
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --key) key="${2:?}"; shift 2 ;;
+      --who) who="${2:?}"; shift 2 ;;
+      *) rel_die "unknown argument: $1" ;;
+    esac
+  done
+  rel_require_kubeconfig
+  [[ -f "${key}" ]] || rel_die "no signing key at ${key}"
+  tmp="$(mktemp -d)"
+  fetch_cm "${FREEZE_CM}" "${tmp}/freeze.json"
+  state="$(python3 -c 'import json,sys
+t = open(sys.argv[1]).read()
+d = (json.loads(t).get("data") or {}) if t.strip() else {}
+print(d.get("frozen", ""), d.get("frozen_at", ""), sep="\t")' "${tmp}/freeze.json")"
+  frozen_at="${state#*$'\t'}"
+  if [[ "${state%%$'\t'*}" != "true" ]]; then
+    rm -rf "${tmp}"
+    echo "not frozen (ConfigMap ${CICD_NAMESPACE}/${FREEZE_CM} frozen='${state%%$'\t'*}')"
+    return 0
+  fi
+  [[ -n "${frozen_at}" ]] || frozen_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  reason="$(python3 -c 'import json,sys; print((json.load(open(sys.argv[1])).get("data") or {}).get("reason", ""))' "${tmp}/freeze.json")"
+  printf 'unfreeze frozen_at=%s at=%s by=%s\n' "${frozen_at}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${who}" >"${tmp}/unfreeze.txt"
+  echo "signing the unfreeze with ${key} (ssh-keygen asks for the passphrase or Touch ID)"
+  ssh-keygen -Y sign -f "${key}" -n bifrost-release-unfreeze "${tmp}/unfreeze.txt"
+  ssh-keygen -Y verify -f "${ALLOWED_SIGNERS}" -I owner -n bifrost-release-unfreeze \
+    -s "${tmp}/unfreeze.txt.sig" <"${tmp}/unfreeze.txt" >/dev/null \
+    || rel_die "the unfreeze signature does not verify against ${ALLOWED_SIGNERS}" 1
+  kubectl -n "${CICD_NAMESPACE}" create configmap "${FREEZE_CM}" \
+    --from-literal=frozen=false --from-literal=frozen_at="${frozen_at}" \
+    --from-literal=reason="${reason}" --from-literal=who="${who}" \
+    --from-file=unfreeze.txt="${tmp}/unfreeze.txt" --from-file=unfreeze.sig="${tmp}/unfreeze.txt.sig" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  rm -rf "${tmp}"
+  echo "unfrozen (the freeze from ${frozen_at})"
+}
+
+cmd_merge() {
+  [[ $# -ge 2 ]] || rel_die "usage: $0 merge <repo> <sha> [--owner-approved <note>] [--who <name>] [--dry-run]"
+  local repo="$1" sha="$2" repo_dir base runs ci_rc=0
+  shift 2
+  DRY_RUN=0
+  WHO="${BIFROST_RELEASE_WHO:-${USER}@$(hostname -s)}"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --owner-approved) OWNER_APPROVED="${2:?--owner-approved needs a note}"; shift 2 ;;
+      --who) WHO="${2:?}"; shift 2 ;;
+      --dry-run) DRY_RUN=1; shift ;;
+      *) rel_die "unknown argument: $1" ;;
+    esac
+  done
+  [[ "${repo}" =~ ^[a-z0-9-]+$ ]] || rel_die "repo must be a repo name (got '${repo}')"
+  [[ "${sha}" =~ ^[0-9a-f]{40}$ ]] || rel_die "sha must be 40 lowercase hex chars (got '${sha}')"
+  repo_dir="${WORKSPACE_ROOT}/${repo}"
+  [[ -e "${repo_dir}/.git" ]] || rel_die "no checkout at ${repo_dir}"
+  rel_require_kubeconfig
+  git -C "${repo_dir}" fetch -q origin
+  git -C "${repo_dir}" cat-file -e "${sha}^{commit}" 2>/dev/null || rel_die "${sha} is not in ${repo_dir}; push its branch and fetch first"
+  base="$(git -C "${repo_dir}" rev-parse origin/main)"
+  if [[ "${base}" == "${sha}" ]]; then
+    echo "${repo} main is already ${sha}"
+    return 0
+  fi
+  git -C "${repo_dir}" merge-base --is-ancestor "${base}" "${sha}" \
+    || rel_die "${sha} is not a fast-forward of ${repo} origin/main (${base}); rebase it first"
+  ENV_NAME="merge" WHAT="${repo}"
+  OUT_DIR="${RELEASE_SNAP_BASE}/$(date +%F)/merge-${repo}-$(date +%H%M%S)"
+  mkdir -p "${OUT_DIR}"
+  echo "merge ${repo} ${base:0:12}..${sha:0:12} by ${WHO}$([[ "${DRY_RUN}" -eq 1 ]] && echo ' (DRY RUN: nothing will be pushed)')"
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    window_show || refuse "another release holds the window"
+  else
+    window_open
+  fi
+  GATE_BLOCK=""
+  if "${POLICY_TOOL[@]}" ci-repo --paths "${POLICY_PATHS}" "${repo}"; then
+    runs="${OUT_DIR}/ci-runs"
+    mkdir -p "${runs}"
+    local p
+    for p in bifrost-ci-python bifrost-ci-frontend bifrost-ci-platform; do
+      kubectl -n "${CICD_NAMESPACE}" get pipelineruns -l "tekton.dev/pipeline=${p}" -o json >"${runs}/${p}.json"
+    done
+    python3 "${RELEASE_DIR}/ci_gate.py" --runs "${runs}/bifrost-ci-python.json" --runs "${runs}/bifrost-ci-frontend.json" \
+      --runs "${runs}/bifrost-ci-platform.json" "${repo}=${sha}" || ci_rc=$?
+    [[ "${ci_rc}" -eq 0 ]] || GATE_BLOCK="${repo} ${sha:0:12} has no Succeeded ci-* run (ci_gate exit ${ci_rc})"
+  else
+    echo "${repo} has no ci-* gate (not in ci_repos of ${POLICY_PATHS})"
+  fi
+  printf '%s=%s..%s\n' "${repo}" "${base}" "${sha}" >"${OUT_DIR}/pairs.txt"
+  policy_gate merge-to-main "${OUT_DIR}/pairs.txt"
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    would git -C "${repo_dir}" push origin "${sha}:refs/heads/main"
+    [[ "${REFUSALS}" -eq 0 ]] || { echo "dry-run: ${REFUSALS} precondition(s) would stop this merge"; exit 2; }
+    return 0
+  fi
+  git -C "${repo_dir}" push origin "${sha}:refs/heads/main"
+  echo "pushed ${repo} main -> ${sha}"
+}
+
 # ── the release ──────────────────────────────────────────────────────────────
 
 case "${1:-}" in
@@ -316,6 +611,10 @@ case "${1:-}" in
     ;;
   db-steps) shift; cmd_db_steps "$@"; exit 0 ;;
   db-done) shift; cmd_db_done "$@"; exit 0 ;;
+  policy) shift; cmd_policy "$@"; exit $? ;;
+  freeze) shift; cmd_freeze "$@"; exit 0 ;;
+  unfreeze) shift; cmd_unfreeze "$@"; exit 0 ;;
+  merge) shift; cmd_merge "$@"; exit 0 ;;
   dev|stg|prod) ENV_NAME="$1"; shift ;;
   -h|--help|"") release_usage; exit 0 ;;
   *) release_usage >&2; exit 2 ;;
@@ -331,6 +630,7 @@ while [[ $# -gt 0 ]]; do
     --probes) PROBES+=(--probes "${2:?}"); shift 2 ;;
     --what) WHAT="${2:?}"; shift 2 ;;
     --allow-red) ALLOW_RED="${2:?--allow-red needs a reason}"; shift 2 ;;
+    --owner-approved) OWNER_APPROVED="${2:?--owner-approved needs a note}"; shift 2 ;;
     --who) WHO="${2:?}"; shift 2 ;;
     --timeout) TIMEOUT="${2:?}"; shift 2 ;;
     -h|--help) release_usage; exit 0 ;;
@@ -416,6 +716,29 @@ if [[ "${ENV_NAME}" == "prod" ]]; then
   fi
   step_end
 fi
+
+step "release policy and freeze (${ENV_NAME})"
+case "${ENV_NAME}" in
+  stg)
+    POLICY_ACTION="bifrost-deliver-stg"
+    deployed_commits trade stg "" "${OUT_DIR}/deployed.txt"
+    { tr ',' '\n' <<<"${TRADE_WHAT}"; cut -d= -f1 "${OUT_DIR}/deployed.txt"; } | sort -u | while read -r r; do
+      [[ -n "${r}" ]] && printf '%s=\n' "${r}"
+    done >"${OUT_DIR}/repos.txt"
+    origin_main_commits "${OUT_DIR}/repos.txt" "${OUT_DIR}/shipping.txt" ;;
+  prod)
+    POLICY_ACTION="bifrost-deliver-prod-pinned"
+    deployed_commits trade prod "" "${OUT_DIR}/deployed.txt"
+    deployed_commits trade stg "${FROM_STG}" "${OUT_DIR}/shipping.txt" ;;
+  dev)
+    POLICY_ACTION="trade-dev-sync"
+    if [[ -f "${DEV_COMMITS}" ]]; then cp "${DEV_COMMITS}" "${OUT_DIR}/deployed.txt"; else : >"${OUT_DIR}/deployed.txt"; fi
+    deployed_commits trade stg "" "${OUT_DIR}/shipping.txt" ;;
+esac
+policy_pairs "${OUT_DIR}/deployed.txt" "${OUT_DIR}/shipping.txt" >"${OUT_DIR}/pairs.txt"
+sed 's/^/  /' "${OUT_DIR}/pairs.txt"
+policy_gate "${POLICY_ACTION}" "${OUT_DIR}/pairs.txt"
+step_end
 
 step "one-off DB steps due before the ${ENV_NAME} deliver"
 db_steps_gate before
@@ -528,6 +851,10 @@ case "${ENV_NAME}" in
     echo "next (unless it says nothing to do): bash ${RELEASE_DIR}/tag_core_release.sh --push ${core_sha}"
     echo "then: $0 dev     (DEV :dev images, backend and frontend, follow STG)" ;;
   dev)
+    if [[ "${DRY_RUN}" -eq 0 ]]; then
+      cp "${OUT_DIR}/shipping.txt" "${DEV_COMMITS}"
+      echo "recorded the commits DEV now runs in ${DEV_COMMITS} (the next dev release diffs against them)"
+    fi
     echo "after the copy DEV runs the :stg images (core ${STG_CORE}) and the :stg frontend." ;;
 esac
 step_end

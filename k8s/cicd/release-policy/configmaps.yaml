@@ -1,0 +1,30 @@
+# Release policy and freeze (LANE-RP). Not under Argo.
+#
+# Create once, before the first signed policy, with
+#   kubectl create -f k8s/cicd/release-policy/configmaps.yaml
+# `create` refuses when they exist; never `kubectl apply` this file over a signed policy
+# or a freeze. After that only release.sh writes them:
+#   bifrost-release-policy  release.sh policy sign prints the apply command (Owner)
+#   bifrost-release-freeze  release.sh freeze (anyone) / release.sh unfreeze (Owner, signed)
+#
+# Empty policy = no auto-approval: every C-level release waits for the Owner, as today.
+# frozen "false" with no frozen_at = never frozen. A missing or unreadable ConfigMap
+# counts as frozen in release.sh, platform-api and the Tekton release-window task.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bifrost-release-policy
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: release-policy
+data: {}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bifrost-release-freeze
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: release-policy
+data:
+  frozen: "false"

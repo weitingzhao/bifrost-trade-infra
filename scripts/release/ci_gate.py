@@ -6,7 +6,8 @@ Exit 2: no terminal run yet (the caller may wait and retry).
 
 A run matches when its repo (spec.params repo, else the bifrost.io/repo label)
 and spec.params revision equal the pair, and the
-PipelineRun belongs to bifrost-ci-python or bifrost-ci-frontend.
+PipelineRun belongs to bifrost-ci-python, bifrost-ci-frontend or bifrost-ci-platform
+(release.sh merge bifrost-platform).
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ import sys
 from typing import Iterable, Optional
 
 
-CI_PIPELINES = frozenset({"bifrost-ci-python", "bifrost-ci-frontend"})
+CI_PIPELINES = frozenset({"bifrost-ci-python", "bifrost-ci-frontend", "bifrost-ci-platform"})
 
 
 def _params(run: dict) -> dict[str, str]:

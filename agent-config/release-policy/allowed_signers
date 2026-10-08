@@ -1,0 +1,6 @@
+# Release-policy trust anchor (LANE-RP). ssh-keygen -Y verify reads this file.
+# One line, added by the Owner after generating the key (see release.sh policy --help):
+#   owner namespaces="bifrost-release-policy,bifrost-release-unfreeze" ssh-ed25519 AAAA... owner@bifrost
+# platform-api compiles in the SHA256 fingerprint of the same key
+# (api/internal/releasepolicy/anchor.go). If the two differ, no policy is valid.
+# Changing this file changes the trust root: no_trust_anchor_change sends it to the Owner.

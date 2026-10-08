@@ -1,0 +1,47 @@
+# Read access to the release policy and freeze ConfigMaps (LANE-RP). Not under Argo:
+#   kubectl apply -f k8s/cicd/release-policy/rbac.yaml
+#
+# Readers: the Tekton release-window task (SAs default and tekton-deliver) and platform-api /
+# platform-workers (SA bifrost-platform in bifrost-platform-stg and bifrost-platform-prod).
+# Nothing here grants a write. Two things this file cannot do, so the signature is what
+# protects the policy and the unfreeze:
+#   * agents run kubectl with the Owner's admin kubeconfig, not a ServiceAccount;
+#   * k8s/platform-rbac binds bifrost-platform-state in cicd, which already lets
+#     bifrost-platform create/update/patch every ConfigMap there (release records need it).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: bifrost-release-policy-reader
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: release-policy
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["bifrost-release-policy", "bifrost-release-freeze"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bifrost-release-policy-reader
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: release-policy
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: cicd
+  - kind: ServiceAccount
+    name: tekton-deliver
+    namespace: cicd
+  - kind: ServiceAccount
+    name: bifrost-platform
+    namespace: bifrost-platform-stg
+  - kind: ServiceAccount
+    name: bifrost-platform
+    namespace: bifrost-platform-prod
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: bifrost-release-policy-reader
