@@ -38,6 +38,7 @@
 1. `api/internal/server/actions_wire.go:60`（现在返回 `approval required` 的地方）：C 级动作先读策略 + 冻结；策略有效、动作在 `allow`、条件满足 → 直接执行，审计写 `auto-approved policy_id=<id> requester=<who> sha=<sha>`；否则照旧建审批单。D 级动作一律不自动批。
 2. **到期提醒**：platform-workers 加一个每小时检查——策略剩余 ≤ 48 / 24 / 2 小时各推一次（复用 `api/internal/approvalnotify` 的手机推送通道，同一档只推一次）；已过期且有待决单据 → 立即推「策略已过期，N 个发布在等你签」。推送正文带签发命令 `bifrost-trade-infra/scripts/release/release.sh policy sign`。Console 横幅显示剩余时间（≤ 48 小时变黄，过期变红）：做成**独立组件 + 数据 hook**（`console/src/components/ReleasePolicyBanner.tsx` 与自己的测试），**不要改** `ConsolePage`、header、`consoleNavConfig`——ops-arch 第 3 阶段 S2 正在重写外壳；后落地的一方负责挂载（RP 先落地就由 ops-arch 在新 header 里挂）。
    每小时检查的维护者名字固定为：日志前缀 `release_policy_expiry_check`，指标 `bifrost_release_policy_expires_in_seconds`（gauge，无有效策略时为 0）与 `bifrost_release_policy_reminders_sent_total{window="48h|24h|2h|expired"}`；合并后由 ops-arch 登记进 `agent-config/MAINTAINERS.yaml`。
+   今天 Prometheus 不抓 platform-workers（只有 ServiceMonitor `monitoring/bifrost-platform-api`）。抓取由 ops-arch 的 LANE-E1（`agent-config/work/ops-arch/LANE-E1.md`）加 PodMonitor，**本道不加第二份 workers 抓取配置**。开工时若 E1 已在 platform main 上，每小时检查成功后调用它的共享 helper，写 `bifrost_maintainer_last_success_timestamp_seconds{maintainer="release_policy_expiry_check"}`（存活告警随之生效）；还没合就只发上面两个指标，并在报告里写明「待 E1 合并后接 helper」。
 3. 冻结：读 `cicd/bifrost-release-freeze`，设了就拒绝所有 C 级发布动作；读不出来按冻结处理。
 4. 防线：Go 测试——有效策略 + 条件满足 → 自动执行并写审计；过期 / 签名坏 / 冻结 / 路径命中 / D 级 → 建单据；提醒在 48/24/2 小时各一次且不重复；过期且有待决 → 推送。
 
