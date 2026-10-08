@@ -23,7 +23,7 @@
 - **TD-157** — 只有一侧有暴露时，空的那侧 wall 和 wall gex 写 NULL（research 0.191.0；回填置空 1,762 个）。验收 PASS 2026-10-08 481c96c（空侧仍写 wall 0 行；10-06 / 10-07 新写入空 call wall 10 / 4、空 put wall 14 / 10）。防线：同上测试文件的 `test_a_side_without_exposure_names_no_wall` 等单边五例。后续：TD-166（zero_gamma 兜底）
 - **TD-166** — 只有累计 net gex 在非零值之间换号才算翻转，没有翻转时日线 `zero_gamma` 写 NULL（research 0.192.0；回填更新 26,878 行）。验收 PASS 2026-10-08 481c96c（从分布重算干跑 changed 0；10-06 / 10-07 新写入空 zero_gamma 33.5% / 35.0%）。防线：同上测试文件的 `test_leaving_zero_is_not_a_crossing` 等 TD-166 九例。后续：前端把空 zero-γ 写成「无翻转」，未立项
 
-**未结 73 项**：P0 0 · P1 7 · P2 23 · P3 43；要你批的 31 项（从总览表的审批列算）。
+**未结 74 项**：P0 0 · P1 7 · P2 24 · P3 43；要你批的 31 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -1469,6 +1469,21 @@
 - **Ratchet**: core `tests/test_accounts_price_not_served.py`、`test_accounts_stk_live_stale.py`（价格取不到时读作「没有供给」而不是 0）+ frontend `src/utils/spotPrice.test.ts`、`equityDelta.test.ts`、`accountsBrokerRows.test.ts`；合并态 core 13464 passed、frontend 4111 passed
 - **残留**：portfolio model 仍 JOIN `contract_quote_live` 取**期权 mid**，那些行永远取不到，于是对应腿的 Greeks 记为 degraded（`degraded_leg_count`）——而前端没有任何地方显示这个计数，见 TD-264
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-core, bifrost-trade-worker, bifrost-trade-frontend
+
+### TD-267
+
+**P2 · ops-platform · An approval is consumed by a transient refusal: approve executes immediately, and a release-window clash marks the request `failed`, so the Owner's click is spent and a new request must be filed**
+
+- **状态**：未开始
+- **Claim**: `approvals.Service.approve` calls `actions.Execute` in the same step as the decision and stores `StatusFailed` on **any** error, transient or permanent (`service.go` around the `execErr` branch). Since `approve` refuses anything whose status is not `pending`, a request that failed on a precondition cannot be approved again — the human's click is gone and the requester has to create a fresh request. There is no distinction between "this can never work" (bad params, expired) and "this would work in a minute" (a release window held for other repos, CI not green yet).
+- **Measured**: MEASURED 2026-10-08. `appr_cb8b3f52329cbe8c` (platform PROD, revision main) was approved through `channel: chat` at 15:50:56Z and came back `status: failed` with `REFUSED: release window held by someone else (who=… what=bifrost-trade-core,bifrost-trade-api,bifrost-trade-worker,bifrost-trade-frontend,bifrost-trade-infra); bifrost-deliver-platform-prod needs one of bifrost-platform,bifrost-ui`. The click landed inside this session's own Trade release (`bifrost-deliver-prod-pinned-9lg2r`, 15:47–15:54Z), which legitimately held the window for the Trade repos. No PipelineRun was created; platform main stayed a7ecb08 and PROD kept the old image. The window check did its job — what is wrong is that the approval did not survive it.
+- **Evidence**:
+  - `bifrost-platform/api/internal/approvals/service.go` — the `approve` path: `actions.Execute` then `rec.Status = StatusFailed` on `execErr`
+  - the same file's guard: a record whose status is not `pending` answers `409 already decided`
+- **Impact**: Every approval the Owner clicks at the wrong moment is burned, and the only recovery is for an agent to file another request and ask for another click. That makes the approval queue feel unreliable exactly when releases are busy, which is when it matters. It also pushes agents toward holding the window for long stretches before asking, which blocks everyone else.
+- **Fix**: Separate the decision from the execution. On a **transient** refusal (window held by another repo set, CI not finished, a run in flight) keep the request `pending` — or move it to a `retryable` state with the reason — and let it execute when the precondition clears, rather than consuming it. Keep `failed` for permanent errors. Decide explicitly whether a retry needs a fresh click; if it does, say so in the record so the requester does not have to guess.
+- **Ratchet**: A Go test that an executor returning a transient refusal leaves the request approvable (not `failed`), and that a permanent error still terminates it.
+- 审批 不用批 · 代价 M · 风险 low · repos: bifrost-platform
 
 ### TD-261
 
