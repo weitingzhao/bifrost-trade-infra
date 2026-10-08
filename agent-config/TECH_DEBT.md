@@ -20,7 +20,7 @@
 - **TD-255** — 漂移扫描不再删失败现场：只删被驱逐的 Pod，失败的备份 Job Pod 留着（日志可读），只报告模式下一个不删。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「漂移扫描只删 Evicted 测试」。后续：无后续：Job 历史上限与 TTL 负责回收
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 71 项**：P0 0 · P1 7 · P2 24 · P3 40；要你批的 31 项（从总览表的审批列算）。
+**未结 69 项**：P0 0 · P1 7 · P2 23 · P3 39；要你批的 31 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -91,7 +91,7 @@
 
 目标：Data Gaps 看板上未结的 15 项并入台账：先把每日快照的写入修对（TD-137）再接读侧和三页，归因行补上价格，Research 侧已就绪的一个版本（0.185.0）发出去，长期限 IV 锥在 10-31 前从 option_daily 回填，其余按 Owner 已定的口径排。
 
-项：TD-137, TD-142, TD-143, TD-144, TD-145, TD-146, TD-149, TD-150, TD-158, TD-159, TD-172, TD-180, TD-246, TD-250 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181, TD-193, TD-140, TD-171, TD-138, TD-139, TD-178, TD-199, TD-243, TD-182, TD-148
+项：TD-137, TD-142, TD-143, TD-144, TD-146, TD-149, TD-158, TD-159, TD-172, TD-180, TD-246, TD-250 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181, TD-193, TD-140, TD-171, TD-138, TD-139, TD-178, TD-199, TD-243, TD-182, TD-148, TD-145, TD-150
 
 ### 第 8 波 · Pine 线程收尾后的跟进（10-06）
 
@@ -115,7 +115,7 @@
 
 目标：挂单与 IB 读失败不再被当真写库；Risk / Performance / 告警计数按交易日算；Console 的裁决条在探针失败时不再显示绿色；ui 的发布可追溯；台账与文档的过时说法改正。
 
-项：TD-228, TD-234, TD-240 · 已还：TD-214, TD-219, TD-232, TD-233, TD-226, TD-230, TD-227, TD-251, TD-235, TD-252, TD-229, TD-241, TD-213, TD-239, TD-211, TD-212, TD-236
+项：TD-228, TD-234 · 已还：TD-214, TD-219, TD-232, TD-233, TD-226, TD-230, TD-227, TD-251, TD-235, TD-252, TD-229, TD-241, TD-213, TD-239, TD-211, TD-212, TD-236, TD-240
 
 ### 第 12 波 · Ops 维护只在 PROD 一处（Owner 10-07）
 
@@ -129,7 +129,7 @@
 
 - **已确认的财报日历（◉）** — 订阅里没有：10-06 `/research/events/calendar?days=60` 8 行，全是 ws:macro 与 ws:corporate，财报 0 行；插件只有 8-K Item 2.02 的过去财报。页面写 estimated · confirmed dates not in the subscription；预计日 expected_next 在跑（NVDA → 2026-11-18，track n=4、中位误差 0 天）。依据：看板 R2.a，10-06 实测。还在写「no earnings date reaches this side」的四处在 TD-150。
 - **merger / spinoff 与 IB Flex 公司行为报表** — Owner 2026-09-17 裁定不做，除非重开：vendor 只给 dividend 与 split（抽样 17 名 833 行，0 merger、0 spinoff），能填的只有 Flex 的公司行为报表，没有接。依据：`bifrost-trade-frontend/src/layout/designNotes/portfolio.ts:76`；看板 B4.2-3。
-- **CUE 只有调整合约** — CUE 1:30 合股（除权 2026-04-24）后交易所没有挂标准系列，只剩 10-16 到期的 14 个 CUE1 合约（10-05 OI 14 行）：市场本来没有，max pain / ATM IV / GEX / flow / PCR 留空是对的。依据：看板 R10.CUE，10-06 实测。页面上的说明在 TD-150。
+- **CUE 只有调整合约** — CUE 1:30 合股（除权 2026-04-24）后交易所没有挂标准系列，只剩 10-16 到期的 14 个 CUE1 合约（10-05 OI 14 行）：市场本来没有，max pain / ATM IV / GEX / flow / PCR 留空是对的。依据：看板 R10.CUE，10-06 实测。页面上的说明已上线（frontend 8d991d8，原 TD-150，2026-10-08 签收）。
 
 ## 需要你拍板
 
@@ -261,10 +261,8 @@
 | [TD-142](#td-142) | P2 | research-data | The 90-day IV cone has 31–39 sessions of history and there is no 180-day tenor: ATM IV was stored only to 90 DTE before 2026-08-05 | 要你批 |
 | [TD-143](#td-143) | P3 | research-data | Hypotheses never link to trades: linked_opportunity_ids is empty on all 91 rows, and only Research's own create / patch writes it | 不用批 |
 | [TD-144](#td-144) | P3 | research-data | Settled candidates are not attributed to the judge (persona) that put them forward, so the Personas bench track-record columns stay grey | 要你批 |
-| [TD-145](#td-145) | P3 | research-data | Settled candidates carry no regime label, so the Personas bench 'Best regime' column has nothing to group by | 不用批 |
 | [TD-146](#td-146) | P3 | research-data | No store accepts a hand verdict, so the Personas bench 'Agrees with you' column cannot be computed | 要你批 |
 | [TD-149](#td-149) | P2 | market-data | CTVA's adjusted daily bars ignore its 2026-10-01 spin-off, so every return-based feature on CTVA sees an ~84% one-day drop | 不用批 |
-| [TD-150](#td-150) | P3 | frontend | Pages report gaps that are not there: 'no earnings date reaches this side', 'carry nothing at all' for names the vendor answered, and no note that CUE lists only adjusted contracts | 不用批 |
 | [TD-158](#td-158) | P3 | research-data | Earnings estimates are served one name per request, so no universe-wide page can show an Earn column | 不用批 |
 | [TD-159](#td-159) | P3 | market-data | No read says how many standard and adjusted option contracts a name has, so "only adjusted contracts are listed" is inferred in the browser from ticker shapes | 不用批 |
 | [TD-152](#td-152) | P2 | ops-platform | promtail drops log lines (ingester_error) around 02:00–03:15 and 22:xx UTC, so every Loki-based release gate can come out INCONCLUSIVE | 不用批 |
@@ -294,7 +292,6 @@
 | [TD-223](#td-223) | P3 | ops-platform | STG and PROD platform-workers both run the IB gateway auto-repair loop against the one live data/ib-gateway, each with its own 15-minute cooldown | PROD 变更（要你批） |
 | [TD-228](#td-228) | P3 | ops-console | Every scheduled Hermes skill run on .52 fails with 'No such file or directory', while /health returns status ok and the checklist counts the gateway healthy | 不用批 |
 | [TD-234](#td-234) | P3 | trade-worker | @bifrost/ui is unversioned for the Ops Console: a ui push never runs platform CI, and platform deliver builds whatever ui main is without recording its SHA | 不用批 |
-| [TD-240](#td-240) | P3 | trade-worker | The running PROD daemon never writes contract_quote_live: the observe-only quote mirror sits under mock_hedging, which is hard-coded True | 跨仓库发版 |
 | [TD-242](#td-242) | P2 | market-data | market-data /ingest/queue-dashboard takes 5–25 s per call, and the platform-api proxy carries the same delay: with the new latency rule live it will page whenever someone keeps the queue dashboard open | 不用批 |
 | [TD-244](#td-244) | P3 | research-control | agents/journal_distill reads raw_broker.executions_final with no Flex freshness check (own 23:55 UTC schedule, outside any gate) | 不用批 |
 | [TD-246](#td-246) | P3 | trade-data | Snapshot enrich stores a vendor 'day close' that can sit below the option's intrinsic value (a stale last trade), and P&L attribution then books it as unexplained | 已批（Owner 10-07「做」） |
@@ -792,22 +789,6 @@
 - **Ratchet**: Test that the harness insert path sets source_ref.persona; an asset check that new harness candidates without it are 0.
 - 审批 要你批 · 代价 S · 风险 low · repos: bifrost-research, bifrost-trade-frontend
 
-### TD-145
-
-**P3 · research-data · Settled candidates carry no regime label, so the Personas bench 'Best regime' column has nothing to group by**
-
-- **状态**：在做（后端已上 research 0.186.0（995a890）：/rows 每行带 regime / regime_scope / regime_date，/summary?by_regime=true 按 regime 分组；10-06 GS 副本实测 127 个已结算候选 111 个名字 regime、16 个 SPY、0 个无标签；`tests/api/test_candidate_outcome_rows_regime.py` 5 passed。剩前端：JudgeTrackRecord 的 Best regime 列接 /summary?by_regime=true，设样本数门槛。**接手**：前端没有分支，从 main 新开；JudgeTrackRecord.tsx 的 Best regime 列读 `/research/candidate-outcome/summary?source=<src>&days=<n>&by_regime=true` 的 `data.by_regime`，取 hit_rate 最高且样本数过门槛的 regime；需 research 用户令牌（require_owner）；Journal Settled 的 Right / Wrong 拆分同时改读 TD-147 的 `/rows?source=&days=`）
-- **验收**：`kubectl -n research exec deploy/research-api -- python -c "import bifrost_research;print(bifrost_research.__version__)"` ≥ 0.185.0；在 research origin/main 上 `python -m pytest tests/api/test_candidate_outcome_rows_regime.py -q` 通过；前端接上后 `git -C bifrost-trade-frontend grep -n 'by_regime' origin/main -- src` 至少一行
-- **Claim**: No candidate's lens_snapshot has a regime key and Golden Source has no market-level regime table; the per-name regime lives in features.stock_forecast_terrain_daily (06-24 → 10-05). SPY was range on 25 of the 26 candidate days, so a market label would separate nothing.
-- **Measured**: MEASURED 10-06: 0 candidates with lens_snapshot ? 'regime'. With 3109b04 on the replica: of 127 settled candidates 111 take the name's regime, 16 fall back to SPY, 0 unlabelled (the join takes that session or the newest within 7 days before it, since 15 candidate dates fall on weekends); the LATERAL join runs in about 2 ms. Side reading, small sample: harness 5d hit trending 19/24, range 24/64.
-- **Evidence**:
-  - `bifrost-research/src/bifrost_research/api/candidate_outcome.py:136` — `@router.get("/rows", dependencies=[Depends(require_owner)])`
-  - `bifrost-trade-frontend/src/pages/copilot/personas/JudgeTrackRecord.tsx:56` — `{ column: 'Best regime', missing: 'settled outcomes carry no regime label' },`
-- **Impact**: The bench cannot say in which market a judge is right.
-- **Fix**: 3109b04: /rows adds regime, regime_scope and regime_date per row, derived at read time as COALESCE(name terrain, SPY) (precedent: /research/signal-decay); /summary?by_regime=true groups by it. No table or column. Then JudgeTrackRecord's Best regime reads /summary?by_regime=true with a sample floor.
-- **Ratchet**: tests/api/test_candidate_outcome_rows_regime.py (3109b04).
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research, bifrost-trade-frontend
-
 ### TD-146
 
 **P3 · research-data · No store accepts a hand verdict, so the Personas bench 'Agrees with you' column cannot be computed**
@@ -842,27 +823,6 @@
 - **Fix**: Approved step 2: once the vendor restates, re-pull CTVA daily bars and recompute the derived features from 10-01. If not by 10-16: Research applies the spin ratio to the pre-spin bars itself (separate approval).
 - **Ratchet**: For this case the daily scheduled check. For the class (proposed): a nightly sweep that flags any name whose close-to-close |log return| exceeds ln 3 on a day with no split in corporate_action, which catches the next unadjusted spin-off within one night.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data, bifrost-research
-
-### TD-150
-
-**P3 · frontend · Pages report gaps that are not there: 'no earnings date reaches this side', 'carry nothing at all' for names the vendor answered, and no note that CUE lists only adjusted contracts**
-
-- **状态**：在做（代码就绪，已推为分支、未合并：frontend `fix/data-gap-wording` = 024077be（R2.b）· e8e554fc（B4.tail）· 7caac1f8（R10.CUE），基于 d1254adc；lint / build 过，改动文件相关测试 83 例过，全量 vitest 在最后一处改名后未重跑。**接手步骤**：① 等 Code Refactor 那批 Trade 发布（含前端 d1254adc）在 PROD 通过；② rebase 到最新 main，跑 `npm run lint && npm run build && npm run test:run`（全量）；③ 在 :5173 对 DEV 看 Today、Limits、Scan、Vol ratings、Corporate Actions、Symbol?CUE；④ `release.sh window && git push` 前端 main，随下一次 Trade 发布上线。Design 待看三点：Vol ratings 在 All 下 Earn 列部分有数、CUE 各指标块仍写 No reading — wait、440 紧凑版没有这条说明）
-- **验收**：`git -C bifrost-trade-frontend grep -n -i 'earnings date reaches this side\|No earnings date on this side\|carry nothing at all\|cannot say whether they pay' origin/main -- src ':!src/layout/designNotes'` 无输出，且 `git -C bifrost-trade-frontend grep -n -i 'only adjusted contracts' origin/main -- src` 至少一行
-- **Claim**: Three wording gaps, one batch. (1) Earnings (board R2.b): the shared earnings read from 10-04 (c85b0079 / 1b0baa53 / ca3694a2) gives estimated next dates, but Today checks, Limits, Scan and Vol ratings still say no earnings date reaches this side; TodayFace and stockRatingsModel already changed. (2) Corporate Actions (B4.tail): a name with a single row is treated as not backfilled and names with none are 'carry nothing at all'; after the 09-29 backfill CAOS's one split is a complete answer and CBRS · FN · HIMS · NBIS · NNE · RKLB really have 0 events. (3) CUE (R10.CUE): after the 1:30 reverse split (ex 2026-04-24) only 14 adjusted CUE1 contracts expiring 10-16 exist and no standard series is listed; the pages show empty max pain / ATM IV / GEX / flow / PCR with no reason.
-- **Measured**: MEASURED 10-06 on bifrost-trade-frontend origin/main a9cbd02a: the lines below; 'only adjusted contracts' 0 hits; CUE 10-05 open interest 14 rows, all CUE1.
-- **Evidence**:
-  - `bifrost-trade-frontend/src/pages/home/today/useTodayChecks.ts:186` — `'no future earnings date reaches this side for any name in the book, so the week ahead cannot be read',`
-  - `bifrost-trade-frontend/src/utils/limitsModel.ts:284` — `noReading: 'no future earnings date reaches this side, so no window can be drawn',`
-  - `bifrost-trade-frontend/src/pages/research/discover/ScanPage.tsx:490` — `title="Days to the next print. No forward earnings date reaches this side — /research/events/calendar answers count 0, and the gap behind it`
-  - `bifrost-trade-frontend/src/pages/research/discover/ScanPage.tsx:567` — `title="No earnings date on this side — see the column header."`
-  - `bifrost-trade-frontend/src/lib/research/volRatingsModel.ts:46` — `* - an **Earn** column. No forward earnings date reaches this side:`
-  - `bifrost-trade-frontend/src/pages/portfolio/corporateActions/corporateActionsModel.ts:211` — `/** Symbols with nothing at all — the feed cannot say whether they pay. */`
-  - `bifrost-trade-frontend/src/pages/portfolio/corporateActions/CorporateActionsPage.tsx:391` — `${reach.silent.length} carry nothing at all: ${reach.silent.join(', ')}`
-- **Impact**: The pages tell the Owner data is missing where an estimate exists or where the vendor answered zero; CUE's empty metrics read as a failure.
-- **Fix**: The four earnings sites read the shared earnings read and say estimated ◎ · confirmed dates not in the subscription (see 数据边界); Corporate Actions says 'vendor answered none' / 'one event on record'; CUE's option metric cells say only adjusted contracts are listed (CUE1, 1:30 reverse split) and the exchange lists no standard series.
-- **Ratchet**: A frontend test that searches src (outside designNotes) for the retired phrases and fails on a hit. Manual strength until vitest runs in CI (RATCHETS: FE 守卫测试).
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
 
 ### TD-152
 
@@ -981,7 +941,7 @@
 - **验收**：对 CUE（或任一只有调整合约的名字）调用新增的计数读法 → `standard = 0`、`adjusted > 0`；对 NVDA → `standard > 0`；`git -C bifrost-trade-frontend grep -n "isAdjustedOptionTicker" origin/main -- src` → 只剩测试或 0 行
 - **验收结果**：部分 PASS 2026-10-06：composite 对 CUE standard 0 / adjusted 14 {CUE1}，NVDA 4,180 / 0，APTV 70 / 40；前端 `isAdjustedOptionTicker` 只剩防线测试里的正则。页面未部署
 - **现在**：research 0.193.0：`GET /research/exhibit/composite` 加 `option_listing`（as_of、standard / adjusted 计数、adjusted_roots，用共享谓词 `not_adjusted_contract_sql`）；前端 `useDossier` 读同一缓存，`SymbolAdjustedOnlyNote` 只按 Research 的计数显示。防线：`tests/engines/test_adjusted_contracts.py`、`tests/api/test_exhibit_lenses.py`、`SymbolAdjustedOnlyNote.test.tsx`（src 里不准从 ticker 推导调整 root）
-- **Claim**: Research excludes adjusted contracts (OCC root ending in a digit) from every option metric, so a name with only adjusted contracts has empty max pain, ATM IV, GEX, flow and PCR by rule. Nothing served says so. The TD-150 frontend batch infers it by fetching the nearest expiry's snapshot rows and testing each option_ticker's root, copying Research's SQL rule into TypeScript; it reads one expiry only and costs two extra requests on names whose four option exhibits are all missing.
+- **Claim**: Research excludes adjusted contracts (OCC root ending in a digit) from every option metric, so a name with only adjusted contracts has empty max pain, ATM IV, GEX, flow and PCR by rule. Nothing served says so. The shipped data-gap-wording frontend batch infers it by fetching the nearest expiry's snapshot rows and testing each option_ticker's root, copying Research's SQL rule into TypeScript; it reads one expiry only and costs two extra requests on names whose four option exhibits are all missing.
 - **Measured**: CODE-READ 10-06: the rule lives in Research `not_adjusted_contract_sql` (27 call sites) and, on the wording branch, in frontend `adjustedListing.ts`; the plugin's `/market/options/snapshots` returns rows with option_ticker but no per-name counts. MEASURED 10-05: CUE 14 open-interest rows, all `CUE1…`.
 - **Evidence**:
   - `bifrost-research/src/bifrost_research/engines/adjusted_contracts.py:20` — `def not_adjusted_contract_sql(column: str) -> str:`
@@ -1079,14 +1039,14 @@
 
 **P3 · research-data · The macro calendar has no CPI dates after 2026-12-10 and no payrolls at all: bls.gov answers 403 from this host, so they could not be read**
 
-- **状态**：未开始
+- **状态**：在做（LANE-E 2026-10-07 查证：BLS 官方只排到 2026-12，**2027 全年日程尚未发布**——`/schedule/2027/home.htm` 404，官方 ICS 80672 字节全文无 `2027`；Claude 2026-10-08 用 `empsit.htm` 独立复核，最后一行是 Dec. 04, 2026，页面明确没有 2027。所以 TD-180 的 2027 部分**等 BLS 发布**，不是我们能做的工作。能做的那半已交 LANE-E2：把官方已确认的两行非农写进 CSV——`2026-11-06,08:30,US,NFP,October 2026` 与 `2026-12-04,08:30,US,NFP,November 2026`，三处来源一致）
 - **Claim**: TD-151's seed file carries FOMC through 2027 but CPI only for three 2026 releases (copied from a hand-dropped file) and no Employment Situation dates.
 - **Measured**: MEASURED 10-06 by paydown lane O: bls.gov returned 403 to the Mac; federalreserve.gov answered.
 - **Evidence**:
   - `bifrost-research/src/bifrost_research/scheduler/data/macro_calendar.csv:35` — `2026-12-10,08:30,US,CPI,November 2026`
 - **Impact**: From 11-05 the asset check warns; from 12-10 the forward calendar has no CPI and never had payrolls.
-- **Fix**: Someone who can open bls.gov adds the 2027 CPI and Employment Situation schedules to the CSV.
-- **Ratchet**: Already in place: the macro_calendar asset check warns when any series has under 30 days left.
+- **Fix**: 两段。(a) 现在：写入官方已发布的两行 2026 非农（日历从来没有过非农，这是 Claim 的一半）。(b) BLS 发布 2027 日程后：补 2027 的 CPI 与非农。**本机 urllib 直连 bls.gov 一律 403**（Access Denied），要用能打开页面的浏览器会话读同一 URL。
+- **Ratchet**: 已有的 macro_calendar asset check（任一序列剩余不足 30 天即告警）。原定的「最后一个日期 ≥ 今天+180 天」防线**作废**：BLS 只提前约 14 个月排期，这条线在正常年份也会红，LANE-E 正确地拒绝了它。LANE-E2 改为断言每个序列（FOMC / CPI / NFP）至少有一个未来日期。
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
 
 ### TD-183
@@ -1381,22 +1341,6 @@
 - **验收**: `KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n cicd get pipelineruns -o go-template='{{range .items}}{{.metadata.name}} {{range .spec.params}}{{.name}}={{.value}} {{end}}{{"\n"}}{{end}}' </dev/null | grep ci-platform | grep -cE 'uiRevision=[0-9a-f]{40}'  # ≥1 after the next ui push`
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra, bifrost-platform, bifrost-ui
 
-### TD-240
-
-**P3 · trade-worker · The running PROD daemon never writes contract_quote_live: the observe-only quote mirror sits under mock_hedging, which is hard-coded True**
-
-- **状态**：在做（Owner 10-08 改选 B：开关保持关闭，删掉镜像与期权兜底；交 Cursor `cursor-tasks/LANE-T3-drop-quote-mirror.md`）。10-08 核实：镜像只写持仓 STK 行，全系统唯一的读者是 `GET /quotes` 的 OPT 兜底（`bifrost-trade-api/src/bifrost_api/market/routers/quotes.py:135-141` → core `get_contract_quotes`），只查期权键；写期权行的 `on_ticker_for_contract_key` 没有调用方，表里期权行停在 03-28，读侧 `fresh_quote_sql` 过滤后兜底永远为空。写的没人读，读的没人写。worker f9046bd 的开关（默认关）已在 PROD，T3 合并后连开关一起删
-- **Claim**: Both contract_quote_live write sites in the heartbeat are inside `if not getattr(app, "mock_hedging", True)`, and GsTrading sets mock_hedging = True in __init__ and _reload_config as the D10 hedging guard. The PROD daemon runs (2/2), so the Redis→raw_broker.contract_quote_live mirror, which is observe-only, never runs; _on_ticker / _on_ticker_for_contract_key have no caller. Closed TD-140 recorded the cause as 'the daemon does not run'; its fix (vendor EOD fallback, core 0.51.0) routes around the table.
-- **Measured**: MEASURED 2026-10-07 00:45 UTC: bifrost-prod deploy/daemon 2/2; raw_broker.contract_quote_live 13 rows, max(updated_at) 2026-03-28 06:16; no caller of _on_ticker* in worker src/tests.
-- **Evidence**:
-  - `bifrost-trade-worker/src/bifrost_worker/daemon/app/control_heartbeat.py:259` — `if not getattr(app, "mock_hedging", True):`
-  - `bifrost-trade-worker/src/bifrost_worker/daemon/app/gs_trading.py:85` — `self.mock_hedging = True`
-- **Impact**: CORRECTED 10-08: no page loses a price. Nothing reads the STK rows the mirror would write (STK quotes come from Redis directly), and the OPT fallback that reads the table has had no writer since March. What remains is dead code in four repos that looks like a live quote path.
-- **Fix**: Owner decides: (A) give the observe-only STK quote mirror its own flag (daemon.quote_mirror) outside mock_hedging, no order path; or (B) delete the mirror, the _on_ticker* callbacks and the write path. Do not keep a write path that can never run.
-- **Ratchet**: (A) worker test: with mock_hedging=True and quotes in Redis, one heartbeat writes contract_quote_live. (B) a dead-symbol check (vulture baseline) failing on _on_ticker*.
-- **验收**: `for r in bifrost-trade-worker bifrost-trade-api bifrost-trade-core; do git -C $r grep -nE "write_contract_quote_live|get_contract_quotes|quote_mirror" origin/main -- src; done` 无输出；PROD 发布后 `GET /quotes` 带一个期权合约键仍 200
-- 审批 跨仓库发版 · 代价 S · 风险 low · repos: bifrost-trade-worker
-
 ### TD-242
 
 **P2 · market-data · market-data /ingest/queue-dashboard takes 5–25 s per call, and the platform-api proxy carries the same delay: with the new latency rule live it will page whenever someone keeps the queue dashboard open**
@@ -1511,11 +1455,26 @@
 - **验收**: `cd bifrost-platform/api && go test ./internal/patrol -run 'ChainCleanup' -count=1`
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-259
+
+**P3 · ops-platform · The market-data freshness probe now pays a whole-database count: /market/coverage/db-summary takes 4.3–5.5 s and the Console polls plugin status every 30 s**
+
+- **状态**：未开始
+- **Claim**: TD-256 moved `probeFreshness` off `pods/exec` onto `GET /market/coverage/db-summary`. That endpoint returns the 29 freshness rows the probe needs *and* whole-database `counts`, so the probe pays for rows it discards. Measured 2026-10-07 through the Trade gateway: DEV 5.46 s, PROD 4.35 s, 5035 B. The Console polls `/plugins/market-data/status` every 30 s, and that handler calls the probe inline. `/market/status`'s `freshness_summary` answers in 0.04 s but is `ORDER BY last_run_at DESC LIMIT 20`, so it drops 9 dimensions (financials, ratios, sec_filings, short_interest, short_volume, job_trim, slot:fundamentals-rotate, slot:ticker-details, stock_daily_unadjusted) — not equivalent.
+- **Measured**: MEASURED 2026-10-07 by LANE-P2 (DEV 5.46 s / PROD 4.35 s, 29 rows, byte-identical bodies). Not a correctness problem: `proxyTimeout` is 60 s and platform-api sets no HTTP `WriteTimeout`, so nothing is cut off — verified 2026-10-08.
+- **Evidence**:
+  - `bifrost-platform/api/internal/marketdata/service.go` — `body, err := s.fetchPluginJSON(ctx, "/market/coverage/db-summary")`
+  - `bifrost-platform-plugin-market-data` — `/market/coverage/db-summary` builds whole-DB counts alongside `freshness`
+- **Impact**: Every 30 s Console poll carries a ~5 s plugin call and a whole-database count the caller throws away.
+- **Fix**: Add a freshness-only endpoint to the market-data plugin (`GET /market/coverage/freshness`, the same 29 rows, no counts) and point `probeFreshness` at it; keep `db-summary` for the pages that want counts. Plugin-side change, so it ships on the plugin chain, not the platform one.
+- **Ratchet**: Extend `freshness_http_test.go` to assert the probe's path is the freshness-only one; a plugin test that the new endpoint returns the same row set as `db-summary`'s `freshness`.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data, bifrost-platform
+
 ### TD-256
 
 **P3 · ops-platform · Plugin freshness probes read Postgres by exec into the primary as superuser: STG (read-only since TD-204) cannot run them, and PROD needs pods/exec in data only for this read**
 
-- **状态**：未开始
+- **状态**：在做（platform main 286c305 已上 **STG**：两个 probeFreshness 改走插件 HTTP。STG 实测 `freshness_reachability: ok`、market-data 29 行、flex-query 2 行——TD-204 之后 STG 本来探不到。**PROD 待发**：auto mode 拦了 [Production Deploy]，清单已备好交 Owner 执行）
 - **Claim**: marketdata and flexquery `probeFreshness` run `SELECT … FROM ops_jobs.ingest_freshness` / `flex_ingest_freshness` through `ExecSQLOnPrimary` (pods/exec into bifrost-postgres, psql as postgres). Since the STG platform runs as the read-only ServiceAccount (TD-204) these probes fail on STG; on PROD they keep pods/exec in data, a superuser-equivalent right, for a read the plugins already serve over HTTP.
 - **Measured**: CODE-READ; RBAC measured 2026-10-07: STG `can-i create pods --subresource=exec -n data` → no, PROD → yes.
 - **Evidence**:
@@ -1523,8 +1482,8 @@
   - `bifrost-platform/api/internal/flexquery/service.go` — `out, err := s.cluster.ExecSQLOnPrimary(ctx, db, sql)`
 - **Impact**: STG plugin freshness views read unavailable; PROD keeps a broader right than reads need (the data clone still needs exec).
 - **Fix**: Read freshness from the plugins' own HTTP endpoints through the service proxy (observer already allows services/proxy), as other plugin health reads do; then pods/exec in data serves only the data clone.
-- **Ratchet**: code-health metric: ExecSQLOnPrimary call sites outside cluster/data_clone*.go, baseline 2, falling.
-- **验收**: `git -C bifrost-platform grep -n 'ExecSQLOnPrimary' origin/main -- api/internal/marketdata api/internal/flexquery  # no output`
+- **Ratchet**: `bifrost-platform/api/internal/cluster/execsql_callers_test.go::TestExecSQLOnPrimaryCallSitesOnlyDataClone`——非测试 Go 文件里 `internal/cluster/data_clone*.go` 以外的 `.ExecSQLOnPrimary(` 必须为 0（基线 2 → 0，只降不升）。另有 9 条行为测试（marketdata / flexquery 的 `freshness_http_test.go`：HTTP 解析与 SQL 口径一致、不可达≠空、空≠不可达、坏 JSON→degraded）。改用 Go 测试而非 code-health 指标，因为它能同时锁住调用点和口径
+- **验收**: `git -C bifrost-platform grep -n 'ExecSQLOnPrimary' origin/main -- api/internal/marketdata api/internal/flexquery`（无输出，已 PASS 2026-10-08 286c305）+ `curl -s http://192.168.10.73:30876/api/v1/plugins/market-data/status` 的 `freshness_reachability` 为 ok 且 `freshness` 29 行（**PROD 待发**；STG :30878 已 PASS）
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-258
