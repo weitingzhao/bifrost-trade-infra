@@ -19,6 +19,7 @@
 - **TD-254** — 备份只归 CNPG 每日备份 + backup-retry：autopilot 遇到备份不新鲜只报告、不再调 repair_cnpg_wal_store（不再删失败的 Backup、不再盘中补全量备份；工具留给人手动用）。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「autopilot 备份不动手测试」。后续：无后续：剩下的收敛在 TD-130（观察到 10-12）
 - **TD-255** — 漂移扫描不再删失败现场：只删被驱逐的 Pod，失败的备份 Job Pod 留着（日志可读），只报告模式下一个不删。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「漂移扫描只删 Evicted 测试」。后续：无后续：Job 历史上限与 TTL 负责回收
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
+- **TD-104** — Trade Ops 的三条 IB Gateway 行不再永远离线：进程状态按 `data/ib-gateway` 的副本数判断，`updated_at` 从 IB 的 Redis 读；api-ops 加了只读、只限这一个 Deployment 的 Role（三个环境）。验收 PASS 2026-10-08（PROD 三行 active 1/1、updated_at 5 秒内；STG 同）。防线：api `tests/test_ib_gateway_row_active.py`（4 例）+ infra `scripts/check_api_ops_ib_gateway_rbac.py`（Role 只有 get、只点名 ib-gateway；infra 合并待做，RBAC 已从分支 apply）。后续：无后续：台账原写的 redis_ib_keys 合约字段测试由上面两条覆盖读写两端
 
 **未结 72 项**：P0 0 · P1 7 · P2 25 · P3 40；要你批的 31 项（从总览表的审批列算）。
 
@@ -490,8 +491,9 @@
 
 **P2 · flex-ib · Trade Ops reports all three IB Gateway services 'offline' on PROD: the gateway's health hashes have no updated_at, and the service rows point at retired StatefulSets**
 
-- **状态**：在做（ib-gateway 0.4.0 已上 PROD 10-07 17:19 UTC（digest sha256:278c4c07…，插件 e335bd6）+ Trade core 0.58.0：三个健康 hash 已带 updated_at（实测 6.5 s）；但 PROD trade-api /api/monitor/ops/market-ingest/services 三行仍 process_active=inactive、k8s_replicas=0——api-ops SA 读不了 data/ib-gateway（can-i no），hash 也未读到；交 Cursor LANE-T2）
-- **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
+- **状态**：待你签收
+- **验收结果**：PASS 2026-10-08 api 1d001b6 · infra RBAC 074c1fe（已 apply）：PROD `/api/monitor/ops/market-ingest/services` 三条 IB 行 `process_active=active`、`k8s_replicas=1`、`k8s_ready=1`、`redis_control_updated_at` 5 秒前（STG 同样 active、2 秒前）；三个环境 `kubectl -n data get deploy ib-gateway --as=system:serviceaccount:<env>:api-ops` 读到 1/1，`list deployments` 与读别的 Deployment 都是 no；api-ops 近 10 分钟 0 条 forbidden。发布 `bifrost-deliver-stg-6hsnq` → `bifrost-deliver-prod-pinned-mtbjw`，release-check 两次 PASS
+- **验收**：`curl -s http://192.168.10.73:30881/api/monitor/ops/market-ingest/services` 三条 ib_* 行 active、updated_at 在 60 秒内
 - **Claim**: trade-api judges liveness from the health hash's updated_at (missing = dead). The gateway writes ws_ib_ingestor/ws_ib_account_agent/ws_ib_operator without updated_at and never has since 07-04. /ops/market-ingest/services shows runtime_status=inactive 'managed@platform-ib-gateway (offline)'; platform satellite maps 'inactive' to ReachFail and the endpoint is a Tier-B probe. The rows also name retired ib-operator/ib-market-gateway/ib-account-agent workloads and systemd units. TD-31's contract covers key names, not field names.
 - **Measured**: MEASURED: PROD /api/monitor/ops/market-ingest/services returns inactive/offline for all three, naming deployments that do not exist, while data/ib-gateway has been Running 3d12h with 0 restarts. git log -S shows the gateway never wrote updated_at into these hashes.
 - **Evidence**:
@@ -1404,7 +1406,8 @@
 
 **P3 · trade-worker · The running PROD daemon never writes contract_quote_live: the observe-only quote mirror sits under mock_hedging, which is hard-coded True**
 
-- **状态**：在做（Owner 10-07 选 A：给报价镜像单独开关 daemon.quote_mirror，默认关；交 Cursor LANE-T2）
+- **状态**：在做（代码已上 PROD：worker f9046bd 随 `bifrost-deliver-prod-pinned-mtbjw` 10-08 上线，报价镜像改由 `daemon.quote_mirror` 控制、默认关、`mock_hedging = True` 不变，测试 `tests/test_quote_mirror_flag.py` 4 passed（含「镜像开时不调对冲与下单」）。开关仍关，所以验收命令的 max(updated_at) 不会动）
+- **下一步**：要你定是否在 PROD daemon 配置里打开 `daemon.quote_mirror: true`（只写 contract_quote_live，不走下单路径）；打开后一个交易时段内跑验收
 - **Claim**: Both contract_quote_live write sites in the heartbeat are inside `if not getattr(app, "mock_hedging", True)`, and GsTrading sets mock_hedging = True in __init__ and _reload_config as the D10 hedging guard. The PROD daemon runs (2/2), so the Redis→raw_broker.contract_quote_live mirror, which is observe-only, never runs; _on_ticker / _on_ticker_for_contract_key have no caller. Closed TD-140 recorded the cause as 'the daemon does not run'; its fix (vendor EOD fallback, core 0.51.0) routes around the table.
 - **Measured**: MEASURED 2026-10-07 00:45 UTC: bifrost-prod deploy/daemon 2/2; raw_broker.contract_quote_live 13 rows, max(updated_at) 2026-03-28 06:16; no caller of _on_ticker* in worker src/tests.
 - **Evidence**:
