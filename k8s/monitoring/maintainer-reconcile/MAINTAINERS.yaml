@@ -109,6 +109,14 @@ maintainers:
     max_tier: B
     detected_by: BifrostClusterStateBackupStale
     status: active
+  - id: cronjob/monitoring/maintainer-reconcile
+    what: "Nightly reconcile of this inventory against live CronJobs, ScheduledBackups, Dagster schedules and sensors, platform loop series, and launchd on both Minis. Writes only its marker ConfigMap monitoring/maintainer-reconcile-clean, deleted on drift (LANE-E1)."
+    runs_on: cluster:monitoring/CronJob
+    schedule: "0 7 * * * UTC"
+    env: prod
+    max_tier: B
+    detected_by: BifrostMaintainerReconcileStale
+    status: active
   - id: cronjob/research/research-harness
     what: "Weekday copilot harness batch (daily_open) outside Dagster, writing the research store."
     runs_on: cluster:research/CronJob
