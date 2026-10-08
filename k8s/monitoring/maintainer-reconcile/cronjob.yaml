@@ -6,10 +6,12 @@
 #
 # Not under Argo. Apply (Owner approval), from bifrost-trade-infra:
 #   kubectl apply -k k8s/monitoring/maintainer-reconcile
-# The viewer token is not in git. Before the first run:
-#   kubectl -n monitoring create secret generic maintainer-reconcile-auth \
-#     --from-literal=token="$(kubectl -n bifrost-platform-prod get secret \
-#     bifrost-platform-reporter-token -o jsonpath='{.data.PLATFORM_PROD_REPORTER_TOKEN}' | base64 -d)"
+# The viewer token is not in git. Before the first run, read it on stdin so it
+# does not appear in the process list:
+#   kubectl -n bifrost-platform-prod get secret bifrost-platform-reporter-token \
+#     -o jsonpath='{.data.PLATFORM_PROD_REPORTER_TOKEN}' | base64 -d \
+#     | kubectl -n monitoring create secret generic maintainer-reconcile-auth \
+#       --from-file=token=/dev/stdin --dry-run=client -o yaml | kubectl apply -f -
 # Reporter is above viewer, so it may call GET /api/v1/agent/launchd on the minis.
 # The Secret key is optional: without it the job still reconciles the cluster
 # and records launchd as unread (drift).

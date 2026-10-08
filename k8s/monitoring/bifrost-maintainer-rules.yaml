@@ -1,6 +1,7 @@
 # LANE-E1. Liveness of maintainers that had no PrometheusRule.
-# severity is warning. Names that match the backup pager
-# (BifrostPostgresBackup*) still page; everything else is the PROD audit webhook.
+# severity is warning. Names stay off the backup pager
+# (BifrostPostgresBackup*): liveness is the PROD audit webhook only.
+# A failed backup still pages through the existing backup rules.
 # Apply: kubectl apply -f k8s/monitoring/bifrost-maintainer-rules.yaml
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
@@ -59,7 +60,7 @@ spec:
               in the last day. Read `kubectl -n <ns> logs job/<job_name>`.
         # The retry window is */15 04:00-09:00 UTC. A quiet night is normal;
         # 26h means yesterday's window produced no successful run.
-        - alert: BifrostPostgresBackupRetryStale
+        - alert: BifrostMaintainerBackupRetryStale
           expr: |
             (
               time() - kube_cronjob_status_last_successful_time{namespace="data",cronjob="backup-retry"} > 93600
@@ -74,7 +75,7 @@ spec:
               CronJob data/backup-retry creates one retry Backup when today's
               CNPG backup failed. The backup itself is BifrostPostgresBackupFailed.
               Read `kubectl -n data logs job/<latest backup-retry job>`.
-        - alert: BifrostPostgresBackupRetryJobFailed
+        - alert: BifrostMaintainerBackupRetryJobFailed
           expr: |
             (
               kube_job_status_failed{namespace="data",job_name=~"backup-retry-.+"} > 0
@@ -153,7 +154,7 @@ spec:
             description: >-
               The loop checks the schedule every hour, including the no-op
               when the schedule ConfigMap is absent. 2 hours is twice that.
-        - alert: BifrostPostgresBackupSweepStale
+        - alert: BifrostMaintainerBackupSweepStale
           expr: |
             (
               time() - bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/failed-backup-sweep"} > 172800

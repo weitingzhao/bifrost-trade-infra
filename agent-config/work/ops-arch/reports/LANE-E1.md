@@ -5,7 +5,7 @@
   - bifrost-platform · `cursor/e1-platform` · `5c4040ee3847799770f960d73e58ebc2ccef2dfd`
   - bifrost-trade-infra · `cursor/e1-infra` · 实现 `46c5b25b1cb636890c5ce10dcfef27592ea8cc5f`，本报告是其后的提交（分支 tip）
 - 派发 / 审批：没有碰。`internal/checklist/dispatch.go`、`executeDispatch`、husbandry-sync 派发路径、approvals 端点、审批令牌、`RequestActionButton` 都没改。`prober.go` 只在探测合并成功或失败时记了维护者指标（第 3 阶段若也改这个文件，合并时会撞）。
-- 防线：`make check-maintainers` 要求 `detected_by` 里的告警名真实存在，并要求 `k8s/monitoring/maintainer-reconcile/MAINTAINERS.yaml` 与 `agent-config/MAINTAINERS.yaml` 逐字节相同。`scripts/check_alert_routing.py` 仍把 `BifrostPostgresBackup*` 送进现有寻呼路由；其余新告警 severity 都是 warning，走默认 PROD webhook（记账）。`reconcile.py --self-test` 覆盖干净、缺 series、`none:` 不要求 series、常驻 launchd 停了算漂移、间隔任务两次运行之间不算漂移、多出来的 schedule。
+- 防线：`make check-maintainers` 要求 `detected_by` 里的告警名真实存在，并要求 `k8s/monitoring/maintainer-reconcile/MAINTAINERS.yaml` 与 `agent-config/MAINTAINERS.yaml` 逐字节相同。`scripts/check_alert_routing.py` 仍把真正的备份告警 `BifrostPostgresBackup*` 送进现有寻呼路由；维护者存活告警在 LANE-E1R 改名为 `BifrostMaintainer…` 之后不进这条路由，severity 都是 warning，走默认 PROD webhook（记账）。`reconcile.py --self-test` 覆盖干净、缺 series、`none:` 不要求 series、常驻 launchd 停了算漂移、间隔任务两次运行之间不算漂移、多出来的 schedule。
 - 门禁：
   - platform `api/`：`go build ./... && go vet ./... && go test ./...` → exit 0（全部包 ok）。第一次编译失败是 `route` 字面量少了 `viewer` 字段，已补 `false`。第一次全量测试只失败 `storedurability.TestNoNewStoreUnderHome`（`launchd/list.go` 读本机 LaunchAgents），已写入非存储原因的允许名单。第二次全量测试通过。
   - `make check-maintainers` → `ok 42 maintainers; static; no-alert 15`
@@ -33,11 +33,16 @@ kubectl apply -k k8s/monitoring/maintainer-reconcile
 
 # 给夜间任务一个能读 launchd 的令牌。reporter 高于 viewer。
 # 不建这张 Secret 时，任务仍对账集群，并把 launchd 记成未读（算漂移）。
-kubectl -n monitoring create secret generic maintainer-reconcile-auth \
-  --from-literal=token="$(kubectl -n bifrost-platform-prod get secret \
-  bifrost-platform-reporter-token -o jsonpath='{.data.PLATFORM_PROD_REPORTER_TOKEN}' | base64 -d)"
+# 令牌从标准输入读，不出现在进程参数里（LANE-E1R）。
+kubectl -n bifrost-platform-prod get secret bifrost-platform-reporter-token \
+  -o jsonpath='{.data.PLATFORM_PROD_REPORTER_TOKEN}' | base64 -d \
+  | kubectl -n monitoring create secret generic maintainer-reconcile-auth \
+    --from-file=token=/dev/stdin --dry-run=client -o yaml | kubectl apply -f -
+
+# operator-plane 的只读端点 GET /api/v1/agent/launchd 要在两台 mini 上重新部署才生效。
+# 用已修好的 deploy_mac_mini.sh，从干净的 main 检出跑。没部署前，夜间对账把 launchd 记成未读。
 ```
 
-platform 镜像要先发到 PROD/STG workers，gauge 才会出现。在那之前，PROD 循环的 `absent()` 会以 warning 记账（备份清扫那条因为名字匹配 `BifrostPostgresBackup*` 会走寻呼）。patrol 的 cert-expiry 技能一周才跑一次，第一次成功前 `absent()` 会一直在。CronJob `maintainer-reconcile` 第一次干净通过之前，`BifrostMaintainerReconcileDrift` 会响。`/metrics` 仍会顺带探四个插件（和 platform-api 的 ServiceMonitor 相同，间隔 60s）。
+platform 镜像要先发到 PROD/STG workers，gauge 才会出现。在那之前，PROD 循环的 `absent()` 会以 warning 记账。LANE-E1R 起，备份重试和清扫的存活告警叫 `BifrostMaintainer…`，不再匹配呼人路由。patrol 的 cert-expiry 技能一周才跑一次，第一次成功前 `absent()` 会一直在。CronJob `maintainer-reconcile` 第一次干净通过之前，`BifrostMaintainerReconcileDrift` 会响。platform-api 的 `/metrics` 仍会探四个插件；`PLATFORM_ROLE=workers` 的 `/metrics` 只出进程指标和维护者指标（LANE-E1R）。
 - 验收：在 infra 该分支上 `make check-maintainers` 预期 `ok 42 maintainers; static; no-alert 15`。`PATH="/usr/bin:$PATH" python3 scripts/check_alert_routing.py` 预期 exit 0。在 platform 该 SHA 的 `api/` 里 `go test ./internal/maintainer ./internal/launchd ./internal/operatorplane` 预期 ok。
 - 后续：第 3 阶段合并 `prober.go` 时保留 `maintainer.Success` / `Failure`。不要和 D1 的分支一起推。无新的技术债条目。
