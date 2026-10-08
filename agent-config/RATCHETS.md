@@ -4,7 +4,7 @@
 > **规则**：每关掉 `TECH_DEBT.md` 里的一项，要么在这里加一条（或扩大已有一条的范围），要么在提交信息里写明为什么没有可行的防线。删掉或放宽一条防线要写理由。
 > 强度：blocking＝不过就不能提交/发布；warning＝报出来但不拦；alert＝运行时告警；manual＝要人手跑。
 
-更新：2026-10-06（第 2 轮扫描的防线盘点；同日加 TD-87/88/89/90 的防线；同日登记 TD-132 的 MinIO 后端测试；同日登记 TD-197 的标题上报测试与 lineage 镜像同步测试；10-07 登记 TD-203/208 的终端与派发鉴权测试、TD-205 的数据层局域网暴露检查、TD-209 的告警路由检查与中转测试、TD-248 的中转互看、TD-204 的 platform 权限检查、TD-253/254/255 与 TD-130 的维护单点检查和测试；10-08 登记 TD-104 的 IB 服务行存活测试与 api-ops RBAC 检查；10-08 登记 TD-240 的镜像删除测试、TD-256 的 ExecSQLOnPrimary 调用点测试、TD-150 的退役措辞测试、TD-145 的 Best regime 门槛测试）
+更新：2026-10-06（第 2 轮扫描的防线盘点；同日加 TD-87/88/89/90 的防线；同日登记 TD-132 的 MinIO 后端测试；同日登记 TD-197 的标题上报测试与 lineage 镜像同步测试；10-07 登记 TD-203/208 的终端与派发鉴权测试、TD-205 的数据层局域网暴露检查、TD-209 的告警路由检查与中转测试、TD-248 的中转互看、TD-204 的 platform 权限检查、TD-253/254/255 与 TD-130 的维护单点检查和测试；10-08 登记 TD-104 的 IB 服务行存活测试与 api-ops RBAC 检查；10-08 登记 TD-240 的镜像删除测试、TD-256 的 ExecSQLOnPrimary 调用点测试、TD-150 的退役措辞测试、TD-145 的 Best regime 门槛测试；10-08 登记 TD-136/157/166 的 GEX 无暴露测试）
 
 ## 现有防线
 
@@ -152,6 +152,7 @@
 | 退役的账户流不复活（TD-236） | 插件 `tests/test_redis_key_manifest.py`（与 core 键清单一致） | 无人读取的流被重新写入 | warning（测试） | — |
 | 不提交 Secret / 不复活从未运行的 MinIO（TD-237） | `bifrost-trade-infra/scripts/check-no-k8s-secrets.sh`；gpu-workload.sh warehouse-up 直接拒绝 | 占位口令进公开仓、死对象长期挂着 | warning（脚本） | 未进 CI |
 | Golden Source 备份能恢复（TD-217） | `bifrost-trade-infra/k8s/data/recovery-drill/`（清单 + compare.sh，可重复执行）；季度告警见 TD-258 | 备份从未恢复过、坏了没人知道 | manual（季度演练） | 告警待 TD-258 |
+| GEX 无暴露不写 wall 与 zero-γ（TD-136 / TD-157 / TD-166） | `bifrost-research/tests/engines/test_gex_zero_exposure.py`（21 例） | 三条规则：(1) 没有任何 gamma 暴露的到期日不写分布与 levels，盘中同样不写（TD-136）；(2) 只有一侧有暴露时，空侧的 wall 与 wall gex 写 NULL（TD-157）；(3) 只有累计 net gex 在非零值之间换号才算翻转（离开 0、碰到 0 都不算，取离现价最近的翻转），日线没有翻转时 `zero_gamma` 写 NULL（TD-166）；另锁住 `zero_exposure_purge` 不带 --apply 只计数、计数不符时拒绝写 | warning（测试） | 只测引擎逻辑，没有对 `features.option_metric_gex_levels_daily` 的夜间数据检查；10-08 验收时手跑三条 SQL 与干跑 Job 均为 0 |
 
 ## 各类债现在挡没挡住
 
