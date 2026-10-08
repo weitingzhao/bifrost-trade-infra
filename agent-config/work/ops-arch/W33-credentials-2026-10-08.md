@@ -89,7 +89,9 @@ A 的第 2 步不做，Agent 要写时把命令写给 Owner 去跑。按 30 天�
 5. 第 2 步按五个通用动作做（`apply_manifest`、`create_job_from_cronjob`、清理类、`run_probe_pod`、兜底的 `owner_run_command`）；新增这些动作属于新增公开接口，已获 Owner 同意。只读数据库账号也一起建（新增角色，DDL 执行前仍要 Owner 逐次批）。
 6. 管理员 kubeconfig 和 `bifrost_deploy` 放到 Owner 专用目录，由 preflight 按路径拦；不用 Face ID / passkey。
 
-下一步：W-32 上线后写 `LANE-W33.md`（第 1 步和 ③④ 先派；第 2、3 步按依赖顺序派）。
+7. **Grafana（W-32 C4 并入，记为 ⑤）选 A**：经 ops 网关子路径 `ops.bifrost.lan/grafana` 提供 Grafana。Grafana 开子路径和嵌入（helm upgrade，要 Owner 批），platform 的 Grafana 地址指向它；Console 内嵌面板与 Console 同源，不再被当作混合内容拦掉。
+
+下一步：W-32 上线后写 `LANE-W33.md`（第 1 步和 ③④⑤ 先派；第 2、3 步按依赖顺序派）。
 
 ## 五、要 Owner 定的事
 
