@@ -43,10 +43,12 @@
 
 - **类别**：计划
 - **状态**：在做
-- **现在**：已验收并合进 platform main `f9f696f`（含 E1 的 platform 部分），STG 已发，Owner 2026-10-08 回「STG 通过」。PROD 发布单待建（见 `STATUS-2026-10-08.md`「交接」）
-- **下一步**：发 PROD；之后按删留复核（`PHASE3-review-2026-10-08.md`）写清理道
-- **验收**：README 退出条件：STG 上 Owner 过目通过后发 PROD
-- **关联**：`agent-config/work/ops-arch/README.md`、`agent-config/work/ops-arch/PHASE3-pages.md`、`agent-config/work/ops-arch/PHASE3-review-2026-10-08.md`
+- **现在**：
+  - 已上 PROD（platform `f9f696f`，10-08，`appr_35e3fb0d71cbdc3e`）；TD-208 已签收；
+  - 删留复核 Owner 已定，清理道是 W-32（Cursor 在做）。
+- **下一步**：W-32 验收 → STG → PROD（第一波）。去向表剩下的两行「部分」并进 W-33
+- **验收**：README 退出条件：STG 上 Owner 过目通过后发 PROD（已满足）；W-32 上 PROD 后关闭
+- **关联**：`agent-config/work/ops-arch/README.md`、`agent-config/work/ops-arch/PHASE3-pages.md`、`agent-config/work/ops-arch/PHASE3-review-2026-10-08.md`、`agent-config/work/ops-arch/LANE-W32.md`
 
 ### W-4
 
@@ -65,10 +67,13 @@
 
 - **类别**：计划
 - **状态**：在做
-- **现在**：第一部分是 LANE-E1（workers 进监控、存活指标、补告警、每晚对账）。infra 部分已合；platform 部分已随阶段 3 合进 main `f9f696f`、STG 已上，待发 PROD；集群里的存活规则、PodMonitor、对账 CronJob 等 PROD 上线后经 Owner 批准再 apply。凭证收口 README 写明先与 Owner 讨论分步
-- **下一步**：对账 0 漂移；Agent 侧无管理员凭证
+- **现在**：
+  - LANE-E1 已在 PROD：PodMonitor、存活规则、每晚对账，10-08 手动对账 drift 0；
+  - mini 的 operator-plane 有了 PROD viewer 令牌（platform `2052182`）；
+  - 其余（凭证收口等）并入第二波 W-33。
+- **下一步**：10-09 确认定时对账 0 漂移；W-33 讨论
 - **验收**：对账 0 漂移；Agent 侧无管理员凭证（README 阶段表）
-- **关联**：`agent-config/work/ops-arch/README.md`
+- **关联**：`agent-config/work/ops-arch/README.md`、W-33
 
 ### W-6
 
@@ -87,9 +92,9 @@
 
 - **类别**：计划
 - **状态**：未开始
-- **现在**：README 写 TWS 自动重启、交易区迁移（换 IP、IB Gateway 配置），最后单独谈
-- **下一步**：单独谈之前不开工
-- **验收**：README 此阶段退出条件仍是「—」，谈定之后再写命令
+- **现在**：Owner 10-08 拆开：TWS 自动重启留本计划，第三波；交易区迁移（换 IP、IB Gateway 配置）随第 6 阶段移交 W-31
+- **下一步**：第二波之后单独谈
+- **验收**：谈定后再写命令（TWS 掉线后能自己回来）
 - **关联**：`agent-config/work/ops-arch/README.md`
 
 ### W-8
@@ -395,6 +400,18 @@
 - **下一步**：Cursor 执行，推 `cursor/w32-platform` 和 `cursor/w32-infra`，写 `reports/LANE-W32.md`；Claude 照报告验收，然后发 STG，再申请 PROD
 - **验收**：`agent-config/work/ops-arch/reports/LANE-W32.md` 存在，四组门禁全过；STG 上本道删除的路由全部返回 404，`trust-matrix` 仍带 `research-loop-batch` 那条覆盖
 - **关联**：`agent-config/work/ops-arch/LANE-W32.md`、`agent-config/work/ops-arch/PHASE3-review-2026-10-08.md`
+
+### W-33
+
+**ops-arch · 第 5 阶段收口（第二波）**
+
+- **类别**：道
+- **状态**：未开始
+- **匹配**：LANE-W33
+- **现在**：Owner 10-08 定合并四件：① 凭证收口（mini 不再持有管理员 kubeconfig 与 admin 令牌、部署脚本不再同步、remediation runner 与 .52 hermes-gateway 定去留）；② PROD 经代理转到 mini 的 operator 级路由认 PROD 令牌；③ Console 显示待重启节点、滚动重启做成审批动作；④ ⑤ 页给 Research 与插件显示 STG / PROD 两列版本。先讨论分步，任务文件还没写
+- **下一步**：W-32 上线后与 Owner 讨论，再写 `LANE-W33.md`
+- **验收**：第 5 阶段退出条件——对账 0 漂移；Agent 侧没有管理员凭证
+- **关联**：`agent-config/work/ops-arch/README.md`「剩下的三波」、W-5
 
 ## 本批没有登记的
 
