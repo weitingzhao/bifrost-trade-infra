@@ -20,7 +20,7 @@
 - **TD-255** — 漂移扫描不再删失败现场：只删被驱逐的 Pod，失败的备份 Job Pod 留着（日志可读），只报告模式下一个不删。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「漂移扫描只删 Evicted 测试」。后续：无后续：Job 历史上限与 TTL 负责回收
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 69 项**：P0 0 · P1 7 · P2 23 · P3 39；要你批的 31 项（从总览表的审批列算）。
+**未结 70 项**：P0 0 · P1 7 · P2 23 · P3 40；要你批的 31 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -1469,6 +1469,24 @@
 - **Fix**: Add a freshness-only endpoint to the market-data plugin (`GET /market/coverage/freshness`, the same 29 rows, no counts) and point `probeFreshness` at it; keep `db-summary` for the pages that want counts. Plugin-side change, so it ships on the plugin chain, not the platform one.
 - **Ratchet**: Extend `freshness_http_test.go` to assert the probe's path is the freshness-only one; a plugin test that the new endpoint returns the same row set as `db-summary`'s `freshness`.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data, bifrost-platform
+
+### TD-260
+
+**P3 · trade-core · Four LEFT JOINs still read raw_broker.contract_quote_live, which has had no writer since March and none at all after TD-240: the quote columns they feed can only ever come back NULL**
+
+- **状态**：未开始
+- **Claim**: TD-240 deleted the only writers (`write_contract_quote_live`, the mirror). Owner kept the table, so four read sites remain and each filters on `fresh_quote_sql(alias)` = `updated_at >= now() - make_interval(secs => LIVE_QUOTE_MAX_AGE_SEC)`. The newest row in PROD is 2026-03-28, so every one of these JOINs now matches nothing, for good. They are not broken — they are a live-looking quote path that cannot return a quote, which is the project's own "unmeasured shown as green" class.
+- **Measured**: MEASURED 2026-10-08 (code read + the TD-240 measurement): `raw_broker.contract_quote_live` 13 rows, `max(updated_at)` 2026-03-28 06:16; after TD-240 no code writes it.
+- **Evidence**:
+  - `bifrost-trade-core/src/bifrost_core/portfolio/model/core.py:65` — `LEFT JOIN {CONTRACT_QUOTE_LIVE} cq ... AND {fresh_quote_sql('cq')}`
+  - `bifrost-trade-core/src/bifrost_core/portfolio/reader/accounts.py:441` — `LEFT JOIN {CONTRACT_QUOTE_LIVE} ip`
+  - `bifrost-trade-core/src/bifrost_core/portfolio/reader/executions.py:1592` — `LEFT JOIN {CONTRACT_QUOTE_LIVE} cql`
+  - `bifrost-trade-core/src/bifrost_core/portfolio/services/short_legs.py:46` — `FROM {CONTRACT_QUOTE_LIVE} q`
+  - `bifrost-trade-worker/CLAUDE.md:61` — still documents `contract_quote_live`（来自 Redis 报价）as a daemon write
+- **Impact**: Unknown until measured — whichever page columns these four feed read as an empty quote. The risk is a page that prints 0 or a dash where it means "nothing writes this any more". The worker doc also still tells the next reader the daemon mirrors quotes.
+- **Fix**: Measure first (LANE-X): for each of the four, find what page column it feeds and what that column shows with a NULL quote. Then per site: drop the JOIN if the page has a live source already (`GET /quotes` reads Redis directly), or keep it and say on the page that the reading is not served. Do not give the table a writer — Owner chose B on 2026-10-08. Fix `bifrost-trade-worker/CLAUDE.md:61` either way.
+- **Ratchet**: Whatever survives: a test that the page column reads as "not served" rather than 0 when the quote is NULL; plus the existing TD-240 removal tests, which already stop a writer coming back.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-core, bifrost-trade-worker, bifrost-trade-frontend
 
 ### TD-256
 
