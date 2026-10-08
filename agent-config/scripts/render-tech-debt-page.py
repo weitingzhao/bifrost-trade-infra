@@ -5,7 +5,7 @@ The two Markdown files are the only source. This script parses them and lays the
 page out the way the round-1 ledger was laid out (Owner 2026-10-06: one layout for
 every round), so a reader learns it once:
 
-    待你签收 · 自上次以来 · stats · 先看这几条 · 主题 · 还债顺序 · 数据边界 · 需要你拍板 · 台账 (filters) · 防线 · 没覆盖到的 · 怎么做的
+    工作项（WORK.md）· 待你签收 · 自上次以来 · stats · 先看这几条 · 主题 · 还债顺序 · 数据边界 · 需要你拍板 · 台账 (filters) · 防线 · 没覆盖到的 · 怎么做的
 
 Ids listed in a wave's 已还 part, or in a theme but no longer in 条目, render struck
 through: the plan keeps its progress although closed items are deleted from the file.
@@ -25,7 +25,9 @@ import sys
 HERE = pathlib.Path(__file__).resolve().parent.parent
 DEBT = HERE / "TECH_DEBT.md"
 RATCHETS = HERE / "RATCHETS.md"
+WORK = HERE / "WORK.md"
 TD = re.compile(r"TD-\d+")
+WID = re.compile(r"W-\d+")
 
 
 def sections(text: str, level: str) -> dict[str, str]:
@@ -326,6 +328,7 @@ details.more>summary{cursor:pointer;color:var(--accent);margin:10px 0}
   <h1>Trade 技术债台账</h1>
   <div class="meta" id="meta"></div>
   <p class="lede" id="lede"></p>
+  __WORK__
   <h2>待你签收</h2>
   <p class="sub">验收已重跑通过、防线已到位的项。回复「签收 TD-n」或「打回 TD-n：原因」。</p>
   <div class="urgent" id="signoff"></div>
@@ -526,6 +529,41 @@ def behind_origin() -> list[str]:
     return [ln for ln in r.stdout.split("\n") if ln.strip()] if r.returncode == 0 else []
 
 
+def esc(s: str) -> str:
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+
+def work_section() -> str:
+    """A partition for WORK.md. The debt ledger stays the rest of the page."""
+    if not WORK.exists():
+        return '<h2>工作项</h2>\n  <p class="sub">WORK.md 不在这次渲染的目录里。</p>\n'
+    text = WORK.read_text(encoding="utf-8")
+    rows = []
+    for wid, block in sections(text, "### ").items():
+        if not WID.fullmatch(wid):
+            continue
+        title = wid
+        head = re.search(r"^\*\*(.+)\*\*\s*$", block, re.M)
+        if head:
+            title = head.group(1).strip()
+        fields: dict[str, str] = {}
+        for m in re.finditer(r"^- \*\*(.+?)\*\*[:：]\s?(.*)$", block, re.M):
+            fields[m.group(1)] = m.group(2).strip()
+        rows.append((wid, title, fields.get("类别", ""), fields.get("状态", ""), fields.get("验收", "")))
+    body = [
+        "<h2>工作项</h2>",
+        '<p class="sub">来自 WORK.md。进度由接口计算，这里只列登记。</p>',
+        '<div class="tablewrap"><table style="min-width:720px"><thead><tr><th>编号</th><th>标题</th><th>类别</th><th>状态</th><th>验收</th></tr></thead><tbody>',
+    ]
+    for wid, title, cat, state, accept in rows:
+        body.append(
+            "<tr><td class=\"c\">" + esc(wid) + "</td><td>" + esc(title) + "</td><td>" + esc(cat)
+            + "</td><td>" + esc(state) + "</td><td>" + esc(accept) + "</td></tr>"
+        )
+    body.append("</tbody></table></div>")
+    return "\n  ".join(body) + "\n"
+
+
 def main() -> int:
     stale = behind_origin()
     if stale and "--allow-stale" not in sys.argv:
@@ -545,7 +583,7 @@ def main() -> int:
     if missing:
         print(f"warning: wave ids not in 条目: {missing}", file=sys.stderr)
     blob = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
-    sys.stdout.write(PAGE.replace("__DATA__", blob))
+    sys.stdout.write(PAGE.replace("__DATA__", blob).replace("__WORK__", work_section()))
     return 0
 
 
