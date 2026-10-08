@@ -1,4 +1,4 @@
-# 第 3 阶段：Console 每页去向表（草案，待 Owner 过目）
+# 第 3 阶段：Console 每页去向表（Owner 2026-10-08 已过目并批准）
 
 依据：ADR §1（仪器与护栏）、§4（PROD 是唯一运行控制面）、§6（7 个问题）。盘点基于 platform `origin/main` `e6b825b9`：44 个页面 + 41 个子组件、约 45 个导航项、三种视角，Console 共 17.4 万行。
 **删除由 Owner 过目决定**——本表只给去向建议；Owner 点头的行才进 Cursor 任务。
@@ -32,7 +32,7 @@
 | Rocket Health | 并入 ①（平台自身一张卡） | platform-api / console / Argo 状态 | 独立页面、All / Stg / Prod 选择器 | 同一份 self-health 有 6 处读 |
 | Satellite Health（含 Probes、Runtime 两段） | 并入 ①（Trade 一张卡，可下钻） | PROD 的 HTTP / 鉴权 / D10 写路径探针、黄金信号 | 环境选择器 | 「Trade 健康吗」5 处回答、默认环境各不同 |
 | Runtime Map（Control Room 抽屉） | 并入 ⑥（拓扑图） | 硬件 / 软件拓扑 | 环境选择器 | 属于「机器」问题 |
-| Code Health | **待你定**：A 并入 ⑦ 一张卡；B 退场（`make check-code-health` 照跑） | 推荐 A | — | 工程健康也是「进度」的一部分 |
+| Code Health | 并入 ⑦（一张卡，Owner 选 A） | 指标与历史、Live Re-scan | 独立页面 | 工程健康也是「进度」的一部分 |
 | Defects | **退场** | — | 整页（修复失败模式，来自 Agent 派发） | 派发已停用；数据源随之消失 |
 | Audit | 并入 ④（历史页签） | 审计列表、下载 JSON | 独立页面 | 审批与执行的追溯 |
 | Rocket（platform-release） | 并入 ⑤ | platform STG / PROD 版本、在途与失败的 run | 起流水线、发布门、Tier-B、add-on 安装、逃生演练记录、Agent 发版 | 发版只走 Claude / MCP / release.sh |
@@ -44,7 +44,7 @@
 | Queue（Agent Desk / Operate Queue） | **退场**（含后端 operate queue 与决策简报、漂移提议） | — | 整页与派发、批准 RUN、简报 | 最后一次关闭在 09-27，0 未结；简报 0 |
 | Patrol + Patrol Log | 合并进 ④（「Autopilot」页签） | 技能列表、运行记录（含 REPORT-ONLY 记录）、手动运行一次 | 两页重复的运行历史 | ADR §7：autopilot 是 PROD 维护者之一 |
 | Operator Plane | 并入 ⑥（mini 卡片） | 两台 mini 的 operator-plane、告警中转、互看状态 | AI Fix、nightly-run 按钮 | 夜间 LLM 已退役 |
-| Trust & Autonomy | **待你定**：A 退场（autopilot 逐项放开用 git 配置 + 你批）；B 留在 ④ 当「放开哪几项」的开关 | 推荐 A | — | 形式从简 |
+| Trust & Autonomy | **退场**（Owner 选 A）：autopilot 逐项放开改用 git 配置 + Owner 批 | — | 整页；若 patrol 仍读信任覆盖，后端保留、只删页面 | 形式从简 |
 | Agent Capability | **退场** | — | 整页 | runner scope 就绪度，派发已停用 |
 | Analysis Workspace / Insight Log / Hermes Status | **退场**；Hermes 网关健康放 ⑥ mini 卡片一行 | Hermes 健康 | 三页、首个任务按钮、insights | Hermes 网关未运行、无 LLM key；insights 0 |
 | Bus Status（satellite-bus） | 并入 ③ | PROD 的 IB Gateway → redis-ib → daemon 总线 | 默认 STG 的环境选择器、跨环境对比表（去 ⑤ 不需要）、重启 / 扩容按钮改「申请」 | 健康只看 PROD |
@@ -70,9 +70,6 @@
 | remediation（runner 派发） | **保留**后端 | runner 还在 .50 / .52；第 5 阶段一起收权时再定 |
 | 探测器的 argo-apps 信号 | 忽略已跑完被回收的一次性 Job（如 `db-init-*`） | 还债会话核实的误报 |
 
-## 需要 Owner 定的
+## Owner 决定（2026-10-08）
 
-1. Code Health：A 并入 ⑦（推荐）/ B 退场。
-2. Trust & Autonomy：A 退场（推荐）/ B 留作 autopilot 逐项放开的开关。
-3. Guides 9 页连同 Vision 关卡一起删（推荐），还是先只从导航隐藏。
-4. 其余各行是否同意；有想保留的页面直接点名。
+Code Health 并入 ⑦；Trust & Autonomy 退场；Guides 9 页连同 Vision 关卡直接删除；其余各行照表执行。
