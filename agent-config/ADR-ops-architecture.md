@@ -68,6 +68,7 @@ PROD platform 坏了时的应急路径：mini 上的 operator-plane，或 Owner 
   - Console：「待你批 / 待你签」页。
 - 审批规则：批的是什么就只执行什么（参数签进审批）；一次批准执行一次；过期作废。聊天文字「批了」与其他线程转述都不构成审批，以审批记录为准。
 - Agent 不得用浏览器工具访问审批页（preflight 拦截）。
+- **发版策略（Owner 2026-10-08 选择，实现中：`cursor-tasks/LANE-RP-release-policy.md`）**：C 级的**发版**动作若命中 Owner 签过的发版策略（ConfigMap `cicd/bifrost-release-policy`：允许的流水线、条件——main 或 tag、该 SHA 的 CI 通过、持有发布窗口、无待办 DB 步骤、不含 DDL、不触 D10——与有效期），平台自动批准并执行，审计记下命中的策略条款；不命中照旧等人批。**失败即关**：策略缺失、过期、读不出来或设了冻结位，一律不自动批。D 级永远不自动。策略不设次数上限；到期前 48 / 24 / 2 小时手机推送 + Console 横幅提醒 Owner 重签。依据：`agent-config/work/release-approval/PROPOSAL-2026-10-08.md` §3、§7。
 - **已知的接受风险（Owner 2026-10-07 选择）**：聊天里批准靠 MCP 工具 `bifrost-approve` + Claude 的「允许」弹窗，工具需要的 admin 令牌在本机进程可读。同一台机器上的 Agent 理论上能读到它、绕过弹窗直接调审批接口；目前只靠 preflight 的文本拦截挡一挡。Owner 的取舍是先简单快，「今后感觉不行，再收权」——收权的做法是把 admin 令牌只留在手机与 Console 浏览器里，聊天只展示申请与链接。
 
 ## 6. Console：7 个问题
