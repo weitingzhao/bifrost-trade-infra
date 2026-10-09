@@ -1,0 +1,21 @@
+# Read-only identity for the Mac Agent (LANE-W33D).
+# Not under Argo. Owner applies it by hand:
+#   kubectl apply -k k8s/agent-access
+# The bifrost-access namespace does not exist until that apply.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - token-secret.yaml
+  - clusterrole-read.yaml
+  - clusterrolebinding-view.yaml
+  - clusterrolebinding-read.yaml
+  - role-exec-research.yaml
+  - rolebinding-exec-research.yaml
+  - role-exec-plugin-market-data.yaml
+  - rolebinding-exec-plugin-market-data.yaml
+  - role-exec-plugin-flex-query.yaml
+  - rolebinding-exec-plugin-flex-query.yaml
+  - role-portforward-monitoring.yaml
+  - rolebinding-portforward-monitoring.yaml

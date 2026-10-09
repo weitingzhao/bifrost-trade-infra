@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 """Materialize gitignored Trade K8s Secrets from overlay YAML + plugin .env.
 
-Never prints secret values. Writes:
-  k8s/base/secrets/bifrost-{dev,stg,prod}-secrets.yaml
-  k8s/base/secrets/bifrost-{dev,stg,prod}-db-owner.yaml   (db-init's bifrost login, TD-85)
+Owner only. An Agent must not run this script.
+
+Never prints secret values. Writes under ~/.bifrost-owner/secrets/
+(override with BIFROST_OWNER_SECRETS):
+  bifrost-{dev,stg,prod}-secrets.yaml
+  bifrost-{dev,stg,prod}-db-owner.yaml   (db-init's bifrost login, TD-85)
+
+OPS_ADMIN_TOKEN and REDIS_IB_PASSWORD are read from the environment, then
+~/.bifrost-owner/owner.env. They are not written back into this repo's .env.
 
 TD-85: once scripts/trade-app-role.sh has switched an env, its runtime Secret carries
 PGUSER / GOLDEN_SOURCE_USER = trade_app_<env> and that role's password (TRADE_APP_<ENV>_PG_PASSWORD
@@ -32,12 +38,36 @@ OVERLAYS = {
     "prod": ROOT / "k8s/overlays/prod/config/config.prod.yaml",
 }
 ROOT_DEV = ROOT / "config/config.dev.yaml"
-SECRET_PATHS = {
-    "dev": ROOT / "k8s/base/secrets/bifrost-dev-secrets.yaml",
-    "stg": ROOT / "k8s/base/secrets/bifrost-stg-secrets.yaml",
-    "prod": ROOT / "k8s/base/secrets/bifrost-prod-secrets.yaml",
-}
-OWNER_SECRET_PATHS = {env: ROOT / f"k8s/base/secrets/bifrost-{env}-db-owner.yaml" for env in SECRET_PATHS}
+MOVED_KEYS = ("OPS_ADMIN_TOKEN", "REDIS_IB_PASSWORD")
+
+
+def _owner_secrets_dir() -> Path:
+    raw = os.environ.get("BIFROST_OWNER_SECRETS")
+    if raw:
+        return Path(raw)
+    return Path.home() / ".bifrost-owner" / "secrets"
+
+
+def _owner_env_path() -> Path:
+    raw = os.environ.get("BIFROST_OWNER_ENV")
+    if raw:
+        return Path(raw)
+    return Path.home() / ".bifrost-owner" / "owner.env"
+
+
+def _secret_paths(directory: Path) -> dict[str, Path]:
+    return {env: directory / f"bifrost-{env}-secrets.yaml" for env in ("dev", "stg", "prod")}
+
+
+def _db_owner_paths(directory: Path) -> dict[str, Path]:
+    return {env: directory / f"bifrost-{env}-db-owner.yaml" for env in ("dev", "stg", "prod")}
+
+
+def _display(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
 
 PLACEHOLDERS = frozenset({"", "REPLACE_ME", "CHANGE_ME", "changeme", "change-me"})
 
@@ -268,8 +298,26 @@ def main() -> int:
 
     extras: dict[str, str] = {}
     extras.update(_load_dotenv(ROOT / ".env"))
+    owner_vals = _load_dotenv(_owner_env_path())
+    for key in MOVED_KEYS:
+        if _nonempty(owner_vals.get(key)):
+            extras[key] = owner_vals[key]
+        if os.environ.get(key):
+            extras[key] = os.environ[key]
     extras.update(_load_dotenv(PLUGIN_ENV))
     extras.update(_bifrost_login_only(_load_dotenv(MD_ENV)))
+    # Plugin .env must not put the moved keys back over the Owner file.
+    for key in MOVED_KEYS:
+        if os.environ.get(key):
+            extras[key] = os.environ[key]
+        elif _nonempty(owner_vals.get(key)):
+            extras[key] = owner_vals[key]
+
+    secrets_dir = _owner_secrets_dir()
+    secrets_dir.mkdir(parents=True, exist_ok=True)
+    os.chmod(secrets_dir, 0o700)
+    secret_paths = _secret_paths(secrets_dir)
+    owner_secret_paths = _db_owner_paths(secrets_dir)
 
     kubeconfig = os.environ.get("KUBECONFIG") or str(Path.home() / ".kube/bifrost-k3s.yaml")
     any_missing = False
@@ -278,18 +326,18 @@ def main() -> int:
             print(f"SKIP {env_name}: missing {cfg_path}", file=sys.stderr)
             continue
         text = cfg_path.read_text(encoding="utf-8")
-        dest = SECRET_PATHS[env_name]
+        dest = secret_paths[env_name]
         existing = _existing_string_data(dest)
         data = _build_secret(env_name, text, extras, existing)
         missing = _write_secret(dest, f"bifrost-{env_name}-secrets", data)
         filled = sum(1 for v in data.values() if _nonempty(v))
-        print(f"Wrote {dest.relative_to(ROOT)} keys={filled}/{len(data)} missing={missing or 'none'}")
+        print(f"Wrote {_display(dest)} keys={filled}/{len(data)} missing={missing or 'none'}")
         if missing:
             any_missing = True
-        owner_dest = OWNER_SECRET_PATHS[env_name]
+        owner_dest = owner_secret_paths[env_name]
         owner = _build_owner_secret(text, extras, _existing_string_data(owner_dest), existing)
         owner_missing = _write_secret(owner_dest, f"bifrost-{env_name}-db-owner", owner)
-        print(f"Wrote {owner_dest.relative_to(ROOT)} missing={owner_missing or 'none'}")
+        print(f"Wrote {_display(owner_dest)} missing={owner_missing or 'none'}")
         if owner_missing:
             any_missing = True
         if args.apply:
@@ -309,19 +357,27 @@ def main() -> int:
         "POLYGON_API_KEY": "",
         "MASSIVE_API_KEY": "",
     }
-    stg_secret = _existing_string_data(SECRET_PATHS["stg"])
+    stg_secret = _existing_string_data(secret_paths["stg"])
     # The local stack signs in as bifrost: its two DB passwords come from the db-owner file
     # (the runtime Secret carries trade_app_stg's once STG is switched, TD-85).
-    stg_owner = _existing_string_data(OWNER_SECRET_PATHS["stg"])
+    stg_owner = _existing_string_data(owner_secret_paths["stg"])
     for k in ("PGPASSWORD", "GOLDEN_SOURCE_PASSWORD"):
         stg_secret[k] = _pick(stg_owner.get(k), stg_secret.get(k) if not _nonempty(stg_secret.get("PGUSER", "")).startswith("trade_app_") else "")
     for k in list(compose_keys):
         compose_keys[k] = _pick(stg_secret.get(k), extras.get(k), compose_keys.get(k))
-    if SECRET_PATHS["dev"].is_file():
-        dev_secret = _existing_string_data(SECRET_PATHS["dev"])
+    if secret_paths["dev"].is_file():
+        dev_secret = _existing_string_data(secret_paths["dev"])
         for k in ("OPS_OPERATOR_TOKEN", "OPS_ADMIN_TOKEN", "POLYGON_API_KEY", "MASSIVE_API_KEY"):
             compose_keys[k] = _pick(dev_secret.get(k), compose_keys.get(k))
+    moved_updates = {k: compose_keys.pop(k) for k in MOVED_KEYS}
     _upsert_dotenv(ROOT / ".env", compose_keys)
+    owner_env = _owner_env_path()
+    if any(_nonempty(v) for v in moved_updates.values()):
+        owner_env.parent.mkdir(parents=True, exist_ok=True)
+        if not owner_env.exists():
+            owner_env.write_text("", encoding="utf-8")
+            os.chmod(owner_env, 0o600)
+        _upsert_dotenv(owner_env, moved_updates)
 
     if any_missing:
         print("Some required keys were empty — fill gitignored Secret files before rollout.", file=sys.stderr)

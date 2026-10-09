@@ -1,0 +1,15 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: bifrost-agent-read
+  labels:
+    app.kubernetes.io/part-of: bifrost
+    app.kubernetes.io/name: bifrost-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: bifrost-agent-read
+subjects:
+  - kind: ServiceAccount
+    name: bifrost-agent
+    namespace: bifrost-access

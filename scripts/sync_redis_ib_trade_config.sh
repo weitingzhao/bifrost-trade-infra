@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
-# Sync redis_ib ACL passwords from bifrost-platform-plugin/.env into gitignored Trade Secrets.
-# Does NOT write tracked overlay YAML (ConfigMap) — secrets go via REDIS_IB_* envFrom.
+# Owner only. An Agent must not run this script.
+#
+# Sync redis_ib ACL passwords from bifrost-platform-plugin/.env into the
+# gitignored Trade Secrets under ~/.bifrost-owner/secrets/. This script does
+# not read bifrost-trade-infra/.env. It does not write tracked overlay YAML.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PLUGIN_ENV="${PLUGIN_ENV:-$ROOT/../bifrost-platform-plugin/.env}"
+OWNER_SECRETS="${BIFROST_OWNER_SECRETS:-${HOME}/.bifrost-owner/secrets}"
+mkdir -p "$OWNER_SECRETS"
+chmod 700 "$OWNER_SECRETS"
 
 if [[ ! -f "$PLUGIN_ENV" ]]; then
   echo "Missing $PLUGIN_ENV — copy from bifrost-platform-plugin/.env.example" >&2
@@ -19,13 +25,13 @@ source "$PLUGIN_ENV"
 : "${REDIS_IB_TRADE_PROD_PASS:?REDIS_IB_TRADE_PROD_PASS missing in plugin .env}"
 export REDIS_IB_TRADE_DEV_PASS REDIS_IB_TRADE_STG_PASS REDIS_IB_TRADE_PROD_PASS
 
-python3 - "$ROOT" <<'PY'
+python3 - "$OWNER_SECRETS" <<'PY'
 import os
 import re
 import sys
 from pathlib import Path
 
-root = Path(sys.argv[1])
+secrets_dir = Path(sys.argv[1])
 USERS = {
     "dev": ("trade-dev", os.environ["REDIS_IB_TRADE_DEV_PASS"]),
     "stg": ("trade-stg", os.environ["REDIS_IB_TRADE_STG_PASS"]),
@@ -72,7 +78,7 @@ def upsert(path: Path, name: str, user: str, pw: str) -> None:
 
 
 for env, (user, pw) in USERS.items():
-    upsert(root / f"k8s/base/secrets/bifrost-{env}-secrets.yaml", f"bifrost-{env}-secrets", user, pw)
+    upsert(secrets_dir / f"bifrost-{env}-secrets.yaml", f"bifrost-{env}-secrets", user, pw)
 PY
 
 echo "redis_ib Trade Secrets updated from plugin .env (YAML overlays untouched)"

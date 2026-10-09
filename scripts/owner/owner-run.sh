@@ -3,7 +3,8 @@
 #
 # After an owner_run_command approval is executed (the platform only records
 # it), this script checks the approval, prints the command, and runs it when
-# the Owner types yes. It uses the PROD viewer token and OWNER_KUBECONFIG.
+# the Owner types yes. It uses the PROD viewer token and OWNER_KUBECONFIG
+# (default ~/.bifrost-owner/kube/admin.yaml).
 # The token and the command are not written to the run log.
 set -euo pipefail
 
@@ -11,6 +12,7 @@ PLATFORM_API="${PLATFORM_API:-http://192.168.10.100:30876}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENV_FILE="${ENV_FILE:-${ROOT}/.env}"
 LOG_FILE="${HOME}/.bifrost-owner/run-log.jsonl"
+OWNER_KUBECONFIG="${OWNER_KUBECONFIG:-${HOME}/.bifrost-owner/kube/admin.yaml}"
 MAX_AGE_SECONDS="${OWNER_RUN_MAX_AGE_SECONDS:-86400}"
 
 if [ $# -ne 1 ] || [ -z "$1" ]; then

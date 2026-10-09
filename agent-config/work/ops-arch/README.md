@@ -80,7 +80,7 @@
 - **报告**写到 `agent-config/work/ops-arch/reports/LANE-<道>.md`，从 origin/main 开一个独立 worktree 提交，推 main（纯文档）：
   `bifrost-trade-infra/scripts/release/release.sh window && git push origin <sha>:refs/heads/main`（同一条命令）。
 - 报告格式：每一项一节——改动（仓库 · 分支 · 完整 SHA）、防线（文件 + 测试名）、门禁（命令 → 结果）、**验收（一条命令 + 预期）**、要 Owner 批（具体命令，原样可执行）、后续（新发现：`文件:行` + 一句话）。
-- 访问 Mac mini（只读）：`ssh -o IdentitiesOnly=yes -i ~/.ssh/id_ed25519 vision@192.168.10.50`（.52 同）。访问 k3s 节点（只读）：`ssh -o IdentitiesOnly=yes -i ~/.ssh/bifrost_deploy vision@<ip>`。集群：`KUBECONFIG=~/.kube/bifrost-k3s.yaml`，**只读**命令。
+- 访问 Mac mini（只读）：`ssh -o IdentitiesOnly=yes -i ~/.ssh/id_ed25519 vision@192.168.10.50`（.52 同）。k3s 节点 Agent 不能登录；节点密钥在 Owner 目录，由 Owner 执行。集群：`KUBECONFIG=~/.kube/bifrost-k3s.yaml`（只读身份 `bifrost-agent`），**只读**命令。
 
 ## 第 2 阶段：四条道，可以同时开
 

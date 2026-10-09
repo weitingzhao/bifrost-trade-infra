@@ -1,0 +1,161 @@
+diff -ruN a/agent-config/scripts/agent-guard/preflight.js b/agent-config/scripts/agent-guard/preflight.js
+--- a/agent-config/scripts/agent-guard/preflight.js	2026-10-09 14:09:23
++++ b/agent-config/scripts/agent-guard/preflight.js	2026-10-09 14:09:23
+@@ -351,6 +351,69 @@
+   return null
+ }
+ 
++
++// ─────────────────────── Owner 凭证（LANE-W33D） ───────────────────────
++//
++// Cursor 与 Claude 共用这一份闸门（scripts/agent-guard/preflight.js）。
++// Cursor 侧不用另改。Owner 应用 preflight-w33d.patch 之后才生效。
++// Bash、Read、Grep、Glob 的路径或文本里出现 Owner 目录或 owner.env 就拒绝。
++// KUBECONFIG= 或 --kubeconfig 指向 ~/.kube/bifrost-k3s.yaml 以外也拒绝。
++// ~、$HOME、${HOME} 和绝对路径都认。未设置 KUBECONFIG 的命令放行。
++
++const OWNER_MARK = '.bifrost-' + 'owner'
++const OWNER_ENV_MARK = 'owner' + '.env'
++const ALLOWED_KUBE_TAIL = '.kube/bifrost-k3s.yaml'
++
++function ownerToolText(toolName, input, cmd) {
++  const parts = []
++  if (cmd) parts.push(String(cmd))
++  if (input && typeof input === 'object') {
++    for (const field of ['command', 'file_path', 'path', 'pattern', 'glob_pattern', 'target_directory']) {
++      if (input[field]) parts.push(String(input[field]))
++    }
++    try { parts.push(JSON.stringify(input)) } catch { parts.push(String(input)) }
++  }
++  return parts.join('\n')
++}
++
++function kubeconfigValueAllowed(raw) {
++  let value = String(raw || '').trim()
++  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
++    value = value.slice(1, -1).trim()
++  }
++  if (value === '~/' + ALLOWED_KUBE_TAIL) return true
++  if (value === '$HOME/' + ALLOWED_KUBE_TAIL) return true
++  if (value === '${HOME}/' + ALLOWED_KUBE_TAIL) return true
++  if (value.startsWith('/') && value.endsWith('/' + ALLOWED_KUBE_TAIL)) return true
++  return false
++}
++
++function foreignKubeconfig(cmd) {
++  const text = String(cmd || '')
++  const re = /(?:^|[\s;&|`(])(?:export\s+)?KUBECONFIG=("[^"]*"|'[^']*'|\S+)|--kubeconfig(?:=|\s+)("[^"]*"|'[^']*'|\S+)/g
++  let match
++  while ((match = re.exec(text))) {
++    const value = match[1] || match[2]
++    if (!kubeconfigValueAllowed(value)) return value
++  }
++  return null
++}
++
++function ownerCredentialGuard(toolName, input, cmd) {
++  const name = String(toolName || '')
++  const watched = /^(Bash|Read|Grep|Glob)$/.test(name)
++  const command = cmd || (input && input.command) || ''
++  if (!watched && !command) return null
++  const effective = watched ? name : 'Bash'
++  const text = ownerToolText(effective, input, command)
++  const sentence = '这是 Owner 的凭证，写操作走平台动作或 owner_run_command'
++  if (text.includes(OWNER_MARK) || text.includes(OWNER_ENV_MARK)) return sentence
++  if (effective === 'Bash') {
++    if (foreignKubeconfig(command || text)) return sentence
++  }
++  return null
++}
++
+ // ─────────────────────────────── 判定 ───────────────────────────────
+ 
+ function evaluate(payload) {
+@@ -362,6 +425,9 @@
+   const locked = d10Status() !== 'UNLOCKED'
+   const cmd = String(input.command ?? payload.command ?? '')
+ 
++  const owner = ownerCredentialGuard(toolName, input, cmd)
++  if (owner) return { deny: true, kind: 'owner', reason: owner }
++
+   const approval = approvalGuard(toolName, input, cmd)
+   if (approval) return { deny: true, kind: 'approval', reason: approval }
+ 
+@@ -422,6 +488,13 @@
+       `参见 CLAUDE.md §5「共享工作树」/ .cursor/rules/shared-worktree.mdc`
+     )
+   }
++  if (kind === 'owner') {
++    return (
++      '【Owner 凭证】拦截原因：' + reason + '。\n' +
++      '这是 Owner 的凭证，写操作走平台动作或 `owner_run_command`。\n' +
++      'Cursor 与 Claude 共用这一份闸门。不要读 Owner 目录，不要把 KUBECONFIG 指到 ~/.kube/bifrost-k3s.yaml 以外。'
++    )
++  }
+   return (
+     `【Dev 服务管理规范】拦截原因：${reason}。\n` +
+     `参见 CLAUDE.md §4 / .cursor/rules/dev-services.mdc。优先用 MCP ` +
+@@ -449,6 +522,8 @@
+   const verdict = payload
+     ? evaluate(payload)
+     : (() => {
++        const owner = ownerCredentialGuard('', null, raw)
++        if (owner) return { deny: true, kind: 'owner', reason: owner }
+         const dev = devServiceRules(raw)
+         if (dev) return { deny: true, kind: 'dev-services', reason: dev }
+         const approval = approvalGuard('', null, raw)
+diff -ruN a/agent-config/scripts/agent-guard/test.js b/agent-config/scripts/agent-guard/test.js
+--- a/agent-config/scripts/agent-guard/test.js	2026-10-09 14:09:23
++++ b/agent-config/scripts/agent-guard/test.js	2026-10-09 14:09:23
+@@ -20,6 +20,9 @@
+ const TOKEN_FILE = 'mcp-tokens' + '.env'
+ const ADMIN_KEY = 'PLATFORM_' + 'ADMIN_TOKEN'
+ const HASH_PAGE = '#' + 'approvals'
++const OWNER_DIR = '.bifrost-' + 'owner'
++const OWNER_ENV = 'owner' + '.env'
++const KUBE_OK = '.kube/bifrost-k3s.yaml'
+ 
+ const cases = [
+   // ── D10 应拦截 ──
+@@ -157,6 +160,25 @@
+   ['appr', 'ALLOW', '其他 MCP 写工具',
+     tool('mcp__bifrost-platform__start_pipeline_run', { name: 'ci-example' })],
+ 
++  // ── Owner 凭证（LANE-W33D）。Cursor 与 Claude 共用这一份闸门。──
++  ['own', 'DENY', 'cat Owner 目录', bash('cat ~/' + OWNER_DIR + '/' + OWNER_ENV)],
++  ['own', 'DENY', 'Read Owner 目录', tool('Read', { file_path: '/Users/x/' + OWNER_DIR + '/' + OWNER_ENV })],
++  ['own', 'DENY', 'Grep owner env', tool('Grep', { pattern: OWNER_ENV, path: 'src' })],
++  ['own', 'DENY', 'Glob owner env', tool('Glob', { glob_pattern: '**/*' + OWNER_ENV + '*' })],
++  ['own', 'DENY', 'KUBECONFIG=~ 指向别的文件', bash('KUBECONFIG=~/.kube/admin.yaml kubectl get pods')],
++  ['own', 'DENY', 'KUBECONFIG=$HOME 指向别的文件', bash('KUBECONFIG=$HOME/.kube/admin.yaml kubectl get pods')],
++  ['own', 'DENY', 'KUBECONFIG=${HOME} 指向别的文件', bash('KUBECONFIG=${HOME}/.kube/admin.yaml kubectl get pods')],
++  ['own', 'DENY', 'KUBECONFIG 绝对路径指向别的文件', bash('KUBECONFIG=/Users/x/.kube/admin.yaml kubectl get pods')],
++  ['own', 'DENY', '--kubeconfig 指向别的文件', bash('kubectl --kubeconfig ~/.kube/admin.yaml get pods')],
++  ['own', 'DENY', '--kubeconfig= Owner 目录', bash('kubectl --kubeconfig=/Users/x/' + OWNER_DIR + '/kube/admin.yaml get pods')],
++  ['own', 'ALLOW', 'KUBECONFIG=~ 只读 kubeconfig', bash('KUBECONFIG=~/' + KUBE_OK + ' kubectl get pods')],
++  ['own', 'ALLOW', 'KUBECONFIG=$HOME 只读 kubeconfig', bash('KUBECONFIG=$HOME/' + KUBE_OK + ' kubectl get pods')],
++  ['own', 'ALLOW', 'KUBECONFIG=${HOME} 只读 kubeconfig', bash('KUBECONFIG=${HOME}/' + KUBE_OK + ' kubectl get pods')],
++  ['own', 'ALLOW', 'KUBECONFIG 绝对路径只读 kubeconfig', bash('KUBECONFIG=/Users/x/' + KUBE_OK + ' kubectl get pods')],
++  ['own', 'ALLOW', '未设置 KUBECONFIG 的 kubectl get pods', bash('kubectl get pods')],
++  ['own', 'ALLOW', 'Edit 文档正文可以提到 Owner 目录',
++    tool('Edit', { file_path: '/x/docs/note.md', old_string: 'x', new_string: 'see ~/' + OWNER_DIR + '/' + OWNER_ENV })],
++
+   // ── 畸形输入 ──
+   ['edge', 'ALLOW', '空输入', null],
+ ]
+@@ -164,11 +186,14 @@
+ let pass = 0, fail = 0
+ let group = ''
+ for (const [g, want, name, payload] of cases) {
+-  if (g !== group) { group = g; console.log(`\n── ${{ D10: 'D10 交易执行冻结', dev: 'dev-services', ok: '合法操作（不得误拦）', appr: '审批旁路（ADR §5）', edge: '边界输入' }[g]} ──`) }
++  if (g !== group) { group = g; console.log(`\n── ${{ D10: 'D10 交易执行冻结', dev: 'dev-services', ok: '合法操作（不得误拦）', appr: '审批旁路（ADR §5）', own: 'Owner 凭证（LANE-W33D）', edge: '边界输入' }[g]} ──`) }
+   const r = spawnSync('node', [GUARD], { input: payload ? JSON.stringify(payload) : '', encoding: 'utf8' })
+   const got = (r.stdout || '').trim() ? 'DENY' : 'ALLOW'
+   let ok = got === want
+   if (ok && g === 'appr' && want === 'DENY' && !String(r.stdout).includes('ADR §5')) {
++    ok = false
++  }
++  if (ok && g === 'own' && want === 'DENY' && !String(r.stdout).includes('这是 Owner 的凭证，写操作走平台动作或 owner_run_command')) {
+     ok = false
+   }
+   ok ? pass++ : fail++
