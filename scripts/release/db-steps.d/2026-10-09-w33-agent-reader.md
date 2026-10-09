@@ -2,11 +2,11 @@
 id: 2026-10-09-w33-agent-reader
 envs: prod
 when: after
-done:
+done: prod
 ---
 # W-33: read-only login agent_reader
 
-Not executed. Owner confirmed on 2026-10-09 to follow LANE-W33B section 5 as written.
+Executed on PROD 2026-10-09 with Owner approval (commit and verify exit 0; db-role-matrix 0 differences; reads work in all four databases, CREATE and UPDATE are denied by privilege). Owner set the password and the ~/.pgpass line.
 `agent_reader` is LOGIN, not a superuser, a member of `pg_read_all_data`, with
 `default_transaction_read_only=on`, `statement_timeout=120s`,
 `idle_in_transaction_session_timeout=60s`, and `CONNECTION LIMIT 8`.

@@ -23,7 +23,7 @@
 - **TD-157** — 只有一侧有暴露时，空的那侧 wall 和 wall gex 写 NULL（research 0.191.0；回填置空 1,762 个）。验收 PASS 2026-10-08 481c96c（空侧仍写 wall 0 行；10-06 / 10-07 新写入空 call wall 10 / 4、空 put wall 14 / 10）。防线：同上测试文件的 `test_a_side_without_exposure_names_no_wall` 等单边五例。后续：TD-166（zero_gamma 兜底）
 - **TD-166** — 只有累计 net gex 在非零值之间换号才算翻转，没有翻转时日线 `zero_gamma` 写 NULL（research 0.192.0；回填更新 26,878 行）。验收 PASS 2026-10-08 481c96c（从分布重算干跑 changed 0；10-06 / 10-07 新写入空 zero_gamma 33.5% / 35.0%）。防线：同上测试文件的 `test_leaving_zero_is_not_a_crossing` 等 TD-166 九例。后续：前端把空 zero-γ 写成「无翻转」，未立项
 
-**未结 73 项**：P0 0 · P1 6 · P2 25 · P3 42；要你批的 31 项（从总览表的审批列算）。
+**未结 74 项**：P0 0 · P1 6 · P2 25 · P3 43；要你批的 31 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -124,7 +124,7 @@
 
 目标：会动手的维护只由 PROD 的 platform-workers 做，本机与 STG 只观测。已做：本机停手（TD-130 第一步）、STG 不修 IB 也不写发布记录（TD-223）、页面不再触发维护、状态持久化（TD-196）。接着：PROD 自己探测、带时间戳的检查信号，只给 PROD 挂技能并先只报告，再逐项放开；备份只归 CNPG 与 backup-retry；不再清掉失败现场。
 
-项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255, TD-272 · 已还：TD-256, TD-257, TD-270, TD-271
+项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255, TD-272, TD-273 · 已还：TD-256, TD-257, TD-270, TD-271
 
 ## 数据边界（接受并留座）
 
@@ -289,6 +289,7 @@
 | [TD-254](#td-254) | P2 | ops-platform | Two mechanisms repair the same failed backup: the autopilot's repair_cnpg_wal_store (every 15 min) and the backup-retry CronJob | 不用批 |
 | [TD-255](#td-255) | P3 | ops-platform | The hourly drift scan deletes every Failed pod it may, including failed backup Job pods in data | 不用批 |
 | [TD-272](#td-272) | P3 | ops-platform | tekton-trigger can create any PipelineRun in cicd, and no admission policy matches it, so its token is still a path to the cluster-admin Argo controller account | 安全/凭据（要你批） |
+| [TD-273](#td-273) | P3 | ops-platform | apply_manifest cannot plan a commit until Gitea's pull mirror has it, and nothing syncs the mirror except a deliver run or the 8-hour interval | 不用批 |
 
 ## 条目
 
@@ -1487,6 +1488,22 @@
 - **Ratchet**: `check_admission_guards.py --live` gains the same inline / resolver / secret-workspace cases as tekton-trigger, plus a normal templated run allowed.
 - 验收: `python3 scripts/check_admission_guards.py --live`（tekton-trigger 的反例被拒、正常 run 放行）
 - 审批 安全/凭据（要你批） · 代价 S · 风险 low · repos: bifrost-trade-infra
+
+### TD-273
+
+**P3 · ops-platform · apply_manifest cannot plan a commit until Gitea's pull mirror has it, and nothing syncs the mirror except a deliver run or the 8-hour interval**
+
+- **状态**：未开始
+- **Claim**: `bifrost-apply-manifest` downloads `/api/v1/repos/<org>/<repo>/archive/<sha>.tar.gz` from the in-cluster Gitea, which pull-mirrors GitHub. Only the deliver pipelines' `gitea-mirror-sync` task, `release.sh` (via `bootstrap-gitea-mirrors.sh`) and Gitea's own interval sync a mirror. A commit an Agent just pushed fails the plan with `could not fetch` until one of those runs.
+- **Measured**: MEASURED 2026-10-09 (PROD smoke). Plan of infra `267d2ee` minutes after the push: `could not fetch`; after `MIRROR_REPOS=bifrost-trade-infra scripts/k3s/bootstrap-gitea-mirrors.sh` the same commit was readable (API commit lookup 200) and the plan succeeded.
+- **Evidence**:
+  - `bifrost-trade-infra/k8s/cicd/tekton/apply-manifest/pipeline.yaml` — archive fetch, no mirror sync
+  - `bifrost-trade-infra/k8s/cicd/tekton/task-gitea-mirror-sync.yaml` — the sync the deliver pipelines run
+- **Impact**: An Agent without the admin kubeconfig (step 3) has no way to make a fresh commit plannable; it waits or asks the Owner. The failure is fail-closed (nothing is applied).
+- **Fix**: Before starting the plan run, platform-api calls Gitea `POST /repos/<org>/<repo>/mirror-sync` (the platform already reads `gitea-bootstrap`), then polls the commit endpoint for up to a minute. Platform code stays generic: org and repo come from the actuation policy.
+- **Ratchet**: workactions test with a fake Gitea: Plan calls mirror-sync for the policy repo and waits for the commit before creating the PipelineRun.
+- 验收: 推一个新提交后立刻 `plan_manifest`，计划成功（不出现 could not fetch）
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-261
 

@@ -450,7 +450,17 @@
     - PROD `appr_dfb9a356c8ca7dce` → `bifrost-deliver-platform-prod-1791558391`，platform `e2d5137`，ui `9b635b2`；
     - PROD 动作目录 35 条（新增 6 个）；api 和 workers 没有报错；Console、Grafana 返回 200；remediation 和 hermes 的健康接口返回 404；
     - TD-270、TD-271 已签收；
-  - **第 2 步还剩**：PROD 冒烟 → 只读库账号的 DDL，以及 Owner 设密码。每一步等 Owner 批；
+  - **第 2 步完成（10-09，Owner 批冒烟和 DDL）**：
+    - PROD 冒烟 6 个动作都实际跑通：
+      - 计划与执行：bifrost-dev 的冒烟 ConfigMap，字段管理者是 `bifrost-applier`，之后已删除；
+      - `create_job_from_cronjob`：maintainer-reconcile，drift 0；
+      - curl 探针：带 wait-net 初始化容器，不挂账号令牌；
+      - `delete_finished_jobs`；
+      - `owner_run_command`：`appr_a0d489f1cdb4c2a7` 已驳回，平台没有执行；
+    - 冒烟时修了流水线的 3 个问题，都是之前从没真跑过、只做了静态检查导致的，每个都加了静态防线：参数没传给任务（`c96ca82`）、网页归档地址不认凭证（`789c955`）、结果没有提升到 PipelineRun（`278f391`）；
+    - Gitea 镜像要等同步才能用新提交，登记为 TD-273；
+    - `agent_reader` 已在 PROD 建好：DDL 的 commit 和 verify 通过，role-matrix 0 差异，Owner 已设密码并写入 `~/.pgpass`；四个库都能读，CREATE 和 UPDATE 被权限拒绝；AGENT_FACTS 已写明用法；
+  - **下一步**：写发版链 LANE-W33C（`release.sh` 和插件、research 的发布改走平台），然后是第 3 步（Mac 上的 Agent 换只读）；
   - 10-09 07:00Z 定时对账 drift 0；
   - 写道时实测发现 TD-271：PROD 平台身份经 cicd 的 PipelineRun 和 Argo Application 仍能间接拿到集群管理员，已登记，并写进 TD-204 待签收行的「后续」；
   - 第 3 步在第 2 步验收后另派
