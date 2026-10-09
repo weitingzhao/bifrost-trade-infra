@@ -6,6 +6,9 @@ metadata:
   namespace: cicd
   labels:
     bifrost.io/purpose: stg-deliver
+  annotations:
+    bifrost.io/run-timeout: 1h0m0s
+    bifrost.io/run-arch: amd64
 spec:
   description: >-
     Mirror-sync Gitea, then clone, Dockerfile CMs, build stg images, rollout,

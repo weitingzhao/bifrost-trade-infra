@@ -54,13 +54,12 @@ curl -s http://127.0.0.1:8780/api/v1/plugins/market-data/api/market/doctor | pyt
 
 ## Release path (Plugin is not under Argo)
 
-push GitHub → `make -C bifrost-trade-infra k3s-sync-gitea-mirrors` → `kubectl -n cicd create -f` the
-`pipelinerun-build-market-data.yaml` template with the new image tag → confirm the tag in
-`192.168.10.73:30500/v2/bifrost-market-data/tags/list` → `kubectl apply -k k8s/base` → `make verify-market-data`.
+push GitHub → `POST /api/v1/delivery/mirrors/sync` → `start_pipeline_run` name=`bifrost-build-market-data` with the image tag → confirm the tag in
+`192.168.10.73:30500/v2/bifrost-market-data/tags/list` → `plan_manifest` then `apply_manifest` (tier C, Owner approves) → `make verify-market-data`.
 
 ### A release that adds a table lands the schema first
 
-`kubectl apply -k k8s/base` submits the Deployments and `job-wave8-schema-migrate` **in the same
+One `apply_manifest` of the whole tree submits the Deployments and `job-wave8-schema-migrate` **in the same
 breath**, so the new pods start claiming work while the DDL is still landing. Any slot that fires
 in that window writes to a table that does not exist yet.
 
@@ -71,9 +70,9 @@ onward succeeded. The table appeared inside a 40-second gap in a single batch.
 
 So when a release introduces or alters a table:
 
-1. Apply the migration alone and wait for it — `kubectl apply -k k8s/base` after
+1. Apply the migration alone and wait for it — `apply_manifest` the Job, then
    `kubectl -n plugin-market-data wait --for=condition=complete job/job-wave8-schema-migrate`,
-   or apply that Job on its own first.
+   and only then `apply_manifest` the Deployments.
 2. Then verify by the **error signature, not by the Job**: the Job carries a TTL and deletes
    itself on success, so `kubectl get job` afterwards proves nothing either way. Ask the queue
    instead — `GET /market/ingest/jobs?status=failed` and look for `does not exist`.

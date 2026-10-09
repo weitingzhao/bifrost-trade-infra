@@ -155,7 +155,11 @@ def main() -> int:
     check("hold)" in release, "release.sh has no hold command")
     check("--allow-red" in release and "ci_gate.py" in release, "release.sh does not gate on CI")
     check("TRADE_WHAT=" in release and "bifrost-release-window" in release, "release.sh does not publish the window")
-    check("bootstrap-gitea-mirrors.sh" in release, "release.sh does not sync the Gitea mirror")
+    check("/api/v1/delivery/release-window" in release, "release.sh does not hold the window through the platform")
+    check("/api/v1/delivery/mirrors/sync" in release, "release.sh does not sync mirrors through the platform")
+    check("bootstrap-gitea-mirrors.sh" not in release, "release.sh still calls the mirror bootstrap script")
+    for forbidden in ("kubectl create", "kubectl apply", "kubectl delete", "kubectl exec"):
+        check(forbidden not in release, f"release.sh still contains {forbidden!r}")
 
     helper = (ROOT / "scripts/research-secret-restart.sh").read_text()
     check("deployment/research-api" not in helper, "rotation helper hard-codes research-api")

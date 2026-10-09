@@ -51,15 +51,36 @@ def is_full_sha(revision: str) -> bool:
     return len(rev) == 40 and all(c in "0123456789abcdef" for c in rev)
 
 
+def window_if_live(window: dict | None) -> dict | None:
+    """A missing or unreadable expires_at stays open. A past one is empty."""
+    if not window:
+        return None
+    raw = window.get("expires_at")
+    if not raw:
+        return window
+    from datetime import datetime, timezone
+
+    text = str(raw).strip().replace("Z", "+00:00")
+    try:
+        exp = datetime.fromisoformat(text)
+    except ValueError:
+        return window
+    if exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) >= exp:
+        return None
+    return window
+
+
 def decide(window: dict | None, pipeline: str) -> str:
     """Return "" to allow, or a REFUSED message.
 
-    Research and plugin build pipelines refuse when no window is open, and when
-    the open window's `what` does not name their repo (held by someone else).
-    Any other known pipeline is allowed with no window, and refused when a
-    window is open for a different repo. An unknown pipeline is refused while
-    any window is open.
+    An expires_at in the past is the same as no window. Research and plugin
+    build pipelines refuse when no window is open, and when the open window's
+    `what` does not name their repo. Any other known pipeline is allowed with
+    no window, and refused when a window is open for a different repo.
     """
+    window = window_if_live(window)
     required = GUARDED.get(pipeline) or TRADE_PIPELINES.get(pipeline)
     if window is None:
         if pipeline in MUST_HOLD:

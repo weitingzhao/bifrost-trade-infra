@@ -5,7 +5,7 @@ description: >-
   research-api / research-mcp, bumping the research image version, running
   bifrost-deliver-research, or debugging ImagePullBackOff / mirror-sync /
   kaniko failures in the research namespace.
-parity-id: research-release-v3
+parity-id: research-release-v4
 ---
 
 # Research 发布流程
@@ -62,15 +62,11 @@ bump `pyproject.toml` + `src/bifrost_research/__init__.py` + `tests/test_package
 
 ### 2. 构建镜像（集群内）
 
-**推荐 —— MCP `start_pipeline_run`**：`name=bifrost-deliver-research`、`revision=main`、`tag=<semver>`；发布窗口开着时带 `who`（与 `release.sh hold` 打印的一致）。Ops Console 第 3 阶段（2026-10）起 ⑤ Releases 只读，不再从页面起 run。
+先 `release.sh hold --what bifrost-research`。它 `PUT /api/v1/delivery/release-window`（ttl 5 分钟，每分钟续期）。`start_pipeline_run` 的 `who` 必须是这个持有者。
 
-**或经 platform-api：**
+**推荐 —— MCP `start_pipeline_run`**：`name=bifrost-deliver-research`、`revision=<40-char sha>`、`tag=<semver>`、`who=<holder>`。Ops Console 第 3 阶段（2026-10）起 ⑤ Releases 只读，不再从页面起 run。
 
-```bash
-curl -s -X POST -H "Authorization: Bearer $PLATFORM_OPERATOR_TOKEN" \
-  -H "Content-Type: application/json" -d '{"revision":"main","tag":"0.30.0"}' \
-  http://127.0.0.1:8780/api/v1/delivery/pipelines/bifrost-deliver-research/runs
-```
+令牌经权限 600 的 curl 配置文件传给 `POST /api/v1/delivery/pipelines/bifrost-deliver-research/runs`，不写在命令行上。
 
 链条：`mirror-sync → clone → kaniko ∥ pin-check →(已钉版本?)→ gitops-sync → rollout → verify`
 
@@ -98,7 +94,7 @@ curl -s http://192.168.10.73:30500/v2/bifrost-research/tags/list | grep -o '"0.3
 | `research-api` | `k8s/api/deployment.yaml` | API / SEPA / Copilot 端点变更 |
 | `research-mcp` | `k8s/mcp/deployment.yaml` | **MCP 工具变更**（`mcp/tools/*`） |
 | CronJob engines | `k8s/engines/*.yaml` 等 | engines / scheduler 变更 |
-| dagster | `k8s/orchestration/dagster.yaml` | replicas:1; schedule default RUNNING；缺 secrets 时勿扩 |
+| dagster | `k8s/orchestration/dagster.yaml` | replicas:1; schedule default RUNNING；缺 secrets 时勿扩。改这个文件用 `apply_manifest`（repo `bifrost-research`，path `k8s/orchestration/dagster.yaml`，级别 C，Owner 批准） |
 
 > **易错点**：新增 MCP 工具只升 `research-api` 是**无效的** —— 工具跑在
 > `research-mcp` 里。2026-08-28 就踩过：api 升到 0.30.0 后工具仍未上线，
@@ -130,7 +126,7 @@ curl -s http://192.168.10.73:30882/api/plugin/research/health
 | 症状 | 原因 | 处理 |
 |------|------|------|
 | `ImagePullBackOff` | manifest 指向 registry 中不存在的 tag（顺序反了） | 回退 manifest 到已存在的 tag 并推送，ArgoCD 自动恢复；再按正确顺序重来 |
-| `clone-research` 失败 | Gitea 镜像里没有该 repo 或未同步 | `make k3s-bootstrap-gitea-mirrors`（`MIRROR_REPOS` 含 `bifrost-research`） |
+| `clone-research` 失败 | Gitea 镜像里没有该 repo 或未同步 | `POST /api/v1/delivery/mirrors/sync`，`repos` 含 `bifrost-research`，`commits` 带上要等的 SHA |
 | kaniko `exec format error` | 调度到了 ARM 节点 | PipelineRun 必须带 `nodeSelector: kubernetes.io/arch=amd64`（platform-api 自动注入） |
 | `rollout-research` 403 | SA 权限 | `rollout-research` / `verify-research` / `gitops-sync` 须用 `tekton-deliver` SA |
 | 只跑了 build，gitops/rollout/verify 是 skipped | manifest 尚未钉本 tag | 正常 —— 走第 3、4 步，再跑一次同 tag |
@@ -174,6 +170,10 @@ Research UI（83 页）与 Portfolio / Strategy / Market 同处一个 SPA，整�
 
 **Copilot 是跨载荷服务**：面板挂在 `AppLayout`，全站可用但打 Research 后端。
 它读两边数据是设计如此，不是耦合缺陷；但爆炸半径 = 全站，契约按最高标准管。
+
+## DDL
+
+`ddl-apply` 不由平台执行。提交 `owner_run_command`（`command` 是要跑的那条命令，`reason` 写步骤），Owner 批准后在自己的终端跑 `bash bifrost-trade-infra/scripts/owner/owner-run.sh <id>`。
 
 ## D10
 
