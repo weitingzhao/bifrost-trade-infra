@@ -19,11 +19,8 @@
 - **TD-254** — 备份只归 CNPG 每日备份 + backup-retry：autopilot 遇到备份不新鲜只报告、不再调 repair_cnpg_wal_store（不再删失败的 Backup、不再盘中补全量备份；工具留给人手动用）。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「autopilot 备份不动手测试」。后续：无后续：剩下的收敛在 TD-130（观察到 10-12）
 - **TD-255** — 漂移扫描不再删失败现场：只删被驱逐的 Pod，失败的备份 Job Pod 留着（日志可读），只报告模式下一个不删。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「漂移扫描只删 Evicted 测试」。后续：无后续：Job 历史上限与 TTL 负责回收
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
-- **TD-136** — GEX 不再给没有任何 gamma 暴露的到期日写 levels（research 0.185.0；回填删 1,534 行）。验收 PASS 2026-10-08 481c96c（两面 wall gex 都为 0 的行 0；两次夜批后）。防线：`RATCHETS.md`「GEX 无暴露不写 wall 与 zero-γ」——`tests/engines/test_gex_zero_exposure.py` 的 `test_an_expiry_whose_open_interest_is_all_zero_writes_nothing` 等七例。后续：TD-157（单边）
-- **TD-157** — 只有一侧有暴露时，空的那侧 wall 和 wall gex 写 NULL（research 0.191.0；回填置空 1,762 个）。验收 PASS 2026-10-08 481c96c（空侧仍写 wall 0 行；10-06 / 10-07 新写入空 call wall 10 / 4、空 put wall 14 / 10）。防线：同上测试文件的 `test_a_side_without_exposure_names_no_wall` 等单边五例。后续：TD-166（zero_gamma 兜底）
-- **TD-166** — 只有累计 net gex 在非零值之间换号才算翻转，没有翻转时日线 `zero_gamma` 写 NULL（research 0.192.0；回填更新 26,878 行）。验收 PASS 2026-10-08 481c96c（从分布重算干跑 changed 0；10-06 / 10-07 新写入空 zero_gamma 33.5% / 35.0%）。防线：同上测试文件的 `test_leaving_zero_is_not_a_crossing` 等 TD-166 九例。后续：前端把空 zero-γ 写成「无翻转」，未立项
 
-**未结 74 项**：P0 0 · P1 6 · P2 25 · P3 43；要你批的 31 项（从总览表的审批列算）。
+**未结 72 项**：P0 0 · P1 6 · P2 23 · P3 43；要你批的 31 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -58,7 +55,7 @@
 
 目标：先让失败变红。错数据先修数据（TD-87 restate），再把引擎、闸门、写入方从「出错也报成功」改成失败即失败：引擎资产按输出判定、husbandry gate 失败即关、日历读失败报错、写入方失败抛错。不需要 Owner 批的先做。
 
-项：TD-91, TD-92, TD-94, TD-97, TD-101, TD-136, TD-156, TD-157, TD-166, TD-189, TD-192, TD-244 · 已还：TD-88, TD-89, TD-90, TD-113, TD-93, TD-165, TD-167, TD-87, TD-245
+项：TD-91, TD-92, TD-94, TD-97, TD-101, TD-156, TD-189, TD-192, TD-244 · 已还：TD-88, TD-89, TD-90, TD-113, TD-93, TD-165, TD-167, TD-87, TD-245, TD-136, TD-157, TD-166
 
 ### 第 2 波 · 让闸门真的卡住
 
@@ -94,7 +91,7 @@
 
 目标：Data Gaps 看板上未结的 15 项并入台账：先把每日快照的写入修对（TD-137）再接读侧和三页，归因行补上价格，Research 侧已就绪的一个版本（0.185.0）发出去，长期限 IV 锥在 10-31 前从 option_daily 回填，其余按 Owner 已定的口径排。
 
-项：TD-137, TD-142, TD-143, TD-144, TD-146, TD-149, TD-158, TD-159, TD-172, TD-180, TD-246, TD-250 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181, TD-193, TD-140, TD-171, TD-138, TD-139, TD-178, TD-199, TD-243, TD-182, TD-148, TD-145, TD-150
+项：TD-137, TD-142, TD-143, TD-144, TD-146, TD-149, TD-158, TD-159, TD-172, TD-180, TD-246, TD-250, TD-274 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181, TD-193, TD-140, TD-171, TD-138, TD-139, TD-178, TD-199, TD-243, TD-182, TD-148, TD-145, TD-150
 
 ### 第 8 波 · Pine 线程收尾后的跟进（10-06）
 
@@ -246,7 +243,6 @@
 | [TD-133](#td-133) | P3 | data | Leftovers of the in-cluster MinIO after the move to the NAS (deploy/minio at 0, its PVC/PV, an empty EndpointSlice, the backup-retry CronJob) | 要你批 |
 | [TD-134](#td-134) | P2 | data | WAL is ~19.5 GiB/day (4.2 GiB compressed) because checkpoints run every 5 minutes without wal_compression | 要你批 |
 | [TD-135](#td-135) | P3 | data | Native barmanObjectStore backups are removed in CloudNativePG 1.30; the Barman Cloud Plugin that replaces them needs cert-manager, which the cluster does not have | 新依赖（要你批） |
-| [TD-136](#td-136) | P2 | research-data | GEX writes levels for an expiry whose open interest is all zero: walls and zero_gamma fall on an arbitrary strike, 1,534 rows on 496 names, and terrain and scan copy them | 已批（待你签收） |
 | [TD-137](#td-137) | P1 | trade-data | The daily snapshot capture locks an account's intraday book into the day (first write wins, no freshness test) and account_nav_daily stores no margin-pressure fields | 改表 + 发布（要你批） |
 | [TD-142](#td-142) | P2 | research-data | The 90-day IV cone has 31–39 sessions of history and there is no 180-day tenor: ATM IV was stored only to 90 DTE before 2026-08-05 | 要你批 |
 | [TD-143](#td-143) | P3 | research-data | Hypotheses never link to trades: linked_opportunity_ids is empty on all 91 rows, and only Research's own create / patch writes it | 不用批 |
@@ -259,9 +255,7 @@
 | [TD-153](#td-153) | P3 | ops-platform | loki_gate.py only knows the pre-0.10.0 log line ('deprecated query params'); after api 0.10.0 refused callers log 'retired query params' and the gate cannot see them | 不用批 |
 | [TD-155](#td-155) | P2 | ops-platform | Pushes to GitHub main do not trigger CI until the Gitea pull mirror syncs, so a commit can be released before its CI ever ran | 跨仓库发版 |
 | [TD-156](#td-156) | P2 | research-control | research_signal_hit_schedule fires at 00:10 UTC, before the 02:30 UTC batch writes the night's features, so it judges the previous night's features | 不用批 |
-| [TD-157](#td-157) | P3 | research-data | GEX writes a wall on an arbitrary strike when one side of an expiry has no gamma exposure: 1,762 levels rows on 244 names, terrain reads both walls | 已批（待你签收） |
 | [TD-162](#td-162) | P2 | ops-platform | Research and plugin releases have no release window: sessions collide on pins and on deliver runs | 跨仓库发版 |
-| [TD-166](#td-166) | P2 | research-data | GEX zero_gamma was the strike nearest spot on 38% of daily levels rows (no change of sign), and a step out of zero counted as a crossing; terrain read it as a flip at spot | 已批（待你签收） |
 | [TD-170](#td-170) | P3 | research-control | dagster-daemon logs one line over 256 KB at the 22:45 and 03:00 UTC schedule ticks every night | 不用批 |
 | [TD-172](#td-172) | P2 | research-data | ATM IV has almost no 50–90 DTE expiry from 2026-07-06 to 09-25 (the EOD chain stopped at the third listed expiry until plugin 0.39.0); the fix was forward-only, so term structure reads na for that stretch | 要你批 |
 | [TD-174](#td-174) | P3 | market-data | Console marks fundamentals-rotate missed every Monday 03:45 → Tuesday 03:00 UTC: the trading-day check uses the UTC date of the fire | 不用批 |
@@ -290,6 +284,7 @@
 | [TD-255](#td-255) | P3 | ops-platform | The hourly drift scan deletes every Failed pod it may, including failed backup Job pods in data | 不用批 |
 | [TD-272](#td-272) | P3 | ops-platform | tekton-trigger can create any PipelineRun in cicd, and no admission policy matches it, so its token is still a path to the cluster-admin Argo controller account | 安全/凭据（要你批） |
 | [TD-273](#td-273) | P3 | ops-platform | apply_manifest cannot plan a commit until Gitea's pull mirror has it, and nothing syncs the mirror except a deliver run or the 8-hour interval | 不用批 |
+| [TD-274](#td-274) | P3 | frontend | Symbol faces hide GEX levels that exist when zero gamma is NULL: the dealer level strip needs all four values and the regime cell needs zero gamma, so a chain with no flip (about a third of expiries) shows neither walls nor regime | 不用批 |
 
 ## 条目
 
@@ -665,26 +660,6 @@
 - **验收**: A completed Backup with method plugin and a restore drill that passes.
 - 审批 要你批 · 代价 M · 风险 med · repos: bifrost-trade-infra
 
-### TD-136
-
-**P2 · research-data · GEX writes levels for an expiry whose open interest is all zero: walls and zero_gamma fall on an arbitrary strike, 1,534 rows on 496 names, and terrain and scan copy them**
-
-- **状态**：待你签收
-- **验收结果**：PASS 2026-10-08 research 481c96c — 两面 wall gex 都为 0 的行（不限 total_net_gex）0 行，本条验收 SQL 0 行；levels 总数 77,996。夜批：10-07 02:30 UTC 那次 `research_trading_day` 在 dbt 一步 FAILURE（GEX 已在 02:32 写完 10-05 的 4,243 行），04:31 重跑 SUCCESS；10-08 02:30 SUCCESS，写 10-06 4,262 行、10-07 4,294 行（max computed_at 10-08 02:32 / 02:34 UTC）。
-- **进展（10-06，Owner 批「现在修」）**：research 0.185.0（a83abd1，pin 16b0f67）上线：`exposure.has_gamma_exposure`，没有 gamma 暴露的到期日不写分布也不写 levels（判定用两面 wall 的 gex 都为 0，覆盖 1,182 行零 OI 和 352 行「只有远离现价的行权价、gamma 舍入为 0」）；整天都没有暴露的名字清空当天并报 `No gamma exposure`；盘中 GEX 同样不写。Dagster 0.185.0-dagster 16:50 UTC apply。回填 Job `research-gex-zero-exposure-purge-0185`（`engines/gex/zero_exposure_purge`）：删 levels 1,534 行、分布 24,413 行，terrain 重算 104 行，scan 重算 145 行。核对：退化 levels 剩 0；levels 总数 70,974 → 69,440；没有 terrain 行再读到退化行；145 行 scan 的 regime 与 pin_score 全部与 terrain 一致。备份 `~/bifrost-backups/golden-source/2026-10-06_gex-zero-exposure-td136/`。防线：`tests/engines/test_gex_zero_exposure.py`（签收时登记进 RATCHETS.md）。后续：TD-157（单边）。
-- **Claim**: compute_gex_levels takes the call wall with max(call_gex) and the put wall with min(put_gex); when every contract of an expiry has open_interest 0, every gex is 0, both walls become the first strike in the distribution, no sign flip exists, and zero_gamma falls back to the strike nearest spot. The row is written with total_net_gex 0 and call/put_wall_gex 0. Same class as max pain's zero-OI rows, fixed in research 0.155.0 (the expiry is skipped); GEX was not covered. Found on 10-06 checking CTVA after its 10-01 spin-off: the new standard series listed on 10-02 with OI 0 produced three such rows (walls and zero_gamma all 12.5, spot 11.92).
-- **Measured**: MEASURED 10-06, read-only on Golden Source: features.option_metric_gex_levels_daily has 1,534 rows with total_net_gex = 0, all with call_wall_gex = put_wall_gex = 0; 1,186 name-sessions, 496 names, 07-06 → 10-05; still written nightly (09-28: 32, 09-29: 25, 09-30: 11, 10-01: 376, 10-02: 52, 10-05: 34).
-- **Evidence**:
-  - `bifrost-research/src/bifrost_research/engines/gex/exposure.py:192` — `call_wall = max(distribution, key=lambda r: float(r.get("call_gex") or 0))`
-  - `bifrost-research/src/bifrost_research/engines/gex/exposure.py:220` — zero_gamma fallback to the strike nearest spot
-  - `bifrost-research/src/bifrost_research/engines/gex/exposure.py:560` — every expiry in by_exp is written, no zero-OI guard
-  - `bifrost-research/src/bifrost_research/engines/forecast/terrain.py:182` — walls_reach_spot reads these walls; CTVA 10-02 terrain gamma zone 12.44–12.56 and scan gex_notional 0 came from them
-- **Impact**: Levels pages, terrain (pin score, gamma zone, regime) and scan read a wall and a zero-gamma level where no open interest exists. One night after a corporate action (10-01: 376 rows) touches many names at once.
-- **Fix**: In compute_gex_for_symbol skip an expiry whose summed open interest is 0 (write no distribution and no levels row), as max_pain does since 0.155.0; the session is already replaced delete-then-write, so the next recompute clears it. One-off: back up and delete the 1,534 rows, then recompute terrain and scan on the affected name-sessions (pattern: engines/adjusted_contract_purge --max-pain).
-- **Ratchet**: A test that compute_gex_for_symbol writes nothing for an expiry whose contracts all have open_interest 0; a nightly check that features.option_metric_gex_levels_daily has no row with total_net_gex = 0 and both wall gex = 0.
-- **验收**: `SELECT count(*) FROM features.option_metric_gex_levels_daily WHERE total_net_gex = 0 AND COALESCE(call_wall_gex,0) = 0 AND COALESCE(put_wall_gex,0) = 0` returns 0 after two nightly runs.
-- 审批 已批（Owner 10-06）· 代价 S · 风险 low · repos: bifrost-research
-
 ### TD-137
 
 **P1 · trade-data · The daily snapshot capture locks an account's intraday book into the day (first write wins, no freshness test) and account_nav_daily stores no margin-pressure fields**
@@ -865,24 +840,6 @@
 - **Ratchet**: tests/orchestration/test_judge_after_writer.py (added for TD-97) covers it once signal_hit is registered as a trading-day reader.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
 
-### TD-157
-
-**P3 · research-data · GEX writes a wall on an arbitrary strike when one side of an expiry has no gamma exposure: 1,762 levels rows on 244 names, terrain reads both walls**
-
-- **状态**：待你签收
-- **验收结果**：PASS 2026-10-08 research 481c96c — 空侧仍写 wall 的行 0；夜批新写入的空 wall：10-06 call 10 / put 14（4,262 行），10-07 call 4 / put 10（4,294 行），说明夜批在写 NULL。夜批：10-07 02:30 UTC 那次 `research_trading_day` 在 dbt 一步 FAILURE（GEX 已在 02:32 写完 10-05 的 4,243 行），04:31 重跑 SUCCESS；10-08 02:30 SUCCESS，写 10-06 4,262 行、10-07 4,294 行（max computed_at 10-08 02:32 / 02:34 UTC）。
-- **进展（10-06，Owner 批「TD-157 一起做」）**：research 0.191.0（ddf5642，pin e19d5cc）上线：`engines/gex/exposure_guards.drop_empty_side_walls`，日线 levels 中没有暴露的一侧，wall 和 wall gex 写 NULL（`has_gamma_exposure` 同时移入该模块，exposure.py 回到 800 行以内）；只改日线，盘中快照汇总全部到期日，且前端 GexTimelineChart 会把空 wall 画在 0。读 wall 的地方（terrain、mart_sepa_tier_options、brief、Symbol 各面、DealerHistory）都按缺失处理，已逐个核对。Dagster 0.191.0-dagster 18:24 UTC apply。回填 Job `research-gex-one-sided-walls-0191b`（`zero_exposure_purge --one-sided`）：置空 call 侧 820、put 侧 942，terrain 重算 237 行（156 行分数有变，regime 翻转 7 个，含与当前输入的其他漂移），scan 237 行。核对：空侧 wall 剩 0；TD-136 的整行无暴露仍为 0；scan 与 terrain 一致。备份 `~/bifrost-backups/golden-source/2026-10-06_gex-one-sided-walls-td157/`。同一天先跑了一次参数写错的 Job（`-0191`，执行的是 TD-136 那一步，0 行、无写入）。防线：`tests/engines/test_gex_zero_exposure.py` 的单边用例（签收时登记进 RATCHETS.md）。后续：TD-166（zero_gamma 兜底）。
-- **Claim**: compute_gex_levels picks the call wall with max(call_gex) and the put wall with min(put_gex) independently. When only one side has exposure (every call gex 0, or every put gex 0), that side's wall is still written: the first strike in the distribution, with wall gex 0. TD-136 (0.185.0) covers only expiries where both sides are empty.
-- **Measured**: MEASURED 10-06 after the TD-136 purge, read-only: of 69,440 levels rows, 820 have call_wall_gex 0 with a non-zero put wall and 942 the reverse; 244 names; 169 since 10-01.
-- **Evidence**:
-  - `bifrost-research/src/bifrost_research/engines/gex/exposure.py:192` — `call_wall = max(distribution, key=lambda r: float(r.get("call_gex") or 0))`, and the put wall on the next line, with no check that the chosen wall has exposure
-  - `bifrost-research/src/bifrost_research/engines/forecast/terrain.py:93` — pin_score_from_gex scores spot between the two walls
-- **Impact**: terrain's pin score and gamma zone, and the levels pages, can place a call or put wall where no open interest of that side exists.
-- **Fix**: Write NULL for a wall whose side has no exposure (call_wall_gex / put_wall_gex 0), so readers treat it as missing (terrain already handles a None wall). One-off: null those walls on the 1,762 rows and recompute terrain and scan on the name-sessions that read them (pattern: engines/gex/zero_exposure_purge).
-- **Ratchet**: Extend tests/engines/test_gex_zero_exposure.py with a one-sided distribution; nightly check: no levels row with a non-null wall whose wall gex is 0.
-- **验收**: `SELECT count(*) FROM features.option_metric_gex_levels_daily WHERE (major_call_wall IS NOT NULL AND COALESCE(call_wall_gex,0) = 0) OR (major_put_wall IS NOT NULL AND COALESCE(put_wall_gex,0) = 0)` returns 0 after two nightly runs.
-- 审批 已批（Owner 10-06）· 代价 S · 风险 low · repos: bifrost-research
-
 ### TD-158
 
 **P3 · research-data · Earnings estimates are served one name per request, so no universe-wide page can show an Earn column**
@@ -939,24 +896,6 @@
 - **Fix**: Extend release.sh window to cover research and the plugins (one window file, the repo in `what`), and have the deliver-research / build pipelines (and platform-api's start_pipeline_run) refuse while a window is held by someone else; document it in CLAUDE.md §5 next to the Trade window.
 - **Ratchet**: deliver-research / plugin build PipelineRuns check the window as their first task (fail fast), the same way the Trade PROD pipeline checks its STG run.
 - 审批 跨仓库发版 · 代价 M · 风险 med · repos: bifrost-trade-infra, bifrost-research, bifrost-platform
-
-### TD-166
-
-**P2 · research-data · GEX zero_gamma was the strike nearest spot on 38% of daily levels rows (no change of sign), and a step out of zero counted as a crossing; terrain read it as a flip at spot**
-
-- **状态**：待你签收
-- **验收结果**：PASS 2026-10-08 research 481c96c — 干跑 Job `research-gex-zero-gamma-check-1008`（镜像 bifrost-research:0.205.0，不带 --apply）：`"applied": false`，levels 77,996 行，`changed` 0、`to_null` 0、`moved_crossing` 0，terrain / scan 0 个 session。新写入的空 zero_gamma：10-06 1,426 / 4,262（33.5%），10-07 1,503 / 4,294（35.0%）；全表 29,447。夜批：10-07 02:30 UTC 那次 `research_trading_day` 在 dbt 一步 FAILURE（GEX 已在 02:32 写完 10-05 的 4,243 行），04:31 重跑 SUCCESS；10-08 02:30 SUCCESS，写 10-06 4,262 行、10-07 4,294 行（max computed_at 10-08 02:32 / 02:34 UTC）。
-- **Claim**: compute_gex_levels interpolated zero gamma wherever `prev_cum * cum <= 0`, so leaving zero counted as a crossing (an expiry whose low strikes carry no gamma "flipped" at the first strike that did), and without any crossing it stored the strike nearest spot. Nothing in the row said which. Terrain's pin score gives up to 40 points for spot near zero gamma, so a fallback at the nearest strike read as a pin.
-- **Measured**: MEASURED 10-06, read-only on Golden Source (first written as "the 1,762 one-sided rows"; the real scope, measured before the fix, went back to the Owner, who chose A): of 69,440 daily levels rows, 26,518 (38%, 676 names) have no change of sign of cumulative net gex; 5,408 of those had a "crossing" out of zero; 360 more had a real crossing that a crossing out of zero beat on distance. Since 10-01, 565 of 2,040 front-expiry readings had no crossing. The old rule reproduces every stored value from the stored distribution (10,718 of 10,718 on three sample days).
-- **Evidence**:
-  - `bifrost-research/src/bifrost_research/engines/gex/exposure.py:217` (before 0.192.0) — the `prev_cum * cum <= 0` test and the nearest-strike fallback
-  - `bifrost-research/src/bifrost_research/engines/forecast/terrain.py:93` — pin_score_from_gex scores spot's distance to zero_gamma
-  - `bifrost-research/src/bifrost_research/engines/scan/entry.py:105` — scan's zero_gamma_offset reads it
-- **Fix**: research 0.192.0 (a53ee25, pin 0ed959f), Owner chose A on 10-06: `exposure_guards.zero_gamma_crossing` counts only a change of sign between non-zero cumulative values; `compute_gex_levels` says `zero_gamma_source` flip | nearest_strike; `drop_fallback_zero_gamma` stores NULL in daily levels without a crossing (intraday keeps the fallback, its timeline chart draws a missing value at zero). Readers checked for NULL: terrain, scan, mart_sepa_tier_options, sepa_fusion, exhibit lens, brief, frontend daily faces.
-- **进展（10-06）**：Dagster 0.192.0-dagster 18:47 UTC apply。回填 Job `research-gex-zero-gamma-0192`（`zero_exposure_purge --zero-gamma`，从分布逐行重算）：更新 26,878 行（置空 26,518，换成真实翻转点 360），terrain 重算 4,526 行，scan 重算 6,810 行，45 秒。核对：重跑干跑 0 变化；空 zero_gamma 26,518；scan 与 terrain 一致；TD-136 / TD-157 的检查仍为 0。影响：terrain pin_score 有 3,389 行变化，其中 3,382 行下降，中位 −32 点；regime 翻转 338 个（range→trending 290）；scan 的 zero_gamma_offset 有 5,391 行变空，综合分 5,489 行变化，中位 −6.9。备份（三张整表）`~/bifrost-backups/golden-source/2026-10-06_gex-zero-gamma-td166/`。防线：`tests/engines/test_gex_zero_exposure.py` 的 TD-166 用例（签收时登记进 RATCHETS.md）。后续：前端可把空的 zero-γ 写成「无翻转」（未立项，Product）。
-- **Ratchet**: tests/engines/test_gex_zero_exposure.py (leaving zero and touching zero are not crossings; the nearest crossing wins; daily rows store NULL without one; the pass counts read-only and refuses a mismatched update).
-- **验收**: `python -m bifrost_research.engines.gex.zero_exposure_purge --zero-gamma` (dry run, read-only) reports `changed: 0` after two nightly runs.
-- 审批 已批（Owner 10-06，选 A）· 代价 M · 风险 med · repos: bifrost-research
 
 ### TD-170
 
@@ -1566,6 +1505,26 @@
 - **Fix**: Give `flex-query-worker` the live Redis address the other plugin workloads use (env or the plugin's config block), then confirm the topic arrives. Decide separately whether a failed publish should raise rather than warn — on its own, a warning here is the thing that hid it.
 - **Ratchet**: A plugin test that `notify` refuses to fall back to a loopback address when it runs with no explicit Redis configuration (so the next deployment cannot inherit the default silently).
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-flex-query
+
+
+### TD-274
+
+**P3 · frontend · Symbol faces hide GEX levels that exist when zero gamma is NULL: the dealer level strip needs all four values and the regime cell needs zero gamma, so a chain with no flip (about a third of expiries) shows neither walls nor regime**
+
+- **状态**：未开始
+- **Claim**: Since research 0.191.0 / 0.192.0 (TD-157, TD-166) daily GEX levels store NULL for a wall on a side without exposure and for zero gamma when cumulative gamma never changes sign; NULL there is a reading ("no flip: the whole chain is long gamma" or short, by the sign of `total_net_gex`), not missing data. The Symbol faces treat it as missing: the dealer face draws its level strip only when spot, zero gamma and both walls are all present, so the walls that do exist disappear too; the face extras drop the GEX regime cell entirely; the history table and chain chips print `—`. Same class as the closed TD-150 (pages report gaps that are not there).
+- **Measured**: MEASURED 2026-10-08 (acceptance run of TD-166, read-only): zero gamma NULL on 1,426 of 4,262 levels rows written for 10-06 (33.5%) and 1,503 of 4,294 for 10-07 (35.0%); 29,447 NULL in the table. On 10-06, 565 of 2,040 front-expiry readings since 10-01 had no flip. One-sided walls NULL on 24 of the 10-06 rows and 14 of the 10-07 rows.
+- **Evidence**:
+  - `bifrost-trade-frontend/src/pages/research/analyze/symbol/SymbolDealerFace.tsx:206` — `spot != null && zeroG != null && callWall != null && putWall != null` gates the whole level strip
+  - `bifrost-trade-frontend/src/pages/research/analyze/symbol/faceExtras.ts:142` — `regime && zeroGamma != null ? { gex_regime: … flip … } : {}` drops the regime cell
+  - `bifrost-trade-frontend/src/pages/research/analyze/symbol/SymbolDealerHistory.tsx:285` — `r.zero_gamma?.toFixed(2) ?? '—'`
+  - `bifrost-trade-frontend/src/pages/research/analyze/symbol/SymbolChainFace.tsx:233` — the Zero γ chip with a null value
+  - Research side: `bifrost-research/src/bifrost_research/engines/gex/exposure_guards.py` — `drop_fallback_zero_gamma`, `drop_empty_side_walls`
+- **Impact**: On roughly a third of names the dealer face shows no walls and no regime although the levels row has them; the user reads "no GEX data" where the answer is "no flip, long (or short) gamma throughout".
+- **Fix**: When a levels row exists, show what it has and say what a NULL means: draw the strip with whatever of spot / walls / zero gamma is present; regime cell "long γ · no flip" (sign of `total_net_gex`) when zero gamma is NULL; `no flip` instead of `—` in the history table and chip; a missing wall reads "no call (put) exposure". Keep `—` only when there is no levels row. Copy may want a Design pass; the data rule does not.
+- **Ratchet**: vitest on the dealer face and face extras with a levels row whose zero gamma is NULL (strip still drawn with walls, regime cell present and says no flip), and one with a NULL wall.
+- **验收**: On :5173 (DEV inner loop) a name whose front expiry has NULL zero gamma shows walls and a regime cell saying "no flip"; the vitest above passes.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
 
 ## 没覆盖到的（下一轮从这里开始）
 
