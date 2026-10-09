@@ -18,10 +18,9 @@
 - **TD-253** — 检查信号不再是几周前的：每条带观测时间和来源，超过 2 小时读 unknown、autopilot 不会按它动手；PROD platform-workers 自己每 10 分钟探测一次（不再靠 Mac 上报）。验收 PASS 2026-10-07 d8bdf41（22/22 带时间）。防线：`RATCHETS.md`「检查信号的时效与来源」测试 + `check_platform_maintenance.py`（探测器只在 PROD workers）。后续：无后续：放开 autopilot 动手在 TD-130（观察到 10-12）
 - **TD-254** — 备份只归 CNPG 每日备份 + backup-retry：autopilot 遇到备份不新鲜只报告、不再调 repair_cnpg_wal_store（不再删失败的 Backup、不再盘中补全量备份；工具留给人手动用）。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「autopilot 备份不动手测试」。后续：无后续：剩下的收敛在 TD-130（观察到 10-12）
 - **TD-255** — 漂移扫描不再删失败现场：只删被驱逐的 Pod，失败的备份 Job Pod 留着（日志可读），只报告模式下一个不删。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「漂移扫描只删 Evicted 测试」。后续：无后续：Job 历史上限与 TTL 负责回收
-- **TD-280** — 被跟踪的配置 YAML 再也提交不进凭证：`scrub_config_secrets.py --check` + 共享 pre-commit（只在 infra 生效、查暂存区）；历史里仍有效的 Massive 密钥已轮换（infra 28e7e8d；Owner 10-09 换 key）。验收 PASS 2026-10-09 b153924（check 0、埋值被拒、新 key 哈希不同、doctor vendor 200）。防线：`RATCHETS.md`「被跟踪的配置不进凭证」。后续：TD-281（轮换空档 131 个 option_daily 401，doctor 处方卡在同一批 50 个，81 个没重试）；Trade 三份 Secret 里的 `MASSIVE_API_KEY`/`POLYGON_API_KEY` 已失效且无人使用，下次物化时删掉
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 74 项**：P0 0 · P1 7 · P2 23 · P3 44；要你批的 32 项（从总览表的审批列算）。
+**未结 73 项**：P0 0 · P1 6 · P2 23 · P3 44；要你批的 31 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -122,7 +121,7 @@
 
 目标：会动手的维护只由 PROD 的 platform-workers 做，本机与 STG 只观测。已做：本机停手（TD-130 第一步）、STG 不修 IB 也不写发布记录（TD-223）、页面不再触发维护、状态持久化（TD-196）。接着：PROD 自己探测、带时间戳的检查信号，只给 PROD 挂技能并先只报告，再逐项放开；备份只归 CNPG 与 backup-retry；不再清掉失败现场。
 
-项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255, TD-272, TD-276, TD-280, TD-281 · 已还：TD-256, TD-257, TD-270, TD-271, TD-273, TD-275, TD-277, TD-278, TD-279
+项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255, TD-272, TD-276, TD-281 · 已还：TD-256, TD-257, TD-270, TD-271, TD-273, TD-275, TD-277, TD-278, TD-279, TD-280
 
 ## 数据边界（接受并留座）
 
@@ -286,7 +285,6 @@
 | [TD-272](#td-272) | P3 | ops-platform | tekton-trigger can create any PipelineRun in cicd, and no admission policy matches it, so its token is still a path to the cluster-admin Argo controller account | 安全/凭据（要你批） |
 | [TD-276](#td-276) | P3 | ops-platform | An apply_manifest run is named apply-<plan id>, so a failed apply of a plan cannot be retried; a new plan is needed | 不用批 |
 | [TD-281](#td-281) | P3 | market-data | Doctor's retry-jobs prescription is the newest 50 failed jobs whether or not they were already retried, so heal cannot get past the first 50 of an outage | 不用批 |
-| [TD-280](#td-280) | P1 | ops-platform | Credential values sat in the public bifrost-trade-infra history of four tracked config files (06-04..08-17); the Massive API key among them is still the live one | 安全/凭据（要你批） |
 | [TD-274](#td-274) | P3 | frontend | Symbol faces hide GEX levels that exist when zero gamma is NULL: the dealer level strip needs all four values and the regime cell needs zero gamma, so a chain with no flip (about a third of expiries) shows neither walls nor regime | 不用批 |
 
 ## 条目
@@ -1445,23 +1443,6 @@
 - **Ratchet**: workactions test: two Apply calls for one ready plan create two distinct runs (or the second is refused with a clear message when the first succeeded).
 - 验收: `cd bifrost-platform/api && go test ./internal/workactions -run Apply -count=1`
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
-
-### TD-280
-
-**P1 · ops-platform · Credential values sat in the public bifrost-trade-infra history of four tracked config files (06-04..08-17); the Massive API key among them is still the live one**
-
-- **状态**：待你签收（防线 infra `28e7e8d`；Massive 密钥 Owner 10-09 23:00Z 轮换：`market-data-secrets` 更新、3 个 Deployment 重启、infra 与插件 `.env` 换新）
-- **验收结果**：PASS 2026-10-09 b153924 — `make check-config-secrets` 0（8 测试）；真仓库埋值提交被拒；infra 与插件 `.env` 的 `MASSIVE_API_KEY`/`POLYGON_API_KEY` 哈希 `1b5b8852`（不再是 `bda075ef`）；doctor vendor HTTP 200、EOD 4 项 healthy、重启后 options 500 done / 0 failed；Owner `leak_check.py` 扫 55 个值：ops token、redis、postgres 都没命中，只有 Trade 三份 Secret 文件里的旧 Massive 键（已作废；Trade 代码不用它，`get_polygon_settings` 无调用方）
-- **Claim**: `config/config.dev.yaml` and the dev / stg / prod overlay `config.*.yaml` carried credential values between 2026-06-04 and 2026-08-17, all reachable from `origin` (the repo is public): postgres and golden_source passwords, redis_ib (trade-prod and one dev-overlay value), redis_massive, two Trade ops `tokens[].token`, and the Massive `api_key`. The compose sync script wrote the trade-prod value (fixed in TD-278). `scrub_config_secrets.py` could only empty fields; nothing checked them.
-- **Measured**: MEASURED 2026-10-09, sha256 prefixes and dates only. `massive.api_key` `bda075ef` (config.dev.yaml 06-13..08-17, prod overlay 06-19..08-17) **equals today's `MASSIVE_API_KEY` / `POLYGON_API_KEY` in infra `.env`**. Postgres `3f6d7697` / `d3cdc491`, golden_source `3f6d7697`, redis_massive `6d3f64c1` (bus retired 09-27) match no current Agent-readable value. trade-prod `020cb356`: Owner confirmed rotated. Ops tokens `3f3a65e4` / `bb1fbe1e` and redis_ib `43adff2a` match nothing the Agent can read; they may match Owner-held values. One postgres "password" (`2a427ae3`) equals a database name, not a secret.
-- **Evidence**:
-  - `bifrost-trade-infra` history of `config/config.dev.yaml`, `k8s/overlays/{dev,stg,prod}/config/config.*.yaml`
-  - consumers of the Massive key: `plugin-market-data` Deployments `market-data-api`, `polygon-worker-options`, `polygon-worker-stocks` via Secret `market-data-secrets` key `polygon-api-key`; `.env` of infra and of plugin-market-data
-- **Impact**: Anyone with the public history can use the paid Massive / Polygon key (quota, cost, entitlement abuse) until it is regenerated. The ops tokens, if still current, would let anyone who reaches the Trade API act as operator or admin there.
-- **Fix**: (1) done: `--check` and the pre-commit hook. (2) Owner regenerates the Massive key, updates `market-data-secrets` and both `.env` files, restarts the three Deployments; Agent confirms the new key's hash differs and `market_data_doctor` is healthy. (3) Owner runs the leak check; rotate any Owner-held value it names. (4) History rewrite stays optional once every listed value is dead.
-- **Ratchet**: `scripts/test_scrub_config_secrets.py` (8 cases, incl. the hook on the index and a no-op elsewhere); pre-commit `agent-config/scripts/git-hooks/pre-commit`; `make check-config-secrets`.
-- 验收: `make check-config-secrets` exit 0; infra `.env` `MASSIVE_API_KEY` hash prefix ≠ `bda075ef` and `market_data_doctor` healthy after the rotation; Owner leak check reports no match.
-- 审批 要批（换 Massive 密钥并重启插件 3 个 Deployment）· 代价 S · 风险 med · repos: bifrost-trade-infra, bifrost-platform-plugin-market-data
 
 ### TD-281
 
