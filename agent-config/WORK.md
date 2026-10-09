@@ -416,7 +416,11 @@
 - **状态**：在做
 - **匹配**：LANE-W33
 - **现在**：Owner 10-08 定合并四件：① 凭证收口（mini 不再持有管理员 kubeconfig 与 admin 令牌、部署脚本不再同步、remediation runner 与 .52 hermes-gateway 定去留）；② PROD 经代理转到 mini 的 operator 级路由认 PROD 令牌；③ Console 显示待重启节点、滚动重启做成审批动作；④ ⑤ 页给 Research 与插件显示 STG / PROD 两列版本。先讨论分步，任务文件还没写
-- **下一步**：Owner 10-08 过目通过，已交 Cursor（第一批，`LANE-W33.md`）。交回报告后 Claude 验收，按报告里的「上线顺序」逐步上线；第 2、3 步之后另派
+- **下一步**：
+  - Cursor 10-08 交付第一批（platform `9a0d1ed`，infra `8262696`），Claude 验收通过；
+  - platform 已合 main；infra 拆三份合：第 1 份 `937747a` 已合，包含脚本、监控清单、MAINTAINERS，外加 Claude 改的 DaemonSet 非 root 加固；STG overlay 随 STG 发布合，PROD overlay 随 PROD 发布合；
+  - 代码健康基线 13 → 12 等共享 platform 检出能快进时再降（它有别人的 Makefile 在制品）；
+  - 按报告「上线顺序」：STG（Owner 批）→ PROD（审批）→ 重部署 mini → apply 待重启清单 → helm upgrade Grafana → 去掉 runner 令牌 → `check_maintainers --live` drift 0。第 2、3 步之后另派
 - **验收**：第 5 阶段退出条件——对账 0 漂移；Agent 侧没有管理员凭证
 - **关联**：`agent-config/work/ops-arch/LANE-W33.md`、`agent-config/work/ops-arch/README.md`「剩下的两波」、`agent-config/work/ops-arch/W33-credentials-2026-10-08.md`、W-5
 
