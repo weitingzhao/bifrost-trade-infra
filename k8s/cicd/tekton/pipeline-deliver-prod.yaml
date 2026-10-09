@@ -9,6 +9,9 @@ metadata:
   labels:
     bifrost.io/purpose: prod-deliver
     bifrost.io/layer: L2
+  annotations:
+    bifrost.io/run-timeout: 1h0m0s
+    bifrost.io/run-arch: amd64
 spec:
   description: >-
     STG preflight → Gitea mirror-sync → clone → Dockerfile CMs → build prod
@@ -21,6 +24,21 @@ spec:
     # bifrost-ui is its own repo, so it gets its own ref: a pinned run names the ui
     # commit here (TD-234). Callers pass the same ref as revision unless they pin.
     - name: uiRevision
+      type: string
+      default: main
+    - name: coreRevision
+      type: string
+      default: main
+    - name: workerRevision
+      type: string
+      default: main
+    - name: apiRevision
+      type: string
+      default: main
+    - name: frontendRevision
+      type: string
+      default: main
+    - name: infraRevision
       type: string
       default: main
     - name: giteaBase
@@ -96,7 +114,7 @@ spec:
         - name: url
           value: $(params.giteaBase)/bifrost-trade-core.git
         - name: revision
-          value: $(params.revision)
+          value: $(params.coreRevision)
         - name: subdir
           value: bifrost-trade-core
       workspaces:
@@ -110,7 +128,7 @@ spec:
         - name: url
           value: $(params.giteaBase)/bifrost-trade-worker.git
         - name: revision
-          value: $(params.revision)
+          value: $(params.workerRevision)
         - name: subdir
           value: bifrost-trade-worker
       workspaces:
@@ -124,7 +142,7 @@ spec:
         - name: url
           value: $(params.giteaBase)/bifrost-trade-api.git
         - name: revision
-          value: $(params.revision)
+          value: $(params.apiRevision)
         - name: subdir
           value: bifrost-trade-api
       workspaces:
@@ -138,7 +156,7 @@ spec:
         - name: url
           value: $(params.giteaBase)/bifrost-trade-frontend.git
         - name: revision
-          value: $(params.revision)
+          value: $(params.frontendRevision)
         - name: subdir
           value: bifrost-trade-frontend
       workspaces:
@@ -166,7 +184,7 @@ spec:
         - name: url
           value: $(params.giteaBase)/bifrost-trade-infra.git
         - name: revision
-          value: $(params.revision)
+          value: $(params.infraRevision)
         - name: subdir
           value: bifrost-trade-infra
       workspaces:

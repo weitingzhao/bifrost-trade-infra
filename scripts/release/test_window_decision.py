@@ -78,6 +78,15 @@ class WindowTests(unittest.TestCase):
         self.assertIn("someone else", msg)
         self.assertIn("REFUSED", wd.decide_api(window, "bifrost-deliver-research", ""))
 
+    def test_expired_window_is_empty(self) -> None:
+        window = {
+            "who": "ada@host",
+            "what": "bifrost-research",
+            "expires_at": "2000-01-01T00:00:00+00:00",
+        }
+        self.assertEqual(wd.decide(window, "bifrost-deliver-research"), wd.decide(None, "bifrost-deliver-research"))
+        self.assertEqual(wd.decide(window, "bifrost-deliver-stg"), "")
+
     def test_api_allows_trade_when_no_window_is_open(self) -> None:
         self.assertEqual(wd.decide_api(None, "bifrost-deliver-stg", ""), "")
 
