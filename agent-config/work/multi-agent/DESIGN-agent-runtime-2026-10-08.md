@@ -176,6 +176,7 @@ Owner ──（三件事）──► 规则集（签名）· mission 清单 · �
 ### 7.3 交互总线
 
 - PG 是事实来源：事件只追加；写事件和写 outbox 在同一个事务里，再由中继投递到 Redis Streams。
+- **事件按 mission 串成哈希链**：每条事件带上前一条的哈希，篡改可以查出来（借鉴 Bernstein 的审计日志；见第 17 节）。
 - Redis 的用途：每个 Agent 一个信箱（消费组）、唤醒信号、在线状态、额度冷却、叫停广播、GPU 批次队列。
 - Redis 丢了，从 `outbox` 和 `delivery` 表重建。
 - IDE 里的 Agent 用 MCP 的 `wait_for_messages` 收消息，`agentd` 走同一个长轮询接口。
@@ -250,6 +251,7 @@ MCP 工具：`whoami`、`get_mission`、`list_tasks`、`get_task`、`propose_tas
 
 - 每台主机一个 `agentd`：持有本机执行者的令牌；在 `~/agent-work/<task_id>/` 下为每个任务建一个工作区根，里面复刻治理层的符号链接，所以 preflight 照样生效；收集产物和用量；任务完成就删掉工作区（失败的保留 7 天）。
 - 宿主的强制措施：清洗环境变量（不传管理员 kubeconfig、admin 令牌、业务 API 键）；限时；限并发；死人开关（连续 3 次心跳失败，就杀掉子进程）。
+- **只调用各厂商官方、未经改动的命令行程序**，由 Owner 本人用自己的订阅登录；**绝不提取或转用登录令牌**。依据：Anthropic 的条款允许用户用自己的订阅跑未改动的 Claude Code，额度按「普通个人使用」设计；2026 年起，第三方 harness 借用订阅 OAuth 的做法已经被封（第 17 节）。
 - 主机：第 0 阶段在 MacBook 上（同一个账户，只能做到「归属清楚」，做不到隔离）；第 2 阶段迁进 mini 的虚拟机（原 ops-arch 第 6 阶段，已移交本议题）。
 - 云端 Agent（Claude Code 云会话、Codex cloud、Cursor 后台 Agent）**只接触公开仓库**，只做「纯代码 + 单元测试」，结果以 GitHub 分支的形式回来，由本地做确定性验收。它们连不到局域网，也不需要长期记忆。
 
@@ -285,10 +287,12 @@ MCP 工具：`whoami`、`get_mission`、`list_tasks`、`get_task`、`propose_tas
 | **编号** | 新工作项一律用 `W-n`，在 WORK.md 里发号（第 2 期起由平台发号）。`LANE-A2`、`LANE-C` 这两个别名作废。配查重的防线（ops-arch 已经开始用 W-32、W-33） |
 | **D1 作为过渡层** | `cursor/d1-platform` 合并进来：progress API 多算一栏「待你定」；WORK.md 加一节「待你定 / 已定」；⑦ 进度页和 ④「待你定」块做成独立组件，由瘦身后的新外壳挂载。运行时上线后只换数据源 |
 | **RP** | 见第 9 节 |
+| **AGENTS.md 评估** | 评估能否用一份 AGENTS.md（Claude Code、Cursor、Codex 都读）取代现在的 CLAUDE.md 加 `.cursor` 规则双轨（含 parity-id 和对等检查）。只评估，结论交 Owner 定；能合并的话，治理的维护成本会大幅下降 |
+| **合并队列** | Gitea 切换之后，用 gitea-mq 给 main 排队合并（Gitea 本身没有合并队列） |
 
 ## 11. 基准集与试点
 
-- **基准集**（20 题）：从带防线测试的修复提交中挑「修复前失败、修复后通过」的回放题。语言分布：Go 6、Python 7、TS 5、shell 2；难度：小 8、中 8、大 4。任务说明里带 Fix 段。工作区是截断到修复前那个提交的克隆，没有远端，尽量不联网。第 0 阶段只测 Cursor（20 次运行），第 2 阶段加上 Claude 和 Codex（40 次）。出题脚本由 Cursor 的一条道来写，Owner 和本线程各抽查几题。
+- **基准集**（20 题）：从带防线测试的修复提交中挑「修复前失败、修复后通过」的回放题。语言分布：Go 6、Python 7、TS 5、shell 2；难度：小 8、中 8、大 4。任务说明里带 Fix 段。工作区是截断到修复前那个提交的克隆，没有远端，尽量不联网。第 0 阶段只测 Cursor（20 次运行），第 2 阶段加上 Claude 和 Codex（40 次）。出题脚本由 Cursor 的一条道来写，Owner 和本线程各抽查几题。**考场不自己造**：用 Harbor 或 inspect_swe（它们已经能在容器里跑 Claude Code 和 Codex CLI），我们只补一个 Cursor 的接入。各岗位的资格考试也在同一个考场里跑。
 - **试点：还债**（「Code 代码 - 还债」已经停了）。第一个 mission 只做「推分支 + 验收」，不碰 PROD；第二个 mission 再放开发版。停下时还在观察中的 TD-85、TD-103，以及 Grok 留下的 LANE-N、LANE-M2，都允许过期，由试点的第一个任务重新验收。台账里关闭的债（基准用）和还开着的债（试点用）互不重叠。手工时期的数据（派道到验收的时长、返工次数）就是对照组。
 
 ## 12. 分阶段实施
@@ -348,3 +352,27 @@ Agent 协作写出来的业务系统，本身也需要 Agent 岗位。今天 Sto
 - **Grok Bot**：作为总调度的旧角色退场（第 4.3 节）。`~/der-relay` 和 8787 看板冻结。它留下的 N、M2 由试点重新验收。
 - **还债**：已停，改作本架构的试点（第 11 节）。
 - **Design**：先由 Owner 手动搬运；运行时上线后改为「人工运输」岗位，可以先试方案 A（由 Claude Code 线程用内置浏览器代搬，每一步都由 Owner 批准）。Owner 已经向 Anthropic 反馈过这个问题。
+
+## 17. 借鉴与采用（2026-10-08 业界调研）
+
+结论：没有现成的产品能覆盖本设计的核心，也就是签名规则集、常备授权、岗位与考试、参谋长、跨订阅的额度账本，这一层要自己建。外围的协议和组件已经成熟，可以直接拿来用。（调研来源大多是 2026 年的公开资料，在本线程模型的知识截止之后，部分只来自第三方，没有逐条核实。）
+
+| 采用什么 | 用在哪里 | 什么时候 |
+|---|---|---|
+| 只调用官方命令行程序，不提取令牌 | `agentd`（第 8 节） | 现在就写进设计 |
+| 事件哈希链 | 交互总线（7.3） | 现在就写进设计 |
+| AGENTS.md | 统一各厂商的指令文件，评估能否取代双轨 | 第 0 步，只评估 |
+| gitea-mq | main 的合并队列 | 第 0 步，Gitea 切换之后 |
+| Harbor 或 inspect_swe | 基准集与资格考试的考场，补一个 Cursor 接入 | 运行时第 0 阶段 |
+| ACP（Agent Client Protocol） | `agentd` 驱动各家 CLI；Agent 的权限请求交给我们的策略引擎（给没有钩子的执行者补一道标准护栏） | 第 2 阶段，有原生 ACP 的先接（Cursor） |
+| LiteLLM | 业务 API 的推理网关候选（虚拟密钥、预算、限流）；和「不另起服务」的原则冲突，到时再比 | 第 3 阶段再定 |
+| Scion（Google，未到 1.0） | 每个 Agent 一个容器加 worktree 的沙箱层；在 k8s 上跑与 ADR §3 冲突，要试只能放在 mini 上 | 以后再看 |
+
+借鉴思路，但不直接使用的：
+- **Claude Code agent teams**：成员之间的消息标明「不是来自用户」，不能用来批准；任务完成要过闸门。
+- **Bernstein**：调度不经过 LLM；验收由「清洁工」做（测试、lint、类型检查）。
+- **Linear Agents**：人是负责人，Agent 是受托人。
+- **A2A v1.0**：以后业务岗位和外部系统互相委托时再看。
+
+主要来源：Agent Client Protocol（agentclientprotocol.com）、Cursor ACP 文档、Claude Code agent teams 文档、Anthropic 的条款文档、Scion 的 GitHub 仓库、Bernstein 的 GitHub 仓库、Harbor 的 GitHub 仓库、inspect_swe 的 GitHub 仓库、gitea-mq（pkg.go.dev）、LiteLLM 文档。完整链接列表在多 Agent 协作线程 10-08 的对话里。
+
