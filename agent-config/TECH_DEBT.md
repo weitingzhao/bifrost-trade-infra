@@ -18,6 +18,7 @@
 - **TD-253** — 检查信号不再是几周前的：每条带观测时间和来源，超过 2 小时读 unknown、autopilot 不会按它动手；PROD platform-workers 自己每 10 分钟探测一次（不再靠 Mac 上报）。验收 PASS 2026-10-07 d8bdf41（22/22 带时间）。防线：`RATCHETS.md`「检查信号的时效与来源」测试 + `check_platform_maintenance.py`（探测器只在 PROD workers）。后续：无后续：放开 autopilot 动手在 TD-130（观察到 10-12）
 - **TD-254** — 备份只归 CNPG 每日备份 + backup-retry：autopilot 遇到备份不新鲜只报告、不再调 repair_cnpg_wal_store（不再删失败的 Backup、不再盘中补全量备份；工具留给人手动用）。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「autopilot 备份不动手测试」。后续：无后续：剩下的收敛在 TD-130（观察到 10-12）
 - **TD-255** — 漂移扫描不再删失败现场：只删被驱逐的 Pod，失败的备份 Job Pod 留着（日志可读），只报告模式下一个不删。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「漂移扫描只删 Evicted 测试」。后续：无后续：Job 历史上限与 TTL 负责回收
+- **TD-279** — Agent 直接调用的 B 级工作动作（plan / apply / 起 Job / 清理 / 探针）现在每次都写 PROD 审计：动作、目标、成功或失败带错误、结果、请求方会话（platform efeaf69，10-09 上 STG 与 PROD）。验收 PASS 2026-10-09 efeaf69（`go test ./internal/workactions -run Audit` 通过；PROD 一次无操作清理出现在 `get_audit_log` 首行）。防线：`RATCHETS.md`「工作动作必留审计」。后续：无后续：审批执行器那条路径已有 `approval.*` 行
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
 **未结 75 项**：P0 0 · P1 6 · P2 24 · P3 45；要你批的 32 项（从总览表的审批列算）。
@@ -1483,7 +1484,8 @@
 
 **P2 · ops-platform · Direct B-tier work actions (plan_manifest, create_job_from_cronjob, delete_finished_jobs, run_probe_pod) change PROD and leave no audit record**
 
-- **状态**：未开始
+- **状态**：待你签收（platform `efeaf69`，10-09 上 STG `bifrost-deliver-platform-1791580945` 与 PROD `bifrost-deliver-platform-prod-1791581180`，两次 clone HEAD 都是 efeaf69）
+- **验收结果**：PASS 2026-10-09 efeaf69 — `go test ./internal/workactions -count=1` ok（4 个 Audit 测试，旧代码上编译不过）；api 全量 `go test ./...` ok；PROD `delete_finished_jobs` 无匹配 selector（200，`jobs=[]`）出现在 `get_audit_log` 首行：operator、`monitoring/bifrost.io/td279-verify=none`、ok、带 requester
 - **Claim**: Since W-33 step 3 these routes are how an Agent writes to the cluster. A B-tier call passes `guard` straight to the `workactions` handlers, and nothing in `workactions` records to the audit log. The older routes do (`cluster/handler.go` for delete_pod and friends, `delivery/handler.go`, approvals). C-tier calls are visible only as `approval.*` rows; the B-tier ones are not visible at all.
 - **Measured**: MEASURED 2026-10-09: created `monitoring/maintainer-reconcile-manual-20261009210531` (202) and deleted it (200) through the PROD routes; `get_audit_log` (169 records, 10-07 19:33Z to 10-09 19:01Z) has no row for either, nor for the W33BR PROD smoke (job, probe, cleanup) earlier on 10-09.
 - **Evidence**:
