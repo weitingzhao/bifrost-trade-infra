@@ -20,7 +20,7 @@
 - **TD-255** — 漂移扫描不再删失败现场：只删被驱逐的 Pod，失败的备份 Job Pod 留着（日志可读），只报告模式下一个不删。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「漂移扫描只删 Evicted 测试」。后续：无后续：Job 历史上限与 TTL 负责回收
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 73 项**：P0 0 · P1 6 · P2 23 · P3 44；要你批的 31 项（从总览表的审批列算）。
+**未结 73 项**：P0 0 · P1 7 · P2 23 · P3 43；要你批的 32 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -284,7 +284,7 @@
 | [TD-255](#td-255) | P3 | ops-platform | The hourly drift scan deletes every Failed pod it may, including failed backup Job pods in data | 不用批 |
 | [TD-272](#td-272) | P3 | ops-platform | tekton-trigger can create any PipelineRun in cicd, and no admission policy matches it, so its token is still a path to the cluster-admin Argo controller account | 安全/凭据（要你批） |
 | [TD-276](#td-276) | P3 | ops-platform | An apply_manifest run is named apply-<plan id>, so a failed apply of a plan cannot be retried; a new plan is needed | 不用批 |
-| [TD-280](#td-280) | P3 | ops-platform | The redis-ib trade-prod password sat in the public bifrost-trade-infra history (config/config.dev.yaml, 8 versions 07-04..08-17), and nothing stops a password being committed to tracked config YAML again | 不用批 |
+| [TD-280](#td-280) | P1 | ops-platform | Credential values sat in the public bifrost-trade-infra history of four tracked config files (06-04..08-17); the Massive API key among them is still the live one | 安全/凭据（要你批） |
 | [TD-274](#td-274) | P3 | frontend | Symbol faces hide GEX levels that exist when zero gamma is NULL: the dealer level strip needs all four values and the regime cell needs zero gamma, so a chain with no flip (about a third of expiries) shows neither walls nor regime | 不用批 |
 
 ## 条目
@@ -1446,20 +1446,19 @@
 
 ### TD-280
 
-**P3 · ops-platform · The redis-ib trade-prod password sat in the public bifrost-trade-infra history (config/config.dev.yaml, 8 versions 07-04..08-17), and nothing stops a password being committed to tracked config YAML again**
+**P1 · ops-platform · Credential values sat in the public bifrost-trade-infra history of four tracked config files (06-04..08-17); the Massive API key among them is still the live one**
 
-- **状态**：未开始（10-09 Owner 核对：现在 trade-prod 的哈希前缀不是 `020cb356`，泄露的值已轮换失效，P1 降为 P3、不再需要轮换审批；剩下的是防线：`scrub_config_secrets.py --check` 接进 pre-commit）
-- **Claim**: `bifrost-platform-plugin/scripts/sync-redis-ib-dev-compose-config.sh` wrote the redis-ib `trade-prod` password into `bifrost-trade-infra/config/config.dev.yaml`, which is tracked; eight commits between 2026-07-04 and 2026-08-17 carry it and all are on GitHub (the repo is public). `trade-prod` has write access to `ib:*`, which holds the D10 operator stream. The same file's history also carries three `bifrost` DB passwords (06-04..08-17); none matches today's Agent-readable `.env`, so they were rotated. `scripts/scrub_config_secrets.py` empties these fields but has no check mode and nothing runs it, so nothing would stop the next one.
-- **Measured**: MEASURED 2026-10-09, lengths and sha256 prefixes only, no values printed: `redis_ib` user `trade-prod`, 32 characters, one distinct value (sha256 `020cb356…`), 8 versions, all reachable from `origin`; `postgres` user `bifrost`, three distinct 11-character values, none equal to a current `.env` value. Today's tracked file has `password_len=0`. The current `trade-prod` password is only in the Owner env, which the Agent cannot read, so whether it is still the leaked one is unknown.
+- **状态**：在做（防线已上 infra `28e7e8d`：`scrub_config_secrets.py --check` + 共享 pre-commit，真仓库里埋值提交被拒。剩：Massive 密钥轮换（你在 Massive 后台换新、更新 `plugin-market-data/market-data-secrets` 与两份 `.env`、重启 3 个 Deployment）；你跑 `leak_check.py` 核对两个 ops token 和 redis_ib `43adff2a` 是否还是现值）
+- **Claim**: `config/config.dev.yaml` and the dev / stg / prod overlay `config.*.yaml` carried credential values between 2026-06-04 and 2026-08-17, all reachable from `origin` (the repo is public): postgres and golden_source passwords, redis_ib (trade-prod and one dev-overlay value), redis_massive, two Trade ops `tokens[].token`, and the Massive `api_key`. The compose sync script wrote the trade-prod value (fixed in TD-278). `scrub_config_secrets.py` could only empty fields; nothing checked them.
+- **Measured**: MEASURED 2026-10-09, sha256 prefixes and dates only. `massive.api_key` `bda075ef` (config.dev.yaml 06-13..08-17, prod overlay 06-19..08-17) **equals today's `MASSIVE_API_KEY` / `POLYGON_API_KEY` in infra `.env`**. Postgres `3f6d7697` / `d3cdc491`, golden_source `3f6d7697`, redis_massive `6d3f64c1` (bus retired 09-27) match no current Agent-readable value. trade-prod `020cb356`: Owner confirmed rotated. Ops tokens `3f3a65e4` / `bb1fbe1e` and redis_ib `43adff2a` match nothing the Agent can read; they may match Owner-held values. One postgres "password" (`2a427ae3`) equals a database name, not a secret.
 - **Evidence**:
-  - `bifrost-trade-infra` history of `config/config.dev.yaml` (e.g. commits from 2026-07-04 to 2026-08-17)
-  - `bifrost-platform-plugin/scripts/sync-redis-ib-dev-compose-config.sh` before plugin `61effea` — wrote `password: "<trade-prod>"`
-  - `bifrost-trade-infra/scripts/scrub_config_secrets.py` — scrub only; no `--check`, no caller
-- **Impact**: If unrotated, anyone with the public history and a route to redis-ib inside the cluster can write `ib:*` as `trade-prod`, including `ib:operator:cmd`. Exposure is bounded by redis-ib having no LAN listener for STG/PROD.
-- **Fix**: (1) Owner compares the current value's sha256 prefix with `020cb356` (command in the thread); if equal, rotate `trade-prod` (Owner env, redis-ib ACL via `install-redis-ib`, Trade Secrets via `sync_redis_ib_secrets.sh`, rollout of the Trade consumers). (2) `scrub_config_secrets.py --check` exits 1 on any non-empty password, token or api_key in the tracked config files, wired into a Makefile check and the infra pre-commit hook. (3) History rewrite is optional once the value is dead; the Owner decides.
-- **Ratchet**: `scrub_config_secrets.py --check` in the infra pre-commit hook (blocking) plus a unit test with a planted value; plugin `tests/test_redis_ib_script_secrets.py` already stops the compose sync writing one.
-- 验收: Owner confirms the current `trade-prod` hash prefix differs from `020cb356` (after rotation if needed); `python3 scripts/scrub_config_secrets.py --check` exits 0 on the tree and 1 on a planted password.
-- 审批 不用批（已轮换，只剩防线）· 代价 S · 风险 low · repos: bifrost-trade-infra
+  - `bifrost-trade-infra` history of `config/config.dev.yaml`, `k8s/overlays/{dev,stg,prod}/config/config.*.yaml`
+  - consumers of the Massive key: `plugin-market-data` Deployments `market-data-api`, `polygon-worker-options`, `polygon-worker-stocks` via Secret `market-data-secrets` key `polygon-api-key`; `.env` of infra and of plugin-market-data
+- **Impact**: Anyone with the public history can use the paid Massive / Polygon key (quota, cost, entitlement abuse) until it is regenerated. The ops tokens, if still current, would let anyone who reaches the Trade API act as operator or admin there.
+- **Fix**: (1) done: `--check` and the pre-commit hook. (2) Owner regenerates the Massive key, updates `market-data-secrets` and both `.env` files, restarts the three Deployments; Agent confirms the new key's hash differs and `market_data_doctor` is healthy. (3) Owner runs the leak check; rotate any Owner-held value it names. (4) History rewrite stays optional once every listed value is dead.
+- **Ratchet**: `scripts/test_scrub_config_secrets.py` (8 cases, incl. the hook on the index and a no-op elsewhere); pre-commit `agent-config/scripts/git-hooks/pre-commit`; `make check-config-secrets`.
+- 验收: `make check-config-secrets` exit 0; infra `.env` `MASSIVE_API_KEY` hash prefix ≠ `bda075ef` and `market_data_doctor` healthy after the rotation; Owner leak check reports no match.
+- 审批 要批（换 Massive 密钥并重启插件 3 个 Deployment）· 代价 S · 风险 med · repos: bifrost-trade-infra, bifrost-platform-plugin-market-data
 
 ### TD-261
 
