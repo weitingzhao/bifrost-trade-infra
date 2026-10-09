@@ -12,6 +12,12 @@
 # cicd. dev-only = this Mac Pro, or bifrost-dev.
 # max_tier: ADR §5. The highest action the process can take, not only what it
 # did on the day this file was filled (2026-10-07, read-only).
+#
+# signal (not a maintainer): this file's parser only accepts the maintainers
+# list, so BifrostNodeRebootPending is recorded here and not as a second schema.
+# DaemonSet monitoring/node-reboot-required exports bifrost_node_reboot_required.
+# The alert records a node pending reboot for more than 14 days. Warning; it
+# does not page.
 maintainers:
   - id: cronjob/bifrost-prod/position-snapshot-capture
     what: "Weekday 16:20 America/New_York capture of position_snapshot_daily and account_nav_daily in bifrost_prod."
@@ -334,31 +340,15 @@ maintainers:
     schedule: "keep-alive"
     env: prod
     max_tier: C
-    detected_by: "none: peer watchdog only kickstarts com.bifrost.remediation-runner; this label has no Prometheus series"
+    detected_by: "none: peer watchdog kickstarts com.bifrost.operator-plane; this label has no Prometheus series"
     status: active
   - id: launchd/.50/com.bifrost.peer-watchdog
-    what: "Every 60s. The script uses curl, ssh, and launchctl, so it can restart the peer mini."
+    what: "看对端 operator-plane"
     runs_on: mini:.50/launchd
     schedule: "every 60s"
     env: prod
     max_tier: B
     detected_by: "none: nothing restarts this interval agent; it is not a PrometheusRule"
-    status: active
-  - id: launchd/.50/com.bifrost.remediation-runner
-    what: "Keep-alive remediation runner, role primary. Executes jobs the platform posts."
-    runs_on: mini:.50/launchd
-    schedule: "keep-alive"
-    env: prod
-    max_tier: D
-    detected_by: "none: peer watchdog com.bifrost.peer-watchdog on .52 polls :8781 and kickstarts this runner; that watchdog is not a PrometheusRule"
-    status: active
-  - id: launchd/.52/com.bifrost.hermes-gateway
-    what: "Keep-alive Hermes gateway on :8782. Health on 2026-10-07 reported 4 skills and an empty failing_skills list."
-    runs_on: mini:.52/launchd
-    schedule: "keep-alive"
-    env: prod
-    max_tier: C
-    detected_by: "none: no peer watchdog and no PrometheusRule for the Hermes gateway"
     status: active
   - id: launchd/.52/com.bifrost.operator-plane
     what: "Keep-alive operator-plane on :8783. Health on 2026-10-07 said autopilot false and alert_relay false."
@@ -366,23 +356,15 @@ maintainers:
     schedule: "keep-alive"
     env: prod
     max_tier: C
-    detected_by: "none: peer watchdog only kickstarts com.bifrost.remediation-runner; this label has no Prometheus series"
+    detected_by: "none: peer watchdog kickstarts com.bifrost.operator-plane; this label has no Prometheus series"
     status: active
   - id: launchd/.52/com.bifrost.peer-watchdog
-    what: "Every 60s. The script uses curl, ssh, launchctl, and ntfy."
+    what: "看对端 operator-plane"
     runs_on: mini:.52/launchd
     schedule: "every 60s"
     env: prod
     max_tier: D
     detected_by: "none: nothing restarts this interval agent; it is not a PrometheusRule"
-    status: active
-  - id: launchd/.52/com.bifrost.remediation-runner
-    what: "Keep-alive remediation runner, role standby."
-    runs_on: mini:.52/launchd
-    schedule: "keep-alive"
-    env: prod
-    max_tier: D
-    detected_by: "none: peer watchdog com.bifrost.peer-watchdog on .50 polls :8781 and kickstarts this runner; that watchdog is not a PrometheusRule"
     status: active
   - id: mac-pro/bdev/platform-api
     what: "Local platform-api on :8780 under bdev. It uses the Owner admin kubeconfig and does not start the workers loops."

@@ -66,10 +66,7 @@ kubectl create configmap bifrost-platform-console-stg-dockerfile \
   --from-file=Dockerfile.platform-console-stg="${ROOT}/k8s/cicd/docker/Dockerfile.platform-console-stg" \
   -n "${CICD_NAMESPACE}" \
   --dry-run=client -o yaml | kubectl apply -f -
-kubectl create configmap bifrost-remediation-runner-stg-dockerfile \
-  --from-file=Dockerfile.remediation-runner-stg="${ROOT}/k8s/cicd/docker/Dockerfile.remediation-runner-stg" \
-  -n "${CICD_NAMESPACE}" \
-  --dry-run=client -o yaml | kubectl apply -f -
+# Dockerfile.remediation-runner-stg was dropped with the Mac mini runner (LANE-W33).
 
 echo "==> Register Tekton platform deliver pipeline"
 SYNC_CONFIG=0 APPLY_OVERLAY=0 "${ROOT}/scripts/k3s/apply-cicd-platform-pipeline.sh"

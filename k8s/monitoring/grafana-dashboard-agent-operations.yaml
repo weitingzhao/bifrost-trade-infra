@@ -1,5 +1,6 @@
 # Bifrost Platform Control Plane dashboard — Grafana sidecar (label grafana_dashboard=1).
-# remediation-runner is Mac-host (L-1 fate isolation), not a K8s Deployment.
+# The Mac mini remediation runner was retired (LANE-W33). Git Bridge and the
+# probe bridge stay on Mac hosts, not as K8s Deployments.
 # This board covers platform-api / platform-console K8s surface; job deep status → Operator Dock / Agent Desk.
 # UID kept as bifrost-agent-operations for stable deep links.
 apiVersion: v1
@@ -32,7 +33,7 @@ data:
             "name": "Scope note",
             "iconColor": "purple",
             "type": "text",
-            "text": "K8s surface: platform-api + platform-console. remediation-runner / Git Bridge / probe bridge run on Mac hosts (not scheduled into K8s). Job success KPIs and runner health → Operator Dock / Agent Desk — do not invent PromQL for those."
+            "text": "K8s surface: platform-api + platform-console. The remediation runner was retired. Git Bridge and the probe bridge run on Mac hosts (not scheduled into K8s). Do not invent PromQL for those host processes."
           }
         ]
       },

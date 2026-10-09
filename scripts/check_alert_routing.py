@@ -66,6 +66,14 @@ DRILL_STALE_ALERT = "BifrostPostgresRecoveryDrillStale"
 # 100 days. The rule uses `>` so an age of exactly this many seconds does not fire.
 DRILL_STALE_SECONDS = 100 * 24 * 60 * 60
 DRILL_CM = 'kube_configmap_created{namespace="data",configmap="pg-recovery-drill-last-pass"}'
+REBOOT_RULES = ROOT / "k8s/monitoring/bifrost-node-reboot-rules.yaml"
+REBOOT_DS = ROOT / "k8s/monitoring/bifrost-node-reboot-required.yaml"
+REBOOT_PM = ROOT / "k8s/monitoring/bifrost-node-reboot-podmonitor.yaml"
+REBOOT_KUST = ROOT / "k8s/monitoring/kustomization.yaml"
+REBOOT_ALERT = "BifrostNodeRebootPending"
+# 14 days. The rule uses `>` so an age of exactly this many seconds does not fire.
+# for: is debounce and must not be 14d.
+REBOOT_SECONDS = 14 * 24 * 60 * 60
 PAGED = re.compile(
     r"Bifrost(PostgresBackup.*|PostgresWalArchiveStalled|LogicalBackup.*|MinIONas.*|ClusterStateBackup.*)"
 )
@@ -227,6 +235,91 @@ def assert_drill_stale_unpaged(route: dict, outside_names: set[str], receivers: 
     hit = [n for n in got if n in outside_names and n in receivers]
     if hit:
         problems.append(f"{rel}: {name} reaches a paging receiver {hit}")
+
+
+def reboot_rule() -> dict:
+    docs = [
+        doc for doc in yaml.safe_load_all(REBOOT_RULES.read_text())
+        if doc and doc.get("kind") == "PrometheusRule"
+    ]
+    if len(docs) != 1:
+        raise ValueError(f"{REBOOT_RULES.name}: expected one PrometheusRule")
+    rules = []
+    for group in docs[0]["spec"]["groups"]:
+        for rule in group.get("rules") or []:
+            if "alert" in rule:
+                rules.append(rule)
+    if len(rules) != 1:
+        raise ValueError(f"{REBOOT_RULES.name}: expected one alert, found {len(rules)}")
+    return rules[0]
+
+
+def assert_reboot_pending_unpaged(route: dict, outside_names: set[str], receivers: dict, problems: list[str]) -> None:
+    """A node pending reboot for 14 days is an audit record. It must not page."""
+    rel = REBOOT_RULES.relative_to(ROOT)
+    try:
+        rule = reboot_rule()
+    except (OSError, ValueError, KeyError, yaml.YAMLError) as exc:
+        problems.append(f"{rel}: {exc}")
+        return
+    name = rule.get("alert") or ""
+    sev = (rule.get("labels") or {}).get("severity", "")
+    expr = rule.get("expr") or ""
+    debounce = str(rule.get("for") or "")
+    if name != REBOOT_ALERT:
+        problems.append(f"{rel}: alert is {name or 'missing'}, want {REBOOT_ALERT}")
+    if sev != "warning":
+        problems.append(f"{rel}: {name} severity is {sev or 'missing'}, want warning (audit, not a page)")
+    if REBOOT_SECONDS != 1_209_600 or str(REBOOT_SECONDS) not in expr:
+        problems.append(f"{rel}: expr is not the {REBOOT_SECONDS}-second (14-day) threshold")
+    if "bifrost_node_reboot_required" not in expr or ">" not in expr:
+        problems.append(f"{rel}: expr must age bifrost_node_reboot_required with '>'")
+    if not debounce or "14d" in debounce:
+        problems.append(f"{rel}: for: is debounce, not the 14-day threshold (got {debounce or 'missing'})")
+    if PAGED.fullmatch(name):
+        problems.append(f"{rel}: {name} matches the paging alertname route")
+    got = [n for n in route_to(route, {"alertname": name or REBOOT_ALERT, "severity": sev or "warning"}) if n]
+    hit = [n for n in got if n in outside_names and n in receivers]
+    if hit:
+        problems.append(f"{rel}: {name} reaches a paging receiver {hit}")
+    kust = REBOOT_KUST.read_text()
+    for path, needles in (
+        (REBOOT_RULES, ("kind: PrometheusRule",)),
+        (REBOOT_DS, ("kind: DaemonSet", "/var/run", "reboot-required", "bifrost_node_reboot_required", "spec.nodeName")),
+        (REBOOT_PM, ("kind: PodMonitor", "/metrics")),
+    ):
+        if f"- {path.name}" not in kust:
+            problems.append(f"{REBOOT_KUST.relative_to(ROOT)} does not list {path.name}")
+        if not path.is_file():
+            problems.append(f"missing {path.relative_to(ROOT)}")
+            continue
+        text = path.read_text()
+        for needle in needles:
+            if needle not in text:
+                problems.append(f"{path.relative_to(ROOT)} is missing {needle}")
+
+
+def assert_runner_token_retired(problems: list[str]) -> None:
+    """The Mac mini runner token patch must not come back (LANE-W33)."""
+    overlays = ROOT / "k8s" / "overlays"
+    for name in ("platform-prod", "platform-stg"):
+        base = overlays / name
+        patch = base / "platform-runner-token.patch.yaml"
+        if patch.exists():
+            problems.append(f"{patch.relative_to(ROOT)} is back; the runner token patch was retired")
+        kust = base / "kustomization.yaml"
+        if "platform-runner-token.patch.yaml" in kust.read_text():
+            problems.append(f"{kust.relative_to(ROOT)} still lists platform-runner-token.patch.yaml")
+        for path in sorted(base.glob("platform-*.yaml")):
+            if re.search(r"name:\s*REMEDIATION_RUNNER_", path.read_text()):
+                problems.append(f"{path.relative_to(ROOT)} still sets REMEDIATION_RUNNER_")
+    script = TOKEN_SCRIPT.read_text()
+    for stale in (
+        'env_value REMEDIATION_RUNNER_TOKEN',
+        "printf 'REMEDIATION_RUNNER_TOKEN=%s\\n'",
+    ):
+        if stale in script:
+            problems.append(f"{TOKEN_SCRIPT.relative_to(ROOT)} still writes REMEDIATION_RUNNER_TOKEN")
 
 
 def kubectl(*args: str) -> subprocess.CompletedProcess[str]:
@@ -465,6 +558,8 @@ def main() -> int:
 
     assert_maintainer_rules_unpaged(route, outside_names, receivers, problems)
     assert_drill_stale_unpaged(route, outside_names, receivers, problems)
+    assert_reboot_pending_unpaged(route, outside_names, receivers, problems)
+    assert_runner_token_retired(problems)
 
     cases = [("AnyCritical", "critical")] + [(a, s) for a, s in rule_alerts() if PAGED.fullmatch(a)]
     seen = {a for a, _ in cases}

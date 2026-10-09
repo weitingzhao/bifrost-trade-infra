@@ -217,6 +217,47 @@ KUBECTL_STUB = textwrap.dedent(
 
 SSH_STUB = "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$SSH_LOG\"\nexit 0\n"
 
+CURL_STUB = textwrap.dedent(
+    '''\
+    #!/usr/bin/env python3
+    import os, sys
+    args = sys.argv[1:]
+    url = ""
+    config = ""
+    i = 0
+    while i < len(args):
+        item = args[i]
+        if item == "--config" and i + 1 < len(args):
+            config = args[i + 1]
+            i += 2
+            continue
+        if item == "--url" and i + 1 < len(args):
+            url = args[i + 1]
+            i += 2
+            continue
+        if item.startswith("http://") or item.startswith("https://"):
+            url = item
+        i += 1
+    auth = "no"
+    if config and os.path.isfile(config):
+        text = open(config, encoding="utf-8").read()
+        if "Authorization: Bearer viewer-test-token" in text:
+            auth = "yes"
+    log = os.environ.get("CURL_LOG", "")
+    if log:
+        with open(log, "a", encoding="utf-8") as fh:
+            fh.write("auth=%s url=%s\\n" % (auth, url))
+    code = int(os.environ.get("FAKE_APPROVAL_CURL_EXIT", "0"))
+    if code:
+        sys.exit(code)
+    sys.stdout.write(os.environ.get("FAKE_APPROVAL_JSON", ""))
+    '''
+)
+
+VALID_APPROVAL = (
+    '{"action":"rolling_reboot","status":"executed","expires_at":"2099-01-01T00:00:00Z"}'
+)
+
 
 def run(args: list[str], env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     merged = os.environ.copy()
@@ -247,13 +288,16 @@ class FakeCluster:
         self.root = root
         self.log = root / "kubectl.log"
         self.ssh_log = root / "ssh.log"
+        self.curl_log = root / "curl.log"
         self.state = root / "state.json"
         write_executable(root / "kubectl", KUBECTL_STUB)
         write_executable(root / "ssh", SSH_STUB)
+        write_executable(root / "curl", CURL_STUB)
         self.env = {
             "PATH": f"{root}{os.pathsep}{os.environ.get('PATH', '')}",
             "STUB_LOG": str(self.log),
             "SSH_LOG": str(self.ssh_log),
+            "CURL_LOG": str(self.curl_log),
             "FAKE_STATE": str(self.state),
             "FAKE_PRIMARY_NODE": str(options.get("primary_node", "ubt-k3s-02")),
             "FAKE_REPLICA_NODE": str(options.get("replica_node", "ubt-k3s-04")),
@@ -283,6 +327,24 @@ class FakeCluster:
             return ""
         return self.ssh_log.read_text(encoding="utf-8")
 
+    def curl_text(self) -> str:
+        if not self.curl_log.exists():
+            return ""
+        return self.curl_log.read_text(encoding="utf-8")
+
+
+def arm_approval(
+    env: dict[str, str],
+    body: str = VALID_APPROVAL,
+    curl_exit: str = "0",
+) -> dict[str, str]:
+    out = dict(env)
+    out["PLATFORM_PROD_VIEWER_TOKEN"] = "viewer-test-token"
+    out["PLATFORM_API"] = "http://platform.test"
+    out["FAKE_APPROVAL_JSON"] = body
+    out["FAKE_APPROVAL_CURL_EXIT"] = curl_exit
+    return out
+
 
 class RollingRebootPlanTests(unittest.TestCase):
     def test_script_promotes_with_cnpg_and_ignores_the_fixed_make_target(self) -> None:
@@ -299,6 +361,7 @@ class RollingRebootPlanTests(unittest.TestCase):
             result = run(["--dry-run"], fake.env)
             called = fake.kubectl_text()
             ssh = fake.ssh_text()
+            curl = fake.curl_text()
         self.assertEqual(result.returncode, 0, result.stderr)
         found = nodes(result.stdout)
         self.assertEqual(found, ORDER_PRIMARY_ON_02)
@@ -325,6 +388,7 @@ class RollingRebootPlanTests(unittest.TestCase):
         self.assertNotIn("delete", called)
         self.assertNotIn("apply", called)
         self.assertEqual(ssh, "")
+        self.assertEqual(curl, "")
         for name, _role in ORDER_PRIMARY_ON_02:
             self.assertIn(f"cordon {name}", result.stdout)
             self.assertIn(f"drain {name}", result.stdout)
@@ -412,9 +476,13 @@ class RollingRebootPlanTests(unittest.TestCase):
                 poll=0,
                 timeout=5,
             )
-            result = run(["--execute"], fake.env)
+            result = run(["--execute", "--approval", "appr_ok"], arm_approval(fake.env))
             log = fake.kubectl_text()
+            curl = fake.curl_text()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("viewer-test-token", result.stdout + result.stderr)
+        self.assertIn("auth=yes url=http://platform.test/api/v1/approvals/appr_ok", curl)
+        self.assertNotIn("viewer-test-token", curl)
         self.assertIn(
             "remaining-order: ubt-k3s-05 ubt-k3s-06 ubt-k3s-01 ubt-k3s-04 ubt-k3s-02",
             result.stdout,
@@ -454,7 +522,10 @@ class RollingRebootPlanTests(unittest.TestCase):
                 poll=1,
                 timeout=2,
             )
-            result = run(["--execute", "--nodes", spec], fake.env)
+            result = run(
+                ["--execute", "--approval", "appr_ok", "--nodes", spec],
+                arm_approval(fake.env),
+            )
             log = fake.kubectl_text()
             ssh = fake.ssh_text()
         self.assertNotEqual(result.returncode, 0)
@@ -481,7 +552,10 @@ class RollingRebootPlanTests(unittest.TestCase):
                 poll=0,
                 timeout=5,
             )
-            result = run(["--execute", "--nodes", spec], fake.env)
+            result = run(
+                ["--execute", "--approval", "appr_ok", "--nodes", spec],
+                arm_approval(fake.env),
+            )
             log = fake.kubectl_text()
             ssh = fake.ssh_text()
         self.assertNotEqual(result.returncode, 0)
@@ -495,11 +569,15 @@ class RollingRebootPlanTests(unittest.TestCase):
     def test_execute_refused_on_weekday_does_not_cordon(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fake = FakeCluster(Path(tmp), dow="3")
-            result = run(["--execute"], fake.env)
+            result = run(["--execute", "--approval", "appr_ok"], arm_approval(fake.env))
             called = fake.kubectl_text()
             ssh = fake.ssh_text()
+            curl = fake.curl_text()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("REFUSED", result.stderr)
+        self.assertIn("Saturday and Sunday", result.stderr)
+        self.assertIn("auth=yes", curl)
+        self.assertNotIn("viewer-test-token", result.stdout + result.stderr + curl)
         self.assertIn("jsonpath={.status.currentPrimary}", called)
         self.assertNotIn("cordon", called)
         self.assertNotIn("drain", called)
@@ -509,7 +587,10 @@ class RollingRebootPlanTests(unittest.TestCase):
     def test_allow_weekday_warns_and_stops_when_the_first_step_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fake = FakeCluster(Path(tmp), dow="3", fail_cordon=True)
-            result = run(["--execute", "--allow-weekday"], fake.env)
+            result = run(
+                ["--execute", "--approval", "appr_ok", "--allow-weekday"],
+                arm_approval(fake.env),
+            )
             called = fake.kubectl_text()
             ssh = fake.ssh_text()
         self.assertNotEqual(result.returncode, 0)
@@ -520,6 +601,61 @@ class RollingRebootPlanTests(unittest.TestCase):
         self.assertNotIn("uncordon", called)
         self.assertNotIn("cnpg promote", called)
         self.assertEqual(ssh, "")
+
+    def test_execute_without_approval_does_not_cordon(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeCluster(Path(tmp), dow="6")
+            env = dict(fake.env)
+            env["ENV_FILE"] = str(Path(tmp) / "no-such.env")
+            result = run(["--execute"], env)
+            called = fake.kubectl_text()
+            curl = fake.curl_text()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("requires --approval", result.stderr)
+        self.assertNotIn("cordon", called)
+        self.assertEqual(curl, "")
+
+    def test_execute_rejects_the_wrong_approval_and_does_not_cordon(self) -> None:
+        cases = (
+            (
+                '{"action":"cordon_node","status":"executed","expires_at":"2099-01-01T00:00:00Z"}',
+                "action=cordon_node",
+            ),
+            (
+                '{"action":"rolling_reboot","status":"pending","expires_at":"2099-01-01T00:00:00Z"}',
+                "status=pending",
+            ),
+            (
+                '{"action":"rolling_reboot","status":"executed","expires_at":"2000-01-01T00:00:00Z"}',
+                "expired",
+            ),
+        )
+        for body, marker in cases:
+            with self.subTest(marker=marker):
+                with tempfile.TemporaryDirectory() as tmp:
+                    fake = FakeCluster(Path(tmp), dow="6")
+                    result = run(
+                        ["--execute", "--approval", "appr_bad"],
+                        arm_approval(fake.env, body),
+                    )
+                    called = fake.kubectl_text()
+                    curl = fake.curl_text()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(marker, result.stderr)
+                self.assertNotIn("cordon", called)
+                self.assertNotIn("viewer-test-token", result.stdout + result.stderr + curl)
+
+    def test_execute_rejects_an_unreadable_approval_and_does_not_cordon(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeCluster(Path(tmp), dow="6")
+            result = run(
+                ["--execute", "--approval", "appr_missing"],
+                arm_approval(fake.env, curl_exit="22"),
+            )
+            called = fake.kubectl_text()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("could not read approval", result.stderr)
+        self.assertNotIn("cordon", called)
 
 
 if __name__ == "__main__":

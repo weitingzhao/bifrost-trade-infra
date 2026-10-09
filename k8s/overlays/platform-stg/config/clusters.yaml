@@ -37,14 +37,11 @@ clusters:
             deployment: minio
             label: MinIO
     monitoring_namespace: monitoring
-    # Optional deep links for Rocket -> Observability (browser must reach these URLs).
-    # Leave empty until NodePort/ingress is confirmed post-install, or override via:
-    #   PLATFORM_GRAFANA_URL / PLATFORM_PROMETHEUS_URL
-    # In-cluster defaults after ensure (platform-api inside cluster only):
-    #   grafana: http://kube-prometheus-stack-grafana.monitoring.svc.cluster.local
-    #   prometheus: http://kube-prometheus-stack-prometheus.monitoring.svc:9090
+    # Browser deep link. PLATFORM_GRAFANA_URL on platform-api is the same URL.
+    # NodePort :30883 remains; Grafana serves under /grafana/.
+    # In-cluster prometheus stays on the monitoring Service.
     observability_urls:
-      grafana: "http://192.168.10.73:30883"
+      grafana: "https://ops.bifrost.lan/grafana"
       prometheus: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"
       docs_infra: ""
     gitops:

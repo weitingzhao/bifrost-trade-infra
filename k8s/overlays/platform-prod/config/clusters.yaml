@@ -39,9 +39,10 @@ clusters:
             deployment: minio
             label: MinIO
     monitoring_namespace: monitoring
-    # Browser deep links: set PLATFORM_GRAFANA_URL / PLATFORM_PROMETHEUS_URL on platform-api after NodePort confirm.
+    # Browser deep link. PLATFORM_GRAFANA_URL on platform-api is the same URL.
+    # NodePort :30883 remains; Grafana serves under /grafana/.
     observability_urls:
-      grafana: ""
+      grafana: "https://ops.bifrost.lan/grafana"
       prometheus: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"
       docs_infra: ""
     gitops:

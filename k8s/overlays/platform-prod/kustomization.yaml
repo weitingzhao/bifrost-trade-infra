@@ -22,6 +22,7 @@ configMapGenerator:
       - config/sessions-catalog.yaml
       - config/release-rules.yaml
       - config/trust-overrides.yaml
+      - config/running-images.yaml
     options:
       disableNameSuffixHash: true
   # PROD-only patrol skill set; see platform-workers-patrol.patch.yaml. Hashed
@@ -48,7 +49,6 @@ patches:
   - path: platform-api-reporter-token.patch.yaml
   - path: platform-api-role-tokens.patch.yaml
   - path: platform-approval-notify.patch.yaml
-  - path: platform-runner-token.patch.yaml
   - path: platform-unifi-env.patch.yaml
 
 images:

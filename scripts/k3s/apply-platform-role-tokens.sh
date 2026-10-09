@@ -7,8 +7,8 @@
 #   monitoring/alertmanager-webhook-auth                token (= PROD reporter)
 #
 # .env keys: PLATFORM_STG_{VIEWER,OPERATOR,ADMIN}_TOKEN, PLATFORM_PROD_{VIEWER,OPERATOR,ADMIN}_TOKEN.
-# Optional REMEDIATION_RUNNER_TOKEN (TD-207): the shared bearer the Mac mini runner and
-# Hermes gateway require; when present it is added to both role-token Secrets.
+# REMEDIATION_RUNNER_TOKEN was retired with the Mac mini runner (LANE-W33). Do not
+# write that key into bifrost-platform-role-tokens.
 # The overlay platform-auth.yaml carries no inline values, so a missing key here
 # means that role cannot sign in — not that it falls back to a public default.
 # Values go through a mode-600 temp file, never argv.
@@ -43,12 +43,6 @@ for envname in STG PROD; do
   done
 done
 
-RUNNER_TOKEN=""
-if grep -qE "^REMEDIATION_RUNNER_TOKEN=." "${ENV_FILE}"; then
-  RUNNER_TOKEN="$(env_value REMEDIATION_RUNNER_TOKEN)"
-else
-  echo "note: no REMEDIATION_RUNNER_TOKEN in ${ENV_FILE}; runner/Hermes writes from the cluster stay anonymous" >&2
-fi
 TMP="$(mktemp)"
 chmod 600 "${TMP}"
 trap 'rm -f "${TMP}"' EXIT
@@ -97,13 +91,11 @@ fi
 for role in VIEWER OPERATOR ADMIN; do
   printf 'PLATFORM_%s_TOKEN=%s\n' "${role}" "$(env_value "PLATFORM_STG_${role}_TOKEN")"
 done > "${TMP}"
-[[ -n "${RUNNER_TOKEN}" ]] && printf 'REMEDIATION_RUNNER_TOKEN=%s\n' "${RUNNER_TOKEN}" >> "${TMP}"
 apply_secret bifrost-platform-stg bifrost-platform-role-tokens app.kubernetes.io/part-of=bifrost-platform
 
 for role in VIEWER OPERATOR ADMIN; do
   printf 'PLATFORM_PROD_%s_TOKEN=%s\n' "${role}" "$(env_value "PLATFORM_PROD_${role}_TOKEN")"
 done > "${TMP}"
-[[ -n "${RUNNER_TOKEN}" ]] && printf 'REMEDIATION_RUNNER_TOKEN=%s\n' "${RUNNER_TOKEN}" >> "${TMP}"
 apply_secret bifrost-platform-prod bifrost-platform-role-tokens app.kubernetes.io/part-of=bifrost-platform
 
 # PROD platform-api authenticates this route at reporter or above
