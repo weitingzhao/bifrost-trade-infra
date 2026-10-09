@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # Rolling reboot of the Bifrost k3s nodes. Prints the plan and exits unless
-# --execute is given. A live run is refused outside Saturday/Sunday US Eastern
-# unless --allow-weekday is set, which prints a warning and continues.
+# --execute is given. --execute requires --approval <id>. Before any live
+# action the script reads GET /api/v1/approvals/<id> with the PROD viewer token
+# (PLATFORM_PROD_VIEWER_TOKEN, the same key scripts/k3s/apply-platform-role-tokens.sh
+# reads from .env). The approval must be action rolling_reboot, status executed,
+# and not expired. The token is not printed. A live run is still refused outside
+# Saturday/Sunday US Eastern unless --allow-weekday is set, which prints a
+# warning and continues. The weekday rule runs only inside --execute.
 # Any failed step stops the run; later nodes are not touched.
 #
 # Order is not taken from the data-primary label. That label is only a
@@ -38,15 +43,21 @@ REPLICA_LAG_MAX_SECONDS="${REPLICA_LAG_MAX_SECONDS:-1}"
 
 DRY_RUN=1
 ALLOW_WEEKDAY=0
+APPROVAL_ID=""
 NODES_SPEC=""
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# PROD platform-api NodePort. Override with PLATFORM_API. Do not point this at STG.
+PLATFORM_API="${PLATFORM_API:-http://192.168.10.100:30876}"
+ENV_FILE="${ENV_FILE:-${ROOT}/.env}"
 
 usage() {
   cat <<'EOF'
-Usage: rolling-reboot.sh [--dry-run] [--execute] [--allow-weekday]
+Usage: rolling-reboot.sh [--dry-run] [--execute --approval <id>] [--allow-weekday]
                          [--nodes name:role[:ip],...]
 
   --dry-run         Print the plan and exit (default). Reads the CNPG primary.
-  --execute         Perform the plan. Refused on Mon-Fri US Eastern.
+  --execute         Perform the plan. Requires --approval. Refused on Mon-Fri US Eastern.
+  --approval <id>   With --execute, an executed rolling_reboot approval that has not expired.
   --allow-weekday   With --execute, run outside the weekend and print a warning.
   --nodes           Override the node list. Roles: general, control-plane,
                     prod, data. Optional third field is the SSH address.
@@ -61,6 +72,14 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY_RUN=1 ;;
     --execute) DRY_RUN=0 ;;
+    --approval)
+      shift
+      [ $# -gt 0 ] || { echo "ERROR: --approval needs an id" >&2; exit 2; }
+      APPROVAL_ID="$1"
+      ;;
+    --approval=*)
+      APPROVAL_ID="${1#--approval=}"
+      ;;
     --allow-weekday) ALLOW_WEEKDAY=1 ;;
     --nodes)
       shift
@@ -620,8 +639,105 @@ run_node() {
   verify_workloads "$node"
 }
 
+viewer_token() {
+  # Same key apply-platform-role-tokens.sh reads. Environment wins. Never echo it.
+  if [ -n "${PLATFORM_PROD_VIEWER_TOKEN:-}" ]; then
+    printf '%s' "${PLATFORM_PROD_VIEWER_TOKEN}"
+    return 0
+  fi
+  local env_file line
+  env_file="${ENV_FILE}"
+  if [ ! -f "$env_file" ]; then
+    echo "REFUSED: missing PLATFORM_PROD_VIEWER_TOKEN" >&2
+    return 1
+  fi
+  line="$(grep -E '^PLATFORM_PROD_VIEWER_TOKEN=' "$env_file" | tail -1 || true)"
+  line="${line#*=}"
+  line="${line%\"}"
+  line="${line#\"}"
+  if [ -z "$line" ]; then
+    echo "REFUSED: missing PLATFORM_PROD_VIEWER_TOKEN" >&2
+    return 1
+  fi
+  printf '%s' "$line"
+}
+
+require_approval() {
+  local token cfg body rc
+  if [ -z "$APPROVAL_ID" ]; then
+    echo "REFUSED: --execute requires --approval <id>" >&2
+    exit 1
+  fi
+  case "$APPROVAL_ID" in
+    ""|*[!A-Za-z0-9_-]*)
+      echo "REFUSED: --approval id must be one token" >&2
+      exit 1
+      ;;
+  esac
+  token="$(viewer_token)" || exit 1
+  case "$token" in
+    *\"*|*$'\n'*|*$'\r'*)
+      echo "REFUSED: viewer token cannot be passed to curl safely" >&2
+      exit 1
+      ;;
+  esac
+  cfg="$(mktemp)"
+  chmod 600 "$cfg"
+  printf 'header = "Authorization: Bearer %s"\n' "$token" > "$cfg"
+  set +e
+  body="$(curl -fsS --config "$cfg" --url "${PLATFORM_API%/}/api/v1/approvals/${APPROVAL_ID}")"
+  rc=$?
+  set -e
+  rm -f "$cfg"
+  if [ "$rc" -ne 0 ]; then
+    echo "REFUSED: could not read approval ${APPROVAL_ID}" >&2
+    exit 1
+  fi
+  printf '%s' "$body" | python3 -c '
+import json, sys
+from datetime import datetime, timezone
+
+def parse_expiry(value):
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        exp = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    return exp
+
+approval_id = sys.argv[1]
+try:
+    doc = json.loads(sys.stdin.read())
+except json.JSONDecodeError:
+    sys.stderr.write("REFUSED: approval %s response is not JSON\n" % approval_id)
+    sys.exit(1)
+if not isinstance(doc, dict):
+    sys.stderr.write("REFUSED: approval %s response is not an object\n" % approval_id)
+    sys.exit(1)
+action = doc.get("action")
+status = doc.get("status")
+if action != "rolling_reboot" or status != "executed":
+    sys.stderr.write(
+        "REFUSED: approval %s is action=%s status=%s; want rolling_reboot executed\n"
+        % (approval_id, action, status)
+    )
+    sys.exit(1)
+exp = parse_expiry(doc.get("expires_at"))
+if exp is None or datetime.now(timezone.utc) >= exp:
+    sys.stderr.write("REFUSED: approval %s is expired\n" % approval_id)
+    sys.exit(1)
+' "$APPROVAL_ID"
+}
+
 execute_plan() {
   local remaining done_nodes node role
+  require_approval
   require_live_window
   remaining="$ALL_NAMES"
   done_nodes=""

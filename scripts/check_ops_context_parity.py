@@ -12,6 +12,10 @@ Also checks trust-overrides.yaml (W-32 B2): platform-api reads it from
 /app/config on every request, and a missing file silently drops every override
 (a demotion such as L0 is lost). Both overlay copies must equal the platform
 file and both configMapGenerators must list it.
+
+Also checks running-images.yaml (W-33) the same way: the Releases page reads
+which workloads to version from that file, and a missing ConfigMap entry makes
+Research and plugin versions disappear.
 `--self-test` checks the decision parser without the repos.
 
 Usage:
@@ -40,6 +44,10 @@ OVERLAY_KUSTOMIZATIONS = (
     INFRA / "k8s" / "overlays" / "platform-stg" / "kustomization.yaml",
     INFRA / "k8s" / "overlays" / "platform-prod" / "kustomization.yaml",
 )
+RUNNING_COPIES = (
+    INFRA / "k8s" / "overlays" / "platform-stg" / "config" / "running-images.yaml",
+    INFRA / "k8s" / "overlays" / "platform-prod" / "config" / "running-images.yaml",
+)
 
 
 def check_trust_overrides(source: pathlib.Path) -> list[str]:
@@ -56,6 +64,23 @@ def check_trust_overrides(source: pathlib.Path) -> list[str]:
     for kust in OVERLAY_KUSTOMIZATIONS:
         if "- config/trust-overrides.yaml" not in kust.read_text():
             problems.append(f"{kust.relative_to(INFRA)} configMapGenerator does not list config/trust-overrides.yaml")
+    return problems
+
+
+def check_running_images(source: pathlib.Path) -> list[str]:
+    """Overlay copies equal the platform file and every generator ships it."""
+    if not source.is_file():
+        return [f"missing source {source}"]
+    problems: list[str] = []
+    src_bytes = source.read_bytes()
+    for copy in RUNNING_COPIES:
+        if not copy.is_file():
+            problems.append(f"missing copy {copy.relative_to(INFRA)}")
+        elif copy.read_bytes() != src_bytes:
+            problems.append(f"{copy.relative_to(INFRA)} is not byte-identical to {source}")
+    for kust in OVERLAY_KUSTOMIZATIONS:
+        if "- config/running-images.yaml" not in kust.read_text():
+            problems.append(f"{kust.relative_to(INFRA)} configMapGenerator does not list config/running-images.yaml")
     return problems
 
 
@@ -162,6 +187,7 @@ def main() -> int:
     source = platform / "config" / "ops-context.yaml"
     problems = check_files(source, COPIES)
     problems += check_trust_overrides(platform / "config" / "trust-overrides.yaml")
+    problems += check_running_images(platform / "config" / "running-images.yaml")
     if problems:
         print(f"ops-context parity failed against {source}:", file=sys.stderr)
         for item in problems:

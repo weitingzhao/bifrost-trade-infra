@@ -50,10 +50,17 @@ if [[ -f "${PLATFORM_ROOT}/config/trust-overrides.yaml" ]]; then
   cp "${PLATFORM_ROOT}/config/trust-overrides.yaml" "${DEST_PROD}/trust-overrides.yaml"
 fi
 
+# Which live workloads the Releases page reads (W-33). Same document in both
+# environments; a missing file makes Research / plugin versions disappear.
+if [[ -f "${PLATFORM_ROOT}/config/running-images.yaml" ]]; then
+  cp "${PLATFORM_ROOT}/config/running-images.yaml" "${DEST_STG}/running-images.yaml"
+  cp "${PLATFORM_ROOT}/config/running-images.yaml" "${DEST_PROD}/running-images.yaml"
+fi
+
 # Ensure platform-stg namespace is registered for cluster probes.
 if ! grep -q 'bifrost-platform-stg' "${DEST_STG}/clusters.yaml"; then
   echo "WARN: add bifrost-platform-stg to clusters.yaml bifrost_namespaces after sync" >&2
 fi
 
 echo "Synced platform config → ${DEST_STG}"
-echo "Synced sessions-catalog.yaml and ops-context.yaml → ${DEST_PROD}"
+echo "Synced sessions-catalog.yaml, ops-context.yaml, trust-overrides.yaml, and running-images.yaml → ${DEST_PROD}"

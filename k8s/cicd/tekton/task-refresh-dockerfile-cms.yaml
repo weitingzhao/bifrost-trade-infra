@@ -56,8 +56,8 @@ spec:
           "bifrost-frontend-stg-dockerfile:Dockerfile.frontend-stg" \
           "bifrost-worker-stg-dockerfile:Dockerfile.worker-stg" \
           "bifrost-platform-api-stg-dockerfile:Dockerfile.platform-api-stg" \
-          "bifrost-platform-console-stg-dockerfile:Dockerfile.platform-console-stg" \
-          "bifrost-remediation-runner-stg-dockerfile:Dockerfile.remediation-runner-stg"; do
+          "bifrost-platform-console-stg-dockerfile:Dockerfile.platform-console-stg"; do
+          # Dockerfile.remediation-runner-stg was dropped with the Mac mini runner (LANE-W33).
           cm="${pair%%:*}"
           file="${pair##*:}"
           path="${root}/${file}"

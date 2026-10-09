@@ -48,7 +48,8 @@ prometheus:
         memory: 2Gi
 
 grafana:
-  # Browser deep link for Ops Console → Open Grafana (STG @ .73:30883).
+  # Browser deep link is https://ops.bifrost.lan/grafana/ (PLATFORM_GRAFANA_URL).
+  # NodePort :30883 stays. serve_from_sub_path adds the /grafana/ prefix there too.
   service:
     type: NodePort
     port: 80
@@ -56,6 +57,9 @@ grafana:
   # Wave 7: Console Selected Domain embeds Grafana d-solo panels (same LAN).
   # allow_embedding clears X-Frame-Options:deny; anonymous Viewer skips login for iframe.
   grafana.ini:
+    server:
+      root_url: https://ops.bifrost.lan/grafana/
+      serve_from_sub_path: true
     security:
       allow_embedding: true
     auth.anonymous:

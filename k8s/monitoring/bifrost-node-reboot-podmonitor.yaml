@@ -1,0 +1,23 @@
+# Scrape the node-reboot-required DaemonSet. No Service: one pod per node.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: bifrost-node-reboot-required
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: signal
+spec:
+  namespaceSelector:
+    matchNames:
+      - monitoring
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: node-reboot-required
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 10s

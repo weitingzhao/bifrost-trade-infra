@@ -1,0 +1,36 @@
+# LANE-W33. A node has been waiting for reboot for more than 14 days.
+# Warning only: an audit record, not a page. 1209600 seconds is 14 days.
+# for: is debounce only. Do not put the 14-day wait in for:.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bifrost-node-reboot-rules
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: alerting
+spec:
+  groups:
+    - name: bifrost-node-reboot
+      rules:
+        - alert: BifrostNodeRebootPending
+          expr: |
+            (
+              bifrost_node_reboot_required == 1
+            )
+            and
+            (
+              (time() - bifrost_node_reboot_required_since_seconds) > 1209600
+            )
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Node has been pending reboot for more than 14 days"
+            description: >-
+              Node {{ $labels.node }} has had /var/run/reboot-required for
+              more than 14 days. This alert records the fact and does not
+              page. Reboot with scripts/k3s/rolling-reboot.sh --execute
+              --approval <id>.

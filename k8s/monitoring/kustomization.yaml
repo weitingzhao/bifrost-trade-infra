@@ -26,6 +26,9 @@ resources:
   # waits until a full day has passed under the TD-134 parameters.
   # The recovery-drill alert does not wait on that rule (TD-258).
   - bifrost-postgres-recovery-drill-rules.yaml
+  - bifrost-node-reboot-required.yaml
+  - bifrost-node-reboot-podmonitor.yaml
+  - bifrost-node-reboot-rules.yaml
   - bifrost-cluster-state-rules.yaml
   - bifrost-maintainer-rules.yaml
   - maintainer-reconcile
