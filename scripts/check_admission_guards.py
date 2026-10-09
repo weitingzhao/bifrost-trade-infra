@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pathlib
 import subprocess
+import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -114,6 +115,12 @@ def static() -> list[str]:
     for app in APPS:
         if "project: bifrost" not in app.read_text():
             problems.append(f"{app.name} is not in project bifrost")
+    # namespaceSelector is a LabelSelector: matchNames is not a field and the
+    # API server rejects the whole policy (found by server dry-run, 2026-10-09).
+    if re.search(r"^\s*matchNames:", admission, re.M):
+        problems.append("namespaceSelector uses matchNames; use matchLabels kubernetes.io/metadata.name")
+    if "object.metadata.namespace == 'monitoring' || (\n          object.kind == 'Pod'" in admission:
+        problems.append("platform Jobs and Pods must not skip host checks in monitoring")
     return problems
 
 
