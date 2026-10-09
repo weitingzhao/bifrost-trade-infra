@@ -20,6 +20,9 @@ printf 'kind: Secret\nstringData:\n  K: %s\n' "$FILEVAL" >"$TMP/secrets/bifrost-
 printf 'example: true\n' >"$TMP/secrets/bifrost-dev-secrets.example.yaml"
 export BIFROST_INFRA_ENV="$TMP/infra.env"
 export BIFROST_PLATFORM_ENV="$TMP/platform.env"
+GWPASS="sekrit-gateway-value"
+printf 'REDIS_IB_PLATFORM_PASS=keep-me\nREDIS_IB_GATEWAY_PASS=%s\nREDIS_IB_TRADE_PROD_PASS=sekrit-trade-prod\n' "$GWPASS" >"$TMP/plugin.env"
+export BIFROST_PLUGIN_ENV="$TMP/plugin.env"
 export BIFROST_SECRETS_SRC="$TMP/secrets"
 export BIFROST_OWNER_DIR="$TMP/owner"
 export BIFROST_WORKSPACE="$TMP/workspace"
@@ -29,7 +32,7 @@ run() {
 }
 
 forbid() {
-  if grep -q -e "$ADMIN" -e "$REDIS" -e "$PREV" -e "$NEXT" -e "$UNIFI" -e "$FILEVAL" -e "sekrit-api-value" "$TMP/out" "$TMP/err"; then
+  if grep -q -e "$ADMIN" -e "$REDIS" -e "$PREV" -e "$NEXT" -e "$UNIFI" -e "$FILEVAL" -e "sekrit-api-value" -e "$GWPASS" -e "sekrit-trade-prod" "$TMP/out" "$TMP/err"; then
     echo "FAIL output contained a value" >&2
     exit 1
   fi
@@ -44,6 +47,14 @@ if grep -q '^OPS_ADMIN_TOKEN=' "$TMP/infra.env"; then
 fi
 if ! grep -q '^OPS_ADMIN_TOKEN=' "$TMP/owner/owner.env"; then
   echo "FAIL owner.env missing OPS_ADMIN_TOKEN" >&2
+  exit 1
+fi
+if grep -q -e '^REDIS_IB_GATEWAY_PASS=' -e '^REDIS_IB_TRADE_PROD_PASS=' "$TMP/plugin.env"; then
+  echo "FAIL plugin env still has a redis-ib write user" >&2
+  exit 1
+fi
+if ! grep -q '^REDIS_IB_PLATFORM_PASS=' "$TMP/plugin.env"; then
+  echo "FAIL plugin env lost REDIS_IB_PLATFORM_PASS (it must stay)" >&2
   exit 1
 fi
 if grep -q '^UNIFI_PASS=' "$TMP/platform.env"; then
@@ -72,6 +83,7 @@ forbid
 forbid
 grep -q '^OPS_ADMIN_TOKEN=' "$TMP/infra.env"
 grep -q '^UNIFI_PASS=' "$TMP/platform.env"
+grep -q '^REDIS_IB_GATEWAY_PASS=' "$TMP/plugin.env"
 if [ ! -f "$TMP/secrets/bifrost-dev-secrets.yaml" ]; then
   echo "FAIL undo did not restore the secret file" >&2
   exit 1

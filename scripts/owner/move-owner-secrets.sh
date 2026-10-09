@@ -16,6 +16,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORKSPACE="${BIFROST_WORKSPACE:-$(cd "$ROOT/.." && pwd)}"
 INFRA_ENV="${BIFROST_INFRA_ENV:-$ROOT/.env}"
 PLATFORM_ENV="${BIFROST_PLATFORM_ENV:-$WORKSPACE/bifrost-platform/.env}"
+# redis-ib users with write access to ib:* (ib:operator:cmd lives there, D10).
+PLUGIN_ENV="${BIFROST_PLUGIN_ENV:-$WORKSPACE/bifrost-platform-plugin/.env}"
 SECRETS_SRC="${BIFROST_SECRETS_SRC:-$ROOT/k8s/base/secrets}"
 OWNER_DIR="${BIFROST_OWNER_DIR:-$HOME/.bifrost-owner}"
 OWNER_ENV="${OWNER_DIR}/owner.env"
@@ -36,6 +38,7 @@ fi
 
 INFRA_KEYS=(OPS_ADMIN_TOKEN REDIS_IB_PASSWORD BIFROST_PG_PASSWORD_PREVIOUS BIFROST_PG_PASSWORD_NEXT)
 PLATFORM_KEYS=(UNIFI_HOST UNIFI_USER UNIFI_PASS UNIFI_API_KEY)
+PLUGIN_KEYS=(REDIS_IB_GATEWAY_PASS REDIS_IB_TRADE_PROD_PASS)
 
 ensure_owner_dirs() {
   mkdir -p "$OWNER_DIR" "$OWNER_SECRETS"
@@ -219,11 +222,19 @@ if [ "$UNDO" -eq 0 ]; then
   else
     echo "skip missing platform env"
   fi
+  if [ -f "$PLUGIN_ENV" ]; then
+    apply_keys "$PLUGIN_ENV" "$OWNER_ENV" to-owner "${PLUGIN_KEYS[@]}"
+  else
+    echo "skip missing plugin env"
+  fi
   chmod 600 "$OWNER_ENV"
   move_files
 else
   ensure_owner_dirs
   apply_keys "$OWNER_ENV" "$INFRA_ENV" to-checkout "${INFRA_KEYS[@]}"
   apply_keys "$OWNER_ENV" "$PLATFORM_ENV" to-checkout "${PLATFORM_KEYS[@]}"
+  if [ -f "$PLUGIN_ENV" ]; then
+    apply_keys "$OWNER_ENV" "$PLUGIN_ENV" to-checkout "${PLUGIN_KEYS[@]}"
+  fi
   undo_files
 fi

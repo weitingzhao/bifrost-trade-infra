@@ -1,10 +1,13 @@
-diff -ruN a/agent-config/scripts/agent-guard/preflight.js b/agent-config/scripts/agent-guard/preflight.js
---- a/agent-config/scripts/agent-guard/preflight.js	2026-10-09 14:09:23
-+++ b/agent-config/scripts/agent-guard/preflight.js	2026-10-09 14:09:23
-@@ -351,6 +351,69 @@
-   return null
- }
- 
+--- a/agent-config/scripts/agent-guard/preflight.js	2026-10-09 14:30:21
++++ b/agent-config/scripts/agent-guard/preflight.js	2026-10-09 14:32:08
+@@ -347,10 +347,92 @@
+   }
+   if (browserName && /approvals/.test(text) && /\b(approve|reject|click)\b/i.test(text)) {
+     return '在浏览器里对审批页点批准或驳回。ADR §5：批准只走 `mcp__bifrost-approve__*` 的弹窗'
++  }
++  return null
++}
++
 +
 +// ─────────────────────── Owner 凭证（LANE-W33D） ───────────────────────
 +//
@@ -49,8 +52,26 @@ diff -ruN a/agent-config/scripts/agent-guard/preflight.js b/agent-config/scripts
 +  while ((match = re.exec(text))) {
 +    const value = match[1] || match[2]
 +    if (!kubeconfigValueAllowed(value)) return value
-+  }
-+  return null
+   }
+   return null
+ }
+ 
++// Scripts that read the Owner's credentials (owner.env, the admin kubeconfig,
++// the node key). The gate only sees command text, so running one would read
++// what a direct cat is refused. Tests (*_test.sh) stay allowed.
++const OWNER_SCRIPT_RE = new RegExp([
++  'scripts/owner/(?:make-agent-kubeconfig|move-owner-secrets|owner-run|owner-env)\\.sh',
++  'materialize_k8s_trade_secrets\\.py',
++  'trade-operator-tokens\\.sh',
++  'bifrost-password-rotate\\.sh',
++  'sync_redis_ib_trade_config\\.sh',
++  'redis-ib-env-users\\.sh',
++  'render-redis-ib-acl\\.sh',
++  'scripts/unifi_(?![A-Za-z0-9_]*_test\\.)[A-Za-z0-9_]+\\.(?:sh|py)',
++].join('|'))
++
++function ownerScript(cmd) {
++  return OWNER_SCRIPT_RE.test(String(cmd || ''))
 +}
 +
 +function ownerCredentialGuard(toolName, input, cmd) {
@@ -64,6 +85,7 @@ diff -ruN a/agent-config/scripts/agent-guard/preflight.js b/agent-config/scripts
 +  if (text.includes(OWNER_MARK) || text.includes(OWNER_ENV_MARK)) return sentence
 +  if (effective === 'Bash') {
 +    if (foreignKubeconfig(command || text)) return sentence
++    if (ownerScript(command)) return sentence + '（这是只给 Owner 运行的脚本）'
 +  }
 +  return null
 +}
@@ -71,7 +93,7 @@ diff -ruN a/agent-config/scripts/agent-guard/preflight.js b/agent-config/scripts
  // ─────────────────────────────── 判定 ───────────────────────────────
  
  function evaluate(payload) {
-@@ -362,6 +425,9 @@
+@@ -362,6 +444,9 @@
    const locked = d10Status() !== 'UNLOCKED'
    const cmd = String(input.command ?? payload.command ?? '')
  
@@ -81,7 +103,7 @@ diff -ruN a/agent-config/scripts/agent-guard/preflight.js b/agent-config/scripts
    const approval = approvalGuard(toolName, input, cmd)
    if (approval) return { deny: true, kind: 'approval', reason: approval }
  
-@@ -422,6 +488,13 @@
+@@ -422,6 +507,13 @@
        `参见 CLAUDE.md §5「共享工作树」/ .cursor/rules/shared-worktree.mdc`
      )
    }
@@ -95,7 +117,7 @@ diff -ruN a/agent-config/scripts/agent-guard/preflight.js b/agent-config/scripts
    return (
      `【Dev 服务管理规范】拦截原因：${reason}。\n` +
      `参见 CLAUDE.md §4 / .cursor/rules/dev-services.mdc。优先用 MCP ` +
-@@ -449,6 +522,8 @@
+@@ -449,6 +541,8 @@
    const verdict = payload
      ? evaluate(payload)
      : (() => {
@@ -104,9 +126,8 @@ diff -ruN a/agent-config/scripts/agent-guard/preflight.js b/agent-config/scripts
          const dev = devServiceRules(raw)
          if (dev) return { deny: true, kind: 'dev-services', reason: dev }
          const approval = approvalGuard('', null, raw)
-diff -ruN a/agent-config/scripts/agent-guard/test.js b/agent-config/scripts/agent-guard/test.js
---- a/agent-config/scripts/agent-guard/test.js	2026-10-09 14:09:23
-+++ b/agent-config/scripts/agent-guard/test.js	2026-10-09 14:09:23
+--- a/agent-config/scripts/agent-guard/test.js	2026-10-09 14:30:21
++++ b/agent-config/scripts/agent-guard/test.js	2026-10-09 14:32:08
 @@ -20,6 +20,9 @@
  const TOKEN_FILE = 'mcp-tokens' + '.env'
  const ADMIN_KEY = 'PLATFORM_' + 'ADMIN_TOKEN'
@@ -117,7 +138,7 @@ diff -ruN a/agent-config/scripts/agent-guard/test.js b/agent-config/scripts/agen
  
  const cases = [
    // ── D10 应拦截 ──
-@@ -157,6 +160,25 @@
+@@ -157,6 +160,36 @@
    ['appr', 'ALLOW', '其他 MCP 写工具',
      tool('mcp__bifrost-platform__start_pipeline_run', { name: 'ci-example' })],
  
@@ -137,13 +158,24 @@ diff -ruN a/agent-config/scripts/agent-guard/test.js b/agent-config/scripts/agen
 +  ['own', 'ALLOW', 'KUBECONFIG=${HOME} 只读 kubeconfig', bash('KUBECONFIG=${HOME}/' + KUBE_OK + ' kubectl get pods')],
 +  ['own', 'ALLOW', 'KUBECONFIG 绝对路径只读 kubeconfig', bash('KUBECONFIG=/Users/x/' + KUBE_OK + ' kubectl get pods')],
 +  ['own', 'ALLOW', '未设置 KUBECONFIG 的 kubectl get pods', bash('kubectl get pods')],
++  ['own', 'DENY', 'Agent 运行 Owner 脚本 move-owner-secrets', bash('bash scripts/owner/move-owner-secrets.sh')],
++  ['own', 'DENY', 'Agent 运行 Owner 脚本 make-agent-kubeconfig', bash('bash scripts/owner/make-agent-kubeconfig.sh /tmp/x')],
++  ['own', 'DENY', 'Agent 运行 Owner 脚本 owner-run', bash('bash scripts/owner/owner-run.sh appr_x')],
++  ['own', 'DENY', 'Agent 运行 Secret 物化', bash('python3 scripts/materialize_k8s_trade_secrets.py --env prod')],
++  ['own', 'DENY', 'Agent 运行 redis-ib ACL 渲染', bash('scripts/render-redis-ib-acl.sh > /tmp/acl')],
++  ['own', 'DENY', 'Agent 运行 redis-ib 用户脚本', bash('bash scripts/redis-ib-env-users.sh status')],
++  ['own', 'DENY', 'Agent 运行 UniFi 脚本', bash('python3 scripts/unifi_firewall_setup.py --dry-run')],
++  ['own', 'DENY', 'Agent 运行属主密码轮换', bash('bash scripts/bifrost-password-rotate.sh --check')],
++  ['own', 'ALLOW', 'Owner 脚本的测试照常运行', bash('bash scripts/owner/move-owner-secrets_test.sh')],
++  ['own', 'ALLOW', 'owner-run 的测试照常运行', bash('bash scripts/owner/owner-run_test.sh')],
++  ['own', 'ALLOW', 'UniFi 凭证读取的测试照常运行', bash('python3 scripts/unifi_owner_env_test.py')],
 +  ['own', 'ALLOW', 'Edit 文档正文可以提到 Owner 目录',
 +    tool('Edit', { file_path: '/x/docs/note.md', old_string: 'x', new_string: 'see ~/' + OWNER_DIR + '/' + OWNER_ENV })],
 +
    // ── 畸形输入 ──
    ['edge', 'ALLOW', '空输入', null],
  ]
-@@ -164,11 +186,14 @@
+@@ -164,13 +197,16 @@
  let pass = 0, fail = 0
  let group = ''
  for (const [g, want, name, payload] of cases) {
@@ -153,9 +185,11 @@ diff -ruN a/agent-config/scripts/agent-guard/test.js b/agent-config/scripts/agen
    const got = (r.stdout || '').trim() ? 'DENY' : 'ALLOW'
    let ok = got === want
    if (ok && g === 'appr' && want === 'DENY' && !String(r.stdout).includes('ADR §5')) {
-+    ok = false
-+  }
-+  if (ok && g === 'own' && want === 'DENY' && !String(r.stdout).includes('这是 Owner 的凭证，写操作走平台动作或 owner_run_command')) {
      ok = false
    }
++  if (ok && g === 'own' && want === 'DENY' && !String(r.stdout).includes('这是 Owner 的凭证，写操作走平台动作或 owner_run_command')) {
++    ok = false
++  }
    ok ? pass++ : fail++
+   console.log(`  ${ok ? '✓' : '✗'} ${got.padEnd(5)} ${name}${ok ? '' : `   ← 期望 ${want}`}`)
+ }

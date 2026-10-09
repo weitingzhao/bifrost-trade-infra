@@ -30,6 +30,8 @@ INFRA_KEYS = (
     "BIFROST_PG_PASSWORD_NEXT",
 )
 PLATFORM_KEYS = ("UNIFI_HOST", "UNIFI_USER", "UNIFI_PASS", "UNIFI_API_KEY")
+# redis-ib users that can write ib:* (ib:operator:cmd, D10). REDIS_IB_PLATFORM_PASS stays.
+PLUGIN_KEYS = ("REDIS_IB_GATEWAY_PASS", "REDIS_IB_TRADE_PROD_PASS")
 NODES = (
     "192.168.10.73",
     "192.168.10.70",
@@ -244,6 +246,10 @@ def live_problems() -> list[str]:
     for key in PLATFORM_KEYS:
         if key in _key_names(platform_env):
             problems.append(f"platform .env still has {key}")
+    plugin_env = ROOT.parent / "bifrost-platform-plugin" / ".env"
+    for key in PLUGIN_KEYS:
+        if key in _key_names(plugin_env):
+            problems.append(f"plugin .env still has {key}")
     secrets = ROOT / "k8s" / "base" / "secrets"
     if secrets.is_dir():
         for path in secrets.iterdir():
