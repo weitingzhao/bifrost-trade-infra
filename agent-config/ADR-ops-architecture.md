@@ -100,6 +100,9 @@ PROD platform 坏了时的应急路径：mini 上的 operator-plane，或 Owner 
   - Agent 可以**提议**修改规则（附证据，比如「这一类审批 98% 原样通过」），但只有 Owner 能签。
   - **D10 不在可配置的规则集里**：解锁仍要 Owner 的书面指令，并把 spine 改为 UNLOCKED。
 - **已知的接受风险（Owner 2026-10-07 选择）**：聊天里批准靠 MCP 工具 `bifrost-approve` + Claude 的「允许」弹窗，工具需要的 admin 令牌在本机进程可读。同一台机器上的 Agent 理论上能读到它、绕过弹窗直接调审批接口；目前只靠 preflight 的文本拦截挡一挡。Owner 的取舍是先简单快，「今后感觉不行，再收权」——收权的做法是把 admin 令牌只留在手机与 Console 浏览器里，聊天只展示申请与链接。
+- **已知的接受风险（Owner 2026-10-09，LANE-W33D）**：同一个 macOS 用户下，Owner 目录 `~/.bifrost-owner/` 只靠 preflight 的文本拦截。闸门防的是善意误读，不是有决心的绕过。
+- **已知的接受风险（Owner 2026-10-09，LANE-W33D）**：DB 属主密码 `POSTGRES_PASSWORD` / `PGPASSWORD` 四个库共用，仍留在 Agent 能读的 infra `.env`。分开是 TD-85，不在这一步。
+- **已知的接受风险（Owner 2026-10-09，LANE-W33D）**：推 GitHub main 会触发 Argo 自动同步（platform overlay、research）。这件事归 W-31。
 
 ## 6. Console：7 个问题
 

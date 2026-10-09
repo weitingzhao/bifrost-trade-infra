@@ -2,7 +2,7 @@
 description: Bifrost 工作区结构、三域架构、双飞轮边界与双轨维护规范
 globs: ["**/*"]
 alwaysApply: true
-parity-id: workspace-v17
+parity-id: workspace-v18
 ---
 
 # Bifrost 工作区规范
@@ -60,6 +60,23 @@ Bifrost = 三个域，边界不可跨越（spine **D13**）：
 | 业务优先（有数据就要放 · 先实测再写「没有」 · 缺数据分权限/Bug） | `.cursor/rules/business-first.mdc` |
 
 已退役的规则归档在 `.cursor/_archive/`（不再加载，见其 README）。
+
+### 集群写操作
+
+`~/.kube/bifrost-k3s.yaml` 是只读身份 `bifrost-agent`。不要用 kubectl 写集群。对照：
+
+| 原来的 kubectl | 平台动作 |
+|---|---|
+| apply | `plan_manifest` / `apply_manifest` |
+| create job --from | `create_job_from_cronjob` |
+| 删 Job | `delete_finished_jobs` |
+| 删 Pod | `delete_pod` |
+| rollout restart | `rollout_restart_deployment` |
+| 临时 Pod | `run_probe_pod` |
+| 起 run | `start_pipeline_run` |
+| 其余写 | `owner_run_command` |
+
+查库用 `agent_reader`。`kubectl exec` 只在 research、plugin-market-data、plugin-flex-query。`kubectl port-forward` 只有 monitoring 里的 `prometheus-kube-prometheus-stack-prometheus-0`。
 
 ### 发布窗口 — 推 main 或起 deliver 之前先看
 

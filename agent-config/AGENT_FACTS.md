@@ -355,8 +355,23 @@ D10 冻结的那个进程只有一个，但在代码、集群与界面上有十�
 
 ### 集群与节点（K3s `bifrost-bootstrap`）
 
-kubeconfig：`~/.kube/bifrost-k3s.yaml`（需 `KUBECONFIG=` 显式指定；默认 context `docker-desktop` 是本机 Docker Desktop，**不是**集群）。
+kubeconfig：`~/.kube/bifrost-k3s.yaml` 是只读身份 `system:serviceaccount:bifrost-access:bifrost-agent`（需 `KUBECONFIG=` 显式指定；默认 context `docker-desktop` 是本机 Docker Desktop，**不是**集群）。管理员 kubeconfig 在 `~/.bifrost-owner/kube/admin.yaml`，只给 Owner。
 读状态首选 MCP 只读工具。
+
+写操作和平台动作：
+
+| 原来的 kubectl | 平台动作 |
+|---|---|
+| apply | `plan_manifest` / `apply_manifest` |
+| create job --from | `create_job_from_cronjob` |
+| 删 Job | `delete_finished_jobs` |
+| 删 Pod | `delete_pod` |
+| rollout restart | `rollout_restart_deployment` |
+| 临时 Pod | `run_probe_pod` |
+| 起 run | `start_pipeline_run` |
+| 其余写 | `owner_run_command` |
+
+查库用 `agent_reader`。exec 只在 research、plugin-market-data、plugin-flex-query。port-forward 只有 monitoring 里的 `prometheus-kube-prometheus-stack-prometheus-0`。
 
 | 节点 | IP | host-id | workload-pool | 角色 |
 |------|----|---------|---------------|------|
@@ -378,7 +393,7 @@ Mac mini `.50` / `.52`（agent host）、NAS `.20`（归档与备份目标）、
 | Trade 网关 | `.73:30880` STG · `.73:30881` PROD · `.73:30882` DEV（前端 DEV inner loop 的 API）。依据 Traefik entryPoint `trade-stg` / `trade-prod` / `trade-dev`（`k8s/system/traefik-helmchartconfig.yaml`，即集群里的 `HelmChartConfig traefik`），由各 overlay 的 `trade-ip-ingressroute.yaml`（`trade-gateway-ip`）按 namespace 绑定（2026-09-28 实查） |
 | Ops Console / API | `.73:30876`–`30879` |
 | registry / gitea / apiserver | `.73:30500` · `.73:30300` · `.73:6443` |
-| 数据层（局域网，无 TLS） | Postgres `.73:30432`（`bifrost-postgres-lan`）· redis-dev `.73:30379`（无密码，只 DEV）。STG / PROD Redis 不对局域网开放（30380 / 30382 于 2026-10-07 删除，TD-205）；Redis Insight 用 `kubectl -n data port-forward svc/redis-live-prod 16382:6379`。**数据库只读查询用 `agent_reader`**（2026-10-09 起）：`/opt/homebrew/opt/libpq/bin/psql -h 192.168.10.73 -p 30432 -U agent_reader -d <库>`，密码在本机 `~/.pgpass`（600）。它是 `pg_read_all_data` 加四个库的 CONNECT，写入会被权限拒绝；查库不再用 `kubectl exec psql` |
+| 数据层（局域网，无 TLS） | Postgres `.73:30432`（`bifrost-postgres-lan`）· redis-dev `.73:30379`（无密码，只 DEV）。STG / PROD Redis 不对局域网开放（30380 / 30382 于 2026-10-07 删除，TD-205）；Redis Insight 的 port-forward 只有 Owner 能做（Agent 的 port-forward 只有 Prometheus）。**数据库只读查询用 `agent_reader`**（2026-10-09 起）：`/opt/homebrew/opt/libpq/bin/psql -h 192.168.10.73 -p 30432 -U agent_reader -d <库>`，密码在本机 `~/.pgpass`（600）。它是 `pg_read_all_data` 加四个库的 CONNECT，写入会被权限拒绝；查库不再用 `kubectl exec psql` |
 | Grafana | `.73:30883`（`monitoring/kube-prometheus-stack-grafana`） |
 | Dagster webserver | `.73:30301`（`research/dagster-webserver`） |
 
@@ -398,7 +413,7 @@ Tekton 流水线：`bifrost-ci-{frontend,platform,python}` · `bifrost-deliver-{
 
 - STG / PROD 的 platform-api 与 platform-workers 以各自命名空间的 ServiceAccount `bifrost-platform` 运行（不再是 system:masters）；规则在 `bifrost-trade-infra/k8s/platform-rbac/`（手工 `kubectl apply -k`，绑定由 `scripts/gen_platform_rbac.py` 生成）。STG 只读；只有 PROD 能重启/扩缩、cordon、在 data 里 exec 与建 Backup、起 PipelineRun 与 Argo 同步。
 - `PLATFORM_KUBECONFIG` 路径不变，内容是 ConfigMap `bifrost-platform-sa-kubeconfig`（指向 Pod 自己的令牌）；`bifrost-platform-kubeconfig` Secret 已删。platform 代码新增 Kubernetes 调用时要同时加规则，否则集群里 403：`make check-platform-rbac`。
-- 本机 bdev platform-api 仍用 Owner 的管理员 kubeconfig（只做 API、不跑维护循环）。
+- 本机 bdev platform-api 的 `PLATFORM_KUBECONFIG` 仍指向 `~/.kube/bifrost-k3s.yaml`。该文件换成 `bifrost-agent` 之后，本机 api 跟着变成只读（相当于 STG 的观测角色），不跑维护循环。
 
 ### 告警送达（TD-209，2026-10-07）
 

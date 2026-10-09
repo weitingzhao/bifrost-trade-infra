@@ -1,5 +1,5 @@
 <!--
-parity-ids: workspace-v17, language-v1, agent-modes-v4, trade-execution-freeze-v4, dev-services-v3, phase-execution-v3, shared-worktree-v4, business-first-v1
+parity-ids: workspace-v18, language-v1, agent-modes-v4, trade-execution-freeze-v4, dev-services-v3, phase-execution-v3, shared-worktree-v4, business-first-v1
 对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
 改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
 -->
@@ -85,6 +85,23 @@ Ops Platform（火箭）与 Trade（载荷）必须先稳定；研究与分析�
 该脚本**运行时读 spine 的 D10 状态**——闸门与 spine 同源，解锁只有一个开关。
 被拦截时不要绕过、不要"修复" guard 文件，直接向 Owner 报告。
 
+### 集群写操作
+
+`~/.kube/bifrost-k3s.yaml` 是只读身份 `bifrost-agent`。不要用 kubectl 写集群。对照：
+
+| 原来的 kubectl | 平台动作 |
+|---|---|
+| apply | `plan_manifest` / `apply_manifest` |
+| create job --from | `create_job_from_cronjob` |
+| 删 Job | `delete_finished_jobs` |
+| 删 Pod | `delete_pod` |
+| rollout restart | `rollout_restart_deployment` |
+| 临时 Pod | `run_probe_pod` |
+| 起 run | `start_pipeline_run` |
+| 其余写 | `owner_run_command` |
+
+查库用 `agent_reader`。`kubectl exec` 只在 research、plugin-market-data、plugin-flex-query。`kubectl port-forward` 只有 monitoring 里的 `prometheus-kube-prometheus-stack-prometheus-0`。
+
 ---
 
 ## 4. Dev 服务管理（bdev + tmux）
@@ -121,6 +138,7 @@ Ops Platform（火箭）与 Trade（载荷）必须先稳定；研究与分析�
 - **架构级决策不擅自做**（新 RPC / 新外部依赖 / 改公开接口 / 新增表或列）→ 列 2–3 个选项 + 推荐，等 Owner 确认
 - 最小化变更范围；不引入 TODO / FIXME
 - 完成后输出结构化 Phase 报告；**不自动开始下一个 Phase**（除非 Owner 已确认「批量执行」→ `.claude/skills/batch-execution/`）
+- 集群写操作用 §3 的对照（`plan_manifest` / `apply_manifest`、`create_job_from_cronjob`、`delete_finished_jobs`、`delete_pod`、`rollout_restart_deployment`、`run_probe_pod`、`start_pipeline_run`，其余 `owner_run_command`）。不要 `kubectl apply` / `create` / `delete`。`kubectl exec` 只在 research、plugin-market-data、plugin-flex-query。`kubectl port-forward` 只有 Prometheus 那一个 Pod。查库用 `agent_reader`。
 
 数据库设计标准见 **`.claude/skills/database-design/`**（新增/修改 PostgreSQL 表时触发）。
 
