@@ -1,7 +1,7 @@
 # Browser-reachable Grafana URL for Cluster → Observability deep links.
 # Complements clusters.yaml observability_urls.grafana (platform-api loads config at startup).
-# Also inject Agent Bridge LAN URLs (parity with platform-prod) so STG self-probes
-# do not default to http://127.0.0.1:8781 inside the pod.
+# The remediation runner (:8781) was removed (LANE-W33); do not put
+# REMEDIATION_RUNNER_* back. OPERATOR_PLANE_URL is a separate patch.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -15,10 +15,6 @@ spec:
             - name: OPS_VIEWER_ENV
               value: "stg"
             - name: PLATFORM_GRAFANA_URL
-              value: "http://192.168.10.73:30883"
-            - name: REMEDIATION_RUNNER_URL
-              value: "http://192.168.10.50:8781"
-            - name: REMEDIATION_RUNNER_STANDBY_URL
-              value: "http://192.168.10.52:8781"
+              value: "https://ops.bifrost.lan/grafana"
             - name: NOUS_HERMES_URL
               value: "http://192.168.10.50:9119"

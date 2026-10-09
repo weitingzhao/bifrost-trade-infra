@@ -1,6 +1,7 @@
-# The loops that moved to platform-workers need the same tuning and runner URLs
-# platform-api gets. Kept as its own patch because strategic-merge patches match
-# a Deployment by name, so the platform-api patches cannot reach this tier.
+# The loops that moved to platform-workers need the same tuning platform-api
+# gets. Kept as its own patch because strategic-merge patches match a
+# Deployment by name, so the platform-api patches cannot reach this tier.
+# The remediation runner URLs were removed with the runner (LANE-W33).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -32,10 +33,6 @@ spec:
               value: "90"
             - name: OPS_IB_SNAPSHOT_STALE_MAX_BEFORE_ROLLOUT
               value: "3"
-            - name: REMEDIATION_RUNNER_URL
-              value: "http://192.168.10.50:8781"
-            - name: REMEDIATION_RUNNER_STANDBY_URL
-              value: "http://192.168.10.52:8781"
             - name: NOUS_HERMES_URL
               value: "http://192.168.10.50:9119"
             - name: REDIS_IB_PLATFORM_PASS
