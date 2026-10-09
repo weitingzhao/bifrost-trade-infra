@@ -23,7 +23,7 @@
 - **TD-157** — 只有一侧有暴露时，空的那侧 wall 和 wall gex 写 NULL（research 0.191.0；回填置空 1,762 个）。验收 PASS 2026-10-08 481c96c（空侧仍写 wall 0 行；10-06 / 10-07 新写入空 call wall 10 / 4、空 put wall 14 / 10）。防线：同上测试文件的 `test_a_side_without_exposure_names_no_wall` 等单边五例。后续：TD-166（zero_gamma 兜底）
 - **TD-166** — 只有累计 net gex 在非零值之间换号才算翻转，没有翻转时日线 `zero_gamma` 写 NULL（research 0.192.0；回填更新 26,878 行）。验收 PASS 2026-10-08 481c96c（从分布重算干跑 changed 0；10-06 / 10-07 新写入空 zero_gamma 33.5% / 35.0%）。防线：同上测试文件的 `test_leaving_zero_is_not_a_crossing` 等 TD-166 九例。后续：前端把空 zero-γ 写成「无翻转」，未立项
 
-**未结 72 项**：P0 0 · P1 6 · P2 25 · P3 41；要你批的 30 项（从总览表的审批列算）。
+**未结 73 项**：P0 0 · P1 6 · P2 26 · P3 41；要你批的 30 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -124,7 +124,7 @@
 
 目标：会动手的维护只由 PROD 的 platform-workers 做，本机与 STG 只观测。已做：本机停手（TD-130 第一步）、STG 不修 IB 也不写发布记录（TD-223）、页面不再触发维护、状态持久化（TD-196）。接着：PROD 自己探测、带时间戳的检查信号，只给 PROD 挂技能并先只报告，再逐项放开；备份只归 CNPG 与 backup-retry；不再清掉失败现场。
 
-项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255 · 已还：TD-256, TD-257
+项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255, TD-270 · 已还：TD-256, TD-257
 
 ## 数据边界（接受并留座）
 
@@ -288,6 +288,7 @@
 | [TD-253](#td-253) | P2 | ops-platform | The autopilot acts on checklist signals that are weeks old: signals carry no time of their own, and nothing marks a stale one unknown | 不用批 |
 | [TD-254](#td-254) | P2 | ops-platform | Two mechanisms repair the same failed backup: the autopilot's repair_cnpg_wal_store (every 15 min) and the backup-retry CronJob | 不用批 |
 | [TD-255](#td-255) | P3 | ops-platform | The hourly drift scan deletes every Failed pod it may, including failed backup Job pods in data | 不用批 |
+| [TD-270](#td-270) | P2 | ops-platform | The data-clone schedule an operator sets through the api can be silently reverted by platform-workers, and the api never sees the last clone the workers ran | 不用批 |
 
 ## 条目
 
@@ -1470,6 +1471,23 @@
 - **Fix**: Make `hold` interruptible — wait on something a signal can break (`sleep` in a background job plus `wait`, or a `read` with a timeout), so SIGTERM runs the trap immediately. Then say in `docs/RELEASE.md` how to end a hold.
 - **Ratchet**: A shell test that sends SIGTERM to a `hold` and asserts the window file is gone within a couple of seconds.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra
+
+### TD-270
+
+**P2 · ops-platform · The data-clone schedule an operator sets through the api can be silently reverted by platform-workers, and the api never sees the last clone the workers ran**
+
+- **状态**：未开始
+- **Claim**: The api (`update_data_clone_schedule`, C tier) and platform-workers (the clone scheduler loop) share `DataCloneScheduleStore` through statefile (TD-196). `Put` replaces the whole schedule and writes it; `RecordRun` does not reload first — it edits the in-memory `s.cfg` it loaded at start and writes the whole blob back. A run recorded by workers after an api `Put` therefore writes the old schedule over the new one. Separately, the last-clone store's `Get` returns memory and never re-reads, so the api shows the last clone as of its own start. `k8sstate.Write` retries a conflict with the same bytes, so nothing catches it. Same class LANE-W33R fixed for patrol with `statefile.Update`.
+- **Measured**: CODE-READ 2026-10-09 (LANE-W33R audit, verified by Claude): `cluster/data_clone.go:343` Put, `:367` RecordRun (no load), `:430` last-clone Get (memory), `:436` Record. PROD runs one api and one workers pod, so both sides do write the same key.
+- **Evidence**:
+  - `bifrost-platform/api/internal/cluster/data_clone.go:367` — `func (s *DataCloneScheduleStore) RecordRun(jobID, status string) {`
+  - `bifrost-platform/api/internal/cluster/data_clone.go:430` — last-clone `Get` returns the in-memory record
+  - `bifrost-platform/api/internal/statefile/k8sstate/k8sstate.go` — `Write` retries a conflict with the caller's bytes
+- **Impact**: An Owner-approved schedule change (C tier) can be undone by the next scheduled run without any error, and the Console shows a stale last-clone time. The approval record says one thing; the cluster does another.
+- **Fix**: Move both data-clone stores to `statefile.Update` (read-modify-write with conflict re-apply) and reload on every read, as patrol does after LANE-W33R. The other shared stores in the same audit (checklist, approvals, promote, audit) are single-writer today; add the same treatment only if one gains a second writer.
+- **Ratchet**: Two-store test like `patrol/store_share_test.go`: an api-side `Put` followed by a workers-side `RecordRun` keeps the new schedule; a workers `Record` is visible to an api-side `Get`.
+- 验收: `cd bifrost-platform/api && go test ./internal/cluster -run 'DataClone.*(Share|Reload|Survives)' -count=1 -v`（新测试 PASS）
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-261
 

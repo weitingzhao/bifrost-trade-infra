@@ -454,8 +454,9 @@ check-cluster-state-backup: ; python3 scripts/check_cluster_state_backup.py
 check-platform-rbac:
 	python3 scripts/check_platform_rbac.py
 
-# TD-253: patrol skills and the checklist prober only in PROD platform-workers, dispatch local,
-# report-only during the trial.
+# TD-253 / W-33: PROD platform-api and platform-workers share the patrol skill
+# mount and PATROL_SKILLS_DIR / PATROL_MODE / PATROL_DISPATCH. The checklist
+# prober and the patrol loop stay on platform-workers. Dispatch local, report-only.
 check-platform-maintenance:
 	python3 scripts/check_platform_maintenance.py
 
