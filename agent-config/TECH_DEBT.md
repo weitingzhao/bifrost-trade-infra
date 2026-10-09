@@ -19,6 +19,7 @@
 - **TD-254** — 备份只归 CNPG 每日备份 + backup-retry：autopilot 遇到备份不新鲜只报告、不再调 repair_cnpg_wal_store（不再删失败的 Backup、不再盘中补全量备份；工具留给人手动用）。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「autopilot 备份不动手测试」。后续：无后续：剩下的收敛在 TD-130（观察到 10-12）
 - **TD-255** — 漂移扫描不再删失败现场：只删被驱逐的 Pod，失败的备份 Job Pod 留着（日志可读），只报告模式下一个不删。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「漂移扫描只删 Evicted 测试」。后续：无后续：Job 历史上限与 TTL 负责回收
 - **TD-279** — Agent 直接调用的 B 级工作动作（plan / apply / 起 Job / 清理 / 探针）现在每次都写 PROD 审计：动作、目标、成功或失败带错误、结果、请求方会话（platform efeaf69，10-09 上 STG 与 PROD）。验收 PASS 2026-10-09 efeaf69（`go test ./internal/workactions -run Audit` 通过；PROD 一次无操作清理出现在 `get_audit_log` 首行）。防线：`RATCHETS.md`「工作动作必留审计」。后续：无后续：审批执行器那条路径已有 `approval.*` 行
+- **TD-278** — 插件 redis-ib 的五个脚本从 Owner 环境读两个写用户密码；compose 同步不再把 trade-prod 密码写进公开仓库里被跟踪的 `config.dev.yaml`；闸门只拦「运行」这些脚本（plugin 61effea，infra c2d8f6c、4b8a1d3）。验收 PASS 2026-10-09 4b8a1d3（pytest 2 passed，guard 136/136，实测拦与放都对）。防线：`RATCHETS.md`「redis-ib 写用户密码只在 Owner 环境」。后续：TD-280（修本项时发现：那个密码 07-04..08-17 在公开历史里；已轮换，剩 `--check` 防线）
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
 **未结 76 项**：P0 0 · P1 6 · P2 24 · P3 46；要你批的 32 项（从总览表的审批列算）。
@@ -1468,7 +1469,8 @@
 
 **P3 · ops-platform · Six plugin redis-ib scripts still read REDIS_IB_GATEWAY_PASS / REDIS_IB_TRADE_PROD_PASS from the plugin .env, which no longer holds them after move-owner-secrets.sh**
 
-- **状态**：在做（脚本已合 plugin `61effea`：五个脚本读 Owner 环境；`sync-redis-ib-dev-compose-config.sh` 不再把 trade-prod 密码写进被跟踪的 infra `config/config.dev.yaml`，留空、运行时由 `REDIS_IB_PASSWORD` 提供。闸门补丁 `preflight-td278.patch` 已应用（`c2d8f6c`，131 条通过）：只拦「运行」这五个脚本和 `install-redis-ib`（含 make 目标），读、改、提交照常。实测发现解释器带参数（`sh -n …`、`bash -x …`）和 `env`/`timeout` 前缀的 `./…` 没拦住，修正补丁 `preflight-td278-2.patch` 待你应用：136 条通过，现闸门在新用例上漏 4 条）
+- **状态**：待你签收（plugin `61effea`：五个脚本读 Owner 环境；`sync-redis-ib-dev-compose-config.sh` 不再把 trade-prod 密码写进被跟踪的 infra `config/config.dev.yaml`，留空、运行时由 `REDIS_IB_PASSWORD` 提供。闸门 `c2d8f6c` + `4b8a1d3`：只拦「运行」这五个脚本和 `install-redis-ib`（bash/sh 带参数、任何空白后的 `./`、make 目标），读、改、提交照常）
+- **验收结果**：PASS 2026-10-09 4b8a1d3 — plugin `tests/test_redis_ib_script_secrets.py` 2 passed（旧脚本上 2 failed，点名正是那六个）；guard `test.js` 136/136；实测 `make -n … verify-redis-ib` 与 `sh -n …/verify-ib-gateway.sh` 被拦，`head` / `git log` / `bash -n …rpc-parity.sh` / pytest 放行
 - **Claim**: LANE-W33D moved the two redis-ib write-user passwords out of `bifrost-platform-plugin/.env` and taught `render-redis-ib-acl.sh` and `redis-ib-env-users.sh` to read the Owner env. Six other scripts still `source "$ROOT/.env"` and expect both keys there. They exec into `data`, which the Agent may not since step 3, so they were already Owner-only; now they fail for the Owner too (empty password, or `REDIS_IB_TRADE_PROD_PASS missing`).
 - **Measured**: MEASURED 2026-10-09: none of the six refers to the Owner env; plugin `.env` has 0 of the two keys after the move.
 - **Evidence**:
