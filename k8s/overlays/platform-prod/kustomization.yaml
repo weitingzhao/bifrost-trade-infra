@@ -22,10 +22,11 @@ configMapGenerator:
       - config/sessions-catalog.yaml
       - config/release-rules.yaml
       - config/trust-overrides.yaml
+      - config/running-images.yaml
     options:
       disableNameSuffixHash: true
-  # PROD-only patrol skill set; see platform-workers-patrol.patch.yaml. Hashed
-  # name, so a skill change rolls platform-workers.
+  # PROD-only patrol skill set. Hashed name, so a skill change rolls both
+  # platform-api and platform-workers (both mount it).
   - name: bifrost-platform-patrol-skills
     files:
       - config/patrol-skills/ops-autopilot.yaml
@@ -37,6 +38,7 @@ patches:
   - path: images-pull-always.patch.yaml
   - path: platform-workers-env.patch.yaml
   - path: platform-workers-patrol.patch.yaml
+  - path: platform-api-patrol.patch.yaml
   - path: replicas-ha.patch.yaml
   - path: nodeport-prod.patch.yaml
   - path: platform-api-agent-bridge-env.patch.yaml
@@ -48,7 +50,6 @@ patches:
   - path: platform-api-reporter-token.patch.yaml
   - path: platform-api-role-tokens.patch.yaml
   - path: platform-approval-notify.patch.yaml
-  - path: platform-runner-token.patch.yaml
   - path: platform-unifi-env.patch.yaml
 
 images:

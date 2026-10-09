@@ -1,7 +1,6 @@
-# In-cluster platform-api must reach Mac Mini runners on the LAN.
-# The workstation git bridge is not a cluster feature.
-# Without these, /api/v1/agent/bridge defaults to http://127.0.0.1:8781 (Runner down).
-# LAN URLs are non-secret (same as bifrost-platform/.env); do not put passwords here.
+# Seat pin and the browser Grafana URL. The remediation runner (:8781) was
+# removed (LANE-W33); do not put REMEDIATION_RUNNER_* back. OPERATOR_PLANE_URL
+# is a separate patch. LAN values are non-secret.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -15,11 +14,7 @@ spec:
             # Explicit seat pin (overrides clusters.yaml; local make start stays DEV without this).
             - name: OPS_VIEWER_ENV
               value: "prod"
-            - name: REMEDIATION_RUNNER_URL
-              value: "http://192.168.10.50:8781"
-            - name: REMEDIATION_RUNNER_STANDBY_URL
-              value: "http://192.168.10.52:8781"
             - name: NOUS_HERMES_URL
               value: "http://192.168.10.50:9119"
             - name: PLATFORM_GRAFANA_URL
-              value: "http://192.168.10.73:30883"
+              value: "https://ops.bifrost.lan/grafana"

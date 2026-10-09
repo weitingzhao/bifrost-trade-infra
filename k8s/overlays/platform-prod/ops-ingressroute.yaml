@@ -15,6 +15,15 @@ spec:
     - websecure
   tls: {}
   routes:
+    # Traefik evaluates the highest priority first. Trade PathPrefix routes use
+    # 100; the Console host rule is 10. /grafana must win or Console swallows it.
+    - match: Host(`ops.bifrost.lan`) && PathPrefix(`/grafana`)
+      kind: Rule
+      priority: 100
+      services:
+        - name: kube-prometheus-stack-grafana
+          namespace: monitoring
+          port: 80
     - match: Host(`ops.bifrost.lan`)
       kind: Rule
       priority: 10
