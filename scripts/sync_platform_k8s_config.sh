@@ -42,6 +42,14 @@ if [[ -f "${PLATFORM_ROOT}/config/ops-context.yaml" ]]; then
   cp "${PLATFORM_ROOT}/config/ops-context.yaml" "${DEST_PROD}/ops-context.yaml"
 fi
 
+# Trust overrides are one Owner-approved document for both environments (W-32 B2).
+# platform-api reads /app/config/trust-overrides.yaml on every request; when the
+# file is missing the overrides silently vanish (a demotion such as L0 is lost).
+if [[ -f "${PLATFORM_ROOT}/config/trust-overrides.yaml" ]]; then
+  cp "${PLATFORM_ROOT}/config/trust-overrides.yaml" "${DEST_STG}/trust-overrides.yaml"
+  cp "${PLATFORM_ROOT}/config/trust-overrides.yaml" "${DEST_PROD}/trust-overrides.yaml"
+fi
+
 # Ensure platform-stg namespace is registered for cluster probes.
 if ! grep -q 'bifrost-platform-stg' "${DEST_STG}/clusters.yaml"; then
   echo "WARN: add bifrost-platform-stg to clusters.yaml bifrost_namespaces after sync" >&2
