@@ -202,3 +202,35 @@ kubectl apply -f k8s/cicd/tekton/pipeline-deliver-prod.yaml
 - 平台仓库是 husky。新 worktree 不跑钩子，所以平台提交的 Change-Id / Work 是用 `scripts/git-hooks/lineage.sh` 补上的，没有 `--no-verify`，也没有改 git config。
 - 道文件的上线顺序写的是先合 platform。报告第六节改成先让策略 ConfigMap 落地，再发平台镜像。这是为了避免 `Validate` 把通用写动作整批拒绝，不是新的产品决定。
 - 没有新的架构级决策留着等拍板。仓库白名单在配置里，参数名从集群里的 Pipeline 读，代码不写死仓库名或流水线名。
+
+## Claude 验收（2026-10-09）
+
+结论：**通过**。前提是 Claude 补的两笔（第 2、3 条）一起上线，上线顺序按第 5 条改。
+
+1. **重跑门禁**：
+   - platform：`61d8595` 加上 Claude 的修复之后，go build / vet / test 全过，MCP 20，Console lint（0 error）、682 个测试、build 全过；
+   - infra：`unittest discover scripts/release` 23 过 1 跳过，`check_admission_guards.py`、`check-release-chain.py`、ops-context 副本检查、两个 overlay 的 kustomize 全过；
+   - 两条 deliver Pipeline 和 `task-release-window.yaml` 的 server 端 dry-run 都被接受。
+2. **通用参数口子太大，已修（platform `00036f5`）**：
+   - 问题：`mergePipelineParams` 允许调用方覆盖 Pipeline 声明过的任何参数，而且会压过平台自己的映射。B 级的流水线（STG deliver、`bifrost-build-*`）都声明了 `giteaBase`，还有 `image`、`registry`、`tag`、`platformApiImage`。也就是说，不经审批就能从别的 git 地址取代码，或者推到别的镜像 tag，比如推到 `:prod`，或者推到 Dagster 后缀本来保护着的 research 镜像；
+   - 修法：调用方只能设 `revision` 和以 `Revision` 结尾的参数，值必须是 40 位小写 SHA。来源、仓库、镜像、tag 一律走平台自己的映射。这是按名字约定的规则，平台代码不认识具体流水线。PROD 的 6 个逐仓参数因此也一定是钉死的 SHA；
+   - 防线：`TestMergeParamsCallerSetsOnlyRevisionSHAs`。MCP 工具对 `params` 的说明也同步写清楚了。
+3. **release.sh 读错令牌键名，已修（infra `b33d735`）**：
+   - 问题：脚本读的是 `PLATFORM_OPERATOR_TOKEN`，infra `.env` 里只有 `PLATFORM_PROD_OPERATOR_TOKEN`；platform `.env` 里倒是有这个名字，是本机开发 api 的令牌。所以每个真实写操作都会失败，或者把本机令牌发给 PROD。dry-run 不发请求，测不出来；
+   - 修法：改读 `PLATFORM_PROD_OPERATOR_TOKEN`；`.env.example` 补上两个 PROD 键名（只有名字）；
+   - 防线：`test_release_sh_reads_prod_tokens_listed_in_env_example`。
+4. **其余复核，没问题**：
+   - 窗口：PUT / DELETE 是 B 级，强制删除是 C 级；靠 resourceVersion 保证并发下只有一个持有者；过期视为空；
+   - 镜像同步：只接受白名单里的仓库，`Plan` 一定先同步再起 run；
+   - release.sh 里没有 kubectl 写操作，令牌只走权限 600 的 curl 配置文件；
+   - pinned 脚本的输出里没有 `pipelineSpec`；
+   - 平台起 run 时加的 `taskRunTemplate`（default 账号，podTemplate 里只有 nodeSelector 和 tolerations）符合 TD-271 的准入策略。
+   - 一处小毛病，不阻塞：GET 窗口时如果窗口已过期，会顺手删掉 ConfigMap，读操作带了副作用。
+5. **上线顺序改成 infra 分两部分合**：
+   - 原因：新版 release.sh 的 `window` 要调平台的窗口接口，PROD 平台发版前没有这个接口；而每次推 main 前都要跑 `release.sh window`。如果 release.sh 先合，中间这段时间连推 main 都会被挡住；
+   - 第 1 部分：三份策略副本（带 `mirrors.repos`）、Tekton 的 3 份 YAML（只是文本，apply 前不生效）、`window_decision.py` 和对应的测试与检查；
+   - 第 2 部分：release.sh、release-check.sh、pinned 脚本、`.env.example`、文档、skill、CLAUDE.md 和 workspace.mdc（parity-id v17）、RATCHETS。等 PROD 平台发版、Pipeline apply 之后再合。
+6. **真跑清单的影响要先告诉 Owner**：
+   - STG 和 PROD 的 Trade 真跑，会把 Trade 各仓库 main 上当时的内容真的发出去，可能包括别的会话的改动；
+   - 真跑前先列出这次会带上的提交，由 Owner 决定；
+   - 插件那条可以重新构建、部署当前版本，内容不变。

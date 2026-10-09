@@ -461,7 +461,8 @@
     - Gitea 镜像要等同步才能用新提交，登记为 TD-273；
     - `agent_reader` 已在 PROD 建好：DDL 的 commit 和 verify 通过，role-matrix 0 差异，Owner 已设密码并写入 `~/.pgpass`；四个库都能读，CREATE 和 UPDATE 被权限拒绝；AGENT_FACTS 已写明用法；
   - **下一步**：
-    - 发版链 `LANE-W33C.md`：Owner 10-09 定「〇」节四件，全部按推荐，交 Cursor：
+    - 发版链 `LANE-W33C.md`：Owner 10-09 定「〇」节四件，全部按推荐，交 Cursor。**10-09 验收通过**（Claude 补了两笔：调用方参数只能是 revision SHA，platform `00036f5`；release.sh 改读 PROD 令牌，infra `b33d735`），上线顺序见报告「Claude 验收」第 5 条，每一步等 Owner 批：
+
       - PROD pinned run 改成 Pipeline 加逐仓参数；
       - 发布窗口归平台；
       - Gitea 镜像同步交给平台（顺带修 TD-273）；
