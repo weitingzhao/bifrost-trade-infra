@@ -473,7 +473,10 @@
       - Gitea 镜像同步交给平台（顺带修 TD-273）；
       - `start_pipeline_run` 带通用参数；
     - TD-275 已修并验收（10-09，Claude 直接修，Owner 批 apply 和 PROD api 重启）：market-data 插件「计划 → C 级 apply」全程走通，线上无改动；顺带修好了 C 级 apply 判断「在 main 上」的方式（Gitea 1.21 没有 compare 接口）；TD-273 已签收；新登记 TD-276；
-    - **下一步**：第 3 步（Mac 上的 Agent 换只读 kubeconfig，管理员凭证搬到 Owner 目录，preflight 按路径拦）；
+    - **第 3 步**：讨论材料 `W33-step3-2026-10-09.md` 已写（10-09），**等 Owner 定「〇」节四件**：
+      - 新发现：节点 root 实际靠 ssh-agent 里的 `id_rsa`（也是 GitHub 密钥），`bifrost_deploy` 没授权到任何节点；
+      - 本机 `.env` 和 gitignore 的 Secret 文件里还有 Trade 管理员、UniFi、redis-ib、DB 属主轮换等管理员级凭证；
+      - DB 日常密码归 TD-85；
   - 10-09 07:00Z 定时对账 drift 0；
   - 写道时实测发现 TD-271：PROD 平台身份经 cicd 的 PipelineRun 和 Argo Application 仍能间接拿到集群管理员，已登记，并写进 TD-204 待签收行的「后续」；
   - 第 3 步在第 2 步验收后另派
