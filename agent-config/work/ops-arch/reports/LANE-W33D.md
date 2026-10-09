@@ -306,3 +306,25 @@ KUBECONFIG=~/.kube/bifrost-k3s.yaml python3 scripts/check_agent_access.py --live
 - 没有改 plugin。
 - 没有改 `prometheus-pf` 的 Service 转发。见第一节后续，等 Owner 在 A/B/C 里选。
 - 没有需要道文件以外再拍板的架构决定。上面 prometheus-pf 是后续，不是本道擅自改 Role。
+
+## Claude 验收（2026-10-09）
+
+结论：**通过**。Claude 补了几笔（infra `32c48e4`，plugin `cursor/w33d-plugin` `6c1c9d7`），Owner 执行清单按下面两处调整执行。
+
+1. **复核**：
+   - `k8s/agent-access`：只有 `view`（实测聚合后 15 条规则全是只读，不含 Secret，Tekton 由 `tekton-aggregate-view` 聚合进来）、几类 CRD 的只读、三个命名空间的 exec，以及 Prometheus 那一个 Pod 的 port-forward；
+   - 集群里没有别的东西绑着 `view`；
+   - 6 台主机的 root 都不能经 ssh-agent 登录，节点上只有 `vision` 一个账号授权了密钥，所以删掉 `gh:weitingzhao` 那一行就够了；
+   - Owner 脚本的 4 个测试、检查脚本、发版测试、滚动重启测试、kustomize 都过；分支没有改 `preflight.js`。
+2. **补：插件 `.env` 里可写 `ib:*` 的两个 redis-ib 用户**：
+   - `REDIS_IB_GATEWAY_PASS`、`REDIS_IB_TRADE_PROD_PASS` 按 ACL 能写 `ib:operator:cmd`（D10）。`move-owner-secrets.sh` 把它们一并挪进 `owner.env`，`REDIS_IB_PLATFORM_PASS` 留着；测试和 `check_agent_access.py` 跟着加；
+   - 插件的 `render-redis-ib-acl.sh` 和 `redis-ib-env-users.sh` 也读 `owner.env`。缺任何一个密码时，渲染照旧拒绝，不会生成带空密码的 ACL（实测）；`switch` 更新 Owner 目录里那份 Secret 文件。Cursor 担心的「写回 Agent 能读的目录」不会发生：原脚本只在文件已经存在时才写。
+3. **补：preflight 拦截「只给 Owner 运行的脚本」**：
+   - 闸门只看命令文本，Agent 一运行这些脚本就能读到 Owner 凭证，比如 `render-redis-ib-acl.sh` 会把全部 redis-ib 密码打到标准输出；
+   - 补丁现在也拦截：`scripts/owner/` 下的四个脚本、Secret 物化、属主密码轮换、redis-ib 的两个脚本、UniFi 脚本；`*_test` 照常放行；
+   - 在打了补丁的副本上，`test.js` **112 通过 / 0 失败**（清单第 6 步的预期改成 112）。
+4. **清单第 5 步的核对加一项**：插件 `.env` 不再有 `REDIS_IB_GATEWAY_PASS`、`REDIS_IB_TRADE_PROD_PASS`，仍有 `REDIS_IB_PLATFORM_PASS`。
+5. **`prometheus-pf`**：`kubectl port-forward svc/…` 会先解析到 Pod，再对那个 Pod 做 port-forward，按理也在 resourceNames 范围内。第 2 步之后，用只读 kubeconfig 实测 svc 写法；不行再把 `run_prometheus_pf.sh` 改成 `pod/prometheus-kube-prometheus-stack-prometheus-0`。
+6. **合并顺序**：
+   - 先合：代码、清单、补丁文件，以及 platform、plugin 两条分支。脚本在 Owner 目录不存在时照旧读原来的位置；
+   - 后合：AGENT_FACTS、CLAUDE.md、workspace.mdc（parity v18）、ADR。等 Owner 执行完、Claude 验收通过再合，以免 Agent 在凭证还没换时就按新规则行事。
