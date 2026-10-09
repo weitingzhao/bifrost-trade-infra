@@ -59,9 +59,29 @@ def static() -> list[str]:
     ):
         if needle not in admission:
             problems.append(f"admission file missing {needle}")
-    for name in listed(policy, "pipeline_service_accounts") + listed(policy, "job_service_accounts"):
+    for name in (
+        listed(policy, "pipeline_service_accounts")
+        + listed(policy, "job_service_accounts")
+        + listed(policy, "applier_pod_service_accounts")
+    ):
         if f"'{name}'" not in admission and f'"{name}"' not in admission:
             problems.append(f"admission allow-list missing {name}")
+    for needle in (
+        "!has(object.spec.pipelineRef.resolver)",
+        "!has(object.spec.taskRef.resolver)",
+        "hostPath",
+        "object.spec.sources",
+        "source.kustomize",
+        "source.helm",
+        "source.plugin",
+        "source.directory",
+        "volumeClaimTemplate",
+        "emptyDir",
+        "bifrost-applier-pod-spec",
+        "bifrost-applier-tekton-spec",
+    ):
+        if needle not in admission:
+            problems.append(f"admission file missing {needle}")
     if "argocd" not in admission:
         problems.append("admission file does not mention argocd")
     rendered = subprocess.run(
@@ -100,12 +120,20 @@ def static() -> list[str]:
 def live() -> list[str]:
     """Server-side dry-runs. Refused until the policies are applied."""
     problems: list[str] = []
-    identity = "system:serviceaccount:bifrost-platform-prod:bifrost-platform"
+    platform = "system:serviceaccount:bifrost-platform-prod:bifrost-platform"
+    applier = "system:serviceaccount:cicd:bifrost-applier"
     cases = [
-        ("inline-pipelinerun", "cicd", inline_run(), True),
-        ("normal-pipelinerun", "cicd", normal_run(), False),
+        ("inline-pipelinerun", platform, "cicd", inline_run(), True),
+        ("resolver-pipelinerun", platform, "cicd", resolver_run(), True),
+        ("secret-workspace-pipelinerun", platform, "cicd", secret_workspace_run(), True),
+        ("hostpath-podtemplate-pipelinerun", platform, "cicd", hostpath_run(), True),
+        ("normal-pipelinerun", platform, "cicd", normal_run(), False),
+        ("applier-hostpath-deployment", applier, "bifrost-dev", applier_hostpath_deployment(), True),
+        ("applier-grafana-deployment", applier, "monitoring", applier_grafana_deployment(), True),
+        ("application-sources", platform, "cicd", application_sources(), True),
+        ("application-kustomize", platform, "cicd", application_kustomize(), True),
     ]
-    for name, ns, body, want_deny in cases:
+    for name, identity, ns, body, want_deny in cases:
         denied = dry_run(identity, ns, body)
         if denied != want_deny:
             problems.append(f"{name}: denied={denied} want {want_deny}")
@@ -137,6 +165,137 @@ spec:
             - name: x
               image: alpine
               script: "true"
+"""
+
+
+def resolver_run() -> str:
+    return """apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: w33br-guard-resolver
+  namespace: cicd
+spec:
+  pipelineRef:
+    resolver: git
+    params:
+      - name: url
+        value: https://example.invalid/pipeline.yaml
+"""
+
+
+def secret_workspace_run() -> str:
+    return """apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: w33br-guard-secret-ws
+  namespace: cicd
+spec:
+  pipelineRef:
+    name: bifrost-apply-manifest
+  workspaces:
+    - name: secrets
+      secret:
+        secretName: argocd-secret
+"""
+
+
+def hostpath_run() -> str:
+    return """apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: w33br-guard-hostpath
+  namespace: cicd
+spec:
+  pipelineRef:
+    name: bifrost-apply-manifest
+  taskRunTemplate:
+    podTemplate:
+      volumes:
+        - name: host
+          hostPath:
+            path: /var/run
+"""
+
+
+def applier_hostpath_deployment() -> str:
+    return """apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: w33br-guard-hostpath
+  namespace: bifrost-dev
+spec:
+  selector:
+    matchLabels: {app: w33br-guard-hostpath}
+  template:
+    metadata:
+      labels: {app: w33br-guard-hostpath}
+    spec:
+      containers:
+        - name: c
+          image: alpine
+      volumes:
+        - name: host
+          hostPath:
+            path: /var/run
+"""
+
+
+def applier_grafana_deployment() -> str:
+    return """apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: w33br-guard-grafana-sa
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels: {app: w33br-guard-grafana-sa}
+  template:
+    metadata:
+      labels: {app: w33br-guard-grafana-sa}
+    spec:
+      serviceAccountName: kube-prometheus-stack-grafana
+      containers:
+        - name: c
+          image: alpine
+"""
+
+
+def application_sources() -> str:
+    return """apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: bifrost-research
+  namespace: cicd
+spec:
+  project: bifrost
+  source:
+    repoURL: https://github.com/weitingzhao/bifrost-research.git
+    path: k8s
+  sources:
+    - repoURL: https://example.invalid/other.git
+      path: k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: research
+"""
+
+
+def application_kustomize() -> str:
+    return """apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: bifrost-research
+  namespace: cicd
+spec:
+  project: bifrost
+  source:
+    repoURL: https://github.com/weitingzhao/bifrost-research.git
+    path: k8s
+    kustomize:
+      images: ["evil.example/x:1"]
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: research
 """
 
 

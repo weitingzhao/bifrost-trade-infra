@@ -1,14 +1,15 @@
 #!/bin/sh
-# Check a rendered manifest against actuation-policy.yaml.
-# Usage: apply-manifest-check.sh <policy.yaml> <rendered.yaml> <objects.json>
-# Prints the highest tier on stdout. Refuses cluster-scoped objects, Argo-tracked
-# objects, a Deployment whose name is the policy daemon_deployment, unknown
-# namespaces, and kinds the policy does not list for that namespace.
+# Check a normalized manifest List against actuation-policy.yaml.
+# Usage: apply-manifest-check.sh <policy.yaml> <normalized.json> <objects.json>
+# normalized.json is the JSON from `kubectl create --dry-run=client -o json`,
+# slurped into one List. This script and `kubectl apply` must use that same file.
+# Prints the highest tier on stdout.
 set -eu
 
 policy=${1:?policy}
-rendered=${2:?rendered}
+rendered=${2:?normalized-json}
 out=${3:?objects-out}
+KUBECTL=${KUBECTL:-kubectl}
 
 delivery_ns=$(awk '
   $0 ~ /^delivery:/ {d=1; next}
@@ -24,7 +25,8 @@ daemon=$(awk '
 ns_tiers=$(mktemp)
 kinds=$(mktemp)
 cicd_kinds=$(mktemp)
-trap 'rm -f "$ns_tiers" "$kinds" "$cicd_kinds"' EXIT
+rows=$(mktemp)
+trap 'rm -f "$ns_tiers" "$kinds" "$cicd_kinds" "$rows"' EXIT
 
 awk '
   $0 ~ /^apply:/ {a=1; next}
@@ -43,7 +45,15 @@ awk '
   a && $0 ~ /^[^ #]/ {a=0}
   a && $0 ~ /^  resources:/ {s=1; next}
   a && s && $0 ~ /^  [^ ]/ {s=0}
-  a && s && $0 ~ /^      kind:/ {print $2}
+  a && s && $0 ~ /group:/ {
+    g=$0
+    sub(/.*group: */, "", g)
+    gsub(/"/, "", g)
+    gsub(/ /, "", g)
+    if (g=="") g="-"
+    group=g
+  }
+  a && s && $0 ~ /^      kind:/ {print group, $2}
 ' "$policy" > "$kinds"
 
 awk '
@@ -51,8 +61,37 @@ awk '
   a && $0 ~ /^[^ #]/ {a=0}
   a && $0 ~ /^  cicd_resources:/ {s=1; next}
   a && s && $0 ~ /^  [^ ]/ {s=0}
-  a && s && $0 ~ /^      kind:/ {print $2}
+  a && s && $0 ~ /group:/ {
+    g=$0
+    sub(/.*group: */, "", g)
+    gsub(/"/, "", g)
+    gsub(/ /, "", g)
+    if (g=="") g="-"
+    group=g
+  }
+  a && s && $0 ~ /^      kind:/ {print group, $2}
 ' "$policy" > "$cicd_kinds"
+
+jq -r '
+  def group:
+    if ((.apiVersion // "") | contains("/")) then (.apiVersion | split("/")[0]) else "" end;
+  def walk:
+    if type == "array" then .[] | walk
+    elif (.kind == "List") then (.items // [])[] | walk
+    else . end;
+  [walk] | .[] |
+    [
+      (.metadata.namespace // ""),
+      (.kind // ""),
+      (.metadata.name // ""),
+      group
+    ] | @tsv
+' "$rendered" > "$rows"
+
+if [ ! -s "$rows" ]; then
+  echo "normalized manifest has no objects" >&2
+  exit 1
+fi
 
 tier_of() {
   awk -v ns="$1" '$1 == ns {print $2; found=1} END {exit !found}' "$ns_tiers"
@@ -63,26 +102,42 @@ kind_ok() {
   if [ "$1" = "$delivery_ns" ]; then
     file=$cicd_kinds
   fi
-  grep -qx "$2" "$file"
+  awk -v group="$2" -v kind="$3" '$1 == group && $2 == kind {found=1} END {exit !found}' "$file"
+}
+
+rank_of() {
+  case "$1" in
+    B) printf 1 ;;
+    C) printf 2 ;;
+    D) printf 3 ;;
+    X) printf 4 ;;
+    *) printf 0 ;;
+  esac
 }
 
 json=$(mktemp)
 : > "$json"
 first=1
 highest=B
+count=0
 
-flush_doc() {
-  doc=$1
-  [ -s "$doc" ] || return 0
-  kind=$(awk '/^kind:/{print $2; exit}' "$doc")
-  [ -n "$kind" ] || return 0
-  name=$(awk '/^metadata:/{m=1; next} m && /^[^ ]/{exit} m && /^  name:/{print $2; exit}' "$doc")
-  ns=$(awk '/^metadata:/{m=1; next} m && /^[^ ]/{exit} m && /^  namespace:/{print $2; exit}' "$doc")
+while IFS=$(printf '\t') read -r ns kind name group; do
+  [ -n "$kind" ] || kind=""
+  count=$((count + 1))
+  if [ -z "$kind" ] || [ -z "$name" ]; then
+    echo "object is missing kind or name" >&2
+    exit 1
+  fi
+  if [ "$kind" = "List" ]; then
+    echo "List was not expanded; refusing" >&2
+    exit 1
+  fi
   if [ -z "$ns" ]; then
     echo "object ${kind}/${name} has no namespace; cluster-scoped objects are refused" >&2
     exit 1
   fi
-  if grep -q 'argocd.argoproj.io/tracking-id' "$doc"; then
+  tracked=$("$KUBECTL" get "$kind" "$name" -n "$ns" -o jsonpath='{.metadata.annotations.argocd\.argoproj\.io/tracking-id}' 2>/dev/null || true)
+  if [ -n "$tracked" ]; then
     echo "object ${ns}/${kind}/${name} is managed by Argo; use gitops_sync_app" >&2
     exit 1
   fi
@@ -94,35 +149,28 @@ flush_doc() {
     echo "namespace of ${kind}/${name} is not in the apply allow-list" >&2
     exit 1
   }
-  if ! kind_ok "$ns" "$kind"; then
-    echo "kind ${kind} is not allowed in that namespace" >&2
+  if [ -z "$group" ]; then
+    group=-
+  fi
+  if ! kind_ok "$ns" "$group" "$kind"; then
+    echo "kind ${kind} (group ${group}) is not allowed in that namespace" >&2
     exit 1
   fi
-  case "$tier" in
-    C|D|X) highest=$tier ;;
-  esac
+  if [ "$(rank_of "$tier")" -gt "$(rank_of "$highest")" ]; then
+    highest=$tier
+  fi
   if [ "$first" -eq 0 ]; then
     printf ',' >> "$json"
   fi
   first=0
-  printf '{"namespace":"%s","kind":"%s","name":"%s","tier":"%s"}' "$ns" "$kind" "$name" "$tier" >> "$json"
-}
+  jq -n --arg ns "$ns" --arg kind "$kind" --arg name "$name" --arg tier "$tier" \
+    '{namespace:$ns,kind:$kind,name:$name,tier:$tier}' >> "$json"
+done < "$rows"
 
-current=$(mktemp)
-: > "$current"
-while IFS= read -r line || [ -n "${line}" ]; do
-  case "$line" in
-    ---*)
-      flush_doc "$current"
-      : > "$current"
-      ;;
-    *)
-      printf '%s\n' "$line" >> "$current"
-      ;;
-  esac
-done < "$rendered"
-flush_doc "$current"
-rm -f "$current"
+if [ "$count" -eq 0 ]; then
+  echo "normalized manifest has no objects" >&2
+  exit 1
+fi
 
 {
   printf '['

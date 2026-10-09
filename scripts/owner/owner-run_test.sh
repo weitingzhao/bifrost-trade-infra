@@ -45,4 +45,11 @@ export CURL_BODY='{"action":"owner_run_command","status":"executed","decided_at"
 fail_if_runs bad-hash
 grep -q "hash does not match" "${TMP}/err"
 
-echo "ok: owner-run refuses wrong status, expired approvals, and a hash mismatch"
+export CURL_BODY='{"action":"owner_run_command","status":"executed","decided_at":"2099-01-01T00:00:00Z","params":{"command":"true"},"result":{"command_sha256":"b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b"}}'
+if printf 'yes\n' | "$SCRIPT" piped >"${TMP}/out" 2>"${TMP}/err"; then
+  echo "FAIL piped yes was accepted" >&2
+  exit 1
+fi
+grep -q "standard input must be a terminal" "${TMP}/err"
+
+echo "ok: owner-run refuses wrong status, expired approvals, a hash mismatch, and a piped yes"

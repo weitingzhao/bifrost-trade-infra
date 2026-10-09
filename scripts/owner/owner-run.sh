@@ -109,6 +109,10 @@ sys.stdout.write(command)
 ' "$APPROVAL_ID" "$MAX_AGE_SECONDS")"
 
 digest="$(printf '%s' "$command_text" | shasum -a 256 | awk '{print $1}')"
+if [ ! -t 0 ]; then
+  echo "REFUSED: standard input must be a terminal" >&2
+  exit 1
+fi
 printf 'command:\n%s\nType yes to run it: ' "$command_text"
 read -r answer
 if [ "$answer" != "yes" ]; then

@@ -47,6 +47,20 @@ spec:
           - name: run
             image: alpine/k8s:1.31.4
             env:
+              - name: MODE
+                value: $(params.mode)
+              - name: REPO
+                value: $(params.repo)
+              - name: PATH_IN_REPO
+                value: $(params.path)
+              - name: COMMIT
+                value: $(params.commit)
+              - name: GITEA_BASE
+                value: $(params.giteaBase)
+              - name: GITEA_ORG
+                value: $(params.giteaOrg)
+              - name: REQUIRE_ON_MAIN
+                value: $(params.requireOnMain)
               - name: GIT_USERNAME
                 valueFrom:
                   secretKeyRef:
@@ -67,21 +81,41 @@ spec:
             script: |
               #!/bin/sh
               set -eu
-              mode="$(params.mode)"
-              repo="$(params.repo)"
-              path="$(params.path)"
-              commit="$(params.commit)"
-              base="$(params.giteaBase)"
-              org="$(params.giteaOrg)"
+              mode="${MODE:?}"
+              repo="${REPO:?}"
+              path="${PATH_IN_REPO:?}"
+              commit="${COMMIT:?}"
+              base="${GITEA_BASE:?}"
+              org="${GITEA_ORG:?}"
               case "$mode" in
                 plan|apply) ;;
                 *) echo "mode must be plan or apply" >&2; exit 1 ;;
               esac
+              if ! printf '%s' "$repo" | grep -Eq '^[A-Za-z0-9._-]+$'; then
+                echo "repo has characters outside the allow-list" >&2
+                exit 1
+              fi
+              if ! printf '%s' "$path" | grep -Eq '^[A-Za-z0-9._/-]+$'; then
+                echo "path has characters outside the allow-list" >&2
+                exit 1
+              fi
+              case "$path" in
+                /*) echo "path must not start with /" >&2; exit 1 ;;
+              esac
+              oldifs=$IFS
+              IFS=/
+              for seg in $path; do
+                case "$seg" in
+                  ""|.) echo "path has an empty or dot segment" >&2; exit 1 ;;
+                  ..) echo "path has a dot-dot segment" >&2; exit 1 ;;
+                esac
+              done
+              IFS=$oldifs
               if ! printf '%s' "$commit" | grep -Eq '^[0-9a-f]{40}$'; then
                 echo "commit must be a 40-character hex sha" >&2
                 exit 1
               fi
-              if [ "$(params.requireOnMain)" = "true" ]; then
+              if [ "${REQUIRE_ON_MAIN}" = "true" ]; then
                 api="${base%%/bifrost}/api/v1/repos/${org}/${repo}/compare/${commit}...main"
                 host_path="${api#http://}"
                 host_path="${host_path#https://}"
@@ -112,13 +146,16 @@ spec:
                 echo "path not in the commit" >&2
                 exit 1
               fi
-              tier=$(sh /checks/apply-manifest-check.sh /policy/actuation-policy.yaml /tmp/rendered.yaml /tmp/objects.json)
+              apk add --no-cache jq >/dev/null
+              kubectl create --dry-run=client -o json -f /tmp/rendered.yaml \
+                | jq -s '{apiVersion:"v1",kind:"List",items:.}' > /tmp/normalized.json
+              tier=$(sh /checks/apply-manifest-check.sh /policy/actuation-policy.yaml /tmp/normalized.json /tmp/objects.json)
               if [ "$mode" = "plan" ]; then
-                kubectl diff -f /tmp/rendered.yaml --server-side > /tmp/diff.txt 2>&1 || test "$?" -eq 1
+                kubectl diff -f /tmp/normalized.json --server-side > /tmp/diff.txt 2>&1 || test "$?" -eq 1
                 echo "=== kubectl diff ==="
                 cat /tmp/diff.txt
               else
-                kubectl apply -f /tmp/rendered.yaml --server-side --field-manager=bifrost-applier
+                kubectl apply -f /tmp/normalized.json --server-side --field-manager=bifrost-applier
               fi
               cp /tmp/objects.json "$(results.objects.path)"
               printf '%s' pass > "$(results.policy.path)"

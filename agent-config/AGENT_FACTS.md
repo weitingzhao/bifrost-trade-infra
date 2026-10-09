@@ -378,7 +378,7 @@ Mac mini `.50` / `.52`（agent host）、NAS `.20`（归档与备份目标）、
 | Trade 网关 | `.73:30880` STG · `.73:30881` PROD · `.73:30882` DEV（前端 DEV inner loop 的 API）。依据 Traefik entryPoint `trade-stg` / `trade-prod` / `trade-dev`（`k8s/system/traefik-helmchartconfig.yaml`，即集群里的 `HelmChartConfig traefik`），由各 overlay 的 `trade-ip-ingressroute.yaml`（`trade-gateway-ip`）按 namespace 绑定（2026-09-28 实查） |
 | Ops Console / API | `.73:30876`–`30879` |
 | registry / gitea / apiserver | `.73:30500` · `.73:30300` · `.73:6443` |
-| 数据层（局域网，无 TLS） | Postgres `.73:30432`（`bifrost-postgres-lan`）· redis-dev `.73:30379`（无密码，只 DEV）。STG / PROD Redis 不对局域网开放（30380 / 30382 于 2026-10-07 删除，TD-205）；Redis Insight 用 `kubectl -n data port-forward svc/redis-live-prod 16382:6379` |
+| 数据层（局域网，无 TLS） | Postgres `.73:30432`（`bifrost-postgres-lan`）· redis-dev `.73:30379`（无密码，只 DEV）。STG / PROD Redis 不对局域网开放（30380 / 30382 于 2026-10-07 删除，TD-205）；Redis Insight 用 `kubectl -n data port-forward svc/redis-live-prod 16382:6379`。数据库只读查询用 `agent_reader`，经 `192.168.10.73:30432` 用 psql 连接，不再 `kubectl exec psql` |
 | Grafana | `.73:30883`（`monitoring/kube-prometheus-stack-grafana`） |
 | Dagster webserver | `.73:30301`（`research/dagster-webserver`） |
 
