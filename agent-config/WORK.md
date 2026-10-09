@@ -418,7 +418,7 @@
 - **现在**：Owner 10-08 定合并四件：① 凭证收口（mini 不再持有管理员 kubeconfig 与 admin 令牌、部署脚本不再同步、remediation runner 与 .52 hermes-gateway 定去留）；② PROD 经代理转到 mini 的 operator 级路由认 PROD 令牌；③ Console 显示待重启节点、滚动重启做成审批动作；④ ⑤ 页给 Research 与插件显示 STG / PROD 两列版本。先讨论分步，任务文件还没写
 - **下一步**：
   - **STG 已发**（10-09 02:35Z，`bifrost-deliver-platform-1791513153`，platform `9a0d1ed`；infra 第 2 份 `3cc7d54` 是 STG overlay），Owner 过目中；
-  - **PROD 暂停**：STG 验收发现 patrol 共享状态只在启动时读一次、写入是盲写，PROD api 也缺 patrol 配置（STG 的 patrol 是关的，所以看不出来）。返工道 `LANE-W33R.md` 已写，等交 Cursor；返工上 STG 之后再发 PROD；
+  - **PROD 暂停**：STG 验收发现 patrol 共享状态只在启动时读一次、写入是盲写，PROD api 也缺 patrol 配置（STG 的 patrol 是关的，所以看不出来）。返工道 `LANE-W33R.md` 10-09 已交 Cursor；返工验收、上 STG 之后再发 PROD。周日 10-11 的滚动重启用 W-33 合并前的脚本（infra `4967ec3`）；
   - 之后按「上线顺序」：PROD → 重部署 mini → apply 待重启清单 → helm upgrade Grafana → 去掉 runner 令牌 → `check_maintainers --live`
 - **验收**：第 5 阶段退出条件——对账 0 漂移；Agent 侧没有管理员凭证
 - **关联**：`agent-config/work/ops-arch/LANE-W33.md`、`agent-config/work/ops-arch/README.md`「剩下的两波」、`agent-config/work/ops-arch/W33-credentials-2026-10-08.md`、W-5
