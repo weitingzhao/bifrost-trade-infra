@@ -1,0 +1,408 @@
+# ValidatingAdmissionPolicy for TD-271. Built into Kubernetes; not a new dependency.
+# Manual apply with the rest of k8s/platform-rbac. Not under Argo.
+# tekton-trigger can still create PipelineRuns and is listed as a follow-up, not matched here.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: bifrost-platform-pipelinerun
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["tekton.dev"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pipelineruns"]
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: cicd
+  matchConditions:
+    - name: platform-or-deliver
+      expression: >-
+        request.userInfo.username in [
+          'system:serviceaccount:bifrost-platform-prod:bifrost-platform',
+          'system:serviceaccount:bifrost-platform-stg:bifrost-platform',
+          'system:serviceaccount:cicd:tekton-deliver'
+        ]
+  validations:
+    - expression: >-
+        has(object.spec.pipelineRef) && has(object.spec.pipelineRef.name)
+        && !has(object.spec.pipelineRef.resolver)
+        && !has(object.spec.pipelineRef.params)
+        && !has(object.spec.pipelineRef.bundle)
+        && !has(object.spec.pipelineSpec)
+      message: platform PipelineRuns must name a pipelineRef and must not use a resolver or an inline spec
+    - expression: >-
+        !has(object.spec.workspaces)
+        || object.spec.workspaces.all(w,
+          (has(w.volumeClaimTemplate) || has(w.emptyDir))
+          && !has(w.secret) && !has(w.configMap) && !has(w.persistentVolumeClaim)
+          && !has(w.projected) && !has(w.csi))
+      message: platform PipelineRun workspaces may only be volumeClaimTemplate or emptyDir
+    - expression: >-
+        (
+          !has(object.spec.taskRunTemplate) || !has(object.spec.taskRunTemplate.podTemplate)
+          || (
+            !has(object.spec.taskRunTemplate.podTemplate.volumes)
+            && (!has(object.spec.taskRunTemplate.podTemplate.hostNetwork)
+              || object.spec.taskRunTemplate.podTemplate.hostNetwork == false)
+          )
+        )
+        && (
+          !has(object.spec.taskRunSpecs)
+          || object.spec.taskRunSpecs.all(s,
+            !has(s.podTemplate)
+            || (
+              !has(s.podTemplate.volumes)
+              && (!has(s.podTemplate.hostNetwork) || s.podTemplate.hostNetwork == false)
+            ))
+        )
+      message: platform PipelineRun podTemplate must not set volumes or hostNetwork
+    - expression: >-
+        (
+          !has(object.spec.taskRunTemplate)
+          || !has(object.spec.taskRunTemplate.serviceAccountName)
+          || (
+            object.spec.taskRunTemplate.serviceAccountName in ['default', 'tekton-deliver', 'bifrost-applier']
+            && !object.spec.taskRunTemplate.serviceAccountName.startsWith('argocd')
+          )
+        )
+        && (
+          !has(object.spec.taskRunSpecs)
+          || object.spec.taskRunSpecs.all(s,
+            !has(s.serviceAccountName)
+            || (
+              s.serviceAccountName in ['default', 'tekton-deliver', 'bifrost-applier']
+              && !s.serviceAccountName.startsWith('argocd')
+            )
+          )
+        )
+      message: platform PipelineRun service accounts must be allow-listed and must not be argocd-*
+    - expression: >-
+        (
+          (
+            !has(object.spec.taskRunTemplate)
+            || !has(object.spec.taskRunTemplate.serviceAccountName)
+            || object.spec.taskRunTemplate.serviceAccountName != 'bifrost-applier'
+          )
+          && (
+            !has(object.spec.taskRunSpecs)
+            || object.spec.taskRunSpecs.all(s, !has(s.serviceAccountName) || s.serviceAccountName != 'bifrost-applier')
+          )
+        )
+        || object.spec.pipelineRef.name == 'bifrost-apply-manifest'
+      message: bifrost-applier may only run bifrost-apply-manifest
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: bifrost-platform-taskrun
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["tekton.dev"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["taskruns"]
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: cicd
+  matchConditions:
+    - name: platform-or-deliver
+      expression: >-
+        request.userInfo.username in [
+          'system:serviceaccount:bifrost-platform-prod:bifrost-platform',
+          'system:serviceaccount:bifrost-platform-stg:bifrost-platform',
+          'system:serviceaccount:cicd:tekton-deliver'
+        ]
+  validations:
+    - expression: >-
+        has(object.spec.taskRef) && has(object.spec.taskRef.name)
+        && !has(object.spec.taskRef.resolver)
+        && !has(object.spec.taskRef.params)
+        && !has(object.spec.taskRef.bundle)
+        && !has(object.spec.taskSpec)
+      message: platform TaskRuns must name a taskRef and must not use a resolver or an inline spec
+    - expression: >-
+        !has(object.spec.serviceAccountName)
+        || (
+          object.spec.serviceAccountName in ['default', 'tekton-deliver', 'bifrost-applier']
+          && !object.spec.serviceAccountName.startsWith('argocd')
+        )
+      message: platform TaskRun service accounts must be allow-listed and must not be argocd-*
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: bifrost-platform-job-sa
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["jobs"]
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  matchConditions:
+    - name: platform-identity
+      expression: >-
+        request.userInfo.username in [
+          'system:serviceaccount:bifrost-platform-prod:bifrost-platform',
+          'system:serviceaccount:bifrost-platform-stg:bifrost-platform'
+        ]
+  validations:
+    - expression: >-
+        (
+          object.kind != 'Job'
+          || !has(object.spec.template.spec.serviceAccountName)
+          || object.spec.template.spec.serviceAccountName == ''
+          || object.spec.template.spec.serviceAccountName in ['default', 'backup-retry', 'maintainer-reconcile']
+        )
+        && (
+          object.kind != 'Pod'
+          || !has(object.spec.serviceAccountName)
+          || object.spec.serviceAccountName == ''
+          || object.spec.serviceAccountName in ['default', 'backup-retry', 'maintainer-reconcile']
+        )
+      message: platform Jobs and Pods may only use an allow-listed service account
+    - expression: >-
+        (
+          object.kind == 'Pod'
+          ? (
+            (!has(object.spec.volumes) || object.spec.volumes.all(v, !has(v.hostPath)))
+            && (!has(object.spec.hostNetwork) || object.spec.hostNetwork == false)
+            && (!has(object.spec.hostPID) || object.spec.hostPID == false)
+            && (!has(object.spec.hostIPC) || object.spec.hostIPC == false)
+            && object.spec.containers.all(c,
+              (!has(c.securityContext) || !has(c.securityContext.privileged) || c.securityContext.privileged == false)
+              && (!has(c.securityContext) || !has(c.securityContext.capabilities) || !has(c.securityContext.capabilities.add) || c.securityContext.capabilities.add.size() == 0))
+            && (!has(object.spec.initContainers) || object.spec.initContainers.all(c,
+              (!has(c.securityContext) || !has(c.securityContext.privileged) || c.securityContext.privileged == false)
+              && (!has(c.securityContext) || !has(c.securityContext.capabilities) || !has(c.securityContext.capabilities.add) || c.securityContext.capabilities.add.size() == 0)))
+          )
+          : (
+            (!has(object.spec.template.spec.volumes) || object.spec.template.spec.volumes.all(v, !has(v.hostPath)))
+            && (!has(object.spec.template.spec.hostNetwork) || object.spec.template.spec.hostNetwork == false)
+            && (!has(object.spec.template.spec.hostPID) || object.spec.template.spec.hostPID == false)
+            && (!has(object.spec.template.spec.hostIPC) || object.spec.template.spec.hostIPC == false)
+            && object.spec.template.spec.containers.all(c,
+              (!has(c.securityContext) || !has(c.securityContext.privileged) || c.securityContext.privileged == false)
+              && (!has(c.securityContext) || !has(c.securityContext.capabilities) || !has(c.securityContext.capabilities.add) || c.securityContext.capabilities.add.size() == 0))
+            && (!has(object.spec.template.spec.initContainers) || object.spec.template.spec.initContainers.all(c,
+              (!has(c.securityContext) || !has(c.securityContext.privileged) || c.securityContext.privileged == false)
+              && (!has(c.securityContext) || !has(c.securityContext.capabilities) || !has(c.securityContext.capabilities.add) || c.securityContext.capabilities.add.size() == 0)))
+          )
+        )
+      message: platform Jobs and Pods must not use hostPath, host namespaces, privileged, or added capabilities
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: bifrost-platform-application
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["argoproj.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["UPDATE"]
+        resources: ["applications"]
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: cicd
+  matchConditions:
+    - name: platform-or-deliver
+      expression: >-
+        request.userInfo.username in [
+          'system:serviceaccount:bifrost-platform-prod:bifrost-platform',
+          'system:serviceaccount:bifrost-platform-stg:bifrost-platform',
+          'system:serviceaccount:cicd:tekton-deliver'
+        ]
+  validations:
+    - expression: >-
+        has(object.spec.source) == has(oldObject.spec.source)
+        && (
+          !has(object.spec.source)
+          || (
+            object.spec.source.repoURL == oldObject.spec.source.repoURL
+            && object.spec.source.path == oldObject.spec.source.path
+            && has(object.spec.source.kustomize) == has(oldObject.spec.source.kustomize)
+            && (!has(object.spec.source.kustomize) || object.spec.source.kustomize == oldObject.spec.source.kustomize)
+            && has(object.spec.source.helm) == has(oldObject.spec.source.helm)
+            && (!has(object.spec.source.helm) || object.spec.source.helm == oldObject.spec.source.helm)
+            && has(object.spec.source.plugin) == has(oldObject.spec.source.plugin)
+            && (!has(object.spec.source.plugin) || object.spec.source.plugin == oldObject.spec.source.plugin)
+            && has(object.spec.source.directory) == has(oldObject.spec.source.directory)
+            && (!has(object.spec.source.directory) || object.spec.source.directory == oldObject.spec.source.directory)
+          )
+        )
+        && object.spec.project == oldObject.spec.project
+        && object.spec.destination.namespace == oldObject.spec.destination.namespace
+        && object.spec.destination.server == oldObject.spec.destination.server
+        && has(object.spec.sources) == has(oldObject.spec.sources)
+        && (!has(object.spec.sources) || object.spec.sources == oldObject.spec.sources)
+      message: platform may change only the sync operation and targetRevision
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: bifrost-applier-pod-spec
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["jobs", "cronjobs"]
+  matchConditions:
+    - name: applier
+      expression: request.userInfo.username == 'system:serviceaccount:cicd:bifrost-applier'
+  validations:
+    - expression: >-
+        object.metadata.namespace == 'monitoring' || object.kind == 'CronJob' || (
+          (!has(object.spec.template.spec.volumes) || object.spec.template.spec.volumes.all(v, !has(v.hostPath)))
+          && (!has(object.spec.template.spec.hostNetwork) || object.spec.template.spec.hostNetwork == false)
+          && (!has(object.spec.template.spec.hostPID) || object.spec.template.spec.hostPID == false)
+          && (!has(object.spec.template.spec.hostIPC) || object.spec.template.spec.hostIPC == false)
+          && object.spec.template.spec.containers.all(c,
+            (!has(c.securityContext) || !has(c.securityContext.privileged) || c.securityContext.privileged == false)
+            && (!has(c.securityContext) || !has(c.securityContext.capabilities) || !has(c.securityContext.capabilities.add) || c.securityContext.capabilities.add.size() == 0))
+          && (!has(object.spec.template.spec.initContainers) || object.spec.template.spec.initContainers.all(c,
+            (!has(c.securityContext) || !has(c.securityContext.privileged) || c.securityContext.privileged == false)
+            && (!has(c.securityContext) || !has(c.securityContext.capabilities) || !has(c.securityContext.capabilities.add) || c.securityContext.capabilities.add.size() == 0)))
+        )
+      message: applier workloads must not use hostPath, host namespaces, privileged, or added capabilities
+    - expression: >-
+        object.kind != 'CronJob' || object.metadata.namespace == 'monitoring' || (
+          (!has(object.spec.jobTemplate.spec.template.spec.volumes) || object.spec.jobTemplate.spec.template.spec.volumes.all(v, !has(v.hostPath)))
+          && (!has(object.spec.jobTemplate.spec.template.spec.hostNetwork) || object.spec.jobTemplate.spec.template.spec.hostNetwork == false)
+          && (!has(object.spec.jobTemplate.spec.template.spec.hostPID) || object.spec.jobTemplate.spec.template.spec.hostPID == false)
+          && (!has(object.spec.jobTemplate.spec.template.spec.hostIPC) || object.spec.jobTemplate.spec.template.spec.hostIPC == false)
+          && object.spec.jobTemplate.spec.template.spec.containers.all(c,
+            (!has(c.securityContext) || !has(c.securityContext.privileged) || c.securityContext.privileged == false)
+            && (!has(c.securityContext) || !has(c.securityContext.capabilities) || !has(c.securityContext.capabilities.add) || c.securityContext.capabilities.add.size() == 0))
+          && (!has(object.spec.jobTemplate.spec.template.spec.initContainers) || object.spec.jobTemplate.spec.template.spec.initContainers.all(c,
+            (!has(c.securityContext) || !has(c.securityContext.privileged) || c.securityContext.privileged == false)
+            && (!has(c.securityContext) || !has(c.securityContext.capabilities) || !has(c.securityContext.capabilities.add) || c.securityContext.capabilities.add.size() == 0)))
+        )
+      message: applier CronJobs must not use hostPath, host namespaces, privileged, or added capabilities
+    - expression: >-
+        object.kind == 'CronJob' || (
+          !has(object.spec.template.spec.serviceAccountName)
+          || object.spec.template.spec.serviceAccountName == ''
+          || object.spec.template.spec.serviceAccountName == 'default'
+          || (object.metadata.namespace == 'bifrost-dev' && object.spec.template.spec.serviceAccountName in ['api-ops', 'daemon-worker'])
+          || (object.metadata.namespace == 'monitoring' && object.spec.template.spec.serviceAccountName in ['maintainer-reconcile'])
+          || (object.metadata.namespace == 'cicd' && object.spec.template.spec.serviceAccountName in ['tekton-pipelinerun-ttl'])
+        )
+      message: applier workloads may only use a service account measured for that namespace
+    - expression: >-
+        object.kind != 'CronJob' || (
+          !has(object.spec.jobTemplate.spec.template.spec.serviceAccountName)
+          || object.spec.jobTemplate.spec.template.spec.serviceAccountName == ''
+          || object.spec.jobTemplate.spec.template.spec.serviceAccountName == 'default'
+          || (object.metadata.namespace == 'bifrost-dev' && object.spec.jobTemplate.spec.template.spec.serviceAccountName in ['api-ops', 'daemon-worker'])
+          || (object.metadata.namespace == 'monitoring' && object.spec.jobTemplate.spec.template.spec.serviceAccountName in ['maintainer-reconcile'])
+          || (object.metadata.namespace == 'cicd' && object.spec.jobTemplate.spec.template.spec.serviceAccountName in ['tekton-pipelinerun-ttl'])
+        )
+      message: applier CronJobs may only use a service account measured for that namespace
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: bifrost-applier-tekton-spec
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["tekton.dev"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["tasks", "pipelines"]
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: cicd
+  matchConditions:
+    - name: applier
+      expression: request.userInfo.username == 'system:serviceaccount:cicd:bifrost-applier'
+  validations:
+    - expression: >-
+        (!has(object.spec.volumes) || object.spec.volumes.all(v, !has(v.hostPath)))
+        && (!has(object.spec.steps) || object.spec.steps.all(s,
+          (!has(s.securityContext) || !has(s.securityContext.privileged) || s.securityContext.privileged == false)
+          && (!has(s.securityContext) || !has(s.securityContext.capabilities) || !has(s.securityContext.capabilities.add) || s.securityContext.capabilities.add.size() == 0)))
+        && (!has(object.spec.sidecars) || object.spec.sidecars.all(s,
+          (!has(s.securityContext) || !has(s.securityContext.privileged) || s.securityContext.privileged == false)))
+        && (!has(object.spec.tasks) || object.spec.tasks.all(t,
+          !has(t.taskSpec)
+          || (
+            (!has(t.taskSpec.volumes) || t.taskSpec.volumes.all(v, !has(v.hostPath)))
+            && (!has(t.taskSpec.steps) || t.taskSpec.steps.all(s,
+              (!has(s.securityContext) || !has(s.securityContext.privileged) || s.securityContext.privileged == false)
+              && (!has(s.securityContext) || !has(s.securityContext.capabilities) || !has(s.securityContext.capabilities.add) || s.securityContext.capabilities.add.size() == 0)))
+          )))
+      message: applier Tekton Tasks and Pipelines must not use hostPath or privileged steps
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: bifrost-platform-pipelinerun
+spec:
+  policyName: bifrost-platform-pipelinerun
+  validationActions: [Deny]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: bifrost-platform-taskrun
+spec:
+  policyName: bifrost-platform-taskrun
+  validationActions: [Deny]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: bifrost-platform-job-sa
+spec:
+  policyName: bifrost-platform-job-sa
+  validationActions: [Deny]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: bifrost-platform-application
+spec:
+  policyName: bifrost-platform-application
+  validationActions: [Deny]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: bifrost-applier-pod-spec
+spec:
+  policyName: bifrost-applier-pod-spec
+  validationActions: [Deny]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: bifrost-applier-tekton-spec
+spec:
+  policyName: bifrost-applier-tekton-spec
+  validationActions: [Deny]

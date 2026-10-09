@@ -35,6 +35,14 @@ schemas:
     - market
     - public
 roles:
+  # W-33 read-only login. CONNECT on the four databases and nothing else here.
+  # Membership in pg_read_all_data is not a grant cell; an omitted grant is denied.
+  agent_reader:
+    connect:
+      - bifrost_dev
+      - bifrost_golden_source
+      - bifrost_prod
+      - bifrost_stg
   # Research writer. Writable set is dw_stock / features / research / journal,
   # plus the Research-owned ops_dbt (dbt) and ops_dagster schemas.
   # ops_jobs CREATE is not required: ensure_month_partitions is SECURITY INVOKER

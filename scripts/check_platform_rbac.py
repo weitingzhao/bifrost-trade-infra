@@ -14,8 +14,12 @@ Exit 1 when any answer differs from the expectation.
 
 from __future__ import annotations
 
+import pathlib
+import re
 import subprocess
 import sys
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 # (verb, resource, namespace or "" for cluster scope, STG, PROD). "kind/name" names one
 # object; "kind:sub" is a subresource (kubectl reads "pods:log" as the pod named "log").
@@ -142,8 +146,74 @@ def can_i(env: str, verb: str, resource: str, ns: str) -> bool:
     return r.stdout.strip() == "yes"
 
 
+def static_job_rules() -> list[str]:
+    """New Job and applier rules, from the YAML. Live can-i for them is --live."""
+    problems: list[str] = []
+    roles = (ROOT / "k8s" / "platform-rbac" / "00-clusterroles.yaml").read_text()
+    if "name: bifrost-platform-job-actuator" not in roles:
+        problems.append("missing ClusterRole bifrost-platform-job-actuator")
+    if "resources: [jobs]" not in roles or "verbs: [get, list, create, delete]" not in roles:
+        problems.append("job actuator is not limited to job create and delete")
+    prod = (ROOT / "k8s" / "platform-rbac" / "20-prod.yaml").read_text()
+    stg = (ROOT / "k8s" / "platform-rbac" / "10-stg.yaml").read_text()
+    bound = set(re.findall(r"name: bifrost-platform-job-actuator-prod\n  namespace: (\S+)", prod))
+    for ns in ("research", "bifrost-dev"):
+        if ns not in bound:
+            problems.append(f"PROD job actuator is not bound in {ns}")
+    for ns in ("kube-system", "cicd"):
+        if ns in bound:
+            problems.append(f"PROD job actuator is bound in {ns}")
+    if "bifrost-platform-job-actuator" in stg:
+        problems.append("STG must not bind the job actuator")
+    applier = (ROOT / "k8s" / "platform-rbac" / "30-applier.yaml").read_text()
+    wide = applier.split("name: bifrost-applier-cicd", 1)[0]
+    if "secrets" in wide or "rolebindings" in wide or "clusterroles" in wide:
+        problems.append("applier ClusterRole can write Secrets or RBAC")
+    if "namespace: kube-system" in applier:
+        problems.append("applier is bound in kube-system")
+    if "name: bifrost-applier-cicd" not in applier:
+        problems.append("cicd applier role missing")
+    return problems
+
+
+def live_new_rules() -> list[str]:
+    """can-i lines that pass only after the Owner applies the new RBAC."""
+    problems: list[str] = []
+    checks = [
+        ("prod", "create", "jobs.batch", "research", True),
+        ("prod", "delete", "jobs.batch", "bifrost-dev", True),
+        ("prod", "create", "jobs.batch", "kube-system", False),
+        ("prod", "create", "jobs.batch", "cicd", False),
+        ("prod", "create", "secrets", "research", False),
+        ("prod", "create", "rolebindings.rbac.authorization.k8s.io", "research", False),
+    ]
+    for env, verb, resource, ns, want in checks:
+        if can_i(env, verb, resource, ns) != want:
+            problems.append(f"{env} {verb} {resource} -n {ns} want {want}")
+    applier = "system:serviceaccount:cicd:bifrost-applier"
+    for verb, resource, ns, want in (
+        ("patch", "deployments.apps", "research", True),
+        ("create", "secrets", "research", False),
+        ("create", "rolebindings.rbac.authorization.k8s.io", "research", False),
+        ("create", "configmaps", "kube-system", False),
+    ):
+        args = ["kubectl", "auth", "can-i", verb, resource, "--as", applier, "-n", ns]
+        r = subprocess.run(args, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        got = r.stdout.strip() == "yes"
+        if got != want:
+            problems.append(f"applier {verb} {resource} -n {ns} want {want}")
+    return problems
+
+
 def main() -> int:
     bad = 0
+    for item in static_job_rules():
+        bad += 1
+        print(f"FAIL {item}")
+    if "--live" in sys.argv[1:]:
+        for item in live_new_rules():
+            bad += 1
+            print(f"FAIL {item}")
     covered = {row[0] for row in ACTIONS} | {row[0] for row in NON_K8S}
     missing = sorted(REQUIRED_ACTIONS - covered)
     extra = sorted(covered - REQUIRED_ACTIONS)

@@ -23,6 +23,7 @@ configMapGenerator:
       - config/release-rules.yaml
       - config/trust-overrides.yaml
       - config/running-images.yaml
+      - config/actuation-policy.yaml
     options:
       disableNameSuffixHash: true
 

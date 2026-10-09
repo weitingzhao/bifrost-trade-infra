@@ -8,7 +8,7 @@ metadata:
   labels:
     bifrost.io/purpose: platform-prod
 spec:
-  project: default
+  project: bifrost
   source:
     repoURL: https://github.com/weitingzhao/bifrost-trade-infra.git
     path: k8s/overlays/platform-prod
