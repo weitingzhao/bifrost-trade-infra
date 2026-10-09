@@ -37,7 +37,9 @@
    - 交错执行 `SetEnabled` 和 `AppendRun`，没有丢失的更新；
    - 后端第一次返回冲突时，`Update` 在新内容上重做 mutate。
 4. **infra · PROD overlay**：给 platform-api 加一个 patch，挂上 `bifrost-platform-patrol-skills`，env 设 `PATROL_SKILLS_DIR=/app/patrol-skills`、`PATROL_DISPATCH=local`、`PATROL_MODE=report`，和 workers 一致。**不要**给 api 打开 patrol 循环。再加一个检查：渲染 PROD overlay 后，api 和 workers 的这三个 env 相同、都挂了技能目录。放进现有检查脚本（如 `check_ops_context_parity.py`），或者新的小脚本加 make 目标。
-5. **审计，只报告不改**：列出其他经 statefile 跨进程共享的 store（`checklist`、`approvals`、`cluster/data_clone`、`promote`、`actuation/audit`、`agentdeploy`），逐个说明：谁写、谁读、读时是否重读、写是否盲写整份、有没有会丢更新的场景。每条写 `文件:行`。Claude 据此决定是否立技术债。
+5. **⑥ mini 卡片的说明文字**：`config/topology.yaml` 里两台 Mac mini 的描述还写着 Remediation Runner、Git runner 等已撤的东西（STG ⑥ 页实测）。改成现在的职责：带外 operator-plane、互看、.50 告警中转。这个文件同步到两个 overlay（`sync_platform_k8s_config.sh` 已覆盖 STG，PROD 只同步部分文件），报告里写明 PROD 要不要跟。
+
+6. **审计，只报告不改**：列出其他经 statefile 跨进程共享的 store（`checklist`、`approvals`、`cluster/data_clone`、`promote`、`actuation/audit`、`agentdeploy`），逐个说明：谁写、谁读、读时是否重读、写是否盲写整份、有没有会丢更新的场景。每条写 `文件:行`。Claude 据此决定是否立技术债。
 
 ## 防线
 
@@ -66,5 +68,5 @@
 - 工作项编号规则；
 - Grok Bot 相关的任何事（它暂停中：不验收 LANE-N / LANE-M2，不收尾它的台账）。
 - 不改 `api/internal/approvals/` 的审批语义。
-- 不修第 5 条审计出来的其他 store（只报告）。
+- 不修第 6 条审计出来的其他 store（只报告）。
 - 不发版、不部署、不 apply、不写数据库、代码不推 main；不碰 `scripts/agent-guard/`。
