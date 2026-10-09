@@ -91,7 +91,9 @@ A 的第 2 步不做，Agent 要写时把命令写给 Owner 去跑。按 30 天�
 
 7. **Grafana（W-32 C4 并入，记为 ⑤）选 A**：经 ops 网关子路径 `ops.bifrost.lan/grafana` 提供 Grafana。Grafana 开子路径和嵌入（helm upgrade，要 Owner 批），platform 的 Grafana 地址指向它；Console 内嵌面板与 Console 同源，不再被当作混合内容拦掉。
 
-下一步：W-32 上线后写 `LANE-W33.md`（第 1 步和 ③④⑤ 先派；第 2、3 步按依赖顺序派）。
+8. **滚动重启的审批做法（Owner 10-08 过目 `LANE-W33.md` 时认可）**：动作目录加 `rolling_reboot`，D 级，平台只记录审批、不执行（平台不拿节点 root）；`rolling-reboot.sh --execute` 必须带已批准的 `--approval <id>`，脚本自己核对。执行者是持有节点 SSH 的人，第 3 步之后只有 Owner。
+
+下一步：第一批（第 1 步和 ③④⑤）已写成 `LANE-W33.md`，10-08 交 Cursor；第 2、3 步按依赖顺序之后派。
 
 ## 五、要 Owner 定的事
 
