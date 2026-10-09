@@ -1453,7 +1453,7 @@
 
 **P3 · ops-platform · Since W-33 step 3 the Agent cannot run check_platform_rbac.py --live or check_admission_guards.py --live: both impersonate other service accounts and bifrost-agent may not**
 
-- **状态**：未开始
+- **状态**：在做（infra `01e8c00` 已合：`check_platform_rbac.py` 改用 SubjectAccessReview，`bifrost-agent-read` 加 `create subjectaccessreviews`，待你 apply `k8s/agent-access`；`check_admission_guards.py --live` 修了把任何 dry-run 失败当作「被拒」的假绿——10-09 实测以 Agent 身份跑时 8 条应拒用例全是因为 OpenAPI 下载失败而「通过」——没有冒用权限时跳过 dry-run、退出码 3，这部分仍由你用 Owner kubeconfig 跑）
 - **Claim**: Both live checks prove what other identities can do. `check_platform_rbac.py --live` runs `kubectl auth can-i … --as system:serviceaccount:…`; `check_admission_guards.py --live` runs server dry-run creates as the applier. The Agent kubeconfig is now `bifrost-agent`, which has no `impersonate` verb and cannot create, so both fail before checking anything. The static halves still run. Nothing runs the live halves on a schedule, so a widened RBAC rule or an unloaded admission policy is only seen when the Owner runs them.
 - **Measured**: MEASURED 2026-10-09 with the Agent kubeconfig: `check_platform_rbac.py --live` → rc 2, `cannot impersonate resource "serviceaccounts"`; `check_admission_guards.py --live` → rc 1, `FAIL normal-pipelinerun: denied=True want False` (refused for the Agent itself, not by the policy).
 - **Evidence**:
