@@ -414,7 +414,7 @@
 
 - **类别**：道
 - **状态**：在做
-- **匹配**：LANE-W33、LANE-W33R、LANE-W33B
+- **匹配**：LANE-W33、LANE-W33R、LANE-W33B、LANE-W33BR
 - **现在**：Owner 10-08 定合并四件：① 凭证收口（mini 不再持有管理员 kubeconfig 与 admin 令牌、部署脚本不再同步、remediation runner 与 .52 hermes-gateway 定去留）；② PROD 经代理转到 mini 的 operator 级路由认 PROD 令牌；③ Console 显示待重启节点、滚动重启做成审批动作；④ ⑤ 页给 Research 与插件显示 STG / PROD 两列版本。先讨论分步，任务文件还没写
 - **下一步**（第一批上线进度，10-09 03:3xZ）：
   - **已完成**：
@@ -431,6 +431,11 @@
     - 第 3 步只读角色只在 research 和两个插件命名空间保留 exec；
     - 发版链另开 LANE-W33C，本道验收后写；
     - TD-271 并入；旧文字和 TD-270 也在这一道；
+  - **LANE-W33B 验收未过（10-09）**：门禁全过，但审出能绕过审批的路，合并和 apply 前必须修，写成返工道 `LANE-W33BR.md`：
+    - 流水线参数直接拼进 shell，B 级的「计划」就能以 applier 身份执行任意命令；
+    - 策略检查用 awk 解析，flow 风格或 JSON 文档不检查却照样 apply，能藏 daemon（D10）；
+    - 准入策略漏了 Tekton 远程解析器、secret 工作区和 hostPath、applier 写的 Pod 规格（hostPath 和能读全集群 Secret 的账号）、Argo 的 `spec.sources`；
+    - 只读库账号停在两个整数计数列上，属误报，等 Owner 回「数据库照做」；
   - 写道时实测发现 TD-271：PROD 平台身份经 cicd 的 PipelineRun 和 Argo Application 仍能间接拿到集群管理员，已登记，并写进 TD-204 待签收行的「后续」；
   - 第 3 步在第 2 步验收后另派
 - **验收**：第 5 阶段退出条件——对账 0 漂移；Agent 侧没有管理员凭证
