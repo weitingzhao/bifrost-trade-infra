@@ -121,6 +121,27 @@ def static() -> list[str]:
         problems.append("namespaceSelector uses matchNames; use matchLabels kubernetes.io/metadata.name")
     if "object.metadata.namespace == 'monitoring' || (\n          object.kind == 'Pod'" in admission:
         problems.append("platform Jobs and Pods must not skip host checks in monitoring")
+    problems += pipeline_task_params()
+    return problems
+
+
+def pipeline_task_params() -> list[str]:
+    """Every param an embedded taskSpec declares without a default must be passed.
+
+    Tekton refuses the run at validation otherwise; the 2026-10-09 PROD smoke
+    hit exactly that because no gate ever ran the pipeline.
+    """
+    import yaml
+
+    path = ROOT / "k8s/cicd/tekton/apply-manifest/pipeline.yaml"
+    doc = yaml.safe_load(path.read_text())
+    problems: list[str] = []
+    for task in doc["spec"].get("tasks") or []:
+        spec = task.get("taskSpec") or {}
+        passed = {p["name"] for p in task.get("params") or []}
+        for p in spec.get("params") or []:
+            if "default" not in p and p["name"] not in passed:
+                problems.append(f"pipeline task {task['name']} does not pass param {p['name']}")
     return problems
 
 

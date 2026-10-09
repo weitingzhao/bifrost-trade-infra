@@ -27,6 +27,21 @@ spec:
       default: "false"
   tasks:
     - name: run
+      params:
+        - name: mode
+          value: $(params.mode)
+        - name: repo
+          value: $(params.repo)
+        - name: path
+          value: $(params.path)
+        - name: commit
+          value: $(params.commit)
+        - name: giteaBase
+          value: $(params.giteaBase)
+        - name: giteaOrg
+          value: $(params.giteaOrg)
+        - name: requireOnMain
+          value: $(params.requireOnMain)
       taskSpec:
         params:
           - name: mode
