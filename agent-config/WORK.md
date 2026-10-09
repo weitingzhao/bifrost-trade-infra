@@ -484,8 +484,8 @@
       - `rolling-reboot.sh` 改为能问口令、不读 `~/.ssh/config`、`systemd-run` 排重启、`--execute` 用 Owner kubeconfig（`6932245`）；
       - `.env` 三份共 10 个键与 `k8s/base/secrets` 6 份已搬进 Owner 目录；本机 platform-api 重启后进程里没有 `UNIFI_*`；
       - preflight 补丁已应用（`8213875`，112 条通过），实测 5 条拦截生效；第 2 份补丁 `preflight-w33d-2.patch`（kubeconfig 值遇 `;` 误拦、冒号列表与别处同名副本漏拦）已应用（`adeabc0`，119 条通过，实测放行与拦截都对）；
-      - 验收：`check_agent_access.py --live` ok；`release.sh window` 与 `stg --dry-run` exit 0；`check_maintainers --live` drift 0；本机没有其他可连 k3s 的 kubeconfig；B 级冒烟（`create_job_from_cronjob` → `delete_finished_jobs`）被 auto mode 分类器拦，待 Owner 定；
-      - 新登记 TD-277（两个 `--live` 检查要模拟身份）、TD-278（插件 6 个 redis-ib 脚本读不到搬走的密码）；
+      - 验收：`check_agent_access.py --live` ok；`release.sh window` 与 `stg --dry-run` exit 0；`check_maintainers --live` drift 0；本机没有其他可连 k3s 的 kubeconfig；B 级冒烟（Owner 允许后）`create_job_from_cronjob` 202、Job 输出 drift 0、`delete_finished_jobs` 200；
+      - 新登记 TD-277（两个 `--live` 检查要模拟身份）、TD-278（插件 6 个 redis-ib 脚本读不到搬走的密码）、TD-279（直接调用的 B 级 workactions 不写 PROD 审计）；
   - 10-09 07:00Z 定时对账 drift 0；
   - 写道时实测发现 TD-271：PROD 平台身份经 cicd 的 PipelineRun 和 Argo Application 仍能间接拿到集群管理员，已登记，并写进 TD-204 待签收行的「后续」；
   - 第 3 步在第 2 步验收后另派

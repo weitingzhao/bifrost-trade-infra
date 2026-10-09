@@ -20,7 +20,7 @@
 - **TD-255** — 漂移扫描不再删失败现场：只删被驱逐的 Pod，失败的备份 Job Pod 留着（日志可读），只报告模式下一个不删。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「漂移扫描只删 Evicted 测试」。后续：无后续：Job 历史上限与 TTL 负责回收
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 74 项**：P0 0 · P1 6 · P2 23 · P3 45；要你批的 32 项（从总览表的审批列算）。
+**未结 75 项**：P0 0 · P1 6 · P2 24 · P3 45；要你批的 32 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -121,7 +121,7 @@
 
 目标：会动手的维护只由 PROD 的 platform-workers 做，本机与 STG 只观测。已做：本机停手（TD-130 第一步）、STG 不修 IB 也不写发布记录（TD-223）、页面不再触发维护、状态持久化（TD-196）。接着：PROD 自己探测、带时间戳的检查信号，只给 PROD 挂技能并先只报告，再逐项放开；备份只归 CNPG 与 backup-retry；不再清掉失败现场。
 
-项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255, TD-272, TD-276, TD-277, TD-278 · 已还：TD-256, TD-257, TD-270, TD-271, TD-273, TD-275
+项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255, TD-272, TD-276, TD-277, TD-278, TD-279 · 已还：TD-256, TD-257, TD-270, TD-271, TD-273, TD-275
 
 ## 数据边界（接受并留座）
 
@@ -285,6 +285,7 @@
 | [TD-272](#td-272) | P3 | ops-platform | tekton-trigger can create any PipelineRun in cicd, and no admission policy matches it, so its token is still a path to the cluster-admin Argo controller account | 安全/凭据（要你批） |
 | [TD-276](#td-276) | P3 | ops-platform | An apply_manifest run is named apply-<plan id>, so a failed apply of a plan cannot be retried; a new plan is needed | 不用批 |
 | [TD-277](#td-277) | P3 | ops-platform | Since W-33 step 3 the Agent cannot run check_platform_rbac.py --live or check_admission_guards.py --live: both impersonate other service accounts and bifrost-agent may not | 安全/凭据（要你批） |
+| [TD-279](#td-279) | P2 | ops-platform | Direct B-tier work actions (plan_manifest, create_job_from_cronjob, delete_finished_jobs, run_probe_pod) change PROD and leave no audit record | 不用批 |
 | [TD-278](#td-278) | P3 | ops-platform | Six plugin redis-ib scripts still read REDIS_IB_GATEWAY_PASS / REDIS_IB_TRADE_PROD_PASS from the plugin .env, which no longer holds them after move-owner-secrets.sh | 不用批 |
 | [TD-274](#td-274) | P3 | frontend | Symbol faces hide GEX levels that exist when zero gamma is NULL: the dealer level strip needs all four values and the regime cell needs zero gamma, so a chain with no flip (about a third of expiries) shows neither walls nor regime | 不用批 |
 
@@ -1477,6 +1478,23 @@
 - **Ratchet**: plugin script test: with a plugin `.env` that lacks both keys and an Owner env that has them, each script resolves them; a guard case that each is Owner-only.
 - 验收: `grep -L owner_fill scripts/verify-ib-gateway.sh scripts/verify-ib-gateway-live.sh scripts/verify-redis-ib.sh scripts/verify-trade-quotes-e2e.sh scripts/sync_redis_ib_secrets.sh scripts/sync-redis-ib-dev-compose-config.sh` prints nothing (in bifrost-platform-plugin)
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin, bifrost-trade-infra
+
+### TD-279
+
+**P2 · ops-platform · Direct B-tier work actions (plan_manifest, create_job_from_cronjob, delete_finished_jobs, run_probe_pod) change PROD and leave no audit record**
+
+- **状态**：未开始
+- **Claim**: Since W-33 step 3 these routes are how an Agent writes to the cluster. A B-tier call passes `guard` straight to the `workactions` handlers, and nothing in `workactions` records to the audit log. The older routes do (`cluster/handler.go` for delete_pod and friends, `delivery/handler.go`, approvals). C-tier calls are visible only as `approval.*` rows; the B-tier ones are not visible at all.
+- **Measured**: MEASURED 2026-10-09: created `monitoring/maintainer-reconcile-manual-20261009210531` (202) and deleted it (200) through the PROD routes; `get_audit_log` (169 records, 10-07 19:33Z to 10-09 19:01Z) has no row for either, nor for the W33BR PROD smoke (job, probe, cleanup) earlier on 10-09.
+- **Evidence**:
+  - `bifrost-platform/api/internal/server/actions_wire.go` — `guard` calls `next` for tiers that need no approval
+  - `bifrost-platform/api/internal/workactions/handler.go` — `HandleCreateJob`, `HandleDeleteFinished`, `HandleProbe`, `HandlePlan`: no audit call
+  - `bifrost-platform/api/internal/cluster/handler.go:301` — the older routes call `h.audit.Record`
+- **Impact**: PROD Pods and Jobs created or deleted by Agents (a probe Pod runs a caller-chosen command in an allow-listed image) cannot be traced to a caller or time from the platform; the stage-2 rule that the day's changes all appear in PROD audit does not hold for them.
+- **Fix**: Give the `workactions` handler the server's `AuditLog` and record each call (action id, namespace/name or plan id, status, requester), the same way `cluster/handler.go` does; executor-driven calls record too, so a C-tier apply shows the apply row next to `approval.execute`.
+- **Ratchet**: workactions handler test: each of the four routes appends exactly one audit record with the action id and target, on success and on refusal.
+- 验收: `cd bifrost-platform/api && go test ./internal/workactions -run Audit -count=1`; then one B-tier call on PROD shows in `get_audit_log`
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-261
 
