@@ -1,0 +1,12 @@
+# Smoke object for the platform apply_manifest action (W-33 LANE-W33B).
+# Not referenced by the dev overlay. Applying or deleting it changes nothing else.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: w33b-apply-smoke
+  namespace: bifrost-dev
+  labels:
+    app.kubernetes.io/part-of: bifrost-platform
+    bifrost.io/purpose: apply-manifest-smoke
+data:
+  note: "apply_manifest smoke test; safe to delete"
