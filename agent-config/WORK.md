@@ -462,12 +462,17 @@
     - `agent_reader` 已在 PROD 建好：DDL 的 commit 和 verify 通过，role-matrix 0 差异，Owner 已设密码并写入 `~/.pgpass`；四个库都能读，CREATE 和 UPDATE 被权限拒绝；AGENT_FACTS 已写明用法；
   - **下一步**：
     - 发版链 `LANE-W33C.md`：Owner 10-09 定「〇」节四件，全部按推荐，交 Cursor。**10-09 验收通过**（Claude 补了两笔：调用方参数只能是 revision SHA，platform `00036f5`；release.sh 改读 PROD 令牌，infra `b33d735`），上线顺序见报告「Claude 验收」第 5 条，每一步等 Owner 批：
+    - **LANE-W33C 已上线并真跑（10-09，Owner 批 A–F）**：
+      - platform `00036f5` 已上 STG 和 PROD；infra 分两部分合（`f1fdcb6`、`e16c8aa`）；三份 Tekton 对象已 apply；
+      - 真跑 STG Trade、PROD 钉死（Owner 在 Console 批）都通过；插件构建通过；
+      - 新发现两件：窗口释放缺 RBAC，已修并 apply（`6d85724`）；插件 `k8s/base` 被拒（TD-275），后者挡着第 3 步的插件发版；
+      - TD-273 转「待你签收」；
 
       - PROD pinned run 改成 Pipeline 加逐仓参数；
       - 发布窗口归平台；
       - Gitea 镜像同步交给平台（顺带修 TD-273）；
       - `start_pipeline_run` 带通用参数；
-    - 然后是第 3 步（Mac 上的 Agent 换只读）；
+    - 下一步：修 TD-275（插件能经 `apply_manifest` 部署），再做第 3 步（Mac 上的 Agent 换只读）；
   - 10-09 07:00Z 定时对账 drift 0；
   - 写道时实测发现 TD-271：PROD 平台身份经 cicd 的 PipelineRun 和 Argo Application 仍能间接拿到集群管理员，已登记，并写进 TD-204 待签收行的「后续」；
   - 第 3 步在第 2 步验收后另派

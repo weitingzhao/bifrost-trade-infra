@@ -234,3 +234,26 @@ kubectl apply -f k8s/cicd/tekton/pipeline-deliver-prod.yaml
    - STG 和 PROD 的 Trade 真跑，会把 Trade 各仓库 main 上当时的内容真的发出去，可能包括别的会话的改动；
    - 真跑前先列出这次会带上的提交，由 Owner 决定；
    - 插件那条可以重新构建、部署当前版本，内容不变。
+
+## 上线与真跑（2026-10-09，Claude 执行，Owner 批 A–F）
+
+- **A 合并**：platform main 快进到 `00036f5`；infra 第 1 部分 `f1fdcb6`（三份策略副本、Tekton YAML、`window_decision.py`）。Argo 原地更新了两边的策略 ConfigMap，平台 Pod 没有滚动。
+- **B STG 平台**：`bifrost-deliver-platform-1791563994`，构建的是 `00036f5` / ui `9b635b2`；动作目录 38 条，窗口接口返回 `{"open":false}`。
+- **C PROD 平台**：审批单 `appr_059cfb4eda8600c8` → `bifrost-deliver-platform-prod-1791564267`；没有报错，策略加载成功，Console、Grafana 返回 200。
+- **D apply**：`task-release-window.yaml`、`pipeline-deliver-stg.yaml`、`pipeline-deliver-prod.yaml`。
+- **E 合并**：infra 第 2 部分 `e16c8aa`。parity 检查一致（workspace-v17）；`release.sh window` 改问平台。
+- **F1 STG Trade**：
+  - `release.sh stg` → `bifrost-deliver-stg-1791564768` 由平台起 run，用时 4 分 21 秒，发版后检查 passed；
+  - 窗口每分钟续期一次；
+  - **发现**：退出时窗口释放失败，DELETE 返回 502，因为平台身份在 cicd 不能删 ConfigMap。新增 `k8s/platform-rbac/45-release-window.yaml`（infra `6d85724`，只能删 `bifrost-release-window` 这一个 ConfigMap，只给 PROD），Owner 批后已 apply，`check_platform_rbac.py` 142 项全部一致。修好之前，窗口靠 5 分钟 TTL 过期，过期后平台和 release.sh 都把它当作空（实测）。
+- **F2 PROD 钉死**：
+  - `release.sh prod --from-stg bifrost-deliver-stg-1791564768` 提交了审批单 `appr_c3f98b703ebee7d4`：带 6 个 SHA，没有内联 spec；Owner 在 Console 上批了，嵌套参数在审批页上显示正常；
+  - 起的 run 是 `bifrost-deliver-prod-1791565487`：引用 Pipeline，带 1 小时超时和 amd64 约束，6 个 clone 的提交与 STG 一致；
+  - 发版后检查 PASS：成交前后一致，98 处变化都是允许范围内的行情波动，core 是 `385b0f8`，探针 7 个全过；
+  - 退出时窗口正常释放，新 RBAC 生效。
+- **F3 插件**：
+  - `release.sh hold --what bifrost-platform-plugin-market-data`：占用、续期正常，SIGTERM 退出后窗口被释放；
+  - 平台镜像同步：`present: true`；
+  - `start_pipeline_run bifrost-build-market-data`，tag 用一次性的 `0.87.0-w33c-check`，带 `who`：成功，37 秒；线上的 `0.87.0` 没被覆盖，Deployment 没动；
+  - **发现**：插件 `k8s/base` 的计划被拒（`Namespace`、`PodDisruptionBudget`），报错还错报成「missing kind or name」。登记为 **TD-275**，所以这一轮没有做插件的 C 级 apply。
+- **TD-273**：推送后 2 秒发起计划就成功了（`c899ced`），转「待你签收」。
