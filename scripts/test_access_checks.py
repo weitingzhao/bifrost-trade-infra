@@ -99,6 +99,16 @@ class DryRunClassifyTests(unittest.TestCase):
         self.assertTrue(all(c[:4] == ["kubectl", "auth", "can-i", "impersonate"] for c in calls), calls)
 
 
+class PlanDiffTests(unittest.TestCase):
+    def test_the_old_diff_line_is_refused(self) -> None:
+        old = 'kubectl diff -f /tmp/normalized.json --server-side > /tmp/diff.txt 2>&1 || test "$?" -eq 1'
+        problems = guards.plan_diff_problems("run", old)
+        self.assertEqual(len(problems), 2, problems)
+
+    def test_the_repo_pipeline_passes(self) -> None:
+        self.assertEqual([p for p in guards.pipeline_task_params() if "diff" in p or "field-manager" in p], [])
+
+
 class AgentReadRoleTests(unittest.TestCase):
     @staticmethod
     def _verb_problems(name: str, rules: list[dict]) -> list[str]:

@@ -183,7 +183,20 @@ spec:
                 | jq -s '{apiVersion:"v1",kind:"List",items:.}' > /tmp/normalized.json
               tier=$(sh /checks/apply-manifest-check.sh /policy/actuation-policy.yaml /tmp/normalized.json /tmp/objects.json)
               if [ "$mode" = "plan" ]; then
-                kubectl diff -f /tmp/normalized.json --server-side > /tmp/diff.txt 2>&1 || test "$?" -eq 1
+                # Same field manager as the apply below. Under kubectl's default
+                # manager a changed field that bifrost-applier owns (an image tag)
+                # is a server-side apply conflict, and diff exits 2 (market-data
+                # 0.87.1, 2026-10-09). Exit 1 means differences; above 1 is an
+                # error, printed here instead of left in the file.
+                set +e
+                kubectl diff -f /tmp/normalized.json --server-side --field-manager=bifrost-applier > /tmp/diff.txt 2>&1
+                rc=$?
+                set -e
+                if [ "$rc" -gt 1 ]; then
+                  echo "kubectl diff failed (exit ${rc}):" >&2
+                  cat /tmp/diff.txt >&2
+                  exit "$rc"
+                fi
                 echo "=== kubectl diff ==="
                 cat /tmp/diff.txt
               else

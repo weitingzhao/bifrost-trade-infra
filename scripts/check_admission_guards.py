@@ -165,6 +165,26 @@ def pipeline_task_params() -> list[str]:
                 problems.append(f"pipeline task {task['name']} calls the Gitea compare API, which Gitea 1.21 lacks")
             if "REQUIRE_ON_MAIN" in script and "merge-base --is-ancestor" not in script:
                 problems.append(f"pipeline task {task['name']} checks main without git merge-base --is-ancestor")
+            problems += plan_diff_problems(task["name"], script)
+    return problems
+
+
+def plan_diff_problems(task: str, script: str) -> list[str]:
+    """The plan's server-side diff must act as the applier and must not hide errors.
+
+    Under kubectl's default field manager, a changed field that bifrost-applier
+    owns is a conflict and diff exits 2; `|| test "$?" -eq 1` then failed the
+    plan with the reason left in /tmp/diff.txt (market-data 0.87.1, 2026-10-09).
+    """
+    problems: list[str] = []
+    for line in script.splitlines():
+        line = line.strip()
+        if line.startswith("kubectl diff") and "--server-side" in line and "--field-manager=bifrost-applier" not in line:
+            problems.append(f"pipeline task {task} diffs without --field-manager=bifrost-applier")
+        if line.startswith("kubectl apply") and "--server-side" in line and "--field-manager=bifrost-applier" not in line:
+            problems.append(f"pipeline task {task} applies without --field-manager=bifrost-applier")
+        if line.startswith("kubectl diff") and '|| test "$?" -eq 1' in line:
+            problems.append(f"pipeline task {task} swallows kubectl diff errors into the diff file")
     return problems
 
 
