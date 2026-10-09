@@ -417,8 +417,19 @@ const OWNER_SCRIPT_RE = new RegExp([
   'scripts/unifi_(?![A-Za-z0-9_]*_test\\.)[A-Za-z0-9_]+\\.(?:sh|py)',
 ].join('|'))
 
+// TD-278: plugin redis-ib scripts that load the Owner env when they run.
+// Only running them is refused (bash/sh/source/./ or the make target);
+// reading, editing or committing them by name is not.
+const OWNER_RUN_RE = new RegExp(
+  '(?:^|[;&|(`]\\s*|(?:^|[\\s;&|(`])(?:bash|sh|zsh|source|exec)\\s+|(?:^|\\s)\\.\\s+)(?:\\./)?(?:[\\w.~$/-]*/)?' +
+    '(?:verify-ib-gateway(?:-live)?|verify-redis-ib|verify-trade-quotes-e2e|sync_redis_ib_secrets|install-redis-ib)\\.sh\\b' +
+    '|\\bmake\\b[^;&|\\n]*\\s(?:verify-ib-gateway(?:-live)?|verify-redis-ib|verify-trade-quotes-e2e|sync-redis-ib-secrets|install-redis-ib)(?=$|[\\s;&|)])',
+  'm'
+)
+
 function ownerScript(cmd) {
-  return OWNER_SCRIPT_RE.test(String(cmd || ''))
+  const text = String(cmd || '')
+  return OWNER_SCRIPT_RE.test(text) || OWNER_RUN_RE.test(text)
 }
 
 function ownerCredentialGuard(toolName, input, cmd) {
