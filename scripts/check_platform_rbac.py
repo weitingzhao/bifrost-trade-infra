@@ -44,6 +44,9 @@ MATRIX = [
     ("get", "pods:log", "bifrost-prod", True, True),
     ("get", "secret/gitea-bootstrap", "cicd", True, True),
     ("create", "configmaps", "cicd", True, True),
+    # release window (LANE-W33C): PROD may delete that one ConfigMap, nothing else in cicd
+    ("delete", "configmap/bifrost-release-window", "cicd", False, True),
+    ("delete", "configmap/bifrost-platform-other", "cicd", False, False),
     # own-namespace state (each env checked against its own namespace below)
     ("update", "configmaps", "<own>", True, True),
     # actuation: PROD only

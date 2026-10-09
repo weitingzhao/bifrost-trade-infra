@@ -1,0 +1,28 @@
+# W-33 LANE-W33C: PROD platform-api releases the release window it serves
+# (DELETE /api/v1/delivery/release-window, and GET clearing an expired one).
+# bifrost-platform-state grants no delete; this allows exactly one ConfigMap.
+# PROD only: STG observes. Found by the first real release.sh stg run
+# (2026-10-09): the DELETE answered 502 "cannot delete resource configmaps".
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: bifrost-platform-release-window
+  namespace: cicd
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [bifrost-release-window]
+    verbs: [delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bifrost-platform-release-window-prod
+  namespace: cicd
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+subjects:
+  - kind: ServiceAccount
+    name: bifrost-platform
+    namespace: bifrost-platform-prod
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: bifrost-platform-release-window}

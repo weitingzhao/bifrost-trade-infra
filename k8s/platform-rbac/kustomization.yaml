@@ -8,3 +8,4 @@ resources:
   - 30-applier.yaml
   - 40-admission.yaml
   - 42-appproject-bifrost.yaml
+  - 45-release-window.yaml
