@@ -414,7 +414,7 @@
 
 - **类别**：道
 - **状态**：在做
-- **匹配**：LANE-W33、LANE-W33R、LANE-W33B、LANE-W33BR
+- **匹配**：LANE-W33、LANE-W33R、LANE-W33B、LANE-W33BR、LANE-W33C
 - **现在**：Owner 10-08 定合并四件：① 凭证收口（mini 不再持有管理员 kubeconfig 与 admin 令牌、部署脚本不再同步、remediation runner 与 .52 hermes-gateway 定去留）；② PROD 经代理转到 mini 的 operator 级路由认 PROD 令牌；③ Console 显示待重启节点、滚动重启做成审批动作；④ ⑤ 页给 Research 与插件显示 STG / PROD 两列版本。先讨论分步，任务文件还没写
 - **下一步**（第一批上线进度，10-09 03:3xZ）：
   - **已完成**：
@@ -460,7 +460,13 @@
     - 冒烟时修了流水线的 3 个问题，都是之前从没真跑过、只做了静态检查导致的，每个都加了静态防线：参数没传给任务（`c96ca82`）、网页归档地址不认凭证（`789c955`）、结果没有提升到 PipelineRun（`278f391`）；
     - Gitea 镜像要等同步才能用新提交，登记为 TD-273；
     - `agent_reader` 已在 PROD 建好：DDL 的 commit 和 verify 通过，role-matrix 0 差异，Owner 已设密码并写入 `~/.pgpass`；四个库都能读，CREATE 和 UPDATE 被权限拒绝；AGENT_FACTS 已写明用法；
-  - **下一步**：写发版链 LANE-W33C（`release.sh` 和插件、research 的发布改走平台），然后是第 3 步（Mac 上的 Agent 换只读）；
+  - **下一步**：
+    - 发版链 `LANE-W33C.md` 已写（10-09），**等 Owner 定「〇」节四件再派**：
+      - PROD pinned run 改成 Pipeline 加逐仓参数；
+      - 发布窗口归平台；
+      - Gitea 镜像同步交给平台（顺带修 TD-273）；
+      - `start_pipeline_run` 带通用参数；
+    - 然后是第 3 步（Mac 上的 Agent 换只读）；
   - 10-09 07:00Z 定时对账 drift 0；
   - 写道时实测发现 TD-271：PROD 平台身份经 cicd 的 PipelineRun 和 Argo Application 仍能间接拿到集群管理员，已登记，并写进 TD-204 待签收行的「后续」；
   - 第 3 步在第 2 步验收后另派
