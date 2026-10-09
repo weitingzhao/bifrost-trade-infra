@@ -7,8 +7,8 @@
 
 | 脚本 | 做什么 | 写什么 |
 |------|--------|--------|
-| `release.sh stg\|prod\|dev [--dry-run]` | 一个入口：窗口锁 → 并发检查 → DB 步骤闸门 → before 快照 → 建 run → 等待 → after 核对 → 汇总 | 建 PipelineRun（stg/prod）、改 `:dev` 镜像并重启 DEV（dev） |
-| `prod-pinned-from-stg.sh <stg-run> [-o f]` | 生成 PROD 钉版本 spec（不创建） | 只写本地文件 |
+| `release.sh stg\|prod\|dev [--dry-run]` | 一个入口：窗口锁 → 并发检查 → DB 步骤闸门 → before 快照 → 经平台起 run → 等待 → after 核对 → 汇总 | STG 直接 `start_pipeline_run`；PROD 走审批；DEV 改 `:dev` 镜像并重启 |
+| `prod-pinned-from-stg.sh <stg-run> [-o f]` | 读出 STG run 的 6 个 clone SHA（不创建 run） | 只写 JSON |
 | `release-check.sh <env> before\|after\|probes` / `diff a b` | 快照、diff、`/health` core 身份、探针 | 只读（GET、`kubectl get`） |
 | `tag_core_release.sh <sha> [--push]` | 给到达 PROD 的 core 提交打 `v<version>` | 只在 `--push` 时 |
 
@@ -28,24 +28,30 @@ bash scripts/release/tag_core_release.sh --push <core_sha>
 scripts/release/release.sh dev                          # make dev-sync-backend-images RESTART=1（后端 + 前端）+ 核对
 ```
 
-`--dry-run` 跑所有只读检查（窗口、并发、STG run 状态、核对记录、生成 spec、DB 步骤），其余命令只打印；
-任何一项不满足时打印 `WOULD REFUSE` 并以 2 退出。
+`--dry-run` 跑所有只读检查（窗口、并发、STG run 状态、核对记录、读出 6 个 SHA、DB 步骤），其余平台调用只打印方法和路径；
+任何一项不满足时打印 `WOULD REFUSE` 并以 2 退出。令牌不出现在命令行，也不打印。
 
 ### release.sh 每一步
 
-1. **窗口锁** `~/.bifrost-release/window.json`（who / what / env / pid / host / started_at）。已存在就拒绝；
-   脚本无论怎么退出都会删掉自己的锁（trap）。
+1. **窗口** ConfigMap `cicd/bifrost-release-window`（who / what / env / started_at / expires_at）。
+   `PUT /api/v1/delivery/release-window`，ttl 5 分钟，持有期间每分钟续期；别人持有就拒绝。
+   脚本退出时以持有者身份释放。过期的窗口视为空。
 2. **并发**：任何 `bifrost-deliver-*` run 处于 Unknown，或 2 分钟内刚建过，就拒绝（09-27 两个会话相隔 16 秒发同一版的教训）。
-   建 run 前会再查一次。
+   起 run 前会再查一次。
 3. **PROD 专有**：`--from-stg <run>` 必须是 `bifrost-deliver-stg` 的 run、Succeeded，且
    `~/.bifrost-release/checks/<run>.json` 写着 `passed: true`（由 `release-check.sh stg after --run <run>` 写，
-   `release.sh stg` 会自动做）。然后生成钉版本 spec：线上 `pipeline/bifrost-deliver-prod` 的 spec，6 个
-   `clone-<repo>` 的 `revision` 换成 STG run 对应 TaskRun 的结果 `commit`（40 位，缺一个就拒绝）。
+   `release.sh stg` 会自动做）。然后读出 6 个 clone SHA（40 位，缺一个就拒绝），作为
+   `coreRevision` / `workerRevision` / `apiRevision` / `frontendRevision` / `uiRevision` / `infraRevision`。
+   请求本身的 `revision` 仍是 `main`（每个仓库都有），6 个 SHA 放在 `params` 里。
 4. **一次性 DB 步骤**：`db-steps.d/` 里对本环境 `when: before` 且未完成的步骤 → 打印给 Owner 的命令并**停下**（exit 3）。
-   脚本永远不对 stg / prod / golden_source 跑 `psql`。格式见 `scripts/release/db-steps.d/README.md`。
+   PROD 的 before 步骤会为每一行 `commit:` 提交 `owner_run_command` 审批（reason 是步骤 id），打印审批 id；
+   Owner 批准后自己跑 `scripts/owner/owner-run.sh <id>`。脚本永远不对 stg / prod / golden_source 跑 `psql`。
+   格式见 `scripts/release/db-steps.d/README.md`。
 5. **before 快照** → `${BIFROST_RELEASE_DIR:-/tmp/claude-501/release}/<date>/<env>-<HHMMSS>/`。
-6. **建 run**：STG `kubectl create -f scripts/release/pipelinerun-deliver-stg.json`（revision main）；
-   PROD 先 `--dry-run=server` 再 create；DEV 是 `RESTART=1 make dev-sync-backend-images`：worker、四个 API 和前端的 `:dev` 一起跟 `:stg`（前端镜像不分环境；2026-10-05 前前端不在内，DEV 前端曾停在 10-02）。
+   角色矩阵走 `psql`（`PGHOST=192.168.10.73` `PGPORT=30432` `PGUSER=agent_reader`，口令在 `~/.pgpass`）。
+6. **起 run**：STG `POST /api/v1/delivery/pipelines/bifrost-deliver-stg/runs`（revision main，直接调用，级别 B）。
+   PROD `POST /api/v1/approvals`（action `start_pipeline_run`，name `bifrost-deliver-prod`，级别 C），然后用 viewer 令牌轮询到 executed，读出 `result.run.name`。
+   DEV 是 `RESTART=1 make dev-sync-backend-images`：worker、四个 API 和前端的 `:dev` 一起跟 `:stg`（前端镜像不分环境；2026-10-05 前前端不在内，DEV 前端曾停在 10-02）。
 7. **等待**：每 15 秒看一次，直到离开 Unknown，打印每个 TaskRun 的耗时（10-03 实测 STG 约 4 分钟、PROD 约 5 分钟）。
    超过 `--timeout`（默认 3600 秒）以 3 退出——run 仍在跑，不要再起一个。
 8. **after 核对**（见下）；PROD 另外核对它克隆的 6 个提交与 STG 完全一致。
@@ -85,13 +91,14 @@ scripts/release/release.sh window && git push origin <sha>:refs/heads/main
 ```
 
 `release.sh window` 没有窗口时 exit 0，有窗口时打印持有者并 exit 1。任何会话在**推 Trade 任一仓库的 main**
-或**起任何 `bifrost-deliver-*` run** 之前都先跑它：窗口开着就等它关，或者问 Owner。持有进程已不在
-（同一台机器上 pid 不存在）时它会提示是残留锁，由 Owner 决定 `release.sh window --clear`；进程还在时 `--clear` 拒绝。
+或**起任何 `bifrost-deliver-*` run** 之前都先跑它：窗口开着就等它关，或者问 Owner。窗口 ttl 5 分钟，
+持有期间每分钟续期；进程退出或到期后自然放开。`release.sh window --clear` 提交
+`release_window_release`（force）审批，由 Owner 批准后才清掉别人的窗口。
 
-窗口只在 `release.sh` 运行期间存在（`hold` 一直占到进程退出）。Research 与插件用同一个文件，
-`what` 写仓库名；`hold` 把它镜像到 ConfigMap `cicd/bifrost-release-window`。对应流水线的第一个 task
-和 platform-api 的 `start_pipeline_run` 在窗口被别人持有时拒绝。`stg` / `prod` 在创建 run 之前同步
-Gitea 镜像，并要求所发 SHA 有 Succeeded 的 `ci-*`，`--allow-red <原因>` 才放行。
+窗口在 `release.sh` 运行期间存在（`hold` 一直占到进程退出，并续期）。Research 与插件用同一个
+ConfigMap `cicd/bifrost-release-window`，`what` 写仓库名。对应流水线的第一个 task
+和 platform-api 的 `start_pipeline_run` 在窗口被别人持有时拒绝。`stg` / `prod` 在起 run 之前
+`POST /api/v1/delivery/mirrors/sync`，并要求所发 SHA 有 Succeeded 的 `ci-*`，`--allow-red <原因>` 才放行。
 STG 与 PROD 之间（等 Owner 看 STG）没有锁——这段时间推 main 不影响 PROD，
 因为 PROD 钉的是 STG 克隆的提交，不是 `main`。
 

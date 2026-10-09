@@ -85,11 +85,14 @@ if [[ "${phase}" == "before" ]]; then
   [[ ! -f "${out}" ]] || mv "${out}" "${out%.json}.prev.json"
   rel_log "snapshot ${env} before"
   "${RELEASE_TOOL[@]}" snapshot "${env}" -o "${out}" ${snap_args[@]+"${snap_args[@]}"}
-  rel_require_kubeconfig
+  if [[ ! -f "${HOME}/.pgpass" ]]; then
+    rel_die "role matrix needs ~/.pgpass for agent_reader (PGHOST=192.168.10.73 PGPORT=30432 PGUSER=agent_reader). There is no cluster-exec fallback."
+  fi
   rel_log "role matrix"
-  python3 "${INFRA_ROOT}/k8s/data/role-matrix/check_role_matrix.py" \
+  PGHOST=192.168.10.73 PGPORT=30432 PGUSER=agent_reader \
+    python3 "${INFRA_ROOT}/k8s/data/role-matrix/check_role_matrix.py" \
     --matrix "${INFRA_ROOT}/k8s/data/role-matrix/expected.yaml" \
-    --via kubectl
+    --via psql
   exit 0
 fi
 
