@@ -122,11 +122,11 @@
 
    报告的「上线顺序」按这个写。
 
-## 五、只读数据库账号（等 Owner 回复「数据库照做」再做）
+## 五、只读数据库账号（Owner 10-09 已回「数据库照做」）
 
 - LANE-W33B 停在两个列名命中上：`research.copilot_bridge_event` 的 `input_tokens` 和 `output_tokens`，都是 integer 类型的用量计数，不是凭证；
 - Claude 10-09 放宽条件又扫了一遍（列名再加 auth、cookie、session_key、bearer、dsn、connection string，外加名字像 config、settings、headers、env、params、options、meta 的 json 列），只多出策略和回测参数的 jsonb 列，也不是凭证；
-- Owner 确认后，照 `LANE-W33B.md` 第五节原样做：`agent_reader` 加入 `pg_read_all_data`，建 DB 步骤文件，改 role-matrix，写 AGENT_FACTS 那一行。
+- Owner 已确认，照 `LANE-W33B.md` 第五节原样做：`agent_reader` 加入 `pg_read_all_data`，建 DB 步骤文件，改 role-matrix，写 AGENT_FACTS 那一行。
 
 ## 门禁
 
