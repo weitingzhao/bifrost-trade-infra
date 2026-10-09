@@ -142,6 +142,11 @@ def pipeline_task_params() -> list[str]:
         for p in spec.get("params") or []:
             if "default" not in p and p["name"] not in passed:
                 problems.append(f"pipeline task {task['name']} does not pass param {p['name']}")
+        for step in spec.get("steps") or []:
+            script = step.get("script") or ""
+            # Gitea's web archive route ignores basic auth on a private repo (404).
+            if "/archive/" in script and "/api/v1/repos/" not in script.split("/archive/")[0].splitlines()[-1]:
+                problems.append(f"pipeline task {task['name']} fetches the archive outside /api/v1/repos/")
     return problems
 
 

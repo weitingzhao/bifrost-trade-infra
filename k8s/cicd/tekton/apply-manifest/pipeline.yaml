@@ -142,7 +142,8 @@ spec:
                 fi
               fi
               archive=/tmp/src.tar.gz
-              url="${base}/${repo}/archive/${commit}.tar.gz"
+              # The API route accepts basic auth; the web archive route answers 404 for a private repo.
+              url="${base%%/bifrost}/api/v1/repos/${org}/${repo}/archive/${commit}.tar.gz"
               host_path="${url#http://}"
               host_path="${host_path#https://}"
               if ! wget -q -O "$archive" "http://${GIT_USERNAME}:${GIT_PASSWORD}@${host_path}"; then
