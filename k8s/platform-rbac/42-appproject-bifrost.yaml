@@ -1,0 +1,29 @@
+# AppProject for the five Bifrost Applications. Measured cluster-scoped kinds: Namespace only.
+# Apply with k8s/platform-rbac before moving the Applications off project default.
+# The emptied default project is k8s/cicd/appprojects/default-empty.yaml and is applied
+# only after those Applications use project bifrost.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: bifrost
+  namespace: cicd
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+spec:
+  description: Repos, namespaces, and cluster kinds the five Bifrost Applications use.
+  sourceRepos:
+    - https://github.com/weitingzhao/bifrost-trade-infra.git
+    - https://github.com/weitingzhao/bifrost-research.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: bifrost-prod
+    - server: https://kubernetes.default.svc
+      namespace: bifrost-stg
+    - server: https://kubernetes.default.svc
+      namespace: bifrost-platform-prod
+    - server: https://kubernetes.default.svc
+      namespace: bifrost-platform-stg
+    - server: https://kubernetes.default.svc
+      namespace: research
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace

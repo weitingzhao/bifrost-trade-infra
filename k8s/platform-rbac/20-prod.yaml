@@ -274,3 +274,93 @@ metadata:
   labels: {app.kubernetes.io/part-of: bifrost-platform}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: bifrost-platform-delivery}
 subjects: [{kind: ServiceAccount, name: bifrost-platform, namespace: bifrost-platform-prod}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bifrost-platform-job-actuator-prod
+  namespace: bifrost-dev
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: bifrost-platform-job-actuator}
+subjects: [{kind: ServiceAccount, name: bifrost-platform, namespace: bifrost-platform-prod}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bifrost-platform-job-actuator-prod
+  namespace: bifrost-platform-prod
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: bifrost-platform-job-actuator}
+subjects: [{kind: ServiceAccount, name: bifrost-platform, namespace: bifrost-platform-prod}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bifrost-platform-job-actuator-prod
+  namespace: bifrost-platform-stg
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: bifrost-platform-job-actuator}
+subjects: [{kind: ServiceAccount, name: bifrost-platform, namespace: bifrost-platform-prod}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bifrost-platform-job-actuator-prod
+  namespace: bifrost-prod
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: bifrost-platform-job-actuator}
+subjects: [{kind: ServiceAccount, name: bifrost-platform, namespace: bifrost-platform-prod}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bifrost-platform-job-actuator-prod
+  namespace: bifrost-stg
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: bifrost-platform-job-actuator}
+subjects: [{kind: ServiceAccount, name: bifrost-platform, namespace: bifrost-platform-prod}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bifrost-platform-job-actuator-prod
+  namespace: data
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: bifrost-platform-job-actuator}
+subjects: [{kind: ServiceAccount, name: bifrost-platform, namespace: bifrost-platform-prod}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bifrost-platform-job-actuator-prod
+  namespace: monitoring
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: bifrost-platform-job-actuator}
+subjects: [{kind: ServiceAccount, name: bifrost-platform, namespace: bifrost-platform-prod}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bifrost-platform-job-actuator-prod
+  namespace: plugin-flex-query
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: bifrost-platform-job-actuator}
+subjects: [{kind: ServiceAccount, name: bifrost-platform, namespace: bifrost-platform-prod}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bifrost-platform-job-actuator-prod
+  namespace: plugin-market-data
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: bifrost-platform-job-actuator}
+subjects: [{kind: ServiceAccount, name: bifrost-platform, namespace: bifrost-platform-prod}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bifrost-platform-job-actuator-prod
+  namespace: research
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: bifrost-platform-job-actuator}
+subjects: [{kind: ServiceAccount, name: bifrost-platform, namespace: bifrost-platform-prod}]

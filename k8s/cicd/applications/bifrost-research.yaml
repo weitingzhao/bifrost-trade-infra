@@ -13,7 +13,7 @@ metadata:
     bifrost.io/purpose: research-olap
     bifrost.io/domain: olap
 spec:
-  project: default
+  project: bifrost
   source:
     repoURL: https://github.com/weitingzhao/bifrost-research.git
     path: k8s

@@ -5,3 +5,6 @@ resources:
   - 00-clusterroles.yaml
   - 10-stg.yaml
   - 20-prod.yaml
+  - 30-applier.yaml
+  - 40-admission.yaml
+  - 42-appproject-bifrost.yaml

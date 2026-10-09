@@ -1,0 +1,22 @@
+# bifrost-apply-manifest. Not under the platform Argo apps: apply with
+# kubectl apply -k k8s/cicd/tekton/apply-manifest
+# after the platform-rbac applier identity exists.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: cicd
+resources:
+  - pipeline.yaml
+configMapGenerator:
+  - name: bifrost-actuation-policy
+    files:
+      - actuation-policy.yaml
+    options:
+      disableNameSuffixHash: true
+  - name: bifrost-apply-manifest-check
+    files:
+      - apply-manifest-check.sh
+    options:
+      disableNameSuffixHash: true
+generatorOptions:
+  labels:
+    app.kubernetes.io/part-of: bifrost-platform

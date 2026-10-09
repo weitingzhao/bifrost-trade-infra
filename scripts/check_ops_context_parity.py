@@ -48,6 +48,11 @@ RUNNING_COPIES = (
     INFRA / "k8s" / "overlays" / "platform-stg" / "config" / "running-images.yaml",
     INFRA / "k8s" / "overlays" / "platform-prod" / "config" / "running-images.yaml",
 )
+ACTUATION_COPIES = (
+    INFRA / "k8s" / "overlays" / "platform-stg" / "config" / "actuation-policy.yaml",
+    INFRA / "k8s" / "overlays" / "platform-prod" / "config" / "actuation-policy.yaml",
+    INFRA / "k8s" / "cicd" / "tekton" / "apply-manifest" / "actuation-policy.yaml",
+)
 
 
 def check_trust_overrides(source: pathlib.Path) -> list[str]:
@@ -81,6 +86,23 @@ def check_running_images(source: pathlib.Path) -> list[str]:
     for kust in OVERLAY_KUSTOMIZATIONS:
         if "- config/running-images.yaml" not in kust.read_text():
             problems.append(f"{kust.relative_to(INFRA)} configMapGenerator does not list config/running-images.yaml")
+    return problems
+
+
+def check_actuation_policy(source: pathlib.Path) -> list[str]:
+    """Overlay and Tekton copies equal the platform file, and both generators ship it."""
+    if not source.is_file():
+        return [f"missing source {source}"]
+    problems: list[str] = []
+    src_bytes = source.read_bytes()
+    for copy in ACTUATION_COPIES:
+        if not copy.is_file():
+            problems.append(f"missing copy {copy.relative_to(INFRA)}")
+        elif copy.read_bytes() != src_bytes:
+            problems.append(f"{copy.relative_to(INFRA)} is not byte-identical to {source}")
+    for kust in OVERLAY_KUSTOMIZATIONS:
+        if "- config/actuation-policy.yaml" not in kust.read_text():
+            problems.append(f"{kust.relative_to(INFRA)} configMapGenerator does not list config/actuation-policy.yaml")
     return problems
 
 
@@ -188,6 +210,7 @@ def main() -> int:
     problems = check_files(source, COPIES)
     problems += check_trust_overrides(platform / "config" / "trust-overrides.yaml")
     problems += check_running_images(platform / "config" / "running-images.yaml")
+    problems += check_actuation_policy(platform / "config" / "actuation-policy.yaml")
     if problems:
         print(f"ops-context parity failed against {source}:", file=sys.stderr)
         for item in problems:

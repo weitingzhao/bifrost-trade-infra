@@ -1,0 +1,133 @@
+# Plan and apply a git path. The task image is alpine/k8s:1.31.4, already used
+# by the other Tekton tasks. The platform starts this pipeline; it does not
+# apply manifests with its own ServiceAccount.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: bifrost-apply-manifest
+  namespace: cicd
+  labels:
+    app.kubernetes.io/part-of: bifrost-platform
+spec:
+  params:
+    - name: mode
+      type: string
+    - name: repo
+      type: string
+    - name: path
+      type: string
+    - name: commit
+      type: string
+    - name: giteaBase
+      type: string
+    - name: giteaOrg
+      type: string
+    - name: requireOnMain
+      type: string
+      default: "false"
+  tasks:
+    - name: run
+      taskSpec:
+        params:
+          - name: mode
+          - name: repo
+          - name: path
+          - name: commit
+          - name: giteaBase
+          - name: giteaOrg
+          - name: requireOnMain
+        results:
+          - name: objects
+            description: JSON list of rendered objects
+          - name: policy
+            description: pass when the allow-list check succeeded
+          - name: highest_tier
+            description: Highest namespace tier in the render
+        steps:
+          - name: run
+            image: alpine/k8s:1.31.4
+            env:
+              - name: GIT_USERNAME
+                valueFrom:
+                  secretKeyRef:
+                    name: gitea-git-credentials
+                    key: username
+              - name: GIT_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: gitea-git-credentials
+                    key: password
+            volumeMounts:
+              - name: policy
+                mountPath: /policy
+                readOnly: true
+              - name: checker
+                mountPath: /checks
+                readOnly: true
+            script: |
+              #!/bin/sh
+              set -eu
+              mode="$(params.mode)"
+              repo="$(params.repo)"
+              path="$(params.path)"
+              commit="$(params.commit)"
+              base="$(params.giteaBase)"
+              org="$(params.giteaOrg)"
+              case "$mode" in
+                plan|apply) ;;
+                *) echo "mode must be plan or apply" >&2; exit 1 ;;
+              esac
+              if ! printf '%s' "$commit" | grep -Eq '^[0-9a-f]{40}$'; then
+                echo "commit must be a 40-character hex sha" >&2
+                exit 1
+              fi
+              if [ "$(params.requireOnMain)" = "true" ]; then
+                api="${base%%/bifrost}/api/v1/repos/${org}/${repo}/compare/${commit}...main"
+                host_path="${api#http://}"
+                host_path="${host_path#https://}"
+                body=$(wget -q -O - "http://${GIT_USERNAME}:${GIT_PASSWORD}@${host_path}" || true)
+                base_sha=$(printf '%s' "$body" | sed -n 's/.*"merge_base_commit":{"sha":"\([0-9a-f][0-9a-f]*\)".*/\1/p' | head -n 1)
+                if [ "$base_sha" != "$commit" ]; then
+                  echo "commit is not reachable from main" >&2
+                  exit 1
+                fi
+              fi
+              archive=/tmp/src.tar.gz
+              url="${base}/${repo}/archive/${commit}.tar.gz"
+              host_path="${url#http://}"
+              host_path="${host_path#https://}"
+              if ! wget -q -O "$archive" "http://${GIT_USERNAME}:${GIT_PASSWORD}@${host_path}"; then
+                echo "could not fetch ${repo}@${commit}" >&2
+                exit 1
+              fi
+              mkdir -p /tmp/src
+              tar -xzf "$archive" -C /tmp/src
+              root=$(find /tmp/src -mindepth 1 -maxdepth 1 -type d | head -n 1)
+              target="${root}/${path}"
+              if [ -d "$target" ]; then
+                kubectl kustomize "$target" > /tmp/rendered.yaml
+              elif [ -f "$target" ]; then
+                cp "$target" /tmp/rendered.yaml
+              else
+                echo "path not in the commit" >&2
+                exit 1
+              fi
+              tier=$(sh /checks/apply-manifest-check.sh /policy/actuation-policy.yaml /tmp/rendered.yaml /tmp/objects.json)
+              if [ "$mode" = "plan" ]; then
+                kubectl diff -f /tmp/rendered.yaml --server-side > /tmp/diff.txt 2>&1 || test "$?" -eq 1
+                echo "=== kubectl diff ==="
+                cat /tmp/diff.txt
+              else
+                kubectl apply -f /tmp/rendered.yaml --server-side --field-manager=bifrost-applier
+              fi
+              cp /tmp/objects.json "$(results.objects.path)"
+              printf '%s' pass > "$(results.policy.path)"
+              printf '%s' "$tier" > "$(results.highest_tier.path)"
+        volumes:
+          - name: policy
+            configMap:
+              name: bifrost-actuation-policy
+          - name: checker
+            configMap:
+              name: bifrost-apply-manifest-check
+              defaultMode: 0555

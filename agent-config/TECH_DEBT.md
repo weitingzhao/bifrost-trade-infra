@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-270** — data-clone 的 schedule 与 last-clone 改为每次读取都回读、写入走 `statefile.Update`（platform `2de35b9179c09cdcbfbac2218b4d2eac1036af27`）。验收 PASS 2026-10-09 `2de35b9179c09cdcbfbac2218b4d2eac1036af27`（`DataCloneScheduleShare` / `DataCloneLastReload` / `DataCloneRecordRunSurvives`）。防线：`RATCHETS.md`「data-clone 两进程 Update（TD-270）」。后续：无后续：checklist、approvals、promote、audit 仍是单写者，不在本项
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）、TD-271（10-09 发现：PROD 平台身份经 cicd 的 PipelineRun 和 Argo Application 仍能间接拿到集群管理员；本项验收的直连权限不受影响）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-253** — 检查信号不再是几周前的：每条带观测时间和来源，超过 2 小时读 unknown、autopilot 不会按它动手；PROD platform-workers 自己每 10 分钟探测一次（不再靠 Mac 上报）。验收 PASS 2026-10-07 d8bdf41（22/22 带时间）。防线：`RATCHETS.md`「检查信号的时效与来源」测试 + `check_platform_maintenance.py`（探测器只在 PROD workers）。后续：无后续：放开 autopilot 动手在 TD-130（观察到 10-12）
@@ -1477,7 +1478,8 @@
 
 **P2 · ops-platform · The data-clone schedule an operator sets through the api can be silently reverted by platform-workers, and the api never sees the last clone the workers ran**
 
-- **状态**：未开始
+- **状态**：待你签收
+- **验收结果**：PASS 2026-10-09 2de35b9179c09cdcbfbac2218b4d2eac1036af27
 - **Claim**: The api (`update_data_clone_schedule`, C tier) and platform-workers (the clone scheduler loop) share `DataCloneScheduleStore` through statefile (TD-196). `Put` replaces the whole schedule and writes it; `RecordRun` does not reload first — it edits the in-memory `s.cfg` it loaded at start and writes the whole blob back. A run recorded by workers after an api `Put` therefore writes the old schedule over the new one. Separately, the last-clone store's `Get` returns memory and never re-reads, so the api shows the last clone as of its own start. `k8sstate.Write` retries a conflict with the same bytes, so nothing catches it. Same class LANE-W33R fixed for patrol with `statefile.Update`.
 - **Measured**: CODE-READ 2026-10-09 (LANE-W33R audit, verified by Claude): `cluster/data_clone.go:343` Put, `:367` RecordRun (no load), `:430` last-clone Get (memory), `:436` Record. PROD runs one api and one workers pod, so both sides do write the same key.
 - **Evidence**:
@@ -1494,7 +1496,8 @@
 
 **P2 · ops-platform · The PROD platform ServiceAccount is still cluster-admin by two indirect paths: PipelineRuns in cicd can name the cluster-admin Argo controller account, and Argo Applications it may patch sit in a project that allows any source and destination**
 
-- **状态**：未开始
+- **状态**：在做
+- **下一步**：YAML 在 LANE-W33B 的 infra 分支（`k8s/platform-rbac/40-admission.yaml`、`42-appproject-bifrost.yaml`、`k8s/cicd/appprojects/default-empty.yaml`）。`check_admission_guards.py` 无 `--live` 已过。`--live` 要等 Owner apply 之后才能签收，本项不进待你签收。tekton-trigger 未修。
 - **Claim**: TD-204 took system:masters away, but `bifrost-platform-delivery` still grants create on PipelineRuns and TaskRuns in cicd, and update / patch on Argo Applications. Tekton runs a PipelineRun's tasks under whatever ServiceAccount the run names (`taskRunTemplate.serviceAccountName`, `taskRunSpecs`) and accepts an inline `pipelineSpec`. cicd holds `argocd-application-controller`, which is bound to a ClusterRole with `*` on `*`. Separately, all five Argo Applications are in AppProject `default` (sourceRepos `*`, destinations `*`), so changing an Application's source makes Argo apply anything anywhere. Platform code only sends `pipelineRef` runs and sync / rollback operations; RBAC does not hold it to that. `tekton-trigger` (create PipelineRuns) and `tekton-deliver` (patch Applications) hold the same two rights.
 - **Measured**: MEASURED 2026-10-09 (Claude, read-only; nothing was created or changed). `kubectl auth can-i --as=system:serviceaccount:bifrost-platform-prod:bifrost-platform`: `create pipelineruns.tekton.dev -n cicd` yes, `patch applications.argoproj.io -n cicd` yes, `create pods -n cicd` no. `clusterrole/argocd-application-controller` rules `apiGroups * / resources * / verbs *` plus `nonResourceURLs *`. AppProject `default`: sourceRepos `[*]`, destinations `[{namespace: *, server: *}]`; 5 of 5 Applications use it. Role `cicd/tekton-trigger-runs` has create on pipelineruns; role `cicd/tekton-deliver-argocd` has patch on applications. Not exploited.
 - **Evidence**:

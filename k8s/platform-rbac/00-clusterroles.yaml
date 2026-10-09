@@ -195,3 +195,16 @@ rules:
   - apiGroups: ["policy"]
     resources: [poddisruptionbudgets]
     verbs: [get, list, watch]
+---
+# PROD only: create and delete Jobs where the actuation policy allows a Job or a
+# probe. Probes are Jobs, so this role does not grant pods create. Bindings are
+# generated into 20-prod.yaml and skip the policy deny list (kube-system, cicd).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: bifrost-platform-job-actuator
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+rules:
+  - apiGroups: ["batch"]
+    resources: [jobs]
+    verbs: [get, list, create, delete]

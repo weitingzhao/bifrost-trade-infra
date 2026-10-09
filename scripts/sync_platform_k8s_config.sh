@@ -57,6 +57,16 @@ if [[ -f "${PLATFORM_ROOT}/config/running-images.yaml" ]]; then
   cp "${PLATFORM_ROOT}/config/running-images.yaml" "${DEST_PROD}/running-images.yaml"
 fi
 
+# Actuation allow-list (LANE-W33B). Platform code, both overlays, and the
+# Tekton checker must read the same bytes.
+if [[ -f "${PLATFORM_ROOT}/config/actuation-policy.yaml" ]]; then
+  cp "${PLATFORM_ROOT}/config/actuation-policy.yaml" "${DEST_STG}/actuation-policy.yaml"
+  cp "${PLATFORM_ROOT}/config/actuation-policy.yaml" "${DEST_PROD}/actuation-policy.yaml"
+  tekton_copy="${ROOT}/k8s/cicd/tekton/apply-manifest/actuation-policy.yaml"
+  mkdir -p "$(dirname "${tekton_copy}")"
+  cp "${PLATFORM_ROOT}/config/actuation-policy.yaml" "${tekton_copy}"
+fi
+
 # Ensure platform-stg namespace is registered for cluster probes.
 if ! grep -q 'bifrost-platform-stg' "${DEST_STG}/clusters.yaml"; then
   echo "WARN: add bifrost-platform-stg to clusters.yaml bifrost_namespaces after sync" >&2

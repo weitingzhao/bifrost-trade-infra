@@ -1,0 +1,12 @@
+# Apply only after the five Applications use project bifrost.
+# Do not delete AppProject default. An empty project admits nothing.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: default
+  namespace: cicd
+spec:
+  description: Empty. The five Bifrost Applications use project bifrost.
+  sourceRepos: []
+  destinations: []
+  clusterResourceWhitelist: []
