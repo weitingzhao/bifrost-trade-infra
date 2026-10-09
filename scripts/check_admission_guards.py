@@ -144,6 +144,42 @@ def live() -> list[str]:
         denied = dry_run(identity, ns, body)
         if denied != want_deny:
             problems.append(f"{name}: denied={denied} want {want_deny}")
+    problems += app_namespaces_in_project()
+    return problems
+
+
+def app_namespaces_in_project() -> list[str]:
+    """Every namespace an Application deploys into must be a project destination.
+
+    The destination alone is not enough: bifrost-research also deploys a
+    NetworkPolicy into data, and its sync failed when the project left data out.
+    """
+    import json
+
+    def get(args: list[str]) -> dict:
+        r = subprocess.run(["kubectl", "-n", "cicd", "get", *args, "-o", "json"], capture_output=True, text=True)
+        if r.returncode != 0:
+            raise RuntimeError(r.stderr.strip())
+        return json.loads(r.stdout)
+
+    problems: list[str] = []
+    try:
+        projects = {p["metadata"]["name"]: p for p in get(["appprojects"])["items"]}
+        apps = get(["applications"])["items"]
+    except RuntimeError as err:
+        return [f"could not read Applications: {err}"]
+    for app in apps:
+        name = app["metadata"]["name"]
+        project = projects.get(app["spec"].get("project", ""))
+        if project is None:
+            problems.append(f"{name}: project {app['spec'].get('project')} not found")
+            continue
+        allowed = {d.get("namespace") for d in project["spec"].get("destinations") or []}
+        used = {app["spec"]["destination"].get("namespace")}
+        used |= {r["namespace"] for r in app.get("status", {}).get("resources") or [] if r.get("namespace")}
+        for ns in sorted(used - allowed - {None}):
+            if "*" not in allowed:
+                problems.append(f"{name}: deploys into {ns}, which project {project['metadata']['name']} does not allow")
     return problems
 
 

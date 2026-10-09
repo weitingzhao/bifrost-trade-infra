@@ -24,6 +24,11 @@ spec:
       namespace: bifrost-platform-stg
     - server: https://kubernetes.default.svc
       namespace: research
+    # bifrost-research also deploys NetworkPolicy data/postgres-research-ingress.
+    # Measured from each Application's status.resources, not only its destination
+    # (missing it failed the research sync on 2026-10-09).
+    - server: https://kubernetes.default.svc
+      namespace: data
   clusterResourceWhitelist:
     - group: ""
       kind: Namespace
