@@ -424,7 +424,7 @@
     - 两台 mini 已重部署：**mini 上没有管理员 kubeconfig 了**，`.env` 只剩 4 个键，runner、hermes-gateway、Nous Hermes 都已撤，`~/.hermes` 保留；
     - 待重启信号已 apply（5 台 k3s 节点 = 1）；
     - 集群内对账 drift 0；
-  - **还剩**：helm upgrade Grafana（Owner 批）；删两个环境 role-tokens Secret 里的 `REMEDIATION_RUNNER_TOKEN` 这一个键（Owner 批；不重跑整份令牌脚本）；
+  - **第一批全部上线（10-09 03:3xZ）**：Grafana helm upgrade（revision 16，只多了子路径两行），`https://ops.bifrost.lan/grafana/` 返回 200，Console 内嵌面板同源、不再被拦；两个环境 role-tokens Secret 只删了 `REMEDIATION_RUNNER_TOKEN` 一个键（Owner 批；没有重跑整份令牌脚本，避免顺手轮换其他令牌和读 admin 令牌）；
   - 第 2、3 步之后另派；⑥ 概览那行的「Remediation Runners」旧文字随下一道清掉
 - **验收**：第 5 阶段退出条件——对账 0 漂移；Agent 侧没有管理员凭证
 - **关联**：`agent-config/work/ops-arch/LANE-W33.md`、`agent-config/work/ops-arch/README.md`「剩下的两波」、`agent-config/work/ops-arch/W33-credentials-2026-10-08.md`、W-5
