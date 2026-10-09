@@ -11,6 +11,15 @@ trap 'rm -rf "$TMP"' EXIT
 
 cat > "${TMP}/kubectl" <<'EOF'
 #!/bin/sh
+if [ "$1" = "get" ] && [ "$2" = "namespace" ]; then
+  # TD-275: one Namespace exists with labels team=data and part-of=plugin.
+  if [ "$3" = "existing-ns" ]; then
+    printf '%s' '{"kubernetes.io/metadata.name":"existing-ns","team":"data","part-of":"plugin"}'
+    exit 0
+  fi
+  echo "Error from server (NotFound)" >&2
+  exit 1
+fi
 if [ "$1" = "get" ]; then
   for arg in "$@"; do
     if [ "$arg" = "tracked-cm" ]; then
@@ -125,6 +134,78 @@ data:
 EOF
 expect_fail "live object tracked by Argo" "${TMP}/tracked.yaml"
 
+# TD-275: an existing Namespace with the same labels is dropped, the rest applies.
+cat > "${TMP}/ns-ok.yaml" <<'YAML'
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: existing-ns
+  labels:
+    team: data
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: md-pdb
+  namespace: plugin-market-data
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: md
+YAML
+normalize "${TMP}/ns-ok.yaml" "${TMP}/norm.json"
+tier=$(sh "$CHECK" "$POLICY" "${TMP}/norm.json" "${TMP}/objects.json" 2>"${TMP}/err") || {
+  echo "FAIL existing namespace + PDB was refused" >&2
+  cat "${TMP}/err" >&2
+  exit 1
+}
+if [ "$tier" != "C" ]; then
+  echo "FAIL existing namespace + PDB tier=${tier}" >&2
+  cat "${TMP}/err" >&2
+  exit 1
+fi
+if jq -e '[.. | objects | select(.kind == "Namespace")] | length > 0' "${TMP}/norm.json" >/dev/null; then
+  echo "FAIL the existing Namespace was left in the file the pipeline applies" >&2
+  exit 1
+fi
+if ! jq -e 'length == 1 and .[0].kind == "PodDisruptionBudget"' "${TMP}/objects.json" >/dev/null; then
+  echo "FAIL objects.json should list only the PDB" >&2
+  exit 1
+fi
+
+cat > "${TMP}/ns-missing.yaml" <<'YAML'
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: missing-ns
+YAML
+expect_fail "namespace that does not exist" "${TMP}/ns-missing.yaml"
+
+cat > "${TMP}/ns-differs.yaml" <<'YAML'
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: existing-ns
+  labels:
+    team: research
+YAML
+expect_fail "existing namespace with different labels" "${TMP}/ns-differs.yaml"
+
+cat > "${TMP}/clusterrole.yaml" <<'YAML'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: sneaky
+rules: []
+YAML
+expect_fail "cluster-scoped ClusterRole" "${TMP}/clusterrole.yaml"
+if ! grep -q "cluster-scoped objects are refused" "${TMP}/err"; then
+  echo "FAIL a cluster-scoped object must be reported as such, not as a missing kind or name" >&2
+  cat "${TMP}/err" >&2
+  exit 1
+fi
+
 script=$(awk '
   /^            script: \|/ {p=1; next}
   p && /^        volumes:/ {exit}
@@ -135,4 +216,4 @@ if printf '%s\n' "$script" | grep -q '$(params\.'; then
   exit 1
 fi
 
-echo "ok: normalized manifests reject flow, json, missing namespace, hidden daemon, List, and Argo tracking"
+echo "ok: normalized manifests reject flow, json, missing namespace, hidden daemon, List, Argo tracking, missing or changed Namespace, and ClusterRole; drop an existing Namespace"

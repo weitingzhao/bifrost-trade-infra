@@ -85,7 +85,7 @@ jq -r '
       (.kind // ""),
       (.metadata.name // ""),
       group
-    ] | @tsv
+    ] | join("\u001f")
 ' "$rendered" > "$rows"
 
 if [ ! -s "$rows" ]; then
@@ -121,7 +121,11 @@ first=1
 highest=B
 count=0
 
-while IFS=$(printf '\t') read -r ns kind name group; do
+# \037 (unit separator), not tab: tab is IFS whitespace, so an empty namespace
+# used to collapse and shift the row (TD-275).
+sep=$(printf '\037')
+skipped_ns=""
+while IFS=$sep read -r ns kind name group; do
   [ -n "$kind" ] || kind=""
   count=$((count + 1))
   if [ -z "$kind" ] || [ -z "$name" ]; then
@@ -131,6 +135,24 @@ while IFS=$(printf '\t') read -r ns kind name group; do
   if [ "$kind" = "List" ]; then
     echo "List was not expanded; refusing" >&2
     exit 1
+  fi
+  if [ -z "$ns" ] && [ "$kind" = "Namespace" ] && [ -z "$group" ]; then
+    # A Namespace is cluster-scoped. Plugins render their own; drop it from the
+    # apply when it already exists with every rendered label, refuse otherwise.
+    want=$(jq -c --arg n "$name" '
+      [.. | objects | select(.kind == "Namespace" and .metadata.name == $n)][0].metadata.labels // {}
+    ' "$rendered")
+    have=$("$KUBECTL" get namespace "$name" -o jsonpath='{.metadata.labels}' 2>/dev/null) || {
+      echo "Namespace ${name} does not exist (or cannot be read); cluster-scoped objects are refused, use owner_run_command" >&2
+      exit 1
+    }
+    [ -n "$have" ] || have='{}'
+    if ! jq -en --argjson w "$want" --argjson h "$have" '$w | to_entries | all(.value == $h[.key])' >/dev/null; then
+      echo "Namespace ${name} exists but its labels differ from the render; cluster-scoped objects are refused, use owner_run_command" >&2
+      exit 1
+    fi
+    skipped_ns="${skipped_ns}${skipped_ns:+ }${name}"
+    continue
   fi
   if [ -z "$ns" ]; then
     echo "object ${kind}/${name} has no namespace; cluster-scoped objects are refused" >&2
@@ -169,6 +191,24 @@ done < "$rows"
 
 if [ "$count" -eq 0 ]; then
   echo "normalized manifest has no objects" >&2
+  exit 1
+fi
+
+if [ -n "$skipped_ns" ]; then
+  names=$(printf '%s\n' $skipped_ns | jq -R . | jq -cs .)
+  pruned=$(mktemp)
+  jq --argjson names "$names" '
+    def prune:
+      if .kind == "List" then
+        .items |= map(select((.kind == "Namespace" and ((.metadata.name) as $n | $names | index($n))) | not) | prune)
+      else . end;
+    prune
+  ' "$rendered" > "$pruned"
+  mv "$pruned" "$rendered"
+  echo "existing Namespace not applied: ${skipped_ns}" >&2
+fi
+if [ "$first" -eq 1 ]; then
+  echo "nothing to apply after dropping existing Namespaces" >&2
   exit 1
 fi
 

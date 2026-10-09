@@ -1432,7 +1432,11 @@
 
 **P2 · ops-platform · apply_manifest refuses every plugin k8s/base (Namespace, PodDisruptionBudget) and reports cluster-scoped objects as 'missing kind or name'**
 
-- **状态**：未开始
+- **状态**：在做
+- **现在**：10-09 Claude 修好代码，等 Owner 批 apply 和重启 PROD platform-api，然后实测：
+  - 修法：infra 检查脚本改用 `\037` 分隔；Namespace 已存在且标签一致就从 apply 里剔除，否则拒绝；四份策略副本加 PodDisruptionBudget 和 ScrapeConfig（platform `dcc2d21`）；applier 加只读的 `get namespaces`；
+  - 防线：`scripts/check_apply_paths.py`（main 上每个白名单路径渲染一遍，「故意拒绝」之外的拒绝都报错）；`apply-manifest-check_test.sh` 新增 5 个用例；`check_platform_rbac.py` 的 applier 检查加 4 行；
+  - 还差：`kubectl apply -k k8s/platform-rbac`、`kubectl apply -k k8s/cicd/tekton/apply-manifest`、重启 PROD platform-api 让它读到新策略；之后对 market-data 的 `k8s/base` 实测「计划 → C 级 apply」。
 - **Claim**: The LANE-W33C plugin real run planned `bifrost-platform-plugin-market-data` `k8s/base` and the plan failed. The three plugin repos render a `Namespace` (cluster-scoped, always refused) and `PodDisruptionBudget`s (not an allowed kind), so plugins cannot be deployed through apply_manifest at all, which step 3 needs. `k8s/monitoring` also renders a `ScrapeConfig` (not allowed) beside RBAC objects (correctly refused). Separately, `apply-manifest-check.sh` reads its TSV rows with `IFS=<tab>`; tab is IFS whitespace, so an empty namespace collapses and the row shifts, and a cluster-scoped object is reported as 'object is missing kind or name' instead of 'cluster-scoped objects are refused'.
 - **Measured**: MEASURED 2026-10-09 (Claude): `plan-1dfc9375-1791565882` Failed with 'object is missing kind or name'; rendering every allow-listed path at origin/main: market-data `Namespace`x2 + `PodDisruptionBudget`x2, flex-query `Namespace`x1, `bifrost-platform-plugin` (ib-gateway) `PodDisruptionBudget`x3, `k8s/monitoring` `ScrapeConfig`x1 (+ RBAC), `k8s/cicd/tekton` ConfigMaps in cicd and `k8s/cicd/gitea` workloads in cicd (both correctly refused); `k8s/data/logical-backup` and research `k8s/orchestration` pass.
 - **Evidence**:

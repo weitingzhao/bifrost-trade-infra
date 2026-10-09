@@ -199,6 +199,11 @@ def live_new_rules() -> list[str]:
         ("create", "secrets", "research", False),
         ("create", "rolebindings.rbac.authorization.k8s.io", "research", False),
         ("create", "configmaps", "kube-system", False),
+        # TD-275: plugins' PodDisruptionBudgets; Namespaces are read, never written
+        ("patch", "poddisruptionbudgets.policy", "plugin-market-data", True),
+        ("get", "namespaces", "plugin-market-data", True),
+        ("create", "namespaces", "plugin-market-data", False),
+        ("patch", "namespaces", "plugin-market-data", False),
     ):
         args = ["kubectl", "auth", "can-i", verb, resource, "--as", applier, "-n", ns]
         r = subprocess.run(args, capture_output=True, text=True, stdin=subprocess.DEVNULL)
