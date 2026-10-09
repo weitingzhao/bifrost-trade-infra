@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-271** — 平台身份经 Tekton 和 Argo 间接拿到集群管理员的两条路已堵上（LANE-W33B/W33BR，infra `c26df43`、`96dc299`，Owner 10-09 批 A–E 和项目修正）：6 条 ValidatingAdmissionPolicy 生效（平台建的 run 只能用具名 pipelineRef、不能用 resolver、secret 工作区、podTemplate 卷；平台建的 Job / Pod 和 applier 写的工作负载都不能用 host 字段、privileged，账号要在白名单里；平台和 tekton-deliver 改 Application 只能动同步操作）；5 个 Application 迁进 AppProject `bifrost`（来源两仓、目标六个命名空间、集群级只 Namespace），`default` 已清空。验收 PASS 2026-10-09 `96dc299`（`check_admission_guards.py --live`：8 个反例都被对应策略拒绝、正常 run 放行、5 个应用部署的命名空间都在项目目标里；`check_platform_rbac.py --live` 138）。防线：`RATCHETS.md`「Job / applier / 准入文件」。后续：TD-272（tekton-trigger 能在 cicd 建任意 PipelineRun，不在策略匹配范围）
 - **TD-270** — data-clone 的 schedule 与 last-clone 改为每次读取都回读、写入走 `statefile.Update`（platform `2de35b9179c09cdcbfbac2218b4d2eac1036af27`）。验收 PASS 2026-10-09 `2de35b9179c09cdcbfbac2218b4d2eac1036af27`（`DataCloneScheduleShare` / `DataCloneLastReload` / `DataCloneRecordRunSurvives`）。防线：`RATCHETS.md`「data-clone 两进程 Update（TD-270）」。后续：无后续：checklist、approvals、promote、audit 仍是单写者，不在本项
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）、TD-271（10-09 发现：PROD 平台身份经 cicd 的 PipelineRun 和 Argo Application 仍能间接拿到集群管理员；本项验收的直连权限不受影响）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
@@ -24,7 +25,7 @@
 - **TD-157** — 只有一侧有暴露时，空的那侧 wall 和 wall gex 写 NULL（research 0.191.0；回填置空 1,762 个）。验收 PASS 2026-10-08 481c96c（空侧仍写 wall 0 行；10-06 / 10-07 新写入空 call wall 10 / 4、空 put wall 14 / 10）。防线：同上测试文件的 `test_a_side_without_exposure_names_no_wall` 等单边五例。后续：TD-166（zero_gamma 兜底）
 - **TD-166** — 只有累计 net gex 在非零值之间换号才算翻转，没有翻转时日线 `zero_gamma` 写 NULL（research 0.192.0；回填更新 26,878 行）。验收 PASS 2026-10-08 481c96c（从分布重算干跑 changed 0；10-06 / 10-07 新写入空 zero_gamma 33.5% / 35.0%）。防线：同上测试文件的 `test_leaving_zero_is_not_a_crossing` 等 TD-166 九例。后续：前端把空 zero-γ 写成「无翻转」，未立项
 
-**未结 74 项**：P0 0 · P1 6 · P2 27 · P3 41；要你批的 31 项（从总览表的审批列算）。
+**未结 75 项**：P0 0 · P1 6 · P2 27 · P3 42；要你批的 32 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -125,7 +126,7 @@
 
 目标：会动手的维护只由 PROD 的 platform-workers 做，本机与 STG 只观测。已做：本机停手（TD-130 第一步）、STG 不修 IB 也不写发布记录（TD-223）、页面不再触发维护、状态持久化（TD-196）。接着：PROD 自己探测、带时间戳的检查信号，只给 PROD 挂技能并先只报告，再逐项放开；备份只归 CNPG 与 backup-retry；不再清掉失败现场。
 
-项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255, TD-270, TD-271 · 已还：TD-256, TD-257
+项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255, TD-270, TD-271, TD-272 · 已还：TD-256, TD-257
 
 ## 数据边界（接受并留座）
 
@@ -291,6 +292,7 @@
 | [TD-255](#td-255) | P3 | ops-platform | The hourly drift scan deletes every Failed pod it may, including failed backup Job pods in data | 不用批 |
 | [TD-270](#td-270) | P2 | ops-platform | The data-clone schedule an operator sets through the api can be silently reverted by platform-workers, and the api never sees the last clone the workers ran | 不用批 |
 | [TD-271](#td-271) | P2 | ops-platform | The PROD platform ServiceAccount is still cluster-admin by two indirect paths: PipelineRuns in cicd can name the cluster-admin Argo controller account, and Argo Applications it may patch sit in a project that allows any source and destination | 安全/凭据（要你批） |
+| [TD-272](#td-272) | P3 | ops-platform | tekton-trigger can create any PipelineRun in cicd, and no admission policy matches it, so its token is still a path to the cluster-admin Argo controller account | 安全/凭据（要你批） |
 
 ## 条目
 
@@ -1496,8 +1498,8 @@
 
 **P2 · ops-platform · The PROD platform ServiceAccount is still cluster-admin by two indirect paths: PipelineRuns in cicd can name the cluster-admin Argo controller account, and Argo Applications it may patch sit in a project that allows any source and destination**
 
-- **状态**：在做
-- **下一步**：YAML 在 LANE-W33B 的 infra 分支（`k8s/platform-rbac/40-admission.yaml`、`42-appproject-bifrost.yaml`、`k8s/cicd/appprojects/default-empty.yaml`）。`check_admission_guards.py` 无 `--live` 已过。`--live` 要等 Owner apply 之后才能签收，本项不进待你签收。tekton-trigger 未修。
+- **状态**：待你签收
+- **现在**：10-09 已上线（Owner 批 A–E）：`k8s/platform-rbac` apply、5 个 Application 迁进 `bifrost`、`default` 清空。迁项目后 bifrost-research 的同步因为它在 data 里的 NetworkPolicy 不在项目目标里而失败（14:27Z，没 apply 任何东西），项目补上 data（`96dc299`，Owner 执行）后经平台 `gitops_sync_app` 重新同步成功；`--live` 加了「应用部署的命名空间必须在项目目标里」一条。准入策略的 4 条有类型检查告警（字段在某些 kind 上不存在），都在 `||` 短路或 `has()` 里，运行时实测正确。
 - **Claim**: TD-204 took system:masters away, but `bifrost-platform-delivery` still grants create on PipelineRuns and TaskRuns in cicd, and update / patch on Argo Applications. Tekton runs a PipelineRun's tasks under whatever ServiceAccount the run names (`taskRunTemplate.serviceAccountName`, `taskRunSpecs`) and accepts an inline `pipelineSpec`. cicd holds `argocd-application-controller`, which is bound to a ClusterRole with `*` on `*`. Separately, all five Argo Applications are in AppProject `default` (sourceRepos `*`, destinations `*`), so changing an Application's source makes Argo apply anything anywhere. Platform code only sends `pipelineRef` runs and sync / rollback operations; RBAC does not hold it to that. `tekton-trigger` (create PipelineRuns) and `tekton-deliver` (patch Applications) hold the same two rights.
 - **Measured**: MEASURED 2026-10-09 (Claude, read-only; nothing was created or changed). `kubectl auth can-i --as=system:serviceaccount:bifrost-platform-prod:bifrost-platform`: `create pipelineruns.tekton.dev -n cicd` yes, `patch applications.argoproj.io -n cicd` yes, `create pods -n cicd` no. `clusterrole/argocd-application-controller` rules `apiGroups * / resources * / verbs *` plus `nonResourceURLs *`. AppProject `default`: sourceRepos `[*]`, destinations `[{namespace: *, server: *}]`; 5 of 5 Applications use it. Role `cicd/tekton-trigger-runs` has create on pipelineruns; role `cicd/tekton-deliver-argocd` has patch on applications. Not exploited.
 - **Evidence**:
@@ -1508,7 +1510,24 @@
 - **Fix**: (1) ValidatingAdmissionPolicy (built into Kubernetes, k3s 1.35; no new dependency): PipelineRuns and TaskRuns that the platform identity creates in cicd must use `pipelineRef` / `taskRef` and an allow-listed ServiceAccount, never `argocd-*`; Jobs and Pods it creates anywhere may only use allow-listed ServiceAccounts; the platform identity and `tekton-deliver` may change only the sync operation and `targetRevision` of an Application. (2) An AppProject `bifrost` limited to the repos, namespaces and cluster-scoped kinds the five Applications use today; move them into it and empty `default`. `tekton-trigger` is listed, not fixed, here. Planned in `work/ops-arch/LANE-W33B.md` section 4.
 - **Ratchet**: `scripts/check_admission_guards.py --live`: server-side dry-run as each identity. An inline-spec PipelineRun, a run naming the Argo account, a Job with a non-allow-listed ServiceAccount and an Application source change are denied; a normal `pipelineRef` run and a sync are allowed. Plus new deny lines in `check_platform_rbac.py`.
 - 验收: `python3 scripts/check_admission_guards.py --live`（全部 PASS）
+- **验收结果**：PASS 2026-10-09 `96dc299`（8 个反例逐条核对为对应策略拒绝；正常 run、平台与 tekton-deliver 的同步放行；5 个应用部署的命名空间都在项目目标里；`check_platform_rbac.py --live` 138 项一致）
 - 审批 安全/凭据（要你批） · 代价 M · 风险 medium · repos: bifrost-trade-infra
+
+### TD-272
+
+**P3 · ops-platform · tekton-trigger can create any PipelineRun in cicd, and no admission policy matches it, so its token is still a path to the cluster-admin Argo controller account**
+
+- **状态**：未开始
+- **Claim**: TD-271's policies match only the platform identities and tekton-deliver. Role `cicd/tekton-trigger-runs` grants `tekton-trigger` create on PipelineRuns and TaskRuns (and get/list/watch on Secrets in cicd). A run it creates may inline a spec, use a resolver, bind a secret workspace or name `argocd-application-controller`. The EventListener only renders fixed TriggerTemplates, so the exposure is the SA token or the EventListener pod, not an anonymous webhook.
+- **Measured**: MEASURED 2026-10-09 (Claude, read-only). Role rules: `pipelineruns, taskruns` create/get/list; `secrets` get/list/watch. `40-admission.yaml` matchConditions list `bifrost-platform` (STG, PROD) and `tekton-deliver` only.
+- **Evidence**:
+  - `bifrost-trade-infra/k8s/platform-rbac/40-admission.yaml` — `matchConditions` of `bifrost-platform-pipelinerun` / `bifrost-platform-taskrun`
+  - live: `role/tekton-trigger-runs` in cicd
+- **Impact**: Whoever holds the tekton-trigger token is cluster-admin through the Argo account, the same way the platform was before TD-271.
+- **Fix**: Add `system:serviceaccount:cicd:tekton-trigger` to the two run policies' matchConditions, after measuring that its TriggerTemplates only use `pipelineRef` names, volumeClaimTemplate workspaces and the `default` account. Drop the Secrets list/watch from its role if the interceptors do not need it.
+- **Ratchet**: `check_admission_guards.py --live` gains the same inline / resolver / secret-workspace cases as tekton-trigger, plus a normal templated run allowed.
+- 验收: `python3 scripts/check_admission_guards.py --live`（tekton-trigger 的反例被拒、正常 run 放行）
+- 审批 安全/凭据（要你批） · 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ### TD-261
 

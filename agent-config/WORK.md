@@ -442,7 +442,9 @@
     - B：`k8s/platform-rbac` 已 apply，含 applier 身份、平台的 Job 权限、6 条准入策略和 AppProject `bifrost`；
     - D：两条 `--live` 检查都通过，拒绝原因逐条核对过，8 个反例都是被对应的策略拒绝；平台和 `tekton-deliver` 发起同步照常放行；
     - E：`k8s/cicd/tekton/apply-manifest` 已 apply；
-    - **C 未做**：给 5 个 Application 改项目被 auto mode 分类器拦下，交 Owner 在终端执行，之后再清空 default 项目；
+    - C：auto mode 拦下后由 Owner 在终端执行，5 个 Application 已迁进 `bifrost`，`default` 已清空。之后 bifrost-research 的同步失败：它在 data 里有一个 NetworkPolicy，而项目目标漏了 data。补上 data（`96dc299`，Owner 执行）后，经平台 `gitops_sync_app` 同步到 `5029084`，Owner 批准，清单无变化，同步成功；
+    - TD-271 转「待你签收」（`--live` 全过），tekton-trigger 的同类问题登记为 TD-272；
+  - **第 2 步还剩**：STG 发版 → 合 PROD overlay（第 2 部分）并发 PROD → PROD 冒烟 → 只读库账号的 DDL，以及 Owner 设密码。每一步等 Owner 批；
   - 10-09 07:00Z 定时对账 drift 0；
   - 写道时实测发现 TD-271：PROD 平台身份经 cicd 的 PipelineRun 和 Argo Application 仍能间接拿到集群管理员，已登记，并写进 TD-204 待签收行的「后续」；
   - 第 3 步在第 2 步验收后另派
