@@ -413,7 +413,7 @@
 **ops-arch · 第 5 阶段收口（第二波）**
 
 - **类别**：道
-- **状态**：在做
+- **状态**：观察中（到 10-11：周日滚动重启用新节点密钥跑通；退出条件 10-09 已实测满足）
 - **匹配**：LANE-W33、LANE-W33R、LANE-W33B、LANE-W33BR、LANE-W33C、LANE-W33D
 - **现在**：Owner 10-08 定合并四件：① 凭证收口（mini 不再持有管理员 kubeconfig 与 admin 令牌、部署脚本不再同步、remediation runner 与 .52 hermes-gateway 定去留）；② PROD 经代理转到 mini 的 operator 级路由认 PROD 令牌；③ Console 显示待重启节点、滚动重启做成审批动作；④ ⑤ 页给 Research 与插件显示 STG / PROD 两列版本。先讨论分步，任务文件还没写
 - **下一步**（第一批上线进度，10-09 03:3xZ）：
@@ -477,6 +477,15 @@
       - 新发现：节点 root 实际靠 ssh-agent 里的 `id_rsa`（也是 GitHub 密钥），`bifrost_deploy` 没授权到任何节点；
       - 本机 `.env` 和 gitignore 的 Secret 文件里还有 Trade 管理员、UniFi、redis-ib、DB 属主轮换等管理员级凭证；
       - DB 日常密码归 TD-85；
+    - **第 3 步完成（10-09，Owner 执行 1–6 步，Claude 逐步核对）**：
+      - infra 第 1 份 `51e2240`、读权限补齐 `c635fbc`、文档第 2 份 `76cbf90`（AGENT_FACTS §8c、CLAUDE.md / workspace.mdc parity v18、ADR §5 三条接受风险）；
+      - `~/.kube/bifrost-k3s.yaml` 是 `bifrost-agent`，管理员那份在 Owner 目录；本机 bdev platform-api 与 prometheus-pf 跟着只读；
+      - 节点：新密钥带口令、不进 ssh-agent 也不进钥匙串；6 台的 `id_rsa` 那行已删，Agent 侧默认配置与 `id_rsa` / `id_ed25519` 都被拒；`bifrost_deploy` 已删；
+      - `rolling-reboot.sh` 改为能问口令、不读 `~/.ssh/config`、`systemd-run` 排重启、`--execute` 用 Owner kubeconfig（`6932245`）；
+      - `.env` 三份共 10 个键与 `k8s/base/secrets` 6 份已搬进 Owner 目录；本机 platform-api 重启后进程里没有 `UNIFI_*`；
+      - preflight 补丁已应用（`8213875`，112 条通过），实测 5 条拦截生效；第 2 份补丁 `preflight-w33d-2.patch`（kubeconfig 值遇 `;` 误拦、冒号列表与别处同名副本漏拦）待 Owner 应用；
+      - 验收：`check_agent_access.py --live` ok；`release.sh window` 与 `stg --dry-run` exit 0；`check_maintainers --live` drift 0；本机没有其他可连 k3s 的 kubeconfig；B 级冒烟（`create_job_from_cronjob` → `delete_finished_jobs`）被 auto mode 分类器拦，待 Owner 定；
+      - 新登记 TD-277（两个 `--live` 检查要模拟身份）、TD-278（插件 6 个 redis-ib 脚本读不到搬走的密码）；
   - 10-09 07:00Z 定时对账 drift 0；
   - 写道时实测发现 TD-271：PROD 平台身份经 cicd 的 PipelineRun 和 Argo Application 仍能间接拿到集群管理员，已登记，并写进 TD-204 待签收行的「后续」；
   - 第 3 步在第 2 步验收后另派

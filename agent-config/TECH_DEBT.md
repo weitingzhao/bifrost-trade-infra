@@ -20,7 +20,7 @@
 - **TD-255** — 漂移扫描不再删失败现场：只删被驱逐的 Pod，失败的备份 Job Pod 留着（日志可读），只报告模式下一个不删。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「漂移扫描只删 Evicted 测试」。后续：无后续：Job 历史上限与 TTL 负责回收
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 72 项**：P0 0 · P1 6 · P2 23 · P3 43；要你批的 31 项（从总览表的审批列算）。
+**未结 74 项**：P0 0 · P1 6 · P2 23 · P3 45；要你批的 32 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -121,7 +121,7 @@
 
 目标：会动手的维护只由 PROD 的 platform-workers 做，本机与 STG 只观测。已做：本机停手（TD-130 第一步）、STG 不修 IB 也不写发布记录（TD-223）、页面不再触发维护、状态持久化（TD-196）。接着：PROD 自己探测、带时间戳的检查信号，只给 PROD 挂技能并先只报告，再逐项放开；备份只归 CNPG 与 backup-retry；不再清掉失败现场。
 
-项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255, TD-272, TD-276 · 已还：TD-256, TD-257, TD-270, TD-271, TD-273, TD-275
+项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255, TD-272, TD-276, TD-277, TD-278 · 已还：TD-256, TD-257, TD-270, TD-271, TD-273, TD-275
 
 ## 数据边界（接受并留座）
 
@@ -284,6 +284,8 @@
 | [TD-255](#td-255) | P3 | ops-platform | The hourly drift scan deletes every Failed pod it may, including failed backup Job pods in data | 不用批 |
 | [TD-272](#td-272) | P3 | ops-platform | tekton-trigger can create any PipelineRun in cicd, and no admission policy matches it, so its token is still a path to the cluster-admin Argo controller account | 安全/凭据（要你批） |
 | [TD-276](#td-276) | P3 | ops-platform | An apply_manifest run is named apply-<plan id>, so a failed apply of a plan cannot be retried; a new plan is needed | 不用批 |
+| [TD-277](#td-277) | P3 | ops-platform | Since W-33 step 3 the Agent cannot run check_platform_rbac.py --live or check_admission_guards.py --live: both impersonate other service accounts and bifrost-agent may not | 安全/凭据（要你批） |
+| [TD-278](#td-278) | P3 | ops-platform | Six plugin redis-ib scripts still read REDIS_IB_GATEWAY_PASS / REDIS_IB_TRADE_PROD_PASS from the plugin .env, which no longer holds them after move-owner-secrets.sh | 不用批 |
 | [TD-274](#td-274) | P3 | frontend | Symbol faces hide GEX levels that exist when zero gamma is NULL: the dealer level strip needs all four values and the regime cell needs zero gamma, so a chain with no flip (about a third of expiries) shows neither walls nor regime | 不用批 |
 
 ## 条目
@@ -1442,6 +1444,39 @@
 - **Ratchet**: workactions test: two Apply calls for one ready plan create two distinct runs (or the second is refused with a clear message when the first succeeded).
 - 验收: `cd bifrost-platform/api && go test ./internal/workactions -run Apply -count=1`
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-277
+
+**P3 · ops-platform · Since W-33 step 3 the Agent cannot run check_platform_rbac.py --live or check_admission_guards.py --live: both impersonate other service accounts and bifrost-agent may not**
+
+- **状态**：未开始
+- **Claim**: Both live checks prove what other identities can do. `check_platform_rbac.py --live` runs `kubectl auth can-i … --as system:serviceaccount:…`; `check_admission_guards.py --live` runs server dry-run creates as the applier. The Agent kubeconfig is now `bifrost-agent`, which has no `impersonate` verb and cannot create, so both fail before checking anything. The static halves still run. Nothing runs the live halves on a schedule, so a widened RBAC rule or an unloaded admission policy is only seen when the Owner runs them.
+- **Measured**: MEASURED 2026-10-09 with the Agent kubeconfig: `check_platform_rbac.py --live` → rc 2, `cannot impersonate resource "serviceaccounts"`; `check_admission_guards.py --live` → rc 1, `FAIL normal-pipelinerun: denied=True want False` (refused for the Agent itself, not by the policy).
+- **Evidence**:
+  - `bifrost-trade-infra/scripts/check_platform_rbac.py` — `kubectl auth can-i … --as`
+  - `bifrost-trade-infra/scripts/check_admission_guards.py` — dry-run creates as the applier
+- **Impact**: The guarantees W33B, W33C and W33D rest on (the applier cannot start Pods under stronger accounts, the admission policies are loaded and deny) are re-proved only by hand.
+- **Fix**: RBAC check: ask through `SubjectAccessReview` objects instead of `--as`, and give `bifrost-agent` `create subjectaccessreviews` (answers questions about RBAC the Agent can already read; grants nothing). Admission check: needs the applier identity, so it stays Owner-run; run it through `owner_run_command` after any change under `k8s/platform-rbac/`, and say so in the script header.
+- **Ratchet**: `check_agent_access.py --live` asserts `create subjectaccessreviews` is allowed for `bifrost-agent`; `check_platform_rbac.py --live` passes with the Agent kubeconfig.
+- 验收: `KUBECONFIG=~/.kube/bifrost-k3s.yaml python3 scripts/check_platform_rbac.py --live` exits 0 (in bifrost-trade-infra)
+- 审批 要批（新的 RBAC 动词）· 代价 S · 风险 low · repos: bifrost-trade-infra
+
+### TD-278
+
+**P3 · ops-platform · Six plugin redis-ib scripts still read REDIS_IB_GATEWAY_PASS / REDIS_IB_TRADE_PROD_PASS from the plugin .env, which no longer holds them after move-owner-secrets.sh**
+
+- **状态**：未开始
+- **Claim**: LANE-W33D moved the two redis-ib write-user passwords out of `bifrost-platform-plugin/.env` and taught `render-redis-ib-acl.sh` and `redis-ib-env-users.sh` to read the Owner env. Six other scripts still `source "$ROOT/.env"` and expect both keys there. They exec into `data`, which the Agent may not since step 3, so they were already Owner-only; now they fail for the Owner too (empty password, or `REDIS_IB_TRADE_PROD_PASS missing`).
+- **Measured**: MEASURED 2026-10-09: none of the six refers to the Owner env; plugin `.env` has 0 of the two keys after the move.
+- **Evidence**:
+  - `bifrost-platform-plugin/scripts/verify-ib-gateway.sh`, `verify-ib-gateway-live.sh`, `verify-redis-ib.sh`, `verify-trade-quotes-e2e.sh` — `source "$ENV_FILE"`, then `${REDIS_IB_GATEWAY_PASS}` / `${REDIS_IB_TRADE_PROD_PASS}`
+  - `bifrost-platform-plugin/scripts/sync_redis_ib_secrets.sh` — `PROD_PASS="${REDIS_IB_TRADE_PROD_PASS:?}"`
+  - `bifrost-platform-plugin/scripts/sync-redis-ib-dev-compose-config.sh` — `${REDIS_IB_TRADE_PROD_PASS:?…}`
+- **Impact**: The Owner's redis-ib verification and password sync stop working until the keys are exported by hand from the Owner env first. `verify-ib-gateway-live.sh` writes `ib:operator:cmd` as `trade-prod` (an operator ping), so it must stay Owner-only.
+- **Fix**: Fill the two keys the same way `render-redis-ib-acl.sh` does (Owner env, environment wins), and add the six to the Owner-only script list in `preflight.js` through an Owner-applied patch.
+- **Ratchet**: plugin script test: with a plugin `.env` that lacks both keys and an Owner env that has them, each script resolves them; a guard case that each is Owner-only.
+- 验收: `grep -L owner_fill scripts/verify-ib-gateway.sh scripts/verify-ib-gateway-live.sh scripts/verify-redis-ib.sh scripts/verify-trade-quotes-e2e.sh scripts/sync_redis_ib_secrets.sh scripts/sync-redis-ib-dev-compose-config.sh` prints nothing (in bifrost-platform-plugin)
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin, bifrost-trade-infra
 
 ### TD-261
 
