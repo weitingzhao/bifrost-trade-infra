@@ -702,4 +702,5 @@ check-code-health:
 test-role-matrix:
 	python3 -m unittest discover -s k8s/data/role-matrix -p 'test_*.py'
 check-maintainers: ; python3 scripts/check_maintainers.py
+check-config-secrets: ; python3 scripts/scrub_config_secrets.py --check && python3 -m unittest scripts/test_scrub_config_secrets.py
 check-pitr-drill: ; python3 scripts/check_pitr_drill_manifest.py

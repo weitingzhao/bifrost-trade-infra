@@ -1,0 +1,12 @@
+#!/bin/sh
+# TD-280: no credential values in tracked config YAML (all workspace repos are
+# public). Acts only in a repo that ships scripts/scrub_config_secrets.py
+# (bifrost-trade-infra and its worktrees) and only when one of the files it
+# guards is staged. Checks the staged copies; prints file, line and key only.
+top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+check="$top/scripts/scrub_config_secrets.py"
+[ -f "$check" ] || exit 0
+# Older infra worktrees ship a scrub-only script that would rewrite files.
+grep -q -- '--check' "$check" || exit 0
+git diff --cached --name-only --diff-filter=ACMR | grep -qE '^(config/config\.dev\.yaml|k8s/overlays/(dev|stg|prod)/config/config\.(dev|stg|prod)\.yaml)$' || exit 0
+exec python3 "$check" --check --staged
