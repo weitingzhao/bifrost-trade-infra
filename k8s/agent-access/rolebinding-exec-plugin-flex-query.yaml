@@ -1,0 +1,16 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bifrost-agent-exec
+  namespace: plugin-flex-query
+  labels:
+    app.kubernetes.io/part-of: bifrost
+    app.kubernetes.io/name: bifrost-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: bifrost-agent-exec
+subjects:
+  - kind: ServiceAccount
+    name: bifrost-agent
+    namespace: bifrost-access

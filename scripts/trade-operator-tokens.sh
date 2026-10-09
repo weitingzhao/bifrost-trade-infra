@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Owner only. An Agent must not run this script.
+#
 # Owner-run: the Trade operator / admin tokens every Trade write needs (debt TD-23).
 #
 # The Trade API refuses a write from a caller below operator, and a process exit
@@ -69,8 +71,12 @@ with open(path, "w") as f:
     json.dump({"stringData": {k: secrets.token_urlsafe(32) for k in keys}}, f)
 PY
   kubectl -n "$ns" patch secret "$secret" --type merge --patch-file "$tmp" >/dev/null
-  # Keep the gitignored local copy in step, so a later full apply of it does not undo this.
-  local_file="$ROOT/k8s/base/secrets/$secret.yaml"
+  # The gitignored copy lives in the Owner directory (LANE-W33D). A checkout
+  # copy is updated only when the Owner file is not there yet.
+  local_file="${BIFROST_OWNER_SECRETS:-${HOME}/.bifrost-owner/secrets}/$secret.yaml"
+  if [[ ! -f "$local_file" && -f "$ROOT/k8s/base/secrets/$secret.yaml" ]]; then
+    local_file="$ROOT/k8s/base/secrets/$secret.yaml"
+  fi
   if [[ -f "$local_file" ]]; then
     python3 - "$tmp" "$local_file" <<'PY'
 import json, re, sys

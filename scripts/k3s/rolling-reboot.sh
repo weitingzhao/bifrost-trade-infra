@@ -30,7 +30,8 @@
 # Bash 3.2 compatible (macOS /bin/bash).
 set -euo pipefail
 
-SSH_KEY="${BIFROST_SSH_KEY:-${HOME}/.ssh/bifrost_deploy}"
+# Owner only. The node key is not in ssh-agent. An Agent must not run --execute.
+SSH_KEY="${BIFROST_SSH_KEY:-${HOME}/.bifrost-owner/ssh/node}"
 SSH_USER="${BIFROST_SSH_USER:-vision}"
 DATA_NAMESPACE="${DATA_NAMESPACE:-data}"
 CNPG_CLUSTER="${CNPG_CLUSTER:-bifrost-postgres}"

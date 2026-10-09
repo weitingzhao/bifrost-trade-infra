@@ -1,0 +1,15 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: bifrost-agent-exec
+  namespace: plugin-flex-query
+  labels:
+    app.kubernetes.io/part-of: bifrost
+    app.kubernetes.io/name: bifrost-agent
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]

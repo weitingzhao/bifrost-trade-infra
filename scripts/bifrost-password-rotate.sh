@@ -15,7 +15,9 @@
 #                                                 k8s/base/secrets/*.yaml, k8s/data/secrets/*.yaml)
 # The FDW user mappings store brokerage_reader / brokerage_writer passwords: not affected.
 #
-# The old and new values live in this repo's gitignored .env (BIFROST_PG_PASSWORD_PREVIOUS / _NEXT). No
+# Owner only. An Agent must not run this script.
+# The old and new values live in ~/.bifrost-owner/owner.env (BIFROST_PG_PASSWORD_PREVIOUS / _NEXT).
+# POSTGRES_PASSWORD stays in this repo's .env (TD-85). No
 # subcommand prints a password; values travel on stdin or in mode-600 temp files removed on exit.
 #
 #   bifrost-password-rotate.sh holders           who holds the current value (yes / no per holder, from the
@@ -37,7 +39,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORKSPACE="${BIFROST_WORKSPACE:-$(cd "$ROOT/.." && pwd)}"
-ENV_FILE="${BIFROST_TRADE_INFRA_ENV:-$ROOT/.env}"
+ENV_FILE="${BIFROST_ROTATE_ENV:-${BIFROST_OWNER_ENV:-${HOME}/.bifrost-owner/owner.env}}"
+OWNER_SECRETS="${BIFROST_OWNER_SECRETS:-${HOME}/.bifrost-owner/secrets}"
 export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/bifrost-k3s.yaml}"
 KEY_PREV=BIFROST_PG_PASSWORD_PREVIOUS
 KEY_NEXT=BIFROST_PG_PASSWORD_NEXT
@@ -52,6 +55,13 @@ HOLDERS=(
 # Gitignored local files that may carry the value (KEY=value or YAML key: value lines).
 LOCAL_FILES=(
   "$ROOT/.env"
+  "$ENV_FILE"
+  "$OWNER_SECRETS/bifrost-dev-db-owner.yaml"
+  "$OWNER_SECRETS/bifrost-stg-db-owner.yaml"
+  "$OWNER_SECRETS/bifrost-prod-db-owner.yaml"
+  "$OWNER_SECRETS/bifrost-dev-secrets.yaml"
+  "$OWNER_SECRETS/bifrost-stg-secrets.yaml"
+  "$OWNER_SECRETS/bifrost-prod-secrets.yaml"
   "$ROOT/k8s/base/secrets/bifrost-dev-db-owner.yaml"
   "$ROOT/k8s/base/secrets/bifrost-stg-db-owner.yaml"
   "$ROOT/k8s/base/secrets/bifrost-prod-db-owner.yaml"

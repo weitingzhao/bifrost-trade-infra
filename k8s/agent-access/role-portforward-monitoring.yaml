@@ -1,0 +1,17 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: bifrost-agent-portforward
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: bifrost
+    app.kubernetes.io/name: bifrost-agent
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    resourceNames: ["prometheus-kube-prometheus-stack-prometheus-0"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods/portforward"]
+    resourceNames: ["prometheus-kube-prometheus-stack-prometheus-0"]
+    verbs: ["get", "create"]
