@@ -384,13 +384,17 @@ function kubeconfigValueAllowed(raw) {
   if (value === '~/' + ALLOWED_KUBE_TAIL) return true
   if (value === '$HOME/' + ALLOWED_KUBE_TAIL) return true
   if (value === '${HOME}/' + ALLOWED_KUBE_TAIL) return true
-  if (value.startsWith('/') && value.endsWith('/' + ALLOWED_KUBE_TAIL)) return true
+  // One home directory, one file: /tmp/x/.kube/bifrost-k3s.yaml is a copy, and
+  // a:b is a list kubectl merges (the first file's context wins).
+  if (/^\/(?:Users|home)\/[^/:\s]+\/\.kube\/bifrost-k3s\.yaml$/.test(value)) return true
   return false
 }
 
 function foreignKubeconfig(cmd) {
   const text = String(cmd || '')
-  const re = /(?:^|[\s;&|`(])(?:export\s+)?KUBECONFIG=("[^"]*"|'[^']*'|\S+)|--kubeconfig(?:=|\s+)("[^"]*"|'[^']*'|\S+)/g
+  // An unquoted value ends at a shell separator: `KUBECONFIG=~/.kube/bifrost-k3s.yaml;`
+  // is the allowed file followed by `;`.
+  const re = /(?:^|[\s;&|`(])(?:export\s+)?KUBECONFIG=("[^"]*"|'[^']*'|[^\s;&|`()<>]+)|--kubeconfig(?:=|\s+)("[^"]*"|'[^']*'|[^\s;&|`()<>]+)/g
   let match
   while ((match = re.exec(text))) {
     const value = match[1] || match[2]
