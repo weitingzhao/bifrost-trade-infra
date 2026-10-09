@@ -351,6 +351,88 @@ function approvalGuard(toolName, input, cmd) {
   return null
 }
 
+
+// ─────────────────────── Owner 凭证（LANE-W33D） ───────────────────────
+//
+// Cursor 与 Claude 共用这一份闸门（scripts/agent-guard/preflight.js）。
+// Cursor 侧不用另改。Owner 应用 preflight-w33d.patch 之后才生效。
+// Bash、Read、Grep、Glob 的路径或文本里出现 Owner 目录或 owner.env 就拒绝。
+// KUBECONFIG= 或 --kubeconfig 指向 ~/.kube/bifrost-k3s.yaml 以外也拒绝。
+// ~、$HOME、${HOME} 和绝对路径都认。未设置 KUBECONFIG 的命令放行。
+
+const OWNER_MARK = '.bifrost-' + 'owner'
+const OWNER_ENV_MARK = 'owner' + '.env'
+const ALLOWED_KUBE_TAIL = '.kube/bifrost-k3s.yaml'
+
+function ownerToolText(toolName, input, cmd) {
+  const parts = []
+  if (cmd) parts.push(String(cmd))
+  if (input && typeof input === 'object') {
+    for (const field of ['command', 'file_path', 'path', 'pattern', 'glob_pattern', 'target_directory']) {
+      if (input[field]) parts.push(String(input[field]))
+    }
+    try { parts.push(JSON.stringify(input)) } catch { parts.push(String(input)) }
+  }
+  return parts.join('\n')
+}
+
+function kubeconfigValueAllowed(raw) {
+  let value = String(raw || '').trim()
+  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+    value = value.slice(1, -1).trim()
+  }
+  if (value === '~/' + ALLOWED_KUBE_TAIL) return true
+  if (value === '$HOME/' + ALLOWED_KUBE_TAIL) return true
+  if (value === '${HOME}/' + ALLOWED_KUBE_TAIL) return true
+  if (value.startsWith('/') && value.endsWith('/' + ALLOWED_KUBE_TAIL)) return true
+  return false
+}
+
+function foreignKubeconfig(cmd) {
+  const text = String(cmd || '')
+  const re = /(?:^|[\s;&|`(])(?:export\s+)?KUBECONFIG=("[^"]*"|'[^']*'|\S+)|--kubeconfig(?:=|\s+)("[^"]*"|'[^']*'|\S+)/g
+  let match
+  while ((match = re.exec(text))) {
+    const value = match[1] || match[2]
+    if (!kubeconfigValueAllowed(value)) return value
+  }
+  return null
+}
+
+// Scripts that read the Owner's credentials (owner.env, the admin kubeconfig,
+// the node key). The gate only sees command text, so running one would read
+// what a direct cat is refused. Tests (*_test.sh) stay allowed.
+const OWNER_SCRIPT_RE = new RegExp([
+  'scripts/owner/(?:make-agent-kubeconfig|move-owner-secrets|owner-run|owner-env)\\.sh',
+  'materialize_k8s_trade_secrets\\.py',
+  'trade-operator-tokens\\.sh',
+  'bifrost-password-rotate\\.sh',
+  'sync_redis_ib_trade_config\\.sh',
+  'redis-ib-env-users\\.sh',
+  'render-redis-ib-acl\\.sh',
+  'scripts/unifi_(?![A-Za-z0-9_]*_test\\.)[A-Za-z0-9_]+\\.(?:sh|py)',
+].join('|'))
+
+function ownerScript(cmd) {
+  return OWNER_SCRIPT_RE.test(String(cmd || ''))
+}
+
+function ownerCredentialGuard(toolName, input, cmd) {
+  const name = String(toolName || '')
+  const watched = /^(Bash|Read|Grep|Glob)$/.test(name)
+  const command = cmd || (input && input.command) || ''
+  if (!watched && !command) return null
+  const effective = watched ? name : 'Bash'
+  const text = ownerToolText(effective, input, command)
+  const sentence = '这是 Owner 的凭证，写操作走平台动作或 owner_run_command'
+  if (text.includes(OWNER_MARK) || text.includes(OWNER_ENV_MARK)) return sentence
+  if (effective === 'Bash') {
+    if (foreignKubeconfig(command || text)) return sentence
+    if (ownerScript(command)) return sentence + '（这是只给 Owner 运行的脚本）'
+  }
+  return null
+}
+
 // ─────────────────────────────── 判定 ───────────────────────────────
 
 function evaluate(payload) {
@@ -361,6 +443,9 @@ function evaluate(payload) {
 
   const locked = d10Status() !== 'UNLOCKED'
   const cmd = String(input.command ?? payload.command ?? '')
+
+  const owner = ownerCredentialGuard(toolName, input, cmd)
+  if (owner) return { deny: true, kind: 'owner', reason: owner }
 
   const approval = approvalGuard(toolName, input, cmd)
   if (approval) return { deny: true, kind: 'approval', reason: approval }
@@ -422,6 +507,13 @@ function denyMessage(kind, reason) {
       `参见 CLAUDE.md §5「共享工作树」/ .cursor/rules/shared-worktree.mdc`
     )
   }
+  if (kind === 'owner') {
+    return (
+      '【Owner 凭证】拦截原因：' + reason + '。\n' +
+      '这是 Owner 的凭证，写操作走平台动作或 `owner_run_command`。\n' +
+      'Cursor 与 Claude 共用这一份闸门。不要读 Owner 目录，不要把 KUBECONFIG 指到 ~/.kube/bifrost-k3s.yaml 以外。'
+    )
+  }
   return (
     `【Dev 服务管理规范】拦截原因：${reason}。\n` +
     `参见 CLAUDE.md §4 / .cursor/rules/dev-services.mdc。优先用 MCP ` +
@@ -449,6 +541,8 @@ function main() {
   const verdict = payload
     ? evaluate(payload)
     : (() => {
+        const owner = ownerCredentialGuard('', null, raw)
+        if (owner) return { deny: true, kind: 'owner', reason: owner }
         const dev = devServiceRules(raw)
         if (dev) return { deny: true, kind: 'dev-services', reason: dev }
         const approval = approvalGuard('', null, raw)

@@ -20,6 +20,9 @@ const REJECT_URL = APPR + 'req-1/' + 'reject'
 const TOKEN_FILE = 'mcp-tokens' + '.env'
 const ADMIN_KEY = 'PLATFORM_' + 'ADMIN_TOKEN'
 const HASH_PAGE = '#' + 'approvals'
+const OWNER_DIR = '.bifrost-' + 'owner'
+const OWNER_ENV = 'owner' + '.env'
+const KUBE_OK = '.kube/bifrost-k3s.yaml'
 
 const cases = [
   // ── D10 应拦截 ──
@@ -157,6 +160,36 @@ const cases = [
   ['appr', 'ALLOW', '其他 MCP 写工具',
     tool('mcp__bifrost-platform__start_pipeline_run', { name: 'ci-example' })],
 
+  // ── Owner 凭证（LANE-W33D）。Cursor 与 Claude 共用这一份闸门。──
+  ['own', 'DENY', 'cat Owner 目录', bash('cat ~/' + OWNER_DIR + '/' + OWNER_ENV)],
+  ['own', 'DENY', 'Read Owner 目录', tool('Read', { file_path: '/Users/x/' + OWNER_DIR + '/' + OWNER_ENV })],
+  ['own', 'DENY', 'Grep owner env', tool('Grep', { pattern: OWNER_ENV, path: 'src' })],
+  ['own', 'DENY', 'Glob owner env', tool('Glob', { glob_pattern: '**/*' + OWNER_ENV + '*' })],
+  ['own', 'DENY', 'KUBECONFIG=~ 指向别的文件', bash('KUBECONFIG=~/.kube/admin.yaml kubectl get pods')],
+  ['own', 'DENY', 'KUBECONFIG=$HOME 指向别的文件', bash('KUBECONFIG=$HOME/.kube/admin.yaml kubectl get pods')],
+  ['own', 'DENY', 'KUBECONFIG=${HOME} 指向别的文件', bash('KUBECONFIG=${HOME}/.kube/admin.yaml kubectl get pods')],
+  ['own', 'DENY', 'KUBECONFIG 绝对路径指向别的文件', bash('KUBECONFIG=/Users/x/.kube/admin.yaml kubectl get pods')],
+  ['own', 'DENY', '--kubeconfig 指向别的文件', bash('kubectl --kubeconfig ~/.kube/admin.yaml get pods')],
+  ['own', 'DENY', '--kubeconfig= Owner 目录', bash('kubectl --kubeconfig=/Users/x/' + OWNER_DIR + '/kube/admin.yaml get pods')],
+  ['own', 'ALLOW', 'KUBECONFIG=~ 只读 kubeconfig', bash('KUBECONFIG=~/' + KUBE_OK + ' kubectl get pods')],
+  ['own', 'ALLOW', 'KUBECONFIG=$HOME 只读 kubeconfig', bash('KUBECONFIG=$HOME/' + KUBE_OK + ' kubectl get pods')],
+  ['own', 'ALLOW', 'KUBECONFIG=${HOME} 只读 kubeconfig', bash('KUBECONFIG=${HOME}/' + KUBE_OK + ' kubectl get pods')],
+  ['own', 'ALLOW', 'KUBECONFIG 绝对路径只读 kubeconfig', bash('KUBECONFIG=/Users/x/' + KUBE_OK + ' kubectl get pods')],
+  ['own', 'ALLOW', '未设置 KUBECONFIG 的 kubectl get pods', bash('kubectl get pods')],
+  ['own', 'DENY', 'Agent 运行 Owner 脚本 move-owner-secrets', bash('bash scripts/owner/move-owner-secrets.sh')],
+  ['own', 'DENY', 'Agent 运行 Owner 脚本 make-agent-kubeconfig', bash('bash scripts/owner/make-agent-kubeconfig.sh /tmp/x')],
+  ['own', 'DENY', 'Agent 运行 Owner 脚本 owner-run', bash('bash scripts/owner/owner-run.sh appr_x')],
+  ['own', 'DENY', 'Agent 运行 Secret 物化', bash('python3 scripts/materialize_k8s_trade_secrets.py --env prod')],
+  ['own', 'DENY', 'Agent 运行 redis-ib ACL 渲染', bash('scripts/render-redis-ib-acl.sh > /tmp/acl')],
+  ['own', 'DENY', 'Agent 运行 redis-ib 用户脚本', bash('bash scripts/redis-ib-env-users.sh status')],
+  ['own', 'DENY', 'Agent 运行 UniFi 脚本', bash('python3 scripts/unifi_firewall_setup.py --dry-run')],
+  ['own', 'DENY', 'Agent 运行属主密码轮换', bash('bash scripts/bifrost-password-rotate.sh --check')],
+  ['own', 'ALLOW', 'Owner 脚本的测试照常运行', bash('bash scripts/owner/move-owner-secrets_test.sh')],
+  ['own', 'ALLOW', 'owner-run 的测试照常运行', bash('bash scripts/owner/owner-run_test.sh')],
+  ['own', 'ALLOW', 'UniFi 凭证读取的测试照常运行', bash('python3 scripts/unifi_owner_env_test.py')],
+  ['own', 'ALLOW', 'Edit 文档正文可以提到 Owner 目录',
+    tool('Edit', { file_path: '/x/docs/note.md', old_string: 'x', new_string: 'see ~/' + OWNER_DIR + '/' + OWNER_ENV })],
+
   // ── 畸形输入 ──
   ['edge', 'ALLOW', '空输入', null],
 ]
@@ -164,11 +197,14 @@ const cases = [
 let pass = 0, fail = 0
 let group = ''
 for (const [g, want, name, payload] of cases) {
-  if (g !== group) { group = g; console.log(`\n── ${{ D10: 'D10 交易执行冻结', dev: 'dev-services', ok: '合法操作（不得误拦）', appr: '审批旁路（ADR §5）', edge: '边界输入' }[g]} ──`) }
+  if (g !== group) { group = g; console.log(`\n── ${{ D10: 'D10 交易执行冻结', dev: 'dev-services', ok: '合法操作（不得误拦）', appr: '审批旁路（ADR §5）', own: 'Owner 凭证（LANE-W33D）', edge: '边界输入' }[g]} ──`) }
   const r = spawnSync('node', [GUARD], { input: payload ? JSON.stringify(payload) : '', encoding: 'utf8' })
   const got = (r.stdout || '').trim() ? 'DENY' : 'ALLOW'
   let ok = got === want
   if (ok && g === 'appr' && want === 'DENY' && !String(r.stdout).includes('ADR §5')) {
+    ok = false
+  }
+  if (ok && g === 'own' && want === 'DENY' && !String(r.stdout).includes('这是 Owner 的凭证，写操作走平台动作或 owner_run_command')) {
     ok = false
   }
   ok ? pass++ : fail++
