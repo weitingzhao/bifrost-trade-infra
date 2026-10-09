@@ -124,52 +124,38 @@ STG / PROD 的平台发版另一次批准。STG 能看见新动作，执行器�
 - TD-271 等 apply 和 `--live` 通过后再进待你签收。
 - `tekton-trigger`（`cicd/tekton-trigger-runs` 可以创建 PipelineRun）和本道修的是同一类能力，本道没有改它。
 - 只读数据库账号停在列名命中上。要换授权方式需要 Owner 另定，本道没有换。
-- 旧文字没有清完。`agentTaskCatalog.ts` 零引用，已删。`agentScopes.ts` 仍被 checklist 与 fleet snapshot 引用，没有删。下面这些文件仍能被 `grep -rniE 'remediation runner|remediation-runner|hermes|:8781|:8782' console/src api/internal mcp` 命中，不完全是「已退役」测试：
+- 旧文字已收口。platform `c7a4821017b41f0b54bd71b3622833609d159e0f`（`cursor/w33b-platform`，接在 `2de35b9` 之后）。`/api/v1/hermes` 与 `/api/v1/agent/hermes` 没有挂载。只为退役网关服务的探测、JSON 字段和零引用类型已删。`agentScopes.ts` 仍被 checklist 与 fleet snapshot 引用，没有删。用户可见文案改成 Mac mini 跑 operator-plane 和 peer-watchdog，.50 负责告警中转。`grep -rniE 'remediation runner|remediation-runner|hermes|:8781|:8782' console/src api/internal mcp` 只剩这些行，每行都写着「已退役」：
 
 ```
-api/internal/mcp/catalog.go
-api/internal/agentbridge/handler.go
-api/internal/agentbridge/handler_test.go
-api/internal/server/server.go
-api/internal/server/server_test.go
-api/internal/server/layering_test.go
-api/internal/agentgovernance/skillrun.go
-api/internal/agentgovernance/outcome.go
-api/internal/delivery/supply_chain.go
-api/internal/checklist/prober_test.go
-api/internal/operatorplane/plane.go
-api/internal/launchd/list_test.go
-console/src/pages/AutonomousSkillsPage.tsx
-console/src/api/agentTypes.ts
-console/src/api/opsContextTypes.ts
-console/src/lib/standards/designSystemCatalog.ts
-console/src/lib/task-mode/taskModeCatalog.ts
-console/src/lib/task-mode/taskModeVisual.ts
-console/src/lib/observability/attentionRemediationCatalog.ts
-console/src/lib/observability/observabilityViewModel.ts
-console/src/lib/observability/__tests__/observabilityViewModel.test.ts
-console/src/lib/cluster/clusterFailureTriage.ts
-console/src/lib/observability/alertMapping.ts
-console/src/lib/shell/consoleRoutes.ts
-console/src/lib/observability/signalRegistry.ts
-console/src/lib/delivery/deliverPlatformPhases.ts
-console/src/lib/control-room/__tests__/missionSignals.test.ts
-console/src/lib/control-room/controlRoomOperatePack.ts
-console/src/lib/agent/__tests__/macHostRole.test.ts
-console/src/lib/control-room/fleetSnapshot/buildVendorCell.ts
-console/src/lib/control-room/__tests__/fleetSnapshot.test.ts
-console/src/lib/agent/operatorPlaneFixPrompt.ts
-console/src/lib/agent/playbookAgentPrompts.ts
-console/src/lib/agent/macHostRole.ts
-console/src/lib/control-room/fleetSnapshot/types.ts
-console/src/lib/architecture/consoleSeatCatalog.ts
-console/src/lib/architecture/cicdBootstrapCatalog.ts
-console/src/lib/architecture/postQaOwnerGatePack.ts
-console/src/lib/architecture/systemDomainCatalog.ts
-console/src/lib/architecture/blueprintCatalog.ts
-console/src/lib/architecture/dualFlywheelVisionCatalog.ts
+api/internal/server/server_test.go:200
+api/internal/server/server_test.go:201
+api/internal/server/server_test.go:202
+api/internal/server/server_test.go:218
+api/internal/server/server_test.go:240
 ```
 
-用户可见的几处已经改成 operator plane / .50 告警中转（environments catalog、Rocket 子系统、每日检查里原来的 Hermes 行）。其余命中还在。
+`TestRetiredRoutesAre404` 用这些路径断言 404。路由没挂上，字符串必须留着，否则测不到「还是 404」。
+
+```
+api/internal/launchd/list_test.go:12
+api/internal/launchd/list_test.go:24
+```
+
+launchd 解析夹具仍用历史 plist 名 `com.bifrost.remediation-runner`。这是测试夹具，不是现役服务。
+
+```
+api/internal/delivery/supply_chain.go:25
+console/src/lib/delivery/deliverPlatformPhases.ts:5
+```
+
+供应链检查仍按 ConfigMap 名 `bifrost-remediation-runner-stg-dockerfile` 查找。改掉名字，检查就不再看见这份历史 ConfigMap。
+
+```
+console/src/lib/shell/consoleRoutes.ts:38
+console/src/lib/shell/consoleRoutes.ts:93
+console/src/lib/shell/consoleRoutes.ts:134
+```
+
+旧书签 `#hermes-status` 仍转到 infrastructure。座位表里已经没有这个座位。
 
 - 没有开始 LANE-W33C。
