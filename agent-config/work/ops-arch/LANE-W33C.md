@@ -2,8 +2,6 @@
 
 登记：`agent-config/WORK.md` 的 W-33（匹配 LANE-W33C）。依据：`LANE-W33B.md`「〇」第 4 条（Owner 2026-10-09 定）。本道是第 3 步（Mac 上的 Agent 换只读 kubeconfig）的前提：今天的发版链有好几处用管理员 kubeconfig 直接写集群，换只读以后都会断。
 
-> **派给 Cursor 之前，先由 Owner 定下面「〇」节的四件。** 定了以后把「待定」改成「已定」，删掉没选的选项。
-
 仓库与分支（都从最新 origin/main 开独立 worktree）：
 
 - bifrost-platform · `cursor/w33c-platform`
@@ -16,57 +14,25 @@
 - `scripts/release/release.sh` 的头注释；
 - `agent-config/claude/skills/research-release/SKILL.md`。
 
-## 〇、要 Owner 定的四件（待定）
+## 〇、Owner 已定的四件（2026-10-09，全部按推荐）
 
-### 1. PROD 的 pinned run 改成什么形式
+1. **PROD 的 pinned run 改成「`pipelineRef` 加逐仓参数」**：
+   - `bifrost-deliver-prod` 增加 `coreRevision`、`workerRevision`、`apiRevision`、`frontendRevision`、`uiRevision`、`infraRevision`，6 个 clone 任务各用自己那个；
+   - pinned run 经平台 `start_pipeline_run` 起，PROD 是 C 级，要审批；
+   - 准入策略不放宽。
 
-**问题**：现在 PROD 的 pinned run，是把 `pipeline/bifrost-deliver-prod` 整份内联成 `pipelineSpec`，再把 6 个 clone 任务的 revision 改成 STG 跑过的 SHA，由 release.sh 用 kubectl 直接建。这条路有两个毛病：
-
-- 第 3 步之后，Agent 没有在 cicd 建 PipelineRun 的权限；
-- TD-271 的准入策略禁止平台身份建内联 spec 的 run。所以这条路也不能简单地搬到平台上。
-
-**选项**：
-
-- **A（推荐）Pipeline 加逐仓参数**：`bifrost-deliver-prod` 增加 6 个参数 `coreRevision`、`workerRevision`、`apiRevision`、`frontendRevision`、`uiRevision`、`infraRevision`，6 个 clone 任务各用自己那个。pinned run 变成「`pipelineRef` 加参数」，经平台 `start_pipeline_run` 起。PROD 是 C 级，要审批，正好对应「PROD 发版要 Owner 点头」。准入策略不用放宽。
-- B 平台新增专用动作「从 STG run 生成 pinned run」，由平台去内联，准入策略给这个动作开例外。这会削弱 TD-271 刚堵上的那条路。
-- C 第 3 步之后，PROD 的 Trade 发版由 Owner 亲手跑 release.sh。
-
-### 2. 发布窗口由谁持有
-
-**现状**：
-
-- 窗口的权威是本机文件 `~/.bifrost-release/window.json`；
-- `release.sh hold` 再用 kubectl 把它写成 ConfigMap `cicd/bifrost-release-window`；
-- 平台的 `start_pipeline_run`，以及插件构建、Dagster、deliver-research 流水线的第一个任务，都读这个 ConfigMap。
-
-**选项**：
-
-- **A（推荐）窗口归平台**：平台新增 `GET`、`PUT`、`DELETE /api/v1/delivery/release-window`，B 级，用 operator 令牌。平台本来就有 cicd ConfigMap 的写权限。`release.sh hold / window / --clear` 改调这几个接口，本机文件退役。这样多台机器、多个会话看到的是同一份窗口。
-- B 本机文件仍是权威，平台接口只负责写 ConfigMap 这一份镜像。
-
-### 3. Gitea 镜像同步交给平台（顺带修 TD-273）
-
-**现状**：
-
-- `release.sh` 经 `scripts/k3s/bootstrap-gitea-mirrors.sh` 同步镜像。它要读 `gitea-bootstrap` Secret 里的 Gitea 管理令牌，第 3 步之后读不到；
-- `plan_manifest` 也会因为镜像还没同步，拿不到刚推的提交（TD-273）。
-
-**选项**：
-
-- **A（推荐）平台新增同步接口**：`POST /api/v1/delivery/mirrors/sync`，B 级，参数是仓库名列表（只接受白名单里的仓库，白名单在配置里）。平台调 Gitea 的 `mirror-sync` 接口，再轮询到目标提交出现为止。平台本来就能读 `gitea-bootstrap`。release.sh 和 `plan_manifest` 都用它：`Plan` 起 run 之前先同步。
-- B 只修 `plan_manifest`（TD-273），release.sh 的镜像同步留给 Owner。
-
-### 4. `start_pipeline_run` 带任意参数
-
-**现状**：
-
-- 平台只认 `revision` 和 `tag`，而且按流水线名写死了对应关系（`delivery/service.go` 的 `pipelineRunParams`，里面直接写着 market-data 的镜像仓库名）。这本身违反「平台不认识具体应用」；
-- 1-A 要求能传 6 个 revision。
-
-**选项**：
-
-- **A（推荐）通用参数**：`start_pipeline_run` 增加可选的 `params`（名字到字符串的映射）。平台从集群读这条 Pipeline 声明的参数，名字没声明过的拒绝。值只允许 `^[A-Za-z0-9._/:@-]{1,200}$`。`revision`、`tag` 和现有的写死对应关系保留一版，兼容现有调用方。MCP 工具同步加 `params`。
-- B 只为 `bifrost-deliver-prod` 再写死 6 个参数，平台继续认识具体流水线。
+   原因：现在的 pinned run 把整条 Pipeline 内联成 `pipelineSpec`，由 release.sh 用 kubectl 直接建。第 3 步之后 Agent 没有这个权限，TD-271 的准入策略也禁止平台身份建内联 spec 的 run。
+2. **发布窗口归平台**：
+   - 平台提供 `GET`、`PUT`、`DELETE /api/v1/delivery/release-window`，写的就是现在的 ConfigMap `cicd/bifrost-release-window`，格式不变；
+   - `release.sh hold / window / --clear` 改调这几个接口；
+   - 本机 `~/.bifrost-release/window.json` 退役。
+3. **Gitea 镜像同步交给平台**：
+   - 平台提供 `POST /api/v1/delivery/mirrors/sync`；
+   - release.sh 和 `plan_manifest` 都用它（顺带修 TD-273）；
+   - release.sh 不再调 `bootstrap-gitea-mirrors.sh`，不再读 `gitea-bootstrap` Secret。
+4. **`start_pipeline_run` 带通用参数 `params`**：
+   - 只接受该 Pipeline 声明过的参数名；
+   - 旧的 `revision`、`tag` 和写死的对应关系保留一版，兼容现有调用方。
 
 ## 事实（2026-10-09 实测；platform main `e2d5137`，infra main `9def22c`）
 
@@ -91,8 +57,6 @@
   - 平台的 `start_pipeline_run` 对 kaniko 流水线会自己加 `taskRunSpecs`（`tekton-deliver`），准入策略放行。
 
 ## 要做
-
-按〇节的推荐写。Owner 选了别的选项时，Claude 先改这一节再派道。
 
 ### 一、platform
 
