@@ -218,6 +218,12 @@ def live_problems() -> list[str]:
         ("yes", "get", "pods", ["--subresource=log", "-n", "research"]),
         # Subresources need --subresource: "pods/exec" as a resource name is
         # always "no", which made the yes rows fail and the no rows pass blind.
+        ("yes", "list", "nodes", []),
+        ("yes", "list", "persistentvolumes", []),
+        ("yes", "get", "services/proxy", ["-n", "monitoring"]),
+        ("yes", "list", "clusterroles.rbac.authorization.k8s.io", []),
+        ("no", "create", "services/proxy", ["-n", "monitoring"]),
+        ("no", "patch", "nodes", []),
         ("yes", "create", "pods", ["--subresource=exec", "-n", "research"]),
         ("yes", "create", f"pods/{PROM}", ["--subresource=portforward", "-n", "monitoring"]),
         ("no", "get", "secrets", ["-A"]),
