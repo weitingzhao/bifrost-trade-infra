@@ -96,7 +96,7 @@ platform_send() {
   if [[ "${role}" == "viewer" ]]; then
     key=PLATFORM_PROD_VIEWER_TOKEN
   else
-    key=PLATFORM_OPERATOR_TOKEN
+    key=PLATFORM_PROD_OPERATOR_TOKEN
   fi
   token="$(require_token "${key}")"
   cfg="$(mktemp)"

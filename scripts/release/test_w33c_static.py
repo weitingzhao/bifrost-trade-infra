@@ -9,6 +9,20 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class ReleaseChainStaticTests(unittest.TestCase):
+    def test_release_sh_reads_prod_tokens_listed_in_env_example(self) -> None:
+        # release.sh once read PLATFORM_OPERATOR_TOKEN, a key infra .env does not
+        # have (and platform/.env uses for the local api): every real write
+        # would have failed, or sent a local token to PROD (W-33 review).
+        import re
+
+        text = (ROOT / "scripts/release/release.sh").read_text(encoding="utf-8")
+        example = (ROOT / ".env.example").read_text(encoding="utf-8")
+        keys = set(re.findall(r"\b(PLATFORM_[A-Z_]*TOKEN)\b", text))
+        self.assertTrue(keys)
+        for key in keys:
+            self.assertIn("_PROD_", key, f"{key} is not a PROD platform token")
+            self.assertRegex(example, rf"(?m)^{key}=", f"{key} missing from .env.example")
+
     def test_release_sh_does_not_create_objects_itself(self) -> None:
         text = (ROOT / "scripts/release/release.sh").read_text(encoding="utf-8")
         for forbidden in (
