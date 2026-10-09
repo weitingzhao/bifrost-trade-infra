@@ -30,8 +30,12 @@
 # Bash 3.2 compatible (macOS /bin/bash).
 set -euo pipefail
 
-# Owner only. The node key is not in ssh-agent. An Agent must not run --execute.
+# Owner only. An Agent must not run --execute. The node key has a passphrase
+# and is not in ssh-agent; ssh asks for the passphrase once per node.
 SSH_KEY="${BIFROST_SSH_KEY:-${HOME}/.bifrost-owner/ssh/node}"
+# The default kubeconfig (~/.kube/bifrost-k3s.yaml) is the Agent's read-only
+# identity since W-33 step 3; it cannot cordon or drain. --execute uses this one.
+OWNER_KUBECONFIG="${OWNER_KUBECONFIG:-${HOME}/.bifrost-owner/kube/admin.yaml}"
 SSH_USER="${BIFROST_SSH_USER:-vision}"
 DATA_NAMESPACE="${DATA_NAMESPACE:-data}"
 CNPG_CLUSTER="${CNPG_CLUSTER:-bifrost-postgres}"
@@ -60,7 +64,10 @@ Usage: rolling-reboot.sh [--dry-run] [--execute --approval <id>] [--allow-weekda
   --execute         Perform the plan. Requires --approval. Refused on Mon-Fri US Eastern.
   --approval <id>   With --execute, an executed rolling_reboot approval that has not expired.
   --allow-weekday   With --execute, run outside the weekend and print a warning.
-  --nodes           Override the node list. Roles: general, control-plane,
+                    --execute uses OWNER_KUBECONFIG (default
+                    ~/.bifrost-owner/kube/admin.yaml) and BIFROST_SSH_KEY
+                    (default ~/.bifrost-owner/ssh/node).
+  --nodes          Override the node list. Roles: general, control-plane,
                     prod, data. Optional third field is the SSH address.
                     The current primary is read from CNPG, not from the role.
 
@@ -549,7 +556,14 @@ node_ssh() {
   local ip
   ip="$1"
   shift
-  ssh -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=accept-new \
+  # -F /dev/null: ~/.ssh/config sets UseKeychain and AddKeysToAgent for Host *,
+  # which would save the passphrase in the Keychain or the key in ssh-agent,
+  # where any process of this user could use it. No BatchMode, so ssh can ask
+  # for the passphrase. publickey only: a wrong passphrase fails instead of
+  # falling back to a password prompt.
+  ssh -F /dev/null -o IdentitiesOnly=yes -o IdentityAgent=none \
+    -o PreferredAuthentications=publickey -o ConnectTimeout=8 \
+    -o StrictHostKeyChecking=accept-new \
     -i "$SSH_KEY" "${SSH_USER}@${ip}" "$@"
 }
 
@@ -623,13 +637,16 @@ run_node() {
     --delete-emptydir-data \
     --grace-period=120 \
     --timeout="$DRAIN_TIMEOUT"
-  echo "==> reboot ${node} (${ip})"
+  echo "==> reboot ${node} (${ip}); ssh asks for the node key passphrase"
+  # systemd-run queues the reboot 5s out and returns, so the session ends
+  # cleanly: exit 0 means the reboot is scheduled. Any other exit, 255
+  # included (wrong passphrase, refused key, no route), means it is not.
   set +e
-  node_ssh "$ip" "sudo -n systemctl reboot"
+  node_ssh "$ip" "sudo -n systemd-run --on-active=5 /usr/bin/systemctl reboot"
   rc=$?
   set -e
-  if [ "$rc" -ne 0 ] && [ "$rc" -ne 255 ]; then
-    echo "ERROR: reboot ssh to ${node} failed (exit ${rc})" >&2
+  if [ "$rc" -ne 0 ]; then
+    echo "ERROR: could not schedule the reboot on ${node} (ssh exit ${rc}). ${node} is still cordoned and drained; fix SSH and rerun, or uncordon it with the Owner kubeconfig." >&2
     return 1
   fi
   echo "==> wait Ready ${node}"
@@ -772,7 +789,19 @@ execute_plan() {
   echo "rolling-reboot: complete"
 }
 
-export KUBECONFIG="${KUBECONFIG:-${PLATFORM_KUBECONFIG:-${HOME}/.kube/bifrost-k3s.yaml}}"
+if [ "$DRY_RUN" = "1" ]; then
+  export KUBECONFIG="${KUBECONFIG:-${PLATFORM_KUBECONFIG:-${HOME}/.kube/bifrost-k3s.yaml}}"
+else
+  export KUBECONFIG="$OWNER_KUBECONFIG"
+  if [ ! -r "$KUBECONFIG" ]; then
+    echo "REFUSED: --execute needs the Owner kubeconfig; ${KUBECONFIG} is not readable (set OWNER_KUBECONFIG)" >&2
+    exit 1
+  fi
+  if [ ! -r "$SSH_KEY" ]; then
+    echo "REFUSED: --execute needs the node key; ${SSH_KEY} is not readable (set BIFROST_SSH_KEY)" >&2
+    exit 1
+  fi
+fi
 if ! command -v kubectl >/dev/null 2>&1; then
   echo "ERROR: kubectl not found in PATH" >&2
   exit 1

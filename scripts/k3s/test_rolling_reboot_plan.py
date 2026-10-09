@@ -215,7 +215,7 @@ KUBECTL_STUB = textwrap.dedent(
     '''
 )
 
-SSH_STUB = "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$SSH_LOG\"\nexit 0\n"
+SSH_STUB = "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$SSH_LOG\"\nexit \"${FAKE_SSH_EXIT:-0}\"\n"
 
 CURL_STUB = textwrap.dedent(
     '''\
@@ -293,8 +293,13 @@ class FakeCluster:
         write_executable(root / "kubectl", KUBECTL_STUB)
         write_executable(root / "ssh", SSH_STUB)
         write_executable(root / "curl", CURL_STUB)
+        (root / "admin.yaml").write_text("", encoding="utf-8")
+        (root / "node-key").write_text("", encoding="utf-8")
         self.env = {
             "PATH": f"{root}{os.pathsep}{os.environ.get('PATH', '')}",
+            "OWNER_KUBECONFIG": str(root / "admin.yaml"),
+            "BIFROST_SSH_KEY": str(root / "node-key"),
+            "FAKE_SSH_EXIT": str(options.get("ssh_exit", 0)),
             "STUB_LOG": str(self.log),
             "SSH_LOG": str(self.ssh_log),
             "CURL_LOG": str(self.curl_log),
@@ -656,6 +661,70 @@ class RollingRebootPlanTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("could not read approval", result.stderr)
         self.assertNotIn("cordon", called)
+
+    # W-33 step 3: the node key has a passphrase and the default kubeconfig is
+    # read-only.
+    TWO_NODES = "ubt-k3s-04:data:192.168.10.75,ubt-k3s-02:prod:192.168.10.70"
+
+    def test_reboot_ssh_asks_for_the_passphrase_and_schedules_the_reboot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeCluster(Path(tmp), dow="6")
+            result = run(
+                ["--execute", "--approval", "appr_ok", "--nodes", self.TWO_NODES],
+                arm_approval(fake.env),
+            )
+            ssh = fake.ssh_text()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = ssh.splitlines()
+        self.assertEqual(len(lines), 2, ssh)
+        for line in lines:
+            self.assertIn("-F /dev/null", line)
+            self.assertIn("IdentityAgent=none", line)
+            self.assertIn("PreferredAuthentications=publickey", line)
+            self.assertIn(f"-i {Path(tmp) / 'node-key'}", line)
+            self.assertIn("sudo -n systemd-run --on-active=5 /usr/bin/systemctl reboot", line)
+            self.assertNotIn("BatchMode", line)
+
+    def test_failed_reboot_ssh_stops_with_the_node_still_cordoned(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeCluster(Path(tmp), dow="6", ssh_exit=255)
+            result = run(
+                ["--execute", "--approval", "appr_ok", "--nodes", self.TWO_NODES],
+                arm_approval(fake.env),
+            )
+            log = fake.kubectl_text()
+            ssh = fake.ssh_text()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("could not schedule the reboot on ubt-k3s-04 (ssh exit 255)", result.stderr)
+        self.assertIn("cordon ubt-k3s-04", log)
+        self.assertNotIn("uncordon", log)
+        self.assertNotIn("get node", log)
+        self.assertNotIn("cordon ubt-k3s-02", log)
+        self.assertNotIn("192.168.10.70", ssh)
+        self.assertNotIn("rolling-reboot: complete", result.stdout)
+
+    def test_execute_without_the_owner_kubeconfig_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeCluster(Path(tmp), dow="6")
+            env = arm_approval(fake.env)
+            env["OWNER_KUBECONFIG"] = str(Path(tmp) / "missing.yaml")
+            env["KUBECONFIG"] = str(Path(tmp) / "admin.yaml")
+            result = run(["--execute", "--approval", "appr_ok"], env)
+            called = fake.kubectl_text()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("REFUSED: --execute needs the Owner kubeconfig", result.stderr)
+        self.assertEqual(called, "")
+
+    def test_execute_without_the_node_key_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeCluster(Path(tmp), dow="6")
+            env = arm_approval(fake.env)
+            env["BIFROST_SSH_KEY"] = str(Path(tmp) / "missing-key")
+            result = run(["--execute", "--approval", "appr_ok"], env)
+            called = fake.kubectl_text()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("REFUSED: --execute needs the node key", result.stderr)
+        self.assertEqual(called, "")
 
 
 if __name__ == "__main__":
