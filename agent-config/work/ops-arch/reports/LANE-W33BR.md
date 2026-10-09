@@ -194,3 +194,39 @@ PROD overlay 是单独提交 `e8e42dd97a498401b8e56fa5ac256a14084a8679`。合进
 - TD-271 维持「在做」。
 - 不开始下一条道。
 - D10 仍是 BLOCKED。
+
+## Claude 验收（2026-10-09）
+
+结论：**通过**。Claude 在分支上补了一笔（见第 2 条）之后，可以按下面的顺序上线。
+
+1. **重跑门禁**：
+   - platform `e2d5137` 的 go build / vet / test（49 个包）和 MCP 20 全过；Console 本道没改，上一轮的 lint、682 个测试和 build 仍然有效；
+   - infra 的 `apply-manifest-check_test.sh` 全过（要带 `KUBECONFIG`，因为 `kubectl create --dry-run=client` 要从集群取 openapi），`owner-run_test.sh`、`check_admission_guards.py`、`check_platform_rbac.py`（138）、role-matrix 11、ops-context parity、四处 kustomize 也都过了。
+2. **门禁漏掉的硬错误，已修（infra `1a9b408`，接在 `e8e42dd` 之后）**：
+   - 4 条准入策略用了 `namespaceSelector.matchNames`，LabelSelector 没有这个字段。`kubectl apply -k k8s/platform-rbac --dry-run=server` 直接拒收这 4 条：PipelineRun、TaskRun、Application、applier 的 Tekton 定义。也就是说 TD-271 会只上一半；
+   - 改成 `matchLabels: {kubernetes.io/metadata.name: cicd}` 之后，server 端 dry-run 96 个对象全部接受；
+   - 顺带去掉了平台身份建 Job / Pod 时在 monitoring 的 host 豁免：monitoring 的 CronJob 都不挂 hostPath，需要 hostPath 的只有 applier 写的 DaemonSet；
+   - `check_admission_guards.py` 静态模式加了两条：拒绝 `matchNames`，拒绝这条豁免。
+3. **逐条复核上一轮的绕过手法**：
+   - 脚本里没有 `$(params.`，七个参数全部经 env 传入；
+   - 检查、diff 和 apply 用的是同一份规范化 JSON；
+   - resolver、secret 工作区、podTemplate 卷、applier 的 host 字段和账号、Argo 的 `spec.sources` 和四个渲染子字段都有对应规则；
+   - 镜像前缀只在开头匹配；
+   - `Summarize` 核对计划的身份；
+   - `owner-run.sh` 要求标准输入是终端。
+4. **对现有流程无误伤**：
+   - `task-deliver-platform`、`task-deliver-stg` 和平台的 gitops 只 patch `operation`，Application 规则放行；
+   - 现有 581 个 run 的 podTemplate 只有 nodeSelector 和 tolerations，工作区只有 volumeClaimTemplate；
+   - applier 白名单里的 `api-ops` 只读 Deployment 和 Pod，`daemon-worker` 只管 lease。
+5. **数据库**：
+   - 四个库的 public schema 对所有人只有 USAGE，没有对所有人开放执行的 SECURITY DEFINER 函数，所以 `agent_reader` 只能读；
+   - verify SQL 只在 `postgres` 库里查 CREATE，四个业务库的写权限靠 role-matrix 每天对账；建好以后手动起一次 `data/db-role-matrix` 确认；
+   - 「写入被拒」要在会话里先 `SET default_transaction_read_only = off` 再试，否则测到的只是默认值，不是权限；
+   - 设密码用 `\password`，不把明文写进命令行。
+6. **合并怎么拆**：`918ee55` 里其实已经带着 PROD overlay 的改动（`e5b04b4` 加了 `actuation-policy.yaml` 和 kustomization 的引用），照原样合并就会滚动重启 PROD 平台。合并时 Claude 会：
+   - 第 1 部分去掉 `k8s/overlays/platform-prod/` 的全部改动；
+   - `AGENT_FACTS.md` 的 `agent_reader` 那一行留到账号建好以后再合；
+   - 第 2 部分只放 PROD overlay，等 Owner 批了 PROD 再合。
+7. **小项，不阻塞上线**：
+   - 流水线运行时会 `apk add jq`，和 `pipelinerun-ttl`、`deliver-platform-prod` 的现有做法一样，依赖外网；
+   - applier 的 Tekton 规则没看 Pipeline 的 `finally` 和 `stepTemplate`。cicd 本身是 C 级，要求提交在 main 上并经 Owner 批准。

@@ -436,6 +436,7 @@
     - 策略检查用 awk 解析，flow 风格或 JSON 文档不检查却照样 apply，能藏 daemon（D10）；
     - 准入策略漏了 Tekton 远程解析器、secret 工作区和 hostPath、applier 写的 Pod 规格（hostPath 和能读全集群 Secret 的账号）、Argo 的 `spec.sources`；
     - 只读库账号停在两个整数计数列上，属误报；Owner 10-09 回「数据库照做」，并入 LANE-W33BR 第五节；
+  - **LANE-W33BR 验收通过（10-09）**：platform `e2d5137`，infra `1a9b408`。Claude 补了一笔：4 条准入策略的 `matchNames` 字段非法，server 端 dry-run 会拒收，已改成 matchLabels，dry-run 96 个对象全部接受。上线按 `reports/LANE-W33BR.md`「Claude 验收」第 6 条拆分合并，每一步等 Owner 批；
   - 写道时实测发现 TD-271：PROD 平台身份经 cicd 的 PipelineRun 和 Argo Application 仍能间接拿到集群管理员，已登记，并写进 TD-204 待签收行的「后续」；
   - 第 3 步在第 2 步验收后另派
 - **验收**：第 5 阶段退出条件——对账 0 漂移；Agent 侧没有管理员凭证
