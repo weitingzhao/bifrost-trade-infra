@@ -414,7 +414,7 @@
 
 - **类别**：道
 - **状态**：在做
-- **匹配**：LANE-W33、LANE-W33R、LANE-W33B、LANE-W33BR、LANE-W33C
+- **匹配**：LANE-W33、LANE-W33R、LANE-W33B、LANE-W33BR、LANE-W33C、LANE-W33D
 - **现在**：Owner 10-08 定合并四件：① 凭证收口（mini 不再持有管理员 kubeconfig 与 admin 令牌、部署脚本不再同步、remediation runner 与 .52 hermes-gateway 定去留）；② PROD 经代理转到 mini 的 operator 级路由认 PROD 令牌；③ Console 显示待重启节点、滚动重启做成审批动作；④ ⑤ 页给 Research 与插件显示 STG / PROD 两列版本。先讨论分步，任务文件还没写
 - **下一步**（第一批上线进度，10-09 03:3xZ）：
   - **已完成**：
@@ -473,7 +473,7 @@
       - Gitea 镜像同步交给平台（顺带修 TD-273）；
       - `start_pipeline_run` 带通用参数；
     - TD-275 已修并验收（10-09，Claude 直接修，Owner 批 apply 和 PROD api 重启）：market-data 插件「计划 → C 级 apply」全程走通，线上无改动；顺带修好了 C 级 apply 判断「在 main 上」的方式（Gitea 1.21 没有 compare 接口）；TD-273 已签收；新登记 TD-276；
-    - **第 3 步**：讨论材料 `W33-step3-2026-10-09.md` 已写（10-09），**等 Owner 定「〇」节四件**：
+    - **第 3 步**：讨论材料 `W33-step3-2026-10-09.md`，Owner 10-09 定「〇」节四件，全部按推荐，写成 `LANE-W33D.md` 交 Cursor：
       - 新发现：节点 root 实际靠 ssh-agent 里的 `id_rsa`（也是 GitHub 密钥），`bifrost_deploy` 没授权到任何节点；
       - 本机 `.env` 和 gitignore 的 Secret 文件里还有 Trade 管理员、UniFi、redis-ib、DB 属主轮换等管理员级凭证；
       - DB 日常密码归 TD-85；
