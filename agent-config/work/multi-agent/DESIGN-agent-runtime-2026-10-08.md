@@ -281,7 +281,7 @@ MCP 工具：`whoami`、`get_mission`、`list_tasks`、`get_task`、`propose_tas
 | **私有仓库** | Gitea 上的 `bifrost-private`：`owner/` 放 Research-workspace，根目录留一个链接指过去；`work/` 放不宜公开的记录（23 份 Pine PREREG 和 REPORT、建议账本设计等）；`archive/` 也进来 |
 | **design 仓库** | 只放 Gitea（私有），全部纳入跟踪；每个包一个提交，加一个 tag；建 `inbox/` 和 `outbox/` 两个目录。GitHub 上的 bifrost-design 怎么处理由 Owner 决定 |
 | **根目录规则** | 只允许白名单里的东西（仓库、治理层链接、`Research-workspace` 链接、`bifrost-private`、`design`、现有的文档链接——不再新增）。Agent 不在根目录建任何东西。worktree 放在 `~/agent-work/`。预注册要先提交再开跑。由 preflight 加防线脚本执行。`bifrost-analytics` 移出；`replay-pine` 放 NAS；根目录 `cursor-tasks/` 里只此一份的文件，原样提交到 git 保全（不验收），然后删掉根目录那份 |
-| **硬编码路径** | infra 里有 72 行写死了 `/Users/vision-mac-trader`，改成相对路径或 `$BIFROST_WORKSPACE`；配一条防线，数量只减不增，直到为 0 |
+| **硬编码路径** | 三个仓库一共有 103 行写死了 `/Users/vision-mac-trader`（10-08 晚重新统计；其中 3 条 hook 命令在换机器后会让 preflight 失效，必须最先改）。改成相对路径或统一的 `$BIFROST_WORKSPACE`；配一条防线，数量只减不增，直到为 0。执行计划见 `STEP0-PLAN-2026-10-08.md` |
 | **编号** | 新工作项一律用 `W-n`，在 WORK.md 里发号（第 2 期起由平台发号）。`LANE-A2`、`LANE-C` 这两个别名作废。配查重的防线（ops-arch 已经开始用 W-32、W-33） |
 | **D1 作为过渡层** | `cursor/d1-platform` 合并进来：progress API 多算一栏「待你定」；WORK.md 加一节「待你定 / 已定」；⑦ 进度页和 ④「待你定」块做成独立组件，由瘦身后的新外壳挂载。运行时上线后只换数据源 |
 | **RP** | 见第 9 节 |
