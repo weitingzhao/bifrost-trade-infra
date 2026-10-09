@@ -42,7 +42,7 @@
 **阶段 3 · Console 按 7 个问题重组**
 
 - **类别**：计划
-- **状态**：在做
+- **状态**：已验收
 - **现在**：
   - 已上 PROD（platform `f9f696f`，10-08，`appr_35e3fb0d71cbdc3e`）；TD-208 已签收；
   - 删留复核 Owner 已定，清理道是 W-32（Cursor 在做）。
@@ -396,15 +396,16 @@
 **ops-arch · 第 3 阶段之后的清理道（删留复核落地）**
 
 - **类别**：道
-- **状态**：在做
+- **状态**：已验收
 - **匹配**：LANE-W32
 - **现在**：
   - **已上 PROD**（10-09 00:47Z，`appr_ff50015c21c5d833`，run `bifrost-deliver-platform-prod-1791506638`，platform `3d3ea8a` / ui `9b635b2`）；STG 由 Owner 10-08 过目通过；
   - 发版前先把 `trust-overrides.yaml` 带进两个 overlay 的 ConfigMap（infra `ffcaeb2`、`6185067`）。STG 验收时发现文件没进 ConfigMap，L0 退成了 L1；已加防线 `check_trust_overrides`；
   - PROD 实测：退役路由 15 条 404、2 条 405，保留的 10 条 200；`research-loop-batch` = L0，来自文件；Console 7 页正常，前端包里没有 `remediation/start`；插件新鲜度正常；workers 重启后没有维护者误报；
   - 两台 mini 已用 `3d3ea8a` 重部署（`/agent/skills` 404，.50 告警中转正常）；手动对账 drift 0。
-- **下一步**：Owner 批准后删 PROD 的旧 ConfigMap `platform-trust-overrides`（STG 本来就没有），然后关闭
+- **下一步**：没有。留到以后的清理项写在 `reports/LANE-W32.md`「Claude 验收与收尾」末尾；remediation 后端随 W-33 撤掉
 - **验收**：`agent-config/work/ops-arch/reports/LANE-W32.md` 存在，四组门禁全过；STG 上本道删除的路由全部返回 404，`trust-matrix` 仍带 `research-loop-batch` 那条覆盖
+- **验收结果**：PASS 2026-10-09（PROD `3d3ea8a`：退役路由 404 / 405、保留路由 200、`trust-matrix` 带 `research-loop-batch` L0 且来自文件；PROD 旧 ConfigMap `platform-trust-overrides` 经 Owner 批准已删，删后仍读到 L0）
 - **关联**：`agent-config/work/ops-arch/LANE-W32.md`、`agent-config/work/ops-arch/PHASE3-review-2026-10-08.md`
 
 ### W-33
