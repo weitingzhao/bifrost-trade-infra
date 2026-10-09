@@ -418,10 +418,11 @@ const OWNER_SCRIPT_RE = new RegExp([
 ].join('|'))
 
 // TD-278: plugin redis-ib scripts that load the Owner env when they run.
-// Only running them is refused (bash/sh/source/./ or the make target);
+// Only running them is refused (bash/sh/source with any flags, ./ after a
+// space or separator, or the make target);
 // reading, editing or committing them by name is not.
 const OWNER_RUN_RE = new RegExp(
-  '(?:^|[;&|(`]\\s*|(?:^|[\\s;&|(`])(?:bash|sh|zsh|source|exec)\\s+|(?:^|\\s)\\.\\s+)(?:\\./)?(?:[\\w.~$/-]*/)?' +
+  '(?:^|[;&|(`]\\s*|(?:^|[\\s;&|(`])(?:bash|sh|zsh|source|exec)\\s+(?:-\\S+\\s+)*|(?:^|\\s)\\.\\s+|(?:^|\\s)(?=\\./))(?:\\./)?(?:[\\w.~$/-]*/)?' +
     '(?:verify-ib-gateway(?:-live)?|verify-redis-ib|verify-trade-quotes-e2e|sync_redis_ib_secrets|install-redis-ib)\\.sh\\b' +
     '|\\bmake\\b[^;&|\\n]*\\s(?:verify-ib-gateway(?:-live)?|verify-redis-ib|verify-trade-quotes-e2e|sync-redis-ib-secrets|install-redis-ib)(?=$|[\\s;&|)])',
   'm'
