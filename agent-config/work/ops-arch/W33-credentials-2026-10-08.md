@@ -93,7 +93,14 @@ A 的第 2 步不做，Agent 要写时把命令写给 Owner 去跑。按 30 天�
 
 8. **滚动重启的审批做法（Owner 10-08 过目 `LANE-W33.md` 时认可）**：动作目录加 `rolling_reboot`，D 级，平台只记录审批、不执行（平台不拿节点 root）；`rolling-reboot.sh --execute` 必须带已批准的 `--approval <id>`，脚本自己核对。执行者是持有节点 SSH 的人，第 3 步之后只有 Owner。
 
-下一步：第一批（第 1 步和 ③④⑤）已写成 `LANE-W33.md`，10-08 交 Cursor；第 2、3 步按依赖顺序之后派。
+9. **第 2 步的五件（Owner 2026-10-09，全部按推荐，详见 `LANE-W33B.md`「〇」节）**：
+   - 第 5 条里的 `owner_run_command` 改为**只记录审批、由 Owner 执行**，原写的「平台用管理员身份执行」与 TD-204 冲突，作废；
+   - `apply_manifest` 走固定 Tekton 流水线，用专用身份 `bifrost-applier` 执行；
+   - 第 3 步的只读角色只在 research 和两个插件命名空间保留 exec，作为接受的风险写进 ADR；
+   - 发版链另开 LANE-W33C；
+   - TD-271 并进 LANE-W33B。
+
+下一步：第一批（第 1 步和 ③④⑤）已写成 `LANE-W33.md`，10-08 交 Cursor，已上 PROD；第 2 步是 `LANE-W33B.md`，10-09 交 Cursor；发版链 LANE-W33C 和第 3 步按依赖顺序之后派。
 
 ## 五、要 Owner 定的事
 

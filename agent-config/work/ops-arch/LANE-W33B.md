@@ -4,8 +4,6 @@
 
 本道是方案 A 的第 2 步。第 3 步（Mac 上的 Agent 换只读）依赖本道，之后另派，见文末「不在本道」。
 
-> **派给 Cursor 之前，先由 Owner 定下面「〇」节的五件。** 定了以后把「待定」改成「已定」，并删掉没选的选项。
-
 仓库与分支（都从最新 origin/main 开独立 worktree）：
 
 - bifrost-platform · `cursor/w33b-platform`
@@ -13,52 +11,34 @@
 
 先读：`W33-credentials-2026-10-08.md`、`LANE-W33.md`、`reports/LANE-W33.md` 和 `reports/LANE-W33R.md`、`README.md` 的「范围」「给 Cursor 派道」「Cursor 共用规则」、`k8s/platform-rbac/00-clusterroles.yaml` 的头注释。
 
-## 〇、要 Owner 定的五件（待定）
+## 〇、Owner 已定的五件（2026-10-09，全部按推荐）
 
-### 1. 兜底的 `owner_run_command` 由谁执行
+1. **兜底的 `owner_run_command` 只记录审批，由 Owner 执行**。10-08 原写「Owner 批后由平台用管理员身份执行」，和 TD-204 冲突，改为这一条。做法和 `rolling_reboot` 一样：
+   - 平台记下原样命令和它的哈希，批准后返回「请执行 `bash scripts/owner/owner-run.sh <id>`」；
+   - 脚本用 viewer 令牌读审批，核对动作、状态、时效和命令哈希，回显命令；
+   - Owner 输入 `yes` 后，脚本用 Owner 目录里的管理员 kubeconfig 执行。
 
-10-08 的决定写的是「Owner 批后由平台用管理员身份执行」。那是 Claude 的推荐原文，现在发现它和 TD-204 冲突：平台要执行任意命令，就得重新持有集群管理员。
+   平台始终不拿管理员身份。
+2. **`apply_manifest` 用固定的 Tekton 流水线加专用身份执行**：
+   - 平台在 cicd 起固定流水线 `bifrost-apply-manifest`，用新建的 ServiceAccount `bifrost-applier` 执行；
+   - `bifrost-applier` 只在白名单命名空间里有白名单资源类型的写权限，不能动集群级对象、RBAC 和 Secret；
+   - 平台自己的 ServiceAccount 不扩权。
 
-- **A（推荐）只记录审批，Owner 执行**：做法和 `rolling_reboot` 一样。平台记下原样命令和它的哈希，批准后返回「请执行 `bash scripts/owner/owner-run.sh <id>`」。脚本用 viewer 令牌读审批，核对动作、状态、时效和命令哈希，回显命令，Owner 输入 `yes` 后用 Owner 目录里的管理员 kubeconfig 执行。平台始终不拿管理员身份。
-- B 平台用管理员身份执行：推翻 TD-204，平台的任何漏洞都等于集群管理员。
-- C Mac 上常驻一个持管理员凭证的执行器，自动执行已批准的单子：它和 Agent 在同一台机器、同一个用户下，只能靠 preflight 的文本匹配挡住 Agent。
+   research 和插件只有 PROD 一套部署，是 C 级；按 30 天实测，平均每天约 7 次审批。以后要放宽，用 W-31 的规则集，本道不做。
+3. **第 3 步的只读角色只在 research、plugin-market-data、plugin-flex-query 三个命名空间保留 `pods/exec`**（`kubectl cp` 也走 exec），其余命名空间不给。
+   - Agent 仍能借这些 Pod 的数据库凭证写 Golden Source 和插件自己的表，但它不是集群管理员；第 3 步把这一条作为接受的风险写进 ADR。
+   - 本道的 `run_probe_pod` 只在这三个命名空间允许 `env_from`。
+   - 30 天实测共 3,027 次 exec：`psql` 1,569 次由本道的只读数据库账号接走；research 599 次、插件 405 次，大多是在应用 Pod 里跑 python 查数据；另有 93 次 `kubectl cp`。
+4. **发版链另开 LANE-W33C，等本道验收后再写**。
+   - 原因：cicd 里的 `argocd-application-controller` 是全集群管理员，谁能在 cicd 建 PipelineRun，谁就能指定它来跑任意步骤。所以第 3 步不能给 Agent 这项权限。
+   - `release.sh` 现在直接用 kubectl 建 PipelineRun、写发布窗口 ConfigMap，DB 步骤用 `kubectl exec psql`。
+   - W33C 的做法：
+     - 建 run 改走平台的 `start_pipeline_run`，扩展成可以带流水线声明过的参数；
+     - 窗口 ConfigMap 由平台写；
+     - PROD 的 DB 步骤走 `owner_run_command`。
 
-### 2. `apply_manifest` 由谁执行
-
-- **A（推荐）固定的 Tekton 流水线加专用身份**：平台在 cicd 起一个固定的流水线 `bifrost-apply-manifest`，用新建的 ServiceAccount `bifrost-applier` 执行。`bifrost-applier` 只在白名单命名空间里有白名单资源类型的写权限：不能动集群级对象，不能动 RBAC，不能写 Secret。平台自己的 ServiceAccount 不扩权。
-- B 平台进程内渲染，用平台自己的身份 apply：平台的 ServiceAccount 要拿到白名单命名空间里的大面积写权限；Go 侧还要引入 kustomize 库，这是新的外部依赖。
-- C 把常用路径收成 Argo Application：apply 变成「合 main 加 `gitops_sync_app`」，后者已经在动作目录里。插件、Dagster、Tekton、monitoring 各要建 Application，改动面最大，还和架构方向里的「插件归位」重叠。
-
-**审批量提醒**：research 和插件只有 PROD 一套部署，按规则是 C 级。按 30 天实测，这类 apply 约 210 次（同一任务里的反复 apply 也算在内），平均每天约 7 次审批。如果嫌多，以后用 W-31 的规则集放宽（例如「main 上的提交、只改镜像 tag」自动批），本道不做。
-
-### 3. Agent 在应用 Pod 里的 exec（决定第 3 步的只读角色，也决定本道的 `env_from`）
-
-30 天实测 3,027 次 `kubectl exec`：
-
-- `psql` 1,569 次，由本道的只读数据库账号接走；
-- research 命名空间 599 次、插件命名空间 405 次，大多是在应用 Pod 里跑 python 查数据或调本地接口，少数是手动跑一次调度槽或引擎；
-- 另有 93 次 `kubectl cp` 把脚本拷进 Pod 再执行。
-
-选项：
-
-- **A（推荐）第 3 步的只读角色保留 `pods/exec`，但只在 research、plugin-market-data、plugin-flex-query 三个命名空间**（`kubectl cp` 也走 exec），其余命名空间不给。Agent 仍能借这些 Pod 的数据库凭证写 Golden Source 和插件自己的表，但它不是集群管理员。这一条作为接受的风险写进 ADR。本道的 `run_probe_pod` 只在这三个命名空间允许 `env_from`。
-- B 收掉所有 exec：本道再加一个 `run_in_workload` 动作，在指定 Deployment 里执行 git 里某个提交的脚本。临时脚本要先提交，调试摩擦大。
-- C 只读角色完全不给 exec，读数据只走 HTTP 端点：研究和插件的调试基本停摆。
-
-### 4. 发版链怎么摆脱管理员 kubeconfig
-
-实测：cicd 里的 `argocd-application-controller` 是全集群管理员。谁能在 cicd 建 PipelineRun，谁就能指定 cicd 里任意一个 ServiceAccount 来跑任意步骤。所以第 3 步不能给 Agent「在 cicd 建 PipelineRun」这种看似很窄的权限。`release.sh` 现在直接用 kubectl 建 PipelineRun、写发布窗口的 ConfigMap，DB 步骤也用 `kubectl exec psql`。
-
-- **A（推荐）单开一道 LANE-W33C，等本道验收后再写**：建 run 改走平台的 `start_pipeline_run`。PROD 的 pinned run 带多仓库 SHA 参数，`start_pipeline_run` 要扩展成可以带参数（只接受流水线声明过的参数）。窗口 ConfigMap 改由平台写。PROD 的 DB 步骤走本道的 `owner_run_command`。这样也顺带推进 W-31 发布队列的验收：当天所有 run 都进 PROD 审计。
-- B 第 3 步之后，发版由 Owner 亲手跑 `release.sh`：每天几次发版都要 Owner 在终端里执行。
-- C 留给 W-31 的发布队列：第 3 步要等 W-31，而 W-31 在等瘦身完成，两边互相等。
-
-### 5. TD-271（平台身份经 Tekton 和 Argo 间接等于集群管理员）放不放进本道
-
-本道把 Agent 的写都收到平台上。如果平台身份本身就等于管理员，第 3 步只是把风险从 Mac 挪到了 platform-api。
-
-- **A（推荐）放进本道第四节**：用 ValidatingAdmissionPolicy（Kubernetes 自带，不是新依赖）和收窄的 Argo AppProject 把这两条路堵上。上线时 apply 由 Owner 批。
-- B 单独排期：本道照做，在 TD-271 修好之前，第 3 步不开始。
+   **本道不改 `release.sh`。**
+5. **TD-271 并进本道第四节**：用 ValidatingAdmissionPolicy（Kubernetes 自带，不是新依赖）和收窄的 Argo AppProject 把两条路堵上。上线时 apply 由 Owner 批。
 
 ## 事实（2026-10-09 实测；platform main `0bf5285`，infra main `a23aae3`）
 
@@ -77,14 +57,12 @@
   - `create job --from=cronjob` 18 次：monitoring/maintainer-reconcile 6、cicd/tekton-pipelinerun-ttl 5、data/logical-backup-drill 3、data/logical-backup 2、bifrost-prod/position-snapshot-capture 1、kube-system/cluster-state-backup 1；
   - `run --image` 104 次：research 和插件的应用镜像、minio、redis、curl、alpine/k8s；
   - `delete` 215 次：pod 约 80、job 56、pipelinerun 14、configmap 6、pvc 4、cronjob 2、networkpolicy 2 等；
-  - `exec` 3,027 次，见〇第 3 件。
+  - `exec` 3,027 次，见〇第 3 条。
 - **数据库**：CNPG `bifrost-postgres`，PG 17.9，2 个实例。局域网入口是 NodePort `30432` 指向主库，已在 `check_data_lan_exposure.py` 的白名单里。现有的 `role_matrix_reader` 只能连库，查不了表。DB 步骤的格式见 `scripts/release/db-steps.d/2026-10-07-td85-role-matrix-reader.md`。
 - **旧文字**：platform `console/src` 里还有 30 个文件提到 remediation runner、hermes、`:8781` 或 `:8782`，例如 `lib/environments-catalog.ts:200`（「Dual Mac Mini Remediation Runners…」）、`components/control-room/RocketSubsystemsGrid.tsx:35`、`lib/control-room/dailyOpsChecklistCatalog.ts:226`、`lib/agent/agentTaskCatalog.ts`、`lib/agent/agentScopes.ts`。
 - **TD-270**：见 `TECH_DEBT.md` 的 TD-270。
 
 ## 要做
-
-按〇节的推荐写。Owner 选了别的选项时，Claude 先改这一节再派道。
 
 ### 一、策略配置（平台不认识具体应用）
 
@@ -105,7 +83,7 @@
 - `run_probe_pod`：
   - 允许的镜像（含 tag 前缀，例如内部 registry 的 `bifrost-research:`、`bifrost-market-data:`，以及 minio、curl）；
   - 允许的命名空间和级别；
-  - 允许 `env_from` 的命名空间（〇第 3 件 A：research、plugin-market-data、plugin-flex-query）。
+  - 允许 `env_from` 的命名空间（〇第 3 条：research、plugin-market-data、plugin-flex-query）。
 - `cleanup`：允许的命名空间。
 
 **kube-system 和 cicd 不能起 Job，也不能起探针 Pod**。在那里起 Pod，就能用那里任意一个 ServiceAccount，cicd 里有集群管理员。`kube-system/cluster-state-backup` 的手动触发走 `owner_run_command`。
@@ -172,7 +150,7 @@ MCP：B 级的三个计划和动作（`plan_manifest`、`create_job_from_cronjob
   - 不能：在 kube-system、cicd 建 Job，建 Secret，建 RoleBinding；
   - `bifrost-applier` 能 patch research 的 Deployment，不能写 Secret，不能动 RBAC，不能碰 kube-system。
 
-### 四、TD-271：堵住平台身份的两条间接提权路径（〇第 5 件 A）
+### 四、TD-271：堵住平台身份的两条间接提权路径（〇第 5 条）
 
 - **ValidatingAdmissionPolicy**（`k8s/platform-rbac/` 下新文件，同样手工 apply）：
   1. 平台身份在 cicd 建的 PipelineRun / TaskRun 必须用 `pipelineRef` / `taskRef`，不能内联 spec；所有 `serviceAccountName`（包括 `taskRunTemplate` 和 `taskRunSpecs`）必须在白名单里，`argocd-*` 永远不在；
@@ -286,8 +264,8 @@ MCP：B 级的三个计划和动作（`plan_manifest`、`create_job_from_cronjob
 
 ## 不在本道（之后另派）
 
-- **LANE-W33C 发版链**（〇第 4 件 A）：`release.sh`、插件和 research 的发布脚本改走平台。本道验收后再写。
-- **第 3 步**：Mac 上的 Agent 换只读 kubeconfig，按〇第 3 件定的 exec 范围；管理员 kubeconfig 和 `bifrost_deploy` 搬到 Owner 专用目录，preflight 按路径拦；ADR 写进接受的风险。
+- **LANE-W33C 发版链**（〇第 4 条）：`release.sh`、插件和 research 的发布脚本改走平台。本道验收后再写。
+- **第 3 步**：Mac 上的 Agent 换只读 kubeconfig，按〇第 3 条定的 exec 范围；管理员 kubeconfig 和 `bifrost_deploy` 搬到 Owner 专用目录，preflight 按路径拦；ADR 写进接受的风险。
 - `tekton-trigger` 能在 cicd 建 PipelineRun（TD-271 的同类），报告里登记，不在本道修。
 
 ## 不做

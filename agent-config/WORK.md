@@ -425,7 +425,12 @@
     - 待重启信号已 apply（5 台 k3s 节点 = 1）；
     - 集群内对账 drift 0；
   - **第一批全部上线（10-09 03:3xZ）**：Grafana helm upgrade（revision 16，只多了子路径两行），`https://ops.bifrost.lan/grafana/` 返回 200，Console 内嵌面板同源、不再被拦；两个环境 role-tokens Secret 只删了 `REMEDIATION_RUNNER_TOKEN` 一个键（Owner 批；没有重跑整份令牌脚本，避免顺手轮换其他令牌和读 admin 令牌）；
-  - **第 2 步**：道文件 `LANE-W33B.md` 已写（10-09），**等 Owner 定「〇」节五件再派**：`owner_run_command` 改为只记录、由 Owner 执行（原决定「平台用管理员身份执行」与 TD-204 冲突）；`apply_manifest` 走固定 Tekton 流水线加专用身份；第 3 步只读角色保留哪些 exec；发版链另开 LANE-W33C；TD-271 是否并入。旧文字和 TD-270 并在这一道里；
+  - **第 2 步**：`LANE-W33B.md`，Owner 10-09 定「〇」节五件全部按推荐，交 Cursor：
+    - `owner_run_command` 只记录审批、由 Owner 执行（原决定「平台用管理员身份执行」与 TD-204 冲突，作废）；
+    - `apply_manifest` 走固定 Tekton 流水线加专用身份；
+    - 第 3 步只读角色只在 research 和两个插件命名空间保留 exec；
+    - 发版链另开 LANE-W33C，本道验收后写；
+    - TD-271 并入；旧文字和 TD-270 也在这一道；
   - 写道时实测发现 TD-271：PROD 平台身份经 cicd 的 PipelineRun 和 Argo Application 仍能间接拿到集群管理员，已登记，并写进 TD-204 待签收行的「后续」；
   - 第 3 步在第 2 步验收后另派
 - **验收**：第 5 阶段退出条件——对账 0 漂移；Agent 侧没有管理员凭证
