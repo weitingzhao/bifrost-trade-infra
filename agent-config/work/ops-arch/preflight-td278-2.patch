@@ -1,0 +1,32 @@
+diff -ru a/agent-config/scripts/agent-guard/preflight.js b/agent-config/scripts/agent-guard/preflight.js
+--- a/agent-config/scripts/agent-guard/preflight.js	2026-10-09 16:42:34
++++ b/agent-config/scripts/agent-guard/preflight.js	2026-10-09 16:42:34
+@@ -418,10 +418,11 @@
+ ].join('|'))
+ 
+ // TD-278: plugin redis-ib scripts that load the Owner env when they run.
+-// Only running them is refused (bash/sh/source/./ or the make target);
++// Only running them is refused (bash/sh/source with any flags, ./ after a
++// space or separator, or the make target);
+ // reading, editing or committing them by name is not.
+ const OWNER_RUN_RE = new RegExp(
+-  '(?:^|[;&|(`]\\s*|(?:^|[\\s;&|(`])(?:bash|sh|zsh|source|exec)\\s+|(?:^|\\s)\\.\\s+)(?:\\./)?(?:[\\w.~$/-]*/)?' +
++  '(?:^|[;&|(`]\\s*|(?:^|[\\s;&|(`])(?:bash|sh|zsh|source|exec)\\s+(?:-\\S+\\s+)*|(?:^|\\s)\\.\\s+|(?:^|\\s)(?=\\./))(?:\\./)?(?:[\\w.~$/-]*/)?' +
+     '(?:verify-ib-gateway(?:-live)?|verify-redis-ib|verify-trade-quotes-e2e|sync_redis_ib_secrets|install-redis-ib)\\.sh\\b' +
+     '|\\bmake\\b[^;&|\\n]*\\s(?:verify-ib-gateway(?:-live)?|verify-redis-ib|verify-trade-quotes-e2e|sync-redis-ib-secrets|install-redis-ib)(?=$|[\\s;&|)])',
+   'm'
+diff -ru a/agent-config/scripts/agent-guard/test.js b/agent-config/scripts/agent-guard/test.js
+--- a/agent-config/scripts/agent-guard/test.js	2026-10-09 16:42:34
++++ b/agent-config/scripts/agent-guard/test.js	2026-10-09 16:42:34
+@@ -197,6 +197,11 @@
+   ['own', 'ALLOW', 'TD-278 名字相近的 rpc-parity 脚本', bash('bash scripts/verify-ib-gateway-rpc-parity.sh')],
+   ['own', 'ALLOW', 'TD-278 名字相近的 make 目标', bash('make verify-ib-gateway-rpc-parity')],
+   ['own', 'ALLOW', 'TD-278 插件测试', bash('python3 -m pytest -q tests/test_redis_ib_script_secrets.py')],
++  ['own', 'DENY', 'TD-278 bash 带参数运行', bash('bash -x scripts/verify-redis-ib.sh')],
++  ['own', 'DENY', 'TD-278 sh -n 绝对路径', bash('sh -n /Users/x/stocks/bifrost-platform-plugin/scripts/verify-ib-gateway.sh')],
++  ['own', 'DENY', 'TD-278 env 前缀 ./ 运行', bash('env FOO=1 ./scripts/sync_redis_ib_secrets.sh')],
++  ['own', 'DENY', 'TD-278 timeout 前缀 ./ 运行', bash('timeout 60 ./scripts/verify-ib-gateway-live.sh')],
++  ['own', 'ALLOW', 'TD-278 bash -n 名字相近的脚本', bash('bash -n scripts/verify-ib-gateway-rpc-parity.sh')],
+   ['own', 'DENY', 'Agent 运行 Owner 脚本 owner-run', bash('bash scripts/owner/owner-run.sh appr_x')],
+   ['own', 'DENY', 'Agent 运行 Secret 物化', bash('python3 scripts/materialize_k8s_trade_secrets.py --env prod')],
+   ['own', 'DENY', 'Agent 运行 redis-ib ACL 渲染', bash('scripts/render-redis-ib-acl.sh > /tmp/acl')],

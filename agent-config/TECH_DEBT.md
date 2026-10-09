@@ -21,7 +21,7 @@
 - **TD-279** — Agent 直接调用的 B 级工作动作（plan / apply / 起 Job / 清理 / 探针）现在每次都写 PROD 审计：动作、目标、成功或失败带错误、结果、请求方会话（platform efeaf69，10-09 上 STG 与 PROD）。验收 PASS 2026-10-09 efeaf69（`go test ./internal/workactions -run Audit` 通过；PROD 一次无操作清理出现在 `get_audit_log` 首行）。防线：`RATCHETS.md`「工作动作必留审计」。后续：无后续：审批执行器那条路径已有 `approval.*` 行
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 76 项**：P0 0 · P1 7 · P2 24 · P3 45；要你批的 33 项（从总览表的审批列算）。
+**未结 76 项**：P0 0 · P1 6 · P2 24 · P3 46；要你批的 32 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -286,7 +286,7 @@
 | [TD-272](#td-272) | P3 | ops-platform | tekton-trigger can create any PipelineRun in cicd, and no admission policy matches it, so its token is still a path to the cluster-admin Argo controller account | 安全/凭据（要你批） |
 | [TD-276](#td-276) | P3 | ops-platform | An apply_manifest run is named apply-<plan id>, so a failed apply of a plan cannot be retried; a new plan is needed | 不用批 |
 | [TD-277](#td-277) | P3 | ops-platform | Since W-33 step 3 the Agent cannot run check_platform_rbac.py --live or check_admission_guards.py --live: both impersonate other service accounts and bifrost-agent may not | 安全/凭据（要你批） |
-| [TD-280](#td-280) | P1 | ops-platform | The redis-ib trade-prod password sat in the public bifrost-trade-infra history (config/config.dev.yaml, 8 versions 07-04..08-17), and nothing stops a password being committed to tracked config YAML again | 安全/凭据（要你批） |
+| [TD-280](#td-280) | P3 | ops-platform | The redis-ib trade-prod password sat in the public bifrost-trade-infra history (config/config.dev.yaml, 8 versions 07-04..08-17), and nothing stops a password being committed to tracked config YAML again | 不用批 |
 | [TD-279](#td-279) | P2 | ops-platform | Direct B-tier work actions (plan_manifest, create_job_from_cronjob, delete_finished_jobs, run_probe_pod) change PROD and leave no audit record | 不用批 |
 | [TD-278](#td-278) | P3 | ops-platform | Six plugin redis-ib scripts still read REDIS_IB_GATEWAY_PASS / REDIS_IB_TRADE_PROD_PASS from the plugin .env, which no longer holds them after move-owner-secrets.sh | 不用批 |
 | [TD-274](#td-274) | P3 | frontend | Symbol faces hide GEX levels that exist when zero gamma is NULL: the dealer level strip needs all four values and the regime cell needs zero gamma, so a chain with no flip (about a third of expiries) shows neither walls nor regime | 不用批 |
@@ -1468,7 +1468,7 @@
 
 **P3 · ops-platform · Six plugin redis-ib scripts still read REDIS_IB_GATEWAY_PASS / REDIS_IB_TRADE_PROD_PASS from the plugin .env, which no longer holds them after move-owner-secrets.sh**
 
-- **状态**：在做（脚本已合 plugin `61effea`：五个脚本读 Owner 环境；`sync-redis-ib-dev-compose-config.sh` 不再把 trade-prod 密码写进被跟踪的 infra `config/config.dev.yaml`，留空、运行时由 `REDIS_IB_PASSWORD` 提供。闸门补丁 `agent-config/work/ops-arch/preflight-td278.patch` 待你应用：只拦「运行」这五个脚本和 `install-redis-ib`（含 make 目标），读、改、提交照常；131 条通过，旧闸门在新用例上漏 6 条）
+- **状态**：在做（脚本已合 plugin `61effea`：五个脚本读 Owner 环境；`sync-redis-ib-dev-compose-config.sh` 不再把 trade-prod 密码写进被跟踪的 infra `config/config.dev.yaml`，留空、运行时由 `REDIS_IB_PASSWORD` 提供。闸门补丁 `preflight-td278.patch` 已应用（`c2d8f6c`，131 条通过）：只拦「运行」这五个脚本和 `install-redis-ib`（含 make 目标），读、改、提交照常。实测发现解释器带参数（`sh -n …`、`bash -x …`）和 `env`/`timeout` 前缀的 `./…` 没拦住，修正补丁 `preflight-td278-2.patch` 待你应用：136 条通过，现闸门在新用例上漏 4 条）
 - **Claim**: LANE-W33D moved the two redis-ib write-user passwords out of `bifrost-platform-plugin/.env` and taught `render-redis-ib-acl.sh` and `redis-ib-env-users.sh` to read the Owner env. Six other scripts still `source "$ROOT/.env"` and expect both keys there. They exec into `data`, which the Agent may not since step 3, so they were already Owner-only; now they fail for the Owner too (empty password, or `REDIS_IB_TRADE_PROD_PASS missing`).
 - **Measured**: MEASURED 2026-10-09: none of the six refers to the Owner env; plugin `.env` has 0 of the two keys after the move.
 - **Evidence**:
@@ -1501,9 +1501,9 @@
 
 ### TD-280
 
-**P1 · ops-platform · The redis-ib trade-prod password sat in the public bifrost-trade-infra history (config/config.dev.yaml, 8 versions 07-04..08-17), and nothing stops a password being committed to tracked config YAML again**
+**P3 · ops-platform · The redis-ib trade-prod password sat in the public bifrost-trade-infra history (config/config.dev.yaml, 8 versions 07-04..08-17), and nothing stops a password being committed to tracked config YAML again**
 
-- **状态**：未开始（先要你核对现在的 trade-prod 密码是不是泄露的那个）
+- **状态**：未开始（10-09 Owner 核对：现在 trade-prod 的哈希前缀不是 `020cb356`，泄露的值已轮换失效，P1 降为 P3、不再需要轮换审批；剩下的是防线：`scrub_config_secrets.py --check` 接进 pre-commit）
 - **Claim**: `bifrost-platform-plugin/scripts/sync-redis-ib-dev-compose-config.sh` wrote the redis-ib `trade-prod` password into `bifrost-trade-infra/config/config.dev.yaml`, which is tracked; eight commits between 2026-07-04 and 2026-08-17 carry it and all are on GitHub (the repo is public). `trade-prod` has write access to `ib:*`, which holds the D10 operator stream. The same file's history also carries three `bifrost` DB passwords (06-04..08-17); none matches today's Agent-readable `.env`, so they were rotated. `scripts/scrub_config_secrets.py` empties these fields but has no check mode and nothing runs it, so nothing would stop the next one.
 - **Measured**: MEASURED 2026-10-09, lengths and sha256 prefixes only, no values printed: `redis_ib` user `trade-prod`, 32 characters, one distinct value (sha256 `020cb356…`), 8 versions, all reachable from `origin`; `postgres` user `bifrost`, three distinct 11-character values, none equal to a current `.env` value. Today's tracked file has `password_len=0`. The current `trade-prod` password is only in the Owner env, which the Agent cannot read, so whether it is still the leaked one is unknown.
 - **Evidence**:
@@ -1514,7 +1514,7 @@
 - **Fix**: (1) Owner compares the current value's sha256 prefix with `020cb356` (command in the thread); if equal, rotate `trade-prod` (Owner env, redis-ib ACL via `install-redis-ib`, Trade Secrets via `sync_redis_ib_secrets.sh`, rollout of the Trade consumers). (2) `scrub_config_secrets.py --check` exits 1 on any non-empty password, token or api_key in the tracked config files, wired into a Makefile check and the infra pre-commit hook. (3) History rewrite is optional once the value is dead; the Owner decides.
 - **Ratchet**: `scrub_config_secrets.py --check` in the infra pre-commit hook (blocking) plus a unit test with a planted value; plugin `tests/test_redis_ib_script_secrets.py` already stops the compose sync writing one.
 - 验收: Owner confirms the current `trade-prod` hash prefix differs from `020cb356` (after rotation if needed); `python3 scripts/scrub_config_secrets.py --check` exits 0 on the tree and 1 on a planted password.
-- 审批 要批（PROD redis-ib ACL 轮换）· 代价 S · 风险 med · repos: bifrost-trade-infra, bifrost-platform-plugin
+- 审批 不用批（已轮换，只剩防线）· 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ### TD-261
 
