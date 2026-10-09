@@ -216,13 +216,15 @@ def live_problems() -> list[str]:
     expect = [
         ("yes", "list", "pods", ["-A"]),
         ("yes", "get", "pods", ["--subresource=log", "-n", "research"]),
-        ("yes", "create", "pods/exec", ["-n", "research"]),
-        ("yes", "create", f"pods/portforward/{PROM}", ["-n", "monitoring"]),
+        # Subresources need --subresource: "pods/exec" as a resource name is
+        # always "no", which made the yes rows fail and the no rows pass blind.
+        ("yes", "create", "pods", ["--subresource=exec", "-n", "research"]),
+        ("yes", "create", f"pods/{PROM}", ["--subresource=portforward", "-n", "monitoring"]),
         ("no", "get", "secrets", ["-A"]),
         ("no", "create", "pipelineruns.tekton.dev", ["-n", "cicd"]),
-        ("no", "create", "pods/exec", ["-n", "data"]),
-        ("no", "create", "pods/exec", ["-n", "bifrost-prod"]),
-        ("no", "create", "pods/portforward/not-prometheus", ["-n", "monitoring"]),
+        ("no", "create", "pods", ["--subresource=exec", "-n", "data"]),
+        ("no", "create", "pods", ["--subresource=exec", "-n", "bifrost-prod"]),
+        ("no", "create", "pods/not-prometheus", ["--subresource=portforward", "-n", "monitoring"]),
         ("no", "delete", "pods", ["-n", "research"]),
         ("no", "patch", "deployments", ["-n", "bifrost-prod"]),
         ("no", "create", "namespaces", []),
