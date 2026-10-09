@@ -133,6 +133,16 @@ def static_problems(docs: list[dict]) -> list[str]:
                 ):
                     allowed = True
                 if (
+                    kind == "ClusterRole"
+                    and name == "bifrost-agent-read"
+                    and verb == "create"
+                    and resources == ["subjectaccessreviews"]
+                    and _names(rule, "apiGroups") == ["authorization.k8s.io"]
+                    and not resource_names
+                ):
+                    # TD-277: asks about RBAC, grants nothing.
+                    allowed = True
+                if (
                     kind == "Role"
                     and name == "bifrost-agent-portforward"
                     and ns == "monitoring"
@@ -234,6 +244,10 @@ def live_problems() -> list[str]:
         ("no", "delete", "pods", ["-n", "research"]),
         ("no", "patch", "deployments", ["-n", "bifrost-prod"]),
         ("no", "create", "namespaces", []),
+        # TD-277: may ask about others' permissions, may not act as them
+        ("yes", "create", "subjectaccessreviews.authorization.k8s.io", []),
+        ("no", "impersonate", "serviceaccounts", ["-n", "bifrost-platform-prod"]),
+        ("no", "impersonate", "users", []),
     ]
     for want, verb, resource, extra in expect:
         got = _can(verb, resource, extra)

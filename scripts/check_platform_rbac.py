@@ -1,19 +1,25 @@
 #!/usr/bin/env python3
 """The Ops platform's ServiceAccounts can do what they need and nothing more (TD-204).
 
-Asks the API server (kubectl auth can-i --as the ServiceAccount) about a fixed matrix
-and, per B/C/D action in LANE-B1's tier table, that PROD can perform it and STG
-cannot. Must stay denied: Secrets beyond the two named ones, pod logs outside
-Bifrost namespaces, exec outside data, creating Namespaces, deleting pods in
-kube-system, and any actuation from STG (Owner 2026-10-07: STG observes, PROD
-maintains).
+Asks the API server about a fixed matrix and, per B/C/D action in LANE-B1's tier
+table, that PROD can perform it and STG cannot. Must stay denied: Secrets beyond
+the two named ones, pod logs outside Bifrost namespaces, exec outside data,
+creating Namespaces, deleting pods in kube-system, and any actuation from STG
+(Owner 2026-10-07: STG observes, PROD maintains).
 
-Usage: python3 scripts/check_platform_rbac.py   (needs KUBECONFIG with admin rights; read-only)
-Exit 1 when any answer differs from the expectation.
+Each question is a SubjectAccessReview naming the ServiceAccount and the groups
+Kubernetes gives it (TD-277). `kubectl auth can-i --as` needs the impersonate
+verb, which the Agent's read-only identity does not have; creating a
+SubjectAccessReview only asks, so bifrost-agent-read grants that one verb.
+
+Usage: python3 scripts/check_platform_rbac.py [--live]
+       (any kubeconfig that may create subjectaccessreviews; changes nothing)
+Exit 1 when any answer differs from the expectation, 2 when a review fails.
 """
 
 from __future__ import annotations
 
+import json
 import pathlib
 import re
 import subprocess
@@ -130,23 +136,68 @@ REQUIRED_ACTIONS = {
 }
 
 
+# "kind/name" rows use kubectl's singular kind; a SubjectAccessReview wants the plural.
+PLURAL = {"secret": "secrets", "configmap": "configmaps"}
+
+
+def resource_attributes(verb: str, resource: str, ns: str) -> dict:
+    """MATRIX notation to SubjectAccessReview resourceAttributes.
+
+    "deployments.apps:scale" is resource deployments, group apps, subresource
+    scale; "secret/minio-backup" names one object.
+    """
+    sub = ""
+    if ":" in resource:
+        resource, sub = resource.split(":", 1)
+    name = ""
+    if "/" in resource:
+        resource, name = resource.split("/", 1)
+        resource = PLURAL.get(resource, resource)
+    group = ""
+    if "." in resource:
+        resource, group = resource.split(".", 1)
+    attrs = {"verb": verb, "group": group, "resource": resource}
+    if sub:
+        attrs["subresource"] = sub
+    if name:
+        attrs["name"] = name
+    if ns:
+        attrs["namespace"] = ns
+    return attrs
+
+
+def review_body(user: str, verb: str, resource: str, ns: str) -> dict:
+    """A SubjectAccessReview for a ServiceAccount, with the groups `--as` would add."""
+    parts = user.split(":")
+    groups = ["system:authenticated"]
+    if len(parts) == 4 and parts[:2] == ["system", "serviceaccount"]:
+        groups = ["system:serviceaccounts", f"system:serviceaccounts:{parts[2]}", "system:authenticated"]
+    return {
+        "apiVersion": "authorization.k8s.io/v1",
+        "kind": "SubjectAccessReview",
+        "spec": {"user": user, "groups": groups, "resourceAttributes": resource_attributes(verb, resource, ns)},
+    }
+
+
+def allowed(user: str, verb: str, resource: str, ns: str) -> bool:
+    body = review_body(user, verb, resource, ns)
+    r = subprocess.run(
+        ["kubectl", "create", "-f", "-", "-o", "json"],
+        input=json.dumps(body),
+        capture_output=True,
+        text=True,
+    )
+    if r.returncode != 0:
+        print(f"SubjectAccessReview failed for {user} {verb} {resource} -n {ns or '<cluster>'}: {r.stderr.strip()}", file=sys.stderr)
+        sys.exit(2)
+    return bool((json.loads(r.stdout).get("status") or {}).get("allowed"))
+
+
 def can_i(env: str, verb: str, resource: str, ns: str) -> bool:
     sa = f"system:serviceaccount:bifrost-platform-{env}:bifrost-platform"
     if ns == "<own>":
         ns = f"bifrost-platform-{env}"
-    sub = ""
-    if ":" in resource:
-        resource, sub = resource.split(":", 1)
-    args = ["kubectl", "auth", "can-i", verb, resource, "--as", sa]
-    if sub:
-        args += ["--subresource", sub]
-    if ns:
-        args += ["-n", ns]
-    r = subprocess.run(args, capture_output=True, text=True, stdin=subprocess.DEVNULL)
-    if r.returncode not in (0, 1) or r.stdout.strip() not in ("yes", "no"):
-        print(f"kubectl auth can-i failed: {' '.join(args)}: {r.stderr.strip()}", file=sys.stderr)
-        sys.exit(2)
-    return r.stdout.strip() == "yes"
+    return allowed(sa, verb, resource, ns)
 
 
 def static_job_rules() -> list[str]:
@@ -180,7 +231,7 @@ def static_job_rules() -> list[str]:
 
 
 def live_new_rules() -> list[str]:
-    """can-i lines that pass only after the Owner applies the new RBAC."""
+    """Job and applier answers that pass only after the Owner applies the new RBAC."""
     problems: list[str] = []
     checks = [
         ("prod", "create", "jobs.batch", "research", True),
@@ -205,9 +256,7 @@ def live_new_rules() -> list[str]:
         ("create", "namespaces", "plugin-market-data", False),
         ("patch", "namespaces", "plugin-market-data", False),
     ):
-        args = ["kubectl", "auth", "can-i", verb, resource, "--as", applier, "-n", ns]
-        r = subprocess.run(args, capture_output=True, text=True, stdin=subprocess.DEVNULL)
-        got = r.stdout.strip() == "yes"
+        got = allowed(applier, verb, resource, ns)
         if got != want:
             problems.append(f"applier {verb} {resource} -n {ns} want {want}")
     return problems

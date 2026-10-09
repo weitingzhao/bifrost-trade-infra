@@ -3,6 +3,13 @@
 
 Without --live this only reads the repo. --live asks the API server with
 kubectl dry-run=server and is for after the Owner applies k8s/platform-rbac.
+
+The dry-runs impersonate the PROD platform and applier ServiceAccounts, so they
+need the Owner kubeconfig (run through owner_run_command). With the Agent's
+read-only identity the dry-runs are skipped and the exit code is 3; the
+Application-namespace check still runs (TD-277). A dry-run counts as denied
+only when the API server names a ValidatingAdmissionPolicy or refuses the
+impersonated account; any other failure is reported, not taken as a denial.
 """
 from __future__ import annotations
 
@@ -177,12 +184,37 @@ def live() -> list[str]:
         ("application-sources", platform, "cicd", application_sources(), True),
         ("application-kustomize", platform, "cicd", application_kustomize(), True),
     ]
+    # Ask first: without impersonation kubectl fails while downloading OpenAPI as
+    # the target ("failed to download openapi: unknown"), which names no cause.
+    for identity in (platform, applier):
+        if not may_impersonate(identity):
+            raise OwnerOnly(identity)
     for name, identity, ns, body, want_deny in cases:
-        denied = dry_run(identity, ns, body)
+        outcome, detail = dry_run(identity, ns, body)
+        if outcome == "impersonation":
+            raise OwnerOnly(detail)
+        if outcome == "error":
+            problems.append(f"{name}: dry-run failed for another reason: {detail}")
+            continue
+        denied = outcome == "denied"
         if denied != want_deny:
             problems.append(f"{name}: denied={denied} want {want_deny}")
-    problems += app_namespaces_in_project()
     return problems
+
+
+class OwnerOnly(Exception):
+    """The caller may not impersonate the accounts the dry-runs act as."""
+
+
+def may_impersonate(identity: str) -> bool:
+    """Whether the current kubeconfig may act as system:serviceaccount:<ns>:<name>."""
+    _, _, ns, name = identity.split(":")
+    r = subprocess.run(
+        ["kubectl", "auth", "can-i", "impersonate", f"serviceaccounts/{name}", "-n", ns],
+        capture_output=True,
+        text=True,
+    )
+    return r.stdout.strip() == "yes"
 
 
 def app_namespaces_in_project() -> list[str]:
@@ -220,14 +252,32 @@ def app_namespaces_in_project() -> list[str]:
     return problems
 
 
-def dry_run(identity: str, namespace: str, body: str) -> bool:
+def classify(identity: str, returncode: int, stderr: str) -> str:
+    """allowed | denied | impersonation | error.
+
+    Only an admission policy or an RBAC refusal of the impersonated account is a
+    denial. Before TD-277 any non-zero exit counted, so a caller who could not
+    impersonate saw every deny case pass.
+    """
+    if returncode == 0:
+        return "allowed"
+    if "cannot impersonate" in stderr:
+        return "impersonation"
+    if "ValidatingAdmissionPolicy" in stderr:
+        return "denied"
+    if "is forbidden" in stderr and f'User "{identity}"' in stderr:
+        return "denied"
+    return "error"
+
+
+def dry_run(identity: str, namespace: str, body: str) -> tuple[str, str]:
     r = subprocess.run(
         ["kubectl", "apply", "--dry-run=server", "-n", namespace, "--as", identity, "-f", "-"],
         input=body,
         capture_output=True,
         text=True,
     )
-    return r.returncode != 0
+    return classify(identity, r.returncode, r.stderr), r.stderr.strip()[:300]
 
 
 def inline_run() -> str:
@@ -395,12 +445,22 @@ spec:
 
 def main() -> int:
     problems = static()
+    skipped = ""
     if "--live" in sys.argv[1:]:
-        problems += live()
+        try:
+            problems += live()
+        except OwnerOnly as err:
+            skipped = str(err)
+        problems += app_namespaces_in_project()
     if problems:
         for item in problems:
             print(f"FAIL {item}", file=sys.stderr)
         return 1
+    if skipped:
+        print("SKIP live dry-runs: this identity may not impersonate the platform and applier accounts.", file=sys.stderr)
+        print("     Run --live with the Owner kubeconfig through owner_run_command.", file=sys.stderr)
+        print("ok: static checks and Application namespaces; dry-runs not run (exit 3)")
+        return 3
     print("ok: admission files match the actuation policy")
     return 0
 

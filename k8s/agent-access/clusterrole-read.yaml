@@ -29,6 +29,12 @@ rules:
   - apiGroups: ["admissionregistration.k8s.io"]
     resources: ["validatingadmissionpolicies", "validatingadmissionpolicybindings"]
     verbs: ["get", "list", "watch"]
+  # TD-277: check_platform_rbac.py asks what the platform and applier accounts may
+  # do. A SubjectAccessReview only answers that question about RBAC this role can
+  # already read; it grants nothing and stores nothing. No impersonate verb.
+  - apiGroups: ["authorization.k8s.io"]
+    resources: ["subjectaccessreviews"]
+    verbs: ["create"]
   - apiGroups: ["apiextensions.k8s.io"]
     resources: ["customresourcedefinitions"]
     verbs: ["get", "list", "watch"]
