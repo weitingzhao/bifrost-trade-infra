@@ -140,12 +140,19 @@ spec:
                 exit 1
               fi
               if [ "${REQUIRE_ON_MAIN}" = "true" ]; then
-                api="${base%%/bifrost}/api/v1/repos/${org}/${repo}/compare/${commit}...main"
-                host_path="${api#http://}"
-                host_path="${host_path#https://}"
-                body=$(wget -q -O - "http://${GIT_USERNAME}:${GIT_PASSWORD}@${host_path}" || true)
-                base_sha=$(printf '%s' "$body" | sed -n 's/.*"merge_base_commit":{"sha":"\([0-9a-f][0-9a-f]*\)".*/\1/p' | head -n 1)
-                if [ "$base_sha" != "$commit" ]; then
+                # Gitea 1.21 has no compare API (it answered 404 and refused every
+                # tier C apply, TD-275). Ask git: fetch main's history without
+                # blobs and check that the commit is an ancestor of main.
+                apk add --no-cache git >/dev/null
+                remote="${base}/${repo}.git"
+                remote="${remote#http://}"
+                remote="${remote#https://}"
+                if ! git clone -q --bare --filter=blob:none --single-branch --branch main \
+                    "http://${GIT_USERNAME}:${GIT_PASSWORD}@${remote}" /tmp/main.git 2>/dev/null; then
+                  echo "could not read main of ${repo}" >&2
+                  exit 1
+                fi
+                if ! git -C /tmp/main.git merge-base --is-ancestor "$commit" main 2>/dev/null; then
                   echo "commit is not reachable from main" >&2
                   exit 1
                 fi

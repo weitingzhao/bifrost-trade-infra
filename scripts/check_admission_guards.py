@@ -152,6 +152,12 @@ def pipeline_task_params() -> list[str]:
             # Gitea's web archive route ignores basic auth on a private repo (404).
             if "/archive/" in script and "/api/v1/repos/" not in script.split("/archive/")[0].splitlines()[-1]:
                 problems.append(f"pipeline task {task['name']} fetches the archive outside /api/v1/repos/")
+            # The cluster's Gitea (1.21) has no compare API; it answered 404 and
+            # refused every tier C apply (TD-275). Reachability is git's job.
+            if "/compare/" in script:
+                problems.append(f"pipeline task {task['name']} calls the Gitea compare API, which Gitea 1.21 lacks")
+            if "REQUIRE_ON_MAIN" in script and "merge-base --is-ancestor" not in script:
+                problems.append(f"pipeline task {task['name']} checks main without git merge-base --is-ancestor")
     return problems
 
 
