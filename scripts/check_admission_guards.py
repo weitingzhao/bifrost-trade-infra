@@ -136,6 +136,11 @@ def pipeline_task_params() -> list[str]:
     path = ROOT / "k8s/cicd/tekton/apply-manifest/pipeline.yaml"
     doc = yaml.safe_load(path.read_text())
     problems: list[str] = []
+    # workactions.Summarize reads these from the PipelineRun, not the TaskRun.
+    promoted = {r.get("name") for r in doc["spec"].get("results") or []}
+    for name in ("objects", "policy"):
+        if name not in promoted:
+            problems.append(f"pipeline does not promote task result {name} to the PipelineRun")
     for task in doc["spec"].get("tasks") or []:
         spec = task.get("taskSpec") or {}
         passed = {p["name"] for p in task.get("params") or []}

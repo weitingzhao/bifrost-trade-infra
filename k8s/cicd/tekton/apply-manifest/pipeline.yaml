@@ -25,6 +25,15 @@ spec:
     - name: requireOnMain
       type: string
       default: "false"
+  # The platform reads PipelineRun results (workactions.Summarize), so the task
+  # results are promoted here.
+  results:
+    - name: objects
+      value: $(tasks.run.results.objects)
+    - name: policy
+      value: $(tasks.run.results.policy)
+    - name: highest_tier
+      value: $(tasks.run.results.highest_tier)
   tasks:
     - name: run
       params:
