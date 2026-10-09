@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-275** — 插件能经 `apply_manifest` 部署：白名单加 PodDisruptionBudget 与 ScrapeConfig（四份副本，platform `dcc2d21`）；已存在且标签一致的 Namespace 从 apply 里剔除；检查脚本改用 `\037` 分隔，集群级对象报对；C 级 apply 判断「在 main 上」改用 git（Gitea 1.21 没有 compare 接口，此前每次 C 级 apply 都会失败）。验收 PASS 2026-10-09 `30c6268`（market-data `k8s/base` 计划成功、C 级 apply 经审批执行、线上无改动）。防线：`RATCHETS.md`「apply 白名单按资源类型核对」，以及 `check_admission_guards` 对 `/compare/` 和 merge-base 的检查。后续：TD-276（apply 的 run 名固定，同一计划失败后不能重试）
 - **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）、TD-271（10-09 发现：PROD 平台身份经 cicd 的 PipelineRun 和 Argo Application 仍能间接拿到集群管理员；本项验收的直连权限不受影响）
 - **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
 - **TD-253** — 检查信号不再是几周前的：每条带观测时间和来源，超过 2 小时读 unknown、autopilot 不会按它动手；PROD platform-workers 自己每 10 分钟探测一次（不再靠 Mac 上报）。验收 PASS 2026-10-07 d8bdf41（22/22 带时间）。防线：`RATCHETS.md`「检查信号的时效与来源」测试 + `check_platform_maintenance.py`（探测器只在 PROD workers）。后续：无后续：放开 autopilot 动手在 TD-130（观察到 10-12）
@@ -20,7 +21,7 @@
 - **TD-255** — 漂移扫描不再删失败现场：只删被驱逐的 Pod，失败的备份 Job Pod 留着（日志可读），只报告模式下一个不删。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「漂移扫描只删 Evicted 测试」。后续：无后续：Job 历史上限与 TTL 负责回收
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 72 项**：P0 0 · P1 6 · P2 24 · P3 42；要你批的 32 项（从总览表的审批列算）。
+**未结 73 项**：P0 0 · P1 6 · P2 24 · P3 43；要你批的 32 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -121,7 +122,7 @@
 
 目标：会动手的维护只由 PROD 的 platform-workers 做，本机与 STG 只观测。已做：本机停手（TD-130 第一步）、STG 不修 IB 也不写发布记录（TD-223）、页面不再触发维护、状态持久化（TD-196）。接着：PROD 自己探测、带时间戳的检查信号，只给 PROD 挂技能并先只报告，再逐项放开；备份只归 CNPG 与 backup-retry；不再清掉失败现场。
 
-项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255, TD-272, TD-275 · 已还：TD-256, TD-257, TD-270, TD-271, TD-273
+项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255, TD-272, TD-275, TD-276 · 已还：TD-256, TD-257, TD-270, TD-271, TD-273
 
 ## 数据边界（接受并留座）
 
@@ -284,6 +285,7 @@
 | [TD-255](#td-255) | P3 | ops-platform | The hourly drift scan deletes every Failed pod it may, including failed backup Job pods in data | 不用批 |
 | [TD-272](#td-272) | P3 | ops-platform | tekton-trigger can create any PipelineRun in cicd, and no admission policy matches it, so its token is still a path to the cluster-admin Argo controller account | 安全/凭据（要你批） |
 | [TD-275](#td-275) | P2 | ops-platform | apply_manifest refuses every plugin k8s/base (Namespace, PodDisruptionBudget) and reports cluster-scoped objects as 'missing kind or name' | 安全/凭据（要你批） |
+| [TD-276](#td-276) | P3 | ops-platform | An apply_manifest run is named apply-<plan id>, so a failed apply of a plan cannot be retried; a new plan is needed | 不用批 |
 | [TD-274](#td-274) | P3 | frontend | Symbol faces hide GEX levels that exist when zero gamma is NULL: the dealer level strip needs all four values and the regime cell needs zero gamma, so a chain with no flip (about a third of expiries) shows neither walls nor regime | 不用批 |
 
 ## 条目
@@ -1432,7 +1434,7 @@
 
 **P2 · ops-platform · apply_manifest refuses every plugin k8s/base (Namespace, PodDisruptionBudget) and reports cluster-scoped objects as 'missing kind or name'**
 
-- **状态**：在做
+- **状态**：待你签收
 - **现在**：10-09 Claude 修好代码，等 Owner 批 apply 和重启 PROD platform-api，然后实测：
   - 修法：infra 检查脚本改用 `\037` 分隔；Namespace 已存在且标签一致就从 apply 里剔除，否则拒绝；四份策略副本加 PodDisruptionBudget 和 ScrapeConfig（platform `dcc2d21`）；applier 加只读的 `get namespaces`；
   - 防线：`scripts/check_apply_paths.py`（main 上每个白名单路径渲染一遍，「故意拒绝」之外的拒绝都报错）；`apply-manifest-check_test.sh` 新增 5 个用例；`check_platform_rbac.py` 的 applier 检查加 4 行；
@@ -1446,7 +1448,23 @@
 - **Fix**: Add `policy/poddisruptionbudgets` and `monitoring.coreos.com/scrapeconfigs` to the applier kinds (policy copies, `gen_platform_rbac.py` → `30-applier.yaml`; no pod template, so the admission policies need nothing). For `Namespace`: drop it from the apply when it already exists live with the same labels, refuse otherwise. Use a non-whitespace field separator in the check script and test a cluster-scoped object's message.
 - **Ratchet**: A check that renders every allow-listed path at origin/main and fails on refused kinds that are not on an explicit 'refused on purpose' list (RBAC, cicd ConfigMaps and workloads); plus the shell test case.
 - 验收: `plan_manifest` of `bifrost-platform-plugin-market-data` `k8s/base` at main → Succeeded, ready, Namespace skipped; the C-tier apply of that plan changes nothing
+- **验收结果**：PASS 2026-10-09 `30c6268`（`plan-1dfc9375-1791567644` Succeeded、Namespace 剔除；`appr_907193b5084359d4` → `apply-plan-1dfc9375-1791567644` 12 个对象 serverside-applied，Pod 0 个重建、副本与镜像不变，Namespace 只有原管理者；第一次 C 级 apply 因 Gitea 1.21 没有 compare 接口而按设计拒绝，已改用 git 判断，见 `30c6268`）
 - 审批 安全/凭据（要你批） · 代价 S · 风险 low · repos: bifrost-trade-infra
+
+### TD-276
+
+**P3 · ops-platform · An apply_manifest run is named apply-<plan id>, so a failed apply of a plan cannot be retried; a new plan is needed**
+
+- **状态**：未开始
+- **Claim**: `workactions.Apply` names the run `trimName("apply-" + planID)`. After an apply of a plan fails, a second approved apply of the same plan fails at create with `pipelineruns.tekton.dev "apply-<plan>" already exists`, and the approval ends `failed`.
+- **Measured**: MEASURED 2026-10-09: `appr_49781a21b0d86b9d` (plan `plan-1dfc9375-1791567153`, whose first apply failed closed) → `failed`, `already exists`. A fresh plan applied fine.
+- **Evidence**:
+  - `bifrost-platform/api/internal/workactions/service.go` — `name := trimName("apply-" + planID)`
+- **Impact**: Small. The caller must plan again; the error looks like a platform fault. Approval audit shows a failed C-tier action that changed nothing.
+- **Fix**: Name the run `apply-<plan>-<unix>` (keep the plan id in a label) or refuse the request up front when an apply of that plan already succeeded.
+- **Ratchet**: workactions test: two Apply calls for one ready plan create two distinct runs (or the second is refused with a clear message when the first succeeded).
+- 验收: `cd bifrost-platform/api && go test ./internal/workactions -run Apply -count=1`
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-261
 

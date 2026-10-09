@@ -472,7 +472,8 @@
       - 发布窗口归平台；
       - Gitea 镜像同步交给平台（顺带修 TD-273）；
       - `start_pipeline_run` 带通用参数；
-    - 下一步：修 TD-275（插件能经 `apply_manifest` 部署），再做第 3 步（Mac 上的 Agent 换只读）；
+    - TD-275 已修并验收（10-09，Claude 直接修，Owner 批 apply 和 PROD api 重启）：market-data 插件「计划 → C 级 apply」全程走通，线上无改动；顺带修好了 C 级 apply 判断「在 main 上」的方式（Gitea 1.21 没有 compare 接口）；TD-273 已签收；新登记 TD-276；
+    - **下一步**：第 3 步（Mac 上的 Agent 换只读 kubeconfig，管理员凭证搬到 Owner 目录，preflight 按路径拦）；
   - 10-09 07:00Z 定时对账 drift 0；
   - 写道时实测发现 TD-271：PROD 平台身份经 cicd 的 PipelineRun 和 Argo Application 仍能间接拿到集群管理员，已登记，并写进 TD-204 待签收行的「后续」；
   - 第 3 步在第 2 步验收后另派
