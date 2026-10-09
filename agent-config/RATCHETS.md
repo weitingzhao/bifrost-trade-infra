@@ -4,7 +4,7 @@
 > **规则**：每关掉 `TECH_DEBT.md` 里的一项，要么在这里加一条（或扩大已有一条的范围），要么在提交信息里写明为什么没有可行的防线。删掉或放宽一条防线要写理由。
 > 强度：blocking＝不过就不能提交/发布；warning＝报出来但不拦；alert＝运行时告警；manual＝要人手跑。
 
-更新：2026-10-06（第 2 轮扫描的防线盘点；同日加 TD-87/88/89/90 的防线；同日登记 TD-132 的 MinIO 后端测试；同日登记 TD-197 的标题上报测试与 lineage 镜像同步测试；10-07 登记 TD-203/208 的终端与派发鉴权测试、TD-205 的数据层局域网暴露检查、TD-209 的告警路由检查与中转测试、TD-248 的中转互看、TD-204 的 platform 权限检查、TD-253/254/255 与 TD-130 的维护单点检查和测试；10-08 登记 TD-104 的 IB 服务行存活测试与 api-ops RBAC 检查；10-08 登记 TD-240 的镜像删除测试、TD-256 的 ExecSQLOnPrimary 调用点测试、TD-150 的退役措辞测试、TD-145 的 Best regime 门槛测试；10-08 登记 TD-136/157/166 的 GEX 无暴露测试；10-08 登记 TD-259 的轻端点与不漂移测试、TD-260 的「没有供给≠0」取价测试、TD-180 的日历未来日期测试；10-08 登记 TD-103 的现金流水去重测试与唯一索引；10-08 登记 TD-263 的流水线窗口闸门检查、TD-261 的审批形状契约测试（待合）、TD-264 的期权 mark 优先级与降级腿显示；10-08 扩 TD-208 的 checklist 不 import remediation 测试；10-08 登记 mini 部署脚本的 relay 与 PROD viewer 两个生成器测试）
+更新：2026-10-06（第 2 轮扫描的防线盘点；同日加 TD-87/88/89/90 的防线；同日登记 TD-132 的 MinIO 后端测试；同日登记 TD-197 的标题上报测试与 lineage 镜像同步测试；10-07 登记 TD-203/208 的终端与派发鉴权测试、TD-205 的数据层局域网暴露检查、TD-209 的告警路由检查与中转测试、TD-248 的中转互看、TD-204 的 platform 权限检查、TD-253/254/255 与 TD-130 的维护单点检查和测试；10-08 登记 TD-104 的 IB 服务行存活测试与 api-ops RBAC 检查；10-08 登记 TD-240 的镜像删除测试、TD-256 的 ExecSQLOnPrimary 调用点测试、TD-150 的退役措辞测试、TD-145 的 Best regime 门槛测试；10-08 登记 TD-136/157/166 的 GEX 无暴露测试；10-08 登记 TD-259 的轻端点与不漂移测试、TD-260 的「没有供给≠0」取价测试、TD-180 的日历未来日期测试；10-08 登记 TD-103 的现金流水去重测试与唯一索引；10-08 登记 TD-263 的流水线窗口闸门检查、TD-261 的审批形状契约测试（待合）、TD-264 的期权 mark 优先级与降级腿显示；10-08 扩 TD-208 的 checklist 不 import remediation 测试；10-08 登记 mini 部署脚本的 relay 与 PROD viewer 两个生成器测试；10-08 登记信任覆盖部署副本检查）
 
 ## 现有防线
 
@@ -138,6 +138,7 @@
 | daemon 任何扩容在 D10 未解锁时都拒（TD-222） | `bifrost-platform/api/internal/cluster/actuation_scale_test.go`（0→1、1→2、2→3 拒，缩容放行，spine 缺 D10 视为 BLOCKED） | 只拦 0→n，PROD 2→3 能被扩 | error（Go 测试） | 只覆盖 platform-api 这一条执行路径 |
 | 修 WAL 不删失败 Backup 记录（TD-131） | `bifrost-platform/api/internal/cluster/postgres_wal_repair_test.go`（repair 无 delete；只清 30 天前失败的） | 失败备份的记录被修复动作抹掉 | error（Go 测试） | — |
 | 部署的 ops-context 与 platform spine 逐字节一致（TD-109） | `bifrost-trade-infra/scripts/check_ops_context_parity.py` + ci-platform task check-ops-context | PROD 读到过期的 spine（缺 33 个 decision） | warning（CI 不挡发布） | ci-platform 不挡 release.sh |
+| 部署的信任覆盖与 platform 文件一致（W-32 B2） | `bifrost-trade-infra/scripts/check_ops_context_parity.py`（`check_trust_overrides`：两个 overlay 的 `trust-overrides.yaml` 与 platform `config/trust-overrides.yaml` 逐字节一致，两个 `configMapGenerator` 都列出它）+ `sync_platform_k8s_config.sh` 同步它 | 文件没进 ConfigMap，platform-api 读不到就悄悄丢掉全部覆盖，被降级的技能自动升回（10-08 STG 实测 L0 变 L1） | warning（脚本，`make check-ops-context-parity`） | platform-api 读不到文件时只在接口里给 `store_error`，没有告警 |
 | 宏观面板错误文案（TD-182） | 组件已删；`orphanModules.test.ts` | 组件再出现且无人引用 | warning（测试） | — |
 | research 无人调用的路由不复活（TD-123） | `bifrost-research/tests/...test_retired_routes.py` | 删掉的路由被加回 | warning（测试） | — |
 | 夜间 trim 单飞（TD-106） | market-data trim 单飞测试 + research market_trim 轮询测试 | 并发 trim 重叠、Dagster 60s 超时重试 | warning（测试） | — |

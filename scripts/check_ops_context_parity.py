@@ -7,6 +7,11 @@ reverted or pruned. The copies stay in git, sync_platform_k8s_config.sh refreshe
 ops-context.yaml into both overlays, and this check fails when they drift.
 
 Compares bytes, and prints the decisions[id → status] diff so a stale D10 is obvious.
+
+Also checks trust-overrides.yaml (W-32 B2): platform-api reads it from
+/app/config on every request, and a missing file silently drops every override
+(a demotion such as L0 is lost). Both overlay copies must equal the platform
+file and both configMapGenerators must list it.
 `--self-test` checks the decision parser without the repos.
 
 Usage:
@@ -25,6 +30,33 @@ COPIES = (
     INFRA / "k8s" / "overlays" / "platform-stg" / "config" / "ops-context.yaml",
     INFRA / "k8s" / "overlays" / "platform-prod" / "config" / "ops-context.yaml",
 )
+
+
+TRUST_COPIES = (
+    INFRA / "k8s" / "overlays" / "platform-stg" / "config" / "trust-overrides.yaml",
+    INFRA / "k8s" / "overlays" / "platform-prod" / "config" / "trust-overrides.yaml",
+)
+OVERLAY_KUSTOMIZATIONS = (
+    INFRA / "k8s" / "overlays" / "platform-stg" / "kustomization.yaml",
+    INFRA / "k8s" / "overlays" / "platform-prod" / "kustomization.yaml",
+)
+
+
+def check_trust_overrides(source: pathlib.Path) -> list[str]:
+    """Overlay copies equal the platform file and every generator ships it."""
+    if not source.is_file():
+        return [f"missing source {source}"]
+    problems: list[str] = []
+    src_bytes = source.read_bytes()
+    for copy in TRUST_COPIES:
+        if not copy.is_file():
+            problems.append(f"missing copy {copy.relative_to(INFRA)}")
+        elif copy.read_bytes() != src_bytes:
+            problems.append(f"{copy.relative_to(INFRA)} is not byte-identical to {source}")
+    for kust in OVERLAY_KUSTOMIZATIONS:
+        if "- config/trust-overrides.yaml" not in kust.read_text():
+            problems.append(f"{kust.relative_to(INFRA)} configMapGenerator does not list config/trust-overrides.yaml")
+    return problems
 
 
 def decisions(text: str) -> dict[str, str]:
@@ -129,6 +161,7 @@ def main() -> int:
     platform = pathlib.Path(os.environ.get("PLATFORM_ROOT", INFRA.parent / "bifrost-platform"))
     source = platform / "config" / "ops-context.yaml"
     problems = check_files(source, COPIES)
+    problems += check_trust_overrides(platform / "config" / "trust-overrides.yaml")
     if problems:
         print(f"ops-context parity failed against {source}:", file=sys.stderr)
         for item in problems:

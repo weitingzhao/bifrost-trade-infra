@@ -21,6 +21,7 @@ configMapGenerator:
       - config/platform-auth.yaml
       - config/sessions-catalog.yaml
       - config/release-rules.yaml
+      - config/trust-overrides.yaml
     options:
       disableNameSuffixHash: true
   # PROD-only patrol skill set; see platform-workers-patrol.patch.yaml. Hashed
