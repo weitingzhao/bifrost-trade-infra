@@ -81,8 +81,12 @@ class PolicyFileTests(unittest.TestCase):
     def test_conditions_are_all_on(self) -> None:
         cond = load(TEMPLATE)["conditions"]
         for key in ("ci_succeeded", "window_held_by_requester", "no_pending_before_db_steps", "no_ddl",
-                    "additive_ddl", "no_d10_paths", "no_trust_anchor_change"):
+                    "no_d10_paths", "no_trust_anchor_change"):
             self.assertIs(cond[key], True, key)
+        # W-55 (Codex review R01): the line-based DDL classifier lets multi-line and
+        # unknown statements through. Additive DDL stays off until the allow-list
+        # classifier lands and is reviewed independently; every DDL hit waits for the Owner.
+        self.assertIs(cond["additive_ddl"], False, "additive_ddl stays off until W-55 is accepted")
         self.assertEqual(cond["revision"], "main-or-tag")
 
     def test_reminders_are_14d_3d_1d(self) -> None:

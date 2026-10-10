@@ -20,7 +20,7 @@
     "window_held_by_requester": true,
     "no_pending_before_db_steps": true,
     "no_ddl": true,
-    "additive_ddl": true,
+    "additive_ddl": false,
     "no_d10_paths": true,
     "no_trust_anchor_change": true
   },
