@@ -13,15 +13,9 @@
 
 ## 待你签收
 
-- **TD-204** — platform 不再以集群管理员身份运行：STG/PROD 改用按需授权的 ServiceAccount（STG 只读、PROD 只有维护所需的几项），管理员 kubeconfig Secret 已删，读 Pod 日志要令牌。验收 PASS 2026-10-07（Secret NotFound、读不到 data 的 Secret、匿名读日志 401、权限检查 82/82、切换后无 forbidden）。防线：`RATCHETS.md`「check_platform_rbac.py」。后续：TD-256（STG 两个插件新鲜度探测靠主库 exec，现在不可用）、TD-257（管理员客户端证书是否轮换，要你定）、TD-271（10-09 发现：PROD 平台身份经 cicd 的 PipelineRun 和 Argo Application 仍能间接拿到集群管理员；本项验收的直连权限不受影响）
-- **TD-223** — IB Gateway 自动修复只留 PROD 一份：STG 的 platform-workers 与 platform-api 关掉（infra 7b82568），STG 也不再重复写发布记录。验收 PASS 2026-10-07（STG `auto_repair_enabled` false、PROD true）。防线：无可行的机械防线——overlay 值由 Owner 原则「STG 只观测、PROD 维护」约束，写进了 overlay 注释。后续：无后续：Ops 维护收敛计划其余步骤在 TD-130
-- **TD-253** — 检查信号不再是几周前的：每条带观测时间和来源，超过 2 小时读 unknown、autopilot 不会按它动手；PROD platform-workers 自己每 10 分钟探测一次（不再靠 Mac 上报）。验收 PASS 2026-10-07 d8bdf41（22/22 带时间）。防线：`RATCHETS.md`「检查信号的时效与来源」测试 + `check_platform_maintenance.py`（探测器只在 PROD workers）。后续：无后续：放开 autopilot 动手在 TD-130（观察到 10-12）
-- **TD-254** — 备份只归 CNPG 每日备份 + backup-retry：autopilot 遇到备份不新鲜只报告、不再调 repair_cnpg_wal_store（不再删失败的 Backup、不再盘中补全量备份；工具留给人手动用）。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「autopilot 备份不动手测试」。后续：无后续：剩下的收敛在 TD-130（观察到 10-12）
-- **TD-255** — 漂移扫描不再删失败现场：只删被驱逐的 Pod，失败的备份 Job Pod 留着（日志可读），只报告模式下一个不删。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「漂移扫描只删 Evicted 测试」。后续：无后续：Job 历史上限与 TTL 负责回收
-- **TD-196** — platform 状态不再随发版丢失：各 store 经 `internal/statefile` 写进本命名空间的 ConfigMap `platform-state-*`，审计按角色各留 500 条（platform 87965ce）。验收 PASS 2026-10-09（PROD 21:29Z 发版后审计 180 条、最早 10-07；release-cycles、approvals、checklist、patrol 的状态 ConfigMap 都在）。防线：`statefile_test.go`、`k8sstate_test.go`（store 经 statefile 落 ConfigMap）。原定的「清单里不许 emptyDir」不适用：`/app/data` 的 emptyDir 现在只是写穿式的本地副本。后续：无后续：release-cycles 读接口已随第 3 阶段删除
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 79 项**：P0 0 · P1 6 · P2 27 · P3 46；要你批的 35 项（从总览表的审批列算）。
+**未结 73 项**：P0 0 · P1 5 · P2 24 · P3 44；要你批的 32 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -122,7 +116,7 @@
 
 目标：会动手的维护只由 PROD 的 platform-workers 做，本机与 STG 只观测。已做：本机停手（TD-130 第一步）、STG 不修 IB 也不写发布记录（TD-223）、页面不再触发维护、状态持久化（TD-196）。接着：PROD 自己探测、带时间戳的检查信号，只给 PROD 挂技能并先只报告，再逐项放开；备份只归 CNPG 与 backup-retry；不再清掉失败现场。
 
-项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255, TD-272, TD-276, TD-283, TD-284, TD-285, TD-286, TD-287, TD-288, TD-289 · 已还：TD-256, TD-257, TD-270, TD-271, TD-273, TD-275, TD-277, TD-278, TD-279, TD-280, TD-281, TD-282
+项：TD-130, TD-272, TD-276, TD-283, TD-284, TD-285, TD-286, TD-287, TD-288, TD-289 · 已还：TD-256, TD-257, TD-270, TD-271, TD-273, TD-275, TD-277, TD-278, TD-279, TD-280, TD-281, TD-282, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255
 
 ## 数据边界（接受并留座）
 
@@ -194,18 +188,6 @@
 - 选项：A：按推荐 · B：TD-144、TD-146 都出新表设计，TD-148 照做 · C：只做 TD-148，两列都保持灰显
 - 项：TD-144, TD-146, TD-148
 
-### 平台状态存哪里？线程标题改由会话自己上报吗？（Owner 2026-10-06 已定：按推荐）
-
-- 已定：TD-196 选 A：门禁历史、发布 cycle、操作队列、checklist 信号改存平台命名空间的 ConfigMap（和发布记录、线程标题同一个做法，不加依赖），审计日志写一个有上限的 ConfigMap；以后要 HA 或审计量变大再上 Postgres。TD-197 做：会话自己的 Stop hook 上报标题，本机同步保留作回填。
-- 选项：A：ConfigMap · B：Postgres（新依赖、DDL、凭据）· C：PVC（local-path，重装节点会丢，仍是每个 pod 一份）
-- 项：TD-196, TD-197
-
-### platform 换成按需授权的身份吗？（安全）
-
-- 推荐：A。每个 namespace 建 platform-api / platform-workers 两个 ServiceAccount：集群范围只读；只有 PROD 有点名的动作权限（指定 namespace 的 scale/rollout、节点 cordon、data 里建 Backup）；STG 只读。删除 kubeconfig Secret，之后轮换管理员客户端证书。
-- 选项：A：最小权限 SA · B：先只把 STG 降成只读 · C：维持 system:masters
-- 项：TD-204, TD-222, TD-223
-
 ### 挂单要真的记下来吗？（跨仓库发版）
 
 - 推荐：A。插件在快照里加只读的 reqOpenOrders / reqExecutions 输出（无下单路径，D10 安全），core 只在键存在时写 open_orders（缺键≠空）；同时停掉缺键时的 TRUNCATE。
@@ -268,21 +250,15 @@
 | [TD-188](#td-188) | P3 | frontend | The app's design registry is still at Rev .157: packages .158–.162 are built but designRoutes / adoption were not re-synced (the Design project's DS mirror was synced to 0.13.0 on 10-06) | 不用批 |
 | [TD-189](#td-189) | P3 | research-data | SEPA has no rows for four sessions (08-28, 08-31, 09-08, 09-16): those nights never computed it, so the SEPA lens and its hit rate skip them | 不用批 |
 | [TD-192](#td-192) | P2 | research-control | One IB Flex failure loses that night's SEPA for good: husbandry_gate blocks sepa_projection although SEPA reads nothing from Flex, and the projection never back-fills a missed night | 要你批 |
-| [TD-196](#td-196) | P2 | ops-platform | platform-api and platform-workers keep their state in per-pod emptyDir: every rollout erases release cycles, gate history, the operate queue and checklist signals, and the audit log is memory-only | 已批 |
 | [TD-202](#td-202) | P3 | market-data | market-data code strings and scripts still mention CronJobs: the dashboard label 'CronJob archived' and verify-market-data.sh's hint are user-visible | 不用批 |
-| [TD-204](#td-204) | P1 | ops-platform | STG and PROD platform-api and platform-workers run as system:masters through a copy of the k3s admin kubeconfig, and anonymous GETs use it to read pod logs in any namespace | 安全/凭据（要你批） |
 | [TD-210](#td-210) | P1 | data | The nightly logical backup of hand-entered data failed on its first scheduled run: it connects before the new pod's NetworkPolicy is programmed and gets Connection refused | 不用批 |
 | [TD-218](#td-218) | P2 | data | Every backup copy (Barman base+WAL, logical dumps hot and cold, the W3 archive) is on the one NAS 192.168.10.20:/volume1, and the open offsite decision is not in the ledger | PROD 变更（要你批） |
-| [TD-223](#td-223) | P3 | ops-platform | STG and PROD platform-workers both run the IB gateway auto-repair loop against the one live data/ib-gateway, each with its own 15-minute cooldown | PROD 变更（要你批） |
 | [TD-228](#td-228) | P3 | ops-console | Every scheduled Hermes skill run on .52 fails with 'No such file or directory', while /health returns status ok and the checklist counts the gateway healthy | 不用批 |
 | [TD-234](#td-234) | P3 | trade-worker | @bifrost/ui is unversioned for the Ops Console: a ui push never runs platform CI, and platform deliver builds whatever ui main is without recording its SHA | 不用批 |
 | [TD-242](#td-242) | P2 | market-data | market-data /ingest/queue-dashboard takes 5–25 s per call, and the platform-api proxy carries the same delay: with the new latency rule live it will page whenever someone keeps the queue dashboard open | 不用批 |
 | [TD-244](#td-244) | P3 | research-control | agents/journal_distill reads raw_broker.executions_final with no Flex freshness check (own 23:55 UTC schedule, outside any gate) | 不用批 |
 | [TD-246](#td-246) | P3 | trade-data | Snapshot enrich stores a vendor 'day close' that can sit below the option's intrinsic value (a stale last trade), and P&L attribution then books it as unexplained | 已批（Owner 10-07「做」） |
 | [TD-250](#td-250) | P3 | trade-data | A stale vendor close above intrinsic is still stored as vendor_eod: the plugin's snapshot read does not return last_trade_ts, so enrich cannot tell a morning trade from a session close | 不用批 |
-| [TD-253](#td-253) | P2 | ops-platform | The autopilot acts on checklist signals that are weeks old: signals carry no time of their own, and nothing marks a stale one unknown | 不用批 |
-| [TD-254](#td-254) | P2 | ops-platform | Two mechanisms repair the same failed backup: the autopilot's repair_cnpg_wal_store (every 15 min) and the backup-retry CronJob | 不用批 |
-| [TD-255](#td-255) | P3 | ops-platform | The hourly drift scan deletes every Failed pod it may, including failed backup Job pods in data | 不用批 |
 | [TD-272](#td-272) | P3 | ops-platform | tekton-trigger can create any PipelineRun in cicd, and no admission policy matches it, so its token is still a path to the cluster-admin Argo controller account | 安全/凭据（要你批） |
 | [TD-276](#td-276) | P3 | ops-platform | An apply_manifest run is named apply-<plan id>, so a failed apply of a plan cannot be retried; a new plan is needed | 不用批 |
 | [TD-283](#td-283) | P3 | ops-platform | release.sh dev still restarts DEV with kubectl rollout restart, which the read-only Agent identity cannot do | 不用批 |
@@ -1087,31 +1063,6 @@
 - **Ratchet**: TD-189's sepa_covers_recent_sessions check already warns on a new gap.
 - 审批 要你批 · 代价 S · 风险 med · repos: bifrost-research
 
-### TD-196
-
-**P2 · ops-platform · platform-api and platform-workers keep their state in per-pod emptyDir: every rollout erases release cycles, gate history, the operate queue and checklist signals, and the audit log is memory-only**
-
-- **状态**：待你签收（platform 87965ce 起状态写进 ConfigMap `platform-state-*`；10-09 21:29Z PROD 发版后核对）
-- **现在**：新包 `internal/statefile`：各 store 照旧用原路径读写；集群里 `PLATFORM_DATA_DIR` 下的每个状态文件存成本命名空间的 ConfigMap `platform-state-<key>`（STG/PROD 分开，900 KiB 预算，后写为准），本机与 operator-plane 仍是文件。迁移：checklist、operate queue + briefs、release gate 状态与历史、release cycles、patrol、hermes insights、escape hatch、agent deploy、data-clone 计划与最近一次。审计按角色存 `audit-api.json` / `audit-workers.json`（各留 500 条），api 的 `GET /audit` 合并两份，每条同时打一行日志进 Loki。data-clone 计划 `Get` 每次重读（api 写、workers 读）。写入时截断：闸门历史 100 条、已结束的队列条目 200 条。两 Pod 启动日志都有「platform state in ConfigMaps」。未迁：data-clone 任务记录（一个目录，按 Pod 保存）
-- **Claim**: Both platform Deployments mount `/app/data` as an emptyDir, one per pod (the api pod and the workers pod do not share it). Every file store resolves under it: release-gate state and history, release cycles (including `agent_session_id`), the operate queue, checklist signals, patrol state, the escape-hatch drill and agent-deploy last. The audit log is built with `NewAuditLog("")` and `PLATFORM_AUDIT_LOG` is set in no overlay, so audit records only live in memory. A rollout, crash or reschedule erases all of it.
-- **Measured**: MEASURED 2026-10-06 23:40Z. Five platform deliveries were started through platform-api today (STG/PROD 17:53–23:34). PROD `GET /api/v1/promote/release-cycles?lane=platform` → `{"entries":[]}` and `GET /api/v1/audit?limit=5` → `{"records":[]}`; the PROD pods started 23:33 with the last rollout.
-- **Evidence**:
-  - `bifrost-trade-infra/k8s/base-platform/manifest.yaml:87` — `emptyDir: {}`
-  - `bifrost-trade-infra/k8s/base-platform/manifest.yaml:185` — `emptyDir: {}`
-  - `bifrost-trade-infra/k8s/overlays/platform-prod/replicas-ha.patch.yaml:12` — `# One replica is the honest configuration until that state moves to Postgres.`
-  - `bifrost-platform/api/internal/promote/cycle_store.go:23` — `dataDir := os.Getenv("PLATFORM_DATA_DIR")`
-  - `bifrost-platform/api/internal/promote/store.go:19` — `path := os.Getenv("PLATFORM_RELEASE_GATE_STATE")`
-  - `bifrost-platform/api/internal/operatequeue/store.go:29` — `return &Store{path: filepath.Join(dir, "queue.json")}`
-  - `bifrost-platform/api/internal/server/server.go:112` — `audit := actuation.NewAuditLog("")`
-  - `bifrost-platform/api/internal/actuation/audit.go:34` — `path = os.Getenv("PLATFORM_AUDIT_LOG")`
-- **Impact**: The Console's Promote history, release cycles and Audit view only show what happened since the last rollout; "who released what, when" has no durable record on the platform side; PROD platform-api is pinned to one replica because of it. The commit-lineage release records and thread titles avoided this by writing ConfigMaps (platform f53713b, 45277ce).
-- **Fix**: Move the small stores to ConfigMaps in the platform namespace behind one store interface (same pattern as `internal/releases` and `internal/threadtitles`: get-or-create, update with retry on conflict, capped size), the audit log to a capped ConfigMap (or ship it to Loki and read back); then drop the emptyDir mount. Postgres only if HA or audit volume needs it.
-- **Ratchet**: A platform test that no store resolves a path under `PLATFORM_DATA_DIR` once migrated, and a manifest check that no platform Deployment mounts an emptyDir at `/app/data`.
-- **验收**: After a PROD platform rollout, `GET /api/v1/promote/release-cycles?lane=platform` and `GET /api/v1/audit` still list the entries recorded before it. 经 api pod `PUT` data-clone schedule 后，workers pod 的 `maybeAutoClone` 读到 `enabled:true`（store 每个 tick 重读）。
-- **验收结果**：PASS 2026-10-09 2ae5725 — PROD 10-09 21:29Z 发版（efeaf69，api/workers Pod 21:29 起）之后 `GET /api/v1/audit` 仍有 180 条、最早 10-07 19:33Z；`release-cycles` 读接口已在第 3 阶段删除，改核状态本身：`platform-state-release-cycles-platform-json`（10-08 01:53Z 建，864 B）、`platform-state-audit-audit-api-json`（10-07 建，61 KB）、approvals / checklist / patrol 均在；data-clone 计划跨进程由 TD-270 修复并签收。（早先部分 PASS 2026-10-07：STG 审计跨两次重启仍在）
-- 审批 已批（ConfigMap） · 代价 M · 风险 med · repos: bifrost-platform, bifrost-trade-infra
-- **Also (round 3, 10-07)**: the data-clone schedule is written by the api pod and read by the workers pod's scheduler, each with its own emptyDir, and `DataCloneScheduleStore` loads its file only once at construction, so a schedule enabled in the Console never fires in-cluster (all three GETs answer enabled:false today). The ConfigMap store must be re-read on every `maybeAutoClone` tick; acceptance gains: a schedule PUT through the api pod is visible to the workers pod (`bifrost-platform/api/internal/cluster/data_clone.go:285`, `server.go:129`).
-
 ### TD-202
 
 **P3 · market-data · market-data code strings and scripts still mention CronJobs: the dashboard label 'CronJob archived' and verify-market-data.sh's hint are user-visible**
@@ -1126,27 +1077,6 @@
 - **Fix**: Reword to the Dagster wording; extend test_k8s_no_cronjobs.py to scan src/**/*.py string literals and scripts/*.sh (same HISTORY_LINES allowlist). The label change ships with the next plugin release.
 - **Ratchet**: The extended scan.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data
-
-### TD-204
-
-**P1 · ops-platform · STG and PROD platform-api and platform-workers run as system:masters through a copy of the k3s admin kubeconfig, and anonymous GETs use it to read pod logs in any namespace**
-
-- **状态**：待你签收
-- **现在**：10-07（Owner 批 A）：`k8s/platform-rbac/`（手工 apply，infra d5aad06）给每个 platform 命名空间建 ServiceAccount `bifrost-platform`：两环境都有全集群只读（无 Secret）、只在 Bifrost 命名空间读日志、自己命名空间与 cicd 的状态 ConfigMap、`gitea-bootstrap`；只 PROD 有 Bifrost 命名空间的重启/扩缩/删 Pod、节点 cordon、data 里的 pods/exec 与 CNPG Backup 与 `minio-backup`、cicd 的 PipelineRun 与 Argo 同步。切换不改代码：kubeconfig 仍在原路径，但来自一个指向 Pod 自身令牌的 ConfigMap（STG bc03d27、PROD 27829fb）；两份管理员 kubeconfig Secret 已删除。读 Pod 日志的路由改为要 viewer（platform a162fe8，Console 带令牌）。权限按实测调用清单定（typed 27 类 + CNPG/Tekton/Argo/Traefik）
-- **Claim**: No platform namespace binds a ServiceAccount: platform-api, platform-console and platform-workers have SA <none> in STG and PROD. Both Deployments instead mount Secret bifrost-platform-kubeconfig and set PLATFORM_KUBECONFIG to it. EnsureKubeconfigSecret creates the Secret by copying the local ~/.kube/bifrost-k3s.yaml, which is system:admin in group system:masters, a client certificate that cannot be revoked without rotating the k3s CA. Every cluster call runs as cluster-admin: actuation, pod logs, exec, secrets, deleting Backup CRs. The anonymous GET /cluster/workloads/pods/{namespace}/{name}/logs takes any namespace. validateDeploymentTarget checks only kind, with no namespace allowlist, so an STG operator token can scale or restart PROD Trade and data Deployments. A STG workload can read bifrost-postgres-app, minio-backup and every per-env DB password, which bypasses the DB-level isolation TD-85 is building.
-- **Measured**: MEASURED 2026-10-07. Bindings that mention platform: only tekton-deliver-rollout. Secret bifrost-platform-kubeconfig (single key bifrost-k3s.yaml) exists in bifrost-platform-stg (2026-06-28T19:04:35Z) and -prod (19:04:36Z). `kubectl auth whoami` on the local source file gives system:admin / [system:masters system:authenticated]. Secret contents were not read, so the in-cluster identity is inferred from the code path that copies that file. An unauthenticated GET of a kube-system coredns pod's logs (tailLines=1) returned 200 via PROD 30876, via STG 30878, and via Host ops.bifrost.lan.
-- **Evidence**:
-  - `bifrost-platform/api/internal/cluster/ensure_kubeconfig_secret.go:80` — `data, err := os.ReadFile(kubeconfigPath)`
-  - `bifrost-trade-infra/k8s/base-platform/manifest.yaml:84` — `secretName: bifrost-platform-kubeconfig`
-  - `bifrost-trade-infra/k8s/base-platform/secrets/platform-kubeconfig.example.yaml:13` — `# Replace with cluster admin kubeconfig (make k3s-fetch-kubeconfig).`
-  - `bifrost-platform/api/internal/server/server.go:525` — `r.Get("/workloads/pods/{namespace}/{name}/logs", s.cluster.HandlePodLogs)`
-  - `bifrost-platform/api/internal/cluster/actuation.go:246` — `if kind != "Deployment" {`
-- **Impact**: A bug, a leaked token or an injected agent tool call in either platform environment becomes cluster-admin over PROD Trade, Golden Source, PITR backups and kube-system, so STG has the same blast radius as PROD. Anyone on the LAN can read any pod's logs without a token. RBAC and audit cannot tell a platform action from the Owner's own.
-- **Fix**: Create ServiceAccounts platform-api and platform-workers per namespace, and bind only what the code uses: cluster-wide get/list/watch on core, apps and CNPG; for PROD only, the named actuations (patch deployments/scale and rollout in listed namespaces, patch nodes for cordon, create Backups in data). STG gets read-only. Restrict pods/log by RoleBinding to platform-relevant namespaces and put the route behind RoleViewer. Add a namespace allowlist to validateDeploymentTarget. Switch to in-cluster config, delete the kubeconfig Secret, and later rotate the admin client cert.
-- **Ratchet**: Infra manifest policy check (ratchet proposal 'infra-manifest-policy'): no Deployment mounts a Secret whose name matches *kubeconfig*, and every platform Deployment sets serviceAccountName. Platform test: the pod-logs route returns 401 without a token. Optionally, platform-api exports a gauge when SelfSubjectReview shows system:masters, and an alert fires on it.
-- **验收**: `KUBECONFIG=~/.kube/bifrost-k3s.yaml sh -c 'kubectl -n bifrost-platform-stg get secret bifrost-platform-kubeconfig </dev/null; kubectl auth can-i get secrets -n data --as=system:serviceaccount:bifrost-platform-stg:platform-api </dev/null'  # expect NotFound, then no; and an anonymous GET of a kube-system pod's logs on 30876 returns 401`
-- **验收结果**：PASS 2026-10-07 infra 27829fb / platform a162fe8：STG `bifrost-platform-kubeconfig` NotFound（PROD 同）；两环境 `kubectl auth can-i get secrets -n data --as=system:serviceaccount:bifrost-platform-<env>:bifrost-platform` → no；匿名读 kube-system 与 data 的 Pod 日志在 30876/30878 都 401；`make check-platform-rbac` 82/82；切换后两环境 api/workers 日志 0 条 forbidden，STG 与 PROD 共有的矩阵格子状态一致
-- 审批 安全/凭据（要你批） · 代价 M · 风险 med · repos: bifrost-platform, bifrost-trade-infra
 
 ### TD-210
 
@@ -1183,24 +1113,6 @@
 - **Ratchet**: Alert BifrostOffsiteCopyStale on the mirror job's last-success timestamp (> 8 days, or absent()).
 - **验收**: `KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl get --raw "/api/v1/namespaces/monitoring/services/kube-prometheus-stack-prometheus:9090/proxy/api/v1/query?query=time()-max(kube_cronjob_status_last_successful_time%7Bcronjob%3D%22offsite-mirror%22%7D)" </dev/null  # value < 691200`
 - 审批 PROD 变更（要你批） · 代价 M · 风险 low · repos: bifrost-trade-infra
-
-### TD-223
-
-**P3 · ops-platform · STG and PROD platform-workers both run the IB gateway auto-repair loop against the one live data/ib-gateway, each with its own 15-minute cooldown**
-
-- **状态**：待你签收
-- **Claim**: Both platform overlays set OPS_IB_AUTOREPAIR_ENABLED=true for platform-workers (and for platform-api, where the role gate makes it inert). Both read the same redis-ib health, and both may roll out data/Deployment/ib-gateway. lastAutoRollout is a local variable in each process, so the 900 s cooldown is not shared. D-IB-Heal sanctions one optional auto-repair loop, not two. The trigger bar is high: stale streak ≥3, rollout_recommended, mode live and host_connected, so it has never been seen to fire.
-- **Measured**: MEASURED 2026-10-07: /api/v1/plugins/ib-gateway/self-heal returns auto_repair_enabled:true on both 30876 and 30878, with identical last_action_ts (1790169059.9). ib-gateway restartedAt is 2026-09-08. The audit log is memory-only (TD-196).
-- **Evidence**:
-  - `bifrost-trade-infra/k8s/overlays/platform-stg/platform-workers-env.patch.yaml:16` — `- name: OPS_IB_AUTOREPAIR_ENABLED`
-  - `bifrost-platform/api/internal/ibgateway/autorepair.go:25` — `var lastAutoRollout time.Time`
-  - `bifrost-platform/api/internal/ibgateway/service.go:176` — `target := dataNamespace + "/Deployment/" + gatewayDeployName`
-- **Impact**: During a stale-snapshot streak, STG and PROD workers can each roll out the single live gateway within about 30 s of each other, and a STG platform release with a bug in this loop acts on production market data.
-- **Fix**: Set OPS_IB_AUTOREPAIR_ENABLED=false in the platform-stg overlays (workers and api) so STG only observes, consistent with TD-130 step (4) for the autopilot. Optionally take a coordination.k8s.io Lease in data before any rollout.
-- **Ratchet**: Infra manifest policy check: across `kustomize build overlays/platform-*`, exactly one Deployment has OPS_IB_AUTOREPAIR_ENABLED=true with PLATFORM_ROLE in {workers, all}.
-- **验收**: `curl -s -m10 http://192.168.10.73:30878/api/v1/plugins/ib-gateway/self-heal | grep -o '"auto_repair_enabled":[a-z]*'  # false on STG; PROD 30876 stays true`
-- **验收结果**：PASS 2026-10-07 infra 7b82568：STG `"auto_repair_enabled":false`、PROD `"auto_repair_enabled":true`；STG workers 另设 `PLATFORM_RELEASE_RECORDER=off`（发布记录只由 PROD 写）
-- 审批 PROD 变更（要你批） · 代价 S · 风险 low · repos: bifrost-trade-infra, bifrost-platform
 
 ### TD-228
 
@@ -1303,57 +1215,6 @@
 - **Fix**: Plugin: add last_trade_ts to the snapshot read (additive field). Core: when the trade is not from that session, or is older than N minutes before the close and deviates from the vendor-IV model by more than a threshold, store vendor_iv_model.
 - **Ratchet**: Extend test_snapshot_mark_intrinsic.py's grid with a last_trade_ts dimension.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data, bifrost-trade-core
-
-### TD-253
-
-**P2 · ops-platform · The autopilot acts on checklist signals that are weeks old: signals carry no time of their own, and nothing marks a stale one unknown**
-
-- **状态**：待你签收
-- **验收结果**：PASS 2026-10-07 d8bdf41（PROD `GET :30876/api/v1/checklist/signals`：22 个信号全部带 observed_at，来源只有 checklist-prober 与 data-husbandry；06:17 起探测器每 10 分钟一轮，唯一红项 hermes-tooling 为真实状态）。做了什么：信号带 observed_at/source、超过 `CHECKLIST_SIGNAL_TTL`（2h）读 unknown（1eaffd2）；PROD workers 进程内探测器（2727eb0、d8833e5、b08d009）；实时 husbandry 三项带时间（dc1488e）
-- **Claim**: The checklist store keeps one `updated_at` for the whole record; each item signal (`ItemSignal`) has no time of its own. The autopilot fixes whatever reads `fail`, whenever that was observed. On the Owner's Mac (the only acting autopilot until 10-07) 19 of 22 signals dated from 09-29 or earlier: `db-backup-fresh` still cited a July backup, `nodes-ready` said 6/6 while gpu-server was off. Since TD-203 (local platform-api loopback-only) the .50 runner can no longer report there at all.
-- **Measured**: MEASURED 2026-10-07 04:06 UTC: `GET /api/v1/checklist/signals` on the local platform-api → updated_at 2026-09-29T03:32:01Z; `db-backup-fresh` detail `bifrost-postgres-daily-20260711030000`.
-- **Evidence**:
-  - `bifrost-platform/api/internal/checklist/types.go:14` — `type ItemSignal struct {`
-  - `bifrost-platform/api/internal/patrol/autopilot.go:220` — `case "db-backup-fresh":`
-- **Impact**: An autopilot can repair what is already fine (or miss what broke) based on a snapshot nobody refreshed.
-- **Fix**: Each signal carries `observed_at` and `source`; signals older than their TTL read `unknown` and are never fixed; in PROD the signals are probed in-cluster by the workers (not reported from a Mac). Part of the Ops maintenance plan step 4 (TD-130).
-- **Ratchet**: Test: an item signal older than its TTL is reported unknown and the autopilot skips it.
-- **验收**: `curl -s -m10 http://192.168.10.73:30876/api/v1/checklist/signals | python3 -c "import json,sys;print(all(x.get('observed_at') for x in json.load(sys.stdin)['signals']))"  # True`
-- 审批 不用批 · 代价 M · 风险 low · repos: bifrost-platform
-
-### TD-254
-
-**P2 · ops-platform · Two mechanisms repair the same failed backup: the autopilot's repair_cnpg_wal_store (every 15 min) and the backup-retry CronJob; the autopilot started a full base backup in market hours after the day's backup had completed**
-
-- **状态**：待你签收
-- **验收结果**：PASS 2026-10-07 dc1488e（`git grep repairCnpgWalStore` 无输出；`go test ./internal/patrol -run 'StaleBackup|ReportOnly'` ok）。PROD 自 2727eb0 起生效
-- **Claim**: When `db-backup-fresh` reads fail the autopilot calls repair_cnpg_wal_store, which deletes failed Backup CRs (TD-131) and starts an on-demand base backup. The in-cluster CronJob `data/backup-retry` (*/15 04–09 UTC) also starts one retry Backup when no backup completed today. Neither knows the other. On 10-06 the daily backup completed at 03:00 and a manual one at 05:16, yet the autopilot started `bifrost-postgres-ondemand-20261006-161507` (a full base backup) at 16:15 UTC, in US market hours.
-- **Measured**: MEASURED 2026-10-07: local autopilot runs 10-05 06:21 → 10-07 03:45: `db-backup-fresh` handled 54 times, `repair_cnpg_wal_store` HTTP 502 52 times, 202 twice. `kubectl -n data get backups` lists the 10-06 daily (completed 03:00), manual-nas (05:16) and ondemand-161507.
-- **Evidence**:
-  - `bifrost-platform/api/internal/patrol/autopilot.go:220` — `case "db-backup-fresh":`
-  - `bifrost-platform/api/internal/patrol/autopilot.go:221` — `return a.repairCnpgWalStore(ctx)`
-- **Impact**: Extra full backups load the primary (shares a node with PROD) and the NAS; repeated repair attempts delete the failed-backup record.
-- **Fix**: Backups belong to CNPG (ScheduledBackup) and backup-retry only: drop `db-backup-fresh` from the autopilot's fix map (report + page instead), keep repair_cnpg_wal_store as a manual operator tool. Part of plan step 4.
-- **Ratchet**: Test: the autopilot fix map has no entry that creates a Backup or touches data/minio.
-- **验收**: `git -C bifrost-platform grep -n 'repairCnpgWalStore' origin/main -- api/internal/patrol  # no call from the fix map`
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
-
-### TD-255
-
-**P3 · ops-platform · The hourly drift scan deletes every Failed pod it may, including failed backup Job pods in data: the evidence of a failed backup is gone within the hour**
-
-- **状态**：待你签收
-- **验收结果**：PASS 2026-10-07 dc1488e（`go test ./internal/patrol -run ChainCleanup -count=1`：两例 PASS）。修法比原写的更窄：漂移扫描只删被驱逐（Evicted）的 Pod，Failed/Succeeded 一律保留并记一行 KEEP（Job 历史上限与 TTL 会回收）；只报告模式下一个也不删。PROD 自 2727eb0 起生效
-- **Claim**: fleet-drift-scan's chain cleanup deletes terminal pods that pass `isSafeToDelete` (phase Succeeded or Failed, not a protected prefix). Failed `logical-backup-*` pods in `data` qualify, so their logs vanish within an hour; investigating TD-210 needed Loki.
-- **Measured**: MEASURED 2026-10-07: local patrol evidence 10-05 20:05 → 10-07 02:05 shows six `DELETE data/logical-backup-…` (phase=Failed) HTTP 200.
-- **Evidence**:
-  - `bifrost-platform/api/internal/patrol/local.go:131` — `fmt.Fprintf(&b, "- DELETE %s/%s (phase=%s) … ", p.Namespace, p.Name, p.Phase)`
-  - `bifrost-platform/api/internal/patrol/local.go:280` — `func isSafeToDelete(p stalePod) bool {`
-- **Impact**: Failed backup and drill runs leave no pod or log in the cluster to read; Kubernetes already garbage-collects Job pods by the Job's history limits.
-- **Fix**: Never delete pods owned by a Job, or in namespace data, younger than 7 days (let Job history limits and TTL handle them). Part of plan step 4.
-- **Ratchet**: Unit test on isSafeToDelete: a Failed Job-owned pod in data younger than 7 days is not safe to delete.
-- **验收**: `cd bifrost-platform/api && go test ./internal/patrol -run 'ChainCleanup' -count=1`
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-260
 
@@ -1515,10 +1376,10 @@
 
 **P2 · infra · ubt-k3s-01, the sole control plane and etcd member, went down at 2026-10-10 01:18Z without a shutdown, and none of its boots since June recorded a clean shutdown; nothing alerts on an unplanned node reboot**
 
-- **状态**：未开始（要你查：供电、UPS、BIOS 事件日志）
+- **状态**：观察中（到 11-09，看 01 在两次计划内重启之外有没有再重启：`changes(node_boot_time_seconds{instance="192.168.10.73:9100"}[30d])`。Owner 10-10 查了 UPS，正常，认为不用再追。原因仍未知，所以不删：告警那一半归 W-31 第 0 步；30 天内没有再出现就交签收，再出现就读上一次开机的内核日志，脚本在 Fix 里）
 - **Claim**: The previous boot's journal ends at 01:18:36Z with routine k3s lines and no shutdown sequence; the next boot started 01:19:31Z (node-exporter boot time 01:19:26Z). Bare metal (`systemd-detect-virt` none), no `Automatic-Reboot`, last apt run 10-09 06:36, memory 16 of 24 GB free and load 0.57 before, no platform audit record, no session active. `last -x` shows five boots since 06-08, all without a shutdown record; the 08-11 18:14Z → 08-12 23:50Z gap is 29.5 hours. The reboot emptied the in-cluster registry (fixed by TD-282's persistent volume) and was found only through that symptom.
 - **Evidence**: ubt-k3s-01 `journalctl --list-boots` (boot -1 ends 2026-10-10 01:18:36 UTC); Prometheus `node_boot_time_seconds{instance="192.168.10.73:9100"}` = 1791595166; kube-state-metrics: almost every pod on ubt-k3s-01 got a new pod IP.
-- **Fix**: read the kernel log of the previous boot for hardware errors, pstore and the panic settings (`scratchpad node01-crash.sh`); Owner checks the power path (UPS, outlet, BIOS event log). If it is power, move 01 behind the UPS; if hardware, plan the replacement of the only control plane.
+- **Fix**: the alert below, so the next one is seen when it happens. Owner checked the UPS on 2026-10-10: fine, so mains power is unlikely. If it happens again, read on ubt-k3s-01 (Owner's node key): `journalctl -k -b -1 -p warning`, `ls /sys/fs/pstore /var/crash`, `sysctl kernel.panic`, and whether `last -x` shows a shutdown record for the planned reboot of 2026-10-10 05:35Z (if it does not, the missing records before it mean nothing). Hardware then: PSU, memory, board; it is the only control plane.
 - **Ratchet**: alert `BifrostNodeUnexpectedReboot`: `changes(node_boot_time_seconds[15m]) > 0` on a node that no `rolling_reboot` approval covers (rule test in `check_alert_rules`).
 - 验收: the alert rule exists and fires in a rule unit test; the cause is written here, or the node has run 30 days without an unclean boot.
 - 审批 不用批（查硬件要你到场）· 代价 S · 风险 med · repos: bifrost-trade-infra
