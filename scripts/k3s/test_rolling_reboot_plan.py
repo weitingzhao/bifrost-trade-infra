@@ -236,7 +236,19 @@ KUBECTL_STUB = textwrap.dedent(
     '''
 )
 
-SSH_STUB = "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$SSH_LOG\"\nexit \"${FAKE_SSH_EXIT:-0}\"\n"
+SSH_STUB = textwrap.dedent(
+    """\
+    #!/bin/sh
+    printf '%s\\n' "$*" >> "$SSH_LOG"
+    # FAKE_SSH_EXITS is one exit code per call, in order; calls past the end exit 0.
+    if [ -n "${FAKE_SSH_EXITS:-}" ]; then
+      n=$(wc -l < "$SSH_LOG" | tr -d ' ')
+      code=$(printf '%s' "$FAKE_SSH_EXITS" | cut -d, -f"$n")
+      exit "${code:-0}"
+    fi
+    exit "${FAKE_SSH_EXIT:-0}"
+    """
+)
 
 CURL_STUB = textwrap.dedent(
     '''\
@@ -321,6 +333,9 @@ class FakeCluster:
             "OWNER_KUBECONFIG": str(root / "admin.yaml"),
             "BIFROST_SSH_KEY": str(root / "node-key"),
             "FAKE_SSH_EXIT": str(options.get("ssh_exit", 0)),
+            "FAKE_SSH_EXITS": str(options.get("ssh_exits", "")),
+            # Never the real lock: a test must not block, or be blocked by, a live run.
+            "ROLLING_REBOOT_LOCK": str(root / "run.lock"),
             "STUB_LOG": str(self.log),
             "SSH_LOG": str(self.ssh_log),
             "CURL_LOG": str(self.curl_log),
@@ -875,6 +890,128 @@ class RollingRebootPlanTests(unittest.TestCase):
         self.assertIn("did not become Ready within 1s", result.stderr)
         self.assertIn("uncordon ubt-k3s-04", log)
         self.assertNotIn("cordon ubt-k3s-02", log)
+
+    # First live run, 2026-10-10: sshd closed the session on the last node while
+    # the passphrase prompt was open, and the command had been submitted twice.
+    def test_ssh_exit_255_is_asked_again(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeCluster(Path(tmp), dow="6", ssh_exits="255,0,0")
+            result = run(
+                ["--execute", "--approval", "appr_ok", "--nodes", self.TWO_NODES],
+                arm_approval(fake.env),
+            )
+            ssh = fake.ssh_text()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = ssh.splitlines()
+        self.assertEqual(len(lines), 3, ssh)
+        self.assertIn("192.168.10.75", lines[0])
+        self.assertIn("192.168.10.75", lines[1])
+        self.assertIn("192.168.10.70", lines[2])
+        self.assertIn("Asking again, attempt 2 of 3", result.stderr)
+        self.assertIn("within about 2 minutes", result.stdout)
+
+    def test_ssh_exit_255_stops_after_three_attempts_and_names_what_is_done(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeCluster(Path(tmp), dow="6", ssh_exits="0,255,255,255")
+            result = run(
+                ["--execute", "--approval", "appr_ok", "--nodes", self.TWO_NODES],
+                arm_approval(fake.env),
+            )
+            ssh = fake.ssh_text()
+            lock_left = (Path(tmp) / "run.lock").exists()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(len(ssh.splitlines()), 4, ssh)
+        self.assertIn("could not schedule the reboot on ubt-k3s-02 (ssh exit 255)", result.stderr)
+        self.assertIn("resume: finished so far: ubt-k3s-04.", result.stderr)
+        self.assertIn("--done ubt-k3s-04", result.stderr)
+        self.assertFalse(lock_left)
+
+    def test_done_nodes_are_not_touched_and_the_rest_finishes(self) -> None:
+        # The state the live run stopped in: 04 rebooted and now primary, 02 left.
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeCluster(
+                Path(tmp),
+                dow="6",
+                primary_node="ubt-k3s-04",
+                replica_node="ubt-k3s-02",
+                primary_pod="bifrost-postgres-3",
+                replica_pod="bifrost-postgres-1",
+            )
+            result = run(
+                ["--execute", "--approval", "appr_ok", "--nodes", self.TWO_NODES, "--done", "ubt-k3s-04"],
+                arm_approval(fake.env),
+            )
+            log = fake.kubectl_text()
+            ssh = fake.ssh_text()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("done: ubt-k3s-04 (finished by an earlier run; not touched)", result.stdout)
+        self.assertIn("order: ubt-k3s-02", result.stdout)
+        self.assertIn("switchover-before: none", result.stdout)
+        self.assertIn("cordon ubt-k3s-02", log)
+        self.assertNotIn("cordon ubt-k3s-04", log)
+        self.assertNotIn("cnpg promote", log)
+        self.assertEqual(len(ssh.splitlines()), 1, ssh)
+        self.assertIn("192.168.10.70", ssh)
+        self.assertIn("rolling-reboot: complete", result.stdout)
+
+    def test_done_must_name_listed_nodes_and_leave_something(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeCluster(Path(tmp), dow="6")
+            unknown = run(["--dry-run", "--nodes", self.TWO_NODES, "--done", "ubt-k3s-99"], fake.env)
+            everything = run(["--dry-run", "--nodes", self.TWO_NODES, "--done", "ubt-k3s-04,ubt-k3s-02"], fake.env)
+            called = fake.kubectl_text()
+        self.assertEqual(unknown.returncode, 2)
+        self.assertIn("--done names ubt-k3s-99", unknown.stderr)
+        self.assertEqual(everything.returncode, 2)
+        self.assertIn("nothing is left to reboot", everything.stderr)
+        self.assertEqual(called, "")
+
+    def test_a_second_run_is_refused_while_the_first_holds_the_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeCluster(Path(tmp), dow="6")
+            lock = Path(tmp) / "run.lock"
+            lock.mkdir()
+            (lock / "pid").write_text(str(os.getpid()), encoding="utf-8")
+            result = run(
+                ["--execute", "--approval", "appr_ok", "--nodes", self.TWO_NODES],
+                arm_approval(fake.env),
+            )
+            log = fake.kubectl_text()
+            still_there = lock.exists()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("another rolling-reboot run is in progress", result.stderr)
+        self.assertNotIn("cordon", log)
+        self.assertNotIn("resume:", result.stderr)
+        # The refused run must not remove the lock of the run that holds it.
+        self.assertTrue(still_there)
+
+    def test_a_lock_left_by_a_dead_run_is_taken_over(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeCluster(Path(tmp), dow="6")
+            lock = Path(tmp) / "run.lock"
+            lock.mkdir()
+            dead = subprocess.Popen(["true"])
+            dead.wait()
+            (lock / "pid").write_text(str(dead.pid), encoding="utf-8")
+            result = run(
+                ["--execute", "--approval", "appr_ok", "--nodes", self.TWO_NODES],
+                arm_approval(fake.env),
+            )
+            left = lock.exists()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("rolling-reboot: complete", result.stdout)
+        self.assertFalse(left)
+
+    def test_dry_run_takes_no_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeCluster(Path(tmp))
+            lock = Path(tmp) / "run.lock"
+            lock.mkdir()
+            (lock / "pid").write_text(str(os.getpid()), encoding="utf-8")
+            result = run(["--dry-run"], fake.env)
+            still_there = lock.exists()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(still_there)
 
     def test_failed_reboot_ssh_stops_with_the_node_still_cordoned(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

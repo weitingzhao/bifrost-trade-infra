@@ -24,6 +24,14 @@
 # the run stops and does not reboot the primary node.
 #
 # gpu-server (192.168.10.60) is usually powered off and is not in the plan.
+# One run at a time: --execute takes a lock on this machine and refuses to start
+# while another run holds it. A second run cordons, drains and reboots nodes the
+# first has finished (2026-10-10: the command was submitted twice).
+# ssh that ends with exit 255 (no connection, or sshd closed it while the
+# passphrase prompt was open, about 2 minutes) is asked again, SSH_ATTEMPTS times.
+# A run that stops prints which nodes it finished; rerun with --done <those> to
+# continue. Done nodes are not touched and count as rebooted for the switchover.
+#
 # Pods under a PodDisruptionBudget with maxUnavailable 0 (ib-gateway, redis-ib,
 # the polygon workers) are not evicted: no wait satisfies that budget. They stay
 # on the node and restart with it; the plan lists them per node.
@@ -56,6 +64,12 @@ REPLICA_LAG_MAX_SECONDS="${REPLICA_LAG_MAX_SECONDS:-1}"
 DRY_RUN=1
 ALLOW_WEEKDAY=0
 UPGRADE=0
+DONE_SPEC=""
+SSH_ATTEMPTS="${SSH_ATTEMPTS:-3}"
+LOCK_DIR="${ROLLING_REBOOT_LOCK:-/tmp/bifrost-rolling-reboot.lock}"
+LOCK_HELD=0
+RUN_STARTED=0
+RUN_DONE=""
 APPROVAL_ID=""
 NODES_SPEC=""
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -66,7 +80,7 @@ ENV_FILE="${ENV_FILE:-${ROOT}/.env}"
 usage() {
   cat <<'EOF'
 Usage: rolling-reboot.sh [--dry-run] [--execute --approval <id>] [--allow-weekday]
-                         [--upgrade] [--nodes name:role[:ip],...]
+                         [--upgrade] [--done name,...] [--nodes name:role[:ip],...]
 
   --dry-run         Print the plan and exit (default). Reads the CNPG primary.
   --execute         Perform the plan. Requires --approval. Refused on Mon-Fri US Eastern.
@@ -78,6 +92,9 @@ Usage: rolling-reboot.sh [--dry-run] [--execute --approval <id>] [--allow-weekda
   --upgrade         After each drain, apt-get upgrade (new dependencies included,
                     existing config files kept, services not restarted), then
                     the reboot, in one SSH session. A failed upgrade stops the run.
+  --done name,...   Nodes an earlier run already finished. They are not touched,
+                    and they count as rebooted when a replica is picked for the
+                    switchover. A run that stops prints the list to pass here.
   --nodes         Override the node list. Roles: general, control-plane,
                     prod, data. Optional third field is the SSH address.
                     The current primary is read from CNPG, not from the role.
@@ -101,6 +118,14 @@ while [ $# -gt 0 ]; do
       ;;
     --allow-weekday) ALLOW_WEEKDAY=1 ;;
     --upgrade) UPGRADE=1 ;;
+    --done)
+      shift
+      [ $# -gt 0 ] || { echo "ERROR: --done needs a value" >&2; exit 2; }
+      DONE_SPEC="${DONE_SPEC} ${1}"
+      ;;
+    --done=*)
+      DONE_SPEC="${DONE_SPEC} ${1#--done=}"
+      ;;
     --nodes)
       shift
       [ $# -gt 0 ] || { echo "ERROR: --nodes needs a value" >&2; exit 2; }
@@ -167,6 +192,36 @@ for pair in $PAIRS; do
   ALL_NAMES="${ALL_NAMES} ${pair%%:*}"
 done
 ALL_NAMES="${ALL_NAMES# }"
+
+# Nodes an earlier run finished. Each must be in the node list.
+DONE_NAMES=""
+for raw in $(printf '%s' "$DONE_SPEC" | tr ',' ' '); do
+  [ -n "$raw" ] || continue
+  case " ${ALL_NAMES} " in
+    *" ${raw} "*) ;;
+    *)
+      echo "ERROR: --done names ${raw}, which is not in the node list (${ALL_NAMES})" >&2
+      exit 2
+      ;;
+  esac
+  case " ${DONE_NAMES} " in
+    *" ${raw} "*) ;;
+    *) DONE_NAMES="${DONE_NAMES} ${raw}" ;;
+  esac
+done
+DONE_NAMES="${DONE_NAMES# }"
+REMAINING_NAMES=""
+for name in $ALL_NAMES; do
+  case " ${DONE_NAMES} " in
+    *" ${name} "*) ;;
+    *) REMAINING_NAMES="${REMAINING_NAMES} ${name}" ;;
+  esac
+done
+REMAINING_NAMES="${REMAINING_NAMES# }"
+if [ -z "$REMAINING_NAMES" ]; then
+  echo "ERROR: --done covers every node; nothing is left to reboot" >&2
+  exit 2
+fi
 
 lookup_field() {
   # lookup_field <name> <role|ip>
@@ -595,10 +650,16 @@ print_plan() {
     echo "upgrade: off"
   fi
   echo "skipped: gpu-server (192.168.10.60) is usually powered off and is not in this plan"
+  if [ -n "$DONE_NAMES" ]; then
+    echo "done: ${DONE_NAMES} (finished by an earlier run; not touched)"
+  fi
   echo "order: ${ORDERED}"
   echo "primary-pod: ${primary_pod}"
   echo "primary-node: ${primary_node}"
-  echo "switchover-before: ${primary_node}"
+  case " ${ORDERED} " in
+    *" ${primary_node} "*) echo "switchover-before: ${primary_node}" ;;
+    *) echo "switchover-before: none (the primary is on a node that is already done)" ;;
+  esac
   echo
   i=0
   for node in $ORDERED; do
@@ -723,7 +784,7 @@ APT_ENV="sudo -n env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l"
 UPGRADE_CMD="${APT_ENV} apt-get -q -o DPkg::Lock::Timeout=300 update && ${APT_ENV} apt-get -q -y -o DPkg::Lock::Timeout=300 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold upgrade --with-new-pkgs"
 
 run_node() {
-  local node role ip rc remote stay selector
+  local node role ip rc remote stay selector attempt
   node="$1"
   role="$2"
   ip="$(lookup_field "$node" ip)"
@@ -771,10 +832,22 @@ run_node() {
   else
     echo "==> reboot ${node} (${ip}); ssh asks for the node key passphrase"
   fi
-  set +e
-  node_ssh "$ip" "$remote"
-  rc=$?
-  set -e
+  echo "    type the passphrase within about 2 minutes: sshd closes a connection that waits longer"
+  attempt=1
+  while :; do
+    set +e
+    node_ssh "$ip" "$remote"
+    rc=$?
+    set -e
+    # 255 is ssh itself: no connection, a refused key, or the server closed
+    # the session before it authenticated. Nothing ran on the node, or apt
+    # was cut off and is safe to run again.
+    if [ "$rc" -ne 255 ] || [ "$attempt" -ge "$SSH_ATTEMPTS" ]; then
+      break
+    fi
+    attempt=$((attempt + 1))
+    echo "ssh did not connect or authenticate on ${node} (exit 255). Asking again, attempt ${attempt} of ${SSH_ATTEMPTS}." >&2
+  done
   if [ "$rc" -ne 0 ]; then
     if [ "$UPGRADE" = "1" ]; then
       echo "ERROR: upgrade or reboot failed on ${node} (ssh exit ${rc}); the reboot is not scheduled after a failed upgrade. ${node} is still cordoned and drained; read the apt output above, fix it and rerun, or uncordon it with the Owner kubeconfig." >&2
@@ -887,12 +960,51 @@ if exp is None or datetime.now(timezone.utc) >= exp:
 ' "$APPROVAL_ID"
 }
 
+acquire_lock() {
+  local holder
+  if mkdir "$LOCK_DIR" 2>/dev/null; then
+    echo "$$" > "${LOCK_DIR}/pid"
+    LOCK_HELD=1
+    return 0
+  fi
+  holder="$(cat "${LOCK_DIR}/pid" 2>/dev/null || true)"
+  case "$holder" in
+    ""|*[!0-9]*) holder="" ;;
+  esac
+  if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+    echo "REFUSED: another rolling-reboot run is in progress on this machine (pid ${holder}, lock ${LOCK_DIR}). One run at a time: a second run cordons and reboots nodes the first has finished." >&2
+    exit 1
+  fi
+  # The run that made the lock is gone; take it over.
+  echo "$$" > "${LOCK_DIR}/pid"
+  LOCK_HELD=1
+}
+
+on_exit() {
+  local rc finished
+  rc="$1"
+  if [ "$LOCK_HELD" = "1" ]; then
+    rm -rf "$LOCK_DIR"
+  fi
+  if [ "$RUN_STARTED" = "1" ] && [ "$rc" -ne 0 ]; then
+    finished="$(printf '%s' "$RUN_DONE" | sed 's/^ *//' | tr ' ' ',')"
+    if [ -n "$finished" ]; then
+      echo "resume: finished so far: ${finished}. After fixing the cause, rerun the same command with --done ${finished}. The node that failed may still be cordoned; the rerun cordons and drains it again." >&2
+    else
+      echo "resume: no node finished. After fixing the cause, rerun the same command. The node that failed may still be cordoned; the rerun cordons and drains it again." >&2
+    fi
+  fi
+}
+
 execute_plan() {
   local remaining done_nodes node role
   require_approval
   require_live_window
-  remaining="$ALL_NAMES"
-  done_nodes=""
+  acquire_lock
+  RUN_STARTED=1
+  remaining="$REMAINING_NAMES"
+  done_nodes="$DONE_NAMES"
+  RUN_DONE="$DONE_NAMES"
   while [ -n "${remaining// /}" ]; do
     primary_node="$(resolve_primary_node)" || exit 1
     require_primary_in_catalog "$primary_node" || exit 1
@@ -918,10 +1030,13 @@ execute_plan() {
     role="$(lookup_field "$node" role)"
     run_node "$node" "$role"
     done_nodes="${done_nodes} ${node}"
+    RUN_DONE="$done_nodes"
     remaining="$(remove_name "$node" $remaining)" || exit 1
   done
   echo "rolling-reboot: complete"
 }
+
+trap 'on_exit $?' EXIT
 
 if [ "$DRY_RUN" = "1" ]; then
   export KUBECONFIG="${KUBECONFIG:-${PLATFORM_KUBECONFIG:-${HOME}/.kube/bifrost-k3s.yaml}}"
@@ -945,7 +1060,7 @@ primary_pod="$(current_primary_pod)" || exit 1
 primary_node="$(resolve_primary_node)" || exit 1
 require_primary_in_catalog "$primary_node" || exit 1
 load_zero_budget_pdbs || exit 1
-ORDERED="$(order_names "$primary_node" $ALL_NAMES)" || exit 1
+ORDERED="$(order_names "$primary_node" $REMAINING_NAMES)" || exit 1
 
 print_plan
 if [ "$DRY_RUN" = "1" ]; then
