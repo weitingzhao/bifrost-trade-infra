@@ -301,7 +301,7 @@ maintainers:
     detected_by: BifrostMaintainerReleasePolicyExpiryStale
     status: active
   - id: platform/prod/agent-thread-watch
-    what: "Every 30s on PROD workers (W-54). Reads the agent thread heartbeats (statefile agent-threads) and pushes the Owner once when a thread stops mid-turn for max(10m, declared tool timeout + 2m). Detection and notice only: it does not restart or reassign a session. Runs only where OPS_VIEWER_ENV=prod unless PLATFORM_AGENT_THREAD_WATCH says otherwise."
+    what: "Every 30s on PROD workers (W-54). Reads the agent thread heartbeats (statefile agent-threads) and pushes the Owner when a thread stops mid-turn for max(10m, declared tool timeout + 2m). That push is retried and may arrive twice. Detection and notice only: it does not restart or reassign a session. Runs only where OPS_VIEWER_ENV=prod unless PLATFORM_AGENT_THREAD_WATCH says otherwise."
     runs_on: cluster:bifrost-platform-prod/platform-workers
     schedule: "every 30s"
     env: prod

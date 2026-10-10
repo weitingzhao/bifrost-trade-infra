@@ -14,11 +14,17 @@
  * script does not invent that row, and it does not install or load the
  * launchd job.
  *
- * Wired means a vendor's effective hook configuration (user and project
- * files the vendor actually loads, not an agent-config template) has a
- * command whose script path realpaths to this directory's thread-heartbeat.js
- * and whose arguments include `hook <vendor>` exactly. A substring is not
+ * Wired means a vendor's effective hook configuration has a command that is
+ * exactly the supported call: the interpreter (`node` or `nodejs`), then the
+ * real path of thread-heartbeat.js, then `hook <vendor>` and nothing after it.
+ * A substring, an earlier token, or `hook <vendor>` later in the line is not
  * enough. Codex trust is not checked here; that needs a credential per host.
+ *
+ * Only files that vendor loads are read. For Cursor that is the user-level
+ * hooks file, plus a project hooks file that is not reached through a symlink
+ * (Cursor refuses a project hooks.json reached through a symlink below the
+ * workspace root). Claude's user settings.local.json is not a file Claude
+ * loads. An agent-config template is not effective config.
  *
  * Config (nothing secret is printed):
  *   PLATFORM_HEARTBEAT_URL    platform-api base (default: PROD VIP NodePort)
@@ -66,7 +72,6 @@ function effectiveConfigs(vendor) {
   const files = []
   if (vendor === 'claude') {
     files.push(home('.claude', 'settings.json'))
-    files.push(home('.claude', 'settings.local.json'))
     if (root) {
       files.push(path.join(root, '.claude', 'settings.json'))
       files.push(path.join(root, '.claude', 'settings.local.json'))
@@ -150,23 +155,44 @@ function heartbeatScript() {
   return path.resolve(__dirname, SCRIPT_NAME)
 }
 
-/** The script argument of a node invocation or of the script itself, not a mention later in the line. */
-function scriptToken(tokens) {
-  if (tokens.length === 0) return ''
-  if (path.basename(tokens[0]) === SCRIPT_NAME) return tokens[0]
-  for (let i = 0; i < tokens.length - 1; i++) {
-    const base = path.basename(tokens[i])
-    if ((base === 'node' || base === 'nodejs') && path.basename(tokens[i + 1]) === SCRIPT_NAME) return tokens[i + 1]
+/**
+ * Cursor refuses a project hooks file reached through a symlink below the
+ * workspace root. The workspace root itself is not walked: a /var → /private/var
+ * prefix must not look like that refusal. The user-level file is not checked here.
+ */
+function reachedThroughSymlink(file, root) {
+  let cur = path.resolve(file)
+  const stop = root ? path.resolve(root) : path.dirname(cur)
+  while (cur !== stop) {
+    let st
+    try {
+      st = fs.lstatSync(cur)
+    } catch {
+      return true
+    }
+    if (st.isSymbolicLink()) return true
+    const parent = path.dirname(cur)
+    if (parent === cur) break
+    cur = parent
   }
-  return ''
+  return false
+}
+
+function configCounts(vendor, file) {
+  if (vendor !== 'cursor') return true
+  if (path.resolve(file) === path.resolve(home('.cursor', 'hooks.json'))) return true
+  return !reachedThroughSymlink(file, projectBase(file))
 }
 
 function commandWires(command, vendor, bases) {
   const tokens = tokenize(command).map(t => expandToken(t, bases))
-  const script = scriptToken(tokens)
-  if (!script) return false
-  const hookAt = tokens.indexOf('hook')
-  if (hookAt < 0 || tokens[hookAt + 1] !== vendor) return false
+  // Interpreter, real script path, then `hook <vendor>` immediately, and no further arguments.
+  if (tokens.length !== 4) return false
+  const interp = path.basename(tokens[0])
+  if (interp !== 'node' && interp !== 'nodejs') return false
+  if (path.basename(tokens[1]) !== SCRIPT_NAME) return false
+  if (tokens[2] !== 'hook' || tokens[3] !== vendor) return false
+  const script = tokens[1]
   const resolved = path.isAbsolute(script) ? script : path.resolve(bases.project || '', script)
   try {
     return fs.realpathSync(heartbeatScript()) === fs.realpathSync(resolved)
@@ -179,6 +205,7 @@ function commandWires(command, vendor, bases) {
 function wired(vendor) {
   const basesHome = home()
   for (const file of effectiveConfigs(vendor)) {
+    if (!configCounts(vendor, file)) continue
     let parsed
     try {
       parsed = JSON.parse(fs.readFileSync(file, 'utf8'))

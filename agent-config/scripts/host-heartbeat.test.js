@@ -109,6 +109,44 @@ test('the hook command must target this script and this vendor', () => {
   assert.equal(report.vendors.claude.wired, false, 'a codex file is not claude effective config')
 })
 
+test('echo, and hook not immediately after the script, are not wired', () => {
+  const { home, workspace } = freshHome()
+  fs.mkdirSync(path.join(home, '.cursor'), { recursive: true })
+  fs.writeFileSync(
+    path.join(home, '.cursor', 'hooks.json'),
+    cursorHooks(`echo node ${JSON.stringify(HEARTBEAT)} hook cursor`),
+  )
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true })
+  fs.writeFileSync(
+    path.join(home, '.claude', 'settings.json'),
+    claudeSettings(`node ${JSON.stringify(HEARTBEAT)} ignored hook claude`),
+  )
+  const report = withEnv(home, workspace, {}, () => buildReport())
+  assert.equal(report.vendors.cursor.wired, false, 'echo node <script> hook cursor only prints the line')
+  assert.equal(report.vendors.claude.wired, false, 'hook claude is not the argument pair immediately after the script')
+  fs.writeFileSync(
+    path.join(home, '.cursor', 'hooks.json'),
+    cursorHooks(`node ${JSON.stringify(HEARTBEAT)} hook cursor --extra`),
+  )
+  const extra = withEnv(home, workspace, {}, () => buildReport())
+  assert.equal(extra.vendors.cursor.wired, false, 'arguments after hook <vendor> are not the supported call')
+})
+
+test('a symlinked Cursor project hooks file is not wired, and the user file is', () => {
+  const { home, workspace } = freshHome()
+  const realDir = path.join(home, 'real-cursor')
+  fs.mkdirSync(realDir, { recursive: true })
+  fs.writeFileSync(path.join(realDir, 'hooks.json'), cursorHooks(commandFor('cursor')))
+  fs.mkdirSync(path.join(workspace, '.cursor'), { recursive: true })
+  fs.symlinkSync(path.join(realDir, 'hooks.json'), path.join(workspace, '.cursor', 'hooks.json'))
+  const linked = withEnv(home, workspace, {}, () => buildReport())
+  assert.equal(linked.vendors.cursor.wired, false, 'Cursor does not load a project hooks.json reached through a symlink')
+  fs.mkdirSync(path.join(home, '.cursor'), { recursive: true })
+  fs.writeFileSync(path.join(home, '.cursor', 'hooks.json'), cursorHooks(commandFor('cursor')))
+  const user = withEnv(home, workspace, {}, () => buildReport())
+  assert.equal(user.vendors.cursor.wired, true, 'the user-level Cursor hooks file still counts')
+})
+
 test('another vendor\'s hook command does not count', () => {
   const { home, workspace } = freshHome()
   fs.mkdirSync(path.join(home, '.codex'), { recursive: true })

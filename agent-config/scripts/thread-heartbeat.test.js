@@ -18,7 +18,7 @@ delete process.env.BIFROST_HEARTBEAT_THREAD
 delete process.env.BIFROST_HEARTBEAT_TITLE
 delete process.env.BIFROST_WORK
 
-const { beatFor, toolTimeoutSeconds, shouldSkip, reduceThrottle, allocateStamp } = require('./thread-heartbeat.js')
+const { beatFor, toolTimeoutSeconds, shouldSkip, reduceThrottle, allocateStamp, loadGate, supersedeActive, saveIssuedKey, withThreadLock } = require('./thread-heartbeat.js')
 const ISSUED_KEY = 'ab'.repeat(32)
 
 const CLAUDE_ID = '7e939cd5-b3b1-4705-96e4-0a3b9e61648d'
@@ -322,6 +322,15 @@ async function nonceAndUnknownKey() {
   assert.ok(rejected, 'the old key was presented once')
   assert.ok(recovered, 'a new thread id was registered without the old key')
   assert.notEqual(recovered.register_nonce, rejected.register_nonce)
+  // The server records the post before the client stores the issued key.
+  assert.ok(
+    await waitFor(() => {
+      const gate = JSON.parse(fs.readFileSync(gateFile, 'utf8'))
+      const live = gate.records.find(r => r.status !== 'superseded')
+      return live && live.key === 'cd'.repeat(32)
+    }),
+    'the new record did not keep the issued key',
+  )
   const after = JSON.parse(fs.readFileSync(gateFile, 'utf8'))
   const old = after.records.find(r => r.status === 'superseded')
   const live = after.records.find(r => r.status !== 'superseded')
@@ -364,14 +373,192 @@ async function runContinuesSequence() {
   srv.s.close()
 }
 
+function lateResponseDoesNotTouchTheCurrentRecord() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-late-'))
+  const prev = process.env.BIFROST_HOME_OVERRIDE
+  process.env.BIFROST_HOME_OVERRIDE = home
+  try {
+    const body = { thread: 'same', vendor: 'claude', host: 'h', event: 'turn_start', session: 'same' }
+    allocateStamp(body)
+    const stale = { ...body }
+    const liveBody = { ...body }
+    supersedeActive(liveBody)
+    assert.notEqual(liveBody.thread, stale.thread)
+    saveIssuedKey(stale, '11'.repeat(32))
+    const gateFile = path.join(home, '.cache', 'bifrost', 'thread-keys', 'claude', 'same')
+    const midway = JSON.parse(fs.readFileSync(gateFile, 'utf8'))
+    const current = midway.records.find(r => r.status !== 'superseded')
+    assert.equal(current.key, '', 'a late key was written onto the current record')
+    assert.equal(midway.records.find(r => r.id === stale.thread).key, '', 'a late key revived the superseded record')
+    const again = supersedeActive({ ...stale })
+    assert.equal(again, null)
+    const after = JSON.parse(fs.readFileSync(gateFile, 'utf8'))
+    assert.equal(after.records.length, midway.records.length)
+    assert.equal(after.records.find(r => r.status !== 'superseded').id, current.id)
+    assert.equal(after.records.some(r => String(r.id).endsWith(':2')), false)
+  } finally {
+    if (prev === undefined) delete process.env.BIFROST_HOME_OVERRIDE
+    else process.env.BIFROST_HOME_OVERRIDE = prev
+  }
+}
+
+async function lostTurnStartThenBeforeTool() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-turn-'))
+  const state = { turn: '', event: '', seq: 0, prior: new Set(), key: '' }
+  let dropNextStart = false
+  const s = http.createServer((req, res) => {
+    let b = ''
+    req.on('data', d => (b += d))
+    req.on('end', () => {
+      const body = JSON.parse(b || '{}')
+      const refuse = (error) => {
+        res.writeHead(409, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error }))
+      }
+      if (!state.key) {
+        state.key = ISSUED_KEY
+        state.turn = body.turn_id
+        state.event = body.event
+        state.seq = body.seq
+        res.writeHead(202, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ok: true, thread_key: ISSUED_KEY }))
+        return
+      }
+      if (body.thread_key !== state.key) return refuse('unknown key')
+      if (body.turn_id !== state.turn && (state.prior.has(body.turn_id) || body.event !== 'turn_start')) {
+        return refuse('older turn refused')
+      }
+      if (dropNextStart && body.event === 'turn_start') {
+        dropNextStart = false
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'lost' }))
+        return
+      }
+      if (body.seq <= state.seq) {
+        res.writeHead(202, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ok: true, ignored: true }))
+        return
+      }
+      if (body.turn_id !== state.turn) state.prior.add(state.turn)
+      state.turn = body.turn_id
+      state.event = body.event
+      state.seq = body.seq
+      res.writeHead(202, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ ok: true }))
+    })
+  })
+  await new Promise(resolve => s.listen(0, '127.0.0.1', resolve))
+  const env = {
+    BIFROST_HOME_OVERRIDE: home,
+    PLATFORM_REPORTER_TOKEN: 't',
+    PLATFORM_HEARTBEAT_URL: `http://127.0.0.1:${s.address().port}`,
+  }
+  const start = await runScript(['hook', 'claude'], { stdin: JSON.stringify(claude('UserPromptSubmit', { prompt: 'x' })), env })
+  assert.equal(start.code, 0, start.err)
+  const firstTurn = state.turn
+  assert.ok(firstTurn)
+  assert.equal(state.event, 'turn_start')
+  dropNextStart = true
+  const lost = await runScript(['hook', 'claude'], { stdin: JSON.stringify(claude('UserPromptSubmit', { prompt: 'y' })), env })
+  assert.equal(lost.code, 0, lost.err)
+  assert.equal(state.turn, firstTurn, 'a lost turn_start moved the server')
+  const prevHome = process.env.BIFROST_HOME_OVERRIDE
+  process.env.BIFROST_HOME_OVERRIDE = home
+  const gate = loadGate('claude', CLAUDE_ID)
+  if (prevHome === undefined) delete process.env.BIFROST_HOME_OVERRIDE
+  else process.env.BIFROST_HOME_OVERRIDE = prevHome
+  const rec = gate.records.find(r => r.status !== 'superseded')
+  assert.equal(rec.turn_confirmed, false)
+  assert.notEqual(rec.turn_id, firstTurn)
+  const tool = await runScript(['hook', 'claude'], {
+    stdin: JSON.stringify(claude('PreToolUse', { tool_name: 'Bash', tool_input: { timeout: 600000 } })),
+    env,
+  })
+  assert.equal(tool.code, 0, tool.err)
+  assert.equal(state.turn, rec.turn_id, 'the server did not end on the new turn')
+  assert.equal(state.event, 'before_tool')
+  assert.equal(state.prior.has(firstTurn), true)
+  s.close()
+}
+
+async function deadLockRace() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-deadlock-'))
+  const log = path.join(home, 'critical.log')
+  fs.writeFileSync(log, '')
+  const env = { ...process.env, BIFROST_HOME_OVERRIDE: home }
+  delete env.PLATFORM_REPORTER_TOKEN
+  const holderSrc = `
+    const fs = require('fs')
+    const { withThreadLock } = require(${JSON.stringify(SCRIPT)})
+    withThreadLock('claude', 'dead-thread', () => {
+      fs.writeSync(1, 'held\\n')
+      const buf = new Int32Array(new SharedArrayBuffer(4))
+      Atomics.wait(buf, 0, 0, 30000)
+    })
+  `
+  const holder = spawn(process.execPath, ['-e', holderSrc], { env })
+  let held = ''
+  holder.stdout.on('data', d => (held += d))
+  const sawHeld = await waitFor(() => held.includes('held'))
+  assert.equal(sawHeld, true, 'holder did not take the lock')
+  holder.kill('SIGKILL')
+  await new Promise(r => setTimeout(r, 50))
+  const racerSrc = `
+    const fs = require('fs')
+    const { withThreadLock } = require(${JSON.stringify(SCRIPT)})
+    withThreadLock('claude', 'dead-thread', () => {
+      fs.appendFileSync(${JSON.stringify(log)}, 'enter ' + process.pid + '\\n')
+      const buf = new Int32Array(new SharedArrayBuffer(4))
+      Atomics.wait(buf, 0, 0, 200)
+      fs.appendFileSync(${JSON.stringify(log)}, 'exit ' + process.pid + '\\n')
+    })
+    process.stdout.write('done\\n')
+  `
+  const once = () =>
+    new Promise(resolve => {
+      const p = spawn(process.execPath, ['-e', racerSrc], { env })
+      let out = ''
+      let err = ''
+      p.stdout.on('data', d => (out += d))
+      p.stderr.on('data', d => (err += d))
+      p.on('exit', code => resolve({ code, out, err }))
+    })
+  const [a, b] = await Promise.all([once(), once()])
+  assert.equal(a.code, 0, a.err)
+  assert.equal(b.code, 0, b.err)
+  const lines = fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean)
+  assert.equal(lines.length, 4, `critical section log: ${lines.join(' | ')}`)
+  let inside = false
+  const entered = new Set()
+  for (const line of lines) {
+    const [kind, pid] = line.split(' ')
+    if (kind === 'enter') {
+      assert.equal(inside, false, `two reclaimers entered together: ${lines.join(' | ')}`)
+      inside = true
+      entered.add(pid)
+    } else {
+      assert.equal(kind, 'exit')
+      assert.equal(inside, true)
+      inside = false
+    }
+  }
+  assert.equal(entered.size, 2)
+  assert.equal(inside, false)
+  // The helper is what the test required; touch the export so a refactor cannot drop the lock.
+  assert.equal(typeof withThreadLock, 'function')
+}
+
 async function main() {
   mapping()
   timeouts()
   throttle()
+  lateResponseDoesNotTouchTheCurrentRecord()
   await neverBlocks()
   await seqLock()
   await nonceAndUnknownKey()
   await runContinuesSequence()
+  await lostTurnStartThenBeforeTool()
+  await deadLockRace()
   await endToEnd()
   console.log('thread-heartbeat: ok')
 }

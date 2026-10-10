@@ -3,7 +3,8 @@
 /**
  * Thread heartbeat (W-54): one script for the hooks of Claude Code, Cursor and
  * Codex. Each turn start, tool call (before / after) and turn end is posted to
- * PROD platform-api, which pages the Owner once when a thread stops mid-turn.
+ * PROD platform-api. A mid-turn stop can page the Owner, and that push may
+ * arrive twice.
  *
  *   node thread-heartbeat.js hook <claude|cursor|codex>        hook payload on stdin
  *   node thread-heartbeat.js run <vendor> -- <command> [args]  headless run
@@ -13,18 +14,29 @@
  * session's own hooks report under the same thread, and reports turn end when
  * the command exits.
  *
- * A hook never blocks or slows a tool call: it prints nothing and always exits 0.
- * The first event of a thread is sent synchronously, with a one-second timeout,
- * so the script can store the server-issued thread key (mode 600). Later events
- * carry that key, a turn id and a sequence, and are handed to a detached child.
- * Sequence and turn id are allocated under a per-thread directory lock so two
- * hook processes cannot take the same number. `run` uses that same allocation.
+ * A hook prints nothing and always exits 0. It does not return a permission
+ * denial. It can wait before giving up: a 3 second timer exits the process,
+ * and taking the thread lock blocks the event loop for up to 2 seconds. That
+ * wait is not cut short by the timer, so one lock can run past the deadline.
+ * The real bound is 5 seconds (3 + 2); the process then exits. The first
+ * registration, and a turn_start the server has not confirmed, wait on the
+ * network inside that bound.
+ *
+ * Sequence and turn id are allocated under a per-thread flock. A helper holds
+ * the lock on an open file descriptor; the operating system releases it when
+ * this process exits (the helper's stdin closes). `run` uses that same lock.
  *
  * The client generates a registration nonce and sends it with every event.
  * If the first response is lost, the next event repeats the nonce and the
- * server returns the same key for a short window. A 409 whose error is
- * "unknown key" does not reuse that key: the local record is kept as
- * superseded and the event is registered again under a new thread id.
+ * server returns the same key for a short window. A response is applied only
+ * to the record it was requested for, the same thread id and nonce, under
+ * the lock. A 409 whose error is "unknown key" does not reuse that key: that
+ * record is kept as superseded and the event is registered again under a new
+ * thread id. A late response never falls back to the current record. An old
+ * 409 for a record that is already superseded does nothing.
+ * A turn_start the server has not confirmed is kept and sent again before
+ * any later event of that turn. A finished turn is not reopened: a 409
+ * "older turn refused" does not supersede the record.
  * A failure leaves the key unset and the next event tries again.
  *
  * Config (nothing secret lives in the repo):
@@ -44,6 +56,11 @@ const DEFAULT_URL = 'http://192.168.10.100:30876' // bifrost-platform-prod platf
 const ROUTE = '/api/v1/agent/threads/heartbeat'
 const THROTTLE_MS = 15 * 1000
 const HOOK_DEADLINE_MS = 3000
+const LOCK_WAIT_MS = 2000
+// The lock wait blocks the event loop, so the 3 second timer cannot fire
+// during it. One such wait can finish after the timer was already due.
+// HOOK_DEADLINE_MS + LOCK_WAIT_MS is the real give-up bound: 5 seconds.
+const HOOK_GIVE_UP_MS = HOOK_DEADLINE_MS + LOCK_WAIT_MS
 const FIRST_EVENT_TIMEOUT_MS = 1000
 const KEY_RE = /^[0-9a-f]{64}$/
 const TURN_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
@@ -313,6 +330,11 @@ function normalizeRecord(raw, fallbackID) {
     turn_id: typeof raw.turn_id === 'string' && TURN_RE.test(raw.turn_id) ? raw.turn_id : '',
     seq: Number.isInteger(raw.seq) && raw.seq > 0 ? raw.seq : 0,
     status: raw.status === 'superseded' ? 'superseded' : 'active',
+    // Missing means a gate written before turn confirmation existed. Those
+    // records are treated as already confirmed so a restart does not replay
+    // a turn_start the server already has. New records always write the flag.
+    turn_confirmed: typeof raw.turn_confirmed === 'boolean' ? raw.turn_confirmed : true,
+    turn_open_seq: Number.isInteger(raw.turn_open_seq) && raw.turn_open_seq > 0 ? raw.turn_open_seq : 0,
   }
 }
 
@@ -333,7 +355,7 @@ function activeRecord(gate, session) {
   for (let i = gate.records.length - 1; i >= 0; i--) {
     if (gate.records[i].status !== 'superseded') return gate.records[i]
   }
-  const created = { id: session, key: '', nonce: '', turn_id: '', seq: 0, status: 'active' }
+  const created = { id: session, key: '', nonce: '', turn_id: '', seq: 0, status: 'active', turn_confirmed: true, turn_open_seq: 0 }
   gate.records.push(created)
   return created
 }
@@ -367,6 +389,8 @@ function saveGate(vendor, thread, gate) {
       turn_id: r.turn_id,
       seq: r.seq,
       status: r.status,
+      turn_confirmed: r.turn_confirmed === false ? false : true,
+      turn_open_seq: r.turn_open_seq || 0,
     })),
   }
   const tmp = `${file}.${process.pid}.tmp`
@@ -382,62 +406,147 @@ function sleepSync(ms) {
   while (Date.now() < end) Atomics.wait(buf, 0, 0, Math.max(1, end - Date.now()))
 }
 
-function lockStale(lockDir) {
-  let pid = 0
-  try {
-    pid = Number(fs.readFileSync(path.join(lockDir, 'pid'), 'utf8'))
-  } catch {
-    pid = 0
+// Holds an exclusive flock until stdin closes, then exits. The kernel drops
+// the lock when this helper exits, which happens when the parent exits.
+const LOCK_HELPER = String.raw`
+use strict;
+use Fcntl qw(:flock);
+use Time::HiRes qw(time sleep);
+my ($path, $wait_ms, $ready) = @ARGV;
+my $wait = ($wait_ms || 2000) / 1000;
+open my $fh, '>>', $path or die $!;
+my $deadline = time() + $wait;
+sub publish {
+  my ($word) = @_;
+  my $tmp = $ready . ".tmp";
+  open my $rf, '>', $tmp or die $!;
+  print $rf $word, "\n";
+  close $rf;
+  rename $tmp, $ready or die $!;
+}
+while (1) {
+  if (flock($fh, LOCK_EX | LOCK_NB)) {
+    publish("ok");
+    1 while sysread(STDIN, my $buf, 4096);
+    exit 0;
   }
-  if (Number.isInteger(pid) && pid > 0) {
+  if (time() >= $deadline) {
+    publish("timeout");
+    exit 1;
+  }
+  sleep(0.02);
+}
+`
+
+function perlBin() {
+  for (const candidate of ['/usr/bin/perl', '/usr/local/bin/perl']) {
     try {
-      process.kill(pid, 0)
-      return false
-    } catch (err) {
-      return err.code !== 'EPERM'
+      fs.accessSync(candidate, fs.constants.X_OK)
+      return candidate
+    } catch {
+      // try the next absolute path, then PATH
     }
   }
+  return 'perl'
+}
+
+function releaseHelper(child, ready) {
+  // Kill through the process, not by closing the libuv fd directly. Closing
+  // that fd with closeSync corrupts later network I/O in this process.
+  // The kernel drops the flock when the helper dies. A crash of this process
+  // closes the stdin pipe, so the helper exits even if this kill does not run.
   try {
-    return Date.now() - fs.statSync(lockDir).mtimeMs > 5000
+    child.kill('SIGKILL')
   } catch {
-    return true
+    // the helper is already gone, and so is its flock
+  }
+  try {
+    if (child.stdin) child.stdin.destroy()
+  } catch {
+    // the pipe is already closed
+  }
+  try {
+    fs.unlinkSync(ready)
+  } catch {
+    // the ready file is only a signal
   }
 }
 
-/** Cross-process lock. mkdir is atomic; a dead holder's pid is stolen. */
+// The previous lock was a directory. Move it aside by rename so two starters
+// cannot both delete it, then flock the file. The file itself is never removed:
+// unlinking it would let a second process flock a different inode.
+function prepareLockFile(lockPath) {
+  try {
+    const st = fs.lstatSync(lockPath)
+    if (st.isDirectory()) {
+      const aside = `${lockPath}.old.${process.pid}.${crypto.randomBytes(4).toString('hex')}`
+      try {
+        fs.renameSync(lockPath, aside)
+        fs.rmSync(aside, { recursive: true, force: true })
+      } catch {
+        // the other starter already moved the old directory
+      }
+    }
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err
+  }
+  try {
+    const fd = fs.openSync(lockPath, 'a', 0o600)
+    fs.closeSync(fd)
+    fs.chmodSync(lockPath, 0o600)
+  } catch {
+    // perl creates the file on the way in; the flock is the lock
+  }
+}
+
+function holdFlock(lockPath) {
+  prepareLockFile(lockPath)
+  const ready = `${lockPath}.ready.${process.pid}.${crypto.randomBytes(4).toString('hex')}`
+  const child = spawn(perlBin(), ['-e', LOCK_HELPER, lockPath, String(LOCK_WAIT_MS), ready], {
+    stdio: ['pipe', 'ignore', 'ignore'],
+  })
+  // The helper must not keep this process alive after the hook returns.
+  // A crash still closes the stdin pipe, so the helper exits and the kernel
+  // drops the flock. Release also kills it so the next waiter does not wait
+  // out the helper's own timeout.
+  child.unref()
+  const deadline = Date.now() + LOCK_WAIT_MS + 500
+  let line = ''
+  try {
+    while (line !== 'ok' && line !== 'timeout') {
+      if (Date.now() > deadline) throw new Error('thread lock timeout')
+      try {
+        line = fs.readFileSync(ready, 'utf8').trim()
+      } catch {
+        line = ''
+      }
+      if (line !== 'ok' && line !== 'timeout') sleepSync(5)
+    }
+  } catch (err) {
+    releaseHelper(child, ready)
+    throw err
+  }
+  if (line !== 'ok') {
+    releaseHelper(child, ready)
+    throw new Error('thread lock timeout')
+  }
+  return {
+    release() {
+      releaseHelper(child, ready)
+    },
+  }
+}
+
+/** Cross-process lock. The kernel releases the flock when this process exits. */
 function withThreadLock(vendor, thread, fn) {
   const file = gatePath(vendor, thread)
   if (!file) return fn()
-  const lockDir = `${file}.lock`
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
-  const deadline = Date.now() + 2000
-  for (;;) {
-    try {
-      fs.mkdirSync(lockDir, { mode: 0o700 })
-      fs.writeFileSync(path.join(lockDir, 'pid'), String(process.pid), { mode: 0o600 })
-      break
-    } catch (err) {
-      if (err.code !== 'EEXIST') throw err
-      if (lockStale(lockDir)) {
-        try {
-          fs.rmSync(lockDir, { recursive: true, force: true })
-        } catch {
-          // another process took the stale lock
-        }
-        continue
-      }
-      if (Date.now() > deadline) throw new Error('thread lock timeout')
-      sleepSync(20)
-    }
-  }
+  const held = holdFlock(`${file}.lock`)
   try {
     return fn()
   } finally {
-    try {
-      fs.rmSync(lockDir, { recursive: true, force: true })
-    } catch {
-      // a dead pid is stolen on the next attempt
-    }
+    held.release()
   }
 }
 
@@ -457,9 +566,17 @@ function allocateStamp(body) {
   return withThreadLock(body.vendor, session, () => {
     const gate = loadGate(body.vendor, session)
     const rec = activeRecord(gate, session)
-    if (body.event === 'turn_start' || !rec.turn_id) rec.turn_id = crypto.randomUUID()
+    // An unconfirmed turn keeps its id until the server accepts its turn_start.
+    // A confirmed turn, or a record with no turn yet, mints a new id on turn_start.
+    const unconfirmed = Boolean(rec.turn_id) && rec.turn_confirmed === false
+    if (!unconfirmed && (body.event === 'turn_start' || !rec.turn_id)) {
+      rec.turn_id = crypto.randomUUID()
+      rec.turn_confirmed = false
+      rec.turn_open_seq = 0
+    }
     rec.seq += 1
     if (!rec.nonce) rec.nonce = crypto.randomBytes(32).toString('hex')
+    if (body.event === 'turn_start' && !rec.turn_open_seq) rec.turn_open_seq = rec.seq
     body.thread = rec.id
     body.turn_id = rec.turn_id
     body.seq = rec.seq
@@ -471,13 +588,19 @@ function allocateStamp(body) {
   })
 }
 
+function matchingRecord(gate, body) {
+  return gate.records.find(r => r.id === body.thread && r.nonce === body.register_nonce && r.status !== 'superseded')
+}
+
 /** Keep the old record, including its key, and open a new thread id that does not reuse it. */
 function supersedeActive(body) {
   const session = body.session || body.thread
   body.session = session
   return withThreadLock(body.vendor, session, () => {
     const gate = loadGate(body.vendor, session)
-    const rec = activeRecord(gate, session)
+    const rec = matchingRecord(gate, body)
+    // A late 409 for a record that is already superseded does nothing.
+    if (!rec) return null
     rec.status = 'superseded'
     const created = {
       id: nextThreadID(gate, session),
@@ -486,6 +609,10 @@ function supersedeActive(body) {
       turn_id: crypto.randomUUID(),
       seq: 1,
       status: 'active',
+      // This event is the new record's registration. It is not an unconfirmed
+      // turn_start of the record that was just superseded.
+      turn_confirmed: true,
+      turn_open_seq: 0,
     }
     gate.records.push(created)
     saveGate(body.vendor, session, gate)
@@ -499,14 +626,56 @@ function supersedeActive(body) {
 }
 
 function saveIssuedKey(body, key) {
+  if (typeof key !== 'string' || !KEY_RE.test(key)) return
   const session = body.session || body.thread
   withThreadLock(body.vendor, session, () => {
     const gate = loadGate(body.vendor, session)
-    const rec = gate.records.find(r => r.id === body.thread && r.status !== 'superseded') || activeRecord(gate, session)
-    if (rec.status === 'superseded') return
+    const rec = matchingRecord(gate, body)
+    // No fallback to the current record. A late key for a superseded record is dropped.
+    if (!rec) return
     rec.key = key
     saveGate(body.vendor, session, gate)
   })
+}
+
+function markTurnConfirmed(body) {
+  const session = body.session || body.thread
+  withThreadLock(body.vendor, session, () => {
+    const gate = loadGate(body.vendor, session)
+    const rec = matchingRecord(gate, body)
+    if (!rec || rec.turn_id !== body.turn_id) return
+    rec.turn_confirmed = true
+    saveGate(body.vendor, session, gate)
+  })
+}
+
+function recordFor(body) {
+  const session = body.session || body.thread
+  return matchingRecord(loadGate(body.vendor, session), body)
+}
+
+/** The unconfirmed turn_start that must go out before a later event of that turn. */
+function preludeTurnStart(body) {
+  const rec = recordFor(body)
+  if (!rec || rec.turn_confirmed !== false || !rec.turn_open_seq) return null
+  if (body.turn_id !== rec.turn_id) return null
+  if (body.event === 'turn_start' && body.seq === rec.turn_open_seq) return null
+  const start = { ...body, event: 'turn_start', seq: rec.turn_open_seq, turn_id: rec.turn_id }
+  delete start.tool
+  delete start.tool_timeout_s
+  delete start.reason
+  delete start.tool_use_id
+  return start
+}
+
+function hasUnconfirmedTurn(vendor, thread) {
+  const gate = loadGate(vendor, thread)
+  for (let i = gate.records.length - 1; i >= 0; i--) {
+    const rec = gate.records[i]
+    if (rec.status === 'superseded') continue
+    return rec.turn_confirmed === false && rec.turn_id !== ''
+  }
+  return false
 }
 
 async function post(body, timeoutMs = 5000) {
@@ -534,14 +703,42 @@ async function post(body, timeoutMs = 5000) {
   }
 }
 
+async function confirmTurnStart(body, timeoutMs) {
+  const start = preludeTurnStart(body)
+  if (!start) return { ok: true }
+  const opened = await post(start, timeoutMs)
+  if (opened.key) {
+    try {
+      saveIssuedKey(start, opened.key)
+    } catch {
+      // the next event retries with the same nonce
+    }
+  }
+  // A finished turn stays refused. Do not supersede and do not send the later event.
+  if (opened.status === 409 && opened.error === 'older turn refused') return { ok: false, res: opened }
+  // The record's key is dead. The caller's own post applies that 409 to this record.
+  if (opened.status === 409 && opened.error === 'unknown key') return { ok: true, res: opened }
+  if (!opened.sent) return { ok: false, res: opened }
+  try {
+    markTurnConfirmed(start)
+  } catch {
+    // the start was accepted; the next event sends it again if this write failed
+  }
+  return { ok: true, res: opened }
+}
+
 async function postRecover(body, timeoutMs) {
+  const ready = await confirmTurnStart(body, timeoutMs)
+  if (!ready.ok) return ready.res
   let res = await post(body, timeoutMs)
   if (res.status === 409 && res.error === 'unknown key') {
+    let created = null
     try {
-      supersedeActive(body)
+      created = supersedeActive(body)
     } catch {
       return res
     }
+    if (!created) return res
     res = await post(body, timeoutMs)
   }
   if (res.key) {
@@ -549,6 +746,14 @@ async function postRecover(body, timeoutMs) {
       saveIssuedKey(body, res.key)
     } catch {
       // the next event retries with the same nonce
+    }
+  }
+  const rec = recordFor(body)
+  if (res.sent && (body.event === 'turn_start' || !rec || !rec.turn_open_seq)) {
+    try {
+      markTurnConfirmed(body)
+    } catch {
+      // a lost confirmation mark resends the turn_start before the next event
     }
   }
   return res
@@ -602,20 +807,19 @@ async function hook(vendor) {
   const body = beatFor(vendor, payload)
   if (!body) return
   body.session = body.thread
-  if (!hasActiveKey(body.vendor, body.session)) {
-    try {
-      allocateStamp(body)
-    } catch {
-      return
-    }
-    const res = await postRecover(body, FIRST_EVENT_TIMEOUT_MS)
-    if (res.sent) rememberSent(body)
-    return
-  }
-  if (throttled(body)) return
+  const first = !hasActiveKey(body.vendor, body.session)
+  // A throttled tool event must not skip the turn_start the server never confirmed.
+  if (!first && !hasUnconfirmedTurn(body.vendor, body.session) && throttled(body)) return
   try {
     allocateStamp(body)
   } catch {
+    return
+  }
+  // The turn_start, and any later event until the server confirms it, stay in
+  // this process so the start is sent before the later event.
+  if (first || hasUnconfirmedTurn(body.vendor, body.session)) {
+    const res = await postRecover(body, FIRST_EVENT_TIMEOUT_MS)
+    if (res.sent) rememberSent(body)
     return
   }
   sendDetached(body)
@@ -675,20 +879,21 @@ async function main(argv) {
       }
       await postRecover(JSON.parse(raw))
     } catch {
-      // nothing to do: a lost beat at worst delays nothing and pages nothing
+      // a lost detached beat is not retried here; the next event sends again
     }
     return 0
   }
   if (mode === 'run') return run(vendor || 'other', rest)
   if (mode === 'hook') {
     // Nothing may reach stdout (Cursor reads it as a permission answer) and the
-    // exit code is always 0, whatever happens.
+    // exit code is always 0. The timer is 3 seconds; a lock wait can push the
+    // give-up to HOOK_GIVE_UP_MS because it blocks this timer.
     const deadline = setTimeout(() => process.exit(0), HOOK_DEADLINE_MS)
     deadline.unref()
     try {
       await hook(vendor)
     } catch {
-      // a hook never blocks a session
+      // a thrown error still exits 0; the wait bound is the timer plus one lock
     }
     return 0
   }
@@ -715,4 +920,7 @@ module.exports = {
   allocateStamp,
   loadGate,
   supersedeActive,
+  saveIssuedKey,
+  withThreadLock,
+  HOOK_GIVE_UP_MS,
 }
