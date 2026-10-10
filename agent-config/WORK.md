@@ -543,20 +543,20 @@
 **W-31 第 0 步 · S0-0 批准后由系统执行（先写方案）**
 
 - **类别**：道
-- **状态**：在做
-- **现在**：属于架构级，先写方案交 Owner；TD-286、TD-287 归这里
-- **下一步**：Owner 10-10 已另派线程写方案；该线程不写 WORK.md / STEP0-PLAN / TECH_DEBT，交回后由 W-31 线程登记
+- **状态**：在做（方案已定，实现等 W-42）
+- **现在**：方案已交（infra `9f9c3a1`，`work/multi-agent/S0-0-approved-execution-PLAN-2026-10-10.md`）；Owner 10-10 按推荐定了执行卡 1–7（全部选 A）。实现拆成 S0-0a–e，分给 W-48–W-52；TD-267、TD-276、TD-286、TD-287 归这几条
+- **下一步**：W-42 合 main 之后开 W-48（S0-0a）
 - **验收**：Owner 批一张 `owner_run_command`，系统自己执行并回写结果；通知里能看懂批的是什么
-- **关联**：STEP0-PLAN 第 0 节 S0-0、TD-286、TD-287
+- **关联**：STEP0-PLAN 第 0 节 S0-0、0.3 节；W-48–W-52；TD-267、TD-276、TD-286、TD-287
 
 ### W-38
 
 **W-31 第 0 步 · S0-14 节点非计划重启告警**
 
 - **类别**：道
-- **状态**：在做
+- **状态**：在做（已推 main `c5c5f36`；部署单由 Claude 线程代建，生效后由参谋长做送达演练）
 - **现在**：Owner 10-10 定：只新增告警规则作为一条新防线，TD-288 条目在 11-09 前不动
-- **下一步**：Owner 10-10 已另派线程（infra `c5c5f36` 已上 main：告警规则与规则测试）；演练触发与送达、验收结果等该线程交回后由 W-31 线程登记
+- **下一步**：已推 main（`c5c5f36`）；部署单由 Claude 线程代建（`plan_manifest` + C 级 `apply_manifest`），生效后由参谋长做送达演练。W-38 发现 main 上本来就红的两项静态检查，W-31 线程 10-10 已修并加了 pre-commit 防线（见 STEP0-PLAN 0.4 节）
 - **验收**：用演练数据触发一次，告警能送到；登记进 MAINTAINERS
 - **关联**：STEP0-PLAN 第 0 节 S0-14、TD-288
 
@@ -598,7 +598,7 @@
 **W-31 第 0 步 · S0-8 发版策略合并并签发**
 
 - **类别**：道
-- **状态**：未开始
+- **状态**：在做（Owner 10-10 另派线程；该线程交回要登记的内容，由 W-31 线程登记）
 - **现在**：Owner 10-10 定卡 2 = B：放行检查只在平台，命中策略自动批准，`release.sh` 只调平台，infra 只留 ConfigMap、RBAC 和 Tekton 冻结检查
 - **下一步**：rebase `cursor/rp-platform`（冲突 `metrics.go`）和 `cursor/rp-infra`（和 `release.sh` 冲突，按 main 解）
 - **验收**：一次 STG 发布被策略自动放行，审计里记下命中的条款
@@ -611,7 +611,7 @@
 - **类别**：道
 - **状态**：在做
 - **现在**：Owner 10-10 拆成两步（STEP0-PLAN 0.4 节）：W-43a 只删零引用的死代码，已派出（分支 `w31/w43a-s0-16a`）；W-43b 删孤儿，排在 W-44、W-45 之后。`AgentFocusDock`、`AgentTriadStrip`、`CommandIntentStrip`、`lib/task-mode`、`operateQueue` / `operateBriefs`、`lib/agent/*` 仍在渲染，不属于 16a；`NavAgentAskSlot` 改归 W-44。退役 plist 只在 W-36 删一次。W-43a 已并进 Console 集成分支 `w31/console-int`（platform `58928a3`，10-10）
-- **下一步**：W-43b 按 STEP0-PLAN 0.4 节「16b 清单补充」逐项确认是否还在 ①/⑥ 渲染后再删，排在 W-44、W-45 之后；后端 `api/internal/console`（SSH ws-ticket / ws）先过决策卡
+- **下一步**：W-43b 按 STEP0-PLAN 0.4 节「16b 清单补充」逐项确认是否还在 ①/⑥ 渲染后再删，排在 W-44、W-45 之后；卡 10 = A（Owner 10-10）：后端 `api/internal/console`（SSH ws-ticket / ws）连同 `@xterm/xterm`、`@xterm/addon-fit` 一起删，属于 W-43b
 - **验收**：tsc / lint / vitest / build 全过，没有新的引用断裂
 - **关联**：STEP0-PLAN 0.2 节
 
@@ -620,7 +620,7 @@
 **W-31 第 0 步 · S0-17 外壳与「需要你」第一版**
 
 - **类别**：道
-- **状态**：未开始
+- **状态**：在做（Owner 10-10 另派线程；该线程交回要登记的内容，由 W-31 线程登记）
 - **现在**：范围见 STEP0-PLAN 0.2 节，按 0.4 节的卡 A、卡 B、卡 C 改：首页只列单子，批准和驳回只在 `#approvals?id=`；「需要你」只算待定、待批、待签；Autopilot 页签原样搬进「记录」。文件清单加 `lib/shell/shellStatusLine.ts`、`ConsoleSidebar.tsx`、`ConsoleNavSlotItem.tsx`、`StatusPage.tsx`，`NavAgentAskSlot` 也归这里
 - **下一步**：照第 1 波计划派，推到 Console 集成分支
 - **验收**：有待批的单子时首页第一屏就是它并显示等了多久；页头和 ① 的结论一致；通知里的旧链接仍能打开对应的单子
@@ -631,7 +631,7 @@
 **W-31 第 0 步 · S0-18 ⑤ Releases 三段式**
 
 - **类别**：道
-- **状态**：未开始
+- **状态**：在做（Owner 10-10 另派线程；该线程交回要登记的内容，由 W-31 线程登记）
 - **现在**：Owner 10-10 定卡 B：第一段放快到期的策略和待批的发版单；失败的 run 放「进行中」，同一流水线、同一环境后来成功就自动进历史，不新增状态、不加接口。策略那一块等 W-42
 - **下一步**：照第 1 波计划派，推到 Console 集成分支
 - **验收**：10-03 的旧失败不再占首屏；窗口被占用时看得到是谁在占、还剩多久
@@ -658,6 +658,61 @@
 - **下一步**：随时可以做
 - **验收**：Owner 能直接上传
 - **关联**：STEP0-PLAN 0.2 节
+
+### W-48
+
+**W-31 第 0 步 · S0-0a 状态机与编号**
+
+- **类别**：道
+- **状态**：未开始（等 W-42 合 main）
+- **现在**：新状态 `approved` / `running` / `unknown`、`execution{}`、全局自增 `#n`、`executor` 角色和领单 / 续租 / 回写接口、存储改 `statefile.Update`；TD-267、TD-276
+- **下一步**：W-42 合 main 之后照方案第 4.4 节的顺序开
+- **验收**：方案第 4.5 节 S0-0a 的验收命令；暂时性拒绝后单子仍是 `approved`，两个并发建单拿到不同的 `#n`
+- **关联**：`work/multi-agent/S0-0-approved-execution-PLAN-2026-10-10.md` 第 4.5 节；W-37；TD-267、TD-276
+
+### W-49
+
+**W-31 第 0 步 · S0-0b 通知文案与投递记录**
+
+- **类别**：道
+- **状态**：未开始（等 W-42 合 main）
+- **现在**：文案带 `#n`、级别、动作、环境、摘要；`deliveries[]`；结果通知与过期提醒；TD-286
+- **下一步**：W-42 合 main 之后照方案第 4.4 节的顺序开
+- **验收**：STG 上建一张 C 级单：手机通知显示 `#n`、动作、环境，单子的 `deliveries[0].result` 是 `accepted`
+- **关联**：`work/multi-agent/S0-0-approved-execution-PLAN-2026-10-10.md` 第 4.5 节；W-37；TD-286
+
+### W-50
+
+**W-31 第 0 步 · S0-0c 带外执行器**
+
+- **类别**：道
+- **状态**：未开始（等 W-42 合 main）
+- **现在**：operator-plane 在 .50 以执行者角色领单（执行卡 1 = A），只放专用受限凭证（执行卡 2 = A）；输出只回写退出码、用时、哈希和 ≤2 KB 打码尾部，全文留 .50 30 天（执行卡 6 = A）；TD-287；TD-290 的删除做演练；TD-291 的两台 Mini 重新部署并入这里
+- **下一步**：W-42 合 main 之后照方案第 4.4 节的顺序开
+- **验收**：Owner 只点一次批准，TD-290 的 ConfigMap 由系统删掉，单子 `executed`、退出码 0；`get_agent_bridge` 的 `git_bridge` 是 `not_configured`
+- **关联**：`work/multi-agent/S0-0-approved-execution-PLAN-2026-10-10.md` 第 4.5 节；W-37；TD-287、TD-290、TD-291
+
+### W-51
+
+**W-31 第 0 步 · S0-0d 会话「批 #n」**
+
+- **类别**：道
+- **状态**：未开始（等 W-42 合 main）
+- **现在**：`approve_request` / `reject_request` / `get_request` / `wait_for_request` 接受 `#n`
+- **下一步**：W-42 合 main 之后照方案第 4.4 节的顺序开
+- **验收**：Claude 会话里打「批 #n」：弹出允许，批准后单子的 `channel` 是 `chat`
+- **关联**：`work/multi-agent/S0-0-approved-execution-PLAN-2026-10-10.md` 第 4.5 节；W-37；—
+
+### W-52
+
+**W-31 第 0 步 · S0-0e 网页推送**
+
+- **类别**：道
+- **状态**：未开始（等 W-42 合 main）
+- **现在**：`webpush-go`（执行卡 5 = A，开工前核实维护情况和遥测），订阅存在现有状态文件新开的 `push-subscriptions` 键（执行卡 7 = A）；ntfy 只留严重告警
+- **下一步**：W-42 合 main 之后照方案第 4.4 节的顺序开
+- **验收**：Owner 的 iPhone 主屏幕应用收到 `#n` 推送，点开到 `#approvals?id=`
+- **关联**：`work/multi-agent/S0-0-approved-execution-PLAN-2026-10-10.md` 第 4.5 节；W-37；—
 
 ## 本批没有登记的
 

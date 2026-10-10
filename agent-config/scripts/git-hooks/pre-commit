@@ -1,12 +1,36 @@
 #!/bin/sh
-# TD-280: no credential values in tracked config YAML (all workspace repos are
-# public). Acts only in a repo that ships scripts/scrub_config_secrets.py
-# (bifrost-trade-infra and its worktrees) and only when one of the files it
-# guards is staged. Checks the staged copies; prints file, line and key only.
+# Acts only in bifrost-trade-infra and its worktrees (the repo that ships the
+# checks below); every other repo returns at once.
 top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+staged=$(git diff --cached --name-only --diff-filter=ACMRD)
+
+# TD-280: no credential values in tracked config YAML (all workspace repos are
+# public). Only when one of the files it guards is staged. Checks the staged
+# copies; prints file, line and key only.
 check="$top/scripts/scrub_config_secrets.py"
-[ -f "$check" ] || exit 0
 # Older infra worktrees ship a scrub-only script that would rewrite files.
-grep -q -- '--check' "$check" || exit 0
-git diff --cached --name-only --diff-filter=ACMR | grep -qE '^(config/config\.dev\.yaml|k8s/overlays/(dev|stg|prod)/config/config\.(dev|stg|prod)\.yaml)$' || exit 0
-exec python3 "$check" --check --staged
+if [ -f "$check" ] && grep -q -- '--check' "$check" \
+  && printf '%s\n' "$staged" | grep -qE '^(config/config\.dev\.yaml|k8s/overlays/(dev|stg|prod)/config/config\.(dev|stg|prod)\.yaml)$'; then
+  python3 "$check" --check --staged || exit 1
+fi
+
+# W-31 10-10: the static monitoring checks went red on main twice without anyone
+# running them (a PodMonitor component nobody classified, a retired overlay patch
+# left behind). Run them when a commit touches what they read. They check the
+# working tree, not the staged copies.
+if [ -f "$top/scripts/check_http_metrics_coverage.py" ] && [ -f "$top/scripts/check_alert_routing.py" ] \
+  && printf '%s\n' "$staged" | grep -qE '^k8s/(monitoring|overlays/platform-(stg|prod))/|^scripts/check_(http_metrics_coverage|alert_routing)\.py$'; then
+  py=""
+  for cand in python3 python3.13 python3.12 python3.11; do
+    if command -v "$cand" >/dev/null 2>&1 && "$cand" -c 'import yaml' 2>/dev/null; then
+      py=$cand
+      break
+    fi
+  done
+  if [ -z "$py" ]; then
+    echo "pre-commit: no python3 with PyYAML; install it (pip install pyyaml) to run the monitoring checks" >&2
+    exit 1
+  fi
+  (cd "$top" && "$py" scripts/check_http_metrics_coverage.py && "$py" scripts/check_alert_routing.py) || exit 1
+fi
+exit 0

@@ -50,7 +50,7 @@ Ops Platform 收成四层，全部只在 PROD 一份：
 | Linux k8s 节点 | 生产底座，确定性修复的唯一所在 | Trade dev/stg/prod；Postgres、Redis；Dagster（数据养护唯一调度者）；插件；PROD platform-workers；备份；监控告警；交付（Argo、Tekton、registry） | LLM Agent 执行面；任何依赖笔记本的东西 |
 | NAS | 存储与备份第二份 | MinIO（物理备份）、nfs-hot / nfs-cold、归档、逻辑 dump、各机器的备份 | 计算、调度 |
 | 4090（.60） | 可唤醒算力池 | 本地 LLM 推理、重型回测与构建；PROD 按需唤醒、用完关机 | 常驻服务；维护关键路径 |
-| Mac mini .50 / .52 | 带外层 + Agent 层（A 方案） | 宿主（独立系统账户）：operator-plane、告警中转、互看 watchdog、集群外拨测、应急手册。虚拟机：Claude Code 线程、Agent SDK harness、沙箱 | 常驻集群管理员凭证；定时 LLM「修复」；带外与 Agent 共用账户和配置 |
+| Mac mini .50 / .52 | 带外层 + Agent 层（A 方案） | 宿主（独立系统账户）：operator-plane、告警中转、互看 watchdog、集群外拨测、应急手册；.50 的独立账户里可以放执行器的专用凭证（专用 kube 身份 `bifrost-owner-exec` 由准入策略限定、节点上只放 forced-command 钥匙；S0-0 执行卡 2，Owner 2026-10-10）。虚拟机：Claude Code 线程、Agent SDK harness、沙箱 | 集群管理员凭证与节点 root；子系统管理员密码（Gitea、UniFi、数据库属主）；定时 LLM「修复」；带外与 Agent 共用账户和配置 |
 | Mac Pro | 开发 + Owner 驾驶舱 | IDE、Vite、bdev 本地服务、kubectl / MCP 客户端、Claude 线程 | 任何维护；任何被 PROD 依赖的服务 |
 | Win11 ×2 | 交易设备 | 只有 TWS（Owner 手工登录 + 2FA），从外面观测 | 其他软件（以后可加维保进程，单独决定） |
 
@@ -296,6 +296,7 @@ Owner 只管规则，Agent 在规则之下自动运行。规则包括：
 ### 12.8 工作项编号
 
 - 只有一个编号空间：`W-n`。在 WORK.md 里发号；第 2 期起改由平台发号。
+- 审批单用 `#n`（全局自增，存在审批记录里），不是工作项编号；`check_work_ids.py` 不管 `#n`（S0-0 执行卡 4，Owner 2026-10-10）。
 - `LANE-*` 冻结为别名，只在唯一时有效；`LANE-A2` 和 `LANE-C` 作废。
 - 由查重防线保证。
 

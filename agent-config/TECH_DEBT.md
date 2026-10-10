@@ -1241,7 +1241,7 @@
 
 **P2 · ops-platform · An approval is consumed by a transient refusal: approve executes immediately, and a release-window clash marks the request `failed`, so the Owner's click is spent and a new request must be filed**
 
-- **状态**：未开始
+- **状态**：未开始。方案见 `work/multi-agent/S0-0-approved-execution-PLAN-2026-10-10.md`，实现在 S0-0a（W-48），等 W-42 合 main（Owner 10-10 按推荐定了执行卡 1–7）
 - **Claim**: `approvals.Service.approve` calls `actions.Execute` in the same step as the decision and stores `StatusFailed` on **any** error, transient or permanent (`service.go` around the `execErr` branch). Since `approve` refuses anything whose status is not `pending`, a request that failed on a precondition cannot be approved again — the human's click is gone and the requester has to create a fresh request. There is no distinction between "this can never work" (bad params, expired) and "this would work in a minute" (a release window held for other repos, CI not green yet).
 - **Measured**: MEASURED 2026-10-08. `appr_cb8b3f52329cbe8c` (platform PROD, revision main) was approved through `channel: chat` at 15:50:56Z and came back `status: failed` with `REFUSED: release window held by someone else (who=… what=bifrost-trade-core,bifrost-trade-api,bifrost-trade-worker,bifrost-trade-frontend,bifrost-trade-infra); bifrost-deliver-platform-prod needs one of bifrost-platform,bifrost-ui`. The click landed inside this session's own Trade release (`bifrost-deliver-prod-pinned-9lg2r`, 15:47–15:54Z), which legitimately held the window for the Trade repos. No PipelineRun was created; platform main stayed a7ecb08 and PROD kept the old image. The window check did its job — what is wrong is that the approval did not survive it.
 - **Evidence**:
@@ -1303,7 +1303,7 @@
 
 **P3 · ops-platform · An apply_manifest run is named apply-<plan id>, so a failed apply of a plan cannot be retried; a new plan is needed**
 
-- **状态**：未开始
+- **状态**：未开始。方案见 `work/multi-agent/S0-0-approved-execution-PLAN-2026-10-10.md`，实现在 S0-0a（W-48），等 W-42 合 main（Owner 10-10 按推荐定了执行卡 1–7）
 - **Claim**: `workactions.Apply` names the run `trimName("apply-" + planID)`. After an apply of a plan fails, a second approved apply of the same plan fails at create with `pipelineruns.tekton.dev "apply-<plan>" already exists`, and the approval ends `failed`.
 - **Measured**: MEASURED 2026-10-09: `appr_49781a21b0d86b9d` (plan `plan-1dfc9375-1791567153`, whose first apply failed closed) → `failed`, `already exists`. A fresh plan applied fine.
 - **Evidence**:
@@ -1354,7 +1354,7 @@
 
 **P2 · ops-platform · Approval notifications carry no short id or parameters and their delivery is not recorded; the session, Console and phone are not one approval experience**
 
-- **状态**：未开始（归多 Agent 协作项目第 0 步，与「审批后由系统执行」同一份方案）
+- **状态**：未开始（归多 Agent 协作项目第 0 步，与「审批后由系统执行」同一份方案）。方案见 `work/multi-agent/S0-0-approved-execution-PLAN-2026-10-10.md`，实现在 S0-0b（W-49），等 W-42 合 main（Owner 10-10 按推荐定了执行卡 1–7）
 - **Claim**: The ntfy message is `<who> requested <action> (tier X). Open to approve or reject.`: no number, no pipeline, environment or commits. Delivery is not logged per message (the operator-plane log only records startup); on 2026-10-10 all four approval messages reached ntfy (priority 4, click link) but the Owner's phone showed none. The Console approvals page shows raw JSON params and plan output and does not group pending / executed / rejected. A session can approve only through a tool permission prompt. After a click on Approve the page gives no confirmation: the card stays under `Open request` with status `executed` and no button, and for a record-only action (`rolling_reboot`) `executed` means only that the approval was recorded. On 2026-10-10 the Owner approved `appr_49d505d827db8b4a` in Console (channel console, 05:17:26Z) and then reported that the approve button could not be found. The recorded command in the result also omits the flags the requester asked for (`--upgrade`).
 - **Evidence**: `bifrost-platform/api/internal/approvalnotify/notify.go:116`; `bifrost-platform/api/internal/alertrelay/relay.go` `handleNotify`
 - **Fix**: short numeric approval number; message with action, environment, key params, requester thread, expiry; delivery result stored on the approval; Console page grouped by status with readable params and plan; chat reply `批 #n` path; executor for `owner_run_command`.
@@ -1366,7 +1366,7 @@
 
 **P3 · ops-platform · The gpu-server power manager on ubt-k3s-01 has failed every poweroff since the node key changed and logs success; the platform's wake and poweroff actions have no SSH identity**
 
-- **状态**：未开始（归多 Agent 协作项目第 0 步「审批后由系统执行」：带外操作面上的执行者）
+- **状态**：未开始（归多 Agent 协作项目第 0 步「审批后由系统执行」：带外操作面上的执行者）。方案见 `work/multi-agent/S0-0-approved-execution-PLAN-2026-10-10.md`，实现在 S0-0c（W-50），等 W-42 合 main（Owner 10-10 按推荐定了执行卡 1–7）
 - **Claim**: `bifrost-gpu-power-manager.service` (enabled, active on ubt-k3s-01) drains gpu-server after 30 idle minutes, then runs `ssh vision@192.168.10.60 'sudo -n systemctl poweroff'`. Since the node key change (W-33 step 3) .60 answers `Permission denied (publickey)`; the script discards the error (`2>/dev/null … || true`) and logs `Poweroff command sent` every ~33 minutes. gpu-server has been up since 2026-10-09 03:26Z with no workload (cordoned since 08-02, only DaemonSet pods, `ai` namespace empty). The service also runs on the sole control plane with that node's admin kubeconfig. The platform actions `wake_compute_node` (B) and `poweroff_compute_node` (D) SSH from platform-api, whose PROD pod has no SSH identity, so neither can work.
 - **Evidence**: `bifrost-trade-infra/scripts/k3s/gpu-node-power-manager.sh` `power_off_node`; node journal 2026-10-10 04:40:16Z `vision@192.168.10.60: Permission denied (publickey)` then `Poweroff command sent`; `bifrost-platform/api/internal/cluster/node_power.go:254`
 - **Fix**: one owner for gpu-server power, on the out-of-band operator plane (.50): WOL needs no credential; poweroff uses a dedicated key that .60 restricts to a forced `sudo -n systemctl poweroff` (from .50 only, no pty, no forwarding). Report the real exit status. Retire the unit on ubt-k3s-01 and route the two platform actions to that executor.
@@ -1403,7 +1403,7 @@
 
 **P3 · ops-platform · The retired remediation runner's ConfigMap `cicd/bifrost-remediation-runner-stg-dockerfile` is still in the cluster, and the platform still lists it**
 
-- **状态**：在做（10-10：两处名单已删，platform `d6b2849`。动作目录里没有删 ConfigMap 的动作，`apply_manifest` 不 prune，只能走 `owner_run_command`（D 级，平台只记录、由 Owner 跑 `scripts/owner/owner-run.sh <id>`）；按 Owner 10-10 指示没有建单，等 Owner 定）
+- **状态**：在做（10-10：两处名单已删，platform `d6b2849`。删 ConfigMap 留给 S0-0c（W-50）做演练：Owner 只点一次批准，系统执行并回写结果（Owner 10-10 定）。在那之前不建单）
 - **Claim**: The runner and Hermes were retired in W-33 and their plists were deleted in W-36 (D-6), but the Dockerfile ConfigMap created 2026-06-21 is still in `cicd`. Nothing builds from it. The supply check keeps it in its Dockerfile list and the Console deliver phases show it as `retired-dockerfile`, so deleting only the ConfigMap would turn the supply check red.
 - **Evidence**: `kubectl -n cicd get cm bifrost-remediation-runner-stg-dockerfile` (2026-10-10, exists); `bifrost-platform/api/internal/delivery/supply_chain.go:25`; `bifrost-platform/console/src/lib/delivery/deliverPlatformPhases.ts:5`
 - **Fix**: drop the name from both lists (one platform commit), then delete the ConfigMap through an approval (`owner_run_command`, the Agent identity is read-only).
@@ -1415,11 +1415,11 @@
 
 **P3 · ops-platform · The PROD operator plane probes git-bridge on the Owner's laptop (192.168.10.40:8785) and gets 401, so agent-bridge shows git_bridge unavailable instead of local-only**
 
-- **状态**：未开始
+- **状态**：在做（10-10：部署脚本不再写 `GIT_BRIDGE_URL`，提示文案同步改，platform `16ece5a`。重新部署两台 Mini 的主机变更并入 S0-0c（W-50），Owner 10-10 定；部署之后线上才变成 `not_configured`）
 - **Claim**: git-bridge is a dev-workstation tool (`handler.go` treats an unset `GIT_BRIDGE_URL` as `not_configured` / "local-only (dev workstation)"). PROD platform-api forwards the agent-bridge routes to the operator plane on the Mac Mini (`OPERATOR_PLANE_URL=http://192.168.10.50:8783`), and the Mini's plane env sets `GIT_BRIDGE_URL` to the laptop. The laptop's bridge only accepts tokens loaded on the laptop, so every probe is a 401 and Console reports a failure for something PROD should not depend on. The variable is not in the k8s overlay: the PROD platform-api pod, its ConfigMap `bifrost-platform-config` and the image Dockerfile do not set it (checked 2026-10-10); the Mini deploy script writes it.
 - **Evidence**: `get_agent_bridge` on PROD (2026-10-10): `git_bridge {url: http://192.168.10.40:8785, status: unavailable, error: HTTP 401 Unauthorized}`; `bifrost-platform/scripts/agent/deploy_mac_mini.sh:575` (`export GIT_BRIDGE_URL=http://${PLATFORM_LAN_HOST}:8785` into `env.operator-plane.sh`); `bifrost-platform/api/internal/server/server.go:154` (routes forwarded to the plane); `bifrost-platform/console/src/lib/agent/operatorPlaneFixPrompt.ts:42` and `bifrost-trade-infra/agent-config/MAINTAINERS.yaml:378` both say PROD should point at `192.168.10.40:8785` (MAINTAINERS also names platform-workers, which does not set it).
 - **Fix**: stop writing `GIT_BRIDGE_URL` in `deploy_mac_mini.sh` (keep `SATELLITE_PROBE_BRIDGE_URL`, which answers `ok`); fix the two texts; the Owner re-runs `deploy_mac_mini.sh` for .50 and .52 (host change, not a cluster write).
-- **Ratchet**: a platform test that renders the `env.operator-plane.sh` heredoc from `deploy_mac_mini.sh` and fails if it exports `GIT_BRIDGE_URL`.
+- **Ratchet**: `bifrost-platform/scripts/agent/test_deploy_mac_mini_secrets.py` `test_plane_env_does_not_point_at_git_bridge`: the `env.operator-plane.sh` heredoc has no `GIT_BRIDGE_URL` and the script has no `:8785` (platform `16ece5a`).
 - 验收: `get_agent_bridge` on PROD → `git_bridge.status == "not_configured"`; `git -C bifrost-platform grep -n GIT_BRIDGE_URL origin/main -- scripts/agent/deploy_mac_mini.sh` → no hits.
 - 审批 要批（重部署两台 Mini 的 operator plane）· 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
 

@@ -381,7 +381,7 @@ maintainers:
     detected_by: "none: 开发机，不是生产维护者"
     status: active
   - id: mac-pro/bdev/git-bridge
-    what: "Local git-bridge on :8785. PROD platform-workers sets GIT_BRIDGE_URL to this Mac (192.168.10.40)."
+    what: "Local git-bridge on :8785, dev workstation only. PROD and the Mac mini operator plane leave GIT_BRIDGE_URL unset and report it local-only (TD-291)."
     runs_on: mac-pro:bdev
     schedule: "bdev restart=always"
     env: dev-only

@@ -55,8 +55,9 @@ API_RULES = (
 #: `worker` is the Trade daemon (TD-215): its /metrics and /health server counts /health in
 #: http_requests_total like the APIs do, so the ratchet alert holds for it without an exemption.
 APP_COMPONENTS = frozenset({"api", "research", "plugin", "control-plane", "worker"})
-#: Monitors that scrape exporters / infrastructure, not an API of ours.
-INFRA_COMPONENTS = frozenset({"postgres", "redis", "minio", "logging", "gateway"})
+#: Monitors that scrape exporters / infrastructure, not an API of ours. signal: node-level
+#: exporters such as the node-reboot-required DaemonSet (W-33).
+INFRA_COMPONENTS = frozenset({"postgres", "redis", "minio", "logging", "gateway", "signal"})
 #: platform-api's namespaces; its request series must reach the API rules like everyone's.
 PLATFORM_NAMESPACES = ("bifrost-platform-prod", "bifrost-platform-stg")
 #: A label matcher other than namespace in the ratchet's selectors is an exemption.
