@@ -725,6 +725,17 @@
 - **验收**：手机关 Wi-Fi 走蜂窝、不手动连 VPN，能打开 `https://ops.bifrost.lan`；回到家里 Wi-Fi 后 VPN 断开，Ops 仍能打开；platform 仓库 `python3 scripts/unifi_firewall_policy_test.py` 通过；platform 发版后 `GET /api/v1/network/audit` 为 `POLICY_NOMINAL` 且 `expected_policy_count` 为 11
 - **关联**：platform `f995b00`；`work/multi-agent/DESIGN-agent-runtime-2026-10-08.md` 第 19 节；W-37；W-44
 
+### W-54
+
+**W-31 第 0 步 · S0-21 线程心跳与静默告警**
+
+- **类别**：道
+- **状态**：未开始
+- **现在**：Owner 2026-10-10 定。起因：当天 04:03–09:02 决策线程所在的笔记本合盖睡眠，一轮冻结 5 小时，没有任何告警。规格在 `work/multi-agent/STEP0-PLAN-2026-10-08.md` 0.9 节
+- **下一步**：执行线程派道；不依赖 S0-0，可以和第 9 步并行
+- **验收**：0.9 节的 5 条
+- **关联**：W-31；W-44（① 的「进行中」）；ADR §12.9 第 9 条
+
 ## 本批没有登记的
 
 - 阶段 0 的 W3：`REQUEST-w3-archive-before-delete-2026-10-05.md` 状态节写 A、B、C 全部完成。
