@@ -730,9 +730,9 @@
 **W-31 第 0 步 · S0-21 线程心跳与静默告警**
 
 - **类别**：道
-- **状态**：在做（代码完成，待合 main 与部署后真机验收）
-- **现在**：platform `w31/w54-s0-21` `7535877`（`api/internal/agentthreads/`：`POST /api/v1/agent/threads/heartbeat` 用 reporter 令牌，`GET /api/v1/agent/threads` 开放读，workers 每 30 秒巡检、每次静默只推一条）；platform `w31/w54-s0-21-console` `923ef4f`（基于 console-int `5101ba3`；Status 页 In progress · Agent threads，静默计入 Needs You）；infra `w31/w54-s0-21` `5560144`（三家共用的 `agent-config/scripts/thread-heartbeat.js`、维护项 `agent-thread-watch`、告警 `BifrostMaintainerAgentThreadWatchStale` 与规则测试）。验收 5 条的单测全过
-- **下一步**：① 合 main 前把 `GET /api/v1/agent/threads` 改成 viewer 级（开放读会暴露线程标题和主机名；参谋长另派）。② 合 main：infra 先（规则 plan / apply `k8s/monitoring`），合入后重跑 `python3 bifrost-trade-infra/agent-config/cursor/install-hooks.py` 把心跳 hooks 装进 `~/.cursor/hooks.json`（TD-298）；再 platform `w31/w54-s0-21` 上 PROD；console 分支等第 9 步之后。③ 部署后真机验收，另验三件未证实的事（STEP0-PLAN 0.9 节）
+- **状态**：在做（代码与合 main 前待办均完成，待合 main 与部署后真机验收）
+- **现在**：platform `w31/w54-s0-21` `c854efe`（`api/internal/agentthreads/`：`POST /api/v1/agent/threads/heartbeat` 用 reporter 及以上令牌，`GET /api/v1/agent/threads` viewer 级（无令牌或未知令牌 401），workers 每 30 秒巡检、每次静默只推一条）；platform `w31/w54-s0-21-console` `7b4574d`（已并入 console-int `11ebb8c`，合并提交 `167c1ea`；Status 页 In progress · Agent threads，静默计入 Needs You；用 viewer 凭据读，与审批列表共用 `approvals.ts` 导出的 `viewerRead`）；infra `w31/w54-s0-21` `5560144`（三家共用的 `agent-config/scripts/thread-heartbeat.js`、维护项 `agent-thread-watch`、告警 `BifrostMaintainerAgentThreadWatchStale` 与规则测试）。验收 5 条的单测全过
+- **下一步**：① 合 main 前改 viewer 级：已完成（`c854efe`、`7b4574d`）。② 合 main：infra 先（规则 plan / apply `k8s/monitoring`），合入后重跑 `python3 bifrost-trade-infra/agent-config/cursor/install-hooks.py` 把心跳 hooks 装进 `~/.cursor/hooks.json`（TD-298）；再 platform `w31/w54-s0-21` 上 PROD；console 分支等第 9 步之后，合并时留意 `console/src/api/approvals.ts` 的 `viewerRead` 导出。③ 部署后真机验收，另验三件未证实的事（STEP0-PLAN 0.9 节）
 - **验收**：0.9 节的 5 条（单测已过，真机待部署）
 - **关联**：W-31；W-44（① 的「进行中」）；ADR §12.9 第 9 条；TD-298
 
