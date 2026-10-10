@@ -18,7 +18,7 @@ delete process.env.BIFROST_HEARTBEAT_THREAD
 delete process.env.BIFROST_HEARTBEAT_TITLE
 delete process.env.BIFROST_WORK
 
-const { beatFor, toolTimeoutSeconds, shouldSkip, reduceThrottle } = require('./thread-heartbeat.js')
+const { beatFor, toolTimeoutSeconds, shouldSkip, reduceThrottle, allocateStamp } = require('./thread-heartbeat.js')
 const ISSUED_KEY = 'ab'.repeat(32)
 
 const CLAUDE_ID = '7e939cd5-b3b1-4705-96e4-0a3b9e61648d'
@@ -236,11 +236,142 @@ async function endToEnd() {
   srv.s.close()
 }
 
+async function seqLock() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-lock-'))
+  const env = { ...process.env, BIFROST_HOME_OVERRIDE: home }
+  delete env.PLATFORM_REPORTER_TOKEN
+  const code = `
+    const { allocateStamp } = require(${JSON.stringify(SCRIPT)})
+    const seqs = []
+    for (let i = 0; i < 25; i++) {
+      const body = { thread: 'same-thread', vendor: 'claude', host: 'h', event: 'before_tool' }
+      allocateStamp(body)
+      seqs.push(body.seq)
+    }
+    process.stdout.write(seqs.join(','))
+  `
+  const once = () =>
+    new Promise(resolve => {
+      const p = spawn(process.execPath, ['-e', code], { env })
+      let out = ''
+      let err = ''
+      p.stdout.on('data', d => (out += d))
+      p.stderr.on('data', d => (err += d))
+      p.on('exit', code => resolve({ code, out, err }))
+    })
+  const [a, b] = await Promise.all([once(), once()])
+  assert.equal(a.code, 0, a.err)
+  assert.equal(b.code, 0, b.err)
+  const seqs = [...a.out.split(','), ...b.out.split(',')].map(Number)
+  assert.equal(seqs.length, 50)
+  assert.equal(new Set(seqs).size, 50, `duplicate sequence ${seqs.join(',')}`)
+  assert.equal(Math.max(...seqs), 50)
+}
+
+async function nonceAndUnknownKey() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-nonce-'))
+  const got = []
+  let phase = 'drop'
+  const s = http.createServer((req, res) => {
+    let b = ''
+    req.on('data', d => (b += d))
+    req.on('end', () => {
+      const body = JSON.parse(b || '{}')
+      got.push(body)
+      if (phase === 'drop') {
+        res.writeHead(202, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ok: true }))
+        return
+      }
+      if (phase === 'key' && !body.thread_key) {
+        res.writeHead(202, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ok: true, thread_key: ISSUED_KEY }))
+        return
+      }
+      if (body.thread_key) {
+        res.writeHead(409, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'unknown key' }))
+        return
+      }
+      res.writeHead(202, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ ok: true, thread_key: 'cd'.repeat(32) }))
+    })
+  })
+  await new Promise(resolve => s.listen(0, '127.0.0.1', resolve))
+  const url = `http://127.0.0.1:${s.address().port}`
+  const env = { BIFROST_HOME_OVERRIDE: home, PLATFORM_REPORTER_TOKEN: 't', PLATFORM_HEARTBEAT_URL: url }
+  const payload = JSON.stringify(claude('PreToolUse', { tool_name: 'Bash' }))
+  await runScript(['hook', 'claude'], { stdin: payload, env })
+  assert.equal(got.length, 1)
+  assert.equal(got[0].thread_key, undefined)
+  assert.match(got[0].register_nonce, /^[0-9a-f]{64}$/)
+  phase = 'key'
+  await runScript(['hook', 'claude'], { stdin: payload, env })
+  assert.equal(got.length, 2)
+  assert.equal(got[1].register_nonce, got[0].register_nonce, 'a lost first response retries the same nonce')
+  assert.equal(got[1].thread_key, undefined)
+  const gateFile = path.join(home, '.cache', 'bifrost', 'thread-keys', 'claude', CLAUDE_ID)
+  const saved = JSON.parse(fs.readFileSync(gateFile, 'utf8'))
+  assert.equal(saved.records.find(r => r.status !== 'superseded').key, ISSUED_KEY)
+  phase = 'reject'
+  got.length = 0
+  await runScript(['hook', 'claude'], { stdin: JSON.stringify(claude('Stop')), env })
+  assert.ok(await waitFor(() => got.length >= 2), `unknown key recovery posts, got ${got.length}`)
+  const rejected = got.find(b => b.thread_key === ISSUED_KEY)
+  const recovered = got.find(b => b.thread !== CLAUDE_ID && !b.thread_key)
+  assert.ok(rejected, 'the old key was presented once')
+  assert.ok(recovered, 'a new thread id was registered without the old key')
+  assert.notEqual(recovered.register_nonce, rejected.register_nonce)
+  const after = JSON.parse(fs.readFileSync(gateFile, 'utf8'))
+  const old = after.records.find(r => r.status === 'superseded')
+  const live = after.records.find(r => r.status !== 'superseded')
+  assert.equal(old.key, ISSUED_KEY, 'the old key is kept and not reused')
+  assert.equal(live.key, 'cd'.repeat(32))
+  assert.notEqual(live.key, old.key)
+  s.close()
+}
+
+async function runContinuesSequence() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-run-'))
+  const prev = process.env.BIFROST_HOME_OVERRIDE
+  process.env.BIFROST_HOME_OVERRIDE = home
+  try {
+    for (let i = 0; i < 10; i++) allocateStamp({ thread: 'run-fixed', vendor: 'cursor', host: 'h', event: 'before_tool' })
+  } finally {
+    process.env.BIFROST_HOME_OVERRIDE = prev
+  }
+  const srv = await server()
+  const result = await runScript(['run', 'cursor', '--', process.execPath, '-e', 'process.exit(0)'], {
+    env: {
+      BIFROST_HOME_OVERRIDE: home,
+      PLATFORM_REPORTER_TOKEN: 't',
+      PLATFORM_HEARTBEAT_URL: srv.url,
+      BIFROST_HEARTBEAT_THREAD: 'run-fixed',
+    },
+  })
+  assert.equal(result.code, 0, result.err)
+  assert.ok(await waitFor(() => srv.got.length === 2), `run posts ${srv.got.length}`)
+  assert.deepEqual(
+    srv.got.map(x => x.body.event),
+    ['turn_start', 'turn_end'],
+  )
+  assert.deepEqual(
+    srv.got.map(x => x.body.seq),
+    [11, 12],
+  )
+  assert.equal(srv.got[0].body.turn_id, srv.got[1].body.turn_id)
+  assert.ok(srv.got[0].body.turn_id)
+  srv.s.close()
+}
+
 async function main() {
   mapping()
   timeouts()
   throttle()
   await neverBlocks()
+  await seqLock()
+  await nonceAndUnknownKey()
+  await runContinuesSequence()
   await endToEnd()
   console.log('thread-heartbeat: ok')
 }

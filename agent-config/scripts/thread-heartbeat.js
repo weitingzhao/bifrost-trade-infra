@@ -17,6 +17,14 @@
  * The first event of a thread is sent synchronously, with a one-second timeout,
  * so the script can store the server-issued thread key (mode 600). Later events
  * carry that key, a turn id and a sequence, and are handed to a detached child.
+ * Sequence and turn id are allocated under a per-thread directory lock so two
+ * hook processes cannot take the same number. `run` uses that same allocation.
+ *
+ * The client generates a registration nonce and sends it with every event.
+ * If the first response is lost, the next event repeats the nonce and the
+ * server returns the same key for a short window. A 409 whose error is
+ * "unknown key" does not reuse that key: the local record is kept as
+ * superseded and the event is registered again under a new thread id.
  * A failure leaves the key unset and the next event tries again.
  *
  * Config (nothing secret lives in the repo):
@@ -196,7 +204,12 @@ function beatFor(vendor, payload) {
 function wireBody(body) {
   const out = { ...body }
   delete out.tool_use_id
+  delete out.session
   return out
+}
+
+function threadKey(body) {
+  return `${body.vendor}/${body.session || body.thread}`
 }
 
 /**
@@ -268,7 +281,7 @@ function writeThrottle(st, now) {
 
 function rememberSent(body, now = Date.now()) {
   const st = readJSON(throttleFile()) || {}
-  const key = `${body.vendor}/${body.thread}`
+  const key = threadKey(body)
   st[key] = sentState(st[key], body, now)
   writeThrottle(st, now)
 }
@@ -276,7 +289,7 @@ function rememberSent(body, now = Date.now()) {
 /** Skip and, when not skipping, remember the beat. Returns true when the beat is dropped. */
 function throttled(body, now = Date.now()) {
   const st = readJSON(throttleFile()) || {}
-  const key = `${body.vendor}/${body.thread}`
+  const key = threadKey(body)
   const decision = reduceThrottle(st[key], body, now)
   if (decision.skip) return true
   st[key] = decision.next
@@ -289,17 +302,48 @@ function gatePath(vendor, thread) {
   return home('.cache', 'bifrost', 'thread-keys', vendor, thread)
 }
 
+function normalizeRecord(raw, fallbackID) {
+  if (!raw || typeof raw !== 'object') return null
+  const id = typeof raw.id === 'string' && TURN_RE.test(raw.id) ? raw.id : fallbackID
+  if (!id || !TURN_RE.test(id)) return null
+  return {
+    id,
+    key: typeof raw.key === 'string' && KEY_RE.test(raw.key) ? raw.key : '',
+    nonce: typeof raw.nonce === 'string' && KEY_RE.test(raw.nonce) ? raw.nonce : '',
+    turn_id: typeof raw.turn_id === 'string' && TURN_RE.test(raw.turn_id) ? raw.turn_id : '',
+    seq: Number.isInteger(raw.seq) && raw.seq > 0 ? raw.seq : 0,
+    status: raw.status === 'superseded' ? 'superseded' : 'active',
+  }
+}
+
 function loadGate(vendor, thread) {
   const file = gatePath(vendor, thread)
-  const empty = { key: '', turn_id: '', seq: 0 }
-  if (!file) return empty
+  if (!file) return { records: [] }
   const st = readJSON(file)
-  if (!st || typeof st !== 'object') return empty
-  return {
-    key: typeof st.key === 'string' && KEY_RE.test(st.key) ? st.key : '',
-    turn_id: typeof st.turn_id === 'string' && TURN_RE.test(st.turn_id) ? st.turn_id : '',
-    seq: Number.isInteger(st.seq) && st.seq > 0 ? st.seq : 0,
+  if (!st || typeof st !== 'object') return { records: [] }
+  if (Array.isArray(st.records)) return { records: st.records.map(r => normalizeRecord(r)).filter(Boolean) }
+  const one = normalizeRecord(
+    { id: thread, key: st.key, nonce: st.nonce, turn_id: st.turn_id, seq: st.seq, status: 'active' },
+    thread,
+  )
+  return { records: one ? [one] : [] }
+}
+
+function activeRecord(gate, session) {
+  for (let i = gate.records.length - 1; i >= 0; i--) {
+    if (gate.records[i].status !== 'superseded') return gate.records[i]
   }
+  const created = { id: session, key: '', nonce: '', turn_id: '', seq: 0, status: 'active' }
+  gate.records.push(created)
+  return created
+}
+
+function hasActiveKey(vendor, thread) {
+  const gate = loadGate(vendor, thread)
+  for (let i = gate.records.length - 1; i >= 0; i--) {
+    if (gate.records[i].status !== 'superseded') return gate.records[i].key !== ''
+  }
+  return false
 }
 
 function saveGate(vendor, thread, gate) {
@@ -315,21 +359,154 @@ function saveGate(vendor, thread, gate) {
   } catch {
     // the mode is retried on the file itself
   }
+  const body = {
+    records: gate.records.map(r => ({
+      id: r.id,
+      key: r.key,
+      nonce: r.nonce,
+      turn_id: r.turn_id,
+      seq: r.seq,
+      status: r.status,
+    })),
+  }
   const tmp = `${file}.${process.pid}.tmp`
-  fs.writeFileSync(tmp, JSON.stringify({ key: gate.key, turn_id: gate.turn_id, seq: gate.seq }), { mode: 0o600 })
+  fs.writeFileSync(tmp, JSON.stringify(body), { mode: 0o600 })
   fs.chmodSync(tmp, 0o600)
   fs.renameSync(tmp, file)
   fs.chmodSync(file, 0o600)
 }
 
-function stamp(body) {
-  const gate = loadGate(body.vendor, body.thread)
-  let turn = gate.turn_id
-  if (body.event === 'turn_start' || !turn) turn = crypto.randomUUID()
-  body.turn_id = turn
-  body.seq = gate.seq + 1
-  if (gate.key) body.thread_key = gate.key
-  return gate
+function sleepSync(ms) {
+  const buf = new Int32Array(new SharedArrayBuffer(4))
+  const end = Date.now() + ms
+  while (Date.now() < end) Atomics.wait(buf, 0, 0, Math.max(1, end - Date.now()))
+}
+
+function lockStale(lockDir) {
+  let pid = 0
+  try {
+    pid = Number(fs.readFileSync(path.join(lockDir, 'pid'), 'utf8'))
+  } catch {
+    pid = 0
+  }
+  if (Number.isInteger(pid) && pid > 0) {
+    try {
+      process.kill(pid, 0)
+      return false
+    } catch (err) {
+      return err.code !== 'EPERM'
+    }
+  }
+  try {
+    return Date.now() - fs.statSync(lockDir).mtimeMs > 5000
+  } catch {
+    return true
+  }
+}
+
+/** Cross-process lock. mkdir is atomic; a dead holder's pid is stolen. */
+function withThreadLock(vendor, thread, fn) {
+  const file = gatePath(vendor, thread)
+  if (!file) return fn()
+  const lockDir = `${file}.lock`
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
+  const deadline = Date.now() + 2000
+  for (;;) {
+    try {
+      fs.mkdirSync(lockDir, { mode: 0o700 })
+      fs.writeFileSync(path.join(lockDir, 'pid'), String(process.pid), { mode: 0o600 })
+      break
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err
+      if (lockStale(lockDir)) {
+        try {
+          fs.rmSync(lockDir, { recursive: true, force: true })
+        } catch {
+          // another process took the stale lock
+        }
+        continue
+      }
+      if (Date.now() > deadline) throw new Error('thread lock timeout')
+      sleepSync(20)
+    }
+  }
+  try {
+    return fn()
+  } finally {
+    try {
+      fs.rmSync(lockDir, { recursive: true, force: true })
+    } catch {
+      // a dead pid is stolen on the next attempt
+    }
+  }
+}
+
+function nextThreadID(gate, session) {
+  const used = new Set(gate.records.map(r => r.id))
+  for (let n = 1; n < 1000; n++) {
+    const candidate = `${session}:${n}`
+    if (TURN_RE.test(candidate) && !used.has(candidate)) return candidate
+  }
+  return `r${crypto.randomBytes(8).toString('hex')}`
+}
+
+/** Allocate turn id and sequence under the per-thread lock and persist them before the POST. */
+function allocateStamp(body) {
+  const session = body.session || body.thread
+  body.session = session
+  return withThreadLock(body.vendor, session, () => {
+    const gate = loadGate(body.vendor, session)
+    const rec = activeRecord(gate, session)
+    if (body.event === 'turn_start' || !rec.turn_id) rec.turn_id = crypto.randomUUID()
+    rec.seq += 1
+    if (!rec.nonce) rec.nonce = crypto.randomBytes(32).toString('hex')
+    body.thread = rec.id
+    body.turn_id = rec.turn_id
+    body.seq = rec.seq
+    body.register_nonce = rec.nonce
+    if (rec.key) body.thread_key = rec.key
+    else delete body.thread_key
+    saveGate(body.vendor, session, gate)
+    return { key: rec.key }
+  })
+}
+
+/** Keep the old record, including its key, and open a new thread id that does not reuse it. */
+function supersedeActive(body) {
+  const session = body.session || body.thread
+  body.session = session
+  return withThreadLock(body.vendor, session, () => {
+    const gate = loadGate(body.vendor, session)
+    const rec = activeRecord(gate, session)
+    rec.status = 'superseded'
+    const created = {
+      id: nextThreadID(gate, session),
+      key: '',
+      nonce: crypto.randomBytes(32).toString('hex'),
+      turn_id: crypto.randomUUID(),
+      seq: 1,
+      status: 'active',
+    }
+    gate.records.push(created)
+    saveGate(body.vendor, session, gate)
+    body.thread = created.id
+    body.turn_id = created.turn_id
+    body.seq = created.seq
+    body.register_nonce = created.nonce
+    delete body.thread_key
+    return created
+  })
+}
+
+function saveIssuedKey(body, key) {
+  const session = body.session || body.thread
+  withThreadLock(body.vendor, session, () => {
+    const gate = loadGate(body.vendor, session)
+    const rec = gate.records.find(r => r.id === body.thread && r.status !== 'superseded') || activeRecord(gate, session)
+    if (rec.status === 'superseded') return
+    rec.key = key
+    saveGate(body.vendor, session, gate)
+  })
 }
 
 async function post(body, timeoutMs = 5000) {
@@ -343,16 +520,38 @@ async function post(body, timeoutMs = 5000) {
       signal: AbortSignal.timeout(timeoutMs),
     })
     let key = ''
+    let error = ''
     try {
       const parsed = JSON.parse(await res.text())
       if (parsed && typeof parsed.thread_key === 'string' && KEY_RE.test(parsed.thread_key)) key = parsed.thread_key
+      if (parsed && typeof parsed.error === 'string') error = parsed.error
     } catch {
       // a body that is not JSON is a bad response; the next event retries
     }
-    return { sent: res.ok, status: res.status, key }
+    return { sent: res.ok, status: res.status, key, error }
   } catch (err) {
-    return { sent: false, why: err.message, key: '' }
+    return { sent: false, why: err.message, key: '', error: '' }
   }
+}
+
+async function postRecover(body, timeoutMs) {
+  let res = await post(body, timeoutMs)
+  if (res.status === 409 && res.error === 'unknown key') {
+    try {
+      supersedeActive(body)
+    } catch {
+      return res
+    }
+    res = await post(body, timeoutMs)
+  }
+  if (res.key) {
+    try {
+      saveIssuedKey(body, res.key)
+    } catch {
+      // the next event retries with the same nonce
+    }
+  }
+  return res
 }
 
 /** Hand the POST to a detached child. The body sits in a mode-600 file, not the environment. */
@@ -364,7 +563,7 @@ function sendDetached(body) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
     fs.chmodSync(dir, 0o700)
     file = path.join(dir, `${process.pid}-${crypto.randomBytes(8).toString('hex')}.json`)
-    fs.writeFileSync(file, JSON.stringify(wireBody(body)), { mode: 0o600 })
+    fs.writeFileSync(file, JSON.stringify(body), { mode: 0o600 })
     fs.chmodSync(file, 0o600)
   } catch {
     return
@@ -402,17 +601,23 @@ async function hook(vendor) {
   }
   const body = beatFor(vendor, payload)
   if (!body) return
-  const gate = stamp(body)
-  if (!gate.key) {
-    const res = await post(body, FIRST_EVENT_TIMEOUT_MS)
-    if (res.sent && res.key) {
-      saveGate(body.vendor, body.thread, { key: res.key, turn_id: body.turn_id, seq: body.seq })
-      rememberSent(body)
+  body.session = body.thread
+  if (!hasActiveKey(body.vendor, body.session)) {
+    try {
+      allocateStamp(body)
+    } catch {
+      return
     }
+    const res = await postRecover(body, FIRST_EVENT_TIMEOUT_MS)
+    if (res.sent) rememberSent(body)
     return
   }
   if (throttled(body)) return
-  saveGate(body.vendor, body.thread, { key: gate.key, turn_id: body.turn_id, seq: body.seq })
+  try {
+    allocateStamp(body)
+  } catch {
+    return
+  }
   sendDetached(body)
 }
 
@@ -425,12 +630,16 @@ async function run(vendor, argv) {
   }
   const thread = process.env.BIFROST_HEARTBEAT_THREAD || `run-${crypto.randomUUID()}`
   const title = (process.env.BIFROST_HEARTBEAT_TITLE || `headless ${path.basename(cmd[0])}`).slice(0, 160)
-  const base = { thread, vendor, host: hostName(), title }
+  const base = { thread, vendor, host: hostName(), title, session: thread }
   const work = workFrom(title)
   if (work) base.work = work
-  const turn = crypto.randomUUID()
-  const started = await post({ ...base, event: 'turn_start', turn_id: turn, seq: 1 }, 3000)
-  if (started.sent && started.key) saveGate(vendor, thread, { key: started.key, turn_id: turn, seq: 1 })
+  const start = { ...base, event: 'turn_start' }
+  try {
+    allocateStamp(start)
+    await postRecover(start, 3000)
+  } catch {
+    // a headless run still starts the command
+  }
   const child = spawn(cmd[0], cmd.slice(1), {
     stdio: 'inherit',
     env: { ...process.env, BIFROST_HEARTBEAT_THREAD: thread, BIFROST_HEARTBEAT_TITLE: title },
@@ -444,16 +653,13 @@ async function run(vendor, argv) {
     })
     child.on('exit', (c, sig) => resolve(c === null ? 128 + (os.constants.signals[sig] || 0) : c))
   })
-  const gate = loadGate(vendor, thread)
-  const end = {
-    ...base,
-    event: 'turn_end',
-    turn_id: gate.turn_id || turn,
-    seq: (gate.seq || 1) + 1,
+  const end = { ...base, event: 'turn_end' }
+  try {
+    allocateStamp(end)
+    await postRecover(end, 3000)
+  } catch {
+    // the command's exit code is what the caller sees
   }
-  if (gate.key) end.thread_key = gate.key
-  const ended = await post(end, 3000)
-  if (ended.sent && gate.key) saveGate(vendor, thread, { key: gate.key, turn_id: end.turn_id, seq: end.seq })
   return code
 }
 
@@ -467,7 +673,7 @@ async function main(argv) {
       } catch {
         // unlinking a sent file is best-effort
       }
-      await post(JSON.parse(raw))
+      await postRecover(JSON.parse(raw))
     } catch {
       // nothing to do: a lost beat at worst delays nothing and pages nothing
     }
@@ -499,4 +705,14 @@ if (require.main === module) {
   )
 }
 
-module.exports = { beatFor, toolTimeoutSeconds, shouldSkip, reduceThrottle, EVENTS, WAITING_NOTIFICATIONS }
+module.exports = {
+  beatFor,
+  toolTimeoutSeconds,
+  shouldSkip,
+  reduceThrottle,
+  EVENTS,
+  WAITING_NOTIFICATIONS,
+  allocateStamp,
+  loadGate,
+  supersedeActive,
+}

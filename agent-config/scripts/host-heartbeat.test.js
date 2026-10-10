@@ -8,7 +8,20 @@ const { spawn } = require('node:child_process')
 const test = require('node:test')
 
 const SCRIPT = path.join(__dirname, 'host-heartbeat.js')
+const HEARTBEAT = path.join(__dirname, 'thread-heartbeat.js')
 const { buildReport } = require('./host-heartbeat.js')
+
+function commandFor(vendor, script = HEARTBEAT) {
+  return `node ${JSON.stringify(script)} hook ${vendor}`
+}
+
+function claudeSettings(command) {
+  return JSON.stringify({ hooks: { PreToolUse: [{ hooks: [{ type: 'command', command }] }] } })
+}
+
+function cursorHooks(command) {
+  return JSON.stringify({ version: 1, hooks: { preToolUse: [{ command }] } })
+}
 const installer = require('./install-host-heartbeat.js')
 
 function freshHome() {
@@ -53,15 +66,9 @@ test('a vendor with no wiring and no token is not monitored', () => {
 test('wiring is the hook command, and the token is the reporter file', () => {
   const { home, workspace } = freshHome()
   fs.mkdirSync(path.join(home, '.claude'), { recursive: true })
-  fs.writeFileSync(
-    path.join(home, '.claude', 'settings.json'),
-    'node "$CLAUDE_PROJECT_DIR/scripts/thread-heartbeat.js" hook claude\n',
-  )
-  fs.mkdirSync(path.join(workspace, 'agent-config', 'cursor'), { recursive: true })
-  fs.writeFileSync(
-    path.join(workspace, 'agent-config', 'cursor', 'hooks.json'),
-    'node ./scripts/thread-heartbeat.js hook cursor\n',
-  )
+  fs.writeFileSync(path.join(home, '.claude', 'settings.json'), claudeSettings(commandFor('claude')))
+  fs.mkdirSync(path.join(workspace, '.cursor'), { recursive: true })
+  fs.writeFileSync(path.join(workspace, '.cursor', 'hooks.json'), cursorHooks(commandFor('cursor')))
   fs.mkdirSync(path.join(home, '.config', 'bifrost'), { recursive: true })
   fs.writeFileSync(path.join(home, '.config', 'bifrost', 'lineage-reporter.token'), 'reporter-token\n')
   const report = withEnv(home, workspace, {}, () => buildReport())
@@ -73,10 +80,39 @@ test('wiring is the hook command, and the token is the reporter file', () => {
   assert.equal(JSON.stringify(report).includes('reporter-token'), false)
 })
 
+test('a substring or a repository template is not wired', () => {
+  const { home, workspace } = freshHome()
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true })
+  fs.writeFileSync(
+    path.join(home, '.claude', 'settings.json'),
+    claudeSettings('echo thread-heartbeat.js hook claude'),
+  )
+  fs.mkdirSync(path.join(workspace, 'agent-config', 'cursor'), { recursive: true })
+  fs.writeFileSync(path.join(workspace, 'agent-config', 'cursor', 'hooks.json'), cursorHooks(commandFor('cursor')))
+  const report = withEnv(home, workspace, {}, () => buildReport())
+  assert.equal(report.vendors.claude.wired, false, 'a command that only mentions the script is not wired')
+  assert.equal(report.vendors.cursor.wired, false, 'agent-config/cursor/hooks.json is a template, not effective config')
+})
+
+test('the hook command must target this script and this vendor', () => {
+  const { home, workspace } = freshHome()
+  fs.mkdirSync(path.join(home, '.codex'), { recursive: true })
+  fs.writeFileSync(path.join(home, '.codex', 'hooks.json'), claudeSettings(commandFor('claude')))
+  fs.mkdirSync(path.join(home, '.cursor'), { recursive: true })
+  fs.writeFileSync(
+    path.join(home, '.cursor', 'hooks.json'),
+    cursorHooks(`echo ${JSON.stringify(HEARTBEAT)} hook cursor`),
+  )
+  const report = withEnv(home, workspace, {}, () => buildReport())
+  assert.equal(report.vendors.codex.wired, false, 'hook claude does not wire codex')
+  assert.equal(report.vendors.cursor.wired, false, 'echoing the real path is not running it')
+  assert.equal(report.vendors.claude.wired, false, 'a codex file is not claude effective config')
+})
+
 test('another vendor\'s hook command does not count', () => {
   const { home, workspace } = freshHome()
   fs.mkdirSync(path.join(home, '.codex'), { recursive: true })
-  fs.writeFileSync(path.join(home, '.codex', 'hooks.json'), 'thread-heartbeat.js hook claude\n')
+  fs.writeFileSync(path.join(home, '.codex', 'hooks.json'), claudeSettings(commandFor('claude')))
   const report = withEnv(home, workspace, {}, () => buildReport())
   assert.equal(report.vendors.codex.wired, false)
   assert.equal(report.vendors.claude.wired, false)
@@ -126,10 +162,24 @@ test('no token, a down server and a bad response all exit 0', async () => {
   bad.s.close()
 })
 
+test('without a token the script sends nothing', async () => {
+  const { home } = freshHome()
+  const srv = await server(202, { ok: true })
+  const result = await runScript({
+    BIFROST_HOME_OVERRIDE: home,
+    PLATFORM_REPORTER_TOKEN: '',
+    PLATFORM_HEARTBEAT_URL: srv.url,
+  })
+  assert.equal(result.code, 0)
+  await new Promise(r => setTimeout(r, 50))
+  assert.equal(srv.got.length, 0)
+  srv.s.close()
+})
+
 test('a successful post describes every vendor and does not send the token', async () => {
   const { home, workspace } = freshHome()
   fs.mkdirSync(path.join(home, '.claude'), { recursive: true })
-  fs.writeFileSync(path.join(home, '.claude', 'settings.json'), 'thread-heartbeat.js hook claude')
+  fs.writeFileSync(path.join(home, '.claude', 'settings.json'), claudeSettings(commandFor('claude')))
   const srv = await server(202, { ok: true })
   const result = await runScript({
     BIFROST_HOME_OVERRIDE: home,
