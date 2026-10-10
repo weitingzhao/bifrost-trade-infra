@@ -24,6 +24,10 @@
 # the run stops and does not reboot the primary node.
 #
 # gpu-server (192.168.10.60) is usually powered off and is not in the plan.
+# Pods under a PodDisruptionBudget with maxUnavailable 0 (ib-gateway, redis-ib,
+# the polygon workers) are not evicted: no wait satisfies that budget. They stay
+# on the node and restart with it; the plan lists them per node.
+#
 # --upgrade installs the pending packages on each node after its drain and
 # before its reboot, in the same SSH session as the reboot (one passphrase per
 # node). Services are not restarted by needrestart; the reboot follows. A failed
@@ -496,11 +500,68 @@ switchover_off_primary() {
   return 0
 }
 
-print_steps() {
+# PodDisruptionBudgets with maxUnavailable 0 can never be satisfied by waiting:
+# an eviction of such a pod is refused every time, so the drain would retry
+# until its timeout on each node that hosts one. Their pods are not evicted.
+# They stay on the node and stop and start with it, as in any reboot.
+# ZERO_BUDGET holds one "namespace<TAB>pdb<TAB>label-key<TAB>label-value" per PDB.
+ZERO_BUDGET=""
+
+load_zero_budget_pdbs() {
+  ZERO_BUDGET="$(kube get pdb -A -o json | python3 -c '
+import json, sys
+rows = []
+for pdb in json.load(sys.stdin).get("items") or []:
+    spec = pdb.get("spec") or {}
+    if str(spec.get("maxUnavailable")) not in ("0", "0%"):
+        continue
+    meta = pdb.get("metadata") or {}
+    ref = "%s/%s" % (meta.get("namespace"), meta.get("name"))
+    sel = spec.get("selector") or {}
+    labels = sel.get("matchLabels") or {}
+    if sel.get("matchExpressions") or len(labels) != 1:
+        sys.stderr.write("ERROR: PodDisruptionBudget %s allows no eviction and its selector is not one label; this script cannot leave its pods in place. Handle that workload by hand first.\n" % ref)
+        sys.exit(1)
+    key, value = list(labels.items())[0]
+    rows.append("\t".join([meta.get("namespace") or "", meta.get("name") or "", key, value]))
+for row in sorted(rows):
+    print(row)
+')" || return 1
+}
+
+# Label selector for kubectl drain that leaves the zero-budget pods alone.
+drain_selector() {
+  [ -n "$ZERO_BUDGET" ] || return 0
+  printf '%s\n' "$ZERO_BUDGET" | awk -F '\t' 'NF == 4 { printf "%s%s!=%s", sep, $3, $4; sep = "," } END { print "" }'
+}
+
+# "namespace/pod (pdb)" for each pod on the node that a zero-budget PDB covers.
+staying_pods() {
   local node
+  node="$1"
+  [ -n "$ZERO_BUDGET" ] || return 0
+  kube get pods -A --field-selector "spec.nodeName=${node}" -o json | python3 -c '
+import json, sys
+rules = [line.split("\t") for line in sys.argv[1].splitlines() if line.strip()]
+for pod in json.load(sys.stdin).get("items") or []:
+    meta = pod.get("metadata") or {}
+    labels = meta.get("labels") or {}
+    for ns, pdb, key, value in rules:
+        if meta.get("namespace") == ns and labels.get(key) == value:
+            print("%s/%s (%s)" % (ns, meta.get("name"), pdb))
+            break
+' "$ZERO_BUDGET"
+}
+
+print_steps() {
+  local node stay
   node="$1"
   echo "  - cordon ${node}"
   echo "  - drain ${node} (respect PodDisruptionBudgets)"
+  stay="$(staying_pods "$node" | tr '\n' ' ' | sed 's/ $//')"
+  if [ -n "$stay" ]; then
+    echo "  - stay on ${node} and restart with it (PodDisruptionBudget allows no eviction): ${stay}"
+  fi
   if [ "$UPGRADE" = "1" ]; then
     echo "  - upgrade packages on ${node} (apt-get upgrade with new dependencies; keep config files; no service restarts)"
   fi
@@ -605,6 +666,31 @@ wait_ready_after_reboot() {
 }
 
 verify_workloads() {
+  local node deadline out rc
+  node="$1"
+  # The node reports Ready before its pods do: DaemonSet pods restart with it
+  # and evicted workloads are scheduled back after the uncordon. Poll until
+  # every pod on the node is Ready or the timeout passes.
+  deadline=$(( $(date +%s) + READY_TIMEOUT_SECONDS ))
+  while :; do
+    set +e
+    out="$(workloads_ready_once "$node" 2>&1)"
+    rc=$?
+    set -e
+    if [ "$rc" -eq 0 ]; then
+      printf '%s\n' "$out"
+      return 0
+    fi
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      printf '%s\n' "$out" >&2
+      echo "ERROR: workloads on ${node} did not become Ready within ${READY_TIMEOUT_SECONDS}s. ${node} is uncordoned; the remaining nodes were not touched." >&2
+      return 1
+    fi
+    sleep "$READY_POLL_SECONDS"
+  done
+}
+
+workloads_ready_once() {
   local node
   node="$1"
   kube get pods -A --field-selector "spec.nodeName=${node}" -o json | python3 -c '
@@ -637,7 +723,7 @@ APT_ENV="sudo -n env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l"
 UPGRADE_CMD="${APT_ENV} apt-get -q -o DPkg::Lock::Timeout=300 update && ${APT_ENV} apt-get -q -y -o DPkg::Lock::Timeout=300 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold upgrade --with-new-pkgs"
 
 run_node() {
-  local node role ip rc remote
+  local node role ip rc remote stay selector
   node="$1"
   role="$2"
   ip="$(lookup_field "$node" ip)"
@@ -654,11 +740,26 @@ run_node() {
   # Default eviction honors PodDisruptionBudgets. Do not pass --force or
   # --disable-eviction. DaemonSets stay; a drain that cannot honor a PDB fails
   # and stops the whole run.
-  kube drain "$node" \
-    --ignore-daemonsets \
-    --delete-emptydir-data \
-    --grace-period=120 \
-    --timeout="$DRAIN_TIMEOUT"
+  stay="$(staying_pods "$node")" || return 1
+  selector="$(drain_selector)"
+  if [ -n "$stay" ]; then
+    echo "not evicted (PodDisruptionBudget allows no eviction); they restart with ${node}:"
+    printf '%s\n' "$stay" | sed 's/^/  /'
+  fi
+  if [ -n "$selector" ]; then
+    kube drain "$node" \
+      --ignore-daemonsets \
+      --delete-emptydir-data \
+      --grace-period=120 \
+      --timeout="$DRAIN_TIMEOUT" \
+      --pod-selector="$selector"
+  else
+    kube drain "$node" \
+      --ignore-daemonsets \
+      --delete-emptydir-data \
+      --grace-period=120 \
+      --timeout="$DRAIN_TIMEOUT"
+  fi
   # systemd-run queues the reboot 5s out and returns, so the session ends
   # cleanly: exit 0 means the reboot is scheduled. Any other exit, 255
   # included (wrong passphrase, refused key, no route), means it is not.
@@ -843,6 +944,7 @@ fi
 primary_pod="$(current_primary_pod)" || exit 1
 primary_node="$(resolve_primary_node)" || exit 1
 require_primary_in_catalog "$primary_node" || exit 1
+load_zero_budget_pdbs || exit 1
 ORDERED="$(order_names "$primary_node" $ALL_NAMES)" || exit 1
 
 print_plan

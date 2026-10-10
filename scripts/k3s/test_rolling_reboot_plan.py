@@ -6,6 +6,7 @@ primary node; the node role is not.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
@@ -172,7 +173,27 @@ KUBECTL_STUB = textwrap.dedent(
         sys.exit(0)
 
     if cmd == "get" and len(args) > 1 and args[1] == "pods" and "-A" in args:
-        print('{"items":[]}')
+        polls = int(state.get("pod_polls") or 0) + 1
+        state["pod_polls"] = polls
+        save(state)
+        want = ""
+        for a in args:
+            if a.startswith("spec.nodeName="):
+                want = a.split("=", 1)[1]
+        items = [
+            pod for pod in json.loads(os.environ.get("FAKE_NODE_PODS") or "[]")
+            if (pod.get("spec") or {}).get("nodeName") == want
+        ]
+        if polls <= int(os.environ.get("FAKE_NOT_READY_POLLS", "0")):
+            items.append({
+                "metadata": {"namespace": "monitoring", "name": "promtail-x"},
+                "status": {"phase": "Running", "conditions": [{"type": "Ready", "status": "False"}]},
+            })
+        print(json.dumps({"items": items}))
+        sys.exit(0)
+
+    if cmd == "get" and len(args) > 1 and args[1] == "pdb":
+        print(os.environ.get("FAKE_PDBS") or '{"items":[]}')
         sys.exit(0)
 
     if cmd == "get" and len(args) > 1 and args[1] == "pods":
@@ -315,6 +336,9 @@ class FakeCluster:
             "FAKE_MOVE_AFTER_DRAINS": str(options.get("move_after_drains", 0)),
             "FAKE_MOVE_TO": str(options.get("move_to", "")),
             "FAKE_FAIL_CORDON": "1" if options.get("fail_cordon", False) else "0",
+            "FAKE_NOT_READY_POLLS": str(options.get("not_ready_polls", 0)),
+            "FAKE_PDBS": str(options.get("pdbs", "")),
+            "FAKE_NODE_PODS": str(options.get("node_pods", "")),
             "READY_POLL_SECONDS": str(options.get("poll", 0)),
             "READY_TIMEOUT_SECONDS": str(options.get("timeout", 5)),
         }
@@ -525,7 +549,9 @@ class RollingRebootPlanTests(unittest.TestCase):
                 lag=30,
                 dow="6",
                 poll=1,
-                timeout=2,
+                # 2s was too tight under load: the first node's Ready wait
+                # (two reads, 1s apart) timed out before the replica check ran.
+                timeout=4,
             )
             result = run(
                 ["--execute", "--approval", "appr_ok", "--nodes", spec],
@@ -674,6 +700,7 @@ class RollingRebootPlanTests(unittest.TestCase):
                 arm_approval(fake.env),
             )
             ssh = fake.ssh_text()
+            fake_log = fake.kubectl_text()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         lines = ssh.splitlines()
         self.assertEqual(len(lines), 2, ssh)
@@ -685,6 +712,7 @@ class RollingRebootPlanTests(unittest.TestCase):
             self.assertIn("sudo -n systemd-run --on-active=5 /usr/bin/systemctl reboot", line)
             self.assertNotIn("BatchMode", line)
             self.assertNotIn("apt-get", line)
+        self.assertNotIn("--pod-selector", fake_log)
 
     def test_dry_run_with_upgrade_prints_the_upgrade_step(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -742,6 +770,111 @@ class RollingRebootPlanTests(unittest.TestCase):
         self.assertNotIn("cordon ubt-k3s-02", log)
         self.assertNotIn("192.168.10.70", ssh)
         self.assertNotIn("rolling-reboot: complete", result.stdout)
+
+    # Live cluster 2026-10-10: ib-gateway, redis-ib and the polygon workers sit
+    # under PodDisruptionBudgets with maxUnavailable 0, on all five nodes.
+    ZERO_BUDGET_PDBS = json.dumps({"items": [
+        {
+            "metadata": {"namespace": "data", "name": "ib-gateway"},
+            "spec": {"maxUnavailable": 0, "selector": {"matchLabels": {"app.kubernetes.io/name": "ib-gateway"}}},
+        },
+        {
+            "metadata": {"namespace": "plugin-market-data", "name": "polygon-worker-options"},
+            "spec": {"maxUnavailable": 0, "selector": {"matchLabels": {"app.kubernetes.io/name": "polygon-worker-options"}}},
+        },
+        {
+            "metadata": {"namespace": "data", "name": "bifrost-postgres-primary"},
+            "spec": {"minAvailable": 1, "selector": {"matchLabels": {"cnpg.io/instanceRole": "primary"}}},
+        },
+    ]})
+    GATEWAY_ON_04 = json.dumps([{
+        "metadata": {
+            "namespace": "data",
+            "name": "ib-gateway-abc",
+            "labels": {"app.kubernetes.io/name": "ib-gateway"},
+        },
+        "spec": {"nodeName": "ubt-k3s-04"},
+        "status": {"phase": "Running", "conditions": [{"type": "Ready", "status": "True"}]},
+    }])
+
+    def test_zero_budget_pods_are_not_evicted_and_restart_with_the_node(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeCluster(Path(tmp), dow="6", pdbs=self.ZERO_BUDGET_PDBS, node_pods=self.GATEWAY_ON_04)
+            result = run(
+                ["--execute", "--approval", "appr_ok", "--nodes", self.TWO_NODES],
+                arm_approval(fake.env),
+            )
+            log = fake.kubectl_text()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        selector = "--pod-selector=app.kubernetes.io/name!=ib-gateway,app.kubernetes.io/name!=polygon-worker-options"
+        drains = [line for line in log.splitlines() if line.startswith("drain ")]
+        self.assertEqual(len(drains), 2, log)
+        for line in drains:
+            self.assertIn(selector, line)
+            self.assertNotIn("--disable-eviction", line)
+            self.assertNotIn("--force", line)
+            # The primary's budget (minAvailable 1) is met by the switchover, not skipped.
+            self.assertNotIn("cnpg.io/instanceRole", line)
+        self.assertIn("data/ib-gateway-abc (ib-gateway)", result.stdout)
+        self.assertFalse([line for line in log.splitlines() if line.startswith("delete ")], log)
+
+    def test_dry_run_lists_the_pods_that_stay_on_each_node(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeCluster(Path(tmp), pdbs=self.ZERO_BUDGET_PDBS, node_pods=self.GATEWAY_ON_04)
+            result = run(["--dry-run"], fake.env)
+            log = fake.kubectl_text()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "stay on ubt-k3s-04 and restart with it (PodDisruptionBudget allows no eviction): data/ib-gateway-abc (ib-gateway)",
+            result.stdout,
+        )
+        self.assertNotIn("stay on ubt-k3s-02", result.stdout)
+        self.assertNotIn("drain ", log)
+
+    def test_zero_budget_pdb_with_a_selector_the_drain_cannot_exclude_is_refused(self) -> None:
+        pdbs = json.dumps({"items": [{
+            "metadata": {"namespace": "data", "name": "two-labels"},
+            "spec": {"maxUnavailable": 0, "selector": {"matchLabels": {"a": "1", "b": "2"}}},
+        }]})
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeCluster(Path(tmp), dow="6", pdbs=pdbs)
+            result = run(
+                ["--execute", "--approval", "appr_ok", "--nodes", self.TWO_NODES],
+                arm_approval(fake.env),
+            )
+            log = fake.kubectl_text()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("PodDisruptionBudget data/two-labels allows no eviction", result.stderr)
+        self.assertNotIn("cordon", log)
+
+    def test_verify_waits_for_pods_that_become_ready_after_the_node(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeCluster(Path(tmp), dow="6", not_ready_polls=2)
+            result = run(
+                ["--execute", "--approval", "appr_ok", "--nodes", self.TWO_NODES],
+                arm_approval(fake.env),
+            )
+            log = fake.kubectl_text()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("workloads recovered on ubt-k3s-04", result.stdout)
+        self.assertNotIn("workloads not recovered", result.stderr)
+        self.assertGreaterEqual(log.count("--field-selector spec.nodeName=ubt-k3s-04"), 3)
+        self.assertIn("rolling-reboot: complete", result.stdout)
+
+    def test_verify_times_out_and_does_not_touch_the_next_node(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeCluster(Path(tmp), dow="6", not_ready_polls=100000, timeout=1)
+            result = run(
+                ["--execute", "--approval", "appr_ok", "--nodes", self.TWO_NODES],
+                arm_approval(fake.env),
+            )
+            log = fake.kubectl_text()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("workloads not recovered on ubt-k3s-04", result.stderr)
+        self.assertIn("monitoring/promtail-x", result.stderr)
+        self.assertIn("did not become Ready within 1s", result.stderr)
+        self.assertIn("uncordon ubt-k3s-04", log)
+        self.assertNotIn("cordon ubt-k3s-02", log)
 
     def test_failed_reboot_ssh_stops_with_the_node_still_cordoned(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
