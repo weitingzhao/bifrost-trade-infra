@@ -20,6 +20,9 @@ fi
 # working tree, not the staged copies.
 if [ -f "$top/scripts/check_http_metrics_coverage.py" ] && [ -f "$top/scripts/check_alert_routing.py" ] \
   && printf '%s\n' "$staged" | grep -qE '^k8s/(monitoring|overlays/platform-(stg|prod))/|^scripts/check_(http_metrics_coverage|alert_routing)\.py$'; then
+  # Interpreter: the first python3 on PATH that imports yaml, else `uv run --with
+  # pyyaml` (Homebrew's python3 has no PyYAML). Neither: refuse the commit with
+  # the reason, so a missing module never reads as a pass.
   py=""
   for cand in python3 python3.13 python3.12 python3.11; do
     if command -v "$cand" >/dev/null 2>&1 && "$cand" -c 'import yaml' 2>/dev/null; then
@@ -27,10 +30,14 @@ if [ -f "$top/scripts/check_http_metrics_coverage.py" ] && [ -f "$top/scripts/ch
       break
     fi
   done
-  if [ -z "$py" ]; then
-    echo "pre-commit: no python3 with PyYAML; install it (pip install pyyaml) to run the monitoring checks" >&2
+  if [ -n "$py" ]; then
+    set -- "$py"
+  elif command -v uv >/dev/null 2>&1; then
+    set -- uv run --quiet --no-project --with pyyaml python
+  else
+    echo "pre-commit: monitoring checks need PyYAML: no python3 with it and no uv (pip install pyyaml, or install uv)" >&2
     exit 1
   fi
-  (cd "$top" && "$py" scripts/check_http_metrics_coverage.py && "$py" scripts/check_alert_routing.py) || exit 1
+  (cd "$top" && "$@" scripts/check_http_metrics_coverage.py && "$@" scripts/check_alert_routing.py) || exit 1
 fi
 exit 0

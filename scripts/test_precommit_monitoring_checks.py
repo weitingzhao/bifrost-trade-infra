@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -74,6 +75,51 @@ class MonitoringHookTests(unittest.TestCase):
     def test_other_repos_are_left_alone(self) -> None:
         r = self.stage("k8s/monitoring/x.yaml")
         self.assertEqual(r.returncode, 0, r.stderr)
+
+
+class InterpreterTests(unittest.TestCase):
+    """A python3 without PyYAML must neither pass the checks silently nor block when uv is there."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.repo = self.tmp / "repo"
+        (self.repo / "scripts").mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(self.repo)], check=True, env=ENV)
+        for name in ("coverage", "routing"):
+            target = "check_http_metrics_coverage.py" if name == "coverage" else "check_alert_routing.py"
+            (self.repo / "scripts" / target).write_text(stub(name, 0))
+        path = self.repo / "k8s" / "monitoring" / "x.yaml"
+        path.parent.mkdir(parents=True)
+        path.write_text("kind: PodMonitor\n")
+        subprocess.run(["git", "-C", str(self.repo), "add", "k8s/monitoring/x.yaml"], check=True, env=ENV)
+        self.bin = self.tmp / "bin"
+        self.bin.mkdir()
+        for tool in ("git", "grep"):
+            (self.bin / tool).symlink_to(shutil.which(tool))
+        self.exe("python3", "#!/bin/sh\nexit 1\n")
+
+    def exe(self, name: str, body: str) -> None:
+        path = self.bin / name
+        path.write_text(body)
+        path.chmod(0o755)
+
+    def hook(self) -> subprocess.CompletedProcess[str]:
+        env = {**ENV, "PATH": str(self.bin)}
+        return subprocess.run(["/bin/sh", str(HOOK)], cwd=self.repo, capture_output=True, text=True, env=env)
+
+    def test_uv_runs_the_checks_when_no_python3_has_yaml(self) -> None:
+        self.exe("uv", f'#!/bin/sh\nwhile [ "$1" != python ]; do shift; done\nshift\n: > ran-uv\nexec {sys.executable} "$@"\n')
+        r = self.hook()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue((self.repo / "ran-uv").exists())
+        self.assertTrue((self.repo / "ran-coverage").exists() and (self.repo / "ran-routing").exists())
+
+    def test_no_yaml_and_no_uv_refuses_with_the_reason(self) -> None:
+        r = self.hook()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("PyYAML", r.stderr)
+        self.assertFalse((self.repo / "ran-coverage").exists())
 
 
 if __name__ == "__main__":

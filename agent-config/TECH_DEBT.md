@@ -15,7 +15,7 @@
 
 （无）
 
-**未结 75 项**：P0 0 · P1 5 · P2 24 · P3 46；要你批的 34 项（从总览表的审批列算）。
+**未结 76 项**：P0 0 · P1 5 · P2 25 · P3 46；要你批的 35 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -104,7 +104,7 @@
 
 目标：数据层告警有一个人能收到的通道和外部心跳；逻辑备份先修好等库就绪；做一次 Barman 恢复演练；决定异地副本；daemon 停写与日志丢失要能被看见。
 
-项：TD-210, TD-218 · 已还：TD-248, TD-209, TD-215, TD-216, TD-238, TD-237, TD-217, TD-258
+项：TD-210, TD-218, TD-292 · 已还：TD-248, TD-209, TD-215, TD-216, TD-238, TD-237, TD-217, TD-258
 
 ### 第 11 波 · 账本与页面读数、绿着的未知（第 3 轮）
 
@@ -270,6 +270,7 @@
 | [TD-289](#td-289) | P2 | infra | Prometheus, Alertmanager and Grafana keep their data in emptyDir: a node drain erases 10 days of metrics, the silences and Grafana's database | 安全/凭据（要你批） |
 | [TD-290](#td-290) | P3 | ops-platform | The retired remediation runner's ConfigMap cicd/bifrost-remediation-runner-stg-dockerfile is still in the cluster, and the supply check and the deliver phase list still name it | PROD 变更（要你批） |
 | [TD-291](#td-291) | P3 | ops-platform | The PROD operator plane probes git-bridge on the Owner's laptop (192.168.10.40:8785) and gets 401, so agent-bridge shows git_bridge unavailable instead of local-only | PROD 变更（要你批） |
+| [TD-292](#td-292) | P2 | infra | The powered-off standby node gpu-server keeps 18 warning alerts firing in Prometheus, so the Console header verdict is stuck at Degraded and a real warning cannot be seen | PROD 变更（要你批） |
 | [TD-274](#td-274) | P3 | frontend | Symbol faces hide GEX levels that exist when zero gamma is NULL: the dealer level strip needs all four values and the regime cell needs zero gamma, so a chain with no flip (about a third of expiries) shows neither walls nor regime | 不用批 |
 
 ## 条目
@@ -1422,6 +1423,18 @@
 - **Ratchet**: `bifrost-platform/scripts/agent/test_deploy_mac_mini_secrets.py` `test_plane_env_does_not_point_at_git_bridge`: the `env.operator-plane.sh` heredoc has no `GIT_BRIDGE_URL` and the script has no `:8785` (platform `16ece5a`).
 - 验收: `get_agent_bridge` on PROD → `git_bridge.status == "not_configured"`; `git -C bifrost-platform grep -n GIT_BRIDGE_URL origin/main -- scripts/agent/deploy_mac_mini.sh` → no hits.
 - 审批 要批（重部署两台 Mini 的 operator plane）· 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
+
+### TD-292
+
+**P2 · infra · The powered-off standby node gpu-server keeps 18 warning alerts firing in Prometheus, so the Console header verdict is stuck at Degraded and a real warning cannot be seen**
+
+- **状态**：未开始（不碰 TD-288：那条是 01 的非计划重启，观察中）
+- **Claim**: gpu-server is the elastic WOL standby; cordoned and powered off is its normal state. `BifrostElasticStandbyMarker` fires for it and Alertmanager's `inhibit_rules` mute part of the noise, but inhibition lives only in Alertmanager. The W-44 header (`shellStatusLine.ts` `alertCauses`) counts warnings from `GET /api/v1/telemetry/alerts`, which is Prometheus `/api/v1/alerts` (`bifrost-platform/api/internal/telemetry/client.go:148`) and knows nothing about inhibition. On 10-10 07:38Z 22 warnings fired, 18 of them from gpu-server, so the header says Degraded all the time and a new real warning changes nothing on it. The inhibit rules also miss some of them: `TargetDown` only for jobs matching node-exporter / kubelet (not promtail, node-reboot-required), and `BifrostPromtailScrapeDown` carries no `node`.
+- **Evidence**: PROD Prometheus 2026-10-10 07:38Z: `count by (alertname, node, job) (ALERTS{alertstate="firing",severity="warning"})` → 22; with `kube_pod_info` joined, gpu-server accounts for `KubeNodeUnreachable` 1, `KubeletInstanceUnreachable` 1, `KubePodNotReady` 4, `KubeDaemonSetRolloutStuck` 4 (promtail, svclb-traefik, node-exporter, node-reboot-required), `KubeDaemonSetMisScheduled` 2, `BifrostPromtailScrapeDown` 1, `TargetDown` 5 (node-exporter, kubelet, promtail, node-reboot-required, grafana; grafana not yet tied to the node). The other 4 are `KubeJobFailed` 3 and `BifrostMaintainerPatrolCertExpiryStale` 1. `kube_node_spec_unschedulable{node="gpu-server"} = 1`, Ready = 0; `ALERTS{alertname="BifrostElasticStandbyMarker"}` firing. Inhibit rules: `bifrost-trade-infra/scripts/k3s/values-kube-prometheus.yaml:178-196`; marker: `k8s/monitoring/bifrost-alerting-rules.yaml:429`.
+- **Fix**: in the alerting layer, not in the Console: (1) cover every alert the standby produces while cordoned and off: extend the inhibit rules (TargetDown for promtail / node-reboot-required, `BifrostPromtailScrapeDown` by instance → node) and, for the stack's default rules that Prometheus still reports as firing, add `unless on (node) ALERTS{alertname="BifrostElasticStandbyMarker"}` through `defaultRules.disabled` + Bifrost copies, so they stop firing instead of only being muted; (2) the header's alert source counts what Alertmanager would deliver: `/telemetry/alerts` reads Alertmanager `/api/v2/alerts?inhibited=false&silenced=false` (or returns its `status.inhibitedBy`), the Console keeps counting severities as now. Helm upgrade by the Owner.
+- **Ratchet**: a promtool rule test (`k8s/monitoring/rule-tests/`, `make check-alert-rules`) that powers gpu-server off in series data and expects no warning from the node, its DaemonSet pods or its scrape targets; plus `check_alert_routing.py` asserting every node-scoped default alert name is either rewritten with the standby `unless` or inhibited by `elastic_standby="true"`.
+- 验收: gpu-server cordoned and off: `count(ALERTS{alertstate="firing",severity="warning"} and on(node) kube_node_info{node="gpu-server"})` → 0 and no TargetDown for its targets; Console header no longer says Degraded because of it; waking the node (WOL) and uncordoning raises nothing new.
+- 审批 要批（helm upgrade 监控栈）· 代价 M · 风险 low · repos: bifrost-trade-infra, bifrost-platform
 
 ### TD-261
 

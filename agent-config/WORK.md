@@ -577,7 +577,7 @@
 
 - **类别**：道
 - **状态**：未开始
-- **现在**：`cursor/d1-platform` 落后 main 41 个提交，冲突 4 个文件；第 1 波只做代码 rebase
+- **现在**：`cursor/d1-platform` 落后 main 41 个提交，冲突 4 个文件；第 1 波只做代码 rebase。S0-7 还要把 decide / sign-off 接进 `NeedsYouPage` / `useNeedsYou` 的计数，并做等待 7 天黄、14 天红（W-44 留的位）
 - **下一步**：照第 1 波计划派
 - **验收**：④ 能看到待你定的事和等待天数；⑦ 能看到 W-n 的状态
 - **关联**：STEP0-PLAN 第 3 节 S0-7、W-4
@@ -609,7 +609,7 @@
 **W-31 第 0 步 · S0-16 Console 清理 A（16a 零引用的死代码 · 16b 孤儿）**
 
 - **类别**：道
-- **状态**：在做
+- **状态**：在做（16a 已交付；16b 在做）
 - **现在**：Owner 10-10 拆成两步（STEP0-PLAN 0.4 节）：W-43a 只删零引用的死代码，已派出（分支 `w31/w43a-s0-16a`）；W-43b 删孤儿，排在 W-44、W-45 之后。`AgentFocusDock`、`AgentTriadStrip`、`CommandIntentStrip`、`lib/task-mode`、`operateQueue` / `operateBriefs`、`lib/agent/*` 仍在渲染，不属于 16a；`NavAgentAskSlot` 改归 W-44。退役 plist 只在 W-36 删一次。W-43a 已并进 Console 集成分支 `w31/console-int`（platform `58928a3`，10-10）
 - **下一步**：W-43b 按 STEP0-PLAN 0.4 节「16b 清单补充」逐项确认是否还在 ①/⑥ 渲染后再删，排在 W-44、W-45 之后；卡 10 = A（Owner 10-10）：后端 `api/internal/console`（SSH ws-ticket / ws）连同 `@xterm/xterm`、`@xterm/addon-fit` 一起删，属于 W-43b
 - **验收**：tsc / lint / vitest / build 全过，没有新的引用断裂
@@ -620,9 +620,9 @@
 **W-31 第 0 步 · S0-17 外壳与「需要你」第一版**
 
 - **类别**：道
-- **状态**：在做（Owner 10-10 另派线程；该线程交回要登记的内容，由 W-31 线程登记）
+- **状态**：在做（已交付分支，等合集成分支）
 - **现在**：范围见 STEP0-PLAN 0.2 节，按 0.4 节的卡 A、卡 B、卡 C 改：首页只列单子，批准和驳回只在 `#approvals?id=`；「需要你」只算待定、待批、待签；Autopilot 页签原样搬进「记录」。文件清单加 `lib/shell/shellStatusLine.ts`、`ConsoleSidebar.tsx`、`ConsoleNavSlotItem.tsx`、`StatusPage.tsx`，`NavAgentAskSlot` 也归这里
-- **下一步**：照第 1 波计划派，推到 Console 集成分支
+- **下一步**：已交付分支 `w31/w44-s0-17` `86b709f`（参谋长与 W-45 试合无冲突：tsc、lint 0 error、vitest 101 个文件 684 条、build 全过；needs-you 页没有批准 / 驳回按钮）。12 条自定决策登记在 STEP0-PLAN 0.5 节；W-43b 线程把它合进 `w31/console-int`
 - **验收**：有待批的单子时首页第一屏就是它并显示等了多久；页头和 ① 的结论一致；通知里的旧链接仍能打开对应的单子
 - **关联**：STEP0-PLAN 0.2 节、W-40
 
@@ -631,9 +631,9 @@
 **W-31 第 0 步 · S0-18 ⑤ Releases 三段式**
 
 - **类别**：道
-- **状态**：在做（Owner 10-10 另派线程；该线程交回要登记的内容，由 W-31 线程登记）
+- **状态**：在做（已交付分支，等合集成分支）
 - **现在**：Owner 10-10 定卡 B：第一段放快到期的策略和待批的发版单；失败的 run 放「进行中」，同一流水线、同一环境后来成功就自动进历史，不新增状态、不加接口。策略那一块等 W-42
-- **下一步**：照第 1 波计划派，推到 Console 集成分支
+- **下一步**：已交付分支 `w31/w45-s0-18` `611cc3e`（参谋长重跑：tsc、build、vitest 99 个文件 657 条全过）。7 条自定决策和 W-42 合并后的接入点登记在 STEP0-PLAN 0.5 节；W-43b 线程把它合进 `w31/console-int`
 - **验收**：10-03 的旧失败不再占首屏；窗口被占用时看得到是谁在占、还剩多久
 - **关联**：STEP0-PLAN 0.2 节、W-42
 
@@ -665,7 +665,7 @@
 
 - **类别**：道
 - **状态**：未开始（等 W-42 合 main）
-- **现在**：新状态 `approved` / `running` / `unknown`、`execution{}`、全局自增 `#n`、`executor` 角色和领单 / 续租 / 回写接口、存储改 `statefile.Update`；TD-267、TD-276
+- **现在**：新状态 `approved` / `running` / `unknown`、`execution{}`、全局自增 `#n`、`executor` 角色和领单 / 续租 / 回写接口、存储改 `statefile.Update`；TD-267、TD-276；`number` / `env` / `summary` / `deliveries` 接进 W-44 的列表行和详情页，替换临时的 `approvalEnv`
 - **下一步**：W-42 合 main 之后照方案第 4.4 节的顺序开
 - **验收**：方案第 4.5 节 S0-0a 的验收命令；暂时性拒绝后单子仍是 `approved`，两个并发建单拿到不同的 `#n`
 - **关联**：`work/multi-agent/S0-0-approved-execution-PLAN-2026-10-10.md` 第 4.5 节；W-37；TD-267、TD-276
@@ -709,7 +709,7 @@
 
 - **类别**：道
 - **状态**：未开始（等 W-42 合 main）
-- **现在**：`webpush-go`（执行卡 5 = A，开工前核实维护情况和遥测），订阅存在现有状态文件新开的 `push-subscriptions` 键（执行卡 7 = A）；ntfy 只留严重告警
+- **现在**：`webpush-go`（执行卡 5 = A，开工前核实维护情况和遥测），订阅存在现有状态文件新开的 `push-subscriptions` 键（执行卡 7 = A）；ntfy 只留严重告警。挂进 W-44 已放的 PWA 骨架 `console/public/sw.js`，依赖 HTTPS（只在 HTTPS 下生效）
 - **下一步**：W-42 合 main 之后照方案第 4.4 节的顺序开
 - **验收**：Owner 的 iPhone 主屏幕应用收到 `#n` 推送，点开到 `#approvals?id=`
 - **关联**：`work/multi-agent/S0-0-approved-execution-PLAN-2026-10-10.md` 第 4.5 节；W-37；—
