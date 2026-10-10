@@ -15,7 +15,7 @@
 
 （无）
 
-**未结 80 项**：P0 0 · P1 5 · P2 28 · P3 47；要你批的 38 项（从总览表的审批列算）。
+**未结 81 项**：P0 0 · P1 5 · P2 28 · P3 48；要你批的 26 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -116,7 +116,7 @@
 
 目标：会动手的维护只由 PROD 的 platform-workers 做，本机与 STG 只观测。已做：本机停手（TD-130 第一步）、STG 不修 IB 也不写发布记录（TD-223）、页面不再触发维护、状态持久化（TD-196）。接着：PROD 自己探测、带时间戳的检查信号，只给 PROD 挂技能并先只报告，再逐项放开；备份只归 CNPG 与 backup-retry；不再清掉失败现场。
 
-项：TD-130, TD-272, TD-276, TD-283, TD-284, TD-285, TD-286, TD-287, TD-288, TD-289, TD-296 · 已还：TD-256, TD-257, TD-270, TD-271, TD-273, TD-275, TD-277, TD-278, TD-279, TD-280, TD-281, TD-282, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255
+项：TD-130, TD-272, TD-276, TD-283, TD-284, TD-285, TD-286, TD-287, TD-288, TD-289, TD-296, TD-297 · 已还：TD-256, TD-257, TD-270, TD-271, TD-273, TD-275, TD-277, TD-278, TD-279, TD-280, TD-281, TD-282, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255
 
 ## 数据边界（接受并留座）
 
@@ -259,6 +259,14 @@
 | [TD-244](#td-244) | P3 | research-control | agents/journal_distill reads raw_broker.executions_final with no Flex freshness check (own 23:55 UTC schedule, outside any gate) | 不用批 |
 | [TD-246](#td-246) | P3 | trade-data | Snapshot enrich stores a vendor 'day close' that can sit below the option's intrinsic value (a stale last trade), and P&L attribution then books it as unexplained | 已批（Owner 10-07「做」） |
 | [TD-250](#td-250) | P3 | trade-data | A stale vendor close above intrinsic is still stored as vendor_eod: the plugin's snapshot read does not return last_trade_ts, so enrich cannot tell a morning trade from a session close | 不用批 |
+| [TD-260](#td-260) | P3 | trade-core | Four LEFT JOINs still read raw_broker.contract_quote_live, which has had no writer since March and none at all after TD-240: the quote columns they feed can only ever come back NULL | 不用批 |
+| [TD-261](#td-261) | P2 | ops-platform | The Console approval list never renders: it reads `{items}` and the API answers `{approvals: [...]}`, and the page test mocks the wrong shape so it never caught it | 不用批 |
+| [TD-262](#td-262) | P3 | ops-platform | MCP `start_pipeline_run` sends no `who`, so a release started through MCP can never satisfy the policy's "requester holds the window" | 不用批 |
+| [TD-265](#td-265) | P3 | research-data | Non-farm payrolls rows get no theme: the pipeline's theme regex does not recognise `NFP`, so they never join the rate-path group | 不用批 |
+| [TD-266](#td-266) | P3 | flex-ib | The flex worker's system messages never leave the pod: it publishes to 127.0.0.1:6379, which is refused in-cluster, so the UI toast for a cash-ingest run is dropped with only a WARNING | 不用批 |
+| [TD-267](#td-267) | P2 | ops-platform | An approval is consumed by a transient refusal: approve executes immediately, and a release-window clash marks the request `failed`, so the Owner's click is spent and a new request must be filed | 不用批 |
+| [TD-268](#td-268) | P3 | ops-platform | `ExecSQLOnPrimary` is dead code: TD-256 and TD-259 took its last caller, and the ratchet that counted call sites now guards a function nobody calls | 不用批 |
+| [TD-269](#td-269) | P3 | ops-platform | `release.sh hold` cannot be stopped cleanly: SIGTERM waits behind its `sleep 3600`, and SIGKILL leaves a stale lock only the Owner may clear | 不用批 |
 | [TD-272](#td-272) | P3 | ops-platform | tekton-trigger can create any PipelineRun in cicd, and no admission policy matches it, so its token is still a path to the cluster-admin Argo controller account | 安全/凭据（要你批） |
 | [TD-276](#td-276) | P3 | ops-platform | An apply_manifest run is named apply-<plan id>, so a failed apply of a plan cannot be retried; a new plan is needed | 不用批 |
 | [TD-283](#td-283) | P3 | ops-platform | release.sh dev still restarts DEV with kubectl rollout restart, which the read-only Agent identity cannot do | 不用批 |
@@ -275,6 +283,7 @@
 | [TD-294](#td-294) | P3 | infra | The Tekton freeze check only runs in pipelines that start with release-window; the Trade and platform deliver pipelines and three build pipelines do not, so a run created outside platform-api ignores a freeze | PROD 变更（要你批） |
 | [TD-295](#td-295) | P2 | ops-platform | start_pipeline_run checks one revision in every repo a pipeline clones, so a platform deliver cannot be started by full SHA: the W-42 pinned rule for bifrost-deliver-platform-prod can never be met through the API | 不用批 |
 | [TD-296](#td-296) | P2 | ops-platform | The ntfy connection error text carries the full topic (the read credential) and is served by the token-less relay status endpoint; with W-49 it would also reach approval delivery records | 安全/凭据（要你批） |
+| [TD-297](#td-297) | P3 | ops-platform | Platform CI runs no race detector and no MCP tests, so the approval state machine's concurrency tests and the 批 #n tool tests are only run by hand | 不用批 |
 | [TD-274](#td-274) | P3 | frontend | Symbol faces hide GEX levels that exist when zero gamma is NULL: the dealer level strip needs all four values and the regime cell needs zero gamma, so a chain with no flip (about a third of expiries) shows neither walls nor regime | 不用批 |
 
 ## 条目
@@ -1246,7 +1255,7 @@
 
 **P2 · ops-platform · An approval is consumed by a transient refusal: approve executes immediately, and a release-window clash marks the request `failed`, so the Owner's click is spent and a new request must be filed**
 
-- **状态**：在做（修复在 platform 分支 `w31/w48-s0-0a` `249618e`，S0-0a / W-48：暂时性拒绝——发布窗口被占或缺失、HTTP 429 / 503、kube 超时——让单子保持 `approved`，按退避重试到执行截止时间；永久错误照旧失败。测试 `api/internal/approvals/state_machine_test.go` `TestTransientRefusalKeepsTheApproval`、`api/internal/server/transient_refusal_test.go`。须与 infra `w31/w48-s0-0a-infra` `779c70f` 一起合。合 main + 发版后转待你签收）
+- **状态**：在做（修复在 platform 分支 `w31/w48-s0-0a`，分支头 `e43a129`（修复本身在 `249618e`），S0-0a / W-48：暂时性拒绝——发布窗口被占或缺失、HTTP 429 / 503、kube 超时——让单子保持 `approved`，按退避重试到执行截止时间；永久错误照旧失败。测试 `api/internal/approvals/state_machine_test.go` `TestTransientRefusalKeepsTheApproval`、`api/internal/server/transient_refusal_test.go`。须与 infra `w31/w48-s0-0a-infra` `779c70f` 一起合。合 main + 发版后转待你签收）
 - **Claim**: `approvals.Service.approve` calls `actions.Execute` in the same step as the decision and stores `StatusFailed` on **any** error, transient or permanent (`service.go` around the `execErr` branch). Since `approve` refuses anything whose status is not `pending`, a request that failed on a precondition cannot be approved again — the human's click is gone and the requester has to create a fresh request. There is no distinction between "this can never work" (bad params, expired) and "this would work in a minute" (a release window held for other repos, CI not green yet).
 - **Measured**: MEASURED 2026-10-08. `appr_cb8b3f52329cbe8c` (platform PROD, revision main) was approved through `channel: chat` at 15:50:56Z and came back `status: failed` with `REFUSED: release window held by someone else (who=… what=bifrost-trade-core,bifrost-trade-api,bifrost-trade-worker,bifrost-trade-frontend,bifrost-trade-infra); bifrost-deliver-platform-prod needs one of bifrost-platform,bifrost-ui`. The click landed inside this session's own Trade release (`bifrost-deliver-prod-pinned-9lg2r`, 15:47–15:54Z), which legitimately held the window for the Trade repos. No PipelineRun was created; platform main stayed a7ecb08 and PROD kept the old image. The window check did its job — what is wrong is that the approval did not survive it.
 - **Evidence**:
@@ -1308,7 +1317,7 @@
 
 **P3 · ops-platform · An apply_manifest run is named apply-<plan id>, so a failed apply of a plan cannot be retried; a new plan is needed**
 
-- **状态**：在做（修复在 platform 分支 `w31/w48-s0-0a` `249618e`，S0-0a / W-48：apply 的 run 改名 `apply-<plan>-<unix>` 并带 `bifrost.io/plan` 标签，同一 plan 重试会新建 run。测试 `api/internal/workactions/apply_retry_test.go`。合 main + 发版后转待你签收）
+- **状态**：在做（修复在 platform 分支 `w31/w48-s0-0a`，分支头 `e43a129`（修复本身在 `249618e`），S0-0a / W-48：apply 的 run 改名 `apply-<plan>-<unix>` 并带 `bifrost.io/plan` 标签，同一 plan 重试会新建 run。测试 `api/internal/workactions/apply_retry_test.go`。合 main + 发版后转待你签收）
 - **Claim**: `workactions.Apply` names the run `trimName("apply-" + planID)`. After an apply of a plan fails, a second approved apply of the same plan fails at create with `pipelineruns.tekton.dev "apply-<plan>" already exists`, and the approval ends `failed`.
 - **Measured**: MEASURED 2026-10-09: `appr_49781a21b0d86b9d` (plan `plan-1dfc9375-1791567153`, whose first apply failed closed) → `failed`, `already exists`. A fresh plan applied fine.
 - **Evidence**:
@@ -1487,6 +1496,18 @@
 - **Ratchet**: `TestNotifyFailureNamesTheReasonWithoutTheTopic` (a failing ntfy post answers a delivery whose error and target do not contain the topic).
 - 验收: `cd bifrost-platform/api && go test ./internal/alertrelay/ -run 'TestNotify' -count=1`; after the .50 operator-plane redeploy, `GET /alerts/relay` on .50 shows no topic in `last_error` and the build carries the W-49 commit.
 - 审批 要批（凭据面：.50 operator-plane 重新部署是 Owner 本机操作）· 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-297
+
+**P3 · ops-platform · Platform CI runs no race detector and no MCP tests, so the approval state machine's concurrency tests and the 批 #n tool tests are only run by hand**
+
+- **状态**：未开始（W-31 S0-0 登记 10-10 发现；归 S0-0 收尾，W-48 合 main 后做，见 STEP0-PLAN 0.8 节）
+- **Claim**: `bifrost-ci-platform` runs `go test ./... -count=1` without `-race`, and its only Node step is the Console type-check; `mcp/platform` (which has `npm test` = `node --import tsx --test src/*.test.ts`) is never installed or tested. W-48's concurrency tests (`TestConcurrentCreatesGetDistinctNumbers`, `TestConcurrentClaimsOnlyOneWins`) pass without the race detector even when a data race exists, and W-51's `approve.test.ts` (the 批 #n refusals that must send nothing) runs only when someone runs it locally. On 10-10 the race and MCP results came from the chief of staff's manual runs.
+- **Evidence**: `bifrost-trade-infra/k8s/cicd/tekton/pipeline-ci-platform.yaml:115` (`go test ./... -count=1 -timeout=120s`, no `-race`), `pipeline-ci-platform.yaml:94` (`golang:1.25-bookworm`: gcc present, so `-race` needs no image change), `pipeline-ci-platform.yaml:127-155` (`npm-type-check`: `console` only, `npx tsc --noEmit`); `bifrost-platform/mcp/platform/package.json:10` (`"test"` script).
+- **Fix**: In `pipeline-ci-platform.yaml`, after `go test ./...` add `go test -race -count=2 ./internal/approvals/ ./internal/approvalnotify/ ./internal/alertrelay/` (CGO is on in the bookworm image; keep the 120s timeout or raise it for the race run). Add a step on `node:20-slim` that runs `cd bifrost-platform/mcp/platform && npm ci && npm test` (and `npm run type-check`).
+- **Ratchet**: The CI pipeline itself, once the steps exist. The RATCHETS rows for the W-48 concurrency tests and the W-51 MCP tests move from "manual race" to warning, and a check that `pipeline-ci-platform.yaml` still contains `-race` and `mcp/platform` keeps the steps from being dropped.
+- 验收: a `ci-platform` run on the merge commit shows the race step over the three packages and the MCP `npm test` step, both green; a deliberately racy test on a scratch branch fails the race step.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ### TD-261
 

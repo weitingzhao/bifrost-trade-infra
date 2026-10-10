@@ -664,7 +664,7 @@
 **W-31 第 0 步 · S0-0a 状态机与编号**
 
 - **类别**：道
-- **状态**：在做（代码完成：platform `w31/w48-s0-0a` `8c55c63` + infra `w31/w48-s0-0a-infra` `779c70f`，两边一起合；参谋长 10-10 重跑验收全绿。第 9 步发完后第一个合 main；`service.go:138` 的 lint shadow 已交回本线程。见 STEP0-PLAN 0.8 节）
+- **状态**：在做（代码完成：platform `w31/w48-s0-0a` `e43a129` + infra `w31/w48-s0-0a-infra` `779c70f`，两边一起合；参谋长 10-10 重跑验收全绿。第 9 步发完后第一个合 main；`service.go:136` 的 lint shadow 已修（`e43a129`）。见 STEP0-PLAN 0.8 节）
 - **现在**：新状态 `approved` / `running` / `unknown`、`execution{}`、全局自增 `#n`、`executor` 角色和领单 / 续租 / 回写接口、存储改 `statefile.Update`；TD-267、TD-276；`number` / `env` / `summary` / `deliveries` 接进 W-44 的列表行和详情页，替换临时的 `approvalEnv`
 - **下一步**：第 9 步发完后按 0.8 节的顺序合 main（platform 与 infra 同批），合时把新状态、`executor` 角色与 `#n` 写进 `AGENT_FACTS.md`；`number` / `env` 接 Console 的部分等集成分支合 main（STEP0-PLAN 0.7 节第 6 步）之后
 - **验收**：方案第 4.5 节 S0-0a 的验收命令；暂时性拒绝后单子仍是 `approved`，两个并发建单拿到不同的 `#n`
