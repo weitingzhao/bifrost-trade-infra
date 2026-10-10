@@ -49,7 +49,7 @@
 | 0 · TD-302 收口 | 完成（仅隔离提交）；Research `d628fa6`、Frontend `fda32827`，未合并/未发布 | 提交 Research 有效值过滤、IV 历史深度语义、Frontend 权威读数；保存 `bifrost-research/docs/acceptance/TD-302.md`，记录各仓提交号 | Research 2150 passed / 30 skipped；Frontend 4120 passed / 1 skipped；提交前复查 Research 34 / Frontend 4 passed，提交钩子 PASS；APT 历史不足、ZZQ 缺数据、AU 合法 0。对应回归测试见 RATCHETS | 已授权隔离分支提交；不合并、不发布，不回填 |
 | 1 · TD-183 归档可恢复性 | 本轮只读核查与准备完成；实际恢复及三表整体验收未完成 | 两份 intraday snapshot 归档共 573826 行，hash/清单/全列解码/日期/主键检查 PASS；恢复方案见 `docs/audits/TD-183_ARCHIVE_READINESS_2026-10-10.md`。option_daily/short_volume 最早 2024-10-01，首次非零归档仍待约 11-01 | trim 的归档/删除行数与 Parquet 一致；五项离线异常测试 PASS。实际恢复必须再验 typed import、全字段 readback 和幂等；当前不记恢复 PASS | 本轮只读核查及准备；不触发 trim、不改 hold、不删文件、不写共享数据库、不建集群恢复资源 |
 | 2 · TD-92 / TD-94 每日产出防线 | 本轮运行核查完成；TD-94 待你签收，TD-92 告警回执仍观察 | 三批各 17 个 engine output_ok 已执行；14 PASS / 3 WARN；gate 均正确，无 override。56 测试通过无跳过，核心模块与生产 hash 一致；报告见 `docs/audits/TD-92-94_RUNTIME_ACCEPTANCE_2026-10-10.md` | 合法零、异常零、连续跳过及失败原因测试通过；WARN 持续缺数据未补；ERROR sensor 有运行记录但历史投递/接收回执未证实。未改非阻断政策，不把 SUCCESS 当完整数据 | 只读核查与隔离测试，未发现需新改生产逻辑的回归；不发布、不回填、不注入真实告警 |
-| 3 · TD-172 / TD-142 联合回填盘点 | 未开始；每日完整度防线已核实 | 按 symbol × session × DTE 列缺口；分别统计已有原始数据可重算、需 vendor 重抓、不可恢复。交付有日期范围、合约数、请求量、试补批次、预期行数、限流和失败重试的具体方案 | 独立缺口清单与分母口径可复算；避免重复抓取；按每周和每标的验证期限覆盖与 IV cone 有效历史深度；保留合法无成交/订阅边界 | 方案交 Owner 确认后才写；Plugin 写 raw_market，Research 写 features；不使用 SVI 拼接替代历史采集 |
+| 3 · TD-172 / TD-142 联合回填盘点 | 只读盘点完成，具体方案待你确认；未回填 | `docs/audits/TD-172-142_GAP_PLAN_2026-10-10.md`：TD-172 725 × 59 session、TD-142 首批 23 × 252 session；已有来源模拟可增 756 个不同 ATM expiry 行，覆盖 606 symbol-day；条件重抓清单联合去重 66649 个合约区间 / 161863 个目标 contract-day；小试批 82 区间 / 120 目标日 | 7 项测试及只读全流程 PASS；合法零、整日缺失分母、Brent 双侧与 request 去重验证。SPY/NVDA/AAPL 仅本地重算不改善 90-day cone；GOOG 可达 104/74（90/180）session。当前 Brent cap90、无 cone180、无独立 long-breadth 防线，须先补实现，不假记完成 | 方案确认后才写；保留现有有效短期行，禁止 long-only 输入触发整日 DELETE；Plugin 写 raw，Research 写 features；不使用 SVI 拼接；第 4 项未开始 |
 | 4 · TD-172 / TD-142 按批修复 | 未开始；依赖 Owner 对第 3 项具体方案确认 | 小批原始数据补齐或复用 → 派生重算 → 验收 → 逐批扩大；记录失败和无法修复项；交付逐批前后覆盖率 | 重跑幂等；每批主键、session、期限、有效值和输出行数一致；剩余缺口有原因，不以任务成功代替数据完整 | 未获具体方案确认不执行；禁止无界全库重算与改变订阅 |
 | 5 · TD-149 错误数据治理 | 观察中；既有每日检查与 10-16 复查安排继续，不等待回填 | CTVA vendor 复权后按既有批准重抓日线、重算派生；到 10-16 仍未修正另议 Research 自算；保留原始与派生对照 | 分拆前后调整正确，RV/VRP 等异常读数消除；盘点公司行动异常检测的现有防线与缺口 | 尊重已有批准：vendor 修正后重抓重算；自行复权另批 |
 | 6 · TD-300 / TD-301 业务链路收口 | 未开始；数据安全及缺口工作之后 | Doctor 区分历史失败、已恢复、仍可重试、证据被删与查询失败；term_slope 接入批量筛选 | 恢复事件不再误报永久丢失；有效单标的与批量筛选读数一致；测试与 DEV 页面验收 | 隔离分支逐项完成后报告；不发布 |
@@ -709,8 +709,8 @@
 
 **P2 · research-data · The 90-day IV cone has 31–39 sessions of history and there is no 180-day tenor: ATM IV was stored only to 90 DTE before 2026-08-05**
 
-- **状态**：观察中（Cursor LANE-D2 已完成并复验；待你批：回填：约 3883 个 symbol-day、约 2972 行可补）
-- **验收**：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data exec -i bifrost-postgres-3 -c postgres -- env PGOPTIONS='-c default_transaction_read_only=on' psql -U postgres -d bifrost_golden_source -X -At -c "SELECT count(DISTINCT trade_date) FROM features.option_metric_atm_iv_daily WHERE symbol='NVDA' AND expiry-trade_date>90 AND atm_iv IS NOT NULL"` ≥ 150（回填前 39 左右）；TD-141 的 iv-cone 命令里 NVDA 的 90 档 n ≥ 60、withheld 为 False，且出现 180 档
+- **状态**：只读盘点完成（2026-10-10）；具体联合方案待你确认。旧约 3883 symbol-day / 2972 行估计不再作为可写承诺；Brent cap90 与 cone180 尚待实现，未回填、未发布
+- **验收**：使用 agent_reader 只读复算联合报告固定格子；NVDA >90 DTE 有效 expiry 历史 ≥150 session，SPY/NVDA/AAPL cone90 / cone180 的有效 n ≥60 且 withheld 消失；API/DEV 的 180 档实际出现并一致。先验证核心展示门槛，再公布 n/252 与全部剩余缺格；未达到深度目标不能记整项结清。命令与来源见 `docs/audits/TD-172-142_GAP_PLAN_2026-10-10.md`。
 - **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
 - **Claim**: The ATM IV store kept only expiries up to 90 DTE before 2026-08-05 (the Brent pass is still capped at DTE_MAX = 90), so the cone's 90-day horizon has fewer than MIN_SESSIONS (60) sessions and its percentiles are withheld; there is no 180-day horizon at all. It fills by itself around early November. raw_market.option_daily holds the long-dated bars to backfill from.
 - **Measured**: MEASURED 10-06: iv-cone 90d NVDA 39, SPY 31, AAPL 32 sessions; no 180d. raw_market.option_daily: NVDA bars with trades at 150–220 DTE on 154 sessions, earliest 2025-11-10.
@@ -719,11 +719,13 @@
   - `bifrost-research/src/bifrost_research/engines/volatility/atm_iv.py:366` — `AND (o.expiry - o.bar_date) BETWEEN {DTE_MIN} AND {DTE_MAX}`
   - `bifrost-research/src/bifrost_research/repositories/iv_cone.py:36` — `MIN_SESSIONS = 60`
 - **Impact**: History's cone withholds 90-day percentiles for every name and has no long tenor for calendars and longer-dated structures.
-- **Fix**: One-off Research backfill of long-tenor ATM IV into features.option_metric_atm_iv_daily from option_daily with the Brent method and the DTE cap lifted to about 220 for that pass only; first list the range (symbols × sessions × expected rows, which sessions already have >90 DTE rows) for the Owner. Then add 180 to the cone's tenors. Writes Research-owned features.* only (D13).
+- **Fix**: 联合计划 `docs/audits/TD-172-142_GAP_PLAN_2026-10-10.md`：先修受限 long-tenor writer / cone180 / 防线，再复用来源，最后 Plugin 受限补抓 + Research 重算。首批 23 名 × 252 session；模拟新增 214 expiry 行（GOOG 74 / SPX 140），SPY/NVDA/AAPL 现有输入不能改善 90 cone，需 vendor 候选 14577 个合约区间。纯 put、无成交、目录未知均不能假造 IV。仅合格目标 feature 主键写入，不能 long-only 输入走整日替换删除；D13。
 - **Ratchet**: A test that the longest cone tenor is inside the DTE range the ATM IV writers store, so the cone and the store cannot drift apart again.
 - 审批 要你批 · 代价 M · 风险 med · repos: bifrost-research
 
 - **Measured 2026-10-10**: 90-day IV cone API still withholds SPY (35 sessions) and NVDA (43), below the 60-session minimum; 7/30-day tenors each have 252. No 180-day tenor is served. Backfill remains subject to the existing approval boundary. Read-only evidence and reproduction: `docs/audits/DATA_INTEGRITY_2026-10-10.md`, `scripts/audit-data-integrity.sql`.
+
+- **联合盘点 2026-10-10**：固定格子首批 5796；现有 / 复用后 cone90 923 → 994、拟 cone180 893 → 935。NVDA 长 bar 存在性不能证明可重算（11-10…14 两个 put、无 call）；SPY 35 / NVDA 43 / AAPL 36 不增加，GOOG 44 → 104。两年 vendor 窗口内的 bar 仍是候选，尚未探测可用性。归档可恢复与从未观察的历史 snapshot/OI 严格分开；方案和 7 项自检见联合报告。验收仍保留 NVDA >90 有效历史 ≥150 的深度目标；≥60 只是 cone 可展示门槛，不能等同完整历史。实际回填与 DEV 复验均未开始。
 
 ### TD-143
 
@@ -944,8 +946,8 @@
 
 **P2 · research-data · ATM IV has almost no 50–90 DTE expiry from 2026-07-06 to 09-25 (the EOD chain stopped at the third listed expiry until plugin 0.39.0); the fix was forward-only, so term structure reads na for that stretch**
 
-- **状态**：观察中（Cursor LANE-D2 已完成并复验；待你批：向 vendor 重拉 50–90 DTE：约 4.8 万次区间请求，缺口几十万根 bar）
-- **验收**：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n data exec -i bifrost-postgres-3 -c postgres -- env PGOPTIONS='-c default_transaction_read_only=on' psql -U postgres -d bifrost_golden_source -X -At -c "WITH d AS (SELECT symbol, trade_date, bool_or(expiry - trade_date BETWEEN 50 AND 100) b FROM features.option_metric_atm_iv_daily WHERE trade_date BETWEEN '2026-07-06' AND '2026-09-25' AND symbol IN (SELECT symbol FROM research.option_universe) GROUP BY 1,2) SELECT date_trunc('week', trade_date)::date, round(avg(b::int), 2) FROM d GROUP BY 1 ORDER BY 1"` — every week ≥ 0.85 (06-22/06-29 read 0.88–0.91; 07-06..09-21 read 0.02–0.59 before the fix)
+- **状态**：只读盘点完成（2026-10-10）；具体联合方案待你确认。当前目录条件候选 52386 个合约区间 / 134255 个缺失目标 contract-day；非 vendor 返回量承诺，未回填、未发布
+- **验收**：使用 agent_reader 只读复算 725 个回溯标的 × 59 个 NYSE session；每周 50–100 DTE 有效 breadth ≥0.85，另列真实 TERM 与 strict cone60，整日缺失保留分母。历史合法排除需证据/Owner 签收，不以已有 ATM 行缩分母。逐格清单和实际回填/DEV 验收标准见 `docs/audits/TD-172-142_GAP_PLAN_2026-10-10.md`。
 - **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
 - **Claim**: Until market-data plugin 0.39.0 (2026-09-25, `54b05be`) the EOD chain was bounded at the third listed expiry, so from 2026-07-06 most names' option_daily held nothing past ~45 DTE. ATM IV is solved from option_daily (Brent) and the reconstructed table, so its 50–100 DTE expiries went missing with it. 0.39.0 fixed the bound forward only; nothing refilled the stretch. IV30 is unaffected (about 640 names a day throughout).
 - **Measured**: MEASURED 10-06 (S6 context survey, `REPORT-pine-s6-context-series-2026-10-06.md`). Share of universe name-days with an ATM IV at 50–100 DTE, by week: 06-22 0.88 · 06-29 0.91 · 07-06 0.15 · 07-13 0.12 · 08-03 0.02 · 08-10 0.02 · 08-24 0.35 · 09-14 0.43 · 09-21 0.59 · 09-28 0.97. option_daily itself with a 50–90 DTE bar: 06-22 0.99 · 07-06 0.25 · 08-10 0.005.
@@ -954,11 +956,13 @@
   - `bifrost-research/src/bifrost_research/engines/pine/context.py` — `TERM_30_60` reads na without a 50–120 DTE expiry (Owner 10-06: no stitching from SVI)
   - market-data plugin `54b05be` — "The EOD chain's bound was the third listed expiry"
 - **Impact**: Pine `TERM_30_60` (S6) and every term-structure reader (`/atm-iv/term`, the 60-day cone) are blank or one-sided for 12 weeks, which is part of the S6 out-of-sample window (2026-01..10); a contango condition loses that stretch.
-- **Fix**: List the range for the Owner first (names × sessions × contracts). Then (a) the plugin re-pulls option_daily bars for the 50–90 DTE contracts of 2026-07-06..09-25 from the vendor's history (Options Starter has two years), and (b) Research recomputes ATM IV for those sessions; from 08-05 the 16:00 snapshots are a second source if the bars stay thin. Writes raw_market.option_daily (plugin) and features.* (Research) only.
-- **Ratchet**: The plugin doctor's option_daily breadth (0.59.0 counts 5–90 DTE) also counts names with a 50–90 DTE bar per session and warns below 0.8 of the trailing median, so a bound that stops short shows within a day.
+- **Fix**: 先确认 `docs/audits/TD-172-142_GAP_PLAN_2026-10-10.md` 的联合范围：复用已有源，受限 Plugin 重抓历史后腿，Research 重算；先 3 名 × 5 session，再按周扩大。固定格子另有 5261 个无 IV30 前腿的 symbol-day，短腿追加请求需另核范围/预算，不能只抓后腿宣布 TERM 完整。已有 snapshot 按观察日/质量复用，不以当前 snapshot 假写历史。Plugin 写 raw_market，Research 写 features；禁止 long-only 输入直接走整日 ATM replacement。
+- **Ratchet**: 2026-10-10 核对：Plugin contracts 仅 `narrow_filter="(expiry - bar_date) BETWEEN 5 AND 90"`；未找到旧文案声称的独立 50–90 long-breadth 告警。该句是应建防线而非已上线事实。先补 long-tenor breadth / 有效 bracket、writer-reader 最长期限契约及告警接收验收，再点火回填；本次只读盘点测试登记 RATCHETS（manual），不冒充运行时防线已修。
 - 审批 要你批 · 代价 M · 风险 low · repos: bifrost-platform-plugin-market-data, bifrost-research
 
 - **Measured 2026-10-10**: 50–100 DTE ATM-IV name-days remain 59/3223 (1.8%) for week 08-03 and 64/3159 (2.0%) for 08-10, versus 3229/3469 (93.1%) for 10-05. Forward collection recovery did not restore historical completeness. Read-only evidence and reproduction: `docs/audits/DATA_INTEGRITY_2026-10-10.md`, `scripts/audit-data-integrity.sql`.
+
+- **联合盘点 2026-10-10（替代旧已有 ATM 行分母）**：725 × 59 = 42775 个回溯当前名单格子；原 breadth 8437（19.72%），复用后 8643（20.21%）；TERM 8535 → 8767，strict cone60 6421 → 6872。08-03 / 08-10 固定周分母 3625，分别 59（1.63%）/64（1.77%），整日缺失不再从分母消失。TD-172 可新增 682 expiry 行，TD-142 214，其中 SPX 140 重叠，联合只有 756 行。请求联合去重 66649 个区间 / 161863 个目标 contract-day；历史挂牌与 vendor 响应未验证。详细条件、试批、限流/失败重试、未知/不可原样补回分类和验收见 `docs/audits/TD-172-142_GAP_PLAN_2026-10-10.md`；先确认方案才进入第 4 项。
 
 ### TD-174
 
