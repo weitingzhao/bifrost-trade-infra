@@ -1,0 +1,32 @@
+# Release policy and freeze (W-42, card 2 = B). Not under Argo.
+#
+# Create once, before the first signed policy, through the platform action apply_manifest
+# (Owner approval). After that only platform-api writes them:
+#   bifrost-release-policy  PUT  /api/v1/release-policy           (release.sh policy sign; Owner key)
+#   bifrost-release-freeze  POST /api/v1/release-policy/freeze    (release.sh freeze; anyone)
+#                           POST /api/v1/release-policy/unfreeze  (release.sh unfreeze; Owner-signed)
+# Never re-apply this file over a signed policy or a freeze.
+#
+# Empty policy = no auto-approval: every tier-C release waits for the Owner, as today.
+# frozen "false" with no frozen_at = never frozen. platform-api grants a tier-C
+# auto-approval only while this freeze ConfigMap exists and reads frozen=false; a
+# missing one stops tier-B releases nowhere (platform-api and the Tekton
+# release-window task alike), so applying nothing keeps today's behaviour.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bifrost-release-policy
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: release-policy
+data: {}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bifrost-release-freeze
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: release-policy
+data:
+  frozen: "false"

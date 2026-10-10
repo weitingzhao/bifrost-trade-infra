@@ -292,6 +292,14 @@ maintainers:
     max_tier: B
     detected_by: BifrostMaintainerReleaseRecorderStale
     status: active
+  - id: platform/prod/release-policy-expiry
+    what: "Hourly release-policy check on PROD workers (W-42). Pushes the Owner 14d, 3d and 1d before the signed policy expires, and again when a release waits on an expired one. No policy installed = it records a pass and pushes nothing. STG sets PLATFORM_RELEASE_POLICY_REMINDERS=off."
+    runs_on: cluster:bifrost-platform-prod/platform-workers
+    schedule: "every 1h"
+    env: prod
+    max_tier: A
+    detected_by: BifrostMaintainerReleasePolicyExpiryStale
+    status: active
   - id: platform/stg/data-clone-scheduler
     what: "Same hourly loop as PROD, started because STG workers role is on. Its schedule ConfigMap is also absent, so it no-ops. Default source if someone enables it is bifrost_prod. PATROL_MODE is not set here."
     runs_on: cluster:bifrost-platform-stg/platform-workers

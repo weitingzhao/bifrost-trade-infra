@@ -8,6 +8,10 @@
 #   release.sh hold --what <repo>[,<repo>...]    hold that same window until this process exits
 #   release.sh db-steps [<env>]                  list one-off DB steps and their state
 #   release.sh db-done <env> <step-id>           record that the Owner ran a step
+#   release.sh policy status                     the signed release policy and the freeze, as platform-api sees them
+#   release.sh policy sign [--days N] [--key f]  Owner: render, sign (ssh-keygen -Y sign) and install a policy
+#   release.sh freeze --reason <text>            refuse every release until the Owner unfreezes
+#   release.sh unfreeze [--key f]                Owner: sign and lift the current freeze
 #
 # options: --dry-run         run the read-only checks, print every platform call, change nothing
 #          --allow <file>    expected changes for the after-check diff (repeatable; see expected.d/)
@@ -26,6 +30,11 @@
 # POST /api/v1/delivery/mirrors/sync, then refuse unless each shipped SHA has
 # a Succeeded ci-* run (--allow-red <reason> overrides, and the reason is logged).
 #
+# platform-api is the only judge of the signed release policy (W-42, card 2 = B).
+# A PROD request the policy covers comes back "call directly" and this script
+# starts the run directly; anything else waits for the Owner's approval as
+# before. No policy installed = every PROD release waits for the Owner.
+#
 # Steps: open the release window (refuses if one is open) -> no bifrost-deliver-*
 # run running or created in the last 2 minutes -> [prod: the STG run succeeded
 # and its release-check passed; read the six clone SHAs] -> pending one-off DB
@@ -38,7 +47,7 @@ set -euo pipefail
 # shellcheck source=scripts/release/lib.sh
 source "$(dirname "$0")/lib.sh"
 
-release_usage() { sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; }
+release_usage() { sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//'; }
 
 # The window lives in ConfigMap cicd/bifrost-release-window. The local file is only
 # migrated once, then renamed. Pipelines read who and what from that ConfigMap.
@@ -55,6 +64,8 @@ WINDOW_OWNED=0
 WINDOW_RENEW_PID=""
 PLATFORM_HTTP=""
 PLATFORM_BODY=""
+POLICY_DIR="${BIFROST_RELEASE_POLICY_DIR:-${INFRA_ROOT}/agent-config/release-policy}"
+POLICY_KEY="${BIFROST_RELEASE_KEY:-${HOME}/.ssh/bifrost_release_owner}"
 
 # ── platform calls (token stays in a mode-600 curl config) ──────────────────
 
@@ -529,7 +540,7 @@ start_stg_run() {
 }
 
 start_prod_run() {
-  local sha_file="$1" body resp id status deadline core
+  local sha_file="$1" body resp id status deadline core policy
   core="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["coreRevision"])' "${sha_file}")"
   body="$(python3 -c 'import json,sys
 shas=json.load(open(sys.argv[1]))
@@ -541,7 +552,23 @@ print(json.dumps({"action":"start_pipeline_run","reason":"prod pinned from "+sys
     echo "[dry-run] would poll GET /api/v1/approvals/<id> until the Owner approves"
     return 0
   fi
-  resp="$(platform_send POST /api/v1/approvals "${body}" operator)" || rel_die "could not ask to start the PROD run" 1
+  if ! platform_send POST /api/v1/approvals "${body}" operator >/dev/null; then
+    policy="$(printf '%s' "${PLATFORM_BODY}" | json_field auto_approved_by)"
+    if [[ "${PLATFORM_HTTP}" == "400" && -n "${policy}" ]]; then
+      echo "release policy ${policy} covers this release: starting bifrost-deliver-prod directly"
+      body="$(printf '%s' "${body}" | python3 -c 'import json,sys
+p=json.load(sys.stdin)["params"]
+print(json.dumps({"revision":p["revision"],"who":p["who"],"params":p["params"]}))')"
+      resp="$(platform_send POST /api/v1/delivery/pipelines/bifrost-deliver-prod/runs "${body}" operator)" \
+        || rel_die "the policy covered the PROD run and the direct start failed" 1
+      RUN_NAME="$(printf '%s' "${resp}" | run_name_from)"
+      [[ -n "${RUN_NAME}" ]] || rel_die "PROD run response has no run name" 1
+      echo "created ${RUN_NAME} (auto-approved by ${policy})"
+      return 0
+    fi
+    rel_die "could not ask to start the PROD run" 1
+  fi
+  resp="${PLATFORM_BODY}"
   id="$(printf '%s' "${resp}" | json_field id)"
   [[ -n "${id}" ]] || rel_die "PROD approval response has no id" 1
   echo "waiting for Owner to approve ${id} (start_pipeline_run bifrost-deliver-prod, core ${core})"
@@ -576,9 +603,124 @@ print(run)
   done
 }
 
+# ── release policy and freeze (platform-api judges; this script signs) ──────
+
+policy_print() {
+  python3 -c 'import json,sys
+s=json.loads(sys.stdin.read() or "{}")
+left=int(s.get("remaining_seconds") or 0)
+print("policy    %s" % (s.get("policy_id") or "none"))
+print("valid     %s%s" % (s.get("valid"), "" if not s.get("expires_at") else "  (expires %s, %dd %dh left)" % (s["expires_at"], left // 86400, left % 86400 // 3600)))
+print("allow     %s" % (", ".join(s.get("allow") or []) or "-"))
+print("frozen    %s%s" % (s.get("frozen"), "" if not s.get("frozen") else "  (%s, at %s)" % (s.get("freeze_reason") or "-", s.get("frozen_at") or "?")))
+print("anchor    %s" % (s.get("anchor_fingerprint") or "none compiled in: nothing auto-approves"))
+for r in s.get("reasons") or []:
+    print("reason    %s" % r)
+'
+}
+
+policy_sign() {
+  local days="" key="${POLICY_KEY}" dir id body
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --days) days="${2:?--days needs a number}"; shift 2 ;;
+      --key) key="${2:?--key needs a path}"; shift 2 ;;
+      *) rel_die "unknown argument: $1" ;;
+    esac
+  done
+  [[ -f "${key}" ]] || rel_die "no signing key at ${key} (ssh-keygen -t ed25519 -C bifrost-release-owner -f ${key})"
+  mkdir -p "${RELEASE_HOME}/policy"
+  dir="$(mktemp -d "${RELEASE_HOME}/policy/new.XXXXXX")"
+  python3 "${RELEASE_DIR}/release_policy.py" render --template "${POLICY_DIR}/template.json" \
+    --paths "${POLICY_DIR}/paths.json" ${days:+--days "${days}"} --out "${dir}/policy.yaml" | tee "${dir}/render.txt"
+  id="$(awk '$1 == "policy_id" { print $2 }' "${dir}/render.txt")"
+  [[ -n "${id}" ]] || rel_die "render printed no policy_id"
+  echo "signing ${dir}/policy.yaml with ${key} (ssh-keygen asks for the passphrase or Touch ID)"
+  ssh-keygen -Y sign -f "${key}" -n bifrost-release-policy "${dir}/policy.yaml"
+  mv "${dir}/policy.yaml.sig" "${dir}/policy.sig"
+  rm -rf "${RELEASE_HOME}/policy/${id}"
+  mv "${dir}" "${RELEASE_HOME}/policy/${id}"
+  dir="${RELEASE_HOME}/policy/${id}"
+  body="$(python3 -c 'import json,sys
+print(json.dumps({"policy_yaml":open(sys.argv[1]).read(),"policy_sig":open(sys.argv[2]).read()}))' "${dir}/policy.yaml" "${dir}/policy.sig")"
+  platform_send PUT /api/v1/release-policy "${body}" operator >/dev/null \
+    || rel_die "platform-api did not install ${id} (signed files kept in ${dir}; retry with: $0 policy install ${dir})" 1
+  printf '%s' "${PLATFORM_BODY}" | policy_print
+}
+
+policy_install() {
+  local dir="${1:?usage: $0 policy install <dir with policy.yaml and policy.sig>}" body
+  [[ -f "${dir}/policy.yaml" && -f "${dir}/policy.sig" ]] || rel_die "need ${dir}/policy.yaml and ${dir}/policy.sig"
+  body="$(python3 -c 'import json,sys
+print(json.dumps({"policy_yaml":open(sys.argv[1]).read(),"policy_sig":open(sys.argv[2]).read()}))' "${dir}/policy.yaml" "${dir}/policy.sig")"
+  platform_send PUT /api/v1/release-policy "${body}" operator >/dev/null || rel_die "platform-api did not install ${dir}" 1
+  printf '%s' "${PLATFORM_BODY}" | policy_print
+}
+
+cmd_policy() {
+  local sub="${1:-}"
+  shift || true
+  case "${sub}" in
+    status)
+      platform_send GET /api/v1/release-policy "" viewer >/dev/null || rel_die "could not read the release policy" 1
+      printf '%s' "${PLATFORM_BODY}" | policy_print ;;
+    sign) policy_sign "$@" ;;
+    install) policy_install "$@" ;;
+    *) rel_die "usage: $0 policy status | sign [--days N] [--key <path>] | install <dir>" ;;
+  esac
+}
+
+cmd_freeze() {
+  local reason="" who="${BIFROST_RELEASE_WHO:-${USER}@$(hostname -s)}" body
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --reason) reason="${2:?--reason needs text}"; shift 2 ;;
+      --who) who="${2:?}"; shift 2 ;;
+      *) rel_die "unknown argument: $1" ;;
+    esac
+  done
+  [[ -n "${reason}" ]] || rel_die "freeze needs --reason <text>"
+  body="$(python3 -c 'import json,sys; print(json.dumps({"who":sys.argv[1],"reason":sys.argv[2]}))' "${who}" "${reason}")"
+  platform_send POST /api/v1/release-policy/freeze "${body}" operator >/dev/null || rel_die "the freeze was not written" 1
+  printf '%s' "${PLATFORM_BODY}" | policy_print
+  echo "every release is refused until the Owner runs: $0 unfreeze"
+}
+
+cmd_unfreeze() {
+  local key="${POLICY_KEY}" who="${BIFROST_RELEASE_WHO:-${USER}@$(hostname -s)}" frozen frozen_at tmp body
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --key) key="${2:?}"; shift 2 ;;
+      --who) who="${2:?}"; shift 2 ;;
+      *) rel_die "unknown argument: $1" ;;
+    esac
+  done
+  [[ -f "${key}" ]] || rel_die "no signing key at ${key}"
+  platform_send GET /api/v1/release-policy "" viewer >/dev/null || rel_die "could not read the freeze" 1
+  frozen="$(printf '%s' "${PLATFORM_BODY}" | json_field frozen)"
+  frozen_at="$(printf '%s' "${PLATFORM_BODY}" | json_field frozen_at)"
+  if [[ "${frozen}" != "True" ]]; then
+    echo "not frozen"
+    return 0
+  fi
+  [[ -n "${frozen_at}" ]] || rel_die "the freeze has no frozen_at; platform-api cannot check an unfreeze against it" 1
+  tmp="$(mktemp -d)"
+  printf 'unfreeze frozen_at=%s at=%s by=%s\n' "${frozen_at}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${who}" >"${tmp}/unfreeze.txt"
+  echo "signing the unfreeze of ${frozen_at} with ${key} (ssh-keygen asks for the passphrase or Touch ID)"
+  ssh-keygen -Y sign -f "${key}" -n bifrost-release-unfreeze "${tmp}/unfreeze.txt"
+  body="$(python3 -c 'import json,sys
+print(json.dumps({"text":open(sys.argv[1]).read(),"sig":open(sys.argv[2]).read()}))' "${tmp}/unfreeze.txt" "${tmp}/unfreeze.txt.sig")"
+  rm -rf "${tmp}"
+  platform_send POST /api/v1/release-policy/unfreeze "${body}" operator >/dev/null || rel_die "platform-api refused the unfreeze" 1
+  printf '%s' "${PLATFORM_BODY}" | policy_print
+}
+
 # ── the release ──────────────────────────────────────────────────────────────
 
 case "${1:-}" in
+  policy) shift; cmd_policy "$@"; exit 0 ;;
+  freeze) shift; cmd_freeze "$@"; exit 0 ;;
+  unfreeze) shift; cmd_unfreeze "$@"; exit 0 ;;
   window)
     shift
     DRY_RUN=0

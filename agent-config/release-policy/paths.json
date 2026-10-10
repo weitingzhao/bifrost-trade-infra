@@ -1,0 +1,155 @@
+{
+  "version": 1,
+  "about": "Release-policy path table (W-42, card 2 = B). release.sh policy sign merges this file and template.json into the signed policy.yaml; platform-api is the only judge and reads the copy the Owner signed. A path that matches a rule means the release waits for the Owner, except no_ddl hits that the additive_ddl condition proves add-only. Globs: ** spans directories, * and ? stay inside one segment; repo * means every repo. db_steps: DB steps on Gitea main of repo/dir that are due before the pipeline's env and not marked done keep the release waiting. pinned: pipelines that ship the commits in their params; each must equal what the newest record of the from pipeline shipped.",
+  "ci_repos": [
+    "bifrost-trade-core",
+    "bifrost-trade-api",
+    "bifrost-trade-worker",
+    "bifrost-trade-frontend",
+    "bifrost-research",
+    "bifrost-platform"
+  ],
+  "db_steps": {
+    "repo": "bifrost-trade-infra",
+    "dir": "scripts/release/db-steps.d",
+    "pipelines": {
+      "bifrost-deliver-stg": "stg",
+      "bifrost-deliver-prod": "prod"
+    }
+  },
+  "pinned": {
+    "bifrost-deliver-prod": {
+      "from": "bifrost-deliver-stg",
+      "params": {
+        "coreRevision": "bifrost-trade-core",
+        "workerRevision": "bifrost-trade-worker",
+        "apiRevision": "bifrost-trade-api",
+        "frontendRevision": "bifrost-trade-frontend",
+        "uiRevision": "bifrost-ui",
+        "infraRevision": "bifrost-trade-infra"
+      }
+    },
+    "bifrost-deliver-platform-prod": {
+      "from": "bifrost-deliver-platform",
+      "params": {
+        "revision": "bifrost-platform",
+        "uiRevision": "bifrost-ui"
+      }
+    }
+  },
+  "paths": {
+    "no_ddl": [
+      {
+        "repo": "*",
+        "paths": [
+          "**/ddl*.py",
+          "**/*_ddl.py",
+          "**/*.sql",
+          "**/db_init*",
+          "**/db-init*",
+          "**/migrations/**",
+          "**/*migration*.py"
+        ]
+      },
+      {
+        "repo": "bifrost-trade-infra",
+        "paths": [
+          "scripts/release/db-steps.d/**"
+        ]
+      },
+      {
+        "repo": "bifrost-research",
+        "paths": [
+          "k8s/jobs/ddl-apply.yaml"
+        ]
+      }
+    ],
+    "no_d10_paths": [
+      {
+        "repo": "bifrost-trade-worker",
+        "paths": [
+          "scripts/run_daemon.py",
+          "src/bifrost_worker/daemon/execution/**",
+          "src/bifrost_worker/daemon/fsm/**",
+          "src/bifrost_worker/daemon/guards/**",
+          "src/bifrost_worker/daemon/strategy/**",
+          "src/bifrost_worker/daemon/app/hedge_flow.py",
+          "src/bifrost_worker/daemon/app/daemon_handlers.py",
+          "src/bifrost_worker/daemon/app/control_heartbeat.py"
+        ]
+      },
+      {
+        "repo": "bifrost-trade-core",
+        "paths": [
+          "src/bifrost_core/ib_operator/**",
+          "src/bifrost_core/core/daemon_flags.py",
+          "src/bifrost_core/persistence/redis_daemon_state.py"
+        ]
+      },
+      {
+        "repo": "bifrost-trade-api",
+        "paths": [
+          "src/bifrost_api/monitor/routers/daemon.py"
+        ]
+      },
+      {
+        "repo": "bifrost-trade-infra",
+        "paths": [
+          "k8s/overlays/stg/daemon-scale-zero.patch.yaml",
+          "k8s/overlays/prod/daemon-observe-safe.patch.yaml",
+          "k8s/overlays/stg/kustomization.yaml",
+          "k8s/overlays/prod/kustomization.yaml",
+          "k8s/base/worker/**"
+        ]
+      },
+      {
+        "repo": "bifrost-platform-plugin",
+        "paths": [
+          "src/bifrost_plugin/ib_gateway/operator.py",
+          "scripts/ib-gateway-set-live.sh",
+          "k8s/redis-ib/**"
+        ]
+      },
+      {
+        "repo": "bifrost-platform",
+        "paths": [
+          "config/ops-context.yaml"
+        ]
+      }
+    ],
+    "no_trust_anchor_change": [
+      {
+        "repo": "bifrost-platform",
+        "paths": [
+          "api/internal/releasepolicy/**",
+          "api/internal/approvals/**",
+          "api/internal/approvalnotify/**",
+          "api/internal/actions/**",
+          "api/internal/server/actions_wire.go",
+          "api/internal/server/release_policy*.go",
+          "api/internal/delivery/release_policy*.go",
+          "api/internal/delivery/release_window.go",
+          "api/internal/releases/**",
+          "mcp/platform/src/writeGate.ts",
+          "mcp/platform/src/platformClient.ts",
+          "mcp/platform/src/registerApprove.ts"
+        ]
+      },
+      {
+        "repo": "bifrost-trade-infra",
+        "paths": [
+          "agent-config/release-policy/**",
+          "agent-config/scripts/agent-guard/**",
+          "agent-config/claude/auto-mode/**",
+          "scripts/release/release.sh",
+          "scripts/release/lib.sh",
+          "scripts/release/release_policy.py",
+          "scripts/release/ci_gate.py",
+          "k8s/cicd/release-policy/**",
+          "k8s/cicd/tekton/task-release-window.yaml",
+          "k8s/platform-rbac/**"
+        ]
+      }
+    ]
+  }
+}

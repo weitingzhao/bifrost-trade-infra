@@ -251,6 +251,20 @@ spec:
           annotations:
             summary: "PROD release recorder has not completed a pass for 10 minutes"
             description: The recorder ticks every 5 minutes. 10 minutes is twice that.
+        - alert: BifrostMaintainerReleasePolicyExpiryStale
+          expr: |
+            (
+              time() - bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/release-policy-expiry"} > 7200
+            )
+            or absent_over_time(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/release-policy-expiry"}[2h])
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PROD release-policy expiry check has not completed a pass for 2 hours"
+            description: >-
+              The check runs hourly and is what pushes the Owner before the
+              signed release policy expires. 2 hours is twice that.
     - name: bifrost-maintainer-reconcile
       rules:
         # The CronJob deletes this ConfigMap when drift > 0 and recreates it

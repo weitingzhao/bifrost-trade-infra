@@ -21,6 +21,10 @@ spec:
               value: "false"
             - name: PLATFORM_RELEASE_RECORDER
               value: "off"
+            # W-42: release-policy expiry reminders go to the Owner's phone;
+            # PROD is the one sender.
+            - name: PLATFORM_RELEASE_POLICY_REMINDERS
+              value: "off"
             # LANE-B4: code defaults both loops on. STG observes (ADR §4), so
             # this overlay is the only place they are off. PROD leaves them unset.
             - name: PLATFORM_DATA_CLONE_SCHEDULER

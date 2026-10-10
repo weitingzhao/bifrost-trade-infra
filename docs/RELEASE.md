@@ -11,6 +11,7 @@
 | `prod-pinned-from-stg.sh <stg-run> [-o f]` | 读出 STG run 的 6 个 clone SHA（不创建 run） | 只写 JSON |
 | `release-check.sh <env> before\|after\|probes` / `diff a b` | 快照、diff、`/health` core 身份、探针 | 只读（GET、`kubectl get`） |
 | `tag_core_release.sh <sha> [--push]` | 给到达 PROD 的 core 提交打 `v<version>` | 只在 `--push` 时 |
+| `release.sh policy status\|sign\|install`、`freeze`、`unfreeze` | 发布策略与冻结（见「发布策略」） | 只经 platform-api 写 |
 
 ## 一次完整发布
 
@@ -51,6 +52,7 @@ scripts/release/release.sh dev                          # make dev-sync-backend-
    角色矩阵走 `psql`（`PGHOST=192.168.10.73` `PGPORT=30432` `PGUSER=agent_reader`，口令在 `~/.pgpass`）。
 6. **起 run**：STG `POST /api/v1/delivery/pipelines/bifrost-deliver-stg/runs`（revision main，直接调用，级别 B）。
    PROD `POST /api/v1/approvals`（action `start_pipeline_run`，name `bifrost-deliver-prod`，级别 C），然后用 viewer 令牌轮询到 executed，读出 `result.run.name`。
+   平台若回 400 `call directly` 且带 `auto_approved_by`（签名策略覆盖这次发布），脚本改为直接 `POST /api/v1/delivery/pipelines/bifrost-deliver-prod/runs`，平台在 guard 里再判一次并写审计。
    DEV 是 `RESTART=1 make dev-sync-backend-images`：worker、四个 API 和前端的 `:dev` 一起跟 `:stg`（前端镜像不分环境；2026-10-05 前前端不在内，DEV 前端曾停在 10-02）。
 7. **等待**：每 15 秒看一次，直到离开 Unknown，打印每个 TaskRun 的耗时（10-03 实测 STG 约 4 分钟、PROD 约 5 分钟）。
    超过 `--timeout`（默认 3600 秒）以 3 退出——run 仍在跑，不要再起一个。
@@ -101,6 +103,38 @@ ConfigMap `cicd/bifrost-release-window`，`what` 写仓库名。对应流水线�
 `POST /api/v1/delivery/mirrors/sync`，并要求所发 SHA 有 Succeeded 的 `ci-*`，`--allow-red <原因>` 才放行。
 STG 与 PROD 之间（等 Owner 看 STG）没有锁——这段时间推 main 不影响 PROD，
 因为 PROD 钉的是 STG 克隆的提交，不是 `main`。
+
+## 发布策略（W-42，卡 2 = B）
+
+**platform-api 是唯一的裁判**；`release.sh` 只签名、只调平台，自己不判。没有生效的策略时一切照旧：
+PROD / platform-prod / research 的发布（级别 C）等 Owner 批，STG 与构建（级别 B）直接跑。
+
+| 对象 | 位置 | 谁写 |
+|------|------|------|
+| 策略 | ConfigMap `cicd/bifrost-release-policy`（`policy.yaml` 规范 JSON + `policy.sig`） | `PUT /api/v1/release-policy`（`release.sh policy sign`） |
+| 冻结 | ConfigMap `cicd/bifrost-release-freeze` | `POST …/freeze`（任何人）、`POST …/unfreeze`（Owner 签名） |
+| 信任根 | platform 编译进去的 `releasepolicy.OwnerKeyFingerprint`（`api/internal/releasepolicy/anchor.go`） | 改它是信任根变更，Owner 手动发 PROD |
+| 模板与路径表 | `agent-config/release-policy/template.json`、`paths.json` | 改它们在下一次签名时生效 |
+
+- **签名**：`release.sh policy sign [--days N]` 用 `~/.ssh/bifrost_release_owner`（`BIFROST_RELEASE_KEY` 可改）
+  `ssh-keygen -Y sign -n bifrost-release-policy`，再 PUT 给平台；平台按编译进去的指纹验签，拒绝过期的、
+  早于已装策略的。签好的文件留在 `~/.bifrost-release/policy/<policy_id>/`，平台不在线时用 `policy install <dir>` 补装。默认 90 天。
+- **判定**（全部满足才不等人）：签名有效且未过期；未冻结；pipeline 在 `allow`；申请方持有发布窗口；
+  该环境没有未完成的 before DB 步骤（读 Gitea main 上 `scripts/release/db-steps.d/` 的 `done:` 行，本机 `db-done` 不算）；
+  revision 是 main 头或 tag——PROD 与 platform-prod 改为「钉住的提交 = 最新一条 STG / platform STG 发布记录发的提交」；
+  每个 SHA 有 Succeeded 的 `ci-*`；diff（上次发布记录 → 这次）不碰 D10 路径、不碰信任根，碰 DDL 时必须只增不改
+  （`additive_ddl`：只加行；无 DROP / RENAME / ALTER COLUMN / 不带 CONCURRENTLY 的 CREATE INDEX / 无默认值的 NOT NULL 列等）。
+- **级别 B**（STG、构建）：设了冻结就 409 拒绝；有生效策略时照常起 run，并写审计 `release_policy.check`（covered / not covered + 条款），
+  这是 PROD 依赖这些事实之前的影子演练。
+- **级别 C**：覆盖 → `POST /api/v1/approvals` 回 400 `call directly` + `auto_approved_by`，直接调用时 guard 写审计
+  `release_policy.auto_approve`（policy_id、请求方、SHA、条款）；不覆盖 → 照旧建审批单推给 Owner，理由写在单里。
+- **冻结**：`release.sh freeze --reason <原因>` 立即拒绝所有新发布（平台的级别 B / C，以及 research / 插件流水线的
+  release-window task 的 `freeze` 步骤）。`release.sh unfreeze` 由 Owner 对 `unfreeze frozen_at=<那次冻结> …` 签名，
+  平台只接受针对当前这次冻结的签名。ConfigMap 不存在不算冻结（向后兼容），但级别 C 的自动放行要求它存在且为 false。
+- **到期提醒**：PROD platform-workers 每小时查一次，到期前 14 天、3 天、1 天推送 Owner，过期后有发布在等再推一次
+  （STG 设 `PLATFORM_RELEASE_POLICY_REMINDERS=off`）。存活由 maintainer `platform/prod/release-policy-expiry` 记。
+- **首次落地**（一次）：apply `k8s/cicd/release-policy/configmaps.yaml`、`k8s/cicd/tekton/rbac-release-window.yaml`、
+  `k8s/cicd/tekton/task-release-window.yaml`（都不在 Argo 下，走平台 `apply_manifest` 审批；先 ConfigMap 和 RBAC，再 task）。
 
 ## 一次性 DB 步骤
 
