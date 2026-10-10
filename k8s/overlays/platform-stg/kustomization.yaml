@@ -39,6 +39,7 @@ patches:
   - path: platform-api-satellite-audit-token.patch.yaml
   - path: platform-api-reporter-token.patch.yaml
   - path: platform-api-role-tokens.patch.yaml
+  - path: platform-api-recreate.patch.yaml
 
 images:
   - name: registry.cicd.svc.cluster.local:5000/bifrost-platform-api

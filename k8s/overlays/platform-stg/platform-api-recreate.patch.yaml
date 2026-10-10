@@ -1,0 +1,15 @@
+# W-48: platform-api stops the old pod before it starts the new one.
+#
+# The approvals statefile is written by platform-api. A rolling update runs the old and the
+# new binary side by side for a moment; when a release changes the file's shape, the old
+# binary rewrites records without the fields it does not know (Codex review 4a, finding 2).
+# Recreate costs a few seconds of API downtime per release and removes that window.
+# platform-workers already uses Recreate in the base.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-api
+spec:
+  strategy:
+    type: Recreate
+    rollingUpdate: null
