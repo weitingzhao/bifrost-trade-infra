@@ -11,21 +11,21 @@
 #
 #   bash bifrost-trade-infra/agent-config/claude/auto-mode/apply-release-permissions.sh
 set -euo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"
+HERE="$(cd "$(dirname "$0")" && pwd -P)"
+WORKSPACE="${BIFROST_WORKSPACE:-$(cd "$HERE/../../../.." && pwd -P)}"
 USER_SETTINGS="$HOME/.claude/settings.json"
 STAMP="$(date +%Y%m%dT%H%M%S)"
 
+[ -f "$WORKSPACE/bifrost-platform/config/ops-context.yaml" ] || { echo "not a Bifrost workspace: $WORKSPACE (set BIFROST_WORKSPACE)" >&2; exit 1; }
 [ -f "$USER_SETTINGS" ] || echo '{}' > "$USER_SETTINGS"
 cp "$USER_SETTINGS" "$USER_SETTINGS.bak-$STAMP"
 
-python3 - "$USER_SETTINGS" "$HERE/release-permissions.json" <<'PY'
+python3 - "$USER_SETTINGS" "$HERE/release-permissions.json" "$WORKSPACE" <<'PY'
 import json, sys
-user, payload = sys.argv[1:]
-import os
+user, payload, workspace = sys.argv[1:]
 p = json.load(open(payload))
-# The payload spells the Mac Pro home; each machine gets its own (Mac Mini 01 runs as /Users/vision).
-home = os.path.expanduser("~")
-p = {k: [r.replace("/Users/vision-mac-trader", home) for r in v] for k, v in p.items() if k in ("allow", "ask")}
+# The payload spells the workspace root as @WORKSPACE@; each machine gets its own.
+p = {k: [r.replace("@WORKSPACE@", workspace) for r in v] for k, v in p.items() if k in ("allow", "ask")}
 u = json.load(open(user))
 perms = u.setdefault("permissions", {})
 for key in ("allow", "ask"):

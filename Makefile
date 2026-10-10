@@ -703,5 +703,6 @@ test-role-matrix:
 	python3 -m unittest discover -s k8s/data/role-matrix -p 'test_*.py'
 check-maintainers: ; python3 scripts/check_maintainers.py
 check-config-secrets: ; python3 scripts/scrub_config_secrets.py --check && python3 -m unittest scripts/test_scrub_config_secrets.py
+check-hardcoded-paths: ; python3 agent-config/scripts/check_hardcoded_paths.py && python3 -m unittest agent-config/scripts/test_check_hardcoded_paths.py
 check-monitoring-persistence: ; python3 scripts/check_monitoring_persistence.py && python3 -m unittest scripts/test_check_monitoring_persistence.py
 check-pitr-drill: ; python3 scripts/check_pitr_drill_manifest.py

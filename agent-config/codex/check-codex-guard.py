@@ -73,6 +73,26 @@ def hooks_list(cwds: list[str]) -> dict:
         p.terminate()
 
 
+def smoke_hook(command: str) -> list[str]:
+    """Run the hook command the way Codex does (through a shell) on two payloads.
+
+    A command whose script path does not resolve is an error hook, and Codex lets the
+    tool call through; only a deny for `git add -A` and a clean allow prove the gate runs.
+    """
+    base = {"session_id": "s", "turn_id": "t", "cwd": "/tmp", "hook_event_name": "PreToolUse", "model": "m"}
+    fails: list[str] = []
+    for cmd, want in (("git add " + "-A", "deny"), ("git status --short", "allow")):
+        payload = json.dumps({**base, "tool_name": "Bash", "tool_input": {"command": cmd}})
+        r = subprocess.run(["sh", "-c", command], input=payload, capture_output=True, text=True, timeout=30)
+        got = "error" if r.returncode else "allow"
+        if not r.returncode and r.stdout.strip():
+            decision = json.loads(r.stdout).get("hookSpecificOutput", {}).get("permissionDecision")
+            got = "deny" if decision == "deny" else "allow"
+        if got != want:
+            fails.append(f"hook command on `{cmd}`: want {want}, got {got} ({r.stderr.strip()[:200]})")
+    return fails
+
+
 def probe() -> list[str]:
     fails: list[str] = []
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="codex-guard-probe-"))
@@ -135,6 +155,7 @@ def main() -> int:
                              "re-trust it (README, install step 4)")
             elif h["matcher"] not in (None, "", ".*", "*"):
                 fails.append(f"{where}: matcher {h['matcher']!r} does not cover every tool")
+            fails += [f"{where}: {f}" for f in smoke_hook(h["command"])]
 
     if "--probe" in sys.argv[1:]:
         fails += probe()

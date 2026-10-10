@@ -21,7 +21,7 @@ Codex 的配置在用户级 `~/.codex/`，不进仓库。本文件记录它的�
         "hooks": [
           {
             "type": "command",
-            "command": "/opt/homebrew/bin/node /Users/vision-mac-trader/Desktop/stocks/scripts/agent-guard/codex-pretooluse.js",
+            "command": "/opt/homebrew/bin/node \"${BIFROST_WORKSPACE:-$HOME/Desktop/stocks}/scripts/agent-guard/codex-pretooluse.js\"",
             "timeout": 30
           }
         ]
@@ -31,21 +31,23 @@ Codex 的配置在用户级 `~/.codex/`，不进仓库。本文件记录它的�
 }
 ```
 
-`~/.codex/config.toml` 里本项加的部分（其余是 App 自己写的模型、插件、桌面设置，不动）：
+Codex 经 shell 跑这条命令，所以 `${BIFROST_WORKSPACE:-$HOME/Desktop/stocks}` 会展开：工作区在别处时设 `BIFROST_WORKSPACE`，否则取 `~/Desktop/stocks`。路径解析不到时 Codex 把这条 hook 当出错、照样放行工具调用，所以 `check-codex-guard.py` 会用同一条命令真跑一次 `git add -A`（要 deny）和 `git status`（要放行）。W-36（10-10）由写死的路径改成这一版，重新 trust 后 `codex exec` 实测 `git add -A` 被拦、`git status --short` exit 0。
+
+`~/.codex/config.toml` 里本项加的部分（其余是 App 自己写的模型、插件、桌面设置，不动；`<workspace>`、`<home>` 填本机的绝对路径，Codex 只认绝对路径）：
 
 ```toml
 # 顶层
 sandbox_mode = "workspace-write"
 approval_policy = "on-request"
 
-[projects."/Users/vision-mac-trader/Desktop/stocks"]
+[projects."<workspace>"]
 trust_level = "trusted"
 
-[projects."/Users/vision-mac-trader/agent-work"]
+[projects."<home>/agent-work"]
 trust_level = "trusted"
 
-[hooks.state."/Users/vision-mac-trader/.codex/hooks.json:pre_tool_use:0:0"]
-trusted_hash = "sha256:e7c800d6102109a9845380ef036b76401952ee13c70cb784b8b98d38c8fa131d"
+[hooks.state."<home>/.codex/hooks.json:pre_tool_use:0:0"]
+trusted_hash = "sha256:54ead03e5d5092a3d63f264a99879a710eb716396910dee4542061b0b26b9da2"
 ```
 
 `~/.codex/AGENTS.md`：一段带条件的指针。在 `/stocks` 或 `~/agent-work` 下工作时先读 `/stocks/AGENTS.md`，别的项目不受影响。需要它的原因：Codex 从 git 根往下找 `AGENTS.md`，而 `/stocks` 不是 git 仓库。实测在子仓库（如 `bifrost-trade-frontend`）和 `~/agent-work` 的 worktree 里，Codex 都读不到根目录那份。

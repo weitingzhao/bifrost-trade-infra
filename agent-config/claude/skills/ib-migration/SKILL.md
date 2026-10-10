@@ -84,8 +84,8 @@ Trade Daemon / Worker / API
 
 **验证命令**:
 ```bash
-cd /Users/vision-mac-trader/Desktop/stocks/bifrost-platform-plugin && make test
-cd /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-worker && make test
+make -C bifrost-platform-plugin test
+make -C bifrost-trade-worker test
 ```
 
 ### Phase 2: 写类 RPC 实现
@@ -98,8 +98,8 @@ cd /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-worker && make test
 
 **验证命令**:
 ```bash
-cd /Users/vision-mac-trader/Desktop/stocks/bifrost-platform-plugin && make test
-cd /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-core && make test
+make -C bifrost-platform-plugin test
+make -C bifrost-trade-core test
 ```
 
 **⚠️ 需要 Owner 决策**:
@@ -116,8 +116,8 @@ cd /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-core && make test
 
 **验证命令**:
 ```bash
-cd /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-worker && make test
-cd /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-core && make test
+make -C bifrost-trade-worker test
+make -C bifrost-trade-core test
 ```
 
 ### Phase 4: 清理与加固
@@ -130,9 +130,9 @@ cd /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-core && make test
 **验证命令**:
 ```bash
 # socket repo retired — do not expect local checkout
-cd /Users/vision-mac-trader/Desktop/stocks/bifrost-platform-plugin && make test
-cd /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-worker && make test
-cd /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-core && make test
+make -C bifrost-platform-plugin test
+make -C bifrost-trade-worker test
+make -C bifrost-trade-core test
 ```
 
 ## Self-check commands (per repo)

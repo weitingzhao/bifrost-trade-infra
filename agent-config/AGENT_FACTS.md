@@ -207,6 +207,10 @@ Owner **2026-08-31** 签批 D-14GF.1–6（R1）；同日 GitHub Archive + 授�
 - **GPU**：`gpu-server` @ 192.168.10.60（RTX 4090）— Ollama @ `ai` NS。data-warehouse 的 MinIO 从未运行；清单已删（TD-237），namespace 等 Owner 删。
 - **Dev 拓扑**：Mac 本地 = IDE + Vite(:5173) + 当前正在编辑的那一个 API；其余全在 K3s
 - **本地 dev 服务**：`bdev` CLI + tmux session `bifrost`，声明在 `~/.bifrost-dev/sessions.yaml`
+- **工作区根不写死**（W-36，2026-10-10）：本机是 `~/Desktop/stocks`，但仓库里的代码和配置不认这个路径。需要根的地方读 `BIFROST_WORKSPACE`，
+  没设就从自身位置往上找 `bifrost-platform/config/ops-context.yaml`；Claude hooks 用 `$CLAUDE_PROJECT_DIR`，`.mcp.json` 用 `${BIFROST_WORKSPACE:-.}`，
+  用户级配置（`~/.cursor/mcp.json`、`~/.codex/hooks.json`、auto mode）由安装脚本渲染。棘轮：`make check-hardcoded-paths`（infra）。
+  旧名 `GIT_WORKSPACE_ROOT`（git-bridge）、`BIFROST_WORKSPACE_ROOT`（code health）仍被读取
 
 ---
 
@@ -333,7 +337,8 @@ D10 冻结的那个进程只有一个，但在代码、集群与界面上有十�
 - **令牌分级是机械强制**：只读桥钉 viewer（TD-225）；`bifrost-approve` 用同一钉法钉 admin。进程环境优先；没有时从 `~/.config/bifrost/mcp-tokens.env`（权限 600）读 `PLATFORM_VIEWER_TOKEN`、`PLATFORM_OPERATOR_TOKEN`、`PLATFORM_ADMIN_TOKEN`。非回环地址不读 `bifrost-platform/.env`。生成命令不打印值，见 `.mcp.json.README.md`。Mac mini 上的线程以后同样需要这份文件
 - 写开关在合并时就是 `on`：这个分支等 B1R 在 PROD 上线之后才合并，以 `off` 合并会让所有线程的写工具中断。B 级直调，C/D 级改为创建申请并返回申请号。见 `.mcp.json.README.md`
 - focus 白名单在 `mcp/platform/src/focusBridges.ts`。`local` 与 `approve` 在 `index.ts` 里单独注册，不进这张表
-- 配置里的令牌只写 `${PLATFORM_*_TOKEN:-}`，值不进仓库
+- 配置里不写令牌值：Claude `.mcp.json` 写 `${PLATFORM_*_TOKEN:-}`；Cursor 模板不写令牌键，只钉 `PLATFORM_TOKEN_ENV_KEY`，由 server 自己从上面那份文件读
+- Cursor 用户级 `~/.cursor/mcp.json` 由 `agent-config/cursor/install-mcp.py` 从模板渲染（路径换成本机工作区根，先备份，600），装完要在 Cursor 里重载 MCP
 - `preflight.js` 拦截直接请求 `/api/v1/approvals/<id>/approve|reject`、浏览器打开 `#approvals` 去点，以及读取或引用 `PLATFORM_ADMIN_TOKEN` 与 `mcp-tokens.env`。`mcp__bifrost-approve__*` 放行。ADR §5「已知的接受风险」
 - `mcp/unifi/` 未注册（D9 网络执行路径）
 - 详见 `.mcp.json.README.md`

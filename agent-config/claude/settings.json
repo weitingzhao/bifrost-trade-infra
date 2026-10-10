@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/agent-config/scripts/agent-guard/preflight.js"
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/agent-guard/preflight.js\""
           }
         ]
       },
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/agent-config/scripts/agent-guard/preflight.js"
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/agent-guard/preflight.js\""
           }
         ]
       }
@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/agent-config/claude/hooks/on-session-stop.js"
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/on-session-stop.js\""
           }
         ]
       }
@@ -33,8 +33,7 @@
   },
   "permissions": {
     "deny": [
-      "Edit(//Users/vision-mac-trader/Desktop/stocks/bifrost-analytics/**)",
-      "Write(//Users/vision-mac-trader/Desktop/stocks/bifrost-analytics/**)"
+      "Edit(/bifrost-analytics/**)"
     ]
   }
 }

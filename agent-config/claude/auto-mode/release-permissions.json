@@ -16,8 +16,8 @@
     "Bash(kubectl -n research delete job research-ddl-apply-*)",
     "Bash(bash scripts/release/release.sh *)",
     "Bash(scripts/release/release.sh *)",
-    "Bash(bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/release/release.sh *)",
-    "Bash(/Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/release/release.sh *)",
+    "Bash(bash @WORKSPACE@/bifrost-trade-infra/scripts/release/release.sh *)",
+    "Bash(@WORKSPACE@/bifrost-trade-infra/scripts/release/release.sh *)",
     "mcp__bifrost-platform__start_pipeline_run",
     "Bash(git -C /private/tmp/claude-501/research-pin push origin HEAD:refs/heads/main)"
   ],

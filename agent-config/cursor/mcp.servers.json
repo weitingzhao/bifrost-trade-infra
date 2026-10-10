@@ -1,15 +1,15 @@
 {
-  "comment": "Cursor-side MCP template. Same servers as Claude .mcp.json except chat approval is absent. bifrost-platform and bifrost-kubernetes keep MCP_WRITES=on. Merge into ~/.cursor/mcp.json. Do not paste token values.",
+  "comment": "Cursor-side MCP template. Same servers as Claude .mcp.json except chat approval is absent. bifrost-platform and bifrost-kubernetes keep MCP_WRITES=on. Install with python3 agent-config/cursor/install-mcp.py (renders ${workspaceFolder} to the workspace root and merges into ~/.cursor/mcp.json). No token values here: each server pins PLATFORM_TOKEN_ENV_KEY and reads that key from its environment or the 0600 token file.",
   "mcpServers": {
     "bifrost-platform": {
       "command": "npx",
       "args": [
         "tsx",
-        "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform/mcp/platform/src/index.ts"
+        "${workspaceFolder}/bifrost-platform/mcp/platform/src/index.ts"
       ],
       "env": {
         "PLATFORM_API_URL": "http://192.168.10.100:30876",
-        "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_OPERATOR_TOKEN:-}",
+        "PLATFORM_TOKEN_ENV_KEY": "PLATFORM_OPERATOR_TOKEN",
         "MCP_WRITES": "on"
       }
     },
@@ -17,11 +17,11 @@
       "command": "npx",
       "args": [
         "tsx",
-        "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform/mcp/platform/src/index.ts"
+        "${workspaceFolder}/bifrost-platform/mcp/platform/src/index.ts"
       ],
       "env": {
         "PLATFORM_API_URL": "http://192.168.10.100:30876",
-        "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_OPERATOR_TOKEN:-}",
+        "PLATFORM_TOKEN_ENV_KEY": "PLATFORM_OPERATOR_TOKEN",
         "MCP_BRIDGE_FOCUS": "kubernetes",
         "MCP_WRITES": "on"
       }
@@ -30,11 +30,10 @@
       "command": "npx",
       "args": [
         "tsx",
-        "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform/mcp/platform/src/index.ts"
+        "${workspaceFolder}/bifrost-platform/mcp/platform/src/index.ts"
       ],
       "env": {
         "PLATFORM_API_URL": "http://192.168.10.100:30876",
-        "PLATFORM_VIEWER_TOKEN": "${PLATFORM_VIEWER_TOKEN:-}",
         "MCP_BRIDGE_FOCUS": "redis",
         "PLATFORM_TOKEN_ENV_KEY": "PLATFORM_VIEWER_TOKEN"
       }
@@ -43,11 +42,10 @@
       "command": "npx",
       "args": [
         "tsx",
-        "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform/mcp/platform/src/index.ts"
+        "${workspaceFolder}/bifrost-platform/mcp/platform/src/index.ts"
       ],
       "env": {
         "PLATFORM_API_URL": "http://192.168.10.100:30876",
-        "PLATFORM_VIEWER_TOKEN": "${PLATFORM_VIEWER_TOKEN:-}",
         "MCP_BRIDGE_FOCUS": "postgres",
         "PLATFORM_TOKEN_ENV_KEY": "PLATFORM_VIEWER_TOKEN"
       }
@@ -56,11 +54,10 @@
       "command": "npx",
       "args": [
         "tsx",
-        "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform/mcp/platform/src/index.ts"
+        "${workspaceFolder}/bifrost-platform/mcp/platform/src/index.ts"
       ],
       "env": {
         "PLATFORM_API_URL": "http://192.168.10.100:30876",
-        "PLATFORM_VIEWER_TOKEN": "${PLATFORM_VIEWER_TOKEN:-}",
         "MCP_BRIDGE_FOCUS": "prometheus",
         "PLATFORM_TOKEN_ENV_KEY": "PLATFORM_VIEWER_TOKEN"
       }
@@ -69,7 +66,7 @@
       "command": "npx",
       "args": [
         "tsx",
-        "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform/mcp/trade/src/index.ts"
+        "${workspaceFolder}/bifrost-platform/mcp/trade/src/index.ts"
       ],
       "env": {
         "TRADE_API_GATEWAY": "http://192.168.10.73",
@@ -81,11 +78,11 @@
       "command": "npx",
       "args": [
         "tsx",
-        "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform/mcp/platform/src/index.ts"
+        "${workspaceFolder}/bifrost-platform/mcp/platform/src/index.ts"
       ],
       "env": {
         "PLATFORM_API_URL": "http://127.0.0.1:8780",
-        "PLATFORM_OPERATOR_TOKEN": "${PLATFORM_OPERATOR_TOKEN:-}",
+        "PLATFORM_TOKEN_ENV_KEY": "PLATFORM_OPERATOR_TOKEN",
         "MCP_BRIDGE_FOCUS": "local"
       }
     }

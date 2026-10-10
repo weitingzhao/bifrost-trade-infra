@@ -1,0 +1,7 @@
+# check_hardcoded_paths.py baseline: "<count> <repo>/<file>", counts may only go down.
+# Remaining entries are Mac Mini agent-host paths (/Users/vision on .50/.52), not this workstation's;
+# they move to a template when the mini deploy is next touched.
+7 bifrost-platform/agent/deploy/com.bifrost.operator-plane.plist
+6 bifrost-platform/agent/deploy/com.bifrost.peer-watchdog.plist
+2 bifrost-platform/api/internal/launchd/list_test.go
+1 bifrost-platform/scripts/agent/deploy_mac_mini.sh

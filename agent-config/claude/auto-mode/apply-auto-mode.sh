@@ -26,23 +26,30 @@
 # Whether auto mode actually pops an allow dialog for those two MCP tools has to be
 # verified live; a payload on disk does not prove the dialog appears.
 set -euo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"
+HERE="$(cd "$(dirname "$0")" && pwd -P)"
+WORKSPACE="${BIFROST_WORKSPACE:-$(cd "$HERE/../../../.." && pwd -P)}"
 PROJECT="$HERE/../settings.local.json"
 USER_SETTINGS="$HOME/.claude/settings.json"
 STAMP="$(date +%Y%m%dT%H%M%S)"
 
+[ -f "$WORKSPACE/bifrost-platform/config/ops-context.yaml" ] || { echo "not a Bifrost workspace: $WORKSPACE (set BIFROST_WORKSPACE)" >&2; exit 1; }
 [ -f "$PROJECT" ] || echo '{}' > "$PROJECT"
 [ -f "$USER_SETTINGS" ] || echo '{}' > "$USER_SETTINGS"
 cp "$PROJECT" "$PROJECT.bak-$STAMP"
 cp "$USER_SETTINGS" "$USER_SETTINGS.bak-$STAMP"
 
-python3 - "$PROJECT" "$USER_SETTINGS" "$HERE/user.autoMode.json" "$HERE/project.autoMode.json" <<'PY'
-import json, sys
-project, user, *blocks = sys.argv[1:]
+python3 - "$PROJECT" "$USER_SETTINGS" "$WORKSPACE" "$HERE/user.autoMode.json" "$HERE/project.autoMode.json" <<'PY'
+import json, re, sys
+project, user, workspace, *blocks = sys.argv[1:]
 KEYS = ("environment", "allow", "soft_deny", "hard_deny")
 DEFAULTS = "$defaults"
 
-blocks = [json.load(open(b)) for b in blocks]
+# The payloads spell the workspace root as @WORKSPACE@ and Claude's per-project directory
+# name (~/.claude/projects/<slug>) as @WORKSPACE_SLUG@.
+slug = re.sub(r"[^A-Za-z0-9]", "-", workspace)
+def render(v):
+    return v.replace("@WORKSPACE_SLUG@", slug).replace("@WORKSPACE@", workspace) if isinstance(v, str) else v
+blocks = [{k: [render(r) for r in v] for k, v in json.load(open(b)).items()} for b in blocks]
 unknown = set().union(*blocks) - set(KEYS)
 if unknown:
     sys.exit(f"unknown autoMode keys in payload: {sorted(unknown)}")
@@ -81,7 +88,7 @@ PY
 
 echo
 echo "=== effective auto-mode config (user scope + built-in defaults) ==="
-cd "$HERE/../../../.."   # auto-mode -> claude -> agent-config -> bifrost-trade-infra -> the workspace root
+cd "$WORKSPACE"
 claude auto-mode config | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
