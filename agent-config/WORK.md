@@ -741,9 +741,9 @@
 **发版策略 · DDL 分类器重做成允许清单（Codex 审查 R01）**
 
 - **类别**：道
-- **状态**：未开始
+- **状态**：已放弃这个做法（2026-10-10）：三轮修复，Codex 三次独立复核都判「不成立」，按第三轮前定下的止损线停止。`additive_ddl` 保持 `false`，分支 `w31/w55-ddl-allowlist`（`f2d8cda`）不合并
 - **现在**：已复现：`ClassifyDDL` 按行匹配禁止词、默认放行，换行、注释夹在关键字中间、`DO` 块、`VACUUM FULL`、语句换序都被判成可自动放行（platform `7cda6cb`）。指纹还是空的，现在没有策略生效。止血已做：策略模板 `additive_ddl` 改成 `false`，测试断言它保持关闭
-- **下一步**：派 Cursor 重做：先切语句（认注释、字符串、美元引号），逐条匹配允许的形状，其余转人工；前后对比按语句做；引擎层测试证明分类失败回到等 Owner。完成后交 Codex 独立复核，通过才把 `additive_ddl` 改回 `true`
+- **下一步**：① 小改动：平台引擎里去掉「增量 DDL 可以自动放行」这条分支，任何 DDL 命中都等 Owner，不再依赖模板里的开关（收紧）。② 替代方案只记方向，不开工：在只有结构的空库上执行，按目录差异判断；这个库的 DDL 大多写在 Python 里，自动执行的实际收益小，等 DDL 审批真的成了负担再由 Owner 定。三份复核报告在 `work/multi-agent/reviews/codex-2026-10-10-w55-round{1,2,3}.md`
 - **验收**：`REVIEW-codex-2026-10-10-RESPONSE.md` R01 表里每一条危险输入都被拒绝，两条对照结果不变；`go test ./internal/releasepolicy/...` 通过；Codex 复核结论记在本条
 - **关联**：W-42；`work/multi-agent/REVIEW-codex-2026-10-10.md` R01
 

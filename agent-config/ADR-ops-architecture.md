@@ -101,7 +101,7 @@ PROD platform 坏了时的应急路径：mini 上的 operator-plane，或 Owner 
   - **D10 不在可配置的规则集里**：解锁仍要 Owner 的书面指令，并把 spine 改为 UNLOCKED。
 - **2026-10-10 的三条（Owner）**：
   - PROD 的两条发布流水线在 W-56 的门槛验收之前不进发版策略，PROD 发布仍由 Owner 批；策略先覆盖 research 和插件构建。
-  - 增量 DDL 自动执行先关闭（`additive_ddl: false`），W-55 把分类器重做成允许清单并经独立复核后再打开。
+  - 增量 DDL 自动执行关闭（`additive_ddl: false`），所有命中 DDL 路径的发版等 Owner。W-55 把分类器重做成允许清单，修了三轮，独立复核每一轮都找到能让它把改写当成未变的输入，第三轮后按预先定的止损线放弃用文本判断 SQL 的做法（2026-10-10）。以后如果要恢复自动执行，走另一条路：在一份只有结构的空库上真的执行一遍，按目录的前后差异判断，由 Owner 决定值不值得做。
   - 观测类清单变更（`monitoring` 里的告警规则、抓取配置、看板；只新建或更新；不含 critical 级告警；CI 通过）随策略按 B 级自动执行。判断只用 plan 的结构化结果。实现归 W-59，签进策略后生效；细则见 `work/multi-agent/RULE-PROPOSAL-observability-apply-2026-10-10.md`。
 - **已知的接受风险（Owner 2026-10-07 选择）**：聊天里批准靠 MCP 工具 `bifrost-approve` + Claude 的「允许」弹窗，工具需要的 admin 令牌在本机进程可读。同一台机器上的 Agent 理论上能读到它、绕过弹窗直接调审批接口；目前只靠 preflight 的文本拦截挡一挡。Owner 的取舍是先简单快，「今后感觉不行，再收权」——收权的做法是把 admin 令牌只留在手机与 Console 浏览器里，聊天只展示申请与链接。
 - **已知的接受风险（Owner 2026-10-09，LANE-W33D）**：同一个 macOS 用户下，Owner 目录 `~/.bifrost-owner/` 只靠 preflight 的文本拦截。闸门防的是善意误读，不是有决心的绕过。
