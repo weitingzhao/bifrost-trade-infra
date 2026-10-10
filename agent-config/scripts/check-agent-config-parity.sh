@@ -6,7 +6,7 @@
 #   2. skill 名称集合一致
 #   3. 活跃治理文件不引用已退役实体
 #   4. D10 表述与 spine 一致
-#   5. 硬边界 hook 两侧都已接线
+#   5. 硬边界 hook 两侧都已接线（Cursor 另查用户级 ~/.cursor/hooks.json 是否与源一致，只警告）
 #   6. 各 repo 本地 HEAD 相对 origin/main 的新鲜度（Agent 认知是否过期）
 #   7. 家目录路径棘轮：各仓库 origin/main 不新增写死的 /Users/<name>/（基线内放行）
 #
@@ -168,6 +168,18 @@ else:
                 fails.append("Codex 没有在跑 preflight：" + (r.stdout.strip() or r.stderr.strip())[:500])
         except Exception as e:
             fails.append(f"Codex 闸门检查没跑完：{e}")
+
+    # Cursor 拒绝经符号链接的项目级 .cursor/hooks.json，只加载用户级 ~/.cursor/hooks.json（TD-298）。
+    # 那份由 cursor/install-hooks.py 生成；本机装了 Cursor 才查，CI 上跳过。
+    ih = ROOT / 'bifrost-trade-infra/agent-config/cursor/install-hooks.py'
+    if ih.exists() and not os.environ.get('CI') and (pathlib.Path.home() / '.cursor').is_dir():
+        try:
+            r = subprocess.run([sys.executable, str(ih), '--check'], capture_output=True, text=True, timeout=30,
+                               env={**os.environ, 'BIFROST_WORKSPACE': str(ROOT)})
+            if r.returncode != 0:
+                warns.append("Cursor 里 preflight 不生效：" + (r.stdout.strip() or r.stderr.strip())[:500])
+        except Exception as e:
+            warns.append(f"Cursor 用户级 hooks 检查没跑完：{e}")
 
 # ─────────── 7. 家目录路径棘轮（W-36 防线，Owner 2026-10-10 卡 7）───────────
 # 只拦新增：比基线多的文件或计数才算漂移，基线可以调低时只提示。读 origin/main 而不是 HEAD：

@@ -209,7 +209,7 @@ Owner **2026-08-31** 签批 D-14GF.1–6（R1）；同日 GitHub Archive + 授�
 - **本地 dev 服务**：`bdev` CLI + tmux session `bifrost`，声明在 `~/.bifrost-dev/sessions.yaml`
 - **工作区根不写死**（W-36，2026-10-10）：本机是 `~/Desktop/stocks`，但仓库里的代码和配置不认这个路径。需要根的地方读 `BIFROST_WORKSPACE`，
   没设就从自身位置往上找 `bifrost-platform/config/ops-context.yaml`；Claude hooks 用 `$CLAUDE_PROJECT_DIR`，`.mcp.json` 用 `${BIFROST_WORKSPACE:-.}`，
-  用户级配置（`~/.cursor/mcp.json`、`~/.codex/hooks.json`、auto mode）由安装脚本渲染。棘轮：`make check-hardcoded-paths`（infra）。
+  用户级配置（`~/.cursor/mcp.json`、`~/.cursor/hooks.json`、`~/.codex/hooks.json`、auto mode）由安装脚本渲染。棘轮：`make check-hardcoded-paths`（infra）。
   旧名 `GIT_WORKSPACE_ROOT`（git-bridge）、`BIFROST_WORKSPACE_ROOT`（code health）仍被读取
 
 ---

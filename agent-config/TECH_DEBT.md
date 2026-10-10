@@ -15,7 +15,7 @@
 
 （无）
 
-**未结 81 项**：P0 0 · P1 5 · P2 28 · P3 48；要你批的 26 项（从总览表的审批列算）。
+**未结 82 项**：P0 0 · P1 6 · P2 28 · P3 48；要你批的 26 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -56,7 +56,7 @@
 
 目标：一个开关让所有测试类防线生效（CI 卡发布），再补上调度存活告警、D10 闸门的非 curl 写法、operator 流白名单、本机常驻任务和密钥轮换的盲区、spine 副本同步。
 
-项：TD-95, TD-100, TD-121, TD-152, TD-153, TD-155, TD-162, TD-293, TD-294, TD-295 · 已还：TD-99, TD-161, TD-198, TD-195, TD-194, TD-249, TD-109, TD-105, TD-96
+项：TD-95, TD-100, TD-121, TD-152, TD-153, TD-155, TD-162, TD-293, TD-294, TD-295, TD-298 · 已还：TD-99, TD-161, TD-198, TD-195, TD-194, TD-249, TD-109, TD-105, TD-96
 
 ### 第 3 波 · 交易日与日历只有一个来源
 
@@ -284,6 +284,7 @@
 | [TD-295](#td-295) | P2 | ops-platform | start_pipeline_run checks one revision in every repo a pipeline clones, so a platform deliver cannot be started by full SHA: the W-42 pinned rule for bifrost-deliver-platform-prod can never be met through the API | 不用批 |
 | [TD-296](#td-296) | P2 | ops-platform | The ntfy connection error text carries the full topic (the read credential) and is served by the token-less relay status endpoint; with W-49 it would also reach approval delivery records | 安全/凭据（要你批） |
 | [TD-297](#td-297) | P3 | ops-platform | Platform CI runs no race detector and no MCP tests, so the approval state machine's concurrency tests and the 批 #n tool tests are only run by hand | 不用批 |
+| [TD-298](#td-298) | P1 | agent-governance | Cursor never loaded the project hooks: it refuses a hooks.json reached through the workspace's .cursor symlink, so preflight.js did not gate Cursor sessions (proven back to 2026-09-28) | 不用批 |
 | [TD-274](#td-274) | P3 | frontend | Symbol faces hide GEX levels that exist when zero gamma is NULL: the dealer level strip needs all four values and the regime cell needs zero gamma, so a chain with no flip (about a third of expiries) shows neither walls nor regime | 不用批 |
 
 ## 条目
@@ -1507,6 +1508,23 @@
 - **Fix**: In `pipeline-ci-platform.yaml`, after `go test ./...` add `go test -race -count=2 ./internal/approvals/ ./internal/approvalnotify/ ./internal/alertrelay/` (CGO is on in the bookworm image; keep the 120s timeout or raise it for the race run). Add a step on `node:20-slim` that runs `cd bifrost-platform/mcp/platform && npm ci && npm test` (and `npm run type-check`).
 - **Ratchet**: The CI pipeline itself, once the steps exist. The RATCHETS rows for the W-48 concurrency tests and the W-51 MCP tests move from "manual race" to warning, and a check that `pipeline-ci-platform.yaml` still contains `-race` and `mcp/platform` keeps the steps from being dropped.
 - 验收: a `ci-platform` run on the merge commit shows the race step over the three packages and the MCP `npm test` step, both green; a deliberately racy test on a scratch branch fails the race step.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra
+
+### TD-298
+
+**P1 · agent-governance · Cursor never loaded the project hooks: it refuses a hooks.json reached through the workspace's .cursor symlink, so preflight.js did not gate Cursor sessions (proven back to 2026-09-28)**
+
+- **状态**：观察中（到 10-17，看 hooks 日志是否每次都有 `Loaded … user hook(s)`、有没有误拦。10-10 已修并实测：`~/.cursor/hooks.json` 由 `agent-config/cursor/install-hooks.py` 生成，日志 14:54:28Z `Loaded 3 user hook(s) for steps: beforeShellExecution, beforeMCPExecution, stop`，不用重载窗口；在临时空仓库里 `git add -A` 被拦，日志里 `"permission": "deny"`；`node scripts/agent-guard/test.js` 136 / 136）
+- **Claim**: The workspace's `.cursor` is a symlink to `bifrost-trade-infra/agent-config/cursor`. Cursor refuses a project `hooks.json` reached through a symlink below the workspace root, and no user-level `~/.cursor/hooks.json` existed, so neither `beforeShellExecution` nor `beforeMCPExecution` ran `preflight.js` in Cursor. Every Cursor session (and every Cursor subagent) ran with no mechanical gate: D10, shared-worktree staging, dev-service, approval-bypass and token-file rules held only as far as the agent followed the written rules. `check-agent-config-parity.sh` only checked that the project file named `preflight.js`, so it stayed green the whole time.
+- **Measured**: MEASURED 2026-10-10 in Cursor's hooks logs. Every retained session log (10 sessions, 2026-09-28 to 2026-10-10) has `Refusing to load Project hooks.json via symlink below workspace root: …/stocks/.cursor/hooks.json`, `ERROR: Failed to parse project hooks configuration` and `No user hooks configuration found`. The oldest retained log starts 2026-09-28T17:33Z and already refuses; Cursor keeps only the last 10 sessions, so nothing earlier can be checked. The symlink dates from 2026-08-27; whether Cursor loaded it before 09-28 is unknown.
+- **Evidence**:
+  - `~/Library/Application Support/Cursor/logs/20260928T123318/window1_wb1/output_20260928T123321/cursor.hooks.workspaceId-*.log` — the first refusal (2026-09-28T17:33:28Z)
+  - `~/Library/Application Support/Cursor/logs/20261010T012527/window1_wb1/output_20261010T012531/cursor.hooks.workspaceId-*.log` — the last refusal before the fix, then `Loaded 3 user hook(s)` after it
+  - `bifrost-trade-infra/agent-config/scripts/check-agent-config-parity.sh` §5 — checked the project file's content, not whether Cursor loads it
+- **Impact**: For at least 12 days, Cursor sessions could have run `git add -A`, touched guard files, written `ib:operator:cmd` or read token files with nothing to stop them except the rules text. Codex (W-35 / W-36) and Claude (`claude/settings.json`) were gated; Cursor was the gap. Cursor also refuses the symlinked `.claude/settings.json` it would read for compatibility; that does not matter once its own user-level hooks load.
+- **Fix**: Option A (done): `agent-config/cursor/install-hooks.py` renders `cursor/hooks.json` into the real file `~/.cursor/hooks.json`, with script paths and `node` made absolute (user hooks run from `~/.cursor`). Idempotent; entries that run a script named in the template are replaced, the user's other hooks are kept and listed; the old file is backed up. Re-run it when the template changes (W-54's heartbeat hooks). Not chosen: B, making `.cursor` a real directory, breaks the single-source layout every other governance file uses (all workspace-root entries are symlinks into `agent-config`, versioned in infra) and would need its own sync; C, the enterprise path `/Library/Application Support/Cursor/hooks.json`, needs root on the host, applies to every user and is an Owner host operation for a per-user problem. A consequence of A: user-level hooks apply to every Cursor workspace on this machine, so `preflight.js` also gates non-Bifrost projects opened here; accepted, the machine is the Bifrost workstation.
+- **Ratchet**: `check-agent-config-parity.sh` §5 runs `install-hooks.py --check` on a machine that has `~/.cursor` (skipped when `CI` is set) and warns when `~/.cursor/hooks.json` is missing or differs from the rendered template.
+- 验收: `python3 bifrost-trade-infra/agent-config/cursor/install-hooks.py --check` exits 0; the newest `cursor.hooks.workspaceId-*.log` shows `Loaded … user hook(s)` and no `No user hooks configuration found`; in a scratch git repo a Cursor agent's `git add -A` is refused.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ### TD-261

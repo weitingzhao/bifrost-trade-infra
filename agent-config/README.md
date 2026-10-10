@@ -92,7 +92,8 @@ cd /path/to/stocks && AC=bifrost-trade-infra/agent-config && \
 
 - **`claude/settings.json` 里的 hook 命令用本目录的绝对真实路径**，不经符号链接 —— 少一层解析、少一个故障点。
   换机器时这些绝对路径需要改（见上方 `AC` 变量）。
-- **`cursor/hooks.json` 用相对路径** `./scripts/agent-guard/preflight.js`，Cursor 以工作区根为 cwd，经符号链接解析。
+- **`cursor/hooks.json` 是源，Cursor 实际加载的是用户级 `~/.cursor/hooks.json`**：Cursor 拒绝经符号链接的项目级 `.cursor/hooks.json`（日志 `Refusing to load Project hooks.json via symlink below workspace root`，TD-298）。
+  `python3 bifrost-trade-infra/agent-config/cursor/install-hooks.py` 把源里的相对路径渲染成工作区根下的绝对路径、`node` 渲染成绝对路径，写进用户级文件；幂等，用户自己的其它 hooks 保留。源改了（例如 W-54 加心跳 hooks）就重跑；`check-agent-config-parity.sh` 在本机发现用户级文件缺失或过期时警告。
 - **`scripts/` 下的脚本自行向上查找工作区根**（标记 `bifrost-platform/config/ops-context.yaml`），
   因此无论从符号链接路径还是真实路径调用都能工作。两条路径都在回归测试覆盖内。
 

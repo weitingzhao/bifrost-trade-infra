@@ -34,7 +34,7 @@ Instructions for **Claude Code, Cursor Agent, Codex**, and other coding agents w
 | Agent | 闸门接在哪里 | 说明 |
 |-------|-------------|------|
 | Claude Code | `.claude/settings.json` 的 `PreToolUse` | `CLAUDE.md` §7 |
-| Cursor Agent | `.cursor/hooks.json` | `.cursor/rules/workspace.mdc` §4 |
+| Cursor Agent | 用户级 `~/.cursor/hooks.json`，由 `bifrost-trade-infra/agent-config/cursor/install-hooks.py` 从 `.cursor/hooks.json` 生成 | `.cursor/rules/workspace.mdc` §4；Cursor 不加载经符号链接的项目级 hooks（TD-298） |
 | Codex | `~/.codex/hooks.json` 的 `PreToolUse` | `bifrost-trade-infra/agent-config/codex/README.md` |
 
 ## 子仓库

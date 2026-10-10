@@ -1,5 +1,5 @@
 <!--
-parity-ids: workspace-v20, language-v1, agent-modes-v4, trade-execution-freeze-v4, dev-services-v3, phase-execution-v3, shared-worktree-v4, business-first-v1
+parity-ids: workspace-v21, language-v1, agent-modes-v4, trade-execution-freeze-v4, dev-services-v3, phase-execution-v3, shared-worktree-v4, business-first-v1
 对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
 改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
 -->
@@ -255,7 +255,7 @@ release.sh、db-init Job、dev/stg overlay、插件 ConfigMap 与 rollout、rese
 | `CLAUDE.md`（本文件） | `.cursor/rules/workspace.mdc` |
 | `.claude/skills/` | `.cursor/skills/` |
 | `.claude/commands/` | `.cursor/commands/` |
-| `.claude/settings.json` hooks | `.cursor/hooks.json` |
+| `.claude/settings.json` hooks | 用户级 `~/.cursor/hooks.json`，由 `bifrost-trade-infra/agent-config/cursor/install-hooks.py` 从 `.cursor/hooks.json` 生成（Cursor 拒绝经符号链接的项目级文件，TD-298） |
 | — 共用 —— | `AGENT_FACTS.md` · `AGENTS.md`（三家入口，只放指针；Codex 只读它）· `scripts/agent-guard/preflight.js` |
 
 **改动任一侧的规则，必须同步另一侧并 bump 两侧的 `parity-id`。**

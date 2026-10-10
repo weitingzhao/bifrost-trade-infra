@@ -2,7 +2,7 @@
 description: Bifrost 工作区结构、三域架构、双飞轮边界与双轨维护规范
 globs: ["**/*"]
 alwaysApply: true
-parity-id: workspace-v20
+parity-id: workspace-v21
 ---
 
 # Bifrost 工作区规范
@@ -127,7 +127,7 @@ Claude 侧用户级 `permissions` 有一组发布类放行规则（payload `clau
 | `.cursor/rules/workspace.mdc`（本文件） | `CLAUDE.md` |
 | `.cursor/skills/` | `.claude/skills/` |
 | `.cursor/commands/` | `.claude/commands/` |
-| `.cursor/hooks.json` | `.claude/settings.json` hooks |
+| 用户级 `~/.cursor/hooks.json`，由 `bifrost-trade-infra/agent-config/cursor/install-hooks.py` 从 `.cursor/hooks.json` 生成（Cursor 拒绝经符号链接的项目级文件，TD-298） | `.claude/settings.json` hooks |
 | — 共用 —— | `AGENT_FACTS.md` · `AGENTS.md`（三家入口，只放指针；Codex 只读它）· `scripts/agent-guard/preflight.js` |
 
 **改动任一侧的规则，必须同步另一侧并 bump 两侧的 `parity-id`。**
