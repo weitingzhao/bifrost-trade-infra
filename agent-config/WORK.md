@@ -667,6 +667,7 @@
 - **状态**：在做（代码完成：platform `w31/w48-s0-0a` `65c0054` + infra `w31/w48-s0-0a-infra` `779c70f`，两边一起合；参谋长 10-10 重跑验收全绿。第 9 步发完后第一个合 main；`service.go:136` 的 lint shadow 已修（`e43a129`）；`65c0054` 加了服务端 D 级 chat 批准 403（`TestTierDChatApprovalIsRefused`）。见 STEP0-PLAN 0.8、0.9 节）
 - **现在**：新状态 `approved` / `running` / `unknown`、`execution{}`、全局自增 `#n`、`executor` 角色和领单 / 续租 / 回写接口、存储改 `statefile.Update`；TD-267、TD-276；`number` / `env` / `summary` / `deliveries` 接进 W-44 的列表行和详情页，替换临时的 `approvalEnv`
 - **下一步**：第 9 步发完后按 0.8 节的顺序合 main（platform 与 infra 同批），合时把新状态、`executor` 角色与 `#n` 写进 `AGENT_FACTS.md`；`number` / `env` 接 Console 的部分等集成分支合 main（STEP0-PLAN 0.7 节第 6 步）之后
+- **上线（2026-10-10 13:50 CDT）**：随整批发到 PROD（run `bifrost-deliver-platform-prod-1791658000`，platform `e5a0703`）。PROD 原有 31 条记录在新版第一次真实写入后 0 丢失、0 变化；新单从 #1 编号；#1 走完了「批准 → 认领 → 执行 → 记结果」（34 毫秒）。**上线后发现三件小事**：① 没有「演练单」：通知送达测试只能建一张真动作的单，#1（`trigger_cnpg_backup`，理由里写了测试单）19 秒后在 Console 被批准并执行，多做了一次全量备份；需要一个不执行任何东西的演练动作，以及建单方撤回自己待批单的能力。② 一次执行在审计里记了两行 `approval.execute`（actor=platform 和 actor=admin）。③ 零值时间被写进记录（待批单的 `decided_at`、`claim_expires_at`、`next_attempt_at`、`lease_expires_at` 是 `0001-01-01`）
 - **验收**：方案第 4.5 节 S0-0a 的验收命令；暂时性拒绝后单子仍是 `approved`，两个并发建单拿到不同的 `#n`
 - **关联**：`work/multi-agent/S0-0-approved-execution-PLAN-2026-10-10.md` 第 4.5 节；W-37；TD-267、TD-276
 
@@ -788,6 +789,7 @@
 - **状态**：未开始
 - **现在**：`apply_manifest` 的级别只看命名空间，`monitoring` 里加一条 warning 告警规则也要 Owner 批。Owner 选了提议里的 A：对象种类限 `PrometheusRule`、`ServiceMonitor`、`PodMonitor`、`ScrapeConfig` 和带 `grafana_dashboard` 标签的 `ConfigMap`；只在 `monitoring`；只新建或更新；不含 `severity: critical`；提交在 main 且 CI 通过；策略有效
 - **下一步**：派 Cursor：platform 的 `classifyApply` 读 plan 摘要里的对象种类、动作和 severity，策略引擎加 `apply_observability` 条件；infra 的策略模板加这一条件。判断只用结构化结果，读不出来按 C 级。完成后交 Codex 复核
+- **追加（2026-10-10 下午）**：`k8s/monitoring/bifrost-maintainer-rules.yaml` 的 plan 失败（`plan-7d96516a-1791658544`）：对象归 `kubectl-client-side-apply`，平台用 `--server-side --field-manager=bifrost-applier` 且不带 `--force-conflicts`，遇到字段归属冲突。当天第二次（第一次是 W-42 的 Task）。这次用一张 Owner 执行的单（#2）一次性把归属交给 `bifrost-applier`。规则落地时要包含：plan 发现冲突方只有 `kubectl-client-side-apply` 时，在 diff 里写明「将接管归属」，批准后带 `--force-conflicts` 应用；盘点 `k8s/monitoring` 下还有多少对象归手工 apply
 - **验收**：提议里每一条排除项都有测试且仍是 C 级；一份只含 warning 级 `PrometheusRule` 的 plan 在策略有效时按 B 级执行、过期或冻结时回到 C 级；Codex 复核结论记在本条
 - **关联**：`work/multi-agent/RULE-PROPOSAL-observability-apply-2026-10-10.md`；ADR §5；W-42；W-55
 
@@ -810,6 +812,7 @@
 - **状态**：未开始（等 S0-0 集成分支合 main）
 - **现在**：Needs You 上的一条单子只有动作名、被截断的理由和编号，Owner 看不出为什么要他批、不批会怎样。手机上页头系统结论在 360 / 390 / 430 像素宽时只剩 33 / 63 / 103 像素，触控目标 20–28 像素，读取没有超时，读不到时可能显示成「没有待办」。依据在 `work/multi-agent/RESEARCH-codex-ops-console-owner-value-2026-10-10.md` 和 `RESEARCH-codex-ops-console-responsive-2026-10-10.md`
 - **下一步**：① 后端：审批记录加「为什么是你」（定目标 / 定规则 / 不可逆 / 过渡期门槛及关联工作项）、「不回复会怎样」、「建议」三个字段，建单接口和 MCP 工具带上。② 前端第一段：页头两行（页名、环境在第一行，系统结论和更新时间在第二行并可换行）、触控目标 44 像素、读取状态（连接中、刷新中、连接丢失、数据可能已旧）。③ 前端第二段：Needs You 和审批详情按七个问题排版，Releases 在手机上改卡片。④ 监控页排版放最后
+- **追加（Owner 2026-10-10 下午）**：Owner 指出本机进展看板上的逐步进展和 PROD 上的待批列表是两个地方、对不上。要求：PROD 上每一个待批项都挂在它所属的那件事的流程上，写明这是哪件事的第几步、批了之后发生什么和大约多久、之后轮到谁；演练或测试的项用单独的类型，页面和通知的标题里就标明，不带批准入口（当天 #1 测试单被批准执行就是反例）。设计在 DESIGN §20.2、§20.3 第 8 条
 - **验收**：手机上 10 秒内说得出最需要处理的事和原因，详情里 30 秒内找得到建议、不回复的后果、影响的目标和执行内容；读不到时显示 Unknown，不显示 0 或「没有需要你的」；360×780、390×844、430×932、600×960、800×1280 及横屏不横向滚动；桌面信息不减少
 - **关联**：W-44；W-47；W-48；W-52；W-57；STEP0-PLAN 0.12 节；设计 v4 第 19 节
 
@@ -822,6 +825,7 @@
 - **现在**：Owner 当天两次问「任务卡在哪了」，两次任务都在正常跑。他的要求：Console 上要有地方显示 Agent 之间协作的进展，否则时间一长他只能当成卡住。W-54 的线程列表只有线程状态和时长，没有「这是哪件事、第几轮、在做什么、做完轮到谁」。临时做法是本机看板 `~/agent-work/status/board.py`
 - **下一步**：① 心跳事件带上工作项编号、阶段（实现 / 验收 / 复核 / 发布）、轮次和一句人能读懂的当前动作；headless 任务经包装脚本上报。② 平台按工作项聚合：谁在做、已用时间、同类任务往常用多久、最近一次输出多久前、下一步轮到谁。③ Console 的 Progress 页显示这张表：在跑、比往常慢、可能卡住、进程不在了四种状态分开标；「需要你做的」只列真正要 Owner 动手的。④ 手机首页的系统结论里带一句「N 件事在推进，都正常」或点出慢的那件
 - **追加（Owner 2026-10-10 下午，两条）**：⑤ 现状之外给预期：每件事的下一步、预计几点进入下一步；最上面一行是「下一次需要你：哪件事、预计几点」。预计时间按同类步骤的历史用时算，超时顺延并标出，有步骤卡住时显示「估不准」（DESIGN §20.3 第 6、7 条；本机看板已按这个做）。⑥ 卡点台账进 Console：每条坑由什么机制兜着、是否在岗、最近一次触发；新的卡法由运行时起草（DESIGN §20.6）
+- **追加（Owner 2026-10-10 下午，第二批）**：⑦ 进展视图在 PROD，和待批项是同一份状态的两个视图：待批项出现在它所属那件事的流程里，进展视图里轮到 Owner 的那一步可以直接批（DESIGN §20.2）。⑧ 台账每行标来源（卡点 / Owner 反馈）和发生的阶段，Console 的「踩过的坑」页可以按阶段回看（DESIGN §20.6）
 - **验收**：Owner 不问统筹线程，在 Console 上 10 秒内说得出每件在途的事谁在做、是不是正常、下一步是什么、下一次需要他大概几点；一个任务被人为挂起后，页面在阈值内从「在跑」变成「可能卡住」；一个任务只是比往常慢但仍有输出时，显示「比往常慢」而不是「卡住」
 - **关联**：W-54；W-57；W-40（Progress 过渡层）；W-61；`work/multi-agent/LESSONS-from-practice.md` 第 5、22 行
 
