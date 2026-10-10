@@ -257,15 +257,21 @@ CURL_STUB = textwrap.dedent(
     args = sys.argv[1:]
     url = ""
     config = ""
+    data = ""
+    out = ""
     i = 0
     while i < len(args):
         item = args[i]
-        if item == "--config" and i + 1 < len(args):
-            config = args[i + 1]
-            i += 2
-            continue
-        if item == "--url" and i + 1 < len(args):
-            url = args[i + 1]
+        if item in ("--config", "--url", "--data-binary", "-o", "-w", "-H") and i + 1 < len(args):
+            value = args[i + 1]
+            if item == "--config":
+                config = value
+            elif item == "--url":
+                url = value
+            elif item == "--data-binary":
+                data = value
+            elif item == "-o":
+                out = value
             i += 2
             continue
         if item.startswith("http://") or item.startswith("https://"):
@@ -276,7 +282,20 @@ CURL_STUB = textwrap.dedent(
         text = open(config, encoding="utf-8").read()
         if "Authorization: Bearer viewer-test-token" in text:
             auth = "yes"
+        elif "Authorization: Bearer run-test-token" in text:
+            auth = "run"
     log = os.environ.get("CURL_LOG", "")
+    if data.startswith("@"):
+        # POST claim / heartbeat / result: body to -o, HTTP status to stdout.
+        kind = url.rsplit("/", 1)[-1]
+        body = open(data[1:], encoding="utf-8").read()
+        if log:
+            with open(log, "a", encoding="utf-8") as fh:
+                fh.write("post=%s auth=%s url=%s data=%s\\n" % (kind, auth, url, body))
+        with open(out, "w", encoding="utf-8") as fh:
+            fh.write(os.environ.get("FAKE_%s_JSON" % kind.upper(), "{}"))
+        sys.stdout.write(os.environ.get("FAKE_%s_CODE" % kind.upper(), "200"))
+        sys.exit(0)
     if log:
         with open(log, "a", encoding="utf-8") as fh:
             fh.write("auth=%s url=%s\\n" % (auth, url))
@@ -388,6 +407,29 @@ def arm_approval(
     out["FAKE_APPROVAL_JSON"] = body
     out["FAKE_APPROVAL_CURL_EXIT"] = curl_exit
     return out
+
+
+APPROVED = (
+    '{"id":"appr_7","number":7,"action":"rolling_reboot","status":"approved","runner":"owner",'
+    '"execution":{"deadline":"2099-01-01T00:00:00Z"},"expires_at":"2000-01-01T00:00:00Z"}'
+)
+
+
+def arm_claim(env: dict[str, str], home: Path, body: str = APPROVED) -> dict[str, str]:
+    out = arm_approval(env, body)
+    out["HOME"] = str(home)
+    out["PLATFORM_OWNER_RUN_TOKEN"] = "run-test-token"
+    out["FAKE_CLAIM_JSON"] = '{"lease_id":"0a1b2c","approval":{}}'
+    out["APPROVAL_RESULT_RETRY_SECONDS"] = "0"
+    return out
+
+
+def posts(curl: str, kind: str) -> list[dict]:
+    rows = []
+    for line in curl.splitlines():
+        if line.startswith("post=%s " % kind):
+            rows.append({"line": line, "data": json.loads(line.split(" data=", 1)[1])})
+    return rows
 
 
 class RollingRebootPlanTests(unittest.TestCase):
@@ -1053,6 +1095,100 @@ class RollingRebootPlanTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("REFUSED: --execute needs the node key", result.stderr)
         self.assertEqual(called, "")
+
+    # W-48: an approved rolling_reboot is claimed once and gets its result.
+    def test_approved_run_claims_once_and_posts_the_result(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeCluster(Path(tmp), dow="6")
+            home = Path(tmp) / "home"
+            result = run(
+                ["--execute", "--approval", "#7", "--nodes", self.TWO_NODES],
+                arm_claim(fake.env, home),
+            )
+            curl = fake.curl_text()
+            output = home / ".bifrost-owner" / "run-output" / "appr_7.log"
+            mode = stat.S_IMODE(output.stat().st_mode)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("auth=yes url=http://platform.test/api/v1/approvals/7", curl)
+        claims = posts(curl, "claim")
+        self.assertEqual(len(claims), 1, curl)
+        self.assertIn("auth=run", claims[0]["line"])
+        self.assertEqual(claims[0]["data"]["id"], "appr_7")
+        self.assertEqual(claims[0]["data"]["runners"], ["owner"])
+        results = posts(curl, "result")
+        self.assertEqual(len(results), 1, curl)
+        self.assertIn("/api/v1/approvals/appr_7/result", results[0]["line"])
+        posted = results[0]["data"]
+        self.assertEqual(posted["lease_id"], "0a1b2c")
+        self.assertTrue(posted["started"])
+        self.assertEqual(posted["exit_code"], 0)
+        self.assertRegex(posted["output_sha256"], r"^[0-9a-f]{64}$")
+        self.assertLessEqual(len(posted["output_tail"].encode()), 2048)
+        self.assertEqual(mode, 0o600)
+        self.assertNotIn("run-test-token", result.stdout + result.stderr)
+        self.assertNotIn("run-test-token", curl)
+
+    def test_claim_held_elsewhere_does_not_cordon(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeCluster(Path(tmp), dow="6")
+            env = arm_claim(fake.env, Path(tmp) / "home")
+            env["FAKE_CLAIM_CODE"] = "409"
+            env["FAKE_CLAIM_JSON"] = '{"error":"not claimable","status":"running"}'
+            result = run(["--execute", "--approval", "appr_7", "--nodes", self.TWO_NODES], env)
+            called = fake.kubectl_text()
+            curl = fake.curl_text()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("could not claim approval appr_7 (HTTP 409)", result.stderr)
+        self.assertNotIn("cordon", called)
+        self.assertEqual(posts(curl, "result"), [])
+
+    def test_weekday_refusal_does_not_use_up_the_approval(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeCluster(Path(tmp), dow="3")
+            result = run(
+                ["--execute", "--approval", "#7"],
+                arm_claim(fake.env, Path(tmp) / "home"),
+            )
+            curl = fake.curl_text()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Saturday and Sunday", result.stderr)
+        self.assertEqual(posts(curl, "claim"), [])
+
+    def test_failed_claimed_run_posts_the_exit_and_asks_for_a_new_approval(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeCluster(Path(tmp), dow="6", fail_cordon=True)
+            result = run(
+                ["--execute", "--approval", "#7", "--nodes", self.TWO_NODES],
+                arm_claim(fake.env, Path(tmp) / "home"),
+            )
+            curl = fake.curl_text()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("request a new rolling_reboot approval", result.stderr)
+        results = posts(curl, "result")
+        self.assertEqual(len(results), 1, curl)
+        self.assertNotEqual(results[0]["data"]["exit_code"], 0)
+
+    def test_running_unknown_and_host_records_are_refused(self) -> None:
+        cases = (
+            (APPROVED.replace('"status":"approved"', '"status":"running"'), "status=running"),
+            (APPROVED.replace('"status":"approved"', '"status":"unknown"'), "status=unknown"),
+            (APPROVED.replace('"runner":"owner"', '"runner":"host"'), "runner=host"),
+            (APPROVED.replace("2099-01-01", "2000-01-01"), "past its execution deadline"),
+        )
+        for body, marker in cases:
+            with self.subTest(marker=marker):
+                with tempfile.TemporaryDirectory() as tmp:
+                    fake = FakeCluster(Path(tmp), dow="6")
+                    result = run(
+                        ["--execute", "--approval", "appr_7"],
+                        arm_claim(fake.env, Path(tmp) / "home", body),
+                    )
+                    called = fake.kubectl_text()
+                    curl = fake.curl_text()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(marker, result.stderr)
+                self.assertNotIn("cordon", called)
+                self.assertEqual(posts(curl, "claim"), [])
 
 
 if __name__ == "__main__":
