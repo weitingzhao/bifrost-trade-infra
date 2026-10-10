@@ -11,7 +11,7 @@ Codex 的配置在用户级 `~/.codex/`，不进仓库。本文件记录它的�
 
 ## `~/.codex` 的内容
 
-`~/.codex/hooks.json`（全部工具，不设 matcher）：
+`~/.codex/hooks.json`（全部工具，不设 matcher）。第一条是闸门；其余四条是线程心跳（W-54，`scripts/thread-heartbeat.js`，见 `agent-config/README.md`「线程心跳」）：
 
 ```json
 {
@@ -25,11 +25,32 @@ Codex 的配置在用户级 `~/.codex/`，不进仓库。本文件记录它的�
             "timeout": 30
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/homebrew/bin/node \"${BIFROST_WORKSPACE:-$HOME/Desktop/stocks}/scripts/thread-heartbeat.js\" hook codex",
+            "timeout": 10
+          }
+        ]
       }
+    ],
+    "UserPromptSubmit": [
+      {"hooks": [{"type": "command", "command": "/opt/homebrew/bin/node \"${BIFROST_WORKSPACE:-$HOME/Desktop/stocks}/scripts/thread-heartbeat.js\" hook codex", "timeout": 10}]}
+    ],
+    "PostToolUse": [
+      {"hooks": [{"type": "command", "command": "/opt/homebrew/bin/node \"${BIFROST_WORKSPACE:-$HOME/Desktop/stocks}/scripts/thread-heartbeat.js\" hook codex", "timeout": 10}]}
+    ],
+    "Stop": [
+      {"hooks": [{"type": "command", "command": "/opt/homebrew/bin/node \"${BIFROST_WORKSPACE:-$HOME/Desktop/stocks}/scripts/thread-heartbeat.js\" hook codex", "timeout": 10}]}
     ]
   }
 }
 ```
+
+四条心跳也要 trust（安装第 4 步），没 trust 的会被 Codex 静默跳过，线程在 Console 上就看不见。闸门那条的 key 和哈希不变，不用重新 trust。
+心跳钩子在宿主进程里跑、不在沙箱里，所以沙箱「默认不联网」不挡它；这一点要在 W-54 验收第 5 条时实测（Codex 跑一轮，看 `GET /api/v1/agent/threads` 有没有这条线程）。
 
 Codex 经 shell 跑这条命令，所以 `${BIFROST_WORKSPACE:-$HOME/Desktop/stocks}` 会展开：工作区在别处时设 `BIFROST_WORKSPACE`，否则取 `~/Desktop/stocks`。路径解析不到时 Codex 把这条 hook 当出错、照样放行工具调用，所以 `check-codex-guard.py` 会用同一条命令真跑一次 `git add -A`（要 deny）和 `git status`（要放行）。W-36（10-10）由写死的路径改成这一版，重新 trust 后 `codex exec` 实测 `git add -A` 被拦、`git status --short` exit 0。
 

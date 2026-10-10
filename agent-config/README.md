@@ -93,6 +93,10 @@ cd /path/to/stocks && AC=bifrost-trade-infra/agent-config && \
 - **`claude/settings.json` 里的 hook 命令用本目录的绝对真实路径**，不经符号链接 —— 少一层解析、少一个故障点。
   换机器时这些绝对路径需要改（见上方 `AC` 变量）。
 - **`cursor/hooks.json` 用相对路径** `./scripts/agent-guard/preflight.js`，Cursor 以工作区根为 cwd，经符号链接解析。
+  2026-10-10 实测：Cursor 拒绝加载经符号链接的项目级 `.cursor/hooks.json` 与 `.claude/settings.json`（日志 `Refusing to load Project hooks.json via symlink below workspace root`），所以这份文件在 Cursor 里目前不生效。
+- **线程心跳**（W-54）：`scripts/thread-heartbeat.js` 是三家共用的心跳钩子，`claude/settings.json`、`cursor/hooks.json`、`codex/README.md` 里的 `~/.codex/hooks.json` 各接一份。
+  回合开始、工具调用前后、回合结束各 POST 一次到 PROD `POST /api/v1/agent/threads/heartbeat`（TD-197 的上报令牌，没有令牌就不发）；钩子不输出、不报错、永远 exit 0，发送交给脱离的子进程。
+  无头运行（`cursor-agent -p` 不触发 stop 钩子）一律这样启动：`node scripts/thread-heartbeat.js run cursor -- cursor-agent -p …`。
 - **`scripts/` 下的脚本自行向上查找工作区根**（标记 `bifrost-platform/config/ops-context.yaml`），
   因此无论从符号链接路径还是真实路径调用都能工作。两条路径都在回归测试覆盖内。
 
@@ -107,6 +111,7 @@ cd /path/to/stocks && AC=bifrost-trade-infra/agent-config && \
 ```bash
 make check-agent-parity        # 在 bifrost-trade-infra/ 下
 node scripts/agent-guard/test.js   # 硬边界回归 25 例
+node scripts/thread-heartbeat.test.js   # 心跳：事件映射、节流、钩子失败不拦工具调用、无头包装
 ```
 
 规则见工作区根 `CLAUDE.md` §7（双轨维护）与 `cursor/rules/workspace.mdc` §4。

@@ -1,0 +1,52 @@
+# promtool unit test for BifrostMaintainerAgentThreadWatchStale (W-54).
+# Run: make check-alert-rules. The workers loop records a success every 30s;
+# the series value is the Unix time of the last success, so a healthy loop
+# keeps it equal to time().
+rule_files:
+  - bifrost-maintainer-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: a loop that stops passing goes stale after 5 minutes, then fires 5 minutes later
+    interval: 1m
+    input_series:
+      # Healthy for 10 minutes (value = time()), then stuck at 600 s.
+      - series: 'bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/agent-thread-watch"}'
+        values: '0+60x10 600x40'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: BifrostMaintainerAgentThreadWatchStale
+        exp_alerts: []
+      # 16m: 960 - 600 > 300, pending for 5 minutes.
+      - eval_time: 18m
+        alertname: BifrostMaintainerAgentThreadWatchStale
+        exp_alerts: []
+      - eval_time: 22m
+        alertname: BifrostMaintainerAgentThreadWatchStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              maintainer: platform/prod/agent-thread-watch
+            exp_annotations:
+              summary: "PROD agent thread watch has not completed a pass for 5 minutes"
+              description: "The watch runs every 30 seconds and is what pages the Owner when an agent thread stops mid-turn (W-54). While it is stale a frozen session pages nobody."
+
+  - name: a loop that never passed fires on the absent series
+    interval: 1m
+    input_series:
+      - series: 'bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/release-recorder"}'
+        values: '0+60x30'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: BifrostMaintainerAgentThreadWatchStale
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: BifrostMaintainerAgentThreadWatchStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              maintainer: platform/prod/agent-thread-watch
+            exp_annotations:
+              summary: "PROD agent thread watch has not completed a pass for 5 minutes"
+              description: "The watch runs every 30 seconds and is what pages the Owner when an agent thread stops mid-turn (W-54). While it is stale a frozen session pages nobody."
