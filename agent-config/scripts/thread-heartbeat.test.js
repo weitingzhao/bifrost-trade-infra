@@ -19,7 +19,7 @@ delete process.env.BIFROST_HEARTBEAT_THREAD
 delete process.env.BIFROST_HEARTBEAT_TITLE
 delete process.env.BIFROST_WORK
 
-const { beatFor, toolTimeoutSeconds, shouldSkip, reduceThrottle, allocateStamp, loadGate, supersedeActive, saveIssuedKey, withThreadLock, armHookDeadline, clearHookDeadline } = require('./thread-heartbeat.js')
+const { beatFor, toolTimeoutSeconds, shouldSkip, reduceThrottle, allocateStamp, loadGate, supersedeActive, saveIssuedKey, withThreadLock, armHookDeadline, clearHookDeadline, lockRuntime } = require('./thread-heartbeat.js')
 const ISSUED_KEY = 'ab'.repeat(32)
 
 const CLAUDE_ID = '7e939cd5-b3b1-4705-96e4-0a3b9e61648d'
@@ -563,6 +563,77 @@ async function oldKeyUnconfirmedTurnServerRecordPruned() {
   s.close()
 }
 
+// lock preparation consumes the budget
+function lockPreparationConsumesTheBudget() {
+  const saved = {
+    now: lockRuntime.now,
+    prepare: lockRuntime.prepare,
+    sleep: lockRuntime.sleep,
+    spawn: lockRuntime.spawn,
+  }
+  const prevHome = process.env.BIFROST_HOME_OVERRIDE
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-prep-budget-'))
+  process.env.BIFROST_HOME_OVERRIDE = home
+  const fakeChild = () => ({ unref() {}, kill() {}, stdin: { destroy() {} } })
+  try {
+    // Preparation takes 750 ms of simulated time. The helper never becomes ready.
+    // The hook's limit is 5000 ms, so the wait must end at that deadline and the
+    // helper must be given the reduced wait (4250 ms), not a fresh 5000 ms.
+    let t = 10_000_000
+    const limit = 5000
+    const prepMs = 750
+    let givenWait = null
+    lockRuntime.now = () => t
+    lockRuntime.prepare = () => {
+      t += prepMs
+    }
+    lockRuntime.sleep = ms => {
+      t += ms
+    }
+    lockRuntime.spawn = (_lockPath, waitMs) => {
+      givenWait = waitMs
+      return fakeChild()
+    }
+    armHookDeadline(limit)
+    const deadline = t + limit
+    let err = null
+    try {
+      withThreadLock('claude', 'prep-budget', () => {})
+    } catch (e) {
+      err = e
+    }
+    assert.equal(err && err.message, 'thread lock timeout')
+    assert.equal(givenWait, limit - prepMs)
+    assert.ok(t <= deadline, `lock wait ran past the hook deadline, ended at +${t - (deadline - limit)}ms`)
+    assert.equal(t, deadline)
+
+    // Nothing left after preparation: time out without starting the helper.
+    clearHookDeadline()
+    t = 10_000_000
+    givenWait = null
+    lockRuntime.prepare = () => {
+      t += limit
+    }
+    armHookDeadline(limit)
+    err = null
+    try {
+      withThreadLock('claude', 'prep-budget-spent', () => {})
+    } catch (e) {
+      err = e
+    }
+    assert.equal(err && err.message, 'thread lock timeout')
+    assert.equal(givenWait, null)
+  } finally {
+    lockRuntime.now = saved.now
+    lockRuntime.prepare = saved.prepare
+    lockRuntime.sleep = saved.sleep
+    lockRuntime.spawn = saved.spawn
+    clearHookDeadline()
+    if (prevHome === undefined) delete process.env.BIFROST_HOME_OVERRIDE
+    else process.env.BIFROST_HOME_OVERRIDE = prevHome
+  }
+}
+
 async function lockWaitUsesRemainingBudget() {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-budget-'))
   const env = { ...process.env, BIFROST_HOME_OVERRIDE: home }
@@ -679,6 +750,7 @@ async function main() {
   await runContinuesSequence()
   await lostTurnStartThenBeforeTool()
   await oldKeyUnconfirmedTurnServerRecordPruned()
+  lockPreparationConsumesTheBudget()
   await lockWaitUsesRemainingBudget()
   await deadLockRace()
   await endToEnd()

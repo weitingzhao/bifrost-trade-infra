@@ -64,7 +64,7 @@ const LOCK_WAIT_MS = 2000
 let hookDeadline = 0
 
 function armHookDeadline(ms = HOOK_GIVE_UP_MS) {
-  hookDeadline = performance.now() + ms
+  hookDeadline = lockRuntime.now() + ms
 }
 
 function clearHookDeadline() {
@@ -74,7 +74,7 @@ function clearHookDeadline() {
 /** Remaining hook budget, or LOCK_WAIT_MS when this process is not inside a hook. */
 function lockBudgetMs() {
   if (!hookDeadline) return LOCK_WAIT_MS
-  return Math.max(0, hookDeadline - performance.now())
+  return Math.max(0, hookDeadline - lockRuntime.now())
 }
 const FIRST_EVENT_TIMEOUT_MS = 1000
 const KEY_RE = /^[0-9a-f]{64}$/
@@ -417,8 +417,8 @@ function saveGate(vendor, thread, gate) {
 
 function sleepSync(ms) {
   const buf = new Int32Array(new SharedArrayBuffer(4))
-  const end = performance.now() + ms
-  while (performance.now() < end) Atomics.wait(buf, 0, 0, Math.max(1, end - performance.now()))
+  const end = lockRuntime.now() + ms
+  while (lockRuntime.now() < end) Atomics.wait(buf, 0, 0, Math.max(1, end - lockRuntime.now()))
 }
 
 // Holds an exclusive flock until stdin closes, then exits. The kernel drops
@@ -514,22 +514,42 @@ function prepareLockFile(lockPath) {
   }
 }
 
+// Tests replace these to simulate preparation time. Production uses the
+// monotonic clock, the real lock file, and the perl flock helper.
+const lockRuntime = {
+  now() {
+    return performance.now()
+  },
+  prepare(lockPath) {
+    prepareLockFile(lockPath)
+  },
+  sleep(ms) {
+    sleepSync(ms)
+  },
+  spawn(lockPath, waitMs, ready) {
+    return spawn(perlBin(), ['-e', LOCK_HELPER, lockPath, String(waitMs), ready], {
+      stdio: ['pipe', 'ignore', 'ignore'],
+    })
+  },
+}
+
 function holdFlock(lockPath) {
-  const budget = lockBudgetMs()
-  if (budget < 1) throw new Error('thread lock timeout')
-  prepareLockFile(lockPath)
+  // Fixed before preparation. Hook mode uses the shared hook deadline, so the
+  // time spent preparing and starting the helper is not added back on.
+  if (lockBudgetMs() < 1) throw new Error('thread lock timeout')
+  const deadline = hookDeadline ? hookDeadline : lockRuntime.now() + LOCK_WAIT_MS
+  lockRuntime.prepare(lockPath)
   const ready = `${lockPath}.ready.${process.pid}.${crypto.randomBytes(4).toString('hex')}`
-  const waitMs = Math.max(1, Math.floor(budget))
-  const child = spawn(perlBin(), ['-e', LOCK_HELPER, lockPath, String(waitMs), ready], {
-    stdio: ['pipe', 'ignore', 'ignore'],
-  })
+  const remaining = deadline - lockRuntime.now()
+  if (remaining < 1) throw new Error('thread lock timeout')
+  const waitMs = Math.max(1, Math.floor(remaining))
+  const child = lockRuntime.spawn(lockPath, waitMs, ready)
   // The helper must not keep this process alive after the hook returns.
   // A crash still closes the stdin pipe, so the helper exits and the kernel
   // drops the flock. Release also kills it so the next waiter does not wait
-  // out the helper's own timeout. The helper's wait is the remaining budget,
-  // and this loop stops on the same monotonic deadline.
+  // out the helper's own timeout. The helper's wait is the time remaining
+  // after preparation, and this loop stops on the deadline fixed above.
   child.unref()
-  const deadline = performance.now() + budget
   let line = ''
   try {
     while (line !== 'ok' && line !== 'timeout') {
@@ -539,9 +559,9 @@ function holdFlock(lockPath) {
         line = ''
       }
       if (line === 'ok' || line === 'timeout') break
-      const left = deadline - performance.now()
+      const left = deadline - lockRuntime.now()
       if (left <= 0) throw new Error('thread lock timeout')
-      sleepSync(Math.min(5, left))
+      lockRuntime.sleep(Math.min(5, left))
     }
   } catch (err) {
     releaseHelper(child, ready)
@@ -960,5 +980,6 @@ module.exports = {
   withThreadLock,
   armHookDeadline,
   clearHookDeadline,
+  lockRuntime,
   HOOK_GIVE_UP_MS,
 }
