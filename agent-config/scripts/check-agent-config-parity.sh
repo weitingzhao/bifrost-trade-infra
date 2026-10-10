@@ -155,6 +155,19 @@ else:
     else:
         fails.append("缺少 .claude/settings.json")
 
+    # Codex 的接线在用户级 ~/.codex，不进仓库；本机装了 codex 才查（W-35）。
+    # 没有 trust 的 hook 会被 Codex 无声跳过，所以问 Codex 自己，不只看文件在不在。
+    import os, shutil, subprocess
+    cg = ROOT / 'bifrost-trade-infra/agent-config/codex/check-codex-guard.py'
+    if shutil.which('codex') and cg.exists():
+        try:
+            r = subprocess.run([sys.executable, str(cg)], capture_output=True, text=True, timeout=60,
+                               env={**os.environ, 'BIFROST_WORKSPACE': str(ROOT)})
+            if r.returncode != 0:
+                fails.append("Codex 没有在跑 preflight：" + (r.stdout.strip() or r.stderr.strip())[:500])
+        except Exception as e:
+            fails.append(f"Codex 闸门检查没跑完：{e}")
+
 # ─────────── 6. 认知新鲜度 ───────────
 # 规则本身对了，不代表 Agent 手里的认知是对的。隔几天回来，记忆里的镜像版本、
 # replicas、目录结构可能已全部失效，而这种失效是无声的。

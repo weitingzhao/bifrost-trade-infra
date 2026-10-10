@@ -18,6 +18,7 @@ Bifrost 工作区（`/stocks`）的 Agent 治理资产。**实体在这里，工
 | `/stocks/.claude` | `claude/` | settings.json · skills · agents · commands · hooks |
 | `/stocks/.cursor` | `cursor/` | rules · skills · commands · hooks · _archive |
 | `/stocks/scripts` | `scripts/` | **两侧共用**的 agent-guard、parity 校验与提交血缘 git hook（`git-hooks/`） |
+| （不链接） | `codex/` | Codex 的用户级配置说明（`~/.codex` 不进仓库）与检查脚本 `check-codex-guard.py` |
 | `/stocks/PLAN-phase0-foundation-2026-10-05.md` | `work/PLAN-phase0-foundation-2026-10-05.md` | 阶段 0 计划 |
 | `/stocks/REVIEW-architecture-discussion-round1-2026-10-05.md` | `work/` 下同名 | 架构讨论第一轮 |
 | `/stocks/REVIEW-system-architecture-2026-10-05.md` | `work/` 下同名 | 系统架构评审 |

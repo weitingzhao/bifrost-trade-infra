@@ -497,10 +497,11 @@
 **W-31 第 0 步 · S0-10 根目录 AGENTS.md**
 
 - **类别**：道
-- **状态**：在做
-- **现在**：Owner 10-10 定卡 1 = A：根目录 `AGENTS.md` 链接到 `agent-config/AGENTS.md`，三家共用，只做粘合
-- **下一步**：写文件、建链接、README 重建命令加一行、两侧 parity 升版
+- **状态**：待你签收
+- **现在**：已落地（Owner 10-10 定卡 1 = A）：`agent-config/AGENTS.md` 只放指针，根目录链接已建；README 重建命令加了一行；`CLAUDE.md` §7 与 `workspace.mdc` §4 把它列为共用，两侧升到 workspace-v19。Codex 只有在 `/stocks` 启动时才读得到根目录这份，子仓库和 `~/agent-work` 下靠用户级 `~/.codex/AGENTS.md` 指针（W-35）
+- **下一步**：你签收。根目录白名单（S0-3 `workspace.yaml`、S0-6 `check_workspace_root.py`）建的时候把 `AGENTS.md` 列进去
 - **验收**：根目录 `AGENTS.md` 是指向 `bifrost-trade-infra/agent-config/AGENTS.md` 的链接；`bash scripts/check-agent-config-parity.sh` 通过；Codex 在 `/stocks` 下的提示输入里出现这份文件
+- **验收结果**：PASS 2026-10-10 3542d24（parity 通过、两侧各 20 条；故意把一侧留在 v18 时报版本漂移；`codex debug prompt-input` 在 `/stocks` 下含这份文件；Codex 在 worktree 里经指针读到 `CLAUDE.md` §3 并用中文回答）
 - **关联**：`agent-config/work/multi-agent/STEP0-PLAN-2026-10-08.md` 0.3 节、W-31
 
 ### W-35
@@ -508,10 +509,14 @@
 **W-31 第 0 步 · S0-15 Codex 最低护栏**
 
 - **类别**：道
-- **状态**：在做
-- **现在**：Codex 命令行随 ChatGPT.app 已在本机；钩子载荷已实测，与 Claude 的 `PreToolUse` 同形
-- **下一步**：PATH 链接；`~/.codex/hooks.json` 接 preflight；受信任目录、沙箱与审批；阳性对照
+- **状态**：待你签收
+- **现在**：
+  - PATH 链接 `~/.local/bin/codex`；`~/.codex/hooks.json` 的 `PreToolUse` 经薄适配 `scripts/agent-guard/codex-pretooluse.js` 接 `preflight.js`（apply_patch 按文件拆成 Write，否则 D10 路径规则看不到它）；
+  - hook 已 trust（`hooks/list` 拿哈希写进 `config.toml`）；沙箱 `workspace-write`、审批 `on-request`；受信任 `/stocks` 与 `~/agent-work`；`~/.codex/AGENTS.md` 指针；
+  - `check-codex-guard.py` 查 trust 与配置，`check-agent-config-parity.sh` 在本机装了 codex 时跑它。内容与安装方法在 `agent-config/codex/README.md`
+- **下一步**：你签收。W-36（S0-1）改 hooks.json 路径后要重新 trust，并跑 `check-codex-guard.py --probe`
 - **验收**：Codex 执行 `git add -A` 被 preflight 拦下，执行允许的命令照常通过；`~/.codex` 的内容和安装方法写进 agent-config 文档
+- **验收结果**：PASS 2026-10-10 ab93edb（不带 bypass、用 config 默认值：`git add -A` 被拦、暂存区 0；`git status` 通过；apply_patch 写 daemon-observe-safe 被 D10 拦；写普通文件通过；trust 之前同一条 `git add -A` 没经过 preflight。`test-codex.js` 9 条、`test.js` 136 条通过）
 - **关联**：`agent-config/work/multi-agent/STEP0-PLAN-2026-10-08.md` 0.3 节、W-31、W-34
 
 ### W-36
@@ -520,7 +525,7 @@
 
 - **类别**：道
 - **状态**：未开始
-- **现在**：范围按 STEP0-PLAN 第 3 节，加 0.1 节的 D-1（Cursor MCP 模板指向 PROD VIP）、D-4（frontend 2 行、`permissions.deny` 2 行）、D-6（删退役的 plist）
+- **现在**：范围按 STEP0-PLAN 第 3 节，加 0.1 节的 D-1（Cursor MCP 模板指向 PROD VIP）、D-4（frontend 2 行、`permissions.deny` 2 行）、D-6（删退役的 plist）；Codex 的 `~/.codex/hooks.json` 也是硬编码路径，改了命令就要重新 trust 并跑 `check-codex-guard.py --probe`（`agent-config/codex/README.md` 第 4 步）
 - **下一步**：W-35 之后派
 - **验收**：在另一个目录或账户下，preflight 能拦下探针命令；MCP 能起来；`check_hardcoded_paths.py` 只减不增
 - **关联**：STEP0-PLAN 第 3 节 S0-1、0.3 节
