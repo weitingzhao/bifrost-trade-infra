@@ -714,6 +714,17 @@
 - **验收**：Owner 的 iPhone 主屏幕应用收到 `#n` 推送，点开到 `#approvals?id=`
 - **关联**：`work/multi-agent/S0-0-approved-execution-PLAN-2026-10-10.md` 第 4.5 节；W-37；—
 
+### W-53
+
+**VPN → Ops 防火墙放行与网络审计覆盖**
+
+- **类别**：道
+- **状态**：在做
+- **现在**：iPhone 经 WireGuard 打不开 Ops：`Bifrost Server` 是自定义区，VPN 区默认被拒，基线里没有放行。platform `f995b00` 在基线里加了 `Bifrost | ALLOW VPN → Ops VIP`（源 VPN 区 `192.168.2.0/24`，目的 `192.168.10.100` TCP 443，带回程），审计期望清单和 Console 目录同步改了。审批单 `appr_d30b18c951439d55`（`owner_run_command`）等 Owner 批准并运行
+- **下一步**：① Owner 运行后读 `/api/v1/network/policies` 核对新规则，手机走蜂窝验收；域名解析若仍失败，另查手机侧 DNS。② `unifi_firewall_apply` 在 PROD 跑不了：镜像是只装了 Go 程序的 alpine，没有 python 和 `scripts/`（读代码与 `k8s/cicd/docker/Dockerfile.platform-api-stg` 得出，没有实跑）；把基线和创建规则移进 Go，或给镜像带上执行器。③ 审计只核对规则名和 5 个区的绑定：补 VPN 区、各区之间的默认动作、VPN 客户端；`/api/v1/network/policies` 只返回 `Bifrost |` 前缀的规则（10-10 是 15 条，网关上共 183 条）。④ 审计期望数 11 随 platform 下次发版生效，不为这一条单独发版
+- **验收**：手机关 Wi-Fi 走蜂窝、不手动连 VPN，能打开 `https://ops.bifrost.lan`；回到家里 Wi-Fi 后 VPN 断开，Ops 仍能打开；platform 仓库 `python3 scripts/unifi_firewall_policy_test.py` 通过；platform 发版后 `GET /api/v1/network/audit` 为 `POLICY_NOMINAL` 且 `expected_policy_count` 为 11
+- **关联**：platform `f995b00`；`work/multi-agent/DESIGN-agent-runtime-2026-10-08.md` 第 19 节；W-37；W-44
+
 ## 本批没有登记的
 
 - 阶段 0 的 W3：`REQUEST-w3-archive-before-delete-2026-10-05.md` 状态节写 A、B、C 全部完成。
