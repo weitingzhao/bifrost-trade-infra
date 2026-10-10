@@ -129,8 +129,10 @@ import json, sys
 print(json.load(open(sys.argv[1])).get("lease_id") or "")
 ' "$out" 2>/dev/null || true)"
   rm -f "$data" "$out"
+  # The platform's lease ids are "lease_" plus hex (approvals/execution.go claimLocked).
+  # Letters, digits and "_" only: the id is written into JSON request bodies with printf.
   case "$lease" in
-    ""|*[!0-9a-f]*)
+    ""|*[!A-Za-z0-9_]*)
       echo "REFUSED: claim of approval ${id} returned no lease" >&2
       return 1
       ;;

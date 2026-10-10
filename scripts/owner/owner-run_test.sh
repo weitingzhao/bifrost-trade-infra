@@ -132,7 +132,7 @@ grep -q "standard input must be a terminal" "${TMP}/err"
 MARK="${TMP}/ran"
 CMD_RUN="echo hello-from-owner-run; touch ${MARK}; exit 3"
 export CURL_BODY='{"id":"appr_57","number":57,"action":"owner_run_command","status":"approved","runner":"owner","execution":{"deadline":"2099-01-01T00:00:00Z"},"params":{"command":"'"$CMD_RUN"'"},"result":{"command_sha256":"'"$(sha "$CMD_RUN")"'"}}'
-export FAKE_CLAIM_JSON='{"lease_id":"0123abcd","approval":{}}'
+export FAKE_CLAIM_JSON='{"lease_id":"lease_0123abcd0123abcd0123abcd","approval":{}}'
 : > "$CURL_LOG"
 set +e
 run_tty yes '#57'
@@ -159,7 +159,7 @@ assert body["id"] == "appr_57" and body["runners"] == ["owner"], body
 result = [c for c in calls if c["kind"] == "result"]
 assert len(result) == 1 and result[0]["url"].endswith("/approvals/appr_57/result"), kinds
 posted = json.loads(result[0]["data"])
-assert posted["lease_id"] == "0123abcd" and posted["started"] is True and posted["exit_code"] == 3, posted
+assert posted["lease_id"] == "lease_0123abcd0123abcd0123abcd" and posted["started"] is True and posted["exit_code"] == 3, posted
 assert "hello-from-owner-run" in posted["output_tail"], posted
 assert len(posted["output_tail"].encode()) <= 2048
 owner = sys.argv[2]
@@ -193,7 +193,7 @@ fi
 unset FAKE_CLAIM_CODE
 
 # The result post failing does not change the exit code; the run log says so.
-export FAKE_CLAIM_JSON='{"lease_id":"0123abcd","approval":{}}'
+export FAKE_CLAIM_JSON='{"lease_id":"lease_0123abcd0123abcd0123abcd","approval":{}}'
 export FAKE_RESULT_CODE=503
 CMD_OK="touch ${MARK}"
 export CURL_BODY='{"id":"appr_58","number":58,"action":"owner_run_command","status":"approved","runner":"owner","execution":{"deadline":"2099-01-01T00:00:00Z"},"params":{"command":"'"$CMD_OK"'"},"result":{"command_sha256":"'"$(sha "$CMD_OK")"'"}}'
