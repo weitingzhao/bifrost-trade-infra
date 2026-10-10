@@ -514,7 +514,7 @@
   - PATH 链接 `~/.local/bin/codex`；`~/.codex/hooks.json` 的 `PreToolUse` 经薄适配 `scripts/agent-guard/codex-pretooluse.js` 接 `preflight.js`（apply_patch 按文件拆成 Write，否则 D10 路径规则看不到它）；
   - hook 已 trust（`hooks/list` 拿哈希写进 `config.toml`）；沙箱 `workspace-write`、审批 `on-request`；受信任 `/stocks` 与 `~/agent-work`；`~/.codex/AGENTS.md` 指针；
   - `check-codex-guard.py` 查 trust 与配置，`check-agent-config-parity.sh` 在本机装了 codex 时跑它。内容与安装方法在 `agent-config/codex/README.md`
-- **下一步**：没有（Owner 10-10 签收）。W-36（S0-1）改 hooks.json 路径后要重新 trust，并跑 `check-codex-guard.py --probe`
+- **下一步**：没有（Owner 10-10 签收）。W-36 已改 hooks.json 命令、重新 trust，`--probe` 10-10 通过
 - **验收**：Codex 执行 `git add -A` 被 preflight 拦下，执行允许的命令照常通过；`~/.codex` 的内容和安装方法写进 agent-config 文档
 - **验收结果**：PASS 2026-10-10 ab93edb（不带 bypass、用 config 默认值：`git add -A` 被拦、暂存区 0；`git status` 通过；apply_patch 写 daemon-observe-safe 被 D10 拦；写普通文件通过；trust 之前同一条 `git add -A` 没经过 preflight。`test-codex.js` 9 条、`test.js` 136 条通过）
 - **关联**：`agent-config/work/multi-agent/STEP0-PLAN-2026-10-08.md` 0.3 节、W-31、W-34
@@ -524,11 +524,19 @@
 **W-31 第 0 步 · S0-1 治理层可移植（含 D-1、D-4、D-6）**
 
 - **类别**：道
-- **状态**：在做
-- **现在**：范围按 STEP0-PLAN 第 3 节，加 0.1 节的 D-1（Cursor MCP 模板指向 PROD VIP）、D-4（frontend 2 行、`permissions.deny` 2 行）、D-6（删退役的 plist）；Codex 的 `~/.codex/hooks.json` 也是硬编码路径，改了命令就要重新 trust 并跑 `check-codex-guard.py --probe`（`agent-config/codex/README.md` 第 4 步）
-- **下一步**：执行线程 10-10 开始（与 W-47、W-46、W-43a 并行）
+- **状态**：待你签收
+- **现在**：
+  - 工作区根统一读 `BIFROST_WORKSPACE`，没设就往上找 `bifrost-platform/config/ops-context.yaml`，找不到报错退出；旧名 `GIT_WORKSPACE_ROOT`、`BIFROST_WORKSPACE_ROOT` 仍读（AGENT_FACTS §6）；
+  - Claude：hooks 用 `$CLAUDE_PROJECT_DIR`，`bifrost-analytics` 的 deny 并成一条项目相对的 `Edit(/bifrost-analytics/**)`（实测 `Write(...)` 那条从来不生效）；`.mcp.json` 用 `${BIFROST_WORKSPACE:-.}`；
+  - D-1：Cursor 模板改 `${workspaceFolder}`、每个 server 钉 `PLATFORM_TOKEN_ENV_KEY`，`cursor/install-mcp.py` 渲染进 `~/.cursor/mcp.json`（已装，备份 `mcp.json.bak-20261010T021240`）；
+  - D-4：infra（skills、README、autoMode payload 改占位符 `@WORKSPACE@`）、platform（git-bridge、code health）、research（pine lint 测试）、frontend（monitoring-ui 两侧，parity-id v3）；
+  - D-6：platform 里 4 份退役 plist 已删；ConfigMap 记为 TD-290（集群写，要建单）；
+  - Codex：`~/.codex/hooks.json` 命令改成 `"${BIFROST_WORKSPACE:-$HOME/Desktop/stocks}/..."`，重新 trust；`check-codex-guard.py` 现在用这条命令真跑一次 deny / allow；
+  - 防线：`check_hardcoded_paths.py` + 基线（剩 Mac Mini 的 4 个文件、16 处）+ 8 个测试，`make check-hardcoded-paths`，登记 RATCHETS
+- **下一步**：Owner 签收。autoMode payload 在本机渲染结果与现行规则逐字相同，不重新 apply 也不影响本机；换机器时再跑两个 apply 脚本。platform 共享 checkout 因别的会话未提交的 `Makefile` 没能快进（git-bridge 仍跑旧代码，路径结果相同）
 - **验收**：在另一个目录或账户下，preflight 能拦下探针命令；MCP 能起来；`check_hardcoded_paths.py` 只减不增
-- **关联**：STEP0-PLAN 第 3 节 S0-1、0.3 节
+- **验收结果**：PASS 2026-10-10 4f39935（`/tmp/ws2` 另建工作区：`$CLAUDE_PROJECT_DIR` 的 preflight 拦下 `git add -A`、暂存区 0，8 个 MCP server 全部连上、`platform_mcp_health` 返回 PROD VIP；本会话 Cursor 重载后 `platform_mcp_health` 返回 `http://192.168.10.100:30876`、`get_auth_capabilities` 为 operator；`codex exec` 实测 `git add -A` 被拦、`git status --short` exit 0，`check-codex-guard.py --probe` 通过；`check_hardcoded_paths.py --ref origin/main` 在基线上（11 个仓库）；`check_mcp_cutover.py` 与 `--self-test`、`test.js` 136 条、`test-codex.js` 9 条、parity 通过；platform `go test ./...`、git-bridge 15 条、pine lint 4 条通过）
+- **关联**：STEP0-PLAN 第 3 节 S0-1、0.3 节；提交 infra 4f39935、platform 75be701、research ecdce43、frontend 809d5579；TD-290
 
 ### W-37
 

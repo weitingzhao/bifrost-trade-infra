@@ -15,7 +15,7 @@
 
 （无）
 
-**未结 73 项**：P0 0 · P1 5 · P2 24 · P3 44；要你批的 32 项（从总览表的审批列算）。
+**未结 74 项**：P0 0 · P1 5 · P2 24 · P3 45；要你批的 33 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -74,7 +74,7 @@
 
 目标：删掉没人用的（挂起的 CronJob、退役脚本、无调用路由），手抄的副本改成从一处生成（调度名单、max-pain / PCR），清单的应用顺序与 Argo 归属理顺。
 
-项：TD-118, TD-120, TD-170, TD-202 · 已还：TD-126, TD-108, TD-154, TD-163, TD-168, TD-124, TD-176, TD-191, TD-169, TD-200, TD-201, TD-190, TD-123, TD-106, TD-119, TD-125, TD-102, TD-160, TD-107
+项：TD-118, TD-120, TD-170, TD-202, TD-290 · 已还：TD-126, TD-108, TD-154, TD-163, TD-168, TD-124, TD-176, TD-191, TD-169, TD-200, TD-201, TD-190, TD-123, TD-106, TD-119, TD-125, TD-102, TD-160, TD-107
 
 ### 第 6 波 · 备份链与自动修复（10-06 日常发现）
 
@@ -268,6 +268,7 @@
 | [TD-287](#td-287) | P3 | ops-platform | The gpu-server power manager on ubt-k3s-01 has failed every poweroff since the node key changed and logs success; platform wake/poweroff have no SSH identity | 安全/凭据（要你批） |
 | [TD-288](#td-288) | P2 | infra | ubt-k3s-01, the sole control plane, went down without a shutdown on 10-10 and no boot since June recorded a clean shutdown; nothing alerts on an unplanned reboot | 不用批 |
 | [TD-289](#td-289) | P2 | infra | Prometheus, Alertmanager and Grafana keep their data in emptyDir: a node drain erases 10 days of metrics, the silences and Grafana's database | 安全/凭据（要你批） |
+| [TD-290](#td-290) | P3 | ops-platform | The retired remediation runner's ConfigMap cicd/bifrost-remediation-runner-stg-dockerfile is still in the cluster, and the supply check and the deliver phase list still name it | PROD 变更（要你批） |
 | [TD-274](#td-274) | P3 | frontend | Symbol faces hide GEX levels that exist when zero gamma is NULL: the dealer level strip needs all four values and the regime cell needs zero gamma, so a chain with no flip (about a third of expiries) shows neither walls nor regime | 不用批 |
 
 ## 条目
@@ -1396,6 +1397,18 @@
 - **Ratchet**: `scripts/check_monitoring_persistence.py` (static: both values carry a claim and Prometheus a `retentionSize` below it; `--live`: both pods mount a Bound PersistentVolumeClaim), `make check-monitoring-persistence`, 9 tests. No general check for "this emptyDir holds state": a volume name does not say it. The emptyDir users left on 2026-10-10 are Grafana (on purpose), Argo CD caches, CNPG scratch and Traefik; platform state goes to ConfigMaps (TD-196) and the registry to a claim (TD-282).
 - 验收: `KUBECONFIG=~/.kube/bifrost-k3s.yaml python3 scripts/check_monitoring_persistence.py --live` exits 0; then delete the Prometheus pod (`delete_pod`) and `count(up offset 30m)` still answers.
 - 审批 要批（存储位置）· 代价 S · 风险 low · repos: bifrost-trade-infra
+
+### TD-290
+
+**P3 · ops-platform · The retired remediation runner's ConfigMap `cicd/bifrost-remediation-runner-stg-dockerfile` is still in the cluster, and the platform still lists it**
+
+- **状态**：未开始（集群写，要建审批单；W-36 只删了 platform 里的 4 份 plist）
+- **Claim**: The runner and Hermes were retired in W-33 and their plists were deleted in W-36 (D-6), but the Dockerfile ConfigMap created 2026-06-21 is still in `cicd`. Nothing builds from it. The supply check keeps it in its Dockerfile list and the Console deliver phases show it as `retired-dockerfile`, so deleting only the ConfigMap would turn the supply check red.
+- **Evidence**: `kubectl -n cicd get cm bifrost-remediation-runner-stg-dockerfile` (2026-10-10, exists); `bifrost-platform/api/internal/delivery/supply_chain.go:25`; `bifrost-platform/console/src/lib/delivery/deliverPlatformPhases.ts:5`
+- **Fix**: drop the name from both lists (one platform commit), then delete the ConfigMap through an approval (`owner_run_command`, the Agent identity is read-only).
+- **Ratchet**: none new: the supply check already fails on a listed ConfigMap that is missing, which is why the code goes first. `check_hardcoded_paths.py` does not cover cluster objects.
+- 验收: `kubectl -n cicd get cm bifrost-remediation-runner-stg-dockerfile` → NotFound; `git -C bifrost-platform grep -n remediation-runner-stg-dockerfile origin/main` → no hits outside tests; the supply check stays green.
+- 审批 要批（删集群对象）· 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-261
 
