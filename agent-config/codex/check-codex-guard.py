@@ -93,6 +93,28 @@ def smoke_hook(command: str) -> list[str]:
     return fails
 
 
+HEARTBEAT = "thread-heartbeat.js"
+HEARTBEAT_EVENTS = ("userPromptSubmit", "preToolUse", "postToolUse", "stop")
+
+
+def heartbeat_warnings(resp: dict) -> list[str]:
+    """Thread heartbeat hooks (W-54). Warnings, not failures: an untrusted one is
+    skipped silently, so the thread is invisible on the Console, but tool calls
+    are not affected."""
+    warns: list[str] = []
+    for entry in resp.get("result", {}).get("data", []):
+        where = entry["cwd"]
+        for ev in HEARTBEAT_EVENTS:
+            beats = [h for h in entry["hooks"] if h["eventName"] == ev and HEARTBEAT in h["command"]]
+            if not beats:
+                warns.append(f"{where}: no {ev} hook runs {HEARTBEAT} (README, hooks.json)")
+            for h in beats:
+                if not h["enabled"] or h["trustStatus"] != "trusted":
+                    warns.append(f"{where}: heartbeat {h['key']} is {h['trustStatus']}"
+                                 f"{'' if h['enabled'] else ', disabled'}; re-trust it (README, install step 4)")
+    return warns
+
+
 def probe() -> list[str]:
     fails: list[str] = []
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="codex-guard-probe-"))
@@ -157,9 +179,13 @@ def main() -> int:
                 fails.append(f"{where}: matcher {h['matcher']!r} does not cover every tool")
             fails += [f"{where}: {f}" for f in smoke_hook(h["command"])]
 
+    warns = heartbeat_warnings(resp)
+
     if "--probe" in sys.argv[1:]:
         fails += probe()
 
+    if warns:
+        print("\n".join("! " + w for w in warns))
     if fails:
         print("\n".join("✗ " + f for f in fails))
         return 1

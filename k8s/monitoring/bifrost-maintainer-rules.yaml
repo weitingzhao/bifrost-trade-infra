@@ -265,6 +265,21 @@ spec:
             description: >-
               The check runs hourly and is what pushes the Owner before the
               signed release policy expires. 2 hours is twice that.
+        - alert: BifrostMaintainerAgentThreadWatchStale
+          expr: |
+            (
+              time() - bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/agent-thread-watch"} > 300
+            )
+            or absent_over_time(bifrost_maintainer_last_success_timestamp_seconds{maintainer="platform/prod/agent-thread-watch"}[5m])
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PROD agent thread watch has not completed a pass for 5 minutes"
+            description: >-
+              The watch runs every 30 seconds and is what pages the Owner when
+              an agent thread stops mid-turn (W-54). While it is stale a frozen
+              session pages nobody.
     - name: bifrost-maintainer-reconcile
       rules:
         # The CronJob deletes this ConfigMap when drift > 0 and recreates it

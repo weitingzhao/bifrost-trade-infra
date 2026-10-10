@@ -94,6 +94,10 @@ cd /path/to/stocks && AC=bifrost-trade-infra/agent-config && \
   换机器时这些绝对路径需要改（见上方 `AC` 变量）。
 - **`cursor/hooks.json` 是源，Cursor 实际加载的是用户级 `~/.cursor/hooks.json`**：Cursor 拒绝经符号链接的项目级 `.cursor/hooks.json`（日志 `Refusing to load Project hooks.json via symlink below workspace root`，TD-298）。
   `python3 bifrost-trade-infra/agent-config/cursor/install-hooks.py` 把源里的相对路径渲染成工作区根下的绝对路径、`node` 渲染成绝对路径，写进用户级文件；幂等，用户自己的其它 hooks 保留。源改了（例如 W-54 加心跳 hooks）就重跑；`check-agent-config-parity.sh` 在本机发现用户级文件缺失或过期时警告。
+- **线程心跳**（W-54）：`scripts/thread-heartbeat.js` 是三家共用的心跳钩子，`claude/settings.json`、`cursor/hooks.json`、`codex/README.md` 里的 `~/.codex/hooks.json` 各接一份。
+  回合开始、工具调用前后、回合结束各 POST 到 PROD `POST /api/v1/agent/threads/heartbeat`（TD-197 的上报令牌，没有令牌就不发）；钩子不输出、不报错、永远 exit 0。第一次登记，以及服务端尚未确认的 `turn_start`，在钩子进程里同步发送；其余发送交给脱离的子进程。钩子从进入起只有一个单调时钟截止时间，5 秒；每一次锁等待只用截止前剩下的时间，进程在该截止时间退出。
+  无头运行（`cursor-agent -p` 不触发 stop 钩子）一律这样启动：`node scripts/thread-heartbeat.js run cursor -- cursor-agent -p …`。
+  宿主心跳（W-57）：`scripts/host-heartbeat.js` 每 60 秒上报主机名，以及 claude、cursor、codex 的钩子是否接上、上报令牌是否可读。`node scripts/install-host-heartbeat.js` 只把 launchd 模板写到 `~/Library/LaunchAgents`，不加载；模板的环境变量写入 `BIFROST_WORKSPACE`。变量缺失时，脚本从自身位置向上找到含 `bifrost-platform/config/ops-context.yaml` 的工作区。用户级 hook 命令里的相对脚本路径按工作区根解析，这是厂商实际使用的 cwd。
 - **`scripts/` 下的脚本自行向上查找工作区根**（标记 `bifrost-platform/config/ops-context.yaml`），
   因此无论从符号链接路径还是真实路径调用都能工作。两条路径都在回归测试覆盖内。
 
@@ -108,6 +112,7 @@ cd /path/to/stocks && AC=bifrost-trade-infra/agent-config && \
 ```bash
 make check-agent-parity        # 在 bifrost-trade-infra/ 下
 node scripts/agent-guard/test.js   # 硬边界回归 25 例
+node scripts/thread-heartbeat.test.js   # 心跳：事件映射、节流、钩子失败不拦工具调用、无头包装
 ```
 
 规则见工作区根 `CLAUDE.md` §7（双轨维护）与 `cursor/rules/workspace.mdc` §4。

@@ -300,6 +300,14 @@ maintainers:
     max_tier: A
     detected_by: BifrostMaintainerReleasePolicyExpiryStale
     status: active
+  - id: platform/prod/agent-thread-watch
+    what: "Every 30s on PROD workers (W-54). Reads the agent thread heartbeats (statefile agent-threads) and pushes the Owner when a thread stops mid-turn for max(10m, declared tool timeout + 2m). That push is retried and may arrive twice. Detection and notice only: it does not restart or reassign a session. Runs only where OPS_VIEWER_ENV=prod unless PLATFORM_AGENT_THREAD_WATCH says otherwise."
+    runs_on: cluster:bifrost-platform-prod/platform-workers
+    schedule: "every 30s"
+    env: prod
+    max_tier: A
+    detected_by: BifrostMaintainerAgentThreadWatchStale
+    status: active
   - id: platform/stg/data-clone-scheduler
     what: "Same hourly loop as PROD, started because STG workers role is on. Its schedule ConfigMap is also absent, so it no-ops. Default source if someone enables it is bifrost_prod. PATROL_MODE is not set here."
     runs_on: cluster:bifrost-platform-stg/platform-workers

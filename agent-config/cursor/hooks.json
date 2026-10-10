@@ -1,6 +1,11 @@
 {
   "version": 1,
   "hooks": {
+    "beforeSubmitPrompt": [
+      {
+        "command": "node ./scripts/thread-heartbeat.js hook cursor"
+      }
+    ],
     "beforeShellExecution": [
       {
         "command": "node ./scripts/agent-guard/preflight.js"
@@ -11,9 +16,37 @@
         "command": "node ./scripts/agent-guard/preflight.js"
       }
     ],
+    "preToolUse": [
+      {
+        "command": "node ./scripts/thread-heartbeat.js hook cursor"
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": "node ./scripts/thread-heartbeat.js hook cursor"
+      }
+    ],
+    "postToolUseFailure": [
+      {
+        "command": "node ./scripts/thread-heartbeat.js hook cursor"
+      }
+    ],
+    "subagentStop": [
+      {
+        "command": "node ./scripts/thread-heartbeat.js hook cursor"
+      }
+    ],
     "stop": [
       {
         "command": "node .cursor/hooks/on-session-stop.js"
+      },
+      {
+        "command": "node ./scripts/thread-heartbeat.js hook cursor"
+      }
+    ],
+    "sessionEnd": [
+      {
+        "command": "node ./scripts/thread-heartbeat.js hook cursor"
       }
     ]
   }
