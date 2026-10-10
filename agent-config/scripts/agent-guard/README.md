@@ -9,15 +9,17 @@ Cursor 与 Claude **共用同一份实现**。双轨维护（`CLAUDE.md` §7）�
 |------|------|
 | `preflight.js` | 拦截器本体。读 stdin JSON，输出 deny 决策或静默放行 |
 | `test.js` | 回归测试。`node scripts/agent-guard/test.js` |
+| `codex-pretooluse.js` | Codex 的薄适配层：apply_patch 按文件拆成 Write 再交给 `preflight.js`，其余原样转发。不加规则 |
+| `test-codex.js` | 适配层回归测试。`node scripts/agent-guard/test-codex.js` |
 
 ## 接线
 
-| 事件 | Claude Code | Cursor |
-|------|-------------|--------|
-| shell 执行前 | `PreToolUse` matcher `Bash\|Edit\|Write\|MultiEdit\|NotebookEdit` | `beforeShellExecution` |
-| MCP 调用前 | `PreToolUse` matcher `mcp__.*` | `beforeMCPExecution` |
+| 事件 | Claude Code | Cursor | Codex |
+|------|-------------|--------|-------|
+| shell 执行前 | `PreToolUse` matcher `Bash\|Edit\|Write\|MultiEdit\|NotebookEdit` | `beforeShellExecution` | `PreToolUse`（全部工具，经 `codex-pretooluse.js`） |
+| MCP 调用前 | `PreToolUse` matcher `mcp__.*` | `beforeMCPExecution` | 同上 |
 
-配置分别在 `.claude/settings.json` 与 `.cursor/hooks.json`。
+配置分别在 `.claude/settings.json`、`.cursor/hooks.json` 和用户级 `~/.codex/hooks.json`（不进仓库，内容见 `agent-config/codex/README.md`）。
 `scripts/check-agent-config-parity.sh` 会校验两侧都已接线。
 
 ## 拦截什么
