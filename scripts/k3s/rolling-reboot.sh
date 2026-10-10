@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # Rolling reboot of the Bifrost k3s nodes. Prints the plan and exits unless
-# --execute is given. --execute requires --approval <id>. Before any live
+# --execute is given. --execute requires --approval <id | #n>. Before any live
 # action the script reads GET /api/v1/approvals/<id> with the PROD viewer token
 # (PLATFORM_PROD_VIEWER_TOKEN, the same key scripts/k3s/apply-platform-role-tokens.sh
-# reads from .env). The approval must be action rolling_reboot, status executed,
-# and not expired. The token is not printed. A live run is still refused outside
+# reads from .env). The approval must be action rolling_reboot, status approved
+# (runner owner), and inside its execution deadline. After the weekend rule and
+# the lock, the run claims it with the PROD admin token (scripts/owner/
+# lib-approval.sh; one start per approval), keeps the lease alive, and posts the
+# exit code, duration, output hash and last 2 KB of output when it ends.
+# Tokens are not printed. A live run is still refused outside
 # Saturday/Sunday US Eastern unless --allow-weekday is set, which prints a
 # warning and continues. The weekday rule runs only inside --execute.
 # Any failed step stops the run; later nodes are not touched.
@@ -30,7 +34,8 @@
 # ssh that ends with exit 255 (no connection, or sshd closed it while the
 # passphrase prompt was open, about 2 minutes) is asked again, SSH_ATTEMPTS times.
 # A run that stops prints which nodes it finished; rerun with --done <those> to
-# continue. Done nodes are not touched and count as rebooted for the switchover.
+# continue, under a new approval (each approval starts once). Done nodes are not
+# touched and count as rebooted for the switchover.
 #
 # Pods under a PodDisruptionBudget with maxUnavailable 0 (ib-gateway, redis-ib,
 # the polygon workers) are not evicted: no wait satisfies that budget. They stay
@@ -71,11 +76,18 @@ LOCK_HELD=0
 RUN_STARTED=0
 RUN_DONE=""
 APPROVAL_ID=""
+APPROVAL_MODE=""
+RUN_LEASE=""
+RUN_STARTED_MS=0
+RUN_OUTPUT=""
+RUN_OUTPUT_DIR="${HOME}/.bifrost-owner/run-output"
 NODES_SPEC=""
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # PROD platform-api NodePort. Override with PLATFORM_API. Do not point this at STG.
 PLATFORM_API="${PLATFORM_API:-http://192.168.10.100:30876}"
 ENV_FILE="${ENV_FILE:-${ROOT}/.env}"
+# shellcheck source=../owner/lib-approval.sh
+. "${ROOT}/scripts/owner/lib-approval.sh"
 
 usage() {
   cat <<'EOF'
@@ -84,7 +96,8 @@ Usage: rolling-reboot.sh [--dry-run] [--execute --approval <id>] [--allow-weekda
 
   --dry-run         Print the plan and exit (default). Reads the CNPG primary.
   --execute         Perform the plan. Requires --approval. Refused on Mon-Fri US Eastern.
-  --approval <id>   With --execute, an executed rolling_reboot approval that has not expired.
+  --approval <id>   With --execute, an approved rolling_reboot approval (id or #n)
+                    inside its execution deadline. Each approval starts one run.
   --allow-weekday   With --execute, run outside the weekend and print a warning.
                     --execute uses OWNER_KUBECONFIG (default
                     ~/.bifrost-owner/kube/admin.yaml) and BIFROST_SSH_KEY
@@ -864,100 +877,95 @@ run_node() {
   verify_workloads "$node"
 }
 
-viewer_token() {
-  # Same key apply-platform-role-tokens.sh reads. Environment wins. Never echo it.
-  if [ -n "${PLATFORM_PROD_VIEWER_TOKEN:-}" ]; then
-    printf '%s' "${PLATFORM_PROD_VIEWER_TOKEN}"
-    return 0
-  fi
-  local env_file line
-  env_file="${ENV_FILE}"
-  if [ ! -f "$env_file" ]; then
-    echo "REFUSED: missing PLATFORM_PROD_VIEWER_TOKEN" >&2
-    return 1
-  fi
-  line="$(grep -E '^PLATFORM_PROD_VIEWER_TOKEN=' "$env_file" | tail -1 || true)"
-  line="${line#*=}"
-  line="${line%\"}"
-  line="${line#\"}"
-  if [ -z "$line" ]; then
-    echo "REFUSED: missing PLATFORM_PROD_VIEWER_TOKEN" >&2
-    return 1
-  fi
-  printf '%s' "$line"
-}
-
+# require_approval reads the approval with the PROD viewer token. An approved
+# rolling_reboot (runner owner) is claimed later, after the weekend rule and the
+# lock, so a refused start does not use it up. A record from before the claim
+# protocol (status executed, no execution block) runs as before, unclaimed.
 require_approval() {
-  local token cfg body rc
+  local body plan
   if [ -z "$APPROVAL_ID" ]; then
     echo "REFUSED: --execute requires --approval <id>" >&2
     exit 1
   fi
-  case "$APPROVAL_ID" in
-    ""|*[!A-Za-z0-9_-]*)
-      echo "REFUSED: --approval id must be one token" >&2
-      exit 1
-      ;;
-  esac
-  token="$(viewer_token)" || exit 1
-  case "$token" in
-    *\"*|*$'\n'*|*$'\r'*)
-      echo "REFUSED: viewer token cannot be passed to curl safely" >&2
-      exit 1
-      ;;
-  esac
-  cfg="$(mktemp)"
-  chmod 600 "$cfg"
-  printf 'header = "Authorization: Bearer %s"\n' "$token" > "$cfg"
-  set +e
-  body="$(curl -fsS --config "$cfg" --url "${PLATFORM_API%/}/api/v1/approvals/${APPROVAL_ID}")"
-  rc=$?
-  set -e
-  rm -f "$cfg"
-  if [ "$rc" -ne 0 ]; then
-    echo "REFUSED: could not read approval ${APPROVAL_ID}" >&2
-    exit 1
-  fi
-  printf '%s' "$body" | python3 -c '
+  APPROVAL_ID="$(approval_ref "$APPROVAL_ID")" || exit 1
+  body="$(approval_get "$APPROVAL_ID")" || exit 1
+  plan="$(printf '%s' "$body" | python3 -c '
 import json, sys
 from datetime import datetime, timezone
 
-def parse_expiry(value):
+def when(value):
     if not isinstance(value, str) or not value.strip():
         return None
     text = value.strip()
     if text.endswith("Z"):
         text = text[:-1] + "+00:00"
     try:
-        exp = datetime.fromisoformat(text)
+        out = datetime.fromisoformat(text)
     except ValueError:
         return None
-    if exp.tzinfo is None:
-        exp = exp.replace(tzinfo=timezone.utc)
-    return exp
+    return out if out.tzinfo else out.replace(tzinfo=timezone.utc)
 
-approval_id = sys.argv[1]
+ref = sys.argv[1]
 try:
     doc = json.loads(sys.stdin.read())
 except json.JSONDecodeError:
-    sys.stderr.write("REFUSED: approval %s response is not JSON\n" % approval_id)
+    sys.stderr.write("REFUSED: approval %s response is not JSON\n" % ref)
     sys.exit(1)
 if not isinstance(doc, dict):
-    sys.stderr.write("REFUSED: approval %s response is not an object\n" % approval_id)
+    sys.stderr.write("REFUSED: approval %s response is not an object\n" % ref)
     sys.exit(1)
 action = doc.get("action")
 status = doc.get("status")
-if action != "rolling_reboot" or status != "executed":
+execution = doc.get("execution") if isinstance(doc.get("execution"), dict) else None
+now = datetime.now(timezone.utc)
+if action == "rolling_reboot" and status == "approved":
+    runner = doc.get("runner") or "owner"
+    if runner != "owner":
+        sys.stderr.write("REFUSED: approval %s is runner=%s; the host executor runs it\n" % (ref, runner))
+        sys.exit(1)
+    deadline = when((execution or {}).get("deadline"))
+    if deadline is None or now >= deadline:
+        sys.stderr.write("REFUSED: approval %s is expired (past its execution deadline)\n" % ref)
+        sys.exit(1)
+    mode = "claim"
+elif action == "rolling_reboot" and status == "executed" and execution is None:
+    exp = when(doc.get("expires_at"))
+    if exp is None or now >= exp:
+        sys.stderr.write("REFUSED: approval %s is expired\n" % ref)
+        sys.exit(1)
+    mode = "legacy"
+else:
     sys.stderr.write(
-        "REFUSED: approval %s is action=%s status=%s; want rolling_reboot executed\n"
-        % (approval_id, action, status)
+        "REFUSED: approval %s is action=%s status=%s; want rolling_reboot approved\n"
+        % (ref, action, status)
     )
     sys.exit(1)
-exp = parse_expiry(doc.get("expires_at"))
-if exp is None or datetime.now(timezone.utc) >= exp:
-    sys.stderr.write("REFUSED: approval %s is expired\n" % approval_id)
+approval_id = doc.get("id") or ref
+if not isinstance(approval_id, str) or not approval_id.replace("_", "").replace("-", "").isalnum():
+    sys.stderr.write("REFUSED: approval %s has no usable id\n" % ref)
     sys.exit(1)
-' "$APPROVAL_ID"
+sys.stdout.write("%s %s" % (mode, approval_id))
+' "$APPROVAL_ID")" || exit 1
+  APPROVAL_MODE="${plan%% *}"
+  APPROVAL_ID="${plan#* }"
+}
+
+# claim_approval starts the approval: one start per approval, so a rerun with
+# --done needs a new one. Output is copied to RUN_OUTPUT for the result tail.
+claim_approval() {
+  if [ "$APPROVAL_MODE" != "claim" ]; then
+    echo "WARNING: approval ${APPROVAL_ID} predates the claim protocol; the run is not recorded on it" >&2
+    return 0
+  fi
+  approval_load_run_token || exit 1
+  RUN_LEASE="$(approval_claim "$APPROVAL_ID" "rolling-reboot:$(hostname -s 2>/dev/null || echo host)" owner)" || exit 1
+  approval_heartbeat_start "$APPROVAL_ID" "$RUN_LEASE"
+  RUN_STARTED_MS="$(approval_now_ms)"
+  mkdir -p "$RUN_OUTPUT_DIR"
+  chmod 700 "$RUN_OUTPUT_DIR"
+  RUN_OUTPUT="${RUN_OUTPUT_DIR}/${APPROVAL_ID}.log"
+  (umask 077 && : > "$RUN_OUTPUT")
+  exec > >(tee -a "$RUN_OUTPUT") 2> >(tee -a "$RUN_OUTPUT" >&2)
 }
 
 acquire_lock() {
@@ -981,18 +989,27 @@ acquire_lock() {
 }
 
 on_exit() {
-  local rc finished
+  local rc finished again
   rc="$1"
   if [ "$LOCK_HELD" = "1" ]; then
     rm -rf "$LOCK_DIR"
   fi
+  again="rerun the same command"
+  if [ -n "$RUN_LEASE" ]; then
+    again="request a new rolling_reboot approval (each approval starts once) and rerun with it"
+  fi
   if [ "$RUN_STARTED" = "1" ] && [ "$rc" -ne 0 ]; then
     finished="$(printf '%s' "$RUN_DONE" | sed 's/^ *//' | tr ' ' ',')"
     if [ -n "$finished" ]; then
-      echo "resume: finished so far: ${finished}. After fixing the cause, rerun the same command with --done ${finished}. The node that failed may still be cordoned; the rerun cordons and drains it again." >&2
+      echo "resume: finished so far: ${finished}. After fixing the cause, ${again}, adding --done ${finished}. The node that failed may still be cordoned; the rerun cordons and drains it again." >&2
     else
-      echo "resume: no node finished. After fixing the cause, rerun the same command. The node that failed may still be cordoned; the rerun cordons and drains it again." >&2
+      echo "resume: no node finished. After fixing the cause, ${again}. The node that failed may still be cordoned; the rerun cordons and drains it again." >&2
     fi
+  fi
+  if [ -n "$RUN_LEASE" ]; then
+    approval_heartbeat_stop
+    approval_post_result "$APPROVAL_ID" "$RUN_LEASE" "$rc" \
+      "$(( $(approval_now_ms) - RUN_STARTED_MS ))" "$RUN_OUTPUT" || true
   fi
 }
 
@@ -1001,6 +1018,7 @@ execute_plan() {
   require_approval
   require_live_window
   acquire_lock
+  claim_approval
   RUN_STARTED=1
   remaining="$REMAINING_NAMES"
   done_nodes="$DONE_NAMES"
