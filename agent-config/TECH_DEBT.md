@@ -9,7 +9,7 @@
 > 4. **签收后**：删掉这一项和「待你签收」里那一行；「还债顺序」里把编号移到「已还」，计划进度一直看得见。提交信息写签收、防线和后续。打回的，状态回到 `在做`，原因写进 `下一步`。
 > 5. **自上次以来**：下面「上次查看」记着 Owner 上次看过的提交。台账页从那个提交起生成变化清单（新增、关闭、状态变化、防线增减）。Owner 说「看过了」，就把它改成当前提交。
 
-上次查看：4b4c957（2026-10-06，Owner 说「看过了」）
+上次查看：92c0271（2026-10-10，Owner 已看过 TD-274 DEV 结果；本轮基线）
 
 ## 待你签收
 
@@ -1596,7 +1596,7 @@
 
 **P3 · frontend · Symbol faces hide GEX levels that exist when zero gamma is NULL: the dealer level strip needs all four values and the regime cell needs zero gamma, so a chain with no flip (about a third of expiries) shows neither walls nor regime**
 
-- **状态**：未开始
+- **状态**：在做（Owner 已看过 DEV 结果；代码已提交隔离分支，未合并/未发布）
 - **Claim**: Since research 0.191.0 / 0.192.0 (TD-157, TD-166) daily GEX levels store NULL for a wall on a side without exposure and for zero gamma when cumulative gamma never changes sign; NULL there is a reading ("no flip: the whole chain is long gamma" or short, by the sign of `total_net_gex`), not missing data. The Symbol faces treat it as missing: the dealer face draws its level strip only when spot, zero gamma and both walls are all present, so the walls that do exist disappear too; the face extras drop the GEX regime cell entirely; the history table and chain chips print `—`. Same class as the closed TD-150 (pages report gaps that are not there).
 - **Measured**: MEASURED 2026-10-08 (acceptance run of TD-166, read-only): zero gamma NULL on 1,426 of 4,262 levels rows written for 10-06 (33.5%) and 1,503 of 4,294 for 10-07 (35.0%); 29,447 NULL in the table. On 10-06, 565 of 2,040 front-expiry readings since 10-01 had no flip. One-sided walls NULL on 24 of the 10-06 rows and 14 of the 10-07 rows.
 - **Evidence**:
@@ -1610,6 +1610,11 @@
 - **Ratchet**: vitest on the dealer face and face extras with a levels row whose zero gamma is NULL (strip still drawn with walls, regime cell present and says no flip), and one with a NULL wall.
 - **验收**: On :5173 (DEV inner loop) a name whose front expiry has NULL zero gamma shows walls and a regime cell saying "no flip"; the vitest above passes.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-frontend
+
+- **本轮结果**：2026-10-10，隔离 worktree `codex/td-274`（frontend 提交 `43477399`，未合并/未发布）。Dealer 按现有价格/墙位独立绘制；Chain、face extras、daily History 共用 Research NULL 语义，regime 按 total_net_gex 符号；缺行/失败不冒充 no flip，未知日中断连续计数。Intraday 未套用日线规则。
+- **验收结果**：PASS 2026-10-10 `43477399`（DEV 页面已由 Owner 看过；提交前定向复跑 24/24；记录 `bifrost-trade-frontend/docs/acceptance/TD-274.md`）。未发布，因此保留条目，不记作已还。
+- **DEV 验收**：PASS 2026-10-10，Vite :5173 → DEV :30882：AAL no flip + walls 12/14，APT no flip + put wall 6 + no call exposure，AA numeric flip 47.5，ZZQ 无数据不生成 no-flip 读数；daily History 和 Chain 显示核对通过。Instances / Live / Ledger 冒烟完成（Live 当前无实时 marks）。
+- **自检与防线**：全套 Vitest 550 files / 4136 passed / 1 skipped；TD-274 定向 24 passed；lint 0 errors（67 existing warnings）；build 与 check:legacy-css PASS。新增 helper、Dealer、History/Chain 渲染用例覆盖 no flip、单侧墙、缺数据、失败缓存与连续计数。公开 API/依赖无变化。
 
 ## 没覆盖到的（下一轮从这里开始）
 
