@@ -1,4 +1,25 @@
 # Internal container registry for cicd namespace (Session S3 smoke).
+#
+# TD-282: images live on a NAS-backed PersistentVolume. Until 2026-10-10 the
+# registry wrote to its container filesystem; a containerd restart on
+# ubt-k3s-01 at 01:19:43Z emptied it while 30 running containers pulled
+# `Always` from it.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: registry-data
+  namespace: cicd
+  labels:
+    app: registry
+    bifrost.io/component: registry
+spec:
+  storageClassName: nfs-cold
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 200Gi
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -27,6 +48,9 @@ metadata:
     bifrost.io/component: registry
 spec:
   replicas: 1
+  # One writer at a time on the volume.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: registry
@@ -50,3 +74,10 @@ spec:
               port: 5000
             initialDelaySeconds: 3
             periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/registry
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: registry-data
