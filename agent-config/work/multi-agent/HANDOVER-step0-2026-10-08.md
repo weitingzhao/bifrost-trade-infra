@@ -42,3 +42,40 @@
 ## 第 0 步做完之后
 
 按 v4 第 12 节进入运行时第 0 阶段（单 Agent 基线）。开工前先和 Owner 确认，因为那时要建 `agentrt` 的表（属于架构级改动，要按 database-design 规范来）。
+
+## 瘦身线程 10-10 移交
+
+瘦身线程（CLI 会话 230292da）10-10 收口时补的。只列 10-08 之后新出现、归第 0 步的事；瘦身自己的状态看 `work/ops-arch/STATUS-2026-10-08.md`「10-10 周六」。
+
+### 瘦身停在哪里
+
+- W-32、W-33 两波都已上 PROD；第 5 阶段退出条件 10-09 满足：Agent 侧没有集群管理员、节点 root、子系统管理员凭证。
+- 只剩两件 Owner 动手的事：带 `--upgrade` 的滚动重启、本机看 Time Machine。它们不挡第 0 步第 1 天的只读盘点。
+
+### 第 1 天盘点会看到的变化（和 10-08 的数字不一样的地方）
+
+- `~/.kube/bifrost-k3s.yaml` 现在是只读身份 `bifrost-agent`；写集群走平台动作（根 `CLAUDE.md` §3 对照表）。管理员 kubeconfig、节点密钥（带口令）、子系统管理员密码都在 Owner 目录，preflight 拦引用。
+- C / D 级动作：建单 → 给 Owner 链接 → `wait_for_request`。不默认调 `approve_request`（记忆 `feedback_approvals_wait_dont_popup`）。
+- 集群内 registry 已有持久卷（`cicd/registry-data`，nfs-cold 200Gi）；`check_registry_images.py --live` 是验收。
+- apply 流水线的 plan 用 `--field-manager=bifrost-applier`，diff 出错会打印并失败。
+- 直接调用的 B 级 workactions 现在写审计（platform `efeaf69`）。
+
+### 归第 0 步的新事项
+
+1. **「批准后由系统执行」**（Owner 10-10 同意写方案，和 TD-286 同一份）。10-09 到 10-10 的实际情况：凡是要管理员 kubeconfig 或节点密钥的步骤，都是 Claude 给命令、Owner 手工执行、Claude 再核对，只因为执行者不存在。要点：
+   - `owner_run_command` 需要一个执行者，放在带外操作面（.50），凭证只在那里；
+   - 任何一处批准（Console、手机、会话）效果相同，等待中的会话自动继续（`wait_for_request` 已做到）；
+   - 审批单要有短数字编号；通知里写清动作、环境、关键参数、发起线程、过期时间，并记录投递结果；
+   - Console 审批页按状态分组，参数和 plan 输出要可读；
+   - 会话里回「批 #n」可以批。
+2. **TD-287**：gpu-server 的唤醒与关机归同一个执行者（WOL 不需要凭证；关机用一把只能执行 poweroff 的专用钥匙）。01 上那个服务现在每次关机都失败，还打印成功。
+3. **TD-283、TD-284**：`release.sh dev` 的重启、插件与 pine 构建，都还绕不过 kubectl，要接到平台动作上。
+4. **TD-285**（要 Owner 定）：applier 接管不了 `kubectl-client-side-apply` 拥有的字段。选 `--force-conflicts`，还是由 Owner 逐个迁移字段归属。
+5. **TD-288**：01（唯一控制面）10-10 无关机过程地断掉又起来，原因未知。第 0 步里只做告警那一半（节点非计划重启）；硬件由 Owner 查。
+
+### 这一轮学到的（细节在记忆里）
+
+- 静态检查全绿不算数：apply 流水线有 4 个只有真跑才暴露的问题（`cluster_policy_changes_need_server_dry_run`）。
+- 扫描要放阳性对照：本机没有 `timeout`，命令不存在时输出为空，看起来像「干净」（`empty_scan_needs_a_positive_control`）。
+- 给 Owner 的命令放在一轮的最后一条消息里，Owner 用会话里的 bash 输入执行，输出直接可见。
+- 「谁重启了它」先读开机时间和上一次开机的日志结尾，不要从下游症状倒推（TD-282 最初被写成 containerd 重启，实际是整机断电式重启）。

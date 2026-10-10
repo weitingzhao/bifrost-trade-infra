@@ -21,7 +21,7 @@
 - **TD-196** — platform 状态不再随发版丢失：各 store 经 `internal/statefile` 写进本命名空间的 ConfigMap `platform-state-*`，审计按角色各留 500 条（platform 87965ce）。验收 PASS 2026-10-09（PROD 21:29Z 发版后审计 180 条、最早 10-07；release-cycles、approvals、checklist、patrol 的状态 ConfigMap 都在）。防线：`statefile_test.go`、`k8sstate_test.go`（store 经 statefile 落 ConfigMap）。原定的「清单里不许 emptyDir」不适用：`/app/data` 的 emptyDir 现在只是写穿式的本地副本。后续：无后续：release-cycles 读接口已随第 3 阶段删除
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 76 项**：P0 0 · P1 6 · P2 25 · P3 45；要你批的 33 项（从总览表的审批列算）。
+**未结 78 项**：P0 0 · P1 6 · P2 26 · P3 46；要你批的 34 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -122,7 +122,7 @@
 
 目标：会动手的维护只由 PROD 的 platform-workers 做，本机与 STG 只观测。已做：本机停手（TD-130 第一步）、STG 不修 IB 也不写发布记录（TD-223）、页面不再触发维护、状态持久化（TD-196）。接着：PROD 自己探测、带时间戳的检查信号，只给 PROD 挂技能并先只报告，再逐项放开；备份只归 CNPG 与 backup-retry；不再清掉失败现场。
 
-项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255, TD-272, TD-276, TD-283, TD-284, TD-285, TD-286 · 已还：TD-256, TD-257, TD-270, TD-271, TD-273, TD-275, TD-277, TD-278, TD-279, TD-280, TD-281, TD-282
+项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255, TD-272, TD-276, TD-283, TD-284, TD-285, TD-286, TD-287, TD-288 · 已还：TD-256, TD-257, TD-270, TD-271, TD-273, TD-275, TD-277, TD-278, TD-279, TD-280, TD-281, TD-282
 
 ## 数据边界（接受并留座）
 
@@ -289,6 +289,8 @@
 | [TD-284](#td-284) | P3 | ops-platform | Plugin and pine image builds cannot be started through start_pipeline_run: no image tag, no workspaces, pine missing from the window map | 不用批 |
 | [TD-285](#td-285) | P2 | ops-platform | The applier cannot take over a field that kubectl-client-side-apply owns: plan and apply fail with a server-side apply conflict | 安全/凭据（要你批） |
 | [TD-286](#td-286) | P2 | ops-platform | Approval notifications carry no short id or parameters and their delivery is not recorded; session, Console and phone are not one approval experience | 安全/凭据（要你批） |
+| [TD-287](#td-287) | P3 | ops-platform | The gpu-server power manager on ubt-k3s-01 has failed every poweroff since the node key changed and logs success; platform wake/poweroff have no SSH identity | 安全/凭据（要你批） |
+| [TD-288](#td-288) | P2 | infra | ubt-k3s-01, the sole control plane, went down without a shutdown on 10-10 and no boot since June recorded a clean shutdown; nothing alerts on an unplanned reboot | 不用批 |
 | [TD-274](#td-274) | P3 | frontend | Symbol faces hide GEX levels that exist when zero gamma is NULL: the dealer level strip needs all four values and the regime cell needs zero gamma, so a chain with no flip (about a third of expiries) shows neither walls nor regime | 不用批 |
 
 ## 条目
@@ -1495,6 +1497,30 @@
 - **Ratchet**: notify test asserts number and params in the message; approvals store a delivery record.
 - 验收: the next C-tier request shows `#n`, action and environment on the phone and its delivery status in Console.
 - 审批 要批（设计）· 代价 M · 风险 low · repos: bifrost-platform
+
+### TD-287
+
+**P3 · ops-platform · The gpu-server power manager on ubt-k3s-01 has failed every poweroff since the node key changed and logs success; the platform's wake and poweroff actions have no SSH identity**
+
+- **状态**：未开始（归多 Agent 协作项目第 0 步「审批后由系统执行」：带外操作面上的执行者）
+- **Claim**: `bifrost-gpu-power-manager.service` (enabled, active on ubt-k3s-01) drains gpu-server after 30 idle minutes, then runs `ssh vision@192.168.10.60 'sudo -n systemctl poweroff'`. Since the node key change (W-33 step 3) .60 answers `Permission denied (publickey)`; the script discards the error (`2>/dev/null … || true`) and logs `Poweroff command sent` every ~33 minutes. gpu-server has been up since 2026-10-09 03:26Z with no workload (cordoned since 08-02, only DaemonSet pods, `ai` namespace empty). The service also runs on the sole control plane with that node's admin kubeconfig. The platform actions `wake_compute_node` (B) and `poweroff_compute_node` (D) SSH from platform-api, whose PROD pod has no SSH identity, so neither can work.
+- **Evidence**: `bifrost-trade-infra/scripts/k3s/gpu-node-power-manager.sh` `power_off_node`; node journal 2026-10-10 04:40:16Z `vision@192.168.10.60: Permission denied (publickey)` then `Poweroff command sent`; `bifrost-platform/api/internal/cluster/node_power.go:254`
+- **Fix**: one owner for gpu-server power, on the out-of-band operator plane (.50): WOL needs no credential; poweroff uses a dedicated key that .60 restricts to a forced `sudo -n systemctl poweroff` (from .50 only, no pty, no forwarding). Report the real exit status. Retire the unit on ubt-k3s-01 and route the two platform actions to that executor.
+- **Ratchet**: test that `power_off_node` fails (and does not log success) when ssh fails; `check_platform_maintenance.py` lists the power manager under exactly one runtime.
+- 验收: gpu-server idle for 30 minutes powers off; a Pending compute pod wakes it; the log shows the ssh exit status.
+- 审批 要批（钥匙与放置）· 代价 S · 风险 low · repos: bifrost-trade-infra, bifrost-platform
+
+### TD-288
+
+**P2 · infra · ubt-k3s-01, the sole control plane and etcd member, went down at 2026-10-10 01:18Z without a shutdown, and none of its boots since June recorded a clean shutdown; nothing alerts on an unplanned node reboot**
+
+- **状态**：未开始（要你查：供电、UPS、BIOS 事件日志）
+- **Claim**: The previous boot's journal ends at 01:18:36Z with routine k3s lines and no shutdown sequence; the next boot started 01:19:31Z (node-exporter boot time 01:19:26Z). Bare metal (`systemd-detect-virt` none), no `Automatic-Reboot`, last apt run 10-09 06:36, memory 16 of 24 GB free and load 0.57 before, no platform audit record, no session active. `last -x` shows five boots since 06-08, all without a shutdown record; the 08-11 18:14Z → 08-12 23:50Z gap is 29.5 hours. The reboot emptied the in-cluster registry (fixed by TD-282's persistent volume) and was found only through that symptom.
+- **Evidence**: ubt-k3s-01 `journalctl --list-boots` (boot -1 ends 2026-10-10 01:18:36 UTC); Prometheus `node_boot_time_seconds{instance="192.168.10.73:9100"}` = 1791595166; kube-state-metrics: almost every pod on ubt-k3s-01 got a new pod IP.
+- **Fix**: read the kernel log of the previous boot for hardware errors, pstore and the panic settings (`scratchpad node01-crash.sh`); Owner checks the power path (UPS, outlet, BIOS event log). If it is power, move 01 behind the UPS; if hardware, plan the replacement of the only control plane.
+- **Ratchet**: alert `BifrostNodeUnexpectedReboot`: `changes(node_boot_time_seconds[15m]) > 0` on a node that no `rolling_reboot` approval covers (rule test in `check_alert_rules`).
+- 验收: the alert rule exists and fires in a rule unit test; the cause is written here, or the node has run 30 days without an unclean boot.
+- 审批 不用批（查硬件要你到场）· 代价 S · 风险 med · repos: bifrost-trade-infra
 
 ### TD-261
 

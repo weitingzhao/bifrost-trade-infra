@@ -21,7 +21,7 @@
 
 | 波次 | 内容 | 时间 |
 |---|---|---|
-| **第一波：收尾上线** | W-32 验收 → STG（Owner 过目）→ PROD → 重部署两台 mini（operator-plane 删了路由）→ 删旧信任覆盖 ConfigMap，Grafana 修法 Owner 定；**10-11 周日滚动重启**，并入「5 台自动更新加 `-updates`」（周六先改配置、装上积压的包，Claude 先列清单给 Owner 批，周日一次重启带上新内核）；确认定时对账 0 漂移；Owner 本机看 Time Machine 最近一次成功 | 到 10-11 |
+| **第一波：收尾上线** | W-32 验收 → STG（Owner 过目）→ PROD → 重部署两台 mini（operator-plane 删了路由）→ 删旧信任覆盖 ConfigMap，Grafana 修法 Owner 定；**滚动重启带 `--upgrade`**（Owner 10-10 改定：自动更新保持只装安全更新，积压的 56 个普通更新在滚动重启里逐台装，一次重启带上新内核；周六、周日都可以跑）；确认定时对账 0 漂移；Owner 本机看 Time Machine 最近一次成功 | 到 10-11 |
 | **第二波：第 5 阶段收口（W-33）** | 先讨论一次，再派一条道，合并四件：① 凭证收口——mini 不再持有管理员 kubeconfig 与 admin 令牌，部署脚本不再同步它们，remediation runner 与 .52 hermes-gateway 定去留；② PROD 经代理转到 mini 的 operator 级路由认 PROD 令牌；③ Console 显示待重启节点，滚动重启做成审批动作；④ ⑤ 页给 Research 与插件显示 STG / PROD 两列版本（③④ 补上第 3 阶段去向表的两行「部分」）。后来加了第 2 步（通用动作、只读数据库账号、平台发版链）和第 3 步（Mac 上的 Agent 换只读） | **10-09 完成**（退出条件已满足） |
 
 **现状盘点**：`STATUS-2026-10-08.md`（计划 vs 实际落地、恢复后的顺序）。10-08 傍晚暂停过一次，Owner 当天把恢复条件改为「ADR §1 改写定稿」；§1 已定稿（infra `bf27c80`），本计划已恢复。
