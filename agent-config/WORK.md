@@ -533,7 +533,7 @@
   - D-6：platform 里 4 份退役 plist 已删；ConfigMap 记为 TD-290（集群写，要建单）；
   - Codex：`~/.codex/hooks.json` 命令改成 `"${BIFROST_WORKSPACE:-$HOME/Desktop/stocks}/..."`，重新 trust；`check-codex-guard.py` 现在用这条命令真跑一次 deny / allow；
   - 防线：`check_hardcoded_paths.py` + 基线（剩 Mac Mini 的 4 个文件、16 处）+ 8 个测试，`make check-hardcoded-paths`，登记 RATCHETS
-- **下一步**：没有（Owner 10-10 签收）。同日定卡 7（路径棘轮接进 parity，只拦新增，infra 本批已接）、卡 8（删 platform `config/cursor-mcp-bridges.json`，只留 infra `cursor/mcp.servers.json`，platform `3dad199`）、卡 9（Codex hooks 默认路径留到 S0-3 bootstrap 统一写）。autoMode payload 在本机渲染结果与现行规则逐字相同，不重新 apply 也不影响本机；换机器时再跑两个 apply 脚本。platform 共享 checkout 因别的会话未提交的 `Makefile` 没能快进（git-bridge 仍跑旧代码，路径结果相同）
+- **下一步**：没有（Owner 10-10 签收）。同日定卡 7（路径棘轮接进 parity，只拦新增，infra 本批已接）、卡 8（删 platform `config/cursor-mcp-bridges.json`，只留 infra `cursor/mcp.servers.json`，platform `3dad199`）、卡 9（Codex hooks 默认路径留到 S0-3 bootstrap 统一写）。autoMode payload 在本机渲染结果与现行规则逐字相同，不重新 apply 也不影响本机；换机器时再跑两个 apply 脚本。platform 共享 checkout 因别的会话未提交的 `Makefile` 没能快进（git-bridge 仍跑旧代码，路径结果相同）；10-10 已解除：那份 Makefile 改动已提交为 platform `7cda6cb`，共享 checkout 在 main 上（STEP0-PLAN 0.9 第 4 条）
 - **验收**：在另一个目录或账户下，preflight 能拦下探针命令；MCP 能起来；`check_hardcoded_paths.py` 只减不增
 - **验收结果**：PASS 2026-10-10 4f39935（`/tmp/ws2` 另建工作区：`$CLAUDE_PROJECT_DIR` 的 preflight 拦下 `git add -A`、暂存区 0，8 个 MCP server 全部连上、`platform_mcp_health` 返回 PROD VIP；本会话 Cursor 重载后 `platform_mcp_health` 返回 `http://192.168.10.100:30876`、`get_auth_capabilities` 为 operator；`codex exec` 实测 `git add -A` 被拦、`git status --short` exit 0，`check-codex-guard.py --probe` 通过；`check_hardcoded_paths.py --ref origin/main` 在基线上（11 个仓库）；`check_mcp_cutover.py` 与 `--self-test`、`test.js` 136 条、`test-codex.js` 9 条、parity 通过；platform `go test ./...`、git-bridge 15 条、pine lint 4 条通过）
 - **关联**：STEP0-PLAN 第 3 节 S0-1、0.3 节；提交 infra 4f39935、platform 75be701、research ecdce43、frontend 809d5579；TD-290
@@ -609,7 +609,7 @@
 **W-31 第 0 步 · S0-16 Console 清理 A（16a 零引用的死代码 · 16b 孤儿）**
 
 - **类别**：道
-- **状态**：在做（16a、16b 都已进集成分支 `w31/console-int` `5101ba3`，随第 9 步发版）
+- **状态**：在做（16a、16b 都已进集成分支 `w31/console-int`，10-10 合 main `7cda6cb` 后为 `11ebb8c`，随第 9 步发版）
 - **现在**：Owner 10-10 拆成两步（STEP0-PLAN 0.4 节）：W-43a 只删零引用的死代码，已派出（分支 `w31/w43a-s0-16a`）；W-43b 删孤儿，排在 W-44、W-45 之后。`AgentFocusDock`、`AgentTriadStrip`、`CommandIntentStrip`、`lib/task-mode`、`operateQueue` / `operateBriefs`、`lib/agent/*` 仍在渲染，不属于 16a；`NavAgentAskSlot` 改归 W-44。退役 plist 只在 W-36 删一次。W-43a 已并进 Console 集成分支 `w31/console-int`（platform `58928a3`，10-10）
 - **下一步**：W-43b 已交付（`w31/w43b-s0-16b` `7299084`，参谋长 10-10 验收），删了无入口的 Control Room 四个分区、从未显示的 View agent 链接、SSH 控制台后端（三条路由现返回 404）和 xterm 依赖；清单在 `work/multi-agent/STEP9-REMOVED-UI-2026-10-10.md` 第 5 节。等第 9 步 STG 过目；进 main 后 infra `OVERSIZED_PLATFORM_BASELINE` 13 → 12
 - **验收**：tsc / lint / vitest / build 全过，没有新的引用断裂
@@ -687,7 +687,7 @@
 
 - **类别**：道
 - **状态**：未开始（等 W-42 合 main）
-- **现在**：operator-plane 在 .50 以执行者角色领单（执行卡 1 = A），只放专用受限凭证（执行卡 2 = A）；输出只回写退出码、用时、哈希和 ≤2 KB 打码尾部，全文留 .50 30 天（执行卡 6 = A）；TD-287；TD-290 的删除做演练；TD-291 的两台 Mini 重新部署并入这里
+- **现在**：operator-plane 在 .50 以执行者角色领单（执行卡 1 = A），只放专用受限凭证（执行卡 2 = A）；输出只回写退出码、用时、哈希和 ≤2 KB 打码尾部，全文留 .50 30 天（执行卡 6 = A）；TD-287；TD-290 的删除做演练；TD-291 的两台 Mini 重新部署并入这里；TD-296：重新部署 .50 operator-plane，准备时 Owner 换 ntfy topic。不做 D 级权限框的截断显示（Owner 10-10 推翻，D 级只在 Console 批，STEP0-PLAN 0.9 第 2 条）
 - **下一步**：W-42 合 main 之后照方案第 4.4 节的顺序开
 - **验收**：Owner 只点一次批准，TD-290 的 ConfigMap 由系统删掉，单子 `executed`、退出码 0；`get_agent_bridge` 的 `git_bridge` 是 `not_configured`
 - **关联**：`work/multi-agent/S0-0-approved-execution-PLAN-2026-10-10.md` 第 4.5 节；W-37；TD-287、TD-290、TD-291
@@ -697,10 +697,10 @@
 **W-31 第 0 步 · S0-0d 会话「批 #n」**
 
 - **类别**：道
-- **状态**：在做（代码完成，待 Claude 侧实测「批 #n」。分支 platform `w31/w51-s0-0d` `c6a5e84`、infra `w31/w51-s0-0d` `465f679`（用法文档），基于 W-48）
+- **状态**：在做（代码完成，合 main 前须补 D 级拒绝，待 Claude 侧实测「批 #n」。分支 platform `w31/w51-s0-0d` `c6a5e84`、infra `w31/w51-s0-0d` `465f679`（用法文档），基于 W-48）
 - **现在**：`approve_request` / `reject_request` 收 `#n` 加 `approval_line`，与记录重算的一行相等才发；D 级从会话不带 `confirm_number`；`list_pending` 返回 `approval_line`；没有 bifrost-approve 的会话拿到 `approve_hint`
-- **下一步**：W-49 合 main 后合 platform，再合 infra 文档；PROD 上线后在 Claude 侧实测
-- **验收**：Claude 会话里打「批 #n」：弹出允许，批准后单子的 `channel` 是 `chat`
+- **下一步**：先在分支上补 D 级拒绝：「批 #n」和 bifrost-approve 遇到 D 级一律拒绝，返回「D 级请在 Console 批准」和 Console 链接，带测试（Owner 10-10，STEP0-PLAN 0.9 第 2 条）；W-49 合 main 后合 platform，再合 infra 文档；PROD 上线后通知决策线程实测（决策线程先重启拿新 MCP）
+- **验收**：Claude 会话里打「批 #n」：弹出允许，批准后单子的 `channel` 是 `chat`；对 D 级单打「批 #n」被拒绝并给出 Console 链接
 - **关联**：`work/multi-agent/S0-0-approved-execution-PLAN-2026-10-10.md` 第 4.5 节；W-37；—
 
 ### W-52
@@ -730,9 +730,9 @@
 **W-31 第 0 步 · S0-21 线程心跳与静默告警**
 
 - **类别**：道
-- **状态**：未开始
+- **状态**：在做（已派 Cursor，分支 `w31/w54-s0-21`）
 - **现在**：Owner 2026-10-10 定。起因：当天 04:03–09:02 决策线程所在的笔记本合盖睡眠，一轮冻结 5 小时，没有任何告警。规格在 `work/multi-agent/STEP0-PLAN-2026-10-08.md` 0.9 节
-- **下一步**：执行线程派道；不依赖 S0-0，可以和第 9 步并行
+- **下一步**：Cursor 在分支 `w31/w54-s0-21` 上做；不依赖 S0-0，可以和第 9 步并行
 - **验收**：0.9 节的 5 条
 - **关联**：W-31；W-44（① 的「进行中」）；ADR §12.9 第 9 条
 

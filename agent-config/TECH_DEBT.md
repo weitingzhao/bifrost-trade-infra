@@ -1489,12 +1489,12 @@
 
 **P2 · ops-platform · The ntfy connection error text carries the full topic (the read credential) and is served by the token-less relay status endpoint; with W-49 it would also reach approval delivery records**
 
-- **状态**：在做（W-49 审计 10-10 发现；掩码已在 platform 分支 `w31/w49-s0-0b` `56b12b2`，防线 `api/internal/alertrelay/relay_test.go` `TestNotifyFailureNamesTheReasonWithoutTheTopic`。关闭条件：合 main + 重新部署 .50 operator-plane，并入 S0-0c / W-50）
+- **状态**：在做（W-49 审计 10-10 发现；掩码已在 platform 分支 `w31/w49-s0-0b` `56b12b2`，防线 `api/internal/alertrelay/relay_test.go` `TestNotifyFailureNamesTheReasonWithoutTheTopic`。关闭条件：合 main + 重新部署 .50 operator-plane + ntfy topic 由 Owner 在 S0-0c 准备时更换（Owner 10-10 定），并入 S0-0c / W-50）
 - **Claim**: The relay posts to `NtfyURL + "/" + Topic`. When the request fails, Go's HTTP client error quotes the whole URL (`Post "<ntfy>/<topic>": …`), so the error text contains the topic. Anyone who knows the topic can subscribe and read every push. That text is kept as `lastErr` and returned as `last_error` by `GET /alerts/relay`, which takes no token. W-49 adds per-target delivery results to `POST /alerts/notify` and stores them on the approval (`deliveries[].error`), so without the mask the topic would also land in request records.
 - **Evidence**: `bifrost-platform/api/internal/alertrelay/relay.go:46` (topic is the read credential), `relay.go:371` (URL built with the topic), `relay.go:395` (`r.lastErr = err.Error()`), `relay.go:417` (`last_error` in the status body), `relay.go:116` (`GET /alerts/relay` route); read on platform main `66496a6`.
-- **Fix**: Mask the topic out of every transport error before it is stored or returned (done on W-49: the target is reported as a hash, the error names the reason without the topic). After the redeploy, if the status endpoint ever showed a connection error, treat the topic as exposed; rotating it is an Owner own-key operation.
+- **Fix**: Mask the topic out of every transport error before it is stored or returned (done on W-49: the target is reported as a hash, the error names the reason without the topic). The Owner rotates the ntfy topic while preparing S0-0c (decided 2026-10-10), so any topic that already reached the status endpoint stops working.
 - **Ratchet**: `TestNotifyFailureNamesTheReasonWithoutTheTopic` (a failing ntfy post answers a delivery whose error and target do not contain the topic).
-- 验收: `cd bifrost-platform/api && go test ./internal/alertrelay/ -run 'TestNotify' -count=1`; after the .50 operator-plane redeploy, `GET /alerts/relay` on .50 shows no topic in `last_error` and the build carries the W-49 commit.
+- 验收: `cd bifrost-platform/api && go test ./internal/alertrelay/ -run 'TestNotify' -count=1`; after the .50 operator-plane redeploy, `GET /alerts/relay` on .50 shows no topic in `last_error` and the build carries the W-49 commit; the Owner has rotated the topic and a test push reaches the phone on the new one.
 - 审批 要批（凭据面：.50 operator-plane 重新部署是 Owner 本机操作）· 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-297
