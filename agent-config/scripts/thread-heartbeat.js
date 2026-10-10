@@ -15,16 +15,15 @@
  * the command exits.
  *
  * A hook prints nothing and always exits 0. It does not return a permission
- * denial. It can wait before giving up: a 3 second timer exits the process,
- * and taking the thread lock blocks the event loop for up to 2 seconds. That
- * wait is not cut short by the timer, so one lock can run past the deadline.
- * The real bound is 5 seconds (3 + 2); the process then exits. The first
- * registration, and a turn_start the server has not confirmed, wait on the
- * network inside that bound.
+ * denial. It gives up at one monotonic deadline, 5 seconds from entry. Every
+ * lock wait receives only the time remaining before that deadline, and the
+ * process exits at that deadline. The first registration, and a turn_start
+ * the server has not confirmed, wait on the network inside that bound.
  *
  * Sequence and turn id are allocated under a per-thread flock. A helper holds
  * the lock on an open file descriptor; the operating system releases it when
  * this process exits (the helper's stdin closes). `run` uses that same lock.
+ * Every hook, sender and `run` wrapper must have exited before a change of the lock protocol is installed.
  *
  * The client generates a registration nonce and sends it with every event.
  * If the first response is lost, the next event repeats the nonce and the
@@ -35,8 +34,10 @@
  * thread id. A late response never falls back to the current record. An old
  * 409 for a record that is already superseded does nothing.
  * A turn_start the server has not confirmed is kept and sent again before
- * any later event of that turn. A finished turn is not reopened: a 409
- * "older turn refused" does not supersede the record.
+ * any later event of that turn. When that resend re-registers and receives a
+ * new key, the event that triggered the resend is sent with the new key, and
+ * only when the response matches the requested record. A finished turn is
+ * not reopened: a 409 "older turn refused" does not supersede the record.
  * A failure leaves the key unset and the next event tries again.
  *
  * Config (nothing secret lives in the repo):
@@ -51,16 +52,30 @@ const os = require('node:os')
 const path = require('node:path')
 const crypto = require('node:crypto')
 const { spawn } = require('node:child_process')
+const { performance } = require('node:perf_hooks')
 
 const DEFAULT_URL = 'http://192.168.10.100:30876' // bifrost-platform-prod platform-api NodePort on the VIP
 const ROUTE = '/api/v1/agent/threads/heartbeat'
 const THROTTLE_MS = 15 * 1000
-const HOOK_DEADLINE_MS = 3000
+// One monotonic deadline for the whole hook. A lock wait does not add a
+// fresh LOCK_WAIT_MS on top of it.
+const HOOK_GIVE_UP_MS = 5000
 const LOCK_WAIT_MS = 2000
-// The lock wait blocks the event loop, so the 3 second timer cannot fire
-// during it. One such wait can finish after the timer was already due.
-// HOOK_DEADLINE_MS + LOCK_WAIT_MS is the real give-up bound: 5 seconds.
-const HOOK_GIVE_UP_MS = HOOK_DEADLINE_MS + LOCK_WAIT_MS
+let hookDeadline = 0
+
+function armHookDeadline(ms = HOOK_GIVE_UP_MS) {
+  hookDeadline = performance.now() + ms
+}
+
+function clearHookDeadline() {
+  hookDeadline = 0
+}
+
+/** Remaining hook budget, or LOCK_WAIT_MS when this process is not inside a hook. */
+function lockBudgetMs() {
+  if (!hookDeadline) return LOCK_WAIT_MS
+  return Math.max(0, hookDeadline - performance.now())
+}
 const FIRST_EVENT_TIMEOUT_MS = 1000
 const KEY_RE = /^[0-9a-f]{64}$/
 const TURN_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
@@ -402,8 +417,8 @@ function saveGate(vendor, thread, gate) {
 
 function sleepSync(ms) {
   const buf = new Int32Array(new SharedArrayBuffer(4))
-  const end = Date.now() + ms
-  while (Date.now() < end) Atomics.wait(buf, 0, 0, Math.max(1, end - Date.now()))
+  const end = performance.now() + ms
+  while (performance.now() < end) Atomics.wait(buf, 0, 0, Math.max(1, end - performance.now()))
 }
 
 // Holds an exclusive flock until stdin closes, then exits. The kernel drops
@@ -500,27 +515,33 @@ function prepareLockFile(lockPath) {
 }
 
 function holdFlock(lockPath) {
+  const budget = lockBudgetMs()
+  if (budget < 1) throw new Error('thread lock timeout')
   prepareLockFile(lockPath)
   const ready = `${lockPath}.ready.${process.pid}.${crypto.randomBytes(4).toString('hex')}`
-  const child = spawn(perlBin(), ['-e', LOCK_HELPER, lockPath, String(LOCK_WAIT_MS), ready], {
+  const waitMs = Math.max(1, Math.floor(budget))
+  const child = spawn(perlBin(), ['-e', LOCK_HELPER, lockPath, String(waitMs), ready], {
     stdio: ['pipe', 'ignore', 'ignore'],
   })
   // The helper must not keep this process alive after the hook returns.
   // A crash still closes the stdin pipe, so the helper exits and the kernel
   // drops the flock. Release also kills it so the next waiter does not wait
-  // out the helper's own timeout.
+  // out the helper's own timeout. The helper's wait is the remaining budget,
+  // and this loop stops on the same monotonic deadline.
   child.unref()
-  const deadline = Date.now() + LOCK_WAIT_MS + 500
+  const deadline = performance.now() + budget
   let line = ''
   try {
     while (line !== 'ok' && line !== 'timeout') {
-      if (Date.now() > deadline) throw new Error('thread lock timeout')
       try {
         line = fs.readFileSync(ready, 'utf8').trim()
       } catch {
         line = ''
       }
-      if (line !== 'ok' && line !== 'timeout') sleepSync(5)
+      if (line === 'ok' || line === 'timeout') break
+      const left = deadline - performance.now()
+      if (left <= 0) throw new Error('thread lock timeout')
+      sleepSync(Math.min(5, left))
     }
   } catch (err) {
     releaseHelper(child, ready)
@@ -626,8 +647,9 @@ function supersedeActive(body) {
 }
 
 function saveIssuedKey(body, key) {
-  if (typeof key !== 'string' || !KEY_RE.test(key)) return
+  if (typeof key !== 'string' || !KEY_RE.test(key)) return false
   const session = body.session || body.thread
+  let saved = false
   withThreadLock(body.vendor, session, () => {
     const gate = loadGate(body.vendor, session)
     const rec = matchingRecord(gate, body)
@@ -635,7 +657,9 @@ function saveIssuedKey(body, key) {
     if (!rec) return
     rec.key = key
     saveGate(body.vendor, session, gate)
+    saved = true
   })
+  return saved
 }
 
 function markTurnConfirmed(body) {
@@ -708,10 +732,21 @@ async function confirmTurnStart(body, timeoutMs) {
   if (!start) return { ok: true }
   const opened = await post(start, timeoutMs)
   if (opened.key) {
+    let saved = false
     try {
-      saveIssuedKey(start, opened.key)
+      saved = saveIssuedKey(start, opened.key)
     } catch {
       // the next event retries with the same nonce
+    }
+    // The event that triggered the resend still carries the key it was
+    // stamped with. Copy the new key only when it was stored on that record.
+    if (
+      saved &&
+      opened.sent &&
+      body.thread === start.thread &&
+      body.register_nonce === start.register_nonce
+    ) {
+      body.thread_key = opened.key
     }
   }
   // A finished turn stays refused. Do not supersede and do not send the later event.
@@ -886,14 +921,15 @@ async function main(argv) {
   if (mode === 'run') return run(vendor || 'other', rest)
   if (mode === 'hook') {
     // Nothing may reach stdout (Cursor reads it as a permission answer) and the
-    // exit code is always 0. The timer is 3 seconds; a lock wait can push the
-    // give-up to HOOK_GIVE_UP_MS because it blocks this timer.
-    const deadline = setTimeout(() => process.exit(0), HOOK_DEADLINE_MS)
+    // exit code is always 0. The timer and every lock wait share one monotonic
+    // deadline of HOOK_GIVE_UP_MS from this moment.
+    armHookDeadline()
+    const deadline = setTimeout(() => process.exit(0), HOOK_GIVE_UP_MS)
     deadline.unref()
     try {
       await hook(vendor)
     } catch {
-      // a thrown error still exits 0; the wait bound is the timer plus one lock
+      // a thrown error still exits 0; the wait bound is the one deadline
     }
     return 0
   }
@@ -922,5 +958,7 @@ module.exports = {
   supersedeActive,
   saveIssuedKey,
   withThreadLock,
+  armHookDeadline,
+  clearHookDeadline,
   HOOK_GIVE_UP_MS,
 }

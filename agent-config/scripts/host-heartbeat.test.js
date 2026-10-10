@@ -9,7 +9,7 @@ const test = require('node:test')
 
 const SCRIPT = path.join(__dirname, 'host-heartbeat.js')
 const HEARTBEAT = path.join(__dirname, 'thread-heartbeat.js')
-const { buildReport } = require('./host-heartbeat.js')
+const { buildReport, findWorkspace } = require('./host-heartbeat.js')
 
 function commandFor(vendor, script = HEARTBEAT) {
   return `node ${JSON.stringify(script)} hook ${vendor}`
@@ -236,13 +236,85 @@ test('a successful post describes every vendor and does not send the token', asy
   srv.s.close()
 })
 
-test('the installer writes a LaunchAgent and does not load it', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'host-hb-install-'))
+function plistWorkspace(text) {
+  const found = text.match(/<key>BIFROST_WORKSPACE<\/key>\s*<string>([^<]*)<\/string>/)
+  assert.ok(found, 'plist has no BIFROST_WORKSPACE')
+  return found[1]
+}
+
+test('default plist environment with a correctly wired Claude project config reports wired', () => {
+  const { home, workspace } = freshHome()
+  fs.mkdirSync(path.join(workspace, '.claude'), { recursive: true })
+  fs.writeFileSync(path.join(workspace, '.claude', 'settings.json'), claudeSettings(commandFor('claude')))
   const dest = installer.install({
     home,
-    node: '/opt/homebrew/bin/node',
-    script: '/work/agent-config/scripts/host-heartbeat.js',
+    node: process.execPath,
+    script: SCRIPT,
+    workspace,
   })
+  const root = plistWorkspace(fs.readFileSync(dest, 'utf8'))
+  assert.equal(root, workspace)
+  const report = withEnv(home, root, {}, () => buildReport())
+  assert.equal(report.vendors.claude.wired, true)
+  assert.equal(report.vendors.cursor.wired, false)
+})
+
+test('without BIFROST_WORKSPACE the script discovers the workspace from its own location', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'host-hb-discover-'))
+  fs.mkdirSync(path.join(root, 'bifrost-platform', 'config'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'bifrost-platform', 'config', 'ops-context.yaml'), 'marker\n')
+  const scripts = path.join(root, 'bifrost-trade-infra', 'agent-config', 'scripts')
+  fs.mkdirSync(scripts, { recursive: true })
+  fs.copyFileSync(SCRIPT, path.join(scripts, 'host-heartbeat.js'))
+  fs.copyFileSync(HEARTBEAT, path.join(scripts, 'thread-heartbeat.js'))
+  const heartbeat = path.join(scripts, 'thread-heartbeat.js')
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true })
+  fs.writeFileSync(path.join(root, '.claude', 'settings.json'), claudeSettings(commandFor('claude', heartbeat)))
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'host-hb-discover-home-'))
+  const env = { ...process.env, BIFROST_HOME_OVERRIDE: home }
+  delete env.BIFROST_WORKSPACE
+  delete env.PLATFORM_REPORTER_TOKEN
+  const code = `const { buildReport } = require(${JSON.stringify(path.join(scripts, 'host-heartbeat.js'))}); process.stdout.write(JSON.stringify(buildReport()))`
+  return new Promise((resolve, reject) => {
+    const p = spawn(process.execPath, ['-e', code], { env })
+    let out = ''
+    let err = ''
+    p.stdout.on('data', d => (out += d))
+    p.stderr.on('data', d => (err += d))
+    p.on('exit', code => {
+      if (code !== 0) reject(new Error(err || `discover exit ${code}`))
+      else resolve(JSON.parse(out))
+    })
+  }).then(report => {
+    assert.equal(report.vendors.claude.wired, true)
+  })
+})
+
+test('a user-level relative Cursor call reports wired', () => {
+  const { home, workspace } = freshHome()
+  fs.mkdirSync(path.join(workspace, 'scripts'), { recursive: true })
+  fs.symlinkSync(HEARTBEAT, path.join(workspace, 'scripts', 'thread-heartbeat.js'))
+  fs.mkdirSync(path.join(home, '.cursor'), { recursive: true })
+  fs.writeFileSync(path.join(home, '.cursor', 'hooks.json'), cursorHooks('node ./scripts/thread-heartbeat.js hook cursor'))
+  const report = withEnv(home, workspace, {}, () => buildReport())
+  assert.equal(report.vendors.cursor.wired, true, 'relative user-level command resolved against the home directory')
+})
+
+test('the installer writes a LaunchAgent and does not load it', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'host-hb-install-'))
+  const prevWorkspace = process.env.BIFROST_WORKSPACE
+  delete process.env.BIFROST_WORKSPACE
+  let dest
+  try {
+    dest = installer.install({
+      home,
+      node: '/opt/homebrew/bin/node',
+      script: '/work/agent-config/scripts/host-heartbeat.js',
+    })
+  } finally {
+    if (prevWorkspace === undefined) delete process.env.BIFROST_WORKSPACE
+    else process.env.BIFROST_WORKSPACE = prevWorkspace
+  }
   assert.equal(dest, path.join(home, 'Library', 'LaunchAgents', 'com.bifrost.host-heartbeat.plist'))
   const text = fs.readFileSync(dest, 'utf8')
   assert.match(text, /<key>StartInterval<\/key>\s*<integer>60<\/integer>/)
@@ -251,6 +323,10 @@ test('the installer writes a LaunchAgent and does not load it', () => {
   assert.match(text, /host-heartbeat\.js/)
   assert.equal(text.includes('launchctl'), false)
   assert.equal(fs.readFileSync(path.join(__dirname, 'install-host-heartbeat.js'), 'utf8').includes('child_process'), false)
-  const escaped = installer.renderPlist({ node: '/usr/bin/node', script: '/tmp/a&b.js' })
+  const escaped = installer.renderPlist({ node: '/usr/bin/node', script: '/tmp/a&b.js', workspace: '/tmp/a&b' })
   assert.match(escaped, /\/tmp\/a&amp;b\.js/)
+  assert.match(escaped, /<key>BIFROST_WORKSPACE<\/key>\s*<string>\/tmp\/a&amp;b<\/string>/)
+  const discovered = findWorkspace(__dirname)
+  assert.ok(discovered)
+  assert.match(text, new RegExp(`<key>BIFROST_WORKSPACE</key>\\s*<string>${discovered.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}</string>`))
 })

@@ -9,6 +9,7 @@ const http = require('node:http')
 const os = require('node:os')
 const path = require('node:path')
 const { spawn } = require('node:child_process')
+const { performance } = require('node:perf_hooks')
 
 const SCRIPT = path.join(__dirname, 'thread-heartbeat.js')
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-'))
@@ -18,7 +19,7 @@ delete process.env.BIFROST_HEARTBEAT_THREAD
 delete process.env.BIFROST_HEARTBEAT_TITLE
 delete process.env.BIFROST_WORK
 
-const { beatFor, toolTimeoutSeconds, shouldSkip, reduceThrottle, allocateStamp, loadGate, supersedeActive, saveIssuedKey, withThreadLock } = require('./thread-heartbeat.js')
+const { beatFor, toolTimeoutSeconds, shouldSkip, reduceThrottle, allocateStamp, loadGate, supersedeActive, saveIssuedKey, withThreadLock, armHookDeadline, clearHookDeadline } = require('./thread-heartbeat.js')
 const ISSUED_KEY = 'ab'.repeat(32)
 
 const CLAUDE_ID = '7e939cd5-b3b1-4705-96e4-0a3b9e61648d'
@@ -159,7 +160,7 @@ async function neverBlocks() {
     { name: 'unknown vendor', stdin: pre, env: {}, args: ['hook', 'nobody'] },
   ]
   // Node start-up alone is the baseline; a hook that waited on the network
-  // would add the 3 s hook deadline or the 5 s fetch timeout on top of it.
+  // would add the 5 s hook deadline or the 5 s fetch timeout on top of it.
   const baseline = (await runScript(['--version-probe'], {})).ms
   for (const c of cases) {
     const r = await runScript(c.args || ['hook', 'cursor'], { stdin: c.stdin, env: { BIFROST_HOME_OVERRIDE: home, ...c.env } })
@@ -384,7 +385,7 @@ function lateResponseDoesNotTouchTheCurrentRecord() {
     const liveBody = { ...body }
     supersedeActive(liveBody)
     assert.notEqual(liveBody.thread, stale.thread)
-    saveIssuedKey(stale, '11'.repeat(32))
+    assert.equal(saveIssuedKey(stale, '11'.repeat(32)), false)
     const gateFile = path.join(home, '.cache', 'bifrost', 'thread-keys', 'claude', 'same')
     const midway = JSON.parse(fs.readFileSync(gateFile, 'utf8'))
     const current = midway.records.find(r => r.status !== 'superseded')
@@ -481,6 +482,125 @@ async function lostTurnStartThenBeforeTool() {
   s.close()
 }
 
+async function oldKeyUnconfirmedTurnServerRecordPruned() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-pruned-'))
+  const oldKey = 'ab'.repeat(32)
+  const newKey = 'cd'.repeat(32)
+  const threads = new Map()
+  const seen = []
+  let registrations = 0
+  let dropNextStart = false
+  const s = http.createServer((req, res) => {
+    let b = ''
+    req.on('data', d => (b += d))
+    req.on('end', () => {
+      const body = JSON.parse(b || '{}')
+      seen.push(body)
+      if (dropNextStart && body.event === 'turn_start') {
+        dropNextStart = false
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'lost' }))
+        return
+      }
+      const cur = threads.get(body.thread)
+      if (!cur) {
+        const key = registrations === 0 ? oldKey : newKey
+        registrations += 1
+        threads.set(body.thread, { key, event: body.event, turn: body.turn_id, seq: body.seq })
+        res.writeHead(202, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ok: true, thread_key: key }))
+        return
+      }
+      if (body.thread_key !== cur.key) {
+        res.writeHead(409, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'unknown key' }))
+        return
+      }
+      cur.event = body.event
+      cur.turn = body.turn_id
+      cur.seq = body.seq
+      res.writeHead(202, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ ok: true }))
+    })
+  })
+  await new Promise(resolve => s.listen(0, '127.0.0.1', resolve))
+  const env = {
+    BIFROST_HOME_OVERRIDE: home,
+    PLATFORM_REPORTER_TOKEN: 't',
+    PLATFORM_HEARTBEAT_URL: `http://127.0.0.1:${s.address().port}`,
+  }
+  const start = await runScript(['hook', 'claude'], { stdin: JSON.stringify(claude('UserPromptSubmit', { prompt: 'x' })), env })
+  assert.equal(start.code, 0, start.err)
+  assert.equal(threads.size, 1)
+  dropNextStart = true
+  const lost = await runScript(['hook', 'claude'], { stdin: JSON.stringify(claude('UserPromptSubmit', { prompt: 'y' })), env })
+  assert.equal(lost.code, 0, lost.err)
+  threads.clear()
+  const tool = await runScript(['hook', 'claude'], {
+    stdin: JSON.stringify(claude('PreToolUse', { tool_name: 'Bash', tool_input: { timeout: 600000 } })),
+    env,
+  })
+  assert.equal(tool.code, 0, tool.err)
+  assert.equal(threads.size, 1, `old key, unconfirmed turn, server record pruned: ${[...threads.keys()].join(',')}`)
+  const only = threads.get(CLAUDE_ID)
+  assert.ok(only, 'the re-registered thread kept its id')
+  assert.equal(only.event, 'before_tool')
+  assert.equal(only.key, newKey)
+  const tools = seen.filter(b => b.event === 'before_tool')
+  assert.equal(tools.length, 1)
+  assert.equal(tools[0].thread, CLAUDE_ID)
+  assert.equal(tools[0].thread_key, newKey)
+  const prevHome = process.env.BIFROST_HOME_OVERRIDE
+  process.env.BIFROST_HOME_OVERRIDE = home
+  try {
+    const gate = loadGate('claude', CLAUDE_ID)
+    assert.equal(gate.records.length, 1, 'the client superseded the record it had just re-registered')
+    assert.equal(gate.records[0].key, newKey)
+  } finally {
+    if (prevHome === undefined) delete process.env.BIFROST_HOME_OVERRIDE
+    else process.env.BIFROST_HOME_OVERRIDE = prevHome
+  }
+  s.close()
+}
+
+async function lockWaitUsesRemainingBudget() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-budget-'))
+  const env = { ...process.env, BIFROST_HOME_OVERRIDE: home }
+  delete env.PLATFORM_REPORTER_TOKEN
+  const holderSrc = `
+    const fs = require('fs')
+    const { withThreadLock } = require(${JSON.stringify(SCRIPT)})
+    withThreadLock('claude', 'budget-thread', () => {
+      fs.writeSync(1, 'held\\n')
+      const buf = new Int32Array(new SharedArrayBuffer(4))
+      Atomics.wait(buf, 0, 0, 30000)
+    })
+  `
+  const holder = spawn(process.execPath, ['-e', holderSrc], { env })
+  let held = ''
+  holder.stdout.on('data', d => (held += d))
+  const sawHeld = await waitFor(() => held.includes('held'))
+  assert.equal(sawHeld, true, 'holder did not take the lock')
+  const prevHome = process.env.BIFROST_HOME_OVERRIDE
+  process.env.BIFROST_HOME_OVERRIDE = home
+  const started = performance.now()
+  let threw = false
+  try {
+    armHookDeadline(250)
+    withThreadLock('claude', 'budget-thread', () => {})
+  } catch {
+    threw = true
+  } finally {
+    clearHookDeadline()
+    holder.kill('SIGKILL')
+    if (prevHome === undefined) delete process.env.BIFROST_HOME_OVERRIDE
+    else process.env.BIFROST_HOME_OVERRIDE = prevHome
+  }
+  const elapsed = performance.now() - started
+  assert.equal(threw, true)
+  assert.ok(elapsed < 1000, `lock wait used a fresh budget, took ${elapsed}ms`)
+}
+
 async function deadLockRace() {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-deadlock-'))
   const log = path.join(home, 'critical.log')
@@ -558,6 +678,8 @@ async function main() {
   await nonceAndUnknownKey()
   await runContinuesSequence()
   await lostTurnStartThenBeforeTool()
+  await oldKeyUnconfirmedTurnServerRecordPruned()
+  await lockWaitUsesRemainingBudget()
   await deadLockRace()
   await endToEnd()
   console.log('thread-heartbeat: ok')

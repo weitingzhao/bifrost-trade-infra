@@ -18,7 +18,9 @@
  * exactly the supported call: the interpreter (`node` or `nodejs`), then the
  * real path of thread-heartbeat.js, then `hook <vendor>` and nothing after it.
  * A substring, an earlier token, or `hook <vendor>` later in the line is not
- * enough. Codex trust is not checked here; that needs a credential per host.
+ * enough. A relative script path is resolved against the workspace root, the
+ * working directory the vendor uses, including a user-level hook command.
+ * Codex trust is not checked here; that needs a credential per host.
  *
  * Only files that vendor loads are read. For Cursor that is the user-level
  * hooks file, plus a project hooks file that is not reached through a symlink
@@ -30,7 +32,11 @@
  *   PLATFORM_HEARTBEAT_URL    platform-api base (default: PROD VIP NodePort)
  *   PLATFORM_REPORTER_TOKEN   or the first line of
  *   ~/.config/bifrost/lineage-reporter.token
- *   BIFROST_WORKSPACE         workspace whose agent-config is also checked
+ *   BIFROST_WORKSPACE         workspace whose project hooks are checked.
+ *                             The installer writes this into the launchd job.
+ *                             When it is missing, the workspace is found by
+ *                             walking up from this file to the directory that
+ *                             contains bifrost-platform/config/ops-context.yaml.
  *   BIFROST_HEARTBEAT=off     send nothing
  */
 const fs = require('node:fs')
@@ -67,8 +73,26 @@ function hostName() {
   return (os.hostname().split('.')[0] || 'unknown').replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 64)
 }
 
+/** Walk up from start to the workspace that holds the ops-context marker. */
+function findWorkspace(start) {
+  let dir = path.resolve(start)
+  for (let i = 0; i < 8; i++) {
+    if (fs.existsSync(path.join(dir, 'bifrost-platform', 'config', 'ops-context.yaml'))) return dir
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return ''
+}
+
+function workspaceRoot() {
+  const fromEnv = process.env.BIFROST_WORKSPACE
+  if (fromEnv) return fromEnv
+  return findWorkspace(__dirname)
+}
+
 function effectiveConfigs(vendor) {
-  const root = process.env.BIFROST_WORKSPACE || ''
+  const root = workspaceRoot()
   const files = []
   if (vendor === 'claude') {
     files.push(home('.claude', 'settings.json'))
@@ -89,7 +113,7 @@ function projectBase(file) {
   const dir = path.dirname(file)
   const base = path.basename(dir)
   if (base === '.claude' || base === '.cursor' || base === '.codex') return path.dirname(dir)
-  return process.env.BIFROST_WORKSPACE || ''
+  return workspaceRoot()
 }
 
 function hookCommands(parsed) {
@@ -193,7 +217,11 @@ function commandWires(command, vendor, bases) {
   if (path.basename(tokens[1]) !== SCRIPT_NAME) return false
   if (tokens[2] !== 'hook' || tokens[3] !== vendor) return false
   const script = tokens[1]
-  const resolved = path.isAbsolute(script) ? script : path.resolve(bases.project || '', script)
+  // Relative commands run with the vendor's cwd, the workspace root
+  // (agent-config/README.md), not the home directory of a user-level file.
+  const cwd = bases.workspace || ''
+  if (!path.isAbsolute(script) && cwd === '') return false
+  const resolved = path.isAbsolute(script) ? script : path.resolve(cwd, script)
   try {
     return fs.realpathSync(heartbeatScript()) === fs.realpathSync(resolved)
   } catch {
@@ -203,6 +231,7 @@ function commandWires(command, vendor, bases) {
 
 /** Wired only when an effective config runs this script for this vendor, by real path. */
 function wired(vendor) {
+  const root = workspaceRoot()
   const basesHome = home()
   for (const file of effectiveConfigs(vendor)) {
     if (!configCounts(vendor, file)) continue
@@ -212,7 +241,7 @@ function wired(vendor) {
     } catch {
       continue
     }
-    const bases = { home: basesHome, project: projectBase(file) }
+    const bases = { home: basesHome, project: projectBase(file), workspace: root }
     for (const command of hookCommands(parsed)) {
       if (commandWires(command, vendor, bases)) return true
     }
@@ -257,4 +286,4 @@ if (require.main === module) {
   )
 }
 
-module.exports = { buildReport, wired, tokenReadable, commandWires, VENDORS }
+module.exports = { buildReport, wired, tokenReadable, commandWires, findWorkspace, workspaceRoot, VENDORS }

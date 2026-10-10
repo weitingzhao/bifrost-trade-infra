@@ -13,5 +13,10 @@
   <integer>60</integer>
   <key>RunAtLoad</key>
   <true/>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>BIFROST_WORKSPACE</key>
+    <string>__WORKSPACE__</string>
+  </dict>
 </dict>
 </plist>
