@@ -257,6 +257,14 @@
 - **强度**：warning
 - **覆盖**：TD-99, TD-100, TD-101, TD-88, TD-104, TD-106, class: failure-as-success (runtime)
 
+### TD-172 / TD-142 bounded long-tenor repair and continuity
+
+- **做什么**：Research exact-manifest repair defaults to READ ONLY, uses only 50–220 DTE / ≤756 approved expiry keys, inserts missing ATM and at most five necessary reconstructed witnesses per expiry, preserves all existing keys, verifies stored-source replay and ATM readback before commit. The regular ATM producer replaces only short expiries and exact sourced long keys, so a 90-DTE reader cannot erase an unmeasured long repair. Plugin pilot is limited to SPY/NVDA/AAPL, 2026-08-10…14, 82 ranges / 120 target days, append-only raw bars, HTTP budgets and cross-host coordinator lock. Treasury missing vs observed zero, both-side Brent, genuine zero volume/percentile and replay idempotence are regression-covered.
+- **放哪**：Research `tests/engines/test_atm_repair.py`, `test_atm_iv.py`, `test_long_health.py`, `tests/repositories/test_iv_cone.py`; Market Data `tests/test_long_tenor.py`, `test_long_pilot.py`, Doctor fixtures; Infra `scripts/test_iv_repair_actions.py`. Reproduce with each Python repo's `make lint && make test`; infra audit/action tests 9 passed.
+- **强度**：blocking (tests); runtime warning code is wired to Plugin Doctor and Research volatility `output_ok`, independently measures long-band source breadth and valid tenor brackets against trailing median ×0.8, keeps calendar-missing days and distinguishes warmup/unprobed. cone180 needs ≥60 valid history sessions for percentiles.
+- **覆盖**：TD-172, TD-142, class: long-only repair deletes existing short data; class: future short-only producer erases repaired long data; class: job SUCCESS mistaken for complete coverage; class: missing rate treated as observed zero.
+- **上线状态**：2026-10-10 isolated branches only; code/DEV and existing-source dry runs accepted locally, no publish, no DB/vendor execution. Runtime alert receipt NOT VERIFIED. Private exact actions/manifests remain outside Git; execution record `docs/audits/TD-172-142_EXECUTION_2026-10-10.md`.
+
 ### Cross-repo contracts from one source
 
 - **做什么**：Consumers test against producer-owned fixtures instead of hand-written dicts or literal copies: trade-api envelope fixture/OpenAPI for research readers (grep bans .get("attributions"|"executions") outside the shared helper); research schedule roster served by /research/orchestration/status and consumed by Console (literal maps removed); redis-ib hash required fields; operator ops classified exhaustively into READ_ONLY/PROD_ONLY; plugin aggregate OI reads must carry the adjusted-root predicate; route-caller manifest for research (port TD-40).
