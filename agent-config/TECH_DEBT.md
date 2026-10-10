@@ -1340,7 +1340,7 @@
 
 **P2 · ops-platform · The applier cannot take over a field that `kubectl-client-side-apply` owns: plan and apply fail with a server-side apply conflict**
 
-- **状态**：未开始（要你定：给 applier `--force-conflicts` 还是由 Owner 逐个迁移字段归属）
+- **状态**：未开始（Owner 2026-10-10 定：给 applier 的 diff 和 apply 加 `--force-conflicts`，边界由 allow-list 和准入策略兜住；W-31 第 0 步第 2 波做，apply 要你批）
 - **Claim**: Objects first applied by hand (client-side) keep their fields under `kubectl-client-side-apply`. The applier's server-side apply then conflicts on any changed field. Measured 2026-10-10: `plan-ee6f0ba5-1791604913` for `k8s/ib-gateway/overlays/live` — `conflict with "kubectl-client-side-apply" … .containers[name="ib-gateway"].image`; the Owner applied it by hand.
 - **Evidence**: `bifrost-trade-infra/k8s/cicd/tekton/apply-manifest/pipeline.yaml` — diff and apply without `--force-conflicts`
 - **Fix**: either `--force-conflicts` on the applier's diff and apply (git is the source of truth; the allow-list and admission policies still bound it), or a one-off ownership migration per object by the Owner.

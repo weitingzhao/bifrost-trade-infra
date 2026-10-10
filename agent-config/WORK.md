@@ -388,7 +388,7 @@
 - **验收**：
   - 第 0 步：新节点测试通过、Gitea 做主、根目录白名单的防线为 0。
   - 第 0 阶段：Gate A（T01、T02、T08、T10）通过，基准集出第一份报告。
-  - 发布队列：当天所有发布与同步都出现在 PROD 审计里，包括 Trade 的 `release.sh`、插件构建和手工建的 run。这条是 ops-arch 第 2 阶段的退出条件，Owner 10-08 移交给本议题。10-08 实测的基线是 21 个 run 里只有 5 个进了审计。
+  - 发布队列：deliver、build、apply 三类 run，加上 Argo 同步（包括推 main 触发的自动同步），当天全部出现在 PROD 审计里，包括 Trade 的 `release.sh`、插件构建和手工建的 run（口径 Owner 2026-10-10 定，STEP0-PLAN 0.3 节卡 3）。这条是 ops-arch 第 2 阶段的退出条件，Owner 10-08 移交给本议题。基线：10-08 是 21 个 run 里只有 5 个进了审计；10-10 重测，deliver 和 build 10-09 是 15/15、10-10 到 06:30Z 是 12/15（缺 TD-284 的手工 run），apply 不记 run 名，Argo 自动同步基本没有记录。
 - **关联**：`agent-config/ADR-ops-architecture.md` §1、§5、§12；`agent-config/work/multi-agent/`
 
 ### W-32
@@ -491,6 +491,160 @@
   - 第 3 步在第 2 步验收后另派
 - **验收**：第 5 阶段退出条件——对账 0 漂移；Agent 侧没有管理员凭证
 - **关联**：`agent-config/work/ops-arch/LANE-W33.md`、`agent-config/work/ops-arch/LANE-W33B.md`、TD-271、`agent-config/work/ops-arch/README.md`「剩下的两波」、`agent-config/work/ops-arch/W33-credentials-2026-10-08.md`、W-5
+
+### W-34
+
+**W-31 第 0 步 · S0-10 根目录 AGENTS.md**
+
+- **类别**：道
+- **状态**：在做
+- **现在**：Owner 10-10 定卡 1 = A：根目录 `AGENTS.md` 链接到 `agent-config/AGENTS.md`，三家共用，只做粘合
+- **下一步**：写文件、建链接、README 重建命令加一行、两侧 parity 升版
+- **验收**：根目录 `AGENTS.md` 是指向 `bifrost-trade-infra/agent-config/AGENTS.md` 的链接；`bash scripts/check-agent-config-parity.sh` 通过；Codex 在 `/stocks` 下的提示输入里出现这份文件
+- **关联**：`agent-config/work/multi-agent/STEP0-PLAN-2026-10-08.md` 0.3 节、W-31
+
+### W-35
+
+**W-31 第 0 步 · S0-15 Codex 最低护栏**
+
+- **类别**：道
+- **状态**：在做
+- **现在**：Codex 命令行随 ChatGPT.app 已在本机；钩子载荷已实测，与 Claude 的 `PreToolUse` 同形
+- **下一步**：PATH 链接；`~/.codex/hooks.json` 接 preflight；受信任目录、沙箱与审批；阳性对照
+- **验收**：Codex 执行 `git add -A` 被 preflight 拦下，执行允许的命令照常通过；`~/.codex` 的内容和安装方法写进 agent-config 文档
+- **关联**：`agent-config/work/multi-agent/STEP0-PLAN-2026-10-08.md` 0.3 节、W-31、W-34
+
+### W-36
+
+**W-31 第 0 步 · S0-1 治理层可移植（含 D-1、D-4、D-6）**
+
+- **类别**：道
+- **状态**：未开始
+- **现在**：范围按 STEP0-PLAN 第 3 节，加 0.1 节的 D-1（Cursor MCP 模板指向 PROD VIP）、D-4（frontend 2 行、`permissions.deny` 2 行）、D-6（删退役的 plist）
+- **下一步**：W-35 之后派
+- **验收**：在另一个目录或账户下，preflight 能拦下探针命令；MCP 能起来；`check_hardcoded_paths.py` 只减不增
+- **关联**：STEP0-PLAN 第 3 节 S0-1、0.3 节
+
+### W-37
+
+**W-31 第 0 步 · S0-0 批准后由系统执行（先写方案）**
+
+- **类别**：道
+- **状态**：未开始
+- **现在**：属于架构级，先写方案交 Owner；TD-286、TD-287 归这里
+- **下一步**：W-36 之后写方案
+- **验收**：Owner 批一张 `owner_run_command`，系统自己执行并回写结果；通知里能看懂批的是什么
+- **关联**：STEP0-PLAN 第 0 节 S0-0、TD-286、TD-287
+
+### W-38
+
+**W-31 第 0 步 · S0-14 节点非计划重启告警**
+
+- **类别**：道
+- **状态**：未开始
+- **现在**：Owner 10-10 定：只新增告警规则作为一条新防线，TD-288 条目在 11-09 前不动
+- **下一步**：W-37 之后派
+- **验收**：用演练数据触发一次，告警能送到；登记进 MAINTAINERS
+- **关联**：STEP0-PLAN 第 0 节 S0-14、TD-288
+
+### W-39
+
+**W-31 第 0 步 · S0-2 编号规则**
+
+- **类别**：道
+- **状态**：未开始
+- **现在**：WORK.md 里只剩 `LANE-C` 一个别名要去；`LANE-A2` 直接进作废名单（0.1 节 D-18）
+- **下一步**：照第 1 波计划派
+- **验收**：`check_work_ids.py` 自测通过，对当前 WORK.md 跑一遍为 0
+- **关联**：STEP0-PLAN 第 3 节 S0-2
+
+### W-40
+
+**W-31 第 0 步 · S0-7 D1 过渡层**
+
+- **类别**：道
+- **状态**：未开始
+- **现在**：`cursor/d1-platform` 落后 main 41 个提交，冲突 4 个文件；第 1 波只做代码 rebase
+- **下一步**：照第 1 波计划派
+- **验收**：④ 能看到待你定的事和等待天数；⑦ 能看到 W-n 的状态
+- **关联**：STEP0-PLAN 第 3 节 S0-7、W-4
+
+### W-41
+
+**W-31 第 0 步 · S0-4a Gitea 先备份**
+
+- **类别**：道
+- **状态**：未开始
+- **现在**：只新增 CronJob，apply 要 Owner 批
+- **下一步**：照第 1 波计划派
+- **验收**：恢复出来的实例能 clone 到所有仓库
+- **关联**：STEP0-PLAN 第 3 节 S0-4a
+
+### W-42
+
+**W-31 第 0 步 · S0-8 发版策略合并并签发**
+
+- **类别**：道
+- **状态**：未开始
+- **现在**：Owner 10-10 定卡 2 = B：放行检查只在平台，命中策略自动批准，`release.sh` 只调平台，infra 只留 ConfigMap、RBAC 和 Tekton 冻结检查
+- **下一步**：rebase `cursor/rp-platform`（冲突 `metrics.go`）和 `cursor/rp-infra`（和 `release.sh` 冲突，按 main 解）
+- **验收**：一次 STG 发布被策略自动放行，审计里记下命中的条款
+- **关联**：STEP0-PLAN 第 3 节 S0-8、0.3 节
+
+### W-43
+
+**W-31 第 0 步 · S0-16 Console 清理 A（没人引用的死代码）**
+
+- **类别**：道
+- **状态**：未开始
+- **现在**：范围见 STEP0-PLAN 0.2 节；退役 plist 只在 W-36 删一次
+- **下一步**：照第 1 波计划派，推到 Console 集成分支
+- **验收**：tsc / lint / vitest / build 全过，没有新的引用断裂
+- **关联**：STEP0-PLAN 0.2 节
+
+### W-44
+
+**W-31 第 0 步 · S0-17 外壳与「需要你」第一版**
+
+- **类别**：道
+- **状态**：未开始
+- **现在**：范围见 STEP0-PLAN 0.2 节
+- **下一步**：照第 1 波计划派，推到 Console 集成分支
+- **验收**：有待批的单子时首页第一屏就是它并显示等了多久；页头和 ① 的结论一致；通知里的旧链接仍能打开对应的单子
+- **关联**：STEP0-PLAN 0.2 节、W-40
+
+### W-45
+
+**W-31 第 0 步 · S0-18 ⑤ Releases 三段式**
+
+- **类别**：道
+- **状态**：未开始
+- **现在**：「已处理」状态存在哪里要先交 Owner 定（架构级）；策略那一块等 W-42
+- **下一步**：照第 1 波计划派，推到 Console 集成分支
+- **验收**：10-03 的旧失败不再占首屏；窗口被占用时看得到是谁在占、还剩多久
+- **关联**：STEP0-PLAN 0.2 节、W-42
+
+### W-46
+
+**W-31 第 0 步 · S0-19 Console 清理 B（还在渲染的遗留）**
+
+- **类别**：道
+- **状态**：未开始
+- **现在**：范围见 STEP0-PLAN 0.2 节；Autopilot 页签的去留交 Owner 定
+- **下一步**：照第 1 波计划派，推到 Console 集成分支
+- **验收**：⑥ 不再因为退役的 Agent 概念显示 NEEDS FIX；② 的备份面板不再报错
+- **关联**：STEP0-PLAN 0.2 节
+
+### W-47
+
+**W-31 第 0 步 · S0-20 给 Design 的 ASK**
+
+- **类别**：道
+- **状态**：未开始
+- **现在**：只写文档，由 Owner 搬运
+- **下一步**：随时可以做
+- **验收**：Owner 能直接上传
+- **关联**：STEP0-PLAN 0.2 节
 
 ## 本批没有登记的
 
