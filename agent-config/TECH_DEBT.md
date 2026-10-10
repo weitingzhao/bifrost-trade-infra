@@ -1403,7 +1403,7 @@
 
 **P3 · ops-platform · The retired remediation runner's ConfigMap `cicd/bifrost-remediation-runner-stg-dockerfile` is still in the cluster, and the platform still lists it**
 
-- **状态**：在做（10-10：两处名单已删，platform `d6b2849`；删 ConfigMap 的审批单已建，等你批）
+- **状态**：在做（10-10：两处名单已删，platform `d6b2849`。动作目录里没有删 ConfigMap 的动作，`apply_manifest` 不 prune，只能走 `owner_run_command`（D 级，平台只记录、由 Owner 跑 `scripts/owner/owner-run.sh <id>`）；按 Owner 10-10 指示没有建单，等 Owner 定）
 - **Claim**: The runner and Hermes were retired in W-33 and their plists were deleted in W-36 (D-6), but the Dockerfile ConfigMap created 2026-06-21 is still in `cicd`. Nothing builds from it. The supply check keeps it in its Dockerfile list and the Console deliver phases show it as `retired-dockerfile`, so deleting only the ConfigMap would turn the supply check red.
 - **Evidence**: `kubectl -n cicd get cm bifrost-remediation-runner-stg-dockerfile` (2026-10-10, exists); `bifrost-platform/api/internal/delivery/supply_chain.go:25`; `bifrost-platform/console/src/lib/delivery/deliverPlatformPhases.ts:5`
 - **Fix**: drop the name from both lists (one platform commit), then delete the ConfigMap through an approval (`owner_run_command`, the Agent identity is read-only).
