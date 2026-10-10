@@ -143,7 +143,7 @@ Ops Platform 的重心已经从后台 CI/CD 转到监控、审批和 Owner 的�
 - `agent-config/MAINTAINERS.yaml`：每个维护者一行——维护什么、在哪跑、何时跑、最高动作级（A–D）、靠哪条告警发现它坏了。
 - 每晚在集群里对账：清单 vs 实际（CronJob、Dagster schedule、platform 后台循环、mini 的 launchd），多出或缺少都告警。**新增维护者必须先进清单。**
 - 存活信号用现有 Prometheus / Alertmanager；清单每行必须对应一条存在的告警；platform 后台循环导出「上次成功时间」。
-- 告警只分两档：**呼 Owner**（critical → ntfy）与**记账**（warning → PROD Console ④）。STG 不在告警链路里。
+- 告警只分两档：**呼 Owner**（critical → ntfy）与**记账**（warning → PROD Console ①；Owner 2026-10-10 由 ④ 改为 ①，④ 只放待定、待批、待签）。STG 不在告警链路里。
 - 节点补丁：Console ⑥ 显示待重启节点；重启是 D 级「滚动重启」，Owner 周末批，一次一台（不用 kured）。
 
 ## 8. 工作项与进度
