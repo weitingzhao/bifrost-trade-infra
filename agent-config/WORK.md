@@ -791,6 +791,17 @@
 - **验收**：提议里每一条排除项都有测试且仍是 C 级；一份只含 warning 级 `PrometheusRule` 的 plan 在策略有效时按 B 级执行、过期或冻结时回到 C 级；Codex 复核结论记在本条
 - **关联**：`work/multi-agent/RULE-PROPOSAL-observability-apply-2026-10-10.md`；ADR §5；W-42；W-55
 
+### W-60
+
+**Tekton 运行记录的保留与清理（TD-299 的长期方案，Owner 2026-10-10 定起点值）**
+
+- **类别**：道
+- **状态**：未开始
+- **现在**：`cicd` 里留着 545 个 PipelineRun、3958 个 TaskRun（都是最近 7 天的，每天约 78 次运行），没有清理。控制器全量对账时新 run 等了 4 分 21 秒。发布证据已经另存：平台给每次完成的发布写一条发布记录（`bifrost.io/release-record` 标签的 ConfigMap，10-10 有 380 条），步骤日志由 promtail 收进 Loki（保留期还没核对）
+- **下一步**：① 核对 Loki 里确实有 Tekton 步骤日志和它的保留期。② 派 Cursor：在 `api/internal/releases` 写发布记录的循环里加清理，规则是成功的留 24 小时、失败的留 7 天、每条流水线至少留最近 5 次、发布类必须已有发布记录才删；先只干跑并输出清单。③ Owner 批首次清理的清单，之后按规则自动。④ 加告警：TaskRun 数量超限，新 TaskRun 两分钟没有 Pod。⑤ 发布记录自己设上限告警，运行时的库建好后迁进去，之前旧的归档到 NAS
+- **验收**：`kubectl -n cicd get taskrun --no-headers | wc -l` 连续一周低于定下的上限；控制器全量对账期间起的 plan 30 秒内拿到 Pod；被删的发布类运行都能在发布记录里查到
+- **关联**：TD-299；ADR §7；W-56（发布记录要带镜像摘要）
+
 ## 本批没有登记的
 
 - 阶段 0 的 W3：`REQUEST-w3-archive-before-delete-2026-10-05.md` 状态节写 A、B、C 全部完成。

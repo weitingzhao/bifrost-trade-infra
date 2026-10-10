@@ -1646,15 +1646,15 @@
 
 **P2 · ops-platform · Tekton keeps every run (545 PipelineRuns and 3958 TaskRuns in cicd since 2026-10-03) and nothing prunes them; with the finished pods gone after the rolling reboot, the controller's periodic resync errors on each old TaskRun and a new run waited 4 min 21 s for its pod**
 
-- **状态**：未开始（决策线程 10-10 建 W-38 部署单时撞上）
+- **状态**：未开始（决策线程 10-10 建 W-38 部署单时撞上；长期方案见 W-60，Owner 已定保留期的起点值）
 - **Claim**: No CronJob, Tekton pruner or platform job deletes finished PipelineRuns or TaskRuns in `cicd`. The 2026-10-10 rolling reboot drained every node, which deleted the pods of finished TaskRuns. The Tekton controller (knative) re-reconciles every object 10 hours after it starts; each finished TaskRun then fails with `pods "<name>" not found` and is requeued, and new TaskRuns wait behind them.
 - **Measured**: MEASURED 2026-10-10 (Claude, read-only kubectl). `cicd`: 3958 TaskRuns, 545 PipelineRuns, oldest `bifrost-deliver-stg-4j62d` 2026-10-03T18:32:25Z; `kubectl -n cicd get cronjob` lists none. Controller pod `tekton-pipelines-controller-65f567589b-6nrsc` age 10h; 400 log lines covered 8 seconds (15:40:25Z–15:40:33Z) with 100 `Reconcile error` lines, all `pods … not found`. `plan-5e8e4676-1791646670-run` was created 15:37:55Z and started 15:42:16Z; the STG deliver run 50 minutes earlier started its tasks within seconds. By 15:42:40Z the error rate was 0.
 - **Evidence**:
   - `kubectl -n cicd get taskrun --no-headers | wc -l` → 3958; `kubectl -n cicd get pipelinerun --no-headers | wc -l` → 545
   - `kubectl -n tekton-pipelines logs deploy/tekton-pipelines-controller --tail=400` during the stall
   - `bifrost-trade-infra/k8s/cicd/` — no pruner manifest
-- **Impact**: Every 10 hours after a controller start, CI, plans and deliveries stall for minutes; the stall grows with the run count. A release or an approved apply that starts in that window looks hung. The run history is also what `/api/v1/releases` and the commit lineage read, so it cannot simply be deleted.
-- **Fix**: Decide a retention rule with the Owner (deleting runs removes release evidence): keep the last N runs per pipeline and every delivery run a release record still points at, after the release record stores the commit ids and image digests it needs by itself (W-56 asks for the digest anyway). Then add a pruner (the Tekton pruner or a CronJob that calls the platform's delete action).
+- **Impact**: Every 10 hours after a controller start, CI, plans and deliveries stall for minutes; the stall grows with the run count. A release or an approved apply that starts in that window looks hung. Correction (2026-10-10): release evidence does not live in the runs. `api/internal/releases` writes one ConfigMap per finished delivery run (label `bifrost.io/release-record`, 380 on 2026-10-10), and promtail ships step logs to Loki, so finished runs can be pruned once their record exists.
+- **Fix**: W-60. Owner 2026-10-10 set the starting rule: succeeded runs 24 hours, failed runs 7 days, at least the last 5 per pipeline, and a delivery run only after its release record exists. The loop in `api/internal/releases` that writes the records also prunes (dry run first; the Owner approves the first list). Check Loki's retention for step logs before the first prune.
 - **Ratchet**: an alert on the TaskRun count in `cicd` and on a TaskRun that has no pod two minutes after creation.
 - 验收: `kubectl -n cicd get taskrun --no-headers | wc -l` stays under the chosen bound for a week; a plan started during a controller resync gets its pod within 30 seconds.
 - 审批 要你批 · 代价 S · 风险 med · repos: bifrost-trade-infra, bifrost-platform

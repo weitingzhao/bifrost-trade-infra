@@ -148,6 +148,7 @@ Ops Platform 的重心已经从后台 CI/CD 转到监控、审批和 Owner 的�
 - 每晚在集群里对账：清单 vs 实际（CronJob、Dagster schedule、platform 后台循环、mini 的 launchd），多出或缺少都告警。**新增维护者必须先进清单。**
 - 存活信号用现有 Prometheus / Alertmanager；清单每行必须对应一条存在的告警；platform 后台循环导出「上次成功时间」。
 - 告警只分两档：**呼 Owner**（critical → ntfy）与**记账**（warning → PROD Console ①；Owner 2026-10-10 由 ④ 改为 ①，④ 只放待定、待批、待签）。STG 不在告警链路里。
+- Tekton 运行记录的保留（Owner 2026-10-10，起点值，运行中不合适再调）：成功的留 24 小时，失败的留 7 天，每条流水线至少留最近 5 次；发布类的运行必须先有发布记录才删。运行记录是执行现场，不是档案：发布证据在平台写的发布记录里，步骤日志在 Loki。清理由平台写发布记录的同一个循环做，登记为维护项。首次清理的清单由 Owner 批一次，之后按规则自动（W-60，TD-299）。
 - 节点补丁：Console ⑥ 显示待重启节点；重启是 D 级「滚动重启」，Owner 周末批，一次一台（不用 kured）。
 
 ## 8. 工作项与进度
