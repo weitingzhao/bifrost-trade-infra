@@ -15,7 +15,7 @@
 
 （无）
 
-**未结 82 项**：P0 0 · P1 6 · P2 28 · P3 48；要你批的 26 项（从总览表的审批列算）。
+**未结 83 项**：P0 0 · P1 6 · P2 29 · P3 48；要你批的 27 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -116,7 +116,7 @@
 
 目标：会动手的维护只由 PROD 的 platform-workers 做，本机与 STG 只观测。已做：本机停手（TD-130 第一步）、STG 不修 IB 也不写发布记录（TD-223）、页面不再触发维护、状态持久化（TD-196）。接着：PROD 自己探测、带时间戳的检查信号，只给 PROD 挂技能并先只报告，再逐项放开；备份只归 CNPG 与 backup-retry；不再清掉失败现场。
 
-项：TD-130, TD-272, TD-276, TD-283, TD-284, TD-285, TD-286, TD-287, TD-288, TD-289, TD-296, TD-297 · 已还：TD-256, TD-257, TD-270, TD-271, TD-273, TD-275, TD-277, TD-278, TD-279, TD-280, TD-281, TD-282, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255
+项：TD-130, TD-272, TD-276, TD-283, TD-284, TD-285, TD-286, TD-287, TD-288, TD-289, TD-296, TD-297, TD-299 · 已还：TD-256, TD-257, TD-270, TD-271, TD-273, TD-275, TD-277, TD-278, TD-279, TD-280, TD-281, TD-282, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255
 
 ## 数据边界（接受并留座）
 
@@ -285,6 +285,7 @@
 | [TD-296](#td-296) | P2 | ops-platform | The ntfy connection error text carries the full topic (the read credential) and is served by the token-less relay status endpoint; with W-49 it would also reach approval delivery records | 安全/凭据（要你批） |
 | [TD-297](#td-297) | P3 | ops-platform | Platform CI runs no race detector and no MCP tests, so the approval state machine's concurrency tests and the 批 #n tool tests are only run by hand | 不用批 |
 | [TD-298](#td-298) | P1 | agent-governance | Cursor never loaded the project hooks: it refuses a hooks.json reached through the workspace's .cursor symlink, so preflight.js did not gate Cursor sessions (proven back to 2026-09-28) | 不用批 |
+| [TD-299](#td-299) | P2 | ops-platform | Tekton keeps every run (545 PipelineRuns and 3958 TaskRuns in cicd since 2026-10-03) and nothing prunes them; with the finished pods gone after the rolling reboot, the controller's periodic resync errors on each old TaskRun and a new run waited 4 min 21 s for its pod | 要你批 |
 | [TD-274](#td-274) | P3 | frontend | Symbol faces hide GEX levels that exist when zero gamma is NULL: the dealer level strip needs all four values and the regime cell needs zero gamma, so a chain with no flip (about a third of expiries) shows neither walls nor regime | 不用批 |
 
 ## 条目
@@ -1640,3 +1641,21 @@
 第 3 轮（2026-10-07，Ops 平台 · Console 与 MCP · Trade 前端数据正确性 · bifrost-ui 与 trade-worker · 数据层）：10 个 Agent，约 30 分钟，约 230 万 token，全程只读。代码读的是 origin/main 的干净副本：platform e95be35 · frontend dfb7858e · ui 2271260 · worker c04fc80 · infra f41dab5 · trade-api 630ca41 · core 53378bf。五个领域各一个盘点 Agent，三个反驳 Agent（平台两块合一个、前端与 ui/worker 合一个、数据层一个），一个 Agent 清点防线，最后一个去重排序。41 条发现：18 条原样成立，23 条改了说法或优先级，0 条被推翻；去重后 37 条，另 5 条并入已有条目或拆分；TD-196 加补充；关闭的 TD-140 原因写错，另开 TD-240；过时的登记文字汇成 TD-241。
 第 2 轮（2026-10-06）：10 个 Agent，约 35 分钟，全程只读（数据库只做 read-only 查询）。代码读的是各仓库 origin/main 的干净副本：research 6ed86ad · market-data acba67e · flex f7b5cd9 · IB gateway 插件 39eafe2 · infra d5aa457 · core 756bdb5。四个领域各一个盘点 Agent（Research 数据面、Research 控制面、market-data、flex + IB gateway），每个领域的发现交给一个专门反驳的 Agent 去推翻；另一个 Agent 清点现有防线并对照第 1 轮的各类债；最后一个 Agent 去重、排序、提出待建防线。40 条发现：22 条原样成立，18 条改了说法或优先级，0 条被推翻，3 条合并。之后日常工作里发现的直接加入（TD-127–129 来自 Pine 线程）。
 第 1 轮（2026-10-01，Trade UI 之下）的原文在台账页 artifact 版本 ≤ 48 和 git 历史里。
+
+### TD-299
+
+**P2 · ops-platform · Tekton keeps every run (545 PipelineRuns and 3958 TaskRuns in cicd since 2026-10-03) and nothing prunes them; with the finished pods gone after the rolling reboot, the controller's periodic resync errors on each old TaskRun and a new run waited 4 min 21 s for its pod**
+
+- **状态**：未开始（决策线程 10-10 建 W-38 部署单时撞上）
+- **Claim**: No CronJob, Tekton pruner or platform job deletes finished PipelineRuns or TaskRuns in `cicd`. The 2026-10-10 rolling reboot drained every node, which deleted the pods of finished TaskRuns. The Tekton controller (knative) re-reconciles every object 10 hours after it starts; each finished TaskRun then fails with `pods "<name>" not found` and is requeued, and new TaskRuns wait behind them.
+- **Measured**: MEASURED 2026-10-10 (Claude, read-only kubectl). `cicd`: 3958 TaskRuns, 545 PipelineRuns, oldest `bifrost-deliver-stg-4j62d` 2026-10-03T18:32:25Z; `kubectl -n cicd get cronjob` lists none. Controller pod `tekton-pipelines-controller-65f567589b-6nrsc` age 10h; 400 log lines covered 8 seconds (15:40:25Z–15:40:33Z) with 100 `Reconcile error` lines, all `pods … not found`. `plan-5e8e4676-1791646670-run` was created 15:37:55Z and started 15:42:16Z; the STG deliver run 50 minutes earlier started its tasks within seconds. By 15:42:40Z the error rate was 0.
+- **Evidence**:
+  - `kubectl -n cicd get taskrun --no-headers | wc -l` → 3958; `kubectl -n cicd get pipelinerun --no-headers | wc -l` → 545
+  - `kubectl -n tekton-pipelines logs deploy/tekton-pipelines-controller --tail=400` during the stall
+  - `bifrost-trade-infra/k8s/cicd/` — no pruner manifest
+- **Impact**: Every 10 hours after a controller start, CI, plans and deliveries stall for minutes; the stall grows with the run count. A release or an approved apply that starts in that window looks hung. The run history is also what `/api/v1/releases` and the commit lineage read, so it cannot simply be deleted.
+- **Fix**: Decide a retention rule with the Owner (deleting runs removes release evidence): keep the last N runs per pipeline and every delivery run a release record still points at, after the release record stores the commit ids and image digests it needs by itself (W-56 asks for the digest anyway). Then add a pruner (the Tekton pruner or a CronJob that calls the platform's delete action).
+- **Ratchet**: an alert on the TaskRun count in `cicd` and on a TaskRun that has no pod two minutes after creation.
+- 验收: `kubectl -n cicd get taskrun --no-headers | wc -l` stays under the chosen bound for a week; a plan started during a controller resync gets its pod within 30 seconds.
+- 审批 要你批 · 代价 S · 风险 med · repos: bifrost-trade-infra, bifrost-platform
+

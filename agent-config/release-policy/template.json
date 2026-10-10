@@ -5,9 +5,7 @@
   "valid_days": 90,
   "allow": [
     "bifrost-deliver-stg",
-    "bifrost-deliver-prod",
     "bifrost-deliver-platform",
-    "bifrost-deliver-platform-prod",
     "bifrost-deliver-research",
     "bifrost-build-research-dagster",
     "bifrost-build-market-data",

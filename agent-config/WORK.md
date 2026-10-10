@@ -754,7 +754,7 @@
 - **类别**：道
 - **状态**：未开始
 - **现在**：策略能自动批准，但发布失败后的恢复还不成熟：platform 的 PROD 发布没钉 SHA（TD-295），镜像是可变标签、回滚要重建，冻结没有覆盖全部入口（TD-294）且平台账号能改冻结 ConfigMap（TD-293），自动回滚没实现
-- **下一步**：出方案：每个入口遵守冻结、逐仓固定 SHA、按镜像摘要部署、保留上一版产物回滚不重建、独立的失败检测与回滚、platform 自身升级失败由带外操作面回滚。Owner 定：这些完成前策略里要不要先不列两条 PROD 流水线
+- **下一步**：出方案：每个入口遵守冻结、逐仓固定 SHA、按镜像摘要部署、保留上一版产物回滚不重建、独立的失败检测与回滚、platform 自身升级失败由带外操作面回滚。Owner 2026-10-10 已定：这些验收之前策略里不列两条 PROD 流水线（模板已改，测试守着）
 - **验收**：演练：批准后分支前进、标签被改、两个发布并发、冻结期间各入口、新版 platform 起不来；部署身份不漂移，回滚不重建
 - **关联**：W-42；TD-293；TD-294；TD-295；ADR §12.10 门槛表
 
@@ -779,6 +779,17 @@
 - **下一步**：Claude 改 `DESIGN-agent-runtime-2026-10-08.md` 和第 0 步退出条件；R04 的租约、代次与隔离契约请 Codex 细化；Gitea 的库放哪里给 Owner 选项
 - **验收**：ADR §12.10 门槛表每一行都能指到验收和证据；T04–T07、T16 有通过时点；状态机故障测试有隔离环境
 - **关联**：W-31；`work/multi-agent/REVIEW-codex-2026-10-10-RESPONSE.md`
+
+### W-59
+
+**观测类清单变更随策略自动执行（规则放宽，Owner 2026-10-10 选 A）**
+
+- **类别**：道
+- **状态**：未开始
+- **现在**：`apply_manifest` 的级别只看命名空间，`monitoring` 里加一条 warning 告警规则也要 Owner 批。Owner 选了提议里的 A：对象种类限 `PrometheusRule`、`ServiceMonitor`、`PodMonitor`、`ScrapeConfig` 和带 `grafana_dashboard` 标签的 `ConfigMap`；只在 `monitoring`；只新建或更新；不含 `severity: critical`；提交在 main 且 CI 通过；策略有效
+- **下一步**：派 Cursor：platform 的 `classifyApply` 读 plan 摘要里的对象种类、动作和 severity，策略引擎加 `apply_observability` 条件；infra 的策略模板加这一条件。判断只用结构化结果，读不出来按 C 级。完成后交 Codex 复核
+- **验收**：提议里每一条排除项都有测试且仍是 C 级；一份只含 warning 级 `PrometheusRule` 的 plan 在策略有效时按 B 级执行、过期或冻结时回到 C 级；Codex 复核结论记在本条
+- **关联**：`work/multi-agent/RULE-PROPOSAL-observability-apply-2026-10-10.md`；ADR §5；W-42；W-55
 
 ## 本批没有登记的
 
