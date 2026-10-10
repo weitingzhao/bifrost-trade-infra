@@ -47,7 +47,7 @@
 | 顺序 / 已有债 | 状态与依赖 | 详细工作及交付物 | 验收与防线 | 执行边界 |
 |---|---|---|---|---|
 | 0 · TD-302 收口 | 完成（仅隔离提交）；Research `d628fa6`、Frontend `fda32827`，未合并/未发布 | 提交 Research 有效值过滤、IV 历史深度语义、Frontend 权威读数；保存 `bifrost-research/docs/acceptance/TD-302.md`，记录各仓提交号 | Research 2150 passed / 30 skipped；Frontend 4120 passed / 1 skipped；提交前复查 Research 34 / Frontend 4 passed，提交钩子 PASS；APT 历史不足、ZZQ 缺数据、AU 合法 0。对应回归测试见 RATCHETS | 已授权隔离分支提交；不合并、不发布，不回填 |
-| 1 · TD-183 归档可恢复性 | 在做；第 0 项已隔离提交 | 查当前部署、trim 运行、归档配置、文件清单和读权限；区分零行未触发、已归档、失败、证据缺失。交付带时间戳的审计和隔离恢复验收方案 | 每个实际归档批次核对 `archived_rows == deleted_rows`、文件可读、Parquet 行数及 schema（以实际归档格式为准）；恢复方案明确临时目标、主键、时间范围、重复检测、内容校验和清理。未执行恢复不写恢复 PASS | 本轮只读核查及准备；不触发 trim、不改 hold、不删文件、不写共享数据库、不建集群恢复资源 |
+| 1 · TD-183 归档可恢复性 | 本轮只读核查与准备完成；实际恢复及三表整体验收未完成 | 两份 intraday snapshot 归档共 573826 行，hash/清单/全列解码/日期/主键检查 PASS；恢复方案见 `docs/audits/TD-183_ARCHIVE_READINESS_2026-10-10.md`。option_daily/short_volume 最早 2024-10-01，首次非零归档仍待约 11-01 | trim 的归档/删除行数与 Parquet 一致；五项离线异常测试 PASS。实际恢复必须再验 typed import、全字段 readback 和幂等；当前不记恢复 PASS | 本轮只读核查及准备；不触发 trim、不改 hold、不删文件、不写共享数据库、不建集群恢复资源 |
 | 2 · TD-92 / TD-94 每日产出防线 | 未开始；归档核查后 | 核实真实批处理的 output_ok、部分失败和零产出结果；核实探针异常与错误 session 阻断；保留按引擎/标的/交易日的原因证据 | 当前批次检查确实执行；合法零与异常零分开；探针异常及 session 不符不能绿灯放行。代码已修但运行未验证的项不得关闭 | 先只读核实；发现需修改时在隔离分支修、测试、DEV 验收后报告；不发布 |
 | 3 · TD-172 / TD-142 联合回填盘点 | 未开始；每日完整度防线已核实 | 按 symbol × session × DTE 列缺口；分别统计已有原始数据可重算、需 vendor 重抓、不可恢复。交付有日期范围、合约数、请求量、试补批次、预期行数、限流和失败重试的具体方案 | 独立缺口清单与分母口径可复算；避免重复抓取；按每周和每标的验证期限覆盖与 IV cone 有效历史深度；保留合法无成交/订阅边界 | 方案交 Owner 确认后才写；Plugin 写 raw_market，Research 写 features；不使用 SVI 拼接替代历史采集 |
 | 4 · TD-172 / TD-142 按批修复 | 未开始；依赖 Owner 对第 3 项具体方案确认 | 小批原始数据补齐或复用 → 派生重算 → 验收 → 逐批扩大；记录失败和无法修复项；交付逐批前后覆盖率 | 重跑幂等；每批主键、session、期限、有效值和输出行数一致；剩余缺口有原因，不以任务成功代替数据完整 | 未获具体方案确认不执行；禁止无界全库重算与改变订阅 |
@@ -992,19 +992,20 @@
 
 ### TD-183
 
-**P3 · market-data · W3 archive-before-delete has never archived for real: the first intraday option_snapshot archive is ~10-08 02:15 UTC and option_daily / short_volume on 11-01**
+**P3 · market-data · W3 snapshot archives are verified readable, but typed restore and first option_daily / short_volume archives remain unverified**
 
-- **状态**：观察中（到 11-01，看三张表第一次真正的归档）
+- **状态**：观察中（2026-10-10 只读核查及恢复验收准备完成；实际恢复未运行；到 11-01 看 option_daily / short_volume 首次非零归档并分别验收）
 - **验收**：10-08 与 11-01 的 trim 日志里，每张表 `archived_rows == deleted_rows`，归档文件在 NAS `nfs-cold` 上可读、行数与日志一致；没做完的行留在库里，不被删
-- **现在**：market-data 0.77.0 起三张表（option_snapshot 盘中行、option_daily、short_volume）都改成先归档后删（10-05）；到今天为止还没有一次真正触发
-- **下一步**：10-08 看盘中快照那一次；11-01 看两张大表（option_daily 一次约 180 万行，单事务，trim 调用可能超过 `dated_budget_sec` 60 秒，分几晚做完）。全部通过后把 `/stocks/REQUEST-w3-archive-before-delete-2026-10-05.md` 移到 `/stocks/archive/`
-- **Claim**: The archive path is new and has only been exercised in tests. option_snapshot is not reproducible from the vendor after its window, so a broken archive that still deletes would lose data for good.
+- **现在**：运行 image 0.87.1，NAS archive PVC Bound / 实际挂载可读。10-09 与 10-10 已分别归档 09-08 的 230144 行、09-09 的 343682 行 intraday snapshot，归档与删除行数一致；SHA-256、字节数、manifest/ledger、19 列全量解码、日期及主键摘要检查 PASS。10-08 cutoff=09-08（exclusive）所以合法零行。两张 dated 表最早日期都是 2024-10-01，当前 cutoff=2024-10-01，尚无合格过期行；不是归档失败。
+- **验收结果**：部分 PASS 2026-10-10（隔离分支 codex/td-183，基线 25cb2f1）：两文件共 573826 行只读验证；五项离线异常测试 PASS。恢复执行 NOT RUN；不关闭债、不宣称三表恢复已验收。详见 `docs/audits/TD-183_ARCHIVE_READINESS_2026-10-10.md`。
+- **下一步**：按报告中的隔离本机 typed restore 方案验证全字段 readback 与幂等（此轮仅准备，未运行）。11-01 实测两张 dated 表首批非零归档、耗时及预算耗尽状态，分别验恢复；不沿用旧的约 180 万行估计作为当前任务范围。全部通过后才处理原 REQUEST 归档。
+- **Claim**: Actual intraday snapshot archives have passed read-only checks, but no typed restore/readback has been performed for them, and option_daily/short_volume have not yet reached their first nonzero archive. option_snapshot is not reproducible from the vendor after its window, so recoverability requires evidence beyond successful trim metadata.
 - **Evidence**:
   - `/stocks/REQUEST-w3-archive-before-delete-2026-10-05.md:20` — `option_snapshot 盘中行 | 2026-09-08 | 约 10-08 02:15 UTC（30 天窗口）`
   - `/stocks/REQUEST-w3-archive-before-delete-2026-10-05.md:21` — `option_daily | 2024-10-01 | 11-01 02:15 UTC`
 - **Impact**: Irreversible loss of option snapshots if the first real archive fails silently.
 - **Fix**: Watch the two runs; if archived and deleted counts differ, hold deletion (`retention_hold`) and fix before the next night.
-- **Ratchet**: The retention hold already takes precedence over archive; a check that fails the trim when archived_rows != deleted_rows belongs in the plugin if the first run shows a gap.
+- **Ratchet**: Runtime archive_range already refuses read/file/delete count mismatches and rolls back. The new read-only verifier refuses corrupt/missing/inconsistent archive evidence and duplicate PK digests; its five fixture tests are manual, not a production or CI blocking gate. Hold still takes precedence; actual typed restores and future dated-table acceptance remain required.
 - 审批 不用批 · 代价 S · 风险 med · repos: bifrost-platform-plugin-market-data
 
 ### TD-184
