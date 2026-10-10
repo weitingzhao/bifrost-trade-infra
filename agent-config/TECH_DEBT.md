@@ -15,7 +15,7 @@
 
 （无）
 
-**未结 83 项**：P0 0 · P1 6 · P2 29 · P3 48；要你批的 27 项（从总览表的审批列算）。
+**未结 86 项**：P0 0 · P1 6 · P2 30 · P3 50；要你批的 27 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -74,7 +74,7 @@
 
 目标：删掉没人用的（挂起的 CronJob、退役脚本、无调用路由），手抄的副本改成从一处生成（调度名单、max-pain / PCR），清单的应用顺序与 Argo 归属理顺。
 
-项：TD-118, TD-120, TD-170, TD-202, TD-290, TD-291 · 已还：TD-126, TD-108, TD-154, TD-163, TD-168, TD-124, TD-176, TD-191, TD-169, TD-200, TD-201, TD-190, TD-123, TD-106, TD-119, TD-125, TD-102, TD-160, TD-107
+项：TD-118, TD-120, TD-170, TD-202, TD-290, TD-291, TD-300 · 已还：TD-126, TD-108, TD-154, TD-163, TD-168, TD-124, TD-176, TD-191, TD-169, TD-200, TD-201, TD-190, TD-123, TD-106, TD-119, TD-125, TD-102, TD-160, TD-107
 
 ### 第 6 波 · 备份链与自动修复（10-06 日常发现）
 
@@ -86,7 +86,7 @@
 
 目标：Data Gaps 看板上未结的 15 项并入台账：先把每日快照的写入修对（TD-137）再接读侧和三页，归因行补上价格，Research 侧已就绪的一个版本（0.185.0）发出去，长期限 IV 锥在 10-31 前从 option_daily 回填，其余按 Owner 已定的口径排。
 
-项：TD-137, TD-142, TD-143, TD-144, TD-146, TD-149, TD-158, TD-159, TD-172, TD-180, TD-246, TD-250, TD-274 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181, TD-193, TD-140, TD-171, TD-138, TD-139, TD-178, TD-199, TD-243, TD-182, TD-148, TD-145, TD-150
+项：TD-137, TD-142, TD-143, TD-144, TD-146, TD-149, TD-158, TD-159, TD-172, TD-180, TD-246, TD-250, TD-274, TD-301, TD-302 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181, TD-193, TD-140, TD-171, TD-138, TD-139, TD-178, TD-199, TD-243, TD-182, TD-148, TD-145, TD-150
 
 ### 第 8 波 · Pine 线程收尾后的跟进（10-06）
 
@@ -287,6 +287,10 @@
 | [TD-298](#td-298) | P1 | agent-governance | Cursor never loaded the project hooks: it refuses a hooks.json reached through the workspace's .cursor symlink, so preflight.js did not gate Cursor sessions (proven back to 2026-09-28) | 不用批 |
 | [TD-299](#td-299) | P2 | ops-platform | Tekton keeps every run (545 PipelineRuns and 3958 TaskRuns in cicd since 2026-10-03) and nothing prunes them; with the finished pods gone after the rolling reboot, the controller's periodic resync errors on each old TaskRun and a new run waited 4 min 21 s for its pod | 要你批 |
 | [TD-274](#td-274) | P3 | frontend | Symbol faces hide GEX levels that exist when zero gamma is NULL: the dealer level strip needs all four values and the regime cell needs zero gamma, so a chain with no flip (about a third of expiries) shows neither walls nor regime | 不用批 |
+
+| [TD-300](#td-300) | P3 | market-data | Doctor calls recovered failed jobs trimmed even though their error rows survive | 不用批 |
+| [TD-301](#td-301) | P3 | research-data | Term slope has fresh exhibit data but no batch screening reader | 不用批 |
+| [TD-302](#td-302) | P2 | research-data | Coverage counts 71 warm-up NULL IV scores as readable; exhibits give no warm-up reason | 不用批 |
 
 ## 条目
 
@@ -702,6 +706,8 @@
 - **Ratchet**: A test that the longest cone tenor is inside the DTE range the ATM IV writers store, so the cone and the store cannot drift apart again.
 - 审批 要你批 · 代价 M · 风险 med · repos: bifrost-research
 
+- **Measured 2026-10-10**: 90-day IV cone API still withholds SPY (35 sessions) and NVDA (43), below the 60-session minimum; 7/30-day tenors each have 252. No 180-day tenor is served. Backfill remains subject to the existing approval boundary. Read-only evidence and reproduction: `docs/audits/DATA_INTEGRITY_2026-10-10.md`, `scripts/audit-data-integrity.sql`.
+
 ### TD-143
 
 **P3 · research-data · Hypotheses never link to trades: linked_opportunity_ids is empty on all 91 rows, and only Research's own create / patch writes it**
@@ -772,6 +778,8 @@
 - **Fix**: Approved step 2: once the vendor restates, re-pull CTVA daily bars and recompute the derived features from 10-01. If not by 10-16: Research applies the spin ratio to the pre-spin bars itself (separate approval).
 - **Ratchet**: For this case the daily scheduled check. For the class (proposed): a nightly sweep that flags any name whose close-to-close |log return| exceeds ln 3 on a day with no split in corporate_action, which catches the next unadjusted spin-off within one night.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data, bifrost-research
+
+- **Measured 2026-10-10**: CTVA adjusted close still equals unadjusted close through 10-09: 09-30 77.65 → 10-01 12.57. RV20 = 6.48478553 and VRP20 = -5.8814841 on 10-09. Preserve the existing 10-16 review and vendor-adjustment repair decision. Read-only evidence and reproduction: `docs/audits/DATA_INTEGRITY_2026-10-10.md`, `scripts/audit-data-integrity.sql`.
 
 ### TD-152
 
@@ -932,6 +940,8 @@
 - **Fix**: List the range for the Owner first (names × sessions × contracts). Then (a) the plugin re-pulls option_daily bars for the 50–90 DTE contracts of 2026-07-06..09-25 from the vendor's history (Options Starter has two years), and (b) Research recomputes ATM IV for those sessions; from 08-05 the 16:00 snapshots are a second source if the bars stay thin. Writes raw_market.option_daily (plugin) and features.* (Research) only.
 - **Ratchet**: The plugin doctor's option_daily breadth (0.59.0 counts 5–90 DTE) also counts names with a 50–90 DTE bar per session and warns below 0.8 of the trailing median, so a bound that stops short shows within a day.
 - 审批 要你批 · 代价 M · 风险 low · repos: bifrost-platform-plugin-market-data, bifrost-research
+
+- **Measured 2026-10-10**: 50–100 DTE ATM-IV name-days remain 59/3223 (1.8%) for week 08-03 and 64/3159 (2.0%) for 08-10, versus 3229/3469 (93.1%) for 10-05. Forward collection recovery did not restore historical completeness. Read-only evidence and reproduction: `docs/audits/DATA_INTEGRITY_2026-10-10.md`, `scripts/audit-data-integrity.sql`.
 
 ### TD-174
 
@@ -1615,6 +1625,42 @@
 - **验收结果**：PASS 2026-10-10 `43477399`（DEV 页面已由 Owner 看过；提交前定向复跑 24/24；记录 `bifrost-trade-frontend/docs/acceptance/TD-274.md`）。未发布，因此保留条目，不记作已还。
 - **DEV 验收**：PASS 2026-10-10，Vite :5173 → DEV :30882：AAL no flip + walls 12/14，APT no flip + put wall 6 + no call exposure，AA numeric flip 47.5，ZZQ 无数据不生成 no-flip 读数；daily History 和 Chain 显示核对通过。Instances / Live / Ledger 冒烟完成（Live 当前无实时 marks）。
 - **自检与防线**：全套 Vitest 550 files / 4136 passed / 1 skipped；TD-274 定向 24 passed；lint 0 errors（67 existing warnings）；build 与 check:legacy-css PASS。新增 helper、Dealer、History/Chain 渲染用例覆盖 no flip、单侧墙、缺数据、失败缓存与连续计数。公开 API/依赖无变化。
+
+### TD-300
+
+**P3 · market-data · Doctor reports recovered failures as trimmed records and hides retained error evidence**
+
+- **状态**：未开始
+- **Claim**: The actionable-failure query excludes jobs with a newer same-payload attempt. An empty actionable sample is then described as trimmed historical rows, even when the original failed rows survive and all retries succeeded.
+- **Evidence**: `bifrost-platform-plugin-market-data/src/bifrost_market_data/doctor.py:1962` excludes newer attempts; `:1998` infers trimming from the empty sample. Read-only 10-10 SQL finds 131 retained HTTP 401 failures, each with a newer `done` job by 02:30:34Z; cached DEV Doctor says rows were trimmed. See `docs/audits/DATA_INTEGRITY_2026-10-10.md` and `scripts/audit-data-integrity.sql`.
+- **Fix**: Distinguish retained historical failures, recovered jobs, actionable retries, deleted records and query failure. Do not infer retention loss from the actionable sample or treat a successful zero-bar response as proved data loss.
+- **Ratchet**: Extend `tests/test_doctor.py` with retained-all-recovered, actually-trimmed, still-actionable and query-failure cases; keep the TD-281 retry filter.
+- **验收**: `uv run pytest tests/test_doctor.py` passes; DEV `/market/doctor?probes=false` explains retained/recovered records separately from retry candidates and never says trimmed solely because all retries succeeded.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data
+
+### TD-301
+
+**P3 · research-data · Term-slope data reaches the exhibit but cannot drive screening**
+
+- **状态**：未开始
+- **Claim**: Fresh fitted expiries support a one-name near/far slope, but the screen reader still marks the lens unscreenable with “no set-based reader yet”.
+- **Evidence**: `bifrost-research/src/bifrost_research/lenses/screen.py:98`; `lenses/exhibit_lenses.py:229` computes the exhibit. DEV AAL 10-09 has eight fits, near 28 DTE / far 70 DTE and slope -0.00350481; daily surface has 700 names. See `docs/audits/DATA_INTEGRITY_2026-10-10.md`.
+- **Fix**: Add a set-based term-fit reader using the exhibit's selection and sign convention. Missing far/near fit stays unknown; real zero remains flat. Use consistent session dates.
+- **Ratchet**: Batch/exhibit parity tests for positive, negative, flat and missing-fit cases, and coverage/filter membership tests.
+- **验收**: `uv run pytest tests/ -k 'screen or term_slope'` passes; DEV coverage makes term_slope screenable, and AAL's screen reading matches its exhibit for the same session.
+- 审批 不用批 · 代价 M · 风险 low · repos: bifrost-research
+
+### TD-302
+
+**P2 · research-data · IV coverage counts warm-up NULL scores as readable and exhibits omit the reason**
+
+- **状态**：未开始（recommended next implementation after TD-274）
+- **Claim**: `_latest_column` returns NULL values and `_read_lens` creates readings for all stored rows; coverage counts dictionary entries, not usable scores. Freshness and a present row conceal the 126-session warm-up requirement.
+- **Evidence**: `bifrost-research/src/bifrost_research/lenses/screen.py:102`, `:241`, `:292`; `engines/volatility/iv_percentile.py:37` has the correct 126-session gate. DEV reports 702/725 rank and percentile coverage; latest seven-day rows have only 631 numerical scores (71 NULL). APT has two sessions and a fresh NULL-score exhibit with empty caveats. See `docs/audits/DATA_INTEGRITY_2026-10-10.md` and `scripts/audit-data-integrity.sql`.
+- **Fix**: Count usable numerical readings, preserve valid zero, and give the existing exhibit caveat path a concrete warm-up/insufficient-history reason. Distinguish an absent row from a present but withheld score. Do not weaken the engine's history gate or fabricate scores.
+- **Ratchet**: Regression tests for absent rows, present NULL warm-up rows, numerical zero and fully measured readings; coverage denominators, missing membership and exhibit caveats must agree.
+- **验收**: `uv run pytest tests/ -k 'screen or iv_rank or iv_percentile'` passes; for this fixed snapshot coverage equals 631 usable readings rather than 702 stored rows, and APT explains insufficient history. Future snapshots must agree with contemporaneous non-NULL SQL, not hard-code 631.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
 
 ## 没覆盖到的（下一轮从这里开始）
 
