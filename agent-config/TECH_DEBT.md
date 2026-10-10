@@ -15,7 +15,7 @@
 
 （无）
 
-**未结 79 项**：P0 0 · P1 5 · P2 27 · P3 47；要你批的 37 项（从总览表的审批列算）。
+**未结 80 项**：P0 0 · P1 5 · P2 28 · P3 47；要你批的 38 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -116,7 +116,7 @@
 
 目标：会动手的维护只由 PROD 的 platform-workers 做，本机与 STG 只观测。已做：本机停手（TD-130 第一步）、STG 不修 IB 也不写发布记录（TD-223）、页面不再触发维护、状态持久化（TD-196）。接着：PROD 自己探测、带时间戳的检查信号，只给 PROD 挂技能并先只报告，再逐项放开；备份只归 CNPG 与 backup-retry；不再清掉失败现场。
 
-项：TD-130, TD-272, TD-276, TD-283, TD-284, TD-285, TD-286, TD-287, TD-288, TD-289 · 已还：TD-256, TD-257, TD-270, TD-271, TD-273, TD-275, TD-277, TD-278, TD-279, TD-280, TD-281, TD-282, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255
+项：TD-130, TD-272, TD-276, TD-283, TD-284, TD-285, TD-286, TD-287, TD-288, TD-289, TD-296 · 已还：TD-256, TD-257, TD-270, TD-271, TD-273, TD-275, TD-277, TD-278, TD-279, TD-280, TD-281, TD-282, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255
 
 ## 数据边界（接受并留座）
 
@@ -274,6 +274,7 @@
 | [TD-293](#td-293) | P2 | infra | The platform service accounts of STG and PROD can create, update and patch any ConfigMap in cicd, so either can lift the release freeze or rewrite the release window without the Owner's signature | 安全/凭据（要你批） |
 | [TD-294](#td-294) | P3 | infra | The Tekton freeze check only runs in pipelines that start with release-window; the Trade and platform deliver pipelines and three build pipelines do not, so a run created outside platform-api ignores a freeze | PROD 变更（要你批） |
 | [TD-295](#td-295) | P2 | ops-platform | start_pipeline_run checks one revision in every repo a pipeline clones, so a platform deliver cannot be started by full SHA: the W-42 pinned rule for bifrost-deliver-platform-prod can never be met through the API | 不用批 |
+| [TD-296](#td-296) | P2 | ops-platform | The ntfy connection error text carries the full topic (the read credential) and is served by the token-less relay status endpoint; with W-49 it would also reach approval delivery records | 安全/凭据（要你批） |
 | [TD-274](#td-274) | P3 | frontend | Symbol faces hide GEX levels that exist when zero gamma is NULL: the dealer level strip needs all four values and the regime cell needs zero gamma, so a chain with no flip (about a third of expiries) shows neither walls nor regime | 不用批 |
 
 ## 条目
@@ -1245,7 +1246,7 @@
 
 **P2 · ops-platform · An approval is consumed by a transient refusal: approve executes immediately, and a release-window clash marks the request `failed`, so the Owner's click is spent and a new request must be filed**
 
-- **状态**：未开始。方案见 `work/multi-agent/S0-0-approved-execution-PLAN-2026-10-10.md`，实现在 S0-0a（W-48），等 W-42 合 main（Owner 10-10 按推荐定了执行卡 1–7）
+- **状态**：在做（修复在 platform 分支 `w31/w48-s0-0a` `249618e`，S0-0a / W-48：暂时性拒绝——发布窗口被占或缺失、HTTP 429 / 503、kube 超时——让单子保持 `approved`，按退避重试到执行截止时间；永久错误照旧失败。测试 `api/internal/approvals/state_machine_test.go` `TestTransientRefusalKeepsTheApproval`、`api/internal/server/transient_refusal_test.go`。须与 infra `w31/w48-s0-0a-infra` `779c70f` 一起合。合 main + 发版后转待你签收）
 - **Claim**: `approvals.Service.approve` calls `actions.Execute` in the same step as the decision and stores `StatusFailed` on **any** error, transient or permanent (`service.go` around the `execErr` branch). Since `approve` refuses anything whose status is not `pending`, a request that failed on a precondition cannot be approved again — the human's click is gone and the requester has to create a fresh request. There is no distinction between "this can never work" (bad params, expired) and "this would work in a minute" (a release window held for other repos, CI not green yet).
 - **Measured**: MEASURED 2026-10-08. `appr_cb8b3f52329cbe8c` (platform PROD, revision main) was approved through `channel: chat` at 15:50:56Z and came back `status: failed` with `REFUSED: release window held by someone else (who=… what=bifrost-trade-core,bifrost-trade-api,bifrost-trade-worker,bifrost-trade-frontend,bifrost-trade-infra); bifrost-deliver-platform-prod needs one of bifrost-platform,bifrost-ui`. The click landed inside this session's own Trade release (`bifrost-deliver-prod-pinned-9lg2r`, 15:47–15:54Z), which legitimately held the window for the Trade repos. No PipelineRun was created; platform main stayed a7ecb08 and PROD kept the old image. The window check did its job — what is wrong is that the approval did not survive it.
 - **Evidence**:
@@ -1307,7 +1308,7 @@
 
 **P3 · ops-platform · An apply_manifest run is named apply-<plan id>, so a failed apply of a plan cannot be retried; a new plan is needed**
 
-- **状态**：未开始。方案见 `work/multi-agent/S0-0-approved-execution-PLAN-2026-10-10.md`，实现在 S0-0a（W-48），等 W-42 合 main（Owner 10-10 按推荐定了执行卡 1–7）
+- **状态**：在做（修复在 platform 分支 `w31/w48-s0-0a` `249618e`，S0-0a / W-48：apply 的 run 改名 `apply-<plan>-<unix>` 并带 `bifrost.io/plan` 标签，同一 plan 重试会新建 run。测试 `api/internal/workactions/apply_retry_test.go`。合 main + 发版后转待你签收）
 - **Claim**: `workactions.Apply` names the run `trimName("apply-" + planID)`. After an apply of a plan fails, a second approved apply of the same plan fails at create with `pipelineruns.tekton.dev "apply-<plan>" already exists`, and the approval ends `failed`.
 - **Measured**: MEASURED 2026-10-09: `appr_49781a21b0d86b9d` (plan `plan-1dfc9375-1791567153`, whose first apply failed closed) → `failed`, `already exists`. A fresh plan applied fine.
 - **Evidence**:
@@ -1358,7 +1359,7 @@
 
 **P2 · ops-platform · Approval notifications carry no short id or parameters and their delivery is not recorded; the session, Console and phone are not one approval experience**
 
-- **状态**：未开始（归多 Agent 协作项目第 0 步，与「审批后由系统执行」同一份方案）。方案见 `work/multi-agent/S0-0-approved-execution-PLAN-2026-10-10.md`，实现在 S0-0b（W-49），等 W-42 合 main（Owner 10-10 按推荐定了执行卡 1–7）
+- **状态**：在做（修复在 platform 分支 `w31/w49-s0-0b` `56b12b2`，S0-0b / W-49，基于 W-48：推送标题 `#n · tier · action · env`，正文是动作目录的一行摘要、关键参数、请求者 / 线程 / work id、谁执行、到期时间，`owner_run_command` 的命令全文不进推送；每次通知按目标记一条投递记录（单子上的 `deliveries[]`：kind、channel、target、at、result accepted / failed / skipped、error）并写审计 `approval.notify`，relay 挂了也不让建单失败。合 main + 发版后转待你签收；签收前按 W-49 的验收在 STG 建一张 C 级 `trigger_cnpg_backup` 单看手机和 deliveries）
 - **Claim**: The ntfy message is `<who> requested <action> (tier X). Open to approve or reject.`: no number, no pipeline, environment or commits. Delivery is not logged per message (the operator-plane log only records startup); on 2026-10-10 all four approval messages reached ntfy (priority 4, click link) but the Owner's phone showed none. The Console approvals page shows raw JSON params and plan output and does not group pending / executed / rejected. A session can approve only through a tool permission prompt. After a click on Approve the page gives no confirmation: the card stays under `Open request` with status `executed` and no button, and for a record-only action (`rolling_reboot`) `executed` means only that the approval was recorded. On 2026-10-10 the Owner approved `appr_49d505d827db8b4a` in Console (channel console, 05:17:26Z) and then reported that the approve button could not be found. The recorded command in the result also omits the flags the requester asked for (`--upgrade`).
 - **Evidence**: `bifrost-platform/api/internal/approvalnotify/notify.go:116`; `bifrost-platform/api/internal/alertrelay/relay.go` `handleNotify`
 - **Fix**: short numeric approval number; message with action, environment, key params, requester thread, expiry; delivery result stored on the approval; Console page grouped by status with readable params and plan; chat reply `批 #n` path; executor for `owner_run_command`.
@@ -1474,6 +1475,18 @@
 - **Ratchet**: Go tests in `api/internal/delivery`: `bifrost-deliver-platform-prod` with `revision=<platform sha>` and `params.uiRevision=<ui sha>` passes preflight when each SHA exists in its own repo, and is refused when either is missing; a `releasepolicy` test that the request `platform-prod-pinned-from-stg.sh` describes reaches `Auto` under a signed policy.
 - 验收: `cd bifrost-platform/api && go test ./internal/delivery/ ./internal/releasepolicy/`; on STG, `start_pipeline_run name=bifrost-deliver-platform revision=<platform full sha>` with `params.uiRevision=<ui full sha>` starts.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-296
+
+**P2 · ops-platform · The ntfy connection error text carries the full topic (the read credential) and is served by the token-less relay status endpoint; with W-49 it would also reach approval delivery records**
+
+- **状态**：在做（W-49 审计 10-10 发现；掩码已在 platform 分支 `w31/w49-s0-0b` `56b12b2`，防线 `api/internal/alertrelay/relay_test.go` `TestNotifyFailureNamesTheReasonWithoutTheTopic`。关闭条件：合 main + 重新部署 .50 operator-plane，并入 S0-0c / W-50）
+- **Claim**: The relay posts to `NtfyURL + "/" + Topic`. When the request fails, Go's HTTP client error quotes the whole URL (`Post "<ntfy>/<topic>": …`), so the error text contains the topic. Anyone who knows the topic can subscribe and read every push. That text is kept as `lastErr` and returned as `last_error` by `GET /alerts/relay`, which takes no token. W-49 adds per-target delivery results to `POST /alerts/notify` and stores them on the approval (`deliveries[].error`), so without the mask the topic would also land in request records.
+- **Evidence**: `bifrost-platform/api/internal/alertrelay/relay.go:46` (topic is the read credential), `relay.go:371` (URL built with the topic), `relay.go:395` (`r.lastErr = err.Error()`), `relay.go:417` (`last_error` in the status body), `relay.go:116` (`GET /alerts/relay` route); read on platform main `66496a6`.
+- **Fix**: Mask the topic out of every transport error before it is stored or returned (done on W-49: the target is reported as a hash, the error names the reason without the topic). After the redeploy, if the status endpoint ever showed a connection error, treat the topic as exposed; rotating it is an Owner own-key operation.
+- **Ratchet**: `TestNotifyFailureNamesTheReasonWithoutTheTopic` (a failing ntfy post answers a delivery whose error and target do not contain the topic).
+- 验收: `cd bifrost-platform/api && go test ./internal/alertrelay/ -run 'TestNotify' -count=1`; after the .50 operator-plane redeploy, `GET /alerts/relay` on .50 shows no topic in `last_error` and the build carries the W-49 commit.
+- 审批 要批（凭据面：.50 operator-plane 重新部署是 Owner 本机操作）· 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-261
 

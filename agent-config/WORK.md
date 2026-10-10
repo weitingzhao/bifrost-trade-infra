@@ -664,9 +664,9 @@
 **W-31 第 0 步 · S0-0a 状态机与编号**
 
 - **类别**：道
-- **状态**：在做（10-10 开工，分支 `w31/w48-s0-0a` 只推分支；第 9 步之后再合 main，不动 Console）
+- **状态**：在做（代码完成：platform `w31/w48-s0-0a` `8c55c63` + infra `w31/w48-s0-0a-infra` `779c70f`，两边一起合；参谋长 10-10 重跑验收全绿。第 9 步发完后第一个合 main；`service.go:138` 的 lint shadow 已交回本线程。见 STEP0-PLAN 0.8 节）
 - **现在**：新状态 `approved` / `running` / `unknown`、`execution{}`、全局自增 `#n`、`executor` 角色和领单 / 续租 / 回写接口、存储改 `statefile.Update`；TD-267、TD-276；`number` / `env` / `summary` / `deliveries` 接进 W-44 的列表行和详情页，替换临时的 `approvalEnv`
-- **下一步**：照方案第 4.4 节的顺序做；`number` / `env` 接 Console 的部分等集成分支合 main（STEP0-PLAN 0.7 节第 6 步）之后
+- **下一步**：第 9 步发完后按 0.8 节的顺序合 main（platform 与 infra 同批），合时把新状态、`executor` 角色与 `#n` 写进 `AGENT_FACTS.md`；`number` / `env` 接 Console 的部分等集成分支合 main（STEP0-PLAN 0.7 节第 6 步）之后
 - **验收**：方案第 4.5 节 S0-0a 的验收命令；暂时性拒绝后单子仍是 `approved`，两个并发建单拿到不同的 `#n`
 - **关联**：`work/multi-agent/S0-0-approved-execution-PLAN-2026-10-10.md` 第 4.5 节；W-37；TD-267、TD-276
 
@@ -675,9 +675,9 @@
 **W-31 第 0 步 · S0-0b 通知文案与投递记录**
 
 - **类别**：道
-- **状态**：未开始（等 W-42 合 main）
-- **现在**：文案带 `#n`、级别、动作、环境、摘要；`deliveries[]`；结果通知与过期提醒；TD-286
-- **下一步**：W-42 合 main 之后照方案第 4.4 节的顺序开
+- **状态**：在做（代码完成，待合 main 后 STG 通知实测（建 C 级 `trigger_cnpg_backup` 单，看手机与 deliveries，然后驳回）。分支 platform `w31/w49-s0-0b` `56b12b2`，基于 W-48；与 W-51 试合无冲突）
+- **现在**：文案带 `#n`、级别、动作、环境、摘要；`deliveries[]`；结果通知与过期提醒；TD-286；relay 错误里的 ntfy topic 已掩码（TD-296）
+- **下一步**：W-48 合 main 后合；发 STG 后做上面的实测。发版策略到期提醒的投递记录是 S0-0b 遗留（0.8 节）
 - **验收**：STG 上建一张 C 级单：手机通知显示 `#n`、动作、环境，单子的 `deliveries[0].result` 是 `accepted`
 - **关联**：`work/multi-agent/S0-0-approved-execution-PLAN-2026-10-10.md` 第 4.5 节；W-37；TD-286
 
@@ -697,9 +697,9 @@
 **W-31 第 0 步 · S0-0d 会话「批 #n」**
 
 - **类别**：道
-- **状态**：未开始（等 W-42 合 main）
-- **现在**：`approve_request` / `reject_request` / `get_request` / `wait_for_request` 接受 `#n`
-- **下一步**：W-42 合 main 之后照方案第 4.4 节的顺序开
+- **状态**：在做（代码完成，待 Claude 侧实测「批 #n」。分支 platform `w31/w51-s0-0d` `c6a5e84`、infra `w31/w51-s0-0d` `465f679`（用法文档），基于 W-48）
+- **现在**：`approve_request` / `reject_request` 收 `#n` 加 `approval_line`，与记录重算的一行相等才发；D 级从会话不带 `confirm_number`；`list_pending` 返回 `approval_line`；没有 bifrost-approve 的会话拿到 `approve_hint`
+- **下一步**：W-49 合 main 后合 platform，再合 infra 文档；PROD 上线后在 Claude 侧实测
 - **验收**：Claude 会话里打「批 #n」：弹出允许，批准后单子的 `channel` 是 `chat`
 - **关联**：`work/multi-agent/S0-0-approved-execution-PLAN-2026-10-10.md` 第 4.5 节；W-37；—
 
