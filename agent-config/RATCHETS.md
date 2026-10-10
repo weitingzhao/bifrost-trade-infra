@@ -10,6 +10,7 @@
 
 | 防线 | 位置 | 挡什么 | 强度 | 范围与缺口 |
 |---|---|---|---|---|
+| registry 持久且装着每个运行中的镜像（TD-282） | `bifrost-trade-infra/scripts/check_registry_images.py`（静态：Deployment 在 `/var/lib/registry` 挂 PVC、Recreate；`--live`：每个运行中 Pod 用到的 registry 镜像都能 HEAD 到）；`scripts/test_check_registry_images.py`（旧清单被拒） | registry 写容器文件系统、重启即空；镜像丢了没人知道直到 Pod 重启 | manual（`--live` 要集群读权限） | 还没有定时跑 `--live` 的维护者或告警；新 digest 与运行中不同只提示不报错 |
 | doctor 处方跳过已重试的失败（TD-281） | `bifrost-platform-plugin-market-data/tests/test_doctor.py::test_failures_already_retried_are_not_offered_again`（失败行后面有同 kind + payload_hash 的新 job 就不进处方；结论写明还剩多少没重试） | heal 卡在最新 50 个失败上反复去重，更早的永远够不到 | blocking（pytest） | 测试桩只核 SQL 文本；SQL 本身 10-09 在 PROD 库上实测过 |
 | 被跟踪的配置不进凭证（TD-280） | `bifrost-trade-infra/scripts/scrub_config_secrets.py --check [--staged]`；共享 pre-commit `agent-config/scripts/git-hooks/pre-commit`；`scripts/test_scrub_config_secrets.py`（8 例，含钩子查暂存区、别的仓库与旧 worktree 不动）；`make check-config-secrets` | 密码 / token / secret / api_key 字段或 `tokens` 列表带值提交进 4 个被跟踪的配置文件（仓库公开） | blocking（pre-commit，只在 infra） | 只管这 4 个文件；`--no-verify` 能跳过；已在历史里的值只能轮换 |
 | 平台权限检查用只读身份能跑、不假绿（TD-277） | `bifrost-trade-infra/scripts/test_access_checks.py`（SubjectAccessReview 映射与 SA 组、dry-run 失败分类、无冒用权限时在任何 dry-run 前停下、只读角色只多 `create subjectaccessreviews`）；`check_agent_access.py --live` 断言能建 SAR、不能 impersonate | 权限检查只有管理员能跑、Agent 跑就整体失败；admission live 把冒用失败或 OpenAPI 错误读成「策略拒绝」 | manual（infra 没有 CI 跑 scripts 测试） | admission 的 dry-run 仍要 Owner 身份；SAR 只覆盖 RBAC，不覆盖准入策略 |
