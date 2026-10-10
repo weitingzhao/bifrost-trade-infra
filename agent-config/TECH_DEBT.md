@@ -21,7 +21,7 @@
 - **TD-196** — platform 状态不再随发版丢失：各 store 经 `internal/statefile` 写进本命名空间的 ConfigMap `platform-state-*`，审计按角色各留 500 条（platform 87965ce）。验收 PASS 2026-10-09（PROD 21:29Z 发版后审计 180 条、最早 10-07；release-cycles、approvals、checklist、patrol 的状态 ConfigMap 都在）。防线：`statefile_test.go`、`k8sstate_test.go`（store 经 statefile 落 ConfigMap）。原定的「清单里不许 emptyDir」不适用：`/app/data` 的 emptyDir 现在只是写穿式的本地副本。后续：无后续：release-cycles 读接口已随第 3 阶段删除
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 78 项**：P0 0 · P1 6 · P2 26 · P3 46；要你批的 34 项（从总览表的审批列算）。
+**未结 79 项**：P0 0 · P1 6 · P2 27 · P3 46；要你批的 35 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -122,7 +122,7 @@
 
 目标：会动手的维护只由 PROD 的 platform-workers 做，本机与 STG 只观测。已做：本机停手（TD-130 第一步）、STG 不修 IB 也不写发布记录（TD-223）、页面不再触发维护、状态持久化（TD-196）。接着：PROD 自己探测、带时间戳的检查信号，只给 PROD 挂技能并先只报告，再逐项放开；备份只归 CNPG 与 backup-retry；不再清掉失败现场。
 
-项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255, TD-272, TD-276, TD-283, TD-284, TD-285, TD-286, TD-287, TD-288 · 已还：TD-256, TD-257, TD-270, TD-271, TD-273, TD-275, TD-277, TD-278, TD-279, TD-280, TD-281, TD-282
+项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255, TD-272, TD-276, TD-283, TD-284, TD-285, TD-286, TD-287, TD-288, TD-289 · 已还：TD-256, TD-257, TD-270, TD-271, TD-273, TD-275, TD-277, TD-278, TD-279, TD-280, TD-281, TD-282
 
 ## 数据边界（接受并留座）
 
@@ -291,6 +291,7 @@
 | [TD-286](#td-286) | P2 | ops-platform | Approval notifications carry no short id or parameters and their delivery is not recorded; session, Console and phone are not one approval experience | 安全/凭据（要你批） |
 | [TD-287](#td-287) | P3 | ops-platform | The gpu-server power manager on ubt-k3s-01 has failed every poweroff since the node key changed and logs success; platform wake/poweroff have no SSH identity | 安全/凭据（要你批） |
 | [TD-288](#td-288) | P2 | infra | ubt-k3s-01, the sole control plane, went down without a shutdown on 10-10 and no boot since June recorded a clean shutdown; nothing alerts on an unplanned reboot | 不用批 |
+| [TD-289](#td-289) | P2 | infra | Prometheus, Alertmanager and Grafana keep their data in emptyDir: a node drain erases 10 days of metrics, the silences and Grafana's database | 安全/凭据（要你批） |
 | [TD-274](#td-274) | P3 | frontend | Symbol faces hide GEX levels that exist when zero gamma is NULL: the dealer level strip needs all four values and the regime cell needs zero gamma, so a chain with no flip (about a third of expiries) shows neither walls nor regime | 不用批 |
 
 ## 条目
@@ -1521,6 +1522,18 @@
 - **Ratchet**: alert `BifrostNodeUnexpectedReboot`: `changes(node_boot_time_seconds[15m]) > 0` on a node that no `rolling_reboot` approval covers (rule test in `check_alert_rules`).
 - 验收: the alert rule exists and fires in a rule unit test; the cause is written here, or the node has run 30 days without an unclean boot.
 - 审批 不用批（查硬件要你到场）· 代价 S · 风险 med · repos: bifrost-trade-infra
+
+### TD-289
+
+**P2 · infra · Prometheus, Alertmanager and Grafana keep their data in emptyDir: a node drain erases the metric history (10 days), the silences and Grafana's own database**
+
+- **状态**：未开始（要你定：存储放哪）
+- **Claim**: `values-kube-prometheus.yaml` sets `retention: 10d` and no `storageSpec`, so the operator gives Prometheus an emptyDir. That survives a node reboot (same pod) but not an eviction. The rolling reboot of 2026-10-10 drained ubt-k3s-01 with `--delete-emptydir-data`; the new Prometheus pod started 05:32:13Z on ubt-k3s-06 with an empty TSDB: at 05:54Z `count(up offset 30m)` returned nothing, while 36-hour windows had answered at 04:41Z. Alertmanager (`alertmanager-db`) and Grafana (`storage`) are emptyDir too. Same class as TD-282 (registry). The check before the run read PodDisruptionBudgets and did not look at emptyDir state.
+- **Evidence**: `bifrost-trade-infra/scripts/k3s/values-kube-prometheus.yaml:41` — `retention: 10d`, no `storageSpec`; pod `prometheus-kube-prometheus-stack-prometheus-0` volume `prometheus-kube-prometheus-stack-prometheus-db emptyDir {}`
+- **Fix**: `prometheusSpec.storageSpec.volumeClaimTemplate` and `alertmanagerSpec.storage` on a PersistentVolume (nfs-cold like the registry, or local-path pinned to one node); Grafana persistence, or dashboards only from provisioning. Helm upgrade by the Owner.
+- **Ratchet**: `check_monitoring_persistence.py` (static: the values carry the claims; live: the three pods mount a PersistentVolumeClaim). The rolling-reboot plan lists the emptyDir volumes its drain will delete.
+- 验收: evict the Prometheus pod; `count(up offset 30m)` still answers.
+- 审批 要批（存储位置）· 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ### TD-261
 

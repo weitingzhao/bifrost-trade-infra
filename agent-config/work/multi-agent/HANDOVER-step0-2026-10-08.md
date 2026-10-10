@@ -72,6 +72,7 @@
 3. **TD-283、TD-284**：`release.sh dev` 的重启、插件与 pine 构建，都还绕不过 kubectl，要接到平台动作上。
 4. **TD-285**（要 Owner 定）：applier 接管不了 `kubectl-client-side-apply` 拥有的字段。选 `--force-conflicts`，还是由 Owner 逐个迁移字段归属。
 5. **TD-288**：01（唯一控制面）10-10 无关机过程地断掉又起来，原因未知。第 0 步里只做告警那一半（节点非计划重启）；硬件由 Owner 查。
+6. **TD-289**（要 Owner 定存储位置）：Prometheus、Alertmanager、Grafana 的数据在 emptyDir，10-10 滚动重启驱逐 01 时丢了 10 天的指标历史。盘点里凡是「读 Prometheus 历史」的数字，10-10 05:32Z 之前的都没有了。
 
 ### 这一轮学到的（细节在记忆里）
 
@@ -79,3 +80,4 @@
 - 扫描要放阳性对照：本机没有 `timeout`，命令不存在时输出为空，看起来像「干净」（`empty_scan_needs_a_positive_control`）。
 - 给 Owner 的命令放在一轮的最后一条消息里，Owner 用会话里的 bash 输入执行，输出直接可见。
 - 「谁重启了它」先读开机时间和上一次开机的日志结尾，不要从下游症状倒推（TD-282 最初被写成 containerd 重启，实际是整机断电式重启）。
+- 滚动重启第一次真跑（10-10）：drain 之前要查两样，零预算的 PDB 和放在 emptyDir 里的状态；同一条 Owner 命令被提交两次就会起两个脚本，执行类脚本要自己加锁；带口令的 ssh 提示有大约 2 分钟的时限。脚本现在有锁、重问口令和 `--done` 续跑。
