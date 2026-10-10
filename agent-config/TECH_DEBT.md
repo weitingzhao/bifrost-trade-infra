@@ -15,7 +15,7 @@
 
 （无）
 
-**未结 76 项**：P0 0 · P1 5 · P2 25 · P3 46；要你批的 35 项（从总览表的审批列算）。
+**未结 79 项**：P0 0 · P1 5 · P2 27 · P3 47；要你批的 37 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -56,7 +56,7 @@
 
 目标：一个开关让所有测试类防线生效（CI 卡发布），再补上调度存活告警、D10 闸门的非 curl 写法、operator 流白名单、本机常驻任务和密钥轮换的盲区、spine 副本同步。
 
-项：TD-95, TD-100, TD-121, TD-152, TD-153, TD-155, TD-162 · 已还：TD-99, TD-161, TD-198, TD-195, TD-194, TD-249, TD-109, TD-105, TD-96
+项：TD-95, TD-100, TD-121, TD-152, TD-153, TD-155, TD-162, TD-293, TD-294, TD-295 · 已还：TD-99, TD-161, TD-198, TD-195, TD-194, TD-249, TD-109, TD-105, TD-96
 
 ### 第 3 波 · 交易日与日历只有一个来源
 
@@ -271,6 +271,9 @@
 | [TD-290](#td-290) | P3 | ops-platform | The retired remediation runner's ConfigMap cicd/bifrost-remediation-runner-stg-dockerfile is still in the cluster, and the supply check and the deliver phase list still name it | PROD 变更（要你批） |
 | [TD-291](#td-291) | P3 | ops-platform | The PROD operator plane probes git-bridge on the Owner's laptop (192.168.10.40:8785) and gets 401, so agent-bridge shows git_bridge unavailable instead of local-only | PROD 变更（要你批） |
 | [TD-292](#td-292) | P2 | infra | The powered-off standby node gpu-server keeps 18 warning alerts firing in Prometheus, so the Console header verdict is stuck at Degraded and a real warning cannot be seen | PROD 变更（要你批） |
+| [TD-293](#td-293) | P2 | infra | The platform service accounts of STG and PROD can create, update and patch any ConfigMap in cicd, so either can lift the release freeze or rewrite the release window without the Owner's signature | 安全/凭据（要你批） |
+| [TD-294](#td-294) | P3 | infra | The Tekton freeze check only runs in pipelines that start with release-window; the Trade and platform deliver pipelines and three build pipelines do not, so a run created outside platform-api ignores a freeze | PROD 变更（要你批） |
+| [TD-295](#td-295) | P2 | ops-platform | start_pipeline_run checks one revision in every repo a pipeline clones, so a platform deliver cannot be started by full SHA: the W-42 pinned rule for bifrost-deliver-platform-prod can never be met through the API | 不用批 |
 | [TD-274](#td-274) | P3 | frontend | Symbol faces hide GEX levels that exist when zero gamma is NULL: the dealer level strip needs all four values and the regime cell needs zero gamma, so a chain with no flip (about a third of expiries) shows neither walls nor regime | 不用批 |
 
 ## 条目
@@ -1435,6 +1438,42 @@
 - **Ratchet**: a promtool rule test (`k8s/monitoring/rule-tests/`, `make check-alert-rules`) that powers gpu-server off in series data and expects no warning from the node, its DaemonSet pods or its scrape targets; plus `check_alert_routing.py` asserting every node-scoped default alert name is either rewritten with the standby `unless` or inhibited by `elastic_standby="true"`.
 - 验收: gpu-server cordoned and off: `count(ALERTS{alertstate="firing",severity="warning"} and on(node) kube_node_info{node="gpu-server"})` → 0 and no TargetDown for its targets; Console header no longer says Degraded because of it; waking the node (WOL) and uncordoning raises nothing new.
 - 审批 要批（helm upgrade 监控栈）· 代价 M · 风险 low · repos: bifrost-trade-infra, bifrost-platform
+
+### TD-293
+
+**P2 · infra · The platform service accounts of STG and PROD can create, update and patch any ConfigMap in cicd, so either can lift the release freeze or rewrite the release window without the Owner's signature**
+
+- **状态**：未开始（W-42 交回 10-10；STEP0-PLAN 0.6 节）
+- **Claim**: W-42 put the signed release policy (`bifrost-release-policy`), the freeze (`bifrost-release-freeze`) and the release window (`bifrost-release-window`) in `cicd`. platform-api is meant to be the only writer, and unfreezing needs an Owner signature over `frozen_at`. But the ClusterRole bound to both platform service accounts in `cicd` grants configmap writes with no `resourceNames`. A patch straight to the ConfigMap (`frozen=false`, or a different window holder) skips the signature check: the policy survives because platform-api re-verifies its signature, the freeze and the window do not. The STG account can write the same ConfigMaps PROD reads, although STG only observes releases.
+- **Evidence**: `bifrost-trade-infra/k8s/platform-rbac/00-clusterroles.yaml:86-93` (`bifrost-platform-state`: configmaps `get, list, watch, create, update, patch`, no `resourceNames`), bound in `cicd` by `k8s/platform-rbac/10-stg.yaml:127-134` (SA `bifrost-platform` in `bifrost-platform-stg`) and `k8s/platform-rbac/20-prod.yaml:127-134` (PROD); `00-clusterroles.yaml:155` adds `update, patch` on configmaps for the Gitea creds role. Freeze logic: `bifrost-platform/api/internal/releasepolicy/handler.go:72`, `actions/catalog.go:130-141`.
+- **Fix**: give the platform accounts in `cicd` only the names they write: a Role with `resourceNames` for update/patch of `bifrost-release-policy`, `bifrost-release-freeze`, `bifrost-release-window` and the record ConfigMaps (PROD only); `create` cannot be limited by name, so either keep platform-created ConfigMaps under a fixed name list created once by the applier, or add a ValidatingAdmissionPolicy that refuses platform-SA writes in `cicd` outside a name/label allow list. The STG account loses write in `cicd` (TD-223 already stopped STG writing release records).
+- **Ratchet**: extend `scripts/check_platform_rbac.py` with "should not" rows: as each platform SA, `patch configmaps/bifrost-release-freeze` and `create configmaps` with an unlisted name in `cicd` are denied (STG: every configmap write in `cicd` denied).
+- 验收: `make check-platform-rbac` with the new rows → all pass on the cluster; `kubectl auth can-i patch configmap/bifrost-release-freeze -n cicd --as=system:serviceaccount:bifrost-platform-stg:bifrost-platform` → no.
+- 审批 要批（改集群 RBAC，apply_manifest）· 代价 M · 风险 med（漏一个名字会让 platform 写记录 403）· repos: bifrost-trade-infra
+
+### TD-294
+
+**P3 · infra · The Tekton freeze check only runs in pipelines that start with release-window; the Trade and platform deliver pipelines and three build pipelines do not, so a run created outside platform-api ignores a freeze**
+
+- **状态**：未开始（W-42 交回 10-10。交回原话「flex-query 构建流水线没有发布窗口任务」实测不成立：`bifrost-platform-plugin-flex-query/k8s/cicd/pipeline-build.yaml:27` 与集群上 `bifrost-build-flex-query` 的第一个 task 都是 `release-window`，跑在已绑定读权限的 `default` SA 下，apply 新 task 后就带冻结检查）
+- **Claim**: W-42 added the freeze check to `task-release-window.yaml`, so it runs only where that task is the first task: `bifrost-build-research-dagster`, `bifrost-build-ib-gateway`, `bifrost-build-market-data`, `bifrost-deliver-research` and (from its plugin repo) `bifrost-build-flex-query`. `bifrost-deliver-stg`, `bifrost-deliver-prod`, `bifrost-deliver-platform`, `bifrost-deliver-platform-prod`, `bifrost-build-stg`, `bifrost-build-frontend-stg` and `bifrost-build-research-pine` have no such task: a freeze stops them only when they are started through platform-api (`start_pipeline_run`, refused with 409). A run created another way — the Owner's `kubectl create -f` from `prod-pinned-from-stg.sh` / `platform-prod-pinned-from-stg.sh`, or tekton-trigger (TD-272) — runs while frozen.
+- **Evidence**: `rg -l release-window bifrost-trade-infra/k8s/cicd/tekton/pipeline-*.yaml` → 4 files; first tasks `pipeline-deliver-stg.yaml:40` `mirror-sync`, `pipeline-deliver-prod.yaml:59` `preflight-stg`, `pipeline-deliver-platform.yaml:34` `mirror-sync`, `pipeline-deliver-platform-prod.yaml:37` `preflight-stg`; freeze step `k8s/cicd/tekton/task-release-window.yaml:175-205`; platform-side gate `bifrost-platform/api/internal/server/actions_wire.go:37`.
+- **Fix**: a freeze-only task (reads `bifrost-release-freeze` only; the window stays with `release.sh` for Trade and platform) as the first task of those seven pipelines, run under the SA each pipeline already uses (`tekton-deliver` and `default` are bound to `tekton-release-window`).
+- **Ratchet**: `scripts/check-release-chain.py` gains an assertion driven by `agent-config/release-policy/template.json` `allow` plus the build pipelines: each one's first task is `release-window` or the freeze-only task; a pipeline whose YAML is not found fails rather than skips (same rule as the TD-263 check).
+- 验收: `python3 scripts/check-release-chain.py` passes with the new assertion; a frozen drill: `kubectl create` of a pinned PROD run is refused by its first task.
+- 审批 要批（apply 七条 Tekton 流水线到 cicd）· 代价 S · 风险 low · repos: bifrost-trade-infra
+
+### TD-295
+
+**P2 · ops-platform · start_pipeline_run checks one revision in every repo a pipeline clones, so a platform deliver cannot be started by full SHA: the W-42 pinned rule for bifrost-deliver-platform-prod can never be met through the API**
+
+- **状态**：未开始（W-31 第 9 步调查 10-10 发现；第 9 步用 `revision=main` 绕开，见 STEP0-PLAN 0.7 节）
+- **Claim**: Before creating a run, platform-api runs `RefPreflight(pipeline, revision)` against every repo the pipeline clones; for both platform deliver pipelines that is `bifrost-platform` and `bifrost-ui`. A platform commit never exists in `bifrost-ui`, so any full-SHA (or platform-only branch) revision is refused as "missing in: bifrost-ui"; `params.uiRevision` changes the clone param but not the preflight. W-42's `paths.json` pins `bifrost-deliver-platform-prod` to full SHAs (`revision` and `uiRevision` equal to the newest `bifrost-deliver-platform` record), so a request that the policy would auto-approve is one the API refuses; with `revision=main` it starts but the policy answers "not a full commit id". The preflight also reads the Gitea mirror before the pipeline's own mirror-sync, so a SHA pushed after the last sync is "missing" even in its own repo.
+- **Evidence**: `bifrost-platform/api/internal/delivery/service.go:237` (preflight with the single `rev`), `service.go:530-531` (`uiRevision` defaults to the same `rev`), `supply_chain.go:41-42` (both platform pipelines clone `bifrost-platform` and `bifrost-ui`), `ref_preflight.go:85`; `api/internal/releasepolicy/engine.go:493-545` (`pinnedReasons`: full SHAs required); `bifrost-trade-infra/agent-config/release-policy/paths.json` `pinned`. Gitea mirror on 10-10: main `efeaf69` while GitHub main is `66496a6`.
+- **Fix**: preflight each repo at the ref the run will clone it at (`revision` for `bifrost-platform`, the caller's `uiRevision` or `revision` for `bifrost-ui`, the Trade per-repo params likewise), computed after `mergePipelineParams`; for a full SHA missing from the mirror, sync that mirror first (or report Unknown rather than missing).
+- **Ratchet**: Go tests in `api/internal/delivery`: `bifrost-deliver-platform-prod` with `revision=<platform sha>` and `params.uiRevision=<ui sha>` passes preflight when each SHA exists in its own repo, and is refused when either is missing; a `releasepolicy` test that the request `platform-prod-pinned-from-stg.sh` describes reaches `Auto` under a signed policy.
+- 验收: `cd bifrost-platform/api && go test ./internal/delivery/ ./internal/releasepolicy/`; on STG, `start_pipeline_run name=bifrost-deliver-platform revision=<platform full sha>` with `params.uiRevision=<ui full sha>` starts.
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-261
 

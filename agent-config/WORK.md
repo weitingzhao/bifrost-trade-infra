@@ -598,11 +598,11 @@
 **W-31 第 0 步 · S0-8 发版策略合并并签发**
 
 - **类别**：道
-- **状态**：在做（Owner 10-10 另派线程；该线程交回要登记的内容，由 W-31 线程登记）
-- **现在**：Owner 10-10 定卡 2 = B：放行检查只在平台，命中策略自动批准，`release.sh` 只调平台，infra 只留 ConfigMap、RBAC 和 Tekton 冻结检查
-- **下一步**：rebase `cursor/rp-platform`（冲突 `metrics.go`）和 `cursor/rp-infra`（和 `release.sh` 冲突，按 main 解）
-- **验收**：一次 STG 发布被策略自动放行，审计里记下命中的条款
-- **关联**：STEP0-PLAN 第 3 节 S0-8、0.3 节
+- **状态**：观察中（已合 main：platform `2d74644` + `66496a6`，infra `5e8e467`；参谋长 10-10 重跑 platform 50 个包、infra 17 条全过。等 Owner 签策略后跑三项验收）
+- **现在**：卡 2 = B 落地：平台是唯一裁判，`release.sh` 只签名和调平台，infra 只留 ConfigMap、RBAC 和 Tekton 冻结检查。自定的 9 条决策、新接口和 Owner 待办记在 STEP0-PLAN 0.6 节；引出 TD-293、TD-294、TD-295
+- **下一步**：Owner 生成 `~/.ssh/bifrost_release_owner` 并交指纹 → 线程写 `api/internal/releasepolicy/anchor.go` 推 main，随第 9 步上 PROD → Claude 线程 apply `configmaps.yaml`、`rbac-release-window.yaml`，再 `task-release-window.yaml` → `release.sh policy sign` + `status` → 三项演练
+- **验收**：STG 影子检查审计记 covered；一次 PROD 发布自动批准并记下命中条款；冻结后 `start_pipeline_run` 返回 409、解冻后恢复
+- **关联**：STEP0-PLAN 第 3 节 S0-8、0.3 节、0.6 节；TD-293、TD-294、TD-295
 
 ### W-43
 
@@ -620,7 +620,7 @@
 **W-31 第 0 步 · S0-17 外壳与「需要你」第一版**
 
 - **类别**：道
-- **状态**：在做（已交付分支，等合集成分支）
+- **状态**：在做（已合进集成分支 `w31/console-int` `e81a88d`，随第 9 步发版）
 - **现在**：范围见 STEP0-PLAN 0.2 节，按 0.4 节的卡 A、卡 B、卡 C 改：首页只列单子，批准和驳回只在 `#approvals?id=`；「需要你」只算待定、待批、待签；Autopilot 页签原样搬进「记录」。文件清单加 `lib/shell/shellStatusLine.ts`、`ConsoleSidebar.tsx`、`ConsoleNavSlotItem.tsx`、`StatusPage.tsx`，`NavAgentAskSlot` 也归这里
 - **下一步**：已交付分支 `w31/w44-s0-17` `86b709f`（参谋长与 W-45 试合无冲突：tsc、lint 0 error、vitest 101 个文件 684 条、build 全过；needs-you 页没有批准 / 驳回按钮）。12 条自定决策登记在 STEP0-PLAN 0.5 节；W-43b 线程把它合进 `w31/console-int`
 - **验收**：有待批的单子时首页第一屏就是它并显示等了多久；页头和 ① 的结论一致；通知里的旧链接仍能打开对应的单子
@@ -631,7 +631,7 @@
 **W-31 第 0 步 · S0-18 ⑤ Releases 三段式**
 
 - **类别**：道
-- **状态**：在做（已交付分支，等合集成分支）
+- **状态**：在做（已合进集成分支 `w31/console-int` `e81a88d`，随第 9 步发版）
 - **现在**：Owner 10-10 定卡 B：第一段放快到期的策略和待批的发版单；失败的 run 放「进行中」，同一流水线、同一环境后来成功就自动进历史，不新增状态、不加接口。策略那一块等 W-42
 - **下一步**：已交付分支 `w31/w45-s0-18` `611cc3e`（参谋长重跑：tsc、build、vitest 99 个文件 657 条全过）。7 条自定决策和 W-42 合并后的接入点登记在 STEP0-PLAN 0.5 节；W-43b 线程把它合进 `w31/console-int`
 - **验收**：10-03 的旧失败不再占首屏；窗口被占用时看得到是谁在占、还剩多久
@@ -664,9 +664,9 @@
 **W-31 第 0 步 · S0-0a 状态机与编号**
 
 - **类别**：道
-- **状态**：未开始（等 W-42 合 main）
+- **状态**：在做（10-10 开工，分支 `w31/w48-s0-0a` 只推分支；第 9 步之后再合 main，不动 Console）
 - **现在**：新状态 `approved` / `running` / `unknown`、`execution{}`、全局自增 `#n`、`executor` 角色和领单 / 续租 / 回写接口、存储改 `statefile.Update`；TD-267、TD-276；`number` / `env` / `summary` / `deliveries` 接进 W-44 的列表行和详情页，替换临时的 `approvalEnv`
-- **下一步**：W-42 合 main 之后照方案第 4.4 节的顺序开
+- **下一步**：照方案第 4.4 节的顺序做；`number` / `env` 接 Console 的部分等集成分支合 main（STEP0-PLAN 0.7 节第 6 步）之后
 - **验收**：方案第 4.5 节 S0-0a 的验收命令；暂时性拒绝后单子仍是 `approved`，两个并发建单拿到不同的 `#n`
 - **关联**：`work/multi-agent/S0-0-approved-execution-PLAN-2026-10-10.md` 第 4.5 节；W-37；TD-267、TD-276
 
