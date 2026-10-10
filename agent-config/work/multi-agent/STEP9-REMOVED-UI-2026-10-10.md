@@ -4,7 +4,7 @@ Owner 在 STG 上按本页过一遍，就是 ADR §6 的「删除前过目」。
 
 - 只列**屏幕上看得到**的删除与搬家；纯重排（W-45）和零引用死代码（W-43a）各占一行说明。
 - 每项写「在哪看」：STG Console 上的位置。要留的项直接回「留 W-xx 第 n 项」，在集成分支补回后重发 STG。
-- W-31 线程 2026-10-10 按各道提交说明和 diff 整理（W-46 `26caf11` `fae4dc4`，W-44 `86b709f`，W-45 `611cc3e`，W-43a `7fef876`）；W-43b 交回时把它的清单补进第 5 节。
+- W-31 线程 2026-10-10 按各道提交说明和 diff 整理（W-46 `26caf11` `fae4dc4`，W-44 `86b709f`，W-45 `611cc3e`，W-43a `7fef876`，W-43b `7299084`）。STG 上要看的是集成分支 `w31/console-int` `5101ba3`。
 
 ## 1. W-46（S0-19 清理 B）
 
@@ -37,14 +37,24 @@ Owner 在 STG 上按本页过一遍，就是 ADR §6 的「删除前过目」。
 
 没有删除功能，只重排：原来的「In-flight and failed runs」和「Recent releases」两张表拆成 Needs you / In progress / History 三段，History 默认收起，「Built from」等列都在。被后来成功覆盖的失败 run 从 In progress 移到 History。过目时确认 History 展开后信息齐全即可。
 
+第 9 步合 main 时（W-31 `5101ba3`）把 Needs you 第一行的静态「No signed release policy」换成 W-42 的策略横幅：没签策略时是红色「No valid release policy」加签名命令；到期前 14 / 3 / 1 天变黄并写明在哪个提醒窗口，这时 Needs you 计数加 1；读不到策略（没有 viewer 令牌或接口出错）显示「Release policy: Unknown」，计数也是 Unknown。
+
 ## 5. W-43b（S0-16b 删孤儿）
 
-W-43b 交回时由 W-31 线程按它的提交说明补齐。动手前已定的范围（STEP0-PLAN 0.4 节「16b 清单补充」、卡 10 = A）：
+分支 `w31/w43b-s0-16b` `7299084`（基于集成分支 `e81a88d`，参谋长 10-10 验收）：107 个文件，删 81 个，约 12000 行。删的每个模块从 `console/src/main.tsx` 走不到，或只有它自己的测试在引用。
 
-- 「Agent Fix」字样残留（15 个文件，含 Mission 板、反馈、检查清单目录、舰队格、注意力批量与修复目录）；
-- `cicdBootstrapCatalog.ts` 里 escape hatch 的「Implemented」改成实际状态；
-- 后端网页 SSH 终端 `api/internal/console`（`POST /console/ws-ticket`、`GET /console/hosts`、`GET /console/ws`）和 xterm 依赖；
-- `.console-operator-dock__*` 样式、`verify-operate-queue-wave3b.mjs`。
+**Status 上没有可见变化。** 过目时只需确认下面几项确实是「本来就看不到」或「该退役」：
+
+| # | 删掉的东西 | 原来在哪看 | 理由 |
+|---|---|---|---|
+| 1 | Control Room 的 mission / operate / release / governance 四个分区（连同 `AgentTriadStrip`、`BayDetailDrawer`、decision briefs、mission verification） | 没有入口：`ControlRoomPage` 现在只给 Status 用，这四个分区早已不在任何路由上 | W-44 之后的孤儿 |
+| 2 | 集群页的「View agent」链接 | 从未显示：调用方从来没传这个参数 | 死参数 |
+| 3 | 网页 SSH 控制台后端：`POST /console/ws-ticket`、`GET /console/hosts`、`GET /console/ws` | Console 里早已没有调用方；三条路由现在返回 404（进了退役路由表） | 卡 10 = A |
+| 4 | `@xterm/xterm`、`@xterm/addon-fit` 依赖 | 无 | 随第 3 项 |
+| 5 | 其余孤儿：`AgentFocusDock`、`CommandIntentStrip`、`MissionBoard`、`MissionControlHeader` 和别的没挂载的 control-room 面板、`task-mode` 组件与库（保留 `readinessChipActions`）、operate queue / briefs、`lib/agent` 里不再用的提示词构造、注意力批量与修复提示，以及只被这些用到的 CSS | 都不在页面上 | 零入口 |
+| 6 | 架构目录里 escape hatch 那一行从「Implemented」改成退役 | 架构页里 `cicdBootstrapCatalog` 渲染的 CI/CD bootstrap 清单 | 文字纠正，跟后端已删一致 |
+
+合进集成分支后，`go mod tidy` 去掉了 `golang.org/x/crypto`，和 main 上 W-42 的 `sshsig.go` 冲突；已在合 main 的提交里恢复（STEP0-PLAN 0.7 节进度）。
 
 ## 6. 过目结果
 

@@ -609,9 +609,9 @@
 **W-31 第 0 步 · S0-16 Console 清理 A（16a 零引用的死代码 · 16b 孤儿）**
 
 - **类别**：道
-- **状态**：在做（16a 已交付；16b 在做）
+- **状态**：在做（16a、16b 都已进集成分支 `w31/console-int` `5101ba3`，随第 9 步发版）
 - **现在**：Owner 10-10 拆成两步（STEP0-PLAN 0.4 节）：W-43a 只删零引用的死代码，已派出（分支 `w31/w43a-s0-16a`）；W-43b 删孤儿，排在 W-44、W-45 之后。`AgentFocusDock`、`AgentTriadStrip`、`CommandIntentStrip`、`lib/task-mode`、`operateQueue` / `operateBriefs`、`lib/agent/*` 仍在渲染，不属于 16a；`NavAgentAskSlot` 改归 W-44。退役 plist 只在 W-36 删一次。W-43a 已并进 Console 集成分支 `w31/console-int`（platform `58928a3`，10-10）
-- **下一步**：W-43b 按 STEP0-PLAN 0.4 节「16b 清单补充」逐项确认是否还在 ①/⑥ 渲染后再删，排在 W-44、W-45 之后；卡 10 = A（Owner 10-10）：后端 `api/internal/console`（SSH ws-ticket / ws）连同 `@xterm/xterm`、`@xterm/addon-fit` 一起删，属于 W-43b
+- **下一步**：W-43b 已交付（`w31/w43b-s0-16b` `7299084`，参谋长 10-10 验收），删了无入口的 Control Room 四个分区、从未显示的 View agent 链接、SSH 控制台后端（三条路由现返回 404）和 xterm 依赖；清单在 `work/multi-agent/STEP9-REMOVED-UI-2026-10-10.md` 第 5 节。等第 9 步 STG 过目；进 main 后 infra `OVERSIZED_PLATFORM_BASELINE` 13 → 12
 - **验收**：tsc / lint / vitest / build 全过，没有新的引用断裂
 - **关联**：STEP0-PLAN 0.2 节
 
