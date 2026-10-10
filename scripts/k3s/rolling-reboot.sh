@@ -24,8 +24,11 @@
 # the run stops and does not reboot the primary node.
 #
 # gpu-server (192.168.10.60) is usually powered off and is not in the plan.
-# This script does not change apt. Unattended-upgrade config is an Owner
-# action, separate from a weekend reboot.
+# --upgrade installs the pending packages on each node after its drain and
+# before its reboot, in the same SSH session as the reboot (one passphrase per
+# node). Services are not restarted by needrestart; the reboot follows. A failed
+# upgrade stops the run before that node reboots. The unattended-upgrades
+# configuration is not changed.
 #
 # Bash 3.2 compatible (macOS /bin/bash).
 set -euo pipefail
@@ -48,6 +51,7 @@ REPLICA_LAG_MAX_SECONDS="${REPLICA_LAG_MAX_SECONDS:-1}"
 
 DRY_RUN=1
 ALLOW_WEEKDAY=0
+UPGRADE=0
 APPROVAL_ID=""
 NODES_SPEC=""
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -58,7 +62,7 @@ ENV_FILE="${ENV_FILE:-${ROOT}/.env}"
 usage() {
   cat <<'EOF'
 Usage: rolling-reboot.sh [--dry-run] [--execute --approval <id>] [--allow-weekday]
-                         [--nodes name:role[:ip],...]
+                         [--upgrade] [--nodes name:role[:ip],...]
 
   --dry-run         Print the plan and exit (default). Reads the CNPG primary.
   --execute         Perform the plan. Requires --approval. Refused on Mon-Fri US Eastern.
@@ -67,7 +71,10 @@ Usage: rolling-reboot.sh [--dry-run] [--execute --approval <id>] [--allow-weekda
                     --execute uses OWNER_KUBECONFIG (default
                     ~/.bifrost-owner/kube/admin.yaml) and BIFROST_SSH_KEY
                     (default ~/.bifrost-owner/ssh/node).
-  --nodes          Override the node list. Roles: general, control-plane,
+  --upgrade         After each drain, apt-get upgrade (new dependencies included,
+                    existing config files kept, services not restarted), then
+                    the reboot, in one SSH session. A failed upgrade stops the run.
+  --nodes         Override the node list. Roles: general, control-plane,
                     prod, data. Optional third field is the SSH address.
                     The current primary is read from CNPG, not from the role.
 
@@ -89,6 +96,7 @@ while [ $# -gt 0 ]; do
       APPROVAL_ID="${1#--approval=}"
       ;;
     --allow-weekday) ALLOW_WEEKDAY=1 ;;
+    --upgrade) UPGRADE=1 ;;
     --nodes)
       shift
       [ $# -gt 0 ] || { echo "ERROR: --nodes needs a value" >&2; exit 2; }
@@ -493,6 +501,9 @@ print_steps() {
   node="$1"
   echo "  - cordon ${node}"
   echo "  - drain ${node} (respect PodDisruptionBudgets)"
+  if [ "$UPGRADE" = "1" ]; then
+    echo "  - upgrade packages on ${node} (apt-get upgrade with new dependencies; keep config files; no service restarts)"
+  fi
   echo "  - reboot ${node}"
   echo "  - wait until ${node} is Ready"
   echo "  - uncordon ${node}"
@@ -517,6 +528,11 @@ print_plan() {
     echo "live-window: closed (${day}, US/Eastern). A live run is refused outside Saturday and Sunday. Override: --allow-weekday (prints a warning)."
   fi
   echo "failure-policy: stop at the first failed step; do not continue to the next node"
+  if [ "$UPGRADE" = "1" ]; then
+    echo "upgrade: on (each node is upgraded after its drain, in the same SSH session as its reboot)"
+  else
+    echo "upgrade: off"
+  fi
   echo "skipped: gpu-server (192.168.10.60) is usually powered off and is not in this plan"
   echo "order: ${ORDERED}"
   echo "primary-pod: ${primary_pod}"
@@ -614,8 +630,14 @@ print("workloads recovered on %s (%d pods)" % (node, seen))
 ' "$node"
 }
 
+REBOOT_CMD="sudo -n systemd-run --on-active=5 /usr/bin/systemctl reboot"
+# NEEDRESTART_MODE=l: list services that use old libraries, restart none (the
+# node reboots next). Lock timeout: wait for a running unattended-upgrade.
+APT_ENV="sudo -n env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l"
+UPGRADE_CMD="${APT_ENV} apt-get -q -o DPkg::Lock::Timeout=300 update && ${APT_ENV} apt-get -q -y -o DPkg::Lock::Timeout=300 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold upgrade --with-new-pkgs"
+
 run_node() {
-  local node role ip rc
+  local node role ip rc remote
   node="$1"
   role="$2"
   ip="$(lookup_field "$node" ip)"
@@ -637,16 +659,27 @@ run_node() {
     --delete-emptydir-data \
     --grace-period=120 \
     --timeout="$DRAIN_TIMEOUT"
-  echo "==> reboot ${node} (${ip}); ssh asks for the node key passphrase"
   # systemd-run queues the reboot 5s out and returns, so the session ends
   # cleanly: exit 0 means the reboot is scheduled. Any other exit, 255
   # included (wrong passphrase, refused key, no route), means it is not.
+  remote="$REBOOT_CMD"
+  if [ "$UPGRADE" = "1" ]; then
+    echo "==> upgrade and reboot ${node} (${ip}); ssh asks for the node key passphrase"
+    # && : the reboot is scheduled only after the upgrade succeeded.
+    remote="${UPGRADE_CMD} && ${REBOOT_CMD}"
+  else
+    echo "==> reboot ${node} (${ip}); ssh asks for the node key passphrase"
+  fi
   set +e
-  node_ssh "$ip" "sudo -n systemd-run --on-active=5 /usr/bin/systemctl reboot"
+  node_ssh "$ip" "$remote"
   rc=$?
   set -e
   if [ "$rc" -ne 0 ]; then
-    echo "ERROR: could not schedule the reboot on ${node} (ssh exit ${rc}). ${node} is still cordoned and drained; fix SSH and rerun, or uncordon it with the Owner kubeconfig." >&2
+    if [ "$UPGRADE" = "1" ]; then
+      echo "ERROR: upgrade or reboot failed on ${node} (ssh exit ${rc}); the reboot is not scheduled after a failed upgrade. ${node} is still cordoned and drained; read the apt output above, fix it and rerun, or uncordon it with the Owner kubeconfig." >&2
+    else
+      echo "ERROR: could not schedule the reboot on ${node} (ssh exit ${rc}). ${node} is still cordoned and drained; fix SSH and rerun, or uncordon it with the Owner kubeconfig." >&2
+    fi
     return 1
   fi
   echo "==> wait Ready ${node}"

@@ -684,6 +684,64 @@ class RollingRebootPlanTests(unittest.TestCase):
             self.assertIn(f"-i {Path(tmp) / 'node-key'}", line)
             self.assertIn("sudo -n systemd-run --on-active=5 /usr/bin/systemctl reboot", line)
             self.assertNotIn("BatchMode", line)
+            self.assertNotIn("apt-get", line)
+
+    def test_dry_run_with_upgrade_prints_the_upgrade_step(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeCluster(Path(tmp))
+            result = run(["--dry-run", "--upgrade"], fake.env)
+            ssh = fake.ssh_text()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("upgrade: on", result.stdout)
+        self.assertNotIn("--force", result.stdout)
+        self.assertEqual(ssh, "")
+        for name, _role in ORDER_PRIMARY_ON_02:
+            self.assertLess(
+                result.stdout.index(f"drain {name}"),
+                result.stdout.index(f"upgrade packages on {name}"),
+            )
+            self.assertLess(
+                result.stdout.index(f"upgrade packages on {name}"),
+                result.stdout.index(f"- reboot {name}"),
+            )
+
+    def test_upgrade_runs_before_the_reboot_in_the_same_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeCluster(Path(tmp), dow="7")
+            result = run(
+                ["--execute", "--approval", "appr_ok", "--upgrade", "--nodes", self.TWO_NODES],
+                arm_approval(fake.env),
+            )
+            ssh = fake.ssh_text()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = ssh.splitlines()
+        # One session per node: one passphrase prompt per node.
+        self.assertEqual(len(lines), 2, ssh)
+        for line in lines:
+            self.assertIn("NEEDRESTART_MODE=l", line)
+            self.assertIn("DEBIAN_FRONTEND=noninteractive", line)
+            self.assertIn("--force-confold", line)
+            self.assertIn("upgrade --with-new-pkgs && sudo -n systemd-run", line)
+            self.assertLess(line.index("apt-get -q -o DPkg::Lock::Timeout=300 update"), line.index("upgrade --with-new-pkgs"))
+            self.assertNotIn("dist-upgrade", line)
+            self.assertNotIn("autoremove", line)
+
+    def test_failed_upgrade_stops_before_the_next_node(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeCluster(Path(tmp), dow="6", ssh_exit=100)
+            result = run(
+                ["--execute", "--approval", "appr_ok", "--upgrade", "--nodes", self.TWO_NODES],
+                arm_approval(fake.env),
+            )
+            log = fake.kubectl_text()
+            ssh = fake.ssh_text()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("upgrade or reboot failed on ubt-k3s-04 (ssh exit 100)", result.stderr)
+        self.assertIn("cordon ubt-k3s-04", log)
+        self.assertNotIn("uncordon", log)
+        self.assertNotIn("cordon ubt-k3s-02", log)
+        self.assertNotIn("192.168.10.70", ssh)
+        self.assertNotIn("rolling-reboot: complete", result.stdout)
 
     def test_failed_reboot_ssh_stops_with_the_node_still_cordoned(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
