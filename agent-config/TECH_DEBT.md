@@ -46,8 +46,8 @@
 
 | 顺序 / 已有债 | 状态与依赖 | 详细工作及交付物 | 验收与防线 | 执行边界 |
 |---|---|---|---|---|
-| 0 · TD-302 收口 | 在做；代码、测试、DEV 验收已完成，待提交 | 提交 Research 有效值过滤、IV 历史深度语义、Frontend 权威读数；保存 `bifrost-research/docs/acceptance/TD-302.md`，记录各仓提交号 | Research 2150 passed / 30 skipped；Frontend 4120 passed / 1 skipped；APT 历史不足、ZZQ 缺数据、AU 合法 0；覆盖率与有效读数一致。对应回归测试见 RATCHETS | 已授权隔离分支提交；不合并、不发布，不回填 |
-| 1 · TD-183 归档可恢复性 | 未开始；第 0 项提交后核查 | 查当前部署、trim 运行、归档配置、文件清单和读权限；区分零行未触发、已归档、失败、证据缺失。交付带时间戳的审计和隔离恢复验收方案 | 每个实际归档批次核对 `archived_rows == deleted_rows`、文件可读、CSV 行数及列头；恢复方案明确临时目标、主键、时间范围、重复检测、内容校验和清理。未执行恢复不写恢复 PASS | 本轮只读核查及准备；不触发 trim、不改 hold、不删文件、不写共享数据库、不建集群恢复资源 |
+| 0 · TD-302 收口 | 完成（仅隔离提交）；Research `d628fa6`、Frontend `fda32827`，未合并/未发布 | 提交 Research 有效值过滤、IV 历史深度语义、Frontend 权威读数；保存 `bifrost-research/docs/acceptance/TD-302.md`，记录各仓提交号 | Research 2150 passed / 30 skipped；Frontend 4120 passed / 1 skipped；提交前复查 Research 34 / Frontend 4 passed，提交钩子 PASS；APT 历史不足、ZZQ 缺数据、AU 合法 0。对应回归测试见 RATCHETS | 已授权隔离分支提交；不合并、不发布，不回填 |
+| 1 · TD-183 归档可恢复性 | 在做；第 0 项已隔离提交 | 查当前部署、trim 运行、归档配置、文件清单和读权限；区分零行未触发、已归档、失败、证据缺失。交付带时间戳的审计和隔离恢复验收方案 | 每个实际归档批次核对 `archived_rows == deleted_rows`、文件可读、Parquet 行数及 schema（以实际归档格式为准）；恢复方案明确临时目标、主键、时间范围、重复检测、内容校验和清理。未执行恢复不写恢复 PASS | 本轮只读核查及准备；不触发 trim、不改 hold、不删文件、不写共享数据库、不建集群恢复资源 |
 | 2 · TD-92 / TD-94 每日产出防线 | 未开始；归档核查后 | 核实真实批处理的 output_ok、部分失败和零产出结果；核实探针异常与错误 session 阻断；保留按引擎/标的/交易日的原因证据 | 当前批次检查确实执行；合法零与异常零分开；探针异常及 session 不符不能绿灯放行。代码已修但运行未验证的项不得关闭 | 先只读核实；发现需修改时在隔离分支修、测试、DEV 验收后报告；不发布 |
 | 3 · TD-172 / TD-142 联合回填盘点 | 未开始；每日完整度防线已核实 | 按 symbol × session × DTE 列缺口；分别统计已有原始数据可重算、需 vendor 重抓、不可恢复。交付有日期范围、合约数、请求量、试补批次、预期行数、限流和失败重试的具体方案 | 独立缺口清单与分母口径可复算；避免重复抓取；按每周和每标的验证期限覆盖与 IV cone 有效历史深度；保留合法无成交/订阅边界 | 方案交 Owner 确认后才写；Plugin 写 raw_market，Research 写 features；不使用 SVI 拼接替代历史采集 |
 | 4 · TD-172 / TD-142 按批修复 | 未开始；依赖 Owner 对第 3 项具体方案确认 | 小批原始数据补齐或复用 → 派生重算 → 验收 → 逐批扩大；记录失败和无法修复项；交付逐批前后覆盖率 | 重跑幂等；每批主键、session、期限、有效值和输出行数一致；剩余缺口有原因，不以任务成功代替数据完整 | 未获具体方案确认不执行；禁止无界全库重算与改变订阅 |
@@ -1670,7 +1670,7 @@
 
 **P2 · research-data · IV coverage counts warm-up NULL scores as readable and exhibits omit the reason**
 
-- **状态**：在做（codex/td-302 隔离 Research/Frontend worktrees；本机 DEV 已验收，未提交/未合并/未发布）
+- **状态**：观察中（隔离分支 codex/td-302 已提交：Research d628fa6、Frontend fda32827；测试与本机 DEV 已验收，未合并/未发布；不视为生产数据修复完成）
 - **Claim**: `_latest_column` returns NULL values and `_read_lens` creates readings for all stored rows; coverage counts dictionary entries, not usable scores. Freshness and a present row conceal the 126-session warm-up requirement.
 - **Evidence**: `bifrost-research/src/bifrost_research/lenses/screen.py:102`, `:241`, `:292`; `engines/volatility/iv_percentile.py:37` has the correct 126-session gate. DEV reports 702/725 rank and percentile coverage; latest seven-day rows have only 631 numerical scores (71 NULL). APT has two sessions and a fresh NULL-score exhibit with empty caveats. See `docs/audits/DATA_INTEGRITY_2026-10-10.md` and `scripts/audit-data-integrity.sql`.
 - **Fix**: Count usable numerical readings, preserve valid zero, and give the existing exhibit caveat path a concrete warm-up/insufficient-history reason. Distinguish an absent row from a present but withheld score. Do not weaken the engine's history gate or fabricate scores.
