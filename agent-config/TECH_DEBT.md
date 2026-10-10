@@ -40,6 +40,22 @@
 
 ## 还债顺序
 
+### 数据完整度执行清单（Owner 2026-10-10 确认）
+
+执行顺序：先保存 TD-302 的可审查成果，再验证不可恢复数据的归档，确认每日产出防线，最后盘点并按批准范围回填。此轮授权到第 1 项的只读核查与恢复验收准备；后续项按顺序报告，不提前执行数据写入。所有工作在隔离分支；不推 main、不发布。代码完成、生产验收、历史补齐分别记录，不能共用一个「完成」。
+
+| 顺序 / 已有债 | 状态与依赖 | 详细工作及交付物 | 验收与防线 | 执行边界 |
+|---|---|---|---|---|
+| 0 · TD-302 收口 | 在做；代码、测试、DEV 验收已完成，待提交 | 提交 Research 有效值过滤、IV 历史深度语义、Frontend 权威读数；保存 `bifrost-research/docs/acceptance/TD-302.md`，记录各仓提交号 | Research 2150 passed / 30 skipped；Frontend 4120 passed / 1 skipped；APT 历史不足、ZZQ 缺数据、AU 合法 0；覆盖率与有效读数一致。对应回归测试见 RATCHETS | 已授权隔离分支提交；不合并、不发布，不回填 |
+| 1 · TD-183 归档可恢复性 | 未开始；第 0 项提交后核查 | 查当前部署、trim 运行、归档配置、文件清单和读权限；区分零行未触发、已归档、失败、证据缺失。交付带时间戳的审计和隔离恢复验收方案 | 每个实际归档批次核对 `archived_rows == deleted_rows`、文件可读、CSV 行数及列头；恢复方案明确临时目标、主键、时间范围、重复检测、内容校验和清理。未执行恢复不写恢复 PASS | 本轮只读核查及准备；不触发 trim、不改 hold、不删文件、不写共享数据库、不建集群恢复资源 |
+| 2 · TD-92 / TD-94 每日产出防线 | 未开始；归档核查后 | 核实真实批处理的 output_ok、部分失败和零产出结果；核实探针异常与错误 session 阻断；保留按引擎/标的/交易日的原因证据 | 当前批次检查确实执行；合法零与异常零分开；探针异常及 session 不符不能绿灯放行。代码已修但运行未验证的项不得关闭 | 先只读核实；发现需修改时在隔离分支修、测试、DEV 验收后报告；不发布 |
+| 3 · TD-172 / TD-142 联合回填盘点 | 未开始；每日完整度防线已核实 | 按 symbol × session × DTE 列缺口；分别统计已有原始数据可重算、需 vendor 重抓、不可恢复。交付有日期范围、合约数、请求量、试补批次、预期行数、限流和失败重试的具体方案 | 独立缺口清单与分母口径可复算；避免重复抓取；按每周和每标的验证期限覆盖与 IV cone 有效历史深度；保留合法无成交/订阅边界 | 方案交 Owner 确认后才写；Plugin 写 raw_market，Research 写 features；不使用 SVI 拼接替代历史采集 |
+| 4 · TD-172 / TD-142 按批修复 | 未开始；依赖 Owner 对第 3 项具体方案确认 | 小批原始数据补齐或复用 → 派生重算 → 验收 → 逐批扩大；记录失败和无法修复项；交付逐批前后覆盖率 | 重跑幂等；每批主键、session、期限、有效值和输出行数一致；剩余缺口有原因，不以任务成功代替数据完整 | 未获具体方案确认不执行；禁止无界全库重算与改变订阅 |
+| 5 · TD-149 错误数据治理 | 观察中；既有每日检查与 10-16 复查安排继续，不等待回填 | CTVA vendor 复权后按既有批准重抓日线、重算派生；到 10-16 仍未修正另议 Research 自算；保留原始与派生对照 | 分拆前后调整正确，RV/VRP 等异常读数消除；盘点公司行动异常检测的现有防线与缺口 | 尊重已有批准：vendor 修正后重抓重算；自行复权另批 |
+| 6 · TD-300 / TD-301 业务链路收口 | 未开始；数据安全及缺口工作之后 | Doctor 区分历史失败、已恢复、仍可重试、证据被删与查询失败；term_slope 接入批量筛选 | 恢复事件不再误报永久丢失；有效单标的与批量筛选读数一致；测试与 DEV 页面验收 | 隔离分支逐项完成后报告；不发布 |
+
+每项结果记录：检查时间与数据 session、代码/运行证据、验收结果、剩余缺口、提交号、发布状态及下一项依赖。TD-183 初始「尚未真实归档」是旧台账描述，须用本次运行与文件证据核实，不能当作今天的结论。
+
 ### 第 0 波 · 第 1 轮收尾
 
 目标：第 1 轮剩下的三项按已排的日期收掉。TD-85 剩 Golden Source 的 PUBLIC CONNECT；TD-51 等 Loki 闸门后随下一次 Trade 发布；TD-80 C2-b 改号 core 0.49.0 与 TD-51 同发。
@@ -1654,13 +1670,15 @@
 
 **P2 · research-data · IV coverage counts warm-up NULL scores as readable and exhibits omit the reason**
 
-- **状态**：未开始（recommended next implementation after TD-274）
+- **状态**：在做（codex/td-302 隔离 Research/Frontend worktrees；本机 DEV 已验收，未提交/未合并/未发布）
 - **Claim**: `_latest_column` returns NULL values and `_read_lens` creates readings for all stored rows; coverage counts dictionary entries, not usable scores. Freshness and a present row conceal the 126-session warm-up requirement.
 - **Evidence**: `bifrost-research/src/bifrost_research/lenses/screen.py:102`, `:241`, `:292`; `engines/volatility/iv_percentile.py:37` has the correct 126-session gate. DEV reports 702/725 rank and percentile coverage; latest seven-day rows have only 631 numerical scores (71 NULL). APT has two sessions and a fresh NULL-score exhibit with empty caveats. See `docs/audits/DATA_INTEGRITY_2026-10-10.md` and `scripts/audit-data-integrity.sql`.
 - **Fix**: Count usable numerical readings, preserve valid zero, and give the existing exhibit caveat path a concrete warm-up/insufficient-history reason. Distinguish an absent row from a present but withheld score. Do not weaken the engine's history gate or fabricate scores.
 - **Ratchet**: Regression tests for absent rows, present NULL warm-up rows, numerical zero and fully measured readings; coverage denominators, missing membership and exhibit caveats must agree.
 - **验收**: `uv run pytest tests/ -k 'screen or iv_rank or iv_percentile'` passes; for this fixed snapshot coverage equals 631 usable readings rather than 702 stored rows, and APT explains insufficient history. Future snapshots must agree with contemporaneous non-NULL SQL, not hard-code 631.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
+
+- **Implementation 2026-10-10**: Latest-row usable-value filtering preserves zero and unbanded categories. Both IV exhibits explain warm-up versus missing rows; Symbol Volatility consumes authoritative Research scores rather than rebuilding scores from two history sessions. Acceptance record: `bifrost-research/docs/acceptance/TD-302.md`. Research full tests 2150 passed / 30 skipped; targeted tests 47 passed. DEV coverage 631/725 per IV lens; APT 2/126 withheld, ZZQ missing, AU 0/Cold. Frontend full rerun PASS: 548 files / 4120 passed / 1 skipped (two first-run timeout cases recovered with lower concurrency); build and CSS check PASS, lint 0 errors and changed-files lint clean. No release or data repair.
 
 ## 没覆盖到的（下一轮从这里开始）
 
