@@ -13,8 +13,11 @@
  * session's own hooks report under the same thread, and reports turn end when
  * the command exits.
  *
- * A hook never blocks or slows a tool call: it prints nothing, always exits 0,
- * and hands the POST to a detached child.
+ * A hook never blocks or slows a tool call: it prints nothing and always exits 0.
+ * The first event of a thread is sent synchronously, with a one-second timeout,
+ * so the script can store the server-issued thread key (mode 600). Later events
+ * carry that key, a turn id and a sequence, and are handed to a detached child.
+ * A failure leaves the key unset and the next event tries again.
  *
  * Config (nothing secret lives in the repo):
  *   PLATFORM_HEARTBEAT_URL    platform-api base (default: PROD VIP NodePort)
@@ -33,6 +36,11 @@ const DEFAULT_URL = 'http://192.168.10.100:30876' // bifrost-platform-prod platf
 const ROUTE = '/api/v1/agent/threads/heartbeat'
 const THROTTLE_MS = 15 * 1000
 const HOOK_DEADLINE_MS = 3000
+const FIRST_EVENT_TIMEOUT_MS = 1000
+const KEY_RE = /^[0-9a-f]{64}$/
+const TURN_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
+// Only these mean the person has to act. Every other notification is ignored.
+const WAITING_NOTIFICATIONS = new Set(['permission_prompt', 'idle_prompt', 'elicitation'])
 
 const EVENTS = {
   claude: {
@@ -41,8 +49,6 @@ const EVENTS = {
     PostToolUse: 'after_tool',
     PostToolUseFailure: 'after_tool',
     SubagentStop: 'after_tool',
-    // Waiting on a person (permission prompt, idle prompt) is not a hang.
-    Notification: 'turn_end',
     Stop: 'turn_end',
   },
   cursor: {
@@ -153,7 +159,14 @@ function workFrom(title) {
 function beatFor(vendor, payload) {
   const map = EVENTS[vendor]
   if (!map || !payload || typeof payload !== 'object') return null
-  const event = map[payload.hook_event_name]
+  let event = map[payload.hook_event_name]
+  let reason = ''
+  if (payload.hook_event_name === 'Notification') {
+    const kind = String(payload.notification_type || '')
+    if (!WAITING_NOTIFICATIONS.has(kind)) return null
+    event = 'waiting_owner'
+    reason = kind
+  }
   if (!event) return null
   const thread = String(
     process.env.BIFROST_HEARTBEAT_THREAD || payload.session_id || payload.conversation_id || '',
@@ -166,6 +179,7 @@ function beatFor(vendor, payload) {
   const work = workFrom(title)
   if (work) body.work = work
   if (title) body.title = title.slice(0, 160)
+  if (reason) body.reason = reason
   if (event === 'before_tool' || event === 'after_tool') {
     const tool = String(payload.tool_name || (payload.subagent_type ? `subagent:${payload.subagent_type}` : '')).trim()
     if (tool) body.tool = tool.replace(/[^A-Za-z0-9_.:-]/g, '_').slice(0, 96)
@@ -174,7 +188,15 @@ function beatFor(vendor, payload) {
     const t = toolTimeoutSeconds(payload.tool_input)
     if (t > 0) body.tool_timeout_s = t
   }
+  const useID = String(payload.tool_use_id || payload.tool_call_id || '').trim()
+  if (useID) body.tool_use_id = useID.replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 128)
   return body
+}
+
+function wireBody(body) {
+  const out = { ...body }
+  delete out.tool_use_id
+  return out
 }
 
 /**
@@ -182,20 +204,55 @@ function beatFor(vendor, payload) {
  * THROTTLE_MS of the last one sent for the same thread. Turn start and end,
  * a declared timeout, and the first event after a turn end always go out.
  */
+function matchesPending(body, last) {
+  if (!last || !last.pending || body.event !== 'after_tool') return false
+  const pending = last.pending
+  if (pending.id) return body.tool_use_id === pending.id
+  if (pending.tool && body.tool) return body.tool === pending.tool
+  return false
+}
+
 function shouldSkip(body, last, now) {
   if (!last) return false
+  if (matchesPending(body, last)) return false
   if (body.event !== 'before_tool' && body.event !== 'after_tool') return false
   if (body.tool_timeout_s) return false
-  if (last.ev === 'turn_end') return false
+  if (last.ev === 'turn_end' || last.ev === 'waiting_owner') return false
   return now - last.at < THROTTLE_MS
 }
 
-function throttled(body, now = Date.now()) {
-  const file = home('.cache', 'bifrost', 'heartbeat.json')
-  const st = readJSON(file) || {}
-  const key = `${body.vendor}/${body.thread}`
-  if (shouldSkip(body, st[key], now)) return true
-  st[key] = { at: now, ev: body.event }
+function sentState(prev, body, now) {
+  const next = {
+    at: now,
+    ev: body.event,
+    tool: body.tool || '',
+    tool_use_id: body.tool_use_id || '',
+    pending: prev && prev.pending ? prev.pending : null,
+  }
+  if (body.event === 'before_tool' && body.tool_timeout_s) {
+    next.pending = { tool: body.tool || '', id: body.tool_use_id || '', timeout: body.tool_timeout_s }
+  } else if (
+    matchesPending(body, prev) ||
+    body.event === 'turn_end' ||
+    body.event === 'turn_start' ||
+    body.event === 'waiting_owner'
+  ) {
+    next.pending = null
+  }
+  return next
+}
+
+function reduceThrottle(prev, body, now) {
+  if (shouldSkip(body, prev, now)) return { skip: true, next: prev }
+  return { skip: false, next: sentState(prev, body, now) }
+}
+
+function throttleFile() {
+  return home('.cache', 'bifrost', 'heartbeat.json')
+}
+
+function writeThrottle(st, now) {
+  const file = throttleFile()
   for (const k of Object.keys(st)) {
     if (!st[k] || now - st[k].at > 24 * 3600 * 1000) delete st[k]
   }
@@ -207,34 +264,119 @@ function throttled(body, now = Date.now()) {
   } catch {
     // a lost throttle mark only means one extra beat
   }
+}
+
+function rememberSent(body, now = Date.now()) {
+  const st = readJSON(throttleFile()) || {}
+  const key = `${body.vendor}/${body.thread}`
+  st[key] = sentState(st[key], body, now)
+  writeThrottle(st, now)
+}
+
+/** Skip and, when not skipping, remember the beat. Returns true when the beat is dropped. */
+function throttled(body, now = Date.now()) {
+  const st = readJSON(throttleFile()) || {}
+  const key = `${body.vendor}/${body.thread}`
+  const decision = reduceThrottle(st[key], body, now)
+  if (decision.skip) return true
+  st[key] = decision.next
+  writeThrottle(st, now)
   return false
+}
+
+function gatePath(vendor, thread) {
+  if (!/^[a-z][a-z0-9-]{0,31}$/.test(vendor) || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(thread)) return ''
+  return home('.cache', 'bifrost', 'thread-keys', vendor, thread)
+}
+
+function loadGate(vendor, thread) {
+  const file = gatePath(vendor, thread)
+  const empty = { key: '', turn_id: '', seq: 0 }
+  if (!file) return empty
+  const st = readJSON(file)
+  if (!st || typeof st !== 'object') return empty
+  return {
+    key: typeof st.key === 'string' && KEY_RE.test(st.key) ? st.key : '',
+    turn_id: typeof st.turn_id === 'string' && TURN_RE.test(st.turn_id) ? st.turn_id : '',
+    seq: Number.isInteger(st.seq) && st.seq > 0 ? st.seq : 0,
+  }
+}
+
+function saveGate(vendor, thread, gate) {
+  const file = gatePath(vendor, thread)
+  if (!file) return
+  const vendorDir = path.dirname(file)
+  const root = path.dirname(vendorDir)
+  fs.mkdirSync(root, { recursive: true, mode: 0o700 })
+  fs.mkdirSync(vendorDir, { recursive: true, mode: 0o700 })
+  try {
+    fs.chmodSync(root, 0o700)
+    fs.chmodSync(vendorDir, 0o700)
+  } catch {
+    // the mode is retried on the file itself
+  }
+  const tmp = `${file}.${process.pid}.tmp`
+  fs.writeFileSync(tmp, JSON.stringify({ key: gate.key, turn_id: gate.turn_id, seq: gate.seq }), { mode: 0o600 })
+  fs.chmodSync(tmp, 0o600)
+  fs.renameSync(tmp, file)
+  fs.chmodSync(file, 0o600)
+}
+
+function stamp(body) {
+  const gate = loadGate(body.vendor, body.thread)
+  let turn = gate.turn_id
+  if (body.event === 'turn_start' || !turn) turn = crypto.randomUUID()
+  body.turn_id = turn
+  body.seq = gate.seq + 1
+  if (gate.key) body.thread_key = gate.key
+  return gate
 }
 
 async function post(body, timeoutMs = 5000) {
   const tok = token()
-  if (!tok || process.env.BIFROST_HEARTBEAT === 'off') return { sent: false, why: tok ? 'off' : 'no reporter token' }
+  if (!tok || process.env.BIFROST_HEARTBEAT === 'off') return { sent: false, why: tok ? 'off' : 'no reporter token', key: '' }
   try {
     const res = await fetch(`${baseURL()}${ROUTE}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
-      body: JSON.stringify(body),
+      body: JSON.stringify(wireBody(body)),
       signal: AbortSignal.timeout(timeoutMs),
     })
-    return { sent: res.ok, status: res.status }
+    let key = ''
+    try {
+      const parsed = JSON.parse(await res.text())
+      if (parsed && typeof parsed.thread_key === 'string' && KEY_RE.test(parsed.thread_key)) key = parsed.thread_key
+    } catch {
+      // a body that is not JSON is a bad response; the next event retries
+    }
+    return { sent: res.ok, status: res.status, key }
   } catch (err) {
-    return { sent: false, why: err.message }
+    return { sent: false, why: err.message, key: '' }
   }
 }
 
-/** Hand the POST to a detached child so the hook returns at once. */
+/** Hand the POST to a detached child. The body sits in a mode-600 file, not the environment. */
 function sendDetached(body) {
   if (!token() || process.env.BIFROST_HEARTBEAT === 'off') return
-  const child = spawn(process.execPath, [__filename, '--send'], {
-    detached: true,
-    stdio: 'ignore',
-    env: { ...process.env, BIFROST_HEARTBEAT_BODY: JSON.stringify(body) },
+  const dir = home('.cache', 'bifrost', 'heartbeat-out')
+  let file = ''
+  try {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
+    fs.chmodSync(dir, 0o700)
+    file = path.join(dir, `${process.pid}-${crypto.randomBytes(8).toString('hex')}.json`)
+    fs.writeFileSync(file, JSON.stringify(wireBody(body)), { mode: 0o600 })
+    fs.chmodSync(file, 0o600)
+  } catch {
+    return
+  }
+  const child = spawn(process.execPath, [__filename, '--send', file], { detached: true, stdio: 'ignore' })
+  child.on('error', () => {
+    try {
+      fs.unlinkSync(file)
+    } catch {
+      // the child may already have taken it
+    }
   })
-  child.on('error', () => {})
   child.unref()
 }
 
@@ -259,7 +401,18 @@ async function hook(vendor) {
     return
   }
   const body = beatFor(vendor, payload)
-  if (!body || throttled(body)) return
+  if (!body) return
+  const gate = stamp(body)
+  if (!gate.key) {
+    const res = await post(body, FIRST_EVENT_TIMEOUT_MS)
+    if (res.sent && res.key) {
+      saveGate(body.vendor, body.thread, { key: res.key, turn_id: body.turn_id, seq: body.seq })
+      rememberSent(body)
+    }
+    return
+  }
+  if (throttled(body)) return
+  saveGate(body.vendor, body.thread, { key: gate.key, turn_id: body.turn_id, seq: body.seq })
   sendDetached(body)
 }
 
@@ -275,7 +428,9 @@ async function run(vendor, argv) {
   const base = { thread, vendor, host: hostName(), title }
   const work = workFrom(title)
   if (work) base.work = work
-  await post({ ...base, event: 'turn_start' }, 3000)
+  const turn = crypto.randomUUID()
+  const started = await post({ ...base, event: 'turn_start', turn_id: turn, seq: 1 }, 3000)
+  if (started.sent && started.key) saveGate(vendor, thread, { key: started.key, turn_id: turn, seq: 1 })
   const child = spawn(cmd[0], cmd.slice(1), {
     stdio: 'inherit',
     env: { ...process.env, BIFROST_HEARTBEAT_THREAD: thread, BIFROST_HEARTBEAT_TITLE: title },
@@ -289,7 +444,16 @@ async function run(vendor, argv) {
     })
     child.on('exit', (c, sig) => resolve(c === null ? 128 + (os.constants.signals[sig] || 0) : c))
   })
-  await post({ ...base, event: 'turn_end' }, 3000)
+  const gate = loadGate(vendor, thread)
+  const end = {
+    ...base,
+    event: 'turn_end',
+    turn_id: gate.turn_id || turn,
+    seq: (gate.seq || 1) + 1,
+  }
+  if (gate.key) end.thread_key = gate.key
+  const ended = await post(end, 3000)
+  if (ended.sent && gate.key) saveGate(vendor, thread, { key: gate.key, turn_id: end.turn_id, seq: end.seq })
   return code
 }
 
@@ -297,7 +461,13 @@ async function main(argv) {
   const [mode, vendor, ...rest] = argv
   if (mode === '--send') {
     try {
-      await post(JSON.parse(process.env.BIFROST_HEARTBEAT_BODY || '{}'))
+      const raw = fs.readFileSync(vendor, 'utf8')
+      try {
+        fs.unlinkSync(vendor)
+      } catch {
+        // unlinking a sent file is best-effort
+      }
+      await post(JSON.parse(raw))
     } catch {
       // nothing to do: a lost beat at worst delays nothing and pages nothing
     }
@@ -329,4 +499,4 @@ if (require.main === module) {
   )
 }
 
-module.exports = { beatFor, toolTimeoutSeconds, shouldSkip, EVENTS }
+module.exports = { beatFor, toolTimeoutSeconds, shouldSkip, reduceThrottle, EVENTS, WAITING_NOTIFICATIONS }

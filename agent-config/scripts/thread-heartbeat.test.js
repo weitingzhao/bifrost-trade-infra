@@ -18,7 +18,8 @@ delete process.env.BIFROST_HEARTBEAT_THREAD
 delete process.env.BIFROST_HEARTBEAT_TITLE
 delete process.env.BIFROST_WORK
 
-const { beatFor, toolTimeoutSeconds, shouldSkip } = require('./thread-heartbeat.js')
+const { beatFor, toolTimeoutSeconds, shouldSkip, reduceThrottle } = require('./thread-heartbeat.js')
+const ISSUED_KEY = 'ab'.repeat(32)
 
 const CLAUDE_ID = '7e939cd5-b3b1-4705-96e4-0a3b9e61648d'
 const CURSOR_ID = '0f549e24-a80b-48a6-9799-f23e4c2926e8'
@@ -35,7 +36,12 @@ function mapping() {
   assert.equal(beatFor('claude', claude('UserPromptSubmit', { prompt: 'x' })).event, 'turn_start')
   assert.equal(beatFor('claude', claude('PostToolUse', { tool_name: 'Bash', tool_input: { timeout: 600000 } })).tool_timeout_s, undefined)
   assert.equal(beatFor('claude', claude('Stop', { stop_hook_active: false })).event, 'turn_end')
-  assert.equal(beatFor('claude', claude('Notification', { message: 'Claude is waiting for your input' })).event, 'turn_end')
+  assert.equal(beatFor('claude', claude('Notification', { message: 'Claude is waiting for your input' })), null)
+  assert.equal(beatFor('claude', claude('Notification', { notification_type: 'auth_success' })), null)
+  const waiting = beatFor('claude', claude('Notification', { notification_type: 'permission_prompt' }))
+  assert.deepEqual([waiting.event, waiting.reason], ['waiting_owner', 'permission_prompt'])
+  assert.equal(beatFor('claude', claude('Notification', { notification_type: 'idle_prompt' })).event, 'waiting_owner')
+  assert.equal(beatFor('claude', claude('Notification', { notification_type: 'elicitation' })).event, 'waiting_owner')
 
   // Cursor: Shell declares `timeout` in ms; headless sends sessionStart / sessionEnd.
   const cpre = beatFor('cursor', cursor('preToolUse', { tool_name: 'Shell', tool_input: { command: 'echo', cwd: '', timeout: 30000 } }))
@@ -94,6 +100,13 @@ function throttle() {
   assert.equal(shouldSkip({ event: 'before_tool', tool_timeout_s: 600 }, { at: t - 1000, ev: 'after_tool' }, t), false)
   assert.equal(shouldSkip({ event: 'turn_end' }, { at: t - 1000, ev: 'after_tool' }, t), false)
   assert.equal(shouldSkip({ event: 'turn_start' }, { at: t - 1000, ev: 'after_tool' }, t), false)
+  const pending = { at: t - 1000, ev: 'before_tool', pending: { tool: 'Bash', id: 'tu-hour', timeout: 3600 } }
+  const after = { event: 'after_tool', tool: 'Bash', tool_use_id: 'tu-hour' }
+  assert.equal(shouldSkip(after, pending, t), false, 'the matching after-tool of a one-hour call is sent')
+  const reduced = reduceThrottle(pending, after, t)
+  assert.equal(reduced.skip, false)
+  assert.equal(reduced.next.pending, null, 'sending the after-tool clears the declared timeout')
+  assert.equal(shouldSkip({ event: 'after_tool', tool: 'Read', tool_use_id: 'other' }, pending, t), true)
 }
 
 function runScript(args, { stdin = '', env = {} } = {}) {
@@ -109,15 +122,16 @@ function runScript(args, { stdin = '', env = {} } = {}) {
   })
 }
 
-function server(status = 202) {
+function server(status = 202, payload) {
   const got = []
+  const body = payload === undefined ? { ok: true, thread_key: ISSUED_KEY } : payload
   const s = http.createServer((req, res) => {
     let b = ''
     req.on('data', d => (b += d))
     req.on('end', () => {
       got.push({ url: req.url, auth: req.headers.authorization, body: JSON.parse(b || '{}') })
       res.writeHead(status, { 'Content-Type': 'application/json' })
-      res.end('{}')
+      res.end(typeof body === 'string' ? body : JSON.stringify(body))
     })
   })
   return new Promise(resolve => s.listen(0, '127.0.0.1', () => resolve({ s, got, url: `http://127.0.0.1:${s.address().port}` })))
@@ -161,6 +175,13 @@ async function neverBlocks() {
   })
   assert.deepEqual([r.code, r.out], [0, ''])
   srv.s.close()
+  const bad = await server(200, 'not-json')
+  const badRun = await runScript(['hook', 'claude'], {
+    stdin: JSON.stringify(claude('Stop')),
+    env: { BIFROST_HOME_OVERRIDE: home, PLATFORM_REPORTER_TOKEN: 't', PLATFORM_HEARTBEAT_URL: bad.url },
+  })
+  assert.deepEqual([badRun.code, badRun.out], [0, ''])
+  bad.s.close()
 }
 
 async function endToEnd() {
@@ -169,7 +190,7 @@ async function endToEnd() {
   const env = { BIFROST_HOME_OVERRIDE: home, PLATFORM_REPORTER_TOKEN: 'reporter-token', PLATFORM_HEARTBEAT_URL: `${srv.url}/` }
   const r = await runScript(['hook', 'claude'], { stdin: JSON.stringify(claude('PreToolUse', { tool_name: 'Bash', tool_input: { timeout: 600000 } })), env })
   assert.deepEqual([r.code, r.out], [0, ''])
-  assert.ok(await waitFor(() => srv.got.length === 1), 'detached sender did not post')
+  assert.ok(await waitFor(() => srv.got.length === 1), 'first event was not posted')
   const g = srv.got[0]
   assert.equal(g.url, '/api/v1/agent/threads/heartbeat')
   assert.equal(g.auth, 'Bearer reporter-token')
@@ -177,14 +198,30 @@ async function endToEnd() {
     [g.body.thread, g.body.vendor, g.body.event, g.body.tool, g.body.tool_timeout_s],
     [CLAUDE_ID, 'claude', 'before_tool', 'Bash', 600],
   )
+  assert.equal(g.body.thread_key, undefined)
+  assert.equal(g.body.seq, 1)
+  assert.ok(g.body.turn_id)
   assert.ok(g.body.host)
+  const keyFile = path.join(home, '.cache', 'bifrost', 'thread-keys', 'claude', CLAUDE_ID)
+  assert.equal(fs.statSync(keyFile).mode & 0o777, 0o600)
 
-  // The PostToolUse right after is throttled; the Stop is not.
-  await runScript(['hook', 'claude'], { stdin: JSON.stringify(claude('PostToolUse', { tool_name: 'Bash' })), env })
+  // The matching PostToolUse of a declared timeout is not throttled; the Stop is not either.
+  await runScript(['hook', 'claude'], { stdin: JSON.stringify(claude('PostToolUse', { tool_name: 'Bash', tool_use_id: 'tu-bash' })), env })
   await runScript(['hook', 'claude'], { stdin: JSON.stringify(claude('Stop')), env })
-  assert.ok(await waitFor(() => srv.got.length === 2), `want 2 posts, got ${srv.got.length}`)
+  assert.ok(await waitFor(() => srv.got.length === 3), `want 3 posts, got ${srv.got.length}`)
   await new Promise(r => setTimeout(r, 300))
-  assert.deepEqual(srv.got.map(x => x.body.event), ['before_tool', 'turn_end'])
+  assert.deepEqual(srv.got.map(x => x.body.event), ['before_tool', 'after_tool', 'turn_end'])
+  assert.deepEqual(srv.got.map(x => x.body.seq), [1, 2, 3])
+  assert.ok(srv.got.slice(1).every(x => x.body.thread_key === ISSUED_KEY))
+  assert.equal(srv.got[1].body.tool_timeout_s, undefined)
+
+  // A later tool call with no declared timeout still throttles its after-tool.
+  srv.got.length = 0
+  await runScript(['hook', 'claude'], { stdin: JSON.stringify(claude('PreToolUse', { tool_name: 'Read' })), env })
+  await runScript(['hook', 'claude'], { stdin: JSON.stringify(claude('PostToolUse', { tool_name: 'Read' })), env })
+  assert.ok(await waitFor(() => srv.got.length === 1), 'unscoped after-tool was not throttled')
+  await new Promise(r => setTimeout(r, 300))
+  assert.deepEqual(srv.got.map(x => x.body.event), ['before_tool'])
 
   // Headless: the wrapper reports start and end under one thread, and the
   // command sees that thread for its own hooks; its exit code passes through.

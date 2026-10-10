@@ -97,6 +97,7 @@ cd /path/to/stocks && AC=bifrost-trade-infra/agent-config && \
 - **线程心跳**（W-54）：`scripts/thread-heartbeat.js` 是三家共用的心跳钩子，`claude/settings.json`、`cursor/hooks.json`、`codex/README.md` 里的 `~/.codex/hooks.json` 各接一份。
   回合开始、工具调用前后、回合结束各 POST 一次到 PROD `POST /api/v1/agent/threads/heartbeat`（TD-197 的上报令牌，没有令牌就不发）；钩子不输出、不报错、永远 exit 0，发送交给脱离的子进程。
   无头运行（`cursor-agent -p` 不触发 stop 钩子）一律这样启动：`node scripts/thread-heartbeat.js run cursor -- cursor-agent -p …`。
+  宿主心跳（W-57）：`scripts/host-heartbeat.js` 每 60 秒上报主机名，以及 claude、cursor、codex 的钩子是否接上、上报令牌是否可读。`node scripts/install-host-heartbeat.js` 只把 launchd 模板写到 `~/Library/LaunchAgents`，不加载。
 - **`scripts/` 下的脚本自行向上查找工作区根**（标记 `bifrost-platform/config/ops-context.yaml`），
   因此无论从符号链接路径还是真实路径调用都能工作。两条路径都在回归测试覆盖内。
 
