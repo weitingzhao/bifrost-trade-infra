@@ -15,7 +15,7 @@
 
 （无）
 
-**未结 74 项**：P0 0 · P1 5 · P2 24 · P3 45；要你批的 33 项（从总览表的审批列算）。
+**未结 75 项**：P0 0 · P1 5 · P2 24 · P3 46；要你批的 34 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -74,7 +74,7 @@
 
 目标：删掉没人用的（挂起的 CronJob、退役脚本、无调用路由），手抄的副本改成从一处生成（调度名单、max-pain / PCR），清单的应用顺序与 Argo 归属理顺。
 
-项：TD-118, TD-120, TD-170, TD-202, TD-290 · 已还：TD-126, TD-108, TD-154, TD-163, TD-168, TD-124, TD-176, TD-191, TD-169, TD-200, TD-201, TD-190, TD-123, TD-106, TD-119, TD-125, TD-102, TD-160, TD-107
+项：TD-118, TD-120, TD-170, TD-202, TD-290, TD-291 · 已还：TD-126, TD-108, TD-154, TD-163, TD-168, TD-124, TD-176, TD-191, TD-169, TD-200, TD-201, TD-190, TD-123, TD-106, TD-119, TD-125, TD-102, TD-160, TD-107
 
 ### 第 6 波 · 备份链与自动修复（10-06 日常发现）
 
@@ -269,6 +269,7 @@
 | [TD-288](#td-288) | P2 | infra | ubt-k3s-01, the sole control plane, went down without a shutdown on 10-10 and no boot since June recorded a clean shutdown; nothing alerts on an unplanned reboot | 不用批 |
 | [TD-289](#td-289) | P2 | infra | Prometheus, Alertmanager and Grafana keep their data in emptyDir: a node drain erases 10 days of metrics, the silences and Grafana's database | 安全/凭据（要你批） |
 | [TD-290](#td-290) | P3 | ops-platform | The retired remediation runner's ConfigMap cicd/bifrost-remediation-runner-stg-dockerfile is still in the cluster, and the supply check and the deliver phase list still name it | PROD 变更（要你批） |
+| [TD-291](#td-291) | P3 | ops-platform | The PROD operator plane probes git-bridge on the Owner's laptop (192.168.10.40:8785) and gets 401, so agent-bridge shows git_bridge unavailable instead of local-only | PROD 变更（要你批） |
 | [TD-274](#td-274) | P3 | frontend | Symbol faces hide GEX levels that exist when zero gamma is NULL: the dealer level strip needs all four values and the regime cell needs zero gamma, so a chain with no flip (about a third of expiries) shows neither walls nor regime | 不用批 |
 
 ## 条目
@@ -1402,13 +1403,25 @@
 
 **P3 · ops-platform · The retired remediation runner's ConfigMap `cicd/bifrost-remediation-runner-stg-dockerfile` is still in the cluster, and the platform still lists it**
 
-- **状态**：未开始（集群写，要建审批单；W-36 只删了 platform 里的 4 份 plist）
+- **状态**：在做（10-10：两处名单已删，platform `d6b2849`；删 ConfigMap 的审批单已建，等你批）
 - **Claim**: The runner and Hermes were retired in W-33 and their plists were deleted in W-36 (D-6), but the Dockerfile ConfigMap created 2026-06-21 is still in `cicd`. Nothing builds from it. The supply check keeps it in its Dockerfile list and the Console deliver phases show it as `retired-dockerfile`, so deleting only the ConfigMap would turn the supply check red.
 - **Evidence**: `kubectl -n cicd get cm bifrost-remediation-runner-stg-dockerfile` (2026-10-10, exists); `bifrost-platform/api/internal/delivery/supply_chain.go:25`; `bifrost-platform/console/src/lib/delivery/deliverPlatformPhases.ts:5`
 - **Fix**: drop the name from both lists (one platform commit), then delete the ConfigMap through an approval (`owner_run_command`, the Agent identity is read-only).
 - **Ratchet**: none new: the supply check already fails on a listed ConfigMap that is missing, which is why the code goes first. `check_hardcoded_paths.py` does not cover cluster objects.
 - 验收: `kubectl -n cicd get cm bifrost-remediation-runner-stg-dockerfile` → NotFound; `git -C bifrost-platform grep -n remediation-runner-stg-dockerfile origin/main` → no hits outside tests; the supply check stays green.
 - 审批 要批（删集群对象）· 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-291
+
+**P3 · ops-platform · The PROD operator plane probes git-bridge on the Owner's laptop (192.168.10.40:8785) and gets 401, so agent-bridge shows git_bridge unavailable instead of local-only**
+
+- **状态**：未开始
+- **Claim**: git-bridge is a dev-workstation tool (`handler.go` treats an unset `GIT_BRIDGE_URL` as `not_configured` / "local-only (dev workstation)"). PROD platform-api forwards the agent-bridge routes to the operator plane on the Mac Mini (`OPERATOR_PLANE_URL=http://192.168.10.50:8783`), and the Mini's plane env sets `GIT_BRIDGE_URL` to the laptop. The laptop's bridge only accepts tokens loaded on the laptop, so every probe is a 401 and Console reports a failure for something PROD should not depend on. The variable is not in the k8s overlay: the PROD platform-api pod, its ConfigMap `bifrost-platform-config` and the image Dockerfile do not set it (checked 2026-10-10); the Mini deploy script writes it.
+- **Evidence**: `get_agent_bridge` on PROD (2026-10-10): `git_bridge {url: http://192.168.10.40:8785, status: unavailable, error: HTTP 401 Unauthorized}`; `bifrost-platform/scripts/agent/deploy_mac_mini.sh:575` (`export GIT_BRIDGE_URL=http://${PLATFORM_LAN_HOST}:8785` into `env.operator-plane.sh`); `bifrost-platform/api/internal/server/server.go:154` (routes forwarded to the plane); `bifrost-platform/console/src/lib/agent/operatorPlaneFixPrompt.ts:42` and `bifrost-trade-infra/agent-config/MAINTAINERS.yaml:378` both say PROD should point at `192.168.10.40:8785` (MAINTAINERS also names platform-workers, which does not set it).
+- **Fix**: stop writing `GIT_BRIDGE_URL` in `deploy_mac_mini.sh` (keep `SATELLITE_PROBE_BRIDGE_URL`, which answers `ok`); fix the two texts; the Owner re-runs `deploy_mac_mini.sh` for .50 and .52 (host change, not a cluster write).
+- **Ratchet**: a platform test that renders the `env.operator-plane.sh` heredoc from `deploy_mac_mini.sh` and fails if it exports `GIT_BRIDGE_URL`.
+- 验收: `get_agent_bridge` on PROD → `git_bridge.status == "not_configured"`; `git -C bifrost-platform grep -n GIT_BRIDGE_URL origin/main -- scripts/agent/deploy_mac_mini.sh` → no hits.
+- 审批 要批（重部署两台 Mini 的 operator plane）· 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
 
 ### TD-261
 

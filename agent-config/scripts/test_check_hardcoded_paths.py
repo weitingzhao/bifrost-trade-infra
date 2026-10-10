@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import tempfile
@@ -65,6 +66,46 @@ class Compare(unittest.TestCase):
 
     def test_at_baseline_passes(self):
         self.assertEqual(chp.compare(Counter({"r/a": 2}), {"r/a": 2}, ["r"]), ([], []))
+
+
+class ExitCode(unittest.TestCase):
+    def test_new_only_blocks_growth_and_lets_a_lowerable_baseline_through(self):
+        self.assertEqual(chp.exit_code(["r/a: 2 (baseline 1)"], [], new_only=True), 1)
+        self.assertEqual(chp.exit_code([], ["r/a: 0 (baseline 1)"], new_only=True), 0)
+        self.assertEqual(chp.exit_code([], ["r/a: 0 (baseline 1)"], new_only=False), 1)
+        self.assertEqual(chp.exit_code([], [], new_only=False), 0)
+
+
+class Cli(unittest.TestCase):
+    """The command check-agent-config-parity.sh runs, against a throwaway workspace."""
+
+    def run_cli(self, ws: Path, baseline: Path, *extra: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, str(Path(chp.__file__)), "--repos", "bifrost-ui", "--baseline", str(baseline),
+             "--ref", "HEAD", *extra],
+            capture_output=True, text=True, env={**os.environ, "BIFROST_WORKSPACE": str(ws)},
+        )
+
+    def setUp(self):
+        self.ws = Path(tempfile.mkdtemp(prefix="hcp-ws-"))
+        (self.ws / chp.MARKER).parent.mkdir(parents=True)
+        (self.ws / chp.MARKER).write_text("")
+        ui = git_repo({"a.sh": f"cd {HOME}alice/ws\n"})
+        (self.ws / "bifrost-ui").symlink_to(ui)
+        self.baseline = self.ws / "baseline.txt"
+
+    def test_new_path_fails_in_new_only_mode(self):
+        self.baseline.write_text("# head\n")
+        r = self.run_cli(self.ws, self.baseline, "--new-only")
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("bifrost-ui/a.sh: 1 (baseline 0)", r.stdout)
+
+    def test_baseline_entries_pass_and_a_lowerable_one_only_warns(self):
+        self.baseline.write_text("1 bifrost-ui/a.sh\n2 bifrost-ui/gone.sh\n")
+        r = self.run_cli(self.ws, self.baseline, "--new-only")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("⚠ baseline can be lowered", r.stdout)
+        self.assertEqual(self.run_cli(self.ws, self.baseline).returncode, 1)
 
 
 class Baseline(unittest.TestCase):

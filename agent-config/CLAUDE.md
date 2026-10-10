@@ -1,5 +1,5 @@
 <!--
-parity-ids: workspace-v19, language-v1, agent-modes-v4, trade-execution-freeze-v4, dev-services-v3, phase-execution-v3, shared-worktree-v4, business-first-v1
+parity-ids: workspace-v20, language-v1, agent-modes-v4, trade-execution-freeze-v4, dev-services-v3, phase-execution-v3, shared-worktree-v4, business-first-v1
 对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
 改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
 -->
@@ -261,7 +261,7 @@ release.sh、db-init Job、dev/stg overlay、插件 ConfigMap 与 rollout、rese
 **改动任一侧的规则，必须同步另一侧并 bump 两侧的 `parity-id`。**
 提交前跑 `bash scripts/check-agent-config-parity.sh` 校验。
 
-MCP：Claude `.mcp.json` 把平台 server 指到 PROD VIP `http://192.168.10.100:30876`。`bifrost-platform` 与 `bifrost-kubernetes` 的 `MCP_WRITES=on`（本分支在 B1R 上 PROD 之后才合并；以 `off` 合并会让写工具中断）。`bifrost-approve` 只在 Claude 侧；Cursor 模板（`cursor/mcp.servers.json`、`bifrost-platform/config/cursor-mcp-bridges.json`）不含它。只有 `bifrost-local` 可以指向 `127.0.0.1`。令牌不要求进进程环境：MCP 进程从 `~/.config/bifrost/mcp-tokens.env`（权限 600）读三个键（B1R 实现，见 `.mcp.json.README.md`）。`preflight.js` 拦截直接打 `/api/v1/approvals/<id>/approve|reject`、用浏览器打开 `#approvals` 去点，以及读取或引用 admin 令牌和该文件；`mcp__bifrost-approve__*` 放行。原因见 ADR §5「已知的接受风险」。
+MCP：Claude `.mcp.json` 把平台 server 指到 PROD VIP `http://192.168.10.100:30876`。`bifrost-platform` 与 `bifrost-kubernetes` 的 `MCP_WRITES=on`（本分支在 B1R 上 PROD 之后才合并；以 `off` 合并会让写工具中断）。`bifrost-approve` 只在 Claude 侧；Cursor 模板只有 `cursor/mcp.servers.json` 一份（platform 的 `config/cursor-mcp-bridges.json` 已删，卡 8），不含它。只有 `bifrost-local` 可以指向 `127.0.0.1`。令牌不要求进进程环境：MCP 进程从 `~/.config/bifrost/mcp-tokens.env`（权限 600）读三个键（B1R 实现，见 `.mcp.json.README.md`）。`preflight.js` 拦截直接打 `/api/v1/approvals/<id>/approve|reject`、用浏览器打开 `#approvals` 去点，以及读取或引用 admin 令牌和该文件；`mcp__bifrost-approve__*` 放行。原因见 ADR §5「已知的接受风险」。
 
 事实与硬边界**只有一份实现**（`AGENT_FACTS.md` + `preflight.js`），不复制到两侧。
 

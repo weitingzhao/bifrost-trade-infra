@@ -8,6 +8,7 @@
 #   4. D10 表述与 spine 一致
 #   5. 硬边界 hook 两侧都已接线
 #   6. 各 repo 本地 HEAD 相对 origin/main 的新鲜度（Agent 认知是否过期）
+#   7. 家目录路径棘轮：各仓库 origin/main 不新增写死的 /Users/<name>/（基线内放行）
 #
 # 用法: bash scripts/check-agent-config-parity.sh
 # 退出码: 0 = 一致 · 1 = 存在漂移
@@ -167,6 +168,26 @@ else:
                 fails.append("Codex 没有在跑 preflight：" + (r.stdout.strip() or r.stderr.strip())[:500])
         except Exception as e:
             fails.append(f"Codex 闸门检查没跑完：{e}")
+
+# ─────────── 7. 家目录路径棘轮（W-36 防线，Owner 2026-10-10 卡 7）───────────
+# 只拦新增：比基线多的文件或计数才算漂移，基线可以调低时只提示。读 origin/main 而不是 HEAD：
+# 共享 checkout 可能因为别的会话的在制品快进不了，旧 HEAD 不是新增。不联网，用上次 fetch 的结果。
+hp = ROOT / 'bifrost-trade-infra/agent-config/scripts/check_hardcoded_paths.py'
+if hp.exists():
+    import os as _os, subprocess as _sp
+    try:
+        r = _sp.run([sys.executable, str(hp), '--ref', 'origin/main', '--new-only'],
+                    capture_output=True, text=True, timeout=120,
+                    env={**_os.environ, 'BIFROST_WORKSPACE': str(ROOT)})
+        out = (r.stdout.strip() or r.stderr.strip())
+        if r.returncode != 0:
+            fails.append("新增了写死的家目录路径（先 git fetch 再确认）：\n" + out[:1500])
+        elif 'can be lowered' in out:
+            warns.append("家目录路径基线可以调低：python3 bifrost-trade-infra/agent-config/scripts/check_hardcoded_paths.py --ref origin/main --update")
+    except Exception as e:
+        fails.append(f"家目录路径检查没跑完：{e}")
+else:
+    fails.append("缺少 bifrost-trade-infra/agent-config/scripts/check_hardcoded_paths.py")
 
 # ─────────── 6. 认知新鲜度 ───────────
 # 规则本身对了，不代表 Agent 手里的认知是对的。隔几天回来，记忆里的镜像版本、

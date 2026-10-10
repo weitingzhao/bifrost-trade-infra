@@ -13,9 +13,11 @@ bifrost-platform/config/ops-context.yaml; docs write ~/... or <workspace>/....
     python3 agent-config/scripts/check_hardcoded_paths.py --ref origin/main
     python3 agent-config/scripts/check_hardcoded_paths.py --worktree      # uncommitted files too
     python3 agent-config/scripts/check_hardcoded_paths.py --update        # rewrite the baseline (lower only)
+    python3 agent-config/scripts/check_hardcoded_paths.py --ref origin/main --new-only   # what parity runs
 
 Exit 0 = at or below baseline everywhere and baseline exact, 1 = a new or grown file, or a
-baseline entry that can be lowered (run --update and commit it).
+baseline entry that can be lowered (run --update and commit it). With --new-only a baseline
+that can be lowered is only reported (check-agent-config-parity.sh, Owner 2026-10-10 card 7).
 Repos missing from the workspace (e.g. CI with one checkout) are skipped.
 """
 
@@ -93,10 +95,10 @@ def scan_repo(path: Path, repo: str, ref: str) -> Counter:
     return counts
 
 
-def scan(root: Path, ref: str) -> tuple[Counter, list[str]]:
+def scan(root: Path, ref: str, repos: tuple[str, ...] = REPOS) -> tuple[Counter, list[str]]:
     counts: Counter = Counter()
     scanned: list[str] = []
-    for repo in REPOS:
+    for repo in repos:
         path = repo_dir(root, repo)
         if not (path / ".git").exists():
             continue
@@ -129,6 +131,12 @@ def compare(counts: Counter, base: dict[str, int], scanned: list[str]) -> tuple[
     return grown, lower
 
 
+def exit_code(grown: list[str], lower: list[str], new_only: bool) -> int:
+    if grown:
+        return 1
+    return 0 if new_only or not lower else 1
+
+
 def write_baseline(counts: Counter, path: Path = BASELINE) -> None:
     head = [line for line in path.read_text().splitlines() if line.startswith("#")] if path.is_file() else []
     body = [f"{n} {f}" for f, n in sorted(counts.items())]
@@ -140,12 +148,16 @@ def main() -> int:
     ap.add_argument("--ref", default="HEAD")
     ap.add_argument("--worktree", action="store_true", help="scan the working trees instead of a ref")
     ap.add_argument("--update", action="store_true", help="lower the baseline to the current counts")
+    ap.add_argument("--new-only", action="store_true", help="fail only on new or grown files")
+    ap.add_argument("--baseline", type=Path, default=BASELINE)
+    ap.add_argument("--repos", help="comma-separated subset of the repos to scan")
     args = ap.parse_args()
 
     root = workspace_root()
     ref = WORKTREE if args.worktree else args.ref
-    counts, scanned = scan(root, ref)
-    base = load_baseline()
+    repos = tuple(args.repos.split(",")) if args.repos else REPOS
+    counts, scanned = scan(root, ref, repos)
+    base = load_baseline(args.baseline)
     grown, lower = compare(counts, base, scanned)
     if grown:
         print("✗ hardcoded home paths added (use BIFROST_WORKSPACE / walk up to the marker in code, ~/ or <workspace>/ in docs):")
@@ -153,13 +165,14 @@ def main() -> int:
         return 1
     if args.update:
         kept = Counter({f: n for f, n in base.items() if f.split("/", 1)[0] not in scanned})
-        write_baseline(kept + counts)
+        write_baseline(kept + counts, args.baseline)
         print(f"baseline rewritten: {sum((kept + counts).values())} paths in {len(kept + counts)} files")
         return 0
     if lower:
-        print("✗ baseline can be lowered (run with --update and commit hardcoded-paths-baseline.txt):")
+        mark = "⚠" if args.new_only else "✗"
+        print(f"{mark} baseline can be lowered (run with --update and commit hardcoded-paths-baseline.txt):")
         print("\n".join("  " + item for item in lower))
-        return 1
+        return exit_code(grown, lower, args.new_only)
     print(f"✓ hardcoded home paths at baseline: {sum(counts.values())} in {len(counts)} files "
           f"({len(scanned)} repos at {ref})")
     return 0

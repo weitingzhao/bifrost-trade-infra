@@ -524,7 +524,7 @@
 **W-31 第 0 步 · S0-1 治理层可移植（含 D-1、D-4、D-6）**
 
 - **类别**：道
-- **状态**：待你签收
+- **状态**：已验收
 - **现在**：
   - 工作区根统一读 `BIFROST_WORKSPACE`，没设就往上找 `bifrost-platform/config/ops-context.yaml`，找不到报错退出；旧名 `GIT_WORKSPACE_ROOT`、`BIFROST_WORKSPACE_ROOT` 仍读（AGENT_FACTS §6）；
   - Claude：hooks 用 `$CLAUDE_PROJECT_DIR`，`bifrost-analytics` 的 deny 并成一条项目相对的 `Edit(/bifrost-analytics/**)`（实测 `Write(...)` 那条从来不生效）；`.mcp.json` 用 `${BIFROST_WORKSPACE:-.}`；
@@ -533,7 +533,7 @@
   - D-6：platform 里 4 份退役 plist 已删；ConfigMap 记为 TD-290（集群写，要建单）；
   - Codex：`~/.codex/hooks.json` 命令改成 `"${BIFROST_WORKSPACE:-$HOME/Desktop/stocks}/..."`，重新 trust；`check-codex-guard.py` 现在用这条命令真跑一次 deny / allow；
   - 防线：`check_hardcoded_paths.py` + 基线（剩 Mac Mini 的 4 个文件、16 处）+ 8 个测试，`make check-hardcoded-paths`，登记 RATCHETS
-- **下一步**：Owner 签收。autoMode payload 在本机渲染结果与现行规则逐字相同，不重新 apply 也不影响本机；换机器时再跑两个 apply 脚本。platform 共享 checkout 因别的会话未提交的 `Makefile` 没能快进（git-bridge 仍跑旧代码，路径结果相同）
+- **下一步**：没有（Owner 10-10 签收）。同日定卡 7（路径棘轮接进 parity，只拦新增，infra 本批已接）、卡 8（删 platform `config/cursor-mcp-bridges.json`，只留 infra `cursor/mcp.servers.json`，platform `3dad199`）、卡 9（Codex hooks 默认路径留到 S0-3 bootstrap 统一写）。autoMode payload 在本机渲染结果与现行规则逐字相同，不重新 apply 也不影响本机；换机器时再跑两个 apply 脚本。platform 共享 checkout 因别的会话未提交的 `Makefile` 没能快进（git-bridge 仍跑旧代码，路径结果相同）
 - **验收**：在另一个目录或账户下，preflight 能拦下探针命令；MCP 能起来；`check_hardcoded_paths.py` 只减不增
 - **验收结果**：PASS 2026-10-10 4f39935（`/tmp/ws2` 另建工作区：`$CLAUDE_PROJECT_DIR` 的 preflight 拦下 `git add -A`、暂存区 0，8 个 MCP server 全部连上、`platform_mcp_health` 返回 PROD VIP；本会话 Cursor 重载后 `platform_mcp_health` 返回 `http://192.168.10.100:30876`、`get_auth_capabilities` 为 operator；`codex exec` 实测 `git add -A` 被拦、`git status --short` exit 0，`check-codex-guard.py --probe` 通过；`check_hardcoded_paths.py --ref origin/main` 在基线上（11 个仓库）；`check_mcp_cutover.py` 与 `--self-test`、`test.js` 136 条、`test-codex.js` 9 条、parity 通过；platform `go test ./...`、git-bridge 15 条、pine lint 4 条通过）
 - **关联**：STEP0-PLAN 第 3 节 S0-1、0.3 节；提交 infra 4f39935、platform 75be701、research ecdce43、frontend 809d5579；TD-290
@@ -543,9 +543,9 @@
 **W-31 第 0 步 · S0-0 批准后由系统执行（先写方案）**
 
 - **类别**：道
-- **状态**：未开始
+- **状态**：在做
 - **现在**：属于架构级，先写方案交 Owner；TD-286、TD-287 归这里
-- **下一步**：W-36 之后写方案
+- **下一步**：Owner 10-10 已另派线程写方案；该线程不写 WORK.md / STEP0-PLAN / TECH_DEBT，交回后由 W-31 线程登记
 - **验收**：Owner 批一张 `owner_run_command`，系统自己执行并回写结果；通知里能看懂批的是什么
 - **关联**：STEP0-PLAN 第 0 节 S0-0、TD-286、TD-287
 
@@ -554,9 +554,9 @@
 **W-31 第 0 步 · S0-14 节点非计划重启告警**
 
 - **类别**：道
-- **状态**：未开始
+- **状态**：在做
 - **现在**：Owner 10-10 定：只新增告警规则作为一条新防线，TD-288 条目在 11-09 前不动
-- **下一步**：W-37 之后派
+- **下一步**：Owner 10-10 已另派线程（infra `c5c5f36` 已上 main：告警规则与规则测试）；演练触发与送达、验收结果等该线程交回后由 W-31 线程登记
 - **验收**：用演练数据触发一次，告警能送到；登记进 MAINTAINERS
 - **关联**：STEP0-PLAN 第 0 节 S0-14、TD-288
 
@@ -610,8 +610,8 @@
 
 - **类别**：道
 - **状态**：在做
-- **现在**：Owner 10-10 拆成两步（STEP0-PLAN 0.4 节）：W-43a 只删零引用的死代码，已派出（分支 `w31/w43a-s0-16a`）；W-43b 删孤儿，排在 W-44、W-45 之后。`AgentFocusDock`、`AgentTriadStrip`、`CommandIntentStrip`、`lib/task-mode`、`operateQueue` / `operateBriefs`、`lib/agent/*` 仍在渲染，不属于 16a；`NavAgentAskSlot` 改归 W-44。退役 plist 只在 W-36 删一次
-- **下一步**：照第 1 波计划派，推到 Console 集成分支
+- **现在**：Owner 10-10 拆成两步（STEP0-PLAN 0.4 节）：W-43a 只删零引用的死代码，已派出（分支 `w31/w43a-s0-16a`）；W-43b 删孤儿，排在 W-44、W-45 之后。`AgentFocusDock`、`AgentTriadStrip`、`CommandIntentStrip`、`lib/task-mode`、`operateQueue` / `operateBriefs`、`lib/agent/*` 仍在渲染，不属于 16a；`NavAgentAskSlot` 改归 W-44。退役 plist 只在 W-36 删一次。W-43a 已并进 Console 集成分支 `w31/console-int`（platform `58928a3`，10-10）
+- **下一步**：W-43b 按 STEP0-PLAN 0.4 节「16b 清单补充」逐项确认是否还在 ①/⑥ 渲染后再删，排在 W-44、W-45 之后；后端 `api/internal/console`（SSH ws-ticket / ws）先过决策卡
 - **验收**：tsc / lint / vitest / build 全过，没有新的引用断裂
 - **关联**：STEP0-PLAN 0.2 节
 
@@ -643,8 +643,8 @@
 
 - **类别**：道
 - **状态**：在做
-- **现在**：已派出（分支 `w31/w46-s0-19`）；范围见 STEP0-PLAN 0.2 节。Autopilot 页签按卡 C 原样搬进「记录」（W-44），本道不删
-- **下一步**：照第 1 波计划派，推到 Console 集成分支
+- **现在**：已派出（分支 `w31/w46-s0-19`）；范围见 STEP0-PLAN 0.2 节。Autopilot 页签按卡 C 原样搬进「记录」（W-44），本道不删。10-10 已并进 `w31/console-int`（platform `58928a3`）；它删掉的 agent pack 带走了 TD-245 那条防线（RATCHETS 已写明理由）
+- **下一步**：集成分支整体验收后合 main（不在本批）
 - **验收**：⑥ 不再因为退役的 Agent 概念显示 NEEDS FIX；② 的备份面板不再报错
 - **关联**：STEP0-PLAN 0.2 节
 

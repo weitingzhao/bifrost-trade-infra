@@ -9,7 +9,7 @@
 
     python3 agent-config/scripts/check_mcp_cutover.py
     python3 agent-config/scripts/check_mcp_cutover.py --self-test
-    python3 agent-config/scripts/check_mcp_cutover.py --cursor path/to/cursor-mcp-bridges.json
+    python3 agent-config/scripts/check_mcp_cutover.py --cursor ~/.cursor/mcp.json
 """
 
 from __future__ import annotations
