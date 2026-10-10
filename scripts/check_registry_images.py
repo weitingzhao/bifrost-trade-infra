@@ -82,6 +82,9 @@ def running_images() -> dict[str, set[str]]:
     out = subprocess.run(["kubectl", "get", "pods", "-A", "-o", "json"], capture_output=True, text=True, check=True)
     images: dict[str, set[str]] = {}
     for pod in json.loads(out.stdout)["items"]:
+        # A finished Job pod will not pull again; only live pods matter.
+        if pod["status"].get("phase") not in ("Running", "Pending"):
+            continue
         for cs in pod["status"].get("containerStatuses") or []:
             image = cs.get("image", "")
             if not image.startswith(REGISTRY + "/"):
