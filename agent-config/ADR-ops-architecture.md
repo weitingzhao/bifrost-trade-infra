@@ -34,7 +34,7 @@ Ops Platform 收成四层，全部只在 PROD 一份：
 | 调度层 | 多 Agent 运行时：mission、任务与租约、交互总线、产物与验收、推理网关、额度账本（§12） |
 | 呈现层 | Console：回答 Owner 的 7 个问题（§6） |
 
-保留还是删除平台上的一项功能，按三个问题判断：Agent 经 API / MCP 用它吗？Owner 用它来批、签、看吗？有维护循环依赖它吗？三个都答「否」，就删（删除前 Owner 过目）。
+保留还是删除平台上的一项功能，按三个问题判断：Agent 经 API / MCP 用它吗？Owner 用它来批、签、看吗？有维护循环依赖它吗？三个都答「否」，就删。删除不再由 Owner 逐项过目（Owner 2026-10-10）：Ops Console 上删什么、留什么是底层细节，由统筹的线程把关，标准只有一条——Console 只让 Owner 看到需要他定目标、定规则、处理不可逆的事的内容；被删的东西列成清单留在仓库里，能从 git 恢复。
 
 ## 2. 四条判据
 
@@ -138,7 +138,7 @@ Ops Platform 的重心已经从后台 CI/CD 转到监控、审批和 Owner 的�
   - 发布驾驶舱，改为 ⑤ 的只读视图；
   - Guides 静态页，回到仓库文档。
   
-  删除前由 Owner 过目。
+  删除由统筹的线程按 §1 的标准把关，清单留档，不再等 Owner 过目（Owner 2026-10-10）。
 - CI/CD 的流水线与 API / MCP 能力保留；发版只走 Claude / MCP / `release.sh`。
 - 现状评估与落地安排见 `work/multi-agent/UI-ASSESSMENT-2026-10-10.md` 和 `STEP0-PLAN` 的第 0.2 节。
 
