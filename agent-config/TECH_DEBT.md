@@ -13,7 +13,7 @@
 
 ## 待你签收
 
-（无）
+- **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
 **未结 86 项**：P0 0 · P1 6 · P2 30 · P3 50；要你批的 27 项（从总览表的审批列算）。
 
@@ -42,13 +42,13 @@
 
 ### 数据完整度执行清单（Owner 2026-10-10 确认）
 
-执行顺序：先保存 TD-302 的可审查成果，再验证不可恢复数据的归档，确认每日产出防线，最后盘点并按批准范围回填。此轮授权到第 1 项的只读核查与恢复验收准备；后续项按顺序报告，不提前执行数据写入。所有工作在隔离分支；不推 main、不发布。代码完成、生产验收、历史补齐分别记录，不能共用一个「完成」。
+执行顺序：先保存 TD-302 的可审查成果，再验证不可恢复数据的归档，确认每日产出防线，最后盘点并按批准范围回填。Owner 已继续授权第 2 项运行验收；TD-183 实际恢复未运行，后续项按顺序报告，不提前执行数据写入。所有工作在隔离分支；不推 main、不发布。代码完成、生产验收、历史补齐分别记录，不能共用一个「完成」。
 
 | 顺序 / 已有债 | 状态与依赖 | 详细工作及交付物 | 验收与防线 | 执行边界 |
 |---|---|---|---|---|
 | 0 · TD-302 收口 | 完成（仅隔离提交）；Research `d628fa6`、Frontend `fda32827`，未合并/未发布 | 提交 Research 有效值过滤、IV 历史深度语义、Frontend 权威读数；保存 `bifrost-research/docs/acceptance/TD-302.md`，记录各仓提交号 | Research 2150 passed / 30 skipped；Frontend 4120 passed / 1 skipped；提交前复查 Research 34 / Frontend 4 passed，提交钩子 PASS；APT 历史不足、ZZQ 缺数据、AU 合法 0。对应回归测试见 RATCHETS | 已授权隔离分支提交；不合并、不发布，不回填 |
 | 1 · TD-183 归档可恢复性 | 本轮只读核查与准备完成；实际恢复及三表整体验收未完成 | 两份 intraday snapshot 归档共 573826 行，hash/清单/全列解码/日期/主键检查 PASS；恢复方案见 `docs/audits/TD-183_ARCHIVE_READINESS_2026-10-10.md`。option_daily/short_volume 最早 2024-10-01，首次非零归档仍待约 11-01 | trim 的归档/删除行数与 Parquet 一致；五项离线异常测试 PASS。实际恢复必须再验 typed import、全字段 readback 和幂等；当前不记恢复 PASS | 本轮只读核查及准备；不触发 trim、不改 hold、不删文件、不写共享数据库、不建集群恢复资源 |
-| 2 · TD-92 / TD-94 每日产出防线 | 未开始；归档核查后 | 核实真实批处理的 output_ok、部分失败和零产出结果；核实探针异常与错误 session 阻断；保留按引擎/标的/交易日的原因证据 | 当前批次检查确实执行；合法零与异常零分开；探针异常及 session 不符不能绿灯放行。代码已修但运行未验证的项不得关闭 | 先只读核实；发现需修改时在隔离分支修、测试、DEV 验收后报告；不发布 |
+| 2 · TD-92 / TD-94 每日产出防线 | 本轮运行核查完成；TD-94 待你签收，TD-92 告警回执仍观察 | 三批各 17 个 engine output_ok 已执行；14 PASS / 3 WARN；gate 均正确，无 override。56 测试通过无跳过，核心模块与生产 hash 一致；报告见 `docs/audits/TD-92-94_RUNTIME_ACCEPTANCE_2026-10-10.md` | 合法零、异常零、连续跳过及失败原因测试通过；WARN 持续缺数据未补；ERROR sensor 有运行记录但历史投递/接收回执未证实。未改非阻断政策，不把 SUCCESS 当完整数据 | 只读核查与隔离测试，未发现需新改生产逻辑的回归；不发布、不回填、不注入真实告警 |
 | 3 · TD-172 / TD-142 联合回填盘点 | 未开始；每日完整度防线已核实 | 按 symbol × session × DTE 列缺口；分别统计已有原始数据可重算、需 vendor 重抓、不可恢复。交付有日期范围、合约数、请求量、试补批次、预期行数、限流和失败重试的具体方案 | 独立缺口清单与分母口径可复算；避免重复抓取；按每周和每标的验证期限覆盖与 IV cone 有效历史深度；保留合法无成交/订阅边界 | 方案交 Owner 确认后才写；Plugin 写 raw_market，Research 写 features；不使用 SVI 拼接替代历史采集 |
 | 4 · TD-172 / TD-142 按批修复 | 未开始；依赖 Owner 对第 3 项具体方案确认 | 小批原始数据补齐或复用 → 派生重算 → 验收 → 逐批扩大；记录失败和无法修复项；交付逐批前后覆盖率 | 重跑幂等；每批主键、session、期限、有效值和输出行数一致；剩余缺口有原因，不以任务成功代替数据完整 | 未获具体方案确认不执行；禁止无界全库重算与改变订阅 |
 | 5 · TD-149 错误数据治理 | 观察中；既有每日检查与 10-16 复查安排继续，不等待回填 | CTVA vendor 复权后按既有批准重抓日线、重算派生；到 10-16 仍未修正另议 Research 自算；保留原始与派生对照 | 分拆前后调整正确，RV/VRP 等异常读数消除；盘点公司行动异常检测的现有防线与缺口 | 尊重已有批准：vendor 修正后重抓重算；自行复权另批 |
@@ -345,36 +345,37 @@
 
 ### TD-92
 
-**P2 · research-control · Engine assets never fail: per-symbol failures, zero-row writes and skips are only metadata, reasons are discarded, and research_trading_day is green regardless of output**
+**P2 · research-control · Output checks execute and retain reasons, but ERROR alert receipt and persistent input gaps remain to be verified**
 
-- **状态**：观察中（到 10-07 02:30 UTC 批处理，看 16 个引擎的 output_ok 检查都执行了）
-- **验收**：`kubectl -n research logs deploy/dagster-daemon --since=3h | grep ASSET_CHECK_EVALUATION` 在 research_trading_day 里有 16 个 engines 的 output_ok；ERROR 级失败会发 `BifrostDagsterAssetCheckFailed`
-- **验收结果**：部分 PASS 2026-10-06 a242b22：32 个 output_ok 检查已加载，intraday run 两个检查通过；批处理待今晚
-- **Claim**: engine_assets._metadata wraps any result into MaterializeResult; run_gex/run_iv_surface/run_flow do `failed += 1` and drop result['error']; run_slot returns a non-raising 'skipped: no symbols'. No Dagster asset checks exist; only gex_intraday raises on zero output (added after three green weeks of 646-669/669 failures). The only other net is signal_health's 36h/72h computed_at freshness on a subset of tables, which misses partial failures, zero-row writes, wrong-date writes and tables such as research.option_pinned_contract. Silent failures like TD-89 and TD-97 are visible only by reading run metadata by hand.
-- **Measured**: MEASURED. ops_dagster.runs research*/market*, 14 days: 1,026 SUCCESS, 1 FAILURE (memory_distill, TD-86), 1 CANCELED. 10-06 run metadata: gex 42 failed / 1,366 ok over 2 sessions (~3%, about 15-22 names a night), flow 41, surface 41, momentum skipped 4, vrp skipped 7, option_pinned rows_written 0, all green. Most failing names entered option_universe in the last few days (onboarding lag); persistent invisible gaps: NVR (in universe since 09-08, 0 OI rows since 08-01, never a GEX row) and GRML (since 09-24, no OI); QRVO stock_daily stops at 10-02.
+- **状态**：观察中（2026-10-10 三批真实运行及测试已复验；到下一次真实 ERROR 检查事件，看发送及接收回执；当前仍有持续输入缺口 WARN）
+- **验收**：`scripts/audit-research-output-gates.sql` 以 agent_reader READ ONLY 查实际 evaluation，与当前 job 所选引擎逐个对齐（目前 17）；ERROR `BifrostDagsterAssetCheckFailed` 须有发送及接收证据，不能用 sensor tick SUCCESS 替代。
+- **验收结果**：部分 PASS 2026-10-10 Research d628fa6：生产 0.205.0-dagster 对应模块 hash 相同；10-08/09/10 各 17 个引擎检查，14 PASS / 3 WARN。相关测试 56 passed / 0 skipped；合法零/异常零/跳过/失败原因有覆盖。10-07 实际有四个 ERROR 检查且 sensor tick 执行，但投递回执未找到，不关闭此债。报告：`docs/audits/TD-92-94_RUNTIME_ACCEPTANCE_2026-10-10.md`。
+- **Original Claim (before existing fix)**: engine_assets._metadata wraps any result into MaterializeResult; run_gex/run_iv_surface/run_flow do `failed += 1` and drop result['error']; run_slot returns a non-raising 'skipped: no symbols'. No Dagster asset checks exist; only gex_intraday raises on zero output (added after three green weeks of 646-669/669 failures). The only other net is signal_health's 36h/72h computed_at freshness on a subset of tables, which misses partial failures, zero-row writes, wrong-date writes and tables such as research.option_pinned_contract. Silent failures like TD-89 and TD-97 are visible only by reading run metadata by hand.
+- **Original Measured (before existing fix)**: MEASURED. ops_dagster.runs research*/market*, 14 days: 1,026 SUCCESS, 1 FAILURE (memory_distill, TD-86), 1 CANCELED. 10-06 run metadata: gex 42 failed / 1,366 ok over 2 sessions (~3%, about 15-22 names a night), flow 41, surface 41, momentum skipped 4, vrp skipped 7, option_pinned rows_written 0, all green. Most failing names entered option_universe in the last few days (onboarding lag); persistent invisible gaps: NVR (in universe since 09-08, 0 OI rows since 08-01, never a GEX row) and GRML (since 09-24, no OI); QRVO stock_daily stops at 10-02.
 - **Evidence**:
   - `bifrost-research/src/bifrost_research/orchestration/engine_assets.py:36` — `def _metadata(result: dict[str, Any]) -> dict[str, Any]:`
   - `bifrost-research/src/bifrost_research/scheduler/engines.py:108` — `failed += 1`
   - `bifrost-research/src/bifrost_research/orchestration/research_aux_schedules.py:51` — `return MaterializeResult(metadata=meta(result if isinstance(result, dict) else {}))`
   - `bifrost-research/src/bifrost_research/orchestration/engine_assets.py:300` — `result = runners.run_option_pinned_contract()`
-- **Impact**: A broken engine looks the same as a working one on the Ops schedule view and in failure_alerts. NVR and GRML have had no GEX/surface/flow for weeks and nothing says why; onboarding lag, upstream gaps and bugs are indistinguishable.
-- **Fix**: Return failures as {symbol: error} (capped) plus per-reason counts from gex/surface/flow. Add Dagster asset checks (or raise in runners) with floors against a trailing baseline: rows_written >= 50% of the 10-run median, failure share among names past the onboarding window <= ceiling, a past-onboarding name failing 2+ sessions, mode != skipped twice running. Route check failures through failure_alerts; push persistent per-reason gaps to the Data Gaps ledger.
-- **Ratchet**: Test enumerating ENGINE_ASSETS and RESEARCH_AUX_ASSETS: each has a registered asset check or an explicit opt-out with reason. Unit test: every slot summary carrying symbols_failed carries a failures-by-reason dict. code-health metric: bare `failed += 1` in scheduler/ (baseline 3, falling).
+- **Original Impact (before existing fix)**: A broken engine looks the same as a working one on the Ops schedule view and in failure_alerts. NVR and GRML have had no GEX/surface/flow for weeks and nothing says why; onboarding lag, upstream gaps and bugs are indistinguishable.
+- **Original Fix (before existing fix)**: Return failures as {symbol: error} (capped) plus per-reason counts from gex/surface/flow. Add Dagster asset checks (or raise in runners) with floors against a trailing baseline: rows_written >= 50% of the 10-run median, failure share among names past the onboarding window <= ceiling, a past-onboarding name failing 2+ sessions, mode != skipped twice running. Route check failures through failure_alerts; push persistent per-reason gaps to the Data Gaps ledger.
+- **Ratchet**: `test_asset_check_coverage.py` enumerates assets and nightly selected engines; each is checked or explicitly opted out. `test_slot_failure_reasons.py` requires reason metadata and holds bare scheduler `failed += 1` at zero. Runtime evidence comes from `scripts/audit-research-output-gates.sql`, with actual passed/severity fields, not run SUCCESS. ERROR receipt still pending; see RATCHETS.
 - 审批 不用批 · 代价 M · 风险 low · repos: bifrost-research
 
 ### TD-94
 
-**P2 · research-control · husbandry_gate fails open: a probe exception leaves verdict 'unknown', which passes, and the gate never checks that the doctor's session is the one being closed**
+**P2 · research-control · Fail-closed husbandry_gate and correct-session checks have passed runtime acceptance**
 
-- **状态**：观察中（到 10-07 02:30 UTC 批处理，看闸门放行且 expected_session = market_session）
-- **验收**：今晚 husbandry_gate 的 metadata：`gate=pass`、`expected_session == market_session`；探针失败时 run 变红（12 个单测覆盖）
-- **Claim**: Since research a241f30/47af11e (09-28) the gate reads a freshly computed doctor report (refresh=true, 600s timeout), which fixed the stale-session and empty-report runs of 09-16..09-26. What remains: any doctor/Flex probe exception is logged as a warning and the verdict stays 'unknown'; the gate raises only on critical/failed/stale/none, so 'unknown' passes, and no assertion ties doctor.session to the session being closed. dbt and every engine then run with the EOD gate off.
-- **Measured**: MEASURED. Before the 09-28 fix: unknown verdicts passed on 09-16, 09-25, 09-26; wrong-session 'healthy' on 09-22 (gated 09-18) and 09-24 (gated 09-22). All 6 runs since 09-29 carry the right session and generated_at. tests/orchestration/test_husbandry_gate.py has no all-probes-fail case.
+- **状态**：待你签收
+- **验收**：以 READ ONLY `scripts/audit-research-output-gates.sql` 查 gate=pass、expected_session=market_session 且无 override；在装有 orchestration extras 和 dbt manifest 的隔离环境跑 gate / Flex / output / reason 测试，探针失败、缺 timestamp、错误 session 必须阻断。
+- **验收结果**：PASS 2026-10-10 Research d628fa6（已有修复 2c34f4d、Flex 分离 72e6473）：56 passed / 0 skipped；生产 gate 模块与测试版本 hash 一致。10-08/09/10 批处理分别关闭 10-07/08/09，doctor session 同步、generated_at 当批生成、没有 allow_unknown。未注入生产故障、未新发版；验收报告见 `docs/audits/TD-92-94_RUNTIME_ACCEPTANCE_2026-10-10.md`。
+- **Original Claim (before existing fix)**: Since research a241f30/47af11e (09-28) the gate reads a freshly computed doctor report (refresh=true, 600s timeout), which fixed the stale-session and empty-report runs of 09-16..09-26. What remains: any doctor/Flex probe exception is logged as a warning and the verdict stays 'unknown'; the gate raises only on critical/failed/stale/none, so 'unknown' passes, and no assertion ties doctor.session to the session being closed. dbt and every engine then run with the EOD gate off.
+- **Original Measured (before existing fix)**: MEASURED. Before the 09-28 fix: unknown verdicts passed on 09-16, 09-25, 09-26; wrong-session 'healthy' on 09-22 (gated 09-18) and 09-24 (gated 09-22). All 6 runs since 09-29 carry the right session and generated_at. tests/orchestration/test_husbandry_gate.py has no all-probes-fail case.
 - **Evidence**:
   - `bifrost-research/src/bifrost_research/orchestration/plugin_batch_assets.py:148` — `except Exception as exc:  # noqa: BLE001`
   - `bifrost-research/src/bifrost_research/orchestration/plugin_batch_assets.py:169` — `if eod_verdict == "critical":`
-- **Impact**: Latent: on a night the plugin is down or doctor computation exceeds 600s, dbt, SEPA and all engines rebuild on a possibly incomplete session and report SUCCESS, the 09-05 'recomputed on partial data' class the gate exists to stop.
-- **Fix**: Treat 'unknown' as failure for EOD and Flex checks (raise; explicit override config for manual runs). Compute the expected session via fetch_recent_trading_days and raise when doctor.session differs or generated_at is missing.
+- **Original Impact (before existing fix)**: Latent: on a night the plugin is down or doctor computation exceeds 600s, dbt, SEPA and all engines rebuild on a possibly incomplete session and report SUCCESS, the 09-05 'recomputed on partial data' class the gate exists to stop.
+- **Original Fix (before existing fix)**: Treat 'unknown' as failure for EOD and Flex checks (raise; explicit override config for manual runs). Compute the expected session via fetch_recent_trading_days and raise when doctor.session differs or generated_at is missing.
 - **Ratchet**: test_husbandry_gate.py: (a) all probes raise → asset raises; (b) doctor.session != expected → raises; (c) generated_at missing → raises.
 - 审批 不用批 · 代价 S · 风险 med · repos: bifrost-research
 
