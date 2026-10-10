@@ -554,7 +554,7 @@
 **W-31 第 0 步 · S0-14 节点非计划重启告警**
 
 - **类别**：道
-- **状态**：在做（已推 main `c5c5f36`；部署单由 Claude 线程代建，生效后由参谋长做送达演练）
+- **状态**：观察中（到 10-17，看有没有误报；2026-10-10 10:50 CDT 部署，`appr_6526224f3ef89e6d`，Prometheus 已加载规则组。送达演练还没做）
 - **现在**：Owner 10-10 定：只新增告警规则作为一条新防线，TD-288 条目在 11-09 前不动
 - **下一步**：已推 main（`c5c5f36`）；部署单由 Claude 线程代建（`plan_manifest` + C 级 `apply_manifest`），生效后由参谋长做送达演练。W-38 发现 main 上本来就红的两项静态检查，W-31 线程 10-10 已修并加了 pre-commit 防线（见 STEP0-PLAN 0.4 节）
 - **验收**：用演练数据触发一次，告警能送到；登记进 MAINTAINERS
@@ -598,7 +598,7 @@
 **W-31 第 0 步 · S0-8 发版策略合并并签发**
 
 - **类别**：道
-- **状态**：观察中（已合 main：platform `2d74644` + `66496a6`，infra `5e8e467`；参谋长 10-10 重跑 platform 50 个包、infra 17 条全过。等 Owner 签策略后跑三项验收）
+- **状态**：观察中（集群部分 2026-10-10 到位：两个 ConfigMap、Role、Task 的 freeze 步骤，`appr_214783078f89d173` 和 `appr_b51a874cd805c18a`；接口随 platform `11ebb8c` 上 PROD。冻结步骤要等下一次 research 或插件发布才看得到真实输出。还差 Owner 的签名密钥、签第一份策略、冻结演练；策略里暂不含 PROD 流水线和增量 DDL）
 - **现在**：卡 2 = B 落地：平台是唯一裁判，`release.sh` 只签名和调平台，infra 只留 ConfigMap、RBAC 和 Tekton 冻结检查。自定的 9 条决策、新接口和 Owner 待办记在 STEP0-PLAN 0.6 节；引出 TD-293、TD-294、TD-295
 - **下一步**：Owner 生成 `~/.ssh/bifrost_release_owner` 并交指纹 → 线程写 `api/internal/releasepolicy/anchor.go` 推 main，随第 9 步上 PROD → Claude 线程 apply `configmaps.yaml`、`rbac-release-window.yaml`，再 `task-release-window.yaml` → `release.sh policy sign` + `status` → 三项演练
 - **验收**：STG 影子检查审计记 covered；一次 PROD 发布自动批准并记下命中条款；冻结后 `start_pipeline_run` 返回 409、解冻后恢复
@@ -609,7 +609,7 @@
 **W-31 第 0 步 · S0-16 Console 清理 A（16a 零引用的死代码 · 16b 孤儿）**
 
 - **类别**：道
-- **状态**：在做（16a、16b 都已进集成分支 `w31/console-int`，10-10 合 main `7cda6cb` 后为 `11ebb8c`，随第 9 步发版）
+- **状态**：观察中（到 10-12，看 PROD Console 有没有报错或缺功能；2026-10-10 11:30 CDT 上 PROD：run `bifrost-deliver-platform-prod-1791649613`，platform `11ebb8c`，ui `9b635b2`）
 - **现在**：Owner 10-10 拆成两步（STEP0-PLAN 0.4 节）：W-43a 只删零引用的死代码，已派出（分支 `w31/w43a-s0-16a`）；W-43b 删孤儿，排在 W-44、W-45 之后。`AgentFocusDock`、`AgentTriadStrip`、`CommandIntentStrip`、`lib/task-mode`、`operateQueue` / `operateBriefs`、`lib/agent/*` 仍在渲染，不属于 16a；`NavAgentAskSlot` 改归 W-44。退役 plist 只在 W-36 删一次。W-43a 已并进 Console 集成分支 `w31/console-int`（platform `58928a3`，10-10）
 - **下一步**：W-43b 已交付（`w31/w43b-s0-16b` `7299084`，参谋长 10-10 验收），删了无入口的 Control Room 四个分区、从未显示的 View agent 链接、SSH 控制台后端（三条路由现返回 404）和 xterm 依赖；清单在 `work/multi-agent/STEP9-REMOVED-UI-2026-10-10.md` 第 5 节。等第 9 步 STG 过目；进 main 后 infra `OVERSIZED_PLATFORM_BASELINE` 13 → 12
 - **验收**：tsc / lint / vitest / build 全过，没有新的引用断裂
@@ -620,7 +620,7 @@
 **W-31 第 0 步 · S0-17 外壳与「需要你」第一版**
 
 - **类别**：道
-- **状态**：在做（已合进集成分支 `w31/console-int` `e81a88d`，随第 9 步发版）
+- **状态**：观察中（到 10-12，看 PROD Console 有没有报错或缺功能；2026-10-10 11:30 CDT 上 PROD：run `bifrost-deliver-platform-prod-1791649613`，platform `11ebb8c`，ui `9b635b2`）
 - **现在**：范围见 STEP0-PLAN 0.2 节，按 0.4 节的卡 A、卡 B、卡 C 改：首页只列单子，批准和驳回只在 `#approvals?id=`；「需要你」只算待定、待批、待签；Autopilot 页签原样搬进「记录」。文件清单加 `lib/shell/shellStatusLine.ts`、`ConsoleSidebar.tsx`、`ConsoleNavSlotItem.tsx`、`StatusPage.tsx`，`NavAgentAskSlot` 也归这里
 - **下一步**：已交付分支 `w31/w44-s0-17` `86b709f`（参谋长与 W-45 试合无冲突：tsc、lint 0 error、vitest 101 个文件 684 条、build 全过；needs-you 页没有批准 / 驳回按钮）。12 条自定决策登记在 STEP0-PLAN 0.5 节；W-43b 线程把它合进 `w31/console-int`
 - **验收**：有待批的单子时首页第一屏就是它并显示等了多久；页头和 ① 的结论一致；通知里的旧链接仍能打开对应的单子
@@ -631,7 +631,7 @@
 **W-31 第 0 步 · S0-18 ⑤ Releases 三段式**
 
 - **类别**：道
-- **状态**：在做（已合进集成分支 `w31/console-int` `e81a88d`，随第 9 步发版）
+- **状态**：观察中（到 10-12，看 PROD Console 有没有报错或缺功能；2026-10-10 11:30 CDT 上 PROD：run `bifrost-deliver-platform-prod-1791649613`，platform `11ebb8c`，ui `9b635b2`）
 - **现在**：Owner 10-10 定卡 B：第一段放快到期的策略和待批的发版单；失败的 run 放「进行中」，同一流水线、同一环境后来成功就自动进历史，不新增状态、不加接口。策略那一块等 W-42
 - **下一步**：已交付分支 `w31/w45-s0-18` `611cc3e`（参谋长重跑：tsc、build、vitest 99 个文件 657 条全过）。7 条自定决策和 W-42 合并后的接入点登记在 STEP0-PLAN 0.5 节；W-43b 线程把它合进 `w31/console-int`
 - **验收**：10-03 的旧失败不再占首屏；窗口被占用时看得到是谁在占、还剩多久
@@ -642,7 +642,7 @@
 **W-31 第 0 步 · S0-19 Console 清理 B（还在渲染的遗留）**
 
 - **类别**：道
-- **状态**：在做
+- **状态**：观察中（到 10-12，看 PROD Console 有没有报错或缺功能；2026-10-10 11:30 CDT 上 PROD：run `bifrost-deliver-platform-prod-1791649613`，platform `11ebb8c`，ui `9b635b2`）
 - **现在**：已派出（分支 `w31/w46-s0-19`）；范围见 STEP0-PLAN 0.2 节。Autopilot 页签按卡 C 原样搬进「记录」（W-44），本道不删。10-10 已并进 `w31/console-int`（platform `58928a3`）；它删掉的 agent pack 带走了 TD-245 那条防线（RATCHETS 已写明理由）
 - **下一步**：集成分支整体验收后合 main（不在本批）
 - **验收**：⑥ 不再因为退役的 Agent 概念显示 NEEDS FIX；② 的备份面板不再报错
@@ -719,7 +719,7 @@
 **VPN → Ops 防火墙放行与网络审计覆盖**
 
 - **类别**：道
-- **状态**：在做
+- **状态**：观察中（到 10-12；规则 2026-10-10 生效，Owner 确认手机走蜂窝能用；审计期望数 11 随 platform `11ebb8c` 上 PROD 后实测 `POLICY_NOMINAL`、`expected_policy_count` 11。后续三项见「下一步」）
 - **现在**：规则已在网关上并生效（2026-10-10）。platform `f995b00` 在基线里加了 `Bifrost | ALLOW VPN → Ops VIP`（源 VPN 区 `192.168.2.0/24`，目的 `192.168.10.100` TCP 443，带回程）；Owner 批准 `appr_d30b18c951439d55` 并运行，输出 exit=0，只新建这一条。从 `/api/v1/network/policies` 读回：正向与回程两条都在，网关策略 183 → 185。Owner 确认手机走蜂窝能用 Ops。原因：`Bifrost Server` 是自定义区，VPN 区默认被拒，基线里原先没有放行
 - **下一步**：① `unifi_firewall_apply` 在 PROD 跑不了：镜像是只装了 Go 程序的 alpine，没有 python 和 `scripts/`（读代码与 `k8s/cicd/docker/Dockerfile.platform-api-stg` 得出，没有实跑）；把基线和创建规则移进 Go，或给镜像带上执行器。② 审计只核对规则名和 5 个区的绑定：补 VPN 区、各区之间的默认动作、VPN 客户端；`/api/v1/network/policies` 只返回 `Bifrost |` 前缀的规则。③ 审计期望数 11 随 platform 下次发版生效，不为这一条单独发版。④ 守卫拦下所有提到 `scripts/unifi_*` 文件名的 shell 命令，包括 `git commit` 的路径参数；是否像 TD-278 那一组一样只拦运行，由 Owner 定
 - **验收**：手机关 Wi-Fi 走蜂窝、不手动连 VPN，能打开 `https://ops.bifrost.lan`；回到家里 Wi-Fi 后 VPN 断开，Ops 仍能打开；platform 仓库 `python3 scripts/unifi_firewall_policy_test.py` 通过；platform 发版后 `GET /api/v1/network/audit` 为 `POLICY_NOMINAL` 且 `expected_policy_count` 为 11
