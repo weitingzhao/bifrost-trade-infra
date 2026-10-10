@@ -19,11 +19,9 @@
 - **TD-254** — 备份只归 CNPG 每日备份 + backup-retry：autopilot 遇到备份不新鲜只报告、不再调 repair_cnpg_wal_store（不再删失败的 Backup、不再盘中补全量备份；工具留给人手动用）。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「autopilot 备份不动手测试」。后续：无后续：剩下的收敛在 TD-130（观察到 10-12）
 - **TD-255** — 漂移扫描不再删失败现场：只删被驱逐的 Pod，失败的备份 Job Pod 留着（日志可读），只报告模式下一个不删。验收 PASS 2026-10-07 dc1488e。防线：`RATCHETS.md`「漂移扫描只删 Evicted 测试」。后续：无后续：Job 历史上限与 TTL 负责回收
 - **TD-196** — platform 状态不再随发版丢失：各 store 经 `internal/statefile` 写进本命名空间的 ConfigMap `platform-state-*`，审计按角色各留 500 条（platform 87965ce）。验收 PASS 2026-10-09（PROD 21:29Z 发版后审计 180 条、最早 10-07；release-cycles、approvals、checklist、patrol 的状态 ConfigMap 都在）。防线：`statefile_test.go`、`k8sstate_test.go`（store 经 statefile 落 ConfigMap）。原定的「清单里不许 emptyDir」不适用：`/app/data` 的 emptyDir 现在只是写穿式的本地副本。后续：无后续：release-cycles 读接口已随第 3 阶段删除
-- **TD-281** — doctor 不再把已重试过的失败任务反复开进处方，heal 能走完整段故障（market-data 0.87.1）。验收 PASS 2026-10-10（131 个 401 失败全部重试并 done）。防线：`RATCHETS.md`「doctor 处方跳过已重试的失败」。后续：发版中查出 apply 流水线 plan 的 diff 不带 applier 字段管理者、错误被吞（已修 infra 2ae5725，防线在 check_admission_guards）；TD-282（registry 被清空）
-- **TD-282** — registry 不再随容器重启清空：镜像存在 NAS 的 PVC 上（Recreate 一写者）；10-10 被清空后 27 个运行中镜像全部按原提交重建回去（infra 67854a3，plugin ee6f0ba）。验收 PASS 2026-10-10（`check_registry_images.py --live` 全过；ib-gateway 已重连）。防线：`RATCHETS.md`「registry 持久且装着每个运行中的镜像」。后续：TD-283、TD-284、TD-285（恢复时撞上的三处平台缺口）；01 节点 01:19Z containerd 重启原因待你看节点日志
 - **TD-214 / TD-219 / TD-232 / TD-233** — 前端「今天」统一按纽约交易日、区间按芝加哥日界、告警「今天触发」按 computed_at、IV 读失败不再显示为没数据（frontend 119726cc，已上三环境）· 验收 PASS（10-07，各自 vitest + grep 0）· 防线：eslint no-restricted-syntax + `utcTodayRatchet.test.ts`、`performanceUtils.test.ts`、`useFiredAlerts.test.ts`、`ivRadar.test.ts` · 后续：TD-247（回看起点与三份纽约日期副本）
 
-**未结 78 项**：P0 0 · P1 7 · P2 25 · P3 46；要你批的 34 项（从总览表的审批列算）。
+**未结 76 项**：P0 0 · P1 6 · P2 25 · P3 45；要你批的 33 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -124,7 +122,7 @@
 
 目标：会动手的维护只由 PROD 的 platform-workers 做，本机与 STG 只观测。已做：本机停手（TD-130 第一步）、STG 不修 IB 也不写发布记录（TD-223）、页面不再触发维护、状态持久化（TD-196）。接着：PROD 自己探测、带时间戳的检查信号，只给 PROD 挂技能并先只报告，再逐项放开；备份只归 CNPG 与 backup-retry；不再清掉失败现场。
 
-项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255, TD-272, TD-276, TD-281, TD-282, TD-283, TD-284, TD-285, TD-286 · 已还：TD-256, TD-257, TD-270, TD-271, TD-273, TD-275, TD-277, TD-278, TD-279, TD-280
+项：TD-130, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255, TD-272, TD-276, TD-283, TD-284, TD-285, TD-286 · 已还：TD-256, TD-257, TD-270, TD-271, TD-273, TD-275, TD-277, TD-278, TD-279, TD-280, TD-281, TD-282
 
 ## 数据边界（接受并留座）
 
@@ -291,8 +289,6 @@
 | [TD-284](#td-284) | P3 | ops-platform | Plugin and pine image builds cannot be started through start_pipeline_run: no image tag, no workspaces, pine missing from the window map | 不用批 |
 | [TD-285](#td-285) | P2 | ops-platform | The applier cannot take over a field that kubectl-client-side-apply owns: plan and apply fail with a server-side apply conflict | 安全/凭据（要你批） |
 | [TD-286](#td-286) | P2 | ops-platform | Approval notifications carry no short id or parameters and their delivery is not recorded; session, Console and phone are not one approval experience | 安全/凭据（要你批） |
-| [TD-282](#td-282) | P1 | ops-platform | The in-cluster registry keeps images in the container's filesystem: a containerd restart on ubt-k3s-01 emptied it, and 30 running containers pull Always from it | 安全/凭据（要你批） |
-| [TD-281](#td-281) | P3 | market-data | Doctor's retry-jobs prescription is the newest 50 failed jobs whether or not they were already retried, so heal cannot get past the first 50 of an outage | 不用批 |
 | [TD-274](#td-274) | P3 | frontend | Symbol faces hide GEX levels that exist when zero gamma is NULL: the dealer level strip needs all four values and the regime cell needs zero gamma, so a chain with no flip (about a third of expiries) shows neither walls nor regime | 不用批 |
 
 ## 条目
@@ -1451,40 +1447,6 @@
 - **Ratchet**: workactions test: two Apply calls for one ready plan create two distinct runs (or the second is refused with a clear message when the first succeeded).
 - 验收: `cd bifrost-platform/api && go test ./internal/workactions -run Apply -count=1`
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
-
-### TD-281
-
-**P3 · market-data · Doctor's retry-jobs prescription is the newest 50 failed jobs whether or not they were already retried, so heal cannot get past the first 50 of an outage**
-
-- **状态**：待你签收（plugin `ef61437`，0.87.1 `dac1ef8`/`d25bd0e` 10-10 02:4x 上线；发版中顺带修了 apply 流水线 plan 的 diff，infra `2ae5725`）
-- **验收结果**：PASS 2026-10-10 d25bd0e — doctor 64 测试 + 新测试；全量 1293 passed；PROD 新 doctor 处方从 `9550721` 开始（已重试的 50 个不再出现），两次 heal 入队 50 + 31、去重 0；agent_reader：131 个 401 失败全部有后续 job 且 `done`
-- **Claim**: `doctor.py` lists failed jobs per kind (`array_agg(id ORDER BY id DESC)` then `[:50]`) from `ops_jobs.job_ingest WHERE status = 'failed'`. A retry enqueues a new job and leaves the failed row as it is, so the next doctor run lists the same 50 and `/heal` (which only executes doctor's prescriptions) dedupes all of them. Anything older than the newest 50 is never reached.
-- **Measured**: MEASURED 2026-10-09 after the Massive key rotation (TD-280): 131 `option_daily` jobs failed with `Unknown API Key (HTTP 401)` between 22:59:56Z and 23:01:13Z. First heal: 50 enqueued. Second heal: `enqueued 0, deduped 50`. agent_reader: 50 failed rows have a later pending job with the same `payload_hash`, 81 have none. The finding also reports "4 failed in 24h" for the 131.
-- **Evidence**:
-  - `bifrost-platform-plugin-market-data/src/bifrost_market_data/doctor.py:1955-1971` — failed-jobs read and the `[:50]` cut
-  - `bifrost-platform-plugin-market-data/src/bifrost_market_data/doctor.py:2341` — `_retry_jobs`
-- **Impact**: An outage longer than about 50 jobs leaves the rest of its failures unretried; here 81 contract-day bars for 2026-10-09 (about 0.1% of that day's option_daily). The warning stays up because the same 50 keep counting.
-- **Fix**: Exclude failed rows that have a later job of the same kind and `payload_hash` from both the count and the prescription; then repeated heals walk the whole outage. Count from rows, not samples, or say which it is.
-- **Ratchet**: doctor test: 120 failed rows, 50 of them with a later job of the same hash → prescription lists the other 70 (capped at 50) and the count is 70.
-- 验收: plugin `pytest -q tests -k doctor`; after release, heal twice on PROD and agent_reader shows 0 of the 131 without a later job.
-- 审批 不用批（代码）；发版要批 · 代价 S · 风险 low · repos: bifrost-platform-plugin-market-data
-
-### TD-282
-
-**P1 · ops-platform · The in-cluster registry keeps images in the container's filesystem: a containerd restart on ubt-k3s-01 at 2026-10-10 01:19:43Z emptied it, and 30 running containers pull `Always` from it**
-
-- **状态**：待你签收（registry 挂 NAS PVC `registry-data`（infra 67854a3，Owner 10-10 03:07Z apply）；27 个运行中镜像全部重建回 registry：PROD/STG platform、Trade PROD（钉 10-09 的 6 个 SHA）与 STG、DEV（:stg→:dev）、research 0.205.0 与 dagster、market-data 0.87.1、flex-query 0.13.2、pine 0.5.0、ib-gateway 0.4.0（新 digest `3395fb7c`，plugin ee6f0ba，Owner apply）。原因未查清：01 节点 01:19:43Z 那次 containerd/k3s 重启）
-- **验收结果**：PASS 2026-10-10 5380bb4 — `check_registry_images.py --live`：`ok: registry is persistent and holds every image a running pod uses`；`scripts/test_check_registry_images.py` 通过；ib-gateway 新 Pod 跑 `3395fb7c`、`API connection ready`、host slot 已连；PDB 与 git 一致
-- **Claim**: `cicd/registry` has no volume besides the service-account token, so its storage is the container filesystem. At 01:19:43Z all 32 containers on ubt-k3s-01 (the node stayed Ready since June) restarted with reason Unknown; the registry came back empty (`/v2/_catalog` → `{"repositories":[]}`). 30 running containers use `imagePullPolicy: Always` on mutable tags from it: Trade dev / stg / prod APIs, daemon, frontend, and platform stg / prod api, workers, console; the position-snapshot CronJobs and research-harness too. Any restart of those pods (crash, eviction, drain, rollout) now fails with ImagePullBackOff. A pod scheduled to a node without the image cached fails even with `IfNotPresent`.
-- **Measured**: MEASURED 2026-10-10 02:20–02:45Z. market-data 0.87.1 (built 23:20Z, tag listed) was gone at 02:17Z; the new pods sat in `ImagePullBackOff` until a rebuild. Registry pod `restartCount 3`, last terminated 01:19:43Z exit 255 Unknown. Pull policies of registry-image containers: Always 30, IfNotPresent 15. Node status lists at most 50 images per node, so which nodes hold which image cannot be read from the API.
-- **Evidence**:
-  - `cicd/registry-695864f6bf-6rrfj` — volumes: only `kube-api-access`
-  - ubt-k3s-01 containers with `lastState.terminated.finishedAt=2026-10-10T01:19:43Z` (32)
-- **Impact**: Sunday's rolling reboot drains every node; as things stand Trade PROD and the PROD platform would not come back. Until the images are back, any single pod restart of those 30 is an outage of that service. The cause of the containerd restart on 01 is not known (Agent has no node access).
-- **Fix**: (1) Now: push the running images back from the nodes that run them (`k3s ctr -n k8s.io images push --plain-http`, Owner, exact running digests), verify catalog and digests. (2) Give the registry a PersistentVolume (or move it to the NAS registry) and pin PROD by digest or immutable tag, `IfNotPresent`. (3) Owner reads `journalctl -u k3s` on ubt-k3s-01 around 01:19Z for the cause.
-- **Ratchet**: a check (maintainer or Prometheus rule) that the registry catalog lists every image a running pod references; manifest check that the registry Deployment mounts a PVC.
-- 验收: every registry image referenced by a running pod resolves in `/v2/<repo>/manifests/<tag>` with the running digest; registry pod has a PVC; restarting the registry pod keeps the catalog.
-- 审批 要批（registry 加 PVC、PROD 镜像策略）· 代价 M · 风险 med · repos: bifrost-trade-infra
 
 ### TD-283
 
