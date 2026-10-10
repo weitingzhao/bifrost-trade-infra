@@ -39,6 +39,21 @@ kubeEtcd:
 prometheus:
   prometheusSpec:
     retention: 10d
+    # TD-289: without storageSpec the operator gives Prometheus an emptyDir. A
+    # node reboot keeps it (same pod); an eviction does not. The drain of
+    # ubt-k3s-01 on 2026-10-10 erased 10 days of history. Owner chose the NAS.
+    # nfs-hot is the export for live data (MinIO, logical-backup-hot). The claim
+    # size is not enforced on NFS (docs/STORAGE_CEILINGS.md); retentionSize is
+    # the real cap. Measured 2026-10-10: 5.75k samples/s, about 10 GB for 10 days.
+    retentionSize: 25GB
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: nfs-hot
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 30Gi
     resources:
       requests:
         cpu: 200m
@@ -48,6 +63,9 @@ prometheus:
         memory: 2Gi
 
 grafana:
+  # No persistence on purpose (TD-289): dashboards come from ConfigMaps through the
+  # sidecar, data sources from these values, and viewers are anonymous. Nothing a
+  # user saves in the UI survives an eviction; put a dashboard in a ConfigMap.
   # Browser deep link is https://ops.bifrost.lan/grafana/ (PLATFORM_GRAFANA_URL).
   # NodePort :30883 stays. serve_from_sub_path adds the /grafana/ prefix there too.
   service:
@@ -88,6 +106,15 @@ grafana:
 
 alertmanager:
   alertmanagerSpec:
+    # TD-289: silences and the notification log, same reason as Prometheus above.
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: nfs-hot
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 1Gi
     secrets:
       - alertmanager-webhook-auth
       # bearer token for the ntfy relay on Mac mini .50 (TD-209); created by hand,

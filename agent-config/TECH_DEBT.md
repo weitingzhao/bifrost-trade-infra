@@ -1527,12 +1527,12 @@
 
 **P2 · infra · Prometheus, Alertmanager and Grafana keep their data in emptyDir: a node drain erases the metric history (10 days), the silences and Grafana's own database**
 
-- **状态**：未开始（要你定：存储放哪）
+- **状态**：在做（Owner 10-10 定：放 NAS。values 已改为 `nfs-hot` 上的 volumeClaimTemplate，Prometheus 30Gi + `retentionSize: 25GB`，Alertmanager 1Gi；Grafana 不持久化，面板只从 ConfigMap 来。等 Owner 跑 helm upgrade，再做驱逐验收。Prometheus 上游不建议把 TSDB 放 NFS：apply 后看 24 小时内有没有 WAL 或 compaction 报错，有就改用固定节点的 local-path）
 - **Claim**: `values-kube-prometheus.yaml` sets `retention: 10d` and no `storageSpec`, so the operator gives Prometheus an emptyDir. That survives a node reboot (same pod) but not an eviction. The rolling reboot of 2026-10-10 drained ubt-k3s-01 with `--delete-emptydir-data`; the new Prometheus pod started 05:32:13Z on ubt-k3s-06 with an empty TSDB: at 05:54Z `count(up offset 30m)` returned nothing, while 36-hour windows had answered at 04:41Z. Alertmanager (`alertmanager-db`) and Grafana (`storage`) are emptyDir too. Same class as TD-282 (registry). The check before the run read PodDisruptionBudgets and did not look at emptyDir state.
 - **Evidence**: `bifrost-trade-infra/scripts/k3s/values-kube-prometheus.yaml:41` — `retention: 10d`, no `storageSpec`; pod `prometheus-kube-prometheus-stack-prometheus-0` volume `prometheus-kube-prometheus-stack-prometheus-db emptyDir {}`
 - **Fix**: `prometheusSpec.storageSpec.volumeClaimTemplate` and `alertmanagerSpec.storage` on a PersistentVolume (nfs-cold like the registry, or local-path pinned to one node); Grafana persistence, or dashboards only from provisioning. Helm upgrade by the Owner.
-- **Ratchet**: `check_monitoring_persistence.py` (static: the values carry the claims; live: the three pods mount a PersistentVolumeClaim). The rolling-reboot plan lists the emptyDir volumes its drain will delete.
-- 验收: evict the Prometheus pod; `count(up offset 30m)` still answers.
+- **Ratchet**: `scripts/check_monitoring_persistence.py` (static: both values carry a claim and Prometheus a `retentionSize` below it; `--live`: both pods mount a Bound PersistentVolumeClaim), `make check-monitoring-persistence`, 9 tests. Still to do: the rolling-reboot plan lists the emptyDir volumes its drain will delete.
+- 验收: `KUBECONFIG=~/.kube/bifrost-k3s.yaml python3 scripts/check_monitoring_persistence.py --live` exits 0; then delete the Prometheus pod (`delete_pod`) and `count(up offset 30m)` still answers.
 - 审批 要批（存储位置）· 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ### TD-261
