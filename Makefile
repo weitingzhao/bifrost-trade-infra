@@ -447,6 +447,11 @@ check-http-metrics-coverage:
 # cluster (the ntfy relay on Mac mini .50); LIVE=1 walks the running Alertmanager's routes.
 check-alert-routing:
 	python3 scripts/check_alert_routing.py $(if $(LIVE),--live,)
+
+# W-38: promtool unit tests in k8s/monitoring/rule-tests/ against the PrometheusRules they name
+# (BifrostNodeUnexpectedReboot). promtool from PATH, or the Prometheus image through docker.
+check-alert-rules:
+	python3 scripts/check_alert_rules.py
 check-cluster-state-backup: ; python3 scripts/check_cluster_state_backup.py
 
 # TD-204: the Ops platform ServiceAccounts can do what platform code needs and nothing more

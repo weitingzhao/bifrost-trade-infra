@@ -18,6 +18,12 @@
 # DaemonSet monitoring/node-reboot-required exports bifrost_node_reboot_required.
 # The alert records a node pending reboot for more than 14 days. Warning; it
 # does not page.
+#
+# signal (not a maintainer, W-38): BifrostNodeUnexpectedReboot in
+# k8s/monitoring/bifrost-node-unexpected-reboot-rules.yaml reads node-exporter
+# boot time and kube-state-metrics cordon state. A node that booted less than an
+# hour ago and was not cordoned in the last 90 minutes pages (critical); a
+# rolling reboot cordons first and does not. Rule test: make check-alert-rules.
 maintainers:
   - id: cronjob/bifrost-prod/position-snapshot-capture
     what: "Weekday 16:20 America/New_York capture of position_snapshot_daily and account_nav_daily in bifrost_prod."

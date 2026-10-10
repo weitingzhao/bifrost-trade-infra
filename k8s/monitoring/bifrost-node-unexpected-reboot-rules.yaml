@@ -1,0 +1,54 @@
+# W-38 (S0-14, the alert half of TD-288). A node booted within the last hour
+# and was not cordoned at any point in the last 90 minutes.
+#
+# Planned reboots go through scripts/k3s/rolling-reboot.sh, which cordons the
+# node before the drain and uncordons it only after the node is Ready again, so
+# kube_node_spec_unschedulable is 1 across the boot. gpu-server stays cordoned
+# while it is powered off, so a wake is also planned. A reboot with no cordon
+# (power loss, panic, watchdog, a bare `sudo reboot`) pages. Accepted gap: a
+# node that crashes while it is cordoned does not page.
+#
+# Uptime, not changes(node_boot_time_seconds): the kernel derives btime from
+# the wall clock, so it can move by a second without a reboot, and the series
+# has a gap while the node is down. 3600 seconds still catches a reboot when
+# Prometheus or kube-state-metrics was on that node and came back with it.
+# If kube-state-metrics has no series for the node, `unless` removes nothing
+# and the alert fires.
+#
+# critical pages the Owner through ntfy (ADR §7): the cause can only be read
+# on the node with the Owner's key. Rule test: k8s/monitoring/rule-tests/,
+# `make check-alert-rules`.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bifrost-node-unexpected-reboot-rules
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: alerting
+spec:
+  groups:
+    - name: bifrost-node-unexpected-reboot
+      rules:
+        - alert: BifrostNodeUnexpectedReboot
+          expr: |
+            label_replace(
+              (time() - node_boot_time_seconds{job="node-exporter"} < 3600)
+                * on (instance) group_left (nodename)
+              node_uname_info{job="node-exporter"},
+              "node", "$1", "nodename", "(.+)"
+            )
+            unless on (node)
+            (max_over_time(kube_node_spec_unschedulable{job="kube-state-metrics"}[90m]) > 0)
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Node {{ $labels.node }} rebooted without a cordon"
+            description: >-
+              {{ $labels.node }} booted less than an hour ago and was not
+              cordoned in the 90 minutes before, so this was not a rolling
+              reboot. On the node (Owner's key): `journalctl -k -b -1 -p warning`,
+              `ls /sys/fs/pstore /var/crash`, `last -x | head`.

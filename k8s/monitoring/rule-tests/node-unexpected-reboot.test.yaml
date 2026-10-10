@@ -1,0 +1,105 @@
+# promtool unit test for BifrostNodeUnexpectedReboot (W-38).
+# Run: make check-alert-rules. The rule file is extracted from the
+# PrometheusRule of the same name in k8s/monitoring by scripts/check_alert_rules.py.
+# promtool time starts at 0, so a boot long before the test is a negative boot time.
+rule_files:
+  - bifrost-node-unexpected-reboot-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: reboot without a cordon pages; a boot time that only jitters does not
+    interval: 1m
+    input_series:
+      # ubt-k3s-01 is down from 26m to 29m and boots at 30m (1800 s).
+      - series: 'node_boot_time_seconds{instance="192.168.10.73:9100",job="node-exporter"}'
+        values: '-86400x25 _x4 1800x70'
+      - series: 'node_uname_info{instance="192.168.10.73:9100",job="node-exporter",nodename="ubt-k3s-01"}'
+        values: '1x25 _x4 1x70'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="ubt-k3s-01"}'
+        values: '0x99'
+      # ubt-k3s-02 never reboots; btime moves by one second (changes() would count it).
+      - series: 'node_boot_time_seconds{instance="192.168.10.70:9100",job="node-exporter"}'
+        values: '-86400 -86399 -86400 -86399 -86400x95'
+      - series: 'node_uname_info{instance="192.168.10.70:9100",job="node-exporter",nodename="ubt-k3s-02"}'
+        values: '1x99'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="ubt-k3s-02"}'
+        values: '0x99'
+    alert_rule_test:
+      - eval_time: 29m
+        alertname: BifrostNodeUnexpectedReboot
+        exp_alerts: []
+      # Pending for the first 2 minutes after the boot.
+      - eval_time: 31m
+        alertname: BifrostNodeUnexpectedReboot
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: BifrostNodeUnexpectedReboot
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              instance: 192.168.10.73:9100
+              job: node-exporter
+              node: ubt-k3s-01
+              nodename: ubt-k3s-01
+            exp_annotations:
+              summary: "Node ubt-k3s-01 rebooted without a cordon"
+              description: "ubt-k3s-01 booted less than an hour ago and was not cordoned in the 90 minutes before, so this was not a rolling reboot. On the node (Owner's key): `journalctl -k -b -1 -p warning`, `ls /sys/fs/pstore /var/crash`, `last -x | head`."
+      - eval_time: 89m
+        alertname: BifrostNodeUnexpectedReboot
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              instance: 192.168.10.73:9100
+              job: node-exporter
+              node: ubt-k3s-01
+              nodename: ubt-k3s-01
+            exp_annotations:
+              summary: "Node ubt-k3s-01 rebooted without a cordon"
+              description: "ubt-k3s-01 booted less than an hour ago and was not cordoned in the 90 minutes before, so this was not a rolling reboot. On the node (Owner's key): `journalctl -k -b -1 -p warning`, `ls /sys/fs/pstore /var/crash`, `last -x | head`."
+      # Uptime passes one hour at 90m; the alert resolves.
+      - eval_time: 91m
+        alertname: BifrostNodeUnexpectedReboot
+        exp_alerts: []
+
+  - name: rolling reboot (cordoned before the drain, uncordoned after Ready) does not page
+    interval: 1m
+    input_series:
+      # rolling-reboot.sh: cordon at 20m, reboot, boot at 30m, uncordon at 40m.
+      - series: 'node_boot_time_seconds{instance="192.168.10.77:9100",job="node-exporter"}'
+        values: '-86400x25 _x4 1800x70'
+      - series: 'node_uname_info{instance="192.168.10.77:9100",job="node-exporter",nodename="ubt-k3s-05"}'
+        values: '1x25 _x4 1x70'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="ubt-k3s-05"}'
+        values: '0x19 1x19 0x60'
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: BifrostNodeUnexpectedReboot
+        exp_alerts: []
+      - eval_time: 45m
+        alertname: BifrostNodeUnexpectedReboot
+        exp_alerts: []
+      - eval_time: 89m
+        alertname: BifrostNodeUnexpectedReboot
+        exp_alerts: []
+
+  - name: no kube-state-metrics series for the node still pages
+    interval: 1m
+    input_series:
+      - series: 'node_boot_time_seconds{instance="192.168.10.79:9100",job="node-exporter"}'
+        values: '-86400x25 _x4 1800x70'
+      - series: 'node_uname_info{instance="192.168.10.79:9100",job="node-exporter",nodename="ubt-k3s-06"}'
+        values: '1x25 _x4 1x70'
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: BifrostNodeUnexpectedReboot
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              instance: 192.168.10.79:9100
+              job: node-exporter
+              node: ubt-k3s-06
+              nodename: ubt-k3s-06
+            exp_annotations:
+              summary: "Node ubt-k3s-06 rebooted without a cordon"
+              description: "ubt-k3s-06 booted less than an hour ago and was not cordoned in the 90 minutes before, so this was not a rolling reboot. On the node (Owner's key): `journalctl -k -b -1 -p warning`, `ls /sys/fs/pstore /var/crash`, `last -x | head`."
