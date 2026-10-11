@@ -99,13 +99,40 @@ CHECK_FIELDS = (("commit", str), ("tree", str), ("clean", bool), ("hidden", bool
 _SET_FIELDS = ("start_set", "consumed", "pinned", "sha_set")
 
 
+def set_delta(expected, actual) -> str | None:
+    """The one comparison of two repository records.
+
+    ``None`` means equal. Otherwise the first difference: ``shape``, ``commit``,
+    ``tree``, ``clean`` or ``hidden``. Callers use :func:`same_set` for the
+    boolean and this function only to name a difference that already failed it.
+    """
+    if not isinstance(expected, dict) or not isinstance(actual, dict):
+        return "shape"
+    if len(expected) == 0 or len(actual) == 0:
+        return "shape"
+    if set(expected) != set(actual):
+        return "shape"
+    for name in expected:
+        exp = expected[name]
+        act = actual[name]
+        if not isinstance(exp, dict) or not isinstance(act, dict):
+            return "shape"
+        if exp.get("commit") != act.get("commit"):
+            return "commit"
+        if exp.get("tree") != act.get("tree"):
+            return "tree"
+        if "clean" in exp or "clean" in act:
+            if exp.get("clean") != act.get("clean"):
+                return "clean"
+        if "hidden" in exp or "hidden" in act:
+            if exp.get("hidden") != act.get("hidden"):
+                return "hidden"
+    return None
+
+
 def same_set(expected: dict | None, actual: dict | None) -> bool:
     """Equality of two validated closed records. An empty record is not a set."""
-    if not isinstance(expected, dict) or not isinstance(actual, dict):
-        return False
-    if not expected or not actual:
-        return False
-    return expected == actual
+    return set_delta(expected, actual) is None
 
 
 def _field_ok(value: object, typ: type) -> bool:
@@ -215,32 +242,14 @@ def round_open(events: list[dict], rnd: int) -> dict | None:
     return rows[-1] if rows else None
 
 
-def _nonempty_pin(pinned: object) -> bool:
-    """A pin counts only when some repository has a commit. An empty set does not."""
-    if not isinstance(pinned, dict):
-        return False
-    for info in pinned.values():
-        if isinstance(info, dict) and isinstance(info.get("commit"), str) and info.get("commit"):
-            return True
-    return False
-
-
 def last_pinned_before(events: list[dict], rnd: int) -> dict:
-    """The newest implement pin before ``rnd`` that actually pinned something.
+    """The last complete pin accepted before ``rnd``. An empty pin does not count.
 
-    A later round whose implement recorded an empty pin (it did not start, or
-    it failed before pinning) must not erase the previous set.
+    A partial pin is not stored and is not filled in here.
     """
-    found: dict = {}
-    for event in events:
-        if event.get("type") != "step_recorded":
-            continue
-        body = exec_of(event)
-        if body.get("step") != "implement":
-            continue
-        if int(body.get("round", -1)) < rnd and _nonempty_pin(event.get("pinned")):
-            found = event["pinned"]
-    return found
+    from fold import fold_events
+
+    return fold_events(events).pin_before(int(rnd))
 
 
 def start_kind(events: list[dict], rnd: int) -> str:
@@ -261,39 +270,27 @@ def baseline_set(targets: dict | None) -> dict:
 
 
 def resolve_start_set(events: list[dict], rnd: int, targets: dict | None, start: str) -> dict:
-    """The start set recorded on ``round_opened``.
+    """The start set ``round_opened`` must carry. Delegates to the fold.
 
-    Round 1, and any round opened with ``start=baseline``, starts at the target
-    baseline. Later rounds start change repositories at the most recent
-    non-empty pinned set and context repositories at the target baseline.
-    An empty pin does not count.
+    Nothing is filled in from a later event or from a partial pin. Context
+    repositories stay on the target baseline (specification section 3);
+    change repositories take the last complete pin. An empty pin does not
+    replace that pin. With no pin yet, the start is the baseline.
     """
-    baseline = baseline_set(targets)
-    if int(rnd) <= 1 or start == "baseline":
-        return baseline
-    pinned = last_pinned_before(events, rnd)
-    start_set = {}
-    for name, meta in (targets or {}).items():
-        meta = meta if isinstance(meta, dict) else {}
-        prev = pinned.get(name) if isinstance(pinned.get(name), dict) else None
-        if meta.get("role") == "context" or not prev:
-            start_set[name] = dict(baseline[name])
-            continue
-        start_set[name] = {"commit": prev.get("commit"), "tree": prev.get("tree")}
-    return start_set
+    from fold import fold_events
+
+    return fold_events(events).required_start(int(rnd), start, targets)
 
 
 def expected_start(events: list[dict], rnd: int, targets: dict | None) -> dict:
-    """Where implement must have started. The manifest being judged is not an input.
+    """Where implement must have started, from the fold. Not from a raw event."""
+    from fold import fold_events
 
-    ``round_opened.start_set`` is the closed record written when the round opened.
-    """
-    opened = round_open(events, rnd) or {}
-    recorded = opened.get("start_set")
-    if isinstance(recorded, dict):
-        return recorded
-    mode = "baseline" if int(rnd) <= 1 or opened.get("start") == "baseline" else "pinned"
-    return resolve_start_set(events, rnd, targets, mode)
+    folded = fold_events(events)
+    found = folded.start_of(int(rnd))
+    if found:
+        return found
+    return folded.required_start(int(rnd), "baseline" if int(rnd) <= 1 else "pinned", targets)
 
 
 def round_defect(events: list[dict], rnd: int) -> str | None:

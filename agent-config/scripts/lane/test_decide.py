@@ -455,7 +455,7 @@ def test_reviewer_three_trees_round_1_are_not_passed(tmp_path):
     lane = make_lane(tmp_path, max_rounds=3)
     implement_ok(
         lane,
-        consumed={"repo": {"commit": A, "tree": T3}},
+        consumed=sha_set(A, TA),
         pre_checks=_three_pre(A),
         pinned=sha_set(B, TB),
     )
@@ -473,7 +473,7 @@ def test_reviewer_three_trees_after_baseline_are_not_passed(tmp_path):
     cmd_next_round(lane.root, lane.lane_id, brief=str(lane.brief), start="baseline")
     implement_ok(
         lane,
-        consumed={"repo": {"commit": A, "tree": T3}},
+        consumed=sha_set(A, TA),
         pre_checks=_three_pre(A),
         pinned=sha_set(B, TB),
     )
@@ -513,7 +513,7 @@ def test_reviewer_three_trees_on_a_context_repository_are_not_passed(tmp_path):
     }
     implement_ok(
         lane,
-        consumed={"repo": {"commit": A, "tree": TA}, "ctx": {"commit": A, "tree": T3}},
+        consumed={"repo": {"commit": A, "tree": TA}, "ctx": {"commit": A, "tree": TA}},
         pre_checks=pre,
         pinned={"repo": {"commit": B, "tree": TB}, "ctx": {"commit": A, "tree": TA}},
     )
@@ -533,7 +533,7 @@ def test_expected_side_missing_a_tree_is_not_passed(tmp_path):
     )
     status = lane.status()
     assert status["state"] != "passed"
-    assert status["reason"] == "evidence invalid: expected consumed incomplete in events"
+    assert status["reason"] == "evidence invalid: event 3 step_intent: consumed repo.tree missing"
     synthetic = decide(_mutate(_passed(), "expected", "start", "tree", "delete"))
     assert synthetic[0] != "passed"
     assert synthetic == ("unknown", "evidence invalid: expected start incomplete in events")

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from query import CLOSING_KINDS, SHA_FIELDS, STEPS, close_set, same_set, short_set
+from query import CLOSING_KINDS, SHA_FIELDS, STEPS, close_set, same_set, set_delta, short_set
 
 VERDICT_FAIL = "VERDICT: FAIL"
 VERDICT_PASS = "VERDICT: pass"
@@ -88,6 +88,7 @@ class RoundEvidence:
     order_defect: str | None = None
     start_kind: str = "baseline"
     expected_defect: str | None = None
+    fold_defect: str | None = None
 
 
 def decide(evidence: RoundEvidence) -> tuple[str, str | None]:
@@ -95,7 +96,9 @@ def decide(evidence: RoundEvidence) -> tuple[str, str | None]:
     if closing:
         row = closing[0]
         return "step_failed", f"{row['step']} closed as {row['kind']} by {row['operator']}: {row['reason']}"
-    if evidence.order_defect:
+    if evidence.fold_defect is not None:
+        return "unknown", evidence.fold_defect
+    if evidence.order_defect is not None:
         return "unknown", evidence.order_defect
     gap = _expected_gap(evidence)
     if gap is not None:
@@ -159,7 +162,7 @@ def _eval_step(evidence: RoundEvidence, step: StepView) -> tuple[str, str] | Non
 
 def _expected_gap(evidence: RoundEvidence) -> tuple[str, str] | None:
     """The expected side is a closed record, or the round's evidence is invalid."""
-    if evidence.expected_defect:
+    if evidence.expected_defect is not None:
         return "unknown", evidence.expected_defect
     if not evidence.targets:
         return None
@@ -265,7 +268,7 @@ def _precheck(evidence: RoundEvidence, step: StepView) -> tuple[str, str] | None
     hit = _consumed_shape(step, evidence.targets)
     if hit is not None:
         return hit
-    if "ok" in pre and pre.get("ok") is not True:
+    if pre.get("ok") is not True:
         reason = pre.get("reason") or "pre-check failed"
         return "step_failed", f"{step.name} did not start: {reason}"
     return None
@@ -294,18 +297,18 @@ def _role(evidence: RoundEvidence, repo: str) -> str | None:
     return (evidence.targets.get(repo) or {}).get("role")
 
 
-def _start_failure(repo: str, role: str | None, got: dict, want: dict) -> tuple[str, str]:
+def _start_failure(repo: str, role: str | None, got: dict, want: dict, delta: str) -> tuple[str, str]:
     if role == "context":
         return "step_failed", f"context repository {repo} moved"
-    if got["commit"] != want["commit"]:
+    if delta == "commit":
         return "step_failed", f"implement did not start: {repo} HEAD {got['commit']} != expected {want['commit']}"
     return "step_failed", f"implement did not start: {repo} tree {got['tree']} != expected {want['tree']}"
 
 
-def _recorded_failure(repo: str, role: str | None, got: dict, want: dict) -> tuple[str, str]:
+def _recorded_failure(repo: str, role: str | None, got: dict, want: dict, delta: str) -> tuple[str, str]:
     if role == "context":
         return "step_failed", f"context repository {repo} moved"
-    if got["commit"] != want["commit"]:
+    if delta == "commit":
         return "step_failed", f"implement did not start: {repo} expected {got['commit']} != {want['commit']}"
     return "step_failed", f"implement did not start: {repo} expected tree {got['tree']} != {want['tree']}"
 
@@ -316,11 +319,15 @@ def _start_matches(evidence: RoundEvidence, step: StepView) -> tuple[str, str] |
     if gap is not None:
         return gap
     found = (step.pre_checks or {}).get("repos") or {}
+    if step.name == "implement" and (step.pre_checks or {}).get("kind") != evidence.start_kind:
+        got = (step.pre_checks or {}).get("kind")
+        return "step_failed", f"implement did not start: start kind {got} != {evidence.start_kind}"
     for repo in sorted(evidence.targets):
         info = found[repo]
         role = _role(evidence, repo)
-        if not same_set(_one(repo, _sha(info)), _one(repo, want[repo])):
-            return _start_failure(repo, role, info, want[repo])
+        delta = set_delta(_one(repo, _sha(info)), _one(repo, want[repo]))
+        if delta is not None:
+            return _start_failure(repo, role, info, want[repo], delta)
         clean = {**want[repo], "clean": True, "hidden": False}
         if not same_set(_one(repo, _check(info)), _one(repo, clean)):
             if info["clean"] is not True:
@@ -329,13 +336,15 @@ def _start_matches(evidence: RoundEvidence, step: StepView) -> tuple[str, str] |
         if info["kind"] != evidence.start_kind:
             return "step_failed", f"implement did not start: {repo} start kind {info['kind']} != {evidence.start_kind}"
         recorded = info["expected"]
-        if not same_set(_one(repo, _sha(recorded)), _one(repo, want[repo])):
-            return _recorded_failure(repo, role, recorded, want[repo])
+        delta = set_delta(_one(repo, _sha(recorded)), _one(repo, want[repo]))
+        if delta is not None:
+            return _recorded_failure(repo, role, recorded, want[repo], delta)
     consumed = step.consumed or {}
     for repo in sorted(evidence.targets):
         info = consumed[repo]
-        if not same_set(_one(repo, _sha(info)), _one(repo, want[repo])):
-            return _start_failure(repo, _role(evidence, repo), info, want[repo])
+        delta = set_delta(_one(repo, _sha(info)), _one(repo, want[repo]))
+        if delta is not None:
+            return _start_failure(repo, _role(evidence, repo), info, want[repo], delta)
     return None
 
 
@@ -429,6 +438,11 @@ def _pin(evidence: RoundEvidence, step: StepView) -> tuple[str, str] | None:
     change = [repo for repo, meta in evidence.targets.items() if meta.get("role") == "change"]
     if not change or all((pinned.get(repo) or {}).get("commit") == evidence.targets[repo].get("target_sha") for repo in change):
         return "step_failed", "implement produced no commit"
+    for repo in change:
+        # A commit identifies one tree. Staying on the start commit while the
+        # tree changes is not a pin, including when another repository did move.
+        if set_delta(_one(repo, _sha(pinned[repo])), _one(repo, want[repo])) == "tree":
+            return "unknown", f"evidence invalid: {repo} commit unchanged but tree changed"
     export_moved = checks.get("export_moved") or []
     if export_moved:
         return "step_failed", f"cannot export {export_moved[0]}: HEAD moved"
@@ -442,8 +456,10 @@ def _pin(evidence: RoundEvidence, step: StepView) -> tuple[str, str] | None:
     for item in evidence.rejected:
         if int(item.get("round") or 0) >= evidence.round_no:
             continue
-        rejected, _rejected_detail = close_set(item.get("sha_set"), evidence.targets, SHA_FIELDS)
-        if rejected is not None and same_set(pinned, rejected):
+        rejected, detail = close_set(item.get("sha_set"), evidence.targets, SHA_FIELDS)
+        if detail is not None:
+            return "unknown", "evidence invalid: expected sha_set incomplete in events"
+        if same_set(pinned, rejected):
             return "step_failed", f"no new commit since round {item['round']} said fix first"
     return None
 

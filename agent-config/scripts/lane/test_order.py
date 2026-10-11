@@ -39,7 +39,7 @@ def test_t22_reader_rejects_duplicate_and_disorder(tmp_path):
     append_obj(hidden.dir, clone)
     status = hidden.status()
     assert status["state"] == "unknown"
-    assert status["reason"] == "evidence invalid: duplicate attempt for implement"
+    assert status["reason"] == "evidence invalid: event 12 step_recorded: duplicate attempt for implement"
     assert status["display"] != "verdict_pending (passed)"
 
     rejected = make_lane(tmp_path, "R", max_rounds=3)
@@ -53,14 +53,14 @@ def test_t22_reader_rejects_duplicate_and_disorder(tmp_path):
     append_obj(rejected.dir, second)
     status = rejected.status()
     assert status["state"] == "unknown"
-    assert status["reason"] == "evidence invalid: duplicate attempt for review"
+    assert status["reason"] == "evidence invalid: event 12 step_recorded: duplicate attempt for review"
 
     fresh = make_lane(tmp_path, "O")
     append_obj(
         fresh.dir,
         {"type": "step_intent", "exec": make_exec(fresh.lane_id, 1, "verify", "v-only"), "intent_sha256": "ab" * 32},
     )
-    assert fresh.status()["reason"] == "events out of order: verify before implement"
+    assert fresh.status()["reason"] == "evidence invalid: event 3 step_intent: verify before implement"
 
     bare = make_lane(tmp_path, "B")
     append_obj(
@@ -76,7 +76,7 @@ def test_t22_reader_rejects_duplicate_and_disorder(tmp_path):
             "bundles": {},
         },
     )
-    assert bare.status()["reason"] == "events out of order: implement recorded without a matching intent"
+    assert bare.status()["reason"] == "evidence invalid: event 3 step_recorded: implement recorded without a matching intent"
 
     dup_intent = make_lane(tmp_path, "D")
     open_intent_only(dup_intent.dir)
@@ -85,7 +85,7 @@ def test_t22_reader_rejects_duplicate_and_disorder(tmp_path):
     again["exec"] = dict(opened["exec"])
     again["exec"]["attempt_id"] = "other-intent"
     append_obj(dup_intent.dir, again)
-    assert dup_intent.status()["reason"] == "evidence invalid: duplicate attempt for implement"
+    assert dup_intent.status()["reason"] == "evidence invalid: event 4 step_intent: duplicate attempt for implement"
 
 
 def test_t22_recorder_refuses_each_second_attempt(tmp_path):
@@ -135,8 +135,8 @@ def test_t31_wrong_start_is_not_passed(tmp_path):
         pre_checks=passing_prechecks("implement", wrong),
         bundle_bytes={"repo": b"bundle"},
     )
-    assert lane.status()["state"] == "step_failed"
-    assert lane.status()["reason"] == f"implement did not start: repo HEAD {B} != expected {A}"
+    assert lane.status()["state"] == "unknown"
+    assert lane.status()["reason"] == "evidence invalid: event 3 step_intent: consumed does not equal the current set"
     assert lane.status()["state"] != "passed"
 
 
@@ -211,8 +211,9 @@ def test_empty_pin_keeps_the_previous_start(tmp_path):
         pre_checks=passing_prechecks("implement", sha_set(A, TA), kind="pinned", expected=sha_set(A, TA)),
         bundle_bytes={"repo": b"bundle"},
     )
-    assert lane.status()["state"] == "step_failed"
-    assert lane.status()["reason"] == f"implement did not start: repo HEAD {A} != expected {B}"
+    assert lane.status()["state"] == "unknown"
+    assert lane.status()["reason"] == "evidence invalid: event 12 step_intent: consumed does not equal the current set"
+    assert lane.status()["state"] != "passed"
 
 
 def test_failed_implement_that_pinned_nothing_keeps_the_start(tmp_path):

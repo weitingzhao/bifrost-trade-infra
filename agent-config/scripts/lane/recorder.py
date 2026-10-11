@@ -348,6 +348,9 @@ def _open_intent(lane_dir: Path, step: str) -> dict:
     }
     root = make_attempt(lane_dir, rnd, step, attempt)
     info = _created_fields(lane_dir)
+    from fold import fold_events
+
+    consumed = fold_events(events).consumed_for(rnd, step) or {}
     intent = {
         "exec": exec_body,
         "step_order": list(STEPS),
@@ -357,14 +360,14 @@ def _open_intent(lane_dir: Path, step: str) -> dict:
         "config_sha256": info.get("config_sha256"),
         "pinned_files": info.get("pinned_files") or {},
         "repos": info.get("repos") or {},
-        "consumed": {},
+        "consumed": consumed,
         "pre_checks": {},
         "limit_seconds": 3600,
     }
     intent_sha = publish_json_doc(root / "rec" / "intent.json", intent)
     append_obj(
         lane_dir,
-        {"type": "step_intent", "exec": exec_body, "intent_sha256": intent_sha, "consumed": {}},
+        {"type": "step_intent", "exec": exec_body, "intent_sha256": intent_sha, "consumed": consumed},
     )
     return exec_body
 

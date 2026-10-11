@@ -177,6 +177,10 @@ def assess_attempt(lane_dir: Path, intent_event: dict | None, recorded: dict | N
     if kind == "invalid":
         problems.append("manifest shape")
         return {"problems": problems, "manifest": manifest}
+    unknown = manifest_unknown(manifest)
+    if unknown:
+        problems.append(unknown)
+        return {"problems": problems, "manifest": manifest}
     if (manifest.get("exec") or {}) != exec_body:
         problems.append("exec mismatch")
     if manifest.get("intent_sha256") != intent_sha:
@@ -187,6 +191,107 @@ def assess_attempt(lane_dir: Path, intent_event: dict | None, recorded: dict | N
     return {"problems": problems, "manifest": manifest}
 
 
+_TOP = frozenset({
+    "exec", "intent_sha256", "not_started", "exit", "termination", "started_at", "ended_at",
+    "outputs", "checks", "fields", "consumed", "pre_checks", "pinned", "bundles", "notes",
+})
+_EXEC = frozenset({"lane_id", "round", "step", "step_index", "attempt_id"})
+_EXIT = frozenset({"code", "signal"})
+_OUTPUT = frozenset({"stdout", "stderr", "report"})
+_FILE = frozenset({"length", "sha256"})
+_REPORT = frozenset({"present", "length", "sha256"})
+_PRE = frozenset({"ok", "repos", "kind", "reason"})
+_CHECK_KEYS = frozenset({
+    "repos", "snapshot_changed", "hidden_flags", "git_failed", "pin_error",
+    "replace_or_grafts", "submodules", "export_moved",
+})
+_PIN_ERROR = frozenset({"repo", "error"})
+_FIELDS = frozenset({"stdout_last_line", "report_first_line", "report_last_line", "p1", "p2", "p3"})
+_SHA = frozenset({"commit", "tree"})
+_REPO = frozenset({"commit", "tree", "clean", "hidden", "kind", "expected", "consumed"})
+_NOT_STARTED = frozenset({"check", "repo", "reason"})
+
+
+def _extra(obj, allowed: frozenset) -> str | None:
+    if not isinstance(obj, dict):
+        return None
+    unknown = sorted(set(obj) - allowed)
+    if unknown:
+        return unknown[0]
+    return None
+
+
+def manifest_unknown(obj: dict) -> str | None:
+    """A key the manifest shape does not list. ``None`` when every key is known."""
+    found = _extra(obj, _TOP)
+    if found:
+        return f"{found} unknown"
+    found = _extra(obj.get("exec"), _EXEC)
+    if found:
+        return f"exec.{found} unknown"
+    exit_body = obj.get("exit")
+    if isinstance(exit_body, dict):
+        found = _extra(exit_body, _EXIT)
+        if found:
+            return f"exit.{found} unknown"
+    not_started = obj.get("not_started")
+    if isinstance(not_started, dict):
+        found = _extra(not_started, _NOT_STARTED)
+        if found:
+            return f"not_started.{found} unknown"
+    outputs = obj.get("outputs")
+    if isinstance(outputs, dict):
+        found = _extra(outputs, _OUTPUT)
+        if found:
+            return f"outputs.{found} unknown"
+        for name in ("stdout", "stderr"):
+            found = _extra(outputs.get(name), _FILE)
+            if found:
+                return f"outputs.{name}.{found} unknown"
+        found = _extra(outputs.get("report"), _REPORT)
+        if found:
+            return f"outputs.report.{found} unknown"
+    found = _extra(obj.get("fields"), _FIELDS)
+    if found:
+        return f"fields.{found} unknown"
+    found = _extra(obj.get("checks"), _CHECK_KEYS)
+    if found:
+        return f"checks.{found} unknown"
+    checks = obj.get("checks") if isinstance(obj.get("checks"), dict) else {}
+    found = _extra(checks.get("pin_error"), _PIN_ERROR)
+    if found:
+        return f"checks.pin_error.{found} unknown"
+    found = _extra(obj.get("pre_checks"), _PRE)
+    if found:
+        return f"pre_checks.{found} unknown"
+    for label in ("pinned", "consumed", "bundles"):
+        body = obj.get(label)
+        if not isinstance(body, dict):
+            continue
+        for repo, info in body.items():
+            if not isinstance(info, dict):
+                return f"{label}.{repo} type"
+            allowed = _FILE if label == "bundles" else _SHA
+            found = _extra(info, allowed)
+            if found:
+                return f"{label}.{repo}.{found} unknown"
+    pre = obj.get("pre_checks") if isinstance(obj.get("pre_checks"), dict) else {}
+    repos = pre.get("repos") if isinstance(pre.get("repos"), dict) else {}
+    post = checks.get("repos") if isinstance(checks.get("repos"), dict) else {}
+    for label, body in (("pre_checks", repos), ("checks", post)):
+        for repo, info in body.items():
+            if not isinstance(info, dict):
+                return f"{label}.{repo} type"
+            found = _extra(info, _REPO)
+            if found:
+                return f"{label}.{repo}.{found} unknown"
+            for side in ("expected", "consumed"):
+                found = _extra(info.get(side), _SHA)
+                if found:
+                    return f"{label}.{repo}.{side}.{found} unknown"
+    return None
+
+
 def json_loads(text: str):
     from fsutil import loads_strict
 
@@ -194,6 +299,42 @@ def json_loads(text: str):
     if not isinstance(obj, dict):
         raise ValueError("object")
     return obj
+
+
+def _pre_problem(manifest: dict, recorded: dict) -> str | None:
+    """A ran manifest's pre-check has to be the set the event says it consumed."""
+    if manifest.get("not_started") is not None:
+        return None
+    if not isinstance(manifest.get("termination"), str) or manifest.get("termination") == "":
+        return "termination missing"
+    pre = manifest.get("pre_checks")
+    if not isinstance(pre, dict) or pre.get("ok") is not True:
+        return "pre_checks missing"
+    step = (recorded.get("exec") or {}).get("step")
+    if step == "implement" and (not isinstance(pre.get("kind"), str) or pre.get("kind") == ""):
+        return "pre_checks.kind missing"
+    repos = pre.get("repos")
+    consumed = recorded.get("consumed") if isinstance(recorded.get("consumed"), dict) else None
+    if not isinstance(repos, dict) or not isinstance(consumed, dict) or set(repos) != set(consumed):
+        return "pre_checks.repos missing"
+    for name, want in consumed.items():
+        info = repos.get(name)
+        want = want if isinstance(want, dict) else {}
+        if not isinstance(info, dict):
+            return f"pre_checks.{name} missing"
+        if info.get("commit") != want.get("commit") or info.get("tree") != want.get("tree"):
+            return f"pre_checks.{name} sha"
+        if info.get("clean") is not True or info.get("hidden") is not False:
+            return f"pre_checks.{name} clean"
+        if step == "implement":
+            if info.get("kind") != pre.get("kind"):
+                return f"pre_checks.{name}.kind missing"
+            side = info.get("expected")
+        else:
+            side = info.get("consumed")
+        if not isinstance(side, dict) or side.get("commit") != want.get("commit") or side.get("tree") != want.get("tree"):
+            return f"pre_checks.{name} expected"
+    return None
 
 
 def _facts_match(manifest: dict, recorded: dict) -> bool:
@@ -244,7 +385,14 @@ def _output_problems(root: Path, manifest: dict, step: str) -> list[str]:
                 if length != report.get("length") or digest != report.get("sha256"):
                     problems.append("report changed")
     if step == "implement":
-        for repo, spec in (manifest.get("bundles") or {}).items():
+        bundles = manifest.get("bundles") or {}
+        if not isinstance(bundles, dict):
+            problems.append("bundle changed")
+            return problems
+        for repo, spec in bundles.items():
+            if not isinstance(spec, dict):
+                problems.append("bundle changed")
+                break
             got = _file_digest(root / "rec" / f"{repo}.bundle")
             if got is None:
                 problems.append("bundle missing")

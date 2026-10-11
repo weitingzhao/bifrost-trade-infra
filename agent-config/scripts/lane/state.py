@@ -9,6 +9,7 @@ from pathlib import Path
 from decide import RoundEvidence, StepView, decide
 from events import Log, load_file
 from evidence import assess_attempt
+from fold import fold_events
 from query import (
     CLOSING_KINDS,
     PROGRESS_NAME,
@@ -20,14 +21,9 @@ from query import (
     current_round,
     events_for_step,
     exec_of,
-    expected_incomplete,
-    expected_start,
     max_rounds,
-    start_kind as round_start_kind,
     opened_count,
-    rejected_sets,
     resolutions,
-    round_defect,
     verdict_event,
 )
 from table import settle
@@ -134,9 +130,23 @@ def lane_state(events, assessed, driver: bool, invalid_seq, last_valid_seq, aban
         view["display"] = "unknown"
         view["reason"] = "event log invalid at seq 1"
         return view
+    folded = fold_events(events)
     view["has_closing"] = bool(closing_resolutions(events, rnd))
-    evidence = _round_evidence(events, assessed, rnd, view["targets"])
+    evidence = _round_evidence(events, assessed, rnd, view["targets"], folded)
     result, reason = decide(evidence)
+    if result == "passed":
+        from evidence import _pre_problem
+
+        for event in events:
+            if event.get("type") != "step_recorded":
+                continue
+            row = assessed.get(exec_of(event).get("attempt_id")) or {}
+            trouble = row.get("problems") or []
+            manifest = row.get("manifest")
+            gap = _pre_problem(manifest, event) if isinstance(manifest, dict) else None
+            if trouble or gap:
+                result, reason = "unknown", f"evidence invalid: {(trouble or [gap])[0]}"
+                break
     view["decide_result"] = result
     view["decide_reason"] = reason
     view["sha_set"] = _pinned_event(events, rnd)
@@ -144,6 +154,8 @@ def lane_state(events, assessed, driver: bool, invalid_seq, last_valid_seq, aban
     view["notes"] = _notes(events, assessed, rnd)
     _mark_problem(view, rnd)
     verdict = verdict_event(events, rnd)
+    if verdict is not None and folded.defect_seq is not None and int(verdict.get("seq") or 0) >= folded.defect_seq:
+        verdict = None
     if verdict is not None:
         view["has_verdict"] = True
         view["verdict_result"] = verdict.get("result")
@@ -264,7 +276,7 @@ def _open_step(view: dict, rnd: int) -> tuple[str, str] | None:
     return None
 
 
-def _round_evidence(events, assessed, rnd: int, targets: dict) -> RoundEvidence:
+def _round_evidence(events, assessed, rnd: int, targets: dict, folded) -> RoundEvidence:
     steps = {}
     for name in STEPS:
         grouped = events_for_step(events, rnd, name)
@@ -272,27 +284,29 @@ def _round_evidence(events, assessed, rnd: int, targets: dict) -> RoundEvidence:
         started = grouped["step_started"][0] if grouped["step_started"] else None
         recorded = grouped["step_recorded"][0] if grouped["step_recorded"] else None
         steps[name] = _step_view(name, intent, started, recorded, assessed)
-    rows = []
-    for row in resolutions(events, rnd):
-        rows.append(
-            {
-                "step": row.get("step"),
-                "kind": row.get("kind"),
-                "operator": row.get("operator"),
-                "reason": row.get("reason"),
-                "attempt_id": row.get("attempt_id"),
-            }
-        )
+    rows = folded.resolutions_of(rnd)
+    if not rows:
+        for row in resolutions(events, rnd):
+            if folded.defect_seq is not None and int(row.get("seq") or 0) >= folded.defect_seq:
+                continue
+            rows.append(
+                {
+                    "step": row.get("step"),
+                    "kind": row.get("kind"),
+                    "operator": row.get("operator"),
+                    "reason": row.get("reason"),
+                    "attempt_id": row.get("attempt_id"),
+                }
+            )
     return RoundEvidence(
         round_no=rnd,
         steps=steps,
         targets=targets,
-        rejected=tuple(rejected_sets(events)),
+        rejected=tuple(folded.rejected),
         resolutions=tuple(rows),
-        expected_start=expected_start(events, rnd, targets),
-        order_defect=round_defect(events, rnd),
-        start_kind=round_start_kind(events, rnd),
-        expected_defect=expected_incomplete(events),
+        expected_start=folded.start_of(rnd) or folded.required_start(rnd, folded.start_kind_of(rnd), targets),
+        start_kind=folded.start_kind_of(rnd),
+        fold_defect=folded.defect,
     )
 
 

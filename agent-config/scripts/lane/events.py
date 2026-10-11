@@ -102,17 +102,17 @@ def load_bytes(data: bytes) -> Log:
     lines = prefix.split(b"\n")[:-1]
     prev = GENESIS
     for index, line in enumerate(lines):
-        expected = index + 1
+        want_seq = index + 1
         try:
             digest, obj = parse_line(line)
         except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
-            log.invalid_seq = _seq_hint(line, expected)
-            log.last_valid_seq = expected - 1 if expected > 1 else 0
+            log.invalid_seq = _seq_hint(line, want_seq)
+            log.last_valid_seq = want_seq - 1 if want_seq > 1 else 0
             return log
         seq = obj.get("seq")
-        if seq != expected or obj.get("prev_sha256") != prev:
-            log.invalid_seq = seq if isinstance(seq, int) else expected
-            log.last_valid_seq = expected - 1 if expected > 1 else 0
+        if seq != want_seq or obj.get("prev_sha256") != prev:
+            log.invalid_seq = seq if isinstance(seq, int) else want_seq
+            log.last_valid_seq = want_seq - 1 if want_seq > 1 else 0
             return log
         log.events.append(obj)
         log.digests.append(digest)
