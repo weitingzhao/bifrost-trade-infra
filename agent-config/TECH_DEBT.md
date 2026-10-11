@@ -1778,7 +1778,7 @@
 
 **P2 · ops-platform · approval notifications push agent-written text with bidirectional and control characters intact: `Redact` only removes secret shapes, so a U+202E in a request summary reaches the title on the Owner's phone**
 
-- **状态**：停（2026-10-11 试了三轮，三次独立复核都还有要改的，按预算停线；分支 `w31/td-306-307` 放弃，`w31/td-306-b` `e7a4935` 不合并。重开要 Owner 一句「TD-306 继续」。下面「三轮之后」是下一次的做法。原记录：W-65 第零片的钉输出测试 2026-10-11 钉出来的；与那次改动无关，改动前后行为相同）
+- **状态**：在做（2026-10-11 13:28：换了第五种做法，只改发送那道门——组合出来的标题或正文里有隐藏字符，发出去的整条换成服务器自己写的字；上游的脱敏、问题记录、审批记录、各组合函数和 Console 一处不动。分支 `w31/td-306-d` `d7802d0`，统筹方验收通过，Codex 复核 70：可以合并，没有必须改和应该改的。正在合到当前主线并重跑验收，随下一次平台发布上线，上线后进「待你签收」。之前四种做法（`w31/td-306-307`、`-b`、`-c` 三个分支）都放弃，不合并；为什么不行见下面「三轮之后」和教训第 74、75 行。复核 70 的三处次要问题和别的推送出口记成 TD-311）
 - **Claim**: `approvalnotify.Compose` builds the push title and body from the request's summary and params and passes them through `Redact`, which is only the secret-shape regexes. Control characters, bidi controls (U+202A–U+202E, U+2066–U+2069, U+061C, U+200E, U+200F) and zero-width characters written by the requesting agent are sent as they are. The approval line shown on the Console is escaped visibly (`approvals/line.go` `escapeVisible`); the notification is not.
 - **Measured**: MEASURED 2026-10-11 by a pin test on the untouched tree: `Compose(KindCreated)` for a summary containing U+202E returns the title `Decide · #7 · Sync <U+202E> app token=[redacted]` — the secret is redacted, the override character is still there.
 - **Evidence**: `bifrost-platform` branch `w31/w65-slice0`, commit `6fbd09a`, `api/internal/approvalnotify/pin_test.go` (the Decide row); `api/internal/approvalnotify/redact.go`; `api/internal/approvals/line.go` (what the Console does instead).
@@ -1844,6 +1844,20 @@
 - **Ratchet**: a platform test that `Freeze` is refused while `Anchor` is empty; a `release.sh` test for the same; a line in the release checklist that the drill's unfreeze half has passed since the last change to the anchor.
 - 验收: with an anchor compiled in: `scripts/release/release.sh freeze --reason drill` then `scripts/release/release.sh unfreeze` (Owner signs) → `policy status` shows `frozen False` and a STG deliver run passes `freeze-check`; with no anchor: `freeze` exits non-zero and changes nothing
 - 审批 要批（信任锚变更和一次平台发版）· 代价 S · 风险 med · repos: bifrost-platform, bifrost-trade-infra
+
+### TD-311
+
+**P3 · ops-platform · the send door's follow-ups: push paths that do not pass through it, an incomplete hidden-character set, agent-written ids in its log line, and a corpus test that stops one step short of the relay**
+
+- **状态**：未开始（2026-10-11 复核 70 留下的，都不挡 TD-306 合并）
+- **Claim**: TD-306 put one predicate at `notice.Send`. Review 70 found four things outside what that round set out to do. (1) `notice.Send` is not the only place a push leaves: `api/internal/alertrelay/relay.go` `publish` posts to ntfy on its own (Alertmanager alerts, heartbeat missing / recovered, direct `/alerts/notify`), and `scripts/agent/peer_watchdog.sh` curls ntfy directly; none of these check for hidden characters. Their text comes from alert labels, annotations and configuration, not from an agent's request, which is why this is P3. (2) `HasHidden` does not include U+2800, U+3164, U+FFA0, U+17B4, U+17B5, U+206A–U+206F, U+180B–U+180D, U+180F, U+E0100–U+E01EF. (3) The `notice withheld` log line carries the thread key or host name as `id`; those are agent-reported and are not redacted (they are emptied only when they themselves contain a hidden character). (4) The 100,000-string clean-corpus tests compare `Posted` with the composer, not what the fake relay received.
+- **Measured**: NOT MEASURED by the coordinator; read from review 70 (`work/multi-agent/reviews/codex-2026-10-11-review70-td306-send-door.md`), which cites `api/internal/notice/hide.go:85`, `:118`, `api/internal/approvalnotify/door_test.go:146`, `api/internal/alertrelay/relay.go:398`, `scripts/agent/peer_watchdog.sh:40`.
+- **Evidence**: the review file above; `bifrost-platform` branch `w31/td-306-d` `d7802d0`.
+- **Impact**: low. An alert whose label or annotation carries a hidden character would reach the phone as written; a thread key chosen by an agent appears in one warning log line.
+- **Fix**: route `alertrelay`'s publish through the same predicate with a server-written fallback (`Alert · <alertname>` is itself label text — use the alert's fingerprint); add the missing code points with tests; log a digest of the thread key or host name instead of the value; add a bounded Send → fake relay pass over the clean corpus.
+- **Ratchet**: a test that lists every call site that posts to the push endpoint and fails when one does not go through `notice.Send` (a source scan with a positive control).
+- 验收: `cd bifrost-platform/api && go test ./internal/notice/ ./internal/alertrelay/ ./internal/approvalnotify/`
+- 审批 无（代码改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
 ## 没覆盖到的（下一轮从这里开始）
 
