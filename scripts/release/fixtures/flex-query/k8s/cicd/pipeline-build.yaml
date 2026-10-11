@@ -1,6 +1,6 @@
 # Snapshot of bifrost-platform-plugin-flex-query/k8s/cicd/pipeline-build.yaml
-# on 2026-10-11, for the freeze ratchet. This repository does not apply it.
-# The sibling pipeline still has no freeze check; that miss is a known gap.
+# as it was on main before the freeze check was added (2026-10-11).
+# The checker must still report kaniko as not dominated. This repository does not apply it.
 # Build bifrost-flex-query image: Gitea mirror → clone core+plugin → Kaniko.
 apiVersion: tekton.dev/v1
 kind: Pipeline

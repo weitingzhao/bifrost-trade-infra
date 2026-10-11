@@ -70,12 +70,13 @@ def first_task_name(pipeline_yaml: str) -> str | None:
 
 
 def assert_guarded_pipelines_release_window_first() -> None:
-    """TD-263: every MUST_HOLD pipeline still runs release-window before its build.
+    """TD-263: every MUST_HOLD pipeline runs release-window after the freeze check.
 
-    In this repo the fail-closed freeze check is the first task and release-window
-    runs after it. flex-query YAML lives in bifrost-platform-plugin-flex-query and
-    still starts at release-window — set BIFROST_WORKSPACE or FLEX_QUERY_ROOT when
-    this repo is checked out without its sibling. Slice B does not edit that file.
+    The fail-closed freeze check is the first task and release-window runs after
+    it, including bifrost-build-flex-query. That YAML lives in
+    bifrost-platform-plugin-flex-query. Set BIFROST_WORKSPACE (default: the
+    parent of this repository) or FLEX_QUERY_ROOT when the sibling checkout is
+    elsewhere.
     """
     paths = collect_build_deliver_pipeline_paths()
     for pipeline in sorted(wd.MUST_HOLD):
@@ -91,14 +92,6 @@ def assert_guarded_pipelines_release_window_first() -> None:
         first = first_task_name(text)
         label = path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
         block = task_block(text, "release-window")
-        if pipeline == "bifrost-build-flex-query":
-            # That pipeline lives in another repo. Slice B does not edit it.
-            check(
-                first == "release-window",
-                f"{label}: first task is {first!r}, want release-window ({pipeline})",
-            )
-            check("runAfter" not in block, f"{label}: release-window is not the first task ({pipeline})")
-            continue
         check(
             first == "freeze-check",
             f"{label}: first task is {first!r}, want freeze-check ({pipeline})",
