@@ -1,0 +1,401 @@
+"""``publish_view(document, host) -> document`` inside the platform's limits.
+
+Pure. The bytes are the compact UTF-8 JSON a publisher would send, host
+already inside it, with no second parse. Commands are not in that JSON:
+the item keeps ``commands_at`` and ``commands_count`` instead.
+"""
+
+from __future__ import annotations
+
+import copy
+import json
+import math
+import re
+
+from model import (
+    PLATFORM_HOST_RE,
+    PLATFORM_MAX_FEED,
+    PLATFORM_MAX_STEPS,
+    PLATFORM_MAX_WORKS,
+    PUBLISH_FEED_REDUCED,
+    PUBLISH_MAX_FEED,
+    PUBLISH_MAX_OWNER_ALL,
+    PUBLISH_TARGET_BYTES,
+    PUBLISH_UNFINISHED_KEEP,
+    PUBLISH_UNKNOWN_REASONS,
+    SENSITIVE_KEY_PARTS,
+)
+
+_HOST = re.compile(PLATFORM_HOST_RE)
+_STEP_ORDER = {
+    "unknown": 0,
+    "dead": 1,
+    "failed": 2,
+    "quiet": 3,
+    "slow": 4,
+    "running": 5,
+    "waiting": 6,
+    "done": 7,
+}
+_ENDED = {"done", "failed"}
+_SUMMARY_STATES = ("dead", "done", "failed", "quiet", "running", "slow", "unknown", "waiting")
+
+
+def publish_view(document: dict, host: str | None = None) -> dict:
+    doc = copy.deepcopy(document) if isinstance(document, dict) else {"at": 0}
+    doc = _drop_nulls(doc)
+    _drop_sensitive(doc)
+    if host and isinstance(host, str) and _HOST.match(host):
+        doc["host"] = host
+    else:
+        doc.pop("host", None)
+    original_works = list(doc.get("works") or [])
+    original_owner = list(doc.get("owner_all") or [])
+    original_feed = list(doc.get("feed") or [])
+    original_feed_len = len(original_feed)
+    owner_ids = _owner_ids(original_owner)
+    kept_works, omitted_works = _trim_works(original_works, owner_ids)
+    for work in kept_works:
+        _trim_steps(work)
+    feed_cap = min(PUBLISH_MAX_FEED, PLATFORM_MAX_FEED)
+    feed = original_feed[-feed_cap:] if len(original_feed) > feed_cap else list(original_feed)
+    owner, structural_cut = _trim_owner(original_owner)
+    owner = [_strip_commands(item) for item in owner]
+    doc["works"] = kept_works
+    doc["feed"] = feed
+    doc["owner_all"] = owner
+    doc["works_total"] = _works_total(original_works)
+    incomplete = []
+    if omitted_works["open"] or omitted_works["closed"]:
+        doc["omitted_works"] = omitted_works
+        if omitted_works["open"]:
+            incomplete.append("works")
+    else:
+        doc.pop("omitted_works", None)
+    if structural_cut:
+        doc["owner_all_cut"] = structural_cut
+        incomplete.append("owner_all")
+    else:
+        doc.pop("owner_all_cut", None)
+    if len(original_feed) > feed_cap:
+        incomplete.append("feed")
+    doc["incomplete"] = sorted(set(incomplete))
+    if not doc["incomplete"]:
+        doc.pop("incomplete")
+    commands_stripped = any("commands" in item for item in original_owner)
+    cut = _anything_cut(doc, original_works, original_owner, original_feed) or commands_stripped
+    level = _fit(doc, owner)
+    if level:
+        doc["reduced"] = level
+        cut = True
+    if original_feed_len > len(doc.get("feed") or []):
+        doc["feed_cut"] = original_feed_len - len(doc.get("feed") or [])
+        inc = list(doc.get("incomplete") or [])
+        inc.append("feed")
+        doc["incomplete"] = sorted(set(inc))
+        cut = True
+    if cut:
+        doc["full_at"] = "local_board"
+    else:
+        doc.pop("full_at", None)
+        doc.pop("reduced", None)
+    return _public(doc)
+
+
+def encoded(document: dict) -> bytes:
+    """The bytes a publisher sends. Keys used only while reducing are left out."""
+    return json.dumps(_public(document), sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+def _fit(doc: dict, owner_items: list) -> int:
+    """Apply byte reductions in order. Return the level used, or 0."""
+    if len(encoded(doc)) <= PUBLISH_TARGET_BYTES:
+        return 0
+    _level1(doc)
+    if len(encoded(doc)) <= PUBLISH_TARGET_BYTES:
+        return 1
+    doc["feed"] = list(doc.get("feed") or [])[-PUBLISH_FEED_REDUCED:]
+    if len(encoded(doc)) <= PUBLISH_TARGET_BYTES:
+        return 2
+    _level3(doc)
+    if len(encoded(doc)) <= PUBLISH_TARGET_BYTES:
+        return 3
+    _level4(doc)
+    if len(encoded(doc)) <= PUBLISH_TARGET_BYTES:
+        return 4
+    _level5(doc)
+    if len(encoded(doc)) <= PUBLISH_TARGET_BYTES:
+        return 5
+    _level6(doc, owner_items)
+    return 6
+
+
+def _level1(doc: dict) -> None:
+    for work in doc.get("works") or []:
+        if _is_summary(work):
+            continue
+        for step in work.get("steps") or []:
+            if step.get("state") in _ENDED:
+                for key in ("note", "quote", "command"):
+                    step.pop(key, None)
+
+
+def _level3(doc: dict) -> None:
+    works = []
+    for work in doc.get("works") or []:
+        if "closed_claim" in work and not _is_summary(work):
+            works.append(_summary(work))
+        else:
+            works.append(work)
+    doc["works"] = works
+
+
+def _level4(doc: dict) -> None:
+    for work in doc.get("works") or []:
+        if _is_summary(work):
+            continue
+        all_steps = list(work.get("_all_steps") or work.get("steps") or [])
+        unfinished = [step for step in all_steps if step.get("state") not in _ENDED]
+        unfinished.sort(key=lambda step: _step_sort(step, 0))
+        kept = []
+        for step in unfinished[:PUBLISH_UNFINISHED_KEEP]:
+            step = copy.deepcopy(step)
+            step.pop("note", None)
+            kept.append(step)
+        work["steps"] = kept
+        work["steps_total"] = len(all_steps)
+        omitted = {state: 0 for state in _SUMMARY_STATES}
+        for step in all_steps:
+            state = step.get("state") if step.get("state") in omitted else "unknown"
+            omitted[state] += 1
+        for step in kept:
+            state = step.get("state") if step.get("state") in omitted else "unknown"
+            omitted[state] -= 1
+        if any(omitted.values()):
+            work["omitted"] = omitted
+        else:
+            work.pop("omitted", None)
+
+
+def _level5(doc: dict) -> None:
+    doc["works"] = [_summary(work) if not _is_summary(work) else work for work in doc.get("works") or []]
+
+
+def _level6(doc: dict, items: list) -> None:
+    skeleton = copy.deepcopy(doc)
+    skeleton["owner_all"] = []
+    skeleton.pop("owner_all_cut", None)
+    prior = doc.get("owner_all_cut") or 0
+    # ``items`` is the structurally trimmed list. prior is how many the
+    # fold had beyond that list. Level 6 drops more from the end of ``items``.
+    kept = []
+    for item in items:
+        trial = copy.deepcopy(skeleton)
+        trial["owner_all"] = kept + [item]
+        dropped = len(items) - (len(kept) + 1)
+        cut = prior + dropped
+        if cut:
+            trial["owner_all_cut"] = cut
+            trial["incomplete"] = sorted(set([*(trial.get("incomplete") or []), "owner_all"]))
+        if len(encoded(trial)) <= PUBLISH_TARGET_BYTES:
+            kept.append(item)
+        else:
+            break
+    dropped = len(items) - len(kept)
+    doc["owner_all"] = kept
+    cut = prior + dropped
+    if cut:
+        doc["owner_all_cut"] = cut
+        doc["incomplete"] = sorted(set([*(doc.get("incomplete") or []), "owner_all"]))
+    elif "owner_all_cut" in doc and not prior:
+        doc.pop("owner_all_cut", None)
+
+
+def _summary(work: dict) -> dict:
+    counts = work.get("_state_counts") or _counts(work.get("_all_steps") or work.get("steps") or [], None)
+    reasons = []
+    seen = set()
+    for step in work.get("_all_steps") or work.get("steps") or []:
+        if step.get("state") != "unknown":
+            continue
+        reason = step.get("reason")
+        if isinstance(reason, str) and reason not in seen:
+            seen.add(reason)
+            reasons.append(reason)
+    listed = reasons[:PUBLISH_UNKNOWN_REASONS]
+    out = {
+        "work_id": work.get("work_id"),
+        "title": work.get("title") or "",
+        "state_counts": counts,
+        "unknown_reasons": listed,
+        "unknown_reasons_omitted": max(0, len(reasons) - len(listed)),
+        "defects_count": len(work.get("defects") or []),
+    }
+    for key in ("log_invalid_at", "log_full", "closed_claim"):
+        if key in work:
+            out[key] = work[key]
+    return out
+
+
+def _is_summary(work: dict) -> bool:
+    return "state_counts" in work and "steps" not in work
+
+
+def _trim_works(works: list, owner_ids: set) -> tuple[list, dict]:
+    decorated = []
+    for index, work in enumerate(works):
+        work = copy.deepcopy(work)
+        work["_all_steps"] = list(work.get("steps") or [])
+        work["_state_counts"] = _counts(work["_all_steps"], None)
+        decorated.append(( _work_group(work, owner_ids), index, work))
+    decorated.sort(key=lambda item: (item[0][0], item[0][1], item[1]))
+    ordered = [item[2] for item in decorated]
+    kept = ordered[:PLATFORM_MAX_WORKS]
+    omitted = {"open": 0, "closed": 0}
+    for work in ordered[PLATFORM_MAX_WORKS:]:
+        if "closed_claim" in work:
+            omitted["closed"] += 1
+        else:
+            omitted["open"] += 1
+    return kept, omitted
+
+
+def _work_group(work: dict, owner_ids: set):
+    last = work.get("last_at") or 0
+    if "closed_claim" in work:
+        return (3, -last)
+    states = {step.get("state") for step in work.get("steps") or []}
+    if work.get("work_id") in owner_ids or states & {"unknown", "dead", "failed", "quiet"}:
+        return (0, -last)
+    if states & {"running", "slow"}:
+        return (1, -last)
+    return (2, -last)
+
+
+def _trim_steps(work: dict) -> None:
+    steps = list(work.get("steps") or [])
+    work["steps_total"] = len(steps)
+    if len(steps) <= PLATFORM_MAX_STEPS:
+        return
+    ranked = sorted(enumerate(steps), key=lambda pair: _step_sort(pair[1], pair[0]))
+    kept_ids = {id(steps[index]) for index, _step in ranked[:PLATFORM_MAX_STEPS]}
+    kept = [step for step in (steps[index] for index, _step in ranked[:PLATFORM_MAX_STEPS])]
+    omitted = {state: 0 for state in _SUMMARY_STATES}
+    for step in steps:
+        if id(step) in kept_ids:
+            continue
+        state = step.get("state")
+        if state not in omitted:
+            state = "unknown"
+        omitted[state] += 1
+    work["steps"] = kept
+    work["omitted"] = omitted
+
+
+def _step_sort(step: dict, index: int):
+    state = step.get("state")
+    if state not in _STEP_ORDER:
+        state = "unknown"
+    superseded_ended = 1 if step.get("superseded_by") and step.get("state") in _ENDED else 0
+    if state == "done":
+        third = -(step.get("ended") or 0)
+    else:
+        third = index
+    return (superseded_ended, _STEP_ORDER[state], third)
+
+
+def _trim_owner(items: list) -> tuple[list, int]:
+    if len(items) <= PUBLISH_MAX_OWNER_ALL:
+        return list(items), 0
+    return list(items[:PUBLISH_MAX_OWNER_ALL]), len(items) - PUBLISH_MAX_OWNER_ALL
+
+
+def _strip_commands(item: dict) -> dict:
+    if "commands" not in item:
+        return item
+    item = copy.deepcopy(item)
+    count = len(item.pop("commands") or [])
+    item["commands_at"] = "local_board"
+    item["commands_count"] = count
+    return item
+
+
+def _counts(steps: list, omitted: dict | None) -> dict:
+    counts = {state: 0 for state in _SUMMARY_STATES}
+    for step in steps:
+        state = step.get("state")
+        if state not in counts:
+            state = "unknown"
+        counts[state] += 1
+    for state, count in (omitted or {}).items():
+        if state in counts:
+            counts[state] += count
+        else:
+            counts["unknown"] += count
+    return counts
+
+
+def _works_total(works: list) -> dict:
+    total = {"open": 0, "closed": 0}
+    for work in works:
+        if isinstance(work, dict) and "closed_claim" in work:
+            total["closed"] += 1
+        else:
+            total["open"] += 1
+    return total
+
+
+def _owner_ids(items: list) -> set:
+    found = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        for piece in item.get("works") or []:
+            if isinstance(piece, dict) and piece.get("work_id"):
+                found.add(piece["work_id"])
+    return found
+
+
+def _anything_cut(doc, works, owner, feed) -> bool:
+    if len(works) > PLATFORM_MAX_WORKS or len(owner) > PUBLISH_MAX_OWNER_ALL or len(feed) > PUBLISH_MAX_FEED:
+        return True
+    for work in works:
+        if len(work.get("steps") or []) > PLATFORM_MAX_STEPS:
+            return True
+    return False
+
+
+def _drop_nulls(value):
+    if isinstance(value, dict):
+        out = {}
+        for key, child in value.items():
+            if child is None:
+                continue
+            out[key] = _drop_nulls(child)
+        return out
+    if isinstance(value, list):
+        return [_drop_nulls(child) for child in value if child is not None]
+    if isinstance(value, float) and not math.isfinite(value):
+        return 0
+    return value
+
+
+def _drop_sensitive(value) -> None:
+    if isinstance(value, dict):
+        for key in list(value):
+            folded = str(key).lower()
+            if any(part in folded for part in SENSITIVE_KEY_PARTS):
+                value.pop(key)
+                continue
+            _drop_sensitive(value[key])
+    elif isinstance(value, list):
+        for child in value:
+            _drop_sensitive(child)
+
+
+def _public(value):
+    if isinstance(value, dict):
+        return {key: _public(child) for key, child in value.items() if not str(key).startswith("_")}
+    if isinstance(value, list):
+        return [_public(child) for child in value]
+    return value
