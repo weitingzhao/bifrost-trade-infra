@@ -121,13 +121,16 @@ No `platform-auth.yaml` carries inline tokens — a role without its env var can
 
 Local `:8780` reads `PLATFORM_{VIEWER,REPORTER,OPERATOR,ADMIN,SATELLITE_AUDIT}_TOKEN` from
 `bifrost-platform/.env` (the only copy). MCP servers read the same file when their API URL is
-loopback; the Console has no build-time token (sign in via header Connect). To rotate: replace
-the values, `bdev restart platform-api`, reload MCP servers, re-Connect in the Console.
+loopback; the Console has no build-time token. The only sign-in is the one at the top right.
+Decisions use that session. To rotate: replace the values, restart what still holds the old
+admin token, then sign in again.
 
 1. Replace `PLATFORM_{STG,PROD}_{VIEWER,OPERATOR,ADMIN}_TOKEN` in infra `.env` (e.g. `python3 -c 'import secrets;print(secrets.token_urlsafe(32))'`).
 2. `make k3s-apply-platform-role-tokens` (also rewrites `alertmanager-webhook-auth`).
 3. `kubectl -n bifrost-platform-{stg,prod} rollout restart deploy/platform-api`.
-4. Re-enter the token in Ops Console (STG / PROD).
+4. The admin token also lives in the local tool configuration for the chat approval tool: `PLATFORM_ADMIN_TOKEN` in `~/.config/bifrost/mcp-tokens.env` (mode 0600; `bifrost-approve` reads only that key). Update that file, then reload MCP servers — restart the chat session so the approval tool is not still holding the old value. On a machine that runs local `:8780`, update `PLATFORM_ADMIN_TOKEN` in `bifrost-platform/.env` and `bdev restart platform-api`.
+5. After rotating the admin token, sign in again at the top right of the Console in every browser used to decide (and on the phone). A session from before the rotation is not the new admin token.
+6. Check yourself: the badge at the top right shows ADMIN.
 
 ## Rotate Polygon API key
 
