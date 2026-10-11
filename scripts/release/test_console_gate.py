@@ -1,15 +1,21 @@
-"""test-console must run type-check, lint, tests and build, and a later edit cannot drop one.
+"""test-console is pinned whole: the script equals a canonical text, and keys are an allow-list.
 
-The four commands are the gate. A script that omits one, hides its exit, or
-reorders them is rejected. The npm ci fallback line is not one of the four.
+The four commands, in order, and --maxWorkers equal to the step's CPU limit,
+are why that text is the gate. Those checks run on the canonical text. They
+do not enumerate bad edits. Anything else in the script — set +e, an early
+exit, a condition around the checks — fails the equality, so a later edit of
+the script has to edit this test in the same commit.
 
-The vitest line must carry --maxWorkers equal to the step's CPU limit. That
-limit has to be a whole number of CPUs; anything else is rejected, so the
-worker count cannot drift away from the limit.
+The task, its taskSpec and its one step may only use the keys listed below.
+when, onError, retries, an env, a sidecar or a second step fail by the key's
+name (or by the step count). They are not listed in advance.
+
+Comparison strips trailing whitespace per line and nothing else.
 """
 
 from __future__ import annotations
 
+import copy
 import unittest
 from pathlib import Path
 
@@ -25,8 +31,9 @@ COMMANDS = (
     "npm run build",
 )
 
-# A script that already passes, including the pre-existing npm ci fallback.
-# The fallback hides stderr; the four gate lines must not.
+# Semantic fixture for the four commands. Not the pinned step: CANONICAL is.
+# The old npm ci fallback stays here so these checks remain about the four
+# gate lines, and a fallback on some other line is not what rejects a script.
 GOOD = """#!/usr/bin/env bash
 set -euo pipefail
 echo "==> npm ci"
@@ -40,6 +47,48 @@ npx vitest run
 echo "==> npm run build"
 npm run build
 """
+
+# The whole step script from pipeline-ci-platform.yaml. Edit it here in the
+# same commit as the YAML. The install is npm ci with stderr kept: a lockfile
+# mismatch must fail the step, not fall through to npm install.
+CANONICAL = """#!/usr/bin/env bash
+set -euo pipefail
+ws="$(workspaces.source.path)"
+
+# Scripts on: bifrost-ui's prepare builds dist/, which is not in git.
+echo "==> Installing bifrost-ui"
+cd "${ws}/bifrost-ui"
+npm ci --no-audit --no-fund
+test -f dist/index.d.ts || { echo "bifrost-ui dist/index.d.ts missing after npm ci"; exit 1; }
+
+cd "${ws}/bifrost-platform/console"
+
+echo "==> npm ci"
+npm ci --no-audit --no-fund
+
+echo "==> tsc --noEmit"
+npx tsc --noEmit
+
+echo "==> npm run lint"
+npm run lint
+
+echo "==> vitest run"
+# The pod sees the node's cores; the limit is two CPUs.
+# Measured 2026-10-11: without it, 7 of 814 tests time out.
+npx vitest run --maxWorkers=2
+
+echo "==> npm run build"
+npm run build
+
+echo "==> Console type-check, lint, tests and build passed"
+"""
+
+# Subsets, not a denylist. Today's task uses all of these and no others.
+# A legitimate new key is added to the matching set, with a comment saying why.
+ALLOWED_TASK_KEYS = frozenset({"name", "runAfter", "timeout", "workspaces", "taskSpec"})
+ALLOWED_TASKSPEC_KEYS = frozenset({"workspaces", "steps"})
+ALLOWED_STEP_KEYS = frozenset({"name", "image", "computeResources", "script"})
+WANTED_RUN_AFTER = ["clone", "clone-ui"]
 
 
 def _invokes(line: str, command: str) -> bool:
@@ -178,13 +227,123 @@ WORKER_DRIFT = (
 )
 
 
-def _console_step(doc: dict) -> dict:
+def _norm(script: str) -> str:
+    """Strip trailing whitespace per line. Nothing else is normalised."""
+    return "\n".join(line.rstrip() for line in script.splitlines())
+
+
+def _console_tasks(doc: dict) -> list[dict]:
     tasks = (doc.get("spec") or {}).get("tasks") or []
-    task = next(item for item in tasks if item.get("name") == "test-console")
-    steps = (task.get("taskSpec") or {}).get("steps") or []
+    return [
+        item for item in tasks
+        if isinstance(item, dict) and item.get("name") == "test-console"
+    ]
+
+
+def shape_problems(doc: dict) -> list[str]:
+    """Why this document is not the pinned test-console task. Empty means it is."""
+    reasons: list[str] = []
+    tasks = _console_tasks(doc)
+    if len(tasks) != 1:
+        reasons.append(f"{len(tasks)} tasks named test-console, want 1")
+        return reasons
+    task = tasks[0]
+    for key in sorted(set(task) - ALLOWED_TASK_KEYS):
+        reasons.append(f"unexpected task key: {key}")
+    if task.get("runAfter") != WANTED_RUN_AFTER:
+        reasons.append(f"runAfter is {task.get('runAfter')!r}, want {WANTED_RUN_AFTER!r}")
+    spec = task.get("taskSpec")
+    if not isinstance(spec, dict):
+        reasons.append("taskSpec is missing")
+        return reasons
+    for key in sorted(set(spec) - ALLOWED_TASKSPEC_KEYS):
+        reasons.append(f"unexpected taskSpec key: {key}")
+    steps = spec.get("steps")
+    if not isinstance(steps, list) or len(steps) != 1 or not isinstance(steps[0], dict):
+        count = len(steps) if isinstance(steps, list) else 0
+        reasons.append(f"{count} steps, want 1")
+        return reasons
+    step = steps[0]
+    for key in sorted(set(step) - ALLOWED_STEP_KEYS):
+        reasons.append(f"unexpected step key: {key}")
+    script = step.get("script")
+    if not isinstance(script, str) or _norm(script) != _norm(CANONICAL):
+        reasons.append("script is not the pinned Console gate")
+    return reasons
+
+
+def _console_step(doc: dict) -> dict:
+    tasks = _console_tasks(doc)
+    if len(tasks) != 1:
+        return {}
+    steps = (tasks[0].get("taskSpec") or {}).get("steps") or []
     if len(steps) != 1 or not isinstance(steps[0], dict):
         return {}
     return steps[0]
+
+
+def _load() -> dict:
+    return yaml.safe_load(PIPELINE.read_text(encoding="utf-8"))
+
+
+def _with_script(script: str) -> dict:
+    doc = copy.deepcopy(_load())
+    _console_step(doc)["script"] = script
+    return doc
+
+
+def _wrap_checks(script: str) -> str:
+    start = script.index('echo "==> tsc --noEmit"')
+    marker = "npm run build\n"
+    end = script.index(marker) + len(marker)
+    return script[:start] + "if false; then\n" + script[start:end] + "fi\n" + script[end:]
+
+
+# Script edits the equality rejects. The semantic checks do not see these:
+# the commands are still present, in order, with their exits intact.
+SCRIPT_EDITS = (
+    (
+        "set +e after the strict-mode line",
+        CANONICAL.replace("set -euo pipefail\n", "set -euo pipefail\nset +e\n", 1),
+    ),
+    (
+        "exit 0 before the checks",
+        CANONICAL.replace(
+            'echo "==> tsc --noEmit"\n',
+            'exit 0\necho "==> tsc --noEmit"\n',
+            1,
+        ),
+    ),
+    ("checks wrapped in if false", _wrap_checks(CANONICAL)),
+)
+
+
+def _with_shape(kind: str) -> dict:
+    doc = copy.deepcopy(_load())
+    tasks = doc["spec"]["tasks"]
+    task = next(item for item in tasks if item.get("name") == "test-console")
+    step = task["taskSpec"]["steps"][0]
+    if kind == "onError":
+        step["onError"] = "continue"
+    elif kind == "when":
+        # Always false: the step would be skipped. The key alone is enough.
+        task["when"] = [{"input": "false", "operator": "in", "values": ["true"]}]
+    elif kind == "runAfter":
+        task["runAfter"] = ["clone"]
+    elif kind == "duplicate":
+        tasks.append(copy.deepcopy(task))
+    else:
+        raise AssertionError(kind)
+    return doc
+
+
+# Object edits. The expected fragment is the key, or the runAfter / count text.
+SHAPE_EDITS = (
+    ("onError: continue on the step", "onError", "unexpected step key: onError"),
+    ("when on the task", "when", "unexpected task key: when"),
+    ("runAfter changed to [clone]", "runAfter", "runAfter is ['clone']"),
+    ("a second task named test-console", "duplicate", "2 tasks named test-console"),
+)
 
 
 def _step_script(doc: dict) -> str:
@@ -206,9 +365,34 @@ def _swap_lines(script: str, left: str, right: str) -> str:
 
 class ConsoleGateTests(unittest.TestCase):
     def test_real_pipeline_step_is_the_gate(self) -> None:
-        doc = yaml.safe_load(PIPELINE.read_text(encoding="utf-8"))
+        doc = _load()
         self.assertEqual(doc["metadata"]["name"], "bifrost-ci-platform")
-        self.assertEqual(problems(_step_script(doc)), [])
+        self.assertEqual(shape_problems(doc), [])
+        script = _step_script(doc)
+        limit = ((_console_step(doc).get("computeResources") or {}).get("limits") or {}).get("cpu")
+        # The canonical text is the gate for the same reason the YAML script is.
+        self.assertEqual(problems(CANONICAL), [])
+        self.assertEqual(worker_pin_problems(CANONICAL, limit), [])
+        self.assertEqual(problems(script), [])
+        self.assertEqual(worker_pin_problems(script, limit), [])
+
+    def test_only_trailing_whitespace_per_line_is_normalised(self) -> None:
+        spaced = CANONICAL.replace("set -euo pipefail", "set -euo pipefail   ", 1)
+        self.assertEqual(shape_problems(_with_script(spaced)), [])
+        indented = CANONICAL.replace("set -euo pipefail", " set -euo pipefail", 1)
+        reasons = shape_problems(_with_script(indented))
+        self.assertTrue(any("pinned" in reason for reason in reasons), reasons)
+
+    def test_script_edits_are_rejected(self) -> None:
+        for label, script in SCRIPT_EDITS:
+            self.assertNotEqual(_norm(script), _norm(CANONICAL), label)
+            reasons = shape_problems(_with_script(script))
+            self.assertTrue(any("pinned" in reason for reason in reasons), (label, reasons))
+
+    def test_shape_edits_are_rejected(self) -> None:
+        for label, kind, needle in SHAPE_EDITS:
+            reasons = shape_problems(_with_shape(kind))
+            self.assertTrue(any(needle in reason for reason in reasons), (label, reasons))
 
     def test_a_clean_script_passes(self) -> None:
         self.assertEqual(problems(GOOD), [])

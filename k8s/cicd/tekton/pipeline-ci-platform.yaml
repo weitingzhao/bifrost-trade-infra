@@ -116,13 +116,10 @@ spec:
 
               echo "==> Go API tests passed"
     - name: test-console
-      # 3 × (32 + 11 + 72 + 26)s = 423s, rounded up to 8m0s. TD-313.
-      # 32s is today's npm ci, npm ci and tsc: the last eight test-console
-      # TaskRuns were 32–35s (kubectl get taskrun -n cicd, 2026-10-11), and
-      # the same three commands in node:20-slim at --cpus=2 took 32s.
-      # Lint 11s and vitest --maxWorkers=2 at 72s are that container on
-      # 2026-10-11. Build 26s is the slower of two runs of this step in the
-      # same image and limits on 2026-10-11 (26s and 14s).
+      # 3 × 157s = 471s, rounded up to 8m0s. TD-313.
+      # 157s is the slowest full step measured in node:20-slim at --cpus=2
+      # and --memory=4g on 2026-10-11 (the other run was 150s). The 8m0s
+      # includes scheduling and image pull.
       timeout: 8m0s
       runAfter: [clone, clone-ui]
       workspaces:
@@ -155,7 +152,7 @@ spec:
               cd "${ws}/bifrost-platform/console"
 
               echo "==> npm ci"
-              npm ci 2>/dev/null || npm install
+              npm ci --no-audit --no-fund
 
               echo "==> tsc --noEmit"
               npx tsc --noEmit
