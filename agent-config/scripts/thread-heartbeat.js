@@ -982,4 +982,7 @@ module.exports = {
   clearHookDeadline,
   lockRuntime,
   HOOK_GIVE_UP_MS,
+  token,
+  baseURL,
+  hostName,
 }
