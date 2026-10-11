@@ -1,0 +1,4 @@
+# The Owner's release key (public half). Its SHA256 fingerprint is compiled into platform-api as
+# releasepolicy.OwnerKeyFingerprint; the two must be the same key. Changing either is a trust-anchor change
+# reviewed by the Owner (docs/RELEASE.md, "The release owner key"). Generated 2026-10-11.
+bifrost-release-owner namespaces="bifrost-release-policy,bifrost-release-unfreeze" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK9ASMkabnQ5m6HOiUb83dPYeqk0wEt5mE6kN2Mmb6Sa bifrost-release-owner
