@@ -207,11 +207,11 @@ kubectl -n cicd get configmap bifrost-release-freeze -o json \
 
 冻结期间 apply 流水线也不跑，包括它的 plan 模式（plan 和 apply 是同一个任务）。解冻不走这条流水线：`release.sh unfreeze` 把 Owner 签名交给平台 `POST /api/v1/release-policy/unfreeze`。这一片不给任何流水线豁免。若以后有一条流水线必须在冻结期间跑，先停下来写进报告，而不是加豁免。
 
-兄弟仓库 `bifrost-platform-plugin-flex-query` 的 `bifrost-build-flex-query` 今天仍以 `release-window` 开头，内联的 `kaniko` 推镜像不被冻结检查支配。棘轮报 `bifrost-platform-plugin-flex-query/bifrost-build-flex-query: kaniko is not dominated by the freeze check`。这条记在 `scripts/release/freeze_known_gaps.json`，绑的是仓库、流水线、任务名、该内联 `taskSpec` 的 sha256，以及解析过的日期 `2026-10-11`。把这个 `kaniko` 换成同名、脚本里跑 `git push` 的任务，报文不变，摘要变了，是新缺口。`--allow-known-gaps` 只放过仓库、流水线、任务名、摘要都对上、并且日期不早于 30 天的条目。30 天是留给那个仓库改完的一个发布周期；过了就不再匹配，免得后来改过的任务一直顶着旧报文。放过的每一条都打印日龄，例如 `(age 0 days)`，并有 `known gaps: 1`。默认退出码非 0。
+兄弟仓库 `bifrost-platform-plugin-flex-query` 的 `bifrost-build-flex-query` 在仓库里已经和本仓库同一条规则：`freeze-check`（`taskRef` 为 `bifrost-release-freeze-check`）是立即的根，`release-window` 在它之后，内联的 `kaniko` 推镜像被这道检查支配。`scripts/release/freeze_known_gaps.json` 的 `gaps` 是空的（`max_age_days` 与 `max_age_reason` 仍在）。检查器不再对 flex-query 单独要求第一个任务是 `release-window`。两个检出并排放着时，`scripts/check-release-chain.py` 不带 `--allow-known-gaps` 退出码是 0。
 
-没有 CI 任务、没有 make 目标、也没有发布脚本调用 `scripts/check-release-chain.py`。`agent-config/RATCHETS.md` 把这条 TD-263 检查标成 manual（infra 没有 CI）。合进之后，手工跑这个检查会因为 flex-query 这条缺口默认失败。它不会让任何自动检查变红。
+这些清单还没进集群。本变更不 apply。集群里的 `bifrost-build-flex-query` 仍是旧图，直到有人按上面的顺序自己 apply：先是冻结检查的 Task 和程序 ConfigMap（第 2 步），然后才是这条流水线（和那十一条一样，按文件 apply，不走 `bifrost-apply-manifest`）。只改仓库、不 apply，集群里的推镜像仍不被检查支配。
 
-要消掉缺口，那个仓库得把 `bifrost-release-freeze-check` 加成立即的根，并让 `release-window` 在它之后。这一片不改那个仓库。那个仓库改完之后，这里 TD-263 对 flex-query「第一个任务必须是 `release-window`」的特例也要改成和本仓库一样（第一个是 `freeze-check`）。
+已经在跑的 PipelineRun 不受影响。改的是 Pipeline 对象；在途的那一次仍按启动时的任务图走完，不会中途插上 `freeze-check`。
 
 旧 PROD 链 `bifrost-deliver-platform-prod` 只有这一次检查，放在两条推镜像之前。过了它的 run（TaskRun 结果 `passed_cut_at`）会把构建和滚动走完，滚动前不再查第二次。还没到检查的 run，跑到检查时被拒。检查自己超时或被取消，任务失败，run 被拒。一条镜像推成、另一条失败，按 run 当时的记录留下，这一片不补救。在途 run 的名字在冻结回执里：看 `tekton.dev/pipelineTask=freeze-check` 的 TaskRun，结果里有 `passed_cut_at`，再用标签 `tekton.dev/pipelineRun` 对上仍在跑的 PipelineRun。列出这件事这一片不做。`scripts/release/freeze_inflight.py` 的测试是一张行为表，不是一次 Tekton 调度演练。
 

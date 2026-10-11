@@ -153,7 +153,7 @@ def _load_check_release_chain():
 
 
 class GuardedPipelineReleaseWindowTests(unittest.TestCase):
-    """TD-263: MUST_HOLD pipelines (incl. flex-query sibling YAML) start with release-window."""
+    """TD-263: MUST_HOLD pipelines (incl. flex-query sibling YAML) start with freeze-check."""
 
     def test_guarded_pipelines_release_window_first(self) -> None:
         workspace = Path(os.environ.get("BIFROST_WORKSPACE", Path(__file__).resolve().parents[2].parent))
