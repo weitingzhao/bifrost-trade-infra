@@ -138,6 +138,35 @@ PROD / platform-prod / research 的发布（级别 C）等 Owner 批，STG 与�
 - **首次落地**（一次）：apply `k8s/cicd/release-policy/configmaps.yaml`、`k8s/cicd/tekton/rbac-release-window.yaml`、
   `k8s/cicd/tekton/task-release-window.yaml`（都不在 Argo 下，走平台 `apply_manifest` 审批；先 ConfigMap 和 RBAC，再 task）。
 
+## Freeze check (W-56 step 1, slice B — not applied yet)
+
+新 Task `bifrost-release-freeze-check` 读一次 ConfigMap `cicd/bifrost-release-freeze`，故障即拒。
+只有读成功、`data` 恰好是钉死的形状、并且 `frozen` 是字符串 `"false"` 才放行。下面一律拒绝，第一行就是原因：
+
+- 对象是冻结形状（`frozen` 为 `"true"`）：`拒绝：发布已冻结（<reason>，<frozen_at>）；解冻要 Owner 签名`
+- 读不到或形状不对（404、其它 API 错误、超时、解析不了、缺字段、多余字段、`frozen` 不是 `"true"` / `"false"`、布尔值而不是字符串）：`拒绝：读不到冻结状态（<what>），按冻结处理`
+
+放行时第一行是 `未冻结：<checked_at>`。`seq` 不是 `"0"` 的未冻结对象必须带齐解冻字段；这一片接受它并另起一行 `note: un-freeze signature not verified (slice C)`，不验签名。
+
+Owner 在应用这个 Task 之前必须先放上初始对象（404 现在会拒，缺 `seq` 也会拒）。`k8s/cicd/release-policy/configmaps.yaml` 里今天只有 `frozen: "false"`，不够。初始对象是：
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bifrost-release-freeze
+  namespace: cicd
+data:
+  frozen: "false"
+  seq: "0"
+```
+
+上线顺序，都还没做：先由 Owner 写好上面的对象；再经平台的 plan / apply 应用 `k8s/cicd/tekton/task-release-freeze-check.yaml`（Task 和装着程序的 ConfigMap 在同一个文件里）；然后应用十一条 Pipeline。现有 Role `tekton-release-window` 已经允许 `default` 和 `tekton-deliver` 对 `bifrost-release-freeze` 做 `get`，这一片不新写 RBAC。
+
+旧 PROD 链 `bifrost-deliver-platform-prod` 只有这一次检查，放在两条推镜像之前。过了它的 run（TaskRun 结果 `passed_cut_at`）会把构建和滚动走完，滚动前不再查第二次。还没到检查的 run，跑到检查时被拒。检查自己超时或被取消，任务失败，run 被拒。一条镜像推成、另一条失败，按 run 当时的记录留下，这一片不补救。在途 run 的名字在冻结回执里：看 `tekton.dev/pipelineTask=freeze-check` 的 TaskRun，结果里有 `passed_cut_at`，再用标签 `tekton.dev/pipelineRun` 对上仍在跑的 PipelineRun。列出这件事这一片不做。
+
+这一片不声称已经挡住自动同步、可变镜像标签，或有人直接改这份 ConfigMap。那是 C 片、E 片和第 4 步的事。
+
 ## 一次性 DB 步骤
 
 ```bash
