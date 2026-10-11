@@ -76,17 +76,17 @@ The new probe does not prove receipt. Today's warning routes are still audit-onl
 ## Validation and DEV evidence
 
 - Research `make lint` (ruff + SQLFluff): PASS.
-- Research full `make test`: **2324 passed / 17 skipped**; all new Dagster tests run
+- Research full `make test`: **2325 passed / 17 skipped**; all new Dagster tests run
   with orchestration dependencies installed. Existing optional skips are not
   evidence of alert delivery.
 - Fault regressions include persistent state reopen and retry, atomic discovery,
   crash-after-POST identity replay, backoff/expiry refresh, full queue checkpoint,
-  corrupt/version/NaN state, source and calendar failures, ERROR check dedup and
+  corrupt/version/NaN state, source and calendar failures, unexpected deadline error redaction, ERROR check dedup and
   findings redaction, missing/queued/started/failed runs, manual-run exclusion,
   delayed recovery before send, missed dates between ticks, long-gap unverified,
   weekend/holiday/DST, send limits and sender health through the existing metric.
-- Focused affected suites: **78 passed / 1 skipped**; the one skip is the
-  pre-existing optional dbt manifest test. All 23 new durable-delivery cases run.
+- Focused affected suites: **79 passed / 1 skipped**; the one skip is the
+  pre-existing optional dbt manifest test. All 24 new durable-delivery cases run.
 - Draft route tests: **4 passed**; existing `check_alert_routing.py`: PASS.
   Current route remains unchanged and has no new paging behavior.
 - Bounded agent_reader READ ONLY preflight: 72 SUCCESS events, zero failure
@@ -162,7 +162,7 @@ remains open until rollout and true Owner receipt acceptance are signed off.
 
 ## Isolated commit and review identity
 
-Research commit: `999e8ca` on `codex/td-304`, based on accepted TD-303 `cc575bf`.
+Research commits: `999e8ca` + final `16f7841` on `codex/td-304`, based on accepted TD-303 `cc575bf`.
 Research and infra reuse their existing managed-by-Git isolated worktrees under
 `~/agent-work`, with a separate TD-304 branch; shared checkouts are unchanged.
 No public REST fields, DDL or package dependencies added. The existing metrics
