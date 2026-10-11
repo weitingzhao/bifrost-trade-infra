@@ -24,7 +24,7 @@ class FakePlatform:
         self.status_http = 200
         self.freeze_seq = 0
         self.status = {"valid": False, "remaining_seconds": 0, "allow": [], "frozen": False,
-                       "reasons": ["no signed policy"], "anchor_fingerprint": ""}
+                       "reasons": ["no signed policy"], "anchor_fingerprint": "", "freeze_protocol": 2}
         fake = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -159,6 +159,24 @@ class ReleasePolicyCLITests(unittest.TestCase):
             'so nobody could lift a freeze. See docs/RELEASE.md, "The release owner key".',
             res.stderr,
         )
+        self.assertEqual([(m, p) for m, p, _, _ in self.fake.requests], [("GET", "/api/v1/release-policy")])
+        self.assertFalse(self.fake.status["frozen"])
+
+    def test_freeze_refuses_when_the_platform_omits_the_protocol(self) -> None:
+        self.fake.status["anchor_fingerprint"] = "SHA256:test-anchor"
+        self.fake.status.pop("freeze_protocol")
+        res = self.run_sh("freeze", "--reason", "incident")
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("the platform and this script disagree on the freeze protocol", res.stderr)
+        self.assertEqual([(m, p) for m, p, _, _ in self.fake.requests], [("GET", "/api/v1/release-policy")])
+        self.assertFalse(self.fake.status["frozen"])
+
+    def test_freeze_refuses_when_the_platform_protocol_is_different(self) -> None:
+        self.fake.status["anchor_fingerprint"] = "SHA256:test-anchor"
+        self.fake.status["freeze_protocol"] = 3
+        res = self.run_sh("freeze", "--reason", "incident")
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("the platform and this script disagree on the freeze protocol", res.stderr)
         self.assertEqual([(m, p) for m, p, _, _ in self.fake.requests], [("GET", "/api/v1/release-policy")])
         self.assertFalse(self.fake.status["frozen"])
 

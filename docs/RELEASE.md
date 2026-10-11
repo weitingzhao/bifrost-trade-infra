@@ -131,8 +131,9 @@ PROD / platform-prod / research 的发布（级别 C）等 Owner 批，STG 与�
 - **级别 C**：覆盖 → `POST /api/v1/approvals` 回 400 `call directly` + `auto_approved_by`，直接调用时 guard 写审计
   `release_policy.auto_approve`（policy_id、请求方、SHA、条款）；不覆盖 → 照旧建审批单推给 Owner，理由写在单里。
 - **冻结**：`release.sh freeze --reason <原因>` 立即拒绝所有新发布（平台的级别 B / C，以及 research / 插件流水线的
-  release-window task 的 `freeze` 步骤）。每次冻结有一个严格递增的 `freeze_id`。`release.sh unfreeze` 由 Owner 对
-  `unfreeze freeze_id=<这次冻结的 id> frozen_at=<那次冻结> …` 签名，平台只接受点名当前这次冻结的签名；只写 `frozen_at` 的旧句子不被接受。
+  release-window task 的 `freeze` 步骤）。每次冻结的 `freeze_id` 是 128 位随机数的小写十六进制，不取自时钟、计数器或平台记得的上一次。两台平台写同一份对象、break-glass 之后、时钟走回同一个秒，都不会撞上同一个 id。`release.sh unfreeze` 由 Owner 对
+  `unfreeze freeze_id=<这次冻结的 id> frozen_at=<那次冻结> …` 签名；平台按整个 token 比对这个 id，不按前缀。只写 `frozen_at` 的旧句子不被接受。
+  `release.sh freeze` 还要求状态里的 `freeze_protocol` 等于 `2`。没有这个字段，或者是别的数，脚本在写入之前拒绝：`the platform and this script disagree on the freeze protocol`。
   ConfigMap 不存在不算冻结（向后兼容），但级别 C 的自动放行要求它存在且为 false。
   没有编译进去的信任锚时，平台和 `release.sh freeze` 都拒绝设置冻结，见「The release owner key」。已经冻上、又签不了字时，见「Lifting a freeze without a signature (break-glass)」。
 - **到期提醒**：PROD platform-workers 每小时查一次，到期前 14 天、3 天、1 天推送 Owner，过期后有发布在等再推一次
@@ -160,7 +161,9 @@ ssh-keygen -t ed25519 -C bifrost-release-owner -f ~/.ssh/bifrost_release_owner
 
 按这个顺序改三个对象。kubeconfig 写占位符，不写某一台机器上的路径。不要 `kubectl apply -f k8s/cicd/release-policy/configmaps.yaml`：那个文件同时带着已签名的策略（见下面 Freeze check 一节）。
 
-平台另存着见过的最新一次冻结：`frozen_at`，以及这次的 `freeze_id`（没有标识的旧记忆里可以没有这一项）。冻结对象回到从未冻结之后，这份记忆还在的话，`policy status` 仍报冻结（`a freeze from … was seen and its record is gone`）。所以先改冻结对象，再把 PROD 和 STG 两边的记忆整份换成 `{"frozen_at":""}`。这是替换整份 `state.json`，`freeze_id` 一并清掉；只擦掉 `frozen_at` 而留下 `freeze_id` 时门仍然关着。Tekton 的 freeze-check 只读冻结对象；平台的门读两边。
+平台记住的是它见过的最新一次冻结的身份，不是一个会变大的号。有合法 `freeze_id` 时记 `{freeze_id, frozen_at}`；对象写着冻结但没有合法 id 时记 `{unidentified: true, frozen_at, seen_at}`。已经离开的 id 留在 `earlier` 里，记忆不退回那些 id。门每次读对象都重新验 `unfreeze.txt` 和 `unfreeze.sig`，只在对象上的 id 就是这份记忆、并且签名验得过时放行。冻结对象回到从未冻结之后，这份记忆还在的话，`policy status` 仍报冻结（`a freeze from … was seen and its record is gone`）。所以先改冻结对象，再把 PROD 和 STG 两边的记忆整份换成 `{"frozen_at":""}`。这是替换整份 `state.json`；只擦掉 `frozen_at` 而留下 `freeze_id` 或 `unidentified` 时门仍然关着。没有合法 id 的冻结签不了字，状态会指到这一节。Tekton 的 freeze-check 只读冻结对象；平台的门读两边。
+
+PROD 的 api 和 workers 共用这一份记忆。合并时，任何一边已经离开的 id 都不会再变成最新的那次。某一边落后于对象时：对象里是一份它没见过的冻结，它把那次记下来；对象里是一份验得过的解冻、而它自己还没有任何记忆，对象上的那次就是它见过的最新一次。STG 的记忆是另一份文件。它只通过对象跟上，规则相同；已经离开的 id 不会因为对象被换回旧内容而退回去。两边一起忘掉，只能走上面这三步。
 
 ```bash
 # 1. cicd/bifrost-release-freeze 回到从未冻结的形状：只有 frozen: "false"
@@ -179,6 +182,19 @@ kubectl --kubeconfig <admin-kubeconfig> -n bifrost-platform-stg patch configmap 
 然后 `release.sh policy status` 应显示未冻结，再跑一次 STG 发布，确认发布走得通（步骤见「一次完整发布」）。
 
 这一节在 2026-10-11 用过一次。再需要它，是缺陷，要记下来。
+
+## Changing the freeze object's shape
+
+改冻结对象的形状时，旧的检查任务配新的平台，或者新的检查任务配旧的平台，都会拒绝一份已经正确解冻的对象。每一条发布都被挡住，包括用来把平台自己换上去的那一条。混在一起的时候不要冻结，也不要解冻。
+
+这次把 `freeze_id` 从计数器改成不会重复的随机身份，状态里多了 `freeze_protocol: 2`。只按下面的顺序做。以后再改这份对象的形状，也是这个顺序：
+
+1. 集群里的冻结对象是从未冻结的形状（先核对它）。这一步到第 4 步做完之前，不要设置冻结，也不要解冻。
+2. Owner 手工应用新的检查任务：`kubectl apply -f k8s/cicd/tekton/task-release-freeze-check.yaml`。这一个文件里是 Task，以及装着程序的 ConfigMap。不走 `bifrost-apply-manifest`。
+3. 每一个能写这份对象的平台都发版：先 STG，再 PROD。
+4. `main` 上的 `release.sh` 是和这个协议一致的版本。这之后才可以再冻结。
+
+`release.sh freeze` 读状态里的 `freeze_protocol`。没有这个字段，或者值不是 `2`，脚本拒绝，句子是 `the platform and this script disagree on the freeze protocol`，并且不会发出冻结的 POST。版本不一致因此是一次拒绝，不是一个卡住的集群。
 
 ## Freeze check (W-56 step 1, slice B — not applied yet)
 
@@ -221,7 +237,7 @@ kubectl --kubeconfig <admin-kubeconfig> -n bifrost-platform-stg patch configmap 
 
 **冻结对象缺失或畸形**：新检查读不到合法的对象就拒绝全部流水线，这是期望的状态，不用抢着解除。恢复只用两条现成的、有测试的命令，不手写对象，不用 `kubectl` 编辑或重建。这两步要信任锚已经编进正在跑的 platform-api；没有锚时 `freeze` 被拒绝，见「The release owner key」。对象已经是冻结、签名又解不开时，走「Lifting a freeze without a signature (break-glass)」，不要再冻一次：
 
-1. `scripts/release/release.sh freeze --reason "<写明是恢复时建的冻结>"`。平台的写入在对象缺失时创建它、在对象存在时整体替换 `data`（`bifrost-platform/api/internal/delivery/release_policy_facts.go` 的 `WriteConfigMap`）。这次写入带上刚读到的 `resourceVersion`：对象在读和写之间变了就重试，分配一个更大的 `freeze_id`，不会把同一次分配写到两个对象上。写完是一个合法的「已冻结」对象（`frozen`、`frozen_at`、`freeze_id`、`who`、`reason`）。用 `release.sh policy status` 确认显示已冻结。
+1. `scripts/release/release.sh freeze --reason "<写明是恢复时建的冻结>"`。平台的写入在对象缺失时创建它、在对象存在时整体替换 `data`（`bifrost-platform/api/internal/delivery/release_policy_facts.go` 的 `WriteConfigMap`）。这次写入带上刚读到的 `resourceVersion`：对象在读和写之间变了就拒绝，什么都不写。`freeze_id` 是这次新抽的 128 位随机值，不重试，也不沿用上一号。写完是一个合法的「已冻结」对象（`frozen`、`frozen_at`、`freeze_id`、`who`、`reason`）。用 `release.sh policy status` 确认显示已冻结。
 2. Owner 运行 `scripts/release/release.sh unfreeze`，对这一次冻结签名解冻。写完是合法的「已解冻」对象，流水线恢复放行。
 
 **不去推断它原来是不是冻结的**（复核 45）：旧的 `policy status` 输出没有保证被留着，平台的审计只保留最近 500 条，也不一定对得上最新那次冻结。上面两步对「原来冻结」和「原来没冻结」是同一个做法：先冻结，再由 Owner 签名解冻；原来确实该冻结的，就停在第 1 步不解冻。多冻一次的代价是一次签名。

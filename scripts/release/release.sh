@@ -694,6 +694,12 @@ cmd_freeze() {
   anchor="${anchor#"${anchor%%[![:space:]]*}"}"
   anchor="${anchor%"${anchor##*[![:space:]]}"}"
   [[ -n "${anchor}" ]] || rel_die "${refused}"
+  # This script signs and sends freeze protocol 2 (a random freeze id, and a
+  # platform that remembers that id). An older status has no freeze_protocol;
+  # a newer platform reports a different number. Either disagreement refuses
+  # before the POST, so mixed versions cannot set a freeze.
+  proto="$(printf '%s' "${PLATFORM_BODY}" | json_field freeze_protocol)"
+  [[ "${proto}" == "2" ]] || rel_die "the platform and this script disagree on the freeze protocol" 1
   body="$(python3 -c 'import json,sys; print(json.dumps({"who":sys.argv[1],"reason":sys.argv[2]}))' "${who}" "${reason}")"
   platform_send POST /api/v1/release-policy/freeze "${body}" operator >/dev/null || rel_die "the freeze was not written" 1
   printf '%s' "${PLATFORM_BODY}" | policy_print
