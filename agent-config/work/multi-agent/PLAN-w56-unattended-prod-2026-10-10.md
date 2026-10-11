@@ -70,3 +70,31 @@ G1–G4 过了，规则里才列 PROD 的两条流水线；G5、G6 过了，才�
 - Trade 的两条 PROD 流水线同样的改造（先在平台自己身上做完、演练过再搬）。
 - G4–G6。
 - 平台仓库合并前的 CI（单独一条；G1 上线后，红的提交至少发不出去）。
+
+## What is on the branch
+
+分支 `w31/w56-gates`。只加了文件、脚本和离线测试，没有对任何集群 apply，没有起流水线，没有写 registry。
+
+| 文件 | 做什么 |
+|------|--------|
+| `scripts/release/ci_gate.py` | `CI_PIPELINES` 加上 `bifrost-ci-platform`，发布门复用它的匹配函数 |
+| `scripts/release/test_ci_gate.py` | 平台 CI 只在 `bifrost.io/repo` 标签上时也能对上 |
+| `scripts/release/release_gate.py` | G1 判定。无网络。没有放行红 CI 的参数 |
+| `scripts/release/test_release_gate.py` | 通过、CI 红、CI 还在跑、没有 CI、STG 的 platform SHA 不同、UI SHA 不同、浸泡不够、更新的失败 STG 不算、坏输入 |
+| `scripts/release/registry_retag.py` | G2 `promote(repo, source, target, keep_as)`：Registry v2 上按原字节改标签 |
+| `scripts/release/test_registry_retag.py` | 假 registry：单 manifest、index、源不存在、目标第一次不存在、再跑是空操作、PUT 字节与摘要一致 |
+| `k8s/cicd/tekton/task-release-gate-platform.yaml` | 解析两个 SHA、两个 STG 健康检查、`kubectl get` 后跑判定脚本 |
+| `k8s/cicd/tekton/rbac-release-gate.yaml` | `tekton-deliver` 只读 cicd 的 PipelineRun/TaskRun，以及两个平台命名空间的 Deployment 和 Pod。Owner 自己 apply |
+| `k8s/cicd/tekton/pipeline-promote-platform-prod.yaml` | `bifrost-promote-platform-prod`：门 → STG 摘要 → 打成 `:prod` → rollout → 核对三个 Deployment → Argo sync |
+| `k8s/cicd/tekton/pipeline-rollback-platform-prod.yaml` | `bifrost-rollback-platform-prod`：`:prod-prev` 打回 `:prod`（旧 `:prod` 留在 `:prod-next`）→ rollout → 核对 → Argo sync |
+| `docs/RELEASE.md` | 「Platform PROD: promote instead of rebuild」一节 |
+
+还没做：
+
+- 演练（G1 的四个拒绝、G2 发布后摘要一致、G3 发一版再回滚且不构建、用时在一分钟量级）。回滚流水线只是 G3 的前半。
+- G3 的后半：真实链路上的回滚演练，以及确认 `:prod-prev` 挡得住 registry 垃圾回收。
+- G4、G5、G6。
+- Trade 的两条 PROD 流水线同样的改造。
+- 平台仓库合并前的 CI。
+- 平台 catalog / 发布策略 / `window_decision.py` 还没有这两条流水线（本任务不改那些文件）。旧的 `bifrost-deliver-platform-prod` 还在。
+- `k8s/cicd/tekton` 没有目录级 `kustomization.yaml`（只有 `apply-manifest/`）。新文件和旁边的 Task、Pipeline 一样是散的清单，这样 `check_apply_paths` 不会因为新的 kustomization 漏掉原有文件。

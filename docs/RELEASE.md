@@ -146,3 +146,38 @@ scripts/release/release.sh db-done prod <id>   # Owner 执行完后记录（本�
 ```
 
 记录后在下一次 infra 提交里把环境加进该步骤文件的 `done:` 行，别的机器和会话才看得到。
+
+## Platform PROD: promote instead of rebuild (W-56, not live yet)
+
+平台 PROD 不再为同一次发布重新构建。两条新流水线和旧的 `bifrost-deliver-platform-prod` 并存，旧的不动。脚本还没进集群。
+
+`bifrost-promote-platform-prod`（`k8s/cicd/tekton/pipeline-promote-platform-prod.yaml`）：
+
+1. `bifrost-release-gate-platform` 把 `revision` / `uiRevision` 解成完整 SHA，做 STG API 与 Console 的两个 200 检查，再跑 `scripts/release/release_gate.py`。
+2. 读 STG 上 `platform-api`、`platform-console` 正在跑的 Pod `imageID`（`platform-workers` 与 api 同一个镜像）。
+3. 对 `bifrost-platform-api` 和 `bifrost-platform-console`：先把现在的 `:prod` 记成 `:prod-prev`，再把 STG 的摘要打成 `:prod`。不拉取、不构建。
+4. 沿用 `bifrost-rollout-platform-stg`，命名空间是 `bifrost-platform-prod`。
+5. 三个 Deployment 的每个 PROD Pod 都必须跑这个摘要，否则失败。
+6. 沿用 Argo sync，Application `bifrost-platform-prod`。
+
+结果里有两个 SHA 和两个摘要。
+
+门拒绝下面这些情况，第一行写明差在哪。演练要覆盖的四条是：CI 红、CI 还没到终态、STG 不是这次要发的提交、浸泡不够。没有放行红 CI 的参数：
+
+| 拒绝 | 第一行 | 退出码 |
+|------|--------|--------|
+| CI 是红的 | `CI failed for <sha>: <run>` | 1 |
+| CI 还没到终态 | `CI has not finished for <sha>` | 2 |
+| 没有这次提交的 CI | `no CI run for <sha>` | 1 |
+| STG 不是这两个 SHA，或最新一次 STG 发布没有成功 | `STG runs <actual>, not <wanted>`，或 `newest STG delivery <run> did not succeed` | 1 |
+| STG 成功还没满观察时间（默认 10 分钟） | `STG has run this for 3 min, need 10` | 1 |
+
+回滚是 `bifrost-rollback-platform-prod`：两个仓库都 `promote(source=prod-prev, target=prod, keep_as=prod-next)`，然后同样的 rollout、摘要核对、Argo sync。没有门，也没有构建。`:prod-prev` 留着，registry 垃圾回收不会收走还被标签指着的摘要。
+
+上线顺序，每次都能单独退回：
+
+1. 脚本和测试进 main（不改集群）。
+2. Owner 自己 apply `k8s/cicd/tekton/rbac-release-gate.yaml`（只读 Role / RoleBinding）。
+3. `k8s/cicd/tekton` 里的 Task 和两条新流水线走 plan / apply。
+4. 演练：CI 红、CI 未完成、STG 是别的提交、浸泡不够，各被拒绝；再发一版并回滚，全程不构建。
+5. 演练过了才停用 `bifrost-deliver-platform-prod`。在那之前，带着红 CI 发布仍走 Owner 手批的旧流水线。
