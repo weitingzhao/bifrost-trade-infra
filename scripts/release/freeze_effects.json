@@ -1,0 +1,52 @@
+{
+  "freeze_task_ref": "bifrost-release-freeze-check",
+  "freeze_pipeline_task": "freeze-check",
+  "not_this_slice": {
+    "bifrost-apply-manifest": "Slice B does not wire the apply channel. The freeze Task is applied through this pipeline; a freeze check on it would make installing the check depend on the check. Reported, not wired."
+  },
+  "read_only": [
+    "bifrost-code-health",
+    "bifrost-git-clone-gitea",
+    "bifrost-release-freeze-check",
+    "bifrost-release-window",
+    "bifrost-research-lint-test",
+    "bifrost-smoke-echo",
+    "bifrost-validate-git-sha",
+    "bifrost-verify-prod-deliver",
+    "bifrost-verify-research",
+    "bifrost-verify-stg-deliver",
+    "check-ops-context",
+    "check-spine",
+    "db-test",
+    "lint-build",
+    "lint-test",
+    "pin-check",
+    "preflight-stg",
+    "stage-api-dockerfile",
+    "stage-console-dockerfile",
+    "stage-dockerfile",
+    "stage-frontend-dockerfile",
+    "test-api",
+    "test-console",
+    "verify-frontend"
+  ],
+  "side_effect": [
+    "bifrost-argocd-sync-platform-stg",
+    "bifrost-argocd-sync-stg",
+    "bifrost-gitea-mirror-sync",
+    "bifrost-kaniko-all-apis-stg",
+    "bifrost-kaniko-api-monitor",
+    "bifrost-kaniko-frontend",
+    "bifrost-kaniko-frontend-real",
+    "bifrost-kaniko-platform-api-stg",
+    "bifrost-kaniko-platform-console-stg",
+    "bifrost-kaniko-worker-stg",
+    "bifrost-prepare-deliver-stg",
+    "bifrost-refresh-dockerfile-cms",
+    "bifrost-rollout-platform-stg",
+    "bifrost-rollout-research",
+    "bifrost-rollout-stg",
+    "build-research",
+    "kaniko"
+  ]
+}

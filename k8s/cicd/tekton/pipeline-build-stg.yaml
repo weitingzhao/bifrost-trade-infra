@@ -18,7 +18,11 @@ spec:
     - name: api-source
     - name: frontend-source
   tasks:
+    - name: freeze-check
+      taskRef:
+        name: bifrost-release-freeze-check
     - name: build-api-monitor
+      runAfter: [freeze-check]
       taskRef:
         name: bifrost-kaniko-api-monitor
       params:

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Ratchet for the release-chain lane (TD-162, TD-155, TD-95, TD-122, TD-121, TD-263).
+"""Ratchet for the release-chain lane (TD-162, TD-155, TD-95, TD-122, TD-121, TD-263, W-56).
 
 No cluster. Fails if a deliver/build pipeline drops its lint-test or window
-check, if the Tekton window decision drifts from window_decision.py, or if
-the research rotation helper hard-codes one Deployment.
+check, if the Tekton window decision drifts from window_decision.py, if the
+research rotation helper hard-codes one Deployment, or if a side-effecting
+Pipeline task is not dominated by the fail-closed freeze check.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "release"))
 
+import freeze_chain  # noqa: E402
 import window_decision as wd  # noqa: E402
 
 failures: list[str] = []
@@ -68,12 +70,12 @@ def first_task_name(pipeline_yaml: str) -> str | None:
 
 
 def assert_guarded_pipelines_release_window_first() -> None:
-    """TD-263: every window_decision.MUST_HOLD pipeline runs release-window first.
+    """TD-263: every MUST_HOLD pipeline still runs release-window before its build.
 
-    Trade STG/PROD deliver pipelines are gated at platform-api; Tekton runs
-    release-window first only for GUARDED plugin/research builds. flex-query
-    YAML lives in bifrost-platform-plugin-flex-query — set BIFROST_WORKSPACE or
-    FLEX_QUERY_ROOT when this repo is checked out without its sibling.
+    In this repo the fail-closed freeze check is the first task and release-window
+    runs after it. flex-query YAML lives in bifrost-platform-plugin-flex-query and
+    still starts at release-window — set BIFROST_WORKSPACE or FLEX_QUERY_ROOT when
+    this repo is checked out without its sibling. Slice B does not edit that file.
     """
     paths = collect_build_deliver_pipeline_paths()
     for pipeline in sorted(wd.MUST_HOLD):
@@ -88,12 +90,25 @@ def assert_guarded_pipelines_release_window_first() -> None:
         text = path.read_text(encoding="utf-8")
         first = first_task_name(text)
         label = path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
-        check(
-            first == "release-window",
-            f"{label}: first task is {first!r}, want release-window ({pipeline})",
-        )
         block = task_block(text, "release-window")
-        check("runAfter" not in block, f"{label}: release-window is not the first task ({pipeline})")
+        if pipeline == "bifrost-build-flex-query":
+            # That pipeline lives in another repo. Slice B does not edit it.
+            check(
+                first == "release-window",
+                f"{label}: first task is {first!r}, want release-window ({pipeline})",
+            )
+            check("runAfter" not in block, f"{label}: release-window is not the first task ({pipeline})")
+            continue
+        check(
+            first == "freeze-check",
+            f"{label}: first task is {first!r}, want freeze-check ({pipeline})",
+        )
+        freeze = task_block(text, "freeze-check")
+        check("runAfter" not in freeze, f"{label}: freeze-check is not the first task ({pipeline})")
+        check(
+            "freeze-check" in block and "runAfter" in block,
+            f"{label}: release-window does not runAfter freeze-check ({pipeline})",
+        )
 
 
 def load_task_decide():
@@ -142,6 +157,9 @@ def main() -> int:
         check("40-character" in text, f"{rel} does not document the SHA revision")
 
     assert_guarded_pipelines_release_window_first()
+
+    for msg in freeze_chain.violations_under(ROOT / "k8s/cicd/tekton"):
+        check(False, msg)
 
     mirror = (ROOT / "k8s/cicd/tekton/task-gitea-mirror-sync.yaml").read_text()
     check("expectSha" in mirror and "git/commits" in mirror, "mirror-sync does not poll for the SHA")

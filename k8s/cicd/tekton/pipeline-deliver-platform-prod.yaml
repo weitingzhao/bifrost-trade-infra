@@ -33,8 +33,14 @@ spec:
   workspaces:
     - name: build-context
   tasks:
+    # One check, before either image push. A run that passes it is past the cut:
+    # rollout is not checked again.
+    - name: freeze-check
+      taskRef:
+        name: bifrost-release-freeze-check
     # Gate: verify platform-stg is healthy before touching prod
     - name: preflight-stg
+      runAfter: [freeze-check]
       taskSpec:
         steps:
           - name: check-stg-health
