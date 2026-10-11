@@ -1,0 +1,17 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: named
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["platform-api"]
+    verbs: ["update", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: named
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: named}
+subjects:
+  - {kind: User, name: named-user}

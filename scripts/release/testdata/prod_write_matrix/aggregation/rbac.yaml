@@ -1,0 +1,28 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: parent
+aggregationRule:
+  clusterRoleSelectors:
+    - matchLabels:
+        aggregate-to: parent
+rules: []
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: child
+  labels:
+    aggregate-to: parent
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: parent
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: parent}
+subjects:
+  - {kind: User, name: agg-user}

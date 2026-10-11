@@ -1,0 +1,6 @@
+effects:
+  - policy: demo-gate
+    identity: user:gated-user
+    field: image
+    effect: refuse
+    note: The fixture names a policy that is not in the manifests, so the refuse must not apply.

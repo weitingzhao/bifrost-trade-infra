@@ -1,0 +1,7 @@
+# Named human exceptions for a PROD write.
+# Every entry needs identity, target, field, check, expiry (YYYY-MM-DD) and
+# removes (the plan step that deletes the exception). An entry missing any of
+# these is invalid and the program exits 1.
+# This slice does not invent exceptions. The writes below stay unclassified
+# until a later slice names the check, the expiry and the removal step.
+exceptions: []

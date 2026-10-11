@@ -1,0 +1,6 @@
+exceptions:
+  - identity: user:scoped-user
+    target: deployment/stg-api
+    field: image
+    check: fixture-check
+    removes: step-9

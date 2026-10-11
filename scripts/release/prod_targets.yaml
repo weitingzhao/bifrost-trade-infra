@@ -1,0 +1,261 @@
+# Declared platform-PROD write targets. The program does not invent targets.
+# api_group "" is the core group. namespace "" is cluster scope.
+targets:
+  - id: deployment/platform-api
+    namespace: bifrost-platform-prod
+    api_group: apps
+    api_version: v1
+    resource: deployments
+    name: platform-api
+    fields: [image, pod-template, replicas, restart-annotation]
+    why: PROD platform-api Deployment. Image, pod template, replicas and the restart annotation change what runs.
+  - id: deployment/platform-workers
+    namespace: bifrost-platform-prod
+    api_group: apps
+    api_version: v1
+    resource: deployments
+    name: platform-workers
+    fields: [image, pod-template, replicas, restart-annotation]
+    why: PROD platform-workers Deployment. It runs the same image tag as platform-api.
+  - id: deployment/platform-console
+    namespace: bifrost-platform-prod
+    api_group: apps
+    api_version: v1
+    resource: deployments
+    name: platform-console
+    fields: [image, pod-template, replicas, restart-annotation]
+    why: PROD platform-console Deployment.
+  - id: deployment/platform-api/scale
+    namespace: bifrost-platform-prod
+    api_group: apps
+    api_version: v1
+    resource: deployments
+    subresource: scale
+    name: platform-api
+    fields: [replicas]
+    why: deployments/scale changes platform-api replicas without a full pod-template write.
+  - id: deployment/platform-workers/scale
+    namespace: bifrost-platform-prod
+    api_group: apps
+    api_version: v1
+    resource: deployments
+    subresource: scale
+    name: platform-workers
+    fields: [replicas]
+    why: deployments/scale changes platform-workers replicas.
+  - id: deployment/platform-console/scale
+    namespace: bifrost-platform-prod
+    api_group: apps
+    api_version: v1
+    resource: deployments
+    subresource: scale
+    name: platform-console
+    fields: [replicas]
+    why: deployments/scale changes platform-console replicas.
+  - id: pod/bifrost-platform-prod
+    namespace: bifrost-platform-prod
+    api_group: ""
+    api_version: v1
+    resource: pods
+    fields: [delete]
+    why: Deleting a pod in bifrost-platform-prod re-pulls the :prod tag when imagePullPolicy is Always.
+  - id: pod/bifrost-platform-prod/eviction
+    namespace: bifrost-platform-prod
+    api_group: ""
+    api_version: v1
+    resource: pods
+    subresource: eviction
+    fields: [eviction]
+    why: Evicting a pod in bifrost-platform-prod also re-pulls the :prod tag.
+  - id: configmap/bifrost-platform-prod
+    namespace: bifrost-platform-prod
+    api_group: ""
+    api_version: v1
+    resource: configmaps
+    fields: [data]
+    why: ConfigMaps in bifrost-platform-prod include platform config and the patrol skill set.
+  - id: service/bifrost-platform-prod
+    namespace: bifrost-platform-prod
+    api_group: ""
+    api_version: v1
+    resource: services
+    fields: [spec]
+    why: Services in bifrost-platform-prod select the PROD pods.
+  - id: ingressroute/bifrost-platform-prod
+    namespace: bifrost-platform-prod
+    api_group: traefik.io
+    api_version: v1alpha1
+    resource: ingressroutes
+    fields: [spec]
+    why: IngressRoutes in bifrost-platform-prod publish the ops console.
+  - id: job/bifrost-platform-prod
+    namespace: bifrost-platform-prod
+    api_group: batch
+    api_version: v1
+    resource: jobs
+    fields: [spec]
+    why: A Job in bifrost-platform-prod can run as a pod that changes or replaces PROD processes.
+  - id: cronjob/bifrost-platform-prod
+    namespace: bifrost-platform-prod
+    api_group: batch
+    api_version: v1
+    resource: cronjobs
+    fields: [spec]
+    why: A CronJob in bifrost-platform-prod creates Jobs on a schedule.
+  - id: application/bifrost-platform-prod
+    namespace: cicd
+    api_group: argoproj.io
+    api_version: v1alpha1
+    resource: applications
+    name: bifrost-platform-prod
+    fields: [spec.source, spec.project, spec.destination, spec.sources, spec.targetRevision, spec.syncPolicy, operation, rollback]
+    why: Application bifrost-platform-prod syncs k8s/overlays/platform-prod. spec, operation, sync and rollback are separate fields.
+  - id: configmap/cicd
+    namespace: cicd
+    api_group: ""
+    api_version: v1
+    resource: configmaps
+    fields: [data]
+    why: Any ConfigMap in cicd. The deliver Role and both platform state bindings name no resourceNames, so freeze and window are included.
+  - id: configmap/bifrost-release-freeze
+    namespace: cicd
+    api_group: ""
+    api_version: v1
+    resource: configmaps
+    name: bifrost-release-freeze
+    fields: [data]
+    why: bifrost-release-freeze in cicd is the release freeze. Writing data.frozen clears or sets it.
+  - id: configmap/bifrost-release-window
+    namespace: cicd
+    api_group: ""
+    api_version: v1
+    resource: configmaps
+    name: bifrost-release-window
+    fields: [data]
+    why: bifrost-release-window in cicd is the release window.
+  - id: pipeline/bifrost-deliver-platform-prod
+    namespace: cicd
+    api_group: tekton.dev
+    api_version: v1
+    resource: pipelines
+    name: bifrost-deliver-platform-prod
+    fields: [spec]
+    why: This Pipeline builds :prod images, restarts bifrost-platform-prod and syncs the Application.
+  - id: pipeline/bifrost-deliver-platform
+    namespace: cicd
+    api_group: tekton.dev
+    api_version: v1
+    resource: pipelines
+    name: bifrost-deliver-platform
+    fields: [spec]
+    why: The STG platform Pipeline shares the rollout and sync Tasks whose namespace and application parameters can be pointed at PROD by editing the Pipeline.
+  - id: pipeline/bifrost-apply-manifest
+    namespace: cicd
+    api_group: tekton.dev
+    api_version: v1
+    resource: pipelines
+    name: bifrost-apply-manifest
+    fields: [spec]
+    why: bifrost-apply-manifest applies a git path. The path can be the platform-prod overlay.
+  - id: task/bifrost-rollout-platform-stg
+    namespace: cicd
+    api_group: tekton.dev
+    api_version: v1
+    resource: tasks
+    name: bifrost-rollout-platform-stg
+    fields: [spec]
+    why: bifrost-rollout-platform-stg takes a namespace parameter and restarts the three platform Deployments.
+  - id: task/bifrost-argocd-sync-platform-stg
+    namespace: cicd
+    api_group: tekton.dev
+    api_version: v1
+    resource: tasks
+    name: bifrost-argocd-sync-platform-stg
+    fields: [spec]
+    why: bifrost-argocd-sync-platform-stg patches an Application operation and takes the application name as a parameter.
+  - id: task/bifrost-kaniko-platform-api-stg
+    namespace: cicd
+    api_group: tekton.dev
+    api_version: v1
+    resource: tasks
+    name: bifrost-kaniko-platform-api-stg
+    fields: [spec]
+    why: This Task pushes the platform-api image. The tag is a parameter.
+  - id: task/bifrost-kaniko-platform-console-stg
+    namespace: cicd
+    api_group: tekton.dev
+    api_version: v1
+    resource: tasks
+    name: bifrost-kaniko-platform-console-stg
+    fields: [spec]
+    why: This Task pushes the platform-console image. The tag is a parameter.
+  - id: pipelinerun/cicd
+    namespace: cicd
+    api_group: tekton.dev
+    api_version: v1
+    resource: pipelineruns
+    fields: [pipelineRef, pipelineSpec, resolver]
+    why: A PipelineRun in cicd can start a PROD deploy, including an inline spec or a resolver.
+  - id: taskrun/cicd
+    namespace: cicd
+    api_group: tekton.dev
+    api_version: v1
+    resource: taskruns
+    fields: [taskRef, taskSpec, resolver]
+    why: A TaskRun in cicd can run a rollout, sync or image push directly.
+  - id: clusterrole
+    namespace: ""
+    api_group: rbac.authorization.k8s.io
+    api_version: v1
+    resource: clusterroles
+    fields: [rules]
+    why: Changing a ClusterRole changes who can write PROD.
+  - id: clusterrolebinding
+    namespace: ""
+    api_group: rbac.authorization.k8s.io
+    api_version: v1
+    resource: clusterrolebindings
+    fields: [subjects]
+    why: Changing a ClusterRoleBinding changes who can write PROD.
+  - id: role/bifrost-platform-prod
+    namespace: bifrost-platform-prod
+    api_group: rbac.authorization.k8s.io
+    api_version: v1
+    resource: roles
+    fields: [rules]
+    why: A Role in bifrost-platform-prod can grant writes there.
+  - id: role/cicd
+    namespace: cicd
+    api_group: rbac.authorization.k8s.io
+    api_version: v1
+    resource: roles
+    fields: [rules]
+    why: A Role in cicd can grant Application, Pipeline and freeze writes.
+  - id: rolebinding/bifrost-platform-prod
+    namespace: bifrost-platform-prod
+    api_group: rbac.authorization.k8s.io
+    api_version: v1
+    resource: rolebindings
+    fields: [subjects]
+    why: A RoleBinding in bifrost-platform-prod grants a Role or ClusterRole inside that namespace.
+  - id: rolebinding/cicd
+    namespace: cicd
+    api_group: rbac.authorization.k8s.io
+    api_version: v1
+    resource: rolebindings
+    fields: [subjects]
+    why: A RoleBinding in cicd grants writes to freeze, window, Pipelines and the Application.
+  - id: validatingadmissionpolicy
+    namespace: ""
+    api_group: admissionregistration.k8s.io
+    api_version: v1
+    resource: validatingadmissionpolicies
+    fields: [spec]
+    why: A ValidatingAdmissionPolicy is what turns an allowed write into a gated or refused one.
+  - id: validatingadmissionpolicybinding
+    namespace: ""
+    api_group: admissionregistration.k8s.io
+    api_version: v1
+    resource: validatingadmissionpolicybindings
+    fields: [spec]
+    why: A ValidatingAdmissionPolicyBinding decides where a policy applies.

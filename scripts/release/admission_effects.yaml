@@ -1,0 +1,68 @@
+# Reviewed admission effects. The program does not evaluate CEL. A matching
+# policy stays "gated: <policy>" unless an entry here says it refuses that
+# identity and field. identity "*" means every identity the policy already
+# matched (matchConditions still apply before this file is consulted).
+# Only combinations the validation text actually rejects are listed. Image,
+# replicas, scale, pod delete, eviction, freeze data and targetRevision are
+# not here: those policies do not reject them.
+effects:
+  - policy: bifrost-platform-application
+    identity: "*"
+    field: spec.source
+    effect: refuse
+    note: >-
+      ValidatingAdmissionPolicy bifrost-platform-application requires
+      spec.source repoURL, path, kustomize, helm, plugin and directory to stay
+      equal to oldObject. Message: platform may change only the sync operation
+      and targetRevision. spec.syncPolicy is not compared, so this entry does
+      not cover automated sync.
+  - policy: bifrost-platform-application
+    identity: "*"
+    field: spec.project
+    effect: refuse
+    note: >-
+      The same policy requires object.spec.project == oldObject.spec.project.
+  - policy: bifrost-platform-application
+    identity: "*"
+    field: spec.destination
+    effect: refuse
+    note: >-
+      The same policy requires destination.namespace and destination.server to
+      stay equal to oldObject.
+  - policy: bifrost-platform-application
+    identity: "*"
+    field: spec.sources
+    effect: refuse
+    note: >-
+      The same policy requires spec.sources to stay equal to oldObject when
+      either object has that field.
+  - policy: bifrost-platform-pipelinerun
+    identity: "*"
+    field: pipelineSpec
+    effect: refuse
+    note: >-
+      bifrost-platform-pipelinerun rejects has(object.spec.pipelineSpec).
+      Message: platform PipelineRuns must name a pipelineRef and must not use
+      a resolver or an inline spec. A named pipelineRef is not rejected.
+  - policy: bifrost-platform-pipelinerun
+    identity: "*"
+    field: resolver
+    effect: refuse
+    note: >-
+      The same policy rejects pipelineRef.resolver, pipelineRef.params and
+      pipelineRef.bundle.
+  - policy: bifrost-platform-taskrun
+    identity: "*"
+    field: taskSpec
+    effect: refuse
+    note: >-
+      bifrost-platform-taskrun rejects has(object.spec.taskSpec). Message:
+      platform TaskRuns must name a taskRef and must not use a resolver or an
+      inline spec.
+  - policy: bifrost-platform-taskrun
+    identity: "*"
+    field: resolver
+    effect: refuse
+    note: >-
+      The same policy rejects taskRef.resolver, taskRef.params and
+      taskRef.bundle.

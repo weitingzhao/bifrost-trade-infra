@@ -1,0 +1,20 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: demo-parallel
+  namespace: cicd
+spec:
+  tasks:
+    - name: release-window
+      taskRef:
+        name: bifrost-release-window
+    - name: validate
+      taskRef:
+        name: bifrost-validate-git-sha
+    - name: rollout
+      runAfter: [release-window, validate]
+      taskRef:
+        name: bifrost-rollout-platform-stg
+      params:
+        - name: namespace
+          value: bifrost-platform-prod

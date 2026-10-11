@@ -1,0 +1,16 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: patch-dep
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: patch-dep
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: patch-dep}
+subjects:
+  - {kind: User, name: bound-user}

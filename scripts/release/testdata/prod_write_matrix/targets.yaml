@@ -1,0 +1,42 @@
+targets:
+  - id: deployment/platform-api
+    namespace: bifrost-platform-prod
+    api_group: apps
+    api_version: v1
+    resource: deployments
+    name: platform-api
+    fields: [image]
+    why: fixture deployment
+  - id: deployment/platform-workers
+    namespace: bifrost-platform-prod
+    api_group: apps
+    api_version: v1
+    resource: deployments
+    name: platform-workers
+    fields: [image]
+    why: fixture deployment
+  - id: deployment/platform-api/scale
+    namespace: bifrost-platform-prod
+    api_group: apps
+    api_version: v1
+    resource: deployments
+    subresource: scale
+    name: platform-api
+    fields: [replicas]
+    why: fixture scale
+  - id: pod/bifrost-platform-prod/eviction
+    namespace: bifrost-platform-prod
+    api_group: ""
+    api_version: v1
+    resource: pods
+    subresource: eviction
+    fields: [eviction]
+    why: fixture eviction
+  - id: deployment/stg-api
+    namespace: bifrost-stg
+    api_group: apps
+    api_version: v1
+    resource: deployments
+    name: stg-api
+    fields: [image]
+    why: fixture other namespace

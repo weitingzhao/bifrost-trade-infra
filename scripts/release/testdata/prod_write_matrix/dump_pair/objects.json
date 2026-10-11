@@ -1,0 +1,21 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "ClusterRole",
+      "metadata": {"name": "dump-role"},
+      "rules": [
+        {"apiGroups": ["apps"], "resources": ["deployments"], "verbs": ["patch"]}
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "ClusterRoleBinding",
+      "metadata": {"name": "dump-bind"},
+      "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": "dump-role"},
+      "subjects": [{"kind": "User", "name": "dump-user"}]
+    }
+  ]
+}
