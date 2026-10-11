@@ -179,27 +179,34 @@ PROD / platform-prod / research 的发布（级别 C）等 Owner 批，STG 与�
 
 冻结对象缺失或畸形时，先分清它当时是不是冻结的，再写回同一种形状。当时是冻结的，就不要建成 `frozen: "false"`。对象已经没了之后再跑 `release.sh policy status`，平台把缺失读成没冻结，这次输出不能当依据。看两处：对象还可读时的最后一次 `scripts/release/release.sh policy status`（冻结时这一行是 `frozen    True  (<reason>, at <frozen_at>)`，否则是 `frozen    False`）；平台审计 `GET /api/v1/audit` 里结果为 ok 的最后一条 `release_policy.freeze`（target 是 `who: reason`）或 `release_policy.unfreeze`（target 是签过名的原文 `unfreeze frozen_at=<那次 frozen_at> ...`）。签名不在审计里。`release.sh unfreeze` 写完就删掉本机临时文件，`unfreeze.sig` 只在 ConfigMap 里。对象还在就先 `kubectl -n cicd get configmap bifrost-release-freeze -o json`，只保留该形状的键。对象已经没了、最后一条是冻结：用审计里的 who、reason 和当时 status 行里的 `frozen_at`。对象已经没了、最后一条是解冻、签名也没了：不要编 `unfreeze.sig`，也不要写成从未冻结。用解冻原文里的 `frozen_at` 和它对应的那条 `release_policy.freeze` 把对象写成冻结形状，发布保持停止，然后 Owner 再跑 `release.sh unfreeze`。
 
-`kubectl apply` 会按键合并 ConfigMap 的 `data`，多余键会留下。删掉再创建，只写这一个对象。删和建之间对象是缺失的，这段时间不要有发布在跑：旧的 release-window 把 404 当成没冻结，新检查把 404 当成拒绝。冻结时：
+**证据不够就按冻结处理（复核 45）。** `release.sh policy status` 的旧输出没有保证被留着，平台的审计只保留最近 500 条，旧输出也不一定是最新那次冻结的。只要拿不出能对上的证据说明「对象丢失之前是没冻结的」，就不要推断成从未冻结：停掉发布，由 Owner 带外建一个**新的冻结**（下面的命令，`frozen_at` 取现在，`reason` 写明是恢复时建的），之后照常用 `release.sh unfreeze` 签名解冻。多冻一次的代价是一次签名；推断错的代价是在本该冻结的时候放行。
+
+写回时不要把值直接拼进 YAML（原因里可以有引号，例如 `hold "prod"`，拼出来的 YAML 无效，创建失败后对象仍然缺失，而旧的 release-window 把 404 当成没冻结）。先用程序把对象序列化成 JSON 并用冻结检查的判定程序验一遍，验过了再替换；替换用 `kubectl replace`（对象还在时）或 `kubectl create`（对象已不在时），都不先删：
 
 ```bash
-kubectl -n cicd delete configmap bifrost-release-freeze --ignore-not-found
-kubectl -n cicd create -f - <<EOF
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: bifrost-release-freeze
-  namespace: cicd
-  labels:
-    bifrost.io/purpose: release-policy
-data:
-  frozen: "true"
-  frozen_at: "${FROZEN_AT}"
-  who: "${WHO}"
-  reason: "${REASON}"
-EOF
+# 值从环境变量取，不进命令行历史；FROZEN 是 true 或 false。
+export FROZEN=true FROZEN_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)" WHO="owner" REASON='restored during recovery'
+python3 - > /tmp/freeze-restore.json <<'PY'
+import json, os, sys
+sys.path.insert(0, "scripts/release")
+import freeze_decision
+frozen = os.environ["FROZEN"]
+data = {"frozen": frozen}
+if frozen == "true":
+    data.update(frozen_at=os.environ["FROZEN_AT"], who=os.environ["WHO"], reason=os.environ["REASON"])
+allow, line = freeze_decision.decide(data)
+if (frozen == "true") == allow or "读不到" in line:
+    sys.exit("refusing to write: the decision program reads this object as: " + line)
+json.dump({"apiVersion": "v1", "kind": "ConfigMap",
+           "metadata": {"name": "bifrost-release-freeze", "namespace": "cicd",
+                        "labels": {"bifrost.io/purpose": "release-policy"}},
+           "data": data}, sys.stdout, ensure_ascii=False)
+PY
+kubectl -n cicd replace -f /tmp/freeze-restore.json || kubectl -n cicd create -f /tmp/freeze-restore.json
+kubectl -n cicd get configmap bifrost-release-freeze -o json | python3 -c 'import json,sys; sys.path.insert(0,"scripts/release"); import freeze_decision; print(freeze_decision.decide(json.load(sys.stdin)["data"])[1])'
 ```
 
-先从上面两处导出 `FROZEN_AT`、`WHO`、`REASON`，再跑这条命令。从未冻结把 `data` 换成只有 `frozen: "false"`。解冻用带引号的 heredoc（`<<'EOF'`），把取出来的 `frozen_at`、`unfreeze.txt`、`unfreeze.sig` 原样贴进去，避免 shell 展开签名。
+第一段在本机生成并自检：冻结的对象必须被判成「拒绝：发布已冻结」，没冻结的必须被判成「未冻结」，读成别的就不写。`replace` 整体替换 `data`，不留多余的键（`kubectl apply` 会按键合并，不要用它恢复）。最后一行读回集群里的对象再判一次。恢复「已解冻」的形状（带 `unfreeze.txt`、`unfreeze.sig`）只在两样原文都还在手里时做，同样先序列化、先自检；拿不全就按上一段建新的冻结再重新签名。
 
 冻结检查的 Task 或程序 ConfigMap 坏了：Owner 自己再 apply 这两个对象所在的那一个文件，不走 apply 流水线：
 
