@@ -21,6 +21,40 @@ VERDICT_PASS = "VERDICT: pass"
 VERDICT_FIX = "VERDICT: fix first"
 VERDICT_SAFE = "VERDICT: safe to merge"
 END_MARK = "END OF REPORT"
+KIND_VALUES = ("baseline", "pinned")
+
+# Closed pre-check, one entry per repository. Tests generate T31 from these.
+# ``kind`` is the string "kind" so it is not the same check as a plain str.
+PRE_FIELDS = {
+    "implement": (
+        ("commit", str),
+        ("tree", str),
+        ("clean", bool),
+        ("hidden", bool),
+        ("kind", "kind"),
+        ("expected.commit", str),
+        ("expected.tree", str),
+    ),
+    "verify": (
+        ("commit", str),
+        ("tree", str),
+        ("clean", bool),
+        ("hidden", bool),
+        ("consumed.commit", str),
+        ("consumed.tree", str),
+    ),
+    "review": (
+        ("commit", str),
+        ("tree", str),
+        ("clean", bool),
+        ("hidden", bool),
+        ("consumed.commit", str),
+        ("consumed.tree", str),
+    ),
+}
+POST_FIELDS = {"verify": PRE_FIELDS["verify"], "review": PRE_FIELDS["review"]}
+PIN_FIELDS = (("commit", str), ("tree", str))
+_MISSING = object()
 
 
 @dataclass(frozen=True)
@@ -52,6 +86,7 @@ class RoundEvidence:
     resolutions: tuple = ()
     expected_start: dict = field(default_factory=dict)
     order_defect: str | None = None
+    start_kind: str = "baseline"
 
 
 def decide(evidence: RoundEvidence) -> tuple[str, str | None]:
@@ -100,7 +135,7 @@ def _eval_step(evidence: RoundEvidence, step: StepView) -> tuple[str, str] | Non
         return "step_failed", f"{step.name} exited {code}"
     if step.name == "verify" and code not in (0, 1):
         return "step_failed", f"verify exited {code}"
-    hit = _precheck(step)
+    hit = _precheck(evidence, step)
     if hit is not None:
         return hit
     if step.name in ("verify", "review"):
@@ -118,60 +153,170 @@ def _eval_step(evidence: RoundEvidence, step: StepView) -> tuple[str, str] | Non
     return None
 
 
-def _precheck(step: StepView) -> tuple[str, str] | None:
+def _invalid(step: str, kind: str, detail: str) -> tuple[str, str]:
+    return "unknown", f"evidence invalid: {step} {kind} {detail}"
+
+
+def _dig(obj: object, path: str):
+    current = obj
+    for part in path.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return _MISSING
+        current = current[part]
+    return current
+
+
+def _typed(value: object, typ: object) -> bool:
+    if typ == "kind":
+        return isinstance(value, str) and value in KIND_VALUES
+    if typ is str:
+        return isinstance(value, str) and bool(value)
+    if typ is bool:
+        return isinstance(value, bool)
+    return False
+
+
+def _closed_detail(repos: object, fields: tuple, targets: dict) -> str | None:
+    """First shape defect, or None when ``repos`` is exactly ``targets`` and every field is typed."""
+    if not isinstance(repos, dict):
+        return "repos"
+    missing = sorted(set(targets) - set(repos))
+    extra = sorted(set(repos) - set(targets))
+    if missing:
+        return f"missing repo {missing[0]}"
+    if extra:
+        return f"extra repo {extra[0]}"
+    for repo in sorted(targets):
+        info = repos[repo]
+        if not isinstance(info, dict):
+            return f"{repo} type"
+        for path, typ in fields:
+            value = _dig(info, path)
+            if value is _MISSING:
+                return f"{repo}.{path} missing"
+            if not _typed(value, typ):
+                return f"{repo}.{path} type"
+    return None
+
+
+def _consumed_shape(step: StepView, targets: dict) -> tuple[str, str] | None:
+    consumed = step.consumed
+    if not isinstance(consumed, dict) or not consumed:
+        return _invalid(step.name, "pre-check", "consumed")
+    detail = _closed_detail(consumed, PIN_FIELDS, targets)
+    if detail is None:
+        return None
+    if detail.startswith("missing repo") or detail.startswith("extra repo"):
+        return _invalid(step.name, "pre-check", f"consumed {detail}")
+    return _invalid(step.name, "pre-check", f"consumed.{detail}")
+
+
+def _precheck(evidence: RoundEvidence, step: StepView) -> tuple[str, str] | None:
     pre = step.pre_checks
-    if not isinstance(pre, dict) or not pre.get("repos"):
-        return "unknown", f"evidence invalid: {step.name} pre-check missing"
-    if pre.get("ok") is not True:
+    if not isinstance(pre, dict) or not pre:
+        return _invalid(step.name, "pre-check", "missing")
+    detail = _closed_detail(pre.get("repos"), PRE_FIELDS[step.name], evidence.targets)
+    if detail is not None:
+        if detail == "repos":
+            detail = "missing"
+        return _invalid(step.name, "pre-check", detail)
+    hit = _consumed_shape(step, evidence.targets)
+    if hit is not None:
+        return hit
+    if "ok" in pre and pre.get("ok") is not True:
         reason = pre.get("reason") or "pre-check failed"
         return "step_failed", f"{step.name} did not start: {reason}"
     return None
 
 
-def _commit(info: dict | None) -> str | None:
-    if not isinstance(info, dict):
-        return None
-    commit = info.get("commit")
-    return commit if isinstance(commit, str) and commit else None
+def _ref(evidence: RoundEvidence, repo: str) -> tuple[str | None, str | None, str | None]:
+    meta = evidence.targets.get(repo) or {}
+    expected = evidence.expected_start.get(repo) or {}
+    commit = expected.get("commit") or meta.get("target_sha")
+    tree = expected.get("tree") or meta.get("tree")
+    return commit, tree, meta.get("role")
+
+
+def _start_failure(repo: str, role: str | None, got_commit, got_tree, exp_commit, exp_tree, *, tree: bool) -> tuple[str, str]:
+    if role == "context":
+        return "step_failed", f"context repository {repo} moved"
+    if tree:
+        return "step_failed", f"implement did not start: {repo} tree {got_tree} != expected {exp_tree}"
+    return "step_failed", f"implement did not start: {repo} HEAD {got_commit} != expected {exp_commit}"
 
 
 def _start_matches(evidence: RoundEvidence, step: StepView) -> tuple[str, str] | None:
-    """Compare the recorded start with the start computed from events."""
+    """Found HEAD, recorded expected start, and consumed set against the event start."""
     found = (step.pre_checks or {}).get("repos") or {}
-    consumed = step.consumed or {}
-    names = sorted(set(evidence.targets) | set(evidence.expected_start) | set(found) | set(consumed))
-    for repo in names:
-        meta = (evidence.targets or {}).get(repo) or {}
-        expected = _commit(evidence.expected_start.get(repo)) or meta.get("target_sha")
-        got = _commit(found.get(repo))
-        consumed_commit = _commit(consumed.get(repo))
-        role = meta.get("role")
-        if role == "context" and (got != expected or (consumed_commit is not None and consumed_commit != expected)):
-            return "step_failed", f"context repository {repo} moved"
-        if got != expected or (consumed_commit is not None and consumed_commit != expected):
-            return "step_failed", f"implement did not start: {repo} HEAD {got} != expected {expected}"
-        expected_tree = (evidence.expected_start.get(repo) or {}).get("tree")
-        found_tree = (found.get(repo) or {}).get("tree")
-        if expected_tree and found_tree and expected_tree != found_tree:
-            return "step_failed", f"implement did not start: {repo} HEAD {got} != expected {expected}"
-        if (found.get(repo) or {}).get("clean") is False:
+    for repo in sorted(evidence.targets):
+        info = found[repo]
+        exp_commit, exp_tree, role = _ref(evidence, repo)
+        if info["commit"] != exp_commit:
+            return _start_failure(repo, role, info["commit"], info["tree"], exp_commit, exp_tree, tree=False)
+        if exp_tree and info["tree"] != exp_tree:
+            return _start_failure(repo, role, info["commit"], info["tree"], exp_commit, exp_tree, tree=True)
+        if info["clean"] is not True:
             return "step_failed", f"implement did not start: {repo} worktree is dirty"
-        if (found.get(repo) or {}).get("hidden"):
+        if info["hidden"] is not False:
             return "step_failed", f"hidden index flag in {repo}"
+        if info["kind"] != evidence.start_kind:
+            return "step_failed", f"implement did not start: {repo} start kind {info['kind']} != {evidence.start_kind}"
+        recorded = info["expected"]
+        if recorded["commit"] != exp_commit:
+            if role == "context":
+                return "step_failed", f"context repository {repo} moved"
+            return "step_failed", f"implement did not start: {repo} expected {recorded['commit']} != {exp_commit}"
+        if exp_tree and recorded["tree"] != exp_tree:
+            if role == "context":
+                return "step_failed", f"context repository {repo} moved"
+            return "step_failed", f"implement did not start: {repo} expected tree {recorded['tree']} != {exp_tree}"
+    consumed = step.consumed or {}
+    for repo in sorted(evidence.targets):
+        info = consumed[repo]
+        exp_commit, exp_tree, role = _ref(evidence, repo)
+        if info["commit"] != exp_commit:
+            return _start_failure(repo, role, info["commit"], info["tree"], exp_commit, exp_tree, tree=False)
+        if exp_tree and info["tree"] != exp_tree:
+            return _start_failure(repo, role, info["commit"], info["tree"], exp_commit, exp_tree, tree=True)
+    return None
+
+
+def _pinned_of(pinned: dict, repo: str) -> dict:
+    info = pinned.get(repo) or {}
+    return info if isinstance(info, dict) else {}
+
+
+def _sha_row(step: str, repo: str, info: dict, pin: dict) -> tuple[str, str] | None:
+    if info["commit"] != pin.get("commit") or info["tree"] != pin.get("tree"):
+        return "step_failed", f"{step} ran on a different SHA set"
+    if info["clean"] is not True:
+        return "step_failed", f"snapshot of {repo} changed during {step}"
+    if info["hidden"] is not False:
+        return "step_failed", f"hidden index flag in {repo}"
+    consumed = info["consumed"]
+    if consumed["commit"] != pin.get("commit") or consumed["tree"] != pin.get("tree"):
+        return "step_failed", f"{step} ran on a different SHA set"
     return None
 
 
 def _invariance(evidence: RoundEvidence, step: StepView) -> tuple[str, str] | None:
-    pre_repos = (step.pre_checks or {}).get("repos") or {}
     pinned = evidence.steps["implement"].pinned or {}
-    for repo, info in pre_repos.items():
-        if info.get("clean") is False:
-            return "step_failed", f"snapshot of {repo} changed during {step.name}"
-        if info.get("hidden"):
-            return "step_failed", f"hidden index flag in {repo}"
-        if _commit(info) != _commit(pinned.get(repo)):
-            return "step_failed", f"{step.name} ran on a different SHA set"
-    checks = step.checks or {}
+    pre_repos = (step.pre_checks or {}).get("repos") or {}
+    for repo in sorted(evidence.targets):
+        hit = _sha_row(step.name, repo, pre_repos[repo], _pinned_of(pinned, repo))
+        if hit is not None:
+            return hit
+    checks = step.checks if isinstance(step.checks, dict) else None
+    if not isinstance(checks, dict) or "repos" not in checks:
+        return _invalid(step.name, "post-check", "missing")
+    detail = _closed_detail(checks.get("repos"), POST_FIELDS[step.name], evidence.targets)
+    if detail is not None:
+        word = "missing" if detail == "repos" else detail
+        return _invalid(step.name, "post-check", word)
+    for repo in sorted(evidence.targets):
+        hit = _sha_row(step.name, repo, checks["repos"][repo], _pinned_of(pinned, repo))
+        if hit is not None:
+            return hit
     changed = checks.get("snapshot_changed") or []
     if changed:
         return "step_failed", f"snapshot of {changed[0]} changed during {step.name}"
@@ -181,8 +326,7 @@ def _invariance(evidence: RoundEvidence, step: StepView) -> tuple[str, str] | No
     git_failed = checks.get("git_failed")
     if git_failed:
         return "step_failed", f"snapshot of {git_failed} changed during {step.name}"
-    pinned = evidence.steps["implement"].pinned
-    if not same_set(step.consumed, pinned):
+    if not same_set(step.consumed, evidence.steps["implement"].pinned):
         return "step_failed", f"{step.name} ran on a different SHA set"
     return None
 
@@ -191,15 +335,17 @@ def _pin(evidence: RoundEvidence, step: StepView) -> tuple[str, str] | None:
     started = _start_matches(evidence, step)
     if started is not None:
         return started
+    if not isinstance(step.pinned, dict):
+        return _invalid(step.name, "pinned", "missing")
+    detail = _closed_detail(step.pinned, PIN_FIELDS, evidence.targets)
+    if detail is not None:
+        word = "missing" if detail == "repos" else detail
+        return _invalid(step.name, "pinned", word)
     checks = step.checks or {}
     pin_error = checks.get("pin_error")
     if isinstance(pin_error, dict) and pin_error.get("repo"):
         return "step_failed", f"cannot pin {pin_error['repo']}: {pin_error.get('error')}"
-    pinned = step.pinned or {}
-    for repo in sorted(evidence.targets):
-        info = pinned.get(repo) or {}
-        if not info.get("commit") or not info.get("tree"):
-            return "step_failed", f"cannot pin {repo}: missing"
+    pinned = step.pinned
     replace = checks.get("replace_or_grafts") or []
     if replace:
         return "step_failed", f"{replace[0]} has replace refs or grafts"
@@ -208,7 +354,13 @@ def _pin(evidence: RoundEvidence, step: StepView) -> tuple[str, str] | None:
         path = submodules[0].get("path") if isinstance(submodules[0], dict) else submodules[0]
         return "step_failed", f"submodule at {path}: recursive pinning is not implemented"
     for repo, meta in sorted(evidence.targets.items()):
-        if meta.get("role") == "context" and (pinned.get(repo) or {}).get("commit") != meta.get("target_sha"):
+        if meta.get("role") != "context":
+            continue
+        info = pinned.get(repo) or {}
+        exp_commit, exp_tree, _role = _ref(evidence, repo)
+        if info.get("commit") != (exp_commit or meta.get("target_sha")):
+            return "step_failed", f"context repository {repo} moved"
+        if exp_tree and info.get("tree") != exp_tree:
             return "step_failed", f"context repository {repo} moved"
     change = [repo for repo, meta in evidence.targets.items() if meta.get("role") == "change"]
     if not change or all((pinned.get(repo) or {}).get("commit") == evidence.targets[repo].get("target_sha") for repo in change):

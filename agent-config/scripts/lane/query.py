@@ -136,7 +136,22 @@ def round_open(events: list[dict], rnd: int) -> dict | None:
     return rows[-1] if rows else None
 
 
+def _nonempty_pin(pinned: object) -> bool:
+    """A pin counts only when some repository has a commit. An empty set does not."""
+    if not isinstance(pinned, dict):
+        return False
+    for info in pinned.values():
+        if isinstance(info, dict) and isinstance(info.get("commit"), str) and info.get("commit"):
+            return True
+    return False
+
+
 def last_pinned_before(events: list[dict], rnd: int) -> dict:
+    """The newest implement pin before ``rnd`` that actually pinned something.
+
+    A later round whose implement recorded an empty pin (it did not start, or
+    it failed before pinning) must not erase the previous set.
+    """
     found: dict = {}
     for event in events:
         if event.get("type") != "step_recorded":
@@ -144,18 +159,26 @@ def last_pinned_before(events: list[dict], rnd: int) -> dict:
         body = exec_of(event)
         if body.get("step") != "implement":
             continue
-        if int(body.get("round", -1)) < rnd:
-            found = event.get("pinned") or {}
+        if int(body.get("round", -1)) < rnd and _nonempty_pin(event.get("pinned")):
+            found = event["pinned"]
     return found
+
+
+def start_kind(events: list[dict], rnd: int) -> str:
+    """``baseline`` on round 1 and on ``--start baseline``; otherwise ``pinned``."""
+    opened = round_open(events, rnd) or {}
+    if int(rnd) <= 1 or opened.get("start") == "baseline":
+        return "baseline"
+    return "pinned"
 
 
 def expected_start(events: list[dict], rnd: int, targets: dict | None) -> dict:
     """Where implement must have started, from the round and the last pinned set.
 
     Round 1, and any round opened with ``start=baseline``, starts at the target
-    baseline. Later rounds start change repositories at the previously pinned
-    set and context repositories at the target baseline. The manifest being
-    judged is not an input.
+    baseline. Later rounds start change repositories at the most recent
+    non-empty pinned set and context repositories at the target baseline.
+    An empty pin does not count. The manifest being judged is not an input.
     """
     baseline = {}
     for name, meta in (targets or {}).items():

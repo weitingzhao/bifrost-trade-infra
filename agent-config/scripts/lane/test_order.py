@@ -6,10 +6,11 @@ import json
 
 import pytest
 
+from commands import cmd_next_round
 from errors import LaneError
 from events import append_obj, sha256_bytes
 from evidence import attempt_dir
-from query import make_exec
+from query import created, expected_start, make_exec
 from recorder import append_resolution, open_intent_only
 from support import A, B, C, TA, TB, TC, implement_ok, make_lane, passing_prechecks, review_ok, sha_set, verify_ok
 
@@ -185,3 +186,58 @@ def test_artifacts_are_durable_before_the_manifest(tmp_path, monkeypatch):
     manifest_at = max(index for index, item in enumerate(order) if item == ("publish", "manifest.json"))
     assert stdout_at < manifest_at
     assert bundle_at < manifest_at
+
+
+def _start_at(lane, rnd: int) -> dict:
+    events = lane.events()
+    targets = (created(events) or {})["repos"]
+    return expected_start(events, rnd, targets)
+
+
+def test_empty_pin_keeps_the_previous_start(tmp_path):
+    lane = make_lane(tmp_path, "P", max_rounds=4)
+    implement_ok(lane, exit_code=9)
+    cmd_next_round(lane.root, lane.lane_id, brief=str(lane.brief))
+    lane.record(step="implement", not_started={"check": "fetch", "repo": "repo", "reason": "cannot fetch"})
+    assert lane.status()["reason"] == "implement did not start: cannot fetch"
+    cmd_next_round(lane.root, lane.lane_id, brief=str(lane.brief))
+    start = _start_at(lane, 3)
+    assert start["repo"]["commit"] == B
+    assert start["repo"]["tree"] == TB
+    lane.record(
+        step="implement",
+        consumed=sha_set(A, TA),
+        pinned=sha_set(C, TC),
+        pre_checks=passing_prechecks("implement", sha_set(A, TA), kind="pinned", expected=sha_set(A, TA)),
+        bundle_bytes={"repo": b"bundle"},
+    )
+    assert lane.status()["state"] == "step_failed"
+    assert lane.status()["reason"] == f"implement did not start: repo HEAD {A} != expected {B}"
+
+
+def test_failed_implement_that_pinned_nothing_keeps_the_start(tmp_path):
+    lane = make_lane(tmp_path, "F", max_rounds=4)
+    implement_ok(lane, exit_code=9)
+    cmd_next_round(lane.root, lane.lane_id, brief=str(lane.brief))
+    implement_ok(lane, exit_code=9, pinned={}, bundle_bytes={})
+    recorded = [
+        event for event in lane.events()
+        if event["type"] == "step_recorded" and event["exec"]["step"] == "implement" and event["exec"]["round"] == 2
+    ][-1]
+    assert recorded["pinned"] == {}
+    assert lane.status()["reason"] == "implement exited 9"
+    cmd_next_round(lane.root, lane.lane_id, brief=str(lane.brief))
+    start = _start_at(lane, 3)
+    assert start["repo"]["commit"] == B
+    assert start["repo"]["tree"] == TB
+
+
+def test_explicit_baseline_start_returns_to_the_baseline(tmp_path):
+    lane = make_lane(tmp_path, "B2", max_rounds=3)
+    implement_ok(lane, exit_code=9)
+    cmd_next_round(lane.root, lane.lane_id, brief=str(lane.brief), start="baseline")
+    opened = [event for event in lane.events() if event["type"] == "round_opened"][-1]
+    assert opened["start"] == "baseline"
+    start = _start_at(lane, 2)
+    assert start["repo"]["commit"] == A
+    assert start["repo"]["commit"] != B

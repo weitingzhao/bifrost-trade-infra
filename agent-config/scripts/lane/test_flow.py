@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import threading
+from contextlib import contextmanager
+
 import pytest
 
 from commands import cmd_abandon, cmd_confirm, cmd_next_round, cmd_queue, cmd_resolve, cmd_run
@@ -248,3 +251,67 @@ def test_t60_abandoned_survives_a_corrupt_tail(tmp_path):
     status = other.status()
     assert status["state"] == "abandoned"
     assert status["marker"].startswith("event log invalid after seq ")
+
+
+def _hold_lock(path, ready, stop):
+    from locks import acquire, release
+
+    fd = acquire(path, "record")
+    ready.set()
+    stop.wait(15)
+    release(fd)
+
+
+def test_recorder_gate1_before_lock_and_repair(tmp_path, monkeypatch):
+    """LANE_EXEC is gate 1, before the lock and before torn-tail repair."""
+    import commands
+
+    blocked = make_lane(tmp_path, "L", max_rounds=3)
+    torn = make_lane(tmp_path, "T", max_rounds=3)
+    monkeypatch.setenv("LANE_EXEC", "")
+    ready = threading.Event()
+    stop = threading.Event()
+    thread = threading.Thread(target=_hold_lock, args=(blocked.dir / "lock", ready, stop))
+    thread.start()
+    assert ready.wait(5)
+    try:
+        assert _boom(lambda: open_intent_only(blocked.dir)) == "a lane step cannot change a lane"
+        assert _boom(lambda: blocked.record(step="implement", exit_code=9)) == "a lane step cannot change a lane"
+        assert _boom(lambda: mark_started(blocked.dir, {"lane_id": "L", "round": 1, "step": "implement", "step_index": 0, "attempt_id": "x"})) == "a lane step cannot change a lane"
+    finally:
+        stop.set()
+        thread.join(5)
+
+    path = torn.dir / "events.jsonl"
+    path.write_bytes(path.read_bytes() + b"torn-tail")
+    assert _boom(lambda: open_intent_only(torn.dir)) == "a lane step cannot change a lane"
+    assert path.read_bytes().endswith(b"torn-tail")
+    assert list(torn.dir.glob("events.torn-*")) == []
+
+    monkeypatch.delenv("LANE_EXEC")
+    order = []
+    real_gate = commands.gate_lane_exec
+    real_hold = commands.hold
+    real_repair = commands.repair_torn_tail
+
+    def gate():
+        order.append("gate")
+        return real_gate()
+
+    @contextmanager
+    def holding(*args, **kwargs):
+        order.append("lock")
+        with real_hold(*args, **kwargs):
+            yield
+
+    def fixing(lane_dir):
+        order.append("repair")
+        return real_repair(lane_dir)
+
+    monkeypatch.setattr(commands, "gate_lane_exec", gate)
+    monkeypatch.setattr(commands, "hold", holding)
+    monkeypatch.setattr(commands, "repair_torn_tail", fixing)
+    open_intent_only(torn.dir)
+    assert order[:3] == ["gate", "lock", "repair"]
+    assert path.read_bytes().endswith(b"\n")
+    assert list(torn.dir.glob("events.torn-*"))

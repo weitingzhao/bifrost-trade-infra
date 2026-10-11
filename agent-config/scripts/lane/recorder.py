@@ -21,8 +21,6 @@ from evidence import (
 )
 from fsutil import fsync_dir, publish, write_bytes
 from query import STEPS, closing_resolutions, events_for_step, exec_of, round_events, verdict_event
-from repair import repair_torn_tail
-from locks import hold
 
 
 def now_iso() -> str:
@@ -32,14 +30,6 @@ def now_iso() -> str:
 def new_attempt_id(when: datetime | None = None) -> str:
     moment = when or datetime.now(timezone.utc)
     return moment.strftime("%Y%m%dT%H%M%SZ") + "-" + secrets.token_hex(4)
-
-
-def _locked(lane_dir: Path, command: str, fn, holding_lock: bool):
-    if holding_lock:
-        return fn()
-    with hold(lane_dir, lane_dir.name, command):
-        repair_torn_tail(lane_dir)
-        return fn()
 
 
 def write_initial_log(lane_dir: Path, created_fields: dict, opened_fields: dict) -> None:
@@ -102,37 +92,35 @@ def record_attempt(
     holding_lock: bool = False,
     attempt_id: str | None = None,
 ) -> dict:
-    def body() -> dict:
-        from commands import enter
+    from commands import enter
 
-        def action(locked_dir, _view, _ctx):
-            return _record_attempt(
-                locked_dir,
-                step=step,
-                stdout=_as_bytes(stdout) or b"",
-                stderr=_as_bytes(stderr) or b"",
-                report=_as_bytes(report),
-                exit_code=exit_code,
-                signal=signal,
-                termination=termination,
-                checks=checks,
-                pinned=pinned,
-                bundles=bundles,
-                bundle_bytes=bundle_bytes,
-                consumed=consumed,
-                notes=notes,
-                not_started=not_started,
-                pre_checks=pre_checks,
-                write_verdict=write_verdict,
-                also_start=also_start,
-                limit_seconds=limit_seconds,
-                started_at=started_at,
-                attempt_id=attempt_id,
-            )
+    def action(locked_dir, _view, _ctx):
+        return _record_attempt(
+            locked_dir,
+            step=step,
+            stdout=_as_bytes(stdout) or b"",
+            stderr=_as_bytes(stderr) or b"",
+            report=_as_bytes(report),
+            exit_code=exit_code,
+            signal=signal,
+            termination=termination,
+            checks=checks,
+            pinned=pinned,
+            bundles=bundles,
+            bundle_bytes=bundle_bytes,
+            consumed=consumed,
+            notes=notes,
+            not_started=not_started,
+            pre_checks=pre_checks,
+            write_verdict=write_verdict,
+            also_start=also_start,
+            limit_seconds=limit_seconds,
+            started_at=started_at,
+            attempt_id=attempt_id,
+        )
 
-        return enter(lane_dir.parent, lane_dir.name, "record", action, held=True, lane_dir=lane_dir)
-
-    return _locked(lane_dir, "record", body, holding_lock)
+    # Gate 1 (LANE_EXEC) runs inside enter, before the lock and before repair.
+    return enter(lane_dir.parent, lane_dir.name, "record", action, held=holding_lock, lane_dir=lane_dir)
 
 
 def _record_attempt(lane_dir: Path, **kw) -> dict:
@@ -321,15 +309,12 @@ def append_resolution(lane_dir: Path, *, rnd: int, step: str, attempt: str, kind
 def open_intent_only(lane_dir: Path, *, step: str = "implement", holding_lock: bool = False) -> dict:
     """Publish an intent and append step_intent, then stop. The directory is an open attempt."""
 
-    def body() -> dict:
-        from commands import enter
+    from commands import enter
 
-        def action(locked_dir, _view, _ctx):
-            return _open_intent(locked_dir, step)
+    def action(locked_dir, _view, _ctx):
+        return _open_intent(locked_dir, step)
 
-        return enter(lane_dir.parent, lane_dir.name, "record", action, held=True, lane_dir=lane_dir)
-
-    return _locked(lane_dir, "record", body, holding_lock)
+    return enter(lane_dir.parent, lane_dir.name, "record", action, held=holding_lock, lane_dir=lane_dir)
 
 
 def _open_intent(lane_dir: Path, step: str) -> dict:
@@ -374,25 +359,22 @@ def _open_intent(lane_dir: Path, step: str) -> dict:
 
 
 def mark_started(lane_dir: Path, exec_body: dict, *, started_at: str | None = None, limit_seconds: int = 3600, holding_lock: bool = False) -> None:
-    def body() -> None:
-        from commands import enter
+    from commands import enter
 
-        def action(locked_dir, _view, _ctx):
-            append_obj(
-                locked_dir,
-                {
-                    "type": "step_started",
-                    "exec": exec_body,
-                    "pid": os.getpid(),
-                    "lstart": started_at or now_iso(),
-                    "started_at": started_at or now_iso(),
-                    "limit_seconds": limit_seconds,
-                },
-            )
+    def action(locked_dir, _view, _ctx):
+        append_obj(
+            locked_dir,
+            {
+                "type": "step_started",
+                "exec": exec_body,
+                "pid": os.getpid(),
+                "lstart": started_at or now_iso(),
+                "started_at": started_at or now_iso(),
+                "limit_seconds": limit_seconds,
+            },
+        )
 
-        enter(lane_dir.parent, lane_dir.name, "record", action, held=True, lane_dir=lane_dir)
-
-    _locked(lane_dir, "record", body, holding_lock)
+    enter(lane_dir.parent, lane_dir.name, "record", action, held=holding_lock, lane_dir=lane_dir)
 
 
 def _refuse_closed(events: list[dict], rnd: int) -> None:

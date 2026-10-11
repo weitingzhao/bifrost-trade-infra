@@ -6,7 +6,7 @@ from pathlib import Path
 
 from commands import cmd_new, cmd_status
 from events import load_file
-from query import created, current_round, expected_start
+from query import created, current_round, expected_start, start_kind
 from recorder import record_attempt
 
 A = "a" * 40
@@ -21,17 +21,48 @@ def sha_set(commit: str, tree: str, name: str = "repo") -> dict:
     return {name: {"commit": commit, "tree": tree}}
 
 
-def passing_prechecks(step: str, found: dict) -> dict:
+def _repo_check(info: dict, *, implement: bool, kind: str) -> dict:
+    body = {
+        "commit": info.get("commit"),
+        "tree": info.get("tree"),
+        "clean": True,
+        "hidden": False,
+    }
+    if implement:
+        body["kind"] = kind
+        body["expected"] = {"commit": info.get("commit"), "tree": info.get("tree")}
+    else:
+        body["consumed"] = {"commit": info.get("commit"), "tree": info.get("tree")}
+    return body
+
+
+def passing_prechecks(step: str, found: dict, *, kind: str = "baseline", expected: dict | None = None) -> dict:
+    source = expected if expected is not None else found
     repos = {}
     for name, info in (found or {}).items():
-        repos[name] = {
-            "commit": info.get("commit"),
-            "tree": info.get("tree"),
-            "clean": True,
-            "hidden": False,
-        }
-    kind = "baseline" if step == "implement" else "invariance"
-    return {"kind": kind, "ok": True, "repos": repos}
+        seen = dict(info or {})
+        if step == "implement":
+            exp = (source or {}).get(name) or seen
+            seen = dict(seen)
+            # The found HEAD is ``info``; the recorded expected start is ``exp``.
+            body = _repo_check(seen, implement=True, kind=kind)
+            body["expected"] = {"commit": exp.get("commit"), "tree": exp.get("tree")}
+            repos[name] = body
+        else:
+            repos[name] = _repo_check(seen, implement=False, kind=kind)
+    body = {"ok": True, "repos": repos}
+    if step == "implement":
+        body["kind"] = kind
+    return body
+
+
+def passing_postchecks(step: str, found: dict) -> dict:
+    if step == "implement":
+        return {}
+    repos = {}
+    for name, info in (found or {}).items():
+        repos[name] = _repo_check(info or {}, implement=False, kind="baseline")
+    return {"repos": repos}
 
 
 def _materialize(start: dict) -> dict:
@@ -65,11 +96,30 @@ class Lane:
         return load_file(self.dir / "events.jsonl").events
 
     def record(self, **kwargs) -> dict:
-        # Tests stand in for the round-2 caller and supply a pre-check unless
-        # they pass one themselves. The recorder stores an empty check when
-        # the argument is omitted.
+        # Tests stand in for the round-2 caller and supply a complete check
+        # unless they pass one themselves.
+        step = kwargs.get("step") or "implement"
         if "pre_checks" not in kwargs:
-            kwargs["pre_checks"] = passing_prechecks(kwargs.get("step") or "implement", kwargs.get("consumed") or {})
+            kind = "baseline"
+            expected = None
+            found = kwargs.get("consumed") or {}
+            if step == "implement":
+                events = self.events()
+                rnd = current_round(events) or 1
+                kind = start_kind(events, rnd)
+                targets = (created(events) or {}).get("repos") or {}
+                expected = _materialize(expected_start(events, rnd, targets))
+                if not found:
+                    found = expected
+                    kwargs["consumed"] = found
+            kwargs["pre_checks"] = passing_prechecks(step, found, kind=kind, expected=expected or found)
+        if step in ("verify", "review"):
+            post = passing_postchecks(step, kwargs.get("consumed") or {})
+            checks = kwargs.get("checks")
+            if not isinstance(checks, dict):
+                kwargs["checks"] = post
+            elif "repos" not in checks:
+                kwargs["checks"] = {**post, **checks}
         return record_attempt(self.dir, **kwargs)
 
 
@@ -85,6 +135,9 @@ def make_lane(tmp: Path, lane_id: str = "L", max_rounds: int = 2, repos: dict | 
 
 
 def implement_ok(lane: Lane, **override) -> dict:
+    events = lane.events()
+    rnd = current_round(events) or 1
+    kind = start_kind(events, rnd)
     start = _expected_consumed(lane)
     fields = dict(
         step="implement",
@@ -92,7 +145,7 @@ def implement_ok(lane: Lane, **override) -> dict:
         consumed=start,
         bundle_bytes={"repo": b"bundle"},
         notes=[],
-        pre_checks=passing_prechecks("implement", start),
+        pre_checks=passing_prechecks("implement", start, kind=kind, expected=start),
     )
     fields.update(override)
     return lane.record(**fields)

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import replace
 
 import pytest
 
-from decide import RoundEvidence, StepView, decide
+from decide import PIN_FIELDS, POST_FIELDS, PRE_FIELDS, RoundEvidence, StepView, decide
 from support import A, B, TA, TB, implement_ok, make_lane, review_ok, sha_set, verify_ok
+
+WRONG = "f" * 40
 
 
 def test_t01_verify_pass_text_with_exit_7(tmp_path):
@@ -74,15 +77,30 @@ def test_t21_pass_text_only_on_stderr(tmp_path):
     assert status["reason"] == "verify produced no verdict"
 
 
-def _check(kind: str, commit: str, tree: str, *, ok: bool = True, reason: str | None = None) -> dict:
-    body = {
-        "kind": kind,
-        "ok": ok,
-        "repos": {"repo": {"commit": commit, "tree": tree, "clean": True, "hidden": False}},
-    }
+def _repo(commit: str, tree: str, *, implement: bool, kind: str = "baseline") -> dict:
+    body = {"commit": commit, "tree": tree, "clean": True, "hidden": False}
+    if implement:
+        body["kind"] = kind
+        body["expected"] = {"commit": commit, "tree": tree}
+    else:
+        body["consumed"] = {"commit": commit, "tree": tree}
+    return body
+
+
+def _check(step: str, commit: str, tree: str, *, ok: bool = True, reason: str | None = None, kind: str = "baseline") -> dict:
+    implement = step == "implement"
+    body = {"ok": ok, "repos": {"repo": _repo(commit, tree, implement=implement, kind=kind)}}
+    if implement:
+        body["kind"] = kind
     if reason:
         body["reason"] = reason
     return body
+
+
+def _post(step: str, commit: str, tree: str) -> dict:
+    if step == "implement":
+        return {}
+    return {"repos": {"repo": _repo(commit, tree, implement=False)}}
 
 
 def _passed() -> RoundEvidence:
@@ -101,7 +119,7 @@ def _passed() -> RoundEvidence:
         bundles=bundle,
         consumed=base,
         notes=("uncommitted changes in repo are not part of this round",),
-        pre_checks=_check("baseline", A, TA),
+        pre_checks=_check("implement", A, TA),
     )
     verify = StepView(
         "verify",
@@ -109,10 +127,10 @@ def _passed() -> RoundEvidence:
         True,
         exit={"code": 0, "signal": None},
         termination="exited",
-        checks={},
+        checks=_post("verify", B, TB),
         fields={"stdout_last_line": "VERDICT: pass"},
         consumed=pinned,
-        pre_checks=_check("invariance", B, TB),
+        pre_checks=_check("verify", B, TB),
     )
     review = StepView(
         "review",
@@ -120,11 +138,11 @@ def _passed() -> RoundEvidence:
         True,
         exit={"code": 0, "signal": None},
         termination="exited",
-        checks={},
+        checks=_post("review", B, TB),
         fields={"report_first_line": "VERDICT: safe to merge", "report_last_line": "END OF REPORT", "p1": 0, "p2": 0, "p3": 0},
         consumed=pinned,
         report={"present": True, "length": 40, "sha256": "cd" * 32},
-        pre_checks=_check("invariance", B, TB),
+        pre_checks=_check("review", B, TB),
     )
     return RoundEvidence(
         1,
@@ -152,11 +170,11 @@ def _step(evidence: RoundEvidence, name: str, **kwargs) -> RoundEvidence:
         ("extra-char", lambda ev: _step(ev, "verify", fields={"stdout_last_line": "VERDICT: passX"}), "step_failed", "verify produced no verdict"),
         ("truncated", lambda ev: _step(ev, "review", fields={"report_first_line": "VERDICT: safe to merge", "report_last_line": "END OF REPOR", "p1": 0, "p2": 0, "p3": 0}), "step_failed", "review report is truncated"),
         ("no-report", lambda ev: _step(ev, "review", report={"present": False}), "step_failed", "review produced no report"),
-        ("git-nonzero", lambda ev: _step(ev, "verify", checks={"git_failed": "repo"}), "step_failed", "snapshot of repo changed during verify"),
+        ("git-nonzero", lambda ev: _step(ev, "verify", checks={**ev.steps["verify"].checks, "git_failed": "repo"}), "step_failed", "snapshot of repo changed during verify"),
         ("context-moved", lambda ev: _context(ev), "step_failed", "context repository ctx moved"),
-        ("start", lambda ev: _step(ev, "implement", consumed=sha_set(B, TB), pre_checks=_check("baseline", B, TB)), "step_failed", f"implement did not start: repo HEAD {B} != expected {A}"),
+        ("start", lambda ev: _step(ev, "implement", consumed=sha_set(B, TB), pre_checks=_check("implement", B, TB)), "step_failed", f"implement did not start: repo HEAD {B} != expected {A}"),
         ("pre-check-missing", lambda ev: _step(ev, "implement", pre_checks={}), "unknown", "evidence invalid: implement pre-check missing"),
-        ("pre-check-failed", lambda ev: _step(ev, "implement", pre_checks=_check("baseline", A, TA, ok=False, reason="worktree is dirty")), "step_failed", "implement did not start: worktree is dirty"),
+        ("pre-check-failed", lambda ev: _step(ev, "implement", pre_checks=_check("implement", A, TA, ok=False, reason="worktree is dirty")), "step_failed", "implement did not start: worktree is dirty"),
         ("consumed-mismatch", lambda ev: _step(ev, "verify", consumed=sha_set(A, TA)), "step_failed", "verify ran on a different SHA set"),
         ("bundle-missing", lambda ev: _step(ev, "implement", bundles={}), "step_failed", "cannot export repo: HEAD moved"),
         ("rejected-set", lambda ev: replace(ev, round_no=2, rejected=({"round": 1, "sha_set": ev.steps["implement"].pinned},)), "step_failed", "no new commit since round 1 said fix first"),
@@ -188,7 +206,14 @@ def _with_context(evidence: RoundEvidence, *, found: str, found_tree: str, pinne
     pinned["ctx"] = {"commit": pinned_commit, "tree": pinned_tree}
     pre = dict(evidence.steps["implement"].pre_checks or {})
     repos = dict(pre.get("repos") or {})
-    repos["ctx"] = {"commit": found, "tree": found_tree, "clean": True, "hidden": False}
+    repos["ctx"] = {
+        "commit": found,
+        "tree": found_tree,
+        "clean": True,
+        "hidden": False,
+        "kind": "baseline",
+        "expected": {"commit": A, "tree": TA},
+    }
     consumed = dict(evidence.steps["implement"].consumed or {})
     consumed["ctx"] = {"commit": found, "tree": found_tree}
     return _step(
@@ -206,3 +231,184 @@ def _context(evidence: RoundEvidence) -> RoundEvidence:
 
 def _context_start(evidence: RoundEvidence) -> RoundEvidence:
     return _with_context(evidence, found=B, found_tree=TB, pinned_commit=A, pinned_tree=TA)
+
+
+def _set_path(node: dict, path: str, value) -> None:
+    parts = path.split(".")
+    cursor = node
+    for part in parts[:-1]:
+        nxt = cursor.get(part)
+        if not isinstance(nxt, dict):
+            nxt = {}
+            cursor[part] = nxt
+        cursor = nxt
+    cursor[parts[-1]] = value
+
+
+def _delete_path(node: dict, path: str) -> None:
+    parts = path.split(".")
+    cursor = node
+    for part in parts[:-1]:
+        cursor = cursor[part]
+    del cursor[parts[-1]]
+
+
+def _apply(node: dict, field: str, mode: str, *, pin_baseline: bool = False) -> None:
+    if mode == "delete":
+        _delete_path(node, field)
+        return
+    if mode == "mistype":
+        _set_path(node, field, "no" if field in ("clean", "hidden") else 0)
+        return
+    if field == "clean":
+        _set_path(node, field, False)
+    elif field == "hidden":
+        _set_path(node, field, True)
+    elif field == "kind":
+        _set_path(node, field, "pinned")
+    elif pin_baseline and field == "commit":
+        _set_path(node, field, A)
+    else:
+        _set_path(node, field, WRONG)
+
+
+def _mutate(evidence: RoundEvidence, where: str, step: str, field: str, mode: str) -> RoundEvidence:
+    view = evidence.steps[step]
+    if where == "consumed" and mode == "delete-set":
+        return _step(evidence, step, consumed=None)
+    if where == "pre":
+        pre = deepcopy(view.pre_checks)
+        if mode == "missing-repo":
+            del pre["repos"][field]
+        elif mode == "extra-repo":
+            pre["repos"][field] = deepcopy(pre["repos"]["repo"])
+        else:
+            _apply(pre["repos"]["repo"], field, mode)
+        return _step(evidence, step, pre_checks=pre)
+    if where == "post":
+        checks = deepcopy(view.checks)
+        if mode == "missing-repo":
+            del checks["repos"][field]
+        elif mode == "extra-repo":
+            checks["repos"][field] = deepcopy(checks["repos"]["repo"])
+        else:
+            _apply(checks["repos"]["repo"], field, mode)
+        return _step(evidence, step, checks=checks)
+    if where == "pinned":
+        pinned = deepcopy(view.pinned)
+        if mode == "missing-repo":
+            del pinned[field]
+        elif mode == "extra-repo":
+            pinned[field] = deepcopy(pinned["repo"])
+        else:
+            _apply(pinned["repo"], field, mode, pin_baseline=True)
+        return _step(evidence, step, pinned=pinned)
+    consumed = deepcopy(view.consumed)
+    _apply(consumed["repo"], field, mode)
+    return _step(evidence, step, consumed=consumed)
+
+
+def _shape_cases() -> list[tuple]:
+    rows = []
+    for step, fields in PRE_FIELDS.items():
+        for path, _typ in fields:
+            for mode in ("delete", "mistype", "wrong"):
+                rows.append(("pre", step, path, mode))
+        rows.append(("pre", step, "repo", "missing-repo"))
+        rows.append(("pre", step, "extra", "extra-repo"))
+    for step, fields in POST_FIELDS.items():
+        for path, _typ in fields:
+            for mode in ("delete", "mistype", "wrong"):
+                rows.append(("post", step, path, mode))
+        rows.append(("post", step, "repo", "missing-repo"))
+        rows.append(("post", step, "extra", "extra-repo"))
+    for path, _typ in PIN_FIELDS:
+        modes = ("delete", "mistype", "wrong") if path == "commit" else ("delete", "mistype")
+        for mode in modes:
+            rows.append(("pinned", "implement", path, mode))
+    rows.append(("pinned", "implement", "repo", "missing-repo"))
+    rows.append(("pinned", "implement", "extra", "extra-repo"))
+    for step in ("implement", "verify", "review"):
+        for path in ("commit", "tree"):
+            for mode in ("delete", "mistype", "wrong"):
+                rows.append(("consumed", step, path, mode))
+        rows.append(("consumed", step, "*", "delete-set"))
+    return rows
+
+
+def _case_id(row: tuple) -> str:
+    where, step, field, mode = row
+    if mode in ("missing-repo", "extra-repo", "delete-set"):
+        return f"{where}-{step}-{mode}"
+    return f"{where}-{step}-{field}-{mode}"
+
+
+def _expect(where: str, step: str, field: str, mode: str) -> tuple[str, str]:
+    kind = {"pre": "pre-check", "post": "post-check", "pinned": "pinned", "consumed": "pre-check"}[where]
+    if mode == "delete-set":
+        return "unknown", f"evidence invalid: {step} pre-check consumed"
+    if mode == "missing-repo":
+        return "unknown", f"evidence invalid: {step} {kind} missing repo repo"
+    if mode == "extra-repo":
+        return "unknown", f"evidence invalid: {step} {kind} extra repo extra"
+    if mode in ("delete", "mistype"):
+        leaf = "missing" if mode == "delete" else "type"
+        prefix = "consumed." if where == "consumed" else ""
+        return "unknown", f"evidence invalid: {step} {kind} {prefix}repo.{field} {leaf}"
+    if where == "pinned":
+        return "step_failed", "implement produced no commit"
+    if field == "clean":
+        if step == "implement":
+            return "step_failed", "implement did not start: repo worktree is dirty"
+        return "step_failed", f"snapshot of repo changed during {step}"
+    if field == "hidden":
+        return "step_failed", "hidden index flag in repo"
+    if field == "kind":
+        return "step_failed", "implement did not start: repo start kind pinned != baseline"
+    if field == "expected.tree":
+        return "step_failed", f"implement did not start: repo expected tree {WRONG} != {TA}"
+    if field == "expected.commit":
+        return "step_failed", f"implement did not start: repo expected {WRONG} != {A}"
+    if field in ("consumed.commit", "consumed.tree"):
+        return "step_failed", f"{step} ran on a different SHA set"
+    if field == "tree" and step == "implement" and where in ("pre", "consumed"):
+        return "step_failed", f"implement did not start: repo tree {WRONG} != expected {TA}"
+    if field == "commit" and step == "implement" and where in ("pre", "consumed"):
+        return "step_failed", f"implement did not start: repo HEAD {WRONG} != expected {A}"
+    if field in ("commit", "tree"):
+        return "step_failed", f"{step} ran on a different SHA set"
+    raise AssertionError(f"no row for {where} {step} {field} {mode}")
+
+
+_SHAPE_CASES = _shape_cases()
+
+
+@pytest.mark.parametrize(("where", "step", "field", "mode"), _SHAPE_CASES, ids=[_case_id(row) for row in _SHAPE_CASES])
+def test_t31_shape_is_exhaustive(where, step, field, mode):
+    got = decide(_mutate(_passed(), where, step, field, mode))
+    assert got[0] != "passed"
+    assert got == _expect(where, step, field, mode), (where, step, field, mode)
+
+
+def test_t31_reviewer_wrong_start_trees_are_not_passed():
+    base = _passed()
+    verify = decide(_mutate(base, "pre", "verify", "tree", "wrong"))
+    review = decide(_mutate(base, "pre", "review", "tree", "wrong"))
+    assert verify == ("step_failed", "verify ran on a different SHA set")
+    assert review == ("step_failed", "review ran on a different SHA set")
+    assert verify[0] != "passed" and review[0] != "passed"
+
+
+def test_t31_reviewer_deleted_precheck_fields_are_not_passed():
+    base = _passed()
+    for step in ("implement", "verify", "review"):
+        for field in ("tree", "clean", "hidden"):
+            got = decide(_mutate(base, "pre", step, field, "delete"))
+            assert got[0] != "passed"
+            assert got[0] == "unknown"
+            assert got[1] == f"evidence invalid: {step} pre-check repo.{field} missing"
+
+
+def test_t31_reviewer_deleted_implement_consumed_is_not_passed():
+    got = decide(_mutate(_passed(), "consumed", "implement", "*", "delete-set"))
+    assert got == ("unknown", "evidence invalid: implement pre-check consumed")

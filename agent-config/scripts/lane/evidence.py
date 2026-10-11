@@ -205,9 +205,12 @@ def _facts_match(manifest: dict, recorded: dict) -> bool:
         return False
     step = (recorded.get("exec") or {}).get("step")
     if step == "implement":
-        if manifest.get("pinned") != recorded.get("pinned"):
-            return False
-        if manifest.get("bundles") != recorded.get("bundles"):
+        # An unstarted implement pins nothing. The event carries an empty set;
+        # the unstarted manifest shape does not repeat it.
+        if manifest.get("not_started") is not None:
+            if recorded.get("pinned") not in ({}, None) or recorded.get("bundles") not in ({}, None):
+                return False
+        elif manifest.get("pinned") != recorded.get("pinned") or manifest.get("bundles") != recorded.get("bundles"):
             return False
     if step == "review" and bool(recorded.get("rejects")) != rejects_from_fields(manifest.get("fields")):
         if manifest.get("outputs", {}).get("report", {}).get("present"):
