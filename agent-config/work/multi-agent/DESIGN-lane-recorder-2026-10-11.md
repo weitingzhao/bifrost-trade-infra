@@ -1,9 +1,7 @@
 # W-66 第一半：记录事件，由事件生成状态（不裁决，不放行）
 
-**2026-10-11 14:16 停线。** 第三稿经复核 76（`work/multi-agent/reviews/codex-2026-10-11-review76-w66-lane-recorder-design-r3.md`）：必须改的还剩 1 处——第 7 节的 V7 说 Unknown 不再变化，第 4 节的时钟规则说读的一方时钟追上之后要恢复，两者对序列 `open → declare(process) → start(at=300) → note(at=240)` 在 `now=240` 和 `now=440` 给出相反的答案；另有 4 处应该改的（逐工作判球用哪一份 ref 状态、`record_created` 要新鲜确认、`commands` 不发布与「原样保留」冲突、`after` 和 `usual_s` 的派生影响）。按事先写下的条件，这条设计线停，本文不作为实现的依据。重开要 Owner 一句话；重开后先改这 5 处。
-
-状态：设计第三稿，2026-10-11。第一稿经独立复核 68，第二稿经复核 73（`work/multi-agent/reviews/` 下的 `codex-2026-10-11-review68-w66-lane-recorder-design.md` 和 `…review73-w66-lane-recorder-design-r2.md`），两次结论都是「先改」；对照在第 11 节。本稿是设计预算里记了账的唯一一次延长，停线条件事先写定：下一次复核还有必须改的，这条设计线停下。所以这一稿以删和简化为主（第 2 节）。Owner 当天已定把 W-66 拆成两半，本文只设计第一半：它不放行任何东西、不做任何裁决，输出不是判词；判通过和放行另出设计，第 9 节只列约束。没有代码。
-输入：`WORK.md` 的 W-66；`DESIGN-lane-v2-2026-10-11.md`（已停的设计）；复核 35、38、43、62、65、68、73；`LESSONS-from-practice.md` 第 18、52、55、70、72、73、76、77、80 行；`OWNER-SURFACE-2026-10-11.md` 的 A5、A7、A8、B2、B5、D1 和 P6；本机看板 `~/agent-work/status/` 的 `board2.py`、`tasks.json`、`index.html`；平台源码 `bifrost-platform/api/internal/` 下的 `agentprogress/`、`approvals/`、`questions/`、`actions/objectname.go`、`actuation/auth.go`（只读了源码，没有调用任何接口，没有读任何凭证）；分支 `w31/w66-lane-v2`（`0a54279`，不合并）。
+状态：**设计通过，可以实现**（2026-10-11 14:32，复核 77：没有必须改的；它留下的两处应该改的已并进第 4、7 节）。设计第四稿，2026-10-11，按复核 76 修改（`work/multi-agent/reviews/codex-2026-10-11-review76-w66-lane-recorder-design-r3.md`）。第三稿在 14:16 按事先写下的条件停线；Owner 14:17 说「设计继续」，重开了这条线，这一稿只改复核 76 的五处。前三稿依次经复核 68、73、76，结论都是「先改」，逐条对照在第 11 节。Owner 当天已定把 W-66 拆成两半，本文只设计第一半：它不放行任何东西、不做任何裁决，输出不是判词；判通过和放行另出设计，第 9 节只列约束。没有代码。
+输入：`WORK.md` 的 W-66；`DESIGN-lane-v2-2026-10-11.md`（已停的设计）；复核 35、38、43、62、65、68、73、76；`LESSONS-from-practice.md` 第 18、52、55、70、72、73、76、77、80 行；`OWNER-SURFACE-2026-10-11.md` 的 A5、A7、A8、B2、B5、D1 和 P6；本机看板 `~/agent-work/status/` 的 `board2.py`、`tasks.json`、`index.html`；平台源码 `bifrost-platform/api/internal/` 下的 `agentprogress/`、`approvals/`、`questions/`、`actions/objectname.go`、`actuation/auth.go`（只读了源码，没有调用任何接口，没有读任何凭证）；分支 `w31/w66-lane-v2`（`0a54279`，不合并）。
 
 ## 1. 缺口
 
@@ -29,9 +27,7 @@
 - **做**：一份只追加的事件日志；一个把事件算成看板文档的纯函数 `fold`；一个把文档压进平台上限的纯函数 `publish_view`。消费方只有两个：本机看板，以及以后 Console 的 Progress 页（P6）。
 - **从已停的设计留下的**（`DESIGN-lane-v2-2026-10-11.md`，这里不重述）：第 2 节的事件行格式和哈希链、残尾修复、不等待的 `flock`；状态由一个函数算出，没有可改写的状态文件；子进程用参数数组启动，不经 shell；源码里没有发信号的调用；每种事件的字段是闭合集合。分支上的 `events.py`、`fsutil.py`、`locks.py`、`repair.py` 连同测试可以拣过来（只细读了 `events.py`，另三个按文件名和复核 38 推断）。分支不合并。
 - **丢掉的**：判定函数和判词、`passed` 和 `pass-set`、轮次预算、`resolve` / `abandon` / `confirm-ended`、intent 和 manifest、检出和 bundle、配置固定、`run.lock`、六关和转换表。轮次只剩一个显示用的数字。
-- **两次复核之后删掉的**。第二稿：记录类步骤的开始和结束事件；绑定记录的等待的关闭事件；「名字前缀加创建时间」找运行；折叠里跨日志取中位数；监视脚本作为步骤；合上的 Owner 事项留 24 小时；`rec.py wait` 的退出码保证。这一稿：对样本日志做删改、把差异归成四种影响的测试（换成每个字段一条有名字的测试，第 7 节第 2 条）；`dead` 是终态的说法；观测事件里「读失败」的那一种写法和各项计数（失败和确认都只记在每轮的 `observer_round` 里）；`owner-open` 自己读到的状态（`first_seen`）；按审批 id 和尝试次数推算运行名的定位办法（只认给定的名字）；多匹配这种情形（按确切名字读，不会有）。
-
-这一半永远不做的事：
+- **复核之后删掉的**。第二稿：记录类步骤的开始和结束事件；绑定记录的等待的关闭事件；「名字前缀加创建时间」找运行；折叠里跨日志取中位数；监视脚本作为步骤；合上的 Owner 事项留 24 小时；`rec.py wait` 的退出码保证。第三稿：对样本日志做删改、把差异归成四种影响的测试（换成每个字段一条有名字的测试，第 7 节第 2 条）；`dead` 是终态的说法；观测事件里「读失败」的那一种写法和各项计数（失败和确认都只记在每轮的 `observer_round` 里）；`owner-open` 自己读到的状态（`first_seen`）；按审批 id 和尝试次数推算运行名的定位办法（只认给定的名字）；多匹配这种情形（按确切名字读，不会有）。第四稿没有删东西，只改复核 76 的五处。
 
 | 不做 | 说明 |
 |---|---|
@@ -71,7 +67,7 @@
 | `work_closed` | `claim`（`landed` / `stopped` / `dropped`，都是声明） | 统筹方 `rec.py close` | 已关闭；这件事还有开着的步骤或没了结的等待（原因代码 `closed_with_open_items`） |
 | `step_declared` | `step_id`、`name`、`kind`、`who`、`watch`；`record` 类必填 `locator{cluster, namespace}`，其中 `name` 可以先不写；可选 `round`、`after`（`step_id`）、`usual_s` 加 `usual_basis`（`measured` / `declared`，由入口在声明时算好）；`record`、`none` 类可选 `waiting_on`（`wait_id` 列表） | 统筹方 `rec.py declare`；包装器（`rec.py run` 把声明和开始写在同一次追加里） | `step_id` 已存在；`kind` 与 `watch` 不对应；`process` 类带 `waiting_on`；`record` 类没有 `locator`；指向不存在的 id |
 | `step_superseded` | `step_id`；可选 `by_step`（取代它的那一步；没有就是撤回）、`text` | 统筹方：`declare` / `run` 带 `--replaces <旧 step_id>` 时与新声明同一次追加；或 `rec.py withdraw` | `by_step` 不存在；没有 `by_step` 而这一步开始过（`process`、`none`：有 `step_started`；`record`：有过找到记录的观测） |
-| `step_started` | `step_id`、`run_id`；可选 `command`、`pid`（只给人看） | `process`：只有包装器，写完紧接着创建子进程。`none`：统筹方 `rec.py start` | 没有声明；已开始过；已被取代或撤回；`record` 类；`by` 与 `watch` 不相配；`none` 类而 `waiting_on` 里还有没了结的等待 |
+| `step_started` | `step_id`、`run_id`；`process` 类必填 `command`（命令行的摘要）；可选 `pid`（只给人看） | `process`：只有包装器，写完紧接着创建子进程。`none`：统筹方 `rec.py start` | 没有声明；已开始过；已被取代或撤回；`record` 类；`by` 与 `watch` 不相配；`none` 类而 `waiting_on` 里还有没了结的等待 |
 | `step_seen` | `step_id`、`run_id`、`sampled_at`、`alive`；可选 `output_bytes`、`text` | 只对 `process` 类。包装器每 60 秒一条（它正等着子进程，`alive: true` 是第一手的）；观测入口探到 `alive.lock` 空着，写一条 `alive: false` | 不是 `process` 类；没有开始；`run_id` 不符；这一步结束了；已有 `alive: false`；`output_bytes` 变小；`sampled_at` 不合规 |
 | `step_finished` | `step_id`、`run_id`；`process`：`exit{code, signal}` 恰好一个非空；`none`：`reported`（`finished` / `failed`）；可选 `quote`（原样引用的一行） | `process`：只有包装器，值取自 `wait()`。`none`：统筹方 | 没有开始；`run_id` 不符；这一步结束了；`record` 类；`by` 与 `watch` 不相配。**已有 `alive: false` 不使它无效**：包装器自己记下的结束比观测方的探测权威 |
 | `record_seen` | `step_id`、`sampled_at`、`found`；找到时另有 `uid`，可选 `started_at`、`ended_at`（记录自己的时间）、`condition`（`True` / `False` / `Unknown`）、`reason_quote`（记录自己写的原因） | 只有观测入口，只对 `record` 类：读成功、结果和上一条不同才写 | 不是 `record` 类；这一步结束了；这一步有 `step_superseded` 而此前从没找到过记录；`uid` 与这一步第一次找到时记下的不同；`sampled_at` 不合规 |
@@ -85,12 +81,10 @@
 
 **记录类步骤的定位条件**只有一种：`locator{cluster, namespace, name}`，声明时写下，之后不改。声明时还不知道名字的可以先不写 `name`，这一步是 `waiting`；名字出来后用 `declare --replaces` 带名字重新声明（旧声明没开始过，从列表里消失）。记录器不猜名字：审批建出来的运行，名字由平台按审批 id 和尝试次数定（`api/internal/actions/objectname.go`），发布脚本看到运行出现时把名字补上。观测入口按名字 `get`，第一次找到时在 `record_seen` 里记下 `uid`；此后同名而 `uid` 不同的对象不算它，那一轮把它记成 `failed`（`uid_changed`）。`ci` 类按提交号找那次运行的办法没有核对：片 3 开工时核对，找不到唯一的名字，`ci` 步骤就声明成 `none`，如实显示为统筹方报的。
 
-**时钟与观测方**：
-
 - **采样时间**：`sampled_at` 是探测或读取之前那一刻的系统时钟，`at` 是追加时的。`sampled_at` 晚于 `at`、比 `at` 早 30 秒以上（等锁等久了的样本不写）、或早于同一对象上一条观测的 `sampled_at`，都无效。
 - **互斥范围**：`rec.py observe` 整轮持有 `_observer/lock`（不等待，拿不到就退出并说明，不排队），采样和追加都在这把锁里，所以两个观测方不会交错。包装器不是观测方：它只写自己那次运行的第一手事件。
 - **逐对象的确认**：一轮里每个对象读一次（同一个 `ref` 被几件事绑定也只读一次）。对象的键是 `approval:<id>`、`question:<id>`、`step:<work_id>/<step_id>`。读成功、并且结果已经在每一份有关的日志里（没变，或变化的那条事件追加成功），这个键进 `confirmed`；读失败、`uid` 变了、或变化的事件没能追加，进 `failed`，`error` 取固定清单：`unreachable`、`forbidden`、`timeout`、`bad_reply`、`not_found`、`uid_changed`、`no_credential`、`append_failed`。两个列表合计至多 400 项，放不下的不列并带 `truncated`。**没被确认过的对象一律是 `unknown`**：读失败的当轮就是，观测方停了的 180 秒后是，新声明、新开的在下一轮之前（至多 15 秒）也是。变化的事件和这一轮的 `observer_round` 两处追加都失败时，旧状态最多再显示 180 秒，然后因为没有新的一轮而成为 `unknown`。看板循环每 15 秒起一轮。
-- **时钟异常**：① 回拨：一条事件的 `at` 比它之前最大的 `at` 早 2 秒以上，从它起到 `at` 追上之前的最大值为止是不可信区间；最近一条观测落在区间里的 `process` 步骤是 `unknown`（`clock_backwards`），跨区间的用时不显示。② 前跳或睡眠（本机夜里会睡）：同一次运行相邻两条观测隔了 180 秒以上，这次运行带 `gap`；缺口期间它因为没有新鲜观测而是 `unknown`，观测恢复后按规则重新取状态，但不再算 `slow` 和 `overdue`。③ 读的一方时钟落后：`now` 比这份日志里最大的 `at` 早 2 秒以上，在跑的 `process` 步骤是 `unknown`（`reader_clock_behind`）；观测日志同理，按「确认过」的定义不算确认。回拨和读方落后只通过第 4 节两张表的第 5 行起作用，缺口另外让 `slow` 不成立；结束了的步骤、`dead`、还没开始的 `process` / `none` 步骤、没有名字的记录类步骤都不受时钟异常影响。有回拨或缺口的运行，用时不计入估算。
+- **时钟异常**有三种。记号：一份日志的 `max_at` 是它有效事件里最大的 `at`；一个 `process` 步骤的**参照事件**是它最近一条有效观测，还没有观测就是它的 `step_started`，**参照时间**是前者的 `sampled_at` 或后者的 `at`。① 读的一方落后（`reader_clock_behind`，只取决于 `now`）：`now` 比这份日志的 `max_at` 早 2 秒以上；对要读真实记录的对象，是最近一轮的 `ended_at` 在 `now` 之后 2 秒以上。`now` 变大、越过这一点，这个原因就消失，状态按表重新取；这是唯一一种只靠 `now` 变大就能离开 `unknown` 的情形。② 回拨（`clock_backwards`，只取决于事件）：一条有效事件的 `at` 比它之前的 `max_at` 早 2 秒以上，从它起、到第一条 `at` 不早于那个 `max_at` 的事件之前，是不可信区间；参照事件落在区间里的 `process` 步骤是 `unknown`，跨区间的用时不显示。参照事件在区间之前的步骤不受影响，它的时间差最多少算回拨的那一段。③ 缺口（只取决于事件；本机夜里会睡）：同一次运行相邻两个参照时间隔了 180 秒以上，这次运行带 `gap`，此后不再算 `slow` 和 `overdue`；缺口期间它因为没有新鲜观测而是 `unknown`（`no_observation`）。前两种只通过第 4 节两张步骤表的第 5 行和绑定等待表的第 2 行起作用；结束了的步骤、`dead`、还没开始的 `process` / `none` 步骤、没有名字的记录类步骤、`declared` 的和了结的等待都不受时钟异常影响。有回拨或缺口的运行，用时不计入估算。
 
 ## 4. 状态怎么从事件来
 
@@ -106,8 +100,8 @@
 | 2 | 有 `step_superseded`，这一步没有开始过 | 不进步骤列表，计入 `withdrawn` | — |
 | 3 | 没有 `step_started` | `waiting` | `waiting_on` 里没了结的等待、`after` 指的那一步，对这一步的状态只是背景 |
 | 4 | 最近一条观测是 `alive: false` | `dead` | `reason: wrapper_gone`，另带 `since`。页面的话：包装器不在了，没有记下退出，命令也许还在跑 |
-| 5 | `process` 类：时钟不可信（第 3 节），或 `now` 距最近一条观测的 `sampled_at`（没有就取 `step_started` 的 `at`）超过 180 秒 | `unknown` | `reason`：`no_observation` / `clock_backwards` / `reader_clock_behind`；另带 `last_seen{state, at}` |
-| 6 | `process` 类：有 `output_bytes`，它最近一次变大距 `now` 超过 420 秒 | `quiet` | `reason: no_output`，另带 `silent_s` |
+| 5 | `process` 类，依次看三条：读的一方落后；参照事件落在回拨区间里；`now` 距参照时间超过 180 秒（定义都在第 3 节「时钟异常」） | `unknown` | `reason` 依次是 `reader_clock_behind`、`clock_backwards`、`no_observation`；另带 `last_seen{alive, output_bytes, at}`：最近一条有效 `step_seen` 的原始观测，`at` 取它的 `sampled_at`；一条都没有就是 `{started: true, at}`，取 `step_started` 的 `at`。它是原始观测，不是「上一次的状态」：折叠不保存也不读取上一次生成的文档（复核 77） |
+| 6 | `process` 类：有 `output_bytes`，静默超过 420 秒。静默从最近一次 `output_bytes` 变大的那条 `step_seen` 的 `sampled_at` 算起；一次都没变大过（包括每次心跳都是 0 字节），从 `step_started` 的 `at` 算起（复核 77） | `quiet` | `reason: no_output`，另带 `silent_s` |
 | 7 | 有 `usual_s`，这次运行没有 `gap`，`now − started` 超过它的 1.5 倍 | `slow` | `overdue` 秒数 |
 | 8 | 其余 | `running` | `none` 类带 `started_how: reported`，标签 `Reported started, not watched` |
 
@@ -121,12 +115,23 @@
 | 2 | 有 `condition: False` 的观测（结束事件） | `failed`，`reason: record_failed`，记录自己的原因在 `reason_quote`；`ended` 取 `ended_at` |
 | 3 | 有 `step_superseded`，从没有过找到记录的观测 | 不进步骤列表，计入 `withdrawn` |
 | 4 | `locator` 里还没有名字（没有东西可读） | `waiting` |
-| 5 | 有名字，没被确认过 | `unknown`，`reason` 取那一轮 `failed` 里的 `error`，没有就是 `not_confirmed`；带 `last_seen` |
+| 5 | 有名字，没被确认过 | `unknown`。`reason` 依次看：最近一轮的 `ended_at` 在 `now` 之后 2 秒以上 → `reader_clock_behind`；那一轮的 `failed` 里有它 → 那个 `error`；否则 `not_confirmed`。带 `last_seen{ref_state, at}`：最近一条有效观测里记录的原始状态和那一轮的 `ended_at`，没有就不带 |
 | 6 | 确认过，最近一条观测是 `found: false`（或还没有观测） | `waiting_on` 里有没了结的等待 → `waiting`；否则 `unknown`（`no_match`） |
 | 7 | 确认过，找到了，没有 `started_at` | `waiting`。记录存在不等于开始 |
 | 8 | 确认过，有 `started_at`，`condition` 是 `Unknown` 或没有 | `running`（超过 `usual_s` 的 1.5 倍是 `slow`）；`started` 取 `started_at`，不取事件的时间 |
 
-**时间与估算**：`process`、`none` 类的 `started`、`ended` 只取对应事件的 `at`；没有那条事件，字段就不出现。估算在声明那一刻定下：`rec.py declare` / `run` 读各份日志里同一 `kind` 最近 20 次退出码为 0、没有时钟异常的运行，取用时的中位数写进 `usual_s`（`usual_basis: measured`）；不足 3 次用 `tasks.json` 里手写的数（`declared`）；再没有就不写，这一步没有预计，也不会是 `slow`。折叠只读这一步自己的 `usual_s`，所以一件事的步骤状态只取决于它自己的日志和观测日志。预计结束是 `started` 加 `usual_s`；这件事里有 `quiet`、`unknown`、`dead`、`failed` 的步骤时不给时间，标 `eta_unsure`。
+**`unknown` 怎么离开**（步骤的状态和事项的 `can_act` 都按这张表，V7 引用它）。`process` 步骤不论哪种原因，来了 `alive: false` 就成为 `dead`，来了 `step_finished` 就结束了：
+
+| `reason` | 只靠 `now` 变大 | 靠事件 |
+|---|---|---|
+| `reader_clock_behind` | 会：`now` 追上之后按表重新取，可以是任何状态 | 不需要 |
+| `no_observation` | 不会 | 这次运行一条新的有效 `step_seen`（此后带 `gap`） |
+| `clock_backwards` | 不会 | 区间结束之后写下的、这次运行的一条有效 `step_seen` |
+| `not_confirmed`、八个 `error` | 不会 | 新的一轮 `observer_round` 把这个对象列进 `confirmed` |
+| `no_match`、`conflicting_observations` | 不会离开 `unknown`；确认过期时 `reason` 换成 `not_confirmed` | `no_match`：一条找到记录的 `record_seen`；`conflicting_observations`：一条 `sampled_at` 更晚的有效观测 |
+| `log_invalid` | 不会 | 没有；只能手工把日志挪走（第 3 节） |
+
+**时间与估算**：`process`、`none` 类的 `started`、`ended` 只取对应事件的 `at`；没有那条事件，字段就不出现。估算在声明那一刻定下：`rec.py declare` / `run` 读各份日志里同一 `kind` 最近 20 次退出码为 0、没有时钟异常的运行，取用时的中位数写进 `usual_s`（`usual_basis: measured`）；不足 3 次用 `tasks.json` 里手写的数（`declared`）；再没有就不写，这一步没有预计，也不会是 `slow`。折叠只读这一步自己的 `usual_s`，所以一件事的步骤状态只取决于它自己的日志和观测日志。预计结束是 `started` 加 `usual_s`，没有 `usual_s` 的步骤没有预计；这件事里有没结束而没有预计的步骤，或有 `quiet`、`unknown`、`dead`、`failed` 的步骤时，整件事不给时间，标 `eta_unsure`。
 
 **`owner_all`：要他办的事只有这一份清单**。今天的「Owner 步骤」和「常设事项」在事件里是同一种东西：等待。`declared` 的等待按 `wait_id` 各出一项，从不合并。绑定记录的等待按 `ref`（种类加 id）至多出一项，几件事绑定同一条记录时这样合：任何一份日志里有过这个 `ref` 的权威终态观测，它就不出项；否则记录一级的字段（`ref_state`、`can_act`、最晚时间）取各份日志里 `sampled_at` 最晚的那条有效观测，最晚的有两条而状态不同就是 `can_act: unknown`（`conflicting_observations`）；各件事自己写的字和 `holds_up` 按件分列在这一项的 `works[]` 里。次序：绑定记录的在前，其次按 `can_act`（`yes`、`unknown`、`not_yet`），再按最晚时间。折叠不输出 `needs_you`、`owner_now`、`owner_items`、`owner_next`，步骤上没有 `needs_owner`。**页面上只有一个数**：清单的长度；发布时清单被截过，就是长度加 `owner_all_cut`（第 5 节），页面只显示这一个和。办完的事项从清单里消失，进 `feed` 一行；四步回执归 `OWNER-SURFACE` 的 P4。
 
@@ -136,9 +141,9 @@
 |---|---|---|
 | 现在能不能办 `can_act` | 只看记录（下一张表）。步骤做没做完不参与 | 统筹方声明的 `yes` / `not_yet`（`owner_wait_ready` 改成 `yes`），带 `can_act_basis: declared` 和 `not_before_text` |
 | 最晚什么时候 | 记录的 `expires_at`，`deadline_source: record` | `deadline` 或 `no_deadline`；都没写就没有这个字段 |
-| 不办会卡住什么 | `holds_up[]`：`waiting_on` 含这条等待的步骤和同一件事里声明在它们后面的步骤（算出来的）；另附 `blocks_text` | 同左；`blocks_nothing` 是统筹方的声明 |
-| 办完之后 | `effect_s`：被卡住的第一步的 `usual_s`（算出来的）；另附 `after_text` | 同左 |
-| 在哪办 `where` | 恒为 `console`，由种类推出；去那条记录的链接由页面按校验过的 `ref` 拼 | Agent 写的三选一，可缺。`terminal` 的另带 `commands[]`，页面逐条显示成可复制的文字，不执行、不做成链接；`thread` 的另带 `reply_words`。`declared` 的事项没有链接 |
+| 不办会卡住什么 | `holds_up[]`（步骤的 id，算出来的）：先是 `waiting_on` 含这条等待的步骤，按声明顺序；再是沿 `after` 一层层接在它们后面的步骤。另附 `blocks_text` | 同左；`blocks_nothing` 是统筹方的声明 |
+| 办完之后 | `effect_s`：`holds_up` 第一项的 `usual_s`（算出来的）；另附 `after_text` | 同左 |
+| 在哪办 `where` | 恒为 `console`，由种类推出；去那条记录的链接由页面按校验过的 `ref` 拼 | Agent 写的三选一，可缺。`terminal` 的另带 `commands[]`，页面逐条显示成可复制的文字，不执行、不做成链接（发布的那一份不带命令的正文，见第 5 节）；`thread` 的另带 `reply_words`。`declared` 的事项没有链接 |
 | 怎么回 `reply` | 恒为 `reply_needed: false`：记录变了页面自己变 | Agent 写的，或 `reply_needed: false`，可缺 |
 
 `declared` 的字段缺了就是缺了：文档里没有这个字段，页面显示 `Not written`，折叠不补默认值。`declared` 的事项在两个页面上、展开或收起，都带着 `Declared by coordinator, not a record` 这行字；它的 `can_act: yes` 是统筹方的说法，不是权威的可办判断。将来才会有记录的事（一张还没建的发布单）先开成 `declared` 的 `not_yet`；记录建出来后，`owner-open --approval <id> --replaces <wait_id>` 在同一次追加里开出绑定的那一条、把原来那条记成 `withdrawn`。
@@ -148,20 +153,20 @@
 | # | 看到的 | 这一项 |
 |---|---|---|
 | 1 | 有过权威终态的观测（审批 `executed`、`failed`、`rejected`、`expired`；提问 `answered`、`withdrawn`、`expired`），或从没有过有效观测而被撤回 | 了结，不在清单里，记原词。之后读不到、读失败都不会让它回到清单；每份有关的日志都记下终态之后，观测方不再读它 |
-| 2 | 没被确认过（读失败、404、没有凭证、观测方停了、刚开出来还没轮到），或还没有一条有效观测 | 在清单里，`can_act: unknown`，`reason` 取那一轮 `failed` 里的 `error`，没有就是 `not_confirmed`；带 `last_seen{ref_state, at}`。页面显示 `Unknown, last read <时间>`，不显示成待批 |
+| 2 | 没被确认过（读失败、404、没有凭证、观测方停了、刚开出来还没轮到），或还没有一条有效观测 | 在清单里，`can_act: unknown`，`reason` 的取法同记录类步骤那张表的第 5 行；带 `last_seen{ref_state, at}`。页面显示 `Unknown, last read <时间>`，不显示成待批 |
 | 3 | 确认过，审批 `pending`；提问 `open` | 在清单里，`can_act: yes` |
 | 4 | 确认过，审批 `unknown`（平台的原词：执行结果不明，等他在 Console 上 resolve） | 在清单里，`can_act: yes`，`ref_state: unknown`。页面用「执行结果不明」这句话，不和 Unknown 状态混 |
 | 5 | 确认过，审批 `approved`、`running` | 不在清单里：他那一步办了，记录还在走。等待还没了结，观测方继续读它，为的是接住平台的 `unknown` |
 
-**`ball`：没有步骤在跑时，球在谁脚下**。先给每件没关闭的工作（没有有效的 `work_closed`）判一个归属，自上而下取第一条命中的：
+**`ball`：没有步骤在跑时，球在谁脚下**。判球时，等待一律用**合并后的结果**：`declared` 的等待用它自己的；绑定记录的等待用它那个 `ref` 按 `owner_all` 的合并规则和上表得出的那一行（了结、`can_act: unknown`、`yes`、还在走），不用这份日志自己那一条。关闭的校验相反，仍按这份日志自己的事件（第 3 节）。先给每件没关闭的工作（没有有效的 `work_closed`）判一个归属，自上而下取第一条命中的：
 
 | # | 这件事 | 归属和 `why` |
 |---|---|---|
-| 1 | 有步骤是 `running`、`slow`、`quiet`（`step_running`）；或有记录类步骤找到了记录、还没开始（`record_created`）；或有一条等待落在上表第 5 行（`record_in_flight`） | `agents` |
-| 2 | 有步骤是 `unknown`（`step_unknown`）；或日志无效（`log_invalid`）；或它的事项里有 `can_act: unknown`（`owner_item_unknown`） | `unknown` |
-| 3 | 有 `waiting` 的步骤，它不等任何没了结的等待，`after` 指的那一步也结束了或没有（`next_not_sent`） | `coordinator` |
-| 4 | 它的事项里有 `can_act: yes` | `owner`（`owner_can_act`）；只凭 `declared` 的事项得出时带 `basis: declared` |
-| 5 | 它有事项、而且都是 `not_yet`（`owner_item_not_ready`）；其余情形一律是 `ended_awaiting_check`，例如没有开着的步骤而工作没关闭，或步骤在等一个 `dead` 的步骤 | `coordinator` |
+| 1 | 有步骤是 `running`、`slow`、`quiet`（`step_running`）；或有记录类步骤现在是 `waiting`、而且落在记录类那张表的第 7 行（确认过、找到了、还没开始；`record_created`）；或它有一条等待的合并结果是上表第 5 行（`record_in_flight`） | `agents` |
+| 2 | 有步骤是 `unknown`（`step_unknown`）；或日志无效（`log_invalid`）；或它有一条等待的合并结果是 `can_act: unknown`（`owner_item_unknown`） | `unknown` |
+| 3 | 有 `waiting` 的步骤，它没有 `waiting_on`、或 `waiting_on` 里的等待按合并结果都了结了，`after` 指的那一步也结束了或没有（`next_not_sent`） | `coordinator` |
+| 4 | 它有一条等待的合并结果是 `can_act: yes`（这一条就在 `owner_all` 里） | `owner`（`owner_can_act`）；只凭 `declared` 的事项得出时带 `basis: declared` |
+| 5 | 它有合并结果没了结的等待、而且都是 `not_yet`（`owner_item_not_ready`）；其余情形一律是 `ended_awaiting_check`，例如没有开着的步骤而工作没关闭，或步骤在等一个 `dead` 的步骤 | `coordinator` |
 
 再合成一个 `{holder, why, since}`：`logs_unread` 大于 0 → `unknown`（`fold_incomplete`）；否则有一件是 `agents` → `agents`；否则有一件是 `unknown` → `unknown`；否则有一件是 `coordinator` → `coordinator`（琥珀色，`since` 是让它成立的最后一条有效事件的 `at`：做完的在等它看，或下一步没派出去）；否则有一件是 `owner` → `owner`（红色）；一件没关闭的工作都没有 → `nobody`（绿色，`queue_done`）。关闭的工作里没有开着的步骤，也没有没了结的等待（`work_closed` 的有效条件），所以绿色不会盖住一件还开着的事。**折叠不完整**：`logs_unread` 大于 0 时 `fold_complete` 是假，`ball` 是 `unknown`，清单可能缺项：页面把那个数写成「至少 n」，并写明有几份日志没读。
 
@@ -208,8 +213,8 @@
 | 多旧算旧 | 收到超过 5 分钟，读的一方得到 `stale: true`；回答里另有 `age_seconds`、`generated_at`、`generation_lag_seconds` |
 
 - **`publish_view` 留工作至多 30 件**，按这个次序留：有 Owner 事项或有 `unknown` / `dead` / `failed` / `quiet` 步骤的未关闭工作 → 有在跑步骤的 → 其余未关闭的（最近有事件的在前）→ 已关闭的（最近关闭的在前）。留不下的记进顶层 `omitted_works{open, closed}`；有未关闭的被截时，`incomplete` 里有 `works`。总量也发：顶层 `works_total{open, closed}`，每件事 `steps_total`。凡是有东西被截或被减，文档带 `full_at: local_board`，页面写明全量在本机看板（`host`）。
-- **每件事至多 20 步**，按这个次序留：`unknown` → `dead` → `failed` → `quiet` → `slow` → `running` → `waiting`（按声明顺序）→ 最近的 `done`；被取代且结束了的排最后；不认识的状态值按 `unknown` 的次序留。留不下的记进这件事的 `omitted`，八种状态各有计数。`feed` 至多 25 条。`commands` 的正文不发，照 `slim_for_publish` 现在的做法只留 `commands_at: local_board`。
-- **`owner_all` 只有一条截断规则**：按清单的次序从头留，至多 30 项；字节放不下时（下一条的第 ⑥ 级）从末尾再往前截。两种截法截掉的都是排在最后的整项，条数都加进同一个 `owner_all_cut`，`incomplete` 里有 `owner_all`。留下的每一项全部字段原样保留。文档里没有另一个总数字段：页面的那个数是留下的条数加 `owner_all_cut`，只显示一次，旁边写「这里列出 m 件，全量在本机看板（`host`）」。
+- **每件事至多 20 步**，按这个次序留：`unknown` → `dead` → `failed` → `quiet` → `slow` → `running` → `waiting`（按声明顺序）→ 最近的 `done`；被取代且结束了的排最后；不认识的状态值按 `unknown` 的次序留。留不下的记进这件事的 `omitted`，八种状态各有计数。`feed` 至多 25 条。
+- **`owner_all` 只有一条截断规则**：按清单的次序从头留，至多 30 项；字节放不下时（下一条的第 ⑥ 级）从末尾再往前截。两种截法截掉的都是排在最后的整项，条数都加进同一个 `owner_all_cut`，`incomplete` 里有 `owner_all`。留下的每一项字段原样保留，只有一个例外：`commands` 的正文不发（照 `slim_for_publish` 现在的做法，命令只在本机看板上），那一项改带 `commands_at: local_board` 和 `commands_count`（条数）。文档里没有另一个总数字段：页面的那个数是留下的条数加 `owner_all_cut`，只显示一次，旁边写「这里列出 m 件，全量在本机看板（`host`）」。
 - **字节**：目标 204,800 字节（200 KiB），量的是推送脚本实际发出去的那串字节：UTF-8 编码的紧凑 JSON，`host` 已经在里面，推送方原样发送、不再解析重排。量的是编码后的实际长度（转义、嵌套列表、`defects` 都在内），不拿字数乘系数。留出的 56 KiB 给服务端的重新编码、脱敏改写和外壳。超了就按固定次序减，每减一级重新量：① 去掉结束了的步骤的 `note`、`quote`、`command` → ② `feed` 留 10 条 → ③ 已关闭的工作换成摘要 → ④ 每件事只留没结束的步骤，至多 5 步，不带 `note` → ⑤ 每件事都换成摘要 → ⑥ `owner_all` 从末尾整项截掉，一项一项量着往第 ⑤ 级的骨架里加，所以一定放得下（骨架本身不超过目标，测试用顶格输入核对）。到了哪一级，文档带 `reduced: <级别>`，两个页面都显示「内容已缩减」。**摘要**里每件事恰好这些字段：`work_id`、`title`、`state_counts`（八种状态各几步）、`unknown_reasons`（至多 3 个 `reason` 代码）、`unknown_reasons_omitted`（没列出的个数）、`defects_count`，以及有的话 `log_invalid_at`、`log_full`、`closed_claim`。**每一级都留着的**：顶层的 `at`、`observer`、`clock`、`ball`、`fold_complete`、`logs_unread`、`reduced`、`incomplete`、`omitted_works`、`works_total`、`full_at`；每件事的 `log_invalid_at`、`log_full` 和八种状态的步数（没换成摘要的是留下的步骤加 `omitted`，换成摘要的是 `state_counts`）。没换成摘要的工作里，留下的每一步都带 `state`、`reason`、`last_seen`，没结束的 `process` 步骤还带 `kind` 和 `command`。
 - **Console 读哪一份**：Console 的 Progress 页从 W-62 第四片第 3 轮起读 `owner_all`，没有这个字段才退回旧字段（`console/src/pages/shell/progress/`）。本文的发布形状只在三样都到了 PROD 并验收之后启用：读 `owner_all` 的那一版；Console 自己配的状态字改成第 2 节的三种写法；第 4 节那条 180 秒的过期覆盖。所以 `publish_view` 不输出 `owner_now`，也不输出任何第二份投影：文档里列他的事项的字段只有 `owner_all` 一个。在那之前，片 2 不切换推送来源，`board2.py` 照旧推它现在那份。服务端的校验今天不认识 `owner_all`，把它当未知键放过，只受总字节数约束；所以清单自己的上限由 `publish_view` 定，就是上面那一条截断规则。推送仍用现有脚本；服务端每次的回答（状态码、原因、字节数）照 `publish-result.js` 现在的做法记下，显示在本机看板上；`scripts/progress-publish.js` 改成返回状态，归 TD-308。
 
@@ -227,19 +232,21 @@
 
 每条写成「输入 → 期望的文档」。断言的对象是看板和推送实际拿到的东西，即 `fold` 和 `publish_view` 的输出，不是内部的中间量（教训第 77 行）。
 
-1. **折叠是纯函数，穷举短序列**。字母表在任务书里列全：一件事；一个 `process` 步骤、一个 `record` 步骤、一个 `none` 步骤；一条绑定审批的等待、一条 `declared` 的等待；每种事件，含带错 `run_id` 的心跳、`by` 不相配的开始、平台每一种审批状态的观测、`at` 回拨的事件、带 `confirmed` 和带 `failed` 的 `observer_round`、`work_closed`。穷举长度不超过 5 的全部序列，`now` 各取三个值（末条事件当时、之后 200 秒、之后 2000 秒；V7 只在这个范围里说话）。静态检查：折叠和 `publish_view` 所在的模块不导入 `os`、`time`、`subprocess`、`socket`、`pathlib`，不调用 `open`。对每个前缀断言：
-   - V1 不抛异常；`publish_view` 的输出满足第 5 节的每一条限制。V2 一步是 `running` / `slow` / `quiet` ⇒ 它没有结束事件，并且：`process` 类有有效的 `step_started`，最近一条观测（还没有就取 `step_started`）距 `now` 不超过 180 秒、不是 `alive: false`；`none` 类有有效的 `step_started`；`record` 类确认过，最近一条有效观测找到了记录、带 `started_at`。V3 只有结束事件定下的状态不再变：一步有了结束事件，更长的前缀、更大的 `now` 下，它的 `state`、`started`、`ended` 不变；`waiting`、`running`、`slow`、`quiet`、`unknown`、`dead` 都可以被之后的事件改变，`dead` 之后能改变它的只有同一 `run_id` 的 `step_finished`。V4 `started`、`ended` 等于对应事件的 `at`（记录类等于观测里的 `started_at`、`ended_at`）；没有来源就没有这个字段。V5 无效事件当作不存在：把折叠判无效的事件全部从序列里删掉再折叠，除 `defects` 外文档逐字节相同。V6 绑定记录的等待了结 ⇔ 有过一条权威终态的有效观测，或从没有过有效观测而被 `withdrawn`；一个 `ref` 有过权威终态的有效观测之后，任何更长的前缀、任何 `now` 下它都不在清单里；除了那一种 `withdrawn`，统筹方的事件改变不了它的开合。
-   - V7 没有新事件、只有 `now` 变大，按类别：`process`——`waiting`、`dead`、`done`、`failed` 不变；`running` 可以变成 `slow`、`quiet`、`unknown`，`slow` 可以变成 `quiet`、`unknown`，`quiet` 只能变成 `unknown`，`unknown` 不再变。`none`——只有 `running → slow`，别的不变。`record`——`done`、`failed` 不变；`locator` 里没有名字的 `waiting` 不变；其余的 `waiting`、`running`、`slow` 在确认过期（最近一轮的 `ended_at` 距 `now` 超过 180 秒）时变成 `unknown`，之前 `running` 可以先变成 `slow`；`unknown` 不再变。Owner 事项——`declared` 的不变；绑定记录的，了结的不变，其余的在确认过期时成为清单里的 `can_act: unknown`（包括原先落在第 5 行、不在清单里的）。
+1. **折叠是纯函数，穷举短序列**。字母表在任务书里列全：一件事；一个 `process` 步骤、一个 `record` 步骤、一个 `none` 步骤；一条绑定审批的等待、一条 `declared` 的等待；每种事件，含带错 `run_id` 的心跳、`by` 不相配的开始、平台每一种审批状态的观测、`at` 回拨的事件、带 `confirmed` 和带 `failed` 的 `observer_round`、`work_closed`。穷举长度不超过 5 的全部序列，`now` 各取三个值：序列里最后一条事件的 `at`、之后 200 秒、之后 2000 秒。序列里有 `at` 回拨的事件，所以 `now` 可以早于前面某条事件的 `at`：这就是读的一方落后的情形，V7 把它写成例外。静态检查：折叠和 `publish_view` 所在的模块不导入 `os`、`time`、`subprocess`、`socket`、`pathlib`，不调用 `open`。对每个前缀断言：
+   - V1 不抛异常；`publish_view` 的输出满足第 5 节的每一条限制。V2 一步是 `running` / `slow` / `quiet` ⇒ 它没有结束事件，并且：`process` 类有有效的 `step_started`，读的一方不落后，参照事件不是 `alive: false`、不在回拨区间里，参照时间距 `now` 不超过 180 秒；`none` 类有有效的 `step_started`；`record` 类确认过，最近一条有效观测找到了记录、带 `started_at`。V3 只有结束事件定下的状态不再变：一步有了结束事件，更长的前缀、更大的 `now` 下，它的 `state`、`started`、`ended` 不变；`waiting`、`running`、`slow`、`quiet`、`unknown`、`dead` 都可以被之后的事件改变，`dead` 之后能改变它的只有同一 `run_id` 的 `step_finished`。V4 `started`、`ended` 等于对应事件的 `at`（记录类等于观测里的 `started_at`、`ended_at`）；没有来源就没有这个字段。V5 无效事件当作不存在：把折叠判无效的事件全部从序列里删掉、用同一个 `now` 再折叠，除 `defects` 外文档逐字节相同。V6 绑定记录的等待了结 ⇔ 有过一条权威终态的有效观测，或从没有过有效观测而被 `withdrawn`；一个 `ref` 有过权威终态的有效观测之后，任何更长的前缀、任何 `now` 下它都不在清单里；除了那一种 `withdrawn`，统筹方的事件改变不了它的开合。
+   - V7 没有新事件、只有 `now` 变大。唯一的回头路：`reason` 是 `reader_clock_behind` 的 `unknown`（步骤的状态或事项的 `can_act`），`now` 追上之后按表重新取，可以变成任何状态；其余 `reason` 的 `unknown` 不会只因为 `now` 变大而离开 `unknown`，只有 `reason` 可以换（第 4 节「`unknown` 怎么离开」）。除了这条回头路，按类别：`process`——`waiting`、`dead`、`done`、`failed` 不变；`running` 可以变成 `slow`、`quiet`、`unknown`，`slow` 可以变成 `quiet`、`unknown`，`quiet` 只能变成 `unknown`。`none`——只有 `running → slow`，别的不变。`record`——`done`、`failed` 和 `locator` 里没有名字的 `waiting` 不变；其余的 `waiting`、`running`、`slow` 在确认过期（最近一轮的 `ended_at` 距 `now` 超过 180 秒）时变成 `unknown`，之前 `running` 可以先变成 `slow`。Owner 事项——`declared` 的和了结的不变；其余绑定记录的在确认过期时成为清单里的 `can_act: unknown`（包括原先落在第 5 行、不在清单里的）。
    - V8 一件事的 `works[]` 条目只取决于它自己的日志和观测日志：增删改别的日志，这一条逐字节不变，变的只有 `owner_all` 和 `ball`。V9 一份清单：每条 `declared` 的没了结的等待恰好出一项；每个 `ref` 至多出一项；`fold` 输出的键里没有 `needs_you`、`owner_now`、`owner_items`、`owner_next`、`needs_owner`，也没有别的数他的事项的字段。V10 代码取自固定清单：`state`、`label`、`ended_how`、`reason`、`can_act`、`ball.holder`、`ball.why` 的值恰好是清单里的词；改任何引语，这些值逐字节不变。V11 `ball`：`agents` ⇔ `logs_unread` 为 0 且有一件没关闭的工作判给 `agents`；`nobody` ⇔ `logs_unread` 为 0 且没有没关闭的工作；`owner` ⇒ 清单里有 `can_act: yes`，且没有一件没关闭的工作判给 `agents`、`unknown`、`coordinator`。V12 关闭：一件事算关闭 ⇔ 有一条有效的 `work_closed`；关闭的工作里没有开着的步骤，也没有没了结的等待，之后的事件也不会让它再有。
 2. **每个字段的效果，各有一条有名字的测试**。原来对样本日志做删改、把差异归类的测试删了：它的规则和合法的事件序列互相矛盾（复核 73）。换成三部分：
-   - (a) **只管展示的字段**：`work_opened` 的 `title`、`goal`、`work_ref`；`step_declared` 的 `name`、`who`、`round`；`step_started` 的 `command`；`step_seen` 的 `text`（进 `note`）；`step_finished` 的 `quote`；`step_superseded` 的 `text`（进 `superseded_text`）；`record_seen` 的 `reason_quote`；`owner_wait_opened` 的 `title`、`advice`、`reply`、`reply_needed`、`reply_words`、`commands`、`blocks_text`、`blocks_nothing`、`after_text`、`not_before_text`、`after`；`owner_wait_seen` 的 `number`；`work_closed` 的 `claim`（进 `closed_claim`）；`note` 的 `text`（进 `feed` 的那一行）。对每一个：换成另一个合法的值，文档里只有对应的那一个输出字段不同，别处逐字节相同。`step_started` 的 `pid` 不进文档：改它，文档逐字节不变。
-   - (b) **其余字段**，每个一条测试，名字里带字段名，断言下表写的效果：
+   - (a) **只管展示的字段**：`work_opened` 的 `title`、`goal`、`work_ref`；`step_declared` 的 `name`、`who`、`round`；`step_started` 的 `command`；`step_seen` 的 `text`（进 `note`）；`step_finished` 的 `quote`；`step_superseded` 的 `text`（进 `superseded_text`）；`record_seen` 的 `reason_quote`；`owner_wait_opened` 的 `title`、`advice`、`reply`、`reply_needed`、`reply_words`、`commands`、`blocks_text`、`blocks_nothing`、`after_text`、`not_before_text`、`after`；`owner_wait_seen` 的 `number`；`work_closed` 的 `claim`（进 `closed_claim`）；`note` 的 `text`（进 `feed` 的那一行）。对每一个：换成另一个合法的值，`fold` 出的两份文档只在原样带着这个值的字段上不同（它自己的输出字段，和 `feed` 里引用它的行），别处逐字节相同。`step_started` 的 `pid` 不进文档：改它，文档逐字节不变。
+   - (b) **其余字段**，每个一条测试，名字里带字段名。表里写的是这条测试必须看到的效果；由步骤的状态和等待的开合再派生出来的变化——`ball`、`owner_all` 的次序和 `holds_up`、所在工作的 `eta_unsure`、`publish_view` 的保留次序和计数——都允许跟着变，测试不把它们当成错：
 
    | 字段 | 测试断言的效果（规则在第 3、4 节） |
    |---|---|
    | `step_declared` 的 `kind`、`watch` | 不对应 → 无效；`watch` 决定这一步按哪张表取状态 |
-   | `step_declared` 的 `waiting_on` | `process` 类带它 → 无效；记录类没找到记录时是 `waiting` 还是 `unknown`；等待的 `holds_up`；`ball` 的 `next_not_sent` |
-   | `step_declared` 的 `after`、`locator.name`、`usual_s` | `after` 只影响 `ball`；没有 `name` → `waiting`、不读；`usual_s` 只影响 `slow`、`overdue`、预计结束、`effect_s` |
+   | `step_declared` 的 `waiting_on` | `process` 类带它 → 无效；`none` 类在等待没了结时 `step_started` 无效；记录类没找到记录时是 `waiting` 还是 `unknown`；等待的 `holds_up`；`ball` 的 `next_not_sent` |
+   | `step_declared` 的 `after` | 这一步和别的步骤的 `state` 不变；变的是 `ball`（逐件判定表第 3、5 行）和 Owner 事项的 `holds_up` |
+   | `step_declared` 的 `locator.name` | 没有 `name` → `waiting`、不读 |
+   | `step_declared` 的 `usual_s` | 这一步的 `state` 只在 `running` 和 `slow` 之间变；另外变的是 `overdue`、预计结束、所在工作的 `eta_unsure`、Owner 事项的 `effect_s` |
    | `step_superseded` 的 `by_step` | 有 → `superseded_by`，状态不变；没有 → 撤回，开始过的无效 |
    | `step_seen` 的 `alive`、`output_bytes`、`sampled_at` | `false` → `dead`；420 秒没变大 → `quiet`；`sampled_at` 定 180 秒的期限和 `gap` |
    | `step_finished` 的 `exit`、`reported` | `done` / `failed`、`ended_how`、`reason` 代码；在 `alive: false` 之后仍然生效并带 `was_seen_dead` |
@@ -252,22 +259,22 @@
 
    - (c) **无效输入**：对每种事件，逐个删掉必填字段、把字段换成别的类型、换成闭合取值之外的值、加一个多余字段、把 `type` 换成不认识的 → 这条事件进 `defects`，文档等于从日志里删掉这条事件后折叠出的文档（就是 V5；状态因此可以变，例如一步回到 `waiting`）。
 3. **回归**：
-   - 事故 1，三条：(a) `declare --kind release --watch process` 被拒；给 `process` 步骤带 `waiting_on` 被拒；于是「绑定待批等待的发布步骤被 `run` 包住」写不出来。(b) 发布步骤（`record`）→ 确认过、找到了运行、没有 `started_at` → `waiting`，没有 `started`；观测到 `started_at` 之后才是 `running`，`started` 等于它。(c) 4000 秒里只有 `owner_wait_seen` 和 `observer_round` → 发布步骤一直 `waiting`；对它写 `step_started`、`step_seen` 被拒。另：`kind: other` 的进程步骤在文档里带 `watch`、`kind`、`command`。
+   - 事故 1，三条：(a) `declare --kind release --watch process` 被拒；给 `process` 步骤带 `waiting_on` 被拒；于是「绑定待批等待的发布步骤被 `run` 包住」写不出来。(b) 发布步骤（`record`）→ 确认过、找到了运行、没有 `started_at` → `waiting`，没有 `started`；观测到 `started_at` 之后才是 `running`，`started` 等于它；找到了、没开始、确认过时 `ball` 是 `agents`（`record_created`），确认过期之后这一步是 `unknown`，`ball` 也是 `unknown`。(c) 4000 秒里只有 `owner_wait_seen` 和 `observer_round` → 发布步骤一直 `waiting`；对它写 `step_started`、`step_seen` 被拒。另：`kind: other` 的进程步骤在文档里带 `watch`、`kind`、`command`。
    - 事故 2，三条：(a) 第 1 轮结束 → 第 2 轮声明、开始、心跳 → 第 1 轮那一步逐字节不变；拿第 2 轮的 `run_id` 给第 1 轮写心跳被拒。(b) 旧步骤开始 → 新步骤声明并开始，不带 `--replaces`，旧包装器继续心跳 → 两步都是 `running`。(c) 同上但带 `--replaces` → 旧的仍是 `running`，带 `superseded_by`；旧包装器被杀后旧的成为 `dead`，新的不受影响。端到端：两轮用同一条命令行跑。
    - `dead` 之后的结束：`step_started → step_seen(alive: false) → step_finished(exit 0)` → 三个前缀依次是 `running`、`dead`、`done`（`Exited 0`，`was_seen_dead: true`）；之后再来的 `step_seen` 无效。
    - 关闭，复核 73 的三条序列：(a) `open → owner-open（审批，待批）→ close`：`rec.py close` 被拒；手工拼的 `work_closed` 进 `defects`（`closed_with_open_items`），这件事仍没关闭，清单里有这一项，确认过时 `ball` 是 `owner`，不是 `nobody`。(b) `record` 步骤在跑时关闭 → 同样无效，`ball` 是 `agents`。(c) `none` 步骤报了开始、没报结束时关闭 → 同样无效，`ball` 是 `agents`。另三条：审批 `approved`（还在走）时关闭无效；只剩 `dead` 的步骤时关闭有效，之后补来的 `step_finished` 把它改成 `done` 或 `failed`，工作仍是关闭的；关闭之后的 `step_declared`、`owner_wait_opened` 无效。
    - 事故 3：绑定审批的等待 → 假平台把单子依次改成平台的八种状态 → 每一轮 `observe` 之后这一项的有无和 `can_act` 逐行对上第 4 节的表；全程没有调用统筹方的命令；`rec.py owner-close` 对它被拒。`approved` 之后变成平台的 `unknown` → 这一项回到清单。`executed` 之后观测方不再读它；此后伪造一轮把它列进 `failed` → 这一项不回到清单。假平台回 500、403、404、超时各一次 → 当轮进 `failed`，这一项是 `can_act: unknown`，带上一次读到的状态和时间。没有令牌 → 全部 `unknown`。观测停 181 秒 → `unknown`。变化的事件追加失败（日志的锁被占）→ 这个键进 `failed`（`append_failed`），这一项是 `unknown`，不是旧状态。
-   - 事故 4：31 件事；一件事 21 个活跃步骤；100 件事、一件事 200 步、每个文字字段顶到上限（含四字节字符、引号、反斜杠、`<>&`、形如 `token=x` 的字）；31 条和多到字节放不下的 Owner 事项 → `publish_view` 的输出不超过 204,800 字节、满足每一条数组上限、没有 null；每个被截的类别都有计数；留下的条数加 `owner_all_cut` 等于折叠出的清单长度；第 ⑤ 级的每件事恰好是摘要那几个字段。假服务端回 413 → 本机文档的推送结果一栏是失败和原因。
-   - Owner 的三条：三件事各有一条绑定的和一条 `declared` 的等待，两件事绑定同一张单 → `owner_all` 里那张单只有一项、带两件事的 `works[]`，绑定的在前；两份日志对同一张单一份见到 `approved`、一份还是 `pending` → 取 `sampled_at` 晚的；同时而不同 → `unknown`。两条标题相同的 `declared` 等待 → 两项。缺 `advice`、`where`、`reply` 的 `declared` 事项，文档里就没有这三个字段。`ball` 逐件判定表的每一行和合成的每一种结果各一条，含 `since`；复核 73 的五个例子各一条（都结束了而没关闭 → `coordinator`；一件等他、另一件等统筹方 → `coordinator`；只有 `declared` 的等待 → `owner` 带 `basis: declared`；观测方停了 → `unknown`；快照过期 → 页面覆盖成 Unknown）。201 份日志 → `fold_complete` 为假，`ball` 是 `unknown`。
-   - 时钟与观测方：睡眠（两条心跳隔 3 小时）→ 期间 `unknown`，恢复后 `running`、带 `gap`、没有 `slow`，这次的用时不进下一次声明的 `usual_s`；`at` 回拨 60 秒 → 区间内 `unknown`；两个 `observe` 同时起 → 只有一个写事件，另一个退出，日志里没有交错的样本；观测方不在 → 记录类步骤和绑定的事项在 181 秒后是 `unknown`，进程类步骤仍由包装器的心跳决定；读的一方的时钟比日志早 → `unknown`。
+   - 事故 4：31 件事；一件事 21 个活跃步骤；100 件事、一件事 200 步、每个文字字段顶到上限（含四字节字符、引号、反斜杠、`<>&`、形如 `token=x` 的字）；31 条和多到字节放不下的 Owner 事项 → `publish_view` 的输出不超过 204,800 字节、满足每一条数组上限、没有 null；每个被截的类别都有计数；留下的条数加 `owner_all_cut` 等于折叠出的清单长度；第 ⑤ 级的每件事恰好是摘要那几个字段。带 3 条 `commands` 的 `declared` 事项 → 发布的那一项没有 `commands`，有 `commands_at: local_board` 和 `commands_count: 3`，其余字段和本机文档里的逐字节相同。假服务端回 413 → 本机文档的推送结果一栏是失败和原因。
+   - Owner 的三条：三件事各有一条绑定的和一条 `declared` 的等待，两件事绑定同一张单 → `owner_all` 里那张单只有一项、带两件事的 `works[]`，绑定的在前；两份日志对同一张单一份见到 `approved`、一份还是 `pending` → 取 `sampled_at` 晚的；同时而不同 → 这一项是 `can_act: unknown`（`conflicting_observations`），只有这两件事时 `ball` 是 `unknown`。部分传播（只有两件事，绑定同一张单，各只有这一条等待，只有一份日志记下了 `executed`）→ 清单里没有这一项，`ball` 是 `coordinator`，不是 `owner`；对还没记下的那件事 `rec.py close` 仍被拒（它自己的日志里这条等待还没了结）。两条标题相同的 `declared` 等待 → 两项。缺 `advice`、`where`、`reply` 的 `declared` 事项，文档里就没有这三个字段。`ball` 逐件判定表的每一行和合成的每一种结果各一条，含 `since`；复核 73 的五个例子各一条（都结束了而没关闭 → `coordinator`；一件等他、另一件等统筹方 → `coordinator`；只有 `declared` 的等待 → `owner` 带 `basis: declared`；观测方停了 → `unknown`；快照过期 → 页面覆盖成 Unknown）。201 份日志 → `fold_complete` 为假，`ball` 是 `unknown`。
+   - 时钟与观测方：睡眠（两条心跳隔 3 小时）→ 期间 `unknown`，恢复后 `running`、带 `gap`、没有 `slow`，这次的用时不进下一次声明的 `usual_s`；回拨：一步的心跳写在回拨区间里 → `unknown`（`clock_backwards`），区间结束后它的下一条心跳让它回到 `running`；参照事件在区间之前的另一步不受影响；两个 `observe` 同时起 → 只有一个写事件，另一个退出，日志里没有交错的样本；观测方不在 → 记录类步骤和绑定的事项在 181 秒后是 `unknown`，进程类步骤仍由包装器的心跳决定；复核 76 的序列 `work_opened(at=0) → step_declared(process, at=1) → step_started(at=300) → note(at=240)`，没有估算、没有心跳：`now=240` → `unknown`（`reader_clock_behind`）；`now=440` → `running`；`now=2240` → `unknown`（`no_observation`）。记录这一侧同样三段：最近一轮的 `ended_at=300`，`now=240` → 记录类步骤和绑定的事项是 `unknown`（`reader_clock_behind`）；`now=440` → 按表；`now=500` → `unknown`（`not_confirmed`）。
 4. **发布的上限，过真实的校验**。每一级缩减各一条。平台仓库 `api/internal/agentprogress/` 加一条测试：读环境变量指的目录，把每份夹具走一遍真实的 `HandlePut`（校验、脱敏、重新编码、外壳大小都在这条路上），要求 202，并回读核对 `owner_all` 的条数和各步的 `state` 没有被服务端改掉。记录器这边的测试生成上一条里的夹具，在同级的 platform 检出里跑它；同一条测试把记录器里的上限常数和 `schema.go`、`document.go` 源码里的常数逐个比对。没有 platform 检出时这条测试报「没有跑」，验收不算通过。它不在 infra 的 CI 里：平台改了上限，要到下一次在工作区里跑验收才发现，这是已知的缺口。本文写的时候这条测试还不存在，上面的限制表是读源码得来的，不是跑出来的结果。
-5. **发事件的一侧，端到端**（教训第 73 行）：`rec.py run` 包住五种假命令（退出 0、退出 9、被 TERM、长时间不出声、包装器自己被 `kill -9`）→ 真实日志 → 折叠出 `done`（`Exited 0`）/ `failed` / `failed` / `quiet` / `dead`。`observe` 对着会核对请求的假平台和假 `kubectl`：只许出现读请求（HTTP 只有 GET，`kubectl` 只有 `get`），请求头里的令牌只发给配置的那个主机，出现别的即失败。静态检查：源码里没有 `os.kill`、`killpg`、`send_signal`、`terminate`、`.kill(`、`pgrep`，没有读 `pid` 字段的代码，没有 `mcp-tokens`。
+5. **发事件的一侧，端到端**（教训第 73 行）：`rec.py run` 包住五种假命令（退出 0、退出 9、被 TERM、长时间不出声——出过声之后安静的和从头到尾 0 字节的各一种、包装器自己被 `kill -9`）→ 真实日志 → 折叠出 `done`（`Exited 0`）/ `failed` / `failed` / `quiet` / `dead`。`observe` 对着会核对请求的假平台和假 `kubectl`：只许出现读请求（HTTP 只有 GET，`kubectl` 只有 `get`），请求头里的令牌只发给配置的那个主机，出现别的即失败。静态检查：源码里没有 `os.kill`、`killpg`、`send_signal`、`terminate`、`.kill(`、`pgrep`，没有读 `pid` 字段的代码，没有 `mcp-tokens`。
 6. **链和残尾**：改中间一行不重封 → `log_invalid_at`，没结束的步骤是 `unknown`，追加被拒；残尾修复沿用拣过来的测试；两个进程同时追加 → 两条都在，`seq` 连续；日志写到上限 → 追加被拒，`log_full`。
 7. **防线**：第 6 节的文本扫描和依赖测试各有一条会让它失败的反例；`scripts/release/` 现有的离线测试在三种环境下各跑一遍（事件根目录和看板文档原样、不存在、换成伪造的「全部 `Exited 0`」），输出逐字节相同。
 
 ## 8. 分片
 
-一片是一次实现、统筹方验收、独立复核直到通过；统筹方给的实测数是约 3 小时一片，本文没有另行核对。每片开工前写下停线条件：同一类必须改的问题在第二轮复核里又出现，就停下改形状，不加第三轮（教训第 70、72 行）。
+一片是一次实现、统筹方验收、独立复核直到通过；统筹方给的实测数是约 3 小时一片，本文没有另行核对。每片开工前写下停线条件：同一类必须改的问题在第二轮复核里又出现，就停下改形状，不加第三轮（教训第 70、72 行）。`WORK.md` 里 W-66 的估算写的是「记录和状态那一半约 2 片」。这里是 4 片：多出来的是把发事件的一侧、读真实记录各自单独成片（复核 68 和教训第 73 行）。四片之间没有要 Owner 做的事。片 1 在平台仓库加两个只有测试的文件（夹具测试、依赖测试），不带发版。
 
 | 片 | 交付 | 验收 | 不含 |
 |---|---|---|---|
@@ -276,19 +283,15 @@
 | 3 真实记录 | 三个只读适配：审批、提问（reporter 令牌）、流水线运行（集群只读身份）；绑定记录的 `owner-open`；记录类步骤的观测；`owner_all` 和 `ball` 改由折叠给，`tasks.json` 里的 `needs_you` 和 Owner 步骤迁走。开工先做三次真实的只读读取（一张审批、一个提问、一次运行），核对凭证、字段名、`ci` 运行怎么按提交号找到；有一样对不上，先改本文 | 第 7 节第 3 条的事故 1(b)(c)、关闭、事故 3、Owner 的三条的端到端部分；第 5 条的观测部分 | Console 的改动；删旧代码 |
 | 4 其余命令改接，删旧代码 | 实现、复核两条命令改接（只换命令行，不改记录器）；第 5 节列的补丁和函数删掉，`tasks.json` 只留目标和估算 | 观察一个晚上的实际使用：第 1 节的五类错误零次；删掉 `status.json` 重算，内容相同；PROD 的 Progress 页一直显示已同步 | Console 读新字段（`OWNER-SURFACE` 的 P6，在 platform 仓库，带发版单） |
 
-`WORK.md` 里 W-66 的估算写的是「记录和状态那一半约 2 片」。这里是 4 片：多出来的是把发事件的一侧、读真实记录各自单独成片（复核 68 和教训第 73 行）。四片之间没有要 Owner 做的事。片 1 在平台仓库加两个只有测试的文件（夹具测试、依赖测试），不带发版。
-
 ## 9. 第二半（判通过与放行）要满足的约束
 
 本文不设计它。以后任何一份设计至少要满足五条：① 证据不由被检查的一方保管——裁决读的东西（提交内容、验收输出、复核报告）要么由裁决方自己重新取得，要么存在被检查方写不到的地方（另一个用户、沙箱、平台），同一个 Unix 用户名下的文件不算。② 没有自己写的豁免清单——哪些字段可以不查、哪些变化仍算通过，由设计文档给出并逐项过复核，实现者和被检查方都不能加。③ 测试断言用户实际走的出口，即放行时真正被调用的那条命令或接口；放行时重算，不读已经盖上的判词（复核 65）。④ 记录、裁决、放行不在同一个程序里（教训第 77 行）；能问权威的就问，不重算（教训第 69 行）；本文的事件对它只是线索，不是证据。⑤ 它要有自己的设计，先复核设计再实现（教训第 53、62 行），开工前写下停线条件。
 
 ## 10. Owner 要定的事
 
-只有一件：**没有记录可对的 Owner 事项怎么处理**。怎么回应是他的工作方式，所以留给他定；其余的选择都是实现上的，按 ADR §12.2 第 15 条由统筹方定并留痕。本设计在两种选法下都能用；他没定之前按 A，对他来说什么都不变。
+只有一件：**没有记录可对的 Owner 事项怎么处理**。怎么回应是他的工作方式，所以留给他定；其余的选择都是实现上的，按 ADR §12.2 第 15 条由统筹方定并留痕。本设计在两种选法下都能用；他没定之前按 A，对他来说什么都不变。选项 A：允许 `declared` 的事项存在，页面上标明 `Declared by coordinator, not a record`，由统筹线程合上；他照旧可以在线程里回一句。选项 B：能变成记录的就变成记录，他在 Console 或手机上办，页面自己变。**推荐：B 只用于提问和反馈，其余按 A**。原来「在线程里回一句」的问题和反馈，在提问入口可用之后（`OWNER-SURFACE` C1：Agent 侧要新线程才有）改成提问入口的一个问题。**PROD 发布的批准不走这条路**：它仍是审批单；提问的回答不增加任何授权（工作区规则，W-65），把「线程里批一句」改成一个问题等于绕开审批。没有权威记录可对的事——换凭证、在他自己的终端里贴一条命令——保留为 A，明确标成 Agent 声明的。
 
-选项 A：允许 `declared` 的事项存在，页面上标明 `Declared by coordinator, not a record`，由统筹线程合上；他照旧可以在线程里回一句。选项 B：能变成记录的就变成记录，他在 Console 或手机上办，页面自己变。**推荐：B 只用于提问和反馈，其余按 A**。原来「在线程里回一句」的问题和反馈，在提问入口可用之后（`OWNER-SURFACE` C1：Agent 侧要新线程才有）改成提问入口的一个问题。**PROD 发布的批准不走这条路**：它仍是审批单；提问的回答不增加任何授权（工作区规则，W-65），把「线程里批一句」改成一个问题等于绕开审批。没有权威记录可对的事——换凭证、在他自己的终端里贴一条命令——保留为 A，明确标成 Agent 声明的。
-
-## 11. 两次复核逐条
+## 11. 三次复核逐条
 
 **复核 68**（16 条：8 条必须改、8 条次要）。复核 73 对这 16 条的结论是 8 条已解决、7 条部分解决、1 条没解决；没解决完的都落进下一张表。
 
@@ -298,7 +301,7 @@
 | 2 | P2 重开时旧步骤的去向 | 第 3、4 节：取代是显式事件，只是标记；不保证上一轮已结束 |
 | 3 | P1 锁探测误伤记录类 | 第 3 节：`step_seen` 只对 `process`；记录类用 `record_seen` |
 | 4 | P1 Unknown 与停更 | 第 4 节：`unknown` 状态、读的一方查快照；第 5 节每一级留着的字段 |
-| 5 | P2 时钟与两个观测方 | 第 3 节「时钟与观测方」 |
+| 5 | P2 时钟与两个观测方 | 第 3 节的采样时间、互斥范围、逐对象的确认、时钟异常四条 |
 | 6 | P1 真实记录绑定 | 第 3 节 `locator` 只认确切的名字和 `uid`；第 4 节审批八种状态的表 |
 | 7 | P2 事故 3 与凭证 | 第 5 节「读取凭证」；第 4 节没被确认过就是 `unknown` |
 | 8 | P1 平台上限没列全 | 第 5 节的限制表；第 7 节第 4 条走真实的 `HandlePut`（测试还没有，表是读源码得来的） |
@@ -329,3 +332,13 @@
 | 12 | P2 `reason` 原样输出与固定词表冲突 | 第 4 节 `reason` 的固定清单；记录的原话进 `reason_quote`；V10 |
 | 13 | P3 片 1 的边界 | 第 8 节片 1 的「不含」：真实读取、命令改接、启用发布都不在 |
 | — | 第 1 条的附注：`other` 包监视脚本 | 第 4 节：`process` 步骤总是显示「进程 · 类别 · 命令行」 |
+
+**复核 76**（5 条：1 条必须改、4 条次要）。它对复核 73 那 13 条的结论是 10 条已解决、3 条部分解决，剩下的就是这 5 条：
+
+| # | 复核 76 说的 | 在哪解决 |
+|---|---|---|
+| 1 | P1 V7 说 `unknown` 不再变，时钟规则说读的一方追上之后要恢复 | 第 3 节「时钟异常」写明三种异常各取决于什么；第 4 节两张步骤表的第 5 行和「`unknown` 怎么离开」；V7 的回头路只给 `reader_clock_behind`；那条序列的三个时间点进第 7 节第 3 条 |
+| 2 | P2 逐件判球用哪一份 `ref` 状态 | 第 4 节 `ball`：等待一律用合并后的结果，关闭的校验仍按本地；部分传播和同时冲突的测试进第 7 节第 3 条 |
+| 3 | P2 `record_created` 没要求确认 | 第 4 节 `ball` 逐件判定表第 1 行：步骤现在是 `waiting`，而且落在记录类表的第 7 行 |
+| 4 | P2 `commands` 不发布与「原样保留」冲突 | 第 5 节 `owner_all` 那一条写明这个例外（`commands_at`、`commands_count`）；测试在第 7 节第 3 条 |
+| 5 | P2 `after`、`usual_s` 的派生影响 | 第 4 节：`holds_up` 沿 `after` 算，`eta_unsure` 的条件写全；第 7 节第 2 条 (b) 写明允许的派生变化 |
