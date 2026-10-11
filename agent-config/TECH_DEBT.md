@@ -15,7 +15,7 @@
 
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
-**未结 86 项**：P0 0 · P1 6 · P2 30 · P3 50；要你批的 27 项（从总览表的审批列算）。
+**未结 89 项**：P0 0 · P1 8 · P2 31 · P3 50；要你批的 29 项（从总览表的审批列算）。
 
 ## 主题（第 2、3 轮）
 
@@ -42,11 +42,11 @@
 
 ### 数据完整度执行清单（Owner 2026-10-10 确认）
 
-执行顺序：先保存 TD-302 的可审查成果，再验证不可恢复数据的归档，确认每日产出防线，最后盘点并按批准范围回填。Owner 已继续授权第 2 项运行验收；TD-183 实际恢复未运行，后续项按顺序报告，不提前执行数据写入。所有工作在隔离分支；不推 main、不发布。代码完成、生产验收、历史补齐分别记录，不能共用一个「完成」。
+执行顺序：先保存 TD-302 的可审查成果，再验证不可恢复数据的归档，确认每日产出防线，最后盘点并按批准范围回填。Owner 已继续授权第 2 项运行验收；TD-183 实际恢复未运行，后续项按顺序报告，不提前执行数据写入。2026-10-11 Owner 随后授权在最新 main 的隔离 worktree 整合，通过测试与 DEV 验收后只合入不会触发部署的源码和记录；不发布、不启用告警、不扩大回填。早期隔离状态为当时记录，当前交付状态见下表及 10-11 整合报告。代码完成、生产验收、历史补齐分别记录，不能共用一个「完成」。
 
 | 顺序 / 已有债 | 状态与依赖 | 详细工作及交付物 | 验收与防线 | 执行边界 |
 |---|---|---|---|---|
-| 0 · TD-302 收口 | 完成（仅隔离提交）；Research `d628fa6`、Frontend `fda32827`，未合并/未发布 | 提交 Research 有效值过滤、IV 历史深度语义、Frontend 权威读数；保存 `bifrost-research/docs/acceptance/TD-302.md`，记录各仓提交号 | Research 2150 passed / 30 skipped；Frontend 4120 passed / 1 skipped；提交前复查 Research 34 / Frontend 4 passed，提交钩子 PASS；APT 历史不足、ZZQ 缺数据、AU 合法 0。对应回归测试见 RATCHETS | 已授权隔离分支提交；不合并、不发布，不回填 |
+| 0 · TD-302 收口 | 已合入／未发布；Research `e094659`、Frontend `2cf45185`（远端 main 已核验） | 提交 Research 有效值过滤、IV 历史深度语义、Frontend 权威读数；保存 `bifrost-research/docs/acceptance/TD-302.md`，记录各仓提交号 | Research 2150 passed / 30 skipped；Frontend 4120 passed / 1 skipped；提交前复查 Research 34 / Frontend 4 passed，提交钩子 PASS；APT 历史不足、ZZQ 缺数据、AU 合法 0。对应回归测试见 RATCHETS | 已授权安全 main 整合；不发布、不回填 |
 | 1 · TD-183 归档可恢复性 | 本轮只读核查与准备完成；实际恢复及三表整体验收未完成 | 两份 intraday snapshot 归档共 573826 行，hash/清单/全列解码/日期/主键检查 PASS；恢复方案见 `docs/audits/TD-183_ARCHIVE_READINESS_2026-10-10.md`。option_daily/short_volume 最早 2024-10-01，首次非零归档仍待约 11-01 | trim 的归档/删除行数与 Parquet 一致；五项离线异常测试 PASS。实际恢复必须再验 typed import、全字段 readback 和幂等；当前不记恢复 PASS | 本轮只读核查及准备；不触发 trim、不改 hold、不删文件、不写共享数据库、不建集群恢复资源 |
 | 2 · TD-92 / TD-94 每日产出防线 | 本轮运行核查完成；TD-94 待你签收，TD-92 告警回执仍观察 | 三批各 17 个 engine output_ok 已执行；14 PASS / 3 WARN；gate 均正确，无 override。56 测试通过无跳过，核心模块与生产 hash 一致；报告见 `docs/audits/TD-92-94_RUNTIME_ACCEPTANCE_2026-10-10.md` | 合法零、异常零、连续跳过及失败原因测试通过；WARN 持续缺数据未补；ERROR sensor 有运行记录但历史投递/接收回执未证实。未改非阻断政策，不把 SUCCESS 当完整数据 | 只读核查与隔离测试，未发现需新改生产逻辑的回归；不发布、不回填、不注入真实告警 |
 | 3 · TD-172 / TD-142 联合回填盘点 | 方案已确认；第一限定批已执行验收，整债未结 | `docs/audits/TD-172-142_GAP_PLAN_2026-10-10.md`：TD-172 725 × 59 session、TD-142 首批 23 × 252 session；已有来源模拟可增 756 个不同 ATM expiry 行，覆盖 606 symbol-day；条件重抓清单联合去重 66649 个合约区间 / 161863 个目标 contract-day；小试批 82 区间 / 120 目标日 | 7 项测试及只读全流程 PASS；合法零、整日缺失分母、Brent 双侧与 request 去重验证。SPY/NVDA/AAPL 仅本地重算不改善 90-day cone；GOOG 可达 104/74（90/180）session。受限 50–220 writer、cone180、Plugin long-breadth / Research valid-bracket 防线已在隔离分支补齐；尚未生产运行 | 已批准复用 756 键及 82 区间/120 目标日试批；保留现有有效短期行，禁止 long-only 输入触发整日 DELETE；Plugin 写 raw，Research 写 features；不使用 SVI 拼接；第 4 项限定批已实写验收，扩大/短腿仍另批 |
@@ -308,6 +308,10 @@
 | [TD-301](#td-301) | P3 | research-data | Term slope has fresh exhibit data but no batch screening reader | 不用批 |
 | [TD-302](#td-302) | P2 | research-data | Coverage counts 71 warm-up NULL IV scores as readable; exhibits give no warm-up reason | 不用批 |
 
+| [TD-303](#td-303) | P1 | research-control | Daily failure visibility and accepted long-row retention await production acceptance | PROD 变更（要你批） |
+| [TD-304](#td-304) | P1 | alert-delivery | Failed or missing Research work has no verified durable Owner notification | PROD 变更／真实告警测试（要你批） |
+| [TD-305](#td-305) | P2 | market-data | 67 recovered empty option responses still lack historical classification | 不用批（只读盘点；补抓另批） |
+
 ## 条目
 
 ### TD-85
@@ -345,6 +349,8 @@
 
 ### TD-92
 
+- **交付状态 2026-10-11**：已合入／未发布；最新 main 整合测试及 DEV 验收 PASS。对应提交和部署边界见 `docs/audits/DATA_INTEGRITY_MAIN_INTEGRATION_2026-10-11.md`；生产验收、告警送达、实际恢复及剩余数据缺口按各项条件保留，未据源码合入结债。
+
 - **Continuity audit 2026-10-10**: isolated Research `cc575bf` and Frontend `c57283ae`; daily enqueue/self-heal acknowledgment, accepted long-row retention and actual output-check visibility verified locally. Research lint + 2286 passed/17 skipped; affected 75 passed/0 skipped, frontend 13 passed + lint/build/CSS, actual DEV CHECKS CAUTION with 30 valid candidates retained. Latest primary 60/90/180 readings present; no backfill/release/real alert. Production rollout, durable alert receipt and full-universe long depth remain open; TD-303/304/305 and `docs/audits/DATA_CONTINUITY_DEFENSES_2026-10-10.md` carry the bounded follow-up.
 
 **P2 · research-control · Output checks execute and retain reasons, but ERROR alert receipt and persistent input gaps remain to be verified**
@@ -365,6 +371,8 @@
 - 审批 不用批 · 代价 M · 风险 low · repos: bifrost-research
 
 ### TD-94
+
+- **交付状态 2026-10-11**：已合入／未发布；最新 main 整合测试及 DEV 验收 PASS。对应提交和部署边界见 `docs/audits/DATA_INTEGRITY_MAIN_INTEGRATION_2026-10-11.md`；生产验收、告警送达、实际恢复及剩余数据缺口按各项条件保留，未据源码合入结债。
 
 **P2 · research-control · Fail-closed husbandry_gate and correct-session checks have passed runtime acceptance**
 
@@ -709,6 +717,8 @@
 
 ### TD-142
 
+- **交付状态 2026-10-11**：已合入／未发布；最新 main 整合测试及 DEV 验收 PASS。对应提交和部署边界见 `docs/audits/DATA_INTEGRITY_MAIN_INTEGRATION_2026-10-11.md`；生产验收、告警送达、实际恢复及剩余数据缺口按各项条件保留，未据源码合入结债。
+
 - **Continuity audit 2026-10-10**: isolated Research `cc575bf` and Frontend `c57283ae`; daily enqueue/self-heal acknowledgment, accepted long-row retention and actual output-check visibility verified locally. Research lint + 2286 passed/17 skipped; affected 75 passed/0 skipped, frontend 13 passed + lint/build/CSS, actual DEV CHECKS CAUTION with 30 valid candidates retained. Latest primary 60/90/180 readings present; no backfill/release/real alert. Production rollout, durable alert receipt and full-universe long depth remain open; TD-303/304/305 and `docs/audits/DATA_CONTINUITY_DEFENSES_2026-10-10.md` carry the bounded follow-up.
 
 **P2 · research-data · The 90-day IV cone has 31–39 sessions of history and there is no 180-day tenor: ATM IV was stored only to 90 DTE before 2026-08-05**
@@ -952,6 +962,8 @@
 
 ### TD-172
 
+- **交付状态 2026-10-11**：已合入／未发布；最新 main 整合测试及 DEV 验收 PASS。对应提交和部署边界见 `docs/audits/DATA_INTEGRITY_MAIN_INTEGRATION_2026-10-11.md`；生产验收、告警送达、实际恢复及剩余数据缺口按各项条件保留，未据源码合入结债。
+
 - **Continuity audit 2026-10-10**: isolated Research `cc575bf` and Frontend `c57283ae`; daily enqueue/self-heal acknowledgment, accepted long-row retention and actual output-check visibility verified locally. Research lint + 2286 passed/17 skipped; affected 75 passed/0 skipped, frontend 13 passed + lint/build/CSS, actual DEV CHECKS CAUTION with 30 valid candidates retained. Latest primary 60/90/180 readings present; no backfill/release/real alert. Production rollout, durable alert receipt and full-universe long depth remain open; TD-303/304/305 and `docs/audits/DATA_CONTINUITY_DEFENSES_2026-10-10.md` carry the bounded follow-up.
 
 **P2 · research-data · ATM IV has almost no 50–90 DTE expiry from 2026-07-06 to 09-25 (the EOD chain stopped at the third listed expiry until plugin 0.39.0); the fix was forward-only, so term structure reads na for that stretch**
@@ -1010,6 +1022,8 @@
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
 
 ### TD-183
+
+- **交付状态 2026-10-11**：已合入／未发布；最新 main 整合测试及 DEV 验收 PASS。对应提交和部署边界见 `docs/audits/DATA_INTEGRITY_MAIN_INTEGRATION_2026-10-11.md`；生产验收、告警送达、实际恢复及剩余数据缺口按各项条件保留，未据源码合入结债。
 
 **P3 · market-data · W3 snapshot archives are verified readable, but typed restore and first option_daily / short_volume archives remain unverified**
 
@@ -1640,6 +1654,8 @@
 
 ### TD-274
 
+- **交付状态 2026-10-11**：已合入／未发布；最新 main 整合测试及 DEV 验收 PASS。对应提交和部署边界见 `docs/audits/DATA_INTEGRITY_MAIN_INTEGRATION_2026-10-11.md`；生产验收、告警送达、实际恢复及剩余数据缺口按各项条件保留，未据源码合入结债。
+
 **P3 · frontend · Symbol faces hide GEX levels that exist when zero gamma is NULL: the dealer level strip needs all four values and the regime cell needs zero gamma, so a chain with no flip (about a third of expiries) shows neither walls nor regime**
 
 - **状态**：在做（Owner 已看过 DEV 结果；代码已提交隔离分支，未合并/未发布）
@@ -1688,6 +1704,8 @@
 
 ### TD-302
 
+- **交付状态 2026-10-11**：已合入／未发布；最新 main 整合测试及 DEV 验收 PASS。对应提交和部署边界见 `docs/audits/DATA_INTEGRITY_MAIN_INTEGRATION_2026-10-11.md`；生产验收、告警送达、实际恢复及剩余数据缺口按各项条件保留，未据源码合入结债。
+
 **P2 · research-data · IV coverage counts warm-up NULL scores as readable and exhibits omit the reason**
 
 - **状态**：观察中（隔离分支 codex/td-302 已提交：Research d628fa6、Frontend fda32827；测试与本机 DEV 已验收，未合并/未发布；不视为生产数据修复完成）
@@ -1699,6 +1717,60 @@
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
 
 - **Implementation 2026-10-10**: Latest-row usable-value filtering preserves zero and unbanded categories. Both IV exhibits explain warm-up versus missing rows; Symbol Volatility consumes authoritative Research scores rather than rebuilding scores from two history sessions. Acceptance record: `bifrost-research/docs/acceptance/TD-302.md`. Research full tests 2150 passed / 30 skipped; targeted tests 47 passed. DEV coverage 631/725 per IV lens; APT 2/126 withheld, ZZQ missing, AU 0/Cold. Frontend full rerun PASS: 548 files / 4120 passed / 1 skipped (two first-run timeout cases recovered with lower concurrency); build and CSS check PASS, lint 0 errors and changed-files lint clean. No release or data repair.
+
+### TD-299
+
+**P2 · ops-platform · Tekton keeps every run (545 PipelineRuns and 3958 TaskRuns in cicd since 2026-10-03) and nothing prunes them; with the finished pods gone after the rolling reboot, the controller's periodic resync errors on each old TaskRun and a new run waited 4 min 21 s for its pod**
+
+- **状态**：未开始（决策线程 10-10 建 W-38 部署单时撞上；长期方案见 W-60，Owner 已定保留期的起点值）
+- **Claim**: No CronJob, Tekton pruner or platform job deletes finished PipelineRuns or TaskRuns in `cicd`. The 2026-10-10 rolling reboot drained every node, which deleted the pods of finished TaskRuns. The Tekton controller (knative) re-reconciles every object 10 hours after it starts; each finished TaskRun then fails with `pods "<name>" not found` and is requeued, and new TaskRuns wait behind them.
+- **Measured**: MEASURED 2026-10-10 (Claude, read-only kubectl). `cicd`: 3958 TaskRuns, 545 PipelineRuns, oldest `bifrost-deliver-stg-4j62d` 2026-10-03T18:32:25Z; `kubectl -n cicd get cronjob` lists none. Controller pod `tekton-pipelines-controller-65f567589b-6nrsc` age 10h; 400 log lines covered 8 seconds (15:40:25Z–15:40:33Z) with 100 `Reconcile error` lines, all `pods … not found`. `plan-5e8e4676-1791646670-run` was created 15:37:55Z and started 15:42:16Z; the STG deliver run 50 minutes earlier started its tasks within seconds. By 15:42:40Z the error rate was 0.
+- **Evidence**:
+  - `kubectl -n cicd get taskrun --no-headers | wc -l` → 3958; `kubectl -n cicd get pipelinerun --no-headers | wc -l` → 545
+  - `kubectl -n tekton-pipelines logs deploy/tekton-pipelines-controller --tail=400` during the stall
+  - `bifrost-trade-infra/k8s/cicd/` — no pruner manifest
+- **Impact**: Every 10 hours after a controller start, CI, plans and deliveries stall for minutes; the stall grows with the run count. A release or an approved apply that starts in that window looks hung. Correction (2026-10-10): release evidence does not live in the runs. `api/internal/releases` writes one ConfigMap per finished delivery run (label `bifrost.io/release-record`, 380 on 2026-10-10), and promtail ships step logs to Loki, so finished runs can be pruned once their record exists.
+- **Fix**: W-60. Owner 2026-10-10 set the starting rule: succeeded runs 24 hours, failed runs 7 days, at least the last 5 per pipeline, and a delivery run only after its release record exists. The loop in `api/internal/releases` that writes the records also prunes (dry run first; the Owner approves the first list). Check Loki's retention for step logs before the first prune.
+- **Ratchet**: an alert on the TaskRun count in `cicd` and on a TaskRun that has no pod two minutes after creation.
+- 验收: `kubectl -n cicd get taskrun --no-headers | wc -l` stays under the chosen bound for a week; a plan started during a controller resync gets its pod within 30 seconds.
+- 审批 要你批 · 代价 S · 风险 med · repos: bifrost-trade-infra, bifrost-platform
+
+### TD-303
+
+- **交付状态 2026-10-11**：已合入／未发布；最新 main 整合测试及 DEV 验收 PASS。对应提交和部署边界见 `docs/audits/DATA_INTEGRITY_MAIN_INTEGRATION_2026-10-11.md`；生产验收、告警送达、实际恢复及剩余数据缺口按各项条件保留，未据源码合入结债。
+
+**P1 · research-control · Daily data failure visibility and accepted long-row retention await deployment**
+
+- **状态**：在做（isolated implementation/test/DEV PASS; no release approval or deployment）
+- **Evidence**: Research `orchestration/plugin_http.py:211`, `market_self_heal.py:73`, `api/orchestration.py:342`, `engines/volatility/atm_iv.py:505`; malformed enqueue/queue responses, critical without prescriptions and successful runs with failed checks could appear green; invalid long input could delete a valid repair. Frontend `pages/research/stocks/method/QueueFace.tsx:298` conflated check caution and run failure.
+- **Fix**: Research `cc575bf`, Frontend `c57283ae`: strict measured acknowledgments, visible critical/delivery failure, calendar/coverage semantics, valid replacement keys and actual evaluations; CHECKS CAUTION retains valid queue rows. Existing API fields, legal zero/dedup/holiday and short expiry semantics retained. Production deployment requires Owner approval.
+- **验收**：Research `make lint && make test`; affected continuity tests; Frontend `npm run lint && npm run build && npm run check:legacy-css`, `npx vitest run src/pages/research/stocks/method/labTodayModel.test.ts`; DEV queue caution/detail/30 candidates, real data read-only.
+- **验收结果**：PASS isolated 2026-10-10 `cc575bf` / `c57283ae`: Research 2286 passed/17 skipped, affected 75 passed/0 skipped; FE 13 passed, lint/build/CSS PASS. Not production acceptance. Detailed evidence: `docs/audits/DATA_CONTINUITY_DEFENSES_2026-10-10.md`.
+- **Ratchet**: RATCHETS daily continuity subsection; malformed/zero/missing/calendar/invalid-long/failed-delivery/output-check tests. Follow-up: TD-304/305; existing TD-172/142 daily long scope and TD-183 restore stay open.
+
+### TD-304
+
+- **交付状态 2026-10-11**：已合入／未发布；最新 main 整合测试及 DEV 验收 PASS。对应提交和部署边界见 `docs/audits/DATA_INTEGRITY_MAIN_INTEGRATION_2026-10-11.md`；生产验收、告警送达、实际恢复及剩余数据缺口按各项条件保留，未据源码合入结债。
+
+**P1 · research-control / alert-delivery · Failed or missing Research work has no verified durable Owner notification**
+
+- **状态**：在做（isolated implementation/tests/DEV accepted; production cutover, targeted Owner routes and true receipt test await Owner confirmation）
+- **Evidence**: Old run-status callback cursors advance on failed POST; warning RunFailed/AssetCheckFailed reaches audit only. A missing daily batch has no failure event; sender self-monitoring fails with its daemon. Latest bounded READ ONLY preflight: 72 SUCCESS/0 failure events and 0 failed ERROR evaluations in SUCCESS over 24h; new delivery sensor is absent from runtime. Relay heartbeat is not Research receipt.
+- **Fix implemented (isolated)**: independent regular sensor, versioned outbox in existing Dagster cursor (no DDL), discovery committed before send, stable identity dedup, capped exponential intervals without dropping retries, capacity/checkpoint and invalid cursor guards. Canonical trading-calendar/session +2h main-batch deadlines, recovery resolution and long-gap/truncation unverified. Existing API detail and metrics probe observe disabled/stale/pending/error state from outside daemon; no false notification green. Default STOPPED and explicit old/new sender handover required; no blanket WARN escalation.
+- **验收**：Actual local Dagster persistence reopen/replay and mock transport/crash tests; calendar/DST/holiday/manual/stuck/recovery/queue/state faults. After separate Owner confirmation, two synthetic named failure alerts with one test id, ten-minute expiry and at most four firing/resolved submissions; same id at producer, Alertmanager, PROD audit, relay and Owner; receipt within five minutes or stop.
+- **验收结果**：ISOLATED PASS 2026-10-10, Research `999e8ca` + `16f7841` on codex/td-304; lint + 2325 passed/17 skipped, affected79 passed/1 optional manifest skip and draft route4 PASS. Actual DEV CHECKS CAUTION, 30 valid candidates retained; alert retry/deadline unmeasured/not enabled and Owner receipt unverified; /metrics alert_delivery probe=0, other three probes=1. No external alert injection/backfill/release. Production retries and true Owner receipt NOT VERIFIED.
+- **Ratchet**: Research `tests/orchestration/test_alert_delivery.py`, API sender-health/metrics tests and definitions default-STOPPED check; infra `scripts/test_research_alert_delivery_route.py` + read-only preflight. Concrete cutover/routing/test/rollback packet: `docs/audits/TD-304_ALERT_DELIVERY_2026-10-10.md`, unapplied `TD-304_OWNER_ROUTE_DRAFT.yaml`. Related TD-92/172/142; keep open until deployed and Owner receipt signed.
+
+### TD-305
+
+**P2 · market-data / data-integrity · 67 empty option responses after a recovered authentication interruption need historical classification**
+
+- **状态**：未开始（bounded inventory identified read-only; no fetch/backfill authorized）
+- **Evidence**: `scripts/audit-data-continuity.sql:17`, Plugin `freshness.py:178`, `doctor.py:1944`; 131 option_daily failed receipts on 2026-10-09 (28 underlyings, authentication 401) ALL have later same-kind/same-payload DONE receipts. Reconciled outcome: 64 positive-price raw rows / 67 empty contract-day requests, all for 10-09. This is not 131 unhandled jobs. A DONE/zero-row response is not proof of no trading or a valid zero reading.
+- **Fix / next read-only scope**: freeze exactly those 67 request keys from retained receipts, verify historical as_of listing, existing source-void and entitlement evidence; classify unlisted/no-trade/permission/fetch/unknown distinctly. Confirm reference completeness before proposing any re-fetch. Do not retry all failed receipts, overwrite valid raw values or create zero bars.
+- **验收**：67/67 dispositions with source/date/as_of evidence, counts reconcile with original receipts and raw key difference; unknown stays unknown. Any proposed retry lists exact remaining keys, reference/bar HTTP budget, order, stop rule and preservation acceptance for Owner confirmation.
+- **验收结果**：INVENTORY PASS 2026-10-10 read-only aggregate reconciliation only; historical classification NOT RUN. Report `docs/audits/DATA_CONTINUITY_DEFENSES_2026-10-10.md`.
+- **Ratchet needed**: empty-source evidence and effective coverage across the 24h queue-failure window, without confusing recovered failures with new missing rows. Existing TD-281 handled retries; preserve it.
 
 ## 没覆盖到的（下一轮从这里开始）
 
@@ -1731,55 +1803,3 @@
 第 3 轮（2026-10-07，Ops 平台 · Console 与 MCP · Trade 前端数据正确性 · bifrost-ui 与 trade-worker · 数据层）：10 个 Agent，约 30 分钟，约 230 万 token，全程只读。代码读的是 origin/main 的干净副本：platform e95be35 · frontend dfb7858e · ui 2271260 · worker c04fc80 · infra f41dab5 · trade-api 630ca41 · core 53378bf。五个领域各一个盘点 Agent，三个反驳 Agent（平台两块合一个、前端与 ui/worker 合一个、数据层一个），一个 Agent 清点防线，最后一个去重排序。41 条发现：18 条原样成立，23 条改了说法或优先级，0 条被推翻；去重后 37 条，另 5 条并入已有条目或拆分；TD-196 加补充；关闭的 TD-140 原因写错，另开 TD-240；过时的登记文字汇成 TD-241。
 第 2 轮（2026-10-06）：10 个 Agent，约 35 分钟，全程只读（数据库只做 read-only 查询）。代码读的是各仓库 origin/main 的干净副本：research 6ed86ad · market-data acba67e · flex f7b5cd9 · IB gateway 插件 39eafe2 · infra d5aa457 · core 756bdb5。四个领域各一个盘点 Agent（Research 数据面、Research 控制面、market-data、flex + IB gateway），每个领域的发现交给一个专门反驳的 Agent 去推翻；另一个 Agent 清点现有防线并对照第 1 轮的各类债；最后一个 Agent 去重、排序、提出待建防线。40 条发现：22 条原样成立，18 条改了说法或优先级，0 条被推翻，3 条合并。之后日常工作里发现的直接加入（TD-127–129 来自 Pine 线程）。
 第 1 轮（2026-10-01，Trade UI 之下）的原文在台账页 artifact 版本 ≤ 48 和 git 历史里。
-
-### TD-299
-
-**P2 · ops-platform · Tekton keeps every run (545 PipelineRuns and 3958 TaskRuns in cicd since 2026-10-03) and nothing prunes them; with the finished pods gone after the rolling reboot, the controller's periodic resync errors on each old TaskRun and a new run waited 4 min 21 s for its pod**
-
-- **状态**：未开始（决策线程 10-10 建 W-38 部署单时撞上；长期方案见 W-60，Owner 已定保留期的起点值）
-- **Claim**: No CronJob, Tekton pruner or platform job deletes finished PipelineRuns or TaskRuns in `cicd`. The 2026-10-10 rolling reboot drained every node, which deleted the pods of finished TaskRuns. The Tekton controller (knative) re-reconciles every object 10 hours after it starts; each finished TaskRun then fails with `pods "<name>" not found` and is requeued, and new TaskRuns wait behind them.
-- **Measured**: MEASURED 2026-10-10 (Claude, read-only kubectl). `cicd`: 3958 TaskRuns, 545 PipelineRuns, oldest `bifrost-deliver-stg-4j62d` 2026-10-03T18:32:25Z; `kubectl -n cicd get cronjob` lists none. Controller pod `tekton-pipelines-controller-65f567589b-6nrsc` age 10h; 400 log lines covered 8 seconds (15:40:25Z–15:40:33Z) with 100 `Reconcile error` lines, all `pods … not found`. `plan-5e8e4676-1791646670-run` was created 15:37:55Z and started 15:42:16Z; the STG deliver run 50 minutes earlier started its tasks within seconds. By 15:42:40Z the error rate was 0.
-- **Evidence**:
-  - `kubectl -n cicd get taskrun --no-headers | wc -l` → 3958; `kubectl -n cicd get pipelinerun --no-headers | wc -l` → 545
-  - `kubectl -n tekton-pipelines logs deploy/tekton-pipelines-controller --tail=400` during the stall
-  - `bifrost-trade-infra/k8s/cicd/` — no pruner manifest
-- **Impact**: Every 10 hours after a controller start, CI, plans and deliveries stall for minutes; the stall grows with the run count. A release or an approved apply that starts in that window looks hung. Correction (2026-10-10): release evidence does not live in the runs. `api/internal/releases` writes one ConfigMap per finished delivery run (label `bifrost.io/release-record`, 380 on 2026-10-10), and promtail ships step logs to Loki, so finished runs can be pruned once their record exists.
-- **Fix**: W-60. Owner 2026-10-10 set the starting rule: succeeded runs 24 hours, failed runs 7 days, at least the last 5 per pipeline, and a delivery run only after its release record exists. The loop in `api/internal/releases` that writes the records also prunes (dry run first; the Owner approves the first list). Check Loki's retention for step logs before the first prune.
-- **Ratchet**: an alert on the TaskRun count in `cicd` and on a TaskRun that has no pod two minutes after creation.
-- 验收: `kubectl -n cicd get taskrun --no-headers | wc -l` stays under the chosen bound for a week; a plan started during a controller resync gets its pod within 30 seconds.
-- 审批 要你批 · 代价 S · 风险 med · repos: bifrost-trade-infra, bifrost-platform
-
-
-
-### TD-303
-
-**P1 · research-control · Daily data failure visibility and accepted long-row retention await deployment**
-
-- **状态**：在做（isolated implementation/test/DEV PASS; no release approval or deployment）
-- **Evidence**: Research `orchestration/plugin_http.py:211`, `market_self_heal.py:73`, `api/orchestration.py:342`, `engines/volatility/atm_iv.py:505`; malformed enqueue/queue responses, critical without prescriptions and successful runs with failed checks could appear green; invalid long input could delete a valid repair. Frontend `pages/research/stocks/method/QueueFace.tsx:298` conflated check caution and run failure.
-- **Fix**: Research `cc575bf`, Frontend `c57283ae`: strict measured acknowledgments, visible critical/delivery failure, calendar/coverage semantics, valid replacement keys and actual evaluations; CHECKS CAUTION retains valid queue rows. Existing API fields, legal zero/dedup/holiday and short expiry semantics retained. Production deployment requires Owner approval.
-- **验收**：Research `make lint && make test`; affected continuity tests; Frontend `npm run lint && npm run build && npm run check:legacy-css`, `npx vitest run src/pages/research/stocks/method/labTodayModel.test.ts`; DEV queue caution/detail/30 candidates, real data read-only.
-- **验收结果**：PASS isolated 2026-10-10 `cc575bf` / `c57283ae`: Research 2286 passed/17 skipped, affected 75 passed/0 skipped; FE 13 passed, lint/build/CSS PASS. Not production acceptance. Detailed evidence: `docs/audits/DATA_CONTINUITY_DEFENSES_2026-10-10.md`.
-- **Ratchet**: RATCHETS daily continuity subsection; malformed/zero/missing/calendar/invalid-long/failed-delivery/output-check tests. Follow-up: TD-304/305; existing TD-172/142 daily long scope and TD-183 restore stay open.
-
-### TD-304
-
-**P1 · research-control / alert-delivery · Failed or missing Research work has no verified durable Owner notification**
-
-- **状态**：在做（isolated implementation/tests/DEV accepted; production cutover, targeted Owner routes and true receipt test await Owner confirmation）
-- **Evidence**: Old run-status callback cursors advance on failed POST; warning RunFailed/AssetCheckFailed reaches audit only. A missing daily batch has no failure event; sender self-monitoring fails with its daemon. Latest bounded READ ONLY preflight: 72 SUCCESS/0 failure events and 0 failed ERROR evaluations in SUCCESS over 24h; new delivery sensor is absent from runtime. Relay heartbeat is not Research receipt.
-- **Fix implemented (isolated)**: independent regular sensor, versioned outbox in existing Dagster cursor (no DDL), discovery committed before send, stable identity dedup, capped exponential intervals without dropping retries, capacity/checkpoint and invalid cursor guards. Canonical trading-calendar/session +2h main-batch deadlines, recovery resolution and long-gap/truncation unverified. Existing API detail and metrics probe observe disabled/stale/pending/error state from outside daemon; no false notification green. Default STOPPED and explicit old/new sender handover required; no blanket WARN escalation.
-- **验收**：Actual local Dagster persistence reopen/replay and mock transport/crash tests; calendar/DST/holiday/manual/stuck/recovery/queue/state faults. After separate Owner confirmation, two synthetic named failure alerts with one test id, ten-minute expiry and at most four firing/resolved submissions; same id at producer, Alertmanager, PROD audit, relay and Owner; receipt within five minutes or stop.
-- **验收结果**：ISOLATED PASS 2026-10-10, Research `999e8ca` + `16f7841` on codex/td-304; lint + 2325 passed/17 skipped, affected79 passed/1 optional manifest skip and draft route4 PASS. Actual DEV CHECKS CAUTION, 30 valid candidates retained; alert retry/deadline unmeasured/not enabled and Owner receipt unverified; /metrics alert_delivery probe=0, other three probes=1. No external alert injection/backfill/release. Production retries and true Owner receipt NOT VERIFIED.
-- **Ratchet**: Research `tests/orchestration/test_alert_delivery.py`, API sender-health/metrics tests and definitions default-STOPPED check; infra `scripts/test_research_alert_delivery_route.py` + read-only preflight. Concrete cutover/routing/test/rollback packet: `docs/audits/TD-304_ALERT_DELIVERY_2026-10-10.md`, unapplied `TD-304_OWNER_ROUTE_DRAFT.yaml`. Related TD-92/172/142; keep open until deployed and Owner receipt signed.
-
-### TD-305
-
-**P2 · market-data / data-integrity · 67 empty option responses after a recovered authentication interruption need historical classification**
-
-- **状态**：未开始（bounded inventory identified read-only; no fetch/backfill authorized）
-- **Evidence**: `scripts/audit-data-continuity.sql:17`, Plugin `freshness.py:178`, `doctor.py:1944`; 131 option_daily failed receipts on 2026-10-09 (28 underlyings, authentication 401) ALL have later same-kind/same-payload DONE receipts. Reconciled outcome: 64 positive-price raw rows / 67 empty contract-day requests, all for 10-09. This is not 131 unhandled jobs. A DONE/zero-row response is not proof of no trading or a valid zero reading.
-- **Fix / next read-only scope**: freeze exactly those 67 request keys from retained receipts, verify historical as_of listing, existing source-void and entitlement evidence; classify unlisted/no-trade/permission/fetch/unknown distinctly. Confirm reference completeness before proposing any re-fetch. Do not retry all failed receipts, overwrite valid raw values or create zero bars.
-- **验收**：67/67 dispositions with source/date/as_of evidence, counts reconcile with original receipts and raw key difference; unknown stays unknown. Any proposed retry lists exact remaining keys, reference/bar HTTP budget, order, stop rule and preservation acceptance for Owner confirmation.
-- **验收结果**：INVENTORY PASS 2026-10-10 read-only aggregate reconciliation only; historical classification NOT RUN. Report `docs/audits/DATA_CONTINUITY_DEFENSES_2026-10-10.md`.
-- **Ratchet needed**: empty-source evidence and effective coverage across the 24h queue-failure window, without confusing recovered failures with new missing rows. Existing TD-281 handled retries; preserve it.
