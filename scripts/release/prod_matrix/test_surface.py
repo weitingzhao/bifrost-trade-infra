@@ -6,6 +6,7 @@ import copy
 import io
 import json
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -304,20 +305,134 @@ class SurfaceTests(unittest.TestCase):
         with self.assertRaises(Exception) as raised:
             validate_document(key, wrong)
         self.assertIn("type", str(raised.exception))
+        self._nested_negative(key, doc)
+
+    def _nested_negative(self, key, doc):
+        """Missing, unknown, and wrong-type on a nested structure, not only the top level."""
+        if key == "prod_targets.json":
+            parent = doc["questions"][0]
+            label = "questions[0]"
+        elif key == "prod_fixed_identities.json":
+            parent = doc["rows"][0]
+            label = "rows[0]"
+        elif key == "prod_nontargets.json":
+            doc = {
+                "entries": [
+                    {
+                        "group": "",
+                        "namespace": "ns-a",
+                        "reason": "not a target",
+                        "resource": "widgets",
+                        "scope": "namespaced",
+                        "subresource": "",
+                    }
+                ],
+                "schema_version": 1,
+            }
+            parent = doc["entries"][0]
+            label = "entries[0]"
+        elif key == "prod_write_exceptions.json":
+            doc = {
+                "exceptions": [
+                    {
+                        "check": "subjectaccessreview",
+                        "class": "field",
+                        "expires": "2026-12-01",
+                        "field": "data",
+                        "group": "",
+                        "identity": {
+                            "extra": {"state": "unknown"},
+                            "groups": ["system:authenticated"],
+                            "kind": "user",
+                            "source": "binding-user:example",
+                            "uid": {"state": "unknown"},
+                            "user": "example",
+                        },
+                        "name": "",
+                        "namespace": "ns-a",
+                        "reason": "held",
+                        "removes": "step-4",
+                        "request_family": "authz",
+                        "resource": "configmaps",
+                        "scope": "namespaced",
+                        "subresource": "",
+                        "verb": "patch",
+                    }
+                ],
+                "schema_version": 1,
+            }
+            parent = doc["exceptions"][0]["identity"]
+            label = "identity"
+        elif key == "bundle":
+            parent = doc["reviews"][0]["request"]
+            label = "request"
+        else:
+            parent = doc
+            doc["data_keys"] = ["plain"]
+            label = "data_keys"
+        missing = copy.deepcopy(doc)
+        self._poke(missing, label, "drop")
+        with self.assertRaises(Exception) as raised:
+            validate_document(key, missing)
+        self.assertIn("missing", str(raised.exception))
+        extra = copy.deepcopy(doc)
+        self._poke(extra, label, "unknown")
+        with self.assertRaises(Exception) as raised:
+            validate_document(key, extra)
+        self.assertIn("unknown", str(raised.exception))
+        wrong = copy.deepcopy(doc)
+        self._poke(wrong, label, "type")
+        with self.assertRaises(Exception) as raised:
+            validate_document(key, wrong)
+        self.assertIn("type", str(raised.exception))
+        self.assertIsNotNone(parent)
+
+    def _poke(self, doc, label, mode):
+        if label == "questions[0]":
+            target = doc["questions"][0]
+            field = "verb"
+        elif label == "rows[0]":
+            target = doc["rows"][0]
+            field = "user"
+        elif label == "entries[0]":
+            target = doc["entries"][0]
+            field = "resource"
+        elif label == "identity":
+            target = doc["exceptions"][0]["identity"]
+            field = "user"
+        elif label == "request":
+            target = doc["reviews"][0]["request"]
+            field = "apiVersion"
+        else:
+            if mode == "drop":
+                doc["data_keys"] = []
+                doc.pop("schema_version")
+                return
+            if mode == "unknown":
+                doc["not-a-field"] = 1
+                return
+            doc["data_keys"] = [1]
+            return
+        if mode == "drop":
+            target.pop(field)
+        elif mode == "unknown":
+            target["not-a-field"] = 1
+        else:
+            target[field] = 1
 
 
 def _replay(bundle, targets, fixed, exceptions=None):
-    root = HERE / "testdata"
-    root.mkdir(exist_ok=True)
-    bundle_path = root / "surface-bundle.json"
-    targets_path = root / "surface-targets.json"
-    fixed_path = root / "surface-fixed.json"
-    exceptions_path = root / "surface-exceptions.json"
-    bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
-    targets_path.write_text(json.dumps(targets), encoding="utf-8")
-    fixed_path.write_text(json.dumps(fixed), encoding="utf-8")
-    exceptions_path.write_text(json.dumps(exceptions or empty_exceptions()), encoding="utf-8")
-    return _cli(
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        bundle_path = root / "surface-bundle.json"
+        targets_path = root / "surface-targets.json"
+        fixed_path = root / "surface-fixed.json"
+        exceptions_path = root / "surface-exceptions.json"
+        bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
+        targets_path.write_text(json.dumps(targets), encoding="utf-8")
+        fixed_path.write_text(json.dumps(fixed), encoding="utf-8")
+        exceptions_path.write_text(json.dumps(exceptions or empty_exceptions()), encoding="utf-8")
+        return _cli(
         [
             "replay",
             "--bundle",
