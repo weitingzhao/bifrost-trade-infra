@@ -26,6 +26,68 @@ def seal_result(body: Any, ok: bool, status_code: int) -> dict:
     return {"body": body, "body_sha256": sha256_hex(body), "ok": ok, "status_code": status_code}
 
 
+def group_result(attempt: dict) -> Any:
+    """Body of a group's last attempt, and only when that attempt is ok with a 2xx status.
+
+    Otherwise the group has no result: exit 2 for a read and exit 2 for a review.
+    Callers interpret a response body only by calling this function. The seal check
+    hashes the stored bytes; it does not interpret them.
+    """
+    result = attempt.get("result")
+    if not isinstance(result, dict):
+        _fail(attempt, "missing result")
+    ok = result.get("ok", None)
+    status = result.get("status_code", None)
+    kind = "review" if attempt.get("kind") == "review" else "read"
+    path = ""
+    request = attempt.get("request")
+    if isinstance(request, dict) and isinstance(request.get("path"), str):
+        path = request["path"]
+    where = f" {path}" if path else ""
+    if ok is not True or isinstance(status, bool) or not isinstance(status, int) or status < 200 or status > 299:
+        _fail(attempt, f"{kind} failed ({status}){where}")
+    if "body" not in result:
+        _fail(attempt, f"{kind} has no body{where}")
+    return result["body"]
+
+
+def continue_token(body: Any, attempt: dict | None = None) -> str:
+    """The continue field, type-checked before any emptiness check. 0 is not an empty token."""
+
+    def fail(message: str) -> None:
+        if attempt is not None:
+            _fail(attempt, message)
+        raise MatrixExit(2, f"bundle: {message}")
+
+    if not isinstance(body, dict):
+        fail("body is not an object")
+    if "metadata" not in body or body.get("metadata") is None:
+        return ""
+    meta = body["metadata"]
+    if not isinstance(meta, dict):
+        fail("metadata is not an object")
+    if "continue" not in meta:
+        return ""
+    token = meta["continue"]
+    if not isinstance(token, str):
+        fail("continue is not a string")
+    return token
+
+
+def request_continue(attempt: dict) -> str:
+    params = attempt["request"].get("params")
+    if params is None:
+        return ""
+    if not isinstance(params, dict):
+        _fail(attempt, "params is not an object")
+    if "continue" not in params:
+        return ""
+    token = params["continue"]
+    if not isinstance(token, str):
+        _fail(attempt, "continue is not a string")
+    return token
+
+
 def reseal(attempt: dict) -> dict:
     """Recompute hashes after a test edits the request or the body on purpose."""
     result = attempt["result"]
@@ -98,6 +160,8 @@ def chains(attempts: list) -> dict[str, dict]:
         if number in numbers:
             raise MatrixExit(2, f"bundle: attempt {number}: duplicate attempt")
         numbers[number] = attempt
+    if sorted(numbers) != list(range(1, len(attempts) + 1)):
+        raise MatrixExit(2, "bundle: attempt numbers are not 1..n")
     grouped: dict[str, list[dict]] = {}
     for attempt in attempts:
         grouped.setdefault(attempt["request_hash"], []).append(attempt)
@@ -128,32 +192,13 @@ def chains(attempts: list) -> dict[str, dict]:
     return chosen
 
 
-def _body(attempt: dict) -> Any:
-    result = attempt["result"]
-    if not result.get("ok") or result.get("status_code") == 410:
-        _fail(attempt, f"read failed ({result.get('status_code')})")
-    return result.get("body")
-
-
-def _meta_continue(body: Any, attempt: dict) -> str:
-    if not isinstance(body, dict):
-        _fail(attempt, "body is not an object")
-    meta = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
-    if body.get("metadata") is not None and not isinstance(body.get("metadata"), dict):
-        _fail(attempt, "metadata is not an object")
-    token = meta.get("continue") or ""
-    if not isinstance(token, str):
-        _fail(attempt, "continue is not a string")
-    return token
-
-
 def pages_for(attempts: list[dict], path: str) -> list[dict]:
     """Walk the continue chain. A repeated or missing page is exit 2."""
     by_token: dict[str, dict] = {}
     for attempt in attempts:
         if attempt.get("kind") != "read" or attempt["request"]["path"] != path:
             continue
-        token = str((attempt["request"].get("params") or {}).get("continue") or "")
+        token = request_continue(attempt)
         if token in by_token:
             _fail(attempt, "repeated page")
         by_token[token] = attempt
@@ -171,9 +216,9 @@ def pages_for(attempts: list[dict], path: str) -> list[dict]:
         if attempt["attempt"] in seen:
             _fail(attempt, "page count")
         seen.add(attempt["attempt"])
-        body = _body(attempt)
+        body = group_result(attempt)
         ordered.append(attempt)
-        nxt = _meta_continue(body, attempt)
+        nxt = continue_token(body, attempt)
         if not nxt:
             break
         token = nxt
@@ -285,7 +330,7 @@ def last_reads(chosen: dict[str, dict]) -> dict[str, list[dict]]:
     return grouped
 
 
-def response_request_hash(attempt: dict) -> None:
-    body = attempt["result"]["body"]
+def response_request_hash(attempt: dict, body: Any) -> None:
+    """body comes from group_result. This does not read the stored body itself."""
     if isinstance(body, dict) and "request_hash" in body and body["request_hash"] != attempt["request_hash"]:
         _fail(attempt, "response request hash does not match")

@@ -58,6 +58,9 @@ def _replace_pages(bundle, path, pages):
         params = {"continue": token} if token else {}
         bundle["attempts"].append(command(number, path, body, params=params))
         number += 1
+    from support import renumber
+
+    renumber(bundle["attempts"])
 
 
 class Round2Tests(unittest.TestCase):
@@ -66,6 +69,9 @@ class Round2Tests(unittest.TestCase):
         bundle["attempts"] = [
             item for item in bundle["attempts"] if item["request"]["path"] != "/apis/traefik.io/v1alpha1"
         ]
+        from support import renumber
+
+        renumber(bundle["attempts"])
         targets, fixed, exceptions, nontargets = load_defaults()
         with self.assertRaises(MatrixExit) as raised:
             run(bundle, targets, fixed, exceptions, nontargets)
@@ -371,6 +377,9 @@ class Round2Tests(unittest.TestCase):
             session.call("GET", "/api", None, "read")
         self.assertEqual(raised.exception.code, 2)
         self.assertIn("wall", raised.exception.message)
+        self.assertEqual(len(session.attempts), 1)
+        recorded = session.attempts[0]
+        self.assertLessEqual(recorded["started_at"], recorded["finished_at"])
 
     def test_node_root_exception_does_not_match_a_foreign_scope(self):
         _targets, fixed, _exceptions, _nontargets = load_defaults()

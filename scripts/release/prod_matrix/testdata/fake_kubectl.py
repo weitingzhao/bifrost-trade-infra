@@ -48,56 +48,42 @@ GROUPS = {
 }
 
 
-def emit(payload: dict) -> None:
-    json.dump(payload, sys.stdout)
-    sys.exit(0)
+class ApiError(Exception):
+    def __init__(self, status: str) -> None:
+        super().__init__(status)
+        self.stderr = f"Error from server ({status}): no"
 
 
-def fail(status: str) -> None:
-    print(f"Error from server ({status}): no", file=sys.stderr)
-    sys.exit(1)
-
-
-def main() -> None:
-    args = sys.argv[1:]
-    if args[:2] == ["auth", "whoami"]:
-        emit(
-            {
-                "apiVersion": "authentication.k8s.io/v1",
-                "kind": "SelfSubjectReview",
-                "status": {
-                    "userInfo": {
-                        "groups": ["system:authenticated"],
-                        "username": "system:serviceaccount:bifrost-access:bifrost-agent",
-                    }
-                },
-            }
-        )
-    if len(args) < 3 or args[1] != "--raw":
-        fail("BadRequest")
-    path = args[2].split("?", 1)[0]
-    if args[0] == "create":
-        body = json.load(sys.stdin)
-        kind = body.get("kind")
+def respond(method: str, path: str, body: dict | None) -> dict:
+    """One invented apiserver answer. path has no query string."""
+    if method == "WHOAMI":
+        return {
+            "apiVersion": "authentication.k8s.io/v1",
+            "kind": "SelfSubjectReview",
+            "status": {
+                "userInfo": {
+                    "groups": ["system:authenticated"],
+                    "username": "system:serviceaccount:bifrost-access:bifrost-agent",
+                }
+            },
+        }
+    if method == "POST":
+        kind = body.get("kind") if isinstance(body, dict) else None
         if kind == "SelfSubjectAccessReview":
-            emit(
-                {
-                    "apiVersion": "authorization.k8s.io/v1",
-                    "kind": "SelfSubjectAccessReview",
-                    "status": {"allowed": True},
-                }
-            )
+            return {
+                "apiVersion": "authorization.k8s.io/v1",
+                "kind": "SelfSubjectAccessReview",
+                "status": {"allowed": True},
+            }
         if kind == "SubjectAccessReview":
-            emit(
-                {
-                    "apiVersion": "authorization.k8s.io/v1",
-                    "kind": "SubjectAccessReview",
-                    "status": {"allowed": False, "denied": True},
-                }
-            )
-        fail("BadRequest")
+            return {
+                "apiVersion": "authorization.k8s.io/v1",
+                "kind": "SubjectAccessReview",
+                "status": {"allowed": False, "denied": True},
+            }
+        raise ApiError("BadRequest")
     if path == "/api":
-        emit({"kind": "APIVersions", "versions": ["v1"]})
+        return {"kind": "APIVersions", "versions": ["v1"]}
     if path == "/apis":
         by_group: dict[str, list[dict]] = {}
         for group_version in GROUPS:
@@ -107,19 +93,17 @@ def main() -> None:
         for name, versions in by_group.items():
             preferred = next((item for item in versions if item["version"] == "v1"), versions[0])
             groups.append({"name": name, "preferredVersion": preferred, "versions": versions})
-        emit({"kind": "APIGroupList", "groups": groups})
+        return {"kind": "APIGroupList", "groups": groups}
     if path == "/api/v1":
-        emit({"groupVersion": "v1", "kind": "APIResourceList", "metadata": {"continue": ""}, "resources": CORE})
+        return {"groupVersion": "v1", "kind": "APIResourceList", "metadata": {"continue": ""}, "resources": CORE}
     if path.startswith("/apis/") and path.count("/") == 3:
         group_version = path[len("/apis/") :]
-        emit(
-            {
-                "groupVersion": group_version,
-                "kind": "APIResourceList",
-                "metadata": {"continue": ""},
-                "resources": GROUPS.get(group_version, []),
-            }
-        )
+        return {
+            "groupVersion": group_version,
+            "kind": "APIResourceList",
+            "metadata": {"continue": ""},
+            "resources": GROUPS.get(group_version, []),
+        }
     lists = {
         "/api/v1/namespaces": ("NamespaceList", [{"metadata": {"name": name}} for name in NAMESPACES]),
         "/api/v1/serviceaccounts": (
@@ -161,8 +145,26 @@ def main() -> None:
     }
     if path in lists:
         kind, items = lists[path]
-        emit({"items": items, "kind": kind, "metadata": {"continue": ""}})
-    fail("NotFound")
+        return {"items": items, "kind": kind, "metadata": {"continue": ""}}
+    raise ApiError("NotFound")
+
+
+def main() -> None:
+    args = sys.argv[1:]
+    try:
+        if args[:2] == ["auth", "whoami"]:
+            payload = respond("WHOAMI", "", None)
+        elif len(args) < 3 or args[1] != "--raw":
+            raise ApiError("BadRequest")
+        else:
+            path = args[2].split("?", 1)[0]
+            body = json.load(sys.stdin) if args[0] == "create" else None
+            method = "POST" if args[0] == "create" else "GET"
+            payload = respond(method, path, body)
+    except ApiError as exc:
+        print(exc.stderr, file=sys.stderr)
+        sys.exit(1)
+    json.dump(payload, sys.stdout)
 
 
 if __name__ == "__main__":

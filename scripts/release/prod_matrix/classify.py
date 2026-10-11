@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from attempts import budget, chains, response_request_hash
+from attempts import budget, chains, group_result, response_request_hash
 from canon import (
     QUESTION_LIMIT,
     REQUEST_FAMILY,
@@ -126,7 +126,7 @@ def _review_answers(chosen: dict[str, dict]) -> dict[str, dict]:
     for digest, attempt in chosen.items():
         if attempt["kind"] != "review":
             continue
-        response_request_hash(attempt)
+        response_request_hash(attempt, group_result(attempt))
         spec = attempt["request"]["body"]["spec"]
         check_review_context(spec)
         qid = question_id(digest)
@@ -206,7 +206,7 @@ def replay(bundle: dict, targets: dict, fixed: dict, exceptions: dict, nontarget
 
     for item in planned:
         review = answers[item["id"]]
-        verdict = interpret(review["result"]["body"])
+        verdict = interpret(group_result(review))
         subject = item["identity"]["context"]
         question = item["question"]
         # Context is first. An exception cannot absorb an unconfirmed allow or denial.

@@ -110,6 +110,41 @@ def _show(path) -> str:
     return text
 
 
+# Strings at these keys, and string elements of these lists, are values the tool reads.
+READ_STRING_KEYS = {
+    "body_sha256",
+    "continue",
+    "evaluationError",
+    "group",
+    "groupVersion",
+    "kind",
+    "limit",
+    "method",
+    "name",
+    "namespace",
+    "path",
+    "request_hash",
+    "resource",
+    "subresource",
+    "user",
+    "username",
+    "verb",
+    "version",
+}
+READ_STRING_LISTS = {"groups", "verbs", "versions"}
+
+
+def _string_is_read(path) -> bool:
+    if not path:
+        return False
+    kind, key = path[-1]
+    if kind == "k" and key in READ_STRING_KEYS:
+        return True
+    if kind == "i" and len(path) >= 2 and path[-2][0] == "k" and path[-2][1] in READ_STRING_LISTS:
+        return True
+    return False
+
+
 def _apply(root, path, op):
     if isinstance(op, tuple) and op[0] == "swap":
         node = root
@@ -128,8 +163,30 @@ def _apply(root, path, op):
         node[last] = None
     elif op == "duplicate":
         node.insert(last, copy.deepcopy(node[last]))
+    elif op == "flip":
+        node[last] = not node[last]
+    elif op == "zero":
+        node[last] = 0
+    elif op == "swap-status":
+        node[last] = 503 if node[last] == 200 else 200
+    elif op == "blank":
+        node[last] = ""
     else:
         raise AssertionError(op)
+
+
+def _value_ops(path, node):
+    ops = []
+    if isinstance(node, bool):
+        ops.append("flip")
+        return ops
+    if isinstance(node, str) and _string_is_read(path):
+        ops.append("blank")
+    if isinstance(node, (int, float)):
+        ops.append("zero")
+        if path and path[-1] == ("k", "status_code") and node in (200, 503):
+            ops.append("swap-status")
+    return ops
 
 
 def _ops_for(path, node, parent_is_list):
@@ -183,12 +240,13 @@ class Round3Tests(unittest.TestCase):
                 continue
             parent_is_list = len(path) >= 1 and path[-1][0] == "i"
             for op in _ops_for(path, node, parent_is_list):
-                mutants.append((path, op))
+                mutants.append((path, op, "structural"))
+            for op in _value_ops(path, node):
+                mutants.append((path, op, "value"))
 
-        exit2 = 0
-        equal = 0
+        counts = {"structural": [0, 0], "value": [0, 0]}
         failures = []
-        for path, op in mutants:
+        for path, op, family in mutants:
             mutant = copy.deepcopy(original)
             try:
                 _apply(mutant, path, op)
@@ -197,7 +255,7 @@ class Round3Tests(unittest.TestCase):
                 failures.append(f"{_show(path)} {op}: {exc!r}")
                 continue
             if code == 2:
-                exit2 += 1
+                counts[family][0] += 1
                 continue
             if (
                 code == 3
@@ -205,21 +263,26 @@ class Round3Tests(unittest.TestCase):
                 and all(_counts(text)[name] >= original_counts[name] for name in original_counts)
                 and _risk_rows(text) >= original_risks
             ):
-                equal += 1
+                counts[family][1] += 1
                 continue
             label = "swap" if isinstance(op, tuple) else op
             failures.append(f"{_show(path)} {label}: exit {code}")
-        ran = exit2 + equal + len(failures)
+        structural_exit, structural_keep = counts["structural"]
+        value_exit, value_keep = counts["value"]
+        ran = structural_exit + structural_keep + value_exit + value_keep + len(failures)
         review_total = len(review_indexes)
         review_full = 1 + len(picked)
         print(
-            f"T42 mutants={ran} exit2={exit2} equality={equal} "
-            f"review_records={review_full}/{review_total} other_kinds=all"
+            f"T42 structural={structural_exit + structural_keep} exit2={structural_exit} "
+            f"equality={structural_keep} value={value_exit + value_keep} exit2={value_exit} "
+            f"equality={value_keep} review_records={review_full}/{review_total} other_kinds=all"
         )
         self.assertFalse(failures[:5], failures[:5])
         self.assertEqual(ran, len(mutants))
-        self.assertGreater(exit2, 0)
-        self.assertGreater(equal, 0)
+        self.assertGreater(structural_exit, 0)
+        self.assertGreater(structural_keep, 0)
+        self.assertGreater(value_exit, 0)
+        self.assertGreaterEqual(value_keep, 0)
 
     def test_t43_legal_retries_replay_the_last_attempt(self):
         questions = [question("", "v1", "configmaps", "", "ns-a", "namespaced", "", "patch")]

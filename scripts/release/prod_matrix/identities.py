@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from attempts import (
+    group_result,
     last_reads,
     pages_for,
     parse_items,
@@ -99,9 +100,7 @@ def discovery_paths_from(api: Any, apis: Any) -> list[str]:
 
 
 def _chain_body(attempt: dict) -> Any:
-    if not attempt["result"].get("ok"):
-        raise MatrixExit(2, f"bundle: root discovery {attempt['request']['path']} failed")
-    body = attempt["result"]["body"]
+    body = group_result(attempt)
     if not isinstance(body, dict):
         raise MatrixExit(2, f"bundle: root discovery {attempt['request']['path']} failed")
     return body
@@ -122,15 +121,16 @@ def assert_discovery_complete(reads: dict[str, list[dict]]) -> list[str]:
         raise MatrixExit(2, "bundle: root discovery failed")
     for path in expected:
         group = reads.get(path)
-        if not group or not group[0]["result"].get("ok"):
+        if not group:
             raise MatrixExit(2, f"bundle: missing discovery {path}")
+        group_result(group[0])
     return expected
 
 
 def _items(reads: dict[str, list[dict]], path: str) -> list[dict]:
     found: list[dict] = []
     for attempt in pages_for(reads.get(path, []), path):
-        found.extend(parse_items(attempt["result"]["body"], attempt))
+        found.extend(parse_items(group_result(attempt), attempt))
     return found
 
 
@@ -159,7 +159,7 @@ def discovery_resources(reads: dict[str, list[dict]], expected: list[str]) -> li
     found: list[dict] = []
     for path in expected:
         for attempt in pages_for(reads.get(path, []), path):
-            body = attempt["result"]["body"]
+            body = group_result(attempt)
             if not isinstance(body, dict):
                 raise MatrixExit(2, f"bundle: {path}: body is not an object")
             group, version = _group_version(path, body)
@@ -180,6 +180,38 @@ def discovery_resources(reads: dict[str, list[dict]], expected: list[str]) -> li
     return found
 
 
+def _string_name(value: Any, label: str) -> str:
+    """Type first. None is absent; 0 is not an empty name."""
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise MatrixExit(2, f"bundle: {label} is not a string")
+    return value
+
+
+def _referenced_namespaces(items: list[dict]) -> set[str]:
+    """Namespaces named by objects and by binding subjects, including ClusterRoleBinding."""
+    found: set[str] = set()
+    for item in items:
+        meta = item.get("metadata")
+        if isinstance(meta, dict) and "namespace" in meta:
+            name = _string_name(meta.get("namespace"), "metadata.namespace")
+            if name:
+                found.add(name)
+        subjects = item.get("subjects", None)
+        if subjects is None:
+            continue
+        if not isinstance(subjects, list):
+            raise MatrixExit(2, "bundle: subjects is not a list")
+        for subject in subjects:
+            if not isinstance(subject, dict) or "namespace" not in subject:
+                continue
+            name = _string_name(subject.get("namespace"), "subject.namespace")
+            if name:
+                found.add(name)
+    return found
+
+
 def inventory(attempts: list[dict], *, require_discovery: bool = True, chosen: dict[str, dict] | None = None) -> dict[str, Any]:
     """Reads come from attempt chains. chosen skips a second chain walk when replay already has one."""
     from attempts import chains
@@ -193,14 +225,7 @@ def inventory(attempts: list[dict], *, require_discovery: bool = True, chosen: d
     clusterrolebindings = _items(reads, "/apis/rbac.authorization.k8s.io/v1/clusterrolebindings")
     _items(reads, "/apis/rbac.authorization.k8s.io/v1/roles")
     _items(reads, "/apis/rbac.authorization.k8s.io/v1/clusterroles")
-    referenced: set[str] = set()
-    for item in serviceaccounts + rolebindings:
-        namespace = str((item.get("metadata") or {}).get("namespace") or "")
-        if namespace:
-            referenced.add(namespace)
-        for subject in item.get("subjects") or []:
-            if isinstance(subject, dict) and subject.get("namespace"):
-                referenced.add(str(subject["namespace"]))
+    referenced = _referenced_namespaces(serviceaccounts + rolebindings + clusterrolebindings)
     missing = sorted(name for name in referenced if name not in namespaces)
     if missing:
         raise MatrixExit(2, "bundle: missing a namespace: " + ", ".join(missing))

@@ -18,6 +18,8 @@ python3 scripts/release/prod_matrix/prod_ratchet.py --check
 
 apiserver 的回答正文原样保存，只校验程序要读的字段；回答里多出来的键不是错误。本片自己的结构里多出来的键仍以 2 退出。每条尝试的 `result.body_sha256` 是回答正文的规范化摘要，对不上就以 2 退出，所以改一个节点不能把清点悄悄变小。
 
+录制包没有签名。`body_sha256` 和 `request_hash` 只发现一处改了但没有按同样规则重新封存的修改，不能证明原始回答是真的，也不能证明这份清点是完整的。一组请求的结果只有链上最后一条，而且仅当它 `ok` 且状态码是 2xx；否则这次读取或这次评审没有结果，退出码是 2。解释正文只能走这一条。
+
 默认文件都在本目录：`prod_targets.json`、`prod_fixed_identities.json`、`prod_nontargets.json`、`prod_write_exceptions.json`、`prod_write_baseline.jsonl`。同名参数可以改路径。
 
 棘轮只读本仓库 `k8s/` 下的 YAML 原文。它不渲染 kustomize 的 generators 和 patches，不展开 Helm values，也不扫描 `k8s/` 以外的清单。渲染结果、Helm 值和仓库外的对象属于现场测量。CustomResourceDefinition 在展开的资源行之外，另有一行整个 `spec` 的摘要。Role 的 `rules`、策略绑定的 `validationActions` 换序没有语义变化，但棘轮仍按原文比较、会报警；这一轮不把这些列表当成集合。

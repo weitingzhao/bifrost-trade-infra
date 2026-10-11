@@ -153,8 +153,19 @@ def ensure_root_discovery(attempts: list[dict]) -> list[dict]:
     return attempts[:insert_at] + extra + attempts[insert_at:]
 
 
+def renumber(attempts: list[dict]) -> list[dict]:
+    """Assign attempt numbers 1..n in list order and rewrite retry_of."""
+    mapping = {item["attempt"]: index for index, item in enumerate(attempts, start=1)}
+    for item in attempts:
+        old = item["attempt"]
+        if "retry_of" in item:
+            item["retry_of"] = mapping[item["retry_of"]]
+        item["attempt"] = mapping[old]
+    return attempts
+
+
 def bundle_from(commands: list[dict], targets: dict, fixed: dict, answer) -> dict:
-    attempts = ensure_root_discovery(commands)
+    attempts = renumber(ensure_root_discovery(commands))
     lists = inventory(attempts)
     identities = assemble(lists, fixed["rows"])
     planned = expand(identities, targets["questions"])

@@ -12,7 +12,8 @@ import subprocess
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable
-from attempts import seal_result
+from urllib.parse import urlencode
+from attempts import continue_token, group_result, seal_result
 from canon import READ_LIMIT, TOOL_VERSION, WALL_SECONDS, MatrixExit, sha256_hex
 from identities import context, discovery_paths_from
 
@@ -51,6 +52,15 @@ def kubectl_transport(method: str, path: str, body: str | None) -> tuple[int, st
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _wire_path(method: str, path: str, params: dict) -> str:
+    """GET carries the recorded params. The stored request keeps path and params apart."""
+    if method != "GET" or not params:
+        return path
+    keys = [key for key in ("limit", "continue") if key in params]
+    keys.extend(sorted(key for key in params if key not in keys))
+    return path + "?" + urlencode([(key, params[key]) for key in keys])
 
 
 def _status(code: int, stdout: str, stderr: str) -> tuple[int, Any, bool]:
@@ -112,48 +122,50 @@ class Session:
             if self.questions_sent > 20000:
                 raise MatrixExit(2, "budget: question limit")
 
-    def call(self, method: str, path: str, body: str | None, bucket: str, params: dict | None = None) -> tuple[int, Any]:
+    def call(self, method: str, path: str, body: str | None, bucket: str, params: dict | None = None) -> Any:
+        """Send, record, then check the wall clock. The body comes back only from group_result."""
         params = {} if params is None else params
         if bucket == "read" and self.reads >= READ_LIMIT:
             raise MatrixExit(2, "budget: read limit")
         if bucket == "review" and self.questions_sent >= 20000:
             raise MatrixExit(2, "budget: question limit")
-        payload = None
-        status = 0
-        first = 0
         stored_method = "GET" if method in {"GET", "WHOAMI"} else "POST"
         request: dict[str, Any] = {"method": stored_method, "params": params, "path": path}
         if stored_method == "POST":
             request["body"] = json.loads(body) if isinstance(body, str) else body
-        for retry_index in range(3):
+        sent = _wire_path(method, path, params)
+        previous = None
+        record: dict | None = None
+        for _index in range(3):
             self._tick()
             self._note(bucket)
-            code, stdout, stderr = self.transport(method, path, body)
-            self._tick()
+            started_at = _now()
+            code, stdout, stderr = self.transport(method, sent, body)
+            finished_at = _now()
             status, payload, retry = _status(code, stdout, stderr)
             number = self.seq
             self.seq += 1
-            if retry_index == 0:
-                first = number
             kind = "review" if bucket == "review" else "read"
             digest = sha256_hex(request["body"]["spec"]) if kind == "review" else sha256_hex(request)
             record = {
                 "attempt": number,
-                "finished_at": _now(),
+                "finished_at": finished_at,
                 "kind": kind,
                 "request": request,
                 "request_hash": digest,
                 "result": seal_result(payload, status == 200, status or 0),
-                "started_at": _now(),
+                "started_at": started_at,
             }
-            if retry_index:
-                record["retry_of"] = first
+            if previous is not None:
+                record["retry_of"] = previous
+            previous = number
             self.attempts.append(record)
+            self._tick()
             if status == 200:
-                return number, payload
-            if not retry or retry_index == 2:
+                return group_result(record)
+            if not retry or _index == 2:
                 break
-        raise MatrixExit(2, f"bundle: attempt {first}: read failed ({status})")
+        return group_result(record)
 
 
 def _attrs(verb: str, group: str, resource: str) -> dict:
@@ -174,7 +186,7 @@ def _self_check(session: Session, verb: str, group: str, resource: str) -> None:
         "kind": "SelfSubjectAccessReview",
         "spec": {"resourceAttributes": _attrs(verb, group, resource)},
     }
-    _, payload = session.call("POST", "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews", json.dumps(body), "read")
+    payload = session.call("POST", "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews", json.dumps(body), "read")
     status = payload.get("status") if isinstance(payload, dict) else None
     if not isinstance(status, dict) or status.get("allowed") is not True:
         raise MatrixExit(2, f"self-check: {verb} {resource} is not allowed")
@@ -186,11 +198,10 @@ def _paged(session: Session, path: str) -> None:
         params = {"limit": "500"}
         if token:
             params["continue"] = token
-        _, payload = session.call("GET", path, None, "read", params=params)
+        payload = session.call("GET", path, None, "read", params=params)
         if not isinstance(payload, dict):
             raise MatrixExit(2, f"bundle: {path}: list is not an object")
-        meta = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
-        token = str(meta.get("continue") or "")
+        token = continue_token(payload)
         if not token:
             return
 
@@ -220,7 +231,7 @@ def _caller(payload: dict) -> dict:
 def read_identities(transport: Transport, wall_seconds: float = WALL_SECONDS) -> tuple[Session, dict]:
     """Whoami, self-checks, and identity lists. No discovery and no SubjectAccessReview."""
     session = Session(transport, wall_seconds)
-    _, who = session.call("WHOAMI", "/apis/authentication.k8s.io/v1/selfsubjectreviews", None, "read")
+    who = session.call("WHOAMI", "/apis/authentication.k8s.io/v1/selfsubjectreviews", None, "read")
     caller = _caller(who if isinstance(who, dict) else {})
     for path, group, resource in LISTS:
         _self_check(session, "list", group, resource)
@@ -230,8 +241,8 @@ def read_identities(transport: Transport, wall_seconds: float = WALL_SECONDS) ->
 
 def read_discovery(session: Session) -> None:
     """Root discovery, then every served version. Stops before any review is sent."""
-    _, api = session.call("GET", "/api", None, "read")
-    _, apis = session.call("GET", "/apis", None, "read")
+    api = session.call("GET", "/api", None, "read")
+    apis = session.call("GET", "/apis", None, "read")
     for path in discovery_paths_from(api if isinstance(api, dict) else {}, apis if isinstance(apis, dict) else {}):
         _paged(session, path)
 
@@ -250,7 +261,7 @@ def send_questions(session: Session, caller: dict, planned: list[dict]) -> dict:
         raise MatrixExit(2, "bundle: duplicate question id")
     _self_check(session, "create", "authorization.k8s.io", "subjectaccessreviews")
     for item in planned:
-        _, payload = session.call("POST", SAR_PATH, json.dumps(sar_body(item["spec"])), "review")
+        payload = session.call("POST", SAR_PATH, json.dumps(sar_body(item["spec"])), "review")
         if not isinstance(payload, dict):
             raise MatrixExit(2, f"bundle: {item['id']}: malformed response")
     return {
