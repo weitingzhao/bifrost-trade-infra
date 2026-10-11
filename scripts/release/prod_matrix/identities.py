@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from canon import MatrixExit
+from canon import MatrixExit, sha256_hex
 
 
 def _uid_known(value: str) -> dict:
@@ -81,37 +81,131 @@ def fixed_identity(row: dict) -> tuple[dict, bool]:
     raise MatrixExit(2, f"prod_fixed_identities.json: {row.get('id')}: not an identity row")
 
 
-def _logical_commands(commands: list[dict]) -> list[dict]:
-    return [command for command in commands if not command.get("retry_of")]
+def _command_path(command: dict) -> str:
+    return str(command["request"]["path"]).split("?", 1)[0]
+
+
+def _validate_command_attempts(commands: list[dict]) -> None:
+    """Every attempt has its own id. A retry points at an earlier attempt of the same request."""
+    seen: dict[str, int] = {}
+    for index, command in enumerate(commands):
+        cid = command.get("id")
+        if not isinstance(cid, str) or not cid:
+            raise MatrixExit(2, "bundle: command missing id")
+        if cid in seen:
+            raise MatrixExit(2, f"bundle: {cid}: duplicate id")
+        seen[cid] = index
+        retry = command.get("retry_of")
+        if not retry:
+            continue
+        if retry not in seen:
+            raise MatrixExit(2, f"bundle: {cid}: retry_of does not point at an earlier attempt")
+        earlier = commands[seen[retry]]
+        if sha256_hex(earlier.get("request")) != sha256_hex(command.get("request")):
+            raise MatrixExit(2, f"bundle: {cid}: retry hash does not match")
+
+
+def _selected_commands(commands: list[dict]) -> list[dict]:
+    """The result of a read is its last attempt. A later success replaces a failure."""
+    _validate_command_attempts(commands)
+    last: dict[str, dict] = {}
+    order: list[str] = []
+    for command in commands:
+        path = _command_path(command)
+        if path not in last:
+            order.append(path)
+        last[path] = command
+    return [last[path] for path in order]
+
+
+def _page_body(command: dict) -> dict:
+    pages = command.get("pages") or []
+    if not pages or not isinstance(pages[0], dict):
+        raise MatrixExit(2, f"bundle: {command.get('id')}: missing page")
+    body = pages[0].get("body")
+    if not isinstance(body, dict):
+        raise MatrixExit(2, f"bundle: {command.get('id')}: page 0 is not an object")
+    return body
+
+
+def discovery_paths_from(api: Any, apis: Any) -> list[str]:
+    """Every served version named by the root discovery documents, not only the preferred one."""
+    if not isinstance(api, dict) or not isinstance(apis, dict):
+        return []
+    versions = api.get("versions")
+    groups = apis.get("groups")
+    if not isinstance(versions, list) or not isinstance(groups, list):
+        return []
+    paths: list[str] = []
+    for version in versions:
+        if isinstance(version, str) and version:
+            paths.append(f"/api/{version}")
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        served = group.get("versions")
+        if not isinstance(served, list) or not served:
+            preferred = group.get("preferredVersion")
+            served = [preferred] if isinstance(preferred, dict) else []
+        for item in served:
+            if isinstance(item, dict) and item.get("groupVersion"):
+                paths.append(f"/apis/{item['groupVersion']}")
+    unique: list[str] = []
+    seen: set[str] = set()
+    for path in paths:
+        if path not in seen:
+            seen.add(path)
+            unique.append(path)
+    return unique
+
+
+def assert_discovery_complete(commands: list[dict]) -> None:
+    """Root discovery must have succeeded, and every version it names must be present and ok."""
+    by_path: dict[str, dict] = {}
+    for command in commands:
+        by_path[_command_path(command)] = command
+    api = by_path.get("/api")
+    apis = by_path.get("/apis")
+    if api is None or not api.get("ok"):
+        raise MatrixExit(2, "bundle: root discovery /api failed")
+    if apis is None or not apis.get("ok"):
+        raise MatrixExit(2, "bundle: root discovery /apis failed")
+    expected = discovery_paths_from(_page_body(api), _page_body(apis))
+    if not expected:
+        raise MatrixExit(2, "bundle: root discovery failed")
+    for path in expected:
+        command = by_path.get(path)
+        if command is None or not command.get("ok"):
+            raise MatrixExit(2, f"bundle: missing discovery {path}")
 
 
 def _assert_pages(command: dict) -> None:
+    """The continue chain is the token each page was requested with, and the page count matches it."""
     pages = command["pages"]
     if not pages:
         raise MatrixExit(2, f"bundle: {command['id']}: missing page")
     if command["status_code"] == 410 or not command["ok"]:
         raise MatrixExit(2, f"bundle: {command['id']}: read failed ({command['status_code']})")
+    previous = ""
     for index, page in enumerate(pages):
         body = page["body"]
-        token = page["continue"]
+        requested = page["continue"]
         if not isinstance(body, dict):
             raise MatrixExit(2, f"bundle: {command['id']}: page {index} is not an object")
+        if not isinstance(requested, str):
+            raise MatrixExit(2, f"bundle: {command['id']}: page {index} continue is not a string")
+        if requested != previous:
+            raise MatrixExit(2, f"bundle: {command['id']}: page count")
         meta = body.get("metadata") or {}
-        body_token = str(meta.get("continue") or "") if isinstance(meta, dict) else ""
-        if token != body_token:
-            raise MatrixExit(2, f"bundle: {command['id']}: page {index} continue does not match the body")
-        if index < len(pages) - 1 and not token:
-            raise MatrixExit(2, f"bundle: {command['id']}: missing page")
-        if index == len(pages) - 1 and token:
-            raise MatrixExit(2, f"bundle: {command['id']}: missing page")
+        if not isinstance(meta, dict):
+            raise MatrixExit(2, f"bundle: {command['id']}: page {index} metadata is not an object")
+        previous = str(meta.get("continue") or "")
+    if previous:
+        raise MatrixExit(2, f"bundle: {command['id']}: missing page")
 
 
 def _items(commands: list[dict], path_prefix: str) -> list[dict]:
-    matched = [
-        command
-        for command in _logical_commands(commands)
-        if command["request"]["path"].split("?", 1)[0] == path_prefix
-    ]
+    matched = [command for command in commands if _command_path(command) == path_prefix]
     if not matched:
         raise MatrixExit(2, f"bundle: missing command {path_prefix}")
     found: list[dict] = []
@@ -119,13 +213,9 @@ def _items(commands: list[dict], path_prefix: str) -> list[dict]:
         _assert_pages(command)
         for page in command["pages"]:
             body = page["body"]
-            items = body.get("items")
-            if items is None:
-                kind = str(body.get("kind") or "")
-                if kind.endswith("List"):
-                    items = []
-                else:
-                    raise MatrixExit(2, f"bundle: {command['id']}: list has no items")
+            if "items" not in body:
+                raise MatrixExit(2, f"bundle: {command['id']}: list has no items")
+            items = body["items"]
             if not isinstance(items, list):
                 raise MatrixExit(2, f"bundle: {command['id']}: items is not a list")
             found.extend(item for item in items if isinstance(item, dict))
@@ -146,9 +236,9 @@ def namespaces_of(commands: list[dict]) -> list[str]:
 def discovery_resources(commands: list[dict]) -> list[dict]:
     found: list[dict] = []
     saw = False
-    for command in _logical_commands(commands):
-        path = command["request"]["path"].split("?", 1)[0]
-        core = path == "/api/v1"
+    for command in commands:
+        path = _command_path(command)
+        core = path.startswith("/api/") and path.count("/") == 2
         grouped = path.startswith("/apis/") and path.count("/") == 3
         if not core and not grouped:
             continue
@@ -157,7 +247,10 @@ def discovery_resources(commands: list[dict]) -> list[dict]:
         for page in command["pages"]:
             body = page["body"]
             group_version = str(body.get("groupVersion") or "")
-            group = group_version.split("/", 1)[0] if "/" in group_version else ""
+            if "/" in group_version:
+                group, version = group_version.split("/", 1)
+            else:
+                group, version = "", group_version
             for resource in body.get("resources") or []:
                 if not isinstance(resource, dict) or "name" not in resource:
                     continue
@@ -166,13 +259,16 @@ def discovery_resources(commands: list[dict]) -> list[dict]:
                     parent, sub = raw_name.split("/", 1)
                 else:
                     parent, sub = raw_name, ""
+                listed = resource.get("verbs") if isinstance(resource.get("verbs"), list) else []
                 found.append(
                     {
                         "group": group,
+                        "version": version,
                         "resource": parent,
                         "subresource": sub,
                         "namespaced": bool(resource.get("namespaced", True)),
                         "named_subresource": "/" in raw_name,
+                        "verbs": [str(verb) for verb in listed],
                     }
                 )
     if not saw:
@@ -182,14 +278,17 @@ def discovery_resources(commands: list[dict]) -> list[dict]:
     return found
 
 
-def inventory(commands: list[dict]) -> dict[str, Any]:
-    namespaces = namespaces_of(commands)
-    serviceaccounts = _items(commands, "/api/v1/serviceaccounts")
-    nodes = _items(commands, "/api/v1/nodes")
-    rolebindings = _items(commands, "/apis/rbac.authorization.k8s.io/v1/rolebindings")
-    clusterrolebindings = _items(commands, "/apis/rbac.authorization.k8s.io/v1/clusterrolebindings")
-    _items(commands, "/apis/rbac.authorization.k8s.io/v1/roles")
-    _items(commands, "/apis/rbac.authorization.k8s.io/v1/clusterroles")
+def inventory(commands: list[dict], *, require_discovery: bool = True) -> dict[str, Any]:
+    selected = _selected_commands(commands)
+    if require_discovery:
+        assert_discovery_complete(selected)
+    namespaces = namespaces_of(selected)
+    serviceaccounts = _items(selected, "/api/v1/serviceaccounts")
+    nodes = _items(selected, "/api/v1/nodes")
+    rolebindings = _items(selected, "/apis/rbac.authorization.k8s.io/v1/rolebindings")
+    clusterrolebindings = _items(selected, "/apis/rbac.authorization.k8s.io/v1/clusterrolebindings")
+    _items(selected, "/apis/rbac.authorization.k8s.io/v1/roles")
+    _items(selected, "/apis/rbac.authorization.k8s.io/v1/clusterroles")
     referenced: set[str] = set()
     for item in serviceaccounts + rolebindings:
         namespace = str((item.get("metadata") or {}).get("namespace") or "")
@@ -207,17 +306,32 @@ def inventory(commands: list[dict]) -> dict[str, Any]:
         "nodes": nodes,
         "rolebindings": rolebindings,
         "clusterrolebindings": clusterrolebindings,
-        "resources": discovery_resources(commands),
+        "resources": discovery_resources(selected) if require_discovery else [],
     }
 
 
 def assemble(lists: dict[str, Any], fixed_rows: list[dict]) -> list[dict]:
     by_user: dict[str, dict] = {}
 
-    def add(ctx: dict, ask: bool) -> None:
+    def add(ctx: dict, ask: bool, fixed_id: str = "", reason: str = "") -> None:
         current = by_user.get(ctx["user"])
-        if current is None or (current["context"]["uid"]["state"] != "known" and ctx["uid"]["state"] == "known"):
-            by_user[ctx["user"]] = {"context": ctx, "ask": ask, "risk": False, "reason": ""}
+        if current is None:
+            by_user[ctx["user"]] = {
+                "context": ctx,
+                "ask": ask,
+                "risk": False,
+                "reason": reason,
+                "fixed_id": fixed_id,
+            }
+            return
+        if current["context"]["uid"]["state"] != "known" and ctx["uid"]["state"] == "known":
+            current["context"] = ctx
+        if ask:
+            current["ask"] = True
+        if fixed_id:
+            current["fixed_id"] = fixed_id
+            if reason:
+                current["reason"] = reason
 
     sa_users: set[str] = set()
     for item in lists["serviceaccounts"]:
@@ -274,9 +388,18 @@ def assemble(lists: dict[str, Any], fixed_rows: list[dict]) -> list[dict]:
             continue
         ctx, ask = fixed_identity(row)
         if row["record"] == "risk":
-            risks.append({"context": ctx, "ask": False, "risk": True, "reason": row["reason"], "id": row["id"]})
+            risks.append(
+                {
+                    "context": ctx,
+                    "ask": False,
+                    "risk": True,
+                    "reason": row["reason"],
+                    "id": row["id"],
+                    "fixed_id": row["id"],
+                }
+            )
             continue
-        add(ctx, ask)
+        add(ctx, ask, row["id"], "fixed identity")
 
     identities = list(by_user.values()) + risks
     identities.sort(key=lambda item: (item["context"]["kind"], item["context"]["user"], item["context"]["source"]))

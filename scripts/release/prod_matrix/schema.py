@@ -78,21 +78,37 @@ _EXCEPTION = (
     ("reason", "str", True, None),
 )
 
-_FIXED_ROW = (
+_KIND = {"serviceaccount", "serviceaccount-unbound", "user", "node", "group-member", "anonymous", "fixed-risk"}
+
+# Conditional fields use a 5th item: the sibling that makes them required when true.
+_FIXED_IDENTITY = (
     ("id", "str", True, None),
-    ("record", "str", True, {"identity", "risk", "auth-chain"}),
-    ("kind", "str", False, {"serviceaccount", "serviceaccount-unbound", "user", "node", "group-member", "anonymous", "fixed-risk"}),
-    ("user", "str", False, None),
-    ("groups", "list:str", False, None),
-    ("uid", "object:uid", False, None),
-    ("extra", "object:extra", False, None),
-    ("source", "str", False, None),
-    ("ask", "bool", False, None),
-    ("reason", "str", False, None),
-    ("confirmed", "bool", False, None),
-    ("by", "str", False, None),
-    ("at", "str", False, None),
-    ("evidence", "str", False, None),
+    ("record", "str", True, {"identity"}),
+    ("kind", "str", True, _KIND),
+    ("user", "str", True, None),
+    ("groups", "list:str", True, None),
+    ("uid", "object:uid", True, None),
+    ("extra", "object:extra", True, None),
+    ("source", "str", True, None),
+    ("ask", "bool", True, None),
+)
+
+_FIXED_RISK = (
+    ("id", "str", True, None),
+    ("record", "str", True, {"risk"}),
+    ("kind", "str", True, _KIND),
+    ("source", "str", True, None),
+    ("ask", "bool", True, None),
+    ("reason", "str", True, None),
+)
+
+_FIXED_AUTH = (
+    ("id", "str", True, None),
+    ("record", "str", True, {"auth-chain"}),
+    ("confirmed", "bool", True, None),
+    ("by", "str", False, None, "confirmed"),
+    ("at", "str", False, None, "confirmed"),
+    ("evidence", "str", False, None, "confirmed"),
 )
 
 _COMMAND_REQUEST = (
@@ -117,11 +133,49 @@ _COMMAND = (
     ("retry_of", "str", False, None),
 )
 
+_RESOURCE_ATTRS = (
+    ("group", "str", True, None),
+    ("version", "str", True, None),
+    ("resource", "str", True, None),
+    ("subresource", "str", True, None),
+    ("namespace", "str", True, None),
+    ("name", "str", True, None),
+    ("verb", "str", True, None),
+)
+
+_SAR_SPEC = (
+    ("user", "str", True, None),
+    ("groups", "list:str", True, None),
+    ("uid", "str", False, None),
+    ("extra", "json", False, None),
+    ("resourceAttributes", "object:resource-attributes", True, None),
+)
+
+_SAR_REQUEST = (
+    ("apiVersion", "str", True, {"authorization.k8s.io/v1"}),
+    ("kind", "str", True, {"SubjectAccessReview"}),
+    ("spec", "object:sar-spec", True, None),
+)
+
+_SAR_STATUS = (
+    ("allowed", "json", False, None),
+    ("denied", "json", False, None),
+    ("evaluationError", "str", False, None),
+    ("reason", "str", False, None),
+)
+
+_SAR_RESPONSE = (
+    ("apiVersion", "str", False, None),
+    ("kind", "str", False, None),
+    ("request_hash", "str", True, None),
+    ("status", "object:sar-status", False, None),
+)
+
 _REVIEW = (
     ("id", "str", True, None),
-    ("request", "json", True, None),
+    ("request", "object:sar-request", True, None),
     ("request_hash", "str", True, None),
-    ("response", "json", True, None),
+    ("response", "object:sar-response", True, None),
     ("retry_of", "str", False, None),
 )
 
@@ -136,6 +190,8 @@ _BASELINE = (
         "namespace-label",
         "fixed-identity",
         "missing-input",
+        "configmap",
+        "manifest",
     }),
     ("namespace", "str", True, None),
     ("type", "str", True, None),
@@ -147,6 +203,7 @@ _BASELINE = (
     ("rules", "json", False, None),
     ("resources", "list:str", False, None),
     ("content_sha256", "str", False, None),
+    ("data_keys", "list:str", False, None),
     ("service_account", "str", False, None),
     ("validation_actions", "list:str", False, None),
     ("spec_sha256", "str", False, None),
@@ -204,7 +261,13 @@ FIELDS: dict[str, dict[str, Any]] = {
             ("schema_version", "int", True, {1}),
             ("rows", "list:fixed-row", True, None),
         ),
-        "nested": {"fixed-row": _FIXED_ROW, "uid": _UID, "extra": _EXTRA},
+        "nested": {
+            "fixed-identity": _FIXED_IDENTITY,
+            "fixed-risk": _FIXED_RISK,
+            "fixed-auth-chain": _FIXED_AUTH,
+            "uid": _UID,
+            "extra": _EXTRA,
+        },
     },
     "prod_write_baseline.jsonl": {
         "root": _BASELINE,
@@ -229,6 +292,11 @@ FIELDS: dict[str, dict[str, Any]] = {
             "command-request": _COMMAND_REQUEST,
             "page": _PAGE,
             "review": _REVIEW,
+            "sar-request": _SAR_REQUEST,
+            "sar-spec": _SAR_SPEC,
+            "resource-attributes": _RESOURCE_ATTRS,
+            "sar-response": _SAR_RESPONSE,
+            "sar-status": _SAR_STATUS,
         },
     },
     "output-row": {
@@ -303,18 +371,29 @@ def _nested(spec: dict[str, Any], name: str) -> tuple:
     return table[name]
 
 
+def _parts(field: tuple) -> tuple:
+    name, declared, required, allowed = field[:4]
+    when = field[4] if len(field) > 4 else None
+    return name, declared, required, allowed, when
+
+
 def validate_object(filename: str, spec: dict[str, Any], obj_name: str, fields: tuple, value: Any) -> None:
     if not isinstance(value, dict):
         _fail(filename, obj_name, f"type {_type_name(value)}, expected object")
-    declared = {item[0]: item for item in fields}
+    declared = {item[0] for item in fields}
     for key in value:
         if key not in declared:
             _fail(filename, key, "unknown field")
-    for name, declared_type, required, allowed in fields:
+    for field in fields:
+        name, declared_type, required, allowed, when = _parts(field)
+        needed = required or (when is not None and value.get(when) is True)
         if name not in value:
-            if required:
-                _fail(filename, name, "missing required field")
+            if needed:
+                message = "required when confirmed is true" if when else "missing required field"
+                _fail(filename, name, message)
             continue
+        if when is not None and value.get(when) is True and (not isinstance(value[name], str) or not value[name]):
+            _fail(filename, name, "required when confirmed is true")
         _check_value(filename, name, declared_type, value[name], allowed)
         if declared_type.startswith("object:"):
             nested_name = declared_type.split(":", 1)[1]
@@ -329,12 +408,30 @@ def validate_object(filename: str, spec: dict[str, Any], obj_name: str, fields: 
                 if item_type == "str":
                     if not isinstance(item, str):
                         _fail(filename, item_field, f"type {_type_name(item)}, expected str")
+                elif item_type == "fixed-row":
+                    _validate_fixed_variant(filename, spec, item_field, item)
                 elif item_type.startswith("object") or item_type in spec.get("nested", {}):
                     validate_object(filename, spec, item_field, _nested(spec, item_type), item)
                 else:
                     _fail(filename, item_field, f"unknown item type {item_type}")
     if obj_name in {"uid", "extra"} or fields is _UID or fields is _EXTRA:
         _validate_state_value(filename, obj_name, value)
+
+
+_FIXED_VARIANTS = {
+    "identity": "fixed-identity",
+    "risk": "fixed-risk",
+    "auth-chain": "fixed-auth-chain",
+}
+
+
+def _validate_fixed_variant(filename: str, spec: dict[str, Any], field: str, row: Any) -> None:
+    if not isinstance(row, dict):
+        _fail(filename, field, f"type {_type_name(row)}, expected object")
+    variant = _FIXED_VARIANTS.get(row.get("record"))
+    if variant is None:
+        _fail(filename, f"{field}.record", "unknown fixed record")
+    validate_object(filename, spec, field, _nested(spec, variant), row)
 
 
 def _validate_state_value(filename: str, field: str, value: dict) -> None:
@@ -399,29 +496,13 @@ def _validate_fixed_rows(filename: str, doc: dict) -> None:
         field = f"rows[{index}]"
         seen.append(row["id"])
         record = row["record"]
-        if record == "auth-chain":
-            if "confirmed" not in row:
-                _fail(filename, f"{field}.confirmed", "missing required field")
-            if row["confirmed"]:
-                for key in ("by", "at", "evidence"):
-                    if key not in row or not isinstance(row[key], str) or not row[key]:
-                        _fail(filename, f"{field}.{key}", "required when confirmed is true")
-                try:
-                    datetime.strptime(row["at"], "%Y-%m-%dT%H:%M:%SZ")
-                except (KeyError, ValueError):
-                    _fail(filename, f"{field}.at", "expected UTC time YYYY-MM-DDTHH:MM:SSZ")
-        elif record == "identity":
-            for key in ("kind", "user", "groups", "uid", "extra", "source", "ask"):
-                if key not in row:
-                    _fail(filename, f"{field}.{key}", "missing required field")
-            _validate_state_value(filename, f"{field}.uid", row["uid"])
-            _validate_state_value(filename, f"{field}.extra", row["extra"])
-        elif record == "risk":
-            for key in ("kind", "source", "ask", "reason"):
-                if key not in row:
-                    _fail(filename, f"{field}.{key}", "missing required field")
-            if row["ask"] is not False:
-                _fail(filename, f"{field}.ask", "risk rows are not asked")
+        if record == "auth-chain" and row.get("confirmed") is True:
+            try:
+                datetime.strptime(row["at"], "%Y-%m-%dT%H:%M:%SZ")
+            except (KeyError, ValueError):
+                _fail(filename, f"{field}.at", "expected UTC time YYYY-MM-DDTHH:MM:SSZ")
+        elif record == "risk" and row.get("ask") is not False:
+            _fail(filename, f"{field}.ask", "risk rows are not asked")
     missing = [item for item in REQUIRED_FIXED_IDS if item not in seen]
     if missing:
         _fail(filename, "rows", "missing fixed identity " + ", ".join(missing))
@@ -503,7 +584,8 @@ def iter_field_rows() -> list[tuple[str, str, str, str, str, str]]:
     seen_nested: set[tuple[str, str]] = set()
 
     def add_fields(filename: str, location: str, fields: tuple) -> None:
-        for name, declared, required, allowed in fields:
+        for field in fields:
+            name, declared, required, allowed, _when = _parts(field)
             allowed_text = ""
             if isinstance(allowed, set):
                 allowed_text = ", ".join(str(item) for item in sorted(allowed, key=str))

@@ -14,7 +14,7 @@ CORE = [
     {"name": "pods/exec", "namespaced": True, "verbs": ["get", "create"]},
     {"name": "pods/attach", "namespaced": True, "verbs": ["get", "create"]},
     {"name": "pods/portforward", "namespaced": True, "verbs": ["get", "create"]},
-    {"name": "pods/ephemeralcontainers", "namespaced": True, "verbs": ["get", "create"]},
+    {"name": "pods/ephemeralcontainers", "namespaced": True, "verbs": ["get", "patch", "update"]},
     {"name": "pods/eviction", "namespaced": True, "verbs": ["create"]},
     {"name": "pods/status", "namespaced": True, "verbs": ["patch"]},
     {"name": "secrets", "namespaced": True, "verbs": ["get"]},
@@ -27,6 +27,9 @@ GROUPS = {
     "apps/v1": [
         {"name": "deployments", "namespaced": True, "verbs": ["create", "patch", "update"]},
         {"name": "deployments/scale", "namespaced": True, "verbs": ["update"]},
+    ],
+    "apps/v1beta1": [
+        {"name": "deployments", "namespaced": True, "verbs": ["create", "patch", "update"]},
     ],
     "batch/v1": [
         {"name": "jobs", "namespaced": True, "verbs": ["create", "patch", "update"]},
@@ -96,15 +99,15 @@ def main() -> None:
     if path == "/api":
         emit({"kind": "APIVersions", "versions": ["v1"]})
     if path == "/apis":
-        emit(
-            {
-                "kind": "APIGroupList",
-                "groups": [
-                    {"name": group.split("/")[0], "preferredVersion": {"groupVersion": group, "version": group.split("/")[-1]}}
-                    for group in GROUPS
-                ],
-            }
-        )
+        by_group: dict[str, list[dict]] = {}
+        for group_version in GROUPS:
+            group, version = group_version.split("/", 1)
+            by_group.setdefault(group, []).append({"groupVersion": group_version, "version": version})
+        groups = []
+        for name, versions in by_group.items():
+            preferred = next((item for item in versions if item["version"] == "v1"), versions[0])
+            groups.append({"name": name, "preferredVersion": preferred, "versions": versions})
+        emit({"kind": "APIGroupList", "groups": groups})
     if path == "/api/v1":
         emit({"groupVersion": "v1", "kind": "APIResourceList", "metadata": {"continue": ""}, "resources": CORE})
     if path.startswith("/apis/") and path.count("/") == 3:

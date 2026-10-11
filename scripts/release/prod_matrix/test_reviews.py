@@ -7,6 +7,7 @@ import json
 import socket
 import subprocess
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -80,12 +81,12 @@ class ReviewTests(unittest.TestCase):
         _targets, fixed, _exceptions, _nontargets = load_defaults()
         for dropped in ("member-of-system-masters", "k3s-admin-credentials", "node-root", "anonymous", "auth-chain"):
             doc = {"rows": [row for row in fixed["rows"] if row["id"] != dropped], "schema_version": 1}
-            path = HERE / "testdata" / f"missing-{dropped}.json"
-            path.parent.mkdir(exist_ok=True)
-            path.write_text(json.dumps(doc), encoding="utf-8")
-            code, _out, err = _cli(
-                ["replay", "--bundle", str(HERE / "testdata" / "recorded-bundle.json"), "--fixed", str(path)]
-            )
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / f"missing-{dropped}.json"
+                path.write_text(json.dumps(doc), encoding="utf-8")
+                code, _out, err = _cli(
+                    ["replay", "--bundle", str(HERE / "testdata" / "recorded-bundle.json"), "--fixed", str(path)]
+                )
             self.assertEqual(code, 2, dropped)
             self.assertIn(dropped, err)
 
@@ -213,8 +214,6 @@ class ReviewTests(unittest.TestCase):
 
     def test_t38_over_budget_sends_nothing(self):
         questions = [question("", "v1", "configmaps", "", "ns-a", "namespaced", "", f"v{index}") for index in range(10000)]
-        path = HERE / "testdata" / "too-many-questions.json"
-        path.write_text(json.dumps(targets_of(questions)), encoding="utf-8")
         calls = []
 
         def boom(*_args, **_kwargs):
@@ -224,14 +223,20 @@ class ReviewTests(unittest.TestCase):
         original = subprocess.run
         subprocess.run = boom
         try:
-            code, out, _err = _cli(["collect", "--bundle-out", str(HERE / "testdata" / "should-not-write.json"), "--targets", str(path)])
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "too-many-questions.json"
+                out_path = Path(tmp) / "should-not-write.json"
+                path.write_text(json.dumps(targets_of(questions)), encoding="utf-8")
+                code, out, _err = _cli(["collect", "--bundle-out", str(out_path), "--targets", str(path)])
+                self.assertFalse(out_path.exists())
         finally:
             subprocess.run = original
         self.assertEqual(code, 2)
         self.assertEqual(calls, [])
-        self.assertIn("question count:", out)
+        lines = out.splitlines()
+        self.assertEqual(lines[0], "authorization only; questions are the explicit list, not exhaustive")
+        self.assertTrue(lines[2].startswith("question count:"))
         self.assertIn("unclassified: derivation truncated", out)
-        self.assertFalse((HERE / "testdata" / "should-not-write.json").exists())
 
     def test_collect_uses_a_fake_kubectl_on_path(self):
         import os
@@ -239,10 +244,10 @@ class ReviewTests(unittest.TestCase):
         import tempfile
 
         questions = [question("", "v1", "configmaps", "", "ns-a", "namespaced", "", "patch")]
-        targets = HERE / "testdata" / "one-question.json"
-        targets.write_text(json.dumps(targets_of(questions)), encoding="utf-8")
-        out_path = HERE / "testdata" / "collected-one.json"
         with tempfile.TemporaryDirectory() as tmp:
+            targets = Path(tmp) / "one-question.json"
+            targets.write_text(json.dumps(targets_of(questions)), encoding="utf-8")
+            out_path = Path(tmp) / "collected-one.json"
             kubectl = Path(tmp) / "kubectl"
             fake = HERE / "testdata" / "fake_kubectl.py"
             kubectl.write_text(f'#!/bin/sh\nexec python3 "{fake}" "$@"\n', encoding="utf-8")
@@ -251,14 +256,16 @@ class ReviewTests(unittest.TestCase):
             os.environ["PATH"] = str(Path(tmp)) + os.pathsep + previous
             try:
                 code, out, err = _cli(["collect", "--bundle-out", str(out_path), "--targets", str(targets)])
+                self.assertEqual(code, 3, err)
+                lines = out.splitlines()
+                self.assertEqual(lines[0], "authorization only; questions are the explicit list, not exhaustive")
+                self.assertTrue(lines[2].startswith("question count:"))
+                self.assertNotIn("refused", out)
+                code, replay_out, err = _cli(["replay", "--bundle", str(out_path), "--targets", str(targets)])
+                self.assertEqual(code, 3, err)
+                self.assertTrue(replay_out.startswith("authorization only; questions are the explicit list, not exhaustive\n"))
             finally:
                 os.environ["PATH"] = previous
-        self.assertEqual(code, 3, err)
-        self.assertTrue(out.startswith("question count:"))
-        self.assertNotIn("refused", out)
-        code, replay_out, err = _cli(["replay", "--bundle", str(out_path), "--targets", str(targets)])
-        self.assertEqual(code, 3, err)
-        self.assertTrue(replay_out.startswith("authorization only; questions are the explicit list, not exhaustive\n"))
 
     def test_t39_missing_duplicate_and_repeated_ids_exit_2(self):
         questions = [question("", "v1", "configmaps", "", "ns-a", "namespaced", "", "patch")]
@@ -276,8 +283,8 @@ class ReviewTests(unittest.TestCase):
         extra = dict(clone)
         extra["retry_of"] = clone["id"]
         repeated["reviews"].append(extra)
-        # Two retries and one primary is a repeated id with retries; a second primary is two answers.
-        self.assertEqual(_replay_raw(doubled, targets, fixed)[0], 2)
+        # Two retries that reuse the primary id are a repeated id, not a second pass over `doubled`.
+        self.assertEqual(_replay_raw(repeated, targets, fixed)[0], 2)
 
     def test_t41_summary_lines_and_no_refusal_and_no_zero(self):
         code, out, err = _cli(["replay", "--bundle", str(HERE / "testdata" / "recorded-bundle.json")])
@@ -289,9 +296,10 @@ class ReviewTests(unittest.TestCase):
         self.assertNotIn("refused", out)
         self.assertNotIn("refused", err)
         self.assertNotEqual(code, 0)
-        bad = HERE / "testdata" / "not-json.json"
-        bad.write_text("{", encoding="utf-8")
-        code, out, err = _cli(["replay", "--bundle", str(bad)])
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = Path(tmp) / "not-json.json"
+            bad.write_text("{", encoding="utf-8")
+            code, out, err = _cli(["replay", "--bundle", str(bad)])
         self.assertEqual(out.splitlines()[0], "authorization only; questions are the explicit list, not exhaustive")
         self.assertNotEqual(code, 0)
         self.assertNotIn("refused", out)
@@ -305,15 +313,15 @@ def _cli(argv: list[str]) -> tuple[int, str, str]:
 
 
 def _replay_raw(bundle, targets, fixed):
-    root = HERE / "testdata"
-    root.mkdir(exist_ok=True)
-    bundle_path = root / "case-bundle.json"
-    targets_path = root / "case-targets.json"
-    fixed_path = root / "case-fixed.json"
-    bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
-    targets_path.write_text(json.dumps(targets), encoding="utf-8")
-    fixed_path.write_text(json.dumps(fixed), encoding="utf-8")
-    return _cli(
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        bundle_path = root / "case-bundle.json"
+        targets_path = root / "case-targets.json"
+        fixed_path = root / "case-fixed.json"
+        bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
+        targets_path.write_text(json.dumps(targets), encoding="utf-8")
+        fixed_path.write_text(json.dumps(fixed), encoding="utf-8")
+        return _cli(
         [
             "replay",
             "--bundle",

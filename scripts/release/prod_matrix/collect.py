@@ -15,7 +15,7 @@ from typing import Any, Callable
 from urllib.parse import urlencode
 
 from canon import READ_LIMIT, TOOL_VERSION, WALL_SECONDS, MatrixExit
-from identities import context
+from identities import context, discovery_paths_from
 from questions import sar_body
 
 Transport = Callable[[str, str, str | None], tuple[int, str, str]]
@@ -94,9 +94,10 @@ class Session:
         self.seq = 1
         self.started: float | None = None
         self.started_at = _now()
+        self.clock = time.monotonic
 
     def _tick(self) -> None:
-        now = time.monotonic()
+        now = self.clock()
         if self.started is None:
             self.started = now
             return
@@ -123,6 +124,7 @@ class Session:
                 self.questions_sent += 1
             self._budget_after_increment(bucket)
             code, stdout, stderr = self.transport(method, path, body)
+            self._tick()
             status, payload, retry = _status(code, stdout, stderr)
             token = ""
             if isinstance(payload, dict):
@@ -193,11 +195,12 @@ def _paged(session: Session, path: str) -> dict:
         logical_id, payload = session.call("GET", full, None, "read")
         if not isinstance(payload, dict):
             raise MatrixExit(2, f"bundle: {logical_id}: list is not an object")
-        continue_token = str((payload.get("metadata") or {}).get("continue") or "")
-        pages.append({"body": payload, "continue": continue_token})
-        if not continue_token:
+        # `continue` is the token this page was requested with, not the one the server returned.
+        response_token = str((payload.get("metadata") or {}).get("continue") or "")
+        pages.append({"body": payload, "continue": token})
+        if not response_token:
             break
-        token = continue_token
+        token = response_token
     # Fold successful page calls into one list command and drop the per-page copies
     # that call() already stored, replacing them with a single paged record.
     page_ids = []
@@ -244,39 +247,34 @@ def _caller(payload: dict) -> dict:
     return context(kind, user, groups, uid, extra, "kubectl-auth-whoami")
 
 
-def _discovery_paths(api: Any, apis: Any) -> list[str]:
-    paths = []
-    versions = api.get("versions") if isinstance(api, dict) else []
-    for version in versions or []:
-        paths.append(f"/api/{version}")
-    groups = apis.get("groups") if isinstance(apis, dict) else []
-    for group in groups or []:
-        if not isinstance(group, dict):
-            continue
-        preferred = group.get("preferredVersion") or {}
-        group_version = preferred.get("groupVersion")
-        if group_version:
-            paths.append(f"/apis/{group_version}")
-    return paths
-
-
-def read_inventory(transport: Transport, wall_seconds: float = WALL_SECONDS) -> tuple[Session, dict]:
-    """Whoami, self-checks, lists, and discovery. No SubjectAccessReview yet."""
+def read_identities(transport: Transport, wall_seconds: float = WALL_SECONDS) -> tuple[Session, dict]:
+    """Whoami, self-checks, and identity lists. No discovery and no SubjectAccessReview."""
     session = Session(transport, wall_seconds)
     _, who = session.call("WHOAMI", "/apis/authentication.k8s.io/v1/selfsubjectreviews", None, "read")
     caller = _caller(who if isinstance(who, dict) else {})
     for path, group, resource in LISTS:
         _self_check(session, "list", group, resource)
         _paged(session, path)
-    _self_check(session, "create", "authorization.k8s.io", "subjectaccessreviews")
+    return session, caller
+
+
+def read_discovery(session: Session) -> None:
+    """Root discovery, then every served version. The question check runs before any review is sent."""
     _, api = session.call("GET", "/api", None, "read")
     _, apis = session.call("GET", "/apis", None, "read")
-    for path in _discovery_paths(api, apis):
+    for path in discovery_paths_from(api if isinstance(api, dict) else {}, apis if isinstance(apis, dict) else {}):
         _paged(session, path)
+
+
+def read_inventory(transport: Transport, wall_seconds: float = WALL_SECONDS) -> tuple[Session, dict]:
+    """Whoami, self-checks, lists, and discovery. No SubjectAccessReview yet."""
+    session, caller = read_identities(transport, wall_seconds)
+    read_discovery(session)
     return session, caller
 
 
 def send_questions(session: Session, caller: dict, planned: list[dict]) -> dict:
+    _self_check(session, "create", "authorization.k8s.io", "subjectaccessreviews")
     return _finish(session, caller, planned)
 
 

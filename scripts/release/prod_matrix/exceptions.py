@@ -150,13 +150,48 @@ def target_namespaces(questions: list[dict]) -> list[str]:
     return sorted(found)
 
 
-def asked_pairs(questions: list[dict]) -> set[tuple[str, str, str]]:
-    return {(question["group"], question["resource"], question["subresource"]) for question in questions if not question.get("wildcard")}
+def _question_label(question: dict) -> str:
+    resource = question["resource"]
+    if question.get("subresource"):
+        resource = f"{resource}/{question['subresource']}"
+    return f"{resource} {question.get('verb', '')}".strip()
+
+
+def _discovery_problem(question: dict, resources: list[dict]) -> str | None:
+    """Resource, group, a served version, scope, subresource and verb must all be listed."""
+    name = question["resource"]
+    if name != name.lower() or "/" in name or not name:
+        return "resource is not the plural lower-case discovery name"
+    group = question["group"]
+    version = question["version"]
+    sub = question["subresource"]
+    want_namespaced = question["scope"] == "namespaced"
+    same_name = [
+        item
+        for item in resources
+        if item["group"] == group and item["resource"] == name and item["subresource"] == sub
+    ]
+    matched = [
+        item
+        for item in same_name
+        if item.get("version") == version and item["namespaced"] == want_namespaced
+    ]
+    if not matched:
+        if sub and not same_name:
+            return f"missing a subresource: {group}/{name}/{sub}"
+        return "not listed by discovery"
+    verbs: set[str] = set()
+    for item in matched:
+        verbs.update(item.get("verbs") or [])
+    if question["verb"] not in verbs:
+        return f"verb {question['verb']} is not listed by discovery"
+    return None
 
 
 def assert_asked_discovered(questions: list[dict], resources: list[dict]) -> None:
-    discovered = {(item["group"], item["resource"], item["subresource"]) for item in resources}
-    missing = sorted(pair for pair in (asked_pairs(questions) - discovered) if pair[2])
-    if missing:
-        group, resource, sub = missing[0]
-        raise MatrixExit(2, f"bundle: missing a subresource: {group}/{resource}/{sub}")
+    for index, question in enumerate(questions):
+        if question.get("wildcard"):
+            continue
+        problem = _discovery_problem(question, resources)
+        if problem:
+            raise MatrixExit(2, f"bundle: question {index} {_question_label(question)}: {problem}")

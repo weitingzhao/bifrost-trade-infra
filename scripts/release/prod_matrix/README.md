@@ -16,6 +16,8 @@ python3 scripts/release/prod_matrix/prod_ratchet.py --check
 
 默认文件都在本目录：`prod_targets.json`、`prod_fixed_identities.json`、`prod_nontargets.json`、`prod_write_exceptions.json`、`prod_write_baseline.jsonl`。同名参数可以改路径。
 
+棘轮只读本仓库 `k8s/` 下的 YAML 原文。它不渲染 kustomize 的 generators 和 patches，不展开 Helm values，也不扫描 `k8s/` 以外的清单。渲染结果、Helm 值和仓库外的对象属于现场测量。
+
 ## 字段表
 
 `schema_version` 一律是整数 1。缺字段、未知字段、类型不对，都以 2 退出，并指出文件和字段。
@@ -72,26 +74,33 @@ python3 scripts/release/prod_matrix/prod_ratchet.py --check
 | prod_write_exceptions.json | extra | value | object:extra-map | no |  |
 | prod_fixed_identities.json | root | schema_version | int | yes | 1 |
 | prod_fixed_identities.json | root | rows | list:fixed-row | yes |  |
-| prod_fixed_identities.json | fixed-row | id | str | yes |  |
-| prod_fixed_identities.json | fixed-row | record | str | yes | auth-chain, identity, risk |
-| prod_fixed_identities.json | fixed-row | kind | str | no | anonymous, fixed-risk, group-member, node, serviceaccount, serviceaccount-unbound, user |
-| prod_fixed_identities.json | fixed-row | user | str | no |  |
-| prod_fixed_identities.json | fixed-row | groups | list:str | no |  |
-| prod_fixed_identities.json | fixed-row | uid | object:uid | no |  |
-| prod_fixed_identities.json | fixed-row | extra | object:extra | no |  |
-| prod_fixed_identities.json | fixed-row | source | str | no |  |
-| prod_fixed_identities.json | fixed-row | ask | bool | no |  |
-| prod_fixed_identities.json | fixed-row | reason | str | no |  |
-| prod_fixed_identities.json | fixed-row | confirmed | bool | no |  |
-| prod_fixed_identities.json | fixed-row | by | str | no |  |
-| prod_fixed_identities.json | fixed-row | at | str | no |  |
-| prod_fixed_identities.json | fixed-row | evidence | str | no |  |
+| prod_fixed_identities.json | fixed-identity | id | str | yes |  |
+| prod_fixed_identities.json | fixed-identity | record | str | yes | identity |
+| prod_fixed_identities.json | fixed-identity | kind | str | yes | anonymous, fixed-risk, group-member, node, serviceaccount, serviceaccount-unbound, user |
+| prod_fixed_identities.json | fixed-identity | user | str | yes |  |
+| prod_fixed_identities.json | fixed-identity | groups | list:str | yes |  |
+| prod_fixed_identities.json | fixed-identity | uid | object:uid | yes |  |
+| prod_fixed_identities.json | fixed-identity | extra | object:extra | yes |  |
+| prod_fixed_identities.json | fixed-identity | source | str | yes |  |
+| prod_fixed_identities.json | fixed-identity | ask | bool | yes |  |
+| prod_fixed_identities.json | fixed-risk | id | str | yes |  |
+| prod_fixed_identities.json | fixed-risk | record | str | yes | risk |
+| prod_fixed_identities.json | fixed-risk | kind | str | yes | anonymous, fixed-risk, group-member, node, serviceaccount, serviceaccount-unbound, user |
+| prod_fixed_identities.json | fixed-risk | source | str | yes |  |
+| prod_fixed_identities.json | fixed-risk | ask | bool | yes |  |
+| prod_fixed_identities.json | fixed-risk | reason | str | yes |  |
+| prod_fixed_identities.json | fixed-auth-chain | id | str | yes |  |
+| prod_fixed_identities.json | fixed-auth-chain | record | str | yes | auth-chain |
+| prod_fixed_identities.json | fixed-auth-chain | confirmed | bool | yes |  |
+| prod_fixed_identities.json | fixed-auth-chain | by | str | no |  |
+| prod_fixed_identities.json | fixed-auth-chain | at | str | no |  |
+| prod_fixed_identities.json | fixed-auth-chain | evidence | str | no |  |
 | prod_fixed_identities.json | uid | state | str | yes | known, unknown |
 | prod_fixed_identities.json | uid | value | str | no |  |
 | prod_fixed_identities.json | extra | state | str | yes | known, unknown |
 | prod_fixed_identities.json | extra | value | object:extra-map | no |  |
 | prod_write_baseline.jsonl | root | schema_version | int | yes | 1 |
-| prod_write_baseline.jsonl | root | category | str | yes | admission, binding, expanded-resource, fixed-identity, missing-input, namespace-label, role, task |
+| prod_write_baseline.jsonl | root | category | str | yes | admission, binding, configmap, expanded-resource, fixed-identity, manifest, missing-input, namespace-label, role, task |
 | prod_write_baseline.jsonl | root | namespace | str | yes |  |
 | prod_write_baseline.jsonl | root | type | str | yes |  |
 | prod_write_baseline.jsonl | root | name | str | yes |  |
@@ -102,6 +111,7 @@ python3 scripts/release/prod_matrix/prod_ratchet.py --check
 | prod_write_baseline.jsonl | root | rules | json | no |  |
 | prod_write_baseline.jsonl | root | resources | list:str | no |  |
 | prod_write_baseline.jsonl | root | content_sha256 | str | no |  |
+| prod_write_baseline.jsonl | root | data_keys | list:str | no |  |
 | prod_write_baseline.jsonl | root | service_account | str | no |  |
 | prod_write_baseline.jsonl | root | validation_actions | list:str | no |  |
 | prod_write_baseline.jsonl | root | spec_sha256 | str | no |  |
@@ -141,10 +151,33 @@ python3 scripts/release/prod_matrix/prod_ratchet.py --check
 | bundle | page | body | json | yes |  |
 | bundle | page | continue | str | yes |  |
 | bundle | review | id | str | yes |  |
-| bundle | review | request | json | yes |  |
+| bundle | review | request | object:sar-request | yes |  |
 | bundle | review | request_hash | str | yes |  |
-| bundle | review | response | json | yes |  |
+| bundle | review | response | object:sar-response | yes |  |
 | bundle | review | retry_of | str | no |  |
+| bundle | sar-request | apiVersion | str | yes | authorization.k8s.io/v1 |
+| bundle | sar-request | kind | str | yes | SubjectAccessReview |
+| bundle | sar-request | spec | object:sar-spec | yes |  |
+| bundle | sar-spec | user | str | yes |  |
+| bundle | sar-spec | groups | list:str | yes |  |
+| bundle | sar-spec | uid | str | no |  |
+| bundle | sar-spec | extra | json | no |  |
+| bundle | sar-spec | resourceAttributes | object:resource-attributes | yes |  |
+| bundle | resource-attributes | group | str | yes |  |
+| bundle | resource-attributes | version | str | yes |  |
+| bundle | resource-attributes | resource | str | yes |  |
+| bundle | resource-attributes | subresource | str | yes |  |
+| bundle | resource-attributes | namespace | str | yes |  |
+| bundle | resource-attributes | name | str | yes |  |
+| bundle | resource-attributes | verb | str | yes |  |
+| bundle | sar-response | apiVersion | str | no |  |
+| bundle | sar-response | kind | str | no |  |
+| bundle | sar-response | request_hash | str | yes |  |
+| bundle | sar-response | status | object:sar-status | no |  |
+| bundle | sar-status | allowed | json | no |  |
+| bundle | sar-status | denied | json | no |  |
+| bundle | sar-status | evaluationError | str | no |  |
+| bundle | sar-status | reason | str | no |  |
 | output-row | root | kind | str | yes | named-exception, unclassified, unknown-surface |
 | output-row | root | reason | str | yes |  |
 | output-row | root | row_key | str | no |  |

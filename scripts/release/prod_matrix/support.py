@@ -82,7 +82,46 @@ def caller() -> dict:
     )
 
 
+def ensure_root_discovery(commands: list[dict]) -> list[dict]:
+    """Replay derives the discovery paths from /api and /apis. Test bundles record both."""
+    commands = list(commands)
+    paths = {item["request"]["path"].split("?", 1)[0] for item in commands}
+    core: list[str] = []
+    grouped: dict[str, list[str]] = {}
+    for item in commands:
+        path = item["request"]["path"].split("?", 1)[0]
+        if path.startswith("/api/") and path.count("/") == 2:
+            core.append(path.split("/")[-1])
+        elif path.startswith("/apis/") and path.count("/") == 3:
+            group_version = path[len("/apis/") :]
+            group = group_version.split("/", 1)[0]
+            bucket = grouped.setdefault(group, [])
+            if group_version not in bucket:
+                bucket.append(group_version)
+    extra = []
+    if "/api" not in paths:
+        extra.append(command(9101, "/api", {"kind": "APIVersions", "versions": core or ["v1"]}))
+    if "/apis" not in paths:
+        groups = []
+        for group, versions in grouped.items():
+            entries = [{"groupVersion": group_version, "version": group_version.split("/", 1)[-1]} for group_version in versions]
+            groups.append({"name": group, "preferredVersion": entries[0], "versions": entries})
+        extra.append(command(9102, "/apis", {"kind": "APIGroupList", "groups": groups}))
+    if not extra:
+        return commands
+    insert_at = len(commands)
+    for index, item in enumerate(commands):
+        path = item["request"]["path"].split("?", 1)[0]
+        core = path.startswith("/api/") and path.count("/") == 2
+        grouped = path.startswith("/apis/") and path.count("/") == 3
+        if core or grouped:
+            insert_at = index
+            break
+    return commands[:insert_at] + extra + commands[insert_at:]
+
+
 def bundle_from(commands: list[dict], targets: dict, fixed: dict, answer) -> dict:
+    commands = ensure_root_discovery(commands)
     lists = inventory(commands)
     identities = assemble(lists, fixed["rows"])
     planned = expand(identities, targets["questions"])

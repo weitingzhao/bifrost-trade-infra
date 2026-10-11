@@ -6,6 +6,7 @@ from typing import Any
 
 from canon import (
     QUESTION_LIMIT,
+    READ_LIMIT,
     REQUEST_FAMILY,
     SUMMARY_1,
     MatrixExit,
@@ -112,24 +113,38 @@ def truncated(question_count: int) -> tuple[int, str]:
     return 2, "\n".join(lines) + "\n"
 
 
-def _primaries(reviews: list[dict]) -> dict[str, list[dict]]:
-    found: dict[str, list[dict]] = {}
-    seen_ids: dict[str, int] = {}
-    for review in reviews:
-        seen_ids[review["id"]] = seen_ids.get(review["id"], 0) + 1
-        if review.get("retry_of"):
+def _review_answers(reviews: list[dict]) -> dict[str, dict]:
+    """Each attempt has its own id. The answer is the last attempt of that request."""
+    seen: dict[str, int] = {}
+    for index, review in enumerate(reviews):
+        qid = review.get("id")
+        if not isinstance(qid, str) or not qid:
+            raise MatrixExit(2, "bundle: review missing id")
+        if qid in seen:
+            raise MatrixExit(2, f"bundle: {qid}: duplicate id")
+        seen[qid] = index
+        _check_review(review)
+        retry = review.get("retry_of")
+        if not retry:
             continue
-        found.setdefault(review["id"], []).append(review)
-    for qid, count in seen_ids.items():
-        primaries = len(found.get(qid, []))
-        retries = count - primaries
-        if primaries > 1:
-            raise MatrixExit(2, f"bundle: {qid}: two answers")
-        if count > 1 and retries == 0:
+        if retry not in seen:
+            raise MatrixExit(2, f"bundle: {qid}: retry_of does not point at an earlier attempt")
+        earlier = reviews[seen[retry]]
+        if earlier.get("request_hash") != review.get("request_hash"):
+            raise MatrixExit(2, f"bundle: {qid}: retry hash does not match")
+    groups: dict[str, list[dict]] = {}
+    for review in reviews:
+        groups.setdefault(review["request_hash"], []).append(review)
+    chosen: dict[str, dict] = {}
+    for attempts in groups.values():
+        primaries = [item for item in attempts if not item.get("retry_of")]
+        if len(primaries) != 1:
+            qid = attempts[-1]["id"]
+            if len(primaries) > 1:
+                raise MatrixExit(2, f"bundle: {qid}: two answers")
             raise MatrixExit(2, f"bundle: {qid}: duplicate question id")
-        if primaries == 0 and count > 1:
-            raise MatrixExit(2, f"bundle: {qid}: duplicate question id")
-    return found
+        chosen[primaries[0]["id"]] = attempts[-1]
+    return chosen
 
 
 def _check_review(review: dict) -> dict:
@@ -181,6 +196,10 @@ def render(rows: list[dict], denied: int, expired: int, question_count: int, mat
 
 
 def replay(bundle: dict, targets: dict, fixed: dict, exceptions: dict, nontargets: dict, today) -> tuple[int, str]:
+    if len(bundle.get("commands") or []) > READ_LIMIT:
+        raise MatrixExit(2, "budget: read attempts exceed 500")
+    if len(bundle.get("reviews") or []) > QUESTION_LIMIT:
+        raise MatrixExit(2, "budget: review attempts exceed 20000")
     questions = list(targets["questions"])
     fixed_rows = list(fixed["rows"])
     prepared = prepare(list(exceptions["exceptions"]), today)
@@ -194,14 +213,12 @@ def replay(bundle: dict, targets: dict, fixed: dict, exceptions: dict, nontarget
     if len(ids) != len(set(ids)):
         raise MatrixExit(2, "bundle: duplicate question id")
     assert_asked_discovered(questions, lists["resources"])
-    primaries = _primaries(bundle["reviews"])
+    answers = _review_answers(bundle["reviews"])
     expected = {item["id"]: item for item in planned}
-    for review in primaries.values():
-        _check_review(review[0])
-    missing = sorted(set(expected) - set(primaries))
+    missing = sorted(set(expected) - set(answers))
     if missing:
         raise MatrixExit(2, f"bundle: {missing[0]}: missing answer")
-    extra = sorted(set(primaries) - set(expected))
+    extra = sorted(set(answers) - set(expected))
     if extra:
         raise MatrixExit(2, f"bundle: {extra[0]}: unexpected answer")
 
@@ -214,7 +231,7 @@ def replay(bundle: dict, targets: dict, fixed: dict, exceptions: dict, nontarget
     rows: list[dict] = []
 
     for item in planned:
-        review = primaries[item["id"]][0]
+        review = answers[item["id"]]
         verdict = interpret(review["response"])
         subject = item["identity"]["context"]
         question = item["question"]

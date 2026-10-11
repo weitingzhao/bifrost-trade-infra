@@ -569,7 +569,7 @@
       "resource": "pods",
       "scope": "namespaced",
       "subresource": "ephemeralcontainers",
-      "verb": "create",
+      "verb": "patch",
       "version": "v1"
     },
     {

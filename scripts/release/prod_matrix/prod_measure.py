@@ -58,18 +58,21 @@ def run_collect(args) -> int:
         _code, text = truncated(lower)
         sys.stdout.write(text)
         return 2
-    from collect import announce_count, kubectl_transport, read_inventory, send_questions
+    from collect import kubectl_transport, read_discovery, read_identities, send_questions
+    from exceptions import assert_asked_discovered
     from identities import assemble, inventory
 
-    session, caller = read_inventory(kubectl_transport)
-    identities = assemble(inventory(session.commands), fixed["rows"])
+    session, caller = read_identities(kubectl_transport)
+    identities = assemble(inventory(session.commands, require_discovery=False), fixed["rows"])
     planned = expand(identities, targets["questions"])
     count = len(planned)
-    print(announce_count(count), flush=True)
     if over_budget(count):
         _code, text = truncated(count)
         sys.stdout.write(text)
         return 2
+    read_discovery(session)
+    discovered = inventory(session.commands)
+    assert_asked_discovered(targets["questions"], discovered["resources"])
     bundle = send_questions(session, caller, planned)
     from schema import validate_document
 
