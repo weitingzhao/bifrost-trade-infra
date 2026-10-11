@@ -1,0 +1,88 @@
+# Snapshot of bifrost-platform-plugin-flex-query/k8s/cicd/pipeline-build.yaml
+# on 2026-10-11, for the freeze ratchet. This repository does not apply it.
+# The sibling pipeline still has no freeze check; that miss is a known gap.
+# Build bifrost-flex-query image: Gitea mirror → clone core+plugin → Kaniko.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: bifrost-build-flex-query
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: plugin-build
+    bifrost.io/plugin: flex-query
+spec:
+  description: >-
+    Clone Flex Query plugin + bifrost-trade-core,
+    assemble a combined Kaniko context, build and push the image.
+  params:
+    - name: revision
+      type: string
+      default: main
+    - name: giteaBase
+      type: string
+      default: http://gitea.cicd.svc.cluster.local:3000/bifrost
+    - name: image
+      type: string
+      default: registry.cicd.svc.cluster.local:5000/bifrost-flex-query:0.2.0
+  workspaces:
+    - name: source
+  tasks:
+    - name: release-window
+      taskRef:
+        name: bifrost-release-window
+      params:
+        - name: pipeline
+          value: bifrost-build-flex-query
+    - name: clone-plugin
+      runAfter: [release-window]
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-platform-plugin-flex-query.git
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: plugin
+      workspaces:
+        - name: output
+          workspace: source
+    - name: clone-core
+      runAfter: [release-window]
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-trade-core.git
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: bifrost-trade-core
+      workspaces:
+        - name: output
+          workspace: source
+    - name: kaniko
+      runAfter: [clone-plugin, clone-core]
+      workspaces:
+        - name: source
+          workspace: source
+      params:
+        - name: image
+          value: $(params.image)
+      taskSpec:
+        params:
+          - name: image
+            type: string
+        workspaces:
+          - name: source
+        steps:
+          - name: build-and-push
+            image: gcr.io/kaniko-project/executor:v1.23.2
+            args:
+              - --dockerfile=plugin/k8s/cicd/Dockerfile
+              - --context=$(workspaces.source.path)
+              - --destination=$(params.image)
+              - --custom-platform=linux/amd64
+              - --insecure
+              - --skip-tls-verify
+              - --insecure-registry=registry.cicd.svc.cluster.local:5000

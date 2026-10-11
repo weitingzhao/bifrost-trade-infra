@@ -1,0 +1,12 @@
+{
+  "gaps": [
+    {
+      "name": "flex-query-kaniko-not-dominated",
+      "date": "2026-10-11",
+      "repo": "bifrost-platform-plugin-flex-query",
+      "pipeline": "bifrost-build-flex-query",
+      "task": "kaniko",
+      "message": "bifrost-platform-plugin-flex-query/bifrost-build-flex-query: kaniko is not dominated by the freeze check"
+    }
+  ]
+}

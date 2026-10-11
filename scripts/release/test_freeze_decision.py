@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import http.client
 import io
 import json
 import sys
+import tempfile
 import unittest
 import urllib.error
 from pathlib import Path
@@ -140,6 +142,66 @@ class DecideTests(unittest.TestCase):
             self.assertTrue(buf.getvalue().startswith("拒绝：发布已冻结（"))
         finally:
             dest.unlink(missing_ok=True)
+
+    def test_missing_ca_corrupt_ca_bad_utf8_and_truncated_body(self) -> None:
+        class Body:
+            def __init__(self, payload: object) -> None:
+                self.payload = payload
+
+            def read(self) -> bytes:
+                if isinstance(self.payload, BaseException):
+                    raise self.payload
+                return self.payload  # type: ignore[return-value]
+
+            def __enter__(self) -> "Body":
+                return self
+
+            def __exit__(self, *_args: object) -> bool:
+                return False
+
+        def refusal(line: str, what: str) -> None:
+            self.assertEqual(line, unread(what))
+            self.assertFalse(line.startswith("Traceback"))
+
+        def run_main() -> str:
+            out = io.StringIO()
+            err = io.StringIO()
+            with mock.patch("sys.stdout", out), mock.patch("sys.stderr", err):
+                code = fd.main()
+            self.assertEqual(code, 1)
+            self.assertEqual(err.getvalue(), "")
+            first = out.getvalue().splitlines()[0]
+            refusal(first, first.split("（", 1)[1].split("）", 1)[0])
+            return first
+
+        with tempfile.TemporaryDirectory() as tmp:
+            token = Path(tmp) / "token"
+            token.write_text("token", encoding="utf-8")
+            missing = Path(tmp) / "missing.crt"
+            corrupt = Path(tmp) / "ca.crt"
+            corrupt.write_text("not a certificate\n", encoding="utf-8")
+            with mock.patch.object(fd, "TOKEN_PATH", str(token)):
+                with mock.patch.object(fd, "CA_PATH", str(missing)):
+                    self.assertEqual(run_main(), unread("missing CA"))
+                with mock.patch.object(fd, "CA_PATH", str(corrupt)):
+                    self.assertEqual(run_main(), unread("corrupt CA"))
+                with mock.patch.object(fd, "CA_PATH", str(corrupt)), mock.patch.object(
+                    fd.ssl, "create_default_context", return_value=object()
+                ):
+                    with mock.patch.object(fd.urllib.request, "urlopen", return_value=Body(b"\xff\xfe")):
+                        self.assertEqual(run_main(), unread("invalid UTF-8"))
+                    with mock.patch.object(
+                        fd.urllib.request,
+                        "urlopen",
+                        return_value=Body(http.client.IncompleteRead(b'{"data":')),
+                    ):
+                        self.assertEqual(run_main(), unread("truncated body"))
+                    with mock.patch.object(
+                        fd.urllib.request,
+                        "urlopen",
+                        return_value=Body(b'{"kind":"ConfigMap","data":'),
+                    ):
+                        self.assertEqual(run_main(), unread("unparsable response"))
 
 
 class InFlightTests(unittest.TestCase):

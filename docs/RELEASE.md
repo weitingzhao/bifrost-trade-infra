@@ -161,9 +161,20 @@ data:
   seq: "0"
 ```
 
-上线顺序，都还没做：先由 Owner 写好上面的对象；再经平台的 plan / apply 应用 `k8s/cicd/tekton/task-release-freeze-check.yaml`（Task 和装着程序的 ConfigMap 在同一个文件里）；然后应用十一条 Pipeline。现有 Role `tekton-release-window` 已经允许 `default` 和 `tekton-deliver` 对 `bifrost-release-freeze` 做 `get`，这一片不新写 RBAC。
+上线是一次性的，没有流水线豁免名单。检查在对象不存在时会拒绝，所以不能靠 `bifrost-apply-manifest` 来装检查自己。谁做哪一步：
 
-旧 PROD 链 `bifrost-deliver-platform-prod` 只有这一次检查，放在两条推镜像之前。过了它的 run（TaskRun 结果 `passed_cut_at`）会把构建和滚动走完，滚动前不再查第二次。还没到检查的 run，跑到检查时被拒。检查自己超时或被取消，任务失败，run 被拒。一条镜像推成、另一条失败，按 run 当时的记录留下，这一片不补救。在途 run 的名字在冻结回执里：看 `tekton.dev/pipelineTask=freeze-check` 的 TaskRun，结果里有 `passed_cut_at`，再用标签 `tekton.dev/pipelineRun` 对上仍在跑的 PipelineRun。列出这件事这一片不做。
+1. Owner 自己创建初始对象（上面的 ConfigMap）。不走任何流水线。
+2. Owner 自己 apply `k8s/cicd/tekton/task-release-freeze-check.yaml`（Task 和装着程序的 ConfigMap 在同一个文件里）。不走 `bifrost-apply-manifest`。
+3. 然后是十一条会推镜像或滚动的 Pipeline。
+4. 最后才是 `bifrost-apply-manifest`。这时 Task 和初始对象都已经在，`freeze-check` 是根，`run`（里面的 `kubectl apply`）在它之后。
+
+现有 Role `tekton-release-window` 已经允许 `default` 和 `tekton-deliver` 对 `bifrost-release-freeze` 做 `get`，这一片不新写 RBAC。
+
+冻结期间 apply 流水线也不跑，包括它的 plan 模式（plan 和 apply 是同一个任务）。解冻不走这条流水线：`release.sh unfreeze` 把 Owner 签名交给平台 `POST /api/v1/release-policy/unfreeze`。这一片不给任何流水线豁免。若以后有一条流水线必须在冻结期间跑，先停下来写进报告，而不是加豁免。
+
+兄弟仓库 `bifrost-platform-plugin-flex-query` 的 `bifrost-build-flex-query` 今天仍以 `release-window` 开头，内联的 `kaniko` 推镜像不被冻结检查支配。棘轮报 `bifrost-platform-plugin-flex-query/bifrost-build-flex-query: kaniko is not dominated by the freeze check`，这条记在 `scripts/release/freeze_known_gaps.json`，输出里有 `known gaps: 1`，默认退出码非 0。`--allow-known-gaps` 只放过已知缺口，CI 不用这个旗标。要消掉它，那个仓库得把 `bifrost-release-freeze-check` 加成立即的根，并让 `release-window` 在它之后。这一片不改那个仓库。那个仓库改完之后，这里 TD-263 对 flex-query「第一个任务必须是 `release-window`」的特例也要改成和本仓库一样（第一个是 `freeze-check`）。
+
+旧 PROD 链 `bifrost-deliver-platform-prod` 只有这一次检查，放在两条推镜像之前。过了它的 run（TaskRun 结果 `passed_cut_at`）会把构建和滚动走完，滚动前不再查第二次。还没到检查的 run，跑到检查时被拒。检查自己超时或被取消，任务失败，run 被拒。一条镜像推成、另一条失败，按 run 当时的记录留下，这一片不补救。在途 run 的名字在冻结回执里：看 `tekton.dev/pipelineTask=freeze-check` 的 TaskRun，结果里有 `passed_cut_at`，再用标签 `tekton.dev/pipelineRun` 对上仍在跑的 PipelineRun。列出这件事这一片不做。`scripts/release/freeze_inflight.py` 的测试是一张行为表，不是一次 Tekton 调度演练。
 
 这一片不声称已经挡住自动同步、可变镜像标签，或有人直接改这份 ConfigMap。那是 C 片、E 片和第 4 步的事。
 

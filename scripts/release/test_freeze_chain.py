@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -61,6 +63,13 @@ def inline(name: str, run_after: list[str] | None = None) -> dict:
     return task
 
 
+def ref(name: str, task_ref: str, run_after: list[str] | None = None) -> dict:
+    task: dict = {"name": name, "taskRef": {"name": task_ref}}
+    if run_after:
+        task["runAfter"] = run_after
+    return task
+
+
 def real(name: str) -> dict:
     path = TEKTON / f"pipeline-{name.removeprefix('bifrost-')}.yaml"
     doc = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -76,7 +85,7 @@ class DominationTests(unittest.TestCase):
     def test_a_parallel_root_that_reaches_the_push_fails(self) -> None:
         doc = pipeline("demo", [
             freeze(),
-            inline("preflight-stg"),
+            ref("preflight-stg", "bifrost-release-window"),
             inline("push", ["preflight-stg"]),
         ])
         self.assertEqual(fc.violations_for(doc), ["demo: push is not dominated by the freeze check"])
@@ -91,7 +100,7 @@ class DominationTests(unittest.TestCase):
             fc.violations_for(doc),
             ["demo: push-anyway is not dominated by the freeze check"],
         )
-        quiet = pipeline("demo", [freeze()], [inline("pin-check")])
+        quiet = pipeline("demo", [freeze()], [ref("pin-check", "bifrost-validate-git-sha")])
         self.assertEqual(fc.violations_for(quiet), [])
 
     def test_a_freeze_check_with_when_dominates_nothing(self) -> None:
@@ -99,34 +108,43 @@ class DominationTests(unittest.TestCase):
             freeze(when=[{"input": "yes", "operator": "in", "values": ["yes"]}]),
             inline("push", ["freeze-check"]),
         ])
-        self.assertEqual(fc.violations_for(doc), ["demo: push is not dominated by the freeze check"])
+        self.assertEqual(
+            fc.violations_for(doc),
+            [
+                "demo: freeze-check is not a valid freeze check (when)",
+                "demo: push is not dominated by the freeze check",
+            ],
+        )
 
     def test_an_unknown_task_name_counts_as_side_effecting(self) -> None:
         effects = fc.load_effects()
-        self.assertNotIn("custom-step", effects["read_only"])
+        self.assertNotIn("custom-step", effects["read_only_task_ref"])
         self.assertNotIn("custom-step", effects["side_effect"])
         doc = pipeline("demo", [freeze(), inline("custom-step")])
         self.assertEqual(fc.violations_for(doc), ["demo: custom-step is not dominated by the freeze check"])
-        self.assertEqual(fc.violations_for(pipeline("demo", [inline("pin-check")])), [])
+        self.assertEqual(fc.violations_for(pipeline("demo", [ref("echo", "bifrost-smoke-echo")])), [])
 
     def test_inline_taskspec_uses_the_pipeline_task_name(self) -> None:
         doc = pipeline("demo", [freeze(), inline("kaniko", ["freeze-check"])])
         self.assertEqual(fc.violations_for(doc), [])
         self.assertEqual(fc.effect_identity(inline("kaniko")), "kaniko")
 
-    def test_effects_lists_are_disjoint_and_apply_is_the_only_exception(self) -> None:
+    def test_no_pipeline_is_exempt_and_apply_is_dominated(self) -> None:
         effects = fc.load_effects()
-        self.assertEqual(set(effects["read_only"]) & set(effects["side_effect"]), set())
-        self.assertEqual(list(effects["not_this_slice"]), ["bifrost-apply-manifest"])
+        self.assertNotIn("not_this_slice", effects)
+        self.assertEqual(set(effects["read_only_task_ref"]) & set(effects["side_effect"]), set())
         apply = next(doc for _path, doc in fc.iter_pipelines(TEKTON)
                      if doc["metadata"]["name"] == "bifrost-apply-manifest")
-        self.assertTrue(any(fc.is_side_effect(task, effects) for task in apply["spec"]["tasks"]))
+        run = next(task for task in apply["spec"]["tasks"] if task["name"] == "run")
+        self.assertEqual(run["runAfter"], ["freeze-check"])
+        self.assertTrue(fc.is_side_effect(run, effects, "bifrost-apply-manifest"))
         self.assertEqual(fc.violations_for(apply), [])
-        bare = dict(effects)
-        bare["not_this_slice"] = {}
-        self.assertIn(
-            "bifrost-apply-manifest: run is not dominated by the freeze check",
-            fc.violations_for(apply, bare),
+        poisoned = dict(effects)
+        poisoned["not_this_slice"] = {"demo": "skip"}
+        skipped = pipeline("demo", [inline("push")])
+        self.assertEqual(
+            fc.violations_for(skipped, poisoned),
+            ["demo: push is not dominated by the freeze check"],
         )
 
     def test_eleven_real_pipelines_pass(self) -> None:
@@ -161,6 +179,138 @@ class DominationTests(unittest.TestCase):
         self.assertEqual(fc.violations_for(doc), [])
         for push in ("build-platform-api", "build-platform-console"):
             self.assertFalse(fc._path_misses_freeze(tasks, push, {"freeze-check"}))
+
+    def test_on_error_continue_is_not_protection(self) -> None:
+        doc = pipeline("demo", [
+            freeze(onError="continue"),
+            inline("push", ["freeze-check"]),
+        ])
+        self.assertEqual(
+            fc.violations_for(doc),
+            [
+                "demo: freeze-check is not a valid freeze check (onError: continue)",
+                "demo: push is not dominated by the freeze check",
+            ],
+        )
+
+    def test_retries_are_not_protection_even_without_a_side_effect(self) -> None:
+        # A refusal fails the step. A retry can then succeed against a different
+        # object, so the first refusal is not the cut.
+        alone = pipeline("demo", [freeze(retries=2), ref("echo", "bifrost-smoke-echo", ["freeze-check"])])
+        self.assertEqual(
+            fc.violations_for(alone),
+            ["demo: freeze-check is not a valid freeze check (retries)"],
+        )
+        followed = pipeline("demo", [freeze(retries=1), inline("push", ["freeze-check"])])
+        self.assertIn("demo: push is not dominated by the freeze check", fc.violations_for(followed))
+
+    def test_when_or_finally_without_side_effects_is_a_violation(self) -> None:
+        skipped = pipeline("demo", [
+            freeze(when=[{"input": "yes", "operator": "in", "values": ["yes"]}]),
+            ref("echo", "bifrost-smoke-echo", ["freeze-check"]),
+        ])
+        self.assertEqual(
+            fc.violations_for(skipped),
+            ["demo: freeze-check is not a valid freeze check (when)"],
+        )
+        parked = pipeline("demo", [ref("echo", "bifrost-smoke-echo")], [freeze()])
+        self.assertEqual(
+            fc.violations_for(parked),
+            ["demo: freeze-check is not a valid freeze check (finally)"],
+        )
+
+    def test_a_name_or_inline_spec_is_not_the_freeze_task(self) -> None:
+        named = inline("bifrost-release-freeze-check")
+        named["taskSpec"]["steps"][0]["script"] = "git push\n"
+        misses = fc.violations_for(pipeline("demo", [named]))
+        self.assertEqual(misses, ["demo: bifrost-release-freeze-check is not dominated by the freeze check"])
+        self.assertFalse(any("valid freeze check" in line for line in misses))
+
+    def test_inline_read_only_name_does_not_hide_a_push(self) -> None:
+        task = inline("lint-test")
+        task["taskSpec"]["steps"][0]["script"] = "git push origin HEAD:main\n"
+        self.assertEqual(
+            fc.violations_for(pipeline("demo", [task])),
+            ["demo: lint-test is not dominated by the freeze check"],
+        )
+        effects = fc.load_effects()
+        effects["read_only_task_ref"] = list(effects["read_only_task_ref"]) + ["lint-test"]
+        self.assertTrue(fc.is_side_effect({"name": "lint-test", "taskRef": {"name": "lint-test"}}, effects, "demo"))
+
+    def test_inline_read_only_is_bound_to_the_taskspec_digest(self) -> None:
+        spec = {"steps": [{"name": "look", "image": "alpine:3.20", "script": "true\n"}]}
+        digest = fc.taskspec_digest(spec)
+        effects = fc.load_effects()
+        effects["read_only_inline"] = list(effects["read_only_inline"]) + [
+            {"pipeline": "demo", "task": "lint-test", "taskspec_sha256": digest},
+        ]
+        self.assertFalse(fc.is_side_effect({"name": "lint-test", "taskSpec": spec}, effects, "demo"))
+        changed = {"steps": [{"name": "look", "image": "alpine:3.20", "script": "true\n# edited\n"}]}
+        self.assertNotEqual(fc.taskspec_digest(changed), digest)
+        self.assertTrue(fc.is_side_effect({"name": "lint-test", "taskSpec": changed}, effects, "demo"))
+        push = {"steps": [{"name": "look", "image": "alpine:3.20", "script": "git push\n"}]}
+        writing = dict(effects)
+        writing["read_only_inline"] = [
+            {"pipeline": "demo", "task": "lint-test", "taskspec_sha256": fc.taskspec_digest(push)},
+        ]
+        self.assertTrue(fc.is_side_effect({"name": "lint-test", "taskSpec": push}, writing, "demo"))
+
+    def test_side_effect_list_is_consulted(self) -> None:
+        task = ref("smoke-echo", "bifrost-smoke-echo")
+        effects = fc.load_effects()
+        self.assertFalse(fc.is_side_effect(task, effects, "demo"))
+        forced = dict(effects)
+        forced["side_effect"] = list(effects["side_effect"]) + ["bifrost-smoke-echo"]
+        self.assertTrue(fc.is_side_effect(task, forced, "demo"))
+
+    def test_flex_query_fixture_is_the_known_gap(self) -> None:
+        fixture = FIXTURES.parent / "flex-query" / "k8s" / "cicd" / "pipeline-build.yaml"
+        misses = fc.violations_in_file(fixture, "bifrost-platform-plugin-flex-query")
+        message = (
+            "bifrost-platform-plugin-flex-query/bifrost-build-flex-query: "
+            "kaniko is not dominated by the freeze check"
+        )
+        self.assertEqual(misses, [message])
+        hard, known = fc.split_known_gaps(misses)
+        self.assertEqual(hard, [])
+        self.assertEqual(known, [message])
+        extra = misses + ["bifrost-build-flex-query: other is not dominated by the freeze check"]
+        hard, known = fc.split_known_gaps(extra)
+        self.assertEqual(hard, ["bifrost-build-flex-query: other is not dominated by the freeze check"])
+        self.assertEqual(len(known), 1)
+        gap = fc.load_known_gaps()[0]
+        self.assertEqual(gap["name"], "flex-query-kaniko-not-dominated")
+        self.assertEqual(gap["date"], "2026-10-11")
+
+
+class CheckerGapTests(unittest.TestCase):
+    def _run(self, *args: str) -> subprocess.CompletedProcess[str]:
+        env = os.environ.copy()
+        env["FLEX_QUERY_ROOT"] = str(FIXTURES.parent / "flex-query")
+        env.pop("BIFROST_WORKSPACE", None)
+        return subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "check-release-chain.py"), *args],
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=ROOT,
+        )
+
+    def test_known_gap_fails_unless_the_flag_is_set(self) -> None:
+        message = (
+            "bifrost-platform-plugin-flex-query/bifrost-build-flex-query: "
+            "kaniko is not dominated by the freeze check"
+        )
+        refused = self._run()
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn(message, refused.stdout)
+        self.assertIn("known gaps: 1", refused.stdout)
+        self.assertNotIn("check-release-chain: ok", refused.stdout)
+        allowed = self._run("--allow-known-gaps")
+        self.assertEqual(allowed.returncode, 0, allowed.stdout + allowed.stderr)
+        self.assertIn(message, allowed.stdout)
+        self.assertIn("known gaps: 1", allowed.stdout)
+        self.assertIn("check-release-chain: ok (7 window cases)", allowed.stdout)
 
 
 if __name__ == "__main__":

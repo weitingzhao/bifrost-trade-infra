@@ -8,6 +8,7 @@ Slice C verifies the un-freeze signature; this file only reserves the shape.
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import re
@@ -162,6 +163,10 @@ def failure_from_http(exc: BaseException) -> ReadError:
         if exc.code == 404:
             return ReadError("404")
         return ReadError(f"HTTP {exc.code}")
+    if isinstance(exc, http.client.IncompleteRead):
+        return ReadError("truncated body")
+    if isinstance(exc, UnicodeDecodeError):
+        return ReadError("invalid UTF-8")
     if isinstance(exc, (TimeoutError, socket.timeout)):
         return ReadError("timeout")
     if isinstance(exc, urllib.error.URLError):
@@ -173,30 +178,51 @@ def failure_from_http(exc: BaseException) -> ReadError:
         return ReadError(f"HTTP transport ({type(reason).__name__})")
     if isinstance(exc, json.JSONDecodeError):
         return ReadError("unparsable response")
-    if isinstance(exc, OSError):
-        return ReadError(f"read error ({type(exc).__name__})")
+    if isinstance(exc, FileNotFoundError):
+        return ReadError("missing CA")
     return ReadError(f"read error ({type(exc).__name__})")
 
 
-def load_freeze() -> ReadError | dict:
+def _load_freeze() -> ReadError | dict:
     if not os.path.exists(TOKEN_PATH):
         return ReadError("no service account token")
     try:
         token = Path(TOKEN_PATH).read_text(encoding="utf-8").strip()
+    except UnicodeDecodeError as exc:
+        return failure_from_http(exc)
+    except OSError as exc:
+        return ReadError(f"read error ({type(exc).__name__})")
+    if not os.path.exists(CA_PATH):
+        return ReadError("missing CA")
+    try:
+        ctx = ssl.create_default_context(cafile=CA_PATH)
+    except ssl.SSLError:
+        return ReadError("corrupt CA")
     except OSError as exc:
         return failure_from_http(exc)
     req = urllib.request.Request(FREEZE_URL, headers={"Authorization": "Bearer " + token})
-    ctx = ssl.create_default_context(cafile=CA_PATH)
     try:
         with urllib.request.urlopen(req, context=ctx, timeout=READ_TIMEOUT_S) as resp:
-            raw = resp.read().decode()
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError) as exc:
+            raw_bytes = resp.read()
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError, http.client.IncompleteRead) as exc:
+        return failure_from_http(exc)
+    try:
+        raw = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
         return failure_from_http(exc)
     try:
         doc = json.loads(raw)
     except json.JSONDecodeError as exc:
         return failure_from_http(exc)
     return data_from_envelope(doc)
+
+
+def load_freeze() -> ReadError | dict:
+    """Read the ConfigMap. Every read or decode failure is a ReadError, never a traceback."""
+    try:
+        return _load_freeze()
+    except Exception as exc:  # noqa: BLE001 — fail closed; the refusal line is the output
+        return failure_from_http(exc)
 
 
 def main() -> int:

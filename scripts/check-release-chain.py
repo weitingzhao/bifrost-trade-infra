@@ -124,7 +124,23 @@ def load_task_decide():
     return ns["decide"]
 
 
-def main() -> int:
+def external_pipeline_files() -> list[tuple[str, Path]]:
+    """(repo, yaml) for pipelines this checker already locates outside this repository.
+
+    Today that is only flex-query. The file may be a sibling checkout or a fixture
+    pointed at by FLEX_QUERY_ROOT. The dominance label uses the repo name.
+    """
+    paths = collect_build_deliver_pipeline_paths()
+    flex = paths.get("bifrost-build-flex-query")
+    if flex is None:
+        return []
+    return [("bifrost-platform-plugin-flex-query", flex)]
+
+
+def main(argv: list[str] | None = None) -> int:
+    failures.clear()
+    args = list(sys.argv[1:] if argv is None else argv)
+    allow_known_gaps = "--allow-known-gaps" in args
     task_decide = load_task_decide()
     cases = [
         (None, "bifrost-deliver-research"),
@@ -161,6 +177,13 @@ def main() -> int:
     for msg in freeze_chain.violations_under(ROOT / "k8s/cicd/tekton"):
         check(False, msg)
 
+    external: list[str] = []
+    for repo, path in external_pipeline_files():
+        external.extend(freeze_chain.violations_in_file(path, repo))
+    hard_external, known = freeze_chain.split_known_gaps(external)
+    for msg in hard_external:
+        check(False, msg)
+
     mirror = (ROOT / "k8s/cicd/tekton/task-gitea-mirror-sync.yaml").read_text()
     check("expectSha" in mirror and "git/commits" in mirror, "mirror-sync does not poll for the SHA")
 
@@ -188,8 +211,13 @@ def main() -> int:
         proc = subprocess.run(["bash", "-n", str(ROOT / script)], capture_output=True, text=True)
         check(proc.returncode == 0, f"bash -n {script} failed: {proc.stderr.strip()}")
 
+    if known:
+        print("\n".join(known))
+        print(f"known gaps: {len(known)}")
     if failures:
         print("\n".join(failures))
+        return 1
+    if known and not allow_known_gaps:
         return 1
     print(f"check-release-chain: ok ({len(cases)} window cases)")
     return 0
