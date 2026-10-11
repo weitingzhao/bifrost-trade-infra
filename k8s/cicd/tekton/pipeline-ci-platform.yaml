@@ -2,7 +2,7 @@
 # Monorepo: Go API (api/) + TypeScript Console (console/) + spine check.
 # The Console imports @bifrost/ui from its sibling checkout (file:../../bifrost-ui,
 # tsconfig paths → bifrost-ui/dist), so bifrost-ui is cloned and built first.
-# Lightweight: clone → go test → npm type-check → check-spine →
+# Lightweight: clone → go test → console type-check, lint, test and build → check-spine →
 # ops-context parity against the infra copies. No deploy.
 apiVersion: tekton.dev/v1
 kind: Pipeline
@@ -14,7 +14,7 @@ metadata:
     bifrost.io/layer: L1
 spec:
   description: >-
-    CI gate for bifrost-platform — go test + npm type-check + check-spine
+    CI gate for bifrost-platform — go test + console type-check, lint, test and build + check-spine
     + ops-context parity against the infra overlay copies.
     Triggered by Gitea push webhook or manual Console run.
     L1 control plane: conservative gate, must not break ops visibility.
@@ -116,6 +116,11 @@ spec:
 
               echo "==> Go API tests passed"
     - name: test-console
+      # 3 × 157s = 471s, rounded up to 8m0s. TD-313.
+      # 157s is the slowest full step measured in node:20-slim at --cpus=2
+      # and --memory=4g on 2026-10-11 (the other run was 150s). The 8m0s
+      # includes scheduling and image pull.
+      timeout: 8m0s
       runAfter: [clone, clone-ui]
       workspaces:
         - name: source
@@ -124,11 +129,13 @@ spec:
         workspaces:
           - name: source
         steps:
-          - name: npm-type-check
+          - name: typecheck-lint-test-build
             image: node:20-slim
             computeResources:
+              # The CPU request equals the limit: the suite was measured with
+              # two CPUs, and with a smaller share the same tests time out.
               requests:
-                cpu: 500m
+                cpu: "2"
                 memory: 1Gi
               limits:
                 cpu: "2"
@@ -147,12 +154,23 @@ spec:
               cd "${ws}/bifrost-platform/console"
 
               echo "==> npm ci"
-              npm ci 2>/dev/null || npm install
+              npm ci --no-audit --no-fund
 
               echo "==> tsc --noEmit"
               npx tsc --noEmit
 
-              echo "==> Console type-check passed"
+              echo "==> npm run lint"
+              npm run lint
+
+              echo "==> vitest run"
+              # The pod sees the node's cores; the limit is two CPUs.
+              # Measured 2026-10-11: without it, 7 of 814 tests time out.
+              npx vitest run --maxWorkers=2
+
+              echo "==> npm run build"
+              npm run build
+
+              echo "==> Console type-check, lint, tests and build passed"
     - name: check-spine
       runAfter: [clone]
       workspaces:
