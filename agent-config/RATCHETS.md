@@ -305,5 +305,14 @@
 
 - **做什么**：同一252日历格子/三名756唯一行；历史as_of、180–220期限及完整strike目录，标准2call+2put才列需bars；current/分页截断/权限错误/未核实均不等于未挂牌，挂牌不等于有效IV。occupied父键/held raw保持，observed rate 0有效、missing不是0；一个远父点联合改善90/180，备用和SPY两日闸门分开，区间拆分不能增加目标日。
 - **放哪**：`scripts/audit-iv-depth-plan.py`、`scripts/test_iv_depth_plan.py`（10 tests），`docs/audits/TD-172-142_DEPTH_60_PLAN_2026-10-10.md`。
-- **强度**：offline manual audit；新测试及既有joint suites24 PASS，ruff PASS；91 GET +既有1日历史证明，DEV API同as_of只读一致；原17913raw/232ATM/20985来源全值保持。新批写入口/220HTTP预算防线仍未实现或执行，须在Owner确认新清单后补，不冒称运行防线已上线。
-- **覆盖**：TD-172/142；整日缺失/重复日膨胀分母、把目录当行情、长期限单点冒充有效session、SPY零改善仍扩大；拟议主64父键和9备用不是授权，未发布/未扩回填。
+- **强度**：offline manual audit；新测试及既有joint suites24 PASS，ruff PASS；91 GET +既有1日历史证明，DEV API同as_of只读一致；原17913raw/232ATM/20985来源全值保持。只读盘点时尚无新批写入口；Owner随后已批准并完成受限入口/220HTTP防线及主64父键执行，见下文 approved depth batch and recovery；常规运行防线仍未发布。
+- **覆盖**：TD-172/142；整日缺失/重复日膨胀分母、把目录当行情、长期限单点冒充有效session、SPY零改善仍扩大；盘点本身不是写授权；后续主64父键/必要9备用的明确授权和实际执行另见下文；未发布、未超批准范围。
+
+
+### TD-172 / TD-142 approved depth batch and recovery
+
+- **做什么**：独立冻结depth manifest/108区间292目标日（含备用）/7 phase；180–220 DTE，完整historical as_of成员校验。220 total/90 reference/130 bars的fsync前置HTTP日志与跨phase计数；SPY180无改善即停，上名未达60不进入下一名，备用只在主范围不足60时允许。主键差集/append-only保留现有值和合法0；合并范围外bar丢弃。
+- **恢复防线**：vendor I/O前结束只读事务，保留会话advisory lock；closed连接不rollback掩盖stopped回执；仅复用已对账同phase历史reference。accepted-receipt重放要求原回执SHA、finished状态、已验收phase及逐ticker空日数量与DB差集一致；未挂牌/unknown/invalid-price/删除行/中断不能假作终态空日，不造零数据。
+- **放哪**：Plugin `ingest/depth_pilot.py` / `ingest/long_pilot.py` / `scripts/run_depth_pilot.py`；`tests/test_depth_pilot.py`（9 tests）、事务恢复tests（3），既有historical/append/zero/idempotence防线保持；运行验收 `docs/audits/TD-172-142_DEPTH_EXECUTION_2026-10-10.md`。
+- **强度**：隔离分支 `6a5e209` / `7c6b118` / `bc1c8c9`，make lint PASS、全插件1315 passed/9 skipped、Research repair/cone16 passed；获批主64父键限定执行+四阶段SQL/API/DEV PASS。247 raw/64 ATM/129来源；HTTP152/220；accepted-receipt raw重放0HTTP/0新增，9证实空日仍留缺口；feature重放0，186574/1950/94798旧记录全值保持，7/30/60序列保持。9备用未用，无发布。
+- **覆盖**：TD-172/142；跨阶段预算重置/并发越限、SPY零改善仍扩大、已达到60仍取备用、HTTP空等于合法0、15s事务空闲超时后假running、重复请求已证明空日、当前目录穿越历史。只在受限probe中加载隔离代码，不宣称常规producer/报警已部署；runtime告警回执NOT VERIFIED，60是展示门槛而非全历史完整。
