@@ -613,7 +613,7 @@ print("policy    %s" % (s.get("policy_id") or "none"))
 print("valid     %s%s" % (s.get("valid"), "" if not s.get("expires_at") else "  (expires %s, %dd %dh left)" % (s["expires_at"], left // 86400, left % 86400 // 3600)))
 print("allow     %s" % (", ".join(s.get("allow") or []) or "-"))
 print("frozen    %s%s" % (s.get("frozen"), "" if not s.get("frozen") else "  (%s, at %s)" % (s.get("freeze_reason") or "-", s.get("frozen_at") or "?")))
-print("anchor    %s" % (s.get("anchor_fingerprint") or "none compiled in: nothing auto-approves"))
+print("anchor    %s" % (s.get("anchor_fingerprint") or "none compiled in: nothing auto-approves, and freeze is refused (nobody could lift it)"))
 for r in s.get("reasons") or []:
     print("reason    %s" % r)
 '

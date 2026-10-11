@@ -141,7 +141,7 @@ PROD / platform-prod / research 的发布（级别 C）等 Owner 批，STG 与�
 
 ## The release owner key
 
-冻结和级别 C 的自动放行用的是同一把 Owner 钥匙。平台不读磁盘上的私钥，只验编译进 `releasepolicy.OwnerKeyFingerprint` 的指纹（`bifrost-platform/api/internal/releasepolicy/anchor.go`）。指纹为空时，策略签名和解冻签名都不被接受，`policy status` 的 anchor 一行是 `none compiled in`，自动放行不会发生。这时 `freeze` 也不提供：平台和 `release.sh freeze` 都拒绝，因为设下去没有签名解得开。
+冻结和级别 C 的自动放行用的是同一把 Owner 钥匙。平台不读磁盘上的私钥，只验编译进 `releasepolicy.OwnerKeyFingerprint` 的指纹（`bifrost-platform/api/internal/releasepolicy/anchor.go`）。指纹为空时，策略签名和解冻签名都不被接受，`policy status` 的 anchor 一行是 `none compiled in: nothing auto-approves, and freeze is refused (nobody could lift it)`，自动放行不会发生。这时 `freeze` 也不提供：平台和 `release.sh freeze` 都拒绝，因为设下去没有签名解得开。
 
 钥匙路径和 `policy sign` 的签法见上面「签名」。钥匙文件还不在时，`policy sign` 打印的生成命令是：
 

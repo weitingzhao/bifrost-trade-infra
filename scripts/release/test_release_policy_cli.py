@@ -106,6 +106,7 @@ class ReleasePolicyCLITests(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn("policy    none", res.stdout)
         self.assertIn("nothing auto-approves", res.stdout)
+        self.assertIn("freeze is refused", res.stdout)
         method, path, _, headers = self.fake.requests[-1]
         self.assertEqual((method, path), ("GET", "/api/v1/release-policy"))
         self.assertEqual(headers.get("Authorization"), "Bearer view-token")
