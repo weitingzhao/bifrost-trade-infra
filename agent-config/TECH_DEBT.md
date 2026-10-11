@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
 **未结 89 项**：P0 0 · P1 8 · P2 31 · P3 50；要你批的 29 项（从总览表的审批列算）。
@@ -1466,8 +1467,8 @@
 
 **P2 · infra · Prometheus, Alertmanager and Grafana keep their data in emptyDir: a node drain erases the metric history (10 days), the silences and Grafana's own database**
 
-- **状态**：观察中（到 10-11 06:05 UTC，看 Prometheus 日志里有没有 WAL、compaction 或 `corrupt` 报错：TSDB 在 NFS 上，上游不支持，启动时自己会打一条 WARN。有报错就改用固定节点的 local-path；没有就进待你签收）
-- **验收结果**：PASS 2026-10-10 c6fa1c1（Owner 06:04Z helm upgrade，revision 17；`check_monitoring_persistence.py --live` 退出 0，两个卷 Bound 在 `nfs-hot`；06:09:34Z 用 `delete_pod` 删掉 Prometheus Pod，新 Pod 在 ubt-k3s-04 起来，WAL 重放 0.9 秒，`count(up offset 4m)` 仍返回 75，最早样本仍是 06:04:28Z）
+- **状态**：待你签收
+- **验收结果**：PASS 2026-10-10 c6fa1c1（Owner 06:04Z helm upgrade，revision 17；`check_monitoring_persistence.py --live` 退出 0，两个卷 Bound 在 `nfs-hot`；06:09:34Z 用 `delete_pod` 删掉 Prometheus Pod，新 Pod 在 ubt-k3s-04 起来，WAL 重放 0.9 秒，`count(up offset 4m)` 仍返回 75，最早样本仍是 06:04:28Z）；观察期收口 PASS 2026-10-11 1d69669（14:01Z 只读核查：Pod 自 10-10 06:09:43Z 起运行 31 小时，重启 0 次；`logs --since=30h` 读到 114 行，全部 `level=INFO`，WARN / ERROR 0 行，`corrupt` / `stale file handle` / `no space` 0 命中，compaction 与 WAL checkpoint 记录 50 行；`prometheus_tsdb_compactions_total` 20，`compactions_failed_total`、`wal_corruptions_total`、`head_truncations_failed_total`、`wal_truncations_failed_total` 均为 0；`count(up offset 20h)` 75；`check_monitoring_persistence.py --live` 退出 0）
 - **Claim**: `values-kube-prometheus.yaml` sets `retention: 10d` and no `storageSpec`, so the operator gives Prometheus an emptyDir. That survives a node reboot (same pod) but not an eviction. The rolling reboot of 2026-10-10 drained ubt-k3s-01 with `--delete-emptydir-data`; the new Prometheus pod started 05:32:13Z on ubt-k3s-06 with an empty TSDB: at 05:54Z `count(up offset 30m)` returned nothing, while 36-hour windows had answered at 04:41Z. Alertmanager (`alertmanager-db`) and Grafana (`storage`) are emptyDir too. Same class as TD-282 (registry). The check before the run read PodDisruptionBudgets and did not look at emptyDir state.
 - **Evidence**: `bifrost-trade-infra/scripts/k3s/values-kube-prometheus.yaml:41` — `retention: 10d`, no `storageSpec`; pod `prometheus-kube-prometheus-stack-prometheus-0` volume `prometheus-kube-prometheus-stack-prometheus-db emptyDir {}`
 - **Fix**: `prometheusSpec.storageSpec.volumeClaimTemplate` and `alertmanagerSpec.storage` on a PersistentVolume (nfs-cold like the registry, or local-path pinned to one node); Grafana persistence, or dashboards only from provisioning. Helm upgrade by the Owner.
