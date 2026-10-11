@@ -129,7 +129,10 @@ def declare_step(
         fields["after"] = after
     if round is not None:
         fields["round"] = round
-    usual = usual_for(root, kind) if watch in {"process", "none"} else None
+    if watch in {"process", "none", "record"}:
+        usual = usual_for(root, kind, measured=watch != "record")
+    else:
+        usual = None
     if usual is not None:
         fields["usual_s"], fields["usual_basis"] = usual
     batch = [fields]

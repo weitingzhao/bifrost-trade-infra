@@ -27,8 +27,8 @@ _KIND_NAMES = {
 }
 
 
-def usual_for(root: Path, kind: str) -> tuple[float, str] | None:
-    samples = _measured(root, kind)
+def usual_for(root: Path, kind: str, measured: bool = True) -> tuple[float, str] | None:
+    samples = _measured(root, kind) if measured else []
     if len(samples) >= 3:
         last = samples[:20]
         return _median([item[1] for item in last]), "measured"
@@ -72,7 +72,11 @@ def _anomalous(view, step) -> bool:
     for index, event in enumerate(view.valid):
         if event.get("step_id") != step.step_id:
             continue
-        if event["type"] in {"step_started", "step_seen"} and index in view.backwards:
+        if event["type"] in {"step_started", "step_seen", "step_finished"} and index in view.backwards:
+            return True
+    finished = step.finished or {}
+    if step.started_at is not None and finished.get("at") is not None:
+        if finished["at"] - step.started_at <= 0:
             return True
     return False
 

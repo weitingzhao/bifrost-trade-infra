@@ -33,11 +33,15 @@ def fold(logs, observer_log, now, logs_unread=0) -> dict:
     for item in logs or []:
         prepared.append(_prepare(item))
     built = [_fold_one(item, rounds, now) for item in prepared]
+    # The design does not say how works are ordered. work_id keeps a permutation
+    # of the input logs from changing the document.
+    built.sort(key=lambda work: work["public"]["work_id"])
     owner_all, merged = _owner_all(built, rounds, now)
     ball = _ball(built, merged, logs_unread)
     feed = []
     for work in built:
         feed.extend(work["feed"])
+    feed.sort(key=lambda row: (row["at"], row["work"], row["step"], row["text"], row["who"], row["state"]))
     clock_behind = any(
         work["max_at"] is not None and now < work["max_at"] - CLOCK_SKEW_S for work in built
     )
@@ -81,9 +85,7 @@ def _rounds(observer_log) -> list:
     else:
         events = []
     view = classify(events, observer=True)
-    rounds = list(view.rounds)
-    rounds.sort(key=lambda event: (event["ended_at"], event.get("seq") or 0))
-    return rounds
+    return list(view.rounds)
 
 
 def _latest_round(rounds: list) -> dict | None:
@@ -442,7 +444,7 @@ def _record_step(step, view: View, rounds, now, work_id):
         return public, "waiting"
     key = f"step:{work_id}/{step.step_id}"
     reason = _confirm_reason(key, rounds, now)
-    last = _record_last_seen(step, rounds)
+    last = _record_last_seen(step, rounds, work_id)
     if reason is not None:
         if last is not None:
             public["last_seen"] = last
@@ -470,12 +472,28 @@ def _record_step(step, view: View, rounds, now, work_id):
     return public, "running"
 
 
-def _record_last_seen(step, rounds) -> dict | None:
+def _last_confirmed_at(rounds, key: str):
+    """ended_at of the last appended round whose confirmed list contains key."""
+    found = None
+    for event in rounds:
+        confirmed = event.get("confirmed") or []
+        if key in confirmed:
+            found = event["ended_at"]
+    return found
+
+
+def _observation_at(rounds, key: str, obs: dict):
+    confirmed = _last_confirmed_at(rounds, key)
+    if confirmed is not None:
+        return confirmed
+    return obs["sampled_at"]
+
+
+def _record_last_seen(step, rounds, work_id) -> dict | None:
     if not step.record_obs:
         return None
     latest = step.record_obs[-1]
-    latest_round = _latest_round(rounds)
-    at = latest_round["ended_at"] if latest_round is not None else latest["sampled_at"]
+    at = _observation_at(rounds, f"step:{work_id}/{step.step_id}", latest)
     if "condition" in latest:
         ref_state = latest["condition"]
     elif latest.get("found") is False:
@@ -642,32 +660,42 @@ def _merged_record(key, members, built, rounds, now):
     observations = []
     for work, wait in open_members:
         for obs in wait.seen:
-            observations.append((obs["sampled_at"], obs.get("seq") or 0, obs, work, wait))
+            observations.append((obs["sampled_at"], obs, work, wait))
     reason = _confirm_reason(f"{key[0]}:{key[1]}", rounds, now)
-    if not observations or reason is not None:
-        item = _unknown_record_item(key, open_members, observations, rounds, reason or "not_confirmed")
+    if not observations:
+        item = _unknown_record_item(key, open_members, None, rounds, reason or "not_confirmed")
         return {"status": "unknown", "declared": False, "can_act": "unknown", "reason": item["reason"]}, item
-    observations.sort(key=lambda row: (row[0], row[1]))
-    latest_at = observations[-1][0]
+    latest_at = max(row[0] for row in observations)
     latest = [row for row in observations if row[0] == latest_at]
-    states = {row[2]["ref_state"] for row in latest}
-    if len(states) > 1:
-        item = _unknown_record_item(key, open_members, observations, rounds, "conflicting_observations")
+    if len({_obs_content(row[1]) for row in latest}) != 1:
+        item = _unknown_record_item(key, open_members, None, rounds, "conflicting_observations")
         return {
             "status": "unknown",
             "declared": False,
             "can_act": "unknown",
             "reason": "conflicting_observations",
         }, item
-    obs = latest[-1][2]
+    obs = latest[0][1]
+    if reason is not None:
+        item = _unknown_record_item(key, open_members, obs, rounds, reason)
+        return {"status": "unknown", "declared": False, "can_act": "unknown", "reason": item["reason"]}, item
     state = obs["ref_state"]
     if state in {"approved", "running"}:
         return {"status": "in_flight", "declared": False, "ref_state": state}, None
     if state in {"pending", "open", "unknown"}:
         item = _yes_record_item(key, open_members, obs, rounds)
         return {"status": "yes", "declared": False, "can_act": "yes", "ref_state": state}, item
-    item = _unknown_record_item(key, open_members, observations, rounds, "not_confirmed")
+    item = _unknown_record_item(key, open_members, obs, rounds, "not_confirmed")
     return {"status": "unknown", "declared": False, "can_act": "unknown"}, item
+
+
+def _obs_content(obs: dict):
+    """What an exact sampled_at tie is allowed to disagree about."""
+    return (
+        obs.get("ref_state"),
+        obs["expires_at"] if "expires_at" in obs else None,
+        obs["number"] if "number" in obs else None,
+    )
 
 
 def _yes_record_item(key, members, obs, rounds) -> dict:
@@ -686,16 +714,17 @@ def _yes_record_item(key, members, obs, rounds) -> dict:
         item["deadline_source"] = "record"
     if "number" in obs:
         item["number"] = obs["number"]
-    latest_round = _latest_round(rounds)
-    if latest_round is not None:
-        item["last_seen"] = {"ref_state": ref_state, "at": latest_round["ended_at"]}
+    item["last_seen"] = {
+        "ref_state": ref_state,
+        "at": _observation_at(rounds, f"{key[0]}:{key[1]}", obs),
+    }
     for work, wait in members:
         holds = _holds(wait.wait_id, work["view"])
         item["works"].append(_work_piece(work, wait, holds))
     return item
 
 
-def _unknown_record_item(key, members, observations, rounds, reason: str) -> dict:
+def _unknown_record_item(key, members, obs, rounds, reason: str) -> dict:
     if reason not in REASONS:
         reason = "not_confirmed"
     item = {
@@ -707,18 +736,17 @@ def _unknown_record_item(key, members, observations, rounds, reason: str) -> dic
         "reply_needed": False,
         "works": [],
     }
-    if observations and reason != "conflicting_observations":
-        observations.sort(key=lambda row: (row[0], row[1]))
-        obs = observations[-1][2]
+    if obs is not None and reason != "conflicting_observations":
         item["ref_state"] = obs["ref_state"]
         if "expires_at" in obs:
             item["deadline"] = obs["expires_at"]
             item["deadline_source"] = "record"
         if "number" in obs:
             item["number"] = obs["number"]
-        latest_round = _latest_round(rounds)
-        at = latest_round["ended_at"] if latest_round is not None else obs["sampled_at"]
-        item["last_seen"] = {"ref_state": obs["ref_state"], "at": at}
+        item["last_seen"] = {
+            "ref_state": obs["ref_state"],
+            "at": _observation_at(rounds, f"{key[0]}:{key[1]}", obs),
+        }
     for work, wait in members:
         holds = _holds(wait.wait_id, work["view"])
         item["works"].append(_work_piece(work, wait, holds))
@@ -728,7 +756,11 @@ def _unknown_record_item(key, members, observations, rounds, reason: str) -> dic
 def _ball(built: list, merged: dict, logs_unread: int) -> dict:
     if logs_unread > 0:
         ball = {"holder": "unknown", "why": "fold_incomplete"}
-        times = [work["max_at"] for work in built if work["max_at"] is not None]
+        times = []
+        for work in built:
+            for event in work["view"].valid:
+                if event["type"] not in {"note", "tail_repaired"}:
+                    times.append(event["at"])
         if times:
             ball["since"] = max(times)
         return ball
@@ -766,11 +798,10 @@ def _pick(judgments: list, holder: str) -> dict:
 
 def _judge_work(work: dict, merged: dict) -> dict:
     view: View = work["view"]
-    since = view.max_at
     steps = work["public"]["steps"]
     flags = {step.step_id: flag for step, _public, flag in work["flags"]}
 
-    def pack(holder, why, basis=None):
+    def pack(holder, why, since, basis=None):
         item = {"holder": holder, "why": why}
         if since is not None:
             item["since"] = since
@@ -778,28 +809,93 @@ def _judge_work(work: dict, merged: dict) -> dict:
             item["basis"] = basis
         return item
 
-    if any(step["state"] in {"running", "slow", "quiet"} for step in steps):
-        return pack("agents", "step_running")
-    if any(flags.get(step["step_id"]) == "record_created" and step["state"] == "waiting" for step in steps):
-        return pack("agents", "record_created")
+    running = [step for step in steps if step["state"] in {"running", "slow", "quiet"}]
+    if running:
+        return pack("agents", "step_running", _running_since(view, running))
+    created = [
+        step for step in steps
+        if flags.get(step["step_id"]) == "record_created" and step["state"] == "waiting"
+    ]
+    if created:
+        return pack("agents", "record_created", _record_created_since(view, created))
     if _any_in_flight(view, merged):
-        return pack("agents", "record_in_flight")
+        return pack("agents", "record_in_flight", _substantive(view))
     if work["invalid"]:
-        return pack("unknown", "log_invalid")
+        return pack("unknown", "log_invalid", _substantive(view))
     if any(step["state"] == "unknown" for step in steps):
-        return pack("unknown", "step_unknown")
+        return pack("unknown", "step_unknown", _substantive(view))
     if _any_owner_unknown(view, merged):
-        return pack("unknown", "owner_item_unknown")
-    if _next_not_sent(view, merged, steps):
-        return pack("coordinator", "next_not_sent")
+        return pack("unknown", "owner_item_unknown", _substantive(view))
+    nxt = _next_waiting(view, merged, steps)
+    if nxt is not None:
+        return pack("coordinator", "next_not_sent", nxt.declared_at)
     yes = _yes_waits(view, merged)
     if yes:
         basis = "declared" if all(item["declared"] for item in yes) else None
-        return pack("owner", "owner_can_act", basis)
+        return pack("owner", "owner_can_act", _owner_since(view, merged), basis)
     pending = _open_merged(view, merged)
     if pending and all(item["status"] == "not_yet" for item in pending):
-        return pack("coordinator", "owner_item_not_ready")
-    return pack("coordinator", "ended_awaiting_check")
+        return pack("coordinator", "owner_item_not_ready", _not_yet_since(view, merged))
+    return pack("coordinator", "ended_awaiting_check", _substantive(view))
+
+
+def _substantive(view: View):
+    """Latest valid event that is not a note and not a tail repair."""
+    times = [event["at"] for event in view.valid if event["type"] not in {"note", "tail_repaired"}]
+    return max(times) if times else None
+
+
+def _running_since(view: View, running: list):
+    times = []
+    for public in running:
+        step = view.steps[public["step_id"]]
+        if step.watch == "record":
+            found = None
+            for obs in step.record_obs:
+                if obs.get("condition") in {"True", "False"}:
+                    continue
+                if "started_at" in obs:
+                    found = obs["at"]
+            if found is not None:
+                times.append(found)
+        elif step.started_at is not None:
+            times.append(step.started_at)
+    return min(times) if times else _substantive(view)
+
+
+def _record_created_since(view: View, created: list):
+    times = []
+    for public in created:
+        step = view.steps[public["step_id"]]
+        for obs in step.record_obs:
+            if obs.get("found") and "started_at" not in obs and "condition" not in obs:
+                times.append(obs["at"])
+    return max(times) if times else _substantive(view)
+
+
+def _owner_since(view: View, merged: dict):
+    times = []
+    for wait in view.waits.values():
+        status = _wait_status(wait, merged)
+        if status is None or status.get("status") != "yes":
+            continue
+        if status.get("declared"):
+            times.append(wait.yes_at if wait.yes_at is not None else wait.opened_at)
+            continue
+        for obs in reversed(wait.seen):
+            if obs.get("ref_state") in {"pending", "open", "unknown"}:
+                times.append(obs["at"])
+                break
+    return max(times) if times else _substantive(view)
+
+
+def _not_yet_since(view: View, merged: dict):
+    times = []
+    for wait in view.waits.values():
+        status = _wait_status(wait, merged)
+        if status and status.get("status") == "not_yet":
+            times.append(wait.opened_at)
+    return max(times) if times else _substantive(view)
 
 
 def _wait_status(wait, merged: dict) -> dict | None:
@@ -842,8 +938,10 @@ def _open_merged(view: View, merged: dict) -> list:
     return found
 
 
-def _next_not_sent(view: View, merged: dict, steps: list) -> bool:
+def _next_waiting(view: View, merged: dict, steps: list):
+    """The qualifying step whose declaration is the latest, or None."""
     by_id = {step["step_id"]: step for step in steps}
+    chosen = None
     for step_id in view.step_order:
         step = view.steps[step_id]
         public = by_id.get(step_id)
@@ -863,8 +961,9 @@ def _next_not_sent(view: View, merged: dict, steps: list) -> bool:
             target = by_id.get(step.after)
             if target is None or target["state"] not in {"done", "failed"}:
                 continue
-        return True
-    return False
+        if chosen is None or step.declared_at >= chosen.declared_at:
+            chosen = step
+    return chosen
 
 
 def select_logs(items: list, limit: int = 200) -> tuple[list, int]:

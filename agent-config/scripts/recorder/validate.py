@@ -167,6 +167,7 @@ class Wait:
     settled: bool = False
     settled_how: str | None = None
     terminal_state: str | None = None
+    yes_at: float | None = None
 
 
 @dataclass
@@ -723,6 +724,7 @@ def _apply(view: View, event: dict, index: int) -> None:
             blocks_text=event.get("blocks_text"),
             after_text=event.get("after_text"),
             after=event.get("after"),
+            yes_at=at if event.get("can_act") == "yes" else None,
         )
         view.waits[wait.wait_id] = wait
         view.wait_order.append(wait.wait_id)
@@ -739,6 +741,7 @@ def _apply(view: View, event: dict, index: int) -> None:
     if kind == "owner_wait_ready":
         wait = view.waits[event["wait_id"]]
         wait.can_act = "yes"
+        wait.yes_at = at
         return
     if kind == "owner_wait_closed":
         wait = view.waits[event["wait_id"]]

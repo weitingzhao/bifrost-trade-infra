@@ -5,6 +5,7 @@ Logs here are synthetic. Nothing starts a process or reads a platform.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -414,7 +415,7 @@ def test_read_errors_make_the_item_unknown_and_keep_the_last_state():
         assert item["can_act"] == "unknown"
         assert item["reason"] == error
         assert item["ref_state"] == "pending"
-        assert item["last_seen"] == {"ref_state": "pending", "at": 20}
+        assert item["last_seen"] == {"ref_state": "pending", "at": 10}
 
 
 def test_no_credential_is_unknown():
@@ -699,7 +700,7 @@ def test_ball_rows_and_synthesis_each_carry_since():
     running.add("step_seen", "wrapper", step_id=P, run_id=RUN, sampled_at=running.at, alive=True, output_bytes=1)
     doc = fold_one(running.events, running.at)
     assert doc["ball"]["holder"] == "agents" and doc["ball"]["why"] == "step_running"
-    assert doc["ball"]["since"] == running.at
+    assert doc["ball"]["since"] == 7
     unknown = bare()
     unknown.add("step_declared", "coordinator", step_id=P, name="n", kind="other", who="C", watch="process")
     unknown.add("step_started", "wrapper", at=10, step_id=P, run_id=RUN, command="echo")
@@ -977,3 +978,140 @@ def test_self_supersede_is_absent_and_the_work_stays_open():
     assert doc["works"][0]["steps"][0]["step_id"] == P
     assert doc["ball"]["holder"] == "coordinator"
     assert doc["ball"]["why"] == "next_not_sent"
+
+
+def test_the_last_appended_round_wins_even_when_its_clock_is_earlier():
+    log = LogBuilder()
+    log.add("work_opened", "coordinator", at=1, work_id=WORK, title="T")
+    log.add("owner_wait_opened", "coordinator", wait_id=WAIT_A, title="请批", ref={"kind": "approval", "id": APPR})
+    log.add("owner_wait_seen", "observer", at=90, wait_id=WAIT_A, sampled_at=90, ref_state="pending")
+    rounds = [
+        round_for(200, [f"approval:{APPR}"]),
+        round_for(100, [], [{"key": f"approval:{APPR}", "error": "timeout"}], round_id="ab12cd35"),
+    ]
+    doc = fold_one(log.events, 200, observer=rounds)
+    assert doc["owner_all"][0]["can_act"] != "yes"
+    assert doc["owner_all"][0]["reason"] == "timeout"
+
+
+def test_last_seen_at_is_the_last_successful_confirmation():
+    log = LogBuilder()
+    log.add("work_opened", "coordinator", at=1, work_id=WORK, title="T")
+    log.add(
+        "step_declared", "coordinator", step_id=R, name="发布", kind="release", who="C",
+        watch="record", locator=LOCATOR,
+    )
+    log.add("record_seen", "observer", at=90, step_id=R, sampled_at=90, found=True, uid="uid-1", started_at=80)
+    log.add("owner_wait_opened", "coordinator", wait_id=WAIT_A, title="请批", ref={"kind": "approval", "id": APPR})
+    log.add("owner_wait_seen", "observer", at=90, wait_id=WAIT_A, sampled_at=90, ref_state="pending")
+    key_step = f"step:{WORK}/{R}"
+    key_approval = f"approval:{APPR}"
+    rounds = [
+        round_for(100, [key_step, key_approval]),
+        round_for(
+            150, [],
+            [{"key": key_step, "error": "timeout"}, {"key": key_approval, "error": "timeout"}],
+            round_id="ab12cd35",
+        ),
+    ]
+    doc = fold_one(log.events, 150, observer=rounds)
+    assert step_of(doc)["last_seen"]["at"] == 100
+    assert doc["owner_all"][0]["last_seen"]["at"] == 100
+    never = [
+        round_for(
+            150, [],
+            [{"key": key_step, "error": "timeout"}, {"key": key_approval, "error": "timeout"}],
+        ),
+    ]
+    missed = fold_one(log.events, 150, observer=never)
+    assert step_of(missed)["last_seen"]["at"] == 90
+    assert missed["owner_all"][0]["last_seen"]["at"] == 90
+
+
+def test_an_exact_tie_with_different_deadlines_is_unknown():
+    def one(work_id, deadline):
+        log = LogBuilder()
+        log.add("work_opened", "coordinator", at=1, work_id=work_id, title=work_id)
+        log.add("owner_wait_opened", "coordinator", wait_id=WAIT_A, title="请批", ref={"kind": "approval", "id": APPR})
+        log.add(
+            "owner_wait_seen", "observer", at=10, wait_id=WAIT_A, sampled_at=10,
+            ref_state="pending", expires_at=deadline,
+        )
+        return {"work_id": work_id, "events": log.events}
+
+    rounds = [round_for(10, [f"approval:{APPR}"])]
+    forward = fold([one("w1", 100), one("w2", 200)], rounds, 10)
+    backward = fold([one("w2", 200), one("w1", 100)], rounds, 10)
+    assert forward["owner_all"][0]["reason"] == "conflicting_observations"
+    assert forward["owner_all"][0]["can_act"] == "unknown"
+    assert json.dumps(forward, ensure_ascii=False) == json.dumps(backward, ensure_ascii=False)
+
+
+def test_permuting_logs_does_not_change_the_document():
+    def one(work_id, at, text):
+        log = LogBuilder()
+        log.add("work_opened", "coordinator", at=at, work_id=work_id, title=work_id)
+        log.add("note", "coordinator", at=at + 1, text=text)
+        return {"work_id": work_id, "events": log.events}
+
+    left = [one("w2", 5, "later"), one("w1", 1, "earlier")]
+    right = [one("w1", 1, "earlier"), one("w2", 5, "later")]
+    assert json.dumps(fold(left, [], 6), ensure_ascii=False) == json.dumps(fold(right, [], 6), ensure_ascii=False)
+    assert [work["work_id"] for work in fold(left, [], 6)["works"]] == ["w1", "w2"]
+
+
+def test_a_finish_in_a_backwards_interval_is_not_a_sample(tmp_path):
+    _write_clean(tmp_path, "c1", 10)
+    _write_clean(tmp_path, "c2", 20)
+    back = _finished_specs(100, 90)
+    back[0] = ("coordinator", 100, {"type": "work_opened", "work_id": "back", "title": "back"})
+    save_log(tmp_path / "back", back)
+    assert usual_for(tmp_path, "implement") is None
+    barely = _finished_specs(100, 99)
+    barely[0] = ("coordinator", 100, {"type": "work_opened", "work_id": "barely", "title": "barely"})
+    save_log(tmp_path / "barely", barely)
+    assert usual_for(tmp_path, "implement") is None
+
+
+def test_a_record_step_takes_the_handwritten_usual(tmp_path):
+    events = tmp_path / "events"
+    events.mkdir()
+    status = tmp_path / "status"
+    status.mkdir()
+    (status / "tasks.json").write_text(json.dumps({
+        "works": [{"steps": [
+            {"kind": "release", "usual_min": 5},
+            {"kind": "implement", "usual_min": 9},
+        ]}],
+    }), encoding="utf-8")
+    for index, duration in enumerate((10, 20, 30)):
+        _write_clean(events, f"c{index}", duration)
+    assert usual_for(events, "implement")[1] == "measured"
+    assert usual_for(events, "implement", measured=False) == (540.0, "declared")
+    open_work(events, WORK, "T")
+    declared = declare_step(
+        events, WORK, name="发布", kind="release", who="C", watch="record", locator=LOCATOR,
+    )
+    assert declared["usual_s"] == 300
+    assert declared["usual_basis"] == "declared"
+
+
+def test_a_note_does_not_move_ball_since():
+    log = LogBuilder()
+    log.add("work_opened", "coordinator", at=1, work_id=WORK, title="T")
+    opened = fold_one(log.events, 1)
+    log.add("note", "coordinator", at=100, text="later")
+    noted = fold_one(log.events, 100)
+    assert opened["ball"] == {"holder": "coordinator", "why": "ended_awaiting_check", "since": 1}
+    assert noted["ball"] == opened["ball"]
+
+
+def test_feed_is_ordered_across_works_by_time():
+    def one(work_id, at, text):
+        log = LogBuilder()
+        log.add("work_opened", "coordinator", at=1, work_id=work_id, title=work_id)
+        log.add("note", "coordinator", at=at, text=text)
+        return {"work_id": work_id, "events": log.events}
+
+    doc = fold([one("w2", 10, "second"), one("w1", 5, "first")], [], 10)
+    assert [(row["at"], row["work"]) for row in doc["feed"]] == [(5, "w1"), (10, "w2")]
