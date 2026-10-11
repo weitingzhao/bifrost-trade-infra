@@ -187,6 +187,8 @@ def _work_public(view: View, item: dict, steps: list, withdrawn: int, eta_unsure
         public["work_ref"] = view.work_ref
     if view.closed:
         public["closed_claim"] = view.closed_claim
+    if view.closed_at is not None:
+        public["_closed_at"] = view.closed_at
     if invalid is not None:
         public["log_invalid_at"] = invalid
     if item["full"]:

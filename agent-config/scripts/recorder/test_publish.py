@@ -24,6 +24,7 @@ from model import (
     PUBLISH_MAX_OWNER_ALL,
     PUBLISH_TARGET_BYTES,
 )
+from fold import fold
 from harness import WAIT_D, WORK, LogBuilder, fold_one
 from publish import encoded, publish_view
 
@@ -256,6 +257,51 @@ def test_a_full_document_stays_inside_every_array_cap():
     if published.get("reduced", 0) >= 5:
         for work in published["works"]:
             assert set(work) <= SUMMARY_KEYS
+
+
+def test_reduction_metadata_is_inside_the_measured_bytes():
+    works = []
+    for index in range(30):
+        steps = []
+        for nth in range(20):
+            step = _step("running", note="m" * 200, command="c" * 200)
+            step["step_id"] = f"{index:04x}{nth:04x}"
+            step["name"] = "n" * 80
+            step["who"] = "w" * 80
+            steps.append(step)
+        work = _work(f"w{index:02d}", steps)
+        work["title"] = "t" * 80
+        if index == 0:
+            work["defects"] = [{"seq": seq, "reason": "unknown_field"} for seq in range(3364)]
+        works.append(work)
+    published = publish_view(_shell(works), "board")
+    assert len(encoded(published)) <= PUBLISH_TARGET_BYTES
+
+
+def test_a_host_with_a_trailing_newline_is_omitted():
+    base = fold([], [], 1)
+    published = publish_view(base, "board\n")
+    assert "host" not in published
+    assert publish_view(base, "board")["host"] == "board"
+    assert (FIXTURES / "host-newline.json").read_bytes() == encoded(published)
+
+
+def test_closed_works_are_kept_by_close_time_not_last_event():
+    def closed(work_id, closed_at, note_at=None):
+        log = LogBuilder()
+        log.add("work_opened", "coordinator", at=1, work_id=work_id, title=work_id)
+        log.add("work_closed", "coordinator", at=closed_at, claim="stopped")
+        if note_at is not None:
+            log.add("note", "coordinator", at=note_at, text="later")
+        return {"work_id": work_id, "events": log.events}
+
+    doc = fold([
+        closed("w-early", 10, note_at=100),
+        closed("w-late", 50),
+    ], [], 100)
+    published = publish_view(doc, "board")
+    assert [work["work_id"] for work in published["works"]] == ["w-late", "w-early"]
+    assert "_closed_at" not in encoded(published).decode("utf-8")
 
 
 if __name__ == "__main__":

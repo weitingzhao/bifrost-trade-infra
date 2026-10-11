@@ -45,7 +45,7 @@ def publish_view(document: dict, host: str | None = None) -> dict:
     doc = copy.deepcopy(document) if isinstance(document, dict) else {"at": 0}
     doc = _drop_nulls(doc)
     _drop_sensitive(doc)
-    if host and isinstance(host, str) and _HOST.match(host):
+    if host and isinstance(host, str) and _HOST.fullmatch(host):
         doc["host"] = host
     else:
         doc.pop("host", None)
@@ -84,7 +84,7 @@ def publish_view(document: dict, host: str | None = None) -> dict:
         doc.pop("incomplete")
     commands_stripped = any("commands" in item for item in original_owner)
     cut = _anything_cut(doc, original_works, original_owner, original_feed) or commands_stripped
-    level = _fit(doc, owner)
+    level = _fit(doc, owner, original_feed_len, cut)
     if level:
         doc["reduced"] = level
         cut = True
@@ -107,26 +107,54 @@ def encoded(document: dict) -> bytes:
     return json.dumps(_public(document), sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
-def _fit(doc: dict, owner_items: list) -> int:
-    """Apply byte reductions in order. Return the level used, or 0."""
-    if len(encoded(doc)) <= PUBLISH_TARGET_BYTES:
+def _stamp(doc: dict, level: int, original_feed_len: int, already_cut: bool) -> dict:
+    """The document publish_view would return at this reduction level."""
+    trial = copy.deepcopy(doc)
+    cut = already_cut or bool(level)
+    if level:
+        trial["reduced"] = level
+    current = len(trial.get("feed") or [])
+    if original_feed_len > current:
+        trial["feed_cut"] = original_feed_len - current
+        inc = list(trial.get("incomplete") or [])
+        inc.append("feed")
+        trial["incomplete"] = sorted(set(inc))
+        cut = True
+    if cut:
+        trial["full_at"] = "local_board"
+    else:
+        trial.pop("full_at", None)
+        trial.pop("reduced", None)
+    return trial
+
+
+def _nbytes(doc: dict, level: int, original_feed_len: int, already_cut: bool) -> int:
+    return len(encoded(_stamp(doc, level, original_feed_len, already_cut)))
+
+
+def _fit(doc: dict, owner_items: list, original_feed_len: int, already_cut: bool) -> int:
+    """Apply byte reductions in order. Return the level used, or 0.
+
+    Each check measures the bytes after reduced, full_at, and feed_cut.
+    """
+    if _nbytes(doc, 0, original_feed_len, already_cut) <= PUBLISH_TARGET_BYTES:
         return 0
     _level1(doc)
-    if len(encoded(doc)) <= PUBLISH_TARGET_BYTES:
+    if _nbytes(doc, 1, original_feed_len, already_cut) <= PUBLISH_TARGET_BYTES:
         return 1
     doc["feed"] = list(doc.get("feed") or [])[-PUBLISH_FEED_REDUCED:]
-    if len(encoded(doc)) <= PUBLISH_TARGET_BYTES:
+    if _nbytes(doc, 2, original_feed_len, already_cut) <= PUBLISH_TARGET_BYTES:
         return 2
     _level3(doc)
-    if len(encoded(doc)) <= PUBLISH_TARGET_BYTES:
+    if _nbytes(doc, 3, original_feed_len, already_cut) <= PUBLISH_TARGET_BYTES:
         return 3
     _level4(doc)
-    if len(encoded(doc)) <= PUBLISH_TARGET_BYTES:
+    if _nbytes(doc, 4, original_feed_len, already_cut) <= PUBLISH_TARGET_BYTES:
         return 4
     _level5(doc)
-    if len(encoded(doc)) <= PUBLISH_TARGET_BYTES:
+    if _nbytes(doc, 5, original_feed_len, already_cut) <= PUBLISH_TARGET_BYTES:
         return 5
-    _level6(doc, owner_items)
+    _level6(doc, owner_items, original_feed_len, already_cut)
     return 6
 
 
@@ -181,7 +209,7 @@ def _level5(doc: dict) -> None:
     doc["works"] = [_summary(work) if not _is_summary(work) else work for work in doc.get("works") or []]
 
 
-def _level6(doc: dict, items: list) -> None:
+def _level6(doc: dict, items: list, original_feed_len: int, already_cut: bool) -> None:
     skeleton = copy.deepcopy(doc)
     skeleton["owner_all"] = []
     skeleton.pop("owner_all_cut", None)
@@ -197,7 +225,7 @@ def _level6(doc: dict, items: list) -> None:
         if cut:
             trial["owner_all_cut"] = cut
             trial["incomplete"] = sorted(set([*(trial.get("incomplete") or []), "owner_all"]))
-        if len(encoded(trial)) <= PUBLISH_TARGET_BYTES:
+        if _nbytes(trial, 6, original_feed_len, already_cut) <= PUBLISH_TARGET_BYTES:
             kept.append(item)
         else:
             break
@@ -248,7 +276,7 @@ def _trim_works(works: list, owner_ids: set) -> tuple[list, dict]:
         work["_all_steps"] = list(work.get("steps") or [])
         work["_state_counts"] = _counts(work["_all_steps"], None)
         decorated.append(( _work_group(work, owner_ids), index, work))
-    decorated.sort(key=lambda item: (item[0][0], item[0][1], item[1]))
+    decorated.sort(key=lambda item: (*item[0], item[1]))
     ordered = [item[2] for item in decorated]
     kept = ordered[:PLATFORM_MAX_WORKS]
     omitted = {"open": 0, "closed": 0}
@@ -263,7 +291,10 @@ def _trim_works(works: list, owner_ids: set) -> tuple[list, dict]:
 def _work_group(work: dict, owner_ids: set):
     last = work.get("last_at") or 0
     if "closed_claim" in work:
-        return (3, -last)
+        closed_at = work.get("_closed_at")
+        if not isinstance(closed_at, (int, float)) or isinstance(closed_at, bool):
+            closed_at = last
+        return (3, -closed_at, work.get("work_id") or "")
     states = {step.get("state") for step in work.get("steps") or []}
     if work.get("work_id") in owner_ids or states & {"unknown", "dead", "failed", "quiet"}:
         return (0, -last)
