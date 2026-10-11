@@ -112,7 +112,7 @@ PROD / platform-prod / research 的发布（级别 C）等 Owner 批，STG 与�
 | 对象 | 位置 | 谁写 |
 |------|------|------|
 | 策略 | ConfigMap `cicd/bifrost-release-policy`（`policy.yaml` 规范 JSON + `policy.sig`） | `PUT /api/v1/release-policy`（`release.sh policy sign`） |
-| 冻结 | ConfigMap `cicd/bifrost-release-freeze` | `POST …/freeze`（任何人）、`POST …/unfreeze`（Owner 签名） |
+| 冻结 | ConfigMap `cicd/bifrost-release-freeze` | `POST …/freeze`（操作员；没有信任锚则拒绝）、`POST …/unfreeze`（Owner 签名） |
 | 信任根 | platform 编译进去的 `releasepolicy.OwnerKeyFingerprint`（`api/internal/releasepolicy/anchor.go`） | 改它是信任根变更，Owner 手动发 PROD |
 | 模板与路径表 | `agent-config/release-policy/template.json`、`paths.json` | 改它们在下一次签名时生效 |
 
@@ -133,10 +133,51 @@ PROD / platform-prod / research 的发布（级别 C）等 Owner 批，STG 与�
 - **冻结**：`release.sh freeze --reason <原因>` 立即拒绝所有新发布（平台的级别 B / C，以及 research / 插件流水线的
   release-window task 的 `freeze` 步骤）。`release.sh unfreeze` 由 Owner 对 `unfreeze frozen_at=<那次冻结> …` 签名，
   平台只接受针对当前这次冻结的签名。ConfigMap 不存在不算冻结（向后兼容），但级别 C 的自动放行要求它存在且为 false。
+  没有编译进去的信任锚时，平台和 `release.sh freeze` 都拒绝设置冻结，见「The release owner key」。已经冻上、又签不了字时，见「Lifting a freeze without a signature (break-glass)」。
 - **到期提醒**：PROD platform-workers 每小时查一次，到期前 14 天、3 天、1 天推送 Owner，过期后有发布在等再推一次
   （STG 设 `PLATFORM_RELEASE_POLICY_REMINDERS=off`）。存活由 maintainer `platform/prod/release-policy-expiry` 记。
 - **首次落地**（一次）：apply `k8s/cicd/release-policy/configmaps.yaml`、`k8s/cicd/tekton/rbac-release-window.yaml`、
   `k8s/cicd/tekton/task-release-window.yaml`（都不在 Argo 下，走平台 `apply_manifest` 审批；先 ConfigMap 和 RBAC，再 task）。
+
+## The release owner key
+
+冻结和级别 C 的自动放行用的是同一把 Owner 钥匙。平台不读磁盘上的私钥，只验编译进 `releasepolicy.OwnerKeyFingerprint` 的指纹（`bifrost-platform/api/internal/releasepolicy/anchor.go`）。指纹为空时，策略签名和解冻签名都不被接受，`policy status` 的 anchor 一行是 `none compiled in`，自动放行不会发生。这时 `freeze` 也不提供：平台和 `release.sh freeze` 都拒绝，因为设下去没有签名解得开。
+
+钥匙路径和 `policy sign` 的签法见上面「签名」。钥匙文件还不在时，`policy sign` 打印的生成命令是：
+
+```bash
+ssh-keygen -t ed25519 -C bifrost-release-owner -f ~/.ssh/bifrost_release_owner
+```
+
+`BIFROST_RELEASE_KEY` 改的是同一条路径。策略签名的命名空间是 `bifrost-release-policy`，解冻签名的命名空间是 `bifrost-release-unfreeze`，两处都用这一把私钥。
+
+指纹是 `ssh-keygen -lf ~/.ssh/bifrost_release_owner.pub` 里的 `SHA256:…` 字段，写进 `OwnerKeyFingerprint`。同一把公钥记在 `agent-config/release-policy/allowed_signers`。两处必须是同一把钥匙。改指纹或改这个文件都是信任根变更（见上表「信任根」；`paths.json` 的 `no_trust_anchor_change` 盖住 `api/internal/releasepolicy/**` 和 `agent-config/release-policy/**`），由 Owner 审，不会自动放行。指纹在二进制里，要一次平台发版之后，正在跑的 platform-api 才带上它。发版之前 `freeze` 仍被拒绝。
+
+## Lifting a freeze without a signature (break-glass)
+
+只有 Owner，并且用 cluster-admin 的 kubeconfig。用在冻结已经写上、签名又解不开的时候：没有钥匙，或者正在跑的 platform-api 里没有信任锚。日常解开用 `release.sh unfreeze`。
+
+按这个顺序改三个对象。kubeconfig 写占位符，不写某一台机器上的路径。不要 `kubectl apply -f k8s/cicd/release-policy/configmaps.yaml`：那个文件同时带着已签名的策略（见下面 Freeze check 一节）。
+
+平台另存着见过的最新一次 `frozen_at`。冻结对象回到从未冻结之后，这份记忆还在的话，`policy status` 仍报冻结（`a freeze from … was seen and its record is gone`）。所以先改冻结对象，再把 PROD 和 STG 两边的记忆写成 `{"frozen_at":""}`。Tekton 的 freeze-check 只读冻结对象；平台的门读两边。
+
+```bash
+# 1. cicd/bifrost-release-freeze 回到从未冻结的形状：只有 frozen: "false"
+kubectl --kubeconfig <admin-kubeconfig> -n cicd patch configmap bifrost-release-freeze --type=json \
+  -p '[{"op":"replace","path":"/data","value":{"frozen":"false"}}]'
+
+# 2. PROD 平台记住的最近一次冻结（键 state.json）
+kubectl --kubeconfig <admin-kubeconfig> -n bifrost-platform-prod patch configmap platform-state-release-policy-freeze --type=json \
+  -p '[{"op":"replace","path":"/data/state.json","value":"{\"frozen_at\":\"\"}"}]'
+
+# 3. STG 平台的同一份记忆（两个命名空间各一份）
+kubectl --kubeconfig <admin-kubeconfig> -n bifrost-platform-stg patch configmap platform-state-release-policy-freeze --type=json \
+  -p '[{"op":"replace","path":"/data/state.json","value":"{\"frozen_at\":\"\"}"}]'
+```
+
+然后 `release.sh policy status` 应显示未冻结，再跑一次 STG 发布，确认发布走得通（步骤见「一次完整发布」）。
+
+这一节在 2026-10-11 用过一次。再需要它，是缺陷，要记下来。
 
 ## Freeze check (W-56 step 1, slice B — not applied yet)
 
@@ -177,7 +218,7 @@ PROD / platform-prod / research 的发布（级别 C）等 Owner 批，STG 与�
 
 下面都不能走 apply 流水线：它被同一个检查挡着。
 
-**冻结对象缺失或畸形**：新检查读不到合法的对象就拒绝全部流水线，这是期望的状态，不用抢着解除。恢复只用两条现成的、有测试的命令，不手写对象，不用 `kubectl` 编辑或重建：
+**冻结对象缺失或畸形**：新检查读不到合法的对象就拒绝全部流水线，这是期望的状态，不用抢着解除。恢复只用两条现成的、有测试的命令，不手写对象，不用 `kubectl` 编辑或重建。这两步要信任锚已经编进正在跑的 platform-api；没有锚时 `freeze` 被拒绝，见「The release owner key」。对象已经是冻结、签名又解不开时，走「Lifting a freeze without a signature (break-glass)」，不要再冻一次：
 
 1. `scripts/release/release.sh freeze --reason "<写明是恢复时建的冻结>"`。平台的写入在对象缺失时创建它、在对象存在时整体替换 `data`（`bifrost-platform/api/internal/delivery/release_policy_facts.go` 的 `WriteConfigMap`；`Freeze` 对原有内容没有前置条件），所以不管原来是缺失还是畸形，写完都是一个合法的「已冻结」对象。用 `release.sh policy status` 确认显示已冻结。
 2. Owner 运行 `scripts/release/release.sh unfreeze`，对这一次冻结签名解冻。写完是合法的「已解冻」对象，流水线恢复放行。

@@ -10,7 +10,7 @@
 #   release.sh db-done <env> <step-id>           record that the Owner ran a step
 #   release.sh policy status                     the signed release policy and the freeze, as platform-api sees them
 #   release.sh policy sign [--days N] [--key f]  Owner: render, sign (ssh-keygen -Y sign) and install a policy
-#   release.sh freeze --reason <text>            refuse every release until the Owner unfreezes
+#   release.sh freeze --reason <text>            refuse every release until the Owner unfreezes (needs a trust anchor)
 #   release.sh unfreeze [--key f]                Owner: sign and lift the current freeze
 #
 # options: --dry-run         run the read-only checks, print every platform call, change nothing
@@ -671,7 +671,8 @@ cmd_policy() {
 }
 
 cmd_freeze() {
-  local reason="" who="${BIFROST_RELEASE_WHO:-${USER}@$(hostname -s)}" body
+  local reason="" who="${BIFROST_RELEASE_WHO:-${USER}@$(hostname -s)}" body anchor
+  local refused='freeze refused: the platform has no trust anchor (or its status could not be read), so nobody could lift a freeze. See docs/RELEASE.md, "The release owner key".'
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --reason) reason="${2:?--reason needs text}"; shift 2 ;;
@@ -680,6 +681,13 @@ cmd_freeze() {
     esac
   done
   [[ -n "${reason}" ]] || rel_die "freeze needs --reason <text>"
+  # Read first. An older platform would still accept the POST; this stop is
+  # the message, and it matches a platform that refuses an anchor-less freeze.
+  platform_send GET /api/v1/release-policy "" viewer >/dev/null || rel_die "${refused}"
+  anchor="$(printf '%s' "${PLATFORM_BODY}" | json_field anchor_fingerprint)"
+  anchor="${anchor#"${anchor%%[![:space:]]*}"}"
+  anchor="${anchor%"${anchor##*[![:space:]]}"}"
+  [[ -n "${anchor}" ]] || rel_die "${refused}"
   body="$(python3 -c 'import json,sys; print(json.dumps({"who":sys.argv[1],"reason":sys.argv[2]}))' "${who}" "${reason}")"
   platform_send POST /api/v1/release-policy/freeze "${body}" operator >/dev/null || rel_die "the freeze was not written" 1
   printf '%s' "${PLATFORM_BODY}" | policy_print
@@ -695,7 +703,7 @@ cmd_unfreeze() {
       *) rel_die "unknown argument: $1" ;;
     esac
   done
-  [[ -f "${key}" ]] || rel_die "no signing key at ${key}"
+  [[ -f "${key}" ]] || rel_die "no signing key at ${key}. Generate it (docs/RELEASE.md, \"The release owner key\"), or, if a freeze is in place and there is no key, follow \"Lifting a freeze without a signature (break-glass)\"."
   platform_send GET /api/v1/release-policy "" viewer >/dev/null || rel_die "could not read the freeze" 1
   frozen="$(printf '%s' "${PLATFORM_BODY}" | json_field frozen)"
   frozen_at="$(printf '%s' "${PLATFORM_BODY}" | json_field frozen_at)"
