@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import io
-import shutil
 import sys
+import tempfile
 import textwrap
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -69,10 +69,9 @@ def _write(root: Path, name: str, text: str) -> None:
 
 class RatchetTests(unittest.TestCase):
     def setUp(self):
-        self.root = HERE / "testdata" / "ratchet-tree"
-        self.baseline = HERE / "testdata" / "ratchet-baseline.jsonl"
-        if self.root.exists():
-            shutil.rmtree(self.root)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name) / "tree"
+        self.baseline = Path(self.tmp.name) / "baseline.jsonl"
         _write(self.root, "role.yaml", ROLE)
         _write(self.root, "task.yaml", TASK)
         _write(self.root, "binding.yaml", BINDING)
@@ -80,8 +79,7 @@ class RatchetTests(unittest.TestCase):
         self.assertEqual(code, 0, err or out)
 
     def tearDown(self):
-        if self.root.exists():
-            shutil.rmtree(self.root)
+        self.tmp.cleanup()
 
     def _run(self, *args: str) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()

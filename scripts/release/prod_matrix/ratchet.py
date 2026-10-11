@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 import json
+from collections import Counter
 from pathlib import Path
 
 import yaml
@@ -21,6 +23,8 @@ _KINDS_ADMISSION = {
     "MutatingWebhookConfiguration",
 }
 _LIST_KEYS = ("apiGroups", "nonResourceURLs", "resourceNames", "resources", "verbs")
+_VOLATILE_META = ("resourceVersion", "uid", "creationTimestamp", "managedFields", "generation")
+_WEBHOOK_KINDS = {"ValidatingWebhookConfiguration", "MutatingWebhookConfiguration"}
 
 
 def _meta(doc: dict) -> dict:
@@ -162,10 +166,62 @@ def _task(doc: dict, source: str) -> dict:
     )
 
 
+def _strip(doc: dict) -> dict:
+    cleaned = copy.deepcopy(doc)
+    meta = cleaned.get("metadata")
+    if isinstance(meta, dict):
+        for key in _VOLATILE_META:
+            meta.pop(key, None)
+    cleaned.pop("status", None)
+    return cleaned
+
+
+def _effective(doc: dict):
+    """Fields that take effect, per kind. Unlisted kinds keep the object minus volatile metadata and status."""
+    kind = str(doc.get("kind") or "")
+    if kind in _WEBHOOK_KINDS:
+        return doc.get("webhooks") or []
+    if kind in _KINDS_ROLE:
+        return doc.get("rules") or []
+    if kind in _KINDS_BINDING:
+        return {"roleRef": doc.get("roleRef"), "subjects": doc.get("subjects")}
+    if kind == "ConfigMap":
+        data = doc.get("data") if isinstance(doc.get("data"), dict) else {}
+        binary = doc.get("binaryData") if isinstance(doc.get("binaryData"), dict) else {}
+        return sorted(set(data) | set(binary))
+    if isinstance(doc.get("spec"), dict):
+        return doc["spec"]
+    return _strip(doc)
+
+
+def _configmap(doc: dict, source: str) -> dict:
+    meta = _meta(doc)
+    return _row(
+        "configmap",
+        str(meta.get("namespace") or ""),
+        "ConfigMap",
+        str(meta.get("name") or ""),
+        source,
+        data_keys=_effective(doc),
+    )
+
+
+def _manifest(doc: dict, source: str) -> dict:
+    meta = _meta(doc)
+    return _row(
+        "manifest",
+        str(meta.get("namespace") or ""),
+        str(doc.get("kind") or ""),
+        str(meta.get("name") or ""),
+        source,
+        content_sha256=sha256_hex(_effective(doc)),
+    )
+
+
 def _admission(doc: dict, source: str) -> dict:
     meta = _meta(doc)
     spec = doc.get("spec") if isinstance(doc.get("spec"), dict) else {}
-    extra = {"spec_sha256": sha256_hex(spec)}
+    extra = {"spec_sha256": sha256_hex(_effective(doc))}
     actions = spec.get("validationActions")
     if isinstance(actions, list):
         extra["validation_actions"] = sorted(str(item) for item in actions)
@@ -244,6 +300,10 @@ def scan(root: Path, fixed_path: Path) -> list[dict]:
                 rows.append(_admission(doc, source))
             elif kind == "Namespace":
                 rows.append(_namespace(doc, source))
+            elif kind == "ConfigMap":
+                rows.append(_configmap(doc, source))
+            elif kind:
+                rows.append(_manifest(doc, source))
     rows.extend(_fixed_rows(fixed_path))
     rows.extend(_missing_inputs())
     rows.sort(key=lambda row: (row["category"], row["namespace"], row["type"], row["name"], row.get("source", "")))
@@ -271,16 +331,29 @@ def read_baseline(path: Path) -> list[str]:
     return lines
 
 
+def _describe(prefix: str, line: str) -> str:
+    try:
+        row = json.loads(line)
+    except json.JSONDecodeError:
+        return f"{prefix} {line}"
+    return f"{prefix} {row['category']} {row['namespace']} {row['type']} {row['name']}"
+
+
 def diff(tree: list[str], baseline: list[str]) -> list[str]:
+    """Equal as sequences. A different order or a repeated row is its own failure."""
     if tree == baseline:
         return []
+    tree_counts = Counter(tree)
+    base_counts = Counter(baseline)
+    if tree_counts == base_counts:
+        return ["顺序不同"]
+    if set(tree_counts) == set(base_counts):
+        return ["重复一行"]
     messages = []
-    base = set(baseline)
-    current = set(tree)
-    for line in sorted(current - base):
-        row = json.loads(line)
-        messages.append(f"多出一行 {row['category']} {row['namespace']} {row['type']} {row['name']}")
-    for line in sorted(base - current):
-        row = json.loads(line)
-        messages.append(f"少一行 {row['category']} {row['namespace']} {row['type']} {row['name']}")
+    for line, count in tree_counts.items():
+        if count > base_counts.get(line, 0):
+            messages.append(_describe("多出一行", line))
+    for line, count in base_counts.items():
+        if count > tree_counts.get(line, 0):
+            messages.append(_describe("少一行", line))
     return messages
