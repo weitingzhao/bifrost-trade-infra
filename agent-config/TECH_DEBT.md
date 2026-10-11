@@ -1873,6 +1873,20 @@
 - 验收: a CI run on a commit with one deliberately failing Console test ends Failed at `test-console`; the next commit without it ends Succeeded
 - 审批 要批（改流水线定义，Owner 应用到集群）· 代价 S · 风险 low · repos: bifrost-trade-infra
 
+### TD-314
+
+**P2 · infra / ops-platform · the PROD platform's service account can rewrite the Pod template of any Deployment in `cicd` and `monitoring` — including `argocd-server` — so whoever holds that account is one patch away from a cluster-admin-level identity**
+
+- **状态**：未开始（2026-10-11 17:10 写解冻协议的设计时量出来的。Agent 经平台接口够不着这条路：平台自己的代码只改重启注解和副本数）
+- **Claim**: ClusterRole `bifrost-platform-workload-actuator` grants `apps/deployments` `update` / `patch` (plus `deployments/scale` and `pods` `delete`) with no `resourceNames`. It is bound to `bifrost-platform-prod/bifrost-platform` in eleven namespaces, among them `cicd` and `monitoring`. `cicd` holds the Argo CD Deployments (`argocd-server`, `argocd-repo-server`, …), whose service accounts can change ClusterRoleBindings, admission policies and CRDs. None of the six ValidatingAdmissionPolicies constrains what this account may change in a Deployment (they cover Jobs, Pods, PipelineRuns, TaskRuns, Applications and the applier's workloads). The platform's own code patches only the restart annotation (`rollout_restart_deployment`) and the replica count (`scale_deployment`); the permission is far wider than that use.
+- **Measured**: MEASURED 2026-10-11 17:10 CDT, read-only with the agent identity: `kubectl get clusterrole bifrost-platform-workload-actuator -o json` (rules as above, `resourceNames` absent); `kubectl get rolebindings -A` filtered on that role (eleven namespaces: `bifrost-dev`, `bifrost-platform-prod`, `bifrost-platform-stg`, `bifrost-prod`, `bifrost-stg`, `cicd`, `data`, `monitoring`, `plugin-flex-query`, `plugin-market-data`, `research`; one subject); `kubectl get deploy -n cicd` (`argocd-server` runs as service account `argocd-server`); `kubectl get validatingadmissionpolicy` (six names, none for Deployments). NOT MEASURED: that such a patch would be admitted — it was not tried and must not be; whether a webhook would stop it (the agent identity cannot read webhook configurations).
+- **Evidence**: the commands above; `work/multi-agent/DESIGN-release-freeze-protocol-2026-10-11.md` §1.2 item 2 and §1.3 — the reason that design does not claim "a replaced platform process cannot lift a freeze".
+- **Impact**: any guarantee of the form "the platform's account cannot do X" (lift a freeze, change a release policy, change RBAC) holds against the platform's code being wrong, not against the account being misused. Same family as "whoever can create a Pod in a namespace inherits its strongest service account".
+- **Fix**: narrow the grant to its use. Either `resourceNames` per namespace for the Deployments the platform restarts or scales (and nothing in `cicd` / `monitoring` beyond those), or a ValidatingAdmissionPolicy that lets this account change only `spec.replicas` and the restart annotation of a Deployment. RBAC and admission are applied by the Owner; prove the change first with a server-side dry run and one real restart per namespace.
+- **Ratchet**: a read-only check, runnable with the agent identity: for each namespace where this role is bound, either the binding's role carries `resourceNames` or the admission policy exists and is bound.
+- 验收: with the narrowed grant, `rollout_restart_deployment` and `scale_deployment` still succeed for every workload the Console offers, and `kubectl auth can-i patch deployment/argocd-server -n cicd --as=system:serviceaccount:bifrost-platform-prod:bifrost-platform` answers `no` (run by the Owner; the agent identity cannot impersonate)
+- 审批 要批（RBAC 或准入策略，Owner 应用）· 代价 S · 风险 med · repos: bifrost-trade-infra
+
 ## 没覆盖到的（下一轮从这里开始）
 
 - Per-engine numerical correctness beyond dates: GEX sign conventions, max-pain, VRP realized-vol windows, vanna/charm, SVI fit, flow maths
