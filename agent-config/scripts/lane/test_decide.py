@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -147,7 +149,7 @@ def _passed() -> RoundEvidence:
     return RoundEvidence(
         1,
         {"implement": implement, "verify": verify, "review": review},
-        {"repo": {"role": "change", "target_ref": "main", "target_sha": A}},
+        {"repo": {"role": "change", "target_ref": "main", "target_sha": A, "tree": TA}},
         expected_start={"repo": {"commit": A, "tree": TA}},
     )
 
@@ -199,7 +201,7 @@ def _closing(evidence: RoundEvidence, kind: str) -> RoundEvidence:
 
 def _with_context(evidence: RoundEvidence, *, found: str, found_tree: str, pinned_commit: str, pinned_tree: str) -> RoundEvidence:
     targets = dict(evidence.targets)
-    targets["ctx"] = {"role": "context", "target_ref": "main", "target_sha": A}
+    targets["ctx"] = {"role": "context", "target_ref": "main", "target_sha": A, "tree": TA}
     expected = dict(evidence.expected_start)
     expected["ctx"] = {"commit": A, "tree": TA}
     pinned = dict(evidence.steps["implement"].pinned)
@@ -273,6 +275,10 @@ def _apply(node: dict, field: str, mode: str, *, pin_baseline: bool = False) -> 
 
 
 def _mutate(evidence: RoundEvidence, where: str, step: str, field: str, mode: str) -> RoundEvidence:
+    if where == "expected":
+        expected = deepcopy(evidence.expected_start)
+        _apply(expected["repo"], field, mode)
+        return replace(evidence, expected_start=expected)
     view = evidence.steps[step]
     if where == "consumed" and mode == "delete-set":
         return _step(evidence, step, consumed=None)
@@ -333,6 +339,9 @@ def _shape_cases() -> list[tuple]:
             for mode in ("delete", "mistype", "wrong"):
                 rows.append(("consumed", step, path, mode))
         rows.append(("consumed", step, "*", "delete-set"))
+    for field in ("commit", "tree"):
+        for mode in ("delete", "mistype", "wrong"):
+            rows.append(("expected", "start", field, mode))
     return rows
 
 
@@ -344,6 +353,12 @@ def _case_id(row: tuple) -> str:
 
 
 def _expect(where: str, step: str, field: str, mode: str) -> tuple[str, str]:
+    if where == "expected":
+        if mode in ("delete", "mistype"):
+            return "unknown", "evidence invalid: expected start incomplete in events"
+        if field == "commit":
+            return "step_failed", f"implement did not start: repo HEAD {A} != expected {WRONG}"
+        return "step_failed", f"implement did not start: repo tree {TA} != expected {WRONG}"
     kind = {"pre": "pre-check", "post": "post-check", "pinned": "pinned", "consumed": "pre-check"}[where]
     if mode == "delete-set":
         return "unknown", f"evidence invalid: {step} pre-check consumed"
@@ -412,3 +427,163 @@ def test_t31_reviewer_deleted_precheck_fields_are_not_passed():
 def test_t31_reviewer_deleted_implement_consumed_is_not_passed():
     got = decide(_mutate(_passed(), "consumed", "implement", "*", "delete-set"))
     assert got == ("unknown", "evidence invalid: implement pre-check consumed")
+
+
+T1 = "4" * 40
+T2 = "5" * 40
+T3 = "6" * 40
+
+
+def _three_pre(commit: str, *, kind: str = "baseline") -> dict:
+    return {
+        "ok": True,
+        "kind": kind,
+        "repos": {
+            "repo": {
+                "commit": commit,
+                "tree": T1,
+                "clean": True,
+                "hidden": False,
+                "kind": kind,
+                "expected": {"commit": commit, "tree": T2},
+            }
+        },
+    }
+
+
+def test_reviewer_three_trees_round_1_are_not_passed(tmp_path):
+    lane = make_lane(tmp_path, max_rounds=3)
+    implement_ok(
+        lane,
+        consumed={"repo": {"commit": A, "tree": T3}},
+        pre_checks=_three_pre(A),
+        pinned=sha_set(B, TB),
+    )
+    status = lane.status()
+    assert status["state"] == "step_failed"
+    assert status["state"] != "passed"
+    assert status["reason"] == f"implement did not start: repo tree {T1} != expected {TA}"
+
+
+def test_reviewer_three_trees_after_baseline_are_not_passed(tmp_path):
+    from commands import cmd_next_round
+
+    lane = make_lane(tmp_path, "B2", max_rounds=3)
+    implement_ok(lane, exit_code=9)
+    cmd_next_round(lane.root, lane.lane_id, brief=str(lane.brief), start="baseline")
+    implement_ok(
+        lane,
+        consumed={"repo": {"commit": A, "tree": T3}},
+        pre_checks=_three_pre(A),
+        pinned=sha_set(B, TB),
+    )
+    status = lane.status()
+    assert status["state"] == "step_failed"
+    assert status["state"] != "passed"
+    assert status["reason"] == f"implement did not start: repo tree {T1} != expected {TA}"
+
+
+def test_reviewer_three_trees_on_a_context_repository_are_not_passed(tmp_path):
+    repos = {
+        "repo": {"role": "change", "target_ref": "main", "target_sha": A, "tree": TA},
+        "ctx": {"role": "context", "target_ref": "main", "target_sha": A, "tree": TA},
+    }
+    lane = make_lane(tmp_path, "CTX", repos=repos)
+    pre = {
+        "ok": True,
+        "kind": "baseline",
+        "repos": {
+            "repo": {
+                "commit": A,
+                "tree": TA,
+                "clean": True,
+                "hidden": False,
+                "kind": "baseline",
+                "expected": {"commit": A, "tree": TA},
+            },
+            "ctx": {
+                "commit": A,
+                "tree": T1,
+                "clean": True,
+                "hidden": False,
+                "kind": "baseline",
+                "expected": {"commit": A, "tree": T2},
+            },
+        },
+    }
+    implement_ok(
+        lane,
+        consumed={"repo": {"commit": A, "tree": TA}, "ctx": {"commit": A, "tree": T3}},
+        pre_checks=pre,
+        pinned={"repo": {"commit": B, "tree": TB}, "ctx": {"commit": A, "tree": TA}},
+    )
+    status = lane.status()
+    assert status["state"] == "step_failed"
+    assert status["state"] != "passed"
+    assert status["reason"] == "context repository ctx moved"
+
+
+def test_expected_side_missing_a_tree_is_not_passed(tmp_path):
+    lane = make_lane(tmp_path, "MISS")
+    implement_ok(
+        lane,
+        consumed={"repo": {"commit": A}},
+        pre_checks=_check("implement", A, TA),
+        pinned=sha_set(B, TB),
+    )
+    status = lane.status()
+    assert status["state"] != "passed"
+    assert status["reason"] == "evidence invalid: expected consumed incomplete in events"
+    synthetic = decide(_mutate(_passed(), "expected", "start", "tree", "delete"))
+    assert synthetic[0] != "passed"
+    assert synthetic == ("unknown", "evidence invalid: expected start incomplete in events")
+    none_tree = deepcopy(_passed().expected_start)
+    none_tree["repo"]["tree"] = None
+    got = decide(replace(_passed(), expected_start=none_tree))
+    assert got[0] != "passed"
+    assert got == ("unknown", "evidence invalid: expected start incomplete in events")
+
+
+def test_duplicate_repository_in_new(tmp_path, capsys):
+    from lane import main
+
+    root = tmp_path / "lanes"
+    root.mkdir()
+    brief = tmp_path / "brief.md"
+    brief.write_text("task\n")
+    spec = f"repo:change:main:{A}:{TA}"
+    code = main(
+        ["--root", str(root), "new", "L", "--title", "Title", "--brief", str(brief), "--repo", spec, "--repo", spec]
+    )
+    assert code == 1
+    assert "duplicate repository repo" in capsys.readouterr().err
+    assert not (root / "L").exists()
+
+
+def test_duplicate_json_key_is_refused():
+    from evidence import json_loads
+
+    with pytest.raises(ValueError, match="duplicate key"):
+        json_loads('{"repo": {"commit": "a", "tree": "1"}, "repo": {"commit": "b", "tree": "2"}}')
+
+
+def test_unknown_field_on_each_side():
+    base = _passed()
+    pre = deepcopy(base.steps["implement"].pre_checks)
+    pre["repos"]["repo"]["note"] = "extra"
+    actual = decide(_step(base, "implement", pre_checks=pre))
+    assert actual[0] != "passed"
+    assert actual == ("unknown", "evidence invalid: implement pre-check repo.note unknown")
+    expected = deepcopy(base.expected_start)
+    expected["repo"]["note"] = "extra"
+    other = decide(replace(base, expected_start=expected))
+    assert other[0] != "passed"
+    assert other == ("unknown", "evidence invalid: expected start incomplete in events")
+
+
+def test_decide_does_not_guard_a_comparison_on_an_expected_value():
+    text = Path(__file__).with_name("decide.py").read_text(encoding="utf-8")
+    guarded = re.compile(r"\bif\s+(?:exp_[A-Za-z0-9_]*|expected\b)")
+    truthy = re.compile(r"\b(?:and|or)\s+(?:exp_[A-Za-z0-9_]*|expected)\b")
+    assert guarded.search(text) is None
+    assert truthy.search(text) is None

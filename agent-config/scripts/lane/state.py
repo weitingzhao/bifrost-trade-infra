@@ -20,6 +20,7 @@ from query import (
     current_round,
     events_for_step,
     exec_of,
+    expected_incomplete,
     expected_start,
     max_rounds,
     start_kind as round_start_kind,
@@ -291,6 +292,7 @@ def _round_evidence(events, assessed, rnd: int, targets: dict) -> RoundEvidence:
         expected_start=expected_start(events, rnd, targets),
         order_defect=round_defect(events, rnd),
         start_kind=round_start_kind(events, rnd),
+        expected_defect=expected_incomplete(events),
     )
 
 

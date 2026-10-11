@@ -71,6 +71,20 @@ def publish(dest: Path, data: bytes) -> None:
     fsync_dir(dest.parent)
 
 
+def _reject_duplicate_keys(pairs: list) -> dict:
+    obj = {}
+    for key, value in pairs:
+        if key in obj:
+            raise ValueError(f"duplicate key {key}")
+        obj[key] = value
+    return obj
+
+
+def loads_strict(text: str):
+    """Parse JSON and refuse duplicate keys. ``json.loads`` would keep the last one."""
+    return json.loads(text, object_pairs_hook=_reject_duplicate_keys)
+
+
 def canonical_json(obj: object) -> str:
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 

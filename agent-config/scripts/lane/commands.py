@@ -12,7 +12,16 @@ from errors import LaneError
 from events import load_file, sha256_bytes
 from fsutil import canonical_json, fsync_dir, publish
 from locks import hold, read_snapshot
-from query import IN_PROGRESS, NEGATIVE, abandoned_event, created, may_open_round, round_events
+from query import (
+    IN_PROGRESS,
+    NEGATIVE,
+    abandoned_event,
+    baseline_set,
+    created,
+    may_open_round,
+    resolve_start_set,
+    round_events,
+)
 from recorder import (
     append_resolution,
     flush_verdict,
@@ -46,17 +55,47 @@ def _require_id(lane_id: str) -> None:
 
 
 def parse_repo(spec: str) -> tuple[str, dict]:
-    parts = spec.split(":", 3)
-    if len(parts) != 4:
-        raise LaneError("repo must be NAME:change|context:REF:SHA")
-    name, role, ref, sha = parts
+    parts = spec.split(":")
+    if len(parts) < 5:
+        raise LaneError("repo must be NAME:change|context:REF:SHA:TREE")
+    name, role = parts[0], parts[1]
+    tree = parts[-1]
+    sha = parts[-2]
+    ref = ":".join(parts[2:-2])
     if role not in ("change", "context"):
         raise LaneError(f"repo role must be change or context, not {role}")
     if not SHA_OK.fullmatch(sha):
         raise LaneError(f"commit id must be 40 hex digits: {sha}")
+    if not SHA_OK.fullmatch(tree):
+        raise LaneError(f"tree id must be 40 hex digits: {tree}")
     if not name or "/" in name or name in (".", ".."):
         raise LaneError(f"repo name {name!r} is not allowed")
-    return name, {"role": role, "target_ref": ref, "target_sha": sha}
+    return name, {"role": role, "target_ref": ref, "target_sha": sha, "tree": tree}
+
+
+def collect_repos(specs: list[str]) -> dict:
+    """CLI repository list. A repeated name is refused, not overwritten."""
+    repos: dict = {}
+    for spec in specs:
+        name, meta = parse_repo(spec)
+        if name in repos:
+            raise LaneError(f"duplicate repository {name}")
+        repos[name] = meta
+    return repos
+
+
+def _require_baseline(repos: dict) -> None:
+    if not isinstance(repos, dict) or not repos:
+        raise LaneError("at least one repo is required")
+    for name, meta in repos.items():
+        if not isinstance(meta, dict):
+            raise LaneError(f"repository {name} needs a commit and a tree")
+        sha = meta.get("target_sha")
+        tree = meta.get("tree")
+        if not isinstance(sha, str) or not SHA_OK.fullmatch(sha):
+            raise LaneError(f"commit id must be 40 hex digits: {sha}")
+        if not isinstance(tree, str) or not SHA_OK.fullmatch(tree):
+            raise LaneError(f"tree id must be 40 hex digits: {tree}")
 
 
 def _file_sha(path: str | None) -> str | None:
@@ -191,8 +230,7 @@ def cmd_new(root: Path, lane_id: str, *, title: str, brief: str, repos: dict, ma
             raise LaneError("max_rounds must be at least 1")
         if not title:
             raise LaneError("title is required")
-        if not repos:
-            raise LaneError("at least one repo is required")
+        _require_baseline(repos)
         brief_path = Path(brief)
         if not brief_path.is_file():
             raise LaneError(f"brief not found: {brief}")
@@ -238,6 +276,7 @@ def cmd_new(root: Path, lane_id: str, *, title: str, brief: str, repos: dict, ma
                 "brief_sha256": params["brief_sha256"],
                 "brief_copy": params["brief_copy"],
                 "start": "baseline",
+                "start_set": baseline_set(repos),
             },
         )
         fsync_dir(lane_dir)
@@ -263,6 +302,9 @@ def cmd_next_round(root: Path, lane_id: str, *, brief: str, start: str = "pinned
         if not may_open_round(int(view["opened"] or 0), int(view["budget_max"] or 0)):
             raise LaneError(f"over budget: {view['opened']}/{view['budget_max']}; the Owner decides")
         rnd = int(view["opened"]) + 1
+        events = load_file(lane_dir / "events.jsonl").events
+        targets = (created(events) or {}).get("repos") or {}
+        start_set = resolve_start_set(events, rnd, targets, start)
         round_dir = lane_dir / f"r{rnd}"
         round_dir.mkdir(exist_ok=True)
         data = brief_path.read_bytes()
@@ -281,6 +323,7 @@ def cmd_next_round(root: Path, lane_id: str, *, brief: str, start: str = "pinned
                 "brief_sha256": sha256_bytes(data),
                 "brief_copy": f"r{rnd}/{copy_name}",
                 "start": start,
+                "start_set": start_set,
             },
         )
 

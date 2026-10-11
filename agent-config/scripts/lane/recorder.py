@@ -173,7 +173,15 @@ def _record_attempt(lane_dir: Path, **kw) -> dict:
         "driver_pid": os.getpid(),
     }
     intent_sha = publish_json_doc(root / "rec" / "intent.json", intent)
-    append_obj(lane_dir, {"type": "step_intent", "exec": exec_body, "intent_sha256": intent_sha})
+    append_obj(
+        lane_dir,
+        {
+            "type": "step_intent",
+            "exec": exec_body,
+            "intent_sha256": intent_sha,
+            "consumed": kw["consumed"] or {},
+        },
+    )
     not_started = kw["not_started"]
     if kw["also_start"] and not_started is None:
         append_obj(
@@ -354,7 +362,10 @@ def _open_intent(lane_dir: Path, step: str) -> dict:
         "limit_seconds": 3600,
     }
     intent_sha = publish_json_doc(root / "rec" / "intent.json", intent)
-    append_obj(lane_dir, {"type": "step_intent", "exec": exec_body, "intent_sha256": intent_sha})
+    append_obj(
+        lane_dir,
+        {"type": "step_intent", "exec": exec_body, "intent_sha256": intent_sha, "consumed": {}},
+    )
     return exec_body
 
 

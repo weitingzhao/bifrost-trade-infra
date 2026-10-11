@@ -23,7 +23,7 @@ from commands import (
     default_root,
     dumps,
     format_status,
-    parse_repo,
+    collect_repos,
 )
 from errors import LaneError
 
@@ -41,7 +41,7 @@ def _build() -> argparse.ArgumentParser:
     new.add_argument("lane_id")
     new.add_argument("--title", required=True)
     new.add_argument("--brief", required=True)
-    new.add_argument("--repo", action="append", required=True, help="NAME:change|context:REF:SHA")
+    new.add_argument("--repo", action="append", required=True, help="NAME:change|context:REF:SHA:TREE")
     new.add_argument("--max-rounds", type=int, default=2)
     new.add_argument("--config")
     new.add_argument("--pin", action="append", default=[])
@@ -94,10 +94,7 @@ def main(argv: list[str] | None = None) -> int:
     root = _root(args.root)
     try:
         if args.command == "new":
-            repos = {}
-            for spec in args.repo:
-                name, meta = parse_repo(spec)
-                repos[name] = meta
+            repos = collect_repos(args.repo)
             cmd_new(
                 root,
                 args.lane_id,

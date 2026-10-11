@@ -13,7 +13,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from fsutil import canonical_json, fullsync
+from fsutil import canonical_json, fullsync, loads_strict
 
 GENESIS = ""
 
@@ -52,8 +52,8 @@ def _seq_hint(line: bytes, expected: int) -> int:
     if space < 0:
         return expected
     try:
-        obj = json.loads(line[space + 1 :].decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
+        obj = loads_strict(line[space + 1 :].decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
         return expected
     seq = obj.get("seq") if isinstance(obj, dict) else None
     return seq if isinstance(seq, int) else expected
@@ -69,7 +69,7 @@ def parse_line(line: bytes) -> tuple[str, dict]:
     body = line[space + 1 :]
     if sha256_bytes(body) != digest:
         raise ValueError("digest mismatch")
-    obj = json.loads(body.decode("utf-8"))
+    obj = loads_strict(body.decode("utf-8"))
     if not isinstance(obj, dict):
         raise ValueError("body")
     return digest, obj

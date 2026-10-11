@@ -66,12 +66,10 @@ def passing_postchecks(step: str, found: dict) -> dict:
 
 
 def _materialize(start: dict) -> dict:
-    trees = {A: TA, B: TB, C: TC}
     found = {}
     for name, info in start.items():
-        commit = info.get("commit") or A
-        tree = info.get("tree") or trees.get(commit) or TA
-        found[name] = {"commit": commit, "tree": tree}
+        info = info or {}
+        found[name] = {"commit": info.get("commit"), "tree": info.get("tree")}
     return found
 
 
@@ -129,7 +127,7 @@ def make_lane(tmp: Path, lane_id: str = "L", max_rounds: int = 2, repos: dict | 
     brief = tmp / f"brief-{lane_id}.md"
     brief.write_text(f"task {lane_id}\n")
     if repos is None:
-        repos = {"repo": {"role": "change", "target_ref": "main", "target_sha": A}}
+        repos = {"repo": {"role": "change", "target_ref": "main", "target_sha": A, "tree": TA}}
     cmd_new(root, lane_id, title=title, brief=str(brief), repos=repos, max_rounds=max_rounds)
     return Lane(root, lane_id, brief)
 

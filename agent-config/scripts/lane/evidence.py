@@ -188,9 +188,9 @@ def assess_attempt(lane_dir: Path, intent_event: dict | None, recorded: dict | N
 
 
 def json_loads(text: str):
-    import json
+    from fsutil import loads_strict
 
-    obj = json.loads(text)
+    obj = loads_strict(text)
     if not isinstance(obj, dict):
         raise ValueError("object")
     return obj

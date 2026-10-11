@@ -32,7 +32,13 @@ def test_t47_boundaries_b1_b2_b8_b9_b10(tmp_path):
     brief = tmp_path / "brief.md"
     brief.write_text("task\n")
     with pytest.raises(LaneError, match="lane L exists"):
-        cmd_new(root, "L", title="Title", brief=str(brief), repos={"repo": {"role": "change", "target_ref": "main", "target_sha": "a" * 40}})
+        cmd_new(
+            root,
+            "L",
+            title="Title",
+            brief=str(brief),
+            repos={"repo": {"role": "change", "target_ref": "main", "target_sha": "a" * 40, "tree": "1" * 40}},
+        )
 
     lane = make_lane(tmp_path, "B2")
     implement_ok(lane, exit_code=9)
