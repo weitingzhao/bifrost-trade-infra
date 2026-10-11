@@ -173,40 +173,20 @@ PROD / platform-prod / research 的发布（级别 C）等 Owner 批，STG 与�
 
 续装从还没 apply 的下一个文件接着做，顺序不变。不要先换 apply，也不要靠发起一次发布把安装做完。
 
-### 恢复（只有 Owner，带外）
+### 恢复（只有 Owner）
 
-下面都不能走 apply 流水线。
+下面都不能走 apply 流水线：它被同一个检查挡着。
 
-冻结对象缺失或畸形时，先分清它当时是不是冻结的，再写回同一种形状。当时是冻结的，就不要建成 `frozen: "false"`。对象已经没了之后再跑 `release.sh policy status`，平台把缺失读成没冻结，这次输出不能当依据。看两处：对象还可读时的最后一次 `scripts/release/release.sh policy status`（冻结时这一行是 `frozen    True  (<reason>, at <frozen_at>)`，否则是 `frozen    False`）；平台审计 `GET /api/v1/audit` 里结果为 ok 的最后一条 `release_policy.freeze`（target 是 `who: reason`）或 `release_policy.unfreeze`（target 是签过名的原文 `unfreeze frozen_at=<那次 frozen_at> ...`）。签名不在审计里。`release.sh unfreeze` 写完就删掉本机临时文件，`unfreeze.sig` 只在 ConfigMap 里。对象还在就先 `kubectl -n cicd get configmap bifrost-release-freeze -o json`，只保留该形状的键。对象已经没了、最后一条是冻结：用审计里的 who、reason 和当时 status 行里的 `frozen_at`。对象已经没了、最后一条是解冻、签名也没了：不要编 `unfreeze.sig`，也不要写成从未冻结。用解冻原文里的 `frozen_at` 和它对应的那条 `release_policy.freeze` 把对象写成冻结形状，发布保持停止，然后 Owner 再跑 `release.sh unfreeze`。
+**冻结对象缺失或畸形**：新检查读不到合法的对象就拒绝全部流水线，这是期望的状态，不用抢着解除。恢复只用两条现成的、有测试的命令，不手写对象，不用 `kubectl` 编辑或重建：
 
-**证据不够就按冻结处理（复核 45）。** `release.sh policy status` 的旧输出没有保证被留着，平台的审计只保留最近 500 条，旧输出也不一定是最新那次冻结的。只要拿不出能对上的证据说明「对象丢失之前是没冻结的」，就不要推断成从未冻结：停掉发布，由 Owner 带外建一个**新的冻结**（下面的命令，`frozen_at` 取现在，`reason` 写明是恢复时建的），之后照常用 `release.sh unfreeze` 签名解冻。多冻一次的代价是一次签名；推断错的代价是在本该冻结的时候放行。
+1. `scripts/release/release.sh freeze --reason "<写明是恢复时建的冻结>"`。平台的写入在对象缺失时创建它、在对象存在时整体替换 `data`（`bifrost-platform/api/internal/delivery/release_policy_facts.go` 的 `WriteConfigMap`；`Freeze` 对原有内容没有前置条件），所以不管原来是缺失还是畸形，写完都是一个合法的「已冻结」对象。用 `release.sh policy status` 确认显示已冻结。
+2. Owner 运行 `scripts/release/release.sh unfreeze`，对这一次冻结签名解冻。写完是合法的「已解冻」对象，流水线恢复放行。
 
-写回时不要把值直接拼进 YAML（原因里可以有引号，例如 `hold "prod"`，拼出来的 YAML 无效，创建失败后对象仍然缺失，而旧的 release-window 把 404 当成没冻结）。先用程序把对象序列化成 JSON 并用冻结检查的判定程序验一遍，验过了再替换；替换用 `kubectl replace`（对象还在时）或 `kubectl create`（对象已不在时），都不先删：
+**不去推断它原来是不是冻结的**（复核 45）：旧的 `policy status` 输出没有保证被留着，平台的审计只保留最近 500 条，也不一定对得上最新那次冻结。上面两步对「原来冻结」和「原来没冻结」是同一个做法：先冻结，再由 Owner 签名解冻；原来确实该冻结的，就停在第 1 步不解冻。多冻一次的代价是一次签名。
 
-```bash
-# 值从环境变量取，不进命令行历史；FROZEN 是 true 或 false。
-export FROZEN=true FROZEN_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)" WHO="owner" REASON='restored during recovery'
-python3 - > /tmp/freeze-restore.json <<'PY'
-import json, os, sys
-sys.path.insert(0, "scripts/release")
-import freeze_decision
-frozen = os.environ["FROZEN"]
-data = {"frozen": frozen}
-if frozen == "true":
-    data.update(frozen_at=os.environ["FROZEN_AT"], who=os.environ["WHO"], reason=os.environ["REASON"])
-allow, line = freeze_decision.decide(data)
-if (frozen == "true") == allow or "读不到" in line:
-    sys.exit("refusing to write: the decision program reads this object as: " + line)
-json.dump({"apiVersion": "v1", "kind": "ConfigMap",
-           "metadata": {"name": "bifrost-release-freeze", "namespace": "cicd",
-                        "labels": {"bifrost.io/purpose": "release-policy"}},
-           "data": data}, sys.stdout, ensure_ascii=False)
-PY
-kubectl -n cicd replace -f /tmp/freeze-restore.json || kubectl -n cicd create -f /tmp/freeze-restore.json
-kubectl -n cicd get configmap bifrost-release-freeze -o json | python3 -c 'import json,sys; sys.path.insert(0,"scripts/release"); import freeze_decision; print(freeze_decision.decide(json.load(sys.stdin)["data"])[1])'
-```
+**平台不可用时**：不恢复，等平台回来再做上面两步。这段时间对象缺失或畸形，新检查把所有流水线拒掉。平台不可用而又必须发布，是 Owner 的带外应急，这一片不提供工具，也不给手写对象的示例（复核 46 指出过那样的示例会出的错）；带签名的冻结对象和它的恢复工具在 C 片一起做、一起测。
 
-第一段在本机生成并自检：冻结的对象必须被判成「拒绝：发布已冻结」，没冻结的必须被判成「未冻结」，读成别的就不写。`replace` 整体替换 `data`，不留多余的键（`kubectl apply` 会按键合并，不要用它恢复）。最后一行读回集群里的对象再判一次。恢复「已解冻」的形状（带 `unfreeze.txt`、`unfreeze.sig`）只在两样原文都还在手里时做，同样先序列化、先自检；拿不全就按上一段建新的冻结再重新签名。
+**还没换上新检查的流水线**（安装中断在半路，见上一节）：旧的 release-window 任务把缺失的对象读成没冻结。所以对象缺失期间，不要启动任何还没换上新检查的流水线，直到第 1 步写回对象。
 
 冻结检查的 Task 或程序 ConfigMap 坏了：Owner 自己再 apply 这两个对象所在的那一个文件，不走 apply 流水线：
 
