@@ -1874,6 +1874,20 @@
 - 验收: on STG with a deliberately wrong token saved: the page says the saved token is not accepted before any button is pressed, and a refused decision leads to the field
 - 审批 无（代码和文档改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
 
+### TD-313
+
+**P2 · ops-platform · CI for the Console compiles types only: `ci-platform` runs `npm ci` and `npx tsc --noEmit` — no ESLint, no tests — so a red Console test or a broken lint rule reaches main and PROD unless the coordinator's local rerun catches it**
+
+- **状态**：未开始（2026-10-11 16:20 写令牌模型设计时发现）
+- **Claim**: the `test-console` task of `k8s/cicd/tekton/pipeline-ci-platform.yaml` (step `npm-type-check`) runs `npm ci` in `bifrost-ui`, `npm ci` in `console`, then `npx tsc --noEmit`. It does not run `npm run lint`, `npx vitest run` or `npm run build`. The Console has more than 800 tests; today they are run only by `~/agent-work/verify-branch.sh` on the coordinator's machine. Both Console designs written on 2026-10-11 (`DESIGN-console-progress-v2`, `DESIGN-console-auth`) rest on ESLint rules and generated tests to make three classes of mistake impossible; without lint and tests in the gate only the type layer is enforced.
+- **Measured**: MEASURED 2026-10-11 16:21 CDT by reading the file at infra main: the step's script contains exactly `npm ci --no-audit --no-fund`, the `dist/index.d.ts` check, `npm ci 2>/dev/null || npm install`, `npx tsc --noEmit`. NOT MEASURED: how long lint plus the test suite takes inside the CI pod (two CPUs); locally the suite takes about a minute.
+- **Evidence**: `k8s/cicd/tekton/pipeline-ci-platform.yaml` (task `test-console`); `~/agent-work/verify-branch.sh` (the local rerun that does run them).
+- **Impact**: the release precondition "CI is green on this commit" says nothing about the Console's behaviour. A merge that skips the local rerun, or a second session merging to platform main, can ship a Console whose tests fail.
+- **Fix**: add `npm run lint`, `npx vitest run` and `npm run build` to the step (in that order, each failing the task), with a timeout sized from a measured run; the pipeline definition is applied to the cluster by the Owner. Do it before slice 1 of either Console design is merged.
+- **Ratchet**: a static test in infra that the `test-console` step's script contains the four commands (so a later edit cannot drop one silently).
+- 验收: a CI run on a commit with one deliberately failing Console test ends Failed at `test-console`; the next commit without it ends Succeeded
+- 审批 要批（改流水线定义，Owner 应用到集群）· 代价 S · 风险 low · repos: bifrost-trade-infra
+
 ## 没覆盖到的（下一轮从这里开始）
 
 - Per-engine numerical correctness beyond dates: GEX sign conventions, max-pain, VRP realized-vol windows, vanna/charm, SVI fit, flow maths
