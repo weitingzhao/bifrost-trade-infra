@@ -1,0 +1,24 @@
+# Proposal only. NOT included in Helm values or any Kustomization.
+# After Owner approval insert before the final bifrost-ops-agent catch-all.
+# Reuse existing receivers/auth references; do not add credentials here.
+routes:
+  - receiver: owner-ntfy
+    matchers:
+      - namespace="research"
+      - severity="warning"
+      - alertname=~"BifrostDagster(RunFailed|AssetCheckFailed)"
+    group_by: ['alertname', 'namespace', 'job']
+    continue: true
+# Optional companion routes, separately named in the approval packet. These
+# prevent the failure producer itself becoming an audit-only silent failure.
+companion_routes:
+  - receiver: owner-ntfy
+    matchers:
+      - namespace="research"
+      - alertname="BifrostDagsterScheduleMissed"
+    continue: true
+  - receiver: owner-ntfy
+    matchers:
+      - alertname="BifrostResearchMetricsProbeFailing"
+      - probe="alert_delivery"
+    continue: true
