@@ -1,16 +1,22 @@
-"""test-console is pinned whole: the script equals a canonical text, and keys are an allow-list.
+"""test-console is pinned whole: the task equals a literal, and so do its clones.
 
-The four commands, in order, and --maxWorkers equal to the step's CPU limit,
-are why that text is the gate. Those checks run on the canonical text. They
-do not enumerate bad edits. Anything else in the script — set +e, an early
-exit, a condition around the checks — fails the equality, so a later edit of
-the script has to edit this test in the same commit.
+The four commands, in order, --maxWorkers equal to the CPU limit, the CPU
+request equal to that limit, and the key allow-lists are why the literal is
+the gate. Those checks run on the literal as well as on the YAML. They do
+not enumerate bad edits. A later edit of the task edits this test in the
+same commit.
+
+The script is compared after stripping trailing whitespace per line. Every
+other key and value is exact. A 1s timeout, another image, a workspace
+subPath or a different memory size fails that equality.
+
+clone and clone-ui are pinned the same way: they produce what test-console
+reads. clone-infra and the other tasks do not, so they are not pinned.
 
 The task, its taskSpec and its one step may only use the keys listed below.
 when, onError, retries, an env, a sidecar or a second step fail by the key's
-name (or by the step count). They are not listed in advance.
-
-Comparison strips trailing whitespace per line and nothing else.
+name (or by the step count), and by the equality. They are not listed in
+advance.
 """
 
 from __future__ import annotations
@@ -89,6 +95,60 @@ ALLOWED_TASK_KEYS = frozenset({"name", "runAfter", "timeout", "workspaces", "tas
 ALLOWED_TASKSPEC_KEYS = frozenset({"workspaces", "steps"})
 ALLOWED_STEP_KEYS = frozenset({"name", "image", "computeResources", "script"})
 WANTED_RUN_AFTER = ["clone", "clone-ui"]
+
+# The whole test-console task. A deliberate change edits this literal in the
+# same commit as the YAML. script is CANONICAL; everything else is exact.
+EXPECTED_CONSOLE = {
+    "name": "test-console",
+    "timeout": "8m0s",
+    "runAfter": ["clone", "clone-ui"],
+    "workspaces": [
+        {"name": "source", "workspace": "source"},
+    ],
+    "taskSpec": {
+        "workspaces": [
+            {"name": "source"},
+        ],
+        "steps": [
+            {
+                "name": "typecheck-lint-test-build",
+                "image": "node:20-slim",
+                "computeResources": {
+                    "requests": {"cpu": "2", "memory": "1Gi"},
+                    "limits": {"cpu": "2", "memory": "4Gi"},
+                },
+                "script": CANONICAL,
+            },
+        ],
+    },
+}
+
+# clone and clone-ui produce what test-console reads: the platform tree and
+# bifrost-ui. clone-infra feeds other tasks, so it is not pinned here.
+EXPECTED_CLONE = {
+    "name": "clone",
+    "taskRef": {"name": "bifrost-git-clone-gitea"},
+    "params": [
+        {"name": "url", "value": "$(params.giteaBase)/bifrost-platform.git"},
+        {"name": "revision", "value": "$(params.revision)"},
+        {"name": "subdir", "value": "bifrost-platform"},
+    ],
+    "workspaces": [
+        {"name": "output", "workspace": "source"},
+    ],
+}
+EXPECTED_CLONE_UI = {
+    "name": "clone-ui",
+    "taskRef": {"name": "bifrost-git-clone-gitea"},
+    "params": [
+        {"name": "url", "value": "$(params.giteaBase)/bifrost-ui.git"},
+        {"name": "revision", "value": "$(params.uiRevision)"},
+        {"name": "subdir", "value": "bifrost-ui"},
+    ],
+    "workspaces": [
+        {"name": "output", "workspace": "source"},
+    ],
+}
 
 
 def _invokes(line: str, command: str) -> bool:
@@ -247,6 +307,45 @@ def _norm(script: str) -> str:
     return "\n".join(line.rstrip() for line in script.splitlines())
 
 
+def _norm_scripts(task: dict) -> dict:
+    """Copy whose step scripts use _norm. Every other value is untouched."""
+    task = copy.deepcopy(task)
+    steps = (task.get("taskSpec") or {}).get("steps") or []
+    if isinstance(steps, list):
+        for step in steps:
+            if isinstance(step, dict) and isinstance(step.get("script"), str):
+                step["script"] = _norm(step["script"])
+    return task
+
+
+def console_matches(doc: dict) -> bool:
+    """The one test-console task equals EXPECTED_CONSOLE.
+
+    The script uses per-line trailing-whitespace normalisation. Everything
+    else — timeout, image, both workspace layers, resources — is exact.
+    """
+    tasks = _console_tasks(doc)
+    if len(tasks) != 1:
+        return False
+    return _norm_scripts(tasks[0]) == _norm_scripts(EXPECTED_CONSOLE)
+
+
+def _task(doc: dict, name: str) -> dict | None:
+    tasks = (doc.get("spec") or {}).get("tasks") or []
+    found = [
+        item for item in tasks
+        if isinstance(item, dict) and item.get("name") == name
+    ]
+    if len(found) != 1:
+        return None
+    return found[0]
+
+
+def clones_match(doc: dict) -> bool:
+    """clone and clone-ui equal their literals. No other task is compared."""
+    return _task(doc, "clone") == EXPECTED_CLONE and _task(doc, "clone-ui") == EXPECTED_CLONE_UI
+
+
 def _console_tasks(doc: dict) -> list[dict]:
     tasks = (doc.get("spec") or {}).get("tasks") or []
     return [
@@ -333,12 +432,31 @@ SCRIPT_EDITS = (
 )
 
 
-def _with_shape(kind: str) -> dict:
+def _set_param(task: dict, name: str, value: str) -> None:
+    for param in task["params"]:
+        if param.get("name") == name:
+            param["value"] = value
+            return
+    raise AssertionError(name)
+
+
+def _with_edit(kind: str) -> dict:
     doc = copy.deepcopy(_load())
     tasks = doc["spec"]["tasks"]
     task = next(item for item in tasks if item.get("name") == "test-console")
     step = task["taskSpec"]["steps"][0]
-    if kind == "onError":
+    if kind == "timeout":
+        task["timeout"] = "1s"
+    elif kind == "image":
+        step["image"] = "node:18-slim"
+    elif kind == "subPath":
+        # On the task binding, so the step sees a different directory.
+        task["workspaces"][0]["subPath"] = "bifrost-platform/console"
+    elif kind == "limits-memory":
+        step["computeResources"]["limits"]["memory"] = "64Mi"
+    elif kind == "requests-memory":
+        step["computeResources"]["requests"]["memory"] = "1Ti"
+    elif kind == "onError":
         step["onError"] = "continue"
     elif kind == "when":
         # Always false: the step would be skipped. The key alone is enough.
@@ -347,6 +465,12 @@ def _with_shape(kind: str) -> dict:
         task["runAfter"] = ["clone"]
     elif kind == "duplicate":
         tasks.append(copy.deepcopy(task))
+    elif kind == "drop-clone-ui":
+        doc["spec"]["tasks"] = [item for item in tasks if item.get("name") != "clone-ui"]
+    elif kind == "revision-main":
+        _set_param(_task(doc, "clone"), "revision", "main")
+    elif kind == "subdir":
+        _set_param(_task(doc, "clone-ui"), "subdir", "somewhere")
     else:
         raise AssertionError(kind)
     return doc
@@ -358,6 +482,23 @@ SHAPE_EDITS = (
     ("when on the task", "when", "unexpected task key: when"),
     ("runAfter changed to [clone]", "runAfter", "runAfter is ['clone']"),
     ("a second task named test-console", "duplicate", "2 tasks named test-console"),
+)
+
+# Value edits the equality rejects. The allow-list still permits these keys.
+VALUE_EDITS = (
+    ("timeout: 1s", "timeout"),
+    ("a different image", "image"),
+    ("subPath on the task workspace", "subPath"),
+    ("limits.memory: 64Mi", "limits-memory"),
+    ("requests.memory: 1Ti", "requests-memory"),
+)
+
+# clone-ui removed makes the DAG invalid. A fixed revision or a different
+# subdir makes test-console read the wrong tree.
+CLONE_EDITS = (
+    ("clone-ui removed", "drop-clone-ui"),
+    ("clone revision set to main", "revision-main"),
+    ("clone-ui subdir changed", "subdir"),
 )
 
 
@@ -394,20 +535,51 @@ class ConsoleGateTests(unittest.TestCase):
     def test_only_trailing_whitespace_per_line_is_normalised(self) -> None:
         spaced = CANONICAL.replace("set -euo pipefail", "set -euo pipefail   ", 1)
         self.assertEqual(shape_problems(_with_script(spaced)), [])
+        self.assertTrue(console_matches(_with_script(spaced)))
         indented = CANONICAL.replace("set -euo pipefail", " set -euo pipefail", 1)
         reasons = shape_problems(_with_script(indented))
         self.assertTrue(any("pinned" in reason for reason in reasons), reasons)
+        self.assertFalse(console_matches(_with_script(indented)))
 
     def test_script_edits_are_rejected(self) -> None:
         for label, script in SCRIPT_EDITS:
             self.assertNotEqual(_norm(script), _norm(CANONICAL), label)
             reasons = shape_problems(_with_script(script))
             self.assertTrue(any("pinned" in reason for reason in reasons), (label, reasons))
+            self.assertFalse(console_matches(_with_script(script)), label)
 
     def test_shape_edits_are_rejected(self) -> None:
         for label, kind, needle in SHAPE_EDITS:
-            reasons = shape_problems(_with_shape(kind))
+            reasons = shape_problems(_with_edit(kind))
             self.assertTrue(any(needle in reason for reason in reasons), (label, reasons))
+
+    def test_the_parsed_task_equals_the_literal(self) -> None:
+        got = _console_tasks(_load())
+        self.assertEqual(
+            [_norm_scripts(task) for task in got],
+            [_norm_scripts(EXPECTED_CONSOLE)],
+        )
+        step = EXPECTED_CONSOLE["taskSpec"]["steps"][0]
+        resources = step["computeResources"]
+        # The literal is the gate for the same reason the YAML task is.
+        self.assertEqual(problems(step["script"]), [])
+        self.assertEqual(worker_pin_problems(step["script"], resources["limits"]["cpu"]), [])
+        self.assertEqual(
+            cpu_guarantee_problems(resources["requests"]["cpu"], resources["limits"]["cpu"]),
+            [],
+        )
+        self.assertEqual(shape_problems({"spec": {"tasks": [EXPECTED_CONSOLE]}}), [])
+        for label, kind in VALUE_EDITS:
+            self.assertFalse(console_matches(_with_edit(kind)), label)
+        for label, kind, _needle in SHAPE_EDITS:
+            self.assertFalse(console_matches(_with_edit(kind)), label)
+
+    def test_clone_and_clone_ui_equal_the_literals(self) -> None:
+        doc = _load()
+        self.assertEqual(_task(doc, "clone"), EXPECTED_CLONE)
+        self.assertEqual(_task(doc, "clone-ui"), EXPECTED_CLONE_UI)
+        for label, kind in CLONE_EDITS:
+            self.assertFalse(clones_match(_with_edit(kind)), label)
 
     def test_a_clean_script_passes(self) -> None:
         self.assertEqual(problems(GOOD), [])
