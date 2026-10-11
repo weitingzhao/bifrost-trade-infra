@@ -1821,7 +1821,7 @@
 
 **P2 · infra · the platform's apply pipeline cannot plan or apply a Tekton Pipeline that was last applied by hand: server-side apply conflicts with the client-side field manager on `.spec.tasks`**
 
-- **状态**：未开始（2026-10-11 装冻结检查后做干跑时发现）
+- **状态**：在做（2026-10-11 13:25 统筹方按推荐定了做法：由 Owner 用服务端方式把这 13 条流水线重新应用一次，字段管理者换成 apply 流水线用的那个，之后的改动走平台。放弃的做法：让 apply 流水线对 `cicd` 里的 `tekton.dev` 对象一律 `--force-conflicts`——那是让流水线可以从人手里拿走字段，属于放宽规则，要 Owner 签。依据：一次性、可重做、不改任何规则。怎么推翻：Owner 说「改 apply 流水线」。命令和 TD-310 要他生成签名密钥的那一条放在同一次办，在本机看板「需要你做的」里排着，还没轮到）
 - **Claim**: the thirteen pipelines in `cicd` were installed on 2026-10-11 by the Owner with client-side `kubectl apply` (the documented way for that install). `bifrost-apply-manifest` uses server-side apply; its `kubectl diff` on one of them fails: `Apply failed with 1 conflict: conflict with "kubectl-client-side-apply" using tekton.dev/v1: .spec.tasks`. So a later change to any of these Pipeline objects cannot go through `plan_manifest` / `apply_manifest` (which the actuation policy allows for Pipeline and Task in `cicd`) until ownership of the fields is moved.
 - **Measured**: MEASURED 2026-10-11 12:50 CDT: `plan_manifest` of `k8s/cicd/tekton/pipeline-deliver-platform.yaml` at infra `0cc8c19` — `freeze-check` Succeeded, `run` Failed with the conflict above (PipelineRun `plan-0cc8c195-1791740994`). Whether the same conflict existed before today's install for these objects is NOT MEASURED.
 - **Evidence**: the run's `run` task log; `k8s/cicd/tekton/apply-manifest/pipeline.yaml` (the `kubectl diff` / apply step); `docs/RELEASE.md`, the freeze-check section, step 3 ("按文件逐个 apply").
