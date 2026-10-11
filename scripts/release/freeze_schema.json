@@ -1,0 +1,46 @@
+{
+  "closed": true,
+  "document": "data of ConfigMap cicd/bifrost-release-freeze",
+  "envelope": "The API object is a ConfigMap. apiVersion, kind and metadata are not part of this closed set. decide() sees data only.",
+  "seq_pattern": "0|[1-9][0-9]*",
+  "initial": {
+    "frozen": "false",
+    "seq": "0"
+  },
+  "frozen_fields": ["frozen", "seq", "reason", "who", "frozen_at"],
+  "frozen_nonempty": ["seq", "reason", "who", "frozen_at"],
+  "unfrozen_fields": [
+    "frozen",
+    "seq",
+    "reason",
+    "who",
+    "frozen_at",
+    "unfreeze_seq",
+    "unfreeze_frozen_at",
+    "unfreeze_at",
+    "unfreeze_by",
+    "unfreeze_text",
+    "unfreeze_sig"
+  ],
+  "unfrozen_nonempty": [
+    "seq",
+    "frozen_at",
+    "unfreeze_seq",
+    "unfreeze_frozen_at",
+    "unfreeze_at",
+    "unfreeze_by",
+    "unfreeze_text",
+    "unfreeze_sig"
+  ],
+  "slice_c": {
+    "verified": false,
+    "note": "note: un-freeze signature not verified (slice C)",
+    "extension": "A frozen=false object with seq other than 0 is the unfrozen shape. This slice checks that the unfreeze fields are present and are strings. It does not verify the Owner signature, bind it to seq and frozen_at, or reject replay."
+  },
+  "inferred": [
+    "seq: the plan's freeze sequence (冻结序号). Not in the existing ConfigMap or task-release-window.yaml. String, not a number, because ConfigMap data values are strings. 0 is never frozen.",
+    "reason, who, frozen_at: the keys the existing freeze step reads. reason and frozen_at fill the refusal line. who is required so a freeze record the old step understands is not an unknown field.",
+    "unfreeze_seq, unfreeze_frozen_at, unfreeze_at, unfreeze_by, unfreeze_text, unfreeze_sig: not in this repo. Inferred from release.sh's signed line 'unfreeze frozen_at=… at=… by=…' plus the plan's rule that the signature also names the sequence. Slice C owns verification and may rename them.",
+    "The manifest k8s/cicd/release-policy/configmaps.yaml data is only frozen=false. It is missing seq, so this task refuses it until the Owner replaces it with the initial object."
+  ]
+}
