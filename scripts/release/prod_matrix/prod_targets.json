@@ -1,0 +1,629 @@
+{
+  "questions": [
+    {
+      "group": "",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "cicd",
+      "resource": "configmaps",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "create",
+      "version": "v1"
+    },
+    {
+      "group": "",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "cicd",
+      "resource": "configmaps",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "patch",
+      "version": "v1"
+    },
+    {
+      "group": "",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "cicd",
+      "resource": "configmaps",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "update",
+      "version": "v1"
+    },
+    {
+      "group": "argoproj.io",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "bifrost-platform-prod",
+      "namespace": "cicd",
+      "resource": "applications",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "patch",
+      "version": "v1alpha1"
+    },
+    {
+      "group": "apps",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "deployments",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "create",
+      "version": "v1"
+    },
+    {
+      "group": "apps",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "deployments",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "patch",
+      "version": "v1"
+    },
+    {
+      "group": "apps",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "deployments",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "update",
+      "version": "v1"
+    },
+    {
+      "group": "apps",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "platform-api",
+      "namespace": "bifrost-platform-prod",
+      "resource": "deployments",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "create",
+      "version": "v1"
+    },
+    {
+      "group": "apps",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "platform-api",
+      "namespace": "bifrost-platform-prod",
+      "resource": "deployments",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "patch",
+      "version": "v1"
+    },
+    {
+      "group": "apps",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "platform-api",
+      "namespace": "bifrost-platform-prod",
+      "resource": "deployments",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "update",
+      "version": "v1"
+    },
+    {
+      "group": "apps",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "platform-workers",
+      "namespace": "bifrost-platform-prod",
+      "resource": "deployments",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "create",
+      "version": "v1"
+    },
+    {
+      "group": "apps",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "platform-workers",
+      "namespace": "bifrost-platform-prod",
+      "resource": "deployments",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "patch",
+      "version": "v1"
+    },
+    {
+      "group": "apps",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "platform-workers",
+      "namespace": "bifrost-platform-prod",
+      "resource": "deployments",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "update",
+      "version": "v1"
+    },
+    {
+      "group": "apps",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "platform-console",
+      "namespace": "bifrost-platform-prod",
+      "resource": "deployments",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "create",
+      "version": "v1"
+    },
+    {
+      "group": "apps",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "platform-console",
+      "namespace": "bifrost-platform-prod",
+      "resource": "deployments",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "patch",
+      "version": "v1"
+    },
+    {
+      "group": "apps",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "platform-console",
+      "namespace": "bifrost-platform-prod",
+      "resource": "deployments",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "update",
+      "version": "v1"
+    },
+    {
+      "group": "",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "configmaps",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "create",
+      "version": "v1"
+    },
+    {
+      "group": "",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "configmaps",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "patch",
+      "version": "v1"
+    },
+    {
+      "group": "",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "configmaps",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "update",
+      "version": "v1"
+    },
+    {
+      "group": "",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "services",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "create",
+      "version": "v1"
+    },
+    {
+      "group": "",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "services",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "patch",
+      "version": "v1"
+    },
+    {
+      "group": "",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "services",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "update",
+      "version": "v1"
+    },
+    {
+      "group": "traefik.io",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "ingressroutes",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "create",
+      "version": "v1alpha1"
+    },
+    {
+      "group": "traefik.io",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "ingressroutes",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "patch",
+      "version": "v1alpha1"
+    },
+    {
+      "group": "traefik.io",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "ingressroutes",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "update",
+      "version": "v1alpha1"
+    },
+    {
+      "group": "batch",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "jobs",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "create",
+      "version": "v1"
+    },
+    {
+      "group": "batch",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "jobs",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "patch",
+      "version": "v1"
+    },
+    {
+      "group": "batch",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "jobs",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "update",
+      "version": "v1"
+    },
+    {
+      "group": "batch",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "cronjobs",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "create",
+      "version": "v1"
+    },
+    {
+      "group": "batch",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "cronjobs",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "patch",
+      "version": "v1"
+    },
+    {
+      "group": "batch",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "cronjobs",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "update",
+      "version": "v1"
+    },
+    {
+      "group": "",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "pods",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "delete",
+      "version": "v1"
+    },
+    {
+      "group": "tekton.dev",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "cicd",
+      "resource": "pipelineruns",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "create",
+      "version": "v1"
+    },
+    {
+      "group": "tekton.dev",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "cicd",
+      "resource": "pipelineruns",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "delete",
+      "version": "v1"
+    },
+    {
+      "group": "tekton.dev",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "cicd",
+      "resource": "taskruns",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "create",
+      "version": "v1"
+    },
+    {
+      "group": "tekton.dev",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "cicd",
+      "resource": "taskruns",
+      "scope": "namespaced",
+      "subresource": "",
+      "verb": "delete",
+      "version": "v1"
+    },
+    {
+      "group": "",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "pods",
+      "scope": "namespaced",
+      "subresource": "exec",
+      "verb": "get",
+      "version": "v1"
+    },
+    {
+      "group": "",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "pods",
+      "scope": "namespaced",
+      "subresource": "exec",
+      "verb": "create",
+      "version": "v1"
+    },
+    {
+      "group": "",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "pods",
+      "scope": "namespaced",
+      "subresource": "attach",
+      "verb": "get",
+      "version": "v1"
+    },
+    {
+      "group": "",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "pods",
+      "scope": "namespaced",
+      "subresource": "attach",
+      "verb": "create",
+      "version": "v1"
+    },
+    {
+      "group": "",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "pods",
+      "scope": "namespaced",
+      "subresource": "portforward",
+      "verb": "get",
+      "version": "v1"
+    },
+    {
+      "group": "",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "pods",
+      "scope": "namespaced",
+      "subresource": "portforward",
+      "verb": "create",
+      "version": "v1"
+    },
+    {
+      "group": "",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "pods",
+      "scope": "namespaced",
+      "subresource": "ephemeralcontainers",
+      "verb": "get",
+      "version": "v1"
+    },
+    {
+      "group": "",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "pods",
+      "scope": "namespaced",
+      "subresource": "ephemeralcontainers",
+      "verb": "create",
+      "version": "v1"
+    },
+    {
+      "group": "",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "data",
+      "resource": "pods",
+      "scope": "namespaced",
+      "subresource": "exec",
+      "verb": "get",
+      "version": "v1"
+    },
+    {
+      "group": "",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "data",
+      "resource": "pods",
+      "scope": "namespaced",
+      "subresource": "exec",
+      "verb": "create",
+      "version": "v1"
+    },
+    {
+      "group": "",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "bifrost-platform-prod",
+      "resource": "serviceaccounts",
+      "scope": "namespaced",
+      "subresource": "token",
+      "verb": "create",
+      "version": "v1"
+    },
+    {
+      "group": "",
+      "identity_scope": {
+        "match": "all"
+      },
+      "name": "",
+      "namespace": "cicd",
+      "resource": "serviceaccounts",
+      "scope": "namespaced",
+      "subresource": "token",
+      "verb": "create",
+      "version": "v1"
+    }
+  ],
+  "schema_version": 1
+}

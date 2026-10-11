@@ -1,0 +1,63 @@
+{
+  "rows": [
+    {
+      "ask": true,
+      "extra": {
+        "state": "unknown"
+      },
+      "groups": [
+        "system:authenticated",
+        "system:masters"
+      ],
+      "id": "member-of-system-masters",
+      "kind": "group-member",
+      "record": "identity",
+      "source": "fixed:member-of-system-masters",
+      "uid": {
+        "state": "unknown"
+      },
+      "user": "prod-matrix:member-of:system:masters"
+    },
+    {
+      "ask": false,
+      "id": "k3s-admin-credentials",
+      "kind": "fixed-risk",
+      "reason": "k3s admin credentials and anyone who can log on to a server node",
+      "record": "risk",
+      "source": "fixed:k3s-admin-credentials"
+    },
+    {
+      "ask": false,
+      "id": "node-root",
+      "kind": "fixed-risk",
+      "reason": "root on a node: kubelet credentials and tokens of pods on that node",
+      "record": "risk",
+      "source": "fixed:node-root"
+    },
+    {
+      "ask": true,
+      "extra": {
+        "state": "known",
+        "value": {}
+      },
+      "groups": [
+        "system:unauthenticated"
+      ],
+      "id": "anonymous",
+      "kind": "anonymous",
+      "record": "identity",
+      "source": "fixed:anonymous",
+      "uid": {
+        "state": "known",
+        "value": ""
+      },
+      "user": "system:anonymous"
+    },
+    {
+      "confirmed": false,
+      "id": "auth-chain",
+      "record": "auth-chain"
+    }
+  ],
+  "schema_version": 1
+}
