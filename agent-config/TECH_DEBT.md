@@ -1787,6 +1787,20 @@
 - 验收: `cd bifrost-platform/api && go test ./internal/approvalnotify/ ./internal/agentthreads/ ./internal/notice/`
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-307
+
+**P3 · ops-platform · the question record's redactor: the TypeScript side is quadratic on repeated characters, and the differential test against main logs its enforced count without asserting it**
+
+- **状态**：未开始（Codex 复核 50，2026-10-11；W-65 1A 第 4 轮，分支 `w31/w65-1a` 提交 `da7b774`，合并后生效）
+- **Claim**: (a) `mcp/platform/src/questionCanonical.ts` scans for secret shapes with a hand-written loop that backtracks: an input of one repeated character with no keyword takes time quadratic in its length. (b) `TestRedactHidesEverySecretMainHides` (`api/internal/notice/`) checks "the frozen copy of main's redactor hides SECRET ⇒ the new one hides SECRET" on 252,197 inputs but only logs how many inputs the oracle actually redacted (`enforced=237153`); a later change to the generator could make the property vacuous without failing.
+- **Measured**: (a) MEASURED by review 50 in memory: 2k / 4k / 8k characters of U+017F take about 3 / 11 / 44 ms; ASCII grows the same way. NOT MEASURED on the Go side (the reviewer could not run Go tests in its read-only sandbox). (b) read from the test source.
+- **Evidence**: `agent-config/work/multi-agent/reviews/codex-2026-10-11-review50-w65-1a-round4.md` items 4 and 7.
+- **Impact**: (a) small: the function runs in the agent's own MCP process on a request body capped at 16 KiB, so the worst case is well under a second and nobody else pays for it. It matters if the same loop is reused server-side or on unbounded text. (b) the test is the only thing that pins "the new redactor never hides less than what was live"; without a floor on the enforced count it can decay silently.
+- **Fix**: (a) make the scan single-pass (advance past a failed candidate's start instead of re-scanning from the next character) in both languages, keep the shared vectors. (b) assert `enforced` is at least 200,000 and that each pattern class (keyword assignment, `bearer`, `basic`, AWS key, PEM) is hit at least once.
+- **Ratchet**: (b) is itself the ratchet. For (a) a timing-free test: count loop iterations on an 8k repeated-character input and assert it is linear in the length.
+- 验收: `cd bifrost-platform/api && go test -count=1 -run 'TestRedactHidesEverySecretMainHides' -v ./internal/notice/ && cd ../mcp/platform && npm test`
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
+
 ## 没覆盖到的（下一轮从这里开始）
 
 - Per-engine numerical correctness beyond dates: GEX sign conventions, max-pain, VRP realized-vol windows, vanna/charm, SVI fit, flow maths
