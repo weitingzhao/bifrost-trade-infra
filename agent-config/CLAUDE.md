@@ -1,5 +1,5 @@
 <!--
-parity-ids: workspace-v21, language-v1, agent-modes-v4, trade-execution-freeze-v4, dev-services-v3, phase-execution-v3, shared-worktree-v4, business-first-v1
+parity-ids: workspace-v22, language-v1, agent-modes-v4, trade-execution-freeze-v4, dev-services-v3, phase-execution-v3, shared-worktree-v4, business-first-v1
 对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
 改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
 -->
@@ -216,6 +216,10 @@ release.sh、db-init Job、dev/stg overlay、插件 ConfigMap 与 rollout、rese
 
 - **规则不是批准**。发版（release.sh stg / prod / dev、research pin 推 main、start_pipeline_run、gitops_sync_app）
   和 PROD DDL（db-init-prod、ddl-apply、任何写 bifrost_prod / bifrost_golden_source 的 DDL）仍要 Owner 先在线程里点头，批准按动作算。
+- **走平台审批单的 PROD 发版：Owner 在 Console 上批这张单就是批准（Owner 2026-10-11）**。不用再先在线程里点头，同一件事不在两处确认。
+  建单（`request_action`）前三条都要成立，缺一条就不建：该提交的 `ci-*` 是 Succeeded；STG 跑的是同一个提交并且已核对；
+  同一仓库没有另一张未结的发布单。理由第一段写批了会发生什么，并写明哪些检查没做（例如没有独立复核）。
+  只限由 Owner 在 Console 上批准的单（C / D 级）；从 shell 直接执行的发版和 PROD DDL 仍按上一条。
 - 放行的命令照常先过 `release.sh window`，一次发布一个会话。
 - 跑 ddl-apply Job 前先 `grep -niE 'drop|truncate'` 它要执行的 SQL：命令行规则看不到 Job 里的 SQL，有命中就停下问 Owner。
 
