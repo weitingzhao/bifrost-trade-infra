@@ -291,5 +291,12 @@
 
 - **做什么**：97 exact days/digest/symbol/date/expiry scope; absent classification requires historical detail404 AND complete catalogue absence AND successful non-truncated empty aggregate; listed/no eligible aggregate is never labeled no trades; permissions/errors/truncation stay distinct.
 - **放哪**：`scripts/audit-iv-empty-responses.py`, `scripts/test_iv_empty_audit.py` (5 tests; joint audit/action suite14 PASS), `docs/audits/TD-172-142_EMPTY_97_2026-10-10.md`.
-- **强度**：manual test blocking for this audit; production historical as_of membership gate is pending, not shipped.
+- **强度**：manual test blocking for this audit; historical as_of membership gate tested/executed in isolated Plugin cca27d2 (1303 passed/9 skipped); not shipped to regular production writer.
 - **覆盖**：TD-172, TD-142; future catalogue mistaken for historical availability; empty bar mistaken for no trades/permission failure. Read-only proposal46/92 is not authorization to write.
+
+### TD-172 / TD-142 historical replacement gate
+
+- **做什么**：Plugin历史as_of按每session/expiry查完整标准合同成员，截断/缺合同/非标准合同在bars前拒绝；独立固定46/92 digest和三名子集，新旧清单不混用；HTTP携带前批对账计数total160/reference60/bars100，每次attempt含retry/control先计数；raw已有主键先差集、DO NOTHING、不写非目标日，合法0保留。
+- **放哪**：Plugin `tests/test_long_pilot.py`（7 tests）、`polygon/{endpoints,client}.py`、`ingest/long_pilot.py`、`scripts/run_replacement_pilot.py`；验收 `docs/audits/TD-172-142_REPLACEMENT_2026-10-10.md`。
+- **强度**：blocking tests，隔离提交cca27d2；本次受限平台执行有效，未常规发布。实际92raw/23ATM/48来源，HTTP75；同清单raw重放0HTTP/0新增，feature重放0新增，三名DEV及全旧值保护PASS。
+- **覆盖**：TD-172/142；当前目录穿越回填旧日、分页截断误当不存在、预算跨cohort重置、合并区间写入非批准日期、已有值覆盖。runtime告警接收仍NOT VERIFIED；不宣称全历史完备。
