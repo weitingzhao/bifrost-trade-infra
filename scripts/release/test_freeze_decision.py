@@ -25,6 +25,7 @@ TASK = ROOT / "k8s/cicd/tekton/task-release-freeze-check.yaml"
 FROZEN = {
     "frozen": "true",
     "frozen_at": "2026-10-10T09:00:00Z",
+    "freeze_id": "1",
     "who": "ada@host",
     "reason": "incident",
 }
@@ -32,7 +33,8 @@ FROZEN = {
 UNFROZEN = {
     "frozen": "false",
     "frozen_at": "2026-10-10T09:00:00Z",
-    "unfreeze.txt": "unfreeze frozen_at=2026-10-10T09:00:00Z at=2026-10-10T10:00:00Z by=owner@host\n",
+    "freeze_id": "1",
+    "unfreeze.txt": "unfreeze freeze_id=1 frozen_at=2026-10-10T09:00:00Z at=2026-10-10T10:00:00Z by=owner@host\n",
     "unfreeze.sig": "signed",
 }
 
@@ -102,8 +104,8 @@ class DecideTests(unittest.TestCase):
         shapes = fd.schema()["shapes"]
         self.assertEqual(set(fd.schema()["initial"]), {"frozen"})
         self.assertEqual(set(shapes["never_frozen"]["keys"]), {"frozen"})
-        self.assertEqual(set(shapes["frozen"]["keys"]), {"frozen", "frozen_at", "who", "reason"})
-        self.assertEqual(set(shapes["unfrozen"]["keys"]), {"frozen", "frozen_at", "unfreeze.txt", "unfreeze.sig"})
+        self.assertEqual(set(shapes["frozen"]["keys"]), {"frozen", "frozen_at", "freeze_id", "who", "reason"})
+        self.assertEqual(set(shapes["unfrozen"]["keys"]), {"frozen", "frozen_at", "freeze_id", "unfreeze.txt", "unfreeze.sig"})
         self.assertIn("arrive together in slice C", fd.schema()["slice_c"]["extension"])
         code, text = fd.render(dict(UNFROZEN))
         self.assertEqual(code, 0)
@@ -157,6 +159,7 @@ class DecideTests(unittest.TestCase):
         first = {
             "frozen": "true",
             "frozen_at": first_at,
+            "freeze_id": "1",
             "who": "ada@host",
             "reason": "incident",
         }
@@ -165,10 +168,11 @@ class DecideTests(unittest.TestCase):
             "拒绝：发布已冻结（incident，2026-10-11T09:00:00Z）；解冻要 Owner 签名",
         )
 
-        first_text = f"unfreeze frozen_at={first_at} at=2026-10-11T10:00:00Z by=owner@host\n"
+        first_text = f"unfreeze freeze_id=1 frozen_at={first_at} at=2026-10-11T10:00:00Z by=owner@host\n"
         lifted = {
             "frozen": "false",
             "frozen_at": first_at,
+            "freeze_id": "1",
             "unfreeze.txt": first_text,
             "unfreeze.sig": "sig-1",
         }
@@ -181,6 +185,7 @@ class DecideTests(unittest.TestCase):
         again = {
             "frozen": "true",
             "frozen_at": second_at,
+            "freeze_id": "2",
             "who": "ada@host",
             "reason": "incident",
         }
@@ -190,10 +195,11 @@ class DecideTests(unittest.TestCase):
             "拒绝：发布已冻结（incident，2026-10-11T11:00:00Z）；解冻要 Owner 签名",
         )
 
-        second_text = f"unfreeze frozen_at={second_at} at=2026-10-11T12:00:00Z by=owner@host\n"
+        second_text = f"unfreeze freeze_id=2 frozen_at={second_at} at=2026-10-11T12:00:00Z by=owner@host\n"
         lifted_again = {
             "frozen": "false",
             "frozen_at": second_at,
+            "freeze_id": "2",
             "unfreeze.txt": second_text,
             "unfreeze.sig": "sig-2",
         }

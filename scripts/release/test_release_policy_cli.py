@@ -22,6 +22,7 @@ class FakePlatform:
     def __init__(self) -> None:
         self.requests: list[tuple[str, str, dict, dict]] = []
         self.status_http = 200
+        self.freeze_seq = 0
         self.status = {"valid": False, "remaining_seconds": 0, "allow": [], "frozen": False,
                        "reasons": ["no signed policy"], "anchor_fingerprint": ""}
         fake = self
@@ -55,10 +56,13 @@ class FakePlatform:
                 return self.status_http, {"error": "unavailable"}
             return 200, self.status
         if method == "POST" and path == "/api/v1/release-policy/freeze":
-            self.status.update(frozen=True, freeze_reason=body["reason"], frozen_at="2026-10-10T09:00:00Z")
+            self.freeze_seq += 1
+            self.status.update(frozen=True, freeze_reason=body["reason"], frozen_at="2026-10-10T09:00:00Z",
+                               freeze_id=str(self.freeze_seq))
             return 200, self.status
         if method == "POST" and path == "/api/v1/release-policy/unfreeze":
-            if not body["text"].startswith(f"unfreeze frozen_at={self.status['frozen_at']} "):
+            prefix = f"unfreeze freeze_id={self.status.get('freeze_id')} frozen_at={self.status.get('frozen_at')} "
+            if not body["text"].startswith(prefix):
                 return 409, {"error": "unfreeze is for another freeze"}
             self.status.update(frozen=False)
             return 200, self.status
@@ -127,7 +131,7 @@ class ReleasePolicyCLITests(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         _, path, body, _ = self.fake.requests[-1]
         self.assertEqual(path, "/api/v1/release-policy/unfreeze")
-        self.assertRegex(body["text"], r"^unfreeze frozen_at=2026-10-10T09:00:00Z at=\S+Z by=tester@host\n$")
+        self.assertRegex(body["text"], r"^unfreeze freeze_id=1 frozen_at=2026-10-10T09:00:00Z at=\S+Z by=tester@host\n$")
         self.assertIn("BEGIN SSH SIGNATURE", body["sig"])
         self.assertTrue(self.verifies(body["text"], body["sig"], "bifrost-release-unfreeze"))
         self.assertIn("frozen    False", res.stdout)
@@ -157,6 +161,14 @@ class ReleasePolicyCLITests(unittest.TestCase):
         )
         self.assertEqual([(m, p) for m, p, _, _ in self.fake.requests], [("GET", "/api/v1/release-policy")])
         self.assertFalse(self.fake.status["frozen"])
+
+    def test_unfreeze_without_an_identifier_says_the_platform_is_older(self) -> None:
+        self.fake.status.update(frozen=True, frozen_at="2026-10-10T09:00:00Z", freeze_reason="incident")
+        res = self.run_sh("unfreeze")
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("the platform is older than this script", res.stderr)
+        self.assertEqual([(m, p) for m, p, _, _ in self.fake.requests], [("GET", "/api/v1/release-policy")])
+        self.assertTrue(self.fake.status["frozen"])
 
     def test_unfreeze_without_a_key_names_both_ways(self) -> None:
         missing = self.tmp / "missing"

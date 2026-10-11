@@ -14,22 +14,22 @@
       "source": "k8s/cicd/release-policy/configmaps.yaml data. Freeze and Unfreeze replace the whole map and do not write this shape."
     },
     "frozen": {
-      "keys": ["frozen", "frozen_at", "who", "reason"],
-      "nonempty": ["frozen_at", "who", "reason"],
+      "keys": ["frozen", "frozen_at", "freeze_id", "who", "reason"],
+      "nonempty": ["frozen_at", "freeze_id", "who", "reason"],
       "rfc3339": ["frozen_at"],
       "frozen": "true",
       "allow": false,
       "note": false,
-      "source": "Engine.Freeze WriteConfigMap (frozen, frozen_at, who, reason)"
+      "source": "Engine.Freeze WriteConfigMap (frozen, frozen_at, freeze_id, who, reason)"
     },
     "unfrozen": {
-      "keys": ["frozen", "frozen_at", "unfreeze.txt", "unfreeze.sig"],
-      "nonempty": ["frozen_at", "unfreeze.txt", "unfreeze.sig"],
+      "keys": ["frozen", "frozen_at", "freeze_id", "unfreeze.txt", "unfreeze.sig"],
+      "nonempty": ["frozen_at", "freeze_id", "unfreeze.txt", "unfreeze.sig"],
       "rfc3339": ["frozen_at"],
       "frozen": "false",
       "allow": true,
       "note": true,
-      "source": "Engine.Unfreeze WriteConfigMap (frozen, frozen_at, unfreeze.txt, unfreeze.sig)"
+      "source": "Engine.Unfreeze WriteConfigMap (frozen, frozen_at, freeze_id, unfreeze.txt, unfreeze.sig)"
     }
   },
   "slice_c": {

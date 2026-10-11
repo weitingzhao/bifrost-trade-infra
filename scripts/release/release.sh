@@ -612,7 +612,13 @@ left=int(s.get("remaining_seconds") or 0)
 print("policy    %s" % (s.get("policy_id") or "none"))
 print("valid     %s%s" % (s.get("valid"), "" if not s.get("expires_at") else "  (expires %s, %dd %dh left)" % (s["expires_at"], left // 86400, left % 86400 // 3600)))
 print("allow     %s" % (", ".join(s.get("allow") or []) or "-"))
-print("frozen    %s%s" % (s.get("frozen"), "" if not s.get("frozen") else "  (%s, at %s)" % (s.get("freeze_reason") or "-", s.get("frozen_at") or "?")))
+frozen_extra = ""
+if s.get("frozen"):
+    frozen_extra = "  (%s, at %s" % (s.get("freeze_reason") or "-", s.get("frozen_at") or "?")
+    if s.get("freeze_id"):
+        frozen_extra += ", freeze %s" % s["freeze_id"]
+    frozen_extra += ")"
+print("frozen    %s%s" % (s.get("frozen"), frozen_extra))
 print("anchor    %s" % (s.get("anchor_fingerprint") or "none compiled in: nothing auto-approves, and freeze is refused (nobody could lift it)"))
 for r in s.get("reasons") or []:
     print("reason    %s" % r)
@@ -695,7 +701,7 @@ cmd_freeze() {
 }
 
 cmd_unfreeze() {
-  local key="${POLICY_KEY}" who="${BIFROST_RELEASE_WHO:-${USER}@$(hostname -s)}" frozen frozen_at tmp body
+  local key="${POLICY_KEY}" who="${BIFROST_RELEASE_WHO:-${USER}@$(hostname -s)}" frozen frozen_at freeze_id tmp body
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --key) key="${2:?}"; shift 2 ;;
@@ -707,14 +713,18 @@ cmd_unfreeze() {
   platform_send GET /api/v1/release-policy "" viewer >/dev/null || rel_die "could not read the freeze" 1
   frozen="$(printf '%s' "${PLATFORM_BODY}" | json_field frozen)"
   frozen_at="$(printf '%s' "${PLATFORM_BODY}" | json_field frozen_at)"
+  freeze_id="$(printf '%s' "${PLATFORM_BODY}" | json_field freeze_id)"
   if [[ "${frozen}" != "True" ]]; then
     echo "not frozen"
     return 0
   fi
+  # No signature of the old "unfreeze frozen_at=..." form exists. A platform
+  # that does not report freeze_id cannot be lifted by this script.
+  [[ -n "${freeze_id}" ]] || rel_die "the platform is older than this script: the freeze has no identifier, so an unfreeze cannot name one freeze" 1
   [[ -n "${frozen_at}" ]] || rel_die "the freeze has no frozen_at; platform-api cannot check an unfreeze against it" 1
   tmp="$(mktemp -d)"
-  printf 'unfreeze frozen_at=%s at=%s by=%s\n' "${frozen_at}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${who}" >"${tmp}/unfreeze.txt"
-  echo "signing the unfreeze of ${frozen_at} with ${key} (ssh-keygen asks for the passphrase or Touch ID)"
+  printf 'unfreeze freeze_id=%s frozen_at=%s at=%s by=%s\n' "${freeze_id}" "${frozen_at}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${who}" >"${tmp}/unfreeze.txt"
+  echo "signing the unfreeze of freeze ${freeze_id} (${frozen_at}) with ${key} (ssh-keygen asks for the passphrase or Touch ID)"
   ssh-keygen -Y sign -f "${key}" -n bifrost-release-unfreeze "${tmp}/unfreeze.txt"
   body="$(python3 -c 'import json,sys
 print(json.dumps({"text":open(sys.argv[1]).read(),"sig":open(sys.argv[2]).read()}))' "${tmp}/unfreeze.txt" "${tmp}/unfreeze.txt.sig")"
