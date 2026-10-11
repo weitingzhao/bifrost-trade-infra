@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import re
+import ast
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
@@ -582,8 +582,17 @@ def test_unknown_field_on_each_side():
 
 
 def test_decide_does_not_guard_a_comparison_on_an_expected_value():
-    text = Path(__file__).with_name("decide.py").read_text(encoding="utf-8")
-    guarded = re.compile(r"\bif\s+(?:exp_[A-Za-z0-9_]*|expected\b)")
-    truthy = re.compile(r"\b(?:and|or)\s+(?:exp_[A-Za-z0-9_]*|expected)\b")
-    assert guarded.search(text) is None
-    assert truthy.search(text) is None
+    """AST walk: evidence is compared only in same_set / set_delta, and expected values are not truth-tested."""
+    from test_mutate import FORBIDDEN_SNIPPETS, comparison_sites
+
+    for snippet in FORBIDDEN_SNIPPETS:
+        found = comparison_sites(ast.parse(snippet))
+        assert found, snippet
+    root = Path(__file__).resolve().parent
+    offenders = []
+    for path in sorted(root.glob("*.py")):
+        if path.name.startswith("test_"):
+            continue
+        found = comparison_sites(ast.parse(path.read_text(encoding="utf-8")))
+        offenders.extend(f"{path.name}:{line} {text}" for line, text in found)
+    assert offenders == []
