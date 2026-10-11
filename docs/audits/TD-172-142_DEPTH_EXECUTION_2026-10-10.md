@@ -41,7 +41,7 @@ SPY其余25组历史as_of已全部验证后，在第一个aggregate前连接关�
 
 平台动作（受限probe，不是发布）：SPY闸门raw `probe-20261011033809` / feature `probe-20261011033839`；SPY其余恢复raw `probe-20261011034509` / feature `probe-20261011034640`；NVDA raw `probe-20261011034824` / feature `probe-20261011035036`；AAPL raw `probe-20261011035134` / feature `probe-20261011035240`；最终raw重放 `probe-20261011035408`。原SPY中断Job `probe-20261011034020`留证，未算成功。
 
-私有目录 `/Users/vision-mac-trader/agent-work/td-172-142-evidence/`：depth-before-*、depth-{phase}-{raw,feature}-action/platform-receipt/log/receipt、depth-{phase}-acceptance/checkpoint/dev.txt/dev.png、depth-checkpoint.json、depth-final-replay-*、depth-final-acceptance.json；源文件/实际市场行/合同清单不入Git。最终四阶段验收hash重新核对PASS。DEV固定数据as_of=2026-10-09，浏览器localhost:5173；API为本地Research只读reader8795。代码改变仅在Plugin隔离分支，Research本批复用已测repair，无新代码发布。
+私有目录 `~/agent-work/td-172-142-evidence/`：depth-before-*、depth-{phase}-{raw,feature}-action/platform-receipt/log/receipt、depth-{phase}-acceptance/checkpoint/dev.txt/dev.png、depth-checkpoint.json、depth-final-replay-*、depth-final-acceptance.json；源文件/实际市场行/合同清单不入Git。最终四阶段验收hash重新核对PASS。DEV固定数据as_of=2026-10-09，浏览器localhost:5173；API为本地Research只读reader8795。代码改变仅在Plugin隔离分支，Research本批复用已测repair，无新代码发布。
 
 复核命令：Plugin隔离目录用已配置Python runtime执行 `make lint && make test`；私有证据目录用Research venv运行 `depth-budget-index.py`、逐阶段 `depth-acceptance.py PHASE`（对应DEV文本与只读snapshot需存在）；`depth-final-acceptance.json`为最终全值/预算/digest结果。执行命令不得随意重跑，必须沿原checkpoint和accepted receipt。
 
