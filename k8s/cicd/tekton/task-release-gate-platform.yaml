@@ -1,0 +1,143 @@
+# W-56 G1. Resolves revision / uiRevision to full SHAs, keeps the two platform-stg
+# health checks from preflight-stg, then runs scripts/release/release_gate.py.
+# The script is the infra clone (the same way ci-platform runs an infra script).
+# There is no second copy of the decision in this file, and no allow-red param.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-release-gate-platform
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: platform-release-gate
+    bifrost.io/layer: L1
+spec:
+  description: >-
+    Refuse a platform PROD promote unless this platform SHA's bifrost-ci-platform
+    run succeeded, the newest bifrost-deliver-platform attempt cloned that SHA
+    and the ui SHA, and that STG delivery has been finished for soakMinutes.
+  params:
+    - name: revision
+      type: string
+      default: main
+      description: bifrost-platform ref (branch, tag, or full SHA).
+    - name: uiRevision
+      type: string
+      default: main
+      description: bifrost-ui ref (branch, tag, or full SHA).
+    - name: giteaBase
+      type: string
+      default: http://gitea.cicd.svc.cluster.local:3000/bifrost
+    - name: infraRevision
+      type: string
+      default: main
+      description: bifrost-trade-infra ref that contains scripts/release/release_gate.py.
+    - name: soakMinutes
+      type: string
+      default: "10"
+  results:
+    - name: platformSha
+      description: Full bifrost-platform SHA the gate resolved.
+    - name: uiSha
+      description: Full bifrost-ui SHA the gate resolved.
+  steps:
+    - name: gate
+      image: alpine/k8s:1.31.4
+      env:
+        - name: GIT_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: gitea-git-credentials
+              key: username
+        - name: GIT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: gitea-git-credentials
+              key: password
+      script: |
+        #!/bin/sh
+        set -eu
+        apk add --no-cache python3 git curl >/dev/null 2>&1
+
+        base="$(params.giteaBase)"
+        base="${base%/}"
+        scheme=http
+        rest=$base
+        case $base in
+          https://*) scheme=https; rest=${base#https://} ;;
+          http://*) rest=${base#http://} ;;
+        esac
+        authed="${scheme}://${GIT_USERNAME}:${GIT_PASSWORD}@${rest}"
+
+        # A full SHA is already resolved. A branch or tag is asked of Gitea the
+        # way bifrost-git-clone-gitea reaches it (basic-auth HTTP, no workspace).
+        resolve_to() {
+          repo="$1"
+          rev="$2"
+          out="$3"
+          if printf '%s' "$rev" | grep -Eq '^[0-9a-f]{40}$'; then
+            printf '%s' "$rev" > "$out"
+            return 0
+          fi
+          line=$(git ls-remote "${authed}/${repo}.git" "refs/heads/${rev}" "refs/tags/${rev}" || true)
+          sha=$(printf '%s\n' "$line" | awk 'NR==1 { print $1 }')
+          if ! printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "could not resolve ${repo} @ ${rev}" >&2
+            return 1
+          fi
+          printf '%s' "$sha" > "$out"
+        }
+        resolve_to bifrost-platform "$(params.revision)" /tmp/platform.sha
+        resolve_to bifrost-ui "$(params.uiRevision)" /tmp/ui.sha
+        platform_sha=$(cat /tmp/platform.sha)
+        ui_sha=$(cat /tmp/ui.sha)
+        printf '%s' "$platform_sha" > "$(results.platformSha.path)"
+        printf '%s' "$ui_sha" > "$(results.uiSha.path)"
+        echo "platform ${platform_sha}"
+        echo "ui ${ui_sha}"
+
+        echo "==> Preflight: checking platform-stg health"
+        HTTP=$(curl -s -o /dev/null -w '%{http_code}' \
+          http://platform-api.bifrost-platform-stg.svc.cluster.local:8780/health || echo 000)
+        if [ "$HTTP" != "200" ]; then
+          echo "FAIL: platform-stg API returned $HTTP — aborting prod deploy"
+          exit 1
+        fi
+        echo "OK: platform-stg API healthy ($HTTP)"
+        HTTP2=$(curl -s -o /dev/null -w '%{http_code}' \
+          http://platform-console.bifrost-platform-stg.svc.cluster.local:80/ || echo 000)
+        if [ "$HTTP2" != "200" ]; then
+          echo "FAIL: platform-stg Console returned $HTTP2 — aborting prod deploy"
+          exit 1
+        fi
+        echo "OK: platform-stg Console healthy ($HTTP2)"
+
+        ns="$(context.taskRun.namespace)"
+        kubectl get pipelinerun -n "$ns" -o json > /tmp/pipelineruns.json
+        kubectl get taskrun -n "$ns" -o json > /tmp/taskruns.json
+
+        dest=/tmp/bifrost-trade-infra
+        rm -rf "$dest"
+        irev="$(params.infraRevision)"
+        if printf '%s' "$irev" | grep -Eq '^[0-9a-f]{7,40}$'; then
+          git init -q "$dest"
+          git -C "$dest" remote add origin "${authed}/bifrost-trade-infra.git"
+          if git -C "$dest" fetch -q --depth=1 origin "$irev"; then
+            git -C "$dest" checkout -q --detach FETCH_HEAD
+          else
+            echo "server refused a bare-SHA fetch — cloning in full and checking out ${irev}"
+            rm -rf "$dest"
+            git clone -q "${authed}/bifrost-trade-infra.git" "$dest"
+            git -C "$dest" checkout -q --detach "$irev"
+          fi
+        else
+          git clone -q --depth=1 --branch "$irev" "${authed}/bifrost-trade-infra.git" "$dest"
+        fi
+
+        now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        python3 "$dest/scripts/release/release_gate.py" \
+          --platform-sha "$platform_sha" \
+          --ui-sha "$ui_sha" \
+          --runs /tmp/pipelineruns.json \
+          --taskruns /tmp/taskruns.json \
+          --now "$now" \
+          --soak-minutes "$(params.soakMinutes)"

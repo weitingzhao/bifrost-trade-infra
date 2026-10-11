@@ -36,6 +36,11 @@ def test_label_of_another_repo_does_not_match() -> None:
     assert classify(runs, "bifrost-trade-frontend", SHA) == "missing"
 
 
+def test_platform_run_with_repo_only_as_label() -> None:
+    runs = [_run("bifrost-ci-platform", {"revision": SHA}, {"bifrost.io/repo": "bifrost-platform"})]
+    assert classify(runs, "bifrost-platform", SHA) == "succeeded"
+
+
 def test_failed_run_reads_failed() -> None:
     runs = [_run("bifrost-ci-frontend", {"revision": SHA}, {"bifrost.io/repo": "bifrost-trade-frontend"}, ok="False")]
     assert classify(runs, "bifrost-trade-frontend", SHA) == "failed"

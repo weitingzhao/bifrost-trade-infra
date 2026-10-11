@@ -1,0 +1,93 @@
+# W-56 G1. Read-only access for ServiceAccount tekton-deliver so the promote
+# pipeline can see CI and STG PipelineRuns, their TaskRuns, and the pods whose
+# imageIDs are the digests being promoted. The Owner applies this file.
+# The platform applier does not write RBAC.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tekton-release-gate
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: platform-release-gate
+rules:
+  - apiGroups: [tekton.dev]
+    resources: [pipelineruns, taskruns]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-release-gate
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: platform-release-gate
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tekton-release-gate
+subjects:
+  - kind: ServiceAccount
+    name: tekton-deliver
+    namespace: cicd
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tekton-release-gate
+  namespace: bifrost-platform-stg
+  labels:
+    bifrost.io/purpose: platform-release-gate
+rules:
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-release-gate
+  namespace: bifrost-platform-stg
+  labels:
+    bifrost.io/purpose: platform-release-gate
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tekton-release-gate
+subjects:
+  - kind: ServiceAccount
+    name: tekton-deliver
+    namespace: cicd
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tekton-release-gate
+  namespace: bifrost-platform-prod
+  labels:
+    bifrost.io/purpose: platform-release-gate
+rules:
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-release-gate
+  namespace: bifrost-platform-prod
+  labels:
+    bifrost.io/purpose: platform-release-gate
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tekton-release-gate
+subjects:
+  - kind: ServiceAccount
+    name: tekton-deliver
+    namespace: cicd
