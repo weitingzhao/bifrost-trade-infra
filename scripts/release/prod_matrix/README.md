@@ -20,6 +20,18 @@ apiserver 的回答正文原样保存，只校验程序要读的字段；回答�
 
 录制包没有签名。`body_sha256` 和 `request_hash` 只发现一处改了但没有按同样规则重新封存的修改，不能证明原始回答是真的，也不能证明这份清点是完整的。一组请求的结果只有链上最后一条，而且仅当它 `ok` 且状态码是 2xx；否则这次读取或这次评审没有结果，退出码是 2。解释正文只能走这一条。分链之后每一组都要交出这个结果，whoami 和权限自检也不例外；没有结果就以 2 退出，并写明这个请求。尝试列表必须已经按编号排好。评审必须是 POST 到 SubjectAccessReview 端点，自检必须是 POST 到它自己的端点，参数与采集器发出的一致。读取必须是 GET，路径只能是发现根、某个 group-version，或带 `limit=500` 的清单。请求哈希不变：评审仍只哈希 spec，读取仍哈希整段请求。
 
+请求对象只有三种封闭形状，键必须恰好是这些：
+
+- 根发现（`/api`、`/apis`）和 whoami：`method`、`path`、`params`。方法是 `GET`，`params` 是 `{}`。
+- 版本发现和清单的每一页：`method`、`path`、`params`。方法是 `GET`。`params` 恰好是 `{limit}`，或 `{limit, continue}`，由上一页正文的 continue 链推出，`limit` 是 `500`。版本发现和清单一样分页，这是采集器发出的形状。
+- 评审（SubjectAccessReview 和 SelfSubjectAccessReview）：`method`、`path`、`params`、`body`。方法是 `POST`，`params` 是 `{}`。正文仍按原来的规则校验。
+
+`request` 上其他的键，包括 GET 上的 `body`、`headers`、换一个名字的重复字段、未知键，都以 2 退出，并写明这个请求和这个键。某个键的值类型不对，也以 2 退出。
+
+分链之后按工具自己推出的身份计数，不看请求哈希。GET 的身份是方法、规范路径和参数；POST 的身份再加上正文，否则同一路径上的不同评审会并成一组。同一个身份有两组就以 2 退出，并写明这两次尝试。读的时候要这一组；碰到两组就报错，不取第一组。
+
+离线录制包可以没有前导记录（whoami 和八条权限自检）。真正采集的验收是后面的切片，那时这九个请求组必须齐全。
+
 默认文件都在本目录：`prod_targets.json`、`prod_fixed_identities.json`、`prod_nontargets.json`、`prod_write_exceptions.json`、`prod_write_baseline.jsonl`。同名参数可以改路径。
 
 棘轮只读本仓库 `k8s/` 下的 YAML 原文。它不渲染 kustomize 的 generators 和 patches，不展开 Helm values，也不扫描 `k8s/` 以外的清单。渲染结果、Helm 值和仓库外的对象属于现场测量。CustomResourceDefinition 在展开的资源行之外，另有一行整个 `spec` 的摘要。Role 的 `rules`、策略绑定的 `validationActions` 换序没有语义变化，但棘轮仍按原文比较、会报警；这一轮不把这些列表当成集合。

@@ -363,6 +363,15 @@ def _parts(field: tuple) -> tuple:
 def validate_object(filename: str, spec: dict[str, Any], obj_name: str, fields: tuple, value: Any) -> None:
     if not isinstance(value, dict):
         _fail(filename, obj_name, f"type {_type_name(value)}, expected object")
+    if fields is _ATTEMPT_REQUEST:
+        from attempts import closed_request_problem
+
+        problem = closed_request_problem(value)
+        if problem:
+            method = value.get("method") if isinstance(value.get("method"), str) else "?"
+            raw = value.get("path")
+            path = raw if isinstance(raw, str) and raw else "(empty path)"
+            _fail(filename, f"{method} {path}", problem)
     declared = {item[0] for item in fields}
     for key in value:
         if key not in declared:

@@ -6,11 +6,13 @@ from typing import Any
 
 from attempts import (
     assert_implied_reads,
+    each_group,
     group_result,
     last_reads,
     pages_for,
     parse_items,
     parse_resources,
+    the_group,
     version_paths,
 )
 from canon import MatrixExit
@@ -115,8 +117,8 @@ def assert_discovery_complete(reads: dict[str, list[dict]]) -> list[str]:
         raise MatrixExit(2, "bundle: root discovery /api failed")
     if not apis:
         raise MatrixExit(2, "bundle: root discovery /apis failed")
-    api_body = _chain_body(api[0])
-    apis_body = _chain_body(apis[0])
+    api_body = _chain_body(the_group(api))
+    apis_body = _chain_body(the_group(apis))
     expected = discovery_paths_from(api_body, apis_body)
     if not expected:
         raise MatrixExit(2, "bundle: root discovery failed")
@@ -124,7 +126,8 @@ def assert_discovery_complete(reads: dict[str, list[dict]]) -> list[str]:
         group = reads.get(path)
         if not group:
             raise MatrixExit(2, f"bundle: missing discovery {path}")
-        group_result(group[0])
+        for attempt in each_group(group):
+            group_result(attempt)
     # Missing versions already exited. An extra read is not implied by this root.
     assert_implied_reads(reads, expected)
     return expected

@@ -178,6 +178,114 @@ def not_implied(attempt: dict) -> None:
     _fail(attempt, "not implied by this inventory")
 
 
+def closed_request_problem(request: dict) -> str | None:
+    """A request is one closed shape. Anything else names the bad key or the bad type.
+
+    Root discovery, whoami: GET, keys method, path, params, params {}.
+    Version discovery and a list page: GET, the same keys, page params as derived.
+    A review or a self-review: POST, those keys plus body. The body is checked
+    by the rules already in check_request. Version documents are paged, the same
+    way the collector pages a list.
+    """
+    if not isinstance(request, dict):
+        return "request is not an object"
+    method = request.get("method")
+    if not isinstance(method, str):
+        return "method has the wrong type"
+    if not isinstance(request.get("path"), str):
+        return "path has the wrong type"
+    if "params" not in request:
+        return "missing key params"
+    if not isinstance(request.get("params"), dict):
+        return "params has the wrong type"
+    allowed = {"method", "path", "params"} if method == "GET" else {"method", "path", "params", "body"}
+    for key in request:
+        if key not in allowed:
+            return f"unexpected key {key}"
+    if method not in {"GET", "POST"}:
+        return "method is not GET or POST"
+    if method == "POST":
+        if "body" not in request:
+            return "missing key body"
+        if not isinstance(request.get("body"), dict):
+            return "body has the wrong type"
+    return None
+
+
+def _param_token(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return sha256_hex(value)
+
+
+def request_identity(attempt: dict) -> tuple:
+    """The identity this tool derives. It is not the request hash.
+
+    A GET is method, canonical path, and params. A body on that GET does not
+    make another request. A POST includes the body, so two reviews on the same
+    path stay two requests.
+    """
+    request = attempt.get("request") if isinstance(attempt.get("request"), dict) else {}
+    params = request.get("params")
+    if isinstance(params, dict):
+        params_key = tuple(
+            sorted(
+                ((str(key), _param_token(value)) for key, value in params.items()),
+                key=lambda item: item[0],
+            )
+        )
+    else:
+        params_key = ("<not-object>",)
+    identity = (request.get("method"), request.get("path"), params_key)
+    if request.get("method") != "GET":
+        return identity + (sha256_hex(request.get("body")),)
+    return identity
+
+
+def _two_groups(left: dict, right: dict) -> None:
+    ordered = sorted(
+        (left, right),
+        key=lambda item: item.get("attempt") if isinstance(item.get("attempt"), int) else 10**12,
+    )
+    first, second = ordered
+    raise MatrixExit(
+        2,
+        f"bundle: attempt {first.get('attempt')} and attempt {second.get('attempt')}: "
+        f"{_request_name(first)}: more than one group",
+    )
+
+
+def assert_unique_identities(attempts: list[dict]) -> None:
+    """Two groups with one derived identity name both attempts. This does not pick one."""
+    seen: dict[tuple, dict] = {}
+    for attempt in attempts:
+        ident = request_identity(attempt)
+        prior = seen.get(ident)
+        if prior is not None:
+            _two_groups(prior, attempt)
+        seen[ident] = attempt
+
+
+def the_group(attempts: list[dict]) -> dict:
+    """The one attempt for a request that is not paged. Two groups raise."""
+    if len(attempts) != 1:
+        assert_unique_identities(attempts)
+        ordered = sorted(
+            attempts,
+            key=lambda item: item.get("attempt") if isinstance(item.get("attempt"), int) else 10**12,
+        )
+        if len(ordered) >= 2:
+            _two_groups(ordered[0], ordered[1])
+        raise MatrixExit(2, "bundle: missing group")
+    return attempts[0]
+
+
+def each_group(attempts: list[dict]) -> list[dict]:
+    """Every page of one path. A second group of the same page raises instead of being dropped."""
+    assert_unique_identities(attempts)
+    return list(attempts)
+
+
 def _empty_params(attempt: dict, params: Any) -> None:
     if not isinstance(params, dict):
         _fail(attempt, "params is not an object")
@@ -211,6 +319,9 @@ def check_request(attempt: dict) -> None:
     request = attempt.get("request")
     if not isinstance(request, dict):
         _fail(attempt, "missing request")
+    problem = closed_request_problem(request)
+    if problem:
+        _fail(attempt, problem)
     method = request.get("method")
     path = request.get("path")
     params = request.get("params")
@@ -341,6 +452,8 @@ def chains(attempts: list) -> dict[str, dict]:
     # Every group, including whoami and the permission self-checks. No caller picks which ones matter.
     for attempt in chosen.values():
         group_result(attempt)
+    # After the chains exist: one derived identity, one group. A second hash is not a second request.
+    assert_unique_identities(list(chosen.values()))
     return chosen
 
 
@@ -473,8 +586,10 @@ def version_paths(api_body: Any, apis_body: Any) -> list[str]:
     return unique
 
 
-def _first(group: list[dict]) -> dict:
-    return min(group, key=lambda item: item["attempt"])
+def _named(group: list[dict]) -> dict:
+    """Name one unexpected request. Two groups of the same identity raise first."""
+    assert_unique_identities(group)
+    return min(group, key=lambda item: item["attempt"] if isinstance(item.get("attempt"), int) else 10**12)
 
 
 def assert_implied_reads(reads: dict[str, list[dict]], discovery_paths: list[str]) -> None:
@@ -490,7 +605,7 @@ def assert_implied_reads(reads: dict[str, list[dict]], discovery_paths: list[str
     allowed = set(discovery_paths) | set(LIST_PATHS) | {"/api", "/apis", WHOAMI_PATH, SSAR_PATH}
     for path in sorted(reads):
         if path not in allowed:
-            not_implied(_first(reads[path]))
+            not_implied(_named(reads[path]))
     for path in list(discovery_paths) + list(LIST_PATHS):
         pages = pages_for(reads.get(path, []), path)
         token = ""

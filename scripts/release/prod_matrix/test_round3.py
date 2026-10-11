@@ -42,6 +42,7 @@ from support import (  # noqa: E402
 )
 from test_reviews import _cli  # noqa: E402
 from test_round6 import appended_requests  # noqa: E402
+from test_round7 import EXTRA_KEYS, apply_extra_key, twin_attempt  # noqa: E402
 
 BUNDLE_PATH = HERE / "testdata" / "recorded-bundle.json"
 SEED = 56
@@ -314,6 +315,38 @@ class Round3Tests(unittest.TestCase):
                 appended_exit2 += 1
                 continue
             failures.append(f"appended {label}: exit {code}")
+        extra_n = 0
+        extra_exit2 = 0
+        for index, _attempt in enumerate(original["attempts"]):
+            for key, value in EXTRA_KEYS:
+                extra_n += 1
+                mutant = copy.deepcopy(original)
+                apply_extra_key(mutant["attempts"][index], key, value)
+                try:
+                    code, text = _play(mutant, targets, fixed, exceptions, nontargets)
+                except Exception as exc:  # noqa: BLE001 — a crash is a failed mutant
+                    failures.append(f"extra-key {index} {key}: {exc!r}")
+                    continue
+                if code == 2:
+                    extra_exit2 += 1
+                    continue
+                failures.append(f"extra-key {index} {key}: exit {code}")
+        twin_n = 0
+        twin_exit2 = 0
+        next_number = len(original["attempts"]) + 1
+        for index, attempt in enumerate(original["attempts"]):
+            twin_n += 1
+            mutant = copy.deepcopy(original)
+            mutant["attempts"].append(twin_attempt(attempt, next_number))
+            try:
+                code, text = _play(mutant, targets, fixed, exceptions, nontargets)
+            except Exception as exc:  # noqa: BLE001 — a crash is a failed mutant
+                failures.append(f"twin {index}: {exc!r}")
+                continue
+            if code == 2:
+                twin_exit2 += 1
+                continue
+            failures.append(f"twin {index}: exit {code}")
         elapsed = time.perf_counter() - started
         structural_n = sum(1 for item in mutants if item[2] == "structural")
         value_n = sum(1 for item in mutants if item[2] == "value")
@@ -323,9 +356,15 @@ class Round3Tests(unittest.TestCase):
             f"already-empty-string={classes['already-empty-string']} "
             f"caller-metadata={classes['caller-metadata']} "
             f"appended-request={len(appended)} exit2={appended_exit2} "
+            f"extra-key={extra_n} exit2={extra_exit2} "
+            f"twin={twin_n} exit2={twin_exit2} "
             f"review_records={review_full}/{review_total} seconds={elapsed:.2f}"
         )
         self.assertEqual(appended_exit2, len(appended))
+        self.assertEqual(extra_n, len(original["attempts"]) * len(EXTRA_KEYS))
+        self.assertEqual(extra_exit2, extra_n)
+        self.assertEqual(twin_n, len(original["attempts"]))
+        self.assertEqual(twin_exit2, twin_n)
         self.assertFalse(failures[:8], failures[:8])
         self.assertEqual(exit2["structural"] + exit2["value"] + sum(classes.values()) + len(failures), len(mutants))
         expected = {
