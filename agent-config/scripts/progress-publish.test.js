@@ -79,6 +79,12 @@ function write(dir, name, contents) {
   return file
 }
 
+test('the reporter token is not exported', () => {
+  const hb = require('./thread-heartbeat.js')
+  assert.equal(Object.hasOwn(hb, 'token'), false)
+  assert.equal(typeof hb.reporterRequest, 'function')
+})
+
 test('puts the document with host and the reporter token, and prints nothing', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'progress-ok-'))
   const file = write(dir, 'status.json', JSON.stringify({ at: 1, verdict: '都正常', level: 'run' }))

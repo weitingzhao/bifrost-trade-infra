@@ -15,7 +15,7 @@
  * JSON, or over 256 KiB: no request.
  */
 const fs = require('node:fs')
-const { token, baseURL, hostName } = require('./thread-heartbeat.js')
+const { reporterRequest, hostName } = require('./thread-heartbeat.js')
 
 const MAX_BYTES = 256 * 1024
 const ROUTE = '/api/v1/agent/progress'
@@ -45,18 +45,7 @@ function readDocument(file) {
 async function publish(file) {
   const body = readDocument(file)
   if (body == null) return
-  const tok = token()
-  if (!tok) return
-  try {
-    await fetch(`${baseURL()}${ROUTE}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
-      body,
-      signal: AbortSignal.timeout(GIVE_UP_MS),
-    })
-  } catch {
-    // the next publish tries again; this one prints nothing
-  }
+  await reporterRequest('PUT', ROUTE, body, GIVE_UP_MS)
 }
 
 function main(argv) {

@@ -722,15 +722,20 @@ function hasUnconfirmedTurn(vendor, thread) {
   return false
 }
 
-async function post(body, timeoutMs = 5000) {
+/**
+ * One authenticated reporter call. The token stays in this file: callers pass
+ * a method, path, body and deadline, and the return value does not contain it.
+ * No token: no request. Heartbeat "off" is the hook's own decision, in post.
+ */
+async function reporterRequest(method, routePath, bodyBuffer, deadlineMs) {
   const tok = token()
-  if (!tok || process.env.BIFROST_HEARTBEAT === 'off') return { sent: false, why: tok ? 'off' : 'no reporter token', key: '' }
+  if (!tok) return { sent: false, why: 'no reporter token', key: '' }
   try {
-    const res = await fetch(`${baseURL()}${ROUTE}`, {
-      method: 'POST',
+    const res = await fetch(`${baseURL()}${routePath}`, {
+      method,
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
-      body: JSON.stringify(wireBody(body)),
-      signal: AbortSignal.timeout(timeoutMs),
+      body: bodyBuffer,
+      signal: AbortSignal.timeout(deadlineMs),
     })
     let key = ''
     let error = ''
@@ -745,6 +750,12 @@ async function post(body, timeoutMs = 5000) {
   } catch (err) {
     return { sent: false, why: err.message, key: '', error: '' }
   }
+}
+
+async function post(body, timeoutMs = 5000) {
+  const tok = token()
+  if (!tok || process.env.BIFROST_HEARTBEAT === 'off') return { sent: false, why: tok ? 'off' : 'no reporter token', key: '' }
+  return reporterRequest('POST', ROUTE, Buffer.from(JSON.stringify(wireBody(body))), timeoutMs)
 }
 
 async function confirmTurnStart(body, timeoutMs) {
@@ -982,7 +993,7 @@ module.exports = {
   clearHookDeadline,
   lockRuntime,
   HOOK_GIVE_UP_MS,
-  token,
+  reporterRequest,
   baseURL,
   hostName,
 }
