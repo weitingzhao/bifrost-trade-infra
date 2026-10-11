@@ -293,7 +293,7 @@ const ADMIN_TOKEN_NAME = 'PLATFORM_' + 'ADMIN_TOKEN'
 const TOKEN_FILE_NAME = 'mcp-tokens' + '.env'
 const APPROVALS_HASH = '#' + 'approvals'
 const APPROVAL_API = new RegExp(
-  '/api/v1/' + 'approvals/[^/\\s"\'`?#]+/(approve|reject)\\b',
+  '/api/v1/' + 'approvals/[^/\\s"\'`?#]+/(approve|reject|resolve)\\b',
 )
 
 function approvalText(toolName, input, cmd) {
@@ -330,7 +330,7 @@ function approvalGuard(toolName, input, cmd) {
   }
   if (APPROVAL_API.test(text)) {
     return (
-      '直接请求 `/api/v1/approvals/<id>/approve` 或 `/reject`（curl、wget、fetch 等都算）。' +
+      '直接请求 `/api/v1/approvals/<id>/approve`、`/reject` 或 `/resolve`（curl、wget、fetch 等都算）。' +
       'ADR §5：批准只走会弹窗的 bifrost-approve'
     )
   }

@@ -17,6 +17,7 @@ const OPCMD = 'ib:operator' + ':cmd'
 const APPR = '/api/v1/' + 'approvals/'
 const APPROVE_URL = APPR + 'req-1/' + 'approve'
 const REJECT_URL = APPR + 'req-1/' + 'reject'
+const RESOLVE_URL = APPR + 'req-1/' + 'resolve'
 const TOKEN_FILE = 'mcp-tokens' + '.env'
 const ADMIN_KEY = 'PLATFORM_' + 'ADMIN_TOKEN'
 const HASH_PAGE = '#' + 'approvals'
@@ -143,6 +144,8 @@ const cases = [
   ['appr', 'ALLOW', 'mcp__bifrost-approve__approve_request',
     tool('mcp__bifrost-approve__' + 'approve_request', { id: 'req-1' })],
   ['appr', 'DENY', 'wget ' + REJECT_URL, bash('wget -qO- http://192.168.10.100:30876' + REJECT_URL)],
+  ['appr', 'DENY', 'curl POST ' + RESOLVE_URL,
+    bash('curl -sS -X POST http://192.168.10.100:30876' + RESOLVE_URL + ' -H "content-type: application/json" -d \'{"outcome":"not_run","note":"closed"}\'')],
   ['appr', 'DENY', 'printenv ' + ADMIN_KEY, bash('printenv ' + ADMIN_KEY)],
   ['appr', 'DENY', 'Read ' + TOKEN_FILE, tool('Read', { file_path: '/Users/x/.config/bifrost/' + TOKEN_FILE })],
   ['appr', 'DENY', 'browser open ' + HASH_PAGE,
