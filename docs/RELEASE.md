@@ -211,6 +211,8 @@ kubectl -n cicd get configmap bifrost-release-freeze -o json \
 
 这些清单还没进集群。本变更不 apply。集群里的 `bifrost-build-flex-query` 仍是旧图，直到有人按上面的顺序自己 apply：先是冻结检查的 Task 和程序 ConfigMap（第 2 步），然后才是这条流水线（和那十一条一样，按文件 apply，不走 `bifrost-apply-manifest`）。只改仓库、不 apply，集群里的推镜像仍不被检查支配。
 
+应用前要核对的一件事（只读实测 2026-10-11）：冻结检查用 PipelineRun 的 ServiceAccount 去读 `cicd/bifrost-release-freeze`，读不到就按冻结处理、拒绝构建。授权名单是 `cicd/default` 和 `cicd/tekton-deliver`（`k8s/cicd/tekton/rbac-release-window.yaml`）。集群里最近一次 `bifrost-build-flex-query`（2026-10-10）跑在 `default` 下，在名单里；别的构建流水线最近一次也都是 `default`。以后有人给这条流水线换身份，要先把新身份加进名单。集群里此刻还没有 `bifrost-release-freeze-check` 这个 Task，也没有任何 Argo 应用同步插件仓库，所以推插件仓库的主线不改变集群。
+
 已经在跑的 PipelineRun 不受影响。改的是 Pipeline 对象；在途的那一次仍按启动时的任务图走完，不会中途插上 `freeze-check`。
 
 旧 PROD 链 `bifrost-deliver-platform-prod` 只有这一次检查，放在两条推镜像之前。过了它的 run（TaskRun 结果 `passed_cut_at`）会把构建和滚动走完，滚动前不再查第二次。还没到检查的 run，跑到检查时被拒。检查自己超时或被取消，任务失败，run 被拒。一条镜像推成、另一条失败，按 run 当时的记录留下，这一片不补救。在途 run 的名字在冻结回执里：看 `tekton.dev/pipelineTask=freeze-check` 的 TaskRun，结果里有 `passed_cut_at`，再用标签 `tekton.dev/pipelineRun` 对上仍在跑的 PipelineRun。列出这件事这一片不做。`scripts/release/freeze_inflight.py` 的测试是一张行为表，不是一次 Tekton 调度演练。
