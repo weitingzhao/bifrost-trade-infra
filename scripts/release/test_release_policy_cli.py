@@ -21,6 +21,7 @@ RELEASE_SH = HERE / "release.sh"
 class FakePlatform:
     def __init__(self) -> None:
         self.requests: list[tuple[str, str, dict, dict]] = []
+        self.status_http = 200
         self.status = {"valid": False, "remaining_seconds": 0, "allow": [], "frozen": False,
                        "reasons": ["no signed policy"], "anchor_fingerprint": ""}
         fake = self
@@ -50,6 +51,8 @@ class FakePlatform:
 
     def answer(self, method: str, path: str, body: dict) -> tuple[int, dict]:
         if method == "GET" and path == "/api/v1/release-policy":
+            if self.status_http != 200:
+                return self.status_http, {"error": "unavailable"}
             return 200, self.status
         if method == "POST" and path == "/api/v1/release-policy/freeze":
             self.status.update(frozen=True, freeze_reason=body["reason"], frozen_at="2026-10-10T09:00:00Z")
@@ -103,11 +106,15 @@ class ReleasePolicyCLITests(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn("policy    none", res.stdout)
         self.assertIn("nothing auto-approves", res.stdout)
+        self.assertIn("freeze is refused", res.stdout)
         method, path, _, headers = self.fake.requests[-1]
         self.assertEqual((method, path), ("GET", "/api/v1/release-policy"))
         self.assertEqual(headers.get("Authorization"), "Bearer view-token")
 
     def test_freeze_then_signed_unfreeze(self) -> None:
+        # The fake used to report an empty anchor. freeze now refuses that,
+        # so this case carries a test anchor and still posts.
+        self.fake.status["anchor_fingerprint"] = "SHA256:test-anchor"
         self.assertNotEqual(self.run_sh("freeze").returncode, 0)
         res = self.run_sh("freeze", "--reason", "incident")
         self.assertEqual(res.returncode, 0, res.stderr)
@@ -125,6 +132,44 @@ class ReleasePolicyCLITests(unittest.TestCase):
         self.assertTrue(self.verifies(body["text"], body["sig"], "bifrost-release-unfreeze"))
         self.assertIn("frozen    False", res.stdout)
         self.assertIn("not frozen", self.run_sh("unfreeze").stdout)
+
+    def test_freeze_with_empty_anchor_sends_no_post(self) -> None:
+        res = self.run_sh("freeze", "--reason", "incident")
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn(
+            'freeze refused: the platform has no trust anchor (or its status could not be read), '
+            'so nobody could lift a freeze. See docs/RELEASE.md, "The release owner key".',
+            res.stderr,
+        )
+        self.assertEqual([(m, p) for m, p, _, _ in self.fake.requests], [("GET", "/api/v1/release-policy")])
+        self.assertEqual(self.fake.requests[0][3].get("Authorization"), "Bearer view-token")
+        self.assertFalse(self.fake.status["frozen"])
+
+    def test_freeze_when_status_read_fails_sends_no_post(self) -> None:
+        self.fake.status_http = 503
+        self.fake.status["anchor_fingerprint"] = "SHA256:test-anchor"
+        res = self.run_sh("freeze", "--reason", "incident")
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn(
+            'freeze refused: the platform has no trust anchor (or its status could not be read), '
+            'so nobody could lift a freeze. See docs/RELEASE.md, "The release owner key".',
+            res.stderr,
+        )
+        self.assertEqual([(m, p) for m, p, _, _ in self.fake.requests], [("GET", "/api/v1/release-policy")])
+        self.assertFalse(self.fake.status["frozen"])
+
+    def test_unfreeze_without_a_key_names_both_ways(self) -> None:
+        missing = self.tmp / "missing"
+        self.env["BIFROST_RELEASE_KEY"] = str(missing)
+        res = self.run_sh("unfreeze")
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn(
+            f'no signing key at {missing}. Generate it (docs/RELEASE.md, "The release owner key"), '
+            'or, if a freeze is in place and there is no key, follow '
+            '"Lifting a freeze without a signature (break-glass)".',
+            res.stderr,
+        )
+        self.assertEqual(self.fake.requests, [])
 
     def test_sign_renders_signs_and_installs(self) -> None:
         res = self.run_sh("policy", "sign", "--days", "30")
