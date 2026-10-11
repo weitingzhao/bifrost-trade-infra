@@ -2,7 +2,7 @@
 # Monorepo: Go API (api/) + TypeScript Console (console/) + spine check.
 # The Console imports @bifrost/ui from its sibling checkout (file:../../bifrost-ui,
 # tsconfig paths → bifrost-ui/dist), so bifrost-ui is cloned and built first.
-# Lightweight: clone → go test → npm type-check → check-spine →
+# Lightweight: clone → go test → console type-check, lint, test and build → check-spine →
 # ops-context parity against the infra copies. No deploy.
 apiVersion: tekton.dev/v1
 kind: Pipeline
@@ -14,7 +14,7 @@ metadata:
     bifrost.io/layer: L1
 spec:
   description: >-
-    CI gate for bifrost-platform — go test + npm type-check + check-spine
+    CI gate for bifrost-platform — go test + console type-check, lint, test and build + check-spine
     + ops-context parity against the infra overlay copies.
     Triggered by Gitea push webhook or manual Console run.
     L1 control plane: conservative gate, must not break ops visibility.
@@ -116,6 +116,8 @@ spec:
 
               echo "==> Go API tests passed"
     - name: test-console
+      # 3 × the measured step at 2 workers (82.5s) rounded up. TD-313.
+      timeout: 5m0s
       runAfter: [clone, clone-ui]
       workspaces:
         - name: source
@@ -124,7 +126,7 @@ spec:
         workspaces:
           - name: source
         steps:
-          - name: npm-type-check
+          - name: typecheck-lint-test-build
             image: node:20-slim
             computeResources:
               requests:
@@ -152,7 +154,16 @@ spec:
               echo "==> tsc --noEmit"
               npx tsc --noEmit
 
-              echo "==> Console type-check passed"
+              echo "==> npm run lint"
+              npm run lint
+
+              echo "==> vitest run"
+              npx vitest run
+
+              echo "==> npm run build"
+              npm run build
+
+              echo "==> Console type-check, lint, tests and build passed"
     - name: check-spine
       runAfter: [clone]
       workspaces:

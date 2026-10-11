@@ -33,7 +33,7 @@
     {
       "pipeline": "bifrost-ci-platform",
       "task": "test-console",
-      "taskspec_sha256": "414bdc308defc74752e2dcac3b0f58a8bde4fe93f4cb41ed314ea1aae6a3ec34"
+      "taskspec_sha256": "dbeca7bffec15915e4871d0c141cf820a01b1876f90dd0c244f49a8fae8a319e"
     },
     {
       "pipeline": "bifrost-ci-platform",
