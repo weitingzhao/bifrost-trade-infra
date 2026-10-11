@@ -345,6 +345,8 @@
 
 ### TD-92
 
+- **Continuity audit 2026-10-10**: isolated Research `cc575bf` and Frontend `c57283ae`; daily enqueue/self-heal acknowledgment, accepted long-row retention and actual output-check visibility verified locally. Research lint + 2286 passed/17 skipped; affected 75 passed/0 skipped, frontend 13 passed + lint/build/CSS, actual DEV CHECKS CAUTION with 30 valid candidates retained. Latest primary 60/90/180 readings present; no backfill/release/real alert. Production rollout, durable alert receipt and full-universe long depth remain open; TD-303/304/305 and `docs/audits/DATA_CONTINUITY_DEFENSES_2026-10-10.md` carry the bounded follow-up.
+
 **P2 · research-control · Output checks execute and retain reasons, but ERROR alert receipt and persistent input gaps remain to be verified**
 
 - **状态**：观察中（2026-10-10 三批真实运行及测试已复验；到下一次真实 ERROR 检查事件，看发送及接收回执；当前仍有持续输入缺口 WARN）
@@ -707,6 +709,8 @@
 
 ### TD-142
 
+- **Continuity audit 2026-10-10**: isolated Research `cc575bf` and Frontend `c57283ae`; daily enqueue/self-heal acknowledgment, accepted long-row retention and actual output-check visibility verified locally. Research lint + 2286 passed/17 skipped; affected 75 passed/0 skipped, frontend 13 passed + lint/build/CSS, actual DEV CHECKS CAUTION with 30 valid candidates retained. Latest primary 60/90/180 readings present; no backfill/release/real alert. Production rollout, durable alert receipt and full-universe long depth remain open; TD-303/304/305 and `docs/audits/DATA_CONTINUITY_DEFENSES_2026-10-10.md` carry the bounded follow-up.
+
 **P2 · research-data · The 90-day IV cone has 31–39 sessions of history and there is no 180-day tenor: ATM IV was stored only to 90 DTE before 2026-08-05**
 
 - **状态**：在做（2026-10-10）：此前限定批及本次主64父键均实写/DEV验收PASS，三名90/180均≥60；未发布、整债未结，备用未用，追加范围待另批。历史验收及剩余深度/breadth见下列记录。
@@ -947,6 +951,8 @@
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-research
 
 ### TD-172
+
+- **Continuity audit 2026-10-10**: isolated Research `cc575bf` and Frontend `c57283ae`; daily enqueue/self-heal acknowledgment, accepted long-row retention and actual output-check visibility verified locally. Research lint + 2286 passed/17 skipped; affected 75 passed/0 skipped, frontend 13 passed + lint/build/CSS, actual DEV CHECKS CAUTION with 30 valid candidates retained. Latest primary 60/90/180 readings present; no backfill/release/real alert. Production rollout, durable alert receipt and full-universe long depth remain open; TD-303/304/305 and `docs/audits/DATA_CONTINUITY_DEFENSES_2026-10-10.md` carry the bounded follow-up.
 
 **P2 · research-data · ATM IV has almost no 50–90 DTE expiry from 2026-07-06 to 09-25 (the EOD chain stopped at the third listed expiry until plugin 0.39.0); the fix was forward-only, so term structure reads na for that stretch**
 
@@ -1743,3 +1749,37 @@
 - 验收: `kubectl -n cicd get taskrun --no-headers | wc -l` stays under the chosen bound for a week; a plan started during a controller resync gets its pod within 30 seconds.
 - 审批 要你批 · 代价 S · 风险 med · repos: bifrost-trade-infra, bifrost-platform
 
+
+
+### TD-303
+
+**P1 · research-control · Daily data failure visibility and accepted long-row retention await deployment**
+
+- **状态**：在做（isolated implementation/test/DEV PASS; no release approval or deployment）
+- **Evidence**: Research `orchestration/plugin_http.py:211`, `market_self_heal.py:73`, `api/orchestration.py:342`, `engines/volatility/atm_iv.py:505`; malformed enqueue/queue responses, critical without prescriptions and successful runs with failed checks could appear green; invalid long input could delete a valid repair. Frontend `pages/research/stocks/method/QueueFace.tsx:298` conflated check caution and run failure.
+- **Fix**: Research `cc575bf`, Frontend `c57283ae`: strict measured acknowledgments, visible critical/delivery failure, calendar/coverage semantics, valid replacement keys and actual evaluations; CHECKS CAUTION retains valid queue rows. Existing API fields, legal zero/dedup/holiday and short expiry semantics retained. Production deployment requires Owner approval.
+- **验收**：Research `make lint && make test`; affected continuity tests; Frontend `npm run lint && npm run build && npm run check:legacy-css`, `npx vitest run src/pages/research/stocks/method/labTodayModel.test.ts`; DEV queue caution/detail/30 candidates, real data read-only.
+- **验收结果**：PASS isolated 2026-10-10 `cc575bf` / `c57283ae`: Research 2286 passed/17 skipped, affected 75 passed/0 skipped; FE 13 passed, lint/build/CSS PASS. Not production acceptance. Detailed evidence: `docs/audits/DATA_CONTINUITY_DEFENSES_2026-10-10.md`.
+- **Ratchet**: RATCHETS daily continuity subsection; malformed/zero/missing/calendar/invalid-long/failed-delivery/output-check tests. Follow-up: TD-304/305; existing TD-172/142 daily long scope and TD-183 restore stay open.
+
+### TD-304
+
+**P1 · research-control / alert-delivery · Failed or missing Research work has no verified durable Owner notification**
+
+- **状态**：在做（read-only chain audit and bounded test/design packet prepared; real alert and production changes not approved）
+- **Evidence**: Research `orchestration/failure_alerts.py:8`, `:46`, `:164`; warning payload goes to platform audit, not Owner route (`scripts/k3s/values-kube-prometheus.yaml:134`). Run-status cursor advances on callback failure. Long coverage remains WARN (`orchestration/engine_assets.py:82`), and a never-started job has no run-failure event. Relay heartbeat and zero webhook error increments do not prove Research receipt.
+- **Fix proposal**: independently durable delivery sensor using existing Dagster persistence (recommended) versus explicit outbox/DDL (architecture approval); targeted two-alert Owner route and trading-calendar deadline monitoring. Define absolute primary long coverage policy before making severity changes. No blanket WARN escalation.
+- **验收**：Local transport/restart/cursor/replay/dedup fault tests; after separate Owner approval, two synthetic named alerts with one test id, ten-minute expiry and at most four firing/resolved submissions. Same id at producer, Alertmanager, platform audit, relay and Owner; receipt within five minutes, otherwise stop. Never substitute tick SUCCESS for receipt.
+- **验收结果**：PARTIAL PASS 2026-10-10 Research `cc575bf` exposes failed POST in callback tests; real Owner delivery/retry/deadline coverage NOT VERIFIED. Plan in `docs/audits/DATA_CONTINUITY_DEFENSES_2026-10-10.md`; no real alert injected.
+- **Ratchet needed**: durable replay + missing-schedule tests and receipt acceptance; current callback regression proves visibility only. Related: TD-92/172/142.
+
+### TD-305
+
+**P2 · market-data / data-integrity · 67 empty option responses after a recovered authentication interruption need historical classification**
+
+- **状态**：未开始（bounded inventory identified read-only; no fetch/backfill authorized）
+- **Evidence**: `scripts/audit-data-continuity.sql:17`, Plugin `freshness.py:178`, `doctor.py:1944`; 131 option_daily failed receipts on 2026-10-09 (28 underlyings, authentication 401) ALL have later same-kind/same-payload DONE receipts. Reconciled outcome: 64 positive-price raw rows / 67 empty contract-day requests, all for 10-09. This is not 131 unhandled jobs. A DONE/zero-row response is not proof of no trading or a valid zero reading.
+- **Fix / next read-only scope**: freeze exactly those 67 request keys from retained receipts, verify historical as_of listing, existing source-void and entitlement evidence; classify unlisted/no-trade/permission/fetch/unknown distinctly. Confirm reference completeness before proposing any re-fetch. Do not retry all failed receipts, overwrite valid raw values or create zero bars.
+- **验收**：67/67 dispositions with source/date/as_of evidence, counts reconcile with original receipts and raw key difference; unknown stays unknown. Any proposed retry lists exact remaining keys, reference/bar HTTP budget, order, stop rule and preservation acceptance for Owner confirmation.
+- **验收结果**：INVENTORY PASS 2026-10-10 read-only aggregate reconciliation only; historical classification NOT RUN. Report `docs/audits/DATA_CONTINUITY_DEFENSES_2026-10-10.md`.
+- **Ratchet needed**: empty-source evidence and effective coverage across the 24h queue-failure window, without confusing recovered failures with new missing rows. Existing TD-281 handled retries; preserve it.
