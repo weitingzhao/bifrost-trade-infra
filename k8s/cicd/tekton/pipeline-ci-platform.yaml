@@ -116,8 +116,14 @@ spec:
 
               echo "==> Go API tests passed"
     - name: test-console
-      # 3 × the measured step at 2 workers (82.5s) rounded up. TD-313.
-      timeout: 5m0s
+      # 3 × (32 + 11 + 72 + 26)s = 423s, rounded up to 8m0s. TD-313.
+      # 32s is today's npm ci, npm ci and tsc: the last eight test-console
+      # TaskRuns were 32–35s (kubectl get taskrun -n cicd, 2026-10-11), and
+      # the same three commands in node:20-slim at --cpus=2 took 32s.
+      # Lint 11s and vitest --maxWorkers=2 at 72s are that container on
+      # 2026-10-11. Build 26s is the slower of two runs of this step in the
+      # same image and limits on 2026-10-11 (26s and 14s).
+      timeout: 8m0s
       runAfter: [clone, clone-ui]
       workspaces:
         - name: source
@@ -158,7 +164,9 @@ spec:
               npm run lint
 
               echo "==> vitest run"
-              npx vitest run
+              # The pod sees the node's cores; the limit is two CPUs.
+              # Measured 2026-10-11: without it, 7 of 814 tests time out.
+              npx vitest run --maxWorkers=2
 
               echo "==> npm run build"
               npm run build
