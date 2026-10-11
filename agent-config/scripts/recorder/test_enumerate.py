@@ -39,6 +39,7 @@ ALPHABET = (
     "record_seen_found",
     "record_seen_true",
     "supersede",
+    "supersede_by_step",
     "owner_open_approval",
     "owner_open_declared",
     "owner_ready",
@@ -104,6 +105,8 @@ def _build(symbol: str, seq: int, at: float) -> dict:
         event.update(type="record_seen", by="observer", step_id=R, sampled_at=at, found=True, uid="uid-1", condition="True", started_at=at, ended_at=at)
     elif symbol == "supersede":
         event.update(type="step_superseded", step_id=P)
+    elif symbol == "supersede_by_step":
+        event.update(type="step_superseded", step_id=P, by_step=N)
     elif symbol == "owner_open_approval":
         event.update(type="owner_wait_opened", wait_id=WAIT_A, title="请批", ref={"kind": "approval", "id": APPR})
     elif symbol == "owner_open_declared":
@@ -435,9 +438,11 @@ def test_enumeration_invariants():
     # Length 3 is every sequence of at most three symbols: each symbol alone,
     # every pair, and every triple. A four-event story (declare, start, see,
     # finish) is not in that set; the named regressions cover those stories.
-    # Length 4 is 32**4 sequences and does not finish with the rest of this
+    # Length 4 is 33**4 sequences and does not finish with the rest of this
     # suite inside 120 seconds. Length 5 is larger still. Both run when
-    # RECORDER_ENUM_LEN is set.
+    # RECORDER_ENUM_LEN is set. The alphabet is 33 symbols: the 32 from the
+    # first round, plus a supersede that names by_step. Length 3 is
+    # (33**4 - 1) / 32 = 37060 sequences, including the empty one.
     length = int(os.environ.get("RECORDER_ENUM_LEN", "3"))
     assert 1 <= length <= 5
     count = 0
@@ -458,7 +463,7 @@ def test_enumeration_invariants():
             _v8(docs[0], events, nows[0])
     expected = (len(ALPHABET) ** (length + 1) - 1) // (len(ALPHABET) - 1)
     assert count == expected
-    assert len(ALPHABET) == 32
+    assert len(ALPHABET) == 33
     assert length == 3 or os.environ.get("RECORDER_ENUM_LEN")
 
 

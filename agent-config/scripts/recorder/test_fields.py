@@ -233,11 +233,20 @@ def test_field_step_superseded_by_step():
     log = LogBuilder()
     log.add("work_opened", "coordinator", work_id=WORK, title="T")
     log.add("step_declared", "coordinator", step_id=P, name="old", kind="other", who="C", watch="none")
+    log.add("step_started", "coordinator", step_id=P, run_id=RUN)
     log.add("step_declared", "coordinator", step_id=N, name="new", kind="other", who="C", watch="none")
     log.add("step_superseded", "coordinator", step_id=P, by_step=N)
     marked = fold_one(log.events, log.at)
-    assert marked["works"][0]["steps"][0]["state"] == "waiting"
+    assert marked["works"][0]["steps"][0]["state"] == "running"
     assert marked["works"][0]["steps"][0]["superseded_by"] == N
+    unstarted = LogBuilder()
+    unstarted.add("work_opened", "coordinator", work_id=WORK, title="T")
+    unstarted.add("step_declared", "coordinator", step_id=P, name="old", kind="other", who="C", watch="none")
+    unstarted.add("step_declared", "coordinator", step_id=N, name="new", kind="other", who="C", watch="none")
+    unstarted.add("step_superseded", "coordinator", step_id=P, by_step=N)
+    gone = fold_one(unstarted.events, unstarted.at)
+    assert [step["step_id"] for step in gone["works"][0]["steps"]] == [N]
+    assert gone["works"][0]["withdrawn"] == 1
     withdrawn = LogBuilder()
     withdrawn.add("work_opened", "coordinator", work_id=WORK, title="T")
     withdrawn.add("step_declared", "coordinator", step_id=P, name="old", kind="other", who="C", watch="none")

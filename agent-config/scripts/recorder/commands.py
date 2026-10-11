@@ -132,15 +132,14 @@ def declare_step(
     usual = usual_for(root, kind) if watch in {"process", "none"} else None
     if usual is not None:
         fields["usual_s"], fields["usual_basis"] = usual
-    batch = []
+    batch = [fields]
     if replaces is not None:
         superseded = {"type": "step_superseded", "step_id": replaces, "by_step": fields["step_id"]}
         if text is not None:
             superseded["text"] = text
         batch.append(superseded)
-    batch.append(fields)
     written = _write(root, work_id, batch, "coordinator", "declare")
-    return written[-1]
+    return written[0]
 
 
 def withdraw_step(root: Path, work_id: str, step_id: str, text: str | None = None) -> dict:

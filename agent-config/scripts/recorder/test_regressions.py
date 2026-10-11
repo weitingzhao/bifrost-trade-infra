@@ -921,3 +921,59 @@ def test_a_held_lock_refuses_the_second_writer(tmp_path):
     assert proc.returncode != 0
     assert "lock busy" in proc.stderr
     assert not (directory / "events.jsonl").exists()
+
+
+def test_declare_replaces_appends_the_declaration_before_the_supersede(tmp_path):
+    open_work(tmp_path, WORK, "T")
+    first = declare_step(tmp_path, WORK, name="old", kind="other", who="C", watch="none")
+    second = declare_step(
+        tmp_path, WORK, name="new", kind="other", who="C", watch="none", replaces=first["step_id"]
+    )
+    events = load_file(tmp_path / WORK / "events.jsonl").events
+    assert events[-2]["type"] == "step_declared"
+    assert events[-2]["step_id"] == second["step_id"]
+    assert events[-1]["type"] == "step_superseded"
+    assert events[-1]["step_id"] == first["step_id"]
+    assert events[-1]["by_step"] == second["step_id"]
+    doc = fold_one(events, events[-1]["at"])
+    assert [step["step_id"] for step in doc["works"][0]["steps"]] == [second["step_id"]]
+    assert doc["works"][0]["withdrawn"] == 1
+
+
+def test_unstarted_superseded_step_is_withdrawn():
+    log = LogBuilder()
+    log.add("work_opened", "coordinator", work_id=WORK, title="T")
+    log.add("step_declared", "coordinator", step_id=P, name="old", kind="other", who="C", watch="none")
+    log.add("step_declared", "coordinator", step_id=N, name="new", kind="other", who="C", watch="none")
+    log.add("step_superseded", "coordinator", step_id=P, by_step=N)
+    doc = fold_one(log.events, log.at)
+    assert [step["step_id"] for step in doc["works"][0]["steps"]] == [N]
+    assert doc["works"][0]["withdrawn"] == 1
+    record = LogBuilder()
+    record.add("work_opened", "coordinator", work_id=WORK, title="T")
+    record.add(
+        "step_declared", "coordinator", step_id=R, name="rec", kind="release", who="C", watch="record",
+        locator=LOCATOR,
+    )
+    record.add("step_declared", "coordinator", step_id=N, name="new", kind="other", who="C", watch="none")
+    record.add("step_superseded", "coordinator", step_id=R, by_step=N)
+    folded = fold_one(record.events, record.at)
+    assert [step["step_id"] for step in folded["works"][0]["steps"]] == [N]
+    assert folded["works"][0]["withdrawn"] == 1
+
+
+def test_self_supersede_is_absent_and_the_work_stays_open():
+    log = LogBuilder()
+    log.add("work_opened", "coordinator", at=1, work_id=WORK, title="T")
+    log.add("step_declared", "coordinator", at=2, step_id=P, name="A", kind="other", who="C", watch="none")
+    log.add("step_superseded", "coordinator", at=3, step_id=P, by_step=P)
+    log.add("work_closed", "coordinator", at=4, claim="stopped")
+    doc = fold_one(log.events, 4)
+    reasons = [item["reason"] for item in doc["works"][0]["defects"]]
+    assert "self_supersede" in reasons
+    assert "closed_with_open_items" in reasons
+    assert "closed_claim" not in doc["works"][0]
+    assert doc["works"][0]["steps"][0]["state"] == "waiting"
+    assert doc["works"][0]["steps"][0]["step_id"] == P
+    assert doc["ball"]["holder"] == "coordinator"
+    assert doc["ball"]["why"] == "next_not_sent"

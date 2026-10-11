@@ -794,6 +794,8 @@ def _contextual(view: View, event: dict, index: int) -> str | None:
         step = view.steps.get(event["step_id"])
         if step is None:
             return "unknown_id"
+        if "by_step" in event and event["by_step"] == event["step_id"]:
+            return "self_supersede"
         if "by_step" in event and event["by_step"] not in view.steps:
             return "by_step_missing"
         started = step.started if step.watch != "record" else step.ever_found

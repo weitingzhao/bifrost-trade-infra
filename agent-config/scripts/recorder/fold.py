@@ -344,7 +344,7 @@ def _watched_step(step, view: View, now: float):
         if step.started_at is not None:
             public["started"] = step.started_at
         return _finish(step, public)
-    if step.superseded and not step.by_step and not step.started:
+    if step.superseded and not step.started:
         return public, "withdrawn"
     if not step.started:
         public["state"] = "waiting"
@@ -434,7 +434,7 @@ def _record_step(step, view: View, rounds, now, work_id):
         if false.get("reason_quote"):
             public["reason_quote"] = false["reason_quote"]
         return public, "ended"
-    if step.superseded and not step.by_step and not step.ever_found:
+    if step.superseded and not step.ever_found:
         return public, "withdrawn"
     locator = step.locator or {}
     if "name" not in locator:
