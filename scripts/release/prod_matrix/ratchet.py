@@ -138,6 +138,17 @@ def _crd_rows(doc: dict, source: str) -> list[dict]:
                 resources=[f"{group}/{plural}/{sub}"],
             )
         )
+    spec_body = spec if isinstance(spec, dict) else {}
+    rows.append(
+        _row(
+            "expanded-resource",
+            "",
+            "CustomResourceDefinition",
+            f"{crd_name}#spec",
+            source,
+            spec_sha256=sha256_hex(spec_body),
+        )
+    )
     return rows
 
 
