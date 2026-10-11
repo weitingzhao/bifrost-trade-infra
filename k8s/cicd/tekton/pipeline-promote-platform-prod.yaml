@@ -1,0 +1,325 @@
+# W-56 G2. Promote the manifests STG is already running onto :prod.
+# bifrost-deliver-platform-prod is left untouched and still rebuilds.
+# No Kaniko step. Scripts come from the bifrost-trade-infra clone.
+#
+# Runs as tekton-deliver (rbac-release-gate.yaml, Owner-applied, read-only).
+# Confirm this Tekton accepts Pipeline.spec.taskRunTemplate before apply.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: bifrost-promote-platform-prod
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: platform-promote-prod
+    bifrost.io/layer: L1
+spec:
+  description: >-
+    Release gate, then retag the STG platform-api and platform-console digests
+    to :prod (previous :prod kept as :prod-prev), roll bifrost-platform-prod,
+    and fail unless every api, console, and workers pod runs that digest.
+  taskRunTemplate:
+    serviceAccountName: tekton-deliver
+  params:
+    - name: revision
+      type: string
+      default: main
+    - name: uiRevision
+      type: string
+      default: main
+    - name: giteaBase
+      type: string
+      default: http://gitea.cicd.svc.cluster.local:3000/bifrost
+    - name: infraRevision
+      type: string
+      default: main
+    - name: soakMinutes
+      type: string
+      default: "10"
+    - name: registry
+      type: string
+      default: registry.cicd.svc.cluster.local:5000
+    - name: stgNamespace
+      type: string
+      default: bifrost-platform-stg
+    - name: prodNamespace
+      type: string
+      default: bifrost-platform-prod
+  results:
+    - name: platformSha
+      description: Platform SHA the gate released.
+      value: $(tasks.release-gate.results.platformSha)
+    - name: uiSha
+      description: UI SHA the gate released.
+      value: $(tasks.release-gate.results.uiSha)
+    - name: apiDigest
+      description: Digest :prod now names for bifrost-platform-api.
+      value: $(tasks.promote.results.apiDigest)
+    - name: consoleDigest
+      description: Digest :prod now names for bifrost-platform-console.
+      value: $(tasks.promote.results.consoleDigest)
+  tasks:
+    - name: release-gate
+      taskRef:
+        name: bifrost-release-gate-platform
+      params:
+        - name: revision
+          value: $(params.revision)
+        - name: uiRevision
+          value: $(params.uiRevision)
+        - name: giteaBase
+          value: $(params.giteaBase)
+        - name: infraRevision
+          value: $(params.infraRevision)
+        - name: soakMinutes
+          value: $(params.soakMinutes)
+    - name: read-stg-digests
+      runAfter: [release-gate]
+      taskSpec:
+        params:
+          - name: giteaBase
+          - name: infraRevision
+          - name: namespace
+        results:
+          - name: apiDigest
+            description: Digest the ready platform-api pods are running.
+          - name: consoleDigest
+            description: Digest the ready platform-console pods are running.
+        steps:
+          - name: read
+            image: alpine/k8s:1.31.4
+            env:
+              - name: GIT_USERNAME
+                valueFrom:
+                  secretKeyRef:
+                    name: gitea-git-credentials
+                    key: username
+              - name: GIT_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: gitea-git-credentials
+                    key: password
+            script: |
+              #!/bin/sh
+              set -eu
+              apk add --no-cache python3 git >/dev/null 2>&1
+              base="$(params.giteaBase)"
+              base="${base%/}"
+              scheme=http
+              rest=$base
+              case $base in
+                https://*) scheme=https; rest=${base#https://} ;;
+                http://*) rest=${base#http://} ;;
+              esac
+              authed="${scheme}://${GIT_USERNAME}:${GIT_PASSWORD}@${rest}"
+              dest=/tmp/bifrost-trade-infra
+              rm -rf "$dest"
+              irev="$(params.infraRevision)"
+              if printf '%s' "$irev" | grep -Eq '^[0-9a-f]{7,40}$'; then
+                git init -q "$dest"
+                git -C "$dest" remote add origin "${authed}/bifrost-trade-infra.git"
+                if git -C "$dest" fetch -q --depth=1 origin "$irev"; then
+                  git -C "$dest" checkout -q --detach FETCH_HEAD
+                else
+                  rm -rf "$dest"
+                  git clone -q "${authed}/bifrost-trade-infra.git" "$dest"
+                  git -C "$dest" checkout -q --detach "$irev"
+                fi
+              else
+                git clone -q --depth=1 --branch "$irev" "${authed}/bifrost-trade-infra.git" "$dest"
+              fi
+              # imageID may name 192.168.10.73:30500. The digest is what we promote
+              # on registry.cicd.svc.cluster.local:5000; both are the same registry.
+              ns="$(params.namespace)"
+              py="$dest/scripts/release/registry_retag.py"
+              api=$(kubectl get pods -n "$ns" -l app.kubernetes.io/name=platform-api -o json \
+                | python3 "$py" pod-digest --container platform-api) || exit 1
+              console=$(kubectl get pods -n "$ns" -l app.kubernetes.io/name=platform-console -o json \
+                | python3 "$py" pod-digest --container platform-console) || exit 1
+              printf '%s' "$api" > "$(results.apiDigest.path)"
+              printf '%s' "$console" > "$(results.consoleDigest.path)"
+              echo "stg platform-api ${api}"
+              echo "stg platform-console ${console}"
+      params:
+        - name: giteaBase
+          value: $(params.giteaBase)
+        - name: infraRevision
+          value: $(params.infraRevision)
+        - name: namespace
+          value: $(params.stgNamespace)
+    - name: promote
+      runAfter: [read-stg-digests]
+      taskSpec:
+        params:
+          - name: giteaBase
+          - name: infraRevision
+          - name: registry
+          - name: apiSource
+          - name: consoleSource
+          - name: keepAs
+        results:
+          - name: apiDigest
+          - name: consoleDigest
+        steps:
+          - name: retag
+            image: alpine/k8s:1.31.4
+            env:
+              - name: GIT_USERNAME
+                valueFrom:
+                  secretKeyRef:
+                    name: gitea-git-credentials
+                    key: username
+              - name: GIT_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: gitea-git-credentials
+                    key: password
+            script: |
+              #!/bin/sh
+              set -eu
+              apk add --no-cache python3 git >/dev/null 2>&1
+              base="$(params.giteaBase)"
+              base="${base%/}"
+              scheme=http
+              rest=$base
+              case $base in
+                https://*) scheme=https; rest=${base#https://} ;;
+                http://*) rest=${base#http://} ;;
+              esac
+              authed="${scheme}://${GIT_USERNAME}:${GIT_PASSWORD}@${rest}"
+              dest=/tmp/bifrost-trade-infra
+              rm -rf "$dest"
+              irev="$(params.infraRevision)"
+              if printf '%s' "$irev" | grep -Eq '^[0-9a-f]{7,40}$'; then
+                git init -q "$dest"
+                git -C "$dest" remote add origin "${authed}/bifrost-trade-infra.git"
+                if git -C "$dest" fetch -q --depth=1 origin "$irev"; then
+                  git -C "$dest" checkout -q --detach FETCH_HEAD
+                else
+                  rm -rf "$dest"
+                  git clone -q "${authed}/bifrost-trade-infra.git" "$dest"
+                  git -C "$dest" checkout -q --detach "$irev"
+                fi
+              else
+                git clone -q --depth=1 --branch "$irev" "${authed}/bifrost-trade-infra.git" "$dest"
+              fi
+              py="$dest/scripts/release/registry_retag.py"
+              reg="$(params.registry)"
+              # Both sources must exist before either :prod tag moves.
+              python3 "$py" digest --registry "$reg" --repo bifrost-platform-api --ref "$(params.apiSource)" >/dev/null
+              python3 "$py" digest --registry "$reg" --repo bifrost-platform-console --ref "$(params.consoleSource)" >/dev/null
+              api=$(python3 "$py" promote --registry "$reg" --repo bifrost-platform-api \
+                --source "$(params.apiSource)" --target prod --keep-as "$(params.keepAs)") || exit 1
+              console=$(python3 "$py" promote --registry "$reg" --repo bifrost-platform-console \
+                --source "$(params.consoleSource)" --target prod --keep-as "$(params.keepAs)") || exit 1
+              printf '%s' "$api" > "$(results.apiDigest.path)"
+              printf '%s' "$console" > "$(results.consoleDigest.path)"
+              echo "bifrost-platform-api prod ${api}"
+              echo "bifrost-platform-console prod ${console}"
+      params:
+        - name: giteaBase
+          value: $(params.giteaBase)
+        - name: infraRevision
+          value: $(params.infraRevision)
+        - name: registry
+          value: $(params.registry)
+        - name: apiSource
+          value: $(tasks.read-stg-digests.results.apiDigest)
+        - name: consoleSource
+          value: $(tasks.read-stg-digests.results.consoleDigest)
+        - name: keepAs
+          value: prod-prev
+    - name: rollout
+      runAfter: [promote]
+      taskRef:
+        name: bifrost-rollout-platform-stg
+      params:
+        - name: namespace
+          value: $(params.prodNamespace)
+    - name: verify-digests
+      runAfter: [rollout]
+      taskSpec:
+        params:
+          - name: giteaBase
+          - name: infraRevision
+          - name: namespace
+          - name: apiDigest
+          - name: consoleDigest
+        steps:
+          - name: verify
+            image: alpine/k8s:1.31.4
+            env:
+              - name: GIT_USERNAME
+                valueFrom:
+                  secretKeyRef:
+                    name: gitea-git-credentials
+                    key: username
+              - name: GIT_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: gitea-git-credentials
+                    key: password
+            script: |
+              #!/bin/sh
+              set -eu
+              apk add --no-cache python3 git >/dev/null 2>&1
+              base="$(params.giteaBase)"
+              base="${base%/}"
+              scheme=http
+              rest=$base
+              case $base in
+                https://*) scheme=https; rest=${base#https://} ;;
+                http://*) rest=${base#http://} ;;
+              esac
+              authed="${scheme}://${GIT_USERNAME}:${GIT_PASSWORD}@${rest}"
+              dest=/tmp/bifrost-trade-infra
+              rm -rf "$dest"
+              irev="$(params.infraRevision)"
+              if printf '%s' "$irev" | grep -Eq '^[0-9a-f]{7,40}$'; then
+                git init -q "$dest"
+                git -C "$dest" remote add origin "${authed}/bifrost-trade-infra.git"
+                if git -C "$dest" fetch -q --depth=1 origin "$irev"; then
+                  git -C "$dest" checkout -q --detach FETCH_HEAD
+                else
+                  rm -rf "$dest"
+                  git clone -q "${authed}/bifrost-trade-infra.git" "$dest"
+                  git -C "$dest" checkout -q --detach "$irev"
+                fi
+              else
+                git clone -q --depth=1 --branch "$irev" "${authed}/bifrost-trade-infra.git" "$dest"
+              fi
+              py="$dest/scripts/release/registry_retag.py"
+              ns="$(params.namespace)"
+              check() {
+                dep="$1"
+                container="$2"
+                want="$3"
+                got=$(kubectl get pods -n "$ns" -l "app.kubernetes.io/name=${dep}" -o json \
+                  | python3 "$py" pod-digest --container "$container") || exit 1
+                if [ "$got" != "$want" ]; then
+                  echo "PROD ${dep} runs ${got}, not ${want}" >&2
+                  exit 1
+                fi
+                echo "OK ${dep} ${got}"
+              }
+              check platform-api platform-api "$(params.apiDigest)"
+              check platform-console platform-console "$(params.consoleDigest)"
+              # platform-workers runs the api image; its container is named platform-api.
+              check platform-workers platform-api "$(params.apiDigest)"
+      params:
+        - name: giteaBase
+          value: $(params.giteaBase)
+        - name: infraRevision
+          value: $(params.infraRevision)
+        - name: namespace
+          value: $(params.prodNamespace)
+        - name: apiDigest
+          value: $(tasks.promote.results.apiDigest)
+        - name: consoleDigest
+          value: $(tasks.promote.results.consoleDigest)
+    - name: gitops-sync
+      runAfter: [verify-digests]
+      taskRef:
+        name: bifrost-argocd-sync-platform-stg
+      params:
+        - name: application
+          value: bifrost-platform-prod
