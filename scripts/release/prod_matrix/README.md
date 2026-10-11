@@ -12,11 +12,15 @@ python3 scripts/release/prod_matrix/prod_measure.py collect --bundle-out <path>
 python3 scripts/release/prod_matrix/prod_ratchet.py --check
 ```
 
-`collect` 把 `kubectl` 放在 `PATH` 上。重放不调用它。提问数在第一批 SubjectAccessReview 之前打印；超过 2 万则一个请求都不发，退出码 2。只读请求另有 500 条上限。墙钟 10 分钟从第一个请求算起。
+`collect` 把 `kubectl` 放在 `PATH` 上。重放不调用它。录制包是一串尝试：每次真正发出的请求一条，`attempt` 从 1 起，读取和提问共用这个整数序列。问题编号仍是 `q-` 加请求哈希的前 16 位，和尝试编号不是一回事。重试是新的尝试，`retry_of` 指向同一请求的上一次尝试。分页的每一页是独立的读取（路径加 `continue`）。采集器不合并、不改写尝试。
+
+预算有两道。发任何请求之前，用去重后的固定身份算下界，下界已超则一个请求都不发。身份清单读完之后、任何发现或提问之前，再算确数；超了就停，退出码 2。读取尝试的上限是 500，提问尝试的上限是 2 万，分开数。墙钟 10 分钟从第一个请求算起。
+
+apiserver 的回答正文原样保存，只校验程序要读的字段；回答里多出来的键不是错误。本片自己的结构里多出来的键仍以 2 退出。每条尝试的 `result.body_sha256` 是回答正文的规范化摘要，对不上就以 2 退出，所以改一个节点不能把清点悄悄变小。
 
 默认文件都在本目录：`prod_targets.json`、`prod_fixed_identities.json`、`prod_nontargets.json`、`prod_write_exceptions.json`、`prod_write_baseline.jsonl`。同名参数可以改路径。
 
-棘轮只读本仓库 `k8s/` 下的 YAML 原文。它不渲染 kustomize 的 generators 和 patches，不展开 Helm values，也不扫描 `k8s/` 以外的清单。渲染结果、Helm 值和仓库外的对象属于现场测量。
+棘轮只读本仓库 `k8s/` 下的 YAML 原文。它不渲染 kustomize 的 generators 和 patches，不展开 Helm values，也不扫描 `k8s/` 以外的清单。渲染结果、Helm 值和仓库外的对象属于现场测量。CustomResourceDefinition 在展开的资源行之外，另有一行整个 `spec` 的摘要。Role 的 `rules`、策略绑定的 `validationActions` 换序没有语义变化，但棘轮仍按原文比较、会报警；这一轮不把这些列表当成集合。
 
 ## 字段表
 
@@ -125,8 +129,7 @@ python3 scripts/release/prod_matrix/prod_ratchet.py --check
 | bundle | root | finished_at | str | yes |  |
 | bundle | root | caller | object:context | yes |  |
 | bundle | root | tool_version | str | yes |  |
-| bundle | root | commands | list:command | yes |  |
-| bundle | root | reviews | list:review | yes |  |
+| bundle | root | attempts | list:attempt | yes |  |
 | bundle | context | kind | str | yes | anonymous, fixed-risk, group-member, node, serviceaccount, serviceaccount-unbound, user |
 | bundle | context | user | str | yes |  |
 | bundle | context | groups | list:str | yes |  |
@@ -137,24 +140,24 @@ python3 scripts/release/prod_matrix/prod_ratchet.py --check
 | bundle | uid | value | str | no |  |
 | bundle | extra | state | str | yes | known, unknown |
 | bundle | extra | value | object:extra-map | no |  |
-| bundle | command | id | str | yes |  |
-| bundle | command | request | object:command-request | yes |  |
-| bundle | command | pages | list:page | yes |  |
-| bundle | command | ok | bool | yes |  |
-| bundle | command | status_code | int | yes |  |
-| bundle | command | started_at | str | yes |  |
-| bundle | command | finished_at | str | yes |  |
-| bundle | command | retry_of | str | no |  |
-| bundle | command-request | method | str | yes | GET, POST |
-| bundle | command-request | path | str | yes |  |
-| bundle | command-request | params | json | yes |  |
-| bundle | page | body | json | yes |  |
-| bundle | page | continue | str | yes |  |
-| bundle | review | id | str | yes |  |
-| bundle | review | request | object:sar-request | yes |  |
-| bundle | review | request_hash | str | yes |  |
-| bundle | review | response | object:sar-response | yes |  |
-| bundle | review | retry_of | str | no |  |
+| bundle | attempt | attempt | int | yes |  |
+| bundle | attempt | kind | str | yes | read, review |
+| bundle | attempt | request | object:attempt-request | yes |  |
+| bundle | attempt | request_hash | str | yes |  |
+| bundle | attempt | retry_of | int | no |  |
+| bundle | attempt | started_at | str | yes |  |
+| bundle | attempt | finished_at | str | yes |  |
+| bundle | attempt | result | object:attempt-result | yes |  |
+| bundle | attempt-request | method | str | yes | GET, POST |
+| bundle | attempt-request | path | str | yes |  |
+| bundle | attempt-request | params | object:request-params | yes |  |
+| bundle | attempt-request | body | json | no |  |
+| bundle | request-params | limit | str | no |  |
+| bundle | request-params | continue | str | no |  |
+| bundle | attempt-result | status_code | int | yes |  |
+| bundle | attempt-result | ok | bool | yes |  |
+| bundle | attempt-result | body | json | yes |  |
+| bundle | attempt-result | body_sha256 | str | yes |  |
 | bundle | sar-request | apiVersion | str | yes | authorization.k8s.io/v1 |
 | bundle | sar-request | kind | str | yes | SubjectAccessReview |
 | bundle | sar-request | spec | object:sar-spec | yes |  |
@@ -170,14 +173,6 @@ python3 scripts/release/prod_matrix/prod_ratchet.py --check
 | bundle | resource-attributes | namespace | str | yes |  |
 | bundle | resource-attributes | name | str | yes |  |
 | bundle | resource-attributes | verb | str | yes |  |
-| bundle | sar-response | apiVersion | str | no |  |
-| bundle | sar-response | kind | str | no |  |
-| bundle | sar-response | request_hash | str | yes |  |
-| bundle | sar-response | status | object:sar-status | no |  |
-| bundle | sar-status | allowed | json | no |  |
-| bundle | sar-status | denied | json | no |  |
-| bundle | sar-status | evaluationError | str | no |  |
-| bundle | sar-status | reason | str | no |  |
 | output-row | root | kind | str | yes | named-exception, unclassified, unknown-surface |
 | output-row | root | reason | str | yes |  |
 | output-row | root | row_key | str | no |  |

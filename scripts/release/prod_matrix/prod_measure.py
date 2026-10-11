@@ -63,7 +63,7 @@ def run_collect(args) -> int:
     from identities import assemble, inventory
 
     session, caller = read_identities(kubectl_transport)
-    identities = assemble(inventory(session.commands, require_discovery=False), fixed["rows"])
+    identities = assemble(inventory(session.attempts, require_discovery=False), fixed["rows"])
     planned = expand(identities, targets["questions"])
     count = len(planned)
     if over_budget(count):
@@ -71,7 +71,10 @@ def run_collect(args) -> int:
         sys.stdout.write(text)
         return 2
     read_discovery(session)
-    discovered = inventory(session.commands)
+    discovered = inventory(session.attempts)
+    from identities import assert_target_namespaces
+
+    assert_target_namespaces(discovered["namespaces"], targets["questions"], fixed["rows"])
     assert_asked_discovered(targets["questions"], discovered["resources"])
     bundle = send_questions(session, caller, planned)
     from schema import validate_document

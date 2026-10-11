@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from attempts import budget, chains, response_request_hash
 from canon import (
     QUESTION_LIMIT,
-    READ_LIMIT,
     REQUEST_FAMILY,
     SUMMARY_1,
     MatrixExit,
@@ -24,7 +24,7 @@ from exceptions import (
     target_namespaces,
 )
 from exceptions import cells_of
-from identities import assemble, check_review_context, context, inventory
+from identities import assemble, assert_target_namespaces, check_review_context, context, inventory
 from questions import expand, over_budget
 
 BLANK = context("user", "", [], {"state": "unknown"}, {"state": "unknown"}, "")
@@ -120,53 +120,20 @@ def truncated(question_count: int) -> tuple[int, str]:
     return 2, "\n".join(lines) + "\n"
 
 
-def _review_answers(reviews: list[dict]) -> dict[str, dict]:
-    """Each attempt has its own id. The answer is the last attempt of that request."""
-    seen: dict[str, int] = {}
-    for index, review in enumerate(reviews):
-        qid = review.get("id")
-        if not isinstance(qid, str) or not qid:
-            raise MatrixExit(2, "bundle: review missing id")
-        if qid in seen:
-            raise MatrixExit(2, f"bundle: {qid}: duplicate id")
-        seen[qid] = index
-        _check_review(review)
-        retry = review.get("retry_of")
-        if not retry:
+def _review_answers(chosen: dict[str, dict]) -> dict[str, dict]:
+    """The answer is the last attempt of that request. The question id is derived from the hash."""
+    answers: dict[str, dict] = {}
+    for digest, attempt in chosen.items():
+        if attempt["kind"] != "review":
             continue
-        if retry not in seen:
-            raise MatrixExit(2, f"bundle: {qid}: retry_of does not point at an earlier attempt")
-        earlier = reviews[seen[retry]]
-        if earlier.get("request_hash") != review.get("request_hash"):
-            raise MatrixExit(2, f"bundle: {qid}: retry hash does not match")
-    groups: dict[str, list[dict]] = {}
-    for review in reviews:
-        groups.setdefault(review["request_hash"], []).append(review)
-    chosen: dict[str, dict] = {}
-    for attempts in groups.values():
-        primaries = [item for item in attempts if not item.get("retry_of")]
-        if len(primaries) != 1:
-            qid = attempts[-1]["id"]
-            if len(primaries) > 1:
-                raise MatrixExit(2, f"bundle: {qid}: two answers")
+        response_request_hash(attempt)
+        spec = attempt["request"]["body"]["spec"]
+        check_review_context(spec)
+        qid = question_id(digest)
+        if qid in answers:
             raise MatrixExit(2, f"bundle: {qid}: duplicate question id")
-        chosen[primaries[0]["id"]] = attempts[-1]
-    return chosen
-
-
-def _check_review(review: dict) -> dict:
-    request = review.get("request")
-    if not isinstance(request, dict) or not isinstance(request.get("spec"), dict):
-        raise MatrixExit(2, f"bundle: {review.get('id')}: malformed request")
-    spec = request["spec"]
-    check_review_context(spec)
-    digest = sha256_hex(spec)
-    if digest != review.get("request_hash") or question_id(digest) != review.get("id"):
-        raise MatrixExit(2, f"bundle: {review.get('id')}: request hash does not match")
-    response = review.get("response")
-    if not isinstance(response, dict) or response.get("request_hash") != digest:
-        raise MatrixExit(2, f"bundle: {review.get('id')}: response request hash does not match")
-    return spec
+        answers[qid] = attempt
+    return answers
 
 
 def render(rows: list[dict], denied: int, expired: int, question_count: int, matched: dict[str, int]) -> tuple[int, str]:
@@ -203,14 +170,13 @@ def render(rows: list[dict], denied: int, expired: int, question_count: int, mat
 
 
 def replay(bundle: dict, targets: dict, fixed: dict, exceptions: dict, nontargets: dict, today) -> tuple[int, str]:
-    if len(bundle.get("commands") or []) > READ_LIMIT:
-        raise MatrixExit(2, "budget: read attempts exceed 500")
-    if len(bundle.get("reviews") or []) > QUESTION_LIMIT:
-        raise MatrixExit(2, "budget: review attempts exceed 20000")
+    attempts = list(bundle.get("attempts") or [])
+    budget(attempts)
+    chosen = chains(attempts)
     questions = list(targets["questions"])
     fixed_rows = list(fixed["rows"])
     prepared = prepare(list(exceptions["exceptions"]), today)
-    lists = inventory(bundle["commands"])
+    lists = inventory(attempts, chosen=chosen)
     identities = assemble(lists, fixed_rows)
     planned = expand(identities, questions)
     question_count = len(planned)
@@ -219,8 +185,9 @@ def replay(bundle: dict, targets: dict, fixed: dict, exceptions: dict, nontarget
     ids = [item["id"] for item in planned]
     if len(ids) != len(set(ids)):
         raise MatrixExit(2, "bundle: duplicate question id")
+    assert_target_namespaces(lists["namespaces"], questions, fixed_rows)
     assert_asked_discovered(questions, lists["resources"])
-    answers = _review_answers(bundle["reviews"])
+    answers = _review_answers(chosen)
     expected = {item["id"]: item for item in planned}
     missing = sorted(set(expected) - set(answers))
     if missing:
@@ -239,9 +206,13 @@ def replay(bundle: dict, targets: dict, fixed: dict, exceptions: dict, nontarget
 
     for item in planned:
         review = answers[item["id"]]
-        verdict = interpret(review["response"])
+        verdict = interpret(review["result"]["body"])
         subject = item["identity"]["context"]
         question = item["question"]
+        # Context is first. An exception cannot absorb an unconfirmed allow or denial.
+        if verdict in {"allowed", "denied", "no-opinion"} and _context_unconfirmed(subject, confirmed):
+            rows.append(_base_row("unknown-surface", "context-unconfirmed", subject, question))
+            continue
         if verdict == "allowed":
             exception = next((exc for exc in prepared if matches(exc, subject, question)), None)
             if exception:
@@ -252,9 +223,6 @@ def replay(bundle: dict, targets: dict, fixed: dict, exceptions: dict, nontarget
                 reason = "all resources, including those added later" if item["wildcard"] else "allowed"
                 row = _base_row("unclassified", reason, subject, question)
             rows.append(row)
-            continue
-        if verdict in {"denied", "no-opinion"} and _context_unconfirmed(subject, confirmed):
-            rows.append(_base_row("unknown-surface", "context-unconfirmed", subject, question))
             continue
         if verdict == "denied" or (verdict == "no-opinion" and confirmed):
             denied += 1

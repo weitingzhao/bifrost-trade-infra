@@ -33,6 +33,7 @@ from support import (  # noqa: E402
     load_defaults,
     question,
     res,
+    reseal,
     rows,
     run,
     targets_of,
@@ -50,11 +51,20 @@ def _small_bundle(resource_name="configmaps"):
     return bundle, targets, fixed
 
 
+def _replace_pages(bundle, path, pages):
+    bundle["attempts"] = [item for item in bundle["attempts"] if item["request"]["path"] != path]
+    number = max(item["attempt"] for item in bundle["attempts"]) + 1
+    for body, token in pages:
+        params = {"continue": token} if token else {}
+        bundle["attempts"].append(command(number, path, body, params=params))
+        number += 1
+
+
 class Round2Tests(unittest.TestCase):
     def test_deleted_discovery_command_exits_2(self):
         bundle = json.loads((HERE / "testdata" / "recorded-bundle.json").read_text(encoding="utf-8"))
-        bundle["commands"] = [
-            item for item in bundle["commands"] if item["request"]["path"] != "/apis/traefik.io/v1alpha1"
+        bundle["attempts"] = [
+            item for item in bundle["attempts"] if item["request"]["path"] != "/apis/traefik.io/v1alpha1"
         ]
         targets, fixed, exceptions, nontargets = load_defaults()
         with self.assertRaises(MatrixExit) as raised:
@@ -64,10 +74,10 @@ class Round2Tests(unittest.TestCase):
 
     def test_failed_root_discovery_exits_2(self):
         bundle = json.loads((HERE / "testdata" / "recorded-bundle.json").read_text(encoding="utf-8"))
-        for item in bundle["commands"]:
+        for item in bundle["attempts"]:
             if item["request"]["path"] == "/api":
-                item["ok"] = False
-                item["status_code"] = 500
+                item["result"]["ok"] = False
+                item["result"]["status_code"] = 500
         targets, fixed, exceptions, nontargets = load_defaults()
         with self.assertRaises(MatrixExit) as raised:
             run(bundle, targets, fixed, exceptions, nontargets)
@@ -93,7 +103,7 @@ class Round2Tests(unittest.TestCase):
                 os.environ["PATH"] = previous
             self.assertEqual(code, 3, err)
             bundle = json.loads(out.read_text(encoding="utf-8"))
-        paths = [item["request"]["path"].split("?", 1)[0] for item in bundle["commands"]]
+        paths = [item["request"]["path"].split("?", 1)[0] for item in bundle["attempts"]]
         self.assertIn("/apis/apps/v1", paths)
         self.assertIn("/apis/apps/v1beta1", paths)
 
@@ -170,11 +180,11 @@ class Round2Tests(unittest.TestCase):
 
     def test_missing_middle_page_exits_2(self):
         bundle, targets, fixed = _small_bundle()
-        roles = next(item for item in bundle["commands"] if item["request"]["path"].endswith("/roles"))
-        roles["pages"] = [
-            {"body": {"items": [], "kind": "RoleList", "metadata": {"continue": "t1"}}, "continue": "t1"},
-            {"body": {"items": [], "kind": "RoleList", "metadata": {"continue": ""}}, "continue": ""},
-        ]
+        _replace_pages(
+            bundle,
+            "/apis/rbac.authorization.k8s.io/v1/roles",
+            [({"items": [], "kind": "RoleList", "metadata": {"continue": "t1"}}, "")],
+        )
         with self.assertRaises(MatrixExit) as raised:
             run(bundle, targets, fixed, empty_exceptions(), empty_nontargets())
         self.assertEqual(raised.exception.code, 2)
@@ -182,8 +192,9 @@ class Round2Tests(unittest.TestCase):
 
     def test_role_list_without_items_exits_2(self):
         bundle, targets, fixed = _small_bundle()
-        roles = next(item for item in bundle["commands"] if item["request"]["path"].endswith("/roles"))
-        roles["pages"][0]["body"].pop("items")
+        roles = next(item for item in bundle["attempts"] if item["request"]["path"].endswith("/roles"))
+        roles["result"]["body"].pop("items")
+        reseal(roles)
         with self.assertRaises(MatrixExit) as raised:
             run(bundle, targets, fixed, empty_exceptions(), empty_nontargets())
         self.assertEqual(raised.exception.code, 2)
@@ -191,44 +202,53 @@ class Round2Tests(unittest.TestCase):
 
     def test_complete_page_chain_replays(self):
         bundle, targets, fixed = _small_bundle()
-        roles = next(item for item in bundle["commands"] if item["request"]["path"].endswith("/roles"))
-        roles["pages"] = [
-            {"body": {"items": [], "kind": "RoleList", "metadata": {"continue": "t1"}}, "continue": ""},
-            {"body": {"items": [], "kind": "RoleList", "metadata": {"continue": "t2"}}, "continue": "t1"},
-            {"body": {"items": [], "kind": "RoleList", "metadata": {"continue": ""}}, "continue": "t2"},
-        ]
+        path = "/apis/rbac.authorization.k8s.io/v1/roles"
+        _replace_pages(
+            bundle,
+            path,
+            [
+                ({"items": [], "kind": "RoleList", "metadata": {"continue": "t1"}}, ""),
+                ({"items": [], "kind": "RoleList", "metadata": {"continue": "t2"}}, "t1"),
+                ({"items": [], "kind": "RoleList", "metadata": {"continue": ""}}, "t2"),
+            ],
+        )
         code, _text = run(bundle, targets, fixed, empty_exceptions(), empty_nontargets())
         self.assertEqual(code, 3)
-        del roles["pages"][1]
+        middle = [item for item in bundle["attempts"] if item["request"]["path"] == path and item["request"]["params"].get("continue") == "t1"]
+        bundle["attempts"] = [item for item in bundle["attempts"] if item not in middle]
         with self.assertRaises(MatrixExit) as raised:
             run(bundle, targets, fixed, empty_exceptions(), empty_nontargets())
         self.assertEqual(raised.exception.code, 2)
 
     def test_retry_with_duplicate_id_and_wrong_hash_exits_2(self):
         bundle, targets, fixed = _small_bundle()
-        clone = copy.deepcopy(bundle["reviews"][0])
+        clone = copy.deepcopy(next(item for item in bundle["attempts"] if item["kind"] == "review"))
+        clone["attempt"] = max(item["attempt"] for item in bundle["attempts"]) + 1
         clone["request_hash"] = "ab" * 32
-        clone["response"]["request_hash"] = clone["request_hash"]
-        clone["retry_of"] = clone["id"]
-        bundle["reviews"].append(clone)
-        bundle["reviews"].append(copy.deepcopy(clone))
+        clone["retry_of"] = clone["attempt"]
+        bundle["attempts"].append(clone)
+        again = copy.deepcopy(clone)
+        again["attempt"] = clone["attempt"] + 1
+        bundle["attempts"].append(again)
         with self.assertRaises(MatrixExit) as raised:
             run(bundle, targets, fixed, empty_exceptions(), empty_nontargets())
         self.assertEqual(raised.exception.code, 2)
 
     def test_discovery_retry_uses_the_successful_attempt(self):
         bundle, targets, fixed = _small_bundle()
-        for item in bundle["commands"]:
+        for item in bundle["attempts"]:
             if item["request"]["path"] != "/api/v1":
                 continue
             failed = copy.deepcopy(item)
-            failed["ok"] = False
-            failed["status_code"] = 503
+            failed["result"]["ok"] = False
+            failed["result"]["status_code"] = 503
+            failed["result"]["body"] = {"kind": "Status", "message": "unavailable"}
+            reseal(failed)
             ok = copy.deepcopy(item)
-            ok["id"] = item["id"] + "-r1"
-            ok["retry_of"] = item["id"]
-            bundle["commands"] = [failed if command["id"] == item["id"] else command for command in bundle["commands"]]
-            bundle["commands"].append(ok)
+            ok["attempt"] = max(attempt["attempt"] for attempt in bundle["attempts"]) + 1
+            ok["retry_of"] = failed["attempt"]
+            bundle["attempts"] = [failed if attempt["attempt"] == item["attempt"] else attempt for attempt in bundle["attempts"]]
+            bundle["attempts"].append(ok)
             break
         code, _text = run(bundle, targets, fixed, empty_exceptions(), empty_nontargets())
         self.assertEqual(code, 3)
@@ -304,11 +324,15 @@ class Round2Tests(unittest.TestCase):
 
     def test_replay_rejects_too_many_attempts(self):
         bundle, targets, fixed = _small_bundle()
-        extra = copy.deepcopy(bundle["commands"][0])
+        extra = copy.deepcopy(next(item for item in bundle["attempts"] if item["kind"] == "read"))
+        start = max(item["attempt"] for item in bundle["attempts"])
         for index in range(500):
             item = copy.deepcopy(extra)
-            item["id"] = f"extra-{index}"
-            bundle["commands"].append(item)
+            item["attempt"] = start + index + 1
+            item["request"] = dict(item["request"])
+            item["request"]["path"] = f"/extra/{index}"
+            reseal(item)
+            bundle["attempts"].append(item)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "bundle.json"
             targets_path = Path(tmp) / "targets.json"
@@ -330,8 +354,8 @@ class Round2Tests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("read attempts", err)
         bundle, targets, fixed = _small_bundle()
-        while len(bundle["reviews"]) <= 20000:
-            bundle["reviews"].append({"id": f"pad-{len(bundle['reviews'])}"})
+        while sum(1 for item in bundle["attempts"] if item.get("kind") == "review") <= 20000:
+            bundle["attempts"].append({"attempt": len(bundle["attempts"]) + 1, "kind": "review"})
         with self.assertRaises(MatrixExit) as raised:
             run(bundle, targets, fixed, empty_exceptions(), empty_nontargets())
         self.assertEqual(raised.exception.code, 2)

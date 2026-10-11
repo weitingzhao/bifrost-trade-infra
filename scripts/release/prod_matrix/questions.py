@@ -54,10 +54,24 @@ def _selected(identity: dict, question: dict) -> bool:
     return match == "all"
 
 
+def dedupe_identities(identities: list[dict]) -> list[dict]:
+    """The same user is one identity. A repeated row must not inflate the budget."""
+    chosen: dict[str, dict] = {}
+    for item in identities:
+        user = item["context"]["user"]
+        current = chosen.get(user)
+        if current is None:
+            chosen[user] = item
+            continue
+        if current["context"]["uid"]["state"] != "known" and item["context"]["uid"]["state"] == "known":
+            chosen[user] = item
+    return list(chosen.values())
+
+
 def expand(identities: list[dict], questions: list[dict]) -> list[dict]:
     """One entry per (identity, explicit question), then one wildcard per askable identity."""
     planned: list[dict] = []
-    askable = [item for item in identities if item["ask"]]
+    askable = dedupe_identities([item for item in identities if item["ask"]])
     for question in questions:
         for identity in askable:
             if not _selected(identity, question):
@@ -99,14 +113,17 @@ def over_budget(count: int) -> bool:
 
 
 def fixed_askable(fixed_rows: list[dict]) -> list[dict]:
-    """Lower bound on identities, known before any cluster read."""
+    """Lower bound on identities, known before any cluster read. Duplicate users count once."""
     from identities import fixed_identity
 
     askable = []
+    seen: set[str] = set()
     for row in fixed_rows:
         if row["record"] == "auth-chain":
             continue
         ctx, ask = fixed_identity(row)
-        if ask:
-            askable.append({"context": ctx, "ask": True, "risk": False, "reason": ""})
+        if not ask or ctx["user"] in seen:
+            continue
+        seen.add(ctx["user"])
+        askable.append({"context": ctx, "ask": True, "risk": False, "reason": ""})
     return askable

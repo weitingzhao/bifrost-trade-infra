@@ -29,6 +29,8 @@ from support import (  # noqa: E402
     load_defaults,
     question,
     res,
+    reseal,
+    reviews,
     rows,
     run,
     targets_of,
@@ -64,7 +66,7 @@ class ReviewTests(unittest.TestCase):
                 return allowed_status()
             return denied_status()
 
-        bundle, targets, fixed = _small(answer, questions)
+        bundle, targets, fixed = _small(answer, questions, confirmed=True)
         code, text = run(bundle, targets, fixed, empty_exceptions(), empty_nontargets())
         matched = [
             row
@@ -105,11 +107,13 @@ class ReviewTests(unittest.TestCase):
 
             bundle, targets, fixed = _small(answer, questions)
             if status is None:
-                for review in bundle["reviews"]:
-                    review["response"].pop("status", None)
+                for review in reviews(bundle):
+                    review["result"]["body"].pop("status", None)
+                    reseal(review)
             elif reason == "malformed":
-                for review in bundle["reviews"]:
-                    review["response"]["status"] = {"allowed": "yes", "denied": False}
+                for review in reviews(bundle):
+                    review["result"]["body"]["status"] = {"allowed": "yes", "denied": False}
+                    reseal(review)
             code, text = run(bundle, targets, fixed, empty_exceptions(), empty_nontargets())
             kinds = {row["reason"] for row in rows(text) if row["kind"] == "unknown-surface"}
             self.assertIn(reason, kinds, reason)
@@ -155,13 +159,11 @@ class ReviewTests(unittest.TestCase):
 
         commands.append(command(8, "/api/v1", discovery("v1", [res("configmaps")])))
         bundle = bundle_from(commands, targets_of(questions), copy_fixed(), lambda item: denied_status())
-        for review in bundle["reviews"]:
-            user = review["request"]["spec"]["user"]
+        for review in reviews(bundle):
+            user = review["request"]["body"]["spec"]["user"]
             if user.startswith("system:node:"):
-                review["request"]["spec"]["groups"] = ["system:nodes"]
+                review["request"]["body"]["spec"]["groups"] = ["system:nodes"]
                 review["request_hash"] = "0" * 64
-                review["id"] = "q-" + "0" * 16
-                review["response"]["request_hash"] = review["request_hash"]
         code, _text, err = _replay_raw(bundle, targets_of(questions), copy_fixed())
         self.assertEqual(code, 2)
         self.assertTrue(err)
@@ -271,19 +273,26 @@ class ReviewTests(unittest.TestCase):
         questions = [question("", "v1", "configmaps", "", "ns-a", "namespaced", "", "patch")]
         bundle, targets, fixed = _small(lambda item: denied_status(), questions)
         missing = json.loads(json.dumps(bundle))
-        missing["reviews"] = missing["reviews"][1:]
+        dropped = False
+        kept = []
+        for attempt in missing["attempts"]:
+            if attempt["kind"] == "review" and not dropped:
+                dropped = True
+                continue
+            kept.append(attempt)
+        missing["attempts"] = kept
         self.assertEqual(_replay_raw(missing, targets, fixed)[0], 2)
         doubled = json.loads(json.dumps(bundle))
-        doubled["reviews"].append(dict(doubled["reviews"][0]))
+        clone = json.loads(json.dumps(next(item for item in doubled["attempts"] if item["kind"] == "review")))
+        clone["attempt"] = max(item["attempt"] for item in doubled["attempts"]) + 1
+        clone.pop("retry_of", None)
+        doubled["attempts"].append(clone)
         self.assertEqual(_replay_raw(doubled, targets, fixed)[0], 2)
         repeated = json.loads(json.dumps(bundle))
-        clone = dict(repeated["reviews"][0])
-        clone["retry_of"] = clone["id"]
-        repeated["reviews"].append(clone)
-        extra = dict(clone)
-        extra["retry_of"] = clone["id"]
-        repeated["reviews"].append(extra)
-        # Two retries that reuse the primary id are a repeated id, not a second pass over `doubled`.
+        clone = json.loads(json.dumps(next(item for item in repeated["attempts"] if item["kind"] == "review")))
+        clone["attempt"] = max(item["attempt"] for item in repeated["attempts"]) + 1
+        clone["retry_of"] = clone["attempt"]
+        repeated["attempts"].append(clone)
         self.assertEqual(_replay_raw(repeated, targets, fixed)[0], 2)
 
     def test_t41_summary_lines_and_no_refusal_and_no_zero(self):

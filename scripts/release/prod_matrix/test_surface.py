@@ -29,6 +29,8 @@ from support import (  # noqa: E402
     load_defaults,
     question,
     res,
+    reseal,
+    reviews,
     rows,
     run,
     targets_of,
@@ -80,9 +82,9 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(code, 3)
         self.assertIn("question count:", text)
         failed = copy.deepcopy(bundle)
-        failed["commands"][4]["ok"] = False
-        failed["commands"][4]["status_code"] = 403
-        failed["commands"][4]["pages"] = [{"body": {"items": [], "kind": "RoleBindingList", "metadata": {"continue": ""}}, "continue": ""}]
+        rolebindings = next(item for item in failed["attempts"] if item["request"]["path"].endswith("/rolebindings"))
+        rolebindings["result"]["ok"] = False
+        rolebindings["result"]["status_code"] = 403
         code, _out, err = _replay(failed, targets, fixed)
         self.assertEqual(code, 2)
         self.assertIn("read failed", err)
@@ -94,11 +96,11 @@ class SurfaceTests(unittest.TestCase):
             [res("configmaps")],
             lambda item: allowed_status(),
         )
-        identity = bundle["reviews"][0]["request"]["spec"]
+        identity = reviews(bundle)[0]["request"]["body"]["spec"]
         # Use the anonymous identity from the fixed file, which is asked.
         from identities import assemble, inventory
 
-        anon = next(item["context"] for item in assemble(inventory(bundle["commands"]), fixed["rows"]) if item["context"]["kind"] == "anonymous")
+        anon = next(item["context"] for item in assemble(inventory(bundle["attempts"]), fixed["rows"]) if item["context"]["kind"] == "anonymous")
         base = {
             "check": "subjectaccessreview",
             "class": "field",
@@ -157,8 +159,10 @@ class SurfaceTests(unittest.TestCase):
         self.assertFalse(any(row["reason"] == "names-not-enumerated" and row["resource"] == "configmaps" for row in rows(text)))
         recorded = json.loads((HERE / "testdata" / "recorded-bundle.json").read_text(encoding="utf-8"))
         asked_names = set()
-        for review in recorded["reviews"]:
-            asked_names.add(review["request"]["spec"]["resourceAttributes"]["name"])
+        for review in recorded["attempts"]:
+            if review["kind"] != "review":
+                continue
+            asked_names.add(review["request"]["body"]["spec"]["resourceAttributes"]["name"])
         self.assertNotIn("platform-config", asked_names)
 
     def test_t29_missing_namespace_subresource_or_page_exits_2(self):
@@ -166,24 +170,29 @@ class SurfaceTests(unittest.TestCase):
         resources = [res("serviceaccounts"), res("serviceaccounts/token")]
         bundle, targets, fixed = _config_bundle(questions, resources, lambda item: denied_status())
         missing_ns = copy.deepcopy(bundle)
-        missing_ns["commands"][1]["pages"][0]["body"]["items"] = [
-            {"metadata": {"name": "example-sa", "namespace": "other", "uid": "u"}}
-        ]
+        accounts = next(item for item in missing_ns["attempts"] if item["request"]["path"].endswith("/serviceaccounts"))
+        accounts["result"]["body"]["items"] = [{"metadata": {"name": "example-sa", "namespace": "other", "uid": "u"}}]
+        reseal(accounts)
         self.assertEqual(_replay(missing_ns, targets, fixed)[0], 2)
         missing_sub = copy.deepcopy(bundle)
-        missing_sub["commands"][-1]["pages"][0]["body"]["resources"] = [res("serviceaccounts")]
+        discovered = next(item for item in missing_sub["attempts"] if item["request"]["path"] == "/api/v1")
+        discovered["result"]["body"]["resources"] = [res("serviceaccounts")]
+        reseal(discovered)
         code, _out, err = _replay(missing_sub, targets, fixed)
         self.assertEqual(code, 2)
         self.assertIn("subresource", err)
         missing_page = copy.deepcopy(bundle)
-        missing_page["commands"][0]["pages"][0]["continue"] = "token"
-        missing_page["commands"][0]["pages"][0]["body"]["metadata"]["continue"] = "token"
+        namespaces = next(item for item in missing_page["attempts"] if item["request"]["path"].endswith("/namespaces"))
+        namespaces["request"]["params"]["continue"] = "token"
+        namespaces["result"]["body"]["metadata"]["continue"] = "token"
+        reseal(namespaces)
         self.assertEqual(_replay(missing_page, targets, fixed)[0], 2)
 
     def test_t30_response_hash_mismatch_exits_2(self):
         questions = [question("", "v1", "configmaps", "", "ns-a", "namespaced", "", "patch")]
         bundle, targets, fixed = _config_bundle(questions, [res("configmaps")], lambda item: denied_status())
-        bundle["reviews"][0]["response"]["request_hash"] = "f" * 64
+        reviews(bundle)[0]["result"]["body"]["request_hash"] = "f" * 64
+        reseal(reviews(bundle)[0])
         code, _out, err = _replay(bundle, targets, fixed)
         self.assertEqual(code, 2)
         self.assertIn("hash", err)
@@ -193,7 +202,7 @@ class SurfaceTests(unittest.TestCase):
         bundle, targets, fixed = _config_bundle(questions, [res("configmaps")], lambda item: allowed_status())
         from identities import assemble, inventory
 
-        anon = next(item["context"] for item in assemble(inventory(bundle["commands"]), fixed["rows"]) if item["context"]["kind"] == "anonymous")
+        anon = next(item["context"] for item in assemble(inventory(bundle["attempts"]), fixed["rows"]) if item["context"]["kind"] == "anonymous")
         row = {
             "check": "subjectaccessreview",
             "class": "field",
@@ -240,8 +249,9 @@ class SurfaceTests(unittest.TestCase):
     def test_t35_incomplete_read_only_exits_2(self):
         questions = [question("", "v1", "configmaps", "", "ns-a", "namespaced", "", "patch")]
         bundle, targets, fixed = _config_bundle(questions, [res("configmaps")], lambda item: denied_status())
-        bundle["commands"][0]["ok"] = False
-        bundle["commands"][0]["status_code"] = 500
+        namespaces = next(item for item in bundle["attempts"] if item["request"]["path"].endswith("/namespaces"))
+        namespaces["result"]["ok"] = False
+        namespaces["result"]["status_code"] = 500
         code, _out, _err = _replay(bundle, targets, fixed)
         self.assertEqual(code, 2)
 
@@ -364,7 +374,7 @@ class SurfaceTests(unittest.TestCase):
             parent = doc["exceptions"][0]["identity"]
             label = "identity"
         elif key == "bundle":
-            parent = doc["reviews"][0]["request"]
+            parent = next(item["request"]["body"] for item in doc["attempts"] if item["kind"] == "review")
             label = "request"
         else:
             parent = doc
@@ -401,7 +411,7 @@ class SurfaceTests(unittest.TestCase):
             target = doc["exceptions"][0]["identity"]
             field = "user"
         elif label == "request":
-            target = doc["reviews"][0]["request"]
+            target = next(item["request"]["body"] for item in doc["attempts"] if item["kind"] == "review")
             field = "apiVersion"
         else:
             if mode == "drop":

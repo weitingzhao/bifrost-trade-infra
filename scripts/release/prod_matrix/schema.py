@@ -111,26 +111,34 @@ _FIXED_AUTH = (
     ("evidence", "str", False, None, "confirmed"),
 )
 
-_COMMAND_REQUEST = (
+_REQUEST_PARAMS = (
+    ("limit", "str", False, None),
+    ("continue", "str", False, None),
+)
+
+_ATTEMPT_REQUEST = (
     ("method", "str", True, {"GET", "POST"}),
     ("path", "str", True, None),
-    ("params", "json", True, None),
+    ("params", "object:request-params", True, None),
+    ("body", "json", False, None),
 )
 
-_PAGE = (
-    ("body", "json", True, None),
-    ("continue", "str", True, None),
-)
-
-_COMMAND = (
-    ("id", "str", True, None),
-    ("request", "object:command-request", True, None),
-    ("pages", "list:page", True, None),
-    ("ok", "bool", True, None),
+_ATTEMPT_RESULT = (
     ("status_code", "int", True, None),
+    ("ok", "bool", True, None),
+    ("body", "json", True, None),
+    ("body_sha256", "str", True, None),
+)
+
+_ATTEMPT = (
+    ("attempt", "int", True, None),
+    ("kind", "str", True, {"read", "review"}),
+    ("request", "object:attempt-request", True, None),
+    ("request_hash", "str", True, None),
+    ("retry_of", "int", False, None),
     ("started_at", "str", True, None),
     ("finished_at", "str", True, None),
-    ("retry_of", "str", False, None),
+    ("result", "object:attempt-result", True, None),
 )
 
 _RESOURCE_ATTRS = (
@@ -155,28 +163,6 @@ _SAR_REQUEST = (
     ("apiVersion", "str", True, {"authorization.k8s.io/v1"}),
     ("kind", "str", True, {"SubjectAccessReview"}),
     ("spec", "object:sar-spec", True, None),
-)
-
-_SAR_STATUS = (
-    ("allowed", "json", False, None),
-    ("denied", "json", False, None),
-    ("evaluationError", "str", False, None),
-    ("reason", "str", False, None),
-)
-
-_SAR_RESPONSE = (
-    ("apiVersion", "str", False, None),
-    ("kind", "str", False, None),
-    ("request_hash", "str", True, None),
-    ("status", "object:sar-status", False, None),
-)
-
-_REVIEW = (
-    ("id", "str", True, None),
-    ("request", "object:sar-request", True, None),
-    ("request_hash", "str", True, None),
-    ("response", "object:sar-response", True, None),
-    ("retry_of", "str", False, None),
 )
 
 _BASELINE = (
@@ -281,22 +267,19 @@ FIELDS: dict[str, dict[str, Any]] = {
             ("finished_at", "str", True, None),
             ("caller", "object:context", True, None),
             ("tool_version", "str", True, None),
-            ("commands", "list:command", True, None),
-            ("reviews", "list:review", True, None),
+            ("attempts", "list:attempt", True, None),
         ),
         "nested": {
             "context": _CONTEXT,
             "uid": _UID,
             "extra": _EXTRA,
-            "command": _COMMAND,
-            "command-request": _COMMAND_REQUEST,
-            "page": _PAGE,
-            "review": _REVIEW,
+            "attempt": _ATTEMPT,
+            "attempt-request": _ATTEMPT_REQUEST,
+            "request-params": _REQUEST_PARAMS,
+            "attempt-result": _ATTEMPT_RESULT,
             "sar-request": _SAR_REQUEST,
             "sar-spec": _SAR_SPEC,
             "resource-attributes": _RESOURCE_ATTRS,
-            "sar-response": _SAR_RESPONSE,
-            "sar-status": _SAR_STATUS,
         },
     },
     "output-row": {
@@ -469,6 +452,7 @@ def validate_document(filename: str, value: Any) -> None:
         _validate_fixed_rows(filename, value)
     if filename == "bundle":
         _validate_states(filename, value["caller"])
+        _validate_attempts(filename, spec, value["attempts"])
 
 
 def _reject_star(filename: str, value: Any, field: str = "") -> None:
@@ -481,6 +465,18 @@ def _reject_star(filename: str, value: Any, field: str = "") -> None:
     elif isinstance(value, list):
         for index, item in enumerate(value):
             _reject_star(filename, item, f"{field}[{index}]")
+
+
+def _validate_attempts(filename: str, spec: dict[str, Any], attempts: list) -> None:
+    """Review requests are our own SubjectAccessReview. Response bodies stay verbatim JSON."""
+    for index, attempt in enumerate(attempts):
+        if attempt.get("kind") != "review":
+            continue
+        body = attempt["request"].get("body")
+        field = f"attempts[{index}].request.body"
+        if not isinstance(body, dict):
+            _fail(filename, field, "missing required field")
+        validate_object(filename, spec, field, _nested(spec, "sar-request"), body)
 
 
 def _validate_states(filename: str, context: dict) -> None:

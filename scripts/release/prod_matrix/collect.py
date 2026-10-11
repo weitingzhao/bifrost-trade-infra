@@ -1,8 +1,8 @@
 """Collect discovery, identities, and explicit SubjectAccessReviews via kubectl.
 
 This module is the only one that starts a process. Replay does not import it.
-Concurrency stays at one in-flight request, under the cap of 8, so the bundle
-order matches the question order. Retries are separate command records.
+Concurrency stays at one in-flight request, under the cap of 8. Each request is
+one attempt. A retried request is a new attempt. Pages are not folded together.
 """
 
 from __future__ import annotations
@@ -12,11 +12,9 @@ import subprocess
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable
-from urllib.parse import urlencode
-
-from canon import READ_LIMIT, TOOL_VERSION, WALL_SECONDS, MatrixExit
+from attempts import seal_result
+from canon import READ_LIMIT, TOOL_VERSION, WALL_SECONDS, MatrixExit, sha256_hex
 from identities import context, discovery_paths_from
-from questions import sar_body
 
 Transport = Callable[[str, str, str | None], tuple[int, str, str]]
 
@@ -29,6 +27,7 @@ LISTS = (
     ("/apis/rbac.authorization.k8s.io/v1/clusterroles", "rbac.authorization.k8s.io", "clusterroles"),
     ("/apis/rbac.authorization.k8s.io/v1/clusterrolebindings", "rbac.authorization.k8s.io", "clusterrolebindings"),
 )
+SAR_PATH = "/apis/authorization.k8s.io/v1/subjectaccessreviews"
 
 
 def kubectl_transport(method: str, path: str, body: str | None) -> tuple[int, str, str]:
@@ -87,8 +86,7 @@ class Session:
     def __init__(self, transport: Transport, wall_seconds: float = WALL_SECONDS) -> None:
         self.transport = transport
         self.wall_seconds = wall_seconds
-        self.commands: list[dict] = []
-        self.reviews: list[dict] = []
+        self.attempts: list[dict] = []
         self.reads = 0
         self.questions_sent = 0
         self.seq = 1
@@ -104,54 +102,58 @@ class Session:
         if now - self.started > self.wall_seconds:
             raise MatrixExit(2, "budget: wall clock exceeded")
 
-    def _budget(self, bucket: str) -> None:
+    def _note(self, bucket: str) -> None:
+        if bucket == "read":
+            self.reads += 1
+            if self.reads > READ_LIMIT:
+                raise MatrixExit(2, "budget: read limit")
+        else:
+            self.questions_sent += 1
+            if self.questions_sent > 20000:
+                raise MatrixExit(2, "budget: question limit")
+
+    def call(self, method: str, path: str, body: str | None, bucket: str, params: dict | None = None) -> tuple[int, Any]:
+        params = {} if params is None else params
         if bucket == "read" and self.reads >= READ_LIMIT:
             raise MatrixExit(2, "budget: read limit")
-        if bucket == "question" and self.questions_sent >= 20000:
+        if bucket == "review" and self.questions_sent >= 20000:
             raise MatrixExit(2, "budget: question limit")
-
-    def call(self, method: str, path: str, body: str | None, bucket: str) -> tuple[str, Any]:
-        self._budget(bucket)
-        logical = f"c-{self.seq:04d}"
-        self.seq += 1
         payload = None
         status = 0
-        for attempt in range(3):
+        first = 0
+        stored_method = "GET" if method in {"GET", "WHOAMI"} else "POST"
+        request: dict[str, Any] = {"method": stored_method, "params": params, "path": path}
+        if stored_method == "POST":
+            request["body"] = json.loads(body) if isinstance(body, str) else body
+        for retry_index in range(3):
             self._tick()
-            if bucket == "read":
-                self.reads += 1
-            else:
-                self.questions_sent += 1
-            self._budget_after_increment(bucket)
+            self._note(bucket)
             code, stdout, stderr = self.transport(method, path, body)
             self._tick()
             status, payload, retry = _status(code, stdout, stderr)
-            token = ""
-            if isinstance(payload, dict):
-                token = str((payload.get("metadata") or {}).get("continue") or "")
-            entry = {
-                "id": logical if attempt == 0 else f"{logical}-r{attempt}",
-                "request": {"method": "GET" if method in {"GET", "WHOAMI"} else "POST", "path": path, "params": {}},
-                "pages": [{"body": payload if isinstance(payload, dict) else {"empty": True}, "continue": token}],
-                "ok": status == 200,
-                "status_code": status or 0,
-                "started_at": _now(),
+            number = self.seq
+            self.seq += 1
+            if retry_index == 0:
+                first = number
+            kind = "review" if bucket == "review" else "read"
+            digest = sha256_hex(request["body"]["spec"]) if kind == "review" else sha256_hex(request)
+            record = {
+                "attempt": number,
                 "finished_at": _now(),
+                "kind": kind,
+                "request": request,
+                "request_hash": digest,
+                "result": seal_result(payload, status == 200, status or 0),
+                "started_at": _now(),
             }
-            if attempt:
-                entry["retry_of"] = logical
-            self.commands.append(entry)
+            if retry_index:
+                record["retry_of"] = first
+            self.attempts.append(record)
             if status == 200:
-                return logical, payload
-            if not retry or attempt == 2:
+                return number, payload
+            if not retry or retry_index == 2:
                 break
-        raise MatrixExit(2, f"bundle: {logical}: read failed ({status})")
-
-    def _budget_after_increment(self, bucket: str) -> None:
-        if bucket == "read" and self.reads > READ_LIMIT:
-            raise MatrixExit(2, "budget: read limit")
-        if bucket == "question" and self.questions_sent > 20000:
-            raise MatrixExit(2, "budget: question limit")
+        raise MatrixExit(2, f"bundle: attempt {first}: read failed ({status})")
 
 
 def _attrs(verb: str, group: str, resource: str) -> dict:
@@ -172,57 +174,25 @@ def _self_check(session: Session, verb: str, group: str, resource: str) -> None:
         "kind": "SelfSubjectAccessReview",
         "spec": {"resourceAttributes": _attrs(verb, group, resource)},
     }
-    _, payload = session.call(
-        "POST",
-        "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews",
-        json.dumps(body),
-        "read",
-    )
+    _, payload = session.call("POST", "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews", json.dumps(body), "read")
     status = payload.get("status") if isinstance(payload, dict) else None
     if not isinstance(status, dict) or status.get("allowed") is not True:
         raise MatrixExit(2, f"self-check: {verb} {resource} is not allowed")
 
 
-def _paged(session: Session, path: str) -> dict:
-    pages: list[dict] = []
+def _paged(session: Session, path: str) -> None:
     token = ""
-    logical_id = ""
     while True:
         params = {"limit": "500"}
         if token:
             params["continue"] = token
-        full = path + "?" + urlencode(params)
-        logical_id, payload = session.call("GET", full, None, "read")
+        _, payload = session.call("GET", path, None, "read", params=params)
         if not isinstance(payload, dict):
-            raise MatrixExit(2, f"bundle: {logical_id}: list is not an object")
-        # `continue` is the token this page was requested with, not the one the server returned.
-        response_token = str((payload.get("metadata") or {}).get("continue") or "")
-        pages.append({"body": payload, "continue": token})
-        if not response_token:
-            break
-        token = response_token
-    # Fold successful page calls into one list command and drop the per-page copies
-    # that call() already stored, replacing them with a single paged record.
-    page_ids = []
-    kept = []
-    for command in session.commands:
-        if command["request"]["path"].split("?", 1)[0] == path and not command.get("retry_of"):
-            page_ids.append(command["id"])
-        else:
-            kept.append(command)
-    if not page_ids:
-        raise MatrixExit(2, f"bundle: missing command {path}")
-    folded = {
-        "id": page_ids[0],
-        "request": {"method": "GET", "path": path, "params": {"limit": "500"}},
-        "pages": pages,
-        "ok": True,
-        "status_code": 200,
-        "started_at": _now(),
-        "finished_at": _now(),
-    }
-    session.commands = kept + [folded]
-    return folded
+            raise MatrixExit(2, f"bundle: {path}: list is not an object")
+        meta = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        token = str(meta.get("continue") or "")
+        if not token:
+            return
 
 
 def _caller(payload: dict) -> dict:
@@ -259,7 +229,7 @@ def read_identities(transport: Transport, wall_seconds: float = WALL_SECONDS) ->
 
 
 def read_discovery(session: Session) -> None:
-    """Root discovery, then every served version. The question check runs before any review is sent."""
+    """Root discovery, then every served version. Stops before any review is sent."""
     _, api = session.call("GET", "/api", None, "read")
     _, apis = session.call("GET", "/apis", None, "read")
     for path in discovery_paths_from(api if isinstance(api, dict) else {}, apis if isinstance(apis, dict) else {}):
@@ -274,46 +244,23 @@ def read_inventory(transport: Transport, wall_seconds: float = WALL_SECONDS) -> 
 
 
 def send_questions(session: Session, caller: dict, planned: list[dict]) -> dict:
-    _self_check(session, "create", "authorization.k8s.io", "subjectaccessreviews")
-    return _finish(session, caller, planned)
+    from questions import sar_body
 
-
-def _finish(session: Session, caller: dict, planned: list[dict]) -> dict:
     if len({item["id"] for item in planned}) != len(planned):
         raise MatrixExit(2, "bundle: duplicate question id")
+    _self_check(session, "create", "authorization.k8s.io", "subjectaccessreviews")
     for item in planned:
-        body = sar_body(item["spec"])
-        _, payload = session.call(
-            "POST",
-            "/apis/authorization.k8s.io/v1/subjectaccessreviews",
-            json.dumps(body),
-            "question",
-        )
+        _, payload = session.call("POST", SAR_PATH, json.dumps(sar_body(item["spec"])), "review")
         if not isinstance(payload, dict):
             raise MatrixExit(2, f"bundle: {item['id']}: malformed response")
-        response = dict(payload)
-        response["request_hash"] = item["request_hash"]
-        session.reviews.append(
-            {
-                "id": item["id"],
-                "request": body,
-                "request_hash": item["request_hash"],
-                "response": response,
-            }
-        )
-    if session.questions_sent != len(planned):
-        # Retries increment questions_sent above the planned count. That is allowed.
-        pass
-    bundle = {
+    return {
+        "attempts": session.attempts,
         "caller": caller,
-        "commands": session.commands,
         "finished_at": _now(),
-        "reviews": sorted(session.reviews, key=lambda item: item["id"]),
         "schema_version": 1,
         "started_at": session.started_at,
         "tool_version": TOOL_VERSION,
     }
-    return bundle
 
 
 def announce_count(count: int) -> str:

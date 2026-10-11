@@ -6,7 +6,8 @@ import copy
 from datetime import date
 from pathlib import Path
 
-from canon import TOOL_VERSION
+from attempts import seal_result
+from canon import TOOL_VERSION, sha256_hex
 from classify import replay
 from exceptions import parse_today
 from identities import assemble, context, inventory
@@ -26,16 +27,48 @@ def load_defaults():
     )
 
 
-def command(index: int, path: str, body: dict) -> dict:
-    return {
+def command(index: int, path: str, body: dict, params: dict | None = None, retry_of: int | None = None) -> dict:
+    """One read attempt. `index` is the attempt number."""
+    request = {"method": "GET", "params": {} if params is None else params, "path": path}
+    record = {
+        "attempt": index,
         "finished_at": "2026-10-11T00:00:01Z",
-        "id": f"c-{index:04d}",
-        "ok": True,
-        "pages": [{"body": body, "continue": ""}],
-        "request": {"method": "GET", "params": {}, "path": path},
+        "kind": "read",
+        "request": request,
+        "request_hash": sha256_hex(request),
+        "result": seal_result(body, True, 200),
         "started_at": "2026-10-11T00:00:00Z",
-        "status_code": 200,
     }
+    if retry_of is not None:
+        record["retry_of"] = retry_of
+    return record
+
+
+def review_attempt(index: int, spec: dict, status: dict, retry_of: int | None = None) -> dict:
+    body = sar_body(spec)
+    digest = sha256_hex(spec)
+    response = {"apiVersion": "authorization.k8s.io/v1", "kind": "SubjectAccessReview"}
+    if status is not None:
+        response["status"] = status
+    request = {"body": body, "method": "POST", "params": {}, "path": "/apis/authorization.k8s.io/v1/subjectaccessreviews"}
+    record = {
+        "attempt": index,
+        "finished_at": "2026-10-11T00:00:02Z",
+        "kind": "review",
+        "request": request,
+        "request_hash": digest,
+        "result": seal_result(response, True, 200),
+        "started_at": "2026-10-11T00:00:01Z",
+    }
+    if retry_of is not None:
+        record["retry_of"] = retry_of
+    return record
+
+
+def reseal(attempt: dict) -> dict:
+    from attempts import reseal as _reseal
+
+    return _reseal(attempt)
 
 
 def resource_list(kind: str, items: list) -> dict:
@@ -82,14 +115,14 @@ def caller() -> dict:
     )
 
 
-def ensure_root_discovery(commands: list[dict]) -> list[dict]:
+def ensure_root_discovery(attempts: list[dict]) -> list[dict]:
     """Replay derives the discovery paths from /api and /apis. Test bundles record both."""
-    commands = list(commands)
-    paths = {item["request"]["path"].split("?", 1)[0] for item in commands}
+    attempts = list(attempts)
+    paths = {item["request"]["path"] for item in attempts if item["kind"] == "read"}
     core: list[str] = []
     grouped: dict[str, list[str]] = {}
-    for item in commands:
-        path = item["request"]["path"].split("?", 1)[0]
+    for item in attempts:
+        path = item["request"]["path"]
         if path.startswith("/api/") and path.count("/") == 2:
             core.append(path.split("/")[-1])
         elif path.startswith("/apis/") and path.count("/") == 3:
@@ -108,49 +141,51 @@ def ensure_root_discovery(commands: list[dict]) -> list[dict]:
             groups.append({"name": group, "preferredVersion": entries[0], "versions": entries})
         extra.append(command(9102, "/apis", {"kind": "APIGroupList", "groups": groups}))
     if not extra:
-        return commands
-    insert_at = len(commands)
-    for index, item in enumerate(commands):
-        path = item["request"]["path"].split("?", 1)[0]
-        core = path.startswith("/api/") and path.count("/") == 2
-        grouped = path.startswith("/apis/") and path.count("/") == 3
-        if core or grouped:
+        return attempts
+    insert_at = len(attempts)
+    for index, item in enumerate(attempts):
+        path = item["request"]["path"]
+        is_core = path.startswith("/api/") and path.count("/") == 2
+        is_grouped = path.startswith("/apis/") and path.count("/") == 3
+        if is_core or is_grouped:
             insert_at = index
             break
-    return commands[:insert_at] + extra + commands[insert_at:]
+    return attempts[:insert_at] + extra + attempts[insert_at:]
 
 
 def bundle_from(commands: list[dict], targets: dict, fixed: dict, answer) -> dict:
-    commands = ensure_root_discovery(commands)
-    lists = inventory(commands)
+    attempts = ensure_root_discovery(commands)
+    lists = inventory(attempts)
     identities = assemble(lists, fixed["rows"])
     planned = expand(identities, targets["questions"])
+    number = max(item["attempt"] for item in attempts) + 1
     reviews = []
     for item in planned:
-        status = answer(item)
-        response = {
-            "apiVersion": "authorization.k8s.io/v1",
-            "kind": "SubjectAccessReview",
-            "request_hash": item["request_hash"],
-            "status": status,
-        }
-        reviews.append(
-            {
-                "id": item["id"],
-                "request": sar_body(item["spec"]),
-                "request_hash": item["request_hash"],
-                "response": response,
-            }
-        )
+        reviews.append(review_attempt(number, item["spec"], answer(item)))
+        number += 1
     return {
+        "attempts": attempts + reviews,
         "caller": caller(),
-        "commands": commands,
         "finished_at": "2026-10-11T00:00:02Z",
-        "reviews": reviews,
         "schema_version": 1,
         "started_at": "2026-10-11T00:00:00Z",
         "tool_version": TOOL_VERSION,
     }
+
+
+def reads(bundle: dict) -> list[dict]:
+    return [item for item in bundle["attempts"] if item["kind"] == "read"]
+
+
+def reviews(bundle: dict) -> list[dict]:
+    return [item for item in bundle["attempts"] if item["kind"] == "review"]
+
+
+def by_path(bundle: dict, path: str) -> dict:
+    found = [item for item in reads(bundle) if item["request"]["path"] == path or item["request"]["path"].endswith(path)]
+    if not found:
+        raise AssertionError(path)
+    return found[-1]
 
 
 def run(bundle, targets, fixed, exceptions, nontargets, today: str = "2026-10-11"):
