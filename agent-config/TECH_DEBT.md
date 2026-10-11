@@ -1859,6 +1859,20 @@
 - 验收: `cd bifrost-platform/api && go test ./internal/notice/ ./internal/alertrelay/ ./internal/approvalnotify/`
 - 审批 无（代码改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-312
+
+**P2 · ops-platform · after the admin token is rotated, the request page still says a token is saved in this browser, and the decision button fails with "admin token required" — nothing on the page says the saved token is the stale one or what to do**
+
+- **状态**：未开始（2026-10-11 14:56 Owner 在 PROD 上批 #9 时撞到）
+- **Claim**: the Console keeps the Owner's decision token per browser. When the token is rotated on the server, each browser still holds the old value. The request page shows the reassuring line that a token is saved in this browser and the role badge OPERATOR; pressing the decision button returns the server's "admin token required". The Owner had rotated the token at 13:15 the same day (the old one had been exposed in a conversation) and did not connect the error with it; he had to ask in the thread. The rotation steps the coordinator gave him said to paste it into the Console once, not "in every browser you decide from".
+- **Measured**: MEASURED 2026-10-11 14:56 CDT from the Owner's own screenshot of request #9's page on PROD (platform `6524330`): the three texts above appear together. Which status code the server answers for a stale token is NOT MEASURED (agents do not call that route and do not hold the token).
+- **Evidence**: the screenshot in the coordinating thread (not in the repository); the token form of the request page under `console/src/pages/shell/` ("A token is saved. Type a new one to replace it."); `docs/SECRETS.md` (the rotation steps).
+- **Impact**: the one action only the Owner can take fails right after he did the right thing for security, with no path shown. It cost a round trip to the thread on a release that was waiting for him.
+- **Fix**: (1) when a decision is refused for lack of the admin role, the page says so in the Owner's terms — "The token saved in this browser was not accepted. It may have been replaced. Set the current one below." — and unfolds the token field; (2) the "saved" line is checked against the server when the page loads and says `saved, not accepted` when the check fails; (3) the rotation steps in `docs/SECRETS.md` list every place the token lives (each browser, the phone, the local tool configuration) and end with a check the Owner can do himself.
+- **Ratchet**: a Console test — a refused decision with the role error renders the replacement hint and the unfolded field; a server test that the check distinguishes "no token", "token not accepted" and "accepted".
+- 验收: on STG with a deliberately wrong token saved: the page says the saved token is not accepted before any button is pressed, and a refused decision leads to the field
+- 审批 无（代码和文档改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
+
 ## 没覆盖到的（下一轮从这里开始）
 
 - Per-engine numerical correctness beyond dates: GEX sign conventions, max-pain, VRP realized-vol windows, vanna/charm, SVI fit, flow maths
