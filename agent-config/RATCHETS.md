@@ -263,7 +263,7 @@
 - **放哪**：Research `tests/engines/test_atm_repair.py`, `test_atm_iv.py`, `test_long_health.py`, `tests/repositories/test_iv_cone.py`; Market Data `tests/test_long_tenor.py`, `test_long_pilot.py`, Doctor fixtures; Infra `scripts/test_iv_repair_actions.py`. Reproduce with each Python repo's `make lint && make test`; infra audit/action tests 9 passed.
 - **强度**：blocking (tests); runtime warning code is wired to Plugin Doctor and Research volatility `output_ok`, independently measures long-band source breadth and valid tenor brackets against trailing median ×0.8, keeps calendar-missing days and distinguishes warmup/unprobed. cone180 needs ≥60 valid history sessions for percentiles.
 - **覆盖**：TD-172, TD-142, class: long-only repair deletes existing short data; class: future short-only producer erases repaired long data; class: job SUCCESS mistaken for complete coverage; class: missing rate treated as observed zero.
-- **上线状态**：2026-10-10 isolated branches only; code/DEV plus approved bounded DB/vendor execution accepted (762 ATM / 1663 source / 23 raw; append-only preservation and feature replay zero inserts PASS), no publish or expanded requests. 97 target bar-days remain no_bar_unknown; no completeness closure. Runtime alert receipt NOT VERIFIED. Private exact actions/manifests remain outside Git; execution record `docs/audits/TD-172-142_EXECUTION_2026-10-10.md`.
+- **上线状态**：2026-10-10 isolated branches only; code/DEV plus approved bounded DB/vendor execution accepted (762 ATM / 1663 source / 23 raw; append-only preservation and feature replay zero inserts PASS), no publish or expanded requests. 97 target days diagnosed read-only: 96 historical reference absent, 1 listed/no eligible aggregate; no completeness closure. Runtime alert receipt NOT VERIFIED. Private exact actions/manifests remain outside Git; execution record `docs/audits/TD-172-142_EXECUTION_2026-10-10.md`.
 
 ### Cross-repo contracts from one source
 
@@ -286,3 +286,10 @@
 - **强度**：blocking
 - **覆盖**：TD-124, TD-119, TD-122, TD-120, TD-121, TD-109, TD-125, class: dead weight, class: config two sources
 
+
+### TD-172 / TD-142 empty-response read-only classification
+
+- **做什么**：97 exact days/digest/symbol/date/expiry scope; absent classification requires historical detail404 AND complete catalogue absence AND successful non-truncated empty aggregate; listed/no eligible aggregate is never labeled no trades; permissions/errors/truncation stay distinct.
+- **放哪**：`scripts/audit-iv-empty-responses.py`, `scripts/test_iv_empty_audit.py` (5 tests; joint audit/action suite14 PASS), `docs/audits/TD-172-142_EMPTY_97_2026-10-10.md`.
+- **强度**：manual test blocking for this audit; production historical as_of membership gate is pending, not shipped.
+- **覆盖**：TD-172, TD-142; future catalogue mistaken for historical availability; empty bar mistaken for no trades/permission failure. Read-only proposal46/92 is not authorization to write.

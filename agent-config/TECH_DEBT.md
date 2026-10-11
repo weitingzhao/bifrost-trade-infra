@@ -709,7 +709,8 @@
 
 **P2 · research-data · The 90-day IV cone has 31–39 sessions of history and there is no 180-day tenor: ATM IV was stored only to 90 DTE before 2026-08-05**
 
-- **状态**：在做（2026-10-10）：已批准受限三步。受限 long writer / cone180 / 防线代码及 DEV 通过；复用实写756 ATM，82区间实抓23 raw并派生6 ATM；三名90/180仍不足60，97目标日空响应待核原因；未发布。记录见 `docs/audits/TD-172-142_EXECUTION_2026-10-10.md`
+- **状态**：在做（2026-10-10）：已批准受限三步。受限 long writer / cone180 / 防线代码及 DEV 通过；复用实写756 ATM，82区间实抓23 raw并派生6 ATM；三名90/180仍不足60，97目标日已只读分因（96历史未挂牌、1已挂牌无合格bar），替代补抓待确认；未发布。记录见 `docs/audits/TD-172-142_EXECUTION_2026-10-10.md`
+- **97日只读核查 PASS（2026-10-10）**：96日 historical reference 未挂牌（SPY48/AAPL40/NVDA8），AAPL另1日已挂牌无合格bar；聚合权限/抓取错误0，逐笔无权限不能证明完全无成交。根因是当前catalogue候选/校验没有as_of，见 `scripts/audit-iv-request-scope.py:64`、Plugin `ingest/long_pilot.py:114`。具体替代方案46区间/92合同日/23父键（SPY26/44/11，NVDA8/8/2，AAPL12/40/10），正常75 HTTP、硬上限160；SPY08-10的180–220档无候选保留缺口。报告 `docs/audits/TD-172-142_EMPTY_97_2026-10-10.md`。只读14测试PASS，旧23 raw/209 ATM保持；writer as_of防线与实际补抓待Owner确认，未发布、未扩大。
 - **验收**：使用 agent_reader 只读复算联合报告固定格子；NVDA >90 DTE 有效 expiry 历史 ≥150 session，SPY/NVDA/AAPL cone90 / cone180 的有效 n ≥60 且 withheld 消失；API/DEV 的 180 档实际出现并一致。先验证核心展示门槛，再公布 n/252 与全部剩余缺格；未达到深度目标不能记整项结清。命令与来源见 `docs/audits/TD-172-142_GAP_PLAN_2026-10-10.md`。
 - **本批验收结果**：PASS（本地代码/DEV）2026-10-10：Research `4fe89e8` lint + 2259 passed / 17 skipped；Market Data `01ee6bf` lint + 1299 passed / 9 skipped；Infra 9 passed。SPY/NVDA/AAPL 180 档显示历史不足，短期有效读数保持。限定实写及重放/幂等/原值保留 PASS：合计762 ATM / 1663 来源 / 23 raw；告警接收 NOT VERIFIED。97目标日空响应及有效历史不足尚在，不能结债。
 - **Claim**: The ATM IV store kept only expiries up to 90 DTE before 2026-08-05 (the Brent pass is still capped at DTE_MAX = 90), so the cone's 90-day horizon has fewer than MIN_SESSIONS (60) sessions and its percentiles are withheld; there is no 180-day horizon at all. It fills by itself around early November. raw_market.option_daily holds the long-dated bars to backfill from.
@@ -946,7 +947,8 @@
 
 **P2 · research-data · ATM IV has almost no 50–90 DTE expiry from 2026-07-06 to 09-25 (the EOD chain stopped at the third listed expiry until plugin 0.39.0); the fix was forward-only, so term structure reads na for that stretch**
 
-- **状态**：在做（2026-10-10）：已批准受限实现 → 复用 756 键 → 82 区间小试批。代码/DEV及限定实写验收通过；复用756 ATM、试批23 raw / 6 ATM；固定breadth仅20.21%，97目标日空响应；未发布，全量候选与短腿均未授权
+- **状态**：在做（2026-10-10）：已批准受限实现 → 复用 756 键 → 82 区间小试批。代码/DEV及限定实写验收通过；复用756 ATM、试批23 raw / 6 ATM；固定breadth仅20.21%，97目标日已只读分因；替代补抓待确认，未发布，全量候选与短腿均未授权
+- **97日只读核查 PASS（2026-10-10）**：96日 historical reference 未挂牌（SPY48/AAPL40/NVDA8），AAPL另1日已挂牌无合格bar；聚合权限/抓取错误0，逐笔无权限不能证明完全无成交。根因是当前catalogue候选/校验没有as_of，见 `scripts/audit-iv-request-scope.py:64`、Plugin `ingest/long_pilot.py:114`。具体替代方案46区间/92合同日/23父键（SPY26/44/11，NVDA8/8/2，AAPL12/40/10），正常75 HTTP、硬上限160；SPY08-10的180–220档无候选保留缺口。报告 `docs/audits/TD-172-142_EMPTY_97_2026-10-10.md`。只读14测试PASS，旧23 raw/209 ATM保持；writer as_of防线与实际补抓待Owner确认，未发布、未扩大。
 - **验收**：使用 agent_reader 只读复算 725 个回溯标的 × 59 个 NYSE session；每周 50–100 DTE 有效 breadth ≥0.85，另列真实 TERM 与 strict cone60，整日缺失保留分母。历史合法排除需证据/Owner 签收，不以已有 ATM 行缩分母。逐格清单和实际回填/DEV 验收标准见 `docs/audits/TD-172-142_GAP_PLAN_2026-10-10.md`。
 - **本批验收结果**：PASS（本地代码/DEV）2026-10-10：Research `4fe89e8` lint + 2259 passed / 17 skipped；Market Data `01ee6bf` lint + 1299 passed / 9 skipped；Infra 9 passed。SPY/NVDA/AAPL 180 档显示历史不足，短期有效读数保持。限定实写及重放/幂等/原值保留 PASS：合计762 ATM / 1663 来源 / 23 raw；告警接收 NOT VERIFIED。97目标日空响应及有效历史不足尚在，不能结债。
 - **Claim**: Until market-data plugin 0.39.0 (2026-09-25, `54b05be`) the EOD chain was bounded at the third listed expiry, so from 2026-07-06 most names' option_daily held nothing past ~45 DTE. ATM IV is solved from option_daily (Brent) and the reconstructed table, so its 50–100 DTE expiries went missing with it. 0.39.0 fixed the bound forward only; nothing refilled the stretch. IV30 is unaffected (about 640 names a day throughout).
