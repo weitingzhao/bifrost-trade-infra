@@ -14,7 +14,6 @@
 ## 待你签收
 
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
-- **TD-306** — 推到你手机的通知：标题或正文里夹着隐藏字符（方向覆盖符、零宽字符、控制字符等）时，整条换成服务器自己写的字，Agent 写的原文不再发出去；脱敏函数没动。2026-10-11 15:05 随平台 `17136ba` 上了 PROD（审批单 #9）。验收：PASS 2026-10-11 `17136ba`，三个包的测试在 PROD 那个提交上重跑都过。防线：RATCHETS「推送的字里有隐藏字符，整条换成服务器写的字」。后续：TD-311（告警转发等别的推送出口没过这道门；复核 70 的三处次要问题）。没做的检查：没有往你手机发一条真的带隐藏字符的通知。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
 **未结 89 项**：P0 0 · P1 8 · P2 31 · P3 50；要你批的 29 项（从总览表的审批列算）。
@@ -1774,22 +1773,6 @@
 - **验收**：67/67 dispositions with source/date/as_of evidence, counts reconcile with original receipts and raw key difference; unknown stays unknown. Any proposed retry lists exact remaining keys, reference/bar HTTP budget, order, stop rule and preservation acceptance for Owner confirmation.
 - **验收结果**：INVENTORY PASS 2026-10-10 read-only aggregate reconciliation only; historical classification NOT RUN. Report `docs/audits/DATA_CONTINUITY_DEFENSES_2026-10-10.md`.
 - **Ratchet needed**: empty-source evidence and effective coverage across the 24h queue-failure window, without confusing recovered failures with new missing rows. Existing TD-281 handled retries; preserve it.
-
-### TD-306
-
-**P2 · ops-platform · approval notifications push agent-written text with bidirectional and control characters intact: `Redact` only removes secret shapes, so a U+202E in a request summary reaches the title on the Owner's phone**
-
-- **状态**：待你签收（2026-10-11 15:05 随平台 `17136ba` 上了 PROD，审批单 #9。做法是第五种，只改发送那道门：组合出来的标题或正文里有隐藏字符，发出去的整条换成服务器自己写的字；上游的脱敏、问题记录、审批记录、各组合函数和 Console 一处不动。提交 `d7802d0`（合并 `416ac90`）和 `cf15298`（干净语料的对照在 CI 里跑 10,000 条，满 100,000 条要显式打开）。统筹方验收通过，Codex 复核 70：可以合并，没有必须改和应该改的。之前四种做法（`w31/td-306-307`、`-b`、`-c` 三个分支）都放弃，不合并；为什么不行见下面「三轮之后」和教训第 74、75 行。复核 70 的三处次要问题和别的推送出口记成 TD-311）
-- **Claim**: `approvalnotify.Compose` builds the push title and body from the request's summary and params and passes them through `Redact`, which is only the secret-shape regexes. Control characters, bidi controls (U+202A–U+202E, U+2066–U+2069, U+061C, U+200E, U+200F) and zero-width characters written by the requesting agent are sent as they are. The approval line shown on the Console is escaped visibly (`approvals/line.go` `escapeVisible`); the notification is not.
-- **Measured**: MEASURED 2026-10-11 by a pin test on the untouched tree: `Compose(KindCreated)` for a summary containing U+202E returns the title `Decide · #7 · Sync <U+202E> app token=[redacted]` — the secret is redacted, the override character is still there.
-- **Evidence**: `bifrost-platform` branch `w31/w65-slice0`, commit `6fbd09a`, `api/internal/approvalnotify/pin_test.go` (the Decide row); `api/internal/approvalnotify/redact.go`; `api/internal/approvals/line.go` (what the Console does instead).
-- **Impact**: The notification is the first thing the Owner reads about a request, on a phone, and its first word tells him what to do. A reordered or hidden-character title can make a request read as something else until he opens it. The request page shows the real line, so an approval is still made against true text; the risk is a misleading prompt, not a wrong execution.
-- **Fix**: clean the composed title and body with the removing cleaner the question record uses (strip C0 / C1 controls, bidi controls, zero-width characters, U+2028 / U+2029; keep newlines in the body) before `Redact`, in `Compose` and in the thread notification (`agentthreads`). Decide once whether to escape visibly or remove; the Console line escapes, a push title has no room for escapes — remove.
-- **三轮之后（2026-10-11，复核 59–61、教训第 74、75 行）**：上面那条 Fix 的写法（「先清理再脱敏」）是错的，别照做。试过的三种都不行：先清理再脱敏——删掉的字符可能正是让密钥被认出来的边界；先脱敏、再清理、再脱敏——第一次替换破坏了第二次识别要用的原文，而且实现时改了共享的 `Redact`；有隐藏字符就整段不显示、其余先把空白归一化再脱敏——归一化本身又改了匹配（私钥块的模式区分空格和换行）。**下一次的做法，三条都要**：① 脱敏函数不动（`redact.go`、`questionCanonical.ts` 与基线逐字节相同，任务书给核对命令）；② 「要不要整段不显示」在**原始字段最早进入系统的那一点**判断并存成标志——在任何清理、脱敏、截断之前（现在 `noticeItem`、问题记录的 `clean`、心跳标题的截断都发生在通知组装之前），隐藏字符的集合除了原来列的还要有 U+00AD、U+034F、U+115F / U+1160、U+180E、U+2061–U+2064、U+FE00–U+FE0F、U+E0000–U+E007F 和无效的 UTF-8；③ 不整段隐去的字段，**先对原文脱敏，再对输出做空白归一化**，顺序不能反。测试断言与主线的冻结实现**逐字节相等**（对原文脱敏的结果再归一化），不只断言「看不见整个密钥」；替身要走真实的上游链（建单 → `noticeItem` → 组装），不直接构造对象。
-- **Ratchet**: a table test in `approvalnotify` that no composed title or body contains any code point of those classes, for every notification kind and for the thread notification; the pin test's Decide row changes with the fix.
-- 验收: `cd bifrost-platform/api && go test ./internal/approvalnotify/ ./internal/agentthreads/ ./internal/notice/`
-- **验收结果**：PASS 2026-10-11 `17136ba` — 在 PROD 跑的那个提交上重跑，三个包都过（`approvalnotify` 6.9 秒、`agentthreads` 1.9 秒、`notice` 17.3 秒）。没做的：没有往手机发一条真的带隐藏字符的通知（不拿真通知做测试）。
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-307
 
