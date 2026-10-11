@@ -1528,7 +1528,7 @@
 
 **P3 · infra · The Tekton freeze check only runs in pipelines that start with release-window; the Trade and platform deliver pipelines and three build pipelines do not, so a run created outside platform-api ignores a freeze**
 
-- **状态**：在做——仓库侧已完成，等应用到集群（2026-10-11：W-56 第 1 步 B 片 `d5f4cc1` 给本仓库十一条流水线加了故障即拒的冻结检查；同日 flex-query 那条也接上，`bifrost-platform-plugin-flex-query` `bf6c61c`，已知缺口清单清空；Codex 复核 36–48、58。剩下的是按 `docs/RELEASE.md`「冻结检查」的顺序应用，和下面验收里的冻结演练，两样都要 Owner。此前：W-42 交回 10-10。交回原话「flex-query 构建流水线没有发布窗口任务」实测不成立：`bifrost-platform-plugin-flex-query/k8s/cicd/pipeline-build.yaml:27` 与集群上 `bifrost-build-flex-query` 的第一个 task 都是 `release-window`，跑在已绑定读权限的 `default` SA 下，apply 新 task 后就带冻结检查）
+- **状态**：在做——2026-10-11 12:39 Owner 已把冻结检查应用到集群（13 条流水线的唯一入口都是它，与文件逐条一致，只读核对过）；当天补了一条只读绑定让 apply 流水线的身份也能读冻结对象（`0cc8c19`，教训第 78 行）；干跑和一次测试环境发布都在检查处通过。**还差验收里的冻结演练**（冻结 → 确认发布被拒 → Owner 签名解冻），做完才进待签收。此前（W-56 第 1 步 B 片 `d5f4cc1` 给本仓库十一条流水线加了故障即拒的冻结检查；同日 flex-query 那条也接上，`bifrost-platform-plugin-flex-query` `bf6c61c`，已知缺口清单清空；Codex 复核 36–48、58。剩下的是按 `docs/RELEASE.md`「冻结检查」的顺序应用，和下面验收里的冻结演练，两样都要 Owner。此前：W-42 交回 10-10。交回原话「flex-query 构建流水线没有发布窗口任务」实测不成立：`bifrost-platform-plugin-flex-query/k8s/cicd/pipeline-build.yaml:27` 与集群上 `bifrost-build-flex-query` 的第一个 task 都是 `release-window`，跑在已绑定读权限的 `default` SA 下，apply 新 task 后就带冻结检查）
 - **Claim**: W-42 added the freeze check to `task-release-window.yaml`, so it runs only where that task is the first task: `bifrost-build-research-dagster`, `bifrost-build-ib-gateway`, `bifrost-build-market-data`, `bifrost-deliver-research` and (from its plugin repo) `bifrost-build-flex-query`. `bifrost-deliver-stg`, `bifrost-deliver-prod`, `bifrost-deliver-platform`, `bifrost-deliver-platform-prod`, `bifrost-build-stg`, `bifrost-build-frontend-stg` and `bifrost-build-research-pine` have no such task: a freeze stops them only when they are started through platform-api (`start_pipeline_run`, refused with 409). A run created another way — the Owner's `kubectl create -f` from `prod-pinned-from-stg.sh` / `platform-prod-pinned-from-stg.sh`, or tekton-trigger (TD-272) — runs while frozen.
 - **Evidence**: `rg -l release-window bifrost-trade-infra/k8s/cicd/tekton/pipeline-*.yaml` → 4 files; first tasks `pipeline-deliver-stg.yaml:40` `mirror-sync`, `pipeline-deliver-prod.yaml:59` `preflight-stg`, `pipeline-deliver-platform.yaml:34` `mirror-sync`, `pipeline-deliver-platform-prod.yaml:37` `preflight-stg`; freeze step `k8s/cicd/tekton/task-release-window.yaml:175-205`; platform-side gate `bifrost-platform/api/internal/server/actions_wire.go:37`.
 - **Fix**: a freeze-only task (reads `bifrost-release-freeze` only; the window stays with `release.sh` for Trade and platform) as the first task of those seven pipelines, run under the SA each pipeline already uses (`tekton-deliver` and `default` are bound to `tekton-release-window`).
@@ -1816,6 +1816,20 @@
 - **Ratchet**: a test that a document with 21 steps in a work and one of 300 KiB each produce a recorded, visible refusal (not a silent drop) end to end: publisher result, server response body, and the Console line.
 - 验收: `cd bifrost-platform/api && go test ./internal/agentprogress/` and `node --test agent-config/scripts/progress-publish.test.js` (to be written) and the Console test for the refusal line
 - 审批 不用批 · 代价 M · 风险 low · repos: bifrost-platform, bifrost-trade-infra
+
+### TD-309
+
+**P2 · infra · the platform's apply pipeline cannot plan or apply a Tekton Pipeline that was last applied by hand: server-side apply conflicts with the client-side field manager on `.spec.tasks`**
+
+- **状态**：未开始（2026-10-11 装冻结检查后做干跑时发现）
+- **Claim**: the thirteen pipelines in `cicd` were installed on 2026-10-11 by the Owner with client-side `kubectl apply` (the documented way for that install). `bifrost-apply-manifest` uses server-side apply; its `kubectl diff` on one of them fails: `Apply failed with 1 conflict: conflict with "kubectl-client-side-apply" using tekton.dev/v1: .spec.tasks`. So a later change to any of these Pipeline objects cannot go through `plan_manifest` / `apply_manifest` (which the actuation policy allows for Pipeline and Task in `cicd`) until ownership of the fields is moved.
+- **Measured**: MEASURED 2026-10-11 12:50 CDT: `plan_manifest` of `k8s/cicd/tekton/pipeline-deliver-platform.yaml` at infra `0cc8c19` — `freeze-check` Succeeded, `run` Failed with the conflict above (PipelineRun `plan-0cc8c195-1791740994`). Whether the same conflict existed before today's install for these objects is NOT MEASURED.
+- **Evidence**: the run's `run` task log; `k8s/cicd/tekton/apply-manifest/pipeline.yaml` (the `kubectl diff` / apply step); `docs/RELEASE.md`, the freeze-check section, step 3 ("按文件逐个 apply").
+- **Impact**: every future change to a release pipeline has to be applied by the Owner by hand again, which is the opposite of where W-56 is going; and a plan that fails for this reason looks like a broken pipeline.
+- **Fix**: decide one owner for these objects. Either the Owner re-applies them once with `kubectl apply --server-side --field-manager=<the apply pipeline's manager> --force-conflicts` so the apply pipeline owns the fields afterwards, or the apply pipeline's diff/apply uses `--force-conflicts` for `tekton.dev` objects in `cicd` (a policy decision: it lets the pipeline take fields from a human). Write the choice into `docs/RELEASE.md`.
+- **Ratchet**: a check that lists `managedFields` managers of the Pipeline and Task objects in `cicd` and fails when more than the expected one owns `.spec` (read-only; can run with the agent identity).
+- 验收: `plan_manifest` of each of the thirteen pipeline files at the current commit ends Succeeded with an empty diff
+- 审批 要批（一次性的重新应用，或 apply 流水线的行为改动）· 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ## 没覆盖到的（下一轮从这里开始）
 
