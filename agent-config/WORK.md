@@ -664,7 +664,7 @@
 **W-31 第 0 步 · S0-0a 状态机与编号**
 
 - **类别**：道
-- **状态**：在做（代码完成：platform `w31/w48-s0-0a` `65c0054` + infra `w31/w48-s0-0a-infra` `779c70f`，两边一起合；参谋长 10-10 重跑验收全绿。第 9 步发完后第一个合 main；`service.go:136` 的 lint shadow 已修（`e43a129`）；`65c0054` 加了服务端 D 级 chat 批准 403（`TestTierDChatApprovalIsRefused`）。见 STEP0-PLAN 0.8、0.9 节）
+- **状态**：观察中（到 10-17）：2026-10-10 13:50 上 PROD；第一次完整的 D 级执行是 #3（14:22）。后续 ①–⑥ 见下；其中「结果未知由 Owner 收尾」已做完，在 STG（`eb49c19`），等 PROD
 - **现在**：新状态 `approved` / `running` / `unknown`、`execution{}`、全局自增 `#n`、`executor` 角色和领单 / 续租 / 回写接口、存储改 `statefile.Update`；TD-267、TD-276；`number` / `env` / `summary` / `deliveries` 接进 W-44 的列表行和详情页，替换临时的 `approvalEnv`
 - **下一步**：第 9 步发完后按 0.8 节的顺序合 main（platform 与 infra 同批），合时把新状态、`executor` 角色与 `#n` 写进 `AGENT_FACTS.md`；`number` / `env` 接 Console 的部分等集成分支合 main（STEP0-PLAN 0.7 节第 6 步）之后
 - **上线（2026-10-10 13:50 CDT）**：随整批发到 PROD（run `bifrost-deliver-platform-prod-1791658000`，platform `e5a0703`）。PROD 原有 31 条记录在新版第一次真实写入后 0 丢失、0 变化；新单从 #1 编号；#1 走完了「批准 → 认领 → 执行 → 记结果」（34 毫秒）。**上线后发现三件小事**：① 没有「演练单」：通知送达测试只能建一张真动作的单，#1（`trigger_cnpg_backup`，理由里写了测试单）19 秒后在 Console 被批准并执行，多做了一次全量备份；需要一个不执行任何东西的演练动作，以及建单方撤回自己待批单的能力。② 一次执行在审计里记了两行 `approval.execute`（actor=platform 和 actor=admin）。③ 零值时间被写进记录（待批单的 `decided_at`、`claim_expires_at`、`next_attempt_at`、`lease_expires_at` 是 `0001-01-01`）。④ 第一次真实的 D 级执行失败（#2，14:16）：执行脚本只认纯十六进制的租约编号，平台发的是 `lease_` 加十六进制；平台已认领，命令没开始。已修（infra `57cf673`），重建为 #3。脚本的测试夹具是自己编的；要加一个让脚本打真实 Go handler 的契约测试并放进 CI。⑤ 「结果未知」的单子没有收尾入口（`unknown` 算未结，永远留在 Needs you）：需要一个 Owner 用的收尾动作（没有执行 / 已执行成功 / 已执行失败，带说明），是新接口，等 Owner 定；脚本在认领成功但随后自己拒绝时，应把单子退回 approved。⑥ 发布上去的 `e5a0703` 在 CI 上是红的（`ci-platform-wzt8x`）：`TestAgentThreadsRoutesAuth` 在集群 Pod 里失败（测试没有把状态后端固定成文件），代码健康超过 800 行的文件 15 个对基线 12（新增 `agentthreads/threads.go` 971、`agentthreads/threads_test.go` 1167、`approvals/execution.go` 816）。修测试、拆这三个文件；CI 变绿前不再发平台
@@ -676,7 +676,7 @@
 **W-31 第 0 步 · S0-0b 通知文案与投递记录**
 
 - **类别**：道
-- **状态**：在做（代码完成，待合 main 后 STG 通知实测（建 C 级 `trigger_cnpg_backup` 单，看手机与 deliveries，然后驳回）。分支 platform `w31/w49-s0-0b` `56b12b2`，基于 W-48；与 W-51 试合无冲突）
+- **状态**：观察中（到 10-17）：2026-10-10 13:50 上 PROD；当天 5 条推送都被中转接收，Owner 确认手机收到。标题改成以动词开头（Decide / Check / Look）已做完，在 STG，等 PROD
 - **现在**：文案带 `#n`、级别、动作、环境、摘要；`deliveries[]`；结果通知与过期提醒；TD-286；relay 错误里的 ntfy topic 已掩码（TD-296）
 - **下一步**：W-48 合 main 后合；发 STG 后做上面的实测。发版策略到期提醒的投递记录是 S0-0b 遗留（0.8 节）
 - **验收**：STG 上建一张 C 级单：手机通知显示 `#n`、动作、环境，单子的 `deliveries[0].result` 是 `accepted`
@@ -732,7 +732,7 @@
 **W-31 第 0 步 · S0-21 线程心跳与静默告警**
 
 - **类别**：道
-- **状态**：在做（代码与合 main 前待办均完成，待合 main 与部署后真机验收）
+- **状态**：观察中（到 10-17，看有没有误报）：2026-10-10 13:50 上 PROD，13:55 钩子接上，14:08 验收（模拟线程 10 分 26 秒后被发现并推送），14:22 两条告警规则装上
 - **现在**：platform `w31/w54-s0-21` `c854efe`（`api/internal/agentthreads/`：`POST /api/v1/agent/threads/heartbeat` 用 reporter 及以上令牌，`GET /api/v1/agent/threads` viewer 级（无令牌或未知令牌 401），workers 每 30 秒巡检、每次静默只推一条）；platform `w31/w54-s0-21-console` `7b4574d`（已并入 console-int `11ebb8c`，合并提交 `167c1ea`；Status 页 In progress · Agent threads，静默计入 Needs You；用 viewer 凭据读，与审批列表共用 `approvals.ts` 导出的 `viewerRead`）；infra `w31/w54-s0-21` `5560144`（三家共用的 `agent-config/scripts/thread-heartbeat.js`、维护项 `agent-thread-watch`、告警 `BifrostMaintainerAgentThreadWatchStale` 与规则测试）。验收 5 条的单测全过
 - **下一步**：① 合 main 前改 viewer 级：已完成（`c854efe`、`7b4574d`）。② 合 main：infra 先（规则 plan / apply `k8s/monitoring`），合入后重跑 `python3 bifrost-trade-infra/agent-config/cursor/install-hooks.py` 把心跳 hooks 装进 `~/.cursor/hooks.json`（TD-298）；再 platform `w31/w54-s0-21` 上 PROD；console 分支等第 9 步之后，合并时留意 `console/src/api/approvals.ts` 的 `viewerRead` 导出。③ 部署后真机验收，另验三件未证实的事（STEP0-PLAN 0.9 节）
 - **验收**：0.9 节的 5 条（单测已过，真机待部署）
@@ -754,7 +754,7 @@
 **无人值守 PROD 发布的门槛（Codex 审查 R02）**
 
 - **类别**：道
-- **状态**：未开始
+- **状态**：在做（方案 `work/multi-agent/PLAN-w56-unattended-prod-2026-10-10.md`；G1、G2 的代码在分支上准备，不改线上；Owner 2026-10-10 定为界面几片之后的第一位）
 - **现在**：策略能自动批准，但发布失败后的恢复还不成熟：platform 的 PROD 发布没钉 SHA（TD-295），镜像是可变标签、回滚要重建，冻结没有覆盖全部入口（TD-294）且平台账号能改冻结 ConfigMap（TD-293），自动回滚没实现
 - **下一步**：出方案：每个入口遵守冻结、逐仓固定 SHA、按镜像摘要部署、保留上一版产物回滚不重建、独立的失败检测与回滚、platform 自身升级失败由带外操作面回滚。Owner 2026-10-10 已定：这些验收之前策略里不列两条 PROD 流水线（模板已改，测试守着）
 - **优先级（Owner 2026-10-10 晚）**：Owner 批完当天第二次 PROD 发布后说，他现在批的主要是「批准发布」，这是架构要解决的核心痛点，目标是自动发布、事后校验。排在 W-61、W-62 的界面几片之后的第一位。其中两条可以先做，Owner 仍在逐个批的时候也能先堵住当天这类风险：① 平台的发布流水线自己检查「该提交的 CI 成功，且 STG 上跑的是同一个提交」（当天在 CI 红的情况下发了 PROD，LESSONS 第 38 行）；② 按镜像摘要部署 STG 验过的同一份产物。当天实测：Console 的构建是确定的（STG、PROD、本机三处同一个文件名 `index-w5udhj9Y.js`），api 镜像 PROD 是重新构建的（摘要不同）
@@ -811,7 +811,7 @@
 **Ops Console · Owner 事项的七个问题与手机处理闭环（Codex 研究并入，Owner 2026-10-10）**
 
 - **类别**：道
-- **状态**：未开始（等 S0-0 集成分支合 main）
+- **状态**：在做：第一、二片 2026-10-10 20:43 上 PROD（详情页决定卡、待批列表、Needs you 分组与最近已处理、令牌不进 DOM）；第三片（通知动词、结果未知收尾）在 STG，等 PROD
 - **现在**：Needs You 上的一条单子只有动作名、被截断的理由和编号，Owner 看不出为什么要他批、不批会怎样。手机上页头系统结论在 360 / 390 / 430 像素宽时只剩 33 / 63 / 103 像素，触控目标 20–28 像素，读取没有超时，读不到时可能显示成「没有待办」。依据在 `work/multi-agent/RESEARCH-codex-ops-console-owner-value-2026-10-10.md` 和 `RESEARCH-codex-ops-console-responsive-2026-10-10.md`
 - **下一步**：① 后端：审批记录加「为什么是你」（定目标 / 定规则 / 不可逆 / 过渡期门槛及关联工作项）、「不回复会怎样」、「建议」三个字段，建单接口和 MCP 工具带上。② 前端第一段：页头两行（页名、环境在第一行，系统结论和更新时间在第二行并可换行）、触控目标 44 像素、读取状态（连接中、刷新中、连接丢失、数据可能已旧）。③ 前端第二段：Needs You 和审批详情按七个问题排版，Releases 在手机上改卡片。④ 监控页排版放最后
 - **追加（Owner 2026-10-10 下午）**：Owner 指出本机进展看板上的逐步进展和 PROD 上的待批列表是两个地方、对不上。要求：PROD 上每一个待批项都挂在它所属的那件事的流程上，写明这是哪件事的第几步、批了之后发生什么和大约多久、之后轮到谁；演练或测试的项用单独的类型，页面和通知的标题里就标明，不带批准入口（当天 #1 测试单被批准执行就是反例）。设计在 DESIGN §20.2、§20.3 第 8 条
@@ -825,7 +825,7 @@
 **Ops Console · 协作进展看得见（Owner 2026-10-10）**
 
 - **类别**：道
-- **状态**：未开始（等 W-54、W-57 合 main）
+- **状态**：在做：第一片（进展文档接口、Console 的 Agent work 看板、本机推送脚本）三轮修完，Codex 最终确认通过，2026-10-10 23:26 在 STG（`eb49c19`），等 PROD；上 PROD 后本机看板开始定时推送。下一片：现场面板（Agent 在说什么、跑什么）、并行总览、已完成步骤的文字
 - **现在**：Owner 当天两次问「任务卡在哪了」，两次任务都在正常跑。他的要求：Console 上要有地方显示 Agent 之间协作的进展，否则时间一长他只能当成卡住。W-54 的线程列表只有线程状态和时长，没有「这是哪件事、第几轮、在做什么、做完轮到谁」。临时做法是本机看板 `~/agent-work/status/board.py`
 - **下一步**：① 心跳事件带上工作项编号、阶段（实现 / 验收 / 复核 / 发布）、轮次和一句人能读懂的当前动作；headless 任务经包装脚本上报。② 平台按工作项聚合：谁在做、已用时间、同类任务往常用多久、最近一次输出多久前、下一步轮到谁。③ Console 的 Progress 页显示这张表：在跑、比往常慢、可能卡住、进程不在了四种状态分开标；「需要你做的」只列真正要 Owner 动手的。④ 手机首页的系统结论里带一句「N 件事在推进，都正常」或点出慢的那件
 - **追加（Owner 2026-10-10 下午，两条）**：⑤ 现状之外给预期：每件事的下一步、预计几点进入下一步；最上面一行是「下一次需要你：哪件事、预计几点」。预计时间按同类步骤的历史用时算，超时顺延并标出，有步骤卡住时显示「估不准」（DESIGN §20.3 第 6、7 条；本机看板已按这个做）。⑥ 卡点台账进 Console：每条坑由什么机制兜着、是否在岗、最近一次触发；新的卡法由运行时起草（DESIGN §20.6）
