@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
 import signal
 import subprocess
 import sys
@@ -12,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-import lane
+import lane_state
 
 HERE = Path(__file__).resolve().parent
 LANE = HERE / "lane.py"
@@ -23,13 +22,17 @@ from pathlib import Path
 role, _ws, _brief, _round, report = sys.argv[1:6]
 mode = os.environ.get("LANE_FAKE", "pass")
 delay = float(os.environ.get("LANE_SLEEP", "0") or 0)
+stall_for = float(os.environ.get("LANE_STALL_SLEEP", "8") or 8)
+step = os.environ.get("LANE_STEP")
+if step:
+    print(f"LANE_STEP={step}", flush=True)
 if delay:
     time.sleep(delay)
 
 if role == "implement":
     if mode == "stall":
         print("working", flush=True)
-        time.sleep(8)
+        time.sleep(stall_for)
         sys.exit(0)
     print(json.dumps({"type": "result", "usage": {"inputTokens": 11, "outputTokens": 7}}), flush=True)
     sys.exit(3 if mode == "impl-fail" else 0)
@@ -42,6 +45,17 @@ if role == "verify":
         print("VERDICT: pass", flush=True)
         print("VERDICT: FAIL (2 checks failed or produced no result)", flush=True)
         sys.exit(0)
+    if mode == "verify-exit":
+        print("VERDICT: pass", flush=True)
+        sys.exit(7)
+    if mode == "verify-buried":
+        print("VERDICT: pass", flush=True)
+        print("still talking", flush=True)
+        sys.exit(0)
+    if mode == "verify-then-pass":
+        print("VERDICT: FAIL buried", flush=True)
+        print("VERDICT: pass", flush=True)
+        sys.exit(0)
     print("checked", flush=True)
     print("VERDICT: pass", flush=True)
     sys.exit(0)
@@ -52,10 +66,23 @@ if role == "review":
     if mode == "review-bad":
         Path(report).write_text("not a verdict\nP1 ignored\n", encoding="utf-8")
         sys.exit(0)
+    if mode == "review-cut":
+        Path(report).write_text("VERDICT: safe to merge\nP1 still open\n", encoding="utf-8")
+        sys.exit(0)
+    if mode == "review-late":
+        Path(report).write_text("notes first\nVERDICT: safe to merge\nEND OF REPORT\n", encoding="utf-8")
+        sys.exit(0)
+    if mode == "review-exit":
+        Path(report).write_text("VERDICT: safe to merge\nEND OF REPORT\n", encoding="utf-8")
+        sys.exit(9)
+    if mode == "review-bom":
+        body = "\n\nVERDICT: safe to merge\nnote\nEND OF REPORT\n"
+        Path(report).write_bytes(b"\xef\xbb\xbf" + body.encode())
+        sys.exit(0)
     if mode == "review-fix":
-        text = "VERDICT: fix first\nP1 the gate\nP2 a\nP2 b\nP3 nit\n"
+        text = "VERDICT: fix first\nP1 the gate\nP2 a\nP2 b\nP3 nit\nEND OF REPORT\n"
     else:
-        text = "VERDICT: safe to merge\nP3 note only\n"
+        text = "VERDICT: safe to merge\nP3 note only\nEND OF REPORT\n"
     Path(report).write_text(text, encoding="utf-8")
     print("tokens used\n1,234", flush=True)
     sys.exit(0)
@@ -65,10 +92,9 @@ sys.exit("unknown role")
 
 
 def write_config(directory: Path, fake: Path) -> Path:
-    py = shlex.quote(sys.executable)
-    quoted = shlex.quote(str(fake))
+    py = sys.executable
     commands = {
-        name: f"{py} {quoted} {name} '{{workspace}}' '{{brief}}' '{{round}}' '{{report}}'"
+        name: [py, str(fake), name, "{workspace}", "{brief}", "{round}", "{report}"]
         for name in ("implement", "verify", "review")
     }
     cfg = {
@@ -99,13 +125,15 @@ def scaffold(tmp_path: Path):
     return root, cfg, ws, brief
 
 
-def cli(root: Path, cfg: Path, *args: str, mode: str = "pass", sleep: str = "0", check: bool = False):
+def cli(root: Path, cfg: Path, *args: str, mode: str = "pass", sleep: str = "0", check: bool = False, extra_env: dict | None = None):
     env = os.environ.copy()
     env["LANE_FAKE"] = mode
     env["LANE_SLEEP"] = sleep
+    if extra_env:
+        env.update(extra_env)
     return subprocess.run(
         [sys.executable, str(LANE), "--root", str(root), "--config", str(cfg), *args],
-        capture_output=True, text=True, env=env, check=check,
+        capture_output=True, text=True, env=env, check=check, stdin=subprocess.DEVNULL,
     )
 
 
@@ -131,7 +159,7 @@ def events(root: Path, lane_id: str) -> list[dict]:
 def test_help():
     proc = subprocess.run([sys.executable, str(LANE), "--help"], capture_output=True, text=True)
     assert proc.returncode == 0
-    for name in ("new", "run", "status", "next-round", "extend", "abandon", "board", "queue"):
+    for name in ("new", "run", "status", "next-round", "extend", "abandon", "stop", "board", "queue"):
         assert name in proc.stdout
 
 
@@ -159,8 +187,11 @@ def test_happy_path_passed(tmp_path):
     assert doc["verdicts"]["P3"] == 1
     assert doc["verdicts"]["rounds"][-1]["review"] == "safe to merge"
     for step in doc["steps"]:
-        assert Path(step["done"]).read_text(encoding="utf-8") == "exit=0\n"
+        done = json.loads(Path(step["done"]).read_text(encoding="utf-8"))
+        assert done["exit"] == 0
+        assert done["ended_at"]
         assert step["start"] and step["end"] and step["log"]
+        assert f"/{step['name']}-{step['attempt']}/log" in step["log"].replace("\\", "/")
     tos = [event["to"] for event in events(root, "w66")]
     assert tos == ["ready", "implementing", "verifying", "reviewing", "passed"]
     for event in events(root, "w66"):
@@ -242,18 +273,18 @@ def test_round_budget_extend_and_one_more(tmp_path):
     assert load(root, "w66")["round"] == 2
     assert events(root, "w66")[-1]["why"] == "round budget exhausted"
 
-    extended = cli(root, cfg, "extend", "w66", "--reason", "one more pass", "--by", "owner")
+    extended = cli(root, cfg, "extend", "w66", "--reason", "one more pass", "--by", "coordinator")
     assert extended.returncode == 0, extended.stderr
     doc = load(root, "w66")
     assert doc["state"] == "changes_requested"
-    assert doc["max_rounds"] == 3
+    assert doc["max_rounds"] == 2
     assert doc["extensions"] == [{
-        "by": "owner",
+        "by": "coordinator",
         "reason": "one more pass",
         "at": doc["extensions"][0]["at"],
         "round": 2,
     }]
-    assert events(root, "w66")[-1]["why"] == "extend by owner: one more pass"
+    assert events(root, "w66")[-1]["why"] == "extend by coordinator: one more pass"
 
     again = cli(root, cfg, "next-round", "w66", "--brief", str(third))
     assert again.returncode == 0, again.stderr
@@ -264,7 +295,8 @@ def test_round_budget_extend_and_one_more(tmp_path):
     assert stopped.returncode == 2
     assert load(root, "w66")["state"] == "over_budget"
     assert load(root, "w66")["round"] == 3
-    assert load(root, "w66")["max_rounds"] == 3
+    assert load(root, "w66")["max_rounds"] == 2
+    assert len(load(root, "w66")["extensions"]) == 1
 
 
 def test_stalled_step_leaves_process_running(tmp_path):
@@ -317,19 +349,22 @@ def test_vanished_process(tmp_path):
 
 def test_atomic_rewrite_survives_crash(tmp_path, monkeypatch):
     path = tmp_path / "lane.json"
-    lane.atomic_write_json(path, {"n": 1, "state": "ready"})
-    assert not (tmp_path / "lane.json.tmp").exists()
+    lane_state.atomic_write_json(path, {"n": 1, "state": "ready"})
+    assert list(tmp_path.glob("lane.json.*.tmp")) == []
 
     def crash(src, dst):
         raise OSError("simulated crash before rename")
 
-    monkeypatch.setattr(lane.os, "replace", crash)
+    monkeypatch.setattr(lane_state.os, "replace", crash)
     with pytest.raises(OSError, match="simulated crash"):
-        lane.atomic_write_json(path, {"n": 2, "state": "implementing"})
+        lane_state.atomic_write_json(path, {"n": 2, "state": "implementing"})
     assert json.loads(path.read_text(encoding="utf-8")) == {"n": 1, "state": "ready"}
-    tmp = tmp_path / "lane.json.tmp"
-    assert tmp.parent == path.parent
-    assert json.loads(tmp.read_text(encoding="utf-8"))["n"] == 2
+    tmps = list(tmp_path.glob("lane.json.*.tmp"))
+    assert len(tmps) == 1
+    assert tmps[0].parent == path.parent
+    assert str(os.getpid()) in tmps[0].name
+    assert tmps[0].name != "lane.json.tmp"
+    assert json.loads(tmps[0].read_text(encoding="utf-8"))["n"] == 2
 
 
 def test_board_and_queue(tmp_path):
@@ -359,9 +394,9 @@ def test_board_and_queue(tmp_path):
     assert implement["who"] == "Cursor"
     assert implement["usual_min"] == 30
     assert implement["pattern"] == "fake.py implement older"
-    assert implement["progress"].endswith("implement.log")
-    assert implement["done"].endswith("implement.done")
-    assert Path(implement["done"]).read_text(encoding="utf-8") == "exit=0\n"
+    assert implement["progress"].endswith("implement-1/log")
+    assert implement["done"].endswith("implement-1/done")
+    assert json.loads(Path(implement["done"]).read_text(encoding="utf-8"))["exit"] == 0
     assert len(by_short["done"]["steps"]) == 3
     assert len(by_short["newer"]["steps"]) == 3
 
@@ -426,7 +461,7 @@ def test_abandon_and_implement_failure(tmp_path):
     doc = load(root, "boom")
     assert doc["state"] == "failed"
     assert doc["steps"][0]["exit"] == 3
-    assert Path(doc["steps"][0]["done"]).read_text(encoding="utf-8") == "exit=3\n"
+    assert json.loads(Path(doc["steps"][0]["done"]).read_text(encoding="utf-8"))["exit"] == 3
     assert events(root, "boom")[-1]["why"] == "implement exited 3"
     assert not (root / "boom" / "round-1" / "verify.log").exists()
 
