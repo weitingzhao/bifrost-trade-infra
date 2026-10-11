@@ -13,23 +13,21 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Callable
 from urllib.parse import urlencode
-from attempts import continue_token, group_result, seal_result
+from attempts import (
+    IDENTITY_LISTS,
+    PAGE_LIMIT,
+    SAR_PATH,
+    SSAR_PATH,
+    WHOAMI_PATH,
+    continue_token,
+    group_result,
+    seal_result,
+    self_check_body,
+)
 from canon import READ_LIMIT, TOOL_VERSION, WALL_SECONDS, MatrixExit, sha256_hex
 from identities import context, discovery_paths_from
 
 Transport = Callable[[str, str, str | None], tuple[int, str, str]]
-
-LISTS = (
-    ("/api/v1/namespaces", "", "namespaces"),
-    ("/api/v1/serviceaccounts", "", "serviceaccounts"),
-    ("/api/v1/nodes", "", "nodes"),
-    ("/apis/rbac.authorization.k8s.io/v1/roles", "rbac.authorization.k8s.io", "roles"),
-    ("/apis/rbac.authorization.k8s.io/v1/rolebindings", "rbac.authorization.k8s.io", "rolebindings"),
-    ("/apis/rbac.authorization.k8s.io/v1/clusterroles", "rbac.authorization.k8s.io", "clusterroles"),
-    ("/apis/rbac.authorization.k8s.io/v1/clusterrolebindings", "rbac.authorization.k8s.io", "clusterrolebindings"),
-)
-SAR_PATH = "/apis/authorization.k8s.io/v1/subjectaccessreviews"
-
 
 def kubectl_transport(method: str, path: str, body: str | None) -> tuple[int, str, str]:
     if method == "WHOAMI":
@@ -168,25 +166,9 @@ class Session:
         return group_result(record)
 
 
-def _attrs(verb: str, group: str, resource: str) -> dict:
-    return {
-        "group": group,
-        "name": "",
-        "namespace": "",
-        "resource": resource,
-        "subresource": "",
-        "verb": verb,
-        "version": "v1",
-    }
-
-
 def _self_check(session: Session, verb: str, group: str, resource: str) -> None:
-    body = {
-        "apiVersion": "authorization.k8s.io/v1",
-        "kind": "SelfSubjectAccessReview",
-        "spec": {"resourceAttributes": _attrs(verb, group, resource)},
-    }
-    payload = session.call("POST", "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews", json.dumps(body), "read")
+    body = self_check_body(verb, group, resource)
+    payload = session.call("POST", SSAR_PATH, json.dumps(body), "read")
     status = payload.get("status") if isinstance(payload, dict) else None
     if not isinstance(status, dict) or status.get("allowed") is not True:
         raise MatrixExit(2, f"self-check: {verb} {resource} is not allowed")
@@ -195,7 +177,7 @@ def _self_check(session: Session, verb: str, group: str, resource: str) -> None:
 def _paged(session: Session, path: str) -> None:
     token = ""
     while True:
-        params = {"limit": "500"}
+        params = {"limit": PAGE_LIMIT}
         if token:
             params["continue"] = token
         payload = session.call("GET", path, None, "read", params=params)
@@ -231,9 +213,9 @@ def _caller(payload: dict) -> dict:
 def read_identities(transport: Transport, wall_seconds: float = WALL_SECONDS) -> tuple[Session, dict]:
     """Whoami, self-checks, and identity lists. No discovery and no SubjectAccessReview."""
     session = Session(transport, wall_seconds)
-    who = session.call("WHOAMI", "/apis/authentication.k8s.io/v1/selfsubjectreviews", None, "read")
+    who = session.call("WHOAMI", WHOAMI_PATH, None, "read")
     caller = _caller(who if isinstance(who, dict) else {})
-    for path, group, resource in LISTS:
+    for path, group, resource in IDENTITY_LISTS:
         _self_check(session, "list", group, resource)
         _paged(session, path)
     return session, caller

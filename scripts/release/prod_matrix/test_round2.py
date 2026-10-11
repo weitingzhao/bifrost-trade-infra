@@ -55,7 +55,9 @@ def _replace_pages(bundle, path, pages):
     bundle["attempts"] = [item for item in bundle["attempts"] if item["request"]["path"] != path]
     number = max(item["attempt"] for item in bundle["attempts"]) + 1
     for body, token in pages:
-        params = {"continue": token} if token else {}
+        params = {"limit": "500"}
+        if token:
+            params["continue"] = token
         bundle["attempts"].append(command(number, path, body, params=params))
         number += 1
     from support import renumber

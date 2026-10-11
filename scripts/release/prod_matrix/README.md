@@ -18,7 +18,7 @@ python3 scripts/release/prod_matrix/prod_ratchet.py --check
 
 apiserver 的回答正文原样保存，只校验程序要读的字段；回答里多出来的键不是错误。本片自己的结构里多出来的键仍以 2 退出。每条尝试的 `result.body_sha256` 是回答正文的规范化摘要，对不上就以 2 退出，所以改一个节点不能把清点悄悄变小。
 
-录制包没有签名。`body_sha256` 和 `request_hash` 只发现一处改了但没有按同样规则重新封存的修改，不能证明原始回答是真的，也不能证明这份清点是完整的。一组请求的结果只有链上最后一条，而且仅当它 `ok` 且状态码是 2xx；否则这次读取或这次评审没有结果，退出码是 2。解释正文只能走这一条。
+录制包没有签名。`body_sha256` 和 `request_hash` 只发现一处改了但没有按同样规则重新封存的修改，不能证明原始回答是真的，也不能证明这份清点是完整的。一组请求的结果只有链上最后一条，而且仅当它 `ok` 且状态码是 2xx；否则这次读取或这次评审没有结果，退出码是 2。解释正文只能走这一条。分链之后每一组都要交出这个结果，whoami 和权限自检也不例外；没有结果就以 2 退出，并写明这个请求。尝试列表必须已经按编号排好。评审必须是 POST 到 SubjectAccessReview 端点，自检必须是 POST 到它自己的端点，参数与采集器发出的一致。读取必须是 GET，路径只能是发现根、某个 group-version，或带 `limit=500` 的清单。请求哈希不变：评审仍只哈希 spec，读取仍哈希整段请求。
 
 默认文件都在本目录：`prod_targets.json`、`prod_fixed_identities.json`、`prod_nontargets.json`、`prod_write_exceptions.json`、`prod_write_baseline.jsonl`。同名参数可以改路径。
 

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import random
 import sys
 import tempfile
 import textwrap
+import time
 import unittest
 from pathlib import Path
 
@@ -42,8 +44,17 @@ from test_reviews import _cli  # noqa: E402
 
 BUNDLE_PATH = HERE / "testdata" / "recorded-bundle.json"
 SEED = 56
-# Review records are sampled. Every other top-level record kind is fully mutated.
+# Review interiors are sampled unless PROD_MATRIX_T42_FULL=1. Every other record kind is fully mutated.
 REVIEW_EXTRA = 40
+
+# A mutant that does not exit 2 must be one of these. The reason is written next to the name.
+HARMLESS = {
+    "already-empty-string": "the string was already empty, so writing '' changes nothing",
+    "caller-metadata": (
+        "classification does not read bundle.caller "
+        "(fields: kind, user, groups, uid, extra, source)"
+    ),
+}
 
 
 def _play(bundle, targets, fixed, exceptions, nontargets):
@@ -175,6 +186,14 @@ def _apply(root, path, op):
         raise AssertionError(op)
 
 
+def _harmless(path, op, node) -> str | None:
+    if op == "blank" and isinstance(node, str) and node == "":
+        return "already-empty-string"
+    if path and path[0] == ("k", "caller"):
+        return "caller-metadata"
+    return None
+
+
 def _value_ops(path, node):
     ops = []
     if isinstance(node, bool):
@@ -204,33 +223,49 @@ def _attempt_index(path):
     return None
 
 
-class Round3Tests(unittest.TestCase):
-    def test_t42_mutation_keeps_every_row_or_exits_2(self):
-        original = json.loads(BUNDLE_PATH.read_text(encoding="utf-8"))
-        targets, fixed, exceptions, nontargets = load_defaults()
-        code, text = _play(original, targets, fixed, exceptions, nontargets)
-        self.assertEqual(code, 3, text)
-        original_keys = _keys(text)
-        original_counts = _counts(text)
-        original_risks = _risk_rows(text)
-        self.assertGreaterEqual(original_risks, 4)
-
-        full_indexes = set()
-        review_indexes = []
-        seen_kind = set()
-        for index, attempt in enumerate(original["attempts"]):
-            kind = _record_kind(attempt)
-            if kind == "review":
-                review_indexes.append(index)
-            else:
-                full_indexes.add(index)
-            if kind not in seen_kind and kind != "review":
-                seen_kind.add(kind)
-        self.assertTrue(review_indexes)
+def _covered(original, full: bool):
+    full_indexes = set()
+    review_indexes = []
+    seen_kind = set()
+    for index, attempt in enumerate(original["attempts"]):
+        kind = _record_kind(attempt)
+        if kind == "review":
+            review_indexes.append(index)
+        else:
+            full_indexes.add(index)
+        if kind not in seen_kind and kind != "review":
+            seen_kind.add(kind)
+    if full:
+        covered = set(range(len(original["attempts"])))
+        review_full = len(review_indexes)
+    else:
         full_indexes.add(review_indexes[0])
         picked = set(random.Random(SEED).sample(review_indexes[1:], REVIEW_EXTRA))
         covered = full_indexes | picked
+        review_full = 1 + len(picked)
+    return covered, review_full, len(review_indexes), seen_kind
+
+
+class Round3Tests(unittest.TestCase):
+    def test_t42_mutation_keeps_every_row_or_exits_2(self):
+        self._t42(full=False)
+
+    @unittest.skipUnless(
+        os.environ.get("PROD_MATRIX_T42_FULL") == "1",
+        "set PROD_MATRIX_T42_FULL=1 to mutate all 294 review interiors",
+    )
+    def test_t42_full_review_interiors(self):
+        self._t42(full=True)
+
+    def _t42(self, full: bool):
+        started = time.perf_counter()
+        original = json.loads(BUNDLE_PATH.read_text(encoding="utf-8"))
+        targets, fixed, exceptions, nontargets = load_defaults()
+        code, text = _play(original, targets, fixed, exceptions, nontargets)
+        self.assertEqual(code, 3, text.splitlines()[0] if text else text)
+        covered, review_full, review_total, seen_kind = _covered(original, full)
         self.assertEqual(seen_kind, {"root-discovery", "whoami", "self-check", "version-discovery", "list"})
+        self.assertEqual(review_total, 294)
 
         mutants = []
         for path, node in _walk(original, ()):
@@ -240,49 +275,58 @@ class Round3Tests(unittest.TestCase):
                 continue
             parent_is_list = len(path) >= 1 and path[-1][0] == "i"
             for op in _ops_for(path, node, parent_is_list):
-                mutants.append((path, op, "structural"))
+                mutants.append((path, op, "structural", node))
             for op in _value_ops(path, node):
-                mutants.append((path, op, "value"))
+                mutants.append((path, op, "value", node))
 
-        counts = {"structural": [0, 0], "value": [0, 0]}
+        exit2 = {"structural": 0, "value": 0}
+        classes = {name: 0 for name in HARMLESS}
         failures = []
-        for path, op, family in mutants:
+        for path, op, family, node in mutants:
             mutant = copy.deepcopy(original)
+            label = "swap" if isinstance(op, tuple) else op
             try:
                 _apply(mutant, path, op)
                 code, text = _play(mutant, targets, fixed, exceptions, nontargets)
             except Exception as exc:  # noqa: BLE001 — a crash is a failed mutant
-                failures.append(f"{_show(path)} {op}: {exc!r}")
+                failures.append(f"{_show(path)} {label}: {exc!r}")
                 continue
             if code == 2:
-                counts[family][0] += 1
+                exit2[family] += 1
                 continue
-            if (
-                code == 3
-                and original_keys <= _keys(text)
-                and all(_counts(text)[name] >= original_counts[name] for name in original_counts)
-                and _risk_rows(text) >= original_risks
-            ):
-                counts[family][1] += 1
+            harmless = _harmless(path, op, node)
+            if harmless in HARMLESS:
+                classes[harmless] += 1
                 continue
-            label = "swap" if isinstance(op, tuple) else op
             failures.append(f"{_show(path)} {label}: exit {code}")
-        structural_exit, structural_keep = counts["structural"]
-        value_exit, value_keep = counts["value"]
-        ran = structural_exit + structural_keep + value_exit + value_keep + len(failures)
-        review_total = len(review_indexes)
-        review_full = 1 + len(picked)
+        elapsed = time.perf_counter() - started
+        structural_n = sum(1 for item in mutants if item[2] == "structural")
+        value_n = sum(1 for item in mutants if item[2] == "value")
         print(
-            f"T42 structural={structural_exit + structural_keep} exit2={structural_exit} "
-            f"equality={structural_keep} value={value_exit + value_keep} exit2={value_exit} "
-            f"equality={value_keep} review_records={review_full}/{review_total} other_kinds=all"
+            f"T42 mode={'full' if full else 'sample'} structural={structural_n} exit2={exit2['structural']} "
+            f"value={value_n} exit2={exit2['value']} "
+            f"already-empty-string={classes['already-empty-string']} "
+            f"caller-metadata={classes['caller-metadata']} "
+            f"review_records={review_full}/{review_total} seconds={elapsed:.2f}"
         )
-        self.assertFalse(failures[:5], failures[:5])
-        self.assertEqual(ran, len(mutants))
-        self.assertGreater(structural_exit, 0)
-        self.assertGreater(structural_keep, 0)
-        self.assertGreater(value_exit, 0)
-        self.assertGreaterEqual(value_keep, 0)
+        self.assertFalse(failures[:8], failures[:8])
+        self.assertEqual(exit2["structural"] + exit2["value"] + sum(classes.values()) + len(failures), len(mutants))
+        expected = {
+            False: (6006, 6004, 1418, 1287, 129, 4),
+            True: (24593, 24591, 7207, 6564, 641, 4),
+        }[full]
+        self.assertEqual(
+            (
+                structural_n,
+                exit2["structural"],
+                value_n,
+                exit2["value"],
+                classes["already-empty-string"],
+                classes["caller-metadata"],
+            ),
+            expected,
+        )
+        self.assertEqual(review_full, review_total if full else 1 + REVIEW_EXTRA)
 
     def test_t43_legal_retries_replay_the_last_attempt(self):
         questions = [question("", "v1", "configmaps", "", "ns-a", "namespaced", "", "patch")]

@@ -6,7 +6,7 @@ import copy
 from datetime import date
 from pathlib import Path
 
-from attempts import seal_result
+from attempts import PAGE_LIMIT, is_paged_path, seal_result
 from canon import TOOL_VERSION, sha256_hex
 from classify import replay
 from exceptions import parse_today
@@ -29,7 +29,9 @@ def load_defaults():
 
 def command(index: int, path: str, body: dict, params: dict | None = None, retry_of: int | None = None) -> dict:
     """One read attempt. `index` is the attempt number."""
-    request = {"method": "GET", "params": {} if params is None else params, "path": path}
+    if params is None:
+        params = {"limit": PAGE_LIMIT} if is_paged_path(path) else {}
+    request = {"method": "GET", "params": params, "path": path}
     record = {
         "attempt": index,
         "finished_at": "2026-10-11T00:00:01Z",
