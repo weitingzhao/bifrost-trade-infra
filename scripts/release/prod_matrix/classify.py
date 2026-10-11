@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from attempts import budget, chains, group_result, response_request_hash
+from attempts import budget, chains, group_result, not_implied, response_request_hash
 from canon import (
     QUESTION_LIMIT,
     REQUEST_FAMILY,
@@ -192,9 +192,11 @@ def replay(bundle: dict, targets: dict, fixed: dict, exceptions: dict, nontarget
     missing = sorted(set(expected) - set(answers))
     if missing:
         raise MatrixExit(2, f"bundle: {missing[0]}: missing answer")
-    extra = sorted(set(answers) - set(expected))
-    if extra:
-        raise MatrixExit(2, f"bundle: {extra[0]}: unexpected answer")
+    # Reviews equal the questions expanded from these identities and targets.
+    planned_hashes = {item["request_hash"] for item in planned}
+    for digest, attempt in chosen.items():
+        if attempt["kind"] == "review" and digest not in planned_hashes:
+            not_implied(attempt)
 
     confirmed = False
     for row in fixed_rows:

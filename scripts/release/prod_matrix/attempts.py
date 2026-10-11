@@ -78,18 +78,38 @@ def collector_self_checks() -> tuple[dict, ...]:
     return tuple(bodies)
 
 
-def is_group_version(path: str) -> bool:
-    """A discovery document the collector can request: /api/<version> or /apis/<group>/<version>."""
-    if not isinstance(path, str):
+def canonical_path(path: str) -> bool:
+    """Absolute and canonical: a leading slash, no trailing slash, no empty or dot segment, no query."""
+    if not isinstance(path, str) or not path.startswith("/") or path.endswith("/"):
+        return False
+    if "?" in path or "#" in path:
         return False
     parts = path.split("/")
-    if len(parts) == 3 and parts[1] == "api" and parts[2]:
+    return all(part not in {"", ".", ".."} for part in parts[1:])
+
+
+def is_group_version(path: str) -> bool:
+    """A discovery document: /api/<version> or /apis/<group>/<version>. The path must be canonical."""
+    if not canonical_path(path):
+        return False
+    parts = path.split("/")
+    if len(parts) == 3 and parts[1] == "api":
         return True
-    return len(parts) == 4 and parts[1] == "apis" and bool(parts[2]) and bool(parts[3])
+    return len(parts) == 4 and parts[1] == "apis"
+
+
+def is_namespaced_list(path: str) -> bool:
+    """One resource listed inside one namespace. The collector does not send this shape."""
+    if not canonical_path(path):
+        return False
+    parts = path.split("/")
+    if len(parts) == 6 and parts[1] == "api" and parts[3] == "namespaces":
+        return True
+    return len(parts) == 7 and parts[1] == "apis" and parts[4] == "namespaces"
 
 
 def is_paged_path(path: str) -> bool:
-    return path in LIST_PATHS or is_group_version(path)
+    return path in LIST_PATHS or is_group_version(path) or is_namespaced_list(path)
 
 
 def continue_token(body: Any, attempt: dict | None = None) -> str:
@@ -153,6 +173,11 @@ def _fail(attempt: dict, message: str) -> None:
     raise MatrixExit(2, f"bundle: attempt {number}: {_request_name(attempt)}: {message}")
 
 
+def not_implied(attempt: dict) -> None:
+    """The group is a well-formed request this inventory does not imply."""
+    _fail(attempt, "not implied by this inventory")
+
+
 def _empty_params(attempt: dict, params: Any) -> None:
     if not isinstance(params, dict):
         _fail(attempt, "params is not an object")
@@ -179,7 +204,9 @@ def check_request(attempt: dict) -> None:
 
     A review is a POST to the SubjectAccessReview endpoint. A self-review goes to its
     own endpoint. A read is a GET of a discovery root, a group-version, or a list with
-    the collector's page parameters. The request hash is not changed here.
+    the collector's page parameters. The path is absolute and canonical. Which
+    group-version documents this inventory implies is checked once root discovery is
+    read; shape alone does not accept them. The request hash is not changed here.
     """
     request = attempt.get("request")
     if not isinstance(request, dict):
@@ -211,6 +238,8 @@ def check_request(attempt: dict) -> None:
         return
     if kind != "read" or method != "GET" or not isinstance(path, str):
         _fail(attempt, "read is not GET")
+    if not canonical_path(path):
+        _fail(attempt, "path is not canonical")
     if path in {"/api", "/apis"}:
         _empty_params(attempt, params)
         return
@@ -442,6 +471,36 @@ def version_paths(api_body: Any, apis_body: Any) -> list[str]:
             seen.add(path)
             unique.append(path)
     return unique
+
+
+def _first(group: list[dict]) -> dict:
+    return min(group, key=lambda item: item["attempt"])
+
+
+def assert_implied_reads(reads: dict[str, list[dict]], discovery_paths: list[str]) -> None:
+    """Request groups for reads equal the set this inventory implies.
+
+    Discovery paths are exactly the versions named by the recorded /api and /apis
+    documents. List requests are exactly the continue chain of each collector list:
+    the first page is limit=500, and each later page carries the previous body's
+    continue token. Whoami and the permission self-checks are the collector's fixed
+    preamble. Any other read, including a version the root did not name and a list of
+    a resource inside a namespace, is exit 2 naming the request.
+    """
+    allowed = set(discovery_paths) | set(LIST_PATHS) | {"/api", "/apis", WHOAMI_PATH, SSAR_PATH}
+    for path in sorted(reads):
+        if path not in allowed:
+            not_implied(_first(reads[path]))
+    for path in list(discovery_paths) + list(LIST_PATHS):
+        pages = pages_for(reads.get(path, []), path)
+        token = ""
+        for attempt in pages:
+            expected = {"limit": PAGE_LIMIT}
+            if token:
+                expected["continue"] = token
+            if attempt["request"].get("params") != expected:
+                not_implied(attempt)
+            token = continue_token(group_result(attempt), attempt)
 
 
 def last_reads(chosen: dict[str, dict]) -> dict[str, list[dict]]:

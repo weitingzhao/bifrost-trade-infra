@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from attempts import (
+    assert_implied_reads,
     group_result,
     last_reads,
     pages_for,
@@ -124,6 +125,8 @@ def assert_discovery_complete(reads: dict[str, list[dict]]) -> list[str]:
         if not group:
             raise MatrixExit(2, f"bundle: missing discovery {path}")
         group_result(group[0])
+    # Missing versions already exited. An extra read is not implied by this root.
+    assert_implied_reads(reads, expected)
     return expected
 
 
