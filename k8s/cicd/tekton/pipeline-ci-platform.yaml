@@ -132,8 +132,10 @@ spec:
           - name: typecheck-lint-test-build
             image: node:20-slim
             computeResources:
+              # The CPU request equals the limit: the suite was measured with
+              # two CPUs, and with a smaller share the same tests time out.
               requests:
-                cpu: 500m
+                cpu: "2"
                 memory: 1Gi
               limits:
                 cpu: "2"

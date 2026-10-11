@@ -194,6 +194,21 @@ def whole_cpus(limit: object) -> int | None:
     return None
 
 
+def cpu_guarantee_problems(cpu_request: object, cpu_limit: object) -> list[str]:
+    """Why the step is not guaranteed the CPUs its tests were measured with.
+
+    The worker count is pinned to the limit; a request below the limit lets a
+    busy node give the step less, and the same tests then time out.
+    """
+    limit = whole_cpus(cpu_limit)
+    if limit is None:
+        return [f"limits.cpu {cpu_limit!r} is not a whole number of CPUs"]
+    request = whole_cpus(cpu_request)
+    if request != limit:
+        return [f"requests.cpu is {cpu_request!r}, want the limit ({limit}): the step must be guaranteed what it was measured with"]
+    return []
+
+
 def worker_pin_problems(script: str, cpu_limit: object) -> list[str]:
     """Why vitest's --maxWorkers does not match this step's CPU limit."""
     count = whole_cpus(cpu_limit)
@@ -428,6 +443,20 @@ class ConsoleGateTests(unittest.TestCase):
         script = GOOD.replace("set -euo pipefail", "set -e", 1)
         reasons = problems(script)
         self.assertTrue(any("set -euo pipefail" in reason for reason in reasons), reasons)
+
+    def test_cpu_request_equals_the_limit(self) -> None:
+        doc = yaml.safe_load(PIPELINE.read_text(encoding="utf-8"))
+        resources = _console_step(doc).get("computeResources") or {}
+        request = (resources.get("requests") or {}).get("cpu")
+        limit = (resources.get("limits") or {}).get("cpu")
+        self.assertEqual(cpu_guarantee_problems(request, limit), [])
+        self.assertEqual(cpu_guarantee_problems("2", "2"), [])
+        self.assertEqual(cpu_guarantee_problems("2000m", 2), [])
+
+    def test_a_cpu_request_below_the_limit_is_rejected(self) -> None:
+        for request, limit in (("500m", "2"), ("1", "2"), (None, "2"), ("2", "4"), ("2", "1500m")):
+            with self.subTest(request=request, limit=limit):
+                self.assertNotEqual(cpu_guarantee_problems(request, limit), [])
 
     def test_worker_pin_tracks_the_cpu_limit(self) -> None:
         doc = yaml.safe_load(PIPELINE.read_text(encoding="utf-8"))
