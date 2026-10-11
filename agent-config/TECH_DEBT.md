@@ -1803,6 +1803,20 @@
 - 验收: `cd bifrost-platform/api && go test -count=1 -run 'TestRedactHidesEverySecretMainHides' -v ./internal/notice/ && cd ../mcp/platform && npm test`
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-308
+
+**P2 · ops-platform · the progress document is published by a script that never says whether it was accepted; the PROD Progress page went stale for hours with nothing showing it**
+
+- **状态**：未开始（本机一侧 2026-10-11 已临时补上，见 Fix 的第一句；仓库里的脚本和服务端没动）
+- **Claim**: `scripts/progress-publish.js` posts the local board's document to `PUT /api/v1/agent-progress` and exits 0 whatever happens (`uncaughtException`, `unhandledRejection` and both promise outcomes all call `process.exit(0)`; nothing is logged). The server refuses a document over 256 KiB (`api/internal/agentprogress/document.go` `MaxDocumentBytes`) and one with more than 20 steps in a piece of work (`schema.go` `maxSteps`). A long-running programme crosses both limits by itself. The Console keeps showing the last accepted document; its "computed N ago" line is the only sign.
+- **Measured**: MEASURED 2026-10-11 11:40 CDT by calling `publishProgress` directly and printing only the status: 413 with the document at 369,020 bytes (267,617 of them the event trails of finished steps); after slimming to 95 KB, 400 until every work was cut to 20 steps; then 202. When the rejections began is NOT MEASURED — the document was already 339 KB at 10:35 and three works had passed 20 steps during the night.
+- **Evidence**: `agent-config/scripts/progress-publish.js` (the four `process.exit(0)`); `agent-config/scripts/thread-heartbeat.js` `publishProgress` (returns `{sent, status}`, which the caller drops); `bifrost-platform/api/internal/agentprogress/schema.go` lines 11–17 and `document.go` line 24; `agent-config/work/multi-agent/LESSONS-from-practice.md` row 76.
+- **Impact**: the Owner's page on PROD silently shows an old picture. On 10-11 he happened to be looking at the local board; had he looked at the Console he would have seen last night's state under today's date. It also defeats the purpose of the page as the one place he looks.
+- **Fix**: locally, the board now slims the document before publishing and records the server's answer (`~/agent-work/status/board2.py` `slim_for_publish`, `publish-result.js`), and shows a light for it. In the repositories: (1) `progress-publish.js` writes the outcome (`sent`, `status`, the server's error text, byte count) to a result file or stdout and exits non-zero on a refusal; (2) the server answers a refusal with which limit was hit, and the handler's response is surfaced; (3) the Console's Progress page shows when the document was last ACCEPTED and, when the newest attempt was refused, says so with the reason — this needs the server to remember the last refusal; (4) decide the limits deliberately: 20 steps per work is a display bound, not a reason to drop the whole document — truncate server-side with a marker, or have the publisher paginate.
+- **Ratchet**: a test that a document with 21 steps in a work and one of 300 KiB each produce a recorded, visible refusal (not a silent drop) end to end: publisher result, server response body, and the Console line.
+- 验收: `cd bifrost-platform/api && go test ./internal/agentprogress/` and `node --test agent-config/scripts/progress-publish.test.js` (to be written) and the Console test for the refusal line
+- 审批 不用批 · 代价 M · 风险 low · repos: bifrost-platform, bifrost-trade-infra
+
 ## 没覆盖到的（下一轮从这里开始）
 
 - Per-engine numerical correctness beyond dates: GEX sign conventions, max-pain, VRP realized-vol windows, vanna/charm, SVI fit, flow maths
