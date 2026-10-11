@@ -44,3 +44,23 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: tekton-release-window
+---
+# The apply pipeline (bifrost-apply-manifest) runs as bifrost-applier. Since the
+# freeze check became its first task (W-56 slice B) it must be able to read the
+# freeze object too; without this binding the check answers 403 and, failing
+# closed, refuses every plan and apply. Read-only: get on the two named ConfigMaps.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-release-window-applier
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: release-window
+subjects:
+  - kind: ServiceAccount
+    name: bifrost-applier
+    namespace: cicd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tekton-release-window

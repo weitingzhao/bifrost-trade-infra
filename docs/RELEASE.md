@@ -203,7 +203,7 @@ kubectl -n cicd get configmap bifrost-release-freeze -o json \
 
 再干跑一条流水线：平台 `plan_manifest`（`bifrost-apply-manifest`，`mode=plan`）。它会跑 `freeze-check`，然后 `kubectl diff`，不会 `kubectl apply`。恢复出来的状态若是冻结，这一跑会在检查处被拒，这是预期。
 
-现有 Role `tekton-release-window` 已经允许 `default` 和 `tekton-deliver` 对 `bifrost-release-freeze` 做 `get`，这一片不新写 RBAC。
+Role `tekton-release-window` 允许三个身份对 `bifrost-release-freeze` 做 `get`：`default`、`tekton-deliver`，和 apply 流水线的 `bifrost-applier`（`k8s/cicd/tekton/rbac-release-window.yaml`）。第三个是 2026-10-11 安装当天补的：这一片原先写「不新写 RBAC」，没有核对 apply 流水线跑在哪个身份下；装完之后它的第一次干跑在检查处得到 403，按故障即拒被拒，`plan_manifest` 和 `apply_manifest` 因此全部不可用，直到 Owner 应用这条绑定。应用前要核对的身份是**每一条**接上检查的流水线各自的运行身份，不只是构建类的。
 
 冻结期间 apply 流水线也不跑，包括它的 plan 模式（plan 和 apply 是同一个任务）。解冻不走这条流水线：`release.sh unfreeze` 把 Owner 签名交给平台 `POST /api/v1/release-policy/unfreeze`。这一片不给任何流水线豁免。若以后有一条流水线必须在冻结期间跑，先停下来写进报告，而不是加豁免。
 
