@@ -28,7 +28,7 @@
     {
       "pipeline": "bifrost-ci-platform",
       "task": "test-api",
-      "taskspec_sha256": "c19b1a41ba3db16e1fda0d36cfb643f9e7b77690998750c48c1116f2cbe392c2"
+      "taskspec_sha256": "fb1a9593b9cc6cbef9a56c5e9e2d4aa1ca959d3d1edb2d925d20dd2802cfd53c"
     },
     {
       "pipeline": "bifrost-ci-platform",

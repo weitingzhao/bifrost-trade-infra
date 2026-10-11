@@ -80,7 +80,7 @@ spec:
         - name: output
           workspace: source
     - name: test-api
-      runAfter: [clone]
+      runAfter: [clone, clone-infra]
       workspaces:
         - name: source
           workspace: source
@@ -95,6 +95,8 @@ spec:
             env:
               - name: GOTOOLCHAIN
                 value: auto
+              - name: BIFROST_CI
+                value: "1"
             computeResources:
               requests:
                 cpu: 250m
