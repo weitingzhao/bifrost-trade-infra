@@ -1792,7 +1792,7 @@
 
 **P3 · ops-platform · the question record's redactor: the TypeScript side is quadratic on repeated characters, and the differential test against main logs its enforced count without asserting it**
 
-- **状态**：未开始（Codex 复核 50，2026-10-11；W-65 1A 第 4 轮，分支 `w31/w65-1a` 提交 `da7b774`，合并后生效）
+- **状态**：(b) 在做，随 TD-306 第 3 轮（分支 `w31/td-306-b`）；**(a) 不做，留着**——2026-10-11 两次尝试把扫描改快（`w31/td-306-307` 的 `ac68be6`、`43031f6`，已放弃），每次都改到了匹配规则，第二次让共享的 `Redact` 比主线遮得少（复核 60、教训第 74 行）。输入有上限（请求体 16 KiB），慢在 Agent 自己的进程里；除非这段代码要用到无上限的文本上，否则不再动它。原记录：Codex 复核 50，2026-10-11；W-65 1A 第 4 轮，分支 `w31/w65-1a` 提交 `da7b774`，合并后生效
 - **Claim**: (a) `mcp/platform/src/questionCanonical.ts` scans for secret shapes with a hand-written loop that backtracks: an input of one repeated character with no keyword takes time quadratic in its length. (b) `TestRedactHidesEverySecretMainHides` (`api/internal/notice/`) checks "the frozen copy of main's redactor hides SECRET ⇒ the new one hides SECRET" on 252,197 inputs but only logs how many inputs the oracle actually redacted (`enforced=237153`); a later change to the generator could make the property vacuous without failing.
 - **Measured**: (a) MEASURED by review 50 in memory: 2k / 4k / 8k characters of U+017F take about 3 / 11 / 44 ms; ASCII grows the same way. NOT MEASURED on the Go side (the reviewer could not run Go tests in its read-only sandbox). (b) read from the test source.
 - **Evidence**: `agent-config/work/multi-agent/reviews/codex-2026-10-11-review50-w65-1a-round4.md` items 4 and 7.
