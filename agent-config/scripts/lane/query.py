@@ -124,3 +124,98 @@ def make_exec(lane_id: str, rnd: int, step: str, attempt_id: str) -> dict:
         "step_index": STEP_INDEX[step],
         "attempt_id": attempt_id,
     }
+
+
+def may_open_round(opened: int, budget: int, extensions: int = 0) -> bool:
+    """The only budget check. ``new`` and ``next-round`` both call it."""
+    return int(opened) < int(budget) + int(extensions)
+
+
+def round_open(events: list[dict], rnd: int) -> dict | None:
+    rows = [event for event in round_events(events) if int(event.get("round", -1)) == rnd]
+    return rows[-1] if rows else None
+
+
+def last_pinned_before(events: list[dict], rnd: int) -> dict:
+    found: dict = {}
+    for event in events:
+        if event.get("type") != "step_recorded":
+            continue
+        body = exec_of(event)
+        if body.get("step") != "implement":
+            continue
+        if int(body.get("round", -1)) < rnd:
+            found = event.get("pinned") or {}
+    return found
+
+
+def expected_start(events: list[dict], rnd: int, targets: dict | None) -> dict:
+    """Where implement must have started, from the round and the last pinned set.
+
+    Round 1, and any round opened with ``start=baseline``, starts at the target
+    baseline. Later rounds start change repositories at the previously pinned
+    set and context repositories at the target baseline. The manifest being
+    judged is not an input.
+    """
+    baseline = {}
+    for name, meta in (targets or {}).items():
+        baseline[name] = {"commit": meta.get("target_sha"), "tree": meta.get("tree")}
+    opened = round_open(events, rnd) or {}
+    if int(rnd) <= 1 or opened.get("start") == "baseline":
+        return baseline
+    pinned = last_pinned_before(events, rnd)
+    start = {}
+    for name, meta in (targets or {}).items():
+        if meta.get("role") == "context" or not pinned.get(name):
+            start[name] = dict(baseline[name])
+            continue
+        prev = pinned[name] or {}
+        start[name] = {"commit": prev.get("commit"), "tree": prev.get("tree")}
+    return start
+
+
+def round_defect(events: list[dict], rnd: int) -> str | None:
+    """Duplicate or out-of-order step events make the round's evidence invalid.
+
+    The reader does not keep the first record or the last one.
+    """
+    groups: dict[str, dict[str, list[dict]]] = {
+        step: {"step_intent": [], "step_recorded": [], "step_started": []} for step in STEPS
+    }
+    sequence: list[dict] = []
+    for event in events:
+        kind = event.get("type")
+        if kind not in ("step_intent", "step_started", "step_recorded"):
+            continue
+        body = exec_of(event)
+        if int(body.get("round", -1)) != rnd:
+            continue
+        step = body.get("step")
+        if step not in groups:
+            return f"events out of order: {step}"
+        groups[step][kind].append(event)
+        sequence.append(event)
+    for step in STEPS:
+        if len(groups[step]["step_intent"]) > 1 or len(groups[step]["step_recorded"]) > 1:
+            return f"evidence invalid: duplicate attempt for {step}"
+    intent_ids: dict[str, str] = {}
+    recorded: set[str] = set()
+    for event in sequence:
+        body = exec_of(event)
+        step = body.get("step")
+        attempt = body.get("attempt_id")
+        kind = event.get("type")
+        previous = STEPS[STEPS.index(step) - 1] if step != "implement" else None
+        if kind == "step_intent":
+            if previous and previous not in recorded:
+                return f"events out of order: {step} before {previous}"
+            intent_ids[step] = attempt
+            continue
+        if intent_ids.get(step) != attempt:
+            verb = "recorded" if kind == "step_recorded" else "started"
+            return f"events out of order: {step} {verb} without a matching intent"
+        if previous and previous not in recorded:
+            return f"events out of order: {step} before {previous}"
+        if kind == "step_recorded":
+            recorded.add(step)
+    return None

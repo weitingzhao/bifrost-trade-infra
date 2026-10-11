@@ -31,14 +31,26 @@ def fsync_dir(path: Path) -> None:
         os.close(fd)
 
 
+def write_all(fd: int, data: bytes) -> None:
+    """Write every byte. A zero return is an error, not a short write to retry."""
+    view = memoryview(data)
+    while len(view):
+        wrote = os.write(fd, view)
+        if wrote == 0:
+            raise OSError("os.write returned 0")
+        view = view[wrote:]
+
+
 def write_bytes(path: Path, data: bytes) -> None:
+    """Write every byte, fsync the file, then fsync the directory."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
     try:
-        os.write(fd, data)
+        write_all(fd, data)
         fullsync(fd)
     finally:
         os.close(fd)
+    fsync_dir(path.parent)
 
 
 def publish(dest: Path, data: bytes) -> None:
@@ -47,7 +59,7 @@ def publish(dest: Path, data: bytes) -> None:
     tmp = dest.parent / f".{dest.name}.tmp-{secrets.token_hex(4)}"
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
     try:
-        os.write(fd, data)
+        write_all(fd, data)
         fullsync(fd)
     except Exception:
         os.close(fd)

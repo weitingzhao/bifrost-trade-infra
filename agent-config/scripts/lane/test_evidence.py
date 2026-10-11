@@ -82,6 +82,27 @@ def test_t28_resolve_is_not_a_way_to_pass(tmp_path):
         )
     )
     assert message == "round 1 already has a verdict"
+    for field, kwargs in (
+        ("operator", {"operator": "", "reason": "r", "evidence": "e"}),
+        ("reason", {"operator": "ada", "reason": "", "evidence": "e"}),
+        ("evidence", {"operator": "ada", "reason": "r", "evidence": ""}),
+        ("attempt", {"operator": "ada", "reason": "r", "evidence": "e", "attempt": ""}),
+    ):
+        missing = make_lane(tmp_path, f"M{field}", max_rounds=3)
+        pending = open_intent_only(missing.dir)
+        call = {"attempt": pending["attempt_id"], "kind": "failed", "operator": "ada", "reason": "r", "evidence": "e"}
+        call.update(kwargs)
+        assert "resolve requires" in _boom(lambda call=call, missing=missing: cmd_resolve(missing.root, missing.lane_id, **call))
+    known = make_lane(tmp_path, "K", max_rounds=3)
+    done = implement_ok(known)
+    other = open_intent_only(known.dir, step="verify")
+    assert _boom(
+        lambda: cmd_resolve(
+            known.root, known.lane_id, attempt=done["attempt_id"], kind="failed",
+            operator="ada", reason="r", evidence="e",
+        )
+    ) == f"attempt {done['attempt_id']} is not the unresolved attempt"
+    assert other["step"] == "verify"
 
 
 def test_t29_exit_code_kind_is_refused(tmp_path):
@@ -192,10 +213,14 @@ def test_t53_recorded_rejection_survives_lost_evidence(tmp_path):
     cut = make_lane(tmp_path, "B", max_rounds=3)
     implement_ok(cut)
     verify_ok(cut)
-    cut.record(step="review", report=_fix_report(False), consumed=sha_set(B, TB), checks={}, signal=15, exit_code=None)
+    recorded_cut = cut.record(step="review", report=_fix_report(False), consumed=sha_set(B, TB), checks={}, signal=15, exit_code=None)
     assert cut.status()["state"] == "step_failed"
     review = [event for event in cut.events() if event["type"] == "step_recorded" and event["exec"]["step"] == "review"][-1]
     assert review["rejects"] is True
+    cut_root = attempt_dir(cut.dir, recorded_cut)
+    (cut_root / "rec" / "manifest.json").unlink()
+    (cut_root / "out" / "report").unlink()
+    assert cut.status()["state"] == "step_failed"
     same_set_fails(cut, cut.brief)
 
     pending = make_lane(tmp_path, "C", max_rounds=3)

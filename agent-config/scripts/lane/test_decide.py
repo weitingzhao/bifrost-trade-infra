@@ -74,6 +74,17 @@ def test_t21_pass_text_only_on_stderr(tmp_path):
     assert status["reason"] == "verify produced no verdict"
 
 
+def _check(kind: str, commit: str, tree: str, *, ok: bool = True, reason: str | None = None) -> dict:
+    body = {
+        "kind": kind,
+        "ok": ok,
+        "repos": {"repo": {"commit": commit, "tree": tree, "clean": True, "hidden": False}},
+    }
+    if reason:
+        body["reason"] = reason
+    return body
+
+
 def _passed() -> RoundEvidence:
     pinned = sha_set(B, TB)
     base = sha_set(A, TA)
@@ -90,6 +101,7 @@ def _passed() -> RoundEvidence:
         bundles=bundle,
         consumed=base,
         notes=("uncommitted changes in repo are not part of this round",),
+        pre_checks=_check("baseline", A, TA),
     )
     verify = StepView(
         "verify",
@@ -100,6 +112,7 @@ def _passed() -> RoundEvidence:
         checks={},
         fields={"stdout_last_line": "VERDICT: pass"},
         consumed=pinned,
+        pre_checks=_check("invariance", B, TB),
     )
     review = StepView(
         "review",
@@ -111,11 +124,13 @@ def _passed() -> RoundEvidence:
         fields={"report_first_line": "VERDICT: safe to merge", "report_last_line": "END OF REPORT", "p1": 0, "p2": 0, "p3": 0},
         consumed=pinned,
         report={"present": True, "length": 40, "sha256": "cd" * 32},
+        pre_checks=_check("invariance", B, TB),
     )
     return RoundEvidence(
         1,
         {"implement": implement, "verify": verify, "review": review},
         {"repo": {"role": "change", "target_ref": "main", "target_sha": A}},
+        expected_start={"repo": {"commit": A, "tree": TA}},
     )
 
 
@@ -139,6 +154,17 @@ def _step(evidence: RoundEvidence, name: str, **kwargs) -> RoundEvidence:
         ("no-report", lambda ev: _step(ev, "review", report={"present": False}), "step_failed", "review produced no report"),
         ("git-nonzero", lambda ev: _step(ev, "verify", checks={"git_failed": "repo"}), "step_failed", "snapshot of repo changed during verify"),
         ("context-moved", lambda ev: _context(ev), "step_failed", "context repository ctx moved"),
+        ("start", lambda ev: _step(ev, "implement", consumed=sha_set(B, TB), pre_checks=_check("baseline", B, TB)), "step_failed", f"implement did not start: repo HEAD {B} != expected {A}"),
+        ("pre-check-missing", lambda ev: _step(ev, "implement", pre_checks={}), "unknown", "evidence invalid: implement pre-check missing"),
+        ("pre-check-failed", lambda ev: _step(ev, "implement", pre_checks=_check("baseline", A, TA, ok=False, reason="worktree is dirty")), "step_failed", "implement did not start: worktree is dirty"),
+        ("consumed-mismatch", lambda ev: _step(ev, "verify", consumed=sha_set(A, TA)), "step_failed", "verify ran on a different SHA set"),
+        ("bundle-missing", lambda ev: _step(ev, "implement", bundles={}), "step_failed", "cannot export repo: HEAD moved"),
+        ("rejected-set", lambda ev: replace(ev, round_no=2, rejected=({"round": 1, "sha_set": ev.steps["implement"].pinned},)), "step_failed", "no new commit since round 1 said fix first"),
+        ("close-failed", lambda ev: _closing(ev, "failed"), "step_failed", "review closed as failed by ada: because"),
+        ("close-cancelled", lambda ev: _closing(ev, "cancelled"), "step_failed", "review closed as cancelled by ada: because"),
+        ("close-evidence-lost", lambda ev: _closing(ev, "evidence-lost"), "step_failed", "review closed as evidence-lost by ada: because"),
+        ("still-unknown", lambda ev: replace(ev, resolutions=({"step": "implement", "kind": "still-unknown", "operator": "ada", "reason": "looked", "attempt_id": "a"},)), "passed", "round 1 passed for repo:bbbbbbbbbbbb"),
+        ("context-start", lambda ev: _context_start(ev), "step_failed", "context repository ctx moved"),
     ],
 )
 def test_t31_pass_contract_each_gap_is_not_passed(name, mutate, result, reason):
@@ -146,9 +172,37 @@ def test_t31_pass_contract_each_gap_is_not_passed(name, mutate, result, reason):
     assert got == (result, reason), name
 
 
-def _context(evidence: RoundEvidence) -> RoundEvidence:
+def _closing(evidence: RoundEvidence, kind: str) -> RoundEvidence:
+    return replace(
+        evidence,
+        resolutions=({"step": "review", "kind": kind, "operator": "ada", "reason": "because", "attempt_id": "a"},),
+    )
+
+
+def _with_context(evidence: RoundEvidence, *, found: str, found_tree: str, pinned_commit: str, pinned_tree: str) -> RoundEvidence:
     targets = dict(evidence.targets)
     targets["ctx"] = {"role": "context", "target_ref": "main", "target_sha": A}
+    expected = dict(evidence.expected_start)
+    expected["ctx"] = {"commit": A, "tree": TA}
     pinned = dict(evidence.steps["implement"].pinned)
-    pinned["ctx"] = {"commit": B, "tree": TB}
-    return _step(replace(evidence, targets=targets), "implement", pinned=pinned)
+    pinned["ctx"] = {"commit": pinned_commit, "tree": pinned_tree}
+    pre = dict(evidence.steps["implement"].pre_checks or {})
+    repos = dict(pre.get("repos") or {})
+    repos["ctx"] = {"commit": found, "tree": found_tree, "clean": True, "hidden": False}
+    consumed = dict(evidence.steps["implement"].consumed or {})
+    consumed["ctx"] = {"commit": found, "tree": found_tree}
+    return _step(
+        replace(evidence, targets=targets, expected_start=expected),
+        "implement",
+        pinned=pinned,
+        pre_checks={**pre, "repos": repos},
+        consumed=consumed,
+    )
+
+
+def _context(evidence: RoundEvidence) -> RoundEvidence:
+    return _with_context(evidence, found=A, found_tree=TA, pinned_commit=B, pinned_tree=TB)
+
+
+def _context_start(evidence: RoundEvidence) -> RoundEvidence:
+    return _with_context(evidence, found=B, found_tree=TB, pinned_commit=A, pinned_tree=TA)

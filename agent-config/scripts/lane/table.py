@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from query import IN_PROGRESS, NEGATIVE
+from query import IN_PROGRESS, NEGATIVE, may_open_round
 
 GATES = (
     {"id": "lane_exec", "refusal": "a lane step cannot change a lane"},
@@ -59,8 +59,13 @@ def consult(state: str | None, command: str, ctx: dict) -> Transition:
         if inner.allowed:
             return inner
         return Transition(False, inner.message, settled, False, "deny")
+    if command == "record":
+        return _record(state, ctx)
     if command == "new":
         if state is None:
+            budget = int(ctx.get("budget") if ctx.get("budget") is not None else 2)
+            if not may_open_round(0, budget):
+                return _deny(None, f"over budget: 0/{budget}; the Owner decides")
             return Transition(True, "", "ready", True, "allow_new")
         return Transition(False, f"lane {ctx['lane_id']} exists", state, False, "deny")
     if state is None:
@@ -89,6 +94,22 @@ def _deny(state: str | None, message: str) -> Transition:
     return Transition(False, message, state, False, "deny")
 
 
+def _record(state: str | None, ctx: dict) -> Transition:
+    rnd = ctx.get("round") or 1
+    lane = ctx.get("lane_id")
+    if state is None:
+        return _deny(None, f"lane {lane} does not exist")
+    if ctx.get("has_closing"):
+        return _deny(state, f"round {rnd} has a closing resolution")
+    if ctx.get("has_verdict") or state in ("passed", *NEGATIVE, "over_budget"):
+        return _deny(state, f"round {rnd} already has a verdict")
+    if state == "abandoned":
+        return _deny(state, f"lane {lane} was abandoned")
+    if state in ("ready", *IN_PROGRESS, "unknown", "start_ambiguous"):
+        return Transition(True, "", state, False, "allow_record")
+    return _deny(state, f"record is not allowed in state {state}")
+
+
 def _confirm(state: str | None, ctx: dict) -> Transition:
     attempt = ctx.get("attempt") or ""
     if not ctx.get("known_attempt", True):
@@ -115,6 +136,10 @@ def _unknown(state: str, command: str, ctx: dict) -> Transition:
 def _negative(state: str, command: str, ctx: dict) -> Transition:
     rnd = ctx.get("round") or 1
     if command == "next-round":
+        opened = int(ctx.get("opened") or 0)
+        budget = int(ctx.get("budget") or 0)
+        if not may_open_round(opened, budget):
+            return _deny(state, f"over budget: {opened}/{budget}; the Owner decides")
         return Transition(True, "", "ready", True, "allow_next")
     if command == "run":
         return _deny(state, f"round {rnd} is closed ({state}); the only way on is next-round")
@@ -156,6 +181,10 @@ def _resolve_open(state: str, ctx: dict) -> Transition:
     kind = ctx.get("kind") or "failed"
     attempt = ctx.get("attempt") or ""
     rnd = ctx.get("round") or 1
+    if kind == "passed":
+        return _deny(state, "unknown kind passed")
+    if not attempt:
+        return _deny(state, "resolve requires --attempt, --kind, --operator, --reason and --evidence")
     if not ctx.get("known_attempt", True):
         return _deny(state, f"attempt {attempt} is unknown")
     if not ctx.get("is_problem", True):
@@ -188,6 +217,8 @@ def _resolve_closed(state: str, ctx: dict) -> Transition:
     kind = ctx.get("kind") or "failed"
     attempt = ctx.get("attempt") or ""
     rnd = ctx.get("round") or 1
+    if kind == "passed":
+        return _deny(state, "unknown kind passed")
     if kind == "exit-code":
         return _deny(state, f"no wait-based exit record exists for attempt {attempt}")
     if ctx.get("resolved_kind"):

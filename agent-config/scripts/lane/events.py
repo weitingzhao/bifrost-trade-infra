@@ -158,12 +158,9 @@ def os_open_append(path: Path) -> int:
 
 
 def os_write_all(fd: int, data: bytes) -> None:
-    import os
+    from fsutil import write_all
 
-    view = memoryview(data)
-    while view:
-        wrote = os.write(fd, view)
-        view = view[wrote:]
+    write_all(fd, data)
 
 
 def os_close(fd: int) -> None:

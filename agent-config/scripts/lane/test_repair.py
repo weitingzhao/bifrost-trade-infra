@@ -153,3 +153,30 @@ def test_t55_repair_is_idempotent_at_every_crash_point(tmp_path):
     status = bad.status()
     assert status["state"] == "unknown"
     assert status["reason"].startswith("event log invalid at seq ")
+
+
+def test_publish_writes_every_byte(tmp_path, monkeypatch):
+    import os
+
+    import fsutil
+
+    real = os.write
+
+    def one_byte(fd, data):
+        return real(fd, bytes(data[:1]))
+
+    monkeypatch.setattr(fsutil.os, "write", one_byte)
+    dest = tmp_path / "events.torn-piece"
+    fsutil.publish(dest, b"abcdef")
+    assert dest.read_bytes() == b"abcdef"
+    fsutil.write_bytes(tmp_path / "stdout", b"xyz")
+    assert (tmp_path / "stdout").read_bytes() == b"xyz"
+
+
+def test_publish_rejects_a_zero_write(tmp_path, monkeypatch):
+    import fsutil
+
+    monkeypatch.setattr(fsutil.os, "write", lambda fd, data: 0)
+    with pytest.raises(OSError, match="returned 0"):
+        fsutil.publish(tmp_path / "events.torn-piece", b"abcdef")
+    assert not (tmp_path / "events.torn-piece").exists()

@@ -20,10 +20,12 @@ from query import (
     current_round,
     events_for_step,
     exec_of,
+    expected_start,
     max_rounds,
     opened_count,
     rejected_sets,
     resolutions,
+    round_defect,
     verdict_event,
 )
 from table import settle
@@ -107,6 +109,7 @@ def lane_state(events, assessed, driver: bool, invalid_seq, last_valid_seq, aban
         "evidence_problems": _collect_problems(events, assessed, rnd),
         "verdict_seq": None,
         "events_head": None,
+        "has_closing": False,
     }
     view["attempts"] = _index_attempts(events, assessed)
     view["unconfirmed"] = [
@@ -129,6 +132,7 @@ def lane_state(events, assessed, driver: bool, invalid_seq, last_valid_seq, aban
         view["display"] = "unknown"
         view["reason"] = "event log invalid at seq 1"
         return view
+    view["has_closing"] = bool(closing_resolutions(events, rnd))
     evidence = _round_evidence(events, assessed, rnd, view["targets"])
     result, reason = decide(evidence)
     view["decide_result"] = result
@@ -283,6 +287,8 @@ def _round_evidence(events, assessed, rnd: int, targets: dict) -> RoundEvidence:
         targets=targets,
         rejected=tuple(rejected_sets(events)),
         resolutions=tuple(rows),
+        expected_start=expected_start(events, rnd, targets),
+        order_defect=round_defect(events, rnd),
     )
 
 
@@ -322,6 +328,7 @@ def _step_view(name, intent, started, recorded, assessed) -> StepView:
         notes=tuple(manifest.get("notes") or ()),
         rejects=rejects,
         report=outputs.get("report"),
+        pre_checks=manifest.get("pre_checks") if isinstance(manifest.get("pre_checks"), dict) else None,
     )
 
 
@@ -351,6 +358,7 @@ def _manifest_shas(events, rnd: int) -> dict:
 
 
 def _notes(events, assessed, rnd: int) -> list:
+    notes: list = []
     for event in events:
         if event.get("type") != "step_recorded":
             continue
@@ -359,10 +367,14 @@ def _notes(events, assessed, rnd: int) -> list:
             continue
         row = assessed.get(body.get("attempt_id")) or {}
         if row.get("problems"):
-            return []
+            break
         manifest = row.get("manifest") or {}
-        return list(manifest.get("notes") or [])
-    return []
+        notes.extend(manifest.get("notes") or [])
+        break
+    for row in resolutions(events, rnd):
+        if row.get("kind") == "still-unknown":
+            notes.append(f"still-unknown by {row.get('operator')}: {row.get('reason')}")
+    return notes
 
 
 def _next_missing(events, rnd: int) -> str | None:

@@ -12,7 +12,7 @@ from errors import LaneError
 from events import load_file, sha256_bytes
 from fsutil import canonical_json, fsync_dir, publish
 from locks import hold, read_snapshot
-from query import IN_PROGRESS, NEGATIVE, abandoned_event, created, round_events
+from query import IN_PROGRESS, NEGATIVE, abandoned_event, created, may_open_round, round_events
 from recorder import (
     append_resolution,
     flush_verdict,
@@ -35,7 +35,8 @@ def default_root() -> Path:
 
 
 def gate_lane_exec() -> None:
-    if os.environ.get("LANE_EXEC"):
+    # Set at all, including to the empty string. Absence is the only negative.
+    if "LANE_EXEC" in os.environ:
         raise LaneError(GATES[0]["refusal"])
 
 
@@ -111,16 +112,34 @@ def _ctx(view: dict, lane_id: str, command: str, extra: dict) -> dict:
     }
 
 
-def mutate(root: Path, lane_id: str, command: str, action, extra: dict | None = None):
+def enter(root: Path, lane_id: str, command: str, action, extra: dict | None = None, *, held: bool = False, lane_dir: Path | None = None):
+    """One entry for every state-changing command, including ``new`` and ``record``.
+
+    Gate 1 runs before argument checks. The lock, the log, the verdict flush
+    and the transition table follow, in that order. ``may_open_round`` is the
+    budget check for ``new`` and ``next-round``.
+    """
     gate_lane_exec()
-    _require_id(lane_id)
     extra = dict(extra or {})
-    lane_dir = root / lane_id
-    if not lane_dir.is_dir() or not (lane_dir / "events.jsonl").is_file():
-        if lane_dir.is_dir():
-            raise LaneError("incomplete lane directory")
-        raise LaneError(f"lane {lane_id} does not exist")
-    with hold(lane_dir, lane_id, command):
+    if command == "new":
+        _require_id(lane_id)
+        dest = root / lane_id
+        budget = int(extra.get("budget") if extra.get("budget") is not None else 2)
+        decision = consult(
+            None if not dest.exists() else "ready",
+            "new",
+            {"lane_id": lane_id, "opened": 0, "budget": budget, "round": 1},
+        )
+        if not decision.allowed:
+            raise LaneError(decision.message)
+        if not may_open_round(0, budget):
+            raise LaneError(f"over budget: 0/{budget}; the Owner decides")
+        return action(dest, None, extra)
+    _require_id(lane_id)
+    if lane_dir is None:
+        lane_dir = root / lane_id
+
+    def run():
         repair_torn_tail(lane_dir)
         log = load_file(lane_dir / "events.jsonl")
         if log.invalid_seq is not None:
@@ -131,10 +150,26 @@ def mutate(root: Path, lane_id: str, command: str, action, extra: dict | None = 
         view = inspect_lane(lane_dir, driver=False)
         extra["file_changed"] = changed_file(load_file(lane_dir / "events.jsonl").events)
         ctx = _ctx(view, lane_id, command, extra)
+        ctx["has_closing"] = bool(view.get("has_closing"))
         decision = consult(view["state"], command, ctx)
         if not decision.allowed:
             raise LaneError(decision.message)
+        if command == "next-round" and not may_open_round(int(view["opened"] or 0), int(view["budget_max"] or 0)):
+            raise LaneError(f"over budget: {view['opened']}/{view['budget_max']}; the Owner decides")
         return action(lane_dir, view, ctx)
+
+    if not lane_dir.is_dir() or not (lane_dir / "events.jsonl").is_file():
+        if lane_dir.is_dir():
+            raise LaneError("incomplete lane directory")
+        raise LaneError(f"lane {lane_id} does not exist")
+    if held:
+        return run()
+    with hold(lane_dir, lane_id, command):
+        return run()
+
+
+def mutate(root: Path, lane_id: str, command: str, action, extra: dict | None = None):
+    return enter(root, lane_id, command, action, extra)
 
 
 def _abandon_corrupt(lane_dir: Path, log, extra: dict) -> None:
@@ -151,58 +186,64 @@ def _abandon_corrupt(lane_dir: Path, log, extra: dict) -> None:
 
 
 def cmd_new(root: Path, lane_id: str, *, title: str, brief: str, repos: dict, max_rounds: int = 2, config: str | None = None, pins: list[str] | None = None) -> None:
-    gate_lane_exec()
-    _require_id(lane_id)
-    if max_rounds < 1:
-        raise LaneError("max_rounds must be at least 1")
-    if not title:
-        raise LaneError("title is required")
-    if not repos:
-        raise LaneError("at least one repo is required")
-    brief_path = Path(brief)
-    if not brief_path.is_file():
-        raise LaneError(f"brief not found: {brief}")
-    if not root.is_dir():
-        raise LaneError(f"lane root does not exist: {root}")
-    lane_dir = root / lane_id
-    if lane_dir.exists():
-        raise LaneError(f"lane {lane_id} exists")
-    pinned = {}
-    for pin in pins or []:
-        digest = _file_sha(pin)
-        if digest is None:
-            raise LaneError(f"pinned file not found: {pin}")
-        pinned[pin] = digest
-    config_sha = _file_sha(config) if config else None
-    if config and config_sha is None:
-        raise LaneError(f"config not found: {config}")
-    brief_bytes = brief_path.read_bytes()
-    params = {
-        "lane_id": lane_id,
-        "title": title,
-        "max_rounds": max_rounds,
-        "repos": repos,
-        "config_path": config,
-        "config_sha256": config_sha,
-        "pinned_files": pinned,
-        "brief_path": brief,
-        "brief_sha256": sha256_bytes(brief_bytes),
-        "inputs": [],
-        "created_at": now_iso(),
-    }
-    os.mkdir(lane_dir)
-    round_dir = lane_dir / "r1"
-    round_dir.mkdir()
-    publish(round_dir / f"brief-{secrets.token_hex(4)}.md", brief_bytes)
-    fsync_dir(round_dir)
-    publish(lane_dir / "lane.json", (canonical_json(params) + "\n").encode("utf-8"))
-    write_initial_log(
-        lane_dir,
-        params,
-        {"round": 1, "brief_path": brief, "brief_sha256": params["brief_sha256"], "start": "baseline"},
-    )
-    fsync_dir(lane_dir)
-    fsync_dir(root)
+    def action(lane_dir, _view, _ctx):
+        if max_rounds < 1:
+            raise LaneError("max_rounds must be at least 1")
+        if not title:
+            raise LaneError("title is required")
+        if not repos:
+            raise LaneError("at least one repo is required")
+        brief_path = Path(brief)
+        if not brief_path.is_file():
+            raise LaneError(f"brief not found: {brief}")
+        if not root.is_dir():
+            raise LaneError(f"lane root does not exist: {root}")
+        pinned = {}
+        for pin in pins or []:
+            digest = _file_sha(pin)
+            if digest is None:
+                raise LaneError(f"pinned file not found: {pin}")
+            pinned[pin] = digest
+        config_sha = _file_sha(config) if config else None
+        if config and config_sha is None:
+            raise LaneError(f"config not found: {config}")
+        brief_bytes = brief_path.read_bytes()
+        copy_name = f"brief-{secrets.token_hex(4)}.md"
+        params = {
+            "lane_id": lane_id,
+            "title": title,
+            "max_rounds": max_rounds,
+            "repos": repos,
+            "config_path": config,
+            "config_sha256": config_sha,
+            "pinned_files": pinned,
+            "brief_path": brief,
+            "brief_sha256": sha256_bytes(brief_bytes),
+            "brief_copy": f"r1/{copy_name}",
+            "inputs": [],
+            "created_at": now_iso(),
+        }
+        os.mkdir(lane_dir)
+        round_dir = lane_dir / "r1"
+        round_dir.mkdir()
+        publish(round_dir / copy_name, brief_bytes)
+        fsync_dir(round_dir)
+        publish(lane_dir / "lane.json", (canonical_json(params) + "\n").encode("utf-8"))
+        write_initial_log(
+            lane_dir,
+            params,
+            {
+                "round": 1,
+                "brief_path": brief,
+                "brief_sha256": params["brief_sha256"],
+                "brief_copy": params["brief_copy"],
+                "start": "baseline",
+            },
+        )
+        fsync_dir(lane_dir)
+        fsync_dir(root)
+
+    enter(root, lane_id, "new", action, {"budget": max_rounds})
 
 
 def cmd_run(root: Path, lane_id: str) -> None:
@@ -213,18 +254,20 @@ def cmd_run(root: Path, lane_id: str) -> None:
 
 
 def cmd_next_round(root: Path, lane_id: str, *, brief: str, start: str = "pinned") -> None:
-    if start not in ("baseline", "pinned"):
-        raise LaneError("start must be baseline or pinned")
-    brief_path = Path(brief)
-    if not brief_path.is_file():
-        raise LaneError(f"brief not found: {brief}")
-
     def action(lane_dir, view, ctx):
+        if start not in ("baseline", "pinned"):
+            raise LaneError("start must be baseline or pinned")
+        brief_path = Path(brief)
+        if not brief_path.is_file():
+            raise LaneError(f"brief not found: {brief}")
+        if not may_open_round(int(view["opened"] or 0), int(view["budget_max"] or 0)):
+            raise LaneError(f"over budget: {view['opened']}/{view['budget_max']}; the Owner decides")
         rnd = int(view["opened"]) + 1
         round_dir = lane_dir / f"r{rnd}"
         round_dir.mkdir(exist_ok=True)
         data = brief_path.read_bytes()
-        publish(round_dir / f"brief-{secrets.token_hex(4)}.md", data)
+        copy_name = f"brief-{secrets.token_hex(4)}.md"
+        publish(round_dir / copy_name, data)
         fsync_dir(round_dir)
         fsync_dir(lane_dir)
         from events import append_obj
@@ -236,6 +279,7 @@ def cmd_next_round(root: Path, lane_id: str, *, brief: str, start: str = "pinned
                 "round": rnd,
                 "brief_path": brief,
                 "brief_sha256": sha256_bytes(data),
+                "brief_copy": f"r{rnd}/{copy_name}",
                 "start": start,
             },
         )
@@ -244,12 +288,11 @@ def cmd_next_round(root: Path, lane_id: str, *, brief: str, start: str = "pinned
 
 
 def cmd_resolve(root: Path, lane_id: str, *, attempt: str, kind: str, operator: str, reason: str, evidence: str, code: int | None = None) -> None:
-    if kind == "passed":
-        raise LaneError("unknown kind passed")
-    if not operator or not reason or not evidence or not attempt:
-        raise LaneError("resolve requires --attempt, --kind, --operator, --reason and --evidence")
-
     def action(lane_dir, view, ctx):
+        if kind == "passed":
+            raise LaneError("unknown kind passed")
+        if not operator or not reason or not evidence or not attempt:
+            raise LaneError("resolve requires --attempt, --kind, --operator, --reason and --evidence")
         info = view["attempts"][attempt]
         append_resolution(
             lane_dir,
@@ -274,10 +317,9 @@ def cmd_resolve(root: Path, lane_id: str, *, attempt: str, kind: str, operator: 
 
 
 def cmd_confirm(root: Path, lane_id: str, *, attempt: str, operator: str, how: str) -> None:
-    if not attempt or not operator or not how:
-        raise LaneError("confirm-ended requires --attempt, --operator and --how")
-
     def action(lane_dir, view, ctx):
+        if not attempt or not operator or not how:
+            raise LaneError("confirm-ended requires --attempt, --operator and --how")
         from events import append_obj
 
         append_obj(
@@ -289,10 +331,9 @@ def cmd_confirm(root: Path, lane_id: str, *, attempt: str, operator: str, how: s
 
 
 def cmd_abandon(root: Path, lane_id: str, *, operator: str, reason: str) -> None:
-    if not operator or not reason:
-        raise LaneError("abandon requires --operator and --reason")
-
     def action(lane_dir, view, ctx):
+        if not operator or not reason:
+            raise LaneError("abandon requires --operator and --reason")
         from events import append_obj
 
         append_obj(lane_dir, {"type": "abandoned", "operator": operator, "reason": reason})

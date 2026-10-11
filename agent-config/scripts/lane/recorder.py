@@ -10,10 +10,17 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-from events import append_obj, dump_line, sha256_bytes
-from evidence import manifest_digest, parse_review_report, parse_verify_stdout, publish_json_doc
-from fsutil import fsync_dir, publish
-from query import STEPS
+from errors import LaneError
+from events import append_obj, dump_line, load_file, sha256_bytes
+from evidence import (
+    attempt_dir,
+    manifest_digest,
+    parse_review_report,
+    parse_verify_stdout,
+    publish_json_doc,
+)
+from fsutil import fsync_dir, publish, write_bytes
+from query import STEPS, closing_resolutions, events_for_step, exec_of, round_events, verdict_event
 from repair import repair_torn_tail
 from locks import hold
 
@@ -87,6 +94,7 @@ def record_attempt(
     consumed: dict | None = None,
     notes: list | None = None,
     not_started: dict | None = None,
+    pre_checks: dict | None = None,
     write_verdict: bool = True,
     also_start: bool = True,
     limit_seconds: int = 3600,
@@ -95,29 +103,34 @@ def record_attempt(
     attempt_id: str | None = None,
 ) -> dict:
     def body() -> dict:
-        repair_torn_tail(lane_dir)
-        return _record_attempt(
-            lane_dir,
-            step=step,
-            stdout=_as_bytes(stdout) or b"",
-            stderr=_as_bytes(stderr) or b"",
-            report=_as_bytes(report),
-            exit_code=exit_code,
-            signal=signal,
-            termination=termination,
-            checks=checks,
-            pinned=pinned,
-            bundles=bundles,
-            bundle_bytes=bundle_bytes,
-            consumed=consumed,
-            notes=notes,
-            not_started=not_started,
-            write_verdict=write_verdict,
-            also_start=also_start,
-            limit_seconds=limit_seconds,
-            started_at=started_at,
-            attempt_id=attempt_id,
-        )
+        from commands import enter
+
+        def action(locked_dir, _view, _ctx):
+            return _record_attempt(
+                locked_dir,
+                step=step,
+                stdout=_as_bytes(stdout) or b"",
+                stderr=_as_bytes(stderr) or b"",
+                report=_as_bytes(report),
+                exit_code=exit_code,
+                signal=signal,
+                termination=termination,
+                checks=checks,
+                pinned=pinned,
+                bundles=bundles,
+                bundle_bytes=bundle_bytes,
+                consumed=consumed,
+                notes=notes,
+                not_started=not_started,
+                pre_checks=pre_checks,
+                write_verdict=write_verdict,
+                also_start=also_start,
+                limit_seconds=limit_seconds,
+                started_at=started_at,
+                attempt_id=attempt_id,
+            )
+
+        return enter(lane_dir.parent, lane_dir.name, "record", action, held=True, lane_dir=lane_dir)
 
     return _locked(lane_dir, "record", body, holding_lock)
 
@@ -125,10 +138,26 @@ def record_attempt(
 def _record_attempt(lane_dir: Path, **kw) -> dict:
     from state import inspect_lane
 
+    events = load_file(lane_dir / "events.jsonl").events
     view = inspect_lane(lane_dir, driver=False)
     rnd = int(view["round"])
     lane_id = view["lane_id"] or lane_dir.name
     step = kw["step"]
+    grouped = events_for_step(events, rnd, step)
+    intents = grouped["step_intent"]
+    records = grouped["step_recorded"]
+    _refuse_closed(events, rnd)
+    if records:
+        existing = exec_of(records[0]).get("attempt_id")
+        raise LaneError(f"{step} already has attempt {existing} in round {rnd}")
+    if intents:
+        open_id = exec_of(intents[0]).get("attempt_id")
+        if kw["attempt_id"] != open_id:
+            if kw["attempt_id"] is None:
+                raise LaneError(f"{step} already has attempt {open_id} in round {rnd}")
+            raise LaneError(f"attempt {kw['attempt_id']} is not the open intent of {step}")
+        return _finish_open(lane_dir, intents[0], kw)
+    _refuse_order(view, step)
     attempt = kw["attempt_id"] or new_attempt_id()
     exec_body = {
         "lane_id": lane_id,
@@ -144,15 +173,12 @@ def _record_attempt(lane_dir: Path, **kw) -> dict:
         "step_order": list(STEPS),
         "argv": ["lane-step", step],
         "cwd": "work",
-        "brief": {
-            "path": info.get("brief_path"),
-            "sha256": info.get("brief_sha256"),
-        },
+        "brief": _brief_ref(lane_dir, rnd, events),
         "config_sha256": info.get("config_sha256"),
         "pinned_files": info.get("pinned_files") or {},
         "repos": info.get("repos") or {},
         "consumed": kw["consumed"] or {},
-        "pre_checks": {},
+        "pre_checks": kw["pre_checks"] if isinstance(kw.get("pre_checks"), dict) else {},
         "toolchain": {},
         "limit_seconds": kw["limit_seconds"],
         "env_names": ["PATH", "LC_ALL"],
@@ -175,23 +201,7 @@ def _record_attempt(lane_dir: Path, **kw) -> dict:
         )
     manifest = _manifest(root, exec_body, intent_sha, kw)
     manifest_sha = publish_json_doc(root / "rec" / "manifest.json", manifest)
-    recorded = {
-        "type": "step_recorded",
-        "exec": exec_body,
-        "manifest_sha256": manifest_sha,
-        "not_started": manifest.get("not_started"),
-        "exit": manifest.get("exit"),
-        "consumed": manifest.get("consumed") or {},
-    }
-    if step == "implement":
-        recorded["pinned"] = manifest.get("pinned") or {}
-        recorded["bundles"] = manifest.get("bundles") or {}
-    if step == "review":
-        recorded["rejects"] = manifest.get("fields", {}).get("report_first_line") == "VERDICT: fix first" and bool(
-            (manifest.get("outputs") or {}).get("report", {}).get("present")
-        )
-        recorded["sha_set"] = manifest.get("consumed") or {}
-    append_obj(lane_dir, recorded)
+    _append_recorded(lane_dir, exec_body, manifest, manifest_sha)
     if kw["write_verdict"]:
         flush_verdict(lane_dir)
     return exec_body
@@ -220,11 +230,13 @@ def _manifest(root: Path, exec_body: dict, intent_sha: str, kw: dict) -> dict:
             "checks": None,
             "fields": None,
             "consumed": consumed,
+            "pre_checks": kw.get("pre_checks") if isinstance(kw.get("pre_checks"), dict) else {},
         }
     stdout = kw["stdout"]
     stderr = kw["stderr"]
-    (root / "out" / "stdout").write_bytes(stdout)
-    (root / "out" / "stderr").write_bytes(stderr)
+    # Artifacts are durable before the manifest is built or published.
+    write_bytes(root / "out" / "stdout", stdout)
+    write_bytes(root / "out" / "stderr", stderr)
     outputs = {
         "stdout": {"length": len(stdout), "sha256": sha256_bytes(stdout)},
         "stderr": {"length": len(stderr), "sha256": sha256_bytes(stderr)},
@@ -239,14 +251,14 @@ def _manifest(root: Path, exec_body: dict, intent_sha: str, kw: dict) -> dict:
             outputs["report"] = {"present": False}
             fields = {"report_first_line": "", "report_last_line": "", "p1": 0, "p2": 0, "p3": 0}
         else:
-            (root / "out" / "report").write_bytes(report)
+            write_bytes(root / "out" / "report", report)
             parsed = parse_review_report(report)
             outputs["report"] = {"present": True, "length": len(report), "sha256": sha256_bytes(report)}
             fields = parsed
     bundles = dict(kw["bundles"] or {})
     for repo, blob in (kw["bundle_bytes"] or {}).items():
         dest = root / "rec" / f"{repo}.bundle"
-        dest.write_bytes(blob)
+        write_bytes(dest, blob)
         bundles[repo] = {"length": len(blob), "sha256": sha256_bytes(blob)}
     signal = kw["signal"]
     exit_body = {"code": None, "signal": signal} if signal is not None else {"code": kw["exit_code"], "signal": None}
@@ -262,6 +274,7 @@ def _manifest(root: Path, exec_body: dict, intent_sha: str, kw: dict) -> dict:
         "checks": kw["checks"] if kw["checks"] is not None else {},
         "fields": fields,
         "consumed": consumed,
+        "pre_checks": kw.get("pre_checks") if isinstance(kw.get("pre_checks"), dict) else {},
     }
     if step == "implement":
         manifest["pinned"] = kw["pinned"] or {}
@@ -309,45 +322,150 @@ def open_intent_only(lane_dir: Path, *, step: str = "implement", holding_lock: b
     """Publish an intent and append step_intent, then stop. The directory is an open attempt."""
 
     def body() -> dict:
-        repair_torn_tail(lane_dir)
-        from state import inspect_lane
+        from commands import enter
 
-        view = inspect_lane(lane_dir, driver=False)
-        rnd = int(view["round"])
-        lane_id = view["lane_id"] or lane_dir.name
-        attempt = new_attempt_id()
-        exec_body = {
-            "lane_id": lane_id,
-            "round": rnd,
-            "step": step,
-            "step_index": STEPS.index(step),
-            "attempt_id": attempt,
-        }
-        root = make_attempt(lane_dir, rnd, step, attempt)
-        intent = {"exec": exec_body, "argv": ["lane-step", step], "limit_seconds": 3600}
-        intent_sha = publish_json_doc(root / "rec" / "intent.json", intent)
-        append_obj(lane_dir, {"type": "step_intent", "exec": exec_body, "intent_sha256": intent_sha})
-        return exec_body
+        def action(locked_dir, _view, _ctx):
+            return _open_intent(locked_dir, step)
+
+        return enter(lane_dir.parent, lane_dir.name, "record", action, held=True, lane_dir=lane_dir)
 
     return _locked(lane_dir, "record", body, holding_lock)
 
 
+def _open_intent(lane_dir: Path, step: str) -> dict:
+    from state import inspect_lane
+
+    events = load_file(lane_dir / "events.jsonl").events
+    view = inspect_lane(lane_dir, driver=False)
+    rnd = int(view["round"])
+    _refuse_closed(events, rnd)
+    grouped = events_for_step(events, rnd, step)
+    if grouped["step_intent"] or grouped["step_recorded"]:
+        existing = exec_of((grouped["step_intent"] or grouped["step_recorded"])[0]).get("attempt_id")
+        raise LaneError(f"{step} already has attempt {existing} in round {rnd}")
+    _refuse_order(view, step)
+    lane_id = view["lane_id"] or lane_dir.name
+    attempt = new_attempt_id()
+    exec_body = {
+        "lane_id": lane_id,
+        "round": rnd,
+        "step": step,
+        "step_index": STEPS.index(step),
+        "attempt_id": attempt,
+    }
+    root = make_attempt(lane_dir, rnd, step, attempt)
+    info = _created_fields(lane_dir)
+    intent = {
+        "exec": exec_body,
+        "step_order": list(STEPS),
+        "argv": ["lane-step", step],
+        "cwd": "work",
+        "brief": _brief_ref(lane_dir, rnd, events),
+        "config_sha256": info.get("config_sha256"),
+        "pinned_files": info.get("pinned_files") or {},
+        "repos": info.get("repos") or {},
+        "consumed": {},
+        "pre_checks": {},
+        "limit_seconds": 3600,
+    }
+    intent_sha = publish_json_doc(root / "rec" / "intent.json", intent)
+    append_obj(lane_dir, {"type": "step_intent", "exec": exec_body, "intent_sha256": intent_sha})
+    return exec_body
+
+
 def mark_started(lane_dir: Path, exec_body: dict, *, started_at: str | None = None, limit_seconds: int = 3600, holding_lock: bool = False) -> None:
     def body() -> None:
-        repair_torn_tail(lane_dir)
+        from commands import enter
+
+        def action(locked_dir, _view, _ctx):
+            append_obj(
+                locked_dir,
+                {
+                    "type": "step_started",
+                    "exec": exec_body,
+                    "pid": os.getpid(),
+                    "lstart": started_at or now_iso(),
+                    "started_at": started_at or now_iso(),
+                    "limit_seconds": limit_seconds,
+                },
+            )
+
+        enter(lane_dir.parent, lane_dir.name, "record", action, held=True, lane_dir=lane_dir)
+
+    _locked(lane_dir, "record", body, holding_lock)
+
+
+def _refuse_closed(events: list[dict], rnd: int) -> None:
+    if verdict_event(events, rnd) is not None:
+        raise LaneError(f"round {rnd} already has a verdict")
+    if closing_resolutions(events, rnd):
+        raise LaneError(f"round {rnd} has a closing resolution")
+
+
+def _refuse_order(view: dict, step: str) -> None:
+    if view.get("state") == "ready" and view.get("next_step") == step:
+        return
+    raise LaneError(f"{step} is out of order in round {view.get('round')}")
+
+
+def _brief_ref(lane_dir: Path, rnd: int, events: list[dict]) -> dict:
+    opened = [event for event in round_events(events) if int(event.get("round", -1)) == rnd]
+    event = opened[-1] if opened else {}
+    rel = event.get("brief_copy")
+    path = lane_dir / rel if rel else None
+    if path is None or not path.is_file():
+        matches = sorted((lane_dir / f"r{rnd}").glob("brief-*.md"))
+        path = matches[-1] if matches else None
+        rel = f"r{rnd}/{path.name}" if path is not None else event.get("brief_path")
+    data = path.read_bytes() if path is not None and path.is_file() else b""
+    return {"path": rel, "length": len(data), "sha256": sha256_bytes(data)}
+
+
+def _finish_open(lane_dir: Path, intent_event: dict, kw: dict) -> dict:
+    exec_body = dict(intent_event["exec"])
+    root = attempt_dir(lane_dir, exec_body)
+    intent_sha = intent_event["intent_sha256"]
+    events = load_file(lane_dir / "events.jsonl").events
+    started = events_for_step(events, int(exec_body["round"]), exec_body["step"])["step_started"]
+    if kw["also_start"] and kw["not_started"] is None and not started:
         append_obj(
             lane_dir,
             {
                 "type": "step_started",
                 "exec": exec_body,
                 "pid": os.getpid(),
-                "lstart": started_at or now_iso(),
-                "started_at": started_at or now_iso(),
-                "limit_seconds": limit_seconds,
+                "lstart": kw["started_at"] or now_iso(),
+                "started_at": kw["started_at"] or now_iso(),
+                "limit_seconds": kw["limit_seconds"],
             },
         )
+    manifest = _manifest(root, exec_body, intent_sha, kw)
+    manifest_sha = publish_json_doc(root / "rec" / "manifest.json", manifest)
+    _append_recorded(lane_dir, exec_body, manifest, manifest_sha)
+    if kw["write_verdict"]:
+        flush_verdict(lane_dir)
+    return exec_body
 
-    _locked(lane_dir, "record", body, holding_lock)
+
+def _append_recorded(lane_dir: Path, exec_body: dict, manifest: dict, manifest_sha: str) -> None:
+    step = exec_body["step"]
+    recorded = {
+        "type": "step_recorded",
+        "exec": exec_body,
+        "manifest_sha256": manifest_sha,
+        "not_started": manifest.get("not_started"),
+        "exit": manifest.get("exit"),
+        "consumed": manifest.get("consumed") or {},
+    }
+    if step == "implement":
+        recorded["pinned"] = manifest.get("pinned") or {}
+        recorded["bundles"] = manifest.get("bundles") or {}
+    if step == "review":
+        recorded["rejects"] = manifest.get("fields", {}).get("report_first_line") == "VERDICT: fix first" and bool(
+            (manifest.get("outputs") or {}).get("report", {}).get("present")
+        )
+        recorded["sha_set"] = manifest.get("consumed") or {}
+    append_obj(lane_dir, recorded)
 
 
 def manifest_sha(obj: dict) -> str:

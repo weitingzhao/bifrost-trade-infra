@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import pytest
+
+from commands import cmd_run, consult as command_consult
+from errors import LaneError
 from query import NEGATIVE
+from support import implement_ok, make_lane
 from table import consult
 
 STATES = (
@@ -167,6 +172,30 @@ def test_t22_table_cells_and_passed_is_unreachable():
         _search(state, ctx, origin_round=1)
 
 
+def test_t22_commands_consult_the_table(tmp_path, monkeypatch):
+    """A command that skips the table never reaches this list."""
+    import commands
+
+    seen = []
+    real = commands.consult
+
+    def spy(state, command, ctx):
+        seen.append(command)
+        return real(state, command, ctx)
+
+    monkeypatch.setattr(commands, "consult", spy)
+    lane = make_lane(tmp_path, "T22")
+    assert "new" in seen
+    first = implement_ok(lane)
+    assert "record" in seen
+    with pytest.raises(LaneError, match=f"implement already has attempt {first['attempt_id']} in round 1"):
+        implement_ok(lane)
+    with pytest.raises(LaneError, match="run is implemented in round 2"):
+        cmd_run(lane.root, lane.lane_id)
+    assert "run" in seen
+    assert command_consult is real
+
+
 def _search(state, ctx, origin_round: int) -> None:
     kinds = KINDS
 
@@ -175,7 +204,7 @@ def _search(state, ctx, origin_round: int) -> None:
             raise AssertionError("reached passed: " + " ".join(path))
         if depth == 4:
             return
-        for command in COMMANDS:
+        for command in COMMANDS + ("record",):
             if command == "new":
                 continue
             for kind in kinds if command == "resolve" else (here.get("kind"),):

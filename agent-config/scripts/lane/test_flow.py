@@ -28,6 +28,11 @@ def test_t06_lane_exec_blocks_state_changes(tmp_path, monkeypatch):
     )
     for call in attempts:
         assert _boom(call) == "a lane step cannot change a lane"
+    monkeypatch.delenv("LANE_EXEC")
+    failed = make_lane(tmp_path, "E")
+    implement_ok(failed, exit_code=9)
+    monkeypatch.setenv("LANE_EXEC", "")
+    assert _boom(lambda: cmd_next_round(failed.root, failed.lane_id, brief=str(tmp_path / "missing-brief.md"))) == "a lane step cannot change a lane"
 
 
 def test_t08_budget_and_run_never_opens_a_round(tmp_path):
@@ -115,6 +120,20 @@ def test_t30_failed_close_still_unknown_and_budget(tmp_path):
     assert status["reason"] == "implement closed as failed by ada: gave up"
     assert _boom(lambda: cmd_next_round(lane.root, lane.lane_id, brief=str(lane.brief))).startswith("over budget:")
 
+    noted = make_lane(tmp_path, "N", max_rounds=3)
+    opened = open_intent_only(noted.dir)
+    cmd_resolve(
+        noted.root, noted.lane_id, attempt=opened["attempt_id"], kind="still-unknown",
+        operator="ada", reason="unsure", evidence="logs",
+    )
+    implement_ok(noted, attempt_id=opened["attempt_id"])
+    verify_ok(noted)
+    review_ok(noted)
+    finished = noted.status()
+    assert finished["state"] == "passed"
+    assert any(event.get("type") == "resolution" and event.get("kind") == "still-unknown" for event in noted.events())
+    assert "still-unknown by ada: unsure" in finished["notes"]
+
 
 def test_t48_verdict_pending_flushes_once(tmp_path):
     lane = make_lane(tmp_path, max_rounds=3)
@@ -124,6 +143,27 @@ def test_t48_verdict_pending_flushes_once(tmp_path):
     assert _boom(lambda: cmd_run(lane.root, lane.lane_id)) == "run is implemented in round 2"
     steps = [event["exec"]["step"] for event in lane.events() if event["type"] == "step_intent"]
     assert steps == ["implement"]
+
+    verified = make_lane(tmp_path, "V48", max_rounds=3)
+    implement_ok(verified)
+    verify_ok(verified, write_verdict=False)
+    assert verified.status()["state"] == "ready"
+    assert verified.status()["next_step"] == "review"
+    assert _boom(lambda: cmd_run(verified.root, verified.lane_id)) == "run is implemented in round 2"
+    verify_steps = [event["exec"]["step"] for event in verified.events() if event["type"] == "step_intent"]
+    assert verify_steps == ["implement", "verify"]
+
+    verify_fail = make_lane(tmp_path, "VF", max_rounds=3)
+    implement_ok(verify_fail)
+    verify_fail.record(
+        step="verify",
+        stdout=b"VERDICT: FAIL (1)\n",
+        exit_code=1,
+        consumed=sha_set(B, TB),
+        checks={},
+        write_verdict=False,
+    )
+    assert verify_fail.status()["display"] == "verdict_pending (verify_failed)"
 
     failed = make_lane(tmp_path, "F", max_rounds=3)
     implement_ok(failed, exit_code=9, write_verdict=False)
