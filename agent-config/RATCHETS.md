@@ -300,3 +300,10 @@
 - **放哪**：Plugin `tests/test_long_pilot.py`（7 tests）、`polygon/{endpoints,client}.py`、`ingest/long_pilot.py`、`scripts/run_replacement_pilot.py`；验收 `docs/audits/TD-172-142_REPLACEMENT_2026-10-10.md`。
 - **强度**：blocking tests，隔离提交cca27d2；本次受限平台执行有效，未常规发布。实际92raw/23ATM/48来源，HTTP75；同清单raw重放0HTTP/0新增，feature重放0新增，三名DEV及全旧值保护PASS。
 - **覆盖**：TD-172/142；当前目录穿越回填旧日、分页截断误当不存在、预算跨cohort重置、合并区间写入非批准日期、已有值覆盖。runtime告警接收仍NOT VERIFIED；不宣称全历史完备。
+
+### TD-172 / TD-142 60-session proposal audit
+
+- **做什么**：同一252日历格子/三名756唯一行；历史as_of、180–220期限及完整strike目录，标准2call+2put才列需bars；current/分页截断/权限错误/未核实均不等于未挂牌，挂牌不等于有效IV。occupied父键/held raw保持，observed rate 0有效、missing不是0；一个远父点联合改善90/180，备用和SPY两日闸门分开，区间拆分不能增加目标日。
+- **放哪**：`scripts/audit-iv-depth-plan.py`、`scripts/test_iv_depth_plan.py`（10 tests），`docs/audits/TD-172-142_DEPTH_60_PLAN_2026-10-10.md`。
+- **强度**：offline manual audit；新测试及既有joint suites24 PASS，ruff PASS；91 GET +既有1日历史证明，DEV API同as_of只读一致；原17913raw/232ATM/20985来源全值保持。新批写入口/220HTTP预算防线仍未实现或执行，须在Owner确认新清单后补，不冒称运行防线已上线。
+- **覆盖**：TD-172/142；整日缺失/重复日膨胀分母、把目录当行情、长期限单点冒充有效session、SPY零改善仍扩大；拟议主64父键和9备用不是授权，未发布/未扩回填。
