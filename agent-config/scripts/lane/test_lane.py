@@ -159,7 +159,7 @@ def events(root: Path, lane_id: str) -> list[dict]:
 def test_help():
     proc = subprocess.run([sys.executable, str(LANE), "--help"], capture_output=True, text=True)
     assert proc.returncode == 0
-    for name in ("new", "run", "status", "next-round", "extend", "abandon", "stop", "board", "queue"):
+    for name in ("new", "run", "status", "next-round", "extend", "abandon", "stop", "retry", "board", "queue"):
         assert name in proc.stdout
 
 
@@ -191,7 +191,7 @@ def test_happy_path_passed(tmp_path):
         assert done["exit"] == 0
         assert done["ended_at"]
         assert step["start"] and step["end"] and step["log"]
-        assert f"/{step['name']}-{step['attempt']}/log" in step["log"].replace("\\", "/")
+        assert f"/{step['name']}-{step['attempt']}/stdout.log" in step["log"].replace("\\", "/")
     tos = [event["to"] for event in events(root, "w66")]
     assert tos == ["ready", "implementing", "verifying", "reviewing", "passed"]
     for event in events(root, "w66"):
@@ -299,23 +299,18 @@ def test_round_budget_extend_and_one_more(tmp_path):
     assert len(load(root, "w66")["extensions"]) == 1
 
 
-def test_stalled_step_leaves_process_running(tmp_path):
+def test_quiet_step_is_not_a_stalled_state(tmp_path):
     root, cfg, ws, brief = scaffold(tmp_path)
     new_lane(root, cfg, ws, brief)
-    proc = cli(root, cfg, "run", "w66", "--stall-seconds", "0.4", mode="stall")
+    proc = cli(
+        root, cfg, "run", "w66", "--stall-seconds", "0.2", mode="stall",
+        extra_env={"LANE_STALL_SLEEP": "0.5"},
+    )
     assert proc.returncode == 0, proc.stderr
     doc = load(root, "w66")
-    try:
-        assert doc["state"] == "stalled"
-        step = doc["steps"][0]
-        assert step["name"] == "implement"
-        assert step["end"] is None
-        assert step["exit"] is None
-        assert not Path(step["done"]).exists()
-        assert pid_alive(step["pid"])
-        assert events(root, "w66")[-1]["to"] == "stalled"
-    finally:
-        stop_process(doc["steps"][0]["pid"])
+    assert doc["state"] == "passed"
+    assert doc["steps"][0]["end"]
+    assert all(event["to"] != "stalled" for event in events(root, "w66"))
 
 
 def test_vanished_process(tmp_path):
@@ -343,8 +338,9 @@ def test_vanished_process(tmp_path):
     assert proc.returncode == 0, proc.stderr
     done_doc = load(root, "w66")
     assert done_doc["state"] == "failed"
-    assert done_doc["steps"][0]["vanished"] is True
-    assert events(root, "w66")[-1]["why"] == "process vanished without an exit record"
+    assert done_doc["steps"][0].get("vanished") is not True
+    assert events(root, "w66")[-1]["why"] == "the driver died during implement"
+    assert not (root / "w66" / "round-1" / "implement-2").exists()
 
 
 def test_atomic_rewrite_survives_crash(tmp_path, monkeypatch):
@@ -394,7 +390,7 @@ def test_board_and_queue(tmp_path):
     assert implement["who"] == "Cursor"
     assert implement["usual_min"] == 30
     assert implement["pattern"] == "fake.py implement older"
-    assert implement["progress"].endswith("implement-1/log")
+    assert implement["progress"].endswith("implement-1/stdout.log")
     assert implement["done"].endswith("implement-1/done")
     assert json.loads(Path(implement["done"]).read_text(encoding="utf-8"))["exit"] == 0
     assert len(by_short["done"]["steps"]) == 3

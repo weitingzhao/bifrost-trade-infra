@@ -1,26 +1,32 @@
 #!/usr/bin/env python3
-"""Run one lane command and record its exit if lane.py is no longer around.
+"""Register a lane step, then become the command.
 
-Usage: lane_runner.py <done-path> -- <argv...>
+Usage: lane_runner.py <started-path> -- <argv...>
 
-The record is JSON ``{"exit": n, "ended_at": ...}``, written atomically when
-the command ends. stdout and stderr are the ones lane.py already pointed at
-the attempt log.
+The runner is the session leader, so its pgid equals its pid. It writes
+``started.json`` atomically (``pid``, ``pgid``, ``started_at``) and then
+``os.execvp``s the command. The process keeps that pid, and the command's own
+exit code is what ``lane.py`` reads from ``proc.wait()``. This program does
+not write ``done``.
 """
 from __future__ import annotations
 
 import json
 import os
 import random
-import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 
-def write_done(path: Path, code: int) -> None:
+def write_started(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"exit": code, "ended_at": datetime.now(timezone.utc).isoformat()}
+    payload = {
+        "pid": os.getpid(),
+        "pgid": os.getpgrp(),
+        "started_at": datetime.now(timezone.utc).isoformat(),
+    }
     token = f"{os.getpid()}.{random.randrange(16 ** 8):08x}"
     tmp = path.with_name(f".{path.name}.{token}.tmp")
     data = json.dumps(payload) + "\n"
@@ -34,21 +40,28 @@ def write_done(path: Path, code: int) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if "--" not in args or not args or args[0] == "--":
-        print("usage: lane_runner.py <done-path> -- <argv...>", file=sys.stderr)
+        print("usage: lane_runner.py <started-path> -- <argv...>", file=sys.stderr)
         return 2
     sep = args.index("--")
-    done = Path(args[0])
+    started = Path(args[0])
     command = args[sep + 1:]
     if not command:
-        print("usage: lane_runner.py <done-path> -- <argv...>", file=sys.stderr)
+        print("usage: lane_runner.py <started-path> -- <argv...>", file=sys.stderr)
         return 2
+    # lane.py starts this process with a new session. If a caller did not, become
+    # the session leader here so the recorded pgid is this pid.
+    if os.getpgrp() != os.getpid():
+        os.setsid()
+    delay = os.environ.get("LANE_REGISTER_DELAY", "")
+    if delay:
+        time.sleep(float(delay))
+    write_started(started)
     try:
-        completed = subprocess.run(command, shell=False)
-        code = int(completed.returncode)
-    except FileNotFoundError:
-        code = 127
-    write_done(done, code)
-    return code
+        os.execvp(command[0], command)
+    except OSError as exc:
+        print(f"exec failed: {exc}", file=sys.stderr)
+        return 127
+    return 127
 
 
 if __name__ == "__main__":

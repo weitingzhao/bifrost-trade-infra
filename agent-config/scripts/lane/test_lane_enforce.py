@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import os
 import pty
-import signal
 import subprocess
 import time
 from pathlib import Path
@@ -12,9 +11,8 @@ from pathlib import Path
 import lane
 import lane_runner
 import lane_state
-import lane_steps
 from test_lane import (
-    HERE, LANE, cli, events, load, new_lane, scaffold, stop_process, unused_pid, write_config,
+    HERE, LANE, cli, events, load, new_lane, scaffold, stop_process, write_config,
 )
 
 GIT_ENV = {
@@ -84,7 +82,7 @@ def test_p1_fresh_attempt_directory(tmp_path):
     assert marker.read_text(encoding="utf-8") == "keep\n"
     assert not (marker_dir / "log").exists()
     assert doc["steps"][0]["attempt"] == 2
-    assert doc["steps"][0]["log"].endswith("implement-2/log")
+    assert doc["steps"][0]["log"].endswith("implement-2/stdout.log")
     verify = next(item for item in doc["verdicts"]["entries"] if item["step"] == "verify")
     assert set(verify) >= {"round", "step", "attempt", "verdict", "heads", "exit", "at"}
     assert verify["verdict"] == "VERDICT: pass"
@@ -115,7 +113,7 @@ def test_p1_heads_bound_to_this_commit(tmp_path):
     proc = cli(root, cfg, "run", "dirty")
     assert proc.returncode == 0, proc.stderr
     assert load(root, "dirty")["state"] == "failed"
-    assert events(root, "dirty")[-1]["why"] == "uncommitted changes in dirty"
+    assert events(root, "dirty")[-1]["why"] == "uncommitted or untracked files in dirty before verify"
     assert not (root / "dirty" / "round-1" / "verify-1").exists()
 
     moved = tmp_path / "moved"
@@ -140,7 +138,7 @@ def test_p1_heads_bound_to_this_commit(tmp_path):
     proc = cli(root, move_cfg, "run", "during")
     assert proc.returncode == 0, proc.stderr
     assert load(root, "during")["state"] == "failed"
-    assert events(root, "during")[-1]["why"] == "the branch moved during verification"
+    assert events(root, "during")[-1]["why"] == "the work tree of moved changed during verify"
     assert [step["name"] for step in load(root, "during")["steps"]] == ["implement", "verify"]
 
 
@@ -191,7 +189,7 @@ def test_p1_review_heads_must_match_the_verify(tmp_path):
     done = load(root, "shift")
     assert done["state"] == "failed"
     assert "verified_heads" not in done
-    assert events(root, "shift")[-1]["why"] == "the branch moved during review"
+    assert events(root, "shift")[-1]["why"] == "the work tree of reviewrepo changed during review"
 
 
 def test_p1_lock_two_processes(tmp_path):
@@ -270,6 +268,8 @@ def test_p1_a_step_cannot_change_the_lane(tmp_path):
         ["next-round", "w66", "--brief", str(brief)],
         ["extend", "w66", "--reason", "quiet", "--by", "coordinator"],
         ["abandon", "w66", "--reason", "quiet"],
+        ["stop", "w66", "--by", "quiet"],
+        ["retry", "w66", "--by", "quiet", "--reason", "quiet"],
     ]
     for args in calls:
         proc = cli(root, cfg, *args, extra_env={"LANE_STEP": "w66/implement"})
@@ -434,161 +434,20 @@ def test_p1_argv_not_a_shell(tmp_path):
     assert all(isinstance(real[name], list) for name in ("implement", "verify", "review"))
 
 
-def test_p2_runner_records_the_exit(tmp_path):
-    done = tmp_path / "done"
-    proc = subprocess.run(
-        [__import__("sys").executable, str(HERE / "lane_runner.py"), str(done), "--",
-         __import__("sys").executable, "-c", "import sys; sys.exit(7)"],
-        capture_output=True, text=True,
+def test_p2_runner_becomes_the_command(tmp_path):
+    started = tmp_path / "started.json"
+    py = __import__("sys").executable
+    proc = subprocess.Popen(
+        [py, str(HERE / "lane_runner.py"), str(started), "--", py, "-c", "import sys; sys.exit(7)"],
     )
-    assert proc.returncode == 7
-    body = json.loads(done.read_text(encoding="utf-8"))
-    assert body["exit"] == 7
-    assert body["ended_at"]
-    assert lane_runner.main([str(done), "--"]) == 2
-
-
-def test_p2_crash_recovery(tmp_path):
-    root, cfg, ws, brief = scaffold(tmp_path)
-    new_lane(root, cfg, ws, brief, lane_id="start")
-    doc = load(root, "start")
-    attempt = root / "start" / "round-1" / "implement-1"
-    attempt.mkdir(parents=True)
-    doc["state"] = "implementing"
-    doc["steps"] = [{
-        "name": "implement", "round": 1, "attempt": 1, "state": "starting", "who": "Cursor",
-        "start": doc["created_at"], "end": None, "pid": None, "lstart": None, "exit": None,
-        "log": str(attempt / "log"), "done": str(attempt / "done"), "report": str(attempt / "report"),
-        "heads": None,
-    }]
-    save(root, "start", doc)
-    proc = cli(root, cfg, "run", "start")
-    assert proc.returncode == 0, proc.stderr
-    doc = load(root, "start")
-    assert doc["state"] == "failed"
-    assert len(doc["steps"]) == 1
-    assert not (root / "start" / "round-1" / "implement-2").exists()
-    assert events(root, "start")[-1]["why"] == "stopped while starting; check for a stray process"
-
-    new_lane(root, cfg, ws, brief, lane_id="done")
-    doc = load(root, "done")
-    attempt = root / "done" / "round-1" / "implement-1"
-    attempt.mkdir(parents=True)
-    (attempt / "done").write_text(json.dumps({"exit": 0, "ended_at": doc["created_at"]}) + "\n", encoding="utf-8")
-    (attempt / "log").write_text(
-        json.dumps({"type": "result", "usage": {"inputTokens": 11, "outputTokens": 7}}) + "\n",
-        encoding="utf-8",
-    )
-    doc["state"] = "implementing"
-    doc["steps"] = [{
-        "name": "implement", "round": 1, "attempt": 1, "state": "running", "who": "Cursor",
-        "start": doc["created_at"], "end": None, "pid": unused_pid(), "lstart": "not-this-process",
-        "exit": None, "log": str(attempt / "log"), "done": str(attempt / "done"),
-        "report": str(attempt / "report"), "heads": None,
-    }]
-    save(root, "done", doc)
-    proc = cli(root, cfg, "run", "done")
-    assert proc.returncode == 0, proc.stderr
-    doc = load(root, "done")
-    assert doc["state"] == "passed"
-    assert [step["attempt"] for step in doc["steps"] if step["name"] == "implement"] == [1]
-    assert not (root / "done" / "round-1" / "implement-2").exists()
-
-    sleeper = subprocess.Popen(
-        [__import__("sys").executable, "-c", "import time; time.sleep(30)"],
-        start_new_session=True,
-    )
-    try:
-        new_lane(root, cfg, ws, brief, lane_id="reuse")
-        doc = load(root, "reuse")
-        attempt = root / "reuse" / "round-1" / "implement-1"
-        attempt.mkdir(parents=True)
-        doc["state"] = "implementing"
-        doc["steps"] = [{
-            "name": "implement", "round": 1, "attempt": 1, "state": "running", "who": "Cursor",
-            "start": doc["created_at"], "end": None, "pid": sleeper.pid, "lstart": "not-this-process",
-            "exit": None, "log": str(attempt / "log"), "done": str(attempt / "done"),
-            "report": str(attempt / "report"), "heads": None,
-        }]
-        save(root, "reuse", doc)
-        started = time.time()
-        proc = subprocess.run(
-            [__import__("sys").executable, str(LANE), "--root", str(root), "--config", str(cfg), "run", "reuse"],
-            capture_output=True, text=True, timeout=5,
-            env={**os.environ, "LANE_FAKE": "pass"},
-        )
-        assert time.time() - started < 4
-        assert proc.returncode == 0, proc.stderr
-        assert load(root, "reuse")["state"] == "failed"
-        assert events(root, "reuse")[-1]["why"] == "process vanished without an exit record"
-        assert sleeper.poll() is None
-    finally:
-        stop_process(sleeper.pid)
-
-
-def test_p2_abandon_stop_and_reattach(tmp_path):
-    root, cfg, ws, brief = scaffold(tmp_path)
-    new_lane(root, cfg, ws, brief, lane_id="live")
-    proc = cli(root, cfg, "run", "live", "--stall-seconds", "0.3", mode="stall", extra_env={"LANE_STALL_SLEEP": "30"})
-    assert proc.returncode == 0, proc.stderr
-    pid = load(root, "live")["steps"][0]["pid"]
-    assert lane_steps.pid_alive(pid)
-    abandoned = cli(root, cfg, "abandon", "live", "--reason", "drop it")
-    assert abandoned.returncode == 0, abandoned.stderr
-    doc = load(root, "live")
-    assert doc["state"] == "failed"
-    assert doc["abandoned"] is True
-    assert doc["steps"][0]["terminated"]["signals"] == ["TERM"]
-    assert events(root, "live")[-1]["why"] == "abandon: drop it; terminated the process group"
-    deadline = time.time() + 2
-    while lane_steps.pid_alive(pid) and time.time() < deadline:
-        time.sleep(0.05)
-    assert not lane_steps.pid_alive(pid)
-
-    new_lane(root, cfg, ws, brief, lane_id="halt")
-    proc = cli(root, cfg, "run", "halt", "--stall-seconds", "0.3", mode="stall", extra_env={"LANE_STALL_SLEEP": "30"})
-    assert proc.returncode == 0, proc.stderr
-    pid = load(root, "halt")["steps"][0]["pid"]
-    stopped = cli(root, cfg, "stop", "halt", "--by", "owner")
-    assert stopped.returncode == 0, stopped.stderr
-    doc = load(root, "halt")
-    assert doc["state"] == "failed"
-    assert doc.get("abandoned") is not True
-    assert events(root, "halt")[-1]["why"] == "stopped by owner"
-    assert doc["steps"][0]["terminated"]["by"] == "owner"
-    deadline = time.time() + 2
-    while lane_steps.pid_alive(pid) and time.time() < deadline:
-        time.sleep(0.05)
-    assert not lane_steps.pid_alive(pid)
-
-    new_lane(root, cfg, ws, brief, lane_id="again")
-    proc = cli(root, cfg, "run", "again", "--stall-seconds", "0.25", mode="stall", extra_env={"LANE_STALL_SLEEP": "1.2"})
-    assert proc.returncode == 0, proc.stderr
-    first = load(root, "again")["steps"][0]
-    assert first["end"] is None
-    proc = cli(root, cfg, "run", "again", "--stall-seconds", "10")
-    assert proc.returncode == 0, proc.stderr
-    doc = load(root, "again")
-    assert doc["state"] == "passed"
-    implement = [step for step in doc["steps"] if step["name"] == "implement"]
-    assert len(implement) == 1
-    assert implement[0]["pid"] == first["pid"]
-    assert implement[0]["attempt"] == 1
-
-    ignorer = subprocess.Popen(
-        [__import__("sys").executable, "-c",
-         "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)"],
-        start_new_session=True,
-    )
-    try:
-        signals = lane_steps.terminate_group(ignorer.pid, wait_s=0.3)
-        assert signals == ["TERM", "KILL"]
-        assert ignorer.wait(timeout=2) is not None
-        assert lane_steps.terminate_group.__defaults__ == (lane_steps.TERM_WAIT_SECONDS,)
-        assert lane_steps.TERM_WAIT_SECONDS == 5
-    finally:
-        if ignorer.poll() is None:
-            stop_process(ignorer.pid)
+    code = proc.wait(timeout=5)
+    assert code == 7
+    body = json.loads(started.read_text(encoding="utf-8"))
+    assert body["pid"] == proc.pid
+    assert body["pgid"] == body["pid"]
+    assert body["started_at"]
+    assert not (tmp_path / "done").exists()
+    assert lane_runner.main([str(started), "--"]) == 2
 
 
 def test_p2_queue_and_status_check(tmp_path):
@@ -614,42 +473,26 @@ def test_p2_queue_and_status_check(tmp_path):
     doc = load(root, "busy")
     doc["state"] = "implementing"
     save(root, "busy", doc)
-    new_lane(root, cfg, ws, brief, lane_id="stuck", title="Stuck lane")
-    proc = cli(root, cfg, "run", "stuck", "--stall-seconds", "0.3", mode="stall", extra_env={"LANE_STALL_SLEEP": "30"})
-    assert proc.returncode == 0, proc.stderr
-    pid = load(root, "stuck")["steps"][0]["pid"]
-    try:
-        queued = json.loads(cli(root, cfg, "queue").stdout)
-        titles = [item["title"] for item in queued]
-        assert "Ready lane" in titles
-        assert "Failed lane" in titles
-        assert "Budget lane" in titles
-        assert "Owner budget" in titles
-        assert "Stuck lane" in titles
-        assert "Abandoned lane" not in titles
-        assert "Busy lane" not in titles
-        by_title = {item["title"]: item for item in queued}
-        assert by_title["Ready lane"]["why_waiting"] == "ready to run"
-        assert by_title["Ready lane"]["needs_owner"] is False
-        assert by_title["Failed lane"]["why_waiting"] == "failed; a person has to decide"
-        assert by_title["Budget lane"]["why_waiting"] == "over the round budget"
-        assert by_title["Budget lane"]["needs_owner"] is False
-        assert by_title["Owner budget"]["needs_owner"] is True
-        assert "budget extended once by coordinator: need one more" in by_title["Owner budget"]["why_waiting"]
-        assert "stalled" in by_title["Stuck lane"]["why_waiting"]
-        assert by_title["Stuck lane"]["needs_owner"] is False
-        os.killpg(pid, signal.SIGKILL)
-        deadline = time.time() + 2
-        while lane_steps.pid_alive(pid) and time.time() < deadline:
-            time.sleep(0.05)
-        status = cli(root, cfg, "status", "stuck")
-        assert "state=running (process gone)" in status.stdout
-        check = cli(root, cfg, "status", "--check")
-        assert check.returncode == 1
-        one = cli(root, cfg, "status", "ready-one", "--check")
-        assert one.returncode == 0
-    finally:
-        stop_process(pid)
+    queued = json.loads(cli(root, cfg, "queue").stdout)
+    titles = [item["title"] for item in queued]
+    assert "Ready lane" in titles
+    assert "Failed lane" in titles
+    assert "Budget lane" in titles
+    assert "Owner budget" in titles
+    assert "Busy lane" in titles
+    assert "Abandoned lane" not in titles
+    by_title = {item["title"]: item for item in queued}
+    assert by_title["Ready lane"]["why_waiting"] == "ready to run"
+    assert by_title["Ready lane"]["needs_owner"] is False
+    assert by_title["Failed lane"]["why_waiting"] == "failed; a person has to decide"
+    assert by_title["Budget lane"]["why_waiting"] == "over the round budget"
+    assert by_title["Budget lane"]["needs_owner"] is False
+    assert by_title["Owner budget"]["needs_owner"] is True
+    assert "budget extended once by coordinator: need one more" in by_title["Owner budget"]["why_waiting"]
+    assert by_title["Busy lane"]["why_waiting"] == "implementing; no step is running"
+    assert by_title["Busy lane"]["needs_owner"] is False
+    one = cli(root, cfg, "status", "ready-one", "--check")
+    assert one.returncode == 0
 
 
 def test_p2_strict_verdicts(tmp_path):

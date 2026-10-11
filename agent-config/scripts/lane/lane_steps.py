@@ -1,4 +1,10 @@
-"""One attempt of implement, verify, or review, and how its result is judged."""
+"""One attempt of implement, verify, or review, and how its result is judged.
+
+A step runs only while the `run` that started it is still alive. A later `run`
+does not attach to that child. It ends the recorded process group and fails
+the lane. The exit code is the value `proc.wait()` returns. `done` is written
+afterwards for the board and is never read back to decide.
+"""
 from __future__ import annotations
 
 import json
@@ -11,6 +17,7 @@ import time
 from pathlib import Path
 
 from lane_state import (
+    LaneError,
     atomic_write_json,
     commit_state,
     now_iso,
@@ -21,6 +28,7 @@ from lane_state import (
 
 DRIVING = {"ready", "implementing", "verifying", "reviewing"}
 PHASE_OF = {"implementing": "implement", "verifying": "verify", "reviewing": "review"}
+PHASE_STATE = {"implement": "implementing", "verify": "verifying", "review": "reviewing"}
 DEFAULT_WHO = {"implement": "Cursor", "verify": "verify-branch.sh", "review": "Codex"}
 DEFAULT_USUAL = {"implement": 30, "verify": 8, "review": 10}
 DEFAULT_PATTERN = {"implement": "cursor-agent", "verify": "verify-branch.sh", "review": "codex exec"}
@@ -28,13 +36,11 @@ TOKENS_RE = re.compile(r"tokens used\s*\n?\s*([\d,]+)", re.I)
 PASS_LINE = "VERDICT: pass"
 REVIEW_OK = ("VERDICT: safe to merge", "VERDICT: fix first")
 END_LINE = "END OF REPORT"
-MOVED_VERIFY = "the branch moved during verification"
-MOVED_REVIEW = "the branch moved during review"
 REVIEW_HEADS = "review needs a passing verify for the current heads"
-START_ABORTED = "stopped while starting; check for a stray process"
-VANISHED = "process vanished without an exit record"
 RUNNER = Path(__file__).resolve().parent / "lane_runner.py"
-TERM_WAIT_SECONDS = 5.0
+GROUP_WAIT_SECONDS = 5.0
+REGISTER_SECONDS = 5.0
+REQUEST_NAME = "stop-request.json"
 
 
 def pid_alive(pid: object) -> bool:
@@ -49,56 +55,64 @@ def pid_alive(pid: object) -> bool:
     return True
 
 
-def process_lstart(pid: int) -> str:
-    proc = subprocess.run(
-        ["ps", "-o", "lstart=", "-p", str(pid)],
-        capture_output=True, text=True,
-    )
-    return proc.stdout.strip()
+def _pgid(value: object) -> int | None:
+    if type(value) is not int or value <= 1:
+        return None
+    return value
 
 
-def same_process(step: dict) -> bool:
-    pid = step.get("pid")
-    if not pid_alive(pid):
+def group_alive(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
         return False
-    return process_lstart(pid) == (step.get("lstart") or "")
+    except PermissionError:
+        return True
+    return True
 
 
-def terminate_group(pid: int, wait_s: float = TERM_WAIT_SECONDS) -> list[str]:
-    """TERM the process group, wait, then KILL. Returns the signals that were sent."""
-    if type(pid) is not int or pid <= 1:
-        return []
-    sent: list[str] = []
-    try:
-        os.killpg(pid, signal.SIGTERM)
-        sent.append("TERM")
-    except ProcessLookupError:
-        return sent
-    except PermissionError:
-        try:
-            os.kill(pid, signal.SIGTERM)
-            sent.append("TERM")
-        except ProcessLookupError:
-            return sent
-    deadline = time.time() + wait_s
-    while time.time() < deadline:
-        if not pid_alive(pid):
-            return sent
+def _wait_group_gone(pgid: int, seconds: float, reap) -> bool:
+    deadline = time.time() + seconds
+    while True:
+        if reap is not None:
+            reap()
+        if not group_alive(pgid):
+            return True
+        if time.time() >= deadline:
+            return False
         time.sleep(0.05)
+
+
+def end_group(pgid: object, wait_s: float = GROUP_WAIT_SECONDS, *, reap=None) -> bool:
+    """TERM the group, poll, then KILL and poll again. True when the group is gone.
+
+    The leader being dead already is not a reason to skip the group: a
+    grandchild may still be in it. ``reap``, when given, collects the leader
+    zombie; otherwise ``killpg`` still reports the group as alive. ``reaped``
+    is false when members survive KILL.
+    """
+    number = _pgid(pgid)
+    if number is None:
+        return True
     try:
-        os.killpg(pid, signal.SIGKILL)
+        os.killpg(number, signal.SIGTERM)
     except ProcessLookupError:
-        return sent
+        if reap is not None:
+            reap()
+        return True
     except PermissionError:
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            return sent
-    sent.append("KILL")
-    kill_deadline = time.time() + 1
-    while time.time() < kill_deadline and pid_alive(pid):
-        time.sleep(0.05)
-    return sent
+        pass
+    if _wait_group_gone(number, wait_s, reap):
+        return True
+    try:
+        os.killpg(number, signal.SIGKILL)
+    except ProcessLookupError:
+        if reap is not None:
+            reap()
+        return True
+    except PermissionError:
+        pass
+    return _wait_group_gone(number, wait_s, reap)
 
 
 def log_age(path: Path, started: str) -> float:
@@ -111,7 +125,15 @@ def log_age(path: Path, started: str) -> float:
 
 
 def poll_interval(stall_seconds: float) -> float:
+    """Seconds between stop-request checks. Never more than one second."""
     return min(1.0, max(0.05, stall_seconds / 20))
+
+
+def file_size(path: Path) -> int:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
 
 
 def read_text(path: Path) -> str:
@@ -126,18 +148,12 @@ def read_report(path: Path) -> str:
     return path.read_text(encoding="utf-8-sig", errors="replace")
 
 
-def read_done(path: Path) -> int | None:
+def read_json(path: Path) -> dict | None:
     try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
         return None
-    try:
-        doc = json.loads(text)
-    except json.JSONDecodeError:
-        return None
-    if isinstance(doc, dict) and type(doc.get("exit")) is int:
-        return doc["exit"]
-    return None
+    return doc if isinstance(doc, dict) else None
 
 
 def last_nonempty(text: str) -> str | None:
@@ -178,24 +194,54 @@ def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
     )
 
 
-def first_dirty(workspace: Path) -> str | None:
-    for name, repo in git_repos(workspace):
-        status = _git(repo, "status", "--porcelain", "--untracked-files=no")
-        if status.returncode != 0 or status.stdout.strip():
-            return name
+def _nested_untracked(line: str, nested: set[str]) -> bool:
+    """An untracked direct child work tree is judged on its own, not as parent dirt."""
+    if not nested or not line.startswith("??") or len(line) < 4:
+        return False
+    path = line[3:].strip().strip('"').rstrip("/")
+    return path.split("/", 1)[0] in nested
+
+
+def repo_rows(workspace: Path) -> list[tuple[str, str | None, str]]:
+    repos = git_repos(workspace)
+    nested = {name for name, path in repos if path.resolve() != workspace.resolve()}
+    rows: list[tuple[str, str | None, str]] = []
+    for name, repo in repos:
+        skip = nested if repo.resolve() == workspace.resolve() else set()
         head = _git(repo, "rev-parse", "HEAD")
-        if head.returncode != 0 or not head.stdout.strip():
+        status = _git(repo, "status", "--porcelain")
+        sha = head.stdout.strip() if head.returncode == 0 and head.stdout.strip() else None
+        if status.returncode != 0:
+            text = "error"
+        else:
+            kept = [line for line in status.stdout.splitlines() if not _nested_untracked(line, skip)]
+            text = "\n".join(kept)
+        rows.append((name, sha, text))
+    return rows
+
+
+def read_heads(workspace: Path) -> dict[str, str]:
+    return {name: sha for name, sha, _text in repo_rows(workspace) if sha}
+
+
+def dirty_name(workspace: Path) -> str | None:
+    for name, sha, text in repo_rows(workspace):
+        if not sha or text.strip():
             return name
     return None
 
 
-def read_heads(workspace: Path) -> dict[str, str]:
-    heads: dict[str, str] = {}
-    for name, repo in git_repos(workspace):
-        head = _git(repo, "rev-parse", "HEAD")
-        if head.returncode == 0 and head.stdout.strip():
-            heads[name] = head.stdout.strip()
-    return heads
+def changed_name(workspace: Path, recorded: dict | None) -> str | None:
+    recorded = recorded or {}
+    seen: set[str] = set()
+    for name, sha, text in repo_rows(workspace):
+        seen.add(name)
+        if not sha or text.strip() or recorded.get(name) != sha:
+            return name
+    for name in recorded:
+        if name not in seen:
+            return name
+    return None
 
 
 def workspace_of(lane: dict) -> Path:
@@ -298,15 +344,21 @@ def current_step(lane: dict) -> dict | None:
     return lane["steps"][-1] if lane["steps"] else None
 
 
-def process_gone(step: dict | None) -> bool:
-    if not step or step.get("end") is not None or step.get("state") != "running":
-        return False
-    done = step.get("done")
-    if done and read_done(Path(done)) is not None:
-        return False
-    if not pid_alive(step.get("pid")):
-        return True
-    return process_lstart(step["pid"]) != (step.get("lstart") or "")
+def pgid_of(step: dict | None) -> int | None:
+    if not step:
+        return None
+    started = step.get("started")
+    if started:
+        doc = read_json(Path(started))
+        if doc:
+            number = _pgid(doc.get("pgid"))
+            if number is not None:
+                return number
+    for key in ("pgid", "pid"):
+        number = _pgid(step.get(key))
+        if number is not None:
+            return number
+    return None
 
 
 def meta(cfg: dict, name: str, lane: dict) -> tuple[str, int, str]:
@@ -341,137 +393,96 @@ def allocate_attempt(directory: Path, round_n: int, name: str) -> tuple[int, Pat
         return number, attempt
 
 
-def capture_lstart(pid: int) -> str:
-    for _ in range(10):
-        if not pid_alive(pid):
-            return ""
-        stamp = process_lstart(pid)
-        if stamp:
-            return stamp
-        time.sleep(0.02)
-    return process_lstart(pid) if pid_alive(pid) else ""
-
-
-def start_step(directory: Path, lane: dict, cfg: dict, name: str, heads: dict | None) -> tuple[dict, subprocess.Popen]:
-    number, attempt = allocate_attempt(directory, int(lane["round"]), name)
-    log_path = attempt / "log"
-    done_path = attempt / "done"
-    report_path = attempt / "report"
-    who, _, _ = meta(cfg, name, lane)
-    step = {
-        "name": name,
-        "round": lane["round"],
-        "attempt": number,
-        "state": "starting",
-        "who": who,
-        "start": now_iso(),
-        "end": None,
-        "pid": None,
-        "lstart": None,
-        "exit": None,
-        "log": str(log_path),
-        "done": str(done_path),
-        "report": str(report_path),
-        "heads": heads,
-    }
-    lane["steps"].append(step)
+def persist(directory: Path, lane: dict) -> None:
     lane["updated_at"] = now_iso()
     atomic_write_json(directory / "lane.json", lane)
-    argv = render_argv(list(cfg[name]), **placeholders(lane, report_path))
-    env = os.environ.copy()
-    env["LANE_STEP"] = f"{lane['id']}/{name}"
-    workspace = workspace_of(lane)
-    cwd = str(workspace) if workspace.is_dir() else None
-    fh = log_path.open("wb", buffering=0)
+
+
+def request_path(directory: Path) -> Path:
+    return directory / REQUEST_NAME
+
+
+def read_request(directory: Path) -> dict | None:
+    doc = read_json(request_path(directory))
+    if not doc or doc.get("what") not in ("stop", "abandon"):
+        return None
+    return doc
+
+
+def discard_request(directory: Path) -> None:
     try:
-        proc = subprocess.Popen(
-            [sys.executable, str(RUNNER), str(done_path), "--", *argv],
-            stdout=fh,
-            stderr=subprocess.STDOUT,
-            cwd=cwd,
-            env=env,
-            start_new_session=True,
-            shell=False,
-        )
-    finally:
-        fh.close()
-    step["pid"] = proc.pid
-    step["lstart"] = capture_lstart(proc.pid)
-    step["state"] = "running"
-    lane["updated_at"] = now_iso()
-    atomic_write_json(directory / "lane.json", lane)
-    return step, proc
+        request_path(directory).unlink()
+    except FileNotFoundError:
+        pass
 
 
-def wait_child(proc: subprocess.Popen, step: dict, stall_seconds: float) -> tuple[str, int | None]:
-    interval = poll_interval(stall_seconds)
-    log_path = Path(step["log"])
-    while True:
-        try:
-            rc = proc.wait(timeout=interval)
-        except subprocess.TimeoutExpired:
-            if log_age(log_path, step["start"]) >= stall_seconds:
-                return "stalled", None
-            continue
-        code = read_done(Path(step["done"]))
-        if code is None:
-            return "vanished", None
-        return "exited", code if code is not None else rc
-
-
-def wait_pid(step: dict, stall_seconds: float) -> tuple[str, int | None]:
-    interval = poll_interval(stall_seconds)
-    log_path = Path(step["log"])
-    pid = step.get("pid")
-    while True:
-        code = read_done(Path(step["done"]))
-        if code is not None:
-            return "exited", code
-        if not pid_alive(pid) or process_lstart(pid) != (step.get("lstart") or ""):
-            code = read_done(Path(step["done"]))
-            if code is not None:
-                return "exited", code
-            return "vanished", None
-        if log_age(log_path, step["start"]) >= stall_seconds:
-            return "stalled", None
-        time.sleep(interval)
-
-
-def classify(step: dict) -> tuple[str, int | None]:
-    code = read_done(Path(step["done"])) if step.get("done") else None
+def close_step(
+    directory: Path, lane: dict, step: dict, new_state: str, why: str,
+    code: int | None, **extra,
+) -> None:
+    step["end"] = now_iso()
+    step["state"] = "finished"
     if code is not None:
-        return "exited", code
-    if step.get("state") == "starting" and not step.get("pid"):
-        return "aborted", None
-    if same_process(step):
-        return "alive", None
-    return "vanished", None
+        step["exit"] = code
+    commit_state(directory, lane, new_state, why, **extra)
 
 
-def resume_step(step: dict, stall_seconds: float) -> tuple[str, int | None]:
-    kind, code = classify(step)
-    if kind == "alive":
-        return wait_pid(step, stall_seconds)
-    return kind, code
+def apply_request(directory: Path, lane: dict, request: dict, *, reap=None) -> None:
+    """End the open step's group and record stop or abandon. Caller holds the lock."""
+    if lane["state"] == "passed":
+        verb = "stop" if request.get("what") == "stop" else "abandon"
+        raise LaneError(f"refusing to {verb} a lane that passed")
+    step = open_step(lane)
+    pgid = pgid_of(step)
+    reaped = end_group(pgid, reap=reap) if pgid else True
+    if step is not None:
+        step["reaped"] = reaped
+        if request.get("what") == "stop":
+            step["stopped_by"] = request.get("by")
+        else:
+            step["terminated"] = {"by": "abandon", "reaped": reaped, "at": now_iso()}
+    lane["last_interrupt"] = {
+        "what": request.get("what"),
+        "by": request.get("by") or "",
+        "reason": request.get("reason") or "",
+        "at": request.get("at"),
+    }
+    if request.get("what") == "abandon":
+        lane["abandoned"] = True
+        why = f"abandon: {request.get('reason') or ''}"
+        if pgid:
+            why += "; terminated the process group"
+    else:
+        why = f"stopped by {request.get('by')}"
+    if step is not None:
+        close_step(directory, lane, step, "failed", why, None, reaped=reaped)
+    else:
+        commit_state(directory, lane, "failed", why, reaped=reaped)
+    discard_request(directory)
 
 
 def gate(lane: dict, name: str) -> tuple[str | None, dict | None]:
     workspace = workspace_of(lane)
     if name == "verify":
-        dirty = first_dirty(workspace)
+        dirty = dirty_name(workspace)
         if dirty:
-            return f"uncommitted changes in {dirty}", None
+            return f"uncommitted or untracked files in {dirty} before verify", None
         return None, read_heads(workspace)
     if name == "review":
         current = read_heads(workspace)
         entry = passing_verify(lane)
         if entry is None or entry.get("heads") != current:
             return REVIEW_HEADS, None
+        dirty = dirty_name(workspace)
+        if dirty:
+            return f"the work tree of {dirty} changed during review", None
         return None, current
     return None, None
 
 
-def judge(name: str, code: int, log_text: str, report_text: str, heads_moved: bool) -> tuple[str, str, str | None]:
+def judge(
+    name: str, code: int, log_text: str, report_text: str, changed: str | None,
+) -> tuple[str, str, str | None]:
     if name == "implement":
         if code != 0:
             return "failed", f"implement exited {code}", None
@@ -481,8 +492,8 @@ def judge(name: str, code: int, log_text: str, report_text: str, heads_moved: bo
         shown = last if last and last.startswith("VERDICT:") else None
         if code != 0:
             return "failed", f"verify exited {code}", shown
-        if heads_moved:
-            return "failed", MOVED_VERIFY, shown
+        if changed:
+            return "failed", f"the work tree of {changed} changed during verify", shown
         if last == PASS_LINE:
             return "reviewing", last, last
         if shown:
@@ -494,8 +505,8 @@ def judge(name: str, code: int, log_text: str, report_text: str, heads_moved: bo
     shown = first if first.startswith("VERDICT:") else None
     if code != 0:
         return "failed", f"review exited {code}", shown
-    if heads_moved:
-        return "failed", MOVED_REVIEW, shown
+    if changed:
+        return "failed", f"the work tree of {changed} changed during review", shown
     if first in REVIEW_OK and last == END_LINE:
         if first == "VERDICT: safe to merge":
             return "passed", first, first
@@ -503,28 +514,23 @@ def judge(name: str, code: int, log_text: str, report_text: str, heads_moved: bo
     return "failed", "review produced no verdict", shown
 
 
-def close_step(directory: Path, lane: dict, step: dict, new_state: str, why: str, code: int | None) -> None:
-    step["end"] = now_iso()
-    step["state"] = "finished"
-    if code is not None:
-        step["exit"] = code
-    commit_state(directory, lane, new_state, why)
+def write_done(path: Path, code: int) -> None:
+    atomic_write_json(path, {"exit": code, "ended_at": now_iso()})
 
 
 def apply_exit(directory: Path, lane: dict, step: dict, code: int) -> None:
     name = step["name"]
     log_text = read_text(Path(step["log"])) if step.get("log") else ""
-    add_usage(lane, step, parse_usage(log_text))
+    err_text = read_text(Path(step["stderr"])) if step.get("stderr") else ""
+    add_usage(lane, step, parse_usage(log_text + "\n" + err_text))
     report_text = read_report(Path(step["report"])) if name == "review" and step.get("report") else ""
-    heads_moved = False
+    changed = None
     fresh: dict[str, str] = {}
     if name in ("verify", "review"):
-        fresh = read_heads(workspace_of(lane))
-        bound = step.get("heads")
-        if not isinstance(bound, dict):
-            bound = {}
-        heads_moved = fresh != bound
-    new_state, why, shown = judge(name, code, log_text, report_text, heads_moved)
+        workspace = workspace_of(lane)
+        fresh = read_heads(workspace)
+        changed = changed_name(workspace, step.get("heads") if isinstance(step.get("heads"), dict) else {})
+    new_state, why, shown = judge(name, code, log_text, report_text, changed)
     if name == "verify":
         round_bucket(lane)["verify"] = shown
         record_verdict(lane, step, shown, code)
@@ -539,44 +545,219 @@ def apply_exit(directory: Path, lane: dict, step: dict, code: int) -> None:
         record_verdict(lane, step, shown, code)
     if new_state == "passed":
         lane["verified_heads"] = fresh
+    write_done(Path(step["done"]), code)
     close_step(directory, lane, step, new_state, why, code)
 
 
+def note_quiet(directory: Path, lane: dict, step: dict, stall_seconds: float, last_size: int, last_growth: float):
+    size = file_size(Path(step["log"]))
+    now = time.time()
+    if size != last_size:
+        if step.get("stalled_since"):
+            step.pop("stalled_since", None)
+            persist(directory, lane)
+        return size, now
+    if now - last_growth >= stall_seconds and not step.get("stalled_since"):
+        step["stalled_since"] = now_iso()
+        persist(directory, lane)
+    return last_size, last_growth
+
+
+def collect(proc: subprocess.Popen) -> int | None:
+    try:
+        return int(proc.wait(timeout=2))
+    except subprocess.TimeoutExpired:
+        return None
+
+
+def wait_started(directory: Path, proc: subprocess.Popen, path: Path, timeout: float):
+    """Return the started.json object, ``"request"``, or None on timeout."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if read_request(directory):
+            return "request"
+        doc = read_json(path)
+        if doc and _pgid(doc.get("pid")) and _pgid(doc.get("pgid")):
+            return doc
+        if proc.poll() is not None:
+            return None
+        time.sleep(0.02)
+    return None
+
+
+def launch(directory: Path, lane: dict, cfg: dict, name: str, heads: dict | None, stall_seconds: float) -> None:
+    number, attempt = allocate_attempt(directory, int(lane["round"]), name)
+    stdout_path = attempt / "stdout.log"
+    stderr_path = attempt / "stderr.log"
+    done_path = attempt / "done"
+    report_path = attempt / "report"
+    started_path = attempt / "started.json"
+    who, _, _ = meta(cfg, name, lane)
+    step = {
+        "name": name,
+        "round": lane["round"],
+        "attempt": number,
+        "state": "starting",
+        "who": who,
+        "start": now_iso(),
+        "end": None,
+        "pid": None,
+        "pgid": None,
+        "exit": None,
+        "log": str(stdout_path),
+        "stderr": str(stderr_path),
+        "done": str(done_path),
+        "report": str(report_path),
+        "started": str(started_path),
+        "heads": heads,
+    }
+    lane["steps"].append(step)
+    persist(directory, lane)
+    argv = render_argv(list(cfg[name]), **placeholders(lane, report_path))
+    env = os.environ.copy()
+    env["LANE_STEP"] = f"{lane['id']}/{name}"
+    workspace = workspace_of(lane)
+    cwd = str(workspace) if workspace.is_dir() else None
+    out = stdout_path.open("wb", buffering=0)
+    err = stderr_path.open("wb", buffering=0)
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, str(RUNNER), str(started_path), "--", *argv],
+            stdout=out,
+            stderr=err,
+            cwd=cwd,
+            env=env,
+            start_new_session=True,
+            shell=False,
+        )
+    except OSError:
+        close_step(directory, lane, step, "failed", "the step did not register", None, reaped=True)
+        return
+    finally:
+        out.close()
+        err.close()
+    step["pid"] = proc.pid
+    step["pgid"] = proc.pid
+    persist(directory, lane)
+    found = wait_started(directory, proc, started_path, REGISTER_SECONDS)
+    pending = read_request(directory)
+    if found == "request" or pending:
+        apply_request(
+            directory, lane,
+            pending or read_request(directory) or {"what": "stop", "by": "unknown"},
+            reap=proc.poll,
+        )
+        collect(proc)
+        return
+    if not isinstance(found, dict):
+        reaped = end_group(proc.pid, reap=proc.poll)
+        collect(proc)
+        step["reaped"] = reaped
+        close_step(directory, lane, step, "failed", "the step did not register", None, reaped=reaped)
+        return
+    step["pid"] = found["pid"]
+    step["pgid"] = found["pgid"]
+    step["state"] = "running"
+    persist(directory, lane)
+    wait_child(directory, lane, step, proc, stall_seconds)
+
+
+def wait_child(directory: Path, lane: dict, step: dict, proc: subprocess.Popen, stall_seconds: float) -> None:
+    interval = poll_interval(stall_seconds)
+    log_path = Path(step["log"])
+    try:
+        last_size = file_size(log_path)
+        last_growth = log_path.stat().st_mtime
+    except OSError:
+        last_size = 0
+        last_growth = time.time()
+    while True:
+        req = read_request(directory)
+        if req:
+            apply_request(directory, lane, req, reap=proc.poll)
+            collect(proc)
+            return
+        try:
+            code = proc.wait(timeout=interval)
+        except subprocess.TimeoutExpired:
+            last_size, last_growth = note_quiet(
+                directory, lane, step, stall_seconds, last_size, last_growth,
+            )
+            continue
+        req = read_request(directory)
+        if req:
+            apply_request(directory, lane, req, reap=proc.poll)
+            return
+        apply_exit(directory, lane, step, int(code))
+        return
+
+
+def close_orphan(directory: Path, lane: dict, step: dict) -> None:
+    pgid = pgid_of(step)
+    reaped = end_group(pgid) if pgid else True
+    step["reaped"] = reaped
+    why = f"the driver died during {step.get('name') or 'step'}"
+    close_step(directory, lane, step, "failed", why, None, reaped=reaped)
+
+
+def retry_block(lane: dict) -> str | None:
+    if lane.get("abandoned"):
+        return "refusing to retry an abandoned lane"
+    if lane["state"] == "changes_requested":
+        return "a review fix first goes through next-round"
+    if lane["state"] != "failed":
+        return f"retry needs a failed lane, not {lane['state']}"
+    if not lane.get("steps"):
+        return "retry needs a failed step"
+    step = lane["steps"][-1]
+    if step.get("name") != "verify":
+        return None
+    for entry in reversed(lane.get("verdicts", {}).get("entries") or []):
+        if (
+            entry.get("step") == "verify"
+            and entry.get("round") == step.get("round")
+            and entry.get("attempt") == step.get("attempt")
+        ):
+            verdict = entry.get("verdict")
+            if (
+                entry.get("exit") == 0
+                and isinstance(verdict, str)
+                and verdict.startswith("VERDICT:")
+                and verdict != PASS_LINE
+            ):
+                return "a verify FAIL goes through next-round"
+            return None
+    return None
+
+
 def drive(directory: Path, lane: dict, cfg: dict, stall_seconds: float) -> dict:
-    if lane["state"] not in DRIVING and lane["state"] != "stalled":
+    if lane["state"] not in DRIVING:
         return lane
-    while lane["state"] in DRIVING or lane["state"] == "stalled":
+    while lane["state"] in DRIVING:
+        pending = read_request(directory)
+        if pending:
+            apply_request(directory, lane, pending)
+            return lane
         if lane["state"] == "ready":
             if not within_budget(lane):
                 commit_state(directory, lane, "over_budget", "round budget exhausted")
                 return lane
             commit_state(directory, lane, "implementing", "run")
+            continue
         step = open_step(lane)
-        if step is None:
-            name = PHASE_OF.get(lane["state"])
-            if name is None:
-                commit_state(directory, lane, "failed", "stalled without a step")
-                return lane
-            if name == "implement" and not within_budget(lane):
-                commit_state(directory, lane, "over_budget", "round budget exhausted")
-                return lane
-            why, heads = gate(lane, name)
-            if why:
-                commit_state(directory, lane, "failed", why)
-                return lane
-            step, proc = start_step(directory, lane, cfg, name, heads)
-            kind, code = wait_child(proc, step, stall_seconds)
-        else:
-            kind, code = resume_step(step, stall_seconds)
-        if kind == "stalled":
-            commit_state(directory, lane, "stalled", f"no log growth for {stall_seconds:g}s")
+        if step is not None:
+            close_orphan(directory, lane, step)
             return lane
-        if kind == "vanished":
-            step["vanished"] = True
-            close_step(directory, lane, step, "failed", VANISHED, None)
+        name = PHASE_OF.get(lane["state"])
+        if name is None:
+            commit_state(directory, lane, "failed", "the driver died during the step")
             return lane
-        if kind == "aborted":
-            close_step(directory, lane, step, "failed", START_ABORTED, None)
+        if name == "implement" and not within_budget(lane):
+            commit_state(directory, lane, "over_budget", "round budget exhausted")
             return lane
-        apply_exit(directory, lane, step, int(code))
+        why, heads = gate(lane, name)
+        if why:
+            commit_state(directory, lane, "failed", why)
+            return lane
+        launch(directory, lane, cfg, name, heads, stall_seconds)
     return lane

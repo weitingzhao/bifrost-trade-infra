@@ -3,8 +3,9 @@
 
 A lane directory holds lane.json (rewritten atomically) and events.jsonl (one
 state change per line: time, from, to, why). `run` starts the configured
-command for the current step, waits, and stops when a person has to decide
-(changes requested, over budget, stalled, passed, or failed).
+command for the current step and waits. A step runs only while that driver is
+alive: `run` never picks up a child an earlier `run` started. Quiet stdout sets
+`stalled_since` on the step and changes nothing else until someone stops it.
 
 What this does NOT protect against: a process running as the same Unix user
 can still edit the lane directory. It stops accidents and a coordinator
@@ -35,6 +36,7 @@ from lane_state import (
     lane_lock,
     load_config,
     load_lane,
+    lock_holder,
     now_iso,
     parse_time,
     refuse_if_step,
@@ -43,23 +45,25 @@ from lane_state import (
     iter_lanes,
 )
 from lane_steps import (
+    PHASE_STATE,
+    apply_request,
     current_step,
+    discard_request,
     drive,
     log_age,
     meta,
     open_step,
-    process_gone,
-    same_process,
-    terminate_group,
+    retry_block,
 )
 
 QUEUE_WHY = {
     "ready": "ready to run",
     "changes_requested": "changes requested",
     "over_budget": "over the round budget",
-    "stalled": "stalled; a person has to decide",
     "failed": "failed; a person has to decide",
 }
+STOP_WAIT_SECONDS = 15.0
+DRIVING_STATES = ("implementing", "verifying", "reviewing")
 
 
 def cmd_new(args: argparse.Namespace) -> int:
@@ -172,13 +176,57 @@ def cmd_extend(args: argparse.Namespace) -> int:
     return 0
 
 
-def _end_group(step: dict | None, who: str) -> None:
-    if not step or not same_process(step):
-        return
-    signals = terminate_group(step["pid"])
-    step["terminated"] = {"by": who, "signals": signals, "at": now_iso()}
-    step["end"] = now_iso()
-    step["state"] = "finished"
+def interrupt(directory: Path, lane_id: str, request: dict) -> None:
+    """Act now when the lock is free. Otherwise ask the live driver and wait."""
+    try:
+        with lane_lock(directory, lane_id):
+            apply_request(directory, load_lane(directory), request)
+            return
+    except LaneError as exc:
+        if exc.code != 3:
+            raise
+    atomic_write_json(directory / "stop-request.json", request)
+    deadline = time.time() + STOP_WAIT_SECONDS
+    while time.time() < deadline:
+        lane = load_lane(directory)
+        if (lane.get("last_interrupt") or {}).get("at") == request.get("at"):
+            return
+        try:
+            with lane_lock(directory, lane_id):
+                lane = load_lane(directory)
+                if (lane.get("last_interrupt") or {}).get("at") == request.get("at"):
+                    discard_request(directory)
+                    return
+                apply_request(directory, lane, request)
+                return
+        except LaneError as exc:
+            if exc.code != 3:
+                raise
+        time.sleep(0.05)
+    raise LaneError("the driver did not act within 15s")
+
+
+def cmd_retry(args: argparse.Namespace) -> int:
+    refuse_if_step()
+    if args.stall_seconds <= 0:
+        raise LaneError("stall-seconds must be positive")
+    who = args.by.strip()
+    reason = args.reason.strip()
+    if not who or not reason:
+        raise LaneError("retry needs --by and --reason")
+    root = root_path(args.root)
+    directory = lane_dir(root, args.id)
+    cfg = load_config(Path(args.config))
+    with lane_lock(directory, args.id):
+        lane = load_lane(directory)
+        blocked = retry_block(lane)
+        if blocked:
+            raise LaneError(blocked)
+        phase = PHASE_STATE[lane["steps"][-1]["name"]]
+        commit_state(directory, lane, phase, f"retry by {who}: {reason}", by=who, reason=reason)
+        lane = drive(directory, lane, cfg, args.stall_seconds)
+    print(f"{lane['id']} {lane['state']} round={lane['round']}")
+    return 0
 
 
 def cmd_abandon(args: argparse.Namespace) -> int:
@@ -187,35 +235,22 @@ def cmd_abandon(args: argparse.Namespace) -> int:
         raise LaneError("abandon needs a reason")
     root = root_path(args.root)
     directory = lane_dir(root, args.id)
-    with lane_lock(directory, args.id):
-        lane = load_lane(directory)
-        if lane["state"] == "passed":
-            raise LaneError("refusing to abandon a lane that passed")
-        step = open_step(lane)
-        killed = bool(step and same_process(step))
-        _end_group(step, "abandon")
-        lane["abandoned"] = True
-        why = f"abandon: {args.reason}"
-        if killed:
-            why += "; terminated the process group"
-        commit_state(directory, lane, "failed", why)
-    print(f"{lane['id']} failed")
+    request = {"what": "abandon", "by": "", "reason": args.reason, "at": now_iso()}
+    interrupt(directory, args.id, request)
+    print(f"{args.id} failed")
     return 0
 
 
 def cmd_stop(args: argparse.Namespace) -> int:
+    refuse_if_step()
     who = args.by.strip()
     if not who:
         raise LaneError("stop needs --by")
     root = root_path(args.root)
     directory = lane_dir(root, args.id)
-    with lane_lock(directory, args.id):
-        lane = load_lane(directory)
-        if lane["state"] == "passed":
-            raise LaneError("refusing to stop a lane that passed")
-        _end_group(open_step(lane), who)
-        commit_state(directory, lane, "failed", f"stopped by {who}")
-    print(f"{lane['id']} failed")
+    request = {"what": "stop", "by": who, "reason": (args.reason or "").strip(), "at": now_iso()}
+    interrupt(directory, args.id, request)
+    print(f"{args.id} failed")
     return 0
 
 
@@ -237,19 +272,37 @@ def short_heads(heads: dict | None) -> str:
     return ",".join(f"{name}:{sha[:7]}" for name, sha in sorted(heads.items()))
 
 
-def status_row(lane: dict) -> dict:
+def no_output_phrase(since: str) -> str:
+    minutes = max(0, int((time.time() - parse_time(since)) // 60))
+    return f"no output for {minutes} min"
+
+
+def reap_note(lane: dict) -> str | None:
+    for step in reversed(lane.get("steps") or []):
+        if step.get("reaped") is False:
+            pgid = step.get("pgid") or step.get("pid")
+            if pgid:
+                return f"processes may still be running: pgid {pgid}"
+    return None
+
+
+def status_row(directory: Path, lane: dict) -> dict:
     step = current_step(lane)
     elapsed, growth = timing(lane, step)
-    gone = process_gone(step)
+    active = open_step(lane)
+    no_driver = active is not None and lock_holder(directory) is None
+    quiet = no_output_phrase(active["stalled_since"]) if active and active.get("stalled_since") else None
     notes = extension_lines(lane)
     row = {
         "id": lane["id"],
-        "state": "running (process gone)" if gone else lane["state"],
+        "state": "running (no driver)" if no_driver else lane["state"],
         "round": lane["round"],
         "step": step["name"] if step else None,
         "elapsed": round(elapsed, 1),
         "log_growth": None if growth is None else round(growth, 1),
-        "process_gone": gone,
+        "no_driver": no_driver,
+        "quiet": quiet,
+        "reaped_note": reap_note(lane),
         "verified_heads": lane.get("verified_heads"),
         "heads": short_heads(lane.get("verified_heads")) if "verified_heads" in lane else None,
         "budget": "; ".join(notes) if notes else None,
@@ -266,9 +319,10 @@ def fmt_age(value: float | None) -> str:
 def cmd_status(args: argparse.Namespace) -> int:
     root = root_path(args.root)
     if args.id:
-        rows = [status_row(load_lane(lane_dir(root, args.id)))]
+        directory = lane_dir(root, args.id)
+        rows = [status_row(directory, load_lane(directory))]
     else:
-        rows = [status_row(lane) for _, lane in iter_lanes(root)]
+        rows = [status_row(directory, lane) for directory, lane in iter_lanes(root)]
     if args.json:
         print(json.dumps(rows, indent=2, ensure_ascii=False))
     else:
@@ -280,10 +334,14 @@ def cmd_status(args: argparse.Namespace) -> int:
             )
             if row["heads"] is not None:
                 line += f" heads={row['heads']}"
+            if row["quiet"]:
+                line += f" {row['quiet']}"
+            if row["reaped_note"]:
+                line += f" {row['reaped_note']}"
             if row["budget"]:
                 line += f"; {row['budget']}"
             print(line)
-    if args.check and any(row["process_gone"] for row in rows):
+    if args.check and any(row["no_driver"] for row in rows):
         return 1
     return 0
 
@@ -298,14 +356,17 @@ def board_steps(directory: Path, lane: dict, cfg: dict) -> list[dict]:
             attempt = directory / f"round-{number}" / f"{name}-1"
             rec = recorded.get((number, name))
             who, usual, pattern = meta(cfg, name, lane)
-            out.append({
+            item = {
                 "name": name,
                 "who": rec.get("who") if rec else who,
-                "progress": rec.get("log") if rec else str(attempt / "log"),
+                "progress": rec.get("log") if rec else str(attempt / "stdout.log"),
                 "done": rec.get("done") if rec else str(attempt / "done"),
                 "pattern": pattern,
                 "usual_min": usual,
-            })
+            }
+            if rec and rec.get("end") is None and rec.get("stalled_since"):
+                item["note"] = no_output_phrase(rec["stalled_since"])
+            out.append(item)
     return out
 
 
@@ -329,16 +390,48 @@ def cmd_board(args: argparse.Namespace) -> int:
     return 0
 
 
+def queue_why(directory: Path, lane: dict) -> str | None:
+    if lane.get("abandoned") or lane["state"] == "passed":
+        return None
+    holder = lock_holder(directory)
+    step = open_step(lane)
+    running = step is not None
+    quiet = no_output_phrase(step["stalled_since"]) if running and step.get("stalled_since") else None
+    # A driver that is still producing output is busy. A quiet one is listed so
+    # the wait is visible. A lane with no driver is never busy.
+    if holder is not None and not quiet:
+        return None
+    if running and holder is None:
+        why = (
+            f"the driver died during {step['name']}: "
+            f"run `lane.py run {lane['id']}` to close it, then retry"
+        )
+        if quiet:
+            why = f"{why}; {quiet}"
+    elif quiet:
+        why = quiet
+    elif lane["state"] in QUEUE_WHY:
+        why = QUEUE_WHY[lane["state"]]
+    elif lane["state"] in DRIVING_STATES:
+        why = f"{lane['state']}; no step is running"
+    else:
+        return None
+    note = reap_note(lane)
+    if note:
+        why = f"{why}; {note}"
+    notes = extension_lines(lane)
+    if notes:
+        why = why + "; " + "; ".join(notes)
+    return why
+
+
 def cmd_queue(args: argparse.Namespace) -> int:
     root = root_path(args.root)
     waiting = []
-    for _, lane in iter_lanes(root):
-        if lane.get("abandoned") or lane["state"] not in QUEUE_WHY:
+    for directory, lane in iter_lanes(root):
+        why = queue_why(directory, lane)
+        if why is None:
             continue
-        why = QUEUE_WHY[lane["state"]]
-        notes = extension_lines(lane)
-        if notes:
-            why = why + "; " + "; ".join(notes)
         waiting.append({
             "title": lane["title"],
             "why_waiting": why,
@@ -375,7 +468,7 @@ def build_parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status", help="one line per lane")
     status.add_argument("id", nargs="?")
     status.add_argument("--json", action="store_true")
-    status.add_argument("--check", action="store_true", help="exit 1 when a running step's process is gone")
+    status.add_argument("--check", action="store_true", help="exit 1 when a step is running and no driver holds the lock")
     status.set_defaults(func=cmd_status)
 
     nxt = sub.add_parser("next-round", help="start another round after changes were requested")
@@ -389,6 +482,13 @@ def build_parser() -> argparse.ArgumentParser:
     extend.add_argument("--by", required=True, help="coordinator (once per lane) or owner (a terminal)")
     extend.set_defaults(func=cmd_extend)
 
+    retry = sub.add_parser("retry", help="new attempt of the failed step in this same round")
+    retry.add_argument("id")
+    retry.add_argument("--by", required=True)
+    retry.add_argument("--reason", required=True)
+    retry.add_argument("--stall-seconds", type=float, default=600)
+    retry.set_defaults(func=cmd_retry)
+
     abandon = sub.add_parser("abandon", help="stop a lane and record why")
     abandon.add_argument("id")
     abandon.add_argument("--reason", required=True)
@@ -397,6 +497,7 @@ def build_parser() -> argparse.ArgumentParser:
     stop = sub.add_parser("stop", help="end the step's process group and mark the lane failed")
     stop.add_argument("id")
     stop.add_argument("--by", required=True)
+    stop.add_argument("--reason", default="")
     stop.set_defaults(func=cmd_stop)
 
     board = sub.add_parser("board", help="print the works/steps structure for the progress board")

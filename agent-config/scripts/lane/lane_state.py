@@ -52,19 +52,20 @@ def atomic_write_json(path: Path, doc: dict) -> None:
     os.replace(tmp, path)
 
 
-def append_event(directory: Path, old, new: str, why: str) -> None:
+def append_event(directory: Path, old, new: str, why: str, **extra) -> None:
     rec = {"time": now_iso(), "from": old, "to": new, "why": why}
+    rec.update(extra)
     with (directory / "events.jsonl").open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 
-def commit_state(directory: Path, lane: dict, new: str, why: str) -> None:
+def commit_state(directory: Path, lane: dict, new: str, why: str, **extra) -> None:
     old = lane["state"]
     lane["state"] = new
     lane["updated_at"] = now_iso()
     atomic_write_json(directory / "lane.json", lane)
-    if old != new:
-        append_event(directory, old, new, why)
+    if old != new or extra:
+        append_event(directory, old, new, why, **extra)
 
 
 def config_path_default() -> Path:
@@ -195,6 +196,31 @@ def extension_lines(lane: dict) -> list[str]:
 def refuse_if_step() -> None:
     if os.environ.get("LANE_STEP"):
         raise LaneError(STEP_BLOCK)
+
+
+def lock_holder(directory: Path) -> int | None:
+    """Pid in the lock file when another process holds it, else None.
+
+    A probe only: the lock is not kept. A stale pid left in the file after a
+    crash does not count, because the kernel drops ``flock`` when that process
+    dies.
+    """
+    import fcntl
+    path = directory / "lock"
+    if not path.exists():
+        return None
+    fh = path.open("a+")
+    try:
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            fh.seek(0)
+            text = fh.read().strip()
+            return int(text) if text.isdigit() else -1
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        return None
+    finally:
+        fh.close()
 
 
 @contextmanager
