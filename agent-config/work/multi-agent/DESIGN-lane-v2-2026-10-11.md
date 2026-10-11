@@ -1,6 +1,6 @@
 # W-66 派工流水线第二版规格：只判定和记账，不管进程
 
-状态：规格第三稿，2026-10-11。Owner 已同意做第二版；无人值守由统筹方定为方案 A（第 12 节）。本稿并入复核 23（四条 P1、五条 P2）和复核 25（两条 P1、三条 P2、三处说明）的全部意见。没有代码。第 13 节里现在能核对的都已核对并写了结果；剩下两条要先有检出的代码，是第二轮实现的第一件事。
+状态：规格第三稿，2026-10-11。Owner 已同意做第二版；无人值守由统筹方定为方案 A（第 12 节）。本稿并入复核 23（四条 P1、五条 P2）和复核 25（两条 P1、三条 P2、三处说明）的全部意见。复核 27 的结论是没有剩余的 P1，留一条 P2 和一条 P3，统筹方按复核给的改法并进了第 2、4 节（T61、T62），没有再做一次纸面核对；这两处由第一轮实现的独立复核覆盖。没有代码。第 13 节里现在能核对的都已核对并写了结果；剩下两条要先有检出的代码，是第二轮实现的第一件事。
 输入：`WORK.md` 的 W-66；`work/multi-agent/reviews/` 里的复核 16、17、20（第一版 `lane.py`，三次「先修」，没有合并）；复核 21（第二版设计，`sound with changes`）；复核 23、25（本规格的第一、二稿）；`ADR-ops-architecture.md` §12.2 第 13 条。
 已定、本文不重新讨论：lane 只判定和记账，不结束进程、不处理进程组、不接续旧进程、不自动重跑，没有 `retry`，没有会发信号的 `stop`。判词只增不改，复核过的轮不再复核；「先修」和有效的验收 FAIL 只能经下一轮出去。`max_rounds` 默认 2，统筹方每条 lane 只能延一次，再延只能 Owner 在终端做。
 
@@ -30,7 +30,7 @@
 - **事件**：`events.jsonl` 每行是 `<正文的 sha256> <正文 JSON>` 加换行，正文带 `seq` 和上一行的 `sha256`（与 DESIGN 7.3 的哈希链同形），在持有 `lock` 时一次写入并 fsync。一行算完整，要以换行结尾、且行首的摘要与正文相符。没有可改写的状态文件：状态由 `lane_state(事件, 证据, 驱动是否在)` 这一个函数算出，所有命令和只读视图都调它。
 - **事实写进事件**：以后的判定还要用到的事实，随记账一起原子地写进事件，不只留在 manifest 里。`step_recorded` 带：`manifest_sha256`、是否未启动、`exit{code, signal}`、本步消费的 SHA 集合；implement 另带它固定出的集合和各 bundle 的摘要；review 另带 `rejects`（报告第一条非空行恰好是 `VERDICT: fix first` 为真，否则为假）。`verdict` 带 SHA 集合。已否决的集合、下一轮的起点、预算，都只从事件里读；manifest 是供重算核对的证据，从来不是某个事实的唯一副本。所以记账之后证据再丢，丢不掉已经记下的否决。manifest 与事件里的事实不一致，算证据无效。
 - **残尾修复**：残尾只指文件末尾没有以换行结束的那一段（追加到一半时崩溃）。以换行结束而行首摘要对不上的行是损坏，不是残尾，程序不删它：整条 lane 是 `unknown`（`event log invalid at seq <n>`），只能 `abandon`；`seq` 跳号、链对不上也一样。修复有一个稳定的身份：`repair_id = <残尾起始的字节偏移>-<残尾字节的 sha256 前 16 位>`。改状态的命令拿到锁之后、做任何别的事之前：① 把残尾写进临时文件，fsync，rename 成 `events.torn-<repair_id>`，fsync lane 目录；② 把 `events.jsonl` 截到那个偏移并 fsync；③ 对每个还没有同一 `repair_id` 的 `tail_repaired` 事件的副本，追加一条 `tail_repaired{repair_id, bytes, sha256}`。在任何一次写入之后崩溃再重做：同一段残尾得到同一个文件名，已有事件的不再追加，所以每段残尾恰好一个副本、一条事件；没有 rename 的临时文件从不被读。残缺的那条事件算没有写过，状态落回它之前的边界（下面的边界表）。
-- **两把锁**：`lock` 由每条改状态的命令从读事件之前持有到最后一次写之后；`run.lock` 只有 `run` 拿，整个驱动期间持有。两把锁的文件描述符都不传给子进程。「驱动在不在」只看 `run.lock` 的探测结果，所以 `resolve` 之类的命令持有 `lock` 时不会被读成驱动还在。持锁方把 `{pid, command, since}` 写进锁文件；这只是写提示文案用的标签，探测才是事实：探测说空着，标签就作废。
+- **两把锁**：`lock` 由每条改状态的命令从读事件之前持有到最后一次写之后；`run.lock` 只有 `run` 拿，整个驱动期间持有。取锁的顺序只有一种：先取 `lock`，再不等待地取 `run.lock`；`run.lock` 拿不到就立刻退出（退出码 3，`lane <id> is being driven by pid <n>`），不排队；释放按相反的顺序。`run` 两把都持有到驱动结束，所以驱动期间别的改状态的命令在第 ② 关就被拒。所有取锁都不等待。除 `run` 以外的命令从不取 `run.lock`（只读命令只做探测）。两把锁的文件描述符都不传给子进程。「驱动在不在」只看 `run.lock` 的探测结果，所以 `resolve` 之类的命令持有 `lock` 时不会被读成驱动还在。持锁方把 `{pid, command, since}` 写进锁文件；这只是写提示文案用的标签，探测才是事实：探测说空着，标签就作废。
 - **读取**：只读命令（`status`、`queue`、`pass-set`）不拿锁，也从不修复。它们用同一个办法取一致的快照：读事件头（最后一条完整行的 `seq` 和摘要）→ 对两把锁各做一次不等待的共享锁尝试，拿到立刻放掉 → 再读事件头。两次相同才用这份快照；不同就重来，最多 3 次，还不稳定就显示 `changing`（不是 `unknown`）。状态和 `overdue` 都从这一份快照算。`run.lock` 被持有、没有开着的步骤、也没有判词时，显示为刚记账那一步的进行中状态（驱动正在落判词或准备下一步），不显示 `verdict_pending`。manifest 发布后不再改，只读被事件引用的。改状态的命令遇到 `lock` 被占，重试 2 秒再报，避开读取方那一瞬间的探测。
 - **持久创建的顺序**：`new`：独占建 lane 目录 → 建 `r1/`，任务书经临时文件 fsync 后 rename，fsync `r1/` → `lane.json` 同样发布 → `events.jsonl` 带 `lane_created`、`round_opened` 两行，经临时文件 fsync 后 rename → fsync lane 目录 → fsync 根目录。`events.jsonl` 出现之前这条 lane 不存在。`next-round`：建 `r<n>/`（已存在不算错）→ 任务书发布，fsync `r<n>/` 和 lane 目录 → 追加 `round_opened`。attempt：独占建目录及 `rec/`、`out/`、`work/` → fsync 该目录和 `r<n>/` → 之后照下表。intent 和 manifest 都经临时文件发布，只有被事件引用且摘要相符才算数；没有被 `step_intent` 引用的 attempt 目录是孤儿：不读、不复用、不删除。macOS 上 fsync 用 `F_FULLFSYNC`。
 - **配置固定**：`lane-config.json` 和它 `pinned_files` 里列的脚本（例如 `~/agent-work/verify-branch.sh`）在 `new` 时记 `sha256`，每一步启动前重算；变了就拒绝启动（`<file> changed since the lane was created`）。后果见第 12 节第 2 条。
@@ -97,7 +97,7 @@ manifest 只有两种合法形状，判定函数不用猜。**已运行**：`not
 
 ## 4. 判定函数
 
-`decide(round_evidence) → (结果, 原因)`，没有读写、没有子进程、没有时钟；它只在没有驱动持有这一步时求值。输入只有：三步各自的证据（`absent` / `invalid(which)` / manifest 的字段，形状见第 2 节）、本轮步骤上的人工补记、已记账事件里的事实（消费的集合、`rejects`）、以及从事件里取的「已否决的 SHA 集合」。按步骤顺序求值，每一步自上而下取第一条命中的；执行失败排在任何成功文本之前。
+`decide(round_evidence) → (结果, 原因)`，没有读写、没有子进程、没有时钟；它只在没有驱动持有这一步时求值。输入只有：三步各自的证据（`absent` / `invalid(which)` / manifest 的字段，形状见第 2 节）、本轮步骤上的人工补记、已记账事件里的事实（消费的集合、`rejects`）、以及从事件里取的「已否决的 SHA 集合」。先看两条不按步骤顺序的规则，再按步骤顺序求值：**①** 本轮任何一步的 `step_recorded` 事件记着 `rejects: true` → `changes_requested`（下表第 3 行的结果，不论别的步骤的证据后来怎样）；**②** 否则，本轮任何一步有关闭类的人工补记（`failed`、`cancelled`、`evidence-lost`）→ `step_failed`，原因取那条补记（下表第 1 行），同样不论别的步骤的证据后来是否丢失或变动——补记一落下，这一轮的终局结果就固定了，B11 之后重算得到的仍是它（复核 27 的 P2）。两条都不成立，才按步骤顺序求值，每一步自上而下取第一条命中的；执行失败排在任何成功文本之前。
 
 | # | 条件 | 结果 | 原因文本 |
 |---|---|---|---|
@@ -250,12 +250,14 @@ manifest 只有两种合法形状，判定函数不用猜。**已运行**：`not
 | 25-P2b 无锁读取能显示从未成立的状态 | 第 2 节「两把锁」「读取」。**T56** ① 在读取方两次读事件头之间让驱动记账、落判词、放锁 → 读取方重读，显示已关闭的状态，不显示 `unknown`；② 事件头连续三次都在变 → `changing`；③ `resolve` 持有 `lock`、`run.lock` 空着 → `status` 显示 `unknown`，附 `busy: resolve`，不显示进行中；④ 锁文件里留着已死驱动的标签而探测为空 → 按没有驱动算；⑤ `run.lock` 被持有、刚记账还没有判词 → 显示进行中，不显示 `verdict_pending` |
 | 25-P2c 来源配置影响可用性，不能宣称无配置影响 | 第 3 节改成「登记的仓库只取基线，加 lane 自己导出的 bundle」：不再从 implement 目录取对象，也不再声称不受配置影响。**T57** implement 新增两个提交 → `rec/<repo>.bundle` 的 `list-heads` 是固定的提交号，摘要在 `step_recorded` 里；把 implement 目录挪走后 verify、review 的检出照样建成；bundle 被改一个字节 → 步骤未启动，`bundle of <repo> is missing or changed`，之后 `next-round --start baseline` 能从基线重做；implement 检出的配置写 `pack.compression=0` → bundle 字节不同，导入后的树号仍相符；固定之后 `HEAD` 又动了 → `step_failed`，`cannot export <repo>: HEAD moved`。只回答了一部分：登记的来源仓库不是 lane 建的，它只作为基线的来源被信任；`git bundle create` 仍读 implement 检出的配置，后果限于失败 |
 | 25 说明三处：进程创建失败怎么记；多种 `needs` 的优先级；损坏日志上的 `abandoned` | 第 2 节「启动」一行；第 9 节；第 5 节。**T58** 配置里的命令不存在 / 没有执行权限 → 没有 `step_started`，manifest 是「未启动」形状，`step_failed`，`<step> did not start: <系统的错误文字>`。**T59** 一条 `over_budget`、又有未确认结束的执行的 lane → `needs: owner`，`why_waiting` 里两条原因都在。**T60** 有效前缀以 `abandoned` 结尾、其后损坏 → 显示 `abandoned`，标记 `event log invalid after seq <n>`；日志损坏时 `abandon` → `events.jsonl` 一个字节都没有变，出现 `abandoned.json`，显示同上 |
+| 27-P2 B11 之后早期证据丢失，重算到不了关闭的结果 | 第 4 节开头的两条不按步骤顺序的规则：关闭类补记固定本轮结果。**T61** implement、verify 已记账 → review 未记账、驱动死亡 → `resolve --kind failed` 落下后崩溃 → 删掉 implement 的 manifest → 下一条命令补落的判词仍是 `step_failed`，`review closed as failed by <operator>: <reason>`，不是 `unknown` |
+| 27-P3 两把锁的取得与释放顺序没有规定 | 第 2 节「两把锁」：先 `lock` 后 `run.lock`，都不等待，拿不到立即退出，反序释放。**T62** 两个 `run` 同时启动 → 恰好一个驱动，另一个退出码 3；驱动期间调 `resolve`、`next-round`、`abandon` → 都在第 ② 关被拒（`lane <id> is being driven by pid <n>`，退出码 3），没有命令挂住超过 2 秒；驱动被 `kill -9` 后两把锁都空出 |
 
 ## 11. 分片
 
 - **第一片**分两轮实现、两轮复核（复核 25 的组织方式）。Python 标准库，一个命令行，放 `agent-config/scripts/lane/`，从空目录写起，不在 `w31/w66-lane` 上改。按表和测试验收，不拿行数当验收。链停在 `passed`；超预算就停，等 Owner。九个命令：`new`、`run`、`next-round`、`resolve`（`failed`、`cancelled`、`evidence-lost`、`still-unknown`）、`confirm-ended`、`abandon`、`status`、`pass-set` 和最小的 `queue`（含 `--check`）。`confirm-ended` 留在第一片：没有它，未确认结束的执行永远清不出队列，`queue --check` 会一直非零。
-  - **第一轮：记账、判定、转换；没有 git，没有子进程。** 事件文件和哈希链、残尾修复、两把锁和一致读取、intent 与 manifest 的发布和校验、写进事件的事实、判定函数、六关和转换表、`lane_state`、队列的计算。用合成的事件和 manifest 测：T01、T02、T06、T08、T09、T14–T17、T21–T23、T26–T32、T48–T50、T52–T56、T59、T60，以及 T47 的 B1、B2、B8–B10（T06、T15 里与延期有关的格子除外）。
-  - **第二轮：检出和 bundle、驱动、命令行。** 第 3 节的全部 git 操作，步骤协议（启动、等待、记账），九个命令的入口。头一件事是第 13 节第 5、6 条。测试：T03–T05、T10–T13、T18–T20、T24、T25、T33–T38、T41–T46、T51、T57、T58，T47 的 B3–B7；第一轮的测试全部重跑。
+  - **第一轮：记账、判定、转换；没有 git，没有子进程。** 事件文件和哈希链、残尾修复、两把锁和一致读取、intent 与 manifest 的发布和校验、写进事件的事实、判定函数、六关和转换表、`lane_state`、队列的计算。用合成的事件和 manifest 测：T01、T02、T06、T08、T09、T14–T17、T21–T23、T26–T32、T48–T50、T52–T56、T59、T60、T61，以及 T47 的 B1、B2、B8–B10（T06、T15 里与延期有关的格子除外）。
+  - **第二轮：检出和 bundle、驱动、命令行。** 第 3 节的全部 git 操作，步骤协议（启动、等待、记账），九个命令的入口。头一件事是第 13 节第 5、6 条。测试：T03–T05、T10–T13、T18–T20、T24、T25、T33–T38、T41–T46、T51、T57、T58、T62，T47 的 B3–B7；第一轮的测试全部重跑。
 - **第二片**：`board`、`extend`（两种）、夜跑循环的示例；T07、T39、T40，以及 T06、T15 里与延期有关的格子。
 - **以后**：合并闸门及其后的主线 CI、测试环境、台账状态（W-66 ③④）；执行器强制的时限和取消（随 `agentd`）；`exit-code` 补记；子模块递归固定；`inputs`；状态迁到平台（事件 → `agentrt.event`，manifest 和产物 → 按内容哈希的 `artifact`，判词 → `verification`，轮次预算 → `budget_ledger`，lane 锁 → 租约，Owner 延期 → 审批单；DESIGN 7.2–7.5）。
 
