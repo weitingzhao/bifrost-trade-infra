@@ -80,6 +80,13 @@ def _base_row(kind: str, reason: str, subject: dict | None, question: dict | Non
     return row
 
 
+def _context_unconfirmed(subject: dict, confirmed: bool) -> bool:
+    """Unknown uid or extra is not a denial unless the chain is confirmed as RBAC and Node only."""
+    if confirmed:
+        return False
+    return subject["uid"]["state"] != "known" or subject["extra"]["state"] != "known"
+
+
 def interpret(response: Any) -> str:
     if not isinstance(response, dict) or response.get("kind") != "SubjectAccessReview":
         return "malformed"
@@ -246,6 +253,9 @@ def replay(bundle: dict, targets: dict, fixed: dict, exceptions: dict, nontarget
                 row = _base_row("unclassified", reason, subject, question)
             rows.append(row)
             continue
+        if verdict in {"denied", "no-opinion"} and _context_unconfirmed(subject, confirmed):
+            rows.append(_base_row("unknown-surface", "context-unconfirmed", subject, question))
+            continue
         if verdict == "denied" or (verdict == "no-opinion" and confirmed):
             denied += 1
             continue
@@ -282,7 +292,7 @@ def replay(bundle: dict, targets: dict, fixed: dict, exceptions: dict, nontarget
     rows.append(_base_row("unknown-surface", "side-effecting tasks not provided", None, None))
 
     for identity in identities:
-        if not identity.get("risk"):
+        if not identity.get("fixed_id"):
             continue
         exception = next((exc for exc in prepared if match_risk(exc, identity["context"])), None)
         if exception:

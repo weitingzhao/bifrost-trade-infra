@@ -25,6 +25,11 @@ def prepare(exceptions: list[dict], today: date) -> list[dict]:
             expires = datetime.strptime(row["expires"], "%Y-%m-%d").date()
         except ValueError:
             raise MatrixExit(2, f"prod_write_exceptions.json: exceptions[{index}].expires: invalid date") from None
+        if row["scope"] == "cluster" and row["namespace"] != "":
+            raise MatrixExit(
+                2,
+                f"prod_write_exceptions.json: exceptions[{index}].namespace: does not apply when scope is cluster",
+            )
         item = dict(row)
         item["expired"] = expires < today
         prepared.append(item)
@@ -61,19 +66,25 @@ def matches(exception: dict, ctx: dict, question: dict) -> bool:
     )
 
 
+# A fixed risk row is not a resource request. Scope is cluster, so namespace does not apply.
+_RISK_TARGET = {
+    "group": "",
+    "name": "",
+    "namespace": "",
+    "request_family": REQUEST_FAMILY,
+    "resource": "",
+    "scope": "cluster",
+    "subresource": "",
+    "verb": "",
+}
+
+
 def match_risk(exception: dict, ctx: dict) -> bool:
     if exception.get("expired"):
         return False
     if not _same_context(exception["identity"], ctx):
         return False
-    return (
-        exception["group"] == ""
-        and exception["resource"] == ""
-        and exception["subresource"] == ""
-        and exception["name"] == ""
-        and exception["verb"] == ""
-        and exception["request_family"] == REQUEST_FAMILY
-    )
+    return all(exception[key] == value for key, value in _RISK_TARGET.items())
 
 
 def covers_cell(entry: dict, cell: dict) -> bool:
