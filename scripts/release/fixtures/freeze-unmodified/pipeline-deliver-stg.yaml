@@ -1,0 +1,232 @@
+# Phase B — 9 real Trade APIs + frontend; PG/Redis/nginx already in bifrost-stg overlay.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: bifrost-deliver-stg
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: stg-deliver
+  annotations:
+    bifrost.io/run-timeout: 1h0m0s
+    bifrost.io/run-arch: amd64
+spec:
+  description: >-
+    Mirror-sync Gitea, then clone, Dockerfile CMs, build stg images, rollout,
+    in-cluster HTTP verify, Argo sync. Clones must not start before mirror-sync.
+  params:
+    - name: revision
+      type: string
+      default: main
+    # bifrost-ui is its own repo, so it gets its own ref: a pinned run names the ui
+    # commit here (TD-234). Callers pass the same ref as revision unless they pin.
+    - name: uiRevision
+      type: string
+      default: main
+    - name: giteaBase
+      type: string
+      default: http://gitea.cicd.svc.cluster.local:3000/bifrost
+    - name: registry
+      type: string
+      default: registry.cicd.svc.cluster.local:5000
+    - name: tag
+      type: string
+      default: stg
+    - name: frontendImage
+      type: string
+      default: registry.cicd.svc.cluster.local:5000/bifrost-frontend:stg
+  workspaces:
+    - name: build-context
+  tasks:
+    - name: mirror-sync
+      taskRef:
+        name: bifrost-gitea-mirror-sync
+      params:
+        - name: giteaBase
+          value: $(params.giteaBase)
+        - name: mirrorRepos
+          value: "bifrost-trade-core bifrost-trade-worker bifrost-trade-api bifrost-trade-frontend bifrost-trade-infra bifrost-ui bifrost-platform"
+    - name: clone-core
+      runAfter: [mirror-sync]
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-trade-core.git
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: bifrost-trade-core
+      workspaces:
+        - name: output
+          workspace: build-context
+    - name: clone-worker
+      runAfter: [mirror-sync]
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-trade-worker.git
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: bifrost-trade-worker
+      workspaces:
+        - name: output
+          workspace: build-context
+    - name: clone-api
+      runAfter: [mirror-sync]
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-trade-api.git
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: bifrost-trade-api
+      workspaces:
+        - name: output
+          workspace: build-context
+    - name: clone-frontend
+      runAfter: [mirror-sync]
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-trade-frontend.git
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: bifrost-trade-frontend
+      workspaces:
+        - name: output
+          workspace: build-context
+    - name: clone-ui
+      runAfter: [mirror-sync]
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-ui.git
+        - name: revision
+          value: $(params.uiRevision)
+        - name: subdir
+          value: bifrost-ui
+      workspaces:
+        - name: output
+          workspace: build-context
+    - name: clone-infra
+      runAfter: [mirror-sync]
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-trade-infra.git
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: bifrost-trade-infra
+      workspaces:
+        - name: output
+          workspace: build-context
+    - name: prepare
+      runAfter: [clone-infra]
+      taskRef:
+        name: bifrost-prepare-deliver-stg
+      workspaces:
+        - name: source
+          workspace: build-context
+    - name: stage-api-dockerfile
+      runAfter: [prepare, clone-core, clone-worker, clone-api]
+      workspaces:
+        - name: source
+          workspace: build-context
+      taskSpec:
+        workspaces:
+          - name: source
+        volumes:
+          - name: dockerfile-cm
+            configMap:
+              name: bifrost-api-stg-dockerfile
+        steps:
+          - name: copy
+            image: alpine:3.20
+            volumeMounts:
+              - name: dockerfile-cm
+                mountPath: /cm
+            script: |
+              #!/usr/bin/env sh
+              set -eu
+              cp /cm/Dockerfile.api-stg "$(workspaces.source.path)/Dockerfile.api-stg"
+    - name: build-all-apis
+      runAfter: [stage-api-dockerfile]
+      taskRef:
+        name: bifrost-kaniko-all-apis-stg
+      params:
+        - name: registry
+          value: $(params.registry)
+        - name: tag
+          value: $(params.tag)
+        - name: coreSha
+          value: $(tasks.clone-core.results.commit)
+      workspaces:
+        - name: source
+          workspace: build-context
+    - name: stage-frontend-dockerfile
+      runAfter: [prepare, clone-frontend, clone-ui]
+      workspaces:
+        - name: source
+          workspace: build-context
+      taskSpec:
+        workspaces:
+          - name: source
+        volumes:
+          - name: dockerfile-cm
+            configMap:
+              name: bifrost-frontend-stg-dockerfile
+        steps:
+          - name: copy
+            image: alpine:3.20
+            volumeMounts:
+              - name: dockerfile-cm
+                mountPath: /cm
+            script: |
+              #!/usr/bin/env sh
+              set -eu
+              cp /cm/Dockerfile.frontend-stg "$(workspaces.source.path)/Dockerfile.frontend-stg"
+    - name: build-frontend
+      runAfter: [stage-frontend-dockerfile]
+      taskRef:
+        name: bifrost-kaniko-frontend-real
+      params:
+        - name: image
+          value: $(params.frontendImage)
+      workspaces:
+        - name: source
+          workspace: build-context
+    - name: build-worker
+      runAfter: [prepare, clone-core, clone-worker]
+      taskRef:
+        name: bifrost-kaniko-worker-stg
+      params:
+        - name: registry
+          value: $(params.registry)
+        - name: tag
+          value: $(params.tag)
+        - name: coreSha
+          value: $(tasks.clone-core.results.commit)
+      workspaces:
+        - name: source
+          workspace: build-context
+    - name: rollout
+      runAfter: [build-all-apis, build-frontend, build-worker]
+      taskRef:
+        name: bifrost-rollout-stg
+    - name: verify-stg
+      runAfter: [rollout]
+      taskRef:
+        name: bifrost-verify-stg-deliver
+    - name: gitops-sync
+      runAfter: [verify-stg]
+      taskRef:
+        name: bifrost-argocd-sync-stg

@@ -1,0 +1,139 @@
+{
+  "freeze_task_ref": "bifrost-release-freeze-check",
+  "freeze_pipeline_task": "freeze-check",
+  "taskspec_digest": "sha256 of json.dumps(taskSpec, sort_keys=true, separators=(',', ':'), ensure_ascii=false). A changed inline spec does not match.",
+  "read_only_task_ref": [
+    "bifrost-code-health",
+    "bifrost-git-clone-gitea",
+    "bifrost-release-freeze-check",
+    "bifrost-release-window",
+    "bifrost-research-lint-test",
+    "bifrost-smoke-echo",
+    "bifrost-validate-git-sha",
+    "bifrost-verify-prod-deliver",
+    "bifrost-verify-research",
+    "bifrost-verify-stg-deliver"
+  ],
+  "read_only_inline": [
+    {
+      "pipeline": "bifrost-build-frontend-stg",
+      "task": "stage-dockerfile",
+      "taskspec_sha256": "95bb05a1695b3aefabb8bcfaeddf03aae3520f479934f140aa507a94915035db"
+    },
+    {
+      "pipeline": "bifrost-ci-frontend",
+      "task": "lint-build",
+      "taskspec_sha256": "262fcf9dbafcf18d26a39b477e5f82dbd91bd1a0baa272ae7435536a9d510d90"
+    },
+    {
+      "pipeline": "bifrost-ci-platform",
+      "task": "test-api",
+      "taskspec_sha256": "c19b1a41ba3db16e1fda0d36cfb643f9e7b77690998750c48c1116f2cbe392c2"
+    },
+    {
+      "pipeline": "bifrost-ci-platform",
+      "task": "test-console",
+      "taskspec_sha256": "414bdc308defc74752e2dcac3b0f58a8bde4fe93f4cb41ed314ea1aae6a3ec34"
+    },
+    {
+      "pipeline": "bifrost-ci-platform",
+      "task": "check-spine",
+      "taskspec_sha256": "615c3f338cc1bdcae84b82c070fd0ccfe69f1910c310b4f1b75287115f5a02ac"
+    },
+    {
+      "pipeline": "bifrost-ci-platform",
+      "task": "check-ops-context",
+      "taskspec_sha256": "2dd6656e371790cc93d398c17eb60a4ea2ef1db2edc1d71ef51363c83a01671a"
+    },
+    {
+      "pipeline": "bifrost-ci-python",
+      "task": "lint-test",
+      "taskspec_sha256": "f1afa8067a555c3c011b91031541c6459c00b2ace42beb3012cdce8e4226abba"
+    },
+    {
+      "pipeline": "bifrost-ci-python",
+      "task": "db-test",
+      "taskspec_sha256": "1355bb0075e093c6459b22c4cd8e06e081ac3803df6925095754c76a4cc9bfc9"
+    },
+    {
+      "pipeline": "bifrost-clone-frontend-smoke",
+      "task": "verify-frontend",
+      "taskspec_sha256": "ee8aeaa5b50054f0a1896da7252f6b69e7f3e8b210f7a88ee168454d71bd0f74"
+    },
+    {
+      "pipeline": "bifrost-deliver-platform-prod",
+      "task": "preflight-stg",
+      "taskspec_sha256": "33563e1539429b419210bacf24cc51abfa6521fc885abe852e9320fffcf24f0f"
+    },
+    {
+      "pipeline": "bifrost-deliver-platform-prod",
+      "task": "stage-api-dockerfile",
+      "taskspec_sha256": "1e85d532d1670c14c252268e6857b1cd33453398390467f448d173dfdbd11154"
+    },
+    {
+      "pipeline": "bifrost-deliver-platform-prod",
+      "task": "stage-console-dockerfile",
+      "taskspec_sha256": "ea9da83a2f663fb338681f9c4d9089cd5f5456c88e574c7c67f2a35678e3ebe8"
+    },
+    {
+      "pipeline": "bifrost-deliver-platform",
+      "task": "stage-api-dockerfile",
+      "taskspec_sha256": "1e85d532d1670c14c252268e6857b1cd33453398390467f448d173dfdbd11154"
+    },
+    {
+      "pipeline": "bifrost-deliver-platform",
+      "task": "stage-console-dockerfile",
+      "taskspec_sha256": "ea9da83a2f663fb338681f9c4d9089cd5f5456c88e574c7c67f2a35678e3ebe8"
+    },
+    {
+      "pipeline": "bifrost-deliver-prod",
+      "task": "preflight-stg",
+      "taskspec_sha256": "f0cee9dee3202d3e93eaa5e94141291cdac51307300a115401b1231856cdce00"
+    },
+    {
+      "pipeline": "bifrost-deliver-prod",
+      "task": "stage-api-dockerfile",
+      "taskspec_sha256": "1a99b2796a4355156416ba201c6f4df553ae728fe3072163220eb3c99e825d15"
+    },
+    {
+      "pipeline": "bifrost-deliver-prod",
+      "task": "stage-frontend-dockerfile",
+      "taskspec_sha256": "69b1cce62f36bd0ec2745362e3d8df885954d844e14505c415089360f420b4df"
+    },
+    {
+      "pipeline": "bifrost-deliver-research",
+      "task": "pin-check",
+      "taskspec_sha256": "f83500c726da237d3de1fc6859082bfd83f860736ead81f482a8692c8e607fcb"
+    },
+    {
+      "pipeline": "bifrost-deliver-stg",
+      "task": "stage-api-dockerfile",
+      "taskspec_sha256": "1a99b2796a4355156416ba201c6f4df553ae728fe3072163220eb3c99e825d15"
+    },
+    {
+      "pipeline": "bifrost-deliver-stg",
+      "task": "stage-frontend-dockerfile",
+      "taskspec_sha256": "69b1cce62f36bd0ec2745362e3d8df885954d844e14505c415089360f420b4df"
+    }
+  ],
+  "side_effect": [
+    "bifrost-argocd-sync-platform-stg",
+    "bifrost-argocd-sync-stg",
+    "bifrost-gitea-mirror-sync",
+    "bifrost-kaniko-all-apis-stg",
+    "bifrost-kaniko-api-monitor",
+    "bifrost-kaniko-frontend",
+    "bifrost-kaniko-frontend-real",
+    "bifrost-kaniko-platform-api-stg",
+    "bifrost-kaniko-platform-console-stg",
+    "bifrost-kaniko-worker-stg",
+    "bifrost-prepare-deliver-stg",
+    "bifrost-refresh-dockerfile-cms",
+    "bifrost-rollout-platform-stg",
+    "bifrost-rollout-research",
+    "bifrost-rollout-stg",
+    "build-research",
+    "kaniko",
+    "run"
+  ]
+}

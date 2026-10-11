@@ -56,7 +56,11 @@ spec:
   workspaces:
     - name: build-context
   tasks:
+    - name: freeze-check
+      taskRef:
+        name: bifrost-release-freeze-check
     - name: preflight-stg
+      runAfter: [freeze-check]
       taskSpec:
         params:
           - name: traefikBase

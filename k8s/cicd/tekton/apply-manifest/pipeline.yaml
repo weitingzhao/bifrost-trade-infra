@@ -35,7 +35,11 @@ spec:
     - name: highest_tier
       value: $(tasks.run.results.highest_tier)
   tasks:
+    - name: freeze-check
+      taskRef:
+        name: bifrost-release-freeze-check
     - name: run
+      runAfter: [freeze-check]
       params:
         - name: mode
           value: $(params.mode)

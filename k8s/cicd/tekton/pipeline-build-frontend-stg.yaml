@@ -29,7 +29,11 @@ spec:
   workspaces:
     - name: build-context
   tasks:
+    - name: freeze-check
+      taskRef:
+        name: bifrost-release-freeze-check
     - name: clone-frontend
+      runAfter: [freeze-check]
       taskRef:
         name: bifrost-git-clone-gitea
       params:
@@ -43,6 +47,7 @@ spec:
         - name: output
           workspace: build-context
     - name: clone-ui
+      runAfter: [freeze-check]
       taskRef:
         name: bifrost-git-clone-gitea
       params:

@@ -37,7 +37,11 @@ spec:
   workspaces:
     - name: build-context
   tasks:
+    - name: freeze-check
+      taskRef:
+        name: bifrost-release-freeze-check
     - name: mirror-sync
+      runAfter: [freeze-check]
       taskRef:
         name: bifrost-gitea-mirror-sync
       params:

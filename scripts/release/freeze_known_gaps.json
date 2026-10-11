@@ -1,0 +1,15 @@
+{
+  "max_age_days": 30,
+  "max_age_reason": "A known gap excuses one task definition in a sibling repository this tree does not edit. Thirty days is one release cycle to land that change. A later definition is a new gap, and an excuse older than that stops matching so a rewritten task cannot keep the old message.",
+  "gaps": [
+    {
+      "name": "flex-query-kaniko-not-dominated",
+      "date": "2026-10-11",
+      "repo": "bifrost-platform-plugin-flex-query",
+      "pipeline": "bifrost-build-flex-query",
+      "task": "kaniko",
+      "spec_sha256": "0b98ce0d7544d23f7228846802de79f79418f8a84f5f27101d489fbeb3fefe6e",
+      "message": "bifrost-platform-plugin-flex-query/bifrost-build-flex-query: kaniko is not dominated by the freeze check"
+    }
+  ]
+}

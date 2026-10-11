@@ -33,13 +33,18 @@ spec:
   workspaces:
     - name: source
   tasks:
+    - name: freeze-check
+      taskRef:
+        name: bifrost-release-freeze-check
     - name: release-window
+      runAfter: [freeze-check]
       taskRef:
         name: bifrost-release-window
       params:
         - name: pipeline
           value: bifrost-build-ib-gateway
     - name: validate-revision
+      runAfter: [freeze-check]
       taskRef:
         name: bifrost-validate-git-sha
       params:

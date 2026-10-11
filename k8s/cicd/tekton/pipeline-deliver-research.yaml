@@ -66,14 +66,19 @@ spec:
   workspaces:
     - name: build-context
   tasks:
+    - name: freeze-check
+      taskRef:
+        name: bifrost-release-freeze-check
     # Fail fast: the window must name bifrost-research, and revision must be a SHA.
     - name: release-window
+      runAfter: [freeze-check]
       taskRef:
         name: bifrost-release-window
       params:
         - name: pipeline
           value: bifrost-deliver-research
     - name: validate-revision
+      runAfter: [freeze-check]
       taskRef:
         name: bifrost-validate-git-sha
       params:

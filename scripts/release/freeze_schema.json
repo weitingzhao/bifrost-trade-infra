@@ -1,0 +1,40 @@
+{
+  "closed": true,
+  "document": "data of ConfigMap cicd/bifrost-release-freeze",
+  "envelope": "The API object is a ConfigMap. apiVersion, kind and metadata are not part of this closed set. decide() sees data only.",
+  "initial": {
+    "frozen": "false"
+  },
+  "shapes": {
+    "never_frozen": {
+      "keys": ["frozen"],
+      "frozen": "false",
+      "allow": true,
+      "note": false,
+      "source": "k8s/cicd/release-policy/configmaps.yaml data. Freeze and Unfreeze replace the whole map and do not write this shape."
+    },
+    "frozen": {
+      "keys": ["frozen", "frozen_at", "who", "reason"],
+      "nonempty": ["frozen_at", "who", "reason"],
+      "rfc3339": ["frozen_at"],
+      "frozen": "true",
+      "allow": false,
+      "note": false,
+      "source": "Engine.Freeze WriteConfigMap (frozen, frozen_at, who, reason)"
+    },
+    "unfrozen": {
+      "keys": ["frozen", "frozen_at", "unfreeze.txt", "unfreeze.sig"],
+      "nonempty": ["frozen_at", "unfreeze.txt", "unfreeze.sig"],
+      "rfc3339": ["frozen_at"],
+      "frozen": "false",
+      "allow": true,
+      "note": true,
+      "source": "Engine.Unfreeze WriteConfigMap (frozen, frozen_at, unfreeze.txt, unfreeze.sig)"
+    }
+  },
+  "slice_c": {
+    "verified": false,
+    "note": "note: un-freeze signature not verified (slice C)",
+    "extension": "The sequence and the verification of the un-freeze signature arrive together in slice C, with the platform change that writes them."
+  }
+}
