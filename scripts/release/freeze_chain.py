@@ -45,6 +45,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from datetime import date
 from pathlib import Path
 
 import yaml
@@ -76,15 +77,35 @@ def load_effects(path: Path | None = None) -> dict:
     return json.loads((path or EFFECTS_PATH).read_text(encoding="utf-8"))
 
 
+def load_gap_document(path: Path | None = None) -> dict:
+    return json.loads((path or GAPS_PATH).read_text(encoding="utf-8"))
+
+
 def load_known_gaps(path: Path | None = None) -> list[dict]:
-    data = json.loads((path or GAPS_PATH).read_text(encoding="utf-8"))
-    return list(data["gaps"])
+    return list(load_gap_document(path)["gaps"])
 
 
 def taskspec_digest(spec: dict) -> str:
     """sha256 of the canonical JSON of a taskSpec. A changed spec will not match."""
     payload = json.dumps(spec, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def definition_digest(task: dict) -> str:
+    """sha256 of the definition a known gap is bound to.
+
+    An inline task hashes its taskSpec. A taskRef hashes the taskRef and its
+    params. A different digest is a different definition.
+    """
+    spec = task.get("taskSpec")
+    if isinstance(spec, dict):
+        return taskspec_digest(spec)
+    ref = task.get("taskRef")
+    body = {
+        "params": task.get("params") or [],
+        "taskRef": ref if isinstance(ref, dict) else {},
+    }
+    return taskspec_digest(body)
 
 
 def load_task_index(tekton: Path | None = None) -> dict[str, dict]:
@@ -273,12 +294,13 @@ def _path_misses_freeze(tasks: list[dict], target: str, freeze: set[str]) -> boo
     return False
 
 
-def violations_for(
+def _collect(
     doc: dict,
     effects: dict | None = None,
     tasks: dict[str, dict] | None = None,
     pipeline_label: str | None = None,
-) -> list[str]:
+) -> list[tuple[str, dict]]:
+    """Violation message and the pipeline task it names, in report order."""
     effects = effects or load_effects()
     examined = tasks if tasks is not None else task_index()
     meta = doc.get("metadata") or {}
@@ -287,26 +309,35 @@ def violations_for(
     spec = doc.get("spec") or {}
     body = list(spec.get("tasks") or [])
     finally_tasks = list(spec.get("finally") or [])
-    misses: list[str] = []
+    misses: list[tuple[str, dict]] = []
     for task in body:
         reason = freeze_problem(task, effects, False)
         if reason:
-            misses.append(INVALID.format(pipeline=label, task=str(task["name"]), reason=reason))
+            misses.append((INVALID.format(pipeline=label, task=str(task["name"]), reason=reason), task))
     for task in finally_tasks:
         reason = freeze_problem(task, effects, True)
         if reason:
-            misses.append(INVALID.format(pipeline=label, task=str(task["name"]), reason=reason))
+            misses.append((INVALID.format(pipeline=label, task=str(task["name"]), reason=reason), task))
     freeze = {str(task["name"]) for task in body if freeze_protects(task, effects)}
     for task in body:
         name = str(task["name"])
         if not is_side_effect(task, effects, pipeline, examined):
             continue
         if _path_misses_freeze(body, name, freeze):
-            misses.append(MESSAGE.format(pipeline=label, task=name))
+            misses.append((MESSAGE.format(pipeline=label, task=name), task))
     for task in finally_tasks:
         if is_side_effect(task, effects, pipeline, examined):
-            misses.append(MESSAGE.format(pipeline=label, task=str(task["name"])))
+            misses.append((MESSAGE.format(pipeline=label, task=str(task["name"])), task))
     return misses
+
+
+def violations_for(
+    doc: dict,
+    effects: dict | None = None,
+    tasks: dict[str, dict] | None = None,
+    pipeline_label: str | None = None,
+) -> list[str]:
+    return [msg for msg, _task in _collect(doc, effects, tasks, pipeline_label)]
 
 
 def iter_pipelines(root: Path) -> list[tuple[Path, dict]]:
@@ -328,6 +359,42 @@ def violations_under(tekton: Path, effects: dict | None = None) -> list[str]:
     return misses
 
 
+def records_for_doc(
+    doc: dict,
+    repo: str,
+    effects: dict | None = None,
+    tasks: dict[str, dict] | None = None,
+) -> list[dict]:
+    """One record per violation: repo, pipeline, task, definition digest, message."""
+    name = str((doc.get("metadata") or {}).get("name") or "")
+    records: list[dict] = []
+    for msg, task in _collect(doc, effects, tasks, pipeline_label=f"{repo}/{name}"):
+        records.append(
+            {
+                "repo": repo,
+                "pipeline": name,
+                "task": str(task.get("name") or ""),
+                "digest": definition_digest(task),
+                "message": msg,
+            }
+        )
+    return records
+
+
+def records_in_file(
+    path: Path,
+    repo: str,
+    effects: dict | None = None,
+    tasks: dict[str, dict] | None = None,
+) -> list[dict]:
+    """Violation records for a pipeline file outside this repository."""
+    found: list[dict] = []
+    for doc in yaml.safe_load_all(path.read_text(encoding="utf-8")):
+        if isinstance(doc, dict) and doc.get("kind") == "Pipeline":
+            found.extend(records_for_doc(doc, repo, effects, tasks))
+    return found
+
+
 def violations_in_file(
     path: Path,
     repo: str,
@@ -335,28 +402,67 @@ def violations_in_file(
     tasks: dict[str, dict] | None = None,
 ) -> list[str]:
     """Domination misses for a pipeline file outside this repository."""
-    effects = effects or load_effects()
-    examined = tasks if tasks is not None else task_index()
-    misses: list[str] = []
-    for doc in yaml.safe_load_all(path.read_text(encoding="utf-8")):
-        if not isinstance(doc, dict) or doc.get("kind") != "Pipeline":
-            continue
-        name = str((doc.get("metadata") or {}).get("name") or "")
-        misses.extend(violations_for(doc, effects, examined, pipeline_label=f"{repo}/{name}"))
-    return misses
+    return [item["message"] for item in records_in_file(path, repo, effects, tasks)]
+
+
+def _gap_age_days(item: dict, today: date) -> int | None:
+    raw = item.get("date")
+    if not isinstance(raw, str):
+        return None
+    try:
+        recorded = date.fromisoformat(raw)
+    except ValueError:
+        return None
+    return (today - recorded).days
 
 
 def split_known_gaps(
-    messages: list[str],
+    records: list[dict],
     gaps: list[dict] | None = None,
-) -> tuple[list[str], list[str]]:
-    """Return (hard failures, known-gap messages) preserving order."""
-    known_set = {str(item["message"]) for item in (gaps if gaps is not None else load_known_gaps())}
+    max_age_days: int | None = None,
+    today: date | None = None,
+) -> tuple[list[str], list[dict]]:
+    """Return (hard failure messages, tolerated gaps).
+
+    A record is tolerated only when one entry matches repository, pipeline,
+    task name and definition digest, and its date parses to an age from 0
+    through max_age_days. The message alone is not a match. A different
+    digest, an unparsed date, or an older entry is a new gap.
+    """
+    document = None if gaps is not None else load_gap_document()
+    entries = list(gaps) if gaps is not None else list(document["gaps"])
+    if max_age_days is None:
+        raw_age = 0 if document is None else document.get("max_age_days")
+        max_age_days = raw_age if isinstance(raw_age, int) and raw_age >= 0 else 0
+    clock = today or date.today()
     hard: list[str] = []
-    known: list[str] = []
-    for msg in messages:
-        if msg in known_set:
-            known.append(msg)
-        else:
-            hard.append(msg)
+    known: list[dict] = []
+    for record in records:
+        age: int | None = None
+        matched: dict | None = None
+        for entry in entries:
+            if entry.get("repo") != record.get("repo"):
+                continue
+            if entry.get("pipeline") != record.get("pipeline"):
+                continue
+            if entry.get("task") != record.get("task"):
+                continue
+            if entry.get("spec_sha256") != record.get("digest"):
+                continue
+            candidate = _gap_age_days(entry, clock)
+            if candidate is None or candidate < 0 or candidate > max_age_days:
+                continue
+            age = candidate
+            matched = entry
+            break
+        if matched is None or age is None:
+            hard.append(str(record.get("message") or ""))
+            continue
+        known.append(
+            {
+                "name": str(matched.get("name") or ""),
+                "message": str(record.get("message") or ""),
+                "age_days": age,
+            }
+        )
     return hard, known

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import copy
 import os
 import subprocess
 import sys
 import unittest
+from datetime import date
 from pathlib import Path
 
 import yaml
@@ -263,24 +265,79 @@ class DominationTests(unittest.TestCase):
         forced["side_effect"] = list(effects["side_effect"]) + ["bifrost-smoke-echo"]
         self.assertTrue(fc.is_side_effect(task, forced, "demo"))
 
+    def test_definition_digest_binds_taskref_params_or_inline_taskspec(self) -> None:
+        ref = {"name": "kaniko", "taskRef": {"name": "kaniko"}, "params": [{"name": "IMAGE", "value": "a"}]}
+        other = {"name": "kaniko", "taskRef": {"name": "kaniko"}, "params": [{"name": "IMAGE", "value": "b"}]}
+        self.assertNotEqual(fc.definition_digest(ref), fc.definition_digest(other))
+        inline = {
+            "name": "kaniko",
+            "params": [{"name": "image", "value": "a"}],
+            "taskSpec": {"steps": [{"name": "b", "script": "true\n"}]},
+        }
+        changed_params = dict(inline)
+        changed_params["params"] = [{"name": "image", "value": "b"}]
+        self.assertEqual(fc.definition_digest(inline), fc.definition_digest(changed_params))
+
     def test_flex_query_fixture_is_the_known_gap(self) -> None:
         fixture = FIXTURES.parent / "flex-query" / "k8s" / "cicd" / "pipeline-build.yaml"
-        misses = fc.violations_in_file(fixture, "bifrost-platform-plugin-flex-query")
+        repo = "bifrost-platform-plugin-flex-query"
+        records = fc.records_in_file(fixture, repo)
         message = (
             "bifrost-platform-plugin-flex-query/bifrost-build-flex-query: "
             "kaniko is not dominated by the freeze check"
         )
-        self.assertEqual(misses, [message])
-        hard, known = fc.split_known_gaps(misses)
-        self.assertEqual(hard, [])
-        self.assertEqual(known, [message])
-        extra = misses + ["bifrost-build-flex-query: other is not dominated by the freeze check"]
-        hard, known = fc.split_known_gaps(extra)
-        self.assertEqual(hard, ["bifrost-build-flex-query: other is not dominated by the freeze check"])
-        self.assertEqual(len(known), 1)
+        self.assertEqual([item["message"] for item in records], [message])
         gap = fc.load_known_gaps()[0]
         self.assertEqual(gap["name"], "flex-query-kaniko-not-dominated")
         self.assertEqual(gap["date"], "2026-10-11")
+        self.assertEqual(gap["repo"], repo)
+        self.assertEqual(gap["pipeline"], "bifrost-build-flex-query")
+        self.assertEqual(gap["task"], "kaniko")
+        self.assertEqual(gap["spec_sha256"], records[0]["digest"])
+        self.assertEqual(fc.load_gap_document()["max_age_days"], 30)
+        when = date(2026, 10, 11)
+        hard, known = fc.split_known_gaps(records, today=when)
+        self.assertEqual(hard, [])
+        self.assertEqual(known[0]["message"], message)
+        self.assertEqual(known[0]["age_days"], 0)
+        hard, known = fc.split_known_gaps(records, today=date(2026, 11, 10))
+        self.assertEqual(hard, [])
+        self.assertEqual(known[0]["age_days"], 30)
+        hard, known = fc.split_known_gaps(records, today=date(2026, 11, 11))
+        self.assertEqual(known, [])
+        self.assertEqual(hard, [message])
+        stale = copy.deepcopy(fc.load_known_gaps())
+        stale[0]["date"] = "not-a-date"
+        hard, known = fc.split_known_gaps(records, gaps=stale, max_age_days=30, today=when)
+        self.assertEqual(known, [])
+        self.assertEqual(hard, [message])
+        other = [dict(records[0]), dict(records[0])]
+        other[1]["task"] = "other"
+        other[1]["message"] = "bifrost-build-flex-query: other is not dominated by the freeze check"
+        hard, known = fc.split_known_gaps(other, today=when)
+        self.assertEqual(hard, ["bifrost-build-flex-query: other is not dominated by the freeze check"])
+        self.assertEqual(len(known), 1)
+
+    def test_a_rewritten_kaniko_is_a_new_gap(self) -> None:
+        fixture = FIXTURES.parent / "flex-query" / "k8s" / "cicd" / "pipeline-build.yaml"
+        repo = "bifrost-platform-plugin-flex-query"
+        message = (
+            "bifrost-platform-plugin-flex-query/bifrost-build-flex-query: "
+            "kaniko is not dominated by the freeze check"
+        )
+        original = fc.records_in_file(fixture, repo)
+        doc = next(item for item in yaml.safe_load_all(fixture.read_text(encoding="utf-8")) if item["kind"] == "Pipeline")
+        for task in doc["spec"]["tasks"]:
+            if task["name"] == "kaniko":
+                task["taskSpec"]["steps"] = [
+                    {"name": "push", "image": "alpine:3.20", "script": "git push origin HEAD:main\n"},
+                ]
+        rewritten = fc.records_for_doc(doc, repo)
+        self.assertEqual(rewritten[0]["message"], message)
+        self.assertNotEqual(rewritten[0]["digest"], original[0]["digest"])
+        hard, known = fc.split_known_gaps(rewritten, today=date(2026, 10, 11))
+        self.assertEqual(known, [])
+        self.assertEqual(hard, [message])
 
 
 class CheckerGapTests(unittest.TestCase):
@@ -301,16 +358,23 @@ class CheckerGapTests(unittest.TestCase):
             "bifrost-platform-plugin-flex-query/bifrost-build-flex-query: "
             "kaniko is not dominated by the freeze check"
         )
+        gap_date = date.fromisoformat(fc.load_known_gaps()[0]["date"])
+        age = (date.today() - gap_date).days
         refused = self._run()
         self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
         self.assertIn(message, refused.stdout)
-        self.assertIn("known gaps: 1", refused.stdout)
         self.assertNotIn("check-release-chain: ok", refused.stdout)
         allowed = self._run("--allow-known-gaps")
-        self.assertEqual(allowed.returncode, 0, allowed.stdout + allowed.stderr)
-        self.assertIn(message, allowed.stdout)
-        self.assertIn("known gaps: 1", allowed.stdout)
-        self.assertIn("check-release-chain: ok (7 window cases)", allowed.stdout)
+        if age <= 30:
+            self.assertEqual(allowed.returncode, 0, allowed.stdout + allowed.stderr)
+            self.assertIn(f"{message} (age {age} days)", allowed.stdout)
+            self.assertIn("known gaps: 1", allowed.stdout)
+            self.assertIn("check-release-chain: ok (7 window cases)", allowed.stdout)
+            self.assertIn(f"(age {age} days)", refused.stdout)
+            self.assertIn("known gaps: 1", refused.stdout)
+        else:
+            self.assertEqual(allowed.returncode, 1, allowed.stdout + allowed.stderr)
+            self.assertNotIn("known gaps:", allowed.stdout)
 
 
 if __name__ == "__main__":

@@ -140,39 +140,91 @@ PROD / platform-prod / research 的发布（级别 C）等 Owner 批，STG 与�
 
 ## Freeze check (W-56 step 1, slice B — not applied yet)
 
-新 Task `bifrost-release-freeze-check` 读一次 ConfigMap `cicd/bifrost-release-freeze`，故障即拒。
-只有读成功、`data` 恰好是钉死的形状、并且 `frozen` 是字符串 `"false"` 才放行。下面一律拒绝，第一行就是原因：
+新 Task `bifrost-release-freeze-check` 读一次 ConfigMap `cicd/bifrost-release-freeze` 的 `data`，故障即拒。
+只有读成功、`data` 恰好是下面三种之一、并且 `frozen` 是字符串 `"false"` 才放行。每种形状的键是闭的：多一个、少一个、空字符串，或 `frozen_at` 不是 RFC 3339，都是畸形。
 
-- 对象是冻结形状（`frozen` 为 `"true"`）：`拒绝：发布已冻结（<reason>，<frozen_at>）；解冻要 Owner 签名`
-- 读不到或形状不对（404、其它 API 错误、超时、解析不了、缺字段、多余字段、`frozen` 不是 `"true"` / `"false"`、布尔值而不是字符串）：`拒绝：读不到冻结状态（<what>），按冻结处理`
+| 形状 | 键 | 结果 |
+| --- | --- | --- |
+| 从未冻结 | 只有 `frozen="false"` | 放行：`未冻结：<checked_at>` |
+| 冻结 | `frozen="true"`、`frozen_at`（RFC 3339）、`who`、`reason` | `拒绝：发布已冻结（<reason>，<frozen_at>）；解冻要 Owner 签名` |
+| Owner 解冻之后 | `frozen="false"`、`frozen_at`（那次冻结的）、`unfreeze.txt`、`unfreeze.sig` | 放行，第二行 `note: un-freeze signature not verified (slice C)` |
 
-放行时第一行是 `未冻结：<checked_at>`。`seq` 不是 `"0"` 的未冻结对象必须带齐解冻字段；这一片接受它并另起一行 `note: un-freeze signature not verified (slice C)`，不验签名。
+序号和对解冻签名的核验一起在 C 片到来，随平台改写入。这一片按形状接受解冻对象，不验签名。
 
-Owner 在应用这个 Task 之前必须先放上初始对象（404 现在会拒，缺 `seq` 也会拒）。`k8s/cicd/release-policy/configmaps.yaml` 里今天只有 `frozen: "false"`，不够。初始对象是：
+今天集群里的对象就是「从未冻结」：`k8s/cicd/release-policy/configmaps.yaml` 的 `data` 只有 `frozen: "false"`。Owner 在应用这个 Task 之前不用创建或改它。不要 `kubectl apply -f k8s/cicd/release-policy/configmaps.yaml`：那个文件同时带着策略 ConfigMap，盖上去会动已签名的策略；对象当时若是冻结的，还会被写成没冻结。
 
-```yaml
+读不到或形状不对（404、其它 API 错误、超时、解析不了、缺字段、多余字段、`frozen` 不是 `"true"` / `"false"`、布尔值而不是字符串、`frozen_at` 不是 RFC 3339）：`拒绝：读不到冻结状态（<what>），按冻结处理`。
+
+上线不靠流水线豁免。对象缺失或畸形时检查会拒绝，坏掉的对象不能靠 `bifrost-apply-manifest` 修，因为这条流水线自己也被同一道检查挡住。谁做哪一步：
+
+1. 不动冻结对象。今天的 `frozen: "false"` 已经能过检查。
+2. Owner 自己 `kubectl apply -f k8s/cicd/tekton/task-release-freeze-check.yaml`。这一个文件里是 Task 和装着程序的 ConfigMap。不走 `bifrost-apply-manifest`。
+3. 然后十一条会推镜像或滚动的 Pipeline，按文件逐个 apply。
+4. 最后才是 `bifrost-apply-manifest`。`freeze-check` 是根，`run`（里面的 `kubectl apply`）在它之后。
+
+从第 2 步动手到第 4 步做完，不要开始任何发布。
+
+中途停下来并不安全：
+
+- 只做完第 2 步：新 Task 在，还没有流水线跑它。集群里现有的流水线仍不经过这道检查。apply 也还没被挡住。
+- 十一条里只换了一部分：已经换上的被检查支配；还没换的那条仍不跑这道检查。apply 留到最后，所以这时 apply 仍不检查。
+- 十一条都换了、apply 还没有：这十一条被挡住。旧的 apply 流水线仍能写入。
+- 第 4 步做完：apply 的 `run` 也在检查之后。这是这一片接上的流水线第一次全部被挡住。
+
+续装从还没 apply 的下一个文件接着做，顺序不变。不要先换 apply，也不要靠发起一次发布把安装做完。
+
+### 恢复（只有 Owner，带外）
+
+下面都不能走 apply 流水线。
+
+冻结对象缺失或畸形时，先分清它当时是不是冻结的，再写回同一种形状。当时是冻结的，就不要建成 `frozen: "false"`。对象已经没了之后再跑 `release.sh policy status`，平台把缺失读成没冻结，这次输出不能当依据。看两处：对象还可读时的最后一次 `scripts/release/release.sh policy status`（冻结时这一行是 `frozen    True  (<reason>, at <frozen_at>)`，否则是 `frozen    False`）；平台审计 `GET /api/v1/audit` 里结果为 ok 的最后一条 `release_policy.freeze`（target 是 `who: reason`）或 `release_policy.unfreeze`（target 是签过名的原文 `unfreeze frozen_at=<那次 frozen_at> ...`）。签名不在审计里。`release.sh unfreeze` 写完就删掉本机临时文件，`unfreeze.sig` 只在 ConfigMap 里。对象还在就先 `kubectl -n cicd get configmap bifrost-release-freeze -o json`，只保留该形状的键。对象已经没了、最后一条是冻结：用审计里的 who、reason 和当时 status 行里的 `frozen_at`。对象已经没了、最后一条是解冻、签名也没了：不要编 `unfreeze.sig`，也不要写成从未冻结。用解冻原文里的 `frozen_at` 和它对应的那条 `release_policy.freeze` 把对象写成冻结形状，发布保持停止，然后 Owner 再跑 `release.sh unfreeze`。
+
+`kubectl apply` 会按键合并 ConfigMap 的 `data`，多余键会留下。删掉再创建，只写这一个对象。删和建之间对象是缺失的，这段时间不要有发布在跑：旧的 release-window 把 404 当成没冻结，新检查把 404 当成拒绝。冻结时：
+
+```bash
+kubectl -n cicd delete configmap bifrost-release-freeze --ignore-not-found
+kubectl -n cicd create -f - <<EOF
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: bifrost-release-freeze
   namespace: cicd
+  labels:
+    bifrost.io/purpose: release-policy
 data:
-  frozen: "false"
-  seq: "0"
+  frozen: "true"
+  frozen_at: "${FROZEN_AT}"
+  who: "${WHO}"
+  reason: "${REASON}"
+EOF
 ```
 
-上线是一次性的，没有流水线豁免名单。检查在对象不存在时会拒绝，所以不能靠 `bifrost-apply-manifest` 来装检查自己。谁做哪一步：
+先从上面两处导出 `FROZEN_AT`、`WHO`、`REASON`，再跑这条命令。从未冻结把 `data` 换成只有 `frozen: "false"`。解冻用带引号的 heredoc（`<<'EOF'`），把取出来的 `frozen_at`、`unfreeze.txt`、`unfreeze.sig` 原样贴进去，避免 shell 展开签名。
 
-1. Owner 自己创建初始对象（上面的 ConfigMap）。不走任何流水线。
-2. Owner 自己 apply `k8s/cicd/tekton/task-release-freeze-check.yaml`（Task 和装着程序的 ConfigMap 在同一个文件里）。不走 `bifrost-apply-manifest`。
-3. 然后是十一条会推镜像或滚动的 Pipeline。
-4. 最后才是 `bifrost-apply-manifest`。这时 Task 和初始对象都已经在，`freeze-check` 是根，`run`（里面的 `kubectl apply`）在它之后。
+冻结检查的 Task 或程序 ConfigMap 坏了：Owner 自己再 apply 这两个对象所在的那一个文件，不走 apply 流水线：
+
+```bash
+kubectl apply -f k8s/cicd/tekton/task-release-freeze-check.yaml
+```
+
+事后核对。在 `bifrost-trade-infra` 仓库根目录把决定程序对着活对象跑，退出码 0 才是放行：
+
+```bash
+kubectl -n cicd get configmap bifrost-release-freeze -o json \
+  | python3 -c 'import json,sys; sys.path.insert(0,"scripts/release"); import freeze_decision as fd; doc=json.load(sys.stdin); code,text=fd.render(fd.data_from_envelope(doc)); sys.stdout.write(text); raise SystemExit(code)'
+```
+
+再干跑一条流水线：平台 `plan_manifest`（`bifrost-apply-manifest`，`mode=plan`）。它会跑 `freeze-check`，然后 `kubectl diff`，不会 `kubectl apply`。恢复出来的状态若是冻结，这一跑会在检查处被拒，这是预期。
 
 现有 Role `tekton-release-window` 已经允许 `default` 和 `tekton-deliver` 对 `bifrost-release-freeze` 做 `get`，这一片不新写 RBAC。
 
 冻结期间 apply 流水线也不跑，包括它的 plan 模式（plan 和 apply 是同一个任务）。解冻不走这条流水线：`release.sh unfreeze` 把 Owner 签名交给平台 `POST /api/v1/release-policy/unfreeze`。这一片不给任何流水线豁免。若以后有一条流水线必须在冻结期间跑，先停下来写进报告，而不是加豁免。
 
-兄弟仓库 `bifrost-platform-plugin-flex-query` 的 `bifrost-build-flex-query` 今天仍以 `release-window` 开头，内联的 `kaniko` 推镜像不被冻结检查支配。棘轮报 `bifrost-platform-plugin-flex-query/bifrost-build-flex-query: kaniko is not dominated by the freeze check`，这条记在 `scripts/release/freeze_known_gaps.json`，输出里有 `known gaps: 1`，默认退出码非 0。`--allow-known-gaps` 只放过已知缺口，CI 不用这个旗标。要消掉它，那个仓库得把 `bifrost-release-freeze-check` 加成立即的根，并让 `release-window` 在它之后。这一片不改那个仓库。那个仓库改完之后，这里 TD-263 对 flex-query「第一个任务必须是 `release-window`」的特例也要改成和本仓库一样（第一个是 `freeze-check`）。
+兄弟仓库 `bifrost-platform-plugin-flex-query` 的 `bifrost-build-flex-query` 今天仍以 `release-window` 开头，内联的 `kaniko` 推镜像不被冻结检查支配。棘轮报 `bifrost-platform-plugin-flex-query/bifrost-build-flex-query: kaniko is not dominated by the freeze check`。这条记在 `scripts/release/freeze_known_gaps.json`，绑的是仓库、流水线、任务名、该内联 `taskSpec` 的 sha256，以及解析过的日期 `2026-10-11`。把这个 `kaniko` 换成同名、脚本里跑 `git push` 的任务，报文不变，摘要变了，是新缺口。`--allow-known-gaps` 只放过仓库、流水线、任务名、摘要都对上、并且日期不早于 30 天的条目。30 天是留给那个仓库改完的一个发布周期；过了就不再匹配，免得后来改过的任务一直顶着旧报文。放过的每一条都打印日龄，例如 `(age 0 days)`，并有 `known gaps: 1`。默认退出码非 0。
+
+没有 CI 任务、没有 make 目标、也没有发布脚本调用 `scripts/check-release-chain.py`。`agent-config/RATCHETS.md` 把这条 TD-263 检查标成 manual（infra 没有 CI）。合进之后，手工跑这个检查会因为 flex-query 这条缺口默认失败。它不会让任何自动检查变红。
+
+要消掉缺口，那个仓库得把 `bifrost-release-freeze-check` 加成立即的根，并让 `release-window` 在它之后。这一片不改那个仓库。那个仓库改完之后，这里 TD-263 对 flex-query「第一个任务必须是 `release-window`」的特例也要改成和本仓库一样（第一个是 `freeze-check`）。
 
 旧 PROD 链 `bifrost-deliver-platform-prod` 只有这一次检查，放在两条推镜像之前。过了它的 run（TaskRun 结果 `passed_cut_at`）会把构建和滚动走完，滚动前不再查第二次。还没到检查的 run，跑到检查时被拒。检查自己超时或被取消，任务失败，run 被拒。一条镜像推成、另一条失败，按 run 当时的记录留下，这一片不补救。在途 run 的名字在冻结回执里：看 `tekton.dev/pipelineTask=freeze-check` 的 TaskRun，结果里有 `passed_cut_at`，再用标签 `tekton.dev/pipelineRun` 对上仍在跑的 PipelineRun。列出这件事这一片不做。`scripts/release/freeze_inflight.py` 的测试是一张行为表，不是一次 Tekton 调度演练。
 

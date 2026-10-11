@@ -177,10 +177,10 @@ def main(argv: list[str] | None = None) -> int:
     for msg in freeze_chain.violations_under(ROOT / "k8s/cicd/tekton"):
         check(False, msg)
 
-    external: list[str] = []
+    external_records: list[dict] = []
     for repo, path in external_pipeline_files():
-        external.extend(freeze_chain.violations_in_file(path, repo))
-    hard_external, known = freeze_chain.split_known_gaps(external)
+        external_records.extend(freeze_chain.records_in_file(path, repo))
+    hard_external, known = freeze_chain.split_known_gaps(external_records)
     for msg in hard_external:
         check(False, msg)
 
@@ -212,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
         check(proc.returncode == 0, f"bash -n {script} failed: {proc.stderr.strip()}")
 
     if known:
-        print("\n".join(known))
+        print("\n".join(f"{item['message']} (age {item['age_days']} days)" for item in known))
         print(f"known gaps: {len(known)}")
     if failures:
         print("\n".join(failures))

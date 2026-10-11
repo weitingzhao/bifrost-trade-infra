@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Fail-closed read of ConfigMap cicd/bifrost-release-freeze (W-56 step 1, slice B).
 
-Allow only a successfully read object whose data matches one unfrozen shape
-and whose frozen value is the string "false". Anything else refuses.
-Slice C verifies the un-freeze signature; this file only reserves the shape.
+Allow only a successfully read object whose data is one of the two unfrozen
+shapes and whose frozen value is the string "false". Anything else refuses.
 """
 
 from __future__ import annotations
@@ -32,11 +31,16 @@ REFUSE_UNREADABLE = "拒绝：读不到冻结状态（{what}），按冻结处�
 ALLOW_PREFIX = "未冻结："
 
 # SLICE C EXTENSION POINT.
-# A frozen="false" object whose seq is not "0" must carry the unfreeze fields
-# named in freeze_schema.json. This slice accepts that object and prints
-# SLICE_C_NOTE. It does not check the signature, the seq binding, or replay.
-# Do not add a partial verification here.
+# The sequence and the verification of the un-freeze signature arrive together
+# in slice C, with the platform change that writes them.
+# Until then an un-frozen object is accepted on its shape and this program
+# prints SLICE_C_NOTE. Do not add a partial verification here.
 SLICE_C_NOTE = "note: un-freeze signature not verified (slice C)"
+
+_RFC3339 = re.compile(
+    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
+    r"(?:\.[0-9]+)?(?:Z|[+-][0-9]{2}:[0-9]{2})$"
+)
 
 
 class ReadError:
@@ -59,8 +63,15 @@ def _unread(what: str) -> tuple[bool, str]:
     return False, REFUSE_UNREADABLE.format(what=what)
 
 
-def _seq_ok(value: str) -> bool:
-    return re.fullmatch(schema()["seq_pattern"], value) is not None
+def _rfc3339(value: str) -> bool:
+    if _RFC3339.fullmatch(value) is None:
+        return False
+    text = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        datetime.fromisoformat(text)
+    except ValueError:
+        return False
+    return True
 
 
 def decide(object_or_error: object) -> tuple[bool, str]:
@@ -80,39 +91,26 @@ def decide(object_or_error: object) -> tuple[bool, str]:
     if frozen not in ("true", "false"):
         return _unread('frozen is not "true" or "false"')
 
-    spec = schema()
+    shapes = schema()["shapes"]
     if frozen == "true":
-        return _decide_frozen(data, spec)
-    return _decide_unfrozen(data, spec)
+        return _apply_shape(data, shapes["frozen"])
+    never = shapes["never_frozen"]
+    if set(data) == set(never["keys"]) and data["frozen"] == never["frozen"]:
+        return _apply_shape(data, never)
+    return _apply_shape(data, shapes["unfrozen"])
 
 
-def _decide_frozen(data: dict, spec: dict) -> tuple[bool, str]:
-    shape = _shape_error(data, spec["frozen_fields"], spec["frozen_nonempty"])
-    if shape:
-        return _unread(shape)
-    if not _seq_ok(data["seq"]):
-        return _unread("field seq is not a decimal string")
-    if data["seq"] == "0":
-        return _unread("field seq is 0 while frozen")
+def _apply_shape(data: dict, shape: dict) -> tuple[bool, str]:
+    err = _shape_error(data, shape["keys"], shape.get("nonempty") or [])
+    if err:
+        return _unread(err)
+    for name in shape.get("rfc3339") or []:
+        if not _rfc3339(data[name]):
+            return _unread(f"field {name} is not RFC 3339")
+    if shape.get("allow"):
+        return True, ALLOW_PREFIX + checked_at()
     line = REFUSE_FROZEN.format(reason=data["reason"], frozen_at=data["frozen_at"])
     return False, line
-
-
-def _decide_unfrozen(data: dict, spec: dict) -> tuple[bool, str]:
-    initial = spec["initial"]
-    if set(data) == set(initial) and all(data[key] == value for key, value in initial.items()):
-        return True, ALLOW_PREFIX + checked_at()
-
-    # Any other frozen=false object must be the full unfrozen shape.
-    # SLICE C EXTENSION POINT: presence only, no signature check.
-    shape = _shape_error(data, spec["unfrozen_fields"], spec["unfrozen_nonempty"])
-    if shape:
-        return _unread(shape)
-    if not _seq_ok(data["seq"]):
-        return _unread("field seq is not a decimal string")
-    if data["seq"] == "0":
-        return _unread("field seq is 0 on an unfrozen object")
-    return True, ALLOW_PREFIX + checked_at()
 
 
 def _shape_error(data: dict, fields: list[str], nonempty: list[str]) -> str:
@@ -131,10 +129,11 @@ def _shape_error(data: dict, fields: list[str], nonempty: list[str]) -> str:
 
 
 def slice_c_note(object_or_error: object) -> bool:
-    """True when the allow path is the unfrozen shape, not the initial object."""
+    """True when the object is the unfrozen shape, not the never-frozen object."""
     if not isinstance(object_or_error, dict):
         return False
-    return "unfreeze_seq" in object_or_error
+    keys = schema()["shapes"]["unfrozen"]["keys"]
+    return set(object_or_error) == set(keys)
 
 
 def render(object_or_error: object) -> tuple[int, str]:
