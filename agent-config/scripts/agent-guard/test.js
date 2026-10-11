@@ -21,6 +21,8 @@ const RESOLVE_URL = APPR + 'req-1/' + 'resolve'
 const TOKEN_FILE = 'mcp-tokens' + '.env'
 const ADMIN_KEY = 'PLATFORM_' + 'ADMIN_TOKEN'
 const HASH_PAGE = '#' + 'approvals'
+const QUESTIONS_PAGE = '#' + 'questions'
+const ANSWER_URL = '/api/v1/' + 'questions/' + 'q_0123456789abcdef/' + 'answer'
 const OWNER_DIR = '.bifrost-' + 'owner'
 const OWNER_ENV = 'owner' + '.env'
 const KUBE_OK = '.kube/bifrost-k3s.yaml'
@@ -217,6 +219,19 @@ const cases = [
   ['own', 'ALLOW', 'Edit 文档正文可以提到 Owner 目录',
     tool('Edit', { file_path: '/x/docs/note.md', old_string: 'x', new_string: 'see ~/' + OWNER_DIR + '/' + OWNER_ENV })],
 
+  // ── 问题回答（W-65）。检查在 bifrost-approve 豁免之前。──
+  ['q', 'DENY', 'curl POST ' + ANSWER_URL,
+    bash('curl -sS -X POST http://192.168.10.100:30876' + ANSWER_URL + ' -H "content-type: application/json" -d \'{"option":"a","channel":"console"}\'')],
+  ['q', 'DENY', 'browser open ' + QUESTIONS_PAGE,
+    tool('browser_navigate', { url: 'http://192.168.10.100:30880/' + QUESTIONS_PAGE + '?id=q_0123456789abcdef' })],
+  ['q', 'ALLOW', 'ask_owner',
+    tool('mcp__bifrost-platform__' + 'ask_owner', { title: 'Where is the quota?', urgency: 'now', meanwhile: 'wait' })],
+  ['q', 'ALLOW', 'Write 文档正文可以提到回答路由',
+    tool('Write', {
+      file_path: '/x/docs/owner-questions.md',
+      contents: 'The route is POST ' + ANSWER_URL + ' and the page is ' + QUESTIONS_PAGE,
+    })],
+
   // ── 畸形输入 ──
   ['edge', 'ALLOW', '空输入', null],
 ]
@@ -224,11 +239,14 @@ const cases = [
 let pass = 0, fail = 0
 let group = ''
 for (const [g, want, name, payload] of cases) {
-  if (g !== group) { group = g; console.log(`\n── ${{ D10: 'D10 交易执行冻结', dev: 'dev-services', ok: '合法操作（不得误拦）', appr: '审批旁路（ADR §5）', own: 'Owner 凭证（LANE-W33D）', edge: '边界输入' }[g]} ──`) }
+  if (g !== group) { group = g; console.log(`\n── ${{ D10: 'D10 交易执行冻结', dev: 'dev-services', ok: '合法操作（不得误拦）', appr: '审批旁路（ADR §5）', q: '问题回答（W-65）', own: 'Owner 凭证（LANE-W33D）', edge: '边界输入' }[g]} ──`) }
   const r = spawnSync('node', [GUARD], { input: payload ? JSON.stringify(payload) : '', encoding: 'utf8' })
   const got = (r.stdout || '').trim() ? 'DENY' : 'ALLOW'
   let ok = got === want
   if (ok && g === 'appr' && want === 'DENY' && !String(r.stdout).includes('ADR §5')) {
+    ok = false
+  }
+  if (ok && g === 'q' && want === 'DENY' && !String(r.stdout).includes('wait_for_answer')) {
     ok = false
   }
   if (ok && g === 'own' && want === 'DENY' && !String(r.stdout).includes('这是 Owner 的凭证，写操作走平台动作或 owner_run_command')) {

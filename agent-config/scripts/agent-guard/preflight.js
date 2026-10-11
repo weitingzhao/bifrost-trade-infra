@@ -292,9 +292,14 @@ function sharedWorktreeRules(cmd) {
 const ADMIN_TOKEN_NAME = 'PLATFORM_' + 'ADMIN_TOKEN'
 const TOKEN_FILE_NAME = 'mcp-tokens' + '.env'
 const APPROVALS_HASH = '#' + 'approvals'
+const QUESTIONS_HASH = '#' + 'questions'
 const APPROVAL_API = new RegExp(
   '/api/v1/' + 'approvals/[^/\\s"\'`?#]+/(approve|reject|resolve)\\b',
 )
+const QUESTION_ANSWER_API = new RegExp(
+  '/api/v1/' + 'questions/[^/\\s"\'`?#]+/answer\\b',
+)
+const OPENS_PAGE = /\b(curl|wget|fetch|open|xdg-open|chrome|chromium|osascript|browse|click|locator|getByRole|getByText|playwright|puppeteer|selenium)\b/i
 
 function approvalText(toolName, input, cmd) {
   const name = String(toolName || '')
@@ -317,9 +322,21 @@ function approvalText(toolName, input, cmd) {
 
 function approvalGuard(toolName, input, cmd) {
   const name = String(toolName || '')
-  if (/^mcp__bifrost-approve__/.test(name)) return null
-
   const text = approvalText(name, input, cmd)
+  if (text) {
+    if (QUESTION_ANSWER_API.test(text)) {
+      return (
+        '直接请求 `/api/v1/questions/<id>/answer`。回答只在控制台由 Owner 完成。' +
+        '线程用 `wait_for_answer` 等答案，不要自己答'
+      )
+    }
+    const browserName = /browser|WebFetch|playwright|puppeteer|selenium/i.test(name)
+    if (text.includes(QUESTIONS_HASH) && (browserName || OPENS_PAGE.test(text))) {
+      return '用浏览器或 HTTP 客户端打开 `#questions`。线程用 `wait_for_answer` 等答案，不要去点问题页'
+    }
+  }
+  // 问题检查在批准豁免之前：approve 工具的输入里如果夹了回答路由，一样拒绝。
+  if (/^mcp__bifrost-approve__/.test(name)) return null
   if (!text) return null
 
   if (text.includes(ADMIN_TOKEN_NAME) || text.includes(TOKEN_FILE_NAME)) {
@@ -336,12 +353,7 @@ function approvalGuard(toolName, input, cmd) {
   }
 
   const browserName = /browser|WebFetch|playwright|puppeteer|selenium/i.test(name)
-  const opensPage =
-    text.includes(APPROVALS_HASH) &&
-    (browserName ||
-      /\b(curl|wget|fetch|open|xdg-open|chrome|chromium|osascript|browse|click|locator|getByRole|getByText|playwright|puppeteer|selenium)\b/i.test(
-        text,
-      ))
+  const opensPage = text.includes(APPROVALS_HASH) && (browserName || OPENS_PAGE.test(text))
   if (opensPage) {
     return '用浏览器或 HTTP 客户端打开 `#approvals`。ADR §5：Agent 不得绕过聊天弹窗去点审批页'
   }
