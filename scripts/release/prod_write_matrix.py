@@ -1,25 +1,20 @@
 #!/usr/bin/env python3
 """Who can change platform PROD: generate the write matrix and assert it.
 
-Two modes share one analysis. ``--from-repo`` (default) reads the manifests
-under k8s/platform-rbac, k8s/cicd/tekton, k8s/cicd/applications,
-k8s/overlays/platform-prod and k8s/base-platform. ``--from-dump DIR`` reads
-JSON from a read-only kubectl export; this program never calls the cluster.
-See scripts/release/README.md for the export commands.
+``--from-repo`` reads every RBAC, admission, Tekton and Argo manifest under
+k8s/. ``--from-dump DIR`` reads a read-only kubectl export described by
+MANIFEST.json. The program never calls the cluster and never reads Secret data.
 
-Rows are writes RBAC allows, plus undominated pipeline side effects and three
-fixed rows (owner admin, owner_run_command, the unauthenticated registry).
-Exit 0 only when every row is refused or a valid named exception. Today the
-repository still has unclassified rows, so the exit code is 1.
-
-A matching ValidatingAdmissionPolicy is recorded as ``gated: <policy>``. It
-becomes ``refused`` only when scripts/release/admission_effects.yaml says that
-policy refuses this identity and field. CEL is not evaluated.
+A write is ``refused`` only when a reviewed admission effect names that exact
+field and the policy is proven to apply. Anything the program cannot prove is
+``unclassified``. Exit 0 only when no row is unclassified and no exception is
+invalid. On today's repository the exit code is 1.
 """
 
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import sys
 from dataclasses import asdict, dataclass, field
@@ -28,7 +23,9 @@ from pathlib import Path
 import yaml
 
 import prod_write_admission as admission
+import prod_write_borrow as borrow
 import prod_write_dag as dag
+import prod_write_load as load
 import prod_write_rbac as rbac
 
 
@@ -37,15 +34,8 @@ REPO = HERE.parents[1]
 TARGETS_PATH = HERE / "prod_targets.yaml"
 EFFECTS_PATH = HERE / "admission_effects.yaml"
 EXCEPTIONS_PATH = HERE / "prod_write_exceptions.yaml"
-SCAN = (
-    "k8s/platform-rbac",
-    "k8s/cicd/tekton",
-    "k8s/cicd/applications",
-    "k8s/overlays/platform-prod",
-    "k8s/base-platform",
-)
-_SKIP = ("secret", "kubeconfig")
-_EXCEPTION_KEYS = ("identity", "target", "field", "check", "expiry", "removes")
+_HUMAN = ("identity", "target", "field", "check", "expires", "removes")
+_SYSTEM = _HUMAN + ("installed_by", "why_needed", "narrowing", "review_every_days")
 
 
 @dataclass(frozen=True)
@@ -59,9 +49,22 @@ class Row:
     classification: str
     cel: str = ""
     why: str = ""
+    only: str = ""
+    path: str = ""
 
     def key(self) -> tuple:
-        return (self.identity, self.target, self.field, self.verbs, self.admission, self.classification, self.cel, self.why)
+        return (
+            self.identity,
+            self.target,
+            self.field,
+            self.verbs,
+            self.admission,
+            self.classification,
+            self.cel,
+            self.why,
+            self.only,
+            self.path,
+        )
 
 
 @dataclass
@@ -79,59 +82,20 @@ class Report:
         return 1 if self.unclassified() or self.invalid else 0
 
 
-def _read_raw(path: Path):
-    text = path.read_text(encoding="utf-8")
-    if path.suffix.lower() == ".json":
-        return json.loads(text)
-    return list(yaml.safe_load_all(text))
-
-
 def objects_from(loaded) -> list[dict]:
-    items = loaded if isinstance(loaded, list) else [loaded]
-    docs: list[dict] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        if item.get("kind") == "List" and isinstance(item.get("items"), list):
-            docs.extend(objects_from(item["items"]))
-            continue
-        if item.get("kind") == "Secret":
-            continue
-        if item.get("kind"):
-            docs.append(item)
-    return docs
-
-
-def _selected(path: Path, suffixes: set[str]) -> bool:
-    if path.suffix.lower() not in suffixes or not path.is_file():
-        return False
-    name = path.name.lower()
-    return not any(part in name for part in _SKIP)
+    return load.objects_from(loaded)
 
 
 def load_files(directory: Path, suffixes: set[str]) -> list[dict]:
-    docs: list[dict] = []
-    files = [directory] if directory.is_file() else sorted(directory.rglob("*"))
-    for path in files:
-        if not _selected(path, suffixes):
-            continue
-        try:
-            loaded = _read_raw(path)
-        except (OSError, yaml.YAMLError, json.JSONDecodeError) as exc:
-            raise SystemExit(f"cannot parse {path.name}: {exc}") from exc
-        docs.extend(objects_from(loaded))
-    return docs
+    return load.load_files(directory, suffixes)
 
 
 def load_repo(root: Path = REPO) -> list[dict]:
-    docs: list[dict] = []
-    for relative in SCAN:
-        docs.extend(load_files(root / relative, {".yaml", ".yml"}))
-    return docs
+    return load.load_repo(root)
 
 
 def load_dump(directory: Path) -> list[dict]:
-    return load_files(directory, {".json"})
+    return load.load_dump(directory)
 
 
 def _mapping_list(path: Path, key: str) -> list[dict]:
@@ -175,124 +139,167 @@ def load_exceptions(path: Path = EXCEPTIONS_PATH) -> list[dict]:
     return _mapping_list(path, "exceptions")
 
 
-def validate_exceptions(exceptions: list[dict]) -> tuple[list[dict], list[str]]:
+def _parse_day(value) -> dt.date | None:
+    try:
+        return dt.date.fromisoformat(str(value).strip())
+    except ValueError:
+        return None
+
+
+def validate_exceptions(exceptions: list[dict], today: dt.date) -> tuple[list[dict], list[str]]:
     valid, problems = [], []
     for index, item in enumerate(exceptions, start=1):
-        missing = [key for key in _EXCEPTION_KEYS if not str(item.get(key) or "").strip()]
+        kind = str(item.get("class") or "human")
+        ident = str(item.get("identity") or f"entry {index}")
+        if kind not in ("human", "system-component"):
+            problems.append(f"invalid-exception: {ident} class {kind}")
+            continue
+        required = _SYSTEM if kind == "system-component" else _HUMAN
+        missing = [key for key in required if not str(item.get(key) or "").strip()]
         if missing:
-            ident = item.get("identity") or f"entry {index}"
             problems.append(f"invalid-exception: {ident} missing {', '.join(missing)}")
             continue
+        starred = [key for key in ("identity", "target", "field") if "*" in str(item.get(key) or "")]
+        if starred:
+            problems.append(f"invalid-exception: {ident} wildcard in {', '.join(starred)}")
+            continue
+        expires = _parse_day(item.get("expires"))
+        if expires is None:
+            problems.append(f"invalid-exception: {ident} expires is not YYYY-MM-DD")
+            continue
+        if expires < today:
+            problems.append(f"invalid-exception: {ident} expired {expires.isoformat()}")
+            continue
+        if kind == "system-component":
+            try:
+                days = int(item.get("review_every_days"))
+            except (TypeError, ValueError):
+                days = 0
+            if days <= 0:
+                problems.append(f"invalid-exception: {ident} review_every_days must be a positive integer")
+                continue
         valid.append(item)
     return valid, problems
 
 
 def _exception_matches(exceptions: list[dict], identity: str, target: str, field_name: str) -> bool:
     for item in exceptions:
-        if item.get("identity") not in (identity, "*"):
-            continue
-        if item.get("target") not in (target, "*"):
-            continue
-        if item.get("field") not in (field_name, "*"):
-            continue
-        return True
+        if item.get("identity") == identity and item.get("target") == target and item.get("field") == field_name:
+            return True
     return False
 
 
-def _classify(identity: str, target: str, field_name: str, hits: list[admission.PolicyHit], effects: list[dict], exceptions: list[dict]) -> tuple[str, str, str]:
-    names = [hit.name for hit in hits]
-    if names and admission.effect_refuses(effects, names, identity, field_name):
-        classification = "refused"
-    elif _exception_matches(exceptions, identity, target, field_name):
-        classification = "named-exception"
-    else:
-        classification = "unclassified"
-    text = "none" if not names else "gated: " + ",".join(sorted(set(names)))
+def _admission_text(hits: list[admission.PolicyHit]) -> tuple[str, str]:
+    proven = sorted({hit.name for hit in hits if hit.proven})
+    parts = []
+    if proven:
+        parts.append("gated: " + ",".join(proven))
+    for hit in hits:
+        if hit.proven or not hit.uncertain:
+            continue
+        parts.append(f"gated (uncertain: {hit.uncertain})")
     cel = " | ".join(dict.fromkeys(hit.cel for hit in hits if hit.cel))
-    return classification, text, cel
+    return ("none" if not parts else "; ".join(dict.fromkeys(parts))), cel
 
 
-def _row(identity: str, target: str, field_name: str, verbs: list[str], source: str, classification: str, admission_text: str, cel: str, why: str) -> Row:
-    return Row(
-        identity=identity,
-        target=target,
-        field=field_name,
-        verbs=",".join(verbs),
-        source=source,
-        admission=admission_text,
-        classification=classification,
-        cel=cel,
-        why=why,
-    )
+def _classify(identity, target, field_name, hits, effects, exceptions) -> tuple[str, str, str]:
+    proven = [hit.name for hit in hits if hit.proven]
+    text, cel = _admission_text(hits)
+    if proven and admission.effect_refuses(effects, proven, identity, field_name):
+        return "refused", text, cel
+    if _exception_matches(exceptions, identity, target, field_name):
+        return "named-exception", text, cel
+    return "unclassified", text, cel
 
 
-def _rbac_rows(docs, targets, effects, exceptions, source, ns_labels, ns_known, policies, bindings) -> list[Row]:
-    rules_by_identity, _subjects = rbac.effective_rules(docs)
+def _row(identity, target, field_name, verbs, source, classification, admission_text, cel, why, only="", path="") -> Row:
+    return Row(identity, target, field_name, ",".join(verbs), source, admission_text, classification, cel, why, only, path)
+
+
+def _rbac_rows(rules, targets, effects, exceptions, source, ns_labels, ns_known, policies, bindings) -> list[Row]:
     rows: list[Row] = []
-    for identity in sorted(rules_by_identity):
-        rules = rules_by_identity[identity]
+    for identity in sorted(rules):
         for target in targets:
-            verbs = rbac.allowed_verbs(rules, target)
-            if not verbs:
+            grants = rbac.allowed_grants(rules[identity], target)
+            if not grants:
                 continue
+            verbs = sorted({verb for grant in grants for verb in grant.verbs})
             hits = admission.matching_policies(policies, bindings, target, verbs, identity, ns_labels, ns_known)
-            for field_name in target.fields:
-                grouped: dict[tuple[str, str, str], list[str]] = {}
-                for verb in verbs:
-                    verb_hits = admission.hits_for_verb(hits, verb)
-                    classified = _classify(identity, target.id, field_name, verb_hits, effects, exceptions)
-                    grouped.setdefault(classified, []).append(verb)
-                for (classification, admission_text, cel), group in sorted(grouped.items()):
-                    rows.append(_row(identity, target.id, field_name, group, source, classification, admission_text, cel, target.why))
+            for grant in grants:
+                only = "" if not grant.only else "only: " + ",".join(grant.only)
+                for field_name in target.fields:
+                    grouped: dict[tuple[str, str, str], list[str]] = {}
+                    for verb in grant.verbs:
+                        classified = _classify(identity, target.id, field_name, admission.hits_for_verb(hits, verb), effects, exceptions)
+                        grouped.setdefault(classified, []).append(verb)
+                    for (classification, admission_text, cel), group in sorted(grouped.items()):
+                        why = target.why
+                        if grant.path:
+                            why = f"{grant.path}. {why}"
+                        rows.append(_row(identity, target.id, field_name, group, source, classification, admission_text, cel, why, only, grant.path))
     return rows
 
 
-def _fixed_rows(source: str, effects: list[dict], exceptions: list[dict]) -> list[Row]:
+def _class_targets(docs: list[dict]) -> list[rbac.Target]:
+    priorities: set[str] = set()
+    runtimes: set[str] = set()
+
+    def walk(node) -> None:
+        if isinstance(node, dict):
+            if node.get("priorityClassName"):
+                priorities.add(str(node["priorityClassName"]))
+            if node.get("runtimeClassName"):
+                runtimes.add(str(node["runtimeClassName"]))
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    for doc in docs:
+        if str(doc.get("kind") or "") in {"Deployment", "StatefulSet", "DaemonSet", "CronJob", "Job", "Pod"}:
+            walk(doc.get("spec") or {})
+    extra = []
+    for name in sorted(priorities):
+        extra.append(rbac.Target(f"priorityclass/{name}", "", "scheduling.k8s.io", "priorityclasses", name, "", ("value",), "Referenced by a workload spec.priorityClassName.", "v1"))
+    for name in sorted(runtimes):
+        extra.append(rbac.Target(f"runtimeclass/{name}", "", "node.k8s.io", "runtimeclasses", name, "", ("handler",), "Referenced by a workload spec.runtimeClassName.", "v1"))
+    return extra
+
+
+def _fixed_rows(source: str, effects, exceptions) -> list[Row]:
     specs = [
-        (
-            "owner-admin",
-            "cluster-admin",
-            "*",
-            ["*"],
-            "none",
-            "Owner admin kubeconfig is not a binding in the scanned manifests",
-            "The Owner's admin identity can change the cluster. It is not granted by these manifests.",
-        ),
-        (
-            "owner_run_command",
-            "host-command",
-            "command",
-            ["exec"],
-            "none",
-            "",
-            "owner_run_command runs a host command as the Owner. It is not an RBAC subject.",
-        ),
-        (
-            "anyone-who-reaches-the-registry",
-            "registry/:prod",
-            "tag",
-            ["push"],
-            "registry has no authentication: anyone who reaches it",
-            "",
-            "The :prod tags are not an RBAC resource. A pod restart with imagePullPolicy Always pulls them.",
-        ),
-        (
-            "anyone-who-can-push-main",
-            "git/main",
-            "automated-sync",
-            ["push"],
-            "none",
-            "Application bifrost-platform-prod sets syncPolicy.automated prune and selfHeal. Push permission is not in these manifests.",
-            "A push to main is followed by Argo automated sync into bifrost-platform-prod. GitHub permissions are not RBAC.",
-        ),
+        ("owner-admin", "cluster-admin", "*", ["*"], "none", "Owner admin kubeconfig is not a binding in the scanned manifests", "The Owner's admin identity can change the cluster."),
+        ("owner_run_command", "host-command", "command", ["exec"], "none", "", "owner_run_command runs a host command. It is not an RBAC subject."),
+        ("anyone-who-reaches-the-registry", "registry/:prod", "tag", ["push"], "registry has no authentication: anyone who reaches it", "", "The :prod tags are not an RBAC resource."),
+        ("anyone-who-can-push-main", "git/main", "automated-sync", ["push"], "none", "Push permission is not in these manifests.", "Application bifrost-platform-prod syncs main automatically."),
+        ("system:masters", "*", "*", ["*"], "none", "", "system:masters can do everything. It is not computed from bindings."),
+        ("unknown-surface: github-push-authors", "git/main", "authors", ["unknown"], "none", "", "Who can push main is not in the manifests."),
+        ("unknown-surface: registry-authentication", "registry/:prod", "auth", ["unknown"], "none", "", "Whether the registry requires authentication is not in the manifests."),
+        ("unknown-surface: tekton-controller-status-writer", "pipelinerun/status", "status", ["unknown"], "none", "", "The Tekton controller identity that writes PipelineRun status is not a scanned binding."),
+        ("unknown-surface: freeze-script-fail-open", "dag/freeze", "script", ["unknown"], "none", "", "A freeze task script can allow a write when the ConfigMap is missing. The script is not executed."),
+        ("unknown-surface: deployment-patch-field-granularity", "deployment", "patch", ["unknown"], "none", "", "One RBAC patch verb covers image, pod template, replicas and restartedAt. The program cannot split them."),
     ]
     rows = []
     for identity, target, field_name, verbs, admission_text, cel, why in specs:
         classification, learned, learned_cel = _classify(identity, target, field_name, [], effects, exceptions)
-        # Fixed rows carry their own admission text when no policy matched.
         if learned == "none":
             learned = admission_text
         rows.append(_row(identity, target, field_name, verbs, source, classification, learned or admission_text, learned_cel or cel, why))
+    return rows
+
+
+def _surface_rows(surfaces: list[str], source: str) -> list[Row]:
+    rows = []
+    for item in surfaces:
+        rows.append(_row(item, "unseen", "borrowed", ["unknown"], source, "unclassified", "none", "", "The program cannot rule out this write path.", path=item))
+    return rows
+
+
+def _unresolved_rows(messages: list[str], source: str) -> list[Row]:
+    rows = []
+    for message in messages:
+        rows.append(_row("unresolved", "unresolved", message, ["unresolved"], source, "unclassified", message, "", message))
     return rows
 
 
@@ -300,19 +307,26 @@ def _dag_rows(docs, effects, exceptions, source) -> list[Row]:
     rows = []
     for item in dag.indirect_rows(docs):
         classification, admission_text, cel = _classify(item["identity"], item["target"], item["field"], [], effects, exceptions)
-        why = "Pipeline side effect is not dominated by a release-window task on the runAfter graph."
+        why = "Pipeline side effect. A freeze counts only when its taskRef is listed, it must run, and it is on every path."
         rows.append(_row(item["identity"], item["target"], item["field"], [item["verbs"]], source, classification, admission_text, cel, why))
     return rows
 
 
-def analyze(docs: list[dict], targets: list[rbac.Target], effects: list[dict], exceptions: list[dict], source: str, include_fixed: bool = True) -> Report:
-    valid, invalid = validate_exceptions(exceptions)
+def analyze(docs, targets, effects, exceptions, source, include_fixed: bool = True, today: dt.date | None = None, from_dump: bool = False) -> Report:
+    today = today or dt.date.today()
+    valid, invalid = validate_exceptions(exceptions, today)
     invalid.extend(admission.validate_effects(effects))
     policies, bindings = admission.index_policies(docs)
     ns_labels, ns_known = admission.namespace_index(docs)
-    _rules, subjects = rbac.effective_rules(docs)
-    rows = _rbac_rows(docs, targets, effects, valid, source, ns_labels, ns_known, policies, bindings)
+    rules, subjects, unresolved = rbac.effective_rules(docs, from_dump=from_dump)
+    if from_dump and unresolved:
+        raise SystemExit("\n".join(unresolved))
+    surfaces = borrow.expand(rules, docs, policies, bindings, effects, ns_labels, ns_known, from_dump)
+    all_targets = list(targets) + _class_targets(docs)
+    rows = _rbac_rows(rules, all_targets, effects, valid, source, ns_labels, ns_known, policies, bindings)
     rows.extend(_dag_rows(docs, effects, valid, source))
+    rows.extend(_unresolved_rows([] if from_dump else unresolved, source))
+    rows.extend(_surface_rows(surfaces, source))
     if include_fixed:
         rows.extend(_fixed_rows(source, effects, valid))
     rows.sort(key=lambda row: row.key())
@@ -320,8 +334,14 @@ def analyze(docs: list[dict], targets: list[rbac.Target], effects: list[dict], e
     return Report(source=source, rows=rows, invalid=invalid, not_in_plan_table=missing)
 
 
+def _line(row: Row) -> str:
+    extra = " ".join(part for part in (row.only, row.path) if part)
+    text = f"unclassified: {row.identity} {row.target} {row.field} {row.verbs}"
+    return f"{text} {extra}".rstrip()
+
+
 def render_md(report: Report, list_only: bool = False) -> str:
-    lines = [f"unclassified: {row.identity} {row.target} {row.field} {row.verbs}" for row in report.unclassified()]
+    lines = [_line(row) for row in report.unclassified()]
     if list_only:
         return "\n".join(lines) + ("\n" if lines else "")
     head = list(report.invalid) + lines
@@ -329,10 +349,10 @@ def render_md(report: Report, list_only: bool = False) -> str:
     head.append("")
     head.append(f"# PROD write matrix ({report.source})")
     head.append("")
-    head.append("| identity | target | field | verbs | source | admission | classification |")
-    head.append("|---|---|---|---|---|---|---|")
+    head.append("| identity | target | field | verbs | source | admission | classification | only | path |")
+    head.append("|---|---|---|---|---|---|---|---|---|")
     for row in report.rows:
-        cells = [row.identity, row.target, row.field, row.verbs, row.source, row.admission, row.classification]
+        cells = [row.identity, row.target, row.field, row.verbs, row.source, row.admission, row.classification, row.only, row.path]
         head.append("| " + " | ".join(cell.replace("|", "/") for cell in cells) + " |")
     head.append("")
     return "\n".join(head)
@@ -349,22 +369,26 @@ def render_json(report: Report) -> str:
     return json.dumps(payload, indent=2, sort_keys=True) + "\n"
 
 
-def build_report(root: Path, dump: Path | None, targets: Path, effects: Path, exceptions: Path) -> Report:
+def build_report(root: Path, dump: Path | None, targets: Path, effects: Path, exceptions: Path, today: dt.date | None = None) -> Report:
     source = "measured" if dump else "repo"
     docs = load_dump(dump) if dump else load_repo(root)
-    return analyze(docs, load_targets(targets), load_effects(effects), load_exceptions(exceptions), source)
+    return analyze(docs, load_targets(targets), load_effects(effects), load_exceptions(exceptions), source, today=today, from_dump=dump is not None)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Generate the platform PROD write matrix.")
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--from-repo", action="store_true", help="read the repository manifests (default)")
-    source.add_argument("--from-dump", type=Path, help="directory of read-only kubectl JSON")
+    source.add_argument("--from-dump", type=Path, help="directory of read-only kubectl JSON plus MANIFEST.json")
     parser.add_argument("--format", choices=("md", "json"), default="md")
     parser.add_argument("--list-unclassified", action="store_true")
     parser.add_argument("--root", type=Path, default=REPO)
+    parser.add_argument("--today", help="YYYY-MM-DD used to expire exceptions (default: the system date)")
     args = parser.parse_args(argv)
-    report = build_report(args.root, args.from_dump, TARGETS_PATH, EFFECTS_PATH, EXCEPTIONS_PATH)
+    today = _parse_day(args.today) if args.today else dt.date.today()
+    if args.today and today is None:
+        raise SystemExit("--today must be YYYY-MM-DD")
+    report = build_report(args.root, args.from_dump, TARGETS_PATH, EFFECTS_PATH, EXCEPTIONS_PATH, today)
     text = render_json(report) if args.format == "json" and not args.list_unclassified else render_md(report, args.list_unclassified)
     sys.stdout.write(text)
     return report.exit_code

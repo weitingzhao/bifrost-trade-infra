@@ -108,7 +108,7 @@ targets:
     api_version: v1alpha1
     resource: applications
     name: bifrost-platform-prod
-    fields: [spec.source, spec.project, spec.destination, spec.sources, spec.targetRevision, spec.syncPolicy, operation, rollback]
+    fields: [spec.source, spec.source.repoURL, spec.source.path, spec.source.kustomize, spec.source.helm, spec.source.plugin, spec.source.directory, spec.source.targetRevision, spec.project, spec.destination, spec.destination.namespace, spec.destination.server, spec.sources, spec.targetRevision, spec.syncPolicy, operation, rollback]
     why: Application bifrost-platform-prod syncs k8s/overlays/platform-prod. spec, operation, sync and rollback are separate fields.
   - id: configmap/cicd
     namespace: cicd
@@ -194,14 +194,14 @@ targets:
     api_group: tekton.dev
     api_version: v1
     resource: pipelineruns
-    fields: [pipelineRef, pipelineSpec, resolver]
+    fields: [pipelineRef, pipelineSpec, resolver, pipelineRef.params, pipelineRef.bundle]
     why: A PipelineRun in cicd can start a PROD deploy, including an inline spec or a resolver.
   - id: taskrun/cicd
     namespace: cicd
     api_group: tekton.dev
     api_version: v1
     resource: taskruns
-    fields: [taskRef, taskSpec, resolver]
+    fields: [taskRef, taskSpec, resolver, taskRef.params, taskRef.bundle]
     why: A TaskRun in cicd can run a rollout, sync or image push directly.
   - id: clusterrole
     namespace: ""
@@ -259,3 +259,205 @@ targets:
     resource: validatingadmissionpolicybindings
     fields: [spec]
     why: A ValidatingAdmissionPolicyBinding decides where a policy applies.
+  - id: namespace/bifrost-platform-prod
+    namespace: ""
+    api_group: ""
+    api_version: v1
+    resource: namespaces
+    name: bifrost-platform-prod
+    fields: [labels]
+    why: Namespace labels select admission. Writing them changes which policies match PROD.
+  - id: namespace/cicd
+    namespace: ""
+    api_group: ""
+    api_version: v1
+    resource: namespaces
+    name: cicd
+    fields: [labels]
+    why: Admission for the Application and Tekton selects on the cicd namespace labels.
+  - id: secret/bifrost-platform-prod
+    namespace: bifrost-platform-prod
+    api_group: ""
+    api_version: v1
+    resource: secrets
+    fields: [data]
+    why: Secrets in bifrost-platform-prod. Rows record the write and the program does not read Secret data.
+  - id: secret/cicd
+    namespace: cicd
+    api_group: ""
+    api_version: v1
+    resource: secrets
+    fields: [data]
+    why: Argo repository credentials are Secrets in cicd. Rows record the write and do not read Secret data.
+  - id: serviceaccount/bifrost-platform-prod
+    namespace: bifrost-platform-prod
+    api_group: ""
+    api_version: v1
+    resource: serviceaccounts
+    fields: [secrets]
+    why: A ServiceAccount in bifrost-platform-prod is an identity a workload can run as.
+  - id: serviceaccount/bifrost-platform-prod/token
+    namespace: bifrost-platform-prod
+    api_group: ""
+    api_version: v1
+    resource: serviceaccounts
+    subresource: token
+    fields: [token]
+    why: Creating a serviceaccounts/token yields credentials for that ServiceAccount.
+  - id: serviceaccount/cicd
+    namespace: cicd
+    api_group: ""
+    api_version: v1
+    resource: serviceaccounts
+    fields: [secrets]
+    why: ServiceAccounts in cicd include the deliver, applier and controller identities.
+  - id: serviceaccount/cicd/token
+    namespace: cicd
+    api_group: ""
+    api_version: v1
+    resource: serviceaccounts
+    subresource: token
+    fields: [token]
+    why: A token for a cicd ServiceAccount can act as that account.
+  - id: pod/bifrost-platform-prod/exec
+    namespace: bifrost-platform-prod
+    api_group: ""
+    api_version: v1
+    resource: pods
+    subresource: exec
+    fields: [exec]
+    why: pods/exec runs a command. get and create are writes here.
+  - id: pod/bifrost-platform-prod/attach
+    namespace: bifrost-platform-prod
+    api_group: ""
+    api_version: v1
+    resource: pods
+    subresource: attach
+    fields: [attach]
+    why: pods/attach joins a running container. get and create are writes here.
+  - id: pod/bifrost-platform-prod/portforward
+    namespace: bifrost-platform-prod
+    api_group: ""
+    api_version: v1
+    resource: pods
+    subresource: portforward
+    fields: [portforward]
+    why: pods/portforward opens a stream. get and create are writes here.
+  - id: pod/bifrost-platform-prod/ephemeralcontainers
+    namespace: bifrost-platform-prod
+    api_group: ""
+    api_version: v1
+    resource: pods
+    subresource: ephemeralcontainers
+    fields: [ephemeralcontainers]
+    why: An ephemeral container runs a command in the pod. get and create are writes here.
+  - id: pod/data/exec
+    namespace: data
+    api_group: ""
+    api_version: v1
+    resource: pods
+    subresource: exec
+    fields: [exec]
+    why: PROD platform pods/exec in data runs SQL on Postgres. get and create are writes here.
+  - id: node
+    namespace: ""
+    api_group: ""
+    api_version: v1
+    resource: nodes
+    fields: [cordon, taints]
+    why: Patching a node cordons it or changes taints, which moves PROD pods.
+  - id: networkpolicy/bifrost-platform-prod
+    namespace: bifrost-platform-prod
+    api_group: networking.k8s.io
+    api_version: v1
+    resource: networkpolicies
+    fields: [spec]
+    why: A NetworkPolicy in bifrost-platform-prod changes which traffic reaches PROD.
+  - id: poddisruptionbudget/bifrost-platform-prod
+    namespace: bifrost-platform-prod
+    api_group: policy
+    api_version: v1
+    resource: poddisruptionbudgets
+    fields: [spec]
+    why: A PodDisruptionBudget in bifrost-platform-prod changes eviction of PROD pods.
+  - id: resourcequota/bifrost-platform-prod
+    namespace: bifrost-platform-prod
+    api_group: ""
+    api_version: v1
+    resource: resourcequotas
+    fields: [spec]
+    why: A ResourceQuota in bifrost-platform-prod can stop or reshape PROD pods.
+  - id: limitrange/bifrost-platform-prod
+    namespace: bifrost-platform-prod
+    api_group: ""
+    api_version: v1
+    resource: limitranges
+    fields: [spec]
+    why: A LimitRange in bifrost-platform-prod changes the pod spec the API will accept.
+  - id: customresourcedefinition
+    namespace: ""
+    api_group: apiextensions.k8s.io
+    api_version: v1
+    resource: customresourcedefinitions
+    fields: [spec]
+    why: A CustomResourceDefinition changes the APIs PROD can write.
+  - id: validatingwebhookconfiguration
+    namespace: ""
+    api_group: admissionregistration.k8s.io
+    api_version: v1
+    resource: validatingwebhookconfigurations
+    fields: [webhooks]
+    why: A validating webhook can allow or hide a PROD write.
+  - id: mutatingwebhookconfiguration
+    namespace: ""
+    api_group: admissionregistration.k8s.io
+    api_version: v1
+    resource: mutatingwebhookconfigurations
+    fields: [webhooks]
+    why: A mutating webhook can change a PROD object as it is admitted.
+  - id: mutatingadmissionpolicy
+    namespace: ""
+    api_group: admissionregistration.k8s.io
+    api_version: v1
+    resource: mutatingadmissionpolicies
+    fields: [spec]
+    why: A MutatingAdmissionPolicy can rewrite a PROD object.
+  - id: mutatingadmissionpolicybinding
+    namespace: ""
+    api_group: admissionregistration.k8s.io
+    api_version: v1
+    resource: mutatingadmissionpolicybindings
+    fields: [spec]
+    why: A MutatingAdmissionPolicyBinding decides where a mutating policy applies.
+  - id: appproject/bifrost
+    namespace: cicd
+    api_group: argoproj.io
+    api_version: v1alpha1
+    resource: appprojects
+    name: bifrost
+    fields: [spec]
+    why: AppProject bifrost decides which repos and namespaces the PROD Application may use.
+  - id: configmap/argocd-cm
+    namespace: cicd
+    api_group: ""
+    api_version: v1
+    resource: configmaps
+    name: argocd-cm
+    fields: [data]
+    why: argocd-cm in cicd is Argo's own configuration.
+  - id: configmap/argocd-rbac-cm
+    namespace: cicd
+    api_group: ""
+    api_version: v1
+    resource: configmaps
+    name: argocd-rbac-cm
+    fields: [data]
+    why: argocd-rbac-cm in cicd is Argo's own RBAC policy.
+  - id: configmap/argocd-cmd-params-cm
+    namespace: cicd
+    api_group: ""
+    api_version: v1
+    resource: configmaps
+    name: argocd-cmd-params-cm
+    fields: [data]
+    why: argocd-cmd-params-cm in cicd changes how the Argo controllers run.

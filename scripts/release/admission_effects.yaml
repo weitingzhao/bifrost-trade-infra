@@ -1,68 +1,161 @@
-# Reviewed admission effects. The program does not evaluate CEL. A matching
-# policy stays "gated: <policy>" unless an entry here says it refuses that
-# identity and field. identity "*" means every identity the policy already
-# matched (matchConditions still apply before this file is consulted).
-# Only combinations the validation text actually rejects are listed. Image,
-# replicas, scale, pod delete, eviction, freeze data and targetRevision are
-# not here: those policies do not reject them.
+# Reviewed admission effects. The program does not evaluate CEL.
+# A row is refused only when the policy is proven to apply and an entry here
+# names that exact field. A parent field is not an entry. identity "*" means
+# every identity the policy already matched.
+# restrict-serviceaccount is not a refusal. It narrows which ServiceAccount a
+# proven policy allows a workload to use. also adds names for one namespace
+# on top of service_accounts.
 effects:
   - policy: bifrost-platform-application
     identity: "*"
-    field: spec.source
+    field: spec.source.repoURL
     effect: refuse
     note: >-
-      ValidatingAdmissionPolicy bifrost-platform-application requires
-      spec.source repoURL, path, kustomize, helm, plugin and directory to stay
-      equal to oldObject. Message: platform may change only the sync operation
-      and targetRevision. spec.syncPolicy is not compared, so this entry does
-      not cover automated sync.
+      Expression requires object.spec.source.repoURL == oldObject.spec.source.repoURL
+      (40-admission.yaml, bifrost-platform-application validations[0]).
+      spec.source itself is not locked: source.targetRevision is not compared.
+  - policy: bifrost-platform-application
+    identity: "*"
+    field: spec.source.path
+    effect: refuse
+    note: >-
+      The same expression requires object.spec.source.path == oldObject.spec.source.path.
+  - policy: bifrost-platform-application
+    identity: "*"
+    field: spec.source.kustomize
+    effect: refuse
+    note: >-
+      The same expression requires kustomize presence and value to stay equal to oldObject.
+  - policy: bifrost-platform-application
+    identity: "*"
+    field: spec.source.helm
+    effect: refuse
+    note: >-
+      The same expression requires helm presence and value to stay equal to oldObject.
+  - policy: bifrost-platform-application
+    identity: "*"
+    field: spec.source.plugin
+    effect: refuse
+    note: >-
+      The same expression requires plugin presence and value to stay equal to oldObject.
+  - policy: bifrost-platform-application
+    identity: "*"
+    field: spec.source.directory
+    effect: refuse
+    note: >-
+      The same expression requires directory presence and value to stay equal to oldObject.
   - policy: bifrost-platform-application
     identity: "*"
     field: spec.project
     effect: refuse
     note: >-
-      The same policy requires object.spec.project == oldObject.spec.project.
+      The same expression requires object.spec.project == oldObject.spec.project.
   - policy: bifrost-platform-application
     identity: "*"
-    field: spec.destination
+    field: spec.destination.namespace
     effect: refuse
     note: >-
-      The same policy requires destination.namespace and destination.server to
-      stay equal to oldObject.
+      The same expression requires object.spec.destination.namespace ==
+      oldObject.spec.destination.namespace. spec.destination as a whole is not locked.
+  - policy: bifrost-platform-application
+    identity: "*"
+    field: spec.destination.server
+    effect: refuse
+    note: >-
+      The same expression requires object.spec.destination.server ==
+      oldObject.spec.destination.server.
   - policy: bifrost-platform-application
     identity: "*"
     field: spec.sources
     effect: refuse
     note: >-
-      The same policy requires spec.sources to stay equal to oldObject when
-      either object has that field.
+      The same expression requires has(spec.sources) to match and, when set,
+      object.spec.sources == oldObject.spec.sources.
   - policy: bifrost-platform-pipelinerun
     identity: "*"
     field: pipelineSpec
     effect: refuse
     note: >-
-      bifrost-platform-pipelinerun rejects has(object.spec.pipelineSpec).
-      Message: platform PipelineRuns must name a pipelineRef and must not use
-      a resolver or an inline spec. A named pipelineRef is not rejected.
+      Expression rejects has(object.spec.pipelineSpec)
+      (bifrost-platform-pipelinerun validations[0]).
   - policy: bifrost-platform-pipelinerun
     identity: "*"
     field: resolver
     effect: refuse
     note: >-
-      The same policy rejects pipelineRef.resolver, pipelineRef.params and
-      pipelineRef.bundle.
+      The same expression rejects has(object.spec.pipelineRef.resolver).
+  - policy: bifrost-platform-pipelinerun
+    identity: "*"
+    field: pipelineRef.params
+    effect: refuse
+    note: >-
+      The same expression rejects has(object.spec.pipelineRef.params).
+  - policy: bifrost-platform-pipelinerun
+    identity: "*"
+    field: pipelineRef.bundle
+    effect: refuse
+    note: >-
+      The same expression rejects has(object.spec.pipelineRef.bundle).
   - policy: bifrost-platform-taskrun
     identity: "*"
     field: taskSpec
     effect: refuse
     note: >-
-      bifrost-platform-taskrun rejects has(object.spec.taskSpec). Message:
-      platform TaskRuns must name a taskRef and must not use a resolver or an
-      inline spec.
+      Expression rejects has(object.spec.taskSpec)
+      (bifrost-platform-taskrun validations[0]).
   - policy: bifrost-platform-taskrun
     identity: "*"
     field: resolver
     effect: refuse
     note: >-
-      The same policy rejects taskRef.resolver, taskRef.params and
-      taskRef.bundle.
+      The same expression rejects has(object.spec.taskRef.resolver).
+  - policy: bifrost-platform-taskrun
+    identity: "*"
+    field: taskRef.params
+    effect: refuse
+    note: >-
+      The same expression rejects has(object.spec.taskRef.params).
+  - policy: bifrost-platform-taskrun
+    identity: "*"
+    field: taskRef.bundle
+    effect: refuse
+    note: >-
+      The same expression rejects has(object.spec.taskRef.bundle).
+  - policy: bifrost-platform-job-sa
+    identity: "*"
+    effect: restrict-serviceaccount
+    resources: [pods, jobs]
+    service_accounts: [default, backup-retry, maintainer-reconcile]
+    note: >-
+      Expression allows an empty serviceAccountName or default, backup-retry,
+      maintainer-reconcile (bifrost-platform-job-sa validations[0]).
+  - policy: bifrost-platform-pipelinerun
+    identity: "*"
+    effect: restrict-serviceaccount
+    resources: [pipelineruns]
+    service_accounts: [default, tekton-deliver, bifrost-applier]
+    note: >-
+      Expression allows taskRunTemplate and taskRunSpecs serviceAccountName
+      only in default, tekton-deliver, bifrost-applier
+      (bifrost-platform-pipelinerun validations[3]).
+  - policy: bifrost-platform-taskrun
+    identity: "*"
+    effect: restrict-serviceaccount
+    resources: [taskruns]
+    service_accounts: [default, tekton-deliver, bifrost-applier]
+    note: >-
+      Expression allows serviceAccountName only in default, tekton-deliver,
+      bifrost-applier (bifrost-platform-taskrun validations[1]).
+  - policy: bifrost-applier-pod-spec
+    identity: "*"
+    effect: restrict-serviceaccount
+    resources: [deployments, statefulsets, daemonsets, jobs, cronjobs]
+    service_accounts: [default]
+    also:
+      bifrost-dev: [api-ops, daemon-worker]
+      monitoring: [maintainer-reconcile]
+      cicd: [tekton-pipelinerun-ttl]
+    note: >-
+      Expressions allow empty or default, plus api-ops and daemon-worker in
+      bifrost-dev, maintainer-reconcile in monitoring, and
+      tekton-pipelinerun-ttl in cicd (bifrost-applier-pod-spec validations[2] and [3]).

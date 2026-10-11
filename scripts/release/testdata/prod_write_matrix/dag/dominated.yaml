@@ -15,3 +15,13 @@ spec:
       params:
         - name: namespace
           value: bifrost-platform-prod
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-rollout-platform-stg
+  namespace: cicd
+spec:
+  steps:
+    - name: rollout
+      script: kubectl rollout restart deployment/platform-api -n bifrost-platform-prod

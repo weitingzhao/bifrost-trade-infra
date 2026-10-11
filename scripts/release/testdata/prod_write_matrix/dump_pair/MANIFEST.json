@@ -1,0 +1,79 @@
+{
+  "files": [
+    {
+      "name": "clusterroles.json",
+      "kind": "ClusterRole",
+      "count": 1
+    },
+    {
+      "name": "clusterrolebindings.json",
+      "kind": "ClusterRoleBinding",
+      "count": 1
+    },
+    {
+      "name": "roles.json",
+      "kind": "Role",
+      "count": 0
+    },
+    {
+      "name": "rolebindings.json",
+      "kind": "RoleBinding",
+      "count": 0
+    },
+    {
+      "name": "validatingadmissionpolicies.json",
+      "kind": "ValidatingAdmissionPolicy",
+      "count": 0
+    },
+    {
+      "name": "validatingadmissionpolicybindings.json",
+      "kind": "ValidatingAdmissionPolicyBinding",
+      "count": 0
+    },
+    {
+      "name": "mutatingwebhookconfigurations.json",
+      "kind": "MutatingWebhookConfiguration",
+      "count": 0
+    },
+    {
+      "name": "validatingwebhookconfigurations.json",
+      "kind": "ValidatingWebhookConfiguration",
+      "count": 0
+    },
+    {
+      "name": "serviceaccounts.json",
+      "kind": "ServiceAccount",
+      "count": 0
+    },
+    {
+      "name": "namespaces.json",
+      "kind": "Namespace",
+      "count": 0
+    },
+    {
+      "name": "pipelines.json",
+      "kind": "Pipeline",
+      "count": 0
+    },
+    {
+      "name": "tasks.json",
+      "kind": "Task",
+      "count": 0
+    },
+    {
+      "name": "pipelineruns.json",
+      "kind": "PipelineRun",
+      "count": 0
+    },
+    {
+      "name": "applications.json",
+      "kind": "Application",
+      "count": 0
+    },
+    {
+      "name": "appprojects.json",
+      "kind": "AppProject",
+      "count": 0
+    }
+  ]
+}

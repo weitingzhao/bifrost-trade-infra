@@ -20,6 +20,7 @@ kind: ValidatingAdmissionPolicy
 metadata:
   name: demo-gate
 spec:
+  failurePolicy: Fail
   matchConstraints:
     resourceRules:
       - apiGroups: ["apps"]
@@ -40,3 +41,10 @@ metadata:
 spec:
   policyName: demo-gate
   validationActions: [Deny]
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bifrost-platform-prod
+  labels:
+    kubernetes.io/metadata.name: bifrost-platform-prod

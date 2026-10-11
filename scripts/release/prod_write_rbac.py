@@ -1,10 +1,12 @@
 """Kubernetes RBAC evaluation for the platform PROD write matrix.
 
-RoleBinding to a ClusterRole is limited to the binding's namespace. ClusterRole
-aggregationRule selectors contribute rules (inline rules on an aggregating
-ClusterRole are ignored, as the controller would overwrite them). nonResourceURLs
-are ignored. resourceNames do not limit create. A rule for a resource does not
-grant its subresources, and a subresource rule does not grant the parent.
+RoleBinding to a ClusterRole is limited to the binding's namespace. Aggregation
+is a monotone fixed point, so a cycle cannot drop rules. In a dump, rules
+already stored on an aggregated ClusterRole are kept. nonResourceURLs are
+ignored. A resource rule does not grant a subresource, and the reverse.
+
+resourceNames do not limit create. On a target declared without a name, a
+named rule still grants the write and the row carries those names.
 """
 
 from __future__ import annotations
@@ -23,8 +25,9 @@ WRITE_VERBS = (
     "update",
 )
 
-# Identities the plan's hand-written table names. A binding subject outside this
-# set is reported; the matrix still includes its rows.
+# GET on these subresources runs a command or attaches a stream. It is a write.
+EXEC_SUBRESOURCES = frozenset({"exec", "attach", "portforward", "ephemeralcontainers"})
+
 PLAN_TABLE = frozenset(
     {
         "system:serviceaccount:bifrost-platform-prod:bifrost-platform",
@@ -53,6 +56,14 @@ class Rule:
 class ScopedRule:
     rule: Rule
     scope: str  # "*" cluster-wide, otherwise one namespace
+    path: str = ""
+
+
+@dataclass(frozen=True)
+class Grant:
+    verbs: tuple[str, ...]
+    only: tuple[str, ...]
+    path: str
 
 
 @dataclass
@@ -72,6 +83,7 @@ class RoleDef:
 
 @dataclass
 class BindingDef:
+    name: str
     kind: str
     namespace: str
     role_kind: str
@@ -92,6 +104,12 @@ class Target:
     api_version: str = ""
 
 
+def candidate_verbs(target: Target) -> tuple[str, ...]:
+    if target.subresource in EXEC_SUBRESOURCES:
+        return WRITE_VERBS + ("get",)
+    return WRITE_VERBS
+
+
 def subject_identity(subject: dict, binding_namespace: str) -> str | None:
     kind = str(subject.get("kind") or "")
     name = str(subject.get("name") or "")
@@ -101,10 +119,23 @@ def subject_identity(subject: dict, binding_namespace: str) -> str | None:
         ns = str(subject.get("namespace") or binding_namespace or "")
         return f"system:serviceaccount:{ns}:{name}"
     if kind == "User":
+        if name in ("system:anonymous", "anonymous"):
+            return "system:anonymous"
         return f"user:{name}"
     if kind == "Group":
         return f"group:{name}"
     return f"{kind}:{name}"
+
+
+def sa_namespace(identity: str) -> str | None:
+    prefix = "system:serviceaccount:"
+    if not identity.startswith(prefix):
+        return None
+    rest = identity[len(prefix):]
+    namespace, sep, name = rest.partition(":")
+    if not sep or not name:
+        return None
+    return namespace
 
 
 def _tuple(value, default: tuple[str, ...] = ()) -> tuple[str, ...]:
@@ -178,17 +209,14 @@ def load_rbac(docs: list[dict]) -> tuple[list[ClusterRoleDef], list[RoleDef], li
         name = str(meta.get("name") or "")
         namespace = str(meta.get("namespace") or "")
         if kind == "ClusterRole" and name:
-            # aggregationRule sits next to rules, not under spec.
             agg_rule = doc.get("aggregationRule") or (doc.get("spec") or {}).get("aggregationRule") or {}
             agg = agg_rule.get("clusterRoleSelectors") or []
-            # A ClusterRole with aggregationRule is controller-managed: inline rules
-            # are overwritten. Keep them only when there is no aggregationRule.
-            inline = [] if agg else parse_rules(doc.get("rules"))
+            parsed = parse_rules(doc.get("rules"))
             clusterroles.append(
                 ClusterRoleDef(
                     name=name,
                     labels={str(k): str(v) for k, v in (meta.get("labels") or {}).items()},
-                    rules=inline,
+                    rules=parsed,
                     selectors=[item for item in agg if isinstance(item, dict)],
                 )
             )
@@ -199,6 +227,7 @@ def load_rbac(docs: list[dict]) -> tuple[list[ClusterRoleDef], list[RoleDef], li
             subjects = doc.get("subjects") or []
             bindings.append(
                 BindingDef(
+                    name=name or f"{kind}/{namespace}",
                     kind=kind,
                     namespace=namespace,
                     role_kind=str(ref.get("kind") or ""),
@@ -209,78 +238,146 @@ def load_rbac(docs: list[dict]) -> tuple[list[ClusterRoleDef], list[RoleDef], li
     return clusterroles, roles, bindings
 
 
-def aggregated_rules(clusterroles: list[ClusterRoleDef]) -> dict[str, list[Rule]]:
-    by_name = {item.name: item for item in clusterroles}
-    memo: dict[str, list[Rule]] = {}
+def aggregated_rules(clusterroles: list[ClusterRoleDef], from_dump: bool = False) -> dict[str, list[Rule]]:
+    """Monotone fixed point. Cycles keep rules that flow in from outside the cycle.
 
-    def rules_for(name: str, stack: set[str]) -> list[Rule]:
-        if name in memo:
-            return memo[name]
-        role = by_name.get(name)
-        if role is None or name in stack:
-            return []
-        stack.add(name)
-        if role.selectors:
-            collected: list[Rule] = []
-            seen: set[tuple] = set()
-            for other in sorted(clusterroles, key=lambda item: item.name):
-                if other.name == name:
+    A dump keeps rules already materialised on an aggregated ClusterRole and
+    still unions anything the selectors add. A repository aggregated role
+    starts empty: the controller overwrites inline rules.
+    """
+    current: dict[str, list[Rule]] = {}
+    for role in clusterroles:
+        if role.selectors and from_dump:
+            current[role.name] = list(role.rules)
+        elif role.selectors:
+            current[role.name] = []
+        else:
+            current[role.name] = list(role.rules)
+    changed = True
+    while changed:
+        changed = False
+        for role in clusterroles:
+            if not role.selectors:
+                continue
+            have = {rule.key() for rule in current[role.name]}
+            for other in clusterroles:
+                if other.name == role.name:
                     continue
                 if not any(selector_matches(sel, other.labels) for sel in role.selectors):
                     continue
-                for rule in rules_for(other.name, stack):
-                    if rule.key() in seen:
+                for rule in current[other.name]:
+                    if rule.key() in have:
                         continue
-                    seen.add(rule.key())
-                    collected.append(rule)
-            memo[name] = collected
-        else:
-            memo[name] = list(role.rules)
-        stack.remove(name)
-        return memo[name]
-
-    return {name: rules_for(name, set()) for name in sorted(by_name)}
+                    current[role.name].append(rule)
+                    have.add(rule.key())
+                    changed = True
+    return current
 
 
-def effective_rules(docs: list[dict]) -> tuple[dict[str, list[ScopedRule]], list[str]]:
-    """Return write rules per identity, and every binding subject."""
+def service_account_identities(docs: list[dict], subjects: set[str]) -> set[str]:
+    found = {identity for identity in subjects if identity.startswith("system:serviceaccount:")}
+    for doc in docs:
+        if str(doc.get("kind") or "") != "ServiceAccount":
+            continue
+        meta = _meta(doc)
+        name = str(meta.get("name") or "")
+        namespace = str(meta.get("namespace") or "")
+        if name and namespace:
+            found.add(f"system:serviceaccount:{namespace}:{name}")
+    return found
+
+
+def _append_unique(bucket: list[ScopedRule], rule: ScopedRule, seen: set[tuple]) -> None:
+    mark = (rule.rule.key(), rule.scope, rule.path)
+    if mark in seen:
+        return
+    seen.add(mark)
+    bucket.append(rule)
+
+
+def effective_rules(docs: list[dict], from_dump: bool = False) -> tuple[dict[str, list[ScopedRule]], list[str], list[str]]:
+    """Write rules per identity, every subject, and unresolved roleRef messages.
+
+    A missing roleRef is not an empty rule set. The message is
+    ``unresolved roleRef: <binding> -> <role>``.
+    """
     clusterroles, roles, bindings = load_rbac(docs)
-    aggregated = aggregated_rules(clusterroles)
+    aggregated = aggregated_rules(clusterroles, from_dump=from_dump)
     role_index = {(item.namespace, item.name): item.rules for item in roles}
     by_identity: dict[str, list[ScopedRule]] = {}
+    seen: dict[str, set[tuple]] = {}
     subjects: set[str] = set()
+    unresolved: list[str] = []
     for binding in bindings:
         identities = []
         for subject in binding.subjects:
             identity = subject_identity(subject, binding.namespace)
-            if identity:
-                identities.append(identity)
-                subjects.add(identity)
+            if not identity:
+                continue
+            identities.append(identity)
+            subjects.add(identity)
         if binding.role_kind == "ClusterRole":
-            rules = aggregated.get(binding.role_name, [])
+            if binding.role_name not in aggregated:
+                unresolved.append(f"unresolved roleRef: {binding.name} -> {binding.role_name}")
+                continue
+            rules = aggregated[binding.role_name]
         elif binding.role_kind == "Role" and binding.kind == "RoleBinding":
-            rules = role_index.get((binding.namespace, binding.role_name), [])
+            key = (binding.namespace, binding.role_name)
+            if key not in role_index:
+                unresolved.append(f"unresolved roleRef: {binding.name} -> {binding.role_name}")
+                continue
+            rules = role_index[key]
         else:
+            unresolved.append(f"unresolved roleRef: {binding.name} -> {binding.role_name}")
             continue
         scope = "*" if binding.kind == "ClusterRoleBinding" else binding.namespace
         for identity in identities:
             bucket = by_identity.setdefault(identity, [])
+            marks = seen.setdefault(identity, set())
             for rule in rules:
-                bucket.append(ScopedRule(rule=rule, scope=scope))
-    return by_identity, sorted(subjects)
+                _append_unique(bucket, ScopedRule(rule=rule, scope=scope), marks)
+    for sa in service_account_identities(docs, subjects):
+        subjects.add(sa)
+        by_identity.setdefault(sa, [])
+        namespace = sa_namespace(sa) or ""
+        groups = (
+            "group:system:serviceaccounts",
+            f"group:system:serviceaccounts:{namespace}",
+            "group:system:authenticated",
+        )
+        marks = seen.setdefault(sa, set())
+        for group in groups:
+            for rule in by_identity.get(group, []):
+                _append_unique(by_identity[sa], rule, marks)
+    anon_rules = list(by_identity.get("group:system:unauthenticated", []))
+    if anon_rules:
+        bucket = by_identity.setdefault("system:anonymous", [])
+        marks = seen.setdefault("system:anonymous", set())
+        for rule in anon_rules:
+            _append_unique(bucket, rule, marks)
+        subjects.add("system:anonymous")
+    return by_identity, sorted(subjects), unresolved
 
 
 def resource_matches(rule_resources: tuple[str, ...], resource: str, subresource: str) -> bool:
+    """RBAC resource match. ``*`` matches a resource and its subresources.
+
+    ``resource/*`` is not an RBAC wildcard (admission treats it as one). A
+    parent rule does not match a subresource, and a subresource rule does not
+    match the parent.
+    """
     combined = f"{resource}/{subresource}" if subresource else resource
     for item in rule_resources:
-        if item == "*" or item == combined:
+        if item == "*":
             return True
-        if subresource and item in (f"*/{subresource}", f"{resource}/*"):
+        if item == combined:
+            return True
+        if subresource and item == f"*/{subresource}":
             return True
     return False
 
 
-def rule_allows(scoped: ScopedRule, verb: str, target: Target) -> bool:
+def _rule_matches(scoped: ScopedRule, verb: str, target: Target) -> bool:
     rule = scoped.rule
     if scoped.scope != "*" and scoped.scope != target.namespace:
         return False
@@ -290,12 +387,50 @@ def rule_allows(scoped: ScopedRule, verb: str, target: Target) -> bool:
         return False
     if target.api_group not in rule.api_groups and "*" not in rule.api_groups:
         return False
-    if not resource_matches(rule.resources, target.resource, target.subresource):
-        return False
-    if verb != "create" and rule.resource_names and target.name not in rule.resource_names:
-        return False
-    return True
+    return resource_matches(rule.resources, target.resource, target.subresource)
+
+
+def allowed_grants(rules: list[ScopedRule], target: Target) -> list[Grant]:
+    """Verbs the rules grant, with resourceNames kept on unnamed targets.
+
+    ``only`` is empty when some matching rule is not name-limited. Otherwise
+    it is the union of the names. create ignores resourceNames.
+    """
+    verbs = candidate_verbs(target)
+    per_path: dict[str, dict[str, set[str] | None]] = {}
+    for scoped in rules:
+        for verb in verbs:
+            if not _rule_matches(scoped, verb, target):
+                continue
+            names = scoped.rule.resource_names
+            slot = per_path.setdefault(scoped.path, {})
+            if verb == "create" or not names or (target.name and target.name in names):
+                slot[verb] = None
+            elif not target.name:
+                current = slot.get(verb, set())
+                if current is None:
+                    continue
+                slot[verb] = set(current) | set(names)
+    grants: list[Grant] = []
+    for path in sorted(per_path):
+        groups: dict[tuple[str, ...], list[str]] = {}
+        for verb, only in per_path[path].items():
+            key = () if only is None else tuple(sorted(only))
+            groups.setdefault(key, []).append(verb)
+        for only, group in sorted(groups.items()):
+            ordered = tuple(verb for verb in verbs if verb in group)
+            grants.append(Grant(verbs=ordered, only=only, path=path))
+    return grants
 
 
 def allowed_verbs(rules: list[ScopedRule], target: Target) -> list[str]:
-    return [verb for verb in WRITE_VERBS if any(rule_allows(rule, verb, target) for rule in rules)]
+    found = []
+    for grant in allowed_grants(rules, target):
+        for verb in grant.verbs:
+            if verb not in found:
+                found.append(verb)
+    return found
+
+
+def rule_allows(scoped: ScopedRule, verb: str, target: Target) -> bool:
+    return verb in allowed_verbs([scoped], target)

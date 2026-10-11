@@ -1,11 +1,16 @@
-"""Match ValidatingAdmissionPolicies to a PROD write without evaluating CEL.
+"""Match ValidatingAdmissionPolicies without evaluating CEL.
 
-A policy matches on namespace selector, resource rules (policy constraints
-intersected with the binding), exclude rules, and literal username
-matchConditions. Any other matchCondition is recorded and does not exclude an
-identity. Validation expressions are kept as text. They never flip a row to
-refused; only admission_effects.yaml can do that, and only for a policy that
-matched.
+A row is refused only when a reviewed effect names that exact field and the
+policy is proven to apply. Proven means every one of these was read off the
+objects: validationActions contains Deny, failurePolicy is Fail, every
+matchCondition evaluates true for the identity, there is no objectSelector,
+no parameter the program cannot resolve, and the namespace selector matches
+labels actually read. Anything else that still overlaps the request is
+``gated (uncertain: <why>)`` and stays unclassified.
+
+Admission resource wildcards are not the RBAC matcher. ``*`` matches resources
+but not subresources; ``pods/*`` and ``*/exec`` match subresources only;
+resourceNames apply to CREATE as well as other operations.
 """
 
 from __future__ import annotations
@@ -19,13 +24,13 @@ from prod_write_rbac import Target, selector_matches
 _EQ = re.compile(r"""request\.userInfo\.username\s*==\s*['"]([^'"]+)['"]""")
 _IN = re.compile(r"""request\.userInfo\.username\s+in\s+\[(.*)\]""", re.S)
 
-# Admission reviews PATCH as UPDATE and deletecollection as DELETE.
 _OPERATION = {
     "create": "CREATE",
     "update": "UPDATE",
     "patch": "UPDATE",
     "delete": "DELETE",
     "deletecollection": "DELETE",
+    "get": "CONNECT",
 }
 
 
@@ -34,6 +39,8 @@ class PolicyHit:
     name: str
     verbs: tuple[str, ...]
     cel: str
+    proven: bool
+    uncertain: str = ""
 
 
 @dataclass
@@ -42,6 +49,7 @@ class Policy:
     match: dict
     conditions: list[dict]
     cel: str
+    failure_policy: str = ""
     param_kind: str = ""
 
 
@@ -51,6 +59,7 @@ class PolicyBinding:
     policy_name: str
     match: dict
     actions: tuple[str, ...] = field(default_factory=tuple)
+    param_ref: str = ""
 
 
 def _meta_name(doc: dict) -> str:
@@ -76,20 +85,28 @@ def index_policies(docs: list[dict]) -> tuple[dict[str, Policy], list[PolicyBind
         name = _meta_name(doc)
         spec = doc.get("spec") or {}
         if kind == "ValidatingAdmissionPolicy" and name:
+            param = spec.get("paramKind") or {}
+            param_kind = ""
+            if isinstance(param, dict) and (param.get("kind") or param.get("apiVersion")):
+                param_kind = str(param.get("kind") or "param")
             policies[name] = Policy(
                 name=name,
                 match=spec.get("matchConstraints") or {},
                 conditions=[item for item in (spec.get("matchConditions") or []) if isinstance(item, dict)],
                 cel=validation_text(spec),
+                failure_policy=str(spec.get("failurePolicy") or ""),
+                param_kind=param_kind,
             )
         elif kind == "ValidatingAdmissionPolicyBinding" and name:
             actions = spec.get("validationActions") or []
+            param_ref = spec.get("paramRef") or {}
             bindings.append(
                 PolicyBinding(
                     name=name,
                     policy_name=str(spec.get("policyName") or ""),
                     match=spec.get("matchResources") or {},
                     actions=tuple(str(item) for item in actions),
+                    param_ref="yes" if isinstance(param_ref, dict) and param_ref else "",
                 )
             )
     return policies, bindings
@@ -106,7 +123,10 @@ def namespace_index(docs: list[dict]) -> tuple[dict[str, dict[str, str]], set[st
         if not name:
             continue
         known.add(name)
-        labels[name] = {str(k): str(v) for k, v in (meta.get("labels") or {}).items()}
+        read = {str(k): str(v) for k, v in (meta.get("labels") or {}).items()}
+        # The apiserver stamps this label. It is known once the object was read.
+        read.setdefault("kubernetes.io/metadata.name", name)
+        labels[name] = read
     return labels, known
 
 
@@ -126,39 +146,69 @@ def username_allowlist(expression: str) -> set[str] | None:
     return set(names) if names else None
 
 
-def identity_selected(conditions: list[dict], identity: str) -> bool:
-    """True when no recognised condition excludes this identity.
-
-    An expression that is not a literal username test does not exclude anyone:
-    the row stays gated rather than being treated as refused or as unguarded.
-    """
+def condition_state(conditions: list[dict], identity: str) -> str:
+    """'yes' when every condition is true, 'no' when one is false, else 'unknown'."""
+    state = "yes"
     for condition in conditions:
         allow = username_allowlist(str(condition.get("expression") or ""))
-        if allow is not None and identity not in allow:
-            return False
-    return True
+        if allow is None:
+            state = "unknown"
+            continue
+        if identity not in allow:
+            return "no"
+    return state
 
 
-def _namespace_selected(selector: dict | None, namespace: str, labels: dict[str, str], complete: bool) -> bool:
+def admission_resource_matches(rule_resources: tuple[str, ...], resource: str, subresource: str) -> bool:
+    """ValidatingAdmissionPolicy resource wildcards. Not the RBAC helper.
+
+    ``*`` matches every resource and not its subresources. ``*/*`` matches
+    both. ``pods`` matches pods only. ``pods/*`` and ``*/exec`` match
+    subresources only.
+    """
+    for item in rule_resources:
+        if item in ("*", "*/*") and not subresource:
+            return item == "*" or item == "*/*"
+        if item == "*/*":
+            return True
+        if item == "*" and not subresource:
+            return True
+        if not subresource and item == resource:
+            return True
+        if subresource and item in (f"{resource}/{subresource}", f"{resource}/*", f"*/{subresource}"):
+            return True
+    return False
+
+
+def _namespace_state(selector: dict | None, namespace: str, labels: dict[str, str], known: set[str]) -> str:
+    """'yes', 'no', or an uncertainty reason."""
     if not selector:
-        return True
+        return "yes"
     if namespace == "":
-        return False
-    known = dict(labels)
-    known.setdefault("kubernetes.io/metadata.name", namespace)
-    if complete:
-        return selector_matches(selector, known)
+        return "no"
+    # kubernetes.io/metadata.name is the namespace name. Other labels count
+    # only when the Namespace object was read.
+    read = {"kubernetes.io/metadata.name": namespace}
+    if namespace in known:
+        read.update(labels)
     needed = set((selector.get("matchLabels") or {}))
     for expr in selector.get("matchExpressions") or []:
         needed.add(str(expr.get("key") or ""))
-    if needed <= set(known):
-        return selector_matches(selector, known)
-    return True
+    if not needed <= set(read):
+        return "namespace labels not read"
+    if _selector_unknown(selector):
+        return "namespace selector operator not read"
+    if selector_matches(selector, read):
+        return "yes"
+    return "no"
 
 
-def _rule_resources(rule: dict) -> tuple[str, ...]:
-    resources = rule.get("resources") or []
-    return tuple(str(item) for item in resources)
+def _selector_unknown(selector: dict) -> bool:
+    known = {"In", "NotIn", "Exists", "DoesNotExist"}
+    for expr in selector.get("matchExpressions") or []:
+        if str(expr.get("operator") or "") not in known:
+            return True
+    return False
 
 
 def _operation_ok(rule: dict, verb: str) -> bool:
@@ -169,35 +219,31 @@ def _operation_ok(rule: dict, verb: str) -> bool:
     return "*" in operations or operation in operations
 
 
-def _group_ok(rule: dict, api_group: str) -> bool:
-    groups = [str(item) for item in (rule.get("apiGroups") or [])]
-    return not groups or "*" in groups or api_group in groups
-
-
-def _version_ok(rule: dict, api_version: str) -> bool:
-    if not api_version:
-        return True
-    versions = [str(item) for item in (rule.get("apiVersions") or [])]
-    return not versions or "*" in versions or api_version in versions
-
-
-def _name_ok(rule: dict, name: str) -> bool:
-    names = [str(item) for item in (rule.get("resourceNames") or [])]
-    if not names or not name:
-        return not names or name in names
-    return name in names
+def _listed(rule: dict, key: str) -> list[str]:
+    return [str(item) for item in (rule.get(key) or [])]
 
 
 def one_resource_rule(rule: dict, target: Target, verb: str) -> bool:
-    if not _operation_ok(rule, verb) or not _group_ok(rule, target.api_group):
+    if not _operation_ok(rule, verb):
         return False
-    if not _version_ok(rule, target.api_version):
+    groups = _listed(rule, "apiGroups")
+    if not groups or (target.api_group not in groups and "*" not in groups):
         return False
-    from prod_write_rbac import resource_matches
-
-    if not resource_matches(_rule_resources(rule), target.resource, target.subresource):
+    versions = _listed(rule, "apiVersions")
+    if target.api_version and (not versions or (target.api_version not in versions and "*" not in versions)):
         return False
-    return _name_ok(rule, target.name)
+    scope = str(rule.get("scope") or "*")
+    if scope == "Cluster" and target.namespace != "":
+        return False
+    if scope == "Namespaced" and target.namespace == "":
+        return False
+    resources = tuple(_listed(rule, "resources"))
+    if not resources or not admission_resource_matches(resources, target.resource, target.subresource):
+        return False
+    names = _listed(rule, "resourceNames")
+    if names and (not target.name or target.name not in names):
+        return False
+    return True
 
 
 def _rules_hit(rules: list | None, target: Target, verb: str, empty_means: bool) -> bool:
@@ -206,18 +252,41 @@ def _rules_hit(rules: list | None, target: Target, verb: str, empty_means: bool)
     return any(isinstance(rule, dict) and one_resource_rule(rule, target, verb) for rule in rules)
 
 
-def _match_block(block: dict | None, target: Target, verb: str, ns_labels: dict[str, dict[str, str]], ns_known: set[str]) -> bool:
+def _match_state(block: dict | None, target: Target, verb: str, ns_labels: dict[str, dict[str, str]], ns_known: set[str]) -> str:
+    """'yes', 'no', or a reason the match cannot be proven."""
     if not block:
-        return True
+        return "yes"
+    reasons = []
+    if block.get("objectSelector"):
+        reasons.append("objectSelector")
     namespace = target.namespace
     labels = ns_labels.get(namespace, {})
-    if not _namespace_selected(block.get("namespaceSelector"), namespace, labels, namespace in ns_known):
-        return False
+    ns_state = _namespace_state(block.get("namespaceSelector"), namespace, labels, ns_known)
+    if ns_state == "no":
+        return "no"
+    if ns_state != "yes":
+        reasons.append(ns_state)
     if not _rules_hit(block.get("resourceRules"), target, verb, empty_means=True):
-        return False
+        return "no"
     if _rules_hit(block.get("excludeResourceRules"), target, verb, empty_means=False):
-        return False
-    return True
+        return "no"
+    if reasons:
+        return "; ".join(reasons)
+    return "yes"
+
+
+def _uncertain_reasons(policy: Policy, binding: PolicyBinding, identity: str) -> list[str]:
+    reasons = []
+    if "Deny" not in binding.actions:
+        reasons.append("validationActions has no Deny")
+    if policy.failure_policy != "Fail":
+        reasons.append("failurePolicy is not Fail")
+    if policy.param_kind or binding.param_ref:
+        reasons.append("paramRef")
+    state = condition_state(policy.conditions, identity)
+    if state == "unknown":
+        reasons.append("matchCondition")
+    return reasons
 
 
 def matching_policies(
@@ -230,22 +299,34 @@ def matching_policies(
     ns_known: set[str],
 ) -> list[PolicyHit]:
     hits: list[PolicyHit] = []
-    for binding in sorted(bindings, key=lambda item: item.policy_name):
+    for binding in sorted(bindings, key=lambda item: (item.policy_name, item.name)):
         policy = policies.get(binding.policy_name)
-        if policy is None or not identity_selected(policy.conditions, identity):
+        if policy is None:
             continue
-        matched = [
-            verb
-            for verb in verbs
-            if _match_block(policy.match, target, verb, ns_labels, ns_known)
-            and _match_block(binding.match, target, verb, ns_labels, ns_known)
-        ]
+        if condition_state(policy.conditions, identity) == "no":
+            continue
+        matched: list[str] = []
+        uncertain: list[str] = []
+        for verb in verbs:
+            policy_state = _match_state(policy.match, target, verb, ns_labels, ns_known)
+            binding_state = _match_state(binding.match, target, verb, ns_labels, ns_known)
+            if policy_state == "no" or binding_state == "no":
+                continue
+            matched.append(verb)
+            for state in (policy_state, binding_state):
+                if state != "yes":
+                    uncertain.append(state)
         if not matched:
             continue
-        # Warn-only bindings do not gate the write. Deny, or an empty action list, does.
-        if binding.actions and "Deny" not in binding.actions:
+        reasons = _uncertain_reasons(policy, binding, identity) + uncertain
+        # Warn or Audit alone does not gate. A missing Deny is uncertain above
+        # and is not a proven refusal; drop a binding that is only Warn/Audit
+        # when Deny is absent and the actions are non-empty of those.
+        if binding.actions and "Deny" not in binding.actions and set(binding.actions) <= {"Warn", "Audit"}:
             continue
-        hits.append(PolicyHit(name=policy.name, verbs=tuple(matched), cel=policy.cel))
+        proven = not reasons
+        why = "" if proven else "; ".join(dict.fromkeys(reasons))
+        hits.append(PolicyHit(name=policy.name, verbs=tuple(matched), cel=policy.cel, proven=proven, uncertain=why))
     return _merge(hits)
 
 
@@ -258,7 +339,9 @@ def _merge(hits: list[PolicyHit]) -> list[PolicyHit]:
             continue
         verbs = tuple(sorted(set(current.verbs) | set(hit.verbs)))
         cel = current.cel or hit.cel
-        by_name[hit.name] = PolicyHit(name=hit.name, verbs=verbs, cel=cel)
+        proven = current.proven and hit.proven
+        why = "; ".join(part for part in (current.uncertain, hit.uncertain) if part)
+        by_name[hit.name] = PolicyHit(name=hit.name, verbs=verbs, cel=cel, proven=proven, uncertain="" if proven else why)
     return [by_name[name] for name in sorted(by_name)]
 
 
@@ -272,7 +355,7 @@ def effect_refuses(effects: list[dict], policy_names: list[str], identity: str, 
             continue
         if effect.get("policy") not in policy_names:
             continue
-        if effect.get("field") not in (field, "*"):
+        if str(effect.get("field") or "") != field:
             continue
         if effect.get("identity") not in (identity, "*"):
             continue
@@ -281,13 +364,22 @@ def effect_refuses(effects: list[dict], policy_names: list[str], identity: str, 
 
 
 def validate_effects(effects: list[dict]) -> list[str]:
-    required = ("policy", "identity", "field", "effect", "note")
     problems = []
     for index, effect in enumerate(effects, start=1):
-        missing = [key for key in required if not str(effect.get(key) or "").strip()]
+        kind = str(effect.get("effect") or "")
+        if kind == "refuse":
+            required = ("policy", "identity", "field", "effect", "note")
+        elif kind == "restrict-serviceaccount":
+            required = ("policy", "identity", "effect", "resources", "service_accounts", "note")
+        else:
+            problems.append(f"invalid-effect: entry {index} effect must be refuse or restrict-serviceaccount")
+            continue
+        missing = [key for key in required if not effect.get(key) and effect.get(key) != 0]
+        missing = [key for key in required if effect.get(key) in (None, "", [])]
         if missing:
             problems.append(f"invalid-effect: entry {index} missing {', '.join(missing)}")
             continue
-        if effect.get("effect") != "refuse":
-            problems.append(f"invalid-effect: entry {index} effect must be refuse")
+        field_name = str(effect.get("field") or "")
+        if kind == "refuse" and (not field_name or "*" in field_name):
+            problems.append(f"invalid-effect: entry {index} field must be an exact field")
     return problems

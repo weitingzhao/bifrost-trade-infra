@@ -1,0 +1,8 @@
+# A freeze task counts only when its taskRef name is listed here.
+# Pipeline task names and name patterns do not count.
+freeze_tasks:
+  - bifrost-release-window
+# A pipeline parameter whose reachable values a reviewed policy pins.
+# The program does not guess. Empty means no policy it reads constrains
+# image, tag, namespace, application, context or path.
+param_policies: []
