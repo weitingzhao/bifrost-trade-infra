@@ -15,10 +15,9 @@
  * JSON, or over 256 KiB: no request.
  */
 const fs = require('node:fs')
-const { reporterRequest, hostName } = require('./thread-heartbeat.js')
+const { publishProgress, hostName } = require('./thread-heartbeat.js')
 
 const MAX_BYTES = 256 * 1024
-const ROUTE = '/api/v1/agent/progress'
 const GIVE_UP_MS = 5000
 
 function readDocument(file) {
@@ -45,7 +44,7 @@ function readDocument(file) {
 async function publish(file) {
   const body = readDocument(file)
   if (body == null) return
-  await reporterRequest('PUT', ROUTE, body, GIVE_UP_MS)
+  await publishProgress(body, GIVE_UP_MS)
 }
 
 function main(argv) {

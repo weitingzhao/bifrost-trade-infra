@@ -79,10 +79,125 @@ function write(dir, name, contents) {
   return file
 }
 
-test('the reporter token is not exported', () => {
+const HEARTBEAT_EXPORTS = [
+  'EVENTS',
+  'HOOK_GIVE_UP_MS',
+  'WAITING_NOTIFICATIONS',
+  'allocateStamp',
+  'armHookDeadline',
+  'baseURL',
+  'beatFor',
+  'clearHookDeadline',
+  'hostName',
+  'loadGate',
+  'lockRuntime',
+  'publishProgress',
+  'reduceThrottle',
+  'saveIssuedKey',
+  'shouldSkip',
+  'supersedeActive',
+  'toolTimeoutSeconds',
+  'withThreadLock',
+]
+
+test('nothing exported can send a request to a caller-chosen path', () => {
   const hb = require('./thread-heartbeat.js')
   assert.equal(Object.hasOwn(hb, 'token'), false)
-  assert.equal(typeof hb.reporterRequest, 'function')
+  assert.equal(Object.hasOwn(hb, 'reporterRequest'), false)
+  assert.deepEqual(Object.keys(hb).sort(), [...HEARTBEAT_EXPORTS].sort())
+  assert.equal(typeof hb.publishProgress, 'function')
+  assert.equal(hb.publishProgress.length, 2)
+  const pub = require('./progress-publish.js')
+  assert.equal(Object.hasOwn(pub, 'reporterRequest'), false)
+  assert.equal(Object.hasOwn(pub, 'publishProgress'), false)
+  assert.deepEqual(Object.keys(pub).sort(), ['GIVE_UP_MS', 'MAX_BYTES', 'publish', 'readDocument'])
+})
+
+function withReporter(url, token, fn) {
+  const prev = {
+    PLATFORM_HEARTBEAT_URL: process.env.PLATFORM_HEARTBEAT_URL,
+    PLATFORM_REPORTER_TOKEN: process.env.PLATFORM_REPORTER_TOKEN,
+  }
+  process.env.PLATFORM_HEARTBEAT_URL = url
+  process.env.PLATFORM_REPORTER_TOKEN = token
+  const hb = require('./thread-heartbeat.js')
+  return Promise.resolve()
+    .then(() => fn(hb))
+    .finally(() => {
+      for (const [key, value] of Object.entries(prev)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+    })
+}
+
+test('publishProgress sends PUT to the constant path only', async () => {
+  const srv = await listen()
+  try {
+    await withReporter(srv.url, 'reporter-token-w62', hb =>
+      hb.publishProgress(Buffer.from('{"at":1}'), 2000, 'POST', 'https://evil.example/collect'),
+    )
+    assert.equal(srv.requests.length, 1)
+    assert.equal(srv.requests[0].method, 'PUT')
+    assert.equal(srv.requests[0].url, '/api/v1/agent/progress')
+    assert.equal(srv.requests[0].auth, 'Bearer reporter-token-w62')
+    assert.equal(srv.requests[0].url.includes('evil.example'), false)
+  } finally {
+    await srv.close()
+  }
+})
+
+test('a base with a path, userinfo or query still ends at the constant path', async () => {
+  const srv = await listen()
+  const port = new URL(srv.url).port
+  const bases = [
+    `http://127.0.0.1:${port}/api/v1/agent/threads/heartbeat`,
+    `http://alice:s3cret@127.0.0.1:${port}/other/place?x=1`,
+    `http://127.0.0.1:${port}/?q=leak#frag`,
+  ]
+  try {
+    for (const base of bases) {
+      srv.requests.length = 0
+      await withReporter(base, 'reporter-token-w62', hb => hb.publishProgress(Buffer.from('{"at":1}'), 2000))
+      assert.equal(srv.requests.length, 1, base)
+      const req = srv.requests[0]
+      assert.equal(req.method, 'PUT', base)
+      assert.equal(req.url, '/api/v1/agent/progress', base)
+      assert.equal(req.auth, 'Bearer reporter-token-w62', base)
+      assert.equal(req.auth.includes('alice'), false)
+      assert.equal(req.auth.includes('s3cret'), false)
+      assert.equal(req.url.includes('?'), false, base)
+      assert.equal(req.url.includes('heartbeat'), false, base)
+    }
+  } finally {
+    await srv.close()
+  }
+})
+
+test('a 302 answer is not followed', async () => {
+  const leaked = []
+  const sink = http.createServer((req, res) => {
+    leaked.push({ url: req.url, auth: req.headers.authorization || '' })
+    res.writeHead(200)
+    res.end('sink')
+  })
+  await new Promise(resolve => sink.listen(0, '127.0.0.1', resolve))
+  const sinkPort = sink.address().port
+  const srv = await listen((_req, res) => {
+    res.writeHead(302, { Location: `http://127.0.0.1:${sinkPort}/collect` })
+    res.end()
+  })
+  try {
+    await withReporter(srv.url, 'reporter-token-w62', hb => hb.publishProgress(Buffer.from('{"at":1}'), 2000))
+    assert.equal(srv.requests.length, 1)
+    assert.equal(srv.requests[0].method, 'PUT')
+    assert.equal(srv.requests[0].url, '/api/v1/agent/progress')
+    assert.equal(srv.requests[0].auth, 'Bearer reporter-token-w62')
+    assert.equal(leaked.length, 0)
+  } finally {
+    await srv.close()
+    await new Promise(resolve => sink.close(() => resolve()))
+  }
 })
 
 test('puts the document with host and the reporter token, and prints nothing', async () => {
