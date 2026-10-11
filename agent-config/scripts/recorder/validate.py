@@ -7,6 +7,7 @@ The same rules run at append time and inside the fold.
 
 from __future__ import annotations
 
+import copy
 import math
 import re
 from dataclasses import dataclass, field
@@ -56,11 +57,50 @@ def is_int(value) -> bool:
 
 
 def has_control(text: str) -> bool:
+    """Control characters, line separators, and the bidi override U+202E.
+
+    The design names controls and U+2028 / U+2029. U+202E is rejected as well:
+    a string containing it is not a value any field accepts.
+    """
     for ch in text:
         code = ord(ch)
-        if code < 32 or code == 127 or code in (0x2028, 0x2029):
+        if code < 32 or code == 127 or code in (0x2028, 0x2029, 0x202E):
             return True
     return False
+
+
+class Event:
+    """One event after ``parse_event``. Fields are already typed.
+
+    Downstream code does not see the raw dictionary. Item access reads the
+    copy made at the boundary.
+    """
+
+    __slots__ = ("_fields",)
+
+    def __init__(self, fields: dict):
+        self._fields = fields
+
+    def __getitem__(self, key):
+        return self._fields[key]
+
+    def get(self, key, default=None):
+        return self._fields.get(key, default)
+
+    def __contains__(self, key):
+        return key in self._fields
+
+    def keys(self):
+        return self._fields.keys()
+
+
+def _closed(value, allowed) -> str | None:
+    """Set membership only after the value is known to be a string."""
+    if not isinstance(value, str):
+        return "bad_type"
+    if value not in allowed:
+        return "bad_value"
+    return None
 
 
 @dataclass
@@ -176,11 +216,26 @@ def wait_is_unsettled(wait: Wait) -> bool:
     return not wait.settled
 
 
-def _seq_of(event: dict, index: int):
-    seq = event.get("seq")
-    if is_int(seq):
-        return seq
+def _seq_of(event, index: int):
+    if isinstance(event, (dict, Event)):
+        seq = event.get("seq")
+        if is_int(seq):
+            return seq
     return index + 1
+
+
+def parse_event(raw):
+    """Turn one raw value into a typed event, or a defect code.
+
+    Every field, nested fields included, is type-checked here. Nothing after
+    this function looks up, compares, or does arithmetic on a raw dictionary.
+    """
+    if not isinstance(raw, dict):
+        return None, "bad_type"
+    reason = _shape(raw)
+    if reason is not None:
+        return None, reason
+    return Event(copy.deepcopy(raw)), None
 
 
 def _text_ok(value: str, limit: int) -> str | None:
@@ -190,6 +245,7 @@ def _text_ok(value: str, limit: int) -> str | None:
 
 
 def _shape(event: dict) -> str | None:
+    """Type of every field first. No set lookup, comparison, or arithmetic before that."""
     if not isinstance(event, dict):
         return "bad_type"
     kind = event.get("type")
@@ -198,21 +254,29 @@ def _shape(event: dict) -> str | None:
     schema = SCHEMAS[kind]
     allowed = ENVELOPE | schema["required"] | schema["optional"]
     for key in event:
-        if key not in allowed:
+        if not isinstance(key, str) or key not in allowed:
             return "unknown_field"
     for key in ("type", "v", "at", "by", *schema["required"]):
         if key not in event:
             return "missing_field"
-    if event.get("v") != 1:
+    version = event.get("v")
+    if type(version) is not int:
+        return "bad_type"
+    if version != 1:
         return "bad_value"
     if not is_number(event.get("at")):
         return "bad_type"
-    if event.get("by") not in BY:
-        return "bad_value"
+    by_reason = _closed(event.get("by"), BY)
+    if by_reason:
+        return by_reason
     if "seq" in event and not is_int(event["seq"]):
         return "bad_type"
-    if "prev_sha256" in event and not isinstance(event["prev_sha256"], str):
-        return "bad_type"
+    if "prev_sha256" in event:
+        prev = event["prev_sha256"]
+        if not isinstance(prev, str):
+            return "bad_type"
+        if prev != "" and _SHA.fullmatch(prev) is None:
+            return "bad_value"
     return _fields(kind, event)
 
 
@@ -222,23 +286,25 @@ def _fields(kind: str, event: dict) -> str | None:
             return "bad_value"
         return _strings(event, {"title": NAME_LIMIT, "goal": TEXT_LIMIT, "work_ref": NAME_LIMIT})
     if kind == "work_closed":
-        if event["claim"] not in CLAIMS:
-            return "bad_value"
-        return None
+        return _closed(event.get("claim"), CLAIMS)
     if kind == "step_declared":
         if not _HEX8.match(event["step_id"]) if isinstance(event["step_id"], str) else True:
             return "bad_value"
         err = _strings(event, {"name": NAME_LIMIT, "who": NAME_LIMIT})
         if err:
             return err
-        if event["kind"] not in {"implement", "verify", "review", "merge", "other", "release", "ci"}:
-            return "bad_value"
-        if event["watch"] not in {"process", "none", "record"}:
-            return "bad_value"
+        reason = _closed(event.get("kind"), {"implement", "verify", "review", "merge", "other", "release", "ci"})
+        if reason:
+            return reason
+        reason = _closed(event.get("watch"), {"process", "none", "record"})
+        if reason:
+            return reason
         if "usual_s" in event and (not is_number(event["usual_s"]) or event["usual_s"] < 0):
             return "bad_value"
-        if "usual_basis" in event and event["usual_basis"] not in USUAL_BASIS:
-            return "bad_value"
+        if "usual_basis" in event:
+            reason = _closed(event.get("usual_basis"), USUAL_BASIS)
+            if reason:
+                return reason
         if "round" in event and not is_number(event["round"]):
             return "bad_type"
         if "after" in event and not isinstance(event["after"], str):
@@ -281,8 +347,10 @@ def _fields(kind: str, event: dict) -> str | None:
     if kind == "step_finished":
         if not _hex_pair(event, "step_id", "run_id"):
             return "bad_value"
-        if "reported" in event and event["reported"] not in REPORTED:
-            return "bad_value"
+        if "reported" in event:
+            reason = _closed(event.get("reported"), REPORTED)
+            if reason:
+                return reason
         if "exit" in event:
             err = _exit(event["exit"])
             if err:
@@ -300,8 +368,10 @@ def _fields(kind: str, event: dict) -> str | None:
         for key in ("started_at", "ended_at"):
             if key in event and not is_number(event[key]):
                 return "bad_type"
-        if "condition" in event and event["condition"] not in CONDITIONS:
-            return "bad_value"
+        if "condition" in event:
+            reason = _closed(event.get("condition"), CONDITIONS)
+            if reason:
+                return reason
         return _strings(event, {"reason_quote": TEXT_LIMIT})
     if kind == "owner_wait_opened":
         if not isinstance(event["wait_id"], str) or not _HEX8.match(event["wait_id"]):
@@ -320,10 +390,14 @@ def _fields(kind: str, event: dict) -> str | None:
         err = _ref(event.get("ref"))
         if err:
             return err
-        if "can_act" in event and event["can_act"] not in CAN_ACT:
-            return "bad_value"
-        if "where" in event and event["where"] not in WHERE:
-            return "bad_value"
+        if "can_act" in event:
+            reason = _closed(event.get("can_act"), CAN_ACT)
+            if reason:
+                return reason
+        if "where" in event:
+            reason = _closed(event.get("where"), WHERE)
+            if reason:
+                return reason
         if "after" in event and (not isinstance(event["after"], str) or not _HEX8.match(event["after"])):
             return "bad_value"
         if "deadline" in event and not is_number(event["deadline"]):
@@ -358,8 +432,9 @@ def _fields(kind: str, event: dict) -> str | None:
     if kind == "owner_wait_closed":
         if not isinstance(event["wait_id"], str) or not _HEX8.match(event["wait_id"]):
             return "bad_value"
-        if event["how"] not in CLOSE_HOW:
-            return "bad_value"
+        reason = _closed(event.get("how"), CLOSE_HOW)
+        if reason:
+            return reason
         return None
     if kind == "note":
         err = _strings(event, {"text": TEXT_LIMIT})
@@ -444,6 +519,10 @@ def _exit(value) -> str | None:
         return "bad_type"
     if set(value) - {"code", "signal"}:
         return "unknown_field"
+    if "code" in value and value["code"] is None:
+        return "bad_type"
+    if "signal" in value and value["signal"] is None:
+        return "bad_type"
     code = value.get("code", None)
     signal = value.get("signal", None)
     code_set = code is not None
@@ -464,7 +543,9 @@ def _ref(value) -> str | None:
         return "missing_field" if "kind" not in value or "id" not in value else "unknown_field"
     kind = value["kind"]
     ident = value["id"]
-    if kind not in {"approval", "question", "none"} or not isinstance(ident, str):
+    if not isinstance(kind, str) or not isinstance(ident, str):
+        return "bad_type"
+    if kind not in {"approval", "question", "none"}:
         return "bad_value"
     if _text_ok(ident, NAME_LIMIT):
         return "limit_text"
@@ -501,9 +582,12 @@ def _round_lists(event: dict) -> str | None:
             return "bad_type"
         if set(item) - {"key", "error"} or "key" not in item or "error" not in item:
             return "missing_field"
-        if not isinstance(item["key"], str) or not isinstance(item["error"], str):
+        if not isinstance(item["key"], str):
             return "bad_type"
-        if item["error"] not in OBSERVER_ERRORS:
+        reason = _closed(item.get("error"), OBSERVER_ERRORS)
+        if reason == "bad_type":
+            return "bad_type"
+        if reason:
             return "bad_error"
     return None
 
@@ -904,17 +988,14 @@ def classify(events: list, *, work_id: str | None = None, observer: bool = False
     is a defect. ``observer`` is the observer log: only ``observer_round`` counts.
     """
     view = View(work_id=work_id)
-    for index, event in enumerate(events or []):
-        if not isinstance(event, dict):
-            view.defects.append({"seq": index + 1, "reason": "bad_type"})
-            continue
-        reason = _shape(event)
+    for index, raw in enumerate(events or []):
+        parsed, reason = parse_event(raw)
         if reason is None:
-            reason = _contextual_observer(view, event) if observer else _contextual(view, event, index)
+            reason = _contextual_observer(view, parsed) if observer else _contextual(view, parsed, index)
         if reason is not None:
-            view.defects.append({"seq": _seq_of(event, index), "reason": reason})
+            view.defects.append({"seq": _seq_of(raw, index), "reason": reason})
             continue
-        _apply(view, event, len(view.valid))
+        _apply(view, parsed, len(view.valid))
     view.backwards = _backwards(view.valid)
     return view
 
@@ -942,7 +1023,7 @@ def _backwards(events: list) -> set[int]:
 def refusal(events: list, event: dict, *, work_id: str | None = None) -> str | None:
     """The defect code a new event would get, or None when it would be written."""
     view = classify(events, work_id=work_id)
-    reason = _shape(event)
+    parsed, reason = parse_event(event)
     if reason is None:
-        reason = _contextual(view, event, len(events))
+        reason = _contextual(view, parsed, len(events))
     return reason

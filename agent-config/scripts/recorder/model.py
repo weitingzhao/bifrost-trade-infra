@@ -114,6 +114,7 @@ DEFECTS = {
     "needs_locator",
     "unknown_id",
     "by_step_missing",
+    "self_supersede",
     "withdraw_started",
     "not_declared",
     "already_started",
@@ -253,6 +254,20 @@ SCHEMAS: dict[str, dict[str, set[str]]] = {
         "optional": {"truncated"},
     },
     "tail_repaired": {"required": {"repair_id", "bytes", "sha256"}, "optional": set()},
+}
+
+# Nested objects and list items. The mutant test walks these tables.
+NESTED_FIELDS = {
+    "locator": ("cluster", "namespace", "name"),
+    "exit": ("code", "signal"),
+    "ref": ("kind", "id"),
+    "failed_item": ("key", "error"),
+}
+LIST_FIELDS = {
+    "waiting_on": "str",
+    "commands": "str",
+    "confirmed": "str",
+    "failed": "failed_item",
 }
 
 STRING_FIELDS = {

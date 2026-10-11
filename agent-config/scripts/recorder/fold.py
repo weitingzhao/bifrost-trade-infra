@@ -26,6 +26,8 @@ def fold(logs, observer_log, now, logs_unread=0) -> dict:
         now = 0
     if not isinstance(logs_unread, int) or isinstance(logs_unread, bool) or logs_unread < 0:
         logs_unread = 0
+    if not isinstance(logs, (list, tuple)):
+        logs = []
     rounds = _rounds(observer_log)
     prepared = []
     for item in logs or []:
@@ -74,8 +76,10 @@ def _prepare(item) -> dict:
 def _rounds(observer_log) -> list:
     if isinstance(observer_log, dict) and "events" in observer_log:
         events = observer_log.get("events") or []
+    elif isinstance(observer_log, (list, tuple)):
+        events = list(observer_log)
     else:
-        events = list(observer_log or [])
+        events = []
     view = classify(events, observer=True)
     rounds = list(view.rounds)
     rounds.sort(key=lambda event: (event["ended_at"], event.get("seq") or 0))
