@@ -1,6 +1,6 @@
 # W-65 Owner 问题记录：Agent 提问，Owner 在 Console 和手机上回答，答案送回提问的线程
 
-状态：设计第二稿，2026-10-11。已按复核 26（`sound with changes`，2 条 P1、8 条 P2、3 条 P3）修订，逐条去向见第 15 节。没有代码，没有派实现。待 Owner 定第 13 节。
+状态：设计第二稿，2026-10-11。并入了复核 26 的意见。**第 13 节的十项 Owner 已定：全部按最右一列（2026-10-11 02:51，「十个点按照你推荐的来」）。** 没有代码；实现前再让 Codex 核对一次本稿。
 输入：`WORK.md` 的 W-65 和 W-61；`ADR-ops-architecture.md` §5、§12.2；复核 19（`work/multi-agent/reviews/codex-2026-10-11-review19-w62-slice3.md`）；复核 26（`~/agent-work/codex-review-26/REPORT.md`，它引用的代码行本文逐条核对过）；代码读的是 `bifrost-platform` main `eb49c19`，Progress 待办卡读的是未合并的 `~/agent-work/w62-slice3/`（`971b467`）。
 路径约定：`api/`、`console/`、`mcp/`、`config/` 开头的相对 `bifrost-platform/`；`agent-config/` 开头的相对 `bifrost-trade-infra/`。
 已定、本文不重新讨论：答案不是批准；只有 Owner 能答；问题文字不可信；没人答就过期，过期不选任何选项；平台不含交易概念；Console 的标签、状态、通知动词用英文，问题和答案按原文显示。
@@ -190,7 +190,7 @@ POST /…/answer    {"option":"b","text":"…","channel":"console"}
 18. 依赖（第 3 节第 2 条的三项检查）通过；第零片前后 `approvalnotify` 的现有测试不改断言就通过；路由防线（`api/internal/actions/coverage_test.go`）在加了豁免后通过。
 19. 审计：建、答、撤回、过期、确认各有一行，带 principal 和自报会话。
 
-## 13. 待 Owner 定
+## 13. Owner 已定的十项（2026-10-11：全部按最右一列）
 
 本文按最右一列写成；任何一项改选，对应章节要跟着改。⑦–⑩ 是复核 26 指出的产品承诺，复核没有给倾向。
 
