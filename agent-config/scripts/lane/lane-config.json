@@ -1,0 +1,20 @@
+{
+  "implement": "cursor-agent -p --force --trust --output-format stream-json --workspace \"{workspace}\" \"Round {round}. Read and carry out {brief}\"",
+  "verify": "bash \"$HOME/agent-work/verify-branch.sh\" \"{workspace}\" bifrost-platform-console; tail -n 1 \"{workspace}/verify.txt\"",
+  "review": "codex exec --sandbox read-only --skip-git-repo-check -C \"{workspace}\" --output-last-message \"{report}\" \"Round {round}. Read {brief} and review the diff. First line of the report must be a VERDICT.\"",
+  "who": {
+    "implement": "Cursor",
+    "verify": "verify-branch.sh",
+    "review": "Codex"
+  },
+  "usual_min": {
+    "implement": 30,
+    "verify": 8,
+    "review": 10
+  },
+  "pattern": {
+    "implement": "cursor-agent",
+    "verify": "verify-branch.sh",
+    "review": "codex exec"
+  }
+}
