@@ -454,6 +454,13 @@ def _read_tokens():
 
 
 def run_checks():
+    from test_round8b import _soon
+    from validate import _backwards
+
+    # Dropping the backwards comparison makes every later event take the branch
+    # and then continue without moving the index.
+    found = _soon(lambda: _backwards([{"at": 10}, {"at": 10}]))
+    _need(found == set(), found)
     _watched()
     _timed_and_small()
     _fold_and_feed()

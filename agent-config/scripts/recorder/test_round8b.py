@@ -249,13 +249,13 @@ def _validate_edges():
     _need(_ref({"kind": "none", "id": "c" * (NAME_LIMIT + 1)}) == "limit_text", "id is at most 80")
     _need(_ref({"kind": "none", "id": "c"}) is None, "a none ref with text id is a ref")
     events = [{"at": 10}, {"at": 10 - CLOCK_SKEW_S}]
-    _need(_backwards(events) == set(), "exactly the skew is not backwards")
+    _need(_soon(lambda: _backwards(events)) == set(), "exactly the skew is not backwards")
     events = [{"at": 10}, {"at": 10}]
-    _need(_backwards(events) == set(), "an equal at is not a new maximum and not backwards")
+    _need(_soon(lambda: _backwards(events)) == set(), "an equal at is not a new maximum and not backwards")
     raised_max = [{"at": 10}, {"at": 7}, {"at": 20}, {"at": 12}]
-    _need(_backwards(raised_max) == {1, 3}, _backwards(raised_max))
+    _need(_soon(lambda: _backwards(raised_max)) == {1, 3}, "a later maximum still marks the earlier dip")
     earlier = [{"at": 10}, {"at": 10 - CLOCK_SKEW_S - 1}, {"at": 10}]
-    inside = _backwards(earlier)
+    inside = _soon(lambda: _backwards(earlier)) or set()
     _need(1 in inside and 2 not in inside, inside)
     _need(_sampled({"at": 40, "sampled_at": 40 - SAMPLED_LAG_S}, None) is None, "the lag boundary is still in the window")
     _need(_sampled({"at": 40, "sampled_at": 40 - SAMPLED_LAG_S - 1}, None) == "sampled_at", "one second before the window is late")
