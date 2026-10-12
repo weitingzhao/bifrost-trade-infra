@@ -2004,3 +2004,17 @@
 第 3 轮（2026-10-07，Ops 平台 · Console 与 MCP · Trade 前端数据正确性 · bifrost-ui 与 trade-worker · 数据层）：10 个 Agent，约 30 分钟，约 230 万 token，全程只读。代码读的是 origin/main 的干净副本：platform e95be35 · frontend dfb7858e · ui 2271260 · worker c04fc80 · infra f41dab5 · trade-api 630ca41 · core 53378bf。五个领域各一个盘点 Agent，三个反驳 Agent（平台两块合一个、前端与 ui/worker 合一个、数据层一个），一个 Agent 清点防线，最后一个去重排序。41 条发现：18 条原样成立，23 条改了说法或优先级，0 条被推翻；去重后 37 条，另 5 条并入已有条目或拆分；TD-196 加补充；关闭的 TD-140 原因写错，另开 TD-240；过时的登记文字汇成 TD-241。
 第 2 轮（2026-10-06）：10 个 Agent，约 35 分钟，全程只读（数据库只做 read-only 查询）。代码读的是各仓库 origin/main 的干净副本：research 6ed86ad · market-data acba67e · flex f7b5cd9 · IB gateway 插件 39eafe2 · infra d5aa457 · core 756bdb5。四个领域各一个盘点 Agent（Research 数据面、Research 控制面、market-data、flex + IB gateway），每个领域的发现交给一个专门反驳的 Agent 去推翻；另一个 Agent 清点现有防线并对照第 1 轮的各类债；最后一个 Agent 去重、排序、提出待建防线。40 条发现：22 条原样成立，18 条改了说法或优先级，0 条被推翻，3 条合并。之后日常工作里发现的直接加入（TD-127–129 来自 Pine 线程）。
 第 1 轮（2026-10-01，Trade UI 之下）的原文在台账页 artifact 版本 ≤ 48 和 git 历史里。
+
+### TD-322
+
+**P3 · infra · a freeze-gate socket test fails under load: `test_clear_returns_without_waiting_for_the_peer_to_read` failed once in a whole-suite run and passes alone**
+
+- **状态**：未开始（2026-10-12 18:32 合并护栏 ② 之前跑整套时撞上的）
+- **Claim**: `scripts/release/test_freeze_gate.py::ReadTests::test_clear_returns_without_waiting_for_the_peer_to_read` depends on timing between two local sockets. With the machine at load 10–20 it failed once inside `python3 -m pytest scripts/release -q`; the same test passed three times in a row when run alone, and passed in the whole-suite run twenty minutes earlier on the same code. The merge under test did not touch the freeze gate.
+- **Measured**: MEASURED 2026-10-12 18:28–18:33 CDT on the coordinator's machine (10 cores, load average about 10): whole suite `1 failed, 262 passed, 2 skipped`; the single test `1 passed` ×3. NOT MEASURED: how often it fails, and whether it fails in a quiet machine.
+- **Evidence**: `scripts/release/test_freeze_gate.py` (class `ReadTests`).
+- **Impact**: a red whole-suite run before a push to main that has nothing to do with the change; whoever sees it either re-runs until green or stops trusting the suite.
+- **Fix**: make the test wait on an event instead of a fixed interval (or widen its bound the way `test_start_timeout_does_not_stop_command` was widened on 2026-10-12), then run it 50 times under load.
+- **Ratchet**: none proposed — a flake is fixed in the test, not guarded.
+- 验收: the test passes 50 of 50 with two other test processes running
+- 审批 无 · 代价 S · 风险 low · repos: bifrost-trade-infra

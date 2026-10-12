@@ -27,3 +27,12 @@ RULES THAT ONLY LACK A TEST: 6
 
 测试运行：pytest 13 次（基线 1 次 54 passed；种违规 12 次，其中 1 次是重跑），go test 3 次（基线 1、种违规后编译失败 1、种违规 1）。另跑了一次不是测试的实验脚本（`experiments.py`，E1–E5）。都是一次一个。
 END OF REPORT
+
+---
+
+## 第三轮确认（同一位复核方，2026-10-12，对象 `git diff 3ebabb5 816ef33`）
+
+VERDICT: safe to merge。合并前的四条 a–d 全部 closed；复核方自己种的八处错全部被测试拦住；(b)(c)(e) 没找到。留给应用之前的四处：① 试跑生成器补上 amd64 的 taskRunTemplate（否则试跑验的可能不是正式 run 用的镜像变体）；② 两条 STG 发布交叠、旧的在新的完成之前结束时仍会放行新的提交——改成其它 run 必须在最新那条创建之前结束；③ RELEASE.md 补 Owner 动手时要的命令、试跑各应看到什么、各条拒绝怎么办；④ 选择器检查的后半句补夹具，去掉 pipelineRef 的默认值。另记：一条永远拿不到 completionTime 的 STG run 会让每次发布被拒，直到有人删掉它（拒绝行会点名）；试跑读的是检出目录里的定义，要在将要应用的那个提交上生成；内联 spec 只有 Owner 的身份建得了。
+
+统筹方的处理：四处都改了（`6f77bde`），Codex 只读确认（复核 135，同目录）代码三处通过、文档两处不对，文档已改并加了一条测试（`6e92bad`、其后一个提交把手工创建命令挪进脚本自己的帮助——已有防线 `test_release_docs_do_not_create_pipelineruns_by_hand` 不改）。合并：infra `667b758`。
+
