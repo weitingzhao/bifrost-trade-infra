@@ -16,7 +16,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 SCRIPT = HERE / "freeze_lift.sh"
 NAME = "freeze-" + ("0" * 32)
-UID = "uid-probe-1"
+UID = "11111111-1111-1111-1111-111111111111"
+STALE = "22222222-2222-2222-2222-222222222222"
 
 
 class FakeAPI:
@@ -197,7 +198,7 @@ class FreezeLiftTests(unittest.TestCase):
         self.assertFalse(self.owner.present)
 
     def test_stale_uid_is_409_and_the_record_stays(self) -> None:
-        res = self.run_script(NAME, "uid-stale", owner=str(self.owner_config))
+        res = self.run_script(NAME, STALE, owner=str(self.owner_config))
         self.assertNotEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertEqual(self.decoy.requests, [])
         self.assertEqual(len(self.owner.requests), 1, self.owner.requests)
@@ -205,9 +206,40 @@ class FreezeLiftTests(unittest.TestCase):
         self.assertEqual(got["method"], "DELETE")
         self.assertEqual(got["path"], f"/apis/release.bifrost.io/v1/freezes/{NAME}")
         self.assertEqual(got["query"], "")
-        self.assertEqual(json.loads(got["body"])["preconditions"]["uid"], "uid-stale")
+        self.assertEqual(json.loads(got["body"])["preconditions"]["uid"], STALE)
         self.assertTrue(self.owner.present)
         self.assertIn("the UID in the precondition does not match", res.stdout + res.stderr)
+
+    def test_quote_backslash_and_injection_send_nothing(self) -> None:
+        samples = [
+            'uid"probe',
+            "uid\\probe",
+            'x"},"preconditions":null,"ignored":{"uid":"x',
+        ]
+        for uid in samples:
+            with self.subTest(uid=uid):
+                res = self.run_script(NAME, uid, owner=str(self.owner_config))
+                self.assertNotEqual(res.returncode, 0, res.stdout + res.stderr)
+                self.assertEqual(self.owner.requests, [])
+                self.assertEqual(self.decoy.requests, [])
+
+    def test_encoder_emits_one_preconditions_key(self) -> None:
+        res = subprocess.run(
+            ["bash", "-c", 'source "$1"; encode_delete_body "$2"', "bash", str(SCRIPT), UID],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        self.assertEqual(res.returncode, 0, res.stderr)
+        body = res.stdout
+        self.assertEqual(body.count('"preconditions"'), 1, body)
+        self.assertEqual(json.loads(body), {
+            "kind": "DeleteOptions",
+            "apiVersion": "v1",
+            "preconditions": {"uid": UID},
+            "propagationPolicy": "Background",
+        })
 
 
 if __name__ == "__main__":

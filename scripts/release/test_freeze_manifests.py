@@ -178,6 +178,8 @@ def problems(bundle: dict) -> set[str]:
         if _has_key(crd, "subresources"):
             found.add("crd-subresources")
         schema = (((versions or [{}])[0].get("schema") or {}).get("openAPIV3Schema") or {})
+        if schema.get("required") != ["spec"]:
+            found.add("crd-root-spec")
         rules = schema.get("x-kubernetes-validations") or []
         if [item.get("rule") for item in rules] != [NAME_RULE]:
             found.add("crd-name-rule")
@@ -310,6 +312,8 @@ def problems(bundle: dict) -> set[str]:
 
     if "OWNER_USERNAME" not in bundle["admission_text"]:
         found.add("placeholder-owner")
+    if "request.userInfo.username == 'OWNER_USERNAME' && (!has(request.options.propagationPolicy)" not in bundle["admission_text"]:
+        found.add("placeholder-owner")
     if WINDOW_TEST not in bundle["window_text"]:
         found.add("window-test")
     for policy in bundle["policies"]:
@@ -373,6 +377,12 @@ class FreezeManifestTests(unittest.TestCase):
             schema = bundle["docs"]["crd.yaml"][0]["spec"]["versions"][0]["schema"]["openAPIV3Schema"]
             schema["x-kubernetes-validations"][0]["rule"] = "self.metadata.name == 'freeze'"
         self._expect("crd-name-rule", mutate)
+
+    def test_negative_crd_root_spec(self) -> None:
+        def mutate(bundle: dict) -> None:
+            schema = bundle["docs"]["crd.yaml"][0]["spec"]["versions"][0]["schema"]["openAPIV3Schema"]
+            schema.pop("required", None)
+        self._expect("crd-root-spec", mutate)
 
     def test_negative_crd_spec_bounds(self) -> None:
         def mutate(bundle: dict) -> None:
