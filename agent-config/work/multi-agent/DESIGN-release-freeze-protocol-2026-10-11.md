@@ -1,6 +1,7 @@
 # 发布冻结协议：冻结是一条只能新建的记录，解冻是 Owner 把它删掉（TD-310 的设计）
 
 状态：设计通过，可以实现（2026-10-11：复核 93、95 通过；片 1 的复核 100 之后修订第 3.2、6、8 节三次，复核 101、103、104，必须改的 1 → 1 → 0；L 只有一处定义）；六项决定不变。复核 95 留下的 6 个 P2、2 个 P3 已并入，逐条见第 11 节；复核 100、101、103 见第 12 节。没有代码，没有改集群；实现并验收之前，冻结保持被拒绝，和今天 PROD 上一样。
+**「修订 2026-10-12」（这一轮尚未复核）**：片 1 合并之后写第二片的操作单和第三片的任务书时，发现步 0–5 有 22 格没有命令、「建」怎样算成功没有写、「满 20 条」经门的读函数数不到。统筹方当天的四项裁定记在第 9 节 D7–D10，连同只读实测并入本文：「建成」以回读为准；「满 20 条」换成按字节算的上限，读不到时照样建；占位符留在仓库；步 0–5 每一格落成一条命令或一项 Owner 自己的观察。改到的段落都标着「修订 2026-10-12」，清单和「已知、延后」的表在第 13 节。没有改 L、H、传输各行，没有改第 6 节的模型。这一轮的实测是 2026-10-12 上午（CDT）用同一个只读身份做的 `kubectl get`、`kubectl api-resources`、`kubectl version` 和对它自己的 `kubectl auth can-i`，标作「实测 10-12」。
 输入：复核 79、82（`~/agent-work/td-310/REVIEW-{79,82}.md`）、86、93、95（`~/agent-work/codex-review-{86,93,95}/REPORT.md`）；实现方三轮报告（`~/agent-work/td-310/REPORT{,-2,-3}.md`）；分支 `w31/td-310-anchor`（platform `6658550`、infra `3fdaa41`，是材料，不是基线）；`PLAN-w56-unattended-prod-2026-10-10.md` 第 1 步；`TECH_DEBT.md` 的 TD-293、TD-310、TD-314；`LESSONS-from-practice.md` 第 85、86 行。
 路径约定：`api/` 开头的相对 `bifrost-platform/`；`k8s/`、`scripts/`、`docs/`、`agent-config/` 开头的相对 `bifrost-trade-infra/`。
 事实的标法：**实测** = 2026-10-11 16:45–17:30 CDT 用只读身份 `bifrost-access/bifrost-agent` 对集群做 `kubectl get`（RBAC、准入策略、ConfigMap、Tekton 对象、Application、Pod、节点），或读文件（给出 `文件:行`）；**假定** = 没量。「谁能做什么」是读角色和绑定算出来的（汇总在附录），没有向 apiserver 逐项提问，也没有试写。
@@ -84,7 +85,7 @@ B 和 E 相比 A 少掉的三样：(1) 解冻不能由 Agent 或平台转交，�
 
 ### 3.1 对象，和它的一生
 
-**类型**（`k8s/release-freeze/crd.yaml`）：CRD `freezes.release.bifrost.io`，组 `release.bifrost.io`，`scope: Cluster`，一个版本 `v1`，没有子资源，没有控制器。根上一条 CEL 规则要求名字匹配 `^freeze-[0-9a-f]{32}$`；根 schema `required: ["spec"]`，没有 `spec` 的对象由 apiserver 拒绝。`spec` 必填 `who`（1–128 字符）、`reason`（1–500）、`at`（`date-time`），可选 `via`（至多 64，哪一个平台实例写的）。这四个字段只给人看，判定不读它们；名字里的 32 位十六进制由 `crypto/rand` 抽出，只为了两次冻结不撞名。静态测试的负例包括拿掉根上这个 `required`。
+**类型**（`k8s/release-freeze/crd.yaml`）：CRD `freezes.release.bifrost.io`，组 `release.bifrost.io`，`scope: Cluster`，一个版本 `v1`，没有子资源，没有控制器。根上一条 CEL 规则要求名字匹配 `^freeze-[0-9a-f]{32}$`；根 schema `required: ["spec"]`，没有 `spec` 的对象由 apiserver 拒绝。`spec` 必填 `who`（1–128 字符）、`reason`（1–500）、`at`（`date-time`），可选 `via`（至多 64，哪一个平台实例写的）。这四个字段只给人看，判定不读它们；名字里的 32 位十六进制由 `crypto/rand` 抽出，只为了两次冻结不撞名。静态测试的负例包括拿掉根上这个 `required`。「修订 2026-10-12」schema 里不写 `additionalProperties`。片 1 的 `k8s/release-freeze/crd.yaml:28` 在 `spec` 下把它设成了 `false`，和 `properties` 并排；这一行本文从没有要过，测试也不看它。Kubernetes 对 CRD 的 schema 有两条限制——`additionalProperties` 不能设成 `false`，也不能和 `properties` 同时出现（凭文档写的，没有在任何 apiserver 上试）——所以它很可能让步 1 当场被拒。处理：S2 之前的准备片去掉这一行并加一条测试（第 8 节）；步 0 的第一条集群命令就是这份 CRD 的服务端试算，被拒不花任何代价（7.1 的 0-1）。
 
 **一生**（`k8s/release-freeze/admission.yaml`）：
 
@@ -116,14 +117,16 @@ spec: {policyName: bifrost-release-records, validationActions: [Deny]}
 
 **在这个集群上能确认到哪一步。** 实测：`admissionregistration.k8s.io/v1` 已服务；现有 6 条策略都是 v1、`failurePolicy: Fail`、绑定 `Deny`，规则里用了 `request.userInfo.username`（服务账号写成 `system:serviceaccount:<命名空间>:<名字>`）和 `oldObject`，它们的类型检查认得 Tekton 这类自定义资源的字段。**没有一条现有策略匹配 DELETE，也没有一条管集群级的自定义资源**，这两点在本集群上没有先例。假定（v1 的成文行为，第 7 节步 2–3 逐条证明）：DELETE 时 `object` 为空、`oldObject` 是被删的对象；`deletecollection` 对每个对象各过一次同样的规则；集群级资源不会被 `namespaceSelector` 跳过；准入不管授权是怎么通过的，`system:masters`、垃圾回收器、命名空间控制器、Argo、Helm 和任何通配符角色的请求都要过；`request.options` 在规则里读得到。最后一条若在本版本写不出来，步 2 当场暴露（策略编译不过，按 `Fail` 全拒，合规的建也被拒）；那就去掉这半句，只靠工具固定用普通删除，损失的是可用性，不是安全：卡在删除中的记录仍然算冻结。
 
-**策略做不到的。** 它管不了对它自己、它的绑定和 CRD 的修改（这类请求不过准入策略）；删 CRD 时 apiserver 清掉全部实例，不经准入（假定）；门看不见策略在不在。所以：能改这三样的身份就是 L3；策略有没有绑上、是不是真的在拒，由使用前的拒绝探针证明（第 7 节）：绑定不在的时候，策略连同它的 `failurePolicy: Fail` 什么都不拦；策略对象「看着正常」——`observedGeneration` 等于 `generation`、`expressionWarnings` 为空——任何时候都不能代替一次真的被拒。平时由一条只读的防线盯着——只读身份读得到策略、绑定和 CRD（实测有这三项读权限），比对集群上的对象和仓库文件一致；它只能发现对象被动过，证明不了还在拒。**规则里的 Owner 是谁：** 用户名认的是一份凭证，不是一个人——拿着同一张管理员证书的每一个持有者，规则都当作 Owner。他的 kubeconfig 我们没有读。他自己跑一条 `kubectl --kubeconfig <他的> auth whoami`（本集群支持这条命令，只读身份实测过），用户名和组都记下来，用户名填进 `OWNER_USERNAME`，文件在那之后才定稿；k3s 默认是 `system:admin`（假定）。同时核对两处来源：还有什么能以这个用户名通过认证（同一张证书的别的副本、另签的同名证书、令牌文件——看 k3s 服务端的认证配置，只读身份读不到）；谁被授予了 `impersonate`（今天是四个身份，附录）。今天这张管理员证书的持有者都算 L3，不在防范之内（D1）；将来换成专用身份（D4），这几样重新核对一遍。
+**策略做不到的。** 它管不了对它自己、它的绑定和 CRD 的修改（这类请求不过准入策略）；删 CRD 时 apiserver 清掉全部实例，不经准入（假定）；门看不见策略在不在。所以：能改这三样的身份就是 L3；策略有没有绑上、是不是真的在拒，由使用前的拒绝探针证明（第 7 节）：绑定不在的时候，策略连同它的 `failurePolicy: Fail` 什么都不拦；策略对象「看着正常」——`observedGeneration` 等于 `generation`、`expressionWarnings` 为空——任何时候都不能代替一次真的被拒。平时由一条只读的防线盯着——只读身份读得到策略、绑定和 CRD（实测有这三项读权限），比对集群上的对象和仓库文件一致；它只能发现对象被动过，证明不了还在拒。**规则里的 Owner 是谁：** 用户名认的是一份凭证，不是一个人——拿着同一张管理员证书的每一个持有者，规则都当作 Owner。他的 kubeconfig 我们没有读。他自己跑一条 `kubectl --kubeconfig <他的> auth whoami`（本集群支持这条命令，只读身份实测过），用户名和组都记下来，用户名填到 `OWNER_USERNAME` 的位置上；k3s 默认是 `system:admin`（假定）。「修订 2026-10-12」（D9；原文是「用户名填进 `OWNER_USERNAME`，文件在那之后才定稿」）填在仓库之外：仓库里的 `admission.yaml` 一直留着占位符，片 1 的测试照旧钉着它；当天由它渲染出一份填好的副本，先看差异——正好是带引号的占位符所在的两行规则——再应用这份副本，填好的文件不进 `main`（7.1 的 0-4、0-5）。上面那条只读防线因此比的是：集群上两条策略的表达式，等于仓库文件把 `'OWNER_USERNAME'` 换成同一个带引号的字面量之后的样子；那个字面量对不对，对照步 0 记下的用户名。同时核对两处来源：还有什么能以这个用户名通过认证（同一张证书的别的副本、另签的同名证书、令牌文件——看 k3s 服务端的认证配置，只读身份读不到）；谁被授予了 `impersonate`（今天是四个身份，附录）。今天这张管理员证书的持有者都算 L3，不在防范之内（D1）；将来换成专用身份（D4），这几样重新核对一遍。
 
 | ClusterRole（都不带 `aggregate-to-*` 标签） | 对 `freezes.release.bifrost.io` 的动词 | 绑定给 |
 |---|---|---|
 | `bifrost-release-freeze-list` | `list` | 组 `system:serviceaccounts:cicd`（所有流水线账号，免得以后换账号时得到 403、全部被拒，10-11 发生过一次）；两个平台账号；`bifrost-access/bifrost-agent` |
 | `bifrost-release-freeze-create` | `create` | 两个平台账号。这条绑定是「冻结」的开关：没应用它，平台建不出记录（第 7 节步 9 才应用） |
 
-文件放 `k8s/release-freeze/`：不在 applier 的允许前缀里，也不在任何 Argo 应用的路径下，只能由 Owner 应用；这个目录和检查任务一起加进 `agent-config/release-policy/paths.json` 的 `no_trust_anchor_change`。
+文件放 `k8s/release-freeze/`：不在 applier 的允许前缀里，也不在任何 Argo 应用的路径下，只能由 Owner 应用；这个目录和检查任务一起加进 `agent-config/release-policy/paths.json` 的 `no_trust_anchor_change`。「修订 2026-10-12」「检查任务」指 `k8s/cicd/tekton/task-release-freeze-check.yaml`。主线的路径表里有 `k8s/release-freeze/**` 和 `k8s/cicd/tekton/task-release-window.yaml`（`paths.json:151`、`:153`），缺的正是这个文件——步 5 之后装着门的程序的就是它。由准备片补上，并加一条测试：`k8s/release-freeze/` 下的每个文件和这两个 Task 文件，都被路径表盖住（第 8 节）。
+
+「修订 2026-10-12」（实测 10-12，回答第 7 节步 4 和附录对不上的地方）`cicd` 的 12 个 ServiceAccount 是 `argocd-application-controller`、`argocd-applicationset-controller`、`argocd-dex-server`、`argocd-notifications-controller`、`argocd-redis`、`argocd-repo-server`、`argocd-server`、`bifrost-applier`、`default`、`tekton-deliver`、`tekton-pipelinerun-ttl`、`tekton-trigger`。其中两个凭通配符规则对新类型有 `list` 以外的动词：`argocd-application-controller`（`*`）、`argocd-server`（`get`、`patch`、`delete`）。上表的 RBAC 管不到它们，它们就是 1.3 的 L3；拦住它们改和删一条记录的是本节的准入策略，第 7 节步 3 对这两个账号各试一遍。它们建一条合规的记录是放行的——那只会收紧。其余 10 个，加上两个平台账号和只读身份，应用 `rbac-list.yaml` 之后对新类型只有 `list`。
 
 ### 3.2 一次完整、成功的 LIST
 
@@ -166,17 +169,39 @@ body 由 head("200") 的 field 决定，只有两种：
 
 不是 `clear` 时，门仍试着列出记录给人看。这层不必精确；这里失败只改显示的词（`unreadable (…)`），不改变拒绝。三句原文：`clear` 印 `未冻结：0 条记录`。`frozen` 印 `拒绝：发布已冻结（<n> 条记录）；解冻由 Owner 删除记录：release.sh unfreeze`，然后按名字排序每条一行 `<name>  who=<…>  at=<…>  reason=<…>`（值里的换行改成空格）。`unreadable` 印 `拒绝：读不到冻结状态（<token>），按冻结处理`。`clear` 且设置了 `PASSED_CUT_AT_PATH` 时，把当前 UTC（RFC 3339，到秒）写入该路径并印成第二行；拒绝时不写。第二行不参与比较。`uid` 和 `via` 不进这两行，交给 3.4；缺了或不是字符串则为空。不用客户端缓存、分页器、informer；这个包不引入 `k8s.io/client-go/tools/cache`、`tools/pager`、`informers`。测试断言实际发出的 URL 和空查询。不带查询的 LIST 是 Kubernetes 定义的「最新」读（假定）；本集群上的新鲜度未测，演练第 ② 步证。
 
+「修订 2026-10-12」**记录多到装不下的时候。** 4096 字节的上限对有记录的 LIST 同样生效，而且是在读取那一层生效（`api/internal/releasefreeze/httplang.go:258–259`、`:289–290`，`scripts/release/freeze_gate.py:683`、`:715`）：超过上限的正文到不了列记录的那一层。这时门不放行（不变，失败关闭），但印的是「读不到冻结状态」，不是记录清单；状态接口的 `freezes` 是空的，`freeze_state` 是 `unreadable`。装得下几条取决于每条记录有多大。信封是实测 10-12 的：空 LIST 120 字节，换成冻结类型的两个字面量是 126 字节；读本集群上真实对象的 `managedFields`，`kubectl-create` 建的每条在字段清单之外占 133 字节，`platform-api` 建的占 131 字节。整条冻结记录未实测（类型还不存在），按这个信封算：最小的一条（`who`、`reason` 各 1 个字符，没有 `via`）约 533 字节，最多装 7 条；三个字段都写满 ASCII 的一条约 1,243 字节，最多 3 条；都写满中文（每字 3 字节）的一条约 2,627 字节，只装得下 1 条。三个字段写的是普通文字时——ASCII、中文、四字节的表情——任何单独一条都装得下（最大约 3,319 字节）。但 apiserver 把 `<`、`>`、`&` 各写成 6 个字节（实测 10-12，读 `cicd` 里 Tekton Task 的原始 LIST：`<`、`>`、`&` 共 330 处，这三个字符原样出现 0 处；控制字符和 U+2028、U+2029 假定也是 6 个字节，没有量），三个字段都写满这类字符的一条约 4,701 字节，单独一条就超过上限。所以「零条的时候最大的一条总装得下」对普通文字成立，对这类字符不成立；3.4 的不变式不靠这句话，靠的是规则的形状（只在已有记录时才看大小）。第一份真实的数在第 7 节步 3 建出探针时量（7.1 的 3-2），3.4 的上界 E 拿它核对。清理不受这个上限影响：`release.sh unfreeze` 用 Owner 的凭证经 `kubectl` 列记录，不经过门的读函数。
+
+「修订 2026-10-12」**说明模式。** `freeze_gate.py --explain` 做的是同一次读、同样严格，判定那一行（和 `PASSED_CUT_AT_PATH` 的第二行）原样在最前面，后面多印几行 `explain: 键=值`：Pod 所在的命名空间、请求行、校验过的主机名、用的 CA 文件和里面证书的主体、握手里对端证书的签发者、这个签发者在不在 CA 文件里、判定。不印令牌，不印任何请求头或应答头的值，不印正文。不带这个参数时，程序的输出和退出码与没有这个模式时逐字节相同。它由准备片加（第 8 节），第 7 节步 4 的真读用它留证据。Go 的读函数没有这个入口。
+
 ### 3.3 保证是关于一张快照的
 
 - **性质的说法**：一个门的结论只对它读到的那张快照成立。冻结拦住的是「最后一次成功的读发生在记录建成之后」的每一次发布；最后一次读之后才建的冻结，拦不住已经放行的 run。
 - **这个窗口有多长**：从检查任务读完，到这条 run 的最后一个有副作用的步骤。实测：留存的成功 run 里，发布类流水线从开始到结束的中位数是 0.5–5 分钟，最长 9.3 分钟（`bifrost-deliver-platform-prod`）；没有一条流水线自己设超时，上限是 Tekton 默认的 60 分钟。
 - **回执要点名在途的 run**：冻结的回答里列出「还没结束、而它的 `freeze-check` 已经成功」的 PipelineRun（平台账号对 run 有读权限，实测）。今天的 `scripts/release/freeze_inflight.py` 只是一张行为表，不做清点；清点在 S4 建，验收见演练第 ⑦ 步。
-- **为什么流水线开头的检查是第二次读**：平台在收到请求时读第一次，到 run 真正开始之间可以隔很久（排队、等批准）；检查任务在第一个有副作用的任务之前再读一次。它也是不经平台发起的 run 唯一的一次读；它用的账号和程序都和平台不同。**它要验的**是 3.2 的 `clear`。协议里没有签名，镜像不换（`python:3.11-slim-bookworm`，只用标准库）。程序改成写在 Task 的 `script` 里，不再从 ConfigMap 挂载：`cicd` 里的 Task 只有 applier（C 级，要批）、Tekton 控制器和 L3 能写（实测），1.2 第 1 条随之关闭。测试要求 Task 里的脚本和 `scripts/release/freeze_gate.py` 逐字节相同。Task `bifrost-release-window` 的 `freeze` 步骤删掉。
+- **为什么流水线开头的检查是第二次读**：平台在收到请求时读第一次，到 run 真正开始之间可以隔很久（排队、等批准）；检查任务在第一个有副作用的任务之前再读一次。它也是不经平台发起的 run 唯一的一次读；它用的账号和程序都和平台不同。**它要验的**是 3.2 的 `clear`。协议里没有签名，镜像不换（`python:3.11-slim-bookworm`，只用标准库）。程序改成写在 Task 的 `script` 里，不再从 ConfigMap 挂载：`cicd` 里的 Task 只有 applier（C 级，要批）、Tekton 控制器和 L3 能写（实测），1.2 第 1 条随之关闭。测试要求 Task 里的脚本和 `scripts/release/freeze_gate.py` 逐字节相同。Task `bifrost-release-window` 的 `freeze` 步骤删掉。「修订 2026-10-12」这两个文件的写法和来路：检查步骤是 Task 的第一个步骤（`spec.steps[0]`，现网这一步叫 `check`、镜像 `python:3.11-slim-bookworm`、`timeout` 20s，实测 10-12），名字、镜像和 `timeout` 都不变，不加 `onError`；它的 `script` 字段逐字节等于 `freeze_gate.py`。新文件里只有 Task，不再带 ConfigMap `bifrost-release-freeze-check` 那一段；`kubectl apply` 不会删集群上那份 ConfigMap，它留到步 10（步 5 的退路要它在）。两个文件由实现方按一份单独的任务书写在 infra 的分支 `w31/td-310-s2task` 上，从准备片合并之后的 `origin/main` 起（脚本要等于那时的 `freeze_gate.py`），同一个提交里改掉钉着旧样子的测试（`scripts/release/test_freeze_decision.py:309–324`、`scripts/release/test_freeze_manifests.py:76`、`:317`），加上「脚本逐字节相同」「第一步带 `timeout`、没有 `onError`」两条新测试；独立复核在分支上做。当天步 4 通过之后，统筹方把 `main` 快进到复核过的那个提交（7.1 的 5-0），Owner 再应用。在那之前它只在分支上：applier 对分支上的提交只能试算，往 `cicd` 应用是 C 级，而 C 级的应用要求提交在 `main` 的历史里（`api/internal/workactions/service.go:100`、`k8s/cicd/tekton/apply-manifest/pipeline.yaml:146–162`）——这就是「不提前进 applier 能应用的前缀」落到实处的样子。
 - **给 W-56 第 4 步的方向**：计划里写的是「设冻结和认领是对同一个对象的比较交换」。记录只增之后改成「先写自己的，再读对方的」：执行方先写下认领，再 LIST 冻结，有记录就撤回；冻结方先建记录，再读认领、写进回执。细节归第 4 步的设计。
 
 ### 3.4 平台、`release.sh`、状态接口
 
-**平台**（`api/internal/releasepolicy`）：新增一个只有两个函数的包——读（3.2，S1）和建（POST 一个只带名字和 `spec` 的对象，S3，不在 S1）。`Status`、`Decide`、`Evaluate`、B 级检查都改用它。删掉 `memory.go` 整个文件、`Deps.StatePath`、`evaluateFreeze`、`Unfreeze`、对 `cicd/bifrost-release-freeze` 的全部读写；`POST /api/v1/release-policy/unfreeze` 改成回 410；动作 `release_unfreeze` 从目录和 MCP 工具里去掉。平台对这类对象只发 LIST 和 POST，测试断言。`Freeze`：先 LIST 一次只为数条数——已有 20 条或更多就不再加（只在已冻结时拒绝新增）；读不到也照样往下建；建时不带任何条件，403 报「这个集群没有打开冻结」，别的错报「冻结没有写上」，不重试同一个名字；建成后再 LIST 一次，连同在途 run 的清单作为回答。不再要求有锚。解冻不走平台的任何通道，包括 `owner_run_command` 的 host 执行器：那样平台又成了能放宽的一方。
+**平台**（`api/internal/releasepolicy`）：新增一个只有两个函数的包——读（3.2，S1）和建（POST 一个只带名字和 `spec` 的对象，S3，不在 S1）。`Status`、`Decide`、`Evaluate`、B 级检查都改用它。删掉 `memory.go` 整个文件、`Deps.StatePath`、`evaluateFreeze`、`Unfreeze`、对 `cicd/bifrost-release-freeze` 的全部读写；`POST /api/v1/release-policy/unfreeze` 改成回 410；动作 `release_unfreeze` 从目录和 MCP 工具里去掉。平台对这类对象只发 LIST 和 POST，测试断言。`Freeze` 的做法在下一段（「修订 2026-10-12」）。不再要求有锚。解冻不走平台的任何通道，包括 `owner_run_command` 的 host 执行器：那样平台又成了能放宽的一方。
+
+「修订 2026-10-12」**`Freeze` 怎样建一条记录，什么算建成**（D7、D8。原文是：先 LIST 一次只为数条数，已有 20 条或更多就不再加；读不到也照样往下建；403 和别的错分开报；不重试同一个名字；建成后再 LIST 一次。改掉的是两处：「满 20 条」经门的读函数数不到，换成按字节算的上限，见 3.2；POST 的应答丢了或含糊时原文没有说怎么报。「读不到也照样往下建」留着：冻结是急停，要偏向冻住。这一段在 10-12 当天改过两次，头一次把上限写成条数 N = 7、把读不到写成不建，统筹方随后改回，见 D8。）
+
+1. **先读。** 用门的读函数（3.2）读一次，按读到的走三条路之一：
+   - **读不到**（`unreadable`）：照样往下建。这时每个门本来也不放行。
+   - **读到零条**（`clear`）：建，不看大小。
+   - **读到一条或更多**：算「这次读到的正文的字节数 + 新记录的上界 U」。不超过 4096 就建；超过就不建，报「没有新增：清单满了」。
+
+   不变式：大小只在已有记录的时候才看，所以「因为大小被拒」只发生在至少有一条记录的时候，也就是每个门本来就不放行的时候；这种拒绝不会让一个该冻住的状态冻不住。它靠的是规则的这个形状，不靠「零条时最大的一条总装得下」——那句话对写满 `<`、`>`、`&` 的记录不成立（3.2）。
+
+   新记录的上界 U = 1 + E + c(`who`) + c(`reason`) + c(`via`)。1 是它前面的逗号。c(s) 是 s 在 apiserver 写出的 JSON 里、引号之内占的字节数，照 Go 的 `encoding/json` 默认写法算（`<`、`>`、`&` 各 6 个字节是实测 10-12 的；其余转义是假定）。E = 600，盖住这一条里其余的全部——键、引号、`at`、元数据和 `managedFields`；按实测的信封算，这部分带 `via` 时是 549 到 551 字节，未实测，步 3 的探针核对（7.1 的 3-19）。为了这一步，读函数在读得到的时候把正文的字节数一并交回；判定不变。
+
+   这条规则挡不住的：零条时建一条单独就超限的记录，和读不到时的盲建，都可能让清单从此读不到。那以后门一直不放行，印的是读不到，直到 Owner 删掉一条——失败关闭，而且看得见（D8）。
+2. **再建。** 名字用 `crypto/rand` 新抽，一次调用一个名字。恰好发一次 POST，对象只带名字和 `spec`，不带任何条件，客户端库自带的重试关掉——否则一次写上了而应答丢失的 POST 会被重发、得到 409，把「不知道」说成「没写上」。POST 经平台现有的 Kubernetes 客户端发出；在集群里那个客户端用的是 Pod 自己的 ServiceAccount 令牌和 CA（`k8s/overlays/platform-prod/sa-kubeconfig.yaml:9–25`），和门的读是同一个身份。POST 不决定成功。
+3. **回读。** 再用门的读函数读一次。**建成 ⇔ 这一次读列出了刚才那个名字。** 没有列出时，POST 的状态码只用来选报哪一种失败：403 报「这个集群没有打开冻结」；别的 4xx 报「冻结没有写上」；其余——2xx 而回读看不到、5xx、没有应答、超时、回读自己读不到——都报「没有确认建成，状态未知，请再读一次」；其中回读自己读不到的那一种，多说一句：只要还读不到，门就不放行。5xx 和超时归进「未知」，是因为应答可能丢在写入之后。不管 POST 回的是什么，回读都做一次。任何情况下都不凭 POST 报建成。
+4. **一个期限。** 第 2、3 步共用一个绝对的期限：从发 POST 起 10 秒，和读一样；过了期限才读完的回读不算。第 1 步是一次普通的读，有它自己的 10 秒。
+
+回答里带第 3 步读到的全部记录；在途 run 的清单在 S4 加（3.3）。上面几句报错的话写的是意思，原文、语言和路由回的状态码在 S3b 定（第 13 节的表）。
 
 **状态接口** `GET /api/v1/release-policy`：`frozen`（冻结或读不到都是 true）；`freeze_state`（`clear` / `frozen` / `unreadable`）；`freezes`（每条的 `name`、`uid`、`who`、`reason`、`at`、`via`）；`freeze_unreadable_reason`；`freeze_can_create`（平台对自己做一次 SelfSubjectAccessReview）；`freeze_protocol: 3`（分支上用过 2，主线没有这个字段）；`lift_command`。`freeze_reason` 保留，是各条记录拼成的一行，给还没更新的 Console 用。去掉 `frozen_at`、`freeze_id`、`unfreeze_command`。
 
@@ -269,7 +294,7 @@ kubectl -n cicd patch configmap bifrost-release-freeze --type=merge -p '{"immuta
 1. ✓ 已办（2026-10-11）：Owner 定 D1、D2、D4、D6，都按推荐。
 2. S1 通过。
 3. CRD、两条准入策略和各自的绑定逐项实测通过，探针已删除。
-4. 只读的 RBAC 核验通过；两份真读在各自的 Pod 里答 `clear`，CA 与主机名由这次读留下。
+4. 只读的 RBAC 核验通过；真读在各自的 Pod 里答 `clear`，CA 与主机名由这次读留下。「修订 2026-10-12」是四次，都用 `freeze_gate.py` 的说明模式（两个流水线账号、两个平台账号）；Go 读函数自己的第一次真读是 S3b 在 STG 上的验收（D10）。
 5. 两个 Task 和两个环境的平台都读新协议，旧程序排空。
 6. 墓碑不可变，删除保护通过。
 7. TD-314 和 TD-293 的提升路径都封住。
@@ -279,18 +304,450 @@ CRD、准入、RBAC、Task 的定义只有他应用。两次坐下来，中间�
 
 | 步 | 做什么 | 生效的证明 |
 |---|---|---|
-| 0 | 不改东西 | 旧对象的 `data` 是 `{"frozen":"false"}`；`release.sh window` 没有窗口；`kubectl auth whoami` 读到的用户名和组都已记下，用户名填进了策略文件；同名认证的来源和 `impersonate` 的授予方核对过（3.1） |
-| 1 | `crd.yaml`：先 `kubectl apply --dry-run=server`，通过后正式应用 | `Established` 为 `True`。这一步还没有 `list`，不做空 LIST 的真读 |
-| 2 | `admission.yaml`（两条策略和各自的绑定）：同样先 dry-run 再应用 | 两条策略的 `observedGeneration` 等于 `generation`，`expressionWarnings` 为空——这只说明对象在，算数的是下面每一次拒绝。`kubectl create --dry-run=server`：合规的放行；带属主引用、带 finalizer、带标签、带注解、带 `generateName`（同时写着合规的名字，否则先被 CRD 拒）的各被**记录那条策略**拒；名字不合规、缺 `spec`、缺 `reason` 的被 CRD 拒。怎么认是哪一条拒的：报文里同时有策略名 `bifrost-release-records` 和那条规则自己的 `message`；只有策略名、正文是表达式求值出错的不算；`is forbidden: User … cannot` 是 RBAC，`is invalid` 是 CRD（报文样式是假定，第一次拒绝时对一下） |
-| 3 | 真建一条探针记录 `freeze-` 加 32 个 `0`。这时没有任何门读新类型，它不影响发布 | 对探针做 dry-run，拒绝都要来自记录那条策略（认法同步 2）：Owner 改 `spec`、加标签——拒；`--as` Argo 控制器、`--as` 垃圾回收器的删——被策略拒，不是被 RBAC 拒；`--as` Argo 控制器不带请求体的原始 DELETE（`kubectl delete --raw '/apis/release.bifrost.io/v1/freezes/<探针>?dryRun=All'`）——被策略拒；`--as` Argo 控制器对整类 `kubectl delete --raw '/apis/release.bifrost.io/v1/freezes?dryRun=All'`——拒；Owner 的前台删除、孤儿式删除——各拒；Owner 的普通删除——放行；Owner 自己不带请求体的同一条原始 DELETE——放行（规则里 `options` 缺省的那一支只有他的请求走得到，这一格证明它不是求值出错）。再真做一次带属主引用的建——拒，两分钟后 LIST 仍只有探针。最后用 3.4 那条带 UID 的命令真删探针，LIST 为空。**这一建一删通过之前，什么都不接线**（步 5 和 S3 都在它后面） |
-| 4 | `rbac-list.yaml`。can-i 通过之后、步 5 接线之前，做两份真读 | `kubectl auth can-i list freezes.release.bifrost.io --as=…`：`cicd` 的 12 个 ServiceAccount 逐个、两个平台账号、`bifrost-access:bifrost-agent`，都是 yes；它们对 `create`、`get`、`watch`、`update`、`patch`、`delete`、`deletecollection` 都是 no；两个新 ClusterRole 的标签里没有 `aggregate-to-`；`admin`、`edit`、`view` 三个聚合角色的规则里搜不到 `release.bifrost.io`。然后用这一版的读函数去读，身份是将来要跑它的那个 Pod，不把步 5 或 S3 的接线当作这次读的前提：Go 读函数用平台 Pod 的令牌和 `ca.crt`（PROD、STG 各一次，账号 `bifrost-platform`），`freeze_gate.py` 用 Tekton 步骤 Pod 的令牌和 `ca.crt`（`bifrost-applier` 与 `default` 各一次）。对象是新类型的空 LIST。每份留下：Pod 与 ServiceAccount、判定 `clear`、请求行 `HTTP/1.1`、证书链用的是该 Pod 的 CA 文件且签发者与它对上、主机名是 `kubernetes.default.svc`。只核对 `kubectl` 印出的正文不算。集群升级之后、下一次发布之前重跑这一格 |
-| 5 | `k8s/cicd/tekton/` 下的两个 Task 文件（它们的提交当天才进 `main`，见第 8 节 S2，不在 S1） | 集群上 Task 的脚本和 `scripts/release/freeze_gate.py` 的 SHA-256 相同；一次 `plan_manifest`（账号 `bifrost-applier`）在 `freeze-check` 通过，日志第一行是「未冻结：0 条记录」；一次 STG 发布（账号 `default`）通过 |
+| 0 | 不改东西。「修订 2026-10-12」当天第一条集群命令是 CRD 的服务端试算，被拒不花任何代价 | 「修订 2026-10-12」7.1 的 0-1 到 0-7：CRD 的服务端试算通过；旧对象的 `data` 是 `{"frozen":"false"}`；`release.sh window` 没有窗口；`kubectl auth whoami` 读到的用户名和组都已记下；由仓库文件渲染出的副本和它只差带占位符的两行（原文是「用户名填进了策略文件」，D9）；同名认证的来源由 Owner 自己看过并记下；`impersonate` 的授予方仍是那四个（3.1） |
+| 1 | `crd.yaml`：先 `kubectl apply --dry-run=server`（「修订 2026-10-12」已在步 0 做过），通过后正式应用 | 「修订 2026-10-12」7.1 的 1-1 到 1-3：`Established` 为 `True`；类型出现在 `api-resources` 里，不分命名空间。这一步还没有 `list`，不做空 LIST 的真读 |
+| 2 | `admission.yaml`（两条策略和各自的绑定）：同样先 dry-run 再应用。「修订 2026-10-12」应用的是步 0 渲染出的副本 | 「修订 2026-10-12」7.1 的 2-1 到 2-5。两条策略的 `observedGeneration` 等于 `generation`，`expressionWarnings` 为空——这只说明对象在，算数的是下面每一次拒绝。「修订 2026-10-12」实测 10-12：集群上在用的 6 条策略有 5 条的 `expressionWarnings` 不为空；所以这一项不为空时把原文记下、照常做下面的探针，由探针判，不单独算不符。`kubectl create --dry-run=server`：合规的放行；带属主引用、带 finalizer、带标签、带注解、带 `generateName`（同时写着合规的名字，否则先被 CRD 拒）的各被**记录那条策略**拒；名字不合规、缺 `spec`、缺 `reason` 的被 CRD 拒。怎么认是哪一条拒的：报文里同时有策略名 `bifrost-release-records` 和那条规则自己的 `message`；只有策略名、正文是表达式求值出错的不算；`is forbidden: User … cannot` 是 RBAC，`is invalid` 是 CRD（报文样式是假定，第一次拒绝时对一下） |
+| 3 | 真建一条探针记录 `freeze-` 加 32 个 `0`。这时没有任何门读新类型，它不影响发布 | 「修订 2026-10-12」7.1 的 3-1 到 3-19。比原文多六格：建出探针后量一次 LIST 的字节数（3.4 的上界 E 拿它核对）；`--as` Argo 控制器的改；`--as` `argocd-server` 的删和改（这两个账号凭通配符有这些动词，3.1）；试算做完后数一遍拒绝并确认探针没被动过；带错 UID 的删得 409、对象还在（3.4 说过真实 apiserver 认不认 UID 前置条件在这一步证）。原文：对探针做 dry-run，拒绝都要来自记录那条策略（认法同步 2）：Owner 改 `spec`、加标签——拒；`--as` Argo 控制器、`--as` 垃圾回收器的删——被策略拒，不是被 RBAC 拒；`--as` Argo 控制器不带请求体的原始 DELETE（`kubectl delete --raw '/apis/release.bifrost.io/v1/freezes/<探针>?dryRun=All'`）——被策略拒；`--as` Argo 控制器对整类 `kubectl delete --raw '/apis/release.bifrost.io/v1/freezes?dryRun=All'`——拒；Owner 的前台删除、孤儿式删除——各拒；Owner 的普通删除——放行；Owner 自己不带请求体的同一条原始 DELETE——放行（规则里 `options` 缺省的那一支只有他的请求走得到，这一格证明它不是求值出错）。再真做一次带属主引用的建——拒，两分钟后 LIST 仍只有探针。最后用 3.4 那条带 UID 的命令真删探针，LIST 为空。**这一建一删通过之前，什么都不接线**（步 5 和 S3 都在它后面） |
+| 4 | `rbac-list.yaml`。can-i 通过之后、步 5 接线之前，做真读（「修订 2026-10-12」四次，原文写的是两份） | 「修订 2026-10-12」整格重写，7.1 的 4-1 到 4-8。应用之前先真读一次，必须被拒：没有 `list` 的账号得到 403，程序印拒绝、退出码非 0。应用之后 `kubectl auth can-i <动词> freezes.release.bifrost.io --as=…`：`cicd` 的 12 个 ServiceAccount 逐个、两个平台账号、`bifrost-access:bifrost-agent`，对 `list` 都是 yes；对 `create`、`get`、`watch`、`update`、`patch`、`delete`、`deletecollection`，除下面 10 格之外都是 no——`argocd-application-controller` 这七个动词都是 yes，`argocd-server` 的 `get`、`patch`、`delete` 是 yes。原文写的「都是 no」对这两个账号不成立（实测 10-12，通配符规则，和附录一致）；拦住它们改和删的是准入策略，已在步 3 对它们各试过。新角色 `bifrost-release-freeze-list` 的标签里没有 `aggregate-to-`（原文说「两个新 ClusterRole」，另一个步 9 才应用，到那时查）；`admin`、`edit`、`view` 三个聚合角色的规则里搜不到 `release.bifrost.io`。然后真读，身份是将来要跑它的那个 Pod 的账号，不把步 5 或 S3 的接线当作这次读的前提：用 `freeze_gate.py` 的说明模式（3.2），在临时 Pod 里以四个账号各读一次——`cicd` 的 `bifrost-applier` 和 `default`，两个平台命名空间的 `bifrost-platform`。临时 Pod 的清单是 7.1 里的定文（一个容器、一条命令、没有额外的挂载、`restartPolicy: Never`），读完在同一格里删掉，下一格查没有留下。Pod 的令牌和 `ca.crt` 是 ServiceAccount 给的，和将来的 Tekton 步骤 Pod、平台 Pod 拿到的是同一份。对象是新类型的空 LIST。每次留下：命名空间与 ServiceAccount、判定 `clear`、请求行 `HTTP/1.1`、证书链用的是该 Pod 的 CA 文件且签发者在里面、主机名是 `kubernetes.default.svc`。Go 读函数在这一步没有可执行的入口（原文要它在平台 Pod 里读两次）；它自己的第一次真读是 S3b 在 STG 上的验收（D10）。只核对 `kubectl` 印出的正文不算。集群升级之后、下一次发布之前重跑这一格 |
+| 5 | `k8s/cicd/tekton/` 下的两个 Task 文件（它们的提交当天才进 `main`，见第 8 节 S2，不在 S1） | 「修订 2026-10-12」7.1 的 5-0 到 5-5；两个文件的写法和来路见 3.3。集群上 Task 的脚本和 `scripts/release/freeze_gate.py` 的 SHA-256 相同；一次 `plan_manifest`（账号 `bifrost-applier`）在 `freeze-check` 通过，日志第一行是「未冻结：0 条记录」；一次 STG 发布（账号 `default`）通过 |
 | | **——平台新版先后上 STG、PROD（S3）之后，第二次——** | |
 | 6 | 不改东西：排空和版本 | `kubectl -n cicd get pods -o json` 里，挂着 ConfigMap `bifrost-release-freeze-check` 而 `status.phase` 不是 `Succeeded` / `Failed` 的，零个；`kubectl -n cicd get taskruns -o json` 里，没有 `status.completionTime` 而创建时间早于步 5 的，零个；两个环境的状态接口都报 `freeze_protocol: 3`；每个环境里 `platform-api` 和 `platform-workers` 的所有 Pod 的 `imageID` 相同（两个 Deployment 都是单副本、`Recreate`，实测）。这四项只读身份也能查 |
 | 7 | 写墓碑（第 5 节的命令）。**动手前再看一遍：之后不能回滚到旧 Task 或 S3 之前的平台** | `jsonpath='{.immutable} {.data.frozen}'` 是 `true true`；Owner 对它 dry-run 改 `data`——拒（不可变）；`--as=system:serviceaccount:cnpg-system:cnpg-manager` 对它 dry-run 删除——被策略拒；存下来的旧检查程序读现网对象，退出码非 0、第一行是拒绝；一次新的 plan run 照常通过 |
 | 8 | TD-314 和 TD-293 的收窄（清单和各自的验收在这两条里；可以更早做） | TD-314：`kubectl auth can-i patch deployment/argocd-server -n cicd --as=system:serviceaccount:bifrost-platform-prod:bifrost-platform` 是 no，平台的重启和缩放照常。TD-293：`kubectl auth can-i` 的 `update` 和 `patch`，对 `-n cicd` 的 `configmap/argocd-cm`、`configmap/argocd-rbac-cm`、`configmap/argocd-cmd-params-cm`，分别 `--as` 两个平台账号和 `system:serviceaccount:cicd:tekton-deliver`，都是 no；平台写发布记录和发布窗口、流水线写它该写的 ConfigMap 照常。只读身份能查其中一半：读这三个账号在 `cicd` 的角色，规则都带 `resourceNames`，里面没有这三个名字 |
 | 9 | `rbac-create.yaml` | 两个平台账号 `can-i create` 是 yes，其余账号仍是 no；状态接口的 `freeze_can_create` 为真 |
 | 10 | 演练（第 6 节八步），然后清理 | 八步全部符合；删掉 `cicd/bifrost-release-freeze-check` 和两个 `platform-state-release-policy-freeze`；墓碑留着 |
+
+### 7.1 步 0–5：每一格的命令和预期（「修订 2026-10-12」）
+
+每一格落成三种之一。**命令**：整条命令和预期输出。**Owner 自己看**：看什么、记在哪。**并掉**：并到哪里、为什么。原表步 0–5 数下来是 40 格：38 格成了命令，2 格是 Owner 自己看（用户名和组；认证的来源），没有整格删掉的。有两格各挪走一半：「两个新 ClusterRole」的第二个到步 9 才存在；Go 读函数的两次真读挪到 S3b（D10）。另加 13 格，标「新」。
+
+试跑到哪一步：只读身份不能写、不能 `--as`、不能做服务端试算；工作区的守门脚本还拒绝执行任何写着 Owner 凭证的命令行（10-12 想用替身函数试语法时被它拦下）。所以下面带 `$BIFROST_OWNER_KUBECONFIG` 的命令没有任何人跑过。标「写法实测」的，是同一种写法（`jsonpath`、标签选择、导出、渲染、生成对象）在 10-12 用只读身份或在本地对现有的东西跑通过。拒绝报文的样式仍是假定；认法照上表步 2：同时出现策略名和那条规则自己的 `message` 才算，`is forbidden` 是 RBAC。
+
+命令在 `bifrost-trade-infra` 的检出目录里执行，一行一条。输出记进 `$DAY`，那是仓库之外的目录，统筹方读这些文件。
+
+**先做，不碰集群**（写法实测）
+
+```
+export BIFROST_OWNER_KUBECONFIG=<Owner 自己填：他的管理员 kubeconfig 的路径>
+export DAY=~/agent-work/td-310-s2/day
+mkdir -p "$DAY/src" "$DAY/obj" "$DAY/src5" "$DAY/prev"
+git fetch origin
+git rev-parse origin/main | tee "$DAY/commit.txt"
+git archive origin/main k8s/release-freeze scripts/release/freeze_gate.py scripts/release/freeze_lift.sh | tar -x -C "$DAY/src"
+```
+
+`commit.txt` 里应当是统筹方事先报的那个提交：准备片已经合并，两个 Task 文件还没有进 `main`。应用的一律是 `$DAY/src` 里这份导出，不是工作树里的文件（工作树是多个会话共用的）。再生成步 2、步 3 要用的 11 个对象，和步 4 要用的 5 份 Pod 清单：
+
+```
+python3 - "$DAY/obj" <<'PY'
+import pathlib, sys
+out = pathlib.Path(sys.argv[1])
+SPEC = '  who: owner\n  reason: admission probe\n  at: "2026-01-01T00:00:00Z"\n'
+OWNER = '  ownerReferences:\n  - {apiVersion: v1, kind: Namespace, name: cicd, uid: 00000000-0000-0000-0000-000000000001}\n'
+def rec(name, meta="", spec=SPEC):
+    return "apiVersion: release.bifrost.io/v1\nkind: Freeze\nmetadata:\n  name: " + name + "\n" + meta + ("spec:\n" + spec if spec else "")
+def pod(suffix, namespace, account):
+    return ("apiVersion: v1\nkind: Pod\nmetadata:\n  name: freeze-read-" + suffix + "\n  namespace: " + namespace + "\n"
+            "spec:\n  serviceAccountName: " + account + "\n  restartPolicy: Never\n  containers:\n  - name: read\n"
+            "    image: python:3.11-slim-bookworm\n    command: [\"python3\", \"-\", \"--explain\"]\n    stdin: true\n    stdinOnce: true\n")
+one = "freeze-" + "1" * 32
+files = {
+    "probe": rec("freeze-" + "0" * 32),
+    "c-compliant": rec(one),
+    "d-ownerref": rec(one, OWNER),
+    "e-finalizer": rec(one, "  finalizers: [release.bifrost.io/probe]\n"),
+    "f-label": rec(one, "  labels: {probe: x}\n"),
+    "g-annotation": rec(one, "  annotations: {probe: x}\n"),
+    "h-generatename": rec(one, "  generateName: freeze-\n"),
+    "i-badname": rec("freeze-xyz"),
+    "j-nospec": rec(one, spec=""),
+    "k-noreason": rec(one, spec='  who: owner\n  at: "2026-01-01T00:00:00Z"\n'),
+    "l-ownerref-real": rec("freeze-" + "2" * 32, OWNER),
+    "read-before": pod("before", "cicd", "default"),
+    "read-applier": pod("applier", "cicd", "bifrost-applier"),
+    "read-default": pod("default", "cicd", "default"),
+    "read-prod": pod("prod", "bifrost-platform-prod", "bifrost-platform"),
+    "read-stg": pod("stg", "bifrost-platform-stg", "bifrost-platform"),
+}
+for name, text in files.items():
+    (out / (name + ".yaml")).write_text(text, encoding="utf-8")
+print(len(files), "files written to", out.name)
+PY
+```
+
+预期印 `16 files written to obj`。
+
+**步 0**
+
+0-1　命令（原表步 1 的试算，挪到最前）。当天第一条集群命令：
+
+```
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" apply --dry-run=server -f "$DAY/src/k8s/release-freeze/crd.yaml" 2>&1 | tee "$DAY/s0.txt"
+```
+
+预期 `customresourcedefinition.apiextensions.k8s.io/freezes.release.bifrost.io created (server dry run)`。被拒就是 schema 有问题：什么都没改，当天到此为止。
+
+0-2　命令（写法实测，10-12 的值就是预期值）：
+
+```
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" -n cicd get configmap bifrost-release-freeze -o jsonpath='{.data}{"\n"}' 2>&1 | tee -a "$DAY/s0.txt"
+```
+
+预期 `{"frozen":"false"}`。
+
+0-3　命令：
+
+```
+scripts/release/release.sh window 2>&1 | tee -a "$DAY/s0.txt"
+```
+
+预期 `no release window open (ConfigMap cicd/bifrost-release-window)`，退出码 0。
+
+0-4　Owner 自己看。看的是下面第一条印出的 `Username` 和 `Groups` 两行（假定是 `system:admin` 和带 `system:masters` 的一组，以印出来的为准）；两行随 `tee` 记进 `$DAY/s0.txt`，用户名再由他填进第二条：
+
+```
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" auth whoami 2>&1 | tee -a "$DAY/s0.txt"
+export OWNER_NAME='<上一条 Username 那一行的值>'
+printf '%s\n' "$OWNER_NAME" | grep -Ex '[A-Za-z0-9:._@-]+'
+```
+
+第三条原样印出这个名字。什么都不印，说明名字里有下一格的渲染处理不了的字符：停。
+
+0-5　命令，新（写法实测，用 `system:admin` 试的）。渲染填好的副本，看差异：
+
+```
+sed "s/'OWNER_USERNAME'/'$OWNER_NAME'/" "$DAY/src/k8s/release-freeze/admission.yaml" > "$DAY/admission.filled.yaml"
+diff "$DAY/src/k8s/release-freeze/admission.yaml" "$DAY/admission.filled.yaml" | tee -a "$DAY/s0.txt"
+grep -c OWNER_USERNAME "$DAY/admission.filled.yaml"
+```
+
+预期 `diff` 正好两处，`17c17` 和 `44c44`，每处一行换一行，变的只有引号里的名字；最后一条印 `1`（剩下的是第 2 行的注释）。副本只在 `$DAY` 里，不进仓库。
+
+0-6　Owner 自己看。看的是：这台集群认哪些身份来源——控制面节点（实测 10-12 只有 `ubt-k3s-01` 一台）上 k3s 服务端的认证设置里，除了客户端证书还有没有别的（静态令牌文件、OIDC、认证 webhook）；他这张管理员 kubeconfig 还有哪些副本、在谁手里。本文给不出命令：这些设置在节点上，只读身份看不到，哪个文件或启动参数带着它们没有量过。记在 `$DAY/s0-owner.txt`，一项一行：看了什么，结论是什么。
+
+0-7　命令（统筹方用只读身份跑；10-12 跑过，输出就是预期）：附录末尾那条重算的命令。预期 13 行，其中 `impersonate` 四行：`cicd/argocd-application-controller`、`group:system:masters`、`kube-system/helm-traefik`、`kube-system/helm-traefik-crd`。多出一行就停。
+
+**步 1**
+
+1-1　命令：
+
+```
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" apply -f "$DAY/src/k8s/release-freeze/crd.yaml" 2>&1 | tee "$DAY/s1.txt"
+```
+
+预期 `customresourcedefinition.apiextensions.k8s.io/freezes.release.bifrost.io created`。
+
+1-2　命令（写法实测）：
+
+```
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" get crd freezes.release.bifrost.io -o jsonpath='{.status.conditions[?(@.type=="Established")].status}{"\n"}' 2>&1 | tee -a "$DAY/s1.txt"
+```
+
+预期 `True`。
+
+1-3　命令，新（写法实测）：
+
+```
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" api-resources --api-group=release.bifrost.io 2>&1 | tee -a "$DAY/s1.txt"
+```
+
+预期表头之下一行：`freezes`，`release.bifrost.io/v1`，`NAMESPACED` 一列是 `false`，`Freeze`。
+
+原表里「这一步不做空 LIST 的真读」不是一格检查，并进步 4。
+
+**步 2**
+
+2-1、2-2　命令。先试算，再应用，都是步 0 渲染的那份副本：
+
+```
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" apply --dry-run=server -f "$DAY/admission.filled.yaml" 2>&1 | tee "$DAY/s2.txt"
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" apply -f "$DAY/admission.filled.yaml" 2>&1 | tee -a "$DAY/s2.txt"
+```
+
+预期各四行：两条 `validatingadmissionpolicy.admissionregistration.k8s.io/…` 和两条 `validatingadmissionpolicybinding.admissionregistration.k8s.io/…`，名字是 `bifrost-release-records` 和 `bifrost-release-freeze-tombstone`；第一条命令每行以 `created (server dry run)` 结尾，第二条以 `created` 结尾。
+
+2-3　命令（写法实测，对现有 6 条策略跑过）：
+
+```
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" get validatingadmissionpolicy bifrost-release-records bifrost-release-freeze-tombstone -o jsonpath='{range .items[*]}{.metadata.name}{" generation="}{.metadata.generation}{" observed="}{.status.observedGeneration}{" warnings="}{.status.typeChecking.expressionWarnings}{"\n"}{end}' 2>&1 | tee -a "$DAY/s2.txt"
+```
+
+预期两行，各是 `<名字> generation=1 observed=1 warnings=`。`observed=` 后面是空的就等几秒再跑。`warnings=` 后面有内容时照上表步 2 的修订办：记下，继续。
+
+2-4　命令。九次服务端试算：
+
+```
+for f in c-compliant d-ownerref e-finalizer f-label g-annotation h-generatename i-badname j-nospec k-noreason; do echo "== $f"; kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" create --dry-run=server -f "$DAY/obj/$f.yaml"; done 2>&1 | tee "$DAY/s2-dryrun.txt"
+```
+
+预期九段。`c-compliant`：`freeze.release.bifrost.io/freeze-11111111111111111111111111111111 created (server dry run)`。`d-ownerref`、`e-finalizer`、`f-label`、`g-annotation`、`h-generatename`：各被记录那条策略拒，报文里有 `bifrost-release-records` 和 `a release record carries a name and no other metadata`。`i-badname`、`j-nospec`、`k-noreason`：被 CRD 拒，报文里没有策略名、没有 `is forbidden`，分别提到 `name must match ^freeze-[0-9a-f]{32}$`、`spec`、`spec.reason`。
+
+2-5　命令：
+
+```
+grep 'bifrost-release-records' "$DAY/s2-dryrun.txt" | grep -c 'a release record carries a name and no other metadata'
+grep -c 'created (server dry run)' "$DAY/s2-dryrun.txt"
+grep -c 'is forbidden' "$DAY/s2-dryrun.txt"
+```
+
+预期依次是 `5`、`1`、`0`。
+
+**步 3**
+
+```
+PROBE=freeze-00000000000000000000000000000000
+ARGO=system:serviceaccount:cicd:argocd-application-controller
+ARGOSRV=system:serviceaccount:cicd:argocd-server
+GC=system:serviceaccount:kube-system:generic-garbage-collector
+```
+
+三个账号名是实测 10-12 的：前两个是 `cicd` 里的 ServiceAccount；第三个是 ClusterRoleBinding `system:controller:generic-garbage-collector` 的主体。垃圾回收器的请求实际用不用这个身份，只读身份量不到；这一格证明的是「以这个身份来的删，准入会拒」。
+
+3-1　命令。真建探针：
+
+```
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" create -f "$DAY/obj/probe.yaml" 2>&1 | tee "$DAY/s3.txt"
+```
+
+预期 `freeze.release.bifrost.io/freeze-00000000000000000000000000000000 created`。
+
+3-2　命令，新。记下 UID，量一次有一条记录的 LIST：
+
+```
+PROBE_UID=$(kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" get freeze "$PROBE" -o jsonpath='{.metadata.uid}')
+echo "uid=$PROBE_UID" | tee -a "$DAY/s3.txt"
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" get --raw /apis/release.bifrost.io/v1/freezes | wc -c | tee -a "$DAY/s3.txt"
+```
+
+预期 UID 是 8-4-4-4-12 的小写十六进制；字节数按信封算是 677 上下（未实测），记作 L1。
+
+3-3 到 3-15　命令。十三次试算，都不改东西：
+
+```
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" patch freeze "$PROBE" --type=merge -p '{"spec":{"reason":"changed"}}' --dry-run=server 2>&1 | tee -a "$DAY/s3.txt"
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" label freeze "$PROBE" probe=x --dry-run=server 2>&1 | tee -a "$DAY/s3.txt"
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" delete freeze "$PROBE" --dry-run=server --as="$ARGO" 2>&1 | tee -a "$DAY/s3.txt"
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" patch freeze "$PROBE" --type=merge -p '{"spec":{"reason":"changed"}}' --dry-run=server --as="$ARGO" 2>&1 | tee -a "$DAY/s3.txt"
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" delete freeze "$PROBE" --dry-run=server --as="$ARGOSRV" 2>&1 | tee -a "$DAY/s3.txt"
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" patch freeze "$PROBE" --type=merge -p '{"spec":{"reason":"changed"}}' --dry-run=server --as="$ARGOSRV" 2>&1 | tee -a "$DAY/s3.txt"
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" delete freeze "$PROBE" --dry-run=server --as="$GC" 2>&1 | tee -a "$DAY/s3.txt"
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" delete --raw "/apis/release.bifrost.io/v1/freezes/$PROBE?dryRun=All" --as="$ARGO" 2>&1 | tee -a "$DAY/s3.txt"
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" delete --raw '/apis/release.bifrost.io/v1/freezes?dryRun=All' --as="$ARGO" 2>&1 | tee -a "$DAY/s3.txt"
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" delete freeze "$PROBE" --cascade=foreground --dry-run=server 2>&1 | tee -a "$DAY/s3.txt"
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" delete freeze "$PROBE" --cascade=orphan --dry-run=server 2>&1 | tee -a "$DAY/s3.txt"
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" delete freeze "$PROBE" --dry-run=server 2>&1 | tee -a "$DAY/s3.txt"
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" delete --raw "/apis/release.bifrost.io/v1/freezes/$PROBE?dryRun=All" 2>&1 | tee -a "$DAY/s3.txt"
+```
+
+预期，按行：3-3、3-4（Owner 改 `spec`、加标签）被记录那条策略拒，`a release record is never updated`；3-5（Argo 控制器删）拒，`only the Owner removes a release record, with a plain delete`；3-6（新，Argo 控制器改）拒，`never updated`；3-7、3-8（新，`argocd-server` 删、改）拒，同上两句；3-9（垃圾回收器删）拒；3-10（Argo 控制器不带请求体的原始 DELETE）拒；3-11（Argo 控制器对整类的原始 DELETE）拒；3-12、3-13（Owner 前台删除、孤儿式删除）拒；3-14（Owner 普通删除）放行，印 `freeze.release.bifrost.io "freeze-00000000000000000000000000000000" deleted (server dry run)`；3-15（Owner 不带请求体的原始 DELETE）放行，印一段 JSON，里面没有 `denied`——这一格证明规则里 `options` 缺省的那一支不是求值出错。
+
+3-16　命令，新。数一遍，并确认探针没被动过：
+
+```
+grep -c 'a release record is never updated' "$DAY/s3.txt"
+grep -c 'only the Owner removes a release record, with a plain delete' "$DAY/s3.txt"
+grep -c 'is forbidden' "$DAY/s3.txt"
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" get freeze "$PROBE" -o jsonpath='{.metadata.uid}{" deletionTimestamp=["}{.metadata.deletionTimestamp}{"]\n"}' 2>&1 | tee -a "$DAY/s3.txt"
+```
+
+预期依次是 `4`、`7`、`0`，和一行 `<同一个 UID> deletionTimestamp=[]`。第三个数不是 0，说明有一次是被 RBAC 而不是被策略拒的：不算，停。
+
+3-17　命令。真建一条带属主引用的，等两分钟，再列：
+
+```
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" create -f "$DAY/obj/l-ownerref-real.yaml" 2>&1 | tee -a "$DAY/s3.txt"
+sleep 120
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" get freezes.release.bifrost.io -o name 2>&1 | tee -a "$DAY/s3.txt"
+```
+
+预期第一条被记录那条策略拒（`carries a name and no other metadata`）；第三条只印一行 `freeze.release.bifrost.io/freeze-00000000000000000000000000000000`。
+
+3-18　命令，新。带一个错的 UID 去删：
+
+```
+"$DAY/src/scripts/release/freeze_lift.sh" "$PROBE" 00000000-0000-0000-0000-000000000000 2>&1 | tee -a "$DAY/s3.txt"
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" get freeze "$PROBE" -o name 2>&1 | tee -a "$DAY/s3.txt"
+```
+
+预期第一条被服务器以冲突拒绝（409，`Conflict`）；第二条仍印出探针。第二条报 `NotFound`，说明 apiserver 没有认 UID 前置条件：停，3.4 的 `unfreeze` 要回设计。
+
+3-19　命令。带对的 UID 真删，再读一次空的 LIST：
+
+```
+"$DAY/src/scripts/release/freeze_lift.sh" "$PROBE" "$PROBE_UID" 2>&1 | tee -a "$DAY/s3.txt"
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" get --raw /apis/release.bifrost.io/v1/freezes | tee -a "$DAY/s3.txt" | wc -c
+```
+
+预期第二条记下的正文是 `{"apiVersion":"release.bifrost.io/v1","items":[],"kind":"FreezeList","metadata":{"continue":"","resourceVersion":"<一串数字>"}}`，字节数 126（`resourceVersion` 是八位数字时），记作 L0。然后统筹方核对 3.4 的上界 E：L1 − L0 是探针这一条的字节数，按信封算是 551；探针没有 `via`，带上它每条多 20 字节，所以 L1 − L0 不超过 580 时 E = 600 盖得住。超过 580，就在 S3b 发版之前把 E 调大。
+
+**这一建一删通过之前，什么都不接线。**
+
+**步 4**
+
+真读跑在临时 Pod 里。Pod 的清单是定文，五份只差名字、命名空间和 ServiceAccount 三处，由「先做」那一段生成在 `$DAY/obj/read-<后缀>.yaml`：
+
+```
+apiVersion: v1
+kind: Pod
+metadata:
+  name: freeze-read-<后缀>
+  namespace: <命名空间>
+spec:
+  serviceAccountName: <ServiceAccount>
+  restartPolicy: Never
+  containers:
+  - name: read
+    image: python:3.11-slim-bookworm
+    command: ["python3", "-", "--explain"]
+    stdin: true
+    stdinOnce: true
+```
+
+| 后缀 | 命名空间 | ServiceAccount |
+|---|---|---|
+| `before`、`default` | `cicd` | `default` |
+| `applier` | `cicd` | `bifrost-applier` |
+| `prod` | `bifrost-platform-prod` | `bifrost-platform` |
+| `stg` | `bifrost-platform-stg` | `bifrost-platform` |
+
+一个容器，一条命令：从标准输入读进程序，带 `--explain` 跑。镜像和检查任务用的一样。没有卷，没有环境变量，没有别的挂载；令牌和 `ca.crt` 是 ServiceAccount 自动挂上的那一份。`restartPolicy: Never`，跑完不重来。后两行的 Pod 带着平台账号的身份存在几十秒，只跑这一条命令，所以清单固定、读完就删、删完再查。
+
+读一次的写法，先定义一遍（两个参数：后缀、命名空间）。它依次做五件事：建这个 Pod；等它起来；把 `freeze_gate.py` 从标准输入送进去，印出它的输出；印容器的退出码；**删掉这个 Pod**。前面哪一步出了错，删除照样执行：
+
+```
+fread() { kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" create -f "$DAY/obj/read-$1.yaml"; kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" -n "$2" wait --for=condition=Ready "pod/freeze-read-$1" --timeout=180s; kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" -n "$2" attach -q -i "freeze-read-$1" -c read < "$DAY/src/scripts/release/freeze_gate.py"; sleep 2; kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" -n "$2" get pod "freeze-read-$1" -o jsonpath='exit={.status.containerStatuses[0].state.terminated.exitCode}{"\n"}'; kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" -n "$2" delete pod "freeze-read-$1" --wait=true; }
+```
+
+实测 10-12：这四个 ServiceAccount 都没有关掉令牌的自动挂载；`cicd` 和两个平台命名空间没有限制出站的 NetworkPolicy、没有配额；现有的两条管 Pod 的准入策略只管平台账号和 applier 发起的创建，不管 Owner 的。镜像在 `ubt-k3s-01` 上已有，别的节点可能要先拉（等 Pod 起来的上限是 180 秒）。清单的生成试过；`fread` 本身没有人跑过。
+
+4-1　命令，新。应用 `rbac-list.yaml` 之前先读一次，Pod 在同一格里删掉：
+
+```
+fread before cicd 2>&1 | tee "$DAY/s4.txt"
+```
+
+预期依次是：`pod/freeze-read-before created`；`pod/freeze-read-before condition met`；程序的输出，第一行 `拒绝：读不到冻结状态（HTTP 403），按冻结处理`，后面有 `explain: verdict=unreadable`；`exit=1`；`pod "freeze-read-before" deleted`。程序的第一行是「未冻结」，说明这个账号在绑定之前就读得到：停。
+
+4-2　命令，新（写法实测；只读身份也能跑同一条）。查没有留下临时 Pod：
+
+```
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" get pods -A -o name | grep -c '/freeze-read-'
+```
+
+预期 `0`。不是 0 就先把它删掉（`fread` 最后那一条），再往下。
+
+4-3　命令：
+
+```
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" apply --dry-run=server -f "$DAY/src/k8s/release-freeze/rbac-list.yaml" 2>&1 | tee -a "$DAY/s4.txt"
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" apply -f "$DAY/src/k8s/release-freeze/rbac-list.yaml" 2>&1 | tee -a "$DAY/s4.txt"
+```
+
+预期各两行：`clusterrole.rbac.authorization.k8s.io/bifrost-release-freeze-list` 和 `clusterrolebinding.rbac.authorization.k8s.io/bifrost-release-freeze-list`，先 `created (server dry run)`，后 `created`。
+
+4-4　命令。15 个身份 × 8 个动词：
+
+```
+for who in system:serviceaccount:cicd:argocd-application-controller system:serviceaccount:cicd:argocd-applicationset-controller system:serviceaccount:cicd:argocd-dex-server system:serviceaccount:cicd:argocd-notifications-controller system:serviceaccount:cicd:argocd-redis system:serviceaccount:cicd:argocd-repo-server system:serviceaccount:cicd:argocd-server system:serviceaccount:cicd:bifrost-applier system:serviceaccount:cicd:default system:serviceaccount:cicd:tekton-deliver system:serviceaccount:cicd:tekton-pipelinerun-ttl system:serviceaccount:cicd:tekton-trigger system:serviceaccount:bifrost-platform-prod:bifrost-platform system:serviceaccount:bifrost-platform-stg:bifrost-platform system:serviceaccount:bifrost-access:bifrost-agent; do for verb in list create get watch update patch delete deletecollection; do echo "$who $verb $(kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" auth can-i "$verb" freezes.release.bifrost.io --as="$who" 2>/dev/null)"; done; done | tee "$DAY/s4-cani.txt"
+wc -l < "$DAY/s4-cani.txt"
+grep -c ' list yes$' "$DAY/s4-cani.txt"
+grep -v ' list ' "$DAY/s4-cani.txt" | grep ' yes$'
+```
+
+预期后三条依次是 `120`、`15`，和正好这 10 行：`system:serviceaccount:cicd:argocd-application-controller` 接 `create`、`get`、`watch`、`update`、`patch`、`delete`、`deletecollection` 各一行，`system:serviceaccount:cicd:argocd-server` 接 `get`、`patch`、`delete` 各一行，每行以 ` yes` 结尾。多一行、少一行都停。
+
+4-5　命令：
+
+```
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" get clusterrole bifrost-release-freeze-list -o jsonpath='labels=[{.metadata.labels}]{"\n"}' 2>&1 | tee -a "$DAY/s4.txt"
+```
+
+预期 `labels=[]`。另一个新角色步 9 才有，到那时用同一条命令查。
+
+4-6　命令（写法实测，10-12 是 0）：
+
+```
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" get clusterrole admin edit view -o yaml | grep -c 'release.bifrost.io'
+```
+
+预期 `0`。
+
+4-7　命令。四次真读，每次的 Pod 在同一格里删掉：
+
+```
+fread applier cicd 2>&1 | tee -a "$DAY/s4.txt"
+fread default cicd 2>&1 | tee -a "$DAY/s4.txt"
+fread prod bifrost-platform-prod 2>&1 | tee -a "$DAY/s4.txt"
+fread stg bifrost-platform-stg 2>&1 | tee -a "$DAY/s4.txt"
+```
+
+每次预期：先是 `pod/freeze-read-<后缀> created` 和 `pod/freeze-read-<后缀> condition met`，末尾是 `exit=0` 和 `pod "freeze-read-<后缀>" deleted`；中间是程序的输出：第一行 `未冻结：0 条记录`；然后 `explain: namespace=<那个命名空间>`、`explain: request=GET /apis/release.bifrost.io/v1/freezes HTTP/1.1`、`explain: host=kubernetes.default.svc`、`explain: ca_file=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt`、一行或几行 `explain: ca_subject=…`、`explain: peer_issuer=…`（10-11 对 apiserver 握手量到的签发者是 `CN=k3s-server-ca@1781402855`）、`explain: issuer_in_ca_file=yes`、`explain: verdict=clear`。有一次不是这样就停：真实的应答不在 3.2 收窄的语言里，或者 CA、主机名对不上，这不是现场能修的。
+
+4-8　命令，新（写法实测）。查四个临时 Pod 一个都没有留下，和 4-2 是同一条：
+
+```
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" get pods -A -o name | grep -c '/freeze-read-'
+```
+
+预期 `0`。
+
+**步 5**
+
+5-0　命令，新（统筹方做，不是 Owner）。步 4 通过之后，把复核过的那个提交推上 `main`：
+
+```
+scripts/release/release.sh window && git push origin <复核过的 40 位提交>:refs/heads/main
+```
+
+5-1　命令，新（写法实测）。导出当天的 `main`：
+
+```
+git fetch origin
+git rev-parse origin/main | tee "$DAY/commit5.txt"
+git archive origin/main k8s/cicd/tekton/task-release-freeze-check.yaml k8s/cicd/tekton/task-release-window.yaml scripts/release/freeze_gate.py | tar -x -C "$DAY/src5"
+cmp "$DAY/src/scripts/release/freeze_gate.py" "$DAY/src5/scripts/release/freeze_gate.py" && echo same
+```
+
+预期 `commit5.txt` 是统筹方刚推的那个提交；最后一条印 `same`（步 4 真读用的程序和要装进 Task 的是同一份）。
+
+5-2　命令：
+
+```
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" apply --dry-run=server -f "$DAY/src5/k8s/cicd/tekton/task-release-freeze-check.yaml" -f "$DAY/src5/k8s/cicd/tekton/task-release-window.yaml" 2>&1 | tee "$DAY/s5.txt"
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" apply -f "$DAY/src5/k8s/cicd/tekton/task-release-freeze-check.yaml" -f "$DAY/src5/k8s/cicd/tekton/task-release-window.yaml" 2>&1 | tee -a "$DAY/s5.txt"
+```
+
+预期各两行：`task.tekton.dev/bifrost-release-freeze-check configured` 和 `task.tekton.dev/bifrost-release-window configured`（试算那次后面带 `(server dry run)`）。
+
+5-3　命令（`jsonpath` 写法实测，对现网的旧 Task 跑过）：
+
+```
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" -n cicd get task bifrost-release-freeze-check -o jsonpath='{.spec.steps[0].script}' | shasum -a 256 | tee -a "$DAY/s5.txt"
+shasum -a 256 < "$DAY/src5/scripts/release/freeze_gate.py" | tee -a "$DAY/s5.txt"
+```
+
+预期两行的十六进制相同。
+
+5-4　命令（统筹方做）。发起一次试算 run：平台动作 `plan_manifest`，`repo` 填 `bifrost-trade-infra`，`path` 填 `k8s/cicd/tekton/task-release-freeze-check.yaml`，`commit` 填 `commit5.txt` 里的提交。它返回 run 的名字。然后用只读身份看（第一条的写法实测；只读身份在 `cicd` 有读日志的权限，实测 10-12，第二条本身没跑过）：
+
+```
+RUN=<plan_manifest 返回的名字>
+kubectl -n cicd get taskruns -l "tekton.dev/pipelineRun=$RUN,tekton.dev/pipelineTask=freeze-check" -o jsonpath='{range .items[*]}{.metadata.name}{" succeeded="}{.status.conditions[?(@.type=="Succeeded")].status}{" passed_cut_at="}{.status.results[?(@.name=="passed_cut_at")].value}{" pod="}{.status.podName}{" sa="}{.spec.serviceAccountName}{"\n"}{end}'
+kubectl -n cicd logs <上一条印出的 pod> -c step-check | head -n 1
+```
+
+预期第二条印一行 `…-freeze-check succeeded=True passed_cut_at=<一个 UTC 时刻> pod=… sa=bifrost-applier`；第三条印 `未冻结：0 条记录`。
+
+5-5　命令（统筹方做）。当天本来就排着的一次 STG 发布，照 `docs/RELEASE.md` 做；哪一次由统筹方当天定（留存的发布类 run 都跑在 `default` 账号下，实测 10-12）。判定用 5-4 的后两条，`RUN` 换成这次的 run：预期 `succeeded=True`、`sa=default`、日志第一行 `未冻结：0 条记录`，并且整条 run 成功。
+
+步 5 的退路（上表之前那一段）落成命令：
+
+```
+git archive "$(cat "$DAY/commit.txt")" k8s/cicd/tekton/task-release-freeze-check.yaml k8s/cicd/tekton/task-release-window.yaml | tar -x -C "$DAY/prev"
+kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" apply -f "$DAY/prev/k8s/cicd/tekton/task-release-freeze-check.yaml" -f "$DAY/prev/k8s/cicd/tekton/task-release-window.yaml"
+```
+
+`commit.txt` 是当天开头记下的提交，两个 Task 文件在那里还是旧的。
 
 ## 8. 分片
 
@@ -301,8 +758,9 @@ CRD、准入、RBAC、Task 的定义只有他应用。两次坐下来，中间�
 | 片 | 内容 | 谁 | 停止条件（可判定） |
 |---|---|---|---|
 | **S1　规则、两份实现、清单，全部离线** | 判定函数（Go）和 `freeze_gate.py`，按 3.2 的产生式实现 L，不经过通用 JSON；传输各行；二进制向量；带照产生式另写的识别器的生成器（种子 `310101`，678 条，Python 跑全部，不是抽样）；第 6 节的状态图（快照含旧对象和 `create` 开关，门调用真正的识别器）、两个阴性对照、随机序列（默认 2000，全量看 `FREEZE_MODEL_SEQUENCES`）；`k8s/release-freeze/` 的五个文件（`crd`、`admission`、`rbac-list`、`rbac-create`、`tombstone`）；`unfreeze` 命令的测试（路径、编码器生成的 `DeleteOptions`、`Background`、UID 前置条件、过期 UID 得 409、对象保留，以及引号、反斜杠、重复键注入）；410 处理函数只做单元测试，不接进路由。不含建记录的 POST，不含两个 Task 文件。不打开冻结：没有任何运行时改动 | 实现方；独立复核 | 通过 = 固定状态图上每条写明的断言都成立（零违例）、两个阴性对照各给出预期的违例、三个识别器对 678 条一致、252 条属于 L 的正文都是 `clear`、该识别器拒绝的没有被答成 `clear`、3.2 点名的手写全文都不是 `clear`、生成器与穷尽模型与整包三次计时分开且整包在 `GOMAXPROCS=2` 下低于 40 秒、3.2 的实现约束（含 HTTP/1.1 的三项）和 `unfreeze` 的命令各有测试、`grep` 不到从服务端接线到新包的调用。离线的零违例不代替第 7 节的现场验收；步 3 的探针真建真删通过之前，后面几片都不接线。**停线** = 一份不在 L 里的应答被答成 `clear`，或两份实现的二进制判定不同，或没有任何记录，且传输每一条都成立，且正文属于 L 时不答 `clear`；复核对上面那句话给出一个序列，同样停。出现这些就重写设计，不补规则。 |
-| **S2　Owner 的第一次** | 第 7 节步 0–5，含两个 Task 文件。它们当天进 `main`，不提前进 applier 能应用的前缀 `k8s/cicd/tekton/` | Owner | 通过 = 每一格都符合；检查步骤无输出、非 0 退出、超时未退出、以及读函数的可恢复失败，都不放行。有一格不符 = 停；步 5 的问题按退路回到上一个 Task |
-| **S3　平台改读记录，删掉记忆** | 3.4 的平台部分，含建记录的 POST，先 STG 后 PROD。不打开冻结：没有 `create` 的绑定。410 在这一片接进路由 | 实现方；人工批准的发布（触及信任根的路径） | 通过 = 两个环境的状态都是 `freeze_protocol: 3`、`freeze_state: clear`、`freeze_can_create: false`；`unfreeze` 回 410；`memory.go` 不存在；一次 STG 发布通过；读失败、超时、无输出、可恢复故障时 `Decide`、`Evaluate` 和 B 级都不放行。B 级入口是 `FreezeSet` 读失败返回 false（`api/internal/releasepolicy/engine.go:238–245`）之后今天由 `server/release_policy_wire.go:146–166` 放行的那条，本片必须改成拒绝。PROD 发完后是 `unreadable` = 回滚平台（这时还没有墓碑，旧版读到的仍是从未冻结） |
+| **「修订 2026-10-12」S2 之前　准备片和两个 Task 文件** | 准备片（infra 分支 `w31/td-310-s2prep`，只改三处，什么都不应用）：去掉 `crd.yaml` 里和 `properties` 并排的 `additionalProperties` 并加测试（3.1）；给 `freeze_gate.py` 加说明模式（3.2）；把检查任务的文件加进 `paths.json` 并加「路径表盖住每个文件」的测试（3.1）。它合并之后，两个 Task 文件写在分支 `w31/td-310-s2task` 上（3.3），不进 `main` | 实现方；独立复核 | 准备片通过 = 三处各有测试、各有一处种错被点名的测试拦住；不带参数时 `freeze_gate.py` 的输出和退出码逐字节不变，两份共享向量和片 1 的种错清单照旧全过。Task 分支通过 = 3.3 列的测试都在，复核对第 8 节开头那句话答找不到。两者都不改集群 |
+| **S2　Owner 的第一次** | 第 7 节步 0–5，含两个 Task 文件。它们当天进 `main`，不提前进 applier 能应用的前缀 `k8s/cicd/tekton/`。「修订 2026-10-12」每一格的命令在 7.1；两个文件的来路在 3.3 | Owner | 通过 = 每一格都符合；检查步骤无输出、非 0 退出、超时未退出、以及读函数的可恢复失败，都不放行。有一格不符 = 停；步 5 的问题按退路回到上一个 Task。「修订 2026-10-12」「都不放行」那半句落在四处：程序只在 `clear` 时以 0 退出（片 1 的测试）；新 Task 的第一步带 `timeout`、没有 `onError`（Task 文件的测试，3.3）；检查任务失败时流水线停在它那里——集群上留着的 run `plan-0cc8c195-1791741388` 就是这样，`freeze-check` 失败，排在它后面的 `run` 没有建（实测 10-12）；7.1 的 4-1：没有 `list` 的账号真读一次，印拒绝、退出码非 0 |
+| **S3　平台改读记录，删掉记忆** | 3.4 的平台部分，含建记录的 POST，先 STG 后 PROD。不打开冻结：没有 `create` 的绑定。410 在这一片接进路由 | 实现方；人工批准的发布（触及信任根的路径） | 通过 = 两个环境的状态都是 `freeze_protocol: 3`、`freeze_state: clear`、`freeze_can_create: false`；`unfreeze` 回 410；`memory.go` 不存在；一次 STG 发布通过；读失败、超时、无输出、可恢复故障时 `Decide`、`Evaluate` 和 B 级都不放行。B 级入口是 `FreezeSet` 读失败返回 false（`api/internal/releasepolicy/engine.go:238–245`）之后今天由 `server/release_policy_wire.go:146–166` 放行的那条，本片必须改成拒绝。PROD 发完后是 `unreadable` = 回滚平台（这时还没有墓碑，旧版读到的仍是从未冻结）。「修订 2026-10-12」这一片数下来有 16 条规则，分两片做。**S3a**：只做「建」这一个函数，就是 3.4 的四步（先读、再建、回读、一个期限），离线，没有任何东西调用它，合进主线不改任何环境的行为。**S3b**：接线和删除——`Status`、`Decide`、`Evaluate`、B 级改读记录，删掉记忆，410 进路由，状态接口换形状——它改行为，发版在 S2 之后；它自己还超过八条，开工前要再切一次。Go 读函数的第一次真读在 S3b 的 STG 验收里（D10）：STG 的状态必须是 `freeze_state: clear`，不是就停、不上 PROD。通过条件里「`memory.go` 不存在」这一条在主线上已经成立，该查的是什么见第 13 节的表 |
 | **S4　排空、墓碑、打开冻结、演练** | 第 7 节步 6–10；`release.sh` 的 `freeze` / `unfreeze` / `policy status`；在途 run 的清点 | Owner 在场 | 通过 = 步 6–9 每一格符合、演练八步全部符合，TD-310 的验收改写后重跑。步 6 有一格不符 = 不写墓碑。演练有一步不符 = Owner 删掉 `create` 的绑定和全部记录，冻结回到不可用（墓碑不动），TD-310 不进待签收 |
 | **S5　策略改成只增的记录** | 第 4 节。在锚合并之前做完 | 实现方；Owner 应用第二个 CRD 和绑定 | 通过 = 第 4 节的四条向量在门和签名工具上都过；模型里只要有一条更新的、验得过的记录在，生效的就不是排序值更小的那条；重放此前的每一份签名都不改变生效的策略。复核给出反例 = 停线 |
 | **S6　文档和台账** | `docs/RELEASE.md` 的四节重写；计划第 1 步里「解冻的独立授权」「冻结的串行边界」和 C 片的演练改写；TD-310 的修法和验收改写；登记只读防线（3.1） | 统筹方 | 文档里不再出现 `unfreeze.sig`、`freeze_id`；防线登记在 `RATCHETS.md` |
@@ -317,6 +775,10 @@ CRD、准入、RBAC、Task 的定义只有他应用。两次坐下来，中间�
 | D4 | 用哪份凭证解冻 | Owner，2026-10-11 **已定：按推荐** | 推荐：先用他现有的管理员 kubeconfig。Agent 搬离他这台机器（W-67）时换成一个只能 `list` 和 `delete` 这类对象的专用身份，同时改策略里的用户名。用户名认的是凭证不是人：今天同一张管理员证书的持有者都被当作 Owner（都算 L3）；换成专用身份时按 3.1 把用户名、组、同名认证和 `impersonate` 重新核对一遍 | 「解冻不该动用管理员凭证」 |
 | D5 | 策略也改成只建不改的记录，在第一份策略签出来之前 | 统筹方，2026-10-11 **已定：是** | 复核 93 认为成立，条件是签名的排序和记录的保留（已写，第 4 节） | 「策略先不动」——重放的界限仍是过期时间，那至少要先做 TD-293 |
 | D6 | 读不到冻结状态时，B 级的发布也拒绝 | Owner，2026-10-11 **已定：按推荐** | 推荐：是。检查任务本来就会拒绝，平台放过去只是换个地方失败 | 「读不到时测试环境照发」 |
+| D7 | 「修订 2026-10-12」一次冻结凭什么报「建成」 | 统筹方，2026-10-12 **已定** | 只凭 POST 之后经门的严格读回读到刚建的那个名字。POST 可以走平台现有的 Kubernetes 客户端，它的状态码只用来选报哪一种失败；POST 加回读共用一个 10 秒的绝对期限；丢失或含糊的 POST 报「没有确认建成，状态未知，请再读一次」（3.4） | 「POST 回 201 就算建成」 |
+| D8 | 「修订 2026-10-12」清单的上限怎么算，和读不到时建不建 | 统筹方，2026-10-12 **已定**（当天改过一次：头一版是「上限按条数 N = 7，读不到就不建」，两句都撤回了） | 上限按字节：建之前读得到、而且已有记录时，读到的正文字节数加新记录的上界超过 4096 就不建，报「没有新增：清单满了」；零条时不看大小。读不到时照样建：冻结是急停，要偏向冻住；建完回读，回读也读不到就报「未知：只要还读不到，门就不放行；请再读一次」。原来的「满 20 条」经读函数数不到（3.2、3.4）。代价一句话：读不到的那段时间里的一次建（或者零条时一条单独就超限的记录）可能把清单撑过上限，之后门一直不放行、印的是读不到，直到 Owner 删掉一条——失败关闭，而且看得见 | 「读不到的时候不许再往里加」——那就是头一版：读不到时没有人冻得上 |
+| D9 | 「修订 2026-10-12」Owner 的用户名填在哪里 | 统筹方，2026-10-12 **已定** | 仓库留着占位符，测试不动；当天在仓库之外渲染副本、看差异、应用副本，填好的文件不进 `main`（3.1、7.1 的 0-4、0-5） | 「把用户名写进仓库」——那就改片 1 钉着占位符的三处测试 |
+| D10 | 「修订 2026-10-12」步 4 的真读用什么读 | 统筹方，2026-10-12 **已定** | 用 `freeze_gate.py` 的说明模式（3.2），四个账号各读一次。Go 读函数在 S2 没有可执行的入口，它的第一次真读是 S3b 在 STG 上的验收。**这比复核 103 第 3 条弱**：那一条要 Go 读函数在接线之前、在平台 Pod 里真读一次（第 12 节），现在它第一次面对真实的 apiserver 时已经接上线了。为什么可以接受：最坏的情形是 Go 读函数对真实的应答答不出 `clear`，STG 的状态是 `unreadable`，STG 上的发布全部被拒，平台回滚到上一版——一次回滚的 STG，不会有一次错放的发布；PROD 要等 STG 报 `freeze_state: clear` 才发（第 8 节 S3）。两份读法在片 1 的 180,843 份应答上判定一致，应答合不合 3.2 的语言由 Python 这四次先答 | 「Go 读函数也要在接线之前真读一次」——那要先给它做一个能进平台镜像的入口，另算一片 |
 
 ## 10. 这份设计不保证的
 
@@ -328,6 +790,8 @@ CRD、准入、RBAC、Task 的定义只有他应用。两次坐下来，中间�
 - **检查任务本身。** 它的定义谁能改（applier 经一张 C 级的单，以及 L3）；它用的镜像标签是可变的（计划第 2 步改成摘要）。**策略**的部分见第 4 节「留着的」。
 
 没量到的：webhook 准入配置（只读身份没有权限）；Owner 的用户名和组，以及还有什么能以这个用户名通过认证；发布密钥有没有口令；准入策略对 DELETE、`deletecollection`、集群级自定义资源、`request.options` 的实际表现（本集群没有先例，步 2–3 证明）；1.2 第 2、3 条那两条路实际走不走得通；`tekton-deliver` 下的任务能不能被参数带出一次写入；那 27 个内联 run 是谁建的；垃圾回收器的请求用的是哪个身份；LIST「最新读」在这个集群上的表现。
+
+「修订 2026-10-12」实测 10-12 量掉的：`cicd` 的 12 个 ServiceAccount 的名字，和它们谁凭通配符够得着新类型（3.1）；`impersonate` 的授予方仍是四个；垃圾回收器在 RBAC 里的主体是 `kube-system/generic-garbage-collector`（它的请求实际用不用这个身份仍没量到）；控制面只有 `ubt-k3s-01` 一台；旧对象仍是 `{"frozen":"false"}`、没有 `immutable`；没有名字带 `bifrost` 的 CRD，`release.bifrost.io` 这个组不存在；准入策略仍是那 6 条，其中 5 条带着类型检查的警告；集群上的旧检查程序和 `239f100` 的 `freeze_decision.py` 逐字节相同（SHA-256 `8aaad4e5…`）；18 条流水线里 13 条以 `freeze-check` 为唯一的根任务；留存的 TaskRun 3,232 个，没有未完成的；只读身份读不到 webhook 配置（两类都是 Forbidden）；真实对象上 `managedFields` 的大小（3.2）；apiserver 把自定义资源里的 `<`、`>`、`&` 各写成 6 个字节（3.2）。仍然只有 Owner 的身份才量得到的：他的用户名和组；同名认证的来源（在控制面节点上）；`crd.yaml` 和 `admission.yaml` 过不过服务端试算；准入策略对 DELETE、整类删除、`request.options` 的实际表现和拒绝报文的样式；apiserver 认不认删除的 UID 前置条件；7.1 里 `fread` 那条起临时 Pod 的命令走不走得通；一条真实冻结记录在 LIST 里占多少字节。
 
 ## 11. 复核 95 逐条
 
@@ -355,6 +819,47 @@ CRD、准入、RBAC、Task 的定义只有他应用。两次坐下来，中间�
 3. P2　现场读的身份和顺序：第 7 节步 4，`list` 之后、步 5 之前，在平台 Pod 和 Tekton 步骤 Pod 里读；CA 与主机名由这次读留下；升级后重跑。
 4. P3　活性漏了传输前提：第 6 节 L、第 8 节开头、S1 停线都是「传输每一条都成立，且正文属于 L」。
 
+## 13. 「修订 2026-10-12」改了哪些段落；已知、延后的
+
+这一轮没有复核过。改到的段落，按出现的先后：
+
+1. 文首状态行之后：这一轮修订的说明。
+2. 3.1 「类型」一段：schema 里不写 `additionalProperties`；片 1 文件里的那一行由准备片去掉。
+3. 3.1 「规则里的 Owner 是谁」：用户名填在仓库之外的副本里（D9）；只读防线比的是换掉占位符之后的样子。
+4. 3.1 末尾：检查任务的文件补进路径表；新增一段，`cicd` 的 12 个账号是谁、哪两个凭通配符够得着新类型（实测）。
+5. 3.2 末尾新增两段：记录多到装不下的时候（含 apiserver 把 `<`、`>`、`&` 写成 6 个字节的实测，和「单独一条也可能超限」）；说明模式。
+6. 3.3 第四条：两个 Task 文件怎么写、在哪条分支上复核、怎样当天进 `main`。
+7. 3.4 平台一段之后：`Freeze` 改成四步——先读、再建、回读、一个期限（D7、D8）。第 1 步当天改过两次，现在是：读不到照样建；零条不看大小；已有记录时按字节算上限，并写明不变式。
+8. 第 7 节开头清单第 4 条：四次真读；Go 读函数的第一次真读在 S3b。
+9. 第 7 节表格步 0–5 六行：各指向 7.1；步 2 的 `expressionWarnings` 只记录；步 3 多六格；步 4 整格重写。
+10. 新增 7.1：步 0–5 每一格的命令和预期，步 5 退路的命令。
+11. 第 8 节：新增「S2 之前」一行；S2 行补上「都不放行」落在哪四处；S3 行补上分成 S3a、S3b。
+12. 第 9 节：新增 D7–D10。D8 当天重写过一次（上限从条数改回字节，读不到从不建改回照样建）；D10 写明它比复核 103 第 3 条弱、以及最坏的情形是什么。
+13. 第 10 节末尾：实测 10-12 量掉了什么，哪些仍只有 Owner 的身份量得到。
+14. 新增本节。
+15. 附录末尾：实测 10-12 的重算命令和它的输出。
+16. 7.1 步 4 的临时 Pod，请复核方专门看：它以两个流水线账号和两个平台账号（含 PROD 平台的）的身份各存在几十秒。清单是定文（一个容器、一条命令、没有额外的挂载、`restartPolicy: Never`）；读的那一格自己删掉它（4-1、4-7）；紧接着的一格查没有留下（4-2、4-8）。
+
+已知、延后的。这一轮不解决，各归各的片：
+
+| 事 | 现在的样子 | 归哪一片 |
+|---|---|---|
+| Console 把 `unfreeze_command` 当必填字段读并显示，3.4 要删这个字段 | `console/src/api/releasePolicy.ts:18`、`:53` | S3b：状态接口换形状时一起改，或者这个字段多留一版 |
+| `release_unfreeze` 在动作目录里；`mcp/` 下没有叫这个名字的工具，3.4 的「从 MCP 工具里去掉」没有对象 | `api/internal/actions/catalog.go:146`、`config/actions-catalog.json:26` | S3b |
+| 第五条发起发布的路：审批执行器送来的已批准 C 级调用，在两道检查之前就过了 `guard`，平台不为它读冻结。3.4 只点了四个调用方 | `api/internal/server/actions_wire.go:58–61` | S3b：先定这条路要不要读 |
+| 不在 Pod 里的平台进程（开发机上的 `platform-api`）没有 ServiceAccount 令牌，读到的是 `unreadable`；按 D6，它被要求发起的发布全部被拒。它的 POST 用的是本机 kubeconfig 里的身份 | `api/internal/releasefreeze/read.go:205–222`、`api/internal/cluster/client.go:118–159` | S3b |
+| `release.sh policy status` 读 `frozen_at`，S3 删掉这个字段之后它印 `at ?` | `scripts/release/release.sh:615` | S4：`release.sh` 在那一片改 |
+| 墓碑有两种做法并存：第 5 节的 `kubectl patch` 命令，和片 1 放的清单 `k8s/release-freeze/tombstone.yaml` | 第 5 节；该文件第 3–4 行 | S4：留一种 |
+| 3.4 那几句报错的话（没打开、没写上、未知、清单满了）的原文、语言，和路由回的状态码 | 3.4 写的是意思 | S3b |
+| `via` 里写什么 | 3.1 只说「哪一个平台实例写的」 | S3b |
+| 「只有两个函数的包」对不上：包导出了五个入口，`Gate` 有九个能改地址、CA、令牌和期限的导出字段；接线的代码怎样构造 `Gate`，要一条规则 | `api/internal/releasefreeze/read.go:31–50`、`:53`，`decision.go:59`、`:67`，`lang.go:5`，`handler.go:12` | S3b |
+| 第 8 节 S3 的通过条件「`memory.go` 不存在」在主线上已经成立：那个文件只在分支 `w31/td-310-anchor` 上，主线上的那份记忆在别处 | `api/internal/releasepolicy/engine.go:64`、`:73`、`:159–211` | S3b：通过条件改成点这几处 |
+| `freeze_can_create` 的那次 SelfSubjectAccessReview 经哪个客户端发 | 3.4 没写 | S3b |
+| S3b 自己还超过八条规则 | 第 8 节 S3 行 | S3b 的任务书：开工前再切 |
+| 新记录上界里的 E = 600 是按实测的信封算出来的，不是量出来的 | 3.2、3.4 | S2 当天核对（7.1 的 3-2、3-19），S3b 发版前定 |
+| 3.1 那条只读防线还没有做 | 3.1 | S6 |
+| Go 读函数没有说明模式，接线之前不会真读 | D10 | S3b 的 STG 验收；要更早就另算一片 |
+
 ## 附：RBAC 证据（实测 2026-10-11 17:19 CDT）
 
 读到 126 个 ClusterRole、93 个 ClusterRoleBinding、50 个 Role、118 个 RoleBinding。原始导出不进仓库（仓库是公开的），这里是汇总。重算的办法：只读身份 `kubectl get clusterroles,clusterrolebindings -o json` 和 `kubectl get roles,rolebindings -A -o json`；一条规则算数的条件是 `apiGroups` 含 `*` 或该组、`resources` 含 `*` 或该资源、`verbs` 含 `*` 或该动词；再按绑定展开主体。新类型现在还不存在，「对新类型」一列是通配符规则给出的。
@@ -370,3 +875,48 @@ CRD、准入、RBAC、Task 的定义只有他应用。两次坐下来，中间�
 | `tekton-pipelines/tekton-pipelines-webhook`；`kube-system/resourcequota-controller`、用户 `system:kube-controller-manager` | 各自的角色 | 前者没有；后两者 `list` | 前者 `update`、`patch`（限名字） | – | – |
 
 除此之外没有主体对新类型有 `list` 或任何写动词。带 `aggregationRule` 的 ClusterRole 只有 `admin`、`edit`、`view`，各按自己的 `aggregate-to-*` 标签聚合；没有一个命名空间内的 Role 同时通配组和资源。准入策略到位之后，这张表决定的只是「谁是 L3」，不再决定「谁能删一条记录」。
+
+「修订 2026-10-12」实测 10-12 重算，结果和上表一致，对象的个数也没变（126、93、50、118）。上表「对新类型」一列少写了几个只读的动词，以这次的输出为准：`argocd-server` 还有 `get`，垃圾回收器还有 `get`、`watch`，命名空间控制器还有 `get`、`watch`，`resourcequota-controller` 和 `system:kube-controller-manager` 是 `list`、`watch`。重算的命令（只读身份跑，新类型是集群级的，所以只看 ClusterRoleBinding）：
+
+```
+kubectl get clusterroles,clusterrolebindings -o json | python3 -c '
+import json, sys
+items = json.load(sys.stdin)["items"]
+roles = {i["metadata"]["name"]: i.get("rules") or [] for i in items if i["kind"] == "ClusterRole"}
+def who(s):
+    return (s.get("namespace", "") + "/" if s["kind"] == "ServiceAccount" else s["kind"].lower() + ":") + s["name"]
+for b in sorted((i for i in items if i["kind"] == "ClusterRoleBinding"), key=lambda i: i["metadata"]["name"]):
+    verbs, imp = set(), False
+    for r in roles.get(b["roleRef"]["name"], []):
+        groups, res, v = r.get("apiGroups") or [], r.get("resources") or [], set(r.get("verbs") or [])
+        if ("*" in groups or "release.bifrost.io" in groups) and ("*" in res or "freezes" in res):
+            verbs |= v
+        if "impersonate" in v or ("*" in v and "*" in groups and "*" in res):
+            imp = True
+    for s in b.get("subjects") or []:
+        if verbs:
+            print("freezes", who(s), ",".join(sorted(verbs)))
+        if imp:
+            print("impersonate", who(s))
+' | sort
+```
+
+10-12 的输出，13 行（应用 `rbac-list.yaml` 之前）：
+
+```
+freezes cicd/argocd-application-controller *
+freezes cicd/argocd-server delete,get,patch
+freezes group:system:masters *
+freezes kube-system/generic-garbage-collector delete,get,list,patch,update,watch
+freezes kube-system/helm-traefik *
+freezes kube-system/helm-traefik-crd *
+freezes kube-system/namespace-controller delete,deletecollection,get,list,watch
+freezes kube-system/resourcequota-controller list,watch
+freezes user:system:kube-controller-manager list,watch
+impersonate cicd/argocd-application-controller
+impersonate group:system:masters
+impersonate kube-system/helm-traefik
+impersonate kube-system/helm-traefik-crd
+```
+
+`cicd` 的 12 个 ServiceAccount 里，被 ClusterRoleBinding 点名的只有五个：`argocd-application-controller`、`argocd-applicationset-controller`、`argocd-server`、`bifrost-applier`（`bifrost-applier-namespaces`，只读 `namespaces`）、`tekton-trigger`（`tekton-trigger-resolve`）。应用 `rbac-list.yaml` 之后这条命令会多出四行 `list`（组 `system:serviceaccounts:cicd`、两个平台账号、只读身份）。
