@@ -24,6 +24,11 @@ class LaneError(Exception):
     pass
 
 
+def has_control(text):
+    return any(ord(ch) < 32 or 127 <= ord(ch) <= 159 or ord(ch) in (0x2028, 0x2029, 0x202E)
+               for ch in text)
+
+
 def rec(root, *args):
     result = subprocess.run([sys.executable, str(REC), "--root", str(root), *args],
                             capture_output=True, text=True)
@@ -85,6 +90,14 @@ def lanes(root, update=None):
 
 
 def start(root, args):
+    if args.kind not in ("implement", "verify", "review", "merge", "other"):
+        raise LaneError("--kind must be implement, verify, review, merge, or other")
+    for key in ("name", "who"):
+        value = getattr(args, key)
+        if len(value) > 80:
+            raise LaneError(f"--{key} must be at most 80 characters")
+        if has_control(value):
+            raise LaneError(f"--{key} must not contain a control character")
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     if not command:
         raise LaneError("start requires -- <command>")
@@ -106,32 +119,44 @@ def start(root, args):
         started = pid_start(wrapper.pid)
         deadline = time.monotonic() + 5
         match = None
+        wrapper_output = ""
         while time.monotonic() < deadline:
             # pread leaves the inherited writer offset untouched.
-            match = ANNOUNCEMENT.search(os.pread(output.fileno(), 65536, 0).decode("utf-8", "replace"))
+            wrapper_output = os.pread(output.fileno(), 65536, 0).decode("utf-8", "replace")
+            match = ANNOUNCEMENT.search(wrapper_output)
             if match:
                 break
             time.sleep(.02)
         result = dict(work=args.work, step_id=match[1] if match else None,
-                      output_dir=match[2] if match else None, wrapper_pid=wrapper.pid)
+                      output_dir=match[2] if match else None, wrapper_pid=wrapper.pid,
+                      recorded="start not recorded" not in wrapper_output)
         # Retain even a timed-out dispatch, keyed by PID until a step is known.
         key = result["step_id"] or f"pending:{wrapper.pid}"
         lanes(root, {key: dict(result, wrapper_start=started, name=args.name,
                                who=args.who, usual_min=args.usual_min)})
         print(json.dumps(result))
-        return 0 if match else 3
+        return 0 if match and result["recorded"] else 3
 
 
 def record(root, args):
+    quote = args.quote
+    if quote is not None:
+        lines = quote.splitlines()
+        quote = lines[0] if lines else ""
+        quote = "".join(ch for ch in quote if not has_control(ch))[:200]
     event = json.load(io.StringIO(rec(root, "declare", "--work", args.work, "--name", args.name,
                            "--kind", args.kind, "--who", args.who, "--watch", "none")))
     step = event["step_id"]
-    rec(root, "start", "--work", args.work, "--step", step)
     finish = ["finish", "--work", args.work, "--step", step, "--reported",
               "finished" if args.result == "done" else "failed"]
-    if args.quote is not None:
-        finish += ["--quote", args.quote]
-    print(rec(root, *finish), end="")
+    if quote is not None:
+        finish += ["--quote", quote]
+    try:
+        rec(root, "start", "--work", args.work, "--step", step)
+        result = rec(root, *finish)
+    except (LaneError, OSError, ValueError) as exc:
+        raise LaneError(f"step {step} left behind: {exc}") from exc
+    print(result, end="")
     return 0
 
 
@@ -158,31 +183,39 @@ def status(root, args):
     metadata = lanes(root)
     now = time.time()
     steps = []
+    unrecorded = []
     for work in doc["works"]:
+        if work.get("unrecorded_runs"):
+            unrecorded.append(dict(work=work["work_id"], title=work.get("title", work["work_id"]),
+                                   unrecorded_runs=work["unrecorded_runs"]))
         for step in work["steps"]:
             if "ended" in step:
                 continue
             usual = metadata.get(step["step_id"], {}).get("usual_min")
             if usual is None and "usual_s" in step:
                 usual = step["usual_s"] / 60
-            since = step.get("started", step.get("since"))
+            dead = step["state"] == "dead"
+            since = step.get("since") if dead else step.get("started", step.get("since"))
             elapsed = max(0, now - since) if since is not None else None
             steps.append(dict(work=work["work_id"], title=work.get("title", work["work_id"]),
                               step_id=step["step_id"], name=step["name"], who=step["who"],
                               state=step["state"], since=since, elapsed_s=elapsed,
-                              usual_min=usual, over=bool(usual is not None and elapsed is not None
+                              usual_min=usual, over=bool(not dead and usual is not None and elapsed is not None
                                                         and elapsed > 2 * usual * 60)))
     owners = doc["owner_all"]
     if args.json:
-        print(json.dumps(dict(steps=steps, owners=owners)))
+        print(json.dumps(dict(steps=steps, owners=owners, unrecorded=unrecorded)))
     else:
         for step in steps:
-            elapsed = "unknown" if step["elapsed_s"] is None else f'{step["elapsed_s"]:.1f}s'
+            elapsed = (f'since {step["since"]}' if step["state"] == "dead" else
+                       "unknown" if step["elapsed_s"] is None else f'{step["elapsed_s"]:.1f}s')
             usual = "unknown" if step["usual_min"] is None else f'{step["usual_min"]:g}m'
             print(f'{step["title"]} | {step["name"]} | {step["who"]} | {step["state"]}'
                   f' | {elapsed} | usual {usual}' + (" | OVER" if step["over"] else ""))
         for owner in owners:
             print(f'Owner | {owner["title"]} | since {owner["since"]}')
+        for work in unrecorded:
+            print(f'{work["title"]} | work {work["work"]} | unrecorded runs {work["unrecorded_runs"]}')
     return 0
 
 

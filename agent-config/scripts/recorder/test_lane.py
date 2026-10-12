@@ -29,7 +29,8 @@ def dispatch(root, name='job', code='pass', usual=None):
     proc = cli(root, *args, '--', sys.executable, '-c', code)
     assert len(proc.stdout.splitlines()) == 1
     row = json.loads(proc.stdout)
-    assert set(row) == {'work', 'step_id', 'output_dir', 'wrapper_pid'}
+    assert set(row) == {'work', 'step_id', 'output_dir', 'wrapper_pid', 'recorded'}
+    assert row['recorded'] is True
     return row
 
 
@@ -97,7 +98,7 @@ def test_end_to_end(tmp_path):
     owner = owner_open(root)
     assert status(root)['owners'][0]['since'] == owner['at']
     cli(root, 'owner-close', '--work', 'w1', '--wait', owner['wait_id'], '--how', 'done')
-    assert status(root) == {'steps': [], 'owners': []}
+    assert status(root) == {'steps': [], 'owners': [], 'unrecorded': []}
 
 
 def test_start_detached_verbatim_and_open_unchanged(tmp_path):
@@ -185,6 +186,11 @@ def test_record_reports_each_failed_stage(tmp_path, failure):
     assert f'{failure} failed (7)' in proc.stderr and proc.stdout == ''
     order = ['declare', 'start', 'finish']
     assert trace.read_text().splitlines() == order[:order.index(failure) + 1]
+    if failure != 'declare':
+        step = events(root)[-1]['step_id']
+        assert f'step {step} left behind' in proc.stderr
+    else:
+        assert 'left behind' not in proc.stderr
     assert not any(e['type'] == 'step_finished' and e.get('reported') == 'finished' for e in events(root))
 
 
@@ -241,12 +247,19 @@ def test_status_over_owner_since_and_only_observe_writes(tmp_path):
 
 def test_status_observes_before_folding_dead_wrapper(tmp_path):
     pidfile = tmp_path / 'child-pid'
-    row = dispatch(tmp_path, code=f'import os,time; from pathlib import Path; Path({str(pidfile)!r}).write_text(str(os.getpid())); time.sleep(30)')
+    row = dispatch(tmp_path, usual=.00001, code=f'import os,time; from pathlib import Path; Path({str(pidfile)!r}).write_text(str(os.getpid())); time.sleep(30)')
     try:
         wait_for(pidfile.exists)
         # Plant wrapper death without finish; observe must turn running into dead.
         os.kill(row['wrapper_pid'], signal.SIGKILL)
         wait_for(lambda: status(tmp_path)['steps'][0]['state'] == 'dead')
+        folded = subprocess.run([sys.executable, str(REC), '--root', str(tmp_path), 'fold'],
+                                capture_output=True, text=True, check=True, timeout=12)
+        since = json.loads(folded.stdout)['works'][0]['steps'][0]['since']
+        step = status(tmp_path)['steps'][0]
+        assert step['since'] == since and not step['over']
+        text = cli(tmp_path, 'status').stdout
+        assert f'| dead | since {since}' in text and 'OVER' not in text
         assert not finished(tmp_path, row)
     finally:
         if pidfile.exists():
@@ -309,3 +322,68 @@ def test_status_under_usual_and_missing_metadata(tmp_path):
     finally:
         cli(tmp_path, 'stop', '--step', row['step_id'])
         wait_for(lambda: finished(tmp_path, row))
+
+
+@pytest.mark.parametrize('argument,value,reason', [
+    ('kind', 'fix', 'must be'), ('kind', 'ci', 'must be'), ('kind', 'release', 'must be'),
+    ('name', 'n' * 81, '80'), ('who', 'w' * 81, '80'),
+    ('name', 'bad\nname', 'control'), ('who', 'bad\twho', 'control'),
+    ('name', 'bad\x7fname', 'control'), ('who', 'bad\u202ewho', 'control'),
+    ('who', 'bad\x80who', 'control'),
+])
+def test_start_invalid_metadata_starts_nothing(tmp_path, argument, value, reason):
+    root = tmp_path / 'root'
+    marker = tmp_path / 'unexpected'
+    args = dict(work='w1', title='Work', name='job', kind='other', who='Cursor')
+    args[argument] = value
+    tokens = [token for key, val in args.items() for token in ('--' + key, val)]
+    proc = cli(root, 'start', *tokens, '--', sys.executable, '-c',
+               f'from pathlib import Path; Path({str(marker)!r}).touch()', expected=2)
+    assert proc.stdout == '' and len(proc.stderr.splitlines()) == 1
+    assert f'--{argument}' in proc.stderr and reason in proc.stderr
+    assert not root.exists() and not marker.exists()
+
+
+def test_start_unrecorded_is_reported_and_command_runs(tmp_path):
+    root = tmp_path / 'root'
+    marker = tmp_path / 'ran'
+    # Plant recorder rejection after lane's valid input; the real wrapper still runs the child.
+    lane = proxy(tmp_path, "if sys.argv[3] == 'run':\n    sys.argv[sys.argv.index('--kind') + 1] = 'fix'")
+    proc = subprocess.run([sys.executable, str(lane), '--root', str(root), 'start',
+                           '--work', 'w1', '--title', 'Work', '--name', 'job',
+                           '--kind', 'other', '--who', 'Cursor', '--', sys.executable, '-c',
+                           f'import time; from pathlib import Path; Path({str(marker)!r}).touch(); time.sleep(30)'],
+                          capture_output=True, text=True, timeout=12)
+    row = json.loads(proc.stdout)
+    try:
+        assert proc.returncode == 3, proc.stdout + proc.stderr
+        assert row['recorded'] is False and row['step_id'] and row['output_dir']
+        wait_for(marker.exists)
+        doc = status(root)
+        assert doc['steps'] == []
+        assert doc['unrecorded'] == [dict(work='w1', title='Work', unrecorded_runs=1)]
+        assert 'Work | work w1 | unrecorded runs 1' in cli(root, 'status').stdout
+    finally:
+        cli(root, 'stop', '--step', row['step_id'])
+        wait_for(lambda: not status(root)['unrecorded'])
+
+
+@pytest.mark.parametrize('quote,clean', [
+    ('q' * 201, 'q' * 200),
+    ('First\nSecond', 'First'),
+    ('A\tB\x1bC\x7fD\u202eE\x80F\nIgnored', 'ABCDEF'),
+    ('', ''),
+])
+def test_record_cleans_quote_before_writing(tmp_path, quote, clean):
+    row = dispatch(tmp_path)
+    wait_for(lambda: finished(tmp_path, row))
+    trace = tmp_path / 'quote-at-declare'
+    lane = proxy(tmp_path, f'from pathlib import Path\n'
+                 f'if sys.argv[3] == "declare":\n    Path({str(trace)!r}).touch()')
+    recording_args = ['record', '--work', 'w1', '--name', 'Review', '--kind', 'review',
+                      '--who', 'Reviewer', '--result', 'done', '--quote', quote]
+    cli(tmp_path, *recording_args, lane=lane)
+    assert trace.exists()
+    assert [e['type'] for e in events(tmp_path)[-3:]] == ['step_declared', 'step_started', 'step_finished']
+    assert events(tmp_path)[-1]['quote'] == clean
+    assert not status(tmp_path)['steps']
