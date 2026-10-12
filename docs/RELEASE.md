@@ -106,8 +106,8 @@ scripts/release/release-check.sh diff old.json new.json --allow <file>
 # 1. 试跑（不构建、不发布；只为解析提交，把两个仓库各浅拉一次到临时目录）。在将要应用的那个提交上生成；给镜像上已有的整 SHA。
 python3 scripts/release/platform_prod_gate_trial.py <STG 当前的平台提交> > /tmp/trial-pass.yaml
 python3 scripts/release/platform_prod_gate_trial.py <一个没有 CI 的提交> > /tmp/trial-refuse.yaml
-kubectl create -f /tmp/trial-pass.yaml      # generateName：只能 create，不能 apply
-kubectl create -f /tmp/trial-refuse.yaml
+# 这两个文件各创建一次。创建命令在脚本自带的说明里（Owner 自己的身份才建得了）：
+#   python3 scripts/release/platform_prod_gate_trial.py --help
 # 2. 应用
 kubectl apply --dry-run=server -f k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml \
   && kubectl apply -f k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml

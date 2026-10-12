@@ -69,7 +69,20 @@ def trial_run(revision, ui_revision="main"):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Owner only, before the pipeline definition is applied (docs/RELEASE.md,\n"
+            "Platform PROD source check). The run uses generateName, so it is created,\n"
+            "not applied:\n"
+            "  python3 scripts/release/platform_prod_gate_trial.py <sha> > trial.yaml\n"
+            "  kubectl create -f trial.yaml\n"
+            "It runs only the check-source task: it resolves the commits (a shallow fetch\n"
+            "of two repositories into a temporary directory) and reads CI and STG runs.\n"
+            "It builds nothing and releases nothing."
+        ),
+    )
     parser.add_argument("revision")
     parser.add_argument("--ui-revision", default="main")
     args = parser.parse_args()
