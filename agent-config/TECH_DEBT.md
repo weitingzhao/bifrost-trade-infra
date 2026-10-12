@@ -1958,6 +1958,19 @@
 - 验收: the five tests pass with their marks removed; `RECORDER_MUTANTS=1 pytest agent-config/scripts/recorder/test_mutants.py` reports 0 survivors; a shadow log of seven consecutive days with 0 unexplained differences
 - 审批 无 · 代价 M · 风险 low（没有接线）· repos: bifrost-trade-infra, bifrost-platform
 
+### TD-320
+
+**P2 · governance · two documents say a Mac mini thread needs the same three MCP token keys as the laptop — one of them is the admin key — while the host design puts no admin credential on an agent host**
+
+- **状态**：未开始
+- **Claim**: `agent-config/.mcp.json.README.md:108` (「Mac mini 上的线程以后同样需要这份文件：同样三个键」) and the token-tier paragraph at `agent-config/AGENT_FACTS.md:337` describe one token file with viewer, operator and admin keys; `work/multi-agent/DESIGN-host-minimal-2026-10-12.md` section 5 and `RUNTIME-PLACEMENT-2026-10-11.md` section 7 say an agent host holds no admin credential. No agent runs on a mini yet.
+- **Measured**: the two passages read on 2026-10-12. NOT MEASURED: which token files exist on the minis (agents do not read token files).
+- **Impact**: someone setting up a mini from the README would copy the admin key onto an agent host; "an agent cannot approve" would then rest on convention.
+- **Fix**: after the Owner decides which keys go on a host (decision D3 of the host design), rewrite both passages: an agent host gets its own reporter-level key; the admin key stays on the Owner's devices.
+- **Ratchet**: the host installer refuses to finish when the token file on the host names an admin key (it checks key names only, never values). None today.
+- 验收: `grep -n "同样三个键" agent-config/.mcp.json.README.md` prints nothing; the installer's refusal has a test that passes
+- 审批 无 · 代价 S · 风险 low · repos: bifrost-trade-infra
+
 ## 没覆盖到的（下一轮从这里开始）
 
 - Per-engine numerical correctness beyond dates: GEX sign conventions, max-pain, VRP realized-vol windows, vanna/charm, SVI fit, flow maths
