@@ -451,8 +451,10 @@ def byte_classes() -> list:
     a = b"HTTP/1.1 200 OK\r\nX-Pad: value\r\nContent-Length: %d\r\n\r\n" % N + M
     c = b"HTTP/1.1 200 OK\r\nX-Pad: value\r\nTransfer-Encoding: chunked\r\n\r\n7e\r\n" + M + b"\r\n0\r\nX-T: tv\r\n\r\n"
     i = b"HTTP/1.1 100 Continue\r\nX-I: iv\r\n\r\n" + a
+    # d: M in two chunks (1 byte, then the rest), the last-chunk line 0000, one trailer field.
+    d = b"HTTP/1.1 200 OK\r\nX-Pad: value\r\nTransfer-Encoding: chunked\r\n\r\n1\r\n" + M[:1] + b"\r\n7d\r\n" + M[1:] + b"\r\n0000\r\nX-T: tv\r\n\r\n"
     out = []
-    for name, raw in (("a", a), ("c", c), ("i", i)):
+    for name, raw in (("a", a), ("c", c), ("i", i), ("d", d)):
         assert clear(raw), name
         interior = set()
         for start, end in _data_spans(raw):

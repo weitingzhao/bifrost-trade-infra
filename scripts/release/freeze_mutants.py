@@ -319,4 +319,12 @@ MUTANTS = [
         "must_fail": "test_byte_classes",
         "evidence": "a replace 0",
     },
+    {
+        "name": "second-chunk-nonhex",
+        "file": "scripts/release/freeze_gate.py",
+        "old": "        size = _parse_chunk_size(_read_line(fp))\n",
+        "new": "        line = _read_line(fp)\n        if len(body) > 0 and len(line) == 2 and line[0] == 0x21:\n            line = b\"7\" + line[1:]\n        size = _parse_chunk_size(line)\n",
+        "must_fail": "test_byte_classes",
+        "evidence": "d replace 67",
+    },
 ]
