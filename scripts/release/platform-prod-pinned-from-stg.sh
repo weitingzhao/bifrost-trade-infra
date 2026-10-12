@@ -6,7 +6,9 @@
 # clone-platform cloned and uiRevision = the commit its clone-ui cloned, so PROD gets the
 # Console that was tested on STG instead of whatever bifrost-ui main is by then. Labels
 # bifrost.io/purpose=platform-prod-pinned and bifrost.io/from-stg-run=<stg-run>; the
-# taskRunSpecs / taskRunTemplate / timeouts / workspaces are the STG run's.
+# taskRunTemplate / timeouts / workspaces are the STG run's. taskRunSpecs keeps other
+# overrides and sets check-source to tekton-deliver when the live PROD Pipeline has it.
+# An unreadable Pipeline or non-list spec.tasks refuses generation (exit 1).
 #
 # Usage:
 #   scripts/release/platform-prod-pinned-from-stg.sh <stg-run> [-o <file>]
@@ -18,7 +20,7 @@ set -euo pipefail
 # shellcheck source=scripts/release/lib.sh
 source "$(dirname "$0")/lib.sh"
 
-pinned_usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; }
+pinned_usage() { sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; }
 
 run="" out=""
 while [[ $# -gt 0 ]]; do
