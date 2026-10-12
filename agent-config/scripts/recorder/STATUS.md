@@ -19,3 +19,6 @@ Also open: single-point mutants that no test catches (see `REPORT-7`/`REPORT-8` 
 
 How it gets trusted: the three fixed and independently reviewed; survivors at zero under the checker's
 definition; seven days running beside the hand-maintained board with no unexplained difference.
+
+The one permitted reader during the shadow week is the comparer described in
+`agent-config/work/multi-agent/PLAN-recorder-shadow-run-2026-10-12.md`; its output goes to a difference log, never to a page.
