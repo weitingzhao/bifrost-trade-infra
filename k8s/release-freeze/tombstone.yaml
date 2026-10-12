@@ -1,0 +1,15 @@
+# Owner 亲手应用。对应设计第 7 节的表，步 7。没有别的东西应用这份文件。
+# 动手前再看一遍：写下墓碑之后不能回滚到旧 Task，也不能把平台回滚到 S3 之前。
+# 占位符 TOMBSTONE_WRITTEN_AT 由 Owner 在当时填成 UTC 时间。设计第 5 节的命令：
+# kubectl -n cicd patch configmap bifrost-release-freeze --type=merge -p '{"immutable":true,"data":{"frozen":"true","frozen_at":"<当时的 UTC 时间>","who":"owner","reason":"tombstone: freezes moved to freezes.release.bifrost.io"}}'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bifrost-release-freeze
+  namespace: cicd
+immutable: true
+data:
+  frozen: "true"
+  frozen_at: "TOMBSTONE_WRITTEN_AT"
+  who: "owner"
+  reason: "tombstone: freezes moved to freezes.release.bifrost.io"
