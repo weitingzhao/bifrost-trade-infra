@@ -75,6 +75,10 @@ spec:
             # webhook is silently dropped and CI never fires.
             - name: GITEA__webhook__ALLOWED_HOST_LIST
               value: "*.svc.cluster.local,private"
+            # Applying this file restarts Gitea (strategy is Recreate). Kept
+            # out of the backup commit so the Owner can roll it on its own.
+            - name: GITEA__service__DISABLE_REGISTRATION
+              value: "true"
           volumeMounts:
             - name: gitea-data
               mountPath: /data
