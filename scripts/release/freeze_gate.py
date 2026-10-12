@@ -537,10 +537,16 @@ def _arm(sock, deadline: float) -> None:
 
 
 def _read_http(fp, sock, deadline, token, host, port, ctx, dial) -> Decision:
+    interim = 0
     while True:
         _arm(sock, deadline)
-        status, headers = _read_head(fp)
+        status, headers = _read_head(fp, sock, deadline)
+        if _encoding_forbidden(any(name == "content-encoding" for name, _value in headers)):
+            return _unread("content-encoding")
         if status in (100, 102, 103):
+            interim += 1
+            if interim > MAX_INTERIM:
+                return _unread("too many interim responses")
             continue
         if status == 101 or 100 <= status < 200:
             return _unread(f"HTTP {status}")
@@ -548,9 +554,6 @@ def _read_http(fp, sock, deadline, token, host, port, ctx, dial) -> Decision:
             if not _follow_redirect():
                 return _unread(f"HTTP {status}")
             return _follow_once(headers, token, host, port, ctx, deadline, dial)
-        names = [name for name, _value in headers]
-        if _encoding_forbidden(any(name == "content-encoding" for name in names)):
-            return _unread("content-encoding")
         body = _read_body(fp, sock, deadline, headers)
         return decide_http(status, body)
 
@@ -576,50 +579,147 @@ def _follow_once(headers, token, host, port, ctx, deadline, dial) -> Decision:
             f"Authorization: Bearer {token}\r\nConnection: close\r\n\r\n"
         )
         sock.sendall(req.encode("ascii"))
-        status, headers = _read_head(fp)
+        status, headers = _read_head(fp, sock, deadline)
         body = _read_body(fp, sock, deadline, headers)
         return decide_http(status, body)
     finally:
         sock.close()
 
 
-def _read_head(fp) -> tuple[int, list[tuple[str, str]]]:
-    line = _read_line(fp)
-    if not line.startswith("HTTP/1.1 "):
+# The response language H of design 3.2: the status line, the field lines and the framing. Every rule is a rule
+# on bytes. No library integer or whitespace function is on this path: int() and str.strip() accept more than H
+# does, and they accept differently from Go's strconv.Atoi and strings.TrimSpace. A response outside H is not clear.
+MAX_LINE = 1024  # rule: a line with its CRLF is at most 1024 bytes
+MAX_FIELDS = 64  # rule: at most 64 field lines in a head or a trailer
+MAX_INTERIM = 8  # rule: at most 8 interim responses
+MAX_LEN_DIGITS = 4  # rule: Content-Length is 1 to 4 digits
+MAX_HEX_DIGITS = 4  # rule: a chunk size is 1 to 4 hex digits
+_TCHAR = frozenset(b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz" + b"!#$%&'*+-.^_`|~")  # rule: token bytes
+_TRAILER_FORBIDDEN = ("content-encoding", "content-length", "transfer-encoding")  # rule: no framing field in a trailer
+
+
+def _is_ftext(c: int) -> bool:
+    return c == 0x09 or 0x20 <= c <= 0x7E  # rule: field text is HTAB or 0x20-0x7E
+
+
+def _lower_ascii(b: bytes) -> str:
+    return bytes(c + 32 if 0x41 <= c <= 0x5A else c for c in b).decode("latin-1")
+
+
+def _read_line(fp) -> bytes:
+    raw = fp.readline(MAX_LINE + 1)
+    if raw == b"":
+        raise EOFError("eof")
+    if len(raw) > MAX_LINE or not raw.endswith(b"\n"):
         raise OSError("connection failed")
-    parts = line.split(" ", 2)
-    status = int(parts[1])
-    headers: list[tuple[str, str]] = []
+    if len(raw) < 2 or raw[-2] != 0x0D:  # rule: a line ends with CRLF
+        raise OSError("connection failed")
+    return raw[:-2]
+
+
+def _parse_status_line(line: bytes) -> int:
+    prefix = b"HTTP/1.1 "
+    if len(line) < len(prefix) + 3 or line[: len(prefix)] != prefix:
+        raise OSError("connection failed")
+    d = line[len(prefix):]
+    if not (0x30 <= d[0] <= 0x39 and 0x30 <= d[1] <= 0x39 and 0x30 <= d[2] <= 0x39):
+        raise OSError("connection failed")
+    code = (d[0] - 0x30) * 100 + (d[1] - 0x30) * 10 + (d[2] - 0x30)
+    rest = d[3:]
+    if len(rest) == 0:
+        return code
+    if rest[0] != 0x20:  # rule: SP between the status code and the reason
+        raise OSError("connection failed")
+    for c in rest[1:]:
+        if not _is_ftext(c):
+            raise OSError("connection failed")
+    return code
+
+
+def _parse_field(line: bytes) -> tuple[str, str]:
+    i = 0
+    while i < len(line) and line[i] in _TCHAR:
+        i += 1
+    if i == 0 or i >= len(line) or line[i] != 0x3A:
+        raise OSError("connection failed")
+    v = line[i + 1:]
+    for c in v:
+        if not _is_ftext(c):
+            raise OSError("connection failed")
+    a, b = 0, len(v)
+    while a < b and v[a] in (0x20, 0x09):
+        a += 1
+    while b > a and v[b - 1] in (0x20, 0x09):
+        b -= 1
+    return _lower_ascii(line[:i]), v[a:b].decode("latin-1")
+
+
+def _read_fields(fp, sock, deadline) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
     while True:
-        h = _read_line(fp)
-        if h == "":
-            break
-        name, _, value = h.partition(":")
-        headers.append((name.strip().lower(), value.strip()))
-    return status, headers
+        _arm(sock, deadline)
+        line = _read_line(fp)
+        if len(line) == 0:
+            return out
+        if len(out) >= MAX_FIELDS:
+            raise OSError("connection failed")
+        out.append(_parse_field(line))
 
 
-def _read_line(fp) -> str:
-    raw = fp.readline()
-    if not raw.endswith(b"\r\n"):
-        if raw == b"":
-            raise TimeoutError("timeout") if False else EOFError("eof")
+def _read_head(fp, sock, deadline) -> tuple[int, list[tuple[str, str]]]:
+    status = _parse_status_line(_read_line(fp))
+    return status, _read_fields(fp, sock, deadline)
+
+
+def _parse_decimal(s: str) -> int:
+    if len(s) == 0 or len(s) > MAX_LEN_DIGITS:
         raise OSError("connection failed")
-    return raw[:-2].decode("iso-8859-1")
+    n = 0
+    for ch in s:
+        if not ("0" <= ch <= "9"):
+            raise OSError("connection failed")
+        n = n * 10 + (ord(ch) - 0x30)
+    return n
+
+
+def _chunk_size_text(line: bytes) -> bytes:
+    return line  # rule: no chunk extension
+
+
+def _parse_chunk_size(line: bytes) -> int:
+    t = _chunk_size_text(line)
+    if len(t) == 0 or len(t) > MAX_HEX_DIGITS:
+        raise OSError("connection failed")
+    n = 0
+    for c in t:
+        if 0x30 <= c <= 0x39:
+            v = c - 0x30
+        elif 0x61 <= c <= 0x66:
+            v = c - 0x61 + 10
+        elif 0x41 <= c <= 0x46:
+            v = c - 0x41 + 10
+        else:
+            raise OSError("connection failed")
+        n = n * 16 + v
+    return n
 
 
 def _read_body(fp, sock, deadline, headers) -> bytes:
     tes = [v for n, v in headers if n == "transfer-encoding"]
-    if any("chunked" in v.lower() for v in tes):
+    cls = [v for n, v in headers if n == "content-length"]
+    if len(tes) > 0:
+        if len(cls) != 0 or len(tes) != 1:  # rule: chunked excludes content-length and a second transfer-encoding
+            raise OSError("connection failed")
+        if _lower_ascii(tes[0].encode("latin-1")) != "chunked":  # rule: the only transfer coding is chunked
+            raise OSError("connection failed")
         body, final = _read_chunked(fp, sock, deadline)
         if not _chunk_frame_complete(final):
             raise OSError("connection failed")
         return body
-    cls = [v for n, v in headers if n == "content-length"]
     if len(cls) != 1:
         raise OSError("connection failed")
-    n = int(cls[0].strip())
-    if n < 0 or _body_too_big(n):
+    n = _parse_decimal(cls[0])
+    if _body_too_big(n):
         raise OSError("connection failed")
     got = bytearray()
     while len(got) < n:
@@ -633,43 +733,41 @@ def _read_body(fp, sock, deadline, headers) -> bytes:
     return bytes(got)
 
 
+def _read_exact(fp, sock, deadline, n: int) -> bytes:
+    got = bytearray()
+    while len(got) < n:
+        _arm(sock, deadline)
+        chunk = fp.read(n - len(got))
+        if not chunk:
+            raise OSError("connection failed")
+        got += chunk
+    return bytes(got)
+
+
 def _read_chunked(fp, sock, deadline) -> tuple[bytes, bool]:
     body = bytearray()
     while True:
         _arm(sock, deadline)
-        try:
-            line = _read_line(fp)
-        except EOFError:
-            return bytes(body), False
-        hex_part = line.split(";", 1)[0].strip()
-        size = int(hex_part, 16)
+        size = _parse_chunk_size(_read_line(fp))
         if size == 0:
             return bytes(body), _read_trailers(fp, sock, deadline)
         if _body_too_big(len(body) + size):
             raise OSError("connection failed")
-        _arm(sock, deadline)
-        data = fp.read(size)
-        if len(data) != size:
-            raise OSError("connection failed")
-        body += data
-        _arm(sock, deadline)
-        crlf = fp.read(2)
-        if crlf != b"\r\n":
+        body += _read_exact(fp, sock, deadline, size)
+        if _read_exact(fp, sock, deadline, 2) != b"\r\n":
             raise OSError("connection failed")
 
 
 def _read_trailers(fp, sock, deadline) -> bool:
-    while True:
-        _arm(sock, deadline)
-        raw = fp.readline()
-        if raw == b"":
-            if not _chunk_frame_complete(False):
-                return False
-            return True
-        if raw in (b"\r\n", b"\n"):
-            return True
-        if not raw.endswith(b"\r\n"):
-            return False
+    """The trailer section and the empty line that ends the body. A stream that ends first is not final."""
+    try:
+        fields = _read_fields(fp, sock, deadline)
+    except EOFError:
+        return False
+    for name, _value in fields:
+        if name in _TRAILER_FORBIDDEN:
+            raise OSError("connection failed")
+    return True
 
 
 def main() -> int:

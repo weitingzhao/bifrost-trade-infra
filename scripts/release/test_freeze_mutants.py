@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -70,7 +71,7 @@ class MutantRunTests(unittest.TestCase):
                 cmd = [
                     sys.executable, "-m", "pytest", "-q", "--tb=line",
                     "-p", "no:cacheprovider", "-k", item["must_fail"],
-                    "test_freeze_lang.py", "test_freeze_gate.py", "test_freeze_manifests.py",
+                    "test_freeze_lang.py", "test_freeze_gate.py", "test_freeze_manifests.py", "test_freeze_http.py",
                 ]
                 res = subprocess.run(
                     cmd,
@@ -84,6 +85,10 @@ class MutantRunTests(unittest.TestCase):
                 if res.returncode == 0:
                     print(f"mutant {item['name']} survived", flush=True)
                     self.fail(f"mutant {item['name']} survived\n{res.stdout}\n{res.stderr}")
+                # Caught means a selected test FAILED. A collection error, a syntax error or an empty selection is not a catch.
+                if not re.search(r"\b[1-9][0-9]* failed\b", res.stdout) or re.search(r"\b[1-9][0-9]* errors?\b", res.stdout):
+                    print(f"mutant {item['name']} broke the run without failing a test", flush=True)
+                    self.fail(f"mutant {item['name']} did not fail a named test\n{res.stdout}\n{res.stderr}")
                 print(f"mutant {item['name']} killed", flush=True)
 
 
