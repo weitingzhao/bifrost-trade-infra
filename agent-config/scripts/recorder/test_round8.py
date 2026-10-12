@@ -111,6 +111,7 @@ def _timed_and_small():
     public, row = _timed({}, no_start, 100, gap=False, none=False)
     _need(row == "running" and "eta_end" not in public, public)
     _need(_is_number(True) is False and _is_number(1) is True and _is_number(float("nan")) is False, "a number is finite and not a boolean")
+    _need(_is_number("1") is False, "a string is not a number")
     _public, row = _unknown({}, "clock", row="kept")
     _need(row == "kept", row)
     _need(_last_confirmed_at([{"ended_at": 4}], "missing") is None, "a round without confirmed does not confirm")
@@ -121,6 +122,9 @@ def _timed_and_small():
     signaled = _step(finished={"at": 3, "exit": {"signal": "TERM"}}, watch="process")
     public, _row = _finish(signaled, {})
     _need(public.get("reason") == "ended_by_signal" and public.get("signal") == "TERM", public)
+    coded = _step(finished={"at": 3, "exit": {"code": 0}}, watch="process")
+    public, _row = _finish(coded, {})
+    _need(public.get("state") == "done" and public.get("ended_how") == "exit_0", public)
     exact = _step(started=True, started_at=0, seen=[{"sampled_at": GAP_S}])
     _need(_gap(exact) is False, "a gap equal to the limit is not a gap")
     over = _step(started=True, started_at=0, seen=[{"sampled_at": GAP_S + 1}])
@@ -131,6 +135,8 @@ def _timed_and_small():
     _need(_silence_from(silent) is None, "quiet needs an output size")
     zero = _step(seen=[{"output_bytes": 0, "sampled_at": 1}], started_at=4)
     _need(_silence_from(zero) == 4, "output that never grew is silent from the start")
+    one_byte = _step(seen=[{"output_bytes": 1, "sampled_at": 5}], started_at=2)
+    _need(_silence_from(one_byte) == 5, "one byte of output is growth")
     grew = _step(seen=[{"output_bytes": 0, "sampled_at": 1}, {"output_bytes": 3, "sampled_at": 6}], started_at=1)
     _need(_silence_from(grew) == 6, "silence starts at the last growth")
     from validate import Wait
@@ -181,6 +187,12 @@ def _fold_and_feed():
     _apply_unrecorded(built, rounds, 10)
     _need(built[0]["public"].get("unrecorded_runs") == 1, "a missing public step is still unrecorded")
     step.started = False
+    step.run_id = RUN
+    built[0]["public"]["steps"] = [{"step_id": P, "state": "running"}]
+    built[0]["public"]["unrecorded_runs"] = 0
+    _apply_unrecorded(built, rounds, 10)
+    _need(built[0]["public"].get("unrecorded_runs") == 1, "an unstarted step with this run is still unrecorded")
+    step.started = False
     step.declared_by = "coordinator"
     step.run_id = "other"
     public_step = {"step_id": P, "state": "waiting", "reason": "start_not_recorded"}
@@ -193,10 +205,30 @@ def _fold_and_feed():
     public_step.pop("last_seen", None)
     _apply_unrecorded(built, rounds, 10)
     _need("last_seen" not in public_step, public_step)
-    view.notes = [{"at": 1, "text": "n", "by": ""}]
+    view.steps.pop(P)
+    public_step = {"step_id": P, "state": "waiting", "reason": "start_not_recorded"}
+    built[0]["public"]["steps"] = [public_step]
+    built[0]["public"]["unrecorded_runs"] = 0
+    _apply_unrecorded(built, rounds, 10)
+    _need("last_seen" not in public_step, "a public step with no view step is not a missing start")
+    view.steps[P] = step
+    view.notes = [{"at": 1, "text": "n"}]
+    rows = _feed(view, {}, WORK)
+    _need(rows and rows[0]["who"] == "", rows)
+    from validate import Wait
+
+    view.notes = []
+    view.waits[WAIT] = Wait(WAIT, "title", {"kind": "none", "id": "c"}, 0, 1)
+    view.valid = [{"type": "owner_wait_closed", "at": 2, "wait_id": WAIT, "how": "done"}]
+    rows = _feed(view, {}, WORK)
+    _need(rows and rows[0]["who"] == "", rows)
+    view.valid = []
+    view.waits[WAIT].terminal_state = "executed"
+    view.waits[WAIT].seen = [{"at": 4, "ref_state": "executed"}]
     rows = _feed(view, {}, WORK)
     _need(rows and rows[0]["who"] == "", rows)
     view.notes = []
+    view.waits.clear()
     view.valid = [{"type": "owner_wait_closed", "at": 2, "wait_id": "missing", "by": "coordinator", "how": "done"}]
     _need(_feed(view, {}, WORK) == [], "a close whose wait is gone is not a feed row")
     absent = _step(record_obs=[])
@@ -225,6 +257,23 @@ def _fold_and_feed():
     _need(public["work_id"] == "from-file", public)
     public = _work_public(View(work_id=WORK), loaded, [], 0, False, None)
     _need(public["work_id"] == WORK, public)
+    nameless = _loaded(View(work_id=None), name=None)
+    public = _work_public(View(work_id=None), nameless, [], 0, False, None)
+    _need(public["work_id"] == "", public)
+    record = Step(R, "r", "release", "C", "record", 0, 1, locator={"name": "r"})
+    record.record_obs = [{"found": True, "started_at": 1, "sampled_at": 2}]
+    named_view = View(work_id=WORK)
+    named_view.steps[R] = record
+    named_view.step_order = [R]
+    confirmed = [{"ended_at": 3, "confirmed": [f"step:{WORK}/{R}"], "failed": []}]
+    folded = _fold_one(_loaded(named_view, name="from-file"), confirmed, 10)
+    _need(folded["public"]["steps"][0]["state"] == "running", folded["public"]["steps"][0])
+    file_view = View(work_id="")
+    file_view.steps[R] = record
+    file_view.step_order = [R]
+    confirmed = [{"ended_at": 3, "confirmed": [f"step:from-file/{R}"], "failed": []}]
+    folded = _fold_one(_loaded(file_view, name="from-file"), confirmed, 10)
+    _need(folded["public"]["steps"][0]["state"] == "running", folded["public"]["steps"][0])
 
 
 def _owner():
@@ -329,15 +378,50 @@ def _owner():
         ("owner_can_act",),
     )
     _need(ball.get("basis") == "declared", ball)
-    agents = _pick([{"holder": "agents", "why": "step_running", "since": 4}], "agents", ("step_running",))
+    agents = _pick([{"holder": "agents", "why": "step_running", "since": 4, "basis": "declared"}], "agents", ("step_running",))
     _need("basis" not in agents, agents)
     unknown_ball = _pick([{"holder": "unknown", "why": "step_unknown", "since": 4}], "unknown", ("step_unknown",))
     _need("since" not in unknown_ball, unknown_ball)
-    # holds: a step whose after is not in the frontier is not held, and continue must skip it
+    waiting = Step(P, "n", "implement", "C", "process", 0, 1, waiting_on=[WAIT], after=N)
+    waiting.declared_at = 5
+    view.steps = {P: waiting}
+    view.step_order = [P]
+    view.waits[WAIT] = Wait(WAIT, "t", {"kind": "none", "id": "c"}, 0, 1)
+    view.waits[WAIT].settled_at = None
+    _need(_one_next_since(waiting, view) == 5, "an unsettled wait does not move the declaration")
+    waiting.waiting_on = []
+    try:
+        missing_after = _qualifying_next(view, {}, [{"step_id": P, "state": "waiting"}])
+    except TypeError:
+        missing_after = None
+    _need(missing_after == [], "a missing after step does not qualify")
+    bare_wait = Wait(WAIT, "t", {"kind": "none", "id": "c"}, 0, 1)
+    bare_wait.seen = []
+    key = ("approval", "appr_0123456789abcdef")
+    confirmed = [{"ended_at": 3, "confirmed": [f"{key[0]}:{key[1]}"], "failed": []}]
+    _status, item = _merged_record(key, [({"public": {"work_id": WORK}, "view": view}, bare_wait)], [], confirmed, 10)
+    _need(item["reason"] == "not_confirmed", item)
+    ready = {
+        "view": view,
+        "public": {"steps": []},
+        "flags": [],
+        "invalid": False,
+    }
+    view.waits = {WAIT: bare_wait}
+    ball = _judge_work(ready, {("none", WORK, WAIT): {"status": "not_yet", "declared": True}})
+    _need(ball["why"] == "owner_item_not_ready", ball)
+    # A step already held, whose after is itself, is held once. Skipping the
+    # seen step must return; walking it again does not finish.
+    import threading
+
     again = Step(P, "n", "other", "C", "none", 0, 1, waiting_on=[WAIT], after=P)
     view.steps = {P: again}
     view.step_order = [P]
-    _need(_holds(WAIT, view) == [P], "a step is held once")
+    box = []
+    worker = threading.Thread(target=lambda: box.append(_holds(WAIT, view)), daemon=True)
+    worker.start()
+    worker.join(0.2)
+    _need(not worker.is_alive() and box == [[P]], "a step is held once")
 
 
 def _context_and_model():

@@ -47,6 +47,7 @@ def _failures(proc):
 def _run(item, named=False):
     env = {k: v for k, v in os.environ.items() if k not in ('RECORDER_MUTANTS', 'RECORDER_FULL')}
     env['PYTHONDONTWRITEBYTECODE'] = '1'
+    env['RECORDER_MUTANT_ORDER'] = '1'
     with tempfile.TemporaryDirectory() as tmp:
         folder = Path(tmp) / 'bifrost-trade-infra' / 'agent-config' / 'scripts' / 'recorder'
         shutil.copytree(HERE, folder, ignore=shutil.ignore_patterns('__pycache__', '.pytest_cache'))
@@ -131,6 +132,12 @@ def test_generator_sites_are_unique_complete_and_compilable():
             assert _constant_dead(cite) is None, cite
         elif cite.startswith("subset:"):
             assert _subset_dead(cite) is None, cite
+        elif cite.startswith("codec:"):
+            assert _codec_same(cite) is None, cite
+        elif cite.startswith("strings:"):
+            assert _strings_dead(cite) is None, cite
+        elif cite.startswith("nonempty:"):
+            assert _nonempty_raises(cite) is None, cite
         else:
             assert cite.count(":") == 1, cite
 
@@ -226,6 +233,64 @@ def _subset_dead(cite: str) -> str | None:
     return None
 
 
+def _codec_same(cite: str) -> str | None:
+    """None when both spellings name the same codec.
+
+    ``codec:ascii=ascii~`` is read with codecs.lookup. A trailing mark that
+    the codec registry ignores cannot change a decode.
+    """
+    import codecs
+
+    left, right = cite[len("codec:"):].split("=")
+    try:
+        same = codecs.lookup(left).name == codecs.lookup(right).name
+    except LookupError as exc:
+        return str(exc)
+    if not same:
+        return f"{left} and {right} are different codecs"
+    return None
+
+
+def _strings_dead(cite: str) -> str | None:
+    """None when every element of the named collection is a str.
+
+    A non-string then cannot be a member, so `type(key) is not str or key not
+    in collection` cannot differ from `key not in collection`.
+    """
+    value = _module_attr(cite[len("strings:"):])
+    if not isinstance(value, (set, frozenset, tuple)):
+        return f"{cite} is not a collection of names"
+    if not all(type(item) is str for item in value):
+        return f"{cite} contains a non-string"
+    return None
+
+
+def _nonempty_raises(cite: str) -> str | None:
+    """None when every cited function raises ValueError with a non-empty message.
+
+    ``nonempty:read._pairs+read._reject_constant`` is read from those functions.
+    json.JSONDecodeError is a ValueError and its constructor stores the message
+    in args, so `exc.args` on this handler is never empty.
+    """
+    import inspect
+    import json
+
+    for qual in cite[len("nonempty:"):].split("+"):
+        fn = _module_attr(qual)
+        raises = [node for node in ast.walk(ast.parse(inspect.getsource(fn))) if isinstance(node, ast.Raise)]
+        if not raises:
+            return f"{qual} raises nothing"
+        for node in raises:
+            exc = node.exc
+            if not isinstance(exc, ast.Call) or not isinstance(exc.func, ast.Name) or exc.func.id != "ValueError":
+                return f"{qual} does not raise ValueError"
+            if len(exc.args) != 1 or not isinstance(exc.args[0], ast.Constant) or type(exc.args[0].value) is not str or exc.args[0].value == "":
+                return f"{qual} message is empty"
+    if not issubclass(json.JSONDecodeError, ValueError) or not json.JSONDecodeError("m", "s", 0).args:
+        return "JSONDecodeError has no message"
+    return None
+
+
 def _module_attr(qual: str):
     module_name, attr = qual.split(".")
     return getattr(importlib.import_module(module_name), attr)
@@ -298,11 +363,19 @@ def test_generated_mutants():
                     else:
                         bad_cite.append(f"{name} cites {cite}: {error}")
                     continue
-                if cite.startswith("subset:"):
-                    error = _subset_dead(cite)
+                if cite.startswith(("constant:", "subset:", "codec:", "strings:", "nonempty:")):
+                    checker = {
+                        "constant:": _constant_dead,
+                        "subset:": _subset_dead,
+                        "codec:": _codec_same,
+                        "strings:": _strings_dead,
+                        "nonempty:": _nonempty_raises,
+                    }
+                    kind = cite.split(":", 1)[0] + ":"
+                    error = checker[kind](cite)
                     if error is None:
                         unreachable.append(name)
-                        print(f"unreachable-subset {name}: {cite}", flush=True)
+                        print(f"unreachable-{kind[:-1]} {name}: {cite}", flush=True)
                     else:
                         bad_cite.append(f"{name} cites {cite}: {error}")
                     continue

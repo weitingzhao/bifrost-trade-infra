@@ -91,6 +91,26 @@ EQUIVALENT = {
     'redact_bound.py:string_growth:30:40:constant:5': 'In string_growth at line 30, `text == ""` and `text == "~"` differ for an empty string, and that string still contributes no growth.',
     'redact_bound.py:growth:51:16:negate:0': 'In growth at line 51, negating the string-key check measures a non-string key, and string_growth of a non-string is 0.',
     'redact_bound.py:growth:51:19:compare:0': 'In growth at line 51, `type(key) is str` and `type(key) is not str` differ for an integer key, and string_growth of that key is 0.',
+    'fold.py:_finish:356:7:operand:0': "In _finish at line 356, dropping the `'signal' in exit_body` check leaves get('signal'), which is None when the key is absent, and a missing signal still falls through to the exit code.",
+    'contextual.py:_apply:162:8:guard_pass:0': 'In _apply at line 162, `return` and `pass` differ after owner_wait_ready, and no later kind matches that event, so can_act and yes_at stay set.',
+    'contextual.py:_apply:174:8:guard_pass:0': 'In _apply at line 174, `return` and `pass` differ after observer_round, and that branch is last, so the round stays appended.',
+    'ownerball.py:_effect:97:7:operand:1': 'In _effect at line 97, dropping `step.usual_s is None` leaves `step is None`, which is false for a step whose usual time is missing, and the returned usual time is still None.',
+    'ownerball.py:_judge_work:348:7:operand:1': 'In _judge_work at line 348, `pending and all(...)` and `pending` differ for a not-yet item, and every item that reaches that line is not_yet so the same ball is returned.',
+    'ownerball.py:_merged_record:173:69:operand:1': 'In _merged_record at line 173, `reason or "not_confirmed"` and `reason` differ when the confirm reason is None, and _unknown_record_item stores not_confirmed for any reason outside the closed set.',
+    'publish.py:_level1:220:12:guard_pass:0': 'In _level1 at line 220, `continue` and `pass` differ on a summary, and a summary has no steps for the following loop to strip.',
+    'publish.py:_level6:294:9:operand:0': 'In _level6 at line 294, dropping the `owner_all_cut` membership check leaves `not prior`, and popping an absent key leaves the document unchanged.',
+    'publish.py:publish_view:93:40:compare:0': 'In publish_view at line 93, `len(original_feed) > feed_cap` and `>=` differ when the feed is exactly at the cap, and the last cap rows are the whole feed.',
+    'read.py:Folded.__init__:87:11:compare:0': 'In Folded.__init__ at line 87, `token is _FOLD_TOKEN` and `token is not _FOLD_TOKEN` differ for an ordinary call, and `or True` still raises TypeError.',
+    'read.py:Folded.__init__:87:35:compare:0': 'In Folded.__init__ at line 87, `document is not None` and `document is None` differ when a document is passed, and `or True` still raises TypeError.',
+    'read.py:_in_range:137:12:guard_pass:0': 'In _in_range at line 137, `return False` and `pass` differ for nan, and the following range comparison is also false for nan.',
+    'read.py:_int_token:271:11:operand:0': 'In _int_token at line 271, dropping the `.eE` disjunct leaves `len(token) > 17`, which is false for "1.5", and int("1.5") still returns None.',
+    'read.py:_is_folded:108:8:guard_pass:0': 'In _is_folded at line 108, `return False` and `pass` differ for an ordinary object, and `_held(value) is not None` is also false.',
+    'read.py:_token_bad:247:7:operand:1': 'In _token_bad at line 247, dropping the infinity disjunct leaves `number != number`, which is false for "1e999", and abs(inf) is still above 2**53.',
+    'read.py:_token_bad:248:8:guard_pass:0': 'In _token_bad at line 248, `return True` and `pass` differ for "1e999", and the following abs(inf) comparison is also true.',
+    'read.py:exact_tree:184:15:operand:1': 'In exact_tree at line 184, dropping the cycle check leaves `depth > MAX_DEPTH`, which is false on the first revisit, and following the cycle then exceeds the depth.',
+    'read.py:at_or_0:144:11:operand:0': 'In at_or_0 at line 144, dropping `type(now) is float` leaves `now == 0`, which is true for the integer 0, and the returned time is still 0.',
+    'read.py:read_log:466:15:operand:1': 'In read_log at line 466, `parsed.digest or prev` and `parsed.digest` differ when a later break has an empty digest, and that break ends the log before the new prev is read.',
+    'validate.py:_backwards:688:29:compare:0': 'In _backwards at line 688, `at > max_at` and `at >= max_at` differ when at equals the maximum, and assigning that same maximum changes no later threshold.',
 }
 
 UNREACHABLE = {
@@ -114,4 +134,41 @@ UNREACHABLE = {
     # cannot change the conjunction. Same for questions.
     'model.py:terminal_state:438:15:operand:0': 'subset:model.APPROVAL_TERMINAL<=model.APPROVAL_STATES',
     'model.py:terminal_state:440:15:operand:0': 'subset:model.QUESTION_TERMINAL<=model.QUESTION_STATES',
+    # `or True` makes the other disjuncts unable to change the condition.
+    # operand:2 on this line is killed by Folded().
+    'read.py:Folded.__init__:87:11:operand:0': 'read.py:87',
+    'read.py:Folded.__init__:87:11:operand:1': 'read.py:87',
+    # ±inf already fail -TWO53..TWO53, so dropping one infinity conjunct cannot
+    # change the conjunction. A comparison mutant on this line is killed.
+    'read.py:_in_range:138:15:operand:0': 'read.py:138',
+    'read.py:_in_range:138:15:operand:1': 'read.py:138',
+    # _bad_string already returns true for a non-string. That return is killed.
+    'read.py:exact_tree:190:23:operand:0': 'read.py:152',
+    # Only a dict or a list is stacked. The leaf return at the entry is killed.
+    'read.py:exact_tree:197:16:guard_pass:0': 'read.py:178',
+    # _in_range returns false unless the value is an int or a float.
+    'read.py:at_or_0:143:7:operand:0': 'read.py:133',
+    # A bool is neither int nor float, so the bool disjunct cannot change the or.
+    'publish.py:_block_ok:562:30:operand:0': 'publish.py:562',
+    # Line 732 already returned for every value that is not an int or a float.
+    'publish.py:_finite_number:732:7:operand:0': 'publish.py:732',
+    'publish.py:_finite_number:734:7:operand:0': 'publish.py:732',
+    # A missing feed is replaced by a list at line 86, which is killed.
+    'publish.py:publish_view:127:31:operand:1': 'publish.py:86',
+    'publish.py:publish_view:128:50:operand:1': 'publish.py:86',
+    # The elif runs only when cut is 0, so prior is 0 and `not prior` is true.
+    'publish.py:_level6:294:9:operand:1': 'publish.py:291',
+    # A key that matches the pattern is shorter than TEXT_LIMIT and has no controls.
+    'validate.py:_round_lists:589:11:operand:0': 'validate.py:589',
+    # codecs.lookup ignores the trailing "~", so ascii and ascii~ decode alike.
+    'read.py:read_line:351:59:constant:13': 'codec:ascii=ascii~',
+    # 0x2029 is already in the explicit tuple, so the lowered bound changes nothing.
+    'read.py:_bad_string:159:39:constant:0': 'read.py:159',
+    # Every block key is a str, so a non-string is never a member.
+    'publish.py:_merge_blocks:541:11:operand:0': 'strings:publish._BLOCK_KEYS',
+    # exact_tree(blocks) already rejected a value that is not an exact tree.
+    'publish.py:_merge_blocks:545:11:operand:0': 'publish.py:537',
+    # The only ValueErrors json.loads can raise here carry a message, so
+    # `exc.args` is never empty and dropping it cannot change the `and`.
+    'read.py:read_line:372:27:operand:0': 'nonempty:read._pairs+read._reject_constant',
 }

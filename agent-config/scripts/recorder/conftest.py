@@ -7,6 +7,7 @@ ends, so a second look at this directory sees no leftover files.
 from __future__ import annotations
 
 import atexit
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -25,3 +26,17 @@ def _drop_cache() -> None:
 
 
 atexit.register(_drop_cache)
+
+
+def pytest_collection_modifyitems(items):
+    """During a mutant run, fail the new checks before the older suite."""
+    if os.environ.get("RECORDER_MUTANT_ORDER") != "1":
+        return
+
+    def rank(item):
+        path = str(getattr(item, "path", getattr(item, "fspath", "")))
+        name = path.rsplit("/", 1)[-1]
+        early = name.startswith("test_round8") or name == "test_review113.py"
+        return (0 if early else 1, name)
+
+    items.sort(key=rank)

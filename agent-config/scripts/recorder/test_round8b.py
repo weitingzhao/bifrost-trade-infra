@@ -122,6 +122,7 @@ def _read_edges():
     _need(at_or_0(True) == 0, "a boolean is not a time")
     _need(at_or_0(1.5) == 1.5, "a finite float is kept")
     _need(at_or_0(0.0) == 0 and type(at_or_0(0.0)) is int, "zero becomes the integer 0")
+    _need(at_or_0(0) == 0 and type(at_or_0(0)) is int, "the integer zero stays zero")
     _need(at_or_0(None) == 0, "a missing time is 0")
     _need(_in_range(float("nan")) is False, "nan is outside the range")
     _need(_in_range(float("inf")) is False and _in_range(float("-inf")) is False, "infinity is outside the range")
@@ -238,6 +239,8 @@ def _validate_edges():
     _need(_backwards(events) == set(), "exactly the skew is not backwards")
     events = [{"at": 10}, {"at": 10}]
     _need(_backwards(events) == set(), "an equal at is not a new maximum and not backwards")
+    raised_max = [{"at": 10}, {"at": 7}, {"at": 20}, {"at": 12}]
+    _need(_backwards(raised_max) == {1, 3}, _backwards(raised_max))
     earlier = [{"at": 10}, {"at": 10 - CLOCK_SKEW_S - 1}, {"at": 10}]
     inside = _backwards(earlier)
     _need(1 in inside and 2 not in inside, inside)
@@ -274,9 +277,161 @@ def _validate_edges():
     _need(step_is_open(record) is False, "a record withdrawn before it was found is not open")
 
 
+def _still():
+    """Inputs for the round-7 sites the first pass still answered the same way."""
+    import hashlib
+    import json
+    import weakref
+
+    from model import PUBLISH_FEED_REDUCED
+    from publish import (
+        _attach_events, _fit, _is_summary, _level3, _level4, _level6, _shed_blocks,
+        _strip_commands, _strip_step_events, _too_big, _trim_works, publish_total,
+    )
+    from read import _REGISTRY, _forget, _held, _seal, fallback, read_line, read_log
+
+    _need(_is_summary({}) is False, "no counts and no steps is not a summary")
+    empty = {}
+    _level3(empty)
+    _need(empty.get("works") == [], empty)
+    kept_summary = {"works": [{"closed_claim": "landed", "state_counts": {"done": 1}}]}
+    _level3(kept_summary)
+    _need("unknown_reasons" not in kept_summary["works"][0], kept_summary["works"][0])
+    bare = {}
+    _level4(bare)
+    _need("works" not in bare, bare)
+    neither = {"works": [{}]}
+    _level4(neither)
+    _need(neither["works"][0]["steps"] == [] and neither["works"][0]["steps_total"] == 0, neither)
+    plain = {"at": 1, "works": [], "feed": []}
+    _level6(plain, [], 0, False)
+    _need("owner_all_cut" not in plain, plain)
+    _need(_strip_commands({"commands": ""})["commands_count"] == 0, "an empty command string counts as none")
+    try:
+        none_commands = _strip_commands({"commands": None})["commands_count"]
+    except TypeError:
+        none_commands = None
+    _need(none_commands == 0, "commands that are none count as none")
+    noslash = {"works": [{"work_id": "noslash", "steps": [{"step_id": "", "state": "running"}]}]}
+    _need(_attach_events(noslash, {"noslash": [{"at": 1}]}) is False, noslash)
+    missing_steps = {"works": [{"work_id": WORK, "steps": None}]}
+    _need(_attach_events(missing_steps, {WORK + "/" + P: []}) is False, "steps none is no step")
+    _need(_shed_blocks({"works": [{"steps": None}], "at": 1, "feed": [], "owner_all": []}, 0, False) is False, "no step list, nothing shed")
+    _need(_strip_step_events({"works": [{"steps": None}]}) is False, "no step list, nothing stripped")
+    kept, _omitted = _trim_works([{"work_id": WORK, "steps": None}], set())
+    _need(len(kept) == 1, kept)
+    import copy
+
+    huge = {"at": 1, "works": [{"steps": [{"state": "running", "note": "x" * 210000}]}], "owner_all": []}
+    _need(isinstance(_fit(copy.deepcopy(huge), [], 0, False), int), "a missing feed is an empty feed")
+    with_feed = copy.deepcopy(huge)
+    with_feed["feed"] = [{"text": str(index)} for index in range(15)]
+    _fit(with_feed, [], 15, False)
+    _need(len(with_feed["feed"]) == PUBLISH_FEED_REDUCED, len(with_feed["feed"]))
+    from model import PLATFORM_ENVELOPE_BYTES, PLATFORM_MAX_PUT_BYTES
+    from publish import _nbytes, encoded, publish_view
+    from redact_bound import growth
+
+    under = {"at": 1, "works": [{"steps": [{"state": "running", "note": "bearer" * 32000}]}], "feed": [], "owner_all": []}
+    deficit = PLATFORM_MAX_PUT_BYTES - (_nbytes(under, 0, 0, False) + growth(under) + PLATFORM_ENVELOPE_BYTES)
+    exact_note = copy.deepcopy(under)
+    exact_note["works"][0]["steps"][0]["note"] += "x" * deficit
+    _need(_too_big(exact_note, 0, 0, False) is False, "equal to the platform limit still fits")
+    over_note = copy.deepcopy(under)
+    over_note["works"][0]["steps"][0]["note"] = "bearer" * 33500
+    _need(_too_big(over_note, 0, 0, False) is True, "bearer growth crosses the platform limit")
+
+    def titled(extra):
+        return {
+            "at": 1,
+            "internal_errors": 0,
+            "works": [{"title": "bearer" * 32000 + "x" * extra, "steps": [{"state": "running"}]}],
+            "feed": [],
+            "owner_all": [],
+        }
+
+    def measured(extra):
+        view = publish_view(titled(extra))
+        return len(encoded(view)) + growth(view) + PLATFORM_ENVELOPE_BYTES
+
+    extra = PLATFORM_MAX_PUT_BYTES - measured(0)
+    for _ in range(5):
+        total = measured(extra)
+        if total == PLATFORM_MAX_PUT_BYTES:
+            break
+        extra += PLATFORM_MAX_PUT_BYTES - total
+    _need(measured(extra) == PLATFORM_MAX_PUT_BYTES, measured(extra))
+    exact_out = json.loads(publish_total(_seal(titled(extra))))
+    _need(exact_out.get("recorder_failed", {}).get("reason") != "too_large", exact_out.get("recorder_failed"))
+    over = titled(0)
+    over["works"][0]["title"] = "bearer" * 33500
+    published = json.loads(publish_total(_seal(over)))
+    _need(published["recorder_failed"]["reason"] == "too_large", published.get("recorder_failed"))
+    caught = json.loads(publish_total(_seal({"title": "x"})))
+    _need(caught["recorder_failed"].get("error_class") == "KeyError", caught)
+    listed = json.loads(publish_total(_seal(["at"])))
+    _need(listed["recorder_failed"].get("error_class") == "TypeError", listed)
+    _REGISTRY[7] = ("other", b"")
+    try:
+        _forget(7, "ref")
+        _need(7 in _REGISTRY, "a different reference keeps the slot")
+    finally:
+        _REGISTRY.pop(7, None)
+    class Box:
+        pass
+
+    target = Box()
+    _REGISTRY[id(target)] = (weakref.ref(Box()), b"payload")
+    try:
+        _need(_held(target) is None, "a stale slot is not this object")
+    finally:
+        _REGISTRY.pop(id(target), None)
+    failed = fallback("read", "shape", argument="now")
+    _need("argument" not in failed["recorder_failed"], failed["recorder_failed"])
+    failed = fallback("read", "shape", error_class="ValueError")
+    _need("error_class" not in failed["recorder_failed"], failed["recorder_failed"])
+    from read import _chain
+
+    _need(_chain({"seq": ("N", "1"), "prev_sha256": "nope", "v": ("N", "2")}, 1, "") == "bad_chain", "the wrong prev is a bad chain")
+
+    class Same:
+        def __eq__(self, other):
+            return other == ""
+
+    _need(_chain({"seq": ("N", "1"), "prev_sha256": Same(), "v": ("N", "2")}, 1, "") == "bad_chain", "a non-string prev is a bad chain")
+    prefix = bytearray(b"ab" * 32)
+    prefix[0] = 255
+    try:
+        reason = read_line(bytes(prefix) + b" {}", 1, "").reason
+    except LookupError:
+        reason = "lookup"
+    _need(reason == "bad_line", reason)
+    raw = {"at": 10 ** 18, "by": "coordinator", "prev_sha256": "", "seq": 1, "text": "n", "type": "note", "v": 2}
+    payload = json.dumps(raw, sort_keys=True, separators=(",", ":")).encode()
+    numbered = hashlib.sha256(payload).hexdigest().encode() + b" " + payload + b"\n"
+    _need(read_log("obs.jsonl", numbered, observer=True).defects[0].get("file") == "obs.jsonl", "an observer defect names its file")
+    _need("file" not in read_log(WORK, numbered).defects[0], "a work defect has no file")
+    from harness import LogBuilder, _chain as seal_chain
+
+    note_log = LogBuilder()
+    note_log.add("note", "coordinator", at=1, text="n")
+    sealed = seal_chain(note_log.events)
+    _need(len(read_log(WORK, sealed + b"nope\n").events) == 1, "a later bad line does not drop the note")
+    import read as read_mod
+
+    saved = read_mod.MAX_LOG_BYTES
+    read_mod.MAX_LOG_BYTES = 10
+    try:
+        capped = read_log(WORK, b"x" * 10 + b"\n")
+        _need(capped.broken_why == "limit_log" and capped.events == [], (capped.broken_why, capped.events))
+    finally:
+        read_mod.MAX_LOG_BYTES = saved
+
+
 def run_checks():
     _publish_view_and_levels()
     _read_edges()
+    _still()
     _validate_edges()
     from redact_bound import growth, string_growth
     _need(string_growth(1) == 0, "a non-string does not grow")
