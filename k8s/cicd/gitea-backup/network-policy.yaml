@@ -1,0 +1,21 @@
+# Nothing in, nothing out. The backup reads a local volume and writes the NAS
+# claim; the drill talks to Gitea on 127.0.0.1 inside the same pod. Neither
+# needs the cluster network. An empty ingress and egress, with both policy
+# types set, denies every other flow once the policy selects the pod.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gitea-backup-deny-all
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - gitea-backup
+          - gitea-backup-drill
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress: []

@@ -1,0 +1,91 @@
+# Monthly restore drill, see drill.sh.
+#
+# Restores LATEST into an emptyDir and checks every ref. The backup claim is
+# mounted read-only at /backup. A second mount of the same claim, subPath
+# drills, is the only writable path, so the report can land beside the runs
+# without the job being able to change a run directory. No live Gitea volume.
+# Run one now with
+#   kubectl -n cicd create job --from=cronjob/gitea-backup-drill gitea-backup-drill-manual-$(date +%s)
+# The drills/ directory is created by the backup job; run a backup before the
+# first drill or the subPath mount has nothing to attach.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: gitea-backup-drill
+  labels:
+    app.kubernetes.io/name: gitea-backup-drill
+spec:
+  schedule: "10 4 1 * *"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 3600
+      ttlSecondsAfterFinished: 2592000
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: gitea-backup-drill
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+          tolerations:
+            - key: node-role.kubernetes.io/control-plane
+              operator: Exists
+              effect: NoSchedule
+            - key: node-role.kubernetes.io/etcd
+              operator: Exists
+              effect: NoSchedule
+            - key: node.kubernetes.io/unschedulable
+              operator: Exists
+              effect: NoSchedule
+          containers:
+            - name: drill
+              image: gitea/gitea:1.21.11
+              imagePullPolicy: IfNotPresent
+              command: ["bash", "/scripts/drill.sh", "latest"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 512Mi
+                limits:
+                  cpu: "1"
+                  memory: 2Gi
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: backup
+                  mountPath: /backup
+                  readOnly: true
+                - name: drills
+                  mountPath: /backup/drills
+                  subPath: drills
+                - name: work
+                  mountPath: /data
+          volumes:
+            - name: scripts
+              configMap:
+                name: gitea-backup-scripts
+            - name: backup
+              persistentVolumeClaim:
+                claimName: gitea-backup
+                readOnly: true
+            - name: drills
+              persistentVolumeClaim:
+                claimName: gitea-backup
+            - name: work
+              emptyDir:
+                sizeLimit: 20Gi

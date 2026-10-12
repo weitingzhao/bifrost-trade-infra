@@ -1,0 +1,17 @@
+# NAS folder for the Gitea backup. Same pattern as logical-backup-cold:
+# nfs-subdir puts the claim at /volume1/k3s-cold/cicd-gitea-backup-<pv>, and
+# nfs-cold is Retain, so deleting the claim does not delete the copies.
+#
+# The size is a request, not a quota (nfs-subdir does not enforce it).
+# Seven daily OK runs plus one OK run per week for four weeks, of a tree
+# whose live claim is 20Gi.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gitea-backup
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: nfs-cold
+  resources:
+    requests:
+      storage: 50Gi
