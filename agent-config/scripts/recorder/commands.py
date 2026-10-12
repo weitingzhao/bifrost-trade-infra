@@ -62,6 +62,11 @@ def _write(root: Path, work_id: str, fields_list: list[dict], by: str, command: 
                 pending.append(sealed)
                 events.append(sealed)
                 digests.append(dump_line(sealed).split(b" ", 1)[0].decode("ascii"))
+            from read import round_trip
+            for sealed in pending:
+                mismatch = round_trip(sealed)
+                if mismatch:
+                    raise RecorderError(mismatch, mismatch)
             blob = b"".join(dump_line(item) for item in pending)
             try:
                 append_bytes(path, blob)
@@ -137,10 +142,9 @@ def declare_step(
         fields["usual_s"], fields["usual_basis"] = usual
     batch = [fields]
     if replaces is not None:
-        superseded = {"type": "step_superseded", "step_id": replaces, "by_step": fields["step_id"]}
+        fields["replaces"] = replaces
         if text is not None:
-            superseded["text"] = text
-        batch.append(superseded)
+            fields["replaces_text"] = text
     written = _write(root, work_id, batch, "coordinator", "declare")
     return written[0]
 
@@ -165,17 +169,17 @@ def start_step(root: Path, work_id: str, step_id: str) -> dict:
 
 def finish_step(root: Path, work_id: str, step_id: str, reported: str, quote: str | None = None) -> dict:
     """Finish a ``none`` step. The process exit code is written by the wrapper."""
-    log = load_file(_work_dir(root, work_id) / "events.jsonl")
-    run_id = None
-    for event in log.events:
-        if event.get("type") == "step_started" and event.get("step_id") == step_id:
-            run_id = event.get("run_id")
-    if run_id is None:
+    from read import read_log
+
+    path = _work_dir(root, work_id) / "events.jsonl"
+    loaded = read_log(work_id, path.read_bytes() if path.is_file() else b"")
+    step = loaded.view.steps.get(step_id) if loaded.view is not None else None
+    if step is None or not step.started or not step.run_id:
         raise RecorderError("not_started", "not_started")
     fields = {
         "type": "step_finished",
         "step_id": step_id,
-        "run_id": run_id,
+        "run_id": step.run_id,
         "reported": reported,
     }
     if quote is not None:

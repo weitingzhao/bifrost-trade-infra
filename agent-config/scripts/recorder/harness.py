@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from events import Log, dump_line, seal
-from fold import fold
+from events import GENESIS, Log, dump_line, seal
+from read import fold_total
 
 P = "a1b2c3d4"
 R = "b1b2c3d4"
@@ -21,7 +21,7 @@ LOCATOR = {"cluster": "prod", "namespace": "cicd", "name": "run-1"}
 
 
 def ev(seq: int, at: float, typ: str, by: str, **fields) -> dict:
-    event = {"type": typ, "v": 1, "seq": seq, "prev_sha256": "", "at": at, "by": by}
+    event = {"type": typ, "v": 2, "seq": seq, "prev_sha256": "", "at": at, "by": by}
     event.update(fields)
     return event
 
@@ -42,10 +42,49 @@ class LogBuilder:
         return event
 
 
+def _chain(events) -> bytes:
+    prev = GENESIS
+    lines = []
+    for index, event in enumerate(events):
+        body = {key: value for key, value in event.items() if key not in {"v", "seq", "prev_sha256"}}
+        body["v"] = 2
+        body["seq"] = index + 1
+        body["prev_sha256"] = prev
+        line = dump_line(body)
+        prev = line.split(b" ", 1)[0].decode("ascii")
+        lines.append(line)
+    return b"".join(lines)
+
+
+def _break_line(data: bytes, line_no: int) -> bytes:
+    parts = data.split(b"\n")
+    index = line_no - 1
+    if index < 0 or index >= len(parts) or not parts[index]:
+        return data
+    line = parts[index]
+    flipped = b"0" if line[:1] != b"0" else b"1"
+    parts[index] = flipped + line[1:]
+    return b"\n".join(parts)
+
+
+def fold_items(items, observer=None, now=0, logs_unread=0):
+    """Fold already-built event dicts through the byte entry."""
+    logs = [(item["work_id"], _chain(item.get("events") or [])) for item in items]
+    obs = []
+    if observer:
+        obs = [("2026-10-11-0001.jsonl", _chain(observer))]
+    return fold_total(logs, obs, now, logs_unread)
+
+
 def fold_one(events, now, observer=None, work_id=WORK, **flags) -> dict:
-    log = {"work_id": work_id, "events": events}
-    log.update(flags)
-    return fold([log], observer or [], now)
+    data = _chain(events)
+    if flags.get("invalid_at"):
+        data = _break_line(data, int(flags["invalid_at"]))
+    logs = [(work_id, data)]
+    obs = []
+    if observer:
+        obs = [("2026-10-11-0001.jsonl", _chain(observer))]
+    return fold_total(logs, obs, now)
 
 
 def work_of(doc, index=0) -> dict:

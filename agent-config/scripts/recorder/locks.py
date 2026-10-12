@@ -18,6 +18,8 @@ from pathlib import Path
 
 import fcntl
 
+from read import loads_strict
+
 from fsutil import fullsync
 
 RETRY_SECONDS = 2.0
@@ -46,8 +48,8 @@ def _read_label(path: Path) -> dict | None:
     if not line:
         return None
     try:
-        obj = json.loads(line)
-    except json.JSONDecodeError:
+        obj = loads_strict(line)
+    except Exception:
         return None
     return obj if isinstance(obj, dict) else None
 

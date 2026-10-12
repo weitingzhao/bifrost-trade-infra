@@ -85,8 +85,9 @@ def _reject_duplicate_keys(pairs: list) -> dict:
 
 
 def loads_strict(text: str):
-    """Parse JSON and refuse duplicate keys. ``json.loads`` would keep the last one."""
-    return json.loads(text, object_pairs_hook=_reject_duplicate_keys)
+    from read import loads_strict as _loads
+
+    return _loads(text)
 
 
 def canonical_json(obj: object) -> str:

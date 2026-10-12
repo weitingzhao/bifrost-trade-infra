@@ -103,6 +103,7 @@ def _parser() -> argparse.ArgumentParser:
     owner.add_argument("--not-before-text")
     owner.add_argument("--advice")
     owner.add_argument("--after")
+    owner.add_argument("--replaces")
 
     ready = sub.add_parser("owner-ready")
     ready.add_argument("--work", required=True)
@@ -180,6 +181,7 @@ def _run(root: Path, args):
             not_before_text=args.not_before_text,
             advice=args.advice,
             after=args.after,
+            replaces=args.replaces,
         )
     if command == "owner-ready":
         return owner_ready(root, args.work, args.wait)

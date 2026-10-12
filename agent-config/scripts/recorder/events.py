@@ -1,15 +1,7 @@
-"""Hash-chained event log.
+"""Hash-chained event log. ``v`` is 2. A line whose ``v`` is not 2 is a broken chain.
 
-A complete line is ``<sha256 of body> <canonical JSON>`` plus a newline.
-The body carries ``seq`` and ``prev_sha256`` (the previous line's digest;
-the first event uses the empty string). Bytes after the last newline are a
-torn tail and are not part of the log.
-
-The chain shows a torn write or an edit in the middle. It is not a signature:
-the same Unix user can rewrite the file. It does not make the words true.
-
-Taken from ``w31/w66-lane-v2`` ``events.py`` and fitted to this design:
-``v`` is 1, ``at`` is a number (UTC seconds), and a full log is flagged.
+Taken from ``w31/w66-lane-v2`` ``events.py`` and fitted to this design.
+Bytes after the last newline are a torn tail and are not part of the log.
 """
 
 from __future__ import annotations
@@ -94,33 +86,18 @@ class Log:
 
 
 def load_bytes(data: bytes) -> Log:
-    prefix = complete_prefix(data)
-    log = Log(raw_valid=prefix)
-    if len(prefix) >= MAX_BYTES:
-        log.full = True
-    if not prefix:
-        return log
-    lines = prefix.split(b"\n")[:-1]
-    prev = GENESIS
-    for index, line in enumerate(lines):
-        want_seq = index + 1
-        try:
-            digest, obj = parse_line(line)
-        except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
-            log.invalid_seq = _seq_hint(line, want_seq)
-            log.last_valid_seq = want_seq - 1 if want_seq > 1 else 0
-            return log
-        seq = obj.get("seq")
-        if seq != want_seq or obj.get("prev_sha256") != prev:
-            log.invalid_seq = seq if isinstance(seq, int) and not isinstance(seq, bool) else want_seq
-            log.last_valid_seq = want_seq - 1 if want_seq > 1 else 0
-            return log
-        log.events.append(obj)
-        log.digests.append(digest)
-        prev = digest
-    log.last_valid_seq = len(log.events) if log.events else 0
-    if len(log.events) >= MAX_EVENTS or len(prefix) >= MAX_BYTES:
-        log.full = True
+    from read import read_log
+
+    loaded = read_log(None, data if type(data) is bytes else b"")
+    log = Log(raw_valid=complete_prefix(data if type(data) is bytes else b""))
+    log.full = loaded.full
+    log.digests = list(loaded.digests)
+    log.events = [dict(event._fields) for event in loaded.events]
+    if loaded.broken_line is not None:
+        log.invalid_seq = loaded.broken_line
+        log.last_valid_seq = loaded.broken_line - 1
+    else:
+        log.last_valid_seq = len(log.events)
     return log
 
 
@@ -145,7 +122,7 @@ def append_sealed(path: Path, obj: dict) -> None:
     if log.full:
         raise ValueError("refusing to append to a full log")
     line = dump_line(obj)
-    if len(log.events) + 1 > MAX_EVENTS or len(data) + len(line) > MAX_BYTES:
+    if len(log.digests) + 1 > MAX_EVENTS or len(data) + len(line) > MAX_BYTES:
         raise ValueError("refusing to append to a full log")
     fd = os_open_append(path)
     try:
@@ -168,7 +145,7 @@ def append_bytes(path: Path, blob: bytes) -> None:
     if log.full:
         raise ValueError("refusing to append to a full log")
     extra = blob.count(b"\n")
-    if len(log.events) + extra > MAX_EVENTS or len(data) + len(blob) > MAX_BYTES:
+    if len(log.digests) + extra > MAX_EVENTS or len(data) + len(blob) > MAX_BYTES:
         raise ValueError("refusing to append to a full log")
     fd = os_open_append(path)
     try:
@@ -181,10 +158,10 @@ def append_bytes(path: Path, blob: bytes) -> None:
 def seal(fields: dict, log: Log, by: str, at: float) -> dict:
     """Fill ``v``, ``seq``, ``prev_sha256``, ``at`` and ``by``. Does not write."""
     obj = dict(fields)
-    obj["v"] = 1
+    obj["v"] = 2
     obj["by"] = by
     obj["at"] = at
-    obj["seq"] = len(log.events) + 1
+    obj["seq"] = len(log.digests) + 1
     obj["prev_sha256"] = log.digests[-1] if log.digests else GENESIS
     return obj
 
