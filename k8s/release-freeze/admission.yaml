@@ -1,0 +1,53 @@
+# Owner 亲手应用。对应设计第 7 节的表，步 2。没有别的东西应用这份文件。
+# 上面这句话是说明。下面到记录绑定结束的正文与设计 3.1 的 YAML 逐字相同，含占位符 OWNER_USERNAME。
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata: {name: bifrost-release-records}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - {apiGroups: ["release.bifrost.io"], apiVersions: ["*"], scope: "*", operations: ["CREATE", "UPDATE", "DELETE"],
+         resources: ["freezes", "freezes/*", "policies", "policies/*"]}
+  validations:
+    - expression: "request.operation != 'UPDATE'"
+      message: "a release record is never updated"
+    - expression: "request.operation != 'CREATE' || !(has(object.metadata.ownerReferences) || has(object.metadata.finalizers) || has(object.metadata.labels) || has(object.metadata.annotations) || has(object.metadata.generateName))"
+      message: "a release record carries a name and no other metadata"
+    - expression: "request.operation != 'DELETE' || (request.userInfo.username == 'OWNER_USERNAME' && (!has(request.options.propagationPolicy) || request.options.propagationPolicy == 'Background'))"
+      message: "only the Owner removes a release record, with a plain delete"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata: {name: bifrost-release-records}
+spec: {policyName: bifrost-release-records, validationActions: [Deny]}
+---
+# 墓碑的删除保护。设计第 5 节用一句话交代，形状由本片固定。同样只由 Owner 在步 2 亲手应用。
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: bifrost-release-freeze-tombstone
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        scope: Namespaced
+        operations: ["DELETE"]
+        resources: ["configmaps"]
+        resourceNames: ["bifrost-release-freeze"]
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: cicd
+  validations:
+    - expression: "request.userInfo.username == 'OWNER_USERNAME'"
+      message: "only the Owner deletes the release-freeze tombstone"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: bifrost-release-freeze-tombstone
+spec:
+  policyName: bifrost-release-freeze-tombstone
+  validationActions: ["Deny"]

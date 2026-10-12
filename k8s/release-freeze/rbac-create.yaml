@@ -1,0 +1,26 @@
+# Owner 亲手应用。对应设计第 7 节的表，步 9。没有别的东西应用这份文件。
+# 这一份是打开冻结的开关。本片只把文件放在这里，不应用。
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: bifrost-release-freeze-create
+rules:
+  - apiGroups: ["release.bifrost.io"]
+    resources: ["freezes"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: bifrost-release-freeze-create
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: bifrost-release-freeze-create
+subjects:
+  - kind: ServiceAccount
+    name: bifrost-platform
+    namespace: bifrost-platform-prod
+  - kind: ServiceAccount
+    name: bifrost-platform
+    namespace: bifrost-platform-stg

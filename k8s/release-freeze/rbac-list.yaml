@@ -1,0 +1,31 @@
+# Owner 亲手应用。对应设计第 7 节的表，步 4。没有别的东西应用这份文件。
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: bifrost-release-freeze-list
+rules:
+  - apiGroups: ["release.bifrost.io"]
+    resources: ["freezes"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: bifrost-release-freeze-list
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: bifrost-release-freeze-list
+subjects:
+  - kind: Group
+    apiGroup: rbac.authorization.k8s.io
+    name: system:serviceaccounts:cicd
+  - kind: ServiceAccount
+    name: bifrost-platform
+    namespace: bifrost-platform-prod
+  - kind: ServiceAccount
+    name: bifrost-platform
+    namespace: bifrost-platform-stg
+  - kind: ServiceAccount
+    name: bifrost-agent
+    namespace: bifrost-access
