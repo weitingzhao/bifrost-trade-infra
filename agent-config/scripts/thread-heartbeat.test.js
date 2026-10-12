@@ -19,6 +19,7 @@ process.env.NODE_ENV = 'test'
 process.env.BIFROST_HEARTBEAT_TEST_FAST_BEATS = '1'
 delete process.env.PLATFORM_REPORTER_TOKEN
 delete process.env.BIFROST_HEARTBEAT_THREAD
+delete process.env.BIFROST_HEARTBEAT_WRAPPED_RUN
 delete process.env.BIFROST_HEARTBEAT_TITLE
 delete process.env.BIFROST_WORK
 delete process.env.BIFROST_HEARTBEAT_PROGRESS
@@ -69,10 +70,12 @@ function mapping() {
 
   // A headless wrapper's thread wins over the session's own id.
   process.env.BIFROST_HEARTBEAT_THREAD = 'run-1'
+  process.env.BIFROST_HEARTBEAT_WRAPPED_RUN = '1'
   process.env.BIFROST_HEARTBEAT_TITLE = 'W-54 nightly check'
   const w = beatFor('cursor', cursor('postToolUse', { tool_name: 'Shell' }))
   assert.deepEqual([w.thread, w.title, w.work], ['run-1', 'W-54 nightly check', 'W-54'])
   delete process.env.BIFROST_HEARTBEAT_THREAD
+  delete process.env.BIFROST_HEARTBEAT_WRAPPED_RUN
   delete process.env.BIFROST_HEARTBEAT_TITLE
 
   // Titles: Claude from the lineage-title cache, Codex from its session index.
@@ -84,6 +87,68 @@ function mapping() {
   fs.writeFileSync(path.join(tmp, '.codex', 'session_index.jsonl'),
     `${JSON.stringify({ id: 'abc-1', thread_name: 'old name' })}\n${JSON.stringify({ id: 'abc-1', thread_name: 'W-54 heartbeat' })}\n`)
   assert.equal(beatFor('codex', { session_id: 'abc-1', hook_event_name: 'Stop' }).title, 'W-54 heartbeat')
+}
+
+// Planted violation: remove beatFor's rejection of an unmarked run- override.
+function ordinaryHookCannotUseRunNamespace() {
+  process.env.BIFROST_HEARTBEAT_THREAD = 'run-owner'
+  try {
+    for (const vendor of ['claude', 'cursor', 'codex']) {
+      const payload = vendor === 'cursor' ? cursor('stop') : claude('Stop')
+      assert.equal(beatFor(vendor, payload).thread, payload.session_id, vendor)
+    }
+  } finally {
+    delete process.env.BIFROST_HEARTBEAT_THREAD
+  }
+}
+
+// Planted violation: let run use an override without adding the run- prefix.
+async function wrappedRunPrefixesOverride() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-prefix-'))
+  const srv = await server()
+  try {
+    const result = await runScript(['run', 'codex', '--', process.execPath, '-e', 'process.exit(0)'], {
+      env: { ...runEnv(home, srv.url), BIFROST_HEARTBEAT_THREAD: 'owner' },
+    })
+    assert.equal(result.code, 0, result.err)
+    assert.deepEqual(srv.got.map(x => [x.body.thread, x.body.event]), [
+      ['run-owner', 'turn_start'], ['run-owner', 'turn_end'],
+    ])
+  } finally {
+    srv.s.close()
+  }
+}
+
+// Planted violation: remove the wrapper's marker from its child's environment.
+async function hookInsideWrappedRunKeepsRunID() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-inside-'))
+  const srv = await server()
+  const payload = JSON.stringify(claude('PreToolUse', { tool_name: 'Bash', tool_input: { timeout: 30000 } }))
+  const child = `
+    const assert = require('node:assert/strict')
+    assert.equal(process.env.BIFROST_HEARTBEAT_WRAPPED_RUN, '1')
+    const result = require('node:child_process').spawnSync(process.execPath, [${JSON.stringify(SCRIPT)}, 'hook', 'claude'], {
+      input: ${JSON.stringify(payload)}, encoding: 'utf8',
+    })
+    assert.equal(result.status, 0)
+    assert.equal(result.stdout, '')
+    assert.equal(result.stderr, '')
+  `
+  try {
+    const result = await runScript(['run', 'claude', '--', process.execPath, '-e', child], {
+      env: { ...runEnv(home, srv.url), BIFROST_HEARTBEAT_THREAD: 'run-owner' },
+    })
+    assert.equal(result.code, 0, result.err)
+    // The hook posts through a detached sender: its beat can arrive after the wrapper's turn_end.
+    assert.ok(await waitFor(() => srv.got.length === 3), `want 3 posts, got ${srv.got.length}`)
+    const bySeq = [...srv.got].sort((x, y) => x.body.seq - y.body.seq)
+    assert.deepEqual(bySeq.map(x => [x.body.thread, x.body.event]), [
+      ['run-owner', 'turn_start'], ['run-owner', 'before_tool'], ['run-owner', 'turn_end'],
+    ])
+    assert.deepEqual(bySeq.map(x => x.body.seq), [1, 2, 3])
+  } finally {
+    srv.s.close()
+  }
 }
 
 function timeouts() {
@@ -1526,6 +1591,7 @@ let interval, tick
 
 async function main() {
   mapping()
+  ordinaryHookCannotUseRunNamespace()
   timeouts()
   throttle()
   lateResponseDoesNotTouchTheCurrentRecord()
@@ -1533,6 +1599,8 @@ async function main() {
   await seqLock()
   await nonceAndUnknownKey()
   await runContinuesSequence()
+  await wrappedRunPrefixesOverride()
+  await hookInsideWrappedRunKeepsRunID()
   await lostTurnStartThenBeforeTool()
   await oldKeyUnconfirmedTurnServerRecordPruned()
   lockPreparationConsumesTheBudget()

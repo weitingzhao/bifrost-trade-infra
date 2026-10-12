@@ -220,9 +220,10 @@ function beatFor(vendor, payload) {
     reason = kind
   }
   if (!event) return null
-  const thread = String(
-    process.env.BIFROST_HEARTBEAT_THREAD || payload.session_id || payload.conversation_id || '',
-  ).trim()
+  let override = (process.env.BIFROST_HEARTBEAT_THREAD || '').trim()
+  // Only hooks inherited from the run wrapper may use its reserved namespace.
+  if (override.startsWith('run-') && process.env.BIFROST_HEARTBEAT_WRAPPED_RUN !== '1') override = ''
+  const thread = String(override || payload.session_id || payload.conversation_id || '').trim()
   if (!thread) return null
   let title = (process.env.BIFROST_HEARTBEAT_TITLE || '').trim()
   if (!title && vendor === 'claude') title = claudeTitle(thread)
@@ -1235,7 +1236,8 @@ async function run(vendor, argv) {
     process.stderr.write('usage: thread-heartbeat.js run <vendor> -- <command> [args...]\n')
     return 2
   }
-  const thread = process.env.BIFROST_HEARTBEAT_THREAD || `run-${crypto.randomUUID()}`
+  const override = (process.env.BIFROST_HEARTBEAT_THREAD || '').trim()
+  const thread = override ? (override.startsWith('run-') ? override : `run-${override}`) : `run-${crypto.randomUUID()}`
   const title = (process.env.BIFROST_HEARTBEAT_TITLE || `headless ${path.basename(cmd[0])}`).slice(0, 160)
   const base = { thread, vendor, host: hostName(), title, session: thread }
   const work = workFrom(title)
@@ -1253,7 +1255,7 @@ async function run(vendor, argv) {
   const stopBeats = await startProgressBeats(base, () => alive)
   const child = spawn(cmd[0], cmd.slice(1), {
     stdio: 'inherit',
-    env: { ...process.env, BIFROST_HEARTBEAT_THREAD: thread, BIFROST_HEARTBEAT_TITLE: title },
+    env: { ...process.env, BIFROST_HEARTBEAT_THREAD: thread, BIFROST_HEARTBEAT_TITLE: title, BIFROST_HEARTBEAT_WRAPPED_RUN: '1' },
   })
   const forward = sig => () => child.kill(sig)
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, forward(sig))
