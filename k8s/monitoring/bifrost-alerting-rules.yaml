@@ -351,6 +351,12 @@ spec:
         - alert: BifrostGiteaBackupMissing
           expr: |
             time() - max(kube_cronjob_status_last_successful_time{namespace="cicd",cronjob="gitea-backup"}) > 93600
+            or
+            (
+              (time() - max(kube_cronjob_created{namespace="cicd",cronjob="gitea-backup"}) > 93600)
+              and on()
+              absent(kube_cronjob_status_last_successful_time{namespace="cicd",cronjob="gitea-backup"})
+            )
           for: 30m
           labels:
             severity: warning
@@ -361,19 +367,6 @@ spec:
               (it runs 03:10 UTC). A run whose STATUS is not OK still fails; read
               `kubectl -n cicd logs job/<latest gitea-backup job>` and the STATUS
               file of the newest directory on the gitea-backup claim (k3s-cold).
-
-        - alert: BifrostGiteaBackupDrillStale
-          expr: |
-            time() - max(kube_cronjob_status_last_successful_time{namespace="cicd",cronjob="gitea-backup-drill"}) > 3024000
-          for: 1h
-          labels:
-            severity: warning
-          annotations:
-            summary: "Monthly Gitea restore drill has not passed for 35 days"
-            description: >-
-              The restore drill (CronJob cicd/gitea-backup-drill, 1st of the month
-              04:10 UTC) last passed {{ $value | humanizeDuration }} ago. Its reports
-              are under drills/ on the gitea-backup claim (k3s-cold).
 
     # TD-215: the PROD daemon's Lease holder is the only writer of raw_broker.account and
     # raw_broker.positions (Positions, attribution, the 16:20 ET snapshot capture). worker >= 0.2.7

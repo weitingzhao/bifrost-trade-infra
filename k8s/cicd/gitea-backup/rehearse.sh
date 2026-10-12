@@ -1,292 +1,219 @@
 #!/usr/bin/env bash
-# Docker rehearsal for the Gitea backup. No cluster access.
-# One container set at a time; containers and volumes are removed on exit.
-# Prints one line per check and exits non-zero if any check fails.
-set -uo pipefail
-
-HERE="$(cd "$(dirname "$0")" && pwd)"
-IMAGE="${IMAGE:-gitea/gitea:1.21.11}"
-suffix="$$"
-name="gitea-rehearse-$suffix"
-vol="gitea-rehearse-data-$suffix"
-bak="gitea-rehearse-bak-$suffix"
-workvol="gitea-rehearse-work-$suffix"
-port="${REHEARSE_PORT:-30331}"
+# Coordinator only: disposable Docker rehearsal; no cluster or real credentials.
+# Only the age fetch container has network. All Gitea/backup/restore runs: none.
+set -euo pipefail
+export DOCKER_DEFAULT_PLATFORM=linux/amd64
+HERE=$(cd "$(dirname "$0")" && pwd)
+IMAGE=gitea/gitea:1.21.11
+prefix="gitea-r2-$$"
+live="$prefix-live"
+vol="$prefix-data"
+bak="$prefix-backup"
+tools="$prefix-tools"
+keys="$prefix-keys"
+work="$prefix-work"
+hooks="$prefix-hooks"
+baseline="$prefix-baseline"
+job=""
 failed=0
-push_pid=""
-
-say() { printf '%s\n' "$*"; }
-
 cleanup() {
-  if [[ -n "$push_pid" ]]; then
-    kill "$push_pid" 2>/dev/null || true
-    wait "$push_pid" 2>/dev/null || true
-  fi
-  if [[ -n "${name:-}" ]]; then docker rm -f "$name" >/dev/null 2>&1 || true; fi
-  docker rm -f gitea-probe >/dev/null 2>&1 || true
-  docker volume rm "$vol" "$bak" "$workvol" gitea-probe-data >/dev/null 2>&1 || true
-  rm -rf "${seed_dir:-}"
+  rc=$?
+  trap - EXIT
+  for name in "$live" "$prefix-job" "$prefix-full"; do docker rm -f "$name" >/dev/null 2>&1 || true; done
+  for v in "$vol" "$bak" "$tools" "$keys" "$work" "$hooks" "$baseline"; do docker volume rm "$v" >/dev/null 2>&1 || true; done
+  exit "$rc"
 }
 trap cleanup EXIT
-
 check() {
-  local title="$1" rc="$2"
-  if [[ "$rc" -eq 0 ]]; then
-    say "PASS $title"
-  else
-    say "FAIL $title"
-    failed=1
-  fi
+  if "$@"; then printf 'PASS %s\n' "$title"; else printf 'FAIL %s\n' "$title"; failed=1; fi
 }
-
-run_backup() {
-  docker run --rm --user 1000:1000 --network none --entrypoint /bin/bash \
-    -v "$vol":/data:ro -v "$bak":/backup \
-    -v "$HERE":/scripts:ro \
-    "$IMAGE" "$@"
-}
-
-run_drill() {
-  docker run --rm --user 1000:1000 --network none --entrypoint /bin/bash \
-    -v "$bak":/backup -v "$workvol":/data \
-    -v "$HERE":/scripts:ro \
-    "$IMAGE" "$@"
-}
-
-docker rm -f gitea-probe "$name" >/dev/null 2>&1 || true
-docker volume rm gitea-probe-data >/dev/null 2>&1 || true
-
-tools_rc=0
-docker run --rm --entrypoint /bin/bash "$IMAGE" -c \
-  'command -v sqlite3 && command -v git && command -v tar && command -v sha256sum && command -v bash && command -v curl' \
-  >/dev/null || tools_rc=1
-check "image has sqlite3 git tar sha256sum bash curl" "$tools_rc"
-[[ "$tools_rc" -eq 0 ]] || exit 1
-
-docker volume create "$vol" >/dev/null
-docker volume create "$bak" >/dev/null
-docker volume create "$workvol" >/dev/null
-docker run --rm --entrypoint /bin/sh -v "$bak":/backup -v "$workvol":/data "$IMAGE" -c \
-  'chown 1000:1000 /backup /data && chmod 0700 /backup /data'
-
-docker run -d --name "$name" \
-  -p "127.0.0.1:${port}:3000" \
-  -v "$vol":/data \
-  -e USER_UID=1000 -e USER_GID=1000 \
-  -e SECRET_KEY=rehearse-secret-key-0123456789abcdef \
-  -e GITEA__database__DB_TYPE=sqlite3 \
-  -e GITEA__security__INSTALL_LOCK=true \
-  -e GITEA__security__SECRET_KEY=rehearse-secret-key-0123456789abcdef \
-  -e GITEA__server__DOMAIN=127.0.0.1 \
-  -e GITEA__server__ROOT_URL="http://127.0.0.1:${port}/" \
-  -e GITEA__server__HTTP_PORT=3000 \
-  -e GITEA__service__DISABLE_REGISTRATION=true \
-  "$IMAGE" >/dev/null
-
-ready=0
-for _ in $(seq 1 60); do
-  if curl -sf -o /dev/null "http://127.0.0.1:${port}/"; then ready=1; break; fi
-  sleep 1
-done
-check "gitea ready" "$([[ $ready -eq 1 ]] && echo 0 || echo 1)"
-[[ "$ready" -eq 1 ]] || { docker logs "$name" 2>&1 | tail -30; exit 1; }
-
-seed_rc=0
-docker exec -u git "$name" gitea admin user create \
-  --config /data/gitea/conf/app.ini \
-  --username giteaadmin --password 'Rehearse-pass-1' \
-  --email giteaadmin@example.com --admin --must-change-password=false \
-  >/dev/null || seed_rc=1
-for repo in alpha beta gamma; do
-  curl -sf -u 'giteaadmin:Rehearse-pass-1' -H 'Content-Type: application/json' \
-    -X POST "http://127.0.0.1:${port}/api/v1/user/repos" \
-    -d "{\"name\":\"${repo}\",\"auto_init\":false}" >/dev/null || seed_rc=1
-done
-seed_dir="$(mktemp -d)"
-for repo in alpha beta gamma; do
-  dir="$seed_dir/$repo"
-  git init -q -b main "$dir"
-  git -C "$dir" config user.email rehearse@example.com
-  git -C "$dir" config user.name rehearse
-  echo "seed $repo" >"$dir/README"
-  if [[ "$repo" == gamma ]]; then
-    dd if=/dev/urandom of="$dir/blob.bin" bs=1048576 count=24 >/dev/null 2>&1
-  fi
-  git -C "$dir" add -A
-  git -C "$dir" commit -q -m "seed $repo"
-  git -C "$dir" remote add origin "http://giteaadmin:Rehearse-pass-1@127.0.0.1:${port}/giteaadmin/${repo}.git"
-  git -C "$dir" push -q -u origin main >/dev/null 2>&1 || seed_rc=1
-done
-check "seeded admin and three repositories" "$seed_rc"
-[[ "$seed_rc" -eq 0 ]] || exit 1
-
-dump_out="$(docker run --rm --user 1000:1000 --entrypoint /bin/bash \
-  -v "$vol":/data:ro "$IMAGE" -c '
-    set +e
-    before=$(sha256sum /data/gitea/gitea.db)
-    if touch /data/gitea/probe-write 2>/dev/null; then write=yes; else write=no; fi
-    mkdir -p /tmp/dump /tmp/dump-tmp
-    gitea dump --config /data/gitea/conf/app.ini --work-path /data/gitea --custom-path /data/gitea \
-      --tempdir /tmp/dump-tmp --file /tmp/dump/out.zip --type zip -q >/tmp/dump.log 2>&1
-    echo "exit=$?"
-    after=$(sha256sum /data/gitea/gitea.db)
-    if [[ "$before" == "$after" ]]; then echo db_unchanged=yes; else echo db_unchanged=no; fi
-    echo "live_write=$write"
-  ')"
-say "INFO gitea-dump-readonly: ${dump_out//$'\n'/ }"
-
-push_log="$seed_dir/pushes"
-: >"$push_log"
-(
-  while true; do
-    start=$(date +%s)
-    echo "tick $start" >>"$seed_dir/alpha/overlap.txt"
-    git -C "$seed_dir/alpha" add overlap.txt
-    git -C "$seed_dir/alpha" commit -q -m "overlap $start" || { sleep 0.2; continue; }
-    if git -C "$seed_dir/alpha" push -q origin main; then
-      end=$(date +%s)
-      printf '%s %s\n' "$start" "$end" >>"$push_log"
-    fi
-    sleep 2
+for v in "$vol" "$bak" "$tools" "$keys" "$work" "$hooks" "$baseline"; do docker volume create "$v" >/dev/null; done
+# Network is allowed only here; verify the exact archive pin before keygen.
+docker run --rm --entrypoint sh -v "$tools":/tools -v "$keys":/keys -v "$HERE":/scripts:ro alpine:3.22 -c '
+  set -eu
+  sh /scripts/fetch-tools.sh
+  url=$(sed -n "s/^AGE_URL=//p" /scripts/fetch-tools.sh)
+  sum=$(sed -n "s/^AGE_SHA=//p" /scripts/fetch-tools.sh)
+  wget -q -O /tools/keygen.tar.gz "$url"
+  printf "%s  %s\n" "$sum" /tools/keygen.tar.gz | sha256sum -c -
+  tar -C /tools -xzf /tools/keygen.tar.gz age/age-keygen
+  /tools/age/age-keygen -o /keys/identity 2>/dev/null
+  /tools/age/age-keygen -y /keys/identity > /keys/recipient
+  rm -rf /tools/age/age-keygen /tools/keygen.tar.gz
+  chown -R 1000:1000 /keys /tools
+'
+docker run --rm --network none --entrypoint sh -v "$bak":/backup -v "$work":/work -v "$hooks":/hooks -v "$baseline":/baseline "$IMAGE" -c 'chown 1000:1000 /backup /work /hooks /baseline'
+start_live() {
+  docker run -d --network none --name "$live" -v "$vol":/data \
+    -e USER_UID=1000 -e USER_GID=1000 -e GITEA__database__DB_TYPE=sqlite3 \
+    -e GITEA__security__INSTALL_LOCK=true -e GITEA__security__SECRET_KEY=rehearsal-only-synthetic-secret \
+    -e GITEA__server__ROOT_URL=http://127.0.0.1:3000/ -e GITEA__service__DISABLE_REGISTRATION=true "$IMAGE" >/dev/null
+  for _ in $(seq 1 60); do
+    if docker exec "$live" curl -sf -o /dev/null http://127.0.0.1:3000/; then return 0; fi
+    sleep 1
   done
-) >"$seed_dir/push-loop.err" 2>&1 &
-push_pid=$!
-
-for _ in $(seq 1 50); do
-  [[ -s "$push_log" ]] && break
-  sleep 0.2
-done
-
-backup_start=$(date +%s)
-backup_rc=0
-backup_log="$(run_backup -c 'bash /scripts/backup.sh' 2>&1)" || backup_rc=$?
-backup_end=$(date +%s)
-say "$backup_log" | tail -n 20
-check "backup.sh exit 0" "$backup_rc"
-say "TIME backup $((backup_end - backup_start))s"
-
-kill "$push_pid" 2>/dev/null || true
-wait "$push_pid" 2>/dev/null || true
-push_pid=""
-
-overlap=1
-while read -r pstart pend; do
-  if (( pstart <= backup_end && pend >= backup_start )); then overlap=0; break; fi
-done <"$push_log"
-check "a push overlapped the backup" "$overlap"
-
-status_rc=1
-size_line=""
-if [[ "$backup_rc" -eq 0 ]]; then
-  size_line="$(docker run --rm --user 1000:1000 --network none --entrypoint /bin/bash \
-    -v "$bak":/backup:ro "$IMAGE" -c '
-      latest=$(cat /backup/LATEST)
-      echo "LATEST=$latest"
-      echo "STATUS=$(cat /backup/$latest/STATUS)"
-      cat "/backup/$latest/SIZES.tsv"
-      echo "MODE=$(stat -c %a /backup/$latest) $(stat -c %a /backup/$latest/gitea.db) $(stat -c %a /backup/$latest/data.tar)"
-    ')"
-  say "$size_line"
-  printf '%s\n' "$size_line" | grep -q 'STATUS=OK' && status_rc=0
-fi
-check "LATEST run STATUS is OK" "$status_rc"
-
-docker rm -f "$name" >/dev/null
-name=""
-
-drill_rc=0
-drill_start=$(date +%s)
-drill_log="$(run_drill -c 'bash /scripts/drill.sh latest' 2>&1)" || drill_rc=$?
-drill_end=$(date +%s)
-say "$drill_log" | tail -n 30
-check "drill.sh PASS" "$(printf '%s\n' "$drill_log" | grep -q 'VERDICT: PASS' && [[ $drill_rc -eq 0 ]] && echo 0 || echo 1)"
-say "TIME drill $((drill_end - drill_start))s"
-
-plant() {
-  docker run --rm --user 1000:1000 --network none --entrypoint /bin/bash \
-    -v "$bak":/backup "$IMAGE" -c "$1"
+  return 1
 }
-
-latest="$(printf '%s\n' "$size_line" | sed -n 's/^LATEST=//p' | head -1)"
-trunc_rc=0
-if [[ -n "$latest" ]]; then
-  plant "
-    set -e
-    rm -rf /backup/fault-trunc
-    cp -a /backup/$latest /backup/fault-trunc
-    head -c 64 /backup/fault-trunc/gitea.db > /tmp/short
-    cat /tmp/short > /backup/fault-trunc/gitea.db
-    cd /backup/fault-trunc
-    sha256sum gitea.db data.tar MANIFEST.tsv SIZES.tsv > SHA256SUMS
-    printf 'OK\n' > STATUS
-    chmod 0600 SHA256SUMS STATUS gitea.db data.tar MANIFEST.tsv SIZES.tsv
-  " || trunc_rc=1
-fi
-trunc_drill=0
-trunc_log="$(run_drill -c 'bash /scripts/drill.sh fault-trunc' 2>&1)" || trunc_drill=$?
-say "$trunc_log" | tail -n 15
-if [[ "$trunc_rc" -eq 0 && "$trunc_drill" -ne 0 ]] \
-   && printf '%s\n' "$trunc_log" | grep -q 'integrity_check:' \
-   && ! printf '%s\n' "$trunc_log" | grep -q 'integrity_check: ok'; then
-  check "fault truncated database fails the drill" 0
-else
-  check "fault truncated database fails the drill" 1
-fi
-
-man_rc=0
-if [[ -n "$latest" ]]; then
-  plant "$(cat <<EOF
-set -e
-rm -rf /backup/fault-manifest
-cp -a /backup/${latest} /backup/fault-manifest
-cd /backup/fault-manifest
-awk -F '\t' -v OFS='\t' 'NR==1 { print; next } { gsub(/=[0-9a-f]+/, "=0000000000000000000000000000000000000000"); print }' MANIFEST.tsv > MANIFEST.tsv.new
-mv MANIFEST.tsv.new MANIFEST.tsv
-sha256sum gitea.db data.tar MANIFEST.tsv SIZES.tsv > SHA256SUMS
-printf 'OK\n' > STATUS
-chmod 0600 SHA256SUMS STATUS gitea.db data.tar MANIFEST.tsv SIZES.tsv
-EOF
-)" || man_rc=1
-fi
-man_drill=0
-man_log="$(run_drill -c 'bash /scripts/drill.sh fault-manifest' 2>&1)" || man_drill=$?
-say "$man_log" | tail -n 20
-if [[ "$man_rc" -eq 0 && "$man_drill" -ne 0 ]] && printf '%s\n' "$man_log" | grep -q 'ref mismatch'; then
-  check "fault manifest ref fails the drill" 0
-else
-  check "fault manifest ref fails the drill" 1
-fi
-
-corrupt_rc=0
-docker run --rm --user 1000:1000 --entrypoint /bin/bash -v "$vol":/data "$IMAGE" -c '
-  set -e
-  repo=/data/git/repositories/giteaadmin/alpha.git
-  sha=$(git --git-dir="$repo" rev-parse HEAD)
-  mkdir -p /tmp/packs
-  if ls "$repo/objects/pack/"*.pack >/dev/null 2>&1; then
-    for pack in "$repo/objects/pack/"*.pack; do
-      git --git-dir="$repo" unpack-objects < "$pack"
-    done
-    rm -f "$repo/objects/pack/"*
-  fi
-  rm -f "$repo/objects/${sha:0:2}/${sha:2}"
-  if git --git-dir="$repo" fsck --connectivity-only >/dev/null 2>&1; then
-    echo "still consistent" >&2
-    exit 1
-  fi
-' || corrupt_rc=1
-check "planted a missing object" "$corrupt_rc"
-
-miss_rc=0
-miss_log="$(run_backup -c 'bash /scripts/backup.sh' 2>&1)" || miss_rc=$?
-say "$miss_log" | tail -n 20
-latest_after="$(docker run --rm --user 1000:1000 --network none --entrypoint /bin/bash \
-  -v "$bak":/backup:ro "$IMAGE" -c 'cat /backup/LATEST')"
-if [[ "$corrupt_rc" -eq 0 && "$miss_rc" -ne 0 && "$latest_after" == "$latest" ]] \
-   && printf '%s\n' "$miss_log" | grep -q 'failed git fsck after 3 copies'; then
-  check "fault missing object fails the backup and keeps LATEST" 0
-else
-  check "fault missing object fails the backup and keeps LATEST" 1
-fi
-
+start_live
+# Seed inside the network-none container; synthetic password only.
+docker exec -u git "$live" bash -c '
+  set -euo pipefail
+  gitea admin user create --config /data/gitea/conf/app.ini --username admin --password Rehearse-pass-1 --email admin@example.com --admin --must-change-password=false >/dev/null
+  for repo in alpha beta gamma; do
+    curl -sf -u admin:Rehearse-pass-1 -H "Content-Type: application/json" -X POST http://127.0.0.1:3000/api/v1/user/repos -d "{\"name\":\"$repo\"}" >/dev/null
+    git init -q -b main /tmp/$repo
+    git -C /tmp/$repo config user.email test@example.com
+    git -C /tmp/$repo config user.name test
+    printf "seed\n" > /tmp/$repo/README
+    if [[ $repo == gamma ]]; then dd if=/dev/urandom of=/tmp/$repo/blob bs=1048576 count=24 2>/dev/null; fi
+    git -C /tmp/$repo add README
+    if [[ $repo == gamma ]]; then git -C /tmp/$repo add blob; fi
+    git -C /tmp/$repo commit -qm seed
+    git -C /tmp/$repo remote add origin http://admin:Rehearse-pass-1@127.0.0.1:3000/admin/$repo.git
+    git -C /tmp/$repo push -q origin main
+  done
+'
+admin_volume() {
+  docker run --rm --network none --user 1000:1000 --entrypoint bash -v "$vol":/data -v "$bak":/backup -v "$hooks":/hooks -v "$baseline":/baseline "$IMAGE" -euo pipefail -c "$1"
+}
+# Stop cleanly for a baseline; keep synthetic password/hash solely in volumes.
+docker rm -f "$live" >/dev/null
+admin_volume 'tar -C /data --exclude=./ssh -cf /baseline/data.tar .'
+start_live
+reset_hooks() { admin_volume 'find /hooks -mindepth 1 -delete'; }
+wait_ready() {
+  for _ in $(seq 1 300); do
+    if admin_volume "test -f /hooks/$1.ready"; then return 0; fi
+    sleep .1
+  done
+  return 1
+}
+release() { admin_volume "touch /hooks/$1.release"; }
+recipient=$(docker run --rm --network none --entrypoint cat -v "$keys":/keys:ro "$IMAGE" /keys/recipient)
+admin_volume "printf '%s\n' '$recipient' > /backup/recipient"
+backup_job() {
+  docker run "$@" --name "$prefix-job" --network none --user 1000:1000 --entrypoint bash \
+    -v "$vol":/data:ro -v "$bak":/backup -v "$work":/work -v "$hooks":/hooks \
+    -v "$tools":/tools:ro -v "$HERE":/scripts:ro \
+    -e PATH=/tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    -e HOME=/work -e TMPDIR=/work -e RECIPIENT_FILE=/backup/recipient \
+    -e GITEA_BACKUP_TEST_HOOK_DIR=/hooks "$IMAGE" /scripts/backup.sh
+}
+reset_hooks
+admin_volume 'touch /hooks/wait-copy-1'
+backup_job -d >/dev/null
+wait_ready copy-1
+# copy producer is live and consumer held. Push completes before releasing it.
+docker exec -u git "$live" bash -euo pipefail -c 'printf "during copy\n" >> /tmp/alpha/README; git -C /tmp/alpha add README; git -C /tmp/alpha commit -qm during-copy; git -C /tmp/alpha push -q origin main'
+release copy-1
+rc=$(docker wait "$prefix-job")
+title='normal run with handshake push DURING copy'; check test "$rc" == 0
+if [[ $rc != 0 ]]; then docker logs "$prefix-job"; exit 1; fi
+docker rm "$prefix-job" >/dev/null
+latest=$(admin_volume 'cat /backup/LATEST')
+# Human restore, then the SAME HTTP verifier with decrypted manifest.
+restore_rc=0
+docker run --rm --network none --user 1000:1000 --entrypoint bash -v "$bak":/backup:ro -v "$keys":/keys:ro \
+  -v "$tools":/tools:ro -v "$work":/work -v "$HERE":/scripts:ro -e HOME=/work -e TMPDIR=/work \
+  -e PATH=/tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "$IMAGE" -euo pipefail -c \
+  'bash /scripts/restore.sh /backup/$(cat /backup/LATEST) /keys/identity /work/restored; bash /scripts/verify-stage.sh /work/restored /work/restored.MANIFEST.tsv /work/restored.VERIFIED' || restore_rc=$?
+title='decrypt, restore, HTTP clone EVERY repository and compare refs'; check test "$restore_rc" == 0
+assert_failed() {
+  local rc=$1
+  [[ $rc != 0 ]] && [[ $(admin_volume 'cat /backup/LATEST') == "$latest" ]] && admin_volume 'for s in /backup/*.partial/STATUS; do [[ ! -f $s || $(cat "$s") != OK ]] || exit 1; done'
+}
+# Repeat mutations on every DB-copy attempt so the set never converges.
+set_fault() {
+  local kind=$1
+  reset_hooks
+  for n in 1 2 3; do admin_volume "touch /hooks/wait-after-db-$n"; done
+  backup_job -d >/dev/null
+  for n in 1 2 3; do
+    wait_ready "after-db-$n"
+    if [[ "$kind" == create ]]; then
+      docker exec -u git "$live" curl -sf -u admin:Rehearse-pass-1 -H 'Content-Type: application/json' -X POST http://127.0.0.1:3000/api/v1/user/repos -d "{\"name\":\"created$n\"}" >/dev/null
+    else
+      # There are three seed repos; remove one after each database copy.
+      repo=$(printf '%s\n' alpha beta gamma | sed -n "${n}p")
+      docker exec -u git "$live" curl -sf -u admin:Rehearse-pass-1 -X DELETE "http://127.0.0.1:3000/api/v1/repos/admin/$repo" >/dev/null
+    fi
+    release "after-db-$n"
+  done
+  rc=$(docker wait "$prefix-job")
+  title="repository $kind after database copy fails after 3 stages, LATEST unchanged"
+  set_fault_result() {
+    assert_failed "$rc" && docker logs "$prefix-job" 2>&1 | grep -q 'repository sets still differ after 3 stages'
+  }
+  check set_fault_result
+  docker rm "$prefix-job" >/dev/null
+}
+set_fault create
+set_fault delete
+# Reset live data to baseline; no volume shared with a running reset operation.
+docker rm -f "$live" >/dev/null
+admin_volume 'find /data -mindepth 1 -maxdepth 1 ! -name ssh -exec rm -rf {} +; tar -C /data -xf /baseline/data.tar'
+# Corrupt a loose object (seed push stays loose on these tiny repositories).
+admin_volume 'repo=/data/git/repositories/admin/alpha.git; sha=$(git --git-dir="$repo" rev-parse refs/heads/main); rm "$repo/objects/${sha:0:2}/${sha:2}"; if git --git-dir="$repo" fsck --connectivity-only >/dev/null 2>&1; then exit 1; fi'
+reset_hooks
+backup_job -d >/dev/null
+rc=$(docker wait "$prefix-job")
+title='missing object fails fsck, LATEST unchanged'
+missing_result() { assert_failed "$rc" && docker logs "$prefix-job" 2>&1 | grep -q 'failed git fsck after 3 copies'; }
+check missing_result
+docker rm "$prefix-job" >/dev/null
+admin_volume 'find /data -mindepth 1 -maxdepth 1 ! -name ssh -exec rm -rf {} +; tar -C /data -xf /baseline/data.tar'
+# Lock overlap is independent of wall-clock seconds.
+reset_hooks
+admin_volume 'touch /hooks/wait-locked'
+backup_job -d >/dev/null
+wait_ready locked
+rc=0
+lock_output=$(docker run --rm --network none --user 1000:1000 --entrypoint bash -v "$vol":/data:ro -v "$bak":/backup \
+  -v "$work":/work -v "$tools":/tools:ro -v "$HERE":/scripts:ro -e RECIPIENT_FILE=/backup/recipient "$IMAGE" /scripts/backup.sh 2>&1) || rc=$?
+title='second run while first holds lock refuses at once'
+lock_result() { assert_failed "$rc" && [[ "$lock_output" == *'holds the NAS lock'* ]]; }
+check lock_result
+release locked
+rc=$(docker wait "$prefix-job")
+# First run may be same-second stamp; either finishes or refuses monotonically.
+docker rm "$prefix-job" >/dev/null
+latest=$(admin_volume 'cat /backup/LATEST')
+# Clock-back fixture makes the script itself read an older stamp.
+reset_hooks
+admin_volume 'mkdir /hooks/bin; printf "#!/bin/sh\nif [ \"\$*\" = \"-u +%%Y-%%m-%%dT%%H%%M%%SZ\" ]; then echo 2000-01-01T000000Z; else exec /bin/date \"\$@\"; fi\n" > /hooks/bin/date; chmod 755 /hooks/bin/date'
+rc=0
+clock_output=$(docker run --rm --network none --user 1000:1000 --entrypoint bash -v "$vol":/data:ro -v "$bak":/backup -v "$work":/work \
+  -v "$hooks":/hooks -v "$tools":/tools:ro -v "$HERE":/scripts:ro -e RECIPIENT_FILE=/backup/recipient \
+  -e PATH=/hooks/bin:/tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "$IMAGE" /scripts/backup.sh 2>&1) || rc=$?
+title='clock set back refused before retention, LATEST unchanged'
+clock_result() { assert_failed "$rc" && [[ "$clock_output" == *'clock not monotonic'* ]]; }
+check clock_result
+# Small tmpfs NAS is filled at the manifest handshake (before age writes it).
+reset_hooks
+admin_volume "touch /hooks/wait-nas-manifest; printf '%s\n' '$recipient' > /hooks/recipient"
+docker run -d --name "$prefix-full" --network none --user 1000:1000 --entrypoint bash \
+  --tmpfs /backup:rw,size=1m,uid=1000,gid=1000 -v "$vol":/data:ro -v "$work":/work -v "$hooks":/hooks \
+  -v "$tools":/tools:ro -v "$HERE":/scripts:ro -e RECIPIENT_FILE=/hooks/recipient \
+  -e GITEA_BACKUP_TEST_HOOK_DIR=/hooks -e HOME=/work -e TMPDIR=/work \
+  -e PATH=/tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "$IMAGE" -euo pipefail -c \
+  'printf "older\n" > /backup/LATEST; set +e; bash /scripts/backup.sh; rc=$?; [[ $rc != 0 && $(cat /backup/LATEST) == older ]] || exit 1; for s in /backup/*.partial/STATUS; do [[ ! -f $s || $(cat "$s") != OK ]] || exit 1; done; exit 0' >/dev/null
+wait_ready nas-manifest
+# ENOSPC is the intended fault; assert it occurred, then unblock age.
+fill_rc=0
+docker exec "$prefix-full" dd if=/dev/zero of=/backup/filler bs=4096 count=512 >/dev/null 2>&1 || fill_rc=$?
+[[ $fill_rc != 0 ]] || { printf 'FAIL small tmpfs did not fill\n'; exit 1; }
+release nas-manifest
+rc=$(docker wait "$prefix-full")
+title='full destination at manifest encryption: no OK and LATEST unchanged'
+full_result() { [[ "$rc" == 0 ]] && docker logs "$prefix-full" 2>&1 | grep -q 'age encryption failed'; }
+check full_result
+docker rm "$prefix-full" >/dev/null
+# Rewrite ciphertext checksums after truncation, so age authentication itself
+# must reject it (rather than merely failing the outer ciphertext checksum).
+admin_volume 'latest=$(cat /backup/LATEST); mkdir /backup/fault-trunc; cp /backup/$latest/* /backup/fault-trunc/; head -c 96 /backup/fault-trunc/data.tar.age > /tmp/truncated; cp /tmp/truncated /backup/fault-trunc/data.tar.age; cd /backup/fault-trunc; grep "^#" SHA256SUMS > /tmp/plain-sum; sha256sum data.tar.age MANIFEST.tsv.age > SHA256SUMS; cat /tmp/plain-sum >> SHA256SUMS'
+rc=0
+docker run --rm --network none --user 1000:1000 --entrypoint bash -v "$bak":/backup:ro -v "$keys":/keys:ro -v "$tools":/tools:ro \
+  -v "$work":/work -v "$HERE":/scripts:ro -e TMPDIR=/work -e PATH=/tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+  "$IMAGE" /scripts/restore.sh /backup/fault-trunc /keys/identity /work/truncated >/dev/null 2>&1 || rc=$?
+title='truncated ciphertext rejected by restore.sh, LATEST unchanged'; check assert_failed "$rc"
 exit "$failed"

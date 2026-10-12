@@ -1,120 +1,246 @@
-"""Static checks for the Gitea backup manifests.
-
-Lives next to the manifests (the same place as
-k8s/data/role-matrix/test_check_role_matrix.py). This repository has no single
-pytest suite for manifests; run this file directly:
-
-    python3 -m pytest k8s/cicd/gitea-backup/test_gitea_backup.py -q
-"""
+"""Static deployment boundaries; run alongside test_backup_logic.py with pytest."""
 
 from pathlib import Path
+import re
 
 import yaml
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
-DEPLOYMENT = ROOT / "k8s/cicd/gitea/deployment.yaml"
+CLUSTER = ROOT / "k8s/data/cluster-state-backup"
 
 
-def docs(name):
-    return [doc for doc in yaml.safe_load_all((HERE / name).read_text()) if doc]
+def docs(path):
+    return [d for d in yaml.safe_load_all(path.read_text()) if d]
 
 
-def cronjob(name):
-    found = [doc for doc in docs(name) if doc.get("kind") == "CronJob"]
-    assert len(found) == 1
-    return found[0]
+def job():
+    return next(d for d in docs(HERE / "cronjob-backup.yaml") if d["kind"] == "CronJob")
 
 
-def pod_spec(job):
-    return job["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+def template():
+    return job()["spec"]["jobTemplate"]["spec"]["template"]
 
 
-def deployment_pod():
-    for doc in yaml.safe_load_all(DEPLOYMENT.read_text()):
-        if doc and doc.get("kind") == "Deployment":
-            return doc["spec"]["template"]["spec"]
-    raise AssertionError("gitea Deployment not found")
+def deployment():
+    return next(
+        d
+        for d in docs(ROOT / "k8s/cicd/gitea/deployment.yaml")
+        if d["kind"] == "Deployment"
+    )["spec"]["template"]["spec"]
 
 
-def test_live_data_mount_is_read_only():
-    spec = pod_spec(cronjob("cronjob-backup.yaml"))
-    mounts = {m["name"]: m for m in spec["containers"][0]["volumeMounts"]}
-    volumes = {v["name"]: v for v in spec["volumes"]}
-    assert mounts["gitea-data"]["readOnly"] is True
-    claim = volumes["gitea-data"]["persistentVolumeClaim"]
-    assert claim["claimName"] == "gitea-data"
-    assert claim["readOnly"] is True
+def containers(spec):
+    return spec.get("containers", []) + spec.get("initContainers", [])
 
 
-def test_no_service_account_token_and_no_rbac():
-    for name in ("cronjob-backup.yaml", "cronjob-drill.yaml"):
-        spec = pod_spec(cronjob(name))
-        assert spec["automountServiceAccountToken"] is False
-        assert "serviceAccountName" not in spec
+def assert_no_credentials(spec):
+    assert spec["automountServiceAccountToken"] is False
+    assert "serviceAccountName" not in spec
+    for v in spec.get("volumes", []):
+        assert "secret" not in v
+        assert "csi" not in v  # CSI Secret stores cannot introduce credentials.
+        for source in v.get("projected", {}).get("sources", []):
+            assert "serviceAccountToken" not in source and "secret" not in source
+    for c in containers(spec):
+        for e in c.get("envFrom", []):
+            assert "secretRef" not in e
+        for e in c.get("env", []):
+            assert "secretKeyRef" not in e.get("valueFrom", {})
+
+
+def test_no_service_account_token_by_any_route():
+    assert_no_credentials(template()["spec"])
+    forbidden = {
+        "ServiceAccount",
+        "Role",
+        "RoleBinding",
+        "ClusterRole",
+        "ClusterRoleBinding",
+        "Secret",
+    }
     for path in HERE.glob("*.yaml"):
-        for doc in yaml.safe_load_all(path.read_text()):
-            if not doc:
-                continue
-            assert doc.get("kind") not in {
-                "ServiceAccount",
-                "Role",
-                "RoleBinding",
-                "ClusterRole",
-                "ClusterRoleBinding",
+        assert all(d.get("kind") not in forbidden for d in docs(path))
+
+
+def test_credential_mutations_are_rejected():
+    from copy import deepcopy
+    import pytest
+
+    base = template()["spec"]
+    mutations = [
+        lambda s: s.update(automountServiceAccountToken=True),
+        lambda s: s["volumes"].append(
+            {
+                "name": "token",
+                "projected": {"sources": [{"serviceAccountToken": {"path": "token"}}]},
             }
+        ),
+        lambda s: s["volumes"].append(
+            {"name": "secret", "secret": {"secretName": "foo"}}
+        ),
+    ]
+    for kind in ("containers", "initContainers"):
+        mutations.extend(
+            [
+                lambda s, k=kind: s[k][0].update(
+                    envFrom=[{"secretRef": {"name": "foo"}}]
+                ),
+                lambda s, k=kind: s[k][0].update(
+                    env=[
+                        {
+                            "name": "TOKEN",
+                            "valueFrom": {
+                                "secretKeyRef": {"name": "foo", "key": "token"}
+                            },
+                        }
+                    ]
+                ),
+            ]
+        )
+    for mutate in mutations:
+        spec = deepcopy(base)
+        mutate(spec)
+        with pytest.raises(AssertionError):
+            assert_no_credentials(spec)
 
 
-def test_image_tag_matches_the_deployment():
-    deploy_image = deployment_pod()["containers"][0]["image"]
-    assert deploy_image == "gitea/gitea:1.21.11"
-    for name in ("cronjob-backup.yaml", "cronjob-drill.yaml"):
-        image = pod_spec(cronjob(name))["containers"][0]["image"]
-        assert image == deploy_image
+def test_live_mounts_read_only_in_every_container():
+    spec = template()["spec"]
+    volumes = {v["name"]: v for v in spec["volumes"]}
+    live = {
+        n
+        for n, v in volumes.items()
+        if v.get("persistentVolumeClaim", {}).get("claimName") == "gitea-data"
+    }
+    assert live
+    for n in live:
+        assert volumes[n]["persistentVolumeClaim"]["readOnly"] is True
+    for c in containers(spec):
+        for mount in c.get("volumeMounts", []):
+            if mount["name"] in live:
+                assert mount["readOnly"] is True
+    mounts = {m["mountPath"]: m for m in spec["containers"][0]["volumeMounts"]}
+    assert "emptyDir" in volumes[mounts["/work"]["name"]]
+    assert "emptyDir" in volumes[mounts["/tools"]["name"]]
+    assert not any(
+        "subPath" in m for c in containers(spec) for m in c.get("volumeMounts", [])
+    )
 
 
-def test_backup_pod_affinity_and_tolerations_match_the_deployment():
-    spec = pod_spec(cronjob("cronjob-backup.yaml"))
-    required = spec["affinity"]["podAffinity"]["requiredDuringSchedulingIgnoredDuringExecution"]
-    assert len(required) == 1
-    assert required[0]["topologyKey"] == "kubernetes.io/hostname"
-    assert required[0]["labelSelector"]["matchLabels"] == {"app": "gitea"}
-    assert spec["tolerations"] == deployment_pod()["tolerations"]
+def test_image_uid_affinity_and_tolerations():
+    spec = template()["spec"]
+    assert spec["containers"][0]["image"] == deployment()["containers"][0]["image"]
+    assert (
+        spec["securityContext"]["runAsUser"]
+        == spec["securityContext"]["runAsGroup"]
+        == 1000
+    )
+    required = spec["affinity"]["podAffinity"][
+        "requiredDuringSchedulingIgnoredDuringExecution"
+    ]
+    assert required == [
+        {
+            "labelSelector": {"matchLabels": {"app": "gitea"}},
+            "topologyKey": "kubernetes.io/hostname",
+        }
+    ]
+    assert spec["tolerations"] == deployment()["tolerations"]
+    cluster_job = next(
+        d for d in docs(CLUSTER / "cronjob.yaml") if d["kind"] == "CronJob"
+    )
+    cluster_init = cluster_job["spec"]["jobTemplate"]["spec"]["template"]["spec"][
+        "initContainers"
+    ][0]
+    assert spec["initContainers"][0]["image"] == cluster_init["image"]
 
 
-def test_both_pods_are_covered_by_the_deny_all_network_policy():
-    policies = [doc for doc in docs("network-policy.yaml") if doc.get("kind") == "NetworkPolicy"]
-    assert len(policies) == 1
-    spec = policies[0]["spec"]
+def test_exact_network_policy():
+    spec = docs(HERE / "network-policy.yaml")[0]["spec"]
+    assert spec["podSelector"] == {"matchLabels": template()["metadata"]["labels"]}
     assert spec["policyTypes"] == ["Ingress", "Egress"]
     assert spec["ingress"] == []
-    assert spec["egress"] == []
-    selected = set(spec["podSelector"]["matchExpressions"][0]["values"])
-    assert selected == {"gitea-backup", "gitea-backup-drill"}
-    for name, job_file in (
-        ("gitea-backup", "cronjob-backup.yaml"),
-        ("gitea-backup-drill", "cronjob-drill.yaml"),
+    assert spec["egress"] == [
+        {
+            "to": [
+                {
+                    "namespaceSelector": {
+                        "matchLabels": {"kubernetes.io/metadata.name": "kube-system"}
+                    },
+                    "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}},
+                }
+            ],
+            "ports": [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}],
+        },
+        {
+            "to": [
+                {
+                    "ipBlock": {
+                        "cidr": "0.0.0.0/0",
+                        "except": ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],
+                    }
+                }
+            ],
+            "ports": [{"protocol": "TCP", "port": 443}],
+        },
+    ]
+
+
+def test_same_recipient_and_age_pin():
+    assert (
+        docs(HERE / "recipient-configmap.yaml")[0]["data"]["recipient"]
+        == docs(CLUSTER / "recipient-configmap.yaml")[0]["data"]["recipient"]
+    )
+    for key in ("AGE_URL", "AGE_SHA"):
+        pattern = rf"^{key}=(.+)$"
+        assert (
+            re.search(pattern, (HERE / "fetch-tools.sh").read_text(), re.M)[1]
+            == re.search(pattern, (CLUSTER / "fetch-tools.sh").read_text(), re.M)[1]
+        )
+    assert "kubectl" not in (HERE / "fetch-tools.sh").read_text().split("set -eu")[1]
+
+
+def test_one_cronjob_and_no_test_hooks():
+    jobs = [
+        d for p in HERE.glob("*.yaml") for d in docs(p) if d.get("kind") == "CronJob"
+    ]
+    assert [d["metadata"]["name"] for d in jobs] == ["gitea-backup"]
+    assert (
+        "GITEA_BACKUP_TEST_HOOK_DIR" not in (HERE / "cronjob-backup.yaml").read_text()
+    )
+    assert not (HERE / "drill.sh").exists()
+    assert not (HERE / "cronjob-drill.yaml").exists()
+    k = docs(HERE / "kustomization.yaml")[0]
+    assert all((HERE / r).is_file() for r in k["resources"])
+    assert k["configMapGenerator"][0]["files"] == [
+        "backup.sh",
+        "verify-stage.sh",
+        "fetch-tools.sh",
+    ]
+
+
+def test_alert_and_maintainers():
+    rules = docs(ROOT / "k8s/monitoring/bifrost-alerting-rules.yaml")[0]["spec"][
+        "groups"
+    ]
+    alerts = [
+        r
+        for g in rules
+        for r in g["rules"]
+        if r.get("alert", "").startswith("BifrostGiteaBackup")
+    ]
+    assert len(alerts) == 1
+    assert alerts[0]["alert"] == "BifrostGiteaBackupMissing"
+    assert "absent(kube_cronjob_status_last_successful_time" in alerts[0]["expr"]
+    assert (
+        "kube_cronjob_created" in alerts[0]["expr"] and "> 93600" in alerts[0]["expr"]
+    )
+    # max(created) has no labels; absent infers cronjob/namespace labels.
+    assert "and on()" in alerts[0]["expr"]
+    for p in (
+        ROOT / "agent-config/MAINTAINERS.yaml",
+        ROOT / "k8s/monitoring/maintainer-reconcile/MAINTAINERS.yaml",
     ):
-        labels = cronjob(job_file)["spec"]["jobTemplate"]["spec"]["template"]["metadata"]["labels"]
-        assert labels["app.kubernetes.io/name"] == name
-        assert name in selected
-
-
-def test_drill_mounts_no_live_data():
-    spec = pod_spec(cronjob("cronjob-drill.yaml"))
-    for mount in spec["containers"][0]["volumeMounts"]:
-        assert mount.get("name") != "gitea-data"
-    claims = []
-    for volume in spec["volumes"]:
-        claim = volume.get("persistentVolumeClaim")
-        if claim:
-            claims.append(claim["claimName"])
-            assert claim["claimName"] != "gitea-data"
-        else:
-            assert "emptyDir" in volume or volume["name"] == "scripts"
-    assert claims == ["gitea-backup", "gitea-backup"]
-    mounts = {m["mountPath"]: m for m in spec["containers"][0]["volumeMounts"]}
-    assert mounts["/backup"]["readOnly"] is True
-    assert mounts["/data"]["name"] == "work"
-    work = next(v for v in spec["volumes"] if v["name"] == "work")
-    assert "emptyDir" in work
+        s = p.read_text()
+        assert s.count("id: cronjob/cicd/gitea-backup\n") == 1
+        assert "gitea-backup-drill" not in s

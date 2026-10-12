@@ -1,121 +1,114 @@
-# Nightly backup of the in-cluster Gitea (W-41)
+# Gitea nightly verified, encrypted backup (W-41)
 
-The Deployment (`k8s/cicd/gitea`, image `gitea/gitea:1.21.11`) keeps SQLite,
-repositories, `app.ini`, and tokens on one `local-path` claim, `gitea-data`.
-The repositories can be re-mirrored from GitHub. The database and `app.ini`
-cannot.
+One CronJob, `cicd/gitea-backup`, runs at 03:10 UTC. It uses the Deployment's
+`gitea/gitea:1.21.11`, uid/gid 1000, required same-node pod affinity and the
+same tolerations. Both the live PVC and its mount are read-only. There is no
+ServiceAccount token, Secret volume, Secret environment or API client.
+Self-registration off is the separate commit `1c931da`; this change does not
+modify or apply the Gitea Deployment.
 
-| What | Where |
-|------|--------|
-| SQLite online backup (`gitea.db`) plus `data.tar` of the rest of the tree | `<UTC stamp>/` on claim `cicd/gitea-backup` (`nfs-cold`) |
-| `MANIFEST.tsv`, `SIZES.tsv`, `SHA256SUMS`, `STATUS` | that same directory. `STATUS` is written last |
-| Newest OK run | `LATEST` |
-| Restore drill reports | `drills/` |
+Plaintext exists only in the pod's `/work` emptyDir. SQLite's online backup
+uses `file:<path>?mode=ro`; `gitea dump` is never used. After copying the data
+tree, the repository set from SQLite must equal the copied directory set.
+In Gitea 1.21.11 `RepoPath` uses `user.lower_name` (including organizations)
+and `repository.lower_name`: `git/repositories/<owner>/<name>.git`. The
+script fails closed on other ROOT layouts, missing owners, unsafe paths or
+zero repositories. A set mismatch discards the stage and repeats both DB
+and tree copies, up to three times; failures name database-only/disk-only
+repositories in the Job log. SQLite integrity and every repository's
+`git fsck --connectivity-only` must pass; fsck has three copy attempts.
 
-`data.tar` holds repositories, `app.ini` and the custom/conf tree, avatars,
-attachments, and LFS when it is present. It leaves out the live database
-files (`gitea.db` and its `-wal`/`-shm`/`-journal`), `sessions`, `queues`,
-`indexers`, `log`, `actions_log`, `tmp`, and `uploads`. Every repository in
-the copy must pass `git fsck --connectivity-only`. A repository that fails is
-copied again, up to 3 times; if it still fails the run's `STATUS` is
-`FAILED:` and it is not `LATEST`.
+The archive includes the SQLite copy in its original location, app.ini and
+the complete conf/custom tree, repositories, avatars, attachments, uploads,
+actions logs and LFS. SQLite sidecars and rebuildable sessions, queues,
+indexers, logs and temp are excluded. The image's root-owned `/data/ssh`
+host keys cannot be read by uid 1000; restore creates new SSH host keys.
 
-`MANIFEST.tsv` has a header and one row per repository: path, then every
-`ref=sha` separated by spaces. `SIZES.tsv` is `database` (bytes of the sqlite
-copy), `repositories` (uncompressed bytes of the git files inside the
-archive), and `total` (sqlite copy plus `data.tar`).
+The archive is made **before** Gitea changes the stage. `verify-stage.sh`
+rebases copied paths, binds HTTP to 127.0.0.1:3000 and disables SSH, creates
+a throwaway access token in the copied database, clones every repository
+in the manifest over HTTP and compares every ref. All Gitea logs, token
+output and clones stay in `/work` and are removed. The archive retains the
+original configuration and database, not the verification token. Any
+verification failure prevents publishing any backup data onto the NAS.
 
-The database copy is `sqlite3 "file:<path>?mode=ro" ".backup"`, then
-`PRAGMA integrity_check` on the copy. `gitea dump` is not used. In 1.21.11
-`DBConnStr` does `MkdirAll` on the database directory and opens
-`file:<path>?mode=rwc`. A rehearsal can still see dump exit 0 when those
-directories already exist and the SQL dump happens not to write a page; the
-open is read-write-create either way, so the read-only rule rules it out.
+The NAS directory `<UTC stamp>/` contains exactly:
 
-Directories on the claim are `0700`, files `0600` (`umask 077`). The image
-keeps `/data/ssh` (SSH host keys) owned by root mode `0700`. This job runs as
-uid 1000, which is who the image runs Gitea as (`su-exec git`), so those host
-keys are not in the archive. A restore mints new host keys. The drill turns
-SSH off and binds HTTP to `127.0.0.1`.
+| File | Content |
+|---|---|
+| `data.tar.age` | One age-encrypted full archive |
+| `MANIFEST.tsv.age` | Encrypted repository paths and every ref=sha |
+| `SIZES.tsv` | Plaintext DB/repository/archive byte sizes and repository count; no names |
+| `SHA256SUMS` | Both ciphertext hashes; comment `# plaintext_sha256 data.tar <hash>` |
+| `VERIFIED` | Number of repositories and refs matched over HTTP |
+| `STATUS` | Exactly `OK`, written last |
 
-## Who can read the NAS export
+Age reads `/work` and writes ciphertext directly to `<stamp>.partial/`.
+A rejected age header is removed. The directory is created exclusively,
+never reused, and renamed only after verification, ciphertext checksums and
+STATUS checks. Directories are 0700 and files 0600; Bash's `set -euo pipefail`
+checks redirections, pipelines, copy, rename and chmod errors. LATEST is
+prepared, read back and renamed; failure invalidates the new OK directory,
+preserves the previous LATEST and does not start retention.
 
-The claim lands at `192.168.10.20:/volume1/k3s-cold/cicd-gitea-backup-<pv>/`.
-The NAS squashes every client uid to 1000, the same uid that owns the MinIO
-and provisioner folders (`k8s/data/logical-backup/cronjob-backup.yaml`). Mode
-`0700`/`0600` therefore does not separate NFS clients: any client the export
-accepts is uid 1000 and can read `app.ini` (the secret key and internal
-token) and the access-token hashes in the sqlite file. This repo does not
-record an IP allow-list for that export. The known clients are the k3s nodes
-that mount `nfs-cold`. The copy is not encrypted. `nfs-cold` is Retain.
+A NAS `mkdir` lock serializes scheduled and manual Jobs; concurrent runs
+fail immediately. Locks older than three hours (longer than the one-hour
+Job deadline) are reported and broken, with a serialized stale-lock breaker.
+A stamp must exceed the newest existing run, including non-OK and partial runs;
+clock rollback fails before retention. Only after success: newest seven OK
+runs plus the newest OK run in each of four trailing seven-day windows
+anchored on the newest OK UTC date; LATEST is always protected. Non-OK runs
+older than the oldest kept OK and `.partial` leftovers older than two days
+are removed only on a successful run.
 
-## Retention
+The NAS squashes clients to uid 1000: file permissions do not isolate NFS
+clients. The archive and manifest are encrypted to the same Owner public
+key as cluster-state-backup. The private key never enters the cluster.
+Legacy plaintext runs from round 1 are **not** encrypted retroactively;
+the Owner must handle those separately if any exist.
 
-After an OK run only: the newest 7 OK runs, plus the newest OK run in each of
-the four trailing 7-day windows anchored on the newest OK run's UTC date.
-The newest OK run is never deleted. A run whose `STATUS` is not exactly `OK`
-is not `LATEST` and does not count as one of the seven. Nothing is deleted
-when today's run failed. Non-OK runs older than the oldest kept OK run are
-removed on the next success.
+The alpine:3.22 init container downloads only the exact pinned amd64 age
+release/checksum used by cluster-state-backup into `/tools`. GitHub download
+availability is a backup dependency. This policy is looser than round 1's
+no-egress policy: DNS to kube-dns and public TCP 443 are needed for age.
+There is no ingress; HTTPS to 10/8, 172.16/12 and 192.168/16 is excluded.
+It permits neither API server/Gitea/pod endpoints in these private ranges
+nor arbitrary DNS destinations. There are no IPv6 egress rules. Public
+HTTPS is available to the whole pod, not just the init container; this is
+the fixed download design's tradeoff. NAS PVC traffic is a node mount.
 
-## Schedules (UTC)
+`BifrostGiteaBackupMissing` fires after 26h plus 30m without success, also
+when the CronJob has existed for 26h but never succeeded. Manual Jobs do
+not change CronJob last-success metrics: wait for a scheduled success too.
+The checkout's cluster-state rule currently contains only the stale-success
+expression, despite TASK-2 referring to a never-success branch; Gitea adds
+an explicit `kube_cronjob_created` + `absent(last_successful_time)` branch.
 
-Backup 03:10 daily. Drill 04:10 on the 1st, after that day's backup and
-before the 04:30 logical backup. Alerts: `BifrostGiteaBackupMissing` (no
-success for 26 h) and `BifrostGiteaBackupDrillStale` (no passing drill for
-35 days), next to the logical-backup rules.
+This directory is not under Argo. Owner commissioning/application sequence
+and human restore are in `docs/runbooks/gitea-restore.md`. There is no monthly
+drill CronJob, alert, maintainer row, subPath or cluster identity key.
 
-Both pods are selected by `gitea-backup-deny-all`: no ingress and no egress.
-The drill clones from `127.0.0.1` inside the pod.
-
-Not under Argo, like `k8s/data/logical-backup`.
-
-## Apply
-
-```bash
-kubectl apply -k k8s/cicd/gitea-backup
-kubectl apply -f k8s/monitoring/bifrost-alerting-rules.yaml
-```
-
-The first command creates the claim, the two CronJobs, the script ConfigMap,
-and the deny-all NetworkPolicy. It does not restart Gitea. The second updates
-the existing PrometheusRule `monitoring/bifrost-alerting-rules` (the whole
-object, with the two new alerts added).
-
-The maintainer rows are in `MAINTAINERS.yaml`. The in-cluster copy is
-ConfigMap `monitoring/maintainer-reconcile`, written by:
-
-```bash
-kubectl apply -k k8s/monitoring/maintainer-reconcile
-```
-
-Disabling registration is a separate change to `k8s/cicd/gitea/deployment.yaml`
-(`GITEA__service__DISABLE_REGISTRATION=true`). Applying that file rolls the
-Deployment. Strategy is Recreate, so the Gitea pod restarts. Apply it on its
-own, not as part of the backup:
+Offline checks (no Docker, no network):
 
 ```bash
-kubectl apply -f k8s/cicd/gitea/deployment.yaml
+python3 -m pytest k8s/cicd/gitea-backup/test_gitea_backup.py k8s/cicd/gitea-backup/test_backup_logic.py -q
+bash -n k8s/cicd/gitea-backup/backup.sh
+bash -n k8s/cicd/gitea-backup/verify-stage.sh
+bash -n k8s/cicd/gitea-backup/restore.sh
+bash -n k8s/cicd/gitea-backup/rehearse.sh
 ```
 
-## Run now, drill now
+Coordinator rehearsal: `bash k8s/cicd/gitea-backup/rehearse.sh`. It fetches the
+pinned age archive and creates a disposable age keypair in a separate Docker
+volume. Every backup/Gitea/restore container uses `--network none`; only the
+fetch container has network. The backup never mounts that identity volume.
+PASS lines cover the handshake push during the copy pipeline, real decrypt
+and HTTP restore, repository creation/deletion on each of three retries,
+missing object, full tmpfs at manifest encryption, concurrent lock, clock
+rollback and authenticated rejection of truncated ciphertext.
 
-Run a backup once before the first drill. The drill's report mount is
-`subPath: drills`, and that directory is created by the backup job.
-
-```bash
-kubectl -n cicd create job --from=cronjob/gitea-backup gitea-backup-manual-$(date +%s)
-kubectl -n cicd create job --from=cronjob/gitea-backup-drill gitea-backup-drill-manual-$(date +%s)
-```
-
-## Tests
-
-Static checks live in this directory and are not part of a repo-wide pytest
-run:
-
-```bash
-python3 -m pytest k8s/cicd/gitea-backup/test_gitea_backup.py -q
-```
-
-`rehearse.sh` is the Docker rehearsal (one container set at a time). It does
-not talk to the cluster.
+The sole opt-in test variable is `GITEA_BACKUP_TEST_HOOK_DIR`; without it all
+hooks are inert. `wait-<phase>` files enable bounded ready/release handshakes;
+`fail-<phase>` triggers deliberate test write failures. The production
+CronJob does not set it. Offline tests also obstruct actual redirections and
+make tool writes fail; fake age is not evidence of real cryptography.

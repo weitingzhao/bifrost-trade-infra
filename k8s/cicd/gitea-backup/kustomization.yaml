@@ -1,4 +1,4 @@
-# Nightly backup of the in-cluster Gitea, and its monthly restore drill.
+# Nightly backup of the in-cluster Gitea, with verification before encryption.
 # Apply on its own:  kubectl apply -k k8s/cicd/gitea-backup
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
@@ -9,13 +9,14 @@ resources:
   - nas-volume.yaml
   - network-policy.yaml
   - cronjob-backup.yaml
-  - cronjob-drill.yaml
+  - recipient-configmap.yaml
 
 configMapGenerator:
   - name: gitea-backup-scripts
     files:
       - backup.sh
-      - drill.sh
+      - verify-stage.sh
+      - fetch-tools.sh
 
 labels:
   - pairs:

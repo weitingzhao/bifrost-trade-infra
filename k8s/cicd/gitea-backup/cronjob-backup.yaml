@@ -35,6 +35,7 @@ spec:
             runAsUser: 1000
             runAsGroup: 1000
             runAsNonRoot: true
+            fsGroup: 1000
           affinity:
             podAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
@@ -52,11 +53,28 @@ spec:
             - key: node.kubernetes.io/unschedulable
               operator: Exists
               effect: NoSchedule
+          enableServiceLinks: false
+          initContainers:
+            - name: fetch-tools
+              image: alpine:3.22
+              command: ["sh", "/scripts/fetch-tools.sh"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - {name: scripts, mountPath: /scripts, readOnly: true}
+                - {name: tools, mountPath: /tools}
           containers:
             - name: backup
               image: gitea/gitea:1.21.11
               imagePullPolicy: IfNotPresent
               command: ["bash", "/scripts/backup.sh"]
+              env:
+                - {name: PATH, value: "/tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+                - {name: HOME, value: /work}
+                - {name: TMPDIR, value: /work}
               securityContext:
                 allowPrivilegeEscalation: false
                 capabilities:
@@ -75,9 +93,19 @@ spec:
                 - name: gitea-data
                   mountPath: /data
                   readOnly: true
+                - {name: work, mountPath: /work}
+                - {name: tools, mountPath: /tools, readOnly: true}
+                - {name: recipient, mountPath: /etc/gitea-backup, readOnly: true}
                 - name: backup
                   mountPath: /backup
           volumes:
+            - name: work
+              emptyDir: {}
+            - name: tools
+              emptyDir: {sizeLimit: 64Mi}
+            - name: recipient
+              configMap:
+                name: gitea-backup-recipient
             - name: scripts
               configMap:
                 name: gitea-backup-scripts
