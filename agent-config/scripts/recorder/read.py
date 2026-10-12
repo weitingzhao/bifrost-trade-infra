@@ -6,6 +6,7 @@ module reads the clock, a file, or the network. Callers hand in bytes.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import re
@@ -34,6 +35,43 @@ _HEX64 = re.compile(r"[0-9a-f]{64}")
 
 # Tests replace these. Each runs inside the matching guard.
 PROBES = {"line": None, "fold": None, "publish": None, "fallback": None}
+
+# Construction of a fold result needs this object. It is not exported.
+_FOLD_TOKEN = object()
+
+
+class Folded:
+    """The only value ``publish_total`` accepts. Not a dict, not subclassable."""
+
+    __slots__ = ("_token", "_doc")
+
+    def __init_subclass__(cls, **kwargs):
+        raise TypeError("Folded cannot be subclassed")
+
+    def __init__(self, token, document):
+        if token is not _FOLD_TOKEN:
+            raise TypeError("Folded has no public constructor")
+        self._token = token
+        self._doc = copy.deepcopy(document)
+
+    def document(self):
+        return copy.deepcopy(self._doc)
+
+
+def _seal(document) -> Folded:
+    return Folded(_FOLD_TOKEN, document)
+
+
+def _is_folded(value) -> bool:
+    """Exact type, then the token. A look-alike is not touched."""
+    if type(value) is not Folded:
+        return False
+    return value._token is _FOLD_TOKEN
+
+
+def folded_for_test(document) -> Folded:
+    """Seal a document tests cannot fold from a small log."""
+    return _seal(document)
 
 
 def _probe(name: str) -> None:
@@ -569,14 +607,16 @@ LAST_PUBLISH = encode_strict({
     "works": [],
 })
 
+_LAST_FOLDED = _seal(LAST_FOLD())
 
-def fold_total(logs, observer, now, logs_unread=0) -> dict:
-    """The only fold entry. Returns a document and does not raise Exception."""
+
+def fold_total(logs, observer, now, logs_unread=0) -> Folded:
+    """The only fold entry. Returns a sealed document and does not raise Exception."""
     caught = 0
     try:
         bad = exact_types(logs, observer, now, logs_unread) or bad_number(now) or bad_count(logs_unread)
         if bad:
-            return fallback("fold", "invalid_argument", argument=bad, at=at_or_0(now), n=0)
+            return _seal(fallback("fold", "invalid_argument", argument=bad, at=at_or_0(now), n=0))
         kept, obs_kept, unread, names, files_unread = select(logs, observer)
         views = []
         internal = []
@@ -599,12 +639,12 @@ def fold_total(logs, observer, now, logs_unread=0) -> dict:
         if caught:
             doc["internal"] = internal[:5]
         encode_strict(doc)
-        return doc
+        return _seal(doc)
     except Exception as exc:
         try:
-            return fallback("fold", "caught", error_class=class_name(exc), at=at_or_0(now), n=caught + 1)
+            return _seal(fallback("fold", "caught", error_class=class_name(exc), at=at_or_0(now), n=caught + 1))
         except Exception:
-            return LAST_FOLD()
+            return _LAST_FOLDED
 
 
 def round_trip(event: dict) -> str | None:

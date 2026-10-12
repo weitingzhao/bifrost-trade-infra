@@ -200,7 +200,7 @@ def test_a_corrupt_middle_line_keeps_the_ended_step(tmp_path):
     path.write_bytes(b"\n".join(lines))
     loaded = load_file(path)
     from read import fold_total
-    doc = fold_total([(WORK, path.read_bytes())], [], 8)
+    doc = fold_total([(WORK, path.read_bytes())], [], 8).document()
     work = doc["works"][0]
     assert work["log_invalid_at"] == loaded.invalid_seq
     by_name = {step["name"]: step for step in work["steps"]}
@@ -231,7 +231,7 @@ def test_a_closed_prefix_stays_closed_when_the_tail_breaks(tmp_path):
     path.write_bytes(b"\n".join(lines))
     loaded = load_file(path)
     from read import fold_total
-    doc = fold_total([(WORK, path.read_bytes())], [], 4)
+    doc = fold_total([(WORK, path.read_bytes())], [], 4).document()
     assert doc["works"][0]["closed_claim"] == "stopped"
 
 
@@ -471,6 +471,8 @@ def test_a_note_does_not_move_ball_since():
     noted = fold_one(log.events, 100)
     assert opened["ball"] == {"holder": "coordinator", "why": "ended_awaiting_check", "since": 1}
     assert noted["ball"] == opened["ball"]
+    assert noted["internal_errors"] == 0
+    assert any(row["text"] == "later" for row in noted["feed"])
 
 
 def test_feed_is_ordered_across_works_by_time():

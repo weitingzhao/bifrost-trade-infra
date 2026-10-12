@@ -73,7 +73,7 @@ def fold_items(items, observer=None, now=0, logs_unread=0):
     obs = []
     if observer:
         obs = [("2026-10-11-0001.jsonl", _chain(observer))]
-    return fold_total(logs, obs, now, logs_unread)
+    return fold_total(logs, obs, now, logs_unread).document()
 
 
 def fold_one(events, now, observer=None, work_id=WORK, **flags) -> dict:
@@ -84,7 +84,7 @@ def fold_one(events, now, observer=None, work_id=WORK, **flags) -> dict:
     obs = []
     if observer:
         obs = [("2026-10-11-0001.jsonl", _chain(observer))]
-    return fold_total(logs, obs, now)
+    return fold_total(logs, obs, now).document()
 
 
 def work_of(doc, index=0) -> dict:

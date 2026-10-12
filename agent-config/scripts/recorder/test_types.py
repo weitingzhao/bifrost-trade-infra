@@ -305,7 +305,7 @@ def _fold_kept(events, now, path):
         line = dump_line(body)
         prev = line.split(b" ", 1)[0].decode("ascii")
         lines.append(line)
-    return fold_total([(WORK, b"".join(lines))], [], now)
+    return fold_total([(WORK, b"".join(lines))], [], now).document()
 
 
 def _expected_mutants() -> int:

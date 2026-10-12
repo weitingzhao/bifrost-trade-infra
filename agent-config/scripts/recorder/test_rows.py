@@ -11,14 +11,14 @@ import json
 from events import dump_line
 from harness import N, P, R, RUN, WORK, LogBuilder, _chain
 from publish import publish_total
-from read import PROBES, fold_total, read_log
+from read import PROBES, fold_total, folded_for_test, read_log
 
 OBS = "2026-10-11-0001.jsonl"
 
 
 def _doc(events, now=20, observer=None, unread=0):
     obs = [(OBS, _chain(observer))] if observer else []
-    return fold_total([(WORK, _chain(events))], obs, now, unread)
+    return fold_total([(WORK, _chain(events))], obs, now, unread).document()
 
 
 def _round(at, unrecorded):
@@ -139,7 +139,7 @@ def test_table_a_row_11_same_wait_id_on_two_works_stays_two_items():
     other.add("owner_wait_opened", "coordinator", wait_id="f1b2c3d4", title="a", ref={"kind": "none", "id": "c0ffee01"}, can_act="yes")
     log = _open()
     log.add("owner_wait_opened", "coordinator", wait_id="f1b2c3d4", title="b", ref={"kind": "none", "id": "c0ffee02"}, can_act="yes")
-    doc = fold_total([(WORK, _chain(log.events)), ("w2", _chain(other.events))], [], 10)
+    doc = fold_total([(WORK, _chain(log.events)), ("w2", _chain(other.events))], [], 10).document()
     assert len(doc["owner_all"]) == 2
 
 
@@ -289,7 +289,7 @@ def test_table_a2_row_11_closed_work_finished_run_counts():
 
 def test_table_c_row_01_duplicate_names_are_all_refused():
     body = _chain(_open().events)
-    doc = fold_total([(WORK, body), (WORK, body)], [], 10)
+    doc = fold_total([(WORK, body), (WORK, body)], [], 10).document()
     assert doc["logs_unread"] == 2
     assert doc["works"] == []
     assert doc["ball"]["why"] == "fold_incomplete"
@@ -298,8 +298,8 @@ def test_table_c_row_01_duplicate_names_are_all_refused():
 
 def test_table_c_row_02_duplicate_observer_names_are_refused_in_either_order():
     body = _chain([_round(10, [{"work_id": WORK, "step_id": P, "run_id": RUN}])])
-    left = fold_total([(WORK, _chain(_open().events))], [(OBS, body), (OBS, body)], 10)
-    right = fold_total([(WORK, _chain(_open().events))], [(OBS, body), (OBS, body)], 10)
+    left = fold_total([(WORK, _chain(_open().events))], [(OBS, body), (OBS, body)], 10).document()
+    right = fold_total([(WORK, _chain(_open().events))], [(OBS, body), (OBS, body)], 10).document()
     assert left["observer"]["files_unread"] == 2
     assert "unrecorded_runs" not in left["works"][0]
     assert left == right
@@ -377,27 +377,29 @@ def test_limits_row_10_unknown_field_is_a_defect_and_the_chain_continues():
 
 
 def test_fallback_row_invalid_argument_now():
-    doc = fold_total([], [], True)
+    folded = fold_total([], [], True)
+    doc = folded.document()
     assert doc["recorder_failed"]["reason"] == "invalid_argument"
     assert doc["recorder_failed"]["argument"] == "now"
     assert doc["internal_errors"] == 0
     assert doc["at"] == 0
     assert "since" not in doc["ball"]
-    raw = publish_total(doc)
+    raw = publish_total(folded)
     assert b"recorder_failed" in raw
 
 
 def test_fallback_row_invalid_argument_logs_none():
-    doc = fold_total(None, [], 1)
+    doc = fold_total(None, [], 1).document()
     assert doc["recorder_failed"] == {"stage": "fold", "reason": "invalid_argument", "argument": "logs"}
     assert doc["internal_errors"] == 0
 
 
 def test_table_b_row_01_logs_unread_survives_publish():
-    doc = _doc([], unread=3)
+    folded = fold_total([(WORK, _chain([]))], [], 20, 3)
+    doc = folded.document()
     assert doc["fold_complete"] is False
     assert doc["logs_unread"] == 3
-    raw = publish_total(doc, "h")
+    raw = publish_total(folded, "h")
     assert b'"logs_unread":3' in raw
     assert b'"fold_complete":false' in raw
 
@@ -420,7 +422,7 @@ def test_review88_ten_thousand_nested_arrays_are_limit_depth():
     loaded = read_log(WORK, line)
     assert loaded.broken_why == "limit_depth"
     assert loaded.catches == 0
-    doc = fold_total([(WORK, line)], [], 1)
+    doc = fold_total([(WORK, line)], [], 1).document()
     assert doc["internal_errors"] == 0
     assert "recorder_failed" not in doc
 
@@ -485,12 +487,13 @@ def _assert_marker(level: int, key: str, value):
     doc = _level_sources()[level]
     doc["internal_errors"] = 0
     doc["fold_complete"] = False
-    doc["works"][0][key] = value
-    raw = publish_total(doc, "board")
+    for work in doc["works"]:
+        work[key] = value
+    raw = publish_total(folded_for_test(doc), "board")
     published = json.loads(raw)
     assert published.get("reduced", 0) == level
-    blob = json.dumps(published["works"])
-    assert json.dumps(value) in blob or (value is True and "true" in blob)
+    for work in published["works"]:
+        assert work[key] == value
 
 
 def test_table_b_row_03_torn_tail_level_0():

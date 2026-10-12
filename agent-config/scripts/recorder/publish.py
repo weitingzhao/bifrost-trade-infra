@@ -27,6 +27,21 @@ from model import (
 )
 
 _HOST = re.compile(PLATFORM_HOST_RE)
+
+
+def _host_decision(host) -> str:
+    """'ok', 'omit', or 'bad'. Exact type before any comparison."""
+    if host is None:
+        return "omit"
+    if type(host) is not str:
+        return "bad"
+    if host == "":
+        return "omit"
+    if _HOST.fullmatch(host):
+        return "ok"
+    return "bad"
+
+
 _STEP_ORDER = {
     "unknown": 0,
     "dead": 1,
@@ -57,8 +72,8 @@ def publish_view(document: dict, host: str | None = None, blocks=None) -> dict:
     doc = _drop_nulls(doc)
     _drop_sensitive(doc)
     block_missing = _merge_blocks(doc, blocks)
-    host_ok = type(host) is str and _HOST.fullmatch(host)
-    if host_ok:
+    host_kind = _host_decision(host)
+    if host_kind == "ok":
         doc["host"] = host
     else:
         doc.pop("host", None)
@@ -79,7 +94,7 @@ def publish_view(document: dict, host: str | None = None, blocks=None) -> dict:
     doc["owner_all"] = owner
     doc["works_total"] = _works_total(original_works)
     incomplete = list(block_missing)
-    if host not in (None, "") and not host_ok:
+    if host_kind == "bad":
         incomplete.append("host")
     if omitted_works["open"] or omitted_works["closed"]:
         doc["omitted_works"] = omitted_works
@@ -495,14 +510,20 @@ def _strip_step_events(doc: dict) -> bool:
 def _merge_blocks(doc: dict, blocks) -> list:
     if blocks is None:
         return []
+    if type(blocks) is not dict:
+        return ["blocks"]
     from read import exact_tree
 
-    if type(blocks) is not dict or not exact_tree(blocks):
+    if not exact_tree(blocks):
         return ["blocks"]
     missing = []
     for key in blocks:
         if type(key) is not str or key not in _BLOCK_KEYS:
-            missing.append(key if type(key) is str else "blocks")
+            folded = key.lower() if type(key) is str else ""
+            if any(part in folded for part in SENSITIVE_KEY_PARTS):
+                missing.append("blocks")
+            else:
+                missing.append(key if type(key) is str else "blocks")
             continue
         value = blocks[key]
         if not exact_tree(value) or not _block_ok(key, value):
@@ -567,41 +588,24 @@ def _attach_events(doc: dict, mapping: dict) -> bool:
     return True
 
 
-def _fold_shape(document) -> bool:
-    from read import _in_range
-
-    if type(document) is not dict:
-        return False
-    if "at" not in document or "fold_complete" not in document or "internal_errors" not in document:
-        return False
-    at = document["at"]
-    if type(at) is bool or (type(at) is not int and type(at) is not float) or not _in_range(at):
-        return False
-    if type(document["fold_complete"]) is not bool:
-        return False
-    count = document["internal_errors"]
-    if type(count) is not int or count < 0:
-        return False
-    return True
-
-
-def publish_total(document, host=None, blocks=None) -> bytes:
-    """The only publish entry. Returns bytes and does not raise Exception."""
-    from read import LAST_PUBLISH, _probe, at_or_0, class_name, encode_strict, exact_tree, fallback
+def publish_total(folded, host=None, blocks=None) -> bytes:
+    """The only publish entry. The first argument is a sealed fold result."""
+    from read import LAST_PUBLISH, _is_folded, _probe, at_or_0, class_name, encode_strict, fallback
 
     caught = 0
     try:
-        if not exact_tree(document) or not _fold_shape(document):
+        if not _is_folded(folded):
             return encode_strict(fallback("publish", "invalid_argument", argument="document", n=0))
+        document = folded.document()
         caught = document["internal_errors"]
         _probe("publish")
         if "recorder_failed" in document:
-            view = copy.deepcopy(document)
-            if type(host) is str and _HOST.fullmatch(host):
+            view = document
+            if _host_decision(host) == "ok":
                 view["host"] = host
             else:
                 view.pop("host", None)
-                if host not in (None, ""):
+                if _host_decision(host) == "bad":
                     _note(view, "host")
         else:
             view = publish_view(document, host, blocks)
@@ -613,7 +617,10 @@ def publish_total(document, host=None, blocks=None) -> bytes:
         return data
     except Exception as exc:
         try:
-            at = document["at"] if type(document) is dict and "at" in document else 0
+            at = 0
+            if _is_folded(folded):
+                held = folded.document()
+                at = held["at"] if type(held) is dict and "at" in held else 0
             return encode_strict(fallback("publish", "caught", error_class=class_name(exc), at=at_or_0(at), n=caught + 1))
         except Exception:
             return LAST_PUBLISH
@@ -649,6 +656,12 @@ def shape_ok(data: bytes) -> bool:
     needs = obj.get("needs_you")
     if needs is not None and (type(needs) is not list or len(needs) > 30 or any(type(item) is not str for item in needs)):
         return False
+    owner_now = obj.get("owner_now")
+    if owner_now is not None and not _owner_now_ok(owner_now):
+        return False
+    owner_next = obj.get("owner_next")
+    if owner_next is not None and type(owner_next) is not dict:
+        return False
     graph = obj.get("graph")
     if graph is not None and (type(graph) is not list or len(graph) > 60):
         return False
@@ -661,6 +674,8 @@ def shape_ok(data: bytes) -> bool:
             return False
         for work in works:
             if type(work) is not dict or not _known(work, "work", _WORK_NUM, _WORK_STR, _WORK_BOOL):
+                return False
+            if "next" in work and type(work["next"]) is not dict:
                 return False
             steps = work.get("steps")
             if steps is None:
@@ -680,6 +695,20 @@ def shape_ok(data: bytes) -> bool:
         for row in feed:
             if type(row) is not dict or not _finite_number(row.get("at")) or not _known(row, "feed", {"at"}, _FEED_STR, set()):
                 return False
+    return True
+
+
+def _owner_now_ok(items) -> bool:
+    if type(items) is not list or len(items) > 10:
+        return False
+    for item in items:
+        if type(item) is not dict:
+            return False
+        actions = item.get("actions")
+        if actions is None:
+            continue
+        if type(actions) is not list or len(actions) > 10 or any(type(action) is not dict for action in actions):
+            return False
     return True
 
 

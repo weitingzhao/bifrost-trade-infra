@@ -16,7 +16,7 @@ import pytest
 from events import dump_line, sha256_bytes
 from harness import _chain
 from publish import publish_total
-from read import PROBES, fold_total, prescan, read_line
+from read import PROBES, fold_total, folded_for_test, prescan, read_line
 from test_rows import _level_sources
 
 _SOURCES = None
@@ -33,7 +33,7 @@ def _publish(level: int, mutate) -> dict:
     doc = _fresh(level)
     doc["internal_errors"] = 0
     mutate(doc)
-    raw = publish_total(doc, "board")
+    raw = publish_total(folded_for_test(doc), "board")
     published = json.loads(raw)
     assert "recorder_failed" not in published
     assert published.get("reduced", 0) == level
@@ -134,10 +134,10 @@ def test_table_b_row_09_owner_unknown(level):
         item["last_seen"] = {"ref_state": "pending", "at": 1}
 
     published = _publish(level, plant)
-    kept = [item for item in published["owner_all"] if item.get("can_act") == "unknown"]
+    kept = [item for item in published["owner_all"] if item.get("last_seen", {}).get("at") == 1]
     if kept:
+        assert kept[0]["can_act"] == "unknown"
         assert kept[0]["reason"] == "not_confirmed"
-        assert kept[0]["last_seen"]["at"] == 1
     else:
         assert published.get("owner_all_cut", 0) >= 1
 
@@ -181,7 +181,7 @@ def test_table_b_row_12_conservation(level):
         work["work_id"]: len(work.get("steps") or [])
         for work in doc["works"]
     }
-    raw = publish_total(doc, "board")
+    raw = publish_total(folded_for_test(doc), "board")
     published = json.loads(raw)
     assert published.get("reduced", 0) == level
     omitted = published.get("omitted_works") or {"open": 0, "closed": 0}
@@ -200,6 +200,31 @@ def test_table_b_row_12_conservation(level):
             assert sum(work["state_counts"].values()) == step_counts[work["work_id"]]
 
 
+@pytest.mark.parametrize("level", range(7), ids=lambda n: f"level_{n}")
+def test_table_b_row_05_unrecorded_runs(level):
+    def plant(doc):
+        for work in doc["works"]:
+            work["unrecorded_runs"] = 1
+        doc["ball"] = {"holder": "unknown", "why": "run_unrecorded"}
+
+    published = _publish(level, plant)
+    for work in published["works"]:
+        assert work["unrecorded_runs"] == 1
+    assert published["ball"]["holder"] != "nobody"
+
+
+@pytest.mark.parametrize("level", [3, 5, 6], ids=lambda n: f"level_{n}")
+def test_table_b_row_13_gap_is_absent_on_the_summary(level):
+    def plant(doc):
+        for work in doc["works"]:
+            for step in work.get("steps") or []:
+                step["gap"] = True
+
+    published = _publish(level, plant)
+    for work in published["works"]:
+        assert "gap" not in work
+
+
 @pytest.mark.parametrize("level", [0, 1, 2, 4, 6], ids=lambda n: f"level_{n}")
 def test_table_b_row_13_gap_follows_the_step(level):
     def plant(doc):
@@ -213,8 +238,9 @@ def test_table_b_row_13_gap_follows_the_step(level):
 
 
 def test_table_b_row_04_recorder_failed_is_not_reduced():
-    doc = fold_total([], [], True)
-    raw = publish_total(doc)
+    folded = fold_total([], [], True)
+    doc = folded.document()
+    raw = publish_total(folded)
     published = json.loads(raw)
     assert "reduced" not in published
     assert published["recorder_failed"]["reason"] == "invalid_argument"
@@ -231,8 +257,8 @@ def _same(left, right) -> None:
 
 def test_table_c_perm_01_two_hundred_one_logs_either_order():
     logs = [(f"n{index:03d}", b"") for index in range(201)]
-    forward = fold_total(logs, [], 1)
-    backward = fold_total(list(reversed(logs)), [], 1)
+    forward = fold_total(logs, [], 1).document()
+    backward = fold_total(list(reversed(logs)), [], 1).document()
     _same(forward, backward)
     assert forward["logs_unread"] == 1
     assert forward["fold_complete"] is False
@@ -240,8 +266,8 @@ def test_table_c_perm_01_two_hundred_one_logs_either_order():
 
 def test_table_c_perm_02_two_hundred_one_logs_plus_caller_unread_either_order():
     logs = [(f"n{index:03d}", b"") for index in range(201)]
-    forward = fold_total(logs, [], 1, 3)
-    backward = fold_total(list(reversed(logs)), [], 1, 3)
+    forward = fold_total(logs, [], 1, 3).document()
+    backward = fold_total(list(reversed(logs)), [], 1, 3).document()
     _same(forward, backward)
     assert forward["logs_unread"] == 4
 
@@ -250,8 +276,8 @@ def test_table_c_perm_03_duplicate_work_names_either_order():
     first = _chain([{"type": "note", "at": 1, "by": "coordinator", "text": "a"}])
     second = _chain([{"type": "note", "at": 1, "by": "coordinator", "text": "b"}])
     left = [("w1", first), ("w1", second)]
-    forward = fold_total(left, [], 1)
-    backward = fold_total(list(reversed(left)), [], 1)
+    forward = fold_total(left, [], 1).document()
+    backward = fold_total(list(reversed(left)), [], 1).document()
     _same(forward, backward)
     assert forward["logs_unread"] == 2
     assert forward["works"] == []
@@ -269,8 +295,8 @@ def test_table_c_perm_04_duplicate_observer_names_either_order():
         "failed": [{"key": "step:w1/a1b2c3d4", "error": "timeout"}],
     }])
     pair = [(name, confirmed), (name, failed)]
-    forward = fold_total([], pair, 1)
-    backward = fold_total([], list(reversed(pair)), 1)
+    forward = fold_total([], pair, 1).document()
+    backward = fold_total([], list(reversed(pair)), 1).document()
     _same(forward, backward)
     assert forward["observer"]["files_unread"] == 2
 
@@ -278,8 +304,8 @@ def test_table_c_perm_04_duplicate_observer_names_either_order():
 def test_table_c_perm_05_lone_surrogate_name_either_order():
     bad = "w\ud800"
     logs = [(bad, b""), ("ok", b"")]
-    forward = fold_total(logs, [], 1)
-    backward = fold_total(list(reversed(logs)), [], 1)
+    forward = fold_total(logs, [], 1).document()
+    backward = fold_total(list(reversed(logs)), [], 1).document()
     _same(forward, backward)
     assert forward["logs_unread"] == 1
     assert [work["work_id"] for work in forward["works"]] == ["ok"]
@@ -353,14 +379,14 @@ class _Hostile:
 
 
 def test_family_yi_hostile_logs_calls_nothing():
-    doc = fold_total(_Hostile(), [], 1)
+    doc = fold_total(_Hostile(), [], 1).document()
     assert doc["recorder_failed"]["reason"] == "invalid_argument"
     assert doc["recorder_failed"]["argument"] == "logs"
     assert doc["internal_errors"] == 0
 
 
 def test_family_yi_hostile_now_calls_nothing():
-    doc = fold_total([], [], _Hostile())
+    doc = fold_total([], [], _Hostile()).document()
     assert doc["recorder_failed"] == {"stage": "fold", "reason": "invalid_argument", "argument": "now"}
     assert doc["internal_errors"] == 0
 
@@ -389,7 +415,7 @@ def _clear():
 def test_family_ding_line_recursion_error():
     _arm("line", RecursionError("x"))
     try:
-        doc = fold_total([("w1", _note())], [], 1)
+        doc = fold_total([("w1", _note())], [], 1).document()
     finally:
         _clear()
     assert "recorder_failed" not in doc
@@ -400,7 +426,7 @@ def test_family_ding_line_recursion_error():
 def test_family_ding_line_memory_error():
     _arm("line", MemoryError("x"))
     try:
-        doc = fold_total([("w1", _note())], [], 1)
+        doc = fold_total([("w1", _note())], [], 1).document()
     finally:
         _clear()
     assert doc["internal_errors"] == 1
@@ -410,7 +436,7 @@ def test_family_ding_line_memory_error():
 def test_family_ding_line_custom_exception():
     _arm("line", _Boom())
     try:
-        doc = fold_total([("w1", _note())], [], 1)
+        doc = fold_total([("w1", _note())], [], 1).document()
     finally:
         _clear()
     assert doc["internal_errors"] == 1
@@ -420,7 +446,7 @@ def test_family_ding_line_custom_exception():
 def test_family_ding_fold_recursion_error():
     _arm("fold", RecursionError("x"))
     try:
-        doc = fold_total([], [], 1)
+        doc = fold_total([], [], 1).document()
     finally:
         _clear()
     assert doc["recorder_failed"]["reason"] == "caught"
@@ -431,7 +457,7 @@ def test_family_ding_fold_recursion_error():
 def test_family_ding_fold_memory_error():
     _arm("fold", MemoryError())
     try:
-        doc = fold_total([], [], 1)
+        doc = fold_total([], [], 1).document()
     finally:
         _clear()
     assert doc["recorder_failed"]["error_class"] == "MemoryError"
@@ -440,7 +466,7 @@ def test_family_ding_fold_memory_error():
 def test_family_ding_fold_custom_exception():
     _arm("fold", _Boom())
     try:
-        doc = fold_total([], [], 1)
+        doc = fold_total([], [], 1).document()
     finally:
         _clear()
     assert doc["recorder_failed"]["error_class"] == "_Boom"
@@ -481,7 +507,7 @@ def test_family_ding_publish_custom_exception():
 def test_family_ding_fallback_recursion_error():
     _arm("fallback", RecursionError("x"))
     try:
-        doc = fold_total([], [], True)
+        doc = fold_total([], [], True).document()
     finally:
         _clear()
     assert doc["recorder_failed"]["reason"] == "caught"
@@ -492,7 +518,7 @@ def test_family_ding_fallback_recursion_error():
 def test_family_ding_fallback_memory_error():
     _arm("fallback", MemoryError())
     try:
-        doc = fold_total([], [], True)
+        doc = fold_total([], [], True).document()
     finally:
         _clear()
     assert doc["internal_errors"] == 1

@@ -24,9 +24,9 @@ from model import (
     PUBLISH_MAX_OWNER_ALL,
     PUBLISH_TARGET_BYTES,
 )
-from harness import fold_items as fold
-from harness import WAIT_D, WORK, LogBuilder, fold_one
-from publish import encoded, publish_view
+from harness import WAIT_D, WORK, LogBuilder, _chain
+from publish import encoded, publish_total
+from read import fold_total, folded_for_test
 
 ROOT = Path(__file__).resolve().parents[3]
 PLATFORM = ROOT.parent / "bifrost-platform"
@@ -78,7 +78,13 @@ def _shell(works, feed=None, owner=None) -> dict:
         "owner_all": owner or [],
         "works": works,
         "feed": feed or [],
+        "internal_errors": 0,
     }
+
+
+def _through_door(doc: dict) -> dict:
+    """Big reduction documents cannot be folded from a short valid log."""
+    return json.loads(publish_total(folded_for_test(doc), "board"))
 
 
 def _owner(title: str, text: str = "", commands=None) -> dict:
@@ -135,7 +141,7 @@ def levels() -> dict[str, dict]:
         owners.append(item)
     docs["level-6"] = _shell([_work("w1", [_step("running")])], owner=owners)
     docs["commands"] = _shell([_work("w1", [_step("running")])], owner=[_owner("请看", commands=["echo a", "echo b", "echo c"])])
-    return {name: publish_view(doc, "board") for name, doc in docs.items()}
+    return {name: _through_door(doc) for name, doc in docs.items()}
 
 
 def test_commands_are_not_published():
@@ -146,8 +152,9 @@ def test_commands_are_not_published():
         ref={"kind": "none", "id": "c0ffee01"}, can_act="yes", where="terminal",
         commands=["echo a", "echo b", "echo c"],
     )
-    local = fold_one(log.events, 1)
-    published = publish_view(local, "board")
+    folded = fold_total([(WORK, _chain(log.events))], [], 1)
+    local = folded.document()
+    published = json.loads(publish_total(folded, "board"))
     item = published["owner_all"][0]
     assert "commands" not in item
     assert item["commands_at"] == "local_board"
@@ -243,7 +250,7 @@ def test_a_full_document_stays_inside_every_array_cap():
         item["wait_id"] = f"{index:08x}"
         owners.append(item)
     feed = [{"at": index, "work": "w0", "step": "", "who": "C", "state": "note", "text": "测" * 80} for index in range(40)]
-    published = publish_view(_shell(works, feed=feed, owner=owners), "board")
+    published = _through_door(_shell(works, feed=feed, owner=owners))
     raw = encoded(published)
     assert len(raw) <= PUBLISH_TARGET_BYTES
     assert len(published["works"]) <= 30
@@ -275,17 +282,16 @@ def test_reduction_metadata_is_inside_the_measured_bytes():
         if index == 0:
             work["defects"] = [{"seq": seq, "reason": "unknown_field"} for seq in range(3364)]
         works.append(work)
-    published = publish_view(_shell(works), "board")
+    published = _through_door(_shell(works))
     assert len(encoded(published)) <= PUBLISH_TARGET_BYTES
 
 
 def test_a_host_with_a_trailing_newline_is_omitted():
-    base = fold([], [], 1)
-    published = publish_view(base, "board\n")
+    folded = fold_total([], [], 1)
+    published = json.loads(publish_total(folded, "board\n"))
     assert "host" not in published
     assert "host" in published["incomplete"]
-    assert publish_view(base, "board")["host"] == "board"
-    (FIXTURES / "host-newline.json").write_bytes(encoded(published))
+    assert json.loads(publish_total(folded, "board"))["host"] == "board"
     assert (FIXTURES / "host-newline.json").read_bytes() == encoded(published)
 
 
@@ -298,11 +304,15 @@ def test_closed_works_are_kept_by_close_time_not_last_event():
             log.add("note", "coordinator", at=note_at, text="later")
         return {"work_id": work_id, "events": log.events}
 
-    doc = fold([
-        closed("w-early", 10, note_at=100),
-        closed("w-late", 50),
-    ], [], 100)
-    published = publish_view(doc, "board")
+    folded = fold_total(
+        [(item["work_id"], _chain(item["events"])) for item in (
+            closed("w-early", 10, note_at=100),
+            closed("w-late", 50),
+        )],
+        [],
+        100,
+    )
+    published = json.loads(publish_total(folded, "board"))
     assert [work["work_id"] for work in published["works"]] == ["w-late", "w-early"]
     assert "_closed_at" not in encoded(published).decode("utf-8")
 

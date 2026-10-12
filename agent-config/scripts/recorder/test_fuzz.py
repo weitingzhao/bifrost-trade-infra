@@ -46,11 +46,10 @@ def _exercise(rng: random.Random, n: int, kind: str) -> int:
             blob = bytes(rng.getrandbits(8) for _ in range(rng.randrange(0, 40)))
         largest = max(largest, len(blob))
         now = (1, 10**6, -1)[index % 3]
-        doc = fold_total([("w1", blob)], [], now)
-        assert isinstance(doc, dict)
-        raw = publish_total(doc, "board")
-        assert isinstance(raw, (bytes, bytearray))
-        assert not isinstance(raw, str)
+        folded = fold_total([("w1", blob)], [], now)
+        assert type(folded.document()) is dict
+        raw = publish_total(folded, "board")
+        assert type(raw) is bytes
     return largest
 
 
