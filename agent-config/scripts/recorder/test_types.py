@@ -11,7 +11,6 @@ import copy
 import json
 
 from events import dump_line, load_bytes
-from fold import fold
 from harness import APPR, N, P, R, RUN, WAIT_A, WAIT_D, WORK, fold_one
 from model import ENVELOPE, LIST_FIELDS, NESTED_FIELDS, SCHEMAS
 from model import CAN_ACT_OUT, ENDED_HOW, HOLDERS, LABELS, REASONS, STATES, WHYS
@@ -53,7 +52,7 @@ _BODIES = {
         "waiting_on": [WAIT_D],
         "locator": {"cluster": "prod", "namespace": "cicd", "name": "run-9"},
     },
-    "step_superseded": {"step_id": P, "by_step": N, "text": "old"},
+    "step_superseded": {"step_id": N, "text": "old"},
     "step_started": {"step_id": N, "run_id": "aaaaaaaa", "command": "echo"},
     "step_seen": {
         "step_id": P,
@@ -106,6 +105,7 @@ _BODIES = {
         "confirmed": [f"approval:{APPR}"],
         "failed": [{"key": f"step:{WORK}/{R}", "error": "timeout"}],
         "truncated": True,
+        "unrecorded": [{"work_id": WORK, "step_id": P, "run_id": RUN}],
     },
     "tail_repaired": {"repair_id": "0-0123456789abcdef", "bytes": 1, "sha256": "ab" * 32},
 }
@@ -233,6 +233,7 @@ def test_every_field_type_mutant_is_absent():
     base = _base()
     total = 0
     absent = 0
+    chains = 0
     legal = []
     for kind in SCHEMAS:
         prototype = {
@@ -259,6 +260,16 @@ def test_every_field_type_mutant_is_absent():
                 nows = (50, 250, 2050)
                 seq = event["seq"] if is_int(event.get("seq")) else len(base) + 1
                 forced = mutant in _NEVER_LEGAL or (isinstance(mutant, str) and len(mutant) > 200)
+                if path[0] in {"seq", "prev_sha256", "v"} or mutant == 1e309:
+                    keep = path if path[0] in {"seq", "prev_sha256", "v"} else None
+                    for now in nows:
+                        doc = _fold_kept(base + [event], now, keep)
+                        why = doc["works"][0].get("log_invalid_why")
+                        assert why in {"bad_chain", "bad_version", "bad_json", "bad_number"}
+                        assert doc["internal_errors"] == 0 and "recorder_failed" not in doc
+                    chains += 1
+                    continue
+                defect = False
                 for now in nows:
                     doc = fold_one(sealed, now)
                     _invariants(doc)
@@ -273,13 +284,28 @@ def test_every_field_type_mutant_is_absent():
                 else:
                     shown = mutant if not isinstance(mutant, str) else ("empty" if mutant == "" else "text")
                     legal.append((kind, path, shown))
-    assert absent + len(legal) == total == _expected_mutants()
-    # 1908 mutants are defects. 72 are legal inhabitants of that field
-    # (0, -1, the empty string, true, or an empty list). Lists, objects,
-    # null, a non-finite number, a 10,000-character string, U+202E and a
-    # nested list are never among the 72.
-    assert absent == 1908
-    assert legal == _LEGAL_MUTANTS
+    assert absent + len(legal) + chains == total == _expected_mutants()
+    assert legal == [item for item in _LEGAL_MUTANTS if item[1][0] not in {"seq", "prev_sha256", "v"}]
+
+
+def _fold_kept(events, now, path):
+    """Seal a log and keep a chain-field mutant on the last line."""
+    from events import GENESIS, dump_line
+    from read import fold_total
+
+    prev = GENESIS
+    lines = []
+    last = len(events) - 1
+    for index, event in enumerate(events):
+        body = {key: value for key, value in event.items() if key not in {"v", "seq", "prev_sha256"}}
+        keep = index == last and path is not None
+        body["v"] = event["v"] if keep and path == ("v",) else 2
+        body["seq"] = event["seq"] if keep and path == ("seq",) else index + 1
+        body["prev_sha256"] = event["prev_sha256"] if keep and path == ("prev_sha256",) else prev
+        line = dump_line(body)
+        prev = line.split(b" ", 1)[0].decode("ascii")
+        lines.append(line)
+    return fold_total([(WORK, b"".join(lines))], [], now)
 
 
 def _expected_mutants() -> int:

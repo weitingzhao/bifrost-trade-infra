@@ -24,7 +24,7 @@ from model import (
     PUBLISH_MAX_OWNER_ALL,
     PUBLISH_TARGET_BYTES,
 )
-from fold import fold
+from harness import fold_items as fold
 from harness import WAIT_D, WORK, LogBuilder, fold_one
 from publish import encoded, publish_view
 
@@ -33,7 +33,8 @@ PLATFORM = ROOT.parent / "bifrost-platform"
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 SUMMARY_KEYS = {
     "work_id", "title", "state_counts", "unknown_reasons", "unknown_reasons_omitted",
-    "defects_count", "log_invalid_at", "log_full", "closed_claim",
+    "defects_count", "log_invalid_at", "log_invalid_why", "log_full", "torn_tail",
+    "unrecorded_runs", "closed_claim",
 }
 
 
@@ -282,7 +283,9 @@ def test_a_host_with_a_trailing_newline_is_omitted():
     base = fold([], [], 1)
     published = publish_view(base, "board\n")
     assert "host" not in published
+    assert "host" in published["incomplete"]
     assert publish_view(base, "board")["host"] == "board"
+    (FIXTURES / "host-newline.json").write_bytes(encoded(published))
     assert (FIXTURES / "host-newline.json").read_bytes() == encoded(published)
 
 

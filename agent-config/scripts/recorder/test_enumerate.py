@@ -12,10 +12,10 @@ import os
 from itertools import product
 from pathlib import Path
 
-from fold import fold
-from harness import APPR, N, P, R, RUN, WAIT_A, WAIT_D, WORK
+from harness import APPR, N, P, R, RUN, WAIT_A, WAIT_D, WORK, _chain
 from model import CAN_ACT_OUT, ENDED_HOW, HOLDERS, LABELS, REASONS, STATES, WHYS
-from publish import publish_view
+from publish import publish_total
+from read import fold_total
 from validate import classify
 
 # The alphabet, written out in full. One work. One process step, one record
@@ -39,7 +39,7 @@ ALPHABET = (
     "record_seen_found",
     "record_seen_true",
     "supersede",
-    "supersede_by_step",
+    "declare_replaces",
     "owner_open_approval",
     "owner_open_declared",
     "owner_ready",
@@ -58,6 +58,9 @@ ALPHABET = (
     "seen_expired",
     "seen_unknown",
     "tail_repaired",
+    "declare_wrapper",
+    "round_unrecorded",
+    "start_not_adjacent",
 )
 
 _OPEN = {"waiting", "running", "slow", "quiet", "unknown"}
@@ -76,7 +79,7 @@ _OTHER = [
 
 
 def _build(symbol: str, seq: int, at: float) -> dict:
-    event = {"type": "note", "v": 1, "seq": seq, "prev_sha256": "", "at": at, "by": "coordinator"}
+    event = {"type": "note", "v": 2, "seq": seq, "prev_sha256": "", "at": at, "by": "coordinator"}
     if symbol == "work_opened":
         event.update(type="work_opened", work_id=WORK, title="T")
     elif symbol == "declare_process":
@@ -105,8 +108,18 @@ def _build(symbol: str, seq: int, at: float) -> dict:
         event.update(type="record_seen", by="observer", step_id=R, sampled_at=at, found=True, uid="uid-1", condition="True", started_at=at, ended_at=at)
     elif symbol == "supersede":
         event.update(type="step_superseded", step_id=P)
-    elif symbol == "supersede_by_step":
-        event.update(type="step_superseded", step_id=P, by_step=N)
+    elif symbol == "declare_replaces":
+        event.update(type="step_declared", step_id="e5e5e5e5", name="替", kind="other", who="C", watch="process", replaces=P)
+    elif symbol == "declare_wrapper":
+        event.update(type="step_declared", by="wrapper", step_id="a9a9a9a9", name="包", kind="other", who="W", watch="process")
+    elif symbol == "round_unrecorded":
+        event.update(
+            type="observer_round", by="observer", round_id="ab12cd36",
+            started_at=at, ended_at=at, confirmed=[], failed=[],
+            unrecorded=[{"work_id": WORK, "step_id": P, "run_id": RUN}],
+        )
+    elif symbol == "start_not_adjacent":
+        event.update(type="step_started", by="wrapper", step_id=P, run_id=RUN, command="echo")
     elif symbol == "owner_open_approval":
         event.update(type="owner_wait_opened", wait_id=WAIT_A, title="请批", ref={"kind": "approval", "id": APPR})
     elif symbol == "owner_open_declared":
@@ -170,6 +183,18 @@ def _split(events):
     return work, observer
 
 
+def _reader_view(events):
+    """The view of the work log after observer lines are filed separately."""
+    work, _observer = _split(events)
+    numbered = []
+    for index, event in enumerate(work):
+        item = dict(event)
+        item["v"] = 2
+        item["seq"] = index + 1
+        numbered.append(item)
+    return classify(numbered, work_id=WORK)
+
+
 def _nows(events) -> tuple:
     last = events[-1]["at"] if events else 0
     return (last, last + 200, last + 2000)
@@ -177,7 +202,9 @@ def _nows(events) -> tuple:
 
 def _folded(events, now):
     work, observer = _split(events)
-    return fold([{"work_id": WORK, "events": work}], observer, now)
+    logs = [(WORK, _chain(work))]
+    obs = [("2026-10-11-0001.jsonl", _chain(observer))] if observer else []
+    return fold_total(logs, obs, now)
 
 
 def _steps(doc) -> dict:
@@ -209,9 +236,11 @@ def _no_nulls(value) -> None:
 
 
 def _check_publish(doc) -> None:
-    published = publish_view(doc, "board")
-    from publish import encoded
-    assert len(encoded(published)) <= 204800
+    import json
+    raw = publish_total(doc, "board")
+    assert b"recorder_failed" not in raw
+    assert len(raw) <= 204800
+    published = json.loads(raw)
     assert len(published["works"]) <= 30
     assert len(published.get("feed") or []) <= 25
     assert len(published.get("owner_all") or []) <= 30
@@ -296,14 +325,27 @@ def _check_doc(doc, events, now, view) -> None:
     if doc["logs_unread"] > 0:
         assert holder == "unknown" and doc["ball"]["why"] == "fold_incomplete"
     else:
-        visible_agents = any(step["state"] in {"running", "slow", "quiet"} for item in unclosed for step in item["steps"])
-        visible_unknown = any(step["state"] == "unknown" or "log_invalid_at" in item for item in unclosed for step in item["steps"])
+        visible_agents = any(
+            step["state"] in {"running", "slow", "quiet"}
+            for item in unclosed
+            if not item.get("unrecorded_runs")
+            for step in item["steps"]
+        )
+        visible_unknown = any(
+            step["state"] == "unknown" or "log_invalid_at" in item
+            for item in unclosed
+            if not item.get("unrecorded_runs")
+            for step in item["steps"]
+        )
         if visible_agents:
             assert holder == "agents"
         if holder == "nobody":
-            assert not unclosed
+            assert not unclosed and not any(item.get("unrecorded_runs") for item in doc["works"])
         if not unclosed:
-            assert holder == "nobody"
+            if any(item.get("unrecorded_runs") for item in doc["works"]):
+                assert holder == "unknown" and doc["ball"]["why"] == "run_unrecorded"
+            else:
+                assert holder == "nobody"
         if holder == "owner":
             assert any(item.get("can_act") == "yes" for item in doc["owner_all"])
             assert not visible_agents and not visible_unknown
@@ -315,13 +357,17 @@ def _v5(doc, events, now) -> None:
     if not defect_seqs:
         return
     work, observer = _split(events)
-    kept = [event for event in work if event.get("seq") not in defect_seqs]
+    # Defect seqs are line numbers of the resealed work log, not the
+    # numbers the symbols carried before observer lines were split out.
+    kept = [event for index, event in enumerate(work, start=1) if index not in defect_seqs]
     other = _folded_parts(kept, observer, now)
     assert _canon_without_defects(doc) == _canon_without_defects(other)
 
 
 def _folded_parts(work, observer, now):
-    return fold([{"work_id": WORK, "events": work}], observer, now)
+    logs = [(WORK, _chain(work))]
+    obs = [("2026-10-11-0001.jsonl", _chain(observer))] if observer else []
+    return fold_total(logs, obs, now)
 
 
 def _canon_without_defects(doc) -> str:
@@ -400,7 +446,7 @@ def _check_v3_v6(prefix, full_docs, full_events) -> None:
     short = _folded(prefix, _nows(prefix)[0])
     frozen = {step_id: _sig(step) for step_id, step in _steps(short).items() if step["state"] in _ENDED}
     dead = {step_id for step_id, step in _steps(short).items() if step["state"] == "dead"}
-    view = classify(_split(prefix)[0], work_id=WORK)
+    view = _reader_view(prefix)
     terminal = set()
     for wait in view.waits.values():
         if wait.terminal_state is not None:
@@ -426,25 +472,20 @@ def _check_v3_v6(prefix, full_docs, full_events) -> None:
 
 def _v8(doc, events, now) -> None:
     work, observer = _split(events)
-    both = fold(
-        [{"work_id": WORK, "events": work}, {"work_id": "w2", "events": _OTHER}],
-        observer,
+    both = fold_total(
+        [(WORK, _chain(work)), ("w2", _chain(_OTHER))],
+        [("2026-10-11-0001.jsonl", _chain(observer))] if observer else [],
         now,
     )
     assert both["works"][0] == doc["works"][0]
 
 
 def test_enumeration_invariants():
-    # Length 3 is every sequence of at most three symbols: each symbol alone,
-    # every pair, and every triple. A four-event story (declare, start, see,
-    # finish) is not in that set; the named regressions cover those stories.
-    # Length 4 is 33**4 sequences and does not finish with the rest of this
-    # suite inside 120 seconds. Length 5 is larger still. Both run when
-    # RECORDER_ENUM_LEN is set. The alphabet is 33 symbols: the 32 from the
-    # first round, plus a supersede that names by_step. Length 3 is
-    # (33**4 - 1) / 32 = 37060 sequences, including the empty one.
+    # Length 3 is (36**4 - 1) / 35 = 47989 sequences, including the empty one,
+    # folded at three values of now.
     length = int(os.environ.get("RECORDER_ENUM_LEN", "3"))
     assert 1 <= length <= 5
+    assert len(ALPHABET) == 36
     count = 0
     for size in range(length + 1):
         for symbols in product(ALPHABET, repeat=size):
@@ -452,8 +493,9 @@ def test_enumeration_invariants():
             events = _materialize(symbols)
             nows = _nows(events)
             docs = [_folded(events, now) for now in nows]
-            view = classify(_split(events)[0], work_id=WORK)
+            view = _reader_view(events)
             for doc, now in zip(docs, nows):
+                assert "recorder_failed" not in doc and doc["internal_errors"] == 0
                 _check_doc(doc, events, now, view)
             _v5(docs[0], events, nows[0])
             for earlier, later in zip(docs, docs[1:]):
@@ -463,7 +505,7 @@ def test_enumeration_invariants():
             _v8(docs[0], events, nows[0])
     expected = (len(ALPHABET) ** (length + 1) - 1) // (len(ALPHABET) - 1)
     assert count == expected
-    assert len(ALPHABET) == 33
+    assert count == 47989 or os.environ.get("RECORDER_ENUM_LEN")
     assert length == 3 or os.environ.get("RECORDER_ENUM_LEN")
 
 

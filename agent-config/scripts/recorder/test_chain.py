@@ -22,7 +22,7 @@ RUN = "d1b2c3d4"
 def _note_line(seq: int, prev: str, text: str = "n") -> tuple[bytes, str]:
     obj = {
         "type": "note",
-        "v": 1,
+        "v": 2,
         "seq": seq,
         "prev_sha256": prev,
         "at": seq,
@@ -90,7 +90,7 @@ def test_middle_byte_is_not_truncated_and_append_is_refused(tmp_path):
     loaded = load_file(path)
     assert loaded.invalid_seq is not None
     try:
-        append_sealed(path, {"type": "note", "v": 1, "seq": 99, "prev_sha256": "", "at": 9, "by": "coordinator", "text": "no"})
+        append_sealed(path, {"type": "note", "v": 2, "seq": 99, "prev_sha256": "", "at": 9, "by": "coordinator", "text": "no"})
     except ValueError as exc:
         assert "invalid" in str(exc)
     else:
@@ -196,7 +196,7 @@ def test_twenty_thousand_events_refuse_another(tmp_path):
             path,
             {
                 "type": "note",
-                "v": 1,
+                "v": 2,
                 "seq": MAX_EVENTS + 1,
                 "prev_sha256": log.digests[-1],
                 "at": 1,
@@ -221,7 +221,7 @@ def test_sixteen_mebibytes_refuses_another(tmp_path):
             path,
             {
                 "type": "note",
-                "v": 1,
+                "v": 2,
                 "seq": 2,
                 "prev_sha256": prev,
                 "at": 2,
