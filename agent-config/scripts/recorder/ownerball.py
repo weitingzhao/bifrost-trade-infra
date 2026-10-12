@@ -107,6 +107,7 @@ def _declared_item(wait, view: View, work: dict) -> dict:
         "title": wait.title,
         "can_act": wait.can_act or "not_yet",
         "can_act_basis": "declared",
+        "since": wait.yes_at if wait.can_act == "yes" and wait.yes_at is not None else wait.opened_at,
         "holds_up": holds,
         "works": [_work_piece(work, wait, holds)],
     }
@@ -158,9 +159,11 @@ def _work_piece(work: dict, wait, holds: list) -> dict:
 
 
 def _merged_record(key, members, built, rounds, now):
-    for _work, wait in members:
-        if wait.terminal_state is not None:
-            return {"status": "settled", "declared": False, "ref_state": wait.terminal_state}, None
+    terminal = [wait for _work, wait in members if wait.terminal_state is not None]
+    if terminal:
+        wait = min(terminal, key=lambda wait: wait.settled_at)
+        return {"status": "settled", "declared": False, "ref_state": wait.terminal_state,
+                "settled_at": wait.settled_at}, None
     open_members = [(work, wait) for work, wait in members if not wait.settled]
     if not open_members:
         return {"status": "settled", "declared": False}, None
@@ -216,6 +219,11 @@ def _yes_record_item(key, members, obs, rounds) -> dict:
         "reply_needed": False,
         "works": [],
     }
+    starts = [_streak_start(wait.seen, {"pending", "open", "unknown"}, "sampled_at")
+              for _work, wait in members]
+    starts = [at for at in starts if at is not None]
+    if starts:
+        item["since"] = min(starts)
     if "expires_at" in obs:
         item["deadline"] = obs["expires_at"]
         item["deadline_source"] = "record"
@@ -394,7 +402,7 @@ def _record_created_since(view: View, created: list):
         step = view.steps[public["step_id"]]
         streak = []
         for obs in step.record_obs:
-            if obs.get("found") and "started_at" not in obs and "condition" not in obs:
+            if obs.get("found"):
                 streak.append(obs)
             else:
                 streak = []
@@ -490,14 +498,17 @@ def _ended_at(step):
     return None
 
 
-def _one_next_since(step, view: View):
+def _one_next_since(step, view: View, merged: dict | None = None):
     """Latest of declaration, the last waited item settling, and the after step ending."""
     times = [step.declared_at]
     settled = []
     for wait_id in step.waiting_on:
         wait = view.waits.get(wait_id)
-        if wait is not None and wait.settled_at is not None:
-            settled.append(wait.settled_at)
+        if wait is not None:
+            status = _wait_status(wait, merged or {}, view.work_id) or {}
+            at = status.get("settled_at", wait.settled_at)
+            if at is not None:
+                settled.append(at)
     if settled:
         times.append(max(settled))
     if step.after:
@@ -535,7 +546,7 @@ def _qualifying_next(view: View, merged: dict, steps: list) -> list:
 
 def _next_since(view: View, merged: dict, steps: list):
     """Earliest of each qualifying step's latest of the three clocks."""
-    found = [_one_next_since(step, view) for step in _qualifying_next(view, merged, steps)]
+    found = [_one_next_since(step, view, merged) for step in _qualifying_next(view, merged, steps)]
     return min(found) if found else None
 
 

@@ -358,6 +358,7 @@ def _finish(step, public: dict):
         public["reason"] = "ended_by_signal"
         public["signal"] = exit_body["signal"]
     elif exit_body.get("code") == 0:
+        public["exit_code"] = 0
         public["state"] = "done"
         public["ended_how"] = "exit_0"
         public["label"] = "Exited 0"
