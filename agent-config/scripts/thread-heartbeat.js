@@ -1065,13 +1065,15 @@ function runBeatMs() {
   const raw = process.env.BIFROST_HEARTBEAT_RUN_BEAT_MS
   if (raw == null || String(raw).trim() === '') return RUN_BEAT_MS
   const n = Number(raw)
-  if (!Number.isFinite(n) || n <= 0) return RUN_BEAT_MS
-  return n
+  if (!Number.isFinite(n)) return RUN_BEAT_MS
+  // Sub-second intervals are solely for the isolated test harness.
+  const minimum = process.env.NODE_ENV === 'test' && process.env.BIFROST_HEARTBEAT_TEST_FAST_BEATS === '1' ? 1 : 1000
+  return Math.min(2147483647, Math.max(minimum, n))
 }
 
-function progressSize(file) {
+async function progressSize(file) {
   try {
-    return fs.statSync(file).size
+    return (await fs.promises.stat(file)).size
   } catch {
     return null
   }
@@ -1086,12 +1088,12 @@ function progressSize(file) {
  * next look sends one if the file has grown again. Waiting for that lock never
  * blocks the event loop, so the child's exit and turn_end are not delayed.
  */
-function startProgressBeats(base, isAlive) {
+async function startProgressBeats(base, isAlive) {
   const file = (process.env.BIFROST_HEARTBEAT_PROGRESS || '').trim()
   if (!file) return () => {}
   const interval = runBeatMs()
   let lastSize = 0
-  const initial = progressSize(file)
+  const initial = await progressSize(file)
   if (initial !== null) lastSize = initial
   let timer = null
   let stopped = false
@@ -1116,12 +1118,12 @@ function startProgressBeats(base, isAlive) {
     timer = setTimeout(tick, interval)
     timer.unref()
   }
-  const tick = () => {
+  const tick = async () => {
     timer = null
     if (stopped || !isAlive()) return
     let grew = false
     try {
-      const size = progressSize(file)
+      const size = await progressSize(file)
       if (size !== null) {
         grew = size > lastSize
         lastSize = size
@@ -1149,8 +1151,14 @@ function startProgressBeats(base, isAlive) {
       }
       let beat = null
       try {
-        beat = { ...base, event: 'after_tool', tool: 'headless-progress' }
-        stampBody(beat)
+        // Hooks store declared tool timeouts in the throttle state before stamping.
+        // Keep this read inside the lock so this beat cannot overtake their stamp.
+        const sent = (readJSON(throttleFile()) || {})[threadKey(base)]
+        const toolOpen = Boolean(sent && sent.pending && Date.now() - sent.at < sent.pending.timeout * 1000)
+        if (!toolOpen) {
+          beat = { ...base, event: 'after_tool', tool: 'headless-progress' }
+          stampBody(beat)
+        }
       } catch {
         beat = null
       } finally {
@@ -1224,7 +1232,7 @@ async function run(vendor, argv) {
   // Baseline the progress file before the child can write it. The timer itself
   // only fires while the child is alive, and is cleared before turn_end.
   let alive = true
-  const stopBeats = startProgressBeats(base, () => alive)
+  const stopBeats = await startProgressBeats(base, () => alive)
   const child = spawn(cmd[0], cmd.slice(1), {
     stdio: 'inherit',
     env: { ...process.env, BIFROST_HEARTBEAT_THREAD: thread, BIFROST_HEARTBEAT_TITLE: title },
