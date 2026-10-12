@@ -112,6 +112,8 @@ class Step:
     watch: str
     index: int
     declared_at: float
+    declared_by: str = "coordinator"
+    declared_seq: int = 0
     locator: dict | None = None
     waiting_on: list = field(default_factory=list)
     after: str | None = None
@@ -263,7 +265,7 @@ def _shape(event: dict) -> str | None:
     version = event.get("v")
     if type(version) is not int:
         return "bad_type"
-    if version != 1:
+    if version != 2:
         return "bad_value"
     if not is_number(event.get("at")):
         return "bad_type"
@@ -320,11 +322,13 @@ def _fields(kind: str, event: dict) -> str | None:
             err = _locator(event["locator"])
             if err:
                 return err
-        return None
+        if "replaces" in event and (not isinstance(event["replaces"], str) or not _HEX8.match(event["replaces"])):
+            return "bad_value"
+        if "replaces_text" in event and "replaces" not in event:
+            return "bad_value"
+        return _strings(event, {"replaces_text": TEXT_LIMIT})
     if kind == "step_superseded":
         if not isinstance(event["step_id"], str) or not _HEX8.match(event["step_id"]):
-            return "bad_value"
-        if "by_step" in event and (not isinstance(event["by_step"], str) or not _HEX8.match(event["by_step"])):
             return "bad_value"
         return _strings(event, {"text": TEXT_LIMIT})
     if kind == "step_started":
@@ -413,6 +417,8 @@ def _fields(kind: str, event: dict) -> str | None:
             err = _commands(event["commands"])
             if err:
                 return err
+        if "replaces" in event and (not isinstance(event["replaces"], str) or not _HEX8.match(event["replaces"])):
+            return "bad_value"
         return None
     if kind == "owner_wait_seen":
         if not isinstance(event["wait_id"], str) or not _HEX8.match(event["wait_id"]):
@@ -573,23 +579,46 @@ def _commands(value) -> str | None:
 def _round_lists(event: dict) -> str | None:
     confirmed = event["confirmed"]
     failed = event["failed"]
-    if len(confirmed) + len(failed) > ROUND_ITEM_LIMIT:
-        return "round_size"
+    unrecorded = event.get("unrecorded", [])
+    if not isinstance(unrecorded, list):
+        return "bad_type"
     for item in confirmed:
-        if not isinstance(item, str) or _text_ok(item, TEXT_LIMIT):
-            return "bad_value"
+        if not isinstance(item, str):
+            return "bad_type"
+        if _text_ok(item, TEXT_LIMIT) or _OBS_KEY.fullmatch(item) is None:
+            return "bad_value" if _OBS_KEY.fullmatch(item) is None else "limit_text"
     for item in failed:
         if not isinstance(item, dict):
             return "bad_type"
         if set(item) - {"key", "error"} or "key" not in item or "error" not in item:
-            return "missing_field"
-        if not isinstance(item["key"], str):
+            return "missing_field" if "key" not in item or "error" not in item else "unknown_field"
+        if not isinstance(item["key"], str) or not isinstance(item["error"], str):
             return "bad_type"
-        reason = _closed(item.get("error"), OBSERVER_ERRORS)
-        if reason == "bad_type":
-            return "bad_type"
+        if _OBS_KEY.fullmatch(item["key"]) is None:
+            return "bad_value"
+    for item in unrecorded:
+        reason = _unrecorded_item(item)
         if reason:
-            return "bad_error"
+            return reason
+    return None
+
+
+_OBS_KEY = re.compile(
+    r"^(?:approval:appr_[0-9a-f]{16}|question:q_[0-9a-f]{16}|step:[A-Za-z0-9][A-Za-z0-9._-]{0,79}/[0-9a-f]{8})$"
+)
+
+
+def _unrecorded_item(item) -> str | None:
+    if not isinstance(item, dict):
+        return "bad_type"
+    if set(item) - {"work_id", "step_id", "run_id"}:
+        return "unknown_field"
+    if "work_id" not in item or "step_id" not in item or "run_id" not in item:
+        return "missing_field"
+    if not isinstance(item["work_id"], str) or not isinstance(item["step_id"], str) or not isinstance(item["run_id"], str):
+        return "bad_type"
+    if _WORK.fullmatch(item["work_id"]) is None or not _HEX8.fullmatch(item["step_id"]) or not _HEX8.fullmatch(item["run_id"]):
+        return "bad_value"
     return None
 
 
@@ -621,372 +650,8 @@ def _ref_key(ref: dict) -> tuple:
     return (ref.get("kind"), ref.get("id"))
 
 
-def _apply(view: View, event: dict, index: int) -> None:
-    kind = event["type"]
-    view.valid.append(event)
-    at = event["at"]
-    view.max_at = at if view.max_at is None else max(view.max_at, at)
-    if kind == "work_opened":
-        view.opened = True
-        view.work_id = event["work_id"]
-        view.title = event["title"]
-        view.goal = event.get("goal")
-        view.work_ref = event.get("work_ref")
-        return
-    if kind == "work_closed":
-        view.closed = True
-        view.closed_claim = event["claim"]
-        view.closed_at = at
-        return
-    if kind == "step_declared":
-        step = Step(
-            step_id=event["step_id"],
-            name=event["name"],
-            kind=event["kind"],
-            who=event["who"],
-            watch=event["watch"],
-            index=len(view.step_order),
-            declared_at=at,
-            locator=dict(event["locator"]) if "locator" in event else None,
-            waiting_on=list(event.get("waiting_on") or []),
-            after=event.get("after"),
-            usual_s=event.get("usual_s"),
-            usual_basis=event.get("usual_basis"),
-            round=event.get("round"),
-        )
-        view.steps[step.step_id] = step
-        view.step_order.append(step.step_id)
-        return
-    if kind == "step_superseded":
-        step = view.steps[event["step_id"]]
-        step.superseded = True
-        step.by_step = event.get("by_step")
-        step.superseded_text = event.get("text")
-        return
-    if kind == "step_started":
-        step = view.steps[event["step_id"]]
-        step.started = True
-        step.started_at = at
-        step.start_index = index
-        step.run_id = event["run_id"]
-        step.command = event.get("command")
-        return
-    if kind == "step_seen":
-        step = view.steps[event["step_id"]]
-        step.seen.append(event)
-        step.last_sampled = event["sampled_at"]
-        if "output_bytes" in event:
-            step.last_output = event["output_bytes"]
-            if event["output_bytes"] > OUTPUT_LARGE_BYTES:
-                step.output_large = True
-        if event.get("text") is not None:
-            step.note = event["text"]
-        if event["alive"] is False:
-            step.dead = True
-        step.last_seen_index = index
-        return
-    if kind == "step_finished":
-        step = view.steps[event["step_id"]]
-        step.ended = True
-        step.finished = event
-        step.quote = event.get("quote")
-        return
-    if kind == "record_seen":
-        step = view.steps[event["step_id"]]
-        step.record_obs.append(event)
-        step.last_sampled = event["sampled_at"]
-        if event["found"]:
-            step.ever_found = True
-            if step.found_uid is None:
-                step.found_uid = event.get("uid")
-        if event.get("condition") in {"True", "False"}:
-            step.ended = True
-        step.last_seen_index = index
-        return
-    if kind == "owner_wait_opened":
-        wait = Wait(
-            wait_id=event["wait_id"],
-            title=event["title"],
-            ref=dict(event["ref"]),
-            index=len(view.wait_order),
-            opened_at=at,
-            can_act=event.get("can_act"),
-            where=event.get("where"),
-            reply=event.get("reply"),
-            reply_needed=event.get("reply_needed"),
-            reply_words=event.get("reply_words"),
-            commands=list(event["commands"]) if "commands" in event else None,
-            deadline=event.get("deadline"),
-            no_deadline=event.get("no_deadline") is True,
-            blocks_nothing=event.get("blocks_nothing") is True,
-            not_before_text=event.get("not_before_text"),
-            advice=event.get("advice"),
-            blocks_text=event.get("blocks_text"),
-            after_text=event.get("after_text"),
-            after=event.get("after"),
-            yes_at=at if event.get("can_act") == "yes" else None,
-        )
-        view.waits[wait.wait_id] = wait
-        view.wait_order.append(wait.wait_id)
-        return
-    if kind == "owner_wait_seen":
-        wait = view.waits[event["wait_id"]]
-        wait.seen.append(event)
-        wait.ever_seen = True
-        if terminal_state(wait.ref["kind"], event["ref_state"]):
-            wait.settled = True
-            wait.settled_how = event["ref_state"]
-            wait.terminal_state = event["ref_state"]
-        return
-    if kind == "owner_wait_ready":
-        wait = view.waits[event["wait_id"]]
-        wait.can_act = "yes"
-        wait.yes_at = at
-        return
-    if kind == "owner_wait_closed":
-        wait = view.waits[event["wait_id"]]
-        wait.settled = True
-        wait.settled_how = event["how"]
-        return
-    if kind == "note":
-        view.notes.append(event)
-        return
-    if kind == "observer_round":
-        view.rounds.append(event)
-        return
-
-
-def _contextual(view: View, event: dict, index: int) -> str | None:
-    kind = event["type"]
-    if kind == "work_closed" and view.closed:
-        return "already_closed"
-    if view.closed and kind not in {"note", "tail_repaired", "step_finished"}:
-        return "after_close"
-    if kind == "work_opened":
-        if index != 0:
-            return "not_first"
-        if view.work_id is not None and event["work_id"] != view.work_id:
-            return "work_id_mismatch"
-        return None
-    if kind == "work_closed":
-        if view.closed:
-            return "already_closed"
-        if _open_items(view):
-            return "closed_with_open_items"
-        return None
-    if kind == "step_declared":
-        if event["step_id"] in view.steps:
-            return "step_exists"
-        if not watch_matches(event["kind"], event["watch"]):
-            return "kind_watch"
-        if event["watch"] == "process" and "waiting_on" in event:
-            return "process_waiting_on"
-        if event["watch"] == "record" and "locator" not in event:
-            return "needs_locator"
-        if "after" in event and event["after"] not in view.steps:
-            return "unknown_id"
-        for wait_id in event.get("waiting_on") or []:
-            if wait_id not in view.waits:
-                return "unknown_id"
-        if ("usual_s" in event) != ("usual_basis" in event):
-            return "bad_value"
-        if len(view.steps) >= MAX_STEPS:
-            return "too_many_steps"
-        return None
-    if kind == "step_superseded":
-        step = view.steps.get(event["step_id"])
-        if step is None:
-            return "unknown_id"
-        if "by_step" in event and event["by_step"] == event["step_id"]:
-            return "self_supersede"
-        if "by_step" in event and event["by_step"] not in view.steps:
-            return "by_step_missing"
-        started = step.started if step.watch != "record" else step.ever_found
-        if "by_step" not in event and started:
-            return "withdraw_started"
-        if step.superseded:
-            return "superseded"
-        return None
-    if kind == "step_started":
-        step = view.steps.get(event["step_id"])
-        if step is None:
-            return "not_declared"
-        if step.watch == "record":
-            return "watch_mismatch"
-        if step.started:
-            return "already_started"
-        if step.superseded:
-            return "superseded"
-        expect = "wrapper" if step.watch == "process" else "coordinator"
-        if event["by"] != expect:
-            return "by_mismatch"
-        if step.watch == "process" and "command" not in event:
-            return "missing_field"
-        if step.watch == "none" and "command" in event:
-            return "bad_value"
-        if step.watch == "none":
-            for wait_id in step.waiting_on:
-                wait = view.waits.get(wait_id)
-                if wait is not None and wait_is_unsettled(wait):
-                    return "waits_open"
-        return None
-    if kind == "step_seen":
-        step = view.steps.get(event["step_id"])
-        if step is None or step.watch != "process":
-            return "watch_mismatch" if step is not None else "not_declared"
-        if not step.started:
-            return "not_started"
-        if event["run_id"] != step.run_id:
-            return "run_mismatch"
-        if step.ended:
-            return "already_ended"
-        if step.dead:
-            return "already_dead"
-        if step.last_output is not None and "output_bytes" in event and event["output_bytes"] < step.last_output:
-            return "output_shrunk"
-        err = _sampled(event, step.last_sampled)
-        if err:
-            return err
-        expect = "wrapper" if event["alive"] else "observer"
-        if event["by"] != expect:
-            return "by_mismatch"
-        return None
-    if kind == "step_finished":
-        step = view.steps.get(event["step_id"])
-        if step is None:
-            return "not_declared"
-        if view.closed and not step.dead:
-            return "after_close"
-        if step.watch == "record":
-            return "watch_mismatch"
-        if not step.started:
-            return "not_started"
-        if event["run_id"] != step.run_id:
-            return "run_mismatch"
-        if step.ended:
-            return "already_ended"
-        expect = "wrapper" if step.watch == "process" else "coordinator"
-        if event["by"] != expect:
-            return "by_mismatch"
-        if step.watch == "process":
-            if "exit" not in event or "reported" in event:
-                return "bad_exit"
-        else:
-            if "reported" not in event or "exit" in event:
-                return "bad_exit"
-        return None
-    if kind == "record_seen":
-        step = view.steps.get(event["step_id"])
-        if step is None:
-            return "not_declared"
-        if step.watch != "record":
-            return "watch_mismatch"
-        if step.ended:
-            return "already_ended"
-        if step.superseded and not step.ever_found:
-            return "never_found"
-        if event["by"] != "observer":
-            return "by_mismatch"
-        if event["found"]:
-            if "uid" not in event:
-                return "missing_field"
-            if step.found_uid is not None and event["uid"] != step.found_uid:
-                return "uid_changed"
-        elif "uid" in event or "condition" in event or "started_at" in event or "ended_at" in event:
-            return "bad_value"
-        err = _sampled(event, step.last_sampled)
-        if err:
-            return err
-        return None
-    if kind == "owner_wait_opened":
-        if event["wait_id"] in view.waits:
-            return "ref_busy"
-        ref = event["ref"]
-        if ref["kind"] == "none":
-            if "can_act" not in event:
-                return "missing_field"
-        else:
-            for key in ("where", "reply", "reply_words", "commands", "can_act", "deadline", "no_deadline"):
-                if key in event:
-                    return "record_fields"
-        if "commands" in event and event.get("where") != "terminal":
-            return "commands_where"
-        if "deadline" in event and "no_deadline" in event:
-            return "bad_value"
-        if "after" in event and event["after"] not in view.steps:
-            return "unknown_id"
-        key = _ref_key(ref)
-        for wait in view.waits.values():
-            if _ref_key(wait.ref) == key and wait_is_unsettled(wait):
-                return "ref_busy"
-        if ref["kind"] != "none" and _unsettled_count(view) >= MAX_OPEN_WAITS:
-            return "too_many_waits"
-        if ref["kind"] == "none" and _unsettled_count(view) >= MAX_OPEN_WAITS:
-            return "too_many_waits"
-        return None
-    if kind == "owner_wait_seen":
-        wait = view.waits.get(event["wait_id"])
-        if wait is None:
-            return "wait_missing"
-        if wait.ref["kind"] == "none":
-            return "not_a_record"
-        if wait.settled:
-            return "already_settled"
-        if event["by"] != "observer":
-            return "by_mismatch"
-        if not ref_state_ok(wait.ref["kind"], event["ref_state"]):
-            return "bad_value"
-        err = _sampled(event, wait.seen[-1]["sampled_at"] if wait.seen else None)
-        if err:
-            return err
-        return None
-    if kind == "owner_wait_ready":
-        wait = view.waits.get(event["wait_id"])
-        if wait is None:
-            return "wait_missing"
-        if wait.ref["kind"] != "none":
-            return "bound_wait"
-        if wait.settled:
-            return "already_settled"
-        if wait.can_act == "yes":
-            return "already_ready"
-        if event["by"] != "coordinator":
-            return "by_mismatch"
-        return None
-    if kind == "owner_wait_closed":
-        wait = view.waits.get(event["wait_id"])
-        if wait is None:
-            return "wait_missing"
-        if wait.settled:
-            return "already_settled"
-        if wait.ref["kind"] != "none":
-            if not (event["how"] == "withdrawn" and not wait.ever_seen):
-                return "bound_wait"
-        if event["by"] != "coordinator":
-            return "by_mismatch"
-        return None
-    if kind == "note":
-        if "step_id" in event and event["step_id"] not in view.steps:
-            return "step_missing"
-        return None
-    if kind == "observer_round":
-        return "wrong_log"
-    if kind == "tail_repaired":
-        return None
-    return "unknown_type"
-
-
-def _contextual_observer(view: View, event: dict) -> str | None:
-    if event["type"] != "observer_round":
-        return "wrong_log"
-    if event["ended_at"] < event["started_at"]:
-        return "round_order"
-    if event["by"] != "observer":
-        return "by_mismatch"
-    return None
-
-
 def classify(events: list, *, work_id: str | None = None, observer: bool = False) -> View:
+    from contextual import _apply, _contextual, _contextual_observer
     """Split ``events`` into the valid prefix's meaningful events and defects.
 
     ``work_id`` is the directory name. A ``work_opened`` for a different id
@@ -1026,6 +691,7 @@ def _backwards(events: list) -> set[int]:
 
 
 def refusal(events: list, event: dict, *, work_id: str | None = None) -> str | None:
+    from contextual import _contextual
     """The defect code a new event would get, or None when it would be written."""
     view = classify(events, work_id=work_id)
     parsed, reason = parse_event(event)

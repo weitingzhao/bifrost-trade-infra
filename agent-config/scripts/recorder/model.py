@@ -63,6 +63,7 @@ REASONS = {
     "not_confirmed",
     "no_match",
     "conflicting_observations",
+    "start_not_recorded",
     *OBSERVER_ERRORS,
 }
 
@@ -86,6 +87,7 @@ WHYS = {
     "record_in_flight",
     "step_unknown",
     "log_invalid",
+    "run_unrecorded",
     "owner_item_unknown",
     "next_not_sent",
     "owner_can_act",
@@ -93,16 +95,30 @@ WHYS = {
     "ended_awaiting_check",
     "fold_incomplete",
     "queue_done",
+    "recorder_failed",
 }
+# When the holder is unknown, exactly one of these, in this order.
+UNKNOWN_WHY_ORDER = (
+    "recorder_failed",
+    "fold_incomplete",
+    "run_unrecorded",
+    "step_unknown",
+    "log_invalid",
+    "owner_item_unknown",
+)
 CAN_ACT_OUT = {"yes", "unknown", "not_yet"}
 
 # Defect codes. An invalid event is skipped; the code says why.
 DEFECTS = {
-    "unknown_type",
-    "missing_field",
+    "bad_number",
     "bad_type",
-    "bad_value",
+    "limit_text",
+    "unknown_type",
     "unknown_field",
+    "missing_field",
+    "bad_value",
+    "ref_format",
+    "bad_exit",
     "not_first",
     "work_id_mismatch",
     "already_closed",
@@ -112,31 +128,30 @@ DEFECTS = {
     "kind_watch",
     "process_waiting_on",
     "needs_locator",
+    "too_many_steps",
     "unknown_id",
-    "by_step_missing",
-    "self_supersede",
+    "superseded",
     "withdraw_started",
     "not_declared",
     "already_started",
-    "superseded",
+    "late_start",
+    "waits_open",
     "watch_mismatch",
     "by_mismatch",
-    "waits_open",
     "not_started",
     "run_mismatch",
     "already_ended",
     "already_dead",
     "output_shrunk",
     "sampled_at",
-    "bad_exit",
-    "uid_changed",
     "never_found",
-    "ref_format",
+    "uid_changed",
     "ref_busy",
     "record_fields",
     "commands_where",
+    "too_many_waits",
     "wait_missing",
-    "not_declared_wait",
+    "not_a_record",
     "already_settled",
     "already_ready",
     "bound_wait",
@@ -145,11 +160,63 @@ DEFECTS = {
     "round_order",
     "round_size",
     "bad_error",
-    "limit_text",
-    "not_a_record",
-    "too_many_steps",
-    "too_many_waits",
+    "round_conflict",
 }
+
+# Field-class codes, then relation-class codes. The first one that applies is kept.
+DEFECT_ORDER = (
+    "bad_number",
+    "bad_type",
+    "limit_text",
+    "unknown_type",
+    "unknown_field",
+    "missing_field",
+    "bad_value",
+    "ref_format",
+    "bad_exit",
+    "not_first",
+    "work_id_mismatch",
+    "already_closed",
+    "closed_with_open_items",
+    "after_close",
+    "step_exists",
+    "kind_watch",
+    "process_waiting_on",
+    "needs_locator",
+    "too_many_steps",
+    "unknown_id",
+    "superseded",
+    "withdraw_started",
+    "not_declared",
+    "already_started",
+    "late_start",
+    "waits_open",
+    "watch_mismatch",
+    "by_mismatch",
+    "not_started",
+    "run_mismatch",
+    "already_ended",
+    "already_dead",
+    "output_shrunk",
+    "sampled_at",
+    "never_found",
+    "uid_changed",
+    "ref_busy",
+    "record_fields",
+    "commands_where",
+    "too_many_waits",
+    "wait_missing",
+    "not_a_record",
+    "already_settled",
+    "already_ready",
+    "bound_wait",
+    "step_missing",
+    "wrong_log",
+    "round_order",
+    "round_size",
+    "bad_error",
+    "round_conflict",
+)
 
 # Keys that are not quoted text. Changing them is allowed to change state.
 NAME_LIMIT = 80
@@ -159,7 +226,21 @@ MAX_COMMANDS = 5
 MAX_STEPS = 200
 MAX_OPEN_WAITS = 20
 MAX_LOGS = 200
+MAX_LINE_BYTES = 131072
+MAX_LOG_BYTES = 16 * 1024 * 1024
+MAX_EVENTS = 20_000
+MAX_TOTAL_BYTES = 64 * 1024 * 1024
+MAX_OBSERVER_BYTES = 16 * 1024 * 1024
+MAX_DEPTH = 8
+TWO53 = 1 << 53
+UNREAD_NAMES = 20
+GRAPH_CAP = 60
+QUEUE_CAP = 30
+STEP_EVENTS_CAP = 30
 ROUND_ITEM_LIMIT = 400
+WORK_ID_RE = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$"
+OBSERVER_NAME_RE = r"^[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}\.jsonl$"
+EVENT_VERSION = 2
 
 OBS_VALID_S = 180
 QUIET_S = 420
@@ -207,9 +288,12 @@ SCHEMAS: dict[str, dict[str, set[str]]] = {
     "work_closed": {"required": {"claim"}, "optional": set()},
     "step_declared": {
         "required": {"step_id", "name", "kind", "who", "watch"},
-        "optional": {"locator", "round", "after", "usual_s", "usual_basis", "waiting_on"},
+        "optional": {
+            "locator", "round", "after", "usual_s", "usual_basis", "waiting_on",
+            "replaces", "replaces_text",
+        },
     },
-    "step_superseded": {"required": {"step_id"}, "optional": {"by_step", "text"}},
+    "step_superseded": {"required": {"step_id"}, "optional": {"text"}},
     "step_started": {"required": {"step_id", "run_id"}, "optional": {"command", "pid"}},
     "step_seen": {
         "required": {"step_id", "run_id", "sampled_at", "alive"},
@@ -240,6 +324,7 @@ SCHEMAS: dict[str, dict[str, set[str]]] = {
             "blocks_text",
             "after_text",
             "after",
+            "replaces",
         },
     },
     "owner_wait_seen": {
@@ -251,7 +336,7 @@ SCHEMAS: dict[str, dict[str, set[str]]] = {
     "note": {"required": {"text"}, "optional": {"step_id"}},
     "observer_round": {
         "required": {"round_id", "started_at", "ended_at", "confirmed", "failed"},
-        "optional": {"truncated"},
+        "optional": {"truncated", "unrecorded"},
     },
     "tail_repaired": {"required": {"repair_id", "bytes", "sha256"}, "optional": set()},
 }
@@ -262,12 +347,14 @@ NESTED_FIELDS = {
     "exit": ("code", "signal"),
     "ref": ("kind", "id"),
     "failed_item": ("key", "error"),
+    "unrecorded_item": ("work_id", "step_id", "run_id"),
 }
 LIST_FIELDS = {
     "waiting_on": "str",
     "commands": "str",
     "confirmed": "str",
     "failed": "failed_item",
+    "unrecorded": "unrecorded_item",
 }
 
 STRING_FIELDS = {
@@ -282,7 +369,8 @@ STRING_FIELDS = {
     "watch",
     "after",
     "usual_basis",
-    "by_step",
+    "replaces",
+    "replaces_text",
     "text",
     "run_id",
     "command",
