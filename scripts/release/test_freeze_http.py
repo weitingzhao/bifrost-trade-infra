@@ -16,7 +16,7 @@ import freeze_gate  # noqa: E402
 import freeze_http_vectors  # noqa: E402
 
 # The platform repository carries the same bytes and the same constant (http_vectors_test.go).
-HTTP_VECTORS_SHA256 = "ea2f51577ddd33a1eda3b7ee4e53f401ed826ad00ab0d906e0d98e6ff96f4a3a"
+HTTP_VECTORS_SHA256 = "7d191888e372878735e19534c0afc398c741c72b0b98ac731a3498e01638bc71"
 VECTORS = HERE / "freeze_http_vectors.json"
 
 
@@ -50,8 +50,63 @@ class HTTPVectorTests(unittest.TestCase):
         cases = json.loads(VECTORS.read_bytes())["cases"]
         self.assertGreaterEqual(len(cases), 280)
         wrong = [c["name"] for c in cases if read_from_memory(bytes.fromhex(c["hex"])) != c["clear"]]
-        self.assertEqual(wrong, [])
+        if wrong:
+            self.fail("wrong verdicts: " + "; ".join(wrong))
         self.assertGreaterEqual(sum(1 for c in cases if c["clear"]), 40)
+
+    def test_byte_classes(self) -> None:
+        """Every byte value at each position of a valid response: the reader agrees with the recogniser on all 256."""
+        positions = json.loads(VECTORS.read_bytes())["byte_classes"]
+        self.assertGreaterEqual(len(positions), 45)
+        wrong = []
+        for pos in positions:
+            prefix, suffix, mask = bytes.fromhex(pos["prefix"]), bytes.fromhex(pos["suffix"]), bytes.fromhex(pos["accept"])
+            for v in range(256):
+                want = bool(mask[v >> 3] >> (v & 7) & 1)
+                if read_from_memory(prefix + bytes([v]) + suffix) != want:
+                    wrong.append("%s / 0x%02x" % (pos["name"], v))
+        if wrong:
+            self.fail("wrong verdicts: " + "; ".join(wrong[:40]))
+
+    def test_timing(self) -> None:
+        """The same bytes at different moments, over a real socket pair: one deadline to the last byte H needs."""
+        import socket
+        import threading
+
+        wrong = []
+        for case in json.loads(VECTORS.read_bytes())["timing"]:
+            a, b = socket.socketpair()
+            start = time.monotonic()
+            stop = threading.Event()
+
+            def serve(steps=case["steps"], peer=b, t0=start, halt=stop) -> None:
+                try:
+                    for step in steps:
+                        if halt.wait(max(0.0, t0 + step["at_ms"] / 1000 - time.monotonic())):
+                            return
+                        peer.sendall(bytes.fromhex(step["hex"]))
+                except OSError:
+                    pass
+
+            thread = threading.Thread(target=serve, daemon=True)
+            thread.start()
+            deadline = start + case["budget_ms"] / 1000
+            try:
+                got = freeze_gate._read_http(freeze_gate._Reader(a, deadline), a, deadline, "t", freeze_gate.ORIGIN_HOST, 443, None, None)
+                is_clear = got.verdict == "clear"
+            except Exception:
+                is_clear = False
+            took = time.monotonic() - start
+            stop.set()
+            a.close()
+            thread.join(2)
+            b.close()
+            if is_clear != case["clear"]:
+                wrong.append("%s (clear %s after %.3f s)" % (case["name"], is_clear, took))
+            elif took > case["budget_ms"] / 1000 + 0.25:
+                wrong.append("%s (answered only after %.3f s)" % (case["name"], took))
+        if wrong:
+            self.fail("wrong verdicts: " + "; ".join(wrong))
 
     def test_the_recogniser_accepts_the_measured_response_shape(self) -> None:
         body = freeze_http_vectors.M

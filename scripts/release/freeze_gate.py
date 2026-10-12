@@ -66,10 +66,6 @@ def _at_end(n: int, i: int) -> bool:
     return i == n
 
 
-def _allow_fifth() -> bool:
-    return False
-
-
 def _members_ok(seen: list[bool], dups: int) -> bool:
     if dups > 0 or seen != [True, True, True, True]:
         return False
@@ -107,28 +103,11 @@ def _parse_top(b: bytes, i: int) -> tuple[int, bool]:
             if i >= len(b) or b[i] != 0x2C:
                 return i, False
             i += 1
-    if _allow_fifth() and i < len(b) and b[i] == 0x2C:
-        i = _skip_fifth(b, i)
     if not _members_ok(seen, dups):
         return i, False
     if i >= len(b) or b[i] != 0x7D:  # top ends after four members
         return i, False
     return i + 1, True
-
-
-def _skip_fifth(b: bytes, i: int) -> int:
-    i += 1
-    i = _skip_w(b, i)
-    i, ok = _expect_quoted(b, i, "z")
-    if not ok:
-        return i
-    i = _skip_w(b, i)
-    if i < len(b) and b[i] == 0x3A:
-        i += 1
-        i = _skip_w(b, i)
-        i, _ok = _expect_quoted(b, i, "")
-        i = _skip_w(b, i)
-    return i
 
 
 def _parse_m(b: bytes, i: int) -> tuple[int, int, bool]:
@@ -166,28 +145,6 @@ def _parse_items(b: bytes, i: int) -> tuple[int, bool]:
     return i + 1, True
 
 
-def _meta_rr(b: bytes, i: int) -> tuple[int, bool]:
-    i = _skip_w(b, i)
-    i, ok = _parse_r(b, i)
-    if not ok:
-        return i, False
-    i = _skip_w(b, i)
-    if i >= len(b) or b[i] != 0x2C:
-        return i, False
-    i += 1
-    i = _skip_w(b, i)
-    i, ok = _parse_r(b, i)
-    if not ok:
-        return i, False
-    i = _skip_w(b, i)
-    if i >= len(b) or b[i] != 0x7D:
-        return i, False
-    return i + 1, True
-
-
-_META_EXTRAS: list = []
-
-
 def _parse_meta(b: bytes, i: int) -> tuple[int, bool]:
     if i >= len(b) or b[i] != 0x7B:
         return i, False
@@ -201,11 +158,6 @@ def _parse_meta(b: bytes, i: int) -> tuple[int, bool]:
     j, ok = _meta_rc(b, start)
     if ok:
         return j, True
-    for fn in _META_EXTRAS:
-        j, ok = fn(b, start)
-        if ok:
-            return j, True
-    _ = _meta_rr
     return i, False
 
 
@@ -412,10 +364,6 @@ def _field(spec: dict, key: str) -> str:
     return value
 
 
-def _follow_redirect() -> bool:
-    return False
-
-
 def _encoding_forbidden(present: bool) -> bool:
     return present
 
@@ -426,10 +374,6 @@ def _chunk_frame_complete(final_crlf: bool) -> bool:
 
 def _length_complete(got: int, want: int) -> bool:
     return got == want
-
-
-def _per_operation_deadline() -> bool:
-    return False
 
 
 def _verify_hostname(ctx: ssl.SSLContext) -> None:
@@ -459,7 +403,6 @@ def read_freeze(
 
 
 def _read(url, token_path, ca_path, dial, wrap, budget) -> Decision:
-    import http.client
     from urllib.parse import urlsplit
 
     try:
@@ -494,9 +437,7 @@ def _read(url, token_path, ca_path, dial, wrap, budget) -> Decision:
     try:
         if sock.selected_alpn_protocol() != "http/1.1":
             return _unread("connection failed")
-        conn = http.client.HTTPSConnection(ORIGIN_HOST, port, context=ctx)
-        conn.sock = sock
-        fp = sock.makefile("rb")
+        fp = _Reader(sock, deadline)
         if wrap is not None:
             fp = wrap(fp)
         _arm(sock, deadline)
@@ -526,14 +467,61 @@ def _dial(host: str, port: int, ctx: ssl.SSLContext, deadline: float):
     return ctx.wrap_socket(raw, server_hostname=ORIGIN_HOST)
 
 
+class _Reader:
+    """Bytes from the connection. Every recv is armed with the time left to the one absolute deadline, so no
+    sequence of partial deliveries can add up to more than the budget (a buffered file object re-reads under one
+    relative timeout and can)."""
+
+    def __init__(self, sock, deadline: float) -> None:
+        self._sock = sock
+        self._deadline = deadline
+        self._buf = bytearray()
+        self._eof = False
+
+    def _fill(self) -> bool:
+        if self._eof:
+            return False
+        _arm(self._sock, self._deadline)
+        data = self._sock.recv(4096)
+        if not data:
+            self._eof = True
+            return False
+        self._buf += data
+        return True
+
+    def readline(self, limit: int) -> bytes:
+        """Up to and including the first LF, at most limit bytes; what is left when the stream ends."""
+        while True:
+            j = self._buf.find(b"\n", 0, limit)
+            if j >= 0:
+                return self._take(j + 1)
+            if len(self._buf) >= limit:
+                return self._take(limit)
+            if not self._fill():
+                return self._take(len(self._buf))
+
+    def read(self, n: int) -> bytes:
+        """Exactly n bytes, or fewer when the stream ends first."""
+        while len(self._buf) < n:
+            if not self._fill():
+                break
+        return self._take(min(n, len(self._buf)))
+
+    def _take(self, n: int) -> bytes:
+        out = bytes(self._buf[:n])
+        del self._buf[:n]
+        return out
+
+
 def _arm(sock, deadline: float) -> None:
-    if _per_operation_deadline():
-        sock.settimeout(10)
-        return
     left = deadline - time.monotonic()
     if left <= 0:
         raise TimeoutError("timeout")
     sock.settimeout(left)
+
+
+def _finished_in_time(deadline: float) -> bool:
+    return time.monotonic() <= deadline  # rule: clear only when the response was complete before the deadline
 
 
 def _read_http(fp, sock, deadline, token, host, port, ctx, dial) -> Decision:
@@ -550,40 +538,13 @@ def _read_http(fp, sock, deadline, token, host, port, ctx, dial) -> Decision:
             continue
         if status == 101 or 100 <= status < 200:
             return _unread(f"HTTP {status}")
-        if 300 <= status < 400:
-            if not _follow_redirect():
-                return _unread(f"HTTP {status}")
-            return _follow_once(headers, token, host, port, ctx, deadline, dial)
+        if 300 <= status < 400:  # rule: a redirect is not followed
+            return _unread(f"HTTP {status}")
         body = _read_body(fp, sock, deadline, headers)
-        return decide_http(status, body)
-
-
-def _follow_once(headers, token, host, port, ctx, deadline, dial) -> Decision:
-    loc = ""
-    for name, value in headers:
-        if name == "location":
-            loc = value.strip()
-    path = loc
-    if "://" in loc:
-        from urllib.parse import urlsplit
-        path = urlsplit(loc).path or path
-    if not path.startswith("/"):
-        return _unread("HTTP 302")
-    sock = dial(host, port, ctx, deadline) if dial is not None else _dial(host, port, ctx, deadline)
-    try:
-        fp = sock.makefile("rb")
-        _arm(sock, deadline)
-        req = (
-            f"GET {path} HTTP/1.1\r\nHost: {ORIGIN_HOST}\r\n"
-            "Accept: application/json\r\nAccept-Encoding: identity\r\n"
-            f"Authorization: Bearer {token}\r\nConnection: close\r\n\r\n"
-        )
-        sock.sendall(req.encode("ascii"))
-        status, headers = _read_head(fp, sock, deadline)
-        body = _read_body(fp, sock, deadline, headers)
-        return decide_http(status, body)
-    finally:
-        sock.close()
+        got = decide_http(status, body)
+        if got.verdict == "clear" and not _finished_in_time(deadline):
+            return _unread("timeout")
+        return got
 
 
 # The response language H of design 3.2: the status line, the field lines and the framing. Every rule is a rule

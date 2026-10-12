@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -52,27 +53,38 @@ class MutantListTests(unittest.TestCase):
             self.assertEqual(text.count(item["old"]), 1, item["name"])
             self.assertNotEqual(item["old"], item["new"])
             self.assertTrue(item["must_fail"])
+            if item.get("evidence"):
+                vectors = json.loads((ROOT / "scripts/release/freeze_http_vectors.json").read_text(encoding="ascii"))["cases"]
+                self.assertTrue(any(item["evidence"] in case["name"] for case in vectors), item["name"])
 
 
 class MutantRunTests(unittest.TestCase):
     def test_each_mutant_is_killed(self) -> None:
         if os.environ.get("FREEZE_MUTANTS") != "1":
             self.skipTest("FREEZE_MUTANTS is not set")
+        controlled: set = set()
         for item in freeze_mutants.MUTANTS:
             with tempfile.TemporaryDirectory() as raw:
                 tmp = Path(raw)
                 _stage(tmp)
                 target = tmp / item["file"]
                 text = target.read_text(encoding="utf-8")
-                target.write_text(text.replace(item["old"], item["new"], 1), encoding="utf-8")
                 env = os.environ.copy()
                 env.pop("FREEZE_MUTANTS", None)
                 env["PYTHONPATH"] = str(tmp / "scripts" / "release")
                 cmd = [
-                    sys.executable, "-m", "pytest", "-q", "--tb=line",
+                    sys.executable, "-m", "pytest", "-q", "--tb=short",
                     "-p", "no:cacheprovider", "-k", item["must_fail"],
                     "test_freeze_lang.py", "test_freeze_gate.py", "test_freeze_manifests.py", "test_freeze_http.py",
                 ]
+                # Negative control: the selected tests pass on the copy before anything is planted. A copy that
+                # fails by itself (a missing fixture, a broken import) proves nothing about the planted change.
+                if item["must_fail"] not in controlled:
+                    base = subprocess.run(cmd, cwd=tmp / "scripts" / "release", env=env, capture_output=True, text=True, timeout=180, check=False)
+                    if base.returncode != 0 or not re.search(r"\b[1-9][0-9]* passed\b", base.stdout):
+                        self.fail(f"negative control for {item['name']}: the selected tests do not pass on an unmutated copy\n{base.stdout}\n{base.stderr}")
+                    controlled.add(item["must_fail"])
+                target.write_text(text.replace(item["old"], item["new"], 1), encoding="utf-8")
                 res = subprocess.run(
                     cmd,
                     cwd=tmp / "scripts" / "release",
@@ -89,6 +101,9 @@ class MutantRunTests(unittest.TestCase):
                 if not re.search(r"\b[1-9][0-9]* failed\b", res.stdout) or re.search(r"\b[1-9][0-9]* errors?\b", res.stdout):
                     print(f"mutant {item['name']} broke the run without failing a test", flush=True)
                     self.fail(f"mutant {item['name']} did not fail a named test\n{res.stdout}\n{res.stderr}")
+                if item.get("evidence") and item["evidence"] not in res.stdout:
+                    print(f"mutant {item['name']} failed without its evidence", flush=True)
+                    self.fail(f"mutant {item['name']} failed a test, but not on the response it is about ({item['evidence']!r})\n{res.stdout}")
                 print(f"mutant {item['name']} killed", flush=True)
 
 

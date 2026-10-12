@@ -155,6 +155,11 @@ class _Cursor:
 
 def body_of(raw: bytes) -> bytes:
     """The body H assigns to this response; raises _NotH when the response is not in H."""
+    return _parse(raw)[0]
+
+
+def _parse(raw: bytes) -> tuple:
+    """(body, number of bytes the response takes)."""
     cur = _Cursor(raw)
     interim = 0
     while True:
@@ -174,7 +179,7 @@ def body_of(raw: bytes) -> bytes:
     if not te:
         if len(cl) != 1 or _DEC.match(cl[0]) is None or int(cl[0].decode("ascii")) > 4096:
             raise _NotH
-        return cur.take(int(cl[0].decode("ascii")))
+        return cur.take(int(cl[0].decode("ascii"))), cur.pos
     if cl or len(te) != 1 or te[0].lower() != b"chunked":
         raise _NotH
     body = b""
@@ -193,7 +198,7 @@ def body_of(raw: bytes) -> bytes:
     for name, _v in cur.fields():
         if name in (b"content-encoding", b"content-length", b"transfer-encoding"):
             raise _NotH
-    return body
+    return body, cur.pos
 
 
 def clear(raw: bytes) -> bool:
@@ -325,9 +330,126 @@ def cases() -> list:
     return uniq
 
 
+# ---- the same bytes at different moments (design 3.2: one deadline from dialing to the last byte H needs) ----
+
+BUDGET_MS = 600
+
+
+def timing_cases() -> list:
+    """Each case: a schedule of (milliseconds after the start, bytes). Clear iff the bytes are a clear response AND
+    the last byte the response takes has arrived before the budget. No case is closer than 0.2 of the budget."""
+    head = b"HTTP/1.1 200 OK\r\nX-Pad: value\r\nContent-Length: %d\r\n\r\n" % N
+    full = head + M
+    chunked = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n7e\r\n" + M + b"\r\n0\r\n"
+    b = BUDGET_MS
+    plans = [
+        ("everything at once", [(0, full)]),
+        ("the head, then the body at 0.3 of the budget", [(0, head), (b * 3 // 10, M)]),
+        ("the head split inside a field line", [(0, head[:25]), (b * 15 // 100, head[25:]), (b * 3 // 10, M)]),
+        ("an interim head, then the response at 0.3", [(0, b"HTTP/1.1 100 Continue\r\n\r\n"), (b * 3 // 10, full)]),
+        ("bytes after the response arrive after the budget", [(0, full), (b * 12 // 10, b"junk")]),
+        ("one body byte at 0.6, the rest at 1.2", [(0, head), (b * 6 // 10, M[:1]), (b * 12 // 10, M[1:])]),
+        ("all but the last body byte, the last at 1.2", [(0, head + M[:-1]), (b * 12 // 10, M[-1:])]),
+        ("chunked: the final CRLF at 1.2", [(0, chunked), (b * 12 // 10, b"\r\n")]),
+        ("chunked: a trailer field at 0.6, the final CRLF at 1.2", [(0, chunked), (b * 6 // 10, b"X: y\r\n"), (b * 12 // 10, b"\r\n")]),
+        ("nothing until 1.2", [(b * 12 // 10, full)]),
+        ("the status line at 0.6, the rest at 1.2", [(b * 6 // 10, b"HTTP/1.1 200 OK\r\n"), (b * 12 // 10, full[17:])]),
+        ("one byte every fortieth of the budget", [(i * b // 40, full[i:i + 1]) for i in range(len(full))]),
+    ]
+    out = []
+    for name, plan in plans:
+        raw = b"".join(part for _at, part in plan)
+        try:
+            _body, taken = _parse(raw)
+            ok = clear(raw)
+        except _NotH:
+            taken, ok = len(raw), False
+        arrives, seen = 0, 0
+        for at, part in plan:
+            seen += len(part)
+            if seen >= taken:
+                arrives = at
+                break
+        margin = abs(arrives - b)
+        assert margin >= b // 5, (name, arrives)
+        out.append({"name": name, "budget_ms": b, "steps": [{"at_ms": at, "hex": part.hex()} for at, part in plan],
+                    "clear": bool(ok and arrives < b)})
+    return out
+
+
+# ---- every byte value at one position of a valid response ----
+
+def byte_classes() -> list:
+    """For one position at a time: which of the 256 byte values leave the response clear (a bit mask, bit v of byte v>>3)."""
+    a = b"HTTP/1.1 200 OK\r\nX-Pad: value\r\nContent-Length: %d\r\n\r\n" % N + M
+    c = b"HTTP/1.1 200 OK\r\nX-Pad: value\r\nTransfer-Encoding: chunked\r\n\r\n7e\r\n" + M + b"\r\n0\r\nX-T: tv\r\n\r\n"
+    i = b"HTTP/1.1 100 Continue\r\nX-I: iv\r\n\r\n" + a
+    out = []
+
+    def position(name: str, prefix: bytes, suffix: bytes) -> None:
+        mask = bytearray(32)
+        for v in range(256):
+            if clear(prefix + bytes([v]) + suffix):
+                mask[v >> 3] |= 1 << (v & 7)
+        out.append({"name": name, "prefix": prefix.hex(), "suffix": suffix.hex(), "accept": mask.hex()})
+
+    def at(name: str, raw: bytes, token: bytes, offset: int, insert: bool = False) -> None:
+        assert raw.count(token) == 1, (name, raw.count(token))
+        k = raw.index(token) + offset
+        position(name, raw[:k], raw[k:] if insert else raw[k + 1:])
+
+    at("status line: the last byte of the version", a, b"HTTP/1.1 200", 7)
+    at("status line: the SP after the version", a, b"HTTP/1.1 200", 8)
+    at("status line: the first digit of the code", a, b"HTTP/1.1 200", 9)
+    at("status line: the third digit of the code", a, b"HTTP/1.1 200", 11)
+    at("status line: the SP after the code", a, b"200 OK", 3)
+    at("status line: a byte of the reason", a, b"200 OK", 4)
+    at("status line: its CR", a, b"OK\r\n", 2)
+    at("status line: its LF", a, b"OK\r\n", 3)
+    at("status line: a byte inserted before it", a, b"HTTP/1.1 200", 0, insert=True)
+    at("field: the first byte of the name", a, b"X-Pad", 0)
+    at("field: an inner byte of the name", a, b"X-Pad", 2)
+    at("field: the colon", a, b"X-Pad:", 5)
+    at("field: the byte after the colon", a, b"X-Pad: ", 6)
+    at("field: an inner byte of the value", a, b"value", 2)
+    at("field: a byte inserted before the name", a, b"X-Pad", 0, insert=True)
+    at("field: a byte inserted after the name", a, b"X-Pad:", 5, insert=True)
+    at("field: a byte inserted after the value", a, b"value\r\n", 5, insert=True)
+    at("field: its CR", a, b"value\r\n", 5)
+    at("field: its LF", a, b"value\r\n", 6)
+    at("content-length: the first byte of the name", a, b"Content-Length", 0)
+    at("content-length: a digit", a, b": 126\r\n", 3)
+    at("content-length: a byte inserted before the digits", a, b": 126\r\n", 2, insert=True)
+    at("content-length: a byte inserted after the digits", a, b": 126\r\n", 5, insert=True)
+    at("head: the CR of the empty line", a, b"\r\n\r\n", 2)
+    at("head: the LF of the empty line", a, b"\r\n\r\n", 3)
+    at("body: its first byte", a, b"\r\n\r\n{", 4)
+    at("body: its last byte", a, b"}}\n", 2)
+    at("transfer-encoding: the first byte of the name", c, b"Transfer-Encoding", 0)
+    at("transfer-encoding: the first byte of the coding", c, b"chunked", 0)
+    at("transfer-encoding: a byte inserted after the coding", c, b"chunked\r\n", 7, insert=True)
+    at("chunk: the first digit of the size", c, b"\r\n\r\n7e\r\n", 4)
+    at("chunk: the second digit of the size", c, b"\r\n\r\n7e\r\n", 5)
+    at("chunk: a byte inserted after the size", c, b"\r\n\r\n7e\r\n", 6, insert=True)
+    at("chunk: the CR after the size", c, b"\r\n\r\n7e\r\n", 6)
+    at("chunk: the LF after the size", c, b"\r\n\r\n7e\r\n", 7)
+    at("chunk: the CR after the data", c, b"}}\n\r\n0", 3)
+    at("chunk: the LF after the data", c, b"}}\n\r\n0", 4)
+    at("last chunk: its digit", c, b"}}\n\r\n0\r\n", 5)
+    at("last chunk: a byte inserted after the digit", c, b"}}\n\r\n0\r\n", 6, insert=True)
+    at("trailer: an inner byte of the name", c, b"X-T: tv", 1)
+    at("trailer: a byte of the value", c, b"X-T: tv", 5)
+    at("trailer: the final CR", c, b"tv\r\n\r\n", 4)
+    at("trailer: the final LF", c, b"tv\r\n\r\n", 5)
+    at("interim head: the third digit of the code", i, b"HTTP/1.1 100", 11)
+    at("interim head: a byte of a field value", i, b"X-I: iv", 5)
+    return out
+
+
 def document() -> str:
     rows = [{"name": label, "hex": raw.hex(), "clear": clear(raw)} for label, raw in cases()]
-    return json.dumps({"cases": rows}, ensure_ascii=True, indent=0, sort_keys=True) + "\n"
+    doc = {"cases": rows, "timing": timing_cases(), "byte_classes": byte_classes()}
+    return json.dumps(doc, ensure_ascii=True, indent=0, sort_keys=True) + "\n"
 
 
 if __name__ == "__main__":

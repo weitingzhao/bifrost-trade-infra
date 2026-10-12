@@ -1,4 +1,9 @@
-"""Planted violations for the freeze gate. Each old string occurs once."""
+"""Planted violations for the freeze gate. Each old string occurs once.
+
+The behaviours the gate forbids (a fifth member, a repeated resourceVersion, following a redirect, a deadline per
+operation) live only here, in the text a planted violation inserts; the production code does not carry them.
+`evidence`, where given, is the response whose verdict has to flip: the failure must come from that case.
+"""
 
 from __future__ import annotations
 
@@ -6,8 +11,8 @@ MUTANTS = [
     {
         "name": "fifth",
         "file": "scripts/release/freeze_gate.py",
-        "old": "def _allow_fifth() -> bool:\n    return False\n",
-        "new": "def _allow_fifth() -> bool:\n    return True\n",
+        "old": "    if not _members_ok(seen, dups):\n        return i, False\n    if i >= len(b) or b[i] != 0x7D:  # top ends after four members\n",
+        "new": "    if i < len(b) and b[i] == 0x2C:\n        i = _skip_w(b, i + 1)\n        i, ok5 = _expect_quoted(b, i, \"z\")\n        if ok5:\n            i = _skip_w(b, i)\n            if i < len(b) and b[i] == 0x3A:\n                i = _skip_w(b, i + 1)\n                i, _ok = _expect_quoted(b, i, \"\")\n                i = _skip_w(b, i)\n    if not _members_ok(seen, dups):\n        return i, False\n    if i >= len(b) or b[i] != 0x7D:  # top ends after four members\n",
         "must_fail": "test_hand",
     },
     {
@@ -20,8 +25,8 @@ MUTANTS = [
     {
         "name": "repeated-resourceVersion",
         "file": "scripts/release/freeze_gate.py",
-        "old": "_META_EXTRAS: list = []\n",
-        "new": "_META_EXTRAS: list = [_meta_rr]\n",
+        "old": "    j, ok = _meta_rc(b, start)\n    if ok:\n        return j, True\n    return i, False\n",
+        "new": "    j, ok = _meta_rc(b, start)\n    if ok:\n        return j, True\n    j, ok = _parse_r(b, _skip_w(b, start))\n    if ok:\n        j = _skip_w(b, j)\n        if j < len(b) and b[j] == 0x2C:\n            k, ok = _parse_r(b, _skip_w(b, j + 1))\n            if ok:\n                k = _skip_w(b, k)\n                if k < len(b) and b[k] == 0x7D:\n                    return k + 1, True\n    return i, False\n",
         "must_fail": "test_hand",
     },
     {
@@ -62,8 +67,8 @@ MUTANTS = [
     {
         "name": "follow-redirect",
         "file": "scripts/release/freeze_gate.py",
-        "old": "def _follow_redirect() -> bool:\n    return False\n",
-        "new": "def _follow_redirect() -> bool:\n    return True\n",
+        "old": "        if 300 <= status < 400:  # rule: a redirect is not followed\n            return _unread(f\"HTTP {status}\")\n",
+        "new": "        if 300 <= status < 400:  # rule: a redirect is not followed\n            path = \"\"\n            for name, value in headers:\n                if name == \"location\":\n                    path = value\n            if not path.startswith(\"/\"):\n                return _unread(f\"HTTP {status}\")\n            sock2 = dial(host, port, ctx, deadline) if dial is not None else _dial(host, port, ctx, deadline)\n            try:\n                _arm(sock2, deadline)\n                sock2.sendall((f\"GET {path} HTTP/1.1\\r\\nHost: {ORIGIN_HOST}\\r\\nAccept: application/json\\r\\nAccept-Encoding: identity\\r\\nAuthorization: Bearer {token}\\r\\nConnection: close\\r\\n\\r\\n\").encode(\"ascii\"))\n                fp2 = _Reader(sock2, deadline)\n                status2, headers2 = _read_head(fp2, sock2, deadline)\n                return decide_http(status2, _read_body(fp2, sock2, deadline, headers2))\n            finally:\n                sock2.close()\n",
         "must_fail": "test_no_redirect",
     },
     {
@@ -104,9 +109,9 @@ MUTANTS = [
     {
         "name": "per-op-deadline",
         "file": "scripts/release/freeze_gate.py",
-        "old": "def _per_operation_deadline() -> bool:\n    return False\n",
-        "new": "def _per_operation_deadline() -> bool:\n    return True\n",
-        "must_fail": "test_slow_drip",
+        "old": "    left = deadline - time.monotonic()\n    if left <= 0:\n        raise TimeoutError(\"timeout\")\n    sock.settimeout(left)\n\n\ndef _finished_in_time(deadline: float) -> bool:\n    return time.monotonic() <= deadline  # rule: clear only when the response was complete before the deadline\n",
+        "new": "    sock.settimeout(10)\n\n\ndef _finished_in_time(deadline: float) -> bool:\n    return True  # rule: clear only when the response was complete before the deadline\n",
+        "must_fail": "test_slow_drip or test_timing",
     },
     {
         "name": "status-404",
@@ -139,8 +144,8 @@ MUTANTS = [
     {
         "name": "rbac-get",
         "file": "k8s/release-freeze/rbac-list.yaml",
-        "old": '    verbs: ["list"]\n',
-        "new": '    verbs: ["list", "get"]\n',
+        "old": "    verbs: [\"list\"]\n",
+        "new": "    verbs: [\"list\", \"get\"]\n",
         "must_fail": "test_real_files_have_no_problems",
     },
     {
@@ -167,7 +172,7 @@ MUTANTS = [
     {
         "name": "spec-not-required",
         "file": "k8s/release-freeze/crd.yaml",
-        "old": '          required: ["spec"]\n',
+        "old": "          required: [\"spec\"]\n",
         "new": "",
         "must_fail": "test_real_files_have_no_problems",
     },
@@ -177,6 +182,7 @@ MUTANTS = [
         "old": "MAX_LINE = 1024  # rule",
         "new": "MAX_LINE = 1025  # rule",
         "must_fail": "test_http_vectors",
+        "evidence": "a field line of 1025 bytes",
     },
     {
         "name": "fields-65",
@@ -184,6 +190,7 @@ MUTANTS = [
         "old": "MAX_FIELDS = 64  # rule",
         "new": "MAX_FIELDS = 65  # rule",
         "must_fail": "test_http_vectors",
+        "evidence": "65 field lines",
     },
     {
         "name": "interim-9",
@@ -191,6 +198,7 @@ MUTANTS = [
         "old": "MAX_INTERIM = 8  # rule",
         "new": "MAX_INTERIM = 9  # rule",
         "must_fail": "test_http_vectors",
+        "evidence": " x9",
     },
     {
         "name": "length-5-digits",
@@ -198,6 +206,7 @@ MUTANTS = [
         "old": "MAX_LEN_DIGITS = 4  # rule",
         "new": "MAX_LEN_DIGITS = 5  # rule",
         "must_fail": "test_http_vectors",
+        "evidence": "content-length value b'00126'",
     },
     {
         "name": "hex-5-digits",
@@ -205,6 +214,7 @@ MUTANTS = [
         "old": "MAX_HEX_DIGITS = 4  # rule",
         "new": "MAX_HEX_DIGITS = 5  # rule",
         "must_fail": "test_http_vectors",
+        "evidence": "chunk size b'0007e'",
     },
     {
         "name": "bare-lf",
@@ -212,6 +222,7 @@ MUTANTS = [
         "old": "    if len(raw) < 2 or raw[-2] != 0x0D:  # rule: a line ends with CRLF\n",
         "new": "    if len(raw) < 2:  # rule: a line ends with CRLF\n",
         "must_fail": "test_http_vectors",
+        "evidence": "bare LF after the status line",
     },
     {
         "name": "reason-without-sp",
@@ -219,6 +230,7 @@ MUTANTS = [
         "old": "    if rest[0] != 0x20:  # rule: SP between the status code and the reason\n",
         "new": "    if False:  # rule: SP between the status code and the reason\n",
         "must_fail": "test_http_vectors",
+        "evidence": "status line b'HTTP/1.1 200OK'",
     },
     {
         "name": "field-text-wide",
@@ -226,6 +238,7 @@ MUTANTS = [
         "old": "    return c == 0x09 or 0x20 <= c <= 0x7E  # rule: field text is HTAB or 0x20-0x7E\n",
         "new": "    return c == 0x09 or 0x20 <= c  # rule: field text is HTAB or 0x20-0x7E\n",
         "must_fail": "test_http_vectors",
+        "evidence": "extra field b'X: \\x80'",
     },
     {
         "name": "token-wide",
@@ -233,6 +246,7 @@ MUTANTS = [
         "old": "+ b\"!#$%&'*+-.^_`|~\")  # rule: token bytes",
         "new": "+ b\"!#$%&'*+-.^_`|~ (\")  # rule: token bytes",
         "must_fail": "test_http_vectors",
+        "evidence": "extra field b'X Junk: 1'",
     },
     {
         "name": "chunked-with-length",
@@ -240,6 +254,7 @@ MUTANTS = [
         "old": "        if len(cls) != 0 or len(tes) != 1:  # rule: chunked excludes content-length and a second transfer-encoding\n",
         "new": "        if len(tes) != 1:  # rule: chunked excludes content-length and a second transfer-encoding\n",
         "must_fail": "test_http_vectors",
+        "evidence": "extra field, chunked b'Content-Length: 126'",
     },
     {
         "name": "other-transfer-coding",
@@ -247,6 +262,7 @@ MUTANTS = [
         "old": "        if _lower_ascii(tes[0].encode(\"latin-1\")) != \"chunked\":  # rule: the only transfer coding is chunked\n",
         "new": "        if False:  # rule: the only transfer coding is chunked\n",
         "must_fail": "test_http_vectors",
+        "evidence": "one transfer-encoding field b'Transfer-Encoding: notchunked'",
     },
     {
         "name": "chunk-extension",
@@ -254,6 +270,7 @@ MUTANTS = [
         "old": "    return line  # rule: no chunk extension\n",
         "new": "    return line.split(b\";\", 1)[0]  # rule: no chunk extension\n",
         "must_fail": "test_http_vectors",
+        "evidence": "chunk size b'7e;ext=1'",
     },
     {
         "name": "trailer-framing-field",
@@ -261,6 +278,7 @@ MUTANTS = [
         "old": "        if name in _TRAILER_FORBIDDEN:\n",
         "new": "        if False and name in _TRAILER_FORBIDDEN:\n",
         "must_fail": "test_http_vectors",
+        "evidence": "chunk terminator b'0\\r\\nContent-Encoding",
     },
     {
         "name": "length-not-digits",
@@ -268,6 +286,7 @@ MUTANTS = [
         "old": "        if not (\"0\" <= ch <= \"9\"):\n            raise OSError(\"connection failed\")\n        n = n * 10 + (ord(ch) - 0x30)\n",
         "new": "        if not (\"0\" <= ch <= \"9\"):\n            continue\n        n = n * 10 + (ord(ch) - 0x30)\n",
         "must_fail": "test_http_vectors",
+        "evidence": "content-length value b'+126'",
     },
     {
         "name": "field-without-colon",
@@ -275,6 +294,7 @@ MUTANTS = [
         "old": "    if i == 0 or i >= len(line) or line[i] != 0x3A:\n        raise OSError(\"connection failed\")\n",
         "new": "    if i == len(line) and i > 0:\n        return _lower_ascii(line), \"\"\n    if i == 0 or i >= len(line) or line[i] != 0x3A:\n        raise OSError(\"connection failed\")\n",
         "must_fail": "test_http_vectors",
+        "evidence": "extra field b'X-Junk'",
     },
     {
         "name": "chunk-data-crlf",
@@ -282,5 +302,6 @@ MUTANTS = [
         "old": "        if _read_exact(fp, sock, deadline, 2) != b\"\\r\\n\":\n",
         "new": "        if _read_exact(fp, sock, deadline, 2) == b\"\":\n",
         "must_fail": "test_http_vectors",
+        "evidence": "two bytes that are not CRLF after the chunk data",
     },
 ]
