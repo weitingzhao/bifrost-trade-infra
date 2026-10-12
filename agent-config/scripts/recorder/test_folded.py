@@ -9,7 +9,8 @@ from pathlib import Path
 import pytest
 
 from publish import publish_total
-from read import Folded, fold_total, folded_for_test
+from read import Folded, fold_total
+from test_support import folded_for_test
 
 
 def _published(raw: bytes) -> dict:
@@ -116,14 +117,10 @@ def test_for_test_door_is_not_named_outside_its_definition():
     for path in root.glob("*.py"):
         if path.name.startswith("test_") or path.name in {"harness.py", "conftest.py"}:
             continue
-        count = path.read_text(encoding="utf-8").count("folded_for_test")
-        if path.name == "read.py":
-            assert count == 1
-        else:
-            assert count == 0
-    tree = ast.parse((root / "read.py").read_text(encoding="utf-8"))
+        assert "folded_for_test" not in path.read_text(encoding="utf-8")
+    tree = ast.parse((root / "test_support.py").read_text(encoding="utf-8"))
     names = [node.name for node in tree.body if isinstance(node, ast.FunctionDef)]
-    assert names.count("folded_for_test") == 1
+    assert names == ["folded_for_test"]
 
 
 def test_the_door_seals_a_reduction_document():

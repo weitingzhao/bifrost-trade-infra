@@ -593,13 +593,13 @@ def _attach_events(doc: dict, mapping: dict) -> bool:
 
 def publish_total(folded, host=None, blocks=None) -> bytes:
     """The only publish entry. The first argument is a sealed fold result."""
-    from read import LAST_PUBLISH, _is_folded, _probe, at_or_0, class_name, encode_strict, fallback
+    from read import LAST_PUBLISH, _document, _is_folded, _probe, at_or_0, class_name, encode_strict, fallback
 
     caught = 0
     try:
         if not _is_folded(folded):
             return encode_strict(fallback("publish", "invalid_argument", argument="document", n=0))
-        document = folded.document()
+        document = _document(folded)
         caught = document["internal_errors"]
         _probe("publish")
         if "recorder_failed" in document:
@@ -622,7 +622,7 @@ def publish_total(folded, host=None, blocks=None) -> bytes:
         try:
             at = 0
             if _is_folded(folded):
-                held = folded.document()
+                held = _document(folded)
                 at = held["at"] if type(held) is dict and "at" in held else 0
             return encode_strict(fallback("publish", "caught", error_class=class_name(exc), at=at_or_0(at), n=caught + 1))
         except Exception:

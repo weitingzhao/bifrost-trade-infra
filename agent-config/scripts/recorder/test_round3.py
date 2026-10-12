@@ -16,7 +16,8 @@ import pytest
 from events import dump_line, sha256_bytes
 from harness import _chain
 from publish import publish_total
-from read import PROBES, fold_total, folded_for_test, prescan, read_line
+from read import PROBES, fold_total, prescan, read_line
+from test_support import folded_for_test
 from test_rows import _level_sources
 
 _SOURCES = None

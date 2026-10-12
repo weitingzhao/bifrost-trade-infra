@@ -11,7 +11,8 @@ import json
 from events import dump_line
 from harness import N, P, R, RUN, WORK, LogBuilder, _chain
 from publish import publish_total
-from read import PROBES, fold_total, folded_for_test, read_log
+from read import PROBES, fold_total, read_log
+from test_support import folded_for_test
 
 OBS = "2026-10-11-0001.jsonl"
 

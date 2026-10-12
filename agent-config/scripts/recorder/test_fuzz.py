@@ -13,7 +13,7 @@ import os
 import random
 
 from harness import WORK, LogBuilder, _chain
-from model import SCHEMAS, SENSITIVE_KEY_PARTS
+from model import SENSITIVE_KEY_PARTS
 from publish import publish_total, shape_ok
 from read import fold_total
 
@@ -174,63 +174,13 @@ def _family_b(rng: random.Random):
     return ("丙", [("w1", _seal(body))], [], 1, 0, "board", None)
 
 
-def _placeholders(typ: str) -> dict:
-    required = SCHEMAS[typ]["required"]
-    fields = {"type": typ, "v": 2, "seq": 2, "prev_sha256": "", "at": 2, "by": "coordinator"}
-    for name in required:
-        if name in {"step_id", "run_id", "wait_id", "round_id", "work_id"}:
-            fields[name] = "a1b2c3d4"
-        elif name in {"text", "title", "name", "who", "command", "quote"}:
-            fields[name] = "n"
-        elif name in {"kind", "watch", "how", "ref_state", "can_act"}:
-            fields[name] = "none"
-        elif name in {"sampled_at", "started_at", "ended_at", "bytes", "number"}:
-            fields[name] = 1
-        elif name in {"found", "alive", "truncated"}:
-            fields[name] = False
-        elif name == "ref":
-            fields[name] = {"kind": "none", "id": "c0ffee01"}
-        elif name == "locator":
-            fields[name] = {"name": "run-1"}
-        elif name in {"confirmed", "failed"}:
-            fields[name] = []
-        else:
-            fields[name] = "n"
-    return fields
-
-
-def _field_rows():
-    rows = []
-    for typ in sorted(SCHEMAS):
-        for name in sorted(SCHEMAS[typ]["required"] | SCHEMAS[typ]["optional"]):
-            rows.append((typ, name))
-    return rows
-
-
-_FIELDS = _field_rows()
-
-
 def _family_c(rng: random.Random, index: int):
-    """Walk every schema field. A legal leaf on an open work is 甲; anything else is 丙."""
+    from test_fuzz_leaves import leaf_case
     if index % 5 == 0:
         built = LogBuilder()
-        title = "t" + str(index % 50)
-        built.add("work_opened", "coordinator", at=1, work_id=WORK, title=title)
-        if index % 10 == 0:
-            built.events[0]["at"] = -0.0
+        built.add("work_opened", "coordinator", at=1, work_id=WORK, title="t" + str(index))
         return ("甲", [("w1", _chain(built.events))], [], 1, 0, "board", None)
-    typ, name = _FIELDS[index % len(_FIELDS)]
-    leaf = rng.choice(_HOSTILE + (_DEEP,))
-    opened = LogBuilder()
-    opened.add("work_opened", "coordinator", at=1, work_id=WORK, title="T")
-    event = _placeholders(typ)
-    event[name] = leaf
-    try:
-        body = json.dumps(event, ensure_ascii=False, allow_nan=True).encode("utf-8", "surrogatepass")
-    except (ValueError, UnicodeError):
-        body = b'{"type":"note","text":"\\ud800"}'
-    blob = _chain(opened.events) + _seal(body)
-    return ("丙", [("w1", blob)], [], 1, 0, "board", None)
+    return leaf_case(index - index // 5 - 1)[0]
 
 
 class _Trap:
@@ -244,41 +194,130 @@ class _Trap:
     __eq__ = __lt__ = __len__ = __iter__ = __bool__ = __str__ = __repr__ = __hash__ = _hit
 
 
+# Built-in subclasses exercise the exact-type boundary, including nested
+# tuple, name and bytes subclasses. Trap methods may never be evaluated.
+class _Int(_Trap, int):
+    pass
+
+
+class _Float(_Trap, float):
+    pass
+
+
+class _Str(_Trap, str):
+    pass
+
+
+class _Bytes(_Trap, bytes):
+    pass
+
+
+class _List(_Trap, list):
+    pass
+
+
+class _Tuple(_Trap, tuple):
+    pass
+
+
+class _Dict(_Trap, dict):
+    pass
+
+
+def _subclass(cls, value):
+    obj = cls.__new__(cls, value)
+    obj.calls = 0
+    return obj
+
+
 def _family_d(rng: random.Random, index: int):
-    """Hostile Python arguments. Methods of the trap are never called."""
     trap = _Trap()
-    nonempty = [("w1", _open())]
-    logs = nonempty if index % 2 else []
-    slot = index % 6
-    if slot == 0:
-        return ("乙", "now", logs, [], trap, 0, "board", None, trap)
-    if slot == 1:
-        return ("乙", "now", logs, [], rng.choice([10**400, math.nan, math.inf, True]), 0, "board", None, None)
-    if slot == 2:
-        return ("乙", "logs_unread", logs, [], 1, rng.choice([-1, True]), "board", None, None)
-    if slot == 3:
-        return ("乙", "logs", trap, [], 1, 0, "board", None, trap)
-    if slot == 4:
-        return ("乙", "logs", [trap], [], 1, 0, "board", None, trap)
-    return ("乙", "observer", logs, [trap], 1, 0, "board", None, trap)
+    logs = [("w1", _open())] if (index // 25) % 2 else []
+    observer, now, unread = [], 1, 0
+    slot = index % 25
+    argument = "now"
+    if slot < 6:
+        now = (trap, _subclass(_Int, 1), _subclass(_Float, 1.), 10**400, math.nan, math.inf)[slot]
+        trap = now if isinstance(now, _Trap) else None
+    elif slot < 10:
+        argument = "logs_unread"
+        unread = (True, -1, _subclass(_Int, 1), trap)[slot - 6]
+        trap = unread if isinstance(unread, _Trap) else None
+    elif slot < 17:
+        argument = "logs"
+        if slot == 10:
+            logs = _subclass(_List, [])
+            trap = logs
+        elif slot == 11:
+            logs = (item for item in [trap])
+        elif slot == 12:
+            logs = []
+            logs.append(logs)
+        elif slot == 13:
+            item = _subclass(_Tuple, ("w1", b""))
+            logs, trap = [item], item
+        elif slot == 14:
+            name = _subclass(_Str, "w1")
+            logs, trap = [(name, b"")], name
+        elif slot == 15:
+            blob = _subclass(_Bytes, b"")
+            logs, trap = [("w1", blob)], blob
+        else:
+            logs = [("w1", trap)]
+    elif slot < 23:
+        argument = "observer"
+        if slot == 17:
+            observer = _subclass(_List, [])
+            trap = observer
+        elif slot == 18:
+            observer = (item for item in [trap])
+        elif slot == 19:
+            observer = []
+            observer.append(observer)
+        elif slot == 20:
+            observer = [trap]
+        elif slot == 21:
+            observer = [("2026-10-11-0001.jsonl", trap)]
+        else:
+            name = _subclass(_Str, "2026-10-11-0001.jsonl")
+            observer, trap = [(name, b"")], name
+    elif slot == 23:
+        now = True
+        trap = None
+    else:
+        argument = "logs"
+        logs = _subclass(_Dict, {})
+        trap = logs
+    return ("乙", argument, logs, observer, now, unread, "board", None, trap)
+
+
+def _e_spec(index):
+    cycle = {}
+    cycle["self"] = cycle
+    cases = [
+        ("bad\nhost", None, ["host"]),
+        ("h" * 65, None, ["host"]),
+        (_subclass(_Str, "board"), None, ["host"]),
+        (_Trap(), None, ["host"]),
+        ("board", {"recent": [True]}, ["recent"]),
+        ("board", _DEEP, ["blocks"]),
+        ("board", {"password": "x"}, ["blocks"]),
+        ("board", {"coordinator": True}, ["coordinator"]),
+        ("board", ["not", "a", "dict"], ["blocks"]),
+        ("board", {"unknown_block": "x"}, ["unknown_block"]),
+        ("board", cycle, ["blocks"]),
+        ("board", _subclass(_Dict, {}), ["blocks"]),
+        ("board", {"recent": _subclass(_List, [])}, ["blocks"]),
+        ("board", {"recent": [_subclass(_Str, "x")]}, ["blocks"]),
+        ("board", (item for item in [1]), ["blocks"]),
+        ("board", {"events": {"w1": {"badstep": []}}}, ["events"]),
+    ]
+    return cases[index % len(cases)]
 
 
 def _family_e(rng: random.Random, index: int):
-    logs = [("w1", _open())]
-    if index % 2 == 0:
-        host = rng.choice(["bad\nhost", "h" * 65, "bad\ud800x", "has space"])
-        return ("丙", logs, [], 1, 0, host, None)
-    leaf = rng.choice(_HOSTILE)
-    blocks = rng.choice([
-        {"recent": [leaf]},
-        _DEEP,
-        {"password": "x"},
-        {"token": {"a": 1}},
-        {"coordinator": leaf},
-        ["not", "a", "dict"],
-        {"unknown_block": "x"},
-    ])
-    return ("丙", logs, [], 1, 0, "board", blocks)
+    host, blocks, _expected = _e_spec(index)
+    return ("丙", [("w1", _open())], [], 1, 0, host, blocks)
 
 
 def _run_case(case) -> dict:
@@ -349,8 +388,15 @@ def test_fuzz_b_sealed_json():
 
 
 def test_fuzz_c_hostile_leaves():
-    for case in _cases("C"):
-        _run_case(case)
+    from test_fuzz_leaves import leaf_case, assert_leaf_document
+    for index, case in enumerate(_cases("C")):
+        doc = _run_case(case)
+        if index % 5:
+            _case, expected, _kind, _path = leaf_case(index - index // 5 - 1)
+            folded = fold_total(case[1], case[2], case[3], case[4]).document()
+            assert_leaf_document(folded, expected, bool(case[2]))
+            if case[2]:
+                assert doc["observer"]["defects_count"] == 1
 
 
 def test_fuzz_d_python_arguments():
@@ -359,16 +405,52 @@ def test_fuzz_d_python_arguments():
 
 
 def test_fuzz_e_host_and_blocks():
-    for case in _cases("E"):
-        _run_case(case)
+    for index, case in enumerate(_cases("E")):
+        doc = _run_case(case)
+        assert doc["incomplete"] == _e_spec(index)[2]
+        for value in (case[5], case[6]):
+            if isinstance(value, _Trap):
+                assert value.calls == 0
+
+
+def _sample(value, seen=None):
+    seen = set() if seen is None else seen
+    if type(value) in (str, bytes, int, float, bool, type(None)):
+        return repr(value)[:180]
+    for cls, base in ((_Int, int), (_Float, float), (_Str, str), (_Bytes, bytes)):
+        if type(value) is cls:
+            return f"<{cls.__name__}:{base.__repr__(value)}>"
+    if id(value) in seen:
+        return "<cycle>"
+    seen.add(id(value))
+    if type(value) in (list, tuple):
+        return "[" + ", ".join(_sample(child, seen) for child in value)[:180] + "]"
+    if type(value) is dict:
+        return "{" + ", ".join(_sample(key, seen) + ":" + _sample(child, seen) for key, child in value.items())[:180] + "}"
+    return f"<{type(value).__name__}>"
 
 
 def test_fuzz_samples():
     """Three generated samples of each family, escaped."""
     for family in "ABCDE":
-        for nth, case in enumerate(_cases(family, 3)):
-            shown = repr(case[1] if case[0] != "乙" else case[2])
-            print(f"fuzz {family}#{nth} {case[0]} {shown[:180]}")
+        samples = list(_cases(family, 11)) if family == "E" else list(_cases(family, 3))
+        if family == "E":
+            samples = [samples[index] for index in (0, 4, 10)]
+        for nth, case in enumerate(samples):
+            if case[0] == "乙":
+                _kind, argument, logs, observer, now, unread, host, blocks, trap = case
+            else:
+                _kind, logs, observer, now, unread, host, blocks = case
+                argument = "leaves" if family == "C" else ""
+                if family == "C" and nth % 5:
+                    from test_fuzz_leaves import leaf_case
+                    _case, expected, event_kind, path = leaf_case(nth - nth // 5 - 1)
+                    data = (observer or logs)[0][1]
+                    leaf = json.loads(data.splitlines()[-1].split(b" ", 1)[1])
+                    for key in path:
+                        leaf = leaf[key]
+                    argument = f"{event_kind}{path!r}={_sample(leaf)} expected={expected}"
+            print(f"fuzz {family}#{nth} {case[0]} argument={argument} now={_sample(now)} unread={_sample(unread)} host={_sample(host)} blocks={_sample(blocks)} logs={_sample(logs)} observer={_sample(observer)}")
 
 
 def test_fuzz_sample_two_hundred_pass_handleput(tmp_path):

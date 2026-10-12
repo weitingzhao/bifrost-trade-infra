@@ -26,7 +26,8 @@ from model import (
 )
 from harness import WAIT_D, WORK, LogBuilder, _chain
 from publish import encoded, publish_total
-from read import fold_total, folded_for_test
+from read import fold_total
+from test_support import folded_for_test
 
 ROOT = Path(__file__).resolve().parents[3]
 PLATFORM = ROOT.parent / "bifrost-platform"
@@ -106,7 +107,6 @@ def _owner(title: str, text: str = "", commands=None) -> dict:
 def levels() -> dict[str, dict]:
     """One published document for each reduction level, plus the commands case."""
     docs = {}
-    docs["level-0"] = _shell([_work("w1", [_step("running")])])
     ended = [_step("done", note=_blob(4000), quote=_blob(4000), command=_blob(2000)) for _ in range(20)]
     for index, step in enumerate(ended):
         step["step_id"] = f"{index:08x}"
@@ -140,8 +140,17 @@ def levels() -> dict[str, dict]:
         item["wait_id"] = f"{index:08x}"
         owners.append(item)
     docs["level-6"] = _shell([_work("w1", [_step("running")])], owner=owners)
-    docs["commands"] = _shell([_work("w1", [_step("running")])], owner=[_owner("请看", commands=["echo a", "echo b", "echo c"])])
-    return {name: _through_door(doc) for name, doc in docs.items()}
+    built = {name: _through_door(doc) for name, doc in docs.items()}
+    log = LogBuilder()
+    log.add("work_opened", "coordinator", at=1, work_id=WORK, title="T")
+    log.add("step_declared", "coordinator", at=2, step_id="a1b2c3d4", name="n", who="C", kind="other", watch="none")
+    log.add("step_started", "coordinator", at=3, step_id="a1b2c3d4", run_id="d1b2c3d4")
+    built["level-0"] = json.loads(publish_total(fold_total([(WORK, _chain(log.events))], [], 3), "board"))
+    log.add("owner_wait_opened", "coordinator", at=4, wait_id=WAIT_D, title="请看",
+            ref={"kind": "none", "id": "c0ffee01"}, can_act="yes", where="terminal",
+            commands=["echo a", "echo b", "echo c"])
+    built["commands"] = json.loads(publish_total(fold_total([(WORK, _chain(log.events))], [], 4), "board"))
+    return built
 
 
 def test_commands_are_not_published():
@@ -159,6 +168,7 @@ def test_commands_are_not_published():
     assert "commands" not in item
     assert item["commands_at"] == "local_board"
     assert item["commands_count"] == 3
+    assert published["full_at"] == "local_board"
     local_item = local["owner_all"][0]
     for key, value in local_item.items():
         if key == "commands":

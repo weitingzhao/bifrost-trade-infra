@@ -84,6 +84,7 @@ def test_capacity_is_the_longest_prefix():
     for logs in orders:
         doc = fold_total(logs, [], 1).document()
         assert doc["logs_unread"] == 2
+        assert doc["works"] == []
         assert doc["fold_complete"] is False
         assert doc["ball"]["holder"] != "nobody"
         assert doc["ball"]["why"] == "fold_incomplete"
@@ -99,4 +100,4 @@ def test_observer_capacity_is_the_longest_prefix():
     orders = ([(newer, huge), (older, b"")], [(older, b""), (newer, huge)])
     for observer in orders:
         doc = fold_total([("w1", work)], observer, 1).document()
-        assert doc["observer"]["files_unread"] == 2
+        assert doc["observer"] == {"files_unread": 2}

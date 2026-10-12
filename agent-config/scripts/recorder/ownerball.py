@@ -392,10 +392,14 @@ def _record_created_since(view: View, created: list):
     times = []
     for public in created:
         step = view.steps[public["step_id"]]
+        streak = []
         for obs in step.record_obs:
             if obs.get("found") and "started_at" not in obs and "condition" not in obs:
-                times.append(obs["at"])
-                break
+                streak.append(obs)
+            else:
+                streak = []
+        if streak:
+            times.append(streak[0]["at"])
     return min(times) if times else _substantive(view)
 
 

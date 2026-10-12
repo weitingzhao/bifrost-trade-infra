@@ -6,7 +6,7 @@ module reads the clock, a file, or the network. Callers hand in bytes.
 
 from __future__ import annotations
 
-import copy
+import weakref
 import hashlib
 import json
 import re
@@ -40,10 +40,15 @@ PROBES = {"line": None, "fold": None, "publish": None, "fallback": None}
 _FOLD_TOKEN = object()
 
 
-class Folded:
-    """The only value ``publish_total`` accepts. Not a dict, not subclassable."""
+# Weak keys retain only identity, not the handle. Removal precedes id reuse;
+# we never index by a naked id, so a new shell cannot inherit an old snapshot.
+_FOLDED_BYTES = weakref.WeakKeyDictionary()
 
-    __slots__ = ("_token", "_doc")
+
+class Folded:
+    """An empty identity handle. All state lives in the private weak registry."""
+
+    __slots__ = ("__weakref__",)
 
     def __init_subclass__(cls, **kwargs):
         raise TypeError("Folded cannot be subclassed")
@@ -51,11 +56,15 @@ class Folded:
     def __init__(self, token, document):
         if token is not _FOLD_TOKEN:
             raise TypeError("Folded has no public constructor")
-        self._token = token
-        self._doc = copy.deepcopy(document)
+        _FOLDED_BYTES[self] = encode_strict(document)
+
+    @property
+    def __class__(self):
+        # Block object.__setattr__ from changing the identity handle layout.
+        return Folded
 
     def document(self):
-        return copy.deepcopy(self._doc)
+        return _document(self)
 
 
 def _seal(document) -> Folded:
@@ -63,15 +72,14 @@ def _seal(document) -> Folded:
 
 
 def _is_folded(value) -> bool:
-    """Exact type, then the token. A look-alike is not touched."""
+    """Check exact type before registry lookup; never touch a caller's methods."""
     if type(value) is not Folded:
         return False
-    return value._token is _FOLD_TOKEN
+    return value in _FOLDED_BYTES
 
 
-def folded_for_test(document) -> Folded:
-    """Seal a document tests cannot fold from a small log."""
-    return _seal(document)
+def _document(value):
+    return json.loads(_FOLDED_BYTES[value])
 
 
 def _probe(name: str) -> None:
@@ -555,7 +563,7 @@ def select(logs: list, observer: list):
         total += size
         kept.append((name, data))
     unread = work_bad + len(work_dup_names) + len(past)
-    names = (work_dup_names + past)[:UNREAD_NAMES]
+    names = sorted(work_dup_names + past, key=_byte_key)[:UNREAD_NAMES]
     return kept, obs_kept, unread, names, files_unread
 
 
@@ -611,7 +619,10 @@ LAST_PUBLISH = encode_strict({
     "works": [],
 })
 
-_LAST_FOLDED = _seal(LAST_FOLD())
+# The last resort must remain available even when construction itself fails.
+# Bootstrap its identity without invoking the constructor under test.
+_LAST_FOLDED = object.__new__(Folded)
+_FOLDED_BYTES[_LAST_FOLDED] = encode_strict(LAST_FOLD())
 
 
 def fold_total(logs, observer, now, logs_unread=0) -> Folded:
