@@ -87,6 +87,10 @@ EQUIVALENT = {
     'validate.py:_seq_of:226:8:negate:0': 'In _seq_of at line 226, `if is_int(seq): return seq` and `if not is_int(seq): return seq` take different values under the round-7 checks, and publish_total stays byte-identical because this branch does not change the folded document.',
     'validate.py:_seq_of:227:12:guard_pass:0': 'In _seq_of at line 227, `return seq` and `pass` take different values under the round-7 checks, and publish_total stays byte-identical because this branch does not change the folded document.',
     'validate.py:parse_event:238:8:guard_pass:0': "In parse_event at line 238, `return (None, 'bad_type')` and `pass` take different values under the round-7 checks, and publish_total stays byte-identical because this branch does not change the folded document.",
+    'redact_bound.py:string_growth:30:7:operand:1': 'In string_growth at line 30, dropping the empty-string disjunct leaves only the type check, which is false for "", and the growth of an empty string is still 0.',
+    'redact_bound.py:string_growth:30:40:constant:5': 'In string_growth at line 30, `text == ""` and `text == "~"` differ for an empty string, and that string still contributes no growth.',
+    'redact_bound.py:growth:51:16:negate:0': 'In growth at line 51, negating the string-key check measures a non-string key, and string_growth of a non-string is 0.',
+    'redact_bound.py:growth:51:19:compare:0': 'In growth at line 51, `type(key) is str` and `type(key) is not str` differ for an integer key, and string_growth of that key is 0.',
 }
 
 UNREACHABLE = {
@@ -97,4 +101,17 @@ UNREACHABLE = {
     'contextual.py:_contextual:193:12:guard_pass:0': 'contextual.py:179',
     'fold.py:_eta_unsure:221:33:constant:8': 'fold.py:219',
     'fold.py:_eta_unsure:221:33:constant:9': 'fold.py:219',
+    # gap_flag is {3: SUMMARY_GAP_3, 5: SUMMARY_GAP_5, 6: SUMMARY_GAP_6}.get(level, 0).
+    # Those three module constants are 0, so the conjunction at line 162 is dead.
+    'survive.py:apply_keep:162:11:operand:1': 'constant:survive.SUMMARY_GAP_3+survive.SUMMARY_GAP_5+survive.SUMMARY_GAP_6=0',
+    'survive.py:apply_keep:162:24:compare:0': 'constant:survive.SUMMARY_GAP_3+survive.SUMMARY_GAP_5+survive.SUMMARY_GAP_6=0',
+    'survive.py:apply_keep:162:24:constant:0': 'constant:survive.SUMMARY_GAP_3+survive.SUMMARY_GAP_5+survive.SUMMARY_GAP_6=0',
+    'survive.py:apply_keep:162:24:constant:1': 'constant:survive.SUMMARY_GAP_3+survive.SUMMARY_GAP_5+survive.SUMMARY_GAP_6=0',
+    # nan has no '.', 'e', or 'E', so it returns from the integer branch and
+    # `number != number` never takes a different value.
+    'read.py:_token_bad:247:7:operand:0': 'read.py:235',
+    # APPROVAL_TERMINAL ⊆ APPROVAL_STATES, so dropping the states conjunct
+    # cannot change the conjunction. Same for questions.
+    'model.py:terminal_state:438:15:operand:0': 'subset:model.APPROVAL_TERMINAL<=model.APPROVAL_STATES',
+    'model.py:terminal_state:440:15:operand:0': 'subset:model.QUESTION_TERMINAL<=model.QUESTION_STATES',
 }

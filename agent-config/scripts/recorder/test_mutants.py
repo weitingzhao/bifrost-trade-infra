@@ -17,6 +17,9 @@ import time
 from pathlib import Path
 
 import pytest
+import ast
+import importlib
+
 from mutants import MUTANTS
 from mutant_proof import instrument
 from mutagen import EXCLUSIONS, PATH_FILES, generate
@@ -123,7 +126,13 @@ def test_generator_sites_are_unique_complete_and_compilable():
     from mutants_equivalent import EQUIVALENT, UNREACHABLE
     assert not set(EQUIVALENT) & set(UNREACHABLE)
     assert len(set(EQUIVALENT.values())) == len(EQUIVALENT)
-    assert all(':' in cite for cite in UNREACHABLE.values())
+    for cite in UNREACHABLE.values():
+        if cite.startswith("constant:"):
+            assert _constant_dead(cite) is None, cite
+        elif cite.startswith("subset:"):
+            assert _subset_dead(cite) is None, cite
+        else:
+            assert cite.count(":") == 1, cite
 
 
 def _corpus(folder: Path) -> str:
@@ -163,8 +172,10 @@ def _hits(folder: Path, filename: str) -> int:
     module = filename[:-3]
     script = (
         "import test_round7\n"
+        "import test_round8\n"
         f"import {module}\n"
         "test_round7.run_checks()\n"
+        "test_round8.run_checks()\n"
         f"print({module}._MUTANT_PROBE_HITS)\n"
     )
     proc = subprocess.run([sys.executable, "-c", script], cwd=folder, capture_output=True, text=True, env={
@@ -178,6 +189,46 @@ def _hits(folder: Path, filename: str) -> int:
 def _site_line(name: str) -> tuple[str, str]:
     parts = name.split(":")
     return parts[0], parts[-4]
+
+
+def _constant_dead(cite: str) -> str | None:
+    """None when the named module constants have the value that kills the branch.
+
+    ``constant:survive.SUMMARY_GAP_3+survive.SUMMARY_GAP_5=0`` is read from the
+    imported module. A mismatch is an error string.
+    """
+    body = cite[len("constant:"):]
+    names, expected = body.split("=")
+    expected_value = ast.literal_eval(expected)
+    for qual in names.split("+"):
+        module_name, attr = qual.split(".")
+        module = importlib.import_module(module_name)
+        if getattr(module, attr) != expected_value:
+            return f"{qual} is {getattr(module, attr)!r}, not {expected_value!r}"
+    return None
+
+
+def _subset_dead(cite: str) -> str | None:
+    """None when the first module constant is a subset of the second.
+
+    ``subset:model.APPROVAL_TERMINAL<=model.APPROVAL_STATES`` is read from the
+    imported modules. Membership in the smaller set then cannot change a
+    conjunction that also requires membership in the larger one.
+    """
+    body = cite[len("subset:"):]
+    left, right = body.split("<=")
+    smaller = _module_attr(left)
+    larger = _module_attr(right)
+    if not isinstance(smaller, set) or not isinstance(larger, set):
+        return f"{cite} is not a pair of sets"
+    if not smaller <= larger:
+        return f"{left} is not a subset of {right}"
+    return None
+
+
+def _module_attr(qual: str):
+    module_name, attr = qual.split(".")
+    return getattr(importlib.import_module(module_name), attr)
 
 
 def test_every_mutant_fails_its_tests():
@@ -210,6 +261,8 @@ def test_generated_mutants():
     differed = []
     survivors = []
     pending_unreach = []
+    unreachable = []
+    bad_cite = []
     killed_at = set()
     killed_kind = Counter()
     killed_function = Counter()
@@ -236,13 +289,28 @@ def test_generated_mutants():
                     print(f"unproven {name}", flush=True)
                 continue
             if name in UNREACHABLE:
+                cite = UNREACHABLE[name]
+                if cite.startswith("constant:"):
+                    error = _constant_dead(cite)
+                    if error is None:
+                        unreachable.append(name)
+                        print(f"unreachable-constant {name}: {cite}", flush=True)
+                    else:
+                        bad_cite.append(f"{name} cites {cite}: {error}")
+                    continue
+                if cite.startswith("subset:"):
+                    error = _subset_dead(cite)
+                    if error is None:
+                        unreachable.append(name)
+                        print(f"unreachable-subset {name}: {cite}", flush=True)
+                    else:
+                        bad_cite.append(f"{name} cites {cite}: {error}")
+                    continue
                 pending_unreach.append(name)
-                print(f"unreachable-pending {name}: {UNREACHABLE[name]}", flush=True)
+                print(f"unreachable-pending {name}: {cite}", flush=True)
                 continue
             survivors.append(name)
             print(f"generated {name} → SURVIVED | {item['before']!r} => {item['after']!r}", flush=True)
-    unreachable = []
-    bad_cite = []
     for name in pending_unreach:
         file_name, line = UNREACHABLE[name].split(":")
         if (file_name, line) in killed_at:
