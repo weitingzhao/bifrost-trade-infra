@@ -21,23 +21,22 @@ from validate import View, classify
 _CAN_ACT_ORDER = {"yes": 0, "unknown": 1, "not_yet": 2}
 
 
-def fold(logs, observer_log, now, logs_unread=0) -> dict:
-    if not _is_number(now):
-        now = 0
-    if not isinstance(logs_unread, int) or isinstance(logs_unread, bool) or logs_unread < 0:
-        logs_unread = 0
-    if not isinstance(logs, (list, tuple)):
-        logs = []
-    rounds = _rounds(observer_log)
-    prepared = []
-    for item in logs or []:
-        prepared.append(_prepare(item))
-    built = [_fold_one(item, rounds, now) for item in prepared]
-    # The design does not say how works are ordered. work_id keeps a permutation
-    # of the input logs from changing the document.
+def fold(logs, observer_files, now, logs_unread=0, unread_names=None, files_unread=0) -> dict:
+    from ownerball import _ball, _owner_all
+    rounds = []
+    observer_defects = []
+    observer_break = None
+    for loaded in observer_files or []:
+        rounds.extend(loaded.view.rounds)
+        for item in loaded.defects:
+            observer_defects.append({"file": item.get("file", loaded.name), "seq": item["seq"], "reason": item["reason"]})
+        if loaded.broken_line is not None and observer_break is None:
+            observer_break = {"file": loaded.name, "line": loaded.broken_line, "why": loaded.broken_why}
+    built = [_fold_one(item, rounds, now) for item in logs or []]
+    ghost = _apply_unrecorded(built, rounds, now)
     built.sort(key=lambda work: work["public"]["work_id"])
     owner_all, merged = _owner_all(built, rounds, now)
-    ball = _ball(built, merged, logs_unread)
+    ball = _ball(built, merged, logs_unread, ghost)
     feed = []
     for work in built:
         feed.extend(work["feed"])
@@ -45,21 +44,75 @@ def fold(logs, observer_log, now, logs_unread=0) -> dict:
     clock_behind = any(
         work["max_at"] is not None and now < work["max_at"] - CLOCK_SKEW_S for work in built
     )
+    incomplete = logs_unread > 0 or any(
+        (not work["closed"]) and (
+            work["public"].get("log_invalid_at") is not None or work["public"].get("torn_tail")
+        )
+        for work in built
+    )
+    observer = {}
+    if rounds:
+        observer["last_round_at"] = rounds[-1]["ended_at"]
+    if observer_defects:
+        observer["defects"] = observer_defects
+    if observer_break is not None:
+        observer["log_invalid_at"] = observer_break
+    if files_unread:
+        observer["files_unread"] = files_unread
     document = {
         "at": now,
         "observations_valid_s": OBS_VALID_S,
-        "fold_complete": logs_unread == 0,
+        "fold_complete": not incomplete,
         "logs_unread": logs_unread,
-        "observer": {},
+        "internal_errors": 0,
+        "observer": observer,
         "clock": {"reader_behind": clock_behind},
         "ball": ball,
         "owner_all": owner_all,
         "works": [work["public"] for work in built],
         "feed": feed,
     }
-    if rounds:
-        document["observer"] = {"last_round_at": rounds[-1]["ended_at"]}
+    if unread_names:
+        document["logs_unread_names"] = list(unread_names)
     return document
+
+
+def _apply_unrecorded(built, rounds, now) -> bool:
+    """Table A-2. Returns whether an item named a work that was not read."""
+    if not rounds:
+        return False
+    latest = rounds[-1]
+    if now - latest["ended_at"] > OBS_VALID_S:
+        return False
+    by_id = {work["public"]["work_id"]: work for work in built}
+    ghost = False
+    for item in latest.get("unrecorded") or []:
+        work = by_id.get(item["work_id"])
+        if work is None:
+            ghost = True
+            continue
+        public = next((step for step in work["public"]["steps"] if step["step_id"] == item["step_id"]), None)
+        view_step = work["view"].steps.get(item["step_id"])
+        open_states = {"running", "slow", "quiet", "unknown"}
+        recorded = (
+            view_step is not None
+            and view_step.started
+            and view_step.run_id == item["run_id"]
+            and public is not None
+            and public.get("state") in open_states
+        )
+        if recorded:
+            continue
+        work["public"]["unrecorded_runs"] = work["public"].get("unrecorded_runs", 0) + 1
+        if (
+            public is not None
+            and view_step is not None
+            and view_step.declared_by == "wrapper"
+            and not view_step.started
+            and public.get("reason") == "start_not_recorded"
+        ):
+            public["last_seen"] = {"alive": True, "at": latest["ended_at"]}
+    return ghost
 
 
 def _is_number(value) -> bool:
@@ -112,15 +165,15 @@ def _confirm_reason(key: str, rounds: list, now: float) -> str | None:
     return "not_confirmed"
 
 
-def _fold_one(item: dict, rounds: list, now: float) -> dict:
-    view = classify(item["events"], work_id=item["work_id"])
-    invalid = item["invalid_at"]
+def _fold_one(loaded, rounds, now) -> dict:
+    view = loaded.view
+    invalid = loaded.broken_line
     flags = []
     public_steps = []
     withdrawn = 0
     for step_id in view.step_order:
         step = view.steps[step_id]
-        public, flag = _step_document(step, view, rounds, now, view.work_id or item["work_id"])
+        public, flag = _step_document(step, view, rounds, now, view.work_id or loaded.name)
         if flag == "withdrawn":
             withdrawn += 1
             continue
@@ -130,8 +183,8 @@ def _fold_one(item: dict, rounds: list, now: float) -> dict:
         public_steps.append(public)
         flags.append((step, public, flag))
     eta_unsure = _eta_unsure(public_steps)
-    public = _work_public(view, item, public_steps, withdrawn, eta_unsure, invalid)
-    feed = _feed(view, item, public["work_id"])
+    public = _work_public(view, loaded, public_steps, withdrawn, eta_unsure, invalid)
+    feed = _feed(view, loaded, public["work_id"])
     return {
         "public": public,
         "view": view,
@@ -170,8 +223,8 @@ def _eta_unsure(steps: list) -> bool:
     return False
 
 
-def _work_public(view: View, item: dict, steps: list, withdrawn: int, eta_unsure: bool, invalid) -> dict:
-    work_id = view.work_id or item["work_id"] or ""
+def _work_public(view: View, loaded, steps: list, withdrawn: int, eta_unsure: bool, invalid) -> dict:
+    work_id = view.work_id or loaded.name or ""
     public = {
         "work_id": work_id,
         "source": "events",
@@ -191,7 +244,11 @@ def _work_public(view: View, item: dict, steps: list, withdrawn: int, eta_unsure
         public["_closed_at"] = view.closed_at
     if invalid is not None:
         public["log_invalid_at"] = invalid
-    if item["full"]:
+        if loaded.broken_why:
+            public["log_invalid_why"] = loaded.broken_why
+    if loaded.torn_tail:
+        public["torn_tail"] = True
+    if loaded.full:
         public["log_full"] = True
     if eta_unsure:
         public["eta_unsure"] = True
@@ -351,6 +408,11 @@ def _watched_step(step, view: View, now: float):
     if step.superseded and not step.started:
         return public, "withdrawn"
     if not step.started:
+        if step.watch == "process" and step.declared_by == "wrapper":
+            public["state"] = "unknown"
+            public["reason"] = "start_not_recorded"
+            public["label"] = "Unknown"
+            return public, "unknown"
         public["state"] = "waiting"
         return public, "waiting"
     if step.started_at is not None:
@@ -513,459 +575,6 @@ def _waiting_on_open(step, view: View) -> bool:
         if wait is not None and not wait.settled:
             return True
     return False
-
-
-def _owner_all(built: list, rounds: list, now: float):
-    """Items, plus merged status by (kind, id) for the ball."""
-    items = []
-    merged: dict[tuple, dict] = {}
-    groups: dict[tuple, list] = {}
-    for work in built:
-        view: View = work["view"]
-        for wait_id in view.wait_order:
-            wait = view.waits[wait_id]
-            if wait.ref["kind"] == "none":
-                if wait.settled:
-                    merged[( "none", wait.wait_id)] = {"status": "settled", "declared": True}
-                    continue
-                item = _declared_item(wait, view, work)
-                items.append(item)
-                merged[("none", wait.wait_id)] = {
-                    "status": "yes" if wait.can_act == "yes" else "not_yet",
-                    "declared": True,
-                    "can_act": wait.can_act,
-                }
-                continue
-            key = (wait.ref["kind"], wait.ref["id"])
-            groups.setdefault(key, []).append((work, wait))
-    for key, members in groups.items():
-        status, item = _merged_record(key, members, built, rounds, now)
-        merged[key] = status
-        if item is not None:
-            items.append(item)
-    items.sort(key=_owner_sort)
-    return items, merged
-
-
-def _owner_sort(item: dict):
-    source = 0 if item["source"] == "record" else 1
-    act = _CAN_ACT_ORDER.get(item.get("can_act"), 9)
-    if "deadline" in item:
-        when = (0, item["deadline"])
-    else:
-        when = (1, 0)
-    ident = item.get("wait_id") or (item.get("ref") or {}).get("id") or ""
-    return (source, act, when, ident)
-
-
-def _holds(wait_id: str, view: View) -> list:
-    steps = [view.steps[sid] for sid in view.step_order]
-    direct = [step.step_id for step in steps if wait_id in step.waiting_on]
-    held = []
-    seen = set()
-    frontier = set()
-    for step_id in direct:
-        if step_id not in seen:
-            held.append(step_id)
-            seen.add(step_id)
-            frontier.add(step_id)
-    while frontier:
-        nxt = []
-        for step in steps:
-            if step.step_id in seen:
-                continue
-            if step.after in frontier:
-                nxt.append(step.step_id)
-        if not nxt:
-            break
-        for step_id in nxt:
-            held.append(step_id)
-            seen.add(step_id)
-        frontier = set(nxt)
-    return held
-
-
-def _effect(view: View, holds: list):
-    if not holds:
-        return None
-    step = view.steps.get(holds[0])
-    if step is None or step.usual_s is None:
-        return None
-    return step.usual_s
-
-
-def _declared_item(wait, view: View, work: dict) -> dict:
-    holds = _holds(wait.wait_id, view)
-    item = {
-        "source": "declared",
-        "wait_id": wait.wait_id,
-        "title": wait.title,
-        "can_act": wait.can_act or "not_yet",
-        "can_act_basis": "declared",
-        "holds_up": holds,
-        "works": [_work_piece(work, wait, holds)],
-    }
-    _copy_optional(item, wait)
-    effect = _effect(view, holds)
-    if effect is not None:
-        item["effect_s"] = effect
-    return item
-
-
-def _copy_optional(item: dict, wait) -> None:
-    for key in (
-        "where",
-        "reply",
-        "reply_words",
-        "advice",
-        "blocks_text",
-        "after_text",
-        "not_before_text",
-        "after",
-    ):
-        value = getattr(wait, key)
-        if value is not None:
-            item[key] = value
-    if wait.reply_needed is False:
-        item["reply_needed"] = False
-    if wait.commands is not None:
-        item["commands"] = list(wait.commands)
-    if wait.deadline is not None:
-        item["deadline"] = wait.deadline
-    if wait.no_deadline:
-        item["no_deadline"] = True
-    if wait.blocks_nothing:
-        item["blocks_nothing"] = True
-
-
-def _work_piece(work: dict, wait, holds: list) -> dict:
-    piece = {"work_id": work["public"]["work_id"], "title": wait.title, "holds_up": holds}
-    for key in ("advice", "blocks_text", "after_text", "not_before_text"):
-        value = getattr(wait, key)
-        if value is not None:
-            piece[key] = value
-    effect = _effect(work["view"], holds)
-    if effect is not None:
-        piece["effect_s"] = effect
-    if wait.blocks_nothing:
-        piece["blocks_nothing"] = True
-    return piece
-
-
-def _merged_record(key, members, built, rounds, now):
-    for _work, wait in members:
-        if wait.terminal_state is not None:
-            return {"status": "settled", "declared": False, "ref_state": wait.terminal_state}, None
-    open_members = [(work, wait) for work, wait in members if not wait.settled]
-    if not open_members:
-        return {"status": "settled", "declared": False}, None
-    observations = []
-    for work, wait in open_members:
-        for obs in wait.seen:
-            observations.append((obs["sampled_at"], obs, work, wait))
-    reason = _confirm_reason(f"{key[0]}:{key[1]}", rounds, now)
-    if not observations:
-        item = _unknown_record_item(key, open_members, None, rounds, reason or "not_confirmed")
-        return {"status": "unknown", "declared": False, "can_act": "unknown", "reason": item["reason"]}, item
-    latest_at = max(row[0] for row in observations)
-    latest = [row for row in observations if row[0] == latest_at]
-    if len({_obs_content(row[1]) for row in latest}) != 1:
-        item = _unknown_record_item(key, open_members, None, rounds, "conflicting_observations")
-        return {
-            "status": "unknown",
-            "declared": False,
-            "can_act": "unknown",
-            "reason": "conflicting_observations",
-        }, item
-    obs = latest[0][1]
-    if reason is not None:
-        item = _unknown_record_item(key, open_members, obs, rounds, reason)
-        return {"status": "unknown", "declared": False, "can_act": "unknown", "reason": item["reason"]}, item
-    state = obs["ref_state"]
-    if state in {"approved", "running"}:
-        return {"status": "in_flight", "declared": False, "ref_state": state}, None
-    if state in {"pending", "open", "unknown"}:
-        item = _yes_record_item(key, open_members, obs, rounds)
-        return {"status": "yes", "declared": False, "can_act": "yes", "ref_state": state}, item
-    item = _unknown_record_item(key, open_members, obs, rounds, "not_confirmed")
-    return {"status": "unknown", "declared": False, "can_act": "unknown"}, item
-
-
-def _obs_content(obs: dict):
-    """What an exact sampled_at tie is allowed to disagree about."""
-    return (
-        obs.get("ref_state"),
-        obs["expires_at"] if "expires_at" in obs else None,
-        obs["number"] if "number" in obs else None,
-    )
-
-
-def _yes_record_item(key, members, obs, rounds) -> dict:
-    ref_state = obs["ref_state"]
-    item = {
-        "source": "record",
-        "ref": {"kind": key[0], "id": key[1]},
-        "can_act": "yes",
-        "ref_state": ref_state,
-        "where": "console",
-        "reply_needed": False,
-        "works": [],
-    }
-    if "expires_at" in obs:
-        item["deadline"] = obs["expires_at"]
-        item["deadline_source"] = "record"
-    if "number" in obs:
-        item["number"] = obs["number"]
-    item["last_seen"] = {
-        "ref_state": ref_state,
-        "at": _observation_at(rounds, f"{key[0]}:{key[1]}", obs),
-    }
-    for work, wait in members:
-        holds = _holds(wait.wait_id, work["view"])
-        item["works"].append(_work_piece(work, wait, holds))
-    return item
-
-
-def _unknown_record_item(key, members, obs, rounds, reason: str) -> dict:
-    if reason not in REASONS:
-        reason = "not_confirmed"
-    item = {
-        "source": "record",
-        "ref": {"kind": key[0], "id": key[1]},
-        "can_act": "unknown",
-        "reason": reason,
-        "where": "console",
-        "reply_needed": False,
-        "works": [],
-    }
-    if obs is not None and reason != "conflicting_observations":
-        item["ref_state"] = obs["ref_state"]
-        if "expires_at" in obs:
-            item["deadline"] = obs["expires_at"]
-            item["deadline_source"] = "record"
-        if "number" in obs:
-            item["number"] = obs["number"]
-        item["last_seen"] = {
-            "ref_state": obs["ref_state"],
-            "at": _observation_at(rounds, f"{key[0]}:{key[1]}", obs),
-        }
-    for work, wait in members:
-        holds = _holds(wait.wait_id, work["view"])
-        item["works"].append(_work_piece(work, wait, holds))
-    return item
-
-
-def _ball(built: list, merged: dict, logs_unread: int) -> dict:
-    if logs_unread > 0:
-        ball = {"holder": "unknown", "why": "fold_incomplete"}
-        times = []
-        for work in built:
-            for event in work["view"].valid:
-                if event["type"] not in {"note", "tail_repaired"}:
-                    times.append(event["at"])
-        if times:
-            ball["since"] = max(times)
-        return ball
-    judgments = []
-    for work in built:
-        if work["closed"]:
-            continue
-        judgments.append(_judge_work(work, merged))
-    if any(item["holder"] == "agents" for item in judgments):
-        return _pick(judgments, "agents")
-    if any(item["holder"] == "unknown" for item in judgments):
-        return _pick(judgments, "unknown")
-    if any(item["holder"] == "coordinator" for item in judgments):
-        return _pick(judgments, "coordinator")
-    if any(item["holder"] == "owner" for item in judgments):
-        return _pick(judgments, "owner")
-    ball = {"holder": "nobody", "why": "queue_done"}
-    closed_at = [work["view"].closed_at for work in built if work["view"].closed_at is not None]
-    if closed_at:
-        ball["since"] = max(closed_at)
-    return ball
-
-
-def _pick(judgments: list, holder: str) -> dict:
-    chosen = [item for item in judgments if item["holder"] == holder]
-    chosen.sort(key=lambda item: item.get("since") or -1)
-    best = chosen[-1]
-    ball = {"holder": holder, "why": best["why"]}
-    if "since" in best:
-        ball["since"] = best["since"]
-    if holder == "owner" and all(item.get("basis") == "declared" for item in chosen):
-        ball["basis"] = "declared"
-    return ball
-
-
-def _judge_work(work: dict, merged: dict) -> dict:
-    view: View = work["view"]
-    steps = work["public"]["steps"]
-    flags = {step.step_id: flag for step, _public, flag in work["flags"]}
-
-    def pack(holder, why, since, basis=None):
-        item = {"holder": holder, "why": why}
-        if since is not None:
-            item["since"] = since
-        if basis:
-            item["basis"] = basis
-        return item
-
-    running = [step for step in steps if step["state"] in {"running", "slow", "quiet"}]
-    if running:
-        return pack("agents", "step_running", _running_since(view, running))
-    created = [
-        step for step in steps
-        if flags.get(step["step_id"]) == "record_created" and step["state"] == "waiting"
-    ]
-    if created:
-        return pack("agents", "record_created", _record_created_since(view, created))
-    if _any_in_flight(view, merged):
-        return pack("agents", "record_in_flight", _substantive(view))
-    if work["invalid"]:
-        return pack("unknown", "log_invalid", _substantive(view))
-    if any(step["state"] == "unknown" for step in steps):
-        return pack("unknown", "step_unknown", _substantive(view))
-    if _any_owner_unknown(view, merged):
-        return pack("unknown", "owner_item_unknown", _substantive(view))
-    nxt = _next_waiting(view, merged, steps)
-    if nxt is not None:
-        return pack("coordinator", "next_not_sent", nxt.declared_at)
-    yes = _yes_waits(view, merged)
-    if yes:
-        basis = "declared" if all(item["declared"] for item in yes) else None
-        return pack("owner", "owner_can_act", _owner_since(view, merged), basis)
-    pending = _open_merged(view, merged)
-    if pending and all(item["status"] == "not_yet" for item in pending):
-        return pack("coordinator", "owner_item_not_ready", _not_yet_since(view, merged))
-    return pack("coordinator", "ended_awaiting_check", _substantive(view))
-
-
-def _substantive(view: View):
-    """Latest valid event that is not a note and not a tail repair."""
-    times = [event["at"] for event in view.valid if event["type"] not in {"note", "tail_repaired"}]
-    return max(times) if times else None
-
-
-def _running_since(view: View, running: list):
-    times = []
-    for public in running:
-        step = view.steps[public["step_id"]]
-        if step.watch == "record":
-            found = None
-            for obs in step.record_obs:
-                if obs.get("condition") in {"True", "False"}:
-                    continue
-                if "started_at" in obs:
-                    found = obs["at"]
-            if found is not None:
-                times.append(found)
-        elif step.started_at is not None:
-            times.append(step.started_at)
-    return min(times) if times else _substantive(view)
-
-
-def _record_created_since(view: View, created: list):
-    times = []
-    for public in created:
-        step = view.steps[public["step_id"]]
-        for obs in step.record_obs:
-            if obs.get("found") and "started_at" not in obs and "condition" not in obs:
-                times.append(obs["at"])
-    return max(times) if times else _substantive(view)
-
-
-def _owner_since(view: View, merged: dict):
-    times = []
-    for wait in view.waits.values():
-        status = _wait_status(wait, merged)
-        if status is None or status.get("status") != "yes":
-            continue
-        if status.get("declared"):
-            times.append(wait.yes_at if wait.yes_at is not None else wait.opened_at)
-            continue
-        for obs in reversed(wait.seen):
-            if obs.get("ref_state") in {"pending", "open", "unknown"}:
-                times.append(obs["at"])
-                break
-    return max(times) if times else _substantive(view)
-
-
-def _not_yet_since(view: View, merged: dict):
-    times = []
-    for wait in view.waits.values():
-        status = _wait_status(wait, merged)
-        if status and status.get("status") == "not_yet":
-            times.append(wait.opened_at)
-    return max(times) if times else _substantive(view)
-
-
-def _wait_status(wait, merged: dict) -> dict | None:
-    if wait.ref["kind"] == "none":
-        return merged.get(("none", wait.wait_id))
-    return merged.get((wait.ref["kind"], wait.ref["id"]))
-
-
-def _any_in_flight(view: View, merged: dict) -> bool:
-    for wait in view.waits.values():
-        status = _wait_status(wait, merged)
-        if status and status.get("status") == "in_flight":
-            return True
-    return False
-
-
-def _any_owner_unknown(view: View, merged: dict) -> bool:
-    for wait in view.waits.values():
-        status = _wait_status(wait, merged)
-        if status and status.get("status") == "unknown":
-            return True
-    return False
-
-
-def _yes_waits(view: View, merged: dict) -> list:
-    found = []
-    for wait in view.waits.values():
-        status = _wait_status(wait, merged)
-        if status and status.get("status") == "yes":
-            found.append(status)
-    return found
-
-
-def _open_merged(view: View, merged: dict) -> list:
-    found = []
-    for wait in view.waits.values():
-        status = _wait_status(wait, merged)
-        if status and status.get("status") in {"yes", "not_yet", "unknown", "in_flight"}:
-            found.append(status)
-    return found
-
-
-def _next_waiting(view: View, merged: dict, steps: list):
-    """The qualifying step whose declaration is the latest, or None."""
-    by_id = {step["step_id"]: step for step in steps}
-    chosen = None
-    for step_id in view.step_order:
-        step = view.steps[step_id]
-        public = by_id.get(step_id)
-        if public is None or public["state"] != "waiting":
-            continue
-        if step.waiting_on:
-            settled = True
-            for wait_id in step.waiting_on:
-                wait = view.waits.get(wait_id)
-                status = _wait_status(wait, merged) if wait is not None else None
-                if status is None or status.get("status") != "settled":
-                    settled = False
-                    break
-            if not settled:
-                continue
-        if step.after:
-            target = by_id.get(step.after)
-            if target is None or target["state"] not in {"done", "failed"}:
-                continue
-        if chosen is None or step.declared_at >= chosen.declared_at:
-            chosen = step
-    return chosen
 
 
 def select_logs(items: list, limit: int = 200) -> tuple[list, int]:

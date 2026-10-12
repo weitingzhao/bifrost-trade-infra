@@ -8,11 +8,11 @@ is left off and the step is never ``slow``.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from events import load_file
 from model import GAP_S
+from read import _in_range, loads_strict
 from validate import classify
 
 # tasks.json names a step in Chinese. The kind on an event is one of these.
@@ -67,14 +67,21 @@ def _anomalous(view, step) -> bool:
     times = [step.started_at]
     for event in step.seen:
         times.append(event["sampled_at"])
+    finished = step.finished or {}
+    if finished.get("at") is not None:
+        times.append(finished["at"])
     if any(later - earlier > GAP_S for earlier, later in zip(times, times[1:])):
         return True
+    start = step.start_index
+    end = None
     for index, event in enumerate(view.valid):
-        if event.get("step_id") != step.step_id:
-            continue
-        if event["type"] in {"step_started", "step_seen", "step_finished"} and index in view.backwards:
-            return True
-    finished = step.finished or {}
+        if event.get("type") == "step_finished" and event.get("step_id") == step.step_id:
+            end = index
+            break
+    if start is not None and end is not None:
+        for index in range(start, end + 1):
+            if index in view.backwards:
+                return True
     if step.started_at is not None and finished.get("at") is not None:
         if finished["at"] - step.started_at <= 0:
             return True
@@ -94,24 +101,37 @@ def _handwritten(root: Path, kind: str):
     if not path.is_file():
         return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        data = loads_strict(path.read_text(encoding="utf-8"))
+    except Exception:
         return None
     names = _KIND_NAMES.get(kind, set())
-    works = data.get("works") if isinstance(data, dict) else None
-    if not isinstance(works, list):
+    works = data.get("works") if type(data) is dict else None
+    if type(works) is not list:
         return None
     for work in works:
-        if not isinstance(work, dict):
+        if type(work) is not dict:
             continue
-        for step in work.get("steps") or []:
-            if not isinstance(step, dict):
+        steps = work.get("steps") or []
+        if type(steps) is not list:
+            continue
+        for step in steps:
+            if type(step) is not dict:
                 continue
             matched = step.get("kind") == kind or step.get("name") in names
             if not matched:
                 continue
-            if isinstance(step.get("usual_s"), (int, float)) and not isinstance(step.get("usual_s"), bool):
-                return float(step["usual_s"])
-            if isinstance(step.get("usual_min"), (int, float)) and not isinstance(step.get("usual_min"), bool):
-                return float(step["usual_min"]) * 60
+            seconds = _hand_number(step.get("usual_s"))
+            if seconds is not None:
+                return seconds
+            minutes = _hand_number(step.get("usual_min"))
+            if minutes is not None and _in_range(minutes * 60):
+                return minutes * 60
     return None
+
+
+def _hand_number(value):
+    if type(value) is bool or (type(value) is not int and type(value) is not float):
+        return None
+    if not _in_range(value) or value < 0:
+        return None
+    return value

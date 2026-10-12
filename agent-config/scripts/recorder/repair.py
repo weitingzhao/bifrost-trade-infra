@@ -16,7 +16,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from events import append_sealed, load_bytes, seal, sha256_bytes
+from events import append_sealed, seal, sha256_bytes
 from fsutil import fsync_dir, fullsync, publish
 
 
@@ -35,10 +35,12 @@ def _torn_files(directory: Path) -> list[Path]:
     return sorted(found, key=lambda item: item.name)
 
 
-def _recorded(events: list[dict]) -> set[str]:
+def _recorded(view) -> set[str]:
     found = set()
-    for event in events:
-        if event.get("type") == "tail_repaired" and isinstance(event.get("repair_id"), str):
+    if view is None:
+        return found
+    for event in view.valid:
+        if event.get("type") == "tail_repaired" and type(event.get("repair_id")) is str:
             found.add(event["repair_id"])
     return found
 
@@ -48,10 +50,12 @@ def _append_missing(directory: Path, by: str, at: float) -> None:
     data = path.read_bytes() if path.is_file() else b""
     if data and not data.endswith(b"\n"):
         return
-    log = load_bytes(data)
-    if log.invalid_seq is not None or log.full:
+    from read import read_log
+
+    loaded = read_log(directory.name, data)
+    if loaded.broken_line is not None or loaded.full:
         return
-    known = _recorded(log.events)
+    known = _recorded(loaded.view)
     pending = []
     for torn_path in _torn_files(directory):
         rid = torn_path.name[len("events.torn-") :]
@@ -63,8 +67,8 @@ def _append_missing(directory: Path, by: str, at: float) -> None:
             continue
         pending.append((int(offset_text), rid, blob))
     for _offset, rid, blob in sorted(pending):
-        fresh = load_bytes(path.read_bytes())
-        if fresh.invalid_seq is not None or fresh.full:
+        fresh = read_log(directory.name, path.read_bytes())
+        if fresh.broken_line is not None or fresh.full:
             return
         obj = seal(
             {
@@ -117,9 +121,11 @@ def repair_torn_tail(directory: Path, *, by: str = "coordinator", at: float | No
 
 
 def _prefix_valid(path: Path) -> bool:
+    from read import read_log
+
     if not path.is_file():
         return True
     data = path.read_bytes()
     if data and not data.endswith(b"\n"):
         return False
-    return load_bytes(data).invalid_seq is None
+    return read_log(path.parent.name, data).broken_line is None

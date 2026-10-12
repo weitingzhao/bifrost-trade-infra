@@ -41,11 +41,24 @@ _ENDED = {"done", "failed"}
 _SUMMARY_STATES = ("dead", "done", "failed", "quiet", "running", "slow", "unknown", "waiting")
 
 
-def publish_view(document: dict, host: str | None = None) -> dict:
-    doc = copy.deepcopy(document) if isinstance(document, dict) else {"at": 0}
+def _publish_observer(doc: dict) -> None:
+    """Table B row 10: the observer defect list is published as a count."""
+    observer = doc.get("observer")
+    if type(observer) is not dict or "defects" not in observer:
+        return
+    defects = observer.get("defects")
+    observer["defects_count"] = len(defects) if type(defects) is list else 0
+    observer.pop("defects", None)
+
+
+def publish_view(document: dict, host: str | None = None, blocks=None) -> dict:
+    doc = copy.deepcopy(document) if type(document) is dict else {"at": 0}
+    _publish_observer(doc)
     doc = _drop_nulls(doc)
     _drop_sensitive(doc)
-    if host and isinstance(host, str) and _HOST.fullmatch(host):
+    block_missing = _merge_blocks(doc, blocks)
+    host_ok = type(host) is str and _HOST.fullmatch(host)
+    if host_ok:
         doc["host"] = host
     else:
         doc.pop("host", None)
@@ -65,7 +78,9 @@ def publish_view(document: dict, host: str | None = None) -> dict:
     doc["feed"] = feed
     doc["owner_all"] = owner
     doc["works_total"] = _works_total(original_works)
-    incomplete = []
+    incomplete = list(block_missing)
+    if host not in (None, "") and not host_ok:
+        incomplete.append("host")
     if omitted_works["open"] or omitted_works["closed"]:
         doc["omitted_works"] = omitted_works
         if omitted_works["open"]:
@@ -83,10 +98,12 @@ def publish_view(document: dict, host: str | None = None) -> dict:
     if not doc["incomplete"]:
         doc.pop("incomplete")
     commands_stripped = any("commands" in item for item in original_owner)
-    cut = _anything_cut(doc, original_works, original_owner, original_feed) or commands_stripped
+    cut = _anything_cut(doc, original_works, original_owner, original_feed) or commands_stripped or bool(block_missing)
     level = _fit(doc, owner, original_feed_len, cut)
     if level:
         doc["reduced"] = level
+        cut = True
+    if doc.get("incomplete"):
         cut = True
     if original_feed_len > len(doc.get("feed") or []):
         doc["feed_cut"] = original_feed_len - len(doc.get("feed") or [])
@@ -139,6 +156,10 @@ def _fit(doc: dict, owner_items: list, original_feed_len: int, already_cut: bool
     """
     if _nbytes(doc, 0, original_feed_len, already_cut) <= PUBLISH_TARGET_BYTES:
         return 0
+    if _shed_blocks(doc, original_feed_len, already_cut):
+        already_cut = True
+        if _nbytes(doc, 0, original_feed_len, already_cut) <= PUBLISH_TARGET_BYTES:
+            return 0
     _level1(doc)
     if _nbytes(doc, 1, original_feed_len, already_cut) <= PUBLISH_TARGET_BYTES:
         return 1
@@ -259,7 +280,7 @@ def _summary(work: dict) -> dict:
         "unknown_reasons_omitted": max(0, len(reasons) - len(listed)),
         "defects_count": len(work.get("defects") or []),
     }
-    for key in ("log_invalid_at", "log_full", "closed_claim"):
+    for key in ("log_invalid_at", "log_invalid_why", "log_full", "torn_tail", "unrecorded_runs", "closed_claim"):
         if key in work:
             out[key] = work[key]
     return out
@@ -430,3 +451,262 @@ def _public(value):
     if isinstance(value, list):
         return [_public(child) for child in value]
     return value
+
+
+_BLOCK_ORDER = ("events", "recent", "usage", "graph", "queue", "roadmap", "coordinator")
+_BLOCK_KEYS = set(_BLOCK_ORDER)
+
+
+def _note(doc: dict, name: str) -> None:
+    inc = list(doc.get("incomplete") or [])
+    inc.append(name)
+    doc["incomplete"] = sorted(set(inc))
+
+
+def _shed_blocks(doc: dict, original_feed_len: int, already_cut: bool) -> bool:
+    changed = False
+    has_events = any(
+        "events" in step
+        for work in doc.get("works") or []
+        for step in work.get("steps") or []
+    )
+    if has_events and _nbytes(doc, 0, original_feed_len, True) > PUBLISH_TARGET_BYTES:
+        _strip_step_events(doc)
+        _note(doc, "events")
+        changed = True
+    for key in ("recent", "usage", "graph", "queue", "roadmap", "coordinator"):
+        if key in doc and _nbytes(doc, 0, original_feed_len, True) > PUBLISH_TARGET_BYTES:
+            doc.pop(key, None)
+            _note(doc, key)
+            changed = True
+    return changed
+
+
+def _strip_step_events(doc: dict) -> bool:
+    found = False
+    for work in doc.get("works") or []:
+        for step in work.get("steps") or []:
+            if "events" in step:
+                step.pop("events")
+                found = True
+    return found
+
+
+def _merge_blocks(doc: dict, blocks) -> list:
+    if blocks is None:
+        return []
+    from read import exact_tree
+
+    if type(blocks) is not dict or not exact_tree(blocks):
+        return ["blocks"]
+    missing = []
+    for key in blocks:
+        if type(key) is not str or key not in _BLOCK_KEYS:
+            missing.append(key if type(key) is str else "blocks")
+            continue
+        value = blocks[key]
+        if not exact_tree(value) or not _block_ok(key, value):
+            missing.append(key)
+            continue
+        if key == "events":
+            if not _attach_events(doc, value):
+                missing.append("events")
+        else:
+            doc[key] = copy.deepcopy(value)
+    return missing
+
+
+def _block_ok(key: str, value) -> bool:
+    if key == "recent":
+        return type(value) is list and len(value) <= 30 and all(type(item) is str and len(item) <= 200 for item in value)
+    if key == "coordinator":
+        if type(value) is not dict or set(value) - {"at", "state", "note"}:
+            return False
+        if "at" in value and (type(value["at"]) is bool or type(value["at"]) not in (int, float)):
+            return False
+        if "state" in value and type(value["state"]) is not str:
+            return False
+        if "note" in value and type(value["note"]) is not str:
+            return False
+        return True
+    if key == "graph":
+        return type(value) is list and len(value) <= 60
+    if key == "queue":
+        return type(value) is list and len(value) <= 30
+    if key in ("roadmap", "usage"):
+        return type(value) is dict
+    if key == "events":
+        return type(value) is dict
+    return False
+
+
+def _attach_events(doc: dict, mapping: dict) -> bool:
+    pending = []
+    for key, rows in mapping.items():
+        if type(key) is not str or key.count("/") != 1 or type(rows) is not list or len(rows) > 30:
+            return False
+        if not all(type(row) is dict for row in rows):
+            return False
+        work_id, _, step_id = key.partition("/")
+        pending.append((work_id, step_id, rows))
+    works = {work.get("work_id"): work for work in doc.get("works") or [] if type(work) is dict}
+    attached = []
+    for work_id, step_id, rows in pending:
+        work = works.get(work_id)
+        step = None
+        if work is not None:
+            for item in work.get("steps") or []:
+                if item.get("step_id") == step_id and item.get("state") not in _ENDED:
+                    step = item
+                    break
+        if step is None:
+            return False
+        attached.append((step, rows))
+    for step, rows in attached:
+        step["events"] = copy.deepcopy(rows)
+    return True
+
+
+def _fold_shape(document) -> bool:
+    from read import _in_range
+
+    if type(document) is not dict:
+        return False
+    if "at" not in document or "fold_complete" not in document or "internal_errors" not in document:
+        return False
+    at = document["at"]
+    if type(at) is bool or (type(at) is not int and type(at) is not float) or not _in_range(at):
+        return False
+    if type(document["fold_complete"]) is not bool:
+        return False
+    count = document["internal_errors"]
+    if type(count) is not int or count < 0:
+        return False
+    return True
+
+
+def publish_total(document, host=None, blocks=None) -> bytes:
+    """The only publish entry. Returns bytes and does not raise Exception."""
+    from read import LAST_PUBLISH, _probe, at_or_0, class_name, encode_strict, exact_tree, fallback
+
+    caught = 0
+    try:
+        if not exact_tree(document) or not _fold_shape(document):
+            return encode_strict(fallback("publish", "invalid_argument", argument="document", n=0))
+        caught = document["internal_errors"]
+        _probe("publish")
+        if "recorder_failed" in document:
+            view = copy.deepcopy(document)
+            if type(host) is str and _HOST.fullmatch(host):
+                view["host"] = host
+            else:
+                view.pop("host", None)
+                if host not in (None, ""):
+                    _note(view, "host")
+        else:
+            view = publish_view(document, host, blocks)
+        data = encode_strict(view)
+        if len(data) > PUBLISH_TARGET_BYTES:
+            return encode_strict(fallback("publish", "too_large", at=document["at"], n=caught))
+        if not shape_ok(data):
+            return encode_strict(fallback("publish", "shape", at=document["at"], n=caught))
+        return data
+    except Exception as exc:
+        try:
+            at = document["at"] if type(document) is dict and "at" in document else 0
+            return encode_strict(fallback("publish", "caught", error_class=class_name(exc), at=at_or_0(at), n=caught + 1))
+        except Exception:
+            return LAST_PUBLISH
+
+
+_WORK_NUM = {"round", "end"}
+_WORK_STR = {"title", "short", "goal", "risk", "after"}
+_WORK_BOOL = {"sure", "finished"}
+_STEP_NUM = {"started", "ended", "last", "usual_min", "eta_start", "eta_end", "overdue"}
+_STEP_STR = {"name", "who", "state", "label", "note", "doing"}
+_STEP_BOOL = {"needs_owner"}
+_FEED_STR = {"work", "step", "who", "state", "text"}
+
+
+def shape_ok(data: bytes) -> bool:
+    if type(data) is not bytes:
+        return False
+    try:
+        obj = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+        return False
+    if type(obj) is not dict or not _finite_number(obj.get("at")) or not _no_null(obj):
+        return False
+    if not _known(obj, "", {"at"}, {"verdict", "level", "host"}, {"sure"}):
+        return False
+    coordinator = obj.get("coordinator")
+    if coordinator is not None:
+        if type(coordinator) is not dict or not _known(coordinator, "coordinator", {"at"}, {"state", "note"}, set()):
+            return False
+    recent = obj.get("recent")
+    if recent is not None and (type(recent) is not list or len(recent) > 30 or any(type(item) is not str for item in recent)):
+        return False
+    needs = obj.get("needs_you")
+    if needs is not None and (type(needs) is not list or len(needs) > 30 or any(type(item) is not str for item in needs)):
+        return False
+    graph = obj.get("graph")
+    if graph is not None and (type(graph) is not list or len(graph) > 60):
+        return False
+    queue = obj.get("queue")
+    if queue is not None and (type(queue) is not list or len(queue) > 30):
+        return False
+    works = obj.get("works")
+    if works is not None:
+        if type(works) is not list or len(works) > 30:
+            return False
+        for work in works:
+            if type(work) is not dict or not _known(work, "work", _WORK_NUM, _WORK_STR, _WORK_BOOL):
+                return False
+            steps = work.get("steps")
+            if steps is None:
+                continue
+            if type(steps) is not list or len(steps) > 20:
+                return False
+            for step in steps:
+                if type(step) is not dict or not _known(step, "step", _STEP_NUM, _STEP_STR, _STEP_BOOL):
+                    return False
+                events = step.get("events")
+                if events is not None and (type(events) is not list or len(events) > 30 or any(type(item) is not dict for item in events)):
+                    return False
+    feed = obj.get("feed")
+    if feed is not None:
+        if type(feed) is not list or len(feed) > 50:
+            return False
+        for row in feed:
+            if type(row) is not dict or not _finite_number(row.get("at")) or not _known(row, "feed", {"at"}, _FEED_STR, set()):
+                return False
+    return True
+
+
+def _finite_number(value) -> bool:
+    if type(value) is bool or (type(value) is not int and type(value) is not float):
+        return False
+    if type(value) is float and (value != value or value in (float("inf"), float("-inf"))):
+        return False
+    return True
+
+
+def _no_null(value) -> bool:
+    if value is None:
+        return False
+    if type(value) is dict:
+        return all(_no_null(child) for child in value.values())
+    if type(value) is list:
+        return all(_no_null(child) for child in value)
+    return type(value) in (str, int, float, bool)
+
+
+def _known(node: dict, _kind: str, numbers: set, strings: set, flags: set) -> bool:
+    for key, value in node.items():
+        if key in numbers and not _finite_number(value):
+            return False
+        if key in strings and type(value) is not str:
+            return False
+        if key in flags and type(value) is not bool:
+            return False
+    return True
