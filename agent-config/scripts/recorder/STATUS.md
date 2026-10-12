@@ -27,3 +27,6 @@ definition; seven days running beside the hand-maintained board with no unexplai
 
 The one permitted reader during the shadow week is the comparer described in
 `agent-config/work/multi-agent/PLAN-recorder-shadow-run-2026-10-12.md`; its output goes to a difference log, never to a page.
+
+`lane.py` is the coordinator's entry: `start` dispatches detached runs; `record` records non-process steps.
+Use its `owner-open`, `owner-close`, `stop`, and `status` commands; the trust and shadow restrictions above still apply.
