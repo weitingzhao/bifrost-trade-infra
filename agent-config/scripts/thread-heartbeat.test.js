@@ -1631,6 +1631,15 @@ async function sidebarFieldFollowsEnvironment() {
     delete process.env.CLAUDE_CODE_HOST_SESSION_ID
     delete process.env.CURSOR_CONVERSATION_ID
   }
+  // A value the platform's id rule would reject is left out instead of costing the whole beat.
+  for (const bad of ['has space', 'with/slash', 'x'.repeat(200), '-leading']) {
+    process.env.CLAUDE_CODE_HOST_SESSION_ID = bad
+    try {
+      assert.equal(Object.hasOwn(beatFor('cursor', payload), 'sidebar'), false, bad)
+    } finally {
+      delete process.env.CLAUDE_CODE_HOST_SESSION_ID
+    }
+  }
   process.env.CURSOR_CONVERSATION_ID = 'conv-1'
   process.env.CURSOR_SESSION_ID = 'sess-should-not-win'
   try {

@@ -213,8 +213,13 @@ function workFrom(title) {
 
 // Sidebar thread id the desktop already put in the environment. Empty when
 // this process has none: the beat then omits the field.
+// The platform applies its thread-id rule to this field and rejects the whole beat when it fails:
+// a value that does not fit is left out, so the thread keeps being monitored.
+const SIDEBAR_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
+
 function sidebarFromEnv() {
-  return (process.env.CLAUDE_CODE_HOST_SESSION_ID || '').trim()
+  const value = (process.env.CLAUDE_CODE_HOST_SESSION_ID || '').trim()
+  return SIDEBAR_RE.test(value) ? value : ''
 }
 
 function attachSidebar(body) {
