@@ -1916,6 +1916,20 @@
 - 验收: a wrapped `codex exec` of 15 minutes never appears under "Needs you"; stopping its output for longer than the threshold puts it on the coordinator's list within the threshold plus one beat
 - 审批 无（代码改动，随平台发布；改 Codex 的钩子另算，归 Owner）· 代价 S · 风险 low（心跳脚本被每个 Agent 的每次工具调用使用，要在没有任务在跑时换上）· repos: bifrost-trade-infra, bifrost-platform
 
+### TD-317
+
+**P2 · ops-platform · when a thread continues under a new CLI session id, the old id stays mid-turn for ever and is shown to the Owner as a silent thread — it points at the thread he is already using**
+
+- **状态**：未开始（2026-10-11 21:18 Owner 在 PROD「Needs you」上点了「Open thread」没有反应后来问）
+- **Claim**: the heartbeat keys a thread by the CLI session id in the hook payload (`agent-config/scripts/thread-heartbeat.js:212`). When the desktop app restarts a thread's process during a turn (or continues it in a new process), the new process has a new session id and the old one never sends `turn_end`. Ten minutes later the platform lists the old id under "Needs you → Silent threads". The card's link is the sidebar thread (`local_…`), which is the same thread that is alive under the new id, so opening it does nothing the Owner can see.
+- **Measured**: MEASURED 2026-10-11 21:18 CDT. The card's thread id was the coordinator thread's previous session id; the session had been restarted at about 21:07 during a turn and was answering the Owner under a new id at that moment (the heartbeat's own send log showed the new id sending tool events 2 seconds earlier and the old id last at `turn_start`). After a `turn_end` was reported for the old id through the hook path the card was expected to clear (not confirmed from the API: the thread list needs a viewer token). NOT MEASURED: how often a restart happens mid-turn; whether context compaction alone changes the id (earlier the same day it did not).
+- **Evidence**: the path above; TD-316 (the other false alarm of the same evening); LESSONS rows 32, 96, 97; OWNER-SURFACE A14.
+- **Impact**: the same as TD-316 — a false item in the one list that must be true — and here the action offered leads back to where the Owner already is.
+- **Fix**: carry the sidebar thread id (the lineage hook already knows it: the `Claude-Session` trailer) in every beat, and let the platform treat a `turn_start` from a new session of the same sidebar thread as the end of the previous session's open turn. The Owner-facing item is keyed by the sidebar thread, not by the CLI session.
+- **Ratchet**: a platform test — session A of thread T is mid-turn, session B of T sends `turn_start`: A is closed as superseded and T is not silent; a wrapper test that the beat carries the sidebar id when the environment provides it.
+- 验收: restart a thread mid-turn and continue it: nothing appears under "Needs you" after the threshold
+- 审批 无（代码改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-trade-infra, bifrost-platform
+
 ## 没覆盖到的（下一轮从这里开始）
 
 - Per-engine numerical correctness beyond dates: GEX sign conventions, max-pain, VRP realized-vol windows, vanna/charm, SVI fit, flow maths
