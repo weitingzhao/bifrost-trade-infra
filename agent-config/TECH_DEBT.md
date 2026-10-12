@@ -1931,6 +1931,20 @@
 - 验收: restart a thread mid-turn and continue it: nothing appears under "Needs you" after the threshold
 - 审批 无（代码改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-trade-infra, bifrost-platform
 
+### TD-318
+
+**P1 · ops-platform · the Console gate in CI is flaky: 23 tests of the Owner-question pages fail when the step runs slowly, with no Console change in the commit — platform main is red at its head**
+
+- **状态**：在做（2026-10-12 07:06 撞上；07:12 交给 Cursor 查原因并修）
+- **Claim**: `ci-platform` run `ci-platform-sjhtn` on `c559018` (a commit that touches only Go tests and test data under `api/internal/releasefreeze/`) failed at `test-console`: 23 of 814 tests in two files, `console/src/pages/__tests__/QuestionPage.test.tsx` and `QuestionSendLifecycle.test.tsx` (W-65), all with `Unable to find an accessible element with the role "button" and name "Confirm answer"` inside `waitFor`. The two runs before it the same night, on `3620e17` and `3466ff9`, passed the same Console code. The failing run took 100.55 s (environment 119.68 s summed); TD-313 measured about 66 s for the suite under the step's limits. The tests wait with the testing library's default timeout and lose the race when the step is slow.
+- **Measured**: MEASURED 2026-10-12 07:06 CDT from the run's log (`kubectl -n cicd logs`, read-only identity). NOT MEASURED: why this run was slow (what else ran on the node at 12:03 UTC); whether the same 23 fail on a local run under load.
+- **Evidence**: the run above; TD-313 (the gate, its measured time and the `--maxWorkers=2` decision); `~/agent-work/td-313/verify-ci-gate.sh` (runs the step in the CI image with the pod's limits).
+- **Impact**: the head of platform main has no green CI, so nothing may be released from it (the rule: release only a commit whose CI on main succeeded). A gate that fails without a cause in the commit teaches everyone to rerun it, which is how a real failure gets through. It appeared on the gate's third run.
+- **Fix**: find the cause before choosing the cure — reproduce in the CI image with the pod's limits under added CPU load; then make these tests independent of wall-clock races (await the state they depend on, or control the timers), and only if that is not possible raise the wait for these files with the reason written beside it. Do not disable, skip or retry tests. Record the step's duration in the run so a slow run is visible.
+- **Ratchet**: the step's own check — the Console suite passes N times in a row in the CI image under load (a script in the repository that the gate's test file names); a test that no test file of the Console uses a retry or a skip to pass.
+- 验收: `verify-ci-gate.sh` under added CPU load, five runs in a row, 0 failures; a green `ci-platform` on the commit that carries the fix
+- 审批 无（测试改动，随平台主线）· 代价 S · 风险 low · repos: bifrost-platform
+
 ## 没覆盖到的（下一轮从这里开始）
 
 - Per-engine numerical correctness beyond dates: GEX sign conventions, max-pain, VRP realized-vol windows, vanna/charm, SVI fit, flow maths
