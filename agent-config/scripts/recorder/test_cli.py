@@ -253,3 +253,40 @@ def test_run_signal_wait_status(tmp_path, sig):
     assert result.returncode == -sig
     step = folded(tmp_path)["works"][0]["steps"][0]
     assert step["state"] == "failed" and step["signal"] == signal.Signals(sig).name
+
+
+def test_run_keeps_an_inherited_ignore(tmp_path):
+    """Review 130: under nohup the wrapper must not turn an ignored HUP back into a kill."""
+    opened(tmp_path)
+    marker = tmp_path / "survived"
+    proc = subprocess.Popen(run_args(tmp_path, "nohup", ["sh", "-c", f"sleep 1; echo ok > {marker}"]),
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            preexec_fn=lambda: signal.signal(signal.SIGHUP, signal.SIG_IGN))
+    time.sleep(.5)
+    proc.send_signal(signal.SIGHUP)
+    assert proc.wait(timeout=10) == 0
+    assert marker.read_text() == "ok\n"
+
+
+def test_run_starts_the_child_when_bookkeeping_raises(tmp_path):
+    """Review 130: a name that cannot be written, or a bad work id, must not keep the command from running."""
+    opened(tmp_path)
+    for index, extra in enumerate((["--work", "w1", "--name", "bad\udcff"], ["--work", "a/b", "--name", "n"])):
+        marker = tmp_path / f"made-{index}"
+        args = [sys.executable, str(REC), "--root", str(tmp_path), "run", *extra,
+                "--kind", "other", "--who", "Codex", "--", "touch", str(marker)]
+        result = subprocess.run(args, capture_output=True, timeout=12)
+        assert result.returncode == 0, result.stderr
+        assert marker.exists(), extra
+
+
+def test_run_says_where_the_output_went(tmp_path):
+    """Review 130: the child's output goes to files; the wrapper names them before it starts the child."""
+    opened(tmp_path)
+    result = subprocess.run(run_args(tmp_path, "where", ["sh", "-c", "echo hi"]),
+                            capture_output=True, text=True, timeout=12)
+    assert result.returncode == 0, result.stderr
+    lines = [line for line in result.stderr.splitlines() if line.startswith("run: step ")]
+    assert len(lines) == 1, result.stderr
+    assert (Path(lines[0].split(" output ", 1)[1]) / "stdout").read_text() == "hi\n"
+

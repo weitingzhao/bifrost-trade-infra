@@ -77,7 +77,7 @@ def run_process(root: Path, args) -> int:
     if not command:
         raise RecorderError("run requires -- <command>")
     step_id, run_id = _new_id(), _new_id()
-    directory = _work_dir(root, args.work) / "runs" / f"{step_id}-{run_id}"
+    directory = None
     recorded = False
     alive = None
     child = None
@@ -104,8 +104,11 @@ def run_process(root: Path, args) -> int:
 
     try:
         for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            if signal.getsignal(sig) is signal.SIG_IGN:
+                continue  # An inherited "ignore" (nohup, a background job) stays ignored, for the child too.
             old_handlers[sig] = signal.signal(sig, forward)
         try:
+            directory = _work_dir(root, args.work) / "runs" / f"{step_id}-{run_id}"
             directory.parent.mkdir(parents=True, exist_ok=True)
             directory.mkdir()  # Exclusive; never reuse even on an id collision.
             alive = acquire(directory / "alive.lock", "run", timeout=0)
@@ -124,8 +127,8 @@ def run_process(root: Path, args) -> int:
                            command=_text(shlex.join(command)))
             _write(root, args.work, [fields, started], "wrapper", "run")
             recorded = True
-        except (RecorderError, OSError) as exc:
-            print(f"run: start not recorded; command will run: {exc}", file=sys.stderr)
+        except Exception as exc:  # Whatever bookkeeping raises, the requested command still runs.
+            print(f"run: start not recorded; command will run: {exc!r}", file=sys.stderr)
         # Failure to set up the recorder must not suppress the requested child.
         stdout = stderr = None
         try:
@@ -137,6 +140,8 @@ def run_process(root: Path, args) -> int:
                 stdout.close()
             stdout = stderr = None
             print(f"run: output files unavailable: {exc}", file=sys.stderr)
+        # The wrapper prints nothing else: say where the child's output goes before it starts.
+        print(f"run: step {step_id} output {directory if stdout is not None else 'not captured'}", file=sys.stderr)
         try:
             try:
                 child = subprocess.Popen(command, stdout=stdout, stderr=stderr,
