@@ -122,6 +122,7 @@
         "repo": "bifrost-platform",
         "paths": [
           "api/internal/releasepolicy/**",
+          "api/internal/releasefreeze/**",
           "api/internal/approvals/**",
           "api/internal/approvalnotify/**",
           "api/internal/actions/**",
@@ -145,6 +146,9 @@
           "scripts/release/lib.sh",
           "scripts/release/release_policy.py",
           "scripts/release/ci_gate.py",
+          "scripts/release/freeze_*",
+          "scripts/release/test_freeze_*",
+          "k8s/release-freeze/**",
           "k8s/cicd/release-policy/**",
           "k8s/cicd/tekton/task-release-window.yaml",
           "k8s/platform-rbac/**"
