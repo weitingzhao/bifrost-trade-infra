@@ -497,7 +497,11 @@ def read_log(name: str, data: bytes, *, observer: bool = False) -> ReadLog:
     view.backwards = _backwards(view.valid)
     # log_full is exactly the cap with nothing unread. A break is not log_full.
     if out.broken_line is None and (len(lines) == MAX_EVENTS or used == MAX_LOG_BYTES):
-        out.full = True
+        if len(data) > used:
+            out.broken_line = len(lines) + 1
+            out.broken_why = "limit_log"
+        else:
+            out.full = True
     return out
 
 

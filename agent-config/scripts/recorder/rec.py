@@ -1,12 +1,4 @@
-"""Bookkeeping commands for one work's event log.
-
-``open``, ``close``, ``declare``, ``withdraw``, ``start``, ``finish``,
-``note``, ``owner-open``, ``owner-ready``, ``owner-close``.
-
-``start`` and ``finish`` are for a step that is not a process. ``owner-open``
-declares an item; it does not read an approval or a question. Nothing here
-starts a process, and nothing here is a verdict.
-"""
+"""Local recorder CLI: bookkeeping, process wrapper, process observation and fold."""
 
 from __future__ import annotations
 
@@ -39,7 +31,22 @@ def _root(value: str | None) -> Path:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="rec.py")
     parser.add_argument("--root", default=None)
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="subcommand", required=True)
+
+    folded = sub.add_parser("fold")
+    folded.add_argument("--now", type=float)
+    sub.add_parser("observe")
+    run = sub.add_parser("run")
+    run.add_argument("--work", required=True)
+    run.add_argument("--name", required=True)
+    run.add_argument("--kind", required=True)
+    run.add_argument("--who", required=True)
+    run.add_argument("--after")
+    run.add_argument("--round", type=float)
+    run.add_argument("--replaces")
+    run.add_argument("--text")
+    run.add_argument("--quote-first-line", type=Path)
+    run.add_argument("child_command", nargs=argparse.REMAINDER)
 
     opened = sub.add_parser("open")
     opened.add_argument("--work", required=True)
@@ -119,8 +126,20 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     root = _root(args.root)
+    from runtime import fold_root, observe, run_process
     try:
+        if args.subcommand == "fold":
+            print(canonical_json(fold_root(root, args.now)))
+            return 0
+        if args.subcommand == "observe":
+            observe(root)
+            return 0
+        if args.subcommand == "run":
+            return run_process(root, args)
         event = _run(root, args)
+    except OSError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     except RecorderError as exc:
         print(exc.message, file=sys.stderr)
         return 1
@@ -129,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _run(root: Path, args):
-    command = args.command
+    command = args.subcommand
     if command == "open":
         return open_work(root, args.work, args.title, goal=args.goal, work_ref=args.work_ref)
     if command == "close":

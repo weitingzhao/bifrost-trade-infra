@@ -304,7 +304,7 @@ def _owner():
     step.record_obs = [{"found": True, "started_at": 4, "at": 5}, {"found": True, "at": 10}]
     view.steps = {R: step}
     created = _record_created_since(view, [{"step_id": R}])
-    _need(created == 10, created)
+    _need(created == 5, created)  # Continuous found segment includes the first observation.
     bare = Step(R, "r", "release", "C", "record", 0, 1)
     bare.record_obs = [{"found": True, "at": 8}]
     view.steps[R] = bare
