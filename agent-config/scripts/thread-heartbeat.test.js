@@ -136,7 +136,8 @@ async function hookInsideWrappedRunKeepsRunID() {
   `
   try {
     const result = await runScript(['run', 'claude', '--', process.execPath, '-e', child], {
-      env: { ...runEnv(home, srv.url), BIFROST_HEARTBEAT_THREAD: 'run-owner' },
+      // Given without the prefix: the id the child inherits must be the one the wrapper reports under.
+      env: { ...runEnv(home, srv.url), BIFROST_HEARTBEAT_THREAD: 'owner' },
     })
     assert.equal(result.code, 0, result.err)
     // The hook posts through a detached sender: its beat can arrive after the wrapper's turn_end.
