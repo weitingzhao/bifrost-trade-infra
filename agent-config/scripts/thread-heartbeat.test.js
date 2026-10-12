@@ -14,12 +14,18 @@ const { performance } = require('node:perf_hooks')
 const SCRIPT = path.join(__dirname, 'thread-heartbeat.js')
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-'))
 process.env.BIFROST_HOME_OVERRIDE = tmp
+// Explicitly opt isolated test processes into sub-second progress intervals.
+process.env.NODE_ENV = 'test'
+process.env.BIFROST_HEARTBEAT_TEST_FAST_BEATS = '1'
 delete process.env.PLATFORM_REPORTER_TOKEN
 delete process.env.BIFROST_HEARTBEAT_THREAD
 delete process.env.BIFROST_HEARTBEAT_TITLE
 delete process.env.BIFROST_WORK
+delete process.env.BIFROST_HEARTBEAT_PROGRESS
+delete process.env.BIFROST_HEARTBEAT_RUN_BEAT_MS
+delete process.env.BIFROST_HEARTBEAT_TEST_MISS_TRYHOLD
 
-const { beatFor, toolTimeoutSeconds, shouldSkip, reduceThrottle, allocateStamp, loadGate, supersedeActive, saveIssuedKey, withThreadLock, armHookDeadline, clearHookDeadline, lockRuntime } = require('./thread-heartbeat.js')
+const { beatFor, toolTimeoutSeconds, shouldSkip, reduceThrottle, allocateStamp, loadGate, supersedeActive, saveIssuedKey, withThreadLock, armHookDeadline, clearHookDeadline, lockRuntime, startProgressBeats } = require('./thread-heartbeat.js')
 const ISSUED_KEY = 'ab'.repeat(32)
 
 const CLAUDE_ID = '7e939cd5-b3b1-4705-96e4-0a3b9e61648d'
@@ -739,6 +745,623 @@ async function deadLockRace() {
   assert.equal(typeof withThreadLock, 'function')
 }
 
+function sleepMs(ms) {
+  return new Promise(r => setTimeout(r, ms))
+}
+
+function writeScript(dir, name, body) {
+  const file = path.join(dir, name)
+  fs.writeFileSync(file, `'use strict'\n${body}`)
+  return file
+}
+
+const CHILD_LOOP = `
+const fs = require('fs')
+const file = process.argv[2]
+const writes = Number(process.argv[3])
+const gap = Number(process.argv[4])
+const code = Number(process.argv[5] || 0)
+const sleep = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+if (writes <= 0) {
+  if (gap > 0) sleep(gap)
+} else {
+  for (let i = 0; i < writes; i++) {
+    if (gap > 0) sleep(gap)
+    fs.appendFileSync(file, 'x')
+  }
+  if (gap > 0) sleep(gap)
+}
+process.exit(code)
+`
+
+function runEnv(home, url, extra = {}) {
+  return {
+    BIFROST_HOME_OVERRIDE: home,
+    PLATFORM_REPORTER_TOKEN: 't',
+    PLATFORM_HEARTBEAT_URL: url,
+    BIFROST_HEARTBEAT_PROGRESS: '',
+    BIFROST_HEARTBEAT_RUN_BEAT_MS: '',
+    ...extra,
+  }
+}
+
+async function progressBeats() {
+  const beat = 200
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-prog-'))
+  const progress = path.join(home, 'progress')
+  fs.writeFileSync(progress, '')
+  const loop = writeScript(home, 'loop.js', CHILD_LOOP)
+  const kill = writeScript(home, 'kill.js', `
+const fs = require('fs')
+const sleep = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+sleep(300)
+fs.appendFileSync(process.argv[2], 'x')
+process.kill(process.pid, 'SIGKILL')
+`)
+  const srv = await server()
+  const base = runEnv(home, srv.url, { BIFROST_HEARTBEAT_RUN_BEAT_MS: String(beat) })
+
+  const grew = await runScript(['run', 'cursor', '--', process.execPath, loop, progress, '3', String(beat + 800)], {
+    env: { ...base, BIFROST_HEARTBEAT_PROGRESS: progress },
+  })
+  assert.equal(grew.code, 0, grew.err)
+  assert.deepEqual(srv.got.map(g => g.body.event), ['turn_start', 'after_tool', 'after_tool', 'after_tool', 'turn_end'])
+  assert.deepEqual(srv.got.filter(g => g.body.event === 'after_tool').map(g => g.body.tool), [
+    'headless-progress', 'headless-progress', 'headless-progress',
+  ])
+  assert.equal(new Set(srv.got.map(g => g.body.thread)).size, 1)
+  assert.equal(new Set(srv.got.map(g => g.body.turn_id)).size, 1)
+  assert.deepEqual(srv.got.map(g => g.body.seq), [1, 2, 3, 4, 5])
+
+  srv.got.length = 0
+  const once = await runScript(['run', 'cursor', '--', process.execPath, loop, progress, '1', String(beat * 3 + 500)], {
+    env: { ...base, BIFROST_HEARTBEAT_PROGRESS: progress },
+  })
+  assert.equal(once.code, 0, once.err)
+  assert.deepEqual(srv.got.map(g => g.body.event), ['turn_start', 'after_tool', 'turn_end'])
+  assert.equal(srv.got[1].body.tool, 'headless-progress')
+
+  srv.got.length = 0
+  const unset = await runScript(['run', 'cursor', '--', process.execPath, loop, progress, '0', String(beat * 3 + 200), '0'], {
+    env: base,
+  })
+  assert.equal(unset.code, 0, unset.err)
+  assert.deepEqual(srv.got.map(g => g.body.event), ['turn_start', 'turn_end'])
+
+  srv.got.length = 0
+  const missing = path.join(home, 'no-such-progress')
+  const gone = await runScript(['run', 'cursor', '--', process.execPath, loop, progress, '0', String(beat * 3 + 200), '4'], {
+    env: { ...base, BIFROST_HEARTBEAT_PROGRESS: missing },
+  })
+  assert.equal(gone.code, 4, gone.err)
+  assert.deepEqual(srv.got.map(g => g.body.event), ['turn_start', 'turn_end'])
+
+  srv.got.length = 0
+  const sealed = path.join(home, 'sealed')
+  fs.mkdirSync(sealed)
+  const hidden = path.join(sealed, 'progress')
+  fs.writeFileSync(hidden, '')
+  fs.chmodSync(sealed, 0o000)
+  try {
+    const unreadable = await runScript(['run', 'cursor', '--', process.execPath, loop, progress, '0', String(beat * 3 + 200), '4'], {
+      env: { ...base, BIFROST_HEARTBEAT_PROGRESS: hidden },
+    })
+    assert.equal(unreadable.code, 4, unreadable.err)
+    assert.deepEqual(srv.got.map(g => g.body.event), ['turn_start', 'turn_end'])
+  } finally {
+    fs.chmodSync(sealed, 0o700)
+  }
+
+  srv.got.length = 0
+  const longBeat = '10000'
+  const signaled = await runScript(['run', 'cursor', '--', process.execPath, kill, progress], {
+    env: { ...base, BIFROST_HEARTBEAT_PROGRESS: progress, BIFROST_HEARTBEAT_RUN_BEAT_MS: longBeat },
+  })
+  assert.equal(signaled.code, 128 + os.constants.signals.SIGKILL, signaled.err)
+  assert.ok(signaled.ms < 4000, `wrapper waited ${signaled.ms}ms after the child was killed`)
+  assert.deepEqual(srv.got.map(g => g.body.event), ['turn_start', 'turn_end'])
+
+  srv.got.length = 0
+  const quick = writeScript(home, 'quick.js', 'process.exit(0)\n')
+  const prompt = await runScript(['run', 'cursor', '--', process.execPath, quick], {
+    env: { ...base, BIFROST_HEARTBEAT_PROGRESS: progress, BIFROST_HEARTBEAT_RUN_BEAT_MS: longBeat },
+  })
+  assert.equal(prompt.code, 0, prompt.err)
+  assert.ok(prompt.ms < 4000, `wrapper waited ${prompt.ms}ms after the child exited`)
+  assert.deepEqual(srv.got.map(g => g.body.event), ['turn_start', 'turn_end'])
+  srv.s.close()
+}
+
+// An unanswered helper is not a busy lock. One forced unanswered attempt
+// must not consume the growth: the next look, while the child is still alive,
+// sends that beat. A busy lock still consumes the growth (progressEdges).
+async function progressGiveupRetriesGrowth() {
+  const beat = 200
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-prog-giveup-'))
+  const progress = path.join(home, 'progress')
+  const miss = path.join(home, 'miss')
+  fs.writeFileSync(progress, '')
+  fs.writeFileSync(miss, '1')
+  const child = writeScript(home, 'hold.js', `
+const fs = require('fs')
+const sleep = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+fs.appendFileSync(process.argv[2], 'x')
+sleep(Number(process.argv[3]))
+process.exit(0)
+`)
+  const srv = await server()
+  const run = await runScript(['run', 'cursor', '--', process.execPath, child, progress, '3000'], {
+    env: runEnv(home, srv.url, {
+      BIFROST_HEARTBEAT_PROGRESS: progress,
+      BIFROST_HEARTBEAT_RUN_BEAT_MS: String(beat),
+      BIFROST_HEARTBEAT_TEST_MISS_TRYHOLD: miss,
+    }),
+  })
+  assert.equal(run.code, 0, run.err)
+  assert.equal(fs.readFileSync(miss, 'utf8'), '0', 'the unanswered attempt did not run')
+  assert.deepEqual(srv.got.map(g => g.body.event), ['turn_start', 'after_tool', 'turn_end'])
+  assert.equal(srv.got[1].body.tool, 'headless-progress')
+  assert.equal(srv.got.filter(g => g.body.event === 'after_tool').length, 1)
+  srv.s.close()
+}
+
+function listen(s) {
+  return new Promise(resolve => s.listen(0, '127.0.0.1', () => resolve(`http://127.0.0.1:${s.address().port}`)))
+}
+
+async function progressEdges() {
+  const beat = 200
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-prog-edge-'))
+  const progress = path.join(home, 'progress')
+  fs.writeFileSync(progress, '0123456789abcdef')
+  const trunc = writeScript(home, 'trunc.js', `
+const fs = require('fs')
+const file = process.argv[2]
+const gap = Number(process.argv[3])
+const sleep = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+sleep(gap)
+fs.writeFileSync(file, 'x')
+sleep(gap)
+fs.appendFileSync(file, 'yyyy')
+sleep(gap)
+process.exit(0)
+`)
+  const truncSrv = await server()
+  const truncRun = await runScript(['run', 'cursor', '--', process.execPath, trunc, progress, String(beat + 800)], {
+    env: runEnv(home, truncSrv.url, { BIFROST_HEARTBEAT_PROGRESS: progress, BIFROST_HEARTBEAT_RUN_BEAT_MS: String(beat) }),
+  })
+  assert.equal(truncRun.code, 0, truncRun.err)
+  assert.deepEqual(truncSrv.got.map(g => g.body.event), ['turn_start', 'after_tool', 'turn_end'])
+  assert.equal(truncSrv.got[1].body.tool, 'headless-progress')
+  truncSrv.s.close()
+
+  const flightHome = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-prog-flight-'))
+  const flightFile = path.join(flightHome, 'progress')
+  fs.writeFileSync(flightFile, '')
+  const flightExit = path.join(flightHome, 'exited')
+  const flightChild = writeScript(flightHome, 'flight.js', `
+const fs = require('fs')
+const sleep = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+fs.appendFileSync(process.argv[2], 'x')
+sleep(500)
+fs.writeFileSync(process.argv[3], String(Date.now()))
+process.exit(0)
+`)
+  const flightGot = []
+  const flightSrv = http.createServer((req, res) => {
+    let b = ''
+    req.on('data', d => (b += d))
+    req.on('end', () => {
+      const body = JSON.parse(b || '{}')
+      flightGot.push(body)
+      const delay = body.event === 'after_tool' ? 3000 : 0
+      setTimeout(() => {
+        res.writeHead(202, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ok: true, thread_key: ISSUED_KEY }))
+      }, delay)
+    })
+  })
+  const flightURL = await listen(flightSrv)
+  const flight = await runScript(['run', 'cursor', '--', process.execPath, flightChild, flightFile, flightExit], {
+    env: runEnv(flightHome, flightURL, { BIFROST_HEARTBEAT_PROGRESS: flightFile, BIFROST_HEARTBEAT_RUN_BEAT_MS: '120' }),
+  })
+  assert.equal(flight.code, 0, flight.err)
+  // Total wrapper time includes process startup, which stretches under load.
+  // The property is that turn_end does not wait out the in-flight progress POST
+  // (that response is held for 3000ms). Measure from the child's own exit.
+  const afterExit = Date.now() - Number(fs.readFileSync(flightExit, 'utf8'))
+  assert.ok(afterExit < 1800, `in-flight progress delayed turn_end: ${afterExit}ms after the child exited (wrapper ${flight.ms}ms)`)
+  assert.ok(await waitFor(() => flightGot.some(b => b.event === 'turn_end') && flightGot.some(b => b.event === 'after_tool')))
+  const prog = flightGot.find(b => b.event === 'after_tool')
+  const end = flightGot.find(b => b.event === 'turn_end')
+  assert.equal(prog.tool, 'headless-progress')
+  assert.ok(prog.seq < end.seq, `progress seq ${prog.seq} is not before turn_end seq ${end.seq}`)
+  assert.equal(flightGot.filter(b => b.event === 'after_tool').length, 1)
+  flightSrv.close()
+
+  const lockHome = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-prog-lock-'))
+  const lockFile = path.join(lockHome, 'progress')
+  const go = path.join(lockHome, 'go')
+  const ready = path.join(lockHome, 'ready')
+  const stamp = path.join(lockHome, 'stamp')
+  fs.writeFileSync(lockFile, '')
+  const thread = 'run-lock-exit'
+  const exitChild = writeScript(lockHome, 'exit.js', `
+const fs = require('fs')
+const sleep = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+sleep(400)
+fs.writeFileSync(process.argv[3], 'go')
+const ready = process.argv[5]
+const until = Date.now() + 3000
+while (!fs.existsSync(ready) && Date.now() < until) sleep(20)
+fs.appendFileSync(process.argv[2], 'x')
+sleep(250)
+fs.writeFileSync(process.argv[4], String(Date.now()))
+process.exit(0)
+`)
+  const holderCode = `
+    const fs = require('fs')
+    const hb = require(process.argv[1])
+    const go = process.argv[2]
+    const until = Date.now() + 5000
+    while (!fs.existsSync(go) && Date.now() < until) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20)
+    hb.withThreadLock('cursor', process.argv[3], () => {
+      fs.writeFileSync(process.argv[4], 'held')
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 8000)
+    })
+  `
+  const holder = spawn(process.execPath, ['-e', holderCode, SCRIPT, go, thread, ready], {
+    env: { ...process.env, BIFROST_HOME_OVERRIDE: lockHome },
+  })
+  const lockGot = []
+  const lockSrv = http.createServer((req, res) => {
+    let b = ''
+    req.on('data', d => (b += d))
+    req.on('end', () => {
+      lockGot.push({ body: JSON.parse(b || '{}'), at: Date.now() })
+      res.writeHead(202, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ ok: true, thread_key: ISSUED_KEY }))
+    })
+  })
+  try {
+    const lockURL = await listen(lockSrv)
+    const locked = await runScript(['run', 'cursor', '--', process.execPath, exitChild, lockFile, go, stamp, ready], {
+      env: runEnv(lockHome, lockURL, {
+        BIFROST_HEARTBEAT_PROGRESS: lockFile,
+        BIFROST_HEARTBEAT_RUN_BEAT_MS: '80',
+        BIFROST_HEARTBEAT_THREAD: thread,
+      }),
+    })
+    assert.equal(locked.code, 0, locked.err)
+    const exitedAt = Number(fs.readFileSync(stamp, 'utf8'))
+    const delta = Date.now() - exitedAt
+    // The lock is still held, so turn_end waits out its own budget once. A beat
+    // that blocked the event loop would add a second wait on top of that.
+    assert.ok(delta > 1000 && delta < 3200, `wrapper reached turn_end ${delta}ms after the child exited`)
+  } finally {
+    holder.kill('SIGKILL')
+    lockSrv.close()
+  }
+
+  const skipHome = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-prog-skip-'))
+  const skipFile = path.join(skipHome, 'progress')
+  fs.writeFileSync(skipFile, '')
+  const skipReady = path.join(skipHome, 'ready')
+  const skipHolderCode = `
+    const fs = require('fs')
+    const hb = require(process.argv[1])
+    hb.withThreadLock('cursor', 'run-skip', () => {
+      fs.writeFileSync(process.argv[2], 'held')
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 8000)
+    })
+  `
+  const skipHolder = spawn(process.execPath, ['-e', skipHolderCode, SCRIPT, skipReady], {
+    env: { ...process.env, BIFROST_HOME_OVERRIDE: skipHome },
+  })
+  const saved = {
+    home: process.env.BIFROST_HOME_OVERRIDE,
+    token: process.env.PLATFORM_REPORTER_TOKEN,
+    url: process.env.PLATFORM_HEARTBEAT_URL,
+    progress: process.env.BIFROST_HEARTBEAT_PROGRESS,
+    beat: process.env.BIFROST_HEARTBEAT_RUN_BEAT_MS,
+  }
+  const skipSrv = await server()
+  let stop = () => {}
+  try {
+    assert.ok(await waitFor(() => fs.existsSync(skipReady)))
+    process.env.BIFROST_HOME_OVERRIDE = skipHome
+    process.env.PLATFORM_REPORTER_TOKEN = 't'
+    process.env.PLATFORM_HEARTBEAT_URL = skipSrv.url
+    process.env.BIFROST_HEARTBEAT_PROGRESS = skipFile
+    process.env.BIFROST_HEARTBEAT_RUN_BEAT_MS = '60'
+    let alive = true
+    stop = await startProgressBeats({ thread: 'run-skip', session: 'run-skip', vendor: 'cursor', host: 'h' }, () => alive)
+    const t0 = Date.now()
+    fs.appendFileSync(skipFile, 'a')
+    await sleepMs(400)
+    assert.ok(Date.now() - t0 < 1000, 'a busy progress lock blocked the event loop')
+    assert.equal(skipSrv.got.length, 0, 'a beat was sent while the lock was busy')
+    skipHolder.kill('SIGKILL')
+    await sleepMs(120)
+    assert.equal(skipSrv.got.length, 0, 'skipped growth was sent once the lock freed without further growth')
+    fs.appendFileSync(skipFile, 'b')
+    assert.ok(await waitFor(() => skipSrv.got.length === 1), 'growth after the lock was free sent nothing')
+    await sleepMs(150)
+    assert.equal(skipSrv.got.length, 1)
+    assert.equal(skipSrv.got[0].body.tool, 'headless-progress')
+    alive = false
+  } finally {
+    stop()
+    skipHolder.kill('SIGKILL')
+    skipSrv.s.close()
+    for (const [key, value] of Object.entries({
+      BIFROST_HOME_OVERRIDE: saved.home,
+      PLATFORM_REPORTER_TOKEN: saved.token,
+      PLATFORM_HEARTBEAT_URL: saved.url,
+      BIFROST_HEARTBEAT_PROGRESS: saved.progress,
+      BIFROST_HEARTBEAT_RUN_BEAT_MS: saved.beat,
+    })) {
+      if (value == null) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+}
+
+// Force contention after the progress stamp, when 409 recovery used to wait
+// synchronously. turn_end may spend its own lock budget, but never a beat's too.
+async function progressRecoveryDoesNotDelayExit(accepted = false) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-prog-recover-'))
+  const file = path.join(home, 'progress')
+  const go = path.join(home, 'go')
+  const ready = path.join(home, 'ready')
+  const replied = path.join(home, 'replied')
+  const exited = path.join(home, 'exited')
+  const thread = 'run-recovery-exit'
+  fs.writeFileSync(file, '')
+  const child = writeScript(home, 'exit.js', `
+const fs = require('fs')
+const sleep = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+fs.appendFileSync(process.argv[2], 'x')
+const until = Date.now() + 5000
+while (!fs.existsSync(process.argv[3]) && Date.now() < until) sleep(10)
+if (!fs.existsSync(process.argv[3])) process.exit(91)
+sleep(80)
+fs.writeFileSync(process.argv[4], String(Date.now()))
+process.exit(7)
+`)
+  const holder = spawn(process.execPath, ['-e', `
+const fs = require('fs')
+const hb = require(process.argv[1])
+const until = Date.now() + 8000
+while (!fs.existsSync(process.argv[2]) && Date.now() < until) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10)
+hb.withThreadLock('cursor', process.argv[3], () => {
+  fs.writeFileSync(process.argv[4], 'held')
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 8000)
+})
+`, SCRIPT, go, thread, ready], {
+    env: { ...process.env, BIFROST_HOME_OVERRIDE: home },
+    stdio: 'ignore',
+  })
+  const got = []
+  let heldAtReply = false
+  const srv = http.createServer((req, res) => {
+    let b = ''
+    req.on('data', d => (b += d))
+    req.on('end', async () => {
+      const body = JSON.parse(b || '{}')
+      got.push(body)
+      if (body.event === 'after_tool') {
+        fs.writeFileSync(go, 'go')
+        heldAtReply = await waitFor(() => fs.existsSync(ready))
+        res.writeHead(accepted ? 202 : 409, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify(accepted ? { ok: true, thread_key: ISSUED_KEY } : { error: 'unknown key' }))
+        fs.writeFileSync(replied, 'replied')
+      } else {
+        res.writeHead(202, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ thread_key: ISSUED_KEY }))
+      }
+    })
+  })
+  try {
+    const url = await listen(srv)
+    const result = await runScript(['run', 'cursor', '--', process.execPath, child, file, replied, exited], {
+      env: runEnv(home, url, {
+        BIFROST_HEARTBEAT_PROGRESS: file,
+        BIFROST_HEARTBEAT_RUN_BEAT_MS: '80',
+        BIFROST_HEARTBEAT_THREAD: thread,
+      }),
+    })
+    assert.ok(heldAtReply, 'the recovery lock was not held when 409 was returned')
+    assert.equal(result.code, 7, result.err)
+    const delay = Date.now() - Number(fs.readFileSync(exited, 'utf8'))
+    assert.ok(delay > 1000 && delay < 3200, `progress recovery added to turn_end's lock budget: ${delay}ms`)
+    assert.deepEqual(got.map(b => b.event), ['turn_start', 'after_tool'], 'a dropped beat retried registration')
+    const gate = JSON.parse(fs.readFileSync(path.join(home, '.cache', 'bifrost', 'thread-keys', 'cursor', thread), 'utf8'))
+    assert.equal(gate.records.length, 1, 'recovery continued after child exit')
+    assert.equal(gate.records[0].status, 'active')
+  } finally {
+    holder.kill('SIGKILL')
+    srv.close()
+    srv.closeAllConnections()
+  }
+}
+
+// The wrapped agent's hook shares the wrapper thread and declares a real timeout.
+async function pendingToolSuppressesProgress() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-pending-'))
+  const file = path.join(home, 'progress')
+  fs.writeFileSync(file, '')
+  const child = writeScript(home, 'hooks.js', `
+const fs = require('fs')
+const { spawnSync } = require('child_process')
+const sleep = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+const hook = payload => {
+  const r = spawnSync(process.execPath, [${JSON.stringify(SCRIPT)}, 'hook', 'cursor'], {
+    input: JSON.stringify({ conversation_id: 'c1', session_id: 'c1', ...payload }), env: process.env
+  })
+  if (r.status !== 0 || r.stdout.length) process.exit(92)
+}
+const grow = ms => { const until = Date.now() + ms; while (Date.now() < until) { fs.appendFileSync(process.argv[2], 'x'); sleep(50) } }
+hook({ hook_event_name: 'preToolUse', tool_name: 'Shell', tool_input: { timeout: 1800000 } })
+grow(600)
+hook({ hook_event_name: 'postToolUse', tool_name: 'Shell' })
+grow(600)
+hook({ hook_event_name: 'preToolUse', tool_name: 'Shell', tool_input: { timeout: 1000 } })
+grow(1700)
+`)
+  const got = []
+  const srv = http.createServer((req, res) => {
+    let raw = ''
+    req.on('data', d => (raw += d))
+    req.on('end', () => {
+      const body = JSON.parse(raw)
+      const throttle = body.event === 'before_tool'
+        ? JSON.parse(fs.readFileSync(path.join(home, '.cache', 'bifrost', 'heartbeat.json'), 'utf8')) : {}
+      got.push({ body, at: Date.now(), declaredAt: (throttle[`cursor/${body.thread}`] || {}).at })
+      res.writeHead(202, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ ok: true, thread_key: ISSUED_KEY }))
+    })
+  })
+  try {
+    const result = await runScript(['run', 'cursor', '--', process.execPath, child, file], {
+      env: runEnv(home, await listen(srv), { BIFROST_HEARTBEAT_PROGRESS: file, BIFROST_HEARTBEAT_RUN_BEAT_MS: '80' }),
+    })
+    assert.equal(result.code, 0, result.err)
+    const events = got.sort((a, b) => a.body.seq - b.body.seq)
+    const pre = events.filter(g => g.body.event === 'before_tool')
+    const after = events.find(g => g.body.event === 'after_tool' && g.body.tool === 'Shell')
+    const beats = events.filter(g => g.body.tool === 'headless-progress')
+    assert.equal(pre.length, 2)
+    assert.ok(after, 'matching tool completion was not sent')
+    assert.equal(pre[0].body.tool_timeout_s, 1800)
+    assert.equal(pre[1].body.tool_timeout_s, 1)
+    assert.ok(events.every(g => g.body.thread === events[0].body.thread), 'hook and wrapper did not share a thread')
+    assert.equal(beats.filter(g => g.body.seq > pre[0].body.seq && g.body.seq < after.body.seq).length, 0, 'beat clobbered a pending declared tool timeout')
+    assert.ok(beats.some(g => g.body.seq > after.body.seq && g.body.seq < pre[1].body.seq), 'beats did not resume after after_tool')
+    const expired = beats.filter(g => g.body.seq > pre[1].body.seq)
+    assert.ok(expired.length, 'beats did not resume after timeout expiry')
+    assert.ok(expired.every(g => g.at - pre[1].declaredAt >= 1000), 'beat appeared before declared timeout expired')
+  } finally {
+    srv.close()
+    srv.closeAllConnections()
+  }
+}
+
+// A slow turn_end leaves time for the planted missing-stop violation to fire.
+async function noBeatAfterExit() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-after-exit-'))
+  const file = path.join(home, 'progress')
+  fs.writeFileSync(file, '')
+  const child = writeScript(home, 'exit.js', `
+const fs = require('fs')
+Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 150)
+fs.appendFileSync(process.argv[2], 'x')
+process.exit(0)
+`)
+  const got = []
+  const srv = http.createServer((req, res) => {
+    let raw = ''
+    req.on('data', d => (raw += d))
+    req.on('end', async () => {
+      const body = JSON.parse(raw)
+      got.push(body)
+      if (body.event === 'turn_end') await sleepMs(1200)
+      res.writeHead(202, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ ok: true, thread_key: ISSUED_KEY }))
+    })
+  })
+  try {
+    const result = await runScript(['run', 'codex', '--', process.execPath, child, file], {
+      env: runEnv(home, await listen(srv), { BIFROST_HEARTBEAT_PROGRESS: file, BIFROST_HEARTBEAT_RUN_BEAT_MS: '400' }),
+    })
+    assert.equal(result.code, 0, result.err)
+    const end = got.find(b => b.event === 'turn_end')
+    assert.ok(end)
+    assert.equal(got.filter(b => b.seq > end.seq).length, 0, 'event sequence continued after turn_end')
+    assert.equal(got.filter(b => b.tool === 'headless-progress').length, 0, 'beat sent after child exit')
+  } finally {
+    srv.close()
+    srv.closeAllConnections()
+  }
+}
+
+async function hookIgnoresProgress() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-hook-env-'))
+  const file = path.join(home, 'progress')
+  fs.writeFileSync(file, 'x')
+  const trace = path.join(home, 'trace')
+  const preload = writeScript(home, 'trace.js', `
+const fs = require('fs')
+const trace = ${JSON.stringify(trace)}, file = ${JSON.stringify(file)}
+const counts = { reads: 0, stats: 0 }
+process.env = new Proxy(process.env, { get(target, key) {
+  // Node enumerates the inherited environment when spawning the lock helper.
+  // Only a direct script read is an added hook dependency.
+  if (key === 'BIFROST_HEARTBEAT_PROGRESS' && !new Error().stack.split('\\n')[2].includes('node:')) counts.reads++
+  return target[key]
+} })
+for (const api of [fs, fs.promises]) {
+  for (const name of ['stat', 'statSync']) {
+    if (!api[name]) continue
+    const original = api[name]
+    api[name] = function (target, ...args) {
+      if (target === file) counts.stats++
+      return original.call(this, target, ...args)
+    }
+  }
+}
+process.on('exit', () => fs.writeFileSync(trace, JSON.stringify(counts)))
+`)
+  for (const vendor of ['cursor', 'claude', 'codex']) {
+    const stdin = JSON.stringify({ session_id: 'hook-env', conversation_id: 'hook-env', hook_event_name: vendor === 'cursor' ? 'preToolUse' : 'PreToolUse', tool_name: 'Shell', tool_input: { timeout: 30000 } })
+    const env = { BIFROST_HOME_OVERRIDE: home, NODE_OPTIONS: `--require=${preload}`, BIFROST_HEARTBEAT_PROGRESS: '' }
+    const without = await runScript(['hook', vendor], { stdin, env })
+    assert.deepEqual(JSON.parse(fs.readFileSync(trace)), { reads: 0, stats: 0 })
+    const withProgress = await runScript(['hook', vendor], { stdin, env: { ...env, BIFROST_HEARTBEAT_PROGRESS: file } })
+    assert.deepEqual(JSON.parse(fs.readFileSync(trace)), { reads: 0, stats: 0 }, `${vendor} hook inspected progress`)
+    assert.deepEqual([withProgress.code, withProgress.out, withProgress.err], [without.code, without.out, without.err])
+    assert.deepEqual([withProgress.code, withProgress.out, withProgress.err], [0, '', ''])
+  }
+}
+
+async function progressBoundsAndAsyncStat() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-bounds-'))
+  const probe = writeScript(home, 'bounds.js', `
+const assert = require('assert/strict'), fs = require('fs')
+const hb = require(${JSON.stringify(SCRIPT)})
+const file = process.env.BIFROST_HEARTBEAT_PROGRESS
+const originalStat = fs.statSync
+fs.statSync = function (target, ...args) { assert.notEqual(target, file, 'progress stat blocked event loop'); return originalStat.call(this, target, ...args) }
+let resolveStat
+fs.promises.stat = () => new Promise(resolve => { resolveStat = resolve })
+const originalTimer = global.setTimeout
+let interval, tick
+;(async () => {
+  for (const [raw, expected] of [['0.01', 1000], ['3000000000', 2147483647], ['1000', 1000], ['2000', 2000], ['bad', 120000], ['0', 1000], ['-1', 1000]]) {
+    process.env.BIFROST_HEARTBEAT_RUN_BEAT_MS = raw
+    global.setTimeout = (fn, ms) => { interval = ms; tick = fn; return { unref() {} } }
+    const ready = hb.startProgressBeats({ thread: 'bounds', vendor: 'cursor', host: 'h' }, () => true)
+    let responsive = false
+    await new Promise(resolve => setImmediate(() => { responsive = true; resolve() }))
+    assert.ok(responsive)
+    resolveStat({ size: 0 })
+    const stop = await ready
+    assert.equal(interval, expected)
+    const looking = tick()
+    await new Promise(resolve => setImmediate(resolve))
+    stop()
+    resolveStat({ size: 1 })
+    await looking
+  }
+  global.setTimeout = originalTimer
+})().catch(err => { console.error(err); process.exit(1) })
+`)
+  const result = await runScript(['run', 'cursor', '--', process.execPath, probe], {
+    env: { BIFROST_HOME_OVERRIDE: home, BIFROST_HEARTBEAT_PROGRESS: path.join(home, 'missing'), BIFROST_HEARTBEAT_TEST_FAST_BEATS: '', PLATFORM_REPORTER_TOKEN: '' },
+  })
+  assert.equal(result.code, 0, result.err)
+}
+
 async function main() {
   mapping()
   timeouts()
@@ -754,6 +1377,15 @@ async function main() {
   await lockWaitUsesRemainingBudget()
   await deadLockRace()
   await endToEnd()
+  await progressBeats()
+  await progressGiveupRetriesGrowth()
+  await progressEdges()
+  await progressRecoveryDoesNotDelayExit()
+  await progressRecoveryDoesNotDelayExit(true)
+  await pendingToolSuppressesProgress()
+  await noBeatAfterExit()
+  await hookIgnoresProgress()
+  await progressBoundsAndAsyncStat()
   console.log('thread-heartbeat: ok')
 }
 

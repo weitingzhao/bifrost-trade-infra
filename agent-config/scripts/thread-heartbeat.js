@@ -12,7 +12,16 @@
  * `run` is for headless sessions (`cursor-agent -p` fires no stop hook): it
  * reports turn start, runs the command with BIFROST_HEARTBEAT_THREAD set so the
  * session's own hooks report under the same thread, and reports turn end when
- * the command exits.
+ * the command exits. While the child is alive, if BIFROST_HEARTBEAT_PROGRESS
+ * names a file whose size has grown since the last look, `run` posts one
+ * `after_tool` (tool `headless-progress`) on a timer. Default 120s;
+ * BIFROST_HEARTBEAT_RUN_BEAT_MS overrides it. No growth, or the variable unset,
+ * posts nothing: a beat is not a liveness ping. The timer does not hold the
+ * process open. Stamp allocation for a beat does not block the event loop: if
+ * the per-thread lock is not free at once, that beat is skipped. A helper that
+ * does not answer is not a busy lock, so the same growth is tried on the next
+ * look while the child is still alive. The child's exit and turn_end are not
+ * delayed by a beat.
  *
  * A hook prints nothing and always exits 0. It does not return a permission
  * denial. It gives up at one monotonic deadline, 5 seconds from entry. Every
@@ -46,6 +55,8 @@
  *   ~/.config/bifrost/lineage-reporter.token   (the TD-197 token; no token → nothing is sent)
  *   BIFROST_WORK              work item (W-n); otherwise taken from the thread title
  *   BIFROST_HEARTBEAT=off     send nothing
+ *   BIFROST_HEARTBEAT_PROGRESS     run: file whose growing size is a progress beat
+ *   BIFROST_HEARTBEAT_RUN_BEAT_MS  run: progress interval in ms (default 120000)
  */
 const fs = require('node:fs')
 const os = require('node:os')
@@ -77,6 +88,7 @@ function lockBudgetMs() {
   return Math.max(0, hookDeadline - lockRuntime.now())
 }
 const FIRST_EVENT_TIMEOUT_MS = 1000
+const RUN_BEAT_MS = 120 * 1000
 const KEY_RE = /^[0-9a-f]{64}$/
 const TURN_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 // Only these mean the person has to act. Every other notification is ignored.
@@ -578,6 +590,130 @@ function holdFlock(lockPath) {
   }
 }
 
+// One non-blocking attempt. The helper exits at once when the lock is busy, so
+// a progress beat never waits out LOCK_WAIT_MS on the event loop. The caller
+// holds the lock only for the synchronous stamp, then releases it.
+const TRY_LOCK_HELPER = String.raw`
+use strict;
+use Fcntl qw(:flock);
+my ($path, $ready) = @ARGV;
+open my $fh, '>>', $path or die $!;
+sub publish {
+  my ($word) = @_;
+  my $tmp = $ready . ".tmp";
+  open my $rf, '>', $tmp or die $!;
+  print $rf $word, "\n";
+  close $rf;
+  rename $tmp, $ready or die $!;
+}
+if (flock($fh, LOCK_EX | LOCK_NB)) {
+  publish("ok");
+  1 while sysread(STDIN, my $buf, 4096);
+  exit 0;
+}
+publish("timeout");
+exit 1;
+`
+
+function beginTryHold(lockPath) {
+  // Test-only: the next N attempts end as an unanswered helper, not a busy lock.
+  const missFile = process.env.NODE_ENV === 'test' ? process.env.BIFROST_HEARTBEAT_TEST_MISS_TRYHOLD : ''
+  if (missFile) {
+    try {
+      const left = Number(fs.readFileSync(missFile, 'utf8'))
+      if (left > 0) {
+        fs.writeFileSync(missFile, String(left - 1))
+        return { promise: Promise.resolve(null), reason: 'giveup', cancel() {} }
+      }
+    } catch {
+      // a missing counter is a normal attempt
+    }
+  }
+  let settled = false
+  let child = null
+  let pollTimer = null
+  let giveUp = null
+  let resolvePromise = null
+  let reason = ''
+  let acquired = null
+  const ready = `${lockPath}.ready.${process.pid}.${crypto.randomBytes(4).toString('hex')}`
+  const stopTimers = () => {
+    if (pollTimer) clearTimeout(pollTimer)
+    if (giveUp) clearTimeout(giveUp)
+    pollTimer = null
+    giveUp = null
+  }
+  const finish = (held, why) => {
+    if (settled) {
+      if (held) held.release()
+      return
+    }
+    settled = true
+    reason = why || ''
+    acquired = held || null
+    stopTimers()
+    if (!held && child) releaseHelper(child, ready)
+    if (resolvePromise) resolvePromise(held || null)
+  }
+  const promise = new Promise(resolve => {
+    resolvePromise = resolve
+    try {
+      lockRuntime.prepare(lockPath)
+      child = spawn(perlBin(), ['-e', TRY_LOCK_HELPER, lockPath, ready], {
+        stdio: ['pipe', 'ignore', 'ignore'],
+      })
+    } catch {
+      finish(null, 'spawn-error')
+      return
+    }
+    child.unref()
+    if (child.stdin) child.stdin.unref()
+    child.on('error', () => finish(null, 'child-error'))
+    // A slow perl is not a busy lock. Wait for its answer; child exit cancels
+    // the wait, so turn_end does not sit out this deadline.
+    giveUp = setTimeout(() => finish(null, 'giveup'), 2000)
+    giveUp.unref()
+    const poll = () => {
+      if (settled) return
+      let line = ''
+      try {
+        line = fs.readFileSync(ready, 'utf8').trim()
+      } catch {
+        line = ''
+      }
+      if (line === 'ok') {
+        finish({
+          release() {
+            releaseHelper(child, ready)
+          },
+        }, 'ok')
+        return
+      }
+      if (line === 'timeout') {
+        finish(null, 'lock-busy')
+        return
+      }
+      pollTimer = setTimeout(poll, 5)
+      pollTimer.unref()
+    }
+    poll()
+  })
+  return {
+    promise,
+    get reason() {
+      return reason
+    },
+    cancel() {
+      // turn_end takes this lock on the event loop. Release a helper that
+      // already answered so that wait cannot sit out LOCK_WAIT_MS.
+      const heldNow = acquired
+      acquired = null
+      if (heldNow) heldNow.release()
+      finish(null, 'cancel')
+    },
+  }
+}
+
 /** Cross-process lock. The kernel releases the flock when this process exits. */
 function withThreadLock(vendor, thread, fn) {
   const file = gatePath(vendor, thread)
@@ -600,33 +736,38 @@ function nextThreadID(gate, session) {
   return `r${crypto.randomBytes(8).toString('hex')}`
 }
 
+/** Caller holds the per-thread lock. Persists the stamp before the POST. */
+function stampBody(body) {
+  const session = body.session || body.thread
+  body.session = session
+  const gate = loadGate(body.vendor, session)
+  const rec = activeRecord(gate, session)
+  // An unconfirmed turn keeps its id until the server accepts its turn_start.
+  // A confirmed turn, or a record with no turn yet, mints a new id on turn_start.
+  const unconfirmed = Boolean(rec.turn_id) && rec.turn_confirmed === false
+  if (!unconfirmed && (body.event === 'turn_start' || !rec.turn_id)) {
+    rec.turn_id = crypto.randomUUID()
+    rec.turn_confirmed = false
+    rec.turn_open_seq = 0
+  }
+  rec.seq += 1
+  if (!rec.nonce) rec.nonce = crypto.randomBytes(32).toString('hex')
+  if (body.event === 'turn_start' && !rec.turn_open_seq) rec.turn_open_seq = rec.seq
+  body.thread = rec.id
+  body.turn_id = rec.turn_id
+  body.seq = rec.seq
+  body.register_nonce = rec.nonce
+  if (rec.key) body.thread_key = rec.key
+  else delete body.thread_key
+  saveGate(body.vendor, session, gate)
+  return { key: rec.key }
+}
+
 /** Allocate turn id and sequence under the per-thread lock and persist them before the POST. */
 function allocateStamp(body) {
   const session = body.session || body.thread
   body.session = session
-  return withThreadLock(body.vendor, session, () => {
-    const gate = loadGate(body.vendor, session)
-    const rec = activeRecord(gate, session)
-    // An unconfirmed turn keeps its id until the server accepts its turn_start.
-    // A confirmed turn, or a record with no turn yet, mints a new id on turn_start.
-    const unconfirmed = Boolean(rec.turn_id) && rec.turn_confirmed === false
-    if (!unconfirmed && (body.event === 'turn_start' || !rec.turn_id)) {
-      rec.turn_id = crypto.randomUUID()
-      rec.turn_confirmed = false
-      rec.turn_open_seq = 0
-    }
-    rec.seq += 1
-    if (!rec.nonce) rec.nonce = crypto.randomBytes(32).toString('hex')
-    if (body.event === 'turn_start' && !rec.turn_open_seq) rec.turn_open_seq = rec.seq
-    body.thread = rec.id
-    body.turn_id = rec.turn_id
-    body.seq = rec.seq
-    body.register_nonce = rec.nonce
-    if (rec.key) body.thread_key = rec.key
-    else delete body.thread_key
-    saveGate(body.vendor, session, gate)
-    return { key: rec.key }
-  })
+  return withThreadLock(body.vendor, session, () => stampBody(body))
 }
 
 function matchingRecord(gate, body) {
@@ -634,10 +775,10 @@ function matchingRecord(gate, body) {
 }
 
 /** Keep the old record, including its key, and open a new thread id that does not reuse it. */
-function supersedeActive(body) {
+function supersedeActive(body, locked = withThreadLock) {
   const session = body.session || body.thread
   body.session = session
-  return withThreadLock(body.vendor, session, () => {
+  return locked(body.vendor, session, () => {
     const gate = loadGate(body.vendor, session)
     const rec = matchingRecord(gate, body)
     // A late 409 for a record that is already superseded does nothing.
@@ -666,25 +807,23 @@ function supersedeActive(body) {
   })
 }
 
-function saveIssuedKey(body, key) {
+function saveIssuedKey(body, key, locked = withThreadLock) {
   if (typeof key !== 'string' || !KEY_RE.test(key)) return false
   const session = body.session || body.thread
-  let saved = false
-  withThreadLock(body.vendor, session, () => {
+  return locked(body.vendor, session, () => {
     const gate = loadGate(body.vendor, session)
     const rec = matchingRecord(gate, body)
     // No fallback to the current record. A late key for a superseded record is dropped.
-    if (!rec) return
+    if (!rec) return false
     rec.key = key
     saveGate(body.vendor, session, gate)
-    saved = true
+    return true
   })
-  return saved
 }
 
-function markTurnConfirmed(body) {
+function markTurnConfirmed(body, locked = withThreadLock) {
   const session = body.session || body.thread
-  withThreadLock(body.vendor, session, () => {
+  return locked(body.vendor, session, () => {
     const gate = loadGate(body.vendor, session)
     const rec = matchingRecord(gate, body)
     if (!rec || rec.turn_id !== body.turn_id) return
@@ -765,7 +904,7 @@ async function publishProgress(bodyBuffer, deadlineMs) {
   }
 }
 
-async function post(body, timeoutMs = 5000) {
+async function post(body, timeoutMs = 5000, signal) {
   const tok = token()
   if (!tok || process.env.BIFROST_HEARTBEAT === 'off') return { sent: false, why: tok ? 'off' : 'no reporter token', key: '' }
   try {
@@ -773,7 +912,7 @@ async function post(body, timeoutMs = 5000) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
       body: Buffer.from(JSON.stringify(wireBody(body))),
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
     })
     let key = ''
     let error = ''
@@ -857,6 +996,63 @@ async function postRecover(body, timeoutMs) {
   return res
 }
 
+/** Progress recovery uses only immediate lock attempts and stops after child exit. */
+async function postProgressRecover(body, control) {
+  const check = () => {
+    if (!control.active()) throw new Error('progress stopped')
+  }
+  const locked = async (vendor, session, fn) => {
+    check()
+    const file = gatePath(vendor, session)
+    if (!file) throw new Error('bad progress thread')
+    const attempt = beginTryHold(`${file}.lock`)
+    control.attempt = attempt
+    const held = await attempt.promise
+    if (control.attempt === attempt) control.attempt = null
+    if (!held) throw new Error('progress lock busy')
+    try {
+      check()
+      return fn()
+    } finally {
+      held.release()
+    }
+  }
+  const send = async event => {
+    check()
+    const res = await post(event, 3000, control.signal)
+    check()
+    return res
+  }
+  const start = preludeTurnStart(body)
+  if (start) {
+    const opened = await send(start)
+    if (opened.key) {
+      const saved = await saveIssuedKey(start, opened.key, locked)
+      if (saved && opened.sent && body.thread === start.thread && body.register_nonce === start.register_nonce) {
+        body.thread_key = opened.key
+      }
+    }
+    if (opened.status === 409 && opened.error === 'older turn refused') return opened
+    if (!(opened.status === 409 && opened.error === 'unknown key')) {
+      if (!opened.sent) return opened
+      await markTurnConfirmed(start, locked)
+    }
+  }
+  let res = await send(body)
+  if (res.status === 409 && res.error === 'unknown key') {
+    const created = await supersedeActive(body, locked)
+    if (!created) return res
+    res = await send(body)
+  }
+  if (res.key) await saveIssuedKey(body, res.key, locked)
+  check()
+  const rec = recordFor(body)
+  if (res.sent && (body.event === 'turn_start' || !rec || !rec.turn_open_seq)) {
+    await markTurnConfirmed(body, locked)
+  }
+  return res
+}
+
 /** Hand the POST to a detached child. The body sits in a mode-600 file, not the environment. */
 function sendDetached(body) {
   if (!token() || process.env.BIFROST_HEARTBEAT === 'off') return
@@ -892,6 +1088,132 @@ function readStdin(limit = 1 << 20) {
     process.stdin.on('end', () => resolve(s))
     process.stdin.on('error', () => resolve(s))
   })
+}
+
+function runBeatMs() {
+  const raw = process.env.BIFROST_HEARTBEAT_RUN_BEAT_MS
+  if (raw == null || String(raw).trim() === '') return RUN_BEAT_MS
+  const n = Number(raw)
+  if (!Number.isFinite(n)) return RUN_BEAT_MS
+  // Sub-second intervals are solely for the isolated test harness.
+  const minimum = process.env.NODE_ENV === 'test' && process.env.BIFROST_HEARTBEAT_TEST_FAST_BEATS === '1' ? 1 : 1000
+  return Math.min(2147483647, Math.max(minimum, n))
+}
+
+async function progressSize(file) {
+  try {
+    return (await fs.promises.stat(file)).size
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Posts `after_tool` / `headless-progress` while `isAlive()` and the progress
+ * file has grown. The timer is unref'd and the returned function clears it, so
+ * a child exit does not wait out the interval and the timer cannot keep the
+ * process alive. An in-flight post is not awaited. The per-thread lock is
+ * taken only when it is free at once. A busy lock skips this growth; the next
+ * look sends one only if the file has grown again. A helper that does not
+ * answer leaves the growth in place, so the next look tries the same size
+ * while the child is still alive. Waiting for that lock never blocks the
+ * event loop, so the child's exit and turn_end are not delayed.
+ */
+async function startProgressBeats(base, isAlive) {
+  const file = (process.env.BIFROST_HEARTBEAT_PROGRESS || '').trim()
+  if (!file) return () => {}
+  const interval = runBeatMs()
+  let lastSize = 0
+  const initial = await progressSize(file)
+  if (initial !== null) lastSize = initial
+  let timer = null
+  let stopped = false
+  let inflight = null
+  const abort = new AbortController()
+  const control = {
+    active: () => !stopped && isAlive(),
+    signal: abort.signal,
+    attempt: null,
+  }
+  const stop = () => {
+    stopped = true
+    abort.abort()
+    if (control.attempt) control.attempt.cancel()
+    if (timer) clearTimeout(timer)
+    timer = null
+    if (inflight) inflight.cancel()
+    inflight = null
+  }
+  const arm = () => {
+    if (stopped || !isAlive()) return
+    timer = setTimeout(tick, interval)
+    timer.unref()
+  }
+  const tick = async () => {
+    timer = null
+    if (stopped || !isAlive()) return
+    const sizeBefore = lastSize
+    let grew = false
+    try {
+      const size = await progressSize(file)
+      if (size !== null) {
+        grew = size > lastSize
+        lastSize = size
+      }
+    } catch {
+      grew = false
+    }
+    if (!grew || stopped || !isAlive()) {
+      arm()
+      return
+    }
+    const gate = gatePath(base.vendor, base.session || base.thread)
+    if (!gate) {
+      arm()
+      return
+    }
+    const attempt = beginTryHold(`${gate}.lock`)
+    inflight = attempt
+    attempt.promise.then(held => {
+      if (inflight === attempt) inflight = null
+      if (!held || stopped || !isAlive()) {
+        // lock-busy consumed this growth. An unanswered helper did not.
+        const unanswered = !held && (attempt.reason === 'giveup' || attempt.reason === 'spawn-error' || attempt.reason === 'child-error')
+        if (unanswered && !stopped && isAlive()) lastSize = sizeBefore
+        if (held) held.release()
+        if (!stopped && isAlive()) arm()
+        return
+      }
+      let beat = null
+      try {
+        // Hooks store declared tool timeouts in the throttle state before stamping.
+        // Keep this read inside the lock so this beat cannot overtake their stamp.
+        const sent = (readJSON(throttleFile()) || {})[threadKey(base)]
+        const toolOpen = Boolean(sent && sent.pending && Date.now() - sent.at < sent.pending.timeout * 1000)
+        if (!toolOpen) {
+          beat = { ...base, event: 'after_tool', tool: 'headless-progress' }
+          stampBody(beat)
+        }
+      } catch {
+        beat = null
+      } finally {
+        held.release()
+      }
+      if (!beat || stopped || !isAlive()) {
+        if (!stopped && isAlive()) arm()
+        return
+      }
+      postProgressRecover(beat, control)
+        .catch(() => {
+          // a failed progress post is swallowed; the child's exit code still wins
+        })
+        .finally(() => {
+          if (!stopped && isAlive()) arm()
+        })
+    })
+  }
+  arm()
+  return stop
 }
 
 async function hook(vendor) {
@@ -942,6 +1264,10 @@ async function run(vendor, argv) {
   } catch {
     // a headless run still starts the command
   }
+  // Baseline the progress file before the child can write it. The timer itself
+  // only fires while the child is alive, and is cleared before turn_end.
+  let alive = true
+  const stopBeats = await startProgressBeats(base, () => alive)
   const child = spawn(cmd[0], cmd.slice(1), {
     stdio: 'inherit',
     env: { ...process.env, BIFROST_HEARTBEAT_THREAD: thread, BIFROST_HEARTBEAT_TITLE: title },
@@ -955,6 +1281,8 @@ async function run(vendor, argv) {
     })
     child.on('exit', (c, sig) => resolve(c === null ? 128 + (os.constants.signals[sig] || 0) : c))
   })
+  alive = false
+  stopBeats()
   const end = { ...base, event: 'turn_end' }
   try {
     allocateStamp(end)
@@ -1028,4 +1356,5 @@ module.exports = {
   publishProgress,
   baseURL,
   hostName,
+  startProgressBeats,
 }
