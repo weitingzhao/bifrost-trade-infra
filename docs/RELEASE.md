@@ -103,7 +103,7 @@ scripts/release/release-check.sh diff old.json new.json --allow <file>
 次序：含 check-source 身份接线的 platform 已在 PROD → 试跑一正一反 → 应用。三条命令都在 infra 主线的检出目录里、Owner 自己的终端跑；没有平台发布在途、没有未结的 PROD 发布单时再做。
 
 ```bash
-# 1. 试跑（不拉代码、不构建、不发布）。在将要应用的那个提交上生成；给镜像上已有的整 SHA。
+# 1. 试跑（不构建、不发布；只为解析提交，把两个仓库各浅拉一次到临时目录）。在将要应用的那个提交上生成；给镜像上已有的整 SHA。
 python3 scripts/release/platform_prod_gate_trial.py <STG 当前的平台提交> > /tmp/trial-pass.yaml
 python3 scripts/release/platform_prod_gate_trial.py <一个没有 CI 的提交> > /tmp/trial-refuse.yaml
 kubectl create -f /tmp/trial-pass.yaml      # generateName：只能 create，不能 apply
@@ -121,13 +121,19 @@ git show 27e4467:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | kubectl a
 
 | 拒绝行里有 | 意思 | 怎么办 |
 |---|---|---|
-| `identity cannot read PipelineRuns/TaskRuns` | 检查没跑在 tekton-deliver 下 | platform 那一半还没到 PROD，或这条 run 是手建的、没给 check-source 指身份 |
+| `identity cannot read PipelineRuns/TaskRuns in cicd` | 检查没跑在 tekton-deliver 下 | platform 那一半还没到 PROD，或这条 run 是手建的、没给 check-source 指身份 |
 | `no exact-SHA Succeeded CI` | 这个提交没有成功的 `bifrost-ci-platform` | 等 CI；CI 没起就先同步镜像再起一次 |
-| `STG clone commit differs` | STG 最新一次成功发布的不是这个提交 | 先把这个提交发到 STG |
-| `STG run X is …` | 最新一次 STG 发布失败或还在跑 | 等它结束；失败就重发 STG |
+| `no STG delivery` | 集群里一条 `bifrost-deliver-platform` 的 run 都没有（run 只留 7 天） | 发一次 STG |
+| `STG clone commit differs or is ambiguous` | STG 最新一次成功发布的不是这个提交 | 先把这个提交发到 STG |
+| `STG run X is False`、`is Unknown`、`is running/no Succeeded condition` | 最新一次 STG 发布失败或还在跑 | 等它结束；失败就重发 STG |
 | `STG run X had not finished before the newest run started` | 两次 STG 发布交叠过，说不清 STG 上是哪一次的 | 再发一次 STG |
-| `STG run X has missing or unparsable completionTime` | 有一条 STG run 一直没结束 | 等它结束；永远不结束就删掉它（`delete_pipeline_run`） |
-| `empty or ambiguous mirror revision` | 镜像上没有这个分支或标签 | 同步镜像；只给分支名、标签名或整 SHA |
+| `STG run X has missing or unparsable completionTime`（或 `creationTimestamp`） | 有一条 STG run 还没结束，或它的时间字段坏了 | 等它结束；一直不结束或字段坏了，就删掉那条 run（`delete_pipeline_run`） |
+| `ambiguous latest STG delivery` | 两条 STG run 的创建时间在同一秒 | 再发一次 STG |
+| `missing or ambiguous clone-platform TaskRun`、`clone TaskRun identity/status mismatch` | 那次 STG 发布的拉代码记录不在了，或和 run 对不上 | 再发一次 STG |
+| `empty or ambiguous mirror revision` | 镜像上没有这个分支或标签，或者同名的分支和标签都在 | 同步镜像；改给 40 位整 SHA |
+| `invalid revision`、`mirror returned another SHA`、`invalid mirror SHA`、`invalid resolved SHA` | 给的修订号不合法，或镜像回的不是它 | 只给分支名、标签名或 40 位整 SHA；再出现就停下查镜像 |
+| `query failed`、`malformed or incomplete PipelineRun list`、`PipelineRun does not match selector …`、`malformed run`、`malformed spec`、`malformed params`、`ambiguous params`、`ambiguous status`、`duplicate JSON key`、`timezone missing` | 读集群失败，或读回来的记录形状不对。关着失败 | 重试一次；仍然出现就不要绕过，把这一行原样交给统筹线程 |
+| 行尾是一个异常类名（`CalledProcessError`、`TimeoutExpired`、`KeyError` 等） | git 或 kubectl 子进程失败，或超过 20 秒 | 同上 |
 
 钉住路径生成的 JSON 在应用或回退这条 Pipeline 之后要重新生成（它在生成那一刻读线上的定义）。
 

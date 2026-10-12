@@ -648,3 +648,27 @@ def test_pinned_live_pipeline(monkeypatch, capsys, case):
         )
         assert stg == original
     assert calls == [("pipeline", "bifrost-deliver-platform-prod")]
+
+
+def test_release_doc_lists_every_refusal():
+    """Every refusal the script can print has a row in docs/RELEASE.md."""
+    import ast
+
+    doc = (ROOT / "docs/RELEASE.md").read_text()
+    tree = ast.parse((ROOT / "scripts/release/platform_prod_gate.py").read_text())
+    reasons = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Raise)
+            and isinstance(node.exc, ast.Call)
+            and getattr(node.exc.func, "id", "") == "ValueError"
+        ):
+            pieces = [
+                c.value.strip()
+                for c in ast.walk(node.exc.args[0])
+                if isinstance(c, ast.Constant) and isinstance(c.value, str)
+            ]
+            reasons.append(max(pieces, key=len))
+    assert len(reasons) > 20
+    missing = [r for r in reasons if r not in doc]
+    assert not missing, missing
