@@ -276,4 +276,11 @@ MUTANTS = [
         "new": "    if i == len(line) and i > 0:\n        return _lower_ascii(line), \"\"\n    if i == 0 or i >= len(line) or line[i] != 0x3A:\n        raise OSError(\"connection failed\")\n",
         "must_fail": "test_http_vectors",
     },
+    {
+        "name": "chunk-data-crlf",
+        "file": "scripts/release/freeze_gate.py",
+        "old": "        if _read_exact(fp, sock, deadline, 2) != b\"\\r\\n\":\n",
+        "new": "        if _read_exact(fp, sock, deadline, 2) == b\"\":\n",
+        "must_fail": "test_http_vectors",
+    },
 ]

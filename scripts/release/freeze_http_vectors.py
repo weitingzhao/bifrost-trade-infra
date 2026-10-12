@@ -269,6 +269,7 @@ def cases() -> list:
            + ("%X" % (N - half)).encode() + b"\r\n" + M[half:] + b"\r\n0\r\n\r\n")
     add("two chunks", two)
     add("two chunks, no CRLF after the first", two.replace(M[:half] + b"\r\n", M[:half], 1))
+    add("two bytes that are not CRLF after the chunk data", b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n7e\r\n" + M + b"XY0\r\n\r\n")
     add("one byte per chunk", b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n" + b"".join(b"1\r\n" + bytes([c]) + b"\r\n" for c in M) + b"0\r\n\r\n")
     add("chunked and content-length together", _ch(extra=(b"Content-Length: 126",)))
     add("chunked and a wrong content-length", _ch(extra=(b"Content-Length: 5",)))

@@ -16,7 +16,7 @@ import freeze_gate  # noqa: E402
 import freeze_http_vectors  # noqa: E402
 
 # The platform repository carries the same bytes and the same constant (http_vectors_test.go).
-HTTP_VECTORS_SHA256 = "e1e45356cbbd1d41496f634f30c0caa1714ad0319990d017e875cb58a16aa68e"
+HTTP_VECTORS_SHA256 = "ea2f51577ddd33a1eda3b7ee4e53f401ed826ad00ab0d906e0d98e6ff96f4a3a"
 VECTORS = HERE / "freeze_http_vectors.json"
 
 
