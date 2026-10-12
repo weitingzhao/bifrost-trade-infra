@@ -16,7 +16,7 @@ import freeze_gate  # noqa: E402
 import freeze_http_vectors  # noqa: E402
 
 # The platform repository carries the same bytes and the same constant (http_vectors_test.go).
-HTTP_VECTORS_SHA256 = "7d191888e372878735e19534c0afc398c741c72b0b98ac731a3498e01638bc71"
+HTTP_VECTORS_SHA256 = "daf5e79f9893370e738eb0b5d15a9057caa2a36008fb5e1135aed940ddeaa5f5"
 VECTORS = HERE / "freeze_http_vectors.json"
 
 
@@ -55,18 +55,53 @@ class HTTPVectorTests(unittest.TestCase):
         self.assertGreaterEqual(sum(1 for c in cases if c["clear"]), 40)
 
     def test_byte_classes(self) -> None:
-        """Every byte value at each position of a valid response: the reader agrees with the recogniser on all 256."""
-        positions = json.loads(VECTORS.read_bytes())["byte_classes"]
-        self.assertGreaterEqual(len(positions), 45)
+        """Every byte value at every position outside the body interior: the reader agrees with the recogniser on all 256."""
+        classes = json.loads(VECTORS.read_bytes())["byte_classes"]
+        total = 0
         wrong = []
-        for pos in positions:
-            prefix, suffix, mask = bytes.fromhex(pos["prefix"]), bytes.fromhex(pos["suffix"]), bytes.fromhex(pos["accept"])
-            for v in range(256):
-                want = bool(mask[v >> 3] >> (v & 7) & 1)
-                if read_from_memory(prefix + bytes([v]) + suffix) != want:
-                    wrong.append("%s / 0x%02x" % (pos["name"], v))
+        for base in classes:
+            raw = bytes.fromhex(base["base"])
+            if not base["positions"] or base["positions"][0] != 0:
+                self.fail("%s: the first byte of the status line is not a position" % base["name"])
+            total += len(base["positions"]) + len(base["insert_positions"])
+            self.assertEqual(len(base["positions"]), len(base["replace"]), base["name"])
+            self.assertEqual(len(base["insert_positions"]), len(base["insert"]), base["name"])
+            for mode, positions, masks, insert in (
+                ("replace", base["positions"], base["replace"], False),
+                ("insert", base["insert_positions"], base["insert"], True),
+            ):
+                for k, mask_hex in zip(positions, masks):
+                    mask = bytes.fromhex(mask_hex)
+                    self.assertEqual(len(mask), 32)
+                    for v in range(256):
+                        trial = raw[:k] + bytes((v,)) + (raw[k:] if insert else raw[k + 1 :])
+                        want = bool(mask[v >> 3] >> (v & 7) & 1)
+                        if read_from_memory(trial) != want:
+                            wrong.append("%s %s %d 0x%02x" % (base["name"], mode, k, v))
+        self.assertGreaterEqual(total, 400, "byte-class positions %d" % total)
         if wrong:
             self.fail("wrong verdicts: " + "; ".join(wrong[:40]))
+
+    def test_second_deadline_hold(self) -> None:
+        """The bytes are all available at once. Holding the decision past the deadline, with no socket wait, is not clear."""
+        body = freeze_http_vectors.M
+        raw = b"HTTP/1.1 200\r\nContent-Length: %d\r\n\r\n" % len(body) + body
+        start = time.monotonic()
+        fast = freeze_gate._read_http(io.BufferedReader(io.BytesIO(raw)), _Sock(), start + 0.1, "t", freeze_gate.ORIGIN_HOST, 443, None, None)
+        self.assertEqual(fast.verdict, "clear")
+        original = freeze_gate.decide_http
+
+        def slow(status, data):
+            time.sleep(0.12)
+            return original(status, data)
+
+        freeze_gate.decide_http = slow
+        try:
+            start = time.monotonic()
+            got = freeze_gate._read_http(io.BufferedReader(io.BytesIO(raw)), _Sock(), start + 0.1, "t", freeze_gate.ORIGIN_HOST, 443, None, None)
+        finally:
+            freeze_gate.decide_http = original
+        self.assertNotEqual(got.verdict, "clear")
 
     def test_timing(self) -> None:
         """The same bytes at different moments, over a real socket pair: one deadline to the last byte H needs."""

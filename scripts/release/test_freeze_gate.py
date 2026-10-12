@@ -287,6 +287,52 @@ class ReadTests(unittest.TestCase):
         )
         self.assertNotEqual(got.verdict, "clear", got.lines)
 
+    def test_clear_returns_without_waiting_for_the_peer_to_read(self) -> None:
+        """A clear response is complete at 0.6 of the budget; the peer then reads nothing. The answer comes back at once."""
+        body = CLEAR
+        raw = b"HTTP/1.1 200\r\nContent-Length: %d\r\n\r\n" % len(body) + body
+        for budget in (0.2, 10.0):
+            stop = threading.Event()
+            threads: list[threading.Thread] = []
+
+            def dial(_host, _port, ctx, deadline, budget=budget, stop=stop):
+                a, b = socket.socketpair()
+                sc = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                sc.minimum_version = ssl.TLSVersion.TLSv1_2
+                sc.load_cert_chain(certfile=self.cert, keyfile=self.key)
+                sc.set_alpn_protocols(["http/1.1"])
+
+                def serve() -> None:
+                    server = sc.wrap_socket(b, server_side=True)
+                    try:
+                        req = b""
+                        while b"\r\n\r\n" not in req:
+                            chunk = server.recv(4096)
+                            if not chunk:
+                                return
+                            req += chunk
+                        time.sleep(budget * 0.6)
+                        server.sendall(raw)
+                        stop.wait()
+                    finally:
+                        server.close()
+
+                thread = threading.Thread(target=serve)
+                thread.start()
+                threads.append(thread)
+                fg._arm(a, deadline)
+                return ctx.wrap_socket(a, server_hostname=fg.ORIGIN_HOST)
+
+            start = time.monotonic()
+            got = fg.read_freeze(token_path=str(self.token), ca_path=str(self.cert), dial=dial, budget=budget)
+            elapsed = time.monotonic() - start
+            stop.set()
+            for thread in threads:
+                thread.join(budget + 2)
+            self.assertFalse(any(thread.is_alive() for thread in threads))
+            self.assertEqual(got.verdict, "clear", (budget, got.lines, elapsed))
+            self.assertLessEqual(elapsed, budget + 0.25, (budget, elapsed))
+
     def test_slow_drip(self) -> None:
         server = self._serve(lambda _n, _req: _http("200 OK", "", CLEAR), drip=0.015)
         start = time.monotonic()

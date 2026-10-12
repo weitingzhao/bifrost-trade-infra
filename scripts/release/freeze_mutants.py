@@ -114,6 +114,13 @@ MUTANTS = [
         "must_fail": "test_slow_drip or test_timing",
     },
     {
+        "name": "second-deadline-hold",
+        "file": "scripts/release/freeze_gate.py",
+        "old": "        if got.verdict == \"clear\" and not _finished_in_time(deadline):\n",
+        "new": "        if False and got.verdict == \"clear\" and not _finished_in_time(deadline):\n",
+        "must_fail": "test_second_deadline_hold",
+    },
+    {
         "name": "status-404",
         "file": "scripts/release/freeze_gate.py",
         "old": "        return False  # 404 is not a list\n",
@@ -303,5 +310,13 @@ MUTANTS = [
         "new": "        if _read_exact(fp, sock, deadline, 2) == b\"\":\n",
         "must_fail": "test_http_vectors",
         "evidence": "two bytes that are not CRLF after the chunk data",
+    },
+    {
+        "name": "status-first-byte",
+        "file": "scripts/release/freeze_gate.py",
+        "old": "    if len(line) < len(prefix) + 3 or line[: len(prefix)] != prefix:\n",
+        "new": "    if len(line) < len(prefix) + 3 or line[1: len(prefix)] != prefix[1:]:\n",
+        "must_fail": "test_byte_classes",
+        "evidence": "a replace 0",
     },
 ]

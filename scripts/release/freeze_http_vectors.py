@@ -377,72 +377,96 @@ def timing_cases() -> list:
     return out
 
 
-# ---- every byte value at one position of a valid response ----
+# ---- every byte value at every position of a valid response that is not strictly inside the body data ----
+
+def _data_spans(raw: bytes) -> list:
+    """Half-open ranges of the body data: the content-length bytes, or each chunk's data.
+
+    The walk follows the same productions as _parse. The interior of each span (every byte except its first and
+    its last) belongs to L and is not a position of H.
+    """
+    cur = _Cursor(raw)
+    interim = 0
+    while True:
+        code, fields = cur.head()
+        if b"content-encoding" in [n for n, _v in fields]:
+            raise _NotH
+        if code in (b"100", b"102", b"103"):
+            interim += 1
+            if interim > 8:
+                raise _NotH
+            continue
+        break
+    if code != b"200":
+        raise _NotH
+    te = [v for n, v in fields if n == b"transfer-encoding"]
+    cl = [v for n, v in fields if n == b"content-length"]
+    if not te:
+        if len(cl) != 1 or _DEC.match(cl[0]) is None or int(cl[0].decode("ascii")) > 4096:
+            raise _NotH
+        n = int(cl[0].decode("ascii"))
+        start = cur.pos
+        cur.take(n)
+        return [(start, start + n)]
+    if cl or len(te) != 1 or te[0].lower() != b"chunked":
+        raise _NotH
+    spans = []
+    total = 0
+    while True:
+        size = cur.line()
+        if _HEX.match(size) is None:
+            raise _NotH
+        n = int(size.decode("ascii"), 16)
+        if n == 0:
+            break
+        total += n
+        if total > 4096:
+            raise _NotH
+        start = cur.pos
+        cur.take(n)
+        spans.append((start, start + n))
+        if cur.take(2) != b"\r\n":
+            raise _NotH
+    for name, _v in cur.fields():
+        if name in (b"content-encoding", b"content-length", b"transfer-encoding"):
+            raise _NotH
+    return spans
+
+
+def _mask(samples) -> str:
+    """Bit v&7 of byte v>>3 is set when samples(v) is a clear response."""
+    mask = bytearray(32)
+    for v in range(256):
+        if samples(v):
+            mask[v >> 3] |= 1 << (v & 7)
+    return mask.hex()
+
 
 def byte_classes() -> list:
-    """For one position at a time: which of the 256 byte values leave the response clear (a bit mask, bit v of byte v>>3)."""
+    """For each base response, every index that is not strictly inside the body data.
+
+    Replace: byte k is overwritten. Insert: a byte is placed before index k, and k runs through 0..len
+    inclusive. The mask is what the test-only recogniser still calls clear.
+    """
     a = b"HTTP/1.1 200 OK\r\nX-Pad: value\r\nContent-Length: %d\r\n\r\n" % N + M
     c = b"HTTP/1.1 200 OK\r\nX-Pad: value\r\nTransfer-Encoding: chunked\r\n\r\n7e\r\n" + M + b"\r\n0\r\nX-T: tv\r\n\r\n"
     i = b"HTTP/1.1 100 Continue\r\nX-I: iv\r\n\r\n" + a
     out = []
-
-    def position(name: str, prefix: bytes, suffix: bytes) -> None:
-        mask = bytearray(32)
-        for v in range(256):
-            if clear(prefix + bytes([v]) + suffix):
-                mask[v >> 3] |= 1 << (v & 7)
-        out.append({"name": name, "prefix": prefix.hex(), "suffix": suffix.hex(), "accept": mask.hex()})
-
-    def at(name: str, raw: bytes, token: bytes, offset: int, insert: bool = False) -> None:
-        assert raw.count(token) == 1, (name, raw.count(token))
-        k = raw.index(token) + offset
-        position(name, raw[:k], raw[k:] if insert else raw[k + 1:])
-
-    at("status line: the last byte of the version", a, b"HTTP/1.1 200", 7)
-    at("status line: the SP after the version", a, b"HTTP/1.1 200", 8)
-    at("status line: the first digit of the code", a, b"HTTP/1.1 200", 9)
-    at("status line: the third digit of the code", a, b"HTTP/1.1 200", 11)
-    at("status line: the SP after the code", a, b"200 OK", 3)
-    at("status line: a byte of the reason", a, b"200 OK", 4)
-    at("status line: its CR", a, b"OK\r\n", 2)
-    at("status line: its LF", a, b"OK\r\n", 3)
-    at("status line: a byte inserted before it", a, b"HTTP/1.1 200", 0, insert=True)
-    at("field: the first byte of the name", a, b"X-Pad", 0)
-    at("field: an inner byte of the name", a, b"X-Pad", 2)
-    at("field: the colon", a, b"X-Pad:", 5)
-    at("field: the byte after the colon", a, b"X-Pad: ", 6)
-    at("field: an inner byte of the value", a, b"value", 2)
-    at("field: a byte inserted before the name", a, b"X-Pad", 0, insert=True)
-    at("field: a byte inserted after the name", a, b"X-Pad:", 5, insert=True)
-    at("field: a byte inserted after the value", a, b"value\r\n", 5, insert=True)
-    at("field: its CR", a, b"value\r\n", 5)
-    at("field: its LF", a, b"value\r\n", 6)
-    at("content-length: the first byte of the name", a, b"Content-Length", 0)
-    at("content-length: a digit", a, b": 126\r\n", 3)
-    at("content-length: a byte inserted before the digits", a, b": 126\r\n", 2, insert=True)
-    at("content-length: a byte inserted after the digits", a, b": 126\r\n", 5, insert=True)
-    at("head: the CR of the empty line", a, b"\r\n\r\n", 2)
-    at("head: the LF of the empty line", a, b"\r\n\r\n", 3)
-    at("body: its first byte", a, b"\r\n\r\n{", 4)
-    at("body: its last byte", a, b"}}\n", 2)
-    at("transfer-encoding: the first byte of the name", c, b"Transfer-Encoding", 0)
-    at("transfer-encoding: the first byte of the coding", c, b"chunked", 0)
-    at("transfer-encoding: a byte inserted after the coding", c, b"chunked\r\n", 7, insert=True)
-    at("chunk: the first digit of the size", c, b"\r\n\r\n7e\r\n", 4)
-    at("chunk: the second digit of the size", c, b"\r\n\r\n7e\r\n", 5)
-    at("chunk: a byte inserted after the size", c, b"\r\n\r\n7e\r\n", 6, insert=True)
-    at("chunk: the CR after the size", c, b"\r\n\r\n7e\r\n", 6)
-    at("chunk: the LF after the size", c, b"\r\n\r\n7e\r\n", 7)
-    at("chunk: the CR after the data", c, b"}}\n\r\n0", 3)
-    at("chunk: the LF after the data", c, b"}}\n\r\n0", 4)
-    at("last chunk: its digit", c, b"}}\n\r\n0\r\n", 5)
-    at("last chunk: a byte inserted after the digit", c, b"}}\n\r\n0\r\n", 6, insert=True)
-    at("trailer: an inner byte of the name", c, b"X-T: tv", 1)
-    at("trailer: a byte of the value", c, b"X-T: tv", 5)
-    at("trailer: the final CR", c, b"tv\r\n\r\n", 4)
-    at("trailer: the final LF", c, b"tv\r\n\r\n", 5)
-    at("interim head: the third digit of the code", i, b"HTTP/1.1 100", 11)
-    at("interim head: a byte of a field value", i, b"X-I: iv", 5)
+    for name, raw in (("a", a), ("c", c), ("i", i)):
+        assert clear(raw), name
+        interior = set()
+        for start, end in _data_spans(raw):
+            interior.update(range(start + 1, end - 1))
+        positions = [k for k in range(len(raw)) if k not in interior]
+        insert_positions = [k for k in range(len(raw) + 1) if k not in interior]
+        out.append({
+            "name": name,
+            "base": raw.hex(),
+            "positions": positions,
+            "replace": [_mask(lambda v, raw=raw, k=k: clear(raw[:k] + bytes((v,)) + raw[k + 1:])) for k in positions],
+            "insert_positions": insert_positions,
+            "insert": [_mask(lambda v, raw=raw, k=k: clear(raw[:k] + bytes((v,)) + raw[k:])) for k in insert_positions],
+        })
     return out
 
 

@@ -27,6 +27,24 @@ COPY_PATHS = [
 ]
 
 
+def _evidence_held(doc: dict, evidence: str) -> bool:
+    """A case name, or a byte-class position written as '<base> <mode> <index>'."""
+    if any(evidence in case["name"] for case in doc["cases"]):
+        return True
+    parts = evidence.split(" ")
+    if len(parts) != 3:
+        return False
+    name, mode, index = parts
+    try:
+        k = int(index)
+    except ValueError:
+        return False
+    key = {"replace": "positions", "insert": "insert_positions"}.get(mode)
+    if key is None:
+        return False
+    return any(item["name"] == name and k in item[key] for item in doc["byte_classes"])
+
+
 def _stage(tmp: Path) -> None:
     for rel in COPY_PATHS:
         src = ROOT / rel
@@ -54,8 +72,8 @@ class MutantListTests(unittest.TestCase):
             self.assertNotEqual(item["old"], item["new"])
             self.assertTrue(item["must_fail"])
             if item.get("evidence"):
-                vectors = json.loads((ROOT / "scripts/release/freeze_http_vectors.json").read_text(encoding="ascii"))["cases"]
-                self.assertTrue(any(item["evidence"] in case["name"] for case in vectors), item["name"])
+                doc = json.loads((ROOT / "scripts/release/freeze_http_vectors.json").read_text(encoding="ascii"))
+                self.assertTrue(_evidence_held(doc, item["evidence"]), item["name"])
 
 
 class MutantRunTests(unittest.TestCase):
