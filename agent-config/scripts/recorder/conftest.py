@@ -36,7 +36,12 @@ def pytest_collection_modifyitems(items):
     def rank(item):
         path = str(getattr(item, "path", getattr(item, "fspath", "")))
         name = path.rsplit("/", 1)[-1]
-        early = name.startswith("test_round8") or name == "test_review113.py"
-        return (0 if early else 1, name)
+        if name.startswith("test_round8"):
+            group = 0
+        elif name == "test_review113.py":
+            group = 1
+        else:
+            group = 2
+        return (group, name)
 
     items.sort(key=rank)
