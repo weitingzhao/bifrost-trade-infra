@@ -741,7 +741,7 @@
 **W-31 第 0 步 · S0-21 线程心跳与静默告警**
 
 - **类别**：道
-- **状态**：观察中（到 10-17，看有没有误报）：2026-10-10 13:50 上 PROD，13:55 钩子接上，14:08 验收（模拟线程 10 分 26 秒后被发现并推送），14:22 两条告警规则装上
+- **状态**：观察中（到 10-17，看有没有误报）：2026-10-11 21:08 观察期内的一条误报：Codex 的后台实现运行超过 10 分钟，被列成静默线程并出现在 Owner 的「Needs you」里，而进程活着、日志在写（原因和修法见 TD-316，教训第 96 行）。之前：2026-10-10 13:50 上 PROD，13:55 钩子接上，14:08 验收（模拟线程 10 分 26 秒后被发现并推送），14:22 两条告警规则装上
 - **现在**：platform `w31/w54-s0-21` `c854efe`（`api/internal/agentthreads/`：`POST /api/v1/agent/threads/heartbeat` 用 reporter 及以上令牌，`GET /api/v1/agent/threads` viewer 级（无令牌或未知令牌 401），workers 每 30 秒巡检、每次静默只推一条）；platform `w31/w54-s0-21-console` `7b4574d`（已并入 console-int `11ebb8c`，合并提交 `167c1ea`；Status 页 In progress · Agent threads，静默计入 Needs You；用 viewer 凭据读，与审批列表共用 `approvals.ts` 导出的 `viewerRead`）；infra `w31/w54-s0-21` `5560144`（三家共用的 `agent-config/scripts/thread-heartbeat.js`、维护项 `agent-thread-watch`、告警 `BifrostMaintainerAgentThreadWatchStale` 与规则测试）。验收 5 条的单测全过
 - **下一步**：① 合 main 前改 viewer 级：已完成（`c854efe`、`7b4574d`）。② 合 main：infra 先（规则 plan / apply `k8s/monitoring`），合入后重跑 `python3 bifrost-trade-infra/agent-config/cursor/install-hooks.py` 把心跳 hooks 装进 `~/.cursor/hooks.json`（TD-298）；再 platform `w31/w54-s0-21` 上 PROD；console 分支等第 9 步之后，合并时留意 `console/src/api/approvals.ts` 的 `viewerRead` 导出。③ 部署后真机验收，另验三件未证实的事（STEP0-PLAN 0.9 节）
 - **验收**：0.9 节的 5 条（单测已过，真机待部署）

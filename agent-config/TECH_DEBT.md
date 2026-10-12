@@ -1902,6 +1902,20 @@
 - 验收: `start_pipeline_run` for `bifrost-ci-platform` at a branch SHA reaches `test-console`; a pipeline with an unbindable workspace is refused with a sentence that names the workspace
 - 审批 无（代码改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
 
+### TD-316
+
+**P2 · ops-platform · a headless Codex run longer than ten minutes is shown to the Owner as a silent thread that "nobody is working on": the wrapper reports only the start and the end, and Codex's hooks carry no heartbeat**
+
+- **状态**：未开始（2026-10-11 21:08 Owner 在 PROD「Needs you」上看到这一条，问他要打开什么才能办完）
+- **Claim**: `thread-heartbeat.js run <vendor> -- <cmd>` posts `turn_start` before the command and `turn_end` after it and nothing in between (`agent-config/scripts/thread-heartbeat.js:926–966`). For Cursor the user-level hooks report tool events under the wrapper's thread id (`BIFROST_HEARTBEAT_THREAD`, line 212), so the thread stays live. Codex's hook file holds only the guard (`PreToolUse` → `agent-guard`) and no heartbeat entry, so a wrapped `codex exec` sends nothing after its first second. The platform calls a thread silent after 10 minutes without an event (`bifrost-platform` `api/internal/agentthreads/config.go:40`, `SilentAfter`), lists it under "Needs you → Silent threads" with "Nobody is working on it until someone opens it" and the action "Open it in codex". There is nothing to open: a headless run has no thread in the Codex app.
+- **Measured**: MEASURED 2026-10-11 21:09 CDT. Thread `run-bc611f64-…` on PROD: "Stopped 11m ago · last activity: started a turn". On the host in the same minute: the `codex exec` process alive (elapsed 12:44), its log written within the last second, 17 files changed in its worktree. Codex's hook file: one `PreToolUse` command (the guard), zero mentions of `thread-heartbeat`. NOT MEASURED: whether a push notification went out for this thread; how many earlier Codex review runs (10–20 minutes each) were listed the same way.
+- **Evidence**: the paths above; LESSONS row 32 (the same class, 2026-10-10: an item under "Needs you" with nothing the Owner can do) and row 96; W-31 S0-21 is in its observation window for false alarms until 10-17 — this is one.
+- **Impact**: the one place that tells the Owner what needs him says a working agent has stopped and asks him to open something that does not exist. The Owner's assignment rule of 2026-10-11 makes Codex an implementer whenever a lane's first implementer fails twice, so these runs become routine and each will raise it. A false alarm that repeats teaches him to ignore the section, and a real silent thread then looks the same.
+- **Fix**: in `run`, while the child is alive, post a beat on a timer (about every 2 minutes) that says whether the child's output advanced since the last beat (stdio is inherited today, so the wrapper sees nothing: take the progress file's path from an environment variable, or pipe and forward). The platform then tells apart "alive and producing", "alive and quiet for N minutes" (the real silent case for a headless run) and "wrapper gone without `turn_end`". A silent `run-…` thread goes to the seat that started it (the coordinator), not to the Owner's "Needs you", and its card does not say "open it". Optional and separate: add heartbeat entries to Codex's hooks through the installer (a trusted-hook change, the Owner's).
+- **Ratchet**: a wrapper test — a child that lives for three intervals yields three beats between `turn_start` and `turn_end`, and a killed child yields none after it; a platform test — a `run-…` thread with beats inside the window is not silent, and a silent `run-…` thread is not among the Owner's items.
+- 验收: a wrapped `codex exec` of 15 minutes never appears under "Needs you"; stopping its output for longer than the threshold puts it on the coordinator's list within the threshold plus one beat
+- 审批 无（代码改动，随平台发布；改 Codex 的钩子另算，归 Owner）· 代价 S · 风险 low（心跳脚本被每个 Agent 的每次工具调用使用，要在没有任务在跑时换上）· repos: bifrost-trade-infra, bifrost-platform
+
 ## 没覆盖到的（下一轮从这里开始）
 
 - Per-engine numerical correctness beyond dates: GEX sign conventions, max-pain, VRP realized-vol windows, vanna/charm, SVI fit, flow maths
