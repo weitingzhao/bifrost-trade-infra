@@ -168,6 +168,7 @@ class Wait:
     ever_seen: bool = False
     settled: bool = False
     settled_how: str | None = None
+    settled_at: float | None = None
     terminal_state: str | None = None
     yes_at: float | None = None
 

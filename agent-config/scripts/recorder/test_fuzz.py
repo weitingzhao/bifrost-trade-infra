@@ -304,7 +304,7 @@ def _e_spec(index):
         ("board", {"password": "x"}, ["blocks"]),
         ("board", {"coordinator": True}, ["coordinator"]),
         ("board", ["not", "a", "dict"], ["blocks"]),
-        ("board", {"unknown_block": "x"}, ["unknown_block"]),
+        ("board", {"unknown_block": "x"}, ["blocks"]),
         ("board", cycle, ["blocks"]),
         ("board", _subclass(_Dict, {}), ["blocks"]),
         ("board", {"recent": _subclass(_List, [])}, ["blocks"]),

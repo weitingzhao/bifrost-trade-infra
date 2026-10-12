@@ -33,6 +33,29 @@ def _assert_argument(doc: dict, argument: str) -> None:
     assert doc["fold_complete"] is False
 
 
+def test_a_forward_clock_is_not_backwards_and_the_scan_returns():
+    """A later event is outside a backwards interval, and the scan finishes.
+
+    Dropping the rewind comparison leaves the index unmoved and never returns.
+    """
+    import threading
+
+    from validate import _backwards
+
+    samples = (([{"at": 1}, {"at": 2}], set()), ([{"at": 10}, {"at": 1}], {1}))
+    for events, expected in samples:
+        box = {}
+
+        def run(events=events):
+            box["got"] = _backwards(events)
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        thread.join(2)
+        assert not thread.is_alive()
+        assert box["got"] == expected
+
+
 def test_now_type_empty_and_nonempty():
     calls = {"n": 0}
 
@@ -55,7 +78,7 @@ def test_now_range_empty_and_nonempty():
 
 def test_logs_unread_type_and_range():
     for _name, logs in _pairs():
-        for count in (True, -1, 1.0):
+        for count in (True, -1, 1.0, (1 << 53) + 1, 10**5000):
             _assert_argument(_fallback(fold_total(logs, [], 1, count)), "logs_unread")
 
 

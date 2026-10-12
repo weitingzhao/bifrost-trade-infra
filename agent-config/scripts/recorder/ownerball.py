@@ -339,7 +339,7 @@ def _judge_work(work: dict, merged: dict) -> dict:
         return pack("unknown", "owner_item_unknown", None)
     nxt = _next_waiting(view, merged, steps)
     if nxt is not None:
-        return pack("coordinator", "next_not_sent", nxt.declared_at)
+        return pack("coordinator", "next_not_sent", _next_since(view, merged, steps))
     yes = _yes_waits(view, merged)
     if yes:
         basis = "declared" if all(item["declared"] for item in yes) else None
@@ -427,7 +427,7 @@ def _owner_since(view: View, merged: dict):
         start = _streak_start(wait.seen, {"pending", "open", "unknown"}, "sampled_at")
         if start is not None:
             times.append(start)
-    return max(times) if times else _substantive(view)
+    return min(times) if times else _substantive(view)
 
 
 def _not_yet_since(view: View, merged: dict):
@@ -436,7 +436,7 @@ def _not_yet_since(view: View, merged: dict):
         status = _wait_status(wait, merged, view.work_id)
         if status and status.get("status") == "not_yet":
             times.append(wait.opened_at)
-    return max(times) if times else _substantive(view)
+    return min(times) if times else _substantive(view)
 
 
 def _wait_status(wait, merged: dict, work_id) -> dict | None:
@@ -479,10 +479,37 @@ def _open_merged(view: View, merged: dict) -> list:
     return found
 
 
-def _next_waiting(view: View, merged: dict, steps: list):
-    """The qualifying step whose declaration is the latest, or None."""
+def _ended_at(step):
+    if step is None:
+        return None
+    if step.finished is not None and "at" in step.finished:
+        return step.finished["at"]
+    for obs in reversed(step.record_obs):
+        if "ended_at" in obs:
+            return obs["ended_at"]
+    return None
+
+
+def _one_next_since(step, view: View):
+    """Latest of declaration, the last waited item settling, and the after step ending."""
+    times = [step.declared_at]
+    settled = []
+    for wait_id in step.waiting_on:
+        wait = view.waits.get(wait_id)
+        if wait is not None and wait.settled_at is not None:
+            settled.append(wait.settled_at)
+    if settled:
+        times.append(max(settled))
+    if step.after:
+        ended = _ended_at(view.steps.get(step.after))
+        if ended is not None:
+            times.append(ended)
+    return max(times)
+
+
+def _qualifying_next(view: View, merged: dict, steps: list) -> list:
     by_id = {step["step_id"]: step for step in steps}
-    chosen = None
+    found = []
     for step_id in view.step_order:
         step = view.steps[step_id]
         public = by_id.get(step_id)
@@ -502,8 +529,21 @@ def _next_waiting(view: View, merged: dict, steps: list):
             target = by_id.get(step.after)
             if target is None or target["state"] not in {"done", "failed"}:
                 continue
-        if chosen is None or step.declared_at >= chosen.declared_at:
-            chosen = step
-    return chosen
+        found.append(step)
+    return found
+
+
+def _next_since(view: View, merged: dict, steps: list):
+    """Earliest of each qualifying step's latest of the three clocks."""
+    found = [_one_next_since(step, view) for step in _qualifying_next(view, merged, steps)]
+    return min(found) if found else None
+
+
+def _next_waiting(view: View, merged: dict, steps: list):
+    """The qualifying step whose declaration is the latest, or None."""
+    found = _qualifying_next(view, merged, steps)
+    if not found:
+        return None
+    return max(found, key=lambda step: step.declared_at)
 
 

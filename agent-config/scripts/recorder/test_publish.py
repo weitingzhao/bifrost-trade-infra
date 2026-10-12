@@ -24,7 +24,7 @@ from model import (
     PUBLISH_MAX_OWNER_ALL,
     PUBLISH_TARGET_BYTES,
 )
-from harness import WAIT_D, WORK, LogBuilder, _chain
+from harness import RUN, WAIT_D, WORK, LogBuilder, _chain
 from publish import encoded, publish_total
 from read import fold_total
 from test_support import folded_for_test
@@ -104,43 +104,83 @@ def _owner(title: str, text: str = "", commands=None) -> dict:
     return item
 
 
+def _publish_logs(logs, now) -> dict:
+    return json.loads(publish_total(fold_total(logs, [], now), "board"))
+
+
+def _fat_logs(nworks, nsteps, mode, notes=0, defects=0, title="T", goal=None):
+    """Real sealed logs. ``mode`` is done, running, or dead."""
+    logs = []
+    last = 1
+    for work_index in range(nworks):
+        name = f"w{work_index}"
+        log = LogBuilder()
+        opened = {"work_id": name, "title": title}
+        if goal:
+            opened["goal"] = goal
+        log.add("work_opened", "coordinator", at=1, **opened)
+        for step_index in range(nsteps):
+            step = f"{step_index + 1:08x}"
+            log.add("step_declared", "coordinator", step_id=step, name="n" * 80, kind="other", who="W" * 80, watch="process")
+            log.add("step_started", "wrapper", step_id=step, run_id=RUN, command="c" * 200)
+            if mode == "done":
+                log.add("step_finished", "wrapper", step_id=step, run_id=RUN, exit={"code": 0}, quote="q" * 200)
+            elif mode == "running":
+                log.add("step_seen", "wrapper", step_id=step, run_id=RUN, sampled_at=log.at, alive=True, text="t" * 200, output_bytes=1)
+            else:
+                log.add("step_seen", "observer", step_id=step, run_id=RUN, sampled_at=log.at, alive=False, text="t" * 200)
+        for _ in range(notes):
+            log.add("note", "coordinator", text="f" * 200)
+        if work_index == 0:
+            for _ in range(defects):
+                log.add("note", "coordinator", text="n", extra=1)
+        if mode == "dead":
+            log.add("work_closed", "coordinator", claim="stopped")
+        last = max(last, log.at)
+        logs.append((name, _chain(log.events)))
+    return logs, last
+
+
+def _colon_owners() -> tuple[list, int]:
+    logs = []
+    last = 1
+    fields = {
+        "advice": ":" * 200,
+        "blocks_text": ":" * 200,
+        "after_text": ":" * 200,
+        "reply": ":" * 200,
+        "reply_words": ":" * 200,
+        "not_before_text": ":" * 200,
+    }
+    for work_index in range(2):
+        name = f"w{work_index}"
+        log = LogBuilder()
+        log.add("work_opened", "coordinator", at=1, work_id=name, title="T")
+        for index in range(16):
+            log.add(
+                "owner_wait_opened", "coordinator", wait_id=f"{index + 1:08x}", title=":" * 80,
+                ref={"kind": "none", "id": f"{index + 100:08x}"}, can_act="yes", **fields,
+            )
+        last = max(last, log.at)
+        logs.append((name, _chain(log.events)))
+    return logs, last
+
+
 def levels() -> dict[str, dict]:
-    """One published document for each reduction level, plus the commands case."""
-    docs = {}
-    ended = [_step("done", note=_blob(4000), quote=_blob(4000), command=_blob(2000)) for _ in range(20)]
-    for index, step in enumerate(ended):
-        step["step_id"] = f"{index:08x}"
-    docs["level-1"] = _shell([_work("w1", ended)])
-    feed = [{"at": index, "work": "w1", "step": "", "who": "C", "state": "", "text": _blob(5000)} for index in range(25)]
-    docs["level-2"] = _shell([_work("w1", [_step("running")])], feed=feed)
-    closed = []
-    for index in range(8):
-        steps = []
-        for nth in range(8):
-            step = _step("running", note=_blob(2500))
-            step["step_id"] = f"{index:04x}{nth:04x}"
-            steps.append(step)
-        closed.append(_work(f"c{index}", steps, closed=True, last=index))
-    docs["level-3"] = _shell(closed)
-    running = []
-    for index in range(20):
-        step = _step("running", note=_blob(8000))
-        step["step_id"] = f"{index:08x}"
-        running.append(step)
-    docs["level-4"] = _shell([_work("w1", running)])
-    commanded = []
-    for index in range(4):
-        step = _step("running", command=_blob(20000))
-        step["step_id"] = f"{index:08x}"
-        commanded.append(step)
-    docs["level-5"] = _shell([_work("w1", commanded)])
-    owners = []
-    for index in range(12):
-        item = _owner(f"item-{index}", text=_blob(8000))
-        item["wait_id"] = f"{index:08x}"
-        owners.append(item)
-    docs["level-6"] = _shell([_work("w1", [_step("running")])], owner=owners)
-    built = {name: _through_door(doc) for name, doc in docs.items()}
+    """One published document per reduction level, from real folds at real sizes."""
+    built = {}
+    done, now = _fat_logs(30, 20, "done")
+    built["level-1"] = _publish_logs(done, now)
+    running, now = _fat_logs(13, 20, "running", notes=25, title="T" * 80, goal="g" * 200)
+    built["level-2"] = _publish_logs(running, now)
+    closed, now = _fat_logs(30, 20, "dead")
+    built["level-3"] = _publish_logs(closed, now)
+    running, now = _fat_logs(30, 20, "running")
+    built["level-4"] = _publish_logs(running, now)
+    running, now = _fat_logs(30, 20, "running", defects=5000)
+    built["level-5"] = _publish_logs(running, now)
+    owners, now = _colon_owners()
+    built["level-6"] = _publish_logs(owners, now)
     log = LogBuilder()
     log.add("work_opened", "coordinator", at=1, work_id=WORK, title="T")
     log.add("step_declared", "coordinator", at=2, step_id="a1b2c3d4", name="n", who="C", kind="other", watch="none")
@@ -150,7 +190,28 @@ def levels() -> dict[str, dict]:
             ref={"kind": "none", "id": "c0ffee01"}, can_act="yes", where="terminal",
             commands=["echo a", "echo b", "echo c"])
     built["commands"] = json.loads(publish_total(fold_total([(WORK, _chain(log.events))], [], 4), "board"))
+    built["redact-usage"] = json.loads(publish_total(
+        fold_total([], [], 0), "board", {"usage": {"a": "pwd=x," * 17500}},
+    ))
+    built["redact-steps"] = _assignment_steps()
     return built
+
+
+def _assignment_steps() -> dict:
+    """Twelve works of running steps filled with ``pwd=x,`` up to each field cap."""
+    blob = lambda n: ("pwd=x," * ((n // 6) + 1))[:n]
+    logs = []
+    for work_index in range(12):
+        name = f"w{work_index}"
+        log = LogBuilder()
+        log.add("work_opened", "coordinator", at=1, work_id=name, title="T")
+        for step_index in range(20):
+            step = f"{step_index + 1:08x}"
+            log.add("step_declared", "coordinator", step_id=step, name=blob(80), kind="other", who=blob(80), watch="process")
+            log.add("step_started", "wrapper", step_id=step, run_id=RUN, command=blob(200))
+            log.add("step_seen", "wrapper", step_id=step, run_id=RUN, sampled_at=log.at, alive=True, text=blob(200))
+        logs.append((name, _chain(log.events)))
+    return _publish_logs(logs, 61)
 
 
 def test_commands_are_not_published():
@@ -186,13 +247,17 @@ def test_reduction_levels_and_commands():
             assert item["commands_at"] == "local_board"
             assert item["commands_count"] == 3
             continue
+        if not name.startswith("level-"):
+            assert "recorder_failed" not in doc
+            assert len(encoded(doc)) <= PUBLISH_TARGET_BYTES
+            continue
         level = int(name.split("-")[1])
         assert doc.get("reduced", 0) == level
         assert len(encoded(doc)) <= PUBLISH_TARGET_BYTES
         if level >= 5:
             for work in doc["works"]:
                 assert set(work) <= SUMMARY_KEYS
-    assert len(built["level-6"]["owner_all"]) + built["level-6"]["owner_all_cut"] == 12
+    assert len(built["level-6"]["owner_all"]) + built["level-6"]["owner_all_cut"] == 32
 
 
 def test_limits_match_the_platform_source():

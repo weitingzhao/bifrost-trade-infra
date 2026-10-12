@@ -142,12 +142,15 @@ def _apply(view: View, event: dict, index: int) -> None:
             previous = view.waits[event["replaces"]]
             previous.settled = True
             previous.settled_how = "withdrawn"
+            previous.settled_at = at
         return
     if kind == "owner_wait_seen":
         wait = view.waits[event["wait_id"]]
         wait.seen.append(event)
         wait.ever_seen = True
         if terminal_state(wait.ref["kind"], event["ref_state"]):
+            if not wait.settled:
+                wait.settled_at = event["sampled_at"]
             wait.settled = True
             wait.settled_how = event["ref_state"]
             wait.terminal_state = event["ref_state"]
@@ -161,6 +164,7 @@ def _apply(view: View, event: dict, index: int) -> None:
         wait = view.waits[event["wait_id"]]
         wait.settled = True
         wait.settled_how = event["how"]
+        wait.settled_at = at
         return
     if kind == "note":
         view.notes.append(event)

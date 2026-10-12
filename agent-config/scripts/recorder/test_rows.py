@@ -31,7 +31,7 @@ def _round(at, unrecorded):
         "at": at,
         "by": "observer",
         "round_id": "ab12cd34",
-        "started_at": at,
+        "started_at": at - 1,
         "ended_at": at,
         "confirmed": [],
         "failed": [],

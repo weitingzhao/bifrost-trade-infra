@@ -201,7 +201,7 @@ def test_non_dict_block_roots_are_named_blocks(blocks):
     assert doc['incomplete'] == ['blocks']
 
 
-@pytest.mark.parametrize('key,expected', [('unknown_block', 'unknown_block'), ('password', 'blocks')])
+@pytest.mark.parametrize('key,expected', [('unknown_block', 'blocks'), ('password', 'blocks')])
 def test_unknown_and_sensitive_block_names_are_classified_exactly(key, expected):
     doc = json.loads(publish_total(fold_total([], [], 1), 'board', {key: 'x'}))
     assert doc['incomplete'] == [expected]

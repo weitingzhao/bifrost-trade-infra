@@ -13,8 +13,10 @@ import math
 import re
 
 from model import (
+    PLATFORM_ENVELOPE_BYTES,
     PLATFORM_HOST_RE,
     PLATFORM_MAX_FEED,
+    PLATFORM_MAX_PUT_BYTES,
     PLATFORM_MAX_STEPS,
     PLATFORM_MAX_WORKS,
     PUBLISH_FEED_REDUCED,
@@ -25,6 +27,7 @@ from model import (
     PUBLISH_UNKNOWN_REASONS,
     SENSITIVE_KEY_PARTS,
 )
+from redact_bound import growth
 
 _HOST = re.compile(PLATFORM_HOST_RE)
 
@@ -72,6 +75,7 @@ def publish_view(document: dict, host: str | None = None, blocks=None) -> dict:
     doc = _drop_nulls(doc)
     _drop_sensitive(doc)
     block_missing = _merge_blocks(doc, blocks)
+    _drop_sensitive(doc)
     host_kind = _host_decision(host)
     if host_kind == "ok":
         doc["host"] = host
@@ -167,31 +171,44 @@ def _nbytes(doc: dict, level: int, original_feed_len: int, already_cut: bool) ->
     return len(encoded(_stamp(doc, level, original_feed_len, already_cut)))
 
 
+def _too_big(doc: dict, level: int, original_feed_len: int, already_cut: bool) -> bool:
+    """Actual length stays within 204,800. The platform measures more.
+
+    encoded length plus the redaction bound is compared with the platform
+    limit less the largest snapshot envelope. The redactor is not reimplemented.
+    """
+    n = _nbytes(doc, level, original_feed_len, already_cut)
+    if n > PUBLISH_TARGET_BYTES:
+        return True
+    stamped = _public(_stamp(doc, level, original_feed_len, already_cut))
+    return n + growth(stamped) + PLATFORM_ENVELOPE_BYTES > PLATFORM_MAX_PUT_BYTES
+
+
 def _fit(doc: dict, owner_items: list, original_feed_len: int, already_cut: bool) -> int:
     """Apply byte reductions in order. Return the level used, or 0.
 
     Each check measures the bytes after reduced, full_at, and feed_cut.
     """
-    if _nbytes(doc, 0, original_feed_len, already_cut) <= PUBLISH_TARGET_BYTES:
+    if not _too_big(doc, 0, original_feed_len, already_cut):
         return 0
     if _shed_blocks(doc, original_feed_len, already_cut):
         already_cut = True
-        if _nbytes(doc, 0, original_feed_len, already_cut) <= PUBLISH_TARGET_BYTES:
+        if not _too_big(doc, 0, original_feed_len, already_cut):
             return 0
     _level1(doc)
-    if _nbytes(doc, 1, original_feed_len, already_cut) <= PUBLISH_TARGET_BYTES:
+    if not _too_big(doc, 1, original_feed_len, already_cut):
         return 1
     doc["feed"] = list(doc.get("feed") or [])[-PUBLISH_FEED_REDUCED:]
-    if _nbytes(doc, 2, original_feed_len, already_cut) <= PUBLISH_TARGET_BYTES:
+    if not _too_big(doc, 2, original_feed_len, already_cut):
         return 2
     _level3(doc)
-    if _nbytes(doc, 3, original_feed_len, already_cut) <= PUBLISH_TARGET_BYTES:
+    if not _too_big(doc, 3, original_feed_len, already_cut):
         return 3
     _level4(doc)
-    if _nbytes(doc, 4, original_feed_len, already_cut) <= PUBLISH_TARGET_BYTES:
+    if not _too_big(doc, 4, original_feed_len, already_cut):
         return 4
     _level5(doc)
-    if _nbytes(doc, 5, original_feed_len, already_cut) <= PUBLISH_TARGET_BYTES:
+    if not _too_big(doc, 5, original_feed_len, already_cut):
         return 5
     _level6(doc, owner_items, original_feed_len, already_cut)
     return 6
@@ -264,7 +281,7 @@ def _level6(doc: dict, items: list, original_feed_len: int, already_cut: bool) -
         if cut:
             trial["owner_all_cut"] = cut
             trial["incomplete"] = sorted(set([*(trial.get("incomplete") or []), "owner_all"]))
-        if _nbytes(trial, 6, original_feed_len, already_cut) <= PUBLISH_TARGET_BYTES:
+        if not _too_big(trial, 6, original_feed_len, already_cut):
             kept.append(item)
         else:
             break
@@ -488,12 +505,12 @@ def _shed_blocks(doc: dict, original_feed_len: int, already_cut: bool) -> bool:
         for work in doc.get("works") or []
         for step in work.get("steps") or []
     )
-    if has_events and _nbytes(doc, 0, original_feed_len, True) > PUBLISH_TARGET_BYTES:
+    if has_events and _too_big(doc, 0, original_feed_len, True):
         _strip_step_events(doc)
         _note(doc, "events")
         changed = True
     for key in ("recent", "usage", "graph", "queue", "roadmap", "coordinator"):
-        if key in doc and _nbytes(doc, 0, original_feed_len, True) > PUBLISH_TARGET_BYTES:
+        if key in doc and _too_big(doc, 0, original_feed_len, True):
             doc.pop(key, None)
             _note(doc, key)
             changed = True
@@ -522,11 +539,7 @@ def _merge_blocks(doc: dict, blocks) -> list:
     missing = []
     for key in blocks:
         if type(key) is not str or key not in _BLOCK_KEYS:
-            folded = key.lower() if type(key) is str else ""
-            if any(part in folded for part in SENSITIVE_KEY_PARTS):
-                missing.append("blocks")
-            else:
-                missing.append(key if type(key) is str else "blocks")
+            missing.append("blocks")
             continue
         value = blocks[key]
         if not exact_tree(value) or not _block_ok(key, value):
@@ -613,7 +626,7 @@ def publish_total(folded, host=None, blocks=None) -> bytes:
         else:
             view = publish_view(document, host, blocks)
         data = encode_strict(view)
-        if len(data) > PUBLISH_TARGET_BYTES:
+        if len(data) > PUBLISH_TARGET_BYTES or len(data) + growth(view) + PLATFORM_ENVELOPE_BYTES > PLATFORM_MAX_PUT_BYTES:
             return encode_strict(fallback("publish", "too_large", at=document["at"], n=caught))
         if not shape_ok(data):
             return encode_strict(fallback("publish", "shape", at=document["at"], n=caught))

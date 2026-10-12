@@ -253,6 +253,11 @@ GAP_S = 180
 # Platform limits, read from agentprogress schema.go and document.go.
 # publish_view stays inside these. Feed and owner_all are tighter on purpose.
 PLATFORM_MAX_PUT_BYTES = 262144  # 256 KiB, document.go MaxDocumentBytes
+# Worst-case snapshot wrapper around the redacted document. Struct order is
+# document, received_at, host. Timestamp is RFC3339Nano in UTC (30 bytes with
+# 9 fractional digits). Host is the 64-byte hostRe maximum.
+# {"document": + ,"received_at":" + ","host":" + "} = 12+16+10+2, plus 30+64.
+PLATFORM_ENVELOPE_BYTES = 134
 PLATFORM_MAX_WORKS = 30
 PLATFORM_MAX_STEPS = 20
 PLATFORM_MAX_OWNER_NOW = 10

@@ -242,7 +242,7 @@ def test_measured_stamp_matches_final_metadata(level, already_cut, feed_trimmed)
         expected['reduced'] = level
     if feed_trimmed:
         expected['feed_cut'] = 1
-        expected['incomplete'] = ['bad', 'feed'] if already_cut else ['feed']
+        expected['incomplete'] = ['blocks', 'feed'] if already_cut else ['feed']
     if level or already_cut or feed_trimmed:
         expected['full_at'] = 'local_board'
     stamped = publish._stamp(doc, level, 3, already_cut)

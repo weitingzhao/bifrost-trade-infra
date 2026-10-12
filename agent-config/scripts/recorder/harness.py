@@ -125,7 +125,7 @@ def round_for(at: float, confirmed: list, failed: list | None = None, round_id: 
         "observer_round",
         "observer",
         round_id=round_id,
-        started_at=at,
+        started_at=at - 1,
         ended_at=at,
         confirmed=list(confirmed),
         failed=list(failed or []),

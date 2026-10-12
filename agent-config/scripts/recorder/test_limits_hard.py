@@ -4,13 +4,9 @@ from __future__ import annotations
 
 import hashlib
 
-from harness import WORK, LogBuilder, fold_one
+from harness import WORK, LogBuilder, _chain, fold_one
+from model import MAX_EVENTS
 from read import read_log
-
-
-def _seal(body: bytes) -> bytes:
-    digest = hashlib.sha256(body).hexdigest().encode("ascii")
-    return digest + b" " + body + b"\n"
 
 
 def test_line_of_131073_bytes_is_limit_line():
@@ -26,13 +22,19 @@ def test_sixteen_mebibytes_is_limit_log():
     from harness import _chain
 
     loaded = read_log(WORK, _chain(log.events))
-    assert loaded.full is True
+    assert loaded.broken_why == "limit_log"
+    assert loaded.broken_line is not None
+    assert loaded.full is False
 
 
 def test_twenty_thousand_and_one_lines_is_limit_log():
-    line = _seal(b'{"a":1}')
-    loaded = read_log(WORK, line * 20001)
-    assert loaded.full is True
+    log = LogBuilder()
+    for _ in range(MAX_EVENTS + 1):
+        log.add("note", "coordinator", at=1, text="n")
+    loaded = read_log(WORK, _chain(log.events))
+    assert loaded.broken_line == MAX_EVENTS + 1
+    assert loaded.broken_why == "limit_log"
+    assert loaded.full is False
 
 
 def test_a_title_of_81_codepoints_is_limit_text():

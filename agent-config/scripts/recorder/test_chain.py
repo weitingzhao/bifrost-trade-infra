@@ -215,7 +215,9 @@ def test_sixteen_mebibytes_refuses_another(tmp_path):
     line, prev = _note_line(1, prev, "x" * (MAX_BYTES + 10))
     path = tmp_path / "events.jsonl"
     path.write_bytes(line)
-    assert load_bytes(line).full
+    loaded = load_bytes(line)
+    assert loaded.full is False
+    assert loaded.invalid_seq == 1
     try:
         append_sealed(
             path,
@@ -230,6 +232,6 @@ def test_sixteen_mebibytes_refuses_another(tmp_path):
             },
         )
     except ValueError as exc:
-        assert "full" in str(exc)
+        assert "invalid" in str(exc)
     else:
         raise AssertionError("oversized log accepted an append")

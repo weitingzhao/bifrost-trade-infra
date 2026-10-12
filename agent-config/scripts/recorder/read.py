@@ -2,6 +2,8 @@
 
 JSON is decoded only here and in the publish shape check. Nothing in this
 module reads the clock, a file, or the network. Callers hand in bytes.
+
+「普通代码」的边界：不点名模块私有属性、不走堆、不给记录器的模块或类赋值、不枚举模块的命名空间；边界之外的不在保证之内。登记表随存活的句柄增长，句柄回收时条目随之消失。
 """
 
 from __future__ import annotations
@@ -40,23 +42,50 @@ PROBES = {"line": None, "fold": None, "publish": None, "fallback": None}
 _FOLD_TOKEN = object()
 
 
-# Weak keys retain only identity, not the handle. Removal precedes id reuse;
-# we never index by a naked id, so a new shell cannot inherit an old snapshot.
-_FOLDED_BYTES = weakref.WeakKeyDictionary()
+# id is only a hint. Every read requires the weak reference to be this object,
+# so a recycled address cannot inherit an old document. Entries grow with live
+# handles and disappear when the handle is collected.
+_REGISTRY: dict[int, tuple] = {}
+
+
+def _forget(ident: int, ref) -> None:
+    slot = _REGISTRY.get(ident)
+    if slot is not None and slot[0] is ref:
+        _REGISTRY.pop(ident, None)
+
+
+def _keep(obj, payload: bytes) -> None:
+    ident = id(obj)
+
+    def _drop(ref, ident=ident):
+        _forget(ident, ref)
+
+    _REGISTRY[ident] = (weakref.ref(obj, _drop), payload)
+
+
+def _held(value):
+    slot = _REGISTRY.get(id(value))
+    if slot is None:
+        return None
+    ref, payload = slot
+    if ref() is not value:
+        _REGISTRY.pop(id(value), None)
+        return None
+    return payload
 
 
 class Folded:
-    """An empty identity handle. All state lives in the private weak registry."""
+    """An empty identity handle. The registry holds a weak reference and the bytes."""
 
     __slots__ = ("__weakref__",)
 
     def __init_subclass__(cls, **kwargs):
         raise TypeError("Folded cannot be subclassed")
 
-    def __init__(self, token, document):
-        if token is not _FOLD_TOKEN:
+    def __init__(self, token=None, document=None):
+        # Sealing does not call this. Replacing it cannot capture the token.
+        if token is _FOLD_TOKEN or document is not None or True:
             raise TypeError("Folded has no public constructor")
-        _FOLDED_BYTES[self] = encode_strict(document)
 
     @property
     def __class__(self):
@@ -68,18 +97,23 @@ class Folded:
 
 
 def _seal(document) -> Folded:
-    return Folded(_FOLD_TOKEN, document)
+    obj = object.__new__(Folded)
+    _keep(obj, encode_strict(document))
+    return obj
 
 
 def _is_folded(value) -> bool:
-    """Check exact type before registry lookup; never touch a caller's methods."""
+    """Exact type, then identity. Hash and equality are never consulted."""
     if type(value) is not Folded:
         return False
-    return value in _FOLDED_BYTES
+    return _held(value) is not None
 
 
 def _document(value):
-    return json.loads(_FOLDED_BYTES[value])
+    payload = _held(value)
+    if payload is None:
+        raise KeyError("unregistered")
+    return json.loads(payload)
 
 
 def _probe(name: str) -> None:
@@ -416,7 +450,9 @@ def read_log(name: str, data: bytes, *, observer: bool = False) -> ReadLog:
     for index, line in enumerate(lines):
         number = index + 1
         if number > MAX_EVENTS or used + len(line) + 1 > MAX_LOG_BYTES:
-            out.full = True
+            # Bytes remain. The first line not read is a limit_log break.
+            out.broken_line = number
+            out.broken_why = "limit_log"
             break
         used += len(line) + 1
         try:
@@ -433,8 +469,6 @@ def read_log(name: str, data: bytes, *, observer: bool = False) -> ReadLog:
         if parsed.kind == "break":
             out.broken_line = number
             out.broken_why = parsed.reason
-            if parsed.reason == "limit_log":
-                out.full = True
             break
         if parsed.kind == "defect":
             bucket = out.defects
@@ -461,7 +495,8 @@ def read_log(name: str, data: bytes, *, observer: bool = False) -> ReadLog:
     if not observer:
         view.defects = [{"seq": item["seq"], "reason": item["reason"]} for item in out.defects]
     view.backwards = _backwards(view.valid)
-    if len(lines) >= MAX_EVENTS or used >= MAX_LOG_BYTES:
+    # log_full is exactly the cap with nothing unread. A break is not log_full.
+    if out.broken_line is None and (len(lines) == MAX_EVENTS or used == MAX_LOG_BYTES):
         out.full = True
     return out
 
@@ -493,7 +528,7 @@ def bad_number(now) -> str | None:
 
 
 def bad_count(logs_unread) -> str | None:
-    if logs_unread < 0:
+    if logs_unread < 0 or logs_unread > TWO53:
         return "logs_unread"
     return None
 
@@ -622,7 +657,7 @@ LAST_PUBLISH = encode_strict({
 # The last resort must remain available even when construction itself fails.
 # Bootstrap its identity without invoking the constructor under test.
 _LAST_FOLDED = object.__new__(Folded)
-_FOLDED_BYTES[_LAST_FOLDED] = encode_strict(LAST_FOLD())
+_keep(_LAST_FOLDED, encode_strict(LAST_FOLD()))
 
 
 def fold_total(logs, observer, now, logs_unread=0) -> Folded:
