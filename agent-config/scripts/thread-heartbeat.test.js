@@ -8,7 +8,7 @@ const fs = require('node:fs')
 const http = require('node:http')
 const os = require('node:os')
 const path = require('node:path')
-const { spawn } = require('node:child_process')
+const { spawn, spawnSync } = require('node:child_process')
 const { performance } = require('node:perf_hooks')
 
 const SCRIPT = path.join(__dirname, 'thread-heartbeat.js')
@@ -23,7 +23,6 @@ delete process.env.BIFROST_HEARTBEAT_TITLE
 delete process.env.BIFROST_WORK
 delete process.env.BIFROST_HEARTBEAT_PROGRESS
 delete process.env.BIFROST_HEARTBEAT_RUN_BEAT_MS
-delete process.env.BIFROST_HEARTBEAT_TEST_MISS_TRYHOLD
 
 const { beatFor, toolTimeoutSeconds, shouldSkip, reduceThrottle, allocateStamp, loadGate, supersedeActive, saveIssuedKey, withThreadLock, armHookDeadline, clearHookDeadline, lockRuntime, startProgressBeats } = require('./thread-heartbeat.js')
 const ISSUED_KEY = 'ab'.repeat(32)
@@ -872,17 +871,172 @@ process.kill(process.pid, 'SIGKILL')
   srv.s.close()
 }
 
-// An unanswered helper is not a busy lock. One forced unanswered attempt
-// must not consume the growth: the next look, while the child is still alive,
-// sends that beat. A busy lock still consumes the growth (progressEdges).
-async function progressGiveupRetriesGrowth() {
-  const beat = 200
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-prog-giveup-'))
+// Wraps child_process.spawn in the wrapper (NODE_OPTIONS=--require) so the TRY
+// helper can be slowed. Plans, one per try-helper spawn, last entry repeats:
+//   fast | never | pre:<ms> | held:<ms>
+function writeTryPreload(dir) {
+  const body = [
+    "const cp = require('node:child_process')",
+    "const fs = require('node:fs')",
+    'const orig = cp.spawn',
+    'let n = 0',
+    'cp.spawn = function (cmd, args, opts) {',
+    "  const isTry = Array.isArray(args) && args[0] === '-e' && typeof args[1] === 'string' && args[1].includes('publish(\"timeout\");') && !args[1].includes('$wait_ms')",
+    '  if (!isTry) return orig.apply(this, arguments)',
+    '  n++',
+    "  const plan = (process.env.HEARTBEAT_TRY_PLAN || 'fast').split(',')",
+    "  const spec = plan[Math.min(n - 1, plan.length - 1)] || 'fast'",
+    '  let script = args[1]',
+    "  if (spec.startsWith('pre:')) script = 'select(undef,undef,undef,' + (Number(spec.slice(4)) / 1000) + ');\\n' + script",
+    "  else if (spec === 'never') script = 'select(undef,undef,undef,30);\\n' + script",
+    "  else if (spec.startsWith('held:')) {",
+    '    const sec = Number(spec.slice(5)) / 1000',
+    "    script = script.replace('publish(\"ok\");', 'my $mark = $ENV{HEARTBEAT_TRY_HELD} || \"\"; if (length $mark) { open my $hf, \">\", $mark or die $!; print $hf \"1\"; close $hf; } select(undef,undef,undef,' + sec + '); publish(\"ok\");')",
+    '  }',
+    "  const child = orig.call(this, cmd, ['-e', script].concat(args.slice(2)), opts)",
+    "  const seen = process.env.HEARTBEAT_TRY_SEEN || ''",
+    "  const pidFile = process.env.HEARTBEAT_TRY_PIDS || ''",
+    "  if (seen) { try { fs.writeFileSync(seen, String(n)) } catch (err) {} }",
+    "  if (pidFile && child.pid) { try { fs.appendFileSync(pidFile, String(child.pid) + '\\n') } catch (err) {} }",
+    '  return child',
+    '}',
+  ].join('\n')
+  return writeScript(dir, 'slow-try.js', body)
+}
+
+function killTryPids(pidFile) {
+  if (!fs.existsSync(pidFile)) return
+  for (const line of fs.readFileSync(pidFile, 'utf8').split('\n')) {
+    const pid = Number(line)
+    if (!pid) continue
+    try { process.kill(pid, 'SIGKILL') } catch { /* already gone */ }
+  }
+}
+
+function lockWord(lockPath) {
+  const probe = spawnSync('/usr/bin/perl', ['-e', 'use Fcntl qw(:flock); open my $f, ">>", $ARGV[0] or die $!; print flock($f, LOCK_EX|LOCK_NB) ? "free" : "held";', lockPath], { encoding: 'utf8' })
+  assert.equal(probe.status, 0, probe.stderr)
+  return probe.stdout.trim()
+}
+
+function arrivalServer() {
+  const got = []
+  const s = http.createServer((req, res) => {
+    let raw = ''
+    req.on('data', d => (raw += d))
+    req.on('end', () => {
+      got.push({ at: Date.now(), body: JSON.parse(raw || '{}') })
+      res.writeHead(202, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ ok: true, thread_key: ISSUED_KEY }))
+    })
+  })
+  return new Promise(resolve => s.listen(0, '127.0.0.1', () => resolve({ s, got, url: `http://127.0.0.1:${s.address().port}` })))
+}
+
+// The helper does not answer. The child exits during that wait. turn_end is
+// delivered within 1000ms of the exit, so the wait cannot be a blocking loop.
+async function progressExitDuringTryWait() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-try-exit-'))
   const progress = path.join(home, 'progress')
-  const miss = path.join(home, 'miss')
+  const exited = path.join(home, 'exited')
+  const seen = path.join(home, 'seen')
+  const pids = path.join(home, 'pids')
   fs.writeFileSync(progress, '')
-  fs.writeFileSync(miss, '1')
-  const child = writeScript(home, 'hold.js', `
+  const preload = writeTryPreload(home)
+  const child = writeScript(home, 'exit-during.js', `
+const fs = require('fs')
+const sleep = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+fs.appendFileSync(process.argv[2], 'x')
+const until = Date.now() + 8000
+while (!fs.existsSync(process.argv[4]) && Date.now() < until) sleep(5)
+sleep(40)
+fs.writeFileSync(process.argv[3], String(Date.now()))
+process.exit(0)
+`)
+  const srv = await arrivalServer()
+  try {
+    const run = await runScript(['run', 'cursor', '--', process.execPath, child, progress, exited, seen], {
+      env: runEnv(home, srv.url, {
+        NODE_OPTIONS: `--require=${preload}`,
+        HEARTBEAT_TRY_PLAN: 'never',
+        HEARTBEAT_TRY_SEEN: seen,
+        HEARTBEAT_TRY_PIDS: pids,
+        BIFROST_HEARTBEAT_PROGRESS: progress,
+        BIFROST_HEARTBEAT_RUN_BEAT_MS: '100',
+      }),
+    })
+    assert.equal(run.code, 0, run.err)
+    assert.ok(fs.existsSync(seen), 'try helper did not start')
+    const end = srv.got.find(g => g.body.event === 'turn_end')
+    assert.ok(end, `turn_end missing: ${srv.got.map(g => g.body.event).join(',')}`)
+    const delta = end.at - Number(fs.readFileSync(exited, 'utf8'))
+    assert.ok(delta >= 0 && delta < 1000, `turn_end ${delta}ms after the child exited`)
+    assert.deepEqual(srv.got.map(g => g.body.event), ['turn_start', 'turn_end'])
+  } finally {
+    killTryPids(pids)
+    srv.s.close()
+  }
+}
+
+// The helper holds the lock and has not answered. Child exit must still send
+// turn_end, and the lock must be free afterwards (the helper was killed).
+async function progressHeldLockFreedOnExit() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-try-held-'))
+  const progress = path.join(home, 'progress')
+  const exited = path.join(home, 'exited')
+  const seen = path.join(home, 'seen')
+  const held = path.join(home, 'held')
+  const saw = path.join(home, 'saw')
+  const pids = path.join(home, 'pids')
+  const thread = 'run-held-exit'
+  fs.writeFileSync(progress, '')
+  const preload = writeTryPreload(home)
+  const child = writeScript(home, 'exit-held.js', `
+const fs = require('fs')
+const sleep = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+fs.appendFileSync(process.argv[2], 'x')
+const until = Date.now() + 8000
+while (!fs.existsSync(process.argv[4]) && Date.now() < until) sleep(5)
+fs.writeFileSync(process.argv[5], fs.existsSync(process.argv[4]) ? 'yes' : 'no')
+fs.writeFileSync(process.argv[3], String(Date.now()))
+process.exit(0)
+`)
+  const srv = await arrivalServer()
+  const lockPath = path.join(home, '.cache', 'bifrost', 'thread-keys', 'cursor', `${thread}.lock`)
+  try {
+    const run = await runScript(['run', 'cursor', '--', process.execPath, child, progress, exited, held, saw], {
+      env: runEnv(home, srv.url, {
+        NODE_OPTIONS: `--require=${preload}`,
+        HEARTBEAT_TRY_PLAN: 'held:30000',
+        HEARTBEAT_TRY_SEEN: seen,
+        HEARTBEAT_TRY_HELD: held,
+        HEARTBEAT_TRY_PIDS: pids,
+        BIFROST_HEARTBEAT_PROGRESS: progress,
+        BIFROST_HEARTBEAT_RUN_BEAT_MS: '100',
+        BIFROST_HEARTBEAT_THREAD: thread,
+      }),
+    })
+    assert.equal(run.code, 0, run.err)
+    assert.equal(fs.readFileSync(saw, 'utf8'), 'yes', 'helper never held the lock before the child exited')
+    assert.ok(srv.got.some(g => g.body.event === 'turn_end'), `turn_end missing: ${srv.got.map(g => g.body.event).join(',')}`)
+    assert.equal(lockWord(lockPath), 'free', 'lock still held after the child exited')
+    assert.deepEqual(srv.got.map(g => g.body.event), ['turn_start', 'turn_end'])
+  } finally {
+    killTryPids(pids)
+    srv.s.close()
+  }
+}
+
+// A real unanswered helper (not an in-process stub) leaves the growth in
+// place. The next look, with a normal helper, sends that one beat.
+async function progressRealGiveupOneBeat() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-try-retry-'))
+  const progress = path.join(home, 'progress')
+  const seen = path.join(home, 'seen')
+  const pids = path.join(home, 'pids')
+  fs.writeFileSync(progress, '')
+  const preload = writeTryPreload(home)
+  const child = writeScript(home, 'retry.js', `
 const fs = require('fs')
 const sleep = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 fs.appendFileSync(process.argv[2], 'x')
@@ -890,19 +1044,27 @@ sleep(Number(process.argv[3]))
 process.exit(0)
 `)
   const srv = await server()
-  const run = await runScript(['run', 'cursor', '--', process.execPath, child, progress, '3000'], {
-    env: runEnv(home, srv.url, {
-      BIFROST_HEARTBEAT_PROGRESS: progress,
-      BIFROST_HEARTBEAT_RUN_BEAT_MS: String(beat),
-      BIFROST_HEARTBEAT_TEST_MISS_TRYHOLD: miss,
-    }),
-  })
-  assert.equal(run.code, 0, run.err)
-  assert.equal(fs.readFileSync(miss, 'utf8'), '0', 'the unanswered attempt did not run')
-  assert.deepEqual(srv.got.map(g => g.body.event), ['turn_start', 'after_tool', 'turn_end'])
-  assert.equal(srv.got[1].body.tool, 'headless-progress')
-  assert.equal(srv.got.filter(g => g.body.event === 'after_tool').length, 1)
-  srv.s.close()
+  try {
+    const run = await runScript(['run', 'cursor', '--', process.execPath, child, progress, '6000'], {
+      env: runEnv(home, srv.url, {
+        NODE_OPTIONS: `--require=${preload}`,
+        HEARTBEAT_TRY_PLAN: 'never,fast',
+        HEARTBEAT_TRY_SEEN: seen,
+        HEARTBEAT_TRY_PIDS: pids,
+        BIFROST_HEARTBEAT_PROGRESS: progress,
+        BIFROST_HEARTBEAT_RUN_BEAT_MS: '200',
+      }),
+    })
+    assert.equal(run.code, 0, run.err)
+    assert.ok(Number(fs.readFileSync(seen, 'utf8')) >= 2, 'the second attempt did not run')
+    const beats = srv.got.filter(g => g.body.event === 'after_tool')
+    assert.equal(beats.length, 1, `events: ${srv.got.map(g => g.body.event).join(',')}`)
+    assert.equal(beats[0].body.tool, 'headless-progress')
+    assert.deepEqual(srv.got.map(g => g.body.event), ['turn_start', 'after_tool', 'turn_end'])
+  } finally {
+    killTryPids(pids)
+    srv.s.close()
+  }
 }
 
 function listen(s) {
@@ -1378,7 +1540,9 @@ async function main() {
   await deadLockRace()
   await endToEnd()
   await progressBeats()
-  await progressGiveupRetriesGrowth()
+  await progressExitDuringTryWait()
+  await progressHeldLockFreedOnExit()
+  await progressRealGiveupOneBeat()
   await progressEdges()
   await progressRecoveryDoesNotDelayExit()
   await progressRecoveryDoesNotDelayExit(true)

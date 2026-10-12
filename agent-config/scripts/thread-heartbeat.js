@@ -616,26 +616,12 @@ exit 1;
 `
 
 function beginTryHold(lockPath) {
-  // Test-only: the next N attempts end as an unanswered helper, not a busy lock.
-  const missFile = process.env.NODE_ENV === 'test' ? process.env.BIFROST_HEARTBEAT_TEST_MISS_TRYHOLD : ''
-  if (missFile) {
-    try {
-      const left = Number(fs.readFileSync(missFile, 'utf8'))
-      if (left > 0) {
-        fs.writeFileSync(missFile, String(left - 1))
-        return { promise: Promise.resolve(null), reason: 'giveup', cancel() {} }
-      }
-    } catch {
-      // a missing counter is a normal attempt
-    }
-  }
   let settled = false
   let child = null
   let pollTimer = null
   let giveUp = null
   let resolvePromise = null
   let reason = ''
-  let acquired = null
   const ready = `${lockPath}.ready.${process.pid}.${crypto.randomBytes(4).toString('hex')}`
   const stopTimers = () => {
     if (pollTimer) clearTimeout(pollTimer)
@@ -650,7 +636,6 @@ function beginTryHold(lockPath) {
     }
     settled = true
     reason = why || ''
-    acquired = held || null
     stopTimers()
     if (!held && child) releaseHelper(child, ready)
     if (resolvePromise) resolvePromise(held || null)
@@ -671,7 +656,7 @@ function beginTryHold(lockPath) {
     child.on('error', () => finish(null, 'child-error'))
     // A slow perl is not a busy lock. Wait for its answer; child exit cancels
     // the wait, so turn_end does not sit out this deadline.
-    giveUp = setTimeout(() => finish(null, 'giveup'), 2000)
+    giveUp = setTimeout(() => finish(null, 'giveup'), 100)
     giveUp.unref()
     const poll = () => {
       if (settled) return
@@ -704,11 +689,9 @@ function beginTryHold(lockPath) {
       return reason
     },
     cancel() {
-      // turn_end takes this lock on the event loop. Release a helper that
-      // already answered so that wait cannot sit out LOCK_WAIT_MS.
-      const heldNow = acquired
-      acquired = null
-      if (heldNow) heldNow.release()
+      // finish() already dropped a helper that has not answered. A helper
+      // that has answered is released by the caller in the same turn, so
+      // cancel only meets an attempt that is still waiting.
       finish(null, 'cancel')
     },
   }
