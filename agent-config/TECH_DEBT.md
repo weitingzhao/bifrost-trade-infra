@@ -1945,6 +1945,19 @@
 - 验收: `verify-ci-gate.sh` under added CPU load, five runs in a row, 0 failures; a green `ci-platform` on the commit that carries the fix
 - 审批 无（测试改动，随平台主线）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-319
+
+**P1 · multi-agent · the recorder's slice 1 is on main as code nobody may trust yet: three inputs are answered wrongly and some single-point mutants are caught by no test — it must not be wired until both are closed**
+
+- **状态**：在做（Owner 2026-10-12 09:10「主线选 ②」：第一片当作还没被信任的代码合进主线，不再加实现轮次）
+- **Claim**: `agent-config/scripts/recorder/` was merged after six implementation rounds (three implementers) with these known defects, all from Codex review 113 (`work/multi-agent/reviews/codex-2026-10-12-review113-w66-recorder-s1-r6.md`): (1) a log exactly at its limit (20,000 lines, 16 MiB, the observer log) followed by a torn tail records no `limit_log` break — `read.py:439–456, 499`; (2) `record_created` takes `since` too late when a continuously found record has an Unknown condition in between — `ownerball.py:397`; (3) `next_not_sent` takes `since` from the declaration when the wait is settled in another log — `ownerball.py:162–165, 492–513`. None of the three makes the published document say "all clear"; they leave a marker out or a time wrong. Besides: of 3,887 generated single-point mutants, 264 were not caught at the end of round 7 (round 8 was stopped part-way on 2026-10-12 09:25 because it saturated the machine; its commits are merged).
+- **Measured**: review 113's reproductions (`evidence/repro.py`, `evidence/limits.py` in the reviewer's directory); the coordinator's rerun of round 6; on the merged tree `pytest agent-config/scripts/recorder/` → 688 passed, 5 xfailed (2026-10-12 09:30). NOT MEASURED: the mutant count after round 8's partial work (the 50-minute run was not repeated).
+- **Impact**: none today — nothing reads the recorder (`test_guard.py` holds the release path to that; `STATUS.md` in the directory says so). It becomes real the moment slice 2 lets the board read the folded result: a missing marker or a wrong time would then be shown to the Owner as fact.
+- **Fix**: the three by review 113's smallest fixes, independently reviewed (the reviewer must not be the one who reviewed the previous round); the remaining survivors to zero under the checker's definition (killed, equivalent-shown, unreachable-shown), run when the machine is otherwise idle and with a cap on parallel processes; then seven days in shadow beside the hand-maintained board, every difference turned into a test or explained.
+- **Ratchet**: the five `xfail(strict=True)` tests for the three defects (they fail the suite when a defect is fixed and the mark is left, so the fix cannot land silently half-done); `test_guard.py` (the release path does not read the recorder); `STATUS.md`. No ratchet yet stops a new consumer from trusting the output — there is no consumer; slice 2's brief must add "shadow only until TD-319 is closed" as a test.
+- 验收: the five tests pass with their marks removed; `RECORDER_MUTANTS=1 pytest agent-config/scripts/recorder/test_mutants.py` reports 0 survivors; a shadow log of seven consecutive days with 0 unexplained differences
+- 审批 无 · 代价 M · 风险 low（没有接线）· repos: bifrost-trade-infra, bifrost-platform
+
 ## 没覆盖到的（下一轮从这里开始）
 
 - Per-engine numerical correctness beyond dates: GEX sign conventions, max-pain, VRP realized-vol windows, vanna/charm, SVI fit, flow maths
