@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+
 P = "a1b2c3d4"
 WORK = "w1"
 
@@ -9,6 +11,17 @@ WORK = "w1"
 def _need(cond, detail):
     if not cond:
         raise AssertionError(detail)
+
+
+def _soon(fn):
+    """None when fn has not returned. A cycle that ignores its stop must fail here."""
+    box = []
+    thread = threading.Thread(target=lambda: box.append(fn()), daemon=True)
+    thread.start()
+    thread.join(0.2)
+    if thread.is_alive() or not box:
+        return None
+    return box[0]
 
 
 def _publish_view_and_levels():
@@ -92,7 +105,7 @@ def _publish_view_and_levels():
     _need(_merge_blocks({}, {"usage": []}) == ["usage"], "usage is an object")
     cycle = {}
     cycle["self"] = cycle
-    _need(_merge_blocks({}, {"usage": cycle}) == ["blocks"], "a cyclic blocks object is rejected before a key is copied")
+    _need(_soon(lambda: _merge_blocks({}, {"usage": cycle})) == ["blocks"], "a cyclic blocks object is rejected before a key is copied")
     attached = {"works": [{"work_id": WORK, "steps": [{"step_id": P, "state": "running"}]}]}
     _need(_attach_events(attached, {"w1/" + P: [{"at": 1}]}) is True, attached)
     _need(attached["works"][0]["steps"][0]["events"] == [{"at": 1}], attached)
@@ -131,7 +144,7 @@ def _read_edges():
     _need(exact_tree({1: "a"}) is False, "a key is a string")
     cycle = []
     cycle.append(cycle)
-    _need(exact_tree(cycle) is False, "a cycle is not a tree")
+    _need(_soon(lambda: exact_tree(cycle)) is False, "a cycle is not a tree")
     deep = current = []
     for _ in range(MAX_DEPTH):
         nxt = []
