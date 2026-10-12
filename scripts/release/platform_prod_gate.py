@@ -44,7 +44,6 @@ def resolve(url, revision, directory):
                 "ls-remote",
                 "--",
                 url,
-                revision,
                 "refs/heads/" + revision,
                 "refs/tags/" + revision,
                 "refs/tags/" + revision + "^{}",
@@ -118,26 +117,64 @@ def validate_run(run):
         raise ValueError("ambiguous status")
 
 
+def run_time(run, field):
+    name = run["metadata"]["name"]
+    value = (
+        run.get("status", {}).get(field)
+        if field == "completionTime"
+        else run["metadata"].get(field)
+    )
+    try:
+        stamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if stamp.tzinfo is None:
+            raise ValueError("timezone missing")
+        return stamp
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValueError(f"STG run {name} has missing or unparsable {field}") from exc
+
+
 def latest_stg(runs):
-    stg = [
-        r
-        for r in runs
-        if _pipeline_name(r) == "bifrost-deliver-platform" and _succeeded(r) == "True"
-    ]
+    stg = [r for r in runs if _pipeline_name(r) == "bifrost-deliver-platform"]
     if not stg:
-        raise ValueError("no Succeeded STG delivery")
-
-    # Most recent run = creation time (not completion order). A tie is ambiguous.
-    def created(run):
-        return datetime.fromisoformat(
-            run["metadata"]["creationTimestamp"].replace("Z", "+00:00")
-        )
-
-    latest = max(created(r) for r in stg)
-    chosen = [r for r in stg if created(r) == latest]
+        raise ValueError("no STG delivery")
+    latest = max(run_time(r, "creationTimestamp") for r in stg)
+    chosen = [r for r in stg if run_time(r, "creationTimestamp") == latest]
     if len(chosen) != 1:
         raise ValueError("ambiguous latest STG delivery")
-    return chosen[0]
+    chosen = chosen[0]
+    state = _succeeded(chosen)
+    if state != "True":
+        raise ValueError(
+            f"STG run {chosen['metadata']['name']} is {state or 'running/no Succeeded condition'}"
+        )
+    completed = run_time(chosen, "completionTime")
+    # This check stands for "STG is running this commit"; an older run finishing later,
+    # or any run still in flight, means we do not know what STG runs.
+    for run in stg:
+        if run is not chosen and run_time(run, "completionTime") >= completed:
+            raise ValueError(
+                f"STG run {run['metadata']['name']} completed later than or with the newest run"
+            )
+    return chosen
+
+
+def pipeline_runs(pipeline):
+    doc = read_json(["get", "pipelineruns", "-l", "tekton.dev/pipeline=" + pipeline])
+    if (
+        not isinstance(doc, dict)
+        or not isinstance(doc.get("items"), list)
+        or not isinstance(doc.get("metadata", {}), dict)
+        or doc.get("metadata", {}).get("continue")
+    ):
+        raise ValueError("malformed or incomplete PipelineRun list")
+    for run in doc["items"]:
+        validate_run(run)
+        if (
+            _pipeline_name(run) != pipeline
+            or run["spec"].get("pipelineRef", {}).get("name", pipeline) != pipeline
+        ):
+            raise ValueError("PipelineRun does not match selector " + pipeline)
+    return doc["items"]
 
 
 def main():
@@ -152,20 +189,11 @@ def main():
                 tmp + "/platform",
             )
             condition = "CI"
-            doc = read_json(["get", "pipelineruns"])
-            if (
-                not isinstance(doc, dict)
-                or not isinstance(doc.get("items"), list)
-                or doc.get("metadata", {}).get("continue")
-            ):
-                raise ValueError("malformed or incomplete PipelineRun list")
-            runs = doc["items"]
-            for run in runs:
-                validate_run(run)
+            runs = pipeline_runs("bifrost-ci-platform")
             if classify(runs, "bifrost-platform", sha) != "succeeded":
                 raise ValueError("no exact-SHA Succeeded CI")
             condition = "STG"
-            stg = latest_stg(runs)
+            stg = latest_stg(pipeline_runs("bifrost-deliver-platform"))
             children = [
                 c
                 for c in stg["status"]["childReferences"]

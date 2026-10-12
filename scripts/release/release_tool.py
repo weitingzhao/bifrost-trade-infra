@@ -25,6 +25,8 @@ Subcommands (all print to stdout; errors to stderr):
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import re
@@ -277,6 +279,18 @@ def platform_pinned_run(stg: Dict[str, Any], commits: Dict[str, Optional[str]]) 
     if problems:
         die("REFUSED: STG run lacks a full commit for: " + ", ".join(problems), 1)
     spec = {k: v for k, v in (stg.get("spec") or {}).items() if k in ("taskRunSpecs", "taskRunTemplate", "timeouts", "workspaces")}
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            pipeline = kget("pipeline", "bifrost-deliver-platform-prod")
+        tasks = pipeline["spec"]["tasks"]
+        if not isinstance(tasks, list):
+            raise ValueError("spec.tasks is not a list")
+        has_gate = any(task["name"] == "check-source" for task in tasks)
+    except (Exception, SystemExit):
+        die("REFUSED: cannot read valid pipeline/bifrost-deliver-platform-prod tasks", 1)
+    if has_gate:
+        overrides = [t for t in spec.get("taskRunSpecs", []) if t.get("pipelineTaskName") != "check-source"]
+        spec["taskRunSpecs"] = overrides + [{"pipelineTaskName": "check-source", "serviceAccountName": "tekton-deliver"}]
     return {
         "apiVersion": "tekton.dev/v1",
         "kind": "PipelineRun",

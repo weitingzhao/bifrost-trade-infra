@@ -23,7 +23,16 @@ from test_platform_prod_gate import PIPELINE, ROOT
         ("errors", "test_query_fail_closed"),
         ("identity-message", "test_default_identity_refuses"),
         ("image", "test_read_only_same_image"),
-        ("health", "test_health_unchanged"),
+        ("ci-prefix", "test_ci_refuses[wrong-sha]"),
+        ("ci-running", "test_ci_refuses[running]"),
+        ("stg-prefix", "test_stg_refuses[wrong-sha]"),
+        ("no-result", "test_stg_refuses[no-result]"),
+        ("prod-as-stg", "test_prod_run_is_not_stg"),
+        ("mirror-sha", "test_full_sha_mirror_mismatch"),
+        ("task-name", "test_stg_refuses[task-name]"),
+        ("child-kind", "test_stg_refuses[child-kind]"),
+        ("stg-state", "test_stg_order_refuses[newest-running]"),
+        ("completion-order", "test_stg_order_refuses[older-later]"),
     ],
 )
 def test_planted_violation(tmp_path, mutation, named_test):
@@ -38,8 +47,6 @@ def test_planted_violation(tmp_path, mutation, named_test):
         ] = "$(params.revision)"
     elif mutation == "image":
         step["image"] = "alpine:3.20"
-    elif mutation == "health":
-        tasks["preflight-stg"]["taskSpec"]["steps"][0]["script"] = "#!/bin/sh\nexit 0\n"
     else:
         before, after = {
             "resolve": ("if len(candidates) != 1:", "if not candidates:"),
@@ -49,8 +56,36 @@ def test_planted_violation(tmp_path, mutation, named_test):
             ),
             "stg": ("if len(commits) != 1 or commits[0] != sha:", "if False:"),
             "latest": (
-                "latest = max(created(r) for r in stg)",
-                "latest = min(created(r) for r in stg)",
+                'latest = max(run_time(r, "creationTimestamp") for r in stg)',
+                'latest = min(run_time(r, "creationTimestamp") for r in stg)',
+            ),
+            "ci-prefix": (
+                'params.get("revision") != sha',
+                '(params.get("revision") or "x")[:7] != sha[:7]',
+            ),
+            "ci-running": (
+                'if state == "True":\n        ',
+                'if state != "False":\n        ',
+            ),
+            "stg-prefix": ("commits[0] != sha", "commits[0][:7] != sha[:7]"),
+            "no-result": (
+                "if len(commits) != 1 or commits[0] != sha:",
+                "if commits and (len(commits) != 1 or commits[0] != sha):",
+            ),
+            "prod-as-stg": (
+                '_pipeline_name(r) == "bifrost-deliver-platform"',
+                '_pipeline_name(r).startswith("bifrost-deliver-platform")',
+            ),
+            "mirror-sha": (
+                "if SHA_RE.fullmatch(revision) and sha != revision:",
+                "if False:",
+            ),
+            "task-name": ('task["metadata"]["name"] != children[0]["name"]', "False"),
+            "child-kind": (' and c["kind"] == "TaskRun"', ""),
+            "stg-state": ('if state != "True":', "if False:"),
+            "completion-order": (
+                'if run is not chosen and run_time(run, "completionTime") >= completed:',
+                "if False:",
             ),
             "errors": ("        return 1\n", "        return 0\n"),
             "identity-message": (
@@ -67,10 +102,8 @@ def test_planted_violation(tmp_path, mutation, named_test):
             sys.executable,
             "-m",
             "pytest",
-            "scripts/release/test_platform_prod_gate.py",
+            "scripts/release/test_platform_prod_gate.py::" + named_test,
             "-q",
-            "-k",
-            named_test,
         ],
         cwd=ROOT,
         env={**os.environ, "GATE_PIPELINE": str(path)},

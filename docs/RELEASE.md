@@ -86,6 +86,16 @@ scripts/release/release-check.sh diff old.json new.json --allow <file>
 - **探针**：`scripts/release/probes.json`（8 个 api 的 /health 返回 JSON、前端首页）加每个 `--probes` 文件。
   请求带 `User-Agent: bifrost-release-check/1`。探测已标 Deprecation 的路由会进 TD-40 的调用者日志，所以这类探针默认 `enabled: false`。
 
+## Platform PROD source check（W-56 guardrail 2，尚未应用）
+
+`bifrost-deliver-platform-prod` 在 mirror-sync 后、clone 前拒绝两种情况：平台提交没有整 SHA 匹配的 Succeeded `bifrost-ci-platform`，或无法证明 STG 克隆了同一整 SHA。STG 只取 `bifrost-deliver-platform` 中创建时间最新的一条（同时间拒绝），它必须成功，且其它每条的 completionTime 都必须严格早于它；在途、缺失或不能解析的时间、旧 run 晚完成或同时完成都拒绝。查询失败或证据畸形也拒绝。
+
+没有 allow-red。覆盖检查的途径是 Owner 应用此前版本的 Pipeline 定义。上线顺序是先把包含 check-source 身份接线的 platform 发到 PROD 并核对，再由 Owner 在没有平台发布在途、没有未结 PROD 发布单时应用 `k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml`；反过来会拒绝每次平台 PROD 发布。回退由 Owner 重新应用此前版本的同一 Pipeline 文件。
+
+钉住路径 `scripts/release/platform-prod-pinned-from-stg.sh <stg-run> -o <file>` 读取线上 PROD Pipeline：有 check-source 就设置该任务使用 tekton-deliver，保留其它 override；没有就不添加，读不到或 tasks 不是列表就拒绝生成。它只生成 JSON，创建发布仍由 Owner 批准。指定旧 STG run 不会绕过最新 STG 判定。
+
+应用前，`python3 scripts/release/platform_prod_gate_trial.py <revision> [--ui-revision main] > <file>` 只打印一条 trial PipelineRun，内联任务与正式 check-source 完全相同、身份是 tekton-deliver；Owner 可对当前 STG 提交与没有 CI 的提交分别试跑。它不构建、不克隆、不发布，生成器从不调用 kubectl。ui commit 会解析为固定 SHA 并交给后续 clone，但不与 STG 比较。
+
 ## 发布窗口：推 main 或起 deliver 之前先看
 
 ```bash

@@ -14,7 +14,7 @@ from ci_gate import classify
 ROOT = Path(__file__).resolve().parents[2]
 PIPELINE = ROOT / "k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml"
 SHA = "a" * 40
-OTHER = "b" * 40
+OTHER = "a" * 12 + "b" * 28
 
 
 def tasks():
@@ -40,7 +40,10 @@ def run(pipeline, sha=SHA, ok="True", name="ci", timestamp="2026-10-12T10:00:00Z
             "pipelineRef": {"name": pipeline},
             "params": [{"name": "revision", "value": sha}],
         },
-        "status": {"conditions": [{"type": "Succeeded", "status": ok}]},
+        "status": {
+            "conditions": [{"type": "Succeeded", "status": ok}],
+            "completionTime": timestamp,
+        },
     }
 
 
@@ -55,14 +58,24 @@ def answers():
     return {"items": [run("bifrost-ci-platform"), stg]}, task
 
 
-def execute(tmp_path, doc=None, task=None, mode="", git_mode="", source=None):
+def execute(
+    tmp_path,
+    doc=None,
+    task=None,
+    mode="",
+    git_mode="",
+    source=None,
+    revision="main",
+    list_docs=None,
+):
     default_doc, default_task = answers()
     (tmp_path / "runs.json").write_text(json.dumps(default_doc if doc is None else doc))
     (tmp_path / "task.json").write_text(
         json.dumps(default_task if task is None else task)
     )
+    (tmp_path / "list-docs.json").write_text(json.dumps(list_docs or {}))
     fake = """#!{python}
-import os,sys,time
+import os,sys,time,json
 from pathlib import Path
 root=Path(os.environ['FAKE_ROOT'])
 a=sys.argv[1:]
@@ -79,11 +92,18 @@ else:
  if mode=='forbidden' or (mode=='task-forbidden' and 'taskrun' in a):
   print('Error from server (Forbidden)',file=sys.stderr); sys.exit(1)
  if mode=='failed': sys.exit(1)
- if mode=='timeout': time.sleep(5)
+ if mode=='timeout' and 'taskrun' in a: time.sleep(30)
  if mode=='empty': sys.exit(0)
  if mode=='duplicate': print('{{"items":[],"items":[]}}'); sys.exit(0)
  if mode=='malformed': print('{{'); sys.exit(0)
- print((root/('task.json' if 'taskrun' in a else 'runs.json')).read_text())
+ if 'taskrun' in a: print((root/'task.json').read_text())
+ else:
+  selector=a[a.index('-l')+1].split('=',1)[1]
+  docs=json.loads((root/'list-docs.json').read_text())
+  doc=docs.get(selector,json.loads((root/'runs.json').read_text()))
+  if selector not in docs and isinstance(doc.get('items'),list):
+   doc['items']=[r for r in doc['items'] if r.get('metadata',{{}}).get('labels',{{}}).get('tekton.dev/pipeline')==selector]
+  print(json.dumps(doc))
 """.format(python=sys.executable)
     for name in ("git", "kubectl"):
         p = tmp_path / name
@@ -97,14 +117,14 @@ else:
         "FAKE_ROOT": str(tmp_path),
         "MODE": mode,
         "GIT_MODE": git_mode,
-        "REVISION": "main",
+        "REVISION": revision,
         "UI_REVISION": "main",
         "GITEA_BASE": "http://mirror/bifrost",
         "COMMIT_PATH": str(tmp_path / "commit"),
         "UI_COMMIT_PATH": str(tmp_path / "ui-commit"),
     }
     return subprocess.run(
-        [sys.executable, str(p)], env=env, text=True, capture_output=True, timeout=10
+        [sys.executable, str(p)], env=env, text=True, capture_output=True, timeout=45
     )
 
 
@@ -129,31 +149,11 @@ def test_checked_sha_is_built():
 
 
 def test_shared_ci_definition():
-    helper = (
-        (ROOT / "scripts/release/ci_gate.py")
-        .read_text()
-        .split("\ndef gate(")[0]
-        .replace("from __future__ import annotations\n", "")
-    )
-    gate = (
-        (ROOT / "scripts/release/platform_prod_gate.py")
-        .read_text()
-        .replace("from ci_gate import classify, _pipeline_name, _succeeded", helper)
-    )
-    assert script() == "#!/usr/bin/env python3\n" + gate
+    from embed_platform_prod_gate import embedded_script, generated_pipeline
+
+    assert script() == embedded_script()
+    assert PIPELINE.read_text() == generated_pipeline(PIPELINE.read_text())
     assert "bifrost-ci-platform" in (ROOT / "scripts/release/release.sh").read_text()
-
-
-def test_health_unchanged():
-    old = subprocess.check_output(
-        ["git", "show", "HEAD:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml"],
-        cwd=ROOT,
-        text=True,
-    )
-    old_task = next(
-        t for t in yaml.safe_load(old)["spec"]["tasks"] if t["name"] == "preflight-stg"
-    )
-    assert tasks()["preflight-stg"] == old_task
 
 
 def test_read_only_same_image():
@@ -167,7 +167,7 @@ def test_read_only_same_image():
         == rollout["spec"]["steps"][0]["image"]
     )
     assert "apk add" not in script()
-    assert '["get", "pipelineruns"]' in script()
+    assert '["get", "pipelineruns", "-l"' in script()
     assert '["get", "taskrun", children[0]["name"]]' in script()
     assert '"patch"' not in script() and '"apply"' not in script()
 
@@ -180,7 +180,16 @@ def test_success(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "case", ["missing", "failed", "wrong-sha", "wrong-repo", "wrong-pipeline"]
+    "case",
+    [
+        "missing",
+        "failed",
+        "running",
+        "wrong-sha",
+        "wrong-repo",
+        "wrong-pipeline",
+        "python-pipeline",
+    ],
 )
 def test_ci_refuses(tmp_path, case):
     doc, task = answers()
@@ -189,13 +198,20 @@ def test_ci_refuses(tmp_path, case):
         doc["items"].pop(0)
     if case == "failed":
         ci["status"]["conditions"][0]["status"] = "False"
+    if case == "running":
+        ci["status"]["conditions"][0]["status"] = "Unknown"
+    if case == "python-pipeline":
+        ci["metadata"]["labels"]["tekton.dev/pipeline"] = "bifrost-ci-python"
+        ci["spec"]["pipelineRef"]["name"] = "bifrost-ci-python"
+        ci["spec"]["params"].append({"name": "repo", "value": "bifrost-platform"})
     if case == "wrong-sha":
         ci["spec"]["params"][0]["value"] = OTHER
     if case == "wrong-repo":
         ci["metadata"]["labels"]["bifrost.io/repo"] = "bifrost-ui"
     if case == "wrong-pipeline":
         ci["metadata"]["labels"]["tekton.dev/pipeline"] = "bifrost-smoke"
-    assert classify(doc["items"], "bifrost-platform", SHA) != "succeeded"
+    if case != "python-pipeline":
+        assert classify(doc["items"], "bifrost-platform", SHA) != "succeeded"
     refuse(execute(tmp_path, doc, task), "CI")
     assert not (tmp_path / "commit").exists()
 
@@ -217,6 +233,9 @@ def test_two_ci_one_succeeded(tmp_path):
         "two-results",
         "task-owner",
         "task-failed",
+        "no-result",
+        "task-name",
+        "child-kind",
     ],
 )
 def test_stg_refuses(tmp_path, case):
@@ -239,6 +258,12 @@ def test_stg_refuses(tmp_path, case):
         task["metadata"]["labels"]["tekton.dev/pipelineRun"] = "other"
     if case == "task-failed":
         task["status"]["conditions"][0]["status"] = "False"
+    if case == "no-result":
+        task["status"]["results"] = []
+    if case == "task-name":
+        task["metadata"]["name"] = "another"
+    if case == "child-kind":
+        doc["items"][1]["status"]["childReferences"][0]["kind"] = "Pod"
     refuse(execute(tmp_path, doc, task), "STG")
 
 
@@ -255,15 +280,15 @@ def test_stg_refuses(tmp_path, case):
     ],
 )
 def test_query_fail_closed(tmp_path, mode):
-    result = execute(
-        tmp_path, mode=mode, source=script().replace("BUDGET = 20", "BUDGET = 1")
-    )
+    result = execute(tmp_path, mode=mode)
     refuse(result)
     if "forbidden" in mode:
         assert "identity cannot read" in result.stdout
     assert not (tmp_path / "commit").exists()
     calls = (tmp_path / "calls").read_text().splitlines()
-    assert sum("kubectl" in c for c in calls) == (2 if mode == "task-forbidden" else 1)
+    assert sum("kubectl" in c for c in calls) == (
+        3 if mode in ("task-forbidden", "timeout") else 1
+    )
 
 
 @pytest.mark.parametrize(
@@ -316,6 +341,7 @@ def test_real_mirror_resolution(tmp_path):
         ["git", "-C", str(mirror), "rev-parse", "HEAD"], text=True
     ).strip()
     subprocess.run(["git", "-C", str(mirror), "branch", "main"], check=True)
+    subprocess.run(["git", "-C", str(mirror), "branch", "wip/main"], check=True)
     subprocess.run(
         [
             "git",
@@ -348,13 +374,7 @@ def test_latest_stg_selects_newest():
         "bifrost-deliver-platform", name="older", timestamp="2026-10-11T10:00:00Z"
     )
     newest = run("bifrost-deliver-platform", name="newest")
-    pending = run(
-        "bifrost-deliver-platform",
-        ok="Unknown",
-        name="pending",
-        timestamp="2026-10-13T10:00:00Z",
-    )
-    selected = namespace["latest_stg"]([older, newest, pending])
+    selected = namespace["latest_stg"]([older, newest])
     assert selected["metadata"]["name"] == "newest"
 
 
@@ -368,10 +388,12 @@ def test_default_identity_refuses(tmp_path):
     assert not (tmp_path / "commit").exists()
 
 
-def test_unrelated_array_param_is_valid(tmp_path):
+def test_unrelated_malformed_run_is_ignored(tmp_path):
     doc, task = answers()
-    unrelated = run("bifrost-smoke")
-    unrelated["spec"]["params"] = [{"name": "targets", "value": ["a", "b"]}]
+    unrelated = {
+        "metadata": {"labels": {"tekton.dev/pipeline": "bifrost-smoke"}},
+        "spec": "malformed",
+    }
     doc["items"].append(unrelated)
     assert execute(tmp_path, doc, task).returncode == 0
 
@@ -409,3 +431,197 @@ def test_git_auth_stays_out_of_argv(monkeypatch):
     assert env["GIT_CONFIG_VALUE_0"].startswith("Authorization: Basic ")
     assert env["GIT_TERMINAL_PROMPT"] == "0"
     assert captured["kwargs"]["timeout"] == 20
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "newest-failed",
+        "newest-running",
+        "no-condition",
+        "older-later",
+        "other-running",
+        "equal-completion",
+        "bad-created",
+        "bad-completed",
+        "chosen-missing-completed",
+    ],
+)
+def test_stg_order_refuses(tmp_path, case):
+    doc, task = answers()
+    chosen = doc["items"][1]
+    other = copy.deepcopy(chosen)
+    other["metadata"].update(name="older", creationTimestamp="2026-10-11T10:00:00Z")
+    other["status"]["completionTime"] = "2026-10-11T11:00:00Z"
+    doc["items"].append(other)
+    if case == "newest-failed":
+        chosen["status"]["conditions"][0]["status"] = "False"
+    if case == "newest-running":
+        chosen["status"]["conditions"][0]["status"] = "Unknown"
+    if case == "no-condition":
+        chosen["status"]["conditions"] = []
+    if case == "older-later":
+        other["status"]["completionTime"] = "2026-10-13T10:00:00Z"
+    if case == "other-running":
+        other["status"].pop("completionTime")
+    if case == "equal-completion":
+        other["status"]["completionTime"] = chosen["status"]["completionTime"]
+    if case == "bad-created":
+        other["metadata"]["creationTimestamp"] = "bad"
+    if case == "bad-completed":
+        other["status"]["completionTime"] = "bad"
+    if case == "chosen-missing-completed":
+        chosen["status"].pop("completionTime")
+    result = execute(tmp_path, doc, task)
+    refuse(result, "STG")
+    if case != "bad-created":
+        assert (
+            "stg"
+            if case.startswith("newest")
+            or case in ("no-condition", "chosen-missing-completed")
+            else "older"
+        ) in result.stdout
+
+
+def test_prod_run_is_not_stg(tmp_path):
+    doc, task = answers()
+    prod = run(
+        "bifrost-deliver-platform-prod", name="prod", timestamp="2026-10-13T10:00:00Z"
+    )
+    namespace = {"__name__": "gate_test"}
+    exec(script(), namespace)
+    assert namespace["latest_stg"]([doc["items"][1], prod])["metadata"]["name"] == "stg"
+    doc["items"] = [doc["items"][0], prod]
+    refuse(execute(tmp_path, doc, task), "STG")
+
+
+def test_full_sha_mirror_mismatch(tmp_path):
+    refuse(execute(tmp_path, revision=OTHER), "CI/STG")
+
+
+@pytest.mark.parametrize(
+    "pipeline", ["bifrost-ci-platform", "bifrost-deliver-platform"]
+)
+@pytest.mark.parametrize("case", ["continue", "not-list", "wrong-pipeline"])
+def test_selected_list_refuses(tmp_path, pipeline, case):
+    bad = {"items": []}
+    if case == "continue":
+        bad["metadata"] = {"continue": "more"}
+    if case == "not-list":
+        bad["items"] = {}
+    if case == "wrong-pipeline":
+        bad["items"] = [run("bifrost-deliver-platform-prod")]
+    refuse(execute(tmp_path, list_docs={pipeline: bad}))
+
+
+def test_only_two_pipeline_lists(tmp_path):
+    assert execute(tmp_path).returncode == 0
+    calls = (tmp_path / "calls").read_text().splitlines()
+    lists = [c for c in calls if "pipelineruns" in c]
+    assert len(lists) == 2
+    for pipeline in ("bifrost-ci-platform", "bifrost-deliver-platform"):
+        assert sum("tekton.dev/pipeline=" + pipeline + "'" in c for c in lists) == 1
+
+
+def test_task_params_declared_and_passed():
+    import re
+
+    task = tasks()["check-source"]
+    used = set(re.findall(r"\$\(params\.([^)]+)\)", json.dumps(task["taskSpec"])))
+    assert used == {"revision", "uiRevision", "giteaBase"}
+    assert used <= {p["name"] for p in task["taskSpec"]["params"]}
+    assert {p["name"]: p["value"] for p in task["params"]} == {
+        name: "$(params." + name + ")" for name in used
+    }
+
+
+def test_trial_only_source_task():
+    from platform_prod_gate_trial import trial_run
+
+    trial = trial_run(SHA, OTHER)
+    assert trial["metadata"] == {
+        "generateName": "check-source-trial-",
+        "namespace": "cicd",
+        "labels": {"bifrost.io/purpose": "check-source-trial"},
+    }
+    spec = trial["spec"]
+    assert len(spec["pipelineSpec"]["tasks"]) == 1
+    task = spec["pipelineSpec"]["tasks"][0]
+    assert task["name"] == "check-source"
+    assert task["taskSpec"] == tasks()["check-source"]["taskSpec"]
+    assert spec["taskRunSpecs"] == [
+        {"pipelineTaskName": "check-source", "serviceAccountName": "tekton-deliver"}
+    ]
+    assert {p["name"]: p["value"] for p in spec["params"]}["revision"] == SHA
+    assert {p["name"]: p["value"] for p in spec["params"]}["uiRevision"] == OTHER
+
+
+def test_trial_cli_prints_only(monkeypatch, capsys):
+    import platform_prod_gate_trial as trial
+
+    monkeypatch.setattr(sys, "argv", ["trial", SHA])
+    trial.main()
+    doc = yaml.safe_load(capsys.readouterr().out)
+    assert [t["name"] for t in doc["spec"]["pipelineSpec"]["tasks"]] == ["check-source"]
+
+
+@pytest.mark.parametrize(
+    "case", ["with-gate", "without-gate", "malformed", "unreadable"]
+)
+def test_pinned_live_pipeline(monkeypatch, capsys, case):
+    import release_tool as tool
+
+    stg = run("bifrost-deliver-platform", name="stg")
+    stg["spec"]["taskRunSpecs"] = (
+        [
+            {"pipelineTaskName": "rollout", "serviceAccountName": "tekton-deliver"},
+            {"pipelineTaskName": "check-source", "serviceAccountName": "wrong"},
+        ]
+        if case == "with-gate"
+        else [{"pipelineTaskName": "rollout", "serviceAccountName": "tekton-deliver"}]
+    )
+    original = copy.deepcopy(stg)
+    calls = []
+
+    def get(*args):
+        calls.append(args)
+        if case == "unreadable":
+            tool.die("kubectl read failed\nserver detail", 2)
+        return {
+            "spec": {
+                "tasks": {}
+                if case == "malformed"
+                else (
+                    [{"name": "check-source"}]
+                    if case == "with-gate"
+                    else [{"name": "rollout"}]
+                )
+            }
+        }
+
+    monkeypatch.setattr(tool, "kget", get)
+    commits = {"clone-platform": SHA, "clone-ui": OTHER}
+    if case in ("malformed", "unreadable"):
+        with pytest.raises(SystemExit) as exc:
+            tool.platform_pinned_run(stg, commits)
+        assert exc.value.code == 1
+        output = capsys.readouterr()
+        assert len(output.err.splitlines()) == 1
+        assert output.err.startswith("REFUSED:")
+        assert output.out == ""
+    else:
+        result = tool.platform_pinned_run(stg, commits)
+        overrides = result["spec"]["taskRunSpecs"]
+        assert overrides[0] == original["spec"]["taskRunSpecs"][0]
+        assert [t for t in overrides if t["pipelineTaskName"] == "check-source"] == (
+            [
+                {
+                    "pipelineTaskName": "check-source",
+                    "serviceAccountName": "tekton-deliver",
+                }
+            ]
+            if case == "with-gate"
+            else []
+        )
+        assert stg == original
+    assert calls == [("pipeline", "bifrost-deliver-platform-prod")]
