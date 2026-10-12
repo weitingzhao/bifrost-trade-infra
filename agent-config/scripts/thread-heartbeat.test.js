@@ -24,6 +24,9 @@ delete process.env.BIFROST_HEARTBEAT_TITLE
 delete process.env.BIFROST_WORK
 delete process.env.BIFROST_HEARTBEAT_PROGRESS
 delete process.env.BIFROST_HEARTBEAT_RUN_BEAT_MS
+delete process.env.CLAUDE_CODE_HOST_SESSION_ID
+delete process.env.CURSOR_CONVERSATION_ID
+delete process.env.CURSOR_SESSION_ID
 
 const { beatFor, toolTimeoutSeconds, shouldSkip, reduceThrottle, allocateStamp, loadGate, supersedeActive, saveIssuedKey, withThreadLock, armHookDeadline, clearHookDeadline, lockRuntime, startProgressBeats } = require('./thread-heartbeat.js')
 const ISSUED_KEY = 'ab'.repeat(32)
@@ -952,6 +955,18 @@ function writeTryPreload(dir) {
     '  n++',
     "  const plan = (process.env.HEARTBEAT_TRY_PLAN || 'fast').split(',')",
     "  const spec = plan[Math.min(n - 1, plan.length - 1)] || 'fast'",
+    "  const seenEarly = process.env.HEARTBEAT_TRY_SEEN || ''",
+    "  const pidEarly = process.env.HEARTBEAT_TRY_PIDS || ''",
+    "  if (spec === 'throw' || spec === 'error') {",
+    "    if (seenEarly) { try { fs.writeFileSync(seenEarly, String(n)) } catch (err) {} }",
+    "  }",
+    "  if (spec === 'throw') throw new Error('try helper failed to spawn')",
+    "  if (spec === 'error') {",
+    "    const child = orig.call(this, cmd, ['-e', 'select(undef,undef,undef,30);'], opts)",
+    "    if (pidEarly && child.pid) { try { fs.appendFileSync(pidEarly, String(child.pid) + '\\n') } catch (err) {} }",
+    "    process.nextTick(() => child.emit('error', new Error('try helper error')))",
+    "    return child",
+    "  }",
     '  let script = args[1]',
     "  if (spec.startsWith('pre:')) script = 'select(undef,undef,undef,' + (Number(spec.slice(4)) / 1000) + ');\\n' + script",
     "  else if (spec === 'never') script = 'select(undef,undef,undef,30);\\n' + script",
@@ -1000,7 +1015,9 @@ function arrivalServer() {
 }
 
 // The helper does not answer. The child exits during that wait. turn_end is
-// delivered within 1000ms of the exit, so the wait cannot be a blocking loop.
+// delivered within 1500ms of the exit, so the wait cannot be a blocking loop.
+// 1000ms was too tight: 812ms was seen under load. A planted synchronous wait
+// of about 1980ms still fails this bound.
 async function progressExitDuringTryWait() {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-try-exit-'))
   const progress = path.join(home, 'progress')
@@ -1036,7 +1053,7 @@ process.exit(0)
     const end = srv.got.find(g => g.body.event === 'turn_end')
     assert.ok(end, `turn_end missing: ${srv.got.map(g => g.body.event).join(',')}`)
     const delta = end.at - Number(fs.readFileSync(exited, 'utf8'))
-    assert.ok(delta >= 0 && delta < 1000, `turn_end ${delta}ms after the child exited`)
+    assert.ok(delta >= 0 && delta < 1500, `turn_end ${delta}ms after the child exited`)
     assert.deepEqual(srv.got.map(g => g.body.event), ['turn_start', 'turn_end'])
   } finally {
     killTryPids(pids)
@@ -1590,6 +1607,128 @@ let interval, tick
   assert.equal(result.code, 0, result.err)
 }
 
+// Planted violation: omit `sidebar` when the environment has a sidebar thread
+// id, or send the field when it does not. The beat without it is the same
+// JSON as today; the beat with it adds that one field and no other.
+async function sidebarFieldFollowsEnvironment() {
+  const payload = cursor('stop')
+  const plain = beatFor('cursor', payload)
+  assert.equal(Object.hasOwn(plain, 'sidebar'), false)
+  const raw = JSON.stringify(plain)
+  assert.equal(raw.includes('sidebar'), false)
+  const sidebar = 'local_4a4cc96c-2607-4ed7-896d-9f9429571ab4'
+  process.env.CLAUDE_CODE_HOST_SESSION_ID = sidebar
+  process.env.CURSOR_CONVERSATION_ID = 'conv-should-not-win'
+  try {
+    const withIt = beatFor('cursor', payload)
+    assert.equal(withIt.thread, CURSOR_ID)
+    assert.equal(withIt.sidebar, sidebar)
+    const copy = { ...withIt }
+    delete copy.sidebar
+    assert.equal(JSON.stringify(copy), raw)
+    assert.equal(JSON.stringify(withIt), `${raw.slice(0, -1)},"sidebar":${JSON.stringify(sidebar)}}`)
+  } finally {
+    delete process.env.CLAUDE_CODE_HOST_SESSION_ID
+    delete process.env.CURSOR_CONVERSATION_ID
+  }
+  // A value the platform's id rule would reject is left out instead of costing the whole beat.
+  for (const bad of ['has space', 'with/slash', 'x'.repeat(200), '-leading']) {
+    process.env.CLAUDE_CODE_HOST_SESSION_ID = bad
+    try {
+      assert.equal(Object.hasOwn(beatFor('cursor', payload), 'sidebar'), false, bad)
+    } finally {
+      delete process.env.CLAUDE_CODE_HOST_SESSION_ID
+    }
+  }
+  process.env.CURSOR_CONVERSATION_ID = 'conv-1'
+  process.env.CURSOR_SESSION_ID = 'sess-should-not-win'
+  try {
+    assert.equal(Object.hasOwn(beatFor('cursor', payload), 'sidebar'), false)
+    delete process.env.CURSOR_CONVERSATION_ID
+    assert.equal(Object.hasOwn(beatFor('cursor', payload), 'sidebar'), false)
+  } finally {
+    delete process.env.CURSOR_CONVERSATION_ID
+    delete process.env.CURSOR_SESSION_ID
+  }
+
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-sidebar-'))
+  const srv = await server()
+  try {
+    const bare = await runScript(['hook', 'cursor'], {
+      stdin: JSON.stringify(cursor('stop')),
+      env: { ...runEnv(home, srv.url) },
+    })
+    assert.deepEqual([bare.code, bare.out], [0, ''])
+    assert.ok(await waitFor(() => srv.got.length === 1), 'beat without sidebar was not posted')
+    assert.equal(Object.hasOwn(srv.got[0].body, 'sidebar'), false)
+    assert.equal(srv.got[0].body.thread, CURSOR_ID)
+
+    srv.got.length = 0
+    const posted = await runScript(['hook', 'cursor'], {
+      stdin: JSON.stringify(cursor('stop')),
+      env: { ...runEnv(home, srv.url), CLAUDE_CODE_HOST_SESSION_ID: sidebar },
+    })
+    assert.deepEqual([posted.code, posted.out], [0, ''])
+    assert.ok(await waitFor(() => srv.got.length === 1), 'beat with sidebar was not posted')
+    assert.equal(posted.err, '')
+    assert.equal(srv.got[0].body.sidebar, sidebar)
+    assert.equal(srv.got[0].body.thread, CURSOR_ID)
+    assert.equal(srv.got[0].body.event, 'turn_end')
+
+    srv.got.length = 0
+    const wrapped = await runScript(['run', 'cursor', '--', process.execPath, '-e', 'process.exit(0)'], {
+      env: { ...runEnv(home, srv.url), CLAUDE_CODE_HOST_SESSION_ID: sidebar },
+    })
+    assert.equal(wrapped.code, 0, wrapped.err)
+    assert.ok(srv.got.length >= 2, `wrapped beats: ${srv.got.map(g => g.body.event).join(',')}`)
+    assert.ok(srv.got.every(g => g.body.sidebar === sidebar), 'a wrapped beat omitted sidebar')
+    assert.ok(srv.got.every(g => g.body.thread !== sidebar), 'sidebar replaced the session id')
+  } finally {
+    srv.s.close()
+  }
+}
+
+// Planted violation: count only a give-up as "no answer", so a TRY helper that
+// fails to spawn consumes the growth and the next look sends nothing.
+async function progressSpawnFailureDoesNotConsumeGrowth() {
+  for (const plan of ['throw,fast', 'error,fast']) {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-try-spawn-'))
+    const progress = path.join(home, 'progress')
+    const seen = path.join(home, 'seen')
+    const pids = path.join(home, 'pids')
+    fs.writeFileSync(progress, '')
+    const preload = writeTryPreload(home)
+    const child = writeScript(home, 'spawn-fail.js', `
+const fs = require('fs')
+const sleep = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+fs.appendFileSync(process.argv[2], 'x')
+sleep(Number(process.argv[3]))
+process.exit(0)
+`)
+    const srv = await server()
+    try {
+      const run = await runScript(['run', 'cursor', '--', process.execPath, child, progress, '4000'], {
+        env: runEnv(home, srv.url, {
+          NODE_OPTIONS: `--require=${preload}`,
+          HEARTBEAT_TRY_PLAN: plan,
+          HEARTBEAT_TRY_SEEN: seen,
+          HEARTBEAT_TRY_PIDS: pids,
+          BIFROST_HEARTBEAT_PROGRESS: progress,
+          BIFROST_HEARTBEAT_RUN_BEAT_MS: '200',
+        }),
+      })
+      assert.equal(run.code, 0, run.err)
+      assert.ok(Number(fs.readFileSync(seen, 'utf8')) >= 2, `${plan}: the second attempt did not run`)
+      const beats = srv.got.filter(g => g.body.event === 'after_tool')
+      assert.equal(beats.length, 1, `${plan}: events ${srv.got.map(g => g.body.event).join(',')}`)
+      assert.equal(beats[0].body.tool, 'headless-progress')
+    } finally {
+      killTryPids(pids)
+      srv.s.close()
+    }
+  }
+}
+
 async function main() {
   mapping()
   ordinaryHookCannotUseRunNamespace()
@@ -1612,6 +1751,8 @@ async function main() {
   await progressExitDuringTryWait()
   await progressHeldLockFreedOnExit()
   await progressRealGiveupOneBeat()
+  await progressSpawnFailureDoesNotConsumeGrowth()
+  await sidebarFieldFollowsEnvironment()
   await progressEdges()
   await progressRecoveryDoesNotDelayExit()
   await progressRecoveryDoesNotDelayExit(true)

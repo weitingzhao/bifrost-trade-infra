@@ -57,6 +57,10 @@
  *   BIFROST_HEARTBEAT=off     send nothing
  *   BIFROST_HEARTBEAT_PROGRESS     run: file whose growing size is a progress beat
  *   BIFROST_HEARTBEAT_RUN_BEAT_MS  run: progress interval in ms (default 120000)
+ *
+ * When the environment has a sidebar thread id, every beat also carries it as
+ * `sidebar`: CLAUDE_CODE_HOST_SESSION_ID. When it is not set, the field is absent and the
+ * beat is unchanged. The platform decides whether an old session was superseded.
  */
 const fs = require('node:fs')
 const os = require('node:os')
@@ -207,6 +211,23 @@ function workFrom(title) {
   return m ? m[1] : ''
 }
 
+// Sidebar thread id the desktop already put in the environment. Empty when
+// this process has none: the beat then omits the field.
+// The platform applies its thread-id rule to this field and rejects the whole beat when it fails:
+// a value that does not fit is left out, so the thread keeps being monitored.
+const SIDEBAR_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
+
+function sidebarFromEnv() {
+  const value = (process.env.CLAUDE_CODE_HOST_SESSION_ID || '').trim()
+  return SIDEBAR_RE.test(value) ? value : ''
+}
+
+function attachSidebar(body) {
+  const sidebar = sidebarFromEnv()
+  if (sidebar) body.sidebar = sidebar
+  return body
+}
+
 /** Map one hook payload to a heartbeat body, or null when the event is not one we report. */
 function beatFor(vendor, payload) {
   const map = EVENTS[vendor]
@@ -243,7 +264,7 @@ function beatFor(vendor, payload) {
   }
   const useID = String(payload.tool_use_id || payload.tool_call_id || '').trim()
   if (useID) body.tool_use_id = useID.replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 128)
-  return body
+  return attachSidebar(body)
 }
 
 function wireBody(body) {
@@ -1240,6 +1261,7 @@ async function run(vendor, argv) {
   const thread = override ? (override.startsWith('run-') ? override : `run-${override}`) : `run-${crypto.randomUUID()}`
   const title = (process.env.BIFROST_HEARTBEAT_TITLE || `headless ${path.basename(cmd[0])}`).slice(0, 160)
   const base = { thread, vendor, host: hostName(), title, session: thread }
+  attachSidebar(base)
   const work = workFrom(title)
   if (work) base.work = work
   const start = { ...base, event: 'turn_start' }
