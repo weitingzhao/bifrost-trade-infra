@@ -212,14 +212,33 @@ def test_time_tolerance_both_edges(tmp_path):
 
 
 def test_owner_items_and_since(tmp_path):
-    # rec.py owner-open overwrites its own command name, so the CLI returns
-    # "unknown command" and writes nothing. The event comes from owner_open,
-    # the function that command is supposed to call. owner-close still goes
-    # through the CLI.
+    # The command line cannot record owner-open. The events below are placed
+    # with owner_open only so the fold has open items to try ``since`` on.
+    # shadow.py itself writes through the command line only.
     from commands import owner_open
 
     root = tmp_path / "root"
     _mark(root, "活", ["open", "--work", "w1", "--title", "活"])
+    refused = _run(
+        root,
+        "mark",
+        "--title",
+        "活",
+        "--owner",
+        "两边都有",
+        "--",
+        "owner-open",
+        "--work",
+        "w1",
+        "--title",
+        "两边都有",
+        "--can-act",
+        "yes",
+        check=False,
+    )
+    assert refused.returncode == 1
+    assert refused.stderr.strip() == "unknown command"
+    assert refused.stdout == ""
     both = owner_open(root, "w1", "两边都有", can_act="yes")
     only_rec = owner_open(root, "w1", "只在记录器", can_act="yes")
     closed = owner_open(root, "w1", "只在看板", can_act="yes")
@@ -247,20 +266,30 @@ def test_owner_items_and_since(tmp_path):
             {"name": "没有起算", "now": True},
         ],
     )
-    _run(root, "compare", "--board", str(board))
-    assert _by(root, "open", owner="两边都有") == []
-    assert _by(root, "since", owner="没有起算") == []
-    missing = _by(root, "open", owner="只在记录器")
-    assert missing[0]["board"] is False
-    assert missing[0]["recorder"] is True
-    gone = _by(root, "open", owner="只在看板")
-    assert gone[0]["board"] is True
-    assert gone[0]["recorder"] is False
-    since = _by(root, "since", owner="两边都有")
-    assert len(since) == 1
-    assert since[0]["board"] == both["at"]
-    assert since[0]["recorder"] is None
+    proc = _run(root, "compare", "--board", str(board))
+    assert proc.stdout.splitlines() == [
+        "owner items not comparable: the recorder cannot record them (TD-319 item 5)",
+        "since of owner items not comparable (TD-319 item 6)",
+        "steps=0 owners=4 differences=0",
+    ]
+    assert _by(root, "open") == []
+    assert _by(root, "since") == []
+    assert _diffs(root) == []
     assert only_rec["wait_id"] != no_since["wait_id"]
+    assert both["at"] != closed["at"]
+
+
+def test_owner_line_when_the_fold_has_no_items(tmp_path):
+    root = tmp_path / "root"
+    _mark(root, "活", ["open", "--work", "w1", "--title", "活"])
+    board = tmp_path / "status.json"
+    _board(board, [], owners=[{"name": "请看", "since": 1, "now": True}])
+    proc = _run(root, "compare", "--board", str(board))
+    assert proc.stdout.splitlines() == [
+        "owner items not comparable: the recorder cannot record them (TD-319 item 5)",
+        "steps=0 owners=0 differences=0",
+    ]
+    assert _diffs(root) == []
 
 
 def test_step_mapped_on_one_side_only(tmp_path):
@@ -402,6 +431,24 @@ def _reap(root: Path) -> None:
                 os.kill(pid, signal.SIGTERM)
             except OSError:
                 pass
+        done = step.get("done")
+        if type(done) is str and done:
+            _signal_matching(done)
+
+
+def _signal_matching(text: str) -> None:
+    proc = subprocess.run(["pgrep", "-f", text], capture_output=True, text=True)
+    me = {os.getpid(), os.getppid()}
+    for line in proc.stdout.splitlines():
+        if not line.strip().isdigit():
+            continue
+        pid = int(line.strip())
+        if pid in me:
+            continue
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
 
 
 def _snapshot(directory: Path) -> set[str]:

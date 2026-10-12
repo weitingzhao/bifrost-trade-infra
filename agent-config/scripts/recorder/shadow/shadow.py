@@ -1,6 +1,10 @@
 """Shadow week beside the hand-maintained board.
 
-``start-step`` launches ``proxy.py`` under the recorder's ``run``.
+``start-step`` asks ``rec.py --help`` which sub-commands exist. When ``run``
+is one of them, the proxy is launched under it (``via`` ``run``). When it is
+not, a supervisor launches the proxy and the step is declared, started and
+finished through the bookkeeping commands (``via`` ``bookkeeping``).
+
 ``mark`` passes a bookkeeping command through and records the mapping.
 ``compare`` is the only reader of the folded document. ``report`` prints
 the four numbers for one day.
@@ -16,6 +20,8 @@ import argparse
 import hashlib
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 import time
@@ -36,6 +42,10 @@ REC = _RECORDER / "rec.py"
 PROXY = _HERE / "proxy.py"
 TOLERANCE_S = 60
 TRIAGE_CLASSES = ("脚本错", "看板错", "两边的模型不同")
+SUPERVISOR_GONE = "started_supervisor_gone"
+OWNER_LINE = "owner items not comparable: the recorder cannot record them (TD-319 item 5)"
+SINCE_LINE = "since of owner items not comparable (TD-319 item 6)"
+_BRACE = re.compile(r"\{([^{}]+)\}")
 
 # Board state → class. ``needs_owner`` on a waiting step is waiting_owner.
 _BOARD = {
@@ -79,6 +89,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if command == "start-step":
             return cmd_start_step(root, rest)
+        if command == "supervise":
+            return cmd_supervise(root, rest)
         if command == "mark":
             return cmd_mark(root, rest)
         if command == "compare":
@@ -115,9 +127,12 @@ def cmd_start_step(root: Path, argv: list[str]) -> int:
             return opened.returncode
         _remember_work(mapping, args.title, work_id)
         _save_map(root, mapping)
-    spawn = root / "_spawn"
-    spawn.mkdir(parents=True, exist_ok=True)
-    log_path = spawn / f"{os.getpid()}-{time.time_ns()}.log"
+    if "run" in _subcommands():
+        return _start_via_run(root, mapping, args, work_id)
+    return _start_via_bookkeeping(root, mapping, args, work_id)
+
+
+def _start_via_run(root: Path, mapping: dict, args, work_id: str) -> int:
     command = [
         sys.executable,
         str(REC),
@@ -142,6 +157,156 @@ def cmd_start_step(root: Path, argv: list[str]) -> int:
         "--poll",
         str(args.poll),
     ]
+    proc, code, text = _detach(root, command)
+    step_id, run_id = _ids_from_text(text)
+    _remember_step(
+        mapping,
+        args.title,
+        args.step,
+        work_id,
+        step_id,
+        pattern=args.pattern,
+        done=args.done,
+        pid=None if code is not None else proc.pid,
+        run_id=run_id,
+        run_exit=code,
+        via="run",
+    )
+    _save_map(root, mapping)
+    if code is None:
+        print(f"pid={proc.pid}")
+        return 0
+    sys.stderr.write(text)
+    return code if code else 1
+
+
+def _start_via_bookkeeping(root: Path, mapping: dict, args, work_id: str) -> int:
+    declared = _rec(
+        root,
+        [
+            "declare",
+            "--work",
+            work_id,
+            "--name",
+            args.step,
+            "--kind",
+            args.kind,
+            "--who",
+            args.who,
+            "--watch",
+            "none",
+        ],
+    )
+    if declared.returncode != 0:
+        sys.stderr.write(declared.stderr)
+        return declared.returncode
+    step_id = _one_event(declared.stdout).get("step_id")
+    if not step_id:
+        print("declare did not print a step id", file=sys.stderr)
+        return 1
+    started = _rec(root, ["start", "--work", work_id, "--step", step_id])
+    if started.returncode != 0:
+        sys.stderr.write(started.stderr)
+        return started.returncode
+    run_id = _one_event(started.stdout).get("run_id")
+    command = [
+        sys.executable,
+        str(_HERE / "shadow.py"),
+        "--root",
+        str(root),
+        "supervise",
+        "--work",
+        work_id,
+        "--step",
+        step_id,
+        "--pattern",
+        args.pattern,
+        "--done",
+        args.done,
+        "--poll",
+        str(args.poll),
+    ]
+    proc, code, text = _detach(root, command)
+    _remember_step(
+        mapping,
+        args.title,
+        args.step,
+        work_id,
+        step_id,
+        pattern=args.pattern,
+        done=args.done,
+        pid=proc.pid,
+        run_id=run_id,
+        run_exit=code,
+        via="bookkeeping",
+    )
+    _save_map(root, mapping)
+    if code is None:
+        print(f"pid={proc.pid}")
+        return 0
+    if code == 0:
+        return 0
+    sys.stderr.write(text)
+    return code
+
+
+def cmd_supervise(root: Path, argv: list[str]) -> int:
+    """Wait for one proxy, then record finish. Death before that records nothing."""
+    parser = argparse.ArgumentParser(prog="shadow.py supervise")
+    parser.add_argument("--work", required=True)
+    parser.add_argument("--step", required=True)
+    parser.add_argument("--pattern", required=True)
+    parser.add_argument("--done", required=True)
+    parser.add_argument("--poll", type=float, default=2)
+    args = parser.parse_args(argv)
+    if args.poll <= 0:
+        print("poll must be greater than 0", file=sys.stderr)
+        return 2
+    proxy = subprocess.Popen(
+        [
+            sys.executable,
+            str(PROXY),
+            "--pattern",
+            args.pattern,
+            "--done",
+            args.done,
+            "--poll",
+            str(args.poll),
+        ],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+        cwd=str(root),
+        env=_env(),
+    )
+    code = proxy.wait()
+    reported = "finished" if code == 0 else "failed"
+    finished = _rec(
+        root,
+        [
+            "finish",
+            "--work",
+            args.work,
+            "--step",
+            args.step,
+            "--reported",
+            reported,
+            "--quote",
+            f"exit={code}",
+        ],
+    )
+    if finished.returncode != 0:
+        sys.stderr.write(finished.stderr)
+        return finished.returncode or 1
+    sys.stdout.write(finished.stdout)
+    return 0
+
+
+def _detach(root: Path, command: list[str]):
+    spawn = root / "_spawn"
+    spawn.mkdir(parents=True, exist_ok=True)
+    log_path = spawn / f"{os.getpid()}-{time.time_ns()}.log"
     log_file = log_path.open("w", encoding="utf-8")
     proc = subprocess.Popen(
         command,
@@ -158,25 +323,23 @@ def cmd_start_step(root: Path, argv: list[str]) -> int:
         code = None
     log_file.close()
     text = log_path.read_text(encoding="utf-8", errors="replace")
-    step_id, run_id = _ids_from_text(text)
-    _remember_step(
-        mapping,
-        args.title,
-        args.step,
-        work_id,
-        step_id,
-        pattern=args.pattern,
-        done=args.done,
-        pid=None if code is not None else proc.pid,
-        run_id=run_id,
-        run_exit=code,
+    return proc, code, text
+
+
+def _subcommands() -> set[str]:
+    """Sub-commands named by ``rec.py --help``. Not a version check."""
+    proc = subprocess.run(
+        [sys.executable, str(REC), "--help"],
+        capture_output=True,
+        text=True,
+        env=_env(),
     )
-    _save_map(root, mapping)
-    if code is None:
-        print(f"pid={proc.pid}")
-        return 0
-    sys.stderr.write(text)
-    return code if code else 1
+    found = set()
+    for group in _BRACE.findall(proc.stdout or ""):
+        parts = {part.strip() for part in group.split(",") if part.strip()}
+        if "open" in parts and "declare" in parts:
+            found |= parts
+    return found
 
 
 def cmd_mark(root: Path, argv: list[str]) -> int:
@@ -228,19 +391,31 @@ def cmd_compare(root: Path, argv: list[str]) -> int:
     diffs = []
     steps = mapping.get("steps") or []
     owners = mapping.get("owners") or []
+    owner_rows = [item for item in owners if type(item) is dict]
+    fold_owners = _open_owner_items(document)
+    notices = []
+    recorded = True
+    if _owner_subject(board, owner_rows) or fold_owners:
+        recorded = _owner_open_records(root)
+    if not recorded and _owner_subject(board, owner_rows):
+        notices.append(OWNER_LINE)
+    since_comparable = not _since_not_comparable(fold_owners)
+    if not since_comparable:
+        notices.append(SINCE_LINE)
     for entry in steps:
         if type(entry) is not dict:
             continue
         diffs.extend(_compare_step(board, document, entry))
-    for entry in owners:
-        if type(entry) is not dict:
-            continue
-        diffs.extend(_compare_owner(board, document, entry))
+    if recorded:
+        for entry in owner_rows:
+            diffs.extend(_compare_owner(board, document, entry, since_comparable))
     _append_diffs(root, diffs, now)
     _append_jsonl(
         root / "compares.jsonl",
         {"at": now, "day": _day(now), "differences": len(diffs)},
     )
+    for line in notices:
+        print(line)
     print(f"steps={len(steps)} owners={len(owners)} differences={len(diffs)}")
     return 0
 
@@ -293,6 +468,8 @@ def _compare_step(board: dict, document: dict, entry: dict) -> list[dict]:
     found = []
     board_class = _board_class(board_step)
     rec_class = _rec_class(rec_step)
+    if rec_class == "running" and _supervisor_gone(entry):
+        rec_class = SUPERVISOR_GONE
     if board_class != rec_class:
         found.append(_diff(title, name, None, "state", board_class, rec_class, facts))
     if _time_differs(board_step.get("started"), rec_step.get("started")):
@@ -306,7 +483,7 @@ def _compare_step(board: dict, document: dict, entry: dict) -> list[dict]:
     return found
 
 
-def _compare_owner(board: dict, document: dict, entry: dict) -> list[dict]:
+def _compare_owner(board: dict, document: dict, entry: dict, since_comparable: bool) -> list[dict]:
     name = entry.get("name")
     title = entry.get("title")
     board_item = _board_owner(board, name)
@@ -317,12 +494,84 @@ def _compare_owner(board: dict, document: dict, entry: dict) -> list[dict]:
     found = []
     if board_open != rec_open:
         found.append(_diff(title, None, name, "open", board_open, rec_open, facts))
-    if board_open and rec_open:
+    if since_comparable and board_open and rec_open:
         board_since = board_item.get("since") if board_item else None
         rec_since = rec_item.get("since") if rec_item else None
         if _time_differs(board_since, rec_since):
             found.append(_diff(title, None, name, "since", board_since, rec_since, facts))
     return found
+
+
+def _owner_subject(board: dict, owners: list) -> bool:
+    if owners:
+        return True
+    return bool(_board_owner_items(board))
+
+
+def _board_owner_items(board: dict) -> list:
+    items = board.get("owner_all")
+    if type(items) is not list:
+        return []
+    return [item for item in items if type(item) is dict]
+
+
+def _open_owner_items(document: dict) -> list:
+    items = document.get("owner_all")
+    if type(items) is not list:
+        return []
+    return [item for item in items if type(item) is dict]
+
+
+def _since_not_comparable(items: list) -> bool:
+    """True when a folded open owner item came out without ``since``."""
+    if not items:
+        return False
+    return any(item.get("since") is None for item in items)
+
+
+def _owner_open_records(root: Path) -> bool:
+    """Try the command line. A thrown-away work under ``_probe`` is not folded."""
+    probe = root / "_probe"
+    if probe.exists():
+        shutil.rmtree(probe)
+    probe.mkdir(parents=True)
+    try:
+        opened = _rec(probe, ["open", "--work", "probe", "--title", "probe"])
+        if opened.returncode != 0:
+            return False
+        tried = _rec(
+            probe,
+            ["owner-open", "--work", "probe", "--title", "probe", "--can-act", "yes"],
+        )
+        if tried.returncode != 0:
+            return False
+        try:
+            event = json.loads(tried.stdout)
+        except json.JSONDecodeError:
+            return False
+        return type(event) is dict and event.get("type") == "owner_wait_opened"
+    finally:
+        shutil.rmtree(probe, ignore_errors=True)
+
+
+def _supervisor_gone(entry: dict) -> bool:
+    if entry.get("via") != "bookkeeping":
+        return False
+    return not _alive(entry.get("pid"))
+
+
+def _alive(pid) -> bool:
+    if type(pid) is not int or type(pid) is bool or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
 
 
 def _board_class(step: dict) -> str:
@@ -574,6 +823,7 @@ def _remember_step(
     pid=None,
     run_id=None,
     run_exit=None,
+    via=None,
 ) -> None:
     for item in mapping["steps"]:
         if item.get("title") == title and item.get("name") == name:
@@ -590,20 +840,23 @@ def _remember_step(
                 item["run_id"] = run_id
             if run_exit is not None:
                 item["run_exit"] = run_exit
+            if via is not None:
+                item["via"] = via
             return
-    mapping["steps"].append(
-        {
-            "title": title,
-            "name": name,
-            "work_id": work_id,
-            "step_id": step_id,
-            "pattern": pattern,
-            "done": done,
-            "pid": pid,
-            "run_id": run_id,
-            "run_exit": run_exit,
-        }
-    )
+    row = {
+        "title": title,
+        "name": name,
+        "work_id": work_id,
+        "step_id": step_id,
+        "pattern": pattern,
+        "done": done,
+        "pid": pid,
+        "run_id": run_id,
+        "run_exit": run_exit,
+    }
+    if via is not None:
+        row["via"] = via
+    mapping["steps"].append(row)
 
 
 def _remember_owner(mapping: dict, title: str, name: str, work_id, wait_id: str) -> None:
