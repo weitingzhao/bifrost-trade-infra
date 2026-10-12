@@ -23,6 +23,7 @@ delete process.env.BIFROST_HEARTBEAT_TITLE
 delete process.env.BIFROST_WORK
 delete process.env.BIFROST_HEARTBEAT_PROGRESS
 delete process.env.BIFROST_HEARTBEAT_RUN_BEAT_MS
+delete process.env.BIFROST_HEARTBEAT_TEST_MISS_TRYHOLD
 
 const { beatFor, toolTimeoutSeconds, shouldSkip, reduceThrottle, allocateStamp, loadGate, supersedeActive, saveIssuedKey, withThreadLock, armHookDeadline, clearHookDeadline, lockRuntime, startProgressBeats } = require('./thread-heartbeat.js')
 const ISSUED_KEY = 'ab'.repeat(32)
@@ -871,6 +872,39 @@ process.kill(process.pid, 'SIGKILL')
   srv.s.close()
 }
 
+// An unanswered helper is not a busy lock. One forced unanswered attempt
+// must not consume the growth: the next look, while the child is still alive,
+// sends that beat. A busy lock still consumes the growth (progressEdges).
+async function progressGiveupRetriesGrowth() {
+  const beat = 200
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-prog-giveup-'))
+  const progress = path.join(home, 'progress')
+  const miss = path.join(home, 'miss')
+  fs.writeFileSync(progress, '')
+  fs.writeFileSync(miss, '1')
+  const child = writeScript(home, 'hold.js', `
+const fs = require('fs')
+const sleep = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+fs.appendFileSync(process.argv[2], 'x')
+sleep(Number(process.argv[3]))
+process.exit(0)
+`)
+  const srv = await server()
+  const run = await runScript(['run', 'cursor', '--', process.execPath, child, progress, '3000'], {
+    env: runEnv(home, srv.url, {
+      BIFROST_HEARTBEAT_PROGRESS: progress,
+      BIFROST_HEARTBEAT_RUN_BEAT_MS: String(beat),
+      BIFROST_HEARTBEAT_TEST_MISS_TRYHOLD: miss,
+    }),
+  })
+  assert.equal(run.code, 0, run.err)
+  assert.equal(fs.readFileSync(miss, 'utf8'), '0', 'the unanswered attempt did not run')
+  assert.deepEqual(srv.got.map(g => g.body.event), ['turn_start', 'after_tool', 'turn_end'])
+  assert.equal(srv.got[1].body.tool, 'headless-progress')
+  assert.equal(srv.got.filter(g => g.body.event === 'after_tool').length, 1)
+  srv.s.close()
+}
+
 function listen(s) {
   return new Promise(resolve => s.listen(0, '127.0.0.1', () => resolve(`http://127.0.0.1:${s.address().port}`)))
 }
@@ -904,11 +938,13 @@ process.exit(0)
   const flightHome = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-prog-flight-'))
   const flightFile = path.join(flightHome, 'progress')
   fs.writeFileSync(flightFile, '')
+  const flightExit = path.join(flightHome, 'exited')
   const flightChild = writeScript(flightHome, 'flight.js', `
 const fs = require('fs')
 const sleep = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 fs.appendFileSync(process.argv[2], 'x')
 sleep(500)
+fs.writeFileSync(process.argv[3], String(Date.now()))
 process.exit(0)
 `)
   const flightGot = []
@@ -926,11 +962,15 @@ process.exit(0)
     })
   })
   const flightURL = await listen(flightSrv)
-  const flight = await runScript(['run', 'cursor', '--', process.execPath, flightChild, flightFile], {
+  const flight = await runScript(['run', 'cursor', '--', process.execPath, flightChild, flightFile, flightExit], {
     env: runEnv(flightHome, flightURL, { BIFROST_HEARTBEAT_PROGRESS: flightFile, BIFROST_HEARTBEAT_RUN_BEAT_MS: '120' }),
   })
   assert.equal(flight.code, 0, flight.err)
-  assert.ok(flight.ms < 2200, `in-flight progress delayed turn_end: wrapper ${flight.ms}ms`)
+  // Total wrapper time includes process startup, which stretches under load.
+  // The property is that turn_end does not wait out the in-flight progress POST
+  // (that response is held for 3000ms). Measure from the child's own exit.
+  const afterExit = Date.now() - Number(fs.readFileSync(flightExit, 'utf8'))
+  assert.ok(afterExit < 1800, `in-flight progress delayed turn_end: ${afterExit}ms after the child exited (wrapper ${flight.ms}ms)`)
   assert.ok(await waitFor(() => flightGot.some(b => b.event === 'turn_end') && flightGot.some(b => b.event === 'after_tool')))
   const prog = flightGot.find(b => b.event === 'after_tool')
   const end = flightGot.find(b => b.event === 'turn_end')
@@ -1338,6 +1378,7 @@ async function main() {
   await deadLockRace()
   await endToEnd()
   await progressBeats()
+  await progressGiveupRetriesGrowth()
   await progressEdges()
   await progressRecoveryDoesNotDelayExit()
   await progressRecoveryDoesNotDelayExit(true)

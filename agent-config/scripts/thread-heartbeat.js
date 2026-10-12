@@ -18,8 +18,10 @@
  * BIFROST_HEARTBEAT_RUN_BEAT_MS overrides it. No growth, or the variable unset,
  * posts nothing: a beat is not a liveness ping. The timer does not hold the
  * process open. Stamp allocation for a beat does not block the event loop: if
- * the per-thread lock is not free at once, that beat is skipped. The child's
- * exit and turn_end are not delayed by a beat.
+ * the per-thread lock is not free at once, that beat is skipped. A helper that
+ * does not answer is not a busy lock, so the same growth is tried on the next
+ * look while the child is still alive. The child's exit and turn_end are not
+ * delayed by a beat.
  *
  * A hook prints nothing and always exits 0. It does not return a permission
  * denial. It gives up at one monotonic deadline, 5 seconds from entry. Every
@@ -614,11 +616,26 @@ exit 1;
 `
 
 function beginTryHold(lockPath) {
+  // Test-only: the next N attempts end as an unanswered helper, not a busy lock.
+  const missFile = process.env.NODE_ENV === 'test' ? process.env.BIFROST_HEARTBEAT_TEST_MISS_TRYHOLD : ''
+  if (missFile) {
+    try {
+      const left = Number(fs.readFileSync(missFile, 'utf8'))
+      if (left > 0) {
+        fs.writeFileSync(missFile, String(left - 1))
+        return { promise: Promise.resolve(null), reason: 'giveup', cancel() {} }
+      }
+    } catch {
+      // a missing counter is a normal attempt
+    }
+  }
   let settled = false
   let child = null
   let pollTimer = null
   let giveUp = null
   let resolvePromise = null
+  let reason = ''
+  let acquired = null
   const ready = `${lockPath}.ready.${process.pid}.${crypto.randomBytes(4).toString('hex')}`
   const stopTimers = () => {
     if (pollTimer) clearTimeout(pollTimer)
@@ -626,12 +643,14 @@ function beginTryHold(lockPath) {
     pollTimer = null
     giveUp = null
   }
-  const finish = held => {
+  const finish = (held, why) => {
     if (settled) {
       if (held) held.release()
       return
     }
     settled = true
+    reason = why || ''
+    acquired = held || null
     stopTimers()
     if (!held && child) releaseHelper(child, ready)
     if (resolvePromise) resolvePromise(held || null)
@@ -644,13 +663,15 @@ function beginTryHold(lockPath) {
         stdio: ['pipe', 'ignore', 'ignore'],
       })
     } catch {
-      finish(null)
+      finish(null, 'spawn-error')
       return
     }
     child.unref()
     if (child.stdin) child.stdin.unref()
-    child.on('error', () => finish(null))
-    giveUp = setTimeout(() => finish(null), 100)
+    child.on('error', () => finish(null, 'child-error'))
+    // A slow perl is not a busy lock. Wait for its answer; child exit cancels
+    // the wait, so turn_end does not sit out this deadline.
+    giveUp = setTimeout(() => finish(null, 'giveup'), 2000)
     giveUp.unref()
     const poll = () => {
       if (settled) return
@@ -665,11 +686,11 @@ function beginTryHold(lockPath) {
           release() {
             releaseHelper(child, ready)
           },
-        })
+        }, 'ok')
         return
       }
       if (line === 'timeout') {
-        finish(null)
+        finish(null, 'lock-busy')
         return
       }
       pollTimer = setTimeout(poll, 5)
@@ -679,8 +700,16 @@ function beginTryHold(lockPath) {
   })
   return {
     promise,
+    get reason() {
+      return reason
+    },
     cancel() {
-      finish(null)
+      // turn_end takes this lock on the event loop. Release a helper that
+      // already answered so that wait cannot sit out LOCK_WAIT_MS.
+      const heldNow = acquired
+      acquired = null
+      if (heldNow) heldNow.release()
+      finish(null, 'cancel')
     },
   }
 }
@@ -1084,9 +1113,11 @@ async function progressSize(file) {
  * file has grown. The timer is unref'd and the returned function clears it, so
  * a child exit does not wait out the interval and the timer cannot keep the
  * process alive. An in-flight post is not awaited. The per-thread lock is
- * taken only when it is free at once; otherwise this beat is skipped and the
- * next look sends one if the file has grown again. Waiting for that lock never
- * blocks the event loop, so the child's exit and turn_end are not delayed.
+ * taken only when it is free at once. A busy lock skips this growth; the next
+ * look sends one only if the file has grown again. A helper that does not
+ * answer leaves the growth in place, so the next look tries the same size
+ * while the child is still alive. Waiting for that lock never blocks the
+ * event loop, so the child's exit and turn_end are not delayed.
  */
 async function startProgressBeats(base, isAlive) {
   const file = (process.env.BIFROST_HEARTBEAT_PROGRESS || '').trim()
@@ -1121,6 +1152,7 @@ async function startProgressBeats(base, isAlive) {
   const tick = async () => {
     timer = null
     if (stopped || !isAlive()) return
+    const sizeBefore = lastSize
     let grew = false
     try {
       const size = await progressSize(file)
@@ -1145,6 +1177,9 @@ async function startProgressBeats(base, isAlive) {
     attempt.promise.then(held => {
       if (inflight === attempt) inflight = null
       if (!held || stopped || !isAlive()) {
+        // lock-busy consumed this growth. An unanswered helper did not.
+        const unanswered = !held && (attempt.reason === 'giveup' || attempt.reason === 'spawn-error' || attempt.reason === 'child-error')
+        if (unanswered && !stopped && isAlive()) lastSize = sizeBefore
         if (held) held.release()
         if (!stopped && isAlive()) arm()
         return
