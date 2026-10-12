@@ -1634,7 +1634,9 @@ async function sidebarFieldFollowsEnvironment() {
   process.env.CURSOR_CONVERSATION_ID = 'conv-1'
   process.env.CURSOR_SESSION_ID = 'sess-should-not-win'
   try {
-    assert.equal(beatFor('cursor', payload).sidebar, 'conv-1')
+    assert.equal(Object.hasOwn(beatFor('cursor', payload), 'sidebar'), false)
+    delete process.env.CURSOR_CONVERSATION_ID
+    assert.equal(Object.hasOwn(beatFor('cursor', payload), 'sidebar'), false)
   } finally {
     delete process.env.CURSOR_CONVERSATION_ID
     delete process.env.CURSOR_SESSION_ID

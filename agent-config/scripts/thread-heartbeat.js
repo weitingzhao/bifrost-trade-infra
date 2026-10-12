@@ -59,8 +59,7 @@
  *   BIFROST_HEARTBEAT_RUN_BEAT_MS  run: progress interval in ms (default 120000)
  *
  * When the environment has a sidebar thread id, every beat also carries it as
- * `sidebar`: CLAUDE_CODE_HOST_SESSION_ID, else CURSOR_CONVERSATION_ID, else
- * CURSOR_SESSION_ID. When none of those is set, the field is absent and the
+ * `sidebar`: CLAUDE_CODE_HOST_SESSION_ID. When it is not set, the field is absent and the
  * beat is unchanged. The platform decides whether an old session was superseded.
  */
 const fs = require('node:fs')
@@ -215,11 +214,7 @@ function workFrom(title) {
 // Sidebar thread id the desktop already put in the environment. Empty when
 // this process has none: the beat then omits the field.
 function sidebarFromEnv() {
-  for (const key of ['CLAUDE_CODE_HOST_SESSION_ID', 'CURSOR_CONVERSATION_ID', 'CURSOR_SESSION_ID']) {
-    const value = (process.env[key] || '').trim()
-    if (value) return value
-  }
-  return ''
+  return (process.env.CLAUDE_CODE_HOST_SESSION_ID || '').trim()
 }
 
 function attachSidebar(body) {
