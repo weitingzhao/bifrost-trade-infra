@@ -1921,7 +1921,7 @@
 
 **P2 · ops-platform · when a thread continues under a new CLI session id, the old id stays mid-turn for ever and is shown to the Owner as a silent thread — it points at the thread he is already using**
 
-- **状态**：未开始（2026-10-11 21:18 Owner 在 PROD「Needs you」上点了「Open thread」没有反应后来问）
+- **状态**：在做（Owner 2026-10-12 12:36「接口同意」：心跳加一个可选字段带侧栏线程 id，平台按 Fix 一行判「被取代」。任务书已写，排在 TD-316 平台一半和心跳补测试之后，同一位实现者串着做）
 - **Claim**: the heartbeat keys a thread by the CLI session id in the hook payload (`agent-config/scripts/thread-heartbeat.js:212`). When the desktop app restarts a thread's process during a turn (or continues it in a new process), the new process has a new session id and the old one never sends `turn_end`. Ten minutes later the platform lists the old id under "Needs you → Silent threads". The card's link is the sidebar thread (`local_…`), which is the same thread that is alive under the new id, so opening it does nothing the Owner can see.
 - **Measured**: MEASURED 2026-10-11 21:18 CDT. The card's thread id was the coordinator thread's previous session id; the session had been restarted at about 21:07 during a turn and was answering the Owner under a new id at that moment (the heartbeat's own send log showed the new id sending tool events 2 seconds earlier and the old id last at `turn_start`). After a `turn_end` was reported for the old id through the hook path the card was expected to clear (not confirmed from the API: the thread list needs a viewer token). NOT MEASURED: how often a restart happens mid-turn; whether context compaction alone changes the id (earlier the same day it did not).
 - **Evidence**: the path above; TD-316 (the other false alarm of the same evening); LESSONS rows 32, 96, 97; OWNER-SURFACE A14.
