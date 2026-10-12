@@ -13,7 +13,6 @@
 
 ## 待你签收
 
-- **TD-316** — 派给 Cursor、Codex 的后台运行静默时不再推到你手机、不进 Needs you、不进主机失联的通知；它的日志在长时会自己报进展；`run-` 成了后台运行专用的名字。验收：PASS 2026-10-12，platform `5643820`（#10，15:39 上正式环境）——在正式环境起了一个静默 700 秒的包装运行，静默数 3 → 4、推送数保持 0。防线：平台和 Console 各有点名测试（种错都被拦），心跳脚本的测试。后续：静默的后台运行现在不通知任何人，靠派它的一方的看护（等有第二个派活席位时要补）；继承了标记变量的非包装会话仍被当成后台运行（复核 126 的 P3）。
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
@@ -1904,20 +1903,6 @@
 - 验收: `start_pipeline_run` for `bifrost-ci-platform` at a branch SHA reaches `test-console`; a pipeline with an unbindable workspace is refused with a sentence that names the workspace
 - 审批 无（代码改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
 
-### TD-316
-
-**P2 · ops-platform · a headless Codex run longer than ten minutes is shown to the Owner as a silent thread that "nobody is working on": the wrapper reports only the start and the end, and Codex's hooks carry no heartbeat**
-
-- **状态**：待你签收（2026-10-12 15:56）。验收结果：PASS 2026-10-12，platform `5643820`（正式环境 15:39 发完，审批 #10）、infra 主线的心跳脚本。实测：15:41 在正式环境起了一个故意静默 700 秒的包装运行；平台自己的指标显示这段时间里静默数从 3 到过 4（它被算作静默），静默推送数一直是 0（没有推给 Owner）。没有亲眼看 Console 的 Needs you 页面（Agent 不碰那个页面），靠的是这两个数加上 Console 的过滤测试。留下的三样记在下一行
-- **Claim**: `thread-heartbeat.js run <vendor> -- <cmd>` posts `turn_start` before the command and `turn_end` after it and nothing in between (`agent-config/scripts/thread-heartbeat.js:926–966`). For Cursor the user-level hooks report tool events under the wrapper's thread id (`BIFROST_HEARTBEAT_THREAD`, line 212), so the thread stays live. Codex's hook file holds only the guard (`PreToolUse` → `agent-guard`) and no heartbeat entry, so a wrapped `codex exec` sends nothing after its first second. The platform calls a thread silent after 10 minutes without an event (`bifrost-platform` `api/internal/agentthreads/config.go:40`, `SilentAfter`), lists it under "Needs you → Silent threads" with "Nobody is working on it until someone opens it" and the action "Open it in codex". There is nothing to open: a headless run has no thread in the Codex app.
-- **Measured**: MEASURED 2026-10-11 21:09 CDT. Thread `run-bc611f64-…` on PROD: "Stopped 11m ago · last activity: started a turn". On the host in the same minute: the `codex exec` process alive (elapsed 12:44), its log written within the last second, 17 files changed in its worktree. Codex's hook file: one `PreToolUse` command (the guard), zero mentions of `thread-heartbeat`. NOT MEASURED: whether a push notification went out for this thread; how many earlier Codex review runs (10–20 minutes each) were listed the same way.
-- **Evidence**: the paths above; LESSONS row 32 (the same class, 2026-10-10: an item under "Needs you" with nothing the Owner can do) and row 96; W-31 S0-21 is in its observation window for false alarms until 10-17 — this is one.
-- **Impact**: the one place that tells the Owner what needs him says a working agent has stopped and asks him to open something that does not exist. The Owner's assignment rule of 2026-10-11 makes Codex an implementer whenever a lane's first implementer fails twice, so these runs become routine and each will raise it. A false alarm that repeats teaches him to ignore the section, and a real silent thread then looks the same.
-- **Fix**: in `run`, while the child is alive, post a beat on a timer (about every 2 minutes) that says whether the child's output advanced since the last beat (stdio is inherited today, so the wrapper sees nothing: take the progress file's path from an environment variable, or pipe and forward). The platform then tells apart "alive and producing", "alive and quiet for N minutes" (the real silent case for a headless run) and "wrapper gone without `turn_end`". A silent `run-…` thread goes to the seat that started it (the coordinator), not to the Owner's "Needs you", and its card does not say "open it". Optional and separate: add heartbeat entries to Codex's hooks through the installer (a trusted-hook change, the Owner's).
-- **Ratchet**: a wrapper test — a child that lives for three intervals yields three beats between `turn_start` and `turn_end`, and a killed child yields none after it; a platform test — a `run-…` thread with beats inside the window is not silent, and a silent `run-…` thread is not among the Owner's items.
-- 验收: a wrapped `codex exec` of 15 minutes never appears under "Needs you"; stopping its output for longer than the threshold puts it on the coordinator's list within the threshold plus one beat
-- 审批 无（代码改动，随平台发布；改 Codex 的钩子另算，归 Owner）· 代价 S · 风险 low（心跳脚本被每个 Agent 的每次工具调用使用，要在没有任务在跑时换上）· repos: bifrost-trade-infra, bifrost-platform
-
 ### TD-317
 
 **P2 · ops-platform · when a thread continues under a new CLI session id, the old id stays mid-turn for ever and is shown to the Owner as a silent thread — it points at the thread he is already using**
@@ -1972,6 +1957,19 @@
 - **Ratchet**: the host installer refuses to finish when the token file on the host names an admin key (it checks key names only, never values). None today.
 - 验收: `grep -n "同样三个键" agent-config/.mcp.json.README.md` prints nothing; the installer's refusal has a test that passes
 - 审批 无 · 代价 S · 风险 low · repos: bifrost-trade-infra
+
+### TD-321
+
+**P3 · multi-agent · a silent wrapped run now notifies nobody, and a session that inherited the wrapper's marker is still treated as a wrapped run**
+
+- **状态**：未开始（TD-316 签收时留下的后续，Owner 2026-10-12 签收）
+- **Claim**: after TD-316 a thread whose id begins `run-` is left out of the Owner's silent-thread push, of "Needs you" and of the host-lost message (`bifrost-platform` `api/internal/agentthreads/config.go` `Due`, `threads.go` host message; `console/src/api/agentThreads.ts` `silentThreads`). It stays in the thread list with status `silent`, but nothing calls anyone: the seat that dispatched the run has to watch it itself. Today the only dispatcher is the coordinator, whose own watcher covers it. Second: a process that is not a wrapped run but inherited both `BIFROST_HEARTBEAT_THREAD=run-…` and `BIFROST_HEARTBEAT_WRAPPED_RUN=1` (a daemon or a terminal started from inside a wrapped run) reports under the run's id and is hidden the same way (review 126, P3; unchanged by TD-316).
+- **Measured**: on PROD 2026-10-12 a wrapped run silent for 700 s was counted silent and not pushed (the acceptance of TD-316). No process with both variables existed on the coordinator's machine that day (review 126).
+- **Impact**: none while one seat dispatches and watches. With a second dispatching seat, or a dispatcher without a watcher, a hung background run would go unnoticed.
+- **Fix**: when there is a second dispatching seat, route a silent wrapped run to the seat that started it (the platform needs to know which seat that is — an interface decision for the Owner); let the marker carry the wrapper's pid and have the hook check that it is alive.
+- **Ratchet**: none yet; the tests of TD-316 hold the exclusion itself.
+- 验收: a wrapped run that hangs is brought to the seat that dispatched it within the threshold plus one beat; a session started from inside a finished wrapped run reports under its own id
+- 审批 Owner（接口） · 代价 M · 风险 low · repos: bifrost-platform, bifrost-trade-infra
 
 ## 没覆盖到的（下一轮从这里开始）
 
