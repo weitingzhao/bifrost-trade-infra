@@ -514,10 +514,12 @@ def select(logs: list, observer: list):
     obs_kept = []
     obs_bytes = 0
     obs_past = []
+    obs_stopped = False
     for name, data in obs_unique:
         size = len(data)
-        if obs_bytes + size > MAX_OBSERVER_BYTES:
+        if obs_stopped or obs_bytes + size > MAX_OBSERVER_BYTES:
             obs_past.append(name)
+            obs_stopped = True
             continue
         obs_bytes += size
         obs_kept.append((name, data))
@@ -543,10 +545,12 @@ def select(logs: list, observer: list):
     kept = []
     total = obs_bytes
     past = []
+    work_stopped = False
     for name, data in work_unique:
         size = len(data)
-        if len(kept) >= MAX_LOGS or total + size > MAX_TOTAL_BYTES:
+        if work_stopped or len(kept) >= MAX_LOGS or total + size > MAX_TOTAL_BYTES:
             past.append(name)
+            work_stopped = True
             continue
         total += size
         kept.append((name, data))

@@ -330,7 +330,7 @@ def _judge_work(work: dict, merged: dict) -> dict:
     if created:
         return pack("agents", "record_created", _record_created_since(view, created))
     if _any_in_flight(view, merged):
-        return pack("agents", "record_in_flight", _substantive(view))
+        return pack("agents", "record_in_flight", _in_flight_since(view, merged))
     if any(step["state"] == "unknown" for step in steps):
         return pack("unknown", "step_unknown", None)
     if work["invalid"]:
@@ -356,6 +356,19 @@ def _substantive(view: View):
     return max(times) if times else None
 
 
+def _streak_start(seen: list, states: set, key: str):
+    """First sample of the current continuous run of ``states``. A repeat does not move it."""
+    streak = []
+    for obs in seen:
+        if obs.get("ref_state") in states:
+            streak.append(obs)
+        else:
+            streak = []
+    if not streak or key not in streak[0]:
+        return None
+    return streak[0][key]
+
+
 def _running_since(view: View, running: list):
     times = []
     for public in running:
@@ -366,7 +379,8 @@ def _running_since(view: View, running: list):
                 if obs.get("condition") in {"True", "False"}:
                     continue
                 if "started_at" in obs:
-                    found = obs["at"]
+                    found = obs["started_at"]
+                    break
             if found is not None:
                 times.append(found)
         elif step.started_at is not None:
@@ -381,7 +395,20 @@ def _record_created_since(view: View, created: list):
         for obs in step.record_obs:
             if obs.get("found") and "started_at" not in obs and "condition" not in obs:
                 times.append(obs["at"])
-    return max(times) if times else _substantive(view)
+                break
+    return min(times) if times else _substantive(view)
+
+
+def _in_flight_since(view: View, merged: dict):
+    times = []
+    for wait in view.waits.values():
+        status = _wait_status(wait, merged, view.work_id)
+        if status is None or status.get("status") != "in_flight":
+            continue
+        start = _streak_start(wait.seen, {"approved", "running"}, "sampled_at")
+        if start is not None:
+            times.append(start)
+    return min(times) if times else _substantive(view)
 
 
 def _owner_since(view: View, merged: dict):
@@ -393,10 +420,9 @@ def _owner_since(view: View, merged: dict):
         if status.get("declared"):
             times.append(wait.yes_at if wait.yes_at is not None else wait.opened_at)
             continue
-        for obs in reversed(wait.seen):
-            if obs.get("ref_state") in {"pending", "open", "unknown"}:
-                times.append(obs["at"])
-                break
+        start = _streak_start(wait.seen, {"pending", "open", "unknown"}, "sampled_at")
+        if start is not None:
+            times.append(start)
     return max(times) if times else _substantive(view)
 
 
