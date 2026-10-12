@@ -44,12 +44,22 @@ def _functions(root):
     return found
 
 
-def generate(sources):
+def selected(filename, qualified, only):
+    """``only`` is a file, a qualified function, or ``file:function``."""
+    if not only:
+        return True
+    key = f'{filename}:{qualified}'
+    return only in (filename, qualified, key)
+
+
+def generate(sources, only=''):
     """Return every mutation of every non-excluded function, without sampling.
 
-Each entry includes a stable site id, original/replacement expression and the
-complete mutated module. Nested functions are walked inside their parent.
-"""
+    ``only`` limits generation to one file or one function so a cycle does not
+    rebuild the whole path. Each entry includes a stable site id, the
+    original and replacement expressions, and the complete mutated module.
+    Nested functions are walked inside their parent.
+    """
     out = []
     for filename, source in sources.items():
         if not source or not source.strip():
@@ -57,6 +67,8 @@ complete mutated module. Nested functions are walked inside their parent.
         root = ast.parse(source)
         for qualified, function in _functions(root):
             if f'{filename}:{qualified}' in EXCLUSIONS:
+                continue
+            if not selected(filename, qualified, only):
                 continue
             def emit(node, kind, field, replacement, ordinal=0):
                 site = f'{filename}:{qualified}:{node.lineno}:{node.col_offset}:{kind}:{ordinal}'
