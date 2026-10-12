@@ -12,7 +12,20 @@
  * `run` is for headless sessions (`cursor-agent -p` fires no stop hook): it
  * reports turn start, runs the command with BIFROST_HEARTBEAT_THREAD set so the
  * session's own hooks report under the same thread, and reports turn end when
- * the command exits.
+ * the command exits. While the child is alive, if BIFROST_HEARTBEAT_PROGRESS
+ * names a file whose size has grown since the last look, `run` posts one
+ * `after_tool` (tool `headless-progress`) on a timer. Default 120s;
+ * BIFROST_HEARTBEAT_RUN_BEAT_MS overrides it. No growth, or the variable unset,
+ * posts nothing: a beat is not a liveness ping. The timer does not hold the
+ * process open and does not postpone turn_end.
+ *
+ * A Claude hook reads the sidebar thread id from CLAUDE_CODE_HOST_SESSION_ID
+ * (`local_…`, the same variable the lineage hook writes as Claude-Session).
+ * The CLI session id stays the payload's session_id. When a turn_start arrives
+ * for a sidebar thread whose open turn belongs to a different CLI session, the
+ * hook posts turn_end for that old session — its own key and sequence — and
+ * then the new turn_start. If the old turn_end cannot be sent, the new
+ * turn_start still goes out. No sidebar id leaves every vendor unchanged.
  *
  * A hook prints nothing and always exits 0. It does not return a permission
  * denial. It gives up at one monotonic deadline, 5 seconds from entry. Every
@@ -46,6 +59,9 @@
  *   ~/.config/bifrost/lineage-reporter.token   (the TD-197 token; no token → nothing is sent)
  *   BIFROST_WORK              work item (W-n); otherwise taken from the thread title
  *   BIFROST_HEARTBEAT=off     send nothing
+ *   BIFROST_HEARTBEAT_PROGRESS     run: file whose growing size is a progress beat
+ *   BIFROST_HEARTBEAT_RUN_BEAT_MS  run: progress interval in ms (default 120000)
+ *   CLAUDE_CODE_HOST_SESSION_ID    Claude sidebar thread id; absent → no succession
  */
 const fs = require('node:fs')
 const os = require('node:os')
@@ -77,6 +93,10 @@ function lockBudgetMs() {
   return Math.max(0, hookDeadline - lockRuntime.now())
 }
 const FIRST_EVENT_TIMEOUT_MS = 1000
+const RUN_BEAT_MS = 120 * 1000
+// Sidebar ids and CLI session ids stored in the succession file. Same shape
+// the gate path accepts, so a value cannot escape the cache directory.
+const SIDEBAR_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 const KEY_RE = /^[0-9a-f]{64}$/
 const TURN_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 // Only these mean the person has to act. Every other notification is ignored.
@@ -894,6 +914,173 @@ function readStdin(limit = 1 << 20) {
   })
 }
 
+function runBeatMs() {
+  const raw = process.env.BIFROST_HEARTBEAT_RUN_BEAT_MS
+  if (raw == null || String(raw).trim() === '') return RUN_BEAT_MS
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n <= 0) return RUN_BEAT_MS
+  return n
+}
+
+function progressSize(file) {
+  try {
+    return fs.statSync(file).size
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Posts `after_tool` / `headless-progress` while `isAlive()` and the progress
+ * file has grown. The timer is unref'd and the returned function clears it, so
+ * a child exit does not wait out the interval and the timer cannot keep the
+ * process alive. An in-flight post is not awaited.
+ */
+function startProgressBeats(base, isAlive) {
+  const file = (process.env.BIFROST_HEARTBEAT_PROGRESS || '').trim()
+  if (!file) return () => {}
+  const interval = runBeatMs()
+  let lastSize = 0
+  const initial = progressSize(file)
+  if (initial !== null) lastSize = initial
+  let timer = null
+  let stopped = false
+  const stop = () => {
+    stopped = true
+    if (timer) clearTimeout(timer)
+    timer = null
+  }
+  const arm = () => {
+    if (stopped || !isAlive()) return
+    timer = setTimeout(tick, interval)
+    timer.unref()
+  }
+  const tick = () => {
+    timer = null
+    if (stopped || !isAlive()) return
+    let grew = false
+    let beat = null
+    try {
+      const size = progressSize(file)
+      if (size !== null) {
+        grew = size > lastSize
+        lastSize = size
+      }
+    } catch {
+      grew = false
+    }
+    if (grew && isAlive()) {
+      beat = { ...base, event: 'after_tool', tool: 'headless-progress' }
+      try {
+        allocateStamp(beat)
+      } catch {
+        beat = null
+      }
+    }
+    if (!beat || stopped || !isAlive()) {
+      arm()
+      return
+    }
+    postRecover(beat, 3000)
+      .catch(() => {
+        // a failed progress post is swallowed; the child's exit code still wins
+      })
+      .finally(arm)
+  }
+  arm()
+  return stop
+}
+
+function sidebarId() {
+  const id = (process.env.CLAUDE_CODE_HOST_SESSION_ID || '').trim()
+  if (!SIDEBAR_ID_RE.test(id)) return ''
+  return id
+}
+
+function sidebarFile(id) {
+  return home('.cache', 'bifrost', 'heartbeat-sidebar', id)
+}
+
+function withSidebarLock(id, fn) {
+  const file = sidebarFile(id)
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
+  const held = holdFlock(`${file}.lock`)
+  try {
+    return fn(file)
+  } finally {
+    held.release()
+  }
+}
+
+function readSidebar(file) {
+  const raw = readJSON(file)
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const session = typeof raw.session === 'string' ? raw.session.trim() : ''
+  if (!SIDEBAR_ID_RE.test(session)) return null
+  return { session, open: raw.open === true }
+}
+
+function writeSidebar(file, rec) {
+  const tmp = `${file}.${process.pid}.tmp`
+  fs.writeFileSync(tmp, JSON.stringify({ session: rec.session, open: rec.open === true }), { mode: 0o600 })
+  fs.chmodSync(tmp, 0o600)
+  fs.renameSync(tmp, file)
+  fs.chmodSync(file, 0o600)
+}
+
+/**
+ * Records `session` as the sidebar thread's open turn. Returns the previous
+ * CLI session id when that turn was still open and belonged to someone else.
+ */
+function takeOverSidebar(session) {
+  const id = sidebarId()
+  if (!id || !SIDEBAR_ID_RE.test(session)) return ''
+  return withSidebarLock(id, file => {
+    const st = readSidebar(file)
+    const previous = st && st.open && st.session !== session ? st.session : ''
+    writeSidebar(file, { session, open: true })
+    return previous
+  })
+}
+
+function closeSidebar(session) {
+  const id = sidebarId()
+  if (!id || !SIDEBAR_ID_RE.test(session)) return
+  withSidebarLock(id, file => {
+    const st = readSidebar(file)
+    if (!st || st.session !== session || !st.open) return
+    writeSidebar(file, { session, open: false })
+  })
+}
+
+/** turn_end for a CLI session, as that session's own Stop hook would post it. */
+async function postPreviousTurnEnd(session) {
+  const body = { thread: session, vendor: 'claude', host: hostName(), event: 'turn_end', session }
+  let title = ''
+  try {
+    title = claudeTitle(session)
+  } catch {
+    title = ''
+  }
+  if (title) {
+    body.title = String(title).slice(0, 160)
+    // The new process's BIFROST_WORK is not the old session's work item.
+    const m = /\b(W-\d+)\b/.exec(body.title)
+    if (m) body.work = m[1]
+  }
+  try {
+    allocateStamp(body)
+  } catch {
+    return
+  }
+  try {
+    const res = await postRecover(body, FIRST_EVENT_TIMEOUT_MS)
+    if (res && res.sent) rememberSent(body)
+  } catch {
+    // the new turn_start still goes out
+  }
+}
+
 async function hook(vendor) {
   const raw = await readStdin()
   let payload
@@ -908,10 +1095,41 @@ async function hook(vendor) {
   const first = !hasActiveKey(body.vendor, body.session)
   // A throttled tool event must not skip the turn_start the server never confirmed.
   if (!first && !hasUnconfirmedTurn(body.vendor, body.session) && throttled(body)) return
+  // The CLI session id is the payload's, not BIFROST_HEARTBEAT_THREAD. Close
+  // the previous session of this sidebar thread before the new turn_start.
+  // A failed close must not drop the new event. Cursor, Codex, and a hook
+  // with no sidebar id never enter this.
+  const cliSession = String((payload && payload.session_id) || '').trim()
+  if (vendor === 'claude' && body.event === 'turn_start') {
+    let previous = ''
+    try {
+      previous = takeOverSidebar(cliSession)
+    } catch {
+      previous = ''
+    }
+    if (previous) {
+      const left = hookDeadline ? hookDeadline - lockRuntime.now() : HOOK_GIVE_UP_MS
+      // Keep a slice of the one deadline for the new turn_start.
+      if (left > FIRST_EVENT_TIMEOUT_MS + 500) {
+        try {
+          await postPreviousTurnEnd(previous)
+        } catch {
+          // the new turn_start still goes out
+        }
+      }
+    }
+  }
   try {
     allocateStamp(body)
   } catch {
     return
+  }
+  if (vendor === 'claude' && body.event === 'turn_end') {
+    try {
+      closeSidebar(cliSession)
+    } catch {
+      // a lost close mark only means a later session may end this turn again
+    }
   }
   // The turn_start, and any later event until the server confirms it, stay in
   // this process so the start is sent before the later event.
@@ -942,6 +1160,10 @@ async function run(vendor, argv) {
   } catch {
     // a headless run still starts the command
   }
+  // Baseline the progress file before the child can write it. The timer itself
+  // only fires while the child is alive, and is cleared before turn_end.
+  let alive = true
+  const stopBeats = startProgressBeats(base, () => alive)
   const child = spawn(cmd[0], cmd.slice(1), {
     stdio: 'inherit',
     env: { ...process.env, BIFROST_HEARTBEAT_THREAD: thread, BIFROST_HEARTBEAT_TITLE: title },
@@ -955,6 +1177,8 @@ async function run(vendor, argv) {
     })
     child.on('exit', (c, sig) => resolve(c === null ? 128 + (os.constants.signals[sig] || 0) : c))
   })
+  alive = false
+  stopBeats()
   const end = { ...base, event: 'turn_end' }
   try {
     allocateStamp(end)

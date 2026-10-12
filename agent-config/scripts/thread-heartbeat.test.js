@@ -18,6 +18,9 @@ delete process.env.PLATFORM_REPORTER_TOKEN
 delete process.env.BIFROST_HEARTBEAT_THREAD
 delete process.env.BIFROST_HEARTBEAT_TITLE
 delete process.env.BIFROST_WORK
+delete process.env.BIFROST_HEARTBEAT_PROGRESS
+delete process.env.BIFROST_HEARTBEAT_RUN_BEAT_MS
+delete process.env.CLAUDE_CODE_HOST_SESSION_ID
 
 const { beatFor, toolTimeoutSeconds, shouldSkip, reduceThrottle, allocateStamp, loadGate, supersedeActive, saveIssuedKey, withThreadLock, armHookDeadline, clearHookDeadline, lockRuntime } = require('./thread-heartbeat.js')
 const ISSUED_KEY = 'ab'.repeat(32)
@@ -739,6 +742,277 @@ async function deadLockRace() {
   assert.equal(typeof withThreadLock, 'function')
 }
 
+function sleepMs(ms) {
+  return new Promise(r => setTimeout(r, ms))
+}
+
+function writeScript(dir, name, body) {
+  const file = path.join(dir, name)
+  fs.writeFileSync(file, `'use strict'\n${body}`)
+  return file
+}
+
+const CHILD_LOOP = `
+const fs = require('fs')
+const file = process.argv[2]
+const writes = Number(process.argv[3])
+const gap = Number(process.argv[4])
+const code = Number(process.argv[5] || 0)
+const sleep = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+if (writes <= 0) {
+  if (gap > 0) sleep(gap)
+} else {
+  for (let i = 0; i < writes; i++) {
+    if (gap > 0) sleep(gap)
+    fs.appendFileSync(file, 'x')
+  }
+  if (gap > 0) sleep(gap)
+}
+process.exit(code)
+`
+
+function runEnv(home, url, extra = {}) {
+  return {
+    BIFROST_HOME_OVERRIDE: home,
+    PLATFORM_REPORTER_TOKEN: 't',
+    PLATFORM_HEARTBEAT_URL: url,
+    BIFROST_HEARTBEAT_PROGRESS: '',
+    BIFROST_HEARTBEAT_RUN_BEAT_MS: '',
+    CLAUDE_CODE_HOST_SESSION_ID: '',
+    ...extra,
+  }
+}
+
+async function progressBeats() {
+  const beat = 200
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-prog-'))
+  const progress = path.join(home, 'progress')
+  fs.writeFileSync(progress, '')
+  const loop = writeScript(home, 'loop.js', CHILD_LOOP)
+  const kill = writeScript(home, 'kill.js', `
+const fs = require('fs')
+const sleep = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+sleep(300)
+fs.appendFileSync(process.argv[2], 'x')
+process.kill(process.pid, 'SIGKILL')
+`)
+  const srv = await server()
+  const base = runEnv(home, srv.url, { BIFROST_HEARTBEAT_RUN_BEAT_MS: String(beat) })
+
+  const grew = await runScript(['run', 'cursor', '--', process.execPath, loop, progress, '3', String(beat + 800)], {
+    env: { ...base, BIFROST_HEARTBEAT_PROGRESS: progress },
+  })
+  assert.equal(grew.code, 0, grew.err)
+  assert.deepEqual(srv.got.map(g => g.body.event), ['turn_start', 'after_tool', 'after_tool', 'after_tool', 'turn_end'])
+  assert.deepEqual(srv.got.filter(g => g.body.event === 'after_tool').map(g => g.body.tool), [
+    'headless-progress', 'headless-progress', 'headless-progress',
+  ])
+  assert.equal(new Set(srv.got.map(g => g.body.thread)).size, 1)
+  assert.equal(new Set(srv.got.map(g => g.body.turn_id)).size, 1)
+  assert.deepEqual(srv.got.map(g => g.body.seq), [1, 2, 3, 4, 5])
+
+  srv.got.length = 0
+  const once = await runScript(['run', 'cursor', '--', process.execPath, loop, progress, '1', String(beat * 3 + 500)], {
+    env: { ...base, BIFROST_HEARTBEAT_PROGRESS: progress },
+  })
+  assert.equal(once.code, 0, once.err)
+  assert.deepEqual(srv.got.map(g => g.body.event), ['turn_start', 'after_tool', 'turn_end'])
+  assert.equal(srv.got[1].body.tool, 'headless-progress')
+
+  srv.got.length = 0
+  const unset = await runScript(['run', 'cursor', '--', process.execPath, loop, progress, '0', String(beat * 3 + 200), '0'], {
+    env: base,
+  })
+  assert.equal(unset.code, 0, unset.err)
+  assert.deepEqual(srv.got.map(g => g.body.event), ['turn_start', 'turn_end'])
+
+  srv.got.length = 0
+  const missing = path.join(home, 'no-such-progress')
+  const gone = await runScript(['run', 'cursor', '--', process.execPath, loop, progress, '0', String(beat * 3 + 200), '4'], {
+    env: { ...base, BIFROST_HEARTBEAT_PROGRESS: missing },
+  })
+  assert.equal(gone.code, 4, gone.err)
+  assert.deepEqual(srv.got.map(g => g.body.event), ['turn_start', 'turn_end'])
+
+  srv.got.length = 0
+  const sealed = path.join(home, 'sealed')
+  fs.mkdirSync(sealed)
+  const hidden = path.join(sealed, 'progress')
+  fs.writeFileSync(hidden, '')
+  fs.chmodSync(sealed, 0o000)
+  try {
+    const unreadable = await runScript(['run', 'cursor', '--', process.execPath, loop, progress, '0', String(beat * 3 + 200), '4'], {
+      env: { ...base, BIFROST_HEARTBEAT_PROGRESS: hidden },
+    })
+    assert.equal(unreadable.code, 4, unreadable.err)
+    assert.deepEqual(srv.got.map(g => g.body.event), ['turn_start', 'turn_end'])
+  } finally {
+    fs.chmodSync(sealed, 0o700)
+  }
+
+  srv.got.length = 0
+  const longBeat = '10000'
+  const signaled = await runScript(['run', 'cursor', '--', process.execPath, kill, progress], {
+    env: { ...base, BIFROST_HEARTBEAT_PROGRESS: progress, BIFROST_HEARTBEAT_RUN_BEAT_MS: longBeat },
+  })
+  assert.equal(signaled.code, 128 + os.constants.signals.SIGKILL, signaled.err)
+  assert.ok(signaled.ms < 4000, `wrapper waited ${signaled.ms}ms after the child was killed`)
+  assert.deepEqual(srv.got.map(g => g.body.event), ['turn_start', 'turn_end'])
+
+  srv.got.length = 0
+  const quick = writeScript(home, 'quick.js', 'process.exit(0)\n')
+  const prompt = await runScript(['run', 'cursor', '--', process.execPath, quick], {
+    env: { ...base, BIFROST_HEARTBEAT_PROGRESS: progress, BIFROST_HEARTBEAT_RUN_BEAT_MS: longBeat },
+  })
+  assert.equal(prompt.code, 0, prompt.err)
+  assert.ok(prompt.ms < 4000, `wrapper waited ${prompt.ms}ms after the child exited`)
+  assert.deepEqual(srv.got.map(g => g.body.event), ['turn_start', 'turn_end'])
+  srv.s.close()
+}
+
+const SESS_A = '11111111-1111-4111-8111-111111111111'
+const SESS_B = '22222222-2222-4222-8222-222222222222'
+const SIDEBAR_T = 'local_td317_T'
+const SIDEBAR_U = 'local_td317_U'
+
+function sidebarState(home, id) {
+  return path.join(home, '.cache', 'bifrost', 'heartbeat-sidebar', id)
+}
+
+async function claudeTurn(env, session, event) {
+  const r = await runScript(['hook', 'claude'], {
+    stdin: JSON.stringify({ session_id: session, transcript_path: `/x/${session}.jsonl`, hook_event_name: event }),
+    env,
+  })
+  assert.equal(r.code, 0, `${event} ${session}: exit ${r.code} ${r.err}`)
+  assert.equal(r.out, '', `${event} ${session}: wrote to stdout`)
+  return r
+}
+
+async function sessionSuccession() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-side-'))
+  const srv = await server()
+  const envT = runEnv(home, srv.url, { CLAUDE_CODE_HOST_SESSION_ID: SIDEBAR_T })
+
+  await claudeTurn(envT, SESS_A, 'UserPromptSubmit')
+  assert.equal(JSON.parse(fs.readFileSync(sidebarState(home, SIDEBAR_T), 'utf8')).open, true)
+  await claudeTurn(envT, SESS_B, 'UserPromptSubmit')
+  assert.deepEqual(srv.got.map(g => [g.body.event, g.body.thread]), [
+    ['turn_start', SESS_A],
+    ['turn_end', SESS_A],
+    ['turn_start', SESS_B],
+  ])
+  assert.equal(srv.got[0].body.turn_id, srv.got[1].body.turn_id)
+  assert.deepEqual(srv.got.map(g => g.body.seq), [1, 2, 1])
+  assert.equal(srv.got[1].body.thread_key, ISSUED_KEY)
+  assert.equal(srv.got[2].body.thread_key, undefined)
+  srv.s.close()
+
+  const homeEnded = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-side-ended-'))
+  const ended = await server()
+  const envEnded = runEnv(homeEnded, ended.url, { CLAUDE_CODE_HOST_SESSION_ID: SIDEBAR_T })
+  await claudeTurn(envEnded, SESS_A, 'UserPromptSubmit')
+  await claudeTurn(envEnded, SESS_A, 'Stop')
+  assert.ok(await waitFor(() => ended.got.length === 2), `own turn_end did not arrive, got ${ended.got.length}`)
+  assert.equal(JSON.parse(fs.readFileSync(sidebarState(homeEnded, SIDEBAR_T), 'utf8')).open, false)
+  await claudeTurn(envEnded, SESS_B, 'UserPromptSubmit')
+  await sleepMs(300)
+  assert.equal(ended.got.length, 3)
+  assert.deepEqual(ended.got.map(g => [g.body.event, g.body.thread]), [
+    ['turn_start', SESS_A],
+    ['turn_end', SESS_A],
+    ['turn_start', SESS_B],
+  ])
+  ended.s.close()
+
+  const homeSame = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-side-same-'))
+  const same = await server()
+  const envSame = runEnv(homeSame, same.url, { CLAUDE_CODE_HOST_SESSION_ID: SIDEBAR_T })
+  await claudeTurn(envSame, SESS_A, 'UserPromptSubmit')
+  await claudeTurn(envSame, SESS_A, 'UserPromptSubmit')
+  await sleepMs(300)
+  assert.deepEqual(same.got.map(g => [g.body.event, g.body.thread]), [
+    ['turn_start', SESS_A],
+    ['turn_start', SESS_A],
+  ])
+  same.s.close()
+
+  const homeTwo = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-side-two-'))
+  const two = await server()
+  await claudeTurn(runEnv(homeTwo, two.url, { CLAUDE_CODE_HOST_SESSION_ID: SIDEBAR_T }), SESS_A, 'UserPromptSubmit')
+  await claudeTurn(runEnv(homeTwo, two.url, { CLAUDE_CODE_HOST_SESSION_ID: SIDEBAR_U }), SESS_B, 'UserPromptSubmit')
+  await sleepMs(300)
+  assert.deepEqual(two.got.map(g => [g.body.event, g.body.thread]), [
+    ['turn_start', SESS_A],
+    ['turn_start', SESS_B],
+  ])
+  two.s.close()
+
+  const homeNone = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-side-none-'))
+  const none = await server()
+  await claudeTurn(runEnv(homeNone, none.url), SESS_A, 'UserPromptSubmit')
+  await claudeTurn(runEnv(homeNone, none.url), SESS_B, 'UserPromptSubmit')
+  await sleepMs(300)
+  assert.deepEqual(none.got.map(g => [g.body.event, g.body.thread]), [
+    ['turn_start', SESS_A],
+    ['turn_start', SESS_B],
+  ])
+  assert.equal(fs.existsSync(path.join(homeNone, '.cache', 'bifrost', 'heartbeat-sidebar')), false)
+  none.s.close()
+
+  const homeFail = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-side-fail-'))
+  const failed = []
+  const failSrv = http.createServer((req, res) => {
+    let b = ''
+    req.on('data', d => (b += d))
+    req.on('end', () => {
+      const body = JSON.parse(b || '{}')
+      failed.push(body)
+      if (body.event === 'turn_end') {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'down' }))
+        return
+      }
+      res.writeHead(202, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ ok: true, thread_key: ISSUED_KEY }))
+    })
+  })
+  await new Promise(resolve => failSrv.listen(0, '127.0.0.1', resolve))
+  const failURL = `http://127.0.0.1:${failSrv.address().port}`
+  const envFail = runEnv(homeFail, failURL, { CLAUDE_CODE_HOST_SESSION_ID: SIDEBAR_T })
+  await claudeTurn(envFail, SESS_A, 'UserPromptSubmit')
+  await claudeTurn(envFail, SESS_B, 'UserPromptSubmit')
+  const bStart = failed.findIndex(b => b.event === 'turn_start' && b.thread === SESS_B)
+  const aEnd = failed.findIndex(b => b.event === 'turn_end' && b.thread === SESS_A)
+  assert.ok(aEnd >= 0, 'the failing turn_end was not attempted')
+  assert.ok(bStart > aEnd, 'B turn_start did not follow the failed turn_end')
+  failSrv.close()
+
+  const homeBad = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-side-bad-'))
+  const bad = await server()
+  const envBad = runEnv(homeBad, bad.url, { CLAUDE_CODE_HOST_SESSION_ID: SIDEBAR_T })
+  await claudeTurn(envBad, SESS_A, 'UserPromptSubmit')
+  fs.writeFileSync(sidebarState(homeBad, SIDEBAR_T), '{')
+  await claudeTurn(envBad, SESS_B, 'UserPromptSubmit')
+  assert.deepEqual(bad.got.map(g => [g.body.event, g.body.thread]), [
+    ['turn_start', SESS_A],
+    ['turn_start', SESS_B],
+  ])
+  bad.s.close()
+
+  const homeMiss = fs.mkdtempSync(path.join(os.tmpdir(), 'heartbeat-side-miss-'))
+  const miss = await server()
+  const envMiss = runEnv(homeMiss, miss.url, { CLAUDE_CODE_HOST_SESSION_ID: SIDEBAR_T })
+  await claudeTurn(envMiss, SESS_A, 'UserPromptSubmit')
+  fs.unlinkSync(sidebarState(homeMiss, SIDEBAR_T))
+  await claudeTurn(envMiss, SESS_B, 'UserPromptSubmit')
+  assert.deepEqual(miss.got.map(g => [g.body.event, g.body.thread]), [
+    ['turn_start', SESS_A],
+    ['turn_start', SESS_B],
+  ])
+  miss.s.close()
+}
+
 async function main() {
   mapping()
   timeouts()
@@ -754,6 +1028,8 @@ async function main() {
   await lockWaitUsesRemainingBudget()
   await deadLockRace()
   await endToEnd()
+  await progressBeats()
+  await sessionSuccession()
   console.log('thread-heartbeat: ok')
 }
 
