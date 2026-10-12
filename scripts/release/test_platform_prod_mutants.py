@@ -84,7 +84,7 @@ def test_planted_violation(tmp_path, mutation, named_test):
             "child-kind": (' and c["kind"] == "TaskRun"', ""),
             "stg-state": ('if state != "True":', "if False:"),
             "completion-order": (
-                'if run is not chosen and run_time(run, "completionTime") >= completed:',
+                'if run is not chosen and run_time(run, "completionTime") >= latest:',
                 "if False:",
             ),
             "errors": ("        return 1\n", "        return 0\n"),

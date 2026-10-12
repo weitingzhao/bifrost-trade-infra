@@ -349,13 +349,13 @@ spec:
                       raise ValueError(
                           f"STG run {chosen['metadata']['name']} is {state or 'running/no Succeeded condition'}"
                       )
-                  completed = run_time(chosen, "completionTime")
-                  # This check stands for "STG is running this commit"; an older run finishing later,
-                  # or any run still in flight, means we do not know what STG runs.
+                  run_time(chosen, "completionTime")
+                  # This check stands for "STG is running this commit"; any other run that had not
+                  # finished before the newest one was created may have rolled STG after it.
                   for run in stg:
-                      if run is not chosen and run_time(run, "completionTime") >= completed:
+                      if run is not chosen and run_time(run, "completionTime") >= latest:
                           raise ValueError(
-                              f"STG run {run['metadata']['name']} completed later than or with the newest run"
+                              f"STG run {run['metadata']['name']} had not finished before the newest run started"
                           )
                   return chosen
 
@@ -371,9 +371,11 @@ spec:
                       raise ValueError("malformed or incomplete PipelineRun list")
                   for run in doc["items"]:
                       validate_run(run)
+                      ref = run["spec"].get("pipelineRef")
                       if (
                           _pipeline_name(run) != pipeline
-                          or run["spec"].get("pipelineRef", {}).get("name", pipeline) != pipeline
+                          or not isinstance(ref, dict)
+                          or ref.get("name") != pipeline
                       ):
                           raise ValueError("PipelineRun does not match selector " + pipeline)
                   return doc["items"]

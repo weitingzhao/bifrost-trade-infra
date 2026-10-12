@@ -50,6 +50,20 @@ def trial_run(revision, ui_revision="main"):
                     "serviceAccountName": "tekton-deliver",
                 }
             ],
+            # The run the platform starts pins every task to amd64 nodes; a trial on an
+            # arm64 node would test another variant of the image.
+            "taskRunTemplate": {
+                "podTemplate": {
+                    "nodeSelector": {"kubernetes.io/arch": "amd64"},
+                    "tolerations": [
+                        {
+                            "key": "node-role.kubernetes.io/control-plane",
+                            "operator": "Exists",
+                            "effect": "NoSchedule",
+                        }
+                    ],
+                }
+            },
         },
     }
 

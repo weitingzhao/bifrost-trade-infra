@@ -86,15 +86,50 @@ scripts/release/release-check.sh diff old.json new.json --allow <file>
 - **探针**：`scripts/release/probes.json`（8 个 api 的 /health 返回 JSON、前端首页）加每个 `--probes` 文件。
   请求带 `User-Agent: bifrost-release-check/1`。探测已标 Deprecation 的路由会进 TD-40 的调用者日志，所以这类探针默认 `enabled: false`。
 
-## Platform PROD source check（W-56 guardrail 2，尚未应用）
+## Platform PROD source check（W-56 guardrail 2）
 
-`bifrost-deliver-platform-prod` 在 mirror-sync 后、clone 前拒绝两种情况：平台提交没有整 SHA 匹配的 Succeeded `bifrost-ci-platform`，或无法证明 STG 克隆了同一整 SHA。STG 只取 `bifrost-deliver-platform` 中创建时间最新的一条（同时间拒绝），它必须成功，且其它每条的 completionTime 都必须严格早于它；在途、缺失或不能解析的时间、旧 run 晚完成或同时完成都拒绝。查询失败或证据畸形也拒绝。
+> 状态：定义在仓库里，**集群里还没有应用**。Owner 应用之后把这一行改成应用的日期和提交号。
+
+`bifrost-deliver-platform-prod` 在 mirror-sync 后、clone 前拒绝两种情况：平台提交没有整 SHA 匹配的 Succeeded `bifrost-ci-platform`，或无法证明 STG 克隆了同一整 SHA。STG 只取 `bifrost-deliver-platform` 中创建时间最新的一条（同时间拒绝），它必须成功，且其它每条都必须在它**创建之前**就已结束（completionTime 严格早于它的 creationTimestamp，即不许交叠）；在途、缺失或不能解析的时间、和它交叠过的 run 都拒绝，并在拒绝行里点名。含义：验证过的那次之后，只要又起过一次 STG 发布（哪怕它没碰到 STG 就失败），PROD 就被拒，直到再成功发一次 STG。查询失败或证据畸形也拒绝。
 
 没有 allow-red。覆盖检查的途径是 Owner 应用此前版本的 Pipeline 定义。上线顺序是先把包含 check-source 身份接线的 platform 发到 PROD 并核对，再由 Owner 在没有平台发布在途、没有未结 PROD 发布单时应用 `k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml`；反过来会拒绝每次平台 PROD 发布。回退由 Owner 重新应用此前版本的同一 Pipeline 文件。
 
 钉住路径 `scripts/release/platform-prod-pinned-from-stg.sh <stg-run> -o <file>` 读取线上 PROD Pipeline：有 check-source 就设置该任务使用 tekton-deliver，保留其它 override；没有就不添加，读不到或 tasks 不是列表就拒绝生成。它只生成 JSON，创建发布仍由 Owner 批准。指定旧 STG run 不会绕过最新 STG 判定。
 
 应用前，`python3 scripts/release/platform_prod_gate_trial.py <revision> [--ui-revision main] > <file>` 只打印一条 trial PipelineRun，内联任务与正式 check-source 完全相同、身份是 tekton-deliver；Owner 可对当前 STG 提交与没有 CI 的提交分别试跑。它不构建、不克隆、不发布，生成器从不调用 kubectl。ui commit 会解析为固定 SHA 并交给后续 clone，但不与 STG 比较。
+
+### Owner 应用这道检查时（一次）
+
+次序：含 check-source 身份接线的 platform 已在 PROD → 试跑一正一反 → 应用。三条命令都在 infra 主线的检出目录里、Owner 自己的终端跑；没有平台发布在途、没有未结的 PROD 发布单时再做。
+
+```bash
+# 1. 试跑（不拉代码、不构建、不发布）。在将要应用的那个提交上生成；给镜像上已有的整 SHA。
+python3 scripts/release/platform_prod_gate_trial.py <STG 当前的平台提交> > /tmp/trial-pass.yaml
+python3 scripts/release/platform_prod_gate_trial.py <一个没有 CI 的提交> > /tmp/trial-refuse.yaml
+kubectl create -f /tmp/trial-pass.yaml      # generateName：只能 create，不能 apply
+kubectl create -f /tmp/trial-refuse.yaml
+# 2. 应用
+kubectl apply --dry-run=server -f k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml \
+  && kubectl apply -f k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml
+# 3. 回退（要越过这道检查也是这一条：没有 allow-red）
+git show 27e4467:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | kubectl apply -f -
+```
+
+试跑应看到（`kubectl -n cicd get pipelinerun -l bifrost.io/purpose=check-source-trial`，日志在它唯一的 TaskRun 里）：第一条 Succeeded，结果 `commit` 是那个提交；第二条 Failed，日志一行 `REFUSED: CI cannot be shown for <sha>: no exact-SHA Succeeded CI`。第一条如果起不来（镜像里没有 python3 或 git）或报 `identity cannot read…`，不要应用。
+
+拒绝行各自怎么办：
+
+| 拒绝行里有 | 意思 | 怎么办 |
+|---|---|---|
+| `identity cannot read PipelineRuns/TaskRuns` | 检查没跑在 tekton-deliver 下 | platform 那一半还没到 PROD，或这条 run 是手建的、没给 check-source 指身份 |
+| `no exact-SHA Succeeded CI` | 这个提交没有成功的 `bifrost-ci-platform` | 等 CI；CI 没起就先同步镜像再起一次 |
+| `STG clone commit differs` | STG 最新一次成功发布的不是这个提交 | 先把这个提交发到 STG |
+| `STG run X is …` | 最新一次 STG 发布失败或还在跑 | 等它结束；失败就重发 STG |
+| `STG run X had not finished before the newest run started` | 两次 STG 发布交叠过，说不清 STG 上是哪一次的 | 再发一次 STG |
+| `STG run X has missing or unparsable completionTime` | 有一条 STG run 一直没结束 | 等它结束；永远不结束就删掉它（`delete_pipeline_run`） |
+| `empty or ambiguous mirror revision` | 镜像上没有这个分支或标签 | 同步镜像；只给分支名、标签名或整 SHA |
+
+钉住路径生成的 JSON 在应用或回退这条 Pipeline 之后要重新生成（它在生成那一刻读线上的定义）。
 
 ## 发布窗口：推 main 或起 deliver 之前先看
 

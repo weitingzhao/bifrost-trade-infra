@@ -442,6 +442,7 @@ def test_git_auth_stays_out_of_argv(monkeypatch):
         "older-later",
         "other-running",
         "equal-completion",
+        "overlap",
         "bad-created",
         "bad-completed",
         "chosen-missing-completed",
@@ -466,6 +467,10 @@ def test_stg_order_refuses(tmp_path, case):
         other["status"].pop("completionTime")
     if case == "equal-completion":
         other["status"]["completionTime"] = chosen["status"]["completionTime"]
+    if case == "overlap":
+        # The older run ended after the newest was created and before it finished.
+        chosen["status"]["completionTime"] = "2026-10-12T10:10:00Z"
+        other["status"]["completionTime"] = "2026-10-12T10:05:00Z"
     if case == "bad-created":
         other["metadata"]["creationTimestamp"] = "bad"
     if case == "bad-completed":
@@ -502,7 +507,9 @@ def test_full_sha_mirror_mismatch(tmp_path):
 @pytest.mark.parametrize(
     "pipeline", ["bifrost-ci-platform", "bifrost-deliver-platform"]
 )
-@pytest.mark.parametrize("case", ["continue", "not-list", "wrong-pipeline"])
+@pytest.mark.parametrize(
+    "case", ["continue", "not-list", "wrong-pipeline", "wrong-ref", "no-ref"]
+)
 def test_selected_list_refuses(tmp_path, pipeline, case):
     bad = {"items": []}
     if case == "continue":
@@ -511,6 +518,14 @@ def test_selected_list_refuses(tmp_path, pipeline, case):
         bad["items"] = {}
     if case == "wrong-pipeline":
         bad["items"] = [run("bifrost-deliver-platform-prod")]
+    if case in ("wrong-ref", "no-ref"):
+        # The label says this pipeline; the run itself does not.
+        relabelled = run(pipeline)
+        if case == "wrong-ref":
+            relabelled["spec"]["pipelineRef"]["name"] = "bifrost-deliver-platform-prod"
+        else:
+            del relabelled["spec"]["pipelineRef"]
+        bad["items"] = [relabelled]
     refuse(execute(tmp_path, list_docs={pipeline: bad}))
 
 
@@ -554,6 +569,14 @@ def test_trial_only_source_task():
     ]
     assert {p["name"]: p["value"] for p in spec["params"]}["revision"] == SHA
     assert {p["name"]: p["value"] for p in spec["params"]}["uiRevision"] == OTHER
+    # Same nodes as a run the trigger or the platform starts (trigger-trade-ci.yaml).
+    trigger = ROOT / "k8s/cicd/tekton/trigger-trade-ci.yaml"
+    templates = [
+        d["spec"]["resourcetemplates"][0]["spec"]["taskRunTemplate"]
+        for d in yaml.safe_load_all(trigger.read_text())
+        if d and d["kind"] == "TriggerTemplate"
+    ]
+    assert templates and all(t == spec["taskRunTemplate"] for t in templates)
 
 
 def test_trial_cli_prints_only(monkeypatch, capsys):
