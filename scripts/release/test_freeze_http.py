@@ -16,7 +16,7 @@ import freeze_gate  # noqa: E402
 import freeze_http_vectors  # noqa: E402
 
 # The platform repository carries the same bytes and the same constant (http_vectors_test.go).
-HTTP_VECTORS_SHA256 = "b9873fa5a8611716d576a1b3c8cbf4a6588ee8b6651545d4200367d5d1b77374"
+HTTP_VECTORS_SHA256 = "819e95a595677d4114368528a7a8c1c4a9fd3a27bf07946f461c6ae8cd1b5b36"
 VECTORS = HERE / "freeze_http_vectors.json"
 
 
@@ -78,7 +78,7 @@ class HTTPVectorTests(unittest.TestCase):
                         want = bool(mask[v >> 3] >> (v & 7) & 1)
                         if read_from_memory(trial) != want:
                             wrong.append("%s %s %d 0x%02x" % (base["name"], mode, k, v))
-        self.assertGreaterEqual(total, 646, "byte-class positions %d" % total)
+        self.assertGreaterEqual(total, 2654, "byte-class positions %d" % total)
         if wrong:
             self.fail("wrong verdicts: " + "; ".join(wrong[:40]))
 

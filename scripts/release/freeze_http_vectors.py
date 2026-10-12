@@ -442,19 +442,65 @@ def _mask(samples) -> str:
     return mask.hex()
 
 
+# Chunk cuts for the byte-class family. A 64-bit LCG (Numerical Recipes multiplier and increment)
+# draws without replacement from 1..len(M)-1. random.sample is not used: its algorithm changes
+# between Python versions. Seed 31020282363 is the draw for which three chunks are 1, 1, and the
+# rest (0x7c), so the third chunk's size line is the reviewer's case.
+_CHUNK_SEED = 31020282363
+_LCG_MUL = 6364136223846793005
+_LCG_ADD = 1442695040888963407
+
+
+def _chunked_family():
+    """k = 1..6 chunks of M. One generator state runs from k = 1 through k = 6; k = 1 draws nothing.
+
+    The last-chunk line cycles through 1, 2, 3, 4 zeros. Each split is stored twice: without a trailer
+    field, and with X-T: tv. Every index outside the strict interior is kept; nothing is sampled away.
+    """
+    state = _CHUNK_SEED
+
+    def draw():
+        nonlocal state
+        state = (state * _LCG_MUL + _LCG_ADD) & 0xFFFFFFFFFFFFFFFF
+        return state
+
+    head = b"HTTP/1.1 200 OK\r\nX-Pad: value\r\nTransfer-Encoding: chunked\r\n\r\n"
+    out = []
+    for k in range(1, 7):
+        pool = list(range(1, N))
+        chosen = []
+        for _ in range(k - 1):
+            chosen.append(pool.pop(draw() % len(pool)))
+        cuts = sorted(chosen)
+        bounds = [0] + cuts + [N]
+        parts = [M[bounds[i]:bounds[i + 1]] for i in range(len(bounds) - 1)]
+        if k == 3:
+            assert parts == [M[:1], M[1:2], M[2:]]
+        zeros = ((k - 1) % 4) + 1
+        for trailer, suffix in ((False, ""), (True, "t")):
+            raw = head
+            for part in parts:
+                raw += ("%x" % len(part)).encode() + b"\r\n" + part + b"\r\n"
+            raw += b"0" * zeros + b"\r\n"
+            if trailer:
+                raw += b"X-T: tv\r\n"
+            raw += b"\r\n"
+            out.append(("k%d%s" % (k, suffix), raw))
+    return out
+
+
 def byte_classes() -> list:
     """For each base response, every index that is not strictly inside the body data.
 
     Replace: byte k is overwritten. Insert: a byte is placed before index k, and k runs through 0..len
     inclusive. The mask is what the test-only recogniser still calls clear.
+
+    a is Content-Length. i is an interim head followed by a. The chunked bases are _chunked_family.
     """
     a = b"HTTP/1.1 200 OK\r\nX-Pad: value\r\nContent-Length: %d\r\n\r\n" % N + M
-    c = b"HTTP/1.1 200 OK\r\nX-Pad: value\r\nTransfer-Encoding: chunked\r\n\r\n7e\r\n" + M + b"\r\n0\r\nX-T: tv\r\n\r\n"
     i = b"HTTP/1.1 100 Continue\r\nX-I: iv\r\n\r\n" + a
-    # d: M in two chunks (1 byte, then the rest), the last-chunk line 0000, one trailer field.
-    d = b"HTTP/1.1 200 OK\r\nX-Pad: value\r\nTransfer-Encoding: chunked\r\n\r\n1\r\n" + M[:1] + b"\r\n7d\r\n" + M[1:] + b"\r\n0000\r\nX-T: tv\r\n\r\n"
     out = []
-    for name, raw in (("a", a), ("c", c), ("i", i), ("d", d)):
+    for name, raw in [("a", a), ("i", i)] + _chunked_family():
         assert clear(raw), name
         interior = set()
         for start, end in _data_spans(raw):
