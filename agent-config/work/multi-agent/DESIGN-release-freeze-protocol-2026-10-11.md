@@ -1,6 +1,6 @@
 # 发布冻结协议：冻结是一条只能新建的记录，解冻是 Owner 把它删掉（TD-310 的设计）
 
-状态：设计通过，可以实现（2026-10-11，复核 93、95；必须改的 2 → 0）；六项决定都已定（D1、D2、D4、D6 由 Owner 2026-10-11 按推荐定；D3、D5 由统筹方定）。复核 95（`~/agent-work/codex-review-95/REPORT.md`，`implement`）留下的 6 个 P2、2 个 P3 已并入，逐条见第 11 节；之后没有下一轮设计复核，S1 的复核按这份文档核对。没有代码，没有改集群；实现并验收之前，冻结保持被拒绝，和今天 PROD 上一样。
+状态：第 3.2 节和第 6 节修订中（2026-10-11，片 1 的复核 100 找到反例后按停线条件修订），等复核；其余各节是复核 93、95 通过的文本，六项决定不变。复核 95 留下的 6 个 P2、2 个 P3 已并入，逐条见第 11 节；复核 100 的逐条见第 12 节。没有代码，没有改集群；实现并验收之前，冻结保持被拒绝，和今天 PROD 上一样。
 输入：复核 79、82（`~/agent-work/td-310/REVIEW-{79,82}.md`）、86、93、95（`~/agent-work/codex-review-{86,93,95}/REPORT.md`）；实现方三轮报告（`~/agent-work/td-310/REPORT{,-2,-3}.md`）；分支 `w31/td-310-anchor`（platform `6658550`、infra `3fdaa41`，是材料，不是基线）；`PLAN-w56-unattended-prod-2026-10-10.md` 第 1 步；`TECH_DEBT.md` 的 TD-293、TD-310、TD-314；`LESSONS-from-practice.md` 第 85、86 行。
 路径约定：`api/` 开头的相对 `bifrost-platform/`；`k8s/`、`scripts/`、`docs/`、`agent-config/` 开头的相对 `bifrost-trade-infra/`。
 事实的标法：**实测** = 2026-10-11 16:45–17:30 CDT 用只读身份 `bifrost-access/bifrost-agent` 对集群做 `kubectl get`（RBAC、准入策略、ConfigMap、Tekton 对象、Application、Pod、节点），或读文件（给出 `文件:行`）；**假定** = 没量。「谁能做什么」是读角色和绑定算出来的（汇总在附录），没有向 apiserver 逐项提问，也没有试写。
@@ -84,7 +84,7 @@ B 和 E 相比 A 少掉的三样：(1) 解冻不能由 Agent 或平台转交，�
 
 ### 3.1 对象，和它的一生
 
-**类型**（`k8s/release-freeze/crd.yaml`）：CRD `freezes.release.bifrost.io`，组 `release.bifrost.io`，`scope: Cluster`，一个版本 `v1`，没有子资源，没有控制器。根上一条 CEL 规则要求名字匹配 `^freeze-[0-9a-f]{32}$`；`spec` 必填 `who`（1–128 字符）、`reason`（1–500）、`at`（`date-time`），可选 `via`（至多 64，哪一个平台实例写的）。这四个字段只给人看，判定不读它们；名字里的 32 位十六进制由 `crypto/rand` 抽出，只为了两次冻结不撞名。
+**类型**（`k8s/release-freeze/crd.yaml`）：CRD `freezes.release.bifrost.io`，组 `release.bifrost.io`，`scope: Cluster`，一个版本 `v1`，没有子资源，没有控制器。根上一条 CEL 规则要求名字匹配 `^freeze-[0-9a-f]{32}$`；根 schema `required: ["spec"]`，没有 `spec` 的对象由 apiserver 拒绝。`spec` 必填 `who`（1–128 字符）、`reason`（1–500）、`at`（`date-time`），可选 `via`（至多 64，哪一个平台实例写的）。这四个字段只给人看，判定不读它们；名字里的 32 位十六进制由 `crypto/rand` 抽出，只为了两次冻结不撞名。静态测试的负例包括拿掉根上这个 `required`。
 
 **一生**（`k8s/release-freeze/admission.yaml`）：
 
@@ -125,21 +125,37 @@ spec: {policyName: bifrost-release-records, validationActions: [Deny]}
 
 文件放 `k8s/release-freeze/`：不在 applier 的允许前缀里，也不在任何 Argo 应用的路径下，只能由 Owner 应用；这个目录和检查任务一起加进 `agent-config/release-policy/paths.json` 的 `no_trust_anchor_change`。
 
-### 3.2 判定：唯一的一条规则
+### 3.2 一次完整、成功的 LIST
 
-请求是 `GET /apis/release.bifrost.io/v1/freezes`：固定的集群级路径，不带任何查询参数，要一份完整的 JSON 列表。
+「完整、成功」只有下面这一种形状。每一行都必须成立；任何一行不成立就是 `unreadable`，token 取第一行不成立的那一行（同一行按分号从左到右）。表里没有的形状不成立。闭世界：不认识的键是拒绝。
 
-| 读到的 | 结论 |
+| 必须成立 | 不成立时的 token |
 |---|---|
-| 状态码不是 200（404：类型不在或这个版本没服务；403；5xx）、超时、连接失败、正文不是 JSON 对象 | 读不到 |
-| `apiVersion` 不是 `release.bifrost.io/v1`，或 `kind` 不是 `FreezeList` | 读不到 |
-| `metadata.continue` 非空，或 `items` 不是数组，或某一项不是对象、没有非空的字符串 `metadata.name` | 读不到 |
-| `items` 是空数组 | **未冻结** |
-| 其余 | **冻结**，列出每一项的名字和 `who` / `reason` / `at`（缺了或不是字符串就显示 `?`，照样算冻结） |
+| 恰好一次 `GET`，固定源上的 `/apis/release.bifrost.io/v1/freezes`（源和路径都不从环境变量取），查询为空，唯一的内容协商头是 `Accept: application/json` | `request` |
+| 不跟随重定向（看到 3xx 不发第二次请求）；不用环境变量里的代理；TLS 只校验给定的那一份 CA | 3xx 为 `HTTP <code>`；`missing CA`；`corrupt CA`；`proxy` |
+| 连接、响应头和正文共用一个 10 秒总期限，不按单次套接字操作计时；有 `Content-Length` 就读满，提前结束算截断，没有则按 HTTP 帧读到正文结束；线上字节和解开后的字节都不超过 4 MiB；压缩必须解开 | `timeout`；`truncated body`；`body too large`；`encoding` |
+| 请求或读取中任何类的异常都变成读不到。读函数是全函数：对一切输入返回判定，不抛出。测试注入任意失败（含替身抛出的异常），断言得到 `unreadable` 且调用方看不到异常 | 已有更具体 token 的用那个，否则 `error` |
+| HTTP 状态恰好 200 | `HTTP <code>` |
+| 合法 UTF-8，无 BOM；值的前后只有 RFC 8259 空白；恰好一个 JSON 值；严格 RFC 8259（无 `NaN`、`Infinity`、注释、尾逗号）；任何深度都没有重复键；对象和数组从根数起不超过 16 层；数字不转换，只按下面的模式且长度 ≤ 64 | `invalid utf-8`；`bom`；`not a JSON object`；`duplicate key`；`nesting`；`number` |
+| 顶层键集恰好是 `{apiVersion, kind, metadata, items}`；`apiVersion` 为 `release.bifrost.io/v1`；`kind` 为 `FreezeList` | `unexpected key`；`missing key`；`wrong apiVersion`；`wrong kind` |
+| `metadata` 是对象，键是 `{resourceVersion, continue}` 的子集；`continue` 缺席或为 `""`；`resourceVersion` 出现时是字符串。`remainingItemCount` 因此不成立 | `metadata`；`unexpected key`；`continue is not a string`；`continue is not empty`；`resourceVersion is not a string` |
+| `items` 是数组；每一项是对象，且 `metadata.name` 是非空字符串。另外只读 `metadata.uid`、`spec.who`、`spec.reason`、`spec.at`、`spec.via`。项内其余键忽略，但仍受字节那一行约束；带着 `deletionTimestamp` 的项仍算一条。`who` / `reason` / `at` 缺了或不是字符串就显示 `?` | `items is not a list`；`item <i> is malformed` |
 
-所有调用方把「读不到」和「冻结」同样当作拒绝，B 级的发布也是；今天的 `FreezeSet` 在对象缺失或读失败时放行 B 级（主线 `api/internal/releasepolicy/engine.go:238–245`），这一处要改（第 9 节 D6）。读失败可以重读，结论只来自一次完整成功的读。
+上面每一行都成立且 `items` 为空 → `clear`；都成立且非空 → `frozen`；否则 `unreadable`。调用方把 `unreadable` 和 `frozen` 同样当拒绝（B 级也是；今天的 `FreezeSet` 在读失败时放行 B 级，主线 `api/internal/releasepolicy/engine.go:238–245`，第 9 节 D6 要改）。可以重读，结论只来自一次符合本表的读。
 
-实现上的约束，写进 S1 的验收：Go 一侧用直连的 REST 或 dynamic client 发这一个请求；Python 一侧用现有的标准库 HTTPS。两边都不用客户端缓存、分页器、informer，不带 `resourceVersion`、`limit`、选择器；测试断言实际发出的 URL，并检查这个包不引入 `tools/cache`、`tools/pager`、`informers`。不带 `resourceVersion` 的 LIST 是 Kubernetes 定义的「最新」读（假定，成文语义）；它也可能由服务端一份保持一致的缓存完成，这不改变它的含义。
+数字模式：`^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$`。
+
+输出，两边比较第一行。`clear`：`未冻结：0 条记录`。`frozen`：`拒绝：发布已冻结（<n> 条记录）；解冻由 Owner 删除记录：release.sh unfreeze`，然后按名字排序每条一行 `<name>  who=<…>  at=<…>  reason=<…>`（值里的换行改成空格）。`unreadable`：`拒绝：读不到冻结状态（<token>），按冻结处理`。`clear` 且设置了 `PASSED_CUT_AT_PATH` 时，把当前 UTC（RFC 3339，到秒）写入该路径并印成第二行；拒绝时不写。第二行不参与比较。`uid` 和 `via` 不进这两行，交给 3.4 的状态接口；缺了或不是字符串则为空。
+
+和任务里的建议不一致的地方：`resourceVersion` 写成必须是字符串——建议只闭了键集，实测它是字符串，不写类型两侧会分叉。4 MiB 同时卡线上字节和解开后的字节——只卡解开后的长度挡不住压缩炸弹。判定看到的是解开压缩之后的字节，解不开为 `encoding`——建议只写了 `Accept`，不写的话默认解 gzip 的一侧和按原始字节看的一侧会分裂。嵌套上界 16、数字长度 64 是建议要的两个数：实测命名空间 LIST 和 `cicd` ConfigMap LIST 深度都是 10，CRD LIST 是 38；冻结记录没有子资源，和前两者同级，16 盖住 10。64 把 5000 位整数挡在转换之前。
+
+闭世界的代价：将来的 apiserver 若给 LIST 的 `metadata` 加一个键，每一道门都拒绝每一次发布，直到允许列表更新。故意失败关闭。第 7 节步 1 对这个新类型做一次真实 LIST，断言通过本表且 `items` 为空；集群升级之后、下一次发布之前重做这一格。
+
+两份实现必须对每一份应答一致。手写向量是两份逐字节相同的文件，`scripts/release/freeze_vectors.json` 和 `api/internal/releasefreeze/testdata/freeze_vectors.json`，两边测试持有同一个 SHA-256 常量；兄弟检出在场则逐字节比较，`BIFROST_CI` 已设置而兄弟不在则失败。片 1 钉住的摘要 `a5f19e65ba542bb7de6180462032991c10021467b6642a24dc88ba8ff4f6a3ee`（68 条，26716 字节）还不是本表，按本表重生成时文件和两处常量一起换，摘要仍然只有一个。手写向量之外：生成器先造一份符合本表的应答，再在表点名的每一处单独偏离一次，并做随机字节破坏；两份实现都跑。两份不一致、本表之外出现 `clear`、或符合本表的应答没有得到上面的结论，都是失败。
+
+实现约束：Go 用直连的 REST 或 dynamic client，Python 用标准库 HTTPS。不用客户端缓存、分页器、informer；这个包不引入 `k8s.io/client-go/tools/cache`、`tools/pager`、`informers`。测试断言实际发出的 URL 和空查询。不带查询的 LIST 是 Kubernetes 定义的「最新」读（假定，成文语义）；服务端用一份保持一致的缓存来回答，不改变这个含义。本集群上的新鲜度未测，演练第 ② 步证。
+
+实测（2026-10-11，只读身份 `system:serviceaccount:bifrost-access:bifrost-agent`，apiserver `v1.35.5+k3s1`）：`kubectl get --raw /api/v1/namespaces`、`kubectl get --raw /api/v1/namespaces/cicd/configmaps`、`kubectl get --raw /apis/apiextensions.k8s.io/v1/customresourcedefinitions`。三份的顶层键都是 `apiVersion, items, kind, metadata`，`metadata` 只有字符串 `resourceVersion`。深度见上。项的 `metadata.uid` 是小写 UUID。
 
 ### 3.3 保证是关于一张快照的
 
@@ -151,19 +167,14 @@ spec: {policyName: bifrost-release-records, validationActions: [Deny]}
 
 ### 3.4 平台、`release.sh`、状态接口
 
-**平台**（`api/internal/releasepolicy`）：新增一个只有两个函数的包——读（3.2）和建（POST 一个只带名字和 `spec` 的对象）。`Status`、`Decide`、`Evaluate`、B 级检查都改用它。删掉 `memory.go` 整个文件、`Deps.StatePath`、`evaluateFreeze`、`Unfreeze`、对 `cicd/bifrost-release-freeze` 的全部读写；`POST /api/v1/release-policy/unfreeze` 改成回 410；动作 `release_unfreeze` 从目录和 MCP 工具里去掉。平台对这类对象只发 LIST 和 POST，测试断言。`Freeze`：先 LIST 一次只为数条数——已有 20 条或更多就不再加（只在已冻结时拒绝新增）；读不到也照样往下建；建时不带任何条件，403 报「这个集群没有打开冻结」，别的错报「冻结没有写上」，不重试同一个名字；建成后再 LIST 一次，连同在途 run 的清单作为回答。不再要求有锚。解冻不走平台的任何通道，包括 `owner_run_command` 的 host 执行器：那样平台又成了能放宽的一方。
+**平台**（`api/internal/releasepolicy`）：新增一个只有两个函数的包——读（3.2，S1）和建（POST 一个只带名字和 `spec` 的对象，S3，不在 S1）。`Status`、`Decide`、`Evaluate`、B 级检查都改用它。删掉 `memory.go` 整个文件、`Deps.StatePath`、`evaluateFreeze`、`Unfreeze`、对 `cicd/bifrost-release-freeze` 的全部读写；`POST /api/v1/release-policy/unfreeze` 改成回 410；动作 `release_unfreeze` 从目录和 MCP 工具里去掉。平台对这类对象只发 LIST 和 POST，测试断言。`Freeze`：先 LIST 一次只为数条数——已有 20 条或更多就不再加（只在已冻结时拒绝新增）；读不到也照样往下建；建时不带任何条件，403 报「这个集群没有打开冻结」，别的错报「冻结没有写上」，不重试同一个名字；建成后再 LIST 一次，连同在途 run 的清单作为回答。不再要求有锚。解冻不走平台的任何通道，包括 `owner_run_command` 的 host 执行器：那样平台又成了能放宽的一方。
 
 **状态接口** `GET /api/v1/release-policy`：`frozen`（冻结或读不到都是 true）；`freeze_state`（`clear` / `frozen` / `unreadable`）；`freezes`（每条的 `name`、`uid`、`who`、`reason`、`at`、`via`）；`freeze_unreadable_reason`；`freeze_can_create`（平台对自己做一次 SelfSubjectAccessReview）；`freeze_protocol: 3`（分支上用过 2，主线没有这个字段）；`lift_command`。`freeze_reason` 保留，是各条记录拼成的一行，给还没更新的 Console 用。去掉 `frozen_at`、`freeze_id`、`unfreeze_command`。
 
 **`release.sh`**：
 
 - `freeze --reason <原因>`：读状态，要求 `freeze_protocol` 是 3 且 `freeze_can_create` 为真；POST；打印这次建的记录、当前全部记录和在途的 run；末行写「只有 Owner 能解开：`release.sh unfreeze`」。
-- `unfreeze`：只给 Owner，不经平台（平台停着也能用）。要求环境变量 `BIFROST_OWNER_KUBECONFIG`，没有默认路径，等于只读身份那一份时拒绝。它 LIST **一次**，打印每条的名字、UID、`who`、`reason`、`at`；他点名其中几条，或者确认「上面列出的全部」；脚本只删这张清单里被选中的（名字，UID）对，一条一个请求，带 UID 前置条件，不用 `--all`、不用标签、不发整类删除；删完再 LIST 一次并打印还剩几条；把被删记录的全文和时间追加到发布日志。清单之后才建的冻结不在清单里，所以留着；同名而 UID 不同的（删了又被重建）得到 409，也留着。每一条的形式如下。`kubectl delete --raw … -f -` 把标准输入当请求体是假定；S1 用真的 `kubectl` 对着假服务器测它实际发出的东西——路径、`DeleteOptions`、`Background`、UID 前置条件——并加一条过期 UID 的用例：服务器回 409，对象还在：
-
-```bash
-printf '{"kind":"DeleteOptions","apiVersion":"v1","preconditions":{"uid":"%s"},"propagationPolicy":"Background"}' "$uid" \
-  | kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" delete --raw "/apis/release.bifrost.io/v1/freezes/$name" -f -
-```
+- `unfreeze`：只给 Owner，不经平台（平台停着也能用）。要求环境变量 `BIFROST_OWNER_KUBECONFIG`，没有默认路径，等于只读身份那一份时拒绝。它 LIST **一次**，打印每条的名字、UID、`who`、`reason`、`at`；他点名其中几条，或者确认「上面列出的全部」；脚本只删这张清单里被选中的（名字，UID）对，一条一个请求，带 UID 前置条件，不用 `--all`、不用标签、不发整类删除；删完再 LIST 一次并打印还剩几条；把被删记录的全文和时间追加到发布日志。清单之后才建的冻结不在清单里，所以留着；同名而 UID 不同的（删了又被重建）得到 409，也留着。正文由 JSON 编码器生成，不拼接字符串，对象恰好是 `{"kind":"DeleteOptions","apiVersion":"v1","preconditions":{"uid":"<uid>"},"propagationPolicy":"Background"}`，经 `kubectl --kubeconfig "$BIFROST_OWNER_KUBECONFIG" delete --raw "/apis/release.bifrost.io/v1/freezes/$name" -f -` 送出。使用前名字必须匹配 `^freeze-[0-9a-f]{32}$`，UID 必须匹配 `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`（实测：上面那次命名空间 LIST 里项的 `metadata.uid` 是这个形状）。对不上就不发请求。测试覆盖引号、反斜杠、以及会插进第二个 `preconditions` 的注入：模式把它们拒绝；编码器另有一条绕过模式的用例，确认输出里 `preconditions` 只有一个键。片 1 用真实 `kubectl` 1.34.1 对假服务器录到的正文与这个对象相等（chunked）；真实 apiserver 认不认 UID 前置条件仍是第 7 节步 3，本修订没有重测。过期 UID：服务器回 409，对象还在。
 
 - `policy status`：打印 `freeze_state`、每条记录一行、`freeze_can_create`、协议号。anchor 那一行不再提冻结。
 
@@ -193,7 +204,7 @@ printf '{"kind":"DeleteOptions","apiVersion":"v1","preconditions":{"uid":"%s"},"
 kubectl -n cicd patch configmap bifrost-release-freeze --type=merge -p '{"immutable":true,"data":{"frozen":"true","frozen_at":"<当时的 UTC 时间>","who":"owner","reason":"tombstone: freezes moved to freezes.release.bifrost.io"}}'
 ```
 
-没有东西解得开它。改：`immutable` 的 ConfigMap 谁都改不了内容、也摘不掉这个标记（假定，Kubernetes 的内建行为），所以 1.1 表里前三行那三个账号的写权限对它无效。删：`admission.yaml` 里还有一条小策略，按名字匹配 `cicd` 里的 `bifrost-release-freeze`，DELETE 只对 Owner 放行——否则那几个有全集群 ConfigMap 删除权的系统账号可以删了它再建一份 `false`。新平台的代码里没有这份对象。它永久留在集群上。四个旧读者各是各的情况：旧检查程序读到墓碑就按冻结拒绝（它读到 404 也拒绝）；旧的 `freeze` 步骤读到墓碑拒绝，但它把 404 当未冻结，所以对它管用的是墓碑**还在**；两个环境的旧平台读到墓碑按冻结拒绝，它的 `Unfreeze` 往不可变的对象上写会失败并返回错误，之后再读仍是冻结。所以要点是墓碑留着、删它要过准入，不是「删了也一样安全」。
+没有东西解得开它。改：`immutable` 的 ConfigMap 谁都改不了内容、也摘不掉这个标记（假定，Kubernetes 的内建行为），所以 1.1 表里前三行那三个账号的写权限对它无效。删：`admission.yaml` 里的墓碑策略名叫 `bifrost-release-freeze-tombstone`，`failurePolicy: Fail`；只匹配 core 组 `v1` 的 `configmaps` 的 `DELETE`，`resourceNames: ["bifrost-release-freeze"]`，`namespaceSelector` 在 `matchConstraints` 下，标签 `kubernetes.io/metadata.name: cicd`；唯一一条校验是 `request.userInfo.username == 'OWNER_USERNAME'`；同名绑定 `validationActions: [Deny]`。否则那几个有全集群 ConfigMap 删除权的系统账号可以删了它再建一份 `false`。新平台的代码里没有这份对象。它永久留在集群上。四个旧读者各是各的情况：旧检查程序读到墓碑就按冻结拒绝（它读到 404 也拒绝）；旧的 `freeze` 步骤读到墓碑拒绝，但它把 404 当未冻结，所以对它管用的是墓碑**还在**；两个环境的旧平台读到墓碑按冻结拒绝，它的 `Unfreeze` 往不可变的对象上写会失败并返回错误，之后再读仍是冻结。所以要点是墓碑留着、删它要过准入，不是「删了也一样安全」。
 
 | 时刻 | 检查任务的定义 | 平台 | 旧对象 | `create` | 还活着的旧程序读到 | |
 |---|---|---|---|---|---|---|
@@ -221,13 +232,25 @@ kubectl -n cicd patch configmap bifrost-release-freeze --type=merge -p '{"immuta
 
 - 身份 5 个：O（Owner）、P（平台账号）、T（流水线账号）、G（垃圾回收器）、W（有通配符权限但不是 Owner，例如 Argo）。名字 2 个，每个名字最多两代 UID（删了重建）。
 - 「建」的内容分 7 个等价类：合规；带属主引用；带 finalizer；带标签或注解；带 `generateName`；名字不合规；`spec` 不合规。
-- 事件：建（身份 × 名字 × 7 类）；改（身份 × 名字 × `spec` / 元数据 / 子资源）；删（身份 × 名字 × UID 相符 / 过期 / 不带 × 普通 / 前台）；整类删（身份）；垃圾回收器清扫；读（门 ∈ PROD api、PROD workers、STG、新检查任务、这一步才建出来的门、还活着的旧检查程序；快照取在相邻那次写之前或之后）；读故障 8 类（非 200、403、404、超时、`continue` 非空、`kind` 不对、`items` 不是数组、某一项畸形）；写墓碑；打开 `create`（守卫：墓碑已在，也就是第 7 节步 9 排在步 7 之后）。
-- 状态：现存的记录（名字 → 第几代，**连同它是按哪个内容等价类建的**——带属主引用的记录要认得出来，垃圾回收器的阴性对照才生成得出）；建删历史（每一代由谁建、由谁删或被什么收走）；旧对象（`false` / 墓碑 / 不存在）；`create` 开没开。每一次读带着自己的线性化点（取在相邻那次写之前还是之后），断言对的是那一点上的记录集合和历史。一个名字的两代 UID 都用完之后，对它「建」的事件不再生成（不在图里，不是被拒），其余事件照常，所以图是有界的。
-- 通过与否由这张固定的状态图和写明的断言决定，不靠抽样，也不靠人看：图由字母表和上面的界确定地生成；每个可达状态上把每个事件各执行一次，断言 S、L、U、「被拒的事件不改变状态」，以及每个事件的预期。预期：除「O、W 建合规的，以及 `create` 打开之后 P 建合规的」「O 带相符的 UID 或不带 UID 普通地删」之外，一切写都被拒；G 和 W 的删是 RBAC 放行、准入拒绝。
-- 两个阴性对照，证明模型看得见这两个 P1：去掉「建时不许带属主引用」，搜索必须给出「建带属主引用的 → 清扫 → 新门报未冻结」；去掉「打开 `create`」的守卫，必须给出复核 93 的第二个序列。再去掉准入、只留 RBAC：W 的删除必须成为一个违例。
-- 另跑随机长序列（固定种子不少于 5000 条、每条 40 步，再加一个每次不同并打印出来的种子），对象是两份真实的实现：Go 的引擎对着一个假的 HTTP 服务器，Python 程序作为子进程读同一个服务器。重放此前出现过的每一个请求体，包括旧协议的解冻签名（发到已经是 410 的接口，以及当成记录内容去建）。
+- 事件：建（身份 × 名字 × 7 类）；改（身份 × 名字 × `spec` / 元数据 / 子资源）；删（身份 × 名字 × UID 相符 / 过期 / 不带 × 普通 / 前台）；整类删（身份）；垃圾回收器清扫（走和其他删除相同的授权与准入，不是绕过）；读（门 ∈ PROD api、PROD workers、STG、新检查任务、这一步才建出来的门、还活着的旧检查程序）；读故障是 3.2 的每一种 `unreadable`，一次一种；写墓碑；打开 `create`（守卫：墓碑已在，也就是第 7 节步 9 排在步 7 之后）。
+- 状态：现存的记录（名字 → 第几代，连同内容等价类——被拒的建不改变状态，要能断言它被拒）；建删历史（每一代由谁建、由谁删）；旧对象（`false` / 墓碑 / 不存在）；`create` 开没开。一次读有一张显式快照：在一个点上线性化，返回可以排在其后的写之后；模型保存线性化时的记录集合和建删历史，S、L、U 对这张快照断言，不对返回时刻的状态断言。测试把一次写夹在线性化和返回之间，写前和写后两个标签必须看到不同的快照。一个名字的两代 UID 都用完之后，对它「建」的事件不再生成（不在图里，不是被拒），其余事件照常，所以图是有界的。
+- 通过与否由这张固定的状态图和写明的断言决定，不靠抽样，也不靠人看：图由字母表和上面的界确定地生成；每个可达状态上把每个事件各执行一次，断言 S、L、U、「被拒的事件不改变状态」，以及每个事件的预期。预期：除「O、W 建合规的，以及 `create` 打开之后 P 建合规的」「O 带相符的 UID 或不带 UID 普通地删」「O 的整类删除（每个对象各过一次删除规则）」之外，一切写都被拒；G 和 W 的删，以及清扫，都是 RBAC 放行、准入拒绝。
+- 3.1 的每条规则，谁依赖它。阴性对照只给有性质依赖的规则，每次去掉一条。L 和 U 不依赖 3.1：L 是 3.2 的空列表，U 是 3.2 里不成立的那些行。
 
-**零违例只证明这个有限模型。** 它说的是「如果集群这样放行和拒绝，性质成立」。集群是不是真的这样，由第 7 节证明：模型里每一类被拒的事件，在那里都有一条对应的检查。假服务器和 dry-run 证明不了的只有两件，要靠在集群上受控地做一遍：垃圾回收器的真实行为（步 3），LIST 的新鲜度（演练第 ② 步：建完立刻发 run，必须被拒）。**两份实现一致**：向量文件 `scripts/release/freeze_vectors.json`（LIST 的应答和预期结论，含 3.2 表里每一行）；Go 和 Python 各跑一遍，结论和输出的第一行逐条相同。变异：对每条预期「未冻结」的向量逐节点地删、改类型、加项，仍得「未冻结」的只能是变异后仍是合法空表的那些。
+| 规则 | 依赖 | 对照或纵深 |
+|---|---|---|
+| 删除的用户名必须是 Owner（清扫、W、整类删走同一条） | S | 只去掉这半句：W 的普通删除成功，新门对删之后的快照报 `clear` |
+| 先墓碑、后打开 `create`（第 5 节的守卫） | S | 只去掉守卫：旧程序在 `create` 已开、旧对象仍是 `false` 时放行 |
+| `failurePolicy: Fail` 和绑定 | S 靠它们执行上一行 | 不单列：拿掉它们和拿掉用户名是同一个违例 |
+| 建时不许属主引用、finalizer、标签、注解、`generateName` | 无 | 纵深。属主引用不是 S 的前提：清扫走删除准入。复核 100 那条违例，是模型让清扫绕过了仍开着的准入 |
+| 不许 UPDATE；删除必须是普通删除 | 无 | 纵深：这两种都不让记录消失，门不会因此报 `clear`。普通删除保的是可用性 |
+| 名字格式；根上必填 `spec` | 无 | 纵深：漏进 LIST 的坏记录仍算冻结。必填 `spec` 是为了 apiserver 和模型拒绝同一类内容 |
+| RBAC 不给 `delete` | 无 | 纵深，第二层。W 有通配符，S 不靠这张表 |
+| `policies` 走同一条准入 | 无 | 冻结的 S、L、U 不读策略记录，归第 4 节，不另设对照 |
+
+- 另跑随机长序列，对象是两份真实的实现：Go 的引擎对着一个假的 HTTP 服务器，Python 程序作为子进程读同一个服务器。默认 2000 条、每条 40 步（未设置 `FREEZE_MODEL_SEQUENCES`）；全量 5000 条由该变量打开。另加一个每次不同并打印出来的种子。重放此前出现过的每一个请求体，包括旧协议的解冻签名（发到已经是 410 的接口，以及当成记录内容去建）。时间：片 1 在 `GOMAXPROCS=2`、单包超时 120 秒下整包 66.6 秒（统筹方的复跑，本修订没有重测），超过统筹方留的 60 秒余量。按整包时间对条数线性折算，5000 条的 40 秒边界大约是 3000 条；默认取 2000，约 27 秒，CI 波动之后仍低于 40 秒。实现报告贴实测的 `ok` 行。穷尽搜索不抽样，也不为了时间把字母表缩小。
+
+**零违例只证明这个有限模型。** 它说的是「如果集群这样放行和拒绝，性质成立」。集群是不是真的这样，由第 7 节证明：模型里每一类被拒的事件，在那里都有一条对应的检查。假服务器和 dry-run 证明不了的只有两件，要靠在集群上受控地做一遍：垃圾回收器的真实行为（步 3），LIST 的新鲜度（演练第 ② 步：建完立刻发 run，必须被拒）。两份实现的一致按 3.2 的向量和生成器。
 
 **演练**（Owner 在场，输出写进文件）：① 两个平台的状态和一次 plan run 都是未冻结。② 线程经 PROD 平台冻结 A，立刻发起：PROD 状态、**这期间什么都没读过的 STG** 的状态、一次新的 plan run、一次 `start_pipeline_run`，四处都拒绝。③ Owner 以平台账号的身份对 A 做 dry-run 的删和改，被拒。④ 经 STG 平台再冻结 B；Owner 只解 A；四处仍拒绝；重启 PROD 的 api 和 workers，仍拒绝。⑤ Owner 解 B：四处放行，一次 STG 发布跑完。⑥ Owner 手写一条合规的记录：四处拒绝；删掉：放行。⑦ 一条 STG 流水线过了检查之后再冻结：它跑完，新的被拒，**回执里点了它的名字**。⑧ 暂停的旧程序：把存下来的旧检查程序（`239f100` 的 `scripts/release/freeze_decision.py`，集群上那份的原样）对着现网的旧对象跑，在有冻结和没有冻结时各一次，两次都必须拒绝。
 
@@ -248,11 +271,11 @@ CRD、准入、RBAC、Task 的定义只有他应用。两次坐下来，中间�
 | 步 | 做什么 | 生效的证明 |
 |---|---|---|
 | 0 | 不改东西 | 旧对象的 `data` 是 `{"frozen":"false"}`；`release.sh window` 没有窗口；`kubectl auth whoami` 读到的用户名和组都已记下，用户名填进了策略文件；同名认证的来源和 `impersonate` 的授予方核对过（3.1） |
-| 1 | `crd.yaml`：先 `kubectl apply --dry-run=server`，通过后正式应用 | `Established` 为 `True`；LIST 这个类型回答没有资源 |
-| 2 | `admission.yaml`（两条策略和各自的绑定）：同样先 dry-run 再应用 | 两条策略的 `observedGeneration` 等于 `generation`，`expressionWarnings` 为空——这只说明对象在，算数的是下面每一次拒绝。`kubectl create --dry-run=server`：合规的放行；带属主引用、带 finalizer、带标签、带注解、带 `generateName`（同时写着合规的名字，否则先被 CRD 拒）的各被**记录那条策略**拒；名字不合规、缺 `reason` 的被 CRD 拒。怎么认是哪一条拒的：报文里同时有策略名 `bifrost-release-records` 和那条规则自己的 `message`；只有策略名、正文是表达式求值出错的不算；`is forbidden: User … cannot` 是 RBAC，`is invalid` 是 CRD（报文样式是假定，第一次拒绝时对一下） |
+| 1 | `crd.yaml`：先 `kubectl apply --dry-run=server`，通过后正式应用 | `Established` 为 `True`；一次真实 LIST 的正文满足 3.2 的每一行且 `items` 为空（`clear`）。集群升级之后、下一次发布之前重做这一格 |
+| 2 | `admission.yaml`（两条策略和各自的绑定）：同样先 dry-run 再应用 | 两条策略的 `observedGeneration` 等于 `generation`，`expressionWarnings` 为空——这只说明对象在，算数的是下面每一次拒绝。`kubectl create --dry-run=server`：合规的放行；带属主引用、带 finalizer、带标签、带注解、带 `generateName`（同时写着合规的名字，否则先被 CRD 拒）的各被**记录那条策略**拒；名字不合规、缺 `spec`、缺 `reason` 的被 CRD 拒。怎么认是哪一条拒的：报文里同时有策略名 `bifrost-release-records` 和那条规则自己的 `message`；只有策略名、正文是表达式求值出错的不算；`is forbidden: User … cannot` 是 RBAC，`is invalid` 是 CRD（报文样式是假定，第一次拒绝时对一下） |
 | 3 | 真建一条探针记录 `freeze-` 加 32 个 `0`。这时没有任何门读新类型，它不影响发布 | 对探针做 dry-run，拒绝都要来自记录那条策略（认法同步 2）：Owner 改 `spec`、加标签——拒；`--as` Argo 控制器、`--as` 垃圾回收器的删——被策略拒，不是被 RBAC 拒；`--as` Argo 控制器不带请求体的原始 DELETE（`kubectl delete --raw '/apis/release.bifrost.io/v1/freezes/<探针>?dryRun=All'`）——被策略拒；`--as` Argo 控制器对整类 `kubectl delete --raw '/apis/release.bifrost.io/v1/freezes?dryRun=All'`——拒；Owner 的前台删除、孤儿式删除——各拒；Owner 的普通删除——放行；Owner 自己不带请求体的同一条原始 DELETE——放行（规则里 `options` 缺省的那一支只有他的请求走得到，这一格证明它不是求值出错）。再真做一次带属主引用的建——拒，两分钟后 LIST 仍只有探针。最后用 3.4 那条带 UID 的命令真删探针，LIST 为空。**这一建一删通过之前，什么都不接线**（步 5 和 S3 都在它后面） |
 | 4 | `rbac-list.yaml` | `kubectl auth can-i list freezes.release.bifrost.io --as=…`：`cicd` 的 12 个 ServiceAccount 逐个、两个平台账号、`bifrost-access:bifrost-agent`，都是 yes；它们对 `create`、`get`、`watch`、`update`、`patch`、`delete`、`deletecollection` 都是 no；两个新 ClusterRole 的标签里没有 `aggregate-to-`；`admin`、`edit`、`view` 三个聚合角色的规则里搜不到 `release.bifrost.io` |
-| 5 | `k8s/cicd/tekton/` 下的两个 Task 文件（它们的提交当天才进 `main`，见第 8 节 S1） | 集群上 Task 的脚本和 `scripts/release/freeze_gate.py` 的 SHA-256 相同；一次 `plan_manifest`（账号 `bifrost-applier`）在 `freeze-check` 通过，日志第一行是「未冻结：0 条记录」；一次 STG 发布（账号 `default`）通过 |
+| 5 | `k8s/cicd/tekton/` 下的两个 Task 文件（它们的提交当天才进 `main`，见第 8 节 S2，不在 S1） | 集群上 Task 的脚本和 `scripts/release/freeze_gate.py` 的 SHA-256 相同；一次 `plan_manifest`（账号 `bifrost-applier`）在 `freeze-check` 通过，日志第一行是「未冻结：0 条记录」；一次 STG 发布（账号 `default`）通过 |
 | | **——平台新版先后上 STG、PROD（S3）之后，第二次——** | |
 | 6 | 不改东西：排空和版本 | `kubectl -n cicd get pods -o json` 里，挂着 ConfigMap `bifrost-release-freeze-check` 而 `status.phase` 不是 `Succeeded` / `Failed` 的，零个；`kubectl -n cicd get taskruns -o json` 里，没有 `status.completionTime` 而创建时间早于步 5 的，零个；两个环境的状态接口都报 `freeze_protocol: 3`；每个环境里 `platform-api` 和 `platform-workers` 的所有 Pod 的 `imageID` 相同（两个 Deployment 都是单副本、`Recreate`，实测）。这四项只读身份也能查 |
 | 7 | 写墓碑（第 5 节的命令）。**动手前再看一遍：之后不能回滚到旧 Task 或 S3 之前的平台** | `jsonpath='{.immutable} {.data.frozen}'` 是 `true true`；Owner 对它 dry-run 改 `data`——拒（不可变）；`--as=system:serviceaccount:cnpg-system:cnpg-manager` 对它 dry-run 删除——被策略拒；存下来的旧检查程序读现网对象，退出码非 0、第一行是拒绝；一次新的 plan run 照常通过 |
@@ -268,9 +291,9 @@ CRD、准入、RBAC、Task 的定义只有他应用。两次坐下来，中间�
 
 | 片 | 内容 | 谁 | 停止条件（可判定） |
 |---|---|---|---|
-| **S1　规则、两份实现、清单，全部离线** | 判定函数（Go）和 `freeze_gate.py`；向量、固定状态图上的穷尽搜索（状态带内容等价类和建删历史，读带线性化点，见第 6 节）、三个阴性对照、随机序列、变异；`k8s/release-freeze/` 的四个文件（`crd`、`admission`、`rbac-list`、`rbac-create`）；`unfreeze` 的命令测试——真的 `kubectl` 实际发出的路径、`DeleteOptions`、`Background`、UID 前置条件，以及过期 UID 得 409、对象保留；`unfreeze` 接口回 410 的处理函数只做单元测试；平台里**不接线**（把 410 接进路由是 S3 的验收，两处分开）。两个 Task 文件的改动也在这一片复核，但它们的提交留到 S2 当天才进 `main`：`k8s/cicd/tekton/` 是 applier 能应用的前缀，提前进去，一次获批的 `apply_manifest` 就会在绑定就位之前换掉检查任务。不打开冻结：没有任何运行时改动 | 实现方；独立复核 | 通过 = 固定状态图上每条写明的断言都成立（零违例）、三个阴性对照各给出预期的违例、两份实现对全部向量一致、变异零漏网、3.2 的实现约束和 `unfreeze` 的命令各有测试、`grep` 不到从服务端接线到新包的调用。离线的零违例不代替第 7 节的现场验收；步 3 的探针真建真删通过之前，后面几片都不接线。**停线** = 复核对上面那句话给出一个序列。规则只有「零条」这一句，再给它加条件就是回到老路；出现反例说明形状错了，停下来重写设计，不补 |
-| **S2　Owner 的第一次** | 第 7 节步 0–5 | Owner | 通过 = 每一格都符合。有一格不符 = 停；步 5 的问题按退路回到上一个 Task |
-| **S3　平台改读记录，删掉记忆** | 3.4 的平台部分，先 STG 后 PROD。不打开冻结：没有 `create` 的绑定 | 实现方；人工批准的发布（触及信任根的路径） | 通过 = 两个环境的状态都是 `freeze_protocol: 3`、`freeze_state: clear`、`freeze_can_create: false`；`unfreeze` 回 410；`memory.go` 不存在；一次 STG 发布通过。PROD 发完后是 `unreadable` = 回滚平台（这时还没有墓碑，旧版读到的仍是从未冻结） |
+| **S1　规则、两份实现、清单，全部离线** | 判定函数（Go）和 `freeze_gate.py`，按 3.2 那张表；向量和生成器；第 6 节的状态图（读保存线性化快照）、两个阴性对照、随机序列（默认 2000，全量看 `FREEZE_MODEL_SEQUENCES`）；`k8s/release-freeze/` 的五个文件（`crd`、`admission`、`rbac-list`、`rbac-create`、`tombstone`）；`unfreeze` 命令的测试（路径、编码器生成的 `DeleteOptions`、`Background`、UID 前置条件、过期 UID 得 409、对象保留，以及引号、反斜杠、重复键注入）；410 处理函数只做单元测试，不接进路由。不含建记录的 POST，不含两个 Task 文件。不打开冻结：没有任何运行时改动 | 实现方；独立复核 | 通过 = 固定状态图上每条写明的断言都成立（零违例）、两个阴性对照各给出预期的违例、两份实现对全部向量一致、生成器无分歧且无表外的 `clear`、3.2 的实现约束和 `unfreeze` 的命令各有测试、`grep` 不到从服务端接线到新包的调用。离线的零违例不代替第 7 节的现场验收；步 3 的探针真建真删通过之前，后面几片都不接线。**停线** = 复核对上面那句话给出一个序列。3.2 定义的是「一次完整、成功的 LIST」这一个词，不是在「零条」之外另加放行条件。出现反例说明形状错了，停下来重写设计，不补 |
+| **S2　Owner 的第一次** | 第 7 节步 0–5，含两个 Task 文件。它们当天进 `main`，不提前进 applier 能应用的前缀 `k8s/cicd/tekton/` | Owner | 通过 = 每一格都符合。有一格不符 = 停；步 5 的问题按退路回到上一个 Task |
+| **S3　平台改读记录，删掉记忆** | 3.4 的平台部分，含建记录的 POST，先 STG 后 PROD。不打开冻结：没有 `create` 的绑定。410 在这一片接进路由 | 实现方；人工批准的发布（触及信任根的路径） | 通过 = 两个环境的状态都是 `freeze_protocol: 3`、`freeze_state: clear`、`freeze_can_create: false`；`unfreeze` 回 410；`memory.go` 不存在；一次 STG 发布通过。PROD 发完后是 `unreadable` = 回滚平台（这时还没有墓碑，旧版读到的仍是从未冻结） |
 | **S4　排空、墓碑、打开冻结、演练** | 第 7 节步 6–10；`release.sh` 的 `freeze` / `unfreeze` / `policy status`；在途 run 的清点 | Owner 在场 | 通过 = 步 6–9 每一格符合、演练八步全部符合，TD-310 的验收改写后重跑。步 6 有一格不符 = 不写墓碑。演练有一步不符 = Owner 删掉 `create` 的绑定和全部记录，冻结回到不可用（墓碑不动），TD-310 不进待签收 |
 | **S5　策略改成只增的记录** | 第 4 节。在锚合并之前做完 | 实现方；Owner 应用第二个 CRD 和绑定 | 通过 = 第 4 节的四条向量在门和签名工具上都过；模型里只要有一条更新的、验得过的记录在，生效的就不是排序值更小的那条；重放此前的每一份签名都不改变生效的策略。复核给出反例 = 停线 |
 | **S6　文档和台账** | `docs/RELEASE.md` 的四节重写；计划第 1 步里「解冻的独立授权」「冻结的串行边界」和 C 片的演练改写；TD-310 的修法和验收改写；登记只读防线（3.1） | 统筹方 | 文档里不再出现 `unfreeze.sig`、`freeze_id`；防线登记在 `RATCHETS.md` |
@@ -310,6 +333,18 @@ CRD、准入、RBAC、Task 的定义只有他应用。两次坐下来，中间�
 
 复核 93（`change first`，2 个 P1、7 个 P2、2 个 P3）：两个 P1 经复核 95 确认已关——带属主引用的记录被回收（3.1 的准入策略、第 7 节步 2–3），换 Task 换不掉已装载的旧程序（第 5 节的墓碑、步 6–7）。
 它的 P2、P3 里，策略排序、批量解冻、读代码的事实、读法、最后一次读的窗口已采纳；提升路径、有限模型、使用前检查当时只采纳了一部分，余下的就是上面第 1、4、2 条；RBAC 证据仍只有汇总和重算的办法（附录），没有可以独立复算的原始导出——仓库是公开的，原始导出不进仓库。
+
+## 12. 复核 100 逐条
+
+1. P1　`NaN` / `Infinity` 被当成空列表：3.2 的字节行，严格 RFC 8259，数字只按模式和长度，不转换。
+2. P2　跟随 302 得到空列表：3.2 的传输行，不跟随重定向。
+3. P2　`remainingItemCount: 1` 仍是 `clear`：3.2 的 metadata 闭集，多一个键就是 `unreadable`。
+4. P2　超长整数和截断正文抛异常，超时按单次操作计：3.2 的总期限、读到声明的结尾、读函数不抛出。
+5. P2　删除命令的 UID 未做 JSON 转义：3.4，编码器生成正文，名字和 UID 先对模式。
+6. P2　CRD 根上没有 `required: ["spec"]`：3.1，静态测试带负例。
+7. P2　读的两个标签没有不同的快照：第 6 节，线性化点的快照单独保存，返回可以在其后。
+8. P2　清扫绕过仍开着的删除准入：第 6 节，清扫走同一条授权和准入；属主引用不再是 S 的阴性对照。
+9. 回写：输出行、双份向量和摘要在 3.2；墓碑策略的名字和匹配在第 5 节；建记录的 POST 归 S3，两个 Task 文件归 S2（第 8 节）。
 
 ## 附：RBAC 证据（实测 2026-10-11 17:19 CDT）
 
