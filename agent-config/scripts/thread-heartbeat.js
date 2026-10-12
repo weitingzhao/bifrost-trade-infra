@@ -21,18 +21,6 @@
  * the per-thread lock is not free at once, that beat is skipped. The child's
  * exit and turn_end are not delayed by a beat.
  *
- * A Claude hook reads the sidebar thread id from CLAUDE_CODE_HOST_SESSION_ID
- * (`local_…`, the same variable the lineage hook writes as Claude-Session).
- * The CLI session id stays the payload's session_id. Each sidebar thread keeps
- * one record per CLI session: the pid of the hook's parent and that process's
- * start time. A turn_start posts turn_end for a different CLI session only when
- * that process is gone (the pid is missing, or the same pid has a different
- * start time). A live process — a subagent or a second window — is not closed
- * and its record is not overwritten, so the two do not flap. A wrapped run
- * (BIFROST_HEARTBEAT_THREAD) takes no part. The old session's locks and post
- * share one 1s budget; the new turn_start uses the time that remains. No
- * sidebar id leaves every vendor unchanged.
- *
  * A hook prints nothing and always exits 0. It does not return a permission
  * denial. It gives up at one monotonic deadline, 5 seconds from entry. Every
  * lock wait receives only the time remaining before that deadline, and the
@@ -67,13 +55,12 @@
  *   BIFROST_HEARTBEAT=off     send nothing
  *   BIFROST_HEARTBEAT_PROGRESS     run: file whose growing size is a progress beat
  *   BIFROST_HEARTBEAT_RUN_BEAT_MS  run: progress interval in ms (default 120000)
- *   CLAUDE_CODE_HOST_SESSION_ID    Claude sidebar thread id; absent → no succession
  */
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const crypto = require('node:crypto')
-const { spawn, execFileSync } = require('node:child_process')
+const { spawn } = require('node:child_process')
 const { performance } = require('node:perf_hooks')
 
 const DEFAULT_URL = 'http://192.168.10.100:30876' // bifrost-platform-prod platform-api NodePort on the VIP
@@ -83,14 +70,7 @@ const THROTTLE_MS = 15 * 1000
 // fresh LOCK_WAIT_MS on top of it.
 const HOOK_GIVE_UP_MS = 5000
 const LOCK_WAIT_MS = 2000
-// Closing a dead session (its state lock, its thread lock, its post) may use
-// at most this long. The new turn_start keeps whatever the hook deadline
-// still has after that. It does not grow the hook's own 5s bound.
-const OLD_SESSION_BUDGET_MS = 1000
 let hookDeadline = 0
-// Absolute monotonic instant. While non-zero, post() will not wait past it.
-// Set only around the old session's work, then restored.
-let networkDeadline = 0
 
 function armHookDeadline(ms = HOOK_GIVE_UP_MS) {
   hookDeadline = lockRuntime.now() + ms
@@ -107,9 +87,6 @@ function lockBudgetMs() {
 }
 const FIRST_EVENT_TIMEOUT_MS = 1000
 const RUN_BEAT_MS = 120 * 1000
-// Sidebar ids and CLI session ids stored in the succession file. Same shape
-// the gate path accepts, so a value cannot escape the cache directory.
-const SIDEBAR_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 const KEY_RE = /^[0-9a-f]{64}$/
 const TURN_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 // Only these mean the person has to act. Every other notification is ignored.
@@ -769,10 +746,10 @@ function matchingRecord(gate, body) {
 }
 
 /** Keep the old record, including its key, and open a new thread id that does not reuse it. */
-function supersedeActive(body) {
+function supersedeActive(body, locked = withThreadLock) {
   const session = body.session || body.thread
   body.session = session
-  return withThreadLock(body.vendor, session, () => {
+  return locked(body.vendor, session, () => {
     const gate = loadGate(body.vendor, session)
     const rec = matchingRecord(gate, body)
     // A late 409 for a record that is already superseded does nothing.
@@ -801,25 +778,23 @@ function supersedeActive(body) {
   })
 }
 
-function saveIssuedKey(body, key) {
+function saveIssuedKey(body, key, locked = withThreadLock) {
   if (typeof key !== 'string' || !KEY_RE.test(key)) return false
   const session = body.session || body.thread
-  let saved = false
-  withThreadLock(body.vendor, session, () => {
+  return locked(body.vendor, session, () => {
     const gate = loadGate(body.vendor, session)
     const rec = matchingRecord(gate, body)
     // No fallback to the current record. A late key for a superseded record is dropped.
-    if (!rec) return
+    if (!rec) return false
     rec.key = key
     saveGate(body.vendor, session, gate)
-    saved = true
+    return true
   })
-  return saved
 }
 
-function markTurnConfirmed(body) {
+function markTurnConfirmed(body, locked = withThreadLock) {
   const session = body.session || body.thread
-  withThreadLock(body.vendor, session, () => {
+  return locked(body.vendor, session, () => {
     const gate = loadGate(body.vendor, session)
     const rec = matchingRecord(gate, body)
     if (!rec || rec.turn_id !== body.turn_id) return
@@ -900,21 +875,15 @@ async function publishProgress(bodyBuffer, deadlineMs) {
   }
 }
 
-async function post(body, timeoutMs = 5000) {
+async function post(body, timeoutMs = 5000, signal) {
   const tok = token()
   if (!tok || process.env.BIFROST_HEARTBEAT === 'off') return { sent: false, why: tok ? 'off' : 'no reporter token', key: '' }
-  let ms = timeoutMs
-  if (networkDeadline) {
-    const left = networkDeadline - lockRuntime.now()
-    if (left < 1) return { sent: false, why: 'budget', key: '', error: '' }
-    ms = Math.min(ms, left)
-  }
   try {
     const res = await fetch(`${baseURL()}${ROUTE}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
       body: Buffer.from(JSON.stringify(wireBody(body))),
-      signal: AbortSignal.timeout(Math.max(1, Math.ceil(ms))),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
     })
     let key = ''
     let error = ''
@@ -998,6 +967,63 @@ async function postRecover(body, timeoutMs) {
   return res
 }
 
+/** Progress recovery uses only immediate lock attempts and stops after child exit. */
+async function postProgressRecover(body, control) {
+  const check = () => {
+    if (!control.active()) throw new Error('progress stopped')
+  }
+  const locked = async (vendor, session, fn) => {
+    check()
+    const file = gatePath(vendor, session)
+    if (!file) throw new Error('bad progress thread')
+    const attempt = beginTryHold(`${file}.lock`)
+    control.attempt = attempt
+    const held = await attempt.promise
+    if (control.attempt === attempt) control.attempt = null
+    if (!held) throw new Error('progress lock busy')
+    try {
+      check()
+      return fn()
+    } finally {
+      held.release()
+    }
+  }
+  const send = async event => {
+    check()
+    const res = await post(event, 3000, control.signal)
+    check()
+    return res
+  }
+  const start = preludeTurnStart(body)
+  if (start) {
+    const opened = await send(start)
+    if (opened.key) {
+      const saved = await saveIssuedKey(start, opened.key, locked)
+      if (saved && opened.sent && body.thread === start.thread && body.register_nonce === start.register_nonce) {
+        body.thread_key = opened.key
+      }
+    }
+    if (opened.status === 409 && opened.error === 'older turn refused') return opened
+    if (!(opened.status === 409 && opened.error === 'unknown key')) {
+      if (!opened.sent) return opened
+      await markTurnConfirmed(start, locked)
+    }
+  }
+  let res = await send(body)
+  if (res.status === 409 && res.error === 'unknown key') {
+    const created = await supersedeActive(body, locked)
+    if (!created) return res
+    res = await send(body)
+  }
+  if (res.key) await saveIssuedKey(body, res.key, locked)
+  check()
+  const rec = recordFor(body)
+  if (res.sent && (body.event === 'turn_start' || !rec || !rec.turn_open_seq)) {
+    await markTurnConfirmed(body, locked)
+  }
+  return res
+}
+
 /** Hand the POST to a detached child. The body sits in a mode-600 file, not the environment. */
 function sendDetached(body) {
   if (!token() || process.env.BIFROST_HEARTBEAT === 'off') return
@@ -1070,8 +1096,16 @@ function startProgressBeats(base, isAlive) {
   let timer = null
   let stopped = false
   let inflight = null
+  const abort = new AbortController()
+  const control = {
+    active: () => !stopped && isAlive(),
+    signal: abort.signal,
+    attempt: null,
+  }
   const stop = () => {
     stopped = true
+    abort.abort()
+    if (control.attempt) control.attempt.cancel()
     if (timer) clearTimeout(timer)
     timer = null
     if (inflight) inflight.cancel()
@@ -1126,7 +1160,7 @@ function startProgressBeats(base, isAlive) {
         if (!stopped && isAlive()) arm()
         return
       }
-      postRecover(beat, 3000)
+      postProgressRecover(beat, control)
         .catch(() => {
           // a failed progress post is swallowed; the child's exit code still wins
         })
@@ -1139,241 +1173,20 @@ function startProgressBeats(base, isAlive) {
   return stop
 }
 
-function sidebarId() {
-  const id = (process.env.CLAUDE_CODE_HOST_SESSION_ID || '').trim()
-  if (!SIDEBAR_ID_RE.test(id)) return ''
-  return id
-}
-
-function wrappedRun() {
-  return Boolean((process.env.BIFROST_HEARTBEAT_THREAD || '').trim())
-}
-
-// State and lock names are a hash of the sidebar id plus two fixed, different
-// suffixes. A raw id such as "T.lock" cannot name another id's lock file.
-const SIDEBAR_STATE_SUFFIX = '.state'
-const SIDEBAR_LOCK_SUFFIX = '.lock'
-
-function sidebarPaths(id) {
-  const hash = crypto.createHash('sha256').update(String(id)).digest('hex')
-  const dir = home('.cache', 'bifrost', 'heartbeat-sidebar')
-  return {
-    dir,
-    state: path.join(dir, hash + SIDEBAR_STATE_SUFFIX),
-    lock: path.join(dir, hash + SIDEBAR_LOCK_SUFFIX),
-  }
-}
-
-function withSidebarLock(id, fn) {
-  const paths = sidebarPaths(id)
-  fs.mkdirSync(paths.dir, { recursive: true, mode: 0o700 })
-  const held = holdFlock(paths.lock)
+async function hook(vendor) {
+  const raw = await readStdin()
+  let payload
   try {
-    return fn(paths.state)
-  } finally {
-    held.release()
-  }
-}
-
-/**
- * Start time of `pid`, from `ps -o lstart`. A string means the process is
- * there. null means ps reported it gone. undefined means ps itself failed
- * (timeout, missing binary): the caller must not treat that as death.
- */
-function readProcessStart(pid) {
-  const n = Number(pid)
-  if (!Number.isInteger(n) || n <= 0) return null
-  try {
-    const out = execFileSync('/bin/ps', ['-p', String(n), '-o', 'lstart='], {
-      encoding: 'utf8',
-      timeout: 200,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
-    const started = out.trim()
-    return started || undefined
-  } catch (err) {
-    if (err && err.status === 1) return null
-    return undefined
-  }
-}
-
-// Tests replace readStart. Production reads the hook's parent: the Claude
-// Code process, not the short-lived hook. The start time tells a reused pid
-// from the process that owned the session.
-const processRuntime = {
-  parent() {
-    const pid = process.ppid
-    const started = this.readStart(pid)
-    return { pid, started: typeof started === 'string' ? started : '' }
-  },
-  readStart(pid) {
-    return readProcessStart(pid)
-  },
-  alive(rec) {
-    if (!rec || !Number.isInteger(rec.pid) || rec.pid <= 0) return false
-    if (typeof rec.started !== 'string' || rec.started === '') return false
-    const started = this.readStart(rec.pid)
-    if (started === undefined) return true
-    if (started === null) return false
-    return started === rec.started
-  },
-}
-
-function readSidebar(file) {
-  const raw = readJSON(file)
-  const sessions = raw && raw.sessions && typeof raw.sessions === 'object' && !Array.isArray(raw.sessions) ? raw.sessions : null
-  if (!sessions) return {}
-  const out = {}
-  for (const [session, rec] of Object.entries(sessions)) {
-    if (!SIDEBAR_ID_RE.test(session) || !rec || typeof rec !== 'object') continue
-    const pid = Number(rec.pid)
-    const started = typeof rec.started === 'string' ? rec.started : ''
-    if (!Number.isInteger(pid) || pid <= 0 || !started) continue
-    out[session] = { pid, started }
-  }
-  return out
-}
-
-function writeSidebar(file, sessions) {
-  const body = { sessions: {} }
-  for (const [session, rec] of Object.entries(sessions)) {
-    if (!SIDEBAR_ID_RE.test(session)) continue
-    const pid = Number(rec && rec.pid)
-    const started = rec && typeof rec.started === 'string' ? rec.started : ''
-    if (!Number.isInteger(pid) || pid <= 0 || !started) continue
-    body.sessions[session] = { pid, started }
-  }
-  const tmp = `${file}.${process.pid}.tmp`
-  fs.writeFileSync(tmp, JSON.stringify(body), { mode: 0o600 })
-  fs.chmodSync(tmp, 0o600)
-  fs.renameSync(tmp, file)
-  fs.chmodSync(file, 0o600)
-}
-
-/** turn_end for a CLI session, as that session's own Stop hook would post it. */
-async function postPreviousTurnEnd(session) {
-  const body = { thread: session, vendor: 'claude', host: hostName(), event: 'turn_end', session }
-  let title = ''
-  try {
-    title = claudeTitle(session)
+    payload = JSON.parse(raw || '{}')
   } catch {
-    title = ''
+    return
   }
-  if (title) {
-    body.title = String(title).slice(0, 160)
-    // The new process's BIFROST_WORK is not the old session's work item.
-    const m = /\b(W-\d+)\b/.exec(body.title)
-    if (m) body.work = m[1]
-  }
-  try {
-    allocateStamp(body)
-  } catch {
-    return false
-  }
-  const left = networkDeadline ? networkDeadline - lockRuntime.now() : FIRST_EVENT_TIMEOUT_MS
-  if (left < 1) return false
-  try {
-    const res = await postRecover(body, left)
-    if (res && res.sent) {
-      rememberSent(body)
-      return true
-    }
-  } catch {
-    // the new turn_start still goes out
-  }
-  return false
-}
-
-/**
- * On a claude turn_start, remember this hook's parent for `cliSession` and
- * post turn_end for every other session of this sidebar whose process is
- * gone. Live sessions stay in the map, so A→B→A with both alive sends
- * nothing extra. A wrapped run does not call this. The whole attempt shares
- * OLD_SESSION_BUDGET_MS and does not consume the hook deadline past that.
- */
-async function closeDeadSessions(cliSession) {
-  const id = sidebarId()
-  if (!id || !SIDEBAR_ID_RE.test(cliSession) || wrappedRun()) return
-  const savedDeadline = hookDeadline
-  const savedNetwork = networkDeadline
-  const budgetEnd = lockRuntime.now() + OLD_SESSION_BUDGET_MS
-  const clip = () => {
-    const end = savedDeadline ? Math.min(savedDeadline, budgetEnd) : budgetEnd
-    const left = end - lockRuntime.now()
-    if (left < 1) {
-      hookDeadline = lockRuntime.now()
-      networkDeadline = lockRuntime.now()
-      return 0
-    }
-    hookDeadline = end
-    networkDeadline = end
-    return left
-  }
-  try {
-    if (clip() < 1) return
-    let dead = []
-    try {
-      dead = withSidebarLock(id, file => {
-        const sessions = readSidebar(file)
-        const owner = processRuntime.parent()
-        const gone = []
-        for (const [session, rec] of Object.entries(sessions)) {
-          if (session !== cliSession && !processRuntime.alive(rec)) gone.push(session)
-        }
-        if (owner.pid > 0 && owner.started) sessions[cliSession] = { pid: owner.pid, started: owner.started }
-        writeSidebar(file, sessions)
-        return gone
-      })
-    } catch {
-      return
-    }
-    for (const session of dead) {
-      if (clip() < 1) break
-      let sent = false
-      try {
-        sent = await postPreviousTurnEnd(session)
-      } catch {
-        sent = false
-      }
-      // A failed post leaves the record, so a later turn_start tries again.
-      // A repeat of a turn_end the server already applied stays idle.
-      if (!sent || clip() < 1) continue
-      try {
-        withSidebarLock(id, file => {
-          const sessions = readSidebar(file)
-          const rec = sessions[session]
-          if (rec && !processRuntime.alive(rec)) delete sessions[session]
-          writeSidebar(file, sessions)
-        })
-      } catch {
-        // the next turn_start closes it again; a second turn_end stays idle
-      }
-    }
-  } finally {
-    hookDeadline = savedDeadline
-    networkDeadline = savedNetwork
-  }
-}
-
-async function handleHook(vendor, payload) {
   const body = beatFor(vendor, payload)
   if (!body) return
   body.session = body.thread
   const first = !hasActiveKey(body.vendor, body.session)
   // A throttled tool event must not skip the turn_start the server never confirmed.
   if (!first && !hasUnconfirmedTurn(body.vendor, body.session) && throttled(body)) return
-  // The CLI session id is the payload's, not BIFROST_HEARTBEAT_THREAD. A
-  // wrapped run does not succeed or yield a sidebar record. A failed close
-  // must not drop the new event. Cursor, Codex, and a hook with no sidebar
-  // id never enter this.
-  const cliSession = String((payload && payload.session_id) || '').trim()
-  if (vendor === 'claude' && body.event === 'turn_start' && !wrappedRun()) {
-    try {
-      await closeDeadSessions(cliSession)
-    } catch {
-      // the new turn_start still goes out
-    }
-  }
   try {
     allocateStamp(body)
   } catch {
@@ -1387,17 +1200,6 @@ async function handleHook(vendor, payload) {
     return
   }
   sendDetached(body)
-}
-
-async function hook(vendor) {
-  const raw = await readStdin()
-  let payload
-  try {
-    payload = JSON.parse(raw || '{}')
-  } catch {
-    return
-  }
-  await handleHook(vendor, payload)
 }
 
 async function run(vendor, argv) {
@@ -1508,13 +1310,8 @@ module.exports = {
   clearHookDeadline,
   lockRuntime,
   HOOK_GIVE_UP_MS,
-  OLD_SESSION_BUDGET_MS,
   publishProgress,
   baseURL,
   hostName,
-  handleHook,
-  processRuntime,
-  sidebarPaths,
   startProgressBeats,
-  withSidebarLock,
 }
