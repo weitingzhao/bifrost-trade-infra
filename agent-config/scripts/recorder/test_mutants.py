@@ -18,8 +18,9 @@ from pathlib import Path
 
 import pytest
 from mutants import MUTANTS
+from mutant_proof import instrument
 from mutagen import EXCLUSIONS, PATH_FILES, generate
-from mutants_equivalent import EQUIVALENT
+from mutants_equivalent import EQUIVALENT, UNREACHABLE
 
 HERE = Path(__file__).resolve().parent
 MUTANT_TIMEOUT_S = 90
@@ -58,8 +59,14 @@ def _run(item, named=False):
         failed = _failures(proc)
         if named:
             assert set(item['must_fail']) <= failed, (item['name'], failed, proc.stdout, proc.stderr)
-        digest = _corpus(folder) if not named and not failed else ""
-        return item, failed, digest
+        digest = ""
+        hits = 0
+        if not named and not failed:
+            digest = _corpus(folder)
+            if item['name'] in EQUIVALENT:
+                target.write_text(instrument((HERE / item['file']).read_text(), item['source']))
+                hits = _hits(folder, item['file'])
+        return item, failed, digest, hits
 
 
 def test_mutant_anchors_are_unique():
@@ -106,6 +113,17 @@ def test_generator_sites_are_unique_complete_and_compilable():
     assert Counter(item['kind'] for item in items) == dict(operand=2, negate=1, compare=2, constant=6, guard_pass=1)
     for item in items:
         compile(item['source'], item['file'], 'exec')
+    only_a = generate({"fold.py": "def a(x):\n    if x == 1:\n        return 1\n    return 0\ndef b(y):\n    if y == 2:\n        return 2\n    return 0\n"}, only="fold.py:a")
+    assert only_a and {item['function'] for item in only_a} == {'a'}
+    from mutant_proof import instrument
+    negated = next(item for item in only_a if item['kind'] == 'negate')
+    namespace = {}
+    exec(instrument("def a(x):\n    if x == 1:\n        return 1\n    return 0\ndef b(y):\n    if y == 2:\n        return 2\n    return 0\n", negated['source']), namespace)
+    assert namespace['a'](1) == 0 and namespace['_MUTANT_PROBE_HITS'] >= 1
+    from mutants_equivalent import EQUIVALENT, UNREACHABLE
+    assert not set(EQUIVALENT) & set(UNREACHABLE)
+    assert len(set(EQUIVALENT.values())) == len(EQUIVALENT)
+    assert all(':' in cite for cite in UNREACHABLE.values())
 
 
 def _corpus(folder: Path) -> str:
@@ -140,50 +158,113 @@ def _corpus(folder: Path) -> str:
     return proc.stdout.strip()
 
 
+def _hits(folder: Path, filename: str) -> int:
+    """Run the round-7 checks on an instrumented mutant and return the probe count."""
+    module = filename[:-3]
+    script = (
+        "import test_round7\n"
+        f"import {module}\n"
+        "test_round7.run_checks()\n"
+        f"print({module}._MUTANT_PROBE_HITS)\n"
+    )
+    proc = subprocess.run([sys.executable, "-c", script], cwd=folder, capture_output=True, text=True, env={
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PATH": os.environ.get("PATH", ""),
+    }, timeout=MUTANT_TIMEOUT_S)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    return int(proc.stdout.strip().splitlines()[-1])
+
+
+def _site_line(name: str) -> tuple[str, str]:
+    parts = name.split(":")
+    return parts[0], parts[-4]
+
+
 def test_every_mutant_fails_its_tests():
     if os.environ.get('RECORDER_MUTANTS') != '1':
         return
     started = time.monotonic()
     with ThreadPoolExecutor(max_workers=8) as pool:
-        for item, failed, _digest in pool.map(lambda item: _run(item, True), MUTANTS):
+        for item, failed, _digest, _hits in pool.map(lambda item: _run(item, True), MUTANTS):
             print(f"{item['name']} → {', '.join(sorted(failed))}", flush=True)
     print(f'legacy: {len(MUTANTS)} killed; {time.monotonic() - started:.2f}s', flush=True)
 
 
 def test_generated_mutants():
+    """Killed, equivalent-shown, or unreachable-shown. Anything else fails the run."""
     if os.environ.get('RECORDER_MUTANTS') != '1':
         return
-    items = generate({file: (HERE / file).read_text() for file in PATH_FILES})
+    only = os.environ.get('RECORDER_MUTANT_ONLY', '')
+    items = generate({file: (HERE / file).read_text() for file in PATH_FILES}, only=only)
     names = {item['name'] for item in items}
-    assert set(EQUIVALENT) <= names
+    if not only:
+        assert set(EQUIVALENT) <= names
+        assert set(UNREACHABLE) <= names
     baseline_digest = _corpus(HERE)
-    _baseline, failed, _digest = _run(dict(file='fold.py', source=(HERE / 'fold.py').read_text(), name='baseline'))
+    _baseline, failed, _digest, _hits = _run(dict(file='fold.py', source=(HERE / 'fold.py').read_text(), name='baseline'))
     assert not failed, failed
     started = time.monotonic()
-    survivors = []
-    differed = []
     killed = 0
+    shown = []
+    unproven = []
+    differed = []
+    survivors = []
+    pending_unreach = []
+    killed_at = set()
     killed_kind = Counter()
     killed_function = Counter()
     with ThreadPoolExecutor(max_workers=8) as pool:
-        for item, failed, digest in pool.map(_run, items):
+        for item, failed, digest, hits in pool.map(_run, items):
+            name = item['name']
             if failed:
                 killed += 1
+                killed_at.add(_site_line(name))
                 killed_kind[item['kind']] += 1
                 killed_function[item['function']] += 1
-            elif digest != baseline_digest:
-                differed.append(item['name'])
-            else:
-                survivors.append(item['name'])
-            print(f"generated {item['name']} → {'killed' if failed else 'SURVIVED'} | FAILED={sorted(failed)} | {item['before']!r} => {item['after']!r}", flush=True)
-        unexplained = (set(survivors) - set(EQUIVALENT)) | set(differed)
-        for name in survivors:
-            print(f'equivalent {name}: {EQUIVALENT.get(name, "MISSING TEST")}', flush=True)
-        for name in differed:
-            print(f'differed {name}', flush=True)
-        print(f'generated kinds: {dict(Counter(item["kind"] for item in items))}', flush=True)
-        print(f'killed kinds: {dict(killed_kind)}', flush=True)
-        print(f'by function: {dict(Counter(item["function"] for item in items))}', flush=True)
-        print(f'killed by function: {dict(killed_function)}', flush=True)
-        print(f'generated: {len(items)} total; {killed} killed; {len(survivors)} survived; {len(differed)} differed; {len(unexplained)} unexplained; {time.monotonic() - started:.2f}s', flush=True)
-        assert not unexplained, sorted(unexplained)
+                print(f"generated {name} → killed", flush=True)
+                continue
+            if digest != baseline_digest:
+                differed.append(name)
+                print(f"generated {name} → differed", flush=True)
+                continue
+            if name in EQUIVALENT:
+                if hits > 0:
+                    shown.append(name)
+                    print(f"equivalent {name}: {EQUIVALENT[name]}", flush=True)
+                else:
+                    unproven.append(name)
+                    print(f"unproven {name}", flush=True)
+                continue
+            if name in UNREACHABLE:
+                pending_unreach.append(name)
+                print(f"unreachable-pending {name}: {UNREACHABLE[name]}", flush=True)
+                continue
+            survivors.append(name)
+            print(f"generated {name} → SURVIVED | {item['before']!r} => {item['after']!r}", flush=True)
+    unreachable = []
+    bad_cite = []
+    for name in pending_unreach:
+        file_name, line = UNREACHABLE[name].split(":")
+        if (file_name, line) in killed_at:
+            unreachable.append(name)
+        else:
+            bad_cite.append(f"{name} cites {UNREACHABLE[name]}")
+    print(f"generated: {len(items)}", flush=True)
+    print(f"killed: {killed}", flush=True)
+    print(f"equivalent-shown: {len(shown)}", flush=True)
+    print(f"unreachable-shown: {len(unreachable)}", flush=True)
+    print(f"differed: {len(differed)}", flush=True)
+    print(f"unproven: {len(unproven)}", flush=True)
+    print(f"bad citations: {len(bad_cite)}", flush=True)
+    print(f"survivors: {len(survivors)}", flush=True)
+    print(f"killed kinds: {dict(killed_kind)}", flush=True)
+    print(f"killed by function: {dict(killed_function)}", flush=True)
+    print(f"mutant run: {time.monotonic() - started:.2f}s", flush=True)
+    for name in survivors:
+        print(f"survivor {name}", flush=True)
+    for name in unproven + differed + bad_cite:
+        print(f"not shown {name}", flush=True)
+    assert not survivors, survivors
+    assert not unproven, unproven
+    assert not differed, differed
+    assert not bad_cite, bad_cite
