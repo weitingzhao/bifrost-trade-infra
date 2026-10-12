@@ -131,6 +131,9 @@ def publish_view(document: dict, host: str | None = None, blocks=None) -> dict:
     else:
         doc.pop("full_at", None)
         doc.pop("reduced", None)
+    from survive import apply_keep
+
+    apply_keep(doc, level)
     return _public(doc)
 
 
