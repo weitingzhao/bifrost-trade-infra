@@ -94,6 +94,8 @@ scripts/release/release-check.sh diff old.json new.json --allow <file>
 
 没有 allow-red。覆盖检查的途径是 Owner 应用此前版本的 Pipeline 定义。上线顺序是先把包含 check-source 身份接线的 platform 发到 PROD 并核对，再由 Owner 在没有平台发布在途、没有未结 PROD 发布单时应用 `k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml`；反过来会拒绝每次平台 PROD 发布。回退由 Owner 重新应用此前版本的同一 Pipeline 文件。
 
+正式环境仍重新构建 API 和 console 两个 :prod 镜像；重启后按本次 run 的两个 kaniko `digest` 结果核对 Pod。成功表示核对读到的那一刻，bifrost-platform-prod 的 platform-api、platform-console、platform-workers 各自就绪，所有计入核对的 Pod 的 imageID 摘要分别等于本次构建摘要（workers 用 API 摘要）。读取不是原子快照，不保证读完之后的状态。gitops-sync 仍在核对之后，之后的同步、标签变化或 Pod 重启不在保证内（TD-330、TD-331）。
+
 钉住路径 `scripts/release/platform-prod-pinned-from-stg.sh <stg-run> -o <file>` 读取线上 PROD Pipeline：有 check-source 就设置该任务使用 tekton-deliver，保留其它 override；没有就不添加，读不到或 tasks 不是列表就拒绝生成。它只生成 JSON，创建发布仍由 Owner 批准。指定旧 STG run 不会绕过最新 STG 判定。
 
 应用前，`python3 scripts/release/platform_prod_gate_trial.py <revision> [--ui-revision main] > <file>` 只打印一条 trial PipelineRun，内联任务与正式 check-source 完全相同、身份是 tekton-deliver；Owner 可对当前 STG 提交与没有 CI 的提交分别试跑。它不构建、不克隆、不发布，生成器从不调用 kubectl。ui commit 会解析为固定 SHA 并交给后续 clone，但不与 STG 比较。
@@ -101,6 +103,8 @@ scripts/release/release-check.sh diff old.json new.json --allow <file>
 ### Owner 应用这道检查时（一次）
 
 次序：含 check-source 身份接线的 platform 已在 PROD → 试跑一正一反 → 应用。三条命令都在 infra 主线的检出目录里、Owner 自己的终端跑；没有平台发布在途、没有未结的 PROD 发布单时再做。
+
+摘要核对第 3 片另须先确认第 1 片的两个 kaniko Task 已应用（声明 digest result 并写 --digest-file），再应用 PROD Role 的只读权限 → 支持 STG/PROD 的核对 Task → 对 PROD 只核对试跑一正一反 → PROD Pipeline。试跑用 `python3 scripts/release/platform_digest_verify_trial.py <api-digest> <console-digest> --namespace bifrost-platform-prod`；默认仍为 STG，只接受两个完整名字，不重启、不记录 Application。若先应用 PROD Pipeline 而 kaniko Task 仍是旧版，构建没有 digest 结果，下游结果引用不能满足，run 会失败，不能算发布成功；构建可能已推镜像。新 Task 或 Role 未就绪同样不能应用流水线。撤回第 3 片：先把 PROD Pipeline 恢复成 `0e3d33b` 的文件（与 `79c8088` 逐字节相同）：`git show 0e3d33b:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | kubectl apply -f -`。不是下面第 3 条的 `27e4467`——那一条连 check-source 一起撤掉。之后再处理共享核对 Task 和新增权限；STG 或 PROD 的流水线仍引用核对 Task 时保留它和两处只读权限。
 
 ```bash
 # 1. 试跑（不构建、不发布；只为解析提交，把两个仓库各浅拉一次到临时目录）。在将要应用的那个提交上生成；给镜像上已有的整 SHA。
@@ -139,24 +143,24 @@ git show 27e4467:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | kubectl a
 
 **这道检查生效之后怎么把平台退回旧提交**：直接再发旧提交会被拒，因为 STG 上已经不是它了。两条路：① Owner 先把 Pipeline 恢复成不含检查的定义（上面第 3 条命令），再发旧提交；退回到不含 check-source 身份接线的平台（`2726c47` 之前）之后，检查要一直保持撤回。② 先把旧提交成功发到 STG、让它成为最新的一次，再发 PROD；只适用于含身份接线的平台提交。Owner 动手时用的清单见 `agent-config/work/multi-agent/OWNER-STEPS-2026-10-13.md`。
 
-## Platform STG running-image verification（guardrail 5，slice 2）
+## Platform STG / PROD running-image verification（guardrail 5，slices 2–3）
 
 STG 的 `rollout` 引用 `bifrost-rollout-verify-platform`，先重启并等待三个 Deployment，再核对 API/worker 与 console 的 `imageID` 是否分别等于本次两个构建结果。三个 Deployment 的副本状态必须全齐；按它们自己的 matchLabels 选 Pod，忽略终止中以及 status.phase 为 Succeeded 或 Failed 的 Pod，剩余数量必须恰好等于期望副本数。每个 Pod 经控制器 UID 链归属当前 Deployment 和当前 revision，并且只有预期的一个容器、正在 Running、running 且 ready。不支持 init/ephemeral 容器以及非空 matchExpressions；不支持的形状拒绝，不放宽检查。
 
-参数没有默认值，STG 明确给 `requireSpecDigest=false`、`recordApplication=none`。核对最多 3 次，每次重读整套对象，间隔 3 秒，总预算 55 秒，每个 kubectl 子进程最多 5 秒；任意一次整套通过才写 `api-digest`、`console-digest`、`verified-at` 三个结果（摘要没有换行）。这证明读取时的运行状态，顺序读取不是原子快照，也不固定以后移动标签拉到的镜像。
+参数没有默认值，STG 和 PROD 都明确给 `requireSpecDigest=false`、`recordApplication=none`。核对最多 3 次，每次重读整套对象，间隔 3 秒，总预算 55 秒，每个 kubectl 子进程最多 5 秒；任意一次整套通过才写 `api-digest`、`console-digest`、`verified-at` 三个结果（摘要没有换行）。这证明读取时的运行状态，顺序读取不是原子快照，也不固定以后移动标签拉到的镜像。
 
-应用前由统筹方只读量好第 1 片三个摘要相等、STG/PROD 的 imageID、容器名和 UID/revision 归属链的真实形状。Owner 的次序：STG Role → 新 Task → 两条只核对的试跑（正例成功且结果相符、反例拒绝）→ STG Pipeline。`scripts/release/platform_digest_verify_trial.py <api-digest> <console-digest>` 只打印试跑清单，唯一内联步骤直接取新 Task 的核对脚本，身份 `tekton-deliver`、amd64；创建命令只在生成器 `--help` 中。自动应用脚本仍会整批应用，首次应用时应按上述分步次序执行，试跑未通过不应用 Pipeline。撤回先恢复 STG Pipeline，再撤新 Task（也可留着），最后撤 STG Role 的新增只读权限。共享旧 Task、PROD Pipeline、PROD Role 不在本片变更范围。
+应用前由统筹方只读量好第 1 片三个摘要相等、STG/PROD 的 imageID、容器名和 UID/revision 归属链的真实形状。Owner 的次序：STG Role → 新 Task → 两条只核对的试跑（正例成功且结果相符、反例拒绝）→ STG Pipeline。`scripts/release/platform_digest_verify_trial.py <api-digest> <console-digest>` 只打印试跑清单，唯一内联步骤直接取新 Task 的核对脚本，身份 `tekton-deliver`、amd64；创建命令只在生成器 `--help` 中。自动应用脚本仍会整批应用，首次应用时应按上述分步次序执行，试跑未通过不应用 Pipeline。撤回先恢复 STG Pipeline，再撤新 Task（也可留着；PROD Pipeline 还引着它时不能撤），最后撤 STG Role 的新增只读权限。共享旧 Task 保持不变。正式环境第 3 片的应用次序见上一节「Owner 应用这道检查时」里以「摘要核对第 3 片」开头的那一段。
 
 拒绝日志前缀 `REFUSED: platform digest verification:` 后面只使用下列固定句；工具输出和对象字段不进入日志。把拒绝句交给统筹方查证，失败不算发布成功。
 
 | 拒绝句 | 意思及处理 |
 |---|---|
 | `invalid expected digest` | 两个期望摘要必须为 sha256 加 64 位小写十六进制，且无换行；查构建结果。 |
-| `only STG verification without recording is supported` | 本片只允许 STG 和 none；查任务接线。 |
-| `invalid spec digest mode` | 核对模式必须明确为 true 或 false；STG 接 false。 |
+| `only STG or PROD verification without recording is supported` | 只允许 bifrost-platform-stg、bifrost-platform-prod 和 none；查任务接线。 |
+| `invalid spec digest mode` | 核对模式必须明确为 true 或 false；STG 和 PROD 接 false。 |
 | `verification deadline exceeded` | 总预算耗尽；查滚动和集群读取耗时，不放宽判定。 |
 | `cluster read timed out` | kubectl 子进程超过预算；查 API 可达性。 |
-| `identity cannot read Deployments/Pods/ReplicaSets` | 身份或 STG Role 不符；查 tekton-deliver 接线和新增权限。 |
+| `identity cannot read Deployments/Pods/ReplicaSets` | 身份或目标环境 Role 不符；查 tekton-deliver 接线和新增权限。 |
 | `cluster read failed` | 读取失败（含对象不存在）；查 API 与对象，工具原文不进日志。 |
 | `malformed cluster JSON` | JSON 无法解析；查 API 返回值。 |
 | `duplicate JSON key` | JSON 有重复键；查返回证据。 |
@@ -183,9 +187,9 @@ STG 的 `rollout` 引用 `bifrost-rollout-verify-platform`，先重启并等待�
 | `missing or ambiguous container status` | 状态数量或名字不符；查 Pod。 |
 | `container is not running and ready` | 等待、退出、未 ready 或状态矛盾；查启动/探针。 |
 | `container imageID digest differs or is invalid` | 摘要缺失、格式不符或与构建结果不同；查当前镜像，workers 应跑 API 摘要。 |
-| `Deployment spec image is not the expected digest` | 显式打开 spec 摘要核对时声明镜像不符；STG 不打开此项。 |
+| `Deployment spec image is not the expected digest` | 显式打开 spec 摘要核对时声明镜像不符；STG 和 PROD 不打开此项。 |
 | `missing or malformed verification evidence` | 缺字段、错误类型或其它内部异常；查证据形状，未写结果。 |
-| `REFUSED: invalid STG rollout parameters` | 重启前拒绝错误环境、摘要、记录或模式参数；查流水线接线。 |
+| `REFUSED: invalid STG or PROD rollout parameters` | 重启前拒绝错误环境、摘要、记录或模式参数；查流水线接线。 |
 | `REFUSED: platform rollout failed or timed out` | 重启/等待失败；查滚动状态，工具原文不进日志。 |
 
 ## 发布窗口：推 main 或起 deliver 之前先看

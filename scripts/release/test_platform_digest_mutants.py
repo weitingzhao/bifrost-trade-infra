@@ -16,6 +16,18 @@ from embed_platform_digest_verify import ROOT, TASK
 # predicate separately. Mutants never alter the real Task or verifier source.
 MUTATIONS = [
     (
+        "namespace-stg-only",
+        'namespace not in ("bifrost-platform-stg", "bifrost-platform-prod")',
+        'namespace != "bifrost-platform-stg"',
+        "test_prod_shape or test_trial_exact_step_without_rollout",
+    ),
+    (
+        "namespace-any",
+        'namespace not in ("bifrost-platform-stg", "bifrost-platform-prod")',
+        "False",
+        "test_namespace_refused_before_calls",
+    ),
+    (
         "pod-rs-uid",
         'if rm["uid"] != pr["uid"]:',
         "if False:",
@@ -282,3 +294,51 @@ def test_planted_structure_violation(tmp_path, case):
                             result.stdout, re.M))
     assert failed > 0, result.stdout + result.stderr
     print(f"MUTANT structure-{case}: {failed} tests red")
+
+
+@pytest.mark.parametrize("case", ["restart-stg-only", "restart-any", "old-rollout", "swap-digests", "param-digest", "literal-digest", "stg-namespace", "onError", "when", "retries", "sync-before-rollout", "missing-read", "extra-write"])
+def test_planted_prod_violation(tmp_path, case):
+    task = yaml.safe_load(TASK.read_text())
+    pipeline = yaml.safe_load((ROOT / "k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml").read_text())
+    rbac = list(yaml.safe_load_all((ROOT / "k8s/cicd/tekton/rbac-deliver-platform.yaml").read_text()))
+    tasks = pipeline["spec"]["tasks"]
+    rollout = next(t for t in tasks if t["name"] == "rollout")
+    params = {p["name"]: p for p in rollout["params"]}
+    selection = "test_prod_pipeline_wiring"
+    if case.startswith("restart-"):
+        step = task["spec"]["steps"][0]
+        before = "os.environ['NAMESPACE'] not in ('bifrost-platform-stg', 'bifrost-platform-prod')"
+        assert before in step["script"]
+        step["script"] = step["script"].replace(before, "os.environ['NAMESPACE'] != 'bifrost-platform-stg'" if case == "restart-stg-only" else "False")
+        selection = "test_rollout_restart_and_wait" if case == "restart-stg-only" else "test_namespace_refused_before_calls"
+    elif case == "old-rollout":
+        rollout["taskRef"]["name"] = "bifrost-rollout-platform-stg"
+    elif case == "swap-digests":
+        params["apiDigest"]["value"], params["consoleDigest"]["value"] = params["consoleDigest"]["value"], params["apiDigest"]["value"]
+    elif case in ("param-digest", "literal-digest"):
+        params["apiDigest"]["value"] = "$(params.apiDigest)" if case == "param-digest" else "sha256:" + "a" * 64
+    elif case == "stg-namespace":
+        params["namespace"]["value"] = "bifrost-platform-stg"
+    elif case in ("onError", "when", "retries"):
+        rollout[case] = {"onError": "continue", "when": [{"input": "no", "operator": "in", "values": ["yes"]}], "retries": 1}[case]
+    elif case == "sync-before-rollout":
+        sync = next(t for t in tasks if t["name"] == "gitops-sync")
+        sync["runAfter"] = rollout["runAfter"]
+        rollout["runAfter"] = ["gitops-sync"]
+        tasks.remove(sync)
+        tasks.insert(tasks.index(rollout), sync)
+    elif case == "missing-read":
+        rbac[2]["rules"].pop()
+        selection = "test_rbac_only_stg_prod_read_additions"
+    else:
+        rbac[2]["rules"][1]["verbs"].append("delete")
+        selection = "test_rbac_only_stg_prod_read_additions"
+    paths = [tmp_path / name for name in ("task.yaml", "prod.yaml", "rbac.yaml")]
+    paths[0].write_text(yaml.safe_dump(task))
+    paths[1].write_text(yaml.safe_dump(pipeline))
+    paths[2].write_text(yaml.safe_dump_all(rbac))
+    result = subprocess.run([sys.executable, "-m", "pytest", "scripts/release/test_platform_digest_verify.py", "-q", "-k", selection], cwd=ROOT, env={**os.environ, "DIGEST_TASK": str(paths[0]), "DIGEST_PROD_PIPELINE": str(paths[1]), "DIGEST_RBAC": str(paths[2])}, capture_output=True, text=True, timeout=60)
+    assert result.returncode == 1, result.stdout + result.stderr
+    failed = len(re.findall(r"^FAILED scripts/release/test_platform_digest_verify.py::", result.stdout, re.M))
+    assert failed > 0, result.stdout + result.stderr
+    print(f"MUTANT prod-{case}: {failed} tests red")

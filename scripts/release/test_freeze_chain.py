@@ -189,7 +189,17 @@ class DominationTests(unittest.TestCase):
             ["build-platform-api", "build-platform-console"],
         )
         self.assertNotIn("freeze-check", by_name["rollout"]["runAfter"])
+        effects = fc.load_effects()
+        self.assertEqual(by_name["rollout"]["taskRef"]["name"], "bifrost-rollout-verify-platform")
+        self.assertTrue(fc.is_side_effect(by_name["rollout"], effects, doc["metadata"]["name"]))
+        self.assertFalse(fc._path_misses_freeze(tasks, "rollout", {"freeze-check"}))
         self.assertEqual(fc.violations_for(doc), [])
+        unguarded = copy.deepcopy(doc)
+        unguarded["spec"]["tasks"] = [t for t in unguarded["spec"]["tasks"] if t["name"] != "freeze-check"]
+        for task in unguarded["spec"]["tasks"]:
+            if "runAfter" in task:
+                task["runAfter"] = [n for n in task["runAfter"] if n != "freeze-check"]
+        self.assertIn("bifrost-deliver-platform-prod: rollout is not dominated by the freeze check", fc.violations_for(unguarded))
         for push in ("build-platform-api", "build-platform-console"):
             self.assertFalse(fc._path_misses_freeze(tasks, push, {"freeze-check"}))
 

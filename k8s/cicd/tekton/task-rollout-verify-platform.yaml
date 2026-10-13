@@ -42,13 +42,13 @@ spec:
         #!/usr/bin/env python3
         import os, re, subprocess
         try:
-            if os.environ['NAMESPACE'] != 'bifrost-platform-stg' or os.environ['RECORD_APPLICATION'] != 'none' or os.environ['REQUIRE_SPEC_DIGEST'] != 'false':
+            if os.environ['NAMESPACE'] not in ('bifrost-platform-stg', 'bifrost-platform-prod') or os.environ['RECORD_APPLICATION'] != 'none' or os.environ['REQUIRE_SPEC_DIGEST'] != 'false':
                 raise ValueError()
             for key in ('API_DIGEST', 'CONSOLE_DIGEST'):
                 if not re.fullmatch(r'sha256:[0-9a-f]{64}', os.environ[key]):
                     raise ValueError()
         except Exception:
-            print('REFUSED: invalid STG rollout parameters')
+            print('REFUSED: invalid STG or PROD rollout parameters')
             raise SystemExit(1)
         try:
             for dep in ('platform-api', 'platform-console', 'platform-workers'):
@@ -79,7 +79,7 @@ spec:
       # BEGIN GENERATED DIGEST VERIFIER
       script: |
         #!/usr/bin/env python3
-        """Bounded STG running-image check, embedded verbatim in the rollout Task."""
+        """Bounded STG or PROD running-image check, embedded verbatim in the rollout Task."""
 
         import json
         import os
@@ -317,10 +317,10 @@ spec:
                 ):
                     raise VerificationRefused("invalid expected digest")
                 if (
-                    namespace != "bifrost-platform-stg"
+                    namespace not in ("bifrost-platform-stg", "bifrost-platform-prod")
                     or os.environ["RECORD_APPLICATION"] != "none"
                 ):
-                    raise VerificationRefused("only STG verification without recording is supported")
+                    raise VerificationRefused("only STG or PROD verification without recording is supported")
                 mode = os.environ["REQUIRE_SPEC_DIGEST"]
                 if mode not in ("true", "false"):
                     raise VerificationRefused("invalid spec digest mode")

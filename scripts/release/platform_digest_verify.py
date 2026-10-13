@@ -1,4 +1,4 @@
-"""Bounded STG running-image check, embedded verbatim in the rollout Task."""
+"""Bounded STG or PROD running-image check, embedded verbatim in the rollout Task."""
 
 import json
 import os
@@ -236,10 +236,10 @@ def main():
         ):
             raise VerificationRefused("invalid expected digest")
         if (
-            namespace != "bifrost-platform-stg"
+            namespace not in ("bifrost-platform-stg", "bifrost-platform-prod")
             or os.environ["RECORD_APPLICATION"] != "none"
         ):
-            raise VerificationRefused("only STG verification without recording is supported")
+            raise VerificationRefused("only STG or PROD verification without recording is supported")
         mode = os.environ["REQUIRE_SPEC_DIGEST"]
         if mode not in ("true", "false"):
             raise VerificationRefused("invalid spec digest mode")

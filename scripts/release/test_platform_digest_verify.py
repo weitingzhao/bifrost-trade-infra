@@ -16,6 +16,8 @@ from embed_platform_digest_verify import ROOT, TASK, embedded_script, generated_
 from platform_digest_verify_trial import trial_run
 
 NS = "bifrost-platform-stg"
+PROD = "bifrost-platform-prod"
+INVALID_NAMESPACES = ("bifrost-platform-dev", "", "bifrost-platform-prod ", "default")
 API = "sha256:" + "a" * 64
 CONSOLE = "sha256:" + "b" * 64
 REV = "deployment.kubernetes.io/revision"
@@ -130,6 +132,46 @@ def answers(replicas=1):
 
 def pod_list(docs, name="platform-api"):
     return docs["pods -l app=" + name + ",bifrost.io/tier=platform"]["items"]
+
+
+def prod_answers():
+    """The coordinator's read-only measurement of 2026-10-13: 1/2/1 replicas, :prod, Always."""
+    docs = answers()
+    console = answers(2)
+    for key in docs:
+        if "platform-console" in key:
+            docs[key] = console[key]
+    for name in TARGETS:
+        dep = docs["deployment " + name]
+        dep["metadata"]["namespace"] = PROD
+        dep["spec"]["strategy"] = {"type": "RollingUpdate" if name == "platform-console" else "Recreate"}
+        labels = {"app.kubernetes.io/name": name, "app.kubernetes.io/part-of": "bifrost-platform", "app.kubernetes.io/managed-by": "kustomize"}
+        dep["spec"]["selector"]["matchLabels"] = labels
+        container = dep["spec"]["template"]["spec"]["containers"][0]
+        container.update(image="192.168.10.73:30500/bifrost-" + container["name"] + ":prod", imagePullPolicy="Always")
+        pods = docs.pop("pods -l app=" + name + ",bifrost.io/tier=platform")
+        for pod in pods["items"]:
+            pod["metadata"].update(namespace=PROD, labels=labels)
+            cs = pod["status"]["containerStatuses"][0]
+            cs["imageID"] = "192.168.10.73:30500/bifrost-" + cs["name"] + "@" + (CONSOLE if name == "platform-console" else API)
+        docs["pods -l " + ",".join(k + "=" + v for k, v in sorted(labels.items()))] = pods
+        docs["replicaset " + name + "-rs"]["metadata"]["namespace"] = PROD
+    return docs
+
+
+@pytest.mark.parametrize("bad_console_index", [None, 0, 1])
+def test_prod_shape(tmp_path, bad_console_index):
+    docs = prod_answers()
+    if bad_console_index is not None:
+        pods = next(v["items"] for k, v in docs.items() if k.startswith("pods ") and "platform-console" in k)
+        pods[bad_console_index]["status"]["containerStatuses"][0]["imageID"] = "r@" + API
+    result = execute(tmp_path, docs, env={"NAMESPACE": PROD})
+    if bad_console_index is None:
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert (tmp_path / "api-result").read_text() == API
+        assert (tmp_path / "console-result").read_text() == CONSOLE
+    else:
+        assert_refused(result, tmp_path)
 
 
 def execute(
@@ -617,12 +659,22 @@ def test_deadline(tmp_path):
     "env",
     [
         {"RECORD_APPLICATION": "bifrost-platform-prod"},
-        {"NAMESPACE": "bifrost-platform-prod"},
         {"REQUIRE_SPEC_DIGEST": ""},
     ],
 )
 def test_modes_fail_closed(tmp_path, env):
     assert_refused(execute(tmp_path, env=env), tmp_path)
+    assert not (tmp_path / "calls").exists()
+
+
+@pytest.mark.parametrize("namespace", INVALID_NAMESPACES)
+@pytest.mark.parametrize("step", ["rollout-restart", "verify-digests"])
+def test_namespace_refused_before_calls(tmp_path, namespace, step):
+    source = next(s["script"] for s in task_spec()["steps"] if s["name"] == step)
+    result = execute(tmp_path, source=source, env={"NAMESPACE": namespace})
+    assert result.returncode == 1
+    assert result.stderr == ""
+    assert result.stdout.startswith("REFUSED: ")
     assert not (tmp_path / "calls").exists()
 
 
@@ -685,6 +737,71 @@ def test_pipeline_wiring():
     }
 
 
+def prod_pipeline():
+    return yaml.safe_load(Path(os.environ.get("DIGEST_PROD_PIPELINE", ROOT / "k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml")).read_text())["spec"]
+
+
+def test_prod_pipeline_wiring():
+    tasks = prod_pipeline()["tasks"]
+    names = [t["name"] for t in tasks]
+    rollout = next(t for t in tasks if t["name"] == "rollout")
+    assert names.count("rollout") == 1
+    assert rollout["taskRef"] == {"name": "bifrost-rollout-verify-platform"}
+    assert len(rollout["params"]) == 5
+    assert {p["name"]: p["value"] for p in rollout["params"]} == {
+        "namespace": PROD,
+        "apiDigest": "$(tasks.build-platform-api.results.digest)",
+        "consoleDigest": "$(tasks.build-platform-console.results.digest)",
+        "requireSpecDigest": "false",
+        "recordApplication": "none",
+    }
+    assert not {"when", "onError", "retries"} & rollout.keys()
+    assert rollout["runAfter"] == ["build-platform-api", "build-platform-console"]
+    sync = next(t for t in tasks if t["name"] == "gitops-sync")
+    assert sync["runAfter"] == ["rollout"]
+    assert max(names.index(n) for n in rollout["runAfter"]) < names.index("rollout") < names.index("gitops-sync")
+    assert all(t.get("taskRef", {}).get("name") != "bifrost-rollout-platform-stg" for t in tasks)
+
+
+def test_prod_pipeline_cannot_skip_the_check():
+    # `when` or `onError` on an upstream task skips rollout too, and the run
+    # would still succeed. `finally`, `retries` and `matrix` do not skip it;
+    # they are pinned so that adding one to this pipeline is a deliberate change.
+    spec = prod_pipeline()
+    assert "finally" not in spec
+    for t in spec["tasks"]:
+        assert not {"when", "onError", "retries", "matrix"} & t.keys(), t["name"]
+
+
+def namespace_condition(source):
+    tests = [
+        ast.unparse(n.test)
+        for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.If) and "bifrost-platform-stg" in ast.unparse(n.test)
+    ]
+    assert len(tests) == 1
+    return tests[0]
+
+
+def test_exactly_two_namespaces_in_source():
+    # The refusal tests sample a few other names. This pins the whole condition
+    # in each of the three places, so a third name inside or around it fails.
+    pair = "('bifrost-platform-stg', 'bifrost-platform-prod')"
+    verify = (ROOT / "scripts/release/platform_digest_verify.py").read_text()
+    assert namespace_condition(verify) == (
+        "namespace not in " + pair + " or os.environ['RECORD_APPLICATION'] != 'none'"
+    )
+    restart = task_spec()["steps"][0]["script"]
+    assert namespace_condition(restart) == (
+        "os.environ['NAMESPACE'] not in " + pair
+        + " or os.environ['RECORD_APPLICATION'] != 'none'"
+        + " or os.environ['REQUIRE_SPEC_DIGEST'] != 'false'"
+    )
+    trial = (ROOT / "scripts/release/platform_digest_verify_trial.py").read_text()
+    assert namespace_condition(trial) == "namespace not in " + pair
+    assert trial.count('choices=("bifrost-platform-stg", "bifrost-platform-prod")') == 1
+
+
 def test_required_params_and_no_skip():
     spec = task_spec()
     assert [step["name"] for step in spec["steps"]] == ["rollout-restart", "verify-digests"]
@@ -708,11 +825,11 @@ def test_required_params_and_no_skip():
 
 
 def test_protected_files_unchanged():
-    # These files must not change in this slice. Later slices changing them must
-    # update these hashes in the same commit.
+    # Slice 3 changes only PROD rollout wiring; its new hash is pinned here.
+    # The shared legacy restart Task stays unchanged.
     hashes = {
         "task-deliver-platform.yaml": "4795263ba3c5135c9c5bd5d1880626ab41558b32a47d33524fc18a45d89388e2",
-        "pipeline-deliver-platform-prod.yaml": "09dbb1997d843c41f3ecafea95b97ec629fe2bc63c01e095b3b0338c9c3cd64f",
+        "pipeline-deliver-platform-prod.yaml": "bd639722be4d473fb8b292ab09c5e1f9e1d191ccd266d5dc3126f935b01fa965",
     }
     for filename, expected in hashes.items():
         assert (
@@ -723,10 +840,10 @@ def test_protected_files_unchanged():
         )
 
 
-def test_rbac_only_stg_additions():
+def test_rbac_only_stg_prod_read_additions():
     docs = list(
         yaml.safe_load_all(
-            (ROOT / "k8s/cicd/tekton/rbac-deliver-platform.yaml").read_text()
+            Path(os.environ.get("DIGEST_RBAC", ROOT / "k8s/cicd/tekton/rbac-deliver-platform.yaml")).read_text()
         )
     )
     base = {
@@ -739,9 +856,22 @@ def test_rbac_only_stg_additions():
         {"apiGroups": [""], "resources": ["pods"], "verbs": ["get", "list"]},
         {"apiGroups": ["apps"], "resources": ["replicasets"], "verbs": ["get"]},
     ]
-    assert docs[2]["rules"] == [base]
+    assert docs[2]["rules"] == docs[0]["rules"]
     assert docs[0]["metadata"]["namespace"] == NS
     assert docs[2]["metadata"]["namespace"] == "bifrost-platform-prod"
+    # The whole file: two Roles, each bound to tekton-deliver and to nothing else.
+    # A fifth document, or another subject, would add access these rules do not show.
+    assert [d["kind"] for d in docs] == ["Role", "RoleBinding", "Role", "RoleBinding"]
+    for role, binding in ((docs[0], docs[1]), (docs[2], docs[3])):
+        assert binding["metadata"]["namespace"] == role["metadata"]["namespace"]
+        assert binding["roleRef"] == {
+            "apiGroup": "rbac.authorization.k8s.io",
+            "kind": "Role",
+            "name": role["metadata"]["name"],
+        }
+        assert binding["subjects"] == [
+            {"kind": "ServiceAccount", "name": "tekton-deliver", "namespace": "cicd"}
+        ]
 
 
 def test_embed_current():
@@ -755,10 +885,12 @@ def test_embed_current():
     assert body == embedded_script()
 
 
-def test_trial_exact_step_without_rollout(tmp_path):
-    run = trial_run(API, CONSOLE)
+@pytest.mark.parametrize("namespace", [NS, PROD])
+def test_trial_exact_step_without_rollout(tmp_path, namespace):
+    run = trial_run(API, CONSOLE, namespace)
     assert run["metadata"]["generateName"] == "platform-digest-trial-"
     task = run["spec"]["pipelineSpec"]["tasks"][0]
+    assert {p["name"]: p["value"] for p in task["params"]}["namespace"] == namespace
     original = yaml.safe_load(TASK.read_text())["spec"]
     assert task["taskSpec"]["steps"] == [original["steps"][1]]
     assert task["taskSpec"]["results"] == original["results"]
@@ -769,7 +901,7 @@ def test_trial_exact_step_without_rollout(tmp_path):
         "kubernetes.io/arch": "amd64"
     }
     assert (
-        execute(tmp_path, source=task["taskSpec"]["steps"][0]["script"]).returncode == 0
+        execute(tmp_path, prod_answers() if namespace == PROD else answers(), env={"NAMESPACE": namespace}, source=task["taskSpec"]["steps"][0]["script"]).returncode == 0
     )
     assert (
         "kubectl create -f trial.yaml"
@@ -784,6 +916,24 @@ def test_trial_exact_step_without_rollout(tmp_path):
             check=True,
         ).stdout
     )
+
+
+@pytest.mark.parametrize("namespace", INVALID_NAMESPACES)
+def test_trial_invalid_namespace(namespace):
+    with pytest.raises(ValueError):
+        trial_run(API, CONSOLE, namespace)
+    result = subprocess.run([sys.executable, str(ROOT / "scripts/release/platform_digest_verify_trial.py"), API, CONSOLE, "--namespace", namespace], capture_output=True, text=True)
+    assert result.returncode == 2
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize("namespace", [None, NS, PROD])
+def test_trial_cli_namespace(namespace):
+    args = [sys.executable, str(ROOT / "scripts/release/platform_digest_verify_trial.py"), API, CONSOLE]
+    if namespace is not None:
+        args += ["--namespace", namespace]
+    result = subprocess.run(args, capture_output=True, text=True, check=True)
+    assert yaml.safe_load(result.stdout) == trial_run(API, CONSOLE, namespace or NS)
 
 
 def test_release_doc_lists_every_refusal():
@@ -824,17 +974,18 @@ def test_apply_manifest_list():
     )
 
 
-def test_rollout_restart_and_wait(tmp_path):
+@pytest.mark.parametrize("namespace", [NS, PROD])
+def test_rollout_restart_and_wait(tmp_path, namespace):
     source = task_spec()["steps"][0]["script"]
-    result = execute(tmp_path, source=source)
+    result = execute(tmp_path, source=source, env={"NAMESPACE": namespace})
     assert result.returncode == 0, result.stdout + result.stderr
     calls = [json.loads(line) for line in (tmp_path / "calls").read_text().splitlines()]
     assert calls == [
         a
         for name in ("platform-api", "platform-console", "platform-workers")
         for a in (
-            ["-n", NS, "rollout", "restart", "deployment/" + name],
-            ["-n", NS, "rollout", "status", "deployment/" + name, "--timeout=300s"],
+            ["-n", namespace, "rollout", "restart", "deployment/" + name],
+            ["-n", namespace, "rollout", "status", "deployment/" + name, "--timeout=300s"],
         )
     ]
 
@@ -852,7 +1003,6 @@ def test_rollout_failure_fixed_log(tmp_path, mode):
     [
         {"API_DIGEST": ""},
         {"CONSOLE_DIGEST": API + "\n"},
-        {"NAMESPACE": "bifrost-platform-prod"},
         {"REQUIRE_SPEC_DIGEST": "true"},
         {"RECORD_APPLICATION": "bifrost-platform-prod"},
     ],
@@ -860,7 +1010,7 @@ def test_rollout_failure_fixed_log(tmp_path, mode):
 def test_rollout_bad_params_before_writes(tmp_path, env):
     result = execute(tmp_path, source=task_spec()["steps"][0]["script"], env=env)
     assert result.returncode == 1
-    assert result.stdout == "REFUSED: invalid STG rollout parameters\n"
+    assert result.stdout == "REFUSED: invalid STG or PROD rollout parameters\n"
     assert not (tmp_path / "calls").exists()
 
 
