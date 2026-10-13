@@ -13,10 +13,11 @@
 
 ## 待你签收
 
+- **TD-326** — 开发机上挂着的未加密备份不让 Agent 读到：`k3s-hot` 共享已推出（看板读挂载表盯着，再挂上会自己报出来）；Agent 闸门新增一条，拒绝点名 NAS 挂载点的命令和文件工具路径（三家共用，infra `d5154ea`）。验收：PASS 2026-10-12 23:58 `d5154ea`——共享已不在挂载表里；点名它的命令被闸门拦下。防线：RATCHETS「Agent 的命令和文件工具路径不得指向本机挂着的 NAS 共享」（闸门回归 179 + 21 条，手跑）。后续：TD-327（逻辑备份加密）、TD-328（绊线管不到的几种写法）。回「签收 TD-326」或「打回 TD-326：原因」。
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
-**未结 89 项**：P0 0 · P1 8 · P2 31 · P3 50；要你批的 29 项（从总览表的审批列算）。
+**未结 96 项**：P0 0 · P1 9 · P2 33 · P3 54；要你批的 35 项（审批一栏不是「不用批」或「无」的；2026-10-12 重数，此前这一行是手写的、已经对不上）。
 
 ## 主题（第 2、3 轮）
 
@@ -2023,7 +2024,7 @@
 
 **P2 · infra · the unencrypted logical database backups are readable from the development Mac, where agents run: the NAS share that holds them is mounted there**
 
-- **状态**：在做（Owner 2026-10-12 22:46 在线程里定：「按照你的建议来」。建议是三样里的两样先做——① Owner 在访达里把 `k3s-hot` 共享推出，要用时再挂；② 闸门加一条，拒绝 Agent 的命令读 NAS 挂载点下的东西（Codex 写，独立复核）。把逻辑备份也用 Owner 的公钥加密排到第 1 轮之后，因为每月的恢复演练要跟着改。闸门是按文本匹配的绊线，不是墙：真正关掉这条路的是 ① 和以后的加密。此前：未开始，2026-10-12 22:13 帮 Owner 找 Gitea 备份的挂载位置时看到的）
+- **状态**：待你签收（2026-10-12 23:58：两样都做完。① `k3s-hot` 共享 23:07 推出，看板每 20 秒读一次挂载表盯着；② 闸门规则进了 infra 主线 `d5154ea`（Codex 写，Claude 的子代理复核两次：没有会答错的，补了 3 条测试和 2 处文字后确认可以合并），共享检出当时快进、规则当时生效。留下的两件另记为 TD-327（逻辑备份加密）和 TD-328（绊线管不到的几种写法），都排在多 Agent 架构做完之后。）之前：在做（Owner 2026-10-12 22:46 在线程里定：「按照你的建议来」。建议是三样里的两样先做——① Owner 在访达里把 `k3s-hot` 共享推出，要用时再挂；② 闸门加一条，拒绝 Agent 的命令读 NAS 挂载点下的东西（Codex 写，独立复核）。把逻辑备份也用 Owner 的公钥加密排到第 1 轮之后，因为每月的恢复演练要跟着改。闸门是按文本匹配的绊线，不是墙：真正关掉这条路的是 ① 和以后的加密。此前：未开始，2026-10-12 22:13 帮 Owner 找 Gitea 备份的挂载位置时看到的）
 - **Claim**: the Mac Pro on which every agent session runs has the NAS share `k3s-hot` mounted over SMB under the Owner's NAS account. `k8s/data/logical-backup` writes its daily dumps of `bifrost_prod` (schema `public`) and of four Golden Source schemas to the claim `data/logical-backup-hot` on that share, unencrypted (`k8s/data/logical-backup/README.md`). So any process of the Owner's user on that Mac — an agent's shell included — can read production data dumps without touching the cluster or any credential the guard watches. The agent guard (`scripts/agent-guard/preflight.js`) matches commands that name the Owner's credential files and the approval routes; it does not know about `/Volumes`.
 - **Measured**: MEASURED 2026-10-12 22:13 CDT with `mount`: `k3s-hot`, `personal_folder`, `TimeMachine` and `family-share` of `192.168.10.20` are mounted on the Mac; `k3s-cold` is not. NOT MEASURED, on purpose: the coordinator did not list or read anything under the share. Whether the weekly copies on `k3s-cold` are reachable the same way once that share is mounted is NOT MEASURED.
 - **Evidence**: `k8s/data/logical-backup/README.md` (what is written where; "RPO is one day … an offsite copy is open"); `k8s/data/logical-backup/nas-volumes.yaml`; `k8s/data/cluster-state-backup/README.md` and `k8s/cicd/gitea-backup/README.md` (the two backups that are encrypted to the Owner's key before they reach the NAS).
@@ -2031,4 +2032,33 @@
 - **Fix** (for the Owner to choose): unmount the share on the development Mac when it is not needed and mount it read-only, on demand; or encrypt the logical dumps to the Owner's key as the other two backups do (the monthly restore drill in the cluster would then need another way to read them); or keep it and add `/Volumes/k3s-*` to what the guard refuses. The Gitea backup written since 2026-10-12 is ciphertext, so mounting `k3s-cold` adds no readable secret.
 - **Ratchet**: a line in the guard's tests for a read under the NAS mount points, if the guard route is chosen.
 - 验收: from an agent shell on the Mac, a read of a logical dump is either impossible (not mounted, or ciphertext) or refused by the guard
+- 验收结果：PASS 2026-10-12 23:58 `d5154ea`——挂载表里已没有这个共享（读不到）；从 Agent 的 shell 发一条点名这个共享的命令，被闸门以「本机 NAS 共享 — TD-326」拦下；不点名共享的 `mount` 照常放行。
 - 审批 要 Owner 定方向 · 代价 S · 风险 low · repos: bifrost-trade-infra
+
+### TD-327
+
+**P2 · infra · the daily logical database dumps on the NAS are unencrypted; whoever can mount the share can read production data**
+
+- **状态**：未开始（2026-10-12 23:58 从 TD-326 分出来；Owner 当晚定：先推出共享、加闸门，加密排在多 Agent 架构做完之后）
+- **Claim**: `k8s/data/logical-backup` writes its daily dumps of `bifrost_prod` and of four Golden Source schemas to the NAS in the clear (`k8s/data/logical-backup/README.md`). The cluster-state backup and the Gitea backup are encrypted to the Owner's public key before they reach the NAS; the logical dumps are not. TD-326 took the share off the development Mac and put a text tripwire in the agent guard; neither changes what is on the NAS.
+- **Measured**: NOT MEASURED beyond what TD-326 recorded (the share was mounted on the Mac until 2026-10-12 23:07; nothing under it was listed or read).
+- **Evidence**: `k8s/data/logical-backup/README.md`; `k8s/data/cluster-state-backup/README.md` and `k8s/cicd/gitea-backup/README.md` (the encrypted ones, and how they do it).
+- **Impact**: any machine or account that can mount the share reads account and trade data without touching the cluster. The monthly restore drill in the cluster reads these dumps, so encrypting them changes the drill too.
+- **Fix**: encrypt the dumps to the Owner's key as the other two backups do; give the restore drill a way to read them that does not put the private key in the cluster (the Gitea backup's verify-before-encrypt shape is the precedent); decide what happens to the dumps already on the NAS.
+- **Ratchet**: the backup job's own check that what it publishes is ciphertext (as `k8s/cicd/gitea-backup/verify-stage.sh` does), and the restore drill passing against an encrypted dump.
+- 验收: a dump fetched from the NAS cannot be read without the Owner's private key; the monthly restore drill still passes
+- 审批 要你批 · 代价 M · 风险 med · repos: bifrost-trade-infra
+
+### TD-328
+
+**P3 · agent-governance · the NAS rule of the agent guard is a text tripwire: several ordinary spellings get past it, and two native file tools are not gated at all**
+
+- **状态**：未开始（2026-10-12 23:58 TD-326 的复核列出来的，不挡合并；排在多 Agent 架构做完之后）
+- **Claim**: the rule added for TD-326 matches text. The reviewer's table: a glob in the share's name, quotes or a backslash inside the path, a different letter case, `cd` to the mount root first, a shell variable for the root, and a recursive command on the bare mount root are all allowed today. Claude's native Grep and Glob are not in the hook's matcher, and Cursor's native file tools do not pass the guard. A terminal tool's working-directory field is not checked. The same gaps exist for the Owner-credential rule.
+- **Measured**: MEASURED 2026-10-12 by the reviewing subagent against commit `de9348e` with all three callers' payload shapes (10 named bypasses: 1 refused, 9 allowed); a prototype of three small rules (normalise quotes, backslashes and case before matching; refuse a glob in the first path segment under the mount root; refuse the bare mount root with a recursive command) closed 7 of the 9 with every existing test green and no ordinary command refused.
+- **Evidence**: `agent-config/scripts/agent-guard/preflight.js` (`nasPathRule`, `nasGuard`); `agent-config/scripts/agent-guard/README.md` (the rule and what it does not cover); `agent-config/claude/settings.json` (the matcher).
+- **Impact**: the tripwire stops the plain mistake, not a determined or an unlucky spelling. What closes the path is the share staying unmounted (the board watches the mount table) and TD-327.
+- **Fix**: the three small rules above, with the reviewer's table as tests; decide separately whether Grep and Glob join the matcher (it touches every rule, not this one).
+- **Ratchet**: the bypass table as cases in `agent-config/scripts/agent-guard/test.js`.
+- 验收: `node agent-config/scripts/agent-guard/test.js` passes with the seven closed spellings refused and the reviewer's list of ordinary commands still allowed
+- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra
