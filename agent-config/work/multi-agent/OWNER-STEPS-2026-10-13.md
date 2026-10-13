@@ -34,10 +34,10 @@ KUBECONFIG="$HOME/.bifrost-owner/kube/admin.yaml" kubectl create -f /tmp/bifrost
 
 （如果那时集群里的记录变了，第二条也可能更早被拒，换成另一行拒绝，统筹方会判断。）第一条如果起不来、或者报 `identity cannot read…`：**不要做 2b**，等统筹方说明。
 
-**2b. 应用**（统筹方确认 2a 两条都对、并再查一遍没有发布在跑之后）：先服务端试算，通过才应用。命令直接取主线上固定的那个提交里的文件，不依赖你本地检出目录的状态。
+**2b. 应用**（统筹方确认 2a 两条都对、并再查一遍没有发布在跑之后。2026-10-12 21:08 更新：第一次试跑查出检查脚本的一个错——调用集群工具时带的超时参数让它在容器里连不上集群——修掉并经 Codex 确认，要应用的提交因此从 `667b758` 换成 `79c8088`）：先服务端试算，通过才应用。命令直接取主线上固定的那个提交里的文件，不依赖你本地检出目录的状态。
 
 ```bash
-cd ~/Desktop/stocks/bifrost-trade-infra && git fetch -q origin && git show 667b758:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | KUBECONFIG="$HOME/.bifrost-owner/kube/admin.yaml" kubectl apply --dry-run=server -f - && git show 667b758:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | KUBECONFIG="$HOME/.bifrost-owner/kube/admin.yaml" kubectl apply -f -
+cd ~/Desktop/stocks/bifrost-trade-infra && git fetch -q origin && git show 79c8088:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | KUBECONFIG="$HOME/.bifrost-owner/kube/admin.yaml" kubectl apply --dry-run=server -f - && git show 79c8088:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | KUBECONFIG="$HOME/.bifrost-owner/kube/admin.yaml" kubectl apply -f -
 ```
 
 它改的只有集群里的一个对象：流水线 `cicd/bifrost-deliver-platform-prod`。内容上三处：多一个任务 `check-source`；两个拉代码的任务改成排在它后面；两个拉代码的任务改成用它核对过的提交。对象的「上次应用」记录和版本号会跟着更新。别的 17 条流水线不变。
