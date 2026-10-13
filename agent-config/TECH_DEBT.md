@@ -16,7 +16,7 @@
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
-**未结 113 项**：P0 0 · P1 11 · P2 43 · P3 59；要你批的 40 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
+**未结 114 项**：P0 0 · P1 12 · P2 43 · P3 59；要你批的 40 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
 
 ## 主题（第 2、3 轮）
 
@@ -2144,3 +2144,17 @@
 - **Ratchet**: a structure test that the production pipeline has no build task; the promotion's own tests.
 - 验收: a production delivery whose pipeline run contains no build task, and whose pods run the digests recorded by the STG delivery it promoted
 - 审批 审批单（PROD 发布）· 代价 L · 风险 med · repos: bifrost-trade-infra
+
+### TD-336
+
+**P1 · ops-platform · the Owner clicks Approve in the Console on his Mac and nothing reaches the server; the page does not tell him. Three production requests on 2026-10-13 each needed several attempts**
+
+- **状态**：未开始（2026-10-13 14:11 统筹方从正式环境的访问日志查出来的；原因没有证实，等 Owner 说明他点的那个页面当时显示了什么。建议排进第 1 轮：它就是 A 项「点了批准必须有结果或有报错」在真实使用里还没成立的那一半）
+- **Claim**: TD-325 made the page honest once a decision request is on its way. On 2026-10-13 the decision requests were not sent, or were sent late, and the Owner believed each time that he had approved. #13: four attempts over sixteen minutes; the access log shows no request of any kind from the Mac's browser to the production Console until a fresh page load at 16:50:50 UTC, and the approval five seconds later. #14: no request from the Mac for more than twenty minutes, then a burst of reads together with the approval in the same second (18:04:08 UTC), after he had already written that it was approved. #15: he reported it approved at 18:50 UTC; since the release at 18:08 UTC no browser on the Mac had loaded the Console or read the approvals list. From the same Mac the address answered in 60 ms when tried by hand, so the network path was up. Not established: whether the tab was frozen in the background, whether an idle connection through the VIP was dead and the browser kept using it, whether the service worker's cached shell made a dead page look loaded, or whether he was on a page left open across a release. In the same hour a browser on a Windows machine kept an old Console page open against production with the admin role, polling every minute and never reading approvals.
+- **Measured**: MEASURED from the production Console's nginx access log and platform-api's request log (Loki, 2026-10-13 16:20–18:55 UTC), by device type from the user agent. NOT MEASURED: what the page showed, the browser's own network log.
+- **Evidence**: `bifrost-platform/console/public/sw.js:38-62` (navigation falls back to the cached shell when the network fails); `console/src/pages/ApprovalsPage.tsx` (the 30-second waiting sentence is the only signal while a request is unanswered); `agent-config/work/multi-agent/LESSONS-from-practice.md` row 118.
+- **Impact**: the one action only the Owner can take fails silently for him; each failure costs several round trips and holds every line that waits on the approval.
+- **Fix**: find the cause first (his description or a screenshot of the page after the click; the browser's network panel). Then make the page say so: show when the server was last reached, refuse to offer a decision while it has not been reached for some seconds, and after a click say "not acknowledged by the server yet" within a few seconds rather than after thirty. Consider not serving the cached shell for the decision pages.
+- **Ratchet**: a page test: with the network dead, the decision buttons are unavailable with a sentence saying the server has not been reached since a given time; a click that gets no answer says so within five seconds.
+- 验收: the Owner approves three production requests in a row at the first attempt, and the server log shows each request arriving within seconds of the click
+- 审批 无（代码改动，随平台发布）· 代价 M · 风险 med · repos: bifrost-platform
