@@ -13,6 +13,18 @@ const ADD_ALL = 'git add ' + '-A'
 const GUARD_FILE = '/x/bifrost-trade-infra/k8s/overlays/prod/daemon-' + 'observe-safe.patch.yaml'
 
 const cases = [
+  ['DENY', 'Bash NAS cat', bash('cat /Volumes/k3s-hot/a.sql')],
+  ['DENY', 'Bash NAS quoted ls', bash('ls "/Volumes/k3s-cold"')],
+  ['DENY', 'Bash NAS cp', bash('cp -r /Volumes/k3s-hot/x ~/y')],
+  ['DENY', 'Read NAS 路径', { ...base, tool_name: 'Read', tool_input: { file_path: '/Volumes/k3s-hot/a.sql' } }],
+  ['DENY', 'apply_patch NAS 目标', patch('*** Add File: /Volumes/k3s-hot/a.sql\n+x\n')],
+  ['DENY', 'apply_patch NAS 移动目标', patch('*** Update File: /tmp/a\n*** Move to: /Volumes/k3s-cold/a\n@@\n-x\n+y\n')],
+  ['ALLOW', 'apply_patch 正文提到 NAS', patch('*** Add File: /tmp/nas-note.md\n+/Volumes/k3s-hot/a.sql\n')],
+  ['ALLOW', 'mount', bash('mount')],
+  ['ALLOW', 'df -h', bash('df -h')],
+  ['ALLOW', 'ls /Volumes', bash('ls /Volumes')],
+  ['ALLOW', '非 NAS 本机路径', bash('cat "/Volumes/Macintosh HD/a"')],
+  ['ALLOW', '远端 NFS 文本', bash('echo 192.168.10.20:/volume1/k3s-cold/a')],
   ['ALLOW', 'Bash git status', bash('git status --short')],
   ['DENY', 'Bash ' + ADD_ALL, bash(ADD_ALL)],
   ['DENY', 'Bash git commit -am', bash('git commit -am wip')],
