@@ -16,13 +16,22 @@ Cursor 与 Claude **共用同一份实现**。双轨维护（`CLAUDE.md` §7）�
 
 | 事件 | Claude Code | Cursor | Codex |
 |------|-------------|--------|-------|
-| shell 执行前 | `PreToolUse` matcher `Bash\|Edit\|Write\|MultiEdit\|NotebookEdit` | `beforeShellExecution` | `PreToolUse`（全部工具，经 `codex-pretooluse.js`） |
+| shell 执行前 | `PreToolUse` matcher `Bash\|Edit\|Write\|MultiEdit\|NotebookEdit\|Read\|WebFetch` | `beforeShellExecution` | `PreToolUse`（全部工具，经 `codex-pretooluse.js`） |
 | MCP 调用前 | `PreToolUse` matcher `mcp__.*` | `beforeMCPExecution` | 同上 |
 
 配置分别在 `.claude/settings.json`、`.cursor/hooks.json` 和用户级 `~/.codex/hooks.json`（不进仓库，内容见 `agent-config/codex/README.md`）。
 `scripts/check-agent-config-parity.sh` 会校验两侧都已接线。
 
 ## 拦截什么
+
+### 本机 NAS 共享（TD-326，始终生效）
+
+- 命令文本或文件工具路径出现 `/Volumes/k3s-` 前缀即拒绝，不依赖是否挂载。
+- 只有文本含 `/Volumes/` 才读取一次本机挂载表；来源主机精确为 `192.168.10.20` 的 SMB/NFS 挂载点及其子路径拒绝。读取或解析失败只保留固定底线，其他路径放行。
+- `mount`、`df -h`、`ls /Volumes`、非 NAS 本机路径和集群远端 NFS 路径文本照常放行；文件写入正文不作为路径检查。
+- Claude 的 `Read` 与文件写入工具过闸（原生 `Grep` / `Glob` 不在 matcher）；Cursor 原生文件工具不过闸，shell/MCP 过闸；Codex 全部工具过闸，`apply_patch` 按目标路径转为 `Write`。
+- 这是文本绊线；NAS 共享里有未加密的备份，备份内容查看走平台动作或请 Owner 处理。真正关掉此路仍靠 Owner 推出共享和备份加密。
+- `nasMountPoints(mountText)` / `nasPathRule(text, mountText)` 接收测试给定的表，`evaluate(payload, readMounts)` 支持模拟读取失败与读取次数断言，无环境变量跳过开关。
 
 ### D10 交易执行冻结（受 spine 控制）
 

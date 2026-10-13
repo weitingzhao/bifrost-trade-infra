@@ -4,6 +4,7 @@
 const { spawnSync } = require('node:child_process')
 // 相对自身定位，随治理层整体搬迁而不失效
 const GUARD = require('node:path').join(__dirname, 'preflight.js')
+const { evaluate, nasMountPoints } = require(GUARD)
 
 const bash = c => ({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: c } })
 const tool = (n, i) => ({ hook_event_name: 'PreToolUse', tool_name: n, tool_input: i })
@@ -28,6 +29,13 @@ const OWNER_ENV = 'owner' + '.env'
 const KUBE_OK = '.kube/bifrost-k3s.yaml'
 
 const cases = [
+  // 固定底线通过真实 stdin 入口验证，无需访问 NAS 内容。
+  ['nas', 'DENY', 'NAS cat', bash('cat /Volumes/k3s-hot/a.sql')],
+  ['nas', 'DENY', 'NAS quoted ls', bash('ls "/Volumes/k3s-cold"')],
+  ['nas', 'DENY', 'NAS cp', bash('cp -r /Volumes/k3s-hot/x ~/y')],
+  ['nas', 'DENY', 'NAS Read', tool('Read', { file_path: '/Volumes/k3s-hot/a.sql' })],
+  ['nas', 'DENY', 'NAS Cursor shell', { hook_event_name: 'beforeShellExecution', command: 'cat /Volumes/k3s-hot/a.sql' }],
+  ['nas', 'ALLOW', 'Write 文档正文提到 NAS', tool('Write', { file_path: '/tmp/note.md', contents: '/Volumes/k3s-hot/a.sql' })],
   // ── D10 应拦截 ──
   ['D10', 'DENY', 'kubectl scale daemon --replicas=1', bash('kubectl scale deploy/daemon -n bifrost-stg --replicas=1')],
   ['D10', 'DENY', 'XADD ' + OPCMD, bash('redis-cli XADD ' + OPCMD + ' MAXLEN 1000 op place_order')],
@@ -239,10 +247,11 @@ const cases = [
 let pass = 0, fail = 0
 let group = ''
 for (const [g, want, name, payload] of cases) {
-  if (g !== group) { group = g; console.log(`\n── ${{ D10: 'D10 交易执行冻结', dev: 'dev-services', ok: '合法操作（不得误拦）', appr: '审批旁路（ADR §5）', q: '问题回答（W-65）', own: 'Owner 凭证（LANE-W33D）', edge: '边界输入' }[g]} ──`) }
+  if (g !== group) { group = g; console.log(`\n── ${{ nas: '本机 NAS 共享（TD-326）', D10: 'D10 交易执行冻结', dev: 'dev-services', ok: '合法操作（不得误拦）', appr: '审批旁路（ADR §5）', q: '问题回答（W-65）', own: 'Owner 凭证（LANE-W33D）', edge: '边界输入' }[g]} ──`) }
   const r = spawnSync('node', [GUARD], { input: payload ? JSON.stringify(payload) : '', encoding: 'utf8' })
   const got = (r.stdout || '').trim() ? 'DENY' : 'ALLOW'
   let ok = got === want
+  if (ok && g === 'nas' && want === 'DENY' && !String(r.stdout).includes('【本机 NAS 共享 — TD-326】')) ok = false
   if (ok && g === 'appr' && want === 'DENY' && !String(r.stdout).includes('ADR §5')) {
     ok = false
   }
@@ -255,5 +264,53 @@ for (const [g, want, name, payload] of cases) {
   ok ? pass++ : fail++
   console.log(`  ${ok ? '✓' : '✗'} ${got.padEnd(5)} ${name}${ok ? '' : `   ← 期望 ${want}`}`)
 }
+
+// 给定挂载表 + 读取次数断言：不依赖本机当前挂载状态，也不留环境变量旁路。
+const mounts = [
+  '//fixture@192.168.10.20/personal_folder on /Volumes/personal_folder (smbfs, nodev)',
+  '192.168.10.20:/volume1/archive on /Volumes/NAS Archive (nfs, nodev)',
+  '//192.168.10.20/public on /Volumes/public (smbfs, nodev)',
+  '//fixture@192.168.10.21/other on /Volumes/other (smbfs, nodev)',
+  '192.168.10.200:/volume1/other on /Volumes/other-nfs (nfs, nodev)',
+  '/dev/disk1s1 on /Volumes/Macintosh HD (apfs, local)',
+].join('\n')
+const unavailable = () => { throw new Error('mount unavailable') }
+const nasCases = [
+  ['DENY', 'SMB find', bash("find /Volumes/personal_folder -name '*.dump'"), () => mounts, 1],
+  ['DENY', 'SMB 挂载点本身', bash('ls "/Volumes/personal_folder"'), () => mounts, 1],
+  ['DENY', 'NFS 带空格路径', bash('cat "/Volumes/NAS Archive/a.sql"'), () => mounts, 1],
+  ['DENY', 'SMB 无用户名', bash('cat /Volumes/public/a'), () => mounts, 1],
+  ['DENY', 'Read 动态路径', tool('Read', { file_path: '/Volumes/personal_folder/a' }), () => mounts, 1],
+  ['DENY', 'Grep path', tool('Grep', { path: '/Volumes/personal_folder', pattern: 'x' }), () => mounts, 1],
+  ['DENY', 'Glob target_directory', tool('Glob', { target_directory: '/Volumes/personal_folder' }), () => mounts, 1],
+  ['DENY', 'Write 目标路径', tool('Write', { file_path: '/Volumes/personal_folder/a', contents: 'x' }), () => mounts, 1],
+  ['DENY', 'NotebookEdit 路径', tool('NotebookEdit', { notebook_path: '/Volumes/personal_folder/a.ipynb' }), () => mounts, 1],
+  ['DENY', 'Cursor MCP 路径', { hook_event_name: 'beforeMCPExecution', tool_name: 'read_file', tool_input: { path: '/Volumes/personal_folder/a' } }, () => mounts, 1],
+  ['DENY', '挂载表为空固定底线', bash('cat /Volumes/k3s-hot/a.sql'), () => '', 0],
+  ['DENY', '挂载表读不到固定底线', bash('cat /Volumes/k3s-hot/a.sql'), unavailable, 0],
+  ['ALLOW', '挂载表读不到动态路径', bash('cat /Volumes/personal_folder/a.sql'), unavailable, 1],
+  ['ALLOW', '挂载表解析失败动态路径', bash('cat /Volumes/personal_folder/a.sql'), () => 'unparseable', 1],
+  ['ALLOW', '单独 mount 不读表', bash('mount'), () => mounts, 0],
+  ['ALLOW', 'df -h 不读表', bash('df -h'), () => mounts, 0],
+  ['ALLOW', 'ls /Volumes 不读表', bash('ls /Volumes'), () => mounts, 0],
+  ['ALLOW', '非 NAS 本机路径', bash('cat "/Volumes/Macintosh HD/a"'), () => mounts, 1],
+  ['ALLOW', '远端集群 NFS 文本不读表', bash('echo 192.168.10.20:/volume1/k3s-cold/a'), () => mounts, 0],
+  ['ALLOW', '其他 SMB 主机', bash('cat /Volumes/other/a'), () => mounts, 1],
+  ['ALLOW', '相似 NFS 主机', bash('cat /Volumes/other-nfs/a'), () => mounts, 1],
+  ['ALLOW', '挂载点同名前缀不算子路径', bash('cat /Volumes/personal_folder_copy/a'), () => mounts, 1],
+]
+console.log('\n── NAS 给定挂载表与懒读取 ──')
+for (const [want, name, payload, reader, expectedReads] of nasCases) {
+  let reads = 0
+  const verdict = evaluate(payload, () => { reads++; return reader() })
+  const got = verdict.deny ? 'DENY' : 'ALLOW'
+  const ok = got === want && reads === expectedReads && (!verdict.deny || verdict.kind === 'nas')
+  ok ? pass++ : fail++
+  console.log(`  ${ok ? '✓' : '✗'} ${got.padEnd(5)} ${name} (reads=${reads}, expected=${expectedReads})`)
+}
+const parsed = nasMountPoints(mounts)
+const parsedOk = JSON.stringify(parsed) === JSON.stringify(['/Volumes/personal_folder', '/Volumes/NAS Archive', '/Volumes/public'])
+parsedOk ? pass++ : fail++
+console.log(`  ${parsedOk ? '✓' : '✗'} SMB/NFS 精确来源解析`)
 console.log(`\n${fail === 0 ? '✓' : '✗'} ${pass} 通过 / ${fail} 失败（共 ${pass + fail}）`)
 process.exit(fail === 0 ? 0 : 1)

@@ -1,5 +1,7 @@
 # Bifrost 防线登记（棘轮）
 
+- TD-326：本机 NAS 路径拒绝由 `agent-config/scripts/agent-guard/preflight.js` 执行，`test.js` / `test-codex.js` 手跑回归覆盖固定底线、SMB/NFS 精确主机、读取失败及懒读取；只是文本绊线，未接线文件工具不覆盖，真正关闭访问仍靠 Owner 推出共享和备份加密。
+
 > 债还完之后真正留下来的是防线：让同一类问题不能再回来的机械检查（测试、CI、code-health 指标、preflight 规则、告警、数据库约束）。
 > **规则**：每关掉 `TECH_DEBT.md` 里的一项，要么在这里加一条（或扩大已有一条的范围），要么在提交信息里写明为什么没有可行的防线。删掉或放宽一条防线要写理由。
 > 强度：blocking＝不过就不能提交/发布；warning＝报出来但不拦；alert＝运行时告警；manual＝要人手跑。

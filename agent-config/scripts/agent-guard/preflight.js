@@ -29,6 +29,7 @@
 
 const fs = require('node:fs')
 const path = require('node:path')
+const { execFileSync } = require('node:child_process')
 
 /**
  * 从本文件位置向上查找工作区根（标记：bifrost-platform/config/ops-context.yaml）。
@@ -461,9 +462,64 @@ function ownerCredentialGuard(toolName, input, cmd) {
   return null
 }
 
+// ─────────────────────── 本机 NAS 共享（TD-326，文本绊线） ───────────────────────
+
+const NAS_REASON = '这是 NAS 上的共享，里面有未加密的备份；要看备份内容走平台动作或请 Owner 处理'
+
+/** 只解析挂载表，不访问挂载点；SMB 与 NFS 都要求来源主机精确匹配。 */
+function nasMountPoints(mountText) {
+  const points = []
+  for (const line of String(mountText || '').split('\n')) {
+    const m = /^(\S+) on (.+) \((smbfs|nfs)(?:,|\))/.exec(line)
+    if (!m) continue
+    const source = m[1]
+    const isNas = m[3] === 'smbfs'
+      ? /^\/\/(?:[^/@]+@)?192\.168\.10\.20\//.test(source)
+      : /^192\.168\.10\.20:\//.test(source)
+    if (isNas) points.push(m[2])
+  }
+  return points
+}
+
+/** 挂载表文本可由测试直接给定；表不可用时固定底线仍然生效。 */
+function nasPathRule(text, mountText) {
+  text = String(text || '')
+  if (text.includes('/Volumes/k3s-')) return NAS_REASON
+  for (const point of nasMountPoints(mountText)) {
+    let at = text.indexOf(point)
+    while (at !== -1) {
+      const next = text[at + point.length]
+      if (next === undefined || /[\s/"'`;|&()<>{}\[\],]/.test(next)) return NAS_REASON
+      at = text.indexOf(point, at + 1)
+    }
+  }
+  return null
+}
+
+function readMountTable() {
+  return execFileSync('/sbin/mount', [], {
+    encoding: 'utf8', timeout: 1000, maxBuffer: 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'],
+  })
+}
+
+function nasGuard(toolName, input, cmd, readMounts = readMountTable) {
+  // 文件工具只看路径，不把待写入的文档正文当作读取目标。
+  const parts = [String(cmd || '')]
+  for (const field of ['file_path', 'path', 'notebook_path', 'target_directory', 'glob_pattern']) {
+    if (input && input[field]) parts.push(String(input[field]))
+  }
+  const text = parts.join('\n')
+  if (!text.includes('/Volumes/')) return null
+  const fixed = nasPathRule(text, '')
+  if (fixed) return fixed
+  let mountText = ''
+  try { mountText = readMounts() } catch { /* 读取失败只保留固定底线。 */ }
+  return nasPathRule(text, mountText)
+}
+
 // ─────────────────────────────── 判定 ───────────────────────────────
 
-function evaluate(payload) {
+function evaluate(payload, readMounts = readMountTable) {
   const event = String(payload.hook_event_name || '')
   const isCursorShell = event === 'beforeShellExecution'
   const toolName = payload.tool_name || (isCursorShell ? 'Bash' : '')
@@ -471,6 +527,9 @@ function evaluate(payload) {
 
   const locked = d10Status() !== 'UNLOCKED'
   const cmd = String(input.command ?? payload.command ?? '')
+
+  const nas = nasGuard(toolName, input, cmd, readMounts)
+  if (nas) return { deny: true, kind: 'nas', reason: nas }
 
   const owner = ownerCredentialGuard(toolName, input, cmd)
   if (owner) return { deny: true, kind: 'owner', reason: owner }
@@ -503,6 +562,7 @@ function evaluate(payload) {
 }
 
 function denyMessage(kind, reason) {
+  if (kind === 'nas') return '【本机 NAS 共享 — TD-326】拦截原因：' + reason + '。'
   if (kind === 'D10') {
     return (
       `【D10 交易执行冻结 — BLOCKED】拦截原因：${reason}。\n` +
@@ -569,6 +629,8 @@ function main() {
   const verdict = payload
     ? evaluate(payload)
     : (() => {
+        const nas = nasGuard('', null, raw)
+        if (nas) return { deny: true, kind: 'nas', reason: nas }
         const owner = ownerCredentialGuard('', null, raw)
         if (owner) return { deny: true, kind: 'owner', reason: owner }
         const dev = devServiceRules(raw)
@@ -609,4 +671,5 @@ function main() {
   process.exit(0)
 }
 
-main()
+if (require.main === module) main()
+module.exports = { nasMountPoints, nasPathRule, nasGuard, evaluate }
