@@ -572,10 +572,18 @@ spec:
     - name: rollout
       runAfter: [build-platform-api, build-platform-console]
       taskRef:
-        name: bifrost-rollout-platform-stg
+        name: bifrost-rollout-verify-platform
       params:
         - name: namespace
           value: bifrost-platform-prod
+        - name: apiDigest
+          value: $(tasks.build-platform-api.results.digest)
+        - name: consoleDigest
+          value: $(tasks.build-platform-console.results.digest)
+        - name: requireSpecDigest
+          value: "false"
+        - name: recordApplication
+          value: none
 
     - name: gitops-sync
       runAfter: [rollout]

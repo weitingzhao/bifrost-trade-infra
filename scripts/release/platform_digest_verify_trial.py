@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Print a verify-only STG PipelineRun for the Owner; never contact the cluster."""
+"""Print a verify-only STG or PROD PipelineRun; never contact the cluster."""
 
 import argparse
 import copy
@@ -9,14 +9,16 @@ import yaml
 from embed_platform_digest_verify import TASK
 
 
-def trial_run(api_digest, console_digest):
+def trial_run(api_digest, console_digest, namespace="bifrost-platform-stg"):
+    if namespace not in ("bifrost-platform-stg", "bifrost-platform-prod"):
+        raise ValueError("only STG or PROD verification without recording is supported")
     spec = yaml.safe_load(TASK.read_text())["spec"]
     spec = copy.deepcopy(spec)
     spec["steps"] = [s for s in spec["steps"] if s["name"] == "verify-digests"]
     params = [
         {"name": k, "value": v}
         for k, v in (
-            ("namespace", "bifrost-platform-stg"),
+            ("namespace", namespace),
             ("apiDigest", api_digest),
             ("consoleDigest", console_digest),
             ("requireSpecDigest", "false"),
@@ -64,19 +66,21 @@ def main():
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "Owner only, after applying the STG Role and new Task, before the STG Pipeline.\n"
+            "Owner only, after applying the target Role and new Task, before the target Pipeline.\n"
             "Generate one run with measured digests and one with an incorrect digest:\n"
             "  python3 scripts/release/platform_digest_verify_trial.py <api-digest> <console-digest> > trial.yaml\n"
             "  kubectl create -f trial.yaml\n"
-            "This uses tekton-deliver and only reads STG Deployments, Pods and ReplicaSets.\n"
+            "Use --namespace bifrost-platform-prod for PROD (default: bifrost-platform-stg).\n"
+            "This uses tekton-deliver and only reads target Deployments, Pods and ReplicaSets.\n"
             "It never restarts workloads or records Application annotations."
         ),
     )
     parser.add_argument("api_digest")
     parser.add_argument("console_digest")
+    parser.add_argument("--namespace", choices=("bifrost-platform-stg", "bifrost-platform-prod"), default="bifrost-platform-stg")
     args = parser.parse_args()
     yaml.safe_dump(
-        trial_run(args.api_digest, args.console_digest), sys.stdout, sort_keys=False
+        trial_run(args.api_digest, args.console_digest, args.namespace), sys.stdout, sort_keys=False
     )
 
 
