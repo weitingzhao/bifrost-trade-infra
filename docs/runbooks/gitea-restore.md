@@ -24,8 +24,9 @@ implementation task. Apply can overwrite live drift; inspect diffs first.
    pod's same-node read-only PVC sharing, and available node ephemeral space
    (stage, archive and HTTP mirror clones can require several live-tree
    sizes). emptyDir starts writable (0777), so uid 1000 needs no fsGroup.
-   Measure live size and node free space before setting a `/work` sizeLimit;
-   the current manifest has no measured limit.
+   `/work` has a 60Gi limit since 2026-10-12 (the node had 432 GB free; the live size
+   cannot be read from outside the pod). The first run's SIZES.tsv gives the real size;
+   revisit the limit then.
 
 2. If round 1 was installed, remove the obsolete drill and wait for any
    already running drill Job to finish before proceeding. `apply -k` does
