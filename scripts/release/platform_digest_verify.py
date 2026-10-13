@@ -1,4 +1,4 @@
-"""Bounded STG running-image check, embedded verbatim in the rollout Task."""
+"""Bounded STG or PROD running-image check, embedded verbatim in the rollout Task."""
 
 import json
 import os

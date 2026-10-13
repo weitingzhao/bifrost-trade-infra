@@ -104,7 +104,7 @@ scripts/release/release-check.sh diff old.json new.json --allow <file>
 
 次序：含 check-source 身份接线的 platform 已在 PROD → 试跑一正一反 → 应用。三条命令都在 infra 主线的检出目录里、Owner 自己的终端跑；没有平台发布在途、没有未结的 PROD 发布单时再做。
 
-摘要核对第 3 片另须先确认第 1 片的两个 kaniko Task 已应用（声明 digest result 并写 --digest-file），再应用 PROD Role 的只读权限 → 支持 STG/PROD 的核对 Task → 对 PROD 只核对试跑一正一反 → PROD Pipeline。试跑用 `python3 scripts/release/platform_digest_verify_trial.py <api-digest> <console-digest> --namespace bifrost-platform-prod`；默认仍为 STG，只接受两个完整名字，不重启、不记录 Application。若先应用 PROD Pipeline 而 kaniko Task 仍是旧版，构建没有 digest 结果，下游结果引用不能满足，run 会失败，不能算发布成功；构建可能已推镜像。新 Task 或 Role 未就绪同样不能应用流水线。撤回先恢复此前 PROD Pipeline，再处理共享核对 Task 和新增权限；STG 仍引用它时保留其支持和权限。
+摘要核对第 3 片另须先确认第 1 片的两个 kaniko Task 已应用（声明 digest result 并写 --digest-file），再应用 PROD Role 的只读权限 → 支持 STG/PROD 的核对 Task → 对 PROD 只核对试跑一正一反 → PROD Pipeline。试跑用 `python3 scripts/release/platform_digest_verify_trial.py <api-digest> <console-digest> --namespace bifrost-platform-prod`；默认仍为 STG，只接受两个完整名字，不重启、不记录 Application。若先应用 PROD Pipeline 而 kaniko Task 仍是旧版，构建没有 digest 结果，下游结果引用不能满足，run 会失败，不能算发布成功；构建可能已推镜像。新 Task 或 Role 未就绪同样不能应用流水线。撤回第 3 片：先把 PROD Pipeline 恢复成 `0e3d33b` 的文件（与 `79c8088` 逐字节相同）：`git show 0e3d33b:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | kubectl apply -f -`。不是下面第 3 条的 `27e4467`——那一条连 check-source 一起撤掉。之后再处理共享核对 Task 和新增权限；STG 或 PROD 的流水线仍引用核对 Task 时保留它和两处只读权限。
 
 ```bash
 # 1. 试跑（不构建、不发布；只为解析提交，把两个仓库各浅拉一次到临时目录）。在将要应用的那个提交上生成；给镜像上已有的整 SHA。
@@ -149,7 +149,7 @@ STG 的 `rollout` 引用 `bifrost-rollout-verify-platform`，先重启并等待�
 
 参数没有默认值，STG 和 PROD 都明确给 `requireSpecDigest=false`、`recordApplication=none`。核对最多 3 次，每次重读整套对象，间隔 3 秒，总预算 55 秒，每个 kubectl 子进程最多 5 秒；任意一次整套通过才写 `api-digest`、`console-digest`、`verified-at` 三个结果（摘要没有换行）。这证明读取时的运行状态，顺序读取不是原子快照，也不固定以后移动标签拉到的镜像。
 
-应用前由统筹方只读量好第 1 片三个摘要相等、STG/PROD 的 imageID、容器名和 UID/revision 归属链的真实形状。Owner 的次序：STG Role → 新 Task → 两条只核对的试跑（正例成功且结果相符、反例拒绝）→ STG Pipeline。`scripts/release/platform_digest_verify_trial.py <api-digest> <console-digest>` 只打印试跑清单，唯一内联步骤直接取新 Task 的核对脚本，身份 `tekton-deliver`、amd64；创建命令只在生成器 `--help` 中。自动应用脚本仍会整批应用，首次应用时应按上述分步次序执行，试跑未通过不应用 Pipeline。撤回先恢复 STG Pipeline，再撤新 Task（也可留着），最后撤 STG Role 的新增只读权限。共享旧 Task 保持不变。正式环境第 3 片的应用次序见下段。
+应用前由统筹方只读量好第 1 片三个摘要相等、STG/PROD 的 imageID、容器名和 UID/revision 归属链的真实形状。Owner 的次序：STG Role → 新 Task → 两条只核对的试跑（正例成功且结果相符、反例拒绝）→ STG Pipeline。`scripts/release/platform_digest_verify_trial.py <api-digest> <console-digest>` 只打印试跑清单，唯一内联步骤直接取新 Task 的核对脚本，身份 `tekton-deliver`、amd64；创建命令只在生成器 `--help` 中。自动应用脚本仍会整批应用，首次应用时应按上述分步次序执行，试跑未通过不应用 Pipeline。撤回先恢复 STG Pipeline，再撤新 Task（也可留着；PROD Pipeline 还引着它时不能撤），最后撤 STG Role 的新增只读权限。共享旧 Task 保持不变。正式环境第 3 片的应用次序见上一节「Owner 应用这道检查时」的末段。
 
 拒绝日志前缀 `REFUSED: platform digest verification:` 后面只使用下列固定句；工具输出和对象字段不进入日志。把拒绝句交给统筹方查证，失败不算发布成功。
 

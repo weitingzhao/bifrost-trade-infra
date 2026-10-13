@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Embed the running-image verifier in the STG Task; --check detects drift."""
+"""Embed the running-image verifier in the rollout Task; --check detects drift."""
 
 import argparse
 from pathlib import Path

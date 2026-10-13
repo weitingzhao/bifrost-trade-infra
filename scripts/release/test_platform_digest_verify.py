@@ -135,7 +135,7 @@ def pod_list(docs, name="platform-api"):
 
 
 def prod_answers():
-    """Owner's 2026-10-13 observation: 1/2/1 replicas, :prod, Always."""
+    """The coordinator's read-only measurement of 2026-10-13: 1/2/1 replicas, :prod, Always."""
     docs = answers()
     console = answers(2)
     for key in docs:
@@ -763,6 +763,28 @@ def test_prod_pipeline_wiring():
     assert all(t.get("taskRef", {}).get("name") != "bifrost-rollout-platform-stg" for t in tasks)
 
 
+def test_prod_pipeline_cannot_skip_the_check():
+    # A skipped upstream task skips rollout too, and the run would still succeed.
+    spec = prod_pipeline()
+    assert "finally" not in spec
+    for t in spec["tasks"]:
+        assert not {"when", "onError", "retries"} & t.keys(), t["name"]
+
+
+def test_exactly_two_namespaces_in_source():
+    # The refusal tests sample a few other names; this pins the two tuples.
+    pair = '("bifrost-platform-stg", "bifrost-platform-prod")'
+    verify = (ROOT / "scripts/release/platform_digest_verify.py").read_text()
+    assert verify.count("namespace not in " + pair) == 1
+    assert verify.count("bifrost-platform-") == 2
+    restart = task_spec()["steps"][0]["script"]
+    assert restart.count("os.environ['NAMESPACE'] not in ('bifrost-platform-stg', 'bifrost-platform-prod')") == 1
+    assert restart.count("bifrost-") == 2
+    trial = (ROOT / "scripts/release/platform_digest_verify_trial.py").read_text()
+    assert trial.count("namespace not in " + pair) == 1
+    assert trial.count("choices=" + pair) == 1
+
+
 def test_required_params_and_no_skip():
     spec = task_spec()
     assert [step["name"] for step in spec["steps"]] == ["rollout-restart", "verify-digests"]
@@ -820,6 +842,19 @@ def test_rbac_only_stg_prod_read_additions():
     assert docs[2]["rules"] == docs[0]["rules"]
     assert docs[0]["metadata"]["namespace"] == NS
     assert docs[2]["metadata"]["namespace"] == "bifrost-platform-prod"
+    # The whole file: two Roles, each bound to tekton-deliver and to nothing else.
+    # A fifth document, or another subject, would add access these rules do not show.
+    assert [d["kind"] for d in docs] == ["Role", "RoleBinding", "Role", "RoleBinding"]
+    for role, binding in ((docs[0], docs[1]), (docs[2], docs[3])):
+        assert binding["metadata"]["namespace"] == role["metadata"]["namespace"]
+        assert binding["roleRef"] == {
+            "apiGroup": "rbac.authorization.k8s.io",
+            "kind": "Role",
+            "name": role["metadata"]["name"],
+        }
+        assert binding["subjects"] == [
+            {"kind": "ServiceAccount", "name": "tekton-deliver", "namespace": "cicd"}
+        ]
 
 
 def test_embed_current():

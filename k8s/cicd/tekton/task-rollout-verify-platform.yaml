@@ -79,7 +79,7 @@ spec:
       # BEGIN GENERATED DIGEST VERIFIER
       script: |
         #!/usr/bin/env python3
-        """Bounded STG running-image check, embedded verbatim in the rollout Task."""
+        """Bounded STG or PROD running-image check, embedded verbatim in the rollout Task."""
 
         import json
         import os
