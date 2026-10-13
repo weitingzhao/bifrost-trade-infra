@@ -16,7 +16,7 @@
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
-**未结 99 项**：P0 0 · P1 9 · P2 35 · P3 55；要你批的 36 项（审批一栏不是「不用批」或「无」的；2026-10-12 重数，此前这一行是手写的、已经对不上）。
+**未结 112 项**：P0 0 · P1 11 · P2 43 · P3 58；要你批的 39 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
 
 ## 主题（第 2、3 轮）
 
@@ -2051,7 +2051,7 @@
 
 **P2 · ops-platform · an approved action runs on the context of the HTTP request that approved it: when the browser tab is closed, reloaded or put in the background, the action can be cut after the approval is spent**
 
-- **状态**：未开始（2026-10-13 00:34 TD-325 第三轮的确认复核读服务端时指出的；统筹方建议排进第 1 轮，在 A 和护栏 ⑥ 之后做，已在线程里告诉 Owner）
+- **状态**：在做（2026-10-13 12:17 开工：Codex 写，Claude 的子代理独立复核「可以合并，没有必须改的」；分支 `w31/td-329-action-outlives-request`。复核带出的原有问题另记 TD-332、TD-333、TD-334）
 - **Claim**: the decision handler executes the approved action synchronously, with the request's own context. The Console's nginx does not keep the upstream request alive when the client goes away, so a closed or reloaded page, a phone browser moved to the background, or a laptop lid cancels the context while the action runs. For a PROD `start_pipeline_run` the server may wait up to 90 seconds for the mirror before it creates the run; cancelled in that window the request is recorded as failed and the approval is spent; cancelled while the object is being created it is recorded as unknown and the Owner has to close it by hand. The page fix in TD-325 can only tell the Owner not to close the page.
 - **Measured**: NOT MEASURED — read from the code by the reviewing subagent (2026-10-13), no request was cut on purpose. MEASURED on the branch of TD-325: the page no longer aborts the request itself (a POST left hanging for 30 minutes in the test was never aborted).
 - **Evidence**: `bifrost-platform/console/nginx.conf:7-15` (no `proxy_ignore_client_abort`; 300 s read timeout); `api/internal/approvals/handler.go:136`, `service.go:437`, `execution.go:120-121` (the action runs on the request context); `api/internal/delivery/mirrors.go:14`, `ref_preflight.go:360-387` (the up-to-90-second wait); `api/internal/server/actions_wire.go:464-470` (a cancelled create is recorded as unknown).
@@ -2088,3 +2088,45 @@
 - **Ratchet**: the detector's alert rule.
 - 验收: a pod restarted a day after a delivery still runs the recorded pair, or an alert says it does not
 - 审批 不用批 · 代价 M · 风险 low · repos: bifrost-trade-infra
+
+### TD-332
+
+**P2 · ops-platform · approved actions have no time limit of their own and a running one cannot be stopped; the only bounds are the record's one-hour deadline and a platform restart**
+
+- **状态**：未开始（2026-10-13 12:50 TD-329 的实现报告和独立复核列出的；Owner 10-12 定：多 Agent 协作架构做完之前只记不做）
+- **Claim**: after TD-329 a synchronous execution lasts until the record's deadline (one hour after approval) instead of the roughly five minutes the Console's nginx read timeout used to give it by accident. Several executors have no limit of their own: `kubectl drain` runs without `--timeout` (a drain blocked by a PodDisruptionBudget retries every five seconds for the hour while the node stays cordoned and the request shows running); ssh in the node power actions has only a connect timeout; the firewall apply has no limit in Go; four executors start `exec.Command` without the context at all and `trigger_data_clone` continues on a background context; the attempt made by the background retry loop runs on `context.Background()` with no deadline. There is no way to stop a running request. platform-api has no shutdown handling: on SIGTERM an execution in flight is cut and its record becomes unknown eleven minutes later. One mislabel: an executor that runs the full hour and then answers 503 or 429 leaves the record `expired`, and the notice says "approved but never ran".
+- **Measured**: MEASURED by the reviewing subagent's probes on the TD-329 branch (2026-10-13): the record after a simulated process loss becomes unknown at lease + grace and is not executed again; the deadline case ends `expired` with one executor call. NOT MEASURED on a cluster: no real drain was left hanging.
+- **Evidence**: `bifrost-platform/api/internal/cluster/node_lifecycle.go:147-159`, `node_power.go:294-314,410-438`; `network/apply.go:29`; `cluster/handler.go:147,187,193`, `metrics_server.go:47`, `observability_install.go:47`, `sync.go:51`; `cluster/data_clone.go:580`; `server/server.go:357-362`; `cmd/platform-api/main.go:28`; `approvals/service.go:304-312`.
+- **Impact**: a stuck node or firewall action is reported an hour late and can only be ended by restarting the platform, which leaves the request unknown for the Owner to close.
+- **Fix**: give each long executor its own limit (a `--timeout` on drain first), put a deadline on the background retry attempt, add a stop for a running request, handle SIGTERM by finishing or marking the records in flight, and word the expired-after-running notice truthfully.
+- **Ratchet**: a test per executor that it ends within its limit when the command hangs; a test that the background attempt's context has a deadline.
+- 验收: an approved drain on STG against a node with a blocking PodDisruptionBudget ends as failed within its limit, and the request can be stopped before that
+- 审批 无（代码改动，随平台发布）· 代价 M · 风险 med · repos: bifrost-platform
+
+### TD-333
+
+**P2 · ops-platform · a firewall apply that fails with "required" in its output is answered as 503, which the approval executor treats as "try again later": the script may be run a second time**
+
+- **状态**：未开始（2026-10-13 12:50 TD-329 的独立复核读代码时指出的；原有行为，不是这次改动带来的；只记不做）
+- **Claim**: the firewall handler maps a failure whose text contains "required" to HTTP 503. The action wiring classifies 503 as transient, so the approval goes back to `approved` and the background loop runs the action again after the backoff. Whether the script's real output can contain that word was not confirmed: the script belongs to the Owner and the agent guard refused the read.
+- **Measured**: NOT MEASURED (read from the code, 2026-10-13).
+- **Evidence**: `bifrost-platform/api/internal/network/handler.go:116-119`; `server/actions_wire.go:448-451`; `approvals/execution.go:228-233` (requeue on a transient refusal).
+- **Impact**: one approval of a firewall change could apply it more than once, against the rule that an approved action runs once.
+- **Fix**: answer a failed apply as a failure (502) unless the script was provably not started; keep 503 for "the runner is not configured".
+- **Ratchet**: a handler test: a failed run whose output contains "required" is not answered 503.
+- 验收: the handler test above; the Owner confirms what the script prints when a precondition is missing
+- 审批 无（代码改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-334
+
+**P3 · ops-platform · only the workers role retries a final result that could not be stored: on the api pod such a result is lost and the request turns unknown although the action ran**
+
+- **状态**：未开始（2026-10-13 12:50 TD-329 的独立复核顺带看到的；原有行为；没有对着部署清单核对角色拆分；只记不做）
+- **Claim**: when the write of an execution's final state fails, the result is kept in memory and written again by `flushHeld`, which is called only from the background retry loop. That loop is started only in the workers role. A synchronous execution runs in the api pod, so a failed final write there is never retried; the lease lapses and the record becomes unknown after the grace period.
+- **Measured**: NOT MEASURED (read from the code, 2026-10-13; the PROD role split is taken from a comment, `server.go:123-141`).
+- **Evidence**: `bifrost-platform/api/internal/approvals/execution.go:424` (`flushHeld` in `retryDue`); `server/server.go:357-362` (the loop starts in the workers role only), `:123-141`.
+- **Impact**: after a brief storage failure the Owner sees "unknown" for an action that completed, and has to check and close it by hand.
+- **Fix**: let the process that holds a result retry its own write (a small loop in every role, or a retry inside `finishPlatform` bounded by the lease).
+- **Ratchet**: a test in the api role: the first final write fails, the next succeeds, the record reaches its final state without the workers loop.
+- 验收: the test above
+- 审批 无（代码改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
