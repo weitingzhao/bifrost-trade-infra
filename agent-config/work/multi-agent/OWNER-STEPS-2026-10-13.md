@@ -1,52 +1,76 @@
-# 2026-10-13 要你动手的事（草稿，等统筹方在线程里说「可以开始」再做）
+# 2026-10-13 要你动手的事（等统筹方在线程里说「可以开始第 2 步」再做第 2 步）
 
 写给 Owner。两处：Console 上批一张单；终端里三条命令。每一步做完不用回话，统筹方用只读身份自己看结果。
-本文件 2026-10-12 晚写成，命令已由统筹方逐条核对、并交 Codex 只读复核（结论见文末）。
+
+2026-10-12 晚写成。命令由统筹方逐条核对，并交 Codex 只读核对了一遍（复核 137）：第一稿被要求改 8 处，本稿已全部改入，见文末。
 
 ## 第 1 步 · Console：批一张平台的正式环境发布单
 
 - **在哪**：Console 的 Needs you。单子由统筹方 10-13 早上建好后出现在那里。
-- **批了会发生什么**：正式环境的平台从 `5643820` 升到 `26a10b5`，带两处改动——护栏 ② 的平台一半（单独上线不改变任何行为）和护栏 ③（平台能在指定提交上起 CI；起不来的运行不再回答成功）。约 4 分钟，期间 Console 会短暂断开重连。
+- **批了会发生什么**：正式环境的平台从 `5643820` 升到 `26a10b5`，带两处改动——护栏 ② 的平台一半（单独上线不改变任何行为）和护栏 ③（平台能在指定提交上起 CI；起不来的运行不再回答成功）。流水线会重新构建接口和 Console 两个镜像，再依次重启接口、Console、后台三个服务；接口重启期间 Console 会短暂断开。10-12 那一次从批准到结束用了 4 分钟，这一次取决于排队和构建，不保证。
 - **已核对的**：这个提交主线 CI 全绿；测试环境发的就是它（10-12 18:56），健康检查 200；没有别的未结发布单。
 - **没做的检查**：新的「起流水线」代码只跑过测试，没有在测试环境上真的起过一次发布。
-- **回退**：再发一次上一个提交（走同一条流水线），统筹方准备单子。
+- **回退（第 2 步还没做的时候）**：再发一次上一个提交，统筹方准备单子。第 2 步做完之后回退的办法不同，见文末「回退」。
 
-## 第 2 步 · 终端：护栏 ② 的试跑，然后应用（第 1 步发完、统筹方核对过正式环境之后）
+## 第 2 步 · 终端：护栏 ② 的试跑，然后应用
 
-前提由统筹方核对：正式环境的平台是 `26a10b5`；没有平台发布在跑；没有未结的发布单。
-身份：你自己的集群管理员身份。目录：`~/Desktop/stocks/bifrost-trade-infra`，在主线上（先 `git pull --ff-only`）。
+**前提**，由统筹方核对后在线程里说「可以开始第 2 步」：正式环境的平台已是 `26a10b5`；没有平台发布在跑；没有未结的发布单。你做 2b 的那几分钟里，统筹方会占住发布窗口，别的会话起不了平台的发布。
 
-**2a. 试跑两条**（只起一个检查任务：把两个仓库各浅拉一次到临时目录、读 CI 和测试环境的发布记录；不构建、不发布）：
+**身份**：三条命令都在行首写明了你的管理员身份。你终端里默认连的是本机的 Docker Desktop，不是集群（`AGENT_FACTS.md` 第 8c 节），所以不要省掉行首那一段。
+
+**2a. 试跑两条。** 两个文件由统筹方事先用仓库里的生成器生成好放在 `/tmp`（生成器要用到 PyYAML，你终端里默认的 python3 没有装）。每条命令在集群的 `cicd` 里建一个只含一个检查任务的运行。这个任务：第一条会把平台和界面库两个仓库各浅拉一次到临时目录，第二条在核对测试环境那一步就退出；两条都只读集群里的 CI 和发布记录，不构建、不发布。要知道的一点：它用的账号 `tekton-deliver` 本身有发布用的写权限，但这段脚本只读。
 
 ```bash
-cd ~/Desktop/stocks/bifrost-trade-infra && python3 scripts/release/platform_prod_gate_trial.py 26a10b5eda62e9164e088e33b6f02b66d98368e4 > /tmp/trial-pass.yaml && kubectl create -f /tmp/trial-pass.yaml
+KUBECONFIG="$HOME/.bifrost-owner/kube/admin.yaml" kubectl create -f /tmp/bifrost-trial-pass.yaml
 ```
 
 ```bash
-cd ~/Desktop/stocks/bifrost-trade-infra && python3 scripts/release/platform_prod_gate_trial.py 56438205740b19b41dfdce87d55fd6a989ce0477 > /tmp/trial-refuse.yaml && kubectl create -f /tmp/trial-refuse.yaml
+KUBECONFIG="$HOME/.bifrost-owner/kube/admin.yaml" kubectl create -f /tmp/bifrost-trial-refuse.yaml
 ```
 
-应当看到（统筹方来读，你不用查）：第一条成功，结果里的提交是 `26a10b5…`；第二条失败，日志里一行
-`REFUSED: STG cannot be shown for 56438205…: STG clone commit differs or is ambiguous`。
-第一条如果起不来、或者报 `identity cannot read…`：**不要做 2b**，等统筹方说明。
+应当看到（统筹方来读，你不用查）：第一条成功，结果里的提交是 `26a10b5eda62e9164e088e33b6f02b66d98368e4`；第二条失败，日志里一行
 
-**2b. 应用**（统筹方确认 2a 两条都对之后）：先服务端试算，通过才应用。
+`REFUSED: STG cannot be shown for 56438205740b19b41dfdce87d55fd6a989ce0477: STG clone commit differs or is ambiguous`
+
+（如果那时集群里的记录变了，第二条也可能更早被拒，换成另一行拒绝，统筹方会判断。）第一条如果起不来、或者报 `identity cannot read…`：**不要做 2b**，等统筹方说明。
+
+**2b. 应用**（统筹方确认 2a 两条都对、并再查一遍没有发布在跑之后）：先服务端试算，通过才应用。命令直接取主线上固定的那个提交里的文件，不依赖你本地检出目录的状态。
 
 ```bash
-cd ~/Desktop/stocks/bifrost-trade-infra && kubectl apply --dry-run=server -f k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml && kubectl apply -f k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml
+cd ~/Desktop/stocks/bifrost-trade-infra && git fetch -q origin && git show 667b758:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | KUBECONFIG="$HOME/.bifrost-owner/kube/admin.yaml" kubectl apply --dry-run=server -f - && git show 667b758:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | KUBECONFIG="$HOME/.bifrost-owner/kube/admin.yaml" kubectl apply -f -
 ```
 
-它改的只有集群里的一个对象：流水线 `cicd/bifrost-deliver-platform-prod`，多一个任务 `check-source`，两个拉代码的任务改成用它核对过的提交。别的 17 条流水线不变（统筹方 10-12 已只读比对）。
+它改的只有集群里的一个对象：流水线 `cicd/bifrost-deliver-platform-prod`。内容上三处：多一个任务 `check-source`；两个拉代码的任务改成排在它后面；两个拉代码的任务改成用它核对过的提交。对象的「上次应用」记录和版本号会跟着更新。别的 17 条流水线不变。
 
-**做完之后的效果**：平台的每次正式环境发布，在构建之前先自查「这个提交 CI 是绿的、测试环境最新一次成功发布的就是它」，不成立就拒绝。没有「带红放行」的开关。
+**做完之后的效果**：平台的每次正式环境发布，在构建之前先自查两条，不成立就拒绝——
 
-**要撤回（也是唯一的越过办法）**：
+1. 这个提交有一次成功的平台 CI。
+2. 测试环境最新发起的那一次发布必须是成功的、发的就是这个提交，而且别的每一次测试环境发布都在它发起之前就结束了。验证过之后只要又发起过一次测试环境发布，哪怕那次失败了，正式环境发布就会被拒，直到再成功发一次测试环境。
+
+界面库的提交只是固定下来，不和测试环境比对。没有「带红放行」的开关。
+
+## 回退
+
+**撤回这道检查**（也是唯一的越过办法）。做之前同样要确认没有平台发布在跑：
 
 ```bash
-cd ~/Desktop/stocks/bifrost-trade-infra && git show 27e4467:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | kubectl apply -f -
+cd ~/Desktop/stocks/bifrost-trade-infra && git show 27e4467:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | KUBECONFIG="$HOME/.bifrost-owner/kube/admin.yaml" kubectl apply -f -
 ```
+
+它把流水线恢复成 10-11 的定义（去掉 `check-source`，两个拉代码的任务恢复原样）。已经在跑的运行和已经发出去的镜像不受影响。
+
+**第 2 步做完之后，想把正式环境的平台退回旧提交**：直接「再发一次旧提交」会被这道检查拒绝，因为测试环境上已经不是它了。两条路：
+
+- 先撤回这道检查（上面那条命令），再批一张发旧提交的单子。退回到 `5643820` 或更早的平台之后，检查要一直保持撤回——旧平台不会给检查任务指定账号。
+- 或者先把旧提交成功发到测试环境，再发正式环境。只适用于退回到 `26a10b5` 之后的提交。
+
+**如果第 1 步没做成就做了 2b**：平台的每次正式环境发布都会在构建前被拒（`identity cannot read…`），包括带来另一半的那一次。先撤回，再做第 1 步。
 
 ## 不在明天这一次里的
 
 - 护栏 ④（Gitea 备份）的应用：等它过完演练和确认复核、合进主线之后，另给一份。
 - TD-309（把流水线的字段归属换给平台，之后改流水线不用你手贴）：另找一天，单独一份。
+
+## 复核 137 要求改的 8 处（都已改入）
+
+发布用时不保证「约 4 分钟」；第 2 步之后的回退办法；写明管理员身份并提醒默认连的是本机；应用前再查一遍并防并发；试跑到底做什么、账号有什么权限；第二条试跑的完整拒绝行和可能的变化；应用改了哪三处以及元数据会更新；效果按「最新发起的那一次」的严格定义写。另外两处是统筹方自己加的：试跑文件由统筹方生成（避开 PyYAML）；应用命令取固定提交里的文件。
