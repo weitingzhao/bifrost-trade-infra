@@ -155,6 +155,8 @@ if mode == 'failed' or (mode == 'rs-failed' and key.startswith('replicaset')):
 if mode == 'timeout': time.sleep(10)
 if mode == 'duplicate': print('{"items": [], "items": []}'); sys.exit(0)
 if mode == 'malformed': print('{private-tool-output'); sys.exit(0)
+if mode == 'invalid-utf8': os.write(1, bytes([255])); sys.exit(0)
+if mode == 'long-integer': print('{"number":' + '9'*5000 + '}'); sys.exit(0)
 if a[2] == 'rollout':
  if mode == 'rollout-failed' or (mode == 'rollout-status-failed' and a[3] == 'status'):
   print('private-tool-output token=NEVER_PRINT', file=sys.stderr); sys.exit(1)
@@ -234,6 +236,8 @@ CASES = [
     "no-pods",
     "only-terminating",
     "extra-pod",
+    "extra-current-rs-pod",
+    "extra-old-rs-pod",
     "fewer-replicas",
     "pending",
     "missing-status",
@@ -316,6 +320,18 @@ def broken(case):
         pod["metadata"]["deletionTimestamp"] = "2026-10-13T00:00:00Z"
     elif case == "extra-pod":
         pods.append(copy.deepcopy(pod))
+    elif case in ("extra-current-rs-pod", "extra-old-rs-pod"):
+        extra = copy.deepcopy(pod)
+        extra["metadata"].update(name="extra-pod", uid="extra-unique-uid")
+        if case == "extra-old-rs-pod":
+            extra["metadata"]["ownerReferences"][0].update(
+                name="platform-api-old-rs", uid="old-rs-uid"
+            )
+            old_rs = copy.deepcopy(docs["replicaset platform-api-rs"])
+            old_rs["metadata"].update(name="platform-api-old-rs", uid="old-rs-uid")
+            old_rs["metadata"]["annotations"][REV] = "3"
+            docs["replicaset platform-api-old-rs"] = old_rs
+        pods.append(extra)
     elif case == "fewer-replicas":
         pods.pop()
     elif case == "pending":
@@ -460,6 +476,58 @@ def test_read_errors(tmp_path, mode):
     assert mode != "forbidden" or "identity cannot read" in result.stdout
 
 
+@pytest.mark.parametrize("mode", ["invalid-utf8", "long-integer"])
+def test_unexpected_value_error_fixed_log(tmp_path, mode):
+    result = execute(tmp_path, mode=mode)
+    assert_refused(result, tmp_path)
+    assert result.stdout == (
+        "REFUSED: platform digest verification: "
+        "missing or malformed verification evidence\n"
+    )
+    assert result.stderr == ""
+
+
+@pytest.mark.parametrize("index", [0, 1])
+def test_all_console_pod_digests(tmp_path, index):
+    docs = answers(2)
+    pod_list(docs, "platform-console")[index]["status"]["containerStatuses"][0][
+        "imageID"
+    ] = "r@sha256:" + "c" * 64
+    assert_refused(execute(tmp_path, docs), tmp_path)
+
+
+@pytest.mark.parametrize(
+    "image_id,accepted",
+    [("r@" + API + "@sha256:" + "c" * 64, False),
+     ("r@" + API + "0", False),
+     ("r@sha256:" + "c" * 64 + "@" + API, True),
+     (API, False)],
+    ids=["correct-then-wrong", "extra-digit", "wrong-then-correct", "bare-digest"],
+)
+def test_image_id_suffix(tmp_path, image_id, accepted):
+    docs = answers()
+    pod_list(docs)[0]["status"]["containerStatuses"][0]["imageID"] = image_id
+    result = execute(tmp_path, docs)
+    if accepted:
+        assert result.returncode == 0, result.stdout
+    else:
+        assert_refused(result, tmp_path)
+
+
+@pytest.mark.parametrize("name", ["-rs", "bad name", "bad=name", "", "a" * 254,
+                                      "UPPER", "rs-", "rs..name", "rs.-name"])
+def test_invalid_rs_name_before_kubectl(tmp_path, name):
+    docs = answers()
+    pod_list(docs)[0]["metadata"]["ownerReferences"][0]["name"] = name
+    # Provide consistent evidence: refusal must precede a ReplicaSet query.
+    rs = docs.pop("replicaset platform-api-rs")
+    rs["metadata"]["name"] = name
+    docs["replicaset " + name] = rs
+    assert_refused(execute(tmp_path, docs), tmp_path)
+    calls = [json.loads(line) for line in (tmp_path / "calls").read_text().splitlines()]
+    assert all(a[3] != "replicaset" for a in calls)
+
+
 @pytest.mark.parametrize(
     "digest", ["", "sha256:" + "a" * 63, API + "\n", API.upper(), "repo@" + API]
 )
@@ -476,6 +544,21 @@ def test_terminating_old_pod_ignored(tmp_path):
     old["status"]["containerStatuses"][0]["imageID"] = "wrong"
     pod_list(docs).append(old)
     assert execute(tmp_path, docs).returncode == 0
+
+
+@pytest.mark.parametrize("phase", ["Succeeded", "Failed"])
+@pytest.mark.parametrize("correct_digest", [False, True])
+def test_terminal_pod_ignored(tmp_path, phase, correct_digest):
+    docs = answers()
+    old = copy.deepcopy(pod_list(docs)[0])
+    old["metadata"].update(name="old-pod", uid="old-pod-uid")
+    old["status"]["phase"] = phase
+    if not correct_digest:
+        old["status"]["containerStatuses"][0]["imageID"] = "wrong"
+    pod_list(docs).append(old)
+    assert execute(tmp_path / "with-running", docs).returncode == 0
+    pod_list(docs).pop(0)
+    assert_refused(execute(tmp_path / "only-terminal", docs), tmp_path / "only-terminal")
 
 
 def test_pending_without_status(tmp_path):
@@ -587,11 +670,12 @@ def test_kubectl_keeps_the_in_cluster_identity(tmp_path):
 
 def test_pipeline_wiring():
     pipeline = yaml.safe_load(
-        (ROOT / "k8s/cicd/tekton/pipeline-deliver-platform.yaml").read_text()
+        Path(os.environ.get("DIGEST_PIPELINE", ROOT / "k8s/cicd/tekton/pipeline-deliver-platform.yaml")).read_text()
     )["spec"]
     rollout = next(t for t in pipeline["tasks"] if t["name"] == "rollout")
     assert rollout["taskRef"]["name"] == "bifrost-rollout-verify-platform"
     assert rollout["runAfter"] == ["gitops-sync"]
+    assert not {"when", "onError", "retries"} & rollout.keys()
     assert {p["name"]: p["value"] for p in rollout["params"]} == {
         "namespace": NS,
         "apiDigest": "$(tasks.build-platform-api.results.digest)",
@@ -603,6 +687,8 @@ def test_pipeline_wiring():
 
 def test_required_params_and_no_skip():
     spec = task_spec()
+    assert [step["name"] for step in spec["steps"]] == ["rollout-restart", "verify-digests"]
+    assert all("onError" not in step for step in spec["steps"])
     assert all(
         step["script"].startswith("#!/usr/bin/env python3\n") for step in spec["steps"]
     )
@@ -622,6 +708,8 @@ def test_required_params_and_no_skip():
 
 
 def test_protected_files_unchanged():
+    # These files must not change in this slice. Later slices changing them must
+    # update these hashes in the same commit.
     hashes = {
         "task-deliver-platform.yaml": "4795263ba3c5135c9c5bd5d1880626ab41558b32a47d33524fc18a45d89388e2",
         "pipeline-deliver-platform-prod.yaml": "09dbb1997d843c41f3ecafea95b97ec629fe2bc63c01e095b3b0338c9c3cd64f",
@@ -706,7 +794,7 @@ def test_release_doc_lists_every_refusal():
             if (
                 isinstance(node, ast.Raise)
                 and isinstance(node.exc, ast.Call)
-                and getattr(node.exc.func, "id", "") == "ValueError"
+                and getattr(node.exc.func, "id", "") == "VerificationRefused"
                 and node.exc.args
             ):
                 reasons.append(node.exc.args[0].value)

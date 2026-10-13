@@ -141,7 +141,7 @@ git show 27e4467:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | kubectl a
 
 ## Platform STG running-image verification（guardrail 5，slice 2）
 
-STG 的 `rollout` 引用 `bifrost-rollout-verify-platform`，先重启并等待三个 Deployment，再核对 API/worker 与 console 的 `imageID` 是否分别等于本次两个构建结果。三个 Deployment 的副本状态必须全齐；按它们自己的 matchLabels 选 Pod，忽略终止中的 Pod，剩余数量必须恰好等于期望副本数。每个 Pod 经控制器 UID 链归属当前 Deployment 和当前 revision，并且只有预期的一个容器、正在 Running、running 且 ready。不支持 init/ephemeral 容器以及非空 matchExpressions；不支持的形状拒绝，不放宽检查。
+STG 的 `rollout` 引用 `bifrost-rollout-verify-platform`，先重启并等待三个 Deployment，再核对 API/worker 与 console 的 `imageID` 是否分别等于本次两个构建结果。三个 Deployment 的副本状态必须全齐；按它们自己的 matchLabels 选 Pod，忽略终止中以及 status.phase 为 Succeeded 或 Failed 的 Pod，剩余数量必须恰好等于期望副本数。每个 Pod 经控制器 UID 链归属当前 Deployment 和当前 revision，并且只有预期的一个容器、正在 Running、running 且 ready。不支持 init/ephemeral 容器以及非空 matchExpressions；不支持的形状拒绝，不放宽检查。
 
 参数没有默认值，STG 明确给 `requireSpecDigest=false`、`recordApplication=none`。核对最多 3 次，每次重读整套对象，间隔 3 秒，总预算 55 秒，每个 kubectl 子进程最多 5 秒；任意一次整套通过才写 `api-digest`、`console-digest`、`verified-at` 三个结果（摘要没有换行）。这证明读取时的运行状态，顺序读取不是原子快照，也不固定以后移动标签拉到的镜像。
 
@@ -165,13 +165,14 @@ STG 的 `rollout` 引用 `bifrost-rollout-verify-platform`，先重启并等待�
 | `missing or ambiguous controller reference` | 真控制器必须恰好一条；查 Pod 或 ReplicaSet。 |
 | `wrong controller kind or API version` | 必须为 apps/v1 的 ReplicaSet 或 Deployment；查实际控制器。 |
 | `invalid controller identity` | 控制器名字或 UID 缺失/无效；查对象。 |
+| `invalid ReplicaSet name` | ReplicaSet 名字必须符合 DNS 子域名格式且不超过 253 字符；拒绝后不查询该名字。 |
 | `cluster object identity mismatch` | 返回对象名字、命名空间或 UID 不符；查对象。 |
 | `Deployment has no positive replica count` | 副本数必须为正整数；查 Deployment。 |
 | `Deployment generation is not observed` | 最新 generation 尚未被观察；等滚动完成。 |
 | `Deployment replicas are not fully rolled out` | 四个副本状态不齐；查滚动结果。 |
 | `unsupported Deployment selector` | matchLabels 缺失/非法或带 matchExpressions；先核对真实形状再修设计。 |
 | `malformed or incomplete Pod list` | Pod 列表形状不符或分页未完整；查返回证据。 |
-| `active Pod count differs from replicas` | 无 Pod、只有终止中 Pod、数量不足或多出 Pod；查滚动时序。 |
+| `active Pod count differs from replicas` | 无 Pod、只有终止中或终态 Pod、数量不足或多出 Pod；查滚动时序。 |
 | `Pod list identity or selector mismatch` | Pod UID 重复或标签与选择器不符；查返回证据。 |
 | `Pod ReplicaSet UID mismatch` | Pod 引用的 ReplicaSet 已重建或不符；查 UID 链。 |
 | `ReplicaSet Deployment identity mismatch` | ReplicaSet 属于别的 Deployment 或同名旧 UID；查 UID 链。 |

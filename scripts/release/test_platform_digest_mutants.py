@@ -49,7 +49,7 @@ MUTATIONS = [
         "pod-count",
         "if len(active) != replicas:",
         "if False:",
-        "test_refuses and (no-pods or only-terminating or fewer-replicas)",
+        "test_refuses and (no-pods or only-terminating or fewer-replicas or extra-current-rs-pod or extra-old-rs-pod)",
     ),
     (
         "image-digest",
@@ -125,6 +125,54 @@ MUTATIONS = [
         "if True",
         "test_terminating_old_pod_ignored",
     ),
+    (
+        "pod-count-upper-bound",
+        "if len(active) != replicas:",
+        "if len(active) < replicas:",
+        "test_refuses and (extra-current-rs-pod or extra-old-rs-pod)",
+    ),
+    (
+        "any-good-pod",
+        "or digest != expected:",
+        'or (digest != expected and not any(p["status"]["containerStatuses"][0]["imageID"].rsplit("@", 1)[-1] == expected for p in active)):',
+        "test_all_console_pod_digests",
+    ),
+    (
+        "image-contains-digest",
+        "if not DIGEST_RE.fullmatch(digest) or digest != expected:",
+        "if expected not in image_id:",
+        "test_image_id_suffix and (correct-then-wrong or extra-digit)",
+    ),
+    (
+        "image-first-at",
+        'image_id.rsplit("@", 1)[-1]',
+        'image_id.split("@", 1)[-1]',
+        "test_image_id_suffix and wrong-then-correct",
+    ),
+    (
+        "unsafe-rs-name",
+        'if len(pr["name"]) > 253 or not DNS_SUBDOMAIN_RE.fullmatch(pr["name"]):',
+        "if False:",
+        "test_invalid_rs_name_before_kubectl",
+    ),
+    (
+        "unexpected-valueerror-log",
+        "isinstance(exc, VerificationRefused)",
+        "isinstance(exc, ValueError)",
+        "test_unexpected_value_error_fixed_log",
+    ),
+    (
+        "bare-image-digest",
+        'isinstance(image_id, str) and "@" in image_id',
+        "isinstance(image_id, str)",
+        "test_image_id_suffix and bare-digest",
+    ),
+    (
+        "count-terminal-pods",
+        'and p["status"]["phase"] not in ("Succeeded", "Failed")',
+        "",
+        "test_terminal_pod_ignored",
+    ),
 ]
 
 
@@ -188,3 +236,43 @@ def test_planted_violation(tmp_path, name, before, after, selection):
     )
     assert failed > 0, result.stdout + result.stderr
     print(f"MUTANT {name}: {failed} behavioral tests red")
+
+
+@pytest.mark.parametrize("case", ["when", "onError", "retries", "extra-step",
+                                  "missing-step", "reorder-steps", "step-onError"])
+def test_planted_structure_violation(tmp_path, case):
+    doc = yaml.safe_load(TASK.read_text())
+    pipeline = yaml.safe_load(
+        (ROOT / "k8s/cicd/tekton/pipeline-deliver-platform.yaml").read_text()
+    )
+    rollout = next(t for t in pipeline["spec"]["tasks"] if t["name"] == "rollout")
+    if case in ("when", "onError", "retries"):
+        rollout[case] = {"when": [{"input": "no", "operator": "in", "values": ["yes"]}],
+                         "onError": "continue", "retries": 1}[case]
+        selection = "test_pipeline_wiring"
+    else:
+        steps = doc["spec"]["steps"]
+        if case == "extra-step":
+            steps.append(copy.deepcopy(steps[0]))
+        elif case == "missing-step":
+            steps.pop(0)
+        elif case == "reorder-steps":
+            steps.reverse()
+        else:
+            steps[1]["onError"] = "continue"
+        selection = "test_required_params_and_no_skip"
+    task_path, pipeline_path = tmp_path / "task.yaml", tmp_path / "pipeline.yaml"
+    task_path.write_text(yaml.safe_dump(doc))
+    pipeline_path.write_text(yaml.safe_dump(pipeline))
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "scripts/release/test_platform_digest_verify.py",
+         "-q", "-k", selection],
+        cwd=ROOT,
+        env={**os.environ, "DIGEST_TASK": str(task_path), "DIGEST_PIPELINE": str(pipeline_path)},
+        capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    failed = len(re.findall(r"^FAILED scripts/release/test_platform_digest_verify.py::",
+                            result.stdout, re.M))
+    assert failed > 0, result.stdout + result.stderr
+    print(f"MUTANT structure-{case}: {failed} tests red")
