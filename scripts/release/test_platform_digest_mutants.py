@@ -173,6 +173,12 @@ MUTATIONS = [
         "",
         "test_terminal_pod_ignored",
     ),
+    (
+        "terminal-phase-too-wide",
+        'p["status"]["phase"] not in ("Succeeded", "Failed")',
+        'p["status"]["phase"] == "Running"',
+        "test_only_succeeded_and_failed_are_left_out",
+    ),
 ]
 
 

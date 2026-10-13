@@ -862,3 +862,18 @@ def test_rollout_bad_params_before_writes(tmp_path, env):
     assert result.returncode == 1
     assert result.stdout == "REFUSED: invalid STG rollout parameters\n"
     assert not (tmp_path / "calls").exists()
+
+
+@pytest.mark.parametrize("phase", ["Pending", "Unknown", None, "failed", "absent"])
+def test_only_succeeded_and_failed_are_left_out(tmp_path, phase):
+    """The other side of the terminal-pod rule: leaving out too much is the direction that answers wrong. A pod
+    whose phase is anything but Succeeded or Failed, or is missing, still counts, so an extra one refuses."""
+    docs = answers()
+    extra = copy.deepcopy(pod_list(docs)[0])
+    extra["metadata"].update(name="extra-pod", uid="extra-unique-uid")
+    if phase == "absent":
+        del extra["status"]["phase"]
+    else:
+        extra["status"]["phase"] = phase
+    pod_list(docs).append(extra)
+    assert_refused(execute(tmp_path, docs), tmp_path)
