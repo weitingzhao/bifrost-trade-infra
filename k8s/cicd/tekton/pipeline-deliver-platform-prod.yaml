@@ -280,13 +280,23 @@ spec:
                   return result
 
 
+              def detail(stderr):
+                  """The last line of a tool's error output, on one line and short, for the refusal."""
+                  lines = [" ".join(line.split()) for line in (stderr or "").splitlines() if line.strip()]
+                  line = lines[-1][:200] if lines else "no error output"
+                  secret = os.environ.get("GIT_PASSWORD") or ""
+                  if "Authorization" in line or (secret and secret in line):
+                      return "error output withheld"
+                  return line
+
+
               def read_json(args):
-                  # kubectl's own request budget plus a whole-process deadline; never retry.
+                  # One whole-process deadline (BUDGET); never retry. No --request-timeout, --server or
+                  # other connection flag: with any of them kubectl in a pod stops falling back to the
+                  # in-cluster identity and dials localhost:8080 (found by the Owner's trial run, 2026-10-12).
                   try:
                       return json.loads(
-                          command(
-                              ["kubectl", "--request-timeout=10s", "-n", "cicd", *args, "-o", "json"]
-                          ),
+                          command(["kubectl", "-n", "cicd", *args, "-o", "json"]),
                           object_pairs_hook=unique_object,
                       )
                   except subprocess.CalledProcessError as exc:
@@ -294,7 +304,8 @@ spec:
                           raise ValueError(
                               "identity cannot read PipelineRuns/TaskRuns in cicd"
                           ) from exc
-                      raise ValueError("query failed") from exc
+                      # Say why: "query failed" alone left the Owner's trial run unexplained (2026-10-12).
+                      raise ValueError("query failed: " + detail(exc.stderr)) from exc
 
 
               def validate_run(run):
@@ -427,7 +438,13 @@ spec:
                           Path(os.environ["UI_COMMIT_PATH"]).write_text(ui)
                       return 0
                   except Exception as exc:
-                      reason = str(exc) if isinstance(exc, ValueError) else type(exc).__name__
+                      if isinstance(exc, ValueError):
+                          reason = str(exc)
+                      elif isinstance(exc, subprocess.CalledProcessError):
+                          # git: the credential travels in the environment, never in argv or output.
+                          reason = "CalledProcessError: " + detail(exc.stderr)
+                      else:
+                          reason = type(exc).__name__
                       sha = " ".join(sha.split())
                       print(f"REFUSED: {condition} cannot be shown for {sha}: {reason}")
                       return 1
