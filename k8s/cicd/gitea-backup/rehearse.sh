@@ -2,7 +2,10 @@
 # Coordinator only: disposable Docker rehearsal; no cluster or real credentials.
 # Only the age fetch container has network. All Gitea/backup/restore runs: none.
 set -euo pipefail
-export DOCKER_DEFAULT_PLATFORM=linux/amd64
+# No platform is forced. On an amd64 host everything is amd64, as in the cluster. On an arm64
+# host (Apple Silicon) the Gitea image runs native and only the pinned amd64 age binary runs
+# through Docker's amd64 emulation: measured 2026-10-12, the amd64 Gitea binary (go1.21.9)
+# dies there with "fatal error: lfstack.push", while age v1.3.2 runs.
 HERE=$(cd "$(dirname "$0")" && pwd)
 IMAGE=gitea/gitea:1.21.11
 prefix="gitea-r3-$$"
@@ -29,17 +32,21 @@ check() {
 }
 for v in "$vol" "$bak" "$tools" "$keys" "$work" "$hooks" "$baseline"; do docker volume create "$v" >/dev/null; done
 # Network is allowed only here; verify the exact archive pin before keygen.
-docker run --rm --entrypoint sh -v "$tools":/tools -v "$keys":/keys -v "$HERE":/scripts:ro alpine:3.22 -c '
+# The Gitea image itself does the fetch here, so the rehearsal pulls one image, not two.
+docker run --rm --entrypoint sh -v "$tools":/tools -v "$keys":/keys -v "$HERE":/scripts:ro "$IMAGE" -c '
   set -eu
   sh /scripts/fetch-tools.sh
   url=$(sed -n "s/^AGE_URL=//p" /scripts/fetch-tools.sh)
   sum=$(sed -n "s/^AGE_SHA=//p" /scripts/fetch-tools.sh)
   wget -q -O /tools/keygen.tar.gz "$url"
   printf "%s  %s\n" "$sum" /tools/keygen.tar.gz | sha256sum -c -
-  tar -C /tools -xzf /tools/keygen.tar.gz age/age-keygen
-  /tools/age/age-keygen -o /keys/identity 2>/dev/null
-  /tools/age/age-keygen -y /keys/identity > /keys/recipient
-  rm -rf /tools/age/age-keygen /tools/keygen.tar.gz
+  # fetch-tools.sh leaves the age BINARY at /tools/age, so the age/ directory of the
+  # archive cannot be unpacked beside it; the key generator goes to its own directory.
+  mkdir /tools/kg
+  tar -C /tools/kg -xzf /tools/keygen.tar.gz age/age-keygen
+  /tools/kg/age/age-keygen -o /keys/identity 2>/dev/null
+  /tools/kg/age/age-keygen -y /keys/identity > /keys/recipient
+  rm -rf /tools/kg /tools/keygen.tar.gz
   chown -R 1000:1000 /keys /tools
 '
 docker run --rm --network none --entrypoint sh -v "$bak":/backup -v "$work":/work -v "$hooks":/hooks -v "$baseline":/baseline -v "$work":/work "$IMAGE" -c 'chown 1000:1000 /backup /work /hooks /baseline'
@@ -58,13 +65,13 @@ start_live
 # Seed inside the network-none container; synthetic password only.
 docker exec -u git "$live" bash -c '
   set -euo pipefail
-  gitea admin user create --config /data/gitea/conf/app.ini --username admin --password Rehearse-pass-1 --email admin@example.com --admin --must-change-password=false >/dev/null
-  curl -sf -u admin:Rehearse-pass-1 -H "Content-Type: application/json" -X POST http://127.0.0.1:3000/api/v1/orgs -d "{\"username\":\"bifrost\",\"full_name\":\"Bifrost\"}" >/dev/null
+  gitea admin user create --config /data/gitea/conf/app.ini --username rehearser --password Rehearse-pass-1 --email admin@example.com --admin --must-change-password=false >/dev/null
+  curl -sf -u rehearser:Rehearse-pass-1 -H "Content-Type: application/json" -X POST http://127.0.0.1:3000/api/v1/orgs -d "{\"username\":\"bifrost\",\"full_name\":\"Bifrost\"}" >/dev/null
   for repo in x x-y gamma; do
     owner=bifrost
     endpoint=orgs/bifrost/repos
-    if [[ $repo == gamma ]]; then owner=admin; endpoint=user/repos; fi
-    curl -sf -u admin:Rehearse-pass-1 -H "Content-Type: application/json" -X POST "http://127.0.0.1:3000/api/v1/$endpoint" -d "{\"name\":\"$repo\",\"private\":true}" >/dev/null
+    if [[ $repo == gamma ]]; then owner=rehearser; endpoint=user/repos; fi
+    curl -sf -u rehearser:Rehearse-pass-1 -H "Content-Type: application/json" -X POST "http://127.0.0.1:3000/api/v1/$endpoint" -d "{\"name\":\"$repo\",\"private\":true}" >/dev/null
     git init -q -b main /tmp/$repo
     git -C /tmp/$repo config user.email test@example.com
     git -C /tmp/$repo config user.name test
@@ -73,10 +80,10 @@ docker exec -u git "$live" bash -c '
     git -C /tmp/$repo add README
     if [[ $repo == gamma ]]; then git -C /tmp/$repo add blob; fi
     git -C /tmp/$repo commit -qm seed
-    git -C /tmp/$repo remote add origin http://admin:Rehearse-pass-1@127.0.0.1:3000/$owner/$repo.git
+    git -C /tmp/$repo remote add origin http://rehearser:Rehearse-pass-1@127.0.0.1:3000/$owner/$repo.git
     git -C /tmp/$repo push -q origin main
   done
-  curl -sf -u admin:Rehearse-pass-1 -H "Content-Type: application/json" -X POST http://127.0.0.1:3000/api/v1/repos/bifrost/x/wiki/new -d "{\"title\":\"Home\",\"content_base64\":\"c2VlZA==\"}" >/dev/null
+  curl -sf -u rehearser:Rehearse-pass-1 -H "Content-Type: application/json" -X POST http://127.0.0.1:3000/api/v1/repos/bifrost/x/wiki/new -d "{\"title\":\"Home\",\"content_base64\":\"c2VlZA==\"}" >/dev/null
 
 '
 admin_volume() {
@@ -112,7 +119,7 @@ admin_volume 'touch /hooks/wait-copy-1'
 backup_job -d >/dev/null
 wait_ready copy-1
 # copy producer is live and consumer held. Push completes before releasing it.
-docker exec -u git "$live" bash -euo pipefail -c 'git clone -q http://admin:Rehearse-pass-1@127.0.0.1:3000/bifrost/x.git /tmp/x; git -C /tmp/x config user.email test@example.com; git -C /tmp/x config user.name test; git -C /tmp/x checkout -q main; printf "during copy\n" >> /tmp/x/README; git -C /tmp/x add README; git -C /tmp/x commit -qm during-copy; git -C /tmp/x push -q origin main'
+docker exec -u git "$live" bash -euo pipefail -c 'git clone -q http://rehearser:Rehearse-pass-1@127.0.0.1:3000/bifrost/x.git /tmp/x; git -C /tmp/x config user.email test@example.com; git -C /tmp/x config user.name test; git -C /tmp/x checkout -q main; printf "during copy\n" >> /tmp/x/README; git -C /tmp/x add README; git -C /tmp/x commit -qm during-copy; git -C /tmp/x push -q origin main'
 release copy-1
 rc=$(docker wait "$prefix-job")
 title='normal run with handshake push DURING copy'; check test "$rc" == 0
@@ -139,11 +146,11 @@ set_fault() {
   for n in 1 2 3; do
     wait_ready "after-db-$n"
     if [[ "$kind" == create ]]; then
-      docker exec -u git "$live" curl -sf -u admin:Rehearse-pass-1 -H 'Content-Type: application/json' -X POST http://127.0.0.1:3000/api/v1/orgs/bifrost/repos -d "{\"name\":\"created$n\",\"private\":true}" >/dev/null
+      docker exec -u git "$live" curl -sf -u rehearser:Rehearse-pass-1 -H 'Content-Type: application/json' -X POST http://127.0.0.1:3000/api/v1/orgs/bifrost/repos -d "{\"name\":\"created$n\",\"private\":true}" >/dev/null
     else
       # There are three seed repos; remove one after each database copy.
-      repo=$(printf '%s\n' bifrost/x bifrost/x-y admin/gamma | sed -n "${n}p")
-      docker exec -u git "$live" curl -sf -u admin:Rehearse-pass-1 -X DELETE "http://127.0.0.1:3000/api/v1/repos/$repo" >/dev/null
+      repo=$(printf '%s\n' bifrost/x bifrost/x-y rehearser/gamma | sed -n "${n}p")
+      docker exec -u git "$live" curl -sf -u rehearser:Rehearse-pass-1 -X DELETE "http://127.0.0.1:3000/api/v1/repos/$repo" >/dev/null
     fi
     release "after-db-$n"
   done
