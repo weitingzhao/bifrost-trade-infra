@@ -42,6 +42,7 @@ kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-kaniko-platform-console-stg.yaml"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-deliver-platform.yaml"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/rbac-deliver-stg.yaml"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/rbac-deliver-platform.yaml"
+kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-rollout-verify-platform.yaml"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-deliver-platform.yaml"
 
 if [[ "${APPLY_OVERLAY}" == "1" ]]; then
