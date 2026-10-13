@@ -137,6 +137,8 @@ git show 27e4467:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | kubectl a
 
 钉住路径生成的 JSON 在应用或回退这条 Pipeline 之后要重新生成（它在生成那一刻读线上的定义）。
 
+**这道检查生效之后怎么把平台退回旧提交**：直接再发旧提交会被拒，因为 STG 上已经不是它了。两条路：① Owner 先把 Pipeline 恢复成不含检查的定义（上面第 3 条命令），再发旧提交；退回到不含 check-source 身份接线的平台（`2726c47` 之前）之后，检查要一直保持撤回。② 先把旧提交成功发到 STG、让它成为最新的一次，再发 PROD；只适用于含身份接线的平台提交。Owner 动手时用的清单见 `agent-config/work/multi-agent/OWNER-STEPS-2026-10-13.md`。
+
 ## 发布窗口：推 main 或起 deliver 之前先看
 
 ```bash
