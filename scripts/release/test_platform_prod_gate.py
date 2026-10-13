@@ -93,7 +93,7 @@ else:
   print('Error from server (Forbidden)',file=sys.stderr); sys.exit(1)
  if mode=='failed': sys.exit(1)
  if mode=='failed-detail':
-  sys.stderr.write('E1012 memcache.go:265] noise\\nError from server (ServiceUnavailable):   the server is currently unable to handle the request\\n'); sys.exit(1)
+  sys.stderr.write('Authorization: Basic c2VjcmV0OnNlY3JldA== token=eyJhbGciOi\\nThe connection to the server localhost:8080 was refused - did you specify the right host or port?\\n'); sys.exit(1)
  if mode=='timeout' and 'taskrun' in a: time.sleep(30)
  if mode=='empty': sys.exit(0)
  if mode=='duplicate': print('{{"items":[],"items":[]}}'); sys.exit(0)
@@ -288,14 +288,12 @@ def test_query_fail_closed(tmp_path, mode):
     if "forbidden" in mode:
         assert "identity cannot read" in result.stdout
     if mode == "failed":
-        assert "query failed: no error output" in result.stdout
+        assert "query failed: unrecognised error output (0 characters)" in result.stdout
     if mode == "failed-detail":
-        # The last line of the tool's own error, on one line; the noise before it is dropped.
-        assert (
-            "query failed: Error from server (ServiceUnavailable): the server is currently"
-            " unable to handle the request" in result.stdout
-        )
-        assert "memcache" not in result.stdout
+        # A fixed phrase for the cause; never the tool's own text (it may carry a credential).
+        assert result.stdout.strip().endswith("query failed: cannot reach the API server")
+        for leaked in ("Authorization", "c2VjcmV0", "eyJhbGci", "localhost", "8080"):
+            assert leaked not in result.stdout
     assert not (tmp_path / "commit").exists()
     calls = (tmp_path / "calls").read_text().splitlines()
     assert sum("kubectl" in c for c in calls) == (
@@ -551,31 +549,53 @@ def test_only_two_pipeline_lists(tmp_path):
 
 
 def test_kubectl_keeps_the_in_cluster_identity(tmp_path):
-    """A connection flag makes kubectl in a pod ignore the in-cluster identity.
+    """Every kubectl call has exactly one of two shapes — nothing that touches the connection.
 
-    With --request-timeout (or --server, --kubeconfig, --context, --cluster, --user, --token ...)
-    and no kubeconfig, kubectl uses its default of localhost:8080 instead of the pod's service
-    account. Every read then fails at once and the check refuses every release. The fakes here
-    cannot show that; the Owner's trial run in the cluster did (2026-10-12).
+    With --request-timeout (or --server, --kubeconfig, --context, --token, a certificate flag ...)
+    and no kubeconfig, kubectl in a pod does not fall back to the in-cluster identity: it uses
+    its default of localhost:8080, every read fails at once and the check refuses every
+    release. The fakes here cannot show that; the Owner's trial run in the cluster did
+    (2026-10-12). So the shapes are listed, not the forbidden flags.
     """
+    import ast
+
     assert execute(tmp_path).returncode == 0
-    calls = [c for c in (tmp_path / "calls").read_text().splitlines() if "kubectl" in c]
+    calls = [c for c in (tmp_path / "calls").read_text().splitlines() if c.startswith("kubectl ")]
     assert len(calls) == 3
+    shapes = set()
     for call in calls:
-        for flag in (
-            "--request-timeout",
-            "--server",
-            "--kubeconfig",
-            "--context",
-            "--cluster",
-            "--user",
-            "--token",
-            "--as",
-            "'-s'",
-        ):
-            assert flag not in call, call
+        argv = ast.literal_eval(call[len("kubectl ") :])
+        assert argv[:3] == ["-n", "cicd", "get"] and argv[-2:] == ["-o", "json"], argv
+        middle = argv[3:-2]
+        if middle[0] == "pipelineruns":
+            assert len(middle) == 3 and middle[1] == "-l", argv
+            assert middle[2] in (
+                "tekton.dev/pipeline=bifrost-ci-platform",
+                "tekton.dev/pipeline=bifrost-deliver-platform",
+            ), argv
+        else:
+            assert len(middle) == 2 and middle[0] == "taskrun", argv
+            assert not middle[1].startswith("-"), argv
+        shapes.add(middle[0])
+    assert shapes == {"pipelineruns", "taskrun"}
     source = (ROOT / "scripts/release/platform_prod_gate.py").read_text()
-    assert "--request-timeout=" not in source
+    assert source.count('"kubectl"') == 1
+
+
+def test_cause_is_a_fixed_phrase_never_the_tools_text():
+    namespace = {"__name__": "gate_test"}
+    exec(script(), namespace)
+    detail = namespace["detail"]
+    secret = "Authorization: Basic c2VjcmV0 password=hunter2 token=eyJ"
+    assert detail(secret + "\nfatal: Authentication failed for 'http://x/'") == "mirror authentication failed"
+    assert detail(secret) == "unrecognised error output (%d characters)" % len(secret)
+    assert detail(None) == detail("") == "unrecognised error output (0 characters)"
+    assert detail(b"bytes") == "unrecognised error output (0 characters)"
+    assert detail("The connection to the server localhost:8080 was refused") == "cannot reach the API server"
+    for text in (secret, "x" * 5000, "line one\nline two"):
+        out = detail(text)
+        assert "\n" not in out and len(out) < 80
+        assert out in {c for _, c in namespace["CAUSES"]} or out.startswith("unrecognised")
 
 
 def test_task_params_declared_and_passed():

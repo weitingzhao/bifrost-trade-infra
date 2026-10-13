@@ -132,7 +132,7 @@ git show 27e4467:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | kubectl a
 | `missing or ambiguous clone-platform TaskRun`、`clone TaskRun identity/status mismatch` | 那次 STG 发布的拉代码记录不在了，或和 run 对不上 | 再发一次 STG |
 | `empty or ambiguous mirror revision` | 镜像上没有这个分支或标签，或者同名的分支和标签都在 | 同步镜像；改给 40 位整 SHA |
 | `invalid revision`、`mirror returned another SHA`、`invalid mirror SHA`、`invalid resolved SHA` | 给的修订号不合法，或镜像回的不是它 | 只给分支名、标签名或 40 位整 SHA；再出现就停下查镜像 |
-| `query failed: <集群工具自己的报错最后一行>`、`CalledProcessError: <git 的报错最后一行>`、`malformed or incomplete PipelineRun list`、`PipelineRun does not match selector …`、`malformed run`、`malformed spec`、`malformed params`、`ambiguous params`、`ambiguous status`、`duplicate JSON key`、`timezone missing` | 读集群失败，或读回来的记录形状不对。关着失败 | 重试一次；仍然出现就不要绕过，把这一行原样交给统筹线程 |
+| `query failed: <原因>`、`CalledProcessError: <原因>`（原因是几句固定的话之一，例如 `cannot reach the API server`、`mirror authentication failed`、`timed out`；认不出的写 `unrecognised error output`。工具自己的报错原文不进日志，因为这一步拿着镜像的凭证）、`malformed or incomplete PipelineRun list`、`PipelineRun does not match selector …`、`malformed run`、`malformed spec`、`malformed params`、`ambiguous params`、`ambiguous status`、`duplicate JSON key`、`timezone missing` | 读集群失败，或读回来的记录形状不对。关着失败 | 重试一次；仍然出现就不要绕过，把这一行原样交给统筹线程 |
 | 行尾是一个异常类名（`CalledProcessError`、`TimeoutExpired`、`KeyError` 等） | git 或 kubectl 子进程失败，或超过 20 秒 | 同上 |
 
 钉住路径生成的 JSON 在应用或回退这条 Pipeline 之后要重新生成（它在生成那一刻读线上的定义）。
