@@ -126,6 +126,17 @@ class DominationTests(unittest.TestCase):
         self.assertEqual(fc.violations_for(doc), ["demo: custom-step is not dominated by the freeze check"])
         self.assertEqual(fc.violations_for(pipeline("demo", [ref("echo", "bifrost-smoke-echo")])), [])
 
+    def test_platform_digest_rollout_explicitly_side_effecting(self) -> None:
+        effects = fc.load_effects()
+        name = "bifrost-rollout-verify-platform"
+        self.assertIn(name, effects["side_effect"])
+        task = ref("rollout", name)
+        self.assertTrue(fc.is_side_effect(task, effects, "demo"))
+        self.assertEqual(fc.violations_for(pipeline("demo", [freeze(), task])),
+                         ["demo: rollout is not dominated by the freeze check"])
+        task["runAfter"] = ["freeze-check"]
+        self.assertEqual(fc.violations_for(pipeline("demo", [freeze(), task])), [])
+
     def test_inline_taskspec_uses_the_pipeline_task_name(self) -> None:
         doc = pipeline("demo", [freeze(), inline("kaniko", ["freeze-check"])])
         self.assertEqual(fc.violations_for(doc), [])

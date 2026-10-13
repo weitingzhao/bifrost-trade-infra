@@ -132,6 +132,7 @@
     "bifrost-rollout-platform-stg",
     "bifrost-rollout-research",
     "bifrost-rollout-stg",
+    "bifrost-rollout-verify-platform",
     "build-research",
     "kaniko",
     "run"

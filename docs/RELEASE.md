@@ -139,6 +139,55 @@ git show 27e4467:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | kubectl a
 
 **这道检查生效之后怎么把平台退回旧提交**：直接再发旧提交会被拒，因为 STG 上已经不是它了。两条路：① Owner 先把 Pipeline 恢复成不含检查的定义（上面第 3 条命令），再发旧提交；退回到不含 check-source 身份接线的平台（`2726c47` 之前）之后，检查要一直保持撤回。② 先把旧提交成功发到 STG、让它成为最新的一次，再发 PROD；只适用于含身份接线的平台提交。Owner 动手时用的清单见 `agent-config/work/multi-agent/OWNER-STEPS-2026-10-13.md`。
 
+## Platform STG running-image verification（guardrail 5，slice 2）
+
+STG 的 `rollout` 引用 `bifrost-rollout-verify-platform`，先重启并等待三个 Deployment，再核对 API/worker 与 console 的 `imageID` 是否分别等于本次两个构建结果。三个 Deployment 的副本状态必须全齐；按它们自己的 matchLabels 选 Pod，忽略终止中以及 status.phase 为 Succeeded 或 Failed 的 Pod，剩余数量必须恰好等于期望副本数。每个 Pod 经控制器 UID 链归属当前 Deployment 和当前 revision，并且只有预期的一个容器、正在 Running、running 且 ready。不支持 init/ephemeral 容器以及非空 matchExpressions；不支持的形状拒绝，不放宽检查。
+
+参数没有默认值，STG 明确给 `requireSpecDigest=false`、`recordApplication=none`。核对最多 3 次，每次重读整套对象，间隔 3 秒，总预算 55 秒，每个 kubectl 子进程最多 5 秒；任意一次整套通过才写 `api-digest`、`console-digest`、`verified-at` 三个结果（摘要没有换行）。这证明读取时的运行状态，顺序读取不是原子快照，也不固定以后移动标签拉到的镜像。
+
+应用前由统筹方只读量好第 1 片三个摘要相等、STG/PROD 的 imageID、容器名和 UID/revision 归属链的真实形状。Owner 的次序：STG Role → 新 Task → 两条只核对的试跑（正例成功且结果相符、反例拒绝）→ STG Pipeline。`scripts/release/platform_digest_verify_trial.py <api-digest> <console-digest>` 只打印试跑清单，唯一内联步骤直接取新 Task 的核对脚本，身份 `tekton-deliver`、amd64；创建命令只在生成器 `--help` 中。自动应用脚本仍会整批应用，首次应用时应按上述分步次序执行，试跑未通过不应用 Pipeline。撤回先恢复 STG Pipeline，再撤新 Task（也可留着），最后撤 STG Role 的新增只读权限。共享旧 Task、PROD Pipeline、PROD Role 不在本片变更范围。
+
+拒绝日志前缀 `REFUSED: platform digest verification:` 后面只使用下列固定句；工具输出和对象字段不进入日志。把拒绝句交给统筹方查证，失败不算发布成功。
+
+| 拒绝句 | 意思及处理 |
+|---|---|
+| `invalid expected digest` | 两个期望摘要必须为 sha256 加 64 位小写十六进制，且无换行；查构建结果。 |
+| `only STG verification without recording is supported` | 本片只允许 STG 和 none；查任务接线。 |
+| `invalid spec digest mode` | 核对模式必须明确为 true 或 false；STG 接 false。 |
+| `verification deadline exceeded` | 总预算耗尽；查滚动和集群读取耗时，不放宽判定。 |
+| `cluster read timed out` | kubectl 子进程超过预算；查 API 可达性。 |
+| `identity cannot read Deployments/Pods/ReplicaSets` | 身份或 STG Role 不符；查 tekton-deliver 接线和新增权限。 |
+| `cluster read failed` | 读取失败（含对象不存在）；查 API 与对象，工具原文不进日志。 |
+| `malformed cluster JSON` | JSON 无法解析；查 API 返回值。 |
+| `duplicate JSON key` | JSON 有重复键；查返回证据。 |
+| `malformed cluster object` | 返回的不是对象；查返回形状。 |
+| `invalid controller reference` | 属主引用不是列表；查实际归属链。 |
+| `missing or ambiguous controller reference` | 真控制器必须恰好一条；查 Pod 或 ReplicaSet。 |
+| `wrong controller kind or API version` | 必须为 apps/v1 的 ReplicaSet 或 Deployment；查实际控制器。 |
+| `invalid controller identity` | 控制器名字或 UID 缺失/无效；查对象。 |
+| `invalid ReplicaSet name` | ReplicaSet 名字必须符合 DNS 子域名格式且不超过 253 字符；拒绝后不查询该名字。 |
+| `cluster object identity mismatch` | 返回对象名字、命名空间或 UID 不符；查对象。 |
+| `Deployment has no positive replica count` | 副本数必须为正整数；查 Deployment。 |
+| `Deployment generation is not observed` | 最新 generation 尚未被观察；等滚动完成。 |
+| `Deployment replicas are not fully rolled out` | 四个副本状态不齐；查滚动结果。 |
+| `unsupported Deployment selector` | matchLabels 缺失/非法或带 matchExpressions；先核对真实形状再修设计。 |
+| `malformed or incomplete Pod list` | Pod 列表形状不符或分页未完整；查返回证据。 |
+| `active Pod count differs from replicas` | 无 Pod、只有终止中或终态 Pod、数量不足或多出 Pod；查滚动时序。 |
+| `Pod list identity or selector mismatch` | Pod UID 重复或标签与选择器不符；查返回证据。 |
+| `Pod ReplicaSet UID mismatch` | Pod 引用的 ReplicaSet 已重建或不符；查 UID 链。 |
+| `ReplicaSet Deployment identity mismatch` | ReplicaSet 属于别的 Deployment 或同名旧 UID；查 UID 链。 |
+| `ReplicaSet is not the current revision` | 两边 revision 不同或无效；等旧 Pod 退出再核对。 |
+| `Pod is not Running` | Pod Pending 或退出；查容器启动。 |
+| `unexpected Pod containers` | 容器集合不符合预期；先核对实际容器名。 |
+| `init or ephemeral containers are not supported` | 存在额外容器或其状态；查实际形状。 |
+| `missing or ambiguous container status` | 状态数量或名字不符；查 Pod。 |
+| `container is not running and ready` | 等待、退出、未 ready 或状态矛盾；查启动/探针。 |
+| `container imageID digest differs or is invalid` | 摘要缺失、格式不符或与构建结果不同；查当前镜像，workers 应跑 API 摘要。 |
+| `Deployment spec image is not the expected digest` | 显式打开 spec 摘要核对时声明镜像不符；STG 不打开此项。 |
+| `missing or malformed verification evidence` | 缺字段、错误类型或其它内部异常；查证据形状，未写结果。 |
+| `REFUSED: invalid STG rollout parameters` | 重启前拒绝错误环境、摘要、记录或模式参数；查流水线接线。 |
+| `REFUSED: platform rollout failed or timed out` | 重启/等待失败；查滚动状态，工具原文不进日志。 |
+
 ## 发布窗口：推 main 或起 deliver 之前先看
 
 ```bash
