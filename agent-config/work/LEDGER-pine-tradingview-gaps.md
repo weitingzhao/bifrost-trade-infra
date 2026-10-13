@@ -179,6 +179,8 @@ Pine 定时机、Bifrost 定结构的分工不变（Owner 10-06），但现阶�
 | 2026-10-07 | S9 S12–S14 B7 | Trade 发布（还债线程执行，Owner 跑 release.sh）：STG `bifrost-deliver-stg-q478s` → PROD `bifrost-deliver-prod-pinned-7ws6b` → DEV，前端 `3990ebfd` 含三批全部 Pine 前端；PROD `:30881` 上 `/research/pine`、`/research/pine/<id>` 与经网关的 summary / run 接口均 200。待 W4：Owner 在 PROD 存第一个脚本 | fe `3990ebfd` |
 | 2026-10-07 | S14 | 加锁后第一次夜批：02:30 UTC 定时 run `45915b44` 在 dbt 步失败（pine 在其下游，没跑到）；04:31 UTC 手动重跑 `a5a88fe2` 全部 24 步成功，pine 8 个内置脚本 recent 模式共 3,060 行、errors 0、无 skipped，8 个脚本最后信号都到 10-06 | Dagster `a5a88fe2` |
 | 2026-10-07 | V2 | 建议账本首晚核对（as_of 10-06）：02:30 计划夜跑因 dbt generic test 未打包失败（TD-252，0.204.0 已修），04:31 重跑成功；suggestion_ledger：pine paused（rule v2）、结算 walk-2、无 illiquid_leg、无 pine 行、无 symbol_paired 行；结算表仍空（8 条均未出场），walk-2 结算与流动性快照待首批出场 / 下个周首再核；as_of 10-05 baseline/simulator 发了两套（source_version 1/2）待 Owner 看 | `REPORT-research-0188-first-night-2026-10-07.md` |
+| 2026-10-12 | V2 | 周检（as_of 10-05→10-09）：Pine 整周暂停（rule v2），发出 0 条、结算 0 条，信号表每天有数；机械来源周首发 4 条计数建议（v2），10-06 全部入场、持仓中，结算表仍 0 行（最晚 10-30 出第一批）；门槛进度各来源 0 / 100，自首条 0.2 个月；5 次夜跑 4 成功，10-06 失败后重跑成功 | `REPORT-suggestion-ledger-weekly.md` |
+| 2026-10-12 | V1 | 门槛改为机械来源（baseline、simulator）豁免「任一 symbol ≤ 10%」，pine 保留（thresholds .4，Owner 10-12，重新计时自 as_of 10-12）；10-05 两套建议只算 v2；周检任务说明同步更新 | research `a8abb3f`（本地，待推送和发版） · `REPORT-suggestion-ledger-weekly.md` |
 
 ## 8. 下次重评
 
