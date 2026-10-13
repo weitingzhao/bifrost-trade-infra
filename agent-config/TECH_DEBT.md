@@ -17,7 +17,7 @@
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
-**未结 96 项**：P0 0 · P1 9 · P2 33 · P3 54；要你批的 35 项（审批一栏不是「不用批」或「无」的；2026-10-12 重数，此前这一行是手写的、已经对不上）。
+**未结 97 项**：P0 0 · P1 9 · P2 34 · P3 54；要你批的 35 项（审批一栏不是「不用批」或「无」的；2026-10-12 重数，此前这一行是手写的、已经对不上）。
 
 ## 主题（第 2、3 轮）
 
@@ -2062,3 +2062,17 @@
 - **Ratchet**: the bypass table as cases in `agent-config/scripts/agent-guard/test.js`.
 - 验收: `node agent-config/scripts/agent-guard/test.js` passes with the seven closed spellings refused and the reviewer's list of ordinary commands still allowed
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra
+
+### TD-329
+
+**P2 · ops-platform · an approved action runs on the context of the HTTP request that approved it: when the browser tab is closed, reloaded or put in the background, the action can be cut after the approval is spent**
+
+- **状态**：未开始（2026-10-13 00:34 TD-325 第三轮的确认复核读服务端时指出的；统筹方建议排进第 1 轮，在 A 和护栏 ⑥ 之后做，已在线程里告诉 Owner）
+- **Claim**: the decision handler executes the approved action synchronously, with the request's own context. The Console's nginx does not keep the upstream request alive when the client goes away, so a closed or reloaded page, a phone browser moved to the background, or a laptop lid cancels the context while the action runs. For a PROD `start_pipeline_run` the server may wait up to 90 seconds for the mirror before it creates the run; cancelled in that window the request is recorded as failed and the approval is spent; cancelled while the object is being created it is recorded as unknown and the Owner has to close it by hand. The page fix in TD-325 can only tell the Owner not to close the page.
+- **Measured**: NOT MEASURED — read from the code by the reviewing subagent (2026-10-13), no request was cut on purpose. MEASURED on the branch of TD-325: the page no longer aborts the request itself (a POST left hanging for 30 minutes in the test was never aborted).
+- **Evidence**: `bifrost-platform/console/nginx.conf:7-15` (no `proxy_ignore_client_abort`; 300 s read timeout); `api/internal/approvals/handler.go:136`, `service.go:437`, `execution.go:120-121` (the action runs on the request context); `api/internal/delivery/mirrors.go:14`, `ref_preflight.go:360-387` (the up-to-90-second wait); `api/internal/server/actions_wire.go:464-470` (a cancelled create is recorded as unknown).
+- **Impact**: the one thing only the Owner can do can be undone by an ordinary gesture right after he does it, most likely on a phone. He then has to notice a failed or unknown request and ask for a new one.
+- **Fix**: once the decision is stored, run the action on a context that does not end with the request (a detached context with its own deadline), and let the response return the stored state; the record is the source of truth and the page already re-reads it. Check every executor for what it assumes about the request context. Decide whether nginx should also ignore a client abort for this route.
+- **Ratchet**: a server test that cancels the request context right after the decision is stored and asserts the action still runs to a final state; a test that the response to a cancelled client is not needed for the record to reach it.
+- 验收: approve a request on STG, close the tab at once: the request reaches a final state and the action ran once
+- 审批 无（代码改动，随平台发布）· 代价 S · 风险 med · repos: bifrost-platform
