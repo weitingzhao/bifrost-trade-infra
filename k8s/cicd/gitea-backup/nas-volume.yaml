@@ -3,7 +3,7 @@
 # nfs-cold is Retain, so deleting the claim does not delete the copies.
 #
 # The size is a request, not a quota (nfs-subdir does not enforce it).
-# Seven daily OK runs plus one OK run per week for four weeks, of a tree
+# The newest fourteen OK runs, encrypted, of a tree
 # whose live claim is 20Gi.
 apiVersion: v1
 kind: PersistentVolumeClaim

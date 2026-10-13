@@ -65,9 +65,9 @@ at most three hours old fails immediately, reporting its age. An older lock
 (longer than the one-hour Job deadline) is reported, removed and retaken.
 Two runs starting in the same instant beside a stale lock could both proceed.
 This rare race is accepted: different start stamps keep directories distinct,
-and each run publishes its directory and LATEST atomically. An identical
-second stamp is refused by exclusive directory creation; no shared run is
-reused. The normal CronJob also forbids overlap. There is no stale-lock
+and each run publishes its directory and LATEST atomically. A run whose
+stamp is already taken — as a partial or as a published directory — refuses
+to start or to publish; no run directory is shared or reused. The normal CronJob also forbids overlap. There is no stale-lock
 breaker state.
 A stamp must exceed the newest existing run, including non-OK and partial
 runs; clock rollback fails before retention (recovery is in the runbook).
@@ -130,7 +130,7 @@ and HTTP restore, repository creation/deletion on each of three retries,
 missing object, full tmpfs at manifest encryption, concurrent lock, clock
 rollback, one clone with refs different from the manifest, and authenticated
 rejection of a ciphertext cut in its payload. Seeds are private repositories
-`bifrost/x`, `bifrost/x-y`, a wiki on x, and `admin/gamma`. It does not prove
+`bifrost/x`, `bifrost/x-y`, a wiki on x, and `rehearser/gamma`. It does not prove
 pull mirrors, NetworkPolicy enforcement, real data sizes, or the Owner key.
 
 The sole opt-in test variable is `GITEA_BACKUP_TEST_HOOK_DIR`; without it all

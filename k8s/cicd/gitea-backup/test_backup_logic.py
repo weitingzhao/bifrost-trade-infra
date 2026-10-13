@@ -289,6 +289,42 @@ def test_lock_held_fails_at_once(fixture):
     assert "age 0 seconds" in r.stderr
 
 
+def test_lock_with_empty_start_file_uses_directory_time(fixture):
+    """A run killed between mkdir and the write leaves `started` empty; that is a held lock, not an error."""
+    f = fixture
+    lock = f["backup"] / ".lock"
+    lock.mkdir()
+    (lock / "started").write_text("")
+    epoch = (
+        datetime.strptime(STAMP, "%Y-%m-%dT%H%M%SZ")
+        .replace(tzinfo=timezone.utc)
+        .timestamp()
+    )
+    os.utime(lock, (epoch, epoch))
+    r = run(f)
+    assert r.returncode != 0 and "holds the NAS lock" in r.stderr
+    assert "invalid start time" not in r.stderr
+    assert lock.exists()
+
+
+def test_existing_run_directory_is_never_published_into(fixture):
+    """mv into an existing directory would nest this run inside another run's directory."""
+    f = fixture
+    seed_old(f)
+    before = (f["backup"] / "LATEST").read_text()
+    (f["hooks"] / "wait-status").touch()
+    p = start(f)
+    wait_ready(f, "status")
+    taken = f["backup"] / STAMP
+    taken.mkdir()
+    (f["hooks"] / "status.release").touch()
+    out, err = p.communicate(timeout=45)
+    assert p.returncode != 0, out + err
+    assert "already exists; refusing to publish into it" in err
+    assert (f["backup"] / "LATEST").read_text() == before
+    assert list(taken.iterdir()) == []
+
+
 def test_stale_lock_reported_and_broken(fixture):
     f = fixture
     lock = f["backup"] / ".lock"

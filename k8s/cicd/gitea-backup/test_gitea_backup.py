@@ -259,7 +259,7 @@ def test_stage_cannot_act_on_world_and_emptydir_needs_no_fsgroup():
     assert "fsGroup" not in template()["spec"]["securityContext"]
 
 
-def test_fetch_retries_three_times_offline(tmp_path):
+def test_fetch_retries_six_times_offline(tmp_path):
     import os
     import subprocess
     bins = tmp_path / "bin"
@@ -282,15 +282,15 @@ def test_fetch_retries_three_times_offline(tmp_path):
     script = tmp_path / "fetch.sh"
     # /tools is a mount in production. Rebase only the fixture copy.
     script.write_text((HERE / "fetch-tools.sh").read_text().replace("/tools", str(tools)))
-    for failures in (2, 3):
+    for failures in (5, 6):
         log.unlink(missing_ok=True)
         sleeps = tmp_path / "sleeps"
         sleeps.unlink(missing_ok=True)
         env = dict(os.environ, PATH=str(bins)+os.pathsep+os.environ["PATH"],
                    FETCH_LOG=str(log), FETCH_FAILURES=str(failures), SLEEP_LOG=str(sleeps))
         r = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True)
-        assert (r.returncode == 0) == (failures == 2), r.stderr
-        assert log.read_text().strip() == "3"
-        assert sleeps.read_text().splitlines() == ["3", "3"]
-        if failures == 3:
-            assert "age download failed after 3 attempts" in r.stderr
+        assert (r.returncode == 0) == (failures == 5), r.stderr
+        assert log.read_text().strip() == "6"
+        assert sleeps.read_text().splitlines() == ["5"] * 5
+        if failures == 6:
+            assert "age download failed after 6 attempts" in r.stderr

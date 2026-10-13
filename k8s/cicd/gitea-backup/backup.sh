@@ -46,7 +46,9 @@ case "$RECIPIENT" in
 esac
 now=$(date -u +%s)
 if ! mkdir "$BACKUP_DIR/.lock" 2>/dev/null; then
-  started=$(cat "$BACKUP_DIR/.lock/started" 2>/dev/null || mtime "$BACKUP_DIR/.lock")
+  started=$(cat "$BACKUP_DIR/.lock/started" 2>/dev/null || true)
+  # A run killed between mkdir and the write leaves the file missing or empty.
+  [[ "$started" =~ ^[0-9]+$ ]] || started=$(mtime "$BACKUP_DIR/.lock")
   [[ "$started" =~ ^[0-9]+$ ]] || die 'NAS lock has invalid start time; inspect it before removal.'
   age_seconds=$((now - started))
   if (( age_seconds <= 10800 )); then die "Another Gitea backup holds the NAS lock (age $age_seconds seconds); refusing a concurrent run."; fi
@@ -218,6 +220,8 @@ find "$partial" -type f -exec chmod 0600 {} +
 hook status
 printf 'OK\n' > "$partial/STATUS"
 [[ $(cat "$partial/STATUS") == OK ]] || die 'STATUS readback failed'
+# mv into an existing directory would nest this run inside another one.
+[[ ! -e "$final" ]] || die "Run directory $stamp already exists; refusing to publish into it."
 # Bash defers traps while waiting for mv. Ignore signals through BOTH renames.
 trap '' TERM INT
 hook publish
