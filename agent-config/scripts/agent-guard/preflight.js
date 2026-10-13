@@ -29,7 +29,6 @@
 
 const fs = require('node:fs')
 const path = require('node:path')
-const { execFileSync } = require('node:child_process')
 
 /**
  * 从本文件位置向上查找工作区根（标记：bifrost-platform/config/ops-context.yaml）。
@@ -484,7 +483,8 @@ function nasMountPoints(mountText) {
 /** 挂载表文本可由测试直接给定；表不可用时固定底线仍然生效。 */
 function nasPathRule(text, mountText) {
   text = String(text || '')
-  if (text.includes('/Volumes/k3s-')) return NAS_REASON
+  // 固定底线：k3s 的两个共享，以及 Time Machine 自己的网络挂载点（来源写的是 Bonjour 名，挂载表那条规则认不出）。
+  if (text.includes('/Volumes/k3s-') || text.includes('/Volumes/.timemachine/')) return NAS_REASON
   for (const point of nasMountPoints(mountText)) {
     let at = text.indexOf(point)
     while (at !== -1) {
@@ -497,6 +497,8 @@ function nasPathRule(text, mountText) {
 }
 
 function readMountTable() {
+  // 只在真要读表时才加载：顶层加载会让每一次调用多花几毫秒。
+  const { execFileSync } = require('node:child_process')
   return execFileSync('/sbin/mount', [], {
     encoding: 'utf8', timeout: 1000, maxBuffer: 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'],
   })

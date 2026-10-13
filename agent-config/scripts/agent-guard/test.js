@@ -4,6 +4,9 @@
 const { spawnSync } = require('node:child_process')
 // 相对自身定位，随治理层整体搬迁而不失效
 const GUARD = require('node:path').join(__dirname, 'preflight.js')
+// 没跑到汇总行就退出（例如被加载的脚本自己调了 process.exit）一律算失败：否则 0 条用例也是绿的。
+let finished = false
+process.on('exit', () => { if (!finished) { console.error('✗ 测试没有跑到汇总行就退出了'); process.exit(1) } })
 const { evaluate, nasMountPoints } = require(GUARD)
 
 const bash = c => ({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: c } })
@@ -36,6 +39,12 @@ const cases = [
   ['nas', 'DENY', 'NAS Read', tool('Read', { file_path: '/Volumes/k3s-hot/a.sql' })],
   ['nas', 'DENY', 'NAS Cursor shell', { hook_event_name: 'beforeShellExecution', command: 'cat /Volumes/k3s-hot/a.sql' }],
   ['nas', 'ALLOW', 'Write 文档正文提到 NAS', tool('Write', { file_path: '/tmp/note.md', contents: '/Volumes/k3s-hot/a.sql' })],
+  // Claude 实际发的正文字段名：Write 是 content，Edit 是 new_string，NotebookEdit 是 new_source。
+  ['nas', 'ALLOW', 'Claude Write 正文提到 NAS', tool('Write', { file_path: '/tmp/note.md', content: 'see /Volumes/k3s-hot/a.sql' })],
+  ['nas', 'ALLOW', 'Claude Edit 正文提到 NAS', tool('Edit', { file_path: '/tmp/note.md', old_string: 'x', new_string: 'see /Volumes/k3s-hot/a.sql' })],
+  ['nas', 'ALLOW', 'Claude NotebookEdit 正文提到 NAS', tool('NotebookEdit', { notebook_path: '/tmp/n.ipynb', new_source: 'open("/Volumes/k3s-hot/a.sql")' })],
+  ['nas', 'DENY', 'Time Machine 的网络挂载点', bash('ls /Volumes/.timemachine/UGREEN-NAS._smb._tcp.local./X/TimeMachine')],
+  ['nas', 'DENY', 'MCP 终端工具的命令', tool('mcp__terminal__run_in_terminal', { command: 'cat /Volumes/k3s-hot/a.sql' })],
   // ── D10 应拦截 ──
   ['D10', 'DENY', 'kubectl scale daemon --replicas=1', bash('kubectl scale deploy/daemon -n bifrost-stg --replicas=1')],
   ['D10', 'DENY', 'XADD ' + OPCMD, bash('redis-cli XADD ' + OPCMD + ' MAXLEN 1000 op place_order')],
@@ -272,6 +281,8 @@ const mounts = [
   '//192.168.10.20/public on /Volumes/public (smbfs, nodev)',
   '//fixture@192.168.10.21/other on /Volumes/other (smbfs, nodev)',
   '192.168.10.200:/volume1/other on /Volumes/other-nfs (nfs, nodev)',
+  '//fixture@192.168.10.200/near on /Volumes/near (smbfs, nodev)',
+  '//192.168.10.20@10.0.0.9/userip on /Volumes/userip (smbfs, nodev)',
   '/dev/disk1s1 on /Volumes/Macintosh HD (apfs, local)',
 ].join('\n')
 const unavailable = () => { throw new Error('mount unavailable') }
@@ -297,6 +308,9 @@ const nasCases = [
   ['ALLOW', '远端集群 NFS 文本不读表', bash('echo 192.168.10.20:/volume1/k3s-cold/a'), () => mounts, 0],
   ['ALLOW', '其他 SMB 主机', bash('cat /Volumes/other/a'), () => mounts, 1],
   ['ALLOW', '相似 NFS 主机', bash('cat /Volumes/other-nfs/a'), () => mounts, 1],
+  ['ALLOW', '相似 SMB 主机（前缀相同）', bash('cat /Volumes/near/a'), () => mounts, 1],
+  ['ALLOW', 'SMB 用户名长得像 NAS 的地址', bash('cat /Volumes/userip/a'), () => mounts, 1],
+  ['DENY', 'Glob 的 glob_pattern', tool('Glob', { glob_pattern: '/Volumes/personal_folder/**' }), () => mounts, 1],
   ['ALLOW', '挂载点同名前缀不算子路径', bash('cat /Volumes/personal_folder_copy/a'), () => mounts, 1],
 ]
 console.log('\n── NAS 给定挂载表与懒读取 ──')
@@ -313,4 +327,5 @@ const parsedOk = JSON.stringify(parsed) === JSON.stringify(['/Volumes/personal_f
 parsedOk ? pass++ : fail++
 console.log(`  ${parsedOk ? '✓' : '✗'} SMB/NFS 精确来源解析`)
 console.log(`\n${fail === 0 ? '✓' : '✗'} ${pass} 通过 / ${fail} 失败（共 ${pass + fail}）`)
+finished = true
 process.exit(fail === 0 ? 0 : 1)

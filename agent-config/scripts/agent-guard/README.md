@@ -26,7 +26,9 @@ Cursor 与 Claude **共用同一份实现**。双轨维护（`CLAUDE.md` §7）�
 
 ### 本机 NAS 共享（TD-326，始终生效）
 
-- 命令文本或文件工具路径出现 `/Volumes/k3s-` 前缀即拒绝，不依赖是否挂载。
+- 命令文本或文件工具路径出现 `/Volumes/k3s-` 前缀或 Time Machine 的网络挂载点（`/Volumes/.timemachine/`）即拒绝，不依赖是否挂载。
+- Bash 的命令文本是整段查的：提交信息、heredoc 正文、`echo` 里提到这些路径也会被拒。要写进文件就用文件工具写，再用 `git commit -F` 之类引用。
+- NAS 挂在 `/Volumes` 之外时这条规则不生效；先 `cd` 再用相对路径、变量拼接、通配符、换大小写也绕得过。已知，不在这条绊线的范围里。
 - 只有文本含 `/Volumes/` 才读取一次本机挂载表；来源主机精确为 `192.168.10.20` 的 SMB/NFS 挂载点及其子路径拒绝。读取或解析失败只保留固定底线，其他路径放行。
 - `mount`、`df -h`、`ls /Volumes`、非 NAS 本机路径和集群远端 NFS 路径文本照常放行；文件写入正文不作为路径检查。
 - Claude 的 `Read` 与文件写入工具过闸（原生 `Grep` / `Glob` 不在 matcher）；Cursor 原生文件工具不过闸，shell/MCP 过闸；Codex 全部工具过闸，`apply_patch` 按目标路径转为 `Write`。

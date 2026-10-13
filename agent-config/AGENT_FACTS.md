@@ -445,7 +445,7 @@ Tekton 流水线：`bifrost-ci-{frontend,platform,python}` · `bifrost-deliver-{
 
 ### 本机敏感位置（只对 Owner 可见，不得进入任何仓库或外部服务）
 
-- NAS `192.168.10.20` 的 SMB/NFS 共享挂在本机 `/Volumes/` 下，其中有未加密的数据库备份；Agent 闸门拒绝命令或已接线文件工具读取这些路径（TD-326，文本绊线）。
+- NAS `192.168.10.20` 的四个 SMB 共享（`k3s-hot`、`personal_folder`、`TimeMachine`、`family-share`）挂在本机 `/Volumes/` 下，Time Machine 另有一个它自己的网络挂载点；`k3s-hot` 里有未加密的数据库逻辑备份（2026-10-12 起平时不挂，要用再挂）。Agent 闸门按文本拒绝提到这些路径的命令和已接线文件工具的路径（TD-326；是绊线，不是墙）。
 
 `~/bifrost-backups/trade-prod/2026-07-30_pre-p9-drop/bifrost_prod_pre_p9_*.dump`（PROD 全量 dump，10-06 从工作区根 `backups/` 移来）· 各 repo 未跟踪 `.env`（platform、research、plugin ×3、infra、frontend `.env.development.local`）·
 未跟踪 Secret YAML（`k8s/base/secrets`、`k8s/data/secrets`、`k8s/cicd/gitea/secret.yaml`、`k8s/overlays/*/…token*.yaml`）·
