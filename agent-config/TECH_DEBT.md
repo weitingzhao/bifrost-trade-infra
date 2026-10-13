@@ -13,11 +13,10 @@
 
 ## 待你签收
 
-- **TD-326** — 开发机上挂着的未加密备份不让 Agent 读到：`k3s-hot` 共享已推出（看板读挂载表盯着，再挂上会自己报出来）；Agent 闸门新增一条，拒绝点名 NAS 挂载点的命令和文件工具路径（三家共用，infra `d5154ea`）。验收：PASS 2026-10-12 23:58 `d5154ea`——共享已不在挂载表里；点名它的命令被闸门拦下。防线：RATCHETS「Agent 的命令和文件工具路径不得指向本机挂着的 NAS 共享」（闸门回归 179 + 21 条，手跑）。后续：TD-327（逻辑备份加密）、TD-328（绊线管不到的几种写法）。回「签收 TD-326」或「打回 TD-326：原因」。
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
-**未结 97 项**：P0 0 · P1 9 · P2 34 · P3 54；要你批的 35 项（审批一栏不是「不用批」或「无」的；2026-10-12 重数，此前这一行是手写的、已经对不上）。
+**未结 99 项**：P0 0 · P1 9 · P2 35 · P3 55；要你批的 36 项（审批一栏不是「不用批」或「无」的；2026-10-12 重数，此前这一行是手写的、已经对不上）。
 
 ## 主题（第 2、3 轮）
 
@@ -2020,21 +2019,6 @@
 - 审批 无（代码改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
 
-### TD-326
-
-**P2 · infra · the unencrypted logical database backups are readable from the development Mac, where agents run: the NAS share that holds them is mounted there**
-
-- **状态**：待你签收（2026-10-12 23:58：两样都做完。① `k3s-hot` 共享 23:07 推出，看板每 20 秒读一次挂载表盯着；② 闸门规则进了 infra 主线 `d5154ea`（Codex 写，Claude 的子代理复核两次：没有会答错的，补了 3 条测试和 2 处文字后确认可以合并），共享检出当时快进、规则当时生效。留下的两件另记为 TD-327（逻辑备份加密）和 TD-328（绊线管不到的几种写法），都排在多 Agent 架构做完之后。）之前：在做（Owner 2026-10-12 22:46 在线程里定：「按照你的建议来」。建议是三样里的两样先做——① Owner 在访达里把 `k3s-hot` 共享推出，要用时再挂；② 闸门加一条，拒绝 Agent 的命令读 NAS 挂载点下的东西（Codex 写，独立复核）。把逻辑备份也用 Owner 的公钥加密排到第 1 轮之后，因为每月的恢复演练要跟着改。闸门是按文本匹配的绊线，不是墙：真正关掉这条路的是 ① 和以后的加密。此前：未开始，2026-10-12 22:13 帮 Owner 找 Gitea 备份的挂载位置时看到的）
-- **Claim**: the Mac Pro on which every agent session runs has the NAS share `k3s-hot` mounted over SMB under the Owner's NAS account. `k8s/data/logical-backup` writes its daily dumps of `bifrost_prod` (schema `public`) and of four Golden Source schemas to the claim `data/logical-backup-hot` on that share, unencrypted (`k8s/data/logical-backup/README.md`). So any process of the Owner's user on that Mac — an agent's shell included — can read production data dumps without touching the cluster or any credential the guard watches. The agent guard (`scripts/agent-guard/preflight.js`) matches commands that name the Owner's credential files and the approval routes; it does not know about `/Volumes`.
-- **Measured**: MEASURED 2026-10-12 22:13 CDT with `mount`: `k3s-hot`, `personal_folder`, `TimeMachine` and `family-share` of `192.168.10.20` are mounted on the Mac; `k3s-cold` is not. NOT MEASURED, on purpose: the coordinator did not list or read anything under the share. Whether the weekly copies on `k3s-cold` are reachable the same way once that share is mounted is NOT MEASURED.
-- **Evidence**: `k8s/data/logical-backup/README.md` (what is written where; "RPO is one day … an offsite copy is open"); `k8s/data/logical-backup/nas-volumes.yaml`; `k8s/data/cluster-state-backup/README.md` and `k8s/cicd/gitea-backup/README.md` (the two backups that are encrypted to the Owner's key before they reach the NAS).
-- **Impact**: the boundary "agents read production data only through `agent_reader`" does not hold on this machine. A mistaken or misled agent command could copy, or publish, account and trade data.
-- **Fix** (for the Owner to choose): unmount the share on the development Mac when it is not needed and mount it read-only, on demand; or encrypt the logical dumps to the Owner's key as the other two backups do (the monthly restore drill in the cluster would then need another way to read them); or keep it and add `/Volumes/k3s-*` to what the guard refuses. The Gitea backup written since 2026-10-12 is ciphertext, so mounting `k3s-cold` adds no readable secret.
-- **Ratchet**: a line in the guard's tests for a read under the NAS mount points, if the guard route is chosen.
-- 验收: from an agent shell on the Mac, a read of a logical dump is either impossible (not mounted, or ciphertext) or refused by the guard
-- 验收结果：PASS 2026-10-12 23:58 `d5154ea`——挂载表里已没有这个共享（读不到）；从 Agent 的 shell 发一条点名这个共享的命令，被闸门以「本机 NAS 共享 — TD-326」拦下；不点名共享的 `mount` 照常放行。
-- 审批 要 Owner 定方向 · 代价 S · 风险 low · repos: bifrost-trade-infra
-
 ### TD-327
 
 **P2 · infra · the daily logical database dumps on the NAS are unencrypted; whoever can mount the share can read production data**
@@ -2076,3 +2060,31 @@
 - **Ratchet**: a server test that cancels the request context right after the decision is stored and asserts the action still runs to a final state; a test that the response to a cancelled client is not needed for the record to reach it.
 - 验收: approve a request on STG, close the tab at once: the request reaches a final state and the action ran once
 - 审批 无（代码改动，随平台发布）· 代价 S · 风险 med · repos: bifrost-platform
+
+### TD-330
+
+**P2 · ops-platform · a push to infra main that touches the production platform's manifests is deployed by Argo at once, with no approval and no release check**
+
+- **状态**：未开始（2026-10-13 11:34 护栏 ⑤ 选路时记下：Owner 选了走标签，钉住清单的做法留到第 3 轮和全自动发布一起看）
+- **Claim**: the Application `bifrost-platform-prod` follows `main` of the infra repository with automated sync, prune and selfHeal. Any session that pushes a change under `k8s/overlays/platform-prod` or `k8s/base-platform` changes production; the approval request, the release window and the source check of the delivery pipeline are not on that path. Twelve repositories and several agent sessions push to that branch every day.
+- **Measured**: MEASURED 2026-10-12 22:45 read-only: `targetRevision=main`, `automated={prune:true,selfHeal:true}`, no `ignoreDifferences`. About 20 commits touched those two directories in the month before (counted for the design, `agent-work` notes; NOT re-counted here).
+- **Evidence**: `k8s/cicd/applications/bifrost-platform-prod.yaml:12-22`; `bifrost-trade-infra/CLAUDE.md` ("推 main 即改运行时"); the three design drafts and reviews 141, 143, 148 of guardrail 5 (pinning the Application to a commit advanced by the delivery pipeline closes this, and was not chosen now: three drafts still had wrong-answer paths).
+- **Impact**: the one production surface an agent can change without the Owner seeing a request. A wrong edit to a ConfigMap generator there rolls the API and the workers.
+- **Fix**: either pin the Application to a commit that only the delivery pipeline advances (the design exists, unfinished), or a smaller guard first: the agent guard and CI refuse a push that touches those two directories unless it carries an approved request's id; decide when round 3 is planned.
+- **Ratchet**: a read-only check that the live `targetRevision` and sync policy are what the ledger says, and whichever guard is chosen.
+- 验收: a change under `k8s/overlays/platform-prod` reaches production only through an approved request
+- 审批 要你批 · 代价 M · 风险 med · repos: bifrost-trade-infra, bifrost-platform
+
+### TD-331
+
+**P3 · ops-platform · production pods of the platform are deployed by a movable tag: after a promotion, a restart pulls whatever `:prod` points to then**
+
+- **状态**：未开始（2026-10-13 11:34 Owner 定：护栏 ⑤ 走标签。这一条是它明说做不到的那一半）
+- **Claim**: with the tag route, a production delivery puts the pair of images verified on STG under `:prod` and checks that the pods run that pair when the delivery ends. The Deployments still name the tag and pull `Always`; the registry has no authentication. A later push to `:prod`, or the developer script that pushes it by default, changes what the next restart runs.
+- **Measured**: NOT MEASURED (read from the manifests and the registry Deployment during the design of guardrail 5).
+- **Evidence**: `k8s/overlays/platform-prod/kustomization.yaml:57-63`; `k8s/overlays/platform-prod/images-pull-always.patch.yaml`; `k8s/cicd/registry/deployment.yaml`; `bifrost-platform/scripts/push-platform-api.sh:4-7,33-36`.
+- **Impact**: "production runs what was verified" holds at delivery time, not afterwards.
+- **Fix**: write the digests into the production manifests (needs TD-330's pinning, or another way to advance manifests behind the gate); until then a cheap detector: compare the running pods' digests with the last delivery's recorded pair on a schedule and alert on a difference.
+- **Ratchet**: the detector's alert rule.
+- 验收: a pod restarted a day after a delivery still runs the recorded pair, or an alert says it does not
+- 审批 不用批 · 代价 M · 风险 low · repos: bifrost-trade-infra
