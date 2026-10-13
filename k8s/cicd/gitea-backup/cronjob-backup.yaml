@@ -99,8 +99,13 @@ spec:
                   mountPath: /backup
           volumes:
             # emptyDir starts mode 0777; uid 1000 needs no fsGroup.
+            # The stage, the archive and the clones live here: roughly three times the live
+            # data. The limit only stops a runaway from filling the control-plane node's disk
+            # (432 GB free on 2026-10-12); a run that exceeds it is evicted and the alert fires.
+            # The live size is not measurable from outside the pod — the first run's SIZES.tsv
+            # gives it; revisit this number then.
             - name: work
-              emptyDir: {}
+              emptyDir: {sizeLimit: 60Gi}
             - name: tools
               emptyDir: {sizeLimit: 64Mi}
             - name: recipient

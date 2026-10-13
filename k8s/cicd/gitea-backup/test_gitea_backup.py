@@ -200,6 +200,15 @@ def test_same_recipient_and_age_pin():
     assert "kubectl" not in (HERE / "fetch-tools.sh").read_text().split("set -eu")[1]
 
 
+def test_scratch_space_is_bounded():
+    """The plaintext stage must not be able to fill the control-plane node's disk."""
+    text = (HERE / "cronjob-backup.yaml").read_text()
+    job = yaml.safe_load(text)
+    volumes = job["spec"]["jobTemplate"]["spec"]["template"]["spec"]["volumes"]
+    work = next(v for v in volumes if v["name"] == "work")
+    assert work["emptyDir"].get("sizeLimit"), work
+
+
 def test_one_cronjob_and_no_test_hooks():
     jobs = [
         d for p in HERE.glob("*.yaml") for d in docs(p) if d.get("kind") == "CronJob"
