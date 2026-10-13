@@ -764,25 +764,42 @@ def test_prod_pipeline_wiring():
 
 
 def test_prod_pipeline_cannot_skip_the_check():
-    # A skipped upstream task skips rollout too, and the run would still succeed.
+    # `when` or `onError` on an upstream task skips rollout too, and the run
+    # would still succeed. `finally`, `retries` and `matrix` do not skip it;
+    # they are pinned so that adding one to this pipeline is a deliberate change.
     spec = prod_pipeline()
     assert "finally" not in spec
     for t in spec["tasks"]:
-        assert not {"when", "onError", "retries"} & t.keys(), t["name"]
+        assert not {"when", "onError", "retries", "matrix"} & t.keys(), t["name"]
+
+
+def namespace_condition(source):
+    tests = [
+        ast.unparse(n.test)
+        for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.If) and "bifrost-platform-stg" in ast.unparse(n.test)
+    ]
+    assert len(tests) == 1
+    return tests[0]
 
 
 def test_exactly_two_namespaces_in_source():
-    # The refusal tests sample a few other names; this pins the two tuples.
-    pair = '("bifrost-platform-stg", "bifrost-platform-prod")'
+    # The refusal tests sample a few other names. This pins the whole condition
+    # in each of the three places, so a third name inside or around it fails.
+    pair = "('bifrost-platform-stg', 'bifrost-platform-prod')"
     verify = (ROOT / "scripts/release/platform_digest_verify.py").read_text()
-    assert verify.count("namespace not in " + pair) == 1
-    assert verify.count("bifrost-platform-") == 2
+    assert namespace_condition(verify) == (
+        "namespace not in " + pair + " or os.environ['RECORD_APPLICATION'] != 'none'"
+    )
     restart = task_spec()["steps"][0]["script"]
-    assert restart.count("os.environ['NAMESPACE'] not in ('bifrost-platform-stg', 'bifrost-platform-prod')") == 1
-    assert restart.count("bifrost-") == 2
+    assert namespace_condition(restart) == (
+        "os.environ['NAMESPACE'] not in " + pair
+        + " or os.environ['RECORD_APPLICATION'] != 'none'"
+        + " or os.environ['REQUIRE_SPEC_DIGEST'] != 'false'"
+    )
     trial = (ROOT / "scripts/release/platform_digest_verify_trial.py").read_text()
-    assert trial.count("namespace not in " + pair) == 1
-    assert trial.count("choices=" + pair) == 1
+    assert namespace_condition(trial) == "namespace not in " + pair
+    assert trial.count('choices=("bifrost-platform-stg", "bifrost-platform-prod")') == 1
 
 
 def test_required_params_and_no_skip():
