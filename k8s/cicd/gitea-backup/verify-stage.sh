@@ -48,6 +48,10 @@ export GITEA__repository__ROOT="$stage/git/repositories"
 export GITEA__log__MODE=console
 export GITEA__service__DISABLE_REGISTRATION=true
 export GITEA__mailer__ENABLED=false
+# Gitea 1.21: webhook.ALLOWED_HOST_LIST restricts destinations; mirror.ENABLED,
+# cron.ENABLED, actions.ENABLED and mailer.ENABLED disable background activity.
+export GITEA__webhook__ALLOWED_HOST_LIST=loopback
+export GITEA__cron__ENABLED=false
 export GITEA__mirror__ENABLED=false
 export GITEA__actions__ENABLED=false
 export GITEA__lfs__PATH="$stage/git/lfs"
@@ -71,9 +75,15 @@ if [[ -r /proc/net/tcp ]]; then
     awk '$4=="0A" && substr($2,length($2)-4)==":0BB8" { bad=1 } END { exit bad }' /proc/net/tcp6 || die 'unexpected IPv6 HTTP listener'
   fi
 fi
-token=$(gitea admin user generate-access-token --config "$app_ini" --work-path "$stage/gitea" --custom-path "$stage/gitea" \
-  --username "$admin" --token-name "backup-$$" --scopes all --raw 2> "$scratch/token.log")
-[[ -n "$token" ]] || die 'stage token generation failed'
+token=""
+# SQLite may be busy while the web process starts; bounded retry, private log.
+for attempt in $(seq 1 10); do
+  if token=$(gitea admin user generate-access-token --config "$app_ini" --work-path "$stage/gitea" --custom-path "$stage/gitea" \
+    --username "$admin" --token-name "backup-$$-$attempt" --scopes all --raw 2> "$scratch/token.log") && [[ -n "$token" ]]; then break; fi
+  token=""
+  [[ $attempt == 10 ]] || sleep 1
+done
+[[ -n "$token" ]] || die 'stage token generation failed after 10 attempts'
 export GIT_TERMINAL_PROMPT=0
 export GIT_CONFIG_COUNT=1
 export GIT_CONFIG_KEY_0=http.extraHeader
@@ -85,7 +95,7 @@ tail -n +2 "$manifest" > "$scratch/rows"
 while IFS=$'\t' read -r path refs; do
   [[ -n "$path" ]] || die 'empty manifest row'
   rel=${path#git/repositories/}
-  [[ "$rel" != "$path" && "$rel" =~ ^[a-z0-9_.-]+/[a-z0-9_.-]+\.git$ ]] || die 'unsafe manifest repository path'
+  [[ "$rel" != *.wiki.git && "$rel" != "$path" && "$rel" =~ ^[a-z0-9_.-]+/[a-z0-9_.-]+\.git$ ]] || die 'unsafe manifest repository path'
   dest="$scratch/clone"
   git clone --mirror "http://127.0.0.1:3000/$rel" "$dest" > "$scratch/clone.log" 2>&1 || die "HTTP clone failed: $path"
   got=$(git --git-dir="$dest" for-each-ref --format='%(refname)=%(objectname)' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')
@@ -95,9 +105,14 @@ while IFS=$'\t' read -r path refs; do
   refs_count=$((refs_count+n))
   rm -rf "$dest"
 done < "$scratch/rows"
+[[ $count == $(awk 'END {print NR+0}' "$scratch/rows") ]] || die 'clone count does not equal manifest rows'
 [[ $count -gt 0 ]] || die 'zero repositories verified'
 # Defense in depth: the copied DB set must match the entire manifest again.
 sqlite3 "$db_path" "SELECT 'git/repositories/' || u.lower_name || '/' || r.lower_name || '.git' FROM repository r JOIN user u ON u.id=r.owner_id ORDER BY u.lower_name,r.lower_name;" > "$scratch/db-set"
 cut -f1 "$scratch/rows" > "$scratch/manifest-set"
-cmp "$scratch/db-set" "$scratch/manifest-set" || die 'verified manifest does not match stage database'
+for set in db-set manifest-set; do
+  LC_ALL=C sort -u "$scratch/$set" > "$scratch/$set.sorted"
+  [[ $(wc -l < "$scratch/$set" | tr -d ' ') == $(wc -l < "$scratch/$set.sorted" | tr -d ' ') ]] || die "duplicate repository paths in $set"
+done
+cmp "$scratch/db-set.sorted" "$scratch/manifest-set.sorted" || die 'verified manifest does not match stage database'
 printf '%s repositories and %s refs matched over HTTP\n' "$count" "$refs_count" > "$verified"

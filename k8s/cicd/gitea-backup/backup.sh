@@ -8,30 +8,24 @@ WORK_DIR=${WORK_DIR:-/work}
 RECIPIENT_FILE=${RECIPIENT_FILE:-/etc/gitea-backup/recipient}
 REQUIRE_MOUNT=${REQUIRE_MOUNT:-1}
 HERE=$(cd "$(dirname "$0")" && pwd)
-reap_owned=0
 lock_owned=0
 partial_owned=0
-published=0
-committed=0
 partial=""
 final=""
 latest_tmp=""
 scratch=""
 die() { printf 'FATAL: %s\n' "$*" >&2; exit 1; }
+# BusyBox uses stat -c; BSD stat uses -f. No date -d is needed.
 mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"; }
 cleanup() {
   rc=$?
   trap - EXIT
-  # Failed publication must not leave an OK run (including LATEST failures).
-  if [[ $rc != 0 && $published == 1 && $committed == 0 ]]; then
-    rm -rf "$final/STATUS"
-    mv "$final" "$partial"
-  elif [[ $rc != 0 && $partial_owned == 1 && -d "$partial" ]]; then
+  # A final directory is immutable, even if updating LATEST fails.
+  if [[ $rc != 0 && $partial_owned == 1 && -d "$partial" ]]; then
     rm -rf "$partial/STATUS"
   fi
   [[ -z "$latest_tmp" ]] || rm -rf "$latest_tmp"
   [[ -z "$scratch" ]] || rm -rf "$scratch"
-  if [[ $reap_owned == 1 ]]; then rmdir "$BACKUP_DIR/.lock-reap"; fi
   if [[ $lock_owned == 1 ]]; then rm -rf "$BACKUP_DIR/.lock"; fi
   exit "$rc"
 }
@@ -52,23 +46,17 @@ case "$RECIPIENT" in
 esac
 now=$(date -u +%s)
 if ! mkdir "$BACKUP_DIR/.lock" 2>/dev/null; then
-  age_seconds=$((now - $(mtime "$BACKUP_DIR/.lock")))
-  if (( age_seconds <= 10800 )); then die 'Another Gitea backup holds the NAS lock; refusing a concurrent run.'; fi
+  started=$(cat "$BACKUP_DIR/.lock/started" 2>/dev/null || mtime "$BACKUP_DIR/.lock")
+  [[ "$started" =~ ^[0-9]+$ ]] || die 'NAS lock has invalid start time; inspect it before removal.'
+  age_seconds=$((now - started))
+  if (( age_seconds <= 10800 )); then die "Another Gitea backup holds the NAS lock (age $age_seconds seconds); refusing a concurrent run."; fi
   printf 'Stale NAS lock older than 3 hours (%s seconds); breaking it.\n' "$age_seconds" >&2
-  # Serialize stale-lock breakers, then recheck: a second breaker must never
-  # rename a fresh lock installed by the first one.
-  mkdir "$BACKUP_DIR/.lock-reap" 2>/dev/null || die 'Another run is breaking the stale NAS lock.'
-  reap_owned=1
-  age_seconds=$((now - $(mtime "$BACKUP_DIR/.lock")))
-  (( age_seconds > 10800 )) || die 'NAS lock was refreshed; refusing to break it.'
-  stale="$BACKUP_DIR/.lock.stale.$$"
-  mv "$BACKUP_DIR/.lock" "$stale"
-  rm -rf "$stale"
+  # Simultaneous stale-lock breakers may both proceed; see README.
+  rm -rf "$BACKUP_DIR/.lock"
   mkdir "$BACKUP_DIR/.lock" || die 'Another run acquired the lock while breaking the stale lock.'
-  rmdir "$BACKUP_DIR/.lock-reap"
-  reap_owned=0
 fi
 lock_owned=1
+printf '%s\n' "$now" > "$BACKUP_DIR/.lock/started"
 scratch=$(mktemp -d "$WORK_DIR/run.XXXXXX")
 # All hooks are inert unless this one explicit variable is set. No production
 # manifest sets it. Handshakes have a bounded wait and can be used on every retry.
@@ -120,7 +108,10 @@ repo_root=${repo_root:-$DATA_DIR/git/repositories}
 [[ "$repo_root" == "$DATA_DIR/git/repositories" ]] || die 'unsupported repository ROOT; expected data/git/repositories'
 repo_set() {
   [[ -d "$1/git/repositories" ]] || return 0
-  find "$1/git/repositories" -mindepth 2 -maxdepth 2 -type d -name '*.git' | sed "s|^$1/||" | LC_ALL=C sort
+  find "$1/git/repositories" -mindepth 2 -maxdepth 2 -type d -name '*.git' ! -name '*.wiki.git' | sed "s|^$1/||" > "$scratch/disk-raw"
+  LC_ALL=C sort -u "$scratch/disk-raw" > "$scratch/disk-sorted"
+  [[ $(wc -l < "$scratch/disk-raw" | tr -d ' ') == $(wc -l < "$scratch/disk-sorted" | tr -d ' ') ]] || die 'duplicate repository paths on disk'
+  cat "$scratch/disk-sorted"
 }
 equal=0
 for attempt in 1 2 3; do
@@ -138,7 +129,8 @@ for attempt in 1 2 3; do
   [[ "$count" =~ ^[0-9]+$ && $count -gt 0 ]] || die 'zero repositories or invalid database count'
   [[ $(wc -l < "$scratch/db-set" | tr -d ' ') == "$count" ]] || die 'repository owners missing from database'
   LC_ALL=C sort -u "$scratch/db-set" > "$scratch/db-set.sorted"
-  cmp "$scratch/db-set" "$scratch/db-set.sorted" || die 'duplicate or unsorted repository paths'
+  [[ $(wc -l < "$scratch/db-set.sorted" | tr -d ' ') == "$count" ]] || die 'duplicate repository paths'
+  mv "$scratch/db-set.sorted" "$scratch/db-set"
   while read -r rel; do
     [[ "$rel" =~ ^git/repositories/[a-z0-9_.-]+/[a-z0-9_.-]+\.git$ && "$rel" != *'/../'* ]] || die 'unsafe repository path in database'
   done < "$scratch/db-set"
@@ -153,10 +145,12 @@ for attempt in 1 2 3; do
   cp "$scratch/gitea.db" "$stage/$db_rel"
   repo_set "$stage" > "$scratch/disk-set"
   if cmp -s "$scratch/db-set" "$scratch/disk-set"; then equal=1; break; fi
-  printf 'Repository set mismatch, attempt %s; database-only / disk-only:\n' "$attempt" >&2
-  comm -3 "$scratch/db-set" "$scratch/disk-set" >&2
+  printf 'Repository set mismatch, attempt %s; database-only / disk-only (non-wiki orphan directories fail):\n' "$attempt" >&2
+  LC_ALL=C comm -3 "$scratch/db-set" "$scratch/disk-set" >&2
  done
 [[ $equal == 1 ]] || die 'repository sets still differ after 3 stages (names above)'
+# Wiki repositories have no database row, but must be archived and fsck'd.
+find "$stage/git/repositories" -mindepth 2 -maxdepth 2 -type d -name '*.git' | sed "s|^$stage/||" | LC_ALL=C sort -u > "$scratch/fsck-set"
 while read -r rel; do
   good=0
   for retry in 1 2 3; do
@@ -166,7 +160,7 @@ while read -r rel; do
     tar -C "$DATA_DIR" -cf - "$rel" | tar -C "$stage" -xf -
   done
   [[ $good == 1 ]] || die "repository $rel failed git fsck after 3 copies"
-done < "$scratch/db-set"
+done < "$scratch/fsck-set"
 repo_set "$stage" > "$scratch/disk-set"
 cmp "$scratch/db-set" "$scratch/disk-set" || die 'repository set changed during fsck retries'
 hook manifest
@@ -181,6 +175,7 @@ cmp "$scratch/db-set" "$scratch/manifest-set" || die 'manifest does not contain 
 tar -C "$stage" -cf "$scratch/data.tar" .
 archive_sum=$(sha256sum "$scratch/data.tar" | awk '{print $1}')
 repo_bytes=$(find "$stage/git/repositories" -type f -exec sh -eu -c 'for f; do wc -c < "$f"; done' sh {} + | awk '{n+=$1} END {print n+0}')
+hook verify
 bash "$HERE/verify-stage.sh" "$stage" "$scratch/MANIFEST.tsv" "$scratch/VERIFIED"
 mkdir "$partial"
 partial_owned=1
@@ -223,11 +218,15 @@ find "$partial" -type f -exec chmod 0600 {} +
 hook status
 printf 'OK\n' > "$partial/STATUS"
 [[ $(cat "$partial/STATUS") == OK ]] || die 'STATUS readback failed'
+# Bash defers traps while waiting for mv. Ignore signals through BOTH renames.
+trap '' TERM INT
+hook publish
 mv "$partial" "$final"
-published=1
+hook published
 mv "$latest_tmp" "$BACKUP_DIR/LATEST"
-committed=1
+trap 'exit 1' TERM INT
 # Retention executes only after successful publication. It always protects LATEST.
+hook retention
 latest=$(cat "$BACKUP_DIR/LATEST")
 : > "$scratch/oks"
 for d in "$BACKUP_DIR"/*; do
@@ -237,25 +236,12 @@ for d in "$BACKUP_DIR"/*; do
   if [[ $(cat "$d/STATUS") == OK ]]; then printf '%s\n' "$name" >> "$scratch/oks"; fi
 done
 LC_ALL=C sort -r "$scratch/oks" > "$scratch/oks.sorted"
-head -n 7 "$scratch/oks.sorted" > "$scratch/keep"
+head -n 14 "$scratch/oks.sorted" > "$scratch/keep"
 printf '%s\n' "$latest" >> "$scratch/keep"
-newest=$(head -n 1 "$scratch/oks.sorted")
-epoch=$(date -u -d "${newest:0:10}" +%s)
-for w in 0 1 2 3; do
-  end=$((epoch - w*604800)); start=$((end - 604800))
-  while read -r name; do
-    ep=$(date -u -d "${name:0:10}" +%s)
-    if (( ep <= end && ep > start )); then printf '%s\n' "$name" >> "$scratch/keep"; break; fi
-  done < "$scratch/oks.sorted"
-done
-oldest=$(LC_ALL=C sort "$scratch/keep" | head -n 1)
-for d in "$BACKUP_DIR"/*; do
-  name=${d##*/}
-  [[ "$name" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z$ ]] || continue
+while read -r name; do
   [[ "$name" != "$latest" ]] || continue
-  if grep -Fxq "$name" "$scratch/keep"; then continue; fi
-  if [[ -f "$d/STATUS" && $(cat "$d/STATUS") == OK || "$name" < "$oldest" ]]; then rm -rf "$d"; fi
-done
+  if ! grep -Fxq "$name" "$scratch/keep"; then rm -rf "$BACKUP_DIR/$name"; fi
+done < "$scratch/oks.sorted"
 for d in "$BACKUP_DIR"/*.partial; do
   [[ -d "$d" && "${d##*/}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z\.partial$ ]] || continue
   if (( now - $(mtime "$d") > 172800 )); then rm -rf "$d"; fi

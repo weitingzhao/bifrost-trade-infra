@@ -6,6 +6,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import os
 import shutil
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -65,6 +66,8 @@ elif name == 'git':
         assert args[1]=='--mirror' and args[2].startswith('http://127.0.0.1:3000/')
         rel=args[2].split(':3000/')[1]
         shutil.copytree(Path(os.environ['GITEA__repository__ROOT'])/rel, args[3])
+        with open(os.environ['CLONE_LOG'],'a') as log: log.write(rel+'\n')
+        if os.environ.get('FAKE_REF_MISMATCH'): (Path(args[3])/'refs.txt').write_text('refs/heads/main='+'c'*40+'\n')
     else:
         p=Path(args[0].split('=',1)[1]); op=args[1]
         if op=='fsck':
@@ -74,7 +77,12 @@ elif name == 'git':
 elif name == 'gitea':
     if args[0]=='web':
         while True: time.sleep(1)
-    else: print('throwaway-token')
+    else:
+        counter=Path(os.environ['TOKEN_LOG'])
+        n=int(counter.read_text())+1 if counter.exists() else 1
+        counter.write_text(str(n))
+        if n <= int(os.environ.get('TOKEN_BUSY','0')): sys.exit(1)
+        print('throwaway-token')
 elif name == 'environment-to-ini':
     p=Path(args[args.index('--config')+1]); p.write_text(p.read_text().replace('HTTP_ADDR = 0.0.0.0','HTTP_ADDR = 127.0.0.1'))
 elif name == 'curl': pass
@@ -98,6 +106,8 @@ elif name == 'date':
 elif name in ('cp','mv','chmod','sha256sum'):
     fault=os.environ.get('FAIL_COMMAND','')
     if fault and name==fault.split(':')[0] and any(fault.split(':',1)[1] in a for a in args): sys.exit(1)
+    if name=='sha256sum' and '-c' in args and os.environ.get('STATUS_ORDER_LOG'):
+        Path(os.environ['STATUS_ORDER_LOG']).write_text('present' if Path('STATUS').exists() else 'absent')
     if name=='sha256sum' and '-c' in args and os.environ.get('SHA_REJECT_COMMENTS'):
         checked=Path(args[args.index('-c')+1]).read_text()
         if any(line.startswith('#') for line in checked.splitlines()): sys.exit(1)
@@ -131,6 +141,8 @@ elif name == 'awk':
         RECIPIENT_FILE=str(recipient),
         REQUIRE_MOUNT="0",
         FAKE_STAMP=STAMP,
+        CLONE_LOG=str(tmp_path / "clones"),
+        TOKEN_LOG=str(tmp_path / "tokens"),
         GITEA_BACKUP_TEST_HOOK_DIR=str(hooks),
         PATH=str(bins) + os.pathsep + os.environ["PATH"],
     )
@@ -238,6 +250,7 @@ def test_set_mismatch_after_three_stages(fixture, kind):
         shutil.copytree(f["repo"], f["repo"].parent / "extra.git")
     r = run(f)
     failed_unchanged(f, r, before)
+    assert "non-wiki orphan directories fail" in r.stderr
     assert "after 3 stages" in r.stderr
     assert r.stderr.count("Repository set mismatch, attempt") == 3
     assert ("extra.git" if kind == "disk_only" else "alpha.git") in r.stderr
@@ -273,6 +286,7 @@ def test_lock_held_fails_at_once(fixture):
     r = run(f)
     assert r.returncode != 0 and "holds the NAS lock" in r.stderr
     assert lock.exists()
+    assert "age 0 seconds" in r.stderr
 
 
 def test_stale_lock_reported_and_broken(fixture):
@@ -330,13 +344,19 @@ def test_checked_write_failures_no_ok_no_rotation(fixture, key):
 @pytest.mark.parametrize(
     "fault", ["sha256sum:data.tar.age", "mv:LATEST.", "chmod:LATEST.", "cp:VERIFIED"]
 )
-def test_real_tool_write_failure_rolls_back(fixture, fault):
+def test_real_tool_write_failure_preserves_latest(fixture, fault):
     f = fixture
     old = seed_old(f)
     before = (f["backup"] / "LATEST").read_text()
     f["env"]["FAIL_COMMAND"] = fault
     r = run(f)
-    failed_unchanged(f, r, before)
+    if fault == "mv:LATEST.":
+        assert r.returncode != 0
+        assert (f["backup"] / "LATEST").read_text() == before
+        assert (f["backup"] / STAMP / "STATUS").read_text() == "OK\n"
+        assert not (f["backup"] / (STAMP + ".partial")).exists()
+    else:
+        failed_unchanged(f, r, before)
     assert old.exists()
 
 
@@ -384,7 +404,7 @@ def test_non_age_output_removed(fixture):
     assert not list((f["backup"] / (STAMP + ".partial")).glob("*.age*"))
 
 
-def test_retention_seven_plus_four_latest_and_partial(fixture):
+def test_retention_fourteen_latest_and_partial(fixture):
     f = fixture
     origin = datetime(2026, 10, 12, 12, tzinfo=timezone.utc)
     names = []
@@ -401,8 +421,7 @@ def test_retention_seven_plus_four_latest_and_partial(fixture):
     os.utime(fresh, (epoch, epoch))
     r = run(f)
     assert r.returncode == 0, r.stderr
-    # Anchored trailing windows [day 0..6], [7..13], [14..20], [21..27].
-    want = {STAMP, *names[:6], names[6], names[13], names[20]}
+    want = {STAMP, *names[:13]}
     got = {p.name for p in f["backup"].iterdir() if (p / "STATUS").is_file()}
     assert got == want
     assert (f["backup"] / (f["backup"] / "LATEST").read_text().strip()).exists()
@@ -468,3 +487,212 @@ def test_newer_partial_also_prevents_clock_rollback(fixture):
     assert "clock not monotonic" in r.stderr
     assert "2026-11-01T000000Z" in r.stderr
     assert old.exists() and newer.exists()
+
+
+def real_shape(f):
+    con = sqlite3.connect(f["data"] / "gitea/gitea.db")
+    con.execute("DELETE FROM repository")
+    shutil.rmtree(f["data"] / "git/repositories")
+    con.executemany("INSERT INTO user VALUES(?,?,?,0)", [
+        (2, "Bifrost", "bifrost"), (3, "a", "a"),
+        (4, "a-b", "a-b"), (5, "a.b", "a.b")])
+    paths = [(2, "bifrost", n) for n in (
+        "bifrost-platform", "bifrost-platform-plugin", "bifrost-platform-plugin-x")]
+    paths += [(i, owner, "x") for i, owner in ((3,"a"),(4,"a-b"),(5,"a.b"))]
+    for i, owner, name in paths:
+        con.execute("INSERT INTO repository VALUES(?,?)", (i,name))
+        repo = f["data"] / "git/repositories" / owner / (name+".git")
+        repo.mkdir(parents=True)
+        (repo / "refs.txt").write_text("refs/heads/main="+"a"*40+"\n")
+    con.commit()
+    con.close()
+    return len(paths)
+
+
+def test_real_names_one_sort_and_every_manifest_row_cloned(fixture):
+    f = fixture
+    count = real_shape(f)
+    r = run(f)
+    assert r.returncode == 0, r.stderr
+    clones = Path(f["env"]["CLONE_LOG"]).read_text().splitlines()
+    assert len(clones) == count == len(set(clones))
+    assert "6 repositories" in (f["backup"] / STAMP / "VERIFIED").read_text()
+
+
+def test_duplicate_database_paths_fail(fixture):
+    f = fixture
+    con = sqlite3.connect(f["data"] / "gitea/gitea.db")
+    con.execute("INSERT INTO repository VALUES(1,'alpha')")
+    con.commit()
+    con.close()
+    r = run(f)
+    assert r.returncode != 0 and "duplicate repository paths" in r.stderr
+
+
+@pytest.mark.parametrize("broken", [False, True])
+def test_wiki_archived_fsck_but_never_cloned(fixture, broken):
+    f = fixture
+    wiki = f["repo"].parent / "alpha.wiki.git"
+    shutil.copytree(f["repo"], wiki)
+    if broken:
+        (wiki / "broken").touch()
+    r = run(f)
+    if broken:
+        assert r.returncode != 0 and "alpha.wiki.git failed git fsck" in r.stderr
+        assert not (f["backup"] / "LATEST").exists()
+    else:
+        assert r.returncode == 0, r.stderr
+        assert Path(f["env"]["CLONE_LOG"]).read_text() == "admin/alpha.git\n"
+        target = f["work"] / "restored"
+        r = subprocess.run(["bash", str(HERE / "restore.sh"), str(f["backup"] / STAMP),
+                            str(f["recipient"]), str(target)], env=f["env"], capture_output=True)
+        assert r.returncode == 0
+        assert (target / "git/repositories/admin/alpha.wiki.git/refs.txt").exists()
+
+
+@pytest.mark.parametrize("sig", [signal.SIGTERM, signal.SIGINT])
+@pytest.mark.parametrize("key", ["publish", "published"])
+def test_signal_during_publication_cannot_undo_it(fixture, key, sig):
+    f = fixture
+    seed_old(f)
+    (f["hooks"] / ("wait-"+key)).touch()
+    p = start(f)
+    wait_ready(f, key)
+    p.send_signal(sig)
+    (f["hooks"] / (key+".release")).touch()
+    out, err = p.communicate(timeout=45)
+    assert p.returncode == 0, out+err
+    latest = (f["backup"] / "LATEST").read_text().strip()
+    assert latest == STAMP
+    assert (f["backup"] / latest / "STATUS").read_text() == "OK\n"
+
+
+def test_twenty_consecutive_nights_keep_fourteen_after_each(fixture):
+    f = fixture
+    origin = datetime(2026, 10, 1, 12, tzinfo=timezone.utc)
+    names = []
+    for night in range(20):
+        stamp = (origin+timedelta(days=night)).strftime("%Y-%m-%dT%H%M%SZ")
+        f["env"]["FAKE_STAMP"] = stamp
+        names.append(stamp)
+        r = run(f)
+        assert r.returncode == 0, r.stderr
+        got = {p.name for p in f["backup"].iterdir() if (p / "STATUS").is_file()}
+        assert got == set(names[-14:])
+        assert (f["backup"] / "LATEST").read_text() == stamp+"\n"
+
+
+def test_failed_run_preserves_all_twenty_older_ok_runs(fixture):
+    f = fixture
+    origin = datetime(2026, 10, 12, 12, tzinfo=timezone.utc)
+    names = {(origin-timedelta(days=i)).strftime("%Y-%m-%dT%H%M%SZ") for i in range(1,21)}
+    for name in sorted(names):
+        seed_old(f, name)
+    before = (f["backup"] / "LATEST").read_text()
+    (f["hooks"] / "fail-status").touch()
+    r = run(f)
+    failed_unchanged(f, r, before)
+    assert {p.name for p in f["backup"].iterdir() if (p / "STATUS").is_file()} == names
+
+
+def test_status_absent_when_ciphertext_checksums_verified(fixture):
+    f = fixture
+    log = f["work"] / "status-order"
+    f["env"]["STATUS_ORDER_LOG"] = str(log)
+    r = run(f)
+    assert r.returncode == 0, r.stderr
+    assert log.read_text() == "absent"
+
+
+def test_http_ref_mismatch_publishes_nothing(fixture):
+    f = fixture
+    seed_old(f)
+    before = (f["backup"] / "LATEST").read_text()
+    f["env"]["FAKE_REF_MISMATCH"] = "1"
+    r = run(f)
+    failed_unchanged(f, r, before)
+    assert "HTTP ref mismatch" in r.stderr
+    assert not (f["backup"] / (STAMP+".partial")).exists()
+
+
+@pytest.mark.parametrize("busy,success", [(9, True),(10, False)])
+def test_token_generation_retries_up_to_ten(fixture, busy, success):
+    f = fixture
+    f["env"]["TOKEN_BUSY"] = str(busy)
+    r = run(f)
+    assert (r.returncode == 0) == success, r.stderr
+    assert Path(f["env"]["TOKEN_LOG"]).read_text() == "10"
+    if not success:
+        assert "token generation failed after 10 attempts" in r.stderr
+        assert not (f["backup"] / "LATEST").exists()
+
+
+def test_lock_start_time_written_and_used_instead_of_mtime(fixture):
+    f = fixture
+    (f["hooks"] / "wait-locked").touch()
+    p = start(f)
+    wait_ready(f, "locked")
+    lock = f["backup"] / ".lock"
+    expected = int(datetime.strptime(STAMP, "%Y-%m-%dT%H%M%SZ").replace(tzinfo=timezone.utc).timestamp())
+    assert (lock / "started").read_text() == str(expected)+"\n"
+    os.utime(lock, (0, 0))
+    r = run(f)
+    assert r.returncode != 0 and "age 0 seconds" in r.stderr
+    (f["hooks"] / "locked.release").touch()
+    out, err = p.communicate(timeout=45)
+    assert p.returncode == 0, out+err
+
+
+def test_manifest_unterminated_row_cannot_reduce_clone_count(fixture):
+    f = fixture
+    manifest = f["work"] / "MANIFEST.tsv"
+    manifest.write_text("path\trefs\ngit/repositories/admin/alpha.git\trefs/heads/main="+"a"*40)
+    r = subprocess.run(["bash", str(HERE / "verify-stage.sh"), str(f["data"]),
+                        str(manifest), str(f["work"] / "VERIFIED")],
+                       env=f["env"], capture_output=True, text=True)
+    assert r.returncode != 0
+    assert "clone count does not equal manifest rows" in r.stderr
+    assert not (f["work"] / "VERIFIED").exists()
+
+
+def test_restore_names_failed_check(fixture):
+    f = fixture
+    r = run(f)
+    assert r.returncode == 0, r.stderr
+    p = f["backup"] / STAMP
+    (p / "data.tar.age").write_bytes(b"corrupt")
+    r = subprocess.run(["bash", str(HERE / "restore.sh"), str(p), str(f["recipient"]),
+                        str(f["work"] / "restored")], env=f["env"], capture_output=True, text=True)
+    assert r.returncode != 0 and "ciphertext checksum verification failed" in r.stderr
+
+
+def test_retention_always_protects_run_latest_names(fixture):
+    f = fixture
+    origin = datetime(2026, 10, 12, 12, tzinfo=timezone.utc)
+    names = [(origin-timedelta(days=i)).strftime("%Y-%m-%dT%H%M%SZ") for i in range(1,21)]
+    for name in names:
+        seed_old(f, name)
+    (f["hooks"] / "wait-retention").touch()
+    p = start(f)
+    wait_ready(f, "retention")
+    # Simulate another successful publisher's LATEST before retention reads it.
+    (f["backup"] / "LATEST").write_text(names[-1]+"\n")
+    (f["hooks"] / "retention.release").touch()
+    out, err = p.communicate(timeout=45)
+    assert p.returncode == 0, out+err
+    got = {p.name for p in f["backup"].iterdir() if (p / "STATUS").is_file()}
+    assert got == {STAMP, *names[:13], names[-1]}
+    assert (f["backup"] / names[-1] / "STATUS").read_text() == "OK\n"
+
+
+def test_verifier_rejects_duplicate_manifest_rows(fixture):
+    f = fixture
+    manifest = f["work"] / "MANIFEST.tsv"
+    refs = " ".join((f["repo"] / "refs.txt").read_text().splitlines())
+    row = "git/repositories/admin/alpha.git\t"+refs+"\n"
+    manifest.write_text("path\trefs\n"+row+row)
+    r = subprocess.run(["bash", str(HERE / "verify-stage.sh"), str(f["data"]),
+                        str(manifest), str(f["work"] / "VERIFIED")],
+                       env=f["env"], capture_output=True, text=True)
+    assert r.returncode != 0 and "duplicate repository paths in manifest-set" in r.stderr
+    assert not (f["work"] / "VERIFIED").exists()

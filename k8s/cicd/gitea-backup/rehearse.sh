@@ -5,7 +5,7 @@ set -euo pipefail
 export DOCKER_DEFAULT_PLATFORM=linux/amd64
 HERE=$(cd "$(dirname "$0")" && pwd)
 IMAGE=gitea/gitea:1.21.11
-prefix="gitea-r2-$$"
+prefix="gitea-r3-$$"
 live="$prefix-live"
 vol="$prefix-data"
 bak="$prefix-backup"
@@ -42,7 +42,7 @@ docker run --rm --entrypoint sh -v "$tools":/tools -v "$keys":/keys -v "$HERE":/
   rm -rf /tools/age/age-keygen /tools/keygen.tar.gz
   chown -R 1000:1000 /keys /tools
 '
-docker run --rm --network none --entrypoint sh -v "$bak":/backup -v "$work":/work -v "$hooks":/hooks -v "$baseline":/baseline "$IMAGE" -c 'chown 1000:1000 /backup /work /hooks /baseline'
+docker run --rm --network none --entrypoint sh -v "$bak":/backup -v "$work":/work -v "$hooks":/hooks -v "$baseline":/baseline -v "$work":/work "$IMAGE" -c 'chown 1000:1000 /backup /work /hooks /baseline'
 start_live() {
   docker run -d --network none --name "$live" -v "$vol":/data \
     -e USER_UID=1000 -e USER_GID=1000 -e GITEA__database__DB_TYPE=sqlite3 \
@@ -59,8 +59,12 @@ start_live
 docker exec -u git "$live" bash -c '
   set -euo pipefail
   gitea admin user create --config /data/gitea/conf/app.ini --username admin --password Rehearse-pass-1 --email admin@example.com --admin --must-change-password=false >/dev/null
-  for repo in alpha beta gamma; do
-    curl -sf -u admin:Rehearse-pass-1 -H "Content-Type: application/json" -X POST http://127.0.0.1:3000/api/v1/user/repos -d "{\"name\":\"$repo\"}" >/dev/null
+  curl -sf -u admin:Rehearse-pass-1 -H "Content-Type: application/json" -X POST http://127.0.0.1:3000/api/v1/orgs -d "{\"username\":\"bifrost\",\"full_name\":\"Bifrost\"}" >/dev/null
+  for repo in x x-y gamma; do
+    owner=bifrost
+    endpoint=orgs/bifrost/repos
+    if [[ $repo == gamma ]]; then owner=admin; endpoint=user/repos; fi
+    curl -sf -u admin:Rehearse-pass-1 -H "Content-Type: application/json" -X POST "http://127.0.0.1:3000/api/v1/$endpoint" -d "{\"name\":\"$repo\",\"private\":true}" >/dev/null
     git init -q -b main /tmp/$repo
     git -C /tmp/$repo config user.email test@example.com
     git -C /tmp/$repo config user.name test
@@ -69,16 +73,20 @@ docker exec -u git "$live" bash -c '
     git -C /tmp/$repo add README
     if [[ $repo == gamma ]]; then git -C /tmp/$repo add blob; fi
     git -C /tmp/$repo commit -qm seed
-    git -C /tmp/$repo remote add origin http://admin:Rehearse-pass-1@127.0.0.1:3000/admin/$repo.git
+    git -C /tmp/$repo remote add origin http://admin:Rehearse-pass-1@127.0.0.1:3000/$owner/$repo.git
     git -C /tmp/$repo push -q origin main
   done
+  curl -sf -u admin:Rehearse-pass-1 -H "Content-Type: application/json" -X POST http://127.0.0.1:3000/api/v1/repos/bifrost/x/wiki/new -d "{\"title\":\"Home\",\"content_base64\":\"c2VlZA==\"}" >/dev/null
+
 '
 admin_volume() {
-  docker run --rm --network none --user 1000:1000 --entrypoint bash -v "$vol":/data -v "$bak":/backup -v "$hooks":/hooks -v "$baseline":/baseline "$IMAGE" -euo pipefail -c "$1"
+  docker run --rm --network none --user 1000:1000 --entrypoint bash -v "$vol":/data -v "$bak":/backup -v "$hooks":/hooks -v "$baseline":/baseline -v "$work":/work "$IMAGE" -euo pipefail -c "$1"
 }
 # Stop cleanly for a baseline; keep synthetic password/hash solely in volumes.
 docker rm -f "$live" >/dev/null
-admin_volume 'tar -C /data --exclude=./ssh -cf /baseline/data.tar .'
+# Archive children, not the root-owned /data/git and /data/gitea directories.
+# BusyBox tar -T and find depth bounds must be exercised by this rehearsal.
+admin_volume 'cd /data; find ./git ./gitea -mindepth 1 -maxdepth 1 > /tmp/children; tar -cf /baseline/data.tar -T /tmp/children'
 start_live
 reset_hooks() { admin_volume 'find /hooks -mindepth 1 -delete'; }
 wait_ready() {
@@ -104,7 +112,7 @@ admin_volume 'touch /hooks/wait-copy-1'
 backup_job -d >/dev/null
 wait_ready copy-1
 # copy producer is live and consumer held. Push completes before releasing it.
-docker exec -u git "$live" bash -euo pipefail -c 'printf "during copy\n" >> /tmp/alpha/README; git -C /tmp/alpha add README; git -C /tmp/alpha commit -qm during-copy; git -C /tmp/alpha push -q origin main'
+docker exec -u git "$live" bash -euo pipefail -c 'git clone -q http://admin:Rehearse-pass-1@127.0.0.1:3000/bifrost/x.git /tmp/x; git -C /tmp/x config user.email test@example.com; git -C /tmp/x config user.name test; git -C /tmp/x checkout -q main; printf "during copy\n" >> /tmp/x/README; git -C /tmp/x add README; git -C /tmp/x commit -qm during-copy; git -C /tmp/x push -q origin main'
 release copy-1
 rc=$(docker wait "$prefix-job")
 title='normal run with handshake push DURING copy'; check test "$rc" == 0
@@ -131,11 +139,11 @@ set_fault() {
   for n in 1 2 3; do
     wait_ready "after-db-$n"
     if [[ "$kind" == create ]]; then
-      docker exec -u git "$live" curl -sf -u admin:Rehearse-pass-1 -H 'Content-Type: application/json' -X POST http://127.0.0.1:3000/api/v1/user/repos -d "{\"name\":\"created$n\"}" >/dev/null
+      docker exec -u git "$live" curl -sf -u admin:Rehearse-pass-1 -H 'Content-Type: application/json' -X POST http://127.0.0.1:3000/api/v1/orgs/bifrost/repos -d "{\"name\":\"created$n\",\"private\":true}" >/dev/null
     else
       # There are three seed repos; remove one after each database copy.
-      repo=$(printf '%s\n' alpha beta gamma | sed -n "${n}p")
-      docker exec -u git "$live" curl -sf -u admin:Rehearse-pass-1 -X DELETE "http://127.0.0.1:3000/api/v1/repos/admin/$repo" >/dev/null
+      repo=$(printf '%s\n' bifrost/x bifrost/x-y admin/gamma | sed -n "${n}p")
+      docker exec -u git "$live" curl -sf -u admin:Rehearse-pass-1 -X DELETE "http://127.0.0.1:3000/api/v1/repos/$repo" >/dev/null
     fi
     release "after-db-$n"
   done
@@ -147,13 +155,20 @@ set_fault() {
   check set_fault_result
   docker rm "$prefix-job" >/dev/null
 }
+reset_live() {
+  docker rm -f "$live" >/dev/null
+  # uid 1000 may clear children, but cannot remove these root-owned directories.
+  admin_volume 'find /data/git /data/gitea -mindepth 1 -maxdepth 1 -exec rm -rf {} +; tar -C /data -xf /baseline/data.tar'
+  start_live
+}
 set_fault create
+reset_live
 set_fault delete
 # Reset live data to baseline; no volume shared with a running reset operation.
 docker rm -f "$live" >/dev/null
-admin_volume 'find /data -mindepth 1 -maxdepth 1 ! -name ssh -exec rm -rf {} +; tar -C /data -xf /baseline/data.tar'
+admin_volume 'find /data/git /data/gitea -mindepth 1 -maxdepth 1 -exec rm -rf {} +; tar -C /data -xf /baseline/data.tar'
 # Corrupt a loose object (seed push stays loose on these tiny repositories).
-admin_volume 'repo=/data/git/repositories/admin/alpha.git; sha=$(git --git-dir="$repo" rev-parse refs/heads/main); rm "$repo/objects/${sha:0:2}/${sha:2}"; if git --git-dir="$repo" fsck --connectivity-only >/dev/null 2>&1; then exit 1; fi'
+admin_volume 'repo=/data/git/repositories/bifrost/x.git; sha=$(git --git-dir="$repo" rev-parse refs/heads/main); rm "$repo/objects/${sha:0:2}/${sha:2}"; if git --git-dir="$repo" fsck --connectivity-only >/dev/null 2>&1; then exit 1; fi'
 reset_hooks
 backup_job -d >/dev/null
 rc=$(docker wait "$prefix-job")
@@ -161,7 +176,19 @@ title='missing object fails fsck, LATEST unchanged'
 missing_result() { assert_failed "$rc" && docker logs "$prefix-job" 2>&1 | grep -q 'failed git fsck after 3 copies'; }
 check missing_result
 docker rm "$prefix-job" >/dev/null
-admin_volume 'find /data -mindepth 1 -maxdepth 1 ! -name ssh -exec rm -rf {} +; tar -C /data -xf /baseline/data.tar'
+admin_volume 'find /data/git /data/gitea -mindepth 1 -maxdepth 1 -exec rm -rf {} +; tar -C /data -xf /baseline/data.tar'
+# Make exactly one staged clone disagree with the already recorded manifest.
+reset_hooks
+admin_volume 'touch /hooks/wait-verify'
+backup_job -d >/dev/null
+wait_ready verify
+admin_volume 'repo=$(find /work -path "*/stage/git/repositories/bifrost/x.git" -type d); test -n "$repo"; git --git-dir="$repo" update-ref refs/tags/rehearsal-fault refs/heads/main'
+release verify
+rc=$(docker wait "$prefix-job")
+title='one HTTP clone ref differs from manifest: no publication'
+ref_result() { assert_failed "$rc" && docker logs "$prefix-job" 2>&1 | grep -q 'HTTP ref mismatch'; }
+check ref_result
+docker rm "$prefix-job" >/dev/null
 # Lock overlap is independent of wall-clock seconds.
 reset_hooks
 admin_volume 'touch /hooks/wait-locked'
@@ -208,12 +235,16 @@ title='full destination at manifest encryption: no OK and LATEST unchanged'
 full_result() { [[ "$rc" == 0 ]] && docker logs "$prefix-full" 2>&1 | grep -q 'age encryption failed'; }
 check full_result
 docker rm "$prefix-full" >/dev/null
+# Cut at 1 MiB, well beyond the age header, inside the 24 MiB random payload.
 # Rewrite ciphertext checksums after truncation, so age authentication itself
 # must reject it (rather than merely failing the outer ciphertext checksum).
-admin_volume 'latest=$(cat /backup/LATEST); mkdir /backup/fault-trunc; cp /backup/$latest/* /backup/fault-trunc/; head -c 96 /backup/fault-trunc/data.tar.age > /tmp/truncated; cp /tmp/truncated /backup/fault-trunc/data.tar.age; cd /backup/fault-trunc; grep "^#" SHA256SUMS > /tmp/plain-sum; sha256sum data.tar.age MANIFEST.tsv.age > SHA256SUMS; cat /tmp/plain-sum >> SHA256SUMS'
+admin_volume 'latest=$(cat /backup/LATEST); mkdir /backup/fault-trunc; test $(wc -c < /backup/$latest/data.tar.age) -gt 2097152; cp /backup/$latest/* /backup/fault-trunc/; head -c 1048576 /backup/fault-trunc/data.tar.age > /tmp/truncated; cp /tmp/truncated /backup/fault-trunc/data.tar.age; cd /backup/fault-trunc; grep "^#" SHA256SUMS > /tmp/plain-sum; sha256sum data.tar.age MANIFEST.tsv.age > SHA256SUMS; cat /tmp/plain-sum >> SHA256SUMS'
 rc=0
-docker run --rm --network none --user 1000:1000 --entrypoint bash -v "$bak":/backup:ro -v "$keys":/keys:ro -v "$tools":/tools:ro \
+trunc_output=$(docker run --rm --network none --user 1000:1000 --entrypoint bash -v "$bak":/backup:ro -v "$keys":/keys:ro -v "$tools":/tools:ro \
   -v "$work":/work -v "$HERE":/scripts:ro -e TMPDIR=/work -e PATH=/tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-  "$IMAGE" /scripts/restore.sh /backup/fault-trunc /keys/identity /work/truncated >/dev/null 2>&1 || rc=$?
-title='truncated ciphertext rejected by restore.sh, LATEST unchanged'; check assert_failed "$rc"
+  "$IMAGE" /scripts/restore.sh /backup/fault-trunc /keys/identity /work/truncated 2>&1) || rc=$?
+title='payload truncation rejected by authenticated restore, LATEST unchanged'
+trunc_result() { assert_failed "$rc" && [[ "$trunc_output" == *'data archive age decryption/authentication failed'* ]]; }
+check trunc_result
+printf 'This rehearsal does NOT prove pull mirrors, NetworkPolicy enforcement, real data sizes, or encryption to the Owner key.\n'
 exit "$failed"

@@ -244,3 +244,53 @@ def test_alert_and_maintainers():
         s = p.read_text()
         assert s.count("id: cronjob/cicd/gitea-backup\n") == 1
         assert "gitea-backup-drill" not in s
+
+
+def test_stage_cannot_act_on_world_and_emptydir_needs_no_fsgroup():
+    script = (HERE / "verify-stage.sh").read_text()
+    for key, value in {
+        "webhook__ALLOWED_HOST_LIST": "loopback",
+        "mirror__ENABLED": "false",
+        "cron__ENABLED": "false",
+        "actions__ENABLED": "false",
+        "mailer__ENABLED": "false",
+    }.items():
+        assert f"export GITEA__{key}={value}" in script
+    assert "fsGroup" not in template()["spec"]["securityContext"]
+
+
+def test_fetch_retries_three_times_offline(tmp_path):
+    import os
+    import subprocess
+    bins = tmp_path / "bin"
+    bins.mkdir()
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    log = tmp_path / "attempts"
+    # Model only tool download/extraction; never invoke network or real wget.
+    (bins / "wget").write_text(
+        '#!/bin/sh\nn=0; [ ! -f "$FETCH_LOG" ] || n=$(cat "$FETCH_LOG")\n'
+        'n=$((n+1)); echo "$n" > "$FETCH_LOG"\n'
+        '[ "$n" -gt "$FETCH_FAILURES" ] || exit 1\n'
+        'touch age.tar.gz\n'
+    )
+    (bins / "sha256sum").write_text('#!/bin/sh\ncat >/dev/null\n')
+    (bins / "tar").write_text('#!/bin/sh\nmkdir age; echo binary > age/age\n')
+    (bins / "sleep").write_text('#!/bin/sh\necho "$1" >> "$SLEEP_LOG"\n')
+    for p in bins.iterdir():
+        p.chmod(0o755)
+    script = tmp_path / "fetch.sh"
+    # /tools is a mount in production. Rebase only the fixture copy.
+    script.write_text((HERE / "fetch-tools.sh").read_text().replace("/tools", str(tools)))
+    for failures in (2, 3):
+        log.unlink(missing_ok=True)
+        sleeps = tmp_path / "sleeps"
+        sleeps.unlink(missing_ok=True)
+        env = dict(os.environ, PATH=str(bins)+os.pathsep+os.environ["PATH"],
+                   FETCH_LOG=str(log), FETCH_FAILURES=str(failures), SLEEP_LOG=str(sleeps))
+        r = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True)
+        assert (r.returncode == 0) == (failures == 2), r.stderr
+        assert log.read_text().strip() == "3"
+        assert sleeps.read_text().splitlines() == ["3", "3"]
+        if failures == 3:
+            assert "age download failed after 3 attempts" in r.stderr
