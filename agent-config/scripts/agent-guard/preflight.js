@@ -674,4 +674,4 @@ function main() {
 }
 
 if (require.main === module) main()
-module.exports = { nasMountPoints, nasPathRule, nasGuard, evaluate }
+module.exports = { nasMountPoints, nasPathRule, nasGuard, readMountTable, evaluate }

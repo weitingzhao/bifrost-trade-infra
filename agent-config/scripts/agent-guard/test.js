@@ -6,8 +6,9 @@ const { spawnSync } = require('node:child_process')
 const GUARD = require('node:path').join(__dirname, 'preflight.js')
 // 没跑到汇总行就退出（例如被加载的脚本自己调了 process.exit）一律算失败：否则 0 条用例也是绿的。
 let finished = false
-process.on('exit', () => { if (!finished) { console.error('✗ 测试没有跑到汇总行就退出了'); process.exit(1) } })
-const { evaluate, nasMountPoints } = require(GUARD)
+// 只设退出码，不在监听里再调 process.exit：那样会把未捕获异常的报错栈吞掉。
+process.on('exit', () => { if (!finished) { console.error('✗ 测试没有跑到汇总行就退出了'); process.exitCode = 1 } })
+const { evaluate, nasMountPoints, readMountTable } = require(GUARD)
 
 const bash = c => ({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: c } })
 const tool = (n, i) => ({ hook_event_name: 'PreToolUse', tool_name: n, tool_input: i })
@@ -326,6 +327,14 @@ const parsed = nasMountPoints(mounts)
 const parsedOk = JSON.stringify(parsed) === JSON.stringify(['/Volumes/personal_folder', '/Volumes/NAS Archive', '/Volumes/public'])
 parsedOk ? pass++ : fail++
 console.log(`  ${parsedOk ? '✓' : '✗'} SMB/NFS 精确来源解析`)
+// 真去读一次本机的挂载表：读表那一行写错时，动态规则会静悄悄失效，而上面的用例用的都是给定的表。
+if (process.platform === 'darwin') {
+  let table = ''
+  try { table = readMountTable() } catch { /* 留空，下面判失败 */ }
+  const readOk = / on \/ \(/.test(table)
+  readOk ? pass++ : fail++
+  console.log(`  ${readOk ? '✓' : '✗'} 真实挂载表读得到（有根分区那一行）`)
+}
 console.log(`\n${fail === 0 ? '✓' : '✗'} ${pass} 通过 / ${fail} 失败（共 ${pass + fail}）`)
 finished = true
 process.exit(fail === 0 ? 0 : 1)
