@@ -2018,3 +2018,18 @@
 - **Ratchet**: none proposed — a flake is fixed in the test, not guarded.
 - 验收: the test passes 50 of 50 with two other test processes running
 - 审批 无 · 代价 S · 风险 low · repos: bifrost-trade-infra
+
+### TD-323
+
+**P2 · ops-platform · the pre-flight before a Trade, research or plugin delivery blocks nothing: a retired repository in its list always answers "unknown", and "one unknown, block nothing" is the rule**
+
+- **状态**：未开始（2026-10-12 复核 138 审护栏 ⑤ 第一片时查出来的；那一片因此收窄到平台两条流水线，这里的行为原样没动）
+- **Claim**: (1) `bifrost-platform/api/internal/delivery/supply_chain.go` lists `bifrost-trade-socket` among the repositories `bifrost-deliver-stg` and `bifrost-deliver-prod` clone and in the fallback list `trackedGiteaRepos`. Neither pipeline clones it and its Gitea mirror was removed, so its probe is always "unknown"; `RefPreflight` blocks only when every probe had full visibility, so for these pipelines a ref that is known to be missing in another repository does not stop the run. (2) Research and plugin deliveries have no list of their own and fall back to the tracked list of eight Trade and platform repositories — none of which they clone; they start only because of that same "unknown". Removing the retired repository from the tracked list alone would refuse every one of them. (3) The pre-flight checks one revision in every repository, while `bifrost-deliver-prod` is started with a different SHA per repository and `bifrost-deliver-stg` clones bifrost-ui at `uiRevision`. (4) Branch and tag lists are read 50 entries deep; a name beyond that reads as missing.
+- **Measured**: NOT MEASURED against the real Gitea. Established by review 138 with a stateful fake Gitea, the same 2,316 calls on platform main `26a10b5` and on the branch: with the `release.sh prod` request body and a worker SHA that exists nowhere, both built a run. Whether `main` is within the first 50 branches of each Trade repository and bifrost-ui is NOT MEASURED.
+- **Evidence**: `supply_chain.go` (`pipelineMirrorRepos`, `trackedGiteaRepos`, `reposForPipeline`); `ref_preflight.go` (`RefPreflight`, the reachability rule); `service.go` (branch and tag listing, the page size); `agent-config/work/multi-agent/reviews/claude-2026-10-12-review138-guard5-pinned-delivery.md`.
+- **Impact**: a Trade production release with a wrong SHA for one repository is not stopped before the run starts; it fails halfway at a clone task instead. The check looks like a guard and is not one. And the list that hides this cannot be cleaned up without breaking research and plugin deliveries.
+- **Fix**: one deliberate change, measured first: give every pipeline the action can start its own list of the repositories it really clones and the param each is cloned at (derived from, or tested against, the pipeline definitions in infra); drop the retired repository; decide the rule for a repository whose probe is unknown (the platform pipelines got "a known-missing ref blocks; unknown does not" in guardrail 5); read branch and tag lists to the end. Before it ships, measure read-only that every ref today's releases use is found.
+- **Ratchet**: a test that, for every pipeline the action has a case for, the repositories and ref params in the table equal the clone tasks of its definition in the infra checkout.
+- 验收: with the real request body of `release.sh prod` and one SHA that does not exist, `start_pipeline_run` refuses naming that repository; `release.sh stg`, a research delivery and each plugin build still start
+- 审批 无（代码改动，随平台发布；会改变 Trade、research、插件发布前检查的实际效果，上线前告诉 Owner）· 代价 M · 风险 medium · repos: bifrost-platform
+

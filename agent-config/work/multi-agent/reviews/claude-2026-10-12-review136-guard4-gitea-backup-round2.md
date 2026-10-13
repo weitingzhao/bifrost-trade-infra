@@ -27,4 +27,14 @@ P3：`fetch-tools.sh:8` 单次 wget 无重试，而仓库记录新 Pod 的策略
 10. 合并前：P1 排序；(d) 信号窗口；保留的周档；wiki；演练种子与重置；runbook；补三条缺的测试和一个名字对的测试。apply 前：改过种子的演练通过；`.lock-reap` 过期；fetch 与 token 重试；量过 live 体积后给 `/work` 设 sizeLimit；stage 关 webhook；定下 maintainer ConfigMap 的做法并从 main 执行。只有演练或第一次真实运行能定：只读 URI 对运行中 SQLite 的 `.backup`；BusyBox 工具与 bash 5.2；真 age；Gitea 在 stage 上启动、token、HTTP clone。
 
 测试运行 3 次：基线 44 passed；五个变异体 180 例，5 failed / 175 passed；复现 8 passed。
+
+---
+
+## 确认轮（同一位复核方，2026-10-12，对象第 3 轮 `62fa586` 和统筹方改演练脚本的 `9dac94f`）
+
+VERDICT: safe to merge。上一轮点名的各项全部 closed；复核方重种的六处错和另加的两处全部被测试杀死；改动处没有找到 (a)–(g) 的序列。演练里「解密、恢复、把每个仓库 HTTP clone 一遍」确实走的是令牌路径（三个种子仓库都是私有的，容器没有网络、没有已存凭据）；每个故障都到了它说的那一行。应用前必须做的只有一件：量线上数据的体积和控制面节点的空闲盘，再起第一个任务（`/work` 没有大小上限，可能造成节点磁盘压力）。不阻塞的小修四处：发布前检查目标目录不存在；锁里的开始时间文件为空时回退到目录时间；下载重试的总时长短于新 Pod 网络策略生效的约 15 秒；两处过期文字。首次真实运行要盯的：真实体积下的占用和用时、拉取镜像仓库（含 GitHub 的 `refs/pull/*`）的 fsck 和比对、网络策略是否执行、init 容器在 alpine 里以 uid 1000 写 `/tools`、同节点只读挂线上卷时的在线备份、NFS 上的锁和改名、线上 `app.ini` 的形状、Owner 的真钥解密、真实的告警。
+
+统筹方的处理：四处小修都改了并各加一条测试（种回去各自会失败），不用 Docker 的测试 67 条通过，Docker 演练重跑通过；合并：infra `15becc5`。集群里没有应用。
+
+
 END OF REPORT
