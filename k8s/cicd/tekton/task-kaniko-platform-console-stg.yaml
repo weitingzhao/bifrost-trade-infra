@@ -16,6 +16,9 @@ spec:
       default: Dockerfile.platform-console-stg
   workspaces:
     - name: source
+  results:
+    - name: digest
+      description: Registry digest (sha256:...) of the pushed image.
   steps:
     - name: assert-context
       image: alpine:3.20
@@ -33,6 +36,7 @@ spec:
         - --dockerfile=$(params.dockerfile)
         - --context=$(workspaces.source.path)
         - --destination=$(params.image)
+        - --digest-file=$(results.digest.path)
         - --custom-platform=linux/amd64
         - --insecure
         - --skip-tls-verify
