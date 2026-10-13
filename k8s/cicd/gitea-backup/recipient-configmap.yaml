@@ -1,0 +1,8 @@
+# Owner's public key, identical to cluster-state-backup. Never an identity.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitea-backup-recipient
+  namespace: cicd
+data:
+  recipient: age10s4l6p55wh22gsmr3ga40lad7269hn8yt356m5kuhcyg67c80ayqutqxkf

@@ -89,6 +89,14 @@ maintainers:
     max_tier: B
     detected_by: BifrostLogicalBackupDrillStale
     status: active
+  - id: cronjob/cicd/gitea-backup
+    what: "Nightly Gitea backup: SQLite online backup, repository set and HTTP restore verification, then age encryption onto nfs-cold."
+    runs_on: cluster:cicd/CronJob
+    schedule: "10 3 * * * UTC"
+    env: shared
+    max_tier: B
+    detected_by: BifrostGiteaBackupMissing
+    status: active
   - id: cronjob/data/backup-retry
     what: "Every 15 minutes in the 04:00-09:00 UTC window, creates a retry Backup if today's CNPG backup failed."
     runs_on: cluster:data/CronJob

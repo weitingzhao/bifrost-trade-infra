@@ -347,6 +347,27 @@ spec:
               06:00 UTC) last passed {{ $value | humanizeDuration }} ago. Its reports
               are under drills/ in the logical-backup-hot folder on k3s-hot.
 
+        # Nightly copy of the in-cluster Gitea (k8s/cicd/gitea-backup, W-41).
+        - alert: BifrostGiteaBackupMissing
+          expr: |
+            time() - max(kube_cronjob_status_last_successful_time{namespace="cicd",cronjob="gitea-backup"}) > 93600
+            or
+            (
+              (time() - max(kube_cronjob_created{namespace="cicd",cronjob="gitea-backup"}) > 93600)
+              and on()
+              absent(kube_cronjob_status_last_successful_time{namespace="cicd",cronjob="gitea-backup"})
+            )
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "No successful Gitea backup for 26 hours"
+            description: >-
+              CronJob cicd/gitea-backup last succeeded {{ $value | humanizeDuration }} ago
+              (it runs 03:10 UTC). A run whose STATUS is not OK still fails; read
+              `kubectl -n cicd logs job/<latest gitea-backup job>` and the STATUS
+              file of the newest directory on the gitea-backup claim (k3s-cold).
+
     # TD-215: the PROD daemon's Lease holder is the only writer of raw_broker.account and
     # raw_broker.positions (Positions, attribution, the 16:20 ET snapshot capture). worker >= 0.2.7
     # exports timestamps on /metrics (PodMonitor bifrost-trade-daemon); the standby pod exports
