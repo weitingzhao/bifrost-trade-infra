@@ -2,52 +2,57 @@
 
 写给 Owner。一条命令，做完不用回话：统筹方用只读身份自己看结果，再发一次测试环境来验证。
 
-2026-10-13 凌晨写成。命令由统筹方逐项核对，并交 Codex 只读核对（结论见文末）。
+2026-10-13 凌晨写成。命令由统筹方逐项核对，并交 Codex 只读核对（核对 145）：第一稿被要求改 7 处，本稿已全部改入，见文末。
 
 ## 这一步是什么
 
-平台发测试环境和正式环境时，共用两个构建任务（`bifrost-kaniko-platform-api-stg`、`bifrost-kaniko-platform-console-stg`）。这一步让它们在构建完之后多记一样东西：推上去的那份镜像的摘要。每个任务多一个结果、多一个参数，别的都不变——镜像推到哪、怎么部署、两条流水线本身都和今天一样。
+平台发测试环境和正式环境时，共用两个构建任务（`bifrost-kaniko-platform-api-stg`、`bifrost-kaniko-platform-console-stg`）。这一步让它们在构建完之后多记一样东西：推上去的那份镜像的摘要。每个任务多一个结果声明、多一个 kaniko 的命令行参数，别的定义都不变——镜像推到哪、怎么部署、两条流水线本身都和今天一样。
 
 它是「正式环境直接用测试环境验过的镜像」的第一块：先让系统记得每次构建出来的到底是哪一份。
 
 ## 做之前（统筹方核对后在线程里说「可以做 ⑤-11」）
 
-- 没有平台的发布在跑，没有未结的正式环境发布单。
-- 线上这两个任务的定义等于主线上改之前的版本（2026-10-12 23:20 量过一次，做之前再量一次）。
+统筹方用只读身份确认这几样，并在你做的那几分钟里占住发布窗口，别的会话起不了平台的发布：
+
+- 没有平台的发布在跑，没有未完成的相关构建任务，没有未结的正式环境发布单。
+- 线上这两个任务都存在，定义等于主线上改之前的版本（`d5154ea`）。
 
 ## 命令
 
 ```bash
-cd ~/Desktop/stocks/bifrost-trade-infra && git fetch -q origin && ( export KUBECONFIG="$HOME/.bifrost-owner/kube/admin.yaml"; a=k8s/cicd/tekton/task-kaniko-platform-api-stg.yaml; c=k8s/cicd/tekton/task-kaniko-platform-console-stg.yaml; git show d1495c7:$a | kubectl apply --dry-run=server -f - && git show d1495c7:$c | kubectl apply --dry-run=server -f - && git show d1495c7:$a | kubectl apply -f - && git show d1495c7:$c | kubectl apply -f - )
+( set -o pipefail; cd ~/Desktop/stocks/bifrost-trade-infra && git fetch -q origin && export KUBECONFIG="$HOME/.bifrost-owner/kube/admin.yaml" && a=k8s/cicd/tekton/task-kaniko-platform-api-stg.yaml && c=k8s/cicd/tekton/task-kaniko-platform-console-stg.yaml && git show "d1495c7:$a" | kubectl apply --dry-run=server -f - && git show "d1495c7:$c" | kubectl apply --dry-run=server -f - && git show "d1495c7:$a" | kubectl apply -f - && git show "d1495c7:$c" | kubectl apply -f - )
 ```
 
-- 它在一个括号里临时用你的管理员身份（你的终端默认连的是本机 Docker Desktop，不是集群；括号结束后终端不受影响）。
+- 整条命令在一个括号里：切目录、临时用你的管理员身份、变量都只在括号里有效，结束后你的终端在原来的目录、原来的环境（你的终端默认连的是本机 Docker Desktop，不是集群）。
 - 两个文件直接取自主线上固定的那个提交 `d1495c7`，不依赖你本地检出目录的状态。
-- 先对两个文件各做一次服务端试算，两次都过了才真正应用。任何一步失败，后面的都不执行。
-- 应当看到四行：两行 `task.tekton.dev/… configured (server dry run)`，两行 `task.tekton.dev/… configured`。
+- 先对两个文件各做一次服务端试算，两次都过了才真正应用；前一段失败（包括取不到文件），后面的都不执行。
+- 第一次成功应用预计看到：两行 `task.tekton.dev/… configured (server dry run)`，两行 `task.tekton.dev/… configured`。重复执行可能显示 `unchanged`。出现 `created`、警告或报错都不用你判断，原样留着，统筹方来核对。
+- **四段不是一个整体**：如果第一个任务应用成功、第二个失败，会留下一新一旧，不会自动撤回。出现报错就停在那里，不要再发布，告诉统筹方。
+- 这是普通的 `kubectl apply`（和仓库里安装脚本对这两个任务的做法一样）。它没有改变字段归属，也不解决 TD-309。
 
 ## 做完之后会怎样
 
-- 集群里只变两个对象：`cicd` 里的这两个 Task。两条流水线、别的任务都不变。
-- 下一次平台构建（测试环境或正式环境）会多记一个结果。写不出这个结果时，构建那一步会失败——所以统筹方在你应用之后**立刻发一次测试环境**来验证，量三样是否相等：构建记下的摘要、镜像仓库回的摘要、测试环境的 Pod 实际在跑的摘要。
+- 集群里被这条命令写入的只有两个对象：`cicd` 里的这两个 Task（它们的定义，以及「上次应用」之类的元数据）。两条流水线、别的任务没有被写。
+- 下一次平台构建（测试环境或正式环境）会多记一个结果。摘要文件写不出来时，预计构建那一步会失败（按 kaniko 的行为推断；失败也不等于镜像一定没推上去）——所以统筹方在你应用之后先确认两个任务都是新定义，然后**立刻发一次测试环境**来验证，量三样是否相等：两个构建各自记下的摘要、镜像仓库对同一个镜像回的摘要、测试环境里 api、workers、console 的 Pod 实际在跑的摘要。
 - **这次验证通过之前，统筹方不建任何正式环境的平台发布单。**
+- 已经在跑的东西：已有的镜像和正在跑的应用 Pod 不会因为改了任务定义而重启。已经开始的构建任务继续用旧定义（按 Tekton 的行为推断）；所以要在没有发布在跑的时候做。
 
 ## 撤回
 
-把两个任务恢复成改之前的定义（取自改之前的主线提交 `d5154ea`）：
+把两个任务的定义恢复成改之前的版本（取自主线提交 `d5154ea`）。同样要在没有平台发布在跑的时候做：
 
 ```bash
-cd ~/Desktop/stocks/bifrost-trade-infra && ( export KUBECONFIG="$HOME/.bifrost-owner/kube/admin.yaml"; a=k8s/cicd/tekton/task-kaniko-platform-api-stg.yaml; c=k8s/cicd/tekton/task-kaniko-platform-console-stg.yaml; git show d5154ea:$a | kubectl apply -f - && git show d5154ea:$c | kubectl apply -f - )
+( set -o pipefail; cd ~/Desktop/stocks/bifrost-trade-infra && export KUBECONFIG="$HOME/.bifrost-owner/kube/admin.yaml" && a=k8s/cicd/tekton/task-kaniko-platform-api-stg.yaml && c=k8s/cicd/tekton/task-kaniko-platform-console-stg.yaml && git show "d5154ea:$a" | kubectl apply -f - && git show "d5154ea:$c" | kubectl apply -f - )
 ```
 
-撤回之后构建不再记摘要，其余和今天完全一样。已经发出去的镜像和正在跑的东西不受影响。
+撤回恢复的是这两个任务的定义：之后的构建不再记摘要。它不会改回元数据，也不会动已经跑过的运行、已经记下的结果和已经发到测试环境的版本；撤回也可能只成功一半，同样看输出。撤回之后统筹方确认两个旧定义都在，才允许新的发布。
 
-## 统筹方已核对的
+## 统筹方已有的证据（不是这次核对重新确认的）
 
-- `d1495c7` 里这两个文件各自只比 `d5154ea` 多 4 行：一个结果声明（3 行）和一个参数（1 行）。实现者 Cursor，独立复核 144（Codex）：可以合并，没有必须改的；六处种错都被测试拦住。
+- `d1495c7` 里这两个文件各自只比 `d5154ea` 多 4 行：一个结果声明（3 行）和一个命令行参数（1 行）。实现者 Cursor，独立复核 144（Codex）：可以合并，没有必须改的；六处种错都被测试拦住。
 - 这个集群上已有两次成功的构建用同一个 kaniko 版本、同一个参数记下了摘要（`bifrost-build-ib-gateway`，10-07 和 10-10），值是 `sha256:` 加 64 位十六进制，没有换行。
-- 2026-10-13 00:13 只读量到：没有未完成的流水线运行；最近一次测试环境的平台发布（21:46）成功。
+- 2026-10-12 23:20 只读量到：这两个任务线上「上次应用」的定义与改之前的主线文件相同。2026-10-13 00:13 只读量到：没有未完成的流水线运行；最近一次测试环境的平台发布（10-12 21:46）成功。做之前会再量一次。
 
-## Codex 的只读核对
+## 核对 145 要求改的 7 处（都已改入）
 
-（待填：核对结论和要求改的地方。）
+切目录放进括号并启用 `pipefail`（原稿的 `cd` 在括号外，会改变你终端的目录；管道默认只看最后一个命令的退出码）；路径参数加引号；输出不保证恰好四行，重复执行可能是 `unchanged`；写明四段不是一个整体、不会自动撤回；「构建会失败」「其余和今天完全一样」「正在跑的东西不受影响」三句收窄成现在的说法；写明这不是服务端应用、不解决 TD-309；补上应用和撤回期间不发布、应用后先核对两个任务都是新定义、验证时把 workers 也算上。Codex 确认的：两个提交里这两个文件的差异正是上面说的 4 行；撤回取的 `d5154ea` 确实是改之前的版本；zsh 里这条命令的展开和先后次序正确。统筹方在 zsh 里把不碰集群的部分原样跑过：取文件三次都成功，取不到文件时整条以非零退出、后面的不执行，结束后终端目录没有变。
