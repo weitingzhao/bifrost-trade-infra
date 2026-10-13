@@ -92,6 +92,8 @@ else:
  if mode=='forbidden' or (mode=='task-forbidden' and 'taskrun' in a):
   print('Error from server (Forbidden)',file=sys.stderr); sys.exit(1)
  if mode=='failed': sys.exit(1)
+ if mode=='failed-detail':
+  sys.stderr.write('E1012 memcache.go:265] noise\\nError from server (ServiceUnavailable):   the server is currently unable to handle the request\\n'); sys.exit(1)
  if mode=='timeout' and 'taskrun' in a: time.sleep(30)
  if mode=='empty': sys.exit(0)
  if mode=='duplicate': print('{{"items":[],"items":[]}}'); sys.exit(0)
@@ -273,6 +275,7 @@ def test_stg_refuses(tmp_path, case):
         "forbidden",
         "task-forbidden",
         "failed",
+        "failed-detail",
         "empty",
         "malformed",
         "duplicate",
@@ -284,6 +287,15 @@ def test_query_fail_closed(tmp_path, mode):
     refuse(result)
     if "forbidden" in mode:
         assert "identity cannot read" in result.stdout
+    if mode == "failed":
+        assert "query failed: no error output" in result.stdout
+    if mode == "failed-detail":
+        # The last line of the tool's own error, on one line; the noise before it is dropped.
+        assert (
+            "query failed: Error from server (ServiceUnavailable): the server is currently"
+            " unable to handle the request" in result.stdout
+        )
+        assert "memcache" not in result.stdout
     assert not (tmp_path / "commit").exists()
     calls = (tmp_path / "calls").read_text().splitlines()
     assert sum("kubectl" in c for c in calls) == (
@@ -536,6 +548,34 @@ def test_only_two_pipeline_lists(tmp_path):
     assert len(lists) == 2
     for pipeline in ("bifrost-ci-platform", "bifrost-deliver-platform"):
         assert sum("tekton.dev/pipeline=" + pipeline + "'" in c for c in lists) == 1
+
+
+def test_kubectl_keeps_the_in_cluster_identity(tmp_path):
+    """A connection flag makes kubectl in a pod ignore the in-cluster identity.
+
+    With --request-timeout (or --server, --kubeconfig, --context, --cluster, --user, --token ...)
+    and no kubeconfig, kubectl uses its default of localhost:8080 instead of the pod's service
+    account. Every read then fails at once and the check refuses every release. The fakes here
+    cannot show that; the Owner's trial run in the cluster did (2026-10-12).
+    """
+    assert execute(tmp_path).returncode == 0
+    calls = [c for c in (tmp_path / "calls").read_text().splitlines() if "kubectl" in c]
+    assert len(calls) == 3
+    for call in calls:
+        for flag in (
+            "--request-timeout",
+            "--server",
+            "--kubeconfig",
+            "--context",
+            "--cluster",
+            "--user",
+            "--token",
+            "--as",
+            "'-s'",
+        ):
+            assert flag not in call, call
+    source = (ROOT / "scripts/release/platform_prod_gate.py").read_text()
+    assert "--request-timeout=" not in source
 
 
 def test_task_params_declared_and_passed():
