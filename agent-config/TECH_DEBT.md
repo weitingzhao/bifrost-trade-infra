@@ -2018,3 +2018,17 @@
 - 验收: with the approvals page open, restart platform-api and platform-console on STG, create a request, approve it on the page without reloading: the request is decided, or the page says why not
 - 审批 无（代码改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+
+### TD-326
+
+**P2 · infra · the unencrypted logical database backups are readable from the development Mac, where agents run: the NAS share that holds them is mounted there**
+
+- **状态**：未开始（2026-10-12 22:15 帮 Owner 找 Gitea 备份的挂载位置时看到的；要不要处理由 Owner 定）
+- **Claim**: the Mac Pro on which every agent session runs has the NAS share `k3s-hot` mounted over SMB under the Owner's NAS account. `k8s/data/logical-backup` writes its daily dumps of `bifrost_prod` (schema `public`) and of four Golden Source schemas to the claim `data/logical-backup-hot` on that share, unencrypted (`k8s/data/logical-backup/README.md`). So any process of the Owner's user on that Mac — an agent's shell included — can read production data dumps without touching the cluster or any credential the guard watches. The agent guard (`scripts/agent-guard/preflight.js`) matches commands that name the Owner's credential files and the approval routes; it does not know about `/Volumes`.
+- **Measured**: MEASURED 2026-10-12 22:15 CDT with `mount`: `k3s-hot`, `personal_folder`, `TimeMachine` and `family-share` of `192.168.10.20` are mounted on the Mac; `k3s-cold` is not. NOT MEASURED, on purpose: the coordinator did not list or read anything under the share. Whether the weekly copies on `k3s-cold` are reachable the same way once that share is mounted is NOT MEASURED.
+- **Evidence**: `k8s/data/logical-backup/README.md` (what is written where; "RPO is one day … an offsite copy is open"); `k8s/data/logical-backup/nas-volumes.yaml`; `k8s/data/cluster-state-backup/README.md` and `k8s/cicd/gitea-backup/README.md` (the two backups that are encrypted to the Owner's key before they reach the NAS).
+- **Impact**: the boundary "agents read production data only through `agent_reader`" does not hold on this machine. A mistaken or misled agent command could copy, or publish, account and trade data.
+- **Fix** (for the Owner to choose): unmount the share on the development Mac when it is not needed and mount it read-only, on demand; or encrypt the logical dumps to the Owner's key as the other two backups do (the monthly restore drill in the cluster would then need another way to read them); or keep it and add `/Volumes/k3s-*` to what the guard refuses. The Gitea backup written since 2026-10-12 is ciphertext, so mounting `k3s-cold` adds no readable secret.
+- **Ratchet**: a line in the guard's tests for a read under the NAS mount points, if the guard route is chosen.
+- 验收: from an agent shell on the Mac, a read of a logical dump is either impossible (not mounted, or ciphertext) or refused by the guard
+- 审批 要 Owner 定方向 · 代价 S · 风险 low · repos: bifrost-trade-infra
