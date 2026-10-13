@@ -64,5 +64,19 @@ def _run(home: Path | None) -> str:
         text=True,
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    text = proc.stdout + proc.stderr
-    return re.sub(r" in [0-9.]+s", " in TIME", text)
+    return _normalise(proc.stdout + proc.stderr)
+
+
+def _normalise(text: str) -> str:
+    """Take the run time out of pytest's summary. Past one minute pytest prints it twice — " in 129.07s (0:02:09)" —
+    and the second form was left in: once the release suite grew beyond a minute (2026-10-12), three runs that differ
+    by a second compared as different and this test failed on every tree."""
+    return re.sub(r" in [0-9.]+s(?: \([0-9:]+\))?", " in TIME", text)
+
+
+def test_run_time_is_not_part_of_the_comparison():
+    long_a = _normalise("274 passed, 2 skipped in 129.07s (0:02:09)\n")
+    long_b = _normalise("274 passed, 2 skipped in 131.90s (0:02:11)\n")
+    short = _normalise("274 passed, 2 skipped in 59.07s\n")
+    assert long_a == long_b == short == "274 passed, 2 skipped in TIME\n"
+    assert _normalise("1 failed, 273 passed in 129.07s (0:02:09)\n") != long_a
