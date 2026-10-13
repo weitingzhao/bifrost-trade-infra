@@ -280,14 +280,31 @@ spec:
                   return result
 
 
+              # Why a tool call failed, as one of a few fixed phrases. The tool's own text is never
+              # printed: this step holds the mirror credential, and the log is widely readable.
+              CAUSES = (
+                  ("connection to the server", "cannot reach the API server"),
+                  ("connection refused", "connection refused"),
+                  ("could not resolve host", "cannot resolve the mirror host"),
+                  ("no route to host", "no route to host"),
+                  ("couldn't find remote ref", "ref is not in the mirror"),
+                  ("authentication failed", "mirror authentication failed"),
+                  ("doesn't have a resource type", "the API has no such resource"),
+                  ("serviceunavailable", "the API is unavailable"),
+                  ("toomanyrequests", "the API is throttling"),
+                  ("internalerror", "the API reported an internal error"),
+                  ("notfound", "not found"),
+                  ("timed out", "timed out"),
+                  ("timeout", "timed out"),
+              )
+
+
               def detail(stderr):
-                  """The last line of a tool's error output, on one line and short, for the refusal."""
-                  lines = [" ".join(line.split()) for line in (stderr or "").splitlines() if line.strip()]
-                  line = lines[-1][:200] if lines else "no error output"
-                  secret = os.environ.get("GIT_PASSWORD") or ""
-                  if "Authorization" in line or (secret and secret in line):
-                      return "error output withheld"
-                  return line
+                  text = stderr.lower() if isinstance(stderr, str) else ""
+                  for needle, cause in CAUSES:
+                      if needle in text:
+                          return cause
+                  return "unrecognised error output (%d characters)" % len(text)
 
 
               def read_json(args):
@@ -300,7 +317,8 @@ spec:
                           object_pairs_hook=unique_object,
                       )
                   except subprocess.CalledProcessError as exc:
-                      if "forbidden" in exc.stderr.lower() or "unauthorized" in exc.stderr.lower():
+                      text = exc.stderr.lower() if isinstance(exc.stderr, str) else ""
+                      if "forbidden" in text or "unauthorized" in text:
                           raise ValueError(
                               "identity cannot read PipelineRuns/TaskRuns in cicd"
                           ) from exc
