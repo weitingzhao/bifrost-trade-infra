@@ -13,7 +13,6 @@
 
 ## 待你签收
 
-- **TD-295** — 平台的发布可以按确切的提交起，发布单写的是哪个提交，发的就是哪个提交（护栏第 ⑤ 项第一片；platform `c003464`，2026-10-12 21:44 上正式环境，审批单 #12）。验收：PASS 2026-10-12 `c003464`，在测试环境对真实的代码镜像做了五样：按两个确切提交起发布成功、拉到的就是它们；漏给界面库提交立即被拒；不存在的提交等到上限后被拒；缩写提交号立即被拒；今天的写法照旧能起。防线：`RATCHETS.md`「按确切提交发布」一行。后续：TD-323（Trade、Research、插件的发布前检查实际上不拦）；TD-324；护栏第 ⑤ 项的第二片（按镜像摘要部署）另出设计。从下一张平台发布单起，单子里写明两个提交号，待批期间不再冻住主线。
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
@@ -74,7 +73,7 @@
 
 目标：一个开关让所有测试类防线生效（CI 卡发布），再补上调度存活告警、D10 闸门的非 curl 写法、operator 流白名单、本机常驻任务和密钥轮换的盲区、spine 副本同步。
 
-项：TD-95, TD-100, TD-121, TD-152, TD-153, TD-155, TD-162, TD-293, TD-294, TD-295, TD-298 · 已还：TD-99, TD-161, TD-198, TD-195, TD-194, TD-249, TD-109, TD-105, TD-96
+项：TD-95, TD-100, TD-121, TD-152, TD-153, TD-155, TD-162, TD-293, TD-294, TD-298 · 已还：TD-295, TD-99, TD-161, TD-198, TD-195, TD-194, TD-249, TD-109, TD-105, TD-96
 
 ### 第 3 波 · 交易日与日历只有一个来源
 
@@ -1537,21 +1536,6 @@
 - **Ratchet**: `scripts/check-release-chain.py` gains an assertion driven by `agent-config/release-policy/template.json` `allow` plus the build pipelines: each one's first task is `release-window` or the freeze-only task; a pipeline whose YAML is not found fails rather than skips (same rule as the TD-263 check).
 - 验收: `python3 scripts/check-release-chain.py` passes with the new assertion; a frozen drill: `kubectl create` of a pinned PROD run is refused by its first task.
 - 审批 要批（apply 七条 Tekton 流水线到 cicd）· 代价 S · 风险 low · repos: bifrost-trade-infra
-
-### TD-295
-
-**P2 · ops-platform · start_pipeline_run checks one revision in every repo a pipeline clones, so a platform deliver cannot be started by full SHA: the W-42 pinned rule for bifrost-deliver-platform-prod can never be met through the API**
-
-- **状态**：待你签收（2026-10-12 21:52：平台的两条发布流水线可以按确切的提交起了——platform `c003464`，21:44 随审批单 #12 上正式环境，随后在测试环境对真实的代码镜像实测通过，见下面「验收结果」。Codex 写三轮，复核 138 加两轮确认。本条原文里的另外几样不在这一片里：Trade、Research、插件流水线的发布前检查仍是老样子，而且复核查出它们实际上什么都拦不住——记成 TD-323；「每个 B 级动作都有 MCP 工具」「只同步镜像的动作」并进 TD-324；发布策略里「钉住的请求走到自动批准」属于搁置的全自动发布，不在护栏范围。）之前：未开始（W-31 第 9 步调查 10-10 发现；第 9 步用 `revision=main` 绕开，见 STEP0-PLAN 0.7 节）
-- **Claim**: Before creating a run, platform-api runs `RefPreflight(pipeline, revision)` against every repo the pipeline clones; for both platform deliver pipelines that is `bifrost-platform` and `bifrost-ui`. A platform commit never exists in `bifrost-ui`, so any full-SHA (or platform-only branch) revision is refused as "missing in: bifrost-ui"; `params.uiRevision` changes the clone param but not the preflight. W-42's `paths.json` pins `bifrost-deliver-platform-prod` to full SHAs (`revision` and `uiRevision` equal to the newest `bifrost-deliver-platform` record), so a request that the policy would auto-approve is one the API refuses; with `revision=main` it starts but the policy answers "not a full commit id". The preflight also reads the Gitea mirror before the pipeline's own mirror-sync, so a SHA pushed after the last sync is "missing" even in its own repo.
-- **Evidence**: `bifrost-platform/api/internal/delivery/service.go:237` (preflight with the single `rev`), `service.go:530-531` (`uiRevision` defaults to the same `rev`), `supply_chain.go:41-42` (both platform pipelines clone `bifrost-platform` and `bifrost-ui`), `ref_preflight.go:85`; `api/internal/releasepolicy/engine.go:493-545` (`pinnedReasons`: full SHAs required); `bifrost-trade-infra/agent-config/release-policy/paths.json` `pinned`. Gitea mirror on 10-10: main `efeaf69` while GitHub main is `66496a6`.
-- **Also (2026-10-10, W-31 integrated batch)**: the preflight reads the Gitea mirror as it stands before the run's own `mirror-sync` task, so a branch pushed minutes earlier is refused as missing. The action that fixes it, `sync_mirrors`, is tier B ("call directly") but the MCP server has no tool for it (`mcp/platform/src/actionTiers.ts:184` lists the route only), so an Agent has no sanctioned way to call it. MEASURED: `start_pipeline_run name=bifrost-deliver-platform revision=w31/s0-0-all` refused twice (18:22Z and 18:24Z, branch pushed 18:15Z) with "missing in: bifrost-platform, bifrost-ui"; `request_action sync_mirrors` answered `call directly`; a `get_commit_lineage refresh=true` read, whose scan asks Gitea to fetch every mirror (`api/internal/lineage/mirrors.go:12-19`), moved `mirror_updated` to 18:24:5xZ and the third start succeeded.
-- **Also (2026-10-11, W-62 slice 3 / W-65 slice 0)**: because both platform deliver pipelines build `main` as it is when the run starts, a PENDING PROD approval freezes `bifrost-platform` main. Request #7 was created at 02:53 for main `8b3259a` (CI green, STG verified on that commit); a reviewed refactor was ready to merge at 03:22 and could not be, because merging would make the approved run deploy a commit the request does not describe and STG never ran. Until the Owner approves, nothing may be merged into that main; work continues only on stacked branches. A request that states a commit must deploy that commit.
-- **Fix**: preflight each repo at the ref the run will clone it at (`revision` for `bifrost-platform`, the caller's `uiRevision` or `revision` for `bifrost-ui`, the Trade per-repo params likewise), computed after `mergePipelineParams`; for a full SHA missing from the mirror, sync that mirror first (or report Unknown rather than missing). When a ref is missing, `start_pipeline_run` syncs the mirrors of the repos it clones once and checks again before refusing; and every tier B action gets an MCP tool (a test compares the tier table with the tool list).
-- **Ratchet**: Go tests in `api/internal/delivery`: `bifrost-deliver-platform-prod` with `revision=<platform sha>` and `params.uiRevision=<ui sha>` passes preflight when each SHA exists in its own repo, and is refused when either is missing; a `releasepolicy` test that the request `platform-prod-pinned-from-stg.sh` describes reaches `Auto` under a signed policy.
-- 验收: `cd bifrost-platform/api && go test ./internal/delivery/ ./internal/releasepolicy/`; on STG, `start_pipeline_run name=bifrost-deliver-platform revision=<platform full sha>` with `params.uiRevision=<ui full sha>` starts.
-- 验收结果：PASS 2026-10-12 platform `c003464`（正式环境的平台对测试环境的流水线，真实的代码镜像）。① `start_pipeline_run bifrost-deliver-platform revision=c003464… params.uiRevision=9b635b2…` 建出 `bifrost-deliver-platform-1791859598`，run 的两个参数就是这两个提交号，`clone-platform` 和 `clone-ui` 拉到的也是，发布成功，测试环境健康。② 只给 `revision=<整提交号>` 不给 `uiRevision`：立即被拒，`bifrost-ui (ref …) — pass uiRevision for bifrost-ui`。③ 镜像里没有的提交号：等到上限后被拒，`revision is missing in: bifrost-platform (ref …); mirror was synced but the ref is still not present`。④ `deadbeef`：立即被拒，`use the full 40-character lowercase SHA`。⑤ 今天的写法照旧：#12 本身用 `revision=main` + `params.uiRevision` 起，成功。合并前整个接口的测试在合并后的树上通过；复核方用 2,652 个调用把主线和分支逐条比过，两条平台流水线之外真实差异为 0。只在非默认分支上的提交，镜像的提交查询答「在」——由 20:34 在分支提交 `890f411` 上起 CI 的那一次间接证明，本条没有另外往测试环境发一个分支提交。
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-296
 
