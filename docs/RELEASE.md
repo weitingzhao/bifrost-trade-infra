@@ -89,6 +89,7 @@ scripts/release/release-check.sh diff old.json new.json --allow <file>
 ## Platform PROD source check（W-56 guardrail 2）
 
 > 状态：**已应用到集群**（Owner 2026-10-12 21:13，文件取自提交 `79c8088`；应用前在集群里试跑过一正一反）。平台那一半随 `26a10b5` 在正式环境上。
+> 2026-10-13 18:32 起线上的 PROD 流水线取自提交 `b9ec378`：源检查与上面相同，只有 `rollout` 改成重启后按摘要核对 Pod（护栏 ⑤ 收口片；同日 18:25 STG 流水线也取自这个提交）。要退回到只有源检查、不核对摘要的那一版，用 `0e3d33b`（与 `79c8088` 逐字节相同），见 `agent-config/work/multi-agent/OWNER-STEPS-digest-s2-s3.md` 的「撤回」。
 
 `bifrost-deliver-platform-prod` 在 mirror-sync 后、clone 前拒绝两种情况：平台提交没有整 SHA 匹配的 Succeeded `bifrost-ci-platform`，或无法证明 STG 克隆了同一整 SHA。STG 只取 `bifrost-deliver-platform` 中创建时间最新的一条（同时间拒绝），它必须成功，且其它每条都必须在它**创建之前**就已结束（completionTime 严格早于它的 creationTimestamp，即不许交叠）；在途、缺失或不能解析的时间、和它交叠过的 run 都拒绝，并在拒绝行里点名。含义：验证过的那次之后，只要又起过一次 STG 发布（哪怕它没碰到 STG 就失败），PROD 就被拒，直到再成功发一次 STG。查询失败或证据畸形也拒绝。
 
