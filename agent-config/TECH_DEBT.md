@@ -16,7 +16,7 @@
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
-**未结 112 项**：P0 0 · P1 11 · P2 43 · P3 58；要你批的 39 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
+**未结 113 项**：P0 0 · P1 11 · P2 43 · P3 59；要你批的 40 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
 
 ## 主题（第 2、3 轮）
 
@@ -2079,7 +2079,7 @@
 
 **P3 · ops-platform · production pods of the platform are deployed by a movable tag: after a promotion, a restart pulls whatever `:prod` points to then**
 
-- **状态**：未开始（2026-10-13 11:34 Owner 定：护栏 ⑤ 走标签。这一条是它明说做不到的那一半）
+- **状态**：未开始（2026-10-13 13:05 Owner 定：护栏 ⑤ 收口，标签那一片不做；正式环境照旧重新构建后推 `:prod`。这一条照旧成立：Pod 按可改写的标签部署。下面 Claim 里「with the tag route」的前半句不再适用，见 TD-335）
 - **Claim**: with the tag route, a production delivery puts the pair of images verified on STG under `:prod` and checks that the pods run that pair when the delivery ends. The Deployments still name the tag and pull `Always`; the registry has no authentication. A later push to `:prod`, or the developer script that pushes it by default, changes what the next restart runs.
 - **Measured**: NOT MEASURED (read from the manifests and the registry Deployment during the design of guardrail 5).
 - **Evidence**: `k8s/overlays/platform-prod/kustomization.yaml:57-63`; `k8s/overlays/platform-prod/images-pull-always.patch.yaml`; `k8s/cicd/registry/deployment.yaml`; `bifrost-platform/scripts/push-platform-api.sh:4-7,33-36`.
@@ -2130,3 +2130,17 @@
 - **Ratchet**: a test in the api role: the first final write fails, the next succeeds, the record reaches its final state without the workers loop.
 - 验收: the test above
 - 审批 无（代码改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-335
+
+**P3 · ops-platform · a production delivery of the platform rebuilds both images from the commit instead of promoting the pair that STG verified; a rollback rebuilds too**
+
+- **状态**：未开始（2026-10-13 13:05 Owner 定：护栏 ⑤ 收口，这一半留到第 3 轮，和 registry 写保护一起做）
+- **Claim**: production builds its own images from the approved commit (the same commit STG ran, checked by the source gate). Base images and dependencies can differ between the STG build and the production build, which were eleven hours apart on 2026-10-13. Two designs for using the STG artefacts were stopped after independent review: pinning digests into the production manifests (three drafts) and promoting by tag (two drafts). Each still had a path where the delivery succeeds while the claim is untrue, because the registry accepts unauthenticated writes with no compare-and-set and the cluster reads are not atomic. W-56's "rollback without rebuild" is open for the same reason.
+- **Measured**: NOT MEASURED — no difference between an STG image and the production rebuild of the same commit was ever observed; nothing compares them. After guardrail 5 closes, a delivery records the digests it built and checks its own pods against them, in STG and in production.
+- **Evidence**: `k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml:474-570` (the six build tasks); `agent-config/work/multi-agent/DESIGN-guard5-tag-route-stopped.md` (the stopped design and why); `agent-config/work/multi-agent/LESSONS-from-practice.md` row 119; `docs/RELEASE.md:229`.
+- **Impact**: "production runs what was tested" holds for the source commit, not for the image bytes.
+- **Fix**: first give the registry write protection for `:prod` (or deploy by digest, TD-331); then promote the recorded STG pair. State the acceptance with its time meaning before the first draft: what is proven at the moment it is read, and which later changes are accepted risks.
+- **Ratchet**: a structure test that the production pipeline has no build task; the promotion's own tests.
+- 验收: a production delivery whose pipeline run contains no build task, and whose pods run the digests recorded by the STG delivery it promoted
+- 审批 审批单（PROD 发布）· 代价 L · 风险 med · repos: bifrost-trade-infra
