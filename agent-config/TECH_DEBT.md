@@ -13,13 +13,10 @@
 
 ## 待你签收
 
-- **TD-338** — 审批页：另一张单子的决定还在途、又部署了新版 Console 时，点批准要么发出、要么写明没发和原因（原来是不发也不说）。验收：PASS 2026-10-13 `2333e00`，页面测试 16 条；#17 上线。防线：RATCHETS「换版时的决定不会无声失败」。后续：TD-340（离开审批页后丢掉换版保护，原有行为）。
-- **TD-333** — 防火墙变更：只有能证明脚本没开始的错误回 503（可重试），开始之后的失败一律 502，不再按输出里的词分类，一张批准不会让脚本跑两次。验收：PASS 2026-10-13 `2333e00`，network 与 server 两个包的测试；#17 上线。防线：RATCHETS「防火墙脚本开始后的失败不重试」。后续：无后续：分类改为看类型标记，脚本输出写什么都不影响。
-- **TD-334** — 审批结果：持有最终结果的进程在每种角色里都会重试写入，结果不再因一次写失败变成 unknown；关机先等在途请求最多 5 秒，不掐断在跑的动作、不认领新单子。验收：PASS 2026-10-13 `2333e00`，approvals 与 server 两个包的测试；#17 上线。防线：RATCHETS「结果写失败会被重试，关机不掐断动作」。后续：TD-332（第二轮复核列出的关机时结果仍可能丢的几处，原有行为；Owner 定先合这一条）。
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
-**未结 114 项**：P0 0 · P1 11 · P2 42 · P3 61；要你批的 41 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
+**未结 111 项**：P0 0 · P1 11 · P2 41 · P3 59；要你批的 41 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
 
 ## 主题（第 2、3 轮）
 
@@ -2065,34 +2062,6 @@
 - 验收: an approved drain on STG against a node with a blocking PodDisruptionBudget ends as failed within its limit, and the request can be stopped before that
 - 审批 无（代码改动，随平台发布）· 代价 M · 风险 med · repos: bifrost-platform
 
-### TD-333
-
-**P2 · ops-platform · a firewall apply that fails with "required" in its output is answered as 503, which the approval executor treats as "try again later": the script may be run a second time**
-
-- **状态**：待你签收（2026-10-13 23:49）。验收结果：PASS 2026-10-13 `2333e00`：`go test ./internal/network/...`（`apply_refusal_test.go`：能证明没开始的错误回 503，开始之后的失败回 502，输出里带 "required" 也不回 503）和 `./internal/server/`（`firewall_refusal_test.go`）都过。验收里「Owner 确认脚本缺前提时打印什么」不再需要：分类不再看输出文字。正式环境 2026-10-13 23:48 上线（审批单 #17，平台 `2333e00`，四个 pod 的镜像等于发布记录的 digest）。此前：在做：修法 `c401f42`（Codex 写；只有带类型标记、能证明脚本没开始的错误回 503，脚本开始之后的失败一律 502，不再按输出里的关键词分类），独立复核（Claude 子代理）判可以合并，Codex 第二轮确认没被后面的提交带坏；2026-10-13 23:30 随 `2333e00` 进平台主线，CI 8/8 绿。等测试环境核对和正式环境发布单。此前：未开始（2026-10-13 12:50 TD-329 的独立复核读代码时指出的；原有行为，不是这次改动带来的；只记不做）
-- **Claim**: the firewall handler maps a failure whose text contains "required" to HTTP 503. The action wiring classifies 503 as transient, so the approval goes back to `approved` and the background loop runs the action again after the backoff. Whether the script's real output can contain that word was not confirmed: the script belongs to the Owner and the agent guard refused the read.
-- **Measured**: NOT MEASURED (read from the code, 2026-10-13).
-- **Evidence**: `bifrost-platform/api/internal/network/handler.go:116-119`; `server/actions_wire.go:448-451`; `approvals/execution.go:228-233` (requeue on a transient refusal).
-- **Impact**: one approval of a firewall change could apply it more than once, against the rule that an approved action runs once.
-- **Fix**: answer a failed apply as a failure (502) unless the script was provably not started; keep 503 for "the runner is not configured".
-- **Ratchet**: a handler test: a failed run whose output contains "required" is not answered 503.
-- 验收: the handler test above; the Owner confirms what the script prints when a precondition is missing
-- 审批 无（代码改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
-
-### TD-334
-
-**P3 · ops-platform · only the workers role retries a final result that could not be stored: on the api pod such a result is lost and the request turns unknown although the action ran**
-
-- **状态**：待你签收（2026-10-13 23:49）。验收结果：PASS 2026-10-13 `2333e00`：`go test ./internal/approvals/`（`held_loop_test.go`：同步执行的最终写第一次失败、第二次成功，记录到终态，不靠 workers；停止时不掐断在跑的动作、不认领新单子）和 `./internal/server/`（`approvals_loop_test.go`：用 `New` 按 api / all 角色建服务，结果写入循环都启动）都过。正式环境 2026-10-13 23:48 上线（审批单 #17，平台 `2333e00`，四个 pod 的镜像等于发布记录的 digest）。此前：在做：Owner 在线程里定「合」，2026-10-13 23:30 进平台主线 `2333e00`，CI 8/8 绿。第二轮复核列出的关机时结果可能丢的几处是原有行为，已并进 TD-332，不在这一条里。等测试环境核对和正式环境发布单。此前：在做（2026-10-13 23:27 停线，等 Owner 定）：修法在分支 `w31/td-333-334-approval-exec`（Codex 写 `3ce84d1`；Claude 按第一轮复核改 `ecae711`）。第一轮复核（Claude 子代理）查出关机会掐断在跑的动作、还会认领新单子，已修并有回归测试；第二轮（Codex）确认那处已关，又列出三处关机时结果可能丢——都是原有行为（改之前关机是直接杀进程），前两处已并进 TD-332。两轮用完仍判不能合并，按停线规矩交 Owner：合（我的建议，没有比主线更差的地方）或等 TD-332 一起做。此前：未开始（2026-10-13 12:50 TD-329 的独立复核顺带看到的；原有行为；没有对着部署清单核对角色拆分；只记不做）
-- **Claim**: when the write of an execution's final state fails, the result is kept in memory and written again by `flushHeld`, which is called only from the background retry loop. That loop is started only in the workers role. A synchronous execution runs in the api pod, so a failed final write there is never retried; the lease lapses and the record becomes unknown after the grace period.
-- **Measured**: NOT MEASURED (read from the code, 2026-10-13; the PROD role split is taken from a comment, `server.go:123-141`).
-- **Evidence**: `bifrost-platform/api/internal/approvals/execution.go:424` (`flushHeld` in `retryDue`); `server/server.go:357-362` (the loop starts in the workers role only), `:123-141`.
-- **Impact**: after a brief storage failure the Owner sees "unknown" for an action that completed, and has to check and close it by hand.
-- **Fix**: let the process that holds a result retry its own write (a small loop in every role, or a retry inside `finishPlatform` bounded by the lease).
-- **Ratchet**: a test in the api role: the first final write fails, the next succeeds, the record reaches its final state without the workers loop.
-- 验收: the test above
-- 审批 无（代码改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
-
 ### TD-335
 
 **P3 · ops-platform · a production delivery of the platform rebuilds both images from the commit instead of promoting the pair that STG verified; a rollback rebuilds too**
@@ -2139,20 +2108,6 @@
 - **Ratchet**: the policy template's own test (production pipelines stay out of the policy until the thresholds are accepted) is the line to move, with his signature.
 - 验收: a routine platform release reaches production with no approval request, and a release outside the policy still produces one
 - 审批 Owner 签规则（放宽）· 代价 L（W-56 的剩余门槛）· 风险 med · repos: bifrost-platform, bifrost-trade-infra
-
-### TD-338
-
-**P3 · ops-platform · with a decision still in flight on one request and a newer Console deployed, Approve on another request in the same tab does nothing and says nothing**
-
-- **状态**：待你签收（2026-10-13 23:49）。验收结果：PASS 2026-10-13 `2333e00`：`npx vitest run src/pages/__tests__/approvalsStaleBuild.test.tsx` 16 条过；正式环境的 Console 包里有新提示。正式环境 2026-10-13 23:48 上线（审批单 #17，平台 `2333e00`，四个 pod 的镜像等于发布记录的 digest）。此前：在做：Claude 写，独立复核（Claude 子代理）判可以合并，补了复核要的测试（`approvalsStaleBuild.test.tsx` 16 条：决定发不出去时写明原因，两张单子同时在途、连接检查期间换版都覆盖）；合并 `66f6560`，随 `2333e00` 在平台主线，CI 8/8 绿。等测试环境核对和正式环境发布单。此前：未开始（2026-10-13 20:37 TD-336 第三次复核顺带看到的；父提交 `5d591af` 上就有，不是 TD-336 带进来的；只记不做）
-- **Claim**: the card receives `staleBuild && !reloadHeld`, so while a decision is in flight the buttons of every request stay enabled even though a newer Console has been deployed; `decide` checks the raw `staleBuild` at its entry and returns without sending and without a sentence. Sequence: request A's decision is still being sent, the platform is redeployed, the Owner switches to request B in the same tab and clicks Approve.
-- **Measured**: MEASURED by the reviewing subagent's probe on the TD-336 branch (2026-10-13): the button is enabled, no request leaves, nothing is shown. NOT MEASURED in a real browser.
-- **Evidence**: `bifrost-platform/console/src/pages/ApprovalsPage.tsx` (the `staleBuild={staleBuild && !reloadHeld}` prop of the card, and the first line of `decide`).
-- **Impact**: the same class as TD-336, under a narrower condition: a click that is neither sent nor explained.
-- **Fix**: give `decide` the same condition the card shows, or say why nothing was sent.
-- **Ratchet**: a page test for the sequence above: the click is sent, or a sentence says it was not.
-- 验收: the page test above
-- 审批 无（代码改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-340
 
