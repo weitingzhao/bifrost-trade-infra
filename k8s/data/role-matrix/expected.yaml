@@ -9,6 +9,9 @@ databases:
   - bifrost_golden_source
   - bifrost_prod
   - bifrost_stg
+  - bifrost_platform
+  - bifrost_platform_stg
+  - bifrost_platform_dev
 schemas:
   bifrost_dev:
     - brokerage
@@ -34,11 +37,23 @@ schemas:
     - brokerage
     - market
     - public
+  bifrost_platform:
+    - agentrt
+    - public
+  bifrost_platform_stg:
+    - agentrt
+    - public
+  bifrost_platform_dev:
+    - agentrt
+    - public
 roles:
-  # W-33 read-only login. CONNECT on the four databases and nothing else here.
+  # W-33 read-only login. CONNECT on the seven databases and nothing else here.
   # Membership in pg_read_all_data is not a grant cell; an omitted grant is denied.
   agent_reader:
     connect:
+      - bifrost_platform
+      - bifrost_platform_stg
+      - bifrost_platform_dev
       - bifrost_dev
       - bifrost_golden_source
       - bifrost_prod
@@ -77,6 +92,9 @@ roles:
   # on Research tables). Application roles are the D13 boundary above.
   bifrost:
     connect:
+      - bifrost_platform
+      - bifrost_platform_stg
+      - bifrost_platform_dev
       - bifrost_dev
       - bifrost_golden_source
       - bifrost_prod
@@ -198,15 +216,21 @@ roles:
   postgres:
     superuser: true
     connect:
+      - bifrost_platform
+      - bifrost_platform_stg
+      - bifrost_platform_dev
       - bifrost_dev
       - bifrost_golden_source
       - bifrost_prod
       - bifrost_stg
   # Replication does not consult database CONNECT.
   # Login for the daily role-matrix CronJob (db-step 2026-10-07-td85-role-matrix-reader).
-  # CONNECT on the four databases; no schema CREATE and no table DML anywhere.
+  # CONNECT on the seven databases; no schema CREATE and no table DML anywhere.
   role_matrix_reader:
     connect:
+      - bifrost_platform
+      - bifrost_platform_stg
+      - bifrost_platform_dev
       - bifrost_dev
       - bifrost_golden_source
       - bifrost_prod
@@ -250,5 +274,64 @@ roles:
           dml: [insert, update, delete]
       bifrost_stg:
         public:
+          create: false
+          dml: [insert, update, delete]
+  # W-31: public CREATE is the implicit pg_database_owner footprint.
+  # Runtime agentrt DML is the union across tables, not a grant on every table.
+  agentrt_owner_dev:
+    connect:
+      - bifrost_platform_dev
+    grants:
+      bifrost_platform_dev:
+        agentrt:
+          create: true
+          dml: [insert, update, delete]
+        public:
+          create: true
+          dml: []
+  platform_agentrt_dev:
+    connect:
+      - bifrost_platform_dev
+    grants:
+      bifrost_platform_dev:
+        agentrt:
+          create: false
+          dml: [insert, update, delete]
+  agentrt_owner_stg:
+    connect:
+      - bifrost_platform_stg
+    grants:
+      bifrost_platform_stg:
+        agentrt:
+          create: true
+          dml: [insert, update, delete]
+        public:
+          create: true
+          dml: []
+  platform_agentrt_stg:
+    connect:
+      - bifrost_platform_stg
+    grants:
+      bifrost_platform_stg:
+        agentrt:
+          create: false
+          dml: [insert, update, delete]
+  agentrt_owner_prod:
+    connect:
+      - bifrost_platform
+    grants:
+      bifrost_platform:
+        agentrt:
+          create: true
+          dml: [insert, update, delete]
+        public:
+          create: true
+          dml: []
+  platform_agentrt_prod:
+    connect:
+      - bifrost_platform
+    grants:
+      bifrost_platform:
+        agentrt:
           create: false
           dml: [insert, update, delete]

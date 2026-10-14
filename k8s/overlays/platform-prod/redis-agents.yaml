@@ -1,0 +1,124 @@
+# W-31: dedicated wake-up signals; PostgreSQL remains the source of truth.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-agents
+  labels:
+    app.kubernetes.io/name: redis-agents
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis-agents
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis-agents
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command: [redis-server]
+          args:
+            - --appendonly
+            - "yes"
+            - --appendfsync
+            - everysec
+            - --maxmemory
+            - 256mb
+            - --maxmemory-policy
+            - noeviction
+            - --requirepass
+            - $(REDIS_PASSWORD)
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-agents
+                  key: password
+            # redis-cli probes authenticate without putting the password in argv.
+            - name: REDISCLI_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: redis-agents
+                  key: password
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            exec:
+              command: [redis-cli, ping]
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: [redis-cli, ping]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: redis-agents
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-agents
+spec:
+  # Explicit, not the default by accident: node-local disk. Redis here only holds
+  # signals rebuilt from PostgreSQL, so a lost volume costs one rebuild (design v5 5.1.4).
+  storageClassName: local-path
+  # (redis-live-prod is ephemeral since TD-238, so there was no class to copy.)
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-agents
+  labels:
+    app.kubernetes.io/name: redis-agents
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: redis-agents
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-agents-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis-agents
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        # A podSelector without a namespaceSelector means this namespace only.
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: [platform-api, platform-workers]
+      ports:
+        - protocol: TCP
+          port: 6379

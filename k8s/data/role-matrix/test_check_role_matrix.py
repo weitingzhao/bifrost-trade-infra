@@ -226,5 +226,49 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(matrix["roles"]["streaming_replica"]["connect"], set())
 
 
+class AgentRuntimeTests(unittest.TestCase):
+    def test_database_inventory_matches_catalog_query_and_matrix(self):
+        matrix = crm.load_matrix((HERE / "expected.yaml").read_text())
+        import re
+        query_dbs = set(re.findall(r"'([^']+)'", crm._CATALOG_SQL.split("WHERE datname IN", 1)[1]))
+        self.assertEqual(set(crm.DATABASES), query_dbs)
+        self.assertEqual(set(crm.DATABASES), set(matrix["schemas"]))
+        for db in ("bifrost_platform", "bifrost_platform_stg", "bifrost_platform_dev"):
+            self.assertEqual(set(matrix["schemas"][db]), {"agentrt", "public"})
+            for reader in ("agent_reader", "role_matrix_reader", "bifrost", "postgres"):
+                self.assertIn(db, matrix["roles"][reader]["connect"])
+
+    def test_environment_connect_and_union_dml_boundaries(self):
+        matrix = crm.load_matrix((HERE / "expected.yaml").read_text())
+        for env in ("dev", "stg", "prod"):
+            db = "bifrost_platform" + ("" if env == "prod" else "_" + env)
+            for prefix in ("agentrt_owner_", "platform_agentrt_"):
+                role = matrix["roles"][prefix + env]
+                self.assertEqual(role["connect"], {db})
+                grant = role["grants"][db]["agentrt"]
+                self.assertEqual(grant["dml"], {"insert", "update", "delete"})
+                self.assertEqual(grant["create"], prefix == "agentrt_owner_")
+            owner = matrix["roles"]["agentrt_owner_" + env]
+            self.assertTrue(owner["grants"][db]["public"]["create"])
+            self.assertNotIn("public", matrix["roles"]["platform_agentrt_" + env]["grants"][db])
+
+    def test_cross_environment_acl_drift_is_detected(self):
+        matrix = crm.load_matrix((HERE / "expected.yaml").read_text())
+        expected = {"schemas": {}, "roles": {}}
+        catalog = {"roles": [], "members": [], "databases": {}, "schemas": {}, "tables": {}}
+        for env in ("dev", "stg", "prod"):
+            db = "bifrost_platform" + ("" if env == "prod" else "_" + env)
+            owner = "agentrt_owner_" + env
+            runtime = "platform_agentrt_" + env
+            for role in (owner, runtime):
+                expected["roles"][role] = {**matrix["roles"][role], "grants": {}}
+                catalog["roles"].append({"name": role, "superuser": False})
+            catalog["databases"][db] = {"owner": owner, "acl": "{" + owner + "=CTc/" + owner + "," + runtime + "=c/" + owner + "}"}
+        self.assertEqual(crm.compare(expected, crm.privileges_from_catalog(catalog)), [])
+        catalog["databases"]["bifrost_platform"]["acl"] = "{agentrt_owner_prod=CTc/agentrt_owner_prod,platform_agentrt_prod=c/agentrt_owner_prod,platform_agentrt_stg=c/agentrt_owner_prod}"
+        self.assertIn("connect role=platform_agentrt_stg database=bifrost_platform expected=false actual=true",
+                      crm.compare(expected, crm.privileges_from_catalog(catalog)))
+
+
 if __name__ == "__main__":
     unittest.main()

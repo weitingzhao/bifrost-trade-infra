@@ -1,7 +1,7 @@
 # Daily logical dump of hand-entered data (phase 0 W5), see backup.sh.
 #
 # Scope (PLAN-phase0 W5): bifrost_{prod,stg,dev}.public and Golden Source
-# journal, research, ops_feedback, raw_broker. Market data is not here: it is
+# journal, research, ops_feedback, raw_broker, plus bifrost_platform.agentrt. Market data is not here: it is
 # re-downloadable or covered by W3's archive.
 #
 # 04:30 UTC: after the 03:00 CNPG base backup has started, clear of the
@@ -81,6 +81,7 @@ spec:
               env:
                 - name: TARGETS
                   value: >-
+                    bifrost_platform:agentrt
                     bifrost_prod:public bifrost_stg:public bifrost_dev:public
                     bifrost_golden_source:journal bifrost_golden_source:research
                     bifrost_golden_source:ops_feedback bifrost_golden_source:raw_broker

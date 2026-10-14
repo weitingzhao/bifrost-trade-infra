@@ -64,3 +64,22 @@ the rows you need; never `pg_restore --clean` straight into PROD.
 pg_restore -l bifrost_prod.public.dump | grep 'TABLE DATA public strategy_plan'
 pg_restore -d scratch --no-owner --no-acl -t strategy_plan bifrost_prod.public.dump
 ```
+
+## Agent runtime (W-31)
+
+`TARGETS` includes `bifrost_platform:agentrt` (PROD only). `backup.sh` loops over
+TARGETS; `drill.sh` discovers every dump and creates its source database by name,
+so neither script needs another database or schema list. The restore uses
+`--no-owner --no-acl`; isolated drill databases do not need the six login roles.
+There are no tests in this directory; manifest coverage lives in
+`scripts/test_agentrt_infra.py` and the role-matrix tests.
+
+Before running migrations, apply db-step `2026-10-14-w31-agentrt-connect` in
+all three databases. It installs read-only default schema/table/sequence grants
+for the backup login `bifrost` on objects created by `agentrt_owner_ENV`.
+For a database already migrated, rerun that step to grant access on existing
+objects too. It grants no CREATE or DML. After migration, request
+`create_job_from_cronjob` for `logical-backup` in `data`, then
+`logical-backup-drill` in `data` after the backup succeeds. Require the new
+`bifrost_platform.agentrt` dump and equal row counts in the drill report.
+A physical backup restore to a temporary cluster remains separate (O11).

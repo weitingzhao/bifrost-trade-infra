@@ -22,6 +22,9 @@ DATABASES = (
     "bifrost_golden_source",
     "bifrost_prod",
     "bifrost_stg",
+    "bifrost_platform",
+    "bifrost_platform_stg",
+    "bifrost_platform_dev",
 )
 DML_ORDER = ("delete", "insert", "update")
 TABLE_DML = {"a": "insert", "w": "update", "d": "delete"}
@@ -512,7 +515,7 @@ SELECT 'MEM' || E'\\t' || member.rolname || E'\\t' || parent.rolname || E'\\t' |
 UNION ALL
 SELECT 'DB' || E'\\t' || datname || E'\\t' || pg_get_userbyid(datdba) || E'\\t' || coalesce(datacl::text, '<null>')
   FROM pg_database
- WHERE datname IN ('bifrost_dev','bifrost_golden_source','bifrost_prod','bifrost_stg')
+ WHERE datname IN ('bifrost_dev','bifrost_golden_source','bifrost_prod','bifrost_stg','bifrost_platform','bifrost_platform_stg','bifrost_platform_dev')
 """.strip()
 
 _OBJECTS_SQL = """
