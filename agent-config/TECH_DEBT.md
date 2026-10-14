@@ -16,7 +16,7 @@
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
-**未结 114 项**：P0 0 · P1 12 · P2 43 · P3 59；要你批的 41 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
+**未结 115 项**：P0 0 · P1 12 · P2 43 · P3 60；要你批的 41 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
 
 ## 主题（第 2、3 轮）
 
@@ -2135,7 +2135,7 @@
 
 **P1 · ops-platform · the Owner clicks Approve in the Console on his Mac and nothing reaches the server; the page does not tell him. Three production requests on 2026-10-13 each needed several attempts**
 
-- **状态**：未开始（2026-10-13 14:11 统筹方从正式环境的访问日志查出来的；原因没有证实，等 Owner 说明他点的那个页面当时显示了什么。建议排进第 1 轮：它就是 A 项「点了批准必须有结果或有报错」在真实使用里还没成立的那一半）
+- **状态**：在做（页面这一半 2026-10-13 20:37 进平台主线 `38500f9`：决定页写明上次连到服务器的时间；点决定前先检查连接，5 秒没回话就不发并写明没发；发出 5 秒没确认也写明。Codex 写，统筹方修，Claude 的子代理独立复核三次，最后一次「可以合并」。原因那一半没有查清，线索见下面「Found」一段）。以下是开工前的记录：未开始（2026-10-13 14:11 统筹方从正式环境的访问日志查出来的；原因没有证实，等 Owner 说明他点的那个页面当时显示了什么。建议排进第 1 轮：它就是 A 项「点了批准必须有结果或有报错」在真实使用里还没成立的那一半）
 - **Claim**: TD-325 made the page honest once a decision request is on its way. On 2026-10-13 the decision requests were not sent, or were sent late, and the Owner believed each time that he had approved. #13: four attempts over sixteen minutes; the access log shows no request of any kind from the Mac's browser to the production Console until a fresh page load at 16:50:50 UTC, and the approval five seconds later. #14: no request from the Mac for more than twenty minutes, then a burst of reads together with the approval in the same second (18:04:08 UTC), after he had already written that it was approved. #15: he reported it approved at 18:50 UTC; since the release at 18:08 UTC no browser on the Mac had loaded the Console or read the approvals list. It arrived at 23:10:59 UTC, four seconds after a fresh page load from the Mac; his three earlier reports (18:50, 19:33, 19:40 UTC, the last two after a hard refresh and after opening a new tab) left no request on the server at all, not even a page load. From the same Mac the address answered in 60 ms when tried by hand, so the network path was up. Not established: whether the tab was frozen in the background, whether an idle connection through the VIP was dead and the browser kept using it, whether the service worker's cached shell made a dead page look loaded, or whether he was on a page left open across a release. In the same hour a browser on a Windows machine kept an old Console page open against production with the admin role, polling every minute and never reading approvals.
 - **Measured**: MEASURED from the production Console's nginx access log and platform-api's request log (Loki, 2026-10-13 16:20–18:55 UTC), by device type from the user agent. NOT MEASURED: what the page showed, the browser's own network log.
 - **Found 2026-10-13 20:30 (from the production Console's access log)**: the Owner's Console requests do not come from Google Chrome. Their user agent is `… Claude/2.37337.1 Chrome/152.0.7977.130 Safari/537.36`: the browser pane built into the Claude desktop app (Chrome on the same Mac is version 155). The three approvals of the day came from that pane. Its pages behave like background tabs when the pane is not in front: on 2026-10-13 from 20:17 CDT the page there stopped its 30-second reads and only fetched `/index.html` every three minutes (the build-drift check), and between 13:08 and 18:10 CDT it made no request of any kind, not even that one, while the Owner reported three clicks. So what he clicked was a page that was not running. Not established: what the pane does to a page it is not showing (suspends it, discards it, or shows a still image), and whether another thread driving the same pane plays a part. The Windows browser seen in the same log is a separate, unidentified session (Chrome 154, admin role, never reads approvals); the log cannot tell which machine (the client address is rewritten inside the cluster).
@@ -2159,3 +2159,17 @@
 - **Ratchet**: the policy template's own test (production pipelines stay out of the policy until the thresholds are accepted) is the line to move, with his signature.
 - 验收: a routine platform release reaches production with no approval request, and a release outside the policy still produces one
 - 审批 Owner 签规则（放宽）· 代价 L（W-56 的剩余门槛）· 风险 med · repos: bifrost-platform, bifrost-trade-infra
+
+### TD-338
+
+**P3 · ops-platform · with a decision still in flight on one request and a newer Console deployed, Approve on another request in the same tab does nothing and says nothing**
+
+- **状态**：未开始（2026-10-13 20:37 TD-336 第三次复核顺带看到的；父提交 `5d591af` 上就有，不是 TD-336 带进来的；只记不做）
+- **Claim**: the card receives `staleBuild && !reloadHeld`, so while a decision is in flight the buttons of every request stay enabled even though a newer Console has been deployed; `decide` checks the raw `staleBuild` at its entry and returns without sending and without a sentence. Sequence: request A's decision is still being sent, the platform is redeployed, the Owner switches to request B in the same tab and clicks Approve.
+- **Measured**: MEASURED by the reviewing subagent's probe on the TD-336 branch (2026-10-13): the button is enabled, no request leaves, nothing is shown. NOT MEASURED in a real browser.
+- **Evidence**: `bifrost-platform/console/src/pages/ApprovalsPage.tsx` (the `staleBuild={staleBuild && !reloadHeld}` prop of the card, and the first line of `decide`).
+- **Impact**: the same class as TD-336, under a narrower condition: a click that is neither sent nor explained.
+- **Fix**: give `decide` the same condition the card shows, or say why nothing was sent.
+- **Ratchet**: a page test for the sequence above: the click is sent, or a sentence says it was not.
+- 验收: the page test above
+- 审批 无（代码改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
