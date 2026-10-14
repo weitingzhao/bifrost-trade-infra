@@ -11,8 +11,16 @@ If the tag changed, update the Job image to the verified running digest before c
 The image must include the reviewed `platform-api agentrt-migrate` subcommand.
 The Owner creates a fresh Job with:
 
+STG first:
+
 ```bash
 kubectl create -f k8s/agentrt-migrate/stg/job.yaml
+```
+
+Wait until that Job completes and the STG checks pass. PROD only after its DDL is
+approved:
+
+```bash
 kubectl create -f k8s/agentrt-migrate/prod/job.yaml
 ```
 

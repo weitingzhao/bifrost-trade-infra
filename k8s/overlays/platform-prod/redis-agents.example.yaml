@@ -1,4 +1,9 @@
 # Example only; not a kustomization resource. Owner creates the real Secret.
+# The Secret must exist, with a non-empty value, BEFORE redis-agents.yaml reaches
+# infra main: Argo syncs this overlay automatically, and without the Secret the pod
+# stays in CreateContainerConfigError (an empty value makes it exit), which turns
+# the platform App Degraded. Write the value without a trailing newline
+# (printf %s), the same string the Owner gives the role or client.
 apiVersion: v1
 kind: Secret
 metadata:

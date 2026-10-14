@@ -6,10 +6,15 @@ done:
 ---
 # W-31: agent runtime connect
 
-Owner apply order: roles (all three envs) → passwords →
+Owner apply order: roles (all three envs) → merge `w31/agentrt-21-infra-roles` and
+`kubectl apply -k k8s/data/role-matrix` (same window, see the roles step) → passwords →
 `kubectl apply -n data -f k8s/data/databases.yaml` → wait for the three databases →
 connect (each env) →
-`kubectl apply -n data -f k8s/data/postgres-ingress-network-policy.yaml` → migration.
+`kubectl apply -n data -f k8s/data/postgres-ingress-network-policy.yaml` → migration
+(STG Job, then PROD Job after its DDL is approved, then DEV locally) → only when all
+three databases are migrated and `w31/agentrt-21-infra-after`'s own checker and expected
+matrix report 0 differences: merge that branch, `kubectl apply -k k8s/data/role-matrix`,
+and, PROD being migrated, `kubectl apply -k k8s/data/logical-backup`.
 
 PUBLIC and cross-environment CONNECT are denied. The local owner/runtime,
 agent_reader and role_matrix_reader connect in every environment. Only PROD also
@@ -40,4 +45,3 @@ dry-run: kubectl -n data exec -i bifrost-postgres-1 -c postgres -- env PGOPTIONS
 commit:  kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_platform -X -v ON_ERROR_STOP=1 -v env=prod -f - < scripts/release/db-steps.d/sql/2026-10-14-w31-agentrt-2-connect.sql
 verify:  kubectl -n data exec -i bifrost-postgres-1 -c postgres -- env PGOPTIONS='-c default_transaction_read_only=on' psql -U postgres -d bifrost_platform -X -v ON_ERROR_STOP=1 -v env=prod -f - < scripts/release/db-steps.d/sql/2026-10-14-w31-agentrt-2-connect-verify.sql
 rollback: kubectl -n data exec -i bifrost-postgres-1 -c postgres -- psql -U postgres -d bifrost_platform -X -v ON_ERROR_STOP=1 -v env=prod -f - < scripts/release/db-steps.d/sql/2026-10-14-w31-agentrt-2-connect-rollback.sql
-
