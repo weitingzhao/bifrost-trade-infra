@@ -195,6 +195,22 @@ roles:
   # connect. It also must not hold table DML.
   market_reader:
     connect: []
+  # W-31 agent runtime logins (2026-10-14). Created by db-step
+  # 2026-10-14-w31-agentrt-1-roles before their databases exist; until branch
+  # w31/agentrt-21-infra-after adds the three platform databases to this matrix,
+  # they hold CONNECT on none of the four databases checked here.
+  agentrt_owner_dev:
+    connect: []
+  agentrt_owner_prod:
+    connect: []
+  agentrt_owner_stg:
+    connect: []
+  platform_agentrt_dev:
+    connect: []
+  platform_agentrt_prod:
+    connect: []
+  platform_agentrt_stg:
+    connect: []
   postgres:
     superuser: true
     connect:
