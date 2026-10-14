@@ -16,7 +16,7 @@
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
-**未结 115 项**：P0 0 · P1 13 · P2 43 · P3 59；要你批的 40 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
+**未结 115 项**：P0 0 · P1 12 · P2 44 · P3 59；要你批的 41 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
 
 ## 主题（第 2、3 轮）
 
@@ -2161,14 +2161,14 @@
 
 ### TD-337
 
-**P1 · ops-platform · a pending production release request freezes the platform's STG, cannot be withdrawn or replaced, and its notifications reach the Owner's phone at night**
+**P2 · ops-platform · routine platform releases still wait for the Owner's approval, and one pending request freezes the platform's STG: on 2026-10-13 three chained requests left the line idle for about nine hours**
 
-- **状态**：未开始（2026-10-13 18:42 Owner 指出睡觉时收到通知、醒来整条线卡着；统筹方量出当天两段空转共约 9 小时。统筹方已先改自己的做法：Owner 不在时不建单、不推，攒着合成一张。建议排进第 1 轮）
-- **Claim**: three things combine. (1) The source gate of a production delivery requires the newest successful STG delivery to be the requested commit, so while a request is pending nothing else may be delivered to the platform's STG; work finished later queues behind it (2026-10-13: #13 was created at 00:59 and approved at 11:50; guardrail 6, merged at 03:42, reached STG at 12:00). (2) A request cannot be withdrawn or replaced by its requester: the only ways out are approval, rejection by the Owner, or expiry after a day. (3) The notifier pushes on creation and again after four hours with no quiet hours: the Owner's phone got pushes at 00:59 and 04:59.
-- **Measured**: MEASURED 2026-10-13 from the request records (#13: created 05:59Z, reminder 09:59Z, decided 16:50Z; #14: 17:02Z to 18:04Z; #15: 18:21Z, reminder 22:21Z, decided 23:10Z) and from the coordinator's commit and event log (no activity 06:08–11:34 and 14:29–18:13 CDT).
-- **Evidence**: `scripts/release/platform_prod_gate.py:165-187` (newest STG delivery must be successful and match); `bifrost-platform/api/internal/approvals/notice.go` (created and reminder notices); `agent-config/work/multi-agent/LESSONS-from-practice.md` row 121.
-- **Impact**: one request made while the Owner is away stalls every platform line for as long as he is away, and wakes him.
-- **Fix**: let the requester withdraw a pending request, or supersede it with a request for a newer commit (the old one becomes void, recorded as such); give notices quiet hours with one digest when they end; show on the Owner's surface how long everything has been waiting on him.
-- **Ratchet**: a server test that a superseded request can no longer be approved; a notifier test that nothing is pushed inside the quiet hours and one digest is pushed after them.
-- 验收: a request made at night produces no push until morning; a newer commit can replace a pending request without the Owner rejecting the old one
-- 审批 无（代码改动，随平台发布）· 代价 M · 风险 med · repos: bifrost-platform, bifrost-trade-infra
+- **状态**：未开始（2026-10-13 19:22 Owner 定：不做通知静默时段，也不做「撤回待批单」这类机制；该调整的是哪些单子需要人批，那是 W-56 的规则，等它的门槛做完由他签；现在不强求。统筹方先改排法：他不在时不建单，做完的攒着，他在时合成一张）
+- **Claim**: by the architecture's definition of the human's role (goals, rules, irreversible things) the three requests of 2026-10-13 (#13, #14, #15: reversible code releases of the platform, with green CI, the same commit on STG and an independent review) did not need a human decision. They reached the Owner because the release policy does not list the production pipelines until W-56's thresholds are accepted (his decision of 2026-10-10). While a request is pending, the source gate of a production delivery (the newest successful STG delivery must be the requested commit) keeps anything else off the platform's STG, so requests made one by one form a chain: #13 waited 10 h 51 min, #14 1 h 2 min, #15 4 h 49 min.
+- **Measured**: MEASURED 2026-10-13 from the request records and from the coordinator's commit and event log (no activity 06:08–11:34 and 14:29–18:13 CDT; the second gap was a stalled thread, LESSONS row 120).
+- **Evidence**: `scripts/release/platform_prod_gate.py:165-187`; `agent-config/WORK.md` W-56 (thresholds, and the Owner's notes of 2026-10-10, 2026-10-12 and 2026-10-13); `agent-config/work/multi-agent/LESSONS-from-practice.md` row 121.
+- **Impact**: every routine release costs the Owner an approval and stalls the platform line while he is away.
+- **Fix**: finish W-56's thresholds (rollback without rebuild, failure detection, the drills) and have the Owner sign a release policy that lists the platform's production pipeline; after that only three kinds of release reach him: outside the policy, a failed or stuck check, during a freeze. Until then the coordinator batches: no request while he is away, one request for everything verified on STG when he is back.
+- **Ratchet**: the policy template's own test (production pipelines stay out of the policy until the thresholds are accepted) is the line to move, with his signature.
+- 验收: a routine platform release reaches production with no approval request, and a release outside the policy still produces one
+- 审批 Owner 签规则（放宽）· 代价 L（W-56 的剩余门槛）· 风险 med · repos: bifrost-platform, bifrost-trade-infra
