@@ -16,7 +16,7 @@
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
-**未结 113 项**：P0 0 · P1 11 · P2 42 · P3 60；要你批的 41 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
+**未结 114 项**：P0 0 · P1 11 · P2 43 · P3 60；要你批的 41 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
 
 ## 主题（第 2、3 轮）
 
@@ -2152,3 +2152,16 @@
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-343
+
+**P2 · agent-runtime · the deployment reference of gates_passed holds the delivery run only, no image digest: an image that changes under the same run is not seen (T33 holds up to that)**
+
+- **状态**：未开始（2026-10-14 15:06 统筹方记；复核 161 A2 允许的「明确降低保证」；摘要要在交付记录里加字段并由记录器读出，第 2 轮的 Gate A 之前再定做不做）
+- **Claim**: the agent runtime reads what an environment runs now from the release records (`releases.Service.Current`): the newest deploying record of the lane and environment, unsettled while a newer delivery run exists. The reference the gate check and gates_passed compare is `{"delivery_run": <run>}`. A record has no image digest (`api/internal/releases/record.go` `Record`), so a pod that pulls a new image under the same tag (30 containers pull Always) without a new delivery run keeps the old reference, and a gate PASS of the old image still counts.
+- **Measured**: MEASURED by reading: `releases.Record` has no digest field; `releases.RunningImages` reads tags, not digests, and only for three deployments (`api/internal/releases/images.go:84-160`); design v5 line 448 gives the reference as `{"delivery_run", "images"}`.
+- **Evidence**: `bifrost-platform` branch `w31/agentrt-22-sources` `api/internal/server/agentrt_sources.go` (deployedFrom); review 161 A2.
+- **Impact**: a standing condition can stay "done" across an image change that no delivery recorded.
+- **Fix**: the recorder writes each deployed container's digest (from the build's IMAGE_DIGEST result, or the pods' `status.containerStatuses[].imageID` once the rollout settles) into the record; Current returns it; the reference becomes `{"delivery_run", "images": {name: "sha256:…"}}`, and the gate check records the same; pods whose digests differ from the record make the deployment unsettled.
+- **Ratchet**: a source test: same run, a pod's image digest changed → Deployed is unknown; the gate check and the source build the reference with one function.
+- 验收: the source test above
+- 审批 无（代码改动，随平台发布）· 代价 M · 风险 low · repos: bifrost-platform
