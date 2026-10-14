@@ -13,11 +13,10 @@
 
 ## 待你签收
 
-- **TD-339** — 解密用的恢复脚本 `restore.sh` 不再把「检查没跑」或「清单坏了」当成通过：越界路径检查分清「没有」和「没跑起来」；状态文件和明文校验值先读、查退出码、再比较；目标和旁边的清单路径已有东西就拒绝；校验和清单先验严（64 位小写十六进制、两个空格、两个文件各一次）再用。验收：PASS 2026-10-13 infra `fd0a420`，目录整套 102 条，新测试对旧脚本红，独立复核两轮后「可以合并」。防线：`k8s/cicd/gitea-backup/test_restore.py`（34 条）。后续：复核列出的同类小项（明文校验值是对清单的第二次读取、写临时清单失败的报错用词）不另记：都有逐字节比较或退出码兜底；集群镜像里多半是 BusyBox 的工具，下次重跑演练时确认一下（记在 TD-339 的复核记录里）。
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
-**未结 115 项**：P0 0 · P1 11 · P2 43 · P3 61；要你批的 41 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
+**未结 114 项**：P0 0 · P1 11 · P2 42 · P3 61；要你批的 41 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
 
 ## 主题（第 2、3 轮）
 
@@ -2149,22 +2148,6 @@
 - **Ratchet**: a page test for the sequence above: the click is sent, or a sentence says it was not.
 - 验收: the page test above
 - 审批 无（代码改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
-
-### TD-339
-
-**P2 · ops-infra · the Gitea restore script can report success without having run its check for unsafe archive members, and overwrites a manifest file that is already there**
-
-- **状态**：待你签收
-- 验收结果：PASS 2026-10-13 infra `fd0a420`（2026-10-13 22:57 进主线）：合并后的树上 `k8s/cicd/gitea-backup` 整套 102 条通过；新加的测试对修之前的脚本是红的（第一批 10 条、第二批 9 条）；Codex 写剩下这一处（校验和清单先验严再用，交给 `sha256sum -c` 的是由验证过的字段重写的两行），Claude 的子代理独立复核「可以合并」（用 BSD awk 和 macOS 的 sha256sum 试了 60 多种清单写法），它说缺的三条测试已补。Owner 10-13 22:07 用前一版脚本（`bbd5685`）做过解密验收，`exit=0`。经过：两轮复核后停线；Owner 定「④ 照这版做」，五处改动 21:59 合进主线；剩下这一处当晚重开、修完。
-- **Claim**: `restore.sh` lists the archive and refuses it when a member is absolute or climbs out (`..`). The refusal is written as `if grep … ; then die`: when `grep` finds nothing the check passes, and when `grep` cannot run at all (exit 2, or not on `PATH`) the check is skipped the same way, the archive is extracted and the script prints its success line. Separately, the decrypted manifest is copied next to the target (`<target>.MANIFEST.tsv`) without refusing a file or a symbolic link that is already there.
-- **Measured**: NOT MEASURED on a real backup. Read from the code by the reviewing agent (Codex, 2026-10-13, `LAST-manual.md` of the decrypt check). With a real key pair and a test archive the normal paths behave as documented (success, wrong key, missing key, missing run, existing target).
-- **Evidence**: `k8s/cicd/gitea-backup/restore.sh:26` (the `if grep` form), `:30` (the copy of the manifest); `k8s/cicd/gitea-backup/test_backup_logic.py` has no test of an unsafe member or of a failing `grep`.
-- **Impact**: the script is what the Owner runs with his private key, for the commissioning check and for a real restore. A check that can be skipped silently is not one. The Owner's decrypt check of guardrail ④ waits on this.
-- **Also found by the second review round (2026-10-13)**: `restore.sh` checks the lines of `SHA256SUMS` only for their field count and file names; `sha256sum -c` skips a line whose digest is malformed (its manual says so; `--strict` would fail on it), so one damaged character in the digest of `MANIFEST.tsv.age` leaves that file unchecked and the script still succeeds. `age` authenticates the ciphertext it decrypts, and the plaintext digest of `data.tar` is validated as 64 hex digits and compared, so this does not let an archive that cannot be decrypted look restored; it leaves the manifest ciphertext without its checksum check. NOT MEASURED (read from code and the manual).
-- **Fix**: validate the checksum list before using it (a 64-hex digest, each of the two files exactly once), then write canonical lines for `sha256sum -c`; tell "no unsafe member" (exit 1) from "the check did not run" (anything else) and stop on the latter; refuse an existing manifest path before extracting; tests for an absolute member, a `..` member, a failing `grep`, an existing manifest path.
-- **Ratchet**: those tests, in `test_backup_logic.py`.
-- 验收: `pytest k8s/cicd/gitea-backup -q` green with the new tests; each of them red when the fix is reverted; then the Owner's decrypt check of guardrail ④ ends with the success line
-- 审批 无（脚本不在集群里：`kustomization.yaml` 的 ConfigMap 只带 backup.sh、verify-stage.sh、fetch-tools.sh）· 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ### TD-340
 
