@@ -196,8 +196,10 @@ STG 的 `rollout` 引用 `bifrost-rollout-verify-platform`，先重启并等待�
 ## 发布窗口：推 main 或起 deliver 之前先看
 
 ```bash
-scripts/release/release.sh window && git push origin <sha>:refs/heads/main
+scripts/release/push-main.sh <checkout> <sha>
 ```
+
+`push-main.sh`（TD-341）先跑 `release.sh window`，再在 `<sha>` 的干净 worktree 上跑和 CI 同一份 code-health 扫描（只对 CI 有 code-health 任务的仓库：platform、trade-frontend、research、trade-api / core / worker），过了才 `git push origin <sha>:refs/heads/main`，只接受快进，推之前再查一次窗口。直接 `git push` 到 main 由 `preflight.js` 拦截。
 
 `release.sh window` 没有窗口时 exit 0，有窗口时打印持有者并 exit 1。任何会话在**推 Trade 任一仓库的 main**
 或**起任何 `bifrost-deliver-*` run** 之前都先跑它：窗口开着就等它关，或者问 Owner。窗口 ttl 5 分钟，

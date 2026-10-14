@@ -280,6 +280,85 @@ function sharedWorktreeRules(cmd) {
   return null
 }
 
+// ─────────────────────── 推 main 只经 push-main.sh（TD-341） ───────────────────────
+//
+// 推主线前要先过 CI 自己的 code-health 棘轮。2026-10-13、10-14 两次把超过 800 行的文件
+// 推上 platform main；第三次（10-14 c7f4de8）扫描跑了，退出码却被 `| tail -1 &&` 吞掉。
+// pre-push 钩子盖不住：platform 的 husky 用相对的 core.hooksPath，worktree 里没有钩子；
+// Apple git 2.50 不执行配置里写的钩子。所以在命令这一层拦：直接 `git push` 到 main 一律
+// 拒绝，推 main 只走 bifrost-trade-infra/scripts/release/push-main.sh（窗口检查 + 在这个
+// 提交的干净 checkout 上跑 CI 同一份扫描 + 推送；脚本里的 push 本闸门看不到）。
+// 看不出推到哪个分支的也拒绝（不带 refspec、只写 HEAD、目标里有变量或通配、--all /
+// --mirror）：共享 checkout 停在 main 上，裸 `git push` 推的就是 main。
+// 推到本地路径（/、.、~、file:）的是测试夹具，放行。
+
+/** 每一次 `git … push …` 的参数 token（去掉包在外面的引号与括号）。 */
+function gitPushes(cmd) {
+  const re = /(?:^|[\s;|&`("'])git\s+(?:(?:-C|-c)\s+\S+\s+|--\S+\s+)*push\b([^;|&\n]*)/g
+  const out = []
+  for (const m of cmd.matchAll(re)) {
+    out.push(
+      m[1]
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .map(t => t.replace(/^['"(]+|['"`)]+$/g, '')),
+    )
+  }
+  return out
+}
+
+const PUSH_VALUE_FLAGS = /^(-o|--push-option|--repo|--receive-pack|--exec)$/
+const PUSH_EVERY_BRANCH = /^(--all|--mirror|--branches)$/
+const LOCAL_REMOTE = /^(\/|\.|~|file:)/
+const MAIN_REF = /^(refs\/heads\/)?main$/
+
+/** 这次 push 会写 main（'main'），或看不出写哪个分支（'unclear'）；都不是返回 null。 */
+function pushTarget(tokens) {
+  const pos = []
+  let tags = false
+  let flagsOver = false
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i]
+    if (!flagsOver && t === '--') {
+      flagsOver = true
+      continue
+    }
+    // git 允许 flag 写在位置参数之后（git push origin x --force），refspec 不会以 - 开头。
+    if (!flagsOver && t.startsWith('-')) {
+      if (PUSH_EVERY_BRANCH.test(t)) return 'unclear'
+      if (t === '--tags') tags = true
+      if (PUSH_VALUE_FLAGS.test(t)) i++
+      continue
+    }
+    pos.push(t)
+  }
+  if (pos.length > 0 && LOCAL_REMOTE.test(pos[0])) return null
+  if (pos.length <= 1) return tags ? null : 'unclear'
+  for (const spec of pos.slice(1)) {
+    const s = spec.replace(/^\+/, '')
+    const colon = s.indexOf(':')
+    const dst = colon === -1 || colon === s.length - 1 ? s.replace(/:$/, '') : s.slice(colon + 1)
+    if (MAIN_REF.test(dst)) return 'main'
+    if (dst === 'HEAD' || dst === '@' || /[$`*]/.test(dst)) return 'unclear'
+  }
+  return null
+}
+
+function pushMainRule(cmd) {
+  if (isRead(cmd) || isFileWrite(cmd)) return null
+  for (const tokens of gitPushes(cmd)) {
+    const target = pushTarget(tokens)
+    if (target === 'main') {
+      return '直接 `git push` 到 main 不经过 CI 的 code-health 棘轮 —— 用 `bifrost-trade-infra/scripts/release/push-main.sh <checkout> [<commit>]`'
+    }
+    if (target === 'unclear') {
+      return '这次 `git push` 看不出推到哪个分支（不带 refspec、只写 HEAD、目标里有变量或通配、--all / --mirror）；停在 main 上的 checkout 里推的就是 main —— 写明 `<src>:refs/heads/<branch>`，推 main 用 push-main.sh'
+    }
+  }
+  return null
+}
+
 // ─────────────────────── 审批旁路（ADR §5，始终生效） ───────────────────────
 //
 // Owner 2026-10-07：聊天批准保留。admin 令牌在本机进程可读是已知的接受风险，
@@ -544,6 +623,8 @@ function evaluate(payload, readMounts = readMountTable) {
     if (dev) return { deny: true, kind: 'dev-services', reason: dev }
     const sw = sharedWorktreeRules(cmd)
     if (sw) return { deny: true, kind: 'shared-worktree', reason: sw }
+    const pm = pushMainRule(cmd)
+    if (pm) return { deny: true, kind: 'push-main', reason: pm }
     if (locked) {
       const d10 = d10Rules(cmd)
       if (d10) return { deny: true, kind: 'D10', reason: d10 }
@@ -595,6 +676,14 @@ function denyMessage(kind, reason) {
       `再 git add <file>… && git commit（不带 -a）。\n` +
       `注意 git stash 不受本闸门拦截，但它同样会把别人的在制品从工作树里抽走。\n` +
       `参见 CLAUDE.md §5「共享工作树」/ .cursor/rules/shared-worktree.mdc`
+    )
+  }
+  if (kind === 'push-main') {
+    return (
+      `【推 main — TD-341】拦截原因：${reason}。\n` +
+      `push-main.sh 先查发布窗口，再在这个提交的干净 checkout 上跑和 CI 同一份 code-health 扫描，` +
+      `过了才推（只接受快进）。go test 与 lint 照旧在推之前自己跑。\n` +
+      `不要绕过本闸门。参见 CLAUDE.md §5「发布窗口」`
     )
   }
   if (kind === 'owner') {

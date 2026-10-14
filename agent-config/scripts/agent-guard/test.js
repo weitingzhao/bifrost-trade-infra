@@ -250,6 +250,46 @@ const cases = [
       contents: 'The route is POST ' + ANSWER_URL + ' and the page is ' + QUESTIONS_PAGE,
     })],
 
+  // ── 共享工作树（CLAUDE.md §5）──
+  ['sw', 'DENY', 'git add -A', bash('git add -A')],
+  ['sw', 'DENY', 'git add .', bash('cd bifrost-platform && git add .')],
+  ['sw', 'DENY', 'git commit -am', bash('git commit -am "fix"')],
+  ['sw', 'ALLOW', 'git add -A 带 pathspec', bash('git add -A -- src/pages/trade')],
+  ['sw', 'ALLOW', '逐个列出文件提交', bash('git add a.go b.go && git commit -F /tmp/msg -- a.go b.go')],
+
+  // ── 推 main 只经 push-main.sh（TD-341）──
+  ['push', 'DENY', '窗口检查后直接推 main', bash('bifrost-trade-infra/scripts/release/release.sh window && git push origin abc123:refs/heads/main')],
+  ['push', 'DENY', 'HEAD:main', bash('git push origin HEAD:main')],
+  ['push', 'DENY', 'git -C 推 main', bash('git -C ~/agent-work/x/bifrost-platform push origin main')],
+  ['push', 'DENY', '强推 +HEAD:refs/heads/main', bash('git push origin +HEAD:refs/heads/main')],
+  ['push', 'DENY', 'flag 写在后面', bash('git push origin x:main --force-with-lease')],
+  ['push', 'DENY', '删除 main', bash('git push origin --delete main')],
+  ['push', 'DENY', '冒号删除 main', bash('git push origin :main')],
+  ['push', 'DENY', '引号里的变量提交推 main', bash('git push origin "${SHA}:refs/heads/main"')],
+  ['push', 'DENY', 'sh -c 里推 main', bash('sh -c "git push origin main"')],
+  ['push', 'DENY', '子 shell 里推 main', bash('(cd x && git push origin main)')],
+  ['push', 'DENY', '裸 git push', bash('git push')],
+  ['push', 'DENY', '只写远端', bash('git push origin')],
+  ['push', 'DENY', '-o 的值不算远端', bash('git push -o ci.skip origin')],
+  ['push', 'DENY', '只写 HEAD', bash('git push -u origin HEAD')],
+  ['push', 'DENY', '目标是变量', bash('git push origin "$SHA:refs/heads/$BR"')],
+  ['push', 'DENY', '通配 refspec', bash('git push origin "refs/heads/*:refs/heads/*"')],
+  ['push', 'DENY', '--all', bash('git push --all origin')],
+  ['push', 'DENY', '--follow-tags 不带 refspec', bash('git push --follow-tags origin')],
+  ['push', 'DENY', 'Cursor shell 推 main', { hook_event_name: 'beforeShellExecution', command: 'git push origin HEAD:refs/heads/main' }],
+  ['push', 'ALLOW', 'push-main.sh', bash('bifrost-trade-infra/scripts/release/push-main.sh ~/agent-work/x/bifrost-platform abc123')],
+  ['push', 'ALLOW', '推自己的分支', bash('git push origin w31/agentrt-22-agentd')],
+  ['push', 'ALLOW', 'HEAD 推到写明的分支', bash('git push -u origin HEAD:refs/heads/w31/x')],
+  ['push', 'ALLOW', '名字以 main 开头的分支', bash('git push origin maintenance x:refs/heads/main-backup')],
+  ['push', 'ALLOW', '只推 tag', bash('git push origin --tags')],
+  ['push', 'ALLOW', '推一个 tag', bash('git push origin v1.2.3')],
+  ['push', 'ALLOW', '-o 之后写明分支', bash('git push -o ci.skip origin feature')],
+  ['push', 'ALLOW', '推到本地夹具仓库', bash('git push /tmp/fixture.git main')],
+  ['push', 'ALLOW', '相对路径的夹具仓库', bash('git -C work push ../remote.git HEAD:main')],
+  ['push', 'ALLOW', '读日志里提到推 main', bash("git log --grep 'git push origin main'")],
+  ['push', 'ALLOW', 'heredoc 文档里写推 main', bash('cat > /tmp/x.md <<EOF\ngit push origin main\nEOF')],
+  ['push', 'ALLOW', '不是 git push', bash('git pull --ff-only origin main')],
+
   // ── 畸形输入 ──
   ['edge', 'ALLOW', '空输入', null],
 ]
@@ -257,7 +297,7 @@ const cases = [
 let pass = 0, fail = 0
 let group = ''
 for (const [g, want, name, payload] of cases) {
-  if (g !== group) { group = g; console.log(`\n── ${{ nas: '本机 NAS 共享（TD-326）', D10: 'D10 交易执行冻结', dev: 'dev-services', ok: '合法操作（不得误拦）', appr: '审批旁路（ADR §5）', q: '问题回答（W-65）', own: 'Owner 凭证（LANE-W33D）', edge: '边界输入' }[g]} ──`) }
+  if (g !== group) { group = g; console.log(`\n── ${{ nas: '本机 NAS 共享（TD-326）', D10: 'D10 交易执行冻结', dev: 'dev-services', ok: '合法操作（不得误拦）', appr: '审批旁路（ADR §5）', q: '问题回答（W-65）', own: 'Owner 凭证（LANE-W33D）', sw: '共享工作树', push: '推 main（TD-341）', edge: '边界输入' }[g]} ──`) }
   const r = spawnSync('node', [GUARD], { input: payload ? JSON.stringify(payload) : '', encoding: 'utf8' })
   const got = (r.stdout || '').trim() ? 'DENY' : 'ALLOW'
   let ok = got === want
@@ -271,6 +311,8 @@ for (const [g, want, name, payload] of cases) {
   if (ok && g === 'own' && want === 'DENY' && !String(r.stdout).includes('这是 Owner 的凭证，写操作走平台动作或 owner_run_command')) {
     ok = false
   }
+  if (ok && g === 'sw' && want === 'DENY' && !String(r.stdout).includes('【共享工作树')) ok = false
+  if (ok && g === 'push' && want === 'DENY' && !String(r.stdout).includes('【推 main — TD-341】')) ok = false
   ok ? pass++ : fail++
   console.log(`  ${ok ? '✓' : '✗'} ${got.padEnd(5)} ${name}${ok ? '' : `   ← 期望 ${want}`}`)
 }

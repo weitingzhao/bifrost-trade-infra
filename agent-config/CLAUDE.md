@@ -1,5 +1,5 @@
 <!--
-parity-ids: workspace-v23, language-v1, agent-modes-v4, trade-execution-freeze-v4, dev-services-v3, phase-execution-v3, shared-worktree-v4, business-first-v1
+parity-ids: workspace-v24, language-v1, agent-modes-v4, trade-execution-freeze-v4, dev-services-v3, phase-execution-v3, shared-worktree-v4, business-first-v1
 对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
 改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
 -->
@@ -204,7 +204,7 @@ platform-api `start_pipeline_run` 还要求请求里的 `who` 等于窗口里的
 - **窗口开着：等它关，或者问 Owner**，不推、不起 run。进程退出或 ttl 到期后窗口自然放开。
   `release.sh window --clear` 提交审批，由 Owner 决定。
 - **一次发布只由一个会话执行**：窗口在 `release.sh` 运行期间由它持有；别的会话不并行发同一批，也不替它续跑。
-- 检查和推送写在同一条命令里（`release.sh window && git push origin <sha>:refs/heads/main`），不要拆进两次并行调用。
+- **推 main 只用 `bifrost-trade-infra/scripts/release/push-main.sh <checkout> [<commit>]`**（TD-341）：它查窗口，在这个提交的干净 checkout 上跑和 CI 同一份 code-health 扫描，过了才推，只接受快进；推之前再查一次窗口。直接 `git push` 到 main、以及看不出推到哪个分支的 `git push`（不带 refspec、只写 HEAD、目标里有变量）由 `preflight.js` 拦截。go test 与 lint 照旧在推之前自己跑。
 - 细则见 `bifrost-trade-infra/docs/RELEASE.md`「发布窗口」。
 
 > 事故：2026-09-27 两个会话同时发 core 0.24.0；2026-09-28 插件 0.61.0 的 registry tag 被另一会话覆盖。

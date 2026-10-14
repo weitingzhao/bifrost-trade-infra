@@ -70,6 +70,14 @@ Cursor 与 Claude **共用同一份实现**。双轨维护（`CLAUDE.md` §7）�
 | 终止 bdev 托管进程 | `pkill -f platform-api` |
 | 裸 port-forward 9090 | `kubectl port-forward … 9090:9090`（除非走 `run_prometheus_pf.sh`） |
 
+### git 规则（始终生效）
+
+| 规则 | 例 |
+|------|-----|
+| 整棵树暂存或 `commit -a`（共享工作树，CLAUDE.md §5） | `git add -A` · `git add .` · `git commit -am …`（带 pathspec 的放行） |
+| 直接推 main（TD-341） | `git push origin <sha>:refs/heads/main` · `git push origin --delete main` → 用 `scripts/release/push-main.sh <checkout> [<commit>]` |
+| 看不出推到哪个分支 | 裸 `git push` · `git push origin` · `git push origin HEAD` · 目标里有 `$` 或 `*` · `--all` / `--mirror`（推到本地路径的夹具仓库放行） |
+
 ## 设计要点
 
 ### 1. 闸门与 spine 同源
