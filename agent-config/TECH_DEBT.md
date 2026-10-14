@@ -13,11 +13,10 @@
 
 ## 待你签收
 
-- **TD-343** — 运行时读「环境现在跑的是什么」，现在要求交付记录带镜像摘要、且部署已稳定、每个 Pod 跑的正是这些摘要；Pod 换了镜像（同一个标签拉到新镜像）就读作「不知道」，旧的 gate 通过不再算数。验收：PASS 2026-10-14 `e5b5049`。防线：RATCHETS「运行时读部署要对上镜像摘要（TD-343）」。后续：无后续：交付流水线已经产出摘要，读 Pod 和 ReplicaSet 的权限已有，不需要改集群
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
-**未结 113 项**：P0 0 · P1 11 · P2 42 · P3 60；要你批的 41 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
+**未结 112 项**：P0 0 · P1 11 · P2 41 · P3 60；要你批的 41 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
 
 ## 主题（第 2、3 轮）
 
@@ -74,7 +73,7 @@
 
 目标：一个开关让所有测试类防线生效（CI 卡发布），再补上调度存活告警、D10 闸门的非 curl 写法、operator 流白名单、本机常驻任务和密钥轮换的盲区、spine 副本同步。
 
-项：TD-95, TD-100, TD-121, TD-152, TD-153, TD-155, TD-162, TD-293, TD-294, TD-298 · 已还：TD-341, TD-295, TD-99, TD-161, TD-198, TD-195, TD-194, TD-249, TD-109, TD-105, TD-96
+项：TD-95, TD-100, TD-121, TD-152, TD-153, TD-155, TD-162, TD-293, TD-294, TD-298 · 已还：TD-343, TD-341, TD-295, TD-99, TD-161, TD-198, TD-195, TD-194, TD-249, TD-109, TD-105, TD-96
 
 ### 第 3 波 · 交易日与日历只有一个来源
 
@@ -2138,18 +2137,3 @@
 - **Ratchet**: the test passes under `go test -count=20 -cpu 1,4 ./internal/delivery/` with the suite's other packages running beside it.
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
-
-### TD-343
-
-**P2 · agent-runtime · the deployment reference of gates_passed holds the delivery run only, no image digest: an image that changes under the same run is not seen (T33 holds up to that)**
-
-- **状态**：待你签收（2026-10-14 17:39；10-14 15:49 Owner 选 A；platform main `e5b5049`（sources 线合并：复核 161、162，确认 167 一个 A 按 10-14 签的规则改后，窄确认 170 无 A））
-- **Claim**: the agent runtime reads what an environment runs now from the release records (`releases.Service.Current`): the newest deploying record of the lane and environment, unsettled while a newer delivery run exists. The reference the gate check and gates_passed compare is `{"delivery_run": <run>}`. A record has no image digest (`api/internal/releases/record.go` `Record`), so a pod that pulls a new image under the same tag (30 containers pull Always) without a new delivery run keeps the old reference, and a gate PASS of the old image still counts.
-- **Measured**: MEASURED by reading: `releases.Record` has no digest field; `releases.RunningImages` reads tags, not digests, and only for three deployments (`api/internal/releases/images.go:84-160`); design v5 line 448 gives the reference as `{"delivery_run", "images"}`.
-- **Evidence**: `bifrost-platform` branch `w31/agentrt-22-sources` `api/internal/server/agentrt_sources.go` (deployedFrom); review 161 A2.
-- **Impact**: a standing condition can stay "done" across an image change that no delivery recorded.
-- **Fix**: built. Release records carry the digest each build task pushed (`build-<image>` with a `digest` result; record version v3; a build that declares a digest and gave none leaves the record incomplete, rebuilt while its run exists). `releases.Service.PodDigests` reads a deployment only once it has settled, under the conditions of `task-rollout-verify-platform` (generation observed, full rollout, pod → ReplicaSet → Deployment of the current revision, one container, no init or ephemeral container, ready and running with a digest). The runtime's `Deployed` needs the digests of platform-api (also run by the workers) and platform-console in the record and every pod of the three deployments running exactly those; the reference is `{"delivery_run", "images"}`.
-- **Ratchet**: `api/internal/releases/pods_test.go` TestPodDigests (one spoiled condition per case), `releases_test.go` TestRecordImages and TestCompleteV2RecordGainsItsDigests, `api/internal/server/agentrt_deployed_test.go` TestDeployedFromReleaseRecords (a run recorded through the real releases service; a pod pulling another digest reads as not known), `agentrt_sources_test.go` TestAgentRuntimeSources (drift, podless, noimages). Seventeen mutants each red on an assertion (evidence with review 170). Run by ci-platform's go test.
-- 验收: `cd api && go test -count=1 -run 'TestPodDigests|TestRecordImages|TestCompleteV2RecordGainsItsDigests|TestDeployedFromReleaseRecords|TestAgentRuntimeSources' ./internal/releases/ ./internal/server/` ok
-- 验收结果：PASS 2026-10-14 `e5b5049`（在合并后的树上整套 63 个包通过；ci-platform-kwmwf Succeeded）
-- 审批 无（代码改动，随平台发布）· 代价 M · 风险 low · repos: bifrost-platform
