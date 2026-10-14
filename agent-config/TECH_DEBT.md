@@ -2166,7 +2166,7 @@
 
 **P2 · ops-infra · the Gitea restore script can report success without having run its check for unsafe archive members, and overwrites a manifest file that is already there**
 
-- **状态**：未开始（已停线，2026-10-13 21:54：两轮复核（Codex，只读）都没过，按这条线最多两轮的规矩停下。改动停在分支 `w31/td-339-restore`（`e231f02`，没有合并）：下面 Claim 里的两处和第一轮复核加出的三处（读状态文件、算明文校验值的退出码没查；目标带尾斜线）都改了，复核判这些改动正确；第二轮又查出一处这次没碰的旧代码：`SHA256SUMS` 里格式坏掉的一行会被 `sha256sum -c` 跳过，另一行通过就算通过。还差这一处。重开：说「TD-339 继续」。）
+- **状态**：未开始（剩一处，2026-10-13 22:01）。五处改动 2026-10-13 22:01 合进 infra 主线 `bbd5685`：Owner 当晚定「④ 照这版做」，用这一版做护栏 ④ 的解密验收。两轮复核（Codex，只读）判这五处正确，但都没有放行，第二轮查出下面「Also found」那一处，这次没修，仍然开着。防线：`k8s/cicd/gitea-backup/test_restore.py` 16 条（对合并前的脚本有 10 条红）。重开剩下这一处：说「TD-339 继续」。
 - **Claim**: `restore.sh` lists the archive and refuses it when a member is absolute or climbs out (`..`). The refusal is written as `if grep … ; then die`: when `grep` finds nothing the check passes, and when `grep` cannot run at all (exit 2, or not on `PATH`) the check is skipped the same way, the archive is extracted and the script prints its success line. Separately, the decrypted manifest is copied next to the target (`<target>.MANIFEST.tsv`) without refusing a file or a symbolic link that is already there.
 - **Measured**: NOT MEASURED on a real backup. Read from the code by the reviewing agent (Codex, 2026-10-13, `LAST-manual.md` of the decrypt check). With a real key pair and a test archive the normal paths behave as documented (success, wrong key, missing key, missing run, existing target).
 - **Evidence**: `k8s/cicd/gitea-backup/restore.sh:26` (the `if grep` form), `:30` (the copy of the manifest); `k8s/cicd/gitea-backup/test_backup_logic.py` has no test of an unsafe member or of a failing `grep`.
