@@ -20,6 +20,10 @@ BEGIN
                    AND NOT rolreplication AND NOT rolbypassrls AND rolconnlimit = lim) THEN
       RAISE EXCEPTION 'w31: missing role or unsafe flags/connection limit: %', role;
     END IF;
+    IF EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles r
+               ON r.oid = m.roleid OR r.oid = m.member WHERE r.rolname = role) THEN
+      RAISE EXCEPTION 'w31: role membership must be empty in both directions: %', role;
+    END IF;
   END LOOP;
 END
 $w31$;

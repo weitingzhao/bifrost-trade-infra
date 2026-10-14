@@ -1,0 +1,78 @@
+# W-31: Owner-created migration Job, outside Argo-synced paths.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: agentrt-migrate-
+  namespace: bifrost-platform-stg
+  labels:
+    app.kubernetes.io/name: agentrt-migrate
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 900
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentrt-migrate
+    spec:
+      serviceAccountName: default
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      # NetworkPolicy propagation can lag a new pod IP (TD-210).
+      initContainers:
+        - name: wait-pg
+          image: ghcr.io/cloudnative-pg/postgresql:17.9
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - -c
+            - |
+              for i in $(seq 1 60); do
+                if pg_isready -q -t 2; then echo ready; exit 0; fi
+                sleep 2
+              done
+              echo "Postgres not reachable after 60 attempts"; exit 1
+          env:
+            - name: PGHOST
+              value: bifrost-postgres-rw.data.svc.cluster.local
+            - name: PGPORT
+              value: "5432"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      containers:
+        - name: migrate
+          image: 192.168.10.73:30500/bifrost-platform-api:stg
+          imagePullPolicy: Always
+          command: [/usr/local/bin/platform-api]
+          args: [agentrt-migrate]
+          env:
+            - name: AGENTRT_ENV
+              value: stg
+            - name: PGHOST
+              value: bifrost-postgres-rw.data.svc.cluster.local
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: bifrost_platform_stg
+            - name: PGUSER
+              value: agentrt_owner_stg
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentrt-db-owner
+                  key: password
+            # Same TLS mode as the existing logical-backup libpq client.
+            - name: PGSSLMODE
+              value: require
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi

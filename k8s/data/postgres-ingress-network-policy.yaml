@@ -125,7 +125,7 @@ spec:
         - protocol: TCP
           port: 5432
 ---
-# W-31: same-namespace platform runtime and the on-demand migration template.
+# W-31: cross-namespace platform runtime and the Owner-created migration Jobs.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

@@ -27,7 +27,11 @@ SELECT format('REVOKE CONNECT ON DATABASE %I FROM %I', :'db', role)
 \gexec
 SELECT format('GRANT CONNECT ON DATABASE %I TO %I', :'db', role)
   FROM (VALUES ('agentrt_owner_' || :'env'), ('platform_agentrt_' || :'env'),
-               ('agent_reader'), ('role_matrix_reader'), ('bifrost')) r(role)
+               ('agent_reader'), ('role_matrix_reader')) r(role)
+\gexec
+SELECT :'env' = 'prod' AS is_prod \gset
+\if :is_prod
+SELECT format('GRANT CONNECT ON DATABASE %I TO bifrost', :'db')
 \gexec
 -- logical-backup signs in as bifrost (README.md / bifrost-postgres-app reference).
 -- Install defaults BEFORE migration creates agentrt and its tables/sequences.
@@ -44,4 +48,5 @@ SELECT 'GRANT SELECT ON ALL TABLES IN SCHEMA agentrt TO bifrost' WHERE to_regnam
 \gexec
 SELECT 'GRANT SELECT ON ALL SEQUENCES IN SCHEMA agentrt TO bifrost' WHERE to_regnamespace('agentrt') IS NOT NULL
 \gexec
+\endif
 COMMIT;

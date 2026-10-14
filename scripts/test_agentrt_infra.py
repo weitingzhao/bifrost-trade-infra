@@ -20,14 +20,20 @@ class AgentRuntimeInfraTests(unittest.TestCase):
                 ["kubectl", "kustomize", "k8s/overlays/platform-" + env], cwd=ROOT, text=True))
             objects = {(d["kind"], d["metadata"]["name"]): d for d in rendered}
             api = objects["Deployment", "platform-api"]["spec"]["template"]["spec"]["containers"][0]
-            cron = objects["CronJob", "agentrt-migrate"]
-            self.assertEqual(cron["metadata"]["namespace"], namespace)
-            self.assertTrue(cron["spec"]["suspend"])
-            pod = cron["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+            self.assertFalse(any(d["kind"] == "CronJob" for d in objects.values()))
+            job = docs("k8s/agentrt-migrate/" + env + "/job.yaml")[0]
+            self.assertEqual(job["kind"], "Job")
+            self.assertEqual(job["metadata"]["namespace"], namespace)
+            self.assertEqual(job["metadata"]["generateName"], "agentrt-migrate-")
+            self.assertNotIn("name", job["metadata"])
+            self.assertEqual(job["spec"]["backoffLimit"], 0)
+            self.assertEqual(job["spec"]["ttlSecondsAfterFinished"], 604800)
+            self.assertEqual(job["spec"]["template"]["metadata"]["labels"]["app.kubernetes.io/name"], "agentrt-migrate")
+            pod = job["spec"]["template"]["spec"]
             self.assertEqual(pod["serviceAccountName"], "default")
             self.assertFalse(pod["automountServiceAccountToken"])
             self.assertEqual(pod["initContainers"][0]["name"], "wait-pg")
-            self.assertGreaterEqual(cron["spec"]["jobTemplate"]["spec"]["activeDeadlineSeconds"], 840)
+            self.assertGreaterEqual(job["spec"]["activeDeadlineSeconds"], 840)
             container = pod["containers"][0]
             self.assertEqual(container["image"], api["image"])
             self.assertEqual(container["command"], ["/usr/local/bin/platform-api"])
@@ -43,13 +49,32 @@ class AgentRuntimeInfraTests(unittest.TestCase):
             redis = objects["Deployment", "redis-agents"]
             self.assertEqual(redis["spec"]["replicas"], 1)
             self.assertEqual(redis["spec"]["strategy"]["type"], "Recreate")
-            r = redis["spec"]["template"]["spec"]["containers"][0]
-            flags = dict(zip(r["args"][::2], r["args"][1::2]))
+            redis_pod = redis["spec"]["template"]["spec"]
+            self.assertEqual(redis_pod["securityContext"], {
+                "runAsNonRoot": True, "runAsUser": 999, "runAsGroup": 999, "fsGroup": 999})
+            expressions = redis_pod["affinity"]["nodeAffinity"]["requiredDuringSchedulingIgnoredDuringExecution"]["nodeSelectorTerms"]
+            self.assertEqual(expressions, [{"matchExpressions": [{
+                "key": "bifrost.io/workload-pool", "operator": "In",
+                "values": ["prod-pool", "general"] if env == "prod" else ["general"]}]}])
+            r = redis_pod["containers"][0]
+            self.assertEqual(r["securityContext"], {
+                "allowPrivilegeEscalation": False, "capabilities": {"drop": ["ALL"]}})
+            self.assertEqual(r["command"], ["sh", "-c"])
+            flags = dict(zip(r["args"][2::2], r["args"][3::2]))
             self.assertEqual(flags["--appendonly"], "yes")
             self.assertEqual(flags["--appendfsync"], "everysec")
             self.assertEqual(flags["--maxmemory"], "256mb")
             self.assertEqual(flags["--maxmemory-policy"], "noeviction")
-            self.assertEqual(flags["--requirepass"], "$(REDIS_PASSWORD)")
+            self.assertNotIn("--requirepass", flags)
+            self.assertNotIn("$(REDIS_PASSWORD)", r["args"])
+            # Execute the real wrapper with an empty or absent password. With no
+            # redis-server on PATH this would be 127 if it reached exec instead.
+            for empty_env in ({"PATH": "/nonexistent"}, {"PATH": "/nonexistent", "REDIS_PASSWORD": ""}):
+                result = subprocess.run(["/bin/sh", "-c", *r["args"]], env=empty_env,
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("REDIS_PASSWORD must not be empty", result.stderr)
+            self.assertIn('exec redis-server "$@" --requirepass "$REDIS_PASSWORD"', r["args"][0])
             self.assertEqual(r["volumeMounts"], [{"name": "data", "mountPath": "/data"}])
             self.assertEqual(objects["PersistentVolumeClaim", "redis-agents"]["spec"]["resources"]["requests"]["storage"], "1Gi")
             self.assertEqual(objects["Service", "redis-agents"]["spec"]["type"], "ClusterIP")
@@ -72,17 +97,25 @@ class AgentRuntimeInfraTests(unittest.TestCase):
             self.assertEqual(set(peer["podSelector"]["matchExpressions"][0]["values"]),
                              {"platform-api", "platform-workers", "agentrt-migrate"})
 
-    def test_backup_and_database_ownership(self):
+    def test_database_ownership(self):
         databases = {d["spec"]["name"]: d for d in docs("k8s/data/databases.yaml")}
         for env in ("prod", "stg", "dev"):
             db = "bifrost_platform" + ("" if env == "prod" else "_" + env)
             self.assertEqual(databases[db]["spec"]["owner"], "agentrt_owner_" + env)
             self.assertEqual(databases[db]["metadata"]["labels"]["bifrost.io/role"], "agentrt")
-        cron = docs("k8s/data/logical-backup/cronjob-backup.yaml")[0]
-        env = cron["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]["env"]
-        targets = next(e["value"] for e in env if e["name"] == "TARGETS").split()
-        self.assertIn("bifrost_platform:agentrt", targets)
-        self.assertEqual(len(targets), 8)
+    def test_migration_jobs_are_outside_argo_sources(self):
+        migration_path = Path("k8s/agentrt-migrate")
+        for path in (ROOT / "k8s").rglob("*.yaml"):
+            for app in docs(path.relative_to(ROOT)):
+                if not isinstance(app, dict) or app.get("kind") != "Application":
+                    continue
+                sources = app["spec"].get("sources", []) + [app["spec"].get("source", {})]
+                for source in sources:
+                    if "bifrost-trade-infra" not in source.get("repoURL", ""):
+                        continue
+                    source_path = Path(source.get("path", "."))
+                    self.assertFalse(migration_path == source_path or source_path in migration_path.parents,
+                                     str(path.relative_to(ROOT)))
 
     def test_job_policy_allows_default_sa_in_both_namespaces(self):
         policy = docs("k8s/overlays/platform-prod/config/actuation-policy.yaml")[0]

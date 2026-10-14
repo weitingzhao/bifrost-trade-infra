@@ -20,7 +20,11 @@ BEGIN;
 SET LOCAL lock_timeout = '5s';
 SELECT format('REVOKE CONNECT ON DATABASE %I FROM %I', :'db', role)
   FROM (VALUES ('agentrt_owner_' || :'env'), ('platform_agentrt_' || :'env'),
-               ('agent_reader'), ('role_matrix_reader'), ('bifrost')) r(role)
+               ('agent_reader'), ('role_matrix_reader')) r(role)
+\gexec
+SELECT :'env' = 'prod' AS is_prod \gset
+\if :is_prod
+SELECT format('REVOKE CONNECT ON DATABASE %I FROM bifrost', :'db')
 \gexec
 SELECT format('ALTER DEFAULT PRIVILEGES FOR ROLE %I REVOKE USAGE ON SCHEMAS FROM bifrost', 'agentrt_owner_' || :'env')
 \gexec
@@ -34,4 +38,5 @@ SELECT 'REVOKE SELECT ON ALL TABLES IN SCHEMA agentrt FROM bifrost' WHERE to_reg
 \gexec
 SELECT 'REVOKE SELECT ON ALL SEQUENCES IN SCHEMA agentrt FROM bifrost' WHERE to_regnamespace('agentrt') IS NOT NULL
 \gexec
+\endif
 COMMIT;

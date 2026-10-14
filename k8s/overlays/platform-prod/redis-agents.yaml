@@ -18,11 +18,35 @@ spec:
         app.kubernetes.io/name: redis-agents
     spec:
       automountServiceAccountToken: false
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: bifrost.io/workload-pool
+                    operator: In
+                    values: [prod-pool, general]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
       containers:
         - name: redis
           image: redis:7-alpine
-          command: [redis-server]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          command: [sh, -c]
           args:
+            - |
+              if [ -z "${REDIS_PASSWORD:-}" ]; then
+                echo "REDIS_PASSWORD must not be empty" >&2
+                exit 1
+              fi
+              exec redis-server "$@" --requirepass "$REDIS_PASSWORD"
+            - redis-server
             - --appendonly
             - "yes"
             - --appendfsync
@@ -31,8 +55,6 @@ spec:
             - 256mb
             - --maxmemory-policy
             - noeviction
-            - --requirepass
-            - $(REDIS_PASSWORD)
           env:
             - name: REDIS_PASSWORD
               valueFrom:
