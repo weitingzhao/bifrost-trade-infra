@@ -115,6 +115,8 @@ spec:
             script: |
               #!/bin/sh
               set -eu
+              # Whatever stops this sidecar, show the server log first.
+              trap 'cat /pgdata/log 2>/dev/null || true' EXIT
               export PATH="/usr/lib/postgresql/17/bin:$PATH" LC_ALL=C
               initdb -D /pgdata/data -U postgres --auth=trust -E UTF8 --locale=C >/dev/null
               pg_ctl -D /pgdata/data -l /pgdata/log -o "-c listen_addresses=127.0.0.1 -p 5432 -k /pgdata" -w start >/dev/null
@@ -123,7 +125,6 @@ spec:
                 -c "CREATE ROLE platform_agentrt_stg LOGIN" -c "CREATE ROLE agent_reader LOGIN"
               touch /pgdata/roles-ready
               while kill -0 "$(head -1 /pgdata/data/postmaster.pid)" 2>/dev/null; do sleep 2; done
-              cat /pgdata/log
               exit 1
           - name: redis
             image: docker.io/library/redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
