@@ -2066,7 +2066,7 @@
 
 **P2 · ops-platform · a firewall apply that fails with "required" in its output is answered as 503, which the approval executor treats as "try again later": the script may be run a second time**
 
-- **状态**：未开始（2026-10-13 12:50 TD-329 的独立复核读代码时指出的；原有行为，不是这次改动带来的；只记不做）
+- **状态**：在做（2026-10-13 23:36 测试环境发布中）：修法 `c401f42`（Codex 写；只有带类型标记、能证明脚本没开始的错误回 503，脚本开始之后的失败一律 502，不再按输出里的关键词分类），独立复核（Claude 子代理）判可以合并，Codex 第二轮确认没被后面的提交带坏；2026-10-13 23:30 随 `2333e00` 进平台主线，CI 8/8 绿。等测试环境核对和正式环境发布单。此前：未开始（2026-10-13 12:50 TD-329 的独立复核读代码时指出的；原有行为，不是这次改动带来的；只记不做）
 - **Claim**: the firewall handler maps a failure whose text contains "required" to HTTP 503. The action wiring classifies 503 as transient, so the approval goes back to `approved` and the background loop runs the action again after the backoff. Whether the script's real output can contain that word was not confirmed: the script belongs to the Owner and the agent guard refused the read.
 - **Measured**: NOT MEASURED (read from the code, 2026-10-13).
 - **Evidence**: `bifrost-platform/api/internal/network/handler.go:116-119`; `server/actions_wire.go:448-451`; `approvals/execution.go:228-233` (requeue on a transient refusal).
@@ -2080,7 +2080,7 @@
 
 **P3 · ops-platform · only the workers role retries a final result that could not be stored: on the api pod such a result is lost and the request turns unknown although the action ran**
 
-- **状态**：在做（2026-10-13 23:27 停线，等 Owner 定）：修法在分支 `w31/td-333-334-approval-exec`（Codex 写 `3ce84d1`；Claude 按第一轮复核改 `ecae711`）。第一轮复核（Claude 子代理）查出关机会掐断在跑的动作、还会认领新单子，已修并有回归测试；第二轮（Codex）确认那处已关，又列出三处关机时结果可能丢——都是原有行为（改之前关机是直接杀进程），前两处已并进 TD-332。两轮用完仍判不能合并，按停线规矩交 Owner：合（我的建议，没有比主线更差的地方）或等 TD-332 一起做。此前：未开始（2026-10-13 12:50 TD-329 的独立复核顺带看到的；原有行为；没有对着部署清单核对角色拆分；只记不做）
+- **状态**：在做（2026-10-13 23:36 测试环境发布中）：Owner 在线程里定「合」，2026-10-13 23:30 进平台主线 `2333e00`，CI 8/8 绿。第二轮复核列出的关机时结果可能丢的几处是原有行为，已并进 TD-332，不在这一条里。等测试环境核对和正式环境发布单。此前：在做（2026-10-13 23:27 停线，等 Owner 定）：修法在分支 `w31/td-333-334-approval-exec`（Codex 写 `3ce84d1`；Claude 按第一轮复核改 `ecae711`）。第一轮复核（Claude 子代理）查出关机会掐断在跑的动作、还会认领新单子，已修并有回归测试；第二轮（Codex）确认那处已关，又列出三处关机时结果可能丢——都是原有行为（改之前关机是直接杀进程），前两处已并进 TD-332。两轮用完仍判不能合并，按停线规矩交 Owner：合（我的建议，没有比主线更差的地方）或等 TD-332 一起做。此前：未开始（2026-10-13 12:50 TD-329 的独立复核顺带看到的；原有行为；没有对着部署清单核对角色拆分；只记不做）
 - **Claim**: when the write of an execution's final state fails, the result is kept in memory and written again by `flushHeld`, which is called only from the background retry loop. That loop is started only in the workers role. A synchronous execution runs in the api pod, so a failed final write there is never retried; the lease lapses and the record becomes unknown after the grace period.
 - **Measured**: NOT MEASURED (read from the code, 2026-10-13; the PROD role split is taken from a comment, `server.go:123-141`).
 - **Evidence**: `bifrost-platform/api/internal/approvals/execution.go:424` (`flushHeld` in `retryDue`); `server/server.go:357-362` (the loop starts in the workers role only), `:123-141`.
@@ -2140,7 +2140,7 @@
 
 **P3 · ops-platform · with a decision still in flight on one request and a newer Console deployed, Approve on another request in the same tab does nothing and says nothing**
 
-- **状态**：未开始（2026-10-13 20:37 TD-336 第三次复核顺带看到的；父提交 `5d591af` 上就有，不是 TD-336 带进来的；只记不做）
+- **状态**：在做（2026-10-13 23:36 测试环境发布中）：Claude 写，独立复核（Claude 子代理）判可以合并，补了复核要的测试（`approvalsStaleBuild.test.tsx` 16 条：决定发不出去时写明原因，两张单子同时在途、连接检查期间换版都覆盖）；合并 `66f6560`，随 `2333e00` 在平台主线，CI 8/8 绿。等测试环境核对和正式环境发布单。此前：未开始（2026-10-13 20:37 TD-336 第三次复核顺带看到的；父提交 `5d591af` 上就有，不是 TD-336 带进来的；只记不做）
 - **Claim**: the card receives `staleBuild && !reloadHeld`, so while a decision is in flight the buttons of every request stay enabled even though a newer Console has been deployed; `decide` checks the raw `staleBuild` at its entry and returns without sending and without a sentence. Sequence: request A's decision is still being sent, the platform is redeployed, the Owner switches to request B in the same tab and clicks Approve.
 - **Measured**: MEASURED by the reviewing subagent's probe on the TD-336 branch (2026-10-13): the button is enabled, no request leaves, nothing is shown. NOT MEASURED in a real browser.
 - **Evidence**: `bifrost-platform/console/src/pages/ApprovalsPage.tsx` (the `staleBuild={staleBuild && !reloadHeld}` prop of the card, and the first line of `decide`).
