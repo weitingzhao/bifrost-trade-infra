@@ -429,8 +429,8 @@
         - [x] 中继与重建：outbox → Redis（持有者令牌），从 PG 重建；`redis-agents` 清单（PROD、STG）｜代码 `0a42164` + 复核修复 `7ac856c`；infra 半边 Codex 写、Claude 子代理复核一轮「先改」A1–A3 后由 Codex 按定法修（`54873f8`），统筹方在本机 PG 上从空库重验通过；角色矩阵与逻辑备份目标拆到 `w31/agentrt-21-infra-after`（`c946b8b`，三库迁完、矩阵 0 差异后才合）；迁移改为 Argo 之外的 Job（`k8s/agentrt-migrate/`），不用 v5 写的挂起 CronJob（Argo v3.4.3 会把它报 Suspended）；第 2 轮复核（Claude 子代理）10-14 10:22 剩 1 项 A（新建的六个登录会被 main 的角色矩阵报成意外角色，拦全部 Trade 交付）→ **停线，等你定**；修法已写：过渡分支 `w31/agentrt-21-infra-roles`（`55dfc6b`，六个角色 connect: []，建角色后同一窗口立即合），文档与合并条件 `07f6ea9`，后续分支重建为 `63c10d8`
         - [x] Codex 复核（两轮 + 一轮确认）｜复核 144「先改」A1–A5 → 修 `7ac856c`；复核 145 剩 A4 余项 → 修 `7cb1fa0`（复核时的 `7cb1fa0` 只是提交说明不同，内容相同）；复核 146（确认，Owner 选 A）10-14 10:08「可以合并」，没有 A；它的 B 补了回归测试
         - [ ] 复核 145 的 B6、B7：正文值的枚举和格式；测试缺口（T19 三环境身份、T20 事务中断线、T23b 单删链尾、T30 ordinal 与重复批量写、T31 反向完整性、T32 反向迁移与死锁夹具、host 存活正例）——2.2 写路由时一起补
-        - [ ] （你）建 8 个 Secret；同意拉 postgres、redis 两个镜像；应用平台 CI 流水线（加 sidecar）（v5 O5、O8、O9）
-        - [ ] （你）批三个库的清单和建六个角色的 db-step、`redis-agents` 清单（O6、O7）
+        - [~] （你）建 8 个 Secret；同意拉 postgres、redis 两个镜像；应用平台 CI 流水线（加 sidecar）（v5 O5、O8、O9）｜10-14 10:53：Secret 6 个 + DEV pgpass 两行已建（操作单第 1 步）；CI 的镜像与流水线另一张单
+        - [~] （你）批三个库的清单和建六个角色的 db-step、`redis-agents` 清单（O6、O7）｜redis-agents 两环境上线（infra `1226255`）；六个角色已建、过渡矩阵 `a496623` 已应用（10-14 10:53）；待：确认六个密码、建库 + connect + 入站策略（操作单第 4 步）
         - [ ] 测试环境：迁移作业跑通，T19–T23、T30–T32 在 STG 过
         - [ ] （你）批 PROD 迁移作业（正式 DDL 随单）和恢复演练（O10、O11）
         - [ ] ★ PROD 库和 redis-agents 可用：T19 的 PROD 部分、T21 重建、T31 中继在 PROD 过
