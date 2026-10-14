@@ -4,7 +4,8 @@ These plain Jobs are outside every infra Argo Application source path. They are
 not overlay resources; creating one does not affect Argo Application health.
 The image is the explicit platform-api image rendered by that environment's overlay.
 
-After roles → passwords → databases ready → connect → Postgres ingress policy,
+After the order written at the top of db-step `2026-10-14-w31-agentrt-2-connect` (roles, the role-matrix
+transition branch, passwords, databases, connect, Postgres ingress policy),
 the Owner checks the embedded migration SQL and compares the manifest image digest
 with the running platform-api container's imageID (a matching tag alone is insufficient).
 If the tag changed, update the Job image to the verified running digest before creating it.
