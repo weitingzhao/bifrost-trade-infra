@@ -17,11 +17,23 @@ status=$(cat "$run/STATUS") || die 'run STATUS could not be read'
 # The decrypted manifest is written next to the target; nothing may be there already, not even a dangling link.
 [[ ! -e "$target.MANIFEST.tsv" && ! -L "$target.MANIFEST.tsv" ]] || die 'manifest path next to target must not exist'
 # Check only known ciphertext filenames; never allow checksum path traversal.
-awk '!/^#/ { if (NF!=2 || ($2!="data.tar.age" && $2!="MANIFEST.tsv.age")) exit 1; n++ } END { if (n!=2) exit 1 }' "$run/SHA256SUMS" || die 'ciphertext checksum list invalid'
+ciphertext_sums=$(LC_ALL=C awk '
+  !/^#/ {
+    if (NF != 2 || length($1) != 64 || $1 !~ /^[0-9a-f]+$/ || $0 != $1 "  " $2) exit 1
+    if ($2 == "data.tar.age" && ++data_count == 1) data_sum = $1
+    else if ($2 == "MANIFEST.tsv.age" && ++manifest_count == 1) manifest_sum = $1
+    else exit 1
+    n++
+  }
+  END {
+    if (n != 2 || data_count != 1 || manifest_count != 1) exit 1
+    printf "%s  data.tar.age\n%s  MANIFEST.tsv.age\n", data_sum, manifest_sum
+  }
+' "$run/SHA256SUMS") || die 'ciphertext checksum list invalid'
 work=$(mktemp -d "${TMPDIR:-/tmp}/gitea-restore.XXXXXX")
 cleanup() { rc=$?; trap - EXIT; rm -rf "$work"; exit "$rc"; }
 trap cleanup EXIT
-awk '!/^#/ {print}' "$run/SHA256SUMS" > "$work/ciphertext-sums" || die 'ciphertext checksum list unreadable'
+printf '%s\n' "$ciphertext_sums" > "$work/ciphertext-sums" || die 'ciphertext checksum list invalid'
 (cd "$run" && sha256sum -c "$work/ciphertext-sums") || die 'ciphertext checksum verification failed'
 age -d -i "$identity" -o "$work/data.tar" "$run/data.tar.age" || die 'data archive age decryption/authentication failed'
 want=$(awk '$1=="#" && $2=="plaintext_sha256" && $3=="data.tar" {print $4}' "$run/SHA256SUMS" || die 'ciphertext checksum list invalid')
