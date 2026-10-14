@@ -16,7 +16,7 @@
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
-**未结 111 项**：P0 0 · P1 11 · P2 41 · P3 59；要你批的 41 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
+**未结 112 项**：P0 0 · P1 11 · P2 42 · P3 59；要你批的 41 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
 
 ## 主题（第 2、3 轮）
 
@@ -2123,3 +2123,17 @@
 - **Ratchet**: a page test: decision in flight, newer Console deployed, leave and reopen the approvals page: Reload stays disabled until the request is answered.
 - 验收: the page test above
 - 审批 无（代码改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-341
+
+**P2 · governance · pushing platform main does not run the CI's own checklist first: code-health went red on main twice (2026-10-13 00:45 for 14 minutes, 2026-10-14 12:51 for 4 minutes), both times a file crossing 800 lines**
+
+- **状态**：未开始（2026-10-14 12:58 统筹方记；同一类第二次，按卡点台账规则当天落成工作项；修法很小，但第 2 轮期间不还其余技术债，排在架构之后，除非 Owner 让它先做）
+- **Claim**: the coordinator's pre-push routine runs `go test ./...` on the merged tree and lint on the packages it touched, but not the code-health ratchet, which is a separate CI task whose script lives in infra (`agent-config/scripts/code-health/scan.sh`). The memory note that says to run it was written after the first time and was not read before the second push.
+- **Measured**: MEASURED: CI runs ci-platform for 5b1583c (2026-10-14, `code-health` Failed: files over 800 lines 13 > 12, `api/internal/agentrt/store/kernel.go` 1223 lines) and the 2026-10-13 00:45 run (LESSONS row of that night). Both fixed by splitting the file, not by raising the baseline.
+- **Evidence**: `agent-config/work/multi-agent/LESSONS-from-practice.md` row 124; `bifrost-platform` commits `5b1583c` (red) and `e580c17` (the split).
+- **Impact**: main is red for minutes each time; a release from a red main is blocked until it is fixed, and another session pulling main meanwhile sees red CI it did not cause.
+- **Fix**: a `pre-push` hook in `scripts/git-hooks/` (installed by `install.sh` with the lineage hooks) that, for a push of `refs/heads/main` in bifrost-platform (and the other repos that have a code-health baseline), runs `scan.sh --repo <repo>` against the pushed commit and refuses the push when a metric is over its baseline. go test stays in the routine (too slow for a hook).
+- **Ratchet**: the hook's own test: a fixture repo with a file over 800 lines pushed to main is refused; under the line it passes.
+- 验收: the hook test above, and a real push of an over-line file to a scratch branch named main refused locally
+- 审批 无（治理层工具，Agent 可写）· 代价 S · 风险 low · repos: bifrost-trade-infra
