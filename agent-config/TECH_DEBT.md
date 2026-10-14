@@ -13,11 +13,10 @@
 
 ## 待你签收
 
-- **TD-318** — Console 的测试不再依赖「今天是哪天」：23 条因夹具到期而红的测试 10-12 已改成钉住时钟（platform `dd2cd9f`）；这次加了防线，每个测试文件的时钟拨快 3650 天，依赖当天日期的测试第一次运行就红。验收：PASS 2026-10-13 platform `5021b0f`，CI 八项全过；三个时区整套 1066 条通过；种错 11 处各自变红；Codex 复核两轮（先改 → 可以合并）。防线：RATCHETS「Console 的每个测试文件都运行在 3650 天以后」。后续：无后续：Go 一侧没有同类夹具到期的事故，暂不加；条目里原来写的验收命令是按错误的原因（慢）写的，没有照它跑，已在条目里写明。
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
-**未结 115 项**：P0 0 · P1 12 · P2 43 · P3 60；要你批的 41 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
+**未结 114 项**：P0 0 · P1 11 · P2 43 · P3 60；要你批的 41 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
 
 ## 主题（第 2、3 轮）
 
@@ -1860,21 +1859,6 @@
 - **Ratchet**: a read-only check, runnable with the agent identity: for each namespace where this role is bound, either the binding's role carries `resourceNames` or the admission policy exists and is bound.
 - 验收: with the narrowed grant, `rollout_restart_deployment` and `scale_deployment` still succeed for every workload the Console offers, and `kubectl auth can-i patch deployment/argocd-server -n cicd --as=system:serviceaccount:bifrost-platform-prod:bifrost-platform` answers `no` (run by the Owner; the agent identity cannot impersonate)
 - 审批 要批（RBAC 或准入策略，Owner 应用）· 代价 S · 风险 med · repos: bifrost-trade-infra
-
-### TD-318
-
-**P1 · ops-platform · the Console gate in CI is flaky: 23 tests of the Owner-question pages fail when the step runs slowly, with no Console change in the commit — platform main is red at its head**
-
-- **状态**：待你签收
-- 验收结果：PASS 2026-10-13 platform `5021b0f`（CI `ci-platform` 在这个提交上 21:10 八项全过，`test-console` 带着拨快的时钟跑）。防线已加：Console 每个测试文件的全局 `Date` 拨快 3650 天（`console/src/test/clockShift.ts`）。统筹方重跑：整套 Console 在三个时区（美中、UTC、上海）各 124 个文件 1066 条通过；这三个文件之外没有改任何测试；种错 11 处各自变红。Codex 只读复核两轮：第一轮「先改」（只钉日期再还原之后，同一条测试余下的部分回到真时钟，而测试把它当成了正确行为），改后第二轮「可以合并」。**下面「验收」一行是按最初的错误判断（跑得慢）写的，没有照它验收**：真正的原因是夹具到期，验收改成上面这几项。此前的状态：在做（修复已上主线，防线还没加）——2026-10-12 08:00 合并提交 `dd2cd9f` 的 `ci-platform` 全部成功，主线头上又有绿的 CI。还差防线：把系统时钟拨到一年以后整套 Console 测试仍然通过；加上之后再进「待你签收」。2026-10-12 07:56：**原因不是慢，下面 Claim 里「跑得慢所以超时」的说法是统筹方没有复现就下的结论，是错的。** Cursor 复现后查明：契约夹具 `api/internal/questions/testdata/contract/question-open.json` 的 `expires_at` 写死在 2026-10-12T06:00:00Z，这两个测试文件用真实时钟，过了这一刻选项被禁用、`Confirm answer` 不会出现，23 条每次必败（前两次 CI 是在这一刻之前跑的）。修法：两个测试文件把 `Date` 固定在过期之前（platform `dd2cd9f`，只改测试）。统筹方在 CI 镜像里重跑整步通过（814/814；改一条断言则失败）；Codex 复核 115 可以合并，并查过别的 Console 测试没有同类到期的断言。已合并进 platform 主线。防线：缺一条「把系统时钟拨到一年后整套仍然通过」的检查，登记在本条，随下一次动 Console 测试时加。
-- **Claim**: `ci-platform` run `ci-platform-sjhtn` on `c559018` (a commit that touches only Go tests and test data under `api/internal/releasefreeze/`) failed at `test-console`: 23 of 814 tests in two files, `console/src/pages/__tests__/QuestionPage.test.tsx` and `QuestionSendLifecycle.test.tsx` (W-65), all with `Unable to find an accessible element with the role "button" and name "Confirm answer"` inside `waitFor`. The two runs before it the same night, on `3620e17` and `3466ff9`, passed the same Console code. The failing run took 100.55 s (environment 119.68 s summed); TD-313 measured about 66 s for the suite under the step's limits. The tests wait with the testing library's default timeout and lose the race when the step is slow.
-- **Measured**: MEASURED 2026-10-12 07:06 CDT from the run's log (`kubectl -n cicd logs`, read-only identity). NOT MEASURED: why this run was slow (what else ran on the node at 12:03 UTC); whether the same 23 fail on a local run under load.
-- **Evidence**: the run above; TD-313 (the gate, its measured time and the `--maxWorkers=2` decision); `~/agent-work/td-313/verify-ci-gate.sh` (runs the step in the CI image with the pod's limits).
-- **Impact**: the head of platform main has no green CI, so nothing may be released from it (the rule: release only a commit whose CI on main succeeded). A gate that fails without a cause in the commit teaches everyone to rerun it, which is how a real failure gets through. It appeared on the gate's third run.
-- **Fix**: find the cause before choosing the cure — reproduce in the CI image with the pod's limits under added CPU load; then make these tests independent of wall-clock races (await the state they depend on, or control the timers), and only if that is not possible raise the wait for these files with the reason written beside it. Do not disable, skip or retry tests. Record the step's duration in the run so a slow run is visible.
-- **Ratchet**: the step's own check — the Console suite passes N times in a row in the CI image under load (a script in the repository that the gate's test file names); a test that no test file of the Console uses a retry or a skip to pass.
-- 验收: `verify-ci-gate.sh` under added CPU load, five runs in a row, 0 failures; a green `ci-platform` on the commit that carries the fix
-- 审批 无（测试改动，随平台主线）· 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-319
 
