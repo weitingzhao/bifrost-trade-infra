@@ -9,6 +9,7 @@ from pathlib import Path
 import hashlib
 import io
 import os
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -165,7 +166,7 @@ def test_something_already_at_the_target_is_refused(fixture, kind):
 # passes the real tool's output through unchanged and then reports failure for the one call under test.
 PRINTS_THEN_FAILS = {
     "cat": (
-        "import subprocess, sys\nsubprocess.run(['/bin/cat', *sys.argv[1:]])\nsys.exit(1)\n",
+        "import os, subprocess, sys\nsubprocess.run([os.environ['REAL_CAT'], *sys.argv[1:]])\nsys.exit(1)\n",
         "FATAL: run STATUS could not be read",
     ),
     "sha256sum": (
@@ -188,6 +189,8 @@ def test_a_tool_that_prints_the_expected_value_and_then_fails_is_not_a_pass(fixt
     f = fixture
     run_dir = backed_up(f)
     body, message = PRINTS_THEN_FAILS[tool]
+    # Resolved before the wrapper goes onto PATH, the way the fixture keeps REAL_AWK and REAL_SHA256SUM.
+    f["env"]["REAL_CAT"] = shutil.which("cat", path=f["env"]["PATH"])
     replace_tool(f, tool, body)
     target = f["work"] / "restored"
     r = restore(f, run_dir, target)
