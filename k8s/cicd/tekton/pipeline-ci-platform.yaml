@@ -87,6 +87,58 @@ spec:
       taskSpec:
         workspaces:
           - name: source
+        # The agent runtime's database and Redis tests (W-31 2.1) need a real
+        # PostgreSQL and Redis. Tekton starts the steps only after both sidecars
+        # are ready; the Postgres sidecar creates the roles the tests log in as
+        # before it reports ready. Images are the ones the data namespace already
+        # runs, pinned by digest.
+        volumes:
+          - name: pgdata
+            emptyDir: {}
+        sidecars:
+          - name: postgres
+            image: ghcr.io/cloudnative-pg/postgresql:17.9@sha256:ae81813008a9ef66ee9b348114c96d11c204981ac0d74b38f07fae4174c2973e
+            volumeMounts:
+              - name: pgdata
+                mountPath: /pgdata
+            computeResources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                cpu: "1"
+                memory: 1Gi
+            readinessProbe:
+              exec:
+                command: [test, -f, /pgdata/roles-ready]
+              periodSeconds: 2
+            script: |
+              #!/bin/sh
+              set -eu
+              export PATH="/usr/lib/postgresql/17/bin:$PATH" LC_ALL=C
+              initdb -D /pgdata/data -U postgres --auth=trust -E UTF8 --locale=C >/dev/null
+              pg_ctl -D /pgdata/data -l /pgdata/log -o "-c listen_addresses=127.0.0.1 -p 5432 -k /pgdata" -w start >/dev/null
+              psql -h 127.0.0.1 -p 5432 -U postgres -d postgres -X -v ON_ERROR_STOP=1 -q \
+                -c "CREATE ROLE agentrt_owner_dev LOGIN" -c "CREATE ROLE platform_agentrt_dev LOGIN" \
+                -c "CREATE ROLE platform_agentrt_stg LOGIN" -c "CREATE ROLE agent_reader LOGIN"
+              touch /pgdata/roles-ready
+              while kill -0 "$(head -1 /pgdata/data/postmaster.pid)" 2>/dev/null; do sleep 2; done
+              cat /pgdata/log
+              exit 1
+          - name: redis
+            image: docker.io/library/redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+            args: [redis-server, --bind, 127.0.0.1, --port, "6379", --save, "", --appendonly, "no"]
+            computeResources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                cpu: 500m
+                memory: 256Mi
+            readinessProbe:
+              exec:
+                command: [redis-cli, -h, 127.0.0.1, ping]
+              periodSeconds: 2
         steps:
           - name: go-test
             # api/go.mod says go 1.25.0; the image's GOTOOLCHAIN=local refused to
@@ -95,6 +147,14 @@ spec:
             env:
               - name: GOTOOLCHAIN
                 value: auto
+              # With these set the agentrt tests must run: a missing server
+              # fails them instead of skipping them.
+              - name: AGENTRT_TEST_PG
+                value: host=127.0.0.1 port=5432 user=postgres sslmode=disable
+              - name: AGENTRT_TEST_REDIS
+                value: redis://127.0.0.1:6379/0
+              - name: AGENTRT_TEST_REQUIRED
+                value: "1"
             computeResources:
               requests:
                 cpu: 250m
