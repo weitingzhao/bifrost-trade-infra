@@ -80,6 +80,86 @@ def nothing_restored(target):
     assert not sidecar.exists() and not sidecar.is_symlink()
 
 
+@pytest.mark.parametrize("kind", [
+    "manifest nonhex", "data nonhex", "short digest", "long digest", "uppercase digest",
+    "one space", "tab separator", "trailing space", "duplicate filename", "third line",
+    "one line", "blank line",
+])
+def test_an_invalid_ciphertext_checksum_list_is_refused(fixture, kind):
+    f = fixture
+    run_dir = backed_up(f)
+    sums = writable(run_dir / "SHA256SUMS")
+    data, manifest, comment = sums.read_text().splitlines()
+    if kind == "manifest nonhex":
+        manifest = "g" + manifest[1:]
+    elif kind == "data nonhex":
+        data = "g" + data[1:]
+    elif kind == "short digest":
+        manifest = manifest[1:]
+    elif kind == "long digest":
+        manifest = "0" + manifest
+    elif kind == "uppercase digest":
+        manifest = "A" + manifest[1:64].upper() + manifest[64:]
+    elif kind == "one space":
+        manifest = manifest.replace("  ", " ")
+    elif kind == "tab separator":
+        manifest = manifest.replace("  ", "\t")
+    elif kind == "trailing space":
+        manifest += " "
+    elif kind == "duplicate filename":
+        manifest = data
+    lines = [data, manifest, comment]
+    if kind == "third line":
+        lines.insert(2, "0" * 64 + "  other.age")
+    elif kind == "one line":
+        lines = [data, comment]
+    elif kind == "blank line":
+        lines.insert(1, "")
+    sums.write_text("\n".join(lines) + "\n")
+    target = f["work"] / "restored"
+    r = restore(f, run_dir, target)
+    assert r.returncode != 0, r.stdout + r.stderr
+    assert "FATAL: ciphertext checksum list invalid" in r.stderr
+    assert SUCCESS not in r.stdout
+    nothing_restored(target)
+
+
+def test_reversed_ciphertext_checksum_lines_restore(fixture):
+    f = fixture
+    run_dir = backed_up(f)
+    sums = writable(run_dir / "SHA256SUMS")
+    data, manifest, comment = sums.read_text().splitlines()
+    sums.write_text("\n".join([manifest, data, comment]) + "\n")
+    target = f["work"] / "restored"
+    r = restore(f, run_dir, target)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert SUCCESS in r.stdout
+    assert (target / "gitea/conf/app.ini").is_file()
+    assert Path(str(target) + ".MANIFEST.tsv").is_file()
+
+
+@pytest.mark.parametrize("kind", ["unreadable list", "awk prints then fails"])
+def test_a_failed_ciphertext_checksum_list_read_is_refused(fixture, kind):
+    f = fixture
+    run_dir = backed_up(f)
+    if kind == "unreadable list":
+        sums = writable(run_dir / "SHA256SUMS")
+        sums.unlink()
+        sums.mkdir()
+    else:
+        replace_tool(f, "awk", (
+            "import os, subprocess, sys\n"
+            "subprocess.run([os.environ['REAL_AWK'], *sys.argv[1:]])\n"
+            "sys.exit(1)\n"
+        ))
+    target = f["work"] / "restored"
+    r = restore(f, run_dir, target)
+    assert r.returncode != 0, r.stdout + r.stderr
+    assert "FATAL: ciphertext checksum list invalid" in r.stderr
+    assert SUCCESS not in r.stdout
+    nothing_restored(target)
+
+
 def test_a_replaced_archive_with_safe_members_restores(fixture):
     # The control for the two tests below: the same replacement, harmless names.
     f = fixture
