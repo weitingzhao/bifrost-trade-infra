@@ -56,3 +56,51 @@ spec:
   owner: bifrost
   cluster:
     name: bifrost-postgres
+---
+# W-31 agent runtime state; create the owner role before applying.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: bifrost-platform
+  namespace: data
+  labels:
+    app.kubernetes.io/part-of: bifrost
+    bifrost.io/environment: prod
+    bifrost.io/role: agentrt
+spec:
+  name: bifrost_platform
+  owner: agentrt_owner_prod
+  cluster:
+    name: bifrost-postgres
+---
+# W-31 agent runtime state; create the owner role before applying.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: bifrost-platform-stg
+  namespace: data
+  labels:
+    app.kubernetes.io/part-of: bifrost
+    bifrost.io/environment: stg
+    bifrost.io/role: agentrt
+spec:
+  name: bifrost_platform_stg
+  owner: agentrt_owner_stg
+  cluster:
+    name: bifrost-postgres
+---
+# W-31 agent runtime state; create the owner role before applying.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: bifrost-platform-dev
+  namespace: data
+  labels:
+    app.kubernetes.io/part-of: bifrost
+    bifrost.io/environment: dev
+    bifrost.io/role: agentrt
+spec:
+  name: bifrost_platform_dev
+  owner: agentrt_owner_dev
+  cluster:
+    name: bifrost-postgres

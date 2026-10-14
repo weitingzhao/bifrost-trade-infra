@@ -9,6 +9,7 @@ resources:
   - ops-ingressroute.yaml
   - ops-http-redirect.yaml
   - sa-kubeconfig.yaml
+  - redis-agents.yaml
 
 configMapGenerator:
   - name: bifrost-platform-config
