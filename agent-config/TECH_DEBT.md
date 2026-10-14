@@ -2128,7 +2128,7 @@
 
 **P2 · governance · pushing platform main does not run the CI's own checklist first: code-health went red on main twice (2026-10-13 00:45 for 14 minutes, 2026-10-14 12:51 for 4 minutes), both times a file crossing 800 lines**
 
-- **状态**：未开始（2026-10-14 12:58 统筹方记；同一类第二次，按卡点台账规则当天落成工作项；修法很小，但第 2 轮期间不还其余技术债，排在架构之后，除非 Owner 让它先做）
+- **状态**：未开始（2026-10-14 12:58 统筹方记；同一类第二次，按卡点台账规则当天落成工作项；修法很小，但第 2 轮期间不还其余技术债，排在架构之后，除非 Owner 让它先做；2026-10-14 14:26 第三次：`c7f4de8` 跑了 code-health 但经 `| tail -1 &&` 放行，推红了主线 6 分钟，`e102125` 修回，LESSONS 第 125 行；统筹方建议提前做，等 Owner 定）
 - **Claim**: the coordinator's pre-push routine runs `go test ./...` on the merged tree and lint on the packages it touched, but not the code-health ratchet, which is a separate CI task whose script lives in infra (`agent-config/scripts/code-health/scan.sh`). The memory note that says to run it was written after the first time and was not read before the second push.
 - **Measured**: MEASURED: CI runs ci-platform for 5b1583c (2026-10-14, `code-health` Failed: files over 800 lines 13 > 12, `api/internal/agentrt/store/kernel.go` 1223 lines) and the 2026-10-13 00:45 run (LESSONS row of that night). Both fixed by splitting the file, not by raising the baseline.
 - **Evidence**: `agent-config/work/multi-agent/LESSONS-from-practice.md` row 124; `bifrost-platform` commits `5b1583c` (red) and `e580c17` (the split).
