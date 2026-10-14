@@ -2158,7 +2158,7 @@
 
 **P2 · agent-runtime · the deployment reference of gates_passed holds the delivery run only, no image digest: an image that changes under the same run is not seen (T33 holds up to that)**
 
-- **状态**：未开始（2026-10-14 15:06 统筹方记；复核 161 A2 允许的「明确降低保证」；摘要要在交付记录里加字段并由记录器读出，第 2 轮的 Gate A 之前再定做不做）
+- **状态**：在做（10-14 15:49 Owner 选 A；platform 分支 `w31/agentrt-22-sources` `bfccfac`：记录带镜像摘要、读部署核对 Pod 摘要；确认复核 167 还有 1 个 A（Pod 读取要确认是当前稳定版本、拒绝多出的容器），等 Owner 定确认复核后的规则；合 main 后转待你签收）
 - **Claim**: the agent runtime reads what an environment runs now from the release records (`releases.Service.Current`): the newest deploying record of the lane and environment, unsettled while a newer delivery run exists. The reference the gate check and gates_passed compare is `{"delivery_run": <run>}`. A record has no image digest (`api/internal/releases/record.go` `Record`), so a pod that pulls a new image under the same tag (30 containers pull Always) without a new delivery run keeps the old reference, and a gate PASS of the old image still counts.
 - **Measured**: MEASURED by reading: `releases.Record` has no digest field; `releases.RunningImages` reads tags, not digests, and only for three deployments (`api/internal/releases/images.go:84-160`); design v5 line 448 gives the reference as `{"delivery_run", "images"}`.
 - **Evidence**: `bifrost-platform` branch `w31/agentrt-22-sources` `api/internal/server/agentrt_sources.go` (deployedFrom); review 161 A2.
