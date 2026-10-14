@@ -13,10 +13,11 @@
 
 ## 待你签收
 
+- **TD-339** — 解密用的恢复脚本 `restore.sh` 不再把「检查没跑」或「清单坏了」当成通过：越界路径检查分清「没有」和「没跑起来」；状态文件和明文校验值先读、查退出码、再比较；目标和旁边的清单路径已有东西就拒绝；校验和清单先验严（64 位小写十六进制、两个空格、两个文件各一次）再用。验收：PASS 2026-10-13 infra `fd0a420`，目录整套 102 条，新测试对旧脚本红，独立复核两轮后「可以合并」。防线：`k8s/cicd/gitea-backup/test_restore.py`（34 条）。后续：复核列出的同类小项（明文校验值是对清单的第二次读取、写临时清单失败的报错用词）不另记：都有逐字节比较或退出码兜底；集群镜像里多半是 BusyBox 的工具，下次重跑演练时确认一下（记在 TD-339 的复核记录里）。
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
-**未结 114 项**：P0 0 · P1 11 · P2 43 · P3 60；要你批的 41 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
+**未结 115 项**：P0 0 · P1 11 · P2 43 · P3 61；要你批的 41 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
 
 ## 主题（第 2、3 轮）
 
@@ -2113,6 +2114,7 @@
 - **Found 2026-10-13 20:30 (from the production Console's access log)**: the Owner's Console requests do not come from Google Chrome. Their user agent is `… Claude/2.37337.1 Chrome/152.0.7977.130 Safari/537.36`: the browser pane built into the Claude desktop app (Chrome on the same Mac is version 155). The three approvals of the day came from that pane. Its pages behave like background tabs when the pane is not in front: on 2026-10-13 from 20:17 CDT the page there stopped its 30-second reads and only fetched `/index.html` every three minutes (the build-drift check), and between 13:08 and 18:10 CDT it made no request of any kind, not even that one, while the Owner reported three clicks. So what he clicked was a page that was not running. Not established: what the pane does to a page it is not showing (suspends it, discards it, or shows a still image), and whether another thread driving the same pane plays a part. The Windows browser seen in the same log is a separate, unidentified session (Chrome 154, admin role, never reads approvals); the log cannot tell which machine (the client address is rewritten inside the cluster).
 - **Found 2026-10-13 21:30 (ingress error log, one `curl`, one `lsof`; read-only)**: (1) Traefik logs only responses 400–599. For host `ops.bifrost.lan`, 18:00–23:20 UTC, it has four rows, all 502 during the two rollouts (18:0x and 23:1x UTC). Nothing for the hours in which the Owner clicked, force-reloaded and opened a new tab (18:21–23:10 UTC): no 499, no 5xx. His requests did not reach the ingress; a request that arrived and hung would have been logged when it was cancelled. (2) `https://ops.bifrost.lan` answers HTTP/2 and plain http is redirected to it (308). At 21:24 CDT the Claude desktop app held exactly one established TCP connection to `192.168.10.100:443`: everything the pane's Console tab does rides one connection, and a reload or a second tab for the same origin reuses it. The service worker serves the cached shell when the network fails (`sw.js`), so such a reload looks loaded. (3) The recovery at 18:10:55 CDT was the first page load after the desktop app had been quit and reopened (this thread stood still 14:43–18:10); the approval arrived four seconds later. For #13 (11:50) only "a fresh page load" is known. **Hypothesis, NOT MEASURED**: that one connection went dead without the app noticing (the Console's backend was replaced at 13:07; the Mac may also have slept) and the pane kept queueing requests on it. Chrome checks an idle HTTP/2 connection with a ping before it reuses it; whether the pane's network stack does is not known. **To confirm next time, before reloading**: `lsof -nP -iTCP@192.168.10.100` (is there an established connection from `Claude`), and what the new page says (since #16 it writes "Your decision was NOT sent" with the time of the last contact). The way round stays: approve on the phone or in Google Chrome; #16 from the iPhone reached the server 78 seconds after the request was made.
 
+- **Answered 2026-10-13 22:57**: the Windows Chrome 154 session that polls the production Console with the admin role all day is the Owner's own (he confirmed in the thread). It is not an unknown client; read it out of the access logs as his.
 - **Evidence**: `bifrost-platform/console/public/sw.js:38-62` (navigation falls back to the cached shell when the network fails); `console/src/pages/ApprovalsPage.tsx` (the 30-second waiting sentence is the only signal while a request is unanswered); `agent-config/work/multi-agent/LESSONS-from-practice.md` row 118.
 - **Impact**: the one action only the Owner can take fails silently for him; each failure costs several round trips and holds every line that waits on the approval.
 - **Fix**: find the cause first (his description or a screenshot of the page after the click; the browser's network panel). Then make the page say so: show when the server was last reached, refuse to offer a decision while it has not been reached for some seconds, and after a click say "not acknowledged by the server yet" within a few seconds rather than after thirty. Consider not serving the cached shell for the decision pages.
@@ -2152,7 +2154,8 @@
 
 **P2 · ops-infra · the Gitea restore script can report success without having run its check for unsafe archive members, and overwrites a manifest file that is already there**
 
-- **状态**：未开始（剩一处，2026-10-13 22:01）。五处改动 2026-10-13 22:01 合进 infra 主线 `bbd5685`：Owner 当晚定「④ 照这版做」，用这一版做护栏 ④ 的解密验收。两轮复核（Codex，只读）判这五处正确，但都没有放行，第二轮查出下面「Also found」那一处，这次没修，仍然开着。防线：`k8s/cicd/gitea-backup/test_restore.py` 16 条（对合并前的脚本有 10 条红）。重开剩下这一处：说「TD-339 继续」。
+- **状态**：待你签收
+- 验收结果：PASS 2026-10-13 infra `fd0a420`（2026-10-13 22:57 进主线）：合并后的树上 `k8s/cicd/gitea-backup` 整套 102 条通过；新加的测试对修之前的脚本是红的（第一批 10 条、第二批 9 条）；Codex 写剩下这一处（校验和清单先验严再用，交给 `sha256sum -c` 的是由验证过的字段重写的两行），Claude 的子代理独立复核「可以合并」（用 BSD awk 和 macOS 的 sha256sum 试了 60 多种清单写法），它说缺的三条测试已补。Owner 10-13 22:07 用前一版脚本（`bbd5685`）做过解密验收，`exit=0`。经过：两轮复核后停线；Owner 定「④ 照这版做」，五处改动 21:59 合进主线；剩下这一处当晚重开、修完。
 - **Claim**: `restore.sh` lists the archive and refuses it when a member is absolute or climbs out (`..`). The refusal is written as `if grep … ; then die`: when `grep` finds nothing the check passes, and when `grep` cannot run at all (exit 2, or not on `PATH`) the check is skipped the same way, the archive is extracted and the script prints its success line. Separately, the decrypted manifest is copied next to the target (`<target>.MANIFEST.tsv`) without refusing a file or a symbolic link that is already there.
 - **Measured**: NOT MEASURED on a real backup. Read from the code by the reviewing agent (Codex, 2026-10-13, `LAST-manual.md` of the decrypt check). With a real key pair and a test archive the normal paths behave as documented (success, wrong key, missing key, missing run, existing target).
 - **Evidence**: `k8s/cicd/gitea-backup/restore.sh:26` (the `if grep` form), `:30` (the copy of the manifest); `k8s/cicd/gitea-backup/test_backup_logic.py` has no test of an unsafe member or of a failing `grep`.
@@ -2162,3 +2165,17 @@
 - **Ratchet**: those tests, in `test_backup_logic.py`.
 - 验收: `pytest k8s/cicd/gitea-backup -q` green with the new tests; each of them red when the fix is reverted; then the Owner's decrypt check of guardrail ④ ends with the success line
 - 审批 无（脚本不在集群里：`kustomization.yaml` 的 ConfigMap 只带 backup.sh、verify-stage.sh、fetch-tools.sh）· 代价 S · 风险 low · repos: bifrost-trade-infra
+
+### TD-340
+
+**P3 · ops-platform · leaving the approvals page while a decision is in flight and a newer Console is deployed loses the reload guard: the page offers Reload and a reload cuts the decision short**
+
+- **状态**：未开始（2026-10-13 22:57 TD-338 的独立复核（Claude 子代理，实验 E5）顺带查出；原来就有，不是 TD-338 带进来的；只记不做）
+- **Claim**: the guard that disables Reload while a decision is in flight (`reloadHeld`, set from a per-mount counter of decision requests) lives in the approvals page component. When the Owner leaves the page (for example back to Needs you) the component unmounts; the request keeps going, but the next mount starts with the counter at zero, so the banner says "Reload before approving" and Reload is enabled. The banner on the Needs you page does not hold either.
+- **Measured**: MEASURED by the reviewing subagent's test E5 on the TD-338 branch (2026-10-13): A's POST still hanging, page left and reopened, Reload enabled. NOT MEASURED in a browser.
+- **Evidence**: `bifrost-platform/console/src/pages/ApprovalsPage.tsx` (`postsInFlight` is a ref of the page component; `reloadHeld` recomputed from it); `console/src/pwa/ConsoleBuildBanner.tsx`.
+- **Impact**: a reload in that moment can cut a decision short; since TD-329 the server finishes an action whose decision it stored, so the visible damage is the page losing track of the result, not the action.
+- **Fix**: keep the count of decision requests in flight outside the page component (the module store the question pages already use is the precedent), and let every build banner read it.
+- **Ratchet**: a page test: decision in flight, newer Console deployed, leave and reopen the approvals page: Reload stays disabled until the request is answered.
+- 验收: the page test above
+- 审批 无（代码改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
