@@ -30,7 +30,7 @@ ssh-keygen -lf ~/.ssh/bifrost_release_owner.pub
 
 **之后我做**：把指纹写进 `bifrost-platform/api/internal/releasepolicy/anchor.go`（信任锚变更，不会被自动批准），推主线、发 STG；PROD 那一次随 2.2 的发布单（O20）由你在 Console 上批。
 
-**10-15 已做**：11:26 你回了指纹 `SHA256:pzjcenBSbCbgIoqamoQLsvlxELfp4ikcLbvp164Eel8`；11:27 编进平台主线 `9f1afb5`。`allowed_signers` 不建了：没有任何程序读它，平台只认编进去的指纹。
+**10-15 已做**：11:26 你回了指纹 `SHA256:pzjcenBSbCbgIoqamoQLsvlxELfp4ikcLbvp164Eel8`；11:27 编进平台主线 `9f1afb5`。12:2x 那把密钥的口令找不回（签第一份时卡在口令），你换了新密钥 `SHA256:HQBmsFUm1mh0JHKwiG/AOJesGSRNNZF+waMq4BI1M7k`，12:26 编进平台主线 `28e63c1`；旧的从没签过任何东西。**新口令存在密码管理器「bifrost 签名密钥口令」**。`allowed_signers` 不建了：没有任何程序读它，平台只认编进去的指纹。
 
 ## 第 2 步　签 STG 的 8 份初始规则（O19）
 
