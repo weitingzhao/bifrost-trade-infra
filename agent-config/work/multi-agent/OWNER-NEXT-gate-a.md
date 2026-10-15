@@ -46,13 +46,16 @@ sudo -u bifrost-agentd -H sh -c 'umask 077; mkdir -p "$HOME/.config/bifrost" && 
 
 做完回：「agentd 令牌好了」。我重启 STG 的 platform-api 让它读到新键。
 
-## 4. Gitea 账号与分支保护（O16，约 5 分钟）
+## 4. Gitea 账号与分支保护（O16，约 8 分钟）——**等你回「Gitea A / B」再做**
 
-agentd 只推 `agent/<任务号>/a<n>` 分支，不能推 `main`、不能打标签。
+（10-15 10:07 更正：`bifrost/bifrost-platform` 是 GitHub 的拉取镜像，不接受推送，原来这一步照做也推不上去。下面按建议 A 写；你选 B 我改这一节。）
 
-1. 在 Gitea（`http://192.168.10.73:30300`，你的管理员账号）建用户 `agentd-mbp-dev`，加入 `bifrost` 组织，只给 `bifrost-platform` 仓库写权限。
-2. `bifrost-platform` 的「分支保护」：`main` 禁止 `agentd-mbp-dev` 推送；「标签保护」：所有标签禁止它创建。
-3. 用这个账号生成访问令牌（只勾仓库读写），存进 agentd 用户下（运行后粘贴令牌，回车，Ctrl-D）：
+agentd 从镜像克隆、只往 `bifrost-agents/bifrost-platform` 推 `agent/<任务号>/a<n>` 分支，不能推 `main`、不能打标签。
+
+1. 在 Gitea（`http://192.168.10.73:30300`，你的管理员账号）建组织 `bifrost-agents`，在里面建一个**空的私有仓库** `bifrost-platform`（不要初始化 README，不要设成镜像）。
+2. 建用户 `agentd-mbp-dev`；把它加成 `bifrost-agents/bifrost-platform` 的协作者，权限「写」；再加成 `bifrost/bifrost-platform`（镜像）的协作者，权限「读」（克隆用）。别的仓库不给。
+3. `bifrost-agents/bifrost-platform` 的「分支保护」：加一条规则，分支名 `main`，禁止推送；「标签保护」：标签名 `*`，不允许任何人创建。
+4. 用 `agentd-mbp-dev` 生成访问令牌（权限只勾 repository 的读写），存进 agentd 用户下（运行后粘贴令牌，回车，Ctrl-D）：
 
 ```bash
 sudo -u bifrost-agentd -H sh -c 'umask 077; mkdir -p "$HOME/.config/bifrost"; cat > "$HOME/.config/bifrost/agentd-git.token"; ls -l "$HOME/.config/bifrost"'
