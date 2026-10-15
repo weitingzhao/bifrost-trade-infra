@@ -1,5 +1,5 @@
 <!--
-parity-ids: workspace-v24, language-v1, agent-modes-v4, trade-execution-freeze-v4, dev-services-v3, phase-execution-v3, shared-worktree-v4, business-first-v1
+parity-ids: workspace-v25, language-v1, agent-modes-v4, trade-execution-freeze-v4, dev-services-v3, phase-execution-v3, shared-worktree-v4, business-first-v1
 对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
 改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
 -->
@@ -216,6 +216,13 @@ release.sh、db-init Job、dev/stg overlay、插件 ConfigMap 与 rollout、rese
 
 - **规则不是批准**。发版（release.sh stg / prod / dev、research pin 推 main、start_pipeline_run、gitops_sync_app）
   和 PROD DDL（db-init-prod、ddl-apply、任何写 bifrost_prod / bifrost_golden_source 的 DDL）仍要 Owner 先在线程里点头，批准按动作算。
+  下一条的 STG 范围除外。
+- **STG 的发版和清单改动由 Agent 做，不用问（Owner 2026-10-14「STG 发布 A」）**。只限 STG 两个环境（`bifrost-stg`、`bifrost-platform-stg`）：
+  起 `bifrost-deliver-platform`、`bifrost-deliver-stg` 或 `release.sh stg`；改 `k8s/overlays/stg/**`、`k8s/overlays/platform-stg/**`
+  （提交里只有这两个目录的文件），用 `push-main.sh` 推 infra，再 `gitops_sync_app` 对应的 STG 应用；以及让这次发布或清单改动生效所需的
+  `rollout_restart_deployment`。三个前提：该提交的 `ci-*` 是 Succeeded（不用 `--allow-red`）；先持窗口，一次一个会话；
+  发完自己核对（Pod 跑的提交、启动日志），在线程里报结果。不在范围内、照旧要 Owner：`daemon-scale-zero.patch.yaml`（D10）、
+  Secret 对象和它的数据、RBAC / ServiceAccount / NetworkPolicy、对 `bifrost_stg` 的 DDL / DML、任何 PROD / `data` / `cicd` / `monitoring` 的写入。
 - **走平台审批单的 PROD 发版：Owner 在 Console 上批这张单就是批准（Owner 2026-10-11）**。不用再先在线程里点头，同一件事不在两处确认。
   建单（`request_action`）前三条都要成立，缺一条就不建：该提交的 `ci-*` 是 Succeeded；STG 跑的是同一个提交并且已核对；
   同一仓库没有另一张未结的发布单。理由第一段写批了会发生什么，并写明哪些检查没做（例如没有独立复核）。
