@@ -28,20 +28,24 @@ ssh-keygen -lf ~/.ssh/bifrost_release_owner.pub
 
 做完回：「指纹 SHA256:……」（把输出里 `SHA256:` 开头那一段贴进线程；它是公开的）。
 
-**之后我做**：把指纹写进 `bifrost-platform/api/internal/releasepolicy/anchor.go` 和 `agent-config/release-policy/allowed_signers`（信任锚变更，不会被自动批准），推主线、发 STG；PROD 那一次随 2.2 的发布单（O20）由你在 Console 上批。
+**之后我做**：把指纹写进 `bifrost-platform/api/internal/releasepolicy/anchor.go`（信任锚变更，不会被自动批准），推主线、发 STG；PROD 那一次随 2.2 的发布单（O20）由你在 Console 上批。
+
+**10-15 已做**：11:26 你回了指纹 `SHA256:pzjcenBSbCbgIoqamoQLsvlxELfp4ikcLbvp164Eel8`；11:27 编进平台主线 `9f1afb5`。`allowed_signers` 不建了：没有任何程序读它，平台只认编进去的指纹。
 
 ## 第 2 步　签 STG 的 8 份初始规则（O19）
+
+**要等 STG 发完带指纹的版本再签**（我会在线程里说「可以签了」）：脚本先让 STG 读一遍、签完由 STG 验签，STG 上还没有指纹时每份都会被拒。
 
 草稿在 `bifrost-trade-infra/agent-config/agentrt-rules/stg/`，平台的解析器已逐份读通。建议值（签前可改，改了就是你签的版本）：
 
 | 文件 | 内容 |
 |---|---|
-| `standing-envelope-dev.yaml` | 开发租户；最多到 `branch`；一个 mission 最多 40 次尝试、48 小时；执行者 codex、deterministic；主机 `mbp-dev`；有效期到 2027-01-15（3 个月） |
+| `standing-envelope-dev.yaml` | 开发租户；最多到 `branch`；一个 mission 最多 40 次尝试、48 小时；执行者 codex、cursor、deterministic（cursor 10-15 加的）；主机 `mbp-dev`；有效期到 2027-01-15（3 个月） |
 | `concurrency.yaml` | 每台主机同时 1 个尝试 |
 | `budget-dev.yaml` | 没写预算的 mission 取 40 次 / 48 小时；单次尝试最长 3600 秒 |
 | `routing-dev.yaml` | 先能力后额度；池用到 90% 不再派（2.4 才读） |
 | `capability-facts.yaml` | 你定过的 4 条：Cursor 不修复核发现；核心代码只由 Claude 写、只由 Codex 只读复核；确定性检查不评审同厂商 |
-| `job-implementer.yaml` | 实现岗：codex 正式；claude、cursor 资格考试中（不派） |
+| `job-implementer.yaml` | 实现岗：codex 正式；cursor 试用（能领活、受观察，10-15 改：Gate A 基准题「Cursor 写、Codex 复核」要它）；claude 资格考试中（不派） |
 | `job-verifier.yaml` | 验收岗：deterministic 正式 |
 | `job-reviewer.yaml` | 评审岗：codex 正式；claude 资格考试中 |
 
