@@ -10,7 +10,7 @@ STG 现状：平台 `de64cff`（16:35 发，`bifrost-deliver-platform-1792099853
 ## 第二批一览（16:30–17:55）
 
 测试身份 `agentd:gate-b` 用 `~/agent-work` 外的测试客户端（统筹线程 scratchpad 的 `gateb.py`）在接口层扮第二台主机；mbp-dev 的 agentd 用 Owner 给的 sudoers 行发 `STOP`/`CONT`/`KILL`。
-mission：M-3（T08，后来也放 T22 组合测试）、M-4（T22，T01、T02 也在这里跑，因为它们的 mission 没建出来）、M-5（T34）。
+mission：M-3（T08，后来也放 T22 组合测试）、M-4（T22；T01、T02 也在这里跑）、M-5（T34）。T01、T02 自己的 mission 是托 M-2 会话代建的，被那个会话的 auto mode 分类器按 goal 字面拦下（LESSONS 143）；这两项改由统筹方在自己的会话里、按 Owner「验收参与 一」的授权逐个动作跑，没有让别的会话代建。
 
 - 过：T01（branch）、T02、T08、T22 ①（宽限内、超过宽限）、T22 ③、T34 ①②③⑥⑦、T36（接口）。
 - 有缺口：T34 ⑤（Progress 不显示「结果未持久化」，F-T34-5）。
