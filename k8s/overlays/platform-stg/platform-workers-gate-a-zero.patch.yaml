@@ -1,0 +1,10 @@
+# Gate A T22 ③ (W-31 2.2, Owner 2026-10-15 「验收参与 一」): stop the agent runtime's
+# controller on STG for one run by taking platform-workers to 0. Argo self-heals a
+# scale done through the API within the second, so the pause has to live here.
+# Removed again when the run is over.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-workers
+spec:
+  replicas: 0
