@@ -81,10 +81,10 @@ ssh-keygen -lf ~/.ssh/bifrost_release_owner.pub
 
 ## 6. 把 agentd 装成系统服务（O17，约 1 分钟；第 2–4 步做完就能做，按「Gitea A」写）
 
-agentd 以 `bifrost-agentd` 用户运行，从镜像 `bifrost/…` 克隆、往 `bifrost-agents/…` 推，连 STG 平台。二进制是平台主线 `296468b` 编的（`~/agent-work/build/agentd-296468b/SHA256SUMS` 记了指纹）。规则还没签时它只会空转（平台不派活），不碍事。
+agentd 以 `bifrost-agentd` 用户运行，从镜像 `bifrost/…` 克隆、往 `bifrost-agents/…` 推，连 STG 平台。二进制是平台主线 `2202e2c` 编的（含 Cursor 密钥：`~bifrost-agentd/.config/bifrost/cursor-api.key` 在就自动用上）（`~/agent-work/build/agentd-2202e2c/SHA256SUMS` 记了指纹）。规则还没签时它只会空转（平台不派活），不碍事。
 
 ```bash
-sudo install -d -m 755 /usr/local/libexec/bifrost && sudo install -m 755 ~/agent-work/build/agentd-296468b/agentd /usr/local/libexec/bifrost/agentd && sudo AGENTD_GIT_PUSH_BASE=http://192.168.10.73:30300/bifrost-agents bash ~/agent-work/build/agentd-296468b/install-agentd.sh bifrost-agentd /usr/local/libexec/bifrost/agentd http://192.168.10.73:30878/api/v1/agentrt mbp-dev exec:codex=openai,exec:cursor=cursor-mix,exec:deterministic=local http://192.168.10.73:30300/bifrost
+sudo install -d -m 755 /usr/local/libexec/bifrost && sudo install -m 755 ~/agent-work/build/agentd-2202e2c/agentd /usr/local/libexec/bifrost/agentd && sudo AGENTD_GIT_PUSH_BASE=http://192.168.10.73:30300/bifrost-agents bash ~/agent-work/build/agentd-2202e2c/install-agentd.sh bifrost-agentd /usr/local/libexec/bifrost/agentd http://192.168.10.73:30878/api/v1/agentrt mbp-dev exec:codex=openai,exec:cursor=cursor-mix,exec:deterministic=local http://192.168.10.73:30300/bifrost
 ```
 
 最后一行打印 `agentd installed: …` 就是装好了。做完回：「agentd 装好了」。我从平台这边看它是否在轮询（主机 `mbp-dev` 出现在进展的主机列表里）。
