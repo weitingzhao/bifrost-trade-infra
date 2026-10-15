@@ -86,7 +86,9 @@ call() {
 
 rule_id_of() {
   local id
-  id="$(awk -F': *' '$1 == "rule_id" { print $2; exit }' "$1")"
+  # Everything after the first "rule_id:": ids have colons of their own
+  # (job:verifier, standing-envelope:dev), so the line is not split on them.
+  id="$(sed -n 's/^rule_id:[[:space:]]*//p' "$1" | head -n 1 | sed 's/[[:space:]]*$//')"
   [[ -n "${id}" ]] || die "$1 has no rule_id line" 2
   printf '%s' "${id}"
 }
