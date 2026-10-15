@@ -37,13 +37,13 @@ id bifrost-agentd
 生成令牌文件（属主 bifrost-agentd，权限 600；已有就不覆盖）：
 
 ```bash
-sudo -u bifrost-agentd -H sh -c 'umask 077; mkdir -p "$HOME/.config/bifrost" && [ -s "$HOME/.config/bifrost/agentd.token" ] || openssl rand -hex 32 | tr -d "\n" > "$HOME/.config/bifrost/agentd.token"; ls -l "$HOME/.config/bifrost"'
+sudo -u bifrost-agentd -H sh -c 'cd "$HOME" && umask 077 && mkdir -p .config/bifrost && { [ -s .config/bifrost/agentd.token ] || openssl rand -hex 32 | tr -d "\n" > .config/bifrost/agentd.token; } && ls -l .config/bifrost'
 ```
 
 把同一个令牌放进 STG 的 Secret（平台按名字 `agentd:mbp-dev` 把它绑定到主机 `mbp-dev`；这一项的配置 infra `052a5ee` 已上 STG）：
 
 ```bash
-( export KUBECONFIG="$HOME/.bifrost-owner/kube/admin.yaml"; f=$(mktemp) && sudo -u bifrost-agentd -H sh -c 'cat "$HOME/.config/bifrost/agentd.token"' | python3 -c 'import json,sys; print(json.dumps({"stringData":{"PLATFORM_AGENTD_MBP_DEV_TOKEN":sys.stdin.read().strip()}}))' > "$f" && kubectl -n bifrost-platform-stg patch secret bifrost-platform-role-tokens --type merge --patch-file "$f"; rm -f "$f" )
+( export KUBECONFIG="$HOME/.bifrost-owner/kube/admin.yaml"; f=$(mktemp) && sudo -u bifrost-agentd -H sh -c 'cd "$HOME" && cat .config/bifrost/agentd.token' | python3 -c 'import json,sys; print(json.dumps({"stringData":{"PLATFORM_AGENTD_MBP_DEV_TOKEN":sys.stdin.read().strip()}}))' > "$f" && kubectl -n bifrost-platform-stg patch secret bifrost-platform-role-tokens --type merge --patch-file "$f"; rm -f "$f" )
 ```
 
 做完回：「agentd 令牌好了」。我重启 STG 的 platform-api 让它读到新键。
