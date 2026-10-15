@@ -2138,6 +2138,76 @@
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-354
+
+**P2 · agentrt · a ready task that no candidate may take looks like one that is waiting its turn: Progress shows nothing, `needs_you` stays 0**
+
+- **状态**：未开始（2026-10-15 17:55 统筹方记；Gate A 第二批，F-T08 与 F-T10）
+- **Claim**: when every candidate of a task's job is excluded (independence, facts) or the mission's budget is spent, the task stays `ready` forever. The route says why in a `route_decided` event, but Progress lists the task nowhere and `needs_you` is 0.
+- **Measured**: MEASURED: 2026-10-15 17:55, STG platform `de64cff`: 15 review tasks ready across M-1…M-5, all with subjects written by `exec:codex`, and the only active reviewer is `reviewer/exec:codex/openai/*` (excluded: "not independent of the subject's attempts"); M-1's has waited since 14:25. `GET /agentrt/progress` → `needs_you.count` 0. M-1's T05 round 2 (budget spent) is the same shape.
+- **Evidence**: `bifrost-platform/api/internal/agentrt/store/route.go` (`exclusion`, `decide`); `store/progress.go` / `progressneeds.go` (what goes into `needs_you`).
+- **Impact**: work stops without anyone being told; the Owner learns it from a coordinator reading the database.
+- **Fix**: when a route leaves no candidate, or the budget refuses dispatch, put the task into `needs_you` with the reason (the route's exclusions, or the budget line).
+- **Ratchet**: a store test: codex author + codex-only reviewer → the review appears in `needs_you` with the exclusion reason; a spent budget → the task appears with the budget reason.
+- 验收: on STG, `GET /agentrt/progress` lists the M-1 review task under `needs_you` with "not independent of the subject's attempts"
+- 审批 无（运行时代码，走复核）· 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-353
+
+**P3 · agentrt · a salvaged result's check stays ready after the new attempt submitted, and will cost a real review when a reviewer exists**
+
+- **状态**：未开始（2026-10-15 17:55 统筹方记；Gate A T34 ⑧，F-T34-8b）
+- **Claim**: `salvagedOpen` is judged when a check runs; when the task's new attempt submits first, the salvage check already proposed is not closed, it stays `ready` and is closed only after someone runs it.
+- **Measured**: MEASURED: 2026-10-15 22:55Z, STG M-3: salvage review `t_01M50WAPPDGKACXJSN7R4W6S84` (of lost attempt `a_01M50V5944NWNJ9XX0G61T3YN1`) ready after the new attempt `a_01M50W6X04WCXMR2Y5EMPQGDNT` submitted at 22:54:43Z and its own review was proposed.
+- **Evidence**: `bifrost-platform/api/internal/agentrt/store/adopt.go:24-45` (`salvagedOpen`), `store/accept.go` (`closeCheck` at record time only).
+- **Impact**: once a non-codex reviewer exists, it will spend a review on a result that can no longer be the task's.
+- **Fix**: when an attempt of the task submits, close the open salvage checks of that task in the same transaction (`task_state_changed` to cancelled with the reason).
+- **Ratchet**: a store test: salvage → salvage check proposed → new attempt submits → the salvage check is closed, not ready.
+- 验收: on STG, after a salvage and a later submit, no salvage check of that task is left ready
+- 审批 无（运行时代码，走复核）· 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-352
+
+**P2 · agentrt · Progress shows a host that is gone for good as `maybe_stuck`, not "result not persisted" with the last checkpoint and its age**
+
+- **状态**：未开始（2026-10-15 17:55 统筹方记；Gate A T34 ⑤，F-T34-5）
+- **Claim**: design v5 §5.2 T34 ⑤ wants Progress to say the result is not persisted, the time of the last checkpoint the platform confirmed, and how long nothing has been persisted, and never to show the attempt as done. Progress shows `status: maybe_stuck`, `reason: the lease lapsed and was not renewed`, and no checkpoint field.
+- **Measured**: MEASURED: 2026-10-15 22:11:45Z, STG, `GET /agentrt/progress` for attempt `a_01M50ST7TYGTGATJNJP3YVDS0Q` (gate-b, checkpoint 1 at 22:09:43Z, then gone): the fields above and nothing about the checkpoint.
+- **Evidence**: `bifrost-platform/api/internal/agentrt/store/progress.go` (live attempt rows).
+- **Impact**: the Owner cannot tell "slow" from "the work is on a machine that is not coming back, and only checkpoint 1 is safe".
+- **Fix**: live and lost attempts carry `persisted` (bool), `last_checkpoint_seq`, `last_checkpoint_at` and `unpersisted_for_s`; a stale or lost attempt without `persisted_at` reads "result not persisted".
+- **Ratchet**: a progress test for a stale attempt with one checkpoint and no persist.
+- 验收: on STG, a gate-b attempt with one checkpoint that stops renewing shows "result not persisted", checkpoint 1 and its time in `GET /agentrt/progress`
+- 审批 无（运行时代码，走复核）· 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-351
+
+**P2 · actuation · `scale_deployment` reports success on a Deployment that Argo self-heals, and the scale is undone in the same second**
+
+- **状态**：未开始（2026-10-15 17:55 统筹方记；Gate A T22 ③，F-scale，LESSONS 144）
+- **Claim**: the action scales through the API and answers `ok: true, "deployment scaled to 0 replicas"`. When the Deployment belongs to an Argo Application with `selfHeal: true`, Argo puts it back at once; the approval and its result say nothing of that.
+- **Measured**: MEASURED: 2026-10-15, approval #21 (`appr_55824ce5a3a7b559`) scaled `bifrost-platform-stg/platform-workers` to 0 at 21:49:19Z; Deployment events the same second: scaled down, scaled up again; workers stayed at 1 until the overlay patch `6015863`.
+- **Evidence**: the `scale_deployment` action in `bifrost-platform/api/internal/actions/`; Application `cicd/bifrost-platform-stg` sync policy `automated: {prune: true, selfHeal: true}`.
+- **Impact**: the Owner approves an action that has no lasting effect; the requester believes the state changed.
+- **Fix**: before executing, look up the Argo Application that tracks the object; if it self-heals, refuse with "change it in git" (or say so on the approval), and read the object back a few seconds after executing.
+- **Ratchet**: an action test with a self-healing Application fixture: the action refuses (or marks the request) instead of answering ok.
+- 验收: `scale_deployment` on `bifrost-platform-stg/platform-workers` is refused or says it will be undone by Argo
+- 审批 无（平台动作，走复核）· 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-350
+
+**P2 · agentrt · checks of a task with no pushed commit run their commands in an empty directory**
+
+- **状态**：未开始（2026-10-15 17:55 统筹方记；Gate A T08，F-none）
+- **Claim**: for an `effect_class: none` task the attempt pushes nothing, so the check spec the controller writes has no `commit`; agentd then makes an empty directory instead of a checkout and runs the subject's verify commands there.
+- **Measured**: MEASURED: 2026-10-15 21:42Z, STG M-3 task `t_01M50R5AESM3Q8G56DAES5VFB1`: verify `test -f api/go.mod` failed in both rounds (verify.json `"reason": "test ended 1"`), task blocked. Later probes used `true` to step around it.
+- **Evidence**: `bifrost-platform/api/internal/agentrt/store/accept.go` (`checkSpec.put` writes `commit` only when set); `api/internal/agentd/run.go` (`Run`: empty `repo` or `base` → empty directory).
+- **Impact**: any read-only task with a real verify command fails its check; the failure looks like the author's.
+- **Fix**: when the checked attempt pushed no commit, the check pins the task's `base_commit` (and repo), and the verification records that it ran on the base.
+- **Ratchet**: a store test that a check of an effect-none attempt carries the base commit; an agentd test that such a check runs in a checkout.
+- 验收: on STG, an effect-none task with verify `test -f api/go.mod` passes its deterministic check
+- 审批 无（运行时代码，走复核）· 代价 S · 风险 low · repos: bifrost-platform
+
 ### TD-349
 
 **P2 · observability · a persist the platform refuses leaves no trace: no event, no answer body, the attempt ends failed as if it had failed**
