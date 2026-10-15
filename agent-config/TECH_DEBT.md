@@ -16,7 +16,7 @@
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
-**未结 114 项**：P0 0 · P1 11 · P2 41 · P3 62；要你批的 41 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
+**未结 115 项**：P0 0 · P1 11 · P2 42 · P3 62；要你批的 41 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
 
 ## 主题（第 2、3 轮）
 
@@ -2137,6 +2137,20 @@
 - **Ratchet**: the test passes under `go test -count=20 -cpu 1,4 ./internal/delivery/` with the suite's other packages running beside it.
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-346
+
+**P2 · release · push-main.sh pushes a commit whose tests it never saw: twice on 2026-10-14 a red gate and a push sat in one command**
+
+- **状态**：未开始（2026-10-14 22:36 统筹方记；LESSONS 125、131）
+- **Claim**: `push-main.sh` checks the release window and runs code-health on a clean checkout, then pushes. It knows nothing of `go test`; the coordinator runs the tests itself, and twice the same day ran them in one command with the push (a pipe, then a `;`), so a red result pushed anyway.
+- **Measured**: MEASURED: 2026-10-14 22:36, platform main `0a220aa` pushed while `go test ./...` reported `FAIL internal/agentrt/agentrtapi` (TestControlsAndHosts, a load flake, fixed in `d178527`); the morning's code-health case is LESSONS 125.
+- **Evidence**: `bifrost-trade-infra/scripts/release/push-main.sh` (no test step); LESSONS-from-practice.md rows 125, 131.
+- **Impact**: main can carry a red suite until CI says so; the rule lives only in text.
+- **Fix**: `push-main.sh` takes `--tests <file>` (the output of the suite for exactly this commit, with its exit code) and refuses without a green one for HEAD; or it runs the repo's suite itself on the clean checkout it already makes (platform needs the database env).
+- **Ratchet**: a test of `push-main.sh` that a missing or red test result refuses the push.
+- 验收: `push-main.sh <checkout> HEAD` without a green result for HEAD exits non-zero and pushes nothing
+- 审批 无（发布脚本，随 infra）· 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ### TD-345
 

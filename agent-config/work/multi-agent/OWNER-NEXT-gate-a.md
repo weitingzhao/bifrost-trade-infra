@@ -1,0 +1,82 @@
+# 你接下来要做的（Gate A 在 STG 上跑起来之前），按顺序
+
+起草 2026-10-14 23:05（统筹线程）。取代 `OWNER-STEPS-gate-a-stg.md` 第 1、2 步里的命令（那里的令牌路径和安装脚本对不上，以本页为准）。
+
+**现在的状态**：STG 上的平台已经是新代码，运行时连上了自己的库（22:47）。规则、计划变更、进度投影、主机首次登记都在平台主线上。下面五步做完，我就能在 STG 上让 agentd 真的领活、跑 Gate A。
+
+每一步做完在线程里回一句（写在每步末尾）。命令都能原样运行；令牌、口令不进仓库、不进对话。
+
+---
+
+## 1. STG 运行时库补上第 5 个迁移（约 1 分钟）
+
+STG 的库是下午迁移的，只到第 4 个；第 5 个（`attempt_cancelled`，保全采纳要用）在新镜像里。
+
+```bash
+cd ~/Desktop/stocks/bifrost-trade-infra && git pull -q --ff-only && ( export KUBECONFIG="$HOME/.bifrost-owner/kube/admin.yaml"; kubectl create -f k8s/agentrt-migrate/stg/job.yaml )
+```
+
+做完回：「迁移跑了」。我用只读账号核对迁移表变成 5 行。
+
+## 2. agentd 的系统用户（只在还没建时做）
+
+先看有没有：
+
+```bash
+id bifrost-agentd
+```
+
+报「no such user」就按 `OWNER-STEPS-agentd-user.md` 第 1 步建（Gate A 第一批只用确定性执行者，codex / cursor 的登录可以以后再做）。
+
+## 3. agentd 的令牌（O15，约 2 分钟）
+
+生成令牌文件（属主 bifrost-agentd，权限 600；已有就不覆盖）：
+
+```bash
+sudo -u bifrost-agentd -H sh -c 'umask 077; mkdir -p "$HOME/.config/bifrost" && [ -s "$HOME/.config/bifrost/agentd.token" ] || openssl rand -hex 32 | tr -d "\n" > "$HOME/.config/bifrost/agentd.token"; ls -l "$HOME/.config/bifrost"'
+```
+
+把同一个令牌放进 STG 的 Secret（平台按名字 `agentd:mbp-dev` 把它绑定到主机 `mbp-dev`；这一项的配置 infra `052a5ee` 已上 STG）：
+
+```bash
+( export KUBECONFIG="$HOME/.bifrost-owner/kube/admin.yaml"; f=$(mktemp) && sudo -u bifrost-agentd -H sh -c 'cat "$HOME/.config/bifrost/agentd.token"' | python3 -c 'import json,sys; print(json.dumps({"stringData":{"PLATFORM_AGENTD_MBP_DEV_TOKEN":sys.stdin.read().strip()}}))' > "$f" && kubectl -n bifrost-platform-stg patch secret bifrost-platform-role-tokens --type merge --patch-file "$f"; rm -f "$f" )
+```
+
+做完回：「agentd 令牌好了」。我重启 STG 的 platform-api 让它读到新键。
+
+## 4. Gitea 账号与分支保护（O16，约 5 分钟）
+
+agentd 只推 `agent/<任务号>/a<n>` 分支，不能推 `main`、不能打标签。
+
+1. 在 Gitea（`http://192.168.10.73:30300`，你的管理员账号）建用户 `agentd-mbp-dev`，加入 `bifrost` 组织，只给 `bifrost-platform` 仓库写权限。
+2. `bifrost-platform` 的「分支保护」：`main` 禁止 `agentd-mbp-dev` 推送；「标签保护」：所有标签禁止它创建。
+3. 用这个账号生成访问令牌（只勾仓库读写），存进 agentd 用户下（运行后粘贴令牌，回车，Ctrl-D）：
+
+```bash
+sudo -u bifrost-agentd -H sh -c 'umask 077; mkdir -p "$HOME/.config/bifrost"; cat > "$HOME/.config/bifrost/agentd-git.token"; ls -l "$HOME/.config/bifrost"'
+```
+
+做完回：「Gitea 好了」。
+
+## 5. 签名密钥和指纹（O18，约 1 分钟）
+
+规则和发版策略共用这把密钥（发版策略从 10-10 起也在等它）。没有就生成（已有会跳过）：
+
+```bash
+test -f ~/.ssh/bifrost_release_owner || ssh-keygen -t ed25519 -C bifrost-release-owner -f ~/.ssh/bifrost_release_owner
+```
+
+```bash
+ssh-keygen -lf ~/.ssh/bifrost_release_owner.pub
+```
+
+做完回：「指纹 SHA256:……」（把输出里 `SHA256:` 开头那段贴进线程；它是公开的）。
+
+---
+
+## 这五步之后
+
+1. 我：把指纹编进平台（信任锚变更），发 STG（约 30 分钟）。
+2. 你：签 8 份规则，一条命令（O19，`OWNER-STEPS-rules-o18-o19.md` 第 2 步）。没有签过的并发规则，平台一件活都不派——这是我们定的最严默认，所以这一步必须在 agentd 跑活之前。
+3. 我：用一次性的 agentd 进程（不常驻）在 STG 上跑通一件确定性任务（领活、跑、交、验收），然后给你装常驻服务的确切命令（O17）。
+4. 我：在 STG 上跑 Gate A，结果写回 WORK.md。
