@@ -1,0 +1,48 @@
+# W-31 2.2: the agent runtime on STG (design v5 §5.2; Gate A runs here). The
+# platform connects as the environment's runtime role to its own database;
+# the password is the Secret the Owner made in 2.1 (OWNER-STEPS-agentrt-21,
+# step 1). Without the Secret the variable is empty, the connection fails
+# and the runtime's routes answer 503; the rest of the platform is untouched.
+# platform-workers runs the controller loops, platform-api the routes.
+# Owner 2026-10-14 20:10: 「STG 接线 A」.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform-api
+          env:
+            - name: AGENTRT_ENV
+              value: stg
+            - name: AGENTRT_DSN
+              value: host=bifrost-postgres-rw.data.svc.cluster.local port=5432 dbname=bifrost_platform_stg user=platform_agentrt_stg sslmode=require
+            - name: AGENTRT_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentrt-db-runtime
+                  key: password
+                  optional: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-workers
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform-api
+          env:
+            - name: AGENTRT_ENV
+              value: stg
+            - name: AGENTRT_DSN
+              value: host=bifrost-postgres-rw.data.svc.cluster.local port=5432 dbname=bifrost_platform_stg user=platform_agentrt_stg sslmode=require
+            - name: AGENTRT_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentrt-db-runtime
+                  key: password
+                  optional: true
