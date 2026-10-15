@@ -13,6 +13,19 @@
         "PLATFORM_TOKEN_ENV_KEY": "PLATFORM_OPERATOR_TOKEN"
       }
     },
+    "bifrost-platform-stg": {
+      "command": "npx",
+      "args": [
+        "tsx",
+        "${BIFROST_WORKSPACE:-.}/bifrost-platform/mcp/platform/src/index.ts"
+      ],
+      "env": {
+        "PLATFORM_API_URL": "http://192.168.10.73:30878",
+        "PLATFORM_STG_OPERATOR_TOKEN": "${PLATFORM_STG_OPERATOR_TOKEN:-}",
+        "MCP_WRITES": "on",
+        "PLATFORM_TOKEN_ENV_KEY": "PLATFORM_STG_OPERATOR_TOKEN"
+      }
+    },
     "bifrost-kubernetes": {
       "command": "npx",
       "args": [
