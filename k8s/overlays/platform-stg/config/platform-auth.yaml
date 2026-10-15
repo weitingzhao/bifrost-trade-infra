@@ -29,3 +29,9 @@ tokens:
   - name: agentd:mbp-dev
     role: agentd
     token_env: PLATFORM_AGENTD_MBP_DEV_TOKEN
+  # W-31 2.2 acceptance (Owner 10-15 「验收参与 一」): a second agentd identity for
+  # the tests that need two (T02, T08, T34), bound to host gate-b; the token sits
+  # with the coordinator, STG only. Removed with its Secret key after the run.
+  - name: agentd:gate-b
+    role: agentd
+    token_env: PLATFORM_AGENTD_GATE_B_TOKEN
