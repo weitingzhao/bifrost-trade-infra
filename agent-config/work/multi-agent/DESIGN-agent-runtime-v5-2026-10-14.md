@@ -687,7 +687,7 @@ T30、T32 在 2.1 用存储包的通用批量写入夹具（一组行经写事�
 
 **规则**：签名正文是 `body_text`，签名覆盖 `rule_id`、`rule_version`、`direction`、`effective_at`、`expires_at`（写在正文头里，验签后解析出来和列值比，不等就拒）。用运行时自己的签名 namespace `bifrost-agentrt-rule`；`releasepolicy/sshsig.go:18-19` 的两个 namespace 不复用，发版策略的签名拿到这里无效；验签函数（`:30`）和信任锚复用。带签名的（`initial`、`loosen`，以及任何带签名的输入）平台验过签后**从 `body_text` 解析出规则来执行**；不带签名的收紧照样允许：`body_text` 经同一个闭合解析器解析、和上一版做结构比较证明是收紧后立即生效，也从解析结果执行（复核 142 B7）。两种情况下 `body_json` 都是派生的，必须等于解析结果的规范 JSON，不等就拒存。「收紧」不信调用方填的 `direction`：和上一版做结构比较（授权项只减不增、上限只降不升、有效期只缩不延），比较不过就按放宽处理、要签名。过期、正文有不认识的字段、信任锚为空，一律失败即关（回到更严的默认值）。v4 的三条规则测试照留（T35）。
 
-MCP 工具（加在现有 `mcp/platform`）：`whoami`、`get_plan`、`get_mission`、`list_tasks`、`get_task`、`propose_tasks`、`propose_plan_change`、`put_artifact`、`get_artifact`、`post_decision_card`（即 `ask_owner` 加 `owner_duty`、`task_id`）、`request_stop`。
+MCP 工具（加在现有 `mcp/platform`）：`whoami`、`get_plan`、`get_mission`、`list_tasks`、`get_task`、`propose_mission`（10-15 补：原清单漏了，见 LESSONS 139）、`propose_tasks`、`propose_plan_change`、`put_artifact`、`get_artifact`、`post_decision_card`（即 `ask_owner` 加 `owner_duty`、`task_id`）、`request_stop`。
 
 控制器（`platform-workers`）：
 
