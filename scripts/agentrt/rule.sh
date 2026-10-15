@@ -111,6 +111,16 @@ case "${cmd}" in
   sign)
     [[ -f "${arg}" ]] || die "no file ${arg}" 2
     [[ -f "${KEY}" ]] || die "no signing key at ${KEY} (ssh-keygen -t ed25519 -C bifrost-release-owner -f ${KEY})" 2
+    # The Owner's signature is his only if the key asks him (TD-355): refuse a
+    # key that opens without a passphrase, or one ssh-agent holds, before
+    # anything is read or sent.
+    if ssh-keygen -y -P '' -f "${KEY}" >/dev/null 2>&1; then
+      die "${KEY} opens without a passphrase: add one first (ssh-keygen -p -f ${KEY}); a signature must ask you" 2
+    fi
+    fp="$(ssh-keygen -l -f "${KEY}.pub" 2>/dev/null | awk '{print $2}')"
+    if [[ -n "${fp}" ]] && ssh-add -l 2>/dev/null | awk '{print $2}' | grep -qxF "${fp}"; then
+      die "ssh-agent holds ${KEY} (${fp}): remove it (ssh-add -d ${KEY}.pub) so a signature asks you" 2
+    fi
     id="$(rule_id_of "${arg}")"
     echo "== the platform reads ${arg} as:"
     call POST "/rules/${id}/check" "$(body "${arg}")"

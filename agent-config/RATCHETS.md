@@ -356,3 +356,11 @@
 - **放哪**：Existing frontend GEX/IV/queue regressions, Research coverage/repair/delivery/API tests and plugin pilot/as_of/budget/transaction/receipt tests; sanitized consolidated receipt `docs/audits/DATA_INTEGRITY_MAIN_INTEGRATION_2026-10-11.md`.
 - **强度**：Latest-main integrated Research2339 passed/17 skipped + lint; Plugin1315 passed/9 skipped + lint; Frontend551 files/4141 passed/1 skipped + lint/build/CSS; Infra33 cases + current route checker PASS. Actual DEV no-flip/walls/history, missing vs insufficient history, legal zero, SPY long cone and caution with 30 retained candidates PASS. Remote source main heads verified; source status 已合入／未发布.
 - **覆盖与限制**：Source merge is not a release or production acceptance. No deployment input/image pin change, sender enablement, real alert test, DDL, restore or expanded backfill. Existing broad Symbol agent_reader connection limit and Live0/38 marks remain runtime limitations. Default STOPPED and unapplied Owner route still require an approved production/receipt plan. Optional skipped integration checks confer no production guarantee.
+
+### The Owner's signing key asks before it signs (TD-355)
+
+- **做什么**：`scripts/agentrt/rule.sh sign` refuses, before reading or sending anything, a signing key that opens with an empty passphrase (`ssh-keygen -y -P ''` succeeds) or whose fingerprint `ssh-add -l` lists; it names the fix (`ssh-keygen -p`, `ssh-add -d`).
+- **放哪**：bifrost-trade-infra `scripts/agentrt/rule.sh` (sign).
+- **强度**：blocking for rule signatures. The release-policy signer is not covered yet.
+- **覆盖**：TD-355. Checked 2026-10-15 with throwaway keys: unencrypted → exit 2; encrypted but held by an agent → exit 2; encrypted and not held → goes on to the platform's check.
+

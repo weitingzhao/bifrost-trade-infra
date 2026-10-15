@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-355** — 签规则的钥匙不用 Owner 确认就能签（没口令、常驻 ssh-agent）。Owner 10-15 19:05 把它移出 agent、19:10 加了口令（指纹不变，平台不用改）；`rule.sh sign` 现在拒绝没口令或常驻 agent 的钥匙。验收：PASS 2026-10-15 19:15。防线：RATCHETS「The Owner's signing key asks before it signs」。后续：发版策略的签名工具还没有同一道检查，长期换成每次要按一下的钥匙（会改信任指纹），都等补强阶段再定，没另开编号。
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
@@ -2137,6 +2138,21 @@
 - **Ratchet**: the test passes under `go test -count=20 -cpu 1,4 ./internal/delivery/` with the suite's other packages running beside it.
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-355
+
+**P1 · security · the Owner's rule-signing key signs without the Owner: it had no passphrase and sat in ssh-agent, so any process running as his user could sign a loosening**
+
+- **状态**：待你签收（2026-10-15 19:05 统筹方记；签评审规则 v2 时发现）。19:05 Owner 把钥匙移出 ssh-agent，19:10 加了口令；`rule.sh` 的防线已加
+- 验收结果：PASS 2026-10-15 19:15（infra 本次提交）：空口令打不开私钥（`incorrect passphrase supplied to decrypt private key`）；`ssh-add -l` 不列 `SHA256:HQBmsFUm…`；`rule.sh sign` 对没口令的临时钥匙、对常驻 agent 的临时钥匙都在签名前退出 2
+- **Claim**: design v5 and the rule set say a loosening needs the Owner's signature. `rule.sh sign` runs `ssh-keygen -Y sign -f ~/.ssh/bifrost_release_owner`; the key (fingerprint `SHA256:HQBmsFUm1mh0JHKwiG/AOJesGSRNNZF+waMq4BI1M7k`, the platform's trust anchor) was loaded in ssh-agent (`~/.ssh/config` `Host *`: `UseKeychain yes`, `AddKeysToAgent yes`) and has no passphrase, so a signature needs no confirmation: a Claude, Codex or Cursor session on the dev machine (all run as the Owner's user) can sign a rule.
+- **Measured**: MEASURED: 2026-10-15, two signatures on STG without any prompt (`standing-envelope:dev` v2 at 16:27, event 234; `job:reviewer` v2 at 18:40, event 801, run by the coordinator in the Owner's Terminal panel at his request); `ssh-add -l` listed the fingerprint until the Owner removed it at 19:05; the Owner reports the key has no passphrase. agentd's executors run as `bifrost-agentd` and cannot reach the Owner's agent or home.
+- **Evidence**: `bifrost-trade-infra/scripts/agentrt/rule.sh` (sign); `bifrost-platform/api/internal/releasepolicy` (`OwnerKeyFingerprint`).
+- **Impact**: the boundary "loosening needs the Owner" holds only by convention for anything running as his user on that machine; the same key signs release policies.
+- **Fix**: a passphrase on the key (`ssh-keygen -p`, same fingerprint, no platform change), not stored in the keychain and never loaded into the agent; later a key that needs a touch per signature (security key or Secure Enclave), which changes the trust anchor.
+- **Ratchet**: `rule.sh sign` (and the release-policy signer) refuse a key that opens without a passphrase (`ssh-keygen -y -P '' -f <key>` succeeds) or that ssh-agent holds (its fingerprint in `ssh-add -l`), with the reason.
+- 验收: `ssh-keygen -y -P '' -f ~/.ssh/bifrost_release_owner` fails; `ssh-add -l` does not list `SHA256:HQBmsFUm…`; `rule.sh sign` on an unencrypted test key exits non-zero before signing
+- 审批 口令和钥匙由 Owner 自己动；`rule.sh` 的防线随 infra · 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ### TD-354
 
