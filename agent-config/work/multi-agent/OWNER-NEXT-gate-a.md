@@ -28,7 +28,7 @@ id bifrost-agentd
 
 报「no such user」就按 `OWNER-STEPS-agentd-user.md` 第 1 步建，**连同 codex 的三行**（建 `.local/bin`、链接 codex、`codex login --device-auth`）；cursor 的可以以后再做。
 
-（10-15 10:40 更正：原来写「Gate A 第一批只用确定性执行者，codex 登录以后再做」是错的。规则草稿里实现类任务唯一在岗的执行者是 codex（`job-implementer.yaml`），确定性执行者只做验收；不登录 codex，agentd 一件实现活都领不到。）
+（10-15 10:03 更正：原来写「Gate A 第一批只用确定性执行者，codex 登录以后再做」是错的。规则草稿里实现类任务唯一在岗的执行者是 codex（`job-implementer.yaml`），确定性执行者只做验收；不登录 codex，agentd 一件实现活都领不到。）
 
 ## 3. agentd 的令牌（O15，约 2 分钟）
 
