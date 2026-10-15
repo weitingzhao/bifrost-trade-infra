@@ -8,6 +8,8 @@
 
 ---
 
+（10-15 10:51 更正：以 `bifrost-agentd` 运行的命令要先 `cd "$HOME"`。原来的写法在你的终端当前目录（`~/Desktop/stocks`）里起进程，新用户进不去这个目录，codex 报 `getcwd: Permission denied` 和 `Error loading configuration: Permission denied`。下面几条已经改好。）
+
 ## 1. 建用户（约 1 分钟）
 
 会先问你的管理员密码，再问新用户的密码（自己定一个，记进密码管理器；agentd 运行时用不到它）。
@@ -41,7 +43,7 @@ sudo -u bifrost-agentd -H ln -sf /Applications/ChatGPT.app/Contents/Resources/co
 登录：它会打印一个网址和一个代码，在浏览器里打开网址、输入代码、用你的 ChatGPT 账号确认。
 
 ```bash
-sudo -u bifrost-agentd -H ~bifrost-agentd/.local/bin/codex login --device-auth
+sudo -u bifrost-agentd -H sh -c 'cd "$HOME" && "$HOME/.local/bin/codex" login --device-auth'
 ```
 
 ## 3. 给它 cursor-agent 并登录（约 3 分钟）
@@ -49,19 +51,19 @@ sudo -u bifrost-agentd -H ~bifrost-agentd/.local/bin/codex login --device-auth
 cursor-agent 现在装在你自己的家目录里，新用户读不到，所以给它单独装一份。**这一步会从 cursor.com 下载安装脚本并运行**，是你的决定；不想装就跳过，agentd 只提供 codex 和确定性检查。
 
 ```bash
-sudo -u bifrost-agentd -H bash -c 'curl https://cursor.com/install -fsS | bash'
+sudo -u bifrost-agentd -H bash -c 'cd "$HOME" && curl https://cursor.com/install -fsS | bash'
 ```
 
 登录：会打印一个网址，在浏览器里打开并确认。
 
 ```bash
-sudo -u bifrost-agentd -H env NO_OPEN_BROWSER=1 ~bifrost-agentd/.local/bin/cursor-agent login
+sudo -u bifrost-agentd -H sh -c 'cd "$HOME" && NO_OPEN_BROWSER=1 "$HOME/.local/bin/cursor-agent" login'
 ```
 
 ## 核对（把结果写进文件给我读）
 
 ```bash
-{ sudo -u bifrost-agentd -H ~bifrost-agentd/.local/bin/codex login status; sudo -u bifrost-agentd -H ~bifrost-agentd/.local/bin/codex mcp list --json; sudo -u bifrost-agentd -H ~bifrost-agentd/.local/bin/cursor-agent status; sudo -u bifrost-agentd -H ls -la ~bifrost-agentd/.cursor; id bifrost-agentd; } > /tmp/agentd-user-check.txt 2>&1; echo exit=$? >> /tmp/agentd-user-check.txt
+cd /tmp && { sudo -u bifrost-agentd -H sh -c 'cd "$HOME" && .local/bin/codex login status; .local/bin/codex mcp list --json; .local/bin/cursor-agent status; ls -la .cursor'; id bifrost-agentd; } > /tmp/agentd-user-check.txt 2>&1; echo exit=$? >> /tmp/agentd-user-check.txt; cd - > /dev/null
 ```
 
 我看的是：codex 已登录；`mcp list` 是 `[]`；cursor 已登录；`~/.cursor` 里没有 `mcp.json`；用户不在 admin 组。cursor 的登录凭据可能存在钥匙串里，而这个用户从没在图形界面登录过：如果 `cursor-agent status` 说没登录，告诉我，我改用 API 密钥文件的方式（那时再给你步骤）。
