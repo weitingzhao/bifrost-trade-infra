@@ -16,7 +16,7 @@
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
-**未结 112 项**：P0 0 · P1 11 · P2 41 · P3 60；要你批的 41 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
+**未结 113 项**：P0 0 · P1 11 · P2 41 · P3 61；要你批的 41 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
 
 ## 主题（第 2、3 轮）
 
@@ -2137,3 +2137,18 @@
 - **Ratchet**: the test passes under `go test -count=20 -cpu 1,4 ./internal/delivery/` with the suite's other packages running beside it.
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-344
+
+**P3 · testing · the MCP packages are never type-checked: CI runs their tests through tsx, which strips types, and platform main has a type error**
+
+- **状态**：未开始（2026-10-14 19:06 统筹方记；写 agent runtime 的 MCP 工具时 `tsc --noEmit` 报出；第 2 轮期间不还其余技术债，排在架构之后）
+- **Claim**: `mcp/platform` has a `type-check` script (`tsc --noEmit`) that no pipeline runs; `npm test` runs `node --import tsx`, which does not check types. A type error can sit on main unseen.
+- **Measured**: MEASURED: 2026-10-14, `npx tsc --noEmit -p .` in `mcp/platform` on platform main `a8027d4`: 2 errors, `src/questionTools.ts(155,27)` TS2339 and `src/writeGate.test.ts(85,20)` TS2367. The first is fixed on branch `w31/agentrt-22-routes2` (`342a448`). The second is a redundant assertion in the approvals resolve-route test; the agent guard refuses a shell command whose text names that route, so the coordinator left it for a change made outside the shell.
+- **Evidence**: `bifrost-platform/mcp/platform/package.json` (`type-check`); `bifrost-platform/mcp/platform/src/writeGate.test.ts:85`; the CI pipeline runs `test-api` and `test-console` only.
+- **Impact**: wrong types in the MCP tools (what agents call) are caught by nobody; tests still pass because tsx strips types.
+- **Fix**: delete the redundant `plan.kind === 'direct'` assertion at `writeGate.test.ts:85` (the line above already asserts `refused`), then add `npm run type-check` for `mcp/platform` (and the other MCP packages) to the platform CI.
+- **Ratchet**: `tsc --noEmit` for every MCP package in CI, failing the run.
+- 验收: `cd bifrost-platform/mcp/platform && npx tsc --noEmit -p .` exits 0, and the CI pipeline has the step
+- 审批 无（测试与 CI 步骤，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
+
