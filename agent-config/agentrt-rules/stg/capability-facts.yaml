@@ -1,0 +1,13 @@
+rule_id: capability-facts
+rule_version: 1
+direction: initial
+effective_at: 2026-10-15T00:00:00Z
+expires_at: 2027-01-15T00:00:00Z
+facts:
+  # WORK.md W-66, Owner 2026-10-12 13:24
+  - {executor: exec:cursor, kind: must_not, subject: fix_review_findings}
+  # WORK.md W-31, Owner 2026-10-13 23:16: core is written by Claude, reviewed by Codex read-only
+  - {executor: exec:claude, kind: only, subject: author_core, scope: {core: true}}
+  - {executor: exec:codex, kind: only, subject: review_core, scope: {core: true, sandbox: read-only}}
+  # ADR section 12.2 item 3, section 12.5
+  - {executor: exec:deterministic, kind: must_not, subject: review_own_provider}

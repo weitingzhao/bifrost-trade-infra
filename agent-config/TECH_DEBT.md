@@ -16,7 +16,7 @@
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
-**未结 113 项**：P0 0 · P1 11 · P2 41 · P3 61；要你批的 41 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
+**未结 114 项**：P0 0 · P1 11 · P2 41 · P3 62；要你批的 41 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
 
 ## 主题（第 2、3 轮）
 
@@ -2137,6 +2137,20 @@
 - **Ratchet**: the test passes under `go test -count=20 -cpu 1,4 ./internal/delivery/` with the suite's other packages running beside it.
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-345
+
+**P3 · testing · agentd's TestRunTakesCheckpoints depends on a checkpoint landing inside a one-second window, and failed once under the whole suite's load**
+
+- **状态**：未开始（2026-10-14 20:58 统筹方记；第 2 轮期间不还其余技术债，排在架构之后）
+- **Claim**: the test's script keeps a 2 MiB `big.bin` for about one second and expects a checkpoint (every 300 ms) to see it and record `too_large`. Under load a sample can miss that window, or an upload can still be in flight when the run ends.
+- **Measured**: MEASURED: 2026-10-14 20:58, `go test ./... -count=1` on platform branch `w31/agentrt-22-progress-main` (`c68e11f`, nothing in agentd changed): `run_test.go:320: 3 checkpoints, 2 patches with x.go, 0 too large`, the log shows a checkpoint PUT `context canceled`. The same test alone `-count=8` passed 8 of 8; the whole suite again passed.
+- **Evidence**: `bifrost-platform/api/internal/agentd/run_test.go:304` (the script and `CheckpointEvery`), `:319` (the assertion).
+- **Impact**: a red CI run that is not a bug; someone retries it and stops trusting the test.
+- **Fix**: drive the test by state, not time: keep `big.bin` until the test has seen a `too_large` checkpoint event (a file the test removes, or a hook), then let the script finish.
+- **Ratchet**: run `TestRunTakesCheckpoints` with `-count=20 -cpu=1,4` once when it is fixed and keep the state-driven shape.
+- 验收: `cd bifrost-platform/api && go test ./internal/agentd/ -run TestRunTakesCheckpoints -count=20 -cpu=1,4` passes, and the script waits on the test, not on `sleep`
+- 审批 无（测试，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-344
 
