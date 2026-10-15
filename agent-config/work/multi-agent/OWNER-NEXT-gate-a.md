@@ -26,7 +26,9 @@ cd ~/Desktop/stocks/bifrost-trade-infra && git pull -q --ff-only && ( export KUB
 id bifrost-agentd
 ```
 
-报「no such user」就按 `OWNER-STEPS-agentd-user.md` 第 1 步建（Gate A 第一批只用确定性执行者，codex / cursor 的登录可以以后再做）。
+报「no such user」就按 `OWNER-STEPS-agentd-user.md` 第 1 步建，**连同 codex 的三行**（建 `.local/bin`、链接 codex、`codex login --device-auth`）；cursor 的可以以后再做。
+
+（10-15 10:40 更正：原来写「Gate A 第一批只用确定性执行者，codex 登录以后再做」是错的。规则草稿里实现类任务唯一在岗的执行者是 codex（`job-implementer.yaml`），确定性执行者只做验收；不登录 codex，agentd 一件实现活都领不到。）
 
 ## 3. agentd 的令牌（O15，约 2 分钟）
 
@@ -78,5 +80,5 @@ ssh-keygen -lf ~/.ssh/bifrost_release_owner.pub
 
 1. 我：把指纹编进平台（信任锚变更），发 STG（约 30 分钟）。
 2. 你：签 8 份规则，一条命令（O19，`OWNER-STEPS-rules-o18-o19.md` 第 2 步）。没有签过的并发规则，平台一件活都不派——这是我们定的最严默认，所以这一步必须在 agentd 跑活之前。
-3. 我：用一次性的 agentd 进程（不常驻）在 STG 上跑通一件确定性任务（领活、跑、交、验收），然后给你装常驻服务的确切命令（O17）。
-4. 我：在 STG 上跑 Gate A，结果写回 WORK.md。
+3. 你：把 agentd 装成系统服务（O17，一条 sudo 命令，我备好原样可运行的）。（10-15 更正：原来写「我用一次性的 agentd 进程跑通」做不到——agentd 以 `bifrost-agentd` 用户运行、令牌只有它能读，起进程要 sudo。）
+4. 我：在 STG 上提一件小 mission，看 agentd 领活、跑、交、验收走通一遍，再跑 Gate A，结果写回 WORK.md。
