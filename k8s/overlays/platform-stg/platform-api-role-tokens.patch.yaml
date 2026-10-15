@@ -29,3 +29,9 @@ spec:
                   name: bifrost-platform-role-tokens
                   key: PLATFORM_ADMIN_TOKEN
                   optional: true
+            - name: PLATFORM_AGENTD_MBP_DEV_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bifrost-platform-role-tokens
+                  key: PLATFORM_AGENTD_MBP_DEV_TOKEN
+                  optional: true

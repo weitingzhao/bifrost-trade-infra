@@ -24,3 +24,8 @@ tokens:
   - name: trade-satellite
     role: operator
     token_env: PLATFORM_SATELLITE_AUDIT_TOKEN
+  # W-31 2.2 Gate A (O15): the agentd on the dev Mac; the platform binds the
+  # token to host mbp-dev by this name. Empty until the Owner adds the key.
+  - name: agentd:mbp-dev
+    role: agentd
+    token_env: PLATFORM_AGENTD_MBP_DEV_TOKEN
