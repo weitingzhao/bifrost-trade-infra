@@ -8,5 +8,5 @@ max_action: branch
 budget:
   max_attempts: 40
   max_wall_hours: 48
-executors: [exec:codex, exec:deterministic]
+executors: [exec:codex, exec:cursor, exec:deterministic]
 hosts: [mbp-dev]

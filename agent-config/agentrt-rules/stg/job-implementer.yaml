@@ -12,4 +12,4 @@ text: |
 candidates:
   - {executor: exec:codex, provider: openai, model_pattern: "*", status: active}
   - {executor: exec:claude, provider: anthropic, model_pattern: "*", status: qualifying}
-  - {executor: exec:cursor, provider: cursor-mix, model_pattern: "*", status: qualifying}
+  - {executor: exec:cursor, provider: cursor-mix, model_pattern: "*", status: probation}

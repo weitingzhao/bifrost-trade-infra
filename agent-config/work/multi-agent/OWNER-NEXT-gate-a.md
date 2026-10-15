@@ -26,7 +26,9 @@ cd ~/Desktop/stocks/bifrost-trade-infra && git pull -q --ff-only && ( export KUB
 id bifrost-agentd
 ```
 
-报「no such user」就按 `OWNER-STEPS-agentd-user.md` 第 1 步建，**连同 codex 的三行**（建 `.local/bin`、链接 codex、`codex login --device-auth`）；cursor 的可以以后再做。
+报「no such user」就按 `OWNER-STEPS-agentd-user.md` 第 1 步建，**连同 codex 的三行**（建 `.local/bin`、链接 codex、`codex login --device-auth`），**再做它的第 3 节（cursor-agent 安装和登录）**。
+
+（10-15 10:36 补：Gate A 的 6 道基准题按设计是「Cursor 写、Codex 复核」；评审不能由作者同一家做（T08），codex 写的活只有 codex 能评审，走不完。所以规则草稿改了两处（你签之前，见 `agentrt-rules/stg/`）：`job-implementer.yaml` 里 Cursor 从「资格考核中」改成「试用」（能领活、受观察），常备授权的执行者加上 Cursor。第 3 节要从 cursor.com 下载安装脚本，是你的决定：**我的建议是装**；不装的话基准题这一项过不了，Gate A 其余各项不受影响。）
 
 （10-15 10:03 更正：原来写「Gate A 第一批只用确定性执行者，codex 登录以后再做」是错的。规则草稿里实现类任务唯一在岗的执行者是 codex（`job-implementer.yaml`），确定性执行者只做验收；不登录 codex，agentd 一件实现活都领不到。）
 
@@ -82,7 +84,7 @@ ssh-keygen -lf ~/.ssh/bifrost_release_owner.pub
 agentd 以 `bifrost-agentd` 用户运行，从镜像 `bifrost/…` 克隆、往 `bifrost-agents/…` 推，连 STG 平台。二进制是平台主线 `296468b` 编的（`~/agent-work/build/agentd-296468b/SHA256SUMS` 记了指纹）。规则还没签时它只会空转（平台不派活），不碍事。
 
 ```bash
-sudo install -d -m 755 /usr/local/libexec/bifrost && sudo install -m 755 ~/agent-work/build/agentd-296468b/agentd /usr/local/libexec/bifrost/agentd && sudo AGENTD_GIT_PUSH_BASE=http://192.168.10.73:30300/bifrost-agents bash ~/agent-work/build/agentd-296468b/install-agentd.sh bifrost-agentd /usr/local/libexec/bifrost/agentd http://192.168.10.73:30878/api/v1/agentrt mbp-dev exec:codex=openai,exec:deterministic=local http://192.168.10.73:30300/bifrost
+sudo install -d -m 755 /usr/local/libexec/bifrost && sudo install -m 755 ~/agent-work/build/agentd-296468b/agentd /usr/local/libexec/bifrost/agentd && sudo AGENTD_GIT_PUSH_BASE=http://192.168.10.73:30300/bifrost-agents bash ~/agent-work/build/agentd-296468b/install-agentd.sh bifrost-agentd /usr/local/libexec/bifrost/agentd http://192.168.10.73:30878/api/v1/agentrt mbp-dev exec:codex=openai,exec:cursor=cursor-mix,exec:deterministic=local http://192.168.10.73:30300/bifrost
 ```
 
 最后一行打印 `agentd installed: …` 就是装好了。做完回：「agentd 装好了」。我从平台这边看它是否在轮询（主机 `mbp-dev` 出现在进展的主机列表里）。
