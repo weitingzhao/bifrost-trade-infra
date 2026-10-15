@@ -2,7 +2,7 @@
 
 起草 2026-10-14 23:05（统筹线程）。取代 `OWNER-STEPS-gate-a-stg.md` 第 1、2 步里的命令（那里的令牌路径和安装脚本对不上，以本页为准）。
 
-**现在的状态**：STG 上的平台已经是新代码，运行时连上了自己的库（22:47）。规则、计划变更、进度投影、主机首次登记都在平台主线上。下面五步做完，我就能在 STG 上让 agentd 真的领活、跑 Gate A。
+**现在的状态**：STG 上的平台已经是新代码，运行时连上了自己的库（22:47）。规则、计划变更、进度投影、主机首次登记都在平台主线上。下面几步做完（第 6 步 10-15 加的：装 agentd），我就能在 STG 上让 agentd 真的领活、跑 Gate A。
 
 每一步做完在线程里回一句（写在每步末尾）。命令都能原样运行；令牌、口令不进仓库、不进对话。
 
@@ -77,11 +77,21 @@ ssh-keygen -lf ~/.ssh/bifrost_release_owner.pub
 
 做完回：「指纹 SHA256:……」（把输出里 `SHA256:` 开头那段贴进线程；它是公开的）。
 
+## 6. 把 agentd 装成系统服务（O17，约 1 分钟；第 2–4 步做完就能做，按「Gitea A」写）
+
+agentd 以 `bifrost-agentd` 用户运行，从镜像 `bifrost/…` 克隆、往 `bifrost-agents/…` 推，连 STG 平台。二进制是平台主线 `296468b` 编的（`~/agent-work/build/agentd-296468b/SHA256SUMS` 记了指纹）。规则还没签时它只会空转（平台不派活），不碍事。
+
+```bash
+sudo install -d -m 755 /usr/local/libexec/bifrost && sudo install -m 755 ~/agent-work/build/agentd-296468b/agentd /usr/local/libexec/bifrost/agentd && sudo AGENTD_GIT_PUSH_BASE=http://192.168.10.73:30300/bifrost-agents bash ~/agent-work/build/agentd-296468b/install-agentd.sh bifrost-agentd /usr/local/libexec/bifrost/agentd http://192.168.10.73:30878/api/v1/agentrt mbp-dev exec:codex=openai,exec:deterministic=local http://192.168.10.73:30300/bifrost
+```
+
+最后一行打印 `agentd installed: …` 就是装好了。做完回：「agentd 装好了」。我从平台这边看它是否在轮询（主机 `mbp-dev` 出现在进展的主机列表里）。
+
 ---
 
 ## 这五步之后
 
 1. 我：把指纹编进平台（信任锚变更），发 STG（约 30 分钟）。
 2. 你：签 8 份规则，一条命令（O19，`OWNER-STEPS-rules-o18-o19.md` 第 2 步）。没有签过的并发规则，平台一件活都不派——这是我们定的最严默认，所以这一步必须在 agentd 跑活之前。
-3. 你：把 agentd 装成系统服务（O17，一条 sudo 命令，我备好原样可运行的）。（10-15 更正：原来写「我用一次性的 agentd 进程跑通」做不到——agentd 以 `bifrost-agentd` 用户运行、令牌只有它能读，起进程要 sudo。）
+3. （已并入上面第 6 步：把 agentd 装成系统服务。10-15 更正：原来写「我用一次性的 agentd 进程跑通」做不到——agentd 以 `bifrost-agentd` 用户运行、令牌只有它能读，起进程要 sudo。）
 4. 我：在 STG 上提一件小 mission，看 agentd 领活、跑、交、验收走通一遍，再跑 Gate A，结果写回 WORK.md。
