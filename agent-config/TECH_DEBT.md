@@ -16,7 +16,7 @@
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
-**未结 117 项**：P0 0 · P1 11 · P2 43 · P3 63；要你批的 42 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
+**未结 118 项**：P0 0 · P1 11 · P2 44 · P3 63；要你批的 42 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
 
 ## 主题（第 2、3 轮）
 
@@ -2137,6 +2137,20 @@
 - **Ratchet**: the test passes under `go test -count=20 -cpu 1,4 ./internal/delivery/` with the suite's other packages running beside it.
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-349
+
+**P2 · observability · a persist the platform refuses leaves no trace: no event, no answer body, the attempt ends failed as if it had failed**
+
+- **状态**：未开始（2026-10-15 14:59 统筹方记；STG 走查 M-1 的第 1 次尝试）
+- **Claim**: when `POST /api/v1/agentrt/attempts/{id}/persist` answers 409, the store writes nothing (the refusal is a returned error before any event), the API logs only status and size, and agentd ends the attempt; the attempt row shows failed with conclusion done. Why a done result was lost can be told only by rebuilding the answer from code and matching its byte count in the access log.
+- **Measured**: MEASURED: 2026-10-15, attempt `a_01M50FZ6W8ZA1HE2VRRC6PRK48` (task `t_01M50FZ523HZTGYJA0VB6BNE7N`, M-1, STG): platform-api access log `persist 409 224B` at 19:18:32Z, no agentrt event between `attempt_computed` and `attempt_ended`; the walkthrough session rebuilt the body (`... a1 is not on bifrost-agents/bifrost-platform`) to 224 bytes. Report: `~/agent-work/stg-walk/REPORT.md` (F2).
+- **Evidence**: `bifrost-platform/api/internal/agentrt/store/attempt.go` `Persist` / `checkHead` (refusal returned before `Append`); `agentrtapi/api.go` `fail` (4xx not logged); agentd's handling of a refused persist in `api/internal/agentd/deliver.go`.
+- **Impact**: a lost result reads as a failed attempt; the cause (a platform check, here a Gitea read lagging a push) is invisible on Console and in the event stream, so the next one will cost the same hour.
+- **Fix**: record the refusal as an event on the attempt's stream (`attempt_result_refused` with the reason code and text) in its own transaction, and have agentd put the answer body in its ended report.
+- **Ratchet**: a store test that a refused persist leaves exactly one refusal event with the reason; an API test that the 409 body reaches the attempt's record.
+- 验收: on STG, a persist refused on purpose (a ref that is not the attempt's) shows its reason in `GET /agentrt/events` for the attempt
+- 审批 无（运行时代码，走复核）· 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-348
 
