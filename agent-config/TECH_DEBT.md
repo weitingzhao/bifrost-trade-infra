@@ -2139,6 +2139,20 @@
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-357
+
+**P2 · release · the release CI gate reads only live `ci-*` PipelineRuns and the TTL janitor deletes them after 7 days, so a release that ships a repo unchanged for a week is refused until the Owner passes `--allow-red`**
+
+- **状态**：未开始（2026-10-15 22:35 记；发 api 0a5053b / 前端 7985cf38 到 STG 时撞上，Owner 在线程里批了这一次的 `--allow-red`，只为 core 与 worker）
+- **Claim**: `release.sh stg|prod` requires a Succeeded `ci-*` PipelineRun in `cicd` for each SHA it ships — core, api, worker and frontend at origin/main (`wait_for_ci` → `ci_gate.py`). CI runs only on a push, and the hourly CronJob `cicd/tekton-pipelinerun-ttl` deletes finished PipelineRuns older than 7 days. A repo that has not changed for a week therefore has no run left and reads `ci=missing` until someone pushes to it. An agent cannot run its CI again either: `bifrost-ci-python` needs `repo`, which `start_pipeline_run` does not accept (it takes revisions only).
+- **Measured**: MEASURED 2026-10-15 03:30Z (read-only kubectl): 4 `bifrost-ci-python` runs left in `cicd`, none for core or worker. Core 385b0f8 and worker 2b3e344 are what STG run `bifrost-deliver-stg-1791603671` (10-10) cloned and are still main; `release.sh stg` printed `ci=missing` for both, would have refused after 900 s, and shipped with `--allow-red` (reason in the run's log).
+- **Evidence**: `bifrost-trade-infra/scripts/release/release.sh:380` (`wait_for_ci`, reads live PipelineRuns only); `scripts/release/ci_gate.py` (exit 2 = no terminal run); `k8s/cicd/tekton/pipelinerun-ttl.yaml:3` (`MAX_AGE_SECONDS`, 7 d); `k8s/cicd/tekton/pipeline-ci-python.yaml:18` (`repo`, no default).
+- **Impact**: every Trade release after a quiet week on core or worker (the usual case) needs the Owner to approve `--allow-red`, which also stops the gate from telling a pruned run from a red one.
+- **Fix**: (recommended) the janitor keeps the newest Succeeded `ci-*` run per repo whatever its age, so the evidence for main survives; or `ci_gate.py` accepts a SHA that a recorded delivery (`bifrost.io/release-record` ConfigMap) already shipped after passing the gate; or `start_pipeline_run` accepts `repo` for the three `bifrost-ci-*` pipelines.
+- **Ratchet**: a test of the janitor's selection: given runs older than 7 days, the newest Succeeded run of each repo is kept and the rest deleted.
+- 验收: the ratchet test; the next release with core and worker unchanged for over 7 days passes the CI gate without `--allow-red`
+- 审批 要你批（改 `cicd` 的 CronJob 清单，经 `apply_manifest`）· 代价 S · 风险 low · repos: bifrost-trade-infra
+
 ### TD-356
 
 **P2 · availability · a planner's cards are never acknowledged, so answered ones keep counting against the runtime's question quota until plans with questions wait for good**
