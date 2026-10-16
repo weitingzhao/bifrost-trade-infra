@@ -464,6 +464,7 @@
         - [x] STG 走查（2.2 验收前的一件小活）｜**M-1**（14:01，`standing-envelope:dev` v1 内）：codex 实现 launchd.Parse 边界测试，第 3 次尝试交付 `ef22c980`（`agent/t_01M50FZ5…/a3`），确定性验收 14:24 pass；评审无人可领（codex 不独立、claude 在资格考核，合预期）。报告 `~/agent-work/stg-walk/REPORT.md`。走查查出三处并修：① 平台用 Gitea 分支 API 读刚推的分支会 404 → 第 1 次尝试的 persist 409 被拒、结果丢失 → 改读 git `info/refs`（分支 `w31/agentrt-22-heads-git` `~/agent-work/agentrt-22p`，复核 204→206→207 可以合并，CI 在 git 2.39 上红一次→e370d39 修、复核 208；15:24 STG 发到 e370d39 并核对）；② cursor 在后台用户下写不了钥匙串 → `AGENT_CLI_CREDENTIAL_STORE=memory`；③ 安装脚本 bootout 后立刻 bootstrap 会失败、主机没了 agentd（14:18 出过）→ 等 `launchctl print` 回 113 再加载（②③ 复核 202/203/205，已合主线 `3b4e372`，agentd 14:55 装上，指纹 `69c5cd8f…`）。另：MCP 补 `propose_mission`（`dbf30a9`，复核 200/201）。F2（被拒的 persist 不留痕）记 TD-349｜下一步：M-2「Cursor 写、Codex 评审」（任务带 needs listen_port_tests，codex 沙箱做不了，派给 cursor）走到 accepted；材料 `~/agent-work/stg-walk/m2/`，交给新会话「STG 走查 M-2」跑｜**10-15 18:17 核对**：分支已合进平台主线，STG 上跑通（M-1、M-2 走查，Gate A 两批）
         - [~] Gate A 在测试环境过：T01、T02、T05、T06、T08、T10、T22、T25、T32（经接口）、T33、T34、T35、T36、6 道基准题｜10-15 10:38 跑法和要你参与的部分写在 `agent-config/work/multi-agent/PLAN-gate-a-stg-2026-10-15.md`｜**10-15 18:17 核对**：第一、二批过的项见 `work/multi-agent/RUN-gate-a-stg-2026-10-15.md`（T01、T02、T05、T06、T08、T10、T22 ①③、T32 接口、T34 五种、T36）；剩下的归补强
         - [x] （你）定：Gate A 里要你参与的部分｜**10-15 14:45 前后你回「验收参与 一」**：一行 sudoers（只许给 bifrost-agentd 的进程发信号）、STG 测试身份 agentd:gate-b、验收期间允许缩放 STG platform-workers、合盖一次提前说，跑完全部撤掉；命令在 M-2 走到 accepted 之后原样给｜T01、T22、T34 要对以 `bifrost-agentd` 运行的 agentd 发信号（我没有 sudo），T02、T08、T34 要第二个 agentd 身份，T22 ③ 要暂停 STG 控制器，T22 ① 要合盖一次；另 TD-347：「全机锁」其实按用户｜**我的建议 A**：一行 sudoers 让我以 `bifrost-agentd` 身份运行 `/bin/kill`；STG 加测试主体 `agentd:gate-b`、令牌放我家目录 600；这次 Gate A 期间允许我缩放 STG 的 `platform-workers`；合盖一次我提前说；Gate A 后全部撤掉。B：信号由你按时跑 `sudo kill`（约 6 次），其余同 A。C：只跑不要你的部分，其余记「只在存储层测过」，Gate A 标部分通过｜怎么回：线程里回「Gate A 参与 A」（或 B、C）
+        - [ ] （补强）agentd 工作区能跑 Console 的检查（npm ci、lint、test、build），一句目标能选 Console｜10-15 晚定（`work/multi-agent/WORKMODE-owner-chief-of-staff-2026-10-15.md` 第三节）；现在目标只能选 bifrost-platform，默认检查只有 `go build`、`go vet`
         - [ ] （补强）★ 正式环境：开发机上的 agentd 领正式环境的任务，6 道基准题从领到结论全程无人插手
       - 2.2b 第一版拉通（Owner 2026-10-15 18:1x 确认「草案 2」；`work/multi-agent/PLAN-round2-first-slice-2026-10-15.md`）
         - [x] 台账对齐：2.2 勾掉已在 STG 跑通的步骤，架构对照按 STG / PROD 重核，补强的步骤原位标「（补强）」｜10-15 18:17
@@ -473,13 +474,14 @@
         - [x] Console 的 Agents 页：提目标、运行时现场、计划栏与架构对照｜10-15 19:14 上 PROD（#22，c17a9aa）｜Codex 按任务书写（夹具是 STG 真实返回），统筹方验收：lint、类型检查、1110 个测试、构建在真实布局下全过，撤回了它为沙箱改的一个旧测试；合进主线 `c17a9aa`，待发 STG。本地看板顺带改成同时推 PROD 和 STG（STG 上才有计划栏和架构对照）
         - [x] （你）在 Console 上提一句小目标｜10-15 19:28 在 PROD（STG 没有你的登录令牌，你定不走 STG、直接上 PROD：#22 发版、迁移第 5 个、#23 agentd 换 PROD 令牌并改连 PROD、overlay `4f98a04`、重启、8 份 PROD 规则签齐）
         - [x] ★ 你提的那一件走到 accepted，这期间这个 mission 里没有统筹线程的写入，页面上每一步看得到｜10-15 19:31 PROD M-1（给 GoalRepos 补注释）：19:28:41 进常备授权 → Codex 实现推 `a8c886df`（40 秒）→ 确定性验收 pass → Cursor 评审 pass（Codex 被独立性排除）→ 19:31:50 accepted，共 3 分 9 秒、26 条事件，写入者只有 controller、host:mbp-dev、owner，统筹线程 0
+        - [ ] 参谋长薄版：Console 的目标先进参谋长，由它写成 mission（目标、什么算好、不做什么、预算）、决定拆不拆，只把目标层的问题出成决策卡（带默认）｜**Owner 2026-10-15 约 20:05 定**：排在合页之后、其余补强之前（`work/multi-agent/WORKMODE-owner-chief-of-staff-2026-10-15.md`）｜切法由统筹线程另写，涉及新路由或改公开接口的部分等 Owner 点头；完整版留在 2.4
       - 2.3 交互总线与叫停（设计的阶段 1）
         - [ ] （补强）实现：信箱、唤醒、在线状态、叫停广播；隔离、根目录只读、注入防护；本机文件迁进平台
         - [ ] （补强）独立复核
         - [ ] （你）（补强）批发布单
         - [ ] （补强）★ Gate B
       - 2.4 多厂商与参谋长（设计的阶段 2 前半）
-        - [ ] （补强）实现：Claude 执行者、按能力和额度分流（先看谁能胜任，按岗位用资格考试和历史成绩量；再在能胜任的里按额度挑）、并发 2 到 3、参谋长席位
+        - [ ] （补强）实现：Claude 执行者、按能力和额度分流（先看谁能胜任，按岗位用资格考试和历史成绩量；再在能胜任的里按额度挑）、并发 2 到 3、参谋长席位｜10-15：参谋长薄版提前到 2.2b（合页之后），这里留完整版：早晚简报、信箱、24 小时在线、资格考试
         - [ ] （补强）独立复核
         - [ ] （你）（补强）批发布单
         - [ ] （补强）★ 一件活从派出到验收，全程没有统筹线程手工插手
