@@ -2131,7 +2131,7 @@
 
 - **状态**：未开始（2026-10-14 14:16 统筹方记；合并前在合并后的树上跑整套时撞上，单独重跑三次都过；第 2 轮期间不还其余技术债，排在架构之后）
 - **Claim**: `TestPlatformUnknownDoesNotMaskMissing` gives `StartPipelineRun` a 40 ms context and then requires at least six GETs of the `bifrost-ui` refs ("no second look"). On a loaded machine fewer polls fit in 40 ms and the test fails though the code is right.
-- **Measured**: MEASURED: 2026-10-14, `go test ./...` on the merge of `w31/agentrt-22-route` into platform main (`5a6c98e`, which changes no file in `internal/delivery`): FAIL `platform_ref_rules_test.go:90: no second look`, package 35.9 s; the same test alone three times: ok (0.8–1.3 s).
+- **Measured**: MEASURED: 2026-10-14, `go test ./...` on the merge of `w31/agentrt-22-route` into platform main (`5a6c98e`, which changes no file in `internal/delivery`): FAIL `platform_ref_rules_test.go:90: no second look`, package 35.9 s; the same test alone three times: ok (0.8–1.3 s). 2026-10-15 23:4x the same file's `TestPlatformPollingErrorRequiresSeenPresent/bifrost-deliver-platform-prod/poll_error_missing` failed once in `go test ./...` ("did not poll past error and missing", load average ~20 while vitest ran beside it) and passed alone three times (17.7 s each): the same kind of wall-clock wait.
 - **Evidence**: `bifrost-platform/api/internal/delivery/platform_ref_rules_test.go:77-92`.
 - **Impact**: a red whole-suite run that is not a regression; whoever runs the suite before a push has to tell it apart by hand, and CI can flake the same way.
 - **Fix**: make the second look not depend on wall time: count polls through the fake's own clock or a poll hook, or wait for the sixth GET before cancelling instead of a fixed 40 ms.
