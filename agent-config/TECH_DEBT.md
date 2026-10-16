@@ -2139,6 +2139,20 @@
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-356
+
+**P2 · availability · a planner's cards are never acknowledged, so answered ones keep counting against the runtime's question quota until plans with questions wait for good**
+
+- **状态**：未开始（2026-10-15 22:10 统筹方记；写参谋长薄版第 3 片时查提问存储的配额发现；补强阶段做）
+- **Claim**: the question store lets the runtime's session (`agentrt`) hold at most 3 open cards and 6 open-or-unread ones (`questions/types.go` `openPerRequester`, `protectedPerRequester`); an answered card stays "unread" until the requester acknowledges it (review 180 B3). The plan-change cards are acknowledged when the controller uses the answer (`DecidePlanChanges`). A planner's cards (`store.AcceptPlan`) are not: the work goes on with the default and nothing reads the answer back, so each answered card stays protected. After six, every new card is refused as over quota (429), which AcceptPlan treats as the store being unreachable: a plan with questions stays submitted and is tried every pass.
+- **Measured**: DERIVED from the code (no run yet): `questions/create.go` tally and quota checks; `server/questions_wire.go` `agentRuntimeAsk` (429 is not ErrInvalid); `store/planresult.go` (`ErrAsk` leaves the plan submitted). The first version asks rarely: the planner's spec says "Usually ask nothing".
+- **Evidence**: `bifrost-platform/api/internal/questions/types.go:16-17`; `api/internal/agentrt/store/planresult.go` (AcceptPlan, questions); `api/internal/server/questions_wire.go` (agentRuntimeAsk, agentRuntimeAck).
+- **Impact**: after six answered planner cards no plan that asks can be used; it shows as a planning task stuck in submitted, the controller logging the store's refusal every 15 seconds.
+- **Fix**: record the cards a plan made (a structured record, not the text of the task's reason) and have a controller pass acknowledge each once answered, as `PlanDecisions` does for plan changes; the answer then also reaches the next planning session's snapshot. Optionally treat 429 from the store as a refusal of the round with the reason, so the plan is not tried forever.
+- **Ratchet**: a store test that answers seven planner cards in turn and still gets an eighth made; a controller test that an answered planner card is acknowledged within one pass.
+- 验收: the two tests above
+- 审批 无（代码改动，随平台发布）· 代价 M · 风险 low · repos: bifrost-platform
+
 ### TD-355
 
 **P1 · security · the Owner's rule-signing key signs without the Owner: it had no passphrase and sat in ssh-agent, so any process running as his user could sign a loosening**
