@@ -1421,7 +1421,7 @@
 **P2 · ops-platform · The applier cannot take over a field that `kubectl-client-side-apply` owns: plan and apply fail with a server-side apply conflict**
 
 - **状态**：未开始（Owner 2026-10-10 定：给 applier 的 diff 和 apply 加 `--force-conflicts`，边界由 allow-list 和准入策略兜住；W-31 第 0 步第 2 波做，apply 要你批）
-- **Claim**: Objects first applied by hand (client-side) keep their fields under `kubectl-client-side-apply`. The applier's server-side apply then conflicts on any changed field. Measured 2026-10-10: `plan-ee6f0ba5-1791604913` for `k8s/ib-gateway/overlays/live` — `conflict with "kubectl-client-side-apply" … .containers[name="ib-gateway"].image`; the Owner applied it by hand.
+- **Claim**: Objects first applied by hand (client-side) keep their fields under `kubectl-client-side-apply`. The applier's server-side apply then conflicts on any changed field. Measured 2026-10-10: `plan-ee6f0ba5-1791604913` for `k8s/ib-gateway/overlays/live` — `conflict with "kubectl-client-side-apply" … .containers[name="ib-gateway"].image`; the Owner applied it by hand. Again 2026-10-15: `plan-7c2ff929-1792125862` (ib-gateway 0.4.1, plugin `7c2ff92`), same conflict on the same field; the Owner applied `overlays/live` by hand with the admin kubeconfig at 04:46Z. Each hand apply keeps the field under `kubectl-client-side-apply`, so every ib-gateway release needs the Owner's terminal until this is fixed.
 - **Evidence**: `bifrost-trade-infra/k8s/cicd/tekton/apply-manifest/pipeline.yaml` — diff and apply without `--force-conflicts`
 - **Fix**: either `--force-conflicts` on the applier's diff and apply (git is the source of truth; the allow-list and admission policies still bound it), or a one-off ownership migration per object by the Owner.
 - **Ratchet**: `check_admission_guards.py` asserts whichever is chosen.
@@ -2138,6 +2138,20 @@
 - **Ratchet**: the test passes under `go test -count=20 -cpu 1,4 ./internal/delivery/` with the suite's other packages running beside it.
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-358
+
+**P3 · data · Golden Source still holds keyless TWS fills from before core 0.60.1, and the frontend types an execution's `account_id` / `symbol` as never null**
+
+- **状态**：未开始（2026-10-16 00:05 记；修 PROD Ledger 白屏时查到。源头已堵：core 0.60.1 的 daemon 先映射再写、不完整的拒写（`ed17560`）；ib-gateway 0.4.1 成交带期权合约字段（`ad01dd7`，10-16 04:46Z 上线）；前端 `stkBuckets` 防空值（`85ed9c45`）。10-15 的两行由 #28 删掉，交给修好的 daemon 重写）
+- **Claim**: before core 0.60.1 the daemon wrote the IB Gateway plugin's fills to `raw_broker.executions_raw_tws` unmapped, so every fill it stored had NULL account_id, quantity, time and source. 20 of those rows have a Flex row with the same exec_id and do not appear in `GET /executions`; they are still in the table. The frontend's `Execution` type says `account_id: string` and `symbol: string`, so a reader that trims them unguarded crashes on such a row (that was the Ledger on 2026-10-15); `src/utils/equityDelta.ts:36` and `src/utils/positionsGrouping.ts:16` are two more unguarded trims of an account id.
+- **Measured**: MEASURED 2026-10-16 (agent_reader): `raw_broker.executions_raw_tws` 211 rows, 22 with NULL account_id, created 2026-08-08 … 2026-10-16; 20 of the 22 have an `executions_raw_flex` row with the same exec_id; the other 2 are #28.
+- **Evidence**: `bifrost-trade-core/src/bifrost_core/portfolio/ib_edge.py` (the unmapped write, fixed in 0.60.1); `bifrost-trade-frontend/src/types/positions.ts:9` (`account_id: string`).
+- **Impact**: the hidden rows are harmless while every reader goes through the view; a reader that does not, or another type-trusting trim, meets them again.
+- **Fix**: (a) the Owner decides whether to delete the 20 hidden rows, with the same guarded DELETE as #28 (by exec_id, `account_id IS NULL`); (b) type the execution's `account_id` / `symbol` as `string | null` and let tsc find the unguarded readers.
+- **Ratchet**: core `tests/test_ib_edge_execution_rows.py::test_no_row_is_ever_written_without_an_account`; and a release probe that `SELECT count(*) FROM raw_broker.executions_raw_tws WHERE account_id IS NULL AND created_at > '2026-10-16 05:00+00'` is 0.
+- 验收: the probe above is 0 after a trading day; `npm run build` passes with the nullable types.
+- 审批 要你批（删 Golden Source 的行）· 代价 S · 风险 low · repos: bifrost-trade-frontend, bifrost-trade-infra
 
 ### TD-357
 
