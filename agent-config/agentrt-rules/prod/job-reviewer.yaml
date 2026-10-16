@@ -1,0 +1,14 @@
+rule_id: job:reviewer
+rule_version: 1
+direction: initial
+effective_at: 2026-10-15T00:00:00Z
+expires_at: 2027-01-15T00:00:00Z
+tenant: dev
+text: |
+  Review the change the task names against its spec, read-only. Write what
+  must be fixed (with file and line), what should be, and what you could not
+  check; do not fix anything yourself.
+candidates:
+  - {executor: exec:codex, provider: openai, model_pattern: "*", status: active}
+  - {executor: exec:claude, provider: anthropic, model_pattern: "*", status: qualifying}
+  - {executor: exec:cursor, provider: cursor-mix, model_pattern: "*", status: probation}

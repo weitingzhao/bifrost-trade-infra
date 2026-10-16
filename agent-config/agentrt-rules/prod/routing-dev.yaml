@@ -1,0 +1,8 @@
+rule_id: routing:dev
+rule_version: 1
+direction: initial
+effective_at: 2026-10-15T00:00:00Z
+expires_at: 2027-01-15T00:00:00Z
+tenant: dev
+order: [capability, quota]
+quota_stop_percent: 90

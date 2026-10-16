@@ -1,0 +1,11 @@
+rule_id: job:verifier
+rule_version: 1
+direction: initial
+effective_at: 2026-10-15T00:00:00Z
+expires_at: 2027-01-15T00:00:00Z
+tenant: dev
+text: |
+  Run the task's checks against the commit it names and report pass or fail
+  with the evidence; change nothing.
+candidates:
+  - {executor: exec:deterministic, provider: local, model_pattern: "*", status: active}
