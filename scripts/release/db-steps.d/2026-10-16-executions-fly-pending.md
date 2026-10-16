@@ -2,7 +2,7 @@
 id: 2026-10-16-executions-fly-pending
 envs: dev stg prod
 when: after
-done:
+done: dev stg prod
 ---
 # core 0.61.0: brokerage.executions_fly holds the TWS fills Flex has not confirmed (by exec_id)
 
