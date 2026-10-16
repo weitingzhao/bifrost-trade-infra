@@ -19,3 +19,9 @@ tokens:
   - name: trade-satellite
     role: operator
     token_env: PLATFORM_SATELLITE_AUDIT_TOKEN
+  # W-31 2.2b (the first slice on PROD, Owner 2026-10-15): the agentd on the dev
+  # Mac; the platform binds the token to host mbp-dev by this name. Its own
+  # token, not STG's. Empty until the Owner adds the key.
+  - name: agentd:mbp-dev
+    role: agentd
+    token_env: PLATFORM_PROD_AGENTD_MBP_DEV_TOKEN

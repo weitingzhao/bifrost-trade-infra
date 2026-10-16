@@ -1,0 +1,54 @@
+# W-31 2.2b: the agent runtime on PROD (design v5 §5.2), the first slice the
+# Owner chose to run on PROD (2026-10-15 evening: 「直接按 5 步上 PROD」 and the
+# checklist he agreed). The platform connects as the environment's runtime
+# role to its own database; the password is the Secret the Owner made in 2.1
+# (OWNER-STEPS-agentrt-21, step 1). Without the Secret the variable is empty,
+# the connection fails and the runtime's routes answer 503; the rest of the
+# platform is untouched. platform-workers runs the controller loops,
+# platform-api the routes. AGENTRT_GIT_ORG: the Gitea organization agent
+# branches are pushed to and the result check reads (the same as STG's;
+# bifrost/* are pull mirrors of GitHub and take no push). Only platform-api
+# serves persist.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform-api
+          env:
+            - name: AGENTRT_ENV
+              value: prod
+            - name: AGENTRT_GIT_ORG
+              value: bifrost-agents
+            - name: AGENTRT_DSN
+              value: host=bifrost-postgres-rw.data.svc.cluster.local port=5432 dbname=bifrost_platform user=platform_agentrt_prod sslmode=require
+            - name: AGENTRT_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentrt-db-runtime
+                  key: password
+                  optional: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-workers
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform-api
+          env:
+            - name: AGENTRT_ENV
+              value: prod
+            - name: AGENTRT_DSN
+              value: host=bifrost-postgres-rw.data.svc.cluster.local port=5432 dbname=bifrost_platform user=platform_agentrt_prod sslmode=require
+            - name: AGENTRT_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentrt-db-runtime
+                  key: password
+                  optional: true
