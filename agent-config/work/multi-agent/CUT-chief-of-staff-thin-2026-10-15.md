@@ -40,6 +40,8 @@ Owner 在 Console 给一句目标 → 一个新起的 Claude 会话（参谋长�
 
 ## 要 Owner 定的两处（架构级，`CLAUDE.md` §5）
 
+**Owner 10-15 约 21:25 在线程里回：「D1 A，D2 A」**。即 `/goals` 同一条路由改成建 mission + 一件规划任务（返回字段不变）；决定记录用新事件 `decision_recorded`（迁移随 PROD 发版，那张单子 Owner 批）。
+
 **D1　`POST /api/v1/agentrt/goals` 改行为（改公开接口）**
 - 问题：Console 的目标是改成先进参谋长，还是另开一条路由？
 - A（推荐）：同一条路由改成建 mission + 一件规划任务；返回的字段不变（`task_id` 变成规划任务的 id）。入口只有一个，合原始设计「Owner 只有一个入口：给目标」。
