@@ -1,6 +1,6 @@
 rule_id: standing-envelope:dev
-rule_version: 1
-direction: initial
+rule_version: 2
+direction: loosen
 effective_at: 2026-10-15T00:00:00Z
 expires_at: 2027-01-15T00:00:00Z
 tenant: dev
@@ -8,5 +8,5 @@ max_action: branch
 budget:
   max_attempts: 40
   max_wall_hours: 48
-executors: [exec:codex, exec:cursor, exec:deterministic]
+executors: [exec:claude, exec:codex, exec:cursor, exec:deterministic]
 hosts: [mbp-dev]
