@@ -74,7 +74,8 @@ for n in json.load(open(sys.argv[1]))["items"]:
 
 install_on() {
   local node=$1 phase i
-  POD=owner-node-key-$node-$STAMP
+  # Pod names are lower case only (RFC 1123); the stamp has a capital T.
+  POD=owner-node-key-$node-$(echo "$STAMP" | tr 'T' 't')
   python3 -I -c '
 import json, sys
 pod, ns, node, image, script, stamp, pub = sys.argv[1:8]
