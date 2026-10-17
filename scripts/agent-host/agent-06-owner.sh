@@ -23,6 +23,9 @@
 #   stop                  stop both agentd services (before prepare runs again)
 #   start                 enable and start both agentd services
 #   retire-mac            stop the agentd on this Mac
+#   probe-protection      run probe-gitea-protection.sh on 06 as the STG agentd
+#                         user against bifrost/primary-probe (Gitea-primary cut,
+#                         step 1)
 #
 # Every step stops at its first error and exits non-zero. No step prints a
 # credential. Each step but codex-login also keeps its output in
@@ -565,17 +568,22 @@ step_retire_mac() {
   die "launchd still has com.bifrost.agentd (launchctl print exit $rc)"
 }
 
+# The probe reads that user's own Gitea token on 06 and prints none.
+step_probe_protection() {
+  node_ssh 'sudo -u bifrost-agentd-stg -H bash -s' < "$HERE/probe-gitea-protection.sh"
+}
+
 # Sourced (by a test), stop here: only the functions are wanted.
 [ "${BASH_SOURCE[0]}" = "$0" ] || return 0
 
 step=${1:-}
 if [ -z "$step" ]; then
-  sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'
   exit 2
 fi
 shift
 case "$step" in
-  check | leave | uninstall | delete-node | copy | prepare | codex-login | vendor-creds | git-token | host-check | secret | stop | start | retire-mac) ;;
+  check | leave | uninstall | delete-node | copy | prepare | codex-login | vendor-creds | git-token | host-check | secret | stop | start | retire-mac | probe-protection) ;;
   *) die "unknown step: $step" ;;
 esac
 fn=step_$(echo "$step" | tr - _)
