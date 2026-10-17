@@ -773,6 +773,26 @@ esac
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertNotIn("unreviewed", self.applied.read_text())
 
+    # review 253b A1: conversions git archive would run (a smudge filter, line endings) are not run
+    def test_a_smudge_filter_is_not_run(self) -> None:
+        copy, g = self.copy_of_infra()
+        marker = self.root / "filter-ran"
+        g("config", "filter.x.smudge", f"touch {marker}; sed s/bifrost-gitea-mirror-sync/unreviewed-task/")
+        (copy / ".git" / "info").mkdir(exist_ok=True)
+        (copy / ".git" / "info" / "attributes").write_text("task-gitea-mirror-sync.yaml filter=x\n")
+        r = self.run_it("apply", infra=copy)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn(b"unreviewed", self.applied.read_bytes())
+        self.assertFalse(marker.exists())
+
+    def test_line_endings_are_not_converted(self) -> None:
+        copy, _ = self.copy_of_infra()
+        cfg = self.root / "global.gitconfig"
+        cfg.write_text("[core]\n\tautocrlf = true\n")
+        r = self.run_it("apply", infra=copy, extra={"GIT_CONFIG_GLOBAL": str(cfg)})
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn(b"\r", self.applied.read_bytes())
+
     def test_an_object_that_does_not_match_its_name_stops_it(self) -> None:
         copy, _ = self.copy_of_infra()
         self.loose_object(copy / ".git" / "objects", "ab" * 20, "not what this name says\n")

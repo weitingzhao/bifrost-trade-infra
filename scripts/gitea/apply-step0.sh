@@ -8,10 +8,12 @@
 # repository is still a pull mirror none of it changes anything.
 #
 # What is applied comes from the reviewed commit (REVIEWED), not from the
-# working tree: the manifests are exported from it into a temporary directory
-# and rendered once into a single file, and the server dry run and the apply
-# both read that file (review 250 A3: a working tree can change between the
-# dry run and the apply, or hide a change from git diff). check: the dry run
+# working tree: each file under the five paths is read from the reviewed tree
+# as the raw blob (git cat-file, which runs no filter, line-ending or encoding
+# conversion, where git archive would; review 253b A1) and checked against its
+# blob id, then the files are rendered once into a single file, and the server
+# dry run and the apply both read that file (review 250 A3: a working tree can
+# change between the dry run and the apply, or hide a change from git diff). check: the dry run
 # only. apply: the dry run, then the apply. Stops at the first error. Needs
 # the Owner's admin kubeconfig; nothing here reads or prints a Secret.
 set -euo pipefail
@@ -22,7 +24,7 @@ export KUBECONFIG="$HOME/.bifrost-owner/kube/admin.yaml"
 # before anything is exported (git fsck below)
 export GIT_NO_REPLACE_OBJECTS=1
 unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
-  GIT_NAMESPACE GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_CEILING_DIRECTORIES
+  GIT_NAMESPACE GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_CEILING_DIRECTORIES GIT_EXEC_PATH
 REVIEWED=1de78f6811f209f766094dd621efa8c00711efe1 # 0a and 0e as reviews 243 and 244 left them
 INFRA="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 paths=(
@@ -47,8 +49,17 @@ git -C "${INFRA}" fsck --strict --no-reflogs --no-dangling --no-progress "${REVI
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
 mkdir "${work}/tree"
-git -C "${INFRA}" archive "${REVIEWED}" -- "${paths[@]}" > "${work}/tree.tar"
-tar -x -f "${work}/tree.tar" -C "${work}/tree"
+git -C "${INFRA}" ls-tree -r -z --format='%(objectmode) %(objecttype) %(objectname) %(path)' "${REVIEWED}" -- "${paths[@]}" > "${work}/want"
+while IFS=' ' read -r -d '' mode type oid path; do
+  [[ "${type}" == blob && ("${mode}" == 100644 || "${mode}" == 100755) ]] || die "${path} in ${REVIEWED} is ${mode} ${type}; nothing done"
+  mkdir -p "$(dirname "${work}/tree/${path}")"
+  git -C "${INFRA}" cat-file blob "${oid}" > "${work}/tree/${path}"
+  [[ "$(git -C "${INFRA}" hash-object --no-filters -- "${work}/tree/${path}")" == "${oid}" ]] ||
+    die "${path} as read is not blob ${oid} of ${REVIEWED}; nothing done"
+done < "${work}/want"
+for p in "${paths[@]}"; do
+  [[ -e "${work}/tree/${p}" ]] || die "${p} is not in ${REVIEWED}; nothing done"
+done
 rendered="${work}/step0.yaml"
 {
   cat "${work}/tree/k8s/cicd/tekton/task-gitea-mirror-sync.yaml"
