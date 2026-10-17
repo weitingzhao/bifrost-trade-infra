@@ -630,6 +630,10 @@ function githubPushRule(cmd, cwd) {
   const unclear = why =>
     `看不出这次 git push 推到哪里（${why}）。有仓库以 Gitea 为主时要能查到：写成 \`git -C <检出目录> push <远端> <refspec>\``
   const githubRemote = '`github` 远端只读：以 Gitea 为主的仓库推 Gitea（origin），GitHub 由集群同步（k8s/cicd/github-sync）'
+  // 名单空着也拦 github 远端：文本匹配认得出包在引号里的（sh -c "git push github …"），下面的分词认不出
+  for (const tokens of gitPushes(cmd)) {
+    if (pushDestinations(tokens).includes('github')) return githubRemote
+  }
   if (listed && GIT_ENV_OVERRIDE.test(cmd)) {
     return '有仓库以 Gitea 为主时，不在命令行上换 git 的配置、仓库或连接（GIT_CONFIG_*、GIT_DIR、HOME、--config-env…）再推送：看不出推到哪里'
   }

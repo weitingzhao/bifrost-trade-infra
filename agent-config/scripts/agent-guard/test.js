@@ -460,6 +460,31 @@ if (process.platform === 'darwin') {
   readOk ? pass++ : fail++
   console.log(`  ${readOk ? '✓' : '✗'} 真实挂载表读得到（有根分区那一行）`)
 }
+// 名单为空（切换前的样子）：只拦 github 远端，别的照旧放行
+console.log('\n── Gitea 为主：名单为空 ──')
+{
+  const savedList = process.env.BIFROST_GITEA_PRIMARY_LIST
+  const emptyList = require('node:path').join(PRIMARY.outside, 'gitea-primary-empty.txt')
+  require('node:fs').writeFileSync(emptyList, '# fixture: nothing on the list\n')
+  process.env.BIFROST_GITEA_PRIMARY_LIST = emptyList
+  const emptyCases = [
+    ['DENY', '推到 github 远端', bash('git push github x:refs/heads/x')],
+    ['DENY', 'sh -c 里推到 github 远端', bash('sh -c "git push github x:refs/heads/x"')],
+    ['ALLOW', '不写远端', bash('git push --tags')],
+    ['ALLOW', '先 cd 再推', bash(`cd ${PRIMARY.repo} && git push backup x:refs/heads/x`)],
+    ['ALLOW', 'GitHub 地址', bash('git push https://github.com/weitingzhao/bifrost-ui.git x:refs/heads/x')],
+    ['ALLOW', 'HOME=', bash('HOME=/tmp/elsewhere git push origin x:refs/heads/x')],
+    ['ALLOW', 'bash -c 里推别名', bash("bash -c 'git push backup x:refs/heads/x'")],
+  ]
+  for (const [want, name, payload] of emptyCases) {
+    const verdict = evaluate(payload)
+    const got = verdict.deny ? 'DENY' : 'ALLOW'
+    const ok = got === want && (!verdict.deny || verdict.kind === 'gitea-primary')
+    ok ? pass++ : fail++
+    console.log(`  ${ok ? '✓' : '✗'} ${got.padEnd(5)} ${name}${ok ? '' : `   ← 期望 ${want}（${verdict.kind || ''}）`}`)
+  }
+  process.env.BIFROST_GITEA_PRIMARY_LIST = savedList
+}
 // 复核 244 第 9 项：push-main.sh 的 github_repo 读同一份用例（scripts/release/test_push_main.py）
 console.log('\n── GitHub 地址解析（与 push-main.sh 共用 github-repo-cases.json）──')
 for (const [address, want] of require('./github-repo-cases.json')) {
