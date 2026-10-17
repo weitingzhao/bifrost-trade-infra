@@ -1,0 +1,71 @@
+# promtool unit test for BifrostGitHubSyncStale and BifrostGiteaUnavailable
+# (CUT-gitea-primary-2026-10-17 step 0e). Run: make check-alert-rules.
+rule_files:
+  - bifrost-alerting-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: a reconcile that stops succeeding fires after 45 minutes and 10 pending
+    interval: 1m
+    input_series:
+      # created at 0; succeeds at 0 and every 15 minutes until 30m, then never
+      - series: 'kube_cronjob_created{namespace="cicd",cronjob="bifrost-github-sync-reconcile"}'
+        values: '0x120'
+      - series: 'kube_cronjob_status_last_successful_time{namespace="cicd",cronjob="bifrost-github-sync-reconcile"}'
+        values: '0x14 900x15 1800x90'
+      - series: 'kube_deployment_status_replicas_available{namespace="cicd",deployment="gitea"}'
+        values: '1x120'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: BifrostGitHubSyncStale
+        exp_alerts: []
+      - eval_time: 87m
+        alertname: BifrostGitHubSyncStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "GitHub sync has not succeeded for 45 minutes"
+              description: "CronJob cicd/bifrost-github-sync-reconcile copies main and tags of the repositories Gitea holds as its primary to GitHub. A failed run names each ref it could not copy: no token (Secret cicd/github-sync), GitHub ahead of or diverged from Gitea (never overwritten), or Gitea unreadable. Read `kubectl -n cicd logs job/<latest bifrost-github-sync-reconcile job> -c sync`."
+      - eval_time: 87m
+        alertname: BifrostGiteaUnavailable
+        exp_alerts: []
+
+  - name: a reconcile that never succeeded fires on the absent series
+    interval: 1m
+    input_series:
+      - series: 'kube_cronjob_created{namespace="cicd",cronjob="bifrost-github-sync-reconcile"}'
+        values: '0x120'
+      - series: 'kube_deployment_status_replicas_available{namespace="cicd",deployment="gitea"}'
+        values: '1x120'
+    alert_rule_test:
+      - eval_time: 50m
+        alertname: BifrostGitHubSyncStale
+        exp_alerts: []
+      - eval_time: 57m
+        alertname: BifrostGitHubSyncStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "GitHub sync has not succeeded for 45 minutes"
+              description: "CronJob cicd/bifrost-github-sync-reconcile copies main and tags of the repositories Gitea holds as its primary to GitHub. A failed run names each ref it could not copy: no token (Secret cicd/github-sync), GitHub ahead of or diverged from Gitea (never overwritten), or Gitea unreadable. Read `kubectl -n cicd logs job/<latest bifrost-github-sync-reconcile job> -c sync`."
+
+  - name: Gitea without a replica for 5 minutes fires
+    interval: 1m
+    input_series:
+      - series: 'kube_deployment_status_replicas_available{namespace="cicd",deployment="gitea"}'
+        values: '1x10 0x20'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: BifrostGiteaUnavailable
+        exp_alerts: []
+      - eval_time: 17m
+        alertname: BifrostGiteaUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Gitea has no available replica"
+              description: "Deployment cicd/gitea (one replica, on ubt-k3s-01) is not available: pushes, CI webhooks, deliver clones, agentd and the GitHub copy all wait for it. Restore runbook: docs/runbooks/gitea-restore.md."

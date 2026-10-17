@@ -1,0 +1,34 @@
+# The TaskRun a Gitea push to main or a tag starts (EventListener bifrost-ci,
+# trigger github-sync; binding bifrost-gitea-push gives repo and ref).
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: bifrost-github-sync-template
+  labels:
+    bifrost.io/purpose: github-sync
+spec:
+  params:
+    - name: repo
+    - name: ref
+    # also given by bifrost-gitea-push; not used here
+    - name: revision
+      default: ""
+    - name: clone_url
+      default: ""
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: TaskRun
+      metadata:
+        generateName: github-sync-$(tt.params.repo)-
+        namespace: cicd
+        labels:
+          bifrost.io/purpose: github-sync
+          bifrost.io/repo: $(tt.params.repo)
+      spec:
+        taskRef:
+          name: bifrost-github-sync
+        params:
+          - name: repo
+            value: $(tt.params.repo)
+          - name: ref
+            value: $(tt.params.ref)

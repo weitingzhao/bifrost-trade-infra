@@ -1,0 +1,32 @@
+# Copies main and the tags of every repository Gitea holds as its primary to
+# GitHub (step 0e of agent-config/work/multi-agent/CUT-gitea-primary-2026-10-17.md).
+# A Gitea push to main or a tag starts the Task through the EventListener
+# (trigger github-sync in ../tekton/trigger-trade-ci.yaml); the CronJob
+# reconciles every 15 minutes and is what the alert watches. While every
+# repository is still a pull mirror both do nothing.
+# Apply (the Owner; cicd):  kubectl apply -k k8s/cicd/github-sync
+# The token is the Owner's: Secret cicd/github-sync, key token (secret.yaml.example).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: cicd
+
+resources:
+  - task-github-sync.yaml
+  - trigger-template.yaml
+  - cronjob-reconcile.yaml
+
+configMapGenerator:
+  - name: github-sync-scripts
+    files:
+      - read-primaries.sh
+      - sync.sh
+    options:
+      # the Task names it, and kustomize does not rewrite a Tekton Task
+      disableNameSuffixHash: true
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: bifrost
+      app.kubernetes.io/component: github-sync
+    includeSelectors: false

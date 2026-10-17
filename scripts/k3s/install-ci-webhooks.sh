@@ -21,7 +21,9 @@ EL_URL="${EL_URL:-http://el-bifrost-ci.cicd.svc.cluster.local:8080}"
 
 # Only repos an EventListener CEL filter actually routes. Adding a webhook for a
 # repo no trigger matches would produce silent no-op deliveries that look wired.
-REPOS="${REPOS:-bifrost-trade-core bifrost-trade-api bifrost-trade-worker bifrost-trade-frontend bifrost-ui bifrost-platform bifrost-research}"
+# All eleven: CI routes the seven it builds, and every push to a repository
+# Gitea holds as its primary starts the GitHub copy (CUT-gitea-primary 0e).
+REPOS="${REPOS:-bifrost-trade-core bifrost-trade-api bifrost-trade-worker bifrost-trade-frontend bifrost-ui bifrost-platform bifrost-research bifrost-trade-infra bifrost-platform-plugin bifrost-platform-plugin-market-data bifrost-platform-plugin-flex-query}"
 
 export KUBECONFIG
 

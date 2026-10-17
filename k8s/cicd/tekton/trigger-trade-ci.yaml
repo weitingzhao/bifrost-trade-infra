@@ -2,6 +2,8 @@
 #
 # Flow: Gitea mirror-sync fires push webhook → EventListener → CEL filter
 #       routes to python-ci, frontend-ci, or platform-ci TriggerTemplate → PipelineRun.
+#       A push to a repository Gitea holds as its primary also starts github-sync
+#       (a TaskRun that copies main and tags to GitHub; k8s/cicd/github-sync).
 #
 # PipelineRun TTL: Tekton v1.6 CRD rejects spec.ttlSecondsAfterFinished.
 # Finished runs are pruned by k8s/cicd/tekton/pipelinerun-ttl.yaml (7d).
@@ -293,3 +295,24 @@ spec:
         - ref: bifrost-gitea-push-ui
       template:
         ref: bifrost-ci-platform-template
+    # CUT-gitea-primary-2026-10-17 step 0e: a push to main or a tag of a repository Gitea holds
+    # as its primary is copied to GitHub (Task bifrost-github-sync, k8s/cicd/github-sync). A pull
+    # mirror's push (Gitea fetching from GitHub) carries repository.mirror and is not; the Task
+    # checks again, and the reconcile CronJob catches a lost webhook. Not a CI run.
+    - name: github-sync
+      interceptors:
+        - ref:
+            name: "cel"
+          params:
+            - name: filter
+              value: >-
+                !body.repository.mirror &&
+                (body.ref == 'refs/heads/main' || body.ref.startsWith('refs/tags/')) &&
+                body.repository.name in ['bifrost-trade-core', 'bifrost-trade-worker',
+                  'bifrost-trade-api', 'bifrost-trade-frontend', 'bifrost-trade-infra',
+                  'bifrost-ui', 'bifrost-platform', 'bifrost-research', 'bifrost-platform-plugin',
+                  'bifrost-platform-plugin-market-data', 'bifrost-platform-plugin-flex-query']
+      bindings:
+        - ref: bifrost-gitea-push
+      template:
+        ref: bifrost-github-sync-template

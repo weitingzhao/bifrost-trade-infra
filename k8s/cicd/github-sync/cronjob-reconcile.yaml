@@ -1,0 +1,91 @@
+# Every 15 minutes: main and every tag of each repository Gitea holds as its
+# primary, compared with GitHub and copied when GitHub is behind (a push whose
+# webhook was lost, a tag pushed without one). A GitHub that has moved past or
+# away from Gitea fails the run and is never overwritten. Alert
+# BifrostGitHubSyncStale watches its last success.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: bifrost-github-sync-reconcile
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 600
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/component: github-sync
+        spec:
+          restartPolicy: Never
+          initContainers:
+            - name: read
+              image: curlimages/curl:8.11.1
+              env:
+                - name: GITEA_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: gitea-bootstrap
+                      key: gitea_admin_token
+                      optional: true
+              command:
+                - /bin/sh
+                - /scripts/read-primaries.sh
+                - /work/primaries
+                - bifrost-trade-core
+                - bifrost-trade-worker
+                - bifrost-trade-api
+                - bifrost-trade-frontend
+                - bifrost-trade-infra
+                - bifrost-ui
+                - bifrost-platform
+                - bifrost-research
+                - bifrost-platform-plugin
+                - bifrost-platform-plugin-market-data
+                - bifrost-platform-plugin-flex-query
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: work
+                  mountPath: /work
+              resources:
+                requests: {cpu: 10m, memory: 16Mi}
+                limits: {memory: 64Mi}
+          containers:
+            - name: sync
+              image: alpine/git:2.45.2
+              env:
+                - name: GITEA_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: gitea-bootstrap
+                      key: gitea_admin_token
+                      optional: true
+                - name: GITHUB_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: github-sync
+                      key: token
+                      optional: true
+              command: ["/bin/sh", "/scripts/sync.sh", "/work/primaries"]
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: work
+                  mountPath: /work
+              resources:
+                requests: {cpu: 50m, memory: 64Mi}
+                limits: {memory: 512Mi}
+          volumes:
+            - name: scripts
+              configMap:
+                name: github-sync-scripts
+            - name: work
+              emptyDir: {}

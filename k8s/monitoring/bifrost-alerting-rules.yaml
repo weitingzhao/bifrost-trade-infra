@@ -368,6 +368,47 @@ spec:
               `kubectl -n cicd logs job/<latest gitea-backup job>` and the STATUS
               file of the newest directory on the gitea-backup claim (k3s-cold).
 
+        # CUT-gitea-primary-2026-10-17 step 0e: GitHub follows the repositories Gitea holds as
+        # its primary (main and tags) through k8s/cicd/github-sync. The reconcile CronJob runs
+        # every 15 minutes and succeeds while nothing is converted, so 45 minutes without a
+        # success means GitHub may be behind, or the two have diverged.
+        - alert: BifrostGitHubSyncStale
+          expr: |
+            time() - max(kube_cronjob_status_last_successful_time{namespace="cicd",cronjob="bifrost-github-sync-reconcile"}) > 2700
+            or
+            (
+              (time() - max(kube_cronjob_created{namespace="cicd",cronjob="bifrost-github-sync-reconcile"}) > 2700)
+              and on()
+              absent(kube_cronjob_status_last_successful_time{namespace="cicd",cronjob="bifrost-github-sync-reconcile"})
+            )
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "GitHub sync has not succeeded for 45 minutes"
+            description: >-
+              CronJob cicd/bifrost-github-sync-reconcile copies main and tags of the repositories
+              Gitea holds as its primary to GitHub. A failed run names each ref it could not copy:
+              no token (Secret cicd/github-sync), GitHub ahead of or diverged from Gitea (never
+              overwritten), or Gitea unreadable. Read `kubectl -n cicd logs job/<latest
+              bifrost-github-sync-reconcile job> -c sync`.
+
+        # Since the switch, people, agents, CI and the GitHub copy all depend on Gitea.
+        - alert: BifrostGiteaUnavailable
+          expr: |
+            max(kube_deployment_status_replicas_available{namespace="cicd",deployment="gitea"}) < 1
+            or
+            absent(kube_deployment_status_replicas_available{namespace="cicd",deployment="gitea"})
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Gitea has no available replica"
+            description: >-
+              Deployment cicd/gitea (one replica, on ubt-k3s-01) is not available: pushes, CI
+              webhooks, deliver clones, agentd and the GitHub copy all wait for it. Restore runbook:
+              docs/runbooks/gitea-restore.md.
+
     # TD-215: the PROD daemon's Lease holder is the only writer of raw_broker.account and
     # raw_broker.positions (Positions, attribution, the 16:20 ET snapshot capture). worker >= 0.2.7
     # exports timestamps on /metrics (PodMonitor bifrost-trade-daemon); the standby pod exports

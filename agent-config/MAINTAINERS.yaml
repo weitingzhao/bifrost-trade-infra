@@ -97,6 +97,14 @@ maintainers:
     max_tier: B
     detected_by: BifrostGiteaBackupMissing
     status: active
+  - id: cronjob/cicd/bifrost-github-sync-reconcile
+    what: "Every 15 minutes: main and tags of each repository Gitea holds as its primary copied to GitHub, fast-forward only, never forced or deleted; a GitHub ahead or diverged fails the run (CUT-gitea-primary 0e). Nothing to do while every repository is a pull mirror."
+    runs_on: cluster:cicd/CronJob
+    schedule: "*/15 * * * * UTC"
+    env: shared
+    max_tier: B
+    detected_by: BifrostGitHubSyncStale
+    status: active
   - id: cronjob/data/backup-retry
     what: "Every 15 minutes in the 04:00-09:00 UTC window, creates a retry Backup if today's CNPG backup failed."
     runs_on: cluster:data/CronJob

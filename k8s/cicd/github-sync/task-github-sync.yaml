@@ -1,0 +1,61 @@
+# One ref of one repository to GitHub, started by a Gitea push (trigger
+# github-sync). A pull mirror is skipped by read-primaries.sh: GitHub is still
+# its upstream. Not a CI run: no bifrost.io/trigger label (CUT-gitea-primary 0e).
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-github-sync
+  labels:
+    bifrost.io/purpose: github-sync
+spec:
+  params:
+    - name: repo
+      type: string
+    - name: ref
+      type: string
+      description: refs/heads/main or refs/tags/<tag>; anything else is refused by sync.sh
+  volumes:
+    - name: scripts
+      configMap:
+        name: github-sync-scripts
+    - name: work
+      emptyDir: {}
+  steps:
+    - name: read
+      image: curlimages/curl:8.11.1
+      env:
+        - name: GITEA_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: gitea-bootstrap
+              key: gitea_admin_token
+              optional: true
+      volumeMounts:
+        - name: scripts
+          mountPath: /scripts
+          readOnly: true
+        - name: work
+          mountPath: /work
+      command: ["/bin/sh", "/scripts/read-primaries.sh", "/work/primaries", "$(params.repo)"]
+    - name: sync
+      image: alpine/git:2.45.2
+      env:
+        - name: GITEA_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: gitea-bootstrap
+              key: gitea_admin_token
+              optional: true
+        - name: GITHUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: github-sync
+              key: token
+              optional: true
+      volumeMounts:
+        - name: scripts
+          mountPath: /scripts
+          readOnly: true
+        - name: work
+          mountPath: /work
+      command: ["/bin/sh", "/scripts/sync.sh", "/work/primaries", "$(params.ref)"]
