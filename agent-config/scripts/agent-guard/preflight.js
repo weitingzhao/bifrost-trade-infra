@@ -73,7 +73,7 @@ const isRead = cmd => READ_PREFIX.test(cmd)
 
 /** 命令是在写文件（heredoc / 重定向），其正文属数据而非待执行命令。 */
 const isFileWrite = cmd =>
-  /<<-?\s*['"]?\w+['"]?/.test(cmd) || /^\s*(cat|printf|echo|tee)\b[^|;&]*>/.test(cmd)
+  /(?<!<)<<(?!<)-?\s*['"]?\w+['"]?/.test(cmd) || /^\s*(cat|printf|echo|tee)\b[^|;&]*>/.test(cmd)
 
 const GUARD_FILES = /daemon-scale-zero\.patch\.yaml|daemon-observe-safe\.patch\.yaml/
 
@@ -297,8 +297,11 @@ function sharedWorktreeRules(cmd) {
  * （复核 244 A3：`-C '/tmp/review checkout'` 这样带引号、带空格的参数要整个认出来）。认单引号、双引号
  * （里面认 \" \\ \$ \` 和续行）、引号外的反斜杠和词首的 # 注释。重定向（> >> < << <<< <> >& <& >| &> &>>，
  * 前面紧挨着的纯数字或 {名字} 是文件描述符）连同它的目标从词里拿掉：shell 不把它们交给命令（复核 245 A：
- * `git 2>/tmp/x push …` 里 push 才是子命令）。不做展开：词里留着 $ 和 `，用的地方见到就当作看不出。
- * 词首没被引号括住的 ~ 记在 tilde 上（shell 会把它换成 HOME）。引号没收尾、重定向没有目标时 ok 为 false。
+ * `git 2>/tmp/x push …` 里 push 才是子命令）。heredoc（<< 或 <<- 加定界词）的正文是数据，不是命令：
+ * 从那一行之后到只写着定界词的那一行（<<- 允许前面有 Tab）整段跳过，没有收尾就到结尾（复核 247 的探测：
+ * 规则过去见到 heredoc 就整条不看，后面的 git push 跟着漏掉）；<<< 是 here-string，后面一个词是它的内容。
+ * 不做展开：词里留着 $ 和 `，用的地方见到就当作看不出。词首没被引号括住的 ~ 记在 tilde 上（shell 会把它
+ * 换成 HOME）。引号没收尾、重定向没有目标时 ok 为 false。
  */
 const REDIRECT_OPS = ['&>>', '&>', '<<<', '<<-', '<<', '<>', '<&', '<', '>>', '>&', '>|', '>']
 
@@ -309,10 +312,15 @@ function shellCommands(cmd) {
   let word = null
   let ok = true
   let target = false // 下一个词是重定向的目标，不是参数
+  let delimiter = null // 这个目标是 heredoc 的定界词：{ dash }
+  const heredocs = [] // 这一行里等着正文的 heredoc，按出现的先后
   const endWord = () => {
     if (word !== null) {
-      if (target) target = false
-      else words.push(word)
+      if (target) {
+        target = false
+        if (delimiter) heredocs.push({ word: word.text, dash: delimiter.dash })
+        delimiter = null
+      } else words.push(word)
     }
     word = null
   }
@@ -369,9 +377,20 @@ function shellCommands(cmd) {
       const op = REDIRECT_OPS.find(o => s.startsWith(o, i))
       i += op.length - 1
       target = true
+      delimiter = op === '<<' || op === '<<-' ? { dash: op === '<<-' } : null
     } else if (c === ' ' || c === '\t' || c === '\r') {
       endWord()
-    } else if ('\n;&|()'.includes(c)) {
+    } else if (c === '\n') {
+      endCommand()
+      // 这一行的 heredoc 正文：逐行跳过，直到各自的定界词那一行
+      while (heredocs.length > 0 && i < s.length) {
+        const nl = s.indexOf('\n', i + 1)
+        const line = s.slice(i + 1, nl === -1 ? s.length : nl)
+        const { word: end, dash } = heredocs[0]
+        if ((dash ? line.replace(/^\t+/, '') : line) === end) heredocs.shift()
+        i = nl === -1 ? s.length : nl
+      }
+    } else if (';&|()'.includes(c)) {
       endCommand()
     } else if (c === '#' && word === null) {
       const nl = s.indexOf('\n', i)
@@ -485,9 +504,11 @@ function pushTarget(tokens) {
 }
 
 function pushMainRule(cmd) {
-  if (isRead(cmd) || isFileWrite(cmd)) return null
-  // 文本匹配认得出包在引号里的 push（sh -c "git push …"），shell 分词认得出带引号、带空格的 -C；两边都查
-  for (const tokens of [...gitPushes(cmd), ...tokenizedPushes(cmd)]) {
+  // 文本匹配认得出包在引号里的 push（sh -c "git push …"），但会把读、写文件命令里的文字当成命令，所以只在
+  // 不是读写时用；shell 分词只认命令位置上的 git push、heredoc 正文已去掉，每条命令都看（复核 247 的探测：
+  // 过去 `git status && git push …`、heredoc 后面一行的 push 整条不看）
+  const textual = isRead(cmd) || isFileWrite(cmd) ? [] : gitPushes(cmd)
+  for (const tokens of [...textual, ...tokenizedPushes(cmd)]) {
     const target = pushTarget(tokens)
     if (target === 'main') {
       return '直接 `git push` 到 main 不经过 CI 的 code-health 棘轮 —— 用 `bifrost-trade-infra/scripts/release/push-main.sh <checkout> [<commit>]`'
@@ -603,6 +624,14 @@ function gitRun(args, cwd) {
  */
 function effectivePushUrls(dest, globals, cwd) {
   const probe = 'preflight-' + require('node:crypto').randomBytes(8).toString('hex')
+  // remote -v 一行一个地址：配置里有哪个地址或改写值带换行、Tab，它的记录就可能被拼成假的（复核 247 的探测），
+  // 这时看不出（地址和改写值用 --null 读，带换行也读得出）
+  const raw = gitRun([...globals, '-c', `remote.${probe}.url=${dest}`, 'config', '--null', '--get-regexp',
+    '^(remote\\..*\\.(url|pushurl)|url\\..*\\.(insteadof|pushinsteadof))$'], cwd)
+  if (raw.status !== 0 && raw.status !== 1) return null
+  for (const entry of raw.out.split('\0').filter(Boolean)) {
+    if (/[\n\t]/.test(entry.slice(entry.indexOf('\n') + 1))) return null
+  }
   const listing = gitRun([...globals, '-c', `remote.${probe}.url=${dest}`, 'remote', '-v'], cwd)
   if (listing.status !== 0) return null
   const lines = listing.out.split('\n')
@@ -636,17 +665,21 @@ function resolvedGlobals(words) {
 
 /** 命令词不是 git 的简单命令里包着 git push：git 是参数（xargs git push、sudo git push），或某个词本身是一段含 git push 的命令（bash -c '…'、eval "…"）。 */
 function wrapsGitPush(words) {
+  if (QUOTES_ONLY.has(commandWord(words))) return false
   const k = words.findIndex(w => IS_GIT.test(w.text))
   if (k !== -1 && words.slice(k + 1).some(w => w.text === 'push')) return true
   return words.some(w => /\s/.test(w.text) && /\bgit\b[\s\S]*\bpush\b/.test(w.text))
 }
 
+// 只读、只打印参数的命令：参数里写着 git push 是文字，不会被执行
+const QUOTES_ONLY = new Set(['echo', 'printf', 'cat', 'grep', 'egrep', 'fgrep', 'rg', 'head', 'tail', 'wc', 'less', 'more', 'test', '[', 'true', 'false', ':'])
+
 // 换掉 git 读哪份配置、在哪个仓库、用什么连接的环境变量（复核 243 A3 的 GIT_CONFIG_* 同类）
+// 按词看（heredoc 正文已去掉）：赋值词、export / env / unset 的参数、git 的 --config-env
 const GIT_ENV_OVERRIDE =
-  /\bGIT_CONFIG_(COUNT|KEY|VALUE|PARAMETERS)\b|(?:^|[\s;|&(])(?:GIT_(?:CONFIG\w*|DIR|WORK_TREE|NAMESPACE|SSH|SSH_COMMAND)|HOME|XDG_CONFIG_HOME)=|--config-env\b/
+  /\bGIT_CONFIG_(COUNT|KEY|VALUE|PARAMETERS)\b|^(?:GIT_(?:CONFIG\w*|DIR|WORK_TREE|NAMESPACE|SSH|SSH_COMMAND)|HOME|XDG_CONFIG_HOME)=|^--config-env\b/
 
 function githubPushRule(cmd, cwd) {
-  if (isRead(cmd) || isFileWrite(cmd)) return null
   if (!/\bgit\b/.test(cmd) || !/\bpush\b/.test(cmd)) return null
   const primaries = giteaPrimaries()
   const listed = primaries.size > 0
@@ -655,14 +688,17 @@ function githubPushRule(cmd, cwd) {
   const unclear = why =>
     `看不出这次 git push 推到哪里（${why}）。有仓库以 Gitea 为主时要能查到：写成 \`git -C <检出目录> push <远端> <refspec>\``
   const githubRemote = '`github` 远端只读：以 Gitea 为主的仓库推 Gitea（origin），GitHub 由集群同步（k8s/cicd/github-sync）'
-  // 名单空着也拦 github 远端：文本匹配认得出包在引号里的（sh -c "git push github …"），下面的分词认不出
-  for (const tokens of gitPushes(cmd)) {
-    if (pushDestinations(tokens).includes('github')) return githubRemote
-  }
-  if (listed && GIT_ENV_OVERRIDE.test(cmd)) {
-    return '有仓库以 Gitea 为主时，不在命令行上换 git 的配置、仓库或连接（GIT_CONFIG_*、GIT_DIR、HOME、--config-env…）再推送：看不出推到哪里'
+  // 名单空着也拦 github 远端：文本匹配认得出包在引号里的（sh -c "git push github …"），下面的分词认不出；
+  // 文本匹配只在不是读、写文件的命令上用（同 pushMainRule）
+  if (!(isRead(cmd) || isFileWrite(cmd))) {
+    for (const tokens of gitPushes(cmd)) {
+      if (pushDestinations(tokens).includes('github')) return githubRemote
+    }
   }
   const { commands, ok } = shellCommands(cmd)
+  if (listed && commands.some(words => words.some(w => GIT_ENV_OVERRIDE.test(w.text)))) {
+    return '有仓库以 Gitea 为主时，不在命令行上换 git 的配置、仓库或连接（GIT_CONFIG_*、GIT_DIR、HOME、--config-env…）再推送：看不出推到哪里'
+  }
   if (!ok && listed) return unclear('引号没收尾')
   let movedDir = false
   for (const words of commands) {

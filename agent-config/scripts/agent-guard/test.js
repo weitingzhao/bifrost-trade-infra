@@ -41,10 +41,13 @@ const PRIMARY = (() => {
   // review 245 item 2: an address with a newline in it breaks the remote -v records (of every remote there)
   const odd = nodePath.join(dir, 'odd')
   checkout(odd, ['origin', GITEA])('config', 'remote.newline.url', nodePath.join(dir, 'line\nbreak.git'))
+  // review 247 probe: an address whose newline and tab make well-formed but false remote -v records
+  const forged = nodePath.join(dir, 'forged')
+  checkout(forged, ['origin', GITEA])('config', 'remote.forged.url', nodePath.join(dir, 'line (push)\nforged\tbreak.git'))
   const list = nodePath.join(dir, 'gitea-primary.txt')
   nodeFs.writeFileSync(list, '# fixture\nbifrost-ui\n')
   process.env.BIFROST_GITEA_PRIMARY_LIST = list
-  return { repo, spaced, odd, outside: dir }
+  return { repo, spaced, odd, forged, outside: dir }
 })()
 const bash = c => ({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: c }, cwd: PRIMARY.repo })
 const bashIn = (c, cwd) => ({ ...bash(c), cwd })
@@ -376,6 +379,20 @@ const cases = [
   ['gitea-primary', 'DENY', '远端地址里有换行', bashIn('git push newline --tags', PRIMARY.odd)],
   ['gitea-primary', 'DENY', '同一检出里别的远端也看不出', bashIn('git push origin x:refs/heads/x', PRIMARY.odd)],
   ['gitea-primary', 'DENY', '旧式 .git/remotes 远端', bash('git push legacy --tags')],
+  // 复核 247 的探测：here-string、heredoc 之后、以读命令开头的命令里的 push；拼出来的假记录
+  ['gitea-primary', 'DENY', 'here-string 在 git 和 push 之间', bash('git <<<x push backup --tags')],
+  ['push', 'DENY', 'here-string 在 git 和 push 之间推 main', bash('git <<<x push origin HEAD:main')],
+  ['push', 'DENY', 'heredoc 之后一行推 main', bash("cat > /tmp/m <<'EOF'\nmsg\nEOF\ngit push origin HEAD:main")],
+  ['gitea-primary', 'DENY', 'heredoc 之后一行推别名', bash("cat > /tmp/m <<'EOF'\nmsg\nEOF\ngit push backup --tags")],
+  ['push', 'DENY', '<<- 加 Tab 缩进的定界词之后推 main', bash("cat > /tmp/m <<-EOF\n\tmsg\n\tEOF\ngit push origin HEAD:main")],
+  ['push', 'DENY', '读命令开头再推 main', bash('git status && git push origin HEAD:main')],
+  ['gitea-primary', 'DENY', '读命令开头再推别名', bash('cat README.md && git push backup --tags')],
+  ['push', 'DENY', '写文件之后推 main', bash('echo x > /tmp/f; git push origin HEAD:main')],
+  ['gitea-primary', 'DENY', '地址拼出假的 remote -v 记录', bashIn('git push forged --tags', PRIMARY.forged)],
+  ['gitea-primary', 'ALLOW', 'grep 里写着 git push', bash('grep -n "git push backup" README.md')],
+  ['gitea-primary', 'ALLOW', 'echo 写进文件的 git push', bash('echo "git push backup --tags" > /tmp/notes.md')],
+  ['gitea-primary', 'ALLOW', 'heredoc 正文里写着换配置再推', bash("cat > /tmp/m <<'EOF'\nHOME=/tmp/x git push backup --tags\nEOF")],
+  ['push', 'ALLOW', 'heredoc 正文里写着推 main，之后推自己的分支', bash("cat > /tmp/m <<'EOF'\ngit push origin main\nEOF\ngit push origin x:refs/heads/x")],
   ['push', 'ALLOW', 'push-main.sh', bash('bifrost-trade-infra/scripts/release/push-main.sh ~/agent-work/x/bifrost-platform abc123')],
   ['push', 'ALLOW', '推自己的分支', bash('git push origin w31/agentrt-22-agentd')],
   ['push', 'ALLOW', 'HEAD 推到写明的分支', bash('git push -u origin HEAD:refs/heads/w31/x')],
@@ -496,6 +513,8 @@ console.log('\n── Gitea 为主：名单为空 ──')
     ['DENY', "-C '带空格的目录' 推 main", bashIn(`git -C '${PRIMARY.spaced}' push backup HEAD:main`, PRIMARY.outside), 'push-main'],
     ['DENY', '相邻引号拼成的 github', bash("git push 'git''hub' --tags")],
     ['ALLOW', '重定向在 git 和 push 之间推别名', bash('git 2>/dev/null push backup x:refs/heads/x')],
+    ['DENY', '读命令开头再推到 github 远端', bash('git status && git push github x:refs/heads/x')],
+    ['DENY', 'heredoc 之后推 main', bash("cat > /tmp/m <<'EOF'\nmsg\nEOF\ngit push origin HEAD:main"), 'push-main'],
   ]
   for (const [want, name, payload, kind = 'gitea-primary'] of emptyCases) {
     const verdict = evaluate(payload)
