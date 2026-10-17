@@ -19,15 +19,12 @@ tokens:
   - name: trade-satellite
     role: operator
     token_env: PLATFORM_SATELLITE_AUDIT_TOKEN
-  # W-31 2.2b (the first slice on PROD, Owner 2026-10-15): the agentd on the dev
-  # Mac; the platform binds the token to host mbp-dev by this name. Its own
-  # token, not STG's. Empty until the Owner adds the key.
-  - name: agentd:mbp-dev
-    role: agentd
-    token_env: PLATFORM_PROD_AGENTD_MBP_DEV_TOKEN
+  # agentd:mbp-dev (the dev Mac) was removed on 2026-10-17 (Owner 「清理 PROD 的
+  # mbp-dev」) when the Mac agentd retired and agent-06 took over (W-31 2.3);
+  # its key in the Secret bifrost-platform-role-tokens is the Owner's to delete.
   # W-31 2.3 (Owner 2026-10-17): the PROD agentd on the agent host ubt-k3s-06
-  # (out of the cluster), user bifrost-agentd; bound to host agent-06. It takes
-  # over from agentd:mbp-dev, which goes once the cutover is done.
+  # (out of the cluster), user bifrost-agentd; bound to host agent-06. It took
+  # over from agentd:mbp-dev on 2026-10-17.
   - name: agentd:agent-06
     role: agentd
     token_env: PLATFORM_PROD_AGENTD_AGENT_06_TOKEN
