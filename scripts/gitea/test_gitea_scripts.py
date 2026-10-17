@@ -871,11 +871,11 @@ esac
 
 
 class RotateAdminToken(unittest.TestCase):
-    """rotate-admin-token.sh against a fake kubectl keeping both Secrets in files and a fake Gitea /user."""
+    """rotate-admin-token.sh in the tests' mode: a fake kubectl keeping both Secrets in files (with resourceVersions),
+    a fake Gitea that knows which user and which rights each token has, and a repository of its own whose
+    leaked file holds a fixture token (the real leaked token is never used)."""
 
-    OLD = "1" * 40
-    NEW = "2" * 40
-    OTHER = "3" * 40
+    OLD, NEW, NEW2, OTHER, NOREPO, READONLY, PLAIN, FORGED = (c * 40 for c in "12345678")
 
     def setUp(self) -> None:
         import base64
@@ -886,22 +886,58 @@ class RotateAdminToken(unittest.TestCase):
         self.store.mkdir()
         self.bin = self.root / "bin"
         self.bin.mkdir()
-        self.users = {self.OLD: "weitingzhao", self.NEW: "weitingzhao", self.OTHER: "someone-else"}
+        everything = {"read", "write"}
+        self.tokens = {
+            self.OLD: ("weitingzhao", True, everything), self.NEW: ("weitingzhao", True, everything),
+            self.NEW2: ("weitingzhao", True, everything), self.OTHER: ("someone-else", True, everything),
+            self.NOREPO: ("weitingzhao", True, set()), self.READONLY: ("weitingzhao", True, {"read"}),
+            self.PLAIN: ("plain", False, everything), "a" * 40: ("ci", False, {"read"}),
+        }
+        self.seen: list[str] = []
         self.write_secret("gitea-bootstrap", {"gitea_admin_token": self.OLD})
         self.write_secret("gitea-git-credentials", {"username": "weitingzhao", "password": self.OLD})
         self.kubectl()
+        # a repository whose history leaked the fixture token twice
+        self.infra = self.root / "infra"
+        (self.infra / "k8s" / "cicd" / "gitea").mkdir(parents=True)
+        git(self.infra, "init", "-q")
+        leaked = self.infra / "k8s" / "cicd" / "gitea" / "secret.yaml"
+        leaked.write_text(f'stringData:\n  gitea_admin_token: "{self.OLD}"\n---\nstringData:\n  password: "{self.OLD}"\n')
+        git(self.infra, "add", "k8s/cicd/gitea/secret.yaml")
+        git(self.infra, "commit", "-q", "-m", "leak")
+        self.commit = git(self.infra, "rev-parse", "HEAD")
+        self.blob = git(self.infra, "rev-parse", "HEAD:k8s/cicd/gitea/secret.yaml")
         outer = self
 
         class H(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
+            def _go(self) -> None:
+                n = int(self.headers.get("Content-Length") or 0)
+                if n:
+                    self.rfile.read(n)
                 token = (self.headers.get("Authorization") or "").removeprefix("token ")
-                login = outer.users.get(token) if self.path == "/api/v1/user" else None
-                code, body = (200, {"login": login}) if login else (401, {"message": "token is required"})
-                data = json.dumps(body).encode()
+                outer.seen.append(token)
+                who = outer.tokens.get(token)
+                code, body = 401, {"message": "token is required"}
+                if who:
+                    login, admin, rights = who
+                    path = self.path.split("?")[0]
+                    if path == "/api/v1/user":
+                        code, body = 200, {"login": login, "is_admin": admin}
+                    elif self.command == "GET" and path == "/api/v1/orgs/bifrost/repos":
+                        code, body = (200, [{"name": "r", "mirror": True}]) if "read" in rights else (403, {})
+                    elif self.command == "GET" and path == "/api/v1/repos/bifrost/r/branches":
+                        code, body = (200, []) if "read" in rights else (403, {})
+                    elif self.command == "POST" and path == "/api/v1/repos/bifrost/r/mirror-sync":
+                        code, body = (200, None) if "write" in rights else (403, {})
+                    else:
+                        code, body = 404, {}
+                data = b"" if body is None else json.dumps(body).encode()
                 self.send_response(code)
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
+
+            do_GET = do_POST = _go
 
             def log_message(self, *a) -> None:
                 pass
@@ -914,14 +950,15 @@ class RotateAdminToken(unittest.TestCase):
         self.server.server_close()
         self.tmp.cleanup()
 
-    def write_secret(self, name: str, values: dict) -> None:
-        (self.store / f"{name}.json").write_text(json.dumps({"data": {k: self.b64(v) for k, v in values.items()}}))
+    def write_secret(self, name: str, values: dict, rv: str = "100") -> None:
+        doc = {"metadata": {"name": name, "resourceVersion": rv}, "data": {k: self.b64(v) for k, v in values.items()}}
+        (self.store / f"{name}.json").write_text(json.dumps(doc))
 
     def secret(self, name: str, key: str) -> str:
         import base64
         return base64.b64decode(json.loads((self.store / f"{name}.json").read_text())["data"][key]).decode()
 
-    def kubectl(self, failing_patch: str = "") -> None:
+    def kubectl(self) -> None:
         k = self.bin / "kubectl"
         k.write_text(f"""#!/bin/bash
 store="{self.store}"
@@ -929,91 +966,162 @@ case "$*" in
   *"get secret "*) name="${{@: -3:1}}"; cat "$store/$name.json" ;;
   *"patch secret "*)
     name="$5"
-    [[ "$name" == "{failing_patch}" ]] && exit 1
+    [[ "$name" == "${{FAKE_FAIL_PATCH:-}}" ]] && exit 1
     python3 -c '
-import base64, json, sys
-path = sys.argv[1]
+import base64, json, os, sys
+path, name = sys.argv[1], sys.argv[2]
 secret = json.load(open(path))
-for k, v in json.load(sys.stdin)["stringData"].items():
+if os.environ.get("FAKE_BUMP_BEFORE_PATCH") == name:
+    secret["metadata"]["resourceVersion"] = str(int(secret["metadata"]["resourceVersion"]) + 1)
+patch = json.load(sys.stdin)
+if patch["metadata"]["resourceVersion"] != secret["metadata"]["resourceVersion"]:
+    json.dump(secret, open(path, "w"))
+    sys.exit("conflict")
+for k, v in patch["stringData"].items():
     secret["data"][k] = base64.b64encode(v.encode()).decode()
+secret["metadata"]["resourceVersion"] = str(int(secret["metadata"]["resourceVersion"]) + 1)
 json.dump(secret, open(path, "w"))
-' "$store/$name.json" ;;
+' "$store/$name.json" "$name" ;;
   *) exit 2 ;;
 esac
 """)
         k.chmod(0o755)
 
-    def run_it(self, *args: str, typed: str = "", bash: tuple[str, ...] = ()) -> subprocess.CompletedProcess:
+    def run_it(self, *args: str, typed: str = "", bash: tuple[str, ...] = (), extra: dict | None = None,
+               test_mode: bool = True) -> subprocess.CompletedProcess:
         env = {**os.environ, "HOME": str(self.root), "PATH": f"{self.bin}:{os.environ['PATH']}",
-               "GITEA_API": f"http://127.0.0.1:{self.server.server_address[1]}/api/v1", "GITEA_GIT_BASE": "http://127.0.0.1:9"}
-        env.pop("GITEA_TOKEN", None)
+               "GITEA_API": f"http://127.0.0.1:{self.server.server_address[1]}/api/v1", "GITEA_GIT_BASE": "http://127.0.0.1:9",
+               **({"ROTATE_TEST_MODE": "1", "ROTATE_TEST_INFRA": str(self.infra), "ROTATE_TEST_LEAKED_COMMIT": self.commit,
+                   "ROTATE_TEST_LEAKED_BLOB": self.blob} if test_mode else {}), **(extra or {})}
+        for key in ("GITEA_TOKEN", "FAKE_FAIL_PATCH", "FAKE_BUMP_BEFORE_PATCH"):
+            if key not in (extra or {}):
+                env.pop(key, None)
         return subprocess.run(["bash", *bash, str(HERE / "rotate-admin-token.sh"), *args], env=env, input=typed + "\n",
                               capture_output=True, text=True, timeout=60)
 
     def no_token_in(self, r: subprocess.CompletedProcess) -> None:
-        for token in (self.OLD, self.NEW, self.OTHER):
+        for token in self.tokens:
             self.assertNotIn(token, r.stdout + r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
+
+    def both(self) -> tuple[str, str]:
+        return self.secret("gitea-bootstrap", "gitea_admin_token"), self.secret("gitea-git-credentials", "password")
 
     def test_check_says_who_and_whether_the_clone_password_is_the_same(self) -> None:
         r = self.run_it("check")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("gitea_admin_token: user weitingzhao", r.stdout)
+        self.assertIn("gitea_admin_token: admin weitingzhao", r.stdout)
         self.assertIn("THE SAME token", r.stdout)
         self.no_token_in(r)
 
     def test_rotate_puts_the_new_token_in_both_places(self) -> None:
         r = self.run_it("rotate", typed=self.NEW)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(self.secret("gitea-bootstrap", "gitea_admin_token"), self.NEW)
-        self.assertEqual(self.secret("gitea-git-credentials", "password"), self.NEW)
+        self.assertEqual(self.both(), (self.NEW, self.NEW))
         self.assertEqual(self.secret("gitea-git-credentials", "username"), "weitingzhao")
         self.assertIn("rotated", r.stdout)
         self.no_token_in(r)
 
-    def test_a_different_clone_password_is_left_alone(self) -> None:
-        self.users["4" * 40] = "ci"
-        self.write_secret("gitea-git-credentials", {"username": "ci", "password": "4" * 40})
+    def test_another_users_clone_password_is_left_alone(self) -> None:
+        self.write_secret("gitea-git-credentials", {"username": "ci", "password": "a" * 40})
         r = self.run_it("rotate", typed=self.NEW)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(self.secret("gitea-bootstrap", "gitea_admin_token"), self.NEW)
-        self.assertEqual(self.secret("gitea-git-credentials", "password"), "4" * 40)
-        self.assertIn("not changed (it was a different token)", r.stdout)
+        self.assertEqual(self.both(), (self.NEW, "a" * 40))
+        self.assertIn("another token (not the leaked one)", r.stdout)
 
+    # review 256 A2: the new token is tried for what it is used for before anything is written
     def test_a_token_that_does_not_pass_changes_nothing(self) -> None:
-        for typed, words in (("not-a-token", "40 hex"), (self.OLD, "current admin token"), (self.OTHER, "logs in as user someone-else"),
-                             ("5" * 40, "logs in as HTTP 401")):
+        for typed, words in (("not-a-token", "40 hex"), (self.OLD, "the leaked token"), (self.OTHER, "logs in as admin someone-else"),
+                             ("9" * 40, "logs in as HTTP 401"), (self.PLAIN, "logs in as user plain"),
+                             (self.NOREPO, "cannot list the repositories"), (self.READONLY, "cannot ask bifrost/r to fetch")):
             r = self.run_it("rotate", typed=typed)
             self.assertEqual(r.returncode, 1, typed + r.stdout + r.stderr)
             self.assertIn(words, r.stderr)
-            self.assertEqual(self.secret("gitea-bootstrap", "gitea_admin_token"), self.OLD)
-            self.assertEqual(self.secret("gitea-git-credentials", "password"), self.OLD)
+            self.assertEqual(self.both(), (self.OLD, self.OLD))
             self.no_token_in(r)
 
-    def test_a_failed_second_write_says_so(self) -> None:
-        self.kubectl(failing_patch="gitea-git-credentials")
-        r = self.run_it("rotate", typed=self.NEW)
+    # review 256 A1: a half-done rotation is finished by running rotate again, with the same or another token
+    def test_a_failed_second_write_is_finished_by_running_again(self) -> None:
+        r = self.run_it("rotate", typed=self.NEW, extra={"FAKE_FAIL_PATCH": "gitea-bootstrap"})
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertIn("do not revoke the old one yet", r.stderr)
+        self.assertIn("run rotate again", r.stderr)
+        self.assertEqual(self.both(), (self.OLD, self.NEW))  # the clone first: it is on a working token
+        r = self.run_it("rotate", typed=self.NEW)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.both(), (self.NEW, self.NEW))
+
+    def test_a_failed_second_write_finished_with_another_token(self) -> None:
+        self.run_it("rotate", typed=self.NEW, extra={"FAKE_FAIL_PATCH": "gitea-bootstrap"})
+        r = self.run_it("rotate", typed=self.NEW2)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        admin, clone = self.both()
+        self.assertEqual(admin, self.NEW2)
+        self.assertNotEqual(clone, self.OLD)
+
+    def test_only_the_admin_secret_changed_before_is_finished(self) -> None:
+        # what the earlier one-line command of section 0 would have left
+        self.write_secret("gitea-bootstrap", {"gitea_admin_token": self.NEW})
+        r = self.run_it("rotate", typed=self.NEW)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.both(), (self.NEW, self.NEW))
+
+    # review 256 B3: values as stored; whitespace around the leaked token is still the leaked token
+    def test_a_clone_password_with_a_newline_is_rewritten_clean(self) -> None:
+        self.write_secret("gitea-git-credentials", {"username": "weitingzhao", "password": self.OLD + "\n"})
+        r = self.run_it("rotate", typed=self.NEW)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.both(), (self.NEW, self.NEW))
+
+    # review 256 B4: a value that is not a clean token is reported, not sent, and shows no traceback
+    def test_an_unclean_value_is_not_sent(self) -> None:
+        self.write_secret("gitea-git-credentials", {"username": "weitingzhao", "password": self.OLD + "\nx"})
+        self.seen.clear()
+        r = self.run_it("check")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("password:    not a clean token", r.stdout)
+        self.assertNotIn(self.OLD + "\nx", self.seen)
         self.no_token_in(r)
+
+    # review 256 B5: a Secret changed since it was read is not overwritten
+    def test_a_secret_changed_meanwhile_is_not_overwritten(self) -> None:
+        r = self.run_it("rotate", typed=self.NEW, extra={"FAKE_BUMP_BEFORE_PATCH": "gitea-git-credentials"})
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("changed since it was read", r.stderr)
+        self.assertEqual(self.both(), (self.OLD, self.OLD))
+
+    # review 256 B6: a replacement object for the leaked file is not what revoked checks
+    def test_revoked_reads_the_pinned_leaked_file(self) -> None:
+        text = f'stringData:\n  gitea_admin_token: "{self.FORGED}"\n'
+        forged = subprocess.run(["git", "-C", str(self.infra), "hash-object", "-w", "--stdin"], input=text, capture_output=True, text=True, check=True).stdout.strip()
+        git(self.infra, "replace", self.blob, forged)
+        self.assertEqual(self.run_it("rotate", typed=self.NEW).returncode, 0)
+        del self.tokens[self.OLD]  # the Owner revoked it
+        self.seen.clear()
+        r = self.run_it("revoked")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(self.OLD, self.seen)
+        self.assertNotIn(self.FORGED, self.seen)
+        self.assertIn("(refused, as it should be)", r.stdout)
+
+    def test_revoked_fails_while_the_leaked_token_is_accepted(self) -> None:
+        self.assertEqual(self.run_it("rotate", typed=self.NEW).returncode, 0)
+        r = self.run_it("revoked")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("STILL ACCEPTED", r.stdout)
+        self.no_token_in(r)
+
+    # review 256 B7: outside the tests' mode an address given in the environment is not used
+    def test_outside_the_tests_mode_gitea_is_only_reached_through_the_port_forward(self) -> None:
+        self.seen.clear()
+        r = self.run_it("check", test_mode=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("port-forward", r.stderr)
+        self.assertEqual(self.seen, [])
 
     def test_xtrace_does_not_print_a_token(self) -> None:
         r = self.run_it("rotate", typed=self.NEW, bash=("-x",))
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.no_token_in(r)
-
-    def test_revoked_wants_the_history_refused_and_the_secrets_accepted(self) -> None:
-        # the fake Gitea knows neither token from the history, so both are refused
-        self.assertEqual(self.run_it("rotate", typed=self.NEW).returncode, 0)
-        r = self.run_it("revoked")
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        # the admin token and the clone password in the history are one value
-        self.assertGreaterEqual(r.stdout.count("(refused, as it should be)"), 1, r.stdout)
-        self.assertNotIn("STILL ACCEPTED", r.stdout)
-        self.assertIn("gitea-git-credentials: user weitingzhao", r.stdout)
-        # a Secret whose token no longer logs in fails it
-        self.write_secret("gitea-git-credentials", {"username": "weitingzhao", "password": "6" * 40})
-        r = self.run_it("revoked")
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
 
 if __name__ == "__main__":
     unittest.main()
