@@ -278,16 +278,23 @@ for c in claude cursor-agent; do
   v=$(as "$prod" ".local/bin/$c --version 2>/dev/null | head -1") && [ -n "$v" ] && ok "$prod $c $v" || fail "$prod $c does not run"
 done
 echo "-- codex: one root-owned copy under /opt/bifrost/codex, allowed user namespaces by AppArmor (bifrost-codex)"
-[ "$(stat -c '%U' /opt/bifrost/codex 2>/dev/null)" = root ] && ok "/opt/bifrost/codex is owned by root" || fail "/opt/bifrost/codex is missing or not owned by root"
-w=$(find /opt/bifrost/codex \( -perm -g+w -o -perm -o+w \) -print -quit 2>/dev/null)
+for d in /opt /opt/bifrost /opt/bifrost/codex; do
+  m=$(stat -c '%U %A' "$d" 2>/dev/null)
+  case "$m" in root\ d????-??-?) ok "$d $m" ;; *) fail "$d is ${m:-missing} (want root, not writable by group or others)" ;; esac
+done
+o=$(find /opt/bifrost/codex ! -user root -print -quit 2>/dev/null)
+[ -z "$o" ] && ok "everything under /opt/bifrost/codex is owned by root" || fail "not owned by root: $o"
+# Symbolic links always show 0777; their mode means nothing, where they point does.
+w=$(find /opt/bifrost/codex ! -type l \( -perm -g+w -o -perm -o+w \) -print -quit 2>/dev/null)
 [ -z "$w" ] && ok "nothing under /opt/bifrost/codex is writable by group or others" || fail "writable by group or others: $w"
+l=$(find /opt/bifrost/codex -type l | while read -r f; do t=$(readlink -f "$f"); case "$t" in (/opt/bifrost/codex/*) ;; (*) echo "$f -> $t" ;; esac; done | head -1)
+[ -z "$l" ] && ok "every link under /opt/bifrost/codex points inside it" || fail "a link points outside: $l"
 grep -q '^bifrost-codex ' /sys/kernel/security/apparmor/profiles 2>/dev/null && ok "AppArmor profile bifrost-codex loaded" || fail "AppArmor profile bifrost-codex not loaded"
 for u in "$prod" "$stg"; do
   p=$(as "$u" 'command -v codex')
   [ "$p" = /opt/bifrost/codex/bin/codex ] && ok "$u codex is /opt/bifrost/codex/bin/codex ($(as "$u" 'codex --version 2>/dev/null'))" || fail "$u codex on PATH is ${p:-missing}"
   [ ! -e "/home/$u/.local/bin/codex" ] && ok "$u has no codex of its own" || fail "$u has its own ~/.local/bin/codex"
-  # One command in codex's own sandbox, no model.
-  out=$(as "$u" 'codex sandbox -C "$HOME" -- /bin/true' 2>&1) && ok "$u codex sandbox runs a command" || fail "$u codex sandbox: $(printf '%s' "$out" | tail -1 | cut -c1-160)"
+  out=$(bash "$(dirname "$0")/codex-sandbox-probe.sh" "$u" 2>&1) && ok "$out" || fail "$u codex sandbox: $(printf '%s' "$out" | tail -1 | cut -c1-200)"
 done
 
 echo "== vendor logins and MCP (none wanted; counts only)"

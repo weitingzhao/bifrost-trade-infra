@@ -193,7 +193,7 @@ bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-h
 bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh prepare
 ```
 
-（准备脚本最后会以两个用户各在 codex 的沙箱里跑一条 `/bin/true`，跑不起来就停。）
+（准备脚本最后会以两个用户、按 agentd 服务同样的 systemd 隔离条件，各在 codex 的沙箱里跑一条命令，并确认它在自己的网络命名空间里：这正是之前失败的那一步，跑不起来就停。AppArmor 许可只匹配 codex 包里它自己那个目录，不包括包里带的其它工具。）
 
 ```bash
 bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh host-check creds

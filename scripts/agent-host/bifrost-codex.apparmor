@@ -5,8 +5,13 @@
 # sandbox cannot even bring up its loopback interface (2026-10-17, STG walk
 # M-6: "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted").
 #
-# This profile allows user namespaces to the codex binaries under
-# /opt/bifrost/codex and to nothing else. That directory is owned by root and
+# This profile allows user namespaces to the programs in codex's own
+# directory of its package (vendor/<platform>/codex/: the codex binary, which
+# re-executes itself for its sandbox, and anything beside it) under
+# /opt/bifrost/codex, and to nothing else; the other tools the package ships
+# (vendor/<platform>/path/, ripgrep) are not matched (review 235 C1). It
+# allows that binary to create user namespaces whenever it runs, not only for
+# a sandbox codex sets up. That directory is owned by root and
 # not writable by the agent users, so no agent can put another program under
 # this rule. Everything else about these processes stays as it was
 # (unconfined). Installed by prepare-agent-06.sh as
@@ -15,7 +20,7 @@
 abi <abi/4.0>,
 include <tunables/global>
 
-profile bifrost-codex /opt/bifrost/codex/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/** flags=(unconfined) {
+profile bifrost-codex /opt/bifrost/codex/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/*/codex/** flags=(unconfined) {
   userns,
 
   include if exists <local/bifrost-codex>

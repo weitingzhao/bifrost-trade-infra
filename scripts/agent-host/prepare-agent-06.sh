@@ -134,6 +134,8 @@ else
   ln -sfn "/usr/local/lib/nodejs/${node_file%.tar.xz}" /usr/local/lib/nodejs/current
 fi
 /usr/local/lib/nodejs/current/bin/node -v
+# npm's command wrappers (codex's among them) start with `#!/usr/bin/env node`.
+export PATH="/usr/local/lib/nodejs/current/bin:$PATH"
 
 # as <user> <command>: run one command string as that user, in its home, with
 # only its own environment (none of root's or sudo's), stopping at the first
@@ -153,13 +155,16 @@ done
 step "codex $codex_version under $codex_prefix (root-owned) and the AppArmor rule for its sandbox"
 if [ "$("$codex_prefix/bin/codex" --version 2> /dev/null || true)" != "codex-cli $codex_version" ]; then
   install -d -m 755 /opt/bifrost "$codex_prefix"
-  PATH="/usr/local/lib/nodejs/current/bin:$PATH" npm install -g --prefix "$codex_prefix" --ignore-scripts --no-audit --no-fund "@openai/codex@$codex_version"
+  npm install -g --prefix "$codex_prefix" --ignore-scripts --no-audit --no-fund "@openai/codex@$codex_version"
 fi
 chown -R root:root "$codex_prefix"
 chmod -R go-w "$codex_prefix"
 [ "$("$codex_prefix/bin/codex" --version)" = "codex-cli $codex_version" ] || die "codex under $codex_prefix is not $codex_version"
-[ -d "$codex_prefix/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor" ] ||
-  die "codex's Linux binaries are not where bifrost-codex.apparmor expects them"
+vendor=$codex_prefix/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor
+if [ ! -x "$vendor/x86_64-unknown-linux-musl/codex/codex" ]; then
+  find "$vendor" -maxdepth 3 >&2 || true
+  die "codex's Linux binary is not where bifrost-codex.apparmor expects it (layout above)"
+fi
 install -m 644 "$here/bifrost-codex.apparmor" /etc/apparmor.d/bifrost-codex
 apparmor_parser -r /etc/apparmor.d/bifrost-codex
 grep -q '^bifrost-codex ' /sys/kernel/security/apparmor/profiles || die "the AppArmor profile bifrost-codex did not load"
@@ -168,10 +173,9 @@ grep -q '^bifrost-codex ' /sys/kernel/security/apparmor/profiles || die "the App
 for u in "$prod" "$stg"; do
   as "$u" '[ ! -e .local/lib/node_modules/@openai/codex ] || npm uninstall -g --prefix "$HOME/.local" --no-audit --no-fund @openai/codex'
   as "$u" '[ ! -e .local/bin/codex ]' || die "$u still has its own codex in ~/.local/bin"
-  # One command in codex's own sandbox, no model: it fails with
-  # "RTM_NEWADDR: Operation not permitted" when the rule is not in force.
-  as "$u" "out=\$(codex sandbox -C \"\$HOME\" -- /bin/true 2>&1) || { printf '%s\\n' \"\$out\" >&2; exit 1; }" ||
-    die "$u: codex cannot run a command in its sandbox"
+  # One command in codex's own sandbox, as the user, under its unit's
+  # confinement, in a network namespace of its own; no model.
+  bash "$here/codex-sandbox-probe.sh" "$u" || die "$u: codex cannot run a command in its sandbox"
 done
 
 step "vendor CLIs (as the agent users, through the egress rules)"
