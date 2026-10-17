@@ -781,6 +781,23 @@ esac
         self.assertNotIn("unreviewed", text)
         self.assertIn("bifrost-gitea-mirror-sync", text)
 
+    def test_a_replacement_object_is_not_what_is_applied(self) -> None:
+        # review 251 A1: refs/replace stands a different blob in for the reviewed one
+        copy = self.root / "infra"
+        subprocess.run(["git", "clone", "-q", "--no-hardlinks", str(self.infra), str(copy)], check=True, capture_output=True)
+        (copy / "scripts" / "gitea" / "apply-step0.sh").write_bytes((HERE / "apply-step0.sh").read_bytes())
+        path = "k8s/cicd/tekton/task-gitea-mirror-sync.yaml"
+        reviewed = "1de78f6811f209f766094dd621efa8c00711efe1"
+        g = lambda *a, **k: subprocess.run(["git", "-C", str(copy), *a], check=True, capture_output=True, text=True, **k).stdout.strip()
+        original = g("rev-parse", f"{reviewed}:{path}")
+        text = g("show", f"{reviewed}:{path}").replace("bifrost-gitea-mirror-sync", "unreviewed-task") + "\n"
+        forged = g("hash-object", "-w", "--stdin", input=text)
+        g("replace", original, forged)
+        self.assertIn("unreviewed-task", g("show", f"{reviewed}:{path}"))
+        r = self.run_it("apply", infra=copy)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("unreviewed", self.applied.read_text())
+
     def test_a_failed_dry_run_applies_nothing(self) -> None:
         self.kubectl('[[ "$*" != *--dry-run* ]]')
         r = self.run_it("apply")

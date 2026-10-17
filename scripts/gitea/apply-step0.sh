@@ -16,6 +16,8 @@
 # the Owner's admin kubeconfig; nothing here reads or prints a Secret.
 set -euo pipefail
 export KUBECONFIG="$HOME/.bifrost-owner/kube/admin.yaml"
+# a local refs/replace entry could stand in for a reviewed object (review 251 A1)
+export GIT_NO_REPLACE_OBJECTS=1
 REVIEWED=1de78f6811f209f766094dd621efa8c00711efe1 # 0a and 0e as reviews 243 and 244 left them
 INFRA="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 paths=(
