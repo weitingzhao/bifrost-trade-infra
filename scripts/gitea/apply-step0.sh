@@ -16,8 +16,13 @@
 # the Owner's admin kubeconfig; nothing here reads or prints a Secret.
 set -euo pipefail
 export KUBECONFIG="$HOME/.bifrost-owner/kube/admin.yaml"
-# a local refs/replace entry could stand in for a reviewed object (review 251 A1)
+# a local refs/replace entry could stand in for a reviewed object (review 251 A1);
+# inherited environment could point git at other objects or another repository
+# (review 252 A2), and the objects themselves are checked against their names
+# before anything is exported (git fsck below)
 export GIT_NO_REPLACE_OBJECTS=1
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
+  GIT_NAMESPACE GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_CEILING_DIRECTORIES
 REVIEWED=1de78f6811f209f766094dd621efa8c00711efe1 # 0a and 0e as reviews 243 and 244 left them
 INFRA="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 paths=(
@@ -36,6 +41,8 @@ die() {
 [[ "${1:-}" == check || "${1:-}" == apply ]] || die "usage: apply-step0.sh check|apply"
 [[ -f "${KUBECONFIG}" ]] || die "no admin kubeconfig at ${KUBECONFIG}"
 git -C "${INFRA}" cat-file -e "${REVIEWED}^{commit}" 2> /dev/null || die "commit ${REVIEWED} is not in ${INFRA}; git fetch there first"
+git -C "${INFRA}" fsck --strict --no-reflogs --no-dangling --no-progress "${REVIEWED}" > /dev/null ||
+  die "git fsck found objects in ${INFRA} that do not match their names; nothing done"
 
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT

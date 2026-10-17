@@ -740,10 +740,46 @@ esac
 """)
         k.chmod(0o755)
 
-    def run_it(self, *args: str, infra: Path | None = None) -> subprocess.CompletedProcess:
+    def run_it(self, *args: str, infra: Path | None = None, extra: dict | None = None) -> subprocess.CompletedProcess:
         script = (infra or self.infra) / "scripts" / "gitea" / "apply-step0.sh"
-        env = {**os.environ, "HOME": str(self.home), "PATH": f"{self.bin}:{os.environ['PATH']}"}
+        env = {**os.environ, "HOME": str(self.home), "PATH": f"{self.bin}:{os.environ['PATH']}", **(extra or {})}
         return subprocess.run(["bash", str(script), *args], env=env, capture_output=True, text=True, timeout=60)
+
+    def copy_of_infra(self) -> tuple[Path, callable]:
+        copy = self.root / "infra"
+        subprocess.run(["git", "clone", "-q", "--no-hardlinks", str(self.infra), str(copy)], check=True, capture_output=True)
+        (copy / "scripts" / "gitea" / "apply-step0.sh").write_bytes((HERE / "apply-step0.sh").read_bytes())
+        g = lambda *a, **k: subprocess.run(["git", "-C", str(copy), *a], check=True, capture_output=True, text=True, **k).stdout.strip()
+        return copy, g
+
+    @staticmethod
+    def loose_object(objects: Path, name: str, content: str) -> None:
+        import zlib
+        data = content.encode()
+        path = objects / name[:2] / name[2:]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(zlib.compress(b"blob %d\0" % len(data) + data))
+
+    def test_an_inherited_object_store_is_not_read(self) -> None:
+        # review 252 A2: GIT_OBJECT_DIRECTORY holds an object named like the reviewed blob, other content
+        copy, g = self.copy_of_infra()
+        path = "k8s/cicd/tekton/task-gitea-mirror-sync.yaml"
+        reviewed = "1de78f6811f209f766094dd621efa8c00711efe1"
+        blob = g("rev-parse", f"{reviewed}:{path}")
+        forged = self.root / "forged-objects"
+        self.loose_object(forged, blob, g("show", f"{reviewed}:{path}").replace("bifrost-gitea-mirror-sync", "unreviewed-task") + "\n")
+        extra = {"GIT_OBJECT_DIRECTORY": str(forged), "GIT_ALTERNATE_OBJECT_DIRECTORIES": str(copy / ".git" / "objects")}
+        r = self.run_it("apply", infra=copy, extra=extra)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("unreviewed", self.applied.read_text())
+
+    def test_an_object_that_does_not_match_its_name_stops_it(self) -> None:
+        copy, _ = self.copy_of_infra()
+        self.loose_object(copy / ".git" / "objects", "ab" * 20, "not what this name says\n")
+        r = self.run_it("apply", infra=copy)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("do not match their names", r.stderr)
+        self.assertEqual(self.applies(), [])
 
     def applies(self) -> list[str]:
         return [c for c in (self.calls.read_text().splitlines() if self.calls.exists() else []) if c.startswith("apply")]
