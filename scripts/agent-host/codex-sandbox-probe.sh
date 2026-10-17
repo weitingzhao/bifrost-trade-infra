@@ -17,7 +17,12 @@ esac
   echo "codex-sandbox-probe: run as root" >&2
   exit 2
 }
-host_ns=$(readlink /proc/1/ns/net)
+host_ns=$(readlink /proc/1/ns/net 2> /dev/null || true)
+case "$host_ns" in net:\[[0-9]*\]) ;; *)
+  echo "codex-sandbox-probe: cannot read the host's network namespace from /proc/1/ns/net" >&2
+  exit 1
+  ;;
+esac
 rc=0
 # The unit's confinement (bifrost-agentd*.service), as a transient service.
 out=$(systemd-run --quiet --wait --pipe --collect \
