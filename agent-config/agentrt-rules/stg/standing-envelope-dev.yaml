@@ -1,7 +1,7 @@
 rule_id: standing-envelope:dev
-rule_version: 2
+rule_version: 3
 direction: loosen
-effective_at: 2026-10-15T00:00:00Z
+effective_at: 2026-10-17T00:00:00Z
 expires_at: 2027-01-15T00:00:00Z
 tenant: dev
 max_action: branch
@@ -9,4 +9,4 @@ budget:
   max_attempts: 40
   max_wall_hours: 48
 executors: [exec:codex, exec:cursor, exec:deterministic]
-hosts: [gate-b, mbp-dev]
+hosts: [agent-06-stg, gate-b, mbp-dev]
