@@ -39,8 +39,9 @@ def git(cwd: Path, *args: str) -> str:
 class FakeApi:
     """GET /repos/{org}/{repo} from `repos`; mirror-sync; branch protections kept per repository."""
 
-    def __init__(self, repos: dict[str, bool], drop_merge_whitelist: bool = False) -> None:
-        self.repos, self.rules, self.calls = repos, {}, []
+    def __init__(self, repos: dict[str, bool], drop_merge_whitelist: bool = False, redirect: str | None = None,
+                 rules: dict | None = None) -> None:
+        self.repos, self.rules, self.calls, self.auth = repos, rules or {}, [], []
         outer = self
 
         class H(BaseHTTPRequestHandler):
@@ -57,6 +58,15 @@ class FakeApi:
                 body = json.loads(self.rfile.read(n)) if n else None
                 path = urllib.parse.unquote(self.path)
                 outer.calls.append(f"{self.command} {path}")
+                outer.auth.append(self.headers.get("Authorization", ""))
+                if redirect:
+                    self.send_response(302)
+                    self.send_header("Location", redirect + self.path)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return None
+                if path == "/api/v1/version":
+                    return self._send(200, {"version": "1.21.11"})
                 parts = path.split("/")  # '', api, v1, repos, org, repo, ...
                 repo = parts[5] if len(parts) > 5 else ""
                 rules = outer.rules.setdefault(repo, {})
@@ -120,12 +130,29 @@ class Scripts(unittest.TestCase):
         git(self.root, "init", "-q", "--bare", "--initial-branch=main", str(path))
         return path
 
-    def run_script(self, name: str, *args: str, api: FakeApi | None = None, extra: dict | None = None) -> subprocess.CompletedProcess:
+    def run_script(self, name: str, *args: str, api: FakeApi | None = None, extra: dict | None = None,
+                   cwd: Path | None = None, bash: tuple[str, ...] = (), path: Path | None = None,
+                   connect: bool = False) -> subprocess.CompletedProcess:
         env = {**os.environ, **GIT_ENV, "HOME": str(self.root), "GITEA_TOKEN": "fixture-admin-token",
                "GITEA_API": api.api if api else "http://127.0.0.1:9/api/v1",
                "GITEA_GIT_BASE": f"file://{self.gitea}", "GITHUB_BASE": f"file://{self.github}",
                "COMPARE_WAIT_ROUNDS": "1", **(extra or {})}
-        return subprocess.run(["bash", str(HERE / name), *args], env=env, capture_output=True, text=True, timeout=120)
+        if connect:  # lib.sh makes the port-forward and reads the Secret itself
+            for key in ("GITEA_TOKEN", "GITEA_API", "GITEA_GIT_BASE"):
+                env.pop(key)
+        if path:
+            env["PATH"] = f"{path}:{env['PATH']}"
+        return subprocess.run(["bash", *bash, str(HERE / name), *args], env=env, cwd=cwd or self.root,
+                              capture_output=True, text=True, timeout=120)
+
+    def wrapper(self, name: str, body: str) -> Path:
+        """A directory holding an executable `name` (put in front of PATH)."""
+        d = self.root / f"bin-{name}-{len(list(self.root.iterdir()))}"
+        d.mkdir()
+        f = d / name
+        f.write_text("#!/bin/bash\n" + body)
+        f.chmod(0o755)
+        return d
 
     # compare-refs
     def test_compare_refs_same_and_different(self) -> None:
@@ -224,25 +251,196 @@ class Scripts(unittest.TestCase):
         self.assertIn("usage", r.stderr)
 
     # switch-local-remotes
-    def test_switch_local_remotes_and_back(self) -> None:
+    def checkout(self, *config: tuple[str, str]) -> tuple[Path, dict]:
         ws = self.root / "ws"
         repo = ws / "bifrost-ui"
         repo.mkdir(parents=True)
         git(repo, "init", "-q")
         git(repo, "remote", "add", "origin", "git@github.com:weitingzhao/bifrost-ui.git")
-        extra = {"BIFROST_WORKSPACE": str(ws), "GITEA_PUBLIC_BASE": "http://gitea.test/bifrost"}
+        for key, value in config:
+            git(repo, "config", "--add", key, value)
+        return repo, {"BIFROST_WORKSPACE": str(ws), "GITEA_PUBLIC_BASE": "http://gitea.test/bifrost"}
+
+    def remotes(self, repo: Path) -> str:
+        return git(repo, "config", "--get-regexp", r"^remote\.")
+
+    def test_switch_local_remotes_and_back(self) -> None:
+        repo, extra = self.checkout(("remote.origin.tagOpt", "--no-tags"))
+        before = self.remotes(repo)
         r = self.run_script("switch-local-remotes.sh", "bifrost-ui", extra=extra)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(git(repo, "remote", "get-url", "origin"), "http://gitea.test/bifrost/bifrost-ui.git")
+        self.assertEqual(git(repo, "remote", "get-url", "--push", "--all", "origin"), "http://gitea.test/bifrost/bifrost-ui.git")
         self.assertEqual(git(repo, "remote", "get-url", "github"), "git@github.com:weitingzhao/bifrost-ui.git")
         self.assertEqual(git(repo, "remote", "get-url", "--push", "github"), "no-push://github-follows-from-the-cluster")
+        self.assertEqual(git(repo, "config", "remote.origin.tagOpt"), "--no-tags")
         again = self.run_script("switch-local-remotes.sh", "bifrost-ui", extra=extra)
-        self.assertIn("already on Gitea", again.stdout)
+        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
         r = self.run_script("switch-local-remotes.sh", "--back", "bifrost-ui", extra=extra)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(git(repo, "remote", "get-url", "origin"), "git@github.com:weitingzhao/bifrost-ui.git")
-        self.assertNotIn("github", git(repo, "remote").split())
+        self.assertEqual(self.remotes(repo), before)
+        self.assertFalse((repo / ".git" / "config.before-gitea-primary").exists())
 
+    def test_switch_removes_a_github_push_address_when_origin_already_reads_gitea(self) -> None:
+        # review 246 A4: origin already fetches from Gitea, its push address is still GitHub
+        repo, extra = self.checkout()
+        git(repo, "remote", "set-url", "origin", "http://gitea.test/bifrost/bifrost-ui.git")
+        git(repo, "remote", "set-url", "--push", "origin", "https://github.com/weitingzhao/bifrost-ui.git")
+        r = self.run_script("switch-local-remotes.sh", "bifrost-ui", extra=extra)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(git(repo, "remote", "get-url", "--push", "--all", "origin"), "http://gitea.test/bifrost/bifrost-ui.git")
+
+    def test_back_fails_while_a_global_insteadof_still_rewrites_origin(self) -> None:
+        # review 246 A5: batch step 7 put GitHub → Gitea in ~/.gitconfig
+        repo, extra = self.checkout(("remote.origin.pushurl", "git@github.com:weitingzhao/bifrost-ui.git"))
+        before = self.remotes(repo)
+        self.assertEqual(self.run_script("switch-local-remotes.sh", "bifrost-ui", extra=extra).returncode, 0)
+        gitconfig = self.root / ".gitconfig"
+        gitconfig.write_text('[url "http://gitea.test/bifrost/bifrost-ui.git"]\n\tinsteadOf = git@github.com:weitingzhao/bifrost-ui.git\n')
+        r = self.run_script("switch-local-remotes.sh", "--back", "bifrost-ui", extra=extra)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("insteadOf", r.stderr)
+        self.assertTrue((repo / ".git" / "config.before-gitea-primary").exists())
+        gitconfig.unlink()
+        r = self.run_script("switch-local-remotes.sh", "--back", "bifrost-ui", extra=extra)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.remotes(repo), before)
+
+    def test_switch_refuses_a_github_remote_that_points_elsewhere(self) -> None:
+        # review 246 B6: a github remote already there is not a slot to overwrite
+        repo, extra = self.checkout()
+        git(repo, "remote", "add", "github", "git@github.com:someone/other.git")
+        before = self.remotes(repo)
+        r = self.run_script("switch-local-remotes.sh", "bifrost-ui", extra=extra)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertEqual(self.remotes(repo), before)
+        self.assertFalse((repo / ".git" / "config.before-gitea-primary").exists())
+
+    def test_back_without_a_saved_config_changes_nothing(self) -> None:
+        repo, extra = self.checkout()
+        before = self.remotes(repo)
+        r = self.run_script("switch-local-remotes.sh", "--back", "bifrost-ui", extra=extra)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertEqual(self.remotes(repo), before)
+
+    # lib.sh: the token goes nowhere else (review 246 A1, A2, A3, B10)
+    def test_a_redirect_is_not_followed_with_the_token(self) -> None:
+        other = FakeApi({"r": False})
+        api = FakeApi({}, redirect=f"http://127.0.0.1:{other.server.server_address[1]}")
+        try:
+            r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api)
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertIn("302", r.stderr)
+            self.assertEqual(other.calls, [])
+        finally:
+            api.close()
+            other.close()
+
+    def fake_kubectl(self, api: FakeApi | None, fail: bool = False) -> Path:
+        port = api.server.server_address[1] if api else 9
+        token = "a3ViZWN0bC1zZWNyZXQtdG9rZW4="  # "kubectl-secret-token"
+        pf = 'echo "error: unable to listen on any of the requested ports" >&2; exit 1' if fail else (
+            f'echo "Forwarding from 127.0.0.1:{port} -> 3000"; echo "Forwarding from [::1]:{port} -> 3000"; exec sleep 60')
+        return self.wrapper("kubectl", f"""case "$*" in
+  *port-forward*) {pf} ;;
+  *"get secret"*) echo '{{"data": {{"gitea_admin_token": "{token}"}}}}' ;;
+  *) exit 2 ;;
+esac
+""")
+
+    def test_a_port_forward_that_did_not_start_sends_nothing(self) -> None:
+        # something else answering on a local port is never asked
+        api = FakeApi({"r": False})
+        try:
+            r = self.run_script("protect-repo.sh", "--owner", "vision", "r", connect=True,
+                                path=self.fake_kubectl(api, fail=True))
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertIn("did not start", r.stderr)
+            self.assertEqual(api.calls, [])
+        finally:
+            api.close()
+
+    def test_the_port_forward_kubectl_chose_is_used(self) -> None:
+        api = FakeApi({"r": False})
+        try:
+            r = self.run_script("protect-repo.sh", "--owner", "vision", "r", connect=True, path=self.fake_kubectl(api))
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertEqual(sorted(api.rules["r"]), ["agent/**", "main"])
+            self.assertEqual({a for a in api.auth if a}, {"token kubectl-secret-token"})
+        finally:
+            api.close()
+
+    def test_compare_refs_does_not_follow_the_checkout_it_runs_in(self) -> None:
+        g = self.bare(self.gitea / "bifrost" / "r.git")
+        h = self.bare(self.github / "r.git")
+        for side in (g, h):
+            git(self.work, "push", "-q", str(side), "main")
+        git(self.work, "tag", "v1")
+        git(self.work, "push", "-q", str(h), "refs/tags/v1")
+        here = self.root / "here"
+        here.mkdir()
+        git(here, "init", "-q")
+        git(here, "config", f"url.file://{self.gitea}/bifrost/.insteadOf", f"file://{self.github}/")
+        api = FakeApi({"r": False})
+        try:
+            r = self.run_script("compare-refs.sh", "r", api=api, cwd=here)
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertIn("r: DIFFERENT", r.stdout)
+        finally:
+            api.close()
+
+    def test_xtrace_does_not_print_the_token(self) -> None:
+        api = FakeApi({"r": False})
+        try:
+            r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api, bash=("-x",))
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertNotIn("fixture-admin-token", r.stdout + r.stderr)
+        finally:
+            api.close()
+
+    # protect-repo: another rule would decide first (review 246 B9)
+    def test_protect_repo_stops_on_another_branch_rule(self) -> None:
+        api = FakeApi({"r": False}, rules={"r": {"**": {"rule_name": "**", "enable_push": True}}})
+        try:
+            r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api)
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertIn("STOPPED", r.stdout)
+            self.assertEqual(sorted(api.rules["r"]), ["**"])
+            self.assertFalse(any(c.startswith(("POST ", "PATCH ")) for c in api.calls))
+        finally:
+            api.close()
+
+    # copy-agent-branches: a branch made meanwhile is not fast-forwarded (B7); a failed listing stops it (B8)
+    def test_copy_does_not_fast_forward_a_branch_made_meanwhile(self) -> None:
+        src = self.bare(self.gitea / "bifrost-agents" / "r.git")
+        dst = self.bare(self.gitea / "bifrost" / "r.git")
+        ancestor = git(self.work, "rev-parse", "HEAD")
+        git(self.work, "push", "-q", str(dst), "main")  # the target has the ancestor
+        (self.work / "f").write_text("two")
+        git(self.work, "commit", "-q", "-am", "two")
+        git(self.work, "push", "-q", str(src), "main:refs/heads/agent/t_1/a1")
+        real = subprocess.run(["sh", "-c", "command -v git"], capture_output=True, text=True, check=True).stdout.strip()
+        race = self.wrapper("git", f"""if [[ " $* " == *" push "* && ! -e "{self.root}/raced" ]]; then
+  touch "{self.root}/raced"
+  "{real}" --git-dir "{dst}" update-ref refs/heads/agent/t_1/a1 {ancestor}
+fi
+exec "{real}" "$@"
+""")
+        r = self.run_script("copy-agent-branches.sh", "r", path=race)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("REFUSED refs/heads/agent/t_1/a1", r.stdout)
+        self.assertEqual(git(self.root, "--git-dir", str(dst), "rev-parse", "refs/heads/agent/t_1/a1"), ancestor)
+
+    def test_copy_stops_when_the_branches_cannot_be_listed(self) -> None:
+        src = self.bare(self.gitea / "bifrost-agents" / "r.git")
+        self.bare(self.gitea / "bifrost" / "r.git")
+        git(self.work, "push", "-q", str(src), "main:refs/heads/agent/t_1/a1")
+        real = subprocess.run(["sh", "-c", "command -v git"], capture_output=True, text=True, check=True).stdout.strip()
+        broken = self.wrapper("git", f"""if [[ " $* " == *" for-each-ref "* ]]; then exit 128; fi
+exec "{real}" "$@"
+""")
+        r = self.run_script("copy-agent-branches.sh", "r", path=broken)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("0 copied", r.stdout)
 
 if __name__ == "__main__":
     unittest.main()

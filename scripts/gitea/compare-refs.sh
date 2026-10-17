@@ -19,8 +19,8 @@ for repo in "$@"; do
     gitea_api POST "/repos/${GITEA_ORG}/${repo}/mirror-sync" '{}' > /dev/null || gitea_die "mirror-sync of ${repo} refused"
   fi
   for i in $(seq 1 "${rounds}"); do
-    g="$(heads_and_tags "${GITEA_GIT_BASE}/${GITEA_ORG}/${repo}.git")" || gitea_die "cannot list ${repo} on Gitea"
-    h="$(heads_and_tags "${GITHUB_BASE}/${repo}.git")" || gitea_die "cannot list ${repo} on GitHub"
+    g="$(heads_and_tags gitea "${GITEA_GIT_BASE}/${GITEA_ORG}/${repo}.git")" || gitea_die "cannot list ${repo} on Gitea"
+    h="$(heads_and_tags github "${GITHUB_BASE}/${repo}.git")" || gitea_die "cannot list ${repo} on GitHub"
     [[ "${g}" == "${h}" || "${mirror}" != true || "${i}" -eq "${rounds}" ]] && break
     sleep 5 # the fetch is asynchronous
   done
