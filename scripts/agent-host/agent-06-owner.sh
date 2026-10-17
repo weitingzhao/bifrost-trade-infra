@@ -86,10 +86,15 @@ for r in json.load(open(sys.argv[1]))["items"]:
 }
 
 # node06_volumes: every PersistentVolume bound to 06, one line each:
-# "<volume> <namespace> <claim> <verdict>". Exit 0 when each is one of
-# VOLUMES (claim uid, volume name and both directions of the binding match,
-# local-path, bound to 06 alone); exit 3 when any is not; a failed read
-# stops the script.
+# "<volume> <namespace> <claim> <claim uid> <state> [why]". State is
+#   delete   one of VOLUMES, checked: claim uid, volume name and both
+#            directions of the binding match, local-path, bound to 06 alone
+#   waiting  one of VOLUMES whose claim is deleted or being deleted (the same
+#            uid, with a deletion timestamp) and whose volume the provisioner
+#            has not removed yet: not to delete, not done
+#   BAD      anything else
+# Exit 0 when there is no BAD line, 3 when there is; a failed read stops the
+# script.
 node06_volumes() {
   kubectl get pv -o json > "$TMPD/pv.json" || die "cannot list PersistentVolumes"
   kubectl get pvc -A -o json > "$TMPD/pvc.json" || die "cannot list PersistentVolumeClaims"
@@ -112,18 +117,27 @@ for pv in pvs["items"]:
         continue
     name, ref = meta["name"], spec.get("claimRef") or {}
     ns, claim = ref.get("namespace", "-"), ref.get("name", "-")
+    uid = allowed.get((ns, claim))
     pvc = claims.get((ns, claim))
-    checks = {
-        "named": (ns, claim) in allowed,
-        "claim-uid": pvc is not None and pvc["metadata"].get("uid") == ref.get("uid") == allowed.get((ns, claim)),
-        "volume-name": name == "pvc-" + str(allowed.get((ns, claim))) and pvc is not None and pvc["spec"].get("volumeName") == name,
+    fixed = {
+        "named": uid is not None,
+        "claimref-uid": uid is not None and ref.get("uid") == uid,
+        "volume-name": uid is not None and name == "pvc-" + uid,
         "local-path": (meta.get("annotations") or {}).get("pv.kubernetes.io/provisioned-by") == "rancher.io/local-path",
         "only-06": terms == [{"matchExpressions": [{"key": "kubernetes.io/hostname", "operator": "In", "values": [node]}]}],
     }
-    failed = [k for k, v in checks.items() if not v]
-    if failed:
+    failed = [k for k, v in fixed.items() if not v]
+    going = pvc is not None and pvc["metadata"].get("uid") == uid and pvc["metadata"].get("deletionTimestamp")
+    if not failed and (pvc is None or going):
+        state = "waiting"
+    elif not failed and pvc["metadata"].get("uid") == uid and pvc["spec"].get("volumeName") == name:
+        state = "delete"
+    else:
+        if pvc is not None:
+            failed.append("claim-binding")
+        state = "BAD " + ",".join(failed)
         bad += 1
-    print(name, ns, claim, "NOT ONE TO DELETE (" + ", ".join(failed) + ")" if failed else "named, to delete")
+    print(name, ns, claim, uid or "-", state)
 sys.exit(3 if bad else 0)
 ' "$NODE" "$TMPD"
 }
@@ -136,7 +150,7 @@ volumes_ok() {
   [ -z "$listing" ] || printf '%s\n' "$listing"
   [ "$rc" != 3 ] || die "a volume on $NODE is not one of the five named in this script; nothing was deleted"
   [ "$rc" = 0 ] || die "could not read the volumes on $NODE"
-  printf '%s' "$listing" > "$TMPD/listing.txt"
+  if [ -n "$listing" ]; then printf '%s\n' "$listing" > "$TMPD/listing.txt"; else : > "$TMPD/listing.txt"; fi
 }
 
 node_is_ours() {
@@ -173,7 +187,7 @@ backup_volume() {
 }
 
 delete_volumes() {
-  local ns claim uid rc
+  local pv ns claim uid state
   volumes_ok
   if [ ! -s "$TMPD/listing.txt" ]; then
     say "no volume left on $NODE"
@@ -182,23 +196,26 @@ delete_volumes() {
   if grep -q ' research event-radar-input-pvc ' "$TMPD/listing.txt"; then
     backup_ok || die "event-radar is not backed up"
   fi
-  while read -r ns claim uid; do
-    [ -n "$ns" ] || continue
-    # The claim must still be the one named here, just before it goes.
-    rc=0
-    kubectl -n "$ns" get pvc "$claim" -o jsonpath='{.metadata.uid}' > "$TMPD/uid" 2> "$TMPD/uid.err" || rc=$?
-    if [ "$rc" != 0 ]; then
-      grep -q NotFound "$TMPD/uid.err" && continue
-      die "cannot read $ns/$claim"
-    fi
-    [ "$(cat "$TMPD/uid")" = "$uid" ] || die "$ns/$claim is another claim now (uid differs); nothing more was deleted"
-    kubectl -n "$ns" delete pvc "$claim" --wait=false || die "could not delete $ns/$claim"
-  done <<< "$VOLUMES"
+  # Only the claims this listing has just checked, each deleted with its uid
+  # as a precondition: if the claim by that name is another object by now,
+  # the API server refuses (409) and the script stops.
+  grep ' delete$' "$TMPD/listing.txt" > "$TMPD/to-delete.txt" || true
+  while read -r pv ns claim uid state; do
+    [ -n "$pv" ] || continue
+    printf '{"kind":"DeleteOptions","apiVersion":"v1","preconditions":{"uid":"%s"}}' "$uid" > "$TMPD/delete-options.json"
+    kubectl delete --raw "/api/v1/namespaces/$ns/persistentvolumeclaims/$claim" -f "$TMPD/delete-options.json" > /dev/null ||
+      die "could not delete $ns/$claim with uid $uid (another object by that name now, or the API refused); nothing more was deleted"
+    say "deleted $ns/$claim (uid $uid)"
+  done < "$TMPD/to-delete.txt"
   for _ in $(seq 1 30); do
     volumes_ok > /dev/null
     if [ ! -s "$TMPD/listing.txt" ]; then
-      say "all five volumes on $NODE are gone"
+      say "all named volumes on $NODE are gone"
       return
+    fi
+    if grep -q ' delete$' "$TMPD/listing.txt"; then
+      cat "$TMPD/listing.txt"
+      die "a named claim on $NODE is there again after it was deleted"
     fi
     sleep 10
   done
@@ -228,6 +245,9 @@ kill_tree() {
   kill "$1" 2> /dev/null || true
 }
 HOLD_PID=""
+WHO=${BIFROST_RELEASE_WHO:-${USER}@$(hostname -s)}
+# release_window: stop the hold and show that the window is closed; returns
+# 1 when it is still open (it then closes by itself when its lease runs out).
 release_window() {
   [ -n "$HOLD_PID" ] || return 0
   kill_tree "$HOLD_PID"
@@ -237,7 +257,43 @@ release_window() {
     say "release window closed"
   else
     echo "agent-06-owner: the release window is still open; it closes by itself within 5 minutes" >&2
+    return 1
   fi
+}
+# window_ours: the hold is alive and the platform shows the window as ours
+# (who, what) with more than a minute of lease left. Returns 1 otherwise.
+window_ours() {
+  local out rc=0
+  [ -n "$HOLD_PID" ] && kill -0 "$HOLD_PID" 2> /dev/null || return 1
+  out=$("$WORKSPACE/bifrost-trade-infra/scripts/release/release.sh" window 2>&1) || rc=$?
+  [ "$rc" = 1 ] || return 1
+  printf '%s\n' "$out" | python3 -I -c '
+import datetime, re, sys
+who, text = sys.argv[1], sys.stdin.read()
+m = re.search(r"who=(\S+) what=(\S+) .*expires_at=(\S+)", text)
+if not m or m.group(1) != who or m.group(2) != "ubt-k3s-06":
+    sys.exit(1)
+left = datetime.datetime.fromisoformat(m.group(3).replace("Z", "+00:00")) - datetime.datetime.now(datetime.timezone.utc)
+sys.exit(0 if left.total_seconds() > 60 else 1)
+' "$WHO"
+}
+need_window() { window_ours || die "the release window is no longer held for ubt-k3s-06; leave stops here ($NODE stays cordoned)"; }
+# watched <command…>: run a long step, checking every 15 seconds that the
+# window is still ours; if it is not, stop the step and leave.
+watched() {
+  "$@" &
+  local pid=$! rc=0
+  while kill -0 "$pid" 2> /dev/null; do
+    sleep 15
+    kill -0 "$pid" 2> /dev/null || break
+    if ! window_ours; then
+      kill_tree "$pid"
+      wait "$pid" 2> /dev/null || true
+      die "the release window was lost while running: $*; it was stopped ($NODE stays cordoned)"
+    fi
+  done
+  wait "$pid" || rc=$?
+  [ "$rc" = 0 ] || die "failed (exit $rc): $*"
 }
 hold_window() {
   "$WORKSPACE/bifrost-trade-infra/scripts/release/release.sh" hold --what ubt-k3s-06 > "$TMPD/hold.log" 2>&1 &
@@ -273,8 +329,12 @@ step_check() {
 
 step_leave() {
   node_is_ours
-  trap 'release_window; rm -rf "$TMPD"' EXIT
+  # This step runs in its own subshell (the pipeline into tee), so this trap
+  # is its own: the window is released on every way out, and a window that
+  # could not be shown closed fails the step.
+  trap 'rc=$?; release_window || { [ "$rc" != 0 ] || rc=1; }; rm -rf "$TMPD"; exit $rc' EXIT
   hold_window
+  need_window
   local active left
   active=$(active_runs)
   [ -z "$active" ] || die "PipelineRuns still running: $(echo "$active" | tr '\n' ' ')"
@@ -291,14 +351,18 @@ step_leave() {
     backup_ok || die "the event-radar volume is gone but its backup does not check"
     say "event-radar volume already deleted; its backup checks"
   fi
+  need_window
   say "delete the named volumes on $NODE"
   delete_volumes
+  need_window
   say "restart the two Deployments whose PodDisruptionBudget allows no eviction"
   kubectl -n plugin-market-data rollout restart deployment/polygon-worker-options deployment/polygon-worker-stocks
-  kubectl -n plugin-market-data rollout status deployment/polygon-worker-options --timeout=15m
-  kubectl -n plugin-market-data rollout status deployment/polygon-worker-stocks --timeout=15m
+  watched kubectl -n plugin-market-data rollout status deployment/polygon-worker-options --timeout=15m
+  watched kubectl -n plugin-market-data rollout status deployment/polygon-worker-stocks --timeout=15m
+  need_window
   say "drain"
-  kubectl drain "$NODE" --ignore-daemonsets --delete-emptydir-data --timeout=15m
+  watched kubectl drain "$NODE" --ignore-daemonsets --delete-emptydir-data --timeout=15m
+  need_window
   left=$(pods_left_on_node)
   [ -z "$left" ] || die "pods still on $NODE: $(echo "$left" | tr '\n' ' ')"
   printf '%s drained %s\n' "$NODE_UID" "$(date -u +%FT%TZ)" > "$STATE_DIR/leave-done"
@@ -317,31 +381,28 @@ uninstall_guard() { # the node is ours, leave finished, nothing is left on it
   backup_ok || die "the event-radar backup does not check"
 }
 
-# A shell condition, run on 06, that holds only when k3s is gone: no binary,
-# no unit, no process started from its binary or its data directory (the
-# pattern is anchored, so it does not match the shell that runs it).
-K3S_GONE="test ! -e /usr/local/bin/k3s && ! systemctl list-unit-files k3s-agent.service --no-legend | grep -q . && ! pgrep -f '^/(usr/local/bin/k3s|var/lib/rancher/k3s/)' > /dev/null"
-
 step_uninstall() {
+  [ -f "$HERE/k3s-on-06.sh" ] || die "missing $HERE/k3s-on-06.sh"
   uninstall_guard
-  say "uninstall k3s on $NODE, check that it is gone, and reboot it in 5 seconds"
-  # One session: uninstall (if it is still there), show that k3s is gone,
-  # then schedule the reboot so that this command returns before it.
-  node_ssh "set -e
-if [ -x /usr/local/bin/k3s-agent-uninstall.sh ]; then sudo /usr/local/bin/k3s-agent-uninstall.sh; fi
-$K3S_GONE || { echo 'k3s is still on this host' >&2; exit 1; }
-sudo systemd-run --quiet --on-active=5 --unit=agent06-reboot systemctl reboot
-echo \"k3s is gone from \$(hostname); rebooting in 5 seconds\""
+  say "uninstall k3s on $NODE, show that it is gone, and reboot it in 5 seconds"
+  node_ssh 'sudo bash -s -- uninstall' < "$HERE/k3s-on-06.sh" || die "the uninstall on $NODE did not finish; k3s may still be there (run uninstall again)"
   printf '%s uninstalled %s\n' "$NODE_UID" "$(date -u +%FT%TZ)" > "$STATE_DIR/uninstall-done"
 }
 
 step_delete_node() {
+  local rc
   node_is_ours
   [ -s "$STATE_DIR/uninstall-done" ] && [ "$(cut -d' ' -f1 "$STATE_DIR/uninstall-done")" = "$NODE_UID" ] || die "uninstall has not finished for this node: run uninstall first"
   uninstall_guard
-  say "check on $NODE itself that k3s is gone (while it reboots this fails: wait a minute and run it again)"
-  node_ssh "$K3S_GONE" ||
-    die "$NODE did not show that k3s is gone (not reachable yet, or k3s is still there); nothing was deleted"
+  say "check on $NODE itself that k3s is gone"
+  [ -f "$HERE/k3s-on-06.sh" ] || die "missing $HERE/k3s-on-06.sh"
+  rc=0
+  node_ssh 'sudo bash -s -- gone' < "$HERE/k3s-on-06.sh" || rc=$?
+  case $rc in
+    0) ;;
+    1) die "k3s is still on $NODE; nothing was deleted" ;;
+    *) die "could not tell whether k3s is gone from $NODE (still rebooting? wait a minute and run this again); nothing was deleted" ;;
+  esac
   kubectl delete node "$NODE"
 }
 

@@ -30,10 +30,10 @@ bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-h
 
 一条命令按顺序做完，任何一步不对就停：
 
-1. 持住发布窗口（`what=ubt-k3s-06`，整个 leave 期间别的发布进不来，结束时放开）；拿不到窗口、或有没跑完的流水线，就不开始。
+1. 持住发布窗口（`what=ubt-k3s-06`，整个 leave 期间别的发布进不来，结束时放开）；每一步之前、以及滚动重启和 drain 进行中每 15 秒确认窗口还在自己手上，丢了就停。拿不到窗口、或有没跑完的流水线，就不开始。
 2. cordon；cordon 之后再查一次流水线。
 3. 把 event-radar 的卷打包到 `~/bifrost-backups/event-radar-input/2026-10-17_node06_pvc-6bf6eca6/`，核对包是完整的、里面有那个目录，才往下走。
-4. 删 06 上的卷：只删脚本里按 UID 写死的 5 个（event-radar 和 4 个已跑完的 CI 工作区，01:20 读的；已经没了的跳过），逐个核对 local-path、只绑 06、两头的绑定和 UID 都对得上，删之前再核一次 UID。06 上有任何一个别的卷就停，一个都不删。删完等 5 分钟，还没清干净也停。
+4. 删 06 上的卷：只删脚本里按 UID 写死的 5 个（event-radar 和 4 个已跑完的 CI 工作区，01:20 读的；已经没了的跳过），逐个核对 local-path、只绑 06、两头的绑定和 UID 都对得上；只删刚核对过的那几个，每个删除请求都带 UID 前置条件（同名换成了别的对象，API 直接拒绝）。06 上有任何一个别的卷就停，一个都不删。删完等 5 分钟，还没清干净也停。
 5. polygon 两个不许驱逐的 Deployment 滚动重启，等它们就绪。
 6. drain，最后核对 06 上只剩 DaemonSet。
 
@@ -55,7 +55,7 @@ bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-h
 bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh uninstall
 ```
 
-等一两分钟（06 在重启），再删节点对象。它先登上 06 确认 k3s 的程序、服务和进程都没了才删；06 还没起来时它会拒绝，过一分钟再跑：
+等一两分钟（06 在重启），再删节点对象。它先登上 06 确认 k3s 的程序、两个服务和所有进程（按进程实际运行的文件和进程名认，查询出错不算「没了」）都没了才删；06 还没起来时它会拒绝，过一分钟再跑：
 
 ```bash
 bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh delete-node

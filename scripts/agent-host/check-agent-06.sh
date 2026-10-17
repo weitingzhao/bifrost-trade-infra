@@ -80,9 +80,12 @@ counters() { nft list chain inet bifrost_agent common 2> /dev/null | grep -o 'pa
 
 # reach <user> <proto> <host> <port> <open|blocked>: run the probe as the
 # user. Wanted open passes only on "open". Wanted blocked passes only when the
-# probe ran, did not get through, and a reject rule counted a packet while it
-# ran: a target that is down or a probe that failed is not proof. Root's
-# result (the rules do not touch root) is shown alongside.
+# probe ran, got exactly "refused" (what the reject rules answer), and a
+# reject rule counted a packet while it ran; a target that is down, a name
+# that does not resolve or a probe that failed is not proof. The probes run
+# only while neither agentd runs, so no other traffic of these users adds to
+# the counters. Root's result (the rules do not touch root) is shown
+# alongside.
 reach() {
   local u=$1 proto=$2 host=$3 port=$4 want=$5 got base rc before after what
   before=$(counters)
@@ -90,19 +93,19 @@ reach() {
   got=$(as "$u" "python3 -I $probe_py $proto $host $port" 2> /dev/null) || rc=$?
   after=$(counters)
   base=$(python3 -I "$probe_py" "$proto" "$host" "$port" 2> /dev/null)
-  what=$(printf '%-19s %-8s %-28s user=%-14s root=%s' "$u" "$proto" "$host:$port" "${got:-?}" "${base:-?}")
-  if [ "$rc" != 0 ] || [ -z "$got" ]; then
-    fail "$what (the probe did not run as $u)"
+  what=$(printf '%-19s %-8s %-30s user=%-14s root=%s' "$u" "$proto" "$host:$port" "${got:-?}" "${base:-?}")
+  case "$got" in
+    open | refused | timeout | error:*) ;;
+    *) rc=1 ;;
+  esac
+  if [ "$rc" != 0 ]; then
+    fail "$what (the probe did not run as $u, or said something unexpected)"
   elif [ "$want" = open ]; then
     [ "$got" = open ] && ok "$what (want open)" || fail "$what (want open)"
-  elif [ "$got" = open ]; then
-    fail "$what (want blocked)"
-  elif [ "$after" -gt "$before" ]; then
-    ok "$what (want blocked; a reject rule counted it)"
-  elif [ "${host#*:}" != "$host" ] && [ "$base" = error:ENETUNREACH ]; then
-    echo "-    $what (no IPv6 route on this host, so there is nothing to reach; the IPv6 rule is not exercised)"
+  elif [ "$got" = refused ] && [ "$after" -gt "$before" ]; then
+    ok "$what (want blocked; refused, and a reject rule counted it)"
   else
-    fail "$what (want blocked; it did not get through, but no reject rule counted it)"
+    fail "$what (want blocked; needs refused and a reject rule's count to rise, got $got with counts $before -> $after)"
   fi
 }
 
@@ -168,6 +171,13 @@ cmp -s <(nft -f /etc/bifrost/agent-egress.nft -c 2>&1) /dev/null && ok "/etc/bif
 nft list table inet bifrost_agent
 
 echo "-- reachability, each user against root"
+if [ "$stage" = running ]; then
+  echo "-    not probed here: proven by the base and creds checks, which run while neither agentd runs"
+else
+for s in bifrost-agentd bifrost-agentd-stg; do
+  ! systemctl is-active --quiet "$s" || fail "$s is running: stop it before this check, or the probes cannot be told from its traffic"
+done
+dev=$(ip -4 route get 1.1.1.1 | awk '{for (i = 1; i < NF; i++) if ($i == "dev") print $(i + 1)}')
 port=$((20000 + RANDOM % 20000))
 python3 -I -c "
 import socket, time
@@ -202,7 +212,14 @@ for u in "$prod" "$stg"; do
   reach "$u" tcp 192.168.10.1 443 blocked
   reach "$u" udp-dns 127.0.0.53 53 open
   reach "$u" udp-dns 1.1.1.1 53 blocked
-  reach "$u" tcp 2606:4700:4700::1111 443 blocked
+  if [ "$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6 2> /dev/null)" = 1 ]; then
+    ok "$u IPv6 is switched off on this host"
+  else
+    # A link-local address needs no route, so the packet always reaches the
+    # output hook (a global one would fail at route lookup on a host without
+    # an IPv6 route, and prove nothing).
+    reach "$u" tcp "fe80::1%$dev" 443 blocked
+  fi
   reach "$u" tcp github.com 443 open
   reach "$u" tcp github.com 22 blocked
   reach "$u" tcp registry.npmjs.org 443 open
@@ -214,6 +231,7 @@ reach "$prod" tcp api.anthropic.com 443 open
 reach "$prod" tcp api2.cursor.sh 443 open
 kill "$listener_pid" 2>/dev/null
 listener_pid=""
+fi
 
 echo "== listeners on this host (for B6: local services the agent users could reach over loopback or a Unix socket)"
 ss -H -ltnup | awk '{print $1, $5, $7}'

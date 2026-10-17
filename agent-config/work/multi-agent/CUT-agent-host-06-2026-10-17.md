@@ -1,6 +1,6 @@
 # 切法：06 出集群，当 Agent 主机（W-31 2.3 第一件）
 
-起草 2026-10-17 00:50（统筹线程），按复核 230、231 改过。命令在 `OWNER-STEPS-agent-host-06.md`，都是 `scripts/agent-host/agent-06-owner.sh` 的子命令（每步出错即停、不打印凭证）；装到 06 上的文件也在 `bifrost-trade-infra/scripts/agent-host/`。
+起草 2026-10-17 00:50（统筹线程），按复核 230、231、232 改过。命令在 `OWNER-STEPS-agent-host-06.md`，都是 `scripts/agent-host/agent-06-owner.sh` 的子命令（每步出错即停、不打印凭证）；装到 06 上的文件也在 `bifrost-trade-infra/scripts/agent-host/`。
 
 ## 1. Owner 定的（2026-10-17 00:20）
 
@@ -75,7 +75,7 @@
 | 内网其它一切：数据库、Redis、NAS、K8s API、节点 SSH、UniFi、TWS、别的 NodePort | 拒 | 拒 |
 | 任何地方的 22 端口（包括 06 自己的 sshd）、其它端口和协议 | 拒 | 拒 |
 
-规则由 `bifrost-agent-egress.service` 在开机早期加载；两个 agentd 服务绑在它上面（`BindsTo`），规则没加载就不会起。重跑准备脚本时规则原地替换（一次 nft 事务，中间没有空窗）；两个 agentd 在跑时准备脚本拒绝运行。核对脚本对每一项「应拒」要三样都成立才算过：探测确实以那个用户跑起来了、没连上、并且探测期间拒绝规则的计数涨了（对面本来就不通、或探测自己出错，都不算过）；root（不受规则约束）的结果并排列出。
+规则由 `bifrost-agent-egress.service` 在开机早期加载；两个 agentd 服务绑在它上面（`BindsTo`），规则没加载就不会起。重跑准备脚本时规则原地替换（一次 nft 事务，中间没有空窗）；两个 agentd 在跑时准备脚本拒绝运行。核对脚本对每一项「应拒」要三样都成立才算过：探测确实以那个用户跑起来了、得到的正是规则给的「refused」、并且探测期间拒绝规则的计数涨了（对面本来就不通、名字解析不了、或探测自己出错，都不算过）；探测只在两个 agentd 都没跑时做，计数里没有别的流量；IPv6 用链路本地地址测（不需要路由）；root（不受规则约束）的结果并排列出。
 
 **工具链**：Go 1.25（和 CI 同一个大版本，从 go.dev 下、按官方 SHA-256 校验）、Node 22（nodejs.org，同样校验；CI 是 Node 20，已过维护期，所以这里用 22）、git。各家命令行装在各自用户的 `~/.local`：PROD 用户装 codex、claude、cursor-agent，STG 用户只装 codex。装的时候已经在出站规则之后，等于顺便验证了规则不挡正常工作。
 
