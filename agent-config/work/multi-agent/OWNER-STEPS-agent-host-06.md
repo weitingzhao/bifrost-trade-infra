@@ -172,3 +172,36 @@ bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-h
 ```
 
 做完回：「Mac Pro 的 agentd 停了」。我交收紧规则（去掉 `mbp-dev`，STG 上同时去掉 `gate-b`），撤掉两边配置里的 `agentd:mbp-dev` 和 `agentd:gate-b`。之后合盖 30 分钟看 PROD 上的活还在走，是验收的最后一项。Mac Pro 上的 `bifrost-agentd` 用户和它的凭证文件要不要删，到时再问你。
+
+---
+
+## B 补　codex 的沙箱（10-17 你选 A）
+
+STG 演练里 codex 一条命令都起不来：Ubuntu 24.04 的 AppArmor 不让非特权程序在新建的用户命名空间里拿权限（`kernel.apparmor_restrict_unprivileged_userns = 1`，诊断 09:54）。修法 A：codex 改由 root 装一份在 `/opt/bifrost/codex`（钉 0.163.0，agent 用户写不了），AppArmor 规则 `bifrost-codex` 只允许那个目录里的 codex 建用户命名空间；两个用户家目录里的 codex 删掉，两个服务的 PATH 先找 `/opt`。codex 的登录在各自的 `~/.codex`，不受影响。
+
+按顺序跑（每条问一次节点口令）：
+
+```bash
+bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh stop
+```
+
+```bash
+bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh copy
+```
+
+```bash
+bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh prepare
+```
+
+（准备脚本最后会以两个用户各在 codex 的沙箱里跑一条 `/bin/true`，跑不起来就停。）
+
+```bash
+bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh host-check creds
+```
+
+```bash
+bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh start
+```
+
+做完回：「06 codex 沙箱好了」。我叫演练会话把 STG 两件重跑。
+

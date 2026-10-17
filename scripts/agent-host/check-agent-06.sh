@@ -35,7 +35,7 @@ ok() { echo "ok   $*"; }
 as() {
   local u=$1
   sudo -u "$u" -H env -i HOME="/home/$u" USER="$u" LOGNAME="$u" LANG=C.UTF-8 \
-    PATH="/home/$u/.local/bin:/usr/local/go/bin:/usr/local/lib/nodejs/current/bin:/usr/local/bin:/usr/bin:/bin" \
+    PATH="/opt/bifrost/codex/bin:/home/$u/.local/bin:/usr/local/go/bin:/usr/local/lib/nodejs/current/bin:/usr/local/bin:/usr/bin:/bin" \
     bash -c "cd \"\$HOME\" && $2"
 }
 
@@ -274,21 +274,32 @@ echo "== tools"
 /usr/local/lib/nodejs/current/bin/node -v 2>&1
 git --version
 [ "$(sha256sum /usr/local/libexec/bifrost/agentd 2>/dev/null | cut -d' ' -f1)" = "$(cut -d' ' -f1 "$(dirname "$0")/agentd.sha256")" ] && ok "agentd matches agentd.sha256" || fail "agentd does not match agentd.sha256"
-for c in codex claude cursor-agent; do
+for c in claude cursor-agent; do
   v=$(as "$prod" ".local/bin/$c --version 2>/dev/null | head -1") && [ -n "$v" ] && ok "$prod $c $v" || fail "$prod $c does not run"
 done
-v=$(as "$stg" ".local/bin/codex --version 2>/dev/null | head -1") && [ -n "$v" ] && ok "$stg codex $v" || fail "$stg codex does not run"
+echo "-- codex: one root-owned copy under /opt/bifrost/codex, allowed user namespaces by AppArmor (bifrost-codex)"
+[ "$(stat -c '%U' /opt/bifrost/codex 2>/dev/null)" = root ] && ok "/opt/bifrost/codex is owned by root" || fail "/opt/bifrost/codex is missing or not owned by root"
+w=$(find /opt/bifrost/codex \( -perm -g+w -o -perm -o+w \) -print -quit 2>/dev/null)
+[ -z "$w" ] && ok "nothing under /opt/bifrost/codex is writable by group or others" || fail "writable by group or others: $w"
+grep -q '^bifrost-codex ' /sys/kernel/security/apparmor/profiles 2>/dev/null && ok "AppArmor profile bifrost-codex loaded" || fail "AppArmor profile bifrost-codex not loaded"
+for u in "$prod" "$stg"; do
+  p=$(as "$u" 'command -v codex')
+  [ "$p" = /opt/bifrost/codex/bin/codex ] && ok "$u codex is /opt/bifrost/codex/bin/codex ($(as "$u" 'codex --version 2>/dev/null'))" || fail "$u codex on PATH is ${p:-missing}"
+  [ ! -e "/home/$u/.local/bin/codex" ] && ok "$u has no codex of its own" || fail "$u has its own ~/.local/bin/codex"
+  # One command in codex's own sandbox, no model.
+  out=$(as "$u" 'codex sandbox -C "$HOME" -- /bin/true' 2>&1) && ok "$u codex sandbox runs a command" || fail "$u codex sandbox: $(printf '%s' "$out" | tail -1 | cut -c1-160)"
+done
 
 echo "== vendor logins and MCP (none wanted; counts only)"
 for u in "$prod" "$stg"; do
-  if as "$u" ".local/bin/codex login status >/dev/null 2>&1"; then
+  if as "$u" "codex login status >/dev/null 2>&1"; then
     ok "$u codex logged in"
   elif [ "$stage" = base ]; then
     echo "-    $u codex not logged in yet"
   else
     fail "$u codex not logged in"
   fi
-  n=$(as "$u" ".local/bin/codex mcp list --json 2>/dev/null" | python3 -I -c 'import json, sys; print(len(json.load(sys.stdin)))' 2>/dev/null)
+  n=$(as "$u" "codex mcp list --json 2>/dev/null" | python3 -I -c 'import json, sys; print(len(json.load(sys.stdin)))' 2>/dev/null)
   [ "$n" = 0 ] && ok "$u codex MCP servers: 0" || fail "$u codex MCP servers: ${n:-unreadable} (look at it on the host)"
 done
 if as "$prod" ".local/bin/claude mcp list 2>/dev/null" | grep -q 'No MCP servers configured'; then

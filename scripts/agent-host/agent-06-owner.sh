@@ -20,6 +20,7 @@
 #   git-token prod|stg    read a Gitea token (hidden) and install it on 06
 #   host-check base|creds|running   run check-agent-06.sh on 06
 #   secret prod|stg       put that agentd's platform token into its Secret
+#   stop                  stop both agentd services (before prepare runs again)
 #   start                 enable and start both agentd services
 #   retire-mac            stop the agentd on this Mac
 #
@@ -453,7 +454,7 @@ step_prepare() { node_ssh 'sudo bash ~/agent-host/prepare-agent-06.sh'; }
 step_codex_login() {
   local u
   u=$(user_of "${1:-}")
-  node_ssh_tty "sudo -u $u -H env -i HOME=/home/$u USER=$u LOGNAME=$u PATH=/home/$u/.local/bin:/usr/local/lib/nodejs/current/bin:/usr/bin:/bin bash -c 'cd ~ && codex login --device-auth'"
+  node_ssh_tty "sudo -u $u -H env -i HOME=/home/$u USER=$u LOGNAME=$u PATH=/opt/bifrost/codex/bin:/home/$u/.local/bin:/usr/local/lib/nodejs/current/bin:/usr/bin:/bin bash -c 'cd ~ && codex login --device-auth'"
 }
 
 # normalize <in> <out> <kind>: one line, no surrounding newline, the shape of
@@ -538,6 +539,10 @@ step_secret() {
   rm -f "$TMPD/patch.json"
 }
 
+step_stop() {
+  node_ssh 'sudo systemctl stop bifrost-agentd.service bifrost-agentd-stg.service && ! systemctl is-active --quiet bifrost-agentd.service && ! systemctl is-active --quiet bifrost-agentd-stg.service && echo "both agentd stopped"'
+}
+
 step_start() {
   node_ssh 'sudo systemctl enable --now bifrost-agentd.service bifrost-agentd-stg.service && sleep 20 && sudo bash ~/agent-host/check-agent-06.sh running'
 }
@@ -562,12 +567,12 @@ step_retire_mac() {
 
 step=${1:-}
 if [ -z "$step" ]; then
-  sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
   exit 2
 fi
 shift
 case "$step" in
-  check | leave | uninstall | delete-node | copy | prepare | codex-login | vendor-creds | git-token | host-check | secret | start | retire-mac) ;;
+  check | leave | uninstall | delete-node | copy | prepare | codex-login | vendor-creds | git-token | host-check | secret | stop | start | retire-mac) ;;
   *) die "unknown step: $step" ;;
 esac
 fn=step_$(echo "$step" | tr - _)

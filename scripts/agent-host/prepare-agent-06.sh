@@ -12,8 +12,12 @@
 # It downloads: Ubuntu packages (apt), Go 1.25 from go.dev and Node 22 from
 # nodejs.org (each checked against the publisher's SHA-256), codex and claude
 # from npm, cursor-agent from cursor.com's installer (Owner 2026-10-17: agreed).
-# The vendor CLIs are installed as the agent users after the egress rules are
-# on, so they come through the rules the agents will run under.
+# claude and cursor-agent are installed as the agent users after the egress
+# rules are on, so they come through the rules the agents will run under.
+# codex is installed once, by root, under /opt/bifrost/codex, at a pinned
+# version, because its sandbox needs user namespaces and the AppArmor rule
+# that allows them (bifrost-codex.apparmor) must name a directory the agents
+# cannot write (Owner 2026-10-17, option A).
 #
 # A second run installs only what is missing: it does not upgrade Go, Node or
 # a CLI, and it keeps the platform tokens. It reloads the egress rules in
@@ -24,6 +28,8 @@ set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd -P)
 binary=agentd-f69e8c6-linux-amd64
+codex_version=0.163.0
+codex_prefix=/opt/bifrost/codex
 prod=bifrost-agentd
 stg=bifrost-agentd-stg
 
@@ -135,7 +141,7 @@ fi
 as() {
   local u=$1
   sudo -u "$u" -H env -i HOME="/home/$u" USER="$u" LOGNAME="$u" SHELL=/bin/bash LANG=C.UTF-8 \
-    PATH="/home/$u/.local/bin:/usr/local/go/bin:/usr/local/lib/nodejs/current/bin:/usr/local/bin:/usr/bin:/bin" \
+    PATH="$codex_prefix/bin:/home/$u/.local/bin:/usr/local/go/bin:/usr/local/lib/nodejs/current/bin:/usr/local/bin:/usr/bin:/bin" \
     bash -euo pipefail -c "cd \"\$HOME\" && umask 077 && $2"
 }
 
@@ -144,20 +150,44 @@ for u in "$prod" "$stg"; do
   as "$u" 'mkdir -p .config/bifrost agent-work/agentd .local/bin && chmod 700 .config .config/bifrost agent-work agent-work/agentd'
 done
 
+step "codex $codex_version under $codex_prefix (root-owned) and the AppArmor rule for its sandbox"
+if [ "$("$codex_prefix/bin/codex" --version 2> /dev/null || true)" != "codex-cli $codex_version" ]; then
+  install -d -m 755 /opt/bifrost "$codex_prefix"
+  PATH="/usr/local/lib/nodejs/current/bin:$PATH" npm install -g --prefix "$codex_prefix" --ignore-scripts --no-audit --no-fund "@openai/codex@$codex_version"
+fi
+chown -R root:root "$codex_prefix"
+chmod -R go-w "$codex_prefix"
+[ "$("$codex_prefix/bin/codex" --version)" = "codex-cli $codex_version" ] || die "codex under $codex_prefix is not $codex_version"
+[ -d "$codex_prefix/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor" ] ||
+  die "codex's Linux binaries are not where bifrost-codex.apparmor expects them"
+install -m 644 "$here/bifrost-codex.apparmor" /etc/apparmor.d/bifrost-codex
+apparmor_parser -r /etc/apparmor.d/bifrost-codex
+grep -q '^bifrost-codex ' /sys/kernel/security/apparmor/profiles || die "the AppArmor profile bifrost-codex did not load"
+# The agent users used to have their own codex; theirs would bypass the rule
+# (and fail in the sandbox), so it goes.
+for u in "$prod" "$stg"; do
+  as "$u" '[ ! -e .local/lib/node_modules/@openai/codex ] || npm uninstall -g --prefix "$HOME/.local" --no-audit --no-fund @openai/codex'
+  as "$u" '[ ! -e .local/bin/codex ]' || die "$u still has its own codex in ~/.local/bin"
+  # One command in codex's own sandbox, no model: it fails with
+  # "RTM_NEWADDR: Operation not permitted" when the rule is not in force.
+  as "$u" "out=\$(codex sandbox -C \"\$HOME\" -- /bin/true 2>&1) || { printf '%s\\n' \"\$out\" >&2; exit 1; }" ||
+    die "$u: codex cannot run a command in its sandbox"
+done
+
 step "vendor CLIs (as the agent users, through the egress rules)"
 npm_cli() { # npm_cli <user> <binary> <package>
   as "$1" "[ -x .local/bin/$2 ] || npm install -g --prefix \"\$HOME/.local\" --no-audit --no-fund $3"
 }
-npm_cli "$prod" codex @openai/codex
 npm_cli "$prod" claude @anthropic-ai/claude-code
-npm_cli "$stg" codex @openai/codex
 # cursor-agent: the installer is downloaded first and run only if the
 # download succeeded, so a failed or cut-off download changes nothing.
 as "$prod" '[ -x .local/bin/cursor-agent ] || { t=$(mktemp) && curl -fsS --proto "=https" -o "$t" https://cursor.com/install && bash "$t"; rc=$?; rm -f "$t"; exit $rc; }'
-for c in codex claude cursor-agent; do
+for c in claude cursor-agent; do
   as "$prod" "[ -x .local/bin/$c ] && .local/bin/$c --version >/dev/null 2>&1" || die "$prod: $c is not installed or does not run"
 done
-as "$stg" '[ -x .local/bin/codex ] && .local/bin/codex --version >/dev/null 2>&1' || die "$stg: codex is not installed or does not run"
+for u in "$prod" "$stg"; do
+  as "$u" '[ "$(command -v codex)" = /opt/bifrost/codex/bin/codex ]' || die "$u: codex on its PATH is not the one under $codex_prefix"
+done
 
 step "agentd platform tokens (made here, kept here; agent-06-owner.sh copies each into its platform's Secret)"
 for u in "$prod" "$stg"; do

@@ -1,0 +1,22 @@
+# Bifrost agent host: codex runs its commands in its own sandbox (bubblewrap),
+# which builds new user and network namespaces. Ubuntu 24.04 lets an
+# unprivileged process create a user namespace but takes every capability
+# away inside it (kernel.apparmor_restrict_unprivileged_userns=1), so the
+# sandbox cannot even bring up its loopback interface (2026-10-17, STG walk
+# M-6: "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted").
+#
+# This profile allows user namespaces to the codex binaries under
+# /opt/bifrost/codex and to nothing else. That directory is owned by root and
+# not writable by the agent users, so no agent can put another program under
+# this rule. Everything else about these processes stays as it was
+# (unconfined). Installed by prepare-agent-06.sh as
+# /etc/apparmor.d/bifrost-codex; Owner 2026-10-17 chose this over turning the
+# restriction off for the whole host.
+abi <abi/4.0>,
+include <tunables/global>
+
+profile bifrost-codex /opt/bifrost/codex/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/** flags=(unconfined) {
+  userns,
+
+  include if exists <local/bifrost-codex>
+}
