@@ -9,11 +9,17 @@
 # is untouched.
 #
 # Each agentd reaches its own platform API and the Gitea mirror. Both reach the
-# public internet on TCP 80/443 (vendor APIs, npm, the Go module proxy, GitHub)
-# and DNS through the local systemd-resolved stub on 127.0.0.53. Nothing else:
-# no other address on the LAN (databases, Redis, the NAS, the Kubernetes API,
-# node SSH, UniFi, TWS), no SSH anywhere (the host's own sshd included), no
-# other port or protocol.
+# public internet over IPv4 TCP 80/443 (vendor APIs, npm, the Go module proxy,
+# GitHub) and the loopback addresses (DNS through the systemd-resolved stub on
+# 127.0.0.53; test servers the checks start). Nothing else: no other address
+# on the LAN (databases, Redis, the NAS, the Kubernetes API, node SSH, UniFi,
+# TWS), not this host's own LAN address, no IPv6 beyond ::1 (the LAN's own
+# IPv6 addresses would otherwise pass as public), no SSH anywhere (the host's
+# own sshd included), no other port or protocol.
+#
+# The rules match the user that owns a socket. They do not cover Unix sockets,
+# nor a local service of another user that would forward a connection onward
+# (CUT section 4).
 
 table inet bifrost_agent
 delete table inet bifrost_agent
@@ -39,11 +45,14 @@ table inet bifrost_agent {
 
 	chain common {
 		tcp dport 22 counter reject with tcp reset
-		oifname "lo" accept
+		# Loopback by address, not by interface: a connection to this host's
+		# own LAN address also leaves through lo.
+		ip daddr 127.0.0.0/8 accept
+		ip6 daddr ::1 accept
+		meta nfproto ipv6 counter reject
 		# Gitea (cicd), where work is cloned from and attempt branches go.
 		ip daddr 192.168.10.73 tcp dport 30300 accept
 		ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.168.0.0/16, 198.18.0.0/15, 224.0.0.0/3 } counter reject
-		ip6 daddr { ::/127, ::ffff:0:0/96, 64:ff9b::/96, fc00::/7, fe80::/10, ff00::/8 } counter reject
 		tcp dport { 80, 443 } accept
 		counter reject
 	}

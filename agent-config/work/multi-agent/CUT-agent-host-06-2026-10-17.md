@@ -1,6 +1,6 @@
 # 切法：06 出集群，当 Agent 主机（W-31 2.3 第一件）
 
-起草 2026-10-17 00:50（统筹线程）。命令在 `OWNER-STEPS-agent-host-06.md`；装到 06 上的文件在 `bifrost-trade-infra/scripts/agent-host/`。
+起草 2026-10-17 00:50（统筹线程），01:50 按复核 230 改过。命令在 `OWNER-STEPS-agent-host-06.md`，都是 `scripts/agent-host/agent-06-owner.sh` 的子命令（每步出错即停、不打印凭证）；装到 06 上的文件也在 `bifrost-trade-infra/scripts/agent-host/`。
 
 ## 1. Owner 定的（2026-10-17 00:20）
 
@@ -45,7 +45,7 @@
 | data | redis-live-prod、redis-dev（各 1 个、没有持久卷） | **缓存清空**，由写入方重新填。redis-ib 不在 06 上 |
 | kube-system | coredns（只有 1 个）、local-path-provisioner、metrics-server、traefik（2 个里 1 个） | **coredns 换节点时全集群 DNS 断几秒**；traefik 另一个副本一直在 |
 | bifrost-platform-prod | platform-console（1 个） | 换节点 |
-| bifrost-platform-stg | platform-api、platform-workers（Recreate，emptyDir） | STG 平台重启一次；运行时的状态在 PG，不丢 |
+| bifrost-platform-stg | platform-api、platform-workers（Recreate，emptyDir）、platform-console | STG 平台重启一次；运行时的状态在 PG，不丢 |
 | bifrost-dev | api-account、daemon | 换节点（副本数不变，不碰 D10） |
 | cicd | argocd 六个组件；四条已经结束的 CI 的 TaskRun Pod | argocd 换节点；那几条 CI 的日志随 Pod 消失，结果（Succeeded）留在 PipelineRun 上，发布闸门照样认 |
 | monitoring | grafana、loki-results-cache | 换节点 |
@@ -68,12 +68,14 @@
 | PROD 平台 `192.168.10.100:30876` | 通 | 不通 |
 | STG 平台 `192.168.10.73:30878` | 不通 | 通 |
 | Gitea `192.168.10.73:30300` | 通 | 通 |
-| 本机回环（DNS 走 127.0.0.53） | 通 | 通 |
-| 外网 TCP 80 / 443（各家 API、npm、Go 代理、GitHub） | 通 | 通 |
+| 回环地址 127.0.0.0/8、::1（DNS 走 127.0.0.53；检查时起的测试服务） | 通 | 通 |
+| 06 自己的 LAN 地址（192.168.10.79 上的任何服务） | 拒 | 拒 |
+| 外网 IPv4 TCP 80 / 443（各家 API、npm、Go 代理、GitHub） | 通 | 通 |
+| IPv6（::1 以外，包括 LAN 上的全局地址） | 拒 | 拒 |
 | 内网其它一切：数据库、Redis、NAS、K8s API、节点 SSH、UniFi、TWS、别的 NodePort | 拒 | 拒 |
 | 任何地方的 22 端口（包括 06 自己的 sshd）、其它端口和协议 | 拒 | 拒 |
 
-规则由 `bifrost-agent-egress.service` 在开机早期加载；两个 agentd 服务绑在它上面（`BindsTo`），规则没加载就不会起。
+规则由 `bifrost-agent-egress.service` 在开机早期加载；两个 agentd 服务绑在它上面（`BindsTo`），规则没加载就不会起。重跑准备脚本时规则原地替换（一次 nft 事务，中间没有空窗）；两个 agentd 在跑时准备脚本拒绝运行。核对脚本对每一项「应拒」都拿 root（不受规则约束）的结果对照：root 通、agent 用户不通才算过；root 也不通的记为「未证实」，不算过。
 
 **工具链**：Go 1.25（和 CI 同一个大版本，从 go.dev 下、按官方 SHA-256 校验）、Node 22（nodejs.org，同样校验；CI 是 Node 20，已过维护期，所以这里用 22）、git。各家命令行装在各自用户的 `~/.local`：PROD 用户装 codex、claude、cursor-agent，STG 用户只装 codex。装的时候已经在出站规则之后，等于顺便验证了规则不挡正常工作。
 
@@ -110,9 +112,11 @@
 - 外网 80/443 全开（C）。
 - 任务里的 Agent 和 agentd 是同一个用户，能读到 agentd 自己的平台令牌和 Git 令牌（TD-359；设计 §6.2、§7 第 7 条接受，第 3 轮做）。
 - 06 和集群在同一个网段，主机规则只管 agent 用户；06 的 root（`vision` 免密 sudo）照旧只有你能用（C 的 VLAN 补第二层）。
+- 规则按「谁的 socket」匹配，管不到 Unix socket，也管不到别的用户的本机服务替它转发（复核 230 B6）。卸掉 k3s 后 06 上应当没有这类服务；核对脚本列出全部监听端口和 Unix socket，B 里我逐个看，有不需要的就清掉。
+- 各家命令行在 systemd 隔离下能不能真跑起来（codex 的 Linux 沙箱、Ubuntu 24.04 的 AppArmor 对非特权 user namespace 的限制、Go 和 npm 的真实构建）只有演练能证明（复核 230 B4）：STG 两件、PROD 一件演练里任何一件因此失败，切换就停，先修。
 - 三家额度按账号算，加主机不加额度（RUNTIME-PLACEMENT 第 10 节）。
 
-## 5. 要你定的（都有建议，回字母或「照建议」）
+## 5. 要你定的（Owner 2026-10-17 01:0x：「六条照建议」）
 
 | # | 事 | 建议 |
 |---|---|---|
@@ -123,10 +127,12 @@
 | 5 | PROD overlay 加 `agentd:agent-06`（推 infra 主线后 PROD 的 platform-api 滚动一次） | 到 B 第 4 步时你回「推 PROD 接线」 |
 | 6 | 放宽规则加两台主机 | 到时你跑 `rule.sh sign` |
 
+已定：1–4 照建议（event-radar 的卷备份后删；Node 22；STG 只有 codex 和确定性检查；同意准备脚本的下载）。5、6 是到那一步时的动作：第 5 条仍等你在 B4 回「推 PROD 接线」才推（批准按动作算），第 6 条由你跑签名。
+
 ## 6. 验收
 
 1. A 之后：集群 5 个节点（gpu-server 照旧待机），所有 Deployment 和 StatefulSet 就绪，`kubectl get pv` 里没有 06；06 上没有 k3s 的进程和接口。
-2. B 的准备之后：`check-agent-06.sh` 的探测全部 `ok`；两个用户不在管理组；各家命令行已登录；`codex mcp list` 是 `[]`；凭证文件 600。
+2. B 的准备之后：`host-check base`、`host-check creds` 退出码 0（每项「应拒」有 root 对照；两个用户只在自己的组、密码锁定、没有 `~/.ssh`；三家命令行能跑、codex 已登录；MCP 服务器数为 0；凭证文件属主对、600、非空）。
 3. 两个 agentd 起来后：PROD Console 上 `agent-06` 在线，STG 上 `agent-06-stg` 在线。
 4. STG 演练两件、PROD 一件只改 Console 的目标全部走完；PROD 那件的 `verify.json` 里有 Console 的 lint、test、build。
 5. Mac Pro 的 agentd 停掉、规则收紧之后，Mac Pro 合盖 30 分钟，PROD 上的任务照常领、照常交。
