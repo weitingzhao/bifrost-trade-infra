@@ -69,7 +69,7 @@ bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-h
 
 ### B1　拷文件、跑准备脚本（约 12 分钟）
 
-拷 `scripts/agent-host/` 和我编好的 Linux 版 agentd（平台 f69e8c6，先核对指纹再拷）：
+拷 `scripts/agent-host/` 和我编好的 Linux 版 agentd（哪个平台提交、指纹多少写在 `scripts/agent-host/agentd.sha256`，先核对指纹再拷）：
 
 ```bash
 bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh copy
@@ -205,3 +205,26 @@ bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-h
 
 做完回：「06 codex 沙箱好了」。我叫演练会话把 STG 两件重跑。
 
+## B 补二　换上新的 agentd（10-17，验收结果交不上的修复）
+
+STG 演练 M-9 里 Console 任务的验收结果（verify.json）每次都被平台拒收：ESLint 的警告行带着工作目录的绝对路径，撞上平台的本机路径检查。新 agentd（平台 `ecb28c9`）交上去之前把工作目录写成 `.`、任务目录写成 `..`、家目录写成 `$HOME`，其余本机路径打码；平台的检查一点没放松。准备脚本会核对新二进制的指纹，装好、两个服务不启动；`start` 才启动并核对。
+
+按顺序跑（每条问一次节点口令）：
+
+```bash
+bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh stop
+```
+
+```bash
+bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh copy
+```
+
+```bash
+bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh prepare
+```
+
+```bash
+bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh start
+```
+
+做完回：「06 新 agentd 好了」。我叫演练会话重跑 STG 那件 Console 演练。
