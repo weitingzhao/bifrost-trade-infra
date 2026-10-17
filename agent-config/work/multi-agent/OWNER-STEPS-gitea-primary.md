@@ -48,7 +48,23 @@
 
 ## 2　装上第 0 步的集群部分（0a、0e；等我说「复核过了」再做，约 5 分钟）
 
-0a 改的是镜像同步任务，0e 是新的 GitHub 同步（任务、触发器、每 15 分钟的对账、两条告警、维护者清单）。今天每个仓库都还是镜像，装上之后什么都不变；对账每次空跑成功。命令到时在这里补上（先 `--dry-run=server` 过了才真 apply）。
+0a 改的是镜像同步任务，0e 是新的 GitHub 同步（任务、触发器、每 15 分钟的对账、两条告警、维护者清单）。今天每个仓库都还是镜像，装上之后什么都不变；对账每次空跑成功。10-17 15:0x 我用只读身份核过：集群和仓库的差别正好就是这几样（多一个 `github-sync` 触发器、镜像同步任务换版、两条告警、维护者清单多一条），其余对象一字不差；触发器的服务账号本来就能建 TaskRun，不用改权限。
+
+脚本 `scripts/gitea/apply-step0.sh` 先确认这几份清单就是复核过的版本（`1de78f6`），不是就停；全部在服务器上 dry-run 过了才真 apply，出错即停。它自己用你的管理员 kubeconfig，不读也不打印任何 Secret。
+
+1. 先只核对（不改任何东西）：
+
+```bash
+~/Desktop/stocks/bifrost-trade-infra/scripts/gitea/apply-step0.sh check
+```
+
+2. 最后一行是 `check passed` 就装：
+
+```bash
+~/Desktop/stocks/bifrost-trade-infra/scripts/gitea/apply-step0.sh apply
+```
+
+3. 回线程说「第 0 步装好了」。我用只读身份核对：触发器有 6 个、镜像同步任务是新版、CronJob 在、两条告警在，并等第一次对账空跑成功。
 
 ---
 
