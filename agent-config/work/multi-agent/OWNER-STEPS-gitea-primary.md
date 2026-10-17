@@ -14,7 +14,7 @@
 ~/Desktop/stocks/bifrost-trade-infra/scripts/gitea/rotate-admin-token.sh check
 ```
 
-   应看到两行都是 `user weitingzhao`，第三行是 `THE SAME token`。
+   应看到两行都是 `admin weitingzhao`，第三行是 `THE SAME token`。
 2. 浏览器打开 Gitea（`http://192.168.10.73:30300`），用管理员账号 `weitingzhao` 登录 → 右上角头像 → Settings → Applications → Generate New Token：名字 `bifrost-bootstrap-2026-10-17`；权限选 repository、organization、user 三项的 Read and Write，其余 No access；生成后先复制，**旧的先别删**。
 3. 换（提示出现后粘贴新令牌、回车；屏幕上不显示）：
 
@@ -22,7 +22,7 @@
 ~/Desktop/stocks/bifrost-trade-infra/scripts/gitea/rotate-admin-token.sh rotate
 ```
 
-   最后一行是 `==> rotated.` 就换好了；中途它若说「nothing changed」，就是新令牌没通过检查，什么都没改。
+   写之前它先用新令牌试一遍它要干的事（登录成同一个管理员、读仓库、让一个镜像拉取一次），过了才写。最后一行是 `==> rotated.` 就换好了；中途它若说「nothing changed」，就是新令牌没通过检查，什么都没改，照它说的补权限再建一个；若说「run rotate again」，就再跑一次同一条命令，用同一个或再建一个新令牌都行。
 4. 回线程说「Gitea 令牌换好了」。我核对镜像同步和一次 CI 克隆都用新令牌跑通，再请你删旧令牌。
 5. 我说可以了：回 Gitea 的 Applications 页**删掉旧令牌**（今天之前建的那个），然后跑：
 
