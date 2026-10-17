@@ -11,12 +11,12 @@
 #   allowed  creating agent/_probe/<stamp>/a1
 #
 # A refusal counts only as Gitea 1.21 words it for that rule and that ref
-# (review 254 A3): the push is rejected for that ref (git push --porcelain)
-# and Gitea's hook says "Not allowed to push to protected branch main",
-# "Tag <tag> is protected", "branch <b> is protected from force push" or
-# "... from deletion". The merge is tried only once Gitea says the pull
-# request can be merged, and counts as refused only on HTTP 405 saying the
-# user is not allowed to merge (review 254 A1). Anything else is reported as
+# (review 254 A3, 255 C): the push is rejected for that ref (git push
+# --porcelain) and one line from Gitea's hook is, word for word, "Not allowed
+# to push to protected branch main", "Tag <tag> is protected", "branch <b> is
+# protected from force push" or "... from deletion". The merge is tried only
+# once Gitea says the pull request can be merged, and counts as refused only on
+# HTTP 405 with the message "User not allowed to merge PR" (review 254 A1). Anything else is reported as
 # not recognised and fails the probe: a person looks, it is not a pass. Main
 # and the tags are read again at the end.
 #
@@ -124,7 +124,8 @@ refused() {
   out="$(git -C "${work}/r" push --porcelain "$@" 2>&1)" || rc=$?
   if [[ "${rc}" -eq 0 ]]; then
     report FAIL "${what}" "Gitea accepted it"
-  elif grep -qE "^!	[^	]*:${ref}	\[remote rejected\]" <<< "${out}" && grep -qF "Gitea: ${words}" <<< "${out}"; then
+  elif grep -qE "^!	[^	]*:${ref}	\[remote rejected\]" <<< "${out}" &&
+    sed -n -e 's/^remote: Gitea: //p' <<< "${out}" | sed -e 's/[[:space:]]*$//' | grep -qxF -- "${words}"; then
     report ok "${what}" "refused: ${words}"
   else
     report FAIL "${what}" "refused, but not in the words of that rule: $(grep -E '^(remote: |!	|error: |fatal: )' <<< "${out}" | head -n 2 | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
@@ -172,7 +173,7 @@ if [[ "${code}" == 201 && "${number}" =~ ^[0-9]+$ ]]; then
     case "${code}" in
       200 | 204) report FAIL "merge pull request #${pr} into main" "Gitea merged it" ;;
       405)
-        if grep -qi 'not allowed to merge' <<< "${message}"; then
+        if [[ "${message}" == "User not allowed to merge PR" ]]; then
           report ok "merge pull request #${pr} into main" "refused: ${message}"
         else
           report FAIL "merge pull request #${pr} into main" "HTTP 405 for another reason: ${message}"
@@ -184,6 +185,16 @@ if [[ "${code}" == 201 && "${number}" =~ ^[0-9]+$ ]]; then
   [[ "${pr_closed}" -eq 1 ]] && report ok "close pull request #${pr}"
 else
   report FAIL "open a pull request from ${BRANCH}" "HTTP ${code} ${message:-}"
+  # Gitea may have opened it all the same (the answer lost on the way): look it up by base and head, close it
+  IFS=$'\t' read -r code number state <<< "$(api GET "/repos/${REPO}/pulls/main/${BRANCH}" "" number state)"
+  if [[ "${code}" == 200 && "${number}" =~ ^[0-9]+$ ]]; then
+    pr="${number}"
+    [[ "${state}" == '"closed"' ]] && pr_closed=1
+    close_pr
+    [[ "${pr_closed}" -eq 1 ]] && echo "(pull request #${pr} from ${BRANCH} was there after all; it is closed)"
+  elif [[ "${code}" != 404 ]]; then
+    echo "FAIL  there may be an open pull request from ${BRANCH} into main (lookup: HTTP ${code}); look on the page" >&2
+  fi
 fi
 
 [[ "$(git ls-remote "${URL}" refs/heads/main | cut -f1)" == "${main_before}" ]] && report ok "main unchanged" || report FAIL "main unchanged" "main moved"

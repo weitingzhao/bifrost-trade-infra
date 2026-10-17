@@ -36,6 +36,7 @@ while read -r old new ref; do
       [[ "$mode" == open-main ]] && continue
       [[ "$mode" == odd-refusal ]] && { echo "Gitea: Internal Server Connecting Error"; exit 1; }
       [[ "$mode" == protected-word ]] && { echo "Gitea: Internal Server Connecting Error: protected-branch service unavailable"; exit 1; }
+      [[ "$mode" == near-words ]] && { echo "Gitea: Not allowed to push to protected branch main-other"; exit 1; }
       echo "Gitea: Not allowed to push to protected branch main"; exit 1 ;;
     refs/tags/*) echo "Gitea: Tag ${ref#refs/tags/} is protected"; exit 1 ;;
     refs/heads/agent/*)
@@ -52,9 +53,10 @@ class FakeApi:
     """The repository and pull-request calls, with answers as large as Gitea's (a padding field)."""
 
     def __init__(self, merge: tuple[int, str] = (405, "User not allowed to merge PR"), close_code: int = 201,
-                 mergeable: bool = True) -> None:
+                 mergeable: bool = True, create_code: int = 201, opened_anyway: bool = True) -> None:
         self.calls: list[tuple[str, str, str]] = []
         self.state = "open"
+        self.opened = False
         outer = self
         pad = {"padding": "x" * 5000}
 
@@ -68,7 +70,11 @@ class FakeApi:
                 if key == ("GET", "/api/v1/repos/bifrost/primary-probe"):
                     code, body = 200, {"name": "primary-probe", "mirror": False, **pad}
                 elif key == ("POST", "/api/v1/repos/bifrost/primary-probe/pulls"):
-                    code, body = 201, {"number": 7, "state": "open", **pad}
+                    # create_code other than 201: the answer is lost; the pull request may exist all the same
+                    outer.opened = create_code == 201 or opened_anyway
+                    code, body = (201, {"number": 7, "state": "open", **pad}) if create_code == 201 else (create_code, {"message": "gateway"})
+                elif self.command == "GET" and self.path.startswith("/api/v1/repos/bifrost/primary-probe/pulls/main/agent/_probe/"):
+                    code, body = (200, {"number": 7, "state": outer.state, **pad}) if outer.opened else (404, {})
                 elif key == ("GET", pr):
                     code, body = 200, {"number": 7, "state": outer.state, "mergeable": mergeable, **pad}
                 elif key == ("POST", pr + "/merge"):
@@ -205,6 +211,24 @@ class Probe(unittest.TestCase):
         api = FakeApi(close_code=500)
         self.assert_fails(api, "close pull request #7 — still")
         self.assertEqual(api.state, "open")
+
+    # review 255 C: Gitea's words, whole, for that rule; the merge message, whole
+    def test_words_for_another_branch_fail_the_probe(self) -> None:
+        self.assert_fails(FakeApi(), "not in the words of that rule", mode="near-words")
+
+    def test_a_longer_merge_message_fails_the_probe(self) -> None:
+        self.assert_fails(FakeApi(merge=(405, "User not allowed to merge PR: unrelated permission denied")), "HTTP 405 for another reason")
+
+    # review 255 B: a pull request opened although its answer was lost is found and closed
+    def test_a_lost_answer_still_closes_the_pull_request(self) -> None:
+        api = FakeApi(create_code=502)
+        r = self.assert_fails(api, "was there after all; it is closed")
+        self.assertEqual(api.state, "closed")
+
+    def test_a_lost_answer_with_nothing_opened(self) -> None:
+        api = FakeApi(create_code=502, opened_anyway=False)
+        r = self.assert_fails(api, "open a pull request from")
+        self.assertFalse(any(c[0] == "PATCH" for c in api.calls))
 
     def test_xtrace_does_not_print_the_token(self) -> None:
         api = FakeApi()
