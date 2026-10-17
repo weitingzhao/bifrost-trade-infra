@@ -1,5 +1,5 @@
 ---
-parity-id: agent-facts-v11
+parity-id: agent-facts-v12
 generated: 2026-10-07
 authority: bifrost-platform/config/ops-context.yaml (spine) + 磁盘扫描
 ---
@@ -384,11 +384,10 @@ kubeconfig：`~/.kube/bifrost-k3s.yaml` 是只读身份 `system:serviceaccount:b
 | ubt-k3s-01 | 192.168.10.73 | mini-pc-c | — | 控制面、monitoring、Tekton；所有 NodePort 的访问地址 |
 | ubt-k3s-04 | 192.168.10.75 | ubt-k3s-04 | data-primary | CloudNativePG |
 | ubt-k3s-05 | 192.168.10.77 | ubt-k3s-05 | general | STG runtime、CI build |
-| ubt-k3s-06 | 192.168.10.79 | ubt-k3s-06 | general | 通用 |
 | gpu-server | 192.168.10.60 | gpu-server | compute | RTX 4090：Ollama（`ai`）、重型 Tekton。data-warehouse MinIO 从未运行，清单已删（TD-237） |
 
 集群外：Win11 TWS ×2（topology `win11-host` / `win11-secondary`；`bifrost-platform-plugin/config/gateway.yaml` 模板写的是 `.30` / `.32`；永不调度进 K3s）、
-Mac mini `.50` / `.52`（agent host）、NAS `.20`（归档与备份目标）、本机 MacBook（kubectl / MCP / Vite）。
+Mac mini `.50` / `.52`（agent host）、ubt-k3s-06 `.79`（2026-10-17 出集群，Agent 主机：PROD、STG 两个 agentd，各一个系统用户、按用户的出站规则；`scripts/agent-host/`）、NAS `.20`（归档与备份目标）、本机 MacBook（kubectl / MCP / Vite）。
 
 ### 入口与 NodePort
 

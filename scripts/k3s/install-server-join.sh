@@ -14,7 +14,8 @@
 # Example (ubt-k3s-06 @ .79 — former bare PG .80 decommissioned 2026-06-29):
 #   sudo K3S_URL=https://192.168.10.73:6443 K3S_TOKEN=... K3S_NODE_IP=192.168.10.79 \
 #     K3S_NODE_NAME=ubt-k3s-06 bash install-server-join.sh
-# Prefer agent join for this host: make k3s-join-ubt-k3s-06
+# Prefer agent join (make k3s-join-ubt-k3s-05 is the pattern). ubt-k3s-06 left the cluster on
+# 2026-10-17 to be the agent host and is not joined again.
 set -euo pipefail
 
 K3S_URL="${K3S_URL:?set K3S_URL}"

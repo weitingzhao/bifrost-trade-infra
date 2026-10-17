@@ -17,7 +17,10 @@
 #   ubt-k3s-02 prod-pool, primary pod   133.9Gi free  (avoid)
 #   ubt-k3s-04 data-primary, replica    160.0Gi free  (avoid)
 #   ubt-k3s-05 general                  160.4Gi free
-#   ubt-k3s-06 general                  239.8Gi free  (preferred)
+# ubt-k3s-06 (general, 239.8Gi free, the preferred node then) left the
+# cluster on 2026-10-17 to be the agent host, so the general pool is 05 alone
+# and needs no preference; it also runs STG and CI builds, so drill when
+# nothing is building.
 # Database sizes on the replica: bifrost_golden_source 36567004851 bytes
 # (34 GB), bifrost_dev 17 MB, bifrost_stg 20 MB, bifrost_prod 19 MB.
 # The 80Gi request is about 2.3x that data, leaving room for WAL replay.
@@ -61,13 +64,6 @@ spec:
               - key: kubernetes.io/hostname
                 operator: NotIn
                 values: ["ubt-k3s-02", "ubt-k3s-04"]
-      preferredDuringSchedulingIgnoredDuringExecution:
-        - weight: 100
-          preference:
-            matchExpressions:
-              - key: kubernetes.io/hostname
-                operator: In
-                values: ["ubt-k3s-06"]
   bootstrap:
     recovery:
       source: bifrost-postgres
