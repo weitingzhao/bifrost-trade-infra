@@ -1,4 +1,9 @@
 # Standalone Gitea mirror-sync (Ops Console Supply Chain → Sync mirrors).
+# Each repository is asked whether it is a pull mirror first: a mirror is
+# fetched, a repository Gitea holds as its primary is not (step 0a of
+# agent-config/work/multi-agent/CUT-gitea-primary-2026-10-17.md); a commit
+# given in expectSha is waited for on both. Tested by
+# scripts/cicd/test_task_gitea_mirror_sync.py.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -42,18 +47,37 @@ spec:
         base="$(params.giteaBase)"
         org="${base##*/}"
         api="${base%/bifrost}/api/v1"
+        # A repository Gitea holds as its primary (not a pull mirror) has
+        # nothing to fetch, and Gitea answers mirror-sync on it with 400; its
+        # commit is still waited for below (CUT-gitea-primary-2026-10-17 0a).
+        fetched=0
         for repo in $(params.mirrorRepos); do
-          code="$(curl -s -o /dev/null -w '%{http_code}' \
-            -X POST \
+          info="$(curl -s -w '\n%{http_code}' \
             -H "Authorization: token ${GITEA_TOKEN}" \
-            -H "Content-Type: application/json" \
-            "${api}/repos/${org}/${repo}/mirror-sync" \
-            -d '{}')"
-          echo "mirror-sync ${org}/${repo} → HTTP ${code}"
-          case "${code}" in
-            200|201|202|204) ;;
-            *) exit 1 ;;
-          esac
+            "${api}/repos/${org}/${repo}")"
+          code="$(printf '%s' "${info}" | tail -n 1)"
+          if [ "${code}" != "200" ]; then
+            echo "ERROR: repository ${org}/${repo} → HTTP ${code}" >&2
+            exit 1
+          fi
+          if printf '%s' "${info}" | grep -q '"mirror":true'; then
+            code="$(curl -s -o /dev/null -w '%{http_code}' \
+              -X POST \
+              -H "Authorization: token ${GITEA_TOKEN}" \
+              -H "Content-Type: application/json" \
+              "${api}/repos/${org}/${repo}/mirror-sync" \
+              -d '{}')"
+            echo "mirror-sync ${org}/${repo} → HTTP ${code}"
+            case "${code}" in
+              200|201|202|204) fetched=1 ;;
+              *) exit 1 ;;
+            esac
+          elif printf '%s' "${info}" | grep -q '"mirror":false'; then
+            echo "${org}/${repo} is Gitea's primary: nothing to fetch"
+          else
+            echo "ERROR: Gitea did not say whether ${org}/${repo} is a mirror" >&2
+            exit 1
+          fi
         done
         # Gitea mirror-sync is async. A release passes expectSha so the clone
         # cannot start on the previous mirror contents (TD-155).
@@ -85,6 +109,8 @@ spec:
           echo "ERROR: ${sha} was not on the Gitea mirror after mirror-sync" >&2
           exit 1
         fi
-        echo "waiting 8s for Gitea mirror fetch to settle"
-        sleep 8
+        if [ "${fetched}" -eq 1 ]; then
+          echo "waiting 8s for Gitea mirror fetch to settle"
+          sleep 8
+        fi
         echo "Gitea mirror-sync complete"
