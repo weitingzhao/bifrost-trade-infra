@@ -464,7 +464,7 @@
         - [x] STG 走查（2.2 验收前的一件小活）｜**M-1**（14:01，`standing-envelope:dev` v1 内）：codex 实现 launchd.Parse 边界测试，第 3 次尝试交付 `ef22c980`（`agent/t_01M50FZ5…/a3`），确定性验收 14:24 pass；评审无人可领（codex 不独立、claude 在资格考核，合预期）。报告 `~/agent-work/stg-walk/REPORT.md`。走查查出三处并修：① 平台用 Gitea 分支 API 读刚推的分支会 404 → 第 1 次尝试的 persist 409 被拒、结果丢失 → 改读 git `info/refs`（分支 `w31/agentrt-22-heads-git` `~/agent-work/agentrt-22p`，复核 204→206→207 可以合并，CI 在 git 2.39 上红一次→e370d39 修、复核 208；15:24 STG 发到 e370d39 并核对）；② cursor 在后台用户下写不了钥匙串 → `AGENT_CLI_CREDENTIAL_STORE=memory`；③ 安装脚本 bootout 后立刻 bootstrap 会失败、主机没了 agentd（14:18 出过）→ 等 `launchctl print` 回 113 再加载（②③ 复核 202/203/205，已合主线 `3b4e372`，agentd 14:55 装上，指纹 `69c5cd8f…`）。另：MCP 补 `propose_mission`（`dbf30a9`，复核 200/201）。F2（被拒的 persist 不留痕）记 TD-349｜下一步：M-2「Cursor 写、Codex 评审」（任务带 needs listen_port_tests，codex 沙箱做不了，派给 cursor）走到 accepted；材料 `~/agent-work/stg-walk/m2/`，交给新会话「STG 走查 M-2」跑｜**10-15 18:17 核对**：分支已合进平台主线，STG 上跑通（M-1、M-2 走查，Gate A 两批）
         - [~] Gate A 在测试环境过：T01、T02、T05、T06、T08、T10、T22、T25、T32（经接口）、T33、T34、T35、T36、6 道基准题｜10-15 10:38 跑法和要你参与的部分写在 `agent-config/work/multi-agent/PLAN-gate-a-stg-2026-10-15.md`｜**10-15 18:17 核对**：第一、二批过的项见 `work/multi-agent/RUN-gate-a-stg-2026-10-15.md`（T01、T02、T05、T06、T08、T10、T22 ①③、T32 接口、T34 五种、T36）；剩下的归补强
         - [x] （你）定：Gate A 里要你参与的部分｜**10-15 14:45 前后你回「验收参与 一」**：一行 sudoers（只许给 bifrost-agentd 的进程发信号）、STG 测试身份 agentd:gate-b、验收期间允许缩放 STG platform-workers、合盖一次提前说，跑完全部撤掉；命令在 M-2 走到 accepted 之后原样给｜T01、T22、T34 要对以 `bifrost-agentd` 运行的 agentd 发信号（我没有 sudo），T02、T08、T34 要第二个 agentd 身份，T22 ③ 要暂停 STG 控制器，T22 ① 要合盖一次；另 TD-347：「全机锁」其实按用户｜**我的建议 A**：一行 sudoers 让我以 `bifrost-agentd` 身份运行 `/bin/kill`；STG 加测试主体 `agentd:gate-b`、令牌放我家目录 600；这次 Gate A 期间允许我缩放 STG 的 `platform-workers`；合盖一次我提前说；Gate A 后全部撤掉。B：信号由你按时跑 `sudo kill`（约 6 次），其余同 A。C：只跑不要你的部分，其余记「只在存储层测过」，Gate A 标部分通过｜怎么回：线程里回「Gate A 参与 A」（或 B、C）
-        - [ ] （补强）agentd 工作区能跑 Console 的检查（npm ci、lint、test、build），一句目标能选 Console｜10-15 晚定（`work/multi-agent/WORKMODE-owner-chief-of-staff-2026-10-15.md` 第三节）；现在目标只能选 bifrost-platform，默认检查只有 `go build`、`go vet`
+        - [ ] （补强，10-16 晚提到 2.3 之前）agentd 工作区能跑 Console 的检查（npm ci、lint、test、build），一句目标能选 Console｜接下来界面活多，不做这项就派不给 Agent｜10-15 晚定（`work/multi-agent/WORKMODE-owner-chief-of-staff-2026-10-15.md` 第三节）；现在目标只能选 bifrost-platform，默认检查只有 `go build`、`go vet`
         - [ ] （补强）★ 正式环境：开发机上的 agentd 领正式环境的任务，6 道基准题从领到结论全程无人插手
       - 2.2b 第一版拉通（Owner 2026-10-15 18:1x 确认「草案 2」；`work/multi-agent/PLAN-round2-first-slice-2026-10-15.md`）
         - [x] 台账对齐：2.2 勾掉已在 STG 跑通的步骤，架构对照按 STG / PROD 重核，补强的步骤原位标「（补强）」｜10-15 18:17
@@ -478,18 +478,21 @@
         - [x] 参谋长薄版：Console 的目标先进参谋长，由它写成 mission（目标、什么算好、不做什么、预算）、决定拆不拆，只把目标层的问题出成决策卡（带默认）｜**Owner 2026-10-15 约 20:05 定**：排在合页之后、其余补强之前（`work/multi-agent/WORKMODE-owner-chief-of-staff-2026-10-15.md`）｜**约 20:10 又定**：记忆放运行时（每次起新会话、读记录干活，不靠会话上下文）；席位由 Claude 坐，Claude 执行者随薄版一起做（同文件第四节）｜切法由统筹线程另写，涉及新路由、改公开接口、改事件词表（决定记录）的部分等 Owner 点头；完整版留在 2.4｜**10-15 20:35 切法**：`work/multi-agent/CUT-chief-of-staff-thin-2026-10-15.md`，三片（Claude 执行者与规划岗位 → 目标先进规划任务 → 规划结果落成记录），约 2.5–3 天；D1（`/goals` 改成先进参谋长）、D2（决定记录用新事件 `decision_recorded`）**你 21:18 回「D1 A，D2 A」**；第 1 片不等 D1、D2｜**10-15 21:2x 第 1 片上线**：agentd 的 Claude 执行者（只读工具、不带 MCP、令牌只给它）平台主线 `4f081b5`（Codex 写，统筹方实测 MCP 隔离、补「出错的结果不算报告」，Cursor 复核 215 可以合并，B1–B3 已收）；你装 Claude 2.1.295、存令牌、试跑通过、重装 agentd、签 `job:planner` v1 与 `standing-envelope:dev` v2（infra `f418a3e`）。第一个令牌因统筹方读终端回滚进了对话，已作废换新（教训 154）｜**10-15 23:07 上 PROD**（平台 `01a5c62`，#26；迁移 0006 STG 23:00、PROD 23:08 你跑）；**23:11 第一次真实规划 M-2**：Claude 40 秒拆出 1 件任务、3 条决定，Codex 实现、确定性验收、Cursor 评审，23:17 全部 accepted，统筹线程写入 0
         - [x] Progress 上半页「一件目标一张卡」（你 10-15 23:2x 按五点定）：编号与大状态、阶段条（谁做、用时）、参谋长写了什么、做完的结果；需要你分来源、静默线程不再算该你了；下半页默认收起；目标类 mission 做完自动收尾｜Codex 写 Console、Claude 写收尾；Cursor 复核 219 一条 A 已修、220 可以合并｜**10-16 00:29 上 PROD**（平台 `0ab5f6f`，#29）：M-1、M-2 上线一轮内收尾为 done；统筹线程在 PROD 上用真数据走查过｜10-16 你看过，提出要一个总控台（下一项）
         - [x] 总控台第一版（你 10-16 定稿线框 `https://claude.ai/artifact/4m58gzdJmk3QESnAk8ovcz` 第 7 版）：Console 首页 `#owner`，先一句结论，For you / 参谋长 / Work / System / Data 六个 tab，iPhone、Fire HD 10、电脑三种排法；只用现有接口；复杂的放进 Detail（你 10-16「主次有序，隐藏不等于看不到」）｜Claude 写（platform `w31/owner-console` 543a1df）；Codex 复核 221「先改」7 条 A（读不到时说成没事、待机噪声凭名字和百分比归类），修复 e957222（待机噪声改为凭集群证据：待机节点上的 Pod、DaemonSet 缺口、下线 target）；确认复核 222 剩 3 条、照改 30568f6；窄确认 223 剩 1 条 A（节点名被地址顶替），按停线规矩停，修法备好 a1d43d6；**你 16:0x 定：直接推主线发 STG，PROD 前再复核一轮**｜10-16 16:10 推主线 a1d43d6、16:26 上 STG；PROD 前复核 224 查出 1 条 A（实现被接受当成目标 done）+1 条 B，修 632669b，225 确认关闭、另 1 条 B 修 9ba6de7（没再复核）；16:57 STG 跑 9ba6de7 并核对；**18:31 上 PROD**（#33，9ba6de7）：首页即总控台，统筹线程在 PROD 上用真数据走查过（Yours 2、Worth a look 6、M-2 Done、计划与额度、节点、数据）｜下一步：你在手机和平板上看，说行或列出要改的｜没做（要底层数据）：任务之间的依赖连线、计划变系统记录（计划导进运行时）；和参谋长对话、早晚简报（2.3 信箱）；线程内部细节；Claude / Cursor 额度自动读
+        - [ ] 导航框架第一片（你 10-16 晚「按这个走」；线框 `https://claude.ai/artifact/3rbkDJV7hMjcTg6byK2vVz`）：手机和平板竖屏用底部 4 个 tab（For you / Chief of staff / Work / System），「更多」在页头；全站「要你做」一个数（Yours，不含静默线程）；电脑与平板横屏侧栏改成 4 个入口 + 「详情页」分组；Needs you、Progress 并入 For you、Work，做完的进 Records｜按现有外观做，不等设计
+        - [~] Ops 设计系统 v2（Claude Design，在本线程做）：「Bifrost Ops Console」设计系统 `https://claude.ai/artifact/WAXPKFjtR85QrcCutX1rYc` 加手机与平板字号和 44px、导航组件、Owner 的结论 / Yours / 值得一看 / 目标卡、参谋长对话组件；强调色只给当前入口和唯一主操作｜之后各片照 v2 做
       - 2.3 交互总线与叫停（设计的阶段 1）
         - [ ] （补强）实现：信箱、唤醒、在线状态、叫停广播；隔离、根目录只读、注入防护；本机文件迁进平台
         - [ ] （补强）独立复核
         - [ ] （你）（补强）批发布单
         - [ ] （补强）★ Gate B
+        - [ ] （补强）★ 手机上问参谋长一句，收到回答；Work 里有你按得到的「全部叫停」（10-16 晚加：参谋长对话页靠信箱）
       - 2.4 多厂商与参谋长（设计的阶段 2 前半）
         - [ ] （补强）实现：Claude 执行者、按能力和额度分流（先看谁能胜任，按岗位用资格考试和历史成绩量；再在能胜任的里按额度挑）、并发 2 到 3、参谋长席位｜10-15：参谋长薄版和 Claude 执行者提前到 2.2b（合页之后），这里留完整版：早晚简报、信箱、24 小时在线、资格考试
         - [ ] （补强）独立复核
         - [ ] （你）（补强）批发布单
         - [ ] （补强）★ 一件活从派出到验收，全程没有统筹线程手工插手
       - 2.5 界面：协作进展在正式环境，完全由接口生成（从内往外的最后一层）
-        - [ ] （补强）实现：PROD Console 的 Progress 页从内核接口读计划栏、架构对照、现场、需要你做的事；本机看板退役
+        - [ ] （补强）实现：按新框架（For you / Work / System，10-16 晚改写；原写 Progress 页）由内核接口生成：把总控台上 ✎ 手写的计划、统筹线程留言、额度换成运行时记录；本机看板退役
         - [ ] （补强）独立复核
         - [ ] （你）（补强）批发布单
         - [ ] （补强）★ 停掉 Agent 主机上的看板程序，PROD Progress 页仍显示正确的计划和现场
