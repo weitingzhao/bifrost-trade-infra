@@ -148,6 +148,24 @@ class Scripts(unittest.TestCase):
         finally:
             api.close()
 
+    def test_compare_refs_does_not_follow_a_global_insteadof(self) -> None:
+        # after a batch the Owner's ~/.gitconfig rewrites GitHub addresses to Gitea
+        g = self.bare(self.gitea / "bifrost" / "r.git")
+        h = self.bare(self.github / "r.git")
+        for side in (g, h):
+            git(self.work, "push", "-q", str(side), "main")
+        git(self.work, "tag", "v1")
+        git(self.work, "push", "-q", str(h), "refs/tags/v1")
+        (self.root / ".gitconfig").write_text(
+            f'[url "file://{self.gitea}/bifrost/"]\n\tinsteadOf = file://{self.github}/\n', encoding="utf-8")
+        api = FakeApi({"r": False})
+        try:
+            r = self.run_script("compare-refs.sh", "r", api=api)
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertIn("r: DIFFERENT", r.stdout)
+        finally:
+            api.close()
+
     # copy-agent-branches
     def test_copy_agent_branches_copies_only_what_is_missing(self) -> None:
         src = self.bare(self.gitea / "bifrost-agents" / "r.git")

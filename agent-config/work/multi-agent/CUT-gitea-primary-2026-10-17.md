@@ -149,7 +149,7 @@ Gitea 1.21.11 对非镜像仓库的 `POST mirror-sync` 回 **400 "Repository is 
 
 ## 4. 分阶段
 
-**顺序的道理**：第 0 步先让「镜像」和「普通仓库」两种状态都能跑（上线后行为不变）；之后每批只转几个仓库，转完那一刻，CI、deliver、release.sh、agentd、平台读分支都已经认得新状态。每批开发布窗口、停 agentd，批内顺序是「核对两边一致 → 转换 → 设保护 → 换本机远端 → 开 agentd」。任何一批做到一半停下，已转的和没转的仓库可以并存。
+**顺序的道理**：第 0 步先让「镜像」和「普通仓库」两种状态都能跑（上线后行为不变）；之后每批只转几个仓库，转完那一刻，CI、deliver、release.sh、agentd、平台读分支都已经认得新状态。每批开发布窗口、停 agentd，批内顺序是「核对两边一致 → 转换 →（A 批）搬 Agent 分支 → 设保护 → 换本机远端 → 开 agentd」。任何一批做到一半停下，已转的和没转的仓库可以并存。
 
 ### 第 0 步：两种状态都能跑的代码（我写；上线后什么都不变）
 
@@ -180,8 +180,8 @@ Gitea 1.21.11 对非镜像仓库的 `POST mirror-sync` 回 **400 "Repository is 
 2. 你：停 06 上两个 agentd（Mac Pro 的 `mbp-dev` 还在跑也停）。我在 Progress 上确认没有进行中的尝试、本地没有待交的结果。
 3. 你跑比对脚本：两个仓库先同步一次镜像，GitHub 与 Gitea 的分支、标签逐条相同才往下走。
 4. 你：两个仓库在页面上「转换为普通仓库」。
-5. 你：设保护脚本加两条分支规则（`main`、`agent/**`）；页面上各加一条标签规则 `*`。
-6. 你：搬 Agent 分支脚本把 `bifrost-agents/bifrost-platform` 的 `refs/heads/agent/*` 复制到 `bifrost/bifrost-platform`（只复制，不删原处），这样旧尝试的保全、检查类任务的 base 和血缘都还找得到。
+5. 你：搬 Agent 分支脚本把 `bifrost-agents/bifrost-platform` 的 `refs/heads/agent/*` 复制到 `bifrost/bifrost-platform`（只复制，不删原处），这样旧尝试的保全、检查类任务的 base 和血缘都还找得到。要在设保护之前：`agent/**` 的推送白名单里没有脚本用的管理员账号，1.21 也不让管理员越过白名单。
+6. 你：设保护脚本加两条分支规则（`main`、`agent/**`）；页面上各加一条标签规则 `*`。
 7. 我：名单加这两个仓库；STG overlay 改 `AGENTRT_GIT_ORG=bifrost`（STG 清单我按 STG 规矩发）；PROD overlay 同样改，**等你回「推 PROD 接线」**（和 06 那次一样）。这一刻 infra 还是 GitHub 做主，Argo 照常同步。
 8. 我改两个服务文件去掉 `AGENTD_GIT_PUSH_BASE`；你在 06 上装服务文件、启动 agentd（命令在操作单里）。STG 那个在 STG 平台换好后就开；PROD 那个等 PROD 平台换好再开——一边读 `bifrost`、另一边推 `bifrost-agents` 时交来的结果会被 409 永久拒收。
 9. 我：两个本机检出换远端（`origin` → Gitea，加只读的 `github` 远端）；你先把 `bifrost-mbp` 的令牌存进钥匙串，并加两行全局 `insteadOf`，让 `~/agent-work` 那些独立克隆也改走 Gitea。
@@ -238,8 +238,8 @@ Gitea 1.21.11 对非镜像仓库的 `POST mirror-sync` 回 **400 "Repository is 
 1. 停 agentd：06 上 `systemctl stop` 两个服务（操作单给原样命令）。
 2. 跑比对脚本（`scripts/gitea/compare-refs.sh <仓库…>`，用你的管理员令牌读 Gitea，GitHub 是公开读），全部「same」才往下。
 3. 每个仓库：Settings → 页面底部 Danger Zone → Convert to Regular Repository → 输入仓库名确认。
-4. 跑设保护脚本（`scripts/gitea/protect-repo.sh <仓库…>`：经 API 加 `main` 与 `agent/**` 两条规则，每条都带推送白名单和合并白名单，再读回逐项比对）；然后每个仓库在页面上 Settings → Tags 加 `*` 规则（1.21 没有 API）。
-5. 只在 A：跑搬分支脚本（`scripts/gitea/copy-agent-branches.sh bifrost-platform`）。
+4. 只在 A：跑搬分支脚本（`scripts/gitea/copy-agent-branches.sh bifrost-platform`）。在设保护之前（理由见上面「第 A 批」第 5 条）。
+5. 跑设保护脚本（`scripts/gitea/protect-repo.sh <仓库…>`：经 API 加 `main` 与 `agent/**` 两条规则，每条都带推送白名单和合并白名单，再读回逐项比对）；然后每个仓库在页面上 Settings → Tags 加 `*` 规则（1.21 没有 API）。
 6. 只在 A：钥匙串里存 `bifrost-mbp` 的令牌（`git credential approve`，令牌用 `read -rs` 读入；之后 git 自动用）。命令在操作单里。
 7. 每批：加这一批仓库的全局 `insteadOf`（改你的 `~/.gitconfig`，是长期配置，所以由你跑；命令在操作单里，每个仓库两行：SSH 和 HTTPS 两种 GitHub 地址都改写到 Gitea）。
 8. 只在 A：在 06 上装新服务文件、启动两个 agentd；只在 A：回「推 PROD 接线」。

@@ -80,9 +80,12 @@ PY
 }
 
 # heads_and_tags <url> — "sha ref" lines for refs/heads/* and refs/tags/*,
-# sorted; refs/pull/* and peeled tags left out.
+# sorted; refs/pull/* and peeled tags left out. The global and system git
+# config are not read: once a batch is done the Owner's ~/.gitconfig rewrites
+# its GitHub addresses to Gitea (insteadOf), and a GitHub read would then be a
+# second Gitea read. The Gitea token header comes from the environment.
 heads_and_tags() {
   local listed
-  listed="$(git ls-remote --refs "$1")" || return 1
+  listed="$(GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git ls-remote --refs "$1")" || return 1
   printf '%s\n' "${listed}" | awk '$2 ~ /^refs\/(heads|tags)\// { print $1, $2 }' | sort -k2
 }

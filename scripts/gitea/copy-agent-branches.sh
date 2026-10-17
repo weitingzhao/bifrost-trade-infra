@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# copy-agent-branches.sh <repo> — batch A step 6 (CUT-gitea-primary-2026-10-17):
+# copy-agent-branches.sh <repo> — batch A, between the conversion and protect-repo.sh (CUT-gitea-primary-2026-10-17):
 # copies every refs/heads/agent/* of <agent org>/<repo> (bifrost-agents) to
 # bifrost/<repo>, so that earlier attempts' branches, check tasks' bases and
 # lineage are still found once agentd pushes there. Copies only: never
 # forced, nothing deleted on either side; a branch already in bifrost/<repo>
 # at the same commit is skipped, at another commit is reported and left. Run
-# it before protect-repo.sh sets the agent/** rule. Exits 1 on any difference.
+# it before protect-repo.sh sets the agent/** rule: the rule's push whitelist
+# (team agentd-write and the Owner) does not hold the admin account whose
+# token this pushes with, and Gitea 1.21 lets no admin past a whitelist.
+# Exits 1 on any difference.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 # shellcheck source=lib.sh
 source "$HERE/lib.sh"
