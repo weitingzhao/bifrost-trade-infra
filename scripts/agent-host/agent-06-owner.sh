@@ -400,6 +400,10 @@ step_leave() {
   wait_volumes_gone
   printf '%s drained %s\n' "$NODE_UID" "$(date -u +%FT%TZ)" > "$STATE_DIR/leave-done"
   say "drained: only DaemonSet pods are left on $NODE; volumes gone; backup at $BACKUP"
+  # Released here, not left to the trap: bash 3.2 runs an EXIT trap set in a
+  # piped function only when it exits, not when it returns (10-17: the window
+  # stayed held after a successful leave).
+  release_window || die "leave is done, but the release window could not be shown closed"
 }
 
 uninstall_guard() { # the node is ours, leave finished, nothing is left on it
