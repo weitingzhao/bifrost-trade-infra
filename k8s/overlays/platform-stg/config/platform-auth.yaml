@@ -35,3 +35,8 @@ tokens:
   - name: agentd:gate-b
     role: agentd
     token_env: PLATFORM_AGENTD_GATE_B_TOKEN
+  # W-31 2.3 (Owner 2026-10-17): the STG agentd on the agent host ubt-k3s-06
+  # (out of the cluster), user bifrost-agentd-stg; bound to host agent-06-stg.
+  - name: agentd:agent-06-stg
+    role: agentd
+    token_env: PLATFORM_AGENTD_AGENT_06_STG_TOKEN
