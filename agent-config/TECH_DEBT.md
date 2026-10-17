@@ -2139,6 +2139,19 @@
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-363
+
+**P3 · release · push-main.sh pushes a Go repository's main without running its tests, so a session that skips the whole suite pushes main red**
+
+- **状态**：未开始（2026-10-17 记；教训 160，第三次）
+- **Claim**: push-main.sh checks the release window, fast-forward and code-health on a clean worktree, then pushes. `go test ./...` is left to the session ("go test 与 lint 照旧在推之前自己跑"). On 2026-10-17 platform `ecb28c9` went to main having passed the three touched packages and code-health, and failed `storedurability.TestNoNewStoreUnderHome` in the whole suite; CI `ci-platform-kr5tm` is red on it, `fcd2ecb` fixed it minutes later. The memory and CLAUDE.md say the same rule in words; it was missed on 10-12, 10-14 and 10-17.
+- **Evidence**: `bifrost-trade-infra/scripts/release/push-main.sh:58-83` (code-health only); `agent-config/work/multi-agent/LESSONS-from-practice.md` row 160.
+- **Impact**: main red until the next push; a deliver or release.sh run in between refuses the SHA (ci-* not Succeeded) or needs `--allow-red`.
+- **Fix**: for a Go repository (platform, plugins), run `go test ./...` in the same clean worktree push-main.sh already makes for code-health, with the neighbours CI clones (infra for platform), and push only when it passes; an explicit `--skip-tests <reason>` that is logged, as release.sh's `--allow-red`.
+- **Ratchet**: a push-main.sh test with a fake Go repository whose test fails: push-main.sh exits non-zero and pushes nothing.
+- 验收: the ratchet test; and a real push of a platform commit prints the go test summary before the push line.
+- 审批 不需要 · 代价 S · 风险 low · repos: bifrost-trade-infra
+
 ### TD-362
 
 **P3 · agentd · setup.json and siblings.json stay on the host: the platform never sees which setup command failed, how long each took, or which sibling commit a task was built against**
