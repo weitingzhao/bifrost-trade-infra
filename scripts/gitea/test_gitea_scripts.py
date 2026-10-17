@@ -869,5 +869,151 @@ esac
         self.assertIn("git fetch", r.stderr)
         self.assertEqual(self.applies(), [])
 
+
+class RotateAdminToken(unittest.TestCase):
+    """rotate-admin-token.sh against a fake kubectl keeping both Secrets in files and a fake Gitea /user."""
+
+    OLD = "1" * 40
+    NEW = "2" * 40
+    OTHER = "3" * 40
+
+    def setUp(self) -> None:
+        import base64
+        self.b64 = lambda v: base64.b64encode(v.encode()).decode()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.store = self.root / "store"
+        self.store.mkdir()
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        self.users = {self.OLD: "weitingzhao", self.NEW: "weitingzhao", self.OTHER: "someone-else"}
+        self.write_secret("gitea-bootstrap", {"gitea_admin_token": self.OLD})
+        self.write_secret("gitea-git-credentials", {"username": "weitingzhao", "password": self.OLD})
+        self.kubectl()
+        outer = self
+
+        class H(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                token = (self.headers.get("Authorization") or "").removeprefix("token ")
+                login = outer.users.get(token) if self.path == "/api/v1/user" else None
+                code, body = (200, {"login": login}) if login else (401, {"message": "token is required"})
+                data = json.dumps(body).encode()
+                self.send_response(code)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *a) -> None:
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def tearDown(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+        self.tmp.cleanup()
+
+    def write_secret(self, name: str, values: dict) -> None:
+        (self.store / f"{name}.json").write_text(json.dumps({"data": {k: self.b64(v) for k, v in values.items()}}))
+
+    def secret(self, name: str, key: str) -> str:
+        import base64
+        return base64.b64decode(json.loads((self.store / f"{name}.json").read_text())["data"][key]).decode()
+
+    def kubectl(self, failing_patch: str = "") -> None:
+        k = self.bin / "kubectl"
+        k.write_text(f"""#!/bin/bash
+store="{self.store}"
+case "$*" in
+  *"get secret "*) name="${{@: -3:1}}"; cat "$store/$name.json" ;;
+  *"patch secret "*)
+    name="$5"
+    [[ "$name" == "{failing_patch}" ]] && exit 1
+    python3 -c '
+import base64, json, sys
+path = sys.argv[1]
+secret = json.load(open(path))
+for k, v in json.load(sys.stdin)["stringData"].items():
+    secret["data"][k] = base64.b64encode(v.encode()).decode()
+json.dump(secret, open(path, "w"))
+' "$store/$name.json" ;;
+  *) exit 2 ;;
+esac
+""")
+        k.chmod(0o755)
+
+    def run_it(self, *args: str, typed: str = "", bash: tuple[str, ...] = ()) -> subprocess.CompletedProcess:
+        env = {**os.environ, "HOME": str(self.root), "PATH": f"{self.bin}:{os.environ['PATH']}",
+               "GITEA_API": f"http://127.0.0.1:{self.server.server_address[1]}/api/v1", "GITEA_GIT_BASE": "http://127.0.0.1:9"}
+        env.pop("GITEA_TOKEN", None)
+        return subprocess.run(["bash", *bash, str(HERE / "rotate-admin-token.sh"), *args], env=env, input=typed + "\n",
+                              capture_output=True, text=True, timeout=60)
+
+    def no_token_in(self, r: subprocess.CompletedProcess) -> None:
+        for token in (self.OLD, self.NEW, self.OTHER):
+            self.assertNotIn(token, r.stdout + r.stderr)
+
+    def test_check_says_who_and_whether_the_clone_password_is_the_same(self) -> None:
+        r = self.run_it("check")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("gitea_admin_token: user weitingzhao", r.stdout)
+        self.assertIn("THE SAME token", r.stdout)
+        self.no_token_in(r)
+
+    def test_rotate_puts_the_new_token_in_both_places(self) -> None:
+        r = self.run_it("rotate", typed=self.NEW)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.secret("gitea-bootstrap", "gitea_admin_token"), self.NEW)
+        self.assertEqual(self.secret("gitea-git-credentials", "password"), self.NEW)
+        self.assertEqual(self.secret("gitea-git-credentials", "username"), "weitingzhao")
+        self.assertIn("rotated", r.stdout)
+        self.no_token_in(r)
+
+    def test_a_different_clone_password_is_left_alone(self) -> None:
+        self.users["4" * 40] = "ci"
+        self.write_secret("gitea-git-credentials", {"username": "ci", "password": "4" * 40})
+        r = self.run_it("rotate", typed=self.NEW)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.secret("gitea-bootstrap", "gitea_admin_token"), self.NEW)
+        self.assertEqual(self.secret("gitea-git-credentials", "password"), "4" * 40)
+        self.assertIn("not changed (it was a different token)", r.stdout)
+
+    def test_a_token_that_does_not_pass_changes_nothing(self) -> None:
+        for typed, words in (("not-a-token", "40 hex"), (self.OLD, "current admin token"), (self.OTHER, "logs in as user someone-else"),
+                             ("5" * 40, "logs in as HTTP 401")):
+            r = self.run_it("rotate", typed=typed)
+            self.assertEqual(r.returncode, 1, typed + r.stdout + r.stderr)
+            self.assertIn(words, r.stderr)
+            self.assertEqual(self.secret("gitea-bootstrap", "gitea_admin_token"), self.OLD)
+            self.assertEqual(self.secret("gitea-git-credentials", "password"), self.OLD)
+            self.no_token_in(r)
+
+    def test_a_failed_second_write_says_so(self) -> None:
+        self.kubectl(failing_patch="gitea-git-credentials")
+        r = self.run_it("rotate", typed=self.NEW)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("do not revoke the old one yet", r.stderr)
+        self.no_token_in(r)
+
+    def test_xtrace_does_not_print_a_token(self) -> None:
+        r = self.run_it("rotate", typed=self.NEW, bash=("-x",))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.no_token_in(r)
+
+    def test_revoked_wants_the_history_refused_and_the_secrets_accepted(self) -> None:
+        # the fake Gitea knows neither token from the history, so both are refused
+        self.assertEqual(self.run_it("rotate", typed=self.NEW).returncode, 0)
+        r = self.run_it("revoked")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        # the admin token and the clone password in the history are one value
+        self.assertGreaterEqual(r.stdout.count("(refused, as it should be)"), 1, r.stdout)
+        self.assertNotIn("STILL ACCEPTED", r.stdout)
+        self.assertIn("gitea-git-credentials: user weitingzhao", r.stdout)
+        # a Secret whose token no longer logs in fails it
+        self.write_secret("gitea-git-credentials", {"username": "weitingzhao", "password": "6" * 40})
+        r = self.run_it("revoked")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+
 if __name__ == "__main__":
     unittest.main()
