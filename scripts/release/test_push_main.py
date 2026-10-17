@@ -142,5 +142,29 @@ class PushMain(unittest.TestCase):
         self.assertNotEqual(self._push("no-such-ref").returncode, 0)
 
 
+    # CUT-gitea-primary 0g: a repository on the primary list whose origin is
+    # still GitHub is refused before anything is fetched or pushed.
+    def test_a_primary_whose_origin_is_github_is_refused(self) -> None:
+        listing = Path(self._tmp.name) / "gitea-primary.txt"
+        listing.write_text("# fixture\nbifrost-platform\n")
+        _git(self.work, "remote", "set-url", "origin", "git@github.com:weitingzhao/bifrost-platform.git")
+        env = {**os.environ, "PUSH_MAIN_WINDOW": str(self.window), "PUSH_MAIN_PRIMARY_LIST": str(listing)}
+        r = subprocess.run(["bash", str(PUSH_MAIN), str(self.work)], env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("has Gitea as its primary", r.stderr)
+
+    def test_a_primary_whose_origin_is_gitea_goes_on(self) -> None:
+        listing = Path(self._tmp.name) / "gitea-primary.txt"
+        listing.write_text("bifrost-platform\n")
+        env = {**os.environ, "PUSH_MAIN_WINDOW": str(self.window), "PUSH_MAIN_PRIMARY_LIST": str(listing)}
+        (self.work / "x.go").write_text("package x\n")
+        _git(self.work, "add", "x.go")
+        _git(self.work, "commit", "--quiet", "-m", "x")
+        head = _git(self.work, "rev-parse", "HEAD")
+        r = subprocess.run(["bash", str(PUSH_MAIN), str(self.work)], env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self._remote_main(), head)
+
+
 if __name__ == "__main__":
     unittest.main()

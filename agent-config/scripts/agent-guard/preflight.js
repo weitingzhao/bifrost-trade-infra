@@ -359,6 +359,68 @@ function pushMainRule(cmd) {
   return null
 }
 
+// ─────────────── Gitea 做主的仓库不从这里推 GitHub（CUT-gitea-primary 0g） ───────────────
+//
+// 名单 agent-config/gitea-primary.txt 里的仓库以 Gitea 为主：人和 Agent 推 Gitea，GitHub 只由
+// 集群里的同步（k8s/cicd/github-sync，只快进 main 和标签）去推。两头都推会分叉（切法第 7 节）。
+// 拦两种：推到名单里某个仓库的 GitHub 地址；推到名为 github 的远端（切换后本机检出的 github
+// 远端只读，切换前不存在）。BIFROST_GITEA_PRIMARY_LIST 只给测试改名单的位置。
+
+const GITHUB_REPO_URL = /github\.com[:/]+weitingzhao\/([A-Za-z0-9._-]+?)(?:\.git)?\/?$/
+
+/** 名单里的仓库名；文件不在或读不了就是空名单（切换前的样子）。 */
+function giteaPrimaries() {
+  const file = process.env.BIFROST_GITEA_PRIMARY_LIST || path.join(__dirname, '..', '..', 'gitea-primary.txt')
+  try {
+    return new Set(
+      fs
+        .readFileSync(file, 'utf8')
+        .split('\n')
+        .map(l => l.replace(/#.*/, '').trim())
+        .filter(Boolean),
+    )
+  } catch {
+    return new Set()
+  }
+}
+
+/** 这次 push 的远端（第一个位置参数）；没有就是 null。 */
+function pushRemote(tokens) {
+  let flagsOver = false
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i]
+    if (!flagsOver && t === '--') {
+      flagsOver = true
+      continue
+    }
+    if (!flagsOver && t.startsWith('-')) {
+      if (PUSH_VALUE_FLAGS.test(t)) i++
+      continue
+    }
+    return t
+  }
+  return null
+}
+
+function githubPushRule(cmd) {
+  if (isRead(cmd) || isFileWrite(cmd)) return null
+  let primaries = null
+  for (const tokens of gitPushes(cmd)) {
+    const remote = pushRemote(tokens)
+    if (remote === 'github') {
+      return '`github` 远端只读：以 Gitea 为主的仓库推 Gitea（origin），GitHub 由集群同步（k8s/cicd/github-sync）'
+    }
+    const m = remote ? remote.match(GITHUB_REPO_URL) : null
+    if (m) {
+      primaries = primaries || giteaPrimaries()
+      if (primaries.has(m[1])) {
+        return `${m[1]} 以 Gitea 为主（agent-config/gitea-primary.txt）：推 Gitea，GitHub 由集群同步（k8s/cicd/github-sync），不从这里推`
+      }
+    }
+  }
+  return null
+}
+
 // ─────────────────────── 审批旁路（ADR §5，始终生效） ───────────────────────
 //
 // Owner 2026-10-07：聊天批准保留。admin 令牌在本机进程可读是已知的接受风险，
@@ -625,6 +687,8 @@ function evaluate(payload, readMounts = readMountTable) {
     if (sw) return { deny: true, kind: 'shared-worktree', reason: sw }
     const pm = pushMainRule(cmd)
     if (pm) return { deny: true, kind: 'push-main', reason: pm }
+    const gp = githubPushRule(cmd)
+    if (gp) return { deny: true, kind: 'gitea-primary', reason: gp }
     if (locked) {
       const d10 = d10Rules(cmd)
       if (d10) return { deny: true, kind: 'D10', reason: d10 }

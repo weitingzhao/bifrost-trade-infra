@@ -43,6 +43,19 @@ url="$(git -C "$top" remote get-url origin)" || die "$top has no remote origin"
 repo="$(basename "${url%.git}")"
 repo="${repo##*:}"
 
+# A repository Gitea holds as its primary is pushed to Gitea; GitHub follows
+# from the cluster (k8s/cicd/github-sync), never from here
+# (CUT-gitea-primary-2026-10-17 step 0g).
+PRIMARY_LIST="${PUSH_MAIN_PRIMARY_LIST:-$HERE/../../agent-config/gitea-primary.txt}"
+if [[ -f "$PRIMARY_LIST" ]]; then
+  primaries="$(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$PRIMARY_LIST")"
+  if grep -qx -- "$repo" <<<"$primaries"; then
+    case "$url" in
+      *github.com[:/]*) die "$repo has Gitea as its primary (agent-config/gitea-primary.txt) but origin is $url: point origin at Gitea and push there; GitHub follows from the cluster" ;;
+    esac
+  fi
+fi
+
 window() {
   local rc=0
   "$WINDOW" window || rc=$?

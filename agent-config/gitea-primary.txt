@@ -1,0 +1,7 @@
+# Repositories Gitea holds as their primary (agent-config/work/multi-agent/
+# CUT-gitea-primary-2026-10-17.md, step 0g). One name per line; each batch adds
+# its own when it converts them. People and agents push these to Gitea; GitHub
+# follows from the cluster (k8s/cicd/github-sync), main and tags only.
+# push-main.sh refuses one of these whose origin is still GitHub; preflight.js
+# refuses a push to GitHub for one of these, and to a remote named github.
+# Empty: every repository is still a pull mirror of GitHub.

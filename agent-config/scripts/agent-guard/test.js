@@ -277,6 +277,14 @@ const cases = [
   ['push', 'DENY', '--all', bash('git push --all origin')],
   ['push', 'DENY', '--follow-tags 不带 refspec', bash('git push --follow-tags origin')],
   ['push', 'DENY', 'Cursor shell 推 main', { hook_event_name: 'beforeShellExecution', command: 'git push origin HEAD:refs/heads/main' }],
+  // ── Gitea 做主的仓库不从这里推 GitHub（CUT-gitea-primary 0g；名单见下方用例前设的环境变量）──
+  ['gitea-primary', 'DENY', '推到 github 远端', bash('git push github w31/x:refs/heads/w31/x')],
+  ['gitea-primary', 'DENY', 'flag 之后的 github 远端', bash('git -C ~/agent-work/x push -u github w31/x:refs/heads/w31/x')],
+  ['gitea-primary', 'DENY', '名单里的仓库推 GitHub 地址', bash('git push https://github.com/weitingzhao/bifrost-ui.git v1:refs/tags/v1')],
+  ['gitea-primary', 'DENY', '名单里的仓库推 SSH 地址', bash('git push git@github.com:weitingzhao/bifrost-ui w31/x:refs/heads/w31/x')],
+  ['gitea-primary', 'ALLOW', '名单外的仓库推 GitHub 地址', bash('git push git@github.com:weitingzhao/bifrost-research.git w31/x:refs/heads/w31/x')],
+  ['gitea-primary', 'ALLOW', '推 origin 的分支', bash('git push origin w31/x:refs/heads/w31/x')],
+  ['gitea-primary', 'ALLOW', '读 github 远端', bash('git fetch github main')],
   ['push', 'ALLOW', 'push-main.sh', bash('bifrost-trade-infra/scripts/release/push-main.sh ~/agent-work/x/bifrost-platform abc123')],
   ['push', 'ALLOW', '推自己的分支', bash('git push origin w31/agentrt-22-agentd')],
   ['push', 'ALLOW', 'HEAD 推到写明的分支', bash('git push -u origin HEAD:refs/heads/w31/x')],
@@ -296,6 +304,16 @@ const cases = [
 
 let pass = 0, fail = 0
 let group = ''
+// CUT-gitea-primary 0g: the name list githubPushRule reads, here with bifrost-ui on it.
+{
+  const nodePath = require('node:path')
+  const nodeFs = require('node:fs')
+  const dir = nodeFs.mkdtempSync(nodePath.join(require('node:os').tmpdir(), 'preflight-primary-'))
+  const list = nodePath.join(dir, 'gitea-primary.txt')
+  nodeFs.writeFileSync(list, '# fixture\nbifrost-ui\n')
+  process.env.BIFROST_GITEA_PRIMARY_LIST = list
+}
+
 for (const [g, want, name, payload] of cases) {
   if (g !== group) { group = g; console.log(`\n── ${{ nas: '本机 NAS 共享（TD-326）', D10: 'D10 交易执行冻结', dev: 'dev-services', ok: '合法操作（不得误拦）', appr: '审批旁路（ADR §5）', q: '问题回答（W-65）', own: 'Owner 凭证（LANE-W33D）', sw: '共享工作树', push: '推 main（TD-341）', edge: '边界输入' }[g]} ──`) }
   const r = spawnSync('node', [GUARD], { input: payload ? JSON.stringify(payload) : '', encoding: 'utf8' })
