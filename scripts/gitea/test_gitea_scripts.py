@@ -568,5 +568,165 @@ exec "{real}" "$@"
         self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertNotIn("0 copied", r.stdout)
 
+    # review 249 A1: a linked worktree's own config is read back too
+    def test_switch_reads_back_a_linked_worktree_and_puts_it_back(self) -> None:
+        main = self.root / "main" / "bifrost-ui"
+        main.mkdir(parents=True)
+        git(main, "init", "-q", "--initial-branch=main")
+        (main / "f").write_text("x")
+        git(main, "add", "f")
+        git(main, "commit", "-q", "-m", "x")
+        git(main, "remote", "add", "origin", "git@github.com:weitingzhao/bifrost-ui.git")
+        git(main, "config", "extensions.worktreeConfig", "true")
+        ws = self.root / "ws"
+        ws.mkdir()
+        linked = ws / "bifrost-ui"
+        git(main, "worktree", "add", "-q", "-b", "side", str(linked))
+        git(linked, "config", "--worktree", "remote.origin.pushurl", "https://github.com/weitingzhao/bifrost-ui.git")
+        before = git(main, "config", "--get-regexp", r"^remote\.")
+        extra = {"BIFROST_WORKSPACE": str(ws), "GITEA_PUBLIC_BASE": "http://gitea.test/bifrost"}
+        r = self.run_script("switch-local-remotes.sh", "bifrost-ui", extra=extra)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn(f"in {linked.resolve()}", r.stderr)
+        self.assertEqual(git(main, "config", "--get-regexp", r"^remote\."), before)
+        self.assertFalse((main / ".git" / "config.before-gitea-primary").exists())
+
+    def mv_failing_for(self, path: Path) -> Path:
+        real = subprocess.run(["sh", "-c", "command -v mv"], capture_output=True, text=True, check=True).stdout.strip()
+        return self.wrapper("mv", f"""if [[ "${{@: -1}}" == "{path}" && ! -e "{self.root}/mv-failed" ]]; then touch "{self.root}/mv-failed"; exit 1; fi
+exec "{real}" "$@"
+""")
+
+    # review 249 B2: any failure puts back every checkout the run changed, the switch and --back alike
+    def test_a_failed_install_puts_the_whole_batch_back(self) -> None:
+        repo, extra = self.checkout()
+        other = repo.parent / "bifrost-platform"
+        other.mkdir()
+        git(other, "init", "-q")
+        git(other, "remote", "add", "origin", "git@github.com:weitingzhao/bifrost-platform.git")
+        before = (self.remotes(repo), self.remotes(other))
+        failing = self.mv_failing_for((other / ".git" / "config").resolve())
+        r = self.run_script("switch-local-remotes.sh", "bifrost-ui", "bifrost-platform", extra=extra, path=failing)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual((self.remotes(repo), self.remotes(other)), before)
+        self.assertFalse((repo / ".git" / "config.before-gitea-primary").exists())
+        # now switched for real, then a --back that fails half-way
+        (self.root / "mv-failed").unlink()
+        self.assertEqual(self.run_script("switch-local-remotes.sh", "bifrost-ui", "bifrost-platform", extra=extra).returncode, 0)
+        switched = (self.remotes(repo), self.remotes(other))
+        r = self.run_script("switch-local-remotes.sh", "--back", "bifrost-ui", "bifrost-platform", extra=extra, path=failing)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual((self.remotes(repo), self.remotes(other)), switched)
+        for d in (repo, other):
+            self.assertTrue((d / ".git" / "config.before-gitea-primary").exists())
+
+    # review 249 B3: the old fixed temporary name, as a link to the saved copy, changes nothing
+    def test_a_link_where_the_old_temporary_file_was_is_not_followed(self) -> None:
+        repo, extra = self.checkout()
+        self.assertEqual(self.run_script("switch-local-remotes.sh", "bifrost-ui", extra=extra).returncode, 0)
+        saved = repo / ".git" / "config.before-gitea-primary"
+        kept = saved.read_bytes()
+        (repo / ".git" / "config.tmp-gitea-primary").symlink_to(saved)
+        r = self.run_script("switch-local-remotes.sh", "bifrost-ui", extra=extra)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(saved.read_bytes(), kept)
+        self.assertFalse((repo / ".git" / "config").is_symlink())
+
+    # review 249 C5: a lock path that is already there, as a link, is someone else's and stays
+    def test_a_linked_lock_is_not_taken(self) -> None:
+        repo, extra = self.checkout()
+        lock = repo / ".git" / "config.lock"
+        lock.symlink_to("/dev/null")
+        before = self.remotes(repo)
+        r = self.run_script("switch-local-remotes.sh", "bifrost-ui", extra=extra)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("locked", r.stderr)
+        self.assertTrue(lock.is_symlink())
+        self.assertEqual(self.remotes(repo), before)
+
+    # review 249 B4: a rule is read as a glob, not by its fixed start
+    def test_protect_repo_reads_rules_as_globs(self) -> None:
+        for kept in ("main?", "ma[st]er"):
+            api = FakeApi({"r": False}, rules={"r": {kept: {"rule_name": kept, "enable_push": True}}})
+            try:
+                r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api)
+                self.assertEqual(r.returncode, 0, kept + r.stdout + r.stderr)
+            finally:
+                api.close()
+        api = FakeApi({"r": False}, rules={"r": {"a**": {"rule_name": "a**", "enable_push": True}}})
+        try:
+            r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api)
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertIn("STOPPED", r.stdout)
+        finally:
+            api.close()
+
+
+class ApplyStep0(unittest.TestCase):
+    """apply-step0.sh against a fake kubectl that records its calls; HOME is a temporary directory."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.infra = HERE.parent.parent
+        self.home = self.root / "home"
+        kube = self.home / ".bifrost-owner" / "kube"
+        kube.mkdir(parents=True)
+        (kube / "admin.yaml").write_text("fixture\n")
+        self.calls = self.root / "calls"
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        self.kubectl("true")
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def kubectl(self, verdict: str) -> None:
+        k = self.bin / "kubectl"
+        k.write_text(f'#!/bin/bash\necho "$*" >> "{self.calls}"\n{verdict}\n')
+        k.chmod(0o755)
+
+    def run_it(self, *args: str, infra: Path | None = None) -> subprocess.CompletedProcess:
+        script = (infra or self.infra) / "scripts" / "gitea" / "apply-step0.sh"
+        env = {**os.environ, "HOME": str(self.home), "PATH": f"{self.bin}:{os.environ['PATH']}"}
+        return subprocess.run(["bash", str(script), *args], env=env, capture_output=True, text=True, timeout=60)
+
+    def recorded(self) -> list[str]:
+        return self.calls.read_text().splitlines() if self.calls.exists() else []
+
+    def test_check_only_dry_runs(self) -> None:
+        r = self.run_it("check")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        calls = self.recorded()
+        self.assertEqual(len(calls), 5)
+        self.assertTrue(all("--dry-run=server" in c for c in calls), calls)
+
+    def test_apply_dry_runs_everything_first(self) -> None:
+        r = self.run_it("apply")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        calls = self.recorded()
+        self.assertEqual(len(calls), 10)
+        self.assertTrue(all("--dry-run=server" in c for c in calls[:5]), calls)
+        self.assertFalse(any("--dry-run" in c for c in calls[5:]), calls)
+
+    def test_files_not_as_reviewed_change_nothing(self) -> None:
+        copy = self.root / "infra"
+        subprocess.run(["git", "clone", "-q", "--no-hardlinks", str(self.infra), str(copy)], check=True, capture_output=True)
+        (copy / "scripts" / "gitea" / "apply-step0.sh").write_bytes((HERE / "apply-step0.sh").read_bytes())
+        target = copy / "k8s" / "cicd" / "github-sync" / "sync.sh"
+        target.write_text(target.read_text() + "\n# changed\n")
+        r = self.run_it("apply", infra=copy)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("not the reviewed ones", r.stderr)
+        self.assertEqual(self.recorded(), [])
+
+    def test_a_failed_dry_run_applies_nothing(self) -> None:
+        self.kubectl('[[ "$*" != *github-sync* ]]')
+        r = self.run_it("apply")
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(self.recorded())
+        self.assertFalse(any("--dry-run" not in c for c in self.recorded()), self.recorded())
+
+
 if __name__ == "__main__":
     unittest.main()
