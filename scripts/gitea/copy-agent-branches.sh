@@ -21,12 +21,15 @@ gitea_connect
 from="${GITEA_GIT_BASE}/${agent_org}/${repo}.git"
 to="${GITEA_GIT_BASE}/${GITEA_ORG}/${repo}.git"
 work="$(mktemp -d)"
-trap 'rm -rf "${work}"; gitea_cleanup' EXIT
+# the forward is stopped first, whatever happens to the directory (review 248 B6)
+trap 'gitea_cleanup; rm -rf "${work}" || true' EXIT
 r="${work}/r.git"
 git init -q --bare "${r}"
+gitea_alive
 git -C "${r}" fetch -q --no-tags "${from}" "+refs/heads/agent/*:refs/heads/agent/*" || gitea_die "cannot fetch the agent branches of ${agent_org}/${repo}"
 # read in full before the loop: a failure inside < <(...) would not stop the script (review 246 B8)
 branches="$(git -C "${r}" for-each-ref --format='%(objectname) %(refname)' refs/heads/agent/)" || gitea_die "cannot list the fetched agent branches"
+gitea_alive
 there="$(git -C "${r}" ls-remote --refs "${to}" 'refs/heads/agent/*')" || gitea_die "cannot list ${GITEA_ORG}/${repo}"
 copied=0 same=0 differ=0
 while read -r sha ref; do
@@ -37,10 +40,10 @@ while read -r sha ref; do
   elif [[ -n "${cur}" ]]; then
     echo "DIFFERS ${ref}: ${agent_org} ${sha}, ${GITEA_ORG} ${cur}; left as it is"
     differ=$((differ + 1))
-  elif git -C "${r}" push -q --force-with-lease="${ref}:" "${to}" "${ref}:${ref}"; then
+  elif gitea_alive && git -C "${r}" push -q --force-with-lease="${ref}:" "${to}" "${ref}:${ref}"; then
     copied=$((copied + 1))
   else
-    now="$(git -C "${r}" ls-remote --refs "${to}" "${ref}")" || now="(cannot read it back)"
+    now="$(gitea_alive && git -C "${r}" ls-remote --refs "${to}" "${ref}")" || now="(cannot read it back)"
     echo "REFUSED ${ref}: ${GITEA_ORG} now has ${now:-nothing}; left as it is"
     differ=$((differ + 1))
   fi

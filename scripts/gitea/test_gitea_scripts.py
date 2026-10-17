@@ -315,6 +315,70 @@ class Scripts(unittest.TestCase):
         self.assertEqual(self.remotes(repo), before)
         self.assertFalse((repo / ".git" / "config.before-gitea-primary").exists())
 
+    # review 248 A3: a switch that would still push to GitHub is caught before anything changes
+    def test_switch_checks_the_new_config_before_changing_anything(self) -> None:
+        repo, extra = self.checkout()
+        before = self.remotes(repo)
+        (self.root / ".gitconfig").write_text(
+            '[url "https://github.com/weitingzhao/"]\n\tpushInsteadOf = http://gitea.test/bifrost/\n')
+        r = self.run_script("switch-local-remotes.sh", "bifrost-ui", extra=extra)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("nothing changed", r.stderr)
+        self.assertEqual(self.remotes(repo), before)
+        self.assertFalse((repo / ".git" / "config.before-gitea-primary").exists())
+
+    def test_a_failed_switch_puts_every_checkout_of_the_run_back(self) -> None:
+        # the second checkout's own include rewrites Gitea to GitHub; the scratch check cannot see it
+        repo, extra = self.checkout()
+        other = repo.parent / "bifrost-platform"
+        other.mkdir()
+        git(other, "init", "-q")
+        git(other, "remote", "add", "origin", "git@github.com:weitingzhao/bifrost-platform.git")
+        (other / ".git" / "extra.cfg").write_text('[url "https://github.com/weitingzhao/"]\n\tpushInsteadOf = http://gitea.test/bifrost/\n')
+        git(other, "config", "include.path", "extra.cfg")
+        before = (self.remotes(repo), self.remotes(other))
+        r = self.run_script("switch-local-remotes.sh", "bifrost-ui", "bifrost-platform", extra=extra)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("back as it was", r.stderr)
+        self.assertEqual((self.remotes(repo), self.remotes(other)), before)
+        for d in (repo, other):
+            self.assertFalse((d / ".git" / "config.before-gitea-primary").exists())
+
+    # review 248 B4: a remote key with no value is refused, not restored as a string
+    def test_switch_refuses_a_remote_key_with_no_value(self) -> None:
+        repo, extra = self.checkout()
+        cfg = repo / ".git" / "config"
+        cfg.write_text(cfg.read_text().replace('[remote "origin"]\n', '[remote "origin"]\n\tprune\n'))
+        before = cfg.read_text()
+        r = self.run_script("switch-local-remotes.sh", "bifrost-ui", extra=extra)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("no value", r.stderr)
+        self.assertEqual(cfg.read_text(), before)
+
+    # review 248 B5: a config git (or another run) holds the lock on is left alone, lock included
+    def test_switch_waits_for_nobody_and_leaves_a_held_lock(self) -> None:
+        repo, extra = self.checkout()
+        held = repo / ".git" / "config.lock"
+        held.write_text("someone else")
+        before = self.remotes(repo)
+        r = self.run_script("switch-local-remotes.sh", "bifrost-ui", extra=extra)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("locked", r.stderr)
+        self.assertEqual(self.remotes(repo), before)
+        self.assertEqual(held.read_text(), "someone else")
+
+    def test_switch_and_back_on_bash_3(self) -> None:
+        if not Path("/bin/bash").exists():
+            self.skipTest("no /bin/bash")
+        repo, extra = self.checkout(("remote.origin.pushurl", "git@github.com:weitingzhao/bifrost-ui.git"))
+        before = self.remotes(repo)
+        env = {**os.environ, **GIT_ENV, "HOME": str(self.root), **extra}
+        for args in ((), ("--back",)):
+            r = subprocess.run(["/bin/bash", str(HERE / "switch-local-remotes.sh"), *args, "bifrost-ui"], env=env,
+                               capture_output=True, text=True, timeout=60)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.remotes(repo), before)
+
     def test_back_without_a_saved_config_changes_nothing(self) -> None:
         repo, extra = self.checkout()
         before = self.remotes(repo)
@@ -335,17 +399,29 @@ class Scripts(unittest.TestCase):
             api.close()
             other.close()
 
-    def fake_kubectl(self, api: FakeApi | None, fail: bool = False) -> Path:
+    def fake_kubectl(self, api: FakeApi | None, fail: bool = False, die_on_secret: bool = False) -> Path:
         port = api.server.server_address[1] if api else 9
         token = "a3ViZWN0bC1zZWNyZXQtdG9rZW4="  # "kubectl-secret-token"
+        pidfile = self.root / "forward.pid"
         pf = 'echo "error: unable to listen on any of the requested ports" >&2; exit 1' if fail else (
-            f'echo "Forwarding from 127.0.0.1:{port} -> 3000"; echo "Forwarding from [::1]:{port} -> 3000"; exec sleep 60')
+            f'echo $$ > "{pidfile}"; echo "Forwarding from 127.0.0.1:{port} -> 3000"; echo "Forwarding from [::1]:{port} -> 3000"; exec sleep 60')
+        secret = f"""echo '{{"data": {{"gitea_admin_token": "{token}"}}}}'"""
+        if die_on_secret:
+            secret = f'kill "$(cat "{pidfile}")"; sleep 0.2; ' + secret
         return self.wrapper("kubectl", f"""case "$*" in
   *port-forward*) {pf} ;;
-  *"get secret"*) echo '{{"data": {{"gitea_admin_token": "{token}"}}}}' ;;
+  *"get secret"*) {secret} ;;
   *) exit 2 ;;
 esac
 """)
+
+    def forward_alive(self) -> bool:
+        pid = int((self.root / "forward.pid").read_text())
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
 
     def test_a_port_forward_that_did_not_start_sends_nothing(self) -> None:
         # something else answering on a local port is never asked
@@ -366,6 +442,56 @@ esac
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             self.assertEqual(sorted(api.rules["r"]), ["agent/**", "main"])
             self.assertEqual({a for a in api.auth if a}, {"token kubectl-secret-token"})
+        finally:
+            api.close()
+
+    # review 248 A1: no proxy from the Owner's environment carries the token
+    def test_no_proxy_is_used(self) -> None:
+        proxy = FakeApi({})
+        api = FakeApi({"r": False})
+        address = f"http://127.0.0.1:{proxy.server.server_address[1]}"
+        extra = {k: address for k in ("http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY")}
+        extra.update(no_proxy="", NO_PROXY="")
+        try:
+            r = self.run_script("protect-repo.sh", "--owner", "vision", "r", connect=True, path=self.fake_kubectl(api), extra=extra)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertEqual(proxy.calls, [])
+            self.assertEqual(sorted(api.rules["r"]), ["agent/**", "main"])
+        finally:
+            api.close()
+            proxy.close()
+
+    # review 248 A2: a forward that is gone by the time the token is read gets nothing sent through its port
+    def test_a_forward_gone_after_the_check_gets_nothing(self) -> None:
+        api = FakeApi({"r": False})
+        try:
+            r = self.run_script("protect-repo.sh", "--owner", "vision", "r", connect=True,
+                                path=self.fake_kubectl(api, die_on_secret=True))
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertIn("port-forward to svc/gitea stopped", r.stderr)
+            self.assertEqual([a for a in api.auth if a], [])
+        finally:
+            api.close()
+
+    # review 248 B6: the forward is stopped even when removing the work directory fails
+    def test_copy_stops_the_forward_when_rm_fails(self) -> None:
+        api = FakeApi({})
+        try:
+            bad_rm = self.wrapper("rm", "exit 1\n")
+            kubectl = self.fake_kubectl(api)
+            r = self.run_script("copy-agent-branches.sh", "r", connect=True, path=Path(f"{bad_rm}:{kubectl}"))
+            self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertFalse(self.forward_alive())
+        finally:
+            api.close()
+
+    # review 248 B7: a rule that can match neither main nor agent/ stays
+    def test_protect_repo_keeps_a_rule_that_cannot_match_first(self) -> None:
+        api = FakeApi({"r": False}, rules={"r": {"release/**": {"rule_name": "release/**", "enable_push": True}}})
+        try:
+            r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertEqual(sorted(api.rules["r"]), ["agent/**", "main", "release/**"])
         finally:
             api.close()
 

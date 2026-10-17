@@ -7,7 +7,11 @@
 # cicd/gitea-bootstrap into this shell only: it is never printed, never on a
 # command line (API calls go through python3 with the token in a header; git
 # gets it as environment config scoped to the forwarded host). Neither follows
-# a redirect, so the token never goes on to another host (review 246 A1).
+# a redirect (review 246 A1) or goes through a proxy from the Owner's
+# environment (review 248 A1), and every authenticated call first checks that
+# the port-forward is still the one kubectl started (review 248 A2: once it is
+# gone its local port may belong to anything). What is left: the port changing
+# hands between that check and the connection; only TLS to Gitea would close it.
 #
 # Tests point GITEA_API and GITEA_GIT_BASE at local fakes and set GITEA_TOKEN,
 # which skips the Secret and the port-forward.
@@ -28,6 +32,12 @@ gitea_die() {
   exit 1
 }
 
+# gitea_alive — fails when the port-forward kubectl started is gone; called
+# before anything is sent with the token.
+gitea_alive() {
+  [[ -z "${GITEA_PF_PID}" ]] || kill -0 "${GITEA_PF_PID}" 2> /dev/null || gitea_die "the port-forward to svc/gitea stopped; nothing more is sent"
+}
+
 # gitea_cleanup — stops the port-forward and removes what gitea_connect made.
 # A script that sets its own EXIT trap calls it from there.
 gitea_cleanup() {
@@ -42,6 +52,8 @@ gitea_cleanup() {
 gitea_connect() {
   trap gitea_cleanup EXIT
   GITEA_EMPTY_DIR="$(mktemp -d)"
+  # nothing in these scripts goes through a proxy: the token travels to a local port
+  export NO_PROXY='*' no_proxy='*'
   if [[ -z "${GITEA_API:-}" || -z "${GITEA_GIT_BASE:-}" ]]; then
     export KUBECONFIG="${GITEA_KUBECONFIG:-$HOME/.bifrost-owner/kube/admin.yaml}"
     # kubectl picks a free local port and says which: a port some other
@@ -60,8 +72,8 @@ gitea_connect() {
     done
     GITEA_API="http://127.0.0.1:${port}/api/v1"
     GITEA_GIT_BASE="http://127.0.0.1:${port}"
-    curl -sf "${GITEA_API}/version" > /dev/null 2>&1 || gitea_die "Gitea did not answer through the port-forward"
-    kill -0 "${GITEA_PF_PID}" 2> /dev/null || gitea_die "the port-forward to svc/gitea stopped"
+    curl -sf --noproxy '*' "${GITEA_API}/version" > /dev/null 2>&1 || gitea_die "Gitea did not answer through the port-forward"
+    gitea_alive
   fi
   if [[ -z "${GITEA_TOKEN:-}" ]]; then
     GITEA_TOKEN="$(kubectl -n cicd get secret gitea-bootstrap -o json |
@@ -69,6 +81,7 @@ gitea_connect() {
       gitea_die "cannot read gitea_admin_token from Secret cicd/gitea-bootstrap"
     [[ -n "${GITEA_TOKEN}" ]] || gitea_die "gitea_admin_token is empty"
   fi
+  gitea_alive
   export GITEA_API GITEA_GIT_BASE GITEA_TOKEN
   # git: the token as a header for the Gitea host only, and no redirects
   local host
@@ -84,6 +97,7 @@ gitea_connect() {
 # outside 2xx (the status and body go to stderr). A redirect is refused, not
 # followed: urllib would send the Authorization header on to its Location.
 gitea_api() {
+  gitea_alive
   python3 - "$1" "$2" "${3:-}" << 'PY'
 import os, sys, urllib.error, urllib.request
 method, path, body = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -97,7 +111,7 @@ req = urllib.request.Request(os.environ["GITEA_API"].rstrip("/") + path, method=
                              headers={"Authorization": "token " + os.environ["GITEA_TOKEN"],
                                       "Content-Type": "application/json"})
 try:
-    with urllib.request.build_opener(NoRedirect).open(req, timeout=30) as r:
+    with urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect).open(req, timeout=30) as r:
         sys.stdout.write(r.read().decode())
 except urllib.error.HTTPError as e:
     sys.stderr.write(f"{method} {path} → HTTP {e.code}: {e.msg}: {e.read().decode()[:300]}\n")
@@ -118,7 +132,9 @@ PY
 heads_and_tags() {
   local listed
   local -a drop=(-u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG)
-  if [[ "$1" != gitea ]]; then
+  if [[ "$1" == gitea ]]; then
+    gitea_alive
+  else
     drop+=(-u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_KEY_1 -u GIT_CONFIG_VALUE_1)
   fi
   listed="$(cd "${GITEA_EMPTY_DIR}" && env "${drop[@]}" GIT_CEILING_DIRECTORIES="${GITEA_EMPTY_DIR%/*}" \

@@ -8,10 +8,12 @@
 # merge a pull request into the branch (Gitea 1.21 IsUserMergeWhitelisted).
 # The tag rule (*: maintainers and <login>) has no API in 1.21: the script
 # prints the page to set it on. A rule that exists is edited to this, not
-# duplicated. Any other branch rule on the repository stops it for that
-# repository before anything is changed: Gitea 1.21 takes the first rule that
-# matches, so an older `**` or a narrower rule would decide instead of these
-# (review 246 B9). Exits 1 when a repository is stopped or a read-back differs.
+# duplicated. Another branch rule that could match main or an agent/ branch
+# stops it for that repository before anything is changed: Gitea 1.21 takes
+# the first rule that matches, so an older `**` or a narrower rule would
+# decide instead of these (review 246 B9). A rule that can match neither (a
+# glob whose fixed start is `release/`, a plain name other than main) stays
+# (review 248 B7). Exits 1 when a repository is stopped or a read-back differs.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 # shellcheck source=lib.sh
 source "$HERE/lib.sh"
@@ -31,14 +33,27 @@ for k in bad:
     print(f"    {k}: want {want[k]!r}, Gitea has {got.get(k)!r}")
 sys.exit(1 if bad else 0)
 '
+# the other rules that could match main or a branch under agent/: a plain name
+# matches only itself; a glob only names that start with its fixed part, the
+# text before its first *, ?, [, { or backslash
+OVERLAPPING_RULES='
+import json, sys
+def clash(name):
+    cut = min([name.index(c) for c in "*?[{\\" if c in name] or [len(name)])
+    if cut == len(name):
+        return name == "main" or name.startswith("agent/")
+    start = name[:cut]
+    return "main".startswith(start) or start.startswith("agent/") or "agent/".startswith(start)
+names = [str(r.get("rule_name") or r.get("branch_name") or "") for r in json.load(sys.stdin)]
+print(" ".join(sorted(n for n in names if n not in ("main", "agent/**") and clash(n))))
+'
 gitea_connect
 fail=0
 for repo in "$@"; do
   existing="$(gitea_api GET "/repos/${GITEA_ORG}/${repo}/branch_protections")" || gitea_die "cannot read the rules of ${repo}"
-  others="$(python3 -c 'import json,sys; print(" ".join(sorted(str(r.get("rule_name") or r.get("branch_name")) for r in json.load(sys.stdin) if (r.get("rule_name") or r.get("branch_name")) not in ("main", "agent/**"))))' <<< "${existing}")" ||
-    gitea_die "cannot read the rules of ${repo}"
+  others="$(python3 -c "${OVERLAPPING_RULES}" <<< "${existing}")" || gitea_die "cannot read the rules of ${repo}"
   if [[ -n "${others}" ]]; then
-    echo "${repo}: STOPPED, nothing changed: other branch rules are there (${others}); remove them on the page or say why they stay, then run this again"
+    echo "${repo}: STOPPED, nothing changed: these branch rules could match main or an agent/ branch first (${others}); remove them on the page or say why they stay, then run this again"
     fail=1
     continue
   fi
