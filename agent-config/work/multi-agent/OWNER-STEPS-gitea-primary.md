@@ -42,7 +42,15 @@
 ( export KUBECONFIG="$HOME/.bifrost-owner/kube/admin.yaml"; read -rs -p 'GitHub sync token: ' t; echo; [ -n "$t" ] || { echo "empty; nothing created"; exit 1; }; printf '%s' "$t" | kubectl -n cicd create secret generic github-sync --from-file=token=/dev/stdin; unset t; kubectl -n cicd get secret github-sync -o json | python3 -c 'import json,sys; print(sorted(json.load(sys.stdin)["data"]))' )
 ```
 
-做完回「第 1 步做完了」。我在探针仓库上核对保护（在 06 上以 `agentd-agent-06-stg` 推 main 被拒、经 PR 合进 main 被拒、建标签被拒、建 `agent/_probe/1` 成功、删它和强推它被拒；以 `bifrost-mbp` 推 main 成功），命令到时给你。
+8. **核对探针仓库的保护**（你的终端，用你的节点钥匙登 06；以 `agentd-agent-06-stg` 的身份逐条试：推 main、建标签、经合并请求合进 main、强推和删除它自己的 `agent/` 分支都要被拒，建 `agent/_probe/<时间>/a1` 要成功；每条只认 Gitea 那条规则的原话，认不出就算没过）：
+
+```bash
+bash ~/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh probe-protection
+```
+
+   最后一行是 `all as expected` 就过了；它会留下那条 `agent/_probe/…` 分支和一个已关闭的合并请求，你在页面上删不删都行。有 `FAIL` 行就把输出贴回线程（日志也在 `~/agent-work/agent-06-logs/`，我会去读）。以 `bifrost-mbp` 推 main 能成功，在第 A 批第 6 步存好它的令牌之后再试。
+
+做完回「第 1 步做完了」。
 
 ---
 
