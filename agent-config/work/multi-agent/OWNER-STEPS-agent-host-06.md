@@ -1,6 +1,6 @@
 # Owner 操作单：06 出集群，当 Agent 主机
 
-起草 2026-10-17 01:00，01:50 改成脚本（复核 230：原来的单行命令在查询失败时照样 cordon、删卷范围没锁死、读令牌失败会把空值写进 Secret、粘贴 Gitea 令牌会回显）。切法和理由：`CUT-agent-host-06-2026-10-17.md`。
+起草 2026-10-17 01:00；按复核 230 改成脚本（原来的单行命令在查询失败时照样 cordon、删卷范围没锁死、读令牌失败会把空值写进 Secret、粘贴 Gitea 令牌会回显），按复核 231 再收紧（要删的 5 个卷按 UID 写死；凭证整份读完、核对格式、带长度和指纹传过去才替换；uninstall、delete-node 各自核对前一步做完）。切法和理由：`CUT-agent-host-06-2026-10-17.md`。
 
 **在哪做**：都在你 Mac Pro 自己的 Terminal 里，因为要用管理员 kubeconfig 和节点密钥，我不能执行。每一步是同一个脚本的一个子命令：
 
@@ -8,7 +8,7 @@
 bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh check
 ```
 
-每一步出错就停、退出码非 0，不打印任何凭证。每次连 06 会问一次节点密钥的口令。输出同时存在 `/tmp/agent-06-<步骤>.txt`，我读完删掉（codex 登录那一步不存）。
+每一步出错就停、退出码非 0，不打印任何凭证。每次连 06 会问一次节点密钥的口令。输出同时存在 `~/agent-work/agent-06-logs/`（每次一个文件，最后一行是退出码），我读完删掉（codex 登录那一步不存）。
 
 **怎么回**：每段末尾写了回什么，只回那句话，不要贴输出。
 
@@ -30,10 +30,10 @@ bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-h
 
 一条命令按顺序做完，任何一步不对就停：
 
-1. 有发布窗口、或有没跑完的流水线，就不开始。
+1. 持住发布窗口（`what=ubt-k3s-06`，整个 leave 期间别的发布进不来，结束时放开）；拿不到窗口、或有没跑完的流水线，就不开始。
 2. cordon；cordon 之后再查一次流水线。
 3. 把 event-radar 的卷打包到 `~/bifrost-backups/event-radar-input/2026-10-17_node06_pvc-6bf6eca6/`，核对包是完整的、里面有那个目录，才往下走。
-4. 删 06 上的卷：只删两种，event-radar 那个，和已经跑完的流水线的 local-path 工作区（逐个核对 local-path、只绑 06、PVC 对得上）。有任何一个别的卷就停，一个都不删。删完等 5 分钟，还没清干净也停。
+4. 删 06 上的卷：只删脚本里按 UID 写死的 5 个（event-radar 和 4 个已跑完的 CI 工作区，01:20 读的；已经没了的跳过），逐个核对 local-path、只绑 06、两头的绑定和 UID 都对得上，删之前再核一次 UID。06 上有任何一个别的卷就停，一个都不删。删完等 5 分钟，还没清干净也停。
 5. polygon 两个不许驱逐的 Deployment 滚动重启，等它们就绪。
 6. drain，最后核对 06 上只剩 DaemonSet。
 
@@ -43,7 +43,7 @@ bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-h
 bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh leave
 ```
 
-中途停了：06 可能已经 cordon，这本身无害。看最后一行写的原因，回我「06 leave 停了」；条件满足后再跑同一条，做过的步骤会跳过或照样通过。
+中途停了：06 可能已经 cordon，这本身无害。看最后一行写的原因，回我「06 leave 停了」；条件满足后再跑同一条：备份和删过的卷会跳过，两个 Deployment 会再滚动重启一次（无害）。
 
 做完回：「06 drain 完了」。我核对搬走的负载都在别处就绪，然后说可以做 A2。
 
@@ -55,7 +55,7 @@ bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-h
 bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh uninstall
 ```
 
-等一分钟，再删节点对象（节点还报 Ready 时它会拒绝：说明 agent 还在跑）：
+等一两分钟（06 在重启），再删节点对象。它先登上 06 确认 k3s 的程序、服务和进程都没了才删；06 还没起来时它会拒绝，过一分钟再跑：
 
 ```bash
 bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh delete-node

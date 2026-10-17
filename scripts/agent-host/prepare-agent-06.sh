@@ -163,7 +163,8 @@ step "agentd platform tokens (made here, kept here; agent-06-owner.sh copies eac
 for u in "$prod" "$stg"; do
   f=/home/$u/.config/bifrost/agentd.token
   if [ -e "$f" ] || [ -L "$f" ]; then
-    { [ -f "$f" ] && [ ! -L "$f" ] && [ "$(stat -c '%U %a' "$f")" = "$u 600" ] && grep -qxE '[0-9a-f]{64}' "$f"; } ||
+    # The whole file is the token: 64 bytes, all hex, no other line.
+    { [ -f "$f" ] && [ ! -L "$f" ] && [ "$(stat -c '%U %a %s' "$f")" = "$u 600 64" ] && grep -qxE '[0-9a-f]{64}' "$f"; } ||
       die "$f is there but is not a 64-hex token owned by $u with mode 600; look at it before running this again"
   else
     as "$u" 't=$(mktemp .config/bifrost/.token.XXXXXX) && openssl rand -hex 32 | tr -d "\n" > "$t" && grep -qxE "[0-9a-f]{64}" "$t" && chmod 600 "$t" && mv "$t" .config/bifrost/agentd.token'

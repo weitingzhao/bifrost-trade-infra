@@ -26,7 +26,6 @@ esac
   exit 2
 }
 fails=0
-unverified=0
 fail() {
   echo "FAIL $*"
   fails=$((fails + 1))
@@ -74,25 +73,36 @@ except OSError as e:
     print("error:" + errno.errorcode.get(e.errno, str(e.errno)))
 EOF
 
-# reach <user> <proto> <host> <port> <open|blocked>: the user's result,
-# against root's (which the rules do not touch). Wanted blocked passes only if
-# root gets through and the user does not; when root cannot get through
-# either, the check proves nothing and is counted as unverified.
+# counters: the packets counted by the reject rules (every counter in the
+# common chain is on a reject rule); 0 when the table cannot be read, so a
+# missing table fails every "blocked" below.
+counters() { nft list chain inet bifrost_agent common 2> /dev/null | grep -o 'packets [0-9]*' | awk '{s += $2} END {print s + 0}'; }
+
+# reach <user> <proto> <host> <port> <open|blocked>: run the probe as the
+# user. Wanted open passes only on "open". Wanted blocked passes only when the
+# probe ran, did not get through, and a reject rule counted a packet while it
+# ran: a target that is down or a probe that failed is not proof. Root's
+# result (the rules do not touch root) is shown alongside.
 reach() {
-  local u=$1 proto=$2 host=$3 port=$4 want=$5 got base
-  got=$(as "$u" "python3 -I $probe_py $proto $host $port" 2>/dev/null)
-  base=$(python3 -I "$probe_py" "$proto" "$host" "$port" 2>/dev/null)
-  local what
+  local u=$1 proto=$2 host=$3 port=$4 want=$5 got base rc before after what
+  before=$(counters)
+  rc=0
+  got=$(as "$u" "python3 -I $probe_py $proto $host $port" 2> /dev/null) || rc=$?
+  after=$(counters)
+  base=$(python3 -I "$probe_py" "$proto" "$host" "$port" 2> /dev/null)
   what=$(printf '%-19s %-8s %-28s user=%-14s root=%s' "$u" "$proto" "$host:$port" "${got:-?}" "${base:-?}")
-  if [ "$want" = open ]; then
+  if [ "$rc" != 0 ] || [ -z "$got" ]; then
+    fail "$what (the probe did not run as $u)"
+  elif [ "$want" = open ]; then
     [ "$got" = open ] && ok "$what (want open)" || fail "$what (want open)"
   elif [ "$got" = open ]; then
     fail "$what (want blocked)"
-  elif [ "$base" = open ]; then
-    ok "$what (want blocked)"
+  elif [ "$after" -gt "$before" ]; then
+    ok "$what (want blocked; a reject rule counted it)"
+  elif [ "${host#*:}" != "$host" ] && [ "$base" = error:ENETUNREACH ]; then
+    echo "-    $what (no IPv6 route on this host, so there is nothing to reach; the IPv6 rule is not exercised)"
   else
-    echo "?    $what (want blocked; root cannot reach it either, so unverified)"
-    unverified=$((unverified + 1))
+    fail "$what (want blocked; it did not get through, but no reject rule counted it)"
   fi
 }
 
@@ -252,5 +262,5 @@ for s in bifrost-agentd bifrost-agentd-stg; do
   fi
 done
 
-echo "== summary: $fails failed, $unverified unverified"
+echo "== summary: $fails failed"
 [ "$fails" -eq 0 ]
