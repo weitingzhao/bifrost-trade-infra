@@ -66,6 +66,7 @@ die() {
 install_config() {
   local t
   t="$(mktemp "$2.tmp-XXXXXX")" || return 1
+  [[ "${t}" == "$2".tmp-* && "${t}" != *$'\n'* ]] || return 1
   made+=("${t}")
   cp -p "$1" "${t}" && mv "${t}" "$2"
 }
@@ -201,10 +202,11 @@ back_right() {
 
 # every_worktree <repo> <check> [arg] — runs the check in each working tree of the repository
 every_worktree() {
-  local repo="$1" check="$2" list wt why
+  local repo="$1" check="$2" list="${scratch}/${1}.worktrees" wt why
   shift 2
-  list="$(git -C "${ws}/${repo}" worktree list --porcelain)" || return 1
-  while IFS= read -r wt; do
+  # NUL-separated: a working tree's path may hold a newline (review 250 A1)
+  git -C "${ws}/${repo}" worktree list --porcelain -z > "${list}" || return 1
+  while IFS= read -r -d '' wt; do
     [[ "${wt}" == "worktree "* ]] || continue
     wt="${wt#worktree }"
     [[ -d "${wt}" ]] || continue
@@ -213,7 +215,7 @@ every_worktree() {
     else
       why="$(back_right "$1" -C "${wt}")" || { echo "in ${wt}: ${why:-git could not read the remotes}"; return 1; }
     fi
-  done <<< "${list}"
+  done < "${list}"
 }
 
 # check, before anything changes
@@ -221,6 +223,9 @@ for repo in "$@"; do
   cfg="$(config_of "${repo}")" || die "${repo}: no checkout at ${ws}/${repo}"
   lock "${cfg}"
   saved="${cfg%/config}/${saved_name}"
+  if [[ -L "${saved}" ]] || { [[ -e "${saved}" ]] && [[ ! -f "${saved}" ]]; }; then
+    die "${repo}: ${saved} is there but is not a plain file; look at it first"
+  fi
   try="${scratch}/${repo}.try"
   git init -q "${try}"
   if [[ "${back}" -eq 1 ]]; then
@@ -249,7 +254,9 @@ for repo in "$@"; do
   cp -p "${cfg}" "${prev}"
   made_saved=""
   if [[ "${back}" -eq 0 && ! -f "${saved}" ]]; then
-    (set -o noclobber && cat "${cfg}" > "${saved}") || die "${repo}: cannot keep ${saved}"
+    # created only if absent, the way the lock is (review 250 C5)
+    python3 -c 'import os, sys; data = open(sys.argv[1], "rb").read(); fd = os.open(sys.argv[2], os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644); os.write(fd, data); os.close(fd)' "${cfg}" "${saved}" ||
+      die "${repo}: cannot keep ${saved}"
     made_saved="${saved}"
   fi
   changed_cfg+=("${cfg}")
@@ -275,8 +282,12 @@ for repo in "$@"; do
     done_lines+=("${repo}: origin ${gitea}/${repo}.git, github $(values "${cfg}" remote.github.url) (read-only)")
   fi
 done
+# the report is part of the run: if it cannot be written, the run is undone (review 250 B4). It goes
+# through a file and cat: a failed write by bash's own printf leaves its text buffered, and the next
+# command substitution (the undo's mktemp) would read it back
+printf '%s\n' "${done_lines[@]}" > "${scratch}/report"
+cat "${scratch}/report"
 committed=1
-printf '%s\n' "${done_lines[@]}"
 for saved in "${saved_to_remove[@]+"${saved_to_remove[@]}"}"; do
   rm -f "${saved}" || say "could not remove ${saved}; remove it by hand"
 done

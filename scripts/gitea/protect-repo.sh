@@ -34,14 +34,16 @@ for k in bad:
     print(f"    {k}: want {want[k]!r}, Gitea has {got.get(k)!r}")
 sys.exit(1 if bad else 0)
 '
-# the other rules that could match main or a branch under agent/ (review 249 B4)
+# the other rules that could match main or a branch under agent/ (review 249 B4, 250 A2)
 OVERLAPPING_RULES='
 import json, sys
 
 # Gitea 1.21 branch rules are gobwas globs with "/" as the separator: * and ?
-# do not cross a "/", ** does, [...] / [!...] is one character, {a,b} picks one,
-# a backslash takes the next character as it is. A rule clashes when it can
-# match "main" or some branch "agent/<more>".
+# do not cross a "/", ** does, [...] / [!...] is one character (only ! negates;
+# ^ is a character like any other, as in gobwas), {a,b} picks one, a backslash
+# takes the next character as it is. A rule clashes when it can match "main"
+# or some branch "agent/<more>" whose next part can start a branch name (git
+# refuses a part that starts with "." and the characters below anywhere).
 
 
 def expand(p):
@@ -109,7 +111,7 @@ def tokens(p):
         elif c == "[" and p.find("]", i + 2) != -1:
             j = p.find("]", i + 2)
             body, neg = p[i + 1:j], False
-            if body[:1] in ("!", "^"):
+            if body[:1] == "!":
                 body, neg = body[1:], True
             out.append(("class", body, neg))
             i = j + 1
@@ -163,13 +165,18 @@ def run(ts, text):
     return states
 
 
+NOT_IN_A_BRANCH = set(" ~^:?*[\\\x7f") | {chr(c) for c in range(32)}
+STARTS = [chr(c) for c in range(33, 127) if chr(c) not in NOT_IN_A_BRANCH and chr(c) not in "./"]
+
+
 def clash(rule):
     for p in expand(rule):
         ts = tokens(p)
         if len(ts) in run(ts, "main"):
             return True
-        # some state left after "agent/" can still take a character: a branch agent/<more> matches
-        if any(i < len(ts) for i in run(ts, "agent/")):
+        # after "agent/", some character that can start a branch part leaves a state behind
+        after = run(ts, "agent/")
+        if any(step(ts, after, c) for c in STARTS):
             return True
     return False
 

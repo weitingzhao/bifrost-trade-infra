@@ -644,9 +644,55 @@ exec "{real}" "$@"
         self.assertTrue(lock.is_symlink())
         self.assertEqual(self.remotes(repo), before)
 
-    # review 249 B4: a rule is read as a glob, not by its fixed start
+    # review 250 A1: a working tree whose path holds a newline is read back too
+    def test_a_worktree_path_with_a_newline_is_read_back(self) -> None:
+        repo, extra = self.checkout()
+        (repo / "f").write_text("x")
+        git(repo, "add", "f")
+        git(repo, "commit", "-q", "-m", "x")
+        git(repo, "config", "extensions.worktreeConfig", "true")
+        odd = self.root / "new\nline"
+        git(repo, "worktree", "add", "-q", "-b", "side", str(odd))
+        git(odd, "config", "--worktree", "remote.origin.pushurl", "https://github.com/weitingzhao/bifrost-ui.git")
+        before = self.remotes(repo)
+        r = self.run_script("switch-local-remotes.sh", "bifrost-ui", extra=extra)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertEqual(self.remotes(repo), before)
+
+    # review 250 B4: a report that cannot be written undoes the run
+    def test_a_report_that_cannot_be_written_undoes_the_run(self) -> None:
+        repo, extra = self.checkout()
+        before = self.remotes(repo)
+        env = {**os.environ, **GIT_ENV, "HOME": str(self.root), **extra}
+        with open(os.devnull, "rb") as read_only:
+            r = subprocess.run(["bash", str(HERE / "switch-local-remotes.sh"), "bifrost-ui"], env=env, stdout=read_only,
+                               stderr=subprocess.PIPE, text=True, timeout=60)
+        self.assertNotEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.remotes(repo), before)
+        self.assertFalse((repo / ".git" / "config.before-gitea-primary").exists())
+
+    # review 250 C5: the saved copy is created only if absent; a link there is not taken for it
+    def test_a_link_where_the_saved_copy_goes_is_left_alone(self) -> None:
+        repo, extra = self.checkout()
+        saved = repo / ".git" / "config.before-gitea-primary"
+        saved.symlink_to("/dev/null")
+        before = self.remotes(repo)
+        r = self.run_script("switch-local-remotes.sh", "bifrost-ui", extra=extra)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertTrue(saved.is_symlink())
+        self.assertEqual(self.remotes(repo), before)
+
+    # review 249 B4, 250 A2: a rule is read as a gobwas glob (only ! negates a class)
     def test_protect_repo_reads_rules_as_globs(self) -> None:
-        for kept in ("main?", "ma[st]er"):
+        for stopped in ("[^m]ain", "a**"):
+            api = FakeApi({"r": False}, rules={"r": {stopped: {"rule_name": stopped, "enable_push": True}}})
+            try:
+                r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api)
+                self.assertEqual(r.returncode, 1, stopped + r.stdout + r.stderr)
+                self.assertIn("STOPPED", r.stdout)
+            finally:
+                api.close()
+        for kept in ("main?", "ma[st]er", "[^x]ain", "agent/."):
             api = FakeApi({"r": False}, rules={"r": {kept: {"rule_name": kept, "enable_push": True}}})
             try:
                 r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api)
