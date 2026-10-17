@@ -50,8 +50,9 @@ Ops Platform 收成四层，全部只在 PROD 一份：
 | Linux k8s 节点 | 生产底座，确定性修复的唯一所在 | Trade dev/stg/prod；Postgres、Redis；Dagster（数据养护唯一调度者）；插件；PROD platform-workers；备份；监控告警；交付（Argo、Tekton、registry） | LLM Agent 执行面；任何依赖笔记本的东西 |
 | NAS | 存储与备份第二份 | MinIO（物理备份）、nfs-hot / nfs-cold、归档、逻辑 dump、各机器的备份 | 计算、调度 |
 | 4090（.60） | 可唤醒算力池 | 本地 LLM 推理、重型回测与构建；PROD 按需唤醒、用完关机 | 常驻服务；维护关键路径 |
-| Mac mini .50 / .52 | 带外层 + Agent 层（A 方案） | 宿主（独立系统账户）：operator-plane、告警中转、互看 watchdog、集群外拨测、应急手册；.50 的独立账户里可以放执行器的专用凭证（专用 kube 身份 `bifrost-owner-exec` 由准入策略限定、节点上只放 forced-command 钥匙；S0-0 执行卡 2，Owner 2026-10-10）。虚拟机：Claude Code 线程、Agent SDK harness、沙箱 | 集群管理员凭证与节点 root；子系统管理员密码（Gitea、UniFi、数据库属主）；定时 LLM「修复」；带外与 Agent 共用账户和配置 |
-| Mac Pro | 开发 + Owner 驾驶舱 | IDE、Vite、bdev 本地服务、kubectl / MCP 客户端、Claude 线程 | 任何维护；任何被 PROD 依赖的服务 |
+| Mac mini .50 / .52 | 带外层 + Agent 层（A 方案） | 宿主（独立系统账户）：operator-plane、告警中转、互看 watchdog、集群外拨测、应急手册；.50 的独立账户里可以放执行器的专用凭证（专用 kube 身份 `bifrost-owner-exec` 由准入策略限定、节点上只放 forced-command 钥匙；S0-0 执行卡 2，Owner 2026-10-10）。参谋长常驻（形态另定）。**Agent 的执行面不放这里**（Owner 2026-10-17 改定：原为「虚拟机：Claude Code 线程、Agent SDK harness、沙箱」，挪到下一行的 Agent 主机） | 集群管理员凭证与节点 root；子系统管理员密码（Gitea、UniFi、数据库属主）；定时 LLM「修复」；带外与 Agent 共用账户和配置 |
+| Agent 主机（ubt-k3s-06，192.168.10.79；Owner 2026-10-17 定） | Agent 的执行面。先出 k8s 集群，再装 | PROD 与 STG 各一个 agentd，各用一个系统用户（无 sudo、无 MCP、按用户的出站规则）；各家命令行 | k8s 节点身份；集群管理员凭证与节点 root；子系统管理员密码；任何只存在这台机器上的状态 |
+| Mac Pro | 开发 + Owner 驾驶舱 | IDE、Vite、bdev 本地服务、kubectl / MCP 客户端、Claude 线程 | 任何维护；任何被 PROD 依赖的服务（过渡期的 agentd `mbp-dev` 在 Agent 主机接手后停掉，Owner 2026-10-17） |
 | Win11 ×2 | 交易设备 | 只有 TWS（Owner 手工登录 + 2FA），从外面观测 | 其他软件（以后可加维保进程，单独决定） |
 
 ## 4. Ops Platform 的环境角色
@@ -183,7 +184,7 @@ Server 区一分为四，其余网段（Work、Family、Home/IoT）不变：
 |---|---|---|---|
 | 交易区 | Win11 ×2 | 只出到 IB | 内网一切；入站只放 k8s 节点→TWS API 端口与 Owner 工作站远程桌面 |
 | 集群与存储区 | k3s 节点、VIP、NAS、4090 | 彼此；出互联网 | — |
-| Agent 区 | mini 上的沙箱虚拟机 | 平台 API、GitHub、外网白名单 | 数据库、Redis、TWS、NAS 共享、K8s API、节点 SSH |
+| Agent 区 | Agent 主机上 agentd 用户的进程（Owner 2026-10-17；原为 mini 上的沙箱虚拟机）。第一步是主机上按用户的出站规则，专门的 VLAN 后补 | 平台 API、Gitea、GitHub、外网白名单（第一步是外网 80/443 全开，白名单要出站代理，后补） | 数据库、Redis、TWS、NAS 共享、K8s API、节点 SSH |
 | 运维区 | Mac Pro 有线口、mini 宿主 | 集群全部（靠凭证收口） | — |
 
 - UniFi：平台保留可写权限，凭证只在 PROD；任何改动是 D 级、Owner 审批；目标规则在 git 里。
@@ -252,7 +253,7 @@ Server 区一分为四，其余网段（Work、Family、Home/IoT）不变：
 | 状态 | CNPG `bifrost-postgres` 上新建三个库：`bifrost_platform`（PROD）、`bifrost_platform_stg`、`bifrost_platform_dev`，schema 都用 `agentrt`；每个环境两个登录角色（`agentrt_owner_<env>`、`platform_agentrt_<env>`），收回 PUBLIC 的 CONNECT，测试和开发的身份连不上 PROD 库（v5，Owner 2026-10-14 确认）。PG 是唯一的事实来源 |
 | 交互总线 | 新建 `redis-agents`（开 AOF），PROD、STG 各一套，DEV 借 `redis-dev`（v5，Owner 2026-10-14 确认），只给平台内部用；Redis 只报信，领活、未读消息、叫停一律以 PG 为准。Agent 不直连，统一通过 API 或 MCP 长轮询；Redis 丢了可以从 PG 的 outbox 重建 |
 | 发布队列与修复链状态 | 放 statefile，**不依赖 PG，也不依赖 Redis**，保证修数据库的那次发版也能走。审批记录、发版策略与冻结、发布窗口和队列、执行器领单都算修复链状态，永久留在 statefile，不迁 PG（2026-10-10，Codex 审查 R03）；迁 PG 的是 agentrt 的计划、mission、任务与尝试、事件、产物、规则、预算与能力账本（v5，Owner 2026-10-14 确认） |
-| 执行 | `agentd` 跑在 Agent 主机上：第 2 轮是开发机，第 3 轮迁到 mini 的虚拟机；设计里只写「Agent 主机」，任何状态都不能只存在 Agent 主机上（v5，Owner 2026-10-14 确认）。它负责宿主控制、隔离的工作区、计量和死人开关。k8s 节点上不跑 Agent 的执行面（§3） |
+| 执行 | `agentd` 跑在 Agent 主机上：第 2 轮是开发机，之后迁到 Agent 主机 ubt-k3s-06（出集群后，Owner 2026-10-17；原为「第 3 轮迁到 mini 的虚拟机」）；设计里只写「Agent 主机」，任何状态都不能只存在 Agent 主机上（v5，Owner 2026-10-14 确认）。它负责宿主控制、隔离的工作区、计量和死人开关。k8s 节点上不跑 Agent 的执行面（§3） |
 | 主仓库 | Gitea（见 12.9）。云端 Agent 只碰公开仓库，只通过 GitHub 的分支接入 |
 
 ### 12.4 规则集（§5）

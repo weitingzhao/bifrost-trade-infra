@@ -1,0 +1,50 @@
+#!/usr/sbin/nft -f
+# Egress for the two agentd users on the agent host (Owner 2026-10-17: ubt-k3s-06
+# leaves the cluster and runs the PROD and the STG agentd; ADR §10 「Agent 区」;
+# agent-config/work/multi-agent/CUT-agent-host-06-2026-10-17.md).
+#
+# Loaded by bifrost-agent-egress.service; both agentd services are bound to it
+# and do not run without it. Only packets from sockets owned by these two users
+# are filtered: the rest of the host (the Owner's login, apt, systemd-resolved)
+# is untouched.
+#
+# Each agentd reaches its own platform API and the Gitea mirror. Both reach the
+# public internet on TCP 80/443 (vendor APIs, npm, the Go module proxy, GitHub)
+# and DNS through the local systemd-resolved stub on 127.0.0.53. Nothing else:
+# no other address on the LAN (databases, Redis, the NAS, the Kubernetes API,
+# node SSH, UniFi, TWS), no SSH anywhere (the host's own sshd included), no
+# other port or protocol.
+
+table inet bifrost_agent
+delete table inet bifrost_agent
+
+table inet bifrost_agent {
+	chain output {
+		type filter hook output priority filter; policy accept;
+		meta skuid "bifrost-agentd" jump prod
+		meta skuid "bifrost-agentd-stg" jump stg
+	}
+
+	# The PROD agentd: the PROD platform API (kube-vip VIP, NodePort).
+	chain prod {
+		ip daddr 192.168.10.100 tcp dport 30876 accept
+		jump common
+	}
+
+	# The STG agentd: the STG platform API.
+	chain stg {
+		ip daddr 192.168.10.73 tcp dport 30878 accept
+		jump common
+	}
+
+	chain common {
+		tcp dport 22 counter reject with tcp reset
+		oifname "lo" accept
+		# Gitea (cicd), where work is cloned from and attempt branches go.
+		ip daddr 192.168.10.73 tcp dport 30300 accept
+		ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.168.0.0/16, 198.18.0.0/15, 224.0.0.0/3 } counter reject
+		ip6 daddr { ::/127, ::ffff:0:0/96, 64:ff9b::/96, fc00::/7, fe80::/10, ff00::/8 } counter reject
+		tcp dport { 80, 443 } accept
+		counter reject
+	}
+}

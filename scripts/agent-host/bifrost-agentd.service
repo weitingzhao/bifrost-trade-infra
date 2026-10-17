@@ -1,0 +1,60 @@
+# The PROD agentd on the agent host (Owner 2026-10-17; design v5 §5.2). It
+# polls the PROD platform as host agent-06 and runs codex, cursor, claude and
+# the deterministic checks as its own user, who has no MCP server, no sudo and
+# no SSH key, behind the egress rules of bifrost-agent-egress.service.
+# Installed by prepare-agent-06.sh; the Owner enables it once its credentials
+# are in place (OWNER-STEPS-agent-host-06.md).
+[Unit]
+Description=Bifrost agentd (PROD platform, host agent-06)
+Wants=network-online.target
+After=network-online.target bifrost-agent-egress.service
+BindsTo=bifrost-agent-egress.service
+
+[Service]
+Type=simple
+User=bifrost-agentd
+Group=bifrost-agentd
+WorkingDirectory=/home/bifrost-agentd/agent-work/agentd
+ExecStart=/usr/local/libexec/bifrost/agentd
+Environment=HOME=/home/bifrost-agentd
+Environment=USER=bifrost-agentd
+Environment=LOGNAME=bifrost-agentd
+Environment=SHELL=/bin/bash
+Environment=LANG=C.UTF-8
+Environment=PATH=/home/bifrost-agentd/.local/bin:/usr/local/go/bin:/usr/local/lib/nodejs/current/bin:/usr/local/bin:/usr/bin:/bin
+Environment=AGENTD_PLATFORM=http://192.168.10.100:30876/api/v1/agentrt
+Environment=AGENTD_HOST=agent-06
+Environment=AGENTD_TOOLS=exec:codex=openai,exec:cursor=cursor-mix,exec:claude=anthropic:opus,exec:deterministic=local
+Environment=AGENTD_GIT_BASE=http://192.168.10.73:30300/bifrost
+Environment=AGENTD_GIT_PUSH_BASE=http://192.168.10.73:30300/bifrost-agents
+Environment=AGENTD_ROOT=/home/bifrost-agentd/agent-work/agentd
+Environment=AGENTD_TOKEN_FILE=/home/bifrost-agentd/.config/bifrost/agentd.token
+Environment=AGENTD_GIT_TOKEN_FILE=/home/bifrost-agentd/.config/bifrost/agentd-git.token
+Environment=AGENTD_CURSOR_KEY_FILE=/home/bifrost-agentd/.config/bifrost/cursor-api.key
+Environment=AGENTD_CLAUDE_TOKEN_FILE=/home/bifrost-agentd/.config/bifrost/claude-oauth.token
+Restart=always
+RestartSec=10
+KillMode=control-group
+TimeoutStopSec=90
+UMask=0077
+LimitNOFILE=65536
+MemoryHigh=12G
+MemoryMax=14G
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=tmpfs
+BindPaths=/home/bifrost-agentd
+ReadWritePaths=/home/bifrost-agentd
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target
