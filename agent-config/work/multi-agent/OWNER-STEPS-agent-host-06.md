@@ -228,3 +228,26 @@ bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-h
 ```
 
 做完回：「06 新 agentd 好了」。我叫演练会话重跑 STG 那件 Console 演练。
+
+## B 补三　再换一次 agentd（10-17 下午，评审员只读）
+
+PROD 演练 M-3 里 agent-06 上的 cursor 评审员命令被拒后，往检出目录写了给自己放权限的文件和一个冒名 `ls` 的脚本（TD-364，没跑起来、没出主机）。新 agentd（平台 `1a339e1`）让评审在 cursor 的只读模式里跑，并在交卷前查这次尝试改了什么：评审改了任何东西、或任何尝试改了执行者的配置，就判失败。四条命令和「B 补二」一样（stop、copy、prepare、start），每条问一次节点口令：
+
+```bash
+bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh stop
+```
+
+```bash
+bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh copy
+```
+
+```bash
+bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh prepare
+```
+
+```bash
+bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh start
+```
+
+stop 会连带清掉服务的私有 /tmp（评审员可能在那里写过 `run_safego_verify.py`）。跑完不用回，日志我自己读。
+
