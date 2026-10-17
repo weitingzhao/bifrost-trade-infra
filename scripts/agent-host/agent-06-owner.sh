@@ -207,6 +207,33 @@ delete_volumes() {
       die "could not delete $ns/$claim with uid $uid (another object by that name now, or the API refused); nothing more was deleted"
     say "deleted $ns/$claim (uid $uid)"
   done < "$TMPD/to-delete.txt"
+}
+
+# wait_volumes_gone: after the drain. A claim that finished pods still name
+# stays in deletion (pvc-protection) until those pods are gone, and the
+# drain removes them; then the provisioner removes each volume.
+wait_volumes_gone() {
+  local pod
+  # The drain normally takes the finished pods too; any finished pod on the
+  # node that still names one of the named claims is deleted here (its log
+  # goes with it; the run's result stays on its PipelineRun).
+  kubectl get pods -A --field-selector "spec.nodeName=$NODE" -o json > "$TMPD/pods.json" || die "cannot list the pods on $NODE"
+  printf '%s\n' "$VOLUMES" > "$TMPD/allowed.txt"
+  python3 -I -c '
+import json, sys
+named = {tuple(l.split()[:2]) for l in open(sys.argv[2]) if l.strip()}
+for p in json.load(open(sys.argv[1]))["items"]:
+    ns = p["metadata"]["namespace"]
+    claims = {v["persistentVolumeClaim"]["claimName"] for v in p["spec"].get("volumes") or [] if v.get("persistentVolumeClaim")}
+    if p["status"].get("phase") in ("Succeeded", "Failed") and any((ns, c) in named for c in claims):
+        print(ns + "/" + p["metadata"]["name"])
+' "$TMPD/pods.json" "$TMPD/allowed.txt" > "$TMPD/finished.txt"
+  while read -r pod; do
+    [ -n "$pod" ] || continue
+    need_window
+    kubectl -n "${pod%%/*}" delete pod "${pod#*/}" --wait=false > /dev/null || die "could not delete the finished pod $pod"
+    say "deleted the finished pod $pod (it held a named claim)"
+  done < "$TMPD/finished.txt"
   for _ in $(seq 1 30); do
     need_window
     volumes_ok > /dev/null
@@ -356,7 +383,7 @@ step_leave() {
     say "event-radar volume already deleted; its backup checks"
   fi
   need_window
-  say "delete the named volumes on $NODE"
+  say "delete the named volumes on $NODE (the CI workspaces go once the drain has taken their finished pods)"
   delete_volumes
   need_window
   say "restart the two Deployments whose PodDisruptionBudget allows no eviction"
@@ -369,6 +396,8 @@ step_leave() {
   need_window
   left=$(pods_left_on_node)
   [ -z "$left" ] || die "pods still on $NODE: $(echo "$left" | tr '\n' ' ')"
+  say "wait for the named volumes on $NODE to go"
+  wait_volumes_gone
   printf '%s drained %s\n' "$NODE_UID" "$(date -u +%FT%TZ)" > "$STATE_DIR/leave-done"
   say "drained: only DaemonSet pods are left on $NODE; volumes gone; backup at $BACKUP"
 }
