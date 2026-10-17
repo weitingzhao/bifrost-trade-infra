@@ -80,9 +80,12 @@ counters() { nft list chain inet bifrost_agent common 2> /dev/null | grep -o 'pa
 
 # reach <user> <proto> <host> <port> <open|blocked>: run the probe as the
 # user. Wanted open passes only on "open". Wanted blocked passes only when the
-# probe ran, got exactly "refused" (what the reject rules answer), and a
-# reject rule counted a packet while it ran; a target that is down, a name
-# that does not resolve or a probe that failed is not proof. The probes run
+# probe ran, did not get through, sent a packet (a name that does not resolve
+# sends none), and a reject rule counted a packet while it ran: a reject rule
+# drops what it counts. What the probe then reports depends on the kernel,
+# not on the rule: refused for TCP, EPERM for UDP, a timeout for TCP over
+# IPv6 (all three seen on 06, 2026-10-17). A target that is down without a
+# rule counting anything is not proof. The probes run
 # only while neither agent user has any other process (no agentd, no CLI
 # left over), and one at a time, so the packets the reject counters gain
 # during a probe are that probe's own. Root's result (the rules do not touch
@@ -103,10 +106,10 @@ reach() {
     fail "$what (the probe did not run as $u, or said something unexpected)"
   elif [ "$want" = open ]; then
     [ "$got" = open ] && ok "$what (want open)" || fail "$what (want open)"
-  elif [ "$got" = refused ] && [ "$after" -gt "$before" ]; then
-    ok "$what (want blocked; refused, and a reject rule counted it)"
+  elif [ "$got" != error:resolve ] && [ "$after" -gt "$before" ]; then
+    ok "$what (want blocked; a reject rule counted it, counts $before -> $after)"
   else
-    fail "$what (want blocked; needs refused and a reject rule's count to rise, got $got with counts $before -> $after)"
+    fail "$what (want blocked; needs a reject rule's count to rise, got $got with counts $before -> $after)"
   fi
 }
 
