@@ -4,20 +4,37 @@
 
 ---
 
-## 0　先换 Gitea 管理员令牌（TD-365，约 5 分钟，越早越好）
+## 0　换 Gitea 管理员令牌（TD-365，约 10 分钟；脚本复核过了我说一声再做）
 
-旧令牌从 2026-06-17 起就在公开的 infra 仓库历史里（`d30ef90`），至今还是在用的那个。
+旧令牌从 2026-06-17 起就在公开的 infra 仓库历史里（`d30ef90`），至今还在用。它在集群里放了**两处**：`gitea-bootstrap`（平台和镜像同步用）和 `gitea-git-credentials` 的密码（Tekton 每次克隆代码用）。原来这一节只换第一处，照做后再删旧令牌，CI、deliver、apply-manifest 的克隆会一起断（10-17 16:2x 发现，已改）。脚本 `scripts/gitea/rotate-admin-token.sh` 两处一起换，不显示任何令牌。
 
-1. 浏览器打开 Gitea（`http://192.168.10.73:30300`），用管理员账号登录 → 右上角头像 → Settings → Applications → Generate New Token：
-   名字 `bifrost-bootstrap-2026-10-17`，权限照旧令牌的选（不确定就全选 write），生成后先复制，**旧的先别删**。
-2. 你的终端跑这一条（粘贴新令牌后回车；不是 40 位十六进制就什么都不改）：
+1. 先只核对（不改东西）：
 
 ```bash
-( export KUBECONFIG="$HOME/.bifrost-owner/kube/admin.yaml"; read -rs -p 'New Gitea admin token: ' t; echo; case "$t" in ''|*[!0-9a-f]*) echo "not a Gitea token (hex only); nothing changed"; exit 1;; esac; [ ${#t} -eq 40 ] || { echo "not 40 characters; nothing changed"; exit 1; }; printf '{"stringData":{"gitea_admin_token":"%s"}}' "$t" | kubectl -n cicd patch secret gitea-bootstrap --type merge --patch-file /dev/stdin; unset t )
+~/Desktop/stocks/bifrost-trade-infra/scripts/gitea/rotate-admin-token.sh check
 ```
 
-3. 回线程说「Gitea 令牌换好了」。我核对平台的镜像同步、CI 钩子都还能用。
-4. 我说可以了，你再回 Gitea 的 Applications 页**删掉旧令牌**。本机那份被忽略的 `bifrost-trade-infra/k8s/cicd/gitea/secret.yaml` 里还是旧值：要么把值改成新的，要么直接删掉这个文件（集群里的 Secret 才是正本，脚本都先读它）。
+   应看到两行都是 `user weitingzhao`，第三行是 `THE SAME token`。
+2. 浏览器打开 Gitea（`http://192.168.10.73:30300`），用管理员账号 `weitingzhao` 登录 → 右上角头像 → Settings → Applications → Generate New Token：名字 `bifrost-bootstrap-2026-10-17`；权限选 repository、organization、user 三项的 Read and Write，其余 No access；生成后先复制，**旧的先别删**。
+3. 换（提示出现后粘贴新令牌、回车；屏幕上不显示）：
+
+```bash
+~/Desktop/stocks/bifrost-trade-infra/scripts/gitea/rotate-admin-token.sh rotate
+```
+
+   最后一行是 `==> rotated.` 就换好了；中途它若说「nothing changed」，就是新令牌没通过检查，什么都没改。
+4. 回线程说「Gitea 令牌换好了」。我核对镜像同步和一次 CI 克隆都用新令牌跑通，再请你删旧令牌。
+5. 我说可以了：回 Gitea 的 Applications 页**删掉旧令牌**（今天之前建的那个），然后跑：
+
+```bash
+~/Desktop/stocks/bifrost-trade-infra/scripts/gitea/rotate-admin-token.sh revoked
+```
+
+   最后一行是 `==> the leaked tokens are refused; both Secrets log in.` 就收尾了。`rotate` 若提示本机那份被忽略的 `k8s/cicd/gitea/secret.yaml` 还是旧值，就把它删掉（集群里的 Secret 才是正本）：
+
+```bash
+rm ~/Desktop/stocks/bifrost-trade-infra/k8s/cicd/gitea/secret.yaml
+```
 
 ---
 
