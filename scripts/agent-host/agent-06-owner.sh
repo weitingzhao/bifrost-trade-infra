@@ -549,6 +549,9 @@ step_start() {
 
 step_retire_mac() {
   local rc=0
+  # disable first: bootout alone stops it until the next boot, when launchd
+  # would load /Library/LaunchDaemons/com.bifrost.agentd.plist again.
+  sudo launchctl disable system/com.bifrost.agentd
   sudo launchctl bootout system/com.bifrost.agentd || true
   for _ in $(seq 1 60); do
     rc=0
