@@ -173,8 +173,7 @@ backup_volume() {
     say "backup already there: $BACKUP"
     return
   fi
-  node_ssh "sudo test -d /var/lib/rancher/k3s/storage/$EVENT_RADAR_DIR && sudo tar -C /var/lib/rancher/k3s/storage -czf - $EVENT_RADAR_DIR" > "$BACKUP.part" ||
-    die "the backup did not come through"
+  watched node_ssh "sudo test -d /var/lib/rancher/k3s/storage/$EVENT_RADAR_DIR && sudo tar -C /var/lib/rancher/k3s/storage -czf - $EVENT_RADAR_DIR" > "$BACKUP.part"
   gzip -t "$BACKUP.part" || die "the backup is not a whole gzip file"
   tar -tzf "$BACKUP.part" > "$TMPD/backup.list" || die "the backup cannot be listed"
   grep -q "^$EVENT_RADAR_DIR/" "$TMPD/backup.list" || die "the backup does not hold $EVENT_RADAR_DIR"
@@ -202,12 +201,14 @@ delete_volumes() {
   grep ' delete$' "$TMPD/listing.txt" > "$TMPD/to-delete.txt" || true
   while read -r pv ns claim uid state; do
     [ -n "$pv" ] || continue
+    need_window
     printf '{"kind":"DeleteOptions","apiVersion":"v1","preconditions":{"uid":"%s"}}' "$uid" > "$TMPD/delete-options.json"
     kubectl delete --raw "/api/v1/namespaces/$ns/persistentvolumeclaims/$claim" -f "$TMPD/delete-options.json" > /dev/null ||
       die "could not delete $ns/$claim with uid $uid (another object by that name now, or the API refused); nothing more was deleted"
     say "deleted $ns/$claim (uid $uid)"
   done < "$TMPD/to-delete.txt"
   for _ in $(seq 1 30); do
+    need_window
     volumes_ok > /dev/null
     if [ ! -s "$TMPD/listing.txt" ]; then
       say "all named volumes on $NODE are gone"
@@ -278,9 +279,11 @@ sys.exit(0 if left.total_seconds() > 60 else 1)
 ' "$WHO"
 }
 need_window() { window_ours || die "the release window is no longer held for ubt-k3s-06; leave stops here ($NODE stays cordoned)"; }
-# watched <command…>: run a long step, checking every 15 seconds that the
-# window is still ours; if it is not, stop the step and leave.
+# watched <command…>: run a long step only while the window is ours: checked
+# before it starts, every 15 seconds while it runs (if lost, the step is
+# stopped and leave with it), and once more after it ends.
 watched() {
+  need_window
   "$@" &
   local pid=$! rc=0
   while kill -0 "$pid" 2> /dev/null; do
@@ -294,6 +297,7 @@ watched() {
   done
   wait "$pid" || rc=$?
   [ "$rc" = 0 ] || die "failed (exit $rc): $*"
+  need_window
 }
 hold_window() {
   "$WORKSPACE/bifrost-trade-infra/scripts/release/release.sh" hold --what ubt-k3s-06 > "$TMPD/hold.log" 2>&1 &

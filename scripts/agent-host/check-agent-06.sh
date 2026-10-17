@@ -83,9 +83,10 @@ counters() { nft list chain inet bifrost_agent common 2> /dev/null | grep -o 'pa
 # probe ran, got exactly "refused" (what the reject rules answer), and a
 # reject rule counted a packet while it ran; a target that is down, a name
 # that does not resolve or a probe that failed is not proof. The probes run
-# only while neither agentd runs, so no other traffic of these users adds to
-# the counters. Root's result (the rules do not touch root) is shown
-# alongside.
+# only while neither agent user has any other process (no agentd, no CLI
+# left over), and one at a time, so the packets the reject counters gain
+# during a probe are that probe's own. Root's result (the rules do not touch
+# root) is shown alongside.
 reach() {
   local u=$1 proto=$2 host=$3 port=$4 want=$5 got base rc before after what
   before=$(counters)
@@ -172,11 +173,37 @@ nft list table inet bifrost_agent
 
 echo "-- reachability, each user against root"
 if [ "$stage" = running ]; then
-  echo "-    not probed here: proven by the base and creds checks, which run while neither agentd runs"
+  echo "-    not probed in this stage (both agentd run now); the rules are probed by host-check base and creds, which need both stopped"
 else
+quiet=1
 for s in bifrost-agentd bifrost-agentd-stg; do
-  ! systemctl is-active --quiet "$s" || fail "$s is running: stop it before this check, or the probes cannot be told from its traffic"
+  st=$(systemctl is-active "$s" 2> /dev/null) || true
+  case "$st" in
+    inactive | failed | unknown) ;;
+    *)
+      fail "$s is $st: stop it before this check, or the probes cannot be told from its traffic"
+      quiet=0
+      ;;
+  esac
 done
+for u in "$prod" "$stg"; do
+  rc=0
+  pids=$(pgrep -u "$u") || rc=$?
+  case $rc in
+    1) ;;
+    0)
+      fail "$u has process(es) running ($(echo "$pids" | tr '\n' ' ')): none may run during the probes"
+      quiet=0
+      ;;
+    *)
+      fail "cannot tell whether $u has processes (pgrep exit $rc)"
+      quiet=0
+      ;;
+  esac
+done
+if [ "$quiet" != 1 ]; then
+  echo "-    reachability not probed (see the failures above)"
+else
 dev=$(ip -4 route get 1.1.1.1 | awk '{for (i = 1; i < NF; i++) if ($i == "dev") print $(i + 1)}')
 port=$((20000 + RANDOM % 20000))
 python3 -I -c "
@@ -231,6 +258,7 @@ reach "$prod" tcp api.anthropic.com 443 open
 reach "$prod" tcp api2.cursor.sh 443 open
 kill "$listener_pid" 2>/dev/null
 listener_pid=""
+fi
 fi
 
 echo "== listeners on this host (for B6: local services the agent users could reach over loopback or a Unix socket)"

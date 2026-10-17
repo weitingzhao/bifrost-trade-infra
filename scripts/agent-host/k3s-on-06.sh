@@ -12,7 +12,9 @@
 # "Gone" is decided from what is there, never from a query that failed: the
 # binary, the two units by their load state, and every process by the file
 # it runs (/proc/<pid>/exe, which also names a deleted binary) and by its
-# name, so a k3s started without a path is found as well.
+# name, so a k3s started without a path is found as well. A process whose
+# file cannot be read is skipped only when it has ended meanwhile, is a
+# zombie or is a kernel thread; any other one makes the answer "cannot tell".
 set -uo pipefail
 
 [ "$(id -u)" = 0 ] || {
@@ -22,6 +24,20 @@ set -uo pipefail
 [ "$(hostname)" = ubt-k3s-06 ] || {
   echo "k3s-on-06: this is $(hostname), not ubt-k3s-06" >&2
   exit 2
+}
+
+PROC=${K3S_ON_06_PROC:-/proc} # another directory only in the tests (sudo drops the variable)
+
+# unreadable_ok <proc dir>: the exe link could not be read; true when the
+# process has ended, is a zombie, or is a kernel thread (PF_KTHREAD).
+unreadable_ok() {
+  local st rest
+  [ -d "$1" ] || return 0
+  st=$(cat "$1/stat" 2> /dev/null) || { [ -d "$1" ] && return 1; return 0; }
+  rest=${st##*) }
+  set -- $rest
+  [ "${1:-}" = Z ] && return 0
+  [ -n "${7:-}" ] && [ $((${7} & 0x00200000)) != 0 ]
 }
 
 gone() {
@@ -47,27 +63,39 @@ gone() {
         ;;
     esac
   done
-  for p in /proc/[0-9]*; do
+  for p in "$PROC"/[0-9]*; do
     seen=$((seen + 1))
-    # A process that ended meanwhile, or a kernel thread, has no exe link.
-    exe=$(readlink "$p/exe" 2> /dev/null) || exe=""
+    if ! exe=$(readlink "$p/exe" 2> /dev/null); then
+      exe=""
+      if ! unreadable_ok "$p"; then
+        # Once more, in case it was exiting just then.
+        sleep 0.2
+        if ! exe=$(readlink "$p/exe" 2> /dev/null); then
+          exe=""
+          if ! unreadable_ok "$p"; then
+            echo "k3s-on-06: cannot read what pid ${p##*/} runs" >&2
+            return 2
+          fi
+        fi
+      fi
+    fi
     comm=$(cat "$p/comm" 2> /dev/null) || comm=""
     case "$exe" in
       /usr/local/bin/k3s* | /var/lib/rancher/k3s/*)
-        echo "still running: pid ${p#/proc/} runs $exe"
+        echo "still running: pid ${p##*/} runs $exe"
         left=1
         continue
         ;;
     esac
     case "$comm" in
       k3s | k3s-agent | k3s-server | k3s-init)
-        echo "still running: pid ${p#/proc/} named $comm"
+        echo "still running: pid ${p##*/} named $comm"
         left=1
         ;;
     esac
   done
   [ "$seen" -gt 10 ] || {
-    echo "k3s-on-06: cannot read /proc" >&2
+    echo "k3s-on-06: cannot read $PROC" >&2
     return 2
   }
   [ "$left" = 0 ] && echo "k3s is gone from $(hostname)"
