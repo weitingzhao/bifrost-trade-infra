@@ -23,14 +23,12 @@ NODE_RE = re.compile(r"^node \d+/\d+ (\S+) role=(\S+)\s*$", re.M)
 
 ORDER_PRIMARY_ON_02 = [
     ("ubt-k3s-05", "general"),
-    ("ubt-k3s-06", "general"),
     ("ubt-k3s-01", "control-plane"),
     ("ubt-k3s-04", "data"),
     ("ubt-k3s-02", "prod"),
 ]
 ORDER_PRIMARY_ON_04 = [
     ("ubt-k3s-05", "general"),
-    ("ubt-k3s-06", "general"),
     ("ubt-k3s-01", "control-plane"),
     ("ubt-k3s-02", "prod"),
     ("ubt-k3s-04", "data"),
@@ -453,7 +451,7 @@ class RollingRebootPlanTests(unittest.TestCase):
         self.assertEqual(found, ORDER_PRIMARY_ON_02)
         self.assertEqual(found[-1][0], "ubt-k3s-02")
         self.assertIn(
-            "order: ubt-k3s-05 ubt-k3s-06 ubt-k3s-01 ubt-k3s-04 ubt-k3s-02",
+            "order: ubt-k3s-05 ubt-k3s-01 ubt-k3s-04 ubt-k3s-02",
             result.stdout,
         )
         self.assertIn("switchover-before: ubt-k3s-02", result.stdout)
@@ -501,7 +499,6 @@ class RollingRebootPlanTests(unittest.TestCase):
         spec = (
             "ubt-k3s-04:data,"
             "ubt-k3s-02:prod,"
-            "ubt-k3s-06:general,"
             "ubt-k3s-01:control-plane,"
             "ubt-k3s-05:general"
         )
@@ -543,7 +540,7 @@ class RollingRebootPlanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             fake = FakeCluster(Path(tmp), primary_node="ubt-k3s-02")
             result = run(
-                ["--dry-run", "--nodes", "ubt-k3s-05:general,ubt-k3s-06:general"],
+                ["--dry-run", "--nodes", "ubt-k3s-05:general,ubt-k3s-01:control-plane"],
                 fake.env,
             )
         self.assertNotEqual(result.returncode, 0)
@@ -557,7 +554,7 @@ class RollingRebootPlanTests(unittest.TestCase):
                 primary_node="ubt-k3s-02",
                 replica_node="ubt-k3s-04",
                 move_after_drains=1,
-                move_to="ubt-k3s-06",
+                move_to="ubt-k3s-01",
                 dow="6",
                 poll=0,
                 timeout=5,
@@ -570,30 +567,29 @@ class RollingRebootPlanTests(unittest.TestCase):
         self.assertIn("auth=yes url=http://platform.test/api/v1/approvals/appr_ok", curl)
         self.assertNotIn("viewer-test-token", curl)
         self.assertIn(
-            "remaining-order: ubt-k3s-05 ubt-k3s-06 ubt-k3s-01 ubt-k3s-04 ubt-k3s-02",
+            "remaining-order: ubt-k3s-05 ubt-k3s-01 ubt-k3s-04 ubt-k3s-02",
             result.stdout,
         )
         self.assertIn(
-            "remaining-order: ubt-k3s-01 ubt-k3s-02 ubt-k3s-04 ubt-k3s-06",
+            "remaining-order: ubt-k3s-02 ubt-k3s-04 ubt-k3s-01",
             result.stdout,
         )
-        self.assertIn("switchover-before: ubt-k3s-06", result.stdout)
+        self.assertIn("switchover-before: ubt-k3s-01", result.stdout)
         self.assertIn("replicas caught up", result.stdout)
         cordons = [line for line in log.splitlines() if line.startswith("cordon ")]
         self.assertEqual(
             cordons,
             [
                 "cordon ubt-k3s-05",
-                "cordon ubt-k3s-01",
                 "cordon ubt-k3s-02",
                 "cordon ubt-k3s-04",
-                "cordon ubt-k3s-06",
+                "cordon ubt-k3s-01",
             ],
         )
         promote = "cnpg promote -n data bifrost-postgres bifrost-postgres-3"
         self.assertIn(promote, log)
-        self.assertLess(log.index("cordon ubt-k3s-02"), log.index(promote))
-        self.assertLess(log.index(promote), log.index("cordon ubt-k3s-06"))
+        self.assertLess(log.index("cordon ubt-k3s-04"), log.index(promote))
+        self.assertLess(log.index(promote), log.index("cordon ubt-k3s-01"))
         self.assertIn("rolling-reboot: complete", result.stdout)
 
     def test_replica_not_caught_up_stops_before_the_primary_node(self) -> None:

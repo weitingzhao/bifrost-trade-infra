@@ -112,8 +112,9 @@ Usage: rolling-reboot.sh [--dry-run] [--execute --approval <id>] [--allow-weekda
                     prod, data. Optional third field is the SSH address.
                     The current primary is read from CNPG, not from the role.
 
-Default nodes: ubt-k3s-05 and ubt-k3s-06 (general), ubt-k3s-01 (control-plane),
-ubt-k3s-02 (prod), ubt-k3s-04 (data).
+Default nodes: ubt-k3s-05 (general), ubt-k3s-01 (control-plane), ubt-k3s-02
+(prod), ubt-k3s-04 (data). ubt-k3s-06 left the cluster on 2026-10-17 to be the
+agent host and is not rebooted with it.
 EOF
 }
 
@@ -160,7 +161,7 @@ done
 # Default catalog. gpu-server is intentionally absent. "data" means the node
 # hosts a database instance; it does not mean it is the current primary.
 if [ -z "${NODES_SPEC// /}" ]; then
-  NODES_SPEC="ubt-k3s-05:general:192.168.10.77 ubt-k3s-06:general:192.168.10.79 ubt-k3s-01:control-plane:192.168.10.73 ubt-k3s-02:prod:192.168.10.70 ubt-k3s-04:data:192.168.10.75"
+  NODES_SPEC="ubt-k3s-05:general:192.168.10.77 ubt-k3s-01:control-plane:192.168.10.73 ubt-k3s-02:prod:192.168.10.70 ubt-k3s-04:data:192.168.10.75"
 fi
 
 # Normalized pairs: "name:role:ip" (ip may be empty).
@@ -258,7 +259,6 @@ lookup_field() {
             ubt-k3s-02) printf '%s\n' "192.168.10.70" ;;
             ubt-k3s-04) printf '%s\n' "192.168.10.75" ;;
             ubt-k3s-05) printf '%s\n' "192.168.10.77" ;;
-            ubt-k3s-06) printf '%s\n' "192.168.10.79" ;;
             *) printf '\n' ;;
           esac
         fi
