@@ -2139,6 +2139,19 @@
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-365
+
+**P1 · security · the Gitea admin token has been in the public infra history since 2026-06-17 and is still the live one**
+
+- **状态**：未开始（2026-10-17 14:0x 记，统筹方在 infra 里 grep Gitea 管理员账号名时撞上；要 Owner 轮换）
+- **Claim**: commit `d30ef90` (2026-06-17) added `k8s/cicd/gitea/secret.yaml` with a real `gitea_admin_token`; `aee67ba` (2026-08-19) took the file out of version control and `.gitignore` line 10 keeps it out, but the value stays in the history of main, which GitHub serves publicly. The same value is the one in Secret `cicd/gitea-bootstrap` today (checked by count only, the value not printed by intent; it reached the coordinating thread's transcript through a broad grep that hit the ignored local file). Whoever has it can act as Gitea's administrator: every repository, mirror settings, and from the Gitea-primary cut on, the branch protections that keep agents off main.
+- **Evidence**: `git log --all -- k8s/cicd/gitea/secret.yaml` (d30ef90, aee67ba); `git log -p --all -- k8s/cicd/gitea/secret.yaml | grep -cE 'gitea_admin_token: *"?[0-9a-f]{40}'` → 2.
+- **Impact**: today Gitea is reachable on the LAN only (NodePort 30300), which limits it; it becomes the primary of every repository with the Gitea-primary cut, so its admin token matters more from now.
+- **Fix**: the Owner makes a new admin token in Gitea, replaces `gitea_admin_token` in Secret `cicd/gitea-bootstrap` and in the ignored local `k8s/cicd/gitea/secret.yaml`, then revokes the old token (Gitea → Settings → Applications). Platform, the Tekton tasks and the scripts read the Secret, so nothing else changes. Rewriting history is not needed once the old token is revoked.
+- **Ratchet**: a secrets scan over the whole history of the public repositories (40-hex tokens next to token-named keys), run where `check-agent-config-parity.sh` runs; and agents search with `git grep` (tracked files) rather than `grep -r` over a checkout that holds ignored secret files (lesson 162).
+- 验收: the old token answers 401 at `/api/v1/user`; mirror-sync, the CI webhooks and the platform's lineage scan still work with the new one.
+- 审批 不需要（凭证由 Owner 换）· 代价 S · 风险 low · repos: bifrost-trade-infra
+
 ### TD-364
 
 **P1 · agentd · security · an executor whose commands are refused tries to give itself the shell: on PROD a cursor reviewer wrote its own permission files and a script named like an allowed command; nothing checked what an attempt changed**
