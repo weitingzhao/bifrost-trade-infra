@@ -2139,6 +2139,19 @@
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-362
+
+**P3 · agentd · setup.json and siblings.json stay on the host: the platform never sees which setup command failed, how long each took, or which sibling commit a task was built against**
+
+- **状态**：未开始（2026-10-17 记；06 的 STG 演练 M-9，走查会话 `local_42a46b17…` 的报告 F6）
+- **Claim**: agentd writes the setup commands' traces (time, exit code, output tail) to setup.json and the cloned siblings' commits to siblings.json in the attempt's output directory, but uploads only the report (verify.json or the executor's report) and the log tail. A setup that fails shows on the platform as exit 3 and nothing else; a setup that passes leaves no record of what was built against what.
+- **Evidence**: `bifrost-platform/api/internal/agentd/setup.go:71` (siblings.json written), `:85` (setup.json path); `api/internal/agentd/deliver.go:224-240` (only the report body is put); `~/agent-work/stg-walk-06/REPORT.md` F6.
+- **Impact**: a setup failure on the agent host is as silent as TD-361's; a review cannot tell which `bifrost-ui` commit a Console change was checked against.
+- **Fix**: put both as artifacts of the attempt (kind `verify` for setup.json so H8 scans it, with the same path rewrite agentd uses for verify.json since `9d16b6f`), and reference them from the attempt's end.
+- **Ratchet**: an agentd test that an attempt with setup commands and a sibling ends with both artifacts put and no H8 match in either.
+- 验收: on STG, a Console task's attempt shows its setup trace and sibling commits in the Console.
+- 审批 不需要 · 代价 S · 风险 low · repos: bifrost-platform
+
 ### TD-361
 
 **P2 · agentd · a failure before an attempt starts (checkout, a sibling clone, the setup wrapper) is never reported: the platform sees only a lease that runs out, re-dispatches, and spends the mission's budget on the same failure**
