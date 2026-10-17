@@ -35,3 +35,9 @@ spec:
                   name: bifrost-platform-role-tokens
                   key: PLATFORM_PROD_AGENTD_MBP_DEV_TOKEN
                   optional: true
+            - name: PLATFORM_PROD_AGENTD_AGENT_06_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bifrost-platform-role-tokens
+                  key: PLATFORM_PROD_AGENTD_AGENT_06_TOKEN
+                  optional: true

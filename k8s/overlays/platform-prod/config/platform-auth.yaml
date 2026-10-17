@@ -25,3 +25,9 @@ tokens:
   - name: agentd:mbp-dev
     role: agentd
     token_env: PLATFORM_PROD_AGENTD_MBP_DEV_TOKEN
+  # W-31 2.3 (Owner 2026-10-17): the PROD agentd on the agent host ubt-k3s-06
+  # (out of the cluster), user bifrost-agentd; bound to host agent-06. It takes
+  # over from agentd:mbp-dev, which goes once the cutover is done.
+  - name: agentd:agent-06
+    role: agentd
+    token_env: PLATFORM_PROD_AGENTD_AGENT_06_TOKEN
