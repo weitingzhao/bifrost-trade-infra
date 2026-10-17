@@ -32,14 +32,14 @@ set -euo pipefail
 NODE=ubt-k3s-06
 NODE_UID=f8cd0884-6b5d-4006-abbc-e065c7f48a3c
 ADDR=192.168.10.79
-NODE_KEY=/Users/vision-mac-trader/.bifrost-owner/ssh/node
-WORKSPACE=/Users/vision-mac-trader/Desktop/stocks
+NODE_KEY=$HOME/.bifrost-owner/ssh/node
+WORKSPACE=$HOME/Desktop/stocks
 HERE=$(cd "$(dirname "$0")" && pwd -P)
-BINARY=/Users/vision-mac-trader/agent-work/agentd-build/agentd-ecb28c9-linux-amd64
-STATE_DIR=/Users/vision-mac-trader/bifrost-backups/event-radar-input/2026-10-17_node06_pvc-6bf6eca6
+BINARY=$HOME/agent-work/agentd-build/agentd-ecb28c9-linux-amd64
+STATE_DIR=$HOME/bifrost-backups/event-radar-input/2026-10-17_node06_pvc-6bf6eca6
 BACKUP=$STATE_DIR/event-radar-input-pvc.tar.gz
 EVENT_RADAR_DIR=pvc-6bf6eca6-5968-4874-ae93-22b8a2a23fab_research_event-radar-input-pvc
-LOG_DIR=/Users/vision-mac-trader/agent-work/agent-06-logs
+LOG_DIR=$HOME/agent-work/agent-06-logs
 # The only volumes leave deletes (read 2026-10-17 01:20): "<namespace>
 # <claim> <claim uid>"; the volume of each is pvc-<claim uid>. The event-radar
 # claim (Owner 2026-10-17: back up, then delete) and the workspaces of four
@@ -51,7 +51,7 @@ cicd pvc-1eb38440a3 1bbcc303-db24-455e-abd7-e9a52ef4d828
 cicd pvc-8935c75ca7 8fb63e9e-a222-4b7c-812f-19c4fa5767ef
 cicd pvc-fb889204fe d794fb12-c015-4771-bb94-7dc59f7849df'
 # `check` reads only, so it may run with another kubeconfig (AGENT06_KUBECONFIG).
-export KUBECONFIG=${AGENT06_KUBECONFIG:-/Users/vision-mac-trader/.bifrost-owner/kube/admin.yaml}
+export KUBECONFIG=${AGENT06_KUBECONFIG:-$HOME/.bifrost-owner/kube/admin.yaml}
 
 die() {
   echo "agent-06-owner: $*" >&2

@@ -16,8 +16,8 @@
 # at the first node that fails; a second run is harmless.
 set -euo pipefail
 
-PUB=/Users/vision-mac-trader/.bifrost-owner/ssh/node.pub
-export KUBECONFIG=${INSTALL_NODE_KEY_KUBECONFIG:-/Users/vision-mac-trader/.bifrost-owner/kube/admin.yaml}
+PUB=$HOME/.bifrost-owner/ssh/node.pub
+export KUBECONFIG=${INSTALL_NODE_KEY_KUBECONFIG:-$HOME/.bifrost-owner/kube/admin.yaml}
 NS=kube-system
 # busybox 1.36, by digest (already on the nodes; read 2026-10-17).
 IMAGE=docker.io/library/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
