@@ -161,9 +161,9 @@ chown -R root:root "$codex_prefix"
 chmod -R go-w "$codex_prefix"
 [ "$("$codex_prefix/bin/codex" --version)" = "codex-cli $codex_version" ] || die "codex under $codex_prefix is not $codex_version"
 vendor=$codex_prefix/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor
-if [ ! -x "$vendor/x86_64-unknown-linux-musl/codex/codex" ]; then
+if [ ! -f "$vendor/x86_64-unknown-linux-musl/bin/codex" ] || [ ! -e "$vendor/x86_64-unknown-linux-musl/codex-resources/bwrap" ]; then
   find "$vendor" -maxdepth 3 >&2 || true
-  die "codex's Linux binary is not where bifrost-codex.apparmor expects it (layout above)"
+  die "codex's binary or its bubblewrap is not where bifrost-codex.apparmor expects them (layout above)"
 fi
 install -m 644 "$here/bifrost-codex.apparmor" /etc/apparmor.d/bifrost-codex
 apparmor_parser -r /etc/apparmor.d/bifrost-codex
