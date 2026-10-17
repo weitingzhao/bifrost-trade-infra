@@ -4,7 +4,9 @@
 # show that the command ran in a network namespace of its own: the step that
 # failed on 06 before the AppArmor rule bifrost-codex (2026-10-17, STG walk
 # M-6, "bwrap: loopback: Failed RTM_NEWADDR"). No model is called. Run as
-# root by prepare-agent-06.sh and check-agent-06.sh (review 235 B1).
+# root by prepare-agent-06.sh and check-agent-06.sh (review 235 B1). The
+# permission profile is :workspace, the one agentd's `codex exec -s
+# workspace-write` runs under; codex 0.163 on Linux requires one by name.
 set -euo pipefail
 
 u=${1:-}
@@ -35,7 +37,7 @@ out=$(systemd-run --quiet --wait --pipe --collect \
   -p WorkingDirectory="/home/$u" \
   -E HOME="/home/$u" -E USER="$u" -E LOGNAME="$u" -E LANG=C.UTF-8 \
   -E PATH="/opt/bifrost/codex/bin:/home/$u/.local/bin:/usr/local/go/bin:/usr/local/lib/nodejs/current/bin:/usr/local/bin:/usr/bin:/bin" \
-  /opt/bifrost/codex/bin/codex sandbox -C "/home/$u" -- /bin/sh -c 'readlink /proc/self/ns/net' 2>&1) || rc=$?
+  /opt/bifrost/codex/bin/codex sandbox --permission-profile :workspace --cd "/home/$u" -- /bin/sh -c 'readlink /proc/self/ns/net' 2>&1) || rc=$?
 if [ "$rc" != 0 ]; then
   printf '%s\n' "$out" | tail -5 >&2
   echo "codex-sandbox-probe: $u: codex's sandbox could not run a command under the unit's confinement (exit $rc)" >&2
