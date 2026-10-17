@@ -1,6 +1,6 @@
 # 切法：06 出集群，当 Agent 主机（W-31 2.3 第一件）
 
-起草 2026-10-17 00:50（统筹线程），按复核 230–233 改过。命令在 `OWNER-STEPS-agent-host-06.md`，都是 `scripts/agent-host/agent-06-owner.sh` 的子命令（每步出错即停、不打印凭证）；装到 06 上的文件也在 `bifrost-trade-infra/scripts/agent-host/`。
+起草 2026-10-17 00:50（统筹线程），按复核 230–234 改过；234 剩下的一角按 Owner 01:5x 的话照改、只用测试证明（`scripts/agent-host/test-k3s-on-06.sh`），不再复核。命令在 `OWNER-STEPS-agent-host-06.md`，都是 `scripts/agent-host/agent-06-owner.sh` 的子命令（每步出错即停、不打印凭证）；装到 06 上的文件也在 `bifrost-trade-infra/scripts/agent-host/`。
 
 ## 1. Owner 定的（2026-10-17 00:20）
 

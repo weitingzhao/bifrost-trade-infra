@@ -13,8 +13,8 @@
 # binary, the two units by their load state, and every process by the file
 # it runs (/proc/<pid>/exe, which also names a deleted binary) and by its
 # name, so a k3s started without a path is found as well. A process whose
-# file cannot be read is skipped only when it has ended meanwhile, is a
-# zombie or is a kernel thread; any other one makes the answer "cannot tell".
+# file or name cannot be read is skipped only when it has ended meanwhile, is
+# a zombie or is a kernel thread; any other one makes the answer "cannot tell".
 set -uo pipefail
 
 [ "$(id -u)" = 0 ] || {
@@ -40,8 +40,32 @@ unreadable_ok() {
   [ -n "${7:-}" ] && [ $((${7} & 0x00200000)) != 0 ]
 }
 
+# proc_field <proc dir> exe|comm: print what the process runs, or its name.
+# Exit 0: printed. 3: the process may be skipped (it ended, is a zombie or a
+# kernel thread). 2: a live process whose field could not be read, after one
+# retry; the caller cannot tell then.
+proc_field() {
+  local try out
+  for try in 1 2; do
+    if [ "$2" = exe ]; then
+      out=$(readlink "$1/exe" 2> /dev/null) && {
+        printf '%s' "$out"
+        return 0
+      }
+    else
+      out=$(cat "$1/comm" 2> /dev/null) && {
+        printf '%s' "$out"
+        return 0
+      }
+    fi
+    unreadable_ok "$1" && return 3
+    [ "$try" = 2 ] || sleep 0.2
+  done
+  return 2
+}
+
 gone() {
-  local left=0 seen=0 u state p exe comm
+  local left=0 seen=0 u state p exe comm rc
   if [ -e /usr/local/bin/k3s ] || [ -L /usr/local/bin/k3s ]; then
     echo "still there: /usr/local/bin/k3s"
     left=1
@@ -65,21 +89,16 @@ gone() {
   done
   for p in "$PROC"/[0-9]*; do
     seen=$((seen + 1))
-    if ! exe=$(readlink "$p/exe" 2> /dev/null); then
-      exe=""
-      if ! unreadable_ok "$p"; then
-        # Once more, in case it was exiting just then.
-        sleep 0.2
-        if ! exe=$(readlink "$p/exe" 2> /dev/null); then
-          exe=""
-          if ! unreadable_ok "$p"; then
-            echo "k3s-on-06: cannot read what pid ${p##*/} runs" >&2
-            return 2
-          fi
-        fi
-      fi
-    fi
-    comm=$(cat "$p/comm" 2> /dev/null) || comm=""
+    rc=0
+    exe=$(proc_field "$p" exe) || rc=$?
+    case $rc in
+      0) ;;
+      3) continue ;;
+      *)
+        echo "k3s-on-06: cannot read what pid ${p##*/} runs" >&2
+        return 2
+        ;;
+    esac
     case "$exe" in
       /usr/local/bin/k3s* | /var/lib/rancher/k3s/*)
         echo "still running: pid ${p##*/} runs $exe"
@@ -87,9 +106,21 @@ gone() {
         continue
         ;;
     esac
+    # Its name catches a k3s that runs from anywhere else; a name that cannot
+    # be read is "cannot tell", the same as an unreadable exe.
+    rc=0
+    comm=$(proc_field "$p" comm) || rc=$?
+    case $rc in
+      0) ;;
+      3) continue ;;
+      *)
+        echo "k3s-on-06: cannot read the name of pid ${p##*/}" >&2
+        return 2
+        ;;
+    esac
     case "$comm" in
       k3s | k3s-agent | k3s-server | k3s-init)
-        echo "still running: pid ${p##*/} named $comm"
+        echo "still running: pid ${p##*/} named $comm (runs $exe)"
         left=1
         ;;
     esac
