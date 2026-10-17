@@ -494,7 +494,7 @@ step_vendor_creds() {
   local f src
   sudo -v
   for f in claude-oauth.token cursor-api.key; do
-    src=/Users/bifrost-agentd/.config/bifrost/$f
+    src=~bifrost-agentd/.config/bifrost/$f # the Mac's agentd user's home
     # Read whole first: a read that fails part way sends nothing.
     sudo cat "$src" > "$TMPD/$f.raw" || die "could not read $src on this Mac"
     normalize "$TMPD/$f.raw" "$TMPD/$f" "$f" || die "$src on this Mac does not look like a $f; nothing was sent"
