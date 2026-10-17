@@ -44,6 +44,8 @@ for pv in json.load(sys.stdin)["items"]:
 ' > /tmp/node06-pvcs.txt && cat /tmp/node06-pvcs.txt && while read -r ns name; do kubectl -n "$ns" delete pvc "$name" --wait=false; done < /tmp/node06-pvcs.txt; for i in $(seq 1 30); do left=$(kubectl get pv -o jsonpath='{range .items[*]}{.spec.nodeAffinity.required.nodeSelectorTerms[0].matchExpressions[0].values[0]}{"\n"}{end}' | grep -cx ubt-k3s-06); [ "$left" -eq 0 ] && break; sleep 10; done; echo "PVs left on ubt-k3s-06: $left" ) > /tmp/node06-pvs.txt 2>&1; echo exit=$? >> /tmp/node06-pvs.txt
 ```
 
+跑完看 `/tmp/node06-pvs.txt` 最后一行：是 `PVs left on ubt-k3s-06: 0` 就接着做 A4；不是 0 就先停下，回「06 的卷没删干净」，我来看卡在哪。
+
 ### A4　两个 PDB 不许驱逐的 Deployment 先滚动重启（约 5 分钟）
 
 它们的 PDB 是 `maxUnavailable: 0`，drain 会一直卡住。06 已经 cordon，新 Pod 只会落到别处。
