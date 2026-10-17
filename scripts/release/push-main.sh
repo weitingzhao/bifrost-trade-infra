@@ -46,13 +46,18 @@ repo="${repo##*:}"
 
 # github_repo <address> — the repository a GitHub address names, lower case;
 # nothing for any other address. URL or scp form, any scheme, user or port,
-# host in any case, trailing / and .git dropped; preflight.js githubRepoOf
-# follows the same rules (review 243 A5).
+# host in any case, trailing / and .git dropped. preflight.js githubRepoOf is
+# the same function: both answer every input in
+# agent-config/scripts/agent-guard/github-repo-cases.json alike (review 243
+# A5, 244 item 9), so only printable ASCII is read (Python's and JS's regexes
+# and case rules differ outside it), no regex flags, ASCII whitespace stripped.
 github_repo() {
   python3 - "$1" <<'PY'
 import re, sys
-u = sys.argv[1].strip()
-m = re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://(?:[^@/]*@)?([^/:]+)(?::\d*)?(/.*)?$", u)
+u = sys.argv[1].strip(" \t\n\r\f\v")
+if re.search(r"[^\x20-\x7e]", u):
+    sys.exit(0)
+m = re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://(?:[^@/]*@)?([^/:]+)(?::[0-9]*)?(/.*)?$", u)
 if m:
     host, rest = m.group(1), m.group(2) or ""
 else:
@@ -64,7 +69,7 @@ if host.lower() not in ("github.com", "www.github.com", "ssh.github.com"):
     sys.exit(0)
 parts = [p for p in rest.split("/") if p]
 if len(parts) >= 2:
-    print(re.sub(r"\.git$", "", parts[1], flags=re.I).lower())
+    print(re.sub(r"\.[gG][iI][tT]$", "", parts[1]).lower())
 PY
 }
 
@@ -80,9 +85,12 @@ if [[ -f "$PRIMARY_LIST" ]]; then
     repo_lc="$(printf '%s' "$repo" | tr '[:upper:]' '[:lower:]')"
     while IFS= read -r push_url; do
       [[ -n "$push_url" ]] || continue
+      if LC_ALL=C grep -q -- '[^ -~]' <<<"$push_url"; then
+        die "origin of $repo pushes to an address with characters outside printable ASCII; cannot tell where it goes"
+      fi
       gh="$(github_repo "$push_url")"
       [[ -n "$gh" ]] || continue
-      if grep -qx -- "$gh" <<<"$primaries" || grep -qx -- "$repo_lc" <<<"$primaries"; then
+      if grep -qxF -- "$gh" <<<"$primaries" || grep -qxF -- "$repo_lc" <<<"$primaries"; then
         die "$repo has Gitea as its primary (agent-config/gitea-primary.txt) but origin pushes to $push_url: point origin at Gitea and push there; GitHub follows from the cluster"
       fi
     done <<<"$push_urls"

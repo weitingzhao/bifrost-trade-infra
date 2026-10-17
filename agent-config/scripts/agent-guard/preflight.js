@@ -292,6 +292,125 @@ function sharedWorktreeRules(cmd) {
 // --mirror）：共享 checkout 停在 main 上，裸 `git push` 推的就是 main。
 // 推到本地路径（/、.、~、file:）的是测试夹具，放行。
 
+/**
+ * 一行命令按 shell 的规则拆成简单命令：在没被引号括住的 ; & | ( ) 和换行处断开，每个简单命令是一组词
+ * （复核 244 A3：`-C '/tmp/review checkout'` 这样带引号、带空格的参数要整个认出来）。认单引号、双引号
+ * （里面认 \" \\ \$ \` 和续行）、引号外的反斜杠和词首的 # 注释。不做展开：词里留着 $ 和 `，用的地方见到
+ * 就当作看不出。词首没被引号括住的 ~ 记在 tilde 上（shell 会把它换成 HOME）。引号没收尾时 ok 为 false。
+ */
+function shellCommands(cmd) {
+  const s = String(cmd)
+  const commands = []
+  let words = []
+  let word = null
+  let ok = true
+  const endWord = () => {
+    if (word !== null) words.push(word)
+    word = null
+  }
+  const endCommand = () => {
+    endWord()
+    if (words.length > 0) commands.push(words)
+    words = []
+  }
+  const begin = tilde => {
+    if (word === null) word = { text: '', tilde }
+  }
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]
+    if (c === "'") {
+      begin(false)
+      const end = s.indexOf("'", i + 1)
+      if (end === -1) {
+        ok = false
+        break
+      }
+      word.text += s.slice(i + 1, end)
+      i = end
+    } else if (c === '"') {
+      begin(false)
+      let j = i + 1
+      for (; j < s.length && s[j] !== '"'; j++) {
+        if (s[j] === '\\' && j + 1 < s.length && '"\\$`\n'.includes(s[j + 1])) {
+          j++
+          if (s[j] === '\n') continue
+        }
+        word.text += s[j]
+      }
+      if (j >= s.length) {
+        ok = false
+        break
+      }
+      i = j
+    } else if (c === '\\') {
+      if (s[i + 1] === '\n') {
+        i++
+        continue
+      }
+      begin(false)
+      if (i + 1 < s.length) word.text += s[++i]
+    } else if (c === ' ' || c === '\t' || c === '\r') {
+      endWord()
+    } else if ('\n;&|()'.includes(c)) {
+      endCommand()
+    } else if (c === '#' && word === null) {
+      const nl = s.indexOf('\n', i)
+      i = nl === -1 ? s.length : nl - 1
+    } else {
+      begin(c === '~')
+      word.text += c
+    }
+  }
+  endCommand()
+  return { commands, ok }
+}
+
+// 命令词前面可以有的东西：变量赋值、shell 关键字和不改变目录的包装命令。
+const COMMAND_PREFIX = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', '{', 'time', 'command', 'builtin', 'exec', 'env', 'nohup'])
+const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
+const IS_GIT = /(^|\/)git$/
+// git 的全局选项里带一个值（写在下一个词）的；其余 -- 开头的和 -p / -P / -v / -h 不带值。
+const GIT_GLOBAL_WITH_VALUE = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace'])
+
+/** 简单命令的命令词（跳过赋值和前缀）。 */
+function commandWord(words) {
+  const w = words.find(x => !ASSIGNMENT.test(x.text) && !COMMAND_PREFIX.has(x.text))
+  return w ? w.text : ''
+}
+
+/**
+ * 命令词是 git 的简单命令：{ globals（子命令之前的词）, sub（子命令；看不懂全局选项时为 null）, args }。
+ * 命令词不是 git 返回 null。
+ */
+function gitCall(words) {
+  let i = 0
+  while (i < words.length && (ASSIGNMENT.test(words[i].text) || COMMAND_PREFIX.has(words[i].text))) i++
+  if (i >= words.length || !IS_GIT.test(words[i].text)) return null
+  const globals = []
+  for (i++; i < words.length; i++) {
+    const t = words[i].text
+    if (GIT_GLOBAL_WITH_VALUE.has(t)) {
+      if (i + 1 >= words.length) break
+      globals.push(words[i], words[++i])
+    } else if (t.startsWith('--') || /^-[pPvh]$/.test(t)) {
+      globals.push(words[i])
+    } else if (t.startsWith('-')) {
+      break
+    } else {
+      return { globals, sub: t, args: words.slice(i + 1) }
+    }
+  }
+  return { globals, sub: null, args: [] }
+}
+
+/** 每一次命令词是 git、子命令是 push 的参数 token（shell 分词）。 */
+function tokenizedPushes(cmd) {
+  return shellCommands(cmd)
+    .commands.map(gitCall)
+    .filter(c => c && c.sub === 'push')
+    .map(c => c.args.map(w => w.text))
+}
+
 /** 每一次 `git … push …` 的参数 token（去掉包在外面的引号与括号）。 */
 function gitPushes(cmd) {
   const re = /(?:^|[\s;|&`("'])git\s+(?:(?:-C|-c)\s+\S+\s+|--\S+\s+)*push\b([^;|&\n]*)/g
@@ -347,7 +466,8 @@ function pushTarget(tokens) {
 
 function pushMainRule(cmd) {
   if (isRead(cmd) || isFileWrite(cmd)) return null
-  for (const tokens of gitPushes(cmd)) {
+  // 文本匹配认得出包在引号里的 push（sh -c "git push …"），shell 分词认得出带引号、带空格的 -C；两边都查
+  for (const tokens of [...gitPushes(cmd), ...tokenizedPushes(cmd)]) {
     const target = pushTarget(tokens)
     if (target === 'main') {
       return '直接 `git push` 到 main 不经过 CI 的 code-health 棘轮 —— 用 `bifrost-trade-infra/scripts/release/push-main.sh <checkout> [<commit>]`'
@@ -370,14 +490,17 @@ const GITHUB_HOSTS = new Set(['github.com', 'www.github.com', 'ssh.github.com'])
 
 /**
  * 一个 GitHub 地址指的仓库名（小写）；别的地址返回 null。认 URL（任何 scheme、用户、端口）和
- * scp 写法（git@host:owner/repo）；主机不分大小写、去掉结尾的 / 和 .git。push-main.sh 用同样的规则
- * （复核 243 A5：大小写、端口、ssh.github.com 漏拦，notgithub.com 误拦）。
+ * scp 写法（git@host:owner/repo）；主机不分大小写、去掉结尾的 / 和 .git。push-main.sh 用同一份规则，
+ * 两边对 github-repo-cases.json 里的每个输入给出同一个答案（复核 243 A5、244 第 9 项）：只认可打印的
+ * ASCII（别的字符两边的正则和大小写规则不一样，直接返回 null；规则层另外把它们当作看不出），
+ * 不用 /i，只去掉 ASCII 空白。
  */
 function githubRepoOf(address) {
-  const u = String(address).trim()
+  const u = String(address).replace(/^[ \t\n\r\f\v]+|[ \t\n\r\f\v]+$/g, '')
+  if (NOT_PRINTABLE_ASCII.test(u)) return null
   let host
   let rest
-  let m = u.match(/^[A-Za-z][A-Za-z0-9+.-]*:\/\/(?:[^@/]*@)?([^/:]+)(?::\d*)?(\/.*)?$/)
+  let m = u.match(/^[A-Za-z][A-Za-z0-9+.-]*:\/\/(?:[^@/]*@)?([^/:]+)(?::[0-9]*)?(\/.*)?$/)
   if (m) {
     host = m[1]
     rest = m[2] || ''
@@ -390,13 +513,10 @@ function githubRepoOf(address) {
   if (!GITHUB_HOSTS.has(host.toLowerCase())) return null
   const parts = rest.split('/').filter(Boolean)
   if (parts.length < 2) return null
-  return parts[1].replace(/\.git$/i, '').toLowerCase()
+  return parts[1].replace(/\.[gG][iI][tT]$/, '').toLowerCase()
 }
 
-/** 像一个地址（URL 或 scp 写法），不是远端名。 */
-function isAddress(t) {
-  return /:\/\//.test(t) || /^(?:[^@/:]+@)?[^/:]+:/.test(t)
-}
+const NOT_PRINTABLE_ASCII = /[^\x20-\x7e]/
 
 /** 名单里的仓库名（小写）；文件不在或读不了就是空名单（切换前的样子）。 */
 function giteaPrimaries() {
@@ -412,27 +532,6 @@ function giteaPrimaries() {
   } catch {
     return new Set()
   }
-}
-
-/** 每一次 `git … push …`：push 之前的 -C / -c 参数，和 push 之后的参数。 */
-function gitPushInvocations(cmd) {
-  const re = /(?:^|[\s;|&`("'])git((?:\s+(?:-C|-c)\s+\S+|\s+--\S+)*)\s+push\b([^;|&\n]*)/g
-  const clean = t => t.replace(/^['"(]+|['"`)]+$/g, '')
-  const out = []
-  for (const m of cmd.matchAll(re)) {
-    const pre = m[1].trim().split(/\s+/).filter(Boolean).map(clean)
-    const globals = []
-    for (let i = 0; i < pre.length; i++) {
-      if ((pre[i] === '-C' || pre[i] === '-c') && i + 1 < pre.length) {
-        let v = pre[i + 1]
-        if (pre[i] === '-C' && v.startsWith('~/')) v = path.join(require('node:os').homedir(), v.slice(2))
-        globals.push(pre[i], v)
-        i++
-      }
-    }
-    out.push({ globals, args: m[2].trim().split(/\s+/).filter(Boolean).map(clean) })
-  }
-  return out
 }
 
 /** 这次 push 的目标：第一个位置参数和 --repo 的值（git 以位置参数为准；两个都查）。 */
@@ -458,50 +557,118 @@ function pushDestinations(args) {
   return out
 }
 
-/** 远端名在这次命令的上下文里的全部推送地址；解析不了返回 null。 */
-function pushUrlsOf(name, globals, cwd) {
+/** git 的输出行和退出码；起不来或超时时退出码是 -1。 */
+function gitLines(args, cwd) {
   try {
-    const out = require('node:child_process').execFileSync(
-      'git',
-      [...globals, 'remote', 'get-url', '--push', '--all', '--', name],
-      { cwd: cwd || process.cwd(), encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] },
-    )
-    const urls = out.split('\n').map(l => l.trim()).filter(Boolean)
-    return urls.length ? urls : null
-  } catch {
-    return null
+    const out = require('node:child_process').execFileSync('git', args, {
+      cwd: cwd || process.cwd(),
+      encoding: 'utf8',
+      timeout: 3000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    return { status: 0, lines: out.split('\n').map(l => l.trim()).filter(Boolean) }
+  } catch (e) {
+    return { status: typeof e.status === 'number' ? e.status : -1, lines: [] }
   }
 }
 
+/**
+ * `git push <dest>` 会推到的全部地址，按这次命令的全局选项（-C、-c、--git-dir…）在 git 里查。
+ * `git remote -v` 列出每个远端的推送地址，已经套上 insteadOf / pushInsteadOf，远端来自哪份配置都列
+ * （`remote get-url` 只认检出自己配置里的远端，-c 和全局配置里的它说没有）。dest 是远端名就取它那几行；
+ * 不是远端名，git push 把它当地址：这里给它套一个只在这次查询里存在的随机远端名，让 git 自己改写
+ * （复核 244 A3）。只写在 .git/remotes、.git/branches 里的旧式远端 remote -v 不列，由 get-url 读。
+ * 查不到返回 null。
+ */
+function effectivePushUrls(dest, globals, cwd) {
+  const probe = 'preflight-' + require('node:crypto').randomBytes(8).toString('hex')
+  const listing = gitLines([...globals, '-c', `remote.${probe}.url=${dest}`, 'remote', '-v'], cwd)
+  if (listing.status !== 0) return null
+  const pushUrls = name =>
+    listing.lines
+      .filter(l => l.startsWith(name + '\t') && l.endsWith(' (push)'))
+      .map(l => l.slice(name.length + 1, -' (push)'.length))
+  const named = pushUrls(dest)
+  if (named.length > 0) return named
+  const legacy = gitLines([...globals, 'remote', 'get-url', '--push', '--all', '--', dest], cwd)
+  if (legacy.status === 0) return legacy.lines.length > 0 ? legacy.lines : null
+  if (legacy.status !== 2) return null
+  const anonymous = pushUrls(probe)
+  return anonymous.length > 0 ? anonymous : null
+}
+
+/** 全局选项原样交给 git，词首的 ~ 按 shell 换成 HOME；里面有变量或命令替换返回 null。 */
+function resolvedGlobals(words) {
+  const out = []
+  for (const w of words) {
+    if (/[$`]/.test(w.text)) return null
+    if (w.tilde && (w.text === '~' || w.text.startsWith('~/'))) out.push(path.join(require('node:os').homedir(), w.text.slice(1)))
+    else if (w.tilde) return null
+    else out.push(w.text)
+  }
+  return out
+}
+
+/** 命令词不是 git 的简单命令里包着 git push：git 是参数（xargs git push、sudo git push），或某个词本身是一段含 git push 的命令（bash -c '…'、eval "…"）。 */
+function wrapsGitPush(words) {
+  const k = words.findIndex(w => IS_GIT.test(w.text))
+  if (k !== -1 && words.slice(k + 1).some(w => w.text === 'push')) return true
+  return words.some(w => /\s/.test(w.text) && /\bgit\b[\s\S]*\bpush\b/.test(w.text))
+}
+
+// 换掉 git 读哪份配置、在哪个仓库、用什么连接的环境变量（复核 243 A3 的 GIT_CONFIG_* 同类）
+const GIT_ENV_OVERRIDE =
+  /\bGIT_CONFIG_(COUNT|KEY|VALUE|PARAMETERS)\b|(?:^|[\s;|&(])(?:GIT_(?:CONFIG\w*|DIR|WORK_TREE|NAMESPACE|SSH|SSH_COMMAND)|HOME|XDG_CONFIG_HOME)=|--config-env\b/
+
 function githubPushRule(cmd, cwd) {
   if (isRead(cmd) || isFileWrite(cmd)) return null
-  const pushes = gitPushInvocations(cmd)
-  if (pushes.length === 0) return null
+  if (!/\bgit\b/.test(cmd) || !/\bpush\b/.test(cmd)) return null
   const primaries = giteaPrimaries()
+  const listed = primaries.size > 0
   const toGitHub = repo =>
     `${repo} 以 Gitea 为主（agent-config/gitea-primary.txt）：推 Gitea，GitHub 由集群同步（k8s/cicd/github-sync），不从这里推`
-  if (primaries.size > 0 && /\bGIT_CONFIG_(COUNT|KEY|VALUE|PARAMETERS)\b/.test(cmd)) {
-    return '有仓库以 Gitea 为主时，不在命令行上用 GIT_CONFIG_* 改 git 配置再推送：看不出推到哪里'
+  const unclear = why =>
+    `看不出这次 git push 推到哪里（${why}）。有仓库以 Gitea 为主时要能查到：写成 \`git -C <检出目录> push <远端> <refspec>\``
+  const githubRemote = '`github` 远端只读：以 Gitea 为主的仓库推 Gitea（origin），GitHub 由集群同步（k8s/cicd/github-sync）'
+  if (listed && GIT_ENV_OVERRIDE.test(cmd)) {
+    return '有仓库以 Gitea 为主时，不在命令行上换 git 的配置、仓库或连接（GIT_CONFIG_*、GIT_DIR、HOME、--config-env…）再推送：看不出推到哪里'
   }
-  for (const { globals, args } of pushes) {
-    const dests = pushDestinations(args)
-    if (dests.length === 0) dests.push('origin') // 不写远端：按默认远端查
+  const { commands, ok } = shellCommands(cmd)
+  if (!ok && listed) return unclear('引号没收尾')
+  let movedDir = false
+  for (const words of commands) {
+    if (/^(cd|pushd|popd)$/.test(commandWord(words))) {
+      movedDir = true
+      continue
+    }
+    const call = gitCall(words)
+    if (call === null) {
+      if (listed && wrapsGitPush(words)) return unclear('git push 包在别的命令里')
+      continue
+    }
+    if (call.sub !== 'push') {
+      if (!listed) continue
+      if (call.sub === null && words.some(w => w.text === 'push')) return unclear('看不懂 git 的全局选项')
+      if (call.globals.some(w => /^alias\./i.test(w.text))) return unclear('命令行上定义了 git 别名')
+      continue
+    }
+    const dests = pushDestinations(call.args.map(w => w.text))
+    if (dests.includes('github')) return githubRemote
+    if (!listed) continue
+    // 不写远端时 git 按 branch.<分支>.pushRemote、remote.pushDefault、branch.<分支>.remote、origin 挑（复核 244 A3）
+    if (dests.length === 0) return unclear('没写远端，默认推送远端由配置决定')
+    if (movedDir) return unclear('前面 cd 过，这里查的不是它推送的仓库')
+    const globals = resolvedGlobals(call.globals)
+    if (globals === null) return unclear('全局选项里有变量或命令替换')
     for (const dest of dests) {
-      if (dest === 'github') {
-        return '`github` 远端只读：以 Gitea 为主的仓库推 Gitea（origin），GitHub 由集群同步（k8s/cicd/github-sync）'
-      }
-      if (isAddress(dest)) {
-        const repo = githubRepoOf(dest)
-        if (repo && primaries.has(repo)) return toGitHub(repo)
-        continue
-      }
-      if (primaries.size === 0 || LOCAL_REMOTE.test(dest)) continue
-      // 远端名：按这次命令的 -C / -c 解析出实际推送地址（复核 243 A3）
-      const urls = pushUrlsOf(dest, globals, cwd)
-      if (urls === null) {
-        return `看不出远端 ${dest} 推到哪里（有仓库以 Gitea 为主时要能查到）：用 \`git -C <检出目录> push ${dest} …\``
-      }
+      if (/[$`]/.test(dest)) return unclear(`远端 ${dest} 里有变量或命令替换`)
+      if (NOT_PRINTABLE_ASCII.test(dest)) return unclear(`远端 ${dest} 里有可打印 ASCII 以外的字符`)
+      const literal = githubRepoOf(dest)
+      if (literal && primaries.has(literal)) return toGitHub(literal)
+      const urls = effectivePushUrls(dest, globals, cwd)
+      if (urls === null) return unclear(`查不到 ${dest} 的推送地址`)
       for (const url of urls) {
+        if (NOT_PRINTABLE_ASCII.test(url)) return unclear(`${dest} 推到 ${url}，里面有可打印 ASCII 以外的字符`)
         const repo = githubRepoOf(url)
         if (repo && primaries.has(repo)) return toGitHub(repo)
       }
@@ -839,6 +1006,13 @@ function denyMessage(kind, reason) {
       `不要绕过本闸门。参见 CLAUDE.md §5「发布窗口」`
     )
   }
+  if (kind === 'gitea-primary') {
+    return (
+      `【Gitea 为主 — CUT-gitea-primary】拦截原因：${reason}。\n` +
+      `名单 agent-config/gitea-primary.txt 里的仓库只推 Gitea；GitHub 的 main 和标签由集群同步（k8s/cicd/github-sync）只快进地跟上。\n` +
+      `不要绕过本闸门。参见 agent-config/work/multi-agent/CUT-gitea-primary-2026-10-17.md 第 7 节`
+    )
+  }
   if (kind === 'owner') {
     return (
       '【Owner 凭证】拦截原因：' + reason + '。\n' +
@@ -916,4 +1090,4 @@ function main() {
 }
 
 if (require.main === module) main()
-module.exports = { nasMountPoints, nasPathRule, nasGuard, readMountTable, evaluate }
+module.exports = { nasMountPoints, nasPathRule, nasGuard, readMountTable, evaluate, githubRepoOf }

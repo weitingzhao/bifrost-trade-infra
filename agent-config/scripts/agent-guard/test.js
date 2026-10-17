@@ -8,29 +8,39 @@ const GUARD = require('node:path').join(__dirname, 'preflight.js')
 let finished = false
 // 只设退出码，不在监听里再调 process.exit：那样会把未捕获异常的报错栈吞掉。
 process.on('exit', () => { if (!finished) { console.error('✗ 测试没有跑到汇总行就退出了'); process.exitCode = 1 } })
-const { evaluate, nasMountPoints, readMountTable } = require(GUARD)
+const { evaluate, nasMountPoints, readMountTable, githubRepoOf } = require(GUARD)
 
-const bash = c => ({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: c } })
-// CUT-gitea-primary 0g (review 243): a checkout whose remotes point at GitHub in several ways, and
-// the name list githubPushRule reads, with bifrost-ui on it.
+// CUT-gitea-primary 0g (review 243, 244): checkouts whose remotes point at GitHub in several ways, and
+// the name list githubPushRule reads, with bifrost-ui on it. Every Bash case runs in the fixture checkout
+// unless it names another directory, so the results do not depend on where the tests are run from.
 const PRIMARY = (() => {
   const nodePath = require('node:path')
   const nodeFs = require('node:fs')
   const { execFileSync } = require('node:child_process')
   const dir = nodeFs.mkdtempSync(nodePath.join(require('node:os').tmpdir(), 'preflight-primary-'))
+  const checkout = (where, ...remotes) => {
+    nodeFs.mkdirSync(where)
+    const g = (...a) => execFileSync('git', a, { cwd: where, stdio: 'ignore' })
+    g('init', '-q')
+    for (const [name, url] of remotes) g('remote', 'add', name, url)
+    return g
+  }
+  const GITEA = 'http://192.168.10.73:30300/bifrost/bifrost-ui.git'
+  const GITHUB = 'https://github.com/weitingzhao/bifrost-ui.git'
   const repo = nodePath.join(dir, 'bifrost-ui')
-  const g = (...a) => execFileSync('git', a, { cwd: repo, stdio: 'ignore' })
-  nodeFs.mkdirSync(repo)
-  g('init', '-q')
-  g('remote', 'add', 'origin', 'http://192.168.10.73:30300/bifrost/bifrost-ui.git')
-  g('remote', 'add', 'backup', 'https://github.com/weitingzhao/bifrost-ui.git')
-  g('remote', 'add', 'split', 'http://192.168.10.73:30300/bifrost/bifrost-ui.git')
+  const g = checkout(repo, ['origin', GITEA], ['backup', GITHUB], ['split', GITEA])
   g('remote', 'set-url', '--push', 'split', 'git@github.com:weitingzhao/bifrost-ui.git')
+  // review 244 A3: a rewrite kept in the checkout's own config
+  g('config', 'url.https://github.com/weitingzhao/.pushInsteadOf', 'https://rewritten.invalid/')
+  const spaced = nodePath.join(dir, 'review checkout')
+  checkout(spaced, ['origin', GITEA], ['backup', GITHUB])
+  checkout(nodePath.join(dir, 'work'), ['origin', GITEA])
   const list = nodePath.join(dir, 'gitea-primary.txt')
   nodeFs.writeFileSync(list, '# fixture\nbifrost-ui\n')
   process.env.BIFROST_GITEA_PRIMARY_LIST = list
-  return { repo, outside: dir }
+  return { repo, spaced, outside: dir }
 })()
+const bash = c => ({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: c }, cwd: PRIMARY.repo })
 const bashIn = (c, cwd) => ({ ...bash(c), cwd })
 const tool = (n, i) => ({ hook_event_name: 'PreToolUse', tool_name: n, tool_input: i })
 
@@ -321,6 +331,34 @@ const cases = [
   ['gitea-primary', 'DENY', '-c 临时设远端地址', bashIn('git -c remote.x.url=https://github.com/weitingzhao/bifrost-ui.git push x v1:refs/tags/v1', PRIMARY.repo)],
   ['gitea-primary', 'DENY', '查不到远端名', bashIn('git push somewhere x:refs/heads/x', PRIMARY.outside)],
   ['gitea-primary', 'DENY', 'GIT_CONFIG_* 环境变量', bashIn('GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.pushurl GIT_CONFIG_VALUE_0=x git push origin x:refs/heads/x', PRIMARY.repo)],
+  // 复核 244 A3：默认推送远端、显式地址的改写、带引号的 -C
+  ['gitea-primary', 'DENY', '不写远端，pushDefault 指向 GitHub', bash('git -c remote.pushDefault=backup push --tags')],
+  ['gitea-primary', 'DENY', '不写远端', bash('git push --tags')],
+  ['gitea-primary', 'DENY', '-c pushInsteadOf 把 Gitea 地址改写到 GitHub', bash('git -c url.https://github.com/weitingzhao/.pushInsteadOf=https://gitea.invalid/bifrost/ push https://gitea.invalid/bifrost/bifrost-ui.git --tags')],
+  ['gitea-primary', 'DENY', '检出配置里的 pushInsteadOf', bash('git push https://rewritten.invalid/bifrost-ui.git x:refs/heads/x')],
+  ['gitea-primary', 'DENY', '-c insteadOf 改写 scp 写法', bash('git -c url.git@github.com:weitingzhao/.insteadOf=gitea: push gitea:bifrost-ui x:refs/heads/x')],
+  ['gitea-primary', 'DENY', '--repo 的地址也改写', bash('git -c url.https://github.com/weitingzhao/.pushInsteadOf=https://gitea.invalid/ push --repo=https://gitea.invalid/bifrost-ui.git --tags')],
+  ['gitea-primary', 'DENY', "-C '带空格的目录'", bashIn(`git -C '${PRIMARY.spaced}' push backup v1:refs/tags/v1`, PRIMARY.outside)],
+  ['gitea-primary', 'DENY', '-C "带空格的目录"', bashIn(`git -C "${PRIMARY.spaced}" push backup v1:refs/tags/v1`, PRIMARY.outside)],
+  ['gitea-primary', 'DENY', '-C 反斜杠转义的空格', bashIn(`git -C ${PRIMARY.spaced.replace(/ /g, '\\ ')} push backup v1:refs/tags/v1`, PRIMARY.outside)],
+  ['gitea-primary', 'ALLOW', "-C '带空格的目录' 推 origin（Gitea）", bashIn(`git -C '${PRIMARY.spaced}' push origin x:refs/heads/x`, PRIMARY.outside)],
+  ['gitea-primary', 'DENY', '--git-dir 指向别的检出', bashIn(`git --git-dir=${PRIMARY.repo}/.git push backup v1:refs/tags/v1`, PRIMARY.outside)],
+  ['gitea-primary', 'ALLOW', '--git-dir 推 origin（Gitea）', bashIn(`git --git-dir ${PRIMARY.repo}/.git push origin x:refs/heads/x`, PRIMARY.outside)],
+  // 同一类：看不出在哪个检出、推哪个远端时拒绝
+  ['gitea-primary', 'DENY', '先 cd 再推', bashIn(`cd ${PRIMARY.repo} && git push backup v1:refs/tags/v1`, PRIMARY.outside)],
+  ['gitea-primary', 'DENY', 'bash -c 里推', bash("bash -c 'git push backup v1:refs/tags/v1'")],
+  ['gitea-primary', 'DENY', 'xargs 包着推', bash('echo backup | xargs -I{} git push {} v1:refs/tags/v1')],
+  ['gitea-primary', 'DENY', '-c 定义的别名', bash('git -c alias.p=push p backup v1:refs/tags/v1')],
+  ['gitea-primary', 'DENY', '引号没收尾', bash("git push origin x:refs/heads/x 'v1:refs/tags/v1")],
+  ['gitea-primary', 'DENY', '远端是命令替换', bash('git push "$(echo backup)" v1:refs/tags/v1')],
+  ['gitea-primary', 'DENY', '-C 是变量', bash('git -C "$REPO" push origin x:refs/heads/x')],
+  ['gitea-primary', 'DENY', 'HOME= 换了全局配置', bash('HOME=/tmp/elsewhere git push origin x:refs/heads/x')],
+  ['gitea-primary', 'DENY', '--config-env', bash('git --config-env=remote.origin.pushurl=X push origin x:refs/heads/x')],
+  ['gitea-primary', 'DENY', '地址里有全角字符', bash('git push https://ｇｉｔｈｕｂ.com/weitingzhao/bifrost-ui.git x:refs/heads/x')],
+  ['gitea-primary', 'ALLOW', '提交信息里写着 git push', bash('git commit -m "fix: git push backup rule" -- f')],
+  ['gitea-primary', 'ALLOW', '名单外的地址经改写仍在名单外', bash('git -c url.https://github.com/weitingzhao/.pushInsteadOf=https://gitea.invalid/ push https://gitea.invalid/bifrost-research.git x:refs/heads/x')],
+  ['gitea-primary', 'ALLOW', '不是远端名的本地路径', bash('git push ../elsewhere.git x:refs/heads/x')],
+  ['push', 'DENY', "-C '带空格的目录' 推 main", bashIn(`git -C '${PRIMARY.spaced}' push origin HEAD:refs/heads/main`, PRIMARY.outside)],
   ['push', 'ALLOW', 'push-main.sh', bash('bifrost-trade-infra/scripts/release/push-main.sh ~/agent-work/x/bifrost-platform abc123')],
   ['push', 'ALLOW', '推自己的分支', bash('git push origin w31/agentrt-22-agentd')],
   ['push', 'ALLOW', 'HEAD 推到写明的分支', bash('git push -u origin HEAD:refs/heads/w31/x')],
@@ -329,7 +367,7 @@ const cases = [
   ['push', 'ALLOW', '推一个 tag', bash('git push origin v1.2.3')],
   ['push', 'ALLOW', '-o 之后写明分支', bash('git push -o ci.skip origin feature')],
   ['push', 'ALLOW', '推到本地夹具仓库', bash('git push /tmp/fixture.git main')],
-  ['push', 'ALLOW', '相对路径的夹具仓库', bash('git -C work push ../remote.git HEAD:main')],
+  ['push', 'ALLOW', '相对路径的夹具仓库', bashIn('git -C work push ../remote.git HEAD:main', PRIMARY.outside)],
   ['push', 'ALLOW', '读日志里提到推 main', bash("git log --grep 'git push origin main'")],
   ['push', 'ALLOW', 'heredoc 文档里写推 main', bash('cat > /tmp/x.md <<EOF\ngit push origin main\nEOF')],
   ['push', 'ALLOW', '不是 git push', bash('git pull --ff-only origin main')],
@@ -341,7 +379,7 @@ const cases = [
 let pass = 0, fail = 0
 let group = ''
 for (const [g, want, name, payload] of cases) {
-  if (g !== group) { group = g; console.log(`\n── ${{ nas: '本机 NAS 共享（TD-326）', D10: 'D10 交易执行冻结', dev: 'dev-services', ok: '合法操作（不得误拦）', appr: '审批旁路（ADR §5）', q: '问题回答（W-65）', own: 'Owner 凭证（LANE-W33D）', sw: '共享工作树', push: '推 main（TD-341）', edge: '边界输入' }[g]} ──`) }
+  if (g !== group) { group = g; console.log(`\n── ${{ nas: '本机 NAS 共享（TD-326）', D10: 'D10 交易执行冻结', dev: 'dev-services', ok: '合法操作（不得误拦）', appr: '审批旁路（ADR §5）', q: '问题回答（W-65）', own: 'Owner 凭证（LANE-W33D）', sw: '共享工作树', push: '推 main（TD-341）', 'gitea-primary': 'Gitea 为主（CUT-gitea-primary 0g）', edge: '边界输入' }[g]} ──`) }
   const r = spawnSync('node', [GUARD], { input: payload ? JSON.stringify(payload) : '', encoding: 'utf8' })
   const got = (r.stdout || '').trim() ? 'DENY' : 'ALLOW'
   let ok = got === want
@@ -357,6 +395,7 @@ for (const [g, want, name, payload] of cases) {
   }
   if (ok && g === 'sw' && want === 'DENY' && !String(r.stdout).includes('【共享工作树')) ok = false
   if (ok && g === 'push' && want === 'DENY' && !String(r.stdout).includes('【推 main — TD-341】')) ok = false
+  if (ok && g === 'gitea-primary' && want === 'DENY' && !String(r.stdout).includes('【Gitea 为主 — CUT-gitea-primary】')) ok = false
   ok ? pass++ : fail++
   console.log(`  ${ok ? '✓' : '✗'} ${got.padEnd(5)} ${name}${ok ? '' : `   ← 期望 ${want}`}`)
 }
@@ -420,6 +459,14 @@ if (process.platform === 'darwin') {
   const readOk = / on \/ \(/.test(table)
   readOk ? pass++ : fail++
   console.log(`  ${readOk ? '✓' : '✗'} 真实挂载表读得到（有根分区那一行）`)
+}
+// 复核 244 第 9 项：push-main.sh 的 github_repo 读同一份用例（scripts/release/test_push_main.py）
+console.log('\n── GitHub 地址解析（与 push-main.sh 共用 github-repo-cases.json）──')
+for (const [address, want] of require('./github-repo-cases.json')) {
+  const got = githubRepoOf(address)
+  const ok = got === want
+  ok ? pass++ : fail++
+  console.log(`  ${ok ? '✓' : '✗'} ${JSON.stringify(address)} → ${JSON.stringify(got)}${ok ? '' : `   ← 期望 ${JSON.stringify(want)}`}`)
 }
 console.log(`\n${fail === 0 ? '✓' : '✗'} ${pass} 通过 / ${fail} 失败（共 ${pass + fail}）`)
 finished = true

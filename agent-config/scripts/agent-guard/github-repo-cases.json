@@ -1,0 +1,26 @@
+[
+  ["https://github.com/weitingzhao/bifrost-ui.git", "bifrost-ui"],
+  ["https://GITHUB.COM/weitingzhao/bifrost-ui.git", "bifrost-ui"],
+  ["https://github.com:443/weitingzhao/bifrost-ui.git", "bifrost-ui"],
+  ["https://user:secret@github.com/weitingzhao/bifrost-ui", "bifrost-ui"],
+  ["ssh://git@ssh.github.com:443/WeitingZhao/Bifrost-UI.git/", "bifrost-ui"],
+  ["git://github.com/weitingzhao/bifrost-ui.git", "bifrost-ui"],
+  ["git@github.com:weitingzhao/bifrost-ui", "bifrost-ui"],
+  ["git@github.com:weitingzhao/bifrost-ui.GIT", "bifrost-ui"],
+  ["github.com:weitingzhao/bifrost-ui.git", "bifrost-ui"],
+  ["https://www.github.com/weitingzhao/bifrost-ui", "bifrost-ui"],
+  ["  https://github.com/weitingzhao/bifrost-ui.git\n", "bifrost-ui"],
+  ["https://notgithub.com/weitingzhao/bifrost-ui.git", null],
+  ["https://github.com.example.invalid/weitingzhao/bifrost-ui.git", null],
+  ["http://192.168.10.73:30300/bifrost/bifrost-ui.git", null],
+  ["https://github.com/weitingzhao", null],
+  ["backup", null],
+  ["/tmp/review checkout", null],
+  ["https://github.com/weitingzhao/bifrost-ui.gİt", null],
+  ["https://github.com/weitingzhao/bifrost-ui.gıt", null],
+  ["https://github.com:٤٤٣/weitingzhao/bifrost-ui.git", null],
+  ["\u001chttps://github.com/weitingzhao/bifrost-ui.git", null],
+  ["https://github.com/weitingzhao/bifrost-ui .git", null],
+  ["https://ｇｉｔｈｕｂ.com/weitingzhao/bifrost-ui.git", null],
+  ["https://github.com/weitingzhao/bifrost-ui.git ", null]
+]

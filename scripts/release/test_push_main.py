@@ -6,6 +6,7 @@ and the release window is a stub script whose exit code the test sets.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -192,6 +193,18 @@ class PushMain(unittest.TestCase):
         r = subprocess.run(["bash", str(PUSH_MAIN), str(self.work)], env=env, capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
+    # Review 244 item 9: an address github_repo cannot read is not taken as "not GitHub".
+    def test_a_push_address_outside_printable_ascii_is_refused(self) -> None:
+        listing = Path(self._tmp.name) / "gitea-primary.txt"
+        listing.write_text("bifrost-platform\n")
+        env = {**os.environ, "PUSH_MAIN_WINDOW": str(self.window), "PUSH_MAIN_PRIMARY_LIST": str(listing)}
+        before = self._remote_main()
+        _git(self.work, "remote", "set-url", "--push", "origin", "https://ｇｉｔｈｕｂ.com/weitingzhao/bifrost-platform.git")
+        r = subprocess.run(["bash", str(PUSH_MAIN), str(self.work)], env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("outside printable ASCII", r.stderr)
+        self.assertEqual(self._remote_main(), before)
+
     def test_a_primary_whose_origin_is_gitea_goes_on(self) -> None:
         listing = Path(self._tmp.name) / "gitea-primary.txt"
         listing.write_text("bifrost-platform\n")
@@ -203,6 +216,22 @@ class PushMain(unittest.TestCase):
         r = subprocess.run(["bash", str(PUSH_MAIN), str(self.work)], env=env, capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self._remote_main(), head)
+
+
+class GithubRepo(unittest.TestCase):
+    """push-main.sh github_repo and preflight.js githubRepoOf answer the same
+    cases (review 244 item 9); the Node side is in agent-guard/test.js."""
+
+    CASES = HERE.parent.parent / "agent-config" / "scripts" / "agent-guard" / "github-repo-cases.json"
+
+    def test_the_shared_cases(self) -> None:
+        text = PUSH_MAIN.read_text(encoding="utf-8")
+        program = text.split("github_repo() {\n  python3 - \"$1\" <<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
+        cases = json.loads(self.CASES.read_text(encoding="utf-8"))
+        self.assertGreater(len(cases), 10)
+        for address, want in cases:
+            r = subprocess.run(["python3", "-c", program, address], capture_output=True, text=True, check=True)
+            self.assertEqual(r.stdout.strip() or None, want, repr(address))
 
 
 if __name__ == "__main__":
