@@ -2139,6 +2139,32 @@
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-361
+
+**P2 · agentd · a failure before an attempt starts (checkout, a sibling clone, the setup wrapper) is never reported: the platform sees only a lease that runs out, re-dispatches, and spends the mission's budget on the same failure**
+
+- **状态**：未开始（2026-10-17 04:0x 记；06 的 STG 演练 M-7 撞上，走查会话 `local_42a46b17…` 的报告 F4）
+- **Claim**: `agentd.Run` returns on an error before it reports the attempt's start, and the main loop only logs it. The platform keeps the attempt leased until the lease expires (stale after 2 minutes, lost after 15 more), then readies the task and dispatches it again, which fails the same way. On 2026-10-17 M-7's two attempts both died at the sibling clone (Gitea 404 on bifrost/bifrost-ui); the reason was only in the host's journald, readable by its agent user and root, and was found by lining up Gitea's access log with the lease times.
+- **Evidence**: `bifrost-platform/api/internal/agentd/run.go:115` (returns before start); `api/cmd/agentd/main.go:146` (logs and moves on); `~/agent-work/stg-walk-06/REPORT.md` F4 (M-7, attempts `a_01M54GBY6JA917ETZY8WBQ5WBC`, `a_01M54HBCEZV1MQ5V5FXKC253P4`).
+- **Impact**: each such failure costs one attempt of the mission's budget and about 17 minutes, repeats until the budget is gone, and leaves no reason in the runtime or the Console; same family as TD-349 (a refused persist leaves no trace).
+- **Fix**: agentd ends an attempt it cannot start with a conclusion such as `prepare_failed` and the error text (the attempt's end route already carries a conclusion), so the platform records it and does not re-dispatch a failure that will repeat without a change.
+- **Ratchet**: an agentd test per preparation step (checkout, sibling, setup) that the attempt ends reported, with the step and the error, not left leased; a runtime test that such an attempt is not re-dispatched on the same spec.
+- 验收: on STG, a task whose sibling cannot be cloned ends once with `prepare_failed` and the reason, visible in the Console, and is not leased again.
+- 审批 不需要 · 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-360
+
+**P1 · agentrt · an implement attempt that changed nothing is accepted: it hands in the base commit, the deterministic check passes on the base, and only a reviewer stands between it and an accepted task**
+
+- **状态**：未开始（2026-10-17 04:0x 记；06 的 STG 演练 M-6 撞上，走查会话 `local_42a46b17…` 的报告 F2）
+- **Claim**: when an executor exits 0 without changing anything, agentd delivers the base as the attempt's branch ("nothing changed: the attempt's branch is its base") with conclusion done; the platform does not compare the pushed commit with the base; the verify commands (build, vet, test, "nothing outside the test file changed") all pass on an unchanged tree. On 2026-10-17 codex on agent-06-stg could run no command at all (its sandbox failed), changed nothing, and its attempt went submitted → verified pass → review. STG had no reviewer, so it stopped there; on PROD a reviewer that misses it would accept a task nobody did.
+- **Evidence**: `bifrost-platform/api/internal/agentd/deliver.go:258` ("nothing changed: the attempt's branch is its base"); `~/agent-work/stg-walk-06/REPORT.md` F2 (M-6, attempt `a_01M54G37YWPPQ9C7YRYTKMTT80`, pushed commit = base `f69e8c6`, verification `v_01M54G4KMNVBKCD0GS5ZB2HT8R` pass).
+- **Impact**: any executor failure that ends in exit 0 (a broken sandbox, a refusal, a model that gives up) looks like a finished task; the plan moves on and the Owner sees it done.
+- **Fix**: for an implement task with effect branch, a pushed commit equal to the base is conclusion `none` (no change), not done: the attempt fails, the task goes back to ready or to the Owner by the usual rules. Decide in agentd (it knows the base) and enforce on the platform (it records base and pushed commit) so that neither side alone can let it through.
+- **Ratchet**: an agentd test that an executor exiting 0 with no change ends with conclusion none; a platform test that persist of an implement attempt whose pushed commit equals its base is refused as done.
+- 验收: on STG, a task whose executor changes nothing ends its attempt as no change and is not verified or reviewed.
+- 审批 不需要 · 代价 S · 风险 low · repos: bifrost-platform
+
 ### TD-359
 
 **P2 · agentd · the agentd host user can read its own token files, and so can every process it starts: executors, and since 2.2's Console checks, unsandboxed agent-written code with the network**
