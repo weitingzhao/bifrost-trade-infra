@@ -2139,6 +2139,19 @@
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-366
+
+**P2 · security · two older Gitea scripts send the admin token to whatever answers on a fixed local port, and put it on curl's command line**
+
+- **状态**：未开始（2026-10-17 14:3x 记，复核 246 在 `scripts/gitea/lib.sh` 里找到 A2 后，统筹方查同类时看到；Gitea 为主的切法里它们只在回退时用）
+- **Claim**: `scripts/k3s/install-ci-webhooks.sh` and `scripts/k3s/bootstrap-gitea-mirrors.sh` port-forward `svc/gitea` to a fixed local port (3999, 13000) with the forward's output and exit thrown away, then send admin calls to that port: when something else already holds it, the forward fails silently and that service gets the token. Both pass the token to curl as `-H "Authorization: token …"`, so it is in the process list while curl runs.
+- **Evidence**: `scripts/k3s/install-ci-webhooks.sh:19`, `:40-48`; `scripts/k3s/bootstrap-gitea-mirrors.sh:18`, `:63-69`. The same defect in `scripts/gitea/lib.sh` was review 246 A2, fixed in `927820b`.
+- **Impact**: the Owner runs them from his Mac with the admin kubeconfig; in the Gitea-primary cut only the rollback path runs them (the cut doc §4 「回退」), so they are rare, but the token they carry is the one that guards every repository's branch rules.
+- **Fix**: source `scripts/gitea/lib.sh` and use `gitea_connect` / `gitea_api` (kubectl picks the port; the token goes in a Python header; redirects refused); `bootstrap-gitea-mirrors.sh` is to be replaced by `onboard-repo.sh` (cut doc §6), which should be written on lib.sh from the start.
+- **Ratchet**: `scripts/gitea/test_gitea_scripts.py` already covers lib.sh (a port-forward that did not start sends nothing; a redirect is not followed); the fix adds the two scripts to that test or retires them. A text check that no script under `scripts/` passes `Authorization: token` to curl on its command line.
+- 验收: `git grep -n 'Authorization: token' -- scripts/k3s` finds nothing; the two scripts (or what replaces them) run the lib.sh tests.
+- 审批 不需要（Owner 跑的脚本，改代码即可）· 代价 S · 风险 low · repos: bifrost-trade-infra
+
 ### TD-365
 
 **P1 · security · the Gitea admin token has been in the public infra history since 2026-06-17 and is still the live one**
