@@ -663,7 +663,7 @@ exec "{real}" "$@"
 
 
 class ApplyStep0(unittest.TestCase):
-    """apply-step0.sh against a fake kubectl that records its calls; HOME is a temporary directory."""
+    """apply-step0.sh against a fake kubectl that records its calls and what it was asked to apply; HOME is a temporary directory."""
 
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -674,6 +674,7 @@ class ApplyStep0(unittest.TestCase):
         kube.mkdir(parents=True)
         (kube / "admin.yaml").write_text("fixture\n")
         self.calls = self.root / "calls"
+        self.applied = self.root / "applied"
         self.bin = self.root / "bin"
         self.bin.mkdir()
         self.kubectl("true")
@@ -681,9 +682,16 @@ class ApplyStep0(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def kubectl(self, verdict: str) -> None:
+    def kubectl(self, on_apply: str) -> None:
         k = self.bin / "kubectl"
-        k.write_text(f'#!/bin/bash\necho "$*" >> "{self.calls}"\n{verdict}\n')
+        k.write_text(f"""#!/bin/bash
+echo "$*" >> "{self.calls}"
+case "$1" in
+  kustomize) cat "$2"/*.sh "$2"/*.py "$2"/*.yaml 2> /dev/null; true ;;
+  apply) f="${{@: -1}}"; cat "$f" >> "{self.applied}"; {on_apply} ;;
+  *) exit 2 ;;
+esac
+""")
         k.chmod(0o755)
 
     def run_it(self, *args: str, infra: Path | None = None) -> subprocess.CompletedProcess:
@@ -691,42 +699,56 @@ class ApplyStep0(unittest.TestCase):
         env = {**os.environ, "HOME": str(self.home), "PATH": f"{self.bin}:{os.environ['PATH']}"}
         return subprocess.run(["bash", str(script), *args], env=env, capture_output=True, text=True, timeout=60)
 
-    def recorded(self) -> list[str]:
-        return self.calls.read_text().splitlines() if self.calls.exists() else []
+    def applies(self) -> list[str]:
+        return [c for c in (self.calls.read_text().splitlines() if self.calls.exists() else []) if c.startswith("apply")]
 
     def test_check_only_dry_runs(self) -> None:
         r = self.run_it("check")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        calls = self.recorded()
-        self.assertEqual(len(calls), 5)
-        self.assertTrue(all("--dry-run=server" in c for c in calls), calls)
+        self.assertEqual(len(self.applies()), 1)
+        self.assertIn("--dry-run=server", self.applies()[0])
 
-    def test_apply_dry_runs_everything_first(self) -> None:
+    def test_apply_dry_runs_then_applies_the_same_file(self) -> None:
         r = self.run_it("apply")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        calls = self.recorded()
-        self.assertEqual(len(calls), 10)
-        self.assertTrue(all("--dry-run=server" in c for c in calls[:5]), calls)
-        self.assertFalse(any("--dry-run" in c for c in calls[5:]), calls)
+        dry, real = self.applies()
+        self.assertIn("--dry-run=server", dry)
+        self.assertNotIn("--dry-run", real)
+        self.assertEqual(dry.split()[-1], real.split()[-1])
+        text = self.applied.read_text()
+        for name in ("bifrost-gitea-mirror-sync", "bifrost-ci", "BifrostGitHubSyncStale", "bifrost-github-sync-reconcile"):
+            self.assertIn(name, text)
 
-    def test_files_not_as_reviewed_change_nothing(self) -> None:
+    def test_the_working_tree_is_not_what_is_applied(self) -> None:
+        # review 250 A3: a change git does not show (assume-unchanged) and a plain one
         copy = self.root / "infra"
         subprocess.run(["git", "clone", "-q", "--no-hardlinks", str(self.infra), str(copy)], check=True, capture_output=True)
         (copy / "scripts" / "gitea" / "apply-step0.sh").write_bytes((HERE / "apply-step0.sh").read_bytes())
-        target = copy / "k8s" / "cicd" / "github-sync" / "sync.sh"
-        target.write_text(target.read_text() + "\n# changed\n")
+        task = copy / "k8s" / "cicd" / "tekton" / "task-gitea-mirror-sync.yaml"
+        subprocess.run(["git", "-C", str(copy), "update-index", "--assume-unchanged", str(task)], check=True)
+        task.write_text(task.read_text().replace("bifrost-gitea-mirror-sync", "unreviewed-task"))
+        sync = copy / "k8s" / "cicd" / "github-sync" / "sync.sh"
+        sync.write_text(sync.read_text() + "\n# unreviewed change\n")
         r = self.run_it("apply", infra=copy)
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertIn("not the reviewed ones", r.stderr)
-        self.assertEqual(self.recorded(), [])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        text = self.applied.read_text()
+        self.assertNotIn("unreviewed", text)
+        self.assertIn("bifrost-gitea-mirror-sync", text)
 
     def test_a_failed_dry_run_applies_nothing(self) -> None:
-        self.kubectl('[[ "$*" != *github-sync* ]]')
+        self.kubectl('[[ "$*" != *--dry-run* ]]')
         r = self.run_it("apply")
         self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertTrue(self.recorded())
-        self.assertFalse(any("--dry-run" not in c for c in self.recorded()), self.recorded())
+        self.assertEqual(len(self.applies()), 1)
 
+    def test_a_missing_commit_changes_nothing(self) -> None:
+        copy = self.root / "shallow"
+        subprocess.run(["git", "clone", "-q", "--depth", "1", f"file://{self.infra}", str(copy)], check=True, capture_output=True)
+        (copy / "scripts" / "gitea" / "apply-step0.sh").write_bytes((HERE / "apply-step0.sh").read_bytes())
+        r = self.run_it("apply", infra=copy)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("git fetch", r.stderr)
+        self.assertEqual(self.applies(), [])
 
 if __name__ == "__main__":
     unittest.main()
