@@ -2,8 +2,10 @@
 # Each repository is asked whether it is a pull mirror first: a mirror is
 # fetched, a repository Gitea holds as its primary is not (step 0a of
 # agent-config/work/multi-agent/CUT-gitea-primary-2026-10-17.md); a commit
-# given in expectSha is waited for on both. Tested by
-# scripts/cicd/test_task_gitea_mirror_sync.py.
+# given in expectSha is waited for on both. Python, so that the answer is read
+# as JSON (the top-level "mirror", not one in a fork's parent; review 243 A1)
+# and the token goes in a request header, never on a command line (review 243
+# B). Tested by scripts/cicd/test_task_gitea_mirror_sync.py.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -29,7 +31,7 @@ spec:
       description: Repo that must contain expectSha. Empty polls every repo in mirrorRepos.
   steps:
     - name: mirror-sync
-      image: curlimages/curl:8.11.1
+      image: alpine/k8s:1.31.4
       env:
         - name: GITEA_TOKEN
           valueFrom:
@@ -37,80 +39,87 @@ spec:
               name: gitea-bootstrap
               key: gitea_admin_token
               optional: true
+        - name: GITEA_BASE
+          value: $(params.giteaBase)
+        - name: MIRROR_REPOS
+          value: $(params.mirrorRepos)
+        - name: EXPECT_SHA
+          value: $(params.expectSha)
+        - name: EXPECT_REPO
+          value: $(params.expectRepo)
       script: |
-        #!/bin/sh
-        set -eu
-        if [ -z "${GITEA_TOKEN:-}" ]; then
-          echo "ERROR: gitea-bootstrap/gitea_admin_token missing — cannot mirror-sync" >&2
-          exit 1
-        fi
-        base="$(params.giteaBase)"
-        org="${base##*/}"
-        api="${base%/bifrost}/api/v1"
-        # A repository Gitea holds as its primary (not a pull mirror) has
-        # nothing to fetch, and Gitea answers mirror-sync on it with 400; its
-        # commit is still waited for below (CUT-gitea-primary-2026-10-17 0a).
-        fetched=0
-        for repo in $(params.mirrorRepos); do
-          info="$(curl -s -w '\n%{http_code}' \
-            -H "Authorization: token ${GITEA_TOKEN}" \
-            "${api}/repos/${org}/${repo}")"
-          code="$(printf '%s' "${info}" | tail -n 1)"
-          if [ "${code}" != "200" ]; then
-            echo "ERROR: repository ${org}/${repo} → HTTP ${code}" >&2
-            exit 1
-          fi
-          if printf '%s' "${info}" | grep -q '"mirror":true'; then
-            code="$(curl -s -o /dev/null -w '%{http_code}' \
-              -X POST \
-              -H "Authorization: token ${GITEA_TOKEN}" \
-              -H "Content-Type: application/json" \
-              "${api}/repos/${org}/${repo}/mirror-sync" \
-              -d '{}')"
-            echo "mirror-sync ${org}/${repo} → HTTP ${code}"
-            case "${code}" in
-              200|201|202|204) fetched=1 ;;
-              *) exit 1 ;;
-            esac
-          elif printf '%s' "${info}" | grep -q '"mirror":false'; then
-            echo "${org}/${repo} is Gitea's primary: nothing to fetch"
-          else
-            echo "ERROR: Gitea did not say whether ${org}/${repo} is a mirror" >&2
-            exit 1
-          fi
-        done
+        #!/usr/bin/env python3
+        import json
+        import os
+        import re
+        import sys
+        import time
+        import urllib.error
+        import urllib.request
+
+        token = os.environ.get("GITEA_TOKEN", "")
+        if not token:
+            sys.exit("ERROR: gitea-bootstrap/gitea_admin_token missing — cannot mirror-sync")
+        base = os.environ["GITEA_BASE"].rstrip("/")
+        org = base.rsplit("/", 1)[-1]
+        api = base.rsplit("/", 1)[0] + "/api/v1"
+        repos = os.environ.get("MIRROR_REPOS", "").split()
+        sha = os.environ.get("EXPECT_SHA", "").strip()
+        only = os.environ.get("EXPECT_REPO", "").strip()
+        poll = float(os.environ.get("MIRROR_SYNC_POLL_SECONDS", "4"))
+        settle = float(os.environ.get("MIRROR_SYNC_SETTLE_SECONDS", "8"))
+
+
+        def call(method, path, body=None):
+            req = urllib.request.Request(api + path, data=body, method=method,
+                                         headers={"Authorization": "token " + token, "Content-Type": "application/json"})
+            try:
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    return r.status, r.read()
+            except urllib.error.HTTPError as e:
+                return e.code, e.read()
+            except (urllib.error.URLError, OSError) as e:
+                return 0, str(e).encode()
+
+
+        fetched = False
+        for repo in repos:
+            code, raw = call("GET", f"/repos/{org}/{repo}")
+            if code != 200:
+                sys.exit(f"ERROR: repository {org}/{repo} → HTTP {code}")
+            try:
+                doc = json.loads(raw)
+            except ValueError:
+                doc = None
+            mirror = doc.get("mirror") if isinstance(doc, dict) else None
+            if mirror is True:
+                code, _ = call("POST", f"/repos/{org}/{repo}/mirror-sync", b"{}")
+                print(f"mirror-sync {org}/{repo} → HTTP {code}", flush=True)
+                if code not in (200, 201, 202, 204):
+                    sys.exit(1)
+                fetched = True
+            elif mirror is False:
+                print(f"{org}/{repo} is Gitea's primary: nothing to fetch", flush=True)
+            else:
+                sys.exit(f"ERROR: Gitea did not say whether {org}/{repo} is a mirror")
+
         # Gitea mirror-sync is async. A release passes expectSha so the clone
         # cannot start on the previous mirror contents (TD-155).
-        sha="$(params.expectSha)"
-        repo_filter="$(params.expectRepo)"
-        if echo "${sha}" | grep -qxE '[0-9a-f]{40}'; then
-          i=0
-          while [ "${i}" -lt 30 ]; do
-            ready=1
-            for repo in $(params.mirrorRepos); do
-              if [ -n "${repo_filter}" ] && [ "${repo}" != "${repo_filter}" ]; then
-                continue
-              fi
-              code="$(curl -s -o /dev/null -w '%{http_code}' \
-                -H "Authorization: token ${GITEA_TOKEN}" \
-                "${api}/repos/${org}/${repo}/git/commits/${sha}")"
-              echo "commit ${org}/${repo}@${sha} → HTTP ${code}"
-              if [ "${code}" != "200" ]; then
-                ready=0
-              fi
-            done
-            if [ "${ready}" -eq 1 ]; then
-              echo "Gitea mirror has ${sha}"
-              exit 0
-            fi
-            i=$((i + 1))
-            sleep 4
-          done
-          echo "ERROR: ${sha} was not on the Gitea mirror after mirror-sync" >&2
-          exit 1
-        fi
-        if [ "${fetched}" -eq 1 ]; then
-          echo "waiting 8s for Gitea mirror fetch to settle"
-          sleep 8
-        fi
-        echo "Gitea mirror-sync complete"
+        if re.fullmatch(r"[0-9a-f]{40}", sha):
+            for _ in range(30):
+                ready = True
+                for repo in repos:
+                    if only and repo != only:
+                        continue
+                    code, _ = call("GET", f"/repos/{org}/{repo}/git/commits/{sha}")
+                    print(f"commit {org}/{repo}@{sha} → HTTP {code}", flush=True)
+                    ready = ready and code == 200
+                if ready:
+                    print(f"Gitea mirror has {sha}")
+                    sys.exit(0)
+                time.sleep(poll)
+            sys.exit(f"ERROR: {sha} was not on the Gitea mirror after mirror-sync")
+        if fetched:
+            print("waiting 8s for Gitea mirror fetch to settle", flush=True)
+            time.sleep(settle)
+        print("Gitea mirror-sync complete")

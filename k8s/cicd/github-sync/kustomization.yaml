@@ -19,7 +19,7 @@ resources:
 configMapGenerator:
   - name: github-sync-scripts
     files:
-      - read-primaries.sh
+      - read-primaries.py
       - sync.sh
     options:
       # the Task names it, and kustomize does not rewrite a Tekton Task

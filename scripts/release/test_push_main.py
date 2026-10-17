@@ -153,6 +153,45 @@ class PushMain(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("has Gitea as its primary", r.stderr)
 
+    # Review 243 A2, A5: the push addresses decide, in any spelling.
+    def test_a_primary_whose_push_address_is_github_is_refused(self) -> None:
+        listing = Path(self._tmp.name) / "gitea-primary.txt"
+        listing.write_text("Bifrost-Platform\n")
+        env = {**os.environ, "PUSH_MAIN_WINDOW": str(self.window), "PUSH_MAIN_PRIMARY_LIST": str(listing)}
+        before = self._remote_main()
+        for push_url in (
+            "https://github.com/weitingzhao/bifrost-platform.git",
+            "ssh://git@ssh.github.com:443/WeitingZhao/Bifrost-Platform.git/",
+            "https://GITHUB.COM:443/weitingzhao/bifrost-platform",
+        ):
+            _git(self.work, "remote", "set-url", "--push", "origin", push_url)
+            r = subprocess.run(["bash", str(PUSH_MAIN), str(self.work)], env=env, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 1, push_url + r.stdout + r.stderr)
+            self.assertIn("has Gitea as its primary", r.stderr)
+        # a second push address beside a local one
+        _git(self.work, "remote", "set-url", "--push", "origin", str(self.origin))
+        _git(self.work, "remote", "set-url", "--add", "--push", "origin", "git@github.com:weitingzhao/bifrost-platform.git")
+        r = subprocess.run(["bash", str(PUSH_MAIN), str(self.work)], env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        # pushInsteadOf rewrites the push address to GitHub
+        _git(self.work, "config", "--unset-all", "remote.origin.pushurl")
+        _git(self.work, "config", f"url.git@github.com:weitingzhao/.pushInsteadOf", str(self.origin.parent) + "/")
+        r = subprocess.run(["bash", str(PUSH_MAIN), str(self.work)], env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertEqual(self._remote_main(), before)
+
+    def test_a_local_push_address_goes_on(self) -> None:
+        listing = Path(self._tmp.name) / "gitea-primary.txt"
+        listing.write_text("bifrost-platform\n")
+        env = {**os.environ, "PUSH_MAIN_WINDOW": str(self.window), "PUSH_MAIN_PRIMARY_LIST": str(listing)}
+        _git(self.work, "remote", "set-url", "--add", "--push", "origin", str(self.origin))
+        _git(self.work, "config", "remote.origin.pushurl", str(self.origin))
+        (self.work / "y.go").write_text("package y\n")
+        _git(self.work, "add", "y.go")
+        _git(self.work, "commit", "--quiet", "-m", "y")
+        r = subprocess.run(["bash", str(PUSH_MAIN), str(self.work)], env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
     def test_a_primary_whose_origin_is_gitea_goes_on(self) -> None:
         listing = Path(self._tmp.name) / "gitea-primary.txt"
         listing.write_text("bifrost-platform\n")

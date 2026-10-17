@@ -1,28 +1,30 @@
-"""k8s/cicd/github-sync: read-primaries.sh and sync.sh, run locally.
+"""k8s/cicd/github-sync: read-primaries.py and sync.sh, run locally.
 
 Step 0e of agent-config/work/multi-agent/CUT-gitea-primary-2026-10-17.md: the
 repositories Gitea holds as its primary have main and their tags copied to
 GitHub, fast-forward only, never forced, never deleted. sync.sh runs with real
 git against two local bare repositories standing for Gitea and GitHub;
-read-primaries.sh runs with a fake curl. No cluster, no network.
+read-primaries.py runs against a local fake Gitea. No cluster, no network.
 
     python3 -m unittest scripts/cicd/test_github_sync.py
 """
 
 from __future__ import annotations
 
-import json
 import os
-import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fake_gitea import FakeGitea, repo  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[2]
 DIR = ROOT / "k8s" / "cicd" / "github-sync"
 SYNC = DIR / "sync.sh"
-READ = DIR / "read-primaries.sh"
+READ = DIR / "read-primaries.py"
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "t",
     "GIT_AUTHOR_EMAIL": "t@example.invalid",
@@ -165,46 +167,37 @@ class Sync(unittest.TestCase):
                 self.fail(f"a git command line names the token: {line}")
 
 
-FAKE_CURL = """#!/usr/bin/env python3
-import json, os, sys
-from urllib.parse import urlparse
-url = [a for a in sys.argv[1:] if a.startswith("http")][-1]
-code, body = json.loads(os.environ["FAKE_GITEA"]).get(urlparse(url).path, [404, "{}"])
-sys.stdout.write(body + "\\n" + str(code))
-"""
-
-
 class ReadPrimaries(unittest.TestCase):
-    def run_read(self, repos: list[str], gitea: dict) -> tuple[subprocess.CompletedProcess, list[str]]:
-        with tempfile.TemporaryDirectory() as tmp:
-            bindir = Path(tmp) / "bin"
-            bindir.mkdir()
-            curl = bindir / "curl"
-            curl.write_text(FAKE_CURL, encoding="utf-8")
-            curl.chmod(curl.stat().st_mode | stat.S_IXUSR)
+    def run_read(self, repos: list[str], routes: dict) -> tuple[subprocess.CompletedProcess, list[str], FakeGitea]:
+        with tempfile.TemporaryDirectory() as tmp, FakeGitea(routes) as g:
             out = Path(tmp) / "primaries"
-            env = {"PATH": f"{bindir}:/usr/bin:/bin", "GITEA_TOKEN": "fixture", "FAKE_GITEA": json.dumps(gitea)}
-            result = subprocess.run(["sh", str(READ), str(out), *repos], env=env, capture_output=True, text=True, timeout=60)
+            env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "GITEA_TOKEN": "fixture-admin-token",
+                   "GITEA_API": f"{g.base}/api/v1"}
+            result = subprocess.run([sys.executable, str(READ), str(out), *repos], env=env, capture_output=True, text=True, timeout=60)
             listed = out.read_text(encoding="utf-8").split() if out.exists() else []
-            return result, listed
-
-    @staticmethod
-    def repo(name: str, mirror) -> dict:
-        body = {"name": name, "parent": None, "mirror_interval": "8h0m0s"}
-        if mirror is not None:
-            body["mirror"] = mirror
-        return {f"/api/v1/repos/bifrost/{name}": [200, json.dumps(body, separators=(",", ":"))]}
+            return result, listed, g
 
     def test_only_regular_repositories_are_listed(self) -> None:
-        result, listed = self.run_read(["a", "b"], {**self.repo("a", True), **self.repo("b", False)})
+        result, listed, g = self.run_read(["a", "b"], {**repo("a", '{"mirror":true}'), **repo("b", '{"mirror":false}')})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(listed, ["b"])
+        self.assertTrue(all(auth == "token fixture-admin-token" for _, _, auth in g.requests))
+
+    def test_the_top_level_field_decides_not_a_parents(self) -> None:
+        routes = {
+            **repo("mirrored", '{"name":"mirrored","parent":{"mirror":false},"mirror":true}'),
+            **repo("fork", '{ "name": "fork", "parent": { "mirror": true }, "mirror": false }'),
+        }
+        result, listed, _ = self.run_read(["mirrored", "fork"], routes)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(listed, ["fork"])
 
     def test_an_unreadable_or_silent_repository_stops_the_run(self) -> None:
-        for gitea, want in (({}, "HTTP 404"), (self.repo("a", None), "did not say")):
-            result, _ = self.run_read(["a"], gitea)
+        for routes, want in (({}, "HTTP 404"), (repo("a", '{"name":"a"}'), "did not say"), (repo("a", "nope"), "did not say")):
+            result, listed, _ = self.run_read(["a"], routes)
             self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
             self.assertIn(want, result.stderr)
+            self.assertEqual(listed, [])
 
 
 if __name__ == "__main__":

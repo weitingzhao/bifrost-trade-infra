@@ -1,5 +1,5 @@
 # One ref of one repository to GitHub, started by a Gitea push (trigger
-# github-sync). A pull mirror is skipped by read-primaries.sh: GitHub is still
+# github-sync). A pull mirror is skipped by read-primaries.py: GitHub is still
 # its upstream. Not a CI run: no bifrost.io/trigger label (CUT-gitea-primary 0e).
 apiVersion: tekton.dev/v1
 kind: Task
@@ -22,7 +22,7 @@ spec:
       emptyDir: {}
   steps:
     - name: read
-      image: curlimages/curl:8.11.1
+      image: alpine/k8s:1.31.4
       env:
         - name: GITEA_TOKEN
           valueFrom:
@@ -36,7 +36,7 @@ spec:
           readOnly: true
         - name: work
           mountPath: /work
-      command: ["/bin/sh", "/scripts/read-primaries.sh", "/work/primaries", "$(params.repo)"]
+      command: ["python3", "/scripts/read-primaries.py", "/work/primaries", "$(params.repo)"]
     - name: sync
       image: alpine/git:2.45.2
       env:

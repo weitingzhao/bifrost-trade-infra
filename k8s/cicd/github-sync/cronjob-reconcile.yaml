@@ -25,7 +25,7 @@ spec:
           restartPolicy: Never
           initContainers:
             - name: read
-              image: curlimages/curl:8.11.1
+              image: alpine/k8s:1.31.4
               env:
                 - name: GITEA_TOKEN
                   valueFrom:
@@ -34,8 +34,8 @@ spec:
                       key: gitea_admin_token
                       optional: true
               command:
-                - /bin/sh
-                - /scripts/read-primaries.sh
+                - python3
+                - /scripts/read-primaries.py
                 - /work/primaries
                 - bifrost-trade-core
                 - bifrost-trade-worker

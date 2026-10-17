@@ -366,9 +366,39 @@ function pushMainRule(cmd) {
 // 拦两种：推到名单里某个仓库的 GitHub 地址；推到名为 github 的远端（切换后本机检出的 github
 // 远端只读，切换前不存在）。BIFROST_GITEA_PRIMARY_LIST 只给测试改名单的位置。
 
-const GITHUB_REPO_URL = /github\.com[:/]+weitingzhao\/([A-Za-z0-9._-]+?)(?:\.git)?\/?$/
+const GITHUB_HOSTS = new Set(['github.com', 'www.github.com', 'ssh.github.com'])
 
-/** 名单里的仓库名；文件不在或读不了就是空名单（切换前的样子）。 */
+/**
+ * 一个 GitHub 地址指的仓库名（小写）；别的地址返回 null。认 URL（任何 scheme、用户、端口）和
+ * scp 写法（git@host:owner/repo）；主机不分大小写、去掉结尾的 / 和 .git。push-main.sh 用同样的规则
+ * （复核 243 A5：大小写、端口、ssh.github.com 漏拦，notgithub.com 误拦）。
+ */
+function githubRepoOf(address) {
+  const u = String(address).trim()
+  let host
+  let rest
+  let m = u.match(/^[A-Za-z][A-Za-z0-9+.-]*:\/\/(?:[^@/]*@)?([^/:]+)(?::\d*)?(\/.*)?$/)
+  if (m) {
+    host = m[1]
+    rest = m[2] || ''
+  } else {
+    m = u.match(/^(?:[^@/:]+@)?([^/:]+):(.*)$/)
+    if (!m) return null
+    host = m[1]
+    rest = m[2]
+  }
+  if (!GITHUB_HOSTS.has(host.toLowerCase())) return null
+  const parts = rest.split('/').filter(Boolean)
+  if (parts.length < 2) return null
+  return parts[1].replace(/\.git$/i, '').toLowerCase()
+}
+
+/** 像一个地址（URL 或 scp 写法），不是远端名。 */
+function isAddress(t) {
+  return /:\/\//.test(t) || /^(?:[^@/:]+@)?[^/:]+:/.test(t)
+}
+
+/** 名单里的仓库名（小写）；文件不在或读不了就是空名单（切换前的样子）。 */
 function giteaPrimaries() {
   const file = process.env.BIFROST_GITEA_PRIMARY_LIST || path.join(__dirname, '..', '..', 'gitea-primary.txt')
   try {
@@ -376,7 +406,7 @@ function giteaPrimaries() {
       fs
         .readFileSync(file, 'utf8')
         .split('\n')
-        .map(l => l.replace(/#.*/, '').trim())
+        .map(l => l.replace(/#.*/, '').trim().toLowerCase())
         .filter(Boolean),
     )
   } catch {
@@ -384,37 +414,96 @@ function giteaPrimaries() {
   }
 }
 
-/** 这次 push 的远端（第一个位置参数）；没有就是 null。 */
-function pushRemote(tokens) {
+/** 每一次 `git … push …`：push 之前的 -C / -c 参数，和 push 之后的参数。 */
+function gitPushInvocations(cmd) {
+  const re = /(?:^|[\s;|&`("'])git((?:\s+(?:-C|-c)\s+\S+|\s+--\S+)*)\s+push\b([^;|&\n]*)/g
+  const clean = t => t.replace(/^['"(]+|['"`)]+$/g, '')
+  const out = []
+  for (const m of cmd.matchAll(re)) {
+    const pre = m[1].trim().split(/\s+/).filter(Boolean).map(clean)
+    const globals = []
+    for (let i = 0; i < pre.length; i++) {
+      if ((pre[i] === '-C' || pre[i] === '-c') && i + 1 < pre.length) {
+        let v = pre[i + 1]
+        if (pre[i] === '-C' && v.startsWith('~/')) v = path.join(require('node:os').homedir(), v.slice(2))
+        globals.push(pre[i], v)
+        i++
+      }
+    }
+    out.push({ globals, args: m[2].trim().split(/\s+/).filter(Boolean).map(clean) })
+  }
+  return out
+}
+
+/** 这次 push 的目标：第一个位置参数和 --repo 的值（git 以位置参数为准；两个都查）。 */
+function pushDestinations(args) {
+  const out = []
+  let positional = null
   let flagsOver = false
-  for (let i = 0; i < tokens.length; i++) {
-    const t = tokens[i]
+  for (let i = 0; i < args.length; i++) {
+    const t = args[i]
     if (!flagsOver && t === '--') {
       flagsOver = true
       continue
     }
     if (!flagsOver && t.startsWith('-')) {
-      if (PUSH_VALUE_FLAGS.test(t)) i++
+      if (t.startsWith('--repo=')) out.push(t.slice('--repo='.length))
+      else if (t === '--repo') out.push(args[++i] ?? '')
+      else if (PUSH_VALUE_FLAGS.test(t)) i++
       continue
     }
-    return t
+    if (positional === null) positional = t
   }
-  return null
+  if (positional !== null) out.unshift(positional)
+  return out
 }
 
-function githubPushRule(cmd) {
+/** 远端名在这次命令的上下文里的全部推送地址；解析不了返回 null。 */
+function pushUrlsOf(name, globals, cwd) {
+  try {
+    const out = require('node:child_process').execFileSync(
+      'git',
+      [...globals, 'remote', 'get-url', '--push', '--all', '--', name],
+      { cwd: cwd || process.cwd(), encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] },
+    )
+    const urls = out.split('\n').map(l => l.trim()).filter(Boolean)
+    return urls.length ? urls : null
+  } catch {
+    return null
+  }
+}
+
+function githubPushRule(cmd, cwd) {
   if (isRead(cmd) || isFileWrite(cmd)) return null
-  let primaries = null
-  for (const tokens of gitPushes(cmd)) {
-    const remote = pushRemote(tokens)
-    if (remote === 'github') {
-      return '`github` 远端只读：以 Gitea 为主的仓库推 Gitea（origin），GitHub 由集群同步（k8s/cicd/github-sync）'
-    }
-    const m = remote ? remote.match(GITHUB_REPO_URL) : null
-    if (m) {
-      primaries = primaries || giteaPrimaries()
-      if (primaries.has(m[1])) {
-        return `${m[1]} 以 Gitea 为主（agent-config/gitea-primary.txt）：推 Gitea，GitHub 由集群同步（k8s/cicd/github-sync），不从这里推`
+  const pushes = gitPushInvocations(cmd)
+  if (pushes.length === 0) return null
+  const primaries = giteaPrimaries()
+  const toGitHub = repo =>
+    `${repo} 以 Gitea 为主（agent-config/gitea-primary.txt）：推 Gitea，GitHub 由集群同步（k8s/cicd/github-sync），不从这里推`
+  if (primaries.size > 0 && /\bGIT_CONFIG_(COUNT|KEY|VALUE|PARAMETERS)\b/.test(cmd)) {
+    return '有仓库以 Gitea 为主时，不在命令行上用 GIT_CONFIG_* 改 git 配置再推送：看不出推到哪里'
+  }
+  for (const { globals, args } of pushes) {
+    const dests = pushDestinations(args)
+    if (dests.length === 0) dests.push('origin') // 不写远端：按默认远端查
+    for (const dest of dests) {
+      if (dest === 'github') {
+        return '`github` 远端只读：以 Gitea 为主的仓库推 Gitea（origin），GitHub 由集群同步（k8s/cicd/github-sync）'
+      }
+      if (isAddress(dest)) {
+        const repo = githubRepoOf(dest)
+        if (repo && primaries.has(repo)) return toGitHub(repo)
+        continue
+      }
+      if (primaries.size === 0 || LOCAL_REMOTE.test(dest)) continue
+      // 远端名：按这次命令的 -C / -c 解析出实际推送地址（复核 243 A3）
+      const urls = pushUrlsOf(dest, globals, cwd)
+      if (urls === null) {
+        return `看不出远端 ${dest} 推到哪里（有仓库以 Gitea 为主时要能查到）：用 \`git -C <检出目录> push ${dest} …\``
+      }
+      for (const url of urls) {
+        const repo = githubRepoOf(url)
+        if (repo && primaries.has(repo)) return toGitHub(repo)
       }
     }
   }
@@ -687,7 +776,7 @@ function evaluate(payload, readMounts = readMountTable) {
     if (sw) return { deny: true, kind: 'shared-worktree', reason: sw }
     const pm = pushMainRule(cmd)
     if (pm) return { deny: true, kind: 'push-main', reason: pm }
-    const gp = githubPushRule(cmd)
+    const gp = githubPushRule(cmd, payload.cwd)
     if (gp) return { deny: true, kind: 'gitea-primary', reason: gp }
     if (locked) {
       const d10 = d10Rules(cmd)

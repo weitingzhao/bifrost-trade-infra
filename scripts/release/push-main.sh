@@ -40,19 +40,52 @@ GATED=" bifrost-platform bifrost-trade-frontend bifrost-research bifrost-trade-a
 top="$(git -C "$DIR" rev-parse --show-toplevel 2>/dev/null)" || die "$DIR is not a git checkout"
 commit="$(git -C "$top" rev-parse --verify --quiet "$REF^{commit}")" || die "$REF is not a commit in $top"
 url="$(git -C "$top" remote get-url origin)" || die "$top has no remote origin"
-repo="$(basename "${url%.git}")"
+trimmed="${url%/}"
+repo="$(basename "${trimmed%.git}")"
 repo="${repo##*:}"
+
+# github_repo <address> — the repository a GitHub address names, lower case;
+# nothing for any other address. URL or scp form, any scheme, user or port,
+# host in any case, trailing / and .git dropped; preflight.js githubRepoOf
+# follows the same rules (review 243 A5).
+github_repo() {
+  python3 - "$1" <<'PY'
+import re, sys
+u = sys.argv[1].strip()
+m = re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://(?:[^@/]*@)?([^/:]+)(?::\d*)?(/.*)?$", u)
+if m:
+    host, rest = m.group(1), m.group(2) or ""
+else:
+    m = re.match(r"^(?:[^@/:]+@)?([^/:]+):(.*)$", u)
+    if not m:
+        sys.exit(0)
+    host, rest = m.group(1), m.group(2)
+if host.lower() not in ("github.com", "www.github.com", "ssh.github.com"):
+    sys.exit(0)
+parts = [p for p in rest.split("/") if p]
+if len(parts) >= 2:
+    print(re.sub(r"\.git$", "", parts[1], flags=re.I).lower())
+PY
+}
 
 # A repository Gitea holds as its primary is pushed to Gitea; GitHub follows
 # from the cluster (k8s/cicd/github-sync), never from here
-# (CUT-gitea-primary-2026-10-17 step 0g).
+# (CUT-gitea-primary-2026-10-17 step 0g). Every address the push would go to
+# is checked, pushurl and pushInsteadOf included (review 243 A2).
 PRIMARY_LIST="${PUSH_MAIN_PRIMARY_LIST:-$HERE/../../agent-config/gitea-primary.txt}"
 if [[ -f "$PRIMARY_LIST" ]]; then
-  primaries="$(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$PRIMARY_LIST")"
-  if grep -qx -- "$repo" <<<"$primaries"; then
-    case "$url" in
-      *github.com[:/]*) die "$repo has Gitea as its primary (agent-config/gitea-primary.txt) but origin is $url: point origin at Gitea and push there; GitHub follows from the cluster" ;;
-    esac
+  primaries="$(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$PRIMARY_LIST" | tr '[:upper:]' '[:lower:]')"
+  if [[ -n "$primaries" ]]; then
+    push_urls="$(git -C "$top" remote get-url --push --all origin)" || die "cannot read the push addresses of origin in $top"
+    repo_lc="$(printf '%s' "$repo" | tr '[:upper:]' '[:lower:]')"
+    while IFS= read -r push_url; do
+      [[ -n "$push_url" ]] || continue
+      gh="$(github_repo "$push_url")"
+      [[ -n "$gh" ]] || continue
+      if grep -qx -- "$gh" <<<"$primaries" || grep -qx -- "$repo_lc" <<<"$primaries"; then
+        die "$repo has Gitea as its primary (agent-config/gitea-primary.txt) but origin pushes to $push_url: point origin at Gitea and push there; GitHub follows from the cluster"
+      fi
+    done <<<"$push_urls"
   fi
 fi
 

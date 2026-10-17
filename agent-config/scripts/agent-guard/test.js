@@ -11,6 +11,27 @@ process.on('exit', () => { if (!finished) { console.error('✗ 测试没有跑�
 const { evaluate, nasMountPoints, readMountTable } = require(GUARD)
 
 const bash = c => ({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: c } })
+// CUT-gitea-primary 0g (review 243): a checkout whose remotes point at GitHub in several ways, and
+// the name list githubPushRule reads, with bifrost-ui on it.
+const PRIMARY = (() => {
+  const nodePath = require('node:path')
+  const nodeFs = require('node:fs')
+  const { execFileSync } = require('node:child_process')
+  const dir = nodeFs.mkdtempSync(nodePath.join(require('node:os').tmpdir(), 'preflight-primary-'))
+  const repo = nodePath.join(dir, 'bifrost-ui')
+  const g = (...a) => execFileSync('git', a, { cwd: repo, stdio: 'ignore' })
+  nodeFs.mkdirSync(repo)
+  g('init', '-q')
+  g('remote', 'add', 'origin', 'http://192.168.10.73:30300/bifrost/bifrost-ui.git')
+  g('remote', 'add', 'backup', 'https://github.com/weitingzhao/bifrost-ui.git')
+  g('remote', 'add', 'split', 'http://192.168.10.73:30300/bifrost/bifrost-ui.git')
+  g('remote', 'set-url', '--push', 'split', 'git@github.com:weitingzhao/bifrost-ui.git')
+  const list = nodePath.join(dir, 'gitea-primary.txt')
+  nodeFs.writeFileSync(list, '# fixture\nbifrost-ui\n')
+  process.env.BIFROST_GITEA_PRIMARY_LIST = list
+  return { repo, outside: dir }
+})()
+const bashIn = (c, cwd) => ({ ...bash(c), cwd })
 const tool = (n, i) => ({ hook_event_name: 'PreToolUse', tool_name: n, tool_input: i })
 
 // 用拼接构造敏感字符串，避免本文件自身触发任何静态扫描
@@ -283,8 +304,23 @@ const cases = [
   ['gitea-primary', 'DENY', '名单里的仓库推 GitHub 地址', bash('git push https://github.com/weitingzhao/bifrost-ui.git v1:refs/tags/v1')],
   ['gitea-primary', 'DENY', '名单里的仓库推 SSH 地址', bash('git push git@github.com:weitingzhao/bifrost-ui w31/x:refs/heads/w31/x')],
   ['gitea-primary', 'ALLOW', '名单外的仓库推 GitHub 地址', bash('git push git@github.com:weitingzhao/bifrost-research.git w31/x:refs/heads/w31/x')],
-  ['gitea-primary', 'ALLOW', '推 origin 的分支', bash('git push origin w31/x:refs/heads/w31/x')],
+  ['gitea-primary', 'ALLOW', '推 origin（Gitea）的分支', bashIn('git push origin w31/x:refs/heads/w31/x', PRIMARY.repo)],
   ['gitea-primary', 'ALLOW', '读 github 远端', bash('git fetch github main')],
+  // 复核 243 A5：地址的各种写法
+  ['gitea-primary', 'DENY', '主机大写', bash('git push https://GITHUB.COM/weitingzhao/bifrost-ui.git v1:refs/tags/v1')],
+  ['gitea-primary', 'DENY', '带端口', bash('git push https://github.com:443/weitingzhao/bifrost-ui.git v1:refs/tags/v1')],
+  ['gitea-primary', 'DENY', 'ssh.github.com、仓库名大写、结尾斜杠', bash('git push ssh://git@ssh.github.com:443/WeitingZhao/Bifrost-UI.git/ v1:refs/tags/v1')],
+  ['gitea-primary', 'ALLOW', 'notgithub.com 不是 GitHub', bash('git push https://notgithub.com/weitingzhao/bifrost-ui.git x:refs/heads/x')],
+  // 复核 243 A4：--repo
+  ['gitea-primary', 'DENY', '--repo=地址', bash('git push --repo=https://github.com/weitingzhao/bifrost-ui.git --tags')],
+  ['gitea-primary', 'DENY', '--repo 地址', bash('git push --repo https://github.com/weitingzhao/bifrost-ui.git --tags')],
+  // 复核 243 A3：远端名按实际推送地址查
+  ['gitea-primary', 'DENY', '别名指向 GitHub', bashIn('git push backup v1:refs/tags/v1', PRIMARY.repo)],
+  ['gitea-primary', 'DENY', '拉取在 Gitea、pushurl 在 GitHub', bashIn('git push split x:refs/heads/x', PRIMARY.repo)],
+  ['gitea-primary', 'DENY', '-C 进去推别名', bashIn('git -C ' + PRIMARY.repo + ' push backup v1:refs/tags/v1', PRIMARY.outside)],
+  ['gitea-primary', 'DENY', '-c 临时设远端地址', bashIn('git -c remote.x.url=https://github.com/weitingzhao/bifrost-ui.git push x v1:refs/tags/v1', PRIMARY.repo)],
+  ['gitea-primary', 'DENY', '查不到远端名', bashIn('git push somewhere x:refs/heads/x', PRIMARY.outside)],
+  ['gitea-primary', 'DENY', 'GIT_CONFIG_* 环境变量', bashIn('GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.pushurl GIT_CONFIG_VALUE_0=x git push origin x:refs/heads/x', PRIMARY.repo)],
   ['push', 'ALLOW', 'push-main.sh', bash('bifrost-trade-infra/scripts/release/push-main.sh ~/agent-work/x/bifrost-platform abc123')],
   ['push', 'ALLOW', '推自己的分支', bash('git push origin w31/agentrt-22-agentd')],
   ['push', 'ALLOW', 'HEAD 推到写明的分支', bash('git push -u origin HEAD:refs/heads/w31/x')],
@@ -304,16 +340,6 @@ const cases = [
 
 let pass = 0, fail = 0
 let group = ''
-// CUT-gitea-primary 0g: the name list githubPushRule reads, here with bifrost-ui on it.
-{
-  const nodePath = require('node:path')
-  const nodeFs = require('node:fs')
-  const dir = nodeFs.mkdtempSync(nodePath.join(require('node:os').tmpdir(), 'preflight-primary-'))
-  const list = nodePath.join(dir, 'gitea-primary.txt')
-  nodeFs.writeFileSync(list, '# fixture\nbifrost-ui\n')
-  process.env.BIFROST_GITEA_PRIMARY_LIST = list
-}
-
 for (const [g, want, name, payload] of cases) {
   if (g !== group) { group = g; console.log(`\n── ${{ nas: '本机 NAS 共享（TD-326）', D10: 'D10 交易执行冻结', dev: 'dev-services', ok: '合法操作（不得误拦）', appr: '审批旁路（ADR §5）', q: '问题回答（W-65）', own: 'Owner 凭证（LANE-W33D）', sw: '共享工作树', push: '推 main（TD-341）', edge: '边界输入' }[g]} ──`) }
   const r = spawnSync('node', [GUARD], { input: payload ? JSON.stringify(payload) : '', encoding: 'utf8' })
