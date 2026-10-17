@@ -2139,6 +2139,19 @@
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-359
+
+**P2 · agentd · the agentd host user can read its own token files, and so can every process it starts: executors, and since 2.2's Console checks, unsandboxed agent-written code with the network**
+
+- **状态**：未开始（2026-10-16 23:4x 记；修复核 227 时撞上。不是复核 227 那次提交引入的：执行者早就以同一个用户运行）
+- **Claim**: agentd runs as `bifrost-agentd` and keeps `agentd.token`, `agentd-git.token`, `cursor-api.key` and `claude-oauth.token` under `~bifrost-agentd/.config/bifrost`, mode 0600 owned by that user. Every process agentd starts runs as the same user and can read them: the executors (Codex's sandbox restricts writes and the network, not reads; cursor-agent is not sandboxed), and from the Console checks on (`691f803`, `f21cefa`) the deterministic check's `npm --prefix console test` and `run build`, and the setup's `npm ci` lifecycle scripts, which run code the agent wrote or a dependency ships, unsandboxed, with the network. The environment is already cut down (`AllowedEnv`; review 227 A2 for setup); the files are not.
+- **Evidence**: `bifrost-platform/agent/deploy/install-agentd.sh` (credentials: regular files the user owns, 0600); `api/internal/agentd/executors.go:27` (`allowedEnv`); `api/internal/agentrt/store/repos.go` (the Console checks); `api/internal/agentd/setup.go` (setup runs unsandboxed).
+- **Impact**: code an agent writes (or a poisoned dependency) could read the agentd token (claim and hand in work as the host), the Gitea token (push to agent branches; `main` is protected), or a vendor key, and send it out. The same code could also write the host user's `~/.gitconfig`; the sibling clone now ignores it (`f21cefa`), the task checkout and push do not.
+- **Fix**: (a) run the deterministic check and the setup in a sandbox that denies reads of `~/.config/bifrost` and the agentd root's registry (macOS `sandbox-exec` profile, as Codex does), network allowed only for setup; or (b) a second host user without the tokens for everything agentd starts, with agentd passing credentials only to the executor that needs them; and (c) `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1` for every git command agentd runs with credentials, not only the sibling clone. (a) or (b) is an architecture choice: options and a recommendation go to the Owner before work starts.
+- **Ratchet**: an agentd test that runs a check, a setup and each executor's spawn with a fixture token file in the host user's config directory and asserts none of them can read it; and a test that a poisoned global git config does not reach the checkout or the push.
+- 验收: those tests pass on the agent host; a live check on STG runs the Console checks with the sandbox in place.
+- 审批 要你定（方案 a 或 b）· 代价 M · 风险 medium · repos: bifrost-platform
+
 ### TD-358
 
 **P3 · data · Golden Source still holds keyless TWS fills from before core 0.60.1, and the frontend types an execution's `account_id` / `symbol` as never null**

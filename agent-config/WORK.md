@@ -464,7 +464,7 @@
         - [x] STG 走查（2.2 验收前的一件小活）｜**M-1**（14:01，`standing-envelope:dev` v1 内）：codex 实现 launchd.Parse 边界测试，第 3 次尝试交付 `ef22c980`（`agent/t_01M50FZ5…/a3`），确定性验收 14:24 pass；评审无人可领（codex 不独立、claude 在资格考核，合预期）。报告 `~/agent-work/stg-walk/REPORT.md`。走查查出三处并修：① 平台用 Gitea 分支 API 读刚推的分支会 404 → 第 1 次尝试的 persist 409 被拒、结果丢失 → 改读 git `info/refs`（分支 `w31/agentrt-22-heads-git` `~/agent-work/agentrt-22p`，复核 204→206→207 可以合并，CI 在 git 2.39 上红一次→e370d39 修、复核 208；15:24 STG 发到 e370d39 并核对）；② cursor 在后台用户下写不了钥匙串 → `AGENT_CLI_CREDENTIAL_STORE=memory`；③ 安装脚本 bootout 后立刻 bootstrap 会失败、主机没了 agentd（14:18 出过）→ 等 `launchctl print` 回 113 再加载（②③ 复核 202/203/205，已合主线 `3b4e372`，agentd 14:55 装上，指纹 `69c5cd8f…`）。另：MCP 补 `propose_mission`（`dbf30a9`，复核 200/201）。F2（被拒的 persist 不留痕）记 TD-349｜下一步：M-2「Cursor 写、Codex 评审」（任务带 needs listen_port_tests，codex 沙箱做不了，派给 cursor）走到 accepted；材料 `~/agent-work/stg-walk/m2/`，交给新会话「STG 走查 M-2」跑｜**10-15 18:17 核对**：分支已合进平台主线，STG 上跑通（M-1、M-2 走查，Gate A 两批）
         - [~] Gate A 在测试环境过：T01、T02、T05、T06、T08、T10、T22、T25、T32（经接口）、T33、T34、T35、T36、6 道基准题｜10-15 10:38 跑法和要你参与的部分写在 `agent-config/work/multi-agent/PLAN-gate-a-stg-2026-10-15.md`｜**10-15 18:17 核对**：第一、二批过的项见 `work/multi-agent/RUN-gate-a-stg-2026-10-15.md`（T01、T02、T05、T06、T08、T10、T22 ①③、T32 接口、T34 五种、T36）；剩下的归补强
         - [x] （你）定：Gate A 里要你参与的部分｜**10-15 14:45 前后你回「验收参与 一」**：一行 sudoers（只许给 bifrost-agentd 的进程发信号）、STG 测试身份 agentd:gate-b、验收期间允许缩放 STG platform-workers、合盖一次提前说，跑完全部撤掉；命令在 M-2 走到 accepted 之后原样给｜T01、T22、T34 要对以 `bifrost-agentd` 运行的 agentd 发信号（我没有 sudo），T02、T08、T34 要第二个 agentd 身份，T22 ③ 要暂停 STG 控制器，T22 ① 要合盖一次；另 TD-347：「全机锁」其实按用户｜**我的建议 A**：一行 sudoers 让我以 `bifrost-agentd` 身份运行 `/bin/kill`；STG 加测试主体 `agentd:gate-b`、令牌放我家目录 600；这次 Gate A 期间允许我缩放 STG 的 `platform-workers`；合盖一次我提前说；Gate A 后全部撤掉。B：信号由你按时跑 `sudo kill`（约 6 次），其余同 A。C：只跑不要你的部分，其余记「只在存储层测过」，Gate A 标部分通过｜怎么回：线程里回「Gate A 参与 A」（或 B、C）
-        - [~] （补强，10-16 晚提到 2.3 之前）agentd 工作区能跑 Console 的检查（npm ci、lint、test、build），一句目标能选 Console｜接下来界面活多，不做这项就派不给 Agent｜10-15 晚定（`work/multi-agent/WORKMODE-owner-chief-of-staff-2026-10-15.md` 第三节）；现在目标只能选 bifrost-platform，默认检查只有 `go build`、`go vet`｜**10-16 23:5x 切法** `work/multi-agent/CUT-agentd-console-checks-2026-10-16.md`：平台仓库的检查照 CI 扩成 Go 加 Console 的 lint、test、build（选 `bifrost-platform` 就覆盖 Console，不另加选项）；任务说明加「旁边的仓库」（`bifrost-ui` 的 `main`）和「准备步骤」（agentd 在执行者开工前装好依赖）；先发 agentd 再发平台，重装 agentd 要你跑一条命令；规则不用重签｜估大半天到一天，含复核和 STG 走查
+        - [~] （补强，10-16 晚提到 2.3 之前）agentd 工作区能跑 Console 的检查（npm ci、lint、test、build），一句目标能选 Console｜接下来界面活多，不做这项就派不给 Agent｜10-15 晚定（`work/multi-agent/WORKMODE-owner-chief-of-staff-2026-10-15.md` 第三节）；现在目标只能选 bifrost-platform，默认检查只有 `go build`、`go vet`｜**10-16 23:2x 切法** `work/multi-agent/CUT-agentd-console-checks-2026-10-16.md`：平台仓库的检查照 CI 扩成 Go 加 Console 的 lint、test、build（选 `bifrost-platform` 就覆盖 Console，不另加选项）；任务说明加「旁边的仓库」（`bifrost-ui` 的 `main`）和「准备步骤」（agentd 在执行者开工前装好依赖）；先发 agentd 再发平台，重装 agentd 要你跑一条命令；规则不用重签｜估大半天到一天，含复核和 STG 走查｜**10-16 23:35 写完** `691f803`（真库上 agentd 全过、Go 66 包、按 agentd 目录结构演练 75 秒、7 个改坏版本各被抓到）；复核 227「先改」2 A（复用旁边仓库的 `.git` 会让上次的脚本拿到 Gitea 凭据；准备步骤带着厂商令牌）+ 1 B（`A1` 绕过大小写）+ 1 C（检查任务的准备链和逐条命令没测）→ `f21cefa` 全修（8 个改坏版本各被抓到）；**23:48 派了窄确认 228**；顺带记 TD-359（agentd 用户能读自己的令牌文件，执行者和检查命令也能读；要你定方案）
         - [ ] （补强）★ 正式环境：开发机上的 agentd 领正式环境的任务，6 道基准题从领到结论全程无人插手
       - 2.2b 第一版拉通（Owner 2026-10-15 18:1x 确认「草案 2」；`work/multi-agent/PLAN-round2-first-slice-2026-10-15.md`）
         - [x] 台账对齐：2.2 勾掉已在 STG 跑通的步骤，架构对照按 STG / PROD 重核，补强的步骤原位标「（补强）」｜10-15 18:17
@@ -482,7 +482,7 @@
         - [ ] 导航第二片：Needs you 的内容并进 For you、Progress 的内容并进 Work（做完的进 Records），两个详情页再退役；四个入口换成 v2 的 comfortable 字阶和单行结论样式｜第一片留下的，按你用第一片时提的问题一起排
         - [x] Ops 设计系统 v2（Claude Design，在本线程做）：「Bifrost Ops Console」设计系统 `https://claude.ai/artifact/WAXPKFjtR85QrcCutX1rYc` 加手机与平板字号和 44px、导航组件、Owner 的结论 / Yours / 值得一看 / 目标卡、参谋长对话组件；强调色只给当前入口和唯一主操作｜之后各片照 v2 做｜**10-16 19:24 发布**（设计系统第 5 版）：README 加第 10 节（四个入口、三种设备三种导航、两套字阶、对话、强调色、v2 的「不要」）；状态词表加 8 个「提议」词（Look、No goal yet、Not proven、Read N d ago、Accepted 和结论的三种说法），你认了才进封闭词表；10 张组件卡（导航 4、Owner 3、对话 3），用的是 PROD 18:31 的真读数；`styles.css` 加 v2 一段。导航画布加了一排 v2 外观的参考屏（手机 For you / Chief / Work、平板横屏 Work、电脑 For you 加参谋长面板）。没做：设计系统页要「完成迁移」后才显示组件卡（老的 9 张同样），这一步会重排老文件，由你决定做不做
       - 2.3 交互总线与叫停（设计的阶段 1）
-        - [ ] （补强）实现：信箱、唤醒、在线状态、叫停广播；隔离、根目录只读、注入防护；本机文件迁进平台
+        - [ ] （补强）实现：信箱、唤醒、在线状态、叫停广播；隔离、根目录只读、注入防护；本机文件迁进平台｜**10-16 23:4x 你定：Agent 在干什么的实时版随这里做**（不先插检查点薄版）：agentd 从三家工具的输出里提取动作（读了哪些文件、改了什么、跑了什么命令和结果），跟心跳上报；现在心跳的「阶段 / 最后一行」平台拒收，这里给它在 Redis 里一个短期落处
         - [ ] （补强）独立复核
         - [ ] （你）（补强）批发布单
         - [ ] （补强）★ Gate B
@@ -493,7 +493,7 @@
         - [ ] （你）（补强）批发布单
         - [ ] （补强）★ 一件活从派出到验收，全程没有统筹线程手工插手
       - 2.5 界面：协作进展在正式环境，完全由接口生成（从内往外的最后一层）
-        - [ ] （补强）实现：按新框架（For you / Work / System，10-16 晚改写；原写 Progress 页）由内核接口生成：把总控台上 ✎ 手写的计划、统筹线程留言、额度换成运行时记录；本机看板退役
+        - [ ] （补强）实现：按新框架（For you / Work / System，10-16 晚改写；原写 Progress 页）由内核接口生成：把总控台上 ✎ 手写的计划、统筹线程留言、额度换成运行时记录；本机看板退役｜**10-16 23:4x 你定，界面在这里接上 2.3 的动作流**：显示动作，不显示原始思考（小结可折叠在动作流里）；Work 上每件在跑的目标一行「现在：谁在做什么、多久」；目标页里每次尝试的动作流、已存的检查点（每 5 分钟的日志尾巴和改动补丁，库里已有、页面没显示）、结束后的报告和完整日志；进度接口规格要先补「动作流水」
         - [ ] （补强）独立复核
         - [ ] （你）（补强）批发布单
         - [ ] （补强）★ 停掉 Agent 主机上的看板程序，PROD Progress 页仍显示正确的计划和现场
