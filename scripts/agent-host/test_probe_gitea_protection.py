@@ -35,6 +35,7 @@ while read -r old new ref; do
     refs/heads/main)
       [[ "$mode" == open-main ]] && continue
       [[ "$mode" == odd-refusal ]] && { echo "Gitea: Internal Server Connecting Error"; exit 1; }
+      [[ "$mode" == protected-word ]] && { echo "Gitea: Internal Server Connecting Error: protected-branch service unavailable"; exit 1; }
       echo "Gitea: Not allowed to push to protected branch main"; exit 1 ;;
     refs/tags/*) echo "Gitea: Tag ${ref#refs/tags/} is protected"; exit 1 ;;
     refs/heads/agent/*)
@@ -48,9 +49,14 @@ done
 
 
 class FakeApi:
-    def __init__(self, merge_code: int = 405) -> None:
+    """The repository and pull-request calls, with answers as large as Gitea's (a padding field)."""
+
+    def __init__(self, merge: tuple[int, str] = (405, "User not allowed to merge PR"), close_code: int = 201,
+                 mergeable: bool = True) -> None:
         self.calls: list[tuple[str, str, str]] = []
+        self.state = "open"
         outer = self
+        pad = {"padding": "x" * 5000}
 
         class H(BaseHTTPRequestHandler):
             def _go(self) -> None:
@@ -58,13 +64,21 @@ class FakeApi:
                 if n:
                     self.rfile.read(n)
                 outer.calls.append((self.command, self.path, self.headers.get("Authorization", "")))
-                routes = {
-                    ("GET", "/api/v1/repos/bifrost/primary-probe"): (200, {"name": "primary-probe", "mirror": False}),
-                    ("POST", "/api/v1/repos/bifrost/primary-probe/pulls"): (201, {"number": 7}),
-                    ("POST", "/api/v1/repos/bifrost/primary-probe/pulls/7/merge"): (merge_code, {"message": "not allowed"}),
-                    ("PATCH", "/api/v1/repos/bifrost/primary-probe/pulls/7"): (201, {"number": 7, "state": "closed"}),
-                }
-                code, body = routes.get((self.command, self.path), (404, {}))
+                key, pr = (self.command, self.path), "/api/v1/repos/bifrost/primary-probe/pulls/7"
+                if key == ("GET", "/api/v1/repos/bifrost/primary-probe"):
+                    code, body = 200, {"name": "primary-probe", "mirror": False, **pad}
+                elif key == ("POST", "/api/v1/repos/bifrost/primary-probe/pulls"):
+                    code, body = 201, {"number": 7, "state": "open", **pad}
+                elif key == ("GET", pr):
+                    code, body = 200, {"number": 7, "state": outer.state, "mergeable": mergeable, **pad}
+                elif key == ("POST", pr + "/merge"):
+                    code, body = merge[0], {"message": merge[1], "url": "https://example.invalid/api/swagger"}
+                elif key == ("PATCH", pr):
+                    if close_code in (200, 201):
+                        outer.state = "closed"
+                    code, body = close_code, {"number": 7, "state": outer.state, **pad}
+                else:
+                    code, body = 404, {}
                 data = json.dumps(body).encode()
                 self.send_response(code)
                 self.send_header("Content-Type", "application/json")
@@ -115,7 +129,7 @@ class Probe(unittest.TestCase):
     def run_probe(self, api: FakeApi, mode: str = "", bash: tuple[str, ...] = ()) -> subprocess.CompletedProcess:
         (self.bare / "probe-mode").write_text(mode)
         env = {**os.environ, "HOME": str(self.root), "PROBE_GITEA": f"file://{self.gitea}", "PROBE_API_BASE": api.base,
-               "PROBE_TOKEN_FILE": str(self.token_file)}
+               "PROBE_TOKEN_FILE": str(self.token_file), "PROBE_MERGEABLE_WAIT": "2"}
         return subprocess.run(["bash", *bash, str(PROBE)], env=env, capture_output=True, text=True, timeout=120)
 
     def test_every_rule_holds(self) -> None:
@@ -125,7 +139,8 @@ class Probe(unittest.TestCase):
         finally:
             api.close()
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(r.stdout.count("\nok "), 8, r.stdout)
+        self.assertEqual(r.stdout.count("\nok "), 9, r.stdout)
+        self.assertEqual(api.state, "closed")
         self.assertNotIn("FAIL", r.stdout)
         self.assertIn("all as expected", r.stdout)
         self.assertTrue(all(auth == "token " + TOKEN for _, _, auth in api.calls))
@@ -148,16 +163,48 @@ class Probe(unittest.TestCase):
         finally:
             api.close()
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertIn("refused, but not by a rule", r.stdout)
+        self.assertIn("refused, but not in the words of that rule", r.stdout)
 
     def test_a_merged_pull_request_fails_the_probe(self) -> None:
-        api = FakeApi(merge_code=200)
+        api = FakeApi(merge=(200, ""))
         try:
             r = self.run_probe(api)
         finally:
             api.close()
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("Gitea merged it", r.stdout)
+
+    # review 254: a refusal or a merge answer that is not the rule's fails the probe; the pull request is closed
+    def assert_fails(self, api: FakeApi, words: str, mode: str = "") -> subprocess.CompletedProcess:
+        try:
+            r = self.run_probe(api, mode=mode)
+        finally:
+            api.close()
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn(words, r.stdout + r.stderr)
+        self.assertNotIn("all as expected", r.stdout)
+        return r
+
+    def test_a_refusal_that_only_mentions_protected_fails_the_probe(self) -> None:
+        self.assert_fails(FakeApi(), "not in the words of that rule", mode="protected-word")
+
+    def test_a_merge_refused_for_another_reason_fails_the_probe(self) -> None:
+        api = FakeApi(merge=(405, "Please try again later"))
+        self.assert_fails(api, "HTTP 405 for another reason")
+        self.assertEqual(api.state, "closed")
+
+    def test_a_merge_forbidden_fails_the_probe(self) -> None:
+        self.assert_fails(FakeApi(merge=(403, "token does not have at least one of required scope(s)")), "not recognised: HTTP 403")
+
+    def test_a_pull_request_never_mergeable_is_not_a_pass(self) -> None:
+        api = FakeApi(mergeable=False)
+        self.assert_fails(api, "never said it can be merged")
+        self.assertFalse(any(c[1].endswith("/merge") for c in api.calls))
+
+    def test_a_pull_request_that_will_not_close_fails_the_probe(self) -> None:
+        api = FakeApi(close_code=500)
+        self.assert_fails(api, "close pull request #7 — still")
+        self.assertEqual(api.state, "open")
 
     def test_xtrace_does_not_print_the_token(self) -> None:
         api = FakeApi()
