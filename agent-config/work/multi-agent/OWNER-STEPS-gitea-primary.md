@@ -6,7 +6,7 @@
 
 ## 0　换 Gitea 管理员令牌（TD-365，约 10 分钟；脚本复核过了我说一声再做）
 
-旧令牌从 2026-06-17 起就在公开的 infra 仓库历史里（`d30ef90`），至今还在用。它在集群里放了**两处**：`gitea-bootstrap`（平台和镜像同步用）和 `gitea-git-credentials` 的密码（Tekton 每次克隆代码用）。原来这一节只换第一处，照做后再删旧令牌，CI、deliver、apply-manifest 的克隆会一起断（10-17 16:2x 发现，已改）。脚本 `scripts/gitea/rotate-admin-token.sh` 两处一起换，不显示任何令牌。
+旧令牌从 2026-06-17 起就在公开的 infra 仓库历史里（`d30ef90`），至今还在用。它在集群里放了**两处**：`gitea-bootstrap`（平台和镜像同步用）和 `gitea-git-credentials` 的密码（Tekton 每次克隆代码用）。原来这一节只换第一处，照做后再删旧令牌，CI、deliver、apply-manifest 的克隆会一起断（10-17 18:3x 发现，已改）。脚本 `scripts/gitea/rotate-admin-token.sh` 两处一起换，不显示任何令牌。
 
 1. 先只核对（不改东西）：
 
