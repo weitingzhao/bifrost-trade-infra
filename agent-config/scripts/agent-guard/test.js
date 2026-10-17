@@ -32,13 +32,19 @@ const PRIMARY = (() => {
   g('remote', 'set-url', '--push', 'split', 'git@github.com:weitingzhao/bifrost-ui.git')
   // review 244 A3: a rewrite kept in the checkout's own config
   g('config', 'url.https://github.com/weitingzhao/.pushInsteadOf', 'https://rewritten.invalid/')
+  // a remote kept the old way, in .git/remotes
+  nodeFs.mkdirSync(nodePath.join(repo, '.git', 'remotes'))
+  nodeFs.writeFileSync(nodePath.join(repo, '.git', 'remotes', 'legacy'), 'URL: https://github.com/weitingzhao/bifrost-ui.git\n')
   const spaced = nodePath.join(dir, 'review checkout')
   checkout(spaced, ['origin', GITEA], ['backup', GITHUB])
   checkout(nodePath.join(dir, 'work'), ['origin', GITEA])
+  // review 245 item 2: an address with a newline in it breaks the remote -v records (of every remote there)
+  const odd = nodePath.join(dir, 'odd')
+  checkout(odd, ['origin', GITEA])('config', 'remote.newline.url', nodePath.join(dir, 'line\nbreak.git'))
   const list = nodePath.join(dir, 'gitea-primary.txt')
   nodeFs.writeFileSync(list, '# fixture\nbifrost-ui\n')
   process.env.BIFROST_GITEA_PRIMARY_LIST = list
-  return { repo, spaced, outside: dir }
+  return { repo, spaced, odd, outside: dir }
 })()
 const bash = c => ({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: c }, cwd: PRIMARY.repo })
 const bashIn = (c, cwd) => ({ ...bash(c), cwd })
@@ -359,6 +365,17 @@ const cases = [
   ['gitea-primary', 'ALLOW', '名单外的地址经改写仍在名单外', bash('git -c url.https://github.com/weitingzhao/.pushInsteadOf=https://gitea.invalid/ push https://gitea.invalid/bifrost-research.git x:refs/heads/x')],
   ['gitea-primary', 'ALLOW', '不是远端名的本地路径', bash('git push ../elsewhere.git x:refs/heads/x')],
   ['push', 'DENY', "-C '带空格的目录' 推 main", bashIn(`git -C '${PRIMARY.spaced}' push origin HEAD:refs/heads/main`, PRIMARY.outside)],
+  // 复核 245 A：重定向夹在 git 和 push 之间
+  ['gitea-primary', 'DENY', '重定向在 git 和 push 之间', bash('git 2>/tmp/review245/push.log push backup --tags')],
+  ['gitea-primary', 'DENY', '两个重定向在 git 和 push 之间', bash('git >/dev/null 2>&1 push backup --tags')],
+  ['gitea-primary', 'DENY', '&> 在 git 和 push 之间', bash('git &>/dev/null push backup --tags')],
+  ['push', 'DENY', '重定向在 git 和 push 之间推 main', bash('git 2>/tmp/review245/push.log push backup HEAD:main')],
+  ['gitea-primary', 'ALLOW', '推 origin 后面带重定向和管道', bash('git push origin x:refs/heads/x 2>&1 | tail -3')],
+  ['gitea-primary', 'DENY', '重定向没有目标', bash('git push origin x:refs/heads/x >')],
+  // 复核 245 第 2 项：远端地址里有换行；旧式 .git/remotes 远端
+  ['gitea-primary', 'DENY', '远端地址里有换行', bashIn('git push newline --tags', PRIMARY.odd)],
+  ['gitea-primary', 'DENY', '同一检出里别的远端也看不出', bashIn('git push origin x:refs/heads/x', PRIMARY.odd)],
+  ['gitea-primary', 'DENY', '旧式 .git/remotes 远端', bash('git push legacy --tags')],
   ['push', 'ALLOW', 'push-main.sh', bash('bifrost-trade-infra/scripts/release/push-main.sh ~/agent-work/x/bifrost-platform abc123')],
   ['push', 'ALLOW', '推自己的分支', bash('git push origin w31/agentrt-22-agentd')],
   ['push', 'ALLOW', 'HEAD 推到写明的分支', bash('git push -u origin HEAD:refs/heads/w31/x')],
@@ -475,11 +492,15 @@ console.log('\n── Gitea 为主：名单为空 ──')
     ['ALLOW', 'GitHub 地址', bash('git push https://github.com/weitingzhao/bifrost-ui.git x:refs/heads/x')],
     ['ALLOW', 'HOME=', bash('HOME=/tmp/elsewhere git push origin x:refs/heads/x')],
     ['ALLOW', 'bash -c 里推别名', bash("bash -c 'git push backup x:refs/heads/x'")],
+    // 复核 245 第 3 项：比 49d175b 多拦的两种写法（两条禁令本来就要拦它们）
+    ['DENY', "-C '带空格的目录' 推 main", bashIn(`git -C '${PRIMARY.spaced}' push backup HEAD:main`, PRIMARY.outside), 'push-main'],
+    ['DENY', '相邻引号拼成的 github', bash("git push 'git''hub' --tags")],
+    ['ALLOW', '重定向在 git 和 push 之间推别名', bash('git 2>/dev/null push backup x:refs/heads/x')],
   ]
-  for (const [want, name, payload] of emptyCases) {
+  for (const [want, name, payload, kind = 'gitea-primary'] of emptyCases) {
     const verdict = evaluate(payload)
     const got = verdict.deny ? 'DENY' : 'ALLOW'
-    const ok = got === want && (!verdict.deny || verdict.kind === 'gitea-primary')
+    const ok = got === want && (!verdict.deny || verdict.kind === kind)
     ok ? pass++ : fail++
     console.log(`  ${ok ? '✓' : '✗'} ${got.padEnd(5)} ${name}${ok ? '' : `   ← 期望 ${want}（${verdict.kind || ''}）`}`)
   }

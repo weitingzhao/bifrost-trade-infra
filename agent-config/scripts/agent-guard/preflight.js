@@ -295,31 +295,42 @@ function sharedWorktreeRules(cmd) {
 /**
  * 一行命令按 shell 的规则拆成简单命令：在没被引号括住的 ; & | ( ) 和换行处断开，每个简单命令是一组词
  * （复核 244 A3：`-C '/tmp/review checkout'` 这样带引号、带空格的参数要整个认出来）。认单引号、双引号
- * （里面认 \" \\ \$ \` 和续行）、引号外的反斜杠和词首的 # 注释。不做展开：词里留着 $ 和 `，用的地方见到
- * 就当作看不出。词首没被引号括住的 ~ 记在 tilde 上（shell 会把它换成 HOME）。引号没收尾时 ok 为 false。
+ * （里面认 \" \\ \$ \` 和续行）、引号外的反斜杠和词首的 # 注释。重定向（> >> < << <<< <> >& <& >| &> &>>，
+ * 前面紧挨着的纯数字或 {名字} 是文件描述符）连同它的目标从词里拿掉：shell 不把它们交给命令（复核 245 A：
+ * `git 2>/tmp/x push …` 里 push 才是子命令）。不做展开：词里留着 $ 和 `，用的地方见到就当作看不出。
+ * 词首没被引号括住的 ~ 记在 tilde 上（shell 会把它换成 HOME）。引号没收尾、重定向没有目标时 ok 为 false。
  */
+const REDIRECT_OPS = ['&>>', '&>', '<<<', '<<-', '<<', '<>', '<&', '<', '>>', '>&', '>|', '>']
+
 function shellCommands(cmd) {
   const s = String(cmd)
   const commands = []
   let words = []
   let word = null
   let ok = true
+  let target = false // 下一个词是重定向的目标，不是参数
   const endWord = () => {
-    if (word !== null) words.push(word)
+    if (word !== null) {
+      if (target) target = false
+      else words.push(word)
+    }
     word = null
   }
   const endCommand = () => {
     endWord()
+    if (target) ok = false
+    target = false
     if (words.length > 0) commands.push(words)
     words = []
   }
   const begin = tilde => {
-    if (word === null) word = { text: '', tilde }
+    if (word === null) word = { text: '', tilde, quoted: false }
   }
   for (let i = 0; i < s.length; i++) {
     const c = s[i]
     if (c === "'") {
       begin(false)
+      word.quoted = true
       const end = s.indexOf("'", i + 1)
       if (end === -1) {
         ok = false
@@ -329,6 +340,7 @@ function shellCommands(cmd) {
       i = end
     } else if (c === '"') {
       begin(false)
+      word.quoted = true
       let j = i + 1
       for (; j < s.length && s[j] !== '"'; j++) {
         if (s[j] === '\\' && j + 1 < s.length && '"\\$`\n'.includes(s[j + 1])) {
@@ -348,7 +360,15 @@ function shellCommands(cmd) {
         continue
       }
       begin(false)
+      word.quoted = true
       if (i + 1 < s.length) word.text += s[++i]
+    } else if (c === '<' || c === '>' || (c === '&' && s[i + 1] === '>')) {
+      if (word !== null && !word.quoted && /^([0-9]+|\{[A-Za-z_][A-Za-z0-9_]*\})$/.test(word.text)) word = null
+      else endWord()
+      if (target) ok = false // 两个重定向之间没有目标
+      const op = REDIRECT_OPS.find(o => s.startsWith(o, i))
+      i += op.length - 1
+      target = true
     } else if (c === ' ' || c === '\t' || c === '\r') {
       endWord()
     } else if ('\n;&|()'.includes(c)) {
@@ -557,8 +577,8 @@ function pushDestinations(args) {
   return out
 }
 
-/** git 的输出行和退出码；起不来或超时时退出码是 -1。 */
-function gitLines(args, cwd) {
+/** git 的标准输出和退出码；起不来或超时时退出码是 -1。 */
+function gitRun(args, cwd) {
   try {
     const out = require('node:child_process').execFileSync('git', args, {
       cwd: cwd || process.cwd(),
@@ -566,9 +586,9 @@ function gitLines(args, cwd) {
       timeout: 3000,
       stdio: ['ignore', 'pipe', 'ignore'],
     })
-    return { status: 0, lines: out.split('\n').map(l => l.trim()).filter(Boolean) }
+    return { status: 0, out }
   } catch (e) {
-    return { status: typeof e.status === 'number' ? e.status : -1, lines: [] }
+    return { status: typeof e.status === 'number' ? e.status : -1, out: '' }
   }
 }
 
@@ -577,22 +597,27 @@ function gitLines(args, cwd) {
  * `git remote -v` 列出每个远端的推送地址，已经套上 insteadOf / pushInsteadOf，远端来自哪份配置都列
  * （`remote get-url` 只认检出自己配置里的远端，-c 和全局配置里的它说没有）。dest 是远端名就取它那几行；
  * 不是远端名，git push 把它当地址：这里给它套一个只在这次查询里存在的随机远端名，让 git 自己改写
- * （复核 244 A3）。只写在 .git/remotes、.git/branches 里的旧式远端 remote -v 不列，由 get-url 读。
- * 查不到返回 null。
+ * （复核 244 A3）。每条记录都要是「名字<Tab>地址 (fetch|push)」：地址里有换行时记录会断开，这时看不出，
+ * 返回 null（复核 245 第 2 项）。只写在 .git/remotes、.git/branches 里的旧式远端 remote -v 不列，
+ * get-url 认得它却按行输出、同样分不清换行，也返回 null。查不到返回 null。
  */
 function effectivePushUrls(dest, globals, cwd) {
   const probe = 'preflight-' + require('node:crypto').randomBytes(8).toString('hex')
-  const listing = gitLines([...globals, '-c', `remote.${probe}.url=${dest}`, 'remote', '-v'], cwd)
+  const listing = gitRun([...globals, '-c', `remote.${probe}.url=${dest}`, 'remote', '-v'], cwd)
   if (listing.status !== 0) return null
-  const pushUrls = name =>
-    listing.lines
-      .filter(l => l.startsWith(name + '\t') && l.endsWith(' (push)'))
-      .map(l => l.slice(name.length + 1, -' (push)'.length))
+  const lines = listing.out.split('\n')
+  if (lines.pop() !== '') return null
+  const records = []
+  for (const line of lines) {
+    const m = line.match(/^([^\t]+)\t(.*) \((fetch|push)\)$/)
+    if (!m) return null
+    records.push({ name: m[1], url: m[2], push: m[3] === 'push' })
+  }
+  const pushUrls = name => records.filter(r => r.push && r.name === name).map(r => r.url)
   const named = pushUrls(dest)
   if (named.length > 0) return named
-  const legacy = gitLines([...globals, 'remote', 'get-url', '--push', '--all', '--', dest], cwd)
-  if (legacy.status === 0) return legacy.lines.length > 0 ? legacy.lines : null
-  if (legacy.status !== 2) return null
+  // remote -v 里没有它：旧式远端（get-url 认得，退出码 0）看不出；不是远端（No such remote，2）就是地址
+  if (gitRun([...globals, 'remote', 'get-url', '--push', '--all', '--', dest], cwd).status !== 2) return null
   const anonymous = pushUrls(probe)
   return anonymous.length > 0 ? anonymous : null
 }
