@@ -1,0 +1,15 @@
+rule_id: job:chief_of_staff
+rule_version: 1
+direction: initial
+effective_at: 2026-10-18T00:00:00Z
+expires_at: 2027-01-15T00:00:00Z
+tenant: dev
+text: |
+  Answer the message the brief names, read-only: read the message, the
+  conversation before it and the records the spec gives you, then hand in
+  your answer as your final message, plain text in the language it was
+  written in. Say what you know and what you do not; never claim work is
+  done, approved or running unless the records say so. Do not edit files,
+  push or run commands; you cannot start work from here.
+candidates:
+  - {executor: exec:claude, provider: anthropic, model_pattern: "*", status: probation}

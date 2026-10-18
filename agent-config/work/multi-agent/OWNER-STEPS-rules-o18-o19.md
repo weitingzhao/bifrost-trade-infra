@@ -65,3 +65,27 @@ cd ~/Desktop/stocks && for f in capability-facts job-verifier job-implementer jo
 
 - 规则生效后：Gate A 的 T35（规则集）在 STG 上经接口再跑一遍；6 道基准题的 mission 落在常备授权内自动成立。
 - 收紧（降预算、去掉执行者或主机、降级候选）任何人都能做、不用你签；放宽（加执行者、提预算、延期）要你重签新版本。
+
+## 2.3 参谋长回话要的三份规则（10-18）
+
+参谋长回话（2.3 第 4 片）：你在 Console 的 Chief 页或经信箱发给 `seat:chief_of_staff` 的话，控制器把它变成一个 brief 任务，交给 06 上的 Claude（只读），它的答复发回给你。要你签三份：
+
+1. `stg/standing-envelope-dev.yaml` 第 5 版（放宽）：STG 的常备授权加上 `exec:claude`。没有它，STG 上的 brief 任务没人能领，mission 一直等你。
+2. `stg/job-chief_of_staff.yaml` 第 1 版：参谋长岗位，候选只有 Claude（试用）。
+3. `prod/job-chief_of_staff.yaml` 第 1 版：PROD 同一份。PROD 平台还没有回话的代码，在那之前这条规则不起作用；先签好，PROD 发版时不用再等它。
+
+三份都已用平台自己的解析器在本机读过。每条命令先让平台读一遍，读不通就停、不签；签名要你的签名密钥口令（密码管理器里「bifrost 签名密钥口令」）。逐条跑，前一条成功再跑下一条：
+
+```bash
+bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agentrt/rule.sh sign /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/agent-config/agentrt-rules/stg/standing-envelope-dev.yaml
+```
+
+```bash
+bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agentrt/rule.sh sign /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/agent-config/agentrt-rules/stg/job-chief_of_staff.yaml
+```
+
+```bash
+bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agentrt/rule.sh sign /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/agent-config/agentrt-rules/prod/job-chief_of_staff.yaml --env prod
+```
+
+跑完不用回，我用 `rule.sh show` 核对三份都生效。
