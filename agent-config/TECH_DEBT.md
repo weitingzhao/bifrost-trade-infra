@@ -2139,6 +2139,19 @@
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-371
+
+**P2 · agentd · no executor shares the host until its whole process tree is held to its workspace**
+
+- **状态**：未开始（2026-10-18 14:1x 记，复核 277 A2、278 A2；2.4 第 3 片的并发机制已在，但每件仍独占主机，所以 `per_host: 2` 签了也还是一次一件）
+- **Claim**: several attempts share 06 only when each can write nothing outside its own workspace (`share.go` `confined`). None qualifies yet. codex: its `workspace-write` sandbox also writes the shared temporary directories, and the host user's configuration can add writable roots (`sandbox_workspace_write.writable_roots`), which agentd neither pins nor checks. claude: the `Read,Grep,Glob` tool list does not reach command hooks in the user's or the repository's `.claude/settings.json` (a `UserPromptSubmit` hook runs as the user). cursor in ask mode: likewise `~/.cursor/hooks.json` and a repository's `.cursor/hooks.json` (`beforeSubmitPrompt`). A hook an earlier, unsandboxed setup left, or one an implementer put in its branch for its reviewer, runs as the agentd user.
+- **Evidence**: `bifrost-platform/api/internal/agentd/share.go` (`confined`), `api/internal/agentd/executors.go` (`codexExecutor`, `claudeExecutor`, `cursorExecutor`); reviews `~/agent-work/codex-review-277/REPORT.md` item 2, `~/agent-work/codex-review-278/REPORT.md` item 2.
+- **Impact**: no loss against round 2 so far (one attempt at a time); 2.4's "06 runs two or three at once" waits for this. A repository hook running in a reviewer is a risk with or without concurrency.
+- **Fix**: per executor, hold the whole process tree: codex with its writable roots pinned on the command line (`-c sandbox_workspace_write.writable_roots=[]`, the shared tmp excluded, `TMPDIR` a directory of the attempt's own output); claude with hooks off for every source (`--settings '{"disableAllHooks":true}'`, the setting sources limited) and cursor with a `HOME` of the attempt's own (its key comes from the environment) and the repository's `.cursor/hooks.json` refused; prove on 06 (Linux, under the agentd AppArmor profile) that a write outside the workspace is refused for each, and only then class it confined.
+- **Ratchet**: tests that each executor's argv and environment carry the pins, and an `agent-06-owner.sh` probe per executor that a write outside its workspace is refused on the host.
+- 验收: the probes refuse the writes on 06; `TestConfined` classes an executor confined only with its pins.
+- 审批 不需要（只改平台与 agentd；06 上跑探针要你一次）· 代价 M · 风险 medium · repos: bifrost-platform, bifrost-trade-infra
+
 ### TD-370
 
 **P2 · agentrt · security · a thread is who its session header says: any token that may propose reads and writes as any thread**
