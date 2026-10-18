@@ -20,8 +20,9 @@
 #   git-token prod|stg    read a Gitea token (hidden) and install it on 06
 #   host-check base|creds|running   run check-agent-06.sh on 06
 #   secret prod|stg       put that agentd's platform token into its Secret
-#   stop                  stop both agentd services (before prepare runs again)
-#   start                 enable and start both agentd services
+#   stop [prod|stg]       stop that agentd service, or both (before prepare
+#                         runs again)
+#   start [prod|stg]      enable and start that agentd service, or both
 #   retire-mac            stop the agentd on this Mac
 #   probe-protection      run probe-gitea-protection.sh on 06 as the STG agentd
 #                         user against bifrost/primary-probe (Gitea-primary cut,
@@ -542,12 +543,33 @@ step_secret() {
   rm -f "$TMPD/patch.json"
 }
 
-step_stop() {
-  node_ssh 'sudo systemctl stop bifrost-agentd.service bifrost-agentd-stg.service && ! systemctl is-active --quiet bifrost-agentd.service && ! systemctl is-active --quiet bifrost-agentd-stg.service && echo "both agentd stopped"'
+# units_of [prod|stg]: the agentd unit of that environment, or both.
+units_of() {
+  case "${1:-}" in
+    "") echo "bifrost-agentd.service bifrost-agentd-stg.service" ;;
+    prod) echo bifrost-agentd.service ;;
+    stg) echo bifrost-agentd-stg.service ;;
+    *) die "say prod, stg, or nothing for both" ;;
+  esac
 }
 
+step_stop() {
+  local units u check=""
+  units=$(units_of "${1:-}")
+  for u in $units; do check="$check && ! systemctl is-active --quiet $u"; done
+  node_ssh "sudo systemctl stop $units$check && echo 'stopped: $units'"
+}
+
+# start [prod|stg]: both are checked with check-agent-06.sh running; one alone
+# (Gitea-primary batch A starts STG before PROD) is checked as active after 20 s.
 step_start() {
-  node_ssh 'sudo systemctl enable --now bifrost-agentd.service bifrost-agentd-stg.service && sleep 20 && sudo bash ~/agent-host/check-agent-06.sh running'
+  local units
+  units=$(units_of "${1:-}")
+  if [ -z "${1:-}" ]; then
+    node_ssh "sudo systemctl enable --now $units && sleep 20 && sudo bash ~/agent-host/check-agent-06.sh running"
+  else
+    node_ssh "sudo systemctl enable --now $units && sleep 20 && systemctl is-active --quiet $units && echo 'running: $units'"
+  fi
 }
 
 step_retire_mac() {
@@ -578,7 +600,7 @@ step_probe_protection() {
 
 step=${1:-}
 if [ -z "$step" ]; then
-  sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'
   exit 2
 fi
 shift

@@ -15,6 +15,7 @@ import base64
 import json
 import os
 import select
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -37,6 +38,44 @@ GIT_ENV = {
 def git(cwd: Path, *args: str) -> str:
     env = {**os.environ, **GIT_ENV, "HOME": str(cwd)}
     return subprocess.run(["git", *args], cwd=cwd, env=env, check=True, capture_output=True, text=True).stdout.strip()
+
+
+def run_on_pty(cmd: list[str], env: dict, typed: str | None) -> tuple[subprocess.CompletedProcess, str]:
+    """Runs cmd with a pty as stdin, types `typed` once it prompts "(input hidden): "; returns
+    the result and what the terminal echoed. bash's read -s flushes pending terminal input when
+    it turns echo off, so type only once the prompt is out, as a person would."""
+    master, slave = os.openpty()
+    try:
+        p = subprocess.Popen(cmd, env=env, stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        os.close(slave)
+        slave = -1
+        err = b""
+        deadline = time.monotonic() + 30
+        while b"(input hidden): " not in err and time.monotonic() < deadline:
+            ready, _, _ = select.select([p.stderr], [], [], 0.5)
+            if ready:
+                chunk = os.read(p.stderr.fileno(), 4096)
+                if not chunk:
+                    break
+                err += chunk
+        if b"(input hidden): " in err and typed is not None:
+            time.sleep(0.3)
+            os.write(master, (typed + "\n").encode())
+        out, rest = p.communicate(timeout=30)
+        echoed = b""
+        while select.select([master], [], [], 0.2)[0]:
+            try:
+                chunk = os.read(master, 4096)
+            except OSError:
+                break
+            if not chunk:
+                break
+            echoed += chunk
+        return subprocess.CompletedProcess(cmd, p.returncode, out.decode(), (err + rest).decode()), echoed.decode(errors="replace")
+    finally:
+        if slave >= 0:
+            os.close(slave)
+        os.close(master)
 
 
 class FakeApi:
@@ -1444,47 +1483,17 @@ class PutGithubSyncToken(unittest.TestCase):
 
     def run_it(self, typed: str | None = PAT_FIXTURE, tty: bool = True) -> subprocess.CompletedProcess:
         port = self.server.server_address[1]
-        env = {**os.environ, "PATH": self.path, "FAKE_STATE": str(self.state), "PUT_PAT_FIXTURE_KUBECONFIG": str(self.kubeconfig),
+        env = {**os.environ, "PATH": self.path, "FAKE_STATE": str(self.state), "PUT_TOKEN_KUBECONFIG": str(self.kubeconfig),
                "GITHUB_API": f"http://127.0.0.1:{port}/api", "GITHUB_GIT": f"http://127.0.0.1:{port}/weitingzhao",
                "REPOS": "bifrost-ui bifrost-platform", "NO_PROXY": "*", "no_proxy": "*"}
         cmd = ["bash", str(HERE / "put-github-sync-token.sh")]
+        # never the real kubectl or the Owner's kubeconfig: a slip here would create the Secret for real
+        self.assertEqual(shutil.which("kubectl", path=env["PATH"]), str(Path(self.path.split(":")[0]) / "kubectl"))
+        self.assertIn("fixture", (self.kubeconfig).read_text())
         if not tty:
             return subprocess.run(cmd, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
-        master, slave = os.openpty()
-        try:
-            p = subprocess.Popen(cmd, env=env, stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            os.close(slave)
-            slave = -1
-            # bash's read -s flushes pending terminal input when it turns echo off, so type only
-            # once the prompt is out, as a person would.
-            err = b""
-            deadline = time.monotonic() + 30
-            while b"(input hidden): " not in err and time.monotonic() < deadline:
-                ready, _, _ = select.select([p.stderr], [], [], 0.5)
-                if ready:
-                    chunk = os.read(p.stderr.fileno(), 4096)
-                    if not chunk:
-                        break
-                    err += chunk
-            if b"(input hidden): " in err and typed is not None:
-                time.sleep(0.3)
-                os.write(master, (typed + "\n").encode())
-            out, rest = p.communicate(timeout=30)
-            echoed = b""
-            while select.select([master], [], [], 0.2)[0]:
-                try:
-                    chunk = os.read(master, 4096)
-                except OSError:
-                    break
-                if not chunk:
-                    break
-                echoed += chunk
-            self.echoed = echoed.decode(errors="replace")
-            return subprocess.CompletedProcess(cmd, p.returncode, out.decode(), (err + rest).decode())
-        finally:
-            if slave >= 0:
-                os.close(slave)
-            os.close(master)
+        r, self.echoed = run_on_pty(cmd, env, typed)
+        return r
 
     def created(self) -> bool:
         return (self.state / "secret").exists()
@@ -1537,6 +1546,176 @@ class PutGithubSyncToken(unittest.TestCase):
         self.assertIn("ok    can push to bifrost-ui", r.stdout)
         self.assertIn("FAIL  bifrost-platform: push handshake → HTTP 403", r.stdout)
 
+
+
+GITEA_TOKEN_FIXTURE = "0123456789abcdef0123456789abcdef01234567"
+
+
+def isolated_git_env(root: Path) -> dict:
+    """A git that reads only root/gitconfig: no system config (Apple's osxkeychain helper lives
+    there), no ~/.gitconfig, no XDG file. Tests of credential and global-config scripts use it so
+    that nothing reaches the Owner's keychain or ~/.gitconfig."""
+    home = root / "home"
+    home.mkdir(exist_ok=True)
+    return {**{k: v for k, v in os.environ.items() if not k.startswith("GIT_")},
+            "HOME": str(home), "XDG_CONFIG_HOME": str(home / ".config"), "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": str(root / "gitconfig"), "NO_PROXY": "*", "no_proxy": "*"}
+
+
+class StoreMbpToken(unittest.TestCase):
+    """store-mbp-token.sh against a fake Gitea, with git's store helper in a temporary file."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.env = isolated_git_env(self.root)
+        self.store = self.root / "credentials"
+        (self.root / "gitconfig").write_text(f'[credential]\n\thelper = "store --file {self.store}"\n')
+        self.login = "bifrost-mbp"
+        self.push_code = 200
+        outer = self
+
+        class H(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                auth = self.headers.get("Authorization", "")
+                code, body = 404, b"{}"
+                if self.path == "/api/v1/user":
+                    code, body = (200, json.dumps({"login": outer.login}).encode()) if auth == "token " + GITEA_TOKEN_FIXTURE else (401, b"{}")
+                elif self.path == "/bifrost/primary-probe.git/info/refs?service=git-receive-pack":
+                    want = "Basic " + base64.b64encode(f"bifrost-mbp:{GITEA_TOKEN_FIXTURE}".encode()).decode()
+                    code, body = (outer.push_code, b"0000") if auth == want else (401, b"")
+                self.send_response(code)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *a) -> None:
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.host = f"127.0.0.1:{self.server.server_address[1]}"
+        self.env["GITEA_PUBLIC_BASE"] = f"http://{self.host}/bifrost"
+
+    def tearDown(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+        self.tmp.cleanup()
+
+    def run_it(self, typed: str | None = GITEA_TOKEN_FIXTURE, tty: bool = True) -> subprocess.CompletedProcess:
+        # the guard: under this environment git knows only the helpers this test wrote
+        helpers = subprocess.run(["git", "config", "--get-all", "credential.helper"], env=self.env, capture_output=True, text=True).stdout
+        self.assertNotIn("osxkeychain", helpers)
+        cmd = ["bash", str(HERE / "store-mbp-token.sh")]
+        if not tty:
+            return subprocess.run(cmd, env=self.env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
+        r, self.echoed = run_on_pty(cmd, self.env, typed)
+        return r
+
+    def stored(self) -> str:
+        return self.store.read_text() if self.store.exists() else ""
+
+    def test_stores_after_gitea_says_yes(self) -> None:
+        r = self.run_it()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(f"http://bifrost-mbp:{GITEA_TOKEN_FIXTURE}@127.0.0.1%3a{self.server.server_address[1]}", self.stored())  # the store helper encodes the port colon
+        self.assertIn("ok    token of bifrost-mbp", r.stdout)
+        self.assertIn(f"git now pushes to http://{self.host} as bifrost-mbp", r.stdout)
+        self.assertNotIn(GITEA_TOKEN_FIXTURE, r.stdout + r.stderr + self.echoed)
+
+    def test_nothing_stored_when_anything_is_wrong(self) -> None:
+        cases = (
+            ("no helper", lambda: (self.root / "gitconfig").write_text(""), None, "no credential helper"),
+            ("empty input", lambda: None, "", "empty input"),
+            ("not a Gitea token", lambda: None, "github_pat_abc", "40 hex characters"),
+            ("token Gitea refuses", lambda: None, "f" * 40, "GET /api/v1/user → HTTP 401"),
+            ("another account's token", lambda: setattr(self, "login", "weitingzhao"), None, "belongs to 'weitingzhao'"),
+            ("token without write", lambda: setattr(self, "push_code", 403), None, "push handshake on primary-probe → HTTP 403"),
+        )
+        for name, change, typed, words in cases:
+            with self.subTest(name):
+                self.tearDown()
+                self.setUp()
+                change()
+                r = self.run_it(typed=GITEA_TOKEN_FIXTURE if typed is None else typed)
+                self.assertEqual(r.returncode, 1, name + r.stdout + r.stderr)
+                self.assertIn(words, r.stderr, name)
+                self.assertIn("Nothing was stored.", r.stderr, name)
+                self.assertEqual(self.stored(), "", name)
+                self.assertNotIn(GITEA_TOKEN_FIXTURE, r.stdout + r.stderr, name)
+
+    def test_refuses_without_a_terminal(self) -> None:
+        r = self.run_it(tty=False)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("not a terminal", r.stderr)
+        self.assertEqual(self.stored(), "")
+
+    def test_another_entry_answering_first_is_named(self) -> None:
+        helper = self.root / "first-helper.sh"
+        helper.write_text("#!/bin/sh\n[ \"$1\" = get ] && printf 'username=weitingzhao\\npassword=other\\n'\nexit 0\n")
+        helper.chmod(0o755)
+        (self.root / "gitconfig").write_text(f'[credential]\n\thelper = "!{helper}"\n\thelper = "store --file {self.store}"\n')
+        r = self.run_it()
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("git answers user 'weitingzhao'", r.stderr)
+        self.assertIn("remove it in Keychain Access (search 127.0.0.1)", r.stderr)
+        self.assertNotIn(GITEA_TOKEN_FIXTURE, r.stdout + r.stderr)
+
+
+class GlobalInsteadOf(unittest.TestCase):
+    """global-insteadof.sh with GIT_CONFIG_GLOBAL in a temporary directory."""
+
+    GITEA = "http://192.168.10.73:30300/bifrost"
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.env = isolated_git_env(self.root)
+        self.config = self.root / "gitconfig"
+        self.config.write_text("[user]\n\tname = t\n")
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def run_it(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["bash", str(HERE / "global-insteadof.sh"), *args], env=self.env, capture_output=True, text=True, timeout=60)
+
+    def url(self, address: str) -> str:
+        return subprocess.run(["git", "ls-remote", "--get-url", address], env=self.env, capture_output=True, text=True, check=True).stdout.strip()
+
+    def test_add_then_remove(self) -> None:
+        r = self.run_it("add", "bifrost-platform", "bifrost-ui")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        for repo in ("bifrost-platform", "bifrost-ui"):
+            self.assertEqual(self.url(f"git@github.com:weitingzhao/{repo}.git"), f"{self.GITEA}/{repo}.git")
+            self.assertEqual(self.url(f"https://github.com/weitingzhao/{repo}.git"), f"{self.GITEA}/{repo}.git")
+        # the prefix: bifrost-platform's rule leaves bifrost-platform-plugin alone
+        self.assertEqual(self.url("git@github.com:weitingzhao/bifrost-platform-plugin.git"), "git@github.com:weitingzhao/bifrost-platform-plugin.git")
+        self.assertEqual((self.root / "gitconfig.before-gitea-primary").read_text(), "[user]\n\tname = t\n")
+        once = self.config.read_text()
+        self.assertEqual(self.run_it("add", "bifrost-platform").returncode, 0)
+        self.assertEqual(self.config.read_text(), once)  # again: nothing added twice
+        r = self.run_it("remove", "bifrost-platform", "bifrost-ui")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.url("git@github.com:weitingzhao/bifrost-ui.git"), "git@github.com:weitingzhao/bifrost-ui.git")
+        self.assertNotIn("insteadOf", self.config.read_text())
+
+    def test_another_rule_stops_it_before_any_change(self) -> None:
+        self.config.write_text('[url "ssh://elsewhere/"]\n\tinsteadOf = git@github.com:weitingzhao/\n')
+        before = self.config.read_text()
+        r = self.run_it("add", "bifrost-ui", "bifrost-platform")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("already resolves to ssh://elsewhere/bifrost-ui.git", r.stderr)
+        self.assertEqual(self.config.read_text(), before)
+        self.assertFalse((self.root / "gitconfig.before-gitea-primary").exists())
+
+    def test_bad_arguments(self) -> None:
+        for args, words in ((("add",), "name at least one repository"), (("move", "x"), "usage"),
+                            (("add", "../x"), "not a repository name"), (("add", "a b"), "not a repository name")):
+            r = self.run_it(*args)
+            self.assertEqual(r.returncode, 1, args)
+            self.assertIn(words, r.stderr, args)
+        self.assertEqual(self.config.read_text(), "[user]\n\tname = t\n")
 
 if __name__ == "__main__":
     unittest.main()
