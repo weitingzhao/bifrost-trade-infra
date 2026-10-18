@@ -15,3 +15,6 @@ bifrost-trade-frontend
 bifrost-platform-plugin
 bifrost-platform-plugin-market-data
 bifrost-platform-plugin-flex-query
+# Batch C, 2026-10-17 (Argo CD moves to Gitea separately: scripts/gitea/apply-argo-gitea.sh):
+bifrost-trade-infra
+bifrost-research
