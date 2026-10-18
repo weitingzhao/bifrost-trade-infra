@@ -600,6 +600,10 @@ step_update_agentd() {
 # credentials go to the STG user before the start, whose check wants them.
 step_stg_vendors() {
   (cd "$(dirname "$BINARY")" && shasum -a 256 -c "$HERE/agentd.sha256") || die "$BINARY does not match agentd.sha256; nothing was stopped"
+  # This Mac's sudo first, while nothing is stopped: asked for only after the
+  # stop, it held both agentd services down until someone typed it (10-18,
+  # lesson 175).
+  sudo -v || die "no sudo on this Mac; nothing was stopped"
   step_stop
   step_copy || die "copy failed; both agentd services are stopped (run stg-vendors again)"
   step_prepare || die "prepare failed; both agentd services are stopped (run stg-vendors again)"

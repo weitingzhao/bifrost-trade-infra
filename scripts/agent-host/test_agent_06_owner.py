@@ -39,7 +39,7 @@ class StopStart(unittest.TestCase):
         (bindir / "systemctl").write_text(FAKE_SYSTEMCTL)
         (bindir / "sudo").write_text(
             '#!/usr/bin/env bash\n'
-            '[ "$1" = -v ] && exit 0\n'
+            '[ "$1" = -v ] && { echo "sudo -v" >> "$FAKE_UNITS/calls"; [ "${FAIL_SUDO:-}" != 1 ]; exit; }\n'
             # install-secret.sh on 06: recorded with what it was given; FAIL_SECRET names a file whose sending fails
             'if [ "$1" = bash ] && [ "${2##*/}" = install-secret.sh ]; then echo "install-secret $3 $4" >> "$FAKE_UNITS/calls"; '
             'cat > /dev/null; [ "${FAIL_SECRET:-}" != "$4" ]; exit; fi\n'
@@ -146,7 +146,7 @@ class StopStart(unittest.TestCase):
         self.assertEqual(self.active(), {"bifrost-agentd.service", "bifrost-agentd-stg.service"})
 
 
-    def stg_vendors(self, fail: str = "") -> subprocess.CompletedProcess:
+    def stg_vendors(self, fail: str = "", fail_sudo: bool = False) -> subprocess.CompletedProcess:
         # The real step_vendor_creds and send_secret; only the Mac's credential files (fixtures of the right shape),
         # SSH (the command runs here) and copy and prepare (stubs) stand in.
         for u in ("bifrost-agentd.service", "bifrost-agentd-stg.service"):
@@ -163,7 +163,7 @@ class StopStart(unittest.TestCase):
                 'step_copy() { echo copy >> "$FAKE_UNITS/calls"; }; '
                 'step_prepare() { echo prepare >> "$FAKE_UNITS/calls"; }; ')
         script = f'source "{HERE / "agent-06-owner.sh"}"; node_ssh() {{ bash -c "$1"; }}; {stub} step_stg_vendors'
-        env = {**self.env, "VENDOR_CREDS_DIR": str(creds), "FAIL_SECRET": fail}
+        env = {**self.env, "VENDOR_CREDS_DIR": str(creds), "FAIL_SECRET": fail, "FAIL_SUDO": "1" if fail_sudo else ""}
         return subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True, timeout=60)
 
     def test_stg_vendors_copies_the_credentials_to_stg_before_the_start(self) -> None:
@@ -176,6 +176,20 @@ class StopStart(unittest.TestCase):
                                  "install-secret bifrost-agentd-stg cursor-api.key", "systemctl enable"])
         self.assertEqual(self.active(), {"bifrost-agentd.service", "bifrost-agentd-stg.service"})
         self.assertNotIn("fixture", r.stdout + r.stderr)
+
+    def test_stg_vendors_asks_for_this_macs_sudo_before_it_stops_anything(self) -> None:
+        # lesson 175: asked for after the stop, the password held both agentd services down until someone typed it
+        r = self.stg_vendors()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        calls = (self.units / "calls").read_text().splitlines()
+        self.assertLess(calls.index("sudo -v"), next(i for i, c in enumerate(calls) if c.startswith("systemctl stop")))
+        (self.units / "calls").unlink()
+        for u in ("bifrost-agentd.service", "bifrost-agentd-stg.service"):
+            (self.units / u).write_text("")
+        r = self.stg_vendors(fail_sudo=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("nothing was stopped", r.stderr)
+        self.assertFalse(any(c.startswith("systemctl stop") for c in (self.units / "calls").read_text().splitlines()))
 
     def test_stg_vendors_starts_nothing_when_a_credential_does_not_arrive(self) -> None:
         for fail in ("claude-oauth.token", "cursor-api.key"):
