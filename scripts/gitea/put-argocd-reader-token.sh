@@ -11,14 +11,15 @@
 # It reads the token without echo from the terminal and refuses when stdin is
 # not one. Before it writes anything it asks Gitea (the NodePort this Mac
 # reaches) with the token:
-#   - who it is: GET /api/v1/user is argocd-reader; or, when that answers the
-#     missing-scope 403 (the planned token has repository Read only), the
-#     token can read bifrost-trade-infra and bifrost-research and is neither
-#     administrator nor writer of them
-#   - git can fetch both (upload-pack handshake 200) and cannot push to either
-#     (receive-pack handshake refused): read only, as Argo needs
-#   - it does not see bifrost/bifrost-platform (team argocd-read holds only the
-#     two repositories)
+#   - who it is: GET /api/v1/user is argocd-reader. The token needs the user
+#     scope (Read) for that besides repository Read: with a token PAT, Gitea
+#     takes the user from the token, so without /user nothing shows whose
+#     token it is (review 261 A3)
+#   - on both repositories it is neither administrator nor writer, git can
+#     fetch (upload-pack handshake 200), and a push is refused with 401 or 403;
+#     any other answer of the push handshake stops it (review 261 B5)
+#   - the repositories it can see (GET /api/v1/repos/search, every page) are
+#     exactly those two (review 261 B4)
 # Any other answer stops it with nothing written. It creates the Secret
 # (never replaces one) and prints only its key names and label.
 #
@@ -31,7 +32,6 @@ LOGIN="${ARGO_LOGIN:-argocd-reader}"
 BASE="${GITEA_PUBLIC_BASE:-http://192.168.10.73:30300/bifrost}"
 IN_CLUSTER="${GITEA_IN_CLUSTER:-http://gitea.cicd.svc.cluster.local:3000/bifrost}"
 READ_REPOS="${READ_REPOS:-bifrost-trade-infra bifrost-research}"
-HIDDEN_REPO="${HIDDEN_REPO:-bifrost-platform}"
 NS=cicd
 NAME=repo-creds-gitea-bifrost
 export KUBECONFIG="${PUT_TOKEN_KUBECONFIG:-$HOME/.bifrost-owner/kube/admin.yaml}"
@@ -71,15 +71,13 @@ for k in sys.argv[2].split("."):
 print({True: "true", False: "false", None: ""}.get(d, d))' "${work}/body" "$1"; }
 
 code="$(ask token "${root}/api/v1/user")"
-if [[ "${code}" == 200 ]]; then
-  login="$(field login)"
-  [[ "${login}" == "${LOGIN}" ]] || die "the token belongs to '${login}', not ${LOGIN}"
-  echo "ok    token of ${login}"
-elif [[ "${code}" == 403 ]] && grep -qi 'required scope' "${work}/body"; then
-  echo "ok    the token has no user scope (repository Read only, as planned)"
-else
-  die "Gitea GET /api/v1/user → HTTP ${code}: the token is not accepted ($(head -c 200 "${work}/body" | tr -d '\n'))"
+if [[ "${code}" == 403 ]] && grep -qi 'required scope' "${work}/body"; then
+  die "the token has no user scope: make it with user Read as well as repository Read, so its owner can be read"
 fi
+[[ "${code}" == 200 ]] || die "Gitea GET /api/v1/user → HTTP ${code}: the token is not accepted ($(head -c 200 "${work}/body" | tr -d '\n'))"
+login="$(field login)"
+[[ "${login}" == "${LOGIN}" ]] || die "the token belongs to '${login}', not ${LOGIN}"
+echo "ok    token of ${login}"
 for repo in ${READ_REPOS}; do
   code="$(ask token "${root}/api/v1/repos/${org}/${repo}")"
   [[ "${code}" == 200 ]] || die "GET /api/v1/repos/${org}/${repo} → HTTP ${code}: the token cannot read it"
@@ -89,11 +87,26 @@ for repo in ${READ_REPOS}; do
   [[ "${code}" == 200 ]] || die "fetch handshake on ${repo} → HTTP ${code}"
   code="$(ask basic "${BASE}/${repo}.git/info/refs?service=git-receive-pack")"
   [[ "${code}" != 200 ]] || die "push handshake on ${repo} → 200: the token can push there"
+  [[ "${code}" == 401 || "${code}" == 403 ]] || die "push handshake on ${repo} → HTTP ${code}: neither a refusal nor a yes; run this again when Gitea answers"
   echo "ok    ${repo}: read only (fetch 200, push refused with ${code})"
 done
-code="$(ask token "${root}/api/v1/repos/${org}/${HIDDEN_REPO}")"
-[[ "${code}" == 404 ]] || die "GET /api/v1/repos/${org}/${HIDDEN_REPO} → HTTP ${code}: the token sees more than ${READ_REPOS}"
-echo "ok    ${HIDDEN_REPO} is not visible to it"
+: > "${work}/seen"
+page=1
+while :; do
+  code="$(ask token "${root}/api/v1/repos/search?limit=50&page=${page}")"
+  [[ "${code}" == 200 ]] || die "GET /api/v1/repos/search page ${page} → HTTP ${code}"
+  n="$(python3 -c 'import json,sys
+d = json.load(open(sys.argv[1]))
+rows = d.get("data") or []
+open(sys.argv[2], "a").write("".join(r.get("full_name", "?") + "\n" for r in rows))
+print(len(rows))' "${work}/body" "${work}/seen")"
+  [[ "${n}" -gt 0 && "${page}" -lt 20 ]] || break
+  page=$((page + 1))
+done
+want="$(for repo in ${READ_REPOS}; do echo "${org}/${repo}"; done | sort)"
+seen="$(sort -u "${work}/seen")"
+[[ "${seen}" == "${want}" ]] || die "the token sees $(echo ${seen} | tr ' ' ','), not exactly $(echo ${want} | tr ' ' ',')"
+echo "ok    it sees exactly: $(echo ${seen})"
 
 printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\n  labels:\n    argocd.argoproj.io/secret-type: repo-creds\nstringData:\n  type: git\n  url: %s\n  username: %s\n  password: "%s"\n' \
   "${NAME}" "${NS}" "${IN_CLUSTER}" "${LOGIN}" "${t}" | kubectl create -f - > /dev/null

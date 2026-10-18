@@ -14,6 +14,7 @@ impersonated account; any other failure is reported, not taken as a denial.
 from __future__ import annotations
 
 import pathlib
+import json
 import subprocess
 import re
 import sys
@@ -207,6 +208,15 @@ def live() -> list[str]:
         ("application-sources", platform, "cicd", application_sources(), True),
         ("application-kustomize", platform, "cicd", application_kustomize(), True),
     ]
+    # Built from the live Application where it can be read, so each case differs from it in the
+    # one field it tests: a fixed repoURL or path would be denied by the repoURL rule instead and
+    # pass for the wrong reason once the source moved to Gitea (review 261 B7).
+    research = live_application("bifrost-research")
+    if research is not None:
+        cases[-2:] = [
+            ("application-sources", platform, "cicd", with_spec(research, sources=[{"repoURL": "https://example.invalid/other.git", "path": "k8s"}]), True),
+            ("application-kustomize", platform, "cicd", with_source(research, kustomize={"images": ["evil.example/x:1"]}), True),
+        ]
     # Ask first: without impersonation kubectl fails while downloading OpenAPI as
     # the target ("failed to download openapi: unknown"), which names no cause.
     for identity in (platform, applier):
@@ -411,6 +421,30 @@ spec:
         - name: c
           image: alpine
 """
+
+
+def live_application(name: str) -> dict | None:
+    """The live Application without status and server-kept fields, or None when it cannot be read."""
+    out = subprocess.run(["kubectl", "get", "application", name, "-n", "cicd", "-o", "json"], capture_output=True, text=True)
+    if out.returncode != 0:
+        return None
+    obj = json.loads(out.stdout)
+    obj.pop("status", None)
+    for key in ("managedFields", "resourceVersion", "generation", "uid", "creationTimestamp", "annotations"):
+        obj["metadata"].pop(key, None)
+    return obj
+
+
+def with_spec(obj: dict, **fields) -> str:
+    new = json.loads(json.dumps(obj))
+    new["spec"].update(fields)
+    return json.dumps(new)
+
+
+def with_source(obj: dict, **fields) -> str:
+    new = json.loads(json.dumps(obj))
+    new["spec"]["source"].update(fields)
+    return json.dumps(new)
 
 
 def application_sources() -> str:

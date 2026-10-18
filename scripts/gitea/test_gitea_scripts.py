@@ -1840,6 +1840,10 @@ def rendered(f):
     out = copy.deepcopy(live)
     out["spec"] = merge(live.get("spec") or {}, doc.get("spec") or {})
     out["metadata"]["labels"] = doc["metadata"].get("labels") or {}
+    # as a client-side apply: annotations the last apply set and the file no longer has are dropped
+    ann = dict(doc["metadata"].get("annotations") or {})
+    ann["kubectl.kubernetes.io/last-applied-configuration"] = json.dumps(doc)
+    out["metadata"]["annotations"] = ann
     return out
 if a[:2] == ["get", "serviceaccount"]:
     print("serviceaccount/default"); sys.exit(0)
@@ -1971,8 +1975,11 @@ class ApplyArgoGitea(unittest.TestCase):
         self.assertIn(f"ok    bifrost-research: Synced at {self.main[:12]}", r.stdout)
         self.assertIn("== apply done: the five Applications read Gitea", r.stdout)
         self.assertIn(f"{GITEA_IN}/bifrost-trade-infra.git", self.live("appproject", "bifrost")["spec"]["sourceRepos"])
+        # back needs only GitHub: Gitea is gone here
+        shutil.rmtree(self.gitea)
         r = self.run_it("back")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(f"ok    bifrost-research: going back to GitHub main {self.main}", r.stdout)
         self.assertEqual(self.live("application", "bifrost-stg")["spec"]["source"]["repoURL"], f"file://{self.github}/bifrost-trade-infra.git")
         self.assertIn("== back done: the five Applications read GitHub", r.stdout)
 
@@ -1994,10 +2001,15 @@ class ApplyArgoGitea(unittest.TestCase):
             (src / "f").write_text("y\n")
             git(src, "commit", "-q", "-am", "two")
             git(src, "push", "-q", str(self.gitea / "bifrost-research.git"), "main")
+        def annotation_dropped() -> None:
+            obj = self.live("application", "bifrost-stg")
+            obj["metadata"]["annotations"] = {"argocd.argoproj.io/skip-reconcile": "true"}
+            (self.state / "application-bifrost-stg.json").write_text(json.dumps(obj))
         cases = (
+            ("an annotation the apply would drop", annotation_dropped, "FAIL  application bifrost-stg: metadata changes: annotations"),
             ("an Application changes more than repoURL", extra_change, "FAIL  application bifrost-prod"),
             ("the AppProject would lose an address", project_loses_github, "sourceRepos would lose https://github.com/weitingzhao/bifrost-research.git"),
-            ("a label changes", label_change, "FAIL  application bifrost-stg: labels change"),
+            ("a label changes", label_change, "FAIL  application bifrost-stg: metadata changes: labels"),
             ("GitHub is behind Gitea", github_behind, "bifrost-research: Gitea main"),
             ("no credentials Secret", lambda: (self.state / "secret-label").unlink(), "repo-creds is not there"),
         )
@@ -2050,7 +2062,9 @@ esac
         self.path = f"{bindir}:{os.environ['PATH']}"
         self.perms = {"bifrost-trade-infra": (False, False, True), "bifrost-research": (False, False, True)}
         self.push_code = 403
-        self.hidden_code = 404
+        self.user_scope = True
+        self.login = "argocd-reader"
+        self.visible = ["bifrost/bifrost-research", "bifrost/bifrost-trade-infra"]
         outer = self
 
         class H(BaseHTTPRequestHandler):
@@ -2059,7 +2073,16 @@ esac
                 basic = self.headers.get("Authorization", "") == "Basic " + base64.b64encode(f"argocd-reader:{GITEA_TOKEN_FIXTURE}".encode()).decode()
                 code, body = 404, {}
                 if self.path == "/api/v1/user":
-                    code, body = (403, {"message": "token does not have at least one of required scope(s): [read:user]"}) if ok else (401, {})
+                    if not ok:
+                        code = 401
+                    elif outer.user_scope:
+                        code, body = 200, {"login": outer.login}
+                    else:
+                        code, body = 403, {"message": "token does not have at least one of required scope(s): [read:user]"}
+                elif self.path.startswith("/api/v1/repos/search?"):
+                    page = int(self.path.split("page=")[1])
+                    rows = [{"full_name": n} for n in outer.visible] if page == 1 else []
+                    code, body = (200, {"ok": True, "data": rows}) if ok else (401, {})
                 elif self.path.startswith("/api/v1/repos/bifrost/"):
                     repo = self.path.rsplit("/", 1)[1]
                     if not ok:
@@ -2068,7 +2091,7 @@ esac
                         admin, push, pull = outer.perms[repo]
                         code, body = 200, {"permissions": {"admin": admin, "push": push, "pull": pull}}
                     else:
-                        code = outer.hidden_code
+                        code = 404
                 elif "/info/refs?service=git-upload-pack" in self.path:
                     code = 200 if basic else 401
                 elif "/info/refs?service=git-receive-pack" in self.path:
@@ -2108,8 +2131,9 @@ esac
         self.assertEqual(doc["metadata"]["labels"], {"argocd.argoproj.io/secret-type": "repo-creds"})
         self.assertEqual(doc["stringData"], {"type": "git", "url": "http://gitea.cicd.svc.cluster.local:3000/bifrost",
                                              "username": "argocd-reader", "password": GITEA_TOKEN_FIXTURE})
+        self.assertIn("ok    token of argocd-reader", r.stdout)
         self.assertIn("ok    bifrost-research: read only (fetch 200, push refused with 403)", r.stdout)
-        self.assertIn("ok    bifrost-platform is not visible to it", r.stdout)
+        self.assertIn("ok    it sees exactly: bifrost/bifrost-research bifrost/bifrost-trade-infra", r.stdout)
         self.assertNotIn(GITEA_TOKEN_FIXTURE, r.stdout + r.stderr + self.echoed + (self.state / "calls").read_text())
 
     def test_nothing_written_when_anything_is_wrong(self) -> None:
@@ -2119,7 +2143,10 @@ esac
             ("token Gitea refuses", lambda: None, "e" * 40, "GET /api/v1/user → HTTP 401"),
             ("a writer's token", lambda: self.perms.update({"bifrost-research": (False, True, True)}), None, "Argo's account must only read"),
             ("a token that can push", lambda: setattr(self, "push_code", 200), None, "push handshake on bifrost-trade-infra → 200"),
-            ("a token that sees more", lambda: setattr(self, "hidden_code", 200), None, "sees more than"),
+            ("a push handshake that errs", lambda: setattr(self, "push_code", 500), None, "HTTP 500: neither a refusal nor a yes"),
+            ("a token that sees a third repository", lambda: self.visible.append("bifrost/bifrost-ui"), None, "the token sees bifrost/bifrost-research,bifrost/bifrost-trade-infra,bifrost/bifrost-ui"),
+            ("a token without user scope", lambda: setattr(self, "user_scope", False), None, "the token has no user scope"),
+            ("another account's token", lambda: setattr(self, "login", "bifrost-mbp"), None, "belongs to 'bifrost-mbp'"),
             ("a repository it cannot read", lambda: self.perms.pop("bifrost-research"), None, "GET /api/v1/repos/bifrost/bifrost-research → HTTP 404"),
         )
         for name, change, typed, words in cases:

@@ -16,12 +16,17 @@
 #
 # What is applied comes from the infra checkout's commit FROM (default
 # origin/main, printed), as raw blobs. Before anything is applied, each object is
-# dry-run on the server and compared with the live one: the AppProject may only
-# gain the two Gitea addresses in sourceRepos, each Application may only change
-# spec.source.repoURL from its GitHub address to its Gitea address (back: the
-# reverse), and labels may not change. Anything else stops it before the first
-# write. After apply, every Application must read back with the Gitea address and,
-# within WAIT_S, show no ComparisonError and a sync revision equal to Gitea main.
+# dry-run on the server and compared with the live one as a whole object, leaving
+# out only status and what the server keeps (managedFields, resourceVersion,
+# generation, uid, creationTimestamp) and the last-applied annotation (review 261
+# A2: a client-side apply may also drop annotations or finalizers the file lacks):
+# the AppProject may only gain the two Gitea addresses in sourceRepos, each
+# Application may only change spec.source.repoURL from its GitHub address to its
+# Gitea address (back: the reverse). Anything else stops it before the first
+# write. After apply, every Application must read back with the new address and,
+# within WAIT_S, show no ComparisonError and a sync revision equal to that
+# side's main. back needs only GitHub: it is the way out when Gitea is down
+# (review 261 B6), and it says which commit GitHub main is.
 set -euo pipefail
 set +x
 
@@ -85,9 +90,15 @@ declare_main() { # REPO — prints Gitea main; dies unless GitHub main is the sa
   printf '%s\n' "${g}"
 }
 for repo in ${REPOS}; do
-  main="$(declare_main "${repo}")"
+  if [[ "${mode}" == back ]]; then
+    main="$(GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 git ls-remote "${GITHUB}/${repo}.git" refs/heads/main | awk '{print $1}')"
+    [[ "${main}" =~ ^[0-9a-f]{40}$ ]] || die "cannot read GitHub main of ${repo}"
+    echo "ok    ${repo}: going back to GitHub main ${main}"
+  else
+    main="$(declare_main "${repo}")"
+    echo "ok    ${repo}: Gitea main = GitHub main = ${main:0:12}"
+  fi
   printf '%s\n' "${main}" > "${work}/main-${repo}"
-  echo "ok    ${repo}: Gitea main = GitHub main = ${main:0:12}"
 done
 
 # Dry-run on the server and compare with what is live.
@@ -99,9 +110,24 @@ import json, sys
 kind, live_p, new_p, want_from, want_to = sys.argv[1:6]
 live, new = json.load(open(live_p)), json.load(open(new_p))
 problems = []
-if (live["metadata"].get("labels") or {}) != (new["metadata"].get("labels") or {}):
-    problems.append("labels change")
-ls, ns = live.get("spec") or {}, json.loads(json.dumps(new.get("spec") or {}))
+def bare(obj):
+    obj = json.loads(json.dumps(obj))
+    obj.pop("status", None)
+    meta = obj.get("metadata") or {}
+    for k in ("managedFields", "resourceVersion", "generation", "uid", "creationTimestamp"):
+        meta.pop(k, None)
+    ann = meta.get("annotations") or {}
+    ann.pop("kubectl.kubernetes.io/last-applied-configuration", None)
+    meta["annotations"] = ann
+    return obj
+lo, no = bare(live), bare(new)
+if lo["metadata"] != no["metadata"]:
+    keys = sorted(k for k in set(lo["metadata"]) | set(no["metadata"]) if lo["metadata"].get(k) != no["metadata"].get(k))
+    problems.append("metadata changes: %s" % ", ".join(keys))
+rest = sorted(k for k in set(lo) | set(no) if k not in ("metadata", "spec") and lo.get(k) != no.get(k))
+if rest:
+    problems.append("changes outside spec: %s" % ", ".join(rest))
+ls, ns = lo.get("spec") or {}, no.get("spec") or {}
 if kind == "appproject":
     gained = sorted(set(ns.get("sourceRepos") or []) - set(ls.get("sourceRepos") or []))
     lost = sorted(set(ls.get("sourceRepos") or []) - set(ns.get("sourceRepos") or []))
