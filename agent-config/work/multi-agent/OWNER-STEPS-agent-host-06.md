@@ -252,6 +252,10 @@ bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-h
 stop 会连带清掉服务的私有 /tmp（评审员可能在那里写过 `run_safego_verify.py`）。跑完不用回，日志我自己读。
 
 
+## 换 agentd（2.4 第 1、3 片，10-18 下午）
+
+新版 `agentd-b9bc27c`：一件跑完时把三家报的用量和限流（codex 会话文件里的额度读数、cursor 的 usage limit 原文）随 computed 报给平台，平台记账、撞限流就冷却那个池；主检出照兄弟仓库的做法防符号链接、不读全局 git 配置；并发的机制在，但每件仍独占主机（TD-371 之前一次一件）。PROD 平台还是老版本，它不收用量时 agentd 会去掉再发一次，所以两个服务一起换也安全。还没跑 `stg-vendors` 的话，跑它就同时换上这一版（它先核对的就是这个二进制）。
+
 ## 换 agentd（2.3 第 2、3 片，10-18）
 
 新版 `agentd-9872f36`：心跳带上执行者的动作（读了哪些文件、改了哪些、跑了什么命令和退出码），在 06 上先脱敏再发。PROD 平台还是老版本，它不收动作时 agentd 会去掉动作再发一次，所以两个服务一起换也安全。
