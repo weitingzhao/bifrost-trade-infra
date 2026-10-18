@@ -93,6 +93,74 @@ bash ~/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh p
 
 ---
 
-## 3　第 A 批起（platform、ui，加 agentd 切换）
+## 3　第 A 批：`bifrost-platform`、`bifrost-ui` 改由 Gitea 做主，加 agentd 切换（你约 25 分钟，一次做完）
 
-等 0f 的四个脚本复核过、第 1 步核对完再给。
+先备好：第 1 节第 1 条存下的 `bifrost-mbp` 令牌（`mbp-sessions`，40 位十六进制）。丢了就用无痕窗口登 `bifrost-mbp` 重建一个（Settings → Applications，repository 读写），旧的删掉。
+
+和切法 §4 的两处不同（10-17 22:0x）：① `push-main.sh` 只要窗口开着就拒推，持窗口的人也一样，所以窗口只罩住第 1–7 条，我推 infra 和平台都在放窗口之后；放窗口之前我先把本机检出换到 Gitea（第 8 条），空档里谁推 platform、ui 都推到 Gitea，不会推到 GitHub。② W-68 B1 第 5 步（服务文件里的 `.73` 改 VIP）不合进来：06 的出站防火墙只放行 `.73`，那一步跟 B1 一起做。
+
+每条命令都在线程里用 `!` 跑或在终端里跑都行；出 `ERROR`、`FAIL`、`DIFFERENT`、`STOPPED` 就停下，把输出贴回线程。
+
+**0（我）** 持窗口 `release.sh hold --what bifrost-platform,bifrost-ui`，确认没有在跑的 deliver / CI、平台上没有进行中的尝试；在线程里说「窗口拿到了」你再开始。
+
+**1（你）停 06 上两个 agentd**，最后一行 `stopped: bifrost-agentd.service bifrost-agentd-stg.service`：
+
+```bash
+bash ~/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh stop
+```
+
+**2（你）比对**：两个仓库先同步一次镜像，再逐条比 GitHub 和 Gitea 的分支与标签；两行都是 `…: same (…)` 才往下：
+
+```bash
+bash ~/Desktop/stocks/bifrost-trade-infra/scripts/gitea/compare-refs.sh bifrost-platform bifrost-ui
+```
+
+**3（你）页面上转成普通仓库**，两个仓库各做一次：Gitea → `bifrost/bifrost-platform` → Settings → 页面最下面 Danger Zone → **Convert to Regular Repository** → 输入仓库名 → 确认。`bifrost/bifrost-ui` 同样。
+
+**4（你）搬 Agent 分支**（只复制 `bifrost-agents/bifrost-platform` 的 `agent/*` 到 `bifrost/bifrost-platform`，不删原处；必须在第 5 条之前），最后一行 `bifrost-platform: N copied, 0 already there, 0 not copied`：
+
+```bash
+bash ~/Desktop/stocks/bifrost-trade-infra/scripts/gitea/copy-agent-branches.sh bifrost-platform
+```
+
+**5（你）设保护**：两条分支规则经 API 设好再读回，每条一行 `… set and read back`：
+
+```bash
+bash ~/Desktop/stocks/bifrost-trade-infra/scripts/gitea/protect-repo.sh --owner weitingzhao bifrost-platform bifrost-ui
+```
+
+然后两个仓库各在页面上加标签规则（和第 1 节第 4 条一样）：Settings → Tags → Tag name `*`，Allowed users `weitingzhao`，Allowed teams `maintainers` → Add Rule。
+
+**6（你）把 `bifrost-mbp` 的令牌存进钥匙串**：出现 `Gitea token of bifrost-mbp (input hidden):` 后粘贴令牌回车（屏幕上不显示）。它先问 Gitea（是 `bifrost-mbp` 的、能在 `primary-probe` 上推送握手），存完再读回 git 会用的那条；最后一行 `==> git now pushes to http://192.168.10.73:30300 as bifrost-mbp.`。若说钥匙串里另有一条先答了，照它说的在「钥匙串访问」里搜 `192.168.10.73` 删掉那条再跑：
+
+```bash
+bash ~/Desktop/stocks/bifrost-trade-infra/scripts/gitea/store-mbp-token.sh
+```
+
+**7（你）全局 `insteadOf`**：`~/agent-work` 下那些从 GitHub 地址克隆的独立检出改走 Gitea（每个仓库 SSH、HTTPS 两条；先在 `~/.gitconfig` 旁边留一份 `.before-gitea-primary`），四行 `ok    … → http://192.168.10.73:30300/bifrost/….git`：
+
+```bash
+bash ~/Desktop/stocks/bifrost-trade-infra/scripts/gitea/global-insteadof.sh add bifrost-platform bifrost-ui
+```
+
+做完回「第 A 批 1–7 做完了」。
+
+**8（我）** 本机两个检出换远端（`switch-local-remotes.sh bifrost-platform bifrost-ui`：`origin` → Gitea，GitHub 留作推不出去的 `github`）→ 名单 `agent-config/gitea-primary.txt` 加这两个、STG overlay `AGENTRT_GIT_ORG=bifrost`、两个服务文件去掉 `AGENTD_GIT_PUSH_BASE`，提交 → 放窗口 → `push-main.sh` 推 infra → `gitops_sync_app` STG 平台，核对 Pod 上的值。PROD overlay 同样改好、单独一个提交，**等你回「推 PROD 接线」**。
+
+**9（你）装新服务文件、只开 STG 的 agentd**（`copy` 把 `scripts/agent-host` 和 agentd 拷到 06，`prepare` 装服务文件，`start stg` 只开 STG；最后一行 `running: bifrost-agentd-stg.service`）：
+
+```bash
+bash ~/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh copy && bash ~/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh prepare && bash ~/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh start stg
+```
+
+**10（我）核对**：STG 派一件确定性的小任务，分支落在 `bifrost/bifrost-platform` 的 `agent/<任务>/a1`、平台记 persisted、血缘归到任务；经 `push-main.sh` 推一个平台提交，CI 由钩子起、`bifrost-github-sync` 把它推到 GitHub（GitHub main 等于这个提交）；起一次 `bifrost-deliver-platform`（STG），克隆到的是刚推的提交。
+
+**11（你）回「推 PROD 接线」**之后：我推 PROD overlay、同步 PROD 平台、核对；然后你开 PROD 的 agentd（最后一行 `running: bifrost-agentd.service`）：
+
+```bash
+bash ~/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh start prod
+```
+
+在那之前 PROD 的 agentd 停着：PROD 平台还读 `bifrost-agents`，这时开它，交来的结果会被 409 永久拒收。
+
+**回退**（按做到哪）：见切法 §4「第 A 批」末尾。另加：第 6 条在「钥匙串访问」里删 `192.168.10.73` 那条；第 7 条 `bash ~/Desktop/stocks/bifrost-trade-infra/scripts/gitea/global-insteadof.sh remove bifrost-platform bifrost-ui`。
