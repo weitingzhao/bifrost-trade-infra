@@ -19,9 +19,10 @@
 # (never replaces one: an existing github-sync stops it) and prints only the
 # Secret's key names.
 #
-# The token reaches curl as a config file on stdin and kubectl on stdin, never
-# a command line or a file.
+# The token reaches curl as a config file on stdin (curl -q: no ~/.curlrc) and
+# kubectl on stdin, never a command line or a file; xtrace is off.
 set -euo pipefail
+set +x  # the token must not reach a trace (review 259 C4)
 
 GITHUB_LOGIN="${GITHUB_LOGIN:-weitingzhao}"
 GITHUB_API="${GITHUB_API:-https://api.github.com}"
@@ -53,7 +54,7 @@ ask() { # MODE URL — prints the HTTP status, then the body into $work/body
     printf 'header = "Authorization: Bearer %s"\n' "${t}"
   else
     printf 'user = "x-access-token:%s"\n' "${t}"
-  fi | curl -sS -K - -o "${work}/body" -D "${work}/headers" -w '%{http_code}' --max-time 30 "${url}" || echo "000"
+  fi | curl -q -sS -K - -o "${work}/body" -D "${work}/headers" -w '%{http_code}' --max-time 30 "${url}" || echo "000"
 }
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT

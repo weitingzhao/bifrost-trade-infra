@@ -312,7 +312,7 @@ class Scripts(unittest.TestCase):
         r = self.run_script("switch-local-remotes.sh", "bifrost-ui", extra=extra)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(git(repo, "remote", "get-url", "--push", "--all", "origin"), "http://gitea.test/bifrost/bifrost-ui.git")
-        self.assertEqual(git(repo, "remote", "get-url", "github"), "git@github.com:weitingzhao/bifrost-ui.git")
+        self.assertEqual(git(repo, "remote", "get-url", "github"), "ssh://git@github.com/weitingzhao/bifrost-ui.git")
         self.assertEqual(git(repo, "remote", "get-url", "--push", "github"), "no-push://github-follows-from-the-cluster")
         self.assertEqual(git(repo, "config", "remote.origin.tagOpt"), "--no-tags")
         again = self.run_script("switch-local-remotes.sh", "bifrost-ui", extra=extra)
@@ -330,6 +330,18 @@ class Scripts(unittest.TestCase):
         r = self.run_script("switch-local-remotes.sh", "bifrost-ui", extra=extra)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(git(repo, "remote", "get-url", "--push", "--all", "origin"), "http://gitea.test/bifrost/bifrost-ui.git")
+
+    def test_github_still_fetches_from_github_under_the_batch_insteadof(self) -> None:
+        # review 259 B2: global-insteadof.sh rewrites git@github.com:…/<repo>.git and https://github.com/…/<repo>.git
+        repo, extra = self.checkout()
+        (self.root / ".gitconfig").write_text(
+            '[url "http://gitea.test/bifrost/bifrost-ui.git"]\n\tinsteadOf = git@github.com:weitingzhao/bifrost-ui.git\n'
+            '\tinsteadOf = https://github.com/weitingzhao/bifrost-ui.git\n')
+        r = self.run_script("switch-local-remotes.sh", "bifrost-ui", extra=extra)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        env = {**os.environ, **GIT_ENV, "HOME": str(self.root)}
+        url = subprocess.run(["git", "remote", "get-url", "github"], cwd=repo, env=env, capture_output=True, text=True, check=True).stdout.strip()
+        self.assertEqual(url, "ssh://git@github.com/weitingzhao/bifrost-ui.git")
 
     def test_back_fails_while_a_global_insteadof_still_rewrites_origin(self) -> None:
         # review 246 A5: batch step 7 put GitHub → Gitea in ~/.gitconfig
@@ -1563,7 +1575,8 @@ def isolated_git_env(root: Path) -> dict:
 
 
 class StoreMbpToken(unittest.TestCase):
-    """store-mbp-token.sh against a fake Gitea, with git's store helper in a temporary file."""
+    """store-mbp-token.sh against a fake Gitea, with git's store helper in a temporary file and two
+    workspace checkouts (bifrost-platform, bifrost-ui) whose own config can get in the way."""
 
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -1571,23 +1584,34 @@ class StoreMbpToken(unittest.TestCase):
         self.env = isolated_git_env(self.root)
         self.store = self.root / "credentials"
         (self.root / "gitconfig").write_text(f'[credential]\n\thelper = "store --file {self.store}"\n')
+        self.ws = self.root / "ws"
+        for repo in ("bifrost-platform", "bifrost-ui"):
+            subprocess.run(["git", "init", "-q", str(self.ws / repo)], env=self.env, check=True)
         self.login = "bifrost-mbp"
+        self.user_scope = False  # the planned token: repository Read and Write only, so /user is 403
+        self.admin = False
+        self.can_push_main = True
         self.push_code = 200
         outer = self
 
         class H(BaseHTTPRequestHandler):
             def do_GET(self) -> None:
-                auth = self.headers.get("Authorization", "")
-                code, body = 404, b"{}"
+                ok = self.headers.get("Authorization", "") == "token " + GITEA_TOKEN_FIXTURE
+                code, body = 404, {}
                 if self.path == "/api/v1/user":
-                    code, body = (200, json.dumps({"login": outer.login}).encode()) if auth == "token " + GITEA_TOKEN_FIXTURE else (401, b"{}")
+                    code, body = (401, {}) if not ok else ((200, {"login": outer.login}) if outer.user_scope else (403, {"message": "token does not have at least one of required scope(s): [read:user]"}))
+                elif self.path == "/api/v1/repos/bifrost/primary-probe":
+                    code, body = (200, {"name": "primary-probe", "permissions": {"admin": outer.admin, "push": True, "pull": True}}) if ok else (401, {})
+                elif self.path == "/api/v1/repos/bifrost/primary-probe/branches/main":
+                    code, body = (200, {"name": "main", "protected": True, "user_can_push": outer.can_push_main}) if ok else (401, {})
                 elif self.path == "/bifrost/primary-probe.git/info/refs?service=git-receive-pack":
                     want = "Basic " + base64.b64encode(f"bifrost-mbp:{GITEA_TOKEN_FIXTURE}".encode()).decode()
-                    code, body = (outer.push_code, b"0000") if auth == want else (401, b"")
+                    code = outer.push_code if self.headers.get("Authorization", "") == want else 401
+                data = json.dumps(body).encode()
                 self.send_response(code)
-                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
-                self.wfile.write(body)
+                self.wfile.write(data)
 
             def log_message(self, *a) -> None:
                 pass
@@ -1596,17 +1620,18 @@ class StoreMbpToken(unittest.TestCase):
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.host = f"127.0.0.1:{self.server.server_address[1]}"
         self.env["GITEA_PUBLIC_BASE"] = f"http://{self.host}/bifrost"
+        self.env["BIFROST_WORKSPACE"] = str(self.ws)
 
     def tearDown(self) -> None:
         self.server.shutdown()
         self.server.server_close()
         self.tmp.cleanup()
 
-    def run_it(self, typed: str | None = GITEA_TOKEN_FIXTURE, tty: bool = True) -> subprocess.CompletedProcess:
+    def run_it(self, typed: str | None = GITEA_TOKEN_FIXTURE, tty: bool = True, xtrace: bool = False) -> subprocess.CompletedProcess:
         # the guard: under this environment git knows only the helpers this test wrote
         helpers = subprocess.run(["git", "config", "--get-all", "credential.helper"], env=self.env, capture_output=True, text=True).stdout
         self.assertNotIn("osxkeychain", helpers)
-        cmd = ["bash", str(HERE / "store-mbp-token.sh")]
+        cmd = ["bash", *(["-x"] if xtrace else []), str(HERE / "store-mbp-token.sh")]
         if not tty:
             return subprocess.run(cmd, env=self.env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
         r, self.echoed = run_on_pty(cmd, self.env, typed)
@@ -1615,21 +1640,34 @@ class StoreMbpToken(unittest.TestCase):
     def stored(self) -> str:
         return self.store.read_text() if self.store.exists() else ""
 
-    def test_stores_after_gitea_says_yes(self) -> None:
-        r = self.run_it()
+    def local(self, repo: str, *kv: str) -> None:
+        subprocess.run(["git", "-C", str(self.ws / repo), "config", *kv], env=self.env, check=True)
+
+    def test_stores_a_repository_only_token_after_gitea_says_yes(self) -> None:
+        r = self.run_it(xtrace=True)  # bash -x: the script turns xtrace off before it reads the token
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn(f"http://bifrost-mbp:{GITEA_TOKEN_FIXTURE}@127.0.0.1%3a{self.server.server_address[1]}", self.stored())  # the store helper encodes the port colon
-        self.assertIn("ok    token of bifrost-mbp", r.stdout)
+        self.assertIn("ok    token of a maintainer who is not an administrator: bifrost-mbp", r.stdout)
+        self.assertIn(f"ok    bifrost-ui: git pushes to http://{self.host}/bifrost/bifrost-ui.git as bifrost-mbp", r.stdout)
         self.assertIn(f"git now pushes to http://{self.host} as bifrost-mbp", r.stdout)
         self.assertNotIn(GITEA_TOKEN_FIXTURE, r.stdout + r.stderr + self.echoed)
+
+    def test_a_token_with_user_scope_is_checked_by_login(self) -> None:
+        self.user_scope = True
+        r = self.run_it()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("ok    token of bifrost-mbp", r.stdout)
 
     def test_nothing_stored_when_anything_is_wrong(self) -> None:
         cases = (
             ("no helper", lambda: (self.root / "gitconfig").write_text(""), None, "no credential helper"),
+            ("useHttpPath", lambda: (self.root / "gitconfig").write_text(f'[credential]\n\thelper = "store --file {self.store}"\n\tuseHttpPath = true\n'), None, "useHttpPath is true"),
             ("empty input", lambda: None, "", "empty input"),
             ("not a Gitea token", lambda: None, "github_pat_abc", "40 hex characters"),
             ("token Gitea refuses", lambda: None, "f" * 40, "GET /api/v1/user → HTTP 401"),
-            ("another account's token", lambda: setattr(self, "login", "weitingzhao"), None, "belongs to 'weitingzhao'"),
+            ("another account's token", lambda: (setattr(self, "user_scope", True), setattr(self, "login", "weitingzhao")), None, "belongs to 'weitingzhao'"),
+            ("the admin's token without user scope", lambda: setattr(self, "admin", True), None, "is an administrator of bifrost/primary-probe"),
+            ("an agentd token", lambda: setattr(self, "can_push_main", False), None, "may not push main of primary-probe"),
             ("token without write", lambda: setattr(self, "push_code", 403), None, "push handshake on primary-probe → HTTP 403"),
         )
         for name, change, typed, words in cases:
@@ -1650,16 +1688,29 @@ class StoreMbpToken(unittest.TestCase):
         self.assertIn("not a terminal", r.stderr)
         self.assertEqual(self.stored(), "")
 
-    def test_another_entry_answering_first_is_named(self) -> None:
-        helper = self.root / "first-helper.sh"
-        helper.write_text("#!/bin/sh\n[ \"$1\" = get ] && printf 'username=weitingzhao\\npassword=other\\n'\nexit 0\n")
-        helper.chmod(0o755)
-        (self.root / "gitconfig").write_text(f'[credential]\n\thelper = "!{helper}"\n\thelper = "store --file {self.store}"\n')
-        r = self.run_it()
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertIn("git answers user 'weitingzhao'", r.stderr)
-        self.assertIn("remove it in Keychain Access (search 127.0.0.1)", r.stderr)
-        self.assertNotIn(GITEA_TOKEN_FIXTURE, r.stdout + r.stderr)
+    def test_what_git_would_use_is_read_back_in_each_checkout(self) -> None:
+        cases = (
+            ("another entry answers first", None, "git answers user 'weitingzhao'"),
+            ("a checkout matches by path", ("bifrost-ui", "credential.useHttpPath", "true"), "FAIL  bifrost-ui: git answers user 'nobody'"),
+            ("a checkout names another user", ("bifrost-platform", "credential.username", "weitingzhao"), "FAIL  bifrost-platform: git answers user 'nobody'"),  # no password stored for that user, prompts off
+            ("a checkout sends a header", ("bifrost-ui", f"http.http://{{host}}/.extraHeader", "Authorization: token other"), "FAIL  bifrost-ui: http.extraHeader is set"),
+        )
+        for name, local, words in cases:
+            with self.subTest(name):
+                self.tearDown()
+                self.setUp()
+                if local is None:
+                    helper = self.root / "first-helper.sh"
+                    helper.write_text("#!/bin/sh\n[ \"$1\" = get ] && printf 'username=weitingzhao\\npassword=other\\n'\nexit 0\n")
+                    helper.chmod(0o755)
+                    (self.root / "gitconfig").write_text(f'[credential]\n\thelper = "!{helper}"\n\thelper = "store --file {self.store}"\n')
+                else:
+                    self.local(local[0], local[1].replace("{host}", self.host), local[2])
+                r = self.run_it()
+                self.assertEqual(r.returncode, 1, name + r.stdout + r.stderr)
+                self.assertIn(words, r.stderr, name)
+                self.assertIn("remove it in Keychain Access (search 127.0.0.1)", r.stderr, name)
+                self.assertNotIn(GITEA_TOKEN_FIXTURE, r.stdout + r.stderr, name)
 
 
 class GlobalInsteadOf(unittest.TestCase):

@@ -132,7 +132,11 @@ valueless() {
   python3 -c 'import sys; d = open(sys.argv[1], "rb").read().split(b"\0"); sys.exit(0 if any(e and b"\n" not in e for e in d) else 1)' "$1"
 }
 
-# github_of <repo> <cfg> — the GitHub address to keep as remote github
+# github_of <repo> <cfg> — the GitHub address to keep as remote github. The
+# scp form git@github.com:<owner>/<repo>.git is kept as the same address in URL
+# form, ssh://git@github.com/<owner>/<repo>.git: global-insteadof.sh rewrites
+# the scp and HTTPS forms to Gitea, and github would fetch from Gitea too
+# (review 259 B2).
 github_of() {
   local saved="${2%/config}/${saved_name}" url
   if [[ -f "${saved}" ]]; then
@@ -143,9 +147,13 @@ github_of() {
     url="$(values "$2" remote.origin.url)"
   fi
   case "${url}" in
-    *github.com[:/]*/"$1".git | *github.com[:/]*/"$1") printf '%s\n' "${url}" ;;
-    "${gitea}/$1.git" | "") printf '%s\n' "${github}/$1.git" ;;
+    *github.com[:/]*/"$1".git | *github.com[:/]*/"$1") ;;
+    "${gitea}/$1.git" | "") url="${github}/$1.git" ;;
     *) return 1 ;;
+  esac
+  case "${url}" in
+    git@github.com:*) printf 'ssh://git@github.com/%s\n' "${url#git@github.com:}" ;;
+    *) printf '%s\n' "${url}" ;;
   esac
 }
 
