@@ -13,7 +13,6 @@
 
 ## 待你签收
 
-- **TD-365** — Gitea 管理员令牌换掉了：泄露的那个已在 Gitea 里撤销，两个 Secret（`gitea-bootstrap`、`gitea-git-credentials`）都换成新令牌，用的是复核过的 `scripts/gitea/rotate-admin-token.sh`（复核 256–258）。验收：PASS 2026-10-17 `c38d053`（`revoked` 通过，平台镜像同步和对账都用新令牌成功）。防线：`rotate-admin-token.sh check` 会说出每个 Secret 是不是泄露的令牌；台账里写的全历史扫描（40 位十六进制挨着令牌名的键）还没做，记为后续。后续：删本机被忽略的 `k8s/cicd/gitea/secret.yaml`（你）；历史扫描另起一条或并进 TD-366。
 - **TD-355** — 签规则的钥匙不用 Owner 确认就能签（没口令、常驻 ssh-agent）。Owner 10-15 19:05 把它移出 agent、19:10 加了口令（指纹不变，平台不用改）；`rule.sh sign` 现在拒绝没口令或常驻 agent 的钥匙。验收：PASS 2026-10-15 19:15。防线：RATCHETS「The Owner's signing key asks before it signs」。后续：发版策略的签名工具还没有同一道检查，长期换成每次要按一下的钥匙（会改信任指纹），都等补强阶段再定，没另开编号。
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
@@ -2140,11 +2139,24 @@
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-367
+
+**P2 · security · nothing scans the whole history of the twelve public repositories for secrets; the Gitea admin token sat in infra's for four months (TD-365)**
+
+- **状态**：未开始（2026-10-18 00:1x 记，TD-365 签收时从它的防线里拆出来；Owner 签收 TD-365 时说「签收 TD-365」）
+- **Claim**: TD-365's token was committed on 2026-06-17 (`d30ef90`), untracked on 08-19 (`aee67ba`) and found only on 10-17, by a broad grep that hit the ignored local file. No check reads the history of the public repositories; `check-agent-config-parity.sh` and the code-health scan look at the current tree only.
+- **Evidence**: `git log -p --all -- k8s/cicd/gitea/secret.yaml` in bifrost-trade-infra (two hits); TD-365 (closed 2026-10-18, its entry in git history at `a981959`).
+- **Impact**: all twelve repositories are public on GitHub; a secret that ever reached any commit of main is readable there for good, and only rotation helps.
+- **Fix**: a scan over `git log -p --all` of each repository for 40-hex values next to token-, password- or secret-named keys (and the known shapes: `github_pat_`, `ghp_`, age secret keys, PEM blocks), run in CI where the parity check runs, with a reviewed allowlist for fixtures (the tests' `fixture` tokens); each hit is rotated, not only deleted.
+- **Ratchet**: the scan itself, failing on a new hit; agents search with `git grep` over tracked files, never `grep -r` over a checkout holding ignored secrets (lesson 162).
+- 验收: the scan runs over the twelve repositories with no hit outside the allowlist, and fails on a planted fixture secret in a throwaway branch.
+- 审批 不需要 · 代价 M · 风险 low · repos: all twelve
+
 ### TD-366
 
 **P2 · security · two older Gitea scripts send the admin token to whatever answers on a fixed local port, and put it on curl's command line**
 
-- **状态**：未开始（2026-10-17 14:3x 记，复核 246 在 `scripts/gitea/lib.sh` 里找到 A2 后，统筹方查同类时看到；Gitea 为主的切法里它们只在回退时用）
+- **状态**：未开始（2026-10-17 14:3x 记，复核 246 在 `scripts/gitea/lib.sh` 里找到 A2 后，统筹方查同类时看到；Gitea 为主的切法里它们只在回退时用）。10-17 23:5x：装推送钩子的事已有按 lib.sh 写的 `scripts/gitea/ensure-push-webhooks.sh`，`install-ci-webhooks.sh` 可以退役，只剩 `bootstrap-gitea-mirrors.sh`（回退用）
 - **Claim**: `scripts/k3s/install-ci-webhooks.sh` and `scripts/k3s/bootstrap-gitea-mirrors.sh` port-forward `svc/gitea` to a fixed local port (3999, 13000) with the forward's output and exit thrown away, then send admin calls to that port: when something else already holds it, the forward fails silently and that service gets the token. Both pass the token to curl as `-H "Authorization: token …"`, so it is in the process list while curl runs.
 - **Evidence**: `scripts/k3s/install-ci-webhooks.sh:19`, `:40-48`; `scripts/k3s/bootstrap-gitea-mirrors.sh:18`, `:63-69`. The same defect in `scripts/gitea/lib.sh` was review 246 A2, fixed in `927820b`.
 - **Impact**: the Owner runs them from his Mac with the admin kubeconfig; in the Gitea-primary cut only the rollback path runs them (the cut doc §4 「回退」), so they are rare, but the token they carry is the one that guards every repository's branch rules.
@@ -2152,20 +2164,6 @@
 - **Ratchet**: `scripts/gitea/test_gitea_scripts.py` already covers lib.sh (a port-forward that did not start sends nothing; a redirect is not followed); the fix adds the two scripts to that test or retires them. A text check that no script under `scripts/` passes `Authorization: token` to curl on its command line.
 - 验收: `git grep -n 'Authorization: token' -- scripts/k3s` finds nothing; the two scripts (or what replaces them) run the lib.sh tests.
 - 审批 不需要（Owner 跑的脚本，改代码即可）· 代价 S · 风险 low · repos: bifrost-trade-infra
-
-### TD-365
-
-**P1 · security · the Gitea admin token has been in the public infra history since 2026-06-17 and is still the live one**
-
-- **状态**：待你签收（2026-10-17 20:3x）。20:28 你用 `rotate-admin-token.sh rotate` 换了两处（`gitea-bootstrap` 和 `gitea-git-credentials`），20:3x `revoked` 通过。经过：第一次 rotate 新令牌缺 user 权限（403），什么都没改；随后旧令牌在 Gitea 里被删（20:17–20:24 之间），两个 Secret 都失效了约 10 分钟（这段时间没有发布在跑，20:15 和 20:30 两次对账之间没有运行，没撞上）；第二次 rotate 停在「没有普通仓库」，你建了 `bifrost/primary-probe` 后第三次 20:28 换好。还剩：删本机被忽略的 `k8s/cicd/gitea/secret.yaml`（旧值，已失效），Gitea 里只留在用的令牌
-- **Claim**: commit `d30ef90` (2026-06-17) added `k8s/cicd/gitea/secret.yaml` with a real `gitea_admin_token`; `aee67ba` (2026-08-19) took the file out of version control and `.gitignore` line 10 keeps it out, but the value stays in the history of main, which GitHub serves publicly. The same value is the one in Secret `cicd/gitea-bootstrap` today (checked by count only, the value not printed by intent; it reached the coordinating thread's transcript through a broad grep that hit the ignored local file). Whoever has it can act as Gitea's administrator: every repository, mirror settings, and from the Gitea-primary cut on, the branch protections that keep agents off main.
-- **Evidence**: `git log --all -- k8s/cicd/gitea/secret.yaml` (d30ef90, aee67ba); `git log -p --all -- k8s/cicd/gitea/secret.yaml | grep -cE 'gitea_admin_token: *"?[0-9a-f]{40}'` → 2.
-- **Impact**: today Gitea is reachable on the LAN only (NodePort 30300), which limits it; it becomes the primary of every repository with the Gitea-primary cut, so its admin token matters more from now.
-- **Fix**: the same token is in two Secrets (found 10-17 18:3x; the leaked file held it twice): `cicd/gitea-bootstrap` `gitea_admin_token` and `cicd/gitea-git-credentials` `password`, the basic-auth of every Tekton clone. The Owner makes a new admin token in Gitea and runs `scripts/gitea/rotate-admin-token.sh` (check, rotate: tries the new token for its uses, writes both Secrets, checks the clone credentials over Git HTTP for every repository; reviews 256–258, `d028464`; after section 1, which makes the probe repository it tries write access on); the coordinator checks mirror sync and a CI clone with the new token; then the Owner revokes the old token (Gitea → Settings → Applications), runs `rotate-admin-token.sh revoked` and deletes the ignored local `k8s/cicd/gitea/secret.yaml`. Platform reads the Secret per request and Tekton at pod start, so nothing needs a restart. Rewriting history is not needed once the old token is revoked.
-- **Ratchet**: a secrets scan over the whole history of the public repositories (40-hex tokens next to token-named keys), run where `check-agent-config-parity.sh` runs; and agents search with `git grep` (tracked files) rather than `grep -r` over a checkout that holds ignored secret files (lesson 162).
-- 验收: `rotate-admin-token.sh revoked` passes (the leaked token answers 401 at `/api/v1/user`, both Secrets log in); mirror-sync, a CI clone and the platform's lineage scan work with the new one.
-- 验收结果：PASS 2026-10-17 `c38d053`：`revoked`（泄露令牌 HTTP 401；gitea-bootstrap 以 admin weitingzhao 登录；克隆凭证按 Git HTTP 列出 12 个仓库）；平台镜像同步 20:29 settled、无错；GitHub 同步对账 20:30 成功
-- 审批 不需要（凭证由 Owner 换）· 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ### TD-364
 

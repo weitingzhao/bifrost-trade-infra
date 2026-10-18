@@ -364,3 +364,10 @@
 - **强度**：blocking for rule signatures. The release-policy signer is not covered yet.
 - **覆盖**：TD-355. Checked 2026-10-15 with throwaway keys: unencrypted → exit 2; encrypted but held by an agent → exit 2; encrypted and not held → goes on to the platform's check.
 
+### The leaked Gitea admin token is in neither Secret (TD-365)
+
+- **做什么**：`scripts/gitea/rotate-admin-token.sh check` reads `cicd/gitea-bootstrap` and `cicd/gitea-git-credentials` and says, for each, whether it holds the token leaked in infra's history (compared with the blob pinned at commit `d30ef90`, never printed); `revoked` fails while the leaked token still logs in.
+- **放哪**：bifrost-trade-infra `scripts/gitea/rotate-admin-token.sh` (check, revoked); its tests in `scripts/gitea/test_gitea_scripts.py` (RotateAdminToken).
+- **强度**：run by the Owner (admin kubeconfig); not scheduled. The history scan that would have found the leak sooner is TD-367.
+- **覆盖**：TD-365. 2026-10-17 20:3x: `revoked` passed (the leaked token answers 401; both Secrets log in as admin; the clone credentials list every repository over Git HTTP).
+
