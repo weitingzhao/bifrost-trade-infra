@@ -283,17 +283,25 @@ for u in "$prod" "$stg"; do
   done
 done
 # claude runs with no settings source and its hooks off (agentd, TD-371), but a
-# managed policy still applies, and its command hooks would still run (review
-# 282 A): there must be none, or it must turn every hook off itself.
-for f in /etc/claude-code/managed-settings.json /etc/claude-code/managed-mcp.json; do
-  if [ ! -e "$f" ]; then
-    ok "no $f"
-  elif [ "$f" = /etc/claude-code/managed-settings.json ] && python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d.get("disableAllHooks") is True and not d.get("hooks") else 1)' "$f" 2>/dev/null; then
-    ok "$f turns every hook off"
-  else
-    fail "$f is there: remove it, or have it set disableAllHooks true and no hooks"
-  fi
-done
+# managed policy still applies, and its command hooks would still run (reviews
+# 282, 283): the policy file must be absent or turn every hook off itself, and
+# no drop-in may add to it, nor a managed MCP file start a server.
+f=/etc/claude-code/managed-settings.json
+if [ ! -e "$f" ]; then
+  ok "no $f"
+elif python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("disableAllHooks") is True else 1)' "$f" 2>/dev/null; then
+  ok "$f turns every hook off"
+else
+  fail "$f is there and does not set disableAllHooks true"
+fi
+d=/etc/claude-code/managed-settings.d
+if [ ! -e "$d" ]; then
+  ok "no $d"
+else
+  found=$(find "$d" -mindepth 1 -maxdepth 1 ! -name '.*' -name '*.json' -print -quit 2>/dev/null)
+  [ -z "$found" ] && ok "$d holds no policy file" || fail "$d holds $found: remove the drop-ins (they can add hooks back)"
+fi
+[ ! -e /etc/claude-code/managed-mcp.json ] && ok "no /etc/claude-code/managed-mcp.json" || fail "/etc/claude-code/managed-mcp.json is there: remove it"
 echo "-- codex: one root-owned copy under /opt/bifrost/codex, allowed user namespaces by AppArmor (bifrost-codex)"
 for d in /opt /opt/bifrost /opt/bifrost/codex; do
   m=$(stat -c '%U %A' "$d" 2>/dev/null)
