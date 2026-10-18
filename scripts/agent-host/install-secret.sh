@@ -22,7 +22,7 @@ user=$1 name=$2 bytes=$3 sum=$4
 case "$user" in bifrost-agentd | bifrost-agentd-stg) ;; *) die "not an agent user: $user" ;; esac
 case "$user:$name" in
   bifrost-agentd:agentd-git.token | bifrost-agentd:cursor-api.key | bifrost-agentd:claude-oauth.token) ;;
-  bifrost-agentd-stg:agentd-git.token) ;;
+  bifrost-agentd-stg:agentd-git.token | bifrost-agentd-stg:cursor-api.key | bifrost-agentd-stg:claude-oauth.token) ;;
   *) die "$user does not take $name" ;;
 esac
 [[ $bytes =~ ^[0-9]{1,4}$ ]] || die "bad length"

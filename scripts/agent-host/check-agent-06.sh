@@ -164,8 +164,9 @@ cred "$prod" agentd.token required
 cred "$stg" agentd.token required
 need=optional
 [ "$stage" = base ] || need=required
-for f in agentd-git.token cursor-api.key claude-oauth.token; do cred "$prod" "$f" "$need"; done
-cred "$stg" agentd-git.token "$need"
+for u in "$prod" "$stg"; do
+  for f in agentd-git.token cursor-api.key claude-oauth.token; do cred "$u" "$f" "$need"; done
+done
 
 echo "== egress rules"
 systemctl is-enabled --quiet bifrost-agent-egress.service && ok "egress unit enabled" || fail "egress unit not enabled"
@@ -257,8 +258,10 @@ for u in "$prod" "$stg"; do
   reach "$u" tcp api.openai.com 443 open
   reach "$u" tcp chatgpt.com 443 open
 done
-reach "$prod" tcp api.anthropic.com 443 open
-reach "$prod" tcp api2.cursor.sh 443 open
+for u in "$prod" "$stg"; do
+  reach "$u" tcp api.anthropic.com 443 open
+  reach "$u" tcp api2.cursor.sh 443 open
+done
 kill "$listener_pid" 2>/dev/null
 listener_pid=""
 fi
@@ -274,8 +277,10 @@ echo "== tools"
 /usr/local/lib/nodejs/current/bin/node -v 2>&1
 git --version
 [ "$(sha256sum /usr/local/libexec/bifrost/agentd 2>/dev/null | cut -d' ' -f1)" = "$(cut -d' ' -f1 "$(dirname "$0")/agentd.sha256")" ] && ok "agentd matches agentd.sha256" || fail "agentd does not match agentd.sha256"
-for c in claude cursor-agent; do
-  v=$(as "$prod" ".local/bin/$c --version 2>/dev/null | head -1") && [ -n "$v" ] && ok "$prod $c $v" || fail "$prod $c does not run"
+for u in "$prod" "$stg"; do
+  for c in claude cursor-agent; do
+    v=$(as "$u" ".local/bin/$c --version 2>/dev/null | head -1") && [ -n "$v" ] && ok "$u $c $v" || fail "$u $c does not run"
+  done
 done
 echo "-- codex: one root-owned copy under /opt/bifrost/codex, allowed user namespaces by AppArmor (bifrost-codex)"
 for d in /opt /opt/bifrost /opt/bifrost/codex; do
@@ -309,11 +314,13 @@ for u in "$prod" "$stg"; do
   n=$(as "$u" "codex mcp list --json 2>/dev/null" | python3 -I -c 'import json, sys; print(len(json.load(sys.stdin)))' 2>/dev/null)
   [ "$n" = 0 ] && ok "$u codex MCP servers: 0" || fail "$u codex MCP servers: ${n:-unreadable} (look at it on the host)"
 done
-if as "$prod" ".local/bin/claude mcp list 2>/dev/null" | grep -q 'No MCP servers configured'; then
-  ok "$prod claude MCP servers: none"
-else
-  fail "$prod claude MCP servers: not none (look at it on the host)"
-fi
+for u in "$prod" "$stg"; do
+  if as "$u" ".local/bin/claude mcp list 2>/dev/null" | grep -q 'No MCP servers configured'; then
+    ok "$u claude MCP servers: none"
+  else
+    fail "$u claude MCP servers: not none (look at it on the host)"
+  fi
+done
 for u in "$prod" "$stg"; do
   [ ! -e "/home/$u/.cursor/mcp.json" ] && ok "$u has no ~/.cursor/mcp.json" || fail "$u has ~/.cursor/mcp.json"
 done

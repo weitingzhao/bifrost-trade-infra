@@ -182,12 +182,17 @@ step "vendor CLIs (as the agent users, through the egress rules)"
 npm_cli() { # npm_cli <user> <binary> <package>
   as "$1" "[ -x .local/bin/$2 ] || npm install -g --prefix \"\$HOME/.local\" --no-audit --no-fund $3"
 }
-npm_cli "$prod" claude @anthropic-ai/claude-code
-# cursor-agent: the installer is downloaded first and run only if the
-# download succeeded, so a failed or cut-off download changes nothing.
-as "$prod" '[ -x .local/bin/cursor-agent ] || { t=$(mktemp) && curl -fsS --proto "=https" -o "$t" https://cursor.com/install && bash "$t"; rc=$?; rm -f "$t"; exit $rc; }'
-for c in claude cursor-agent; do
-  as "$prod" "[ -x .local/bin/$c ] && .local/bin/$c --version >/dev/null 2>&1" || die "$prod: $c is not installed or does not run"
+# Both users have claude and cursor-agent: STG runs the same executors as
+# PROD, so routing between vendors is tried on STG first (Owner 2026-10-18,
+# W-31 2.4: "STG 装 Claude 和 Cursor").
+for u in "$prod" "$stg"; do
+  npm_cli "$u" claude @anthropic-ai/claude-code
+  # cursor-agent: the installer is downloaded first and run only if the
+  # download succeeded, so a failed or cut-off download changes nothing.
+  as "$u" '[ -x .local/bin/cursor-agent ] || { t=$(mktemp) && curl -fsS --proto "=https" -o "$t" https://cursor.com/install && bash "$t"; rc=$?; rm -f "$t"; exit $rc; }'
+  for c in claude cursor-agent; do
+    as "$u" "[ -x .local/bin/$c ] && .local/bin/$c --version >/dev/null 2>&1" || die "$u: $c is not installed or does not run"
+  done
 done
 for u in "$prod" "$stg"; do
   as "$u" '[ "$(command -v codex)" = /opt/bifrost/codex/bin/codex ]' || die "$u: codex on its PATH is not the one under $codex_prefix"

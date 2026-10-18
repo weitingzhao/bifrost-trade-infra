@@ -16,7 +16,8 @@
 #   copy                  scp this directory and the agentd binary to 06
 #   prepare               run prepare-agent-06.sh on 06
 #   codex-login prod|stg  log codex in as that agent user (device code)
-#   vendor-creds          copy Claude's and Cursor's credentials from this Mac
+#   vendor-creds [prod|stg]   copy Claude's and Cursor's credentials from this
+#                         Mac to that agentd user (PROD when not named)
 #   git-token prod|stg    read a Gitea token (hidden) and install it on 06
 #   host-check base|creds|running   run check-agent-06.sh on 06
 #   secret prod|stg       put that agentd's platform token into its Secret
@@ -26,6 +27,8 @@
 #   update-agentd         put a new agentd build (agentd.sha256) on 06: check
 #                         the binary, stop both services, copy, prepare,
 #                         start both and check them running
+#   stg-vendors           give the STG agentd claude and cursor-agent too: stop
+#                         both, copy, prepare, vendor-creds stg, start both
 #   retire-mac            stop the agentd on this Mac
 #   probe-protection      run probe-gitea-protection.sh on 06 as the STG agentd
 #                         user against bifrost/primary-probe (Gitea-primary cut,
@@ -498,14 +501,15 @@ send_secret() {
 }
 
 step_vendor_creds() {
-  local f src
+  local f src u
+  u=$(user_of "${1:-prod}")
   sudo -v
   for f in claude-oauth.token cursor-api.key; do
     src=~bifrost-agentd/.config/bifrost/$f # the Mac's agentd user's home
     # Read whole first: a read that fails part way sends nothing.
     sudo cat "$src" > "$TMPD/$f.raw" || die "could not read $src on this Mac"
     normalize "$TMPD/$f.raw" "$TMPD/$f" "$f" || die "$src on this Mac does not look like a $f; nothing was sent"
-    send_secret bifrost-agentd "$f" "$TMPD/$f"
+    send_secret "$u" "$f" "$TMPD/$f"
     rm -f "$TMPD/$f.raw" "$TMPD/$f"
   done
 }
@@ -586,6 +590,20 @@ step_update_agentd() {
   say "agentd on 06 is now $(basename "$BINARY")"
 }
 
+# stg-vendors: the STG agentd offers claude and cursor as well (Owner
+# 2026-10-18, W-31 2.4 「STG 装 Claude 和 Cursor」). prepare installs both
+# command lines for both users and refuses while either agentd runs; the
+# credentials go to the STG user before the start, whose check wants them.
+step_stg_vendors() {
+  (cd "$(dirname "$BINARY")" && shasum -a 256 -c "$HERE/agentd.sha256") || die "$BINARY does not match agentd.sha256; nothing was stopped"
+  step_stop
+  step_copy || die "copy failed; both agentd services are stopped (run stg-vendors again)"
+  step_prepare || die "prepare failed; both agentd services are stopped (run stg-vendors again)"
+  step_vendor_creds stg || die "the credentials did not reach the STG user; both agentd services are stopped (run stg-vendors again)"
+  step_start
+  say "the STG agentd now offers exec:claude and exec:cursor"
+}
+
 step_retire_mac() {
   local rc=0
   # disable first: bootout alone stops it until the next boot, when launchd
@@ -614,12 +632,12 @@ step_probe_protection() {
 
 step=${1:-}
 if [ -z "$step" ]; then
-  sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,39p' "$0" | sed 's/^# \{0,1\}//'
   exit 2
 fi
 shift
 case "$step" in
-  check | leave | uninstall | delete-node | copy | prepare | codex-login | vendor-creds | git-token | host-check | secret | stop | start | update-agentd | retire-mac | probe-protection) ;;
+  check | leave | uninstall | delete-node | copy | prepare | codex-login | vendor-creds | git-token | host-check | secret | stop | start | update-agentd | stg-vendors | retire-mac | probe-protection) ;;
   *) die "unknown step: $step" ;;
 esac
 fn=step_$(echo "$step" | tr - _)

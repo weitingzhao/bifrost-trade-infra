@@ -138,5 +138,32 @@ class StopStart(unittest.TestCase):
         self.assertEqual(self.active(), {"bifrost-agentd.service", "bifrost-agentd-stg.service"})
 
 
+    def test_stg_vendors_copies_the_credentials_to_stg_before_the_start(self) -> None:
+        for u in ("bifrost-agentd.service", "bifrost-agentd-stg.service"):
+            (self.units / u).write_text("")
+        build = Path(self.env["HOME"]) / "build"
+        build.mkdir(exist_ok=True)
+        (build / "agentd-x").write_text("agentd")
+        (build / "agentd.sha256").write_text(subprocess.run(["shasum", "-a", "256", "agentd-x"], cwd=build, capture_output=True, text=True).stdout)
+        stub = (f'BINARY="{build}/agentd-x"; HERE="{build}"; '
+                'step_copy() { echo copy >> "$FAKE_UNITS/calls"; }; '
+                'step_prepare() { echo prepare >> "$FAKE_UNITS/calls"; }; '
+                'step_vendor_creds() { echo "creds $1" >> "$FAKE_UNITS/calls"; [ "${FAIL:-}" != creds ]; }; ')
+        script = f'source "{HERE / "agent-06-owner.sh"}"; node_ssh() {{ bash -c "$1"; }}; {stub} step_stg_vendors'
+        r = subprocess.run(["bash", "-c", script], env=self.env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        calls = [" ".join(c.split()[:2]) for c in (self.units / "calls").read_text().splitlines()]
+        order = [c for c in calls if c in ("systemctl stop", "copy", "prepare", "creds stg", "systemctl enable")]
+        self.assertEqual(order, ["systemctl stop", "copy", "prepare", "creds stg", "systemctl enable"])
+        self.assertEqual(self.active(), {"bifrost-agentd.service", "bifrost-agentd-stg.service"})
+
+        for u in ("bifrost-agentd.service", "bifrost-agentd-stg.service"):
+            (self.units / u).write_text("")
+        r = subprocess.run(["bash", "-c", script], env={**self.env, "FAIL": "creds"}, capture_output=True, text=True, timeout=60)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("did not reach the STG user", r.stderr)
+        self.assertEqual(self.active(), set())
+
+
 if __name__ == "__main__":
     unittest.main()
