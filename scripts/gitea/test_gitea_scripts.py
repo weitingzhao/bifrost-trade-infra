@@ -893,6 +893,10 @@ class RotateAdminToken(unittest.TestCase):
             self.READONLY: ("weitingzhao", True, {"read"}), self.PLAIN: ("plain", False, rw), self.CI: ("ci", False, {"read"}),
         }
         self.repos = [{"name": "r", "mirror": True}, {"name": "primary-probe", "mirror": False}]
+        # the Git side, served as file:// (no basic auth there: this shows every repository is listed)
+        self.git_base = self.root / "git"
+        for name in ("r", "primary-probe"):
+            git(self.root, "init", "-q", "--bare", str(self.git_base / "bifrost" / f"{name}.git"))
         self.seen: list[str] = []
         self.posts: list[str] = []
         self.write_secret("gitea-bootstrap", {"gitea_admin_token": self.OLD})
@@ -1005,7 +1009,7 @@ esac
     def run_it(self, *args: str, typed: str = "", bash: tuple[str, ...] = (), extra: dict | None = None,
                test_mode: bool = True) -> subprocess.CompletedProcess:
         env = {**os.environ, "HOME": str(self.root), "PATH": f"{self.bin}:{os.environ['PATH']}",
-               "GITEA_API": f"http://127.0.0.1:{self.server.server_address[1]}/api/v1", "GITEA_GIT_BASE": "http://127.0.0.1:9",
+               "GITEA_API": f"http://127.0.0.1:{self.server.server_address[1]}/api/v1", "GITEA_GIT_BASE": f"file://{self.git_base}",
                **({"ROTATE_TEST_MODE": "1", "ROTATE_TEST_KUBECTL": str(self.bin / "kubectl"), "ROTATE_TEST_INFRA": str(self.infra),
                    "ROTATE_TEST_LEAKED_COMMIT": self.commit, "ROTATE_TEST_LEAKED_BLOB": self.blob} if test_mode else {}),
                **(extra or {})}
@@ -1190,6 +1194,25 @@ esac
         self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("port-forward", r.stderr)
         self.assertEqual(self.seen, [])
+
+    # review 258 B4: an empty admin value can be replaced too
+    def test_an_empty_admin_value_can_be_replaced(self) -> None:
+        self.write_secret("gitea-bootstrap", {"gitea_admin_token": ""})
+        self.rotated(self.NEW)
+        self.assertEqual(self.both(), (self.NEW, self.NEW))
+
+    # review 258 B2, B8: every repository listed over Git HTTP with the clone credentials
+    def test_a_repository_the_clone_cannot_list_over_git_is_not_done(self) -> None:
+        import shutil
+        shutil.rmtree(self.git_base / "bifrost" / "primary-probe.git")
+        r = self.run_it("rotate", typed=self.NEW)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("cannot list over Git HTTP: primary-probe", r.stdout)
+        self.no_token_in(r)
+
+    def test_done_says_every_repository_was_listed(self) -> None:
+        r = self.rotated(self.NEW)
+        self.assertIn("lists all 2 repositories of bifrost over Git HTTP", r.stdout)
 
     def test_xtrace_does_not_print_a_token(self) -> None:
         self.rotated(self.NEW, bash=("-x",))

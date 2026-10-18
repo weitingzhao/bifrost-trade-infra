@@ -26,7 +26,9 @@
 #            Done means: gitea_admin_token is the new token; neither Secret
 #            holds the leaked token or, unless it is the new one, the admin
 #            token of the start (review 257 B3); and both work as their users
-#            use them, the clone by basic auth like Tekton (review 257 B2).
+#            use them, the clone by basic auth like Tekton, over the API and
+#            over Git HTTP for every repository of the org (review 257 B2,
+#            258 B2, B8).
 #   revoked  after the Owner revoked the old token in Gitea: the token in the
 #            leaked file (read by its pinned blob id, no replacement objects)
 #            must be refused (HTTP 401) and both Secrets must still work
@@ -50,6 +52,10 @@ if [[ "${ROTATE_TEST_MODE:-}" == 1 ]]; then
 else
   unset GITEA_API GITEA_GIT_BASE GITEA_TOKEN
 fi
+# lib.sh would load the admin token from the Secret and stop when it is empty;
+# this script reads both Secrets itself, so a broken one can be replaced
+# (review 258 B4). The value below is never sent anywhere.
+export GITEA_TOKEN=not-used-by-rotate-admin-token
 # shellcheck source=lib.sh
 source "$HERE/lib.sh"
 INFRA="$(cd "${HERE}/../.." && pwd -P)"
@@ -164,6 +170,27 @@ def can_read(auth, repo):
 def can_write(token, regular):
     code, answer = call(token, "POST", "/repos/%s/%s/mirror-sync" % (ORG, regular))
     return code == 400 and isinstance(answer, dict) and "not a mirror" in str(answer.get("message", "")).lower()
+def git_reads(user, password, names):
+    """the repositories (of names) that the credentials cannot list over Git HTTP by basic auth, as Tekton clones"""
+    import subprocess
+    if not clean(password) or not user or ":" in user:
+        return list(names)
+    base = os.environ["GITEA_GIT_BASE"].rstrip("/")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_CONFIG")}
+    env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null", GIT_TERMINAL_PROMPT="0", GIT_CONFIG_COUNT="2",
+               GIT_CONFIG_KEY_0="http.%s/.extraHeader" % base,
+               GIT_CONFIG_VALUE_0="Authorization: Basic " + base64.b64encode(("%s:%s" % (user, password)).encode()).decode(),
+               GIT_CONFIG_KEY_1="http.followRedirects", GIT_CONFIG_VALUE_1="false")
+    failed = []
+    for name in names:
+        try:
+            r = subprocess.run(["git", "ls-remote", "--heads", "%s/%s/%s.git" % (base, ORG, name)], env=env,
+                               stdin=subprocess.DEVNULL, capture_output=True, timeout=60)
+            if r.returncode != 0:
+                failed.append(name)
+        except Exception:
+            failed.append(name)
+    return failed
 def leaked_tokens(path):
     return set(re.findall(r"(?:gitea_admin_token|password):\s*\"?([0-9a-f]{40})\"?", open(path).read()))
 '"${program}" "$@"
@@ -270,6 +297,12 @@ if clone is None or clone in old or clone.strip() in old:
     problems.append("the clone password is still an old token")
 if not first or clone is None or not can_read((user, clone), first):
     problems.append("the clone credentials do not read a repository")
+elif isinstance(listed, list):
+    unread = git_reads(user, clone, [r["name"] for r in listed])
+    if unread:
+        problems.append("the clone credentials cannot list over Git HTTP: " + ", ".join(unread))
+    else:
+        print("gitea-git-credentials lists all %d repositories of %s over Git HTTP, as Tekton clones" % (len(listed), ORG))
 local = sys.argv[5]
 if os.path.exists(local):
     text = open(local).read()
@@ -304,8 +337,9 @@ bad += now != "admin " + ADMIN
 listed = repos(admin) if clean(admin) else []
 first = listed[0]["name"] if isinstance(listed, list) and listed else None
 works = bool(first) and clone is not None and can_read((user, clone), first)
-print("gitea-git-credentials (username %s):" % user, "can read %s/%s" % (ORG, first) if works else "CANNOT read a repository as Tekton does")
-bad += not works
+unread = git_reads(user, clone, [r["name"] for r in listed]) if works else []
+print("gitea-git-credentials (username %s):" % user, ("CANNOT list over Git HTTP: " + ", ".join(unread)) if unread else "lists all %d repositories over Git HTTP" % len(listed) if works else "CANNOT read a repository as Tekton does")
+bad += (not works) or bool(unread)
 sys.exit(1 if bad or not old else 0)
 ' "${work}/bootstrap.json" "${work}/clone.json" "${work}/leaked.yaml" || gitea_die "not done yet: see the lines above"
     echo "==> the leaked tokens are refused; both Secrets work."
