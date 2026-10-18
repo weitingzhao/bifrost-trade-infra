@@ -2168,5 +2168,84 @@ esac
         self.assertEqual(r.returncode, 1)
         self.assertIn("not a terminal", r.stderr)
 
+
+class EnsurePushWebhooks(unittest.TestCase):
+    """ensure-push-webhooks.sh against a fake Gitea that keeps hooks per repository."""
+
+    EL = "http://el-bifrost-ci.cicd.svc.cluster.local:8080"
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.hooks = {"bifrost-ui": [{"id": 1, "type": "gitea", "active": True, "events": ["push"], "config": {"url": self.EL, "content_type": "json"}}],
+                      "bifrost-trade-infra": []}
+        self.posts: list[str] = []
+        outer = self
+
+        class H(BaseHTTPRequestHandler):
+            def reply(self, code: int, body) -> None:
+                data = json.dumps(body).encode()
+                self.send_response(code)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def do_GET(self) -> None:
+                repo = self.path.removeprefix("/api/v1/repos/bifrost/").split("/")[0]
+                if self.path.endswith("/hooks") and repo in outer.hooks:
+                    self.reply(200, outer.hooks[repo])
+                else:
+                    self.reply(404, {})
+
+            def do_POST(self) -> None:
+                repo = self.path.removeprefix("/api/v1/repos/bifrost/").split("/")[0]
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                outer.posts.append(repo)
+                outer.hooks[repo].append({"id": 9, "type": body["type"], "active": body["active"], "events": body["events"], "config": body["config"]})
+                self.reply(201, {})
+
+            def log_message(self, *a) -> None:
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def tearDown(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+        self.tmp.cleanup()
+
+    def run_it(self, *repos: str, listing: str | None = None) -> subprocess.CompletedProcess:
+        env = {**os.environ, "GITEA_TOKEN": "fixture-admin-token", "GITEA_GIT_BASE": "http://127.0.0.1:9",
+               "GITEA_API": f"http://127.0.0.1:{self.server.server_address[1]}/api/v1"}
+        if listing is not None:
+            (self.root / "list.txt").write_text(listing)
+            env["PRIMARY_LIST"] = str(self.root / "list.txt")
+        return subprocess.run(["bash", str(HERE / "ensure-push-webhooks.sh"), *repos], env=env, capture_output=True, text=True, timeout=60)
+
+    def test_adds_the_missing_hook_and_leaves_the_right_one(self) -> None:
+        r = self.run_it(listing="# primaries\nbifrost-ui\nbifrost-trade-infra  # batch C\n")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("bifrost-ui: push webhook already there", r.stdout)
+        self.assertIn("bifrost-trade-infra: push webhook created and read back", r.stdout)
+        self.assertEqual(self.posts, ["bifrost-trade-infra"])
+        self.assertNotIn("fixture-admin-token", r.stdout + r.stderr)
+        again = self.run_it("bifrost-ui", "bifrost-trade-infra")
+        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+        self.assertEqual(self.posts, ["bifrost-trade-infra"])  # nothing created twice
+
+    def test_a_wrong_hook_is_reported_not_changed(self) -> None:
+        self.hooks["bifrost-ui"][0]["config"]["content_type"] = "form"
+        r = self.run_it("bifrost-ui")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("bifrost-ui: a hook to http://el-bifrost-ci.cicd.svc.cluster.local:8080 is there but content type form; left as it is", r.stdout)
+        self.assertEqual(self.posts, [])
+
+    def test_bad_names_stop_before_anything(self) -> None:
+        r = self.run_it("../x")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("not a repository name", r.stderr)
+        self.assertEqual(self.posts, [])
+
 if __name__ == "__main__":
     unittest.main()
