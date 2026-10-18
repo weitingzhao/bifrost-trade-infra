@@ -3,8 +3,10 @@
 # (Secret cicd/github-sync, key token; k8s/cicd/github-sync) into the cluster.
 # OWNER-STEPS-gitea-primary.md section 1 item 7.
 #
-# Run it in a terminal tab, not with `!` in the thread: it reads the token
-# without echo, and `!` has no terminal to read from.
+# It reads the token without echo from the terminal, and refuses when stdin is
+# not one. It is a bash script so that it reads the same under the Owner's zsh:
+# the one-line command it replaces used `read -p`, which in zsh means "read
+# from the coprocess", and created nothing (2026-10-17).
 #
 #   bash scripts/gitea/put-github-sync-token.sh
 #
@@ -31,7 +33,7 @@ export KUBECONFIG="${PUT_TOKEN_KUBECONFIG:-$HOME/.bifrost-owner/kube/admin.yaml}
 
 die() { echo "ERROR: $*" >&2; echo "Nothing was written." >&2; exit 1; }
 
-[[ -t 0 ]] || die "stdin is not a terminal. Run this in a terminal tab, not with ! in the thread."
+[[ -t 0 ]] || die "stdin is not a terminal; run it in a terminal tab"
 [[ -r "${KUBECONFIG}" ]] || die "no admin kubeconfig at ${KUBECONFIG}"
 
 if kubectl -n "${NS}" get secret "${NAME}" -o name > /dev/null 2>&1; then
