@@ -112,10 +112,13 @@ def static() -> list[str]:
     project = PROJECT.read_text()
     if "kind: Namespace" not in project:
         problems.append("appproject bifrost does not whitelist Namespace")
-    if "https://github.com/weitingzhao/bifrost-trade-infra.git" not in project:
-        problems.append("appproject bifrost missing infra repo")
-    if "https://github.com/weitingzhao/bifrost-research.git" not in project:
-        problems.append("appproject bifrost missing research repo")
+    # Gitea is the primary since Gitea-primary batch C; the GitHub addresses stay one week
+    # for a move back (CUT-gitea-primary-2026-10-17), then this check drops them.
+    for repo in ("bifrost-trade-infra", "bifrost-research"):
+        for url in (f"http://gitea.cicd.svc.cluster.local:3000/bifrost/{repo}.git",
+                    f"https://github.com/weitingzhao/{repo}.git"):
+            if url not in project:
+                problems.append(f"appproject bifrost missing {url}")
     empty = EMPTY.read_text()
     if "sourceRepos: []" not in empty or "name: default" not in empty:
         problems.append("default-empty.yaml is not an empty default project")

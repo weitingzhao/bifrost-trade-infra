@@ -1,11 +1,10 @@
 # GitOps Application for Bifrost Trade staging stack (Session S4).
 # Source: k8s/overlays/stg in bifrost-trade-infra (frontend + api-monitor smoke).
 #
-# If the GitHub repo is private, create an Argo CD repository Secret in cicd, then:
-#   kubectl apply -f k8s/cicd/argocd/repo-secret.yaml  (from .example after filling token)
-#
-# Until GitHub has k8s/overlays/stg on main, use install-bifrost-stg.sh LOCAL_BOOTSTRAP=1
-# to apply the overlay once; Argo will converge after push + repo credentials.
+# The source is Gitea, the primary since Gitea-primary batch C (CUT-gitea-primary-2026-10-17);
+# Argo reads it as argocd-reader through Secret cicd/repo-creds-gitea-bifrost
+# (scripts/gitea/put-argocd-reader-token.sh), and scripts/gitea/apply-argo-gitea.sh applies
+# this file.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -16,7 +15,7 @@ metadata:
 spec:
   project: bifrost
   source:
-    repoURL: https://github.com/weitingzhao/bifrost-trade-infra.git
+    repoURL: http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-trade-infra.git
     path: k8s/overlays/stg
     targetRevision: main
   destination:

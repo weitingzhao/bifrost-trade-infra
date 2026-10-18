@@ -15,7 +15,7 @@ metadata:
 spec:
   project: bifrost
   source:
-    repoURL: https://github.com/weitingzhao/bifrost-research.git
+    repoURL: http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-research.git
     path: k8s
     targetRevision: main
     directory:

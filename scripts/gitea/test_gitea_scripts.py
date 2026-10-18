@@ -1816,5 +1816,330 @@ class GlobalInsteadOf(unittest.TestCase):
             self.assertIn(words, r.stderr, args)
         self.assertEqual(self.config.read_text(), "[user]\n\tname = t\n")
 
+
+FAKE_ARGO_KUBECTL = r"""#!/usr/bin/env python3
+# fake kubectl for apply-argo-gitea tests: live objects are JSON files in $FAKE_STATE
+import copy, json, os, sys, yaml
+st = os.environ["FAKE_STATE"]
+a = sys.argv[1:]
+open(os.path.join(st, "calls"), "a").write(" ".join(a) + "\n")
+if a[:2] == ["-n", "cicd"]:
+    a = a[2:]
+def path(kind, name):
+    return os.path.join(st, "%s-%s.json" % (kind.lower(), name))
+def merge(base, over):
+    if isinstance(base, dict) and isinstance(over, dict):
+        out = dict(base)
+        for k, v in over.items():
+            out[k] = merge(base.get(k), v)
+        return out
+    return copy.deepcopy(over)
+def rendered(f):
+    doc = yaml.safe_load(open(f))
+    live = json.load(open(path(doc["kind"], doc["metadata"]["name"])))
+    out = copy.deepcopy(live)
+    out["spec"] = merge(live.get("spec") or {}, doc.get("spec") or {})
+    out["metadata"]["labels"] = doc["metadata"].get("labels") or {}
+    return out
+if a[:2] == ["get", "serviceaccount"]:
+    print("serviceaccount/default"); sys.exit(0)
+if a[:2] == ["get", "secret"]:
+    lab = os.path.join(st, "secret-label")
+    if not os.path.exists(lab): sys.exit(1)
+    print(open(lab).read().strip(), end=""); sys.exit(0)
+if a[0] == "get" and a[1] in ("appproject", "application"):
+    print(open(path(a[1], a[2])).read()); sys.exit(0)
+if a[0] == "apply" and "--dry-run=server" in a:
+    print(json.dumps(rendered(a[a.index("-f") + 1]))); sys.exit(0)
+if a[0] == "apply":
+    obj = rendered(a[a.index("-f") + 1])
+    if obj["kind"] == "Application":
+        url = obj["spec"]["source"]["repoURL"]
+        repo = url.rsplit("/", 1)[1][:-4]
+        main = open(os.path.join(st, "main-" + repo)).read().strip()
+        err = os.path.join(st, "comparison-error")
+        obj["status"] = {"sync": {"status": "Synced", "revision": main, "comparedTo": {"source": {"repoURL": url}}},
+                         "conditions": [{"type": "ComparisonError", "message": open(err).read()}] if os.path.exists(err) else []}
+    json.dump(obj, open(path(obj["kind"], obj["metadata"]["name"]), "w"))
+    print("%s/%s configured" % (obj["kind"].lower(), obj["metadata"]["name"])); sys.exit(0)
+if a[0] == "annotate":
+    sys.exit(0)
+print("unexpected kubectl %s" % a, file=sys.stderr); sys.exit(9)
+"""
+
+ARGO_APPS = {"bifrost-platform-prod": "bifrost-trade-infra", "bifrost-platform-stg": "bifrost-trade-infra",
+             "bifrost-prod": "bifrost-trade-infra", "bifrost-stg": "bifrost-trade-infra", "bifrost-research": "bifrost-research"}
+GITEA_IN = "http://gitea.cicd.svc.cluster.local:3000/bifrost"
+
+
+class ApplyArgoGitea(unittest.TestCase):
+    """apply-argo-gitea.sh against a fake kubectl whose live objects are the current GitHub-sourced ones,
+    the AppProject and Application files of this checkout in a fixture repository, and two bare
+    repositories each standing for Gitea and GitHub."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        root = self.root = Path(self.tmp.name)
+        self.state = root / "state"
+        self.state.mkdir()
+        bindir = root / "bin"
+        bindir.mkdir()
+        (bindir / "kubectl").write_text(FAKE_ARGO_KUBECTL)
+        (bindir / "kubectl").chmod(0o755)
+        (self.state / "secret-label").write_text("repo-creds")
+        self.kubeconfig = root / "admin.yaml"
+        self.kubeconfig.write_text("fixture\n")
+        # the fixture infra checkout: this checkout's files at HEAD
+        self.infra = root / "infra"
+        self.infra.mkdir()
+        git(self.infra, "init", "-q", "-b", "main")
+        real = HERE.parent.parent
+        files = ["k8s/platform-rbac/42-appproject-bifrost.yaml"] + [f"k8s/cicd/applications/{a}.yaml" for a in ARGO_APPS]
+        for f in files:
+            (self.infra / f).parent.mkdir(parents=True, exist_ok=True)
+            (self.infra / f).write_text((real / f).read_text())
+        git(self.infra, "add", ".")
+        git(self.infra, "commit", "-q", "-m", "fixture")
+        # live: the same objects as they were with GitHub
+        import yaml
+        for f in files:
+            doc = yaml.safe_load((self.infra / f).read_text())
+            spec = doc["spec"]
+            if doc["kind"] == "AppProject":
+                spec["sourceRepos"] = [u for u in spec["sourceRepos"] if "github.com" in u]
+            else:
+                repo = ARGO_APPS[doc["metadata"]["name"]]
+                spec["source"]["repoURL"] = f"https://github.com/weitingzhao/{repo}.git"
+            live = {"kind": doc["kind"], "metadata": {"name": doc["metadata"]["name"], "labels": doc["metadata"].get("labels") or {}}, "spec": spec}
+            (self.state / f"{doc['kind'].lower()}-{doc['metadata']['name']}.json").write_text(json.dumps(live))
+        # Gitea and GitHub: a bare repository each per repo, main at the same commit
+        self.gitea, self.github = root / "gitea", root / "github"
+        src = root / "src"
+        src.mkdir()
+        git(src, "init", "-q", "-b", "main")
+        (src / "f").write_text("x\n")
+        git(src, "add", "f")
+        git(src, "commit", "-q", "-m", "one")
+        self.main = git(src, "rev-parse", "HEAD")
+        for side in (self.gitea, self.github):
+            for repo in ("bifrost-trade-infra", "bifrost-research"):
+                git(root, "clone", "-q", "--bare", str(src), str(side / f"{repo}.git"))
+        for repo in ("bifrost-trade-infra", "bifrost-research"):
+            (self.state / f"main-{repo}").write_text(self.main)
+        self.env = {**os.environ, **GIT_ENV, "HOME": str(root), "PATH": f"{bindir}:{os.environ['PATH']}", "FAKE_STATE": str(self.state),
+                    "ARGO_KUBECONFIG": str(self.kubeconfig), "ARGO_INFRA": str(self.infra), "FROM": "main",
+                    "GITEA_PUBLIC_BASE": f"file://{self.gitea}", "GITHUB_PUBLIC_BASE": f"file://{self.github}", "WAIT_S": "5"}
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def run_it(self, mode: str) -> subprocess.CompletedProcess:
+        self.assertEqual(shutil.which("kubectl", path=self.env["PATH"]), str(self.root / "bin" / "kubectl"))
+        return subprocess.run(["bash", str(HERE / "apply-argo-gitea.sh"), mode], env=self.env, capture_output=True, text=True, timeout=120)
+
+    def live(self, kind: str, name: str) -> dict:
+        return json.loads((self.state / f"{kind}-{name}.json").read_text())
+
+    def applied(self) -> bool:
+        return any(line.startswith("-n cicd apply -f") for line in (self.state / "calls").read_text().splitlines())
+
+    def test_check_shows_the_change_and_applies_nothing(self) -> None:
+        # the GitHub base in the fixture is file://, so the expected GitHub addresses are those
+        for name, repo in ARGO_APPS.items():
+            obj = self.live("application", name)
+            obj["spec"]["source"]["repoURL"] = f"file://{self.github}/{repo}.git"
+            (self.state / f"application-{name}.json").write_text(json.dumps(obj))
+        r = self.run_it("check")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(f"ok    appproject bifrost: sourceRepos + {GITEA_IN}/bifrost-research.git, {GITEA_IN}/bifrost-trade-infra.git", r.stdout)
+        self.assertIn(f"ok    application bifrost-stg: repoURL file://{self.github}/bifrost-trade-infra.git → {GITEA_IN}/bifrost-trade-infra.git", r.stdout)
+        self.assertIn("== check: all as expected; nothing applied", r.stdout)
+        self.assertFalse(self.applied())
+
+    def github_live(self) -> None:
+        for name, repo in ARGO_APPS.items():
+            obj = self.live("application", name)
+            obj["spec"]["source"]["repoURL"] = f"file://{self.github}/{repo}.git"
+            (self.state / f"application-{name}.json").write_text(json.dumps(obj))
+
+    def test_apply_then_back(self) -> None:
+        self.github_live()
+        r = self.run_it("apply")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        for name, repo in ARGO_APPS.items():
+            self.assertEqual(self.live("application", name)["spec"]["source"]["repoURL"], f"{GITEA_IN}/{repo}.git")
+        self.assertIn(f"ok    bifrost-research: Synced at {self.main[:12]}", r.stdout)
+        self.assertIn("== apply done: the five Applications read Gitea", r.stdout)
+        self.assertIn(f"{GITEA_IN}/bifrost-trade-infra.git", self.live("appproject", "bifrost")["spec"]["sourceRepos"])
+        r = self.run_it("back")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.live("application", "bifrost-stg")["spec"]["source"]["repoURL"], f"file://{self.github}/bifrost-trade-infra.git")
+        self.assertIn("== back done: the five Applications read GitHub", r.stdout)
+
+    def test_nothing_applied_when_anything_is_off(self) -> None:
+        def extra_change() -> None:
+            f = self.infra / "k8s/cicd/applications/bifrost-prod.yaml"
+            f.write_text(f.read_text().replace("path: k8s/overlays/prod", "path: k8s/overlays/stg"))
+            git(self.infra, "commit", "-q", "-am", "wrong path")
+        def project_loses_github() -> None:
+            f = self.infra / "k8s/platform-rbac/42-appproject-bifrost.yaml"
+            f.write_text(f.read_text().replace("    - https://github.com/weitingzhao/bifrost-research.git\n", ""))
+            git(self.infra, "commit", "-q", "-am", "drop")
+        def label_change() -> None:
+            f = self.infra / "k8s/cicd/applications/bifrost-stg.yaml"
+            f.write_text(f.read_text().replace("bifrost.io/purpose: trade-stg", "bifrost.io/purpose: other"))
+            git(self.infra, "commit", "-q", "-am", "label")
+        def github_behind() -> None:
+            src = self.root / "src"
+            (src / "f").write_text("y\n")
+            git(src, "commit", "-q", "-am", "two")
+            git(src, "push", "-q", str(self.gitea / "bifrost-research.git"), "main")
+        cases = (
+            ("an Application changes more than repoURL", extra_change, "FAIL  application bifrost-prod"),
+            ("the AppProject would lose an address", project_loses_github, "sourceRepos would lose https://github.com/weitingzhao/bifrost-research.git"),
+            ("a label changes", label_change, "FAIL  application bifrost-stg: labels change"),
+            ("GitHub is behind Gitea", github_behind, "bifrost-research: Gitea main"),
+            ("no credentials Secret", lambda: (self.state / "secret-label").unlink(), "repo-creds is not there"),
+        )
+        for name, change, words in cases:
+            with self.subTest(name):
+                self.tearDown()
+                self.setUp()
+                self.github_live()
+                change()
+                r = self.run_it("apply")
+                self.assertNotEqual(r.returncode, 0, name + r.stdout + r.stderr)
+                self.assertIn(words, r.stdout + r.stderr, name)
+                self.assertFalse((self.state / "calls").exists() and self.applied(), name)
+
+    def test_a_comparison_error_names_the_way_back(self) -> None:
+        self.github_live()
+        (self.state / "comparison-error").write_text("authentication required")
+        r = self.run_it("apply")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("ComparisonError: authentication required", r.stderr)
+        self.assertIn("apply-argo-gitea.sh back", r.stderr)
+
+
+class PutArgocdReaderToken(unittest.TestCase):
+    """put-argocd-reader-token.sh against a fake Gitea and a fake kubectl, on a pty."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        root = self.root = Path(self.tmp.name)
+        self.state = root / "state"
+        self.state.mkdir()
+        bindir = root / "bin"
+        bindir.mkdir()
+        (bindir / "kubectl").write_text(r"""#!/usr/bin/env bash
+# fake kubectl for put-argocd-reader-token tests
+state="$FAKE_STATE"; echo "$*" >> "$state/calls"; args=" $* "
+case "$args" in
+  *" get secret repo-creds-gitea-bifrost -o name "*) [[ -f "$state/secret.yaml" ]] && echo secret/x && exit 0; exit 1 ;;
+  *" get serviceaccount default "*) echo serviceaccount/default ;;
+  *" create -f - "*) cat > "$state/secret.yaml"; echo created ;;
+  *" get secret repo-creds-gitea-bifrost -o json "*) python3 -c 'import json,sys,yaml,base64
+d = yaml.safe_load(open(sys.argv[1]))
+print(json.dumps({"metadata": d["metadata"], "data": {k: base64.b64encode(str(v).encode()).decode() for k, v in d["stringData"].items()}}))' "$state/secret.yaml" ;;
+  *) echo "unexpected kubectl $*" >&2; exit 9 ;;
+esac
+""")
+        (bindir / "kubectl").chmod(0o755)
+        self.kubeconfig = root / "admin.yaml"
+        self.kubeconfig.write_text("fixture\n")
+        self.path = f"{bindir}:{os.environ['PATH']}"
+        self.perms = {"bifrost-trade-infra": (False, False, True), "bifrost-research": (False, False, True)}
+        self.push_code = 403
+        self.hidden_code = 404
+        outer = self
+
+        class H(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                ok = self.headers.get("Authorization", "") == "token " + GITEA_TOKEN_FIXTURE
+                basic = self.headers.get("Authorization", "") == "Basic " + base64.b64encode(f"argocd-reader:{GITEA_TOKEN_FIXTURE}".encode()).decode()
+                code, body = 404, {}
+                if self.path == "/api/v1/user":
+                    code, body = (403, {"message": "token does not have at least one of required scope(s): [read:user]"}) if ok else (401, {})
+                elif self.path.startswith("/api/v1/repos/bifrost/"):
+                    repo = self.path.rsplit("/", 1)[1]
+                    if not ok:
+                        code = 401
+                    elif repo in outer.perms:
+                        admin, push, pull = outer.perms[repo]
+                        code, body = 200, {"permissions": {"admin": admin, "push": push, "pull": pull}}
+                    else:
+                        code = outer.hidden_code
+                elif "/info/refs?service=git-upload-pack" in self.path:
+                    code = 200 if basic else 401
+                elif "/info/refs?service=git-receive-pack" in self.path:
+                    code = outer.push_code if basic else 401
+                data = json.dumps(body).encode()
+                self.send_response(code)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *a) -> None:
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def tearDown(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+        self.tmp.cleanup()
+
+    def run_it(self, typed: str | None = GITEA_TOKEN_FIXTURE, tty: bool = True) -> subprocess.CompletedProcess:
+        env = {**os.environ, "PATH": self.path, "FAKE_STATE": str(self.state), "PUT_TOKEN_KUBECONFIG": str(self.kubeconfig),
+               "GITEA_PUBLIC_BASE": f"http://127.0.0.1:{self.server.server_address[1]}/bifrost", "NO_PROXY": "*", "no_proxy": "*"}
+        self.assertEqual(shutil.which("kubectl", path=env["PATH"]), str(self.root / "bin" / "kubectl"))
+        cmd = ["bash", str(HERE / "put-argocd-reader-token.sh")]
+        if not tty:
+            return subprocess.run(cmd, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
+        r, self.echoed = run_on_pty(cmd, env, typed)
+        return r
+
+    def test_creates_the_credential_template(self) -> None:
+        import yaml
+        r = self.run_it()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        doc = yaml.safe_load((self.state / "secret.yaml").read_text())
+        self.assertEqual(doc["metadata"]["labels"], {"argocd.argoproj.io/secret-type": "repo-creds"})
+        self.assertEqual(doc["stringData"], {"type": "git", "url": "http://gitea.cicd.svc.cluster.local:3000/bifrost",
+                                             "username": "argocd-reader", "password": GITEA_TOKEN_FIXTURE})
+        self.assertIn("ok    bifrost-research: read only (fetch 200, push refused with 403)", r.stdout)
+        self.assertIn("ok    bifrost-platform is not visible to it", r.stdout)
+        self.assertNotIn(GITEA_TOKEN_FIXTURE, r.stdout + r.stderr + self.echoed + (self.state / "calls").read_text())
+
+    def test_nothing_written_when_anything_is_wrong(self) -> None:
+        cases = (
+            ("secret already there", lambda: (self.state / "secret.yaml").write_text("old"), None, "already exists"),
+            ("not a Gitea token", lambda: None, "github_pat_x", "40 hex characters"),
+            ("token Gitea refuses", lambda: None, "e" * 40, "GET /api/v1/user → HTTP 401"),
+            ("a writer's token", lambda: self.perms.update({"bifrost-research": (False, True, True)}), None, "Argo's account must only read"),
+            ("a token that can push", lambda: setattr(self, "push_code", 200), None, "push handshake on bifrost-trade-infra → 200"),
+            ("a token that sees more", lambda: setattr(self, "hidden_code", 200), None, "sees more than"),
+            ("a repository it cannot read", lambda: self.perms.pop("bifrost-research"), None, "GET /api/v1/repos/bifrost/bifrost-research → HTTP 404"),
+        )
+        for name, change, typed, words in cases:
+            with self.subTest(name):
+                self.tearDown()
+                self.setUp()
+                change()
+                before = (self.state / "secret.yaml").read_text() if (self.state / "secret.yaml").exists() else None
+                r = self.run_it(typed=GITEA_TOKEN_FIXTURE if typed is None else typed)
+                self.assertEqual(r.returncode, 1, name + r.stdout + r.stderr)
+                self.assertIn(words, r.stderr, name)
+                self.assertIn("Nothing was written.", r.stderr, name)
+                after = (self.state / "secret.yaml").read_text() if (self.state / "secret.yaml").exists() else None
+                self.assertEqual(before, after, name)
+                self.assertNotIn(GITEA_TOKEN_FIXTURE, r.stdout + r.stderr, name)
+
+    def test_refuses_without_a_terminal(self) -> None:
+        r = self.run_it(tty=False)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("not a terminal", r.stderr)
+
 if __name__ == "__main__":
     unittest.main()
