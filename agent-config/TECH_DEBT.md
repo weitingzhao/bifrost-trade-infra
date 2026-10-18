@@ -2139,6 +2139,19 @@
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-370
+
+**P2 · agentrt · security · a thread is who its session header says: any token that may propose reads and writes as any thread**
+
+- **状态**：未开始（2026-10-18 02:4x 记，复核 269 B5 在 `GET /messages/thread` 上指出；那条路由已只给 Owner 和席位，`5a7fca3`）
+- **Claim**: `writer()` maps a token that is neither the Owner's nor a seat's to `thread:<X-Bifrost-Session>`, and the header is checked for its shape only. A holder of the shared reporter token (every thread's) can send `X-Bifrost-Session: <another thread>` and read that thread's unread messages (`GET /messages`), acknowledge them, send as it, and propose missions and tasks recorded as it.
+- **Evidence**: `bifrost-platform/api/internal/agentrt/agentrtapi/propose.go:28` (`writer`), `api/internal/agentrt/store/propose.go:32` (`threadSession`, shape only); the questions routes take the same header the same way.
+- **Impact**: the threads on this Mac all hold the same token, so they can already act as each other; what is at stake is a thread's mail (from the Owner or the chief of staff) and the record of who proposed what (audit), not the Owner's or a seat's identity, which come from their own tokens.
+- **Fix**: bind a session to a token when the thread first writes (the actor row keeps the token's name, a later write with another token is refused), or give each thread its own token from the Console when it registers.
+- **Ratchet**: a route test: a second token naming a thread the first registered is refused on every write and on `GET /messages`.
+- 验收: that test passes on main.
+- 审批 不需要（只改平台）· 代价 M · 风险 low · repos: bifrost-platform
+
 ### TD-369
 
 **P3 · mcp · the platform MCP package's type check is red, and no CI task runs it**
