@@ -1223,5 +1223,93 @@ esac
     def test_xtrace_does_not_print_a_token(self) -> None:
         self.rotated(self.NEW, bash=("-x",))
 
+
+class CheckStep1(unittest.TestCase):
+    """check-step1.sh against a fake Gitea answering the user, team and repository reads."""
+
+    def setUp(self) -> None:
+        none = {u: "none" for u in ("repo.issues", "repo.pulls", "repo.releases", "repo.wiki", "repo.projects", "repo.packages", "repo.actions")}
+        self.users = {"bifrost-mbp": {"login": "bifrost-mbp", "is_admin": False},
+                      "agentd-agent-06": {"login": "agentd-agent-06"}, "agentd-agent-06-stg": {"login": "agentd-agent-06-stg"}}
+        self.teams = [
+            {"id": 1, "name": "Owners", "permission": "owner", "includes_all_repositories": True, "units_map": {}},
+            {"id": 2, "name": "maintainers", "permission": "write", "includes_all_repositories": True,
+             "units_map": {"repo.code": "write", **{u: "read" for u in none}}},
+            {"id": 3, "name": "agentd-write", "permission": "write", "includes_all_repositories": True,
+             "units_map": {"repo.code": "write", **none}},
+        ]
+        self.members = {2: ["weitingzhao", "bifrost-mbp"], 3: ["agentd-agent-06", "agentd-agent-06-stg"]}
+        self.probe = {"name": "primary-probe", "mirror": False, "private": True}
+        self.template = None
+        outer = self
+
+        class H(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                path = self.path.split("?")[0].removeprefix("/api/v1")
+                code, body = 404, {"message": "not found"}
+                if path.startswith("/users/") and path[7:] in outer.users:
+                    code, body = 200, outer.users[path[7:]]
+                elif path == "/orgs/bifrost/teams":
+                    code, body = 200, outer.teams
+                elif path.startswith("/teams/") and path.endswith("/members"):
+                    tid = int(path.split("/")[2])
+                    code, body = 200, [{"login": m} for m in outer.members.get(tid, [])]
+                elif path == "/repos/bifrost/primary-probe" and outer.probe:
+                    code, body = 200, outer.probe
+                elif path == "/repos/bifrost/primary-probe/branches/main" and outer.probe:
+                    code, body = 200, {"name": "main"}
+                elif path == "/repos/bifrost/primary-probe/branch_protections" and outer.probe:
+                    code, body = 200, []
+                elif path == "/repos/bifrost/repo-template" and outer.template:
+                    code, body = 200, outer.template
+                data = json.dumps(body).encode()
+                self.send_response(code)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *a) -> None:
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def tearDown(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+
+    def run_it(self) -> subprocess.CompletedProcess:
+        env = {**os.environ, "GITEA_TOKEN": "fixture-admin-token", "GITEA_GIT_BASE": "http://127.0.0.1:9",
+               "GITEA_API": f"http://127.0.0.1:{self.server.server_address[1]}/api/v1"}
+        return subprocess.run(["bash", str(HERE / "check-step1.sh")], env=env, capture_output=True, text=True, timeout=60)
+
+    def test_all_as_expected(self) -> None:
+        r = self.run_it()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("FAIL", r.stdout)
+        self.assertIn("none yet (section 1 part 2)", r.stdout)
+        self.assertNotIn("fixture-admin-token", r.stdout + r.stderr)
+
+    def test_each_wrong_setting_is_a_fail(self) -> None:
+        cases = (
+            ("bifrost-mbp is an administrator", lambda: self.users["bifrost-mbp"].update(is_admin=True), "IS an administrator"),
+            ("agentd-write may open pull requests", lambda: self.teams[2]["units_map"].update({"repo.pulls": "write"}), "repo.pulls is write, not none"),
+            ("maintainers only some repositories", lambda: self.teams[1].update(includes_all_repositories=False), "not all repositories"),
+            ("maintainers is an admin team", lambda: self.teams[1].update(permission="admin"), "permission is admin"),
+            ("bifrost-mbp not in maintainers", lambda: self.members.update({2: ["weitingzhao"]}), "has: weitingzhao"),
+            ("agentd-write missing", lambda: self.teams.pop(2), "team bifrost/agentd-write — missing"),
+            ("probe is a mirror", lambda: self.probe.update(mirror=True), "mirror True"),
+        )
+        for name, change, words in cases:
+            self.setUp()
+            try:
+                change()
+                r = self.run_it()
+                self.assertEqual(r.returncode, 1, name + r.stdout + r.stderr)
+                self.assertIn(words, r.stdout, name)
+            finally:
+                self.tearDown()
+        self.setUp()
+
 if __name__ == "__main__":
     unittest.main()
