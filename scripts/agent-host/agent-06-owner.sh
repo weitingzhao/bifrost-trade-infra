@@ -23,6 +23,9 @@
 #   stop [prod|stg]       stop that agentd service, or both (before prepare
 #                         runs again)
 #   start [prod|stg]      enable and start that agentd service, or both
+#   update-agentd         put a new agentd build (agentd.sha256) on 06: check
+#                         the binary, stop both services, copy, prepare,
+#                         start both and check them running
 #   retire-mac            stop the agentd on this Mac
 #   probe-protection      run probe-gitea-protection.sh on 06 as the STG agentd
 #                         user against bifrost/primary-probe (Gitea-primary cut,
@@ -572,6 +575,17 @@ step_start() {
   fi
 }
 
+# update-agentd: the binary is checked before anything stops; a step that
+# fails stops the rest, with both services left stopped (run it again).
+step_update_agentd() {
+  (cd "$(dirname "$BINARY")" && shasum -a 256 -c "$HERE/agentd.sha256") || die "$BINARY does not match agentd.sha256; nothing was stopped"
+  step_stop
+  step_copy || die "copy failed; both agentd services are stopped (run update-agentd again)"
+  step_prepare || die "prepare failed; both agentd services are stopped (run update-agentd again)"
+  step_start
+  say "agentd on 06 is now $(basename "$BINARY")"
+}
+
 step_retire_mac() {
   local rc=0
   # disable first: bootout alone stops it until the next boot, when launchd
@@ -600,12 +614,12 @@ step_probe_protection() {
 
 step=${1:-}
 if [ -z "$step" ]; then
-  sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'
   exit 2
 fi
 shift
 case "$step" in
-  check | leave | uninstall | delete-node | copy | prepare | codex-login | vendor-creds | git-token | host-check | secret | stop | start | retire-mac | probe-protection) ;;
+  check | leave | uninstall | delete-node | copy | prepare | codex-login | vendor-creds | git-token | host-check | secret | stop | start | update-agentd | retire-mac | probe-protection) ;;
   *) die "unknown step: $step" ;;
 esac
 fn=step_$(echo "$step" | tr - _)

@@ -251,3 +251,15 @@ bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-h
 
 stop 会连带清掉服务的私有 /tmp（评审员可能在那里写过 `run_safego_verify.py`）。跑完不用回，日志我自己读。
 
+
+## 换 agentd（2.3 第 2、3 片，10-18）
+
+新版 `agentd-9872f36`：心跳带上执行者的动作（读了哪些文件、改了哪些、跑了什么命令和退出码），在 06 上先脱敏再发。PROD 平台还是老版本，它不收动作时 agentd 会去掉动作再发一次，所以两个服务一起换也安全。
+
+以后换 agentd 只跑这一条（先核对二进制，再停两个服务、拷、准备、起两个服务并核对；哪步出错就停在那里，两个服务保持停着，再跑一次即可）：
+
+```bash
+bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh update-agentd
+```
+
+中间会问四次节点口令（停、拷、准备、起各一次）。跑完不用回，日志我自己读。
