@@ -131,7 +131,7 @@ bash ~/Desktop/stocks/bifrost-trade-infra/scripts/gitea/protect-repo.sh --owner 
 
 然后两个仓库各在页面上加标签规则（和第 1 节第 4 条一样）：Settings → Tags → Tag name `*`，Allowed users `weitingzhao`，Allowed teams `maintainers` → Add Rule。
 
-**6（你）把 `bifrost-mbp` 的令牌存进钥匙串**：出现 `Gitea token of bifrost-mbp (input hidden):` 后粘贴令牌回车（屏幕上不显示）。它先问 Gitea（是 `bifrost-mbp` 的、能在 `primary-probe` 上推送握手），存完再读回 git 会用的那条；最后一行 `==> git now pushes to http://192.168.10.73:30300 as bifrost-mbp.`。若说钥匙串里另有一条先答了，照它说的在「钥匙串访问」里搜 `192.168.10.73` 删掉那条再跑：
+**6（你）把 `bifrost-mbp` 的令牌存进钥匙串**：出现 `Gitea token of bifrost-mbp (input hidden):` 后粘贴令牌回车（屏幕上不显示）。它先问 Gitea（是 `bifrost-mbp` 的、能在 `primary-probe` 上推送握手），存完再读回 git 会用的那条；最后一行 `==> git now pushes to http://192.168.10.73:30300 as bifrost-mbp.`。若说钥匙串里另有一条先答了（10-17 第 A 批就是：一条 `weitingzhao` 先答），不用删它，先跑 `git config --global credential.http://192.168.10.73:30300.username bifrost-mbp` 再跑一次（第 B 批起这条已经在你的全局配置里）：
 
 ```bash
 bash ~/Desktop/stocks/bifrost-trade-infra/scripts/gitea/store-mbp-token.sh
