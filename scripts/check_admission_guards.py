@@ -212,7 +212,11 @@ def live() -> list[str]:
     # one field it tests: a fixed repoURL or path would be denied by the repoURL rule instead and
     # pass for the wrong reason once the source moved to Gitea (review 261 B7).
     research = live_application("bifrost-research")
-    if research is not None:
+    if research is None:
+        # no fixed fallback: it would be denied by the repoURL rule and pass for the wrong reason (review 262 B7)
+        cases = cases[:-2]
+        problems.append("application-sources, application-kustomize: cannot read the live Application bifrost-research")
+    else:
         cases[-2:] = [
             ("application-sources", platform, "cicd", with_spec(research, sources=[{"repoURL": "https://example.invalid/other.git", "path": "k8s"}]), True),
             ("application-kustomize", platform, "cicd", with_source(research, kustomize={"images": ["evil.example/x:1"]}), True),
