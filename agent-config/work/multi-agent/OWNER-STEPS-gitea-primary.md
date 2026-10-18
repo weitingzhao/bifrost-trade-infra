@@ -52,11 +52,11 @@ rm ~/Desktop/stocks/bifrost-trade-infra/k8s/cicd/gitea/secret.yaml
    - Settings → Tags → 新规则：Tag name `*`，Allowed：团队 `maintainers`、你。
 5. **模板仓库** `bifrost/repo-template`：同第 4 条建好、设好同样的两条分支规则；Settings → Webhooks 加一个 Gitea 钩子，地址 `http://el-bifrost-ci.cicd.svc.cluster.local:8080`、JSON、只要 Push；Settings 里勾「Template Repository」。
 6. **GitHub 同步令牌**（9.12 选了 B）：github.com → Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token：
-   名字 `bifrost-github-sync`，过期一年，Resource owner `weitingzhao`，Repository access 选 **All repositories**，Repository permissions → Contents: Read and write（Metadata 自动只读）。生成后马上做第 7 条。
-7. **放进集群**（粘贴 GitHub 令牌后回车；最后一行只打印键名，应为 `['token']`）：
+   名字 `bifrost-github-sync`，过期一年，Resource owner `weitingzhao`，Repository access 选 **All repositories**（选了它下面才有仓库权限）；Permissions → **+ Add permissions** → Repositories → 勾 Contents，右边改成 **Read and write**（Metadata 自动只读）。生成后马上做第 7 条。
+7. **放进集群**：在**终端标签页**里跑（不能用线程里的 `!`：它没有终端，读不了隐藏输入，10-17 21:1x 试过）。粘贴令牌回车，屏幕上不显示。写入前先问 GitHub：令牌是 `weitingzhao` 的、11 个仓库都能推（只做推送握手，不推东西），有一条不对就什么都不写；已有 `github-sync` 也不写。最后一行应为 `==> Secret cicd/github-sync created (key: token)`：
 
 ```bash
-( export KUBECONFIG="$HOME/.bifrost-owner/kube/admin.yaml"; read -rs -p 'GitHub sync token: ' t; echo; [ -n "$t" ] || { echo "empty; nothing created"; exit 1; }; printf '%s' "$t" | kubectl -n cicd create secret generic github-sync --from-file=token=/dev/stdin; unset t; kubectl -n cicd get secret github-sync -o json | python3 -c 'import json,sys; print(sorted(json.load(sys.stdin)["data"]))' )
+bash ~/Desktop/stocks/bifrost-trade-infra/scripts/gitea/put-github-sync-token.sh
 ```
 
 8. **核对探针仓库的保护**（你的终端，用你的节点钥匙登 06；以 `agentd-agent-06-stg` 的身份逐条试：推 main、建标签、经合并请求合进 main、强推和删除它自己的 `agent/` 分支都要被拒，建 `agent/_probe/<时间>/a1` 要成功；每条只认 Gitea 那条规则的原话，认不出就算没过）：

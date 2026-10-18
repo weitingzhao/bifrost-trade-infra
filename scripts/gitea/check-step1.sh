@@ -13,8 +13,13 @@
 #             link to another site and grant nothing; Gitea gives them read
 #             on a new team, and they are not counted
 #   probe     bifrost/primary-probe: regular (not a mirror), private, a main
-#             branch; its branch rules (main, agent/**) are listed when there
-#   template  bifrost/repo-template, when there: a template repository
+#             branch; once it has branch rules, exactly main and agent/**
+#   template  bifrost/repo-template, when there: a template repository, the
+#             same two branch rules, and a gitea webhook to the CI
+#             EventListener (EL_URL): POST, json, push, active
+#   tags      the tag rule * (user OWNER_LOGIN, team maintainers) on both,
+#             where the API can read tag rules; Gitea 1.21 cannot, and part 4's
+#             probe pushes a tag to primary-probe instead
 #
 # Prints one ok or FAIL line per item and exits 1 on any FAIL. It reads with
 # the admin token from Secret cicd/gitea-bootstrap (lib.sh: port-forward,
@@ -43,11 +48,15 @@ get probe "/repos/${GITEA_ORG}/primary-probe"
 get probe-main "/repos/${GITEA_ORG}/primary-probe/branches/main"
 get probe-branches "/repos/${GITEA_ORG}/primary-probe/branches?limit=50"
 get probe-rules "/repos/${GITEA_ORG}/primary-probe/branch_protections"
+get probe-tags "/repos/${GITEA_ORG}/primary-probe/tag_protections"
 get template "/repos/${GITEA_ORG}/repo-template"
+get template-rules "/repos/${GITEA_ORG}/repo-template/branch_protections"
+get template-tags "/repos/${GITEA_ORG}/repo-template/tag_protections"
+get template-hooks "/repos/${GITEA_ORG}/repo-template/hooks"
 
-python3 - "${work}" "${OWNER_LOGIN}" "${GITEA_ORG}" << 'PY'
+python3 - "${work}" "${OWNER_LOGIN}" "${GITEA_ORG}" "${EL_URL:-http://el-bifrost-ci.cicd.svc.cluster.local:8080}" << 'PY'
 import json, os, sys
-work, owner, org = sys.argv[1:4]
+work, owner, org, el_url = sys.argv[1:5]
 def load(name):
     try:
         return json.load(open(os.path.join(work, name + ".json")))
@@ -100,13 +109,59 @@ if isinstance(probe, dict):
     branches = sorted(b.get("name") for b in (load("probe-branches") or []) if isinstance(b, dict))
     report(isinstance(load("probe-main"), dict), "repository %s/primary-probe has a main branch" % org,
            "" if isinstance(load("probe-main"), dict) else "branches: %s; default branch %s" % (", ".join(branches) or "none (empty repository)", probe.get("default_branch")))
-    rules = sorted(r.get("rule_name") or r.get("branch_name") for r in (load("probe-rules") or []) if isinstance(r, dict))
-    print("info  primary-probe branch rules: %s" % (", ".join(rules) or "none yet (section 1 part 2)"))
 else:
     report(False, "repository %s/primary-probe", "missing")
+
+def branch_rules(repo, name):
+    rules = sorted(r.get("rule_name") or r.get("branch_name") or "" for r in (load(name) or []) if isinstance(r, dict))
+    if not rules:
+        print("info  %s branch rules: none yet (section 1 part 2)" % repo)
+    else:
+        report(rules == ["agent/**", "main"], "%s/%s branch rules: agent/**, main" % (org, repo), "" if rules == ["agent/**", "main"] else "has: " + ", ".join(rules))
+
+def tag_rules(repo, name):
+    rules = load(name)
+    if not isinstance(rules, list):
+        # Gitea 1.21 has no API for tag rules; section 1 part 4's probe pushes a tag to primary-probe.
+        print("info  %s tag rules: not readable through this Gitea's API" % repo)
+        return
+    star = [r for r in rules if isinstance(r, dict) and r.get("name_pattern") == "*"]
+    users = sorted(star[0].get("whitelist_usernames") or []) if star else []
+    teams = sorted(star[0].get("whitelist_teams") or []) if star else []
+    ok = users == [owner] and teams == ["maintainers"]
+    report(ok, "%s/%s tag rule *: user %s and team maintainers" % (org, repo, owner),
+           "" if ok else ("no * rule" if not star else "users %s; teams %s" % (", ".join(users) or "none", ", ".join(teams) or "none")))
+
+def ci_hook():
+    hooks = [h for h in (load("template-hooks") or []) if isinstance(h, dict)]
+    ours = [h for h in hooks if (h.get("config") or {}).get("url", "").rstrip("/") == el_url.rstrip("/")]
+    if not ours:
+        urls = ", ".join((h.get("config") or {}).get("url", "?") for h in hooks)
+        report(False, "%s/repo-template webhook to %s" % (org, el_url), "has: " + (urls or "no webhooks"))
+        return
+    h, problems = ours[0], []
+    config = h.get("config") or {}
+    if h.get("type") != "gitea":
+        problems.append("type %s, not gitea" % h.get("type"))
+    if not h.get("active"):
+        problems.append("not active")
+    if config.get("content_type") != "json":
+        problems.append("content type %s, not json" % config.get("content_type"))
+    if (config.get("http_method") or "post").lower() != "post":
+        problems.append("method %s, not POST" % config.get("http_method"))
+    if "push" not in (h.get("events") or []):
+        problems.append("no push event (has: %s)" % ", ".join(h.get("events") or []))
+    report(not problems, "%s/repo-template webhook to %s: gitea, POST, json, push, active" % (org, el_url), "; ".join(problems))
+
+if isinstance(probe, dict):
+    branch_rules("primary-probe", "probe-rules")
+    tag_rules("primary-probe", "probe-tags")
 tpl = load("template")
 if isinstance(tpl, dict):
     report(tpl.get("template") is True and tpl.get("mirror") is False, "repository %s/repo-template is a template" % org)
+    branch_rules("repo-template", "template-rules")
+    tag_rules("repo-template", "template-tags")
+    ci_hook()
 else:
     print("info  repository %s/repo-template: not made yet (section 1 part 2)" % org)
 print("== section 1 as far as it goes: all as expected" if not fails else "== %d FAIL line(s)" % fails)

@@ -11,11 +11,14 @@ GITEA_TOKEN are given, so lib.sh neither reads the Secret nor port-forwards).
 
 from __future__ import annotations
 
+import base64
 import json
 import os
+import select
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -1241,6 +1244,11 @@ class CheckStep1(unittest.TestCase):
         self.members = {2: ["weitingzhao", "bifrost-mbp"], 3: ["agentd-agent-06", "agentd-agent-06-stg"]}
         self.probe = {"name": "primary-probe", "mirror": False, "private": True}
         self.template = None
+        self.rules = {"primary-probe": [], "repo-template": []}
+        self.tags = {}  # Gitea 1.21: no tag rule API, so 404 unless a test sets a list
+        el = "http://el-bifrost-ci.cicd.svc.cluster.local:8080"
+        self.hooks = [{"id": 1, "type": "gitea", "active": True, "events": ["push"],
+                       "config": {"url": el, "content_type": "json"}}]
         outer = self
 
         class H(BaseHTTPRequestHandler):
@@ -1260,8 +1268,12 @@ class CheckStep1(unittest.TestCase):
                     code, body = 200, {"name": "main"}
                 elif path == "/repos/bifrost/primary-probe/branches" and outer.probe:
                     code, body = 200, ([{"name": "main"}] if outer.probe.get("has_main", True) else [])
-                elif path == "/repos/bifrost/primary-probe/branch_protections" and outer.probe:
-                    code, body = 200, []
+                elif path.endswith("/branch_protections") and path.split("/")[3] in outer.rules:
+                    code, body = 200, [{"rule_name": n} for n in outer.rules[path.split("/")[3]]]
+                elif path.endswith("/tag_protections") and path.split("/")[3] in outer.tags:
+                    code, body = 200, outer.tags[path.split("/")[3]]
+                elif path == "/repos/bifrost/repo-template/hooks" and outer.template:
+                    code, body = 200, outer.hooks
                 elif path == "/repos/bifrost/repo-template" and outer.template:
                     code, body = 200, outer.template
                 data = json.dumps(body).encode()
@@ -1313,6 +1325,218 @@ class CheckStep1(unittest.TestCase):
             finally:
                 self.tearDown()
         self.setUp()
+
+    def part_two_done(self) -> None:
+        self.template = {"name": "repo-template", "template": True, "mirror": False}
+        self.rules = {"primary-probe": ["main", "agent/**"], "repo-template": ["agent/**", "main"]}
+
+    def test_part_two_as_expected(self) -> None:
+        self.part_two_done()
+        r = self.run_it()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("FAIL", r.stdout)
+        self.assertIn("ok    bifrost/repo-template branch rules: agent/**, main", r.stdout)
+        self.assertIn("ok    bifrost/repo-template webhook to http://el-bifrost-ci.cicd.svc.cluster.local:8080", r.stdout)
+        self.assertIn("info  primary-probe tag rules: not readable through this Gitea's API", r.stdout)
+
+    def test_tag_rules_are_checked_where_readable(self) -> None:
+        self.part_two_done()
+        good = [{"name_pattern": "*", "whitelist_usernames": ["weitingzhao"], "whitelist_teams": ["maintainers"]}]
+        self.tags = {"primary-probe": good, "repo-template": good}
+        r = self.run_it()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("ok    bifrost/repo-template tag rule *: user weitingzhao and team maintainers", r.stdout)
+
+    def test_each_wrong_part_two_setting_is_a_fail(self) -> None:
+        cases = (
+            ("template lacks agent/**", lambda: self.rules.update({"repo-template": ["main"]}), "repo-template branch rules: agent/**, main — has: main"),
+            ("probe has an extra rule", lambda: self.rules.update({"primary-probe": ["main", "agent/**", "*"]}), "has: *, agent/**, main"),
+            ("no webhook", lambda: self.hooks.clear(), "has: no webhooks"),
+            ("webhook to another address", lambda: self.hooks[0]["config"].update(url="http://el-bifrost-ci.cicd:8080"), "has: http://el-bifrost-ci.cicd:8080"),
+            ("webhook sends form data", lambda: self.hooks[0]["config"].update(content_type="form"), "content type form, not json"),
+            ("webhook without push", lambda: self.hooks[0].update(events=["create"]), "no push event (has: create)"),
+            ("webhook inactive", lambda: self.hooks[0].update(active=False), "not active"),
+            ("webhook of another type", lambda: self.hooks[0].update(type="slack"), "type slack, not gitea"),
+            ("tag rule lets everyone", lambda: self.tags.update({"primary-probe": [{"name_pattern": "*"}]}), "users none; teams none"),
+            ("no * tag rule", lambda: self.tags.update({"repo-template": []}), "tag rule *: user weitingzhao and team maintainers — no * rule"),
+        )
+        for name, change, words in cases:
+            self.setUp()
+            try:
+                self.part_two_done()
+                change()
+                r = self.run_it()
+                self.assertEqual(r.returncode, 1, name + r.stdout + r.stderr)
+                self.assertIn(words, r.stdout, name)
+            finally:
+                self.tearDown()
+        self.setUp()
+
+
+PAT_FIXTURE = "github_pat_fixture0123456789abcdefFIXTURE"
+
+FAKE_KUBECTL = r'''#!/usr/bin/env bash
+# fake kubectl for put-github-sync-token tests
+state="$FAKE_STATE"
+echo "$*" >> "$state/calls"
+args=" $* "
+case "$args" in
+  *" get secret github-sync -o name "*) [[ -f "$state/secret" ]] && echo secret/github-sync && exit 0; exit 1 ;;
+  *" get serviceaccount default "*) [[ -f "$state/unreachable" ]] && exit 1; echo serviceaccount/default ;;
+  *" create secret generic github-sync --from-file=token=/dev/stdin "*) cat > "$state/secret"; echo secret/github-sync created ;;
+  *" get secret github-sync -o json "*) python3 -c 'import base64,json,sys; print(json.dumps({"data":{"token":base64.b64encode(open(sys.argv[1],"rb").read()).decode()}}))' "$state/secret" ;;
+  *) echo "unexpected kubectl $*" >&2; exit 9 ;;
+esac
+'''
+
+
+class PutGithubSyncToken(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.state = root / "state"
+        self.state.mkdir()
+        bindir = root / "bin"
+        bindir.mkdir()
+        (bindir / "kubectl").write_text(FAKE_KUBECTL)
+        (bindir / "kubectl").chmod(0o755)
+        self.kubeconfig = root / "admin.yaml"
+        self.kubeconfig.write_text("fixture\n")
+        self.path = f"{bindir}:{os.environ['PATH']}"
+        self.login = "weitingzhao"
+        self.no_push: set[str] = set()
+        self.seen_auth: list[str] = []
+        outer = self
+
+        class H(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                auth = self.headers.get("Authorization", "")
+                outer.seen_auth.append(auth)
+                code, body, extra = 404, b"{}", {}
+                if self.path == "/api/user":
+                    if auth == "Bearer " + PAT_FIXTURE:
+                        code, body = 200, json.dumps({"login": outer.login}).encode()
+                        extra = {"github-authentication-token-expiration": "2027-10-17 21:00:00 -0400"}
+                    else:
+                        code = 401
+                elif self.path.endswith(".git/info/refs?service=git-receive-pack"):
+                    repo = self.path.split("/")[2].removesuffix(".git")
+                    want = "Basic " + base64.b64encode(f"x-access-token:{PAT_FIXTURE}".encode()).decode()
+                    code = 401 if auth != want else (403 if repo in outer.no_push else 200)
+                    body = b"001f# service=git-receive-pack\n0000"
+                self.send_response(code)
+                for k, v in extra.items():
+                    self.send_header(k, v)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *a) -> None:
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def tearDown(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+        self.tmp.cleanup()
+
+    def run_it(self, typed: str | None = PAT_FIXTURE, tty: bool = True) -> subprocess.CompletedProcess:
+        port = self.server.server_address[1]
+        env = {**os.environ, "PATH": self.path, "FAKE_STATE": str(self.state), "PUT_PAT_FIXTURE_KUBECONFIG": str(self.kubeconfig),
+               "GITHUB_API": f"http://127.0.0.1:{port}/api", "GITHUB_GIT": f"http://127.0.0.1:{port}/weitingzhao",
+               "REPOS": "bifrost-ui bifrost-platform", "NO_PROXY": "*", "no_proxy": "*"}
+        cmd = ["bash", str(HERE / "put-github-sync-token.sh")]
+        if not tty:
+            return subprocess.run(cmd, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
+        master, slave = os.openpty()
+        try:
+            p = subprocess.Popen(cmd, env=env, stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            os.close(slave)
+            slave = -1
+            # bash's read -s flushes pending terminal input when it turns echo off, so type only
+            # once the prompt is out, as a person would.
+            err = b""
+            deadline = time.monotonic() + 30
+            while b"(input hidden): " not in err and time.monotonic() < deadline:
+                ready, _, _ = select.select([p.stderr], [], [], 0.5)
+                if ready:
+                    chunk = os.read(p.stderr.fileno(), 4096)
+                    if not chunk:
+                        break
+                    err += chunk
+            if b"(input hidden): " in err and typed is not None:
+                time.sleep(0.3)
+                os.write(master, (typed + "\n").encode())
+            out, rest = p.communicate(timeout=30)
+            echoed = b""
+            while select.select([master], [], [], 0.2)[0]:
+                try:
+                    chunk = os.read(master, 4096)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                echoed += chunk
+            self.echoed = echoed.decode(errors="replace")
+            return subprocess.CompletedProcess(cmd, p.returncode, out.decode(), (err + rest).decode())
+        finally:
+            if slave >= 0:
+                os.close(slave)
+            os.close(master)
+
+    def created(self) -> bool:
+        return (self.state / "secret").exists()
+
+    def test_creates_the_secret_after_github_says_yes(self) -> None:
+        r = self.run_it()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual((self.state / "secret").read_text(), PAT_FIXTURE)
+        self.assertIn("ok    token of weitingzhao; expires 2027-10-17 21:00:00 -0400", r.stdout)
+        self.assertIn("ok    can push to bifrost-ui", r.stdout)
+        self.assertIn("Secret cicd/github-sync created (key: token)", r.stdout)
+        self.assertNotIn(PAT_FIXTURE, r.stdout + r.stderr)
+        self.assertNotIn("fixture0123456789", self.echoed)  # read -s: not echoed to the terminal
+        self.assertNotIn(PAT_FIXTURE, (self.state / "calls").read_text())  # never on kubectl's command line
+
+    def test_refuses_without_a_terminal(self) -> None:
+        r = self.run_it(tty=False)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("not a terminal", r.stderr)
+        self.assertFalse(self.created())
+
+    def test_nothing_written_when_anything_is_wrong(self) -> None:
+        cases = (
+            ("secret already there", lambda: (self.state / "secret").write_text("old"), None, "already exists"),
+            ("cluster unreachable", lambda: (self.state / "unreachable").write_text(""), None, "cannot reach the cluster"),
+            ("empty input", lambda: None, "", "empty input"),
+            ("classic token", lambda: None, "ghp_abcdef0123456789", "not a fine-grained token"),
+            ("quote in the token", lambda: None, 'github_pat_a"b', "not a fine-grained token"),
+            ("token GitHub refuses", lambda: None, "github_pat_wrongwrongwrong", "GET /user → HTTP 401"),
+            ("another account's token", lambda: setattr(self, "login", "someone-else"), None, "belongs to 'someone-else'"),
+            ("cannot push to one repository", lambda: self.no_push.add("bifrost-platform"), None, "cannot push to every repository"),
+        )
+        for name, change, typed, words in cases:
+            with self.subTest(name):
+                self.tearDown()
+                self.setUp()
+                change()
+                before = (self.state / "secret").read_text() if self.created() else None
+                r = self.run_it(typed=PAT_FIXTURE if typed is None else typed)
+                self.assertEqual(r.returncode, 1, name + r.stdout + r.stderr)
+                self.assertIn(words, r.stdout + r.stderr, name)
+                self.assertIn("Nothing was written.", r.stderr, name)
+                after = (self.state / "secret").read_text() if self.created() else None
+                self.assertEqual(before, after, name)
+                self.assertNotIn(PAT_FIXTURE, r.stdout + r.stderr, name)
+
+    def test_one_failing_repository_is_named(self) -> None:
+        self.no_push.add("bifrost-platform")
+        r = self.run_it()
+        self.assertIn("ok    can push to bifrost-ui", r.stdout)
+        self.assertIn("FAIL  bifrost-platform: push handshake → HTTP 403", r.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
