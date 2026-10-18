@@ -343,6 +343,30 @@ class Scripts(unittest.TestCase):
         url = subprocess.run(["git", "remote", "get-url", "github"], cwd=repo, env=env, capture_output=True, text=True, check=True).stdout.strip()
         self.assertEqual(url, "ssh://git@github.com/weitingzhao/bifrost-ui.git")
 
+    def test_https_github_still_fetches_from_github_under_the_batch_insteadof(self) -> None:
+        # review 260 B2: an HTTPS origin kept as is was rewritten to Gitea by the HTTPS rule
+        repo, extra = self.checkout()
+        git(repo, "remote", "set-url", "origin", "https://github.com/weitingzhao/bifrost-ui.git")
+        (self.root / ".gitconfig").write_text(
+            '[url "http://gitea.test/bifrost/bifrost-ui.git"]\n\tinsteadOf = git@github.com:weitingzhao/bifrost-ui.git\n'
+            '\tinsteadOf = https://github.com/weitingzhao/bifrost-ui.git\n')
+        r = self.run_script("switch-local-remotes.sh", "bifrost-ui", extra=extra)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        env = {**os.environ, **GIT_ENV, "HOME": str(self.root)}
+        url = subprocess.run(["git", "remote", "get-url", "github"], cwd=repo, env=env, capture_output=True, text=True, check=True).stdout.strip()
+        self.assertEqual(url, "https://github.com:443/weitingzhao/bifrost-ui.git")
+
+    def test_switch_refuses_when_github_would_fetch_from_gitea(self) -> None:
+        # the read-back: a rule this script does not know (here: on the :443 form) still makes it fail and put back
+        repo, extra = self.checkout()
+        before = self.remotes(repo)
+        (self.root / ".gitconfig").write_text(
+            '[url "http://gitea.test/bifrost/bifrost-ui.git"]\n\tinsteadOf = ssh://git@github.com/weitingzhao/bifrost-ui.git\n')
+        r = self.run_script("switch-local-remotes.sh", "bifrost-ui", extra=extra)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("github fetches from http://gitea.test/bifrost/bifrost-ui.git", r.stdout + r.stderr)
+        self.assertEqual(self.remotes(repo), before)
+
     def test_back_fails_while_a_global_insteadof_still_rewrites_origin(self) -> None:
         # review 246 A5: batch step 7 put GitHub → Gitea in ~/.gitconfig
         repo, extra = self.checkout(("remote.origin.pushurl", "git@github.com:weitingzhao/bifrost-ui.git"))
@@ -1589,6 +1613,7 @@ class StoreMbpToken(unittest.TestCase):
             subprocess.run(["git", "init", "-q", str(self.ws / repo)], env=self.env, check=True)
         self.login = "bifrost-mbp"
         self.user_scope = False  # the planned token: repository Read and Write only, so /user is 403
+        self.user_403 = {"message": "token does not have at least one of required scope(s): [read:user]"}
         self.admin = False
         self.can_push_main = True
         self.push_code = 200
@@ -1599,7 +1624,7 @@ class StoreMbpToken(unittest.TestCase):
                 ok = self.headers.get("Authorization", "") == "token " + GITEA_TOKEN_FIXTURE
                 code, body = 404, {}
                 if self.path == "/api/v1/user":
-                    code, body = (401, {}) if not ok else ((200, {"login": outer.login}) if outer.user_scope else (403, {"message": "token does not have at least one of required scope(s): [read:user]"}))
+                    code, body = (401, {}) if not ok else ((200, {"login": outer.login}) if outer.user_scope else (403, outer.user_403))
                 elif self.path == "/api/v1/repos/bifrost/primary-probe":
                     code, body = (200, {"name": "primary-probe", "permissions": {"admin": outer.admin, "push": True, "pull": True}}) if ok else (401, {})
                 elif self.path == "/api/v1/repos/bifrost/primary-probe/branches/main":
@@ -1621,6 +1646,8 @@ class StoreMbpToken(unittest.TestCase):
         self.host = f"127.0.0.1:{self.server.server_address[1]}"
         self.env["GITEA_PUBLIC_BASE"] = f"http://{self.host}/bifrost"
         self.env["BIFROST_WORKSPACE"] = str(self.ws)
+        self.agent_work = self.root / "home" / "agent-work"
+        self.env["AGENT_WORK"] = str(self.agent_work)
 
     def tearDown(self) -> None:
         self.server.shutdown()
@@ -1669,6 +1696,7 @@ class StoreMbpToken(unittest.TestCase):
             ("the admin's token without user scope", lambda: setattr(self, "admin", True), None, "is an administrator of bifrost/primary-probe"),
             ("an agentd token", lambda: setattr(self, "can_push_main", False), None, "may not push main of primary-probe"),
             ("token without write", lambda: setattr(self, "push_code", 403), None, "push handshake on primary-probe → HTTP 403"),
+            ("a 403 that is not the scope", lambda: setattr(self, "user_403", {"message": "blocked by the proxy"}), None, "GET /api/v1/user → HTTP 403: the token is not accepted"),
         )
         for name, change, typed, words in cases:
             with self.subTest(name):
@@ -1687,6 +1715,26 @@ class StoreMbpToken(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("not a terminal", r.stderr)
         self.assertEqual(self.stored(), "")
+
+    def test_independent_clones_under_agent_work_are_read_back(self) -> None:
+        # review 260 B1: a clone of bifrost-ui under ~/agent-work with its own useHttpPath
+        clone = self.agent_work / "lane-x" / "bifrost-ui"
+        subprocess.run(["git", "init", "-q", str(clone)], env=self.env, check=True)
+        for kv in (("remote.origin.url", "git@github.com:weitingzhao/bifrost-ui.git"), ("credential.useHttpPath", "true")):
+            subprocess.run(["git", "-C", str(clone), "config", *kv], env=self.env, check=True)
+        other = self.agent_work / "guard-1" / "bifrost-trade-infra"  # not one of these repositories: not checked
+        subprocess.run(["git", "init", "-q", str(other)], env=self.env, check=True)
+        subprocess.run(["git", "-C", str(other), "config", "remote.origin.url", "git@github.com:weitingzhao/bifrost-trade-infra.git"], env=self.env, check=True)
+        r = self.run_it()
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("FAIL  agent-work/lane-x/bifrost-ui: git answers user 'nobody'", r.stderr)
+        self.assertNotIn("bifrost-trade-infra", r.stdout + r.stderr)
+        subprocess.run(["git", "-C", str(clone), "config", "--unset", "credential.useHttpPath"], env=self.env, check=True)
+        self.store.unlink()
+        r = self.run_it()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("ok    agent-work/lane-x/bifrost-ui: git pushes to", r.stdout)
+        self.assertIn("from the 3 checkout(s) above", r.stdout)
 
     def test_what_git_would_use_is_read_back_in_each_checkout(self) -> None:
         cases = (

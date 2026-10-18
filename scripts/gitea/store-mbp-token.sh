@@ -77,7 +77,8 @@ if [[ "${code}" == 200 ]]; then
   login="$(field login)"
   [[ "${login}" == "${LOGIN}" ]] || die "the token belongs to '${login}', not ${LOGIN}"
   echo "ok    token of ${login}"
-elif [[ "${code}" == 403 ]]; then
+elif [[ "${code}" == 403 ]] && grep -qi 'required scope' "${work}/body"; then
+  # only the missing-scope refusal (review 260 C3); any other 403 stops below
   code="$(ask token "${root}/api/v1/repos/${org}/${PROBE_REPO}")"
   [[ "${code}" == 200 ]] || die "GET /api/v1/repos/${org}/${PROBE_REPO} → HTTP ${code}: the token cannot read the repository"
   [[ "$(field permissions.admin)" == false ]] || die "the token's user is an administrator of ${org}/${PROBE_REPO}: not ${LOGIN}"
@@ -86,7 +87,7 @@ elif [[ "${code}" == 403 ]]; then
   [[ "$(field user_can_push)" == true ]] || die "the token's user may not push main of ${PROBE_REPO}: not ${LOGIN} (an agentd user?)"
   echo "ok    token of a maintainer who is not an administrator: ${LOGIN} (no user scope, so read from what it may do)"
 else
-  die "Gitea GET /api/v1/user → HTTP ${code}: the token is not accepted"
+  die "Gitea GET /api/v1/user → HTTP ${code}: the token is not accepted ($(head -c 200 "${work}/body" | tr -d '\n'))"
 fi
 code="$(ask basic "${BASE}/${PROBE_REPO}.git/info/refs?service=git-receive-pack")"
 [[ "${code}" == 200 ]] || die "push handshake on ${PROBE_REPO} → HTTP ${code} (token without repository Read and Write, or ${LOGIN} not in team maintainers?)"
@@ -96,33 +97,52 @@ printf 'protocol=%s\nhost=%s\nusername=%s\npassword=%s\n\n' "${proto}" "${host}"
 
 # What git uses for a push to each repository: the remotes carry no username,
 # so ask with the whole address and nothing else, in that checkout (its own
-# config counts too).
+# config counts too): the workspace checkout of each of CHECK_REPOS, and every
+# independent clone of one of them under AGENT_WORK (review 260 B1).
 bad=0
-for repo in ${CHECK_REPOS}; do
+checked=0
+check_dir() { # REPO DIR LABEL
+  local repo="$1" dir="$2" label="$3" url answer got_user got_pass header
   url="${BASE}/${repo}.git"
-  dir="${WORKSPACE}/${repo}"
-  git -C "${dir}" rev-parse --git-dir > /dev/null 2>&1 || dir="${work}"
   answer="$(cd "${dir}" && printf 'url=%s\n\n' "${url}" | GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/usr/bin/false SSH_ASKPASS=/usr/bin/false git credential fill 2> /dev/null || true)"
   got_user="$(printf '%s\n' "${answer}" | sed -n 's/^username=//p' | head -1)"
   got_pass="$(printf '%s\n' "${answer}" | sed -n 's/^password=//p' | head -1)"
   header="$(cd "${dir}" && git config --get-urlmatch http.extraHeader "${url}" || true)"
-  where="${repo}"
-  if [[ "${dir}" == "${work}" ]]; then where="${repo} (no checkout; global config)"; fi
+  checked=$((checked + 1))
   if [[ -n "${header}" ]]; then
-    echo "FAIL  ${where}: http.extraHeader is set for ${url}; git would send that as well" >&2
+    echo "FAIL  ${label}: http.extraHeader is set for ${url}; git would send that as well" >&2
     bad=1
   elif [[ "${got_user}" != "${LOGIN}" || "${got_pass}" != "${t}" ]]; then
     if [[ "${got_user}" == "${LOGIN}" ]]; then got_user="${LOGIN}' with another password"; else got_user="${got_user:-nobody}'"; fi
-    echo "FAIL  ${where}: git answers user '${got_user} for ${url}" >&2
+    echo "FAIL  ${label}: git answers user '${got_user} for ${url}" >&2
     bad=1
   else
-    echo "ok    ${where}: git pushes to ${url} as ${LOGIN}"
+    echo "ok    ${label}: git pushes to ${url} as ${LOGIN}"
+  fi
+}
+for repo in ${CHECK_REPOS}; do
+  if git -C "${WORKSPACE}/${repo}" rev-parse --git-dir > /dev/null 2>&1; then
+    check_dir "${repo}" "${WORKSPACE}/${repo}" "${repo}"
+  else
+    check_dir "${repo}" "${work}" "${repo} (no checkout; global config)"
   fi
 done
+AGENT_WORK="${AGENT_WORK:-${HOME}/agent-work}"
+if [[ -d "${AGENT_WORK}" ]]; then
+  while IFS= read -r -d '' gitpath; do
+    dir="${gitpath%/.git}"
+    origin="$(git -C "${dir}" config --get remote.origin.url 2> /dev/null || true)"
+    for repo in ${CHECK_REPOS}; do
+      case "${origin}" in
+        *github.com[:/]*/"${repo}".git | *github.com[:/]*/"${repo}" | "${BASE}/${repo}.git") check_dir "${repo}" "${dir}" "${dir#"${HOME}"/}" ;;
+      esac
+    done
+  done < <(find "${AGENT_WORK}" -maxdepth 4 -name .git -prune -print0 2> /dev/null)
+fi
 unset t got_pass answer
 if [[ "${bad}" != 0 ]]; then
   echo "ERROR: the token is stored, but git would not use it everywhere above. Another entry for ${host} may come first:" >&2
   echo "remove it in Keychain Access (search ${host%%:*}), or the setting named above, and run this again." >&2
   exit 1
 fi
-echo "==> git now pushes to ${root} as ${LOGIN}. Say 「令牌存好了」 in the thread."
+echo "==> git now pushes to ${root} as ${LOGIN} from the ${checked} checkout(s) above. Say 「令牌存好了」 in the thread."

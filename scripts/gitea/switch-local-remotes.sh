@@ -132,11 +132,12 @@ valueless() {
   python3 -c 'import sys; d = open(sys.argv[1], "rb").read().split(b"\0"); sys.exit(0 if any(e and b"\n" not in e for e in d) else 1)' "$1"
 }
 
-# github_of <repo> <cfg> — the GitHub address to keep as remote github. The
-# scp form git@github.com:<owner>/<repo>.git is kept as the same address in URL
-# form, ssh://git@github.com/<owner>/<repo>.git: global-insteadof.sh rewrites
-# the scp and HTTPS forms to Gitea, and github would fetch from Gitea too
-# (review 259 B2).
+# github_of <repo> <cfg> — the GitHub address to keep as remote github, in a
+# form the batch's global insteadOf rules (global-insteadof.sh: the scp form
+# git@github.com:<owner>/<repo>.git and https://github.com/<owner>/<repo>.git)
+# do not start with, or github would fetch from Gitea too: the scp form as
+# ssh://git@github.com/<owner>/<repo>.git (review 259 B2), HTTPS with the
+# port written out, https://github.com:443/… (review 260 B2).
 github_of() {
   local saved="${2%/config}/${saved_name}" url
   if [[ -f "${saved}" ]]; then
@@ -153,6 +154,7 @@ github_of() {
   esac
   case "${url}" in
     git@github.com:*) printf 'ssh://git@github.com/%s\n' "${url#git@github.com:}" ;;
+    https://github.com/*) printf 'https://github.com:443/%s\n' "${url#https://github.com/}" ;;
     *) printf '%s\n' "${url}" ;;
   esac
 }
@@ -181,14 +183,17 @@ restored() {
   done < "$2"
 }
 
-# switched_right <repo> <git args…> — origin pushes only to Gitea, github only to no_push
+# switched_right <repo> <git args…> — origin pushes only to Gitea, github only
+# to no_push, and github fetches from something that is not Gitea (review 260
+# B2: a global insteadOf would make it fetch Gitea and look like GitHub)
 switched_right() {
-  local repo="$1" origin gh
+  local repo="$1" origin gh gh_fetch
   shift
   origin="$(git "$@" remote get-url --push --all origin)" || return 1
   gh="$(git "$@" remote get-url --push --all github)" || return 1
-  [[ "${origin}" == "${gitea}/${repo}.git" && "${gh}" == "${no_push}" ]] || {
-    echo "origin pushes to ${origin}, github to ${gh}"
+  gh_fetch="$(git "$@" remote get-url --all github)" || return 1
+  [[ "${origin}" == "${gitea}/${repo}.git" && "${gh}" == "${no_push}" && "${gh_fetch}" != "${gitea}/"* ]] || {
+    echo "origin pushes to ${origin}, github to ${gh}, github fetches from ${gh_fetch}"
     return 1
   }
 }
