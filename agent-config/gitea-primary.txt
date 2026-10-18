@@ -7,3 +7,11 @@
 # Batch A, 2026-10-17 (OWNER-STEPS-gitea-primary.md section 3):
 bifrost-platform
 bifrost-ui
+# Batch B, 2026-10-17 (OWNER-STEPS-gitea-primary.md section 3, the same steps):
+bifrost-trade-core
+bifrost-trade-api
+bifrost-trade-worker
+bifrost-trade-frontend
+bifrost-platform-plugin
+bifrost-platform-plugin-market-data
+bifrost-platform-plugin-flex-query
