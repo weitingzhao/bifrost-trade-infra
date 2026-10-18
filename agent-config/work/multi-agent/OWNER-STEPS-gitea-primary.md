@@ -4,7 +4,7 @@
 
 ---
 
-## 0　换 Gitea 管理员令牌（TD-365，约 10 分钟；脚本复核过了我说一声再做）
+## 0　换 Gitea 管理员令牌（TD-365，约 10 分钟；在第 1 节之后做：它要用第 1 节第 4 条建的探针仓库试写权限；脚本复核过了我说一声）
 
 旧令牌从 2026-06-17 起就在公开的 infra 仓库历史里（`d30ef90`），至今还在用。它在集群里放了**两处**：`gitea-bootstrap`（平台和镜像同步用）和 `gitea-git-credentials` 的密码（Tekton 每次克隆代码用）。原来这一节只换第一处，照做后再删旧令牌，CI、deliver、apply-manifest 的克隆会一起断（10-17 18:3x 发现，已改）。脚本 `scripts/gitea/rotate-admin-token.sh` 两处一起换，不显示任何令牌。
 
@@ -22,7 +22,7 @@
 ~/Desktop/stocks/bifrost-trade-infra/scripts/gitea/rotate-admin-token.sh rotate
 ```
 
-   写之前它先用新令牌试一遍它要干的事（登录成同一个管理员、读仓库、让一个镜像拉取一次），过了才写。最后一行是 `==> rotated.` 就换好了；中途它若说「nothing changed」，就是新令牌没通过检查，什么都没改，照它说的补权限再建一个；若说「run rotate again」，就再跑一次同一条命令，用同一个或再建一个新令牌都行。
+   写之前它先用新令牌试一遍它要干的事（登录成管理员 `weitingzhao`、读仓库、对探针仓库试一次写权限，镜像一个都不碰），过了才写；写完还用克隆凭证按 Tekton 的方式读一次仓库。最后一行是 `==> rotated.` 就换好了；中途它若说「nothing changed」，就是新令牌没通过检查，什么都没改，照它说的补权限再建一个；若说「run rotate again」，就再跑一次同一条命令，用同一个或再建一个新令牌都行。
 4. 回线程说「Gitea 令牌换好了」。我核对镜像同步和一次 CI 克隆都用新令牌跑通，再请你删旧令牌。
 5. 我说可以了：回 Gitea 的 Applications 页**删掉旧令牌**（今天之前建的那个），然后跑：
 
