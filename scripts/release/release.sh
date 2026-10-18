@@ -20,6 +20,8 @@
 #          --allow-red <why> ship stg/prod even if a SHA's CI is red or missing (Owner)
 #          --who <name>      who releases (default $BIFROST_RELEASE_WHO, else user@host)
 #          --timeout <s>     how long to wait for the run (default 3600)
+#          --reason <text>   prod: the approval's reason — what approving it ships, and which
+#                            checks were not done (CLAUDE.md §5); "prod pinned from <run>" follows
 #
 # Research and the plugins use this same window. `what` is the repo list.
 # `hold` writes ConfigMap cicd/bifrost-release-window through
@@ -546,8 +548,11 @@ start_prod_run() {
   body="$(python3 -c 'import json,sys
 shas=json.load(open(sys.argv[1]))
 shas["revision"]=shas["coreRevision"]
-print(json.dumps({"action":"start_pipeline_run","reason":"prod pinned from "+sys.argv[2],"params":{"name":"bifrost-deliver-prod","revision":"main","who":sys.argv[3],"params":shas}}))' \
-    "${sha_file}" "${FROM_STG}" "${WHO}")"
+reason="prod pinned from "+sys.argv[2]
+if sys.argv[4].strip():
+    reason=sys.argv[4].strip()+"\n\n"+reason
+print(json.dumps({"action":"start_pipeline_run","reason":reason,"params":{"name":"bifrost-deliver-prod","revision":"main","who":sys.argv[3],"params":shas}}))' \
+    "${sha_file}" "${FROM_STG}" "${WHO}" "${REASON}")"
   if [[ "${DRY_RUN}" -eq 1 ]]; then
     platform_preview POST /api/v1/approvals "${body}"
     echo "[dry-run] would poll GET /api/v1/approvals/<id> until the Owner approves"
@@ -764,7 +769,7 @@ case "${1:-}" in
   *) release_usage >&2; exit 2 ;;
 esac
 
-DRY_RUN=0 FROM_STG="" WHAT="" ALLOW_RED="" WHO="${BIFROST_RELEASE_WHO:-${USER}@$(hostname -s)}" TIMEOUT=3600
+DRY_RUN=0 FROM_STG="" WHAT="" ALLOW_RED="" REASON="" WHO="${BIFROST_RELEASE_WHO:-${USER}@$(hostname -s)}" TIMEOUT=3600
 ALLOW=() PROBES=()
 WINDOW_REASON="${ENV_NAME}"
 while [[ $# -gt 0 ]]; do
@@ -777,6 +782,7 @@ while [[ $# -gt 0 ]]; do
     --allow-red) ALLOW_RED="${2:?--allow-red needs a reason}"; shift 2 ;;
     --who) WHO="${2:?}"; shift 2 ;;
     --timeout) TIMEOUT="${2:?}"; shift 2 ;;
+    --reason) REASON="${2:?--reason needs a text}"; shift 2 ;;
     -h|--help) release_usage; exit 0 ;;
     *) rel_die "unknown argument: $1" ;;
   esac
@@ -785,6 +791,7 @@ if [[ "${ENV_NAME}" == "prod" && -z "${FROM_STG}" ]]; then
   rel_die "prod needs --from-stg <bifrost-deliver-stg run> (the STG run of this release that passed its check)"
 fi
 [[ "${ENV_NAME}" == "prod" || -z "${FROM_STG}" ]] || rel_die "--from-stg is for prod only"
+[[ "${ENV_NAME}" == "prod" || -z "${REASON}" ]] || rel_die "--reason is for prod only (it is the PROD approval's reason)"
 WHAT="${WHAT:-${TRADE_WHAT}}"
 python3 -c 'import re,sys; sys.exit(0 if re.fullmatch(r"[a-z0-9-]+(,[a-z0-9-]+)*", sys.argv[1]) else 1)' "${WHAT}" \
   || rel_die "--what must be comma-separated repo names (got '${WHAT}')"

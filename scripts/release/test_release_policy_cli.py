@@ -184,6 +184,12 @@ class ReleasePolicyCLITests(unittest.TestCase):
         kept = self.tmp / "home/policy" / doc["policy_id"]
         self.assertTrue((kept / "policy.yaml").is_file() and (kept / "policy.sig").is_file())
 
+    def test_reason_is_for_prod_only(self) -> None:
+        res = self.run_sh("stg", "--reason", "what ships")
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("--reason is for prod only", res.stderr)
+        self.assertEqual(self.fake.requests, [])
+
     def test_sign_without_a_key_refuses(self) -> None:
         self.env["BIFROST_RELEASE_KEY"] = str(self.tmp / "missing")
         res = self.run_sh("policy", "sign")
@@ -200,6 +206,16 @@ class ReleaseShStaticTests(unittest.TestCase):
         self.assertIn("auto_approved_by", body)
         self.assertIn('"${PLATFORM_HTTP}" == "400"', body)
         self.assertIn("/api/v1/delivery/pipelines/bifrost-deliver-prod/runs", body)
+
+    def test_prod_request_carries_the_given_reason(self) -> None:
+        # CLAUDE.md §5: a PROD ticket's reason says what approving it ships and which
+        # checks were not done; --reason carries that, the pinned-from line stays.
+        text = RELEASE_SH.read_text(encoding="utf-8")
+        body = text[text.index("start_prod_run() {"):]
+        body = body[: body.index("\n}\n")]
+        self.assertIn('"${REASON}"', body)
+        self.assertIn('reason="prod pinned from "+sys.argv[2]', body)
+        self.assertIn('"reason":reason', body)
 
     def test_release_sh_judges_no_policy_itself(self) -> None:
         text = RELEASE_SH.read_text(encoding="utf-8")
