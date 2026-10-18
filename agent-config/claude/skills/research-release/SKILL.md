@@ -5,7 +5,7 @@ description: >-
   research-api / research-mcp, bumping the research image version, running
   bifrost-deliver-research, or debugging ImagePullBackOff / mirror-sync /
   kaniko failures in the research namespace.
-parity-id: research-release-v4
+parity-id: research-release-v5
 ---
 
 # Research 发布流程
@@ -20,10 +20,10 @@ Research 是**第二 payload**（决策载荷），与 Satellite（执行载荷�
 ## ⛔ 顺序铁律
 
 ```
-构建镜像 → 确认 registry 中 tag 存在 → 再 bump manifest → 才推 GitHub
+构建镜像 → 确认 registry 中 tag 存在 → 再 bump manifest → 才推 main
 ```
 
-`bifrost-research` 的 **ArgoCD Application 直连 GitHub 且开着 automated sync**
+`bifrost-research` 的 **ArgoCD Application 直连 Gitea 且开着 automated sync**（Gitea 做主，2026-10-18 起；GitHub 由集群里的 `bifrost-github-sync` 快进跟上）
 （`bifrost-trade-infra/k8s/cicd/applications/bifrost-research.yaml`）。
 **推 manifest 等同于直接改运行时。** 顺序反了就是 ImagePullBackOff。
 
@@ -42,8 +42,8 @@ kubectl get application bifrost-research -n cicd \
 # 2. registry 里已有哪些 tag？
 curl -s http://192.168.10.73:30500/v2/bifrost-research/tags/list
 
-# 3. Gitea 镜像是否已同步到最新 commit？（Kaniko 从 Gitea clone，不是 GitHub）
-git -C bifrost-research rev-parse origin/main
+# 3. 本机检出的 origin 是 Gitea（主仓库）；Kaniko 也从 Gitea clone
+git -C bifrost-research fetch -q origin && git -C bifrost-research rev-parse origin/main
 ```
 
 ---
@@ -58,7 +58,7 @@ cd bifrost-research && make lint && make test
 
 bump `pyproject.toml` + `src/bifrost_research/__init__.py` + `tests/test_package.py`
 的版本断言（三处必须一致，否则 `make test` 失败）。**先不要动 `k8s/` 下的 image tag。**
-提交并推 GitHub。
+提交，经 `bifrost-trade-infra/scripts/release/push-main.sh bifrost-research` 推 main（推到 Gitea）。
 
 ### 2. 构建镜像（集群内）
 
@@ -100,7 +100,7 @@ curl -s http://192.168.10.73:30500/v2/bifrost-research/tags/list | grep -o '"0.3
 > `research-mcp` 里。2026-08-28 就踩过：api 升到 0.30.0 后工具仍未上线，
 > 因为 mcp 还停在 0.28.1。
 
-推 GitHub 后，**用同一个 tag 再跑一次** `bifrost-deliver-research`（同第 2 步）。
+推 main 后，**用同一个 tag 再跑一次** `bifrost-deliver-research`（同第 2 步）。
 这次 `pin-check` 报 pinned=true，完整验证：
 
 1. `gitops-sync` —— 请求 ArgoCD 同步 `bifrost-research`
@@ -126,11 +126,11 @@ curl -s http://192.168.10.73:30882/api/plugin/research/health
 | 症状 | 原因 | 处理 |
 |------|------|------|
 | `ImagePullBackOff` | manifest 指向 registry 中不存在的 tag（顺序反了） | 回退 manifest 到已存在的 tag 并推送，ArgoCD 自动恢复；再按正确顺序重来 |
-| `clone-research` 失败 | Gitea 镜像里没有该 repo 或未同步 | `POST /api/v1/delivery/mirrors/sync`，`repos` 含 `bifrost-research`，`commits` 带上要等的 SHA |
+| `clone-research` 失败 | Gitea 上没有该提交（没推到 Gitea main） | 查 `push-main.sh` 是否成功；Gitea 是主仓库，不再从 GitHub 同步 |
 | kaniko `exec format error` | 调度到了 ARM 节点 | PipelineRun 必须带 `nodeSelector: kubernetes.io/arch=amd64`（platform-api 自动注入） |
 | `rollout-research` 403 | SA 权限 | `rollout-research` / `verify-research` / `gitops-sync` 须用 `tekton-deliver` SA |
 | 只跑了 build，gitops/rollout/verify 是 skipped | manifest 尚未钉本 tag | 正常 —— 走第 3、4 步，再跑一次同 tag |
-| `rollout-research` 报 `Argo CD has not applied the manifest pinning <tag>` | 钉版本的 commit 没到 GitHub main，或 ArgoCD 未同步 | 查 push 是否成功；`gitops_sync_app bifrost-research` 后重跑 |
+| `rollout-research` 报 `Argo CD has not applied the manifest pinning <tag>` | 钉版本的 commit 没到 Gitea main，或 ArgoCD 未同步 | 查 push 是否成功；`gitops_sync_app bifrost-research` 后重跑 |
 | `verify-research` 报 tag 不匹配（pinned run） | ArgoCD 同步后 Deployment 又被改回 | 查 Application 状态与 `research` ns 里的手动改动 |
 | 工具/行为没变化 | 升错了 Deployment | 见第 4 步的组件对照表 |
 
