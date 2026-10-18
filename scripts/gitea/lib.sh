@@ -15,6 +15,21 @@
 #
 # Tests point GITEA_API and GITEA_GIT_BASE at local fakes and set GITEA_TOKEN,
 # which skips the Secret and the port-forward.
+#
+# What Gitea 1.21 answers that these scripts and their fakes rely on (lessons
+# 166, 168: write a fake to answer this way by default, not the way one hopes):
+#   GET /api/v1/user              403 for a token without the user scope, even
+#                                 when it may do everything else; the planned
+#                                 tokens of bifrost-mbp and the agentd users
+#                                 have repository only
+#   POST …/mirror-sync            400 "not a mirror" on a regular repository
+#                                 only after the write scope check passed
+#   …/branches/<b> user_can_push  whether the token's own user may push there,
+#                                 with the branch rule's whitelist applied
+#   <repo>.git/info/refs?service=git-receive-pack
+#                                 the push handshake: lists refs, pushes
+#                                 nothing; refused on a pull mirror for all
+#   tag rules                     no API at all; set on the page
 
 # xtrace would print the token (review 246 B10): off before anything reads it
 { set +x; } 2> /dev/null
