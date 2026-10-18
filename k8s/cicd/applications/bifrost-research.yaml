@@ -31,9 +31,10 @@ spec:
     syncOptions:
       - CreateNamespace=true
   # Secrets are cluster-local — never prune them via GitOps
+  # No group key: the core group is "", and Argo stores it without the key; written as group: ""
+  # the server dry-run differs from the live object (apply-argo-gitea.sh check, 2026-10-18).
   ignoreDifferences:
-    - group: ""
-      kind: Secret
+    - kind: Secret
       jsonPointers:
         - /data
         - /stringData
