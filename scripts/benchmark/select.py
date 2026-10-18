@@ -55,15 +55,30 @@ def select(candidates, quotas=None):
     return questions, missing
 
 
+def parse_quota(text):
+    """go=7,python=4,ts=7,shell=2: every language of QUOTAS, each a count >= 0."""
+    out = {}
+    for part in text.split(','):
+        name, _, count = part.partition('=')
+        if name not in QUOTAS or not count.isdigit():
+            raise argparse.ArgumentTypeError(f'{part!r} is not language=count of {sorted(QUOTAS)}')
+        out[name] = int(count)
+    if set(out) != set(QUOTAS):
+        raise argparse.ArgumentTypeError(f'name every language: {sorted(QUOTAS)}')
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('verified', type=Path, nargs='+')
     parser.add_argument('--output', type=Path, default=Path('questions.json'))
+    parser.add_argument('--quota', type=parse_quota, default=None,
+                        help='per language, e.g. go=7,python=4,ts=7,shell=2 (default: the design\'s 6/7/5/2)')
     args = parser.parse_args()
     try:
         candidates = [json.loads(line) for path in args.verified
                       for line in path.read_text().splitlines() if line.strip()]
-        questions, missing = select(candidates)
+        questions, missing = select(candidates, args.quota)
         # Never publish a partial set under the final questions filename.
         if missing:
             print(json.dumps({'status': 'short_pool', 'missing': missing,

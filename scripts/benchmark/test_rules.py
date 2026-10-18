@@ -1,4 +1,6 @@
 """Boundary cases for historical evidence and attributed setup failures."""
+from pathlib import Path
+
 import pytest
 
 from test_benchmark import repo as repo, write, commit, pick, verify, python_fix
@@ -149,3 +151,18 @@ def test_chained_exception_ending_in_assertion_is_regression():
     assert verify.assertion_failure(run)
     run['tail'] = 'E AttributeError: missing\nFAILED test_answer.py::test_error - AttributeError: missing\n1 failed\n'
     assert not verify.assertion_failure(run)
+
+
+def test_parse_quota():
+    import argparse as _argparse
+    import importlib.util as _util
+    spec = _util.spec_from_file_location('bench_select', Path(__file__).with_name('select.py'))
+    mod = _util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.parse_quota('go=7,python=4,ts=7,shell=2') == {'go': 7, 'python': 4, 'ts': 7, 'shell': 2}
+    for bad in ('go=7', 'go=x,python=4,ts=7,shell=2', 'rust=1,go=7,python=4,ts=7,shell=2'):
+        try:
+            mod.parse_quota(bad)
+        except _argparse.ArgumentTypeError:
+            continue
+        raise AssertionError(f'{bad} was taken')
