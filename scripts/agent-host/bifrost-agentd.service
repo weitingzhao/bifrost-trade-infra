@@ -26,7 +26,6 @@ Environment=AGENTD_PLATFORM=http://192.168.10.100:30876/api/v1/agentrt
 Environment=AGENTD_HOST=agent-06
 Environment=AGENTD_TOOLS=exec:codex=openai,exec:cursor=cursor-mix,exec:claude=anthropic:opus,exec:deterministic=local
 Environment=AGENTD_GIT_BASE=http://192.168.10.73:30300/bifrost
-Environment=AGENTD_GIT_PUSH_BASE=http://192.168.10.73:30300/bifrost-agents
 Environment=AGENTD_ROOT=/home/bifrost-agentd/agent-work/agentd
 Environment=AGENTD_TOKEN_FILE=/home/bifrost-agentd/.config/bifrost/agentd.token
 Environment=AGENTD_GIT_TOKEN_FILE=/home/bifrost-agentd/.config/bifrost/agentd-git.token

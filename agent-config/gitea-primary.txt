@@ -4,4 +4,6 @@
 # follows from the cluster (k8s/cicd/github-sync), main and tags only.
 # push-main.sh refuses one of these whose origin is still GitHub; preflight.js
 # refuses a push to GitHub for one of these, and to a remote named github.
-# Empty: every repository is still a pull mirror of GitHub.
+# Batch A, 2026-10-17 (OWNER-STEPS-gitea-primary.md section 3):
+bifrost-platform
+bifrost-ui

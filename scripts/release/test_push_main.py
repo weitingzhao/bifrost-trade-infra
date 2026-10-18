@@ -15,6 +15,11 @@ import unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+# Git here reads no global or system config: the Owner's ~/.gitconfig holds the Gitea-primary
+# batches' url.*.insteadOf rules (scripts/gitea/global-insteadof.sh), which rewrite the GitHub
+# addresses these cases use to Gitea, and the cases would test that Mac instead of push-main.
+os.environ["GIT_CONFIG_GLOBAL"] = os.devnull
+os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
 PUSH_MAIN = HERE / "push-main.sh"
 BASELINES = HERE.parent.parent / "agent-config" / "scripts" / "code-health" / "baselines.env"
 

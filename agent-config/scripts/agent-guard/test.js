@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 /* preflight.js 回归测试 —— 通过 Node 直接喂 stdin，避免测试夹具本身被 guard 拦截。 */
 'use strict'
+// Git in these cases reads no global or system config: the Owner's ~/.gitconfig holds the Gitea-primary
+// batches' url.*.insteadOf rules (scripts/gitea/global-insteadof.sh), which rewrite the GitHub addresses the
+// cases use to Gitea; the guard would then rightly allow them, and the cases would test that Mac.
+process.env.GIT_CONFIG_GLOBAL = '/dev/null'
+process.env.GIT_CONFIG_NOSYSTEM = '1'
 const { spawnSync } = require('node:child_process')
 // 相对自身定位，随治理层整体搬迁而不失效
 const GUARD = require('node:path').join(__dirname, 'preflight.js')
