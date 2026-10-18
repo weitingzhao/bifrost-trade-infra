@@ -6,9 +6,11 @@
 # the connection fails and the runtime's routes answer 503; the rest of the
 # platform is untouched. platform-workers runs the controller loops,
 # platform-api the routes. AGENTRT_GIT_ORG: the Gitea organization agent
-# branches are pushed to and the result check reads (the same as STG's;
-# bifrost/* are pull mirrors of GitHub and take no push). Only platform-api
-# serves persist.
+# branches are pushed to and the result check reads, the same as STG's:
+# bifrost since Gitea-primary batch A (Owner 2026-10-17 22:4x 「推 PROD 接线」;
+# bifrost/bifrost-platform and bifrost-ui are Gitea's own repositories with
+# protected agent/** branches), bifrost-agents before. Only platform-api serves
+# persist.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -22,7 +24,7 @@ spec:
             - name: AGENTRT_ENV
               value: prod
             - name: AGENTRT_GIT_ORG
-              value: bifrost-agents
+              value: bifrost
             - name: AGENTRT_DSN
               value: host=bifrost-postgres-rw.data.svc.cluster.local port=5432 dbname=bifrost_platform user=platform_agentrt_prod sslmode=require
             - name: AGENTRT_DB_PASSWORD
