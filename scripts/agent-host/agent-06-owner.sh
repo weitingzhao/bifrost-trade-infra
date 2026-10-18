@@ -500,16 +500,20 @@ send_secret() {
   node_ssh "sudo bash ~/agent-host/install-secret.sh $1 $2 $len $sum" < "$3"
 }
 
+# Every failure returns explicitly: stg-vendors calls this on the left of ||,
+# where errexit does not apply, and must not start the services on a
+# credential that did not arrive (review 272 A1).
 step_vendor_creds() {
-  local f src u
-  u=$(user_of "${1:-prod}")
-  sudo -v
+  local f src u dir
+  u=$(user_of "${1:-prod}") || return 1
+  dir=${VENDOR_CREDS_DIR:-~bifrost-agentd/.config/bifrost} # the Mac's agentd user's home (a test points elsewhere)
+  sudo -v || return 1
   for f in claude-oauth.token cursor-api.key; do
-    src=~bifrost-agentd/.config/bifrost/$f # the Mac's agentd user's home
+    src=$dir/$f
     # Read whole first: a read that fails part way sends nothing.
     sudo cat "$src" > "$TMPD/$f.raw" || die "could not read $src on this Mac"
     normalize "$TMPD/$f.raw" "$TMPD/$f" "$f" || die "$src on this Mac does not look like a $f; nothing was sent"
-    send_secret "$u" "$f" "$TMPD/$f"
+    send_secret "$u" "$f" "$TMPD/$f" || { rm -f "$TMPD/$f.raw" "$TMPD/$f"; echo "agent-06-owner: $f did not reach $u on 06" >&2; return 1; }
     rm -f "$TMPD/$f.raw" "$TMPD/$f"
   done
 }

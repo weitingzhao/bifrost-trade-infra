@@ -36,7 +36,14 @@ class StopStart(unittest.TestCase):
         bindir = root / "bin"
         bindir.mkdir()
         (bindir / "systemctl").write_text(FAKE_SYSTEMCTL)
-        (bindir / "sudo").write_text('#!/usr/bin/env bash\n[ "$1" = bash ] && { echo "check-agent-06 $*" >> "$FAKE_UNITS/calls"; exit 0; }\nexec "$@"\n')
+        (bindir / "sudo").write_text(
+            '#!/usr/bin/env bash\n'
+            '[ "$1" = -v ] && exit 0\n'
+            # install-secret.sh on 06: recorded with what it was given; FAIL_SECRET names a file whose sending fails
+            'if [ "$1" = bash ] && [ "${2##*/}" = install-secret.sh ]; then echo "install-secret $3 $4" >> "$FAKE_UNITS/calls"; '
+            'cat > /dev/null; [ "${FAIL_SECRET:-}" != "$4" ]; exit; fi\n'
+            '[ "$1" = bash ] && { echo "check-agent-06 $*" >> "$FAKE_UNITS/calls"; exit 0; }\n'
+            'exec "$@"\n')
         (bindir / "sleep").write_text("#!/bin/sh\nexit 0\n")
         for f in ("systemctl", "sudo", "sleep"):
             (bindir / f).chmod(0o755)
@@ -138,31 +145,45 @@ class StopStart(unittest.TestCase):
         self.assertEqual(self.active(), {"bifrost-agentd.service", "bifrost-agentd-stg.service"})
 
 
-    def test_stg_vendors_copies_the_credentials_to_stg_before_the_start(self) -> None:
+    def stg_vendors(self, fail: str = "") -> subprocess.CompletedProcess:
+        # The real step_vendor_creds and send_secret; only the Mac's credential files (fixtures of the right shape),
+        # SSH (the command runs here) and copy and prepare (stubs) stand in.
         for u in ("bifrost-agentd.service", "bifrost-agentd-stg.service"):
             (self.units / u).write_text("")
         build = Path(self.env["HOME"]) / "build"
         build.mkdir(exist_ok=True)
         (build / "agentd-x").write_text("agentd")
         (build / "agentd.sha256").write_text(subprocess.run(["shasum", "-a", "256", "agentd-x"], cwd=build, capture_output=True, text=True).stdout)
+        creds = Path(self.env["HOME"]) / "creds"
+        creds.mkdir(exist_ok=True)
+        (creds / "claude-oauth.token").write_text("sk-ant-fixture-not-a-real-token-000000\n")
+        (creds / "cursor-api.key").write_text("fixture-cursor-key-not-real-0000000000\n")
         stub = (f'BINARY="{build}/agentd-x"; HERE="{build}"; '
                 'step_copy() { echo copy >> "$FAKE_UNITS/calls"; }; '
-                'step_prepare() { echo prepare >> "$FAKE_UNITS/calls"; }; '
-                'step_vendor_creds() { echo "creds $1" >> "$FAKE_UNITS/calls"; [ "${FAIL:-}" != creds ]; }; ')
+                'step_prepare() { echo prepare >> "$FAKE_UNITS/calls"; }; ')
         script = f'source "{HERE / "agent-06-owner.sh"}"; node_ssh() {{ bash -c "$1"; }}; {stub} step_stg_vendors'
-        r = subprocess.run(["bash", "-c", script], env=self.env, capture_output=True, text=True, timeout=60)
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        calls = [" ".join(c.split()[:2]) for c in (self.units / "calls").read_text().splitlines()]
-        order = [c for c in calls if c in ("systemctl stop", "copy", "prepare", "creds stg", "systemctl enable")]
-        self.assertEqual(order, ["systemctl stop", "copy", "prepare", "creds stg", "systemctl enable"])
-        self.assertEqual(self.active(), {"bifrost-agentd.service", "bifrost-agentd-stg.service"})
+        env = {**self.env, "VENDOR_CREDS_DIR": str(creds), "FAIL_SECRET": fail}
+        return subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True, timeout=60)
 
-        for u in ("bifrost-agentd.service", "bifrost-agentd-stg.service"):
-            (self.units / u).write_text("")
-        r = subprocess.run(["bash", "-c", script], env={**self.env, "FAIL": "creds"}, capture_output=True, text=True, timeout=60)
-        self.assertNotEqual(r.returncode, 0)
-        self.assertIn("did not reach the STG user", r.stderr)
-        self.assertEqual(self.active(), set())
+    def test_stg_vendors_copies_the_credentials_to_stg_before_the_start(self) -> None:
+        r = self.stg_vendors()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        calls = (self.units / "calls").read_text().splitlines()
+        order = [" ".join(c.split()[:2]) if c.startswith("systemctl") else " ".join(c.split()[:3]) for c in calls]
+        order = [c for c in order if c in ("systemctl stop", "copy", "prepare", "systemctl enable") or c.startswith("install-secret")]
+        self.assertEqual(order, ["systemctl stop", "copy", "prepare", "install-secret bifrost-agentd-stg claude-oauth.token",
+                                 "install-secret bifrost-agentd-stg cursor-api.key", "systemctl enable"])
+        self.assertEqual(self.active(), {"bifrost-agentd.service", "bifrost-agentd-stg.service"})
+        self.assertNotIn("fixture", r.stdout + r.stderr)
+
+    def test_stg_vendors_starts_nothing_when_a_credential_does_not_arrive(self) -> None:
+        for fail in ("claude-oauth.token", "cursor-api.key"):
+            (self.units / "calls").unlink(missing_ok=True)
+            r = self.stg_vendors(fail)
+            self.assertNotEqual(r.returncode, 0, fail)
+            self.assertIn(f"{fail} did not reach bifrost-agentd-stg", r.stderr)
+            self.assertNotIn("systemctl enable", (self.units / "calls").read_text())
+            self.assertEqual(self.active(), set(), fail)
 
 
 if __name__ == "__main__":
