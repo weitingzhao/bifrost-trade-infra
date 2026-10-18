@@ -282,6 +282,18 @@ for u in "$prod" "$stg"; do
     v=$(as "$u" ".local/bin/$c --version 2>/dev/null | head -1") && [ -n "$v" ] && ok "$u $c $v" || fail "$u $c does not run"
   done
 done
+# claude runs with no settings source and its hooks off (agentd, TD-371), but a
+# managed policy still applies, and its command hooks would still run (review
+# 282 A): there must be none, or it must turn every hook off itself.
+for f in /etc/claude-code/managed-settings.json /etc/claude-code/managed-mcp.json; do
+  if [ ! -e "$f" ]; then
+    ok "no $f"
+  elif [ "$f" = /etc/claude-code/managed-settings.json ] && python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d.get("disableAllHooks") is True and not d.get("hooks") else 1)' "$f" 2>/dev/null; then
+    ok "$f turns every hook off"
+  else
+    fail "$f is there: remove it, or have it set disableAllHooks true and no hooks"
+  fi
+done
 echo "-- codex: one root-owned copy under /opt/bifrost/codex, allowed user namespaces by AppArmor (bifrost-codex)"
 for d in /opt /opt/bifrost /opt/bifrost/codex; do
   m=$(stat -c '%U %A' "$d" 2>/dev/null)
