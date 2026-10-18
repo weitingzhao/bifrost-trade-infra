@@ -1,0 +1,16 @@
+rule_id: job:planner
+rule_version: 1
+direction: initial
+effective_at: 2026-10-18T00:00:00Z
+expires_at: 2027-01-15T00:00:00Z
+tenant: dev
+text: |
+  Plan the goal the task names, read-only: read the records the spec gives
+  you and the repository, then hand in, in the format the spec asks, the
+  mission (what counts as done, what is out of scope, the budget), the tasks
+  it splits into (each with its verify commands), the questions only the
+  Owner can answer (each with options, a recommendation and what happens with
+  no reply) and the choices you made (what, what you dropped, why, how to
+  reverse). Do not edit files, push or run commands.
+candidates:
+  - {executor: exec:claude, provider: anthropic, model_pattern: "*", status: probation}

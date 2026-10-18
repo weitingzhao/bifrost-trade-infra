@@ -66,7 +66,7 @@ cd ~/Desktop/stocks && for f in capability-facts job-verifier job-implementer jo
 - 规则生效后：Gate A 的 T35（规则集）在 STG 上经接口再跑一遍；6 道基准题的 mission 落在常备授权内自动成立。
 - 收紧（降预算、去掉执行者或主机、降级候选）任何人都能做、不用你签；放宽（加执行者、提预算、延期）要你重签新版本。
 
-## 2.3 参谋长回话要的三份规则（10-18）
+## 2.3 参谋长回话要的三份规则，和 STG 的规划岗位（10-18）
 
 参谋长回话（2.3 第 4 片）：你在 Console 的 Chief 页或经信箱发给 `seat:chief_of_staff` 的话，控制器把它变成一个 brief 任务，交给 06 上的 Claude（只读），它的答复发回给你。要你签三份：
 
@@ -88,4 +88,10 @@ bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agentrt
 bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agentrt/rule.sh sign /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/agent-config/agentrt-rules/prod/job-chief_of_staff.yaml --env prod
 ```
 
-跑完不用回，我用 `rule.sh show` 核对三份都生效。
+```bash
+bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agentrt/rule.sh sign /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/agent-config/agentrt-rules/stg/job-planner.yaml
+```
+
+第四份（10-18 11:4x 补）：`stg/job-planner.yaml` 第 1 版，和 PROD 的规划岗位逐字相同（只有生效日期不同）。STG 一直没有它，所以 STG 上的目标派不出去；有了它，你在 STG Console 给的目标由 Claude 只读地规划，能在 STG 上看到读文件、搜索的动作流，也能量一次叫停。
+
+跑完不用回，我用 `rule.sh show` 核对四份都生效。
