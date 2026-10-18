@@ -2139,6 +2139,32 @@
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-369
+
+**P3 · mcp · the platform MCP package's type check is red, and no CI task runs it**
+
+- **状态**：未开始（2026-10-18 02:0x 记，推 2.3 第 2、3 片前在分支头跑 `npm run type-check` 时看到；不是这个分支带来的）
+- **Claim**: `tsc --noEmit` in `bifrost-platform/mcp/platform` fails with TS2367 (a comparison of `"refused"` and `"direct"`, which have no overlap). `ci-platform` type-checks the Console, not the MCP package, so the error went to main unseen.
+- **Evidence**: `mcp/platform/src/writeGate.test.ts:85`, last changed on main by `9c8b183` (W-48); `k8s/cicd/tekton/pipeline-ci-platform.yaml:5` (the CI steps: go test, Console type-check, lint, test, build).
+- **Impact**: the 116 MCP tests pass (tsx does not type-check), so nothing breaks today; a type error in the served tools would ship the same way.
+- **Fix**: make the test's comparison match the write modes it means; add `npm ci && npm run type-check && npm test` for `mcp/platform` to `pipeline-ci-platform.yaml`.
+- **Ratchet**: the CI step itself.
+- 验收: `npm run type-check` in `mcp/platform` exits 0, and a ci-platform run shows the MCP step.
+- 审批 不需要 · 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
+
+### TD-368
+
+**P3 · agentd · a read of the executor's log that hangs cannot be cut short**
+
+- **状态**：未开始（2026-10-18 01:5x 记，复核 266 第 3 项、267 第 2 项、268 第 2 项留下的 B；2.3 第 3 片收线时接受）
+- **Claim**: the collector reads `log.txt` with `Open` / `Seek` / `ReadAll`; a read of a regular file cannot be interrupted in Go. If the disk call never returns, the flush and the attempt time out and go on, but the collector goroutine, its open file and the tail stay until the read returns.
+- **Evidence**: `bifrost-platform/api/internal/agentd/actions.go`, `read` (the `os.Open` … `io.ReadAll` block) and `collect`; review 268 `~/agent-work/codex-review-268/REPORT.md` item 2.
+- **Impact**: low: only a regular file is read (a FIFO or link is refused), agent-work is on 06's own disk, and a hung read holds one goroutine per attempt, never a heartbeat or the hand-over. A hung local disk would stop much more than this.
+- **Fix**: read in a child process the collector can kill (or move agent-work's logs where a read deadline works), only if a hang is ever seen.
+- **Ratchet**: none yet; the regression tests hold the rest (a flush whose time ran out reads nothing, the keeper and the hand-over never wait for a read).
+- 验收: a test that blocks the read in the kernel (a FUSE file) and sees the collector end.
+- 审批 不需要 · 代价 M · 风险 low · repos: bifrost-platform
+
 ### TD-367
 
 **P2 · security · nothing scans the whole history of the twelve public repositories for secrets; the Gitea admin token sat in infra's for four months (TD-365)**
