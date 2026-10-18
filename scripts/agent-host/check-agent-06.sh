@@ -282,26 +282,8 @@ for u in "$prod" "$stg"; do
     v=$(as "$u" ".local/bin/$c --version 2>/dev/null | head -1") && [ -n "$v" ] && ok "$u $c $v" || fail "$u $c does not run"
   done
 done
-# claude runs with no settings source and its hooks off (agentd, TD-371), but a
-# managed policy still applies, and its command hooks would still run (reviews
-# 282, 283): the policy file must be absent or turn every hook off itself, and
-# no drop-in may add to it, nor a managed MCP file start a server.
-f=/etc/claude-code/managed-settings.json
-if [ ! -e "$f" ]; then
-  ok "no $f"
-elif python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("disableAllHooks") is True else 1)' "$f" 2>/dev/null; then
-  ok "$f turns every hook off"
-else
-  fail "$f is there and does not set disableAllHooks true"
-fi
-d=/etc/claude-code/managed-settings.d
-if [ ! -e "$d" ]; then
-  ok "no $d"
-else
-  found=$(find "$d" -mindepth 1 -maxdepth 1 ! -name '.*' -name '*.json' -print -quit 2>/dev/null)
-  [ -z "$found" ] && ok "$d holds no policy file" || fail "$d holds $found: remove the drop-ins (they can add hooks back)"
-fi
-[ ! -e /etc/claude-code/managed-mcp.json ] && ok "no /etc/claude-code/managed-mcp.json" || fail "/etc/claude-code/managed-mcp.json is there: remove it"
+# The managed claude policy turns every hook off, or there is none (TD-371).
+bash "$(dirname "$0")/check-claude-policy.sh" || fails=$((fails + 1))
 echo "-- codex: one root-owned copy under /opt/bifrost/codex, allowed user namespaces by AppArmor (bifrost-codex)"
 for d in /opt /opt/bifrost /opt/bifrost/codex; do
   m=$(stat -c '%U %A' "$d" 2>/dev/null)

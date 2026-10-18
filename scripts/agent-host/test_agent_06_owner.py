@@ -7,6 +7,7 @@ runs here, against a fake sudo and systemctl that keep which units are active in
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import tempfile
@@ -188,3 +189,54 @@ class StopStart(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClaudePolicyCheck(unittest.TestCase):
+    """check-claude-policy.sh: no managed claude policy that could run a hook
+    (reviews 282-284, TD-371)."""
+
+    def run_check(self, setup):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "claude-code"
+            root.mkdir()
+            setup(root, Path(tmp))
+            r = subprocess.run(["bash", str(HERE / "check-claude-policy.sh"), str(root)], capture_output=True, text=True)
+            return r.returncode, r.stdout
+
+    def test_none(self):
+        code, out = self.run_check(lambda root, tmp: None)
+        self.assertEqual(code, 0, out)
+
+    def test_a_policy_that_turns_hooks_off_passes_whatever_hooks_it_names(self):
+        def setup(root, tmp):
+            (root / "managed-settings.json").write_text(json.dumps({"disableAllHooks": True, "hooks": {"UserPromptSubmit": []}}))
+        code, out = self.run_check(setup)
+        self.assertEqual(code, 0, out)
+
+    def test_a_policy_with_hooks_fails(self):
+        def setup(root, tmp):
+            (root / "managed-settings.json").write_text(json.dumps({"hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command", "command": "true"}]}]}}))
+        code, out = self.run_check(setup)
+        self.assertEqual(code, 1, out)
+
+    def test_a_drop_in_fails(self):
+        def setup(root, tmp):
+            (root / "managed-settings.d").mkdir()
+            (root / "managed-settings.d" / "10-hooks.json").write_text("{}")
+        code, out = self.run_check(setup)
+        self.assertEqual(code, 1, out)
+
+    def test_drop_ins_through_a_link_to_a_directory_fail(self):
+        def setup(root, tmp):
+            elsewhere = tmp / "policy"
+            elsewhere.mkdir()
+            (elsewhere / "10-hooks.json").write_text("{}")
+            (root / "managed-settings.d").symlink_to(elsewhere, target_is_directory=True)
+        code, out = self.run_check(setup)
+        self.assertEqual(code, 1, out)
+
+    def test_a_managed_mcp_file_fails(self):
+        def setup(root, tmp):
+            (root / "managed-mcp.json").write_text("{}")
+        code, out = self.run_check(setup)
+        self.assertEqual(code, 1, out)
