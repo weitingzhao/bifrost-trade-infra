@@ -8,7 +8,10 @@
 #   teams     bifrost/maintainers: all repositories, Code write, no unit
 #             above write, not an owners' or admin team; members weitingzhao
 #             and bifrost-mbp. bifrost/agentd-write: all repositories, Code
-#             write, every other unit none; members the two agentd users
+#             write, every other unit none; members the two agentd users.
+#             The external wiki and external issue tracker units only show a
+#             link to another site and grant nothing; Gitea gives them read
+#             on a new team, and they are not counted
 #   probe     bifrost/primary-probe: regular (not a mirror), private, a main
 #             branch; its branch rules (main, agent/**) are listed when there
 #   template  bifrost/repo-template, when there: a template repository
@@ -38,6 +41,7 @@ for name in maintainers agentd-write; do
 done
 get probe "/repos/${GITEA_ORG}/primary-probe"
 get probe-main "/repos/${GITEA_ORG}/primary-probe/branches/main"
+get probe-branches "/repos/${GITEA_ORG}/primary-probe/branches?limit=50"
 get probe-rules "/repos/${GITEA_ORG}/primary-probe/branch_protections"
 get template "/repos/${GITEA_ORG}/repo-template"
 
@@ -77,7 +81,7 @@ def team(name, members, other_units):
     if units.get("repo.code") != "write":
         problems.append("Code is %s, not write" % units.get("repo.code"))
     for unit, level in sorted(units.items()):
-        if unit == "repo.code":
+        if unit in ("repo.code", "repo.ext_issues", "repo.ext_wiki"):
             continue
         if other_units == "none" and level != "none":
             problems.append("%s is %s, not none" % (unit, level))
@@ -93,7 +97,9 @@ probe = load("probe")
 if isinstance(probe, dict):
     report(probe.get("mirror") is False and probe.get("private") is True, "repository %s/primary-probe: regular and private" % org,
            "" if probe.get("mirror") is False and probe.get("private") is True else "mirror %s, private %s" % (probe.get("mirror"), probe.get("private")))
-    report(isinstance(load("probe-main"), dict), "repository %s/primary-probe has a main branch" % org)
+    branches = sorted(b.get("name") for b in (load("probe-branches") or []) if isinstance(b, dict))
+    report(isinstance(load("probe-main"), dict), "repository %s/primary-probe has a main branch" % org,
+           "" if isinstance(load("probe-main"), dict) else "branches: %s; default branch %s" % (", ".join(branches) or "none (empty repository)", probe.get("default_branch")))
     rules = sorted(r.get("rule_name") or r.get("branch_name") for r in (load("probe-rules") or []) if isinstance(r, dict))
     print("info  primary-probe branch rules: %s" % (", ".join(rules) or "none yet (section 1 part 2)"))
 else:

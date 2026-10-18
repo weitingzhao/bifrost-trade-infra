@@ -1236,7 +1236,7 @@ class CheckStep1(unittest.TestCase):
             {"id": 2, "name": "maintainers", "permission": "write", "includes_all_repositories": True,
              "units_map": {"repo.code": "write", **{u: "read" for u in none}}},
             {"id": 3, "name": "agentd-write", "permission": "write", "includes_all_repositories": True,
-             "units_map": {"repo.code": "write", **none}},
+             "units_map": {"repo.code": "write", **none, "repo.ext_issues": "read", "repo.ext_wiki": "read"}},
         ]
         self.members = {2: ["weitingzhao", "bifrost-mbp"], 3: ["agentd-agent-06", "agentd-agent-06-stg"]}
         self.probe = {"name": "primary-probe", "mirror": False, "private": True}
@@ -1256,8 +1256,10 @@ class CheckStep1(unittest.TestCase):
                     code, body = 200, [{"login": m} for m in outer.members.get(tid, [])]
                 elif path == "/repos/bifrost/primary-probe" and outer.probe:
                     code, body = 200, outer.probe
-                elif path == "/repos/bifrost/primary-probe/branches/main" and outer.probe:
+                elif path == "/repos/bifrost/primary-probe/branches/main" and outer.probe and outer.probe.get("has_main", True):
                     code, body = 200, {"name": "main"}
+                elif path == "/repos/bifrost/primary-probe/branches" and outer.probe:
+                    code, body = 200, ([{"name": "main"}] if outer.probe.get("has_main", True) else [])
                 elif path == "/repos/bifrost/primary-probe/branch_protections" and outer.probe:
                     code, body = 200, []
                 elif path == "/repos/bifrost/repo-template" and outer.template:
@@ -1299,6 +1301,7 @@ class CheckStep1(unittest.TestCase):
             ("bifrost-mbp not in maintainers", lambda: self.members.update({2: ["weitingzhao"]}), "has: weitingzhao"),
             ("agentd-write missing", lambda: self.teams.pop(2), "team bifrost/agentd-write — missing"),
             ("probe is a mirror", lambda: self.probe.update(mirror=True), "mirror True"),
+            ("probe is empty", lambda: self.probe.update(has_main=False, default_branch="main"), "branches: none (empty repository); default branch main"),
         )
         for name, change, words in cases:
             self.setUp()
