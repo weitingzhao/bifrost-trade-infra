@@ -252,6 +252,8 @@ if not clean(new):
 if new in leaked:
     sys.exit("that is the leaked token; make a new one; nothing changed")
 got = login(new)
+if got == "HTTP 403":
+    sys.exit("the new token may not read its user (HTTP 403): give it user Read and Write, with repository and organization Read and Write; nothing changed")
 if got != "admin " + ADMIN:
     sys.exit("the new token logs in as %s, not as the administrator %s; nothing changed" % (got, ADMIN))
 now = login(admin) if admin is not None else "missing"

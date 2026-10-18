@@ -875,7 +875,7 @@ class RotateAdminToken(unittest.TestCase):
     a fake Gitea that knows which user and which rights each token has, and a repository of its own whose
     leaked file holds a fixture token (the real leaked token is never used)."""
 
-    OLD, NEW, NEW2, OTHER, NOREPO, READONLY, PLAIN, FORGED, GONE, CI = (c * 40 for c in "123456789a")
+    OLD, NEW, NEW2, OTHER, NOREPO, READONLY, PLAIN, FORGED, GONE, CI, NOUSER = (c * 40 for c in "123456789ab")
 
     def setUp(self) -> None:
         import base64
@@ -891,6 +891,7 @@ class RotateAdminToken(unittest.TestCase):
             self.OLD: ("weitingzhao", True, rw), self.NEW: ("weitingzhao", True, rw), self.NEW2: ("weitingzhao", True, rw),
             self.OTHER: ("someone-else", True, rw), self.NOREPO: ("weitingzhao", True, set()),
             self.READONLY: ("weitingzhao", True, {"read"}), self.PLAIN: ("plain", False, rw), self.CI: ("ci", False, {"read"}),
+            self.NOUSER: ("weitingzhao", True, rw | {"no-user-scope"}),
         }
         self.repos = [{"name": "r", "mirror": True}, {"name": "primary-probe", "mirror": False}]
         # the Git side, served as file:// (no basic auth there: this shows every repository is listed)
@@ -932,7 +933,7 @@ class RotateAdminToken(unittest.TestCase):
                 if who:
                     login, admin, rights = who
                     if path == "/api/v1/user":
-                        code, body = 200, {"login": login, "is_admin": admin}
+                        code, body = (403, {"message": "token does not have at least one of required scope(s)"}) if "no-user-scope" in rights else (200, {"login": login, "is_admin": admin})
                     elif self.command == "GET" and path == "/api/v1/orgs/bifrost/repos":
                         page = int(dict(kv.split("=") for kv in query.split("&") if "=" in kv).get("page", "1"))
                         code, body = (200, outer.repos if page == 1 else []) if "read" in rights else (403, {})
@@ -1070,7 +1071,8 @@ esac
         for typed, words in (("not-a-token", "40 hex"), (self.OLD, "the leaked token"),
                              (self.OTHER, "logs in as admin someone-else, not as the administrator"),
                              ("f" * 40, "logs in as HTTP 401"), (self.PLAIN, "logs in as user plain"),
-                             (self.NOREPO, "give it repository and organization"), (self.READONLY, "cannot write bifrost/primary-probe")):
+                             (self.NOREPO, "give it repository and organization"), (self.READONLY, "cannot write bifrost/primary-probe"),
+                             (self.NOUSER, "give it user Read and Write")):
             self.refused(typed, words)
         self.assertFalse(any("/r/mirror-sync" in p for p in self.posts), self.posts)
 
