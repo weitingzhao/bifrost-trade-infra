@@ -11,6 +11,11 @@
 # bifrost/bifrost-platform and bifrost-ui are Gitea's own repositories with
 # protected agent/** branches), bifrost-agents before. Only platform-api serves
 # persist.
+# AGENTRT_REDIS_*: redis-agents of this namespace, as on STG (W-31 2.3; Owner
+# 2026-10-18 「同意：心跳加 actions，只在 Redis 存 24 小时」): the workers run
+# the relay on it, platform-api writes and reads attempts' actions there. The
+# password is the Secret the redis-agents Deployment reads; its
+# NetworkPolicy already admits platform-api and platform-workers.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -25,6 +30,13 @@ spec:
               value: prod
             - name: AGENTRT_GIT_ORG
               value: bifrost
+            - name: AGENTRT_REDIS_ADDR
+              value: redis-agents:6379
+            - name: AGENTRT_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-agents
+                  key: password
             - name: AGENTRT_DSN
               value: host=bifrost-postgres-rw.data.svc.cluster.local port=5432 dbname=bifrost_platform user=platform_agentrt_prod sslmode=require
             - name: AGENTRT_DB_PASSWORD
@@ -46,6 +58,13 @@ spec:
           env:
             - name: AGENTRT_ENV
               value: prod
+            - name: AGENTRT_REDIS_ADDR
+              value: redis-agents:6379
+            - name: AGENTRT_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-agents
+                  key: password
             - name: AGENTRT_DSN
               value: host=bifrost-postgres-rw.data.svc.cluster.local port=5432 dbname=bifrost_platform user=platform_agentrt_prod sslmode=require
             - name: AGENTRT_DB_PASSWORD
