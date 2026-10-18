@@ -7,7 +7,8 @@
 # Gitea; this puts it in every place that needs it; only then is the old one
 # revoked (OWNER-STEPS-gitea-primary.md section 0).
 #
-#   check    read only: what each Secret's credential is good for now
+#   check    read only: what each Secret's credential is good for now, and
+#            whether it is still the leaked token
 #   rotate   reads the new token hidden and tries it, before writing anything,
 #            for what the Secrets are used for (review 256 A2, 257 A1, B4, B6):
 #            40 hex characters, not the leaked token; logs in as the Gitea
@@ -219,9 +220,14 @@ def describe(bootstrap, clone_file):
 case "${step}" in
   check)
     read_secrets
+    read_leaked
     py "${DESCRIBE}"'
 describe(sys.argv[1], sys.argv[2])
-' "${work}/bootstrap.json" "${work}/clone.json"
+leaked = leaked_tokens(sys.argv[3])
+for path, key, name in ((sys.argv[1], "gitea_admin_token", "gitea-bootstrap"), (sys.argv[2], "password", "gitea-git-credentials")):
+    value = secret(path, key)
+    print(name + ":", "STILL THE LEAKED TOKEN (not rotated yet)" if value is not None and (value in leaked or value.strip() in leaked) else "not the leaked token")
+' "${work}/bootstrap.json" "${work}/clone.json" "${work}/leaked.yaml"
     ;;
 
   rotate)

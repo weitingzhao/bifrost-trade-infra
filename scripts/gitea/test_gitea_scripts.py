@@ -1049,7 +1049,11 @@ esac
         self.assertIn("gitea_admin_token: admin weitingzhao", r.stdout)
         self.assertIn("can read bifrost/r", r.stdout)
         self.assertIn("THE SAME token", r.stdout)
+        self.assertEqual(r.stdout.count("STILL THE LEAKED TOKEN"), 2, r.stdout)
         self.no_token_in(r)
+        self.rotated(self.NEW)
+        r = self.run_it("check")
+        self.assertEqual(r.stdout.count("not the leaked token"), 2, r.stdout)
 
     def test_rotate_puts_the_new_token_in_both_places(self) -> None:
         self.rotated(self.NEW)

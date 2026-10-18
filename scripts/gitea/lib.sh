@@ -61,6 +61,7 @@ gitea_connect() {
     GITEA_PF_LOG="$(mktemp)"
     kubectl -n cicd port-forward svc/gitea :3000 > "${GITEA_PF_LOG}" 2>&1 &
     GITEA_PF_PID=$!
+    disown "${GITEA_PF_PID}" 2> /dev/null || true # no "Terminated" notice when the cleanup stops it
     local i port=""
     for i in $(seq 1 30); do
       port="$(sed -nE 's#^Forwarding from 127\.0\.0\.1:([0-9]+) -> 3000$#\1#p' "${GITEA_PF_LOG}")" || port=""
