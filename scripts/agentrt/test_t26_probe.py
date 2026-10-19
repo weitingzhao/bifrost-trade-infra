@@ -1,0 +1,79 @@
+"""t26_probe.compare: the page against the rows, a difference only where both page reads agree.
+
+    python3 -m pytest -q scripts/agentrt/test_t26_probe.py
+"""
+from __future__ import annotations
+
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import t26_probe as probe  # noqa: E402
+
+NOW = datetime(2026, 10, 19, 12, 0, tzinfo=timezone.utc)
+
+
+def page(tasks: dict[str, str], live: list[dict]) -> dict:
+    """A progress answer of mission M-7, in the shape GET /progress gives."""
+    return {"work": {"missions": [{"mission_id": "M-7", "tasks": [{"task_id": k, "state": v} for k, v in tasks.items()]},
+                                  {"mission_id": "M-8", "tasks": [{"task_id": "t_other", "state": "ready"}]}]},
+            "live": [{"mission_id": "M-7", **a} for a in live]}
+
+
+def host(polled_ago: float) -> list[dict]:
+    return [{"host_id": "agent-06", "last_poll_at": (NOW - timedelta(seconds=polled_ago)).isoformat()}]
+
+
+def test_consistent() -> None:
+    p = page({"t1": "running", "t2": "ready"}, [{"attempt_id": "a1", "host_id": "agent-06", "status": "working"}])
+    rows = [{"task_id": "t1", "state": "running"}, {"task_id": "t2", "state": "ready"}]
+    assert probe.compare(p, p, rows, [{"attempt_id": "a1", "state": "running"}, {"attempt_id": "a0", "state": "ended"}],
+                         host(10), "M-7", NOW) == []
+
+
+def test_a_task_state_that_differs_in_both_reads_counts() -> None:
+    p = page({"t1": "running"}, [])
+    assert probe.compare(p, p, [{"task_id": "t1", "state": "submitted"}], [], host(10), "M-7", NOW) == [
+        {"check": "task_state", "task": "t1", "page": "running", "row": "submitted"}]
+
+
+def test_a_task_that_moved_between_the_reads_does_not() -> None:
+    before, after = page({"t1": "running"}, []), page({"t1": "submitted"}, [])
+    assert probe.compare(before, after, [{"task_id": "t1", "state": "submitted"}], [], host(10), "M-7", NOW) == []
+
+
+def test_live_attempts_both_ways() -> None:
+    p = page({}, [{"attempt_id": "a1", "host_id": "agent-06", "status": "working"}])
+    rows = [{"attempt_id": "a1", "state": "ended"}, {"attempt_id": "a2", "state": "running"}]
+    assert probe.compare(p, p, [], rows, host(10), "M-7", NOW) == [
+        {"check": "live", "attempt": "a1", "page": "live", "row": "ended"},
+        {"check": "live", "attempt": "a2", "page": "not live", "row": "running"}]
+
+
+def test_another_missions_attempts_are_not_its() -> None:
+    p = page({}, [])
+    p["live"].append({"mission_id": "M-8", "attempt_id": "a9", "host_id": "agent-06", "status": "working"})
+    assert probe.compare(p, p, [], [], host(10), "M-7", NOW) == []
+
+
+def test_a_lost_host_shows_host_lost_and_only_then() -> None:
+    working = page({}, [{"attempt_id": "a1", "host_id": "agent-06", "status": "working"}])
+    lost = page({}, [{"attempt_id": "a1", "host_id": "agent-06", "status": "host_lost"}])
+    rows = [{"attempt_id": "a1", "state": "running"}]
+    assert [d["check"] for d in probe.compare(working, working, [], rows, host(300), "M-7", NOW)] == ["host_lost"]
+    assert probe.compare(lost, lost, [], rows, host(300), "M-7", NOW) == []
+    assert [d["check"] for d in probe.compare(lost, lost, [], rows, host(30), "M-7", NOW)] == ["host_lost"]
+    # within the slack either way is no difference
+    assert probe.compare(working, working, [], rows, host(200), "M-7", NOW) == []
+    assert probe.compare(lost, lost, [], rows, host(160), "M-7", NOW) == []
+
+
+def test_a_status_that_changed_between_the_reads_does_not_count() -> None:
+    before = page({}, [{"attempt_id": "a1", "host_id": "agent-06", "status": "working"}])
+    after = page({}, [{"attempt_id": "a1", "host_id": "agent-06", "status": "host_lost"}])
+    assert probe.compare(before, after, [], [{"attempt_id": "a1", "state": "running"}], host(300), "M-7", NOW) == []
+
+
+def test_times_with_nanoseconds_parse() -> None:
+    assert probe.parse_time("2026-10-19T02:14:41.057074107Z") == datetime(2026, 10, 19, 2, 14, 41, 57074, tzinfo=timezone.utc)
