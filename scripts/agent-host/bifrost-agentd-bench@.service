@@ -8,8 +8,10 @@
 # agentd is another user and is not touched. Its build is agentd-bench, beside
 # the daemons' agentd: putting it there stops nothing (review 287 B8). The
 # STG agentd's task checkouts are hidden from it: they hold every fix's
-# commit (review 287 B3). A run started again the same day (UTC) goes on from
-# the questions it has. Installed and started by bench-on-06.sh, which
+# commit (review 287 B3). Each start is a new run: with no model pinned in
+# AGENTD_TOOLS a run is never resumed, since codex's default model may have
+# changed in between (review 288 B9); agentd bench --run-id resumes one by hand
+# when a model is pinned. Installed and started by bench-on-06.sh, which
 # agent-06-owner.sh bench <executor> runs.
 [Unit]
 Description=Bifrost agentd benchmark run with exec:%i (STG platform, host agent-06-stg)
@@ -25,7 +27,7 @@ User=bifrost-agentd-stg
 Group=bifrost-agentd-stg
 WorkingDirectory=/home/bifrost-agentd-stg/agent-work/agentd
 # $$ is a literal $ for the shell, %% a literal % (systemd.service, "Command lines").
-ExecStart=/bin/sh -c 'exec /usr/local/libexec/bifrost/agentd-bench bench --questions /usr/local/share/bifrost/benchmark/questions.json --executor "exec:$$1" --run-id "bench-$$(date -u +%%Y%%m%%d)-$$1"' bench %i
+ExecStart=/bin/sh -c 'exec /usr/local/libexec/bifrost/agentd-bench bench --questions /usr/local/share/bifrost/benchmark/questions.json --executor "exec:$$1" --run-id "bench-$$(date -u +%%Y%%m%%dT%%H%%M%%S)-$$1"' bench %i
 ExecStopPost=+/bin/systemctl start --no-block bifrost-agentd-stg.service
 Environment=HOME=/home/bifrost-agentd-stg
 Environment=USER=bifrost-agentd-stg
