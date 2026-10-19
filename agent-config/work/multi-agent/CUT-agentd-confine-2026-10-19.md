@@ -151,3 +151,24 @@ systemd-run --quiet --wait --pipe --collect --uid="$u" --gid="$u" \
 | 303（窄确认，`d8d3995`） | 302 的 A、B、C 都确认已修；0 A。1 B：执行者把 `log.txt`（或 `report.md`）留成没有写端的 FIFO 时，agentd 读日志尾部会一直等，交付卡住（旧问题，不是写穿） | `readTail`、`readAtMost` 只读普通文件、不跟链接、不等待（`b1be372`）；`TestResultsDoNotWaitOnAFIFO` 在旧提交上失败。**按停线规矩收线** |
 
 收线时的状态（2026-10-19 03:2x）：分支 `w31/agentd-confine` 头 `b1be372`，基于平台主线 `d788296`；`go test ./...`（PG、Redis、`AGENTRT_TEST_REQUIRED=1`）全过；agentd 两个包的 golangci-lint 与主线相同（全仓 108 条都是主线原有的）；code-health 通过（最大的 `run.go` 741 行）；Landlock 相关测试在本机 Docker Desktop 的 Linux 内核（6.12，ABI 6）里全过。复核 300–303 的报告在 `~/agent-work/codex-review-30{0,1,2,3}/REPORT.md`。
+
+## 10. codex 进不了墙（06 实测，2026-10-19 10:36）：选项
+
+**实测**（`~/agent-work/agent-06-logs/confine-probe-stg-20261019T103613-8842.txt`）：06 内核 6.8.0-147，`lsm` 含 landlock，Landlock ABI 4。§2.2 的 11 项全部 ok，所以 deterministic、cursor、claude 在墙里、可以共享主机。codex 那一项失败：codex 0.163 在 `use_legacy_landlock` 下直接退出（`filesystem-restricted execution requires bubblewrap to isolate app-server sockets`），也就是要做文件系统限制，0.163 只认 bubblewrap。按 §2 的设计退路，codex 现在不进墙、独占主机：安全上没有退步，但 codex 的活还是一次一件，TD-371 对 codex 没关。
+
+另外，按内核文档，Landlock 管文件系统的域里不能 mount，而 bubblewrap 要 mount。所以「codex 在 agentd 的墙里、再用它自己的 bubblewrap」这条路不通。这一点没在 06 上单独量过；上面的失败是 codex 自己先拒绝了 legacy 模式，还没走到 mount。
+
+| | A. codex 在墙外，用它自己的 bubblewrap 沙箱，钉子齐、沙箱经探针证明就算受限（**推荐**） | B. 墙里关掉 codex 自己的沙箱，只靠 agentd 的 Landlock 墙 | C. 每个槽位一个系统用户 |
+|---|---|---|---|
+| 写入范围怎么保证 | codex 起的**命令**由 bubblewrap 限住：根只读，只有工作区和 `a.Out/tmp` 可写（`writable_roots` 钉死，`/tmp`、`$TMPDIR` 排除），这是内核挂载视图的保证。**codex 进程本身**不在内核写墙里，它自己写的东西（它的 `CODEX_HOME`、`-o report.md`、在进程里应用补丁）靠 codex 自己按 `writable_roots` 和 `approval_policy="never"` 做的检查。读不到早先的配置：全新 `CODEX_HOME`，hooks、notify、规则、provider、MCP 都钉死（§3，不变）。setup 的命令照样各自套 agentd 的窄墙（`agentd setup --write …` 不依赖外层墙）。agentd 自己在尝试目录里的 git 和文件操作已经进墙、不跟链接（§2.1，与 codex 进不进墙无关） | 整棵进程树（codex 进程和它的命令）都在 agentd 的 Landlock 墙里，是内核保证，三个方案里写最强 | 内核按用户隔离：codex 进程和命令都只能写这个槽位用户自己的东西，读也隔开了。codex 照用它自己的 bubblewrap |
+| 命令有没有网 | 没有（bubblewrap 的网络命名空间，和今天一样）。codex 进程本身连 OpenAI | **有**。ABI 4 的 Landlock 只能按 TCP 端口管：只放 443 能挡住 Gitea（30300）和平台（30876/30878），但也会挡掉测试里连本机随机端口的服务（Go 的 httptest 之类），codex 跑不了大部分测试；不按端口管，命令就能连 Gitea 和平台。另外 §7 第 1 条「同用户可读」这个例外的前提之一是命令没网，命令有网后，那些可读的凭据文件就能被带出去 | 没有（codex 沙箱）；出站规则要按新用户加 |
+| 要不要改 06 的单元或 AppArmor | 不用。`bifrost-codex` 已经允许它的 bubblewrap 建命名空间（10-17 起 codex 就这么跑） | 不用 | 要：新建 2–3 个槽位用户，出站规则按用户加；agentd 本身无特权（`NoNewPrivileges`），要一个 root 拥有的启动机制（比如 systemd 模板单元 + polkit 规则）；目录属主和结果交接要重新设计 |
+| codex 能不能共享主机 | 能，前提是接受一条残留：codex 进程本身靠厂商代码约束，不靠内核（写进 §7） | 能 | 能，最强 |
+| 要不要 Owner 在 06 上动手 | 新版 agentd 装上后再跑一次 `agent-06-owner.sh confine-probe stg`（探针改成：在单元限制下，codex 自己的沙箱用同一组钉子跑命令，工作区能写、工作区外不能写、命令没网）；STG 走查真跑一次 codex 尝试 | 探针重跑 | 要：跑准备脚本（root），并重启两个 agentd |
+| 代价 / 风险 | 小。codex 不再套 agentd 墙、不加 legacy 开关；`confined` 对 codex 改为看「codex 沙箱自证过 + 钉子齐」；`checkPins` 对 codex 不要墙前缀，其余钉子照查。残留：codex 进程的写入检查是厂商代码，出了 bug 能写到别的尝试 | 网络这一层的保证比今天弱，测试能力也降了。用写的保证换网络的保证，不划算 | 架构级，接近第 3 轮虚拟机的范围 |
+
+**推荐 A**。codex 的命令（模型实际让它执行的东西）仍由内核限住、没网，和今天一样；新增的只是让 codex 和别的执行者同时跑，代价是承认「codex 进程本身靠厂商代码」这一条残留。B 拿网络隔离换写隔离，损失更大。C 是正确的长远方向，但要改 06 的用户、出站规则和启动方式，等第 3 轮一起做。
+
+不选的：把 codex 钉回还支持 legacy Landlock 的旧版本。0.163 已改成必须用 bubblewrap，退版本会落后厂商修复，下一次升级还会撞上同一个问题。
+
+**选 A 要改的**（不改公开接口，Owner 定了再做）：`proveCodex` 改成不套 agentd 墙、在单元限制下跑 `codex sandbox`（同一组钉子），探针加一项「codex 沙箱里写工作区外被拒」。`Wall.Executors["exec:codex"]` 的含义改成「codex 自己的沙箱证明过」。Run 里 codex 不套墙前缀、不加 legacy 开关，`checkPins` 按这个来；setup 仍带 `--write`（命令各自套窄墙）。§7 加一条残留。测试：`TestCheckPins` 的 codex 分支、`TestConfined`，以及「codex 只有在沙箱证明过时才算受限」的测试。
