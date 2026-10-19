@@ -35,7 +35,7 @@ ok() { echo "ok   $*"; }
 as() {
   local u=$1
   sudo -u "$u" -H env -i HOME="/home/$u" USER="$u" LOGNAME="$u" LANG=C.UTF-8 \
-    PATH="/opt/bifrost/codex/bin:/home/$u/.local/bin:/usr/local/go/bin:/usr/local/lib/nodejs/current/bin:/usr/local/bin:/usr/bin:/bin" \
+    PATH="/opt/bifrost/codex/bin:/usr/local/go/bin:/usr/local/lib/nodejs/current/bin:/usr/local/bin:/usr/bin:/bin:/home/$u/.local/bin" \
     bash -c "cd \"\$HOME\" && $2"
 }
 

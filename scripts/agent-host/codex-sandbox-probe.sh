@@ -36,7 +36,7 @@ out=$(systemd-run --quiet --wait --pipe --collect \
   -p RestrictSUIDSGID=yes -p RestrictRealtime=yes -p LockPersonality=yes -p UMask=0077 \
   -p WorkingDirectory="/home/$u" \
   -E HOME="/home/$u" -E USER="$u" -E LOGNAME="$u" -E LANG=C.UTF-8 \
-  -E PATH="/opt/bifrost/codex/bin:/home/$u/.local/bin:/usr/local/go/bin:/usr/local/lib/nodejs/current/bin:/usr/local/bin:/usr/bin:/bin" \
+  -E PATH="/opt/bifrost/codex/bin:/usr/local/go/bin:/usr/local/lib/nodejs/current/bin:/usr/local/bin:/usr/bin:/bin:/home/$u/.local/bin" \
   /opt/bifrost/codex/bin/codex sandbox --permission-profile :workspace --cd "/home/$u" -- /bin/sh -c 'readlink /proc/self/ns/net' 2>&1) || rc=$?
 if [ "$rc" != 0 ]; then
   printf '%s\n' "$out" | tail -5 >&2

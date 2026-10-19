@@ -36,5 +36,5 @@ systemd-run --quiet --wait --pipe --collect \
   -p RestrictSUIDSGID=yes -p RestrictRealtime=yes -p LockPersonality=yes -p UMask=0077 \
   -p WorkingDirectory="/home/$u" \
   -E HOME="/home/$u" -E USER="$u" -E LOGNAME="$u" -E LANG=C.UTF-8 \
-  -E PATH="/opt/bifrost/codex/bin:/home/$u/.local/bin:/usr/local/go/bin:/usr/local/lib/nodejs/current/bin:/usr/local/bin:/usr/bin:/bin" \
+  -E PATH="/opt/bifrost/codex/bin:/usr/local/go/bin:/usr/local/lib/nodejs/current/bin:/usr/local/bin:/usr/bin:/bin:/home/$u/.local/bin" \
   "$agentd" confine-probe --root "/home/$u/agent-work/agentd"

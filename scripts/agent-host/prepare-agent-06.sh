@@ -145,7 +145,7 @@ export PATH="/usr/local/lib/nodejs/current/bin:$PATH"
 as() {
   local u=$1
   sudo -u "$u" -H env -i HOME="/home/$u" USER="$u" LOGNAME="$u" SHELL=/bin/bash LANG=C.UTF-8 \
-    PATH="$codex_prefix/bin:/home/$u/.local/bin:/usr/local/go/bin:/usr/local/lib/nodejs/current/bin:/usr/local/bin:/usr/bin:/bin" \
+    PATH="$codex_prefix/bin:/usr/local/go/bin:/usr/local/lib/nodejs/current/bin:/usr/local/bin:/usr/bin:/bin:/home/$u/.local/bin" \
     bash -euo pipefail -c "cd \"\$HOME\" && umask 077 && $2"
 }
 

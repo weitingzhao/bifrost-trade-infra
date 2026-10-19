@@ -14,6 +14,8 @@
 ## 待你签收
 
 - **TD-371** — 06 上每次尝试只能写自己的目录：Landlock 写墙（deterministic、cursor、claude），codex 用它自己的 bubblewrap 沙箱并经探针证明；每次尝试自己的配置目录，cursor 的数据目录短路径、在墙里。验收：PASS 2026-10-19，两条探针全过、STG 实跑 cursor 评审收下。防线：`TestConfined` 与 `agent-06-owner.sh confine-probe`（每次换 agentd 后跑）。后续：TD-376（按尝试 cgroup）、TD-377（读也隔开）、TD-379（PATH 顺序）、TD-380（agentd 测试在墙里）、TD-382（报告引用路径被拒）。
+- **TD-382** — 报告里引用了本机路径就被拒收、尝试悄悄作废、立刻重派：agentd 上传前掩掉路径（`82bedd54`，06 上 `agentd-82bedd5`），平台拒收时在主机流记 `policy_alert`、尝试结束写明结果没落地（`63392a67`）。验收：PASS 2026-10-19，ci-platform 绿、STG M-24 引用路径的评审收下。防线：RATCHETS「平台拒收报告留记录，尝试结束写明」。后续：无后续：拒收不认定是哪次尝试的，要精确就得让上传带尝试号（改 agentd 协议，要你定），现在没有需要。
+- **TD-381** — 秒败的尝试被立刻重派、几十秒烧光预算：同一执行者失败后先等 30 秒、再败等 60 秒，连败三次不再派并记 `policy_alert`，别的候选可以立刻接（`63392a67`）。验收：PASS 2026-10-19，ci-platform 绿。防线：RATCHETS「秒败的执行者先等再派、连败三次不再派」。后续：policy_alert 上界面随 2.5 切片 ④。
 - **TD-374** — agentrt store 包的测试改成并行（218 个里 181 个 `t.Parallel()`，37 个注明串行原因；`TestMain` 并行度下限 4），CI 上从 116.8 秒降到 58–87 秒。验收：PASS 2026-10-19，`c360937` / `1589fbf` / `5b117f4` 三次 ci-platform 都在 90 秒内。防线：RATCHETS「agentrt store 包的测试并行跑」（`TestTestsRunInParallel`）。后续：10-19 下午 Gate B、B6/B7、2.5 的测试合进来后，单独一次 ci-platform（242dcf2d）store 包已到 87 秒，又在往 90 秒爬——建议签收时一并批 TD-374 原写的第一半：把 ci-platform 测试步骤的超时改到 300 秒（cicd 流水线，你批），并行防线照留。
 - **TD-373** — 06 上的基准原来 20 道只能跑 11 道（TS 缺旁边的 bifrost-ui、测试库、依赖没装）。题集换成 06 能跑的 20 道，agentd 带旁边仓库并把隐藏测试要的接口写进题面（platform `d788296`、infra `fe32f4a`）。验收：PASS 2026-10-19，`bench-20261019T060504-codex` 20 道全能跑，判对 16。防线：交上来的结果逐题写明跑不了的原因，可跑题数在 capability_scored 事件里；新题集上线前过 `benchreplay_test.go`。后续：无后续，「Left」两条只是少挑两类候选题，题集已全能跑，不另记。
 - **TD-355** — 签规则的钥匙不用 Owner 确认就能签（没口令、常驻 ssh-agent）。Owner 10-15 19:05 把它移出 agent、19:10 加了口令（指纹不变，平台不用改）；`rule.sh sign` 现在拒绝没口令或常驻 agent 的钥匙。验收：PASS 2026-10-15 19:15。防线：RATCHETS「The Owner's signing key asks before it signs」。后续：发版策略的签名工具还没有同一道检查，长期换成每次要按一下的钥匙（会改信任指纹），都等补强阶段再定，没另开编号。
@@ -2146,26 +2148,28 @@
 
 **P1 · agentrt · a report that quotes a local path is refused with 422 and the attempt is leased again at once, with no event saying why**
 
-- **状态**：在做（10-19 18:4x：agentd 侧上线——platform `82bedd54`、06 上 `agentd-82bedd5`：报告与日志尾上传前把本机路径换成 `.`/`..`/`$HOME`/`$TMPDIR` 并掩掉其余前缀，平台仍会拒的行写成 withheld；STG M-24 用 M-22 原题复验，报告 PUT 200、评审收下、没有重派。平台侧「拒收时记事件、按失败结束」由夜班统筹在做）（2026-10-19 17:1x 记，STG 复验 stg-walk-confine「复验」R2-1）
+- **状态**：待你签收（2026-10-19 18:3x；agentd 侧 18:4x 上线——platform `82bedd54`、06 上 `agentd-82bedd5`：报告与日志尾上传前把本机路径换成 `.`/`..`/`$HOME`/`$TMPDIR` 并掩掉其余前缀，平台仍会拒的行写成 withheld；STG M-24 用 M-22 原题复验，报告 PUT 200、评审收下、没有重派。平台侧 platform `f8ed34c1`、`f0c28fce`、`63392a67`（夜班统筹，复核 400、401 收线）：agentd 上传的报告被 H8 或工作区规则拒收时，在主机流 `host:<id>` 记一条 `policy_alert`（规则、报告种类、被拒正文的 id，不带原文）；上传不带尝试号，所以不认定是哪次尝试的（复核 400 A1：保全旧尝试的上传会和同主机另一次交接重叠）；结果没落地就结束的尝试，任务的移动写明「its result was computed but not persisted」，其间主机有拒收再加「meanwhile its host had a report refused by rule …」；不再立刻重派由 TD-381 的退避负责。平台侧还没发 STG，随下一次 STG 发版）（2026-10-19 17:1x 记，STG 复验 stg-walk-confine「复验」R2-1）
 - **Claim**: on STG (platform 242dcf2d, agentd-f2e4d6b) the cursor review of M-22 passed twice, but its report quoted the prefixes `/Users/`, `/home/`, `/tmp/` (the task was about the local-path pattern). The platform refused the report upload (PUT 422), the persist then failed (409), the attempt was voided and the task leased again 0.3 s later; no event records the refusal. Any report that quotes a log line, an error message or a path can hit this.
 - **Evidence**: `~/agent-work/stg-walk-confine/REPORT.md`「复验」; STG events of M-22; platform log lines of the two PUTs.
 - **Impact**: a correct review can never land; the task loops until its budget is gone (see TD-381). T26 risks it whenever a reviewer quotes `verify.json` or an error with an absolute path.
 - **Fix**: agentd masks local paths in the report (the same `localpath` masking it applies to hand-ins) before upload, and the platform records the refusal as an event with the rule that matched, ending the attempt as failed with that reason instead of voiding it silently.
 - **Ratchet**: an agentd test: a report naming `/home/<user>/…` and `/tmp/…` is uploaded masked and accepted; a store test: a refused report leaves an event naming the rule.
 - 验收: both tests pass on main, and on STG a review whose report quotes a path is accepted.
+- 验收结果：PASS 2026-10-19 platform `63392a67`（ci-platform-zdfqw Succeeded，agentd `handtext_test.go` 与 store `TestRefusedReportIsRecorded` 都在里面）；STG M-24（agentd-82bedd5）报告引用路径、PUT 200、评审收下。
 - 审批 不需要（平台与 agentd；06 上装要你一次）· 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-381
 
 **P2 · agentrt · an attempt that fails within seconds is leased again at once, with no backoff, until the mission's attempt budget is gone**
 
-- **状态**：未开始（2026-10-19 12:1x 记，STG 走查 stg-walk-confine §3）
+- **状态**：待你签收（2026-10-19 18:3x；platform `f8ed34c1`、`f0c28fce`、`63392a67`，夜班统筹写，复核 400、401 收线：执行者自己造成的失败（exit 或超时、结果没被收下）之后，同一执行者 30 秒内不再领这件、连败第二次后 60 秒；连败三次就不再派给它，并在第三次的尝试上记 `policy_alert` repeated_failure；别的候选可以立刻接（级联）；叫停、重启、丢租约、容量不足不计，也打断连串；在领活时按本任务的尝试算，路由和回放不变。唯一候选连败三次后任务停在 ready，只靠这条告警被看见——界面上还没显示 policy_alert，2.5 切片 ④ 接）（2026-10-19 12:1x 记，STG 走查 stg-walk-confine §3）
 - **Claim**: on STG (agentd-b40867a) the cursor review of M-21 failed six times in 36 seconds (each attempt exit 1 after 4–5 s, 17:00:05–17:00:41Z); the task went back to ready each time and was leased again immediately, so one broken executor spent the mission's budget before anyone could look.
 - **Evidence**: `~/agent-work/stg-walk-confine/REPORT.md` §1 and §3; STG events of task `t_01M5AHP9Q7G4RWDSW5DGR5DSY2`.
 - **Impact**: a host or executor fault turns into a burnt budget and a blocked mission in under a minute; T26 would have failed this way had PROD's reviews gone to the broken cursor.
 - **Fix**: after a failed attempt, keep the task out of the claim query for an increasing delay (and route the retry to another candidate when one is eligible, v5 §5.1.2 cascade), and stop retrying the same executor after N fast failures with a `policy_alert` to the Owner.
 - **Ratchet**: a store test: three attempts that fail within ten seconds lease the task at most twice in the first minute, and the third failure raises the alert.
 - 验收: that test passes on main.
+- 验收结果：PASS 2026-10-19 platform `63392a67`（ci-platform-zdfqw Succeeded；`TestFailingExecutorWaitsAndStops` 本机 -count=3 过，去掉等待即红）。
 - 审批 不需要（只改平台）· 代价 M · 风险 low · repos: bifrost-platform
 
 ### TD-380
@@ -2185,7 +2189,7 @@
 
 **P3 · agentd · security · the agent units put the agent user's own `~/.local/bin` ahead of node and the system directories on PATH**
 
-- **状态**：未开始（2026-10-19 11:3x 记；codex A 交回时指出，T26 之后改，免得开窗前动 06 的单元）
+- **状态**：在做（2026-10-19 18:4x 夜班统筹：七处 PATH 都把 `~/.local/bin` 挪到最后（三个单元、`confine-probe.sh`、`codex-sandbox-probe.sh`、`check-agent-06.sh`、`prepare-agent-06.sh`、`agent-06-owner.sh`），防线 `scripts/agent-host/test_agent_path.py` 已上 infra main；剩 06：T26 之后你跑一次 `update-agentd` 装新单元，再跑 `confine-probe stg` 和 `confine-probe prod`。Mac 上 launchd 的 agentd（`api/cmd/agentd` install，Mac 已不当 Agent 主机）仍把 `~/.local/bin` 放第一，不在这一项里）（2026-10-19 11:3x 记；codex A 交回时指出，T26 之后改，免得开窗前动 06 的单元）
 - **Claim**: `bifrost-agentd.service`, `bifrost-agentd-stg.service` and `bifrost-agentd-bench@.service` set `PATH=/opt/bifrost/codex/bin:/home/<user>/.local/bin:/usr/local/go/bin:/usr/local/lib/nodejs/current/bin:…`. Since TD-371 option A (platform `b40867a`) the codex process itself runs outside agentd's write wall, held only by its vendor code; if it ever wrote `~/.local/bin/node` (or `go`), a later attempt's executor would run it.
 - **Evidence**: `bifrost-trade-infra/scripts/agent-host/bifrost-agentd*.service` PATH lines; the same order in `confine-probe.sh`, `codex-sandbox-probe.sh`, `check-agent-06.sh:38`, `prepare-agent-06.sh:148`, `agent-06-owner.sh:474`; `agent-config/work/multi-agent/CUT-agentd-confine-2026-10-19.md` §10.
 - **Impact**: one of the residuals Owner accepted with option A (「codex 进程本身靠厂商代码」); a vendor bug or a hostile model output that escapes codex's own checks could plant a program every later attempt runs.

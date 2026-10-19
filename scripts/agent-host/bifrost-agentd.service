@@ -21,7 +21,7 @@ Environment=USER=bifrost-agentd
 Environment=LOGNAME=bifrost-agentd
 Environment=SHELL=/bin/bash
 Environment=LANG=C.UTF-8
-Environment=PATH=/opt/bifrost/codex/bin:/home/bifrost-agentd/.local/bin:/usr/local/go/bin:/usr/local/lib/nodejs/current/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/opt/bifrost/codex/bin:/usr/local/go/bin:/usr/local/lib/nodejs/current/bin:/usr/local/bin:/usr/bin:/bin:/home/bifrost-agentd/.local/bin
 Environment=AGENTD_PLATFORM=http://192.168.10.100:30876/api/v1/agentrt
 Environment=AGENTD_HOST=agent-06
 Environment=AGENTD_TOOLS=exec:codex=openai,exec:cursor=cursor-mix,exec:claude=anthropic:opus,exec:deterministic=local

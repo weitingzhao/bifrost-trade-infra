@@ -471,7 +471,7 @@ step_prepare() { node_ssh 'sudo bash ~/agent-host/prepare-agent-06.sh'; }
 step_codex_login() {
   local u
   u=$(user_of "${1:-}")
-  node_ssh_tty "sudo -u $u -H env -i HOME=/home/$u USER=$u LOGNAME=$u PATH=/opt/bifrost/codex/bin:/home/$u/.local/bin:/usr/local/lib/nodejs/current/bin:/usr/bin:/bin bash -c 'cd ~ && codex login --device-auth'"
+  node_ssh_tty "sudo -u $u -H env -i HOME=/home/$u USER=$u LOGNAME=$u PATH=/opt/bifrost/codex/bin:/usr/local/lib/nodejs/current/bin:/usr/bin:/bin:/home/$u/.local/bin bash -c 'cd ~ && codex login --device-auth'"
 }
 
 # normalize <in> <out> <kind>: one line, no surrounding newline, the shape of
