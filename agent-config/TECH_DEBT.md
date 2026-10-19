@@ -2140,6 +2140,19 @@
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-375
+
+**P3 · agentrt · security · threads that share one token can still act as each other, and the question routes still take the session header on its word**
+
+- **状态**：未开始（2026-10-19 03:2x 记，TD-370 的修法交回时指出：绑定只区分不同的令牌）
+- **Claim**: TD-370 holds a thread's session to the token that first wrote as it. Every thread on the development Mac holds the same reporter token, so one of them can still name another's session and read its mail, acknowledge it, send and propose as it; the questions routes read `X-Bifrost-Session` for its shape only.
+- **Evidence**: `bifrost-platform/api/internal/agentrt/store/keyed.go` (the binding, platform `6964fd2`), `api/internal/server/questions_wire.go`; the lane's report (session local_af7f0365, 10-19 02:43).
+- **Impact**: a thread's mail from the Owner or the chief of staff, and the record of who proposed what; not the Owner's or a seat's identity, which come from their own tokens.
+- **Fix**: each thread gets its own token from the Console when it registers (the reporter token only registers), and the questions routes take the session from the token as the agentrt routes now do.
+- **Ratchet**: a route test: a thread token naming another thread's session is refused on every write, on `GET /messages` and on the questions routes.
+- 验收: that test passes on main, and the reporter token can no longer write as a thread.
+- 审批 不需要（只改平台）· 代价 M · 风险 low · repos: bifrost-platform
+
 ### TD-374
 
 **P2 · ci · the agentrt store package's tests run close to CI's 120 s test timeout**
@@ -2200,7 +2213,7 @@
 
 **P2 · agentrt · security · a thread is who its session header says: any token that may propose reads and writes as any thread**
 
-- **状态**：未开始（2026-10-18 02:4x 记，复核 269 B5 在 `GET /messages/thread` 上指出；那条路由已只给 Owner 和席位，`5a7fca3`）
+- **状态**：观察中（到 STG 上线后核对：同一线程换令牌的写入和读信箱回 403 `not_yours`；PROD 随下一张合并单）（2026-10-18 02:4x 记，复核 269 B5 在 `GET /messages/thread` 上指出；那条路由已只给 Owner 和席位，`5a7fca3`；10-19 修法进 platform main `6964fd2`、`0423a7e`，复核 320、321 收线，防线 `TestSessionHeldToItsToken`）
 - **Claim**: `writer()` maps a token that is neither the Owner's nor a seat's to `thread:<X-Bifrost-Session>`, and the header is checked for its shape only. A holder of the shared reporter token (every thread's) can send `X-Bifrost-Session: <another thread>` and read that thread's unread messages (`GET /messages`), acknowledge them, send as it, and propose missions and tasks recorded as it.
 - **Evidence**: `bifrost-platform/api/internal/agentrt/agentrtapi/propose.go:28` (`writer`), `api/internal/agentrt/store/propose.go:32` (`threadSession`, shape only); the questions routes take the same header the same way.
 - **Impact**: the threads on this Mac all hold the same token, so they can already act as each other; what is at stake is a thread's mail (from the Owner or the chief of staff) and the record of who proposed what (audit), not the Owner's or a seat's identity, which come from their own tokens.
