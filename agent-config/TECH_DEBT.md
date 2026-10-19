@@ -2140,6 +2140,19 @@
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-378
+
+**P3 · testing · a test of the admission-guard check fails on main: its fake `subprocess.run` answers the Application read too**
+
+- **状态**：未开始（2026-10-19 05:0x 记；runtime-repo-infra 线摸底 infra 的 Python 测试时撞上）
+- **Claim**: `scripts/test_access_checks.py::DryRunClassifyTests::test_live_stops_before_any_dry_run_without_impersonation` fails on every machine since review 261/262: `check_admission_guards.live()` now reads the live `bifrost-research` Application (`live_application`) before it asks about impersonation, and the test's fake `subprocess.run` answers every call with exit 0 and "no", so `json.loads("no")` raises before the check the test is about.
+- **Evidence**: `bifrost-trade-infra/scripts/check_admission_guards.py:214`, `:435`; `scripts/test_access_checks.py:77-99`; commits `f3d3fab`, `4d04561`. Measured 10-19 on main `710723d` with and without kubectl on PATH: 1 failed, 9 passed.
+- **Impact**: nobody sees whether `live()` still stops before any dry run without impersonation; the runtime's infra check leaves the file out (platform `w31/repo-infra`, `store/repos.go` `infraTests`) until it passes.
+- **Fix**: let the fake answer `kubectl get application` with a non-zero exit (no Application) or a minimal Application JSON, and keep the assertion that every other call is `kubectl auth can-i impersonate`; then add the file to `infraTests`.
+- **Ratchet**: the file joins the runtime's infra check, which runs it on every infra task.
+- 验收: `python3 -m pytest -q scripts/test_access_checks.py` passes on main, and `scripts/test_access_checks.py` is in `infraTests`.
+- 审批 不需要（测试改动）· 代价 S · 风险 low · repos: bifrost-trade-infra, bifrost-platform
+
 ### TD-377
 
 **P3 · agentd · security · an executor still reads what its user can read: token files and other attempts' workspaces**
