@@ -2139,6 +2139,19 @@
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-374
+
+**P2 · ci · the agentrt store package's tests run close to CI's 120 s test timeout**
+
+- **状态**：未开始（2026-10-18 23:0x 记）
+- **Claim**: `ci-platform` runs `go test ./... -count=1 -timeout=120s`, and the timeout is per test binary. The agentrt store package took 82–88 s in CI until 10-18 evening, then went past 120 s twice under load (ci-platform-m6zlf, ci-platform-vxxn2: "panic: test timed out after 2m0s", whatever test was running). Copying each test database from a migrated template (`8a43413`, 1.2 s to 0.2 s a database measured here) brought it to 109 s in ci-platform-gmb5f, still close: one busy CI pod, or a dozen more tests, and main goes red with nothing wrong.
+- **Evidence**: `bifrost-trade-infra/k8s/cicd/tekton/pipeline-ci-platform.yaml:176`; the three runs above (`kubectl logs` of their test-api pods).
+- **Impact**: a red main blocks STG and PROD releases until a re-run passes; it cost a push and a re-run on 10-18.
+- **Fix**: raise the step's `-timeout` to 300s (a change to the pipeline in `cicd`, the Owner's), and/or let the store package's tests run in parallel (`t.Parallel()` where a test touches no package-level hook or clock: `SetHook`, `eventClock`).
+- **Ratchet**: none possible without the fix itself; a timeout is the only line there is.
+- 验收: three consecutive ci-platform runs with the store package under 90 s, or the step's timeout at 300 s.
+- 审批 要（改 cicd 里的流水线，你批）· 代价 S · 风险 low · repos: bifrost-trade-infra, bifrost-platform
+
 ### TD-373
 
 **P3 · agentd · the benchmark on 06 cannot run every question of the set**
