@@ -123,6 +123,10 @@ echo "LAN address: $lan"
 [ "$(readlink -f /etc/resolv.conf)" = /run/systemd/resolve/stub-resolv.conf ] && ok "resolv.conf is the systemd-resolved stub" || fail "resolv.conf is $(readlink -f /etc/resolv.conf)"
 [ ! -e /usr/local/bin/k3s ] && ! systemctl list-unit-files k3s-agent.service --no-legend 2>/dev/null | grep -q . && ok "k3s is gone" || fail "k3s is still installed"
 ip -br link | grep -qE 'flannel|cni0|veth' && fail "flannel, cni or veth interfaces are still there" || ok "no flannel, cni or veth interface"
+# agentd's write wall is Landlock (TD-371): without it in the active LSMs the wall cannot hold.
+tr ',' '\n' < /sys/kernel/security/lsm 2> /dev/null | grep -qx landlock && ok "landlock is an active LSM" || fail "landlock is not among the active LSMs ($(cat /sys/kernel/security/lsm 2> /dev/null || echo unreadable))"
+# cursor-agent reads a system-wide /etc/cursor (hooks, policy) no attempt's home can override.
+[ ! -e /etc/cursor ] && ok "no /etc/cursor" || fail "/etc/cursor exists: cursor-agent would read its hooks or policy in every attempt"
 
 echo "== logins into this host"
 for f in /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys; do

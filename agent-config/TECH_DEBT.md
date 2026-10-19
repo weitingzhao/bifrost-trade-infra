@@ -2140,6 +2140,32 @@
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-377
+
+**P3 · agentd · security · an executor still reads what its user can read: token files and other attempts' workspaces**
+
+- **状态**：未开始（2026-10-19 03:4x 记；你 03:3x「三件照建议」③，第 2 轮先接受）
+- **Claim**: TD-371's wall (platform `35eafb7`, Landlock) holds what an attempt writes, not what it reads. Under the same Unix user an executor reads that user's token files and every other attempt's workspace and output on the host.
+- **Evidence**: `bifrost-trade-infra/agent-config/work/multi-agent/CUT-agentd-confine-2026-10-19.md` §7 item 1; `bifrost-platform/api/internal/agentd/confine.go`.
+- **Impact**: an executor that turns on its task can copy another attempt's work or the user's credentials into its own result; the review and the platform's redaction are the remaining lines.
+- **Fix**: give the wall read rules too (Landlock read access listed per top-level directory, `/home` only the attempt's own), after measuring on 06 which home-directory files each executor really reads; or one Unix user per slot.
+- **Ratchet**: the 06 confine probe gains a read check: a file of another attempt and a token file are refused to an executor.
+- 验收: that probe check passes on 06 for codex, cursor and claude.
+- 审批 不需要（只改 agentd；06 上跑探针要你一次）· 代价 M · 风险 medium · repos: bifrost-platform, bifrost-trade-infra
+
+### TD-376
+
+**P3 · agentd · security · a process a setup command leaves behind (setsid) outlives the check and can drop a cursor hook into the workspace**
+
+- **状态**：未开始（2026-10-19 03:4x 记；你 03:3x「三件照建议」③，第 2 轮先接受）
+- **Claim**: agentd kills an attempt's process group, but a process that left the group with `setsid` during the setup step keeps running inside its own (narrow) wall. After agentd's `--refuse` check and before cursor reads its configuration it can write `.cursor/hooks.json` into the workspace; the hook then runs inside cursor's wall. `checkChanges` fails an attempt that leaves executor configuration behind, so the result is not accepted, but the hook has run.
+- **Evidence**: `bifrost-trade-infra/agent-config/work/multi-agent/CUT-agentd-confine-2026-10-19.md` §7 items 4 and 5; `bifrost-platform/api/internal/agentd/setup.go`, `run.go`.
+- **Impact**: a hostile dependency's install script can run code as cursor inside cursor's write wall; it cannot write outside the attempt's directories.
+- **Fix**: run each attempt in its own cgroup (systemd `Delegate=yes` on the agentd unit, a child cgroup per attempt) and kill the whole cgroup after setup and at the end, so nothing outlives its step.
+- **Ratchet**: a test on Linux: a setsid process started by setup is gone before the executor starts.
+- 验收: that test passes on 06 (the confine probe gains the check), with `Delegate=yes` in both agentd units.
+- 审批 要（改 06 上两个 agentd 的 systemd 单元，架构决定；你批）· 代价 M · 风险 medium · repos: bifrost-platform, bifrost-trade-infra
+
 ### TD-375
 
 **P3 · agentrt · security · threads that share one token can still act as each other, and the question routes still take the session header on its word**
@@ -2198,7 +2224,7 @@
 
 **P2 · agentd · no executor shares the host until its whole process tree is held to its workspace**
 
-- **状态**：未开始（2026-10-18 14:1x 记，复核 277 A2、278 A2；2.4 第 3 片的并发机制已在，但每件仍独占主机，所以 `per_host: 2` 签了也还是一次一件）
+- **状态**：在做（10-19：修法进 platform main `35eafb7`（Landlock 写墙、每次尝试自己的配置目录、setup 与执行者分墙，复核 300–303 收线）；06 用 `agentd-35eafb7` 待你装，装后 `agent-06-owner.sh confine-probe stg|prod` 两个都过、STG 上 codex、cursor、claude 各真跑一次，才进「待你签收」；第 2 轮先接受的两处另记 TD-376、TD-377）（2026-10-18 14:1x 记，复核 277 A2、278 A2）
 - **Claim**: several attempts share 06 only when each can write nothing outside its own workspace (`share.go` `confined`). None qualifies yet. codex: its `workspace-write` sandbox also writes the shared temporary directories, and the host user's configuration can add writable roots (`sandbox_workspace_write.writable_roots`), which agentd neither pins nor checks. claude: the `Read,Grep,Glob` tool list does not reach command hooks in the user's or the repository's `.claude/settings.json` (a `UserPromptSubmit` hook runs as the user). cursor in ask mode: likewise `~/.cursor/hooks.json` and a repository's `.cursor/hooks.json` (`beforeSubmitPrompt`). A hook an earlier, unsandboxed setup left, or one an implementer put in its branch for its reviewer, runs as the agentd user.
 - **Evidence**: `bifrost-platform/api/internal/agentd/share.go` (`confined`), `api/internal/agentd/executors.go` (`codexExecutor`, `claudeExecutor`, `cursorExecutor`); reviews `~/agent-work/codex-review-277/REPORT.md` item 2, `~/agent-work/codex-review-278/REPORT.md` item 2.
 - **Impact**: no loss against round 2 so far (one attempt at a time); 2.4's "06 runs two or three at once" waits for this. A repository hook running in a reviewer is a risk with or without concurrency.

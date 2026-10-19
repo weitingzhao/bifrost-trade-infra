@@ -135,6 +135,18 @@ class StopStart(unittest.TestCase):
         self.assertNotIn("prepare", (self.units / "calls").read_text())
         self.assertEqual(self.active(), set())
 
+    def test_confine_probe_runs_as_that_agent_user(self) -> None:
+        for env, user in (("prod", "bifrost-agentd"), ("stg", "bifrost-agentd-stg")):
+            r = self.run_step("step_confine_probe", env)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertTrue((self.units / "calls").read_text().splitlines()[-1].endswith(f"agent-host/confine-probe.sh {user}"))
+        self.assertEqual(self.active(), set())  # read only: no service is stopped or started
+
+    def test_confine_probe_wants_an_environment(self) -> None:
+        r = self.run_step("step_confine_probe")
+        self.assertEqual(r.returncode, 1)
+        self.assertFalse((self.units / "calls").exists())
+
     def test_update_agentd_refuses_a_binary_that_does_not_match(self) -> None:
         for u in ("bifrost-agentd.service", "bifrost-agentd-stg.service"):
             (self.units / u).write_text("")
@@ -303,3 +315,22 @@ class ClaudePolicyCheck(unittest.TestCase):
             (root / "managed-mcp.json").write_text("{}")
         code, out = self.run_check(setup)
         self.assertEqual(code, 1, out)
+
+
+class ConfineProbeScript(unittest.TestCase):
+    """confine-probe.sh refuses before it runs anything: a user that is not an agent user, or not root."""
+
+    def run_probe(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["bash", str(HERE / "confine-probe.sh"), *args], capture_output=True, text=True, timeout=30)
+
+    def test_refuses_a_user_that_is_not_an_agent_user(self) -> None:
+        for args in ((), ("root",), ("bifrost-agentd-dev",)):
+            r = self.run_probe(*args)
+            self.assertEqual(r.returncode, 2, r.stderr)
+            self.assertIn("not an agent user", r.stderr)
+
+    @unittest.skipIf(os.geteuid() == 0, "the refusal is for a user that is not root")
+    def test_refuses_to_run_as_anyone_but_root(self) -> None:
+        r = self.run_probe("bifrost-agentd")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("run as root", r.stderr)

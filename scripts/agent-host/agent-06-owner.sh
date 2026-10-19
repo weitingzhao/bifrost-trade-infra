@@ -37,6 +37,9 @@
 #   probe-protection      run probe-gitea-protection.sh on 06 as the STG agentd
 #                         user against bifrost/primary-probe (Gitea-primary cut,
 #                         step 1)
+#   confine-probe prod|stg   prove agentd's write wall on 06 as that agent user,
+#                         under its unit's confinement (TD-371; after
+#                         update-agentd); no model is called
 #
 # Every step stops at its first error and exits non-zero. No step prints a
 # credential. Each step but codex-login also keeps its output in
@@ -49,7 +52,7 @@ ADDR=192.168.10.79
 NODE_KEY=$HOME/.bifrost-owner/ssh/node
 WORKSPACE=$HOME/Desktop/stocks
 HERE=$(cd "$(dirname "$0")" && pwd -P)
-BINARY=$HOME/agent-work/agentd-build/agentd-d788296-linux-amd64
+BINARY=$HOME/agent-work/agentd-build/agentd-35eafb7-linux-amd64
 STATE_DIR=$HOME/bifrost-backups/event-radar-input/2026-10-17_node06_pvc-6bf6eca6
 BACKUP=$STATE_DIR/event-radar-input-pvc.tar.gz
 EVENT_RADAR_DIR=pvc-6bf6eca6-5968-4874-ae93-22b8a2a23fab_research_event-radar-input-pvc
@@ -675,17 +678,26 @@ step_probe_protection() {
   node_ssh 'sudo -u bifrost-agentd-stg -H bash -s' < "$HERE/probe-gitea-protection.sh"
 }
 
+# confine-probe prod|stg: the installed agentd proves its write wall as that
+# agent user, under the unit's confinement (confine-probe.sh, copied to 06 by
+# copy / update-agentd). Read only; no model is called.
+step_confine_probe() {
+  local u
+  u=$(user_of "${1:-}")
+  node_ssh "sudo bash ~/agent-host/confine-probe.sh $u"
+}
+
 # Sourced (by a test), stop here: only the functions are wanted.
 [ "${BASH_SOURCE[0]}" = "$0" ] || return 0
 
 step=${1:-}
 if [ -z "$step" ]; then
-  sed -n '2,43p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,46p' "$0" | sed 's/^# \{0,1\}//'
   exit 2
 fi
 shift
 case "$step" in
-  check | leave | uninstall | delete-node | copy | prepare | codex-login | vendor-creds | git-token | host-check | secret | stop | start | update-agentd | stg-vendors | bench | bench-log | retire-mac | probe-protection) ;;
+  check | leave | uninstall | delete-node | copy | prepare | codex-login | vendor-creds | git-token | host-check | secret | stop | start | update-agentd | stg-vendors | bench | bench-log | retire-mac | probe-protection | confine-probe) ;;
   *) die "unknown step: $step" ;;
 esac
 fn=step_$(echo "$step" | tr - _)
