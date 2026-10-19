@@ -184,3 +184,17 @@ systemd-run --quiet --wait --pipe --collect --uid="$u" --gid="$u" \
 | 306（确认轮，`1a75eb9`） | 305 A 的相对 PATH 已关，三处 PATH 一致。1 A（有条件）：绝对的 PATH 目录如果在尝试能写的地方（agentd 的目录里），证明后 setup 能往那里放一个 node。1 B：§10 前半句仍说「没有出口路由」 | A：codex 或其 PATH 有目录落在 agentd 目录内（含链接、未建的目录）就不证明、不算受限（`codexHeld` / `pathOutside`，先查再跑）；`TestCodexHeldNotWithAPathInAgentdsDirectory`，去掉这一查就失败。B：改前半句 |
 | 305（第 2 轮，`2f5aa52`） | 304 A1 已关，A2 的原变异已挡。1 A：PATH 里有相对项（`.`、空项）时，codex 的 npm 包装脚本 `#!/usr/bin/env node` 会在工作区里找 node，跑起来的不是证明过的程序（06 单元的 PATH 全是绝对目录，所以是有条件的）。1 B：网络证明的措辞仍比检查强 | A：`AllowedEnv` 只留 PATH 的绝对目录，证明、执行、核对同一份；`TestCodexWrapperFindsTheTrustedInterpreter` 在旧提交上失败。B：收窄措辞（代码注释和本节） |
 | 304（第 1 轮，`b3e896d`） | 2 A：① codex 的证明没查 `/tmp`，墙外只看了一处；② `checkPins` 没钉住实际执行的程序（PATH、工作目录），PATH 指到工作区就能起另一个 codex。2 B：③ 网络只测了一个 IPv4 目标；④ §7 提前说「06 上证明过」，exec 和 sandbox 两条路径的差别没写清 | ① 两种模式共用一组检查（`/tmp`、墙外哨兵文件、改名、链接）；② 证明时记下 codex 绝对路径和 PATH，执行时必须一样，工作目录必须是自己的工作区；③ 加独立网络命名空间和 IPv6；④ 改 §7 第 6、7 条。回归测试在旧提交上失败 |
+
+### 10.1 06 第二次探针（2026-10-19 11:33）：codex 沙箱里 `/tmp` 可写
+
+**实测**（`~/agent-work/agent-06-logs/confine-probe-stg-20261019T113354-35234.txt`，agentd `b40867a`）：墙的 11 项全过；codex 沙箱那一组只有 `FAIL: make a file in /tmp was allowed`，其余全 ok（墙外建、追加、截断、改名、链接都被拒，临时目录可写，有自己的网络命名空间，IPv4、IPv6 都出不去）。codex 按退路独占，安全上没有退步。
+
+**这个 `/tmp` 是哪一个**（读 codex `rust-v0.163.0` 源码，没碰 06）：
+- 是 agentd 服务的 PrivateTmp，同一个服务里所有尝试共用。codex 的 Linux 沙箱（`linux-sandbox/src/bwrap.rs` 的 `create_filesystem_args`）不给 `/tmp` 另挂私有 tmpfs：根只读绑定，可写目录逐个 `--bind`；`/tmp` 可写，是因为策略把真实的 `/tmp` 列进了可写目录（`protocol/src/permissions.rs` 的 `FileSystemSandboxPolicy::workspace_write`：`exclude_slash_tmp` 为假时加 `/tmp`）。
+- 钉子在 0.163 里**还管用，但只在 `codex exec -s workspace-write` 那条路上**。`-s workspace-write` 是旧式 `sandbox_mode`，策略由 `config_toml.rs` 的 `derive_permission_profile` 从 `sandbox_workspace_write` 推出，会传 `exclude_slash_tmp`。探针用的是 `-P :workspace`，即显式选内置配置；`core/src/config/mod.rs` 在这种情况下给 `compile_permission_profile` 传 `None`，代码注释写明显式选 `:workspace` 时**故意不读** `[sandbox_workspace_write]`，于是 `/tmp` 按默认可写。
+- 所以生产的 codex 尝试（`codex exec -s workspace-write -c sandbox_workspace_write.exclude_slash_tmp=true …`）`/tmp` 应该是只读的；是探针没走同一条路。这一条只读源码得出，没在 06 上单独量过。
+
+**最小修法**（`w31/confine-codex`，基于主线 `b40867a`）：探针改成和 exec 同一条路，`codex sandbox -c sandbox_mode="workspace-write"` 加同一组 `-c` 钉子，不用 `-P`。`codex sandbox` 的 `-C` 要求同时给 `-P`（`cli/src/lib.rs`：`requires = "permissions_profile"`），所以 `-C` 也去掉，命令就在工作区里起，codex 把它当工作区（本机 0.162 试过：这样的命令行接受并运行）。检查项不变：`/tmp` 仍必须被拒。
+- 06 上要做：新版 agentd 装上后再跑一次 `agent-06-owner.sh confine-probe stg`。如果 `/tmp` 仍可写，说明 exec 那条路也一样，codex 照旧独占，再出选项。
+- 不改的：不放宽探针（私有 `/tmp` 也算失败的规矩不变）；不把 codex 改成 `-P` 加自定义配置（会让 exec 换一条路，改动大）。
+- 复核 308（Codex，带上 codex 0.163 的源码副本离线读）：0 A、0 C。确认 `/tmp` 是继承来的真实 `/tmp`（06 上即单元的 PrivateTmp）、`-P :workspace` 有意不读 `[sandbox_workspace_write]`、`exec -s workspace-write` 的旧式路径会排除 `/tmp`，新探针与 exec 在同样配置下解析出同样的文件系统和网络策略。1 B：新探针和真实 exec 都还没在 06 上跑过，§7 第 6 条的「未验收」保持不变。收线（平台提交 `ceaa42a`）。
