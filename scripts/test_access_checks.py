@@ -9,6 +9,7 @@ Fixtures are invented.
 
 from __future__ import annotations
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -77,26 +78,41 @@ class DryRunClassifyTests(unittest.TestCase):
     def test_live_stops_before_any_dry_run_without_impersonation(self) -> None:
         # Measured 2026-10-09: as bifrost-agent every dry-run failed on the OpenAPI
         # download, and the old code read each failure as a policy denial.
-        calls: list[list[str]] = []
-
         class Result:
-            returncode = 0
-            stdout = "no\n"
             stderr = ""
 
-        def fake_run(args, **_kwargs):
-            calls.append(list(args))
-            return Result()
+            def __init__(self, returncode: int, stdout: str):
+                self.returncode = returncode
+                self.stdout = stdout
 
-        original = guards.subprocess.run
-        guards.subprocess.run = fake_run
-        try:
-            with self.assertRaises(guards.OwnerOnly):
-                guards.live()
-        finally:
-            guards.subprocess.run = original
-        self.assertTrue(calls)
-        self.assertTrue(all(c[:4] == ["kubectl", "auth", "can-i", "impersonate"] for c in calls), calls)
+        application_read = ["kubectl", "get", "application", "bifrost-research", "-n", "cicd", "-o", "json"]
+        application = {"metadata": {"name": "bifrost-research"},
+                       "spec": {"source": {"repoURL": "https://example.invalid/research.git", "path": "k8s"}}}
+        for readable in (False, True):
+            with self.subTest(readable=readable):
+                calls: list[list[str]] = []
+
+                def fake_run(args, **_kwargs):
+                    calls.append(list(args))
+                    if list(args) == application_read:
+                        return Result(0, json.dumps(application)) if readable else Result(1, "")
+                    if list(args[:4]) == ["kubectl", "auth", "can-i", "impersonate"]:
+                        return Result(0, "no\n")
+                    self.fail(f"unexpected command: {args}")
+
+                original = guards.subprocess.run
+                guards.subprocess.run = fake_run
+                try:
+                    with self.assertRaises(guards.OwnerOnly):
+                        guards.live()
+                finally:
+                    guards.subprocess.run = original
+                self.assertEqual(calls.count(application_read), 1, calls)
+                self.assertGreater(len(calls), 1, calls)
+                self.assertTrue(all(c[:2] != ["kubectl", "apply"]
+                                    and not any("--dry-run" in arg for arg in c) for c in calls), calls)
+                self.assertTrue(all(c[:4] == ["kubectl", "auth", "can-i", "impersonate"]
+                                    for c in calls if c != application_read), calls)
 
 
 class PlanDiffTests(unittest.TestCase):
