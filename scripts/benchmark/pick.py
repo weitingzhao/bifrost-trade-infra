@@ -37,7 +37,41 @@ def git(repo, *args, missing=False):
     return result.stdout.decode('utf-8', errors='replace')
 
 
+# Trailers this workspace's hooks and tools write, each with the form of its
+# value; a block of only these before the final one is dropped too (TD-373:
+# the commit hook adds one after the author's Co-Authored-By). A paragraph
+# that only starts like one, a folded line in it or a value of another form,
+# is the task's (review 292 B7).
+KNOWN_TRAILERS = {
+    'claude-session': r'(?:local_)?[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}',
+    'claude-transcript': r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}',
+    'change-id': r'I[0-9a-f]{40}',
+    'work': r'(?:unassigned|(?:TD-\d+|W-\d+|LANE-[\w-]+)(?:,\s*(?:TD-\d+|W-\d+|LANE-[\w-]+))*)',
+    'co-authored-by': r'[^<>\n]+<[^<>\s]+>',
+    'signed-off-by': r'[^<>\n]+<[^<>\s]+>',
+}
+
+
+def known_trailers(block):
+    for line in block:
+        key, _, value = line.partition(':')
+        form = KNOWN_TRAILERS.get(key.strip().lower())
+        if form is None or not re.fullmatch(form, value.strip()):
+            return False
+    return bool(block)
+
+
 def task_text(message):
+    """Drop the final trailer block, and known-trailer blocks before it."""
+    text = drop_trailers(message)
+    while True:
+        shorter = drop_trailers(text)
+        if shorter == text or not known_trailers(text[len(shorter):].strip().splitlines()):
+            return text
+        text = shorter
+
+
+def drop_trailers(message):
     """Drop the final RFC-style trailer block, including folded continuations."""
     lines = message.strip().splitlines()
     trailer = re.compile(r'^[A-Za-z][A-Za-z0-9-]*:\s*.*$')

@@ -60,7 +60,8 @@ escaping symlinks are rejected. The source checkout and its Git metadata are
 never modified by the scripts (tests themselves must also respect that rule).
 
 `select.py` accepts verification JSONL files, ignores rejected rows, deduplicates
-candidates and uses quotas Go 6 / Python 7 / TypeScript 5 / shell 2. It prefers
+candidates and uses quotas Go 6 / Python 7 / TypeScript 5 / shell 2 (`--quota`
+for others). It prefers
 less-used repositories, then less-used file paths, with stable commit-based tie
 breaking. One fix commit is used at most once, even if it has multiple languages.
 Each question includes the parent SHA, fix SHA for retrieving overlay tests,
@@ -68,3 +69,31 @@ test paths, check commands and task text. A short pool reports the exact missing
 counts per language on stderr and exits 1 without creating or replacing the
 output. A complete pool writes a JSON array of 20 questions. Treat the fix SHA
 and overlaid tests as evaluator metadata when preparing executor workspaces.
+
+Two more fields (TD-373), from `interface.py`. `interface`: what the selected
+tests call that the parent lacks or declares otherwise, each the declaration as
+the fix wrote it, headed by where it is: Go through `goapi.go` (`go run`,
+standard library: go/ast), Python through `ast`, TypeScript by its exports
+(default ones and names handed on by an index's re-exports included), shell
+by its new functions and the names of the environment variables it newly
+reads; options newly declared by a changed file (a case label, argparse, Go's
+flag package) that the tests pass; and the texts the tests compare that the fix
+wrote inside a string literal (a message, a key, a query; comments and code are
+not texts). Never an answer: no body, no value (a variable is its name and
+type, a function value its signature), only the fields of a new struct the
+tests use (embedded ones always). Every name `verify.py` found missing is
+covered, or the candidate is refused; the bounds are agentd's, in UTF-8 bytes.
+agentd bench gives the list to the executor, so a question measures the
+change, not a guess at its names. `siblings`: the repositories a TypeScript
+package links with `file:../<repo>`, each at its `main` as of the fix's commit
+time; agentd bench builds them beside the trees before the checks. The task
+text drops the final trailer block and, before it, blocks of this workspace's
+known trailers whose values have their forms.
+
+`verify.py` runs on the Mac against the source checkout. Whether a question
+stands on the agent host is a separate check: the controls and the fix's own
+change through agentd bench's judgement, with nothing but the question's own
+repository and its siblings, no test database and no network
+(`bifrost-platform/api/internal/agentd/benchreplay_test.go`, build tag
+`benchreplay`). A check whose tests all skip there (a test database they lack)
+passes on the fix and measures nothing: such a question is not used.

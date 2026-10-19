@@ -6,10 +6,19 @@ import json
 from pathlib import Path
 import sys
 
+from interface import interface, siblings
+
 QUOTAS = {'go': 6, 'python': 7, 'ts': 5, 'shell': 2}
 
 
-def select(candidates, quotas=None):
+def describe(candidate):
+    """What the tests call that the parent lacks, and what they read beside
+    the tree (TD-373): agentd bench gives the first to the executor and builds
+    the second before the checks."""
+    return interface(candidate), siblings(candidate)
+
+
+def select(candidates, quotas=None, describe=describe):
     quotas = QUOTAS if quotas is None else quotas
     pool = {}
     for candidate in candidates:
@@ -40,18 +49,20 @@ def select(candidates, quotas=None):
             missing[language] = deficit
     questions = []
     for index, candidate in enumerate(selected, 1):
-        questions.append({'id': f'Q{index:02d}', 'repo': candidate['repo'],
-                          'language': candidate['language'],
-                          'base_commit': candidate['parent'],
-                          'fix_commit': candidate['fix_commit'],
-                          'test_files': candidate['test_files'],
-                          'check_command': candidate['tests_to_run'],
-                          'fails_by': candidate.get('fails_by', 'assertion'),
-                          'task_text': candidate['task_text'] + (
-                              '\n\nThe tests below must pass; they call ' +
-                              ', '.join(candidate['missing_symbols']) +
-                              ', which does not exist yet.'
-                              if candidate.get('fails_by') == 'missing_symbol' else '')})
+        question = {'id': f'Q{index:02d}', 'repo': candidate['repo'],
+                    'language': candidate['language'],
+                    'base_commit': candidate['parent'],
+                    'fix_commit': candidate['fix_commit'],
+                    'test_files': candidate['test_files'],
+                    'check_command': candidate['tests_to_run'],
+                    'fails_by': candidate.get('fails_by', 'assertion'),
+                    'task_text': candidate['task_text']}
+        declared, beside = describe(candidate)
+        if declared:
+            question['interface'] = declared
+        if beside:
+            question['siblings'] = beside
+        questions.append(question)
     return questions, missing
 
 

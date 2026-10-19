@@ -3,32 +3,6 @@
     "id": "Q01",
     "repo": "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform",
     "language": "go",
-    "base_commit": "f9819550ca380952921033b6d9571052cf20e675",
-    "fix_commit": "03d842076d536c118c403bb924b2f47d1dfc0320",
-    "test_files": [
-      "api/internal/agentrt/store/kernel149_test.go",
-      "api/internal/agentrt/store/kernel150_test.go"
-    ],
-    "check_command": [
-      {
-        "cwd": "api",
-        "argv": [
-          "go",
-          "test",
-          "./internal/agentrt/store",
-          "-run",
-          "^(TestReviewClaimDoesNotWaitForItsSubject|TestSweepHoldsOneStreamAtATime|TestSweepReadsPastHeldAttempts)$",
-          "-count=1"
-        ]
-      }
-    ],
-    "fails_by": "assertion",
-    "task_text": "agentrt: kernel fixes from review 150 (W-31 2.2 step 1)\n\nReview 150, the confirmation review of the signed rule, found no A: 149's\nA1 and A2 are fixed as given. Its three B items, fixed here:\n\n- B1 A review claim takes its subject FOR SHARE SKIP LOCKED and passes over\n  the review when someone holds the subject, instead of waiting while it\n  holds the review: a plan change moving the subject and then the review\n  no longer closes a cycle with the claim (a mutant that waits deadlocks).\n- B2 The sweep reads its candidates in pages of 100 by (lease_expires_at,\n  attempt_id), up to ten pages a pass, so attempts a writer holds no longer\n  hide the ones after them.\n- B3 The sweep test probes, once the first attempt's transaction has\n  committed, that its mission stream can be locked at once (hook\n  \"committed\", fired only for an attempt actually moved). Its mutant shows\n  only that the probe runs."
-  },
-  {
-    "id": "Q02",
-    "repo": "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform",
-    "language": "go",
     "base_commit": "9d16b6fdb7d46e22607a0ec9b7a352bfa0f2d88e",
     "fix_commit": "0f6aab34a5d7fd9ee58ab63a910f539e046b7922",
     "test_files": [
@@ -60,10 +34,17 @@
       }
     ],
     "fails_by": "missing_symbol",
-    "task_text": "agentd: mask verify.json as the platform scans it, and alias whole paths only (W-31)\n\nReview 237 of 9d16b6f:\n\nA: cleaning the strings did not clean the bytes the platform scans. The\nJSON encoder's escapes complete H8's drive-letter form: \"C:<\" is written\n\"C:\\u003c\", and a control character, U+2028 or an invalid byte after a\ncolon likewise starts with a backslash. handIn now marshals and then runs\nlocalpath.MaskJSON, which puts a space after such a colon. It inserts only\nafter the colon, so no escape is split and the document stays valid\n(masking the JSON with Mask, as the review proposed, would cut \"\\u001a\"\nin two). If H8 still matched or the JSON were invalid, the outputs are\nwithheld rather than the whole result refused.\n\nB: the alias regexp had no left boundary and a loose right one, so\n\"/vendor/x/a1\", \"https://h/x/a1\", \"/x/a1+backup\" and \"/x/a1é\" were taken\nfor the checkout \"/x/a1\", and \"/x/a1/x/f\" was rewritten twice. A\ndirectory now counts only as a whole path: after the start or a character\nthat cannot be part of a path, and before a separator, the end or a\ncharacter that ends a path in tool output. One pattern, longest first,\nreplaced by index, so the aliases are no longer replacement templates.\n\nC: Mask's loop-bound comment now counts \"~/\" pairs too.\n\nTests: TestMaskJSON, TestHandInMasksWhatEscapesComplete,\nTestPathRewriteTakesWholePathsOnly; each fails with its fix taken out.\n\nThe tests below must pass; they call MaskJSON, handIn, newPathRewrite, pathRewrite, which does not exist yet."
+    "task_text": "agentd: mask verify.json as the platform scans it, and alias whole paths only (W-31)\n\nReview 237 of 9d16b6f:\n\nA: cleaning the strings did not clean the bytes the platform scans. The\nJSON encoder's escapes complete H8's drive-letter form: \"C:<\" is written\n\"C:\\u003c\", and a control character, U+2028 or an invalid byte after a\ncolon likewise starts with a backslash. handIn now marshals and then runs\nlocalpath.MaskJSON, which puts a space after such a colon. It inserts only\nafter the colon, so no escape is split and the document stays valid\n(masking the JSON with Mask, as the review proposed, would cut \"\\u001a\"\nin two). If H8 still matched or the JSON were invalid, the outputs are\nwithheld rather than the whole result refused.\n\nB: the alias regexp had no left boundary and a loose right one, so\n\"/vendor/x/a1\", \"https://h/x/a1\", \"/x/a1+backup\" and \"/x/a1é\" were taken\nfor the checkout \"/x/a1\", and \"/x/a1/x/f\" was rewritten twice. A\ndirectory now counts only as a whole path: after the start or a character\nthat cannot be part of a path, and before a separator, the end or a\ncharacter that ends a path in tool output. One pattern, longest first,\nreplaced by index, so the aliases are no longer replacement templates.\n\nC: Mask's loop-bound comment now counts \"~/\" pairs too.\n\nTests: TestMaskJSON, TestHandInMasksWhatEscapesComplete,\nTestPathRewriteTakesWholePathsOnly; each fails with its fix taken out.",
+    "interface": [
+      "// api/internal/agentd (package agentd)\nfunc handIn(v Verification, paths *pathRewrite) ([]byte, error)",
+      "// api/internal/agentd (package agentd)\nfunc newPathRewrite() *pathRewrite",
+      "// api/internal/agentd (package agentd)\nfunc (p *pathRewrite) rewrite(s string) string",
+      "// api/internal/agentd (package agentd)\ntype pathRewrite struct {\n\t// other fields of your choosing\n\t// the tests also use pathRewrite{}, its zero value\n}",
+      "// api/internal/localpath (package localpath)\nfunc MaskJSON(body []byte) (out []byte, ok bool)"
+    ]
   },
   {
-    "id": "Q03",
+    "id": "Q02",
     "repo": "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform",
     "language": "go",
     "base_commit": "f9d3d688a5eb0e04742df5367c86d521e587d0a5",
@@ -85,10 +66,13 @@
       }
     ],
     "fails_by": "assertion",
-    "task_text": "agentd: configuration in nested repositories is seen; stale check indexes go (W-31)\n\nReview 241 (narrow confirmation of 240) left one A and two C. The Owner\n(2026-10-17 12:3x): fix them, prove with regression tests, no further review.\n\nA1  git stops at a nested repository and names its directory, so\n    configuration inside one (in an ignored directory, or added as a\n    gitlink) was not seen. Such directories, and the directories among the\n    changed paths, are now walked (no symlinks followed, .git skipped). The\n    top-level file names are listed with --directory, so a top-level\n    directory named cli.json is one entry, walked rather than printed\n    file by file. Directories count by name (.cursor, .codex, .claude,\n    .gemini); files by the full list.\nC   a check killed with its agentd leaves its index; indexes and locks older\n    than ten minutes, and the fixed-name ones of the previous version, are\n    removed before a check.\nC   the outcome follows the journal even when the check's result cannot be\n    journalled.\n\nTests: TestUnwantedChangesReview241 (nested repository in an ignored\ndirectory, one added as a gitlink, a 2000-file directory named cli.json),\nTestChangesRemovesStaleIndexes, TestCheckOutcomeWhenTheJournalFails; each\nfails with its fix taken out."
+    "task_text": "agentd: configuration in nested repositories is seen; stale check indexes go (W-31)\n\nReview 241 (narrow confirmation of 240) left one A and two C. The Owner\n(2026-10-17 12:3x): fix them, prove with regression tests, no further review.\n\nA1  git stops at a nested repository and names its directory, so\n    configuration inside one (in an ignored directory, or added as a\n    gitlink) was not seen. Such directories, and the directories among the\n    changed paths, are now walked (no symlinks followed, .git skipped). The\n    top-level file names are listed with --directory, so a top-level\n    directory named cli.json is one entry, walked rather than printed\n    file by file. Directories count by name (.cursor, .codex, .claude,\n    .gemini); files by the full list.\nC   a check killed with its agentd leaves its index; indexes and locks older\n    than ten minutes, and the fixed-name ones of the previous version, are\n    removed before a check.\nC   the outcome follows the journal even when the check's result cannot be\n    journalled.\n\nTests: TestUnwantedChangesReview241 (nested repository in an ignored\ndirectory, one added as a gitlink, a 2000-file directory named cli.json),\nTestChangesRemovesStaleIndexes, TestCheckOutcomeWhenTheJournalFails; each\nfails with its fix taken out.",
+    "interface": [
+      "# api/internal/agentd/workspace.go: texts the tests look for, as it writes them\n\"agentd-changed-index*\""
+    ]
   },
   {
-    "id": "Q04",
+    "id": "Q03",
     "repo": "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform",
     "language": "go",
     "base_commit": "823e922ae14a43a500451c547b92dddff5c1e595",
@@ -113,7 +97,7 @@
     "task_text": "agentd: the installer goes on only when launchctl print says the service is gone (review 203 A1)\n\nThe wait took any failing launchctl print for a service launchd had let\ngo of, so a print that failed for another reason replaced the plist and\nbootstrapped into the same race. Only exit 113, \"Could not find service\"\n(measured on macOS 26.6; 0 is still there, 64 a bad target), goes on;\nany other failure stops with the old plist in place and says why.\nTestInstallWaitsForLaunchdToLetGo runs the installer's own lines from\nbootout to bootstrap against a stub launchctl."
   },
   {
-    "id": "Q05",
+    "id": "Q04",
     "repo": "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform",
     "language": "go",
     "base_commit": "bded8fbeb16158eeae77f0bf180cf530caded218",
@@ -138,7 +122,7 @@
     "task_text": "agentrt actions: a result needs its exit code; entries read from Redis are held to the format (review 263 B1, B2) (W-31)\n\nconform() checks one action the same way on the way in (Normalize) and out of Redis (entries): a known kind, a readable target, a time, an exit code on results and only there; a long target is cut and marked. Review 263: no A; both B fixed, each with a test that fails on the old code (a result without a code, five foreign entries, a long foreign target)."
   },
   {
-    "id": "Q06",
+    "id": "Q05",
     "repo": "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform",
     "language": "go",
     "base_commit": "d7ecf27cc8cbdab422bdf2adb099b3b516dc1722",
@@ -163,15 +147,13 @@
     "task_text": "agentrt: nothing after the last flush wherever it falls; any ref's peeled line; an empty repository's line alone (review 206)\n\nA1: the check after the last flush read bufio's buffer, so a flush that\nended the buffer (at 4096 bytes) let what followed through. The parser now\nreads the body itself and nothing may be left after the last flush.\nA2: a peeled line was allowed only under refs/tags/, but any ref may point\nat an annotated tag and git advertises its peeled line (refs/pull/9/head^{}\nfrom real git), so one such ref stopped every persist of the repository.\nA peeled line is now allowed for any ref, right after the ref it peels, as\ngit writes it. An empty repository's capabilities^{} line must be its only\none."
   },
   {
-    "id": "Q07",
+    "id": "Q06",
     "repo": "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform",
     "language": "go",
-    "base_commit": "2a2a8187a5fa81be68423efa96231a70dda2d175",
-    "fix_commit": "5a7fca34d33732f57a8fd50c919ac08ff56d8b77",
+    "base_commit": "7b8586e6feebf8afd76a3d8cea3bbd6220ced206",
+    "fix_commit": "8db6dbe99555220e4aa832b8dae535e2dd8dc9ec",
     "test_files": [
-      "api/internal/agentrt/agentrtapi/bus_test.go",
-      "api/internal/agentrt/store/brief_test.go",
-      "api/internal/agentrt/store/export_test.go"
+      "api/internal/lineage/lineage_test.go"
     ],
     "check_command": [
       {
@@ -179,29 +161,121 @@
         "argv": [
           "go",
           "test",
-          "./internal/agentrt/agentrtapi",
+          "./internal/lineage",
           "-run",
-          "^(TestMessages)$",
+          "^(TestAgentCommitSameChangeOnMain)$",
           "-count=1"
         ]
-      },
+      }
+    ],
+    "fails_by": "assertion",
+    "task_text": "lineage: an agent commit lands at the commit whose trailer its Change-Id is (review 211)\n\nThe landed SHA came from where the id first appears on main: a newer\nsquash that only names it in its body won, and a trailer in lower case\n(parsed case-insensitively) left it empty. The main index now keeps, per\ntrailer, the commit that carries it, from the same parse; an agent commit\nlands there. Body matches for a delivery branch still use anyCID."
+  },
+  {
+    "id": "Q07",
+    "repo": "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform",
+    "language": "go",
+    "base_commit": "fa56c270b72ce36f59093dcde71f7eda9562b697",
+    "fix_commit": "ba9ba4c6c65f4ec456175428c1687eb85bf5bd14",
+    "test_files": [
+      "api/internal/releases/releases_test.go"
+    ],
+    "check_command": [
       {
         "cwd": "api",
         "argv": [
           "go",
           "test",
-          "./internal/agentrt/store",
+          "./internal/releases",
           "-run",
-          "^(TestABodyCannotWriteTheSeatsInstructions|TestABriefWithHugeRecords|TestABriefWithoutAnAnswerSaysSo|TestBriefAnswerAndThreadBounds|TestMailThatCannotBeTaken|TestMailToTheChief|TestTakingMailWhileTheSeatAcknowledges)$",
+          "^(TestCompleteV2RecordGainsItsDigests|TestRecordImages)$",
           "-count=1"
         ]
       }
     ],
-    "fails_by": "missing_symbol",
-    "task_text": "agentrt 2.3 slice 4b: review 269 (1 A, 5 B) (W-31)\n\nA1: AckMessage's event names the message's mission and task: the Owner's\nack of a brief's answer was refused by the state guard.\nB2: every pass that reads the seat's mail takes the seat's writer lock\nfirst, as AckMessages does, then the sender's, then the row.\nB3: a body with NUL is refused at the door, and one stored before is taken\nwith the NUL dropped; a message that cannot become a brief the same way\nevery time is read and its sender told, so it neither comes back each pass\nnor holds up the mail after it.\nB4: the planner's and the brief's snapshot cut each title and decision\nfield, and the whole to 64 KiB.\nB5: GET /messages/thread is the Owner's or a seat's: a thread's identity is\na session header no token binds (TD-370).\nB6: the brief's spec is the seat's instructions first, then the message,\nthe conversation and the snapshot as one JSON document: a body cannot make\na line of the instructions.\nEach has a regression test that fails on 2a2a818.\n\nClaude-Session: local_accccb4e-410c-4b5f-9f1b-b54c6915dc9a\nClaude-Transcript: 4c3ecb80-4397-474e-b209-a909921f7d13\nChange-Id: I4a8c2e6f1b9d73a05e8c1f4b7d2a9e6c3f0b5d18\nWork: W-31, TD-370\n\nThe tests below must pass; they call refuseMail, which does not exist yet."
+    "fails_by": "assertion",
+    "task_text": "agentrt sources: record version v3 so a complete v2 record gains its digests (review 170 B1) (W-31 2.2, TD-343)\n\nReview 170, the narrow confirmation of 167's fixes, found no A: A1 and B2\nfixed; B1 fixed for new records only. A v2 record written before a build's\nowed digest counted as missing could be marked complete without it; v3\nbuilds such a record again once while its run exists. No v2 record exists\nin any environment (the branch was never deployed); the bump is the\nreviewer's minimal fix. TestCompleteV2RecordGainsItsDigests (red with\nthe version left at v2)."
   },
   {
     "id": "Q08",
+    "repo": "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform",
+    "language": "go",
+    "base_commit": "f8d5235c7775a47a14f0cb78126c19b82a42b9b5",
+    "fix_commit": "fb1bd6f74cb3dffbd9a8992f38364c0440893abe",
+    "test_files": [
+      "api/internal/agentthreads/review127_test.go"
+    ],
+    "check_command": [
+      {
+        "cwd": "api",
+        "argv": [
+          "go",
+          "test",
+          "./internal/agentthreads",
+          "-run",
+          "^(TestEndedSessionStaysIdle|TestMarkRechecksCurrentState|TestReview127RestartBetweenDueAndClaimDoesNotPush|TestSidebarAcrossVendorsDoesNotSupersede)$",
+          "-count=1"
+        ]
+      }
+    ],
+    "fails_by": "assertion",
+    "task_text": "fix(agentthreads): an ended session stays idle; only a session of the same vendor supersedes (TD-317)\n\nReview 128: a session that had ended its turn became superseded and showed as in progress. Also the\ncoordinator's ruling: a session of another vendor that carries the same sidebar id is a job started from that\nthread's shell, not its successor. Tests for both and for the re-check in the marking path; each planted\nviolation fails its test."
+  },
+  {
+    "id": "Q09",
+    "repo": "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform",
+    "language": "go",
+    "base_commit": "09cbbb213f43128003a2905a0643f2a606d3e553",
+    "fix_commit": "d7ecf27cc8cbdab422bdf2adb099b3b516dc1722",
+    "test_files": [
+      "api/internal/server/agentrt_heads_test.go"
+    ],
+    "check_command": [
+      {
+        "cwd": "api",
+        "argv": [
+          "go",
+          "test",
+          "./internal/server",
+          "-run",
+          "^(TestGiteaBranchHeadNeedsAWholeWellFormedAdvertisement|TestGiteaBranchHeadReadsTheAgentOrganization|TestGiteaBranchHeadReadsWhatGitAdvertises|TestGiteaBranchHeadRetriesWhatIsNotTheAgents)$",
+          "-count=1"
+        ]
+      }
+    ],
+    "fails_by": "assertion",
+    "task_text": "agentrt: a branch head only from a whole, well-formed advertisement (review 204)\n\nA1: the reader stopped at the last flush, so an answer cut short after it\n(Content-Length beyond the body), one with more after it, or one past the\nbound before it, read as whole and could refuse a done result. The body is\nnow read to its end within the bound, and nothing may follow the last flush.\nA2: a ref line was held only to an object id and a name. Every line is now\na ref by git's rules (check-ref-format), HEAD, a tag's peeled line, or an\nempty repository's one capabilities^{} line; only that line has the zero\nid, only the first carries a NUL, and no ref is advertised twice.\nEach failure is an error of the platform, which agentd retries, whether\nthe branch is in the advertisement or not.",
+    "interface": [
+      "# api/internal/server/agentrt_heads.go: texts the tests look for, as it writes them\n\"empty repository\""
+    ]
+  },
+  {
+    "id": "Q10",
+    "repo": "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform",
+    "language": "go",
+    "base_commit": "0f6aab34a5d7fd9ee58ab63a910f539e046b7922",
+    "fix_commit": "ecb28c9d55786ca66bb56085a696139e94ceaf9a",
+    "test_files": [
+      "api/internal/agentd/executors_test.go"
+    ],
+    "check_command": [
+      {
+        "cwd": "api",
+        "argv": [
+          "go",
+          "test",
+          "./internal/agentd",
+          "-run",
+          "^(TestPathRewriteTakesWholePathsOnly)$",
+          "-count=1"
+        ]
+      }
+    ],
+    "fails_by": "assertion",
+    "task_text": "agentd: drop colour sequences before aliasing paths in verify.json (W-31)\n\nReview 238 (narrow confirmation of 237): A and C closed; B left one case.\nA colour sequence right before or after a path (\"\\x1b[4m/x/a1/a.ts\",\ntsc's \"\\x1b[96m/x/a1/a.ts\\x1b[0m:3:1\") hid the path's boundaries, so\n0f6aab3 no longer aliased what 9d16b6f had. withoutLocalPaths now drops\nANSI SGR sequences first; nobody reads verify.json in a terminal. The\ncoloured cases join TestPathRewriteTakesWholePathsOnly, which fails\nwithout the change."
+  },
+  {
+    "id": "Q11",
     "repo": "/Users/vision-mac-trader/Desktop/stocks/bifrost-research",
     "language": "python",
     "base_commit": "c4d9cc394b54b234f20dc196bcf8d2af6c9ce130",
@@ -224,36 +298,13 @@
       }
     ],
     "fails_by": "assertion",
-    "task_text": "fix(volatility): the ATM IV snapshot fallback names its day both ways\n\nfetch_snapshot_iv_rows_for_date filtered only on\nDATE(timezone('America/New_York', snapshot_ts)) = day. An expression\ncannot prune partitions, so every call scanned all eight of\noption_snapshot's. It now also bounds snapshot_ts to the New York day,\n[00:00, next 00:00), passed as instants.\n\nThe expression is kept on purpose. It is the view's own join key, so\nan equality on it gives stock_daily.bar_date a constant, and stock_daily\nis pruned to one partition and probed by index. A snapshot_ts filter\nalone loses that; the plugin doctor's chain-spot probe, filtered that\nway, hashed all of stock_daily twice (69s).\n\nMeasured read-only on bifrost_golden_source, 2026-09-28:\n- plans for 4 dates (known to stats, today, empty, last month), with\n  and without a symbol list: one snapshot partition instead of eight,\n  stock_daily index-joined, no hash join, same shape on every date;\n- output identical by md5 on 3 dates x 2 variants (253,591 and 54,540\n  rows; today 0 on both, no close yet);\n- 2026-09-25, median of 7 interleaved with order swapped: no symbol\n  list 8.39s -> 7.09s, 655 symbols 9.62s -> 4.64s, new faster in every\n  round. Without a list the current month's partition is still read\n  whole: no index leads with snapshot_ts.\n\nThe path has written 0 rows to date: all 1,260,252 rows of\nfeatures.option_metric_atm_iv_daily are reconstructed.\n\nGates in a clean worktree: ruff and sqlfluff clean; pytest 1371 passed,\n9 skipped. The new test fails on the old code."
+    "task_text": "fix(volatility): the ATM IV snapshot fallback names its day both ways\n\nfetch_snapshot_iv_rows_for_date filtered only on\nDATE(timezone('America/New_York', snapshot_ts)) = day. An expression\ncannot prune partitions, so every call scanned all eight of\noption_snapshot's. It now also bounds snapshot_ts to the New York day,\n[00:00, next 00:00), passed as instants.\n\nThe expression is kept on purpose. It is the view's own join key, so\nan equality on it gives stock_daily.bar_date a constant, and stock_daily\nis pruned to one partition and probed by index. A snapshot_ts filter\nalone loses that; the plugin doctor's chain-spot probe, filtered that\nway, hashed all of stock_daily twice (69s).\n\nMeasured read-only on bifrost_golden_source, 2026-09-28:\n- plans for 4 dates (known to stats, today, empty, last month), with\n  and without a symbol list: one snapshot partition instead of eight,\n  stock_daily index-joined, no hash join, same shape on every date;\n- output identical by md5 on 3 dates x 2 variants (253,591 and 54,540\n  rows; today 0 on both, no close yet);\n- 2026-09-25, median of 7 interleaved with order swapped: no symbol\n  list 8.39s -> 7.09s, 655 symbols 9.62s -> 4.64s, new faster in every\n  round. Without a list the current month's partition is still read\n  whole: no index leads with snapshot_ts.\n\nThe path has written 0 rows to date: all 1,260,252 rows of\nfeatures.option_metric_atm_iv_daily are reconstructed.\n\nGates in a clean worktree: ruff and sqlfluff clean; pytest 1371 passed,\n9 skipped. The new test fails on the old code.",
+    "interface": [
+      "# src/bifrost_research/engines/volatility/atm_iv.py: texts the tests look for, as it writes them\n\"v.snapshot_ts >= %s AND v.snapshot_ts < %s\""
+    ]
   },
   {
-    "id": "Q09",
-    "repo": "/Users/vision-mac-trader/Desktop/stocks/bifrost-trade-api",
-    "language": "python",
-    "base_commit": "decfac6cae5fba32905a7d552b3e69b313fc20c1",
-    "fix_commit": "72c1015df1cf13f65c05ca2269a9f17c25e48e38",
-    "test_files": [
-      "tests/test_analytics_reader_proxy.py"
-    ],
-    "check_command": [
-      {
-        "cwd": ".",
-        "argv": [
-          "python3",
-          "-m",
-          "pytest",
-          "-q",
-          "tests/test_analytics_reader_proxy.py",
-          "-k",
-          "test_direct_criteria_stats_surfaces_the_first_error"
-        ]
-      }
-    ],
-    "fails_by": "assertion",
-    "task_text": "analytics_reader: stop masking the criteria-stats error with a retry that cannot succeed\n\n_fetch_criteria_stats_direct caught any failure and re-ran the identical SELECT\non the same cursor. In PostgreSQL the first failure aborts the transaction, so\nthe retry is guaranteed to fail too -- and its error replaces the real one.\n\nOn 2026-09-11 the Stock Screener showed only \"Analytics DB error: current\ntransaction is aborted, commands ignored until end of transaction block\". The\nreal error, which research-api was reporting correctly as a 503, was\n`relation \"dw_stock.mart_sepa_criteria_stats\" does not exist`: a dbt rebuild\nhad CASCADE-dropped that view and the batch was OOMKilled before recreating it\n(fixed on the Research side in bifrost-research 0.101.0). The masked message\npointed at connection handling; the real one points straight at the missing\nrelation.\n\nThe new test simulates Postgres -- first call \"does not exist\", any second call\n\"transaction is aborted\" -- and asserts the first error surfaces with exactly\none execute. It fails on the old code (\"Regex pattern did not match\")."
-  },
-  {
-    "id": "Q10",
+    "id": "Q12",
     "repo": "/Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra",
     "language": "python",
     "base_commit": "c8e5b0e3ff5356522cf05cd86357de5ddc6effaa",
@@ -290,38 +341,14 @@
       }
     ],
     "fails_by": "missing_symbol",
-    "task_text": "refactor(recorder): the fold result is opaque; publish takes nothing else (W-66)\n\nThe tests below must pass; they call Folded, folded_for_test, which does not exist yet."
+    "task_text": "refactor(recorder): the fold result is opaque; publish takes nothing else (W-66)",
+    "interface": [
+      "# agent-config/scripts/recorder/publish.py\ndef publish_total(folded, host=None, blocks=None) -> bytes:  # changed from what this checkout has",
+      "# agent-config/scripts/recorder/read.py\nclass Folded:\n    self._doc (an attribute set in __init__)\n    def document(self):\ndef _seal(document) -> Folded:\ndef folded_for_test(document) -> Folded:\ndef fold_total(logs, observer, now, logs_unread=0) -> Folded:  # changed from what this checkout has"
+    ]
   },
   {
-    "id": "Q11",
-    "repo": "/Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra",
-    "language": "python",
-    "base_commit": "025d38a7d845bdf1dff2e3adfadb996dcd78006f",
-    "fix_commit": "71f0a8ee067d7ea7bed2b6a166cca68cd03419fd",
-    "test_files": [
-      "agent-config/scripts/recorder/test_fields.py",
-      "agent-config/scripts/recorder/test_regressions.py"
-    ],
-    "check_command": [
-      {
-        "cwd": ".",
-        "argv": [
-          "python3",
-          "-m",
-          "pytest",
-          "-q",
-          "agent-config/scripts/recorder/test_fields.py",
-          "agent-config/scripts/recorder/test_regressions.py",
-          "-k",
-          "test_a_closed_prefix_stays_closed_when_the_tail_breaks or test_a_corrupt_middle_line_keeps_the_ended_step or test_a_declared_item_omits_advice_where_and_reply_when_they_were_not_written or test_a_finished_round_is_unchanged_when_the_next_round_runs or test_a_gap_is_unknown_then_running_without_slow_and_is_not_a_usual_sample or test_a_heartbeat_inside_a_backwards_interval_and_one_outside_it or test_a_held_lock_refuses_the_second_writer or test_a_record_step_stays_waiting_and_rejects_process_events or test_a_terminal_observation_stays_out_when_a_later_round_fails or test_after_close_declare_and_owner_open_are_invalid or test_append_failed_is_unknown_not_the_previous_can_act or test_approval_states_follow_the_bound_wait_table or test_approved_then_platform_unknown_returns_to_the_list or test_ball_rows_and_synthesis_each_carry_since or test_close_while_a_none_step_is_started_is_invalid or test_close_while_a_record_step_is_running_is_invalid or test_close_while_an_approval_is_pending_is_refused_and_the_ball_is_owner or test_close_while_approval_is_approved_is_invalid or test_close_with_only_a_dead_step_then_the_finish_arrives or test_dead_then_finished_is_done_and_a_later_heartbeat_is_refused or test_display_fields_change_only_the_quoted_text or test_ended_unclosed_work_is_coordinator or test_field_envelope_at_by_run_id_step_id_wait_id or test_field_observer_round_ended_at_confirmed_failed or test_field_owner_wait_opened_ref_can_act_deadline_where_ready_and_how or test_field_owner_wait_seen_ref_state_expires_at_sampled_at or test_field_record_seen_found_uid_started_at_ended_at_condition or test_field_step_declared_after or test_field_step_declared_kind or test_field_step_declared_locator_name or test_field_step_declared_usual_s or test_field_step_declared_waiting_on or test_field_step_declared_watch or test_field_step_finished_exit or test_field_step_finished_reported or test_field_step_seen_alive or test_field_step_seen_output_bytes or test_field_step_seen_sampled_at or test_field_step_superseded_by_step or test_field_work_closed or test_invalid_event_is_absent or test_last_seen_is_not_the_previous_state or test_later_sampled_at_wins_and_a_tie_is_unknown or test_log_full_is_on_the_work or test_no_credential_is_unknown or test_observer_stopped_181_seconds_is_unknown or test_only_a_declared_wait_is_owner_with_basis or test_other_process_keeps_watch_kind_and_command or test_owner_close_of_a_bound_wait_is_refused or test_owner_loses_to_a_coordinator_work or test_partial_terminal_drops_the_item_but_the_other_log_still_will_not_close or test_question_open_is_yes_and_answered_is_settled or test_read_errors_make_the_item_unknown_and_keep_the_last_state or test_record_without_started_at_is_waiting_then_running_and_the_ball_follows or test_release_cannot_be_a_process_and_a_process_cannot_wait or test_replaces_marks_the_old_step_and_its_death_does_not_touch_the_new_one or test_review_76_process_clock_and_the_record_side or test_same_approval_is_one_item_with_two_works_records_first or test_snapshot_expired_is_unknown or test_two_declared_waits_with_the_same_title_stay_two_items or test_two_hundred_and_one_logs_are_incomplete or test_two_processes_both_land_and_seq_is_continuous or test_two_rounds_without_replaces_are_both_running or test_zero_byte_heartbeats_become_quiet_and_last_seen_is_the_raw_observation"
-        ]
-      }
-    ],
-    "fails_by": "missing_symbol",
-    "task_text": "feat(recorder): the fold — eight states, reasons, owner_all and ball from events alone (W-66)\n\nThe tests below must pass; they call commands, fold, which does not exist yet."
-  },
-  {
-    "id": "Q12",
+    "id": "Q13",
     "repo": "/Users/vision-mac-trader/Desktop/stocks/bifrost-trade-frontend",
     "language": "ts",
     "base_commit": "86ed402ee4d65af747b988a3144cae5cb773e9d0",
@@ -341,10 +368,16 @@
       }
     ],
     "fails_by": "assertion",
-    "task_text": "fix(corporate-actions): a name with no rows is the vendor's answer, not a gap (B4.tail)\n\nThe feed panel said \"N carry nothing at all\" and counted one-row names as\n\"Backfilled thinly\" (amber), reading them as reached but not backfilled.\nMeasured after the 09-29 backfill, the vendor's answer is complete for\nthose names: CBRS, FN, HIMS, NBIS, NNE, RKLB answer 0 rows (no dividend,\nno split) and CAOS one split.\n\n- feedReach: silent -> noneOnRecord, shallow -> oneOnRecord, docs say what\n  they are.\n- Panel: \"Names with events\" (sub: \"vendor answered none on record for N:\n  …\"), \"One event on record\" (sub: \"the vendor's whole answer: …\", no amber).\n- A failed read stays apart (feedUnread, left out of every count); its strip\n  now says unread is not \"none on record\"."
+    "task_text": "fix(corporate-actions): a name with no rows is the vendor's answer, not a gap (B4.tail)\n\nThe feed panel said \"N carry nothing at all\" and counted one-row names as\n\"Backfilled thinly\" (amber), reading them as reached but not backfilled.\nMeasured after the 09-29 backfill, the vendor's answer is complete for\nthose names: CBRS, FN, HIMS, NBIS, NNE, RKLB answer 0 rows (no dividend,\nno split) and CAOS one split.\n\n- feedReach: silent -> noneOnRecord, shallow -> oneOnRecord, docs say what\n  they are.\n- Panel: \"Names with events\" (sub: \"vendor answered none on record for N:\n  …\"), \"One event on record\" (sub: \"the vendor's whole answer: …\", no amber).\n- A failed read stays apart (feedUnread, left out of every count); its strip\n  now says unread is not \"none on record\".",
+    "siblings": [
+      {
+        "repo": "bifrost-ui",
+        "commit": "9b635b2b7f39c4b2c034a8150d98a01abaf261f7"
+      }
+    ]
   },
   {
-    "id": "Q13",
+    "id": "Q14",
     "repo": "/Users/vision-mac-trader/Desktop/stocks/bifrost-trade-frontend",
     "language": "ts",
     "base_commit": "00b0189663361301a2560d6e7322c7ac4bd57e09",
@@ -364,10 +397,16 @@
       }
     ],
     "fails_by": "assertion",
-    "task_text": "fix(research): a Pine signal too new for a return is not dimmed as cooldown (B7)\n\nMeasured on research 0.201.0: signal-stats detail sends counted_<h> false\nfor a signal with no bar yet at that horizon, the same as one inside an\nearlier signal's cooldown. The report dimmed the newest sessions as \"not\ncounted\"; they now show — until their returns are in."
+    "task_text": "fix(research): a Pine signal too new for a return is not dimmed as cooldown (B7)\n\nMeasured on research 0.201.0: signal-stats detail sends counted_<h> false\nfor a signal with no bar yet at that horizon, the same as one inside an\nearlier signal's cooldown. The report dimmed the newest sessions as \"not\ncounted\"; they now show — until their returns are in.",
+    "siblings": [
+      {
+        "repo": "bifrost-ui",
+        "commit": "2271260ca5366d5d0bf0b2afcb680a313d3c08a6"
+      }
+    ]
   },
   {
-    "id": "Q14",
+    "id": "Q15",
     "repo": "/Users/vision-mac-trader/Desktop/stocks/bifrost-trade-frontend",
     "language": "ts",
     "base_commit": "b083a5e8b4fb40978e888f8c26a37679c40dbafd",
@@ -389,10 +428,19 @@
       }
     ],
     "fails_by": "assertion",
-    "task_text": "rules: the instance metrics loader stops restarting itself\n\nOwner report (PROD 2026-09-28, after 15d1475f): \"Reading fills… 36 still\nloading\" never resolved. 15d1475f treated the 36 as slow; they were stuck.\nMeasured on PROD: 1312 requests in 13 s covering only 10 distinct\ninstances — the same two chunks fetched 65 times.\n\nThe loop was self-exciting. useInstanceMetrics keyed its effect on\n[sessionKey, ids] — ids an array memoised on the caller's `instances`.\nTrade › Rules parsed its selection fresh from the URL every render, so\ndetail → scopedInstances → ids were new arrays with identical content;\nevery landed chunk re-rendered the page, the new array restarted the\neffect at chunk 0, and the loop never passed chunk 2.\n\n- useInstanceMetrics: keyed on the ids' *content* (idsKey string); the\n  effect depends on sessionKey alone. A regression test hands a new array\n  of the same ids on six re-renders and asserts each instance is fetched\n  exactly once — verified red on the old code, green on the fix.\n- TradeRulesPage: sel memoised on the raw ?pick= param (stops the cascade\n  at its source, for every memo keyed on it).\n- A failed read gets its own group (\"Couldn't read fills\") — 15d1475f\n  would have parked status:error rows in loading forever.\n\nSame measure on :5173 after: 41 requests / 1.2 s, 41 distinct instances,\n8 symbol groups summing to 41, no loading group left.\n\nGates: tsc · eslint 0 errors · vitest 3057 · build · legacy-css."
+    "task_text": "rules: the instance metrics loader stops restarting itself\n\nOwner report (PROD 2026-09-28, after 15d1475f): \"Reading fills… 36 still\nloading\" never resolved. 15d1475f treated the 36 as slow; they were stuck.\nMeasured on PROD: 1312 requests in 13 s covering only 10 distinct\ninstances — the same two chunks fetched 65 times.\n\nThe loop was self-exciting. useInstanceMetrics keyed its effect on\n[sessionKey, ids] — ids an array memoised on the caller's `instances`.\nTrade › Rules parsed its selection fresh from the URL every render, so\ndetail → scopedInstances → ids were new arrays with identical content;\nevery landed chunk re-rendered the page, the new array restarted the\neffect at chunk 0, and the loop never passed chunk 2.\n\n- useInstanceMetrics: keyed on the ids' *content* (idsKey string); the\n  effect depends on sessionKey alone. A regression test hands a new array\n  of the same ids on six re-renders and asserts each instance is fetched\n  exactly once — verified red on the old code, green on the fix.\n- TradeRulesPage: sel memoised on the raw ?pick= param (stops the cascade\n  at its source, for every memo keyed on it).\n- A failed read gets its own group (\"Couldn't read fills\") — 15d1475f\n  would have parked status:error rows in loading forever.\n\nSame measure on :5173 after: 41 requests / 1.2 s, 41 distinct instances,\n8 symbol groups summing to 41, no loading group left.\n\nGates: tsc · eslint 0 errors · vitest 3057 · build · legacy-css.",
+    "interface": [
+      "// src/hooks/useInstanceBook.ts\nexport const INSTANCE_GROUP_FAILED = …"
+    ],
+    "siblings": [
+      {
+        "repo": "bifrost-ui",
+        "commit": "27925a873f2111632dde27b4c8b91c3a61940fc2"
+      }
+    ]
   },
   {
-    "id": "Q15",
+    "id": "Q16",
     "repo": "/Users/vision-mac-trader/Desktop/stocks/bifrost-trade-frontend",
     "language": "ts",
     "base_commit": "8c3a31a7f9bffedeec30041f0c9774d8e63bb74a",
@@ -418,10 +466,16 @@
       }
     ],
     "fails_by": "assertion",
-    "task_text": "Commissions are signed as IB books them: a rebate comes back in\n\nNine places took |commission|, so a rebate (a negative commission) was\ncharged as a cost: the FIFO pairs (computeBackendOptPairsFromExecutions,\ncomputeOptPairsFromExecutions), a pair split into legs\n(matchPairLegCashFlows), an option fill's cash flow\n(ledgerOptionExecutionCashFlowSigned), the day's commission strip, the\nTrade page's fallback cash, and the fee columns on Fills, On the fly and\na day's records, plus the Commissions reading.\n\nMeasured on DEV and PROD (519 fills each): every Flex fill with a\ncommission satisfies net_cash = ±premium − commission, the 15 negative\nones included, so negative means rebate. The tests that pinned \"negative\nis a cost either way\" had no source behind them and now pin the measured\nrule; new rebate tests (invented figures) fail on the old code.\n\nOn DEV the bulk options calendar now equals core 0.36.2's OPT pair\ncalendar on all 41 days of 2026-06..09 (two days had been off by cents).\n\nRebased onto TD-19 (6df7e0ed): performanceDayRecords.test.ts keeps\norigin's label rename (s.Fills, was s.Trades) with this commit's signed\ncommission expectation (−1 for a 1.5 cost and a 0.5 rebate). TD-30's\n−|q| sell quantities (e8953585) are untouched; nothing here reads a sign\nfrom the quantity."
+    "task_text": "Commissions are signed as IB books them: a rebate comes back in\n\nNine places took |commission|, so a rebate (a negative commission) was\ncharged as a cost: the FIFO pairs (computeBackendOptPairsFromExecutions,\ncomputeOptPairsFromExecutions), a pair split into legs\n(matchPairLegCashFlows), an option fill's cash flow\n(ledgerOptionExecutionCashFlowSigned), the day's commission strip, the\nTrade page's fallback cash, and the fee columns on Fills, On the fly and\na day's records, plus the Commissions reading.\n\nMeasured on DEV and PROD (519 fills each): every Flex fill with a\ncommission satisfies net_cash = ±premium − commission, the 15 negative\nones included, so negative means rebate. The tests that pinned \"negative\nis a cost either way\" had no source behind them and now pin the measured\nrule; new rebate tests (invented figures) fail on the old code.\n\nOn DEV the bulk options calendar now equals core 0.36.2's OPT pair\ncalendar on all 41 days of 2026-06..09 (two days had been off by cents).\n\nRebased onto TD-19 (6df7e0ed): performanceDayRecords.test.ts keeps\norigin's label rename (s.Fills, was s.Trades) with this commit's signed\ncommission expectation (−1 for a 1.5 cost and a 0.5 rebate). TD-30's\n−|q| sell quantities (e8953585) are untouched; nothing here reads a sign\nfrom the quantity.",
+    "siblings": [
+      {
+        "repo": "bifrost-ui",
+        "commit": "05bfa38490b5fcf64be23fa493c71a3ad0980a8a"
+      }
+    ]
   },
   {
-    "id": "Q16",
+    "id": "Q17",
     "repo": "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform",
     "language": "ts",
     "base_commit": "72c0b36cefcc27aacc10eb0ff763b9069bfe0fe6",
@@ -441,18 +495,22 @@
       }
     ],
     "fails_by": "assertion",
-    "task_text": "console: a goal's checks are judged on the implementation's current attempt (W-31 2.2b)\n\nReview 219 (Cursor, 先改) A1: a verification or review task is accepted\nonce its result is used, pass or fail, so \"every check task accepted\" marked\nVerify and Review done while round 2 of the implementation still ran. Each\ncheck stage now reads, for every implementation, the verdict of that method\non its current attempt (the latest lease): done when all passed, failed when\nan implementation is blocked or rejected after a fail, running while a check\nof it is open or it waits under verification, else not yet. The result's\nreview verdict reads the same way.\n\nB: a test for round 1 failing and round 2 running then passing (it fails\nwith the old rule); the failed-review test made real (the implementation\nblocked); a later event page that fails rejects and the card says it could\nnot load; the reference sections' hashchange listener is bound once per id;\na paused mission with every task accepted does not close.\n\nlint (0 errors), type-check, 1149 tests, build; Go store tests with the\nlocal test database.\n\nClaude-Session: local_accccb4e-410c-4b5f-9f1b-b54c6915dc9a\nClaude-Transcript: 4c3ecb80-4397-474e-b209-a909921f7d13\nChange-Id: Ie5bd821eb3725d5f31300d77bc2721cbd71870fa\nWork: W-31"
+    "task_text": "console: a goal's checks are judged on the implementation's current attempt (W-31 2.2b)\n\nReview 219 (Cursor, 先改) A1: a verification or review task is accepted\nonce its result is used, pass or fail, so \"every check task accepted\" marked\nVerify and Review done while round 2 of the implementation still ran. Each\ncheck stage now reads, for every implementation, the verdict of that method\non its current attempt (the latest lease): done when all passed, failed when\nan implementation is blocked or rejected after a fail, running while a check\nof it is open or it waits under verification, else not yet. The result's\nreview verdict reads the same way.\n\nB: a test for round 1 failing and round 2 running then passing (it fails\nwith the old rule); the failed-review test made real (the implementation\nblocked); a later event page that fails rejects and the card says it could\nnot load; the reference sections' hashchange listener is bound once per id;\na paused mission with every task accepted does not close.\n\nlint (0 errors), type-check, 1149 tests, build; Go store tests with the\nlocal test database.",
+    "siblings": [
+      {
+        "repo": "bifrost-ui",
+        "commit": "9b635b2b7f39c4b2c034a8150d98a01abaf261f7"
+      }
+    ]
   },
   {
-    "id": "Q17",
+    "id": "Q18",
     "repo": "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform",
     "language": "ts",
-    "base_commit": "e95722232024e8296a33d97e6b4ef542b3ff9ff4",
-    "fix_commit": "30568f666db3f0a11597c07779d746d5241ac121",
+    "base_commit": "632669be48c60dd0ff21d424b72d7706feffaae6",
+    "fix_commit": "9ba6de71d2de9d11bf59c6b1105d24b6694a5c11",
     "test_files": [
-      "console/src/pages/shell/owner/__tests__/OwnerConsolePage.test.tsx",
       "console/src/pages/shell/owner/__tests__/ownerModel.test.ts",
-      "console/src/pages/shell/owner/__tests__/probeReadFailed.test.tsx",
       "console/src/pages/shell/owner/__tests__/useOwnerConsole.test.tsx"
     ],
     "check_command": [
@@ -462,26 +520,33 @@
           "npx",
           "vitest",
           "run",
-          "src/pages/shell/owner/__tests__/OwnerConsolePage.test.tsx",
           "src/pages/shell/owner/__tests__/ownerModel.test.ts",
-          "src/pages/shell/owner/__tests__/probeReadFailed.test.tsx",
           "src/pages/shell/owner/__tests__/useOwnerConsole.test.tsx"
         ]
       }
     ],
     "fails_by": "assertion",
-    "task_text": "console: the Owner Console lists what it cannot prove, and treats offline as unread (review 222, W-31 2.2b)\n\nReview 222 (Codex, narrow confirmation) closed A1, A2, A4, A5, A7 and found\nthree residuals; each is fixed with a test that fails without it.\n\n- A-R1: a DaemonSet short by no more pods than it has on the standby node is\n  no longer noise: the metrics say how many pods are short, not which. Such\n  alerts are listed as one row, \"N DaemonSet alerts that fit gpu-server being on\n  standby\", whose \"Likely the planned standby; not proven\", and are counted as\n  warnings. The gap query adds unavailable and mis-scheduled ('+'); 'or' kept\n  only one of the two.\n- A-R2: a pod is named by namespace and name only; its address never overrides\n  a name. A named node that is not on standby wins. Targets: by node, else by\n  pod name, else (no name) by address.\n- A-R3: the release runs are read only when the pipeline list, the records and\n  every run list have a current answer; an offline pause is unread ('offline'),\n  so the lane never says nothing is delivering.\n- B-R1: the three probes' readFailed is also true while a refresh is paused.\n\nWith PROD's evidence: 13 alerts proven standby / info / watchdog, 6 DaemonSet\nalerts in the one \"likely standby\" row, 4 real warnings, the TWS login yours.\n\nClaude-Session: local_accccb4e-410c-4b5f-9f1b-b54c6915dc9a\nClaude-Transcript: 4c3ecb80-4397-474e-b209-a909921f7d13\nChange-Id: Ia40eacba34e7de8b7738d25e5dbfb83d9fbeb1ac\nWork: W-31"
+    "task_text": "console: the Owner Console reads an unfinished goal's state again every 30 s; alert details name the subject, not the exporter (review 225, W-31 2.2b)\n\nReview 225 closed A-224-1 and B-224-1 with no new A, and found B-225-1: the\ngoal read that now decides \"done\" kept its first answer for good, so a goal\nread as active stayed \"implementation accepted; goal active\" after it was\ndone. It is read again every 30 s while Work or Chief is shown, and not after\nit is done (done has no way out).\n\nSTG walk (a1d43d6): a kube-state-metrics alert named the exporter's own pod as\nwhere it was; the detail now leaves that pod out.\n\nTests: the real hook with fake time reads active, then done 30 s later, then\nstops; it fails without the refresh. The refresh rule and the detail line.",
+    "interface": [
+      "// console/src/pages/shell/owner/ownerModel.ts\nexport function goalRefreshMs(missionState: string): number | false",
+      "# console/src/pages/shell/owner/ownerModel.ts: texts the tests look for, as it writes them\n\"kube-state-metrics\""
+    ],
+    "siblings": [
+      {
+        "repo": "bifrost-ui",
+        "commit": "9b635b2b7f39c4b2c034a8150d98a01abaf261f7"
+      }
+    ]
   },
   {
-    "id": "Q18",
+    "id": "Q19",
     "repo": "/Users/vision-mac-trader/Desktop/stocks/bifrost-platform",
     "language": "ts",
-    "base_commit": "dd11879e2eede7e5178060aa146dc84cbbb3a9df",
-    "fix_commit": "422f3e0fe3ef7e6aa3ced1345a485d00a455dbba",
+    "base_commit": "5e274b34fed948f038216317ab295f19ba2598ed",
+    "fix_commit": "b59434496936c0dca063be8635fa9158bd017da4",
     "test_files": [
-      "console/src/pages/__tests__/ApprovalsPage.test.tsx",
-      "console/src/pages/__tests__/approvalsRecord.test.tsx",
-      "console/src/pages/__tests__/approvalsRecovery.test.tsx"
+      "console/src/components/lineage/__tests__/threadFilter.test.ts",
+      "console/src/pages/__tests__/CommitLineagePage.test.tsx"
     ],
     "check_command": [
       {
@@ -490,49 +555,31 @@
           "npx",
           "vitest",
           "run",
-          "src/pages/__tests__/ApprovalsPage.test.tsx",
-          "src/pages/__tests__/approvalsRecord.test.tsx",
-          "src/pages/__tests__/approvalsRecovery.test.tsx"
+          "src/components/lineage/__tests__/threadFilter.test.ts",
+          "src/pages/__tests__/CommitLineagePage.test.tsx"
         ]
       }
     ],
     "fails_by": "assertion",
-    "task_text": "fix(console): the page never aborts a decision; each request keeps its own state (TD-325)\n\nThe second confirming review found that the 30 s deadline aborted the decision POST. The platform executes the approved action synchronously on that request's context, so the page could cut the action it had just approved; the shape came from the coordinator's first brief. This round makes the shape smaller instead of patching it: the POST is never aborted (at 30 s the page only says it is still waiting); sending, error and checking state belong to the record, not the page; results are written under the key that was read; a decided record that is not final keeps being read, and a final one never goes back; a failed POST keeps the server's reason and reads the record at once; a hint about a pending request disappears when the request is decided. The unknown-result error class, the read generations and the cancel-on-click are deleted.\n\nWritten by Codex (sandbox cannot commit); committed on its behalf by the coordinator. Its two helper files (a sandbox vitest config and a mutation script) are kept outside the repository."
-  },
-  {
-    "id": "Q19",
-    "repo": "/Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra",
-    "language": "shell",
-    "base_commit": "d143247c1de5fd70f1b27f0e6df2d28d16708e04",
-    "fix_commit": "2b121043eb644bf17de171e5088a0ba053789c1b",
-    "test_files": [
-      "scripts/agent-host/test_agent_06_owner.py"
+    "task_text": "lineage: the task filter's empty answer and page tests, from review 159 (W-31 2.2, T36)\n\nReview 159 (round 2 of the lineage line) found one A: with a task chosen\nand nothing of it in the window, the page said no commit in the window\ncarries a lineage trailer. It now says no thread matches the filter\nwhenever the search box or the task filter is set. The chip's title says it\nclears the task filter.\n\nB1. A page test renders the Lineage page on a mocked API, expands\nagentd's thread and clicks a task's button: only that task's commit shows\n(not another task's whose subject names it, not a thread whose transcript\ndoes), the search box stays empty, the search narrows further and clearing\nit keeps the task filter, a window with no commit of the task says no\nthread matches, and clearing the chip brings the other threads back.\nB2. A narrowed thread's landed and reached are recounted and its input is\nleft as it was; a session, a Change-Id and a task together are an\nintersection; the response is snapshotted before the first filter, and one\nhandler's cache read unfiltered, by task and unfiltered again gives the\nsame first and last answer.\n\nMutants, each red: the click sets the search box, the empty answer looks\nat the search box only, landed not recounted, reached not recounted.\nConsole: lint (no new warning), tsc, build, vitest 1087 pass.",
+    "interface": [
+      "# console/src/pages/CommitLineagePage.tsx: texts the tests look for, as it writes them\n\"; click to clear the task filter\""
     ],
-    "check_command": [
+    "siblings": [
       {
-        "cwd": ".",
-        "argv": [
-          "python3",
-          "-m",
-          "pytest",
-          "-q",
-          "scripts/agent-host/test_agent_06_owner.py",
-          "-k",
-          "test_stg_vendors_copies_the_credentials_to_stg_before_the_start or test_stg_vendors_starts_nothing_when_a_credential_does_not_arrive"
-        ]
+        "repo": "bifrost-ui",
+        "commit": "9b635b2b7f39c4b2c034a8150d98a01abaf261f7"
       }
-    ],
-    "fails_by": "assertion",
-    "task_text": "agent-host: stg-vendors starts nothing when a credential does not arrive (review 272) (W-31 2.4)\n\nA1: step_vendor_creds returns on every failure (sudo -v, sending a\ncredential): stg-vendors calls it on the left of ||, where errexit does\nnot apply, and went on to start the services.\nB2: the tests run the real step_vendor_creds and send_secret, with fixture\ncredentials and SSH stubbed, assert the user and file each send names, and\nfail the first and the second send in turn; both fail on d143247."
+    ]
   },
   {
     "id": "Q20",
     "repo": "/Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra",
     "language": "shell",
-    "base_commit": "884b27dece4fc38c4cc4d3bcf8dabc3cf9219fa9",
-    "fix_commit": "49087ae6d9d6b46e0dd7c0d99160fff41e676537",
+    "base_commit": "0cd025904ba2b26319bd72edad46264e0cfc3041",
+    "fix_commit": "4a59032638852eaf12e8c29e23081aa3e2a29184",
     "test_files": [
-      "scripts/gitea/test_gitea_scripts.py"
+      "scripts/agent-host/test_probe_gitea_protection.py"
     ],
     "check_command": [
       {
@@ -542,13 +589,16 @@
           "-m",
           "pytest",
           "-q",
-          "scripts/gitea/test_gitea_scripts.py",
+          "scripts/agent-host/test_probe_gitea_protection.py",
           "-k",
-          "test_https_github_still_fetches_from_github_under_the_batch_insteadof or test_independent_clones_under_agent_work_are_read_back or test_nothing_stored_when_anything_is_wrong or test_switch_refuses_when_github_would_fetch_from_gitea"
+          "test_a_longer_merge_message_fails_the_probe or test_a_lost_answer_still_closes_the_pull_request or test_a_lost_answer_with_nothing_opened or test_words_for_another_branch_fail_the_probe"
         ]
       }
     ],
     "fails_by": "assertion",
-    "task_text": "gitea-primary batch A: review 260 (0 A, 2 B, 2 C), the narrow confirmation; the line closes (W-31)\n\nB1: store-mbp-token.sh also reads back in every independent clone of\nbifrost-platform and bifrost-ui under ~/agent-work (find, depth 4), and the\nlast line says how many checkouts it checked.\nB2: switch-local-remotes.sh keeps an HTTPS GitHub address as\nhttps://github.com:443/..., which the batch HTTPS rule does not start with,\nand its read-back now fails when remote github would fetch from Gitea.\nC3: only a 403 whose body names a required scope falls back to reading who\nthe token is from what it may do; any other 403 stops, with the body.\nHow Gitea 1.21 answers /user and the permissions is proven by the Owner's\nrun of step 6: an answer that differs stops the script with nothing stored.\n\nTests: independent clone with its own useHttpPath, a 403 from elsewhere, an\nHTTPS origin under the insteadOf rules, an unknown rule caught by the\nread-back; 93 + 6 pass."
+    "task_text": "gitea-primary step 1: the probe compares Gitea's words whole; a pull request opened without an answer is found and closed (W-31)\n\nReview 255 (second round) found no A; its B and C are fixed:\n\n- C: a refusal matched Gitea's words as a substring of all the output,\n  so \"protected branch main-other\" passed for main and a longer merge\n  message passed for the merge whitelist. One \"remote: Gitea:\" line must\n  now equal the rule's words exactly, and the merge needs HTTP 405 with\n  the message \"User not allowed to merge PR\" (Gitea 1.21's\n  ErrUserNotAllowedToMerge); anything else fails the probe for a person\n  to read.\n- B: when the answer to opening the pull request was lost, a pull\n  request Gitea had opened stayed open unmentioned. It is looked up by\n  base and head and closed (read back); if the lookup fails the probe\n  says there may be one open.\n\nTests: 15; 3 of the 4 new ones fail on ae45a18 (the fourth, nothing\nopened, already passed there).",
+    "interface": [
+      "# scripts/agent-host/probe-gitea-protection.sh: texts the tests look for, as it writes them\n\"User not allowed to merge PR\"\n\"was there after all; it is closed\""
+    ]
   }
 ]

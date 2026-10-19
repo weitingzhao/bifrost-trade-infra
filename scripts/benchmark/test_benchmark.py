@@ -275,14 +275,18 @@ def pool():
     return rows
 
 
+def nothing(candidate):
+    return [], []
+
+
 def test_select_quotas_diversity_and_determinism():
     rows = pool()
-    questions, missing = selector.select(rows + rows)
+    questions, missing = selector.select(rows + rows, describe=nothing)
     assert not missing and len(questions) == 20
     assert collections.Counter(q['language'] for q in questions) == selector.QUOTAS
     assert len({q['id'] for q in questions}) == 20
     assert len({q['repo'] for q in questions[:4]}) == 4
-    assert selector.select(list(reversed(rows)))[0] == questions
+    assert selector.select(list(reversed(rows)), describe=nothing)[0] == questions
     assert all(q['base_commit'].startswith('base-') and 'check_command' in q for q in questions)
 
 
@@ -292,7 +296,7 @@ def test_select_prefers_new_files():
         row['repo'] = '/same'
     rows[1]['test_files'] = rows[0]['test_files']
     rows[1]['non_test_files'] = rows[0]['non_test_files']
-    questions, _ = selector.select(rows, {'go': 2})
+    questions, _ = selector.select(rows, {'go': 2}, describe=nothing)
     assert [q['fix_commit'] for q in questions] == ['go-0', 'go-2']
 
 
@@ -354,7 +358,10 @@ def test_new_symbol_replay(repo, monkeypatch, language):
     assert result['fails_by'] == 'missing_symbol'
     assert result['missing_symbols'] == ['Added']
     questions, _ = selector.select([result], {language: 1})
-    assert 'they call Added, which does not exist yet' in questions[0]['task_text']
+    # The executor is given the declaration, not a sentence in the task (TD-373).
+    assert questions[0]['task_text'] == 'fix: regression test added symbol'
+    want = 'func Added() int' if language == 'go' else 'def Added():'
+    assert any(want in entry for entry in questions[0]['interface']), questions[0]['interface']
 
 
 def test_missing_third_party_module_stays_rejected(repo):
