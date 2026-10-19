@@ -215,7 +215,9 @@ install -d -m 755 /usr/local/libexec/bifrost
 install -m 755 "$here/../$binary" /usr/local/libexec/bifrost/agentd
 install -m 644 "$here/bifrost-agentd.service" /etc/systemd/system/bifrost-agentd.service
 install -m 644 "$here/bifrost-agentd-stg.service" /etc/systemd/system/bifrost-agentd-stg.service
+install -m 644 "$here/bifrost-agentd-bench@.service" /etc/systemd/system/bifrost-agentd-bench@.service
 systemctl daemon-reload
 systemd-analyze verify /etc/systemd/system/bifrost-agent-egress.service /etc/systemd/system/bifrost-agentd.service /etc/systemd/system/bifrost-agentd-stg.service
+systemd-analyze verify bifrost-agentd-bench@codex.service
 
 echo "prepared: egress rules on; $binary installed as /usr/local/libexec/bifrost/agentd; both agentd services installed and stopped"

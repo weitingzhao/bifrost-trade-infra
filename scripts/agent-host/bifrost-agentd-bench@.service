@@ -1,0 +1,65 @@
+# A benchmark run on the agent host (W-31 2.4 slice ⑤; the Owner 2026-10-18:
+# run on 06, judge by each fix's own tests, the host hands the result in). The
+# instance is the executor: bifrost-agentd-bench@codex runs the question set
+# with exec:codex. It runs as the STG agentd's user, with that service's
+# environment and sandbox, so it hands the run in to the STG platform as
+# agent-06-stg; it stops the STG agentd while it runs (they share the user's
+# host lock) and starts it again when it ends, however it ends. The PROD
+# agentd is another user and is not touched. A run started again the same day
+# (UTC) goes on from the questions it has; once all are done it hands the run
+# in again, which the platform records once. Started by agent-06-owner.sh
+# bench <executor>; installed by prepare-agent-06.sh.
+[Unit]
+Description=Bifrost agentd benchmark run with exec:%i (STG platform, host agent-06-stg)
+Wants=network-online.target
+After=network-online.target bifrost-agent-egress.service
+BindsTo=bifrost-agent-egress.service
+Conflicts=bifrost-agentd-stg.service
+After=bifrost-agentd-stg.service
+
+[Service]
+Type=exec
+User=bifrost-agentd-stg
+Group=bifrost-agentd-stg
+WorkingDirectory=/home/bifrost-agentd-stg/agent-work/agentd
+# $$ is a literal $ for the shell, %% a literal % (systemd.service, "Command lines").
+ExecStart=/bin/sh -c 'exec /usr/local/libexec/bifrost/agentd bench --questions /usr/local/share/bifrost/benchmark/questions.json --executor "exec:$$1" --run-id "bench-$$(date -u +%%Y%%m%%d)-$$1"' bench %i
+ExecStopPost=+/bin/systemctl start --no-block bifrost-agentd-stg.service
+Environment=HOME=/home/bifrost-agentd-stg
+Environment=USER=bifrost-agentd-stg
+Environment=LOGNAME=bifrost-agentd-stg
+Environment=SHELL=/bin/bash
+Environment=LANG=C.UTF-8
+Environment=PATH=/opt/bifrost/codex/bin:/home/bifrost-agentd-stg/.local/bin:/usr/local/go/bin:/usr/local/lib/nodejs/current/bin:/usr/local/bin:/usr/bin:/bin
+Environment=AGENTD_PLATFORM=http://192.168.10.73:30878/api/v1/agentrt
+Environment=AGENTD_HOST=agent-06-stg
+Environment=AGENTD_TOOLS=exec:codex=openai,exec:cursor=cursor-mix,exec:claude=anthropic:opus,exec:deterministic=local
+Environment=AGENTD_GIT_BASE=http://192.168.10.73:30300/bifrost
+Environment=AGENTD_ROOT=/home/bifrost-agentd-stg/agent-work/agentd
+Environment=AGENTD_TOKEN_FILE=/home/bifrost-agentd-stg/.config/bifrost/agentd.token
+Environment=AGENTD_GIT_TOKEN_FILE=/home/bifrost-agentd-stg/.config/bifrost/agentd-git.token
+Environment=AGENTD_CURSOR_KEY_FILE=/home/bifrost-agentd-stg/.config/bifrost/cursor-api.key
+Environment=AGENTD_CLAUDE_TOKEN_FILE=/home/bifrost-agentd-stg/.config/bifrost/claude-oauth.token
+Restart=no
+RuntimeMaxSec=20h
+KillMode=control-group
+TimeoutStopSec=90
+UMask=0077
+LimitNOFILE=65536
+MemoryHigh=6G
+MemoryMax=8G
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=tmpfs
+BindPaths=/home/bifrost-agentd-stg
+ReadWritePaths=/home/bifrost-agentd-stg
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes

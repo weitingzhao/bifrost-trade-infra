@@ -22,6 +22,7 @@ echo "systemctl $*" >> "$FAKE_UNITS/calls"
 case "$1" in
   stop) shift; for u in "$@"; do [ -f "$FAKE_UNITS/stuck" ] || rm -f "$FAKE_UNITS/$u"; done ;;
   enable) shift; [ "$1" = --now ] && shift; for u in "$@"; do [ -f "$FAKE_UNITS/fails" ] || touch "$FAKE_UNITS/$u"; done ;;
+  start) shift; [ "$1" = --no-block ] && shift; for u in "$@"; do touch "$FAKE_UNITS/$u"; done ;;
   is-active) shift; [ "$1" = --quiet ] && shift; for u in "$@"; do [ -f "$FAKE_UNITS/$u" ] || exit 3; done ;;
   *) exit 9 ;;
 esac
@@ -44,6 +45,8 @@ class StopStart(unittest.TestCase):
             'if [ "$1" = bash ] && [ "${2##*/}" = install-secret.sh ]; then echo "install-secret $3 $4" >> "$FAKE_UNITS/calls"; '
             'cat > /dev/null; [ "${FAIL_SECRET:-}" != "$4" ]; exit; fi\n'
             '[ "$1" = bash ] && { echo "check-agent-06 $*" >> "$FAKE_UNITS/calls"; exit 0; }\n'
+            # install on 06 (the question set): recorded, and the file kept beside the units
+            'if [ "$1" = install ]; then echo "install ${*: -1}" >> "$FAKE_UNITS/calls"; cp "${@: -2:1}" "$FAKE_UNITS/questions.json"; exit; fi\n'
             'exec "$@"\n')
         (bindir / "sleep").write_text("#!/bin/sh\nexit 0\n")
         for f in ("systemctl", "sudo", "sleep"):
@@ -199,6 +202,44 @@ class StopStart(unittest.TestCase):
             self.assertIn(f"{fail} did not reach bifrost-agentd-stg", r.stderr)
             self.assertNotIn("systemctl enable", (self.units / "calls").read_text())
             self.assertEqual(self.active(), set(), fail)
+
+
+    def bench(self, executor: str, questions: str = '[{"id": "Q01"}]') -> subprocess.CompletedProcess:
+        # update-agentd as in update() (copy and prepare stubbed), then the run's start on 06
+        for u in ("bifrost-agentd.service", "bifrost-agentd-stg.service"):
+            (self.units / u).write_text("")
+        build = Path(self.env["HOME"]) / "build"
+        build.mkdir(exist_ok=True)
+        (build / "agentd-x").write_text("agentd")
+        (build / "agentd.sha256").write_text(subprocess.run(["shasum", "-a", "256", "agentd-x"], cwd=build, capture_output=True, text=True).stdout)
+        q = Path(self.env["HOME"]) / "questions.json"
+        q.write_text(questions)
+        stub = (f'BINARY="{build}/agentd-x"; HERE="{build}"; '
+                'step_copy() { echo copy >> "$FAKE_UNITS/calls"; }; '
+                'step_prepare() { echo prepare >> "$FAKE_UNITS/calls"; }; ')
+        script = f'source "{HERE / "agent-06-owner.sh"}"; node_ssh() {{ bash -c "$1"; }}; {stub} step_bench {executor}'
+        return subprocess.run(["bash", "-c", script], env={**self.env, "BENCH_QUESTIONS": str(q)}, capture_output=True, text=True, timeout=60)
+
+    def test_bench_puts_the_build_on_then_starts_the_run(self) -> None:
+        r = self.bench("codex")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        calls = [" ".join(c.split()[:2]) if c.startswith("systemctl") and "bench" not in c else c
+                 for c in (self.units / "calls").read_text().splitlines()]
+        order = [c for c in calls if c in ("systemctl stop", "copy", "prepare", "systemctl enable") or c.startswith(("install", "systemctl start"))]
+        self.assertEqual(order, ["systemctl stop", "copy", "prepare", "systemctl enable",
+                                 "install /usr/local/share/bifrost/benchmark/questions.json",
+                                 "systemctl start --no-block bifrost-agentd-bench@codex.service"])
+        self.assertEqual((self.units / "questions.json").read_text(), '[{"id": "Q01"}]')
+        self.assertIn("running: bifrost-agentd-bench@codex.service", r.stdout)
+
+    def test_bench_refuses_claude_and_a_set_that_is_not_one(self) -> None:
+        r = self.bench("claude")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("read-only tools", r.stderr)
+        r = self.bench("codex", questions="{}")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("nothing was stopped", r.stderr)
+        self.assertFalse((self.units / "calls").exists() and "systemctl stop" in (self.units / "calls").read_text())
 
 
 if __name__ == "__main__":

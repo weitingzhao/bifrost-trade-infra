@@ -29,6 +29,10 @@
 #                         start both and check them running
 #   stg-vendors           give the STG agentd claude and cursor-agent too: stop
 #                         both, copy, prepare, vendor-creds stg, start both
+#   bench codex|cursor    put the agentd build on 06 (update-agentd), then run the
+#                         benchmark question set with that executor there; the
+#                         STG agentd stops until the run ends (hours)
+#   bench-log codex|cursor   how that run is going (the last lines of its log)
 #   retire-mac            stop the agentd on this Mac
 #   probe-protection      run probe-gitea-protection.sh on 06 as the STG agentd
 #                         user against bifrost/primary-probe (Gitea-primary cut,
@@ -612,6 +616,31 @@ step_stg_vendors() {
   say "the STG agentd now offers exec:claude and exec:cursor"
 }
 
+# bench <executor>: the benchmark question set with that executor on 06 (W-31
+# 2.4 slice ⑤; the Owner 2026-10-18). The agentd build with the bench goes on
+# first (update-agentd: an older agentd would take "bench" for no argument and
+# run as the daemon); then the question set, through the connection that
+# starts the run. The bench unit stops the STG agentd while it runs and starts
+# it again when it ends; this step only starts it. claude is not offered: its
+# executor has read-only tools and cannot make a change.
+step_bench() {
+  local ex=${1:-} unit questions
+  questions=${BENCH_QUESTIONS:-$HERE/../../agent-config/work/multi-agent/benchmark/questions.json}
+  case "$ex" in codex | cursor) ;; *) die "say codex or cursor (claude's executor has read-only tools: it cannot make a change)" ;; esac
+  python3 -I -c 'import json, sys; q = json.load(open(sys.argv[1])); sys.exit(0 if isinstance(q, list) and q else 1)' "$questions" ||
+    die "$questions is not a question set; nothing was stopped"
+  step_update_agentd
+  unit=bifrost-agentd-bench@$ex.service
+  node_ssh "f=\$(mktemp) && cat > \"\$f\" && sudo install -D -m 644 \"\$f\" /usr/local/share/bifrost/benchmark/questions.json && rm -f \"\$f\" && sudo systemctl start --no-block $unit && sleep 15 && systemctl is-active --quiet $unit && echo 'running: $unit (the STG agentd is stopped until it ends)'" < "$questions" ||
+    die "the run did not start; the STG agentd may be stopped (start stg)"
+  say "follow it with: bash agent-06-owner.sh bench-log $ex"
+}
+
+step_bench_log() {
+  case "${1:-}" in codex | cursor) ;; *) die "say codex or cursor" ;; esac
+  node_ssh "systemctl is-active bifrost-agentd-bench@$1.service; sudo journalctl -u bifrost-agentd-bench@$1.service -n 60 --no-pager -o cat"
+}
+
 step_retire_mac() {
   local rc=0
   # disable first: bootout alone stops it until the next boot, when launchd
@@ -640,12 +669,12 @@ step_probe_protection() {
 
 step=${1:-}
 if [ -z "$step" ]; then
-  sed -n '2,39p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,43p' "$0" | sed 's/^# \{0,1\}//'
   exit 2
 fi
 shift
 case "$step" in
-  check | leave | uninstall | delete-node | copy | prepare | codex-login | vendor-creds | git-token | host-check | secret | stop | start | update-agentd | stg-vendors | retire-mac | probe-protection) ;;
+  check | leave | uninstall | delete-node | copy | prepare | codex-login | vendor-creds | git-token | host-check | secret | stop | start | update-agentd | stg-vendors | bench | bench-log | retire-mac | probe-protection) ;;
   *) die "unknown step: $step" ;;
 esac
 fn=step_$(echo "$step" | tr - _)
