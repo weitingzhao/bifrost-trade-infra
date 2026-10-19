@@ -109,6 +109,7 @@ PROD platform 坏了时的应急路径：mini 上的 operator-plane，或 Owner 
 - **已知的接受风险（Owner 2026-10-09，LANE-W33D）**：同一个 macOS 用户下，Owner 目录 `~/.bifrost-owner/` 只靠 preflight 的文本拦截。闸门防的是善意误读，不是有决心的绕过。
 - **已知的接受风险（Owner 2026-10-09，LANE-W33D）**：DB 属主密码 `POSTGRES_PASSWORD` / `PGPASSWORD` 四个库共用，仍留在 Agent 能读的 infra `.env`。分开是 TD-85，不在这一步。
 - **已知的接受风险（Owner 2026-10-09，LANE-W33D）**：推 GitHub main 会触发 Argo 自动同步（platform overlay、research）。这件事归 W-31。
+- **已知的接受风险（Owner 2026-10-19，W-31 计划导入，复核 314 A1）**：MCP 工具 `propose_plan_import` 只从 `~/agent-work/plan-import` 读请求文件；同一系统用户下的另一个进程若在两次路径解析之间把请求目录来回换成链接，能让它读到目录外的文件（Node 没有 `openat`）。接受的理由同上面「同一个 macOS 用户」那条：这样的进程本来就能直接读这些文件。没选的两条：加原生 `openat` 小助手（新依赖）、改成只收已上传的请求产物号（约 160 KB 要经模型传一次）。
 
 ## 6. Console：8 个问题（Owner 2026-10-10 修订；原为 7 个）
 

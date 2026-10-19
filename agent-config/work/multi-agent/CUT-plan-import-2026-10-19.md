@@ -71,7 +71,7 @@
 - **导入那一刻起，运行时是第 2 轮计划唯一的事实来源**（结构、编号、状态）。Owner 10-14 已对 v5 §7 第 4 条选 A：计划表导入后从 `WORK.md` 移出，只在 Console 和 MCP 看，`WORK.md` 留 `W-n` 索引和指向。
 - **过渡期压在同一个工作时段内**（几小时，不是几天），按这个顺序，前一步不过不做下一步：
   1. 冻结：从第 2 步开始到第 7 步，谁都不改 `WORK.md`「第 2 轮逐项」（在线程里说一句，统筹线程执行）。
-  2. 在冻结那一刻的 infra 提交上生成请求：`agentrt-plan-import generate -ledger …/WORK.md -commit <该提交> -o r2.json`（工具只生成文件，不联网）；同时用看板自己的解析器读出 `board.json`（`roadmap.round_of` 的项和步，按 `planimport.View` 的形状；命令见文末「实现记录」），作为不依赖本工具的另一份读法。
+  2. 在冻结那一刻的 infra 提交上生成请求：`agentrt-plan-import generate -ledger …/WORK.md -commit <该提交> -o ~/agent-work/plan-import/r2.json`（工具只生成文件，不联网；MCP 的 `propose_plan_import` 只从这个目录读）；同时用看板自己的解析器读出 `board.json`（`roadmap.round_of` 的项和步，按 `planimport.View` 的形状；命令见文末「实现记录」），作为不依赖本工具的另一份读法。
   3. **先导进本机测试库**：`AGENTRT_PLAN_LEDGER=…/WORK.md AGENTRT_PLAN_BOARD=board.json AGENTRT_PLAN_EXTRA_STARS=<步号> go test ./internal/agentrt/agentrtapi/ -run PlanImportRealLedger`——同一份台账导入测试库，经真实路由读回，与工具和看板两份读法逐步相同。因为导错了在 STG、PROD 都改不回来（下面「导错了怎么办」），这一步不过不导 STG。
   4. STG 导入（§4 的入口）；读 STG `GET /plan?root=R2` 存成文件，`agentrt-plan-import diff -ledger …/WORK.md -plan stg-plan.json -board board.json` 必须没有差异（只有「看板看不到的 ★」那几行提示）。
   5. PROD 导入同一份 `r2.json`；同样 `diff` 没有差异。
@@ -133,12 +133,31 @@
 
 | # | 问题 | 推荐 | 谁定 |
 |---|---|---|---|
-| 1 | 首次导入的入口（§4）：A 路由 + 一张卡 / B admin 路由 / C 子命令作业 | **A** | 新路由、改公开接口 → 统筹线程报 Owner |
+| 1 | 首次导入的入口（§4）：A 路由 + 一张卡 / B admin 路由 / C 子命令作业 | **A** | **Owner 10-19 03:3x 定 A**，已实现（§11） |
 | 2 | 做完的 53 步按 `manual` 原子进、Progress 上标「人工」（§3）；备选：不标人工、直接写 `done` | **manual** | 统筹线程（按推荐走并留痕即可，除非 Owner 不想在页面上看到「人工 53」） |
-| 3 | 导入后步骤怎么推进（§7）：甲 / 乙 / 丙 | **甲** | 规则改动 → Owner 签 |
+| 3 | 导入后步骤怎么推进（§7）：甲 / 乙 / 丙 | **甲** | **Owner 10-19 03:3x 定甲**；代码已实现、受规则门控，规则草案待他导入后签（§11） |
 | 4 | 计划栏要不要在列表上直接显示每步原话（§6）：适配从请求产物里取（不改接口）/ `GET /plan` 加 `evidence` | **不改接口**，适配一次读请求产物 | 统筹线程 |
 | 5 | 架构对照随 2.5 的部署求值一起做（§8） | 照此 | 统筹线程 |
-| 6 | 计划变更加两种操作：丢弃一步（`drop_step`，写 `plan_node_state_changed` → `dropped`）、改一步的标记（`set_marks`，`owner_step` / `effect_step`）；都在常备授权外、走 Owner 卡（§2、§5「导错了怎么办」） | **加**，随 §4 的入口一起做；不加的话导入后的结构错只能留着 | 改公开接口 → 统筹线程报 Owner |
+| 6 | 计划变更加两种操作：丢弃一步（`drop_step`，写 `plan_node_state_changed` → `dropped`）、改一步的标记（`set_marks`，`owner_step` / `effect_step`）；都在常备授权外、走 Owner 卡（§2、§5「导错了怎么办」） | **加**，随 §4 的入口一起做；不加的话导入后的结构错只能留着 | **Owner 10-19 03:3x 定加**，已实现（§11） |
+
+## 11. 第二片：Owner 10-19 03:3x「三件照建议」之后
+
+分支 `w31/plan-import` 变基到 `origin/main` `35eafb7`（含决策卡与 TD-370）之后，提交 `e8ee5e9` → `120f5ac`（复核 313：4 A 1 B）→ `9322934`（复核 314：2 A 1 B）→ `695107e`（确认复核 315：0 A 1 B，收线）：
+
+| 件 | 做法 | 测试 |
+|---|---|---|
+| `POST /api/v1/agentrt/plan/imports`（propose 角色，登记在 `actions/coverage.go`） | 校验请求 → 树锁 → 已导入过同一份就回「已导入」、不发卡；同一棵树已有一张未决的导入卡：同一份回那张卡，别的一份拒 → 在保存点里整份试导并 `SET CONSTRAINTS ALL IMMEDIATE`、回滚 → 存请求产物 → 一张卡（选项「Import the plan / Do not import it」，`owner_duty` irreversible，正文写几项几步、来源、摘要、两个答案各做什么）→ 记 `plan_change_proposed`（一条变更 `op: import`，带请求的产物号）。控制器现有的计划决定那一遍认出导入：Owner 选 Import，就在记 `plan_change_decided` 的同一个事务里从产物读回请求、重新校验摘要、落地，`legacy_imported` 的 `cause_event_id` 指向这条决定；导入时根已被别的方式建了，决定记 `failed` 和原因。`needs_you` 把它显示成「Import plan R2: …」和这两个选项。MCP 新工具 `propose_plan_import`：只从请求目录（`AGENTRT_PLAN_IMPORT_DIR`，默认 `~/agent-work/plan-import`）读请求文件——只打开一次、末级不跟随符号链接，检查的就是打开的那个文件（普通文件、不超 1 MiB、按设备号和 inode 确认它就是这个路径在目录里指的文件），从同一个描述符读、最多多读一个字节；目录外、经链接出目录、检查后被换掉或变大、FIFO 等非普通文件（以非阻塞方式打开，不会卡住 MCP）、不是请求格式的都拒、不发送（复核 313 A1、314 B1）。**挡不住的一种**（复核 314 A1，要定，见「要定」）：同一用户的另一个本机进程在两次路径解析之间把目录本身来回换成链接——Node 不能相对一个已打开的目录去打开文件；这样的进程本来就能直接读这些文件，所以这里防的是调用方把工具指向别的文件 | HTTP 端到端：viewer 401；提议后 `GET /plan` 404；同 key、换 key 同一份都回同一张卡、不再发卡；另一份在等时 422；`/progress` 的 needs_you 一条；回 Import 后 `GET /plan` 与台账逐步一致、导入头因果 = 决定、`ImportHead` 越过前面的提议和决定找到它；之后同一份回「已导入」、另一份 422；回 Do not import 什么都不写、可以再提；晚到的失败；提议时就被数据库拒（不发卡、不记提议）。MCP 7 种拒收和正常发送 |
+| `drop_step`、`set_marks` | 都在常备授权外，走 Owner 卡。丢弃：最后执行，写自己的 `plan_node_state_changed`（→ `dropped`，原因 `plan_changed`，因果 = 那条 `plan_changed`），编号保留、出分母；这一步上还有未结束的任务、已经丢弃过、不是步骤都拒；丢弃之后这一步不再接活：新建任务挂到它、`move_task` 搬到它都拒（存储层在步骤锁下读状态；复核 313 A3。数据库触发器层的同一保证要一个新迁移，见下「另」）。改标记：只对步骤，至少给一个。MCP `propose_plan_change` 认这两种 | 丢弃后因果对得上、下一步编号越过它（`2.1-4`）；五种拒收在提议时就拒、不发卡；重复丢弃拒 |
+| 规则种类 `plan-standing` | 两个开关：`done_rules`（规则生效且为 true 时，给**没做完、还没有完成规则**的步设第一条完成规则，在提议时自动决定，决定记「standing authorization (plan-standing vN)」；只限：同一提议里**不新绑**任何东西（新绑定是 Owner 的事）、只引用运行时自己记着的事实——这一步自己的任务、Owner 在这一步上的签收；**不含**审批和提问（它们是外部记录，运行时可能还没读到，证明不了「还没成立」；复核 314 A2）、manual、CI 结果（全局事实，任何一步都能拿来用）、门禁测试；并且规则在决定那一刻**还不成立**——不能拿已经成立的事实让一步当场做完；复核 313 A2 和自查）。所以要绑审批单、提问的完成规则（如「（你）批发布单」→ 审批单执行）仍走 Owner 卡，一批最多 20 条；`active_on_lease`（为 true 时，控制器每一遍把「有任务领过租约」的未开始步改成在做，原因 `task_leased`，因果 = 这一步的任务第一次 `attempt_leased`）。关掉一个开关算收紧（不用签），打开算放宽（要签）。没有这条规则生效时行为和今天完全一样。两处都先拿计划流的锁、再按当时的数据库时钟读规则，规则在等锁期间过期就什么都不放行（复核 313 A4） | 解析（闭合：非布尔、缺字段、多字段、带参数都拒）、收紧比较；有无规则两种情况下的放行与不放行（已有规则、含 manual、已做完的步都仍走卡）；领过租约的步变在做、没领过的不变、第二遍不再动 |
+| Console | 看板发来的 `round` 是 `{"unknown": "<原因>"}` 时，Agents 页计划栏、首页 Work 的「The plan」卡、Progress 概览都显示「Plan unavailable: <原因>」，不再显示成「没有项」；`round.source` 是 `runtime` 时不再挂「✎ by hand（WORK.md）」 | 解析保留 `unknown` / `source`；三处显示各一条测试；Console lint、类型检查、全部测试、构建都过 |
+
+**规则草案（给 Owner 导入后签，我没签）**：`bifrost-trade-infra/agent-config/agentrt-rules/stg/plan-standing.yaml` 和 `prod/plan-standing.yaml`（两份相同：`done_rules: true`、`active_on_lease: true`，有效期 2026-10-20 到 2027-01-20，未提交），已用平台的解析器读通。注意：签之前对应环境要先跑带这个提交的平台，旧平台不认这种规则会拒。签法同 `OWNER-STEPS-rules-o18-o19.md` 第 2 步（`rule.sh sign <文件>`，PROD 加 `--env prod`）。
+
+**已定（Owner 2026-10-19 04:2x「314 A1 记为已知接受风险」，写进 ADR §5）**（复核 314 A1）：上面那一种竞态要不要关死。A（推荐）记为已知接受风险（同 ADR §5「同一系统用户」那一类：同用户进程本来就能读这些文件），代码里已写明；B 加一个原生 openat 小助手（新依赖），把「在这个目录里打开」做成一次调用；C 去掉读文件，改成工具只收已上传的请求产物号（请求得先经 `put_artifact` 整段传一次，约 160 KB 要经模型）。
+
+**另**（不在这一片，交统筹线程定）：「丢弃的步不再接活」现在由存储层保证（两条写路径都改了）；要像其它计划约束一样由数据库触发器兜底，需要一个新迁移（改 `guard_task`，属 PROD DDL，随发版由 Owner 批）。
+
+**看板（`board2.py` / `roadmap.py`）的改法是下一片**：它们不在这个仓库里（`~/agent-work/status`，没有版本控制，而且正在每 15 秒往 PROD 推），改法和要的三条整链测试见 §6 第 1 段；在导入当天、按 §5 的顺序做，Console 这半已经在这个分支上。
 
 ## 实现记录
 
@@ -152,4 +171,5 @@
   python3 -c 'import json,sys; sys.path.insert(0, "/Users/vision-mac-trader/agent-work/status"); import roadmap; r = roadmap.round_of(open(sys.argv[1], encoding="utf-8").read()); json.dump({"items": [{"key": i["key"], "name": i["name"], "steps": [{"id": x["id"], "t": x["t"], "state": x["state"], "owner": x["owner"], "star": x["star"]} for x in i["steps"]]} for i in r["items"]]}, sys.stdout, ensure_ascii=False)' /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/agent-config/WORK.md
   ```
 
-- **复核**：310（7 A、4 B）、311（4 A、2 B），按停线规矩照改；312 是两轮之后的确认复核，只看改动：311 的 A1、A2 由代码关闭，A3、A4 由本方案 §6 关闭（看板和 Console 的改动属切换当天，尚未实施），B1 关闭，B2 剩一处（单步证据漏了 `cut`）。确认轮没有 A，这条线收；那处 B 照改，并修了它的测试暴露的一处误读（「复核 100–120，10-14」把逗号后的日期读成复核 10–14、「复核 18 次」读成复核 18），两处各配一条在上一个提交上会失败的测试。报告在 `~/agent-work/codex-review-31{0,1,2}/REPORT.md`。
+- **第二片的复核**：313（4 A、1 B）、314（2 A、1 B）照改；315 是两轮之后的确认复核，没有 A，收线，那条 B（FIFO 测试没有截止时间）照改。每条 A 都配了在上一个提交上会失败的测试。314 A1（同用户进程来回替换目录的竞态）没有关，写明了，交统筹线程定（§11「要定」）。报告在 `~/agent-work/codex-review-31{3,4,5}/REPORT.md`。
+- **第一片的复核**：310（7 A、4 B）、311（4 A、2 B），按停线规矩照改；312 是两轮之后的确认复核，只看改动：311 的 A1、A2 由代码关闭，A3、A4 由本方案 §6 关闭（看板和 Console 的改动属切换当天，尚未实施），B1 关闭，B2 剩一处（单步证据漏了 `cut`）。确认轮没有 A，这条线收；那处 B 照改，并修了它的测试暴露的一处误读（「复核 100–120，10-14」把逗号后的日期读成复核 10–14、「复核 18 次」读成复核 18），两处各配一条在上一个提交上会失败的测试。报告在 `~/agent-work/codex-review-31{0,1,2}/REPORT.md`。

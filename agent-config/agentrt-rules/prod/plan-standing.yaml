@@ -1,0 +1,15 @@
+rule_id: plan-standing
+rule_version: 1
+direction: initial
+effective_at: 2026-10-20T00:00:00Z
+expires_at: 2027-01-20T00:00:00Z
+# The plan's standing authorization, beyond its two built-in cases (a step
+# added to an item in progress, the title of a step not started).
+# done_rules: the first done rule of a step not yet done is decided at once
+# instead of on your card, when it binds nothing new, names only the step's
+# own tasks or your sign-off on it (no approval, question, CI run, gate or
+# manual atom), and does not hold already.
+done_rules: true
+# active_on_lease: a planned step becomes active once a task on it has been
+# leased (cause task_leased).
+active_on_lease: true
