@@ -2146,7 +2146,7 @@
 
 **P1 · agentrt · a report that quotes a local path is refused with 422 and the attempt is leased again at once, with no event saying why**
 
-- **状态**：未开始（2026-10-19 17:1x 记，STG 复验 stg-walk-confine「复验」R2-1）
+- **状态**：在做（10-19 18:4x：agentd 侧上线——platform `82bedd54`、06 上 `agentd-82bedd5`：报告与日志尾上传前把本机路径换成 `.`/`..`/`$HOME`/`$TMPDIR` 并掩掉其余前缀，平台仍会拒的行写成 withheld；STG M-24 用 M-22 原题复验，报告 PUT 200、评审收下、没有重派。平台侧「拒收时记事件、按失败结束」由夜班统筹在做）（2026-10-19 17:1x 记，STG 复验 stg-walk-confine「复验」R2-1）
 - **Claim**: on STG (platform 242dcf2d, agentd-f2e4d6b) the cursor review of M-22 passed twice, but its report quoted the prefixes `/Users/`, `/home/`, `/tmp/` (the task was about the local-path pattern). The platform refused the report upload (PUT 422), the persist then failed (409), the attempt was voided and the task leased again 0.3 s later; no event records the refusal. Any report that quotes a log line, an error message or a path can hit this.
 - **Evidence**: `~/agent-work/stg-walk-confine/REPORT.md`「复验」; STG events of M-22; platform log lines of the two PUTs.
 - **Impact**: a correct review can never land; the task loops until its budget is gone (see TD-381). T26 risks it whenever a reviewer quotes `verify.json` or an error with an absolute path.
