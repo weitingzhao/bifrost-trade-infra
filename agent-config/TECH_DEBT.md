@@ -2139,6 +2139,19 @@
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-372
+
+**P3 · agentrt · schema · a capability_score row's identity has no model provider**
+
+- **状态**：未开始（2026-10-18 19:0x 记，复核 286 B1；随下一次 agentrt 迁移一起做）
+- **Claim**: `capability_score` is unique on (executor, model, tool_version, job, task class, core, source, window_end), without `model_provider`. One executor running one model name under two providers in one in-job computation (cursor with `opus` from anthropic and from cursor-mix) makes two groups with one identity. The computation inserts with `ON CONFLICT DO NOTHING`, so the second group has no row; its sample is still in the computation's `capability_scored` event, which is what routing reads, so routing is right and only the table (the record a screen would show) misses it.
+- **Evidence**: `bifrost-platform/api/internal/agentrt/migrations/0001_core.sql:381`; `api/internal/agentrt/store/scores.go` (`ComputeScores`, the insert); `TestTwoProvidersOfOneModel`; `~/agent-work/codex-review-286/REPORT.md` item 1.
+- **Impact**: none on routing; an audit gap in the table for that pairing only, none today (no candidate pairs one executor and model name with two providers).
+- **Fix**: a migration that replaces the unique key with one that has `model_provider` after `executor_actor_id`, then the insert without `ON CONFLICT`; no data to move (append-only rows stay valid). Not done now: an agentrt migration is a Job the Owner creates on STG and PROD, with the PROD DDL approved first, and this alone is not worth that round.
+- **Ratchet**: `TestTwoProvidersOfOneModel` asserts both rows once the key has the provider.
+- 验收: `go test ./internal/agentrt/store -run TestTwoProvidersOfOneModel` with the row assertion added passes.
+- 审批 要（PROD 的 agentrt 迁移，你建 Job）· 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
+
 ### TD-371
 
 **P2 · agentd · no executor shares the host until its whole process tree is held to its workspace**
