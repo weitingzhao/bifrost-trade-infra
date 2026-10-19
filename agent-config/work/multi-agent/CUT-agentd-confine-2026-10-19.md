@@ -208,3 +208,16 @@ cursor-agent（2026.10.16 版的打包代码，`cursor-config` 模块）给每�
 **最小修法**：给 cursor 设 `CURSOR_DATA_DIR`，指向 agentd 根下一个短的、本次尝试自己的目录，比如 `<AGENTD_ROOT>/s/<尝试号的 12 位摘要>`。06 上加 `/projects` 后约 66 个字符。把它加进墙的可写目录和 `checkPins`，尝试结束后由 `afterExecutor` 经根删掉。另外，agentd 包里两个测试假定 `/tmp` 可写（`TestCodexCheckFindsNoSandbox` 里关于 `/tmp` 的那一行、`TestBench` Q10 写 `/tmp/bench-new-$$`），要改成不依赖 `/tmp`（后者用 `$TMPDIR`）。秒败后立即重派、没有退避，是平台侧的问题，另一条线处理。
 
 **退回 d788296**：两版的 registry 条目结构没变（`local.go` 在 d788296..b40867a 之间没改），d788296 能接着交接 b40867a 留下的条目。尝试目录里多出来的 `home/`、`tmp/` 旧版不读，会照旧放着；codex 的主份登录被新版回写过，仍是有效登录，旧版直接用。旧版本里 TD-371 之前的钉子还在（claude 关钩子、codex 收窄），只是没有墙，每次尝试独占主机。构建在本机 `~/agent-work/agentd-build/agentd-d788296-linux-amd64`，sha256 `d3526ea2…11fa`，与 infra `fe32f4a` 的 `agentd.sha256` 一致。
+
+**修法已实现**（Owner 12:2x：「今天直接修复，不要退回旧版」）：平台分支 `w31/cursor-wall`，头 `6677a9cb`，基于主线 `ceaa42a`。
+- cursor 拿到 `CURSOR_DATA_DIR=<AGENTD_ROOT>/s/<输出路径摘要的 24 位十六进制>`，加 `/projects` 后 PROD 74 个字符、STG 78 个字符，都不超过 83。目录由 agentd 建（路上有链接就不启动），列在墙的可写目录里，`checkPins` 核它（没有、多一个、换一个都拒）。setup 的窄墙不含它。结束时经 agentd 根删掉：执行者退出后删一次，每个删登记的结束点（`settle`、恢复里的 uncleared）也删，启动前失败同样删；跟着路上的链接走不出 agentd 根。尝试的 `home/.local`（cursor 的更新器可能往这里下载）和缓存一起删。
+- TD-380：`TestCodexCheckFindsNoSandbox` 不再断言 `/tmp` 那一行；`TestBench` Q10 改写 `$TMPDIR`。本机 Docker 的 Linux 内核里，这两个测试在 `agentd confine` 墙内外都过。
+- 复核 360（0 A、2 B、1 C）、361（0 A、2 B、1 C），B1 在两轮里补齐。按停线规矩收线。
+
+**cursor-agent 2026.10.16 还会写墙外的地方**（复核 360 读打包代码）：
+- 安装目录里的「正在使用」标记（`versions/<v>/.running/<pid>`）：被墙拒，代码里吞掉了错误，不影响。
+- 更新器：写尝试自己 HOME 下的 `.local/share/cursor-agent`，在墙里；失败也吞掉；尝试结束删掉。
+- 调试日志、OOM 诊断、shell 状态文件：都在 `$TMPDIR`，在墙里。
+- askpass socket：写死在 `/tmp`，但 `-p` 无头模式不启动。
+
+**还要在 STG 上看的一条**：cursor 自己的命令沙箱。是否开启由服务端默认值（`cliSandboxDefaultEnabled`）和配置决定。无头模式下如果「开着但不可用」，cursor 会直接 exit 1，报 `Error: Sandbox mode is enabled but not available on this system`。Linux 版的沙箱在墙里能不能用，本机的 Mac 构建证明不了。STG 走查时 cursor 评审若报这一句，改法是给 cursor 加 `--sandbox disabled`（2026.10.16 有这个公开选项，`checkPins` 同步）：写入照样由 agentd 的墙限住，但 ask 模式下只读命令的网络要靠主机出站规则。这一步要统筹线程或 Owner 定。
