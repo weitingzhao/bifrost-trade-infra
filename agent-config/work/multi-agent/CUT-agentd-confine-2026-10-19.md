@@ -198,3 +198,13 @@ systemd-run --quiet --wait --pipe --collect --uid="$u" --gid="$u" \
 - 06 上要做：新版 agentd 装上后再跑一次 `agent-06-owner.sh confine-probe stg`。如果 `/tmp` 仍可写，说明 exec 那条路也一样，codex 照旧独占，再出选项。
 - 不改的：不放宽探针（私有 `/tmp` 也算失败的规矩不变）；不把 codex 改成 `-P` 加自定义配置（会让 exec 换一条路，改动大）。
 - 复核 308（Codex，带上 codex 0.163 的源码副本离线读）：0 A、0 C。确认 `/tmp` 是继承来的真实 `/tmp`（06 上即单元的 PrivateTmp）、`-P :workspace` 有意不读 `[sandbox_workspace_write]`、`exec -s workspace-write` 的旧式路径会排除 `/tmp`，新探针与 exec 在同样配置下解析出同样的文件系统和网络策略。1 B：新探针和真实 exec 都还没在 06 上跑过，§7 第 6 条的「未验收」保持不变。收线（平台提交 `ceaa42a`）。
+
+### 10.2 cursor 在隔离版下起不来（STG 走查 2026-10-19，只读分析）
+
+**原因（已确认，不用再去 06 上看）**：6 次 cursor 评审的日志尾都上传到了 STG，只是因为没有报告，平台不收 persist，日志尾就没挂到尝试上（`agentrt.artifact` 里 17:00:11–17:00:41 的 6 条 `log_tail`，例如 `sha256:3688eb4a…`）。内容都是 `Error: EACCES: permission denied, mkdir '/tmp/.cursor/home-bifrost-agentd-stg-agent-work-agentd-tasks-t-01M5AHP9Q7G4RWDSW5DG-03e3f41'`。
+
+cursor-agent（2026.10.16 版的打包代码，`cursor-config` 模块）给每个工作区建一个放 socket 的目录。为了让 Unix socket 的路径不超长，它按顺序挑第一个不超过 83 个字符的目录：`$CURSOR_DATA_DIR/projects`（没设就是 `~/.cursor/projects`），然后 `$CURSOR_DATA_DIR`（`~/.cursor`），然后 `$TMPDIR/.cursor`，都不行就落到写死的 `/tmp/.cursor`。隔离版把 HOME、TMPDIR 放进尝试目录，06 上这几个路径都有 92–106 个字符，于是落到 `/tmp/.cursor`：在墙外，被拒。没有墙的话，它会写进单元里所有尝试共用的 `/tmp`。旧版用真实 HOME（`/home/bifrost-agentd-stg/.cursor/projects`，41 个字符），所以没事。PROD 用户名短 4 个字符，同样超长，PROD 也会这样。
+
+**最小修法**：给 cursor 设 `CURSOR_DATA_DIR`，指向 agentd 根下一个短的、本次尝试自己的目录，比如 `<AGENTD_ROOT>/s/<尝试号的 12 位摘要>`。06 上加 `/projects` 后约 66 个字符。把它加进墙的可写目录和 `checkPins`，尝试结束后由 `afterExecutor` 经根删掉。另外，agentd 包里两个测试假定 `/tmp` 可写（`TestCodexCheckFindsNoSandbox` 里关于 `/tmp` 的那一行、`TestBench` Q10 写 `/tmp/bench-new-$$`），要改成不依赖 `/tmp`（后者用 `$TMPDIR`）。秒败后立即重派、没有退避，是平台侧的问题，另一条线处理。
+
+**退回 d788296**：两版的 registry 条目结构没变（`local.go` 在 d788296..b40867a 之间没改），d788296 能接着交接 b40867a 留下的条目。尝试目录里多出来的 `home/`、`tmp/` 旧版不读，会照旧放着；codex 的主份登录被新版回写过，仍是有效登录，旧版直接用。旧版本里 TD-371 之前的钉子还在（claude 关钩子、codex 收窄），只是没有墙，每次尝试独占主机。构建在本机 `~/agent-work/agentd-build/agentd-d788296-linux-amd64`，sha256 `d3526ea2…11fa`，与 infra `fe32f4a` 的 `agentd.sha256` 一致。
