@@ -2141,6 +2141,19 @@
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-379
+
+**P3 · agentd · security · the agent units put the agent user's own `~/.local/bin` ahead of node and the system directories on PATH**
+
+- **状态**：未开始（2026-10-19 11:3x 记；codex A 交回时指出，T26 之后改，免得开窗前动 06 的单元）
+- **Claim**: `bifrost-agentd.service`, `bifrost-agentd-stg.service` and `bifrost-agentd-bench@.service` set `PATH=/opt/bifrost/codex/bin:/home/<user>/.local/bin:/usr/local/go/bin:/usr/local/lib/nodejs/current/bin:…`. Since TD-371 option A (platform `b40867a`) the codex process itself runs outside agentd's write wall, held only by its vendor code; if it ever wrote `~/.local/bin/node` (or `go`), a later attempt's executor would run it.
+- **Evidence**: `bifrost-trade-infra/scripts/agent-host/bifrost-agentd*.service` PATH lines; the same order in `confine-probe.sh`, `codex-sandbox-probe.sh`, `check-agent-06.sh:38`, `prepare-agent-06.sh:148`, `agent-06-owner.sh:474`; `agent-config/work/multi-agent/CUT-agentd-confine-2026-10-19.md` §10.
+- **Impact**: one of the residuals Owner accepted with option A (「codex 进程本身靠厂商代码」); a vendor bug or a hostile model output that escapes codex's own checks could plant a program every later attempt runs.
+- **Fix**: put `~/.local/bin` last in all seven places (claude and cursor-agent are only there, so they are still found), reinstall the units with `update-agentd`, and rerun `confine-probe stg|prod` (the codex proof binds the PATH it was proven with).
+- **Ratchet**: a test over the unit files and the probe scripts: no directory the agent user can write comes before `/usr/local/lib/nodejs/current/bin`, `/usr/local/go/bin` or `/usr/bin` on PATH.
+- 验收: that test passes on main and the two probes pass on 06 after the reinstall.
+- 审批 不需要（只改 infra 脚本；06 上装要你一次）· 代价 S · 风险 low · repos: bifrost-trade-infra
+
 ### TD-378
 
 **P3 · testing · a test of the admission-guard check fails on main: its fake `subprocess.run` answers the Application read too**
@@ -2239,7 +2252,7 @@
 
 **P2 · agentd · no executor shares the host until its whole process tree is held to its workspace**
 
-- **状态**：在做（10-19 10:36 06 上 STG 写墙探针：Landlock ABI 4，deterministic、cursor、claude 的 11 项全过；codex 没过——codex 0.163 的沙箱要 bubblewrap（`filesystem-restricted execution requires bubblewrap to isolate app-server sockets`），旧的 Landlock 模式没了，agentd 按设计退回「codex 不进墙、独占主机」，安全上没退步，但 codex 的活仍一次一件；选项见切法 §10；Owner 10-19 10:4x 选 A（codex 在墙外用它自己的 bubblewrap 沙箱，钉子齐、沙箱经探针证明就算受限，可以共享主机；「codex 进程本身靠厂商代码」记为残留），agentd-confine 会话在做。10-19：修法进 platform main `35eafb7`（Landlock 写墙、每次尝试自己的配置目录、setup 与执行者分墙，复核 300–303 收线）；06 用 `agentd-35eafb7` 待你装，装后 `agent-06-owner.sh confine-probe stg|prod` 两个都过、STG 上 codex、cursor、claude 各真跑一次，才进「待你签收」；第 2 轮先接受的两处另记 TD-376、TD-377）（2026-10-18 14:1x 记，复核 277 A2、278 A2）
+- **状态**：在做（10-19 10:36 06 上 STG 写墙探针：Landlock ABI 4，deterministic、cursor、claude 的 11 项全过；codex 没过——codex 0.163 的沙箱要 bubblewrap（`filesystem-restricted execution requires bubblewrap to isolate app-server sockets`），旧的 Landlock 模式没了，agentd 按设计退回「codex 不进墙、独占主机」，安全上没退步，但 codex 的活仍一次一件；选项见切法 §10；Owner 10-19 10:4x 选 A（codex 在墙外用它自己的 bubblewrap 沙箱，钉子齐、沙箱经探针证明就算受限，可以共享主机；「codex 进程本身靠厂商代码」记为残留），修法进 platform main `b40867a`（codex 受限但不进墙：探针在单元限制下证明 codex 自己的沙箱，执行时程序与 PATH 必须和证明时一致；复核 304–307 收线）；06 待装 `agentd-b40867a`，装后 `confine-probe stg|prod` 都过、STG 上 codex 真跑一次带 setup 的尝试，才进「待你签收」；PATH 顺序那条残留记 TD-379。10-19：修法进 platform main `35eafb7`（Landlock 写墙、每次尝试自己的配置目录、setup 与执行者分墙，复核 300–303 收线）；06 用 `agentd-35eafb7` 待你装，装后 `agent-06-owner.sh confine-probe stg|prod` 两个都过、STG 上 codex、cursor、claude 各真跑一次，才进「待你签收」；第 2 轮先接受的两处另记 TD-376、TD-377）（2026-10-18 14:1x 记，复核 277 A2、278 A2）
 - **Claim**: several attempts share 06 only when each can write nothing outside its own workspace (`share.go` `confined`). None qualifies yet. codex: its `workspace-write` sandbox also writes the shared temporary directories, and the host user's configuration can add writable roots (`sandbox_workspace_write.writable_roots`), which agentd neither pins nor checks. claude: the `Read,Grep,Glob` tool list does not reach command hooks in the user's or the repository's `.claude/settings.json` (a `UserPromptSubmit` hook runs as the user). cursor in ask mode: likewise `~/.cursor/hooks.json` and a repository's `.cursor/hooks.json` (`beforeSubmitPrompt`). A hook an earlier, unsandboxed setup left, or one an implementer put in its branch for its reviewer, runs as the agentd user.
 - **Evidence**: `bifrost-platform/api/internal/agentd/share.go` (`confined`), `api/internal/agentd/executors.go` (`codexExecutor`, `claudeExecutor`, `cursorExecutor`); reviews `~/agent-work/codex-review-277/REPORT.md` item 2, `~/agent-work/codex-review-278/REPORT.md` item 2.
 - **Impact**: no loss against round 2 so far (one attempt at a time); 2.4's "06 runs two or three at once" waits for this. A repository hook running in a reviewer is a risk with or without concurrency.

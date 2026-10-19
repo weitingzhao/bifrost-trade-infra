@@ -103,7 +103,8 @@ agentd 在 Linux 上启动时（领活之前）自己跑一遍探针：在 `<roo
 3. 同一任务的两次尝试同时在一台主机上：sibling 目录是任务级的，两者都能写；平台不会同时把一个任务租给同一主机两次（租约丢了 agentd 先杀旧组），不另加锁。
 4. setup 留下的、`setsid` 甩掉进程组的进程（在窄墙里）还能在 `--refuse` 检查之后、cursor 读之前往工作区放 `.cursor/hooks.json`；钩子跑在 cursor 的墙里。事后 `checkChanges` 会让留了执行者配置的尝试失败，但钩子自己删掉文件就看不出来。要彻底关，得按尝试放进 cgroup（单元加 `Delegate=yes`，结束时 `cgroup.kill`）——改单元，交统筹线程定。
 5. 进程组：执行者 `setsid` 甩掉组（v5 §6.2 已接受）；甩掉的进程仍在它自己的墙里。
-6. codex 探针用的是 `codex sandbox -P :workspace`，生产跑的是 `codex exec -s workspace-write`（复核 300 B6）：探针证明 0.163 的 legacy Landlock 沙箱能在墙里跑命令、命令没网；探针**没有**证明 `codex exec` 在墙里的命令能启动、有没有网、可写目录是什么（复核 301 B：两条路径对 legacy 开关或配置的处理可能不同，最坏是 exec 仍用 bubblewrap、mount 被外层墙拒、命令全失败）。STG 走查时要跑一次带 setup、Go 模块缓存和真实命令的 codex 尝试。写墙外这件事不靠 codex 自己的沙箱（外层墙兜住）。
+6. codex 的证明走 `codex sandbox -P :workspace`，生产跑的是 `codex exec -s workspace-write`（复核 301 B、304 B2）：两者用同一组钉子，但探针证明不了 exec 的命令真按这组配置起、能用 Go 模块缓存、写和网的限制都一样。按 §10 的 A，codex 不在 agentd 的墙里，exec 路径的配置差异**没有外层墙兜底**，所以 STG 走查必须真跑一次带 setup、Go 模块缓存和真实命令的 codex 尝试，分别看允许的写、被拒的写和网络。
+7. **codex 进程本身靠厂商代码**（Owner 2026-10-19 选 §10 的 A 时定为残留）：codex 不在 agentd 的墙里。它起的命令由它自己的 bubblewrap 沙箱在内核层限住（根只读，只有工作区和 `a.Out/tmp` 可写，命令没网；**新版探针在 06 上通过之后才算证明，截至 2026-10-19 11:0x 还没跑**）；codex 进程自己写的东西（它的 `CODEX_HOME`、`report.md`、在进程里应用补丁）靠 codex 按 `writable_roots` 和 `approval_policy="never"` 做的检查，codex 出了 bug 就可能写到别的尝试。codex 的 setup 命令照样各自套 agentd 的窄墙；agentd 自己对 codex 工作区的 git 和文件操作也照样进墙、不跟链接。长远的修法是 §10 的 C（每个槽位一个系统用户）。
 
 ## 8. 06 上要 Owner 跑一次的探针
 
@@ -171,4 +172,15 @@ systemd-run --quiet --wait --pipe --collect --uid="$u" --gid="$u" \
 
 不选的：把 codex 钉回还支持 legacy Landlock 的旧版本。0.163 已改成必须用 bubblewrap，退版本会落后厂商修复，下一次升级还会撞上同一个问题。
 
-**选 A 要改的**（不改公开接口，Owner 定了再做）：`proveCodex` 改成不套 agentd 墙、在单元限制下跑 `codex sandbox`（同一组钉子），探针加一项「codex 沙箱里写工作区外被拒」。`Wall.Executors["exec:codex"]` 的含义改成「codex 自己的沙箱证明过」。Run 里 codex 不套墙前缀、不加 legacy 开关，`checkPins` 按这个来；setup 仍带 `--write`（命令各自套窄墙）。§7 加一条残留。测试：`TestCheckPins` 的 codex 分支、`TestConfined`，以及「codex 只有在沙箱证明过时才算受限」的测试。
+**Owner 2026-10-19 10:4x 定：选 A。**原话（统筹线程转）：「codex 隔离选 A：codex 在墙外用它自己的 bubblewrap 沙箱，钉子齐、沙箱经探针证明就算受限，可以共享主机；『codex 进程本身靠厂商代码』记为残留」。残留写在 §7 第 7 条。实现在平台分支 `w31/confine-codex`（基于主线 `2b101cd`）。
+
+**选 A 要改的**（不改公开接口；已按下面做）：`proveCodex` 改成不套 agentd 墙、在单元限制下跑 `codex sandbox`（同一组钉子），探针加一项「codex 沙箱里写工作区外被拒」。`Wall.Executors["exec:codex"]` 的含义改成「codex 自己的沙箱证明过」。Run 里 codex 不套墙前缀、不加 legacy 开关，`checkPins` 按这个来；setup 仍带 `--write`（命令各自套窄墙）。§7 加一条残留。测试：`TestCheckPins` 的 codex 分支、`TestConfined`，以及「codex 只有在沙箱证明过时才算受限」的测试。
+
+**实现（`w31/confine-codex`）**：`Wall` 分出 `holds`（受限，可共享主机）和 `wraps`（跑在 agentd 墙里）；codex 是 `selfSandboxed`，受限但不进墙。`Run` 对受限的尝试都跑 `checkPins`，只给进墙的加墙前缀；有墙的主机上 setup 一律带窄墙（codex 也是）。codex 的命令去掉 legacy 开关。`proveCodex` 不套墙，在单元限制下跑 `codex sandbox -P :workspace`（与 `codexExecutor` 同一组钉子、同一个 codex 程序），里面的检查要：写工作区和临时目录成功；写 codex 家目录、追加和截断工作区外的一个哨兵文件、改名和链接出去、在 `/tmp` 建文件（私有的 `/tmp` 也不行）都被拒（EROFS / EACCES / EXDEV / EPERM 才算拒绝）；网络命名空间不是主机的，向两个文档地址（IPv4 的 192.0.2.1:443、IPv6 的 2001:db8::1）起 TCP 连接被拒或不可达；agentd 自己先在沙箱外起 IPv4 连接作对照，主机本身没有路由就不算证明；父进程再核哨兵内容没变。证明过之后，`Wall` 记下这个 codex 程序的绝对路径和证明时的 PATH，受限的 codex 尝试必须正好用这两样，工作目录必须是自己的工作区（复核 304 A2）。网络这项证明的是「网络命名空间不是主机的，往两个文档地址（IPv4 的 192.0.2.1:443、IPv6 的 2001:db8::1）起连接被拒或不可达」；没有读命名空间里的接口和路由表，也没测 UDP、本机服务和别的地址，「命令完全没网」仍靠 codex 的命名空间配置和 STG 实跑（复核 304 B1、305 B）。PATH 只留绝对目录（`AllowedEnv`），证明、执行和核对用的是同一份：相对项会在工作区里找到另一个程序，比如 codex 包装脚本要的 node（复核 305 A）。codex 程序本身（文件和所在目录）或这份 PATH 里有哪个目录，沿路的链接逐个解析后落在 agentd 的目录（`AGENTD_ROOT`，尝试都在里面写）之内，或者有解析不了的链接（悬空、成环），codex 就不做证明、不算受限、照旧独占（复核 306 A、307）：那里的目录证明之后能被某次尝试的 setup 放进别的程序。不算受限的 codex 仍按原样启动、独占主机，和 TD-371 之前一样；06 的单元 PATH 全是系统和安装目录，不触发这一条。另一点记作残留：06 单元的 PATH 里 agent 用户可写的 `~/.local/bin` 排在 node 所在目录之前，能往那里放 `node` 的只有不在墙里的代码（codex 进程本身、早先没有墙时的运行），归入 §7 第 7 条；要关掉得把单元的 PATH 顺序改成系统目录在前（Owner 改单元）。探针的总判定改成「每个执行者都被限住（codex 靠它自己的沙箱）」。06 上要做的：新版 agentd 装上后再跑一次 `agent-06-owner.sh confine-probe stg`（`confine-probe.sh` 不用改），STG 走查真跑一次 codex（§7 第 6 条）。
+
+| 复核 | 结论 | 处理 |
+|---|---|---|
+| 307（窄确认，`5210ce7`） | 306 B 已关。2 A（都要依赖特定的链接状态，06 现在的安装不触发）：① 只查了 codex 所在目录，没解析 codex 文件本身的链接，它可能指进 agentd 目录；② PATH 里指向 agentd 目录、目标还没建的悬空链接被当成普通的不存在路径 | 沿路逐个解析链接（`resolvePath`），codex 文件本身也查，解析不了的不信任；`TestCodexHeldNotThroughLinksIntoAgentdsDirectory` 三项在旧提交上都失败。**按停线规矩（10-17）收线** |
+| 306（确认轮，`1a75eb9`） | 305 A 的相对 PATH 已关，三处 PATH 一致。1 A（有条件）：绝对的 PATH 目录如果在尝试能写的地方（agentd 的目录里），证明后 setup 能往那里放一个 node。1 B：§10 前半句仍说「没有出口路由」 | A：codex 或其 PATH 有目录落在 agentd 目录内（含链接、未建的目录）就不证明、不算受限（`codexHeld` / `pathOutside`，先查再跑）；`TestCodexHeldNotWithAPathInAgentdsDirectory`，去掉这一查就失败。B：改前半句 |
+| 305（第 2 轮，`2f5aa52`） | 304 A1 已关，A2 的原变异已挡。1 A：PATH 里有相对项（`.`、空项）时，codex 的 npm 包装脚本 `#!/usr/bin/env node` 会在工作区里找 node，跑起来的不是证明过的程序（06 单元的 PATH 全是绝对目录，所以是有条件的）。1 B：网络证明的措辞仍比检查强 | A：`AllowedEnv` 只留 PATH 的绝对目录，证明、执行、核对同一份；`TestCodexWrapperFindsTheTrustedInterpreter` 在旧提交上失败。B：收窄措辞（代码注释和本节） |
+| 304（第 1 轮，`b3e896d`） | 2 A：① codex 的证明没查 `/tmp`，墙外只看了一处；② `checkPins` 没钉住实际执行的程序（PATH、工作目录），PATH 指到工作区就能起另一个 codex。2 B：③ 网络只测了一个 IPv4 目标；④ §7 提前说「06 上证明过」，exec 和 sandbox 两条路径的差别没写清 | ① 两种模式共用一组检查（`/tmp`、墙外哨兵文件、改名、链接）；② 证明时记下 codex 绝对路径和 PATH，执行时必须一样，工作目录必须是自己的工作区；③ 加独立网络命名空间和 IPv6；④ 改 §7 第 6、7 条。回归测试在旧提交上失败 |
