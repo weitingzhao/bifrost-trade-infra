@@ -27,7 +27,7 @@
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd -P)
-binary=agentd-8948a5c-linux-amd64
+binary=agentd-e77e4ac-linux-amd64
 codex_version=0.163.0
 codex_prefix=/opt/bifrost/codex
 prod=bifrost-agentd
@@ -60,7 +60,9 @@ systemctl is-active --quiet systemd-resolved || die "systemd-resolved is not run
 step "packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
-apt-get install -y -q --no-install-recommends nftables git ca-certificates curl xz-utils openssl python3
+# python3-venv: the benchmark's Python and shell questions run pytest from a
+# virtual environment (agentd bench; review 287 B13).
+apt-get install -y -q --no-install-recommends nftables git ca-certificates curl xz-utils openssl python3 python3-venv
 
 step "users $prod, $stg"
 for u in "$prod" "$stg"; do
@@ -215,9 +217,7 @@ install -d -m 755 /usr/local/libexec/bifrost
 install -m 755 "$here/../$binary" /usr/local/libexec/bifrost/agentd
 install -m 644 "$here/bifrost-agentd.service" /etc/systemd/system/bifrost-agentd.service
 install -m 644 "$here/bifrost-agentd-stg.service" /etc/systemd/system/bifrost-agentd-stg.service
-install -m 644 "$here/bifrost-agentd-bench@.service" /etc/systemd/system/bifrost-agentd-bench@.service
 systemctl daemon-reload
 systemd-analyze verify /etc/systemd/system/bifrost-agent-egress.service /etc/systemd/system/bifrost-agentd.service /etc/systemd/system/bifrost-agentd-stg.service
-systemd-analyze verify bifrost-agentd-bench@codex.service
 
 echo "prepared: egress rules on; $binary installed as /usr/local/libexec/bifrost/agentd; both agentd services installed and stopped"

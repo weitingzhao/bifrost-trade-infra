@@ -5,10 +5,12 @@
 # environment and sandbox, so it hands the run in to the STG platform as
 # agent-06-stg; it stops the STG agentd while it runs (they share the user's
 # host lock) and starts it again when it ends, however it ends. The PROD
-# agentd is another user and is not touched. A run started again the same day
-# (UTC) goes on from the questions it has; once all are done it hands the run
-# in again, which the platform records once. Started by agent-06-owner.sh
-# bench <executor>; installed by prepare-agent-06.sh.
+# agentd is another user and is not touched. Its build is agentd-bench, beside
+# the daemons' agentd: putting it there stops nothing (review 287 B8). The
+# STG agentd's task checkouts are hidden from it: they hold every fix's
+# commit (review 287 B3). A run started again the same day (UTC) goes on from
+# the questions it has. Installed and started by bench-on-06.sh, which
+# agent-06-owner.sh bench <executor> runs.
 [Unit]
 Description=Bifrost agentd benchmark run with exec:%i (STG platform, host agent-06-stg)
 Wants=network-online.target
@@ -23,7 +25,7 @@ User=bifrost-agentd-stg
 Group=bifrost-agentd-stg
 WorkingDirectory=/home/bifrost-agentd-stg/agent-work/agentd
 # $$ is a literal $ for the shell, %% a literal % (systemd.service, "Command lines").
-ExecStart=/bin/sh -c 'exec /usr/local/libexec/bifrost/agentd bench --questions /usr/local/share/bifrost/benchmark/questions.json --executor "exec:$$1" --run-id "bench-$$(date -u +%%Y%%m%%d)-$$1"' bench %i
+ExecStart=/bin/sh -c 'exec /usr/local/libexec/bifrost/agentd-bench bench --questions /usr/local/share/bifrost/benchmark/questions.json --executor "exec:$$1" --run-id "bench-$$(date -u +%%Y%%m%%d)-$$1"' bench %i
 ExecStopPost=+/bin/systemctl start --no-block bifrost-agentd-stg.service
 Environment=HOME=/home/bifrost-agentd-stg
 Environment=USER=bifrost-agentd-stg
@@ -54,6 +56,7 @@ ProtectSystem=strict
 ProtectHome=tmpfs
 BindPaths=/home/bifrost-agentd-stg
 ReadWritePaths=/home/bifrost-agentd-stg
+InaccessiblePaths=-/home/bifrost-agentd-stg/agent-work/agentd/tasks
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes

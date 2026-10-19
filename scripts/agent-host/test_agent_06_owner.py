@@ -204,42 +204,50 @@ class StopStart(unittest.TestCase):
             self.assertEqual(self.active(), set(), fail)
 
 
-    def bench(self, executor: str, questions: str = '[{"id": "Q01"}]') -> subprocess.CompletedProcess:
-        # update-agentd as in update() (copy and prepare stubbed), then the run's start on 06
+    def bench(self, executor: str, questions: str = '[{"id": "Q01"}]', sha: str = "") -> subprocess.CompletedProcess:
+        # The real step: the build checked here, the stage sent over "ssh" (it runs here, its tar unpacks
+        # under HOME), bench-on-06.sh run through the fake sudo, which records it.
         for u in ("bifrost-agentd.service", "bifrost-agentd-stg.service"):
             (self.units / u).write_text("")
         build = Path(self.env["HOME"]) / "build"
         build.mkdir(exist_ok=True)
-        (build / "agentd-x").write_text("agentd")
-        (build / "agentd.sha256").write_text(subprocess.run(["shasum", "-a", "256", "agentd-x"], cwd=build, capture_output=True, text=True).stdout)
+        binary = build / "agentd-abcdef0-linux-amd64"
+        binary.write_text("agentd")
+        sums = sha or subprocess.run(["shasum", "-a", "256", binary.name], cwd=build, capture_output=True, text=True).stdout
+        (build / "agentd.sha256").write_text(sums)
+        for f in ("bifrost-agentd-bench@.service", "bench-on-06.sh"):
+            (build / f).write_text((HERE / f).read_text())
         q = Path(self.env["HOME"]) / "questions.json"
         q.write_text(questions)
-        stub = (f'BINARY="{build}/agentd-x"; HERE="{build}"; '
-                'step_copy() { echo copy >> "$FAKE_UNITS/calls"; }; '
-                'step_prepare() { echo prepare >> "$FAKE_UNITS/calls"; }; ')
-        script = f'source "{HERE / "agent-06-owner.sh"}"; node_ssh() {{ bash -c "$1"; }}; {stub} step_bench {executor}'
+        script = f'source "{HERE / "agent-06-owner.sh"}"; node_ssh() {{ bash -c "$1"; }}; BINARY="{binary}"; HERE="{build}"; step_bench {executor}'
         return subprocess.run(["bash", "-c", script], env={**self.env, "BENCH_QUESTIONS": str(q)}, capture_output=True, text=True, timeout=60)
 
-    def test_bench_puts_the_build_on_then_starts_the_run(self) -> None:
+    def test_bench_sends_the_stage_and_stops_nothing(self) -> None:
         r = self.bench("codex")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        calls = [" ".join(c.split()[:2]) if c.startswith("systemctl") and "bench" not in c else c
-                 for c in (self.units / "calls").read_text().splitlines()]
-        order = [c for c in calls if c in ("systemctl stop", "copy", "prepare", "systemctl enable") or c.startswith(("install", "systemctl start"))]
-        self.assertEqual(order, ["systemctl stop", "copy", "prepare", "systemctl enable",
-                                 "install /usr/local/share/bifrost/benchmark/questions.json",
-                                 "systemctl start --no-block bifrost-agentd-bench@codex.service"])
-        self.assertEqual((self.units / "questions.json").read_text(), '[{"id": "Q01"}]')
-        self.assertIn("running: bifrost-agentd-bench@codex.service", r.stdout)
+        calls = (self.units / "calls").read_text().splitlines()
+        sent = [c for c in calls if c.startswith("check-agent-06 bash")]
+        self.assertEqual(len(sent), 1, calls)
+        self.assertRegex(sent[0], r"bench-stage/bench-on-06\.sh codex agentd-abcdef0-linux-amd64 [0-9a-f]{64}$")
+        self.assertFalse(any(c.startswith("systemctl stop") for c in calls), calls)
+        self.assertEqual(self.active(), {"bifrost-agentd.service", "bifrost-agentd-stg.service"})
+        stage = Path(self.env["HOME"]) / "bench-stage"
+        self.assertEqual(sorted(p.name for p in stage.iterdir()),
+                         ["agentd-abcdef0-linux-amd64", "bench-on-06.sh", "bifrost-agentd-bench@.service", "questions.json"])
+        self.assertEqual((stage / "questions.json").read_text(), '[{"id": "Q01"}]')
 
-    def test_bench_refuses_claude_and_a_set_that_is_not_one(self) -> None:
-        r = self.bench("claude")
-        self.assertNotEqual(r.returncode, 0)
-        self.assertIn("read-only tools", r.stderr)
+    def test_bench_refuses_cursor_claude_a_bad_build_and_a_bad_set(self) -> None:
+        for ex, why in (("cursor", "TD-371"), ("claude", "read-only tools")):
+            r = self.bench(ex)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn(why, r.stderr)
         r = self.bench("codex", questions="{}")
         self.assertNotEqual(r.returncode, 0)
-        self.assertIn("nothing was stopped", r.stderr)
-        self.assertFalse((self.units / "calls").exists() and "systemctl stop" in (self.units / "calls").read_text())
+        self.assertIn("nothing was sent", r.stderr)
+        r = self.bench("codex", sha="0" * 64 + "  agentd-abcdef0-linux-amd64\n")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("nothing was sent", r.stderr)
+        self.assertFalse((self.units / "calls").exists() and "bench-on-06" in (self.units / "calls").read_text())
 
 
 if __name__ == "__main__":

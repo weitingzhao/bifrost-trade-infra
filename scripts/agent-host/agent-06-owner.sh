@@ -29,10 +29,10 @@
 #                         start both and check them running
 #   stg-vendors           give the STG agentd claude and cursor-agent too: stop
 #                         both, copy, prepare, vendor-creds stg, start both
-#   bench codex|cursor    put the agentd build on 06 (update-agentd), then run the
-#                         benchmark question set with that executor there; the
+#   bench codex           run the benchmark question set with codex on 06 (the
+#                         build goes beside the daemons' as agentd-bench); the
 #                         STG agentd stops until the run ends (hours)
-#   bench-log codex|cursor   how that run is going (the last lines of its log)
+#   bench-log codex       how that run is going (the last lines of its log)
 #   retire-mac            stop the agentd on this Mac
 #   probe-protection      run probe-gitea-protection.sh on 06 as the STG agentd
 #                         user against bifrost/primary-probe (Gitea-primary cut,
@@ -49,7 +49,7 @@ ADDR=192.168.10.79
 NODE_KEY=$HOME/.bifrost-owner/ssh/node
 WORKSPACE=$HOME/Desktop/stocks
 HERE=$(cd "$(dirname "$0")" && pwd -P)
-BINARY=$HOME/agent-work/agentd-build/agentd-8948a5c-linux-amd64
+BINARY=$HOME/agent-work/agentd-build/agentd-e77e4ac-linux-amd64
 STATE_DIR=$HOME/bifrost-backups/event-radar-input/2026-10-17_node06_pvc-6bf6eca6
 BACKUP=$STATE_DIR/event-radar-input-pvc.tar.gz
 EVENT_RADAR_DIR=pvc-6bf6eca6-5968-4874-ae93-22b8a2a23fab_research_event-radar-input-pvc
@@ -617,27 +617,38 @@ step_stg_vendors() {
 }
 
 # bench <executor>: the benchmark question set with that executor on 06 (W-31
-# 2.4 slice ⑤; the Owner 2026-10-18). The agentd build with the bench goes on
-# first (update-agentd: an older agentd would take "bench" for no argument and
-# run as the daemon); then the question set, through the connection that
-# starts the run. The bench unit stops the STG agentd while it runs and starts
-# it again when it ends; this step only starts it. claude is not offered: its
-# executor has read-only tools and cannot make a change.
+# 2.4 slice ⑤; the Owner 2026-10-18). The agentd build (checked against
+# agentd.sha256 here, and again there), the bench unit, bench-on-06.sh and the
+# question set go over one connection; bench-on-06.sh installs the build as
+# agentd-bench and starts the run. Nothing is stopped first: the PROD agentd
+# is not touched, and the unit stops the STG agentd only once the run starts
+# (review 287 B8). Only codex for now: cursor runs outside any sandbox and
+# could rewrite the run's results (TD-371); claude's executor has read-only
+# tools and cannot make a change.
 step_bench() {
-  local ex=${1:-} unit questions
+  local ex=${1:-} questions sum stage
   questions=${BENCH_QUESTIONS:-$HERE/../../agent-config/work/multi-agent/benchmark/questions.json}
-  case "$ex" in codex | cursor) ;; *) die "say codex or cursor (claude's executor has read-only tools: it cannot make a change)" ;; esac
+  case "$ex" in
+    codex) ;;
+    cursor) die "cursor is not offered yet: it runs outside any sandbox and could rewrite the run's results (TD-371)" ;;
+    *) die "say codex (claude's executor has read-only tools: it cannot make a change)" ;;
+  esac
+  (cd "$(dirname "$BINARY")" && shasum -a 256 -c "$HERE/agentd.sha256") || die "$BINARY does not match agentd.sha256; nothing was sent"
   python3 -I -c 'import json, sys; q = json.load(open(sys.argv[1])); sys.exit(0 if isinstance(q, list) and q else 1)' "$questions" ||
-    die "$questions is not a question set; nothing was stopped"
-  step_update_agentd
-  unit=bifrost-agentd-bench@$ex.service
-  node_ssh "f=\$(mktemp) && cat > \"\$f\" && sudo install -D -m 644 \"\$f\" /usr/local/share/bifrost/benchmark/questions.json && rm -f \"\$f\" && sudo systemctl start --no-block $unit && sleep 15 && systemctl is-active --quiet $unit && echo 'running: $unit (the STG agentd is stopped until it ends)'" < "$questions" ||
-    die "the run did not start; the STG agentd may be stopped (start stg)"
+    die "$questions is not a question set; nothing was sent"
+  sum=$(shasum -a 256 "$BINARY" | cut -d' ' -f1)
+  stage=$TMPD/bench
+  mkdir -p "$stage"
+  cp "$BINARY" "$HERE/bifrost-agentd-bench@.service" "$HERE/bench-on-06.sh" "$stage/"
+  cp "$questions" "$stage/questions.json"
+  COPYFILE_DISABLE=1 tar -C "$stage" --format ustar -cf - . |
+    node_ssh "rm -rf ~/bench-stage && mkdir -p ~/bench-stage && tar -xf - -C ~/bench-stage && sudo bash ~/bench-stage/bench-on-06.sh $ex $(basename "$BINARY") $sum" ||
+    die "the run did not start (see above); nothing on 06 was stopped by this step"
   say "follow it with: bash agent-06-owner.sh bench-log $ex"
 }
 
 step_bench_log() {
-  case "${1:-}" in codex | cursor) ;; *) die "say codex or cursor" ;; esac
+  case "${1:-}" in codex) ;; *) die "say codex" ;; esac
   node_ssh "systemctl is-active bifrost-agentd-bench@$1.service; sudo journalctl -u bifrost-agentd-bench@$1.service -n 60 --no-pager -o cat"
 }
 
