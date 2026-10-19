@@ -77,3 +77,17 @@ def test_a_status_that_changed_between_the_reads_does_not_count() -> None:
 
 def test_times_with_nanoseconds_parse() -> None:
     assert probe.parse_time("2026-10-19T02:14:41.057074107Z") == datetime(2026, 10, 19, 2, 14, 41, 57074, tzinfo=timezone.utc)
+
+
+def m(n: int, action: str | None) -> dict:
+    return {"mission_id": f"M-{n}", "scope_json": {} if action is None else {"max_action": action}}
+
+
+def test_the_goal_mission_is_the_first_that_may_act() -> None:
+    # a brief and a chief answer come first; the goal is M-11; a later goal is not it
+    assert probe.goal_mission([m(12, "branch"), m(9, "none"), m(11, "branch"), m(10, "none")]) == "M-11"
+
+
+def test_no_goal_mission_yet() -> None:
+    assert probe.goal_mission([m(9, "none"), m(10, None)]) is None
+    assert probe.goal_mission([]) is None

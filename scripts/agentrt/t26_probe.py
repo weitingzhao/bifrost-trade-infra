@@ -3,6 +3,12 @@
 progress page says of one mission with the rows it is computed from, and count every difference.
 
     python3 scripts/agentrt/t26_probe.py --env prod --mission M-17 --hours 9 --out ~/agent-work/t26/probe.jsonl
+    python3 scripts/agentrt/t26_probe.py --env prod --mission auto --hours 9 --out ~/agent-work/t26/probe.jsonl
+
+With --mission auto the probe starts before the Owner gives the goal (the coordinator takes no turn in the
+window, so nobody can tell it the number): it notes the newest mission at its start, and the first later
+mission that may act (scope max_action other than "none") is the goal's; the chief's answers and scheduled
+briefs (max_action "none") are passed over. Until then each tick records {"waiting_for_goal": true}.
 
 Each tick reads GET /api/v1/agentrt/progress, then the rows (GET /tasks?mission=, GET /attempts/{id} for
 every attempt the mission's events lease, GET /hosts), then the progress page again. A difference counts
@@ -24,6 +30,7 @@ import json
 import re
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -107,6 +114,43 @@ class Platform:
             return json.load(resp)
 
 
+def goal_mission(missions: list[dict]) -> str | None:
+    """The first mission, by number, that may act: a goal's, not the chief's answer or a brief."""
+    def number(m: dict) -> int:
+        return int(m["mission_id"].split("-")[1])
+    for m in sorted(missions, key=number):
+        action = (m.get("scope_json") or {}).get("max_action")
+        if action and action != "none":
+            return m["mission_id"]
+    return None
+
+
+def mission(p: Platform, n: int) -> dict | None:
+    try:
+        m = p.get(f"missions/M-{n}")
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        raise
+    return m.get("mission") or m
+
+
+def newest(p: Platform) -> int:
+    """The highest mission number now: missions are numbered without gaps from M-1."""
+    n = 0
+    while mission(p, n + 1) is not None:
+        n += 1
+    return n
+
+
+def missions_after(p: Platform, base: int) -> list[dict]:
+    out, n = [], base + 1
+    while (m := mission(p, n)) is not None:
+        out.append(m)
+        n += 1
+    return out
+
+
 def tick(p: Platform, mission: str) -> dict:
     now = datetime.now(timezone.utc)
     before = p.get("progress")
@@ -124,19 +168,36 @@ def tick(p: Platform, mission: str) -> dict:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--env", choices=sorted(BASES), required=True)
-    ap.add_argument("--mission", required=True)
+    ap.add_argument("--mission", required=True, help="M-<n>, or auto: the first goal mission after the start")
     ap.add_argument("--every", type=int, default=300, help="seconds between ticks")
     ap.add_argument("--hours", type=float, default=9.0)
     ap.add_argument("--out", required=True)
     a = ap.parse_args(argv)
-    if not re.fullmatch(r"M-[0-9]+", a.mission):
-        sys.exit("t26_probe: --mission is M-<n>")
+    if a.mission != "auto" and not re.fullmatch(r"M-[0-9]+", a.mission):
+        sys.exit("t26_probe: --mission is M-<n> or auto")
     p, out = Platform(a.env), Path(a.out).expanduser()
     out.parent.mkdir(parents=True, exist_ok=True)
+    target = None if a.mission == "auto" else a.mission
+    base = newest(p) if target is None else 0
+    if target is None:
+        with out.open("a") as f:
+            f.write(json.dumps({"at": datetime.now(timezone.utc).isoformat(), "start": True, "missions_before": base}) + "\n")
     end, ticks, bad, failed = time.time() + a.hours * 3600, 0, 0, 0
     while time.time() < end:
         try:
-            line = tick(p, a.mission)
+            if target is None:
+                later = missions_after(p, base)
+                target = goal_mission(later)
+                if target is None:
+                    line = {"at": datetime.now(timezone.utc).isoformat(), "waiting_for_goal": True,
+                            "passed_over": [m["mission_id"] for m in later]}
+                    with out.open("a") as f:
+                        f.write(json.dumps(line) + "\n")
+                    time.sleep(min(a.every, 60))
+                    continue
+                with out.open("a") as f:
+                    f.write(json.dumps({"at": datetime.now(timezone.utc).isoformat(), "mission_found": target}) + "\n")
+            line = tick(p, target)
             ticks += 1
             bad += 0 if line["ok"] else 1
         except Exception as exc:  # a tick that cannot read is recorded, not a difference
@@ -146,7 +207,8 @@ def main(argv: list[str] | None = None) -> int:
             f.write(json.dumps(line) + "\n")
         time.sleep(a.every)
     with out.open("a") as f:
-        f.write(json.dumps({"summary": True, "ticks": ticks, "ticks_with_differences": bad, "ticks_unread": failed}) + "\n")
+        f.write(json.dumps({"summary": True, "mission": target, "ticks": ticks, "ticks_with_differences": bad,
+                            "ticks_unread": failed}) + "\n")
     return 0 if bad == 0 else 1
 
 
