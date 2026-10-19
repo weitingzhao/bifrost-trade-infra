@@ -2141,6 +2141,32 @@
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-381
+
+**P2 · agentrt · an attempt that fails within seconds is leased again at once, with no backoff, until the mission's attempt budget is gone**
+
+- **状态**：未开始（2026-10-19 12:1x 记，STG 走查 stg-walk-confine §3）
+- **Claim**: on STG (agentd-b40867a) the cursor review of M-21 failed six times in 36 seconds (each attempt exit 1 after 4–5 s, 17:00:05–17:00:41Z); the task went back to ready each time and was leased again immediately, so one broken executor spent the mission's budget before anyone could look.
+- **Evidence**: `~/agent-work/stg-walk-confine/REPORT.md` §1 and §3; STG events of task `t_01M5AHP9Q7G4RWDSW5DGR5DSY2`.
+- **Impact**: a host or executor fault turns into a burnt budget and a blocked mission in under a minute; T26 would have failed this way had PROD's reviews gone to the broken cursor.
+- **Fix**: after a failed attempt, keep the task out of the claim query for an increasing delay (and route the retry to another candidate when one is eligible, v5 §5.1.2 cascade), and stop retrying the same executor after N fast failures with a `policy_alert` to the Owner.
+- **Ratchet**: a store test: three attempts that fail within ten seconds lease the task at most twice in the first minute, and the third failure raises the alert.
+- 验收: that test passes on main.
+- 审批 不需要（只改平台）· 代价 M · 风险 low · repos: bifrost-platform
+
+### TD-380
+
+**P3 · testing · two agentd tests assume a writable /tmp, so a check that runs them inside agentd's write wall fails every time**
+
+- **状态**：未开始（2026-10-19 12:1x 记，STG 走查 stg-walk-confine §2）
+- **Claim**: `TestCodexCheckFindsNoSandbox` (`api/internal/agentd/confine_test.go:589`) expects the /tmp write to be allowed, and `TestBench` Q10 (`bench_test.go:70`, a fake executor writing `/tmp/bench-new-$$`) needs /tmp; inside the wall /tmp is read-only, so any task whose deterministic check runs `go test ./internal/agentd/` goes red twice and blocks (STG M-18).
+- **Evidence**: `~/agent-work/stg-walk-confine/REPORT.md` §2.
+- **Impact**: tasks that change agentd cannot pass their own check on the agent host.
+- **Fix**: use `t.TempDir()` / `$TMPDIR` in both tests (the wall gives the attempt its own temporary directory).
+- **Ratchet**: a test that greps the agentd tests for a literal `/tmp/` path outside strings that are only compared.
+- 验收: `go test ./internal/agentd/` passes inside the wall on STG.
+- 审批 不需要（测试改动）· 代价 S · 风险 low · repos: bifrost-platform
+
 ### TD-379
 
 **P3 · agentd · security · the agent units put the agent user's own `~/.local/bin` ahead of node and the system directories on PATH**
@@ -2252,7 +2278,7 @@
 
 **P2 · agentd · no executor shares the host until its whole process tree is held to its workspace**
 
-- **状态**：在做（10-19 12:0x 查明 /tmp 是探针走错了路：探针用 `codex sandbox -P :workspace`，显式内置配置不读 `exclude_slash_tmp`，/tmp（agentd 服务共用的 PrivateTmp）就可写；生产的 `codex exec -s workspace-write` 会读这个钉子。修法：探针改走 exec 同一条路（platform `ceaa42a`，复核 308 收线，已上 main；`agentd-ceaa42a` 已构建，sha256 8981202198485cb5…）。为了不在 T26 前改 06 的行为，T26 之后再装并重跑探针；探针仍判 /tmp 可写就说明 exec 也一样，再出选项。10-19 11:33–11:34 06 装上 `agentd-b40867a` 后两条探针：墙 11 项全过；codex 自己沙箱那组只有一项失败——`make a file in /tmp was allowed`，所以仍判「codex 独占」，安全上没退步；/tmp 是哪一个、钉子在 0.163 里管不管用，agentd-confine 会话在查，18:30 前交回或明早再交。10-19 10:36 06 上 STG 写墙探针：Landlock ABI 4，deterministic、cursor、claude 的 11 项全过；codex 没过——codex 0.163 的沙箱要 bubblewrap（`filesystem-restricted execution requires bubblewrap to isolate app-server sockets`），旧的 Landlock 模式没了，agentd 按设计退回「codex 不进墙、独占主机」，安全上没退步，但 codex 的活仍一次一件；选项见切法 §10；Owner 10-19 10:4x 选 A（codex 在墙外用它自己的 bubblewrap 沙箱，钉子齐、沙箱经探针证明就算受限，可以共享主机；「codex 进程本身靠厂商代码」记为残留），修法进 platform main `b40867a`（codex 受限但不进墙：探针在单元限制下证明 codex 自己的沙箱，执行时程序与 PATH 必须和证明时一致；复核 304–307 收线）；06 待装 `agentd-b40867a`，装后 `confine-probe stg|prod` 都过、STG 上 codex 真跑一次带 setup 的尝试，才进「待你签收」；PATH 顺序那条残留记 TD-379。10-19：修法进 platform main `35eafb7`（Landlock 写墙、每次尝试自己的配置目录、setup 与执行者分墙，复核 300–303 收线）；06 用 `agentd-35eafb7` 待你装，装后 `agent-06-owner.sh confine-probe stg|prod` 两个都过、STG 上 codex、cursor、claude 各真跑一次，才进「待你签收」；第 2 轮先接受的两处另记 TD-376、TD-377）（2026-10-18 14:1x 记，复核 277 A2、278 A2）
+- **状态**：在做（10-19 12:0x STG 走查：agentd-b40867a 下 cursor 起不来——M-21 的评审 6 次全部 4–5 秒 exit 1、没有输出，旧版 d788296 下同主机好的；codex、claude、deterministic 正常。PROD 的 06 也是这一版，所以 PROD 上派给 cursor 的评审现在都会失败。原因由 agentd-confine 会话分析中；另见 TD-380、TD-381。10-19 12:0x 查明 /tmp 是探针走错了路：探针用 `codex sandbox -P :workspace`，显式内置配置不读 `exclude_slash_tmp`，/tmp（agentd 服务共用的 PrivateTmp）就可写；生产的 `codex exec -s workspace-write` 会读这个钉子。修法：探针改走 exec 同一条路（platform `ceaa42a`，复核 308 收线，已上 main；`agentd-ceaa42a` 已构建，sha256 8981202198485cb5…）。为了不在 T26 前改 06 的行为，T26 之后再装并重跑探针；探针仍判 /tmp 可写就说明 exec 也一样，再出选项。10-19 11:33–11:34 06 装上 `agentd-b40867a` 后两条探针：墙 11 项全过；codex 自己沙箱那组只有一项失败——`make a file in /tmp was allowed`，所以仍判「codex 独占」，安全上没退步；/tmp 是哪一个、钉子在 0.163 里管不管用，agentd-confine 会话在查，18:30 前交回或明早再交。10-19 10:36 06 上 STG 写墙探针：Landlock ABI 4，deterministic、cursor、claude 的 11 项全过；codex 没过——codex 0.163 的沙箱要 bubblewrap（`filesystem-restricted execution requires bubblewrap to isolate app-server sockets`），旧的 Landlock 模式没了，agentd 按设计退回「codex 不进墙、独占主机」，安全上没退步，但 codex 的活仍一次一件；选项见切法 §10；Owner 10-19 10:4x 选 A（codex 在墙外用它自己的 bubblewrap 沙箱，钉子齐、沙箱经探针证明就算受限，可以共享主机；「codex 进程本身靠厂商代码」记为残留），修法进 platform main `b40867a`（codex 受限但不进墙：探针在单元限制下证明 codex 自己的沙箱，执行时程序与 PATH 必须和证明时一致；复核 304–307 收线）；06 待装 `agentd-b40867a`，装后 `confine-probe stg|prod` 都过、STG 上 codex 真跑一次带 setup 的尝试，才进「待你签收」；PATH 顺序那条残留记 TD-379。10-19：修法进 platform main `35eafb7`（Landlock 写墙、每次尝试自己的配置目录、setup 与执行者分墙，复核 300–303 收线）；06 用 `agentd-35eafb7` 待你装，装后 `agent-06-owner.sh confine-probe stg|prod` 两个都过、STG 上 codex、cursor、claude 各真跑一次，才进「待你签收」；第 2 轮先接受的两处另记 TD-376、TD-377）（2026-10-18 14:1x 记，复核 277 A2、278 A2）
 - **Claim**: several attempts share 06 only when each can write nothing outside its own workspace (`share.go` `confined`). None qualifies yet. codex: its `workspace-write` sandbox also writes the shared temporary directories, and the host user's configuration can add writable roots (`sandbox_workspace_write.writable_roots`), which agentd neither pins nor checks. claude: the `Read,Grep,Glob` tool list does not reach command hooks in the user's or the repository's `.claude/settings.json` (a `UserPromptSubmit` hook runs as the user). cursor in ask mode: likewise `~/.cursor/hooks.json` and a repository's `.cursor/hooks.json` (`beforeSubmitPrompt`). A hook an earlier, unsandboxed setup left, or one an implementer put in its branch for its reviewer, runs as the agentd user.
 - **Evidence**: `bifrost-platform/api/internal/agentd/share.go` (`confined`), `api/internal/agentd/executors.go` (`codexExecutor`, `claudeExecutor`, `cursorExecutor`); reviews `~/agent-work/codex-review-277/REPORT.md` item 2, `~/agent-work/codex-review-278/REPORT.md` item 2.
 - **Impact**: no loss against round 2 so far (one attempt at a time); 2.4's "06 runs two or three at once" waits for this. A repository hook running in a reviewer is a risk with or without concurrency.
