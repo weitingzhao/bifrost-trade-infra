@@ -2139,6 +2139,19 @@
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-373
+
+**P3 · agentd · the benchmark on 06 cannot run every question of the set**
+
+- **状态**：未开始（2026-10-18 20:4x 记，复核 288 第 15 项与其检查限制、290 第 2 项）
+- **Claim**: the 20 questions were picked and checked on the Mac, where the test database, the sibling repositories and each repository's Python dependencies are at hand. On 06 a check runs in a fresh snapshot with only the question's own repository, its lockfile's dependencies and pytest: the Go questions whose tests need `AGENTRT_TEST_PG` / Redis skip them, so the code before the fix passes too (unrunnable); the TypeScript questions whose package.json names `file:../bifrost-ui` (or the Trade UI's) have no built UI beside them (the fix fails its own checks: unrunnable); Q09 imports `bifrost_api` from `src/` that nothing installs. An unrunnable question costs no vendor quota (the controls run first) and counts for nobody, so the run is honest but thinner than 20.
+- **Evidence**: `bifrost-platform/api/internal/agentd/bench.go` (`setup`, the controls); `agent-config/work/multi-agent/benchmark/questions.json`; `~/agent-work/codex-review-288/REPORT.md` item 15 and its limits; `~/agent-work/codex-review-290/REPORT.md` item 2.
+- **Impact**: fewer samples per executor than planned, so the competence threshold (when the Owner signs it) has less to go on.
+- **Fix**: per question, what its checks need, prepared before the executor runs and read only by the checks: a throwaway Postgres and Redis for the questions that need them (on 06, local to the bench unit), the sibling repository built at the commit the fix used, the repository installed into the question's venv; or pick questions that stand on 06 with `scripts/benchmark/verify.py` run there.
+- **Ratchet**: the run's handed-in results list each unrunnable question with its reason; the count of runnable questions is in the capability_scored event.
+- 验收: a run on 06 with at least 15 runnable questions of the 20.
+- 审批 不需要（06 上跑要你一次）· 代价 M · 风险 low · repos: bifrost-platform, bifrost-trade-infra
+
 ### TD-372
 
 **P3 · agentrt · schema · a capability_score row's identity has no model provider**
