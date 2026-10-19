@@ -1352,7 +1352,7 @@
 
 **P3 · ops-platform · `release.sh hold` cannot be stopped cleanly: SIGTERM waits behind its `sleep 3600`, and SIGKILL leaves a stale lock only the Owner may clear**
 
-- **状态**：未开始
+- **状态**：未开始｜10-19 又见两次：结束 hold 时它自己的 `DELETE /api/v1/delivery/release-window` 回 403「only the holder can release the window」（09:50、14:00；10:20 同样做法却放开了），窗口只能等 5 分钟 TTL 自己过期。平台按请求体里的 who 和 ConfigMap 里的 who 比对（`delivery/window_store.go:208`），疑似 trap 里发出去的 who 与持有时不同或请求体没被读到，待查
 - **Claim**: `release.sh hold` ends in `while true; do sleep 3600; done`. Bash defers a trapped signal until the foreground command returns, so `kill -TERM <holder>` does nothing for up to an hour. `kill -9` works but skips the EXIT trap, so the window file and ConfigMap survive as a stale lock — and clearing that is `release.sh window --clear`, which the rules reserve for the Owner. The working way is to signal the `sleep` child instead, which lets bash return and run its trap; that is not written down anywhere.
 - **Measured**: MEASURED 2026-10-08, twice in one session. First time: `kill -9` on the holder left a stale lock and cost an Owner round-trip to clear. Second time: `kill -TERM` on the holder did nothing (process still alive after the signal); `pgrep -P <holder>` then `kill -TERM` on the `sleep` child exited the holder and the trap removed both the window file and `cicd/bifrost-release-window` cleanly.
 - **Evidence**:
