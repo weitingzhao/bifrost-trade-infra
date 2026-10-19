@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-374** — agentrt store 包的测试改成并行（218 个里 181 个 `t.Parallel()`，37 个注明串行原因；`TestMain` 并行度下限 4），CI 上从 116.8 秒降到 58–87 秒。验收：PASS 2026-10-19，`c360937` / `1589fbf` / `5b117f4` 三次 ci-platform 都在 90 秒内。防线：RATCHETS「agentrt store 包的测试并行跑」（`TestTestsRunInParallel`）。后续：无后续；87 秒那次是三个 CI 同时跑，单独跑时若再爬近 90 秒，下一步是 TD-374 原写的把超时改到 300 秒（cicd，你批）。
 - **TD-373** — 06 上的基准原来 20 道只能跑 11 道（TS 缺旁边的 bifrost-ui、测试库、依赖没装）。题集换成 06 能跑的 20 道，agentd 带旁边仓库并把隐藏测试要的接口写进题面（platform `d788296`、infra `fe32f4a`）。验收：PASS 2026-10-19，`bench-20261019T060504-codex` 20 道全能跑，判对 16。防线：交上来的结果逐题写明跑不了的原因，可跑题数在 capability_scored 事件里；新题集上线前过 `benchreplay_test.go`。后续：无后续，「Left」两条只是少挑两类候选题，题集已全能跑，不另记。
 - **TD-355** — 签规则的钥匙不用 Owner 确认就能签（没口令、常驻 ssh-agent）。Owner 10-15 19:05 把它移出 agent、19:10 加了口令（指纹不变，平台不用改）；`rule.sh sign` 现在拒绝没口令或常驻 agent 的钥匙。验收：PASS 2026-10-15 19:15。防线：RATCHETS「The Owner's signing key asks before it signs」。后续：发版策略的签名工具还没有同一道检查，长期换成每次要按一下的钥匙（会改信任指纹），都等补强阶段再定，没另开编号。
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
@@ -2196,13 +2197,14 @@
 
 **P2 · ci · the agentrt store package's tests run close to CI's 120 s test timeout**
 
-- **状态**：在做（10-19 04:0x：store 测试改并行在分支 w31/store-parallel `c360937`，本机 store 包 76 秒 → 31–44 秒，复核 322→323 收线，防线 TestTestsRunInParallel；合进 main 后看三次 ci-platform 里 store 包都在 90 秒内，到时进「待你签收」）（2026-10-18 23:0x 记）
+- **状态**：待你签收（2026-10-19 09:5x；记于 2026-10-18 23:0x）
 - **Claim**: `ci-platform` runs `go test ./... -count=1 -timeout=120s`, and the timeout is per test binary. The agentrt store package took 82–88 s in CI until 10-18 evening, then went past 120 s twice under load (ci-platform-m6zlf, ci-platform-vxxn2: "panic: test timed out after 2m0s", whatever test was running). Copying each test database from a migrated template (`8a43413`, 1.2 s to 0.2 s a database measured here) brought it to 109 s in ci-platform-gmb5f, still close: one busy CI pod, or a dozen more tests, and main goes red with nothing wrong.
 - **Evidence**: `bifrost-trade-infra/k8s/cicd/tekton/pipeline-ci-platform.yaml:176`; the three runs above (`kubectl logs` of their test-api pods).
 - **Impact**: a red main blocks STG and PROD releases until a re-run passes; it cost a push and a re-run on 10-18.
 - **Fix**: raise the step's `-timeout` to 300s (a change to the pipeline in `cicd`, the Owner's), and/or let the store package's tests run in parallel (`t.Parallel()` where a test touches no package-level hook or clock: `SetHook`, `eventClock`).
 - **Ratchet**: none possible without the fix itself; a timeout is the only line there is.
 - 验收: three consecutive ci-platform runs with the store package under 90 s, or the step's timeout at 300 s.
+- 验收结果：PASS 2026-10-19 platform `c360937`（并行）、`1589fbf`、`5b117f4`：ci-platform-q88nv 58.2 秒、ci-platform-l7zzc 71.0 秒、ci-platform-6vhhm 87.2 秒（三次同时跑、互相抢 CPU；最后一次已含计划导入新加的测试）。改前 116.8 秒（ci-platform-h5tvg）。
 - 审批 要（改 cicd 里的流水线，你批）· 代价 S · 风险 low · repos: bifrost-trade-infra, bifrost-platform
 
 ### TD-373
