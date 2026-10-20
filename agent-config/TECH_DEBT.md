@@ -13,6 +13,8 @@
 
 ## 待你签收
 
+- **TD-268** — 删掉没人调用的 `ExecSQLOnPrimary` 和只为它存在的两个测试，换成全仓库零引用的防线 `TestRemovedPrimarySQLHelperStaysGone`；运行时 M-9 写、cursor 评审，统筹线程核对后合进 platform `868d4e8e`。验收：PASS 2026-10-19 `1b894f93`。防线：RATCHETS 新行。后续：无后续（还剩的 `execOnPrimary` 给数据克隆用，TD-268 本来就不动它）。
+- **TD-342** — 投递测试不再只等 40 毫秒：等到第二次读完再取消；运行时 M-9 写，合进 platform `1b894f93`。验收：PASS 2026-10-19，负载下 40 遍 0.74 秒（验收命令改成只跑这一个测试，原写法跑整包超 10 分钟）。防线：RATCHETS 新行。后续：无后续。
 - **TD-371** — 06 上每次尝试只能写自己的目录：Landlock 写墙（deterministic、cursor、claude），codex 用它自己的 bubblewrap 沙箱并经探针证明；每次尝试自己的配置目录，cursor 的数据目录短路径、在墙里。验收：PASS 2026-10-19，两条探针全过、STG 实跑 cursor 评审收下。防线：`TestConfined` 与 `agent-06-owner.sh confine-probe`（每次换 agentd 后跑）。后续：TD-376（按尝试 cgroup）、TD-377（读也隔开）、TD-379（PATH 顺序）、TD-380（agentd 测试在墙里）、TD-382（报告引用路径被拒）。
 - **TD-382** — 报告里引用了本机路径就被拒收、尝试悄悄作废、立刻重派：agentd 上传前掩掉路径（`82bedd54`，06 上 `agentd-82bedd5`），平台拒收时在主机流记 `policy_alert`、尝试结束写明结果没落地（`63392a67`）。验收：PASS 2026-10-19，ci-platform 绿、STG M-24 引用路径的评审收下。防线：RATCHETS「平台拒收报告留记录，尝试结束写明」。后续：无后续：拒收不认定是哪次尝试的，要精确就得让上传带尝试号（改 agentd 协议，要你定），现在没有需要。
 - **TD-381** — 秒败的尝试被立刻重派、几十秒烧光预算：同一执行者失败后先等 30 秒、再败等 60 秒，连败三次不再派并记 `policy_alert`，别的候选可以立刻接（`63392a67`）。验收：PASS 2026-10-19，ci-platform 绿。防线：RATCHETS「秒败的执行者先等再派、连败三次不再派」。后续：policy_alert 上界面随 2.5 切片 ④。
@@ -1339,7 +1341,7 @@
 
 **P3 · ops-platform · `ExecSQLOnPrimary` is dead code: TD-256 and TD-259 took its last caller, and the ratchet that counted call sites now guards a function nobody calls**
 
-- **状态**：未开始
+- **状态**：待你签收（2026-10-19 21:4x；运行时 PROD M-9 收下、统筹线程手工合进 main，TD-383）
 - **Claim**: After TD-256 (286c305) and TD-259 (a7ecb08) moved both plugin freshness probes onto plugin HTTP, `api/internal/cluster/pod_exec.go:65` `ExecSQLOnPrimary` has **no non-test caller**. What remains is the definition plus two test files that exist only to constrain it: `execsql_callers_test.go` (the LANE-P2 ratchet, baseline 2 → 0, now satisfied) and `pod_exec_live_test.go`. A ratchet counting call sites of a function with no call sites protects nothing.
 - **Measured**: MEASURED 2026-10-08 on platform main 634e305, verified in this session rather than taken from the report that raised it: `git grep -n ExecSQLOnPrimary origin/main -- 'api/**/*.go' | grep -v _test` returns only the definition at `pod_exec.go:62,65`; test references are `execsql_callers_test.go` (5) and `pod_exec_live_test.go` (4).
 - **Evidence**:
@@ -1349,6 +1351,8 @@
 - **Impact**: A `psql -tAc` helper that execs into the CNPG primary stays available to the next person who needs a quick read, which is how the privilege got entrenched in the first place. Deleting it makes the HTTP path the only way.
 - **Fix**: Delete `ExecSQLOnPrimary` and the two tests that exist only for it, and replace the call-site ratchet with one asserting **zero** references to the symbol anywhere outside its own removal test. **Do not narrow PROD `pods/exec` in `data`**: `execOnPrimary` is used throughout `data_clone.go` / `data_clone_fk.go`, and `execOnMinio` by `postgres_wal_repair.go` — both verified still in use on 634e305.
 - **Ratchet**: A Go test (or a code-health count) asserting 0 references to `ExecSQLOnPrimary` in the repo, so it cannot come back quietly.
+- 验收: `cd bifrost-platform/api && go test ./internal/cluster -run TestRemovedPrimarySQLHelperStaysGone` passes and `git grep -c ExecSQLOnPrimary origin/main` prints nothing.
+- 验收结果：PASS 2026-10-19 platform `1b894f93`（`868d4e8e`，ci-platform-rvd7p Succeeded；`git grep` 0 处）
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-269
@@ -2134,28 +2138,29 @@
 
 **P3 · testing · a delivery test waits 40 ms and expects six reads in that time, so it fails under the load of the whole suite**
 
-- **状态**：未开始（2026-10-14 14:16 统筹方记；合并前在合并后的树上跑整套时撞上，单独重跑三次都过；第 2 轮期间不还其余技术债，排在架构之后）
+- **状态**：待你签收（2026-10-19 21:4x；运行时 PROD M-9 收下、统筹线程手工合进 main，TD-383）
 - **Claim**: `TestPlatformUnknownDoesNotMaskMissing` gives `StartPipelineRun` a 40 ms context and then requires at least six GETs of the `bifrost-ui` refs ("no second look"). On a loaded machine fewer polls fit in 40 ms and the test fails though the code is right.
 - **Measured**: MEASURED: 2026-10-14, `go test ./...` on the merge of `w31/agentrt-22-route` into platform main (`5a6c98e`, which changes no file in `internal/delivery`): FAIL `platform_ref_rules_test.go:90: no second look`, package 35.9 s; the same test alone three times: ok (0.8–1.3 s). 2026-10-15 23:4x the same file's `TestPlatformPollingErrorRequiresSeenPresent/bifrost-deliver-platform-prod/poll_error_missing` failed once in `go test ./...` ("did not poll past error and missing", load average ~20 while vitest ran beside it) and passed alone three times (17.7 s each): the same kind of wall-clock wait.
 - **Evidence**: `bifrost-platform/api/internal/delivery/platform_ref_rules_test.go:77-92`.
 - **Impact**: a red whole-suite run that is not a regression; whoever runs the suite before a push has to tell it apart by hand, and CI can flake the same way.
 - **Fix**: make the second look not depend on wall time: count polls through the fake's own clock or a poll hook, or wait for the sixth GET before cancelling instead of a fixed 40 ms.
 - **Ratchet**: the test passes under `go test -count=20 -cpu 1,4 ./internal/delivery/` with the suite's other packages running beside it.
-- 验收: the ratchet command above
+- 验收: `go test -count=20 -cpu 1,4 -run 'TestPlatformUnknownDoesNotMaskMissing$' ./internal/delivery/` while other packages run beside it（原写法跑整个包 40 遍，包里别的测试按真实时间轮询，超过 10 分钟的测试时限，验不到这一条）
+- 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-383
 
 **P2 · agentrt · an attempt's branch has no lifecycle: accepted work never reaches main, and nothing deletes the branches**
 
-- **状态**：未开始（2026-10-19 21:0x，Owner 在 Ops 的 Commit Lineage 上看到 platform 有一百多条分支时查出）
+- **状态**：在做（2026-10-19 21:4x Owner「核对后合进 main」「分支照建议」：M-9 收下的四件已合进 main——platform `868d4e8e` `0c746b68` `1b894f93`、infra `d989dde`；已合并的 67 条 platform 分支空跑清单 `work/multi-agent/PRUNE-platform-2026-10-19.md`，`--apply` 由 Owner 跑；运行时自动清理与「收下即合」未做）
 - **Claim**: every attempt pushes its result to `agent/<task>/a<n>` on Gitea (design v5 `pushed_ref`). Round 2 has no step after `accepted`: the release queue that would merge an accepted result into main is round 3 (architecture row「发布队列、无人值守的正式环境发布」, unchecked). So an accepted fix stays on its attempt branch, and branches of rejected, lost or superseded attempts stay as well. Measured 2026-10-19 21:0x on platform's Gitea: 33 unmerged `agent/` branches (10-15 to 10-20); among them the four accepted results of PROD M-9 (T26: TD-378 is on infra, TD-268 `ExecSQLOnPrimary`, `crewModel.ts` tests, TD-342), which are not in main. Lane branches add to the count: 62 `cursor/` and `w31/` branches already in main, 13 older ones (10-07 to 10-11) not in main, among them `cursor/n-platform`, an earlier TD-268 that never landed.
 - **Evidence**: `git ls-remote --heads origin` in bifrost-platform against `origin/main` (21:0x); M-9 tasks on PROD `/agentrt/tasks?mission=M-9`.
 - **Impact**: work the runtime accepted is lost to main unless someone merges it by hand; T26 counts a goal as done while its code is nowhere the system runs. The branch list in Commit Lineage grows by one or two per attempt.
 - **Fix**: until the release queue, an accepted implementation's branch is merged into main through `push-main.sh` by the coordinator (fast-forward after a rebase, the suite and code-health on the merged tree), recorded on the task; a runtime pass deletes an attempt branch once its task is accepted and merged, rejected, cancelled, or the attempt was superseded, after 7 days. Lane branches go through `scripts/prune-merged-branches.sh` (dry run by the Agent, `--apply` by the Owner).
 - **Ratchet**: a store test: a task accepted and merged, and a superseded attempt older than 7 days, leave no `agent/` ref in the fake Gitea; a check that lists accepted tasks whose attempt commit is not in main.
 - 验收: on PROD every accepted implementation's attempt commit is in main or its task says why not, and no `agent/` branch is older than 7 days without an open task.
-- 审批 合并 M-9 的四件进 main 要你点头 · 代价 M · 风险 low · repos: bifrost-platform, bifrost-trade-infra
+- 审批 合并收下的结果进 main：Owner 10-19 21:4x 同意按「核对后合」做 · 代价 M · 风险 low · repos: bifrost-platform, bifrost-trade-infra
 
 ### TD-382
 
@@ -2215,7 +2220,7 @@
 
 **P3 · testing · a test of the admission-guard check fails on main: its fake `subprocess.run` answers the Application read too**
 
-- **状态**：未开始（2026-10-19 05:0x 记；runtime-repo-infra 线摸底 infra 的 Python 测试时撞上）
+- **状态**：在做（2026-10-19 21:4x：修复进 infra main `d989dde`——运行时 PROD M-9 收下、统筹线程手工合进；防线「文件进 `infraTests`」是 M-9 第五件，它两轮评审没过、blocked（它的检出里没有 infra 树），等 Owner 在卡上处理后由统筹线程补上）
 - **Claim**: `scripts/test_access_checks.py::DryRunClassifyTests::test_live_stops_before_any_dry_run_without_impersonation` fails on every machine since review 261/262: `check_admission_guards.live()` now reads the live `bifrost-research` Application (`live_application`) before it asks about impersonation, and the test's fake `subprocess.run` answers every call with exit 0 and "no", so `json.loads("no")` raises before the check the test is about.
 - **Evidence**: `bifrost-trade-infra/scripts/check_admission_guards.py:214`, `:435`; `scripts/test_access_checks.py:77-99`; commits `f3d3fab`, `4d04561`. Measured 10-19 on main `710723d` with and without kubectl on PATH: 1 failed, 9 passed.
 - **Impact**: nobody sees whether `live()` still stops before any dry run without impersonation; the runtime's infra check leaves the file out (platform `w31/repo-infra`, `store/repos.go` `infraTests`) until it passes.
