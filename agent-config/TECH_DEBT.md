@@ -2152,6 +2152,32 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-395
+
+**P2 · agentrt · a task that no executor may take any more waits at ready with no card: nobody is told**
+
+- **状态**：未开始（2026-10-20 16:4x 统筹线程记；Owner「你发现的问题需要记入债务列表，将来修复」）
+- **Claim**: TD-381 stops offering a task to an executor after three failures in a row. When every candidate executor has been withdrawn that way the task stays ready, no host can take it, and nothing tells the Owner: no blocked card, no alert beyond three `policy_alert` events on the attempts. PROD M-22's only task (`t_01M5DJJA048PDG5XY98FX1FWFC`) has sat at ready since 16:14 after codex, cursor and claude each failed three times.
+- **Evidence**: PROD `agentrt.event` for M-22, three `policy_alert` repeated_failure ("not offered the task again"), task state ready; `bifrost-platform/api/internal/agentrt/store/retry.go` (the TD-381 backoff).
+- **Impact**: a task can stall indefinitely and look like it is waiting its turn; its mission never ends.
+- **Fix**: when no candidate executor is left for a ready task (all withdrawn by the backoff, or none routable), block it with a card that names what was tried and why each was withdrawn (the TD-389 card, with "Give it one more round" lifting the withdrawals for one round).
+- **Ratchet**: a store test: three executors each failing three times leaves the task blocked with such a card, not ready.
+- 验收: on STG a task whose setup always fails ends blocked with a card naming the three withdrawals within one pass.
+- 审批 不需要 · 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-394
+
+**P2 · agentd · a failed setup leaves no report and no actions: why an attempt failed is only in agentd's journal on 06**
+
+- **状态**：未开始（2026-10-20 16:4x 统筹线程记；Owner「你发现的问题需要记入债务列表，将来修复」）
+- **Claim**: agentd runs a task's setup commands (for bifrost-platform: `npm ci` for bifrost-ui and the Console) before the executor; a failed setup ends the attempt with exit code 3 and, by design, no report ("no report, so the attempt failed"). The platform records only `exit_code 3, conclusion failed`; the attempt has no actions and no report artifact, and the setup's output is in agentd's journal on 06, which only the Owner can read (no `agent-06-owner.sh` subcommand reads it). PROD M-22 (the 2.2-30 Console walk) failed nine attempts this way on 2026-10-20 16:13–16:14 and the cause is still unknown.
+- **Evidence**: `bifrost-platform/api/internal/agentd/setup.go:18-38` (setupFailed = 3, no report); PROD attempts `a_01M5DJKDBAKRTBFQ867Q773K37` … `a_01M5DJNGZ7ZGA0WH8WX4YD1FE7` (exit 3, no report, `get_attempt_actions` empty).
+- **Impact**: a broken setup (registry unreachable, a write the wall refuses, a missing sibling) cannot be told apart from anything else; diagnosis needs the Owner on 06.
+- **Fix**: on a failed setup agentd hands in a report anyway: which setup command failed, its exit code and the last lines of its output, scrubbed like any report (paths, credentials); the platform keeps it as the attempt's report and the card quotes it. Until then, an `agent-06-owner.sh setup-log prod|stg <attempt>` subcommand reads that attempt's lines from the journal into a file.
+- **Ratchet**: an agentd test: a setup whose command exits 1 ends with a report that names the command and carries its output's tail.
+- 验收: on STG an attempt whose setup fails shows a report naming the failing command and its output tail; then M-22's cause is read and fixed (2.2-30).
+- 审批 不需要（换 agentd 要 Owner 跑一次 update-agentd）· 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
+
 ### TD-393
 
 **P2 · agentrt · STG still waits for the Owner: a rule waits minutes, covers two card kinds, and leaves a card with no recommendation open**
