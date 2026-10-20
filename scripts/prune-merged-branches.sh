@@ -20,6 +20,9 @@
 #
 # Options: --repos "a b"   only these repos (default: every sibling with an origin remote)
 #          --min-age-hours N
+#          --reviewed FILE  also delete branches not on main that someone reviewed: each line
+#                           "<repo> <branch> <40-hex sha>" (# comments and blank lines skipped); a listed
+#                           branch goes only while it still names that sha (moved since: kept)
 # Failed remote batches retry remaining refs individually and report deleted/refused counts.
 # Pushes to no main; it only deletes branch refs. Exit 0 done, 1 a step failed, 2 usage.
 set -euo pipefail
@@ -30,6 +33,7 @@ APPLY=0
 LOCAL=0
 REPOS=""
 MIN_AGE_HOURS=24
+REVIEWED=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -37,6 +41,7 @@ while [[ $# -gt 0 ]]; do
     --local) LOCAL=1 ;;
     --repos) REPOS="$2"; shift ;;
     --min-age-hours) MIN_AGE_HOURS="$2"; shift ;;
+    --reviewed) REVIEWED="$2"; shift ;;
     -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
@@ -49,6 +54,16 @@ if [[ -z "$REPOS" ]]; then
     if [[ -d "$d/.git" ]] && git -C "$d" remote get-url origin >/dev/null 2>&1; then REPOS="$REPOS $(basename "$d")"; fi
   done
 fi
+
+if [[ -n "$REVIEWED" ]]; then
+  [[ -r "$REVIEWED" ]] || { echo "cannot read $REVIEWED" >&2; exit 2; }
+  awk 'NF && $1 !~ /^#/ { if (NF != 3 || $3 !~ /^[0-9a-f]{40}$/ || $2 == "main") { print "bad line " NR ": " $0 > "/dev/stderr"; bad = 1 } } END { exit bad }' "$REVIEWED" || exit 2
+fi
+# reviewed_sha <repo> <branch>: the sha the branch was reviewed at, or nothing
+reviewed_sha() {
+  [[ -n "$REVIEWED" ]] || return 0
+  awk -v r="$1" -v b="$2" 'NF == 3 && $1 == r && $2 == b { print $3; exit }' "$REVIEWED"
+}
 
 NOW=$(date +%s)
 MIN_AGE_SECS=$((MIN_AGE_HOURS * 3600))
@@ -96,7 +111,14 @@ for repo in $REPOS; do
     [[ "$b" == main || "$b" == HEAD || "$ref" == origin ]] && continue
     if grep -Fxq -- "$b" "$TMP/$repo.prs"; then why="open PR"
     elif (( NOW - ts < MIN_AGE_SECS )); then why="younger than ${MIN_AGE_HOURS}h"
-    elif ! merged "$dir" "$ref" "$TMP/$repo.subjects" "$TMP/$repo.changeids"; then why="not on main"
+    elif ! merged "$dir" "$ref" "$TMP/$repo.subjects" "$TMP/$repo.changeids"; then
+      want=$(reviewed_sha "$repo" "$b")
+      if [[ -z "$want" ]]; then why="not on main"
+      elif [[ "$(git -C "$dir" rev-parse "$ref")" != "$want" ]]; then why="not on main, moved since it was reviewed"
+      else
+        printf '  drop   %-24s %-44s %s\n' "$repo" "$b" "not on main, reviewed"
+        echo "$b" >> "$TMP/$repo.remote"; continue
+      fi
     else echo "$b" >> "$TMP/$repo.remote"; continue
     fi
     printf '  keep   %-24s %-44s %s\n' "$repo" "$b" "$why"

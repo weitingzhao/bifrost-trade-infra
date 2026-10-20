@@ -66,3 +66,57 @@ def test_remote_pruning(tmp_path, refuse):
         "remote  clone: deleted 59, refused 1 (agent/protected)"
         if refuse else "remote  clone: deleted 60"
     )
+
+
+def test_reviewed_branches(tmp_path):
+    """--reviewed deletes a listed branch not on main while it names the reviewed sha, and keeps the rest."""
+    env = os.environ.copy()
+    env.update(
+        WORKSPACE=str(tmp_path), BACKUP_ROOT=str(tmp_path), HOME=str(tmp_path), GIT_CONFIG_GLOBAL="/dev/null",
+        GIT_AUTHOR_NAME="Pruning Test", GIT_AUTHOR_EMAIL="pruning@example.invalid",
+        GIT_COMMITTER_NAME="Pruning Test", GIT_COMMITTER_EMAIL="pruning@example.invalid",
+    )
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    gh = bin_dir / "gh"
+    gh.write_text("#!/bin/sh\nexit 0\n")
+    gh.chmod(0o755)
+    env["PATH"] = str(bin_dir) + os.pathsep + env["PATH"]
+
+    def git(*args):
+        return subprocess.run(["git", *map(str, args)], env=env, check=True, capture_output=True, text=True).stdout.strip()
+
+    bare = tmp_path / "remote.git"
+    clone = tmp_path / "clone"
+    git("init", "--bare", "--initial-branch=main", bare)
+    git("clone", bare, clone)
+    git("-C", clone, "commit", "--allow-empty", "-m", "Initial main")
+    git("-C", clone, "push", "origin", "main")
+    shas = {}
+    for b in ("kept", "reviewed", "moved"):
+        git("-C", clone, "checkout", "-q", "-b", b, "main")
+        git("-C", clone, "commit", "--allow-empty", "-m", f"work on {b}")
+        shas[b] = git("-C", clone, "rev-parse", "HEAD")
+        git("-C", clone, "push", "-q", "origin", b)
+    old_moved = shas["moved"]
+    git("-C", clone, "checkout", "-q", "moved")
+    git("-C", clone, "commit", "--allow-empty", "-m", "more work on moved")
+    git("-C", clone, "push", "-q", "origin", "moved")
+    listing = tmp_path / "reviewed.txt"
+    listing.write_text(f"# reviewed 10-20\nclone reviewed {shas['reviewed']}\nclone moved {old_moved}\n\n")
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT), "--apply", "--repos", "clone", "--min-age-hours", "0", "--reviewed", str(listing)],
+        env=env, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    remaining = set(git("--git-dir", bare, "for-each-ref", "--format=%(refname:short)", "refs/heads").splitlines())
+    assert remaining == {"main", "kept", "moved"}
+    assert "moved since it was reviewed" in result.stdout
+    assert "remote  clone: deleted 1" in result.stdout
+
+    listing.write_text("clone main " + shas["kept"] + "\n")
+    bad = subprocess.run(
+        ["bash", str(SCRIPT), "--repos", "clone", "--reviewed", str(listing)], env=env, capture_output=True, text=True,
+    )
+    assert bad.returncode == 2 and "bad line 1" in bad.stderr
