@@ -9,6 +9,7 @@ is a dictionary. No network, no loopback.
 """
 from __future__ import annotations
 
+import http.client
 import os
 import subprocess
 import sys
@@ -30,6 +31,8 @@ CANCELLED = "t_01M5B8BF2EM3SJQDKZ9E9TY2HA"
 JUST_CANCELLED = "t_01M5B8BF2EM3SJQDKZ9E9TY2HD"
 UNKNOWN = "t_01M5B8BF2EM3SJQDKZ9E9TY2HB"
 BOTH = "t_01M5B8BF2EM3SJQDKZ9E9TY2HE"
+REJECTED = "t_01M5B8BF2EM3SJQDKZ9E9TY2HF"
+FIXED_AT = "2026-10-20T00:02:41.123456+00:00"
 CHANGE = "I9436d586cce64a2c17e1a45aae79674bb4d7ccf8"
 NOW = datetime.now(timezone.utc)
 
@@ -119,7 +122,8 @@ class World:
         sh(self.dir, "revert", "--no-edit", sha)
         sh(self.dir, "push", "-q", "origin", "HEAD:refs/heads/main")
 
-    def runtime(self, state: str = "accepted", txid: bool = True, extra: dict | None = None, reviews: int = 1) -> ma.Runtime:
+    def runtime(self, state: str = "accepted", txid: bool = True, extra: dict | None = None, reviews: int = 2,
+                accepted_at: str = FIXED_AT, more_events: list[dict] | None = None, late_deterministic: bool = False) -> ma.Runtime:
         extra = extra or {}
         rows = {
             f"tasks/{TASK}": {"task_id": TASK, "role": "implement", "state": state, "repo": self.repo, "mission_id": "M-9",
@@ -146,8 +150,13 @@ class World:
              "body_json": {"method": "review", "verdict": "pass"}, "txid": tx(9)},
             {"seq": 8, "event_type": "task_state_changed", "task_id": REVIEW, "body_json": {"to": "accepted"}, "txid": tx(9)},
             {"seq": 9, "event_type": "task_state_changed", "task_id": TASK, "body_json": {"to": "accepted"}, "txid": tx(9),
-             "at": "2026-10-20T00:02:41.123456+00:00"},
+             "at": accepted_at},
         ]
+        if late_deterministic:
+            # A deterministic pass of another attempt recorded after the accepting review.
+            events.append({"seq": 10, "event_type": "verification_recorded", "task_id": TASK, "attempt_id": EARLIER,
+                           "body_json": {"method": "deterministic", "verdict": "pass"}, "txid": tx(10)})
+        events += more_events or []
         review_rows = [{"task_id": REVIEW, "role": "review", "state": "accepted", "subject_task_id": TASK},
                        {"task_id": OLD_REVIEW, "role": "review", "state": "accepted", "subject_task_id": TASK}][:reviews]
 
@@ -182,6 +191,15 @@ def test_reads_the_accepted_attempt_and_its_reviewer(tmp_path: Path) -> None:
 @pytest.mark.parametrize("reviews, want", [(1, ["exec:cursor"]), (2, [])])
 def test_without_transactions_only_a_sole_accepted_review_names_the_reviewer(tmp_path: Path, reviews: int, want: list[str]) -> None:
     assert ma.accepted(World(tmp_path).runtime(txid=False, reviews=reviews), TASK).reviewers == want
+
+
+def test_the_accepted_attempt_is_the_reviews_whatever_comes_after_or_whatever_its_number(tmp_path: Path) -> None:
+    w = World(tmp_path)
+    a = ma.accepted(w.runtime(late_deterministic=True), TASK)
+    assert a.attempt == ATTEMPT and a.reviewers == ["exec:cursor"]
+    # A salvaged attempt 1 accepted while a later attempt ran: the pass names it, not the newest.
+    row = dict(w.runtime().attempt(ATTEMPT), attempt_no=1)
+    assert ma.accepted(w.runtime(extra={f"attempts/{ATTEMPT}": row}), TASK).attempt_no == 1
 
 
 def test_refuses_what_is_not_an_accepted_implementation(tmp_path: Path) -> None:
@@ -219,6 +237,8 @@ def test_a_read_the_platform_fails_is_tried_again_and_a_refusal_is_not() -> None
             raise urllib.error.HTTPError(path, 403, "no", None, None)  # type: ignore[arg-type]
         if path == "tasks/t_down":
             raise urllib.error.URLError("refused")
+        if path == "tasks/t_cut" and calls.count(path) < 3:
+            raise http.client.IncompleteRead(b"{")
         return {"task_id": path}
     rt = RealRuntime("prod", flaky)
     assert rt.task("t_once") == {"task_id": "tasks/t_once"} and calls.count("tasks/t_once") == 2
@@ -227,6 +247,7 @@ def test_a_read_the_platform_fails_is_tried_again_and_a_refusal_is_not() -> None
     with pytest.raises(urllib.error.URLError):
         rt.task("t_down")
     assert calls.count("tasks/t_forbidden") == 1 and calls.count("tasks/t_down") == ma.Runtime.TRIES
+    assert rt.task("t_cut") == {"task_id": "tasks/t_cut"} and calls.count("tasks/t_cut") == 3
 
 
 # ── the message ───────────────────────────────────────────────────────────────
@@ -346,7 +367,11 @@ def test_suite_runs_every_ci_step_then_code_health_in_the_tree(tmp_path: Path) -
         return 1 if "lint" in cmd or "code-health" in " ".join(cmd) else 0
     tree = tmp_path / "bifrost-platform"
     checked, failed = ma.run_suite(tree, "bifrost-platform", run)
-    assert [c for c, _ in ran[:-1]] == ma.SUITES["bifrost-platform"]
+    # CI's steps (pipeline-ci-platform.yaml) and MCP's tests, written out here, not read from the tool.
+    for step in ["go -C api test ./...", "npm --prefix ../bifrost-ui ci", "npm --prefix console ci", "console run type-check",
+                 "console run lint", "npx vitest run", "console run build", "check_spine_catalog.sh",
+                 "check_ops_context_parity.py --self-test", "npm --prefix mcp/platform ci", "npm --prefix mcp/platform test"]:
+        assert any(step in " ".join(c) for c, _ in ran[:-1]), step
     assert ran[-1][0][-4:] == ["--root", str(tmp_path), "--repo", "bifrost-platform"]
     assert all(e == {"BIFROST_CI": "1", "PLATFORM_ROOT": str(tree), "AGENTRT_TEST_REQUIRED": "1"} for _, e in ran)
     assert checked and failed == ["npm --prefix console run lint", "code-health"]
@@ -359,24 +384,32 @@ def test_suite_runs_every_ci_step_then_code_health_in_the_tree(tmp_path: Path) -
     ("bifrost-platform", True, True, 1, 0),
     ("bifrost-ui", True, False, 4, 0),  # no suite here: built, not verified
     ("bifrost-trade-infra", True, False, 4, 0),
+    ("bifrost-trade-api", False, False, 4, 0),  # code-health alone is not a suite (review 434 A1)
+    ("bifrost-platform", True, "code-health", 1, 0),
 ])
 def test_apply_pushes_only_a_verified_platform_commit_and_only_when_asked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-                                                                         repo: str, push: bool, suite_fails: bool, rc: int,
+                                                                         repo: str, push: bool, suite_fails: bool | str, rc: int,
                                                                          pushes: int) -> None:
     monkeypatch.setenv("AGENTRT_TEST_PG", "host=test")
     monkeypatch.setenv("AGENTRT_TEST_REDIS", "redis://test")
     pushed: list[Path] = []
     monkeypatch.setattr(ma, "push", lambda tree: pushed.append(tree) or 0)
     w = World(tmp_path, repo=repo)
-    got = ma.apply(w.runtime(), TASK, w.ws, tmp_path / "merge", push, run=lambda cmd, cwd, env: 1 if suite_fails else 0)
+    def run(cmd: list[str], cwd: Path, env: dict[str, str]) -> int:
+        if suite_fails == "code-health":
+            return 1 if "code-health" in " ".join(cmd) else 0
+        return 1 if suite_fails else 0
+    got = ma.apply(w.runtime(), TASK, w.ws, tmp_path / "merge", push, run=run)
     assert (got, len(pushed)) == (rc, pushes)
 
 
-def test_apply_refuses_without_the_test_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("AGENTRT_TEST_PG", raising=False)
+@pytest.mark.parametrize("unset", ["AGENTRT_TEST_PG", "AGENTRT_TEST_REDIS"])
+def test_apply_refuses_without_the_test_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unset: str) -> None:
+    monkeypatch.setenv("AGENTRT_TEST_PG", "host=test")
     monkeypatch.setenv("AGENTRT_TEST_REDIS", "redis://test")
+    monkeypatch.delenv(unset)
     w = World(tmp_path, repo="bifrost-platform")
-    with pytest.raises(ma.Refused, match="set AGENTRT_TEST_PG"):
+    with pytest.raises(ma.Refused, match="set " + unset):
         ma.apply(w.runtime(), TASK, w.ws, tmp_path / "merge", True, run=lambda cmd, cwd, env: 0)
     assert not (tmp_path / "merge").exists()
 
@@ -401,20 +434,53 @@ def test_list_passes_over_an_empty_change(tmp_path: Path) -> None:
     assert ma.cmd_list(w.runtime(), w.ws) == 0
 
 
+# ── main ──────────────────────────────────────────────────────────────────────
+
+def test_main_reads_landings_and_git_reverts(tmp_path: Path) -> None:
+    w = World(tmp_path)
+    landed = w.lands()
+    # A commit that only quotes the revert line is no revert.
+    (w.dir / "doc.txt").write_text("x\n")
+    sh(w.dir, "add", "doc.txt")
+    sh(w.dir, "commit", "-q", "-m", f"docs: how to revert\n\nThis reverts commit {landed}.")
+    sh(w.dir, "push", "-q", "origin", "HEAD:refs/heads/main")
+    assert ma.read_main(w.dir).landed(TASK, CHANGE) == (landed, "")
+    w.reverts(landed)
+    assert ma.read_main(w.dir).landed(TASK, CHANGE) == ("", f"it landed as {landed[:12]} and was reverted")
+    # A revert of the revert restores it.
+    w.reverts(sh(w.dir, "rev-parse", "HEAD").strip())
+    assert ma.read_main(w.dir).landed(TASK, CHANGE) == (landed, "")
+
+
+def test_a_newer_landing_under_the_change_id_stands_though_the_tasks_was_reverted(tmp_path: Path) -> None:
+    w = World(tmp_path)
+    first = w.lands()
+    w.reverts(first)
+    again = w.lands(keep_task=False)
+    assert ma.read_main(w.dir).landed(TASK, CHANGE) == (again, "")
+
+
 # ── prunable ──────────────────────────────────────────────────────────────────
+
+def moved(task: str, to: str, at: datetime, seq: int) -> dict:
+    return {"seq": seq, "event_type": "task_state_changed", "task_id": task, "body_json": {"to": to}, "at": at.isoformat()}
+
 
 def test_prunable_follows_td383s_rule(tmp_path: Path) -> None:
     w = World(tmp_path, repo="bifrost-platform")
     for ref in (f"refs/heads/agent/{TASK}/a1", f"refs/heads/agent/{CANCELLED}/a1", f"refs/heads/agent/{JUST_CANCELLED}/a1",
-                f"refs/heads/agent/{UNKNOWN}/a3", f"refs/heads/agent/{BOTH}/a1", "refs/heads/agent/manual/foo"):
+                f"refs/heads/agent/{REJECTED}/a1", f"refs/heads/agent/{UNKNOWN}/a3", f"refs/heads/agent/{BOTH}/a1",
+                "refs/heads/agent/manual/foo"):
         sh(w.dir, "push", "-q", "origin", f"{w.base}:{ref}")
-    long_ago = (NOW - timedelta(days=10)).isoformat()
-    prod = w.runtime(extra={
-        f"tasks/{CANCELLED}": {"task_id": CANCELLED, "state": "cancelled", "updated_at": long_ago},
-        # An old commit whose task was cancelled today: its seven days start today.
-        f"tasks/{JUST_CANCELLED}": {"task_id": JUST_CANCELLED, "state": "cancelled", "updated_at": NOW.isoformat()},
-        f"tasks/{BOTH}": {"task_id": BOTH, "state": "cancelled", "updated_at": long_ago},
-    })
+    ten = NOW - timedelta(days=10)
+
+    def row(task: str, state: str) -> dict:
+        # updated_at is today for all: a plan change moved them (review 434 B2); the events say when.
+        return {"task_id": task, "state": state, "mission_id": "M-9", "updated_at": NOW.isoformat()}
+    prod = w.runtime(accepted_at=NOW.isoformat(), more_events=[
+        moved(CANCELLED, "cancelled", ten, 20), moved(JUST_CANCELLED, "cancelled", NOW, 21), moved(REJECTED, "rejected", ten, 22)],
+        extra={f"tasks/{t}": row(t, st) for t, st in
+               [(CANCELLED, "cancelled"), (JUST_CANCELLED, "cancelled"), (REJECTED, "rejected"), (BOTH, "cancelled")]})
     stg = RealRuntime("stg", lambda p: {"task_id": BOTH, "state": "running"} if p == f"tasks/{BOTH}" else knows_nothing(p))
 
     def decisions(at: datetime) -> dict[str, tuple[str, bool, str]]:
@@ -422,21 +488,21 @@ def test_prunable_follows_td383s_rule(tmp_path: Path) -> None:
                 for ref, env, go, why in ma.prunable({"prod": prod, "stg": stg}, w.dir, at.timestamp())}
     now = decisions(NOW)
     assert now["H8/a1"] == ("prod", False, "superseded: attempt 2 was accepted; 0.0 of 7 days")
+    assert now["H8/a2"] == ("prod", False, "its accepted result is not on main")
     assert now["HA/a1"] == ("prod", True, "its task is cancelled")
+    assert now["HF/a1"] == ("prod", True, "its task is rejected")
     assert now["HD/a1"] == ("prod", False, "its task is cancelled; 0.0 of 7 days")
     assert now["HB/a3"] == ("", False, "no task of this id in prod or stg")
     assert now["HE/a1"] == ("", False, "a task of this id is known to prod and stg")
     assert now["manual/foo"] == ("", False, "not an attempt branch (agent/<task>/a<n>)")
     late = decisions(NOW + timedelta(days=8))
-    assert late["H8/a1"] == ("prod", True, "superseded: attempt 2 was accepted")
-    assert late["H8/a2"] == ("prod", False, "its accepted result is not on main")
+    assert late["H8/a1"] == ("prod", True, "superseded: attempt 2 was accepted") and not late["H8/a2"][1]
     assert late["HD/a1"][1] and not late["HE/a1"][1] and not late["HB/a3"][1]
-    # Landed: its seven days start at the landing, and then every branch of the task goes.
-    landed = w.lands()
-    assert not decisions(NOW + timedelta(days=1))["H8/a2"][1]
-    merged = decisions(NOW + timedelta(days=8))
-    assert merged["H8/a2"] == ("prod", True, f"its task is accepted and on main as {landed[:12]}") and merged["H8/a1"][1]
-    # Reverted: the accepted attempt stays; the superseded one still goes.
+    # Landed, by hand without the task's trailer: found by its Change-Id; when it reached main is
+    # not in git's history, so the accepted attempt's branch stays.
+    landed = w.lands(keep_task=False)
+    merged = decisions(NOW + timedelta(days=30))
+    assert merged["H8/a2"] == ("prod", False, f"its accepted result landed as {landed[:12]}; when it reached main is not on record")
+    assert merged["H8/a1"][1]
     w.reverts(landed)
-    reverted = decisions(NOW + timedelta(days=8))
-    assert reverted["H8/a2"] == ("prod", False, f"it landed as {landed[:12]} and was reverted") and reverted["H8/a1"][1]
+    assert decisions(NOW + timedelta(days=30))["H8/a2"] == ("prod", False, f"it landed as {landed[:12]} and was reverted")

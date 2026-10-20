@@ -24,7 +24,9 @@ apply     in a fresh worktree of the repository's main (its siblings beside it, 
 prunable  TD-383's deletion rule over the agent/<task>/a<n> branches of bifrost-platform and
           bifrost-ui, and why for each; it deletes nothing (who deletes, and how past Gitea's
           protection of agent/**, is the Owner's to decide). PROD and STG push to the same
-          repositories: each task is looked up in both, and one both know is kept.
+          repositories: each task is looked up in both, and one both know is kept. A branch goes 7
+          days after the event that made its rule hold; the accepted attempt's branch is kept, on
+          main or not: main's history does not say when a commit reached it.
 
 Where the line is (ADR §1, §5, §12.7: until the release queue, nothing reaches a running system
 unattended, and merging is 「核对后合」, Owner 10-19). Pushing bifrost-platform's main starts its CI
@@ -43,6 +45,7 @@ there, and never touches their working trees, index or branches.
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import re
@@ -101,7 +104,7 @@ CODE_HEALTH = {"bifrost-platform", "bifrost-trade-frontend", "bifrost-research",
 
 TRAILER = re.compile(r"^([A-Za-z][A-Za-z0-9-]*): (.*)$")
 GENERIC_SUBJECT = re.compile(r"^agentrt: t_[0-9A-Z]{26} attempt \d+$")
-REVERTS = re.compile(r"This reverts commit ([0-9a-f]{40})")
+REVERTS = re.compile(r"^This reverts commit ([0-9a-f]{40})\.$", re.M)  # git revert's own line
 
 
 class Refused(Exception):
@@ -140,7 +143,8 @@ class Runtime:
                     return json.load(resp)
         self._get = get
 
-    # A read that fails on the platform's side (a 5xx, a connection that drops) is tried again:
+    # A read that fails on the platform's side (a 5xx, a connection refused or dropped, an answer
+    # cut short) is tried again:
     # the routes answered an occasional 500 on 2026-10-20 that the same read did not repeat.
     TRIES = 3
     PAUSE = 2.0
@@ -153,7 +157,8 @@ class Runtime:
             except urllib.error.HTTPError as exc:
                 if exc.code < 500 or n == self.TRIES:
                     raise
-            except urllib.error.URLError:
+            except (urllib.error.URLError, http.client.HTTPException, ConnectionError, TimeoutError):
+                # A connection refused or dropped, or an answer cut short while it was read.
                 if n == self.TRIES:
                     raise
             time.sleep(self.PAUSE * n)
@@ -310,36 +315,48 @@ def workspace() -> Path:
 
 @dataclass
 class Main:
-    """What a repository's main says of agent work: by task and by Change-Id, the newest commit
-    that carries it; and the commits a later commit of main reverts."""
-    by_task: dict[str, str] = field(default_factory=dict)
-    by_change: dict[str, str] = field(default_factory=dict)
-    reverted: set[str] = field(default_factory=set)
+    """What a repository's main says of agent work: by task and by Change-Id, every commit that
+    carries it, newest first; and which commit each revert on main reverts. Only git revert's own
+    message counts as a revert (its subject starts 'Revert "' or, for a revert of a revert,
+    'Reapply "', and its body says "This reverts commit <sha>."): a revert written by hand is not
+    recognised, and a landing is then taken as standing."""
+    by_task: dict[str, list[str]] = field(default_factory=dict)
+    by_change: dict[str, list[str]] = field(default_factory=dict)
+    reverts: dict[str, str] = field(default_factory=dict)  # the revert's commit → the commit it reverts
+
+    def undone(self, sha: str, depth: int = 0) -> bool:
+        """Whether a revert on main undoes sha and is not itself undone (a revert of a revert
+        restores it)."""
+        return depth < 20 and any(t == sha and not self.undone(r, depth + 1) for r, t in self.reverts.items())
 
     def landed(self, task: str, change_id: str = "") -> tuple[str, str]:
-        """(the commit it landed as, "") when it is on main; ("", why not) otherwise."""
-        for key, found in ((task, self.by_task), (change_id, self.by_change)):
-            sha = found.get(key, "") if key else ""
-            if sha and sha in self.reverted:
-                return "", f"it landed as {sha[:12]} and was reverted"
-            if sha:
+        """(the newest commit it landed as and still stands, "") when it is on main; ("", why
+        not) otherwise. Its task's trailer and its Change-Id are looked at together, so a newer
+        landing under either stands though an older one was reverted."""
+        found = [*(self.by_task.get(task, []) if task else []), *(self.by_change.get(change_id, []) if change_id else [])]
+        for sha in found:
+            if not self.undone(sha):
                 return sha, ""
+        if found:
+            return "", f"it landed as {found[0][:12]} and was reverted"
         return "", "not on main"
 
 
 def read_main(repo_dir: Path) -> Main:
     m = Main()
     log = git(repo_dir, "log", "origin/main", "--format=%H%x00%(trailers:key=Agentrt-Task,valueonly,separator=%x2C)"
-              "%x00%(trailers:key=Change-Id,valueonly,separator=%x2C)%x00%B%x1e")
+              "%x00%(trailers:key=Change-Id,valueonly,separator=%x2C)%x00%s%x00%B%x1e")
     for rec in log.split("\x1e"):
         parts = rec.strip("\n").split("\x00")
-        if len(parts) < 4:
+        if len(parts) < 5:
             continue
-        sha, tasks, changes, body = parts[0].strip(), parts[1], parts[2], parts[3]
+        sha, tasks, changes, subject, body = parts[0].strip(), parts[1], parts[2], parts[3], parts[4]
         for key, found in ((tasks, m.by_task), (changes, m.by_change)):
             for v in filter(None, (x.strip() for x in key.split(","))):
-                found.setdefault(v, sha)  # newest first: the latest landing
-        m.reverted.update(REVERTS.findall(body))
+                found.setdefault(v, []).append(sha)  # newest first
+        target = REVERTS.findall(body)
+        if subject.startswith(('Revert "', 'Reapply "')) and len(target) == 1:  # git names a revert of a revert Reapply
+            m.reverts[sha] = target[0]
     return m
 
 
@@ -481,8 +498,9 @@ def suite_env(tree: Path, repo: str) -> dict[str, str]:
 
 
 def run_suite(tree: Path, repo: str, run: Callable[[list[str], Path, dict[str, str]], int]) -> tuple[bool, list[str]]:
-    """The repository's suite and code-health on the tree: (whether there was anything to run,
-    the steps that failed). A repository with neither is not verified, which is not a pass."""
+    """The repository's suite and code-health on the tree: (whether it has a suite here, the
+    steps that failed). Without a suite it is not verified, code-health or not: that is not a
+    pass (review 434 A1)."""
     failed = []
     env = suite_env(tree, repo)
     cmds = SUITES.get(repo, [])
@@ -493,7 +511,7 @@ def run_suite(tree: Path, repo: str, run: Callable[[list[str], Path, dict[str, s
         scan = INFRA / "agent-config" / "scripts" / "code-health" / "scan.sh"
         if run(["bash", str(scan), "--root", str(tree.parent), "--repo", repo], tree, env) != 0:
             failed.append("code-health")
-    return bool(cmds) or repo in CODE_HEALTH, failed
+    return bool(cmds), failed
 
 
 def default_run(cmd: list[str], cwd: Path, env: dict[str, str]) -> int:
@@ -544,19 +562,30 @@ def cmd_list(rt: Runtime, ws: Path, out=None) -> int:
     return 1 if missing else 0
 
 
-KEEP_DAYS = 7  # TD-383: an attempt branch goes 7 days after its task ended, its attempt was superseded, or it landed
+KEEP_DAYS = 7  # TD-383: an attempt branch goes 7 days after its task ended or its attempt was superseded
 AGENT_REF = re.compile(r"^refs/heads/agent/(t_[0-9A-Z]{26})/a([0-9]+)$")
 PRUNE_REPOS = ("bifrost-platform", "bifrost-ui")
 
 
+def entered(rt: Runtime, task: dict, state: str, cache: dict[tuple[str, str], list[dict]]) -> datetime | None:
+    """When the task last moved to state, from its mission's events (its row's updated_at also
+    moves when a plan change rebinds or moves it, review 434 B2)."""
+    key = (rt.env, task.get("mission_id", ""))
+    if key not in cache:
+        cache[key] = rt.events(key[1]) if key[1] else []
+    at = [e.get("at", "") for e in cache[key] if e.get("task_id") == task.get("task_id")
+          and e.get("event_type") == "task_state_changed" and (e.get("body_json") or {}).get("to") == state]
+    return parse_time(at[-1]) if at else None
+
+
 def prunable(runtimes: dict[str, Runtime], repo_dir: Path, now: float) -> list[tuple[str, str, bool, str]]:
     """Each agent/ branch of the repository: (ref, the environment that knows its task, whether
-    TD-383's rule deletes it, why). Deleted once the condition has held KEEP_DAYS: its task is
-    rejected or cancelled, or accepted and landed on main (from the landing commit's time), or
-    accepted and this is another attempt than the accepted one (superseded; from the task's last
-    change, its acceptance). Kept: a branch that names no task attempt, a task no runtime or
-    both runtimes know, a task still open, an accepted result not on main or landed and reverted,
-    an accepted attempt it cannot tell."""
+    TD-383's rule deletes it, why). Deleted once the condition has held KEEP_DAYS, counted from
+    the event that made it hold: its task moved to rejected or cancelled; it is an attempt of an
+    accepted task other than the accepted one (superseded, from the acceptance). Kept: a branch
+    that names no task attempt; a task no runtime or both runtimes know; a task still open; the
+    accepted attempt's branch, on main or not (main's history does not say when a commit reached
+    it, so "7 days after it landed" cannot be told here; review 434 A2); whatever it cannot read."""
     heads: dict[str, str] = {}
     for line in git(repo_dir, "ls-remote", "--heads", "origin", "refs/heads/agent/*").splitlines():
         sha, _, ref = line.partition("\t")
@@ -572,40 +601,36 @@ def prunable(runtimes: dict[str, Runtime], repo_dir: Path, now: float) -> list[t
             out.append((ref, "", False, "not an attempt branch (agent/<task>/a<n>)"))
     git(repo_dir, "fetch", "--quiet", "--no-tags", "origin", "main")
     main = read_main(repo_dir)
+    events: dict[tuple[str, str], list[dict]] = {}
     for task, refs in sorted(by_task.items()):
         known = {name: t for name, rt in runtimes.items() if (t := rt.find_task(task)) is not None}
-        env, t = (next(iter(known.items())) if len(known) == 1 else ("", None))
+        env, t = next(iter(known.items())) if len(known) == 1 else ("", None)
         state = (t or {}).get("state", "")
-        since, landed, accepted_no, cause = None, "", 0, ""
+        since: datetime | None = None
+        accepted_no, kept = 0, ""  # kept: why the accepted attempt's branch stays
         if len(known) > 1:
-            cause = "a task of this id is known to " + " and ".join(sorted(known))
+            kept = "a task of this id is known to " + " and ".join(sorted(known))
         elif t is None:
-            cause = "no task of this id in " + " or ".join(runtimes)
+            kept = "no task of this id in " + " or ".join(runtimes)
         elif state in ("rejected", "cancelled"):
-            since = parse_time(t.get("updated_at") or "")
+            since = entered(runtimes[env], t, state, events)
         elif state == "accepted":
-            landed, why = main.landed(task)
-            if landed:
-                since = datetime.fromtimestamp(int(git(repo_dir, "log", "-1", "--format=%ct", landed).strip()), timezone.utc)
-            else:
-                try:
-                    accepted_no = accepted(runtimes[env], task).attempt_no
-                except Refused:
-                    accepted_no = -1  # cannot tell which attempt was accepted: keep them all
-                since = parse_time(t.get("updated_at") or "")
-                cause = why if why != "not on main" else ""
+            try:
+                a = accepted(runtimes[env], task)
+                fetch(repo_dir, [a.ref])
+                accepted_no, since = a.attempt_no, parse_time(a.accepted_at)
+                landed, why = main.landed(task, change_id(git(repo_dir, "log", "-1", "--format=%B", a.commit)))
+                kept = (f"its accepted result landed as {landed[:12]}; when it reached main is not on record" if landed
+                        else "its accepted result is not on main" if why == "not on main" else why)
+            except Refused as exc:
+                kept = f"cannot tell which attempt was accepted: {exc}"
         for ref, n in sorted(refs, key=lambda x: x[1]):
-            superseded = state == "accepted" and not landed and accepted_no > 0 and n != accepted_no
-            if cause and not superseded:
-                go, why = False, cause
-            elif state in ("rejected", "cancelled"):
+            if state in ("rejected", "cancelled") and len(known) == 1:
                 go, why = True, f"its task is {state}"
-            elif state == "accepted" and landed:
-                go, why = True, f"its task is accepted and on main as {landed[:12]}"
-            elif superseded:
+            elif state == "accepted" and len(known) == 1 and accepted_no > 0 and n != accepted_no:
                 go, why = True, f"superseded: attempt {accepted_no} was accepted"
-            elif state == "accepted":
-                go, why = False, "its accepted result is not on main" if accepted_no >= 0 else "cannot tell which attempt was accepted"
+            elif kept:
+                go, why = False, kept
             else:
                 go, why = False, f"its task is {state}"
             if go:
