@@ -106,6 +106,7 @@ CODE_HEALTH = {"bifrost-platform", "bifrost-trade-frontend", "bifrost-research",
 TRAILER = re.compile(r"^([A-Za-z][A-Za-z0-9-]*): (.*)$")
 GENERIC_SUBJECT = re.compile(r"^agentrt: t_[0-9A-Z]{26} attempt \d+$")
 REVERTS = re.compile(r"^This reverts commit ([0-9a-f]{40})\.$", re.M)  # git revert's own line
+PICKED = re.compile(r"^\(cherry picked from commit ([0-9a-f]{40})\)\s*$", re.M)  # git cherry-pick -x's line, as merges write it
 
 
 class Refused(Exception):
@@ -335,6 +336,8 @@ class Main:
     by_task: dict[str, list[str]] = field(default_factory=dict)
     by_change: dict[str, list[str]] = field(default_factory=dict)
     reverts: dict[str, str] = field(default_factory=dict)  # the revert's commit → the commit it reverts
+    # (task, a result commit: the commit itself or the one its cherry-pick line names) → main commits
+    results: dict[tuple[str, str], list[str]] = field(default_factory=dict)
 
     def undone(self, sha: str, depth: int = 0) -> bool:
         """Whether a revert on main undoes sha and is not itself undone (a revert of a revert
@@ -353,6 +356,12 @@ class Main:
             return "", f"it landed as {found[0][:12]} and was reverted"
         return "", "not on main"
 
+    def stands(self, task: str, commit: str) -> str:
+        """The newest main commit that holds this very result of task and still stands, "" for none:
+        what the runtime's cleanup asks of main before it lets the accepted attempt's branch go
+        (review 436 A1, A2)."""
+        return next((sha for sha in self.results.get((task, commit), []) if not self.undone(sha)), "")
+
 
 def read_main(repo_dir: Path) -> Main:
     m = Main()
@@ -366,6 +375,9 @@ def read_main(repo_dir: Path) -> Main:
         for key, found in ((tasks, m.by_task), (changes, m.by_change)):
             for v in filter(None, (x.strip() for x in key.split(","))):
                 found.setdefault(v, []).append(sha)  # newest first
+        for task in filter(None, (x.strip() for x in tasks.split(","))):
+            for result in (sha, *PICKED.findall(body)):
+                m.results.setdefault((task, result), []).append(sha)
         target = REVERTS.findall(body)
         if subject.startswith(('Revert "', 'Reapply "')) and len(target) == 1:  # git names a revert of a revert Reapply
             m.reverts[sha] = target[0]
@@ -646,8 +658,11 @@ def prunable(runtimes: dict[str, Runtime], repo_dir: Path, now: float) -> list[t
                 accepted_no, since = a.attempt_no, parse_time(a.accepted_at)
                 if a.no_merge:
                     own_since, own_why = since, f"accepted; its mission is not merged: {a.no_merge}"
+                elif a.seen_on_main_at and (stands := main.stands(task, a.commit)):
+                    own_since, own_why = parse_time(a.seen_on_main_at), f"accepted and on main as {stands[:12]}"
                 elif a.seen_on_main_at:
-                    own_since, own_why = parse_time(a.seen_on_main_at), f"accepted and seen on main as {a.seen_on_main_as[:12]}"
+                    kept = (f"the runtime saw its accepted result on main as {a.seen_on_main_as[:12]}; "
+                            "main no longer holds that commit (reverted)")
                 else:
                     landed, why = main.landed(task, change_id(git(repo_dir, "log", "-1", "--format=%B", a.commit)))
                     kept = (f"its accepted result landed as {landed[:12]}; the runtime has not recorded seeing it there" if landed

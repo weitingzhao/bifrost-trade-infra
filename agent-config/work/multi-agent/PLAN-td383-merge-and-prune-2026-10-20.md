@@ -75,9 +75,9 @@ TD-383 的验收要「PROD 上每件已收下的实现要么在 main，要么写
 
 **运行时清理 agent/ 分支**（规则就是 2.4 那条，代码在 platform `store/prune.go`）：
 
-- 控制器每 5 分钟读一次各仓库 main 的提交说明，第一次看到某件已收下的结果（`Agentrt-Task` 尾注）就在任务上记一笔 `note`（`landed`），7 天从这一笔算起——git 的历史给不出「哪天进的 main」，所以要自己记。
+- 控制器单独一个循环，每 5 分钟读一次各仓库 main 的提交说明，第一次看到某件已收下的那次尝试的提交本身落在 main 上（合并带的 `(cherry picked from commit <它>)`，或快进的就是它；同任务别的提交不算，被 `git revert` 撤掉、又没被撤回撤回的不算）就在任务上记一笔 `note`（`landed`），7 天从这一笔算起——git 的历史给不出「哪天进的 main」，所以要自己记。交出清单前还要再看一次当前的 main：之后被 revert 了，或 main 读不到，分支就留着（复核 436 A1、A2）。
 - 06 上的 agentd 每 10 分钟问一次平台「有哪些可以删」（`GET /agentrt/prunes`，只回这台主机所在环境自己的任务的分支，最多 50 条），用它推分支的同一个 Gitea 身份删，而且只在分支还指着平台给的那个提交时才删（`git push --force-with-lease`）；删完回报（`POST /agentrt/prunes`），每删一条在任务上记一笔 `note`（`pruned`）。
-- 保护还在的时候 Gitea 会拒绝：agentd 遇到第一次拒绝就停下这一轮、回报 Gitea 的原话，平台在主机的事件流上记一笔 `note`（`prune_refused`），之后 6 小时不再给它清单；agentd 照常干活，不报错退出。
+- 保护还在的时候 Gitea 会拒绝：agentd 遇到第一次拒绝就停下这一轮、回报 Gitea 的原话，平台在主机的事件流上记一笔 `note`（`prune_refused`），之后 6 小时不再给它清单；连不上 Gitea 记 `prune_failed`、停 30 分钟；agentd 照常干活，不报错退出。回报先写到 agentd 自己的盘上、用单独的时限发，没送到的下一轮先补发；平台只收「这个运行时推过的那次尝试、规则会放走的任务」的回报。某个仓库读不到时只跳过它，其它仓库照常给清单。
 - PROD 和 STG 推到同一个 Gitea 仓库，各自只删自己任务的分支；不认识的分支一律不碰。
 
 ## 4. 给你的 Gitea 步骤（去掉 `agent/**` 保护）
@@ -86,13 +86,13 @@ TD-383 的验收要「PROD 上每件已收下的实现要么在 main，要么写
 
 **在哪里**：你自己的终端（脚本要你的管理员 kubeconfig 开端口转发、从集群里读 Gitea 管理员令牌，和你 10-17 设保护时一样）。先确认 infra 已经快进到包含这次改动的 main（`git -C ~/Desktop/stocks/bifrost-trade-infra pull --ff-only`）。
 
-**怎么改**：一条命令，对 11 个主仓库和探针、模板两个仓库各做一遍：保留 `main` 的规则，删掉 `agent/**` 的规则并读回核对：
+**怎么改**：一条命令，对 11 个主仓库和探针、模板两个仓库各做一遍：`main` 的规则原样不动（只核对），删掉 `agent/**` 的规则并读回核对：
 
 ```bash
 bash ~/Desktop/stocks/bifrost-trade-infra/scripts/gitea/protect-repo.sh --owner weitingzhao bifrost-platform bifrost-ui bifrost-trade-core bifrost-trade-api bifrost-trade-worker bifrost-trade-frontend bifrost-platform-plugin bifrost-platform-plugin-market-data bifrost-platform-plugin-flex-query bifrost-trade-infra bifrost-research primary-probe repo-template
 ```
 
-每个仓库应该打出 `main: set and read back` 和 `agent/**: removed and read back`，最后退出码 0（标签规则那行提示照旧，不用再加）。
+每个仓库应该打出 `main: there as the baseline, left as it is`（`main` 的规则只核对、不改；和 10-17 的基线不一样时打 `DIFFERS … left as it is`、退出码 1，规则照样不动，`agent/**` 照样删）和 `agent/**: removed and read back`，最后退出码 0（标签规则那行提示照旧，不用再加）。
 
 **改完核对**：
 

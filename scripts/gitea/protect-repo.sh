@@ -11,8 +11,10 @@
 # 「分支 B 用 agentd」: agentd deletes them under the runtime's rule). A rule
 # agent/** that is there is deleted and the rules read back without it.
 # The tag rule (*: maintainers and <login>) has no API in 1.21: the script
-# prints the page to set it on. A rule that exists is edited to this, not
-# duplicated. Another branch rule that could match main or an agent/ branch
+# prints the page to set it on. A main rule that is missing is created; one
+# that is there is only compared, never edited: it may have been tightened on
+# the page since (review 436 B5); one that differs is reported (exit 1) and
+# left as it is. Another branch rule that could match main or an agent/ branch
 # stops it for that repository before anything is changed: Gitea 1.21 takes
 # the first rule that matches, so an older `**` or a narrower rule would
 # decide instead of this one (review 246 B9), and one matching an agent/
@@ -220,10 +222,16 @@ PY
     enc="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "${rule}")"
     existing="$(gitea_api GET "/repos/${GITEA_ORG}/${repo}/branch_protections")" || gitea_die "cannot read the rules of ${repo}"
     if python3 -c 'import json,sys; sys.exit(0 if any(r.get("rule_name") == sys.argv[1] for r in json.load(sys.stdin)) else 1)' "${rule}" <<< "${existing}"; then
-      gitea_api PATCH "/repos/${GITEA_ORG}/${repo}/branch_protections/${enc}" "${body}" > /dev/null || gitea_die "${repo} ${rule}: edit refused"
-    else
-      gitea_api POST "/repos/${GITEA_ORG}/${repo}/branch_protections" "${body}" > /dev/null || gitea_die "${repo} ${rule}: create refused"
+      got="$(gitea_api GET "/repos/${GITEA_ORG}/${repo}/branch_protections/${enc}")" || gitea_die "${repo} ${rule}: cannot read it"
+      if python3 -c "${COMPARE_RULE}" "${body}" <<< "${got}"; then
+        echo "${repo} ${rule}: there as the baseline, left as it is"
+      else
+        echo "${repo} ${rule}: DIFFERS from the baseline above, left as it is (change it on the page if it should be the baseline)"
+        fail=1
+      fi
+      continue
     fi
+    gitea_api POST "/repos/${GITEA_ORG}/${repo}/branch_protections" "${body}" > /dev/null || gitea_die "${repo} ${rule}: create refused"
     got="$(gitea_api GET "/repos/${GITEA_ORG}/${repo}/branch_protections/${enc}")" || gitea_die "${repo} ${rule}: cannot read it back"
     if python3 -c "${COMPARE_RULE}" "${body}" <<< "${got}"; then
       echo "${repo} ${rule}: set and read back"

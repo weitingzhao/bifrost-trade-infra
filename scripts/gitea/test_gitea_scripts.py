@@ -272,11 +272,12 @@ class Scripts(unittest.TestCase):
                 self.assertEqual(rule["merge_whitelist_teams"], ["maintainers"])
                 self.assertEqual(rule["merge_whitelist_usernames"], ["vision"])
             self.assertIn("Settings → Tags", r.stdout)
-            # a second run edits, it does not add
+            # a second run finds main as the baseline and neither edits nor adds (review 436 B5)
             r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             self.assertEqual(len(api.rules["r"]), 1)
-            self.assertTrue(any(c.startswith("PATCH ") for c in api.calls))
+            self.assertIn("r main: there as the baseline, left as it is", r.stdout)
+            self.assertFalse(any(c.startswith("PATCH ") for c in api.calls))
         finally:
             api.close()
 
@@ -577,6 +578,24 @@ esac
             self.assertEqual(sorted(api.rules["r"]), ["main"])
             self.assertIn("r agent/**: removed and read back", r.stdout)
             self.assertIn("DELETE /api/v1/repos/bifrost/r/branch_protections/agent/**", api.calls)
+        finally:
+            api.close()
+
+    # review 436 B5: lifting agent/** leaves a main rule tightened on the page as it is, and says so
+    def test_protect_repo_leaves_a_tightened_main_as_it_is(self) -> None:
+        main = {"rule_name": "main", "enable_push": False, "enable_push_whitelist": False, "push_whitelist_teams": [],
+                "push_whitelist_usernames": [], "enable_merge_whitelist": True, "merge_whitelist_teams": ["maintainers"],
+                "merge_whitelist_usernames": ["vision"]}
+        agent = {"rule_name": "agent/**", "enable_push": True, "push_whitelist_teams": ["agentd-write"]}
+        api = FakeApi({"r": False}, rules={"r": {"main": dict(main), "agent/**": dict(agent)}})
+        try:
+            r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api)
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertIn("r main: DIFFERS from the baseline above, left as it is", r.stdout)
+            self.assertEqual(api.rules["r"]["main"], main)
+            self.assertEqual(sorted(api.rules["r"]), ["main"])
+            self.assertIn("r agent/**: removed and read back", r.stdout)
+            self.assertFalse(any(c.startswith(("PATCH ", "POST ")) for c in api.calls))
         finally:
             api.close()
 

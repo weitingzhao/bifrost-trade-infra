@@ -108,10 +108,11 @@ class World:
         sh(self.dir, "commit", "-q", "-m", "other work")
         sh(self.dir, "push", "-q", "origin", "HEAD:refs/heads/main")
 
-    def lands(self, keep_task: bool = True) -> str:
-        """The accepted commit lands on main by hand, with or without its Agentrt-Task."""
+    def lands(self, keep_task: bool = True, x: bool = False) -> str:
+        """The accepted commit lands on main by hand, with or without its Agentrt-Task, and with
+        git's cherry-pick line when x."""
         sh(self.dir, "fetch", "-q", "origin", self.ref)
-        sh(self.dir, "cherry-pick", self.commit)
+        sh(self.dir, "cherry-pick", *(["-x"] if x else []), self.commit)
         if not keep_task:
             body = sh(self.dir, "log", "-1", "--format=%B").replace(f"Agentrt-Task: {TASK}\n", "")
             sh(self.dir, "commit", "-q", "--amend", "-m", body)
@@ -522,14 +523,17 @@ def test_a_mission_not_to_be_merged_is_passed_over_and_refused(tmp_path: Path, c
         ma.plan(rt, TASK, w.ws)
 
 
-@pytest.mark.parametrize("how", ["no_merge", "seen"])
+@pytest.mark.parametrize("how", ["no_merge", "seen", "seen, then reverted"])
 def test_prunable_lets_the_accepted_attempt_go_as_the_runtime_does(tmp_path: Path, how: str) -> None:
     w = World(tmp_path, repo="bifrost-platform")
     sh(w.dir, "push", "-q", "origin", f"{w.base}:refs/heads/agent/{TASK}/a1")
     seen_at = NOW + timedelta(days=2)
+    landed = "" if how == "no_merge" else w.lands(x=True)
+    if how == "seen, then reverted":
+        w.reverts(landed)
     rt = (w.runtime(accepted_at=NOW.isoformat(), no_merge="a benchmark replay") if how == "no_merge" else
           w.runtime(accepted_at=NOW.isoformat(), more_events=[{"seq": 30, "event_type": "note", "task_id": TASK,
-                                                               "body_json": {"text": "on main", "landed": w.commit},
+                                                               "body_json": {"text": "on main", "landed": landed},
                                                                "at": seen_at.isoformat()}]))
     stg = RealRuntime("stg", knows_nothing)
 
@@ -538,7 +542,11 @@ def test_prunable_lets_the_accepted_attempt_go_as_the_runtime_does(tmp_path: Pat
     if how == "no_merge":
         assert accepted_branch(NOW + timedelta(days=6))[1] is False
         assert accepted_branch(NOW + timedelta(days=8)) == ("prod", True, "accepted; its mission is not merged: a benchmark replay")
-    else:
+    elif how == "seen":
         # Seven days from when the runtime first saw it on main, not from the acceptance.
         assert accepted_branch(NOW + timedelta(days=8))[1] is False
-        assert accepted_branch(NOW + timedelta(days=10)) == ("prod", True, f"accepted and seen on main as {w.commit[:12]}")
+        assert accepted_branch(NOW + timedelta(days=10)) == ("prod", True, f"accepted and on main as {landed[:12]}")
+    else:
+        # The runtime's note stays; main no longer holds the result: kept (review 436 A1).
+        env, go, why = accepted_branch(NOW + timedelta(days=10))
+        assert (env, go) == ("prod", False) and "no longer holds" in why
