@@ -91,3 +91,59 @@ def test_the_goal_mission_is_the_first_that_may_act() -> None:
 def test_no_goal_mission_yet() -> None:
     assert probe.goal_mission([m(9, "none"), m(10, None)]) is None
     assert probe.goal_mission([]) is None
+
+
+def test_host_lost_seen_lists_hosts_and_ages_in_attempt_order() -> None:
+    p = page({}, [{"attempt_id": "a2", "host_id": "agent-06", "status": "host_lost"},
+                  {"attempt_id": "a1", "host_id": "agent-06", "status": "host_lost"}])
+    assert probe.host_lost_seen(p, p, host(300), "M-7", NOW) == [
+        {"attempt": "a1", "host": "agent-06", "poll_age_s": 300.0},
+        {"attempt": "a2", "host": "agent-06", "poll_age_s": 300.0}]
+
+
+def test_host_lost_seen_requires_host_lost_in_both_reads() -> None:
+    lost = page({}, [{"attempt_id": "a1", "host_id": "agent-06", "status": "host_lost"}])
+    working = page({}, [{"attempt_id": "a1", "host_id": "agent-06", "status": "working"}])
+    absent = page({}, [])
+    for other in (working, absent):
+        assert probe.host_lost_seen(lost, other, host(300), "M-7", NOW) == []
+        assert probe.host_lost_seen(other, lost, host(300), "M-7", NOW) == []
+
+
+def test_host_lost_seen_excludes_another_missions_attempts() -> None:
+    p = page({}, [{"mission_id": "M-8", "attempt_id": "a9", "host_id": "agent-06", "status": "host_lost"}])
+    assert probe.host_lost_seen(p, p, host(300), "M-7", NOW) == []
+
+
+def test_host_lost_seen_has_no_age_for_unknown_or_never_polled_hosts() -> None:
+    p = page({}, [{"attempt_id": "a1", "host_id": "unknown", "status": "host_lost"},
+                  {"attempt_id": "a2", "host_id": "agent-06", "status": "host_lost"}])
+    for hosts in ([{"host_id": "agent-06"}], [{"host_id": "agent-06", "last_poll_at": None}]):
+        assert probe.host_lost_seen(p, p, hosts, "M-7", NOW) == [
+            {"attempt": "a1", "host": "unknown", "poll_age_s": None},
+            {"attempt": "a2", "host": "agent-06", "poll_age_s": None}]
+
+
+def test_tick_records_host_lost_without_changing_the_comparison() -> None:
+    p = page({}, [{"attempt_id": "a1", "host_id": "agent-06", "status": "host_lost"}])
+    events = [{"event_type": "attempt_leased", "attempt_id": "a1"}]
+    attempts = [{"attempt_id": "a1", "state": "running"}]
+
+    class FakePlatform:
+        def get(self, path: str, **query: str):
+            return {"progress": p, "tasks": {"tasks": []}, "events": events,
+                    "attempts/a1": attempts[0], "hosts": {"hosts": hosts}}[path]
+
+    # A correctly lost host and a recently polled host are both recorded; only the latter differs.
+    for polled_ago in (300, 30):
+        hosts = [{"host_id": "agent-06",
+                  "last_poll_at": (datetime.now(timezone.utc) - timedelta(seconds=polled_ago)).isoformat()}]
+        line = probe.tick(FakePlatform(), "M-7")
+        now = probe.parse_time(line["at"])
+        differences = probe.compare(p, p, [], attempts, hosts, "M-7", now)
+        assert line["differences"] == differences
+        assert line["ok"] == (not differences)
+        assert line["ok"] == (polled_ago == 300)
+        assert line["host_lost"] == [
+            {"attempt": "a1", "host": "agent-06",
+             "poll_age_s": (now - probe.parse_time(hosts[0]["last_poll_at"])).total_seconds()}]

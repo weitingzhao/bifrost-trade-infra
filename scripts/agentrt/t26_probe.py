@@ -20,7 +20,9 @@ that moved in between is not a difference). Three checks:
   3. a live attempt whose host last polled more than HostLostAfter (3 min) + slack ago shows host_lost,
      and one whose host polled within HostLostAfter - slack does not.
 
-One JSON line a tick: {"at", "ok", "differences": [...]}; at the end a summary line. It writes nothing to
+One JSON line a tick: {"at", "ok", "differences": [...], "host_lost": [...]}; host_lost lists the mission's
+attempts shown as host_lost in both reads, with their hosts and poll ages in seconds (null if unknown).
+At the end a summary line. It writes nothing to
 the platform and prints no credential (the operator token comes from bifrost-trade-infra/.env).
 """
 from __future__ import annotations
@@ -95,6 +97,22 @@ def compare(before: dict, after: dict, task_rows: list[dict], attempt_rows: list
     return out
 
 
+def host_lost_seen(before: dict, after: dict, hosts: list[dict], mission: str, now: datetime) -> list[dict]:
+    """The mission's attempts shown as host_lost in both page reads, with host poll ages."""
+    _, lb = mission_view(before, mission)
+    _, la = mission_view(after, mission)
+    polled = {h["host_id"]: parse_time(h.get("last_poll_at")) for h in hosts}
+    out: list[dict] = []
+    for aid in sorted(set(lb) & set(la)):
+        if lb[aid].get("status") != "host_lost" or la[aid].get("status") != "host_lost":
+            continue
+        host = la[aid].get("host_id")
+        last = polled.get(host)
+        age = None if last is None else (now - last).total_seconds()
+        out.append({"attempt": aid, "host": host, "poll_age_s": age})
+    return out
+
+
 def token(env: str) -> str:
     dotenv = Path(__file__).resolve().parents[2] / ".env"
     m = re.search(r"^" + TOKEN_KEYS[env] + r"=(.*)$", dotenv.read_text(), re.M)
@@ -162,7 +180,8 @@ def tick(p: Platform, mission: str) -> dict:
     after = p.get("progress")
     diffs = compare(before, after, tasks.get("tasks", []), attempts, hosts, mission, now)
     return {"at": now.isoformat(), "ok": not diffs, "differences": diffs, "tasks": len(tasks.get("tasks", [])),
-            "attempts": len(attempts), "truncated": bool(tasks.get("truncated"))}
+            "attempts": len(attempts), "truncated": bool(tasks.get("truncated")),
+            "host_lost": host_lost_seen(before, after, hosts, mission, now)}
 
 
 def main(argv: list[str] | None = None) -> int:
