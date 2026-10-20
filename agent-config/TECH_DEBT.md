@@ -2152,6 +2152,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-397
+
+**P2 · agentrt · nothing writes a gate verification, so no architecture row can ever be ticked**
+
+- **状态**：未开始（2026-10-20 17:5x 统筹线程记；Gate A 补跑线 F-T33；归第 2 轮 2.5 架构对照的收尾）
+- **Claim**: the architecture comparison (ARCH, 17 rows) ticks a row when its gate tests passed (`agentrt.verification` with method 'gate') against what the environment runs. No code path writes a verification with method 'gate': tests insert such rows directly (`progressarch_test.go`), and no route, CI step or controller loop records a gate run. So every row stays unknown on STG and PROD, whatever passes.
+- **Evidence**: gate-a-rest hand-back (side-session note gate-a-rest-2026-10-20.md, F-T33); `bifrost-platform` `git grep "'gate'"` finds the method only in the schema, the reader and tests; RUN-gate-a-stg-2026-10-15.md 10-20 section (T33).
+- **Impact**: the page meant to show how much of the architecture is real cannot show anything but unknown.
+- **Fix**: decide where a gate run is recorded (the CI run of a gate test on the deployed commit, recorded through a route that binds the test id, the commit and the deployment) and give each ARCH row its gate test ids by plan change; until then the page says the rows have no gate yet rather than unknown.
+- **Ratchet**: an end-to-end test where a recorded gate run for the deployed commit ticks its row through the real route.
+- 验收: on STG one ARCH row is ticked by a real gate run of the deployed commit.
+- 审批 要（记录门禁结果的路由是新接口，Owner 定）· 代价 M · 风险 low · repos: bifrost-platform, bifrost-trade-infra
+
 ### TD-396
 
 **P2 · agentrt · security · the chief exam's grading points sit in infra main, which Agent hosts check out and GitHub publishes**
