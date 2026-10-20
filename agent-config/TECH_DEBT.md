@@ -2149,6 +2149,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-385
+
+**P2 · console · after every Console release a browser keeps the old index.html and loses its stylesheet: the page renders unstyled**
+
+- **状态**：未开始（2026-10-19 23:2x 统筹线程记；Owner 当晚两次撞上：21:4x PROD For you、23:2x STG 问题页）
+- **Claim**: `bifrost-platform/console/nginx.conf` serves `index.html` with no `Cache-Control` (only `ETag` and `Last-Modified`), so Chrome may reuse it heuristically after a release; that old page names the old hashed assets, and `location / { try_files $uri $uri/ /index.html; }` answers a missing `/assets/*.css` with `200 text/html` (index.html), which Chrome refuses as a stylesheet. The old JS is still in the cache, so the page works but has no styles. Measured 10-19: PROD and STG `GET /assets/index-NOSUCH.css` → `200 text/html`; `curl -I /` has no `cache-control`.
+- **Evidence**: `bifrost-platform/console/nginx.conf:23-25`; `bifrost-trade-infra/k8s/cicd/docker/Dockerfile.platform-console-{dist,stg}` copy it as the image's `default.conf`. `bifrost-trade-frontend/nginx.conf` is copied the same way (`Dockerfile.frontend-stg-dist`) and may have the same gap; not checked.
+- **Impact**: after each release the Owner sees a broken page until a hard reload, and cannot tell a broken release from a cached page.
+- **Fix**: `location /assets/ { try_files $uri =404; add_header Cache-Control "public, max-age=31536000, immutable"; }` and `Cache-Control: no-cache` on `index.html` (and the SPA fallback); check the Trade frontend's config the same way.
+- **Ratchet**: a test that reads `console/nginx.conf` (and the frontend's) and asserts the two rules; a probe after each release: `/assets/<missing>.css` → 404 and `/` carries `no-cache`.
+- 验收: on STG after a release, `curl -skI https://stg.ops.bifrost.lan/` shows `cache-control: no-cache` and `/assets/index-NOSUCH.css` returns 404.
+- 审批 不需要（随平台发布）· 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-frontend
+
 ### TD-384
 
 **P2 · agentrt · a task the mission's budget will not let run waits in ready with no event and no card, and a card's "Give it one more round" can land it there**
