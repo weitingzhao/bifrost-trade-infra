@@ -24,7 +24,7 @@ from pathlib import Path
 import pytest
 
 RULES = Path(__file__).resolve().parents[2] / "agent-config" / "agentrt-rules"
-ENVS = ["stg"]
+ENVS = ["stg", "prod"]
 CANDIDATE = re.compile(r"^\s*-\s*\{executor:\s*([\w:-]+),\s*provider:\s*([\w-]+),.*status:\s*(\w+)\s*\}\s*$", re.MULTILINE)
 # v1's text: sha256 of the block's lines without their indent, each ending
 # in a newline.
