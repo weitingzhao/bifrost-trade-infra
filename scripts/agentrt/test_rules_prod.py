@@ -27,7 +27,8 @@ def test_prod_has_no_card_auto_answer_rule() -> None:
 def test_stg_draft_is_the_rule() -> None:
     text = (RULES / "stg" / "card-auto-answer.yaml").read_text()
     assert RULE_ID.search(text)
-    assert re.search(r"^after_minutes: 30$", text, re.MULTILINE)
+    # v2: five minutes, the shortest the kind takes (Owner 2026-10-20 16:2x; seconds wait for TD-393)
+    assert re.search(r"^after_minutes: 5$", text, re.MULTILINE)
 
 
 def test_the_check_reads_rule_id_as_yaml_does() -> None:

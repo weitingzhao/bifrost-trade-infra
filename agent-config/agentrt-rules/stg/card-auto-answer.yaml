@@ -1,7 +1,7 @@
 rule_id: card-auto-answer
-rule_version: 1
-direction: initial
-effective_at: 2026-10-20T00:00:00Z
+rule_version: 2
+direction: loosen
+effective_at: 2026-10-20T21:30:00Z
 expires_at: 2027-01-20T00:00:00Z
 # STG only (Owner 2026-10-20 「STG 用 A」, TD-390); PROD has no such file
 # (scripts/agentrt/test_rules_prod.py holds it so). A card the runtime asked,
@@ -11,6 +11,8 @@ expires_at: 2027-01-20T00:00:00Z
 # recommends: recorded as this rule's answer (rule card-auto-answer v1), never
 # the Owner's. A walk that tests the Owner's buttons proposes its mission
 # with needs_owner, and its cards wait for him.
-after_minutes: 30
+# v2 (Owner 2026-10-20 16:2x 「只需要等 5 秒」): the shortest wait this rule
+# kind takes, five minutes, until a later version can say seconds (TD-393).
+after_minutes: 5
 # blocked: a blocked task's card; plan_question: a planner's question.
 kinds: [blocked, plan_question]
