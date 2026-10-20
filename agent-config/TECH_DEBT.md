@@ -2149,6 +2149,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-384
+
+**P2 · agentrt · a task the mission's budget will not let run waits in ready with no event and no card, and a card's "Give it one more round" can land it there**
+
+- **状态**：未开始（2026-10-19 21:3x 统筹线程记；PROD M-9 第五件 Owner 21:09 在卡上选「再来一轮」后停在 ready）
+- **Claim**: `store/claim.go` `missionBudget.allows` returns "does not fit" when the mission's attempts used reach `max_attempts` (or its wall hours are over), and the claim skips the task silently. M-9 states 20 attempts and had used 20 when the Owner answered the blocked card with "Give it one more round" (`blockedcard.go`, platform `cac5e8d3`): the task went blocked → ready at 02:09:35Z, `route_decided` names two candidates, and no host has leased it since; no event says why, `needs_you` is empty, the card said "a host takes it as usual".
+- **Evidence**: PROD `/agentrt/events?stream=mission:M-9` (20 `attempt_leased`, last event 02:09:35Z); `/agentrt/missions/M-9` `budget_json {"max_attempts": 20}`; `api/internal/agentrt/store/claim.go` `allows`.
+- **Impact**: a mission whose budget is spent can never finish: the retried task waits forever, and the Owner, who answered the card, sees nothing waiting for him. T26 meets it whenever a rework-heavy mission runs out of attempts.
+- **Fix**: (1) the card's "Give it one more round" grants the attempts one round needs (implement, verification, review) on the mission's budget, recorded as `mission_amended` by the Owner through the card; (2) a controller pass moves a ready task that its mission's budget or wall time will not let run to blocked, with the reason, and the blocked card covers it (its retry grants the budget as in 1). No new route, table or column.
+- **Ratchet**: store tests: a retry on a spent budget leases within one pass; a ready task on a spent budget becomes blocked with a card naming the budget; neither happens while attempts are left.
+- 验收: both tests on main; on PROD M-9 either leases its fifth task or shows a card naming the budget.
+- 审批 不需要（按已签设计补实现）· 代价 S · 风险 low · repos: bifrost-platform
+
 ### TD-383
 
 **P2 · agentrt · an attempt's branch has no lifecycle: accepted work never reaches main, and nothing deletes the branches**
