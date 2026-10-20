@@ -2149,6 +2149,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-386
+
+**P3 · agentrt · a blocked task's decision card quotes the head of verify.json; the failure is at its tail, so the card does not say why the task failed**
+
+- **状态**：未开始（2026-10-20 00:3x 统筹线程记；★ 补验侧线 local_ea8d8044 在 PROD M-15 的 Q12、Q20 两张卡上看到）
+- **Claim**: `store/blockedcard.go` (platform `cac5e8d3`) puts "its report begins: …" on the card — the first bytes of the last check's report. For a deterministic check the report is `verify.json`, whose head lists the commands; the failing command and its output come last, so the card shows commands that passed and not the one that failed. Reviews (`report.md`) put the verdict at the end too ("VERDICT: FAIL").
+- **Evidence**: PROD questions `q_fc7959ed100d3053` (M-15 Q12) and `q_ddba16413d854638` (M-15 Q20); `agent-config/work/multi-agent/RUN-r2-stars-2026-10-20.md` §6.
+- **Impact**: the Owner answers a blocked card without seeing why it is blocked, or has to open the artifact.
+- **Fix**: for a deterministic check, quote the first failing step (command, exit code, the tail of its output); for a review, the verdict line and the lines before it; keep the card within the question store's size limit.
+- **Ratchet**: a store test: a blocked card for a failing verify.json names the failing command and its exit code; one for a failed review contains its VERDICT line.
+- 验收: the test on main; the next blocked card on STG names the failing step.
+- 审批 不需要 · 代价 S · 风险 low · repos: bifrost-platform
+
 ### TD-385
 
 **P2 · console · after every Console release a browser keeps the old index.html and loses its stylesheet: the page renders unstyled**
