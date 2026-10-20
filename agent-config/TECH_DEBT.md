@@ -2149,11 +2149,24 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-387
+
+**P3 · agentrt · a platform task's checks leave out code-health, so accepted work can be refused when it is merged**
+
+- **状态**：未开始（2026-10-20 01:2x 统筹线程记）
+- **Claim**: the runtime's deterministic check for a bifrost-platform task runs the repository's tests (store/repos.go) but not `scan.sh --repo bifrost-platform`. PROD-bound work goes through `push-main.sh`, which runs code-health and refuses a tree over its baselines. On 10-20 STG M-31's accepted TD-386 fix (Claude, reviewed by codex) grew `api/internal/agentrt/store/blockedcard_test.go` to 918 lines; `push-main.sh` refused it ("files over 800 lines … 13 > baseline 12") and the coordinator moved the new tests to `blockedcard_excerpt_test.go` by hand (`f1325739`).
+- **Evidence**: STG M-31; platform `a63e592e` (refused) and `f1325739` (merged).
+- **Impact**: work the runtime accepts can need hand edits before it reaches main, which TD-383's merge step cannot do on its own.
+- **Fix**: the platform's check list in `store/repos.go` runs code-health's file-size metric (and the other blocking metrics) on the task's tree against main's baseline; a refusal reads like any failed check.
+- **Ratchet**: a store test that platform's check list names the code-health scan; a STG walk where a task that grows a file past 800 lines fails its deterministic check.
+- 验收: the test on main; on STG a task that crosses the limit fails its check, not its merge.
+- 审批 不需要 · 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
+
 ### TD-386
 
 **P3 · agentrt · a blocked task's decision card quotes the head of verify.json; the failure is at its tail, so the card does not say why the task failed**
 
-- **状态**：未开始（2026-10-20 00:3x 统筹线程记；★ 补验侧线 local_ea8d8044 在 PROD M-15 的 Q12、Q20 两张卡上看到）
+- **状态**：在做（2026-10-20 01:2x：修复进 platform main `f1325739`——STG 上由一句目标经参谋长标 core、Claude 写、codex 两轮评审后收下（M-31）；验收的「STG 上下一张卡写明失败步骤」待下一次 blocked）
 - **Claim**: `store/blockedcard.go` (platform `cac5e8d3`) puts "its report begins: …" on the card — the first bytes of the last check's report. For a deterministic check the report is `verify.json`, whose head lists the commands; the failing command and its output come last, so the card shows commands that passed and not the one that failed. Reviews (`report.md`) put the verdict at the end too ("VERDICT: FAIL").
 - **Evidence**: PROD questions `q_fc7959ed100d3053` (M-15 Q12) and `q_ddba16413d854638` (M-15 Q20); `agent-config/work/multi-agent/RUN-r2-stars-2026-10-20.md` §6.
 - **Impact**: the Owner answers a blocked card without seeing why it is blocked, or has to open the artifact.

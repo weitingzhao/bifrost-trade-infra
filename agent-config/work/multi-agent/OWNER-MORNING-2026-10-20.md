@@ -43,9 +43,13 @@ bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agentrt
 - **#50（C）**逻辑备份恢复演练：只在自己 Pod 里恢复到临时库、逐表核行数，不连在线库。Console 审批页批即可。
 - **#49（D）**T19/T21/T31 演练（先 STG 后 PROD，任何一步不对就停；PROD 后台循环停约 30 秒、Agent 信号停十几秒）：Console 上批，然后在终端面板跑单上写的 owner-run 命令（统筹线程 23:4x 在线程里给过），输出在 `/tmp/w31-r2-stars-drills.txt`。
 
+## 3c0. 核心字段 A 在 STG 上验过了（不用你）
+
+00:4x–01:06 STG M-31：一句目标（修 TD-386）→ 参谋长的计划把实现标成 **core=true** → 派给 **exec:claude** → 确定性验收过 → codex 第一轮评审不过、返工 → Claude 第二版 → 两项都过、收下。修复 01:2x 合进 main（`f1325739`，CI 绿；合并时 code-health 拦了一个超 800 行的测试文件，我拆开了，记 TD-387：运行时的检查里还没有 code-health）。
+
 ## 3c. PROD：Claude 写核心代码的最后一段（按顺序）
 
-1. **批一张 PROD 合并发布单**：今晚 main 上的全部改动——M-9 与 M-12 收下的八件、Claude 实现者、导航第二片、TD-385、不稳定测试的修复、Claude 的 oneLine 修复，加上夜班的 TD-384（做完就带上）。我早上先把 STG 发到同一个提交并核对，再建单；单子在 Console 审批页，理由第一段写批了会发生什么。
+1. **批一张 PROD 合并发布单**：今晚 main 上的全部改动——M-9 与 M-12 收下的八件、Claude 实现者、核心字段 A、导航第二片、TD-385、两个不稳定测试的修复、Claude 写的 oneLine 与 TD-386 修复，加上夜班的 TD-384（做完就带上）。我早上先把 STG 发到同一个提交并核对，再建单；单子在 Console 审批页，理由第一段写批了会发生什么。
 2. **PROD 发完后签 PROD 的实现岗规则 v2**（1 次口令），命令到时给你。
 3. 我在 PROD 上走一件同样的核心任务（或等「核心字段 A」上线后由你的下一句目标里自然出现），过了就勾掉第 2 轮 2.4-5 ★。
 
