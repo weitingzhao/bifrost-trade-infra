@@ -43,6 +43,12 @@ bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agentrt
 - **#50（C）**逻辑备份恢复演练：只在自己 Pod 里恢复到临时库、逐表核行数，不连在线库。Console 审批页批即可。
 - **#49（D）**T19/T21/T31 演练（先 STG 后 PROD，任何一步不对就停；PROD 后台循环停约 30 秒、Agent 信号停十几秒）：Console 上批，然后在终端面板跑单上写的 owner-run 命令（统筹线程 23:4x 在线程里给过），输出在 `/tmp/w31-r2-stars-drills.txt`。
 
+## 3c. PROD：Claude 写核心代码的最后一段（按顺序）
+
+1. **批一张 PROD 合并发布单**：今晚 main 上的全部改动——M-9 与 M-12 收下的八件、Claude 实现者、导航第二片、TD-385、不稳定测试的修复、Claude 的 oneLine 修复，加上夜班的 TD-384（做完就带上）。我早上先把 STG 发到同一个提交并核对，再建单；单子在 Console 审批页，理由第一段写批了会发生什么。
+2. **PROD 发完后签 PROD 的实现岗规则 v2**（1 次口令），命令到时给你。
+3. 我在 PROD 上走一件同样的核心任务（或等「核心字段 A」上线后由你的下一句目标里自然出现），过了就勾掉第 2 轮 2.4-5 ★。
+
 ## 4. 待你签收的债（在这个线程回「签收 TD-n」或「打回 TD-n：原因」）
 
 TD-371、TD-373、TD-374、TD-381、TD-382、TD-268、TD-342。每项的「改了什么、验收、防线」写在 `agent-config/TECH_DEBT.md` 顶部「待你签收」一节。
@@ -51,7 +57,7 @@ TD-371、TD-373、TD-374、TD-381、TD-382、TD-268、TD-342。每项的「改�
 
 - 00:0x：2.5 导航第二片（Needs you 并进 For you、Progress 并进 Work）和 TD-385（发版后页面没样式）合进 main，STG 已是 `05b2c2da`；STG 上验过：首页 `cache-control: no-cache`、缺失的样式文件回 404。
 - 合并时 CI 撞上一个不稳定的测试（`TestBenchmark` 每次调用现取时间，跨秒就判成「结果不同」），00:0x 修好（`05b2c2da`），CI 绿。
-- 00:13 起：STG 上走「Claude 写核心代码」（M-30，Claude 在 06 的写墙里实现、codex 评审）。
+- **00:13–00:16 STG 走查通过**（M-30）：Claude 在 06 的写墙里实现一件核心类任务（`oneLine` 截断不切坏多字节字符，只改 `executors.go` 和测试），确定性验收通过，codex 评审通过，收下，mission done。这个修复 00:2x 合进 main（`66de6305`，CI 绿）。
 
 ## 夜里在跑、早上可能多出来的
 
