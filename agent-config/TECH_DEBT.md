@@ -2149,6 +2149,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-388
+
+**P2 · agentrt · a codex review of Go work cannot build Go or run database tests, so it fails work it could not check**
+
+- **状态**：未开始（2026-10-20 12:4x 统筹线程记；PROD M-19）
+- **Claim**: codex reviews in its own sandbox with no network; the review's workspace has no Go module cache and no PostgreSQL. On PROD M-19 (TD-360's platform half, core, written by Claude) both review rounds said "Go build, vet, store tests, and ./internal/agentrt/... were blocked by missing cached dependencies and unavailable network access … PostgreSQL is unconfigured here; these tests skip without it" and answered VERDICT: FAIL; the task was blocked. The coordinator ran the same tests with a database on the Mac: `TestPersistRefusesTheBase` and `TestSalvageRefusesTheBase` pass on the attempt (`bbdf84e1`) and fail on its base `cc8d8c51` — exactly the proof the review asked for.
+- **Evidence**: PROD question `q_b3fff27f1ec953a3`; attempt `a_01M5D4WRBQTC823TWVKCB2DFQZ`.
+- **Impact**: core Go work whose spec asks for database-backed regression proof cannot pass review, whoever writes it; rounds and quota are spent on an environment gap.
+- **Fix**: give the review attempt what the deterministic check has (the Go module cache read-only, the test database), or let the review read the deterministic check's verify.json and ask only for what it ran; the spec template says which proof the check carries.
+- **Ratchet**: a STG walk where a core store task's review runs `go test ./internal/agentrt/store/` with a database and passes.
+- 验收: on STG a core Go task's review runs the store tests with a database.
+- 审批 不需要 · 代价 M · 风险 low · repos: bifrost-platform
+
 ### TD-387
 
 **P3 · agentrt · a platform task's checks leave out code-health, so accepted work can be refused when it is merged**
