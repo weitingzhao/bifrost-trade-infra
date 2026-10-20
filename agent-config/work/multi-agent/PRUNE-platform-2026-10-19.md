@@ -99,3 +99,11 @@ Owner 10-19 21:3x「已合并的 62 条分支先空跑 prune 列清单给我」�
 ```
 bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/prune-merged-branches.sh --repos bifrost-platform --apply
 ```
+
+## 10-20 14:5x 全工作区旧施工分支（Owner「旧施工分支逐条核对后给我一条命令一次删」）
+
+- 范围：platform、infra、research、frontend、core、api 六个仓库的 38 条 `cursor/*`、`w31/*`、`fix/*`（platform 10 条统筹线程核对，其余 28 条只读子代理核对）。
+- 可删 27 条（platform 8、infra 6、research 2、frontend 5、core 4、api 2），清单带核对时的提交号：`~/agent-work/branch-cleanup-2026-10-20.txt`；`prune-merged-branches.sh --reviewed`（infra `d195ff0`）只在分支仍指向那个提交时删，删前照常打 bundle 备份。
+- 空跑（14:5x）：会删 29 条 = 清单 27 条 + 2 条 main 已含、超过 24 小时的 `agent/*` 尝试分支；`agent/*` 其余 69 条留给运行时（TD-383，保留期改 1 天，platform `2de4b0a6`）。
+- 留着 11 条：platform `w31/td-310-anchor`（TD-310 在做）、`w31/w55-ddl-allowlist`（W-55 记录）；infra `cursor/m2-infra`（TD-269 未开始，补丁一行）、`w31/td-310-anchor`（TD-310）、`w31/td-312`（`docs/SECRETS.md` 的轮换步骤没进 main，该合不该删）、`w31/w56-gates`、`w31/w56-matrix`、`w31/w56-slice-a`（W-56 第 ⑤ 步的材料）、`w31/w66-lane`、`w31/w66-lane-v2`（W-66 记录）、`w31/w66-shadow`（W-66、TD-319 在做）。
+- 删前修了台账里会悬空的号：TD-137 的 `9013ba2` → core `5963422`；TD-159 的 `7caac1f8` 注明已被 `301c9bee` 取代；W-17（LANE-RP）标「已被替代」（infra `5e8e467`）。

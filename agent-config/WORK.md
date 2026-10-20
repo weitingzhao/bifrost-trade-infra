@@ -217,7 +217,7 @@
 
 - **类别**：道
 - **匹配**：LANE-RP
-- **状态**：在做
+- **状态**：已被替代（2026-10-20 核对）：同一件事由 W-42 S0-8 重做，infra `5e8e467`；它的分支 `cursor/rp-infra` 10-20 清理时删除
 - **现在**：任务在 `LANE-RP-release-policy.md`。`reports/LANE-RP.md` 没有。提案在 `work/release-approval/`，ADR §5 记 Owner 已选策略，实现由本道做
 - **下一步**：做完写报告。本道不批准、不发起发布
 - **验收**：`agent-config/work/cursor-tasks/reports/LANE-RP.md` 存在
