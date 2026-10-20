@@ -20,6 +20,7 @@
 #
 # Options: --repos "a b"   only these repos (default: every sibling with an origin remote)
 #          --min-age-hours N
+# Failed remote batches retry remaining refs individually and report deleted/refused counts.
 # Pushes to no main; it only deletes branch refs. Exit 0 done, 1 a step failed, 2 usage.
 set -euo pipefail
 
@@ -148,9 +149,49 @@ done
 for repo in $REPOS; do
   dir="$WORKSPACE/$repo"
   if [[ -s "$TMP/$repo.remote" ]]; then
-    # one push per 50 refs keeps the command line and GitHub's per-push limits comfortable
-    xargs -n 50 git -C "$dir" push -q origin --delete < "$TMP/$repo.remote" || FAILED=1
-    echo "remote  $repo: deleted $(wc -l < "$TMP/$repo.remote" | tr -d ' ')"
+    # Keep normal pushes to 50 refs; a rejected batch must not strand its other refs.
+    deleted=0
+    refused=()
+    batch=()
+    last=$(tail -n 1 "$TMP/$repo.remote")
+    while IFS= read -r b; do
+      batch+=("$b")
+      if (( ${#batch[@]} < 50 )) && [[ "$b" != "$last" ]]; then continue; fi
+      if git -C "$dir" push -q origin --delete "${batch[@]}"; then
+        deleted=$((deleted + ${#batch[@]}))
+      else
+        refs=("${batch[@]/#/refs/heads/}")
+        # A failed push can still have deleted some refs. Only retry those still present.
+        if git -C "$dir" ls-remote --heads origin "${refs[@]}" > "$TMP/$repo.remaining"; then
+          known=1
+        else
+          known=0
+        fi
+        for b in "${batch[@]}"; do
+          if (( known )) && ! awk '{print $2}' "$TMP/$repo.remaining" | grep -Fxq -- "refs/heads/$b"; then
+            deleted=$((deleted + 1))
+          elif git -C "$dir" push -q origin --delete "$b"; then
+            deleted=$((deleted + 1))
+          elif git -C "$dir" ls-remote --exit-code --heads origin "refs/heads/$b" > /dev/null; then
+            refused+=("$b")
+          else
+            status=$?
+            if (( status == 2 )); then
+              deleted=$((deleted + 1))
+            else
+              refused+=("$b")
+            fi
+          fi
+        done
+      fi
+      batch=()
+    done < "$TMP/$repo.remote"
+    printf 'remote  %s: deleted %d' "$repo" "$deleted"
+    if (( ${#refused[@]} )); then
+      FAILED=1
+      printf ', refused %d (%s)' "${#refused[@]}" "${refused[*]}"
+    fi
+    printf '\n'
   fi
   if (( LOCAL )); then
     while IFS=$'\t' read -r path br; do
