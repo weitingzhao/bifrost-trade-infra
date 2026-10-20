@@ -2150,6 +2150,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-392
+
+**P2 · agentrt · the runtime's pools have no size: two processes sit at the role's connection limit, and a restarted one is refused for up to a minute on every release**
+
+- **状态**：在做（2026-10-20 15:5x 统筹线程记并修：platform `4986a68b`，PROD 每进程 4、STG/DEV 每进程 2；随下一张 PROD 单上线后按验收看日志）
+- **Claim**: `openAgentRuntime` builds its pgxpool from the DSN with no `MaxConns`, so each process may open one connection per CPU (16 on the cluster's nodes). platform-api and platform-workers share the runtime role, whose connection limit is 10 on PROD and 5 on STG and DEV; at rest PROD held 10 of 10 and STG 5 of 5. After #54's restart PROD's platform-api logged "too many connections for role platform_agentrt_prod" 40 times (20:40:28–20:40:53Z) and platform-workers 17 times (to 20:41:53Z): agentrt routes and loops failed for up to a minute.
+- **Evidence**: `bifrost-platform/api/internal/server/agentrt_wire.go:295` (openAgentRuntime, no MaxConns); `pg_roles.rolconnlimit` 10 / 5 / 5 (infra `scripts/release/db-steps.d/sql/2026-10-14-w31-agentrt-1-roles.sql:16`); `pg_stat_activity` 2026-10-20 15:4x; PROD platform-api and platform-workers logs after #54.
+- **Impact**: every release drops runtime requests (claims, heartbeats, Console reads) for up to a minute; under load the processes can hit the limit at any time.
+- **Fix**: `MaxConns` per process by environment (PROD 4, STG and DEV 2), so two processes stay under the role's limit with room for a restarted one. Measured with every test pool at 2: controller, relay, agentrtapi and server pass (no nested pool use that could wait on itself); a store test that needs three connections by design reports it cannot prove its case, which is the test, not the product.
+- **Ratchet**: `TestAgentRuntimePoolsFitTheRoleLimit` (two pools stay under each environment's limit).
+- 验收: after the next PROD release, PROD platform-api and platform-workers log no "too many connections for role" and `pg_stat_activity` shows at most 8 runtime connections on PROD.
+- 审批 不需要 · 代价 S · 风险 low · repos: bifrost-platform
+
 ### TD-391
 
 **P2 · agentrt · a card or approval reaches the Owner with no assessment of its content: a rule sees the card's fields, not that the work was already done elsewhere**
