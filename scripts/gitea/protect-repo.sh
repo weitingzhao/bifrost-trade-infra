@@ -1,17 +1,22 @@
 #!/usr/bin/env bash
-# protect-repo.sh --owner <login> <repo>... — the two branch rules of the
+# protect-repo.sh --owner <login> <repo>... — the branch rule of the
 # Gitea-primary cut (§2.9, §3; batch step 5) on each converted repository,
 # then read back and compared field by field:
 #   main      push: team maintainers and <login>; merge (PR): the same
-#   agent/**  push: team agentd-write and <login>; merge (PR): maintainers and <login>
-# Both rules carry a merge whitelist: without one, code write is enough to
+# The rule carries a merge whitelist: without one, code write is enough to
 # merge a pull request into the branch (Gitea 1.21 IsUserMergeWhitelisted).
+# The cut also protected agent/** (push: team agentd-write and <login>). Gitea
+# 1.21 lets nobody delete a protected branch, so the agent runtime could not
+# clean up its attempt branches; the Owner chose to lift it (TD-383, 10-20
+# 「分支 B 用 agentd」: agentd deletes them under the runtime's rule). A rule
+# agent/** that is there is deleted and the rules read back without it.
 # The tag rule (*: maintainers and <login>) has no API in 1.21: the script
 # prints the page to set it on. A rule that exists is edited to this, not
 # duplicated. Another branch rule that could match main or an agent/ branch
 # stops it for that repository before anything is changed: Gitea 1.21 takes
 # the first rule that matches, so an older `**` or a narrower rule would
-# decide instead of these (review 246 B9). A rule that can match neither stays
+# decide instead of this one (review 246 B9), and one matching an agent/
+# branch would keep it from being deleted. A rule that can match neither stays
 # (release/**, main?, ma[st]er; review 248 B7, 249 B4): the rule is read as
 # Gitea 1.21 reads it, a glob with / as the separator. Exits 1 when a
 # repository is stopped or a read-back differs.
@@ -194,8 +199,8 @@ for repo in "$@"; do
     fail=1
     continue
   fi
-  for rule in main 'agent/**'; do
-    if [[ "${rule}" == main ]]; then push_team=maintainers; else push_team=agentd-write; fi
+  for rule in main; do
+    push_team=maintainers
     body="$(python3 - "${rule}" "${push_team}" "${owner}" << 'PY'
 import json, sys
 rule, team, owner = sys.argv[1:4]
@@ -227,6 +232,21 @@ PY
       fail=1
     fi
   done
+  # agent/** no more (TD-383): deleted, then read back.
+  has_agent_rule='import json,sys; sys.exit(0 if any((r.get("rule_name") or r.get("branch_name")) == "agent/**" for r in json.load(sys.stdin)) else 1)'
+  existing="$(gitea_api GET "/repos/${GITEA_ORG}/${repo}/branch_protections")" || gitea_die "cannot read the rules of ${repo}"
+  if python3 -c "${has_agent_rule}" <<< "${existing}"; then
+    gitea_api DELETE "/repos/${GITEA_ORG}/${repo}/branch_protections/agent%2F%2A%2A" > /dev/null || gitea_die "${repo} agent/**: delete refused"
+    existing="$(gitea_api GET "/repos/${GITEA_ORG}/${repo}/branch_protections")" || gitea_die "${repo} agent/**: cannot read the rules back"
+    if python3 -c "${has_agent_rule}" <<< "${existing}"; then
+      echo "${repo} agent/**: STILL THERE after the delete"
+      fail=1
+    else
+      echo "${repo} agent/**: removed and read back (attempt branches may be deleted; TD-383)"
+    fi
+  else
+    echo "${repo} agent/**: none (attempt branches may be deleted; TD-383)"
+  fi
   echo "${repo}: now add the tag rule on the page: Gitea → ${GITEA_ORG}/${repo} → Settings → Tags → New rule: *, allowed: team maintainers and ${owner}"
 done
 exit "${fail}"

@@ -129,12 +129,15 @@ class FakeApi:
                     name = path.split("/branch_protections/", 1)[1]
                     if name not in rules:
                         return self._send(404, {})
+                    if self.command == "DELETE":
+                        rules.pop(name)
+                        return self._send(204, None)
                     if self.command == "PATCH":
                         rules[name] = {**rules[name], **body}
                     return self._send(200, rules[name])
                 return self._send(404, {})
 
-            do_GET = do_POST = do_PATCH = _go
+            do_GET = do_POST = do_PATCH = do_DELETE = _go
 
             def log_message(self, *a) -> None:
                 pass
@@ -255,15 +258,15 @@ class Scripts(unittest.TestCase):
         self.assertIn("r: 0 copied, 1 already there, 1 not copied", r.stdout)
 
     # protect-repo
-    def test_protect_repo_sets_both_rules_with_merge_whitelists(self) -> None:
+    def test_protect_repo_sets_main_with_merge_whitelists(self) -> None:
         api = FakeApi({"r": False})
         try:
             r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             rules = api.rules["r"]
-            self.assertEqual(sorted(rules), ["agent/**", "main"])
+            self.assertEqual(sorted(rules), ["main"])
             self.assertEqual(rules["main"]["push_whitelist_teams"], ["maintainers"])
-            self.assertEqual(rules["agent/**"]["push_whitelist_teams"], ["agentd-write"])
+            self.assertIn("r agent/**: none (attempt branches may be deleted; TD-383)", r.stdout)
             for rule in rules.values():
                 self.assertTrue(rule["enable_merge_whitelist"])
                 self.assertEqual(rule["merge_whitelist_teams"], ["maintainers"])
@@ -272,7 +275,7 @@ class Scripts(unittest.TestCase):
             # a second run edits, it does not add
             r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-            self.assertEqual(len(api.rules["r"]), 2)
+            self.assertEqual(len(api.rules["r"]), 1)
             self.assertTrue(any(c.startswith("PATCH ") for c in api.calls))
         finally:
             api.close()
@@ -518,7 +521,7 @@ esac
         try:
             r = self.run_script("protect-repo.sh", "--owner", "vision", "r", connect=True, path=self.fake_kubectl(api))
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-            self.assertEqual(sorted(api.rules["r"]), ["agent/**", "main"])
+            self.assertEqual(sorted(api.rules["r"]), ["main"])
             self.assertEqual({a for a in api.auth if a}, {"token kubectl-secret-token"})
         finally:
             api.close()
@@ -534,7 +537,7 @@ esac
             r = self.run_script("protect-repo.sh", "--owner", "vision", "r", connect=True, path=self.fake_kubectl(api), extra=extra)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             self.assertEqual(proxy.calls, [])
-            self.assertEqual(sorted(api.rules["r"]), ["agent/**", "main"])
+            self.assertEqual(sorted(api.rules["r"]), ["main"])
         finally:
             api.close()
             proxy.close()
@@ -563,13 +566,27 @@ esac
         finally:
             api.close()
 
+    # TD-383 (Owner 10-20 「分支 B 用 agentd」): the cut's agent/** rule is deleted and read back, the
+    # main rule set as before; a delete Gitea does not carry out is a failure
+    def test_protect_repo_removes_the_agent_rule(self) -> None:
+        agent = {"rule_name": "agent/**", "enable_push": True, "push_whitelist_teams": ["agentd-write"]}
+        api = FakeApi({"r": False}, rules={"r": {"agent/**": dict(agent)}})
+        try:
+            r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertEqual(sorted(api.rules["r"]), ["main"])
+            self.assertIn("r agent/**: removed and read back", r.stdout)
+            self.assertIn("DELETE /api/v1/repos/bifrost/r/branch_protections/agent/**", api.calls)
+        finally:
+            api.close()
+
     # review 248 B7: a rule that can match neither main nor agent/ stays
     def test_protect_repo_keeps_a_rule_that_cannot_match_first(self) -> None:
         api = FakeApi({"r": False}, rules={"r": {"release/**": {"rule_name": "release/**", "enable_push": True}}})
         try:
             r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-            self.assertEqual(sorted(api.rules["r"]), ["agent/**", "main", "release/**"])
+            self.assertEqual(sorted(api.rules["r"]), ["main", "release/**"])
         finally:
             api.close()
 
@@ -1403,14 +1420,14 @@ class CheckStep1(unittest.TestCase):
 
     def part_two_done(self) -> None:
         self.template = {"name": "repo-template", "template": True, "mirror": False}
-        self.rules = {"primary-probe": ["main", "agent/**"], "repo-template": ["agent/**", "main"]}
+        self.rules = {"primary-probe": ["main"], "repo-template": ["main"]}
 
     def test_part_two_as_expected(self) -> None:
         self.part_two_done()
         r = self.run_it()
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertNotIn("FAIL", r.stdout)
-        self.assertIn("ok    bifrost/repo-template branch rules: agent/**, main", r.stdout)
+        self.assertIn("ok    bifrost/repo-template branch rules: main", r.stdout)
         self.assertIn("ok    bifrost/repo-template webhook to http://el-bifrost-ci.cicd.svc.cluster.local:8080", r.stdout)
         self.assertIn("info  primary-probe tag rules: not readable through this Gitea's API", r.stdout)
 
@@ -1424,8 +1441,9 @@ class CheckStep1(unittest.TestCase):
 
     def test_each_wrong_part_two_setting_is_a_fail(self) -> None:
         cases = (
-            ("template lacks agent/**", lambda: self.rules.update({"repo-template": ["main"]}), "repo-template branch rules: agent/**, main — has: main"),
-            ("probe has an extra rule", lambda: self.rules.update({"primary-probe": ["main", "agent/**", "*"]}), "has: *, agent/**, main"),
+            # TD-383: agent/** no longer protected
+            ("template still has agent/**", lambda: self.rules.update({"repo-template": ["agent/**", "main"]}), "repo-template branch rules: main — has: agent/**, main"),
+            ("probe has an extra rule", lambda: self.rules.update({"primary-probe": ["main", "*"]}), "has: *, main"),
             ("no webhook", lambda: self.hooks.clear(), "has: no webhooks"),
             ("webhook to another address", lambda: self.hooks[0]["config"].update(url="http://el-bifrost-ci.cicd:8080"), "has: http://el-bifrost-ci.cicd:8080"),
             ("webhook sends form data", lambda: self.hooks[0]["config"].update(content_type="form"), "content type form, not json"),

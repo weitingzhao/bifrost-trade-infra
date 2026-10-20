@@ -2,7 +2,8 @@
 
 The git side is a bare repository served as file:// whose pre-receive hook
 refuses with Gitea 1.21's protection messages (main and tags protected;
-agent/** may be created but not forced or deleted); the API side is a small
+agent/** not protected since TD-383, so its branches may be created and
+deleted; mode protected-agent puts the old rule back); the API side is a small
 local HTTP server for the repository and pull-request calls. No network, no
 cluster.
 
@@ -40,9 +41,8 @@ while read -r old new ref; do
       echo "Gitea: Not allowed to push to protected branch main"; exit 1 ;;
     refs/tags/*) echo "Gitea: Tag ${ref#refs/tags/} is protected"; exit 1 ;;
     refs/heads/agent/*)
-      if [[ "$new" == "$zero" ]]; then echo "Gitea: branch ${ref#refs/heads/} is protected from deletion"; exit 1; fi
-      if [[ "$old" != "$zero" ]] && ! git merge-base --is-ancestor "$old" "$new"; then
-        echo "Gitea: branch ${ref#refs/heads/} is protected from force push"; exit 1
+      if [[ "$mode" == protected-agent && "$new" == "$zero" ]]; then
+        echo "Gitea: branch ${ref#refs/heads/} is protected from deletion"; exit 1
       fi ;;
   esac
 done
@@ -145,12 +145,20 @@ class Probe(unittest.TestCase):
         finally:
             api.close()
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(r.stdout.count("\nok "), 9, r.stdout)
+        self.assertEqual(r.stdout.count("\nok "), 8, r.stdout)
+        self.assertIn("ok    delete agent/_probe/", r.stdout)
+        refs = subprocess.run(["git", "--git-dir", str(self.bare), "for-each-ref", "refs/heads/agent"], capture_output=True, text=True)
+        self.assertEqual(refs.stdout, "", "the probe's branch is gone")
         self.assertEqual(api.state, "closed")
         self.assertNotIn("FAIL", r.stdout)
         self.assertIn("all as expected", r.stdout)
         self.assertTrue(all(auth == "token " + TOKEN for _, _, auth in api.calls))
         self.assertNotIn(TOKEN, r.stdout + r.stderr)
+
+    # TD-383: an agent/ branch Gitea will not let agentd delete fails the probe
+    def test_a_protected_agent_branch_fails_the_probe(self) -> None:
+        r = self.assert_fails(FakeApi(), "is protected from deletion", mode="protected-agent")
+        self.assertIn("FAIL  delete agent/_probe/", r.stdout)
 
     def test_a_main_that_takes_the_push_fails_the_probe(self) -> None:
         api = FakeApi()

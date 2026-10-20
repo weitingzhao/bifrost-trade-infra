@@ -13,9 +13,10 @@
 #             link to another site and grant nothing; Gitea gives them read
 #             on a new team, and they are not counted
 #   probe     bifrost/primary-probe: regular (not a mirror), private, a main
-#             branch; once it has branch rules, exactly main and agent/**
+#             branch; once it has branch rules, exactly main (agent/** no
+#             more since TD-383)
 #   template  bifrost/repo-template, when there: a template repository, the
-#             same two branch rules, and a gitea webhook to the CI
+#             same branch rule, and a gitea webhook to the CI
 #             EventListener (EL_URL): POST, json, push, active
 #   tags      the tag rule * (user OWNER_LOGIN, team maintainers) on both,
 #             where the API can read tag rules; Gitea 1.21 cannot, and part 4's
@@ -117,7 +118,8 @@ def branch_rules(repo, name):
     if not rules:
         print("info  %s branch rules: none yet (section 1 part 2)" % repo)
     else:
-        report(rules == ["agent/**", "main"], "%s/%s branch rules: agent/**, main" % (org, repo), "" if rules == ["agent/**", "main"] else "has: " + ", ".join(rules))
+        # agent/** is no longer protected (TD-383: the runtime deletes attempt branches)
+        report(rules == ["main"], "%s/%s branch rules: main" % (org, repo), "" if rules == ["main"] else "has: " + ", ".join(rules))
 
 def tag_rules(repo, name):
     rules = load(name)

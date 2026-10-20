@@ -6,22 +6,24 @@
 # the primary (CUT-gitea-primary-2026-10-17 §5 「第 1 步」 4;
 # OWNER-STEPS-gitea-primary.md §1):
 #
-#   refused  a push to main; a tag; a pull request merged into main; a forced
-#            push to its own agent/ branch; deleting that branch
-#   allowed  creating agent/_probe/<stamp>/a1
+#   refused  a push to main; a tag; a pull request merged into main
+#   allowed  creating agent/_probe/<stamp>/a1, and deleting it once its pull
+#            request is closed (TD-383, Owner 10-20 「分支 B 用 agentd」:
+#            agent/** is no longer protected; agentd deletes attempt branches
+#            under the runtime's rule, so a refused deletion fails the probe)
 #
 # A refusal counts only as Gitea 1.21 words it for that rule and that ref
 # (review 254 A3, 255 C): the push is rejected for that ref (git push
 # --porcelain) and one line from Gitea's hook is, word for word, "Not allowed
 # to push to protected branch main", "Tag <tag> is protected", "branch <b> is
-# protected from force push" or "... from deletion". The merge is tried only
+# protected from ...". The merge is tried only
 # once Gitea says the pull request can be merged, and counts as refused only on
 # HTTP 405 with the message "User not allowed to merge PR" (review 254 A1). Anything else is reported as
 # not recognised and fails the probe: a person looks, it is not a pass. Main
 # and the tags are read again at the end.
 #
-# What is left behind: the branch agent/_probe/<stamp>/a1 (agentd cannot
-# delete it; the Owner may) and a closed pull request. A pull request the
+# What is left behind: a closed pull request (and the branch, when its
+# deletion is refused, which fails the probe). A pull request the
 # probe opened is closed on every way out, and the closing is read back
 # (review 254 B4).
 #
@@ -153,9 +155,6 @@ if git -C "${work}/r" push -q origin "HEAD:refs/heads/${BRANCH}" 2> "${work}/err
 else
   report FAIL "create ${BRANCH}" "$(tail -n 1 "${work}/err")"
 fi
-git -C "${work}/r" -c user.name=probe -c user.email=probe@invalid commit -q --amend --allow-empty -m "probe ${STAMP} rewritten"
-refused "force-push ${BRANCH}" "refs/heads/${BRANCH}" "branch ${BRANCH} is protected from force push" --force origin "HEAD:refs/heads/${BRANCH}"
-refused "delete ${BRANCH}" "refs/heads/${BRANCH}" "branch ${BRANCH} is protected from deletion" origin ":refs/heads/${BRANCH}"
 
 IFS=$'\t' read -r code number message <<< "$(api POST "/repos/${REPO}/pulls" "{\"head\":\"${BRANCH}\",\"base\":\"main\",\"title\":\"probe ${STAMP}\"}" number message)"
 if [[ "${code}" == 201 && "${number}" =~ ^[0-9]+$ ]]; then
@@ -197,12 +196,20 @@ else
   fi
 fi
 
+# agentd deletes attempt branches (TD-383): the deletion must go through.
+if out="$(git -C "${work}/r" push --porcelain origin ":refs/heads/${BRANCH}" 2>&1)" &&
+  [[ -z "$(git ls-remote "${URL}" "refs/heads/${BRANCH}")" ]]; then
+  report ok "delete ${BRANCH}"
+  deleted=1
+else
+  report FAIL "delete ${BRANCH}" "$(grep -E '^(remote: |!	|error: |fatal: )' <<< "${out}" | head -n 2 | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+fi
 [[ "$(git ls-remote "${URL}" refs/heads/main | cut -f1)" == "${main_before}" ]] && report ok "main unchanged" || report FAIL "main unchanged" "main moved"
 [[ "$(git ls-remote --tags "${URL}" | cut -f2 | sort)" == "${tags_before}" ]] && report ok "no new tag" || report FAIL "no new tag" "the tags changed"
 
 if [[ "${fail}" -eq 0 ]]; then
-  echo "== all as expected; left behind: ${BRANCH} and closed pull request #${pr}"
+  echo "== all as expected; left behind: closed pull request #${pr}"
 else
-  echo "== NOT as expected: see the FAIL lines; left behind: ${BRANCH}${pr:+, pull request #${pr}}" >&2
+  echo "== NOT as expected: see the FAIL lines; left behind: ${deleted:+no branch}${deleted:-${BRANCH}}${pr:+, pull request #${pr}}" >&2
 fi
 exit "${fail}"
