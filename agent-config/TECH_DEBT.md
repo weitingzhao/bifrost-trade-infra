@@ -2150,6 +2150,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-391
+
+**P2 · agentrt · a card or approval reaches the Owner with no assessment of its content: a rule sees the card's fields, not that the work was already done elsewhere**
+
+- **状态**：未开始（2026-10-20 14:0x Owner「AI 评估用 A：卡和审批单一出来就派只读的评估任务，给推荐、带证据的理由和没查的东西，和规则推荐并排显示；不一致时 STG 也不自动答。记 TD-391，排在 TD-389、TD-390 之后」；同一条实现线 blocked-card-recommend）
+- **Claim**: the Owner judges each card and approval from its text alone. TD-389's rules read the card's own fields (budget, age, last check); they cannot see that the work was merged by hand, superseded, or proven by another walk. On 2026-10-20 PROD's M-9 card (TD-378's ratchet) asked for one more round for work already on main (`6b950732`), and M-14's (Gate B T09) for a drill whose star step was already done; the Owner asked the coordinator thread each time.
+- **Evidence**: PROD questions `q_24648b78255c075f` (M-9), `q_38e50606283e8ff5` (M-14), `q_b3fff27f1ec953a3` (M-19, fixed by hand in `144c5497`); the Owner's questions in the coordinator thread 13:5x to 14:0x.
+- **Impact**: every card that a rule cannot settle costs the Owner a round trip to the coordinator thread, or a guess.
+- **Fix**: when a runtime card or an approval opens, the runtime gives a read-only assessment task (existing role `other` or `brief`, effect `none`; no new role or state) to the chief of staff seat (until the chief is qualified, the reviewer seat's executor). It returns a fixed shape: the option it recommends and how sure it is; two to four reasons, each with evidence (a commit, a ledger item, a mission or approval event); and what it could not check. The card and the approval show it labelled "AI assessment" beside the rule's recommendation: one recommendation when they agree, both when they differ. It is advice only: it never answers, never triggers anything, and treats the card's text as data. On STG, TD-390's rule answers only when rule and assessment agree (or there is no assessment and the rule recommends).
+- **Ratchet**: tests that an assessment cannot answer or approve (no route, no store call), that a disagreement shows both and blocks STG's automatic answer, and that its evidence references resolve; a Console test with the real shape.
+- 验收: on STG and then PROD, a new card and a new approval each show an AI assessment within minutes, with evidence that resolves, and the M-9-like case (work already on main) is recommended b with the commit named.
+- 审批 不需要（Owner 14:0x 已定方向；存储若非加表不可再问）· 代价 M · 风险 medium（额度、注入）· repos: bifrost-platform
+
 ### TD-390
 
 **P2 · agentrt · on STG the Owner answers cards that only walks left behind: no rule lets STG's runtime act on its own recommendation**
