@@ -14,6 +14,7 @@
 ## 待你签收
 
 - **TD-268** — 删掉没人调用的 `ExecSQLOnPrimary` 和只为它存在的两个测试，换成全仓库零引用的防线 `TestRemovedPrimarySQLHelperStaysGone`；运行时 M-9 写、cursor 评审，统筹线程核对后合进 platform `868d4e8e`。验收：PASS 2026-10-19 `1b894f93`。防线：RATCHETS 新行。后续：无后续（还剩的 `execOnPrimary` 给数据克隆用，TD-268 本来就不动它）。
+- **TD-378** — 准入守卫检查的测试在 main 上一直失败：假的 `subprocess.run` 改为也回答 Application 读取（infra `d989dde`，运行时 M-9 写），文件进运行时的 infra 检查（platform `6b950732`）。验收：PASS 2026-10-20，单文件 10 passed，整份清单 259 passed。防线：`RATCHETS.md`「准入守卫的测试随每件 infra 任务跑」。无后续：清单里别的排除项各有原因，写在 `repos.go` 注释里。
 - **TD-342** — 投递测试不再只等 40 毫秒：等到第二次读完再取消；运行时 M-9 写，合进 platform `1b894f93`。验收：PASS 2026-10-19，负载下 40 遍 0.74 秒（验收命令改成只跑这一个测试，原写法跑整包超 10 分钟）。防线：RATCHETS 新行。后续：无后续。
 - **TD-371** — 06 上每次尝试只能写自己的目录：Landlock 写墙（deterministic、cursor、claude），codex 用它自己的 bubblewrap 沙箱并经探针证明；每次尝试自己的配置目录，cursor 的数据目录短路径、在墙里。验收：PASS 2026-10-19，两条探针全过、STG 实跑 cursor 评审收下。防线：`TestConfined` 与 `agent-06-owner.sh confine-probe`（每次换 agentd 后跑）。后续：TD-376（按尝试 cgroup）、TD-377（读也隔开）、TD-379（PATH 顺序）、TD-380（agentd 测试在墙里）、TD-382（报告引用路径被拒）。
 - **TD-382** — 报告里引用了本机路径就被拒收、尝试悄悄作废、立刻重派：agentd 上传前掩掉路径（`82bedd54`，06 上 `agentd-82bedd5`），平台拒收时在主机流记 `policy_alert`、尝试结束写明结果没落地（`63392a67`）。验收：PASS 2026-10-19，ci-platform 绿、STG M-24 引用路径的评审收下。防线：RATCHETS「平台拒收报告留记录，尝试结束写明」。后续：无后续：拒收不认定是哪次尝试的，要精确就得让上传带尝试号（改 agentd 协议，要你定），现在没有需要。
@@ -2285,7 +2286,8 @@
 
 **P3 · testing · a test of the admission-guard check fails on main: its fake `subprocess.run` answers the Application read too**
 
-- **状态**：在做（2026-10-19 21:4x：修复进 infra main `d989dde`——运行时 PROD M-9 收下、统筹线程手工合进；防线「文件进 `infraTests`」是 M-9 第五件，它两轮评审没过、blocked（它的检出里没有 infra 树），等 Owner 在卡上处理后由统筹线程补上）
+- **状态**：待你签收（2026-10-20 13:0x：修复 infra `d989dde`（运行时 PROD M-9 收下、统筹线程手工合进）；防线由统筹线程补上：文件进 `infraTests`，`repos_test.go` 改为要求它在清单里，platform `6b950732`）
+- 验收结果：PASS 2026-10-20 platform `6b950732` / infra `2d6fa5e`：`python3 -m pytest -q scripts/test_access_checks.py` 10 passed；按 infra 检查自己的 pytest 参数在 infra main 的干净副本上跑整份新清单，259 passed；`scripts/test_access_checks.py` 在 `infraTests` 里
 - **Claim**: `scripts/test_access_checks.py::DryRunClassifyTests::test_live_stops_before_any_dry_run_without_impersonation` fails on every machine since review 261/262: `check_admission_guards.live()` now reads the live `bifrost-research` Application (`live_application`) before it asks about impersonation, and the test's fake `subprocess.run` answers every call with exit 0 and "no", so `json.loads("no")` raises before the check the test is about.
 - **Evidence**: `bifrost-trade-infra/scripts/check_admission_guards.py:214`, `:435`; `scripts/test_access_checks.py:77-99`; commits `f3d3fab`, `4d04561`. Measured 10-19 on main `710723d` with and without kubectl on PATH: 1 failed, 9 passed.
 - **Impact**: nobody sees whether `live()` still stops before any dry run without impersonation; the runtime's infra check leaves the file out (platform `w31/repo-infra`, `store/repos.go` `infraTests`) until it passes.
