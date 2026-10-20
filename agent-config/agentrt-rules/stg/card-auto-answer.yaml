@@ -1,0 +1,16 @@
+rule_id: card-auto-answer
+rule_version: 1
+direction: initial
+effective_at: 2026-10-20T00:00:00Z
+expires_at: 2027-01-20T00:00:00Z
+# STG only (Owner 2026-10-20 「STG 用 A」, TD-390); PROD has no such file
+# (scripts/agentrt/test_rules_prod.py holds it so). A card the runtime asked,
+# of a kind below, that recommends an option, whose mission is active or
+# paused and was not proposed with needs_owner, and that has been open
+# after_minutes unanswered, is answered by the platform with the option it
+# recommends: recorded as this rule's answer (rule card-auto-answer v1), never
+# the Owner's. A walk that tests the Owner's buttons proposes its mission
+# with needs_owner, and its cards wait for him.
+after_minutes: 30
+# blocked: a blocked task's card; plan_question: a planner's question.
+kinds: [blocked, plan_question]
