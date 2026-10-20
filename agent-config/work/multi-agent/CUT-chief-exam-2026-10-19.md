@@ -349,3 +349,12 @@ v5 §5.1.2：主机报的工具版本或模型变了（旧成绩标旧版本、�
 | 乙 | PROD 上再坐一次 | Owner `chief-exam-set.sh put prod <sha256>`；PROD overlay `platform-prod/platform-api-exam-set.patch.yaml`，随 PROD 发布单；新单元 `bifrost-agentd-exam-prod@`（PROD agentd 的用户和令牌，起它停 PROD agentd）和 `agent-06-owner.sh exam claude prod`（都还没写，要复核） | PROD agentd 停 1–2 小时；再花 33–40 次 claude（与 STG 同一个池）；PROD 多一次发布 |
 
 考的是「模型 + 这套任务书」（§7.5）。STG 和 PROD 跑同一个平台提交，两个 agentd 在同一台 06 上，用同一个 claude CLI、同一个模型（两边 `AGENTD_TOOLS` 都是 `exec:claude=anthropic:opus`），乙量的是同一件事。所以推荐甲；Owner 要 PROD 有自己的记录时再做乙。选甲时，PROD 不建 Secret、不改 PROD overlay，PROD 的考试路由继续回 503。
+
+**已定（Owner 2026-10-20 16:5x，经统筹线程转述）**：PROD 按甲，不再考，Owner 按 STG 的成绩签 PROD 的 `job:chief_of_staff` v2；v2 的 `model_pattern` 钉到这次实际考的模型（换模型不继承 active，按 §7.5 重考），写进签名前的说明。
+
+### 13.4 第一次坐考：卷在开跑前被拒（2026-10-20 17:31 CDT）
+
+- STG 22:30:41Z 加载题集 `1fb13664`（`check stg` ready）；Owner 17:31 CDT 起 `agent-06-owner.sh exam claude`，写墙检查全过。平台 22:31:10Z 发卷 `526ca46ad0db`，agentd 的 `checkPaper` 随即拒了整张卷：「item "Q2a": its repository is a name and its commit a full hex id」。单元以 status=1 退出，STG agentd 自己拉起；一份也没跑，没花 claude 额度。
+- **原因在题集**：Q2a、Q3d、Q4c 的 `base_commit` 写的是短号 `792a5ac`，平台原样渲染进卷；agentd 要 40 位完整号（快照按完整号取）。出题时没按执行方的契约核对，平台加载也没核这一项。
+- **修**：题集三处改成 `792a5ac53bc210feaa769168334f6770d4582e39`，新 sha256 `d3505569e23933603cd58133de56cc496139eaf0de77d5eb272a491a1736d128`（旧版备份在本机 `chief-exam-2026-10-19.sha-1fb13664`）；在 `054fee57` 上对照、渲染、发卷都过，平台渲染的整张卷过 agentd 的 `checkPaper`。**防线**：平台 `e73a059d`（分支 `w31/chief-exam-s5`），`exam.Load` 对规划项按 agentd 的同一规则查仓库名和完整提交号，题集不合格就整套拒载，不再发出 06 坐不了的卷；6 个用例在旧代码上失败；复核 457（2 A：项名格式、每岗位至多 100 项，同样是 agentd 整卷拒的条件）→ 第二轮 458 可以合并（0 A，1 B 照改：override 用例改成只有 override 指定路径），收线。平台分支 `w31/chief-exam-s5` 三个提交，变基到最新主线。
+- **重坐**：同一张卷不能用（卷里存的就是短号）；平台一个执行者同时只有一张未交的卷，`526ca46ad0db` 开到 2026-10-21T22:31:10Z，到期时没有答案，什么也不记。Owner 先 `put stg d3505569…`、平台重启，到期后再跑一次 `exam claude`。
