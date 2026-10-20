@@ -2152,6 +2152,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-398
+
+**P2 · ci · the platform CI gives the whole `go test ./...` 120 seconds per package, and the agentrt store package now takes 66–88 s on a fast Mac and more on CI**
+
+- **状态**：未开始（2026-10-20 17:5x 统筹线程记；`ci-platform-94wzt` 在 platform 5ce3467e 上 test-api 失败：`panic: test timed out after 2m0s`，`FAIL …/agentrt/store 120.025s`；那次提交没有改 store 包）
+- **Claim**: `k8s/cicd/tekton/pipeline-ci-platform.yaml:176` runs `go test ./... -count=1 -timeout=120s`. Every lane adds store tests (TD-384, TD-389, TD-390, TD-391, TD-393); the lanes measured the package at 66, 74, 80 and 88 s locally, on a busy CI node it passes 120 s. Main goes red on commits that did not touch it.
+- **Evidence**: `ci-platform-94wzt` test-api log; the lanes' hand-backs 2026-10-20 (store 66 s → 88 s).
+- **Impact**: red CI on unrelated commits holds STG and PROD releases (both require a green `ci-*`) and costs a rerun each time.
+- **Fix**: raise the package timeout (e.g. `-timeout=300s`) in the CI pipeline and apply it (cicd write: Owner); then bring the store package back down: `t.Parallel()` where a test is still serial without a reason (TD-374's ratchet), and move the slowest DB scenarios behind a build tag run in a separate CI step.
+- **Ratchet**: a CI check that fails when one package takes over half the timeout, naming it.
+- 验收: ten CI runs of main in a row green; the store package under 60 s on CI.
+- 审批 要（应用 CI 流水线是 cicd 写入）· 代价 S · 风险 low · repos: bifrost-trade-infra, bifrost-platform
+
 ### TD-397
 
 **P2 · agentrt · nothing writes a gate verification, so no architecture row can ever be ticked**
