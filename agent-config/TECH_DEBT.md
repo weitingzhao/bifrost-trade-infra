@@ -2515,7 +2515,7 @@
 
 **P1 · agentrt · an implement attempt that changed nothing is accepted: it hands in the base commit, the deterministic check passes on the base, and only a reviewer stands between it and an accepted task**
 
-- **状态**：未开始（2026-10-17 04:0x 记；06 的 STG 演练 M-6 撞上，走查会话 `local_42a46b17…` 的报告 F2）
+- **状态**：在做（2026-10-20 13:3x：两半都由运行时 PROD M-19 写（Claude 实现、核心类）。agentd 一半收下，统筹线程合进 platform `710074d7`；平台一半 codex 两轮评审没过（它的沙箱没有数据库，给不出修复前后对照），Owner 选 b、手工合：统筹线程在测试库上补了对照（两条回归带修复过、去掉修复失败），合进 platform `144c5497`。下一步：平台一半随 STG 发版；agentd 一半与 TD-383 合成一次 agentd 构建，Owner 在 06 上换；然后在 STG 上按验收走一件「执行者什么都不改」的任务）
 - **Claim**: when an executor exits 0 without changing anything, agentd delivers the base as the attempt's branch ("nothing changed: the attempt's branch is its base") with conclusion done; the platform does not compare the pushed commit with the base; the verify commands (build, vet, test, "nothing outside the test file changed") all pass on an unchanged tree. On 2026-10-17 codex on agent-06-stg could run no command at all (its sandbox failed), changed nothing, and its attempt went submitted → verified pass → review. STG had no reviewer, so it stopped there; on PROD a reviewer that misses it would accept a task nobody did.
 - **Evidence**: `bifrost-platform/api/internal/agentd/deliver.go:258` ("nothing changed: the attempt's branch is its base"); `~/agent-work/stg-walk-06/REPORT.md` F2 (M-6, attempt `a_01M54G37YWPPQ9C7YRYTKMTT80`, pushed commit = base `f69e8c6`, verification `v_01M54G4KMNVBKCD0GS5ZB2HT8R` pass).
 - **Impact**: any executor failure that ends in exit 0 (a broken sandbox, a refusal, a model that gives up) looks like a finished task; the plan moves on and the Owner sees it done.
