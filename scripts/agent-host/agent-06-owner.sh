@@ -680,7 +680,7 @@ step_exam() {
   cp "$BINARY" "$HERE/bifrost-agentd-exam@.service" "$HERE/exam-on-06.sh" "$stage/"
   COPYFILE_DISABLE=1 tar -C "$stage" --format ustar -cf - . |
     node_ssh "rm -rf ~/exam-stage && mkdir -p ~/exam-stage && tar -xf - -C ~/exam-stage && sudo bash ~/exam-stage/exam-on-06.sh $ex $(basename "$BINARY") $sum" ||
-    die "the sitting did not start (see above); nothing on 06 was stopped by this step"
+    die "the sitting did not start or did not stay up (see above). A check that failed before the unit started stopped nothing; a unit that started stopped the STG agentd and starts it again as it ends (exam-on-06.sh says above whether it runs; else: bash agent-06-owner.sh start stg)"
   say "follow it with: bash agent-06-owner.sh exam-log $ex"
 }
 

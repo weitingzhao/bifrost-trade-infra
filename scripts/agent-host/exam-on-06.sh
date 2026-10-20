@@ -34,6 +34,12 @@ systemctl start --no-block "$unit"
 sleep 15
 if ! systemctl is-active --quiet "$unit"; then
   journalctl -u "$unit" -n 20 --no-pager -o cat >&2 || true
-  die "$unit did not stay up (its last lines are above); the STG agentd starts again by itself"
+  # The unit stopped the STG agentd as it started and starts it again as it
+  # ends (ExecStopPost): say whether that happened.
+  sleep 10
+  if systemctl is-active --quiet bifrost-agentd-stg.service; then
+    die "$unit did not stay up (its last lines are above); the STG agentd runs again"
+  fi
+  die "$unit did not stay up (its last lines are above), and the STG agentd is not running: start it (agent-06-owner.sh start stg)"
 fi
 echo "sitting: $unit with $build (the STG agentd is stopped until it ends)"

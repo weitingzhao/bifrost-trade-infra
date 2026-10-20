@@ -261,7 +261,7 @@ class StopStart(unittest.TestCase):
         self.assertIn("nothing was sent", r.stderr)
         self.assertFalse((self.units / "calls").exists() and "bench-on-06" in (self.units / "calls").read_text())
 
-    def exam(self, executor: str, sha: str = "") -> subprocess.CompletedProcess:
+    def exam(self, executor: str, sha: str = "", node_fails: bool = False) -> subprocess.CompletedProcess:
         # As bench: the build checked here, the stage sent over "ssh", exam-on-06.sh run through the fake sudo.
         for u in ("bifrost-agentd.service", "bifrost-agentd-stg.service"):
             (self.units / u).write_text("")
@@ -273,7 +273,8 @@ class StopStart(unittest.TestCase):
         (build / "agentd.sha256").write_text(sums)
         for f in ("bifrost-agentd-exam@.service", "exam-on-06.sh"):
             (build / f).write_text((HERE / f).read_text())
-        script = f'source "{HERE / "agent-06-owner.sh"}"; node_ssh() {{ bash -c "$1"; }}; BINARY="{binary}"; HERE="{build}"; step_exam {executor}'
+        ssh = 'node_ssh() { cat > /dev/null; return 1; }' if node_fails else 'node_ssh() { bash -c "$1"; }'
+        script = f'source "{HERE / "agent-06-owner.sh"}"; {ssh}; BINARY="{binary}"; HERE="{build}"; step_exam {executor}'
         return subprocess.run(["bash", "-c", script], env=self.env, capture_output=True, text=True, timeout=60)
 
     def test_exam_sends_the_stage_and_stops_nothing(self) -> None:
@@ -289,6 +290,14 @@ class StopStart(unittest.TestCase):
         stage = Path(self.env["HOME"]) / "exam-stage"
         self.assertEqual(sorted(p.name for p in stage.iterdir()),
                          ["agentd-abcdef0-linux-amd64", "bifrost-agentd-exam@.service", "exam-on-06.sh"])
+
+    def test_exam_that_does_not_start_says_the_stg_agentd_may_have_stopped(self) -> None:
+        # Review 445 C3: exam-on-06.sh can fail after the unit started (and stopped the STG agentd).
+        r = self.exam("claude", node_fails=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertNotIn("nothing on 06 was stopped", r.stderr)
+        self.assertIn("stopped the STG agentd", r.stderr)
+        self.assertIn("agent-06-owner.sh start stg", r.stderr)
 
     def test_exam_refuses_another_executor_and_a_bad_build(self) -> None:
         for ex in ("codex", "cursor", ""):

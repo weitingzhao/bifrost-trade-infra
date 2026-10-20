@@ -21,7 +21,9 @@ SCRIPT = HERE / "chief-exam-set.sh"
 
 # The fake keeps $FAKE_K/secret.json (the Secret as created), $FAKE_K/calls (one line a call),
 # and reads $FAKE_K/cani ("yes" / "no"), $FAKE_K/forbid (Secrets cannot be read),
-# $FAKE_K/drop (a create or replace is taken but not kept) and $FAKE_K/log (platform-api's log).
+# $FAKE_K/drop (a create or replace is taken but not kept), $FAKE_K/echo-fail (a create or replace
+# fails quoting what it was sent), $FAKE_K/touch (a file of the set that reading the namespace edits)
+# and $FAKE_K/log (platform-api's log).
 FAKE_KUBECTL = r'''#!/usr/bin/env python3
 import json, os, sys
 k = os.environ["FAKE_K"]
@@ -32,6 +34,9 @@ with open(path("calls"), "a") as f:
     f.write(" ".join(x for x in a if not x.startswith("go-template")) + "\n")
 ns = a[a.index("-n") + 1] if "-n" in a else ""
 if a[:2] == ["get", "namespace"]:
+    if has("touch"):
+        with open(open(path("touch")).read().strip(), "ab") as f:
+            f.write(b" ")
     print("namespace/" + a[2]); sys.exit(0)
 if a[:2] == ["auth", "can-i"]:
     ans = open(path("cani")).read().strip() if has("cani") else "yes"
@@ -46,12 +51,18 @@ if "get" in a and "secret" in a:
     if s is None:
         if "--ignore-not-found" in a: sys.exit(0)
         print("NotFound", file=sys.stderr); sys.exit(1)
-    if o == "name": print("secret/" + s["metadata"]["name"])
+    if o == "json": print(json.dumps(s))
+    elif o == "name": print("secret/" + s["metadata"]["name"])
     elif o.startswith("jsonpath="): print(s["metadata"].get("annotations", {}).get("bifrost.io/exam-set-sha256", ""), end="")
     elif o.startswith("go-template="): print("".join(x + "\n" for x in sorted(s["data"])), end="")
     sys.exit(0)
 if a[:2] in (["create", "-f"], ["replace", "-f"]):
-    s = json.load(sys.stdin)
+    raw = sys.stdin.read()
+    if not raw.strip():
+        print("error: no objects passed to " + a[0], file=sys.stderr); sys.exit(1)
+    if has("echo-fail"):
+        print("Error from server (Invalid): admission refused the request " + raw, file=sys.stderr); sys.exit(1)
+    s = json.loads(raw)
     if a[0] == "create" and has("secret.json"):
         print("AlreadyExists", file=sys.stderr); sys.exit(1)
     if a[0] == "replace" and not has("secret.json"):
@@ -75,7 +86,8 @@ QUESTIONS = {
 
 def question(qid: str) -> bytes:
     # A key point no output may carry: it stands for the set's grading keys.
-    return json.dumps({"exam": "chief_of_staff", "question": qid, "items": [
+    classes = {"Q1": "exam-brief", "Q2": "exam-card", "Q3": "exam-alert", "Q4": "exam-refuse", "Q5": "exam-handover"}
+    return json.dumps({"exam": "chief_of_staff", "question": qid, "class": classes.get(qid, "exam-brief"), "items": [
         {"id": qid + "a", "rules": [{"id": "r", "kind": "require_any", "any_of": ["SECRET-KEY-" + qid]}]}]},
         ensure_ascii=False).encode()
 
@@ -136,7 +148,7 @@ class ChiefExamSet(unittest.TestCase):
         self.assertEqual(self.calls(), "")
 
     def test_put_creates_the_secret_from_the_five_files(self) -> None:
-        r = self.run_step("put", "stg")
+        r = self.run_step("put", "stg", digest(self.set))
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         s = self.secret()
         self.assertEqual(s["metadata"]["namespace"], "bifrost-platform-stg")
@@ -149,30 +161,30 @@ class ChiefExamSet(unittest.TestCase):
         self.assertIn("create -f -", self.calls())
 
     def test_put_prod_writes_prods_namespace(self) -> None:
-        r = self.run_step("put", "prod")
+        r = self.run_step("put", "prod", digest(self.set))
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.secret()["metadata"]["namespace"], "bifrost-platform-prod")
 
     def test_put_again_changes_nothing(self) -> None:
-        self.assertEqual(self.run_step("put", "stg").returncode, 0)
+        self.assertEqual(self.run_step("put", "stg", digest(self.set)).returncode, 0)
         (self.k / "calls").unlink()
-        r = self.run_step("put", "stg")
+        r = self.run_step("put", "stg", digest(self.set))
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("nothing changed", r.stdout)
         self.assertNotIn("create -f", self.calls())
         self.assertNotIn("replace -f", self.calls())
 
     def test_put_a_new_set_replaces(self) -> None:
-        self.assertEqual(self.run_step("put", "stg").returncode, 0)
+        self.assertEqual(self.run_step("put", "stg", digest(self.set)).returncode, 0)
         (self.set / "q3-impersonated-approval.json").write_bytes(question("Q3") + b" ")
-        r = self.run_step("put", "stg")
+        r = self.run_step("put", "stg", digest(self.set))
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("replace -f -", self.calls())
         self.assertEqual(self.secret()["metadata"]["annotations"]["bifrost.io/exam-set-sha256"], digest(self.set))
 
     def test_put_refuses_a_kubeconfig_that_cannot_write_secrets(self) -> None:
         (self.k / "cani").write_text("no")
-        r = self.run_step("put", "stg")
+        r = self.run_step("put", "stg", digest(self.set))
         self.assertEqual(r.returncode, 1)
         self.assertIn("the Owner's", r.stderr)
         self.assertFalse((self.k / "secret.json").exists())
@@ -191,16 +203,85 @@ class ChiefExamSet(unittest.TestCase):
                 self.tearDown()
                 self.setUp()
                 spoil()
-                r = self.run_step("put", "stg")
+                r = self.run_step("put", "stg", digest(self.set))
                 self.assertEqual(r.returncode, 1, what)
                 self.assertIn("chief-exam-set:", r.stderr)
                 self.assertEqual(self.calls(), "", what)
 
     def test_put_says_so_when_the_secret_does_not_read_back(self) -> None:
         (self.k / "drop").write_text("")
-        r = self.run_step("put", "stg")
+        r = self.run_step("put", "stg", digest(self.set))
         self.assertEqual(r.returncode, 1)
         self.assertIn("does not read back as this set", r.stderr)
+
+    def test_put_takes_only_the_sha256_it_is_given(self) -> None:
+        for args in ((), ("1fb1",), ("0" * 64,)):
+            with self.subTest(args):
+                r = self.run_step("put", "stg", *args)
+                self.assertEqual(r.returncode, 1)
+                self.assertIn("nothing changed", r.stderr)
+                self.assertEqual(self.calls(), "")
+
+    def test_put_refuses_a_set_the_platform_would_not_load(self) -> None:
+        # Review 445 A1: each of these loads in no platform (exam.Load, exam.Platform).
+        def edit(name, f):
+            q = json.loads((self.set / name).read_text())
+            f(q)
+            (self.set / name).write_text(json.dumps(q))
+        cases = {
+            "a null item": lambda q: q.update(items=[None]),
+            "a null rule": lambda q: q["items"][0].update(rules=[None]),
+            "no rule": lambda q: q["items"][0].update(rules=[]),
+            "an unknown kind": lambda q: q["items"][0]["rules"][0].update(kind="llm_judge"),
+            "a rule without an id": lambda q: q["items"][0]["rules"][0].pop("id"),
+            "no question id": lambda q: q.pop("question"),
+            "a class not scored": lambda q: q.update({"class": "exam-other"}),
+            "an item id twice": lambda q: q.update(items=q["items"] + q["items"]),
+        }
+        for what, f in cases.items():
+            with self.subTest(what):
+                self.tearDown()
+                self.setUp()
+                edit("q3-impersonated-approval.json", f)
+                r = self.run_step("put", "stg", digest(self.set))
+                self.assertEqual(r.returncode, 1, what)
+                self.assertIn("q3-impersonated-approval.json", r.stderr)
+                self.assertEqual(self.calls(), "", what)
+        self.tearDown()
+        self.setUp()
+        # The same id in two questions.
+        edit("q4-overreach.json", lambda q: q["items"][0].update(id="Q3a"))
+        r = self.run_step("put", "stg", digest(self.set))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("comes twice", r.stderr)
+
+    def test_put_sends_only_the_set_it_checked(self) -> None:
+        # Review 445 B1: a file edited after the check is not sent.
+        (self.k / "touch").write_text(str(self.set / "q1-brief-from-snapshot.json"))
+        want = digest(self.set)
+        r = self.run_step("put", "stg", want)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("nothing was sent", r.stderr)
+        self.assertFalse((self.k / "secret.json").exists())
+
+    def test_put_reads_the_data_not_the_annotation(self) -> None:
+        # Review 445 C2: data changed by hand under the same annotation is put back.
+        self.assertEqual(self.run_step("put", "stg", digest(self.set)).returncode, 0)
+        s = self.secret()
+        s["data"]["q2-decision-card.json"] = base64.b64encode(b'{"exam": "chief_of_staff"}').decode()
+        (self.k / "secret.json").write_text(json.dumps(s))
+        r = self.run_step("put", "stg", digest(self.set))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("replace -f -", self.calls())
+        self.assertEqual(base64.b64decode(self.secret()["data"]["q2-decision-card.json"]),
+                         (self.set / "q2-decision-card.json").read_bytes())
+
+    def test_a_refused_write_does_not_quote_the_request(self) -> None:
+        # Review 445 C1: kubectl's message is cut to a line, base64 runs masked (run_step checks the output).
+        (self.k / "echo-fail").write_text("")
+        r = self.run_step("put", "stg", digest(self.set))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("was not created: Error from server (Invalid)", r.stderr)
 
     def test_put_refuses_another_environment(self) -> None:
         r = self.run_step("put", "dev")
@@ -209,7 +290,7 @@ class ChiefExamSet(unittest.TestCase):
         self.assertEqual(self.calls(), "")
 
     def test_check_is_ready_when_platform_api_loaded_this_set(self) -> None:
-        self.assertEqual(self.run_step("put", "stg").returncode, 0)
+        self.assertEqual(self.run_step("put", "stg", digest(self.set)).returncode, 0)
         (self.k / "log").write_text(
             "2026/10/20 21:08:08 INFO agentrt: exam set loaded dir=/etc/bifrost/chief-exam sha256=%s\n" % digest(self.set))
         (self.k / "calls").unlink()
@@ -230,7 +311,7 @@ class ChiefExamSet(unittest.TestCase):
                 self.tearDown()
                 self.setUp()
                 if put:
-                    self.assertEqual(self.run_step("put", "stg").returncode, 0)
+                    self.assertEqual(self.run_step("put", "stg", digest(self.set)).returncode, 0)
                 (self.k / "log").write_text(log)
                 r = self.run_step("check", "stg")
                 self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
