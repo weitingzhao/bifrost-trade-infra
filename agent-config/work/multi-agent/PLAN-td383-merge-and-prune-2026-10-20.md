@@ -30,7 +30,7 @@ Owner 10-19 23:1x：「TD-383 排进主线：……接着做「收下即合并 +
 - **PROD 已收下、不在 main 的实现 10 件**：M-1 `t_01M511RV9S41AEW9CDA76024Q3`（GoalRepos 注释）、M-2 `t_01M51EHZ92V5F2PRB7JCZVHTQ3`（store.Repos 注释）、M-3 `t_01M55AN78GPF9V6NFZFS4KJP8N`（safego 边界测试）、M-3 `t_01M55AN78M1MX9NF9Q958T96Z3`（statefile 边界测试）、M-4 `t_01M56J5QPAAQQP53KV4MQYCW5Q`（safego.Go 注释）、M-13 `t_01M5BSTGPP9FC3PCF4NF5PM7GD`（Gate B 实测写环境变量名）、M-15 四道基准题（Q04、Q06、Q07、Q18 的回放）。我的看法：M-1～M-4 五件可以用 `plan` 看过再 `apply`；M-13、M-15 五件是实测和基准回放，不该合——但「这件不合、为什么」没有工具能认出来的写法，见 2.3。
 - **agent/ 分支 53 条**（都在 bifrost-platform，bifrost-ui 没有）：按规则今天可删 0 条——PROD 10 条、STG 9 条的任务已收下但不在 main；7 条是已落到 main 的结果（按上面的规矩保留）；3 条被后来的尝试取代、不满 7 天；其余的任务还开着（PROD 4 条 ready，含 M-9 第五件；STG 4 条 ready、16 条 verifying）。
 
-## 2. 要你定的四件
+## 2. 要你定的四件 — **Owner 10-20 11:5x 定：「TD-383 合并 A、infra A、不合 A、分支 B 用 agentd」**
 
 ### 2.1 收下即合并由谁执行
 
