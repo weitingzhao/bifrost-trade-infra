@@ -15,6 +15,10 @@
 # 2026-10-18 「同意：心跳加 actions，只在 Redis 存 24 小时」): the workers run
 # the relay on it, platform-api writes and reads attempts' actions there
 # (slice 2). The password is the Secret the redis-agents Deployment reads.
+# AGENTRT_LEDGER (TD-391, Owner 2026-10-20 「AI 评估用 A」): the ledger an
+# assessment of a card or an approval reads its items from, as
+# <repository>/<path> at main through the Gitea mirror; only the workers run
+# the assessments.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -55,6 +59,8 @@ spec:
       containers:
         - name: platform-api
           env:
+            - name: AGENTRT_LEDGER
+              value: bifrost-trade-infra/agent-config/TECH_DEBT.md
             - name: AGENTRT_ENV
               value: stg
             - name: AGENTRT_REDIS_ADDR
