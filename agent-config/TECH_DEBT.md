@@ -2144,6 +2144,19 @@
 - 验收: the ratchet command above
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-383
+
+**P2 · agentrt · an attempt's branch has no lifecycle: accepted work never reaches main, and nothing deletes the branches**
+
+- **状态**：未开始（2026-10-19 21:0x，Owner 在 Ops 的 Commit Lineage 上看到 platform 有一百多条分支时查出）
+- **Claim**: every attempt pushes its result to `agent/<task>/a<n>` on Gitea (design v5 `pushed_ref`). Round 2 has no step after `accepted`: the release queue that would merge an accepted result into main is round 3 (architecture row「发布队列、无人值守的正式环境发布」, unchecked). So an accepted fix stays on its attempt branch, and branches of rejected, lost or superseded attempts stay as well. Measured 2026-10-19 21:0x on platform's Gitea: 33 unmerged `agent/` branches (10-15 to 10-20); among them the four accepted results of PROD M-9 (T26: TD-378 is on infra, TD-268 `ExecSQLOnPrimary`, `crewModel.ts` tests, TD-342), which are not in main. Lane branches add to the count: 62 `cursor/` and `w31/` branches already in main, 13 older ones (10-07 to 10-11) not in main, among them `cursor/n-platform`, an earlier TD-268 that never landed.
+- **Evidence**: `git ls-remote --heads origin` in bifrost-platform against `origin/main` (21:0x); M-9 tasks on PROD `/agentrt/tasks?mission=M-9`.
+- **Impact**: work the runtime accepted is lost to main unless someone merges it by hand; T26 counts a goal as done while its code is nowhere the system runs. The branch list in Commit Lineage grows by one or two per attempt.
+- **Fix**: until the release queue, an accepted implementation's branch is merged into main through `push-main.sh` by the coordinator (fast-forward after a rebase, the suite and code-health on the merged tree), recorded on the task; a runtime pass deletes an attempt branch once its task is accepted and merged, rejected, cancelled, or the attempt was superseded, after 7 days. Lane branches go through `scripts/prune-merged-branches.sh` (dry run by the Agent, `--apply` by the Owner).
+- **Ratchet**: a store test: a task accepted and merged, and a superseded attempt older than 7 days, leave no `agent/` ref in the fake Gitea; a check that lists accepted tasks whose attempt commit is not in main.
+- 验收: on PROD every accepted implementation's attempt commit is in main or its task says why not, and no `agent/` branch is older than 7 days without an open task.
+- 审批 合并 M-9 的四件进 main 要你点头 · 代价 M · 风险 low · repos: bifrost-platform, bifrost-trade-infra
+
 ### TD-382
 
 **P1 · agentrt · a report that quotes a local path is refused with 422 and the attempt is leased again at once, with no event saying why**
