@@ -38,7 +38,7 @@ bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agentrt
 
 在这个线程里回「核心字段 A」或「核心字段 B」。
 
-## 3b. ★ 验收那条线的两张单（10-19 23:30 建）
+## 3b. ★ 验收那条线的两张单（10-19 23:30 建）— **都办完了**：#50 你批后平台执行；#49 你 23:50 跑完，exit=0：STG 与 PROD 的迁移幂等、重启 redis-agents 流不丢（STG 173→173、PROD 66→66）、杀中继后新 Pod 接着投递，全过
 
 - **#50（C）**逻辑备份恢复演练：只在自己 Pod 里恢复到临时库、逐表核行数，不连在线库。Console 审批页批即可。
 - **#49（D）**T19/T21/T31 演练（先 STG 后 PROD，任何一步不对就停；PROD 后台循环停约 30 秒、Agent 信号停十几秒）：Console 上批，然后在终端面板跑单上写的 owner-run 命令（统筹线程 23:4x 在线程里给过），输出在 `/tmp/w31-r2-stars-drills.txt`。
@@ -46,6 +46,12 @@ bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agentrt
 ## 4. 待你签收的债（在这个线程回「签收 TD-n」或「打回 TD-n：原因」）
 
 TD-371、TD-373、TD-374、TD-381、TD-382、TD-268、TD-342。每项的「改了什么、验收、防线」写在 `agent-config/TECH_DEBT.md` 顶部「待你签收」一节。
+
+## 夜里做完的（不用你）
+
+- 00:0x：2.5 导航第二片（Needs you 并进 For you、Progress 并进 Work）和 TD-385（发版后页面没样式）合进 main，STG 已是 `05b2c2da`；STG 上验过：首页 `cache-control: no-cache`、缺失的样式文件回 404。
+- 合并时 CI 撞上一个不稳定的测试（`TestBenchmark` 每次调用现取时间，跨秒就判成「结果不同」），00:0x 修好（`05b2c2da`），CI 绿。
+- 00:13 起：STG 上走「Claude 写核心代码」（M-30，Claude 在 06 的写墙里实现、codex 评审）。
 
 ## 夜里在跑、早上可能多出来的
 
