@@ -22,11 +22,12 @@ apply     in a fresh worktree of the repository's main (its siblings beside it, 
           repository it may push and only once the suite passed, push-main.sh pushes it (the
           release window, fast-forward, code-health on that exact commit).
 prunable  TD-383's deletion rule over the agent/<task>/a<n> branches of bifrost-platform and
-          bifrost-ui, and why for each; it deletes nothing (who deletes, and how past Gitea's
-          protection of agent/**, is the Owner's to decide). PROD and STG push to the same
+          bifrost-ui, and why for each; it deletes nothing: the runtime's cleanup does, through
+          agentd (platform store/prune.go), under the same rule. PROD and STG push to the same
           repositories: each task is looked up in both, and one both know is kept. A branch goes 7
-          days after the event that made its rule hold; the accepted attempt's branch is kept, on
-          main or not: main's history does not say when a commit reached it.
+          days after the event that made its rule hold; the accepted attempt's branch, 7 days after
+          the acceptance when its mission is not to be merged, else after the runtime first saw it
+          on main (a note with landed): main's history does not say when a commit reached it.
 
 Where the line is (ADR §1, §5, §12.7: until the release queue, nothing reaches a running system
 unattended, and merging is 「核对后合」, Owner 10-19). Pushing bifrost-platform's main starts its CI
@@ -206,9 +207,13 @@ class Runtime:
     def missions(self) -> list[str]:
         """Every mission, M-1 up: they are numbered without gaps (store/propose.go takes max + 1
         under a lock, and no route deletes one)."""
+        return [m["mission_id"] for m in self.mission_docs()]
+
+    def mission_docs(self) -> list[dict]:
+        """Every mission's record, M-1 up."""
         out, n = [], 1
-        while self.mission(f"M-{n}") is not None:
-            out.append(f"M-{n}")
+        while (m := self.mission(f"M-{n}")) is not None:
+            out.append({**m, "mission_id": m.get("mission_id") or f"M-{n}"})
             n += 1
         return out
 
@@ -232,6 +237,9 @@ class Accepted:
     commit: str
     reviewers: list[str] = field(default_factory=list)  # empty when the records do not tie one
     accepted_at: str = ""
+    no_merge: str = ""  # why its mission's results stay off main (scope_json.no_merge), "" for an ordinary one
+    seen_on_main_at: str = ""  # when the runtime first saw the result on main (a note with landed), "" for not yet
+    seen_on_main_as: str = ""
 
 
 def accepted(rt: Runtime, task_id: str) -> Accepted:
@@ -273,10 +281,14 @@ def accepted(rt: Runtime, task_id: str) -> Accepted:
             reviewer = (e.get("body_json") or {}).get("executor", "") or reviewer
     m = rt.mission(mission) or {}
     label = m.get("work_id") or first_words(m.get("title") or "", 60)
+    seen = [e for e in mine if e.get("event_type") == "note" and (e.get("body_json") or {}).get("landed")]
     return Accepted(env=rt.env, task=task_id, title=t.get("title") or "", repo=repo, base=t.get("base_commit") or "",
                     mission=mission, mission_label=label, attempt=attempt_id, attempt_no=int(a.get("attempt_no") or 0),
                     author=a.get("executor_actor_id") or "", ref=a["pushed_ref"], commit=a["pushed_commit"],
-                    reviewers=[reviewer] if reviewer else [], accepted_at=at[-1] if at else "")
+                    reviewers=[reviewer] if reviewer else [], accepted_at=at[-1] if at else "",
+                    no_merge=str((m.get("scope_json") or {}).get("no_merge") or ""),
+                    seen_on_main_at=seen[0].get("at", "") if seen else "",
+                    seen_on_main_as=seen[0]["body_json"]["landed"] if seen else "")
 
 
 def first_words(text: str, n: int) -> str:
@@ -431,6 +443,8 @@ def may_push(repo: str) -> tuple[bool, str]:
 
 def plan(rt: Runtime, task_id: str, ws: Path) -> tuple[Accepted, list[str], str]:
     a = accepted(rt, task_id)
+    if a.no_merge:
+        raise Refused(f"mission {a.mission} is not to be merged: {a.no_merge}")
     repo_dir = ws / a.repo
     fetch(repo_dir, [a.ref])
     files = change(repo_dir, a)
@@ -533,10 +547,17 @@ def cmd_list(rt: Runtime, ws: Path, out=None) -> int:
     """Accepted implementations not landed on main, by repository; exit 1 when there is one."""
     out = out or sys.stdout
     found: dict[str, list[tuple[str, dict]]] = {}
-    for m in rt.missions():
-        for t in rt.tasks(m, state="accepted"):
-            if t.get("role") == "implement" and t.get("repo"):
-                found.setdefault(t["repo"], []).append((m, t))
+    passed: list[str] = []
+    for doc in rt.mission_docs():
+        m = doc["mission_id"]
+        mine = [t for t in rt.tasks(m, state="accepted") if t.get("role") == "implement" and t.get("repo")]
+        reason = str((doc.get("scope_json") or {}).get("no_merge") or "")
+        if reason:
+            if mine:
+                passed.append(f"{m}\tnot to be merged ({len(mine)} accepted): {reason}")
+            continue
+        for t in mine:
+            found.setdefault(t["repo"], []).append((m, t))
     missing = 0
     for repo in sorted(found):
         repo_dir = ws / repo
@@ -558,7 +579,10 @@ def cmd_list(rt: Runtime, ws: Path, out=None) -> int:
                 what = f"cannot tell: {exc}"
             missing += 1
             print(f"{repo}\t{m}\t{t['task_id']}\t{what}\t{first_words(t.get('title') or '', 80)}", file=out)
-    print(f"merge_accepted: {missing} accepted implementation(s) of {rt.env} not on main", file=out)
+    for line in passed:
+        print(line, file=out)
+    print(f"merge_accepted: {missing} accepted implementation(s) of {rt.env} not on main"
+          + (f"; {len(passed)} mission(s) not to be merged passed over" if passed else ""), file=out)
     return 1 if missing else 0
 
 
@@ -608,6 +632,7 @@ def prunable(runtimes: dict[str, Runtime], repo_dir: Path, now: float) -> list[t
         state = (t or {}).get("state", "")
         since: datetime | None = None
         accepted_no, kept = 0, ""  # kept: why the accepted attempt's branch stays
+        own_since, own_why = None, ""  # when and why the accepted attempt's branch goes, if it does
         if len(known) > 1:
             kept = "a task of this id is known to " + " and ".join(sorted(known))
         elif t is None:
@@ -619,24 +644,32 @@ def prunable(runtimes: dict[str, Runtime], repo_dir: Path, now: float) -> list[t
                 a = accepted(runtimes[env], task)
                 fetch(repo_dir, [a.ref])
                 accepted_no, since = a.attempt_no, parse_time(a.accepted_at)
-                landed, why = main.landed(task, change_id(git(repo_dir, "log", "-1", "--format=%B", a.commit)))
-                kept = (f"its accepted result landed as {landed[:12]}; when it reached main is not on record" if landed
-                        else "its accepted result is not on main" if why == "not on main" else why)
+                if a.no_merge:
+                    own_since, own_why = since, f"accepted; its mission is not merged: {a.no_merge}"
+                elif a.seen_on_main_at:
+                    own_since, own_why = parse_time(a.seen_on_main_at), f"accepted and seen on main as {a.seen_on_main_as[:12]}"
+                else:
+                    landed, why = main.landed(task, change_id(git(repo_dir, "log", "-1", "--format=%B", a.commit)))
+                    kept = (f"its accepted result landed as {landed[:12]}; the runtime has not recorded seeing it there" if landed
+                            else "its accepted result is not on main" if why == "not on main" else why)
             except Refused as exc:
                 kept = f"cannot tell which attempt was accepted: {exc}"
         for ref, n in sorted(refs, key=lambda x: x[1]):
+            at = since
             if state in ("rejected", "cancelled") and len(known) == 1:
                 go, why = True, f"its task is {state}"
             elif state == "accepted" and len(known) == 1 and accepted_no > 0 and n != accepted_no:
                 go, why = True, f"superseded: attempt {accepted_no} was accepted"
+            elif state == "accepted" and len(known) == 1 and own_why:
+                go, why, at = True, own_why, own_since
             elif kept:
                 go, why = False, kept
             else:
                 go, why = False, f"its task is {state}"
             if go:
-                if since is None:
+                if at is None:
                     go, why = False, f"{why}; since when is not on record"
-                elif (age := (now - since.timestamp()) / 86400) < KEEP_DAYS:
+                elif (age := (now - at.timestamp()) / 86400) < KEEP_DAYS:
                     go, why = False, f"{why}; {age:.1f} of {KEEP_DAYS} days"
             out.append((ref, env, go, why))
     return out

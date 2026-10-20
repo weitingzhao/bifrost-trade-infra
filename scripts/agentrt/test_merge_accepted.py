@@ -123,14 +123,16 @@ class World:
         sh(self.dir, "push", "-q", "origin", "HEAD:refs/heads/main")
 
     def runtime(self, state: str = "accepted", txid: bool = True, extra: dict | None = None, reviews: int = 2,
-                accepted_at: str = FIXED_AT, more_events: list[dict] | None = None, late_deterministic: bool = False) -> ma.Runtime:
+                accepted_at: str = FIXED_AT, more_events: list[dict] | None = None, late_deterministic: bool = False,
+                no_merge: str = "") -> ma.Runtime:
         extra = extra or {}
         rows = {
             f"tasks/{TASK}": {"task_id": TASK, "role": "implement", "state": state, "repo": self.repo, "mission_id": "M-9",
                               "base_commit": self.base, "title": "delete ExecSQLOnPrimary", "updated_at": NOW.isoformat()},
             f"attempts/{ATTEMPT}": {"attempt_id": ATTEMPT, "attempt_no": 2, "executor_actor_id": "exec:codex",
                                     "pushed_ref": self.ref, "pushed_commit": self.commit},
-            "missions/M-9": {"mission_id": "M-9", "work_id": "W-31", "title": "four small jobs"},
+            "missions/M-9": {"mission_id": "M-9", "work_id": "W-31", "title": "four small jobs",
+                             "scope_json": {"no_merge": no_merge} if no_merge else {}},
         }
 
         def tx(n: int) -> int | None:
@@ -502,7 +504,41 @@ def test_prunable_follows_td383s_rule(tmp_path: Path) -> None:
     # not in git's history, so the accepted attempt's branch stays.
     landed = w.lands(keep_task=False)
     merged = decisions(NOW + timedelta(days=30))
-    assert merged["H8/a2"] == ("prod", False, f"its accepted result landed as {landed[:12]}; when it reached main is not on record")
+    assert merged["H8/a2"] == ("prod", False, f"its accepted result landed as {landed[:12]}; the runtime has not recorded seeing it there")
     assert merged["H8/a1"][1]
     w.reverts(landed)
     assert decisions(NOW + timedelta(days=30))["H8/a2"] == ("prod", False, f"it landed as {landed[:12]} and was reverted")
+
+
+# ── missions not to be merged; landings the runtime saw ─────────────────────
+
+def test_a_mission_not_to_be_merged_is_passed_over_and_refused(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    w = World(tmp_path)
+    rt = w.runtime(no_merge="a benchmark replay")
+    assert ma.cmd_list(rt, w.ws) == 0
+    out = capsys.readouterr().out
+    assert "M-9\tnot to be merged (1 accepted): a benchmark replay" in out and "1 mission(s) not to be merged passed over" in out
+    with pytest.raises(ma.Refused, match="mission M-9 is not to be merged: a benchmark replay"):
+        ma.plan(rt, TASK, w.ws)
+
+
+@pytest.mark.parametrize("how", ["no_merge", "seen"])
+def test_prunable_lets_the_accepted_attempt_go_as_the_runtime_does(tmp_path: Path, how: str) -> None:
+    w = World(tmp_path, repo="bifrost-platform")
+    sh(w.dir, "push", "-q", "origin", f"{w.base}:refs/heads/agent/{TASK}/a1")
+    seen_at = NOW + timedelta(days=2)
+    rt = (w.runtime(accepted_at=NOW.isoformat(), no_merge="a benchmark replay") if how == "no_merge" else
+          w.runtime(accepted_at=NOW.isoformat(), more_events=[{"seq": 30, "event_type": "note", "task_id": TASK,
+                                                               "body_json": {"text": "on main", "landed": w.commit},
+                                                               "at": seen_at.isoformat()}]))
+    stg = RealRuntime("stg", knows_nothing)
+
+    def accepted_branch(at: datetime) -> tuple[str, bool, str]:
+        return {ref: (env, go, why) for ref, env, go, why in ma.prunable({"prod": rt, "stg": stg}, w.dir, at.timestamp())}[w.ref]
+    if how == "no_merge":
+        assert accepted_branch(NOW + timedelta(days=6))[1] is False
+        assert accepted_branch(NOW + timedelta(days=8)) == ("prod", True, "accepted; its mission is not merged: a benchmark replay")
+    else:
+        # Seven days from when the runtime first saw it on main, not from the acceptance.
+        assert accepted_branch(NOW + timedelta(days=8))[1] is False
+        assert accepted_branch(NOW + timedelta(days=10)) == ("prod", True, f"accepted and seen on main as {w.commit[:12]}")

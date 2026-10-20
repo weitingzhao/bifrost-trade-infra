@@ -69,7 +69,42 @@ TD-383 的验收要「PROD 上每件已收下的实现要么在 main，要么写
 
 在哪办：统筹线程（选定后 Gitea 的规则和身份由你在 Gitea 上改，或给我一张 `owner_run_command` 单）。怎么回：「TD-383 分支 B，用 agentd」（或别的组合）。
 
-## 3. 不在这次范围
+## 3. 「不合 A」「分支 B 用 agentd」的实现（10-20 下午）
+
+**不合并标记 `no_merge`**：`propose_mission`（MCP）、`POST /agentrt/missions`、`POST /agentrt/goals` 多一个可选字段 `no_merge`，写一句为什么这个 mission 收下的结果不进 main（演练、基准题回放、门槛实测），最多 200 字节；存进 mission 的 `scope_json.no_merge`，你的决策卡上也会显示。`merge_accepted.py list` 跳过这类 mission 并列出原因，`plan`/`apply` 遇到它直接拒绝。Console 的目标输入框还不会填它（要的时候再加）。已经收下的 M-13、M-15 那几件没有这个标记，补标记要改 PROD 的库，留给你定；不补的话它们一直在 `list` 里、分支也一直留着。
+
+**运行时清理 agent/ 分支**（规则就是 2.4 那条，代码在 platform `store/prune.go`）：
+
+- 控制器每 5 分钟读一次各仓库 main 的提交说明，第一次看到某件已收下的结果（`Agentrt-Task` 尾注）就在任务上记一笔 `note`（`landed`），7 天从这一笔算起——git 的历史给不出「哪天进的 main」，所以要自己记。
+- 06 上的 agentd 每 10 分钟问一次平台「有哪些可以删」（`GET /agentrt/prunes`，只回这台主机所在环境自己的任务的分支，最多 50 条），用它推分支的同一个 Gitea 身份删，而且只在分支还指着平台给的那个提交时才删（`git push --force-with-lease`）；删完回报（`POST /agentrt/prunes`），每删一条在任务上记一笔 `note`（`pruned`）。
+- 保护还在的时候 Gitea 会拒绝：agentd 遇到第一次拒绝就停下这一轮、回报 Gitea 的原话，平台在主机的事件流上记一笔 `note`（`prune_refused`），之后 6 小时不再给它清单；agentd 照常干活，不报错退出。
+- PROD 和 STG 推到同一个 Gitea 仓库，各自只删自己任务的分支；不认识的分支一律不碰。
+
+## 4. 给你的 Gitea 步骤（去掉 `agent/**` 保护）
+
+**什么时候**：这次的 platform 发到 PROD、06 上两个 agentd 都换成这次的新版之后（顺序反过来也不出事，只是保护先去掉而没人删）。
+
+**在哪里**：你自己的终端（脚本要你的管理员 kubeconfig 开端口转发、从集群里读 Gitea 管理员令牌，和你 10-17 设保护时一样）。先确认 infra 已经快进到包含这次改动的 main（`git -C ~/Desktop/stocks/bifrost-trade-infra pull --ff-only`）。
+
+**怎么改**：一条命令，对 11 个主仓库和探针、模板两个仓库各做一遍：保留 `main` 的规则，删掉 `agent/**` 的规则并读回核对：
+
+```bash
+bash ~/Desktop/stocks/bifrost-trade-infra/scripts/gitea/protect-repo.sh --owner weitingzhao bifrost-platform bifrost-ui bifrost-trade-core bifrost-trade-api bifrost-trade-worker bifrost-trade-frontend bifrost-platform-plugin bifrost-platform-plugin-market-data bifrost-platform-plugin-flex-query bifrost-trade-infra bifrost-research primary-probe repo-template
+```
+
+每个仓库应该打出 `main: set and read back` 和 `agent/**: removed and read back`，最后退出码 0（标签规则那行提示照旧，不用再加）。
+
+**改完核对**：
+
+```bash
+bash ~/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh probe-protection
+```
+
+应该是 `all as expected`：推 main、打标签、合并请求都被拒，agent 分支能建、也能删（探针现在要求能删）。
+
+**之后会发生什么**：第一批真正被删的，是被取消、被拒或被取代满 7 天的分支；已落到 main 的，要从 PROD 第一次看到它算满 7 天，所以最早在这次发版一周后。删一条，PROD 上那件任务就多一笔 `pruned` 的 note。代价照 2.4 B：去掉保护后，agentd-write 团队和 maintainers 都能强推或删任何 agent/ 分支；运行时只删规则允许的那些。
+
+## 5. 不在这次范围
 
 - TD-387：把 code-health 放进运行时对 platform 的检查，让「收下」和「能合」一致。`apply` 只是在推之前拦住。
 - STG 上 16 条分支的任务停在 verifying，值得看一眼是否卡住（本次没查）。
