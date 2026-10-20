@@ -58,3 +58,21 @@ bash bifrost-trade-infra/scripts/agentrt/rule.sh sign bifrost-trade-infra/agent-
 ```
 
 不签：核心类实现继续没人能领，2.4「Claude 写核心代码」这一项停在这里；别的不受影响。
+
+## 后续：计划格式里的 `core`（Owner 10-19 23:4x「核心字段 A」）
+
+Owner 原话：「核心字段 A：计划格式加可选的 core，参谋长按规则判断哪件是核心类，路由照现有核心类规则走。」实现在平台分支 `w31/plan-core`。
+
+**定义只有一处**：核心类 = 运行时自己的核心（设计 v5 §0 第 6 条、Owner 10-13：数据层、Redis 数据形式、内核接口、agentd、总线与叫停）。落到仓库是 `Repos` 里每个仓库新加的 `Core` 目录（`store/repos.go`）：bifrost-platform 的 `api/internal/agentrt/`、`api/internal/agentd/`、`api/cmd/agentd/`；别的仓库（infra 等）没有核心类。核心目录下的外围活（测试样板、文档、按已定接口填的页面）不算核心类。计划者和参谋长的提示都用同一段文字（`CoreText()`，从 `Repos` 生成），程序校验也读同一份目录。
+
+| 改了什么 | 说明 |
+|---|---|
+| 计划格式 | 每件任务可选 `"core": true/false`，不写等于 false。原样带进提议出来的任务（`task.core`），路由照现有核心类规则走：实现只归 claude（`only author_core`），确定性验收能验，评审只归 codex（`only review_core`）。不加表、不加列、不动迁移（`task.core` 早就有） |
+| 校验（计划） | 挡三种：`core` 不是 true/false（`null`、字符串、数字、对象都拒，不当 false 读）；标在没有核心类的仓库；标了 core 但任务正文没写它改的核心目录下的文件（`api/internal/agentd/…` 这类整段路径，`api/internal/agentdx/`、`vendor/api/internal/agentd/`、`api/internal/agentd.go` 都不算）。错误写明是哪件任务、为什么，进下一轮计划的任务书 |
+| 校验（提议接口） | 同一个 `checkBatch`：`core` 只给 `implement` 角色、有核心目录的仓库；MCP / API 直接提议的任务也一样挡 |
+| 计划者提示 | 「怎么拆」里加一条：按 Core work 一节判断，核心类标 true 并在正文写出核心目录下要改的文件；目标的仓库都没有核心类时直接说「这次没有核心类」；格式示例带 `"core": false` |
+| 参谋长提示 | 答复消息的任务书带同一段 Core work；建议目标时说这件活是不是核心类。定时简报和提醒（`controllerSpec`）不加：它们不拆活 |
+
+不做的：程序不替计划者判断「该是核心类却没标」（核心目录下的外围活不是核心类，按路径强制会误判）；这一层由参谋长按规则判断，复核和验收兜底。
+
+复核 426（Codex）：0 A、2 B、3 C，按停线规矩收线。B1（路径按前缀匹配，`api/internal/agentd/../../x.go`、反斜杠、URL 查询都能混过）、C1（提示说文件、检查却收目录本身）、C2（同一对象里重复的键或大小写别名会让后写的覆盖前写的）、C3（错误回显整个非法值）照改，各配在旧代码上失败的用例：核心路径现在要是从仓库根起、在核心目录**下面**的完整路径；计划块里同一对象重复的键一律拒收。**B2 留给考试那条线**：考试的 Python 参考评分器（`~/agent-work/chief-exam-2026-10-19/grade_reference.py`，不在仓库里）不查 `core`，和生产（`ParsePlan`）对带 `core` 的计划会给相反结论；现有 199 份对照不含 `core`，仍全部照预期判分。
