@@ -11,7 +11,9 @@ import re
 from pathlib import Path
 
 RULES = Path(__file__).resolve().parents[2] / "agent-config" / "agentrt-rules"
-RULE_ID = re.compile(r"^rule_id:\s*card-auto-answer\s*$", re.MULTILINE)
+# rule_id as the platform's YAML reader takes it: plain or quoted, a comment
+# after it (review 442 C1).
+RULE_ID = re.compile(r"""^rule_id:[ \t]*(["']?)card-auto-answer\1[ \t]*(#.*)?$""", re.MULTILINE)
 
 
 def test_prod_has_no_card_auto_answer_rule() -> None:
@@ -26,3 +28,11 @@ def test_stg_draft_is_the_rule() -> None:
     text = (RULES / "stg" / "card-auto-answer.yaml").read_text()
     assert RULE_ID.search(text)
     assert re.search(r"^after_minutes: 30$", text, re.MULTILINE)
+
+
+def test_the_check_reads_rule_id_as_yaml_does() -> None:
+    for text in ("rule_id: card-auto-answer\n", 'rule_id: "card-auto-answer"\n', "rule_id: 'card-auto-answer'  # STG\n",
+                 "rule_version: 1\nrule_id:\tcard-auto-answer\n"):
+        assert RULE_ID.search(text), text
+    for text in ("rule_id: card-auto-answer-x\n", "# rule_id: card-auto-answer\n", "rule_id: plan-standing\n"):
+        assert not RULE_ID.search(text), text
