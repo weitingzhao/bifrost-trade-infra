@@ -2150,6 +2150,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-389
+
+**P2 · agentrt · a blocked card gives no recommendation, and cancelling a check blocks its subject with a new card, so a stale mission takes one click per task**
+
+- **状态**：在做（2026-10-20 13:5x Owner「卡住的卡两条都做：运行时按规则给推荐和一句理由；加第三个选项「关掉整个 mission」。做完先上 STG，用它清掉 STG 上那批旧 mission」；实现线 blocked-card-recommend（`local_21bbc6df…`），Claude 写、codex 复核，只交分支）
+- **Claim**: a blocked card offers only "Give it one more round" and "Do not do this task", with no recommendation, so the Owner cannot tell which to pick. "Do not do this task" on a check blocks the work it checks, which gets a card of its own; a mission with several open tasks needs one answer per task, one card at a time (STG opens at most 3 runtime cards). On 2026-10-20 STG held 16 unfinished missions from the 10-15 to 10-19 walks and probes, about 25 blocked tasks: some forty clicks to clear.
+- **Evidence**: `bifrost-platform/api/internal/agentrt/store/blockedcard.go:76-77` (the two options), the cascade in the "Do not do this task" text; STG questions `q_0ddf99658619cf2b`, `q_869f0a73fd4c4ed9`, `q_189459587b3da9b8` (each a cascade of an earlier b); `agentrt.task` on `bifrost_platform_stg`, 2026-10-20 13:4x.
+- **Impact**: the Owner spends his attention on leftovers of tests and guesses on cards that matter; stale missions keep card slots, so a card that matters (M-39's) waits behind them.
+- **Fix**: the runtime sets `recommended` on every blocked card by a deterministic rule with a one-line reason (stale mission → close it; cascade → close or drop; budget only on a fresh mission → one more round; final review failed with checks passing → no recommendation, his judgment); a third option "Close mission M-n" cancels every open task of the mission in one transaction, withdraws its other runtime cards and finishes the mission, with no new tables, columns or states.
+- **Ratchet**: store tests per rule and for closing a mission with tasks in every open state (no cascade card made); a Console test with the real answer shape that the recommended option is the primary button and its reason is shown.
+- 验收: on STG the Owner closes the stale walk missions with one answer each, and every new blocked card shows a recommendation or says why there is none.
+- 审批 不需要（Owner 13:5x 已定）· 代价 M · 风险 low · repos: bifrost-platform
+
 ### TD-388
 
 **P2 · agentrt · a codex review of Go work cannot build Go or run database tests, so it fails work it could not check**
