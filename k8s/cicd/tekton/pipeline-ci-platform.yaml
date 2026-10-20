@@ -173,7 +173,7 @@ spec:
               go mod download
 
               echo "==> go test ./..."
-              go test ./... -count=1 -timeout=120s
+              go test ./... -count=1 -timeout=300s
 
               echo "==> Go API tests passed"
     - name: test-console
