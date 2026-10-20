@@ -1,0 +1,28 @@
+# W-31 2.4 chief exam S3 (CUT-chief-exam-2026-10-19.md §6 甲): the platform
+# reads the chief's exam set from AGENTRT_EXAM_DIR at start and grades the
+# answers itself. The set is a Secret the Owner makes from the five q*.json
+# (never a repository: an Agent host checks repositories out, and the set
+# holds the grading keys). Without the Secret the directory is empty, the set
+# does not load and the exam routes answer 503; the rest is untouched.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform-api
+          env:
+            - name: AGENTRT_EXAM_DIR
+              value: /etc/bifrost/chief-exam
+          volumeMounts:
+            - name: chief-exam
+              mountPath: /etc/bifrost/chief-exam
+              readOnly: true
+      volumes:
+        - name: chief-exam
+          secret:
+            secretName: bifrost-chief-exam
+            optional: true
+            defaultMode: 0400
