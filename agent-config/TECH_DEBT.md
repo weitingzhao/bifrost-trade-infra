@@ -2153,6 +2153,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-400
+
+**P2 · release · push-main.sh pushes commits without lineage trailers: 17 of platform main's last 60 commits (all of 2026-10-20's lanes) have no Change-Id or Claude-Session**
+
+- **状态**：未开始（2026-10-20 19:0x 统筹线程记；合 `w31/stateevents-liveness` 后查血缘时发现）
+- **Claim**: lanes commit in worktrees of husky repos (`git worktree add` under `~/agent-work/…`), where no commit hook runs; CLAUDE.md §5 says to add `--trailer` by hand there, and the briefs did not carry it. `scripts/release/push-main.sh` checks the window, fast-forward and code-health, not the trailers, so the commits reach main without `Change-Id`, `Claude-Session`, `Claude-Transcript` or `Work`. Commit Lineage then shows them as unassigned, and "has this lane landed" (judged by Change-Id, CLAUDE.md §5) cannot be answered for them. The same gap as LESSONS row 41 (Cursor, 2026-10-08), now with Claude lanes.
+- **Evidence**: `git log -60 origin/main` in bifrost-platform on 2026-10-20 19:0x: no Change-Id on `9ec28da9`, `b43e6a7b`, `39fa7813`, `590de1e6`, `dc456527`, `a7c48915`, `5ce3467e`, `86fe98b2`, `d3aec8f7`, `96e69214`, `054fee57`, `f50fb761` and five more; `scripts/release/push-main.sh` has no trailer check.
+- **Impact**: the lineage of a whole day's work is lost on main (history is not rewritten); the Commit Lineage page and the "landed" check under-count lanes.
+- **Fix**: push-main.sh refuses a range `origin/main..<commit>` in which a commit lacks `Change-Id` or `Claude-Session`, naming each, with an explicit override (`--no-lineage <reason>`, written to the log) for commits made outside a Claude session; lane briefs carry the `--trailer` lines; the lane worktree helper installs the trailer hook (`core.hooksPath`) in each new worktree.
+- **Ratchet**: `test_push_main.py` case: a commit without Change-Id is refused, with the override it is pushed and the reason logged.
+- 验收: `python3 -m pytest scripts/release/test_push_main.py -q`; the next lane merge shows Change-Id on every new commit.
+- 审批 无（发布工具收紧）· 代价 S · 风险 low · repos: bifrost-trade-infra
+
 ### TD-399
 
 **P2 · agentrt · a claim whose long poll ends while its transaction commits answers 204, yet the commit lands: a lease nobody holds**
