@@ -2152,6 +2152,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-396
+
+**P2 · agentrt · security · the chief exam's grading points sit in infra main, which Agent hosts check out and GitHub publishes**
+
+- **状态**：未开始（2026-10-20 16:5x 统筹线程记；chief-exam-s5 线 S5 交回时报出）
+- **Claim**: `agent-config/work/multi-agent/CUT-chief-exam-2026-10-19.md` §10「题一览」gives each sub-question's hard rules and traps. infra can be checked out by agentd on 06 since 10-19, and every repository is public on GitHub, so an executor sitting a later exam, or anyone, can read what the grader looks for. agentd's snapshot check refuses only a directory entry named chief-exam, not `CUT-chief-exam-*.md`. This sitting is unaffected: its snapshot 792a5ac predates §10.
+- **Evidence**: CUT-chief-exam-2026-10-19.md §10; the S5 hand-back (shared note chief-exam-s5-2026-10-20.md); memory rule 「考题要点不进可派活的仓库」(10-19).
+- **Impact**: a later exam with the same questions measures recall of the key, not judgement; the key is public.
+- **Fix**: move §10 out of the repository into the local exam set's notes; the next exam set gets new sub-questions (the published ones are spent); agentd's snapshot check refuses any path naming the chief exam's notes.
+- **Ratchet**: a test that no file in infra outside the local exam set names a sub-question's grading phrase, and agentd's snapshot check refuses `CUT-chief-exam-*`.
+- 验收: §10 is gone from main, the next exam set's questions are new, and the snapshot check refuses the cut doc.
+- 审批 不需要 · 代价 S · 风险 low · repos: bifrost-trade-infra, bifrost-platform
+
 ### TD-395
 
 **P2 · agentrt · a task that no executor may take any more waits at ready with no card: nobody is told**
