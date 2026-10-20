@@ -9,7 +9,7 @@ Owner 10-19 23:1x：「TD-383 排进主线：……接着做「收下即合并 +
 
 | 子命令 | 做什么 |
 |---|---|
-| `list` | 列出已收下、还没落到所在仓库 main 上、且改动不为空的实现；有就退出 1（TD-383 防线里的「列出没进 main 的已收下任务」）。「落到 main」：main 上有提交带它的 `Agentrt-Task`，或带收下那次提交的 `Change-Id`（手工合时丢了任务尾注也认得），且没被 `git revert` 撤回（revert 的 revert 算恢复；手写说明的撤回认不出，按没撤回算） |
+| `list` | 列出已收下、还没落到所在仓库 main 上、且改动不为空的实现；有就退出 1（TD-383 防线里的「列出没进 main 的已收下任务」）。「落到 main」：main 上有提交带它的 `Agentrt-Task`，或带收下那次提交的 `Change-Id`（手工合时丢了任务尾注也认得），且没被 `git revert` 用默认说明撤回（单个父提交的那种；revert 的 revert 算恢复；手写说明的撤回、merge 提交的撤回认不出，按没撤回算） |
 | `plan <task>` | 只读：哪个 mission、哪件任务、收下的是第几次尝试、谁写的、谁评审的、提交和改了哪些文件、能不能推、合进去的提交说明 |
 | `apply <task> [--push]` | 在 main 的新 worktree 上（CI 一样把 infra、bifrost-ui 放在旁边）cherry-pick 收下的提交：作者仍是 agentd，`Agentrt-Task`、`Change-Id` 原样（值要对得上这件任务），`Work` 加 TD-383，说明里写清 mission、任务、尝试、执行者、评审者、收下时间；跑 CI 的整套（go test 且数据库测试必须跑、Console 四项、spine、ops-context，外加 MCP）和 code-health，没配测试库和 Redis 就不开始；加 `--push` 才经 `push-main.sh` 推（窗口、快进、code-health 再查一次）。建不成就把自己建的 worktree 删掉，同一目录可以重跑 |
 | `prunable` | 只读：按 TD-383 的规则列出 `agent/` 分支哪些可删、为什么；不删任何东西。被取代的尝试从任务收下时起算、被拒或取消的任务从进入该状态时起算（都读事件时间），满 7 天列为可删；收下那次尝试的分支一律保留——落没落到 main 都留，因为 git 的历史看不出提交哪天进的 main |
@@ -18,7 +18,7 @@ Owner 10-19 23:1x：「TD-383 排进主线：……接着做「收下即合并 +
 
 - **只推 bifrost-platform 的 main**：推它只启动它自己的 CI，不启动发布（STG 由 Agent 发、PROD 由你批单）。其它仓库 `apply` 只建提交，`--push` 拒绝并说明：bifrost-ui 的 main 是 Console 和 Trade 前端编译时用的，它们的检查这里不跑；推 infra 的 main 会让 Argo 把 `k8s/overlays/platform-*` 自动同步到 STG、PROD，`agent-config/` 是规则本身；别的仓库不在这次的范围，照各自的发布规矩。这里没有整套检查的仓库（今天除 platform 外都是，只有 code-health 的也算）只建不验，退出码 4，不算通过。
 - **它是统筹线程的助手**：统筹线程本来就能推 main，这个工具不给任何人新权限，也不是挡别人的闸门。
-- **「已合」不另记**：合进 main 的提交带 `Agentrt-Task` 和 `Change-Id`，`list`、`plan`、`prunable` 都按它们判断（被 `git revert` 撤回的不算）；运行时不加记录路由。
+- **「已合」不另记**：合进 main 的提交带 `Agentrt-Task` 和 `Change-Id`，`list`、`plan`、`prunable` 都按它们判断（被 `git revert` 用默认说明撤回的不算）；运行时不加记录路由。
 - **TD-387**（运行时的检查里还没有 code-health）：`apply` 推之前跑 code-health，被拒会在推之前说清，不会推红 main。
 
 测试：`scripts/agentrt/test_merge_accepted.py` 40 条，用临时目录里的 git 仓库和假运行时，不联网、不碰回环，运行时的 infra 检查会跑它。
@@ -74,3 +74,4 @@ TD-383 的验收要「PROD 上每件已收下的实现要么在 main，要么写
 - TD-387：把 code-health 放进运行时对 platform 的检查，让「收下」和「能合」一致。`apply` 只是在推之前拦住。
 - STG 上 16 条分支的任务停在 verifying，值得看一眼是否卡住（本次没查）。
 - `ensureCheck` 把旧的 salvage 检查也算作「还有检查开着」，因此不补新检查（TD-384 之前就是这样；复核 430 第 4 节）。
+- 复核 435 留下的（不阻断）：merge 提交的 revert 默认说明（`This reverts commit <sha>, reversing …`）认不出，`list` 会漏列这种撤回（分支照样保留，不会多删）；`landed` 返回的未必是最新的那次落地；跨 mission 改绑过的任务读不到原来的取消事件，按时间未知保留；两处测试样本可以更贴近真实（salvage 的两次尝试、整套各步的工作目录）。
