@@ -14,6 +14,8 @@
 ## 待你签收
 
 - **TD-268** — 删掉没人调用的 `ExecSQLOnPrimary` 和只为它存在的两个测试，换成全仓库零引用的防线 `TestRemovedPrimarySQLHelperStaysGone`；运行时 M-9 写、cursor 评审，统筹线程核对后合进 platform `868d4e8e`。验收：PASS 2026-10-19 `1b894f93`。防线：RATCHETS 新行。后续：无后续（还剩的 `execOnPrimary` 给数据克隆用，TD-268 本来就不动它）。
+- **TD-389** — 卡住卡第一行写推荐和理由（规则 R1–R5），多一个「Close mission M-n」一次关整个 mission、不再连锁出卡（platform `86dfdaef`，#54 上 PROD）。验收：PASS 2026-10-20，STG 上 M-1 至 M-6 各一下关掉。防线：`RATCHETS.md`「卡住卡带推荐、关 mission 不连锁」。后续：TD-390（STG 按推荐自动答，已上 STG、规则已签）、TD-391（AI 评估，在做）；问题库孤卡不回收（复核 441 的 C）另开。
+- **TD-384** — 预算用完的任务挂起出卡，「再来一轮」按这一轮放出预算并重新派出（platform `eb40efe6` 等，#53 上 PROD）。验收：PASS 2026-10-20，PROD M-9 出卡写明预算、STG M-39 选 a 后 30 秒内被领走。防线：`RATCHETS.md`「预算用完不困住任务」。无后续：STG 上旧走查的残留已由 TD-389 清掉。
 - **TD-378** — 准入守卫检查的测试在 main 上一直失败：假的 `subprocess.run` 改为也回答 Application 读取（infra `d989dde`，运行时 M-9 写），文件进运行时的 infra 检查（platform `6b950732`）。验收：PASS 2026-10-20，单文件 10 passed，整份清单 259 passed。防线：`RATCHETS.md`「准入守卫的测试随每件 infra 任务跑」。无后续：清单里别的排除项各有原因，写在 `repos.go` 注释里。
 - **TD-342** — 投递测试不再只等 40 毫秒：等到第二次读完再取消；运行时 M-9 写，合进 platform `1b894f93`。验收：PASS 2026-10-19，负载下 40 遍 0.74 秒（验收命令改成只跑这一个测试，原写法跑整包超 10 分钟）。防线：RATCHETS 新行。后续：无后续。
 - **TD-371** — 06 上每次尝试只能写自己的目录：Landlock 写墙（deterministic、cursor、claude），codex 用它自己的 bubblewrap 沙箱并经探针证明；每次尝试自己的配置目录，cursor 的数据目录短路径、在墙里。验收：PASS 2026-10-19，两条探针全过、STG 实跑 cursor 评审收下。防线：`TestConfined` 与 `agent-06-owner.sh confine-probe`（每次换 agentd 后跑）。后续：TD-376（按尝试 cgroup）、TD-377（读也隔开）、TD-379（PATH 顺序）、TD-380（agentd 测试在墙里）、TD-382（报告引用路径被拒）。
@@ -2193,13 +2195,14 @@
 
 **P2 · agentrt · a blocked card gives no recommendation, and cancelling a check blocks its subject with a new card, so a stale mission takes one click per task**
 
-- **状态**：在做（2026-10-20 15:0x：blocked-card-recommend 线交回，复核 439 → 440 → 窄确认 441 收线；统筹线程独立重跑卡片相关测试后合进 platform main `86dfdaef`（规则 R1–R5：旧活关整个 mission、连锁看 24 小时内有无心跳、只差预算推荐再来一轮、评审不过检查通过不推荐、检查不过推荐不做）；下一步 STG，Owner 用「Close mission」清 16 个旧走查 mission。留下的 C：问题库建好、库事务失败那一刻的孤卡不回收，另开一件。此前 2026-10-20 13:5x Owner「卡住的卡两条都做：运行时按规则给推荐和一句理由；加第三个选项「关掉整个 mission」。做完先上 STG，用它清掉 STG 上那批旧 mission」；实现线 blocked-card-recommend（`local_21bbc6df…`），Claude 写、codex 复核，只交分支）
+- **状态**：待你签收（2026-10-20 16:2x；platform `86dfdaef`，随 #54 上 PROD）
 - **Claim**: a blocked card offers only "Give it one more round" and "Do not do this task", with no recommendation, so the Owner cannot tell which to pick. "Do not do this task" on a check blocks the work it checks, which gets a card of its own; a mission with several open tasks needs one answer per task, one card at a time (STG opens at most 3 runtime cards). On 2026-10-20 STG held 16 unfinished missions from the 10-15 to 10-19 walks and probes, about 25 blocked tasks: some forty clicks to clear.
 - **Evidence**: `bifrost-platform/api/internal/agentrt/store/blockedcard.go:76-77` (the two options), the cascade in the "Do not do this task" text; STG questions `q_0ddf99658619cf2b`, `q_869f0a73fd4c4ed9`, `q_189459587b3da9b8` (each a cascade of an earlier b); `agentrt.task` on `bifrost_platform_stg`, 2026-10-20 13:4x.
 - **Impact**: the Owner spends his attention on leftovers of tests and guesses on cards that matter; stale missions keep card slots, so a card that matters (M-39's) waits behind them.
 - **Fix**: the runtime sets `recommended` on every blocked card by a deterministic rule with a one-line reason (stale mission → close it; cascade → close or drop; budget only on a fresh mission → one more round; final review failed with checks passing → no recommendation, his judgment); a third option "Close mission M-n" cancels every open task of the mission in one transaction, withdraws its other runtime cards and finishes the mission, with no new tables, columns or states.
 - **Ratchet**: store tests per rule and for closing a mission with tasks in every open state (no cascade card made); a Console test with the real answer shape that the recommended option is the primary button and its reason is shown.
 - 验收: on STG the Owner closes the stale walk missions with one answer each, and every new blocked card shows a recommendation or says why there is none.
+- 验收结果：PASS 2026-10-20 platform `86dfdaef`：STG 16:16–16:18 你在 M-1 至 M-6 的卡上各点一次「Close mission」，M-4 一次取消 14 件、M-3 7 件，没有连锁出卡；新出的卡都带「Recommended: …」或「No recommendation: …」
 - 审批 不需要（Owner 13:5x 已定）· 代价 M · 风险 low · repos: bifrost-platform
 
 ### TD-388
@@ -2258,13 +2261,14 @@
 
 **P2 · agentrt · a task the mission's budget will not let run waits in ready with no event and no card, and a card's "Give it one more round" can land it there**
 
-- **状态**：未开始（2026-10-19 21:3x 统筹线程记；PROD M-9 第五件 Owner 21:09 在卡上选「再来一轮」后停在 ready）
+- **状态**：待你签收（2026-10-20 16:2x；修复 platform `eb40efe6` 等，随 #53 上 PROD）
 - **Claim**: `store/claim.go` `missionBudget.allows` returns "does not fit" when the mission's attempts used reach `max_attempts` (or its wall hours are over), and the claim skips the task silently. M-9 states 20 attempts and had used 20 when the Owner answered the blocked card with "Give it one more round" (`blockedcard.go`, platform `cac5e8d3`): the task went blocked → ready at 02:09:35Z, `route_decided` names two candidates, and no host has leased it since; no event says why, `needs_you` is empty, the card said "a host takes it as usual".
 - **Evidence**: PROD `/agentrt/events?stream=mission:M-9` (20 `attempt_leased`, last event 02:09:35Z); `/agentrt/missions/M-9` `budget_json {"max_attempts": 20}`; `api/internal/agentrt/store/claim.go` `allows`.
 - **Impact**: a mission whose budget is spent can never finish: the retried task waits forever, and the Owner, who answered the card, sees nothing waiting for him. T26 meets it whenever a rework-heavy mission runs out of attempts.
 - **Fix**: (1) the card's "Give it one more round" grants the attempts one round needs (implement, verification, review) on the mission's budget, recorded as `mission_amended` by the Owner through the card; (2) a controller pass moves a ready task that its mission's budget or wall time will not let run to blocked, with the reason, and the blocked card covers it (its retry grants the budget as in 1). No new route, table or column.
 - **Ratchet**: store tests: a retry on a spent budget leases within one pass; a ready task on a spent budget becomes blocked with a card naming the budget; neither happens while attempts are left.
 - 验收: both tests on main; on PROD M-9 either leases its fifth task or shows a card naming the budget.
+- 验收结果：PASS 2026-10-20 platform `86dfdaef`：`TestRetryOnSpentBudgetLeases`、`TestSpentBudgetBlocksReadyTask` 在 main；PROD M-9 第五件 13:59 出卡写明「used 20 of its 20 attempts」（`q_24648b78255c075f`）；STG M-39 16:18:35 选「再来一轮」后预算记 owner_granted_attempts 3，16:19:05 被 agent-06-stg 领走
 - 审批 不需要（按已签设计补实现）· 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-383
