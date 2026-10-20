@@ -1,0 +1,79 @@
+# The chief's qualifying exam sat on the agent host (W-31 2.4 chief exam S4;
+# the exam's cut, agent-config/work/multi-agent/CUT-chief-exam-2026-10-19.md
+# §5, §6 甲). The instance is the executor: bifrost-agentd-exam@claude sits
+# the chief of staff's paper with exec:claude, each run handed in to the STG
+# platform as it ends; the platform grades the paper. It runs as the STG
+# agentd's user, with that service's environment and sandbox, so its runs are
+# that executor's as it works, as host agent-06-stg; it stops the STG agentd
+# while it runs (they share the user's host lock) and starts it again when it
+# ends, however it ends. The PROD agentd is another user and is not touched.
+# Its build is agentd-exam, beside the daemons' agentd: putting it there
+# stops nothing.
+#
+# What the seat could read is hidden: agent-work is an empty tmpfs but for
+# agentd's directory, whose tasks/ (the STG agentd's checkouts) is another,
+# empty one, where the runs are sat at the paths a working task has and
+# which goes with the unit; bench/ (the benchmark's runs) cannot be read.
+# The paper kept in exam/ stays across starts: a start within the paper's
+# 24 hours goes on with it. SIGTERM lets the run that just ended be handed
+# in (up to two minutes), so the stop waits longer than that. Installed and
+# started by exam-on-06.sh, which agent-06-owner.sh exam <executor> runs.
+[Unit]
+Description=Bifrost agentd chief exam with exec:%i (STG platform, host agent-06-stg)
+Wants=network-online.target
+After=network-online.target bifrost-agent-egress.service
+BindsTo=bifrost-agent-egress.service
+Conflicts=bifrost-agentd-stg.service
+After=bifrost-agentd-stg.service
+
+[Service]
+Type=exec
+User=bifrost-agentd-stg
+Group=bifrost-agentd-stg
+WorkingDirectory=/home/bifrost-agentd-stg/agent-work/agentd
+ExecStart=/usr/local/libexec/bifrost/agentd-exam exam --job chief_of_staff --executor exec:%i
+ExecStopPost=+/bin/systemctl start --no-block bifrost-agentd-stg.service
+Environment=HOME=/home/bifrost-agentd-stg
+Environment=USER=bifrost-agentd-stg
+Environment=LOGNAME=bifrost-agentd-stg
+Environment=SHELL=/bin/bash
+Environment=LANG=C.UTF-8
+Environment=PATH=/opt/bifrost/codex/bin:/usr/local/go/bin:/usr/local/lib/nodejs/current/bin:/usr/local/bin:/usr/bin:/bin:/home/bifrost-agentd-stg/.local/bin
+Environment=AGENTD_PLATFORM=http://192.168.10.73:30878/api/v1/agentrt
+Environment=AGENTD_HOST=agent-06-stg
+Environment=AGENTD_TOOLS=exec:codex=openai,exec:cursor=cursor-mix,exec:claude=anthropic:opus,exec:deterministic=local
+Environment=AGENTD_GIT_BASE=http://192.168.10.73:30300/bifrost
+Environment=AGENTD_ROOT=/home/bifrost-agentd-stg/agent-work/agentd
+Environment=AGENTD_TOKEN_FILE=/home/bifrost-agentd-stg/.config/bifrost/agentd.token
+Environment=AGENTD_GIT_TOKEN_FILE=/home/bifrost-agentd-stg/.config/bifrost/agentd-git.token
+Environment=AGENTD_CURSOR_KEY_FILE=/home/bifrost-agentd-stg/.config/bifrost/cursor-api.key
+Environment=AGENTD_CLAUDE_TOKEN_FILE=/home/bifrost-agentd-stg/.config/bifrost/claude-oauth.token
+Restart=no
+RuntimeMaxSec=20h
+KillMode=control-group
+TimeoutStopSec=180
+UMask=0077
+LimitNOFILE=65536
+MemoryHigh=6G
+MemoryMax=8G
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=tmpfs
+BindPaths=/home/bifrost-agentd-stg
+ReadWritePaths=/home/bifrost-agentd-stg
+TemporaryFileSystem=/home/bifrost-agentd-stg/agent-work:mode=0755
+BindPaths=/home/bifrost-agentd-stg/agent-work/agentd
+# Only this unit's processes see it, all as one user: 1777 lets that user
+# make the runs' directories in it.
+TemporaryFileSystem=/home/bifrost-agentd-stg/agent-work/agentd/tasks:mode=1777,size=4G
+InaccessiblePaths=-/home/bifrost-agentd-stg/agent-work/agentd/bench
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes

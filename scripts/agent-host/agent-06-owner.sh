@@ -33,6 +33,11 @@
 #                         build goes beside the daemons' as agentd-bench); the
 #                         STG agentd stops until the run ends (hours)
 #   bench-log codex       how that run is going (the last lines of its log)
+#   exam claude           the chief's qualifying exam on 06 with claude (the
+#                         build goes beside the daemons' as agentd-exam); the
+#                         STG agentd stops until the sitting ends (hours); run
+#                         it again within the paper's 24 hours to go on with it
+#   exam-log claude       how that sitting is going (the last lines of its log)
 #   retire-mac            stop the agentd on this Mac
 #   probe-protection      run probe-gitea-protection.sh on 06 as the STG agentd
 #                         user against bifrost/primary-probe (Gitea-primary cut,
@@ -655,6 +660,35 @@ step_bench_log() {
   node_ssh "systemctl is-active bifrost-agentd-bench@$1.service; sudo journalctl -u bifrost-agentd-bench@$1.service -n 60 --no-pager -o cat"
 }
 
+# exam claude: the chief's qualifying exam with claude on 06 (W-31 2.4 chief
+# exam S4). The agentd build (checked against agentd.sha256 here, and again
+# there), the exam unit and exam-on-06.sh go over one connection;
+# exam-on-06.sh installs the build as agentd-exam and starts the sitting.
+# Nothing is stopped first: the PROD agentd is not touched, and the unit
+# stops the STG agentd only once the sitting starts. The STG platform hands
+# out the paper and grades it; nothing of the exam itself is sent from here.
+step_exam() {
+  local ex=${1:-} sum stage
+  case "$ex" in
+    claude) ;;
+    *) die "say claude (the chief of staff's seat is claude's)" ;;
+  esac
+  (cd "$(dirname "$BINARY")" && shasum -a 256 -c "$HERE/agentd.sha256") || die "$BINARY does not match agentd.sha256; nothing was sent"
+  sum=$(shasum -a 256 "$BINARY" | cut -d' ' -f1)
+  stage=$TMPD/exam
+  mkdir -p "$stage"
+  cp "$BINARY" "$HERE/bifrost-agentd-exam@.service" "$HERE/exam-on-06.sh" "$stage/"
+  COPYFILE_DISABLE=1 tar -C "$stage" --format ustar -cf - . |
+    node_ssh "rm -rf ~/exam-stage && mkdir -p ~/exam-stage && tar -xf - -C ~/exam-stage && sudo bash ~/exam-stage/exam-on-06.sh $ex $(basename "$BINARY") $sum" ||
+    die "the sitting did not start (see above); nothing on 06 was stopped by this step"
+  say "follow it with: bash agent-06-owner.sh exam-log $ex"
+}
+
+step_exam_log() {
+  case "${1:-}" in claude) ;; *) die "say claude" ;; esac
+  node_ssh "systemctl is-active bifrost-agentd-exam@$1.service; sudo journalctl -u bifrost-agentd-exam@$1.service -n 60 --no-pager -o cat"
+}
+
 step_retire_mac() {
   local rc=0
   # disable first: bootout alone stops it until the next boot, when launchd
@@ -692,12 +726,12 @@ step_confine_probe() {
 
 step=${1:-}
 if [ -z "$step" ]; then
-  sed -n '2,46p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,51p' "$0" | sed 's/^# \{0,1\}//'
   exit 2
 fi
 shift
 case "$step" in
-  check | leave | uninstall | delete-node | copy | prepare | codex-login | vendor-creds | git-token | host-check | secret | stop | start | update-agentd | stg-vendors | bench | bench-log | retire-mac | probe-protection | confine-probe) ;;
+  check | leave | uninstall | delete-node | copy | prepare | codex-login | vendor-creds | git-token | host-check | secret | stop | start | update-agentd | stg-vendors | bench | bench-log | exam | exam-log | retire-mac | probe-protection | confine-probe) ;;
   *) die "unknown step: $step" ;;
 esac
 fn=step_$(echo "$step" | tr - _)

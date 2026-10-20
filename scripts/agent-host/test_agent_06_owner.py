@@ -261,6 +261,86 @@ class StopStart(unittest.TestCase):
         self.assertIn("nothing was sent", r.stderr)
         self.assertFalse((self.units / "calls").exists() and "bench-on-06" in (self.units / "calls").read_text())
 
+    def exam(self, executor: str, sha: str = "") -> subprocess.CompletedProcess:
+        # As bench: the build checked here, the stage sent over "ssh", exam-on-06.sh run through the fake sudo.
+        for u in ("bifrost-agentd.service", "bifrost-agentd-stg.service"):
+            (self.units / u).write_text("")
+        build = Path(self.env["HOME"]) / "build"
+        build.mkdir(exist_ok=True)
+        binary = build / "agentd-abcdef0-linux-amd64"
+        binary.write_text("agentd")
+        sums = sha or subprocess.run(["shasum", "-a", "256", binary.name], cwd=build, capture_output=True, text=True).stdout
+        (build / "agentd.sha256").write_text(sums)
+        for f in ("bifrost-agentd-exam@.service", "exam-on-06.sh"):
+            (build / f).write_text((HERE / f).read_text())
+        script = f'source "{HERE / "agent-06-owner.sh"}"; node_ssh() {{ bash -c "$1"; }}; BINARY="{binary}"; HERE="{build}"; step_exam {executor}'
+        return subprocess.run(["bash", "-c", script], env=self.env, capture_output=True, text=True, timeout=60)
+
+    def test_exam_sends_the_stage_and_stops_nothing(self) -> None:
+        r = self.exam("claude")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        calls = (self.units / "calls").read_text().splitlines()
+        sent = [c for c in calls if c.startswith("check-agent-06 bash")]
+        self.assertEqual(len(sent), 1, calls)
+        self.assertRegex(sent[0], r"exam-stage/exam-on-06\.sh claude agentd-abcdef0-linux-amd64 [0-9a-f]{64}$")
+        self.assertFalse(any(c.startswith("systemctl stop") for c in calls), calls)
+        self.assertEqual(self.active(), {"bifrost-agentd.service", "bifrost-agentd-stg.service"})
+        # Nothing of the exam goes from this Mac: the platform hands out the paper.
+        stage = Path(self.env["HOME"]) / "exam-stage"
+        self.assertEqual(sorted(p.name for p in stage.iterdir()),
+                         ["agentd-abcdef0-linux-amd64", "bifrost-agentd-exam@.service", "exam-on-06.sh"])
+
+    def test_exam_refuses_another_executor_and_a_bad_build(self) -> None:
+        for ex in ("codex", "cursor", ""):
+            r = self.exam(ex)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("say claude", r.stderr)
+        r = self.exam("claude", sha="0" * 64 + "  agentd-abcdef0-linux-amd64\n")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("nothing was sent", r.stderr)
+        self.assertFalse((self.units / "calls").exists() and "exam-on-06" in (self.units / "calls").read_text())
+
+
+def unit_lines(name: str) -> list[str]:
+    return [ln.strip() for ln in (HERE / name).read_text().splitlines() if ln.strip() and not ln.startswith("#")]
+
+
+class ExamUnit(unittest.TestCase):
+    """The exam's unit is the STG agentd's as it works (W-31 2.4 chief exam S4): its user, its environment and
+    sandbox; it stops the STG agentd and starts it again; and it hides what the seat could read."""
+
+    def test_the_stg_agentds_user_environment_and_sandbox(self) -> None:
+        stg, exam = unit_lines("bifrost-agentd-stg.service"), unit_lines("bifrost-agentd-exam@.service")
+        for key in ("User=", "Group=", "Environment=", "NoNewPrivileges=", "PrivateTmp=", "ProtectSystem=", "ProtectHome=",
+                    "ReadWritePaths=", "UMask=", "MemoryMax=", "Protect", "Restrict", "LockPersonality="):
+            self.assertEqual([ln for ln in exam if ln.startswith(key)], [ln for ln in stg if ln.startswith(key)], key)
+        # The STG unit's AGENTD_TOOLS offers exec:claude with a model pinned: the exam's runs are pinned as at work.
+        self.assertTrue(any(ln.startswith("Environment=AGENTD_TOOLS=") and "exec:claude=anthropic:" in ln for ln in exam))
+
+    def test_it_stops_the_stg_agentd_and_starts_it_again(self) -> None:
+        exam = unit_lines("bifrost-agentd-exam@.service")
+        self.assertIn("Conflicts=bifrost-agentd-stg.service", exam)
+        self.assertIn("ExecStopPost=+/bin/systemctl start --no-block bifrost-agentd-stg.service", exam)
+        self.assertIn("Restart=no", exam)
+        self.assertIn("ExecStart=/usr/local/libexec/bifrost/agentd-exam exam --job chief_of_staff --executor exec:%i", exam)
+        # SIGTERM lets the run that ended be handed in, for up to two minutes.
+        stop = [int(ln.split("=")[1]) for ln in exam if ln.startswith("TimeoutStopSec=")]
+        self.assertEqual(len(stop), 1)
+        self.assertGreaterEqual(stop[0], 150)
+
+    def test_it_hides_what_the_seat_could_read(self) -> None:
+        exam = unit_lines("bifrost-agentd-exam@.service")
+        root = "/home/bifrost-agentd-stg/agent-work/agentd"
+        self.assertIn(f"Environment=AGENTD_ROOT={root}", exam)
+        tmpfs = [ln.split("=", 1)[1].split(":")[0] for ln in exam if ln.startswith("TemporaryFileSystem=")]
+        self.assertEqual(tmpfs, ["/home/bifrost-agentd-stg/agent-work", f"{root}/tasks"])
+        self.assertIn(f"BindPaths={root}", exam)
+        self.assertIn(f"InaccessiblePaths=-{root}/bench", exam)
+        # The runs' directory is another tmpfs, which the user can write in, and bounded.
+        tasks = next(ln for ln in exam if ln.startswith(f"TemporaryFileSystem={root}/tasks:"))
+        self.assertIn("mode=1777", tasks)
+        self.assertIn("size=", tasks)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -19,6 +19,7 @@ FILES = {
     "bifrost-agentd.service": 1,
     "bifrost-agentd-stg.service": 1,
     "bifrost-agentd-bench@.service": 1,
+    "bifrost-agentd-exam@.service": 1,
     "confine-probe.sh": 1,
     "codex-sandbox-probe.sh": 1,
     "check-agent-06.sh": 1,
