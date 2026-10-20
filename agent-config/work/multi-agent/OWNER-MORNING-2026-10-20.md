@@ -2,7 +2,7 @@
 
 按顺序做。每条写了在哪办、怎么做。命令都在**终端面板里直接输入**（不要用对话里的 `!`）；问口令时立刻输入（06 只等 2 分钟）。
 
-## 1. 06 换新 agentd（约 10 分钟，问 6 次口令）
+## 1. 06 换新 agentd（约 10 分钟，问 6 次口令）— **你 23:42 做完**，0 failed，两条探针都过
 
 新版 `agentd-7b2dc5f`：Claude 可以在写墙里当实现者（2.4 最后一项）。已钉进 infra `e65915f`，校验和对过。
 
@@ -20,7 +20,7 @@ bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-h
 bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh confine-probe prod
 ```
 
-## 2. 签 STG 的实现岗规则 v2（1 次口令）
+## 2. 签 STG 的实现岗规则 v2（1 次口令）— **你 23:4x 签完**，STG 读回 v2、claude probation
 
 内容：`job:implementer` 里 exec:claude 从 qualifying 改为 probation（试用），属于放宽，要你签。说明在 `work/multi-agent/RULE-claude-implementer-2026-10-19.md`。遗留风险写在里面：Claude 的命令能出站访问平台 API 和 Gitea，和 cursor 当实现者时一样，不如 codex 的沙箱严。STG 平台已是 `7b2dc5f0`，能读这条规则（只读检查过）。**必须在第 1 步之后签**，否则派给 Claude 的活会落到旧 agentd 上，那里只有只读工具。
 
@@ -30,13 +30,18 @@ bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/agentrt
 
 签完我在 STG 上走一件 Claude 写、另一家评审的核心任务（执行单 `~/agent-work/stg-walk-claude-impl/RUN.md`）。过了之后再给你 PROD 的单和 PROD 规则签名。
 
-## 3. 要你定的一件事：计划格式加不加「核心类」字段
+## 3. 要你定的一件事：计划格式加不加「核心类」字段 — **你 23:4x 定 A**，交 2.4 那条线实现
 
 现状：参谋长把你的一句目标拆成任务时，计划格式里没有 `core` 字段，所以拆出来的任务永远不算核心类，「核心代码由 Claude 写」只能靠手工提的任务验。加这个字段属于改公开接口，归你定。
 - **A（推荐）**：计划格式加可选的 `core`，参谋长按规则判断哪件是核心类；路由照现有核心类规则走。
 - B：不加，核心类任务只由统筹线程手工提。
 
 在这个线程里回「核心字段 A」或「核心字段 B」。
+
+## 3b. ★ 验收那条线的两张单（10-19 23:30 建）
+
+- **#50（C）**逻辑备份恢复演练：只在自己 Pod 里恢复到临时库、逐表核行数，不连在线库。Console 审批页批即可。
+- **#49（D）**T19/T21/T31 演练（先 STG 后 PROD，任何一步不对就停；PROD 后台循环停约 30 秒、Agent 信号停十几秒）：Console 上批，然后在终端面板跑单上写的 owner-run 命令（统筹线程 23:4x 在线程里给过），输出在 `/tmp/w31-r2-stars-drills.txt`。
 
 ## 4. 待你签收的债（在这个线程回「签收 TD-n」或「打回 TD-n：原因」）
 
