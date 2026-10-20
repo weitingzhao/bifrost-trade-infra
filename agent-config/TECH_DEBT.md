@@ -2150,6 +2150,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-390
+
+**P2 · agentrt · on STG the Owner answers cards that only walks left behind: no rule lets STG's runtime act on its own recommendation**
+
+- **状态**：未开始（2026-10-20 14:0x Owner「STG 用 A：TD-389 上线后，STG 上带推荐的运行时卡 30 分钟没人答就按推荐执行；走查要测我按钮的卡标「需要本人」；PROD 不变。规则起草好了给我签」；排在 TD-389 之后，同一条实现线 blocked-card-recommend）
+- **Claim**: agents may not answer cards (W-65, preflight), so every card a STG walk or probe leaves (blocked cards, the chief's plan questions) waits for the Owner, although none of them is his decision; he acts as the walks' test operator.
+- **Evidence**: 2026-10-20 STG For you: six cards from the 10-15 to 10-17 walks in one afternoon (`q_dec5d32cdb81efc1`, `q_b5740c1f700d7850`, `q_3c5067ae9e17ab0c`, `q_0ddf99658619cf2b`, `q_869f0a73fd4c4ed9`, `q_189459587b3da9b8`), with sixteen stale missions behind them.
+- **Impact**: the Owner's attention goes to test leftovers; a card that tests his own button looks the same as one he need not see.
+- **Fix**: a signed rule kind `card-auto-answer` (STG only; no PROD file): a card the runtime asked, of a kind the rule lists (blocked cards; the chief's plan questions), that carries a recommendation, whose mission is not marked as needing the Owner, and that has been open `after_minutes` (30) unanswered, is answered by the platform itself with its recommendation, recorded as answered by the rule (rule id and version), not by the Owner. `propose_mission` and `POST /missions` take an optional mark that the mission's cards need the Owner (a walk testing his button sets it). Without the signed rule nothing is answered.
+- **Ratchet**: store tests: no rule → no answer; a card without a recommendation, of an unlisted kind, of a marked mission, or younger than the limit → no answer; one answer per card, recorded with the rule; PROD config has no `card-auto-answer` file (a test over `agentrt-rules/prod/`).
+- 验收: on STG, with the rule signed, a stale walk card is answered by the rule 30 minutes after it opens and its mission moves as on an Owner answer; a card of a mission marked as needing the Owner stays open.
+- 审批 要（签 STG 规则；Owner 已定方向）· 代价 M · 风险 low · repos: bifrost-platform, bifrost-trade-infra
+
 ### TD-389
 
 **P2 · agentrt · a blocked card gives no recommendation, and cancelling a check blocks its subject with a new card, so a stale mission takes one click per task**
