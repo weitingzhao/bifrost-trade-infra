@@ -1,7 +1,7 @@
 rule_id: job:implementer
-rule_version: 1
-direction: initial
-effective_at: 2026-10-15T00:00:00Z
+rule_version: 2
+direction: loosen
+effective_at: 2026-10-20T00:00:00Z
 expires_at: 2027-01-15T00:00:00Z
 tenant: dev
 text: |
@@ -11,5 +11,5 @@ text: |
   say in the report what you ran and what you could not.
 candidates:
   - {executor: exec:codex, provider: openai, model_pattern: "*", status: active}
-  - {executor: exec:claude, provider: anthropic, model_pattern: "*", status: qualifying}
+  - {executor: exec:claude, provider: anthropic, model_pattern: "*", status: probation}
   - {executor: exec:cursor, provider: cursor-mix, model_pattern: "*", status: probation}

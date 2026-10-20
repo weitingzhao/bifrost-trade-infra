@@ -69,7 +69,7 @@ agentd 在 Linux 上启动时（领活之前）自己跑一遍探针：在 `<roo
 | 执行者 | 它自己的钉子 |
 |---|---|
 | codex | `CODEX_HOME=a.Out/home/.codex`，里面只有 agentd 复制进来的 `auth.json`（§4）；原有的 `-c` 钉子不变（`features.hooks=false`、`--ignore-rules`、`notify=[]`、`model_provider="openai"`、writable_roots 只有 `a.Out/tmp`、排除 `/tmp` 和 `$TMPDIR`）；有墙时加 `-c features.use_legacy_landlock=true` |
-| claude | `CLAUDE_CONFIG_DIR=a.Out/home/.claude`、`DISABLE_AUTOUPDATER=1`；原有 `--setting-sources ""`、`--settings '{"disableAllHooks":true}'`、只读工具、空 MCP |
+| claude | `CLAUDE_CONFIG_DIR=a.Out/home/.claude`、`DISABLE_AUTOUPDATER=1`；原有 `--setting-sources ""`、`--settings '{"disableAllHooks":true}'`、只读工具、空 MCP。**2.4 起**（`RULE-claude-implementer-2026-10-19.md`）：推分支的尝试（实现者）多 `Edit,Write,Bash`，只在墙里起；`CLAUDE_CODE_TMPDIR=a.Out/home/tmp`（2.1.302 不设就用 `/tmp`） |
 | cursor | `HOME` 是新的（`~/.cursor` 的配置和钩子都不在）；工作区里有 `.cursor/hooks.json` 或 `.cursor/mcp.json` 就**不开跑**，尝试失败并写明原因；key 照旧从环境来 |
 | deterministic | 共同钉子；`agentd verify` 在墙里跑 |
 
