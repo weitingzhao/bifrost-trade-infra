@@ -169,11 +169,30 @@ def missions_after(p: Platform, base: int) -> list[dict]:
     return out
 
 
+# The events route gives a stream at most this many events after after_seq.
+EVENTS_PAGE = 500
+
+
+def mission_events(p: Platform, mission: str) -> list[dict]:
+    """Every event of the mission's stream, a page at a time: one read stops at
+    EVENTS_PAGE, and a mission's attempt_leased past it would be missed
+    (review 423 B2: a reroute adds a route_decided to each ready task)."""
+    out: list[dict] = []
+    while True:
+        query = {"stream": "mission:" + mission}
+        if out:
+            query["after_seq"] = str(out[-1]["seq"])
+        page = p.get("events", **query)
+        out.extend(page)
+        if len(page) < EVENTS_PAGE:
+            return out
+
+
 def tick(p: Platform, mission: str) -> dict:
     now = datetime.now(timezone.utc)
     before = p.get("progress")
     tasks = p.get("tasks", mission=mission)
-    events = p.get("events", stream="mission:" + mission)
+    events = mission_events(p, mission)
     attempts = [p.get("attempts/" + urllib.parse.quote(e["attempt_id"]))
                 for e in events if e.get("event_type") == "attempt_leased" and e.get("attempt_id")]
     hosts = p.get("hosts").get("hosts", [])

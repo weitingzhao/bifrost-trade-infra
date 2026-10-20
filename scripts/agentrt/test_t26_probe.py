@@ -147,3 +147,26 @@ def test_tick_records_host_lost_without_changing_the_comparison() -> None:
         assert line["host_lost"] == [
             {"attempt": "a1", "host": "agent-06",
              "poll_age_s": (now - probe.parse_time(hosts[0]["last_poll_at"])).total_seconds()}]
+
+
+def test_tick_reads_every_page_of_the_missions_events() -> None:
+    """Review 423 B2: an attempt leased past the first page of events is still read."""
+    p = page({}, [{"attempt_id": "a1", "host_id": "agent-06", "status": "working"}])
+    events = [{"seq": n, "event_type": "route_decided"} for n in range(1, 501)]
+    events.append({"seq": 501, "event_type": "attempt_leased", "attempt_id": "a1"})
+    hosts = [{"host_id": "agent-06", "last_poll_at": datetime.now(timezone.utc).isoformat()}]
+    reads = []
+
+    class FakePlatform:
+        def get(self, path: str, **query: str):
+            if path == "events":
+                after = int(query.get("after_seq", "0"))
+                reads.append(after)
+                return [e for e in events if e["seq"] > after][:probe.EVENTS_PAGE]
+            return {"progress": p, "tasks": {"tasks": []}, "attempts/a1": {"attempt_id": "a1", "state": "running"},
+                    "hosts": {"hosts": hosts}}[path]
+
+    line = probe.tick(FakePlatform(), "M-7")
+    assert reads == [0, 500]
+    assert line["attempts"] == 1
+    assert line["ok"], line["differences"]
