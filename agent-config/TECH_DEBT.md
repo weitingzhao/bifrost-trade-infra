@@ -14,6 +14,7 @@
 ## 待你签收
 
 - **TD-268** — 删掉没人调用的 `ExecSQLOnPrimary` 和只为它存在的两个测试，换成全仓库零引用的防线 `TestRemovedPrimarySQLHelperStaysGone`；运行时 M-9 写、cursor 评审，统筹线程核对后合进 platform `868d4e8e`。验收：PASS 2026-10-19 `1b894f93`。防线：RATCHETS 新行。后续：无后续（还剩的 `execOnPrimary` 给数据克隆用，TD-268 本来就不动它）。
+- **TD-392** — 运行时连接池按环境设上限（PROD 每进程 4、STG/DEV 每进程 2），两个进程加起来低于库账号的连接上限，发版换 Pod 不再连不上库（platform `4986a68b`，#55 上 PROD）。验收：PASS 2026-10-20，PROD 换 Pod 0 次拒绝、连接 6/10。防线：`RATCHETS.md`「两个进程的连接池低于账号上限」。无后续：压到每池 2 个跑过运行时各包，没有嵌套占连接。
 - **TD-389** — 卡住卡第一行写推荐和理由（规则 R1–R5），多一个「Close mission M-n」一次关整个 mission、不再连锁出卡（platform `86dfdaef`，#54 上 PROD）。验收：PASS 2026-10-20，STG 上 M-1 至 M-6 各一下关掉。防线：`RATCHETS.md`「卡住卡带推荐、关 mission 不连锁」。后续：TD-390（STG 按推荐自动答，已上 STG、规则已签）、TD-391（AI 评估，在做）；问题库孤卡不回收（复核 441 的 C）另开。
 - **TD-384** — 预算用完的任务挂起出卡，「再来一轮」按这一轮放出预算并重新派出（platform `eb40efe6` 等，#53 上 PROD）。验收：PASS 2026-10-20，PROD M-9 出卡写明预算、STG M-39 选 a 后 30 秒内被领走。防线：`RATCHETS.md`「预算用完不困住任务」。无后续：STG 上旧走查的残留已由 TD-389 清掉。
 - **TD-378** — 准入守卫检查的测试在 main 上一直失败：假的 `subprocess.run` 改为也回答 Application 读取（infra `d989dde`，运行时 M-9 写），文件进运行时的 infra 检查（platform `6b950732`）。验收：PASS 2026-10-20，单文件 10 passed，整份清单 259 passed。防线：`RATCHETS.md`「准入守卫的测试随每件 infra 任务跑」。无后续：清单里别的排除项各有原因，写在 `repos.go` 注释里。
@@ -2152,6 +2153,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-399
+
+**P2 · agentrt · a claim whose long poll ends while its transaction commits answers 204, yet the commit lands: a lease nobody holds**
+
+- **状态**：未开始（2026-10-20 19:xx Gate A 补跑线 local_6f3ef5b9 记；查 `ci-platform-tj5wx` 的偶发时找到）
+- **Claim**: `agentrtapi/api.go` claim runs each `store.ClaimNext` under the long poll's deadline (`context.WithTimeout(r.Context(), wait)`), and `store/write.go` InTx commits with that context. When the deadline falls while COMMIT is on its way, pgx returns "context deadline exceeded" but the server still commits (measured 2026-10-20 on the test Postgres under `commit_delay`: 5 of 5). The handler takes the error with `ctx.Err() != nil` as "nothing to claim" and answers 204. If that last poll leased a task, the attempt is leased to the host with no agentd knowing it.
+- **Evidence**: `agentrtapi/api.go` claim (`if err != nil && ctx.Err() == nil` … `case <-ctx.Done(): 204`); `store/write.go` InTx `tx.Commit(ctx)`; ci-platform-tj5wx (a poll's `last_poll_at` landing during a later request); experiment kept in the thread's scratchpad (`zz_latecommit_experiment_test.go.txt`).
+- **Impact**: rare (the poll that commits at the deadline must also find work), but then the task waits out the lease and the grace (about 17 minutes) before it is handed out again, and the lost attempt counts against the mission's attempt budget (T10).
+- **Fix**: run each ClaimNext with a context the poll deadline does not cut (`context.WithoutCancel(r.Context())` with its own bound), and stop polling only between polls; or, after an error with the deadline passed, read back whether this host was leased an attempt in that poll and answer it.
+- **Ratchet**: a test that stretches the commit (`commit_delay` on the test database) and lands the poll deadline in it: the handler answers the claim it made, or nothing was leased.
+- 验收: that test, `-count=20`.
+- 审批 无（平台内部行为，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
+
 ### TD-398
 
 **P2 · ci · the platform CI gives the whole `go test ./...` 120 seconds per package, and the agentrt store package now takes 66–88 s on a fast Mac and more on CI**
@@ -2234,13 +2248,14 @@
 
 **P2 · agentrt · the runtime's pools have no size: two processes sit at the role's connection limit, and a restarted one is refused for up to a minute on every release**
 
-- **状态**：在做（2026-10-20 15:5x 统筹线程记并修：platform `4986a68b`，PROD 每进程 4、STG/DEV 每进程 2；随下一张 PROD 单上线后按验收看日志）
+- **状态**：待你签收（2026-10-20 18:5x；platform `4986a68b`，随 #55 上 PROD）
 - **Claim**: `openAgentRuntime` builds its pgxpool from the DSN with no `MaxConns`, so each process may open one connection per CPU (16 on the cluster's nodes). platform-api and platform-workers share the runtime role, whose connection limit is 10 on PROD and 5 on STG and DEV; at rest PROD held 10 of 10 and STG 5 of 5. After #54's restart PROD's platform-api logged "too many connections for role platform_agentrt_prod" 40 times (20:40:28–20:40:53Z) and platform-workers 17 times (to 20:41:53Z): agentrt routes and loops failed for up to a minute.
 - **Evidence**: `bifrost-platform/api/internal/server/agentrt_wire.go:295` (openAgentRuntime, no MaxConns); `pg_roles.rolconnlimit` 10 / 5 / 5 (infra `scripts/release/db-steps.d/sql/2026-10-14-w31-agentrt-1-roles.sql:16`); `pg_stat_activity` 2026-10-20 15:4x; PROD platform-api and platform-workers logs after #54.
 - **Impact**: every release drops runtime requests (claims, heartbeats, Console reads) for up to a minute; under load the processes can hit the limit at any time.
 - **Fix**: `MaxConns` per process by environment (PROD 4, STG and DEV 2), so two processes stay under the role's limit with room for a restarted one. Measured with every test pool at 2: controller, relay, agentrtapi and server pass (no nested pool use that could wait on itself); a store test that needs three connections by design reports it cannot prove its case, which is the test, not the product.
 - **Ratchet**: `TestAgentRuntimePoolsFitTheRoleLimit` (two pools stay under each environment's limit).
 - 验收: after the next PROD release, PROD platform-api and platform-workers log no "too many connections for role" and `pg_stat_activity` shows at most 8 runtime connections on PROD.
+- 验收结果：PASS 2026-10-20 platform `5d77b5c0`（PROD #55，18:46 起）：PROD platform-api、platform-workers 换 Pod 后 0 次「too many connections for role」，`pg_stat_activity` 运行时连接 6 个（上限 10）；STG 同样 0 次，连接 3 个（上限 5）
 - 审批 不需要 · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-391
