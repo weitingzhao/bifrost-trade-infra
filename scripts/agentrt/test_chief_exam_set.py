@@ -60,6 +60,8 @@ if a[:2] in (["create", "-f"], ["replace", "-f"]):
     raw = sys.stdin.read()
     if not raw.strip():
         print("error: no objects passed to " + a[0], file=sys.stderr); sys.exit(1)
+    if has("echo-short"):
+        print("Error from server: forbidden key point SECRET-KEY-Q1", file=sys.stderr); sys.exit(1)
     if has("echo-fail"):
         print("Error from server (Invalid): admission refused the request " + raw, file=sys.stderr); sys.exit(1)
     s = json.loads(raw)
@@ -124,8 +126,9 @@ class ChiefExamSet(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def run_step(self, *args: str) -> subprocess.CompletedProcess:
-        r = subprocess.run(["bash", str(SCRIPT), *args], env=self.env, capture_output=True, text=True, timeout=60)
+    def run_step(self, *args: str, trace: bool = False) -> subprocess.CompletedProcess:
+        r = subprocess.run(["bash", *(["-x"] if trace else []), str(SCRIPT), *args], env=self.env,
+                           capture_output=True, text=True, timeout=60)
         out = r.stdout + r.stderr
         for name in QUESTIONS:
             raw = (self.set / name).read_bytes() if (self.set / name).exists() else b""
@@ -281,7 +284,22 @@ class ChiefExamSet(unittest.TestCase):
         (self.k / "echo-fail").write_text("")
         r = self.run_step("put", "stg", digest(self.set))
         self.assertEqual(r.returncode, 1)
-        self.assertIn("was not created: Error from server (Invalid)", r.stderr)
+        self.assertIn("was not created (kubectl: Invalid)", r.stderr)
+
+    def test_a_refused_write_quotes_nothing_under_xtrace_or_in_plain_text(self) -> None:
+        # Review 446 A1: kubectl's answer never reaches a shell variable (bash -x would print it), and a
+        # short plain-text quote in it is not shown either (run_step checks both outputs for the set).
+        (self.k / "echo-fail").write_text("")
+        r = self.run_step("put", "stg", digest(self.set), trace=True)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("was not created (kubectl: Invalid)", r.stderr)
+        (self.k / "echo-fail").unlink()
+        (self.k / "echo-short").write_text("")
+        r = self.run_step("put", "stg", digest(self.set))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("kubectl said something not shown here", r.stderr)
+        r = self.run_step("put", "stg", digest(self.set), trace=True)
+        self.assertEqual(r.returncode, 1)
 
     def test_put_refuses_another_environment(self) -> None:
         r = self.run_step("put", "dev")

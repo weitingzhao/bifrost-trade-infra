@@ -13,11 +13,13 @@
 #                           sha256 of its data and the one it was put with;
 #                           what platform-api said at its start. Exit 0 when
 #                           platform-api loaded this set, 3 when not
-#   put stg|prod <sha256>   put the set whose sha256 is given (the one the
-#                           coordinator checked with the platform's own loader)
-#                           into the Secret: create it, or replace it when it
-#                           holds another set; platform-api reads it at its
-#                           next start
+#   put stg|prod <sha256>   put the set whose sha256 is given into the Secret:
+#                           create it, or replace it when it holds another set;
+#                           platform-api reads it at its next start. The sha256
+#                           is the one the coordinator checked with the
+#                           platform's loader on the commit the environment
+#                           runs: what the loader alone judges (field types,
+#                           each kind's required fields, patterns) is held by it
 #
 # The set's directory is CHIEF_EXAM_DIR (default below). Every step stops at
 # its first error. Nothing prints the set's content or the Secret's data: file
@@ -177,10 +179,25 @@ for k in sorted(data):
 
 keys_line() { echo $1; }
 
-# safe <text>: kubectl's first line with any long base64 run masked, cut to
-# 200 characters: an API or admission error may quote the request it refused.
-safe() {
-  echo "$1" | head -1 | sed -E 's#[A-Za-z0-9+/=]{24,}#[…]#g' | cut -c1-200
+# kubectl_write <create|replace> <namespace> <sha256>: sends the Secret that
+# holds the set (set_py manifest) to kubectl. kubectl's answer never reaches
+# a shell variable, the terminal or a file: an API or admission error may
+# quote the request it refused, the set's content among it (review 446). A
+# local filter prints the first of a fixed list of words found in it, or
+# says it is not shown. Non-zero when the write failed.
+kubectl_write() {
+  set_py manifest "$SET_DIR" "$2" "$3" | kubectl "$1" -f - 2>&1 | python3 -I -c '
+import sys
+t = sys.stdin.read()
+for w in ("created", "replaced", "AlreadyExists", "NotFound", "Forbidden", "Unauthorized", "Conflict",
+          "RequestEntityTooLarge", "Too long", "Invalid", "admission webhook", "no objects passed",
+          "Unable to connect", "connection refused", "i/o timeout", "TLS handshake"):
+    if w in t:
+        print(w)
+        break
+else:
+    print("kubectl said something not shown here: it may quote the request")
+'
 }
 
 next_steps() {
@@ -195,7 +212,8 @@ step_digest() {
 step_put() {
   local env=${1:-} want=${2:-} ns list sha names verb ans out
   ns=$(ns_of "$env")
-  echo "$want" | grep -Eq '^[0-9a-f]{64}$' || die "say the set's sha256 after $env (bash $0 digest prints it); nothing changed"
+  echo "$want" | grep -Eq '^[0-9a-f]{64}$' ||
+    die "say the set's sha256 after $env: the one the coordinator gives you, checked with the platform's loader on the commit $env runs (digest only shows the set here); nothing changed"
   list=$(set_py list "$SET_DIR")
   sha=$(echo "$list" | sed -n 's/^sha256 //p')
   names=$(echo "$list" | sed '$d' | cut -d' ' -f1)
@@ -215,12 +233,11 @@ step_put() {
       next_steps "$env"
       return 0
     fi
-    out=$(set_py manifest "$SET_DIR" "$ns" "$want" | kubectl replace -f - 2>&1) ||
-      die "$ns/$SECRET was not replaced: $(safe "$out"); run: bash $0 check $env"
+    out=$(kubectl_write replace "$ns" "$want") || die "$ns/$SECRET was not replaced (kubectl: $out); run: bash $0 check $env"
   else
-    out=$(set_py manifest "$SET_DIR" "$ns" "$want" | kubectl create -f - 2>&1) ||
-      die "$ns/$SECRET was not created: $(safe "$out"); run: bash $0 check $env"
+    out=$(kubectl_write create "$ns" "$want") || die "$ns/$SECRET was not created (kubectl: $out); run: bash $0 check $env"
   fi
+  say "kubectl: $out"
   secret_read "$ns" || die "cannot read $ns/$SECRET back"
   if [ "$S_PRESENT" != yes ] || [ "$S_DATA" != "$want" ] || [ "$S_SHA" != "$want" ] || [ "$S_KEYS" != "$names" ]; then
     die "$ns/$SECRET does not read back as this set (data sha256 ${S_DATA:-none}, put with ${S_SHA:-none}; keys: $(keys_line "$S_KEYS"))"
@@ -255,7 +272,7 @@ step_check() {
   fi
   # The set is read once, at start: its line is among the first of the log.
   kubectl -n "$ns" logs deploy/platform-api --limit-bytes=4000000 > "$TMPD/log" 2> "$TMPD/log.err" ||
-    die "cannot read platform-api's log in $ns: $(safe "$(cat "$TMPD/log.err")")"
+    die "cannot read platform-api's log in $ns: $(head -1 "$TMPD/log.err" | cut -c1-200)"
   line=$(grep -E 'agentrt: (exam set loaded|the exam set did not load|AGENTRT_EXAM_DIR is not set)' "$TMPD/log" | tail -1 || true)
   loaded=$(echo "$line" | sed -n 's/.*sha256=\([0-9a-f]\{64\}\).*/\1/p')
   if [ -z "$line" ]; then
@@ -281,7 +298,7 @@ step_check() {
 
 step=${1:-}
 if [ -z "$step" ]; then
-  sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
   exit 2
 fi
 shift
