@@ -2221,7 +2221,7 @@
 
 **P2 · agentrt · a card or approval reaches the Owner with no assessment of its content: a rule sees the card's fields, not that the work was already done elsewhere**
 
-- **状态**：未开始（2026-10-20 14:0x Owner「AI 评估用 A：卡和审批单一出来就派只读的评估任务，给推荐、带证据的理由和没查的东西，和规则推荐并排显示；不一致时 STG 也不自动答。记 TD-391，排在 TD-389、TD-390 之后」；同一条实现线 blocked-card-recommend）
+- **状态**：在做（2026-10-20 17:1x：platform `054fee57` 合进 main、上 STG；参谋长考过之前评估由席位里试用中的 exec:claude 只读地做，job:chief_of_staff 保持 v1（Owner 17:1x「可以：参谋长规则保持现状，考过之前评估由试用中的 claude 只读地做，不用 codex 兼任」——取代下文「评审岗执行者兼任」：codex 一旦在该岗 active 会接走参谋长全部的活，且它的沙箱不是只读）；infra 只留 workers 的 AGENTRT_LEDGER。此前 2026-10-20 14:0x Owner「AI 评估用 A：卡和审批单一出来就派只读的评估任务，给推荐、带证据的理由和没查的东西，和规则推荐并排显示；不一致时 STG 也不自动答。记 TD-391，排在 TD-389、TD-390 之后」；同一条实现线 blocked-card-recommend）
 - **Claim**: the Owner judges each card and approval from its text alone. TD-389's rules read the card's own fields (budget, age, last check); they cannot see that the work was merged by hand, superseded, or proven by another walk. On 2026-10-20 PROD's M-9 card (TD-378's ratchet) asked for one more round for work already on main (`6b950732`), and M-14's (Gate B T09) for a drill whose star step was already done; the Owner asked the coordinator thread each time.
 - **Evidence**: PROD questions `q_24648b78255c075f` (M-9), `q_38e50606283e8ff5` (M-14), `q_b3fff27f1ec953a3` (M-19, fixed by hand in `144c5497`); the Owner's questions in the coordinator thread 13:5x to 14:0x.
 - **Impact**: every card that a rule cannot settle costs the Owner a round trip to the coordinator thread, or a guess.
