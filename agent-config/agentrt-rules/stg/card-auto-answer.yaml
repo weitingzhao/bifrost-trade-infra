@@ -1,18 +1,26 @@
 rule_id: card-auto-answer
-rule_version: 2
+rule_version: 3
 direction: loosen
-effective_at: 2026-10-20T21:30:00Z
+effective_at: 2026-10-21T00:00:00Z
 expires_at: 2027-01-20T00:00:00Z
 # STG only (Owner 2026-10-20 「STG 用 A」, TD-390); PROD has no such file
-# (scripts/agentrt/test_rules_prod.py holds it so). A card the runtime asked,
-# of a kind below, that recommends an option, whose mission is active or
-# paused and was not proposed with needs_owner, and that has been open
-# after_minutes unanswered, is answered by the platform with the option it
-# recommends: recorded as this rule's answer (rule card-auto-answer v1), never
-# the Owner's. A walk that tests the Owner's buttons proposes its mission
-# with needs_owner, and its cards wait for him.
-# v2 (Owner 2026-10-20 16:2x 「只需要等 5 秒」): the shortest wait this rule
-# kind takes, five minutes, until a later version can say seconds (TD-393).
-after_minutes: 5
-# blocked: a blocked task's card; plan_question: a planner's question.
-kinds: [blocked, plan_question]
+# (scripts/agentrt/test_rules_prod.py holds it so), and PROD's platform does
+# not wire the loop. A card the runtime asked, of a kind below, still open on
+# what it is about, whose mission (a proposal's card has none) is not marked
+# needs_owner, and that has been open after_seconds unanswered, is answered
+# by the platform as this rule (rule card-auto-answer v3), never the Owner:
+# with the option the card recommends, unless an AI assessment (TD-391) that
+# has come recommends another; a card that recommends nothing takes the
+# option of an assessment that has come; otherwise the option that changes
+# nothing (do not do the task, do not apply the change or import, do not
+# start the mission; a planner's question: its own). An option the card does
+# not recommend says why on the answer.
+# v3 (TD-393, Owner 2026-10-20 16:3x 「STG 的规则等待按秒、设 5 秒，循环每 5 秒；
+# STG 上所有种类的运行时卡都归规则管」): five seconds, every kind. It needs the
+# platform of TD-393 (after_seconds, the kinds below). v2 (five minutes,
+# blocked and plan_question) is the one in force, signed 2026-10-20 17:5x.
+after_seconds: 5
+# blocked: a blocked task's card; plan_question: a planner's question;
+# plan_change, plan_import, recorder_import: a proposal outside the standing
+# authorization; mission: a mission outside the standing envelope.
+kinds: [blocked, plan_question, plan_change, plan_import, recorder_import, mission]
