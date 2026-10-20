@@ -314,3 +314,38 @@ v5 §5.1.2：主机报的工具版本或模型变了（旧成绩标旧版本、�
   - 软规则补了「已经在发了」「拍了板」「已让…会话合进 main」。
 - 按停线规矩（10-17 签：窄确认还有有修法的问题就照改、每条配旧规则上失败的回归样例、收线）：全部照改；这 43 份并入 `controls.json` 作为回归样例（旧规则上判错 20 份，现在 0 份）。**收线**，剩下的交给 STG 校准轮（§7.2）和 ③④ 的人工通读（§7.3）。
 - 「按 / 照 / 依」例外工作正常：「照标题写的已经做完了」「按前任说的还在等评审」「照你说的先以 50% 门槛分流」都判不过，没有假红。
+
+---
+
+## 13. S5：STG 上考、校准、演练；PROD（2026-10-20 起）
+
+线程：统筹线程起的侧线 `local_4847e277`（CLI `7573fa20`）。infra 分支 `w31/chief-exam-s5`，平台按主线 `8f30a9f6` 读。
+
+### 13.1 开考前查到的（10-20 16:3x CDT）
+
+- **S3 的 overlay、S4 的 06 一侧没进 infra main**：`platform-api-exam-set.patch.yaml`（挂 Secret `bifrost-chief-exam` 到 `AGENTRT_EXAM_DIR`）、`bifrost-agentd-exam@.service`、`exam-on-06.sh`、`agent-06-owner.sh exam` 只在夜班本地分支 `night/s3-exam-set`，也没经 codex 复核（406–419 只看了平台）。已原样摘到 `w31/chief-exam-s5`（Change-Id 不变），另加 Owner 的 `scripts/agentrt/chief-exam-set.sh`（`digest` / `check` / `put`）。复核 445（1 A 1 B 3 C）→ `a883bf1`：`put` 只收给定 sha256 的题集（两次读都要等于它）、写前按平台加载契约查形状、读回在本地算 Secret data 的 sha256（只打印摘要）、写失败只出遮过 base64 的一行、06 失败提示改准确；每条配在旧提交上失败的测试 → 第二轮 446（B1、C2、C3 关；C1 升 A：写失败时 kubectl 回显的请求进了 shell 变量，`bash -x` 会打印，短明文也挡不住）→ `10f07cf`：kubectl 的回答直接进本地过滤器、只出固定词表里的一个词，配 xtrace 与短明文两条回归 → 窄确认 447 可以合并（0 A 0 B），收线。
+- **STG**：platform-api 跑 `8f30a9f6`（`bifrost-deliver-platform-1792530321`，镜像 `2a1f175b`），日志「AGENTRT_EXAM_DIR is not set; the exam routes answer 503」。STG、PROD 都还没有任何考试记录（`agent_reader` 查 `capability_exams` 流为空）。
+- **题集**：本机 `~/agent-work/chief-exam-2026-10-19/`，sha256 `1fb13664b52f0eb82ba4804a1373d8a31d73d42cc5c1d8366e51e0e635133103`（Go `exam.Load` 与脚本的算法一致）。在 `8f30a9f6` 上：199 份对照照预期判分、11 个子题都能渲染、真题集能发卷（`TestExamsRealSet`）、启动加载测试过。
+- **06**：钉住的 `agentd-4536e62` 含 `agentd exam`（`a4a6a88a` 是它的祖先），本机构建与 `agentd.sha256` 一致；`exam` 步骤和 bench 一样只连一次 06（问一次节点钥匙口令）。
+- **额度**：STG、PROD 的 claude 是同一个池 `claude:owner`（Owner 的账号）；周窗口读数还是重置前的，短窗口 2026-10-20 23:00 UTC 重置。一次坐考约 33–40 次 opus 运行。
+- **候选与考试记录没有接上**：`job_candidate.exam_artifact_id` 至今没有写入方，规则 YAML 的候选也没有这个字段；v2 和考试的对应只能写在签名提交的说明和本节里。
+
+### 13.2 上 STG 的顺序
+
+1. Owner：`chief-exam-set.sh put stg <sha256>`（脚本自带管理员 kubeconfig，不用口令）。
+2. 统筹线程：推 infra（`0223000` 只含 `k8s/overlays/platform-stg/**`，按「STG 发布 A」；其余是脚本），Argo 自动同步 `bifrost-platform-stg`，新 Pod 启动时读题集。Secret 晚于同步建好的，`rollout_restart_deployment` 一次。
+3. `chief-exam-set.sh check stg` 报 ready（平台日志里的 sha256 等于本机题集）。
+4. Owner 在终端面板跑 `agent-06-owner.sh exam claude`：STG agentd 停到坐考结束（约 1–2 小时），PROD 的不动。
+5. 本线：`agent_reader` 读卷、答案、判分；逐份看判定，找规则误判（§7.2），③④ 的 21 份逐份通读（§7.3）。
+6. 接线演练 3a、4a（§3.2），用 STG 的 `send_message`。
+
+### 13.3 PROD：交成绩与签 v2
+
+§7.4 的第一种做法（把 STG 那次运行用 PROD 的主机身份交一次）**做不到**：平台只收自己发过的卷（S3 的发卷交卷绑定），agentd 也不在本机留答案正文（S4）。剩两种：
+
+| | 做法 | 要什么 | 代价 |
+|---|---|---|---|
+| **甲（推荐）** | 不在 PROD 坐考：Owner 按 STG 的成绩签 PROD 的 v2 | 签名提交的说明写明依据：STG 那次运行的 run_id、题集 sha256、平台提交、模型与工具版本、逐题结果、人工通读结论 | PROD 库里没有 `capability_score(source=exam)`；分流不读它（`competence.go` 只读在岗与基准），没有别的读者 |
+| 乙 | PROD 上再坐一次 | Owner `chief-exam-set.sh put prod <sha256>`；PROD overlay `platform-prod/platform-api-exam-set.patch.yaml`，随 PROD 发布单；新单元 `bifrost-agentd-exam-prod@`（PROD agentd 的用户和令牌，起它停 PROD agentd）和 `agent-06-owner.sh exam claude prod`（都还没写，要复核） | PROD agentd 停 1–2 小时；再花 33–40 次 claude（与 STG 同一个池）；PROD 多一次发布 |
+
+考的是「模型 + 这套任务书」（§7.5）。STG 和 PROD 跑同一个平台提交，两个 agentd 在同一台 06 上，用同一个 claude CLI、同一个模型（两边 `AGENTD_TOOLS` 都是 `exec:claude=anthropic:opus`），乙量的是同一件事。所以推荐甲；Owner 要 PROD 有自己的记录时再做乙。选甲时，PROD 不建 Secret、不改 PROD overlay，PROD 的考试路由继续回 503。
