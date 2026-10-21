@@ -2201,7 +2201,7 @@
 
 **P1 · agentrt · on the agent host every database test skips: the runtime's deterministic check of agentrt and agentd work passes without running the tests that matter**
 
-- **状态**：未开始（2026-10-20 19:3x 统筹线程记；挑第一件交给 PROD 运行时的 Go 修复时查到）
+- **状态**：在做（2026-10-20 20:4x Owner 定做法：「TD-403 选每次尝试临时起一个 Postgres：在尝试自己的临时目录里 initdb，写墙里、不联网，用完即删，没有共享状态；06 上要装 Postgres 的程序」。交给 TD-404/405 修复线 local_7c7c00ad，排在那两项之后（同改 agentd 的准备步骤与执行环境）；06 上装 Postgres 程序要 Owner，排在参谋长考试之后）。 此前：未开始（2026-10-20 19:3x 统筹线程记；挑第一件交给 PROD 运行时的 Go 修复时查到）
 - **Claim**: the agentrt and agentd tests that need Postgres take it from `AGENTRT_TEST_PG` and skip without it (`api/internal/agentrt/agentrttest/db.go:41-46`, unless `AGENTRT_TEST_REQUIRED=1`). Only the CI pipeline sets it (`k8s/cicd/tekton/pipeline-ci-platform.yaml:153`); nothing on 06 does (`scripts/agent-host`, agentd's environment). So an implementer on 06 cannot run the store tests it writes, and the deterministic check of a task (`go -C api test ./internal/agentrt/store`, `./internal/agentd`) reports `ok` with every database test skipped.
 - **Evidence**: PROD M-19 verification `sha256:2121b421…`: `go -C api test ./internal/agentd` ok in 44 s with no test database; `git grep AGENTRT_TEST_PG` in infra finds only the CI pipeline.
 - **Impact**: the runtime's acceptance of core work (store, controller, agentd) says pass where the coordinator's merged-tree suite or CI is the only real gate; a task whose regression test needs the database is accepted untested, and the review is the only reader of it.
