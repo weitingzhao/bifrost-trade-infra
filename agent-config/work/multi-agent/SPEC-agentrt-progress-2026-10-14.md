@@ -64,7 +64,7 @@ mission 的 `mission_id`、`title`、`goal`、`state`、`deadline_at`、`work_id
 | `status` / `reason` / `since` | 这件事的状态（§3.2）、一句原因、从几点起（§3.4） |
 | `waiting_on` | 在等谁：`owner`（`reason` 写在等什么、谁能解开）、`coordinator`、`role`（等哪个岗位，见 `waiting_roles`）、`none`。`external`（等外部系统或外部责任方）留着这个值，第 2 轮没有任何运行时事实记录外部等待，所以不出现（§4） |
 | `waiting_roles` | `waiting_on: role` 时等的岗位（取自状态被选中的那个任务的 `waiting_roles`），否则空数组 |
-| `tasks` | 没结束的任务：`task_id`、`title`、`role`、`plan_node_id`、`off_plan`、`off_plan_reason`、`round_no`、`max_rounds`、`state`、`status`、`reason`、`since`（§3.4）、`depends_on`（未接受的依赖任务号）、`waiting_roles`（`waiting_role` 时：`rework` 是它自己的岗位，`submitted` / `verifying` 是它未结束的验收、评审任务的岗位；还一个都没提出时为空，`reason` 写「none is proposed yet」）、`attempt`、`usual_s`（算不出不给）、`computed_not_persisted`（最近一次尝试算完了但结果还没落到平台）|
+| `tasks` | 没结束的任务：`task_id`、`title`、`role`、`plan_node_id`、`off_plan`、`off_plan_reason`、`round_no`、`max_rounds`、`state`、`status`、`reason`、`since`（§3.4）、`depends_on`（未接受的依赖任务号）、`waiting_roles`（`waiting_role` 时：`rework` 是它自己的岗位，`submitted` / `verifying` 是它未结束的验收、评审任务的岗位；还一个都没提出时为空，`reason` 写「none is proposed yet」）、`attempt`、`usual_s`（算不出不给）、`computed_not_persisted`（最近一次尝试算完了但结果还没落到平台）| 另有 `lost_attempt`：最近一次丢掉、之后没有被别的尝试的持久化结果取代的尝试，字段同 live（§2.3），外加 `ended_at`，没有 `status`；任务没有在跑的尝试、而这次尝试没持久化时，任务的 `reason` 也加上「result not persisted」那一句（TD-352）。
 | `next_steps` | 这件事里还没开始的下一两步（步骤号、标题、`owner_step`），从计划的顺序取 |
 | `eta` | 第一版固定 `{"state": "unknown", "reason": "no history of slice times yet; the runtime gives times once Gate A has run"}`（v4 §20.3 第 7 条：估不准就说估不准，不给数字） |
 
@@ -72,7 +72,7 @@ mission 的 `mission_id`、`title`、`goal`、`state`、`deadline_at`、`work_id
 
 ### 2.3 `live[]`
 
-所有活着的尝试（`leased` / `running` / `stale`），按开始时间（时间值，不按字符串）排：`attempt_id`、`attempt_no`、`task_id`、`mission_id`、`host_id`、`executor`、`model`、`state`、`started_at`、`elapsed_s`、`heartbeat_age_s`、`status`。最近一次检查点、动作流水等 2.3 交互总线（不在这里扫事件表）。
+所有活着的尝试（`leased` / `running` / `stale`），按开始时间（时间值，不按字符串）排：`attempt_id`、`attempt_no`、`task_id`、`mission_id`、`host_id`、`executor`、`model`、`state`、`started_at`、`elapsed_s`、`heartbeat_age_s`、`status`；另有 `persisted`（`persisted_at` 有值）、`last_checkpoint_seq` 和 `last_checkpoint_at`（这次尝试最后一条 `attempt_checkpointed`，走任务索引读）、`unpersisted_for_s`（结果没持久化时，从最后检查点、没有就从开始，到现在的秒数）。尝试 stale、主机超过 3 分钟没轮询或从没轮询过、且结果没持久化时，`reason` 后面加「; result not persisted (last checkpoint N at …, nothing persisted for M min)」（TD-352，platform `w31/td-352-t36`）。动作流水等 2.3 交互总线（不在这里扫事件表）。
 
 ### 2.4 `plan[]`
 

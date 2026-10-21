@@ -2159,6 +2159,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-410
+
+**P3 · testing · TD-399's read-back test fails about one run in twenty on a clean base: it times a commit with commit_delay**
+
+- **状态**：未开始（2026-10-21 00:2x 统筹线程记；TD-352 修复线 local_21bbc6df 跑整包时撞到）
+- **Claim**: `store/claimconfirm_test.go` `TestClaimReadsBackACutCommit/landed_on_one_connection` stretches the commit with `commit_delay` and lands the deadline in it; under load the window it needs moves and the case fails, unrelated to the change under test.
+- **Evidence**: on the clean base `bb6b5a3e`, `-count=20` of that case alone: 1 failure; the same on `w31/td-352-t36`: 20 of 20 (lane note td352-t36-2026-10-20.md).
+- **Impact**: a red CI run on a commit that did not touch the claim path; whoever runs the suite has to tell it apart.
+- **Fix**: drive the case by state, not time: hold the commit with a lock or an advisory wait the test releases after the deadline, instead of `commit_delay`.
+- **Ratchet**: the case passes `-count=50 -cpu=1,4` with the store package's other tests running beside it.
+- 验收: that command, run twice.
+- 审批 无（测试改动）· 代价 S · 风险 low · repos: bifrost-platform
+
 ### TD-409
 
 **P2 · agentd · a reviewer is not shown the attempt's report, so the review of an effect-none task judges an empty workspace and fails correct work**
