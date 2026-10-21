@@ -230,6 +230,26 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
   两轮评审都没看到报告（F-review-report）。T22 ② 和合盖的结论不受影响：它们看的是租约、隔离和接管，不是这件任务的结果。
 - **M-95：** 第 3 次尝试 04:15:09Z 抢救、结束（没有报告，不 persisted）。之后任务回到 ready，停止控制 `c_01M5E9J8BNNKKJY1SVDDTF87K8` 挡着，没有再被领。
 
+### T34 ⑤ 在 STG 上（10-21 05:04Z，platform ba6c09eb，含 TD-352）
+
+统筹 05:01Z 把 ba6c09eb 发上 STG。TD-352 笔记要用 gate-b 式客户端制造一个打完检查点就消失的尝试，现在走不通：
+- 10-15 的 `gateb.py` 已经不在了；
+- 本线没有 gate-b 的令牌；
+- STG 常备授权 `standing-envelope:dev` v5 的主机只有 agent-06-stg（gate-b 领活要先放宽，放宽要 Owner 签）。
+
+本线没有建 mission，也没有下 pause，所以没有要收尾的。
+
+**能读的现在就读了：** 用部署的同一份代码 `store.Progress`（ba6c09eb）以 `agent_reader` 在只读事务里读 STG 库，和路由 `GET /agentrt/progress` 是同一个函数；输出存在本机 `~/agent-work/gate-a-t33/progress-0510.json`。M-95 的任务（它的 3 次尝试都丢了，没有持久化，停止控制挡着）给出 ⑤ 后一半的现成证据：
+- 任务 `t_01M5E4BSM4EZNZG4DCG74ZZ2AZ`：`state` ready，`status` queued；
+- `reason`：「ready for a host to claim; attempt 3 on agent-06-stg was lost at 2026-10-21T04:07:06Z; result not persisted (no checkpoint, nothing persisted for 77 min)」；
+- `lost_attempt`：attempt 3，`state` lost，`persisted` false，`unpersisted_for_s` 4621，`ended_at` 04:07:06Z。没有 `last_checkpoint_*`：这次尝试 03:47:32Z 开始，不到 5 分钟 agentd 就被考试停了，没打检查点。
+- 任何地方都没有显示做完。
+
+**还差的一半**（stale、host_lost 时带「last checkpoint 1 at …」）要一个活着、打过检查点的尝试停住。改为和 T34 ⑧ 用同一次冻结，Owner 在 06 上还是同一条命令：
+- `owner-t34-8-06.sh salvage` 改成等 codex 执行者跑满 6 分钟（agentd 每 5 分钟打一个检查点）再停 agentd；
+- 至少停 22 分钟，让尝试在 lost 状态留 5 分钟；
+- 冻结期间本线每分钟读一次 Progress。
+
 ### Gate A 收尾清单（计划步骤 R2:2.2-28，2026-10-21 04:10Z 核对）
 
 逐项对照设计 v5 §5.2 的 Gate A 表。「过」= 表里的过的标准都有证据；证据栏写在哪看。
@@ -252,8 +272,8 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 | T33 证据绑定版本 | **测试过，STG 卡在 F-T33-rec** | 上文「T33」：`TestStandingGate`、`TestArchTickFollowsTheDeployment`、`TestArchRecordedDeploymentThatIdentifiesNothing`、`TestGateUsesTheExactTestID`；上文「T33 在 STG 上」 | TD-397 已发 STG（d360a118），但架构行门槛的计划变更卡带不上推荐，STG 规则答成「不改」，规则没落地（F-T33-rec）。修好、发上 STG 后重提 13 项，验一行（`ARCH:owner-three-duties`，T40 不需要库）被部署提交上的真门槛打勾；再换一次部署看旧 PASS 不算 |
 | T34 ①②③⑥⑦ | **过** | 10-15 STG M-5（gate-b 测试客户端在接口层制造） | 无 |
 | T34 ④ 上传中途重启 | **过** | 新测试 `agentd/handover_restart_test.go` `TestRestartDuringTheHandOver`（真进程 SIGKILL，五个杀点） | 无 |
-| T34 ⑤ 主机永久丢失 | **不过** | 10-15 STG M-5 `t_01M50ST4M08FCR783MZ4J9NCWD`：Progress 只显示 `maybe_stuck`，没有「结果未持久化」、最后确认的检查点时间和已多久没持久化 | TD-352（P2，未开始）：Progress 补这三样并且不显示做完；修好后在 STG 重跑一次（gate-b 式客户端打一个检查点后不再出现） |
-| T34 ⑧ 采纳保全结果 | **存储层过，STG 未走到** | `store/adopt_test.go` `TestAdoptSalvagedResult`（采纳记录指向 lost 的那次尝试、同一事务取消新尝试、只有一条采纳）；10-15 STG 三次都走不到：每台主机 1 个槽，保全的验收排在新尝试后面（F-T34-8），保全评审另有 TD-353（P3） | 要统筹或 Owner 定：认存储层测试，或在 STG 上给 `concurrency` 放到每台 2 个槽（放宽要签名）再跑一次 |
+| T34 ⑤ 主机永久丢失 | **后一半过，前一半待跑** | TD-352 已发 STG（ba6c09eb）。上文「T34 ⑤ 在 STG 上」：M-95 丢掉、没持久化的尝试，在部署的 `store.Progress` 里有 `lost_attempt`（`persisted` false、`unpersisted_for_s`、`ended_at`），原因写「result not persisted (no checkpoint, nothing persisted for 77 min)」，不显示做完 | stale 与 host_lost 时带「last checkpoint 1 at …」的那一半：gate-b 走不通（客户端没了、没有令牌、常备授权的主机只有 agent-06-stg），并进明早 T34 ⑧ 的同一次冻结（Owner 同一条命令） |
+| T34 ⑧ 采纳保全结果 | **存储层过，STG 未走到** | `store/adopt_test.go` `TestAdoptSalvagedResult`（采纳记录指向 lost 的那次尝试、同一事务取消新尝试、只有一条采纳）；10-15 STG 三次都走不到：每台主机 1 个槽，保全的验收排在新尝试后面（F-T34-8），保全评审另有 TD-353（P3） | Owner 定了在 STG 现场跑：STG 并发 v2（每台 2 个槽）05:00Z 生效（infra f42485a）。场景备好了：`owner-t34-8-06.sh salvage`（Owner 在 06 上起）和任务书生成器 `t34-8-spec.py`，做法在共享笔记 `gate-a-t34-8-t33-stg-2026-10-21.md`。等明早 Owner |
 | T35 规则集 | **过** | 上文「T35」：`TestRuleSet` 等；STG 上 Owner 10-20 跑过错 namespace（403 unsigned，`concurrency` 仍 v1） | 无 |
 | T36 血缘尾注 | **接口过，页面待定** | 10-15：`get_commit_lineage` 返回任务号、agent 组织 6 个提交都带任务号 | 「血缘页能从提交点到任务」：现在血缘页点任务号只在本页筛选（F-T36b），没有跳到任务。Console 已有 Crew 页的任务详情（`OwnerCrew`），血缘页没连过去。要 Owner 定：认「按任务筛选」算过，或给血缘页的任务号加一个到 Crew 任务详情的链接（Console 小改） |
 | 基准 6 题 | **过（建议算）** | 2.2-31 ★ 的同一次运行（`RUN-r2-stars-2026-10-20.md` 第二节、第五节「2.2-31」）：PROD M-15、STG M-27，6 题提议后零人工写入、22 分钟内全部到结论（4 accepted、2 两轮确定性验收不过而 blocked，答错不是环境）；codex 写、cursor 评审（Gate A 表允许「或反过来，按 capability_fact」）；题目组成改为 Go 3、TS 1、Python 1、shell 1（Python 第二题在 research，运行时派不到），Owner 10-20 11:5x「★ 三条 A」认可这处改写；结果在结论时记进 `capability_score`（PROD 10-20 05:25:56Z：codex `implementer` / `benchmark` 6 次、4 次首轮通过，0.300） | 无。附带发现 F-bench-score：两道不过的题 Owner 选「不做了」（任务 cancelled）之后，在岗成绩把它们剔掉了：PROD 15:28:54Z 变 5 次 4 过（0.376）、15:31:54Z 变 4 次 4 过（0.510）；STG 同样从 6 次 3 过（0.188）变成 4 次 3 过（0.301），失败不再计入；`store/scores.go` 只计 accepted、rejected 和 blocked-as-failed。要不要让「失败后被放弃」仍算失败，交统筹定（可记 TD） |
@@ -261,6 +281,6 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 **还差 5 项**（其余全部过）：
 1. **T32 经接口的最后两种**：9 种已在 STG 上被拒。剩下两种：「规则引用之后移走任务」卡在 STG 的卡片规则把夹具卡答成「不改」（认 `TestPlanChangeOutside`，或在 M-95 里留一个不做事的任务当夹具）；「参谋长席位」卡在没有 STG 的席位令牌。
 2. **T33**：TD-397 已发 STG，但卡在 F-T33-rec：计划变更卡的推荐在 server 交给问题库时被丢掉，STG 规则答成「不改」。修好并发 STG 后重提，再验打勾；换一次部署看旧 PASS 不算，等下一次 STG 发版。
-3. **T34 ⑤**：卡在 TD-352（Progress 补「结果未持久化」+ 检查点时间 + 时长）没做；做完后 STG 重跑一次。
-4. **T34 ⑧**：卡在决定。认存储层测试，或 STG 放到每台 2 个槽（放宽要 Owner 签）再跑。
+3. **T34 ⑤**：TD-352 已发 STG，lost 那一半有现成证据（M-95）。stale、host_lost 带检查点的那一半，并进明早 T34 ⑧ 的同一次冻结，Owner 在 06 上跑同一条命令。
+4. **T34 ⑧**：Owner 定了现场跑，并发 v2 已生效，场景备好；等明早 Owner 在 06 上起脚本（和 ⑤ 同一次）。
 5. **T36 页面**：卡在决定。认「按任务筛选」，或加一个到 Crew 任务详情的链接。
