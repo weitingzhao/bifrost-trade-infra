@@ -2932,7 +2932,7 @@
 
 **P2 · agentrt · Progress shows a host that is gone for good as `maybe_stuck`, not "result not persisted" with the last checkpoint and its age**
 
-- **状态**：未开始（2026-10-15 17:55 统筹方记；Gate A T34 ⑤，F-T34-5）
+- **状态**：在做（2026-10-21 00:0x：修复线 local_21bbc6df 交回 w31/td-352-t36，复核 464、465 收线；叠在 d360a118 上合进 platform `ba6c09eb`（整套过，store 一处偶发是 TD-410）；等 CI、发 STG 后由 Gate A 线重跑 T34 ⑤。同批 T36：血缘页任务号旁加「M-n ↗」跳到任务详情）。 此前：未开始（2026-10-15 17:55 统筹方记；Gate A T34 ⑤，F-T34-5）
 - **Claim**: design v5 §5.2 T34 ⑤ wants Progress to say the result is not persisted, the time of the last checkpoint the platform confirmed, and how long nothing has been persisted, and never to show the attempt as done. Progress shows `status: maybe_stuck`, `reason: the lease lapsed and was not renewed`, and no checkpoint field.
 - **Measured**: MEASURED: 2026-10-15 22:11:45Z, STG, `GET /agentrt/progress` for attempt `a_01M50ST7TYGTGATJNJP3YVDS0Q` (gate-b, checkpoint 1 at 22:09:43Z, then gone): the fields above and nothing about the checkpoint.
 - **Evidence**: `bifrost-platform/api/internal/agentrt/store/progress.go` (live attempt rows).
