@@ -234,6 +234,18 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 - 从 06:01:07Z 起，platform-workers 的 `agentrt-facts-rules` 每 15 秒失败一次：`new row for relation "task" violates check constraint "task_check2"`。到 06:14Z 已有 55 次，没有门槛批次 mission。
 - 要先在 STG 跑一次 `agentrt-migrate`（0007、0008），控制器下一轮就会给 fb015014 派门槛。之后验 `ARCH:owner-three-duties`（T40）打勾。
 
+**10-21 15:19Z 迁移之后：T33 前一半过。** Owner 10:19 CDT（15:19Z）建 Job `agentrt-migrate-h6zdx`，日志 `applied=[7 8]`，STG 库到 8。这时 STG 跑的是 e98b1487ce40（`deploy_seen` 09:45:53Z，delivery run `bifrost-deliver-platform-1792575486`）。从 06:01Z 到这里，facts-rules 失败了约 9 个小时。
+- **派出：** 控制器 15:19:38Z 建批次 M-100，`scope_json.gate_run` 的 env 是 stg、commit 是 e98b1487ce40，13 个门槛任务。任务都是 class gate、base 是部署的提交、repo bifrost-platform。
+- **跑完：** agent-06-stg 上的确定性执行者 15:19:42Z 起开始领，06 上还是旧 agentd。15:24:39Z 批次 done：「the gates of stg at e98b1487ce40 ended: 2 passed, 11 failed, 0 could not run」。
+- **两个过的：** T40（`v_01M5FGZ4V4R8B5VABCPEPR8JZK`，15:23:39Z）、T41（`v_01M5FGXRT1RG9TZAQJN3RYR6WQ`），method gate、verdict pass、`subject_commit` e98b1487ce40、验收者为空（门槛验收的是任务自己的尝试）。
+- **11 个失败：** 都是「AGENTRT_TEST_PG is not set but AGENTRT_TEST_REQUIRED=1」，例如 T50 的报告。06 上的旧 agentd 不给每次尝试一个临时测试库（TD-403 的 agentd 要等考试第 2 轮之后才换），和 TD-397 笔记的预期一致。
+- **打勾：** 用部署的同一版代码 `store.Progress`（e98b1487，`agent_reader` 只读，15:24:24Z，本机 `~/agent-work/gate-a-t33/progress-1525.json`）读架构对照。
+  - `ARCH:owner-three-duties` 是 `tick: true`，reason「T40 passed on stg at e98b1487ce40, the deployment recorded 2026-10-21T09:45:53Z」；
+  - `ARCH:release-guard` 同样是 true（T41）；
+  - 另外 11 行是 false，reason 写出没过的门槛和执行器判定，例如「T42 (failed: FAIL ./internal/agentrt/store/: TestSignedTighteningDoesNotRaise it failed): not all passed on stg at e98b1487ce40」；
+  - 4 行没有门槛，写「no gate test yet」。
+- **还差后一半：** 「换一次部署旧 PASS 不算」。前面三次部署（fb015014、75022097、e98b1487）发生时门槛还派不出去，所以还没有一次「有过 PASS 之后换部署」。等下一次 STG 发版：新部署记下以后、新门槛过之前，这两行不能因为 e98b1487 上的 PASS 打勾。
+
 ### M-93、M-95 收尾（10-21 04:16–04:32Z）
 
 - **M-93：stopped，不是 done。** 第 1 轮实现在 01:58–02:43 睡满 2700 秒，报告 `slept 2700 s`，验收（`true`）过。cursor 评审 04:16Z 判 FAIL，原因是工作区里没有那行输出、04:15 还没到 04:30。
@@ -280,7 +292,7 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 | T22 ⑤ 锁后截止 | **过** | 存储层夹具 `store/kernel_test.go` `TestFenceAndLeaseClock`（「T22 ⑤」那段），按 10-15 计划不在 STG 重做 | 无 |
 | T25 状态只由事件改 | **过** | 上文「T25」：`TestRoutesMoveStateOnlyByEvents`（每条写路由、四个世界）+ `TestIdentitiesAndTheEventRule`（直写）+ STG 只读核对 | 无；STG 上用运行时身份直写做不到（F-probe），以迁移哈希、触发器、状态与事件一致性的只读核对代替 |
 | T32（经接口） | **基本过，差两种** | 10-15 9 条反例 422（「每项的状态」T32）；10-21 STG 再 9 条 422（上文「T32 经接口」：挂到 item、挂到别的 mission 的步骤、规则引用别一步的任务、没绑的审批、没绑的问题、步骤挂在 round 下、item 挂在 item 下、验收离开对象、改绑后再挂别的 mission 的任务），不留半条记录；接口层测试 `agentrtapi/propose_test.go`、`TestPlanProposalRoute` | ① 规则引用之后移走任务：STG 的卡片规则把夹具卡答成「不改」（F-T32-card），落不了地；同一拒收由路由调用的 `store.ProposePlanChange` 的测试覆盖（`TestPlanChangeOutside`）。② 参谋长席位：缺 STG 的 `seat:chief_of_staff` 令牌。「并发两条依赖」「迁移与新建交错」经接口构造不出来，由存储层 T32（`store_test.go`）证 |
-| T33 证据绑定版本 | **测试过，STG 卡在迁移** | 上文「T33」的测试；上文「T33 在 STG 上」：fb015014 上卡带推荐 a，STG 规则 5 秒后照推荐应用，13 行有了规则（F-T33-rec 已修） | STG 库没跑 0007、0008（F-T33-migrate），控制器派门槛任务时被旧约束 `task_check2` 挡住，每 15 秒失败一次。跑完 STG 的 `agentrt-migrate` 后，验 `ARCH:owner-three-duties`（T40）被部署提交上的真门槛打勾；「换一次部署旧 PASS 不算」等下一次 STG 发版 |
+| T33 证据绑定版本 | **前一半过，后一半等下一次发版** | 上文「T33」的测试；上文「T33 在 STG 上」：迁移后控制器给 e98b1487ce40 派批次 M-100，T40、T41 的 gate 验收 pass，`ARCH:owner-three-duties`、`ARCH:release-guard` 在部署的 `store.Progress` 里打勾；另 11 行缺测试库判失败 | 「换一次部署旧 PASS 不算」：等下一次 STG 发版，看新部署的门槛过之前这两行不因旧 PASS 打勾 |
 | T34 ①②③⑥⑦ | **过** | 10-15 STG M-5（gate-b 测试客户端在接口层制造） | 无 |
 | T34 ④ 上传中途重启 | **过** | 新测试 `agentd/handover_restart_test.go` `TestRestartDuringTheHandOver`（真进程 SIGKILL，五个杀点） | 无 |
 | T34 ⑤ 主机永久丢失 | **后一半过，前一半待跑** | TD-352 已发 STG（ba6c09eb）。上文「T34 ⑤ 在 STG 上」：M-95 丢掉、没持久化的尝试，在部署的 `store.Progress` 里有 `lost_attempt`（`persisted` false、`unpersisted_for_s`、`ended_at`），原因写「result not persisted (no checkpoint, nothing persisted for 77 min)」，不显示做完 | stale 与 host_lost 时带「last checkpoint 1 at …」的那一半：gate-b 走不通（客户端没了、没有令牌、常备授权的主机只有 agent-06-stg），并进明早 T34 ⑧ 的同一次冻结（Owner 同一条命令） |
@@ -291,7 +303,7 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 
 **还差 5 项**（其余全部过）：
 1. **T32 经接口的最后两种**：9 种已在 STG 上被拒。剩下两种：「规则引用之后移走任务」卡在 STG 的卡片规则把夹具卡答成「不改」（认 `TestPlanChangeOutside`，或在 M-95 里留一个不做事的任务当夹具）；「参谋长席位」卡在没有 STG 的席位令牌。
-2. **T33**：F-T33-rec 已修，13 行规则已在 STG 落地；卡在 STG 库没跑 0007、0008（F-T33-migrate），门槛派不出去。跑完迁移后验打勾；「换一次部署旧 PASS 不算」等下一次 STG 发版。
+2. **T33**：前一半过（迁移后 e98b1487 上 T40 真门槛打勾）。后一半「换一次部署旧 PASS 不算」等下一次 STG 发版。
 3. **T34 ⑤**：TD-352 已发 STG，lost 那一半有现成证据（M-95）。stale、host_lost 带检查点的那一半，并进明早 T34 ⑧ 的同一次冻结，Owner 在 06 上跑同一条命令。
 4. **T34 ⑧**：Owner 定了现场跑，并发 v2 已生效，场景备好；等明早 Owner 在 06 上起脚本（和 ⑤ 同一次）。
 5. **T36 页面**：卡在决定。认「按任务筛选」，或加一个到 Crew 任务详情的链接。
