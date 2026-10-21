@@ -248,6 +248,9 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
   - 20:11:00Z 起 `ARCH:owner-three-duties` 就是 `tick: false`，reason「T40 (not run yet): not all passed on stg at 6d2f40cd4495, the deployment recorded 2026-10-21T20:10:49Z」；20:13:24Z 是「T40 (running)」。e98b1487 上那份 PASS 一直没算进来。
   - 20:13:35Z T40 在 6d2f40cd 上 pass（`v_01M5G1J0YPSEBB969673FQZBDF`），20:13:44Z 这一行回到 `tick: true`，reason「T40 passed on stg at 6d2f40cd4495」。
   - `ARCH:release-guard` 同样：T41 20:12:50Z pass（`v_01M5G1GN4AH60HS774DE44NJV6`）之前一直是 false。
+- **06 换上新 agentd 之后（10-21 20:15Z）：13 个门槛全过。** M-101 20:15:50Z 收尾「the gates of stg at 6d2f40cd4495 ended: 13 passed, 0 failed, 0 could not run」：新 agentd 给每次尝试的测试库在 06 上生效了。
+  - 20:18:07Z 用部署的 `store.Progress` 读：有门槛的 13 行都是 `tick: true`，reason「T4x/T5x passed on stg at 6d2f40cd4495, the deployment recorded 2026-10-21T20:10:49Z」；
+  - 没有门槛的 4 行（roles-chief-exam、inference-gateway、release-queue、workspace-as-code）是 `unknown`「no gate test yet」。
 
 ### M-93、M-95 收尾（10-21 04:16–04:32Z）
 
@@ -295,7 +298,7 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 | T22 ⑤ 锁后截止 | **过** | 存储层夹具 `store/kernel_test.go` `TestFenceAndLeaseClock`（「T22 ⑤」那段），按 10-15 计划不在 STG 重做 | 无 |
 | T25 状态只由事件改 | **过** | 上文「T25」：`TestRoutesMoveStateOnlyByEvents`（每条写路由、四个世界）+ `TestIdentitiesAndTheEventRule`（直写）+ STG 只读核对 | 无；STG 上用运行时身份直写做不到（F-probe），以迁移哈希、触发器、状态与事件一致性的只读核对代替 |
 | T32（经接口） | **基本过，差两种** | 10-15 9 条反例 422（「每项的状态」T32）；10-21 STG 再 9 条 422（上文「T32 经接口」：挂到 item、挂到别的 mission 的步骤、规则引用别一步的任务、没绑的审批、没绑的问题、步骤挂在 round 下、item 挂在 item 下、验收离开对象、改绑后再挂别的 mission 的任务），不留半条记录；接口层测试 `agentrtapi/propose_test.go`、`TestPlanProposalRoute` | ① 规则引用之后移走任务：STG 的卡片规则把夹具卡答成「不改」（F-T32-card），落不了地；同一拒收由路由调用的 `store.ProposePlanChange` 的测试覆盖（`TestPlanChangeOutside`）。② 参谋长席位：缺 STG 的 `seat:chief_of_staff` 令牌。「并发两条依赖」「迁移与新建交错」经接口构造不出来，由存储层 T32（`store_test.go`）证 |
-| T33 证据绑定版本 | **过** | 上文「T33」的测试；上文「T33 在 STG 上」：迁移后 e98b1487 上 T40、T41 的真门槛让 `ARCH:owner-three-duties`、`ARCH:release-guard` 打勾（M-100）；10-21 20:10Z 换成 6d2f40cd 后，新门槛过之前这两行都是 false、写「not run yet / running … at 6d2f40cd」，旧 PASS 不算，20:13Z 新门槛过了才回到 true（M-101） | 无；另 11 行在 06 的 agentd 换成给测试库的新版之前判失败（缺 `AGENTRT_TEST_PG`），不是 T33 的标准 |
+| T33 证据绑定版本 | **过** | 上文「T33」的测试；上文「T33 在 STG 上」：迁移后 e98b1487 上 T40、T41 的真门槛让 `ARCH:owner-three-duties`、`ARCH:release-guard` 打勾（M-100）；10-21 20:10Z 换成 6d2f40cd 后，新门槛过之前这两行都是 false、写「not run yet / running … at 6d2f40cd」，旧 PASS 不算，20:13Z 新门槛过了才回到 true（M-101） | 无；6d2f40cd 上 13 个门槛全过、13 行都打勾（M-101，06 的新 agentd 给了测试库） |
 | T34 ①②③⑥⑦ | **过** | 10-15 STG M-5（gate-b 测试客户端在接口层制造） | 无 |
 | T34 ④ 上传中途重启 | **过** | 新测试 `agentd/handover_restart_test.go` `TestRestartDuringTheHandOver`（真进程 SIGKILL，五个杀点） | 无 |
 | T34 ⑤ 主机永久丢失 | **后一半过，前一半待跑** | TD-352 已发 STG（ba6c09eb）。上文「T34 ⑤ 在 STG 上」：M-95 丢掉、没持久化的尝试，在部署的 `store.Progress` 里有 `lost_attempt`（`persisted` false、`unpersisted_for_s`、`ended_at`），原因写「result not persisted (no checkpoint, nothing persisted for 77 min)」，不显示做完 | stale 与 host_lost 时带「last checkpoint 1 at …」的那一半：gate-b 走不通（客户端没了、没有令牌、常备授权的主机只有 agent-06-stg），并进明早 T34 ⑧ 的同一次冻结（Owner 同一条命令） |
