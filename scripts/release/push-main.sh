@@ -1,16 +1,27 @@
 #!/usr/bin/env bash
 # Push a commit to a repo's main the way CI will judge it (TD-341).
 #
-#   push-main.sh <checkout> [<commit>]      <commit> defaults to the checkout's HEAD
+#   push-main.sh [--no-lineage <reason>] <checkout> [<commit>]
+#                                          <commit> defaults to the checkout's HEAD
 #
 # 1. The release window must be closed (release.sh window), checked again
 #    right before the push.
 # 2. The commit must fast-forward origin/main (fetched first).
-# 3. For a repo whose CI runs the code-health ratchet, scan.sh runs on a
+# 3. Every commit of origin/main..<commit> carries its lineage, a Change-Id
+#    and a Claude-Session trailer (TD-400), or the push is refused naming
+#    each one that does not. --no-lineage <reason> pushes them anyway (the
+#    Owner's own commits, say) and prints the reason with them.
+# 4. For a repo whose CI runs the code-health ratchet, scan.sh runs on a
 #    fresh worktree of exactly <commit> (not the working tree, which may hold
 #    other sessions' edits), so a metric over its baseline (a file over 800
 #    lines, say) is refused here instead of turning main red.
-# 4. git push origin <commit>:refs/heads/main.
+# 5. git push origin <commit>:refs/heads/main.
+# 6. The repo's shared checkout in the workspace (<workspace>/<repo>, where
+#    every session's MCP servers and dev builds run from) follows main
+#    (TD-408): it is fast-forwarded to <commit> when it is on main with no
+#    tracked changes, has the same origin and is not the checkout pushed
+#    from; otherwise it is left as it is and the reason is said. The push has
+#    happened by then: nothing here fails it.
 #
 # preflight.js refuses a direct `git push` to main, so this is the way an
 # agent pushes main. go test and lint stay in the pusher's own routine: they
@@ -19,16 +30,37 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: push-main.sh <checkout> [<commit>]" >&2
+  echo "usage: push-main.sh [--no-lineage <reason>] <checkout> [<commit>]" >&2
   exit 2
 }
 die() {
   echo "push-main: $*" >&2
   exit 1
 }
-[[ $# -ge 1 && $# -le 2 ]] || usage
-DIR="$1"
-REF="${2:-HEAD}"
+NO_LINEAGE=""
+args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --no-lineage)
+      [[ $# -ge 2 && -n "${2//[[:space:]]/}" ]] || die "--no-lineage needs a reason"
+      NO_LINEAGE="$2"
+      shift 2
+      ;;
+    --no-lineage=*)
+      NO_LINEAGE="${1#--no-lineage=}"
+      [[ -n "${NO_LINEAGE//[[:space:]]/}" ]] || die "--no-lineage needs a reason"
+      shift
+      ;;
+    -*) usage ;;
+    *)
+      args+=("$1")
+      shift
+      ;;
+  esac
+done
+[[ ${#args[@]} -ge 1 && ${#args[@]} -le 2 ]] || usage
+DIR="${args[0]}"
+REF="${args[1]:-HEAD}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 SCAN="${PUSH_MAIN_SCAN:-$HERE/../../agent-config/scripts/code-health/scan.sh}"
 WINDOW="${PUSH_MAIN_WINDOW:-$HERE/release.sh}"
@@ -107,6 +139,75 @@ window() {
   esac
 }
 
+# The workspace the shared checkouts are in: the parent of this infra
+# repository's main worktree (its shared checkout, wherever this script runs
+# from: a lane's worktree shares it).
+shared_root() {
+  if [[ -n "${PUSH_MAIN_SHARED_ROOT:-}" ]]; then
+    printf '%s\n' "$PUSH_MAIN_SHARED_ROOT"
+    return
+  fi
+  local main
+  main="$(git -C "$HERE" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')"
+  [[ -n "$main" ]] && dirname "$main"
+}
+
+# follow — the repo's shared checkout follows main to $commit (TD-408), or
+# is left as it is with the reason. It never fails the push.
+follow() {
+  local root shared said head
+  root="$(shared_root || true)"
+  if [[ -z "$root" ]]; then
+    echo "push-main: the workspace of the shared checkouts is not known; no shared checkout followed"
+    return 0
+  fi
+  shared="$root/$repo"
+  said="push-main: shared checkout $shared"
+  if [[ ! -d "$shared" ]] || [[ "$(git -C "$shared" rev-parse --show-toplevel 2>/dev/null)" != "$(cd "$shared" && pwd -P)" ]]; then
+    echo "$said: none there; nothing followed"
+    return 0
+  fi
+  if [[ "$(git -C "$shared" remote get-url origin 2>/dev/null)" != "$url" ]]; then
+    echo "$said: its origin is not $url; left as it is"
+    return 0
+  fi
+  head="$(git -C "$shared" rev-parse --verify --quiet HEAD 2>/dev/null || true)"
+  if [[ "$(cd "$shared" && pwd -P)" == "$(cd "$top" && pwd -P)" ]]; then
+    if [[ "$head" == "$commit" ]]; then
+      echo "$said: is the checkout pushed from, at $commit"
+    else
+      echo "$said: is the checkout pushed from; left as it is (its HEAD is ${head:0:12}, not $commit)"
+    fi
+    return 0
+  fi
+  if [[ "$(git -C "$shared" symbolic-ref --quiet --short HEAD 2>/dev/null || true)" != "main" ]]; then
+    echo "$said: not on main; left as it is"
+    return 0
+  fi
+  if [[ "$head" == "$commit" ]]; then
+    echo "$said: already at $commit"
+    return 0
+  fi
+  if [[ -n "$(git -C "$shared" status --porcelain --untracked-files=no 2>/dev/null || echo unreadable)" ]]; then
+    echo "$said: has tracked changes; left as it is at ${head:0:12}"
+    return 0
+  fi
+  if ! git -C "$shared" cat-file -e "$commit^{commit}" 2>/dev/null; then
+    git -C "$shared" fetch --quiet origin main 2>/dev/null || true
+  fi
+  if ! git -C "$shared" merge-base --is-ancestor HEAD "$commit" 2>/dev/null; then
+    echo "$said: its main has commits that are not on main; left as it is at ${head:0:12}"
+    return 0
+  fi
+  local out
+  if out="$(git -C "$shared" merge --ff-only --quiet "$commit" 2>&1)"; then
+    echo "$said: fast-forwarded to $commit"
+  else
+    echo "$said: the fast-forward failed; left as it is at ${head:0:12}: $(tr '\n' ' ' <<<"$out")"
+  fi
+  return 0
+}
+
 window
 
 git -C "$top" fetch --quiet origin main
@@ -114,7 +215,38 @@ git -C "$top" merge-base --is-ancestor origin/main "$commit" ||
   die "$commit does not fast-forward origin/main of $repo; rebase onto it first"
 if [[ "$(git -C "$top" rev-parse origin/main)" == "$commit" ]]; then
   echo "push-main: $repo main is already $commit"
+  follow
   exit 0
+fi
+
+# Every commit the push adds carries its lineage (TD-400): a Change-Id and a
+# Claude-Session trailer, which the commit hooks write (scripts/git-hooks);
+# a worktree of a husky repository runs no hook, so its commits carry them
+# only when written by hand. A cherry-pick or rebase keeps them.
+missing=()
+while IFS=$'\x1f' read -r short change session subject; do
+  [[ -n "$short" ]] || continue
+  lacks=()
+  [[ -n "${change//[[:space:],]/}" ]] || lacks+=("Change-Id")
+  [[ -n "${session//[[:space:],]/}" ]] || lacks+=("Claude-Session")
+  if [[ ${#lacks[@]} -gt 0 ]]; then
+    missing+=("$short (no ${lacks[*]}) $subject")
+  fi
+done < <(git -C "$top" log --format='%h%x1f%(trailers:key=Change-Id,valueonly,separator=%x2C)%x1f%(trailers:key=Claude-Session,valueonly,separator=%x2C)%x1f%s' "origin/main..$commit")
+if [[ ${#missing[@]} -gt 0 ]]; then
+  if [[ -z "$NO_LINEAGE" ]]; then
+    {
+      echo "push-main: ${#missing[@]} commit(s) of origin/main..$commit carry no lineage (Change-Id and Claude-Session trailers); nothing pushed:"
+      printf '  %s\n' "${missing[@]}"
+      echo "  add them (git commit --amend --trailer, or rebase), or push with --no-lineage <reason> for commits made outside a Claude session"
+    } >&2
+    exit 1
+  fi
+  echo "push-main: --no-lineage: $NO_LINEAGE"
+  echo "push-main: pushed without lineage, by that reason:"
+  printf '  %s\n' "${missing[@]}"
+elif [[ -n "$NO_LINEAGE" ]]; then
+  echo "push-main: --no-lineage given ($NO_LINEAGE), but every commit carries its lineage"
 fi
 
 if [[ "$GATED" == *" $repo "* ]]; then
@@ -135,3 +267,4 @@ fi
 window
 git -C "$top" push origin "$commit:refs/heads/main"
 echo "push-main: pushed $commit to $repo main"
+follow
