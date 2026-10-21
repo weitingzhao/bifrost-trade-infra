@@ -525,6 +525,122 @@ class PushMain(unittest.TestCase):
         self.assertIn(f"shared checkout {self.shared_root / 'bifrost-platform'}: none there; nothing followed", r.stdout)
 
 
+    # TD-413: the repo's fast tests run on the clean worktree of the commit,
+    # and a failure refuses the push; --skip-tests <reason> skips them.
+    def _infra(self) -> tuple[Path, Path]:
+        """A fixture bifrost-trade-infra whose main has one passing test."""
+        root = Path(self._tmp.name)
+        origin = root / "remote" / "bifrost-trade-infra.git"
+        _git(root, "init", "--quiet", "--bare", "--initial-branch=main", str(origin))
+        work = root / "work" / "bifrost-trade-infra"
+        _git(root, "clone", "--quiet", str(origin), str(work))
+        _git(work, "checkout", "--quiet", "-b", "main")
+        (work / "scripts" / "release").mkdir(parents=True)
+        (work / "scripts" / "release" / "test_ok.py").write_text("def test_ok():\n    assert True\n")
+        _git(work, "add", "scripts")
+        _commit(work, "init")
+        _git(work, "push", "--quiet", "origin", "main")
+        return origin, work
+
+    def _add(self, work: Path, rel: str, text: str) -> str:
+        (work / rel).parent.mkdir(parents=True, exist_ok=True)
+        (work / rel).write_text(text)
+        _git(work, "add", rel)
+        return _commit(work, rel)
+
+    def test_a_commit_whose_infra_test_fails_is_refused(self) -> None:
+        origin, work = self._infra()
+        before = _git(origin, "rev-parse", "main")
+        self._add(work, "scripts/agentrt/test_planted.py", "def test_planted_failure():\n    assert 1 == 2\n")
+        r = self._push(cwd=work)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("tests of bifrost-trade-infra: python3 -m pytest -q scripts/release scripts/agentrt", r.stdout)
+        self.assertIn("test_planted_failure", r.stdout)
+        self.assertIn("the tests of bifrost-trade-infra failed on", r.stderr)
+        self.assertEqual(_git(origin, "rev-parse", "main"), before)
+        self.assertEqual(_git(work, "worktree", "list").count("\n"), 0, "the test worktree was left behind")
+
+    def test_skip_tests_pushes_and_says_why(self) -> None:
+        origin, work = self._infra()
+        head = self._add(work, "scripts/agentrt/test_planted.py", "def test_planted_failure():\n    assert 1 == 2\n")
+        for empty in ("", " "):
+            r = self._push("--skip-tests=" + empty, cwd=work)
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertIn("--skip-tests needs a reason", r.stderr)
+        r = self._push("--skip-tests=the Owner's hotfix; the suite runs after", cwd=work)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("--skip-tests: the Owner's hotfix; the suite runs after; the tests of bifrost-trade-infra were not run", r.stdout)
+        self.assertNotIn("test_planted_failure", r.stdout)
+        self.assertEqual(_git(origin, "rev-parse", "main"), head)
+
+    def test_passing_infra_tests_push_and_the_working_tree_does_not_count(self) -> None:
+        origin, work = self._infra()
+        head = self._add(work, "scripts/agent-host/test_fine.py", "def test_fine():\n    assert 2 == 2\n")
+        # Another session's uncommitted failing test is not the commit's.
+        (work / "scripts" / "release" / "test_wip.py").write_text("def test_wip():\n    assert False\n")
+        r = self._push(cwd=work)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("the tests of bifrost-trade-infra passed", r.stdout)
+        self.assertNotIn("test_wip", r.stdout)
+        self.assertEqual(_git(origin, "rev-parse", "main"), head)
+
+    def _go_module(self) -> None:
+        """The fixture platform gets api/: package a (passing) and package
+        b, whose test fails, both on main."""
+        api = self.work / "api"
+        (api / "internal" / "a").mkdir(parents=True)
+        (api / "internal" / "b").mkdir(parents=True)
+        (api / "go.mod").write_text("module example.invalid/api\n\ngo 1.21\n")
+        (api / "internal" / "a" / "a.go").write_text("package a\n\nfunc A() int { return 1 }\n")
+        (api / "internal" / "a" / "a_test.go").write_text(
+            'package a\n\nimport "testing"\n\nfunc TestA(t *testing.T) {\n\tif A() != 1 {\n\t\tt.Fatal("A")\n\t}\n}\n')
+        (api / "internal" / "b" / "b.go").write_text("package b\n\nfunc B() int { return 2 }\n")
+        (api / "internal" / "b" / "b_test.go").write_text(
+            'package b\n\nimport "testing"\n\nfunc TestB(t *testing.T) {\n\tif B() != 3 {\n\t\tt.Fatal("planted: B is not 3")\n\t}\n}\n')
+        _git(self.work, "add", "api")
+        _commit(self.work, "api")
+        _git(self.work, "push", "--quiet", "origin", "main")
+
+    def test_platform_tests_the_packages_it_touches(self) -> None:
+        self._go_module()
+        # Package a touched: vet and a's tests pass; b, red on main, is not run.
+        head = self._add(self.work, "api/internal/a/a2.go", "package a\n\nfunc A2() int { return A() + 1 }\n")
+        r = self._push()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("tests of bifrost-platform: go vet ./...", r.stdout)
+        self.assertIn("tests of bifrost-platform: go test ./internal/a/", r.stdout)
+        self.assertNotIn("internal/b", r.stdout)
+        self.assertEqual(self._remote_main(), head)
+        # Package b touched: its failing test refuses the push.
+        self._add(self.work, "api/internal/b/b2.go", "package b\n\nfunc B2() int { return B() }\n")
+        r = self._push()
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("go test ./internal/b/", r.stdout)
+        self.assertIn("planted: B is not 3", r.stdout)
+        self.assertIn("the tests of bifrost-platform failed", r.stderr)
+        self.assertEqual(self._remote_main(), head)
+
+    def test_platform_vet_refuses(self) -> None:
+        self._go_module()
+        before = self._remote_main()
+        self._add(self.work, "api/internal/a/bad.go",
+                  'package a\n\nimport "fmt"\n\nfunc Bad() string { return fmt.Sprintf("%d", "not a number") }\n')
+        r = self._push()
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("go vet", r.stdout + r.stderr)
+        self.assertIn("the tests of bifrost-platform failed", r.stderr)
+        self.assertEqual(self._remote_main(), before)
+
+    def test_a_repo_without_fast_tests(self) -> None:
+        # The fixture platform without api/ says so and pushes; a repo with no
+        # test set says it has none.
+        head = self._change("t.txt")
+        r = self._push()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("bifrost-platform has no api/go.mod; no tests run", r.stdout)
+        self.assertEqual(self._remote_main(), head)
+
+
 class GithubRepo(unittest.TestCase):
     """push-main.sh github_repo and preflight.js githubRepoOf answer the same
     cases (review 244 item 9); the Node side is in agent-guard/test.js."""

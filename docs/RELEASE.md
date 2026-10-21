@@ -202,6 +202,11 @@ scripts/release/push-main.sh <checkout> <sha>
 `push-main.sh`（TD-341）先跑 `release.sh window`，再在 `<sha>` 的干净 worktree 上跑和 CI 同一份 code-health 扫描（只对 CI 有 code-health 任务的仓库：platform、trade-frontend、research、trade-api / core / worker），过了才 `git push origin <sha>:refs/heads/main`，只接受快进，推之前再查一次窗口。直接 `git push` 到 main 由 `preflight.js` 拦截。
 
 - **血缘（TD-400）**：扫描之前先查 `origin/main..<sha>` 里的每个提交，必须同时带 `Change-Id` 和 `Claude-Session` 两个尾注。缺的会逐个点名，然后拒推。husky 仓库新开的 worktree 不跑钩子，在那里提交要自己补 `--trailer`。cherry-pick 和 rebase 保留原尾注。不在 Claude 会话里做的提交（比如 Owner 自己的），用 `push-main.sh --no-lineage <理由> <checkout> <sha>` 推，理由和这些提交会打在输出里。
+- **快测试（TD-413）**：在扫描用的那个干净 worktree 里接着跑这个仓库的快测试，失败就拒推。worktree 旁边会链接工作区里的其他仓库，因为测试会读它们。
+  - infra：`python3 -m pytest -q scripts/release scripts/agentrt scripts/agent-host`，实测约 5 分钟。
+  - platform：`go vet ./...`，再加 `origin/main..<sha>` 改过的包的 `go test`。没设 `AGENTRT_TEST_PG` 时，数据库测试会跳过。
+  - 其他仓库暂时不跑。
+  - 退出码按原样读，不经过管道。真跑不了时用 `--skip-tests <理由>`，理由会打在输出里。
 - **共用检出跟上 main（TD-408）**：推成功后，或者 main 已经是这个提交时，工作区里这个仓库的共用检出（`<工作区>/<repo>`；各会话的 MCP 和本机构建都从它跑）同时满足下面几条，就快进到刚推的提交：在 main 上、没有已跟踪的改动、origin 相同、不是推送来源本身、能快进。有一条不满足就不动它，在输出里说明原因（`push-main: shared checkout …: …`）。这一步不会让推送失败。工作区是 infra 主 worktree 的上一级目录，可以用 `PUSH_MAIN_SHARED_ROOT` 指定别处。
 
 `release.sh window` 没有窗口时 exit 0，有窗口时打印持有者并 exit 1。任何会话在**推 Trade 任一仓库的 main**

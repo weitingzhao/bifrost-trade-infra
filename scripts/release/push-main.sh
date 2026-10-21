@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Push a commit to a repo's main the way CI will judge it (TD-341).
 #
-#   push-main.sh [--no-lineage <reason>] <checkout> [<commit>]
+#   push-main.sh [--no-lineage <reason>] [--skip-tests <reason>] <checkout> [<commit>]
 #                                          <commit> defaults to the checkout's HEAD
 #
 # 1. The release window must be closed (release.sh window), checked again
@@ -15,8 +15,16 @@
 #    fresh worktree of exactly <commit> (not the working tree, which may hold
 #    other sessions' edits), so a metric over its baseline (a file over 800
 #    lines, say) is refused here instead of turning main red.
-# 5. git push origin <commit>:refs/heads/main.
-# 6. The repo's shared checkout in the workspace (<workspace>/<repo>, where
+# 5. The repo's fast tests run on that same clean worktree (TD-413), and a
+#    failure refuses the push: infra's pytest of scripts/release,
+#    scripts/agentrt and scripts/agent-host; platform's go vet ./... and
+#    go test of the packages origin/main..<commit> touches. Their exit code
+#    is read as it is, never through a pipe (twice a pusher's pipe hid a red
+#    test, LESSONS 186). --skip-tests <reason> skips them and prints why.
+#    The worktree has the workspace's repositories beside it, as the tests
+#    read them.
+# 6. git push origin <commit>:refs/heads/main.
+# 7. The repo's shared checkout in the workspace (<workspace>/<repo>, where
 #    every session's MCP servers and dev builds run from) follows main
 #    (TD-408): it is fast-forwarded to <commit> when it is on main with no
 #    tracked changes, has the same origin and is not the checkout pushed
@@ -25,13 +33,13 @@
 #    network or a hook.
 #
 # preflight.js refuses a direct `git push` to main, so this is the way an
-# agent pushes main. go test and lint stay in the pusher's own routine: they
-# need the repo's toolchain and take minutes. The scan uses the baselines of
-# the infra checkout this script lives in; CI uses infra main's.
+# agent pushes main. The full suites and lint stay in the pusher's own
+# routine and CI. The scan uses the baselines of the infra checkout this
+# script lives in; CI uses infra main's.
 set -euo pipefail
 
 usage() {
-  echo "usage: push-main.sh [--no-lineage <reason>] <checkout> [<commit>]" >&2
+  echo "usage: push-main.sh [--no-lineage <reason>] [--skip-tests <reason>] <checkout> [<commit>]" >&2
   exit 2
 }
 die() {
@@ -39,6 +47,7 @@ die() {
   exit 1
 }
 NO_LINEAGE=""
+SKIP_TESTS=""
 args=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -50,6 +59,16 @@ while [[ $# -gt 0 ]]; do
     --no-lineage=*)
       NO_LINEAGE="${1#--no-lineage=}"
       [[ -n "${NO_LINEAGE//[[:space:]]/}" ]] || die "--no-lineage needs a reason"
+      shift
+      ;;
+    --skip-tests)
+      [[ $# -ge 2 && -n "${2//[[:space:]]/}" ]] || die "--skip-tests needs a reason"
+      SKIP_TESTS="$2"
+      shift 2
+      ;;
+    --skip-tests=*)
+      SKIP_TESTS="${1#--skip-tests=}"
+      [[ -n "${SKIP_TESTS//[[:space:]]/}" ]] || die "--skip-tests needs a reason"
       shift
       ;;
     -*) usage ;;
@@ -266,19 +285,111 @@ elif [[ -n "$NO_LINEAGE" ]]; then
   echo "push-main: --no-lineage given ($NO_LINEAGE), but every commit carries its lineage"
 fi
 
-if [[ "$GATED" == *" $repo "* ]]; then
+# The repos with fast tests here (TD-413); the others have none yet.
+has_tests() {
+  [[ "$repo" == "bifrost-trade-infra" || "$repo" == "bifrost-platform" ]]
+}
+
+# neighbours <dir> — the workspace's repositories beside the clean worktree
+# in <dir>, as the tests find them in the workspace (platform's read
+# ../bifrost-trade-infra and ../bifrost-ui): infra is the checkout this
+# script lives in, the others the workspace's own; links only.
+neighbours() {
+  local dir="$1" root entry name
+  [[ "$repo" == "bifrost-trade-infra" ]] || ln -s "$(cd "$HERE/../.." && pwd -P)" "$dir/bifrost-trade-infra"
+  root="$(shared_root || true)"
+  [[ -n "$root" && -d "$root" ]] || return 0
+  for entry in "$root"/bifrost-* "$root/scripts"; do
+    name="$(basename "$entry")"
+    [[ -e "$entry" && "$name" != "$repo" && ! -e "$dir/$name" ]] || continue
+    ln -s "$entry" "$dir/$name"
+  done
+}
+
+# run_tests <worktree> — the repo's fast tests in the clean worktree, their
+# exit code as it is.
+run_tests() {
+  local tree="$1" rc=0 p
+  case "$repo" in
+    bifrost-trade-infra)
+      local paths=()
+      for p in scripts/release scripts/agentrt scripts/agent-host; do
+        [[ -d "$tree/$p" ]] && paths+=("$p")
+      done
+      if [[ ${#paths[@]} -eq 0 ]]; then
+        echo "push-main: none of the test directories of $repo is there; no tests run"
+        return 0
+      fi
+      echo "push-main: tests of $repo: python3 -m pytest -q ${paths[*]}"
+      (cd "$tree" && python3 -m pytest -q -p no:cacheprovider "${paths[@]}") || rc=$?
+      ;;
+    bifrost-platform)
+      if [[ ! -f "$tree/api/go.mod" ]]; then
+        echo "push-main: $repo has no api/go.mod; no tests run"
+        return 0
+      fi
+      echo "push-main: tests of $repo: go vet ./..."
+      (cd "$tree/api" && go vet ./...) || rc=$?
+      [[ "$rc" -eq 0 ]] || return "$rc"
+      local touched dirs=() file dir
+      touched="$(git -C "$top" diff --name-only "origin/main..$commit" -- 'api/*.go')" || return 1
+      while IFS= read -r file; do
+        [[ -n "$file" && "$file" != */testdata/* ]] || continue
+        dir="$(dirname "$file")"
+        [[ -d "$tree/$dir" ]] && compgen -G "$tree/$dir/*.go" >/dev/null || continue
+        dir=".${dir#api}/"
+        [[ " ${dirs[*]:-} " == *" $dir "* ]] || dirs+=("$dir")
+      done <<<"$touched"
+      if [[ ${#dirs[@]} -eq 0 ]]; then
+        echo "push-main: no Go package of $repo is touched; go vet only"
+        return 0
+      fi
+      [[ -n "${AGENTRT_TEST_PG:-}" ]] || echo "push-main: AGENTRT_TEST_PG is not set: the database tests skip"
+      echo "push-main: tests of $repo: go test ${dirs[*]}"
+      (cd "$tree/api" && go test "${dirs[@]}") || rc=$?
+      ;;
+  esac
+  return "$rc"
+}
+
+gated=false
+[[ "$GATED" == *" $repo "* ]] && gated=true
+testing=false
+if has_tests && [[ -z "$SKIP_TESTS" ]]; then
+  testing=true
+fi
+if $gated || $testing; then
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/push-main.XXXXXX")"
   cleanup() {
     git -C "$top" worktree remove --force "$tmp/$repo" >/dev/null 2>&1 || true
+    find "$tmp" -mindepth 1 -maxdepth 1 -type l -delete 2>/dev/null || true
     rmdir "$tmp" 2>/dev/null || true
   }
   trap cleanup EXIT
   git -C "$top" -c core.hooksPath=/dev/null worktree add --quiet --detach "$tmp/$repo" "$commit"
+fi
+if $gated; then
   rc=0
   bash "$SCAN" --root "$tmp" --repo "$repo" || rc=$?
   [[ "$rc" -eq 0 ]] || die "code-health refused $commit of $repo (exit $rc); nothing pushed"
 else
   echo "push-main: $repo has no code-health task in CI; not scanned"
+fi
+if $testing; then
+  neighbours "$tmp"
+  started=$SECONDS
+  rc=0
+  run_tests "$tmp/$repo" || rc=$?
+  [[ "$rc" -eq 0 ]] || die "the tests of $repo failed on $commit (exit $rc); nothing pushed"
+  echo "push-main: the tests of $repo passed ($((SECONDS - started)) s)"
+elif [[ -n "$SKIP_TESTS" ]]; then
+  if has_tests; then
+    echo "push-main: --skip-tests: $SKIP_TESTS; the tests of $repo were not run"
+  else
+    echo "push-main: --skip-tests given ($SKIP_TESTS), but $repo has no fast tests here"
+  fi
+else
+  echo "push-main: $repo has no fast tests here; none run"
 fi
 
 window
