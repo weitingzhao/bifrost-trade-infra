@@ -40,4 +40,10 @@ if [ -f "$top/scripts/check_http_metrics_coverage.py" ] && [ -f "$top/scripts/ch
   fi
   (cd "$top" && "$@" scripts/check_http_metrics_coverage.py && "$@" scripts/check_alert_routing.py) || exit 1
 fi
+# TD-396: the chief exam's grading keys never enter infra, which Agent hosts
+# check out and GitHub publishes. Checks the staged copies; prints the file and
+# the kind of key, never the key.
+if [ -n "$staged" ] && [ -f "$top/scripts/agentrt/test_no_exam_keys.py" ]; then
+  python3 -I "$top/scripts/agentrt/test_no_exam_keys.py" --staged || exit 1
+fi
 exit 0
