@@ -2282,7 +2282,7 @@
 
 **P2 · agentrt · nothing writes a gate verification, so no architecture row can ever be ticked**
 
-- **状态**：未开始（2026-10-20 17:5x 统筹线程记；Gate A 补跑线 F-T33；归第 2 轮 2.5 架构对照的收尾）
+- **状态**：在做（2026-10-20 20:5x Owner 定 B：「发版后运行时按架构对照的行派门槛任务，06 上的确定性执行者在部署的提交上跑，记成 gate 验收」；不选 CI 上报（新路由 + CI 令牌）和手工登记。交给 TD-395 修复线 local_5a7f60ae：先写短设计、Codex 复核，再实现；要库的门槛依赖 TD-403（每次尝试临时测试库），门槛任务一律 AGENTRT_TEST_REQUIRED=1，缺库就是失败、不能跳过当通过）。 此前：未开始（2026-10-20 17:5x 统筹线程记；Gate A 补跑线 F-T33；归第 2 轮 2.5 架构对照的收尾）
 - **Claim**: the architecture comparison (ARCH, 17 rows) ticks a row when its gate tests passed (`agentrt.verification` with method 'gate') against what the environment runs. No code path writes a verification with method 'gate': tests insert such rows directly (`progressarch_test.go`), and no route, CI step or controller loop records a gate run. So every row stays unknown on STG and PROD, whatever passes.
 - **Evidence**: gate-a-rest hand-back (side-session note gate-a-rest-2026-10-20.md, F-T33); `bifrost-platform` `git grep "'gate'"` finds the method only in the schema, the reader and tests; RUN-gate-a-stg-2026-10-15.md 10-20 section (T33).
 - **Impact**: the page meant to show how much of the architecture is real cannot show anything but unknown.
