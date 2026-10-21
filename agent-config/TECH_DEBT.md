@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-407** — 一题没答的考卷能作废了：审批目录的 D 级动作 `void_exam_paper`，只能你在 Console 批，平台执行；作废只了结那张卷、不判分不计成绩，有答案的卷不能作废（platform `bb6b5a3e`，STG）。验收：PASS 2026-10-20，作废后同晚 22:50 坐考开始。防线：`RATCHETS.md`「只有没答过的卷能作废」。后续：无后续：PROD 没有考题，用到时随下一张 PROD 单。
 - **TD-401** — 已答的卡不再起 AI 评估、也不计进参谋长能力分（前半，PROD 与 STG）；STG 上规则会答的卡干脆不评估，needs_owner 的卡和审批单照常，PROD、DEV 每张都评估（后半，按你 20:0x 的话）。platform `e7a2a2b2`（前半，#56 上 PROD）、`9707ab68`（后半，STG）。验收：PASS 2026-10-20，STG 十张规则答掉的新卡零评估。防线：`RATCHETS.md`「评估不白跑」。后续：无后续：后半只在 STG 打开，PROD 上同样的卡照常评估，下一张 PROD 单顺带。
 - **TD-395** — 所有执行者都被连续失败撤下的 ready 任务改成 blocked 并出卡，推荐「不做这件」（R6，防 STG 自动答进死循环）；「再给一轮」给每个被撤下的执行者各一次（platform `e7a2a2b2`，#56 上 PROD）。验收：PASS 2026-10-20，PROD 上线后第一轮巡检 M-22 出卡 Q20、点名三家。防线：`RATCHETS.md`「没人能领的任务出卡」。后续：TD-406（从来没人能领、没有被撤下的任务仍不出卡）；TD-394 补记的「准备步骤失败算到执行者头上」。
 - **TD-399** — 领活的长轮询截止落在提交里时不再答错：每次轮询有自己的上限、不被截止切断，提交仍失败就回读这次的尝试在不在再照实回答（platform `e7a2a2b2`，在 STG）。验收：PASS 2026-10-20，两条防线测试各 20/20。防线：`RATCHETS.md`「领活截止落在提交里」。后续：无后续：agentd 途中断开仍可能被租给它（约 17 分钟后重发），要新协议，修复线和两轮复核都认为不值得单独记债。
@@ -2175,13 +2176,14 @@
 
 **P2 · agentrt · exam · a paper agentd refuses before any question runs still holds the executor for 24 hours: no sitting until it lapses**
 
-- **状态**：在做（2026-10-20 21:0x Owner 开口子：「TD-407 开口子：加一个只有我能用的『作废一题没答的卷』，只改平台、不碰题目和评分，发 STG 后我今晚坐考」。做法：审批目录加动作「作废没答过的卷」，统筹线程建单、Owner 在 Console 批、平台执行器执行；交给参谋长考试 S5 线 local_4847e277）。 此前：未开始（2026-10-20 21:0x 统筹线程记；Owner「不用等明天」，坐考卡在这张卷上）
+- **状态**：待你签收（2026-10-20 22:5x）。 此前：在做（2026-10-20 21:0x Owner 开口子：「TD-407 开口子：加一个只有我能用的『作废一题没答的卷』，只改平台、不碰题目和评分，发 STG 后我今晚坐考」。做法：审批目录加动作「作废没答过的卷」，统筹线程建单、Owner 在 Console 批、平台执行器执行；交给参谋长考试 S5 线 local_4847e277）。 此前：未开始（2026-10-20 21:0x 统筹线程记；Owner「不用等明天」，坐考卡在这张卷上）
 - **Claim**: `store/exam.go` issueExam refuses a new paper while the executor has an ungraded one that has not expired (`ExamPaperLife = 24h`), and a paper is graded only when its answers are recorded or it lapses. When agentd refuses a paper before running it (its checkPaper: STG 2026-10-20 22:31Z, paper `526ca46ad0db…`, three items with short commits), nothing tells the platform, so the paper stays open with no answers until 2026-10-21 22:31Z and the Owner's next sitting is refused with 409 ("exec:claude has paper … open until …").
 - **Evidence**: `api/internal/agentrt/store/exam.go:296-304`; agentd log 2026-10-21 00:27Z (409); the exam log `~/agent-work/agent-06-logs/exam-claude-20261020T192719-94563.txt`.
 - **Impact**: one bad paper (or one agentd crash before the first answer) blocks the chief's exam for a day; the qualifying path waits on a clock, not on work.
 - **Fix**: let a paper with no recorded answer be voided: either agentd reports its refusal and the platform closes the paper at once (graded as void, not as a fail), or an Owner-only route voids an unanswered paper. Either touches the exam package (exam freeze: the Owner opens the exception).
 - **Ratchet**: a store test: a paper with no answers can be voided and a new paper is issued at once; a paper with any answer cannot be voided.
 - 验收: on STG, the open paper is voided and the Owner's next `exam claude` sitting starts.
+- 验收结果：PASS 2026-10-20 platform `bb6b5a3e` 在 STG：Owner 22:08 批 STG 审批单 #1（D 级），22:08:34 考试流记作废 note、带单号 `appr_4ebf3b9e0447ee79`；22:50:26 Owner 坐考，新卷发出、开始交答案
 - 审批 要（动考试包，考试冻结期内由 Owner 开口子；Owner 专用路由是新接口）· 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-406
