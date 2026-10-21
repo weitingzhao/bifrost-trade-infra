@@ -25,7 +25,7 @@ Environment=LANG=C.UTF-8
 Environment=PATH=/opt/bifrost/codex/bin:/usr/local/go/bin:/usr/local/lib/nodejs/current/bin:/usr/local/bin:/usr/bin:/bin:/home/bifrost-agentd-stg/.local/bin
 Environment=AGENTD_PLATFORM=http://192.168.10.73:30878/api/v1/agentrt
 Environment=AGENTD_HOST=agent-06-stg
-Environment=AGENTD_TOOLS=exec:codex=openai,exec:cursor=cursor-mix,exec:claude=anthropic:opus,exec:deterministic=local
+Environment=AGENTD_TOOLS=exec:codex=openai,exec:cursor=cursor-mix,exec:claude=anthropic:claude-opus-5-5,exec:deterministic=local
 Environment=AGENTD_GIT_BASE=http://192.168.10.73:30300/bifrost
 Environment=AGENTD_ROOT=/home/bifrost-agentd-stg/agent-work/agentd
 Environment=AGENTD_TOKEN_FILE=/home/bifrost-agentd-stg/.config/bifrost/agentd.token

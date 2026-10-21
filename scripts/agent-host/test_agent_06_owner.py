@@ -314,6 +314,31 @@ def unit_lines(name: str) -> list[str]:
     return [ln.strip() for ln in (HERE / name).read_text().splitlines() if ln.strip() and not ln.startswith("#")]
 
 
+class ClaudeModelPinned(unittest.TestCase):
+    """Routing matches a candidate's model_pattern against the model a host offers for its tool (platform
+    store/route.go fits). job:chief_of_staff v2 pins its candidate to the model the chief's exam was sat with
+    (W-31 2.4 chief exam S5, the Owner 2026-10-20), so every agentd unit on 06 offers exec:claude as that full
+    model id, never an alias such as opus that may move to another model, and all of them offer the same tools."""
+
+    UNITS = ("bifrost-agentd.service", "bifrost-agentd-stg.service", "bifrost-agentd-exam@.service", "bifrost-agentd-bench@.service")
+
+    def tools(self, unit: str) -> str:
+        found = [ln.split("=", 2)[2] for ln in unit_lines(unit) if ln.startswith("Environment=AGENTD_TOOLS=")]
+        self.assertEqual(len(found), 1, unit)
+        return found[0]
+
+    def test_every_unit_offers_the_same_tools(self) -> None:
+        self.assertEqual({self.tools(u) for u in self.UNITS}, {self.tools(self.UNITS[0])})
+
+    def test_claude_is_offered_as_a_full_model_id(self) -> None:
+        for unit in self.UNITS:
+            claude = [t for t in self.tools(unit).split(",") if t.startswith("exec:claude=")]
+            self.assertEqual(len(claude), 1, unit)
+            provider, _, model = claude[0].split("=", 1)[1].partition(":")
+            self.assertEqual(provider, "anthropic", unit)
+            self.assertRegex(model, r"^claude-[a-z]+-[0-9]+(-[0-9]+)*$", f"{unit}: exec:claude offers {model!r}, not a full model id")
+
+
 class ExamUnit(unittest.TestCase):
     """The exam's unit is the STG agentd's as it works (W-31 2.4 chief exam S4): its user, its environment and
     sandbox; it stops the STG agentd and starts it again; and it hides what the seat could read."""
