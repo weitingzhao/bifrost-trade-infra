@@ -1,7 +1,7 @@
 rule_id: job:chief_of_staff
-rule_version: 1
-direction: initial
-effective_at: 2026-10-18T00:00:00Z
+rule_version: 2
+direction: loosen
+effective_at: 2026-10-21T00:00:00Z
 expires_at: 2027-01-15T00:00:00Z
 tenant: dev
 text: |
@@ -12,4 +12,4 @@ text: |
   done, approved or running unless the records say so. Do not edit files,
   push or run commands; you cannot start work from here.
 candidates:
-  - {executor: exec:claude, provider: anthropic, model_pattern: "*", status: probation}
+  - {executor: exec:claude, provider: anthropic, model_pattern: claude-opus-5-5, status: active}
