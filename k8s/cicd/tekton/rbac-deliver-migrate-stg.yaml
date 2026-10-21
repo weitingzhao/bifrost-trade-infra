@@ -1,0 +1,36 @@
+# TD-411: bifrost-deliver-platform runs STG's agentrt migrations before it rolls
+# out (task-agentrt-migrate-stg.yaml). The deliver ServiceAccount may create and
+# read Jobs, and read their pods' logs, in bifrost-platform-stg only; nothing in
+# bifrost-platform-prod (PROD's migrations stay the Owner's Job).
+#
+# What this adds: tekton-deliver already patches deployments in this namespace
+# (rbac-deliver-platform.yaml), which already lets it run a pod of its choosing
+# with any ServiceAccount and Secret here; a Job adds no reach beyond that. It
+# cannot update, patch or delete a Job: a migration Job it made is left for its
+# TTL, as the Owner's are.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tekton-deliver-migrate
+  namespace: bifrost-platform-stg
+rules:
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [create, get]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-deliver-migrate
+  namespace: bifrost-platform-stg
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tekton-deliver-migrate
+subjects:
+  - kind: ServiceAccount
+    name: tekton-deliver
+    namespace: cicd

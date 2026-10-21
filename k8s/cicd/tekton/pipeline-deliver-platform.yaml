@@ -1,4 +1,4 @@
-# Ops Platform deliver — Gitea clone → Kaniko (api + console) → rollout → Argo sync.
+# Ops Platform deliver — Gitea clone → Kaniko (api + console) → agentrt-migrate → rollout → Argo sync.
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
@@ -9,7 +9,8 @@ metadata:
 spec:
   description: >-
     Mirror-sync bifrost-platform → build platform-api + platform-console images →
-    rollout bifrost-platform-stg → Argo CD sync.
+    run STG's agentrt migrations with the api image built → rollout
+    bifrost-platform-stg → Argo CD sync.
   params:
     - name: revision
       type: string
@@ -135,10 +136,19 @@ spec:
       workspaces:
         - name: source
           workspace: build-context
+    # TD-411: the agentrt migrations of the api image just built (by digest) run on
+    # STG's database before anything else moves; a Job that fails stops the run here.
+    - name: agentrt-migrate
+      runAfter: [build-platform-api]
+      taskRef:
+        name: bifrost-agentrt-migrate-stg
+      params:
+        - name: apiDigest
+          value: $(tasks.build-platform-api.results.digest)
     # Sync ConfigMap (clusters.yaml grafana_url, etc.) before rollout so platform-api
     # reads updated config on pod start — not stale in-memory config from prior mount.
     - name: gitops-sync
-      runAfter: [build-platform-api, build-platform-console]
+      runAfter: [build-platform-api, build-platform-console, agentrt-migrate]
       taskRef:
         name: bifrost-argocd-sync-platform-stg
     - name: rollout

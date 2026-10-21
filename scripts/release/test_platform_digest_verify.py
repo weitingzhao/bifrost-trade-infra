@@ -756,7 +756,8 @@ def test_prod_pipeline_wiring():
         "recordApplication": "none",
     }
     assert not {"when", "onError", "retries"} & rollout.keys()
-    assert rollout["runAfter"] == ["build-platform-api", "build-platform-console"]
+    # TD-411: the rollout waits for the agentrt schema check as well.
+    assert rollout["runAfter"] == ["build-platform-api", "build-platform-console", "agentrt-schema"]
     sync = next(t for t in tasks if t["name"] == "gitops-sync")
     assert sync["runAfter"] == ["rollout"]
     assert max(names.index(n) for n in rollout["runAfter"]) < names.index("rollout") < names.index("gitops-sync")
@@ -826,10 +827,11 @@ def test_required_params_and_no_skip():
 
 def test_protected_files_unchanged():
     # Slice 3 changes only PROD rollout wiring; its new hash is pinned here.
-    # The shared legacy restart Task stays unchanged.
+    # TD-411 adds the agentrt schema check before the PROD rollout: the hash
+    # below is the file with it. The shared legacy restart Task stays unchanged.
     hashes = {
         "task-deliver-platform.yaml": "4795263ba3c5135c9c5bd5d1880626ab41558b32a47d33524fc18a45d89388e2",
-        "pipeline-deliver-platform-prod.yaml": "bd639722be4d473fb8b292ab09c5e1f9e1d191ccd266d5dc3126f935b01fa965",
+        "pipeline-deliver-platform-prod.yaml": "e680905e54a87a8444d0d332c3211d08f85bbca55b5364cdd68be665dd0dbee3",
     }
     for filename, expected in hashes.items():
         assert (

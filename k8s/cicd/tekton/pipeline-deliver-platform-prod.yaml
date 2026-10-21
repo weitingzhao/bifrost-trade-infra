@@ -1,4 +1,4 @@
-# Ops Platform PROD deliver — preflight STG health → Kaniko (:prod) → rollout → Argo sync.
+# Ops Platform PROD deliver — preflight STG health → Kaniko (:prod) → agentrt schema check → rollout → Argo sync.
 # Conservative L1 rollout: only proceeds when platform-stg is healthy.
 apiVersion: tekton.dev/v1
 kind: Pipeline
@@ -569,8 +569,116 @@ spec:
         - name: source
           workspace: build-context
 
+    # TD-411 (Owner 2026-10-21: PROD's migrations stay the Owner's Job): before the
+    # rollout, every agentrt migration this build carries must already be applied to
+    # PROD's database, with the same bytes, as PROD's platform-api says on /health
+    # (agentrt_schema_applied). If one is missing the run stops here and names the
+    # Job to create with this build's image; a health that does not say refuses too.
+    - name: agentrt-schema
+      runAfter: [build-platform-api]
+      workspaces:
+        - name: source
+          workspace: build-context
+      params:
+        - name: apiDigest
+          value: $(tasks.build-platform-api.results.digest)
+      taskSpec:
+        params:
+          - name: apiDigest
+            type: string
+        workspaces:
+          - name: source
+        steps:
+          - name: check
+            image: alpine/k8s:1.31.4
+            env:
+              - name: API_DIGEST
+                value: $(params.apiDigest)
+            script: |
+              #!/usr/bin/env python3
+              import hashlib, json, os, re, sys, time, urllib.request
+
+              HEALTH = "http://platform-api.bifrost-platform-prod.svc.cluster.local:8780/health"
+              SRC = "/workspace/source/bifrost-platform/api/internal/agentrt/migrations"
+              REGISTRY = "192.168.10.73:30500/bifrost-platform-api"
+              DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
+              FILE_RE = re.compile(r"([0-9]{4})_[a-z0-9_]+\.sql\Z")
+              SHA_RE = re.compile(r"[0-9a-f]{64}\Z")
+
+
+              def refuse(why, lines=()):
+                  for line in lines:
+                      print(line)
+                  print("REFUSED: agentrt migrations on PROD: " + why + "; nothing is rolled out")
+                  sys.exit(1)
+
+
+              def carried(src):
+                  out = {}
+                  for name in sorted(os.listdir(src)):
+                      m = FILE_RE.fullmatch(name)
+                      if m:
+                          with open(os.path.join(src, name), "rb") as f:
+                              out[int(m.group(1))] = (name[: -len(".sql")], hashlib.sha256(f.read()).hexdigest())
+                  return out
+
+
+              def health(url):
+                  last = ""
+                  for _ in range(3):
+                      try:
+                          with urllib.request.urlopen(url, timeout=10) as r:
+                              return json.loads(r.read().decode())
+                      except Exception as e:  # noqa: BLE001 - any failure is a refusal below
+                          last = str(e)
+                          time.sleep(5)
+                  refuse("PROD health %s could not be read: %s" % (url, last))
+
+
+              def main():
+                  digest = os.environ.get("API_DIGEST", "")
+                  if not DIGEST_RE.fullmatch(digest):
+                      refuse("invalid api digest %r" % digest)
+                  src = os.environ.get("MIGRATIONS_DIR", SRC)
+                  files = carried(src)
+                  if not files:
+                      refuse("this build carries no migrations under %s" % src)
+                  h = health(os.environ.get("HEALTH_URL", HEALTH))
+                  applied = h.get("agentrt_schema_applied")
+                  if not isinstance(applied, list):
+                      refuse("PROD's platform-api does not say which migrations its database has applied "
+                             "(agentrt_schema=%r and no agentrt_schema_applied: a platform older than TD-411's "
+                             "check, or its runtime is off or unread)" % h.get("agentrt_schema"))
+                  have = {}
+                  for e in applied:
+                      if (not isinstance(e, dict) or type(e.get("id")) is not int or not isinstance(e.get("sha256"), str)
+                              or not SHA_RE.fullmatch(e["sha256"])):
+                          refuse("PROD's agentrt_schema_applied holds %r, not an id and a sha256" % (e,))
+                      have[e["id"]] = e["sha256"]
+                  edited = [files[i][0] for i in sorted(files) if i in have and have[i] != files[i][1]]
+                  if edited:
+                      refuse("PROD's database ran other bytes for %s than this build carries (edited after it ran)"
+                             % ", ".join(edited))
+                  missing = [files[i][0] for i in sorted(files) if i not in have]
+                  if missing:
+                      image = REGISTRY + "@" + digest
+                      refuse("PROD's database misses %s, which this build carries" % ", ".join(missing), [
+                          "The Owner runs PROD's agentrt migrations first (its DDL approved), with this build's image:",
+                          "  sed 's#image: 192.168.10.73:30500/bifrost-platform-api:prod#image: %s#' "
+                          "k8s/agentrt-migrate/prod/job.yaml | kubectl create -f -" % image,
+                          "then watches the Job finish (k8s/agentrt-migrate/README.md) and starts this release again.",
+                      ])
+                  extra = sorted(set(have) - set(files))
+                  if extra:
+                      print("note: PROD's database has migrations this build does not carry: %s (an older build)" % extra)
+                  print("agentrt migrations: PROD's database has all %d this build carries (%s)"
+                        % (len(files), ", ".join(files[i][0] for i in sorted(files))))
+
+
+              main()
+
     - name: rollout
-      runAfter: [build-platform-api, build-platform-console]
+      runAfter: [build-platform-api, build-platform-console, agentrt-schema]
       taskRef:
         name: bifrost-rollout-verify-platform
       params:

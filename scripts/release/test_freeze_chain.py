@@ -184,9 +184,11 @@ class DominationTests(unittest.TestCase):
         self.assertNotIn("when", freezes[0])
         self.assertNotIn("runAfter", freezes[0])
         by_name = {task["name"]: task for task in tasks}
+        # TD-411: the rollout also waits for the agentrt schema check, itself after
+        # build-platform-api; still not for freeze-check, which runs once.
         self.assertEqual(
             by_name["rollout"]["runAfter"],
-            ["build-platform-api", "build-platform-console"],
+            ["build-platform-api", "build-platform-console", "agentrt-schema"],
         )
         self.assertNotIn("freeze-check", by_name["rollout"]["runAfter"])
         effects = fc.load_effects()
