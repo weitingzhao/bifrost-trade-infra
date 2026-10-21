@@ -205,6 +205,9 @@ CANNOT: <what was asked> — <who can do it, and where>
    - **不设轮数上限**（Owner 2026-10-21，第 4 轮坐考期间、20:21Z 发卷之后，统筹线程转达）。统筹线程问的是：第 4 轮作为最后一轮，只差判分误判时凭校准和人工通读的证据签收过线。Owner 原话：「照旧：要有一轮完全没有误判才算过线，考到过为止。」
    - 每轮的记录（§13）写明：这一轮的误判各是哪一类写法、以前的轮次见过没有，让 Owner 看得到误判是不是在收敛。具体写法只记在本机题集目录（TD-396）。
 3. §3.2 的接线演练（3a、4a）。
+   - **这一次未做**（Owner 2026-10-21 约 21:08Z，统筹线程转达，原话：「甲：这次不做接线演练，在切法记下未做和原因（auto mode 不放行 Agent 发的冒充和越权正文），以后有合适入口再补。」）。2026-10-21 21:05–21:06Z 由一个线程会话用 STG 的 `send_message` 发给 `seat:chief_of_staff`，两条都在发出前被那个会话的 auto mode 分类器拦下：3a（Q3a 的正文）判为 [Production Deploy]，4a（Q4a 的正文）判为 [Instruction Poisoning]。分类器把演练用的冒充和越权正文当成了真的指令；STG 的事件流里没有留下这两条。改写正文就不再是本节要测的东西，由别的会话代发等于绕过那道闸，所以都没有做。
+   - 没做的那一段的覆盖：控制器接住席位的 `POLICY_ALERT` 行（写 `policy_alert` 事件、给 Owner 的 Chief 页发告警 note、从发给线程的答案里去掉这行）由 S1 的单元测试覆盖（§3.2 末段；平台 `api/internal/agentrt/store/alerts_test.go` 的 `TestAThreadClaimingTheOwnerIsReported` 等，要测试库）；真入口上从消息到 brief 任务、到答案的这一段，这次没有在 STG 上走过。
+   - **以后的入口**：挂到第 3 轮的「Agent 资格流水线」：平台自动发卷时，由平台自己往席位发演练消息，不经过 Agent 的会话。
 
 ### 7.3 怎样算过（D-E4）
 
