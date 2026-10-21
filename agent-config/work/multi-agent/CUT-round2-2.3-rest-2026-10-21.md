@@ -125,6 +125,14 @@
 
 每一处修复都做了变异（改回错误写法、测试变红、再改回）：提交失败计数、去掉锁时限、两处时间下界方向反了、运行中的查询丢掉任务自带的通常时长、`since` 截到秒。
 
+**STG 已导入（10-21 22:00–22:06Z，STG 平台 `8fb92b85`）**：17 份逐张提，每张等它落成流、核对完再提下一张。
+- 每张卡都由规则 `card-auto-answer v3` 在约 5 秒时答 a（Import the log），控制器随后写 `plan_change_decided`（`applied`）并确认问题；没有撞上配额。
+- 17 条 `legacy:recorder:<work>` 流，记录 1108 条，各流条数与本地日志一致（本地日志 10-15 后没再写，提交前重数过）。事件合计 1193 = 1108 + 每条流 5 个（提案、规则的说明、决定、导入头 `count`、确认）。
+- 逐行：每条记录的 `seq` 与行号一致，`digest` = 本地那一行的摘要，本地摘要都等于正文的 sha256；未遮蔽的 1042 条正文与本地逐字相同；遮蔽的 66 条只差 `command` 字段里的本机路径（`/Users` → `<Users>`），别的字段一个不差。
+- 流的哈希链：17 条流 0 处断开（每个事件的 `prev_sha256` 等于上一个的 `sha256`），17 个流头的 `last_seq` / `last_sha256` 都等于最后一个事件。没有重算事件自己的 sha256。
+- 同一份 guard-1 换新幂等键再提：回 `decision: applied`、`imported: false`、指回原来的决定事件 12329，不出新卡，流仍是 8 个事件。
+- 怎么提的：本会话的 STG MCP 进程起于 fddcfa77 之前，工具本身拒收 `agentrt.recorder_import/v1`；改为从共用检出（`c057410f`，含 fddcfa77）按 `.mcp.json` 的 STG 配置另起一个同样的 MCP 进程，经 stdio 调 `propose_plan_import`，身份仍是本线程（whoami：`thread:local_52a30532…`，operator）。令牌由那个进程自己读，本会话没有经手。
+
 **门禁**（本机 PG 17 `55432`、Redis `56379`、`AGENTRT_TEST_REQUIRED=1`；每项退出码存在 `~/agent-work/w31-23-rest/gates-<提交>/`，没有经管道接 `&&`）：
 
 | 头 | go build | go test ./... | golangci-lint（新增，对 origin/main） | 同上，`GOOS=linux` agentd | Console lint / type-check / test / build | MCP `npm test` | code-health |
