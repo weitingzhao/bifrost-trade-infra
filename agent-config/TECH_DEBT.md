@@ -2176,7 +2176,7 @@
 
 **P2 · agentd · a reviewer is not shown the attempt's report, so the review of an effect-none task judges an empty workspace and fails correct work**
 
-- **状态**：在做（2026-10-21 00:0x 统筹线程记；Gate A 线 F-review-report；交给 TD-404 修复线 local_7c7c00ad，赶在 06 换 agentd 之前）
+- **状态**：在做（2026-10-21 00:2x：线 local_7c7c00ad 交回 785981f5 + 516dc3a3（复核收线 0 A）：验收和评审领活时带 subject_report_id、subject_effect，提示里给出被检尝试的报告；合进 platform `7c85ef76`（整套过），等 CI、发 STG；agentd 重编 agentd-7c85ef7，钉版在 infra 分支 w31/agentd-pin-d360a11，考完第 2 轮后合、Owner 跑 update-agentd）。 此前：在做（2026-10-21 00:0x 统筹线程记；Gate A 线 F-review-report；交给 TD-404 修复线 local_7c7c00ad，赶在 06 换 agentd 之前）
 - **Claim**: the review prompt (`api/internal/agentd/executors.go` `Prompt`, the `Spec.Check != ""` branch) carries the subject's spec and, after a passed deterministic check, its verify.json, but not the report the checked attempt handed in. An effect-none task pushes no commit, so its result is only in that report; the reviewer searches an empty checkout and fails it.
 - **Evidence**: STG M-93 (Gate A drill, implement effect none): the attempt slept 2700 s and reported `slept 2700 s`; both cursor reviews failed it for not finding the output; the task blocked and the card (no recommendation) was answered by the STG rule with "do not do this task", the mission stopped. RUN-gate-a-stg-2026-10-15.md 10-21 notes (infra `12b46f3`).
 - **Impact**: every effect-none task's review can fail correct work; on PROD such a card goes to the Owner.
