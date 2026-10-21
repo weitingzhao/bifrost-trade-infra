@@ -45,6 +45,9 @@
 #   confine-probe prod|stg   prove agentd's write wall on 06 as that agent user,
 #                         under its unit's confinement (TD-371; after
 #                         update-agentd); no model is called
+#   test-db-tools         install PostgreSQL 16's server and redis-server on
+#                         06 for agentd's per-attempt test databases (TD-403):
+#                         no cluster, no service started or enabled
 #
 # Every step stops at its first error and exits non-zero. No step prints a
 # credential. Each step but codex-login also keeps its output in
@@ -744,17 +747,24 @@ step_confine_probe() {
   node_ssh "sudo bash ~/agent-host/confine-probe.sh $u"
 }
 
+# test-db-tools: the programs agentd's per-attempt test databases need
+# (TD-403), installed by install-test-db-tools.sh, sent on stdin: it checks
+# before it writes, starts no service, and stops at its first error.
+step_test_db_tools() {
+  node_ssh 'sudo bash -s' < "$HERE/install-test-db-tools.sh"
+}
+
 # Sourced (by a test), stop here: only the functions are wanted.
 [ "${BASH_SOURCE[0]}" = "$0" ] || return 0
 
 step=${1:-}
 if [ -z "$step" ]; then
-  sed -n '2,51p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,54p' "$0" | sed 's/^# \{0,1\}//'
   exit 2
 fi
 shift
 case "$step" in
-  check | leave | uninstall | delete-node | copy | prepare | codex-login | vendor-creds | git-token | host-check | secret | stop | start | update-agentd | stg-vendors | bench | bench-log | exam | exam-log | retire-mac | probe-protection | confine-probe) ;;
+  check | leave | uninstall | delete-node | copy | prepare | codex-login | vendor-creds | git-token | host-check | secret | stop | start | update-agentd | stg-vendors | bench | bench-log | exam | exam-log | retire-mac | probe-protection | confine-probe | test-db-tools) ;;
   *) die "unknown step: $step" ;;
 esac
 fn=step_$(echo "$step" | tr - _)

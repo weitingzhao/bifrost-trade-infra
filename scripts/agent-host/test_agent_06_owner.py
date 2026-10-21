@@ -475,3 +475,41 @@ class PassphraseBeforeConnecting(unittest.TestCase):
                  "x", str(self.SCRIPT), str(key)],
                 capture_output=True, text=True, check=True)
             self.assertEqual(out.stdout.split(), ["loaded", "stopped"])
+class TestDBTools(unittest.TestCase):
+    """test-db-tools (TD-403): the install script goes to 06 on stdin, as it is, to `sudo bash -s`; the script
+    checks before it writes anything, and on a host that is not 06, or not as root, it writes nothing."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_the_script_goes_to_06_on_stdin(self) -> None:
+        got = self.root / "stdin"
+        script = (f'source "{HERE / "agent-06-owner.sh"}"; node_ssh() {{ echo "$1" > "{self.root}/cmd"; cat > "{got}"; }}; HERE="{HERE}"; step_test_db_tools')
+        r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual((self.root / "cmd").read_text().strip(), "sudo bash -s")
+        self.assertEqual(got.read_text(), (HERE / "install-test-db-tools.sh").read_text())
+
+    def install(self, uid: str, host: str) -> subprocess.CompletedProcess:
+        bindir = self.root / "bin"
+        bindir.mkdir(exist_ok=True)
+        calls = self.root / "calls"
+        for name, body in (("id", f'[ "$1" = -u ] && echo {uid}'), ("hostname", f"echo {host}")):
+            (bindir / name).write_text(f"#!/bin/sh\n{body}\n")
+        for name in ("apt-get", "systemctl", "chmod", "sed", "runuser", "pg_lsclusters"):
+            (bindir / name).write_text(f'#!/bin/sh\necho "{name} $*" >> "{calls}"\n')
+        for p in bindir.iterdir():
+            p.chmod(0o755)
+        env = {**os.environ, "PATH": f"{bindir}:/usr/bin:/bin"}
+        return subprocess.run(["bash", str(HERE / "install-test-db-tools.sh")], env=env, capture_output=True, text=True, timeout=60)
+
+    def test_it_writes_nothing_off_06_or_as_another_user(self) -> None:
+        for uid, host, why in (("1000", "ubt-k3s-06", "run it as root"), ("0", "vision-mac", "not ubt-k3s-06")):
+            r = self.install(uid, host)
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertIn(why, r.stderr)
+            self.assertFalse((self.root / "calls").exists(), (self.root / "calls").read_text() if (self.root / "calls").exists() else "")
