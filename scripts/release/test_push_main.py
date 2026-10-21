@@ -584,6 +584,76 @@ class PushMain(unittest.TestCase):
         self.assertNotIn("test_wip", r.stdout)
         self.assertEqual(_git(origin, "rev-parse", "main"), head)
 
+    # TD-413 docs: a push that changes only Markdown runs none of the tests
+    # but the document guards (the exam-key scan), and says so without a
+    # reason; one file that is not Markdown beside them runs every test.
+    def _infra_red(self) -> tuple[Path, Path]:
+        """The fixture infra with a test red on main and an exam-key guard."""
+        origin, work = self._infra()
+        self._add(work, "scripts/release/test_red.py", "def test_red_on_main():\n    assert False\n")
+        self._add(work, "scripts/agentrt/test_no_exam_keys.py",
+                  "import pathlib\n\n\ndef test_no_exam_key_in_a_document():\n"
+                  "    for p in pathlib.Path('.').rglob('*.md'):\n"
+                  "        assert 'EXAMKEY' not in p.read_text(), p\n")
+        _git(work, "push", "--quiet", "origin", "main")
+        return origin, work
+
+    def test_only_documentation_runs_only_the_document_guards(self) -> None:
+        origin, work = self._infra_red()
+        self._add(work, "README.md", "docs\n")
+        head = self._add(work, "notes/plan.md", "a plan\n")
+        r = self._push(cwd=work)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("only documentation changed: README.md, notes/plan.md; of the tests of bifrost-trade-infra only the document guards run",
+                      r.stdout)
+        self.assertIn("tests of bifrost-trade-infra: python3 -m pytest -q scripts/agentrt/test_no_exam_keys.py", r.stdout)
+        self.assertNotIn("test_red_on_main", r.stdout)
+        self.assertEqual(_git(origin, "rev-parse", "main"), head)
+        # A document an exam key went into is refused all the same.
+        self._add(work, "notes/keys.md", "EXAMKEY\n")
+        r = self._push(cwd=work)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("test_no_exam_key_in_a_document", r.stdout)
+        self.assertIn("the tests of bifrost-trade-infra failed", r.stderr)
+        self.assertEqual(_git(origin, "rev-parse", "main"), head)
+
+    def test_a_file_beside_the_documents_runs_every_test(self) -> None:
+        origin, work = self._infra_red()
+        before = _git(origin, "rev-parse", "main")
+        self._add(work, "README.md", "docs\n")
+        self._add(work, "scripts/helper.py", "X = 1\n")
+        r = self._push(cwd=work)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertNotIn("only documentation changed", r.stdout)
+        self.assertIn("tests of bifrost-trade-infra: python3 -m pytest -q scripts/release scripts/agentrt", r.stdout)
+        self.assertIn("test_red_on_main", r.stdout)
+        self.assertEqual(_git(origin, "rev-parse", "main"), before)
+
+    def test_a_rename_to_markdown_is_not_documentation_only(self) -> None:
+        origin, work = self._infra_red()
+        before = _git(origin, "rev-parse", "main")
+        (work / "notes").mkdir()
+        _git(work, "mv", "scripts/release/test_ok.py", "notes/test_ok.md")
+        _commit(work, "a test becomes a note")
+        r = self._push(cwd=work)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertNotIn("only documentation changed", r.stdout)
+        self.assertIn("test_red_on_main", r.stdout)
+        self.assertEqual(_git(origin, "rev-parse", "main"), before)
+
+    def test_platform_documentation_runs_no_test(self) -> None:
+        self._go_module()
+        for i in range(7):
+            self._add(self.work, f"docs/n{i}.md", f"note {i}\n")
+        head = _git(self.work, "rev-parse", "HEAD")
+        r = self._push()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("only documentation changed: docs/n0.md, docs/n1.md, docs/n2.md, docs/n3.md, docs/n4.md, and 2 more; "
+                      "the tests of bifrost-platform were not run", r.stdout)
+        self.assertNotIn("go vet", r.stdout)
+        self.assertNotIn("no fast tests", r.stdout)
+        self.assertEqual(self._remote_main(), head)
+
     def _go_module(self) -> None:
         """The fixture platform gets api/: package a (passing) and package
         b, whose test fails, both on main."""

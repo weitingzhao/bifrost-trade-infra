@@ -21,6 +21,8 @@
 #    go test of the packages origin/main..<commit> touches. Their exit code
 #    is read as it is, never through a pipe (twice a pusher's pipe hid a red
 #    test, LESSONS 186). --skip-tests <reason> skips them and prints why.
+#    A push that changes only Markdown (.md) runs none of them but the
+#    document guards (infra's exam-key scan): it says so and needs no reason.
 #    The worktree has the workspace's repositories beside it, as the tests
 #    read them.
 # 6. git push origin <commit>:refs/heads/main.
@@ -312,12 +314,15 @@ run_tests() {
   local tree="$1" rc=0 p
   case "$repo" in
     bifrost-trade-infra)
-      local paths=()
-      for p in scripts/release scripts/agentrt scripts/agent-host; do
-        [[ -d "$tree/$p" ]] && paths+=("$p")
+      local paths=() wanted=(scripts/release scripts/agentrt scripts/agent-host)
+      if $docs_only; then
+        wanted=("${DOC_GUARDS[@]}")
+      fi
+      for p in "${wanted[@]}"; do
+        [[ -e "$tree/$p" ]] && paths+=("$p")
       done
       if [[ ${#paths[@]} -eq 0 ]]; then
-        echo "push-main: none of the test directories of $repo is there; no tests run"
+        echo "push-main: none of the tests of $repo (${wanted[*]}) is there; no tests run"
         return 0
       fi
       echo "push-main: tests of $repo: python3 -m pytest -q ${paths[*]}"
@@ -357,11 +362,46 @@ run_tests() {
   return "$rc"
 }
 
+# Only documentation (TD-413): every file origin/main..<commit> changes is
+# Markdown, a rename read as its delete and its add (a .py renamed to .md is
+# not documentation only). Then only the tests that guard what documents
+# may hold run: infra's exam-key scan (exam keys stay out of a repository
+# agents check out, LESSONS 2026-10-19); platform's tests read no Markdown.
+DOC_GUARDS=(scripts/agentrt/test_no_exam_keys.py)
+changed="$(git -C "$top" diff --name-only --no-renames "origin/main..$commit")" ||
+  die "cannot read the files origin/main..$commit changes in $top; nothing pushed"
+docs_only=false
+if [[ -n "$changed" ]] && ! grep -qv '\.md$' <<<"$changed"; then
+  docs_only=true
+fi
+# docs_said — the changed documents as a line: the first five, and how many more.
+docs_said() {
+  local n=0 line out=""
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    n=$((n + 1))
+    [[ "$n" -le 5 ]] || continue
+    out="${out:+$out, }$line"
+  done <<<"$changed"
+  [[ "$n" -le 5 ]] || out="$out, and $((n - 5)) more"
+  printf '%s' "$out"
+}
+
 gated=false
 [[ "$GATED" == *" $repo "* ]] && gated=true
 testing=false
 if has_tests && [[ -z "$SKIP_TESTS" ]]; then
   testing=true
+  if $docs_only && [[ "$repo" != "bifrost-trade-infra" ]]; then
+    testing=false
+  fi
+fi
+if $docs_only && has_tests && [[ -z "$SKIP_TESTS" ]]; then
+  if $testing; then
+    echo "push-main: only documentation changed: $(docs_said); of the tests of $repo only the document guards run"
+  else
+    echo "push-main: only documentation changed: $(docs_said); the tests of $repo were not run"
+  fi
 fi
 if $gated || $testing; then
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/push-main.XXXXXX")"
@@ -393,7 +433,7 @@ elif [[ -n "$SKIP_TESTS" ]]; then
   else
     echo "push-main: --skip-tests given ($SKIP_TESTS), but $repo has no fast tests here"
   fi
-else
+elif ! $docs_only || ! has_tests; then
   echo "push-main: $repo has no fast tests here; none run"
 fi
 

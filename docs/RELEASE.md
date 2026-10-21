@@ -206,6 +206,8 @@ scripts/release/push-main.sh <checkout> <sha>
   - infra：`python3 -m pytest -q scripts/release scripts/agentrt scripts/agent-host`，实测约 5 分钟。
   - platform：`go vet ./...`，再加 `origin/main..<sha>` 改过的包的 `go test`。没设 `AGENTRT_TEST_PG` 时，数据库测试会跳过。
   - 其他仓库暂时不跑。
+  - 只改了 Markdown：`origin/main..<sha>` 里改到的文件全是 `.md`（改名按一删一增算，`.py` 改名成 `.md` 不算只改文档）。这时输出「only documentation changed: …」，不用写理由。整套不跑，只跑管文档内容的防线：infra 的考题要点扫描 `scripts/agentrt/test_no_exam_keys.py`，约 7 秒；platform 什么都不跑。只要有一个非 `.md` 文件，就照常全跑。
+  - 剩下的漏洞：只改文档时不会核对 `docs/RELEASE.md` 里拒绝原因那张表（在 `test_platform_prod_gate.py` 里），要等下一次完整推送才会发现。
   - 退出码按原样读，不经过管道。真跑不了时用 `--skip-tests <理由>`，理由会打在输出里。
 - **共用检出跟上 main（TD-408）**：推成功后，或者 main 已经是这个提交时，工作区里这个仓库的共用检出（`<工作区>/<repo>`；各会话的 MCP 和本机构建都从它跑）同时满足下面几条，就快进到刚推的提交：在 main 上、没有已跟踪的改动、origin 相同、不是推送来源本身、能快进。有一条不满足就不动它，在输出里说明原因（`push-main: shared checkout …: …`）。这一步不会让推送失败。工作区是 infra 主 worktree 的上一级目录，可以用 `PUSH_MAIN_SHARED_ROOT` 指定别处。
 
