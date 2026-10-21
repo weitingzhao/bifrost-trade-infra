@@ -244,7 +244,10 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
   - `ARCH:release-guard` 同样是 true（T41）；
   - 另外 11 行是 false，reason 写出没过的门槛和执行器判定，例如「T42 (failed: FAIL ./internal/agentrt/store/: TestSignedTighteningDoesNotRaise it failed): not all passed on stg at e98b1487ce40」；
   - 4 行没有门槛，写「no gate test yet」。
-- **还差后一半：** 「换一次部署旧 PASS 不算」。前面三次部署（fb015014、75022097、e98b1487）发生时门槛还派不出去，所以还没有一次「有过 PASS 之后换部署」。等下一次 STG 发版：新部署记下以后、新门槛过之前，这两行不能因为 e98b1487 上的 PASS 打勾。
+- **后一半（10-21 20:10–20:14Z）：过。** STG 发 6d2f40cd（含第 ⑤ 片），控制器 20:10:49Z 记下新部署，同一秒建批次 M-101。本线用 6d2f40cd 的 `store.Progress`（`agent_reader` 只读）每 20 秒读一次（本机 `~/agent-work/gate-a-t33/t33b-watch.log`）：
+  - 20:11:00Z 起 `ARCH:owner-three-duties` 就是 `tick: false`，reason「T40 (not run yet): not all passed on stg at 6d2f40cd4495, the deployment recorded 2026-10-21T20:10:49Z」；20:13:24Z 是「T40 (running)」。e98b1487 上那份 PASS 一直没算进来。
+  - 20:13:35Z T40 在 6d2f40cd 上 pass（`v_01M5G1J0YPSEBB969673FQZBDF`），20:13:44Z 这一行回到 `tick: true`，reason「T40 passed on stg at 6d2f40cd4495」。
+  - `ARCH:release-guard` 同样：T41 20:12:50Z pass（`v_01M5G1GN4AH60HS774DE44NJV6`）之前一直是 false。
 
 ### M-93、M-95 收尾（10-21 04:16–04:32Z）
 
@@ -292,7 +295,7 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 | T22 ⑤ 锁后截止 | **过** | 存储层夹具 `store/kernel_test.go` `TestFenceAndLeaseClock`（「T22 ⑤」那段），按 10-15 计划不在 STG 重做 | 无 |
 | T25 状态只由事件改 | **过** | 上文「T25」：`TestRoutesMoveStateOnlyByEvents`（每条写路由、四个世界）+ `TestIdentitiesAndTheEventRule`（直写）+ STG 只读核对 | 无；STG 上用运行时身份直写做不到（F-probe），以迁移哈希、触发器、状态与事件一致性的只读核对代替 |
 | T32（经接口） | **基本过，差两种** | 10-15 9 条反例 422（「每项的状态」T32）；10-21 STG 再 9 条 422（上文「T32 经接口」：挂到 item、挂到别的 mission 的步骤、规则引用别一步的任务、没绑的审批、没绑的问题、步骤挂在 round 下、item 挂在 item 下、验收离开对象、改绑后再挂别的 mission 的任务），不留半条记录；接口层测试 `agentrtapi/propose_test.go`、`TestPlanProposalRoute` | ① 规则引用之后移走任务：STG 的卡片规则把夹具卡答成「不改」（F-T32-card），落不了地；同一拒收由路由调用的 `store.ProposePlanChange` 的测试覆盖（`TestPlanChangeOutside`）。② 参谋长席位：缺 STG 的 `seat:chief_of_staff` 令牌。「并发两条依赖」「迁移与新建交错」经接口构造不出来，由存储层 T32（`store_test.go`）证 |
-| T33 证据绑定版本 | **前一半过，后一半等下一次发版** | 上文「T33」的测试；上文「T33 在 STG 上」：迁移后控制器给 e98b1487ce40 派批次 M-100，T40、T41 的 gate 验收 pass，`ARCH:owner-three-duties`、`ARCH:release-guard` 在部署的 `store.Progress` 里打勾；另 11 行缺测试库判失败 | 「换一次部署旧 PASS 不算」：等下一次 STG 发版，看新部署的门槛过之前这两行不因旧 PASS 打勾 |
+| T33 证据绑定版本 | **过** | 上文「T33」的测试；上文「T33 在 STG 上」：迁移后 e98b1487 上 T40、T41 的真门槛让 `ARCH:owner-three-duties`、`ARCH:release-guard` 打勾（M-100）；10-21 20:10Z 换成 6d2f40cd 后，新门槛过之前这两行都是 false、写「not run yet / running … at 6d2f40cd」，旧 PASS 不算，20:13Z 新门槛过了才回到 true（M-101） | 无；另 11 行在 06 的 agentd 换成给测试库的新版之前判失败（缺 `AGENTRT_TEST_PG`），不是 T33 的标准 |
 | T34 ①②③⑥⑦ | **过** | 10-15 STG M-5（gate-b 测试客户端在接口层制造） | 无 |
 | T34 ④ 上传中途重启 | **过** | 新测试 `agentd/handover_restart_test.go` `TestRestartDuringTheHandOver`（真进程 SIGKILL，五个杀点） | 无 |
 | T34 ⑤ 主机永久丢失 | **后一半过，前一半待跑** | TD-352 已发 STG（ba6c09eb）。上文「T34 ⑤ 在 STG 上」：M-95 丢掉、没持久化的尝试，在部署的 `store.Progress` 里有 `lost_attempt`（`persisted` false、`unpersisted_for_s`、`ended_at`），原因写「result not persisted (no checkpoint, nothing persisted for 77 min)」，不显示做完 | stale 与 host_lost 时带「last checkpoint 1 at …」的那一半：gate-b 走不通（客户端没了、没有令牌、常备授权的主机只有 agent-06-stg），并进明早 T34 ⑧ 的同一次冻结（Owner 同一条命令） |
@@ -301,9 +304,8 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 | T36 血缘尾注 | **接口过，页面待定** | 10-15：`get_commit_lineage` 返回任务号、agent 组织 6 个提交都带任务号 | 「血缘页能从提交点到任务」：现在血缘页点任务号只在本页筛选（F-T36b），没有跳到任务。Console 已有 Crew 页的任务详情（`OwnerCrew`），血缘页没连过去。要 Owner 定：认「按任务筛选」算过，或给血缘页的任务号加一个到 Crew 任务详情的链接（Console 小改） |
 | 基准 6 题 | **过（建议算）** | 2.2-31 ★ 的同一次运行（`RUN-r2-stars-2026-10-20.md` 第二节、第五节「2.2-31」）：PROD M-15、STG M-27，6 题提议后零人工写入、22 分钟内全部到结论（4 accepted、2 两轮确定性验收不过而 blocked，答错不是环境）；codex 写、cursor 评审（Gate A 表允许「或反过来，按 capability_fact」）；题目组成改为 Go 3、TS 1、Python 1、shell 1（Python 第二题在 research，运行时派不到），Owner 10-20 11:5x「★ 三条 A」认可这处改写；结果在结论时记进 `capability_score`（PROD 10-20 05:25:56Z：codex `implementer` / `benchmark` 6 次、4 次首轮通过，0.300） | 无。附带发现 F-bench-score：两道不过的题 Owner 选「不做了」（任务 cancelled）之后，在岗成绩把它们剔掉了：PROD 15:28:54Z 变 5 次 4 过（0.376）、15:31:54Z 变 4 次 4 过（0.510）；STG 同样从 6 次 3 过（0.188）变成 4 次 3 过（0.301），失败不再计入；`store/scores.go` 只计 accepted、rejected 和 blocked-as-failed。要不要让「失败后被放弃」仍算失败，交统筹定（可记 TD） |
 
-**还差 5 项**（其余全部过）：
+**还差 4 项**（其余全部过；T33 10-21 20:13Z 过）：
 1. **T32 经接口的最后两种**：9 种已在 STG 上被拒。剩下两种：「规则引用之后移走任务」卡在 STG 的卡片规则把夹具卡答成「不改」（认 `TestPlanChangeOutside`，或在 M-95 里留一个不做事的任务当夹具）；「参谋长席位」卡在没有 STG 的席位令牌。
-2. **T33**：前一半过（迁移后 e98b1487 上 T40 真门槛打勾）。后一半「换一次部署旧 PASS 不算」等下一次 STG 发版。
-3. **T34 ⑤**：TD-352 已发 STG，lost 那一半有现成证据（M-95）。stale、host_lost 带检查点的那一半，并进明早 T34 ⑧ 的同一次冻结，Owner 在 06 上跑同一条命令。
-4. **T34 ⑧**：Owner 定了现场跑，并发 v2 已生效，场景备好；等明早 Owner 在 06 上起脚本（和 ⑤ 同一次）。
-5. **T36 页面**：卡在决定。认「按任务筛选」，或加一个到 Crew 任务详情的链接。
+2. **T34 ⑤**：TD-352 已发 STG，lost 那一半有现成证据（M-95）。stale、host_lost 带检查点的那一半，并进明早 T34 ⑧ 的同一次冻结，Owner 在 06 上跑同一条命令。
+3. **T34 ⑧**：Owner 定了现场跑，并发 v2 已生效，场景备好；等明早 Owner 在 06 上起脚本（和 ⑤ 同一次）。
+4. **T36 页面**：卡在决定。认「按任务筛选」，或加一个到 Crew 任务详情的链接。
