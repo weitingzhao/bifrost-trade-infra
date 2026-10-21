@@ -279,6 +279,53 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 - 至少停 22 分钟，让尝试在 lost 状态留 5 分钟；
 - 冻结期间本线每分钟读一次 Progress。
 
+### 06 上一次冻结：T34 ⑤ ⑧ 与 T24（10-21 21:11–21:47Z，STG platform 8fb92b85，M-103）
+
+做法照共享笔记 `gate-a-t24-t34-one-freeze-2026-10-21.md`（本线与 2.5 第 ⑤ 片的线对过）。
+- 前提：这次发版的门槛批次 M-102 21:11Z 跑完（13 个全过），S5 的 3a、4a 没跑、不占 agentd，STG 上没有别的在跑的尝试。
+- 一件任务：实现，class go，计划外，effect branch，仓库 bifrost-trade-infra（基于 c9c7736）。任务书写的是：T1 = 21:41:18Z 之前睡到 T1 再写 `t34-case8.txt`；过了 T1 就先睡 25 分钟再写。
+- Owner 在终端面板跑 `owner-t34-8-06.sh salvage`：只 SIGSTOP STG 的 agentd，执行者照跑。
+- 读数：
+  - 本线用部署的 `store.Progress`（8fb92b85，`agent_reader` 只读）每分钟读一次，记在本机 `~/agent-work/gate-a-t33/drill-snap.log`；
+  - 另每 15 秒记一次状态变化，在 `drill-events.log`；
+  - 06 的输出在 `~/agent-work/gate-a-rest/owner-t34-8-salvage.out`。
+
+| 时刻（Z） | 运行时（事件） | Progress（部署的代码读） |
+|---|---|---|
+| 21:11:41–45 | 第 1 次尝试 `a_01M5G4WE3FA4EFXYAGK8BHCZ92` leased、started（codex，agent-06-stg） | 21:11:57 running「attempt … on agent-06-stg」 |
+| 21:13:57 起 | — | `slow`「running 132 s, usually 62 s」，主机 online、live 1（T24 场景 2：慢但仍算在跑） |
+| 21:16:45、21:21:45 | 检查点 1、2 | — |
+| 21:22:37 | 06：`SIGSTOP agentd 1774883 only (its executor runs on)`（脚本起来时执行者已跑满 6 分钟，当场停） | — |
+| 21:24:15 | `attempt_stale`（租约 21:24:11 到期） | 21:24:59 `maybe_stuck`「the lease lapsed and was not renewed; result not persisted (last checkpoint 2 at 2026-10-21T21:21:45Z, nothing persisted for 3 min)」 |
+| 21:25:59 起 | 主机超过 180 秒没轮询 | `host_lost`「host agent-06-stg last polled 3 minutes ago; result not persisted (last checkpoint 2 at …, nothing persisted for 4 min)」，主机 `online: false`；停住后 3 分 22 秒 |
+| 21:39:15 | `attempt_lost`（「lease expired at 21:24:11 and the grace passed」），任务回 ready | 21:40:01 任务 `queued`「ready for a host to claim; attempt 1 on agent-06-stg was lost at 21:39:15Z; result not persisted (last checkpoint 2 at …, nothing persisted for 18 min)」；`lost_attempt`：`persisted` false、`last_checkpoint_seq` 2、`ended_at`；live 0 |
+| 21:41:18 | 执行者在 agentd 停住期间睡完、写完文件、退出（报告「slept 1750 s, wrote t34-case8.txt」） | 不变 |
+| 21:44:37 | 06：`SIGCONT`（停了 22 分钟）。agentd 的第一次领活超时一次（「the platform is unavailable: POST /claim … context deadline exceeded」），之后正常 | — |
+| 21:44:38 | `attempt_salvaged`：报告 + 分支 `refs/heads/agent/t_01M5G4W33CRXXVX4C7GJTCJ3VR/a1` @ 393f1608，`persisted_at` 有值；`attempt_ended`（lease_lost，group_cleared） | — |
+| 21:44:41 | 控制器给抢救结果建确定性验收 `t_01M5G6RTTDHSRMA8NTY1V8RPBW`（钉在第 1 次尝试上，base 393f1608） | — |
+| 21:44:53–59 | 两个槽同时领：第 2 次尝试 `a_01M5G6S6TCPC04T53EJRAH6E17`（已过 T1，先睡 25 分钟）和那件验收 | 21:45:02 running「attempt a_01M5G6S6… on agent-06-stg」，主机 online |
+| 21:45:10 | 验收 pass（`v_01M5G6SR33AZN50C3Y3FXSVPHB`，attempt 是第 1 次） → 建评审 `t_01M5G6SR376DDJ8CYA5Q0KW510`，cursor 21:45:15 起跑 | — |
+| 21:47:11 | 评审 pass（`v_01M5G6XDA8PYNJCJDFQRX2FHWA`，`accepts_attempt` true，attempt 是第 1 次） → 同一时刻 `attempt_cancelled` 第 2 次（「the salvaged result of attempt a_01M5G4WE… was accepted」），任务 accepted（「the salvaged result of attempt … passed review」），M-103 done | — |
+| 21:47:23 | agentd 结束第 2 次尝试（`attempt_ended` lease_lost，group_cleared） | — |
+
+**T34 ⑤ 过。** stale、host_lost、lost 三个时刻都写「result not persisted (last checkpoint 2 at …, nothing persisted for N min)」，lost 时有 `lost_attempt`（`persisted` false、`last_checkpoint_seq` 2、`ended_at`），没有一处显示做完。检查点是 2 不是 1：Owner 起脚本时执行者已跑过 10 分钟，判定只看「写出最后一个检查点和多久没持久化」。
+
+**T34 ⑧ 过。**
+- 抢救的结果（报告 + 分支）先过了确定性验收和评审，两条验收都钉在丢掉的第 1 次尝试上；
+- 评审通过的同一时刻，第 2 次尝试被取消、任务 accepted；
+- 只有一条采纳（`accepts_attempt` true 的只有那条评审），第 2 次尝试没有验收；
+- agentd 12 秒后结束了第 2 次尝试。
+
+**T24（交 2.5 第 ⑤ 片的线判，这里只记运行时和 Progress）：**
+- 停住后 3 分 22 秒主机 `online: false`；
+- 尝试从 running 变 `maybe_stuck`、`host_lost`，live 计数在 lost 后归 0；
+- 放行后主机回线、任务重新被领。
+- 页面那一半（Work、Crew、目标卡的字样）由那条线的 `watch.sh` 和页面核对。
+
+**顺带的观察：**
+- 放行后 agentd 第一次 `POST /claim` 超时（`context deadline exceeded`），下一次就正常了；推测是停住 22 分钟后连接已失效，没有影响结果。
+- 放行后到采纳之前（21:45:02、21:46:02、21:47:02 三次读数），本线的快照里任务只有在跑的第 2 次尝试，没有 `lost_attempt`。T24 计划写的「`/progress` 的 `lost_attempt` 留到采纳为止」这几次没有读到；交那条线对照它的读数。
+
 ### Gate A 收尾清单（计划步骤 R2:2.2-28，2026-10-21 04:10Z 核对）
 
 逐项对照设计 v5 §5.2 的 Gate A 表。「过」= 表里的过的标准都有证据；证据栏写在哪看。
@@ -301,14 +348,12 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 | T33 证据绑定版本 | **过** | 上文「T33」的测试；上文「T33 在 STG 上」：迁移后 e98b1487 上 T40、T41 的真门槛让 `ARCH:owner-three-duties`、`ARCH:release-guard` 打勾（M-100）；10-21 20:10Z 换成 6d2f40cd 后，新门槛过之前这两行都是 false、写「not run yet / running … at 6d2f40cd」，旧 PASS 不算，20:13Z 新门槛过了才回到 true（M-101） | 无；6d2f40cd 上 13 个门槛全过、13 行都打勾（M-101，06 的新 agentd 给了测试库） |
 | T34 ①②③⑥⑦ | **过** | 10-15 STG M-5（gate-b 测试客户端在接口层制造） | 无 |
 | T34 ④ 上传中途重启 | **过** | 新测试 `agentd/handover_restart_test.go` `TestRestartDuringTheHandOver`（真进程 SIGKILL，五个杀点） | 无 |
-| T34 ⑤ 主机永久丢失 | **后一半过，前一半待跑** | TD-352 已发 STG（ba6c09eb）。上文「T34 ⑤ 在 STG 上」：M-95 丢掉、没持久化的尝试，在部署的 `store.Progress` 里有 `lost_attempt`（`persisted` false、`unpersisted_for_s`、`ended_at`），原因写「result not persisted (no checkpoint, nothing persisted for 77 min)」，不显示做完 | stale 与 host_lost 时带「last checkpoint 1 at …」的那一半：gate-b 走不通（客户端没了、没有令牌、常备授权的主机只有 agent-06-stg），并进明早 T34 ⑧ 的同一次冻结（Owner 同一条命令） |
-| T34 ⑧ 采纳保全结果 | **存储层过，STG 未走到** | `store/adopt_test.go` `TestAdoptSalvagedResult`（采纳记录指向 lost 的那次尝试、同一事务取消新尝试、只有一条采纳）；10-15 STG 三次都走不到：每台主机 1 个槽，保全的验收排在新尝试后面（F-T34-8），保全评审另有 TD-353（P3） | Owner 定了在 STG 现场跑：STG 并发 v2（每台 2 个槽）05:00Z 生效（infra f42485a）。场景备好了：`owner-t34-8-06.sh salvage`（Owner 在 06 上起）和任务书生成器 `t34-8-spec.py`，做法在共享笔记 `gate-a-t34-8-t33-stg-2026-10-21.md`。等明早 Owner |
+| T34 ⑤ 主机永久丢失 | **过** | 上文「06 上一次冻结」：M-103 第 1 次尝试在 stale（21:24）、host_lost（21:26）、lost（21:39）三个时刻都写「result not persisted (last checkpoint 2 at …)」，lost 时 `lost_attempt` `persisted` false；不显示做完。另有 M-95 的现成一例（没有检查点） | 无 |
+| T34 ⑧ 采纳保全结果 | **过** | 上文「06 上一次冻结」：抢救的结果验收和评审都 pass（钉在 lost 的第 1 次尝试上），同一时刻取消第 2 次、任务 accepted，只有一条采纳；存储层另有 `TestAdoptSalvagedResult` | 无 |
 | T35 规则集 | **过** | 上文「T35」：`TestRuleSet` 等；STG 上 Owner 10-20 跑过错 namespace（403 unsigned，`concurrency` 仍 v1） | 无 |
 | T36 血缘尾注 | **接口过，页面待定** | 10-15：`get_commit_lineage` 返回任务号、agent 组织 6 个提交都带任务号 | 「血缘页能从提交点到任务」：现在血缘页点任务号只在本页筛选（F-T36b），没有跳到任务。Console 已有 Crew 页的任务详情（`OwnerCrew`），血缘页没连过去。要 Owner 定：认「按任务筛选」算过，或给血缘页的任务号加一个到 Crew 任务详情的链接（Console 小改） |
 | 基准 6 题 | **过（建议算）** | 2.2-31 ★ 的同一次运行（`RUN-r2-stars-2026-10-20.md` 第二节、第五节「2.2-31」）：PROD M-15、STG M-27，6 题提议后零人工写入、22 分钟内全部到结论（4 accepted、2 两轮确定性验收不过而 blocked，答错不是环境）；codex 写、cursor 评审（Gate A 表允许「或反过来，按 capability_fact」）；题目组成改为 Go 3、TS 1、Python 1、shell 1（Python 第二题在 research，运行时派不到），Owner 10-20 11:5x「★ 三条 A」认可这处改写；结果在结论时记进 `capability_score`（PROD 10-20 05:25:56Z：codex `implementer` / `benchmark` 6 次、4 次首轮通过，0.300） | 无。附带发现 F-bench-score：两道不过的题 Owner 选「不做了」（任务 cancelled）之后，在岗成绩把它们剔掉了：PROD 15:28:54Z 变 5 次 4 过（0.376）、15:31:54Z 变 4 次 4 过（0.510）；STG 同样从 6 次 3 过（0.188）变成 4 次 3 过（0.301），失败不再计入；`store/scores.go` 只计 accepted、rejected 和 blocked-as-failed。要不要让「失败后被放弃」仍算失败，交统筹定（可记 TD） |
 
-**还差 4 项**（其余全部过；T33 10-21 20:13Z 过）：
+**还差 2 项**（其余全部过；T33 10-21 20:13Z 过，T34 ⑤ ⑧ 10-21 21:47Z 过）：
 1. **T32 经接口的最后两种**：9 种已在 STG 上被拒。剩下两种：「规则引用之后移走任务」卡在 STG 的卡片规则把夹具卡答成「不改」（认 `TestPlanChangeOutside`，或在 M-95 里留一个不做事的任务当夹具）；「参谋长席位」卡在没有 STG 的席位令牌。
-2. **T34 ⑤**：TD-352 已发 STG，lost 那一半有现成证据（M-95）。stale、host_lost 带检查点的那一半，并进明早 T34 ⑧ 的同一次冻结，Owner 在 06 上跑同一条命令。
-3. **T34 ⑧**：Owner 定了现场跑，并发 v2 已生效，场景备好；等明早 Owner 在 06 上起脚本（和 ⑤ 同一次）。
-4. **T36 页面**：卡在决定。认「按任务筛选」，或加一个到 Crew 任务详情的链接。
+2. **T36 页面**：卡在决定。认「按任务筛选」，或加一个到 Crew 任务详情的链接。
