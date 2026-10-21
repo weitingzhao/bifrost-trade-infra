@@ -2160,11 +2160,24 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-412
+
+**P3 · ci · the platform's MCP server is never type-checked in CI, and main has carried a type error since 2026-10-10**
+
+- **状态**：未开始（2026-10-21 02:0x 统筹线程记；TD-411 修复线 local_21bbc6df 跑整套时撞到）
+- **Claim**: `k8s/cicd/tekton/pipeline-ci-platform.yaml` runs `tsc --noEmit`, lint, vitest and build for `console/` only; `mcp/platform` gets its tests from coordinators' local runs (`npm test`) and nothing type-checks it. `npx tsc --noEmit -p mcp/platform` fails on main: `src/writeGate.test.ts(85,20): error TS2367` ("refused" vs "direct" have no overlap), the comparison a 10-10 approvals change left behind.
+- **Evidence**: the command above on platform `fb015014`; pipeline-ci-platform.yaml:205-231 (console only); `git log -- mcp/platform/src/writeGate.test.ts` (9c8b183a, 10-10).
+- **Impact**: type errors in the MCP server (what every session's tools run) reach main unseen; the assertion at line 85 compares against a value that cannot occur, so it tests nothing.
+- **Fix**: fix the comparison so the test asserts what it means; add `npm --prefix mcp/platform ci && npx tsc --noEmit -p mcp/platform && npm --prefix mcp/platform test` to the CI pipeline (cicd apply: Owner).
+- **Ratchet**: the CI step itself.
+- 验收: CI fails on a commit with a planted MCP type error and passes on main.
+- 审批 要（应用 CI 流水线是 cicd 写入）· 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
+
 ### TD-411
 
 **P1 · release · a platform release whose code needs a new agentrt migration goes out without it, and the controller fails quietly every 15 seconds**
 
-- **状态**：未开始（2026-10-21 01:1x 统筹线程记；Gate A 线 F-T33-migrate）
+- **状态**：在做（2026-10-21 02:0x：平台一半交回 w31/td-411-schema（复核 466、467 收线）：health 的 agentrt_schema 与缺的迁移、Progress 与 Console 的提示、循环连续 4 次同样失败记 policy_alert；合并中。流水线一半要 Owner 定：A 发完后读 health 拒（要放行 cicd 读平台 health），或 B 发前对比迁移拒发（要 health 加 agentrt_schema_applied）；Owner 应用）。 此前：未开始（2026-10-21 01:1x 统筹线程记；Gate A 线 F-T33-migrate）
 - **Claim**: `bifrost-deliver-platform` builds and rolls out platform-api and workers but never runs or checks the agentrt migrations; they run only when the Owner creates the plain Job in `k8s/agentrt-migrate/<env>/job.yaml` (README there). STG ran platform `d360a118` (with 0007, 0008) from 2026-10-20 23:24 CDT on a database still at 0006: the controller's facts-and-rules pass failed every 15 s (`agentrt-facts-rules: ... violates check constraint "task_check2"`), logged as WARN only; health stayed ok, nothing alerted, and gate tasks, blocked cards and the other facts-pass work stopped on STG. The coordinator released three more STG builds on top without noticing.
 - **Evidence**: STG platform-workers log 2026-10-21 06:15Z onward; agentrt-migrate Jobs in bifrost-platform-stg (latest 25 h old, before 0007/0008); Gate A run notes (infra branch w31/gate-a-t32 `5d7ce8f`).
 - **Impact**: any release carrying a migration silently disables the runtime's controller in that environment until someone reads the logs; on PROD the same would stop dispatch and cards.
