@@ -38,7 +38,7 @@
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
-**未结 120 项**：P0 0 · P1 12 · P2 44 · P3 64；要你批的 44 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
+**未结 121 项**：P0 0 · P1 12 · P2 45 · P3 64；要你批的 45 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
 
 ## 主题（第 2、3 轮）
 
@@ -2162,6 +2162,19 @@
 - 验收: `go test -count=20 -cpu 1,4 -run 'TestPlatformUnknownDoesNotMaskMissing$' ./internal/delivery/` while other packages run beside it（原写法跑整个包 40 遍，包里别的测试按真实时间轮询，超过 10 分钟的测试时限，验不到这一条）
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-416
+
+**P2 · agentrt · a plan step whose done rule is owner_signoff can never be done: nothing calls store.SignOff**
+
+- **状态**：在做（2026-10-21 15:3x：Owner 定「加一个只给我用的『签收这一步』路由和 Console 按钮，记一条 TD；2.4-1 考试那步也先用签收」；交给 2.5 第 ⑤ 片线 local_3a23080e，分支 w31/owner-signoff）。 2026-10-21 15:3x 统筹线程记；Gate A 线写 R2 完成规则时查出
+- **Claim**: the done-rule grammar has `owner_signoff` (`api/internal/agentrt/plan/rule.go`) and the store has `SignOff`, but no route, MCP tool or Console control calls it. 8–9 of round 2's 11 open steps have no runtime fact to rest on (reviews, the Owner's release approval, Gitea's last batch, the chief's exam), so a rule written as `owner_signoff` never ticks, and PROD's plan stays at 64/75 whatever is done.
+- **Evidence**: `git grep -n SignOff -- api/` (store only); PROD R2 plan read 2026-10-21: 75 steps, every done_rule_json empty (legacy import 10-20 04:02), no step changed state on 10-21 although 2.2-30 was done by M-33.
+- **Impact**: the Owner's progress page cannot show what is done; the coordinator keeps the local board by hand, and the two disagree (the Owner saw it on 10-21).
+- **Fix**: an Owner-only route (admin role; agents' tokens refused) that signs a step whose rule holds `owner_signoff`, idempotent, recorded as an event with who and when; a Sign off button beside such a step on the Console's plan page; no MCP write tool for agents.
+- **Ratchet**: route tests (Owner signs; an agent token is refused; a step without owner_signoff is refused; signing twice is idempotent) and a controller test that a signed step evaluates done.
+- 验收: on STG, a step whose rule is owner_signoff turns done after the Owner presses Sign off, and an agent's token gets 403.
+- 审批 要（新路由，Owner 2026-10-21 已批）· 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-415
 
