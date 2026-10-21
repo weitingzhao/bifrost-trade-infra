@@ -21,7 +21,8 @@
 #    (TD-408): it is fast-forwarded to <commit> when it is on main with no
 #    tracked changes, has the same origin and is not the checkout pushed
 #    from; otherwise it is left as it is and the reason is said. The push has
-#    happened by then: nothing here fails it.
+#    happened by then: nothing here fails it, and nothing here waits on the
+#    network or a hook.
 #
 # preflight.js refuses a direct `git push` to main, so this is the way an
 # agent pushes main. go test and lint stay in the pusher's own routine: they
@@ -153,9 +154,12 @@ shared_root() {
 }
 
 # follow — the repo's shared checkout follows main to $commit (TD-408), or
-# is left as it is with the reason. It never fails the push.
+# is left as it is with the reason. It never fails the push, and it waits on
+# nothing beyond this machine (review td400-1 B2): a commit the shared
+# checkout lacks is fetched from the checkout pushed from (a lane's worktree
+# shares its objects already), and no hook runs.
 follow() {
-  local root shared said head
+  local root shared said head branch out
   root="$(shared_root || true)"
   if [[ -z "$root" ]]; then
     echo "push-main: the workspace of the shared checkouts is not known; no shared checkout followed"
@@ -171,8 +175,8 @@ follow() {
     echo "$said: its origin is not $url; left as it is"
     return 0
   fi
-  head="$(git -C "$shared" rev-parse --verify --quiet HEAD 2>/dev/null || true)"
   if [[ "$(cd "$shared" && pwd -P)" == "$(cd "$top" && pwd -P)" ]]; then
+    head="$(git -C "$shared" rev-parse --verify --quiet HEAD 2>/dev/null || true)"
     if [[ "$head" == "$commit" ]]; then
       echo "$said: is the checkout pushed from, at $commit"
     else
@@ -180,7 +184,14 @@ follow() {
     fi
     return 0
   fi
-  if [[ "$(git -C "$shared" symbolic-ref --quiet --short HEAD 2>/dev/null || true)" != "main" ]]; then
+  if ! git -C "$shared" cat-file -e "$commit^{commit}" 2>/dev/null; then
+    git -C "$shared" -c core.hooksPath=/dev/null fetch --quiet --no-tags "$top" "$commit" >/dev/null 2>&1 || true
+  fi
+  # Every check after the fetch, right before the merge (review td400-1 A2:
+  # what held before a fetch may not hold after it).
+  head="$(git -C "$shared" rev-parse --verify --quiet HEAD 2>/dev/null || true)"
+  branch="$(git -C "$shared" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+  if [[ "$branch" != "main" ]]; then
     echo "$said: not on main; left as it is"
     return 0
   fi
@@ -193,14 +204,16 @@ follow() {
     return 0
   fi
   if ! git -C "$shared" cat-file -e "$commit^{commit}" 2>/dev/null; then
-    git -C "$shared" fetch --quiet origin main 2>/dev/null || true
+    echo "$said: cannot get $commit from $top; left as it is at ${head:0:12}"
+    return 0
   fi
   if ! git -C "$shared" merge-base --is-ancestor HEAD "$commit" 2>/dev/null; then
     echo "$said: its main has commits that are not on main; left as it is at ${head:0:12}"
     return 0
   fi
-  local out
-  if out="$(git -C "$shared" merge --ff-only --quiet "$commit" 2>&1)"; then
+  # --no-overwrite-ignore: an ignored file the commit adds is a session's own
+  # (review td400-1 A1); the merge stops instead of replacing it.
+  if out="$(git -C "$shared" -c core.hooksPath=/dev/null merge --ff-only --no-overwrite-ignore --quiet "$commit" 2>&1)"; then
     echo "$said: fast-forwarded to $commit"
   else
     echo "$said: the fast-forward failed; left as it is at ${head:0:12}: $(tr '\n' ' ' <<<"$out")"
@@ -223,6 +236,10 @@ fi
 # Claude-Session trailer, which the commit hooks write (scripts/git-hooks);
 # a worktree of a husky repository runs no hook, so its commits carry them
 # only when written by hand. A cherry-pick or rebase keeps them.
+# The log is read whole first: a git log that fails refuses the push
+# (review td400-1 B1), rather than reading as no commit at all.
+lineage="$(git -C "$top" log --format='%h%x1f%(trailers:key=Change-Id,valueonly,separator=%x2C)%x1f%(trailers:key=Claude-Session,valueonly,separator=%x2C)%x1f%s' "origin/main..$commit")" ||
+  die "cannot read the trailers of origin/main..$commit in $top; nothing pushed"
 missing=()
 while IFS=$'\x1f' read -r short change session subject; do
   [[ -n "$short" ]] || continue
@@ -232,7 +249,7 @@ while IFS=$'\x1f' read -r short change session subject; do
   if [[ ${#lacks[@]} -gt 0 ]]; then
     missing+=("$short (no ${lacks[*]}) $subject")
   fi
-done < <(git -C "$top" log --format='%h%x1f%(trailers:key=Change-Id,valueonly,separator=%x2C)%x1f%(trailers:key=Claude-Session,valueonly,separator=%x2C)%x1f%s' "origin/main..$commit")
+done <<<"$lineage"
 if [[ ${#missing[@]} -gt 0 ]]; then
   if [[ -z "$NO_LINEAGE" ]]; then
     {

@@ -12,6 +12,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -25,6 +26,8 @@ os.environ["GIT_CONFIG_GLOBAL"] = os.devnull
 os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
 PUSH_MAIN = HERE / "push-main.sh"
 BASELINES = HERE.parent.parent / "agent-config" / "scripts" / "code-health" / "baselines.env"
+SCAN = HERE.parent.parent / "agent-config" / "scripts" / "code-health" / "scan.sh"
+REAL_GIT = shutil.which("git")
 
 
 def _baseline(name: str) -> int:
@@ -95,12 +98,22 @@ class PushMain(unittest.TestCase):
     def _env(self, **more: str) -> dict[str, str]:
         return {**os.environ, "PUSH_MAIN_WINDOW": str(self.window), "PUSH_MAIN_SHARED_ROOT": str(self.shared_root), **more}
 
-    def _push(self, *args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    def _push(self, *args: str, cwd: Path | None = None, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["bash", str(PUSH_MAIN), *[a for a in args if a.startswith("--")], str(cwd or self.work),
              *[a for a in args if not a.startswith("--")]],
-            env=self._env(), capture_output=True, text=True,
+            env=env or self._env(), capture_output=True, text=True,
         )
+
+    def _wrapped_git(self, cases: str) -> dict[str, str]:
+        """An environment whose git is a wrapper running the shell case
+        branches given (matched against "$*") before the real git."""
+        bin_dir = Path(self._tmp.name) / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        wrapper = bin_dir / "git"
+        wrapper.write_text(f'#!/bin/sh\nREAL="{REAL_GIT}"\ncase "$*" in\n{cases}\nesac\nexec "$REAL" "$@"\n')
+        wrapper.chmod(0o755)
+        return self._env(PATH=f"{bin_dir}:{os.environ['PATH']}")
 
     def _remote_main(self) -> str:
         return _git(self.origin, "rev-parse", "main")
@@ -291,6 +304,19 @@ class PushMain(unittest.TestCase):
         self.assertIn(no_session[:7], r.stdout)
         self.assertEqual(self._remote_main(), no_session)
 
+    # Review td400-1 B1: a git log that fails refuses the push; it does not
+    # read as a range with no commit.
+    def test_a_trailer_read_that_fails_refuses(self) -> None:
+        before = self._remote_main()
+        (self.work / "p.txt").write_text("p\n")
+        _git(self.work, "add", "p.txt")
+        _commit(self.work, "unlined", lineage=())
+        env = self._wrapped_git('  *"trailers:key=Change-Id"*) echo "fatal: injected" >&2; exit 128 ;;')
+        r = self._push(env=env)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("cannot read the trailers", r.stderr)
+        self.assertEqual(self._remote_main(), before)
+
     def test_lined_commits_need_no_override(self) -> None:
         (self.work / "e.txt").write_text("e\n")
         _git(self.work, "add", "e.txt")
@@ -326,6 +352,84 @@ class PushMain(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("main is already", r.stdout)
         self.assertIn(f"shared checkout {shared}: already at {head}", r.stdout)
+        # main is already the commit and the shared checkout fell behind: it
+        # follows too.
+        _git(shared, "reset", "--quiet", "--hard", "HEAD~1")
+        r = self._push()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("main is already", r.stdout)
+        self.assertIn(f"shared checkout {shared}: fast-forwarded to {head}", r.stdout)
+        self.assertEqual(_git(shared, "rev-parse", "HEAD"), head)
+
+    # Review td400-1 A1: an ignored file the commit adds is not replaced.
+    def test_an_ignored_file_the_commit_adds_is_kept(self) -> None:
+        shared = self._shared()
+        before = _git(shared, "rev-parse", "HEAD")
+        (shared / ".git" / "info" / "exclude").write_text("secret.txt\n")
+        (shared / "secret.txt").write_text("a session's own\n")
+        (self.work / "secret.txt").write_text("the commit's\n")
+        _git(self.work, "add", "secret.txt")
+        head = _commit(self.work, "secret")
+        r = self._push()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self._remote_main(), head)
+        self.assertIn(f"shared checkout {shared}: the fast-forward failed; left as it is at {before[:12]}", r.stdout)
+        self.assertEqual(_git(shared, "rev-parse", "HEAD"), before)
+        self.assertEqual((shared / "secret.txt").read_text(), "a session's own\n")
+
+    # Review td400-1 B2: following runs none of the shared checkout's hooks
+    # (one could wait on anything after the push has happened).
+    def test_following_runs_no_hook(self) -> None:
+        shared = self._shared()
+        marker = Path(self._tmp.name) / "hook-ran"
+        hooks = shared / ".git" / "hooks"
+        for name in ("post-merge", "reference-transaction", "post-checkout"):
+            (hooks / name).write_text(f"#!/bin/sh\necho {name} >> '{marker}'\n")
+            (hooks / name).chmod(0o755)
+        head = self._change("s.txt")
+        r = self._push()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(_git(shared, "rev-parse", "HEAD"), head)
+        self.assertFalse(marker.exists(), marker.read_text() if marker.exists() else "")
+
+    # Review td400-1 A2: the checks are made after the fetch, so a branch
+    # switched meanwhile is not the one moved.
+    def test_a_branch_switched_during_the_fetch_is_not_moved(self) -> None:
+        shared = self._shared()
+        before = _git(shared, "rev-parse", "HEAD")
+        env = self._wrapped_git(
+            f'  *"-C {shared} "*fetch*) "$REAL" "$@"; rc=$?; "$REAL" -C "{shared}" checkout --quiet -b other; exit $rc ;;')
+        head = self._change("q.txt")
+        r = self._push(env=env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self._remote_main(), head)
+        self.assertIn(f"shared checkout {shared}: not on main; left as it is", r.stdout)
+        self.assertEqual(_git(shared, "symbolic-ref", "--short", "HEAD"), "other")
+        self.assertEqual(_git(shared, "rev-parse", "other"), before)
+        self.assertEqual(_git(shared, "rev-parse", "main"), before)
+
+    # Without PUSH_MAIN_SHARED_ROOT the workspace is the parent of the infra
+    # repository's main worktree, also when the script runs from a lane's
+    # worktree of it.
+    def test_the_default_workspace_from_a_lane_of_infra(self) -> None:
+        ws = Path(self._tmp.name) / "ws"
+        infra = ws / "bifrost-trade-infra"
+        (infra / "scripts" / "release").mkdir(parents=True)
+        shutil.copy(PUSH_MAIN, infra / "scripts" / "release" / "push-main.sh")
+        _git(ws, "init", "--quiet", "--initial-branch=main", str(infra))
+        _git(infra, "add", "scripts")
+        _commit(infra, "infra")
+        lane = Path(self._tmp.name) / "lanes" / "bifrost-trade-infra"
+        _git(infra, "worktree", "add", "--quiet", "-b", "w31/lane", str(lane))
+        shared = ws / "bifrost-platform"
+        _git(ws, "clone", "--quiet", "--branch", "main", str(self.origin), str(shared))
+        head = self._change("r.txt")
+        env = {k: v for k, v in self._env(PUSH_MAIN_SCAN=str(SCAN)).items() if k != "PUSH_MAIN_SHARED_ROOT"}
+        r = subprocess.run(["bash", str(lane / "scripts" / "release" / "push-main.sh"), str(self.work)],
+                           env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(f"shared checkout {shared.resolve()}: fast-forwarded to {head}", r.stdout)
+        self.assertEqual(_git(shared, "rev-parse", "HEAD"), head)
 
     def test_a_lane_worktree_of_the_shared_checkout(self) -> None:
         # The lanes' topology: a worktree of the shared checkout pushes; the
@@ -405,6 +509,13 @@ class PushMain(unittest.TestCase):
         self._change("n.txt")
         r = self._push(first)
         self.assertIn("main is already", r.stdout)
+        self.assertIn("is the checkout pushed from; left as it is", r.stdout)
+        # Reached through another spelling of its path: still the source.
+        alias = Path(self._tmp.name) / "alias"
+        alias.symlink_to(self.work.parent)
+        self.shared_root = alias
+        r = self._push(first)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("is the checkout pushed from; left as it is", r.stdout)
 
     def test_no_shared_checkout(self) -> None:
