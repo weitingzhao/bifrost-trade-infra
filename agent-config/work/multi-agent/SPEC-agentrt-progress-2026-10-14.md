@@ -1,6 +1,6 @@
 # `GET /api/v1/agentrt/progress`：进展投影的接口（2.2 定，2.5 照它做界面）
 
-**版本**：第 3 版（2026-10-14 夜，按复核 184 改）。第 1、2 版各自的问题见文末两节「改了什么」。
+**版本**：第 4 版（2026-10-21，加 `owner_next`：W-31 2.5 缺口 1，Owner 10-21「缺口 1、2 照推荐加」，复核 477）。第 1–3 版各自的问题见文末「改了什么」。
 
 **为什么现在写**：设计 v5 §5.2 把 `GET /progress` 列在 2.2 的路由里（viewer 读；「计划、架构对照、现场、需要你」），2.5 的 Console 照「已定接口」写（§5.5）。字段和状态判定设计没写全，统筹方先定在这里；要求出处是 v4 §20.2–20.3 和 `OWNER-SURFACE-2026-10-11.md`（下称 A1…D3）。你要改就说。
 
@@ -20,6 +20,7 @@
   "as_of_event_id": 1234,
   "needs_you": { "count": 1, "items": [ … ], "truncated": false },
   "work":      { "missions": [ … ], "truncated": false },
+  "owner_next": { "state": "estimated", … },
   "live":      [ … ],
   "plan":      [ … ],
   "hosts":     [ … ],
@@ -92,6 +93,32 @@ mission 的 `mission_id`、`title`、`goal`、`state`、`deadline_at`、`work_id
 - `failed_attempts`：最近 20 次结论为 `failed` 的尝试（不论任务后来成没成），`attempt_id`、`task_id`、`mission_id`、`ended_at`、`ended_event_id`、`report_artifact_id`。T06：失败的实验看得到、不被后来的成功盖掉。
 - 两张表的「最近」都按（事件时间，事件号）从新到旧，选候选、取前 20、输出顺序都用这同一个键：同一时刻结束的多于 20 个时，结果仍是确定的那 20 个。
 
+### 2.7 `owner_next`：下一次需要 Owner（第 4 版）
+
+回答 v4 §20.2 最上面那一行「下一次需要你：哪件事、预计几点」。**不含眼下正等他的**（那是 Console 合成的「需要你」：审批、问题、卡，§5）。
+
+```json
+"owner_next": {
+  "state": "estimated",            // estimated | unknown | none
+  "reason": "M-1's next step is yours once its unfinished work is done; work not proposed yet is not counted",
+  "mission_id": "M-1",             // 以下五项只在 estimated 时有：最先轮到他的那件
+  "step": { "plan_node_id": "R2:2.1-1", "title": "…" },
+  "earliest": "2026-10-21T18:34:03Z", "latest": "2026-10-21T18:35:43Z",   // RFC3339，UTC
+  "after": [], "ready": false,
+  "candidates": [                  // 每件下一步是他的事，能估的按 earliest、latest 在前，估不出的在后
+    { "mission_id": "M-1", "step": { … }, "state": "estimated", "earliest": "…", "latest": "…", "reason": "…", "after": [], "ready": false },
+    { "mission_id": "M-2", "step": { … }, "state": "estimated", "earliest": "…", "latest": "…", "reason": "…, after M-1", "after": ["M-1"], "ready": false }
+  ]
+}
+```
+
+- **候选**：未结的事里，`next_steps[0]`（还没开始的第一步，计划顺序）是 Owner 步（`owner_step`）的。第二步才是他的不算：之前那一步的时间算不出。
+- **到期**：这件事的 `eta`（§2.2，往常用时累加）；`active` 且没有未完成的任务时是「现在」，并标 `ready: true`——按计划轮到他了，有没有单或卡让他动手，看「需要你」。`eta` 只计现在已提出的工作，后来才提的验收、评审不算，`reason` 写明这是下限。
+- **跨事依赖**（v4 §20.5 场景 8：「取两者里晚的那个」）：这件事的任务依赖别的事的任务时，到期取自己和那些事的 `earliest`、`latest` 各自的较晚值，沿依赖一路追下去；`after` 列出这些事。依赖的任务不在列出的事里，或那件事估不出，这件事就估不出，原因写明。
+- **估不准就说估不准**（v4 §20.3 第 7 条）：任一候选估不出（`reason` 取第一件的），或未结的事超过 100 件没读全，`state` 就是 `unknown`，不报一个最早时间；候选仍全部列出。区间倒置、时间读不出都算估不出。
+- **没有**：没有一件事的下一步是他的，`state: none`。
+- 实现 `store/progressnext.go`；测试 `TestOwnerNext`（纯逻辑，每个分支）、`TestProgressSaysWhenTheOwnerIsNextNeeded`（真库，两件事一件等另一件），Console 夹具 `agentrt-progress-owner-next.testdb.json`。Console 在 For you 的 Yours 卡里显示一行「Next time you are needed」。
+
 ## 3. 状态判定
 
 ### 3.1 一个任务的 `status`（每条带 `reason` 和 `since`）
@@ -135,7 +162,7 @@ mission 的 `mission_id`、`title`、`goal`、`state`、`deadline_at`、`work_id
 | 项 | 为什么不在 | 什么时候 | 负责 |
 |---|---|---|---|
 | 预计时间（A4、v4 §20.3 第 6、7 条） | 片的历史用时要到 Gate A 之后才有样本 | 2.5 前；现在给 `eta.state = unknown` 和原因 | 统筹方 |
-| 下一次需要 Owner 的时间（v4 §20.3） | 要先有预计时间才推得出；现在只能给「正在等他的」（`needs_you`）和「等他的事」（`waiting_owner`） | 与预计时间同时 | 统筹方 |
+| ~~下一次需要 Owner 的时间（v4 §20.3）~~ | 第 4 版已做：§2.7 `owner_next`（2.5 缺口 1，2026-10-21） | — | — |
 | 等待累计（一件事前后一共等了多久，A5） | 要按事件回放每段等待再相加；现在每条只给当前这段从几点起（§3.4） | 2.5 前，Gate A 的事件够了再定口径 | 统筹方 |
 | 外部责任方（`waiting_on: external`） | 第 2 轮没有任何运行时事实记录「在等外部」：外部类任务第 2 轮不派发，任务被挡住只有验收失败一个来源 | 2.3（交互总线带上外部等待的事件）之后 | 统筹方 |
 | 动作流水、最近检查点（A10、A13） | 等交互总线 | 2.3 | 统筹方 |
@@ -168,3 +195,8 @@ Console 的「需要你」是唯一的那个数：本路由的 `needs_you.items`
 - `needs_you`（184 B4）：`can_act_now` 改为 `null` 加原因，Console 以问题库为准（§5）；一张卡一条（`also_refs`）；最多 50 条加 `truncated`；`blocks` 按影响集合算，mission 和任务数同源。
 - `recent`（184 B3）：选候选、取前 20、输出用同一个键（时间，事件号），加 `ended_event_id`。
 - `hosts`（184 B5）：与 `GET /hosts` 用同一段 SQL，恰好 3 分钟两边都算在线。
+
+## 改了什么（第 3 → 第 4 版，2026-10-21）
+
+- 加 `owner_next`（§2.7）：Owner 10-21「缺口 1、2 照推荐加：/progress 加 owner_next」。只加字段，其余不变（`missionDoc` 改成用同一次算出的 `eta`）。
+- 复核 477 B1：过了预计时间不等于轮到他，也不等于有单可批；加 `ready`，`reason` 写明时间是下限。C1：区间倒置算估不出。

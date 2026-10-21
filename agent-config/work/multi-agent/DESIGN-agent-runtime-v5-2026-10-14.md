@@ -792,6 +792,11 @@ MCP 工具（加在现有 `mcp/platform`）：`whoami`、`get_plan`、`get_missi
 
 **依赖**：2.2（接口）、2.3（导入）。**Owner 动手**：5.7 的 O26–O28。**粗估**：2–4 天；把握中。
 
+**2.5 补的两处公开接口（Owner 2026-10-21「缺口 1、2 照推荐加」；T24 场景 8、9 要）**：
+- `GET /progress` 加 `owner_next`：下一次需要 Owner 的是哪件事、哪一步、预计几点，跨事依赖取晚的；估不出就 `unknown` 写原因。形状和规则见 `SPEC-agentrt-progress-2026-10-14.md` 第 4 版 §2.7。Console 在 For you 的 Yours 卡里显示。
+- 审批单加 `drill`（演练）：`POST /api/v1/approvals` 收 `"drill": true`，所有读方带 `drill`（为假时不出现）；演练单不问发版策略的自动批，批准路由在任何渠道都回 409 `a drill cannot be approved`，所以永远不执行；驳回照常可以关掉它，过期照常；通知写「Drill · #n」「A drill: nothing runs, and it cannot be approved.」，优先级 3，不发提醒。MCP `request_action` 收 `drill`。Console「需要你」把待批的演练单单列一组「Drills」，不计入任何计数；审批页写明是演练、没有 Approve 按钮。审批单存在 statefile，没有迁移，不是 PROD DDL。
+- 另两处只改 Console、不改接口：待批项显示它是计划里哪一步（按步骤完成规则里的 `approval_executed` 反查，场景 10）；断库时说最后一次读到是几点（场景 5，交 PROD 运行时 M-33 做）。
+
 ### 5.6 测试编号
 
 | 编号 | 名称 | 在哪一步 |
