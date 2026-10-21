@@ -2154,6 +2154,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-403
+
+**P1 · agentrt · on the agent host every database test skips: the runtime's deterministic check of agentrt and agentd work passes without running the tests that matter**
+
+- **状态**：未开始（2026-10-20 19:3x 统筹线程记；挑第一件交给 PROD 运行时的 Go 修复时查到）
+- **Claim**: the agentrt and agentd tests that need Postgres take it from `AGENTRT_TEST_PG` and skip without it (`api/internal/agentrt/agentrttest/db.go:41-46`, unless `AGENTRT_TEST_REQUIRED=1`). Only the CI pipeline sets it (`k8s/cicd/tekton/pipeline-ci-platform.yaml:153`); nothing on 06 does (`scripts/agent-host`, agentd's environment). So an implementer on 06 cannot run the store tests it writes, and the deterministic check of a task (`go -C api test ./internal/agentrt/store`, `./internal/agentd`) reports `ok` with every database test skipped.
+- **Evidence**: PROD M-19 verification `sha256:2121b421…`: `go -C api test ./internal/agentd` ok in 44 s with no test database; `git grep AGENTRT_TEST_PG` in infra finds only the CI pipeline.
+- **Impact**: the runtime's acceptance of core work (store, controller, agentd) says pass where the coordinator's merged-tree suite or CI is the only real gate; a task whose regression test needs the database is accepted untested, and the review is the only reader of it.
+- **Fix**: give agentd's checks on 06 a throwaway Postgres (a local cluster per attempt under the wall, or one test server on 06 that only the agent users reach) and set `AGENTRT_TEST_PG` and `AGENTRT_TEST_REQUIRED=1` in the check environment of bifrost-platform tasks, so a missing database fails the check instead of skipping. A new dependency on 06: the Owner picks between the per-attempt cluster and a shared test server.
+- **Ratchet**: an agentd test that the check environment of a bifrost-platform task carries `AGENTRT_TEST_REQUIRED=1`; a walk on STG whose verify runs a store test that fails on purpose and must be refused.
+- 验收: on STG, a task whose verify is `go -C api test -run TestRunTakesCheckpoints ./internal/agentd` runs that test (`-v` shows RUN, not SKIP) inside the wall.
+- 审批 要（06 上新增测试数据库，选做法）· 代价 M · 风险 low · repos: bifrost-platform, bifrost-trade-infra
+
 ### TD-402
 
 **P3 · agentrt · on STG a card asked in the facts loop waits for the second rule tick: about 10 seconds, at the edge of TD-393's acceptance**
@@ -2451,7 +2464,7 @@
 
 **P3 · testing · two agentd tests assume a writable /tmp, so a check that runs them inside agentd's write wall fails every time**
 
-- **状态**：未开始（2026-10-19 12:1x 记，STG 走查 stg-walk-confine §2）
+- **状态**：在做（2026-10-20 19:3x：两个测试 10-19 已在 platform `69250db1` 改成 `t.TempDir()` / `$TMPDIR`；剩防线，交给 PROD 运行时 M-23（Owner 19:3x「下一件只改 Go 的平台修复走 PROD 运行时」）。此前：2026-10-19 12:1x 记，STG 走查 stg-walk-confine §2）
 - **Claim**: `TestCodexCheckFindsNoSandbox` (`api/internal/agentd/confine_test.go:589`) expects the /tmp write to be allowed, and `TestBench` Q10 (`bench_test.go:70`, a fake executor writing `/tmp/bench-new-$$`) needs /tmp; inside the wall /tmp is read-only, so any task whose deterministic check runs `go test ./internal/agentd/` goes red twice and blocks (STG M-18).
 - **Evidence**: `~/agent-work/stg-walk-confine/REPORT.md` §2.
 - **Impact**: tasks that change agentd cannot pass their own check on the agent host.
