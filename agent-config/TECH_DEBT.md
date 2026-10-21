@@ -13,6 +13,9 @@
 
 ## 待你签收
 
+- **TD-400** — push-main 推之前查每个提交的 Change-Id、Claude-Session，缺了拒推，`--no-lineage <理由>` 豁免（infra `e7118ce`）。验收：PASS 2026-10-21。防线：`test_push_main.py`。后续：无后续：新工作目录钩子不跑的问题由这一道在推送时兜住。
+- **TD-408** — push-main 推完把干净、在 main 上的共用检出快进到推的提交，做不到就点名说明（infra `e7118ce`）。验收：PASS 2026-10-21，platform 推送后共用检出自动跟上。防线：`test_push_main.py`。后续：无后续：core 的本地分叉提交 ceff454 留给你定。
+- **TD-413** — push-main 推之前在干净 worktree 里跑仓库的快测试（infra 三目录；platform 的 vet 与改过的包），失败拒推，`--skip-tests <理由>` 豁免（infra `27357ae`）。验收：PASS 2026-10-21。防线：`test_push_main.py` 7 条。后续：只改文档的提交也要跑 5 分钟，在请修复线加「只改 .md 时说明后跳过」。
 - **TD-410** — TD-399 那条回读测试改成按状态驱动：用 advisory 锁卡住提交，过了截止再由测试放开，不再靠 commit_delay 掐时间（platform `fb015014`）。验收：PASS 2026-10-21，负载下 `-count=50 -cpu=1,4` 两轮都过。防线：`RATCHETS.md`「领活截止落在提交里」一行注明按状态驱动。后续：无后续：剩下唯一的时间界限是生产代码的 ConfirmLimit（3 秒），取消送达只要毫秒，复核认为不值得再改。
 - **TD-407** — 一题没答的考卷能作废了：审批目录的 D 级动作 `void_exam_paper`，只能你在 Console 批，平台执行；作废只了结那张卷、不判分不计成绩，有答案的卷不能作废（platform `bb6b5a3e`，STG）。验收：PASS 2026-10-20，作废后同晚 22:50 坐考开始。防线：`RATCHETS.md`「只有没答过的卷能作废」。后续：无后续：PROD 没有考题，用到时随下一张 PROD 单。
 - **TD-401** — 已答的卡不再起 AI 评估、也不计进参谋长能力分（前半，PROD 与 STG）；STG 上规则会答的卡干脆不评估，needs_owner 的卡和审批单照常，PROD、DEV 每张都评估（后半，按你 20:0x 的话）。platform `e7a2a2b2`（前半，#56 上 PROD）、`9707ab68`（后半，STG）。验收：PASS 2026-10-20，STG 十张规则答掉的新卡零评估。防线：`RATCHETS.md`「评估不白跑」。后续：无后续：后半只在 STG 打开，PROD 上同样的卡照常评估，下一张 PROD 单顺带。
@@ -2164,13 +2167,14 @@
 
 **P3 · release · push-main runs code-health but not the repository's own fast tests, so a red test reaches main when a pusher's pipe hides it**
 
-- **状态**：未开始（2026-10-21 02:1x 统筹线程记；教训 186，第二次）
+- **状态**：待你签收（2026-10-21 03:2x）。 此前：未开始（2026-10-21 02:1x 统筹线程记；教训 186，第二次）
 - **Claim**: `scripts/release/push-main.sh` checks the window, fast-forward and code-health; the repo's tests are left to the pusher, who twice (2026-10-14, 2026-10-21 infra 7a0aaac) ran them into a pipe whose exit code hid a failure and pushed red.
 - **Evidence**: LESSONS-from-practice.md rows for 10-14 and 186; infra 7a0aaac (test_freeze_chain still failing when pushed), fixed by c47adc8.
 - **Impact**: main turns red on a commit whose author believed it green; other sessions inherit the failure.
 - **Fix**: push-main runs a per-repo fast test set on the same clean worktree it scans (infra: `python3 -m pytest -q scripts/release scripts/agentrt scripts/agent-host`; platform: `go vet ./...` and the packages the commit touches), with an explicit `--skip-tests <reason>` for the rare push that cannot run them.
 - **Ratchet**: a push-main test: a commit whose tests fail is refused.
 - 验收: pushing a commit with a planted failing infra test is refused by push-main.
+- 验收结果：PASS 2026-10-21 infra `27357ae`：push-main 在干净 worktree 里跑 infra 三目录 664 条（327 秒）后才推；platform 推送跑 go vet 与改过的包；带故意失败测试的提交被拒由 `test_push_main.py` 7 条新用例证（在改之前的脚本上都失败）
 - 审批 无（工具改动）· 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ### TD-412
@@ -2230,13 +2234,14 @@
 
 **P2 · agent tooling · the shared checkouts fall behind main because nobody pulls them, and every session's MCP servers run from them: tools a release added are missing**
 
-- **状态**：观察中（到下一次从别的工作目录推 platform，看共用检出自动快进；infra `e7118ce` 起 push-main 推后让干净、在 main 上的共用检出跟上）。 此前：未开始（2026-10-20 21:1x 统筹线程记；Gate A 补跑线发现 STG MCP 的 propose_mission 没有 needs_owner）
+- **状态**：待你签收（2026-10-21 03:2x）。 此前：观察中（到下一次从别的工作目录推 platform，看共用检出自动快进；infra `e7118ce` 起 push-main 推后让干净、在 main 上的共用检出跟上）。 此前：未开始（2026-10-20 21:1x 统筹线程记；Gate A 补跑线发现 STG MCP 的 propose_mission 没有 needs_owner）
 - **Claim**: lanes work in their own worktrees and push main from there, so the shared checkouts under `~/Desktop/stocks/` are never pulled. The platform MCP servers each session starts run from the shared `bifrost-platform/mcp/platform` source (`npm exec tsx ./bifrost-platform/mcp/platform/src/index.ts`), so a session gets the tools of whatever commit the checkout sits at: 2026-10-20 it sat at `8948a5c5`, 199 commits behind main, without `needs_owner` on propose_mission or `propose_plan_import`. The local platform-api binary and Console dev server build from the same checkouts.
 - **Evidence**: 2026-10-20 21:1x `git rev-list --count HEAD..origin/main`: bifrost-platform 199 (fast-forwarded to `9707ab68` by the coordinator), bifrost-trade-core 54 with a local commit `ceff454` (10-03, core 0.36.2) that is not on main (left alone: not the coordinator's), bifrost-platform-plugin-market-data 5 (fast-forwarded); the MCP processes' command lines.
 - **Impact**: sessions call stale tools (fields missing, routes absent) and can draw wrong conclusions from them; walks are designed around tools that do not exist.
 - **Fix**: after every push to a repo's main, push-main.sh fast-forwards the shared checkout of that repo when it is on main and has no tracked changes (and says so when it cannot); a SessionStart check lists the shared checkouts behind main. The core divergence is the Owner's to resolve (drop `ceff454` or push it).
 - **Ratchet**: push-main test: after a push, a clean shared checkout on main is at the pushed commit; a dirty one is left alone and named.
 - 验收: after the next platform push, the shared checkout is at the pushed commit without a manual pull.
+- 验收结果：PASS 2026-10-21：从 ~/agent-work/td-412 推 platform `e98b1487`，push-main 报「shared checkout … fast-forwarded to e98b1487」，没有手工 pull
 - 审批 无（工具改动）；core 的分叉提交怎么处理要 Owner 定 · 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ### TD-407
@@ -2337,13 +2342,14 @@
 
 **P2 · release · push-main.sh pushes commits without lineage trailers: 17 of platform main's last 60 commits (all of 2026-10-20's lanes) have no Change-Id or Claude-Session**
 
-- **状态**：观察中（到下一次线的合并，看新提交都带 Change-Id、push-main 真拒过一次缺尾注的；infra `e7118ce` 起 push-main 推前查血缘，`--no-lineage <理由>` 豁免；scripts/release 512 过）。 此前：未开始（2026-10-20 19:0x 统筹线程记；合 `w31/stateevents-liveness` 后查血缘时发现）
+- **状态**：待你签收（2026-10-21 03:2x）。 此前：观察中（到下一次线的合并，看新提交都带 Change-Id、push-main 真拒过一次缺尾注的；infra `e7118ce` 起 push-main 推前查血缘，`--no-lineage <理由>` 豁免；scripts/release 512 过）。 此前：未开始（2026-10-20 19:0x 统筹线程记；合 `w31/stateevents-liveness` 后查血缘时发现）
 - **Claim**: lanes commit in worktrees of husky repos (`git worktree add` under `~/agent-work/…`), where no commit hook runs; CLAUDE.md §5 says to add `--trailer` by hand there, and the briefs did not carry it. `scripts/release/push-main.sh` checks the window, fast-forward and code-health, not the trailers, so the commits reach main without `Change-Id`, `Claude-Session`, `Claude-Transcript` or `Work`. Commit Lineage then shows them as unassigned, and "has this lane landed" (judged by Change-Id, CLAUDE.md §5) cannot be answered for them. The same gap as LESSONS row 41 (Cursor, 2026-10-08), now with Claude lanes.
 - **Evidence**: `git log -60 origin/main` in bifrost-platform on 2026-10-20 19:0x: no Change-Id on `9ec28da9`, `b43e6a7b`, `39fa7813`, `590de1e6`, `dc456527`, `a7c48915`, `5ce3467e`, `86fe98b2`, `d3aec8f7`, `96e69214`, `054fee57`, `f50fb761` and five more; `scripts/release/push-main.sh` has no trailer check.
 - **Impact**: the lineage of a whole day's work is lost on main (history is not rewritten); the Commit Lineage page and the "landed" check under-count lanes.
 - **Fix**: push-main.sh refuses a range `origin/main..<commit>` in which a commit lacks `Change-Id` or `Claude-Session`, naming each, with an explicit override (`--no-lineage <reason>`, written to the log) for commits made outside a Claude session; lane briefs carry the `--trailer` lines; the lane worktree helper installs the trailer hook (`core.hooksPath`) in each new worktree.
 - **Ratchet**: `test_push_main.py` case: a commit without Change-Id is refused, with the override it is pushed and the reason logged.
 - 验收: `python3 -m pytest scripts/release/test_push_main.py -q`; the next lane merge shows Change-Id on every new commit.
+- 验收结果：PASS 2026-10-21 infra `e7118ce` 起：此后合并的 platform `e98b1487`、infra `27357ae` 等新提交都带 Change-Id、Claude-Session，push-main 推前逐个核对；缺尾注被拒由 `test_push_main.py` 的用例证
 - 审批 无（发布工具收紧）· 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ### TD-399
@@ -2390,7 +2396,7 @@
 
 **P2 · agentrt · security · the chief exam's grading points sit in infra main, which Agent hosts check out and GitHub publishes**
 
-- **状态**：未开始（2026-10-20 16:5x 统筹线程记；chief-exam-s5 线 S5 交回时报出）
+- **状态**：在做（2026-10-21 03:2x：判分要点挪出 infra，原文在本机 ~/agent-work/chief-exam-2026-10-19/；`scripts/agentrt/test_no_exam_keys.py` 按内容拦题集规则、正则指纹、子题行，pre-commit 查暂存区（只在 infra）；复核 468→469→470 收线；合进 infra `27357ae` 一批。剩：git 历史里的旧要点不改写，下一次考试出新子题）。 此前：未开始（2026-10-20 16:5x 统筹线程记；chief-exam-s5 线 S5 交回时报出）
 - **Claim**: `agent-config/work/multi-agent/CUT-chief-exam-2026-10-19.md` §10「题一览」gives each sub-question's hard rules and traps. infra can be checked out by agentd on 06 since 10-19, and every repository is public on GitHub, so an executor sitting a later exam, or anyone, can read what the grader looks for. agentd's snapshot check refuses only a directory entry named chief-exam, not `CUT-chief-exam-*.md`. This sitting is unaffected: its snapshot 792a5ac predates §10.
 - **Evidence**: CUT-chief-exam-2026-10-19.md §10; the S5 hand-back (shared note chief-exam-s5-2026-10-20.md); memory rule 「考题要点不进可派活的仓库」(10-19).
 - **Impact**: a later exam with the same questions measures recall of the key, not judgement; the key is public.
