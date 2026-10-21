@@ -152,6 +152,8 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 - **F-mcp-checkout**：线程的平台 MCP 跑在共享检出的 `bifrost-platform/mcp/platform` 源码上，共享检出不跟 main（10-21 时落后 199 个提交），新加的 MCP 字段（这次是 `needs_owner`）线程里用不到。由统筹定：共享检出定期快进，或 `.mcp.json` 指向一个跟 main 的检出。
 - **F-probe**：STG 的 run_probe_pod 不能带平台自己的库身份（env_from 不许 `bifrost-platform-stg`）；设计里「直写用 run_probe_pod」这条路在现行策略下走不通。是否要开，属于策略（RBAC 级）决定，不在这一轮。
 - **F-T32-card**（10-21）：STG 的 `card-auto-answer v3` 遇到没有推荐、也没有 AI 评估的计划变更卡，取「不改」（`q_4beba10878543ee3`，04:13:12Z）。所以在 STG 上，常设授权以外的计划变更（`move_task`、`rebind_step`、`drop_step`、加 item）都落不了地，测试夹具也丢不掉：「卡由规则自动答」不等于「变更会生效」。要不要让这类卡在 STG 上取提议的那一项，交统筹定。
+- **F-T33-rec**（10-21）：架构行门槛的计划变更卡带不上推荐。`store.gatesRecommend` 算出了「应用」（`card.Recommended = 1`），但 `internal/server/questions_wire.go` 的 `agentRuntimeAsk` 只在卡自带选项（`len(card.Options) > 0`：planner、mission、blocked 卡）时才把 `recommended` 传给问题库。计划变更卡用默认的「应用 / 不应用」，推荐被丢掉，STG 规则只能取「不改」（`q_d58aaf5995349bf1`，04:32:43Z）。TD-397 ② A（STG 照推荐自动应用）因此在 STG 上走不通，PROD 的卡也不会显示推荐。测试只在存储层经假的 asker 看 `card.Recommended`（`store/gates_test.go:464`），没有一条测试走真的 `agentRuntimeAsk`。修法：卡没有自带选项时，`card.Recommended > 0` 也写进 `req["recommended"]`，并把 `RecommendedWhy` 放进那一项的 detail；回归测试经 server 的问题库提一次目录里的规则，断言问题的 recommended 是 a、STG 规则应用了它。
+- **F-review-report**（10-21）：评审看不到被检尝试的报告。agentd 给评审的提示（`agentd/executors.go` `promptRest`）只有任务书、检出的提交和 verify.json；store 给评审的规格（`accept.go`）也只带 `verify_report`。effect none 的任务，结果就是那份报告，评审看不到。M-93 两轮评审都判了 FAIL：实现已在 01:58–02:43 睡满 2700 秒，报告是 `slept 2700 s`，评审却在空工作区里找那行输出，又用检查时刻去比 04:30。branch 任务不受影响（评审看得到提交）。
 
 ### 要 Owner 跑的（统筹线程转）
 
@@ -204,6 +206,30 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 
 留在 STG 上的：F1、F2 两个测试步骤（planned，没有任务、没有规则，标题写明 STG test）。丢弃（`drop_step`）也要发卡，同样会被自动答成「不改」，所以留着；R2:2.2 的分母在 STG 上多 2。
 
+### T33 在 STG 上（10-21 04:24–04:33Z，platform d360a118）
+
+统筹 04:24Z 把 d360a118（含 TD-397、迁移 0007 和 0008）发上 STG。本线按 TD-397 笔记的做法配门槛目录：
+- 在 d360a118 上跑 `go -C api run ./cmd/agentrt-gate catalog -env stg`，得 13 份规格、13 项 `set_done_rule`（本机 `~/agent-work/gate-a-t33/catalog-stg.json`）；
+- 13 份规格按原样上传（kind task_spec），返回的 sha256 和目录逐一相同；
+- 用 `propose_plan_change`（root ARCH，事件 4810）提交 13 项。
+
+结果：卡 `q_d58aaf5995349bf1` 没带推荐。`card-auto-answer v3` 04:32:43Z 取了「不改」，`plan_change_decided: refused`（4812），13 行规则仍是 `{}`，没有派门槛（F-T33-rec）。
+
+已逐条核对推荐的条件，都成立：
+- 平台的库身份是 `platform_agentrt_stg`，环境是 stg；
+- 13 行都是 ARCH 下没有规则的 arch_row；
+- 13 份规格都存着，kind task_spec，sha256 一致；
+- 提交的规则规范化后和 `gaterun.Catalog` 给 stg 的逐字节相同（本地对照了 13 行）。
+
+推荐是在 server 把卡交给问题库时丢的。T33 要等这处修好、发上 STG 以后，用新的幂等键重提。
+
+### M-93、M-95 收尾（10-21 04:16–04:32Z）
+
+- **M-93：stopped，不是 done。** 第 1 轮实现在 01:58–02:43 睡满 2700 秒，报告 `slept 2700 s`，验收（`true`）过。cursor 评审 04:16Z 判 FAIL，原因是工作区里没有那行输出、04:15 还没到 04:30。
+  第 2 轮 04:16–04:30 又跑一次，验收过，评审 04:31Z 又判 FAIL → blocked → 卡 `q_b9f58b0617429ed6` 没有推荐，规则取「不做了」→ 任务 cancelled → mission stopped（04:31:46Z）。
+  两轮评审都没看到报告（F-review-report）。T22 ② 和合盖的结论不受影响：它们看的是租约、隔离和接管，不是这件任务的结果。
+- **M-95：** 第 3 次尝试 04:15:09Z 抢救、结束（没有报告，不 persisted）。之后任务回到 ready，停止控制 `c_01M5E9J8BNNKKJY1SVDDTF87K8` 挡着，没有再被领。
+
 ### Gate A 收尾清单（计划步骤 R2:2.2-28，2026-10-21 04:10Z 核对）
 
 逐项对照设计 v5 §5.2 的 Gate A 表。「过」= 表里的过的标准都有证据；证据栏写在哪看。
@@ -223,7 +249,7 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 | T22 ⑤ 锁后截止 | **过** | 存储层夹具 `store/kernel_test.go` `TestFenceAndLeaseClock`（「T22 ⑤」那段），按 10-15 计划不在 STG 重做 | 无 |
 | T25 状态只由事件改 | **过** | 上文「T25」：`TestRoutesMoveStateOnlyByEvents`（每条写路由、四个世界）+ `TestIdentitiesAndTheEventRule`（直写）+ STG 只读核对 | 无；STG 上用运行时身份直写做不到（F-probe），以迁移哈希、触发器、状态与事件一致性的只读核对代替 |
 | T32（经接口） | **基本过，差两种** | 10-15 9 条反例 422（「每项的状态」T32）；10-21 STG 再 9 条 422（上文「T32 经接口」：挂到 item、挂到别的 mission 的步骤、规则引用别一步的任务、没绑的审批、没绑的问题、步骤挂在 round 下、item 挂在 item 下、验收离开对象、改绑后再挂别的 mission 的任务），不留半条记录；接口层测试 `agentrtapi/propose_test.go`、`TestPlanProposalRoute` | ① 规则引用之后移走任务：STG 的卡片规则把夹具卡答成「不改」（F-T32-card），落不了地；同一拒收由路由调用的 `store.ProposePlanChange` 的测试覆盖（`TestPlanChangeOutside`）。② 参谋长席位：缺 STG 的 `seat:chief_of_staff` 令牌。「并发两条依赖」「迁移与新建交错」经接口构造不出来，由存储层 T32（`store_test.go`）证 |
-| T33 证据绑定版本 | **测试过，STG 未验** | 上文「T33」：`TestStandingGate`、`TestArchTickFollowsTheDeployment`、`TestArchRecordedDeploymentThatIdentifiesNothing`、`TestGateUsesTheExactTestID` | STG 上没有可测对象（F-T33）。TD-397（platform `w31/td-397-gates`：发版后由运行时派门槛任务、写 gate 验收）发上 STG 后，验一次：一行架构对照被真实的门槛运行在部署的提交上打勾，再换一次部署看旧 PASS 不算 |
+| T33 证据绑定版本 | **测试过，STG 卡在 F-T33-rec** | 上文「T33」：`TestStandingGate`、`TestArchTickFollowsTheDeployment`、`TestArchRecordedDeploymentThatIdentifiesNothing`、`TestGateUsesTheExactTestID`；上文「T33 在 STG 上」 | TD-397 已发 STG（d360a118），但架构行门槛的计划变更卡带不上推荐，STG 规则答成「不改」，规则没落地（F-T33-rec）。修好、发上 STG 后重提 13 项，验一行（`ARCH:owner-three-duties`，T40 不需要库）被部署提交上的真门槛打勾；再换一次部署看旧 PASS 不算 |
 | T34 ①②③⑥⑦ | **过** | 10-15 STG M-5（gate-b 测试客户端在接口层制造） | 无 |
 | T34 ④ 上传中途重启 | **过** | 新测试 `agentd/handover_restart_test.go` `TestRestartDuringTheHandOver`（真进程 SIGKILL，五个杀点） | 无 |
 | T34 ⑤ 主机永久丢失 | **不过** | 10-15 STG M-5 `t_01M50ST4M08FCR783MZ4J9NCWD`：Progress 只显示 `maybe_stuck`，没有「结果未持久化」、最后确认的检查点时间和已多久没持久化 | TD-352（P2，未开始）：Progress 补这三样并且不显示做完；修好后在 STG 重跑一次（gate-b 式客户端打一个检查点后不再出现） |
@@ -234,7 +260,7 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 
 **还差 5 项**（其余全部过）：
 1. **T32 经接口的最后两种**：9 种已在 STG 上被拒。剩下两种：「规则引用之后移走任务」卡在 STG 的卡片规则把夹具卡答成「不改」（认 `TestPlanChangeOutside`，或在 M-95 里留一个不做事的任务当夹具）；「参谋长席位」卡在没有 STG 的席位令牌。
-2. **T33**：卡在 TD-397 发上 STG。之后要一行架构对照被真门槛运行打勾，再换一次部署看旧 PASS 不算。
+2. **T33**：TD-397 已发 STG，但卡在 F-T33-rec：计划变更卡的推荐在 server 交给问题库时被丢掉，STG 规则答成「不改」。修好并发 STG 后重提，再验打勾；换一次部署看旧 PASS 不算，等下一次 STG 发版。
 3. **T34 ⑤**：卡在 TD-352（Progress 补「结果未持久化」+ 检查点时间 + 时长）没做；做完后 STG 重跑一次。
 4. **T34 ⑧**：卡在决定。认存储层测试，或 STG 放到每台 2 个槽（放宽要 Owner 签）再跑。
 5. **T36 页面**：卡在决定。认「按任务筛选」，或加一个到 Crew 任务详情的链接。
