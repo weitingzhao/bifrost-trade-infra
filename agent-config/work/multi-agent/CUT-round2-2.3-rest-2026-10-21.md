@@ -63,6 +63,8 @@
 
 ## 3. 要 Owner 定的（每条 2–3 个选项和推荐）
 
+**已定（Owner 2026-10-21 13:2x，在统筹线程，原话「2.3 的四条都照推荐 A。」，统筹线程 `local_accccb4e…` 转来）**：1 选 A（`GET /api/v1/agentrt/artifacts` 只回元数据、游标分页、`limit` ≤ 100，加 MCP `search_artifacts`；要索引就单独一条迁移，算 PROD DDL）；2 选 A（第 2 轮不做 presence，写进设计 §5.3）；3 选 A（第 1 轮不导入，写进设计 §5.3）；4 选 A（认可 `agentrt.recorder_import/v1`，一份日志一张卡；先 STG，由已签的卡规则答；PROD 17 张卡在 STG 核过之后由统筹线程提、Owner 答；`lane.py`、`rec.py` 等 PROD 导完再退役）。落地见 §6。
+
 1. **`search_artifacts`（新路由）**。设计 §5.3 的交付物里点了名，没有定形状；交接（`HANDOFF.md` → `handover` 产物）要靠它找「最新的一份交接」。
    - **A（推荐）**：`GET /api/v1/agentrt/artifacts?kind=&task=&mission=&author=&since=&limit=`（read 角色），只回元数据（号、种类、作者、任务、时间、大小、媒体类型），正文仍按号用 `GET /artifacts/{id}` 读；按时间倒序、游标分页、`limit` ≤ 100。MCP `search_artifacts` 同参数。不加表列（`artifact` 表已有这些列，必要时加一个索引，走迁移）。
    - B：不加路由，只做 MCP 工具，在 MCP 里拼现有路由（`list_tasks` → `get_task` → 产物号）。找不到不挂任务的产物（消息正文、交接），交接这条用不上。

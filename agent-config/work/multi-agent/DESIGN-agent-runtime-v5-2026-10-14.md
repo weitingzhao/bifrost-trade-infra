@@ -738,10 +738,12 @@ MCP 工具（加在现有 `mcp/platform`）：`whoami`、`get_plan`、`get_missi
 
 **交付物**：把 2.1 的中继和重建接进 `platform-workers`（只接线）；信箱、唤醒、在线、叫停广播的 API 与 MCP 长轮询（`wait_for_messages`、`ack_messages`、`ask`、`request_help`、`handover`、`search_artifacts`）；等待计时由控制器做（`RULE-waits` 总则第 4 条）；隔离、根目录只读、注入防护；本机文件导入。
 
+（Owner 2026-10-21 13:2x「2.3 的四条都照推荐 A」，`CUT-round2-2.3-rest-2026-10-21.md` §3）**在线**：第 2 轮只做主机在线（按 `host.last_poll_at`），**交互线程和席位的 presence（5.1.4 的 `agrt:presence:<actor_id>`）第 2 轮不做**：线程存活看平台已有的线程心跳（`agentthreads`，T26 就读它），席位第 2 轮是任务形态、不常驻（§1 第 8 行）；presence 随第 3 轮常驻席位做。`ask`、`request_help`、`handover` 由一个 `send_message`（`kind` 取 ask / help / handover / note / answer）承担，`handover` 的产物是 `put_artifact`（kind `handover`）；`search_artifacts` 是只回元数据的 `GET /api/v1/agentrt/artifacts`。
+
 | 本机文件 | 怎么迁 |
 |---|---|
-| `WORK.md`「第 1 轮逐项」「第 2 轮逐项」「架构对照」 | 一次性导入成 `plan_node`（`legacy_imported`），编号按表里的项号和行序，`W-n` 写进 `work_id`；「架构对照」每行指定它的门禁测试编号和钉住的规格 sha256（例：状态库 ← T19、T20、T23a）。导入后的去留见 §7 第 4 条。`TECH_DEBT.md`、`RATCHETS.md` 第 2 轮不导入（§8） |
-| 派工记录 `~/agent-work/recorder-root` | 先校验哈希链，再作为 `legacy:recorder` 流导入；然后 `lane.py`、`rec.py` 退役 |
+| `WORK.md`「第 2 轮逐项」「架构对照」（「第 1 轮逐项」**不导入**，留在 `WORK.md` 作历史：全部做完、没有在跑的活挂在上面。Owner 2026-10-21 13:2x，`CUT-round2-2.3-rest` §3 第 3 条 A） | 一次性导入成 `plan_node`（`legacy_imported`），编号按表里的项号和行序，`W-n` 写进 `work_id`；「架构对照」每行指定它的门禁测试编号和钉住的规格 sha256（例：状态库 ← T19、T20、T23a）。导入后的去留见 §7 第 4 条。`TECH_DEBT.md`、`RATCHETS.md` 第 2 轮不导入（§8） |
+| 派工记录 `~/agent-work/recorder-root` | 先校验哈希链，再作为 `legacy:recorder` 流导入；然后 `lane.py`、`rec.py` 退役。（Owner 2026-10-21 13:2x，`CUT-round2-2.3-rest` §3 第 4 条 A：请求格式 `agentrt.recorder_import/v1`，经 `POST /plan/imports`，一份日志一张卡；先 STG（由已签的卡规则答），STG 核过后 PROD 的卡由统筹线程提、Owner 答；`lane.py`、`rec.py` 等 PROD 导完再退役。`_observer/` 是看板的观察轮次，不导入，随看板在 2.5 退役） |
 | 看板数据 `tasks.json` 手写行、`HANDOFF.md` | 「需要你」→ 提问 / 审批 / 计划里的 Owner 步骤；「在做」→ 任务与尝试；「最近」→ 事件；`HANDOFF.md` 只剩判断性的话，作为 `handover` 产物经 MCP 写入 |
 | 等待计时、看护（`~/agent-work/watch-agents.sh`） | 控制器的 `wait_limit_passed` 和租约循环 |
 | 额度读数（`usage.py`、`cursor-quota.json`） | 2.4 的 `pool_measured` |
