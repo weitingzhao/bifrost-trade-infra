@@ -2160,6 +2160,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-413
+
+**P3 · release · push-main runs code-health but not the repository's own fast tests, so a red test reaches main when a pusher's pipe hides it**
+
+- **状态**：未开始（2026-10-21 02:1x 统筹线程记；教训 186，第二次）
+- **Claim**: `scripts/release/push-main.sh` checks the window, fast-forward and code-health; the repo's tests are left to the pusher, who twice (2026-10-14, 2026-10-21 infra 7a0aaac) ran them into a pipe whose exit code hid a failure and pushed red.
+- **Evidence**: LESSONS-from-practice.md rows for 10-14 and 186; infra 7a0aaac (test_freeze_chain still failing when pushed), fixed by c47adc8.
+- **Impact**: main turns red on a commit whose author believed it green; other sessions inherit the failure.
+- **Fix**: push-main runs a per-repo fast test set on the same clean worktree it scans (infra: `python3 -m pytest -q scripts/release scripts/agentrt scripts/agent-host`; platform: `go vet ./...` and the packages the commit touches), with an explicit `--skip-tests <reason>` for the rare push that cannot run them.
+- **Ratchet**: a push-main test: a commit whose tests fail is refused.
+- 验收: pushing a commit with a planted failing infra test is refused by push-main.
+- 审批 无（工具改动）· 代价 S · 风险 low · repos: bifrost-trade-infra
+
 ### TD-412
 
 **P3 · ci · the platform's MCP server is never type-checked in CI, and main has carried a type error since 2026-10-10**
