@@ -2162,7 +2162,7 @@
 
 **P2 · agentrt · exam · a paper agentd refuses before any question runs still holds the executor for 24 hours: no sitting until it lapses**
 
-- **状态**：未开始（2026-10-20 21:0x 统筹线程记；Owner「不用等明天」，坐考卡在这张卷上）
+- **状态**：在做（2026-10-20 21:0x Owner 开口子：「TD-407 开口子：加一个只有我能用的『作废一题没答的卷』，只改平台、不碰题目和评分，发 STG 后我今晚坐考」。做法：审批目录加动作「作废没答过的卷」，统筹线程建单、Owner 在 Console 批、平台执行器执行；交给参谋长考试 S5 线 local_4847e277）。 此前：未开始（2026-10-20 21:0x 统筹线程记；Owner「不用等明天」，坐考卡在这张卷上）
 - **Claim**: `store/exam.go` issueExam refuses a new paper while the executor has an ungraded one that has not expired (`ExamPaperLife = 24h`), and a paper is graded only when its answers are recorded or it lapses. When agentd refuses a paper before running it (its checkPaper: STG 2026-10-20 22:31Z, paper `526ca46ad0db…`, three items with short commits), nothing tells the platform, so the paper stays open with no answers until 2026-10-21 22:31Z and the Owner's next sitting is refused with 409 ("exec:claude has paper … open until …").
 - **Evidence**: `api/internal/agentrt/store/exam.go:296-304`; agentd log 2026-10-21 00:27Z (409); the exam log `~/agent-work/agent-06-logs/exam-claude-20261020T192719-94563.txt`.
 - **Impact**: one bad paper (or one agentd crash before the first answer) blocks the chief's exam for a day; the qualifying path waits on a clock, not on work.
