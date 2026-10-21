@@ -2190,7 +2190,7 @@
 
 **P1 · release · a platform release whose code needs a new agentrt migration goes out without it, and the controller fails quietly every 15 seconds**
 
-- **状态**：在做（2026-10-21 02:0x：平台一半交回 w31/td-411-schema（复核 466、467 收线）：health 的 agentrt_schema 与缺的迁移、Progress 与 Console 的提示、循环连续 4 次同样失败记 policy_alert；合并中。流水线一半要 Owner 定：A 发完后读 health 拒（要放行 cicd 读平台 health），或 B 发前对比迁移拒发（要 health 加 agentrt_schema_applied）；Owner 应用）。 此前：未开始（2026-10-21 01:1x 统筹线程记；Gate A 线 F-T33-migrate）
+- **状态**：在做（2026-10-21 02:1x：平台一半合进 platform `75022097`，02:13 上 STG：启动日志 ERROR、health `agentrt_schema: behind`、缺 0007/0008，现场验到；流水线一半待 Owner 定 A/B；STG 迁移 Job 待 Owner 建）。 此前：在做（2026-10-21 02:0x：平台一半交回 w31/td-411-schema（复核 466、467 收线）：health 的 agentrt_schema 与缺的迁移、Progress 与 Console 的提示、循环连续 4 次同样失败记 policy_alert；合并中。流水线一半要 Owner 定：A 发完后读 health 拒（要放行 cicd 读平台 health），或 B 发前对比迁移拒发（要 health 加 agentrt_schema_applied）；Owner 应用）。 此前：未开始（2026-10-21 01:1x 统筹线程记；Gate A 线 F-T33-migrate）
 - **Claim**: `bifrost-deliver-platform` builds and rolls out platform-api and workers but never runs or checks the agentrt migrations; they run only when the Owner creates the plain Job in `k8s/agentrt-migrate/<env>/job.yaml` (README there). STG ran platform `d360a118` (with 0007, 0008) from 2026-10-20 23:24 CDT on a database still at 0006: the controller's facts-and-rules pass failed every 15 s (`agentrt-facts-rules: ... violates check constraint "task_check2"`), logged as WARN only; health stayed ok, nothing alerted, and gate tasks, blocked cards and the other facts-pass work stopped on STG. The coordinator released three more STG builds on top without noticing.
 - **Evidence**: STG platform-workers log 2026-10-21 06:15Z onward; agentrt-migrate Jobs in bifrost-platform-stg (latest 25 h old, before 0007/0008); Gate A run notes (infra branch w31/gate-a-t32 `5d7ce8f`).
 - **Impact**: any release carrying a migration silently disables the runtime's controller in that environment until someone reads the logs; on PROD the same would stop dispatch and cards.
@@ -2230,7 +2230,7 @@
 
 **P2 · agent tooling · the shared checkouts fall behind main because nobody pulls them, and every session's MCP servers run from them: tools a release added are missing**
 
-- **状态**：未开始（2026-10-20 21:1x 统筹线程记；Gate A 补跑线发现 STG MCP 的 propose_mission 没有 needs_owner）
+- **状态**：观察中（到下一次从别的工作目录推 platform，看共用检出自动快进；infra `e7118ce` 起 push-main 推后让干净、在 main 上的共用检出跟上）。 此前：未开始（2026-10-20 21:1x 统筹线程记；Gate A 补跑线发现 STG MCP 的 propose_mission 没有 needs_owner）
 - **Claim**: lanes work in their own worktrees and push main from there, so the shared checkouts under `~/Desktop/stocks/` are never pulled. The platform MCP servers each session starts run from the shared `bifrost-platform/mcp/platform` source (`npm exec tsx ./bifrost-platform/mcp/platform/src/index.ts`), so a session gets the tools of whatever commit the checkout sits at: 2026-10-20 it sat at `8948a5c5`, 199 commits behind main, without `needs_owner` on propose_mission or `propose_plan_import`. The local platform-api binary and Console dev server build from the same checkouts.
 - **Evidence**: 2026-10-20 21:1x `git rev-list --count HEAD..origin/main`: bifrost-platform 199 (fast-forwarded to `9707ab68` by the coordinator), bifrost-trade-core 54 with a local commit `ceff454` (10-03, core 0.36.2) that is not on main (left alone: not the coordinator's), bifrost-platform-plugin-market-data 5 (fast-forwarded); the MCP processes' command lines.
 - **Impact**: sessions call stale tools (fields missing, routes absent) and can draw wrong conclusions from them; walks are designed around tools that do not exist.
@@ -2337,7 +2337,7 @@
 
 **P2 · release · push-main.sh pushes commits without lineage trailers: 17 of platform main's last 60 commits (all of 2026-10-20's lanes) have no Change-Id or Claude-Session**
 
-- **状态**：未开始（2026-10-20 19:0x 统筹线程记；合 `w31/stateevents-liveness` 后查血缘时发现）
+- **状态**：观察中（到下一次线的合并，看新提交都带 Change-Id、push-main 真拒过一次缺尾注的；infra `e7118ce` 起 push-main 推前查血缘，`--no-lineage <理由>` 豁免；scripts/release 512 过）。 此前：未开始（2026-10-20 19:0x 统筹线程记；合 `w31/stateevents-liveness` 后查血缘时发现）
 - **Claim**: lanes commit in worktrees of husky repos (`git worktree add` under `~/agent-work/…`), where no commit hook runs; CLAUDE.md §5 says to add `--trailer` by hand there, and the briefs did not carry it. `scripts/release/push-main.sh` checks the window, fast-forward and code-health, not the trailers, so the commits reach main without `Change-Id`, `Claude-Session`, `Claude-Transcript` or `Work`. Commit Lineage then shows them as unassigned, and "has this lane landed" (judged by Change-Id, CLAUDE.md §5) cannot be answered for them. The same gap as LESSONS row 41 (Cursor, 2026-10-08), now with Claude lanes.
 - **Evidence**: `git log -60 origin/main` in bifrost-platform on 2026-10-20 19:0x: no Change-Id on `9ec28da9`, `b43e6a7b`, `39fa7813`, `590de1e6`, `dc456527`, `a7c48915`, `5ce3467e`, `86fe98b2`, `d3aec8f7`, `96e69214`, `054fee57`, `f50fb761` and five more; `scripts/release/push-main.sh` has no trailer check.
 - **Impact**: the lineage of a whole day's work is lost on main (history is not rewritten); the Commit Lineage page and the "landed" check under-count lanes.
