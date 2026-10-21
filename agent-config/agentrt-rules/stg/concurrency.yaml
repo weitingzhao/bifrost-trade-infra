@@ -1,6 +1,6 @@
 rule_id: concurrency
-rule_version: 1
-direction: initial
-effective_at: 2026-10-15T00:00:00Z
+rule_version: 2
+direction: loosen
+effective_at: 2026-10-21T05:00:00Z
 expires_at: 2027-01-15T00:00:00Z
-per_host: 1
+per_host: 2
