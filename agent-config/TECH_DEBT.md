@@ -2154,6 +2154,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-406
+
+**P3 · agentrt · a ready task that no executor ever could take (empty route, every candidate retired or excluded, the envelope no longer in force) waits with no card; a brief whose executors were all withdrawn too**
+
+- **状态**：未开始（2026-10-20 20:0x 统筹线程记；TD-395 修复线 local_5a7f60ae 交回时提出，笔记 td395-td399-2026-10-20.md）
+- **Claim**: TD-395's sweep blocks a ready task only when at least one candidate was withdrawn by TD-381's backoff. A task with an empty route, or whose candidates are all retired, disabled, hard-excluded or excluded on competence, or whose mission's standing envelope is no longer in force, is taken by nobody and gets no card; a brief whose executors were all withdrawn also stays ready (briefs have no cards).
+- **Evidence**: `bifrost-platform/api/internal/agentrt/store/withdrawn.go` `noneLeft` (`len(gone) == 0` returns nothing) and its two `t.role <> 'brief'`; `store/claim.go` pickTool ("A task with an empty route goes to nobody"). PROD and STG read 2026-10-21 00:1xZ: no such task now.
+- **Impact**: as TD-395's (the task waits forever and its mission never ends), with no case today.
+- **Fix**: the card's options are the Owner's to set first ("one more round" frees nothing here unless a rule or a candidate changes): a card shape for "nobody may take this" (close the task, close the mission, or wait for a rule change), and for a brief, brief.go answers its sender "no executor can answer".
+- **Ratchet**: a store test: a ready task with an empty route is marked within one sweep (a card or Needs you), not left in ready.
+- 验收: on STG, a task proposed with a route nobody serves is blocked with a card within one sweep.
+- 审批 要（卡的选项由 Owner 定）· 代价 S · 风险 low · repos: bifrost-platform
+
 ### TD-405
 
 **P1 · agentd · a retried implementation is not told why its last round failed: "Give it one more round" repeats the same mistake**
@@ -2234,9 +2247,9 @@
 
 ### TD-399
 
-**P2 · agentrt · a claim whose long poll ends while its transaction commits answers 204, yet the commit lands: a lease nobody holds**
+**P2 · agentrt · a claim whose long poll ends while its transaction commits answers wrong: 200 for a lease that may have rolled back, or 204 for a commit that landed**
 
-- **状态**：未开始（2026-10-20 19:xx Gate A 补跑线 local_6f3ef5b9 记；查 `ci-platform-tj5wx` 的偶发时找到）
+- **状态**：在做（2026-10-20 20:0x：修复线 local_5a7f60ae 交回 platform `w31/td-395-399`，复核 td395-1、td395-2 收线，统筹线程合并中。实测更正：旧代码在租到活的轮询被截止切在提交里时答 **200**，租约可能已回滚（延迟触发器阶段被 CancelRequest 中止），等于告诉 agentd 一个不存在的租约；「204 而提交落地」只出现在没租到活的轮询。此前：2026-10-20 19:xx Gate A 补跑线 local_6f3ef5b9 记；查 `ci-platform-tj5wx` 的偶发时找到）
 - **Claim**: `agentrtapi/api.go` claim runs each `store.ClaimNext` under the long poll's deadline (`context.WithTimeout(r.Context(), wait)`), and `store/write.go` InTx commits with that context. When the deadline falls while COMMIT is on its way, pgx returns "context deadline exceeded" but the server still commits (measured 2026-10-20 on the test Postgres under `commit_delay`: 5 of 5). The handler takes the error with `ctx.Err() != nil` as "nothing to claim" and answers 204. If that last poll leased a task, the attempt is leased to the host with no agentd knowing it.
 - **Evidence**: `agentrtapi/api.go` claim (`if err != nil && ctx.Err() == nil` … `case <-ctx.Done(): 204`); `store/write.go` InTx `tx.Commit(ctx)`; ci-platform-tj5wx (a poll's `last_poll_at` landing during a later request); experiment kept in the thread's scratchpad (`zz_latecommit_experiment_test.go.txt`).
 - **Impact**: rare (the poll that commits at the deadline must also find work), but then the task waits out the lease and the grace (about 17 minutes) before it is handed out again, and the lost attempt counts against the mission's attempt budget (T10).
