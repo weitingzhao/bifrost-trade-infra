@@ -2160,6 +2160,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-411
+
+**P1 · release · a platform release whose code needs a new agentrt migration goes out without it, and the controller fails quietly every 15 seconds**
+
+- **状态**：未开始（2026-10-21 01:1x 统筹线程记；Gate A 线 F-T33-migrate）
+- **Claim**: `bifrost-deliver-platform` builds and rolls out platform-api and workers but never runs or checks the agentrt migrations; they run only when the Owner creates the plain Job in `k8s/agentrt-migrate/<env>/job.yaml` (README there). STG ran platform `d360a118` (with 0007, 0008) from 2026-10-20 23:24 CDT on a database still at 0006: the controller's facts-and-rules pass failed every 15 s (`agentrt-facts-rules: ... violates check constraint "task_check2"`), logged as WARN only; health stayed ok, nothing alerted, and gate tasks, blocked cards and the other facts-pass work stopped on STG. The coordinator released three more STG builds on top without noticing.
+- **Evidence**: STG platform-workers log 2026-10-21 06:15Z onward; agentrt-migrate Jobs in bifrost-platform-stg (latest 25 h old, before 0007/0008); Gate A run notes (infra branch w31/gate-a-t32 `5d7ce8f`).
+- **Impact**: any release carrying a migration silently disables the runtime's controller in that environment until someone reads the logs; on PROD the same would stop dispatch and cards.
+- **Fix**: platform-api reports the schema it needs against the one it finds (health `agentrt_schema: behind` and the Progress page says so); the deliver pipelines refuse to roll out an image whose embedded migrations are ahead of the environment's database, naming the migration Job to run first; the release notes for the coordinator list "run agentrt-migrate" when a release adds a migration.
+- **Ratchet**: a test that platform-api's health says behind when the database misses a migration the binary carries; a pipeline check test.
+- 验收: on STG, a build with a migration not yet applied is refused by deliver-platform, and after the Job it rolls out.
+- 审批 无（发布工具与健康检查）；流水线改动应用到集群要 Owner · 代价 M · 风险 low · repos: bifrost-platform, bifrost-trade-infra
+
 ### TD-410
 
 **P3 · testing · TD-399's read-back test fails about one run in twenty on a clean base: it times a commit with commit_delay**
