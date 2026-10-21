@@ -314,9 +314,20 @@ run_tests() {
   local tree="$1" rc=0 p
   case "$repo" in
     bifrost-trade-infra)
-      local paths=() wanted=(scripts/release scripts/agentrt scripts/agent-host)
+      local paths=() wanted=(scripts/release scripts/agentrt scripts/agent-host) guards=true
       if $docs_only; then
-        wanted=("${DOC_GUARDS[@]}")
+        # Every document guard must be there to stand for the rest; one that
+        # is not runs every test instead (review td413docs-1 B2).
+        for p in "${DOC_GUARDS[@]}"; do
+          if [[ ! -f "$tree/$p" ]]; then
+            echo "push-main: the document guard $p is not in $commit; every test of $repo runs"
+            guards=false
+          fi
+        done
+        if $guards; then
+          echo "push-main: of the tests of $repo only the document guards run"
+          wanted=("${DOC_GUARDS[@]}")
+        fi
       fi
       for p in "${wanted[@]}"; do
         [[ -e "$tree/$p" ]] && paths+=("$p")
@@ -362,30 +373,53 @@ run_tests() {
   return "$rc"
 }
 
-# Only documentation (TD-413): every file origin/main..<commit> changes is
-# Markdown, a rename read as its delete and its add (a .py renamed to .md is
-# not documentation only). Then only the tests that guard what documents
-# may hold run: infra's exam-key scan (exam keys stay out of a repository
-# agents check out, LESSONS 2026-10-19); platform's tests read no Markdown.
+# Only documentation (TD-413): every change origin/main..<commit> makes is
+# to a plain Markdown file, a .md of mode 100644 added, deleted or edited
+# with its mode kept. Read from the raw diff (review td413docs-1): renames
+# split into their delete and add (a .py renamed to .md is not
+# documentation only), submodules never ignored whatever the local config
+# says, and a gitlink, a symlink or a mode change named .md is not a
+# document; paths read NUL-separated, so no quoting hides a suffix. Then
+# only the tests that guard what documents may hold run: infra's exam-key
+# scan (exam keys stay out of a repository agents check out, LESSONS
+# 2026-10-19); platform's tests read no Markdown.
 DOC_GUARDS=(scripts/agentrt/test_no_exam_keys.py)
-changed="$(git -C "$top" diff --name-only --no-renames "origin/main..$commit")" ||
-  die "cannot read the files origin/main..$commit changes in $top; nothing pushed"
-docs_only=false
-if [[ -n "$changed" ]] && ! grep -qv '\.md$' <<<"$changed"; then
-  docs_only=true
+raw="$(mktemp "${TMPDIR:-/tmp}/push-main-diff.XXXXXX")"
+rc=0
+git -C "$top" diff --raw -z --no-renames --ignore-submodules=none --no-ext-diff "origin/main..$commit" >"$raw" || rc=$?
+if [[ "$rc" -ne 0 ]]; then
+  rm -f "$raw"
+  die "cannot read the changes origin/main..$commit makes in $top; nothing pushed"
 fi
-# docs_said — the changed documents as a line: the first five, and how many more.
-docs_said() {
-  local n=0 line out=""
-  while IFS= read -r line; do
-    [[ -n "$line" ]] || continue
-    n=$((n + 1))
-    [[ "$n" -le 5 ]] || continue
-    out="${out:+$out, }$line"
-  done <<<"$changed"
-  [[ "$n" -le 5 ]] || out="$out, and $((n - 5)) more"
-  printf '%s' "$out"
-}
+# The verdict ("docs" or "code") on the first line; the documents as a
+# line on the second: the first five, shown with escapes, and how many more.
+verdict="$(python3 - "$raw" <<'PY'
+import sys
+data = open(sys.argv[1], "rb").read().split(b"\0")
+paths, docs, i = [], True, 0
+while i < len(data) - 1:
+    meta, path = data[i].decode("ascii", "replace"), data[i + 1].decode("utf-8", "surrogateescape")
+    i += 2
+    fields = meta.lstrip(":").split()
+    if len(fields) < 5:
+        docs = False
+        break
+    old, new, status = fields[0], fields[1], fields[4]
+    plain = {old, new} <= {"000000", "100644"} and (status in ("A", "D") or (status == "M" and old == new))
+    if not (plain and path.endswith(".md")):
+        docs = False
+    paths.append("".join(c if c.isprintable() else c.encode("unicode_escape", "backslashreplace").decode() for c in path))
+docs = docs and bool(paths)
+shown = ", ".join(paths[:5]) + (f", and {len(paths) - 5} more" if len(paths) > 5 else "")
+print("docs" if docs else "code")
+print(shown)
+PY
+)" || rc=$?
+rm -f "$raw"
+[[ "$rc" -eq 0 ]] || die "cannot read the changes origin/main..$commit makes; nothing pushed"
+docs_only=false
+[[ "${verdict%%$'\n'*}" == "docs" ]] && docs_only=true
+docs_said="${verdict#*$'\n'}"
 
 gated=false
 [[ "$GATED" == *" $repo "* ]] && gated=true
@@ -398,9 +432,9 @@ if has_tests && [[ -z "$SKIP_TESTS" ]]; then
 fi
 if $docs_only && has_tests && [[ -z "$SKIP_TESTS" ]]; then
   if $testing; then
-    echo "push-main: only documentation changed: $(docs_said); of the tests of $repo only the document guards run"
+    echo "push-main: only documentation changed: $docs_said"
   else
-    echo "push-main: only documentation changed: $(docs_said); the tests of $repo were not run"
+    echo "push-main: only documentation changed: $docs_said; the tests of $repo were not run"
   fi
 fi
 if $gated || $testing; then

@@ -604,8 +604,8 @@ class PushMain(unittest.TestCase):
         head = self._add(work, "notes/plan.md", "a plan\n")
         r = self._push(cwd=work)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("only documentation changed: README.md, notes/plan.md; of the tests of bifrost-trade-infra only the document guards run",
-                      r.stdout)
+        self.assertIn("only documentation changed: README.md, notes/plan.md\n", r.stdout)
+        self.assertIn("of the tests of bifrost-trade-infra only the document guards run", r.stdout)
         self.assertIn("tests of bifrost-trade-infra: python3 -m pytest -q scripts/agentrt/test_no_exam_keys.py", r.stdout)
         self.assertNotIn("test_red_on_main", r.stdout)
         self.assertEqual(_git(origin, "rev-parse", "main"), head)
@@ -639,6 +639,76 @@ class PushMain(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertNotIn("only documentation changed", r.stdout)
         self.assertIn("test_red_on_main", r.stdout)
+        self.assertEqual(_git(origin, "rev-parse", "main"), before)
+
+    # Review td413docs-1: what is named .md but is no plain Markdown file
+    # runs every test (A1); a submodule the local diff config would hide is
+    # read all the same (A2); a document whose path git would quote is still
+    # a document (B1); a document guard that is not there runs every test
+    # instead of none (B2).
+    def test_a_md_that_is_not_a_plain_document_runs_every_test(self) -> None:
+        origin, work = self._infra_red()
+        before = _git(origin, "rev-parse", "main")
+        cases = {
+            "a gitlink named .md": lambda: _git(work, "update-index", "--add", "--cacheinfo", f"160000,{before},module.md"),
+            "a symlink named .md": lambda: (os.symlink("scripts/release/test_ok.py", work / "linked.md"), _git(work, "add", "linked.md")),
+            "an executable .md": lambda: ((work / "run.md").write_text("x\n"), _git(work, "add", "--chmod=+x", "run.md")),
+        }
+        for name, make in cases.items():
+            _git(work, "reset", "--quiet", "--hard", before)
+            make()
+            _commit(work, name)
+            r = self._push(cwd=work)
+            self.assertEqual(r.returncode, 1, name + r.stdout + r.stderr)
+            self.assertNotIn("only documentation changed", r.stdout, name)
+            self.assertIn("test_red_on_main", r.stdout, name)
+            self.assertEqual(_git(origin, "rev-parse", "main"), before, name)
+        # A .md whose mode changes to executable is no document change either.
+        _git(work, "reset", "--quiet", "--hard", before)
+        head = self._add(work, "plain.md", "plain\n")
+        _git(work, "push", "--quiet", "origin", "main")
+        _git(work, "update-index", "--chmod=+x", "plain.md")
+        _commit(work, "chmod")
+        r = self._push(cwd=work)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertNotIn("only documentation changed", r.stdout)
+        self.assertEqual(_git(origin, "rev-parse", "main"), head)
+
+    def test_a_submodule_hidden_by_the_diff_config_is_read(self) -> None:
+        origin, work = self._infra_red()
+        before = _git(origin, "rev-parse", "main")
+        _git(work, "config", "diff.ignoreSubmodules", "all")
+        _git(work, "update-index", "--add", "--cacheinfo", f"160000,{before},module")
+        (work / "README.md").write_text("docs\n")
+        _git(work, "add", "README.md")
+        _commit(work, "a submodule beside a document")
+        r = self._push(cwd=work)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertNotIn("only documentation changed", r.stdout)
+        self.assertIn("test_red_on_main", r.stdout)
+        self.assertEqual(_git(origin, "rev-parse", "main"), before)
+
+    def test_a_document_git_would_quote_is_a_document(self) -> None:
+        origin, work = self._infra_red()
+        self._add(work, "notes/中文.md", "笔记\n")
+        head = self._add(work, "notes/a\nb.md", "two lines in a name\n")
+        r = self._push(cwd=work)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("only documentation changed: notes/a\\nb.md, notes/中文.md\n", r.stdout)
+        self.assertNotIn("test_red_on_main", r.stdout)
+        self.assertEqual(_git(origin, "rev-parse", "main"), head)
+
+    def test_a_missing_document_guard_runs_every_test(self) -> None:
+        origin, work = self._infra()
+        self._add(work, "scripts/release/test_red.py", "def test_red_on_main():\n    assert False\n")
+        _git(work, "push", "--quiet", "origin", "main")
+        before = _git(origin, "rev-parse", "main")
+        self._add(work, "README.md", "docs\n")
+        r = self._push(cwd=work)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("the document guard scripts/agentrt/test_no_exam_keys.py is not in", r.stdout)
+        self.assertIn("test_red_on_main", r.stdout)
+        self.assertNotIn("the tests of bifrost-trade-infra passed", r.stdout)
         self.assertEqual(_git(origin, "rev-parse", "main"), before)
 
     def test_platform_documentation_runs_no_test(self) -> None:
