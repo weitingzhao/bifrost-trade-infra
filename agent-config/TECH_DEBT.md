@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-390** — STG 上走查留下的运行时卡由签名规则 card-auto-answer 按推荐自动答，PROD 没有这条规则（platform `8f30a9f6`，v1、v2 已签；后来按 TD-393 改成 5 秒、六种卡）。验收：PASS 2026-10-20，v2 等满 5 分钟按推荐 c 答了 4 张旧卡，M-10、M-18、M-21、M-22 跟你答一样关掉，STG 不再有开着的旧 mission。防线：`RATCHETS.md`「STG 卡按签名规则自动答」。后续：TD-393（观察到 10-27）、TD-401、TD-402。
 - **TD-268** — 删掉没人调用的 `ExecSQLOnPrimary` 和只为它存在的两个测试，换成全仓库零引用的防线 `TestRemovedPrimarySQLHelperStaysGone`；运行时 M-9 写、cursor 评审，统筹线程核对后合进 platform `868d4e8e`。验收：PASS 2026-10-19 `1b894f93`。防线：RATCHETS 新行。后续：无后续（还剩的 `execOnPrimary` 给数据克隆用，TD-268 本来就不动它）。
 - **TD-392** — 运行时连接池按环境设上限（PROD 每进程 4、STG/DEV 每进程 2），两个进程加起来低于库账号的连接上限，发版换 Pod 不再连不上库（platform `4986a68b`，#55 上 PROD）。验收：PASS 2026-10-20，PROD 换 Pod 0 次拒绝、连接 6/10。防线：`RATCHETS.md`「两个进程的连接池低于账号上限」。无后续：压到每池 2 个跑过运行时各包，没有嵌套占连接。
 - **TD-389** — 卡住卡第一行写推荐和理由（规则 R1–R5），多一个「Close mission M-n」一次关整个 mission、不再连锁出卡（platform `86dfdaef`，#54 上 PROD）。验收：PASS 2026-10-20，STG 上 M-1 至 M-6 各一下关掉。防线：`RATCHETS.md`「卡住卡带推荐、关 mission 不连锁」。后续：TD-390（STG 按推荐自动答，已上 STG、规则已签）、TD-391（AI 评估，在做）；问题库孤卡不回收（复核 441 的 C）另开。
@@ -2153,6 +2154,32 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-402
+
+**P3 · agentrt · on STG a card asked in the facts loop waits for the second rule tick: about 10 seconds, at the edge of TD-393's acceptance**
+
+- **状态**：未开始（2026-10-21 00:1x 实现线 local_21bbc6df 在 TD-393 的 STG 实测里找到，统筹线程记）
+- **Claim**: the card rule runs every 5 seconds (`controller.CardRuleEvery`) and the facts loop every 15; both start together, so a card the facts loop asks (blocked cards, the planner's questions) is first seen by a rule pass less than 5 seconds after it opens, which skips it as younger than `after_seconds` 5, and answered on the next pass: about 10 seconds plus processing.
+- **Evidence**: `bifrost-platform/api/internal/agentrt/controller/controller.go:359` (`CardRuleEvery = 5 * time.Second`); the TD-393 walk measured 9.8 s on a mission card (`q_e6c1b41290d26a5d`).
+- **Impact**: TD-393's "within 10 seconds" can be missed by a few hundred milliseconds; nothing else.
+- **Fix**: run the STG card rule loop every second (`CardRuleEvery = time.Second` on STG wiring; the pass is one indexed query when no card is open); the worst case becomes about 6 seconds.
+- **Ratchet**: a controller test with a fake clock: a card opened just after a pass is answered within `after_seconds` + 1 s.
+- 验收: on STG, a new mission card is answered within 7 seconds, three times.
+- 审批 无（STG 内部节奏，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-401
+
+**P2 · agentrt · the AI assessment is started on a card the rule has already answered: a paid run of the chief's seat that can change nothing**
+
+- **状态**：未开始（2026-10-21 00:1x 实现线 local_21bbc6df 在 TD-393 的 STG 实测里找到，统筹线程记）
+- **Claim**: the assessment loop lists the open cards, reads their evidence (up to 45 s) and then starts the assessment task, without checking again that the card is still open. On STG the rule answers within 5–10 s, so an assessment either finds the card answered or arrives after the answer. 2026-10-21 00:10:52.540Z the rule answered plan-change card `q_d81876f0879e3148`; at 52.605 the loop still started an assessment for it (STG M-79).
+- **Evidence**: STG M-79: the chief's seat (exec:claude, opus, agent-06-stg) ran 13 s, 5,014 tokens (about $0.05), its report carried a POLICY_ALERT and sent message `m_01M5DWRQHPENV1Y3YT7E41P0NH` to the Owner's inbox, and the run counted toward chief_of_staff's capability score; `bifrost-platform/api/internal/server/agentrt_assess.go` (the loop), `store` Assess.
+- **Impact**: on STG about one card in four (those that meet an assessment tick) costs a claude run, an Owner inbox message and a capability-score sample, for an assessment nobody can use. On PROD the window is the Owner's answer time, so it is rare there.
+- **Fix**: start the assessment only after re-reading, in the transaction that creates the task, that the card is still open (answered → no task); and on STG do not assess a card kind the rule will answer before any assessment can arrive. The second half is the Owner's call (TD-391 put assessments beside every card; TD-393 then made STG's rule answer in 5 s, so on STG the assessment never informs the answer). Neither touches briefSpec, scheduledText, nudgeText, planSpec or seatproto.
+- **Ratchet**: a store test: a card answered after it is listed and before its assessment task is created gets no task; capability scoring skips assessments of answered cards.
+- 验收: on STG, ten new cards answered by the rule start no assessment run (STG agentrt.task with job chief_of_staff and stream `assess:card:*` after each answer: none).
+- 审批 无（修法前半）；后半（STG 上哪些卡评估）要 Owner 定 · 代价 S · 风险 low · repos: bifrost-platform
+
 ### TD-400
 
 **P2 · release · push-main.sh pushes commits without lineage trailers: 17 of platform main's last 60 commits (all of 2026-10-20's lanes) have no Change-Id or Claude-Session**
@@ -2248,13 +2275,14 @@
 
 **P2 · agentrt · STG still waits for the Owner: a rule waits minutes, covers two card kinds, and leaves a card with no recommendation open**
 
-- **状态**：未开始（2026-10-20 16:3x Owner「TD-393 按 A：STG 的规则等待按秒、设 5 秒，循环每 5 秒；STG 上所有种类的运行时卡都归规则管；给不出推荐或规则和 AI 评估不一致时，STG 上选不改变任何东西的那项；走查不再用「需要本人」，按钮的路径用 Console 测试。PROD 不变」；排在 TD-391 之后，同一条实现线 blocked-card-recommend）
+- **状态**：观察中（到 10-27，看 STG 一周的走查没有一张卡要 Owner 答；platform `39fa7813`/`9ec28da9` 在 STG，v3 18:31 签、19:00 生效。原始指令：2026-10-20 16:3x Owner「TD-393 按 A：STG 的规则等待按秒、设 5 秒，循环每 5 秒；STG 上所有种类的运行时卡都归规则管；给不出推荐或规则和 AI 评估不一致时，STG 上选不改变任何东西的那项；走查不再用「需要本人」，按钮的路径用 Console 测试。PROD 不变」；排在 TD-391 之后，同一条实现线 blocked-card-recommend）
 - **Claim**: after TD-390 the Owner still has to visit STG: `card-auto-answer` waits at least five minutes (`rules.go` `MinCardWaitMinutes = 5`) on a loop that runs each minute (`controller.CardRuleEvery`); it answers only blocked cards and the planner's questions, so a plan change, a plan import or a mission outside the standing envelope waits for him; a card with no recommendation (rule R4, or none fits) waits for him; and a walk that tests his buttons marks its mission needs_owner. He said on 2026-10-20 he does not want to go to STG at all.
 - **Evidence**: `bifrost-platform/api/internal/agentrt/rules/rules.go:50`; `api/internal/agentrt/controller/controller.go` (`CardRuleEvery`); `agent-config/agentrt-rules/stg/card-auto-answer.yaml` (v2, five minutes, the shortest the kind takes).
 - **Impact**: every STG walk can stop on a card until the Owner opens STG's Console.
 - **Fix**: the rule's wait in seconds (`after_seconds`, bound from 0), set to 5, and STG's loop every 5 seconds; every kind of card the runtime asks is in the rule's kinds on STG (blocked, plan question, plan change, plan import, mission decision); on STG a card with no recommendation, or whose rule recommendation and AI assessment (TD-391) differ, is answered with the option that changes nothing (do not do the task, do not apply the change, do not start the mission), recorded as the rule's; walks stop using needs_owner (the field stays for a mission that must wait), and the paths behind the Owner's buttons are covered by Console tests. This replaces TD-391's 「不一致时 STG 也不自动答」 for STG. PROD unchanged: no PROD rule file, and the loop is not wired on PROD.
 - **Ratchet**: store tests: a card of each kind is answered within one pass of its wait; no recommendation or a disagreement picks the do-nothing option; PROD wiring leaves the loop nil; infra test that PROD has no card-auto-answer file stays.
 - 验收: on STG, with the rule's v3 signed, a new card of each kind is answered within 10 seconds, and a week of walks needs no Owner answer on STG.
+- 中间结果 2026-10-21 00:10Z（实现线 local_21bbc6df 实测，笔记 td393-stg-acceptance-2026-10-20.md）：mission 卡 `q_e6c1b41290d26a5d` 9.8 秒、计划变更卡 `q_d81876f0879e3148` 7.3 秒被 v3 答（都没有推荐，答的是不改变那项，M-78 stopped、提案 refused）。卡住卡、计划者问题、两种导入卡在 STG 上造不出来又不烧执行者额度，由 store `TestEveryKindIsAnsweredAfterItsWait`、`TestImportCardsAreAnsweredByRule` 和 server `TestOwnerButtonPaths` 证；实测引出 TD-401（评估起在已答的卡上）、TD-402（最坏约 10 秒，贴着验收线）
 - 审批 要（签 STG 规则 v3）· 代价 M · 风险 low（STG 只）· repos: bifrost-platform, bifrost-trade-infra
 
 ### TD-392
@@ -2288,13 +2316,14 @@
 
 **P2 · agentrt · on STG the Owner answers cards that only walks left behind: no rule lets STG's runtime act on its own recommendation**
 
-- **状态**：未开始（2026-10-20 14:0x Owner「STG 用 A：TD-389 上线后，STG 上带推荐的运行时卡 30 分钟没人答就按推荐执行；走查要测我按钮的卡标「需要本人」；PROD 不变。规则起草好了给我签」；排在 TD-389 之后，同一条实现线 blocked-card-recommend）
+- **状态**：待你签收（2026-10-20 19:2x；Owner 后来两次改了这一项的口径：v2 等 5 分钟，再到 TD-393 的 v3 等 5 秒；「需要本人」那半句由 TD-393 取消，验收按改后的口径）。原始指令：Owner 14:0x「STG 用 A：TD-389 上线后，STG 上带推荐的运行时卡 30 分钟没人答就按推荐执行」
 - **Claim**: agents may not answer cards (W-65, preflight), so every card a STG walk or probe leaves (blocked cards, the chief's plan questions) waits for the Owner, although none of them is his decision; he acts as the walks' test operator.
 - **Evidence**: 2026-10-20 STG For you: six cards from the 10-15 to 10-17 walks in one afternoon (`q_dec5d32cdb81efc1`, `q_b5740c1f700d7850`, `q_3c5067ae9e17ab0c`, `q_0ddf99658619cf2b`, `q_869f0a73fd4c4ed9`, `q_189459587b3da9b8`), with sixteen stale missions behind them.
 - **Impact**: the Owner's attention goes to test leftovers; a card that tests his own button looks the same as one he need not see.
 - **Fix**: a signed rule kind `card-auto-answer` (STG only; no PROD file): a card the runtime asked, of a kind the rule lists (blocked cards; the chief's plan questions), that carries a recommendation, whose mission is not marked as needing the Owner, and that has been open `after_minutes` (30) unanswered, is answered by the platform itself with its recommendation, recorded as answered by the rule (rule id and version), not by the Owner. `propose_mission` and `POST /missions` take an optional mark that the mission's cards need the Owner (a walk testing his button sets it). Without the signed rule nothing is answered.
 - **Ratchet**: store tests: no rule → no answer; a card without a recommendation, of an unlisted kind, of a marked mission, or younger than the limit → no answer; one answer per card, recorded with the rule; PROD config has no `card-auto-answer` file (a test over `agentrt-rules/prod/`).
 - 验收: on STG, with the rule signed, a stale walk card is answered by the rule 30 minutes after it opens and its mission moves as on an Owner answer; a card of a mission marked as needing the Owner stays open.
+- 验收结果：PASS 2026-10-20 platform `8f30a9f6`（规则 v1、v2 签名生效）：STG 22:47–23:27Z 规则答了 12 张走查留下的卡住卡；23:27Z 那一批 v2 等满 5 分钟后按推荐 c 回答 `q_f6d2943442397696`、`q_fa51ced4a383f960`、`q_2861c0eb85bf1ee7`、`q_ee2a2af85d3cd31c`，M-10、M-18、M-21、M-22 跟 Owner 答一样关掉（事件「the rule card-auto-answer v2 closed it」）。之后 STG 61 件 done、16 件 stopped，没有开着的卡。「需要本人」不再测（TD-393 取消）
 - 审批 要（签 STG 规则；Owner 已定方向）· 代价 M · 风险 low · repos: bifrost-platform, bifrost-trade-infra
 
 ### TD-389
