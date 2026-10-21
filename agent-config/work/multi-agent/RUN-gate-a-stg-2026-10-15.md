@@ -69,7 +69,7 @@ mission：M-3（T08，后来也放 T22 组合测试）、M-4（T22；T01、T02 �
 |---|---|---|
 | T25 状态只由事件改 | **过**（测试）；STG 直写跑不了，以只读核对代替 | 每条路由模糊测试 + 每条写路由的有效请求都执行到；STG 上 165 个任务、64 个 mission、67 个步骤的状态都等于它最后一条状态事件 |
 | T33 证据绑定版本 | **过**（测试）；**STG 上没有可测对象**（F-T33） | 存储层、规则层、架构对照投影层都有测试；STG 上没有一条 gate 验收记录，代码里也没有写 `method='gate'` 的地方 |
-| T35 规则集 | **过**（测试）+ STG 现场一条；错 namespace 那一条**要 Owner 跑一次脚本** | 八种全在 `TestRuleSet`；STG 上 `standing-envelope:dev` v4 是不带签名的收紧、立即生效 |
+| T35 规则集 | **过**（测试）+ STG 现场一条；错 namespace 那一条 **10-20 19:3x Owner 跑过，过** | 八种全在 `TestRuleSet`；STG 上 `standing-envelope:dev` v4 是不带签名的收紧、立即生效 |
 | T22 ④ 推分支与过期同时 | **过**（新测试） | 推送被钩子拦住时租约越过宽限、任务被另一台主机重领；放行后提交只落在 a1，任务和新尝试不动 |
 | T34 ④ 上传中途重启 agentd | **过**（新测试，真 SIGKILL）；STG 上不用跑 | 五个杀点，接管后产物、persisted、submitted 各一份，任务能进验收 |
 | T01 external | **不用跑**（第 2 轮设计上不派 external）；存储层已测 | `store/claim.go:41-44` 只派 none、branch；ended → blocked + 决策卡由 `TestBlockedExternalNeedsAClearedEnd` 证 |
@@ -110,6 +110,8 @@ STG：17 行架构对照的完成规则全是 `{}`，`agentrt.verification` 里 
 STG 现场：`standing-envelope:dev` v4 是 10-17 17:00:56Z 的不带签名收紧（事件 1000 `rule_tightened`，`signed_by` 空），到 10-18 v5 签名放宽之前一直在力；其余 17 条签名版本都是 `rule_signed`。
 
 错 namespace 签名在 STG 上的那一条要 Owner 的签名钥匙：脚本 `~/agent-work/gate-a-rest/owner-t35-namespace.sh`（见文末「要 Owner 跑的」①）。它签的是 `concurrency` v2，内容与 STG 的 v1 完全相同（per_host 1、同样的起止时间），即使被误收也什么都不变；先经 `/rules/concurrency/check` 证明文本本身没问题，再以 `-n bifrost-release-policy` 签名交 `/rules/concurrency/sign`，过的标准是 403 `unsigned` 且在力的仍是 v1。
+
+**结果（2026-10-21 00:3xZ，Owner 在终端面板跑，输出 `~/agent-work/gate-a-rest/owner-t35.out`）：过。** 第 2 步平台读文本判这份 v2 是收紧（与 v1 相同，`needs_signature: false`）；第 3 步带 `-n bifrost-release-policy` 的签名交上去，平台答 403 `unsigned`：「signature namespace "bifrost-release-policy" is not "bifrost-agentrt-rule"」；第 4 步在力的仍是 v1（`signed_by` 指纹不变）。比预期更严：本身不需要签名的文本，带了错 namespace 的签名照样被拒，签名不对就不收。
 
 ### T22 ④ 推分支与过期同时发生
 
