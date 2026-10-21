@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-401** — 已答的卡不再起 AI 评估、也不计进参谋长能力分（前半，PROD 与 STG）；STG 上规则会答的卡干脆不评估，needs_owner 的卡和审批单照常，PROD、DEV 每张都评估（后半，按你 20:0x 的话）。platform `e7a2a2b2`（前半，#56 上 PROD）、`9707ab68`（后半，STG）。验收：PASS 2026-10-20，STG 十张规则答掉的新卡零评估。防线：`RATCHETS.md`「评估不白跑」。后续：无后续：后半只在 STG 打开，PROD 上同样的卡照常评估，下一张 PROD 单顺带。
 - **TD-395** — 所有执行者都被连续失败撤下的 ready 任务改成 blocked 并出卡，推荐「不做这件」（R6，防 STG 自动答进死循环）；「再给一轮」给每个被撤下的执行者各一次（platform `e7a2a2b2`，#56 上 PROD）。验收：PASS 2026-10-20，PROD 上线后第一轮巡检 M-22 出卡 Q20、点名三家。防线：`RATCHETS.md`「没人能领的任务出卡」。后续：TD-406（从来没人能领、没有被撤下的任务仍不出卡）；TD-394 补记的「准备步骤失败算到执行者头上」。
 - **TD-399** — 领活的长轮询截止落在提交里时不再答错：每次轮询有自己的上限、不被截止切断，提交仍失败就回读这次的尝试在不在再照实回答（platform `e7a2a2b2`，在 STG）。验收：PASS 2026-10-20，两条防线测试各 20/20。防线：`RATCHETS.md`「领活截止落在提交里」。后续：无后续：agentd 途中断开仍可能被租给它（约 17 分钟后重发），要新协议，修复线和两轮复核都认为不值得单独记债。
 - **TD-402** — STG 的卡规则每秒扫一次，卡在等待 5 秒加不到 2 秒内被答（platform `e7a2a2b2`，在 STG）。验收：PASS 2026-10-20，三张新 mission 卡 5.41、5.08、6.46 秒被答。防线：`RATCHETS.md`「STG 卡按签名规则自动答」一行补上假时钟测试。后续：无后续：PROD 不接这个循环。
@@ -2227,13 +2228,14 @@
 
 **P2 · agentrt · the AI assessment is started on a card the rule has already answered: a paid run of the chief's seat that can change nothing**
 
-- **状态**：在做（2026-10-20 20:2x：后半合进 platform `9707ab68`（复核 462 一轮收线）：只在 AGENTRT_ENV=stg 打开 `controller.SkipCardsTheRuleAnswers`，规则会答的卡不读证据、不起评估；needs_owner 的卡和审批单照常；PROD、DEV 每张卡都评估。等 CI、发 STG 后验收：10 张规则答掉的新卡没有一张起评估，一张 needs_owner 的卡照常起）。 此前：在做（2026-10-20 20:0x：前半合进 platform `e7a2a2b2`（复核 460、461 收线），待 STG 验收；后半 Owner 20:0x 定：「STG 上规则会答的卡（规则列着这种卡、mission 不是 needs_owner）不起评估；needs_owner 的卡和审批单照常评估；PROD 不变」，交给同一条线 local_21bbc6df 实现）。 此前：未开始（2026-10-21 00:1x 实现线 local_21bbc6df 在 TD-393 的 STG 实测里找到，统筹线程记）
+- **状态**：待你签收（2026-10-20 20:3x）。 此前：在做（2026-10-20 20:2x：后半合进 platform `9707ab68`（复核 462 一轮收线）：只在 AGENTRT_ENV=stg 打开 `controller.SkipCardsTheRuleAnswers`，规则会答的卡不读证据、不起评估；needs_owner 的卡和审批单照常；PROD、DEV 每张卡都评估。等 CI、发 STG 后验收：10 张规则答掉的新卡没有一张起评估，一张 needs_owner 的卡照常起）。 此前：在做（2026-10-20 20:0x：前半合进 platform `e7a2a2b2`（复核 460、461 收线），待 STG 验收；后半 Owner 20:0x 定：「STG 上规则会答的卡（规则列着这种卡、mission 不是 needs_owner）不起评估；needs_owner 的卡和审批单照常评估；PROD 不变」，交给同一条线 local_21bbc6df 实现）。 此前：未开始（2026-10-21 00:1x 实现线 local_21bbc6df 在 TD-393 的 STG 实测里找到，统筹线程记）
 - **Claim**: the assessment loop lists the open cards, reads their evidence (up to 45 s) and then starts the assessment task, without checking again that the card is still open. On STG the rule answers within 5–10 s, so an assessment either finds the card answered or arrives after the answer. 2026-10-21 00:10:52.540Z the rule answered plan-change card `q_d81876f0879e3148`; at 52.605 the loop still started an assessment for it (STG M-79).
 - **Evidence**: STG M-79: the chief's seat (exec:claude, opus, agent-06-stg) ran 13 s, 5,014 tokens (about $0.05), its report carried a POLICY_ALERT and sent message `m_01M5DWRQHPENV1Y3YT7E41P0NH` to the Owner's inbox, and the run counted toward chief_of_staff's capability score; `bifrost-platform/api/internal/server/agentrt_assess.go` (the loop), `store` Assess.
 - **Impact**: on STG about one card in four (those that meet an assessment tick) costs a claude run, an Owner inbox message and a capability-score sample, for an assessment nobody can use. On PROD the window is the Owner's answer time, so it is rare there.
 - **Fix**: start the assessment only after re-reading, in the transaction that creates the task, that the card is still open (answered → no task); and on STG do not assess a card kind the rule will answer before any assessment can arrive. The second half is the Owner's call (TD-391 put assessments beside every card; TD-393 then made STG's rule answer in 5 s, so on STG the assessment never informs the answer). Neither touches briefSpec, scheduledText, nudgeText, planSpec or seatproto.
 - **Ratchet**: a store test: a card answered after it is listed and before its assessment task is created gets no task; capability scoring skips assessments of answered cards.
 - 验收: on STG, ten new cards answered by the rule start no assessment run (STG agentrt.task with job chief_of_staff and stream `assess:card:*` after each answer: none).
+- 验收结果：PASS 2026-10-20 platform `9707ab68` 在 STG（20:33 起跑）：十张新 mission 卡（M-83–M-92）5.6–7.4 秒内被规则答掉，之后 75 秒内这十张卡没有一条 assess:card 事件、没有一件评估 mission。needs_owner 的卡与审批单照常评估由 `TestSTGDoesNotAssessTheCardsItsRuleAnswers` 证（在 STG 上造 needs_owner 卡会留一张等 Owner 的卡，没造）；PROD 不变：Q18、Q20、#56 都出了评估
 - 审批 无（修法前半）；后半（STG 上哪些卡评估）要 Owner 定 · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-400
