@@ -620,6 +620,22 @@ class PushMain(unittest.TestCase):
         self.assertIn("the tests of bifrost-platform failed", r.stderr)
         self.assertEqual(self._remote_main(), head)
 
+    # Review td413-1 B1: a touched directory whose files a build constraint
+    # all excludes is no package of this build: not tested, not refused.
+    def test_a_package_excluded_by_build_constraints_is_not_tested(self) -> None:
+        self._go_module()
+        head = self._add(self.work, "api/internal/optional/optional.go",
+                         "//go:build review_optional\n\npackage optional\n\nfunc O() int { return 0 }\n")
+        r = self._push()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("no Go package of bifrost-platform is touched; go vet only", r.stdout)
+        self.assertEqual(self._remote_main(), head)
+        # Its testdata is no package either.
+        head = self._add(self.work, "api/internal/a/testdata/fixture.go", "package broken(\n")
+        r = self._push()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self._remote_main(), head)
+
     def test_platform_vet_refuses(self) -> None:
         self._go_module()
         before = self._remote_main()

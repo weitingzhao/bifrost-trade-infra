@@ -331,12 +331,17 @@ run_tests() {
       echo "push-main: tests of $repo: go vet ./..."
       (cd "$tree/api" && go vet ./...) || rc=$?
       [[ "$rc" -eq 0 ]] || return "$rc"
-      local touched dirs=() file dir
+      # A touched directory is tested when it is a package of this build
+      # (go list ./..., as vet saw it): one whose files build constraints
+      # all exclude is not (review td413-1 B1).
+      local touched listed moddir dirs=() file dir
       touched="$(git -C "$top" diff --name-only "origin/main..$commit" -- 'api/*.go')" || return 1
+      listed="$(cd "$tree/api" && go list -f '{{.Dir}}' ./...)" || return 1
+      moddir="$(cd "$tree/api" && go list -m -f '{{.Dir}}')" || return 1
       while IFS= read -r file; do
-        [[ -n "$file" && "$file" != */testdata/* ]] || continue
+        [[ -n "$file" ]] || continue
         dir="$(dirname "$file")"
-        [[ -d "$tree/$dir" ]] && compgen -G "$tree/$dir/*.go" >/dev/null || continue
+        grep -qxF -- "$moddir${dir#api}" <<<"$listed" || continue
         dir=".${dir#api}/"
         [[ " ${dirs[*]:-} " == *" $dir "* ]] || dirs+=("$dir")
       done <<<"$touched"
