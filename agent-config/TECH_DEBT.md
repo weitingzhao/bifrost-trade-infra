@@ -2210,7 +2210,7 @@
 
 **P3 · agentrt · on STG a card asked in the facts loop waits for the second rule tick: about 10 seconds, at the edge of TD-393's acceptance**
 
-- **状态**：未开始（2026-10-21 00:1x 实现线 local_21bbc6df 在 TD-393 的 STG 实测里找到，统筹线程记）
+- **状态**：在做（2026-10-20 20:0x：合进 platform `e7a2a2b2`（复核 460、461 收线），待 STG 验收：mission 卡三次都在 7 秒内被答）。 此前：未开始（2026-10-21 00:1x 实现线 local_21bbc6df 在 TD-393 的 STG 实测里找到，统筹线程记）
 - **Claim**: the card rule runs every 5 seconds (`controller.CardRuleEvery`) and the facts loop every 15; both start together, so a card the facts loop asks (blocked cards, the planner's questions) is first seen by a rule pass less than 5 seconds after it opens, which skips it as younger than `after_seconds` 5, and answered on the next pass: about 10 seconds plus processing.
 - **Evidence**: `bifrost-platform/api/internal/agentrt/controller/controller.go:359` (`CardRuleEvery = 5 * time.Second`); the TD-393 walk measured 9.8 s on a mission card (`q_e6c1b41290d26a5d`).
 - **Impact**: TD-393's "within 10 seconds" can be missed by a few hundred milliseconds; nothing else.
@@ -2223,7 +2223,7 @@
 
 **P2 · agentrt · the AI assessment is started on a card the rule has already answered: a paid run of the chief's seat that can change nothing**
 
-- **状态**：未开始（2026-10-21 00:1x 实现线 local_21bbc6df 在 TD-393 的 STG 实测里找到，统筹线程记）
+- **状态**：在做（2026-10-20 20:0x：前半合进 platform `e7a2a2b2`（复核 460、461 收线），待 STG 验收；后半 Owner 20:0x 定：「STG 上规则会答的卡（规则列着这种卡、mission 不是 needs_owner）不起评估；needs_owner 的卡和审批单照常评估；PROD 不变」，交给同一条线 local_21bbc6df 实现）。 此前：未开始（2026-10-21 00:1x 实现线 local_21bbc6df 在 TD-393 的 STG 实测里找到，统筹线程记）
 - **Claim**: the assessment loop lists the open cards, reads their evidence (up to 45 s) and then starts the assessment task, without checking again that the card is still open. On STG the rule answers within 5–10 s, so an assessment either finds the card answered or arrives after the answer. 2026-10-21 00:10:52.540Z the rule answered plan-change card `q_d81876f0879e3148`; at 52.605 the loop still started an assessment for it (STG M-79).
 - **Evidence**: STG M-79: the chief's seat (exec:claude, opus, agent-06-stg) ran 13 s, 5,014 tokens (about $0.05), its report carried a POLICY_ALERT and sent message `m_01M5DWRQHPENV1Y3YT7E41P0NH` to the Owner's inbox, and the run counted toward chief_of_staff's capability score; `bifrost-platform/api/internal/server/agentrt_assess.go` (the loop), `store` Assess.
 - **Impact**: on STG about one card in four (those that meet an assessment tick) costs a claude run, an Owner inbox message and a capability-score sample, for an assessment nobody can use. On PROD the window is the Owner's answer time, so it is rare there.
@@ -2301,7 +2301,7 @@
 
 **P2 · agentrt · a task that no executor may take any more waits at ready with no card: nobody is told**
 
-- **状态**：未开始（2026-10-20 16:4x 统筹线程记；Owner「你发现的问题需要记入债务列表，将来修复」）
+- **状态**：在做（2026-10-20 20:0x：修复线 local_5a7f60ae 交回，复核 td395-1、td395-2 收线，合进 platform `e7a2a2b2`；推荐规则 R6「不做这件」防 STG 自动答死循环；发 PROD 后 M-22 第一轮巡检出卡）。 此前：未开始（2026-10-20 16:4x 统筹线程记；Owner「你发现的问题需要记入债务列表，将来修复」）
 - **Claim**: TD-381 stops offering a task to an executor after three failures in a row. When every candidate executor has been withdrawn that way the task stays ready, no host can take it, and nothing tells the Owner: no blocked card, no alert beyond three `policy_alert` events on the attempts. PROD M-22's only task (`t_01M5DJJA048PDG5XY98FX1FWFC`) has sat at ready since 16:14 after codex, cursor and claude each failed three times.
 - **Evidence**: PROD `agentrt.event` for M-22, three `policy_alert` repeated_failure ("not offered the task again"), task state ready; `bifrost-platform/api/internal/agentrt/store/retry.go` (the TD-381 backoff).
 - **Impact**: a task can stall indefinitely and look like it is waiting its turn; its mission never ends.
@@ -2503,7 +2503,7 @@
 
 **P3 · testing · two agentd tests assume a writable /tmp, so a check that runs them inside agentd's write wall fails every time**
 
-- **状态**：在做（2026-10-20 19:3x：两个测试 10-19 已在 platform `69250db1` 改成 `t.TempDir()` / `$TMPDIR`；剩防线，交给 PROD 运行时 M-23（Owner 19:3x「下一件只改 Go 的平台修复走 PROD 运行时」）。此前：2026-10-19 12:1x 记，STG 走查 stg-walk-confine §2）
+- **状态**：在做（2026-10-20 20:0x：防线 `TestNoNewTmpWrites` 合进 platform `e7a2a2b2`：PROD 运行时 M-23 的 codex 第三轮写的，三轮都撞同一处 go/token 导入，统筹线程改别名后合；Owner 19:58 Q19 选 c 关掉 M-23。剩：在 06 的写墙里跑一次 `go test ./internal/agentd/` 作验收）。 此前：在做（2026-10-20 19:3x：两个测试 10-19 已在 platform `69250db1` 改成 `t.TempDir()` / `$TMPDIR`；剩防线，交给 PROD 运行时 M-23（Owner 19:3x「下一件只改 Go 的平台修复走 PROD 运行时」）。此前：2026-10-19 12:1x 记，STG 走查 stg-walk-confine §2）
 - **Claim**: `TestCodexCheckFindsNoSandbox` (`api/internal/agentd/confine_test.go:589`) expects the /tmp write to be allowed, and `TestBench` Q10 (`bench_test.go:70`, a fake executor writing `/tmp/bench-new-$$`) needs /tmp; inside the wall /tmp is read-only, so any task whose deterministic check runs `go test ./internal/agentd/` goes red twice and blocks (STG M-18).
 - **Evidence**: `~/agent-work/stg-walk-confine/REPORT.md` §2.
 - **Impact**: tasks that change agentd cannot pass their own check on the agent host.
