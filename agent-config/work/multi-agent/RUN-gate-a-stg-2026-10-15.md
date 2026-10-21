@@ -324,7 +324,7 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 
 **顺带的观察：**
 - 放行后 agentd 第一次 `POST /claim` 超时（`context deadline exceeded`），下一次就正常了；推测是停住 22 分钟后连接已失效，没有影响结果。
-- 放行后到采纳之前（21:45:02、21:46:02、21:47:02 三次读数），本线的快照里任务只有在跑的第 2 次尝试，没有 `lost_attempt`。T24 计划写的「`/progress` 的 `lost_attempt` 留到采纳为止」这几次没有读到；交那条线对照它的读数。
+- 放行后到采纳之前（21:45:02–21:47:02）本线快照里没有 `lost_attempt`，**是快照脚本读错了地方，不是运行时的问题**（2.5 第 ⑤ 片的线指出，本线已对过代码）：`drill-snap.sh` 取第一个 task_id 相同、带 `status` 的对象，`/progress` 的 `live` 排在 `work` 前面，有在跑的尝试时取到的是 `live[]` 那条，它本来就没有 `lost_attempt`。`store/progresspersist.go` 的 `lostAttempts` 会选「任务没结束、尝试 lost、之后没有别的尝试持久化」的那次；抢救只写 `persisted_at`、不改状态，所以它带着 `persisted: true` 留到采纳为止（`progresspersist_test.go` 的「Salvaged: its result is persisted」）。T24 的实跑结论和页面那一半改用的证据见 infra `PLAN-T24-stg-2026-10-21.md` §3c（`w31/owner-signoff-docs` @ 83e74b9）。
 
 ### Gate A 收尾清单（计划步骤 R2:2.2-28，2026-10-21 04:10Z 核对）
 
