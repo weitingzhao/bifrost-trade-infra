@@ -800,13 +800,17 @@ MCP 工具（加在现有 `mcp/platform`）：`whoami`、`get_plan`、`get_missi
 
 **2.5 补的第三处公开接口：Owner 签收这一步**（Owner 2026-10-21「加一个只给我用的「签收这一步」路由和 Console 按钮，记一条 TD；2.4-1 考试那步也先用签收」）。完成规则里的 `owner_signoff` 原子此前没有任何路由、工具或按钮能写，写成签收的步骤永远打不上勾。
 - **路由**：`POST /api/v1/agentrt/plan/{plan_node_id}/signoff`，正文 `{"ref": "…"}`。规则只等一个签收时 `ref` 可省，等多个时必须写；多出的字段回 400。写一条 `owner_signoff` 事件：落在这一步所属轮的计划流上，`plan_node_id` 是这一步，正文 `{ref}`，`actor` 是 `owner`。路由不自己求值，控制器下一遍完成规则把这一步推成 `done`（同其他事实）。
-- **只给 Owner**：新能力 `signoff`，只有 admin 角色。Agent 持有的令牌（viewer、reporter、operator、seat、`agentd`）在路由前就被拒（403，无令牌 401）；存储层再查一遍写入人必须是 `owner`，否则 403 `not_owner`。不加给 Agent 用的 MCP 写工具；`get_plan` 读得到 `signoffs`（只读）。admin 令牌是 Owner 的，接受的风险与审批相同（ADR §5：`preflight.js` 拦 Agent 读它）。
-- **应答**：200 `{plan_node_id, ref, by, at, event_id, already_signed}`。重复签回 `already_signed: true`，带第一次的 `event_id`、`at`、`by`，什么都不写；同时按两次由每步一把咨询锁排队，只记一条（`TestSignOffStepOnceAtATime`）。
+- **只给 Owner**：新能力 `signoff`，只有 admin 角色。Agent 持有的令牌（viewer、reporter、operator、seat、`agentd`）在路由前就被拒：平台的角色中间件对没有令牌和角色不对一律回 401 `admin token required`（复核 485 B1）。存储层再查一遍写入人必须是 `owner`，否则 403 `not_owner`。不加给 Agent 用的 MCP 写工具；`get_plan` 读得到 `signoffs`（只读）。admin 令牌是 Owner 的，接受的风险与审批相同（ADR §5：`preflight.js` 拦 Agent 读它）。
+- **应答**：200 `{plan_node_id, ref, by, at, event_id, already_signed}`。重复签回 `already_signed: true`，带第一次的 `event_id`、`at`、`by`，什么都不写。
+- **锁**（复核 485 A1）：读这一步时先锁住它的行（`FOR UPDATE`），一直持有到提交，再查规则、已签记录和状态，最后写事件。
+  - 同时按两次会排队，只记一条（`TestSignOffStepOnceAtATime`）。
+  - 计划变更、drop、控制器求值都是先锁步骤行、再写计划流，签收用同一顺序，不会互等成环。
+  - 签收不会落在步骤已关或规则已换之后（`TestSignOffStepAndAChangeAtOnce`：drop、改规则、控制器求值三种交错）。
 - **拒绝**：没有这个节点 404；不是步骤、规则里没有 `owner_signoff`、`ref` 不是规则里的、等多个却没写 `ref`，都回 422 并写明原因（列出规则等的 `ref`）；这一步已是 `done`、`stopped`、`dropped`（签了也推不动）回 409 `state`。已签过的不管状态，都按重复签回答。
 - **读**：`GET /plan?root=`、`GET /plan/{id}` 的节点有签收时多一个键 `signoffs: [{ref, by, at, event_id}]`，从旧到新；没有签收的节点没有这个键。
-- **Console**：计划页（`#work?section=plan`）里，规则等签收的步骤下面，已签的写「Signed off <ref> by the Owner, <UTC 到分>」。没签的 `ref` 在这一步还能推动时（不是 `done`、`stopped`、`dropped`）各有一个「Sign off」按钮：只有 Owner 登录（admin，判断同批审批单）才可点，否则写明原因；点了先确认一次；发出后显示平台记下的谁、几点，再重读计划；失败写原因，并说明再按一次是安全的。按钮高 44 px，手机上能点。
+- **Console**：计划页（`#work?section=plan`）里，规则等签收的步骤下面，已签的写「Signed off <ref> by the Owner, <UTC 到分>」。没签的 `ref` 在这一步还能推动时（不是 `done`、`stopped`、`dropped`）各有一个「Sign off」按钮：只有 Owner 登录（admin，判断同批审批单）才可点，否则写明原因；点了先确认一次；发出后显示平台记下的谁、几点，再重读计划；失败写平台给的原因（应答里的 `message`：什么状态、规则等哪些 ref；含登录令牌就整句隐藏，复核 485 A2），并说明再按一次是安全的。按钮高 44 px，手机上能点。
 - **库**：`owner_signoff` 事件类型和 `(plan_node_id, event_id)` 索引早就有，没有迁移，不是 PROD DDL。
-- **测试**：`agentrtapi` `TestOwnerSignsAStepOff`（各种令牌被拒、Owner 签、重复签幂等、八个并发只记一条、各种拒绝、签完控制器推成 `done`、`GET /plan` 的 `signoffs`；写 Console 夹具 `agentrt-plan-signoffs.testdb.json`）；`store` `TestSignOffStepOnceAtATime`、`TestSignOffStepIsTheOwners`；Console `stepSignoffs.test.tsx`（按钮出现和消失的条件、确认、签完的显示、非 Owner 不可点、失败）。
+- **测试**：`agentrtapi` `TestOwnerSignsAStepOff`（各种令牌被拒、Owner 签、重复签幂等、八个并发只记一条、各种拒绝、签完控制器推成 `done`、`GET /plan` 的 `signoffs`；写 Console 夹具 `agentrt-plan-signoffs.testdb.json`）；`store` `TestSignOffStepOnceAtATime`、`TestSignOffStepAndAChangeAtOnce`、`TestSignOffStepIsTheOwners`；Console `stepSignoffs.test.tsx`（按钮出现和消失的条件、确认、签完的显示、非 Owner 不可点、失败）。
 
 ### 5.6 测试编号
 
