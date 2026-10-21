@@ -663,8 +663,9 @@ T30、T32 在 2.1 用存储包的通用批量写入夹具（一组行经写事�
 
 | 方法 路由 | 谁 | 事件 / 作用 |
 |---|---|---|
-| `GET /plan?root=R2`、`GET /plan/{plan_node_id}` | viewer | 计划树和每步的状态、出处事件 |
+| `GET /plan?root=R2`、`GET /plan/{plan_node_id}` | viewer | 计划树和每步的状态、出处事件；签过的步骤带 `signoffs`（2.5 补，见 §5.5） |
 | `POST /plan/proposals` | reporter / seat / thread | `plan_change_proposed`；在常备授权内（给进行中的项加步骤、改未开始步骤的标题）自动 `plan_change_decided`，否则生成一条提问给 Owner |
+| `POST /plan/{plan_node_id}/signoff` | 只 admin（Owner） | `owner_signoff`（2.5 补，Owner 2026-10-21；见 §5.5） |
 | `POST /missions`、`GET /missions/{id}` | seat / thread 提议；viewer 读 | `mission_proposed`；落在 `standing-envelope` 内自动 `active` |
 | `POST /missions/{id}/tasks` | seat / thread / 规划任务 | `task_proposed`（带任务书产物、`needs_json`、`core`） |
 | `GET /tasks?mission=&state=`、`GET /tasks/{id}`、`GET /attempts/{id}` | viewer | — |
@@ -796,6 +797,16 @@ MCP 工具（加在现有 `mcp/platform`）：`whoami`、`get_plan`、`get_missi
 - `GET /progress` 加 `owner_next`：下一次需要 Owner 的是哪件事、哪一步、预计几点，跨事依赖取晚的；估不出就 `unknown` 写原因。形状和规则见 `SPEC-agentrt-progress-2026-10-14.md` 第 4 版 §2.7。Console 在 For you 的 Yours 卡里显示。
 - 审批单加 `drill`（演练）：`POST /api/v1/approvals` 收 `"drill": true`，所有读方带 `drill`（为假时不出现）；演练单不问发版策略的自动批，批准路由在任何渠道都回 409 `a drill cannot be approved`，所以永远不执行；驳回照常可以关掉它，过期照常；通知写「Drill · #n」「A drill: nothing runs, and it cannot be approved.」，优先级 3，不发提醒。MCP `request_action` 收 `drill`。Console「需要你」把待批的演练单单列一组「Drills」，不计入任何计数；审批页写明是演练、没有 Approve 按钮。审批单存在 statefile，没有迁移，不是 PROD DDL。
 - 另两处只改 Console、不改接口：待批项显示它是计划里哪一步（按步骤完成规则里的 `approval_executed` 反查，场景 10）；断库时说最后一次读到是几点（场景 5，交 PROD 运行时 M-33 做）。
+
+**2.5 补的第三处公开接口：Owner 签收这一步**（Owner 2026-10-21「加一个只给我用的「签收这一步」路由和 Console 按钮，记一条 TD；2.4-1 考试那步也先用签收」）。完成规则里的 `owner_signoff` 原子此前没有任何路由、工具或按钮能写，写成签收的步骤永远打不上勾。
+- **路由**：`POST /api/v1/agentrt/plan/{plan_node_id}/signoff`，正文 `{"ref": "…"}`。规则只等一个签收时 `ref` 可省，等多个时必须写；多出的字段回 400。写一条 `owner_signoff` 事件：落在这一步所属轮的计划流上，`plan_node_id` 是这一步，正文 `{ref}`，`actor` 是 `owner`。路由不自己求值，控制器下一遍完成规则把这一步推成 `done`（同其他事实）。
+- **只给 Owner**：新能力 `signoff`，只有 admin 角色。Agent 持有的令牌（viewer、reporter、operator、seat、`agentd`）在路由前就被拒（403，无令牌 401）；存储层再查一遍写入人必须是 `owner`，否则 403 `not_owner`。不加给 Agent 用的 MCP 写工具；`get_plan` 读得到 `signoffs`（只读）。admin 令牌是 Owner 的，接受的风险与审批相同（ADR §5：`preflight.js` 拦 Agent 读它）。
+- **应答**：200 `{plan_node_id, ref, by, at, event_id, already_signed}`。重复签回 `already_signed: true`，带第一次的 `event_id`、`at`、`by`，什么都不写；同时按两次由每步一把咨询锁排队，只记一条（`TestSignOffStepOnceAtATime`）。
+- **拒绝**：没有这个节点 404；不是步骤、规则里没有 `owner_signoff`、`ref` 不是规则里的、等多个却没写 `ref`，都回 422 并写明原因（列出规则等的 `ref`）；这一步已是 `done`、`stopped`、`dropped`（签了也推不动）回 409 `state`。已签过的不管状态，都按重复签回答。
+- **读**：`GET /plan?root=`、`GET /plan/{id}` 的节点有签收时多一个键 `signoffs: [{ref, by, at, event_id}]`，从旧到新；没有签收的节点没有这个键。
+- **Console**：计划页（`#work?section=plan`）里，规则等签收的步骤下面，已签的写「Signed off <ref> by the Owner, <UTC 到分>」。没签的 `ref` 在这一步还能推动时（不是 `done`、`stopped`、`dropped`）各有一个「Sign off」按钮：只有 Owner 登录（admin，判断同批审批单）才可点，否则写明原因；点了先确认一次；发出后显示平台记下的谁、几点，再重读计划；失败写原因，并说明再按一次是安全的。按钮高 44 px，手机上能点。
+- **库**：`owner_signoff` 事件类型和 `(plan_node_id, event_id)` 索引早就有，没有迁移，不是 PROD DDL。
+- **测试**：`agentrtapi` `TestOwnerSignsAStepOff`（各种令牌被拒、Owner 签、重复签幂等、八个并发只记一条、各种拒绝、签完控制器推成 `done`、`GET /plan` 的 `signoffs`；写 Console 夹具 `agentrt-plan-signoffs.testdb.json`）；`store` `TestSignOffStepOnceAtATime`、`TestSignOffStepIsTheOwners`；Console `stepSignoffs.test.tsx`（按钮出现和消失的条件、确认、签完的显示、非 Owner 不可点、失败）。
 
 ### 5.6 测试编号
 
