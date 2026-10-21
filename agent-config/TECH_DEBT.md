@@ -2158,6 +2158,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-408
+
+**P2 · agent tooling · the shared checkouts fall behind main because nobody pulls them, and every session's MCP servers run from them: tools a release added are missing**
+
+- **状态**：未开始（2026-10-20 21:1x 统筹线程记；Gate A 补跑线发现 STG MCP 的 propose_mission 没有 needs_owner）
+- **Claim**: lanes work in their own worktrees and push main from there, so the shared checkouts under `~/Desktop/stocks/` are never pulled. The platform MCP servers each session starts run from the shared `bifrost-platform/mcp/platform` source (`npm exec tsx ./bifrost-platform/mcp/platform/src/index.ts`), so a session gets the tools of whatever commit the checkout sits at: 2026-10-20 it sat at `8948a5c5`, 199 commits behind main, without `needs_owner` on propose_mission or `propose_plan_import`. The local platform-api binary and Console dev server build from the same checkouts.
+- **Evidence**: 2026-10-20 21:1x `git rev-list --count HEAD..origin/main`: bifrost-platform 199 (fast-forwarded to `9707ab68` by the coordinator), bifrost-trade-core 54 with a local commit `ceff454` (10-03, core 0.36.2) that is not on main (left alone: not the coordinator's), bifrost-platform-plugin-market-data 5 (fast-forwarded); the MCP processes' command lines.
+- **Impact**: sessions call stale tools (fields missing, routes absent) and can draw wrong conclusions from them; walks are designed around tools that do not exist.
+- **Fix**: after every push to a repo's main, push-main.sh fast-forwards the shared checkout of that repo when it is on main and has no tracked changes (and says so when it cannot); a SessionStart check lists the shared checkouts behind main. The core divergence is the Owner's to resolve (drop `ceff454` or push it).
+- **Ratchet**: push-main test: after a push, a clean shared checkout on main is at the pushed commit; a dirty one is left alone and named.
+- 验收: after the next platform push, the shared checkout is at the pushed commit without a manual pull.
+- 审批 无（工具改动）；core 的分叉提交怎么处理要 Owner 定 · 代价 S · 风险 low · repos: bifrost-trade-infra
+
 ### TD-407
 
 **P2 · agentrt · exam · a paper agentd refuses before any question runs still holds the executor for 24 hours: no sitting until it lapses**
