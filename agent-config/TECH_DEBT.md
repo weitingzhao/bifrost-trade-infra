@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-410** — TD-399 那条回读测试改成按状态驱动：用 advisory 锁卡住提交，过了截止再由测试放开，不再靠 commit_delay 掐时间（platform `fb015014`）。验收：PASS 2026-10-21，负载下 `-count=50 -cpu=1,4` 两轮都过。防线：`RATCHETS.md`「领活截止落在提交里」一行注明按状态驱动。后续：无后续：剩下唯一的时间界限是生产代码的 ConfirmLimit（3 秒），取消送达只要毫秒，复核认为不值得再改。
 - **TD-407** — 一题没答的考卷能作废了：审批目录的 D 级动作 `void_exam_paper`，只能你在 Console 批，平台执行；作废只了结那张卷、不判分不计成绩，有答案的卷不能作废（platform `bb6b5a3e`，STG）。验收：PASS 2026-10-20，作废后同晚 22:50 坐考开始。防线：`RATCHETS.md`「只有没答过的卷能作废」。后续：无后续：PROD 没有考题，用到时随下一张 PROD 单。
 - **TD-401** — 已答的卡不再起 AI 评估、也不计进参谋长能力分（前半，PROD 与 STG）；STG 上规则会答的卡干脆不评估，needs_owner 的卡和审批单照常，PROD、DEV 每张都评估（后半，按你 20:0x 的话）。platform `e7a2a2b2`（前半，#56 上 PROD）、`9707ab68`（后半，STG）。验收：PASS 2026-10-20，STG 十张规则答掉的新卡零评估。防线：`RATCHETS.md`「评估不白跑」。后续：无后续：后半只在 STG 打开，PROD 上同样的卡照常评估，下一张 PROD 单顺带。
 - **TD-395** — 所有执行者都被连续失败撤下的 ready 任务改成 blocked 并出卡，推荐「不做这件」（R6，防 STG 自动答进死循环）；「再给一轮」给每个被撤下的执行者各一次（platform `e7a2a2b2`，#56 上 PROD）。验收：PASS 2026-10-20，PROD 上线后第一轮巡检 M-22 出卡 Q20、点名三家。防线：`RATCHETS.md`「没人能领的任务出卡」。后续：TD-406（从来没人能领、没有被撤下的任务仍不出卡）；TD-394 补记的「准备步骤失败算到执行者头上」。
@@ -2163,13 +2164,14 @@
 
 **P3 · testing · TD-399's read-back test fails about one run in twenty on a clean base: it times a commit with commit_delay**
 
-- **状态**：未开始（2026-10-21 00:2x 统筹线程记；TD-352 修复线 local_21bbc6df 跑整包时撞到）
+- **状态**：待你签收（2026-10-21 00:5x）。 此前：未开始（2026-10-21 00:2x 统筹线程记；TD-352 修复线 local_21bbc6df 跑整包时撞到）
 - **Claim**: `store/claimconfirm_test.go` `TestClaimReadsBackACutCommit/landed_on_one_connection` stretches the commit with `commit_delay` and lands the deadline in it; under load the window it needs moves and the case fails, unrelated to the change under test.
 - **Evidence**: on the clean base `bb6b5a3e`, `-count=20` of that case alone: 1 failure; the same on `w31/td-352-t36`: 20 of 20 (lane note td352-t36-2026-10-20.md).
 - **Impact**: a red CI run on a commit that did not touch the claim path; whoever runs the suite has to tell it apart.
 - **Fix**: drive the case by state, not time: hold the commit with a lock or an advisory wait the test releases after the deadline, instead of `commit_delay`.
 - **Ratchet**: the case passes `-count=50 -cpu=1,4` with the store package's other tests running beside it.
 - 验收: that command, run twice.
+- 验收结果：PASS 2026-10-21 platform `fb015014`：`TestClaimReadsBackACutCommit` `-count=50 -cpu=1,4`，store 整包同时在旁边跑，两轮都过（统筹线程重跑；修复线另跑两轮 + 4 次整包也过）；对 claim.go 的两个变异（读回失败仍返回 claim、不做读回）都让它失败
 - 审批 无（测试改动）· 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-409
@@ -2336,7 +2338,7 @@
 
 **P2 · agentrt · nothing writes a gate verification, so no architecture row can ever be ticked**
 
-- **状态**：在做（2026-10-21 00:0x：STG 上验 T33 卡在 F-T33-rec——存储层算出推荐「应用」，`internal/server/questions_wire.go` `agentRuntimeAsk` 只给自带选项的卡传 recommended，计划变更卡的推荐丢失，STG 规则答成不应用，13 行没派门槛；交回 local_5a7f60ae 修（分支 w31/td-397-rec）。 此前：在做（合进 platform `d360a118`（2026-10-20 23:1x，合并后整套过：Go 全部带测试库、code-health、Console 四项、MCP），等考试判完分发 STG 验收；迁移 0007，PROD 上算 DDL）。 此前：在做（2026-10-20 21:3x Owner「全按推荐：TD-397 ① 甲、② A」：① 迁移 0007 只放宽 0001_core.sql:147 那条 CHECK，放行 controller 建的、没有被检对象的门槛验收任务；② 计划变更卡只在每项都恰好等于审过的门槛目录时推荐应用，STG 规则照推荐自动应用，PROD 仍由 Owner 点。上 PROD 时迁移算 DDL，与 TD-394 的 0008 合成一张单）。 此前：在做（2026-10-20 20:5x Owner 定 B：「发版后运行时按架构对照的行派门槛任务，06 上的确定性执行者在部署的提交上跑，记成 gate 验收」；不选 CI 上报（新路由 + CI 令牌）和手工登记。交给 TD-395 修复线 local_5a7f60ae：先写短设计、Codex 复核，再实现；要库的门槛依赖 TD-403（每次尝试临时测试库），门槛任务一律 AGENTRT_TEST_REQUIRED=1，缺库就是失败、不能跳过当通过）。 此前：未开始（2026-10-20 17:5x 统筹线程记；Gate A 补跑线 F-T33；归第 2 轮 2.5 架构对照的收尾）
+- **状态**：在做（2026-10-21 00:4x：F-T33-rec 修好（计划变更卡把推荐和理由交给问题库，复核 td397-rec-1 收线），合进 platform `fb015014`，等 CI、发 STG 后 Gate A 线重提 13 项验 T33）。 此前：在做（2026-10-21 00:0x：STG 上验 T33 卡在 F-T33-rec——存储层算出推荐「应用」，`internal/server/questions_wire.go` `agentRuntimeAsk` 只给自带选项的卡传 recommended，计划变更卡的推荐丢失，STG 规则答成不应用，13 行没派门槛；交回 local_5a7f60ae 修（分支 w31/td-397-rec）。 此前：在做（合进 platform `d360a118`（2026-10-20 23:1x，合并后整套过：Go 全部带测试库、code-health、Console 四项、MCP），等考试判完分发 STG 验收；迁移 0007，PROD 上算 DDL）。 此前：在做（2026-10-20 21:3x Owner「全按推荐：TD-397 ① 甲、② A」：① 迁移 0007 只放宽 0001_core.sql:147 那条 CHECK，放行 controller 建的、没有被检对象的门槛验收任务；② 计划变更卡只在每项都恰好等于审过的门槛目录时推荐应用，STG 规则照推荐自动应用，PROD 仍由 Owner 点。上 PROD 时迁移算 DDL，与 TD-394 的 0008 合成一张单）。 此前：在做（2026-10-20 20:5x Owner 定 B：「发版后运行时按架构对照的行派门槛任务，06 上的确定性执行者在部署的提交上跑，记成 gate 验收」；不选 CI 上报（新路由 + CI 令牌）和手工登记。交给 TD-395 修复线 local_5a7f60ae：先写短设计、Codex 复核，再实现；要库的门槛依赖 TD-403（每次尝试临时测试库），门槛任务一律 AGENTRT_TEST_REQUIRED=1，缺库就是失败、不能跳过当通过）。 此前：未开始（2026-10-20 17:5x 统筹线程记；Gate A 补跑线 F-T33；归第 2 轮 2.5 架构对照的收尾）
 - **Claim**: the architecture comparison (ARCH, 17 rows) ticks a row when its gate tests passed (`agentrt.verification` with method 'gate') against what the environment runs. No code path writes a verification with method 'gate': tests insert such rows directly (`progressarch_test.go`), and no route, CI step or controller loop records a gate run. So every row stays unknown on STG and PROD, whatever passes.
 - **Evidence**: gate-a-rest hand-back (side-session note gate-a-rest-2026-10-20.md, F-T33); `bifrost-platform` `git grep "'gate'"` finds the method only in the schema, the reader and tests; RUN-gate-a-stg-2026-10-15.md 10-20 section (T33).
 - **Impact**: the page meant to show how much of the architecture is real cannot show anything but unknown.
