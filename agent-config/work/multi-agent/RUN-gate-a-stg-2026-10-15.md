@@ -151,6 +151,7 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 - **F-T33**：没有 gate 验收记录的写入方（见 T33）。
 - **F-mcp-checkout**：线程的平台 MCP 跑在共享检出的 `bifrost-platform/mcp/platform` 源码上，共享检出不跟 main（10-21 时落后 199 个提交），新加的 MCP 字段（这次是 `needs_owner`）线程里用不到。由统筹定：共享检出定期快进，或 `.mcp.json` 指向一个跟 main 的检出。
 - **F-probe**：STG 的 run_probe_pod 不能带平台自己的库身份（env_from 不许 `bifrost-platform-stg`）；设计里「直写用 run_probe_pod」这条路在现行策略下走不通。是否要开，属于策略（RBAC 级）决定，不在这一轮。
+- **F-T32-card**（10-21）：STG 的 `card-auto-answer v3` 遇到没有推荐、也没有 AI 评估的计划变更卡，取「不改」（`q_4beba10878543ee3`，04:13:12Z）。所以在 STG 上，常设授权以外的计划变更（`move_task`、`rebind_step`、`drop_step`、加 item）都落不了地，测试夹具也丢不掉：「卡由规则自动答」不等于「变更会生效」。要不要让这类卡在 STG 上取提议的那一项，交统筹定。
 
 ### 要 Owner 跑的（统筹线程转）
 
@@ -174,6 +175,35 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 
 先跑 `bash ~/agent-work/gate-a-rest/owner-t22-06.sh check`（只读）看 STG agentd 底下有没有执行者。
 
+### T32 经接口（10-21 04:11–04:14Z，STG，本线 thread 身份）
+
+做法：反例都经 MCP 的 `propose_tasks`（`POST /missions/{id}/tasks`）和 `propose_plan_change`（`POST /plan/proposals`）提交。提议任务一律投给 M-95，它被停止控制 `c_01M5E9J8BNNKKJY1SVDDTF87K8` 挡住，万一误收也派不出去；任务规格是一份写明「不该存在」的 task_spec（`sha256:f134025f…`）。前后用只读足迹核对（`~/agent-work/gate-a-drills/t32-footprint.sh`：节点、任务、M-95 的任务、挂在步骤上的任务、绑定、完成规则、事件、本线事件、`plan_changed`、幂等键）。
+
+夹具：一次提议加了两个测试步骤，R2:2.2 下有进行中的步骤，按常设授权立即落地（事件 4649 → `plan_changed` 4651）：F1 = `R2:2.2-32`（绑已结的 M-94），F2 = `R2:2.2-33`（不绑 mission）。
+
+| # | 反例 | 路由 | 结果（HTTP 422 的原文） |
+|---|---|---|---|
+| C1 | 任务挂到 item `R2:2.2` | 新增任务 | `task … must hang on a step, not on item` |
+| C2 | M-95 的任务挂到 M-94 的步骤 F1 | 新增任务 | `step R2:2.2-32 belongs to M-94, task … to M-95` |
+| C4 | F2 的完成规则引用不在 F2 上的任务（M-94 的简报任务） | 改计划 | `the done rule of R2:2.2-33 names task t_01M5E2ZV2PJ880Z90MSN9BKE2A, which is not on this step` |
+| C5a | F2 的完成规则引用没绑的审批 #77 | 改计划 | `… names approval #77, which is not bound to this step` |
+| C5b | F2 的完成规则引用没绑的问题 | 改计划 | `… names question q_5a850f489345d009, which is not bound to this step` |
+| C6a | 步骤直接挂在 round `R2` 下 | 改计划 | `a step cannot sit under a round` |
+| C6b | item 挂在 item 下 | 改计划 | `a item cannot sit under a item` |
+| C7 | 把 M-27 的验收任务单独移到 F2（离开它的对象） | 改计划 | `verify task t_01M5BSS5QFQ0F4YN8P1HC0AZ29 must sit where its subject t_01M5BSPFV3S9ET52X3JT76HJFS sits` |
+| C8 | 复核 142 R3「改绑」：同一提议里先把 F2 改绑到 M-27，再把 M-94 的任务移上去 | 改计划 | `step R2:2.2-33 belongs to M-27, task t_01M5E2ZV2PJ880Z90MSN9BKE2A to M-94`，整个提议回滚，F2 仍不绑 mission |
+
+9 条全拒，原因写明违反的约束。足迹除夹具那一次以外不变：任务 184、M-95 的任务 1、挂在步骤上的任务 0、绑定 0、完成规则 54、`plan_changed` 1（夹具），被拒的提议不占幂等键（幂等键只多夹具那 1 个）。
+
+改绑这一种经接口的形状和存储层不同：`rebind_step` 总是把步骤连同它的任务一起迁走，所以「只改步骤的 mission、把任务留下」在接口上表达不出来。接口上能表达的反例就是 C8；单纯的改绑是合法迁移，要 Owner 的卡。
+
+没跑成的两种：
+
+- **规则引用之后移走任务**（复核 142 R3 第二种）：先要把一个任务挂到 F1、并让 F1 的规则引用它。挂任务（`move_task`）不在常设授权内，会生成计划变更卡（`q_4beba10878543ee3`，提议事件 4662）。STG 的 `card-auto-answer v3` 5 秒后选了「不改」：卡没有推荐，也没有 AI 评估，规则就取不改的那一项（事件 4663 → `plan_change_decided: refused` 4664）。所以凡是要发卡的夹具在 STG 上都落不了地（F-T32-card）。剩下的路只有往一个在用的 mission 里新建任务挂到步骤上：投 M-93 会和收尾抢 agentd；投 M-95 会在被停住的 mission 里多留一个任务。所以没做。同一个拒收由路由调用的同一个函数 `store.ProposePlanChange` 覆盖：`TestPlanChangeOutside` 的 `a task out of the step naming it`，另有存储层 `TestPlanLinks`。
+- **参谋长席位提议的任务挂到别的 mission 的步骤**：本线的令牌是 thread / operator（`whoami`：read、propose、upload、stop、drain），没有席位身份。要一个 STG 上 `seat:chief_of_staff` 的令牌或经它的 MCP；接口测试 `agentrtapi/propose_test.go` 里席位走的是同一条路由。
+
+留在 STG 上的：F1、F2 两个测试步骤（planned，没有任务、没有规则，标题写明 STG test）。丢弃（`drop_step`）也要发卡，同样会被自动答成「不改」，所以留着；R2:2.2 的分母在 STG 上多 2。
+
 ### Gate A 收尾清单（计划步骤 R2:2.2-28，2026-10-21 04:10Z 核对）
 
 逐项对照设计 v5 §5.2 的 Gate A 表。「过」= 表里的过的标准都有证据；证据栏写在哪看。
@@ -192,7 +222,7 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 | T22 ④ 推分支与过期同时 | **过** | 新测试 `agentd/pushlapse_test.go` `TestPushAsTheLeaseLapses`（上文「T22 ④」） | 无 |
 | T22 ⑤ 锁后截止 | **过** | 存储层夹具 `store/kernel_test.go` `TestFenceAndLeaseClock`（「T22 ⑤」那段），按 10-15 计划不在 STG 重做 | 无 |
 | T25 状态只由事件改 | **过** | 上文「T25」：`TestRoutesMoveStateOnlyByEvents`（每条写路由、四个世界）+ `TestIdentitiesAndTheEventRule`（直写）+ STG 只读核对 | 无；STG 上用运行时身份直写做不到（F-probe），以迁移哈希、触发器、状态与事件一致性的只读核对代替 |
-| T32（经接口） | **部分** | 10-15 9 条反例 422（「每项的状态」T32）；接口层测试 `agentrtapi/propose_test.go`（挂到 item、坏 base_commit、提议评审、依赖不存在）、`TestPlanProposalRoute`（步骤挂在 round 下） | 当时缺计划树跑不了的几种，经 STG 的两条路由实测：任务挂到别的 mission 的步骤；`set_done_rule` 引用别一步的任务、引用没绑的审批；带任务的步骤 `rebind_step` 到别的 mission；参谋长席位提议的任务挂到别的 mission 的步骤（要席位令牌）。「并发两条依赖」经接口构造不出来（依赖只能指向已有任务或同批 ref），由 2.1 的存储层 T32 证。STG 现在有计划树（75 步），可以跑 |
+| T32（经接口） | **基本过，差两种** | 10-15 9 条反例 422（「每项的状态」T32）；10-21 STG 再 9 条 422（上文「T32 经接口」：挂到 item、挂到别的 mission 的步骤、规则引用别一步的任务、没绑的审批、没绑的问题、步骤挂在 round 下、item 挂在 item 下、验收离开对象、改绑后再挂别的 mission 的任务），不留半条记录；接口层测试 `agentrtapi/propose_test.go`、`TestPlanProposalRoute` | ① 规则引用之后移走任务：STG 的卡片规则把夹具卡答成「不改」（F-T32-card），落不了地；同一拒收由路由调用的 `store.ProposePlanChange` 的测试覆盖（`TestPlanChangeOutside`）。② 参谋长席位：缺 STG 的 `seat:chief_of_staff` 令牌。「并发两条依赖」「迁移与新建交错」经接口构造不出来，由存储层 T32（`store_test.go`）证 |
 | T33 证据绑定版本 | **测试过，STG 未验** | 上文「T33」：`TestStandingGate`、`TestArchTickFollowsTheDeployment`、`TestArchRecordedDeploymentThatIdentifiesNothing`、`TestGateUsesTheExactTestID` | STG 上没有可测对象（F-T33）。TD-397（platform `w31/td-397-gates`：发版后由运行时派门槛任务、写 gate 验收）发上 STG 后，验一次：一行架构对照被真实的门槛运行在部署的提交上打勾，再换一次部署看旧 PASS 不算 |
 | T34 ①②③⑥⑦ | **过** | 10-15 STG M-5（gate-b 测试客户端在接口层制造） | 无 |
 | T34 ④ 上传中途重启 | **过** | 新测试 `agentd/handover_restart_test.go` `TestRestartDuringTheHandOver`（真进程 SIGKILL，五个杀点） | 无 |
@@ -203,7 +233,7 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 | 基准 6 题 | **过（建议算）** | 2.2-31 ★ 的同一次运行（`RUN-r2-stars-2026-10-20.md` 第二节、第五节「2.2-31」）：PROD M-15、STG M-27，6 题提议后零人工写入、22 分钟内全部到结论（4 accepted、2 两轮确定性验收不过而 blocked，答错不是环境）；codex 写、cursor 评审（Gate A 表允许「或反过来，按 capability_fact」）；题目组成改为 Go 3、TS 1、Python 1、shell 1（Python 第二题在 research，运行时派不到），Owner 10-20 11:5x「★ 三条 A」认可这处改写；结果在结论时记进 `capability_score`（PROD 10-20 05:25:56Z：codex `implementer` / `benchmark` 6 次、4 次首轮通过，0.300） | 无。附带发现 F-bench-score：两道不过的题 Owner 选「不做了」（任务 cancelled）之后，在岗成绩把它们剔掉了：PROD 15:28:54Z 变 5 次 4 过（0.376）、15:31:54Z 变 4 次 4 过（0.510）；STG 同样从 6 次 3 过（0.188）变成 4 次 3 过（0.301），失败不再计入；`store/scores.go` 只计 accepted、rejected 和 blocked-as-failed。要不要让「失败后被放弃」仍算失败，交统筹定（可记 TD） |
 
 **还差 5 项**（其余全部过）：
-1. **T32 经接口的剩余几种**：卡在没人跑。STG 现在有计划树，可以经两条路由实测；参谋长席位那一种要席位令牌。
+1. **T32 经接口的最后两种**：9 种已在 STG 上被拒。剩下两种：「规则引用之后移走任务」卡在 STG 的卡片规则把夹具卡答成「不改」（认 `TestPlanChangeOutside`，或在 M-95 里留一个不做事的任务当夹具）；「参谋长席位」卡在没有 STG 的席位令牌。
 2. **T33**：卡在 TD-397 发上 STG。之后要一行架构对照被真门槛运行打勾，再换一次部署看旧 PASS 不算。
 3. **T34 ⑤**：卡在 TD-352（Progress 补「结果未持久化」+ 检查点时间 + 时长）没做；做完后 STG 重跑一次。
 4. **T34 ⑧**：卡在决定。认存储层测试，或 STG 放到每台 2 个槽（放宽要 Owner 签）再跑。
