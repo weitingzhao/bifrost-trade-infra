@@ -2154,15 +2154,28 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-405
+
+**P1 · agentd · a retried implementation is not told why its last round failed: "Give it one more round" repeats the same mistake**
+
+- **状态**：未开始（2026-10-20 19:5x 统筹线程记；PROD M-23 三轮同一个编译错误）
+- **Claim**: agentd's prompt for an implementation (`api/internal/agentd/executors.go` `Prompt`) is the task's spec text and the hand-in rules; the previous round's failed check (its verify.json: first failed command and output tail) and a failed review's report reach only the card and the reviewer, never the next implementer. Each round starts blind from the same spec at the same base commit. PROD M-23: codex handed in the same `go/token` import clash three times (rounds 1–3, attempts `a_01M5DYBC5TYG5FB1Z5Z4P3C5D8`, `a_01M5DYHSEAZ6NN6GWYG15H9WS6`, `a_01M5DYYKDFG1GWNX4X1M45V0N1`), and the Owner's "one more round" (Q18 a) bought nothing.
+- **Evidence**: `executors.go` `Prompt` (the check report is added only when `Spec.Check != ""`, for a reviewer); PROD M-23 events 19:42–19:53; cards Q18, Q19.
+- **Impact**: every blocked card's option a is a blind retry; the attempt budget and the Owner's answers are spent on the same failure, and the card's recommendation b is right only by accident.
+- **Fix**: for an implementation in round > 1, the task's claim carries the last round's failed check (masked verify.json: the first failed command and its tail) and a failed review's report, and `Prompt` adds them under "The last round failed its check; fix that first"; with TD-404, a round that failed on compile goes to another executor when one is allowed. Not briefSpec/scheduledText/nudgeText/planSpec/seatproto (exam freeze).
+- **Ratchet**: an agentd test: the prompt of a round-2 implementation names the failed command and the line of output; a store test: the claim of a retried task carries the last failed verification's evidence.
+- 验收: on STG, a task that fails its check once on a planted compile error passes in round 2 with the same executor.
+- 审批 无（运行时内部；06 上换 agentd 要 Owner 跑 update-agentd）· 代价 M · 风险 low · repos: bifrost-platform
+
 ### TD-404
 
 **P2 · agentd · codex cannot build the Go packages it changes inside its sandbox on 06, so it hands in work it could not check**
 
 - **状态**：未开始（2026-10-20 19:4x 统筹线程记；PROD M-23，第一件按 Owner 19:3x「下一件只改 Go 的平台修复走 PROD 运行时」交给运行时的活）
-- **Claim**: in M-23 codex implemented twice (attempts `a_01M5DYBC5TYG5FB1Z5Z4P3C5D8`, `a_01M5DYHSEAZ6NN6GWYG15H9WS6`); inside its sandbox `go -C api build ./...` and `go -C api vet ./...` exited 1, so it checked its test only as a single file (`go test tmp_writes_test.go`), which compiles without the package. Both times it handed in a test file whose `go/token` import clashes with `token` in `api/internal/agentd/codexlogin.go:128`; the deterministic check, whose build of the same tree passed, failed both rounds on vet. Why the build fails in codex's sandbox is not read yet (the actions keep exit codes only); its sandbox has no network (`--unshare-net`), so a missing module cache is the likely cause.
+- **Claim**: in M-23 codex implemented twice (attempts `a_01M5DYBC5TYG5FB1Z5Z4P3C5D8`, `a_01M5DYHSEAZ6NN6GWYG15H9WS6`); inside its sandbox `go -C api build ./...` and `go -C api vet ./...` exited 1, so it checked its test only as a single file (`go test tmp_writes_test.go`), which compiles without the package. Both times it handed in a test file whose `go/token` import clashes with `token` in `api/internal/agentd/codexlogin.go:128`; the deterministic check, whose build of the same tree passed, failed both rounds on vet. Why: the runtime's setup for bifrost-platform (`api/internal/agentrt/store/repos.go:69-72`) runs only the two `npm ci`; nothing fetches Go's modules, and codex's sandbox has no network (`--unshare-net`; its prompt says so, `executors.go` `Prompt`), so its GOMODCACHE is empty and an offline build fails, while the deterministic check, which has the network, downloads them (its log shows `go: downloading …`). Round 3 (`a_01M5DYYKDFG1GWNX4X1M45V0N1`) the same: build 1, vet 1, single-file test 0.
 - **Evidence**: `get_attempt_actions a_01M5DYHSEAZ6NN6GWYG15H9WS6` (build 1, vet 1, single-file test 0); verification evidence `sha256:cb99823b…` (build 0, vet 1 with the clash); PROD card Q18.
 - **Impact**: codex's Go work on 06 is unchecked by its author; every compile error costs a round and a card, and a task routed to codex twice can block on a one-line fix.
-- **Fix**: read the build error in codex's sandbox first; then give the sandbox a read-only, prefilled Go module cache (`GOMODCACHE` bound in, `GOFLAGS=-mod=mod`, `GOPROXY=off`) and a writable `GOCACHE` under its temporary directory, so `go build`/`go vet` run offline; until then, route a second round of a Go task that failed on compile to another executor.
+- **Fix**: add `go -C api mod download` to bifrost-platform's setup in `repos.go` (it runs before the executor, with the network, into the attempt's GOMODCACHE), and the same for any repository with Go; then codex's offline `go build`/`go vet` work. Until then, route a second round of a Go task that failed on compile to another executor (TD-405).
 - **Ratchet**: agentd's codex proof (confine-probe) also runs `go -C api build ./...` inside the sandbox and must pass.
 - 验收: on 06, codex's attempt actions show `go -C api vet ./...` exit 0 on a task in bifrost-platform.
 - 审批 无（agentd 隔离配置，随平台发布；06 上换 agentd 要 Owner 跑 update-agentd）· 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
