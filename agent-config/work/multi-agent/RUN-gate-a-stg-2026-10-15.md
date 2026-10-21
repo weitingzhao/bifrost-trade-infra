@@ -154,6 +154,7 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 - **F-T32-card**（10-21）：STG 的 `card-auto-answer v3` 遇到没有推荐、也没有 AI 评估的计划变更卡，取「不改」（`q_4beba10878543ee3`，04:13:12Z）。所以在 STG 上，常设授权以外的计划变更（`move_task`、`rebind_step`、`drop_step`、加 item）都落不了地，测试夹具也丢不掉：「卡由规则自动答」不等于「变更会生效」。要不要让这类卡在 STG 上取提议的那一项，交统筹定。
 - **F-T33-rec**（10-21）：架构行门槛的计划变更卡带不上推荐。`store.gatesRecommend` 算出了「应用」（`card.Recommended = 1`），但 `internal/server/questions_wire.go` 的 `agentRuntimeAsk` 只在卡自带选项（`len(card.Options) > 0`：planner、mission、blocked 卡）时才把 `recommended` 传给问题库。计划变更卡用默认的「应用 / 不应用」，推荐被丢掉，STG 规则只能取「不改」（`q_d58aaf5995349bf1`，04:32:43Z）。TD-397 ② A（STG 照推荐自动应用）因此在 STG 上走不通，PROD 的卡也不会显示推荐。测试只在存储层经假的 asker 看 `card.Recommended`（`store/gates_test.go:464`），没有一条测试走真的 `agentRuntimeAsk`。修法：卡没有自带选项时，`card.Recommended > 0` 也写进 `req["recommended"]`，并把 `RecommendedWhy` 放进那一项的 detail；回归测试经 server 的问题库提一次目录里的规则，断言问题的 recommended 是 a、STG 规则应用了它。
 - **F-review-report**（10-21）：评审看不到被检尝试的报告。agentd 给评审的提示（`agentd/executors.go` `promptRest`）只有任务书、检出的提交和 verify.json；store 给评审的规格（`accept.go`）也只带 `verify_report`。effect none 的任务，结果就是那份报告，评审看不到。M-93 两轮评审都判了 FAIL：实现已在 01:58–02:43 睡满 2700 秒，报告是 `slept 2700 s`，评审却在空工作区里找那行输出，又用检查时刻去比 04:30。branch 任务不受影响（评审看得到提交）。
+- **F-T33-migrate**（10-21）：STG 发了要 0007、0008 的平台（d360a118 起），库却没迁移（`schema_migration` 最大 6）。06:01Z 记下部署后，控制器的 `agentrt-facts-rules` 每轮在插门槛任务时被 `task_check2` 拒，整轮失败、每 15 秒一次。TD-397 笔记写了「先迁移、后发版」，发版流程没有挡住「库落后于代码要的迁移」。
 
 ### 要 Owner 跑的（统筹线程转）
 
@@ -223,6 +224,16 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 
 推荐是在 server 把卡交给问题库时丢的。T33 要等这处修好、发上 STG 以后，用新的幂等键重提。
 
+**10-21 05:57Z 重提（platform fb015014，含 F-T33-rec 的修复和 TD-410）：** 用新的幂等键重提同样 13 项（提议事件 4815，05:57:53Z）。
+- 卡 `q_e9ce27bbba1e8dbf` 带推荐 a。`card-auto-answer v3` 05:57:59Z 照推荐选 a（「the option it recommends, after 5 seconds unanswered」）。
+- 05:58:06Z `plan_change_decided: applied`（4817）、`plan_changed`（4818），13 行都有了规则。F-T33-rec 在 STG 上修好了。
+- 06:01:07Z 控制器记下部署 `deploy_seen`（4820）：commit fb01501423bf…，带 platform-api 和 console 的镜像摘要。
+
+**门槛没有派出（F-T33-migrate）：** STG 库的迁移只到 6（`agentrt.schema_migration` 最大 6，最后一次 `agentrt-migrate` Job 是 10-20 04:50Z），0007、0008 都没跑。
+- 0007 要换掉的旧约束 `task_check2` 还在：要求 verify 和 review 一定有被检对象。
+- 从 06:01:07Z 起，platform-workers 的 `agentrt-facts-rules` 每 15 秒失败一次：`new row for relation "task" violates check constraint "task_check2"`。到 06:14Z 已有 55 次，没有门槛批次 mission。
+- 要先在 STG 跑一次 `agentrt-migrate`（0007、0008），控制器下一轮就会给 fb015014 派门槛。之后验 `ARCH:owner-three-duties`（T40）打勾。
+
 ### M-93、M-95 收尾（10-21 04:16–04:32Z）
 
 - **M-93：stopped，不是 done。** 第 1 轮实现在 01:58–02:43 睡满 2700 秒，报告 `slept 2700 s`，验收（`true`）过。cursor 评审 04:16Z 判 FAIL，原因是工作区里没有那行输出、04:15 还没到 04:30。
@@ -269,7 +280,7 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 | T22 ⑤ 锁后截止 | **过** | 存储层夹具 `store/kernel_test.go` `TestFenceAndLeaseClock`（「T22 ⑤」那段），按 10-15 计划不在 STG 重做 | 无 |
 | T25 状态只由事件改 | **过** | 上文「T25」：`TestRoutesMoveStateOnlyByEvents`（每条写路由、四个世界）+ `TestIdentitiesAndTheEventRule`（直写）+ STG 只读核对 | 无；STG 上用运行时身份直写做不到（F-probe），以迁移哈希、触发器、状态与事件一致性的只读核对代替 |
 | T32（经接口） | **基本过，差两种** | 10-15 9 条反例 422（「每项的状态」T32）；10-21 STG 再 9 条 422（上文「T32 经接口」：挂到 item、挂到别的 mission 的步骤、规则引用别一步的任务、没绑的审批、没绑的问题、步骤挂在 round 下、item 挂在 item 下、验收离开对象、改绑后再挂别的 mission 的任务），不留半条记录；接口层测试 `agentrtapi/propose_test.go`、`TestPlanProposalRoute` | ① 规则引用之后移走任务：STG 的卡片规则把夹具卡答成「不改」（F-T32-card），落不了地；同一拒收由路由调用的 `store.ProposePlanChange` 的测试覆盖（`TestPlanChangeOutside`）。② 参谋长席位：缺 STG 的 `seat:chief_of_staff` 令牌。「并发两条依赖」「迁移与新建交错」经接口构造不出来，由存储层 T32（`store_test.go`）证 |
-| T33 证据绑定版本 | **测试过，STG 卡在 F-T33-rec** | 上文「T33」：`TestStandingGate`、`TestArchTickFollowsTheDeployment`、`TestArchRecordedDeploymentThatIdentifiesNothing`、`TestGateUsesTheExactTestID`；上文「T33 在 STG 上」 | TD-397 已发 STG（d360a118），但架构行门槛的计划变更卡带不上推荐，STG 规则答成「不改」，规则没落地（F-T33-rec）。修好、发上 STG 后重提 13 项，验一行（`ARCH:owner-three-duties`，T40 不需要库）被部署提交上的真门槛打勾；再换一次部署看旧 PASS 不算 |
+| T33 证据绑定版本 | **测试过，STG 卡在迁移** | 上文「T33」的测试；上文「T33 在 STG 上」：fb015014 上卡带推荐 a，STG 规则 5 秒后照推荐应用，13 行有了规则（F-T33-rec 已修） | STG 库没跑 0007、0008（F-T33-migrate），控制器派门槛任务时被旧约束 `task_check2` 挡住，每 15 秒失败一次。跑完 STG 的 `agentrt-migrate` 后，验 `ARCH:owner-three-duties`（T40）被部署提交上的真门槛打勾；「换一次部署旧 PASS 不算」等下一次 STG 发版 |
 | T34 ①②③⑥⑦ | **过** | 10-15 STG M-5（gate-b 测试客户端在接口层制造） | 无 |
 | T34 ④ 上传中途重启 | **过** | 新测试 `agentd/handover_restart_test.go` `TestRestartDuringTheHandOver`（真进程 SIGKILL，五个杀点） | 无 |
 | T34 ⑤ 主机永久丢失 | **后一半过，前一半待跑** | TD-352 已发 STG（ba6c09eb）。上文「T34 ⑤ 在 STG 上」：M-95 丢掉、没持久化的尝试，在部署的 `store.Progress` 里有 `lost_attempt`（`persisted` false、`unpersisted_for_s`、`ended_at`），原因写「result not persisted (no checkpoint, nothing persisted for 77 min)」，不显示做完 | stale 与 host_lost 时带「last checkpoint 1 at …」的那一半：gate-b 走不通（客户端没了、没有令牌、常备授权的主机只有 agent-06-stg），并进明早 T34 ⑧ 的同一次冻结（Owner 同一条命令） |
@@ -280,7 +291,7 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 
 **还差 5 项**（其余全部过）：
 1. **T32 经接口的最后两种**：9 种已在 STG 上被拒。剩下两种：「规则引用之后移走任务」卡在 STG 的卡片规则把夹具卡答成「不改」（认 `TestPlanChangeOutside`，或在 M-95 里留一个不做事的任务当夹具）；「参谋长席位」卡在没有 STG 的席位令牌。
-2. **T33**：TD-397 已发 STG，但卡在 F-T33-rec：计划变更卡的推荐在 server 交给问题库时被丢掉，STG 规则答成「不改」。修好并发 STG 后重提，再验打勾；换一次部署看旧 PASS 不算，等下一次 STG 发版。
+2. **T33**：F-T33-rec 已修，13 行规则已在 STG 落地；卡在 STG 库没跑 0007、0008（F-T33-migrate），门槛派不出去。跑完迁移后验打勾；「换一次部署旧 PASS 不算」等下一次 STG 发版。
 3. **T34 ⑤**：TD-352 已发 STG，lost 那一半有现成证据（M-95）。stale、host_lost 带检查点的那一半，并进明早 T34 ⑧ 的同一次冻结，Owner 在 06 上跑同一条命令。
 4. **T34 ⑧**：Owner 定了现场跑，并发 v2 已生效，场景备好；等明早 Owner 在 06 上起脚本（和 ⑤ 同一次）。
 5. **T36 页面**：卡在决定。认「按任务筛选」，或加一个到 Crew 任务详情的链接。
