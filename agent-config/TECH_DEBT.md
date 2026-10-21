@@ -38,7 +38,7 @@
 - **TD-289** — Prometheus 与 Alertmanager 的数据从 emptyDir 改到 NAS 卷（StorageClass `nfs-hot`，helm revision 17，10-10 06:04Z 上线）；Grafana 仍是 emptyDir（有意）。验收：PASS 2026-10-11 `1d69669`，TSDB 在 NFS 上观察 31 小时：Pod 重启 0 次，30 小时日志 114 行无 WARN / ERROR，压缩 20 次失败 0，WAL 损坏 0，head / WAL 截断失败 0，`count(up offset 20h)` = 75，`check_monitoring_persistence.py --live` 退出 0。防线：RATCHETS「监控数据不放 emptyDir」。后续：无后续：Grafana 不持久化是有意的。
 - **TD-94** — Market gate 失败即阻断、正确 session 校验及 Flex 独立闸门已运行验收：PASS 2026-10-10，Research `d628fa6`（含 `2c34f4d` / `72e6473`），生产对应模块 hash 一致；最近三批 gate=session 均正确，相关测试 56 passed / 0 skipped。防线：gate / Flex tests + READ ONLY 运行审计（RATCHETS）。后续：TD-92 继续观察 ERROR 告警回执；历史缺口仍由 TD-172/142 方案处理，不随闸门签收宣称补齐。
 
-**未结 119 项**：P0 0 · P1 11 · P2 44 · P3 64；要你批的 43 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
+**未结 120 项**：P0 0 · P1 12 · P2 44 · P3 64；要你批的 44 项（审批一栏不是「不用批」或「无」的；2026-10-13 重数：按每一项的标题和它自己的优先级行数出来的，此前的 99 少数了）。
 
 ## 主题（第 2、3 轮）
 
@@ -2162,6 +2162,22 @@
 - 验收: `go test -count=20 -cpu 1,4 -run 'TestPlatformUnknownDoesNotMaskMissing$' ./internal/delivery/` while other packages run beside it（原写法跑整个包 40 遍，包里别的测试按真实时间轮询，超过 10 分钟的测试时限，验不到这一条）
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-415
+
+**P1 · agent tooling · agents' work fills the development Mac's disk: every review and every lane keeps its own caches and nothing removes them; 06's disk is not watched at all**
+
+- **状态**：在做（2026-10-21 14:2x：第一层（本机）由统筹线程做：`~/agent-work/bin/disk-guard.sh` 已写并试过 check；共享缓存与定时清扫在做；第二层（06）要 Owner 定选项）。 2026-10-21 14:0x 统筹线程记；Owner 原话「本地磁盘被占满了……避免因为 Agent 的任务导致磁盘爆了」
+- **Claim**: 2026-10-21 the Mac's data volume had 10 GB free, then 4.8 GB. `~/agent-work` held 94 GB: 423 `codex-review-<n>` dirs of about 1 GB each, because Codex's sandbox cannot write the default Go cache, so every review set `GOCACHE` inside its own dir (`$TMPDIR/gocache`, `.tmp/gocache`, `.check-tmp/gocache`) and nothing removed it after `run.done`; dozens of lane worktrees each with its own `npm ci` node_modules (68 of them, 10.3 GB) left after their branches merged; session scratchpads with 5.5 GB and 6.3 GB of benchmark and experiment work dirs; 31 SysV shared memory segments leaked by killed test Postgres instances (all 32 slots), which made agentd's test-database tests fail with no space. A Time Machine local snapshot then held the deleted blocks, so `df` showed less free space right after the cleanup. Nothing watches 06's disk: agentd reports no free space and the platform would keep dispatching to a full host.
+- **Evidence**: `du` of `~/agent-work` 94 GB → 58 GB after removing finished reviews' caches (361 dirs); `df -h /System/Volumes/Data` 10 GB → 4.8 GB → 62 GB once the snapshot was thinned; `ipcs -ma` 32/32 segments, 31 with no process attached and their creators gone; review logs: `GOCACHE=$TMPDIR/gocache` 32 times among reviews 400–499.
+- **Impact**: a full disk stops every line at once (test databases, builds, transcripts, the Owner's own work); on 06 it would fail every attempt on that host until someone logs in.
+- **Fix**: three layers.
+  1. The Mac (coordinator, no interface change): one shared Go build and module cache and one npm cache for reviews and lanes (Codex given that dir as a writable root); a finished review removes its caches; a merged lane removes its worktree; `disk-guard.sh sweep` hourly and before each dispatch, `check` as the dispatch gate (below 30 GB no new review or npm ci, below 15 GB sweep and tell the Owner).
+  2. 06 (runtime, interface change, the Owner's call): agentd's heartbeat carries free disk for the host and its root; below a floor the platform dispatches nothing new to that host (like over_capacity) and records a policy_alert that reaches the Owner's phone; agentd removes an attempt's workspace once its result is in the platform and caps an attempt's disk.
+  3. Round 3 (mini VMs): each executor host has a fixed-size data disk, so a full disk stops one host only.
+- **Ratchet**: layer 1: `disk-guard.sh check` before every dispatch the coordinator makes; layer 2: a store test that a host reporting free disk below the floor is not given a claim, and an agentd test that a settled attempt's workspace is gone.
+- 验收: layer 1: a review run with the shared cache leaves no `gocache` in its dir, and `disk-guard.sh sweep` on a planted idle node_modules removes it and leaves sources; layer 2: on STG a host whose heartbeat reports free disk under the floor gets no new attempt and a policy_alert appears.
+- 审批 第二层要（agentd 心跳加字段是改公开接口）；Time Machine 本地快照在 sweep 后自动瘦身也要 Owner 点头 · 代价 M · 风险 low · repos: bifrost-trade-infra, bifrost-platform
 
 ### TD-414
 
