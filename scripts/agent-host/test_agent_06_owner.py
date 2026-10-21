@@ -423,3 +423,30 @@ class ConfineProbeScript(unittest.TestCase):
         r = self.run_probe("bifrost-agentd")
         self.assertEqual(r.returncode, 2)
         self.assertIn("run as root", r.stderr)
+
+
+class PassphraseBeforeConnecting(unittest.TestCase):
+    """06 drops a login that waits over two minutes for the passphrase (2026-10-20): the
+    passphrase is asked once into this run's own ssh-agent before any connection, and the
+    agent is gone when the script ends."""
+
+    SCRIPT = HERE / "agent-06-owner.sh"
+
+    def test_no_connection_bypasses_the_private_agent(self) -> None:
+        text = self.SCRIPT.read_text()
+        self.assertNotIn("IdentityAgent=none", text)
+        self.assertEqual(text.count('IdentityAgent="$NODE_AGENT"'), 3)
+        self.assertIn('[ "$step" = retire-mac ] || key_agent_start', text)
+
+    def test_the_agent_holds_the_key_and_stops(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            key = Path(d) / "k"
+            subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)], check=True)
+            out = subprocess.run(
+                ["bash", "-c",
+                 'set -euo pipefail; source "$1"; NODE_KEY="$2"; key_agent_start > /dev/null 2>&1; '
+                 'SSH_AUTH_SOCK=$NODE_AGENT ssh-add -l > /dev/null && echo loaded; p=$NODE_AGENT_PID; '
+                 'key_agent_stop; sleep 1; kill -0 "$p" 2> /dev/null && echo alive || echo stopped',
+                 "x", str(self.SCRIPT), str(key)],
+                capture_output=True, text=True, check=True)
+            self.assertEqual(out.stdout.split(), ["loaded", "stopped"])

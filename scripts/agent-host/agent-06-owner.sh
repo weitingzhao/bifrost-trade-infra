@@ -82,10 +82,33 @@ die() {
 say() { echo "==> $*"; }
 # Written for the macOS system bash (3.2) as well: no arrays under set -u.
 TMPD=$(mktemp -d)
-trap 'rm -rf "$TMPD"' EXIT
+trap 'key_agent_stop; rm -rf "$TMPD"' EXIT
 
-node_ssh() { ssh -F /dev/null -o IdentityAgent=none -o IdentitiesOnly=yes -o ConnectTimeout=15 -i "$NODE_KEY" "vision@$ADDR" "$@"; }
-node_ssh_tty() { ssh -t -F /dev/null -o IdentityAgent=none -o IdentitiesOnly=yes -o ConnectTimeout=15 -i "$NODE_KEY" "vision@$ADDR" "$@"; }
+# NODE_AGENT is this run's own ssh-agent (key_agent_start), never the
+# login session's: until it starts, ssh asks for the passphrase itself.
+NODE_AGENT=none
+NODE_AGENT_PID=
+node_ssh() { ssh -F /dev/null -o IdentityAgent="$NODE_AGENT" -o IdentitiesOnly=yes -o ConnectTimeout=15 -i "$NODE_KEY" "vision@$ADDR" "$@"; }
+node_ssh_tty() { ssh -t -F /dev/null -o IdentityAgent="$NODE_AGENT" -o IdentitiesOnly=yes -o ConnectTimeout=15 -i "$NODE_KEY" "vision@$ADDR" "$@"; }
+
+# 06 drops a login that waits over two minutes for the passphrase (2026-10-20:
+# three tries of the Gate A drill lost that way), and a step connects many
+# times. So the passphrase is asked once, here, before any connection, into a
+# private ssh-agent that holds the key for this run only; key_agent_stop
+# kills it on exit.
+key_agent_start() {
+  local out
+  out=$(ssh-agent -s) || die "could not start a private ssh-agent"
+  NODE_AGENT=$(printf '%s\n' "$out" | sed -n 's/^SSH_AUTH_SOCK=\([^;]*\);.*/\1/p')
+  NODE_AGENT_PID=$(printf '%s\n' "$out" | sed -n 's/^SSH_AGENT_PID=\([0-9]*\);.*/\1/p')
+  [ -n "$NODE_AGENT" ] && [ -n "$NODE_AGENT_PID" ] || die "could not read the private ssh-agent's socket"
+  echo "Enter the node key's passphrase (nothing is connected yet: take your time)"
+  SSH_AUTH_SOCK=$NODE_AGENT ssh-add "$NODE_KEY" || { key_agent_stop; die "the node key was not loaded"; }
+}
+key_agent_stop() {
+  if [ -n "$NODE_AGENT_PID" ]; then kill "$NODE_AGENT_PID" 2> /dev/null || true; fi
+  NODE_AGENT_PID=
+}
 
 user_of() {
   case "$1" in
@@ -468,7 +491,7 @@ step_delete_node() {
 
 step_copy() {
   (cd "$(dirname "$BINARY")" && shasum -a 256 -c "$HERE/agentd.sha256") || die "$BINARY does not match agentd.sha256"
-  scp -F /dev/null -o IdentityAgent=none -o IdentitiesOnly=yes -o ConnectTimeout=15 -i "$NODE_KEY" -r "$HERE" "$BINARY" "vision@$ADDR:"
+  scp -F /dev/null -o IdentityAgent="$NODE_AGENT" -o IdentitiesOnly=yes -o ConnectTimeout=15 -i "$NODE_KEY" -r "$HERE" "$BINARY" "vision@$ADDR:"
 }
 
 step_prepare() { node_ssh 'sudo bash ~/agent-host/prepare-agent-06.sh'; }
@@ -735,6 +758,8 @@ case "$step" in
   *) die "unknown step: $step" ;;
 esac
 fn=step_$(echo "$step" | tr - _)
+# Every step but retire-mac (this Mac only) connects to 06.
+[ "$step" = retire-mac ] || key_agent_start
 if [ "$step" = codex-login ]; then
   "$fn" "$@"
   exit
@@ -745,6 +770,6 @@ fi
 mkdir -p "$LOG_DIR"
 chmod 700 "$LOG_DIR"
 LOG=$LOG_DIR/$step${1:+-$1}-$(date +%Y%m%dT%H%M%S)-$$.txt
-trap 'rc=$?; echo "exit=$rc" >> "$LOG" 2> /dev/null; rm -rf "$TMPD"; exit $rc' EXIT
+trap 'rc=$?; echo "exit=$rc" >> "$LOG" 2> /dev/null; key_agent_stop; rm -rf "$TMPD"; exit $rc' EXIT
 "$fn" "$@" 2>&1 | tee "$LOG"
 echo "(log: $LOG)"
