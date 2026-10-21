@@ -73,8 +73,8 @@ mission：M-3（T08，后来也放 T22 组合测试）、M-4（T22；T01、T02 �
 | T22 ④ 推分支与过期同时 | **过**（新测试） | 推送被钩子拦住时租约越过宽限、任务被另一台主机重领；放行后提交只落在 a1，任务和新尝试不动 |
 | T34 ④ 上传中途重启 agentd | **过**（新测试，真 SIGKILL）；STG 上不用跑 | 五个杀点，接管后产物、persisted、submitted 各一份，任务能进验收 |
 | T01 external | **不用跑**（第 2 轮设计上不派 external）；存储层已测 | `store/claim.go:41-44` 只派 none、branch；ended → blocked + 决策卡由 `TestBlockedExternalNeedsAClearedEnd` 证 |
-| T22 ② 第二个 agentd | **等 Owner**（06 上动手） | 脚本 `owner-t22-06.sh second-agentd`，见下 |
-| 合盖 20 分钟 | **等 Owner**（06 上动手） | 06 没有盖子：冻结 STG agentd 整个 unit 20 分钟，`owner-t22-06.sh lid` |
+| T22 ② 第二个 agentd | **过**（10-21 03:05–03:25Z，Owner 跑脚本） | 第二个 agentd 12 毫秒退出（「another agentd runs on this host」），没领活；第一个醒来被 409 挡住，同一秒保全并 `ended{lease_lost, group_cleared: true}`，见下 |
+| 合盖 20 分钟 | **过**（10-21 03:27–03:48Z，冻结 STG agentd 整个 unit） | 到期 2 秒后 stale、宽限过后 lost；解冻后 409、同一秒保全并清掉进程组、重领；冻结期间 Progress 显示主机失联（T24 后半） |
 
 ### T25 状态只由事件改
 
@@ -127,9 +127,28 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 
 不用跑。第 2 轮不派 external 类（`store/claim.go:41-44`，`dispatched = none, branch`；只有测试导出的 `ClaimExternalFor` 能领），STG 上种这种任务要直写库。平台侧的行为在主线测试里：`store/kernel_test.go` `TestEnded`（external 任务的尝试 `ended{daemon_restart}` → 任务 blocked；同一尝试重复报得到同一结果、别的主机报被拒）、`TestLeaseSweep`（external 的尝试 lost → blocked），`store/blockedcard_test.go` `TestBlockedExternalNeedsAClearedEnd`（进程组已清的 → 决策卡写明「no host takes external work yet」；没清的不出卡）。agentd 接管与任务类别无关，branch 那一半 10-15 在 STG 上真跑过（`t_01M50S5AWEKN85XFCFQ98RWQPJ`）。
 
+### T22 ② 与合盖（10-21 01:58–04:30Z，M-93、M-95；T24 后半一并）
+
+执行者：STG mission M-93、M-95（标题「W-31 Gate A on STG: T22 case 2 and the lid drill…」，effect none，预算 20 次 / 8 小时，在常备授权内、直接 active），各一件实现任务，任务书只让 codex 跑一条 `sleep`：睡到 04:30Z 与 45 分钟中较早的那个（STG 每次尝试硬上限 1 小时，`budget:dev`），不改任何文件，verify `true`。这样没有任务会 blocked、也就没有卡；04:30Z 之后的尝试立即交差，任务被收下，mission 自己收成 done。M-93 的那次（01:58–02:43Z）等过了最晚开始时间（Owner 不在，统筹两次替他开脚本都停在口令上）；M-95 排在它后面接上，Owner 在它的窗口里跑了两项。最晚开始时间随长任务更替写在 `~/agent-work/gate-a-drills/watch.log`（Z 与 CDT）。
+**偏差**：统筹要的 `needs_owner` 没带上。本线程的 STG MCP 跑在共享检出的 `mcp/platform` 上，那份停在 platform `8948a5c5`（比 main 落后 199 个提交），`propose_mission` 还没有这个字段；改用上面的「不出卡」设计，全程两个 mission 没有出过一张卡。
+
+**T22 ②**（M-95 第 1 次尝试 `a_01M5E5FT4CA19F9CNXDCG0DD5X`，输出 `~/agent-work/gate-a-rest/owner-t22-second-agentd.out`）：
+- 03:05:54Z 只对 agentd（pid 1439559）发 SIGSTOP；codex（进程组 1496758）照跑，18 分钟后仍在（`ps` 记录在输出里）。
+- 租约 03:07:47Z 到期，03:07:56Z `attempt_stale`；03:22:56Z `attempt_lost`（「lease expired … and the grace passed」），任务回 ready。
+- 03:23:54Z 以同一用户、同样的环境和隔离（`systemd-run`，与 `bifrost-agentd-stg.service` 相同的 Environment / ProtectHome / BindPaths）起第二个 agentd：12 毫秒退出 exit 1，日志「agentd: another agentd runs on this host」，没有任何网络请求、没领活。
+- 同一秒 SIGCONT：第一个 agentd 的第一次调用（检查点 #5）被平台 409 fenced（「this attempt's lease is not yours」），03:23:54.926Z `attempt_salvaged`、.935Z `attempt_ended{lease_lost, group_cleared: true}`，旧进程组随即不在；然后重新领到这件任务（第 2 次尝试，03:23:55Z）。effect none，没有分支推送，「晚到的推送落在自己的分支上」这一半不适用（T22 ④ 的测试覆盖）。
+
+**合盖**（M-95 第 2 次尝试 `a_01M5E7S94Y2HH43W46NMVVBW35`，输出 `owner-t22-lid.out`）：06 没有盖子，用 `systemctl freeze` 冻结 STG agentd 整个 unit（agentd 和执行者一起停，PROD 的不动）20 分钟。
+- 03:27:17Z 冻结；租约 03:28:54.9Z 到期，2 秒后 `attempt_stale`；03:43:56Z `attempt_lost`，任务回 ready。
+- 03:47:17Z 解冻：冻结前悬着的那次 claim 立刻超时（客户端超时，无害）；第一次调用（检查点 #1）被 409 fenced；同一秒 `attempt_salvaged`、`attempt_ended{lease_lost, group_cleared: true}`；03:47:32Z 重新领任务（第 3 次尝试，03:47:48Z 起睡到 04:30:00Z）。
+- 与真合盖的差别照旧：冻结不停 CLOCK_MONOTONIC，agentd 醒来时计时器已过期、马上发调用，所以测不到「醒来后以为租约还在」那一段；平台按数据库时间判，隔离不受影响。
+
+**T24 后半（停 agentd → 宿主失联）**：每 60 秒用 Progress 自己的 SQL（`store/progress.go` `HostsSQL`，`/hosts` 和 Progress 投影读同一条，`HostLostAfter` 180 秒）对 STG 库只读查一次，存在 `~/agent-work/gate-a-drills/progress-snaps.log`；每 15 秒的简表在 `watch.log`。两次都在 3 分钟内显示失联：T22 ② 时 03:09:20Z 起 `online: false`；合盖时 03:30:43Z 起 `online: false`（`poll_age_s` 184 → 1055），解冻后 03:47:39Z 恢复 `true`；冻结期间 `live_attempts` 先是 1（stale），lost 后 0，恢复后 1（新尝试）。同一段时间这件任务按 `TaskStatus` 的规则是 `host_lost`（主机最后一次轮询超过 3 分钟，优先于 stale）。Console 页面本身没看（不用界面工具），读的是页面背后的同一条查询。
+
 ### 发现
 
 - **F-T33**：没有 gate 验收记录的写入方（见 T33）。
+- **F-mcp-checkout**：线程的平台 MCP 跑在共享检出的 `bifrost-platform/mcp/platform` 源码上，共享检出不跟 main（10-21 时落后 199 个提交），新加的 MCP 字段（这次是 `needs_owner`）线程里用不到。由统筹定：共享检出定期快进，或 `.mcp.json` 指向一个跟 main 的检出。
 - **F-probe**：STG 的 run_probe_pod 不能带平台自己的库身份（env_from 不许 `bifrost-platform-stg`）；设计里「直写用 run_probe_pod」这条路在现行策略下走不通。是否要开，属于策略（RBAC 级）决定，不在这一轮。
 
 ### 要 Owner 跑的（统筹线程转）
@@ -140,13 +159,13 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 
 最后一行 `T35 (release-policy namespace) PASS` 就是过；输出同时存在 `~/agent-work/gate-a-rest/owner-t35.out`，统筹读它。
 
-② **T22 ② 第二个 agentd**（约 21 分钟）——前提：统筹先给 STG 的 agentd（主机 agent-06-stg）派一件执行者会 sleep 30 分钟的任务，带 `needs_owner`；脚本发现 agentd 底下没有执行者就停。只碰 STG 的 agentd，不碰 PROD 的。在终端面板里跑（一次节点钥匙口令）：
+② **T22 ② 第二个 agentd**（**已跑，过**：10-21 03:05–03:25Z，见上）（约 21 分钟）——前提：统筹先给 STG 的 agentd（主机 agent-06-stg）派一件执行者会 sleep 30 分钟的任务，带 `needs_owner`；脚本发现 agentd 底下没有执行者就停。只碰 STG 的 agentd，不碰 PROD 的。在终端面板里跑（一次节点钥匙口令）：
 
     bash ~/agent-work/gate-a-rest/owner-t22-06.sh second-agentd
 
 它 SIGSTOP agentd（执行者照跑）→ 等 18 分钟（租约 2 + 宽限 15 + 1）→ 以同一用户、同样的环境和隔离起第二个 agentd（最多 30 秒，应报「another agentd runs on this host」立刻退出）→ SIGCONT → 看 90 秒日志。输出在 `owner-t22-second-agentd.out`。过的标准（统筹查 STG 事件）：第二个 agentd 退出、没有以 agent-06-stg 领到活；第一个醒来后被 409 挡住、30 秒内清掉进程组、`attempt_ended{lease_lost, group_cleared: true}`，结局 `attempt_salvaged`（有结果时）、任务按 effect_class 处理。
 
-③ **合盖 20 分钟**（约 23 分钟）——前提同②。06 没有盖子，用 cgroup 冻结 STG agentd 的整个 unit（agentd 和它起的执行者一起停，PROD 的不动）：
+③ **合盖 20 分钟**（**已跑，过**：10-21 03:27–03:48Z，见上）（约 23 分钟）——前提同②。06 没有盖子，用 cgroup 冻结 STG agentd 的整个 unit（agentd 和它起的执行者一起停，PROD 的不动）：
 
     bash ~/agent-work/gate-a-rest/owner-t22-06.sh lid
 
