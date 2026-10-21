@@ -2159,6 +2159,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-409
+
+**P2 · agentd · a reviewer is not shown the attempt's report, so the review of an effect-none task judges an empty workspace and fails correct work**
+
+- **状态**：在做（2026-10-21 00:0x 统筹线程记；Gate A 线 F-review-report；交给 TD-404 修复线 local_7c7c00ad，赶在 06 换 agentd 之前）
+- **Claim**: the review prompt (`api/internal/agentd/executors.go` `Prompt`, the `Spec.Check != ""` branch) carries the subject's spec and, after a passed deterministic check, its verify.json, but not the report the checked attempt handed in. An effect-none task pushes no commit, so its result is only in that report; the reviewer searches an empty checkout and fails it.
+- **Evidence**: STG M-93 (Gate A drill, implement effect none): the attempt slept 2700 s and reported `slept 2700 s`; both cursor reviews failed it for not finding the output; the task blocked and the card (no recommendation) was answered by the STG rule with "do not do this task", the mission stopped. RUN-gate-a-stg-2026-10-15.md 10-21 notes (infra `12b46f3`).
+- **Impact**: every effect-none task's review can fail correct work; on PROD such a card goes to the Owner.
+- **Fix**: the review (and verification) claim carries the checked attempt's report (masked, bounded) and the prompt shows it after the subject's spec; for an effect-none task the verdict rests on that report and the checks.
+- **Ratchet**: an agentd test that a reviewer's prompt holds the checked attempt's report; a store or agentrtapi test that a review claim carries it.
+- 验收: on STG an effect-none task with a correct report passes its review.
+- 审批 无（运行时内部；06 上换 agentd 要 Owner 跑 update-agentd）· 代价 S · 风险 low · repos: bifrost-platform
+
 ### TD-408
 
 **P2 · agent tooling · the shared checkouts fall behind main because nobody pulls them, and every session's MCP servers run from them: tools a release added are missing**
@@ -2310,7 +2323,7 @@
 
 **P2 · agentrt · nothing writes a gate verification, so no architecture row can ever be ticked**
 
-- **状态**：在做（合进 platform `d360a118`（2026-10-20 23:1x，合并后整套过：Go 全部带测试库、code-health、Console 四项、MCP），等考试判完分发 STG 验收；迁移 0007，PROD 上算 DDL）。 此前：在做（2026-10-20 21:3x Owner「全按推荐：TD-397 ① 甲、② A」：① 迁移 0007 只放宽 0001_core.sql:147 那条 CHECK，放行 controller 建的、没有被检对象的门槛验收任务；② 计划变更卡只在每项都恰好等于审过的门槛目录时推荐应用，STG 规则照推荐自动应用，PROD 仍由 Owner 点。上 PROD 时迁移算 DDL，与 TD-394 的 0008 合成一张单）。 此前：在做（2026-10-20 20:5x Owner 定 B：「发版后运行时按架构对照的行派门槛任务，06 上的确定性执行者在部署的提交上跑，记成 gate 验收」；不选 CI 上报（新路由 + CI 令牌）和手工登记。交给 TD-395 修复线 local_5a7f60ae：先写短设计、Codex 复核，再实现；要库的门槛依赖 TD-403（每次尝试临时测试库），门槛任务一律 AGENTRT_TEST_REQUIRED=1，缺库就是失败、不能跳过当通过）。 此前：未开始（2026-10-20 17:5x 统筹线程记；Gate A 补跑线 F-T33；归第 2 轮 2.5 架构对照的收尾）
+- **状态**：在做（2026-10-21 00:0x：STG 上验 T33 卡在 F-T33-rec——存储层算出推荐「应用」，`internal/server/questions_wire.go` `agentRuntimeAsk` 只给自带选项的卡传 recommended，计划变更卡的推荐丢失，STG 规则答成不应用，13 行没派门槛；交回 local_5a7f60ae 修（分支 w31/td-397-rec）。 此前：在做（合进 platform `d360a118`（2026-10-20 23:1x，合并后整套过：Go 全部带测试库、code-health、Console 四项、MCP），等考试判完分发 STG 验收；迁移 0007，PROD 上算 DDL）。 此前：在做（2026-10-20 21:3x Owner「全按推荐：TD-397 ① 甲、② A」：① 迁移 0007 只放宽 0001_core.sql:147 那条 CHECK，放行 controller 建的、没有被检对象的门槛验收任务；② 计划变更卡只在每项都恰好等于审过的门槛目录时推荐应用，STG 规则照推荐自动应用，PROD 仍由 Owner 点。上 PROD 时迁移算 DDL，与 TD-394 的 0008 合成一张单）。 此前：在做（2026-10-20 20:5x Owner 定 B：「发版后运行时按架构对照的行派门槛任务，06 上的确定性执行者在部署的提交上跑，记成 gate 验收」；不选 CI 上报（新路由 + CI 令牌）和手工登记。交给 TD-395 修复线 local_5a7f60ae：先写短设计、Codex 复核，再实现；要库的门槛依赖 TD-403（每次尝试临时测试库），门槛任务一律 AGENTRT_TEST_REQUIRED=1，缺库就是失败、不能跳过当通过）。 此前：未开始（2026-10-20 17:5x 统筹线程记；Gate A 补跑线 F-T33；归第 2 轮 2.5 架构对照的收尾）
 - **Claim**: the architecture comparison (ARCH, 17 rows) ticks a row when its gate tests passed (`agentrt.verification` with method 'gate') against what the environment runs. No code path writes a verification with method 'gate': tests insert such rows directly (`progressarch_test.go`), and no route, CI step or controller loop records a gate run. So every row stays unknown on STG and PROD, whatever passes.
 - **Evidence**: gate-a-rest hand-back (side-session note gate-a-rest-2026-10-20.md, F-T33); `bifrost-platform` `git grep "'gate'"` finds the method only in the schema, the reader and tests; RUN-gate-a-stg-2026-10-15.md 10-20 section (T33).
 - **Impact**: the page meant to show how much of the architecture is real cannot show anything but unknown.
