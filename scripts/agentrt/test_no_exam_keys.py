@@ -31,6 +31,7 @@ staged copies of what a commit stages: python3 -I scripts/agentrt/test_no_exam_k
 """
 from __future__ import annotations
 
+import collections
 import hashlib
 import os
 import re
@@ -294,14 +295,29 @@ SHAPES = {
     "an answer kept as a control": re.compile(r"[\"']?item[\"']?\s*[:=]\s*[\"']Q[1-5][a-e][\"']"),
 }
 # What two files may hold of these shapes, and nothing more: this check's own made-up samples,
-# and the made-up set that tests the Owner's put script. Only these exact matches pass there; any
-# other shape in them is refused like anywhere else, and the id and pattern checks run as usual.
-# (A match is the text the shape's pattern takes, which stops before a closing quote.)
-SHAPE_ALLOWED = {
-    "scripts/agentrt/test_no_exam_keys.py": {'"exam": "chief_of_staff', '"item": "Q3a"', '"kind": "alert', '"kind": "card',
-                                             '"kind": "clause_forbid', '"kind": "require_any', '"kind: alert',
-                                             '"kind: protocol_lines'},
-    "scripts/agentrt/test_chief_exam_set.py": {'"exam": "chief_of_staff', '"kind": "require_any'},
+# and the made-up set that tests the Owner's put script. Each is a whole line as it stands today,
+# kept as the sha256 of the stripped line with the times it may occur; those lines are taken out
+# before the shapes are looked for, and the rest of the file is read like any other. A line that
+# changes, or one more like it, is refused until it is listed here again (by hand, after reading).
+SHAPE_ALLOWED: dict[str, dict[str, int]] = {
+    "scripts/agentrt/test_no_exam_keys.py": {
+        "0b5fae332f59a428837fcb438427724d394f58aea39722fef901dba21acdd591": 1,
+        "0c043728ee673412b8bb329bb9f0f4b734edd1ab305e9b067828398cc873c1c7": 1,
+        "6ae23e07db1114760fdcba4e1add46fb1e4dd3330cdde744ae6d164dac968762": 1,
+        "806a7ee71d71c5df49f7d343ea16f0e41305f9bae0f634c511777f657aade401": 1,
+        "87e3bff061bd7b985f56560279f45cd299ff379f9231fa2c0bb2bf212154c6a1": 1,
+        "8b14db51415d57b2bfcd021da913a5052e293a76498b21d3e96cc694d427434a": 1,
+        "98318ee60301122e31dd809c52ab8a7536e367a0fafae47a0baeb9b4703e02ad": 1,
+        "9c1643b0c37c2a5a98e9e5dee4bbc8eb14b8c239c2f9bc239c5537a89ba7dafd": 1,
+        "b4322958b85d5aebe1b1abeb29e33ab00e835ac25090c3ff88ebbd1225a1b67e": 1,
+        "c946c2600fa0656619770ce6df99286b5af559a7e53d99e5dd83f029d41ac538": 1,
+    },
+    "scripts/agentrt/test_chief_exam_set.py": {
+        "161577e3082d9eb13e6efd128fd352d8ac148b04c17ed299a020137f4546dbf4": 1,
+        "5a45c0c1c5c25314ffe9267a13aa0b3614e5144db26a46691499451b2df46982": 1,
+        "70ca64ff8096564510b20c2596cfb9a559a5186e2040bf0a45dcaf7a44a60454": 1,
+        "f878d74d72976b8de3280c2204a3c42dcb0ee2dec476380964a41742b5632fb8": 1,
+    },
 }
 TOKEN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+){2,}")
 ITEM_LINE = re.compile(r"^\s*(?:\|\s*|[-*•·]\s+|\d+[.)]\s+)?\**Q[1-5][a-e]\b", re.MULTILINE)
@@ -332,17 +348,29 @@ def findings(path: str, body: str) -> list[str]:
     lines = (ln.strip() for ln in body.splitlines())
     if any(sha(c) in PATTERN_SHA256 for c in candidates(body)) or any(len(ln) >= 10 and sha(ln) in PATTERN_SHA256 for ln in lines):
         out.append("a pattern of a rule")
-    allowed = SHAPE_ALLOWED.get(path, set())
-    for name, rx in SHAPES.items():
-        if any(m.group(0) not in allowed for m in rx.finditer(body)):
-            out.append(name)
+    rest = shape_text(path, body)
+    out += [name for name, rx in SHAPES.items() if rx.search(rest)]
     for kind, keys in OWN_KEYS.items():
-        found = [m.group(0) for m in re.finditer(KIND_OF + kind + r"\b", body)]
-        if any(f not in allowed for f in found) and re.search(r"[\"']?(?:" + keys + r")[\"']?\s*[:=]", body):
+        if re.search(KIND_OF + kind + r"\b", rest) and re.search(r"[\"']?(?:" + keys + r")[\"']?\s*[:=]", rest):
             out.append("a rule object of the grader")
     if len(ITEM_LINE.findall(body)) >= 3:
         out.append("rows or items of the sub-questions")
     return out
+
+
+def shape_text(path: str, body: str) -> str:
+    """body without the lines SHAPE_ALLOWED lists for path, each as many times as it may occur."""
+    allowed = collections.Counter(SHAPE_ALLOWED.get(path, {}))
+    if not allowed:
+        return body
+    keep = []
+    for ln in body.splitlines():
+        h = sha(ln.strip())
+        if allowed[h] > 0:
+            allowed[h] -= 1
+        else:
+            keep.append(ln)
+    return "\n".join(keep)
 
 
 def candidates(body: str) -> list[str]:
@@ -391,7 +419,7 @@ def test_the_shapes_it_refuses() -> None:
         ("notes/h.json", '{"id": "r", "kind": "alert", "expect": true, "must_reference_any": ["x"]}', "a rule object of the grader"),
         ("notes/k.json", '{"kind": "alert", "expect": false, "hard": true}', "a rule object of the grader"),
         ("notes/i.json", '{"kind": "card", "owner_duty": "rule", "options_min": 2}', "a rule object of the grader"),
-        # an exempt file holds only its listed matches: another rule object there is refused
+        # an exempt file passes only its listed lines: another rule object there is refused
         ("scripts/agentrt/test_chief_exam_set.py", '{"kind": "clause_forbid", "forbid": ["x"]}', "a rule object of the grader"),
         ("other/q2-anything.json", "{}", "a file of the set"),
         ("other/controls.json", "[]", "a file of the set"),
@@ -405,6 +433,18 @@ def test_the_shapes_it_refuses() -> None:
     # single-quoted strings are read too, escapes kept as written
     assert candidates("x = 'a pattern of [ten]+' and \"another one here\" and `a third in ticks`") == [
         "a pattern of [ten]+", "another one here", "a third in ticks"]
+
+
+def test_an_exempt_file_passes_only_its_listed_lines() -> None:
+    # Review 470 B2: a rule object of a kind the file already holds, appended, is still refused.
+    for path in SHAPE_ALLOWED:
+        body, why = read(path)
+        assert body is not None and not why, path
+        assert findings(path, body) == [], path
+        more = body + "\n" + '{"kind": "require_any", "any_of": ["ordinary synthetic text"]}' + "\n"
+        assert "a rule object of the grader" in findings(path, more), path
+        twice = body + "\n" + body.splitlines()[-1]
+        assert findings(path, twice) == findings(path, body + "\n"), path
 
 
 def test_a_link_or_a_missing_file_is_not_skipped() -> None:
