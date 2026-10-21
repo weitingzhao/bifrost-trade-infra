@@ -12,10 +12,13 @@ What this refuses, over every tracked file whatever its name or extension (a reg
 of the shapes keys have leaked in or would, not a proof that no key is here; a paraphrase in
 prose still needs a reader):
   - a rule id of the set, also inside a longer hyphenated word;
-  - a regular expression a rule matches with (10 characters or more), pasted as a quoted or
-    backticked string or alone on a line, raw or as JSON escapes it;
-  - the shape of the set's files: a rule object (its kind is one of the grader's), a question
-    of the chief's exam, an answer kept as a control of a sub-question;
+  - a regular expression a rule matches with (10 characters or more), pasted as a double- or
+    single-quoted or backticked string or alone on a line, raw or as JSON escapes it (a raw
+    pattern that holds a line break, or the quote or backtick it is wrapped in, is found only
+    JSON-escaped);
+  - the shape of the set's files: a rule object (its kind is one of the grader's; alert and
+    card, ordinary words, only with a key of their own rules), a question of the chief's exam,
+    an answer kept as a control of a sub-question;
   - three or more rows or list items that start with a sub-question (Q3a), the cut's old §10;
   - a file of the set by its name (q<n>-<name>.json, controls.json, grade_reference.py).
 The ids and patterns are kept here only as sha256 fingerprints, made by keyhashes.py beside
@@ -29,8 +32,10 @@ staged copies of what a commit stages: python3 -I scripts/agentrt/test_no_exam_k
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import subprocess
+import tempfile
 import sys
 from pathlib import Path
 
@@ -280,20 +285,27 @@ PATTERN_SHA256 = {
 }
 KINDS = ("max_lines|mentions_all|known_ids_only|clause_forbid|clause_require|clause_each_require|pace_near|"
          "time_near|require_any|forbid_any|protocol_lines|plan_parses|section_order|cjk_ratio")
+KIND_OF = r"[\"']?kind[\"']?\s*[:=]\s*[\"']?"
+# alert and card are ordinary words: a rule object of theirs is told by a key only their rules have.
+OWN_KEYS = {"alert": r"must_reference_any|expect", "card": r"owner_duty|option_parse|meanwhile_forbid|options_min|options_max|no_score_executors"}
 SHAPES = {
-    "a rule object of the grader": re.compile(r"[\"']?kind[\"']?\s*[:=]\s*[\"']?(?:" + KINDS + r")\b"),
+    "a rule object of the grader": re.compile(KIND_OF + r"(?:" + KINDS + r")\b"),
     "a question of the chief's exam": re.compile(r"[\"']?exam[\"']?\s*[:=]\s*[\"']?chief_of_staff\b"),
     "an answer kept as a control": re.compile(r"[\"']?item[\"']?\s*[:=]\s*[\"']Q[1-5][a-e][\"']"),
 }
-# Files whose shapes are the grader's own vocabulary or a made-up set, never the exam's: the
-# shape checks skip them; the id and pattern checks do not.
-SHAPE_EXEMPT = {
-    "scripts/agentrt/test_no_exam_keys.py": "this check names the grader's rule kinds",
-    "scripts/agentrt/test_chief_exam_set.py": "a made-up set that tests the Owner's put script",
+# What two files may hold of these shapes, and nothing more: this check's own made-up samples,
+# and the made-up set that tests the Owner's put script. Only these exact matches pass there; any
+# other shape in them is refused like anywhere else, and the id and pattern checks run as usual.
+# (A match is the text the shape's pattern takes, which stops before a closing quote.)
+SHAPE_ALLOWED = {
+    "scripts/agentrt/test_no_exam_keys.py": {'"exam": "chief_of_staff', '"item": "Q3a"', '"kind": "alert', '"kind": "card',
+                                             '"kind": "clause_forbid', '"kind": "require_any', '"kind: alert',
+                                             '"kind: protocol_lines'},
+    "scripts/agentrt/test_chief_exam_set.py": {'"exam": "chief_of_staff', '"kind": "require_any'},
 }
 TOKEN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+){2,}")
 ITEM_LINE = re.compile(r"^\s*(?:\|\s*|[-*•·]\s+|\d+[.)]\s+)?\**Q[1-5][a-e]\b", re.MULTILINE)
-STRINGS = re.compile(r'"((?:[^"\\\n]|\\.){10,})"|`([^`\n]{10,})`')
+STRINGS = re.compile(r'"((?:[^"\\\n]|\\.){10,})"|\'((?:[^\'\\\n]|\\.){10,})\'|`([^`\n]{10,})`')
 SET_FILE = re.compile(r"(^|/)(q[1-5]-[a-z0-9-]+\.json|controls\.json|grade_reference\.py)$")
 MAX_BYTES = 8 << 20
 
@@ -317,23 +329,35 @@ def findings(path: str, body: str) -> list[str]:
         if any(sha("-".join(parts[i:j])) in RULE_ID_SHA256 for i in range(len(parts)) for j in range(i + 3, len(parts) + 1)):
             out.append("a rule id of the set")
             break
-    candidates = (a or b for a, b in STRINGS.findall(body))
     lines = (ln.strip() for ln in body.splitlines())
-    if any(sha(c) in PATTERN_SHA256 for c in candidates) or any(len(ln) >= 10 and sha(ln) in PATTERN_SHA256 for ln in lines):
+    if any(sha(c) in PATTERN_SHA256 for c in candidates(body)) or any(len(ln) >= 10 and sha(ln) in PATTERN_SHA256 for ln in lines):
         out.append("a pattern of a rule")
-    if path not in SHAPE_EXEMPT:
-        out += [name for name, rx in SHAPES.items() if rx.search(body)]
+    allowed = SHAPE_ALLOWED.get(path, set())
+    for name, rx in SHAPES.items():
+        if any(m.group(0) not in allowed for m in rx.finditer(body)):
+            out.append(name)
+    for kind, keys in OWN_KEYS.items():
+        found = [m.group(0) for m in re.finditer(KIND_OF + kind + r"\b", body)]
+        if any(f not in allowed for f in found) and re.search(r"[\"']?(?:" + keys + r")[\"']?\s*[:=]", body):
+            out.append("a rule object of the grader")
     if len(ITEM_LINE.findall(body)) >= 3:
         out.append("rows or items of the sub-questions")
     return out
 
 
-def read(path: str) -> tuple[str | None, str]:
-    """A tracked file's text (bytes it cannot decode are replaced, so a binary is scanned too),
-    or why it was not read."""
-    p = ROOT / path
-    if p.is_symlink() or not p.is_file():
-        return None, ""
+def candidates(body: str) -> list[str]:
+    """The quoted (double or single) and backticked strings of 10 characters or more."""
+    return [a or b or c for a, b, c in STRINGS.findall(body)]
+
+
+def read(path: str, root: Path = ROOT) -> tuple[str | None, str]:
+    """A tracked file's text (bytes it cannot decode are replaced, so a binary is scanned too; a
+    symbolic link is its target's text, as git keeps it, never followed), or why it was not read."""
+    p = root / path
+    if p.is_symlink():
+        return os.readlink(p), ""
+    if not p.is_file():
+        return None, "tracked but not a file here, not scanned"
     if p.stat().st_size > MAX_BYTES:
         return None, f"over {MAX_BYTES >> 20} MiB, not scanned"
     return p.read_bytes().decode("utf-8", errors="replace"), ""
@@ -364,6 +388,11 @@ def test_the_shapes_it_refuses() -> None:
         ("notes/d.json", '[{"item": "Q3a", "expect": "pass", "answer": "..."}]', "an answer kept as a control"),
         ("notes/e.md", "- Q1a: x\n- Q2a: y\n* **Q3b** z\n", "rows or items of the sub-questions"),
         ("notes/f.md", "| Q1a | x |\n| Q1b | y |\n| Q2a | z |\n", "rows or items of the sub-questions"),
+        ("notes/h.json", '{"id": "r", "kind": "alert", "expect": true, "must_reference_any": ["x"]}', "a rule object of the grader"),
+        ("notes/k.json", '{"kind": "alert", "expect": false, "hard": true}', "a rule object of the grader"),
+        ("notes/i.json", '{"kind": "card", "owner_duty": "rule", "options_min": 2}', "a rule object of the grader"),
+        # an exempt file holds only its listed matches: another rule object there is refused
+        ("scripts/agentrt/test_chief_exam_set.py", '{"kind": "clause_forbid", "forbid": ["x"]}', "a rule object of the grader"),
         ("other/q2-anything.json", "{}", "a file of the set"),
         ("other/controls.json", "[]", "a file of the set"),
     ]:
@@ -371,6 +400,23 @@ def test_the_shapes_it_refuses() -> None:
     # A rule id inside a longer word, and a pattern as JSON or code, are found by fingerprint:
     # take any fingerprinted id or pattern, which this test cannot name, so check the mechanism.
     assert findings("notes/g.md", "ordinary-words-only and `a long ordinary phrase`") == []
+    # alert and card alone are words, not rule objects
+    assert findings("notes/j.yaml", "kind: alert\nseverity: page\n") == []
+    # single-quoted strings are read too, escapes kept as written
+    assert candidates("x = 'a pattern of [ten]+' and \"another one here\" and `a third in ticks`") == [
+        "a pattern of [ten]+", "another one here", "a third in ticks"]
+
+
+def test_a_link_or_a_missing_file_is_not_skipped() -> None:
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        (root / "real.md").write_text("plain")
+        os.symlink("a target that names something", root / "link.md")
+        assert read("link.md", root) == ("a target that names something", "")
+        assert read("gone.md", root) == (None, "tracked but not a file here, not scanned")
+        (root / "big.bin").write_bytes(b"x" * (MAX_BYTES + 1))
+        assert read("big.bin", root)[1].startswith("over ")
+        assert read("real.md", root) == ("plain", "")
 
 
 def staged() -> int:
