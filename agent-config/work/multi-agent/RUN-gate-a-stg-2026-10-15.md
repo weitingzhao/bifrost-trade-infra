@@ -173,3 +173,38 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 输出在 `owner-t22-lid.out`。过的标准：到期约 10 秒后 `attempt_stale`、宽限过后 `attempt_lost`；解冻后 agentd 被 409 挡住、30 秒内清掉进程组、`attempt_ended{lease_lost}`。与真合盖的差别：真睡眠时 CLOCK_MONOTONIC 不走，agentd 醒来后会以为租约还在、要等一次心跳被拒才知道；平台按数据库时间判，这一点不影响隔离，但冻结测不到这个时钟差。真睡眠（`rtcwake`）会连 PROD 的 agentd 一起停，不建议。
 
 先跑 `bash ~/agent-work/gate-a-rest/owner-t22-06.sh check`（只读）看 STG agentd 底下有没有执行者。
+
+### Gate A 收尾清单（计划步骤 R2:2.2-28，2026-10-21 04:10Z 核对）
+
+逐项对照设计 v5 §5.2 的 Gate A 表。「过」= 表里的过的标准都有证据；证据栏写在哪看。
+
+| 项 | 过了没有 | 证据 | 还差什么 |
+|---|---|---|---|
+| T01 恢复 | **过** | branch：10-15 STG M-4 `t_01M50S5AWEKN85XFCFQ98RWQPJ`（本文件「每项的状态」）；external：10-20 一节「T01 external」（第 2 轮不派 external，`TestEnded`、`TestLeaseSweep`、`TestBlockedExternalNeedsAClearedEnd`） | 无 |
+| T02 租约 | **过** | 10-15 STG M-4 + gate-b（「每项的状态」T02） | 无 |
+| T05 无证据的声明 | **过** | 10-15 STG M-1 `t_01M50P8BBTT3PRZ9WT4RGP2784` | 无 |
+| T06 失败的实验 | **过** | 10-15 STG M-2 `t_01M50P8BGEJWJV767MMT1G16ZP`（失败那轮的尝试、验收、证据都在、没被覆盖）；「进展视图看得到」当时没直接看，现由 Progress 的近期失败列表（`store/progress.go` `recentView`，SPEC §2.6 T06）及其测试 `TestRecentPicksByEndTime` 证 | 无（STG 页面没有再看一遍；不用界面工具） |
+| T08 独立验收 | **过** | 10-15 STG M-3（作者领不到自己的验收、作者的提供方领不到评审，`route_decided` 写明原因）；当时的 F-T08（没有与 codex 不同提供方的评审者）已由 `job:reviewer` v2（cursor）解决，2.2-31 的 M-15 / M-27 都是 codex 写、cursor 评审 | 无 |
+| T10 预算 | **过** | 10-15 STG M-1（预算用完不再派、账本与尝试一一对上） | 无；当时的观察「没有事件写明为什么不派」记在 TD-354（P2，未开始），不是过的标准 |
+| T22 ① SIGSTOP / 合盖 | **过** | SIGSTOP：10-15（宽限内、超过宽限都测了）；合盖：10-21 03:27–03:48Z，上文「T22 ② 与合盖」 | 无 |
+| T22 ② 第二个 agentd | **过** | 10-21 03:05–03:25Z，上文「T22 ② 与合盖」 | 无（effect none，「晚到的推送落在自己分支上」由 T22 ④ 的测试覆盖） |
+| T22 ③ 控制器停 | **过** | 10-15 22:34–22:51Z（overlay 把 workers 设 0；续租按数据库时间被拒） | 无 |
+| T22 ④ 推分支与过期同时 | **过** | 新测试 `agentd/pushlapse_test.go` `TestPushAsTheLeaseLapses`（上文「T22 ④」） | 无 |
+| T22 ⑤ 锁后截止 | **过** | 存储层夹具 `store/kernel_test.go` `TestFenceAndLeaseClock`（「T22 ⑤」那段），按 10-15 计划不在 STG 重做 | 无 |
+| T25 状态只由事件改 | **过** | 上文「T25」：`TestRoutesMoveStateOnlyByEvents`（每条写路由、四个世界）+ `TestIdentitiesAndTheEventRule`（直写）+ STG 只读核对 | 无；STG 上用运行时身份直写做不到（F-probe），以迁移哈希、触发器、状态与事件一致性的只读核对代替 |
+| T32（经接口） | **部分** | 10-15 9 条反例 422（「每项的状态」T32）；接口层测试 `agentrtapi/propose_test.go`（挂到 item、坏 base_commit、提议评审、依赖不存在）、`TestPlanProposalRoute`（步骤挂在 round 下） | 当时缺计划树跑不了的几种，经 STG 的两条路由实测：任务挂到别的 mission 的步骤；`set_done_rule` 引用别一步的任务、引用没绑的审批；带任务的步骤 `rebind_step` 到别的 mission；参谋长席位提议的任务挂到别的 mission 的步骤（要席位令牌）。「并发两条依赖」经接口构造不出来（依赖只能指向已有任务或同批 ref），由 2.1 的存储层 T32 证。STG 现在有计划树（75 步），可以跑 |
+| T33 证据绑定版本 | **测试过，STG 未验** | 上文「T33」：`TestStandingGate`、`TestArchTickFollowsTheDeployment`、`TestArchRecordedDeploymentThatIdentifiesNothing`、`TestGateUsesTheExactTestID` | STG 上没有可测对象（F-T33）。TD-397（platform `w31/td-397-gates`：发版后由运行时派门槛任务、写 gate 验收）发上 STG 后，验一次：一行架构对照被真实的门槛运行在部署的提交上打勾，再换一次部署看旧 PASS 不算 |
+| T34 ①②③⑥⑦ | **过** | 10-15 STG M-5（gate-b 测试客户端在接口层制造） | 无 |
+| T34 ④ 上传中途重启 | **过** | 新测试 `agentd/handover_restart_test.go` `TestRestartDuringTheHandOver`（真进程 SIGKILL，五个杀点） | 无 |
+| T34 ⑤ 主机永久丢失 | **不过** | 10-15 STG M-5 `t_01M50ST4M08FCR783MZ4J9NCWD`：Progress 只显示 `maybe_stuck`，没有「结果未持久化」、最后确认的检查点时间和已多久没持久化 | TD-352（P2，未开始）：Progress 补这三样并且不显示做完；修好后在 STG 重跑一次（gate-b 式客户端打一个检查点后不再出现） |
+| T34 ⑧ 采纳保全结果 | **存储层过，STG 未走到** | `store/adopt_test.go` `TestAdoptSalvagedResult`（采纳记录指向 lost 的那次尝试、同一事务取消新尝试、只有一条采纳）；10-15 STG 三次都走不到：每台主机 1 个槽，保全的验收排在新尝试后面（F-T34-8），保全评审另有 TD-353（P3） | 要统筹或 Owner 定：认存储层测试，或在 STG 上给 `concurrency` 放到每台 2 个槽（放宽要签名）再跑一次 |
+| T35 规则集 | **过** | 上文「T35」：`TestRuleSet` 等；STG 上 Owner 10-20 跑过错 namespace（403 unsigned，`concurrency` 仍 v1） | 无 |
+| T36 血缘尾注 | **接口过，页面待定** | 10-15：`get_commit_lineage` 返回任务号、agent 组织 6 个提交都带任务号 | 「血缘页能从提交点到任务」：现在血缘页点任务号只在本页筛选（F-T36b），没有跳到任务。Console 已有 Crew 页的任务详情（`OwnerCrew`），血缘页没连过去。要 Owner 定：认「按任务筛选」算过，或给血缘页的任务号加一个到 Crew 任务详情的链接（Console 小改） |
+| 基准 6 题 | **过（建议算）** | 2.2-31 ★ 的同一次运行（`RUN-r2-stars-2026-10-20.md` 第二节、第五节「2.2-31」）：PROD M-15、STG M-27，6 题提议后零人工写入、22 分钟内全部到结论（4 accepted、2 两轮确定性验收不过而 blocked，答错不是环境）；codex 写、cursor 评审（Gate A 表允许「或反过来，按 capability_fact」）；题目组成改为 Go 3、TS 1、Python 1、shell 1（Python 第二题在 research，运行时派不到），Owner 10-20 11:5x「★ 三条 A」认可这处改写；结果在结论时记进 `capability_score`（PROD 10-20 05:25:56Z：codex `implementer` / `benchmark` 6 次、4 次首轮通过，0.300） | 无。附带发现 F-bench-score：两道不过的题 Owner 选「不做了」（任务 cancelled）之后，在岗成绩把它们剔掉了：PROD 15:28:54Z 变 5 次 4 过（0.376）、15:31:54Z 变 4 次 4 过（0.510）；STG 同样从 6 次 3 过（0.188）变成 4 次 3 过（0.301），失败不再计入；`store/scores.go` 只计 accepted、rejected 和 blocked-as-failed。要不要让「失败后被放弃」仍算失败，交统筹定（可记 TD） |
+
+**还差 5 项**（其余全部过）：
+1. **T32 经接口的剩余几种**：卡在没人跑。STG 现在有计划树，可以经两条路由实测；参谋长席位那一种要席位令牌。
+2. **T33**：卡在 TD-397 发上 STG。之后要一行架构对照被真门槛运行打勾，再换一次部署看旧 PASS 不算。
+3. **T34 ⑤**：卡在 TD-352（Progress 补「结果未持久化」+ 检查点时间 + 时长）没做；做完后 STG 重跑一次。
+4. **T34 ⑧**：卡在决定。认存储层测试，或 STG 放到每台 2 个槽（放宽要 Owner 签）再跑。
+5. **T36 页面**：卡在决定。认「按任务筛选」，或加一个到 Crew 任务详情的链接。
