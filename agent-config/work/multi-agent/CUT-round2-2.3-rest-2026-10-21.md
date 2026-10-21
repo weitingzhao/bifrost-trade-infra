@@ -135,3 +135,29 @@
 `5bfad839`（以及更早一次）的 agentd 四个失败（`TestTestDBStage`、`TestTestDBStageEndsWithItsGroup`、`TestAKilledStageIsSweptUp`、`TestAPlatformAttemptHasATestDatabaseOfItsOwn`）是本机环境：`initdb` 报 `could not create shared memory segment: No space left on device`，本机 `kern.sysv.shmmni = 32`，当时 `ipcs -m` 32 个段全被别的线的测试库占着；本分支没有改 agentd 的任何文件。最终头那一次共享内存空出来了，同一包 215 秒全过。
 
 另：Gate B 测试在主线 `e98b1487` 上的重跑见 §1 开头；T14 的 Linux 测试本机 Docker 重跑见 §1.1。
+
+## 6. Owner 四条 A 之后的落地（10-21 13:2x 起）
+
+| 条 | 做了什么 | 分支 / 提交 | 复核 | 还要谁做什么 |
+|---|---|---|---|---|
+| 1 `search_artifacts` | `GET /api/v1/agentrt/artifacts`（read 角色）：只回元数据（号、种类、媒体类型、大小、`supersedes`、作者、时间），新的在前，游标 `<微秒>.<摘要>`，`limit` 1–100（默认 50）；按 `kind`（可多个）、`task`、`mission`、`author`、`since` 过滤。产物按内容寻址、自己的 `task_id` / `attempt_id` 两列从没写过（PROD 0 / 417、STG 0 / 721），所以「一个任务的产物」= 它的记录点名的：任务书、尝试报告、验证证据、挂在它上面的消息、它的事件里 `artifact_id` / `text_artifact_id` / `artifacts` / `evidence` 点名的；mission 再加它的说明书和它自己的消息、事件。agentd 令牌看不到考试产物（同 `GET /artifacts/{id}`）。MCP `search_artifacts` 同参数。**不加索引、不加迁移（没有 PROD DDL）**：两环境都只有几百行 | 平台 `w31/23-search`（worktree `~/agent-work/w31-23-search`）：`bc553b3a` 实现 → `6e8eb04d` 复核 478 → `9d9fc337` 复核 481；基于主线 `872862a0`，可干净合入 `93e2bd70` | 478：1 A（`since` 带纳秒被截到微秒，会多返回早 1 纳秒的产物）1 B（`author` 带 NUL / 非 UTF-8 成 500）1 C，全改；481「可以合并」0 A 1 B（考试分页测试会提前结束而假通过），补强；两轮收线 | 统筹线程合并、发 STG；STG 上读一次 `search_artifacts kind=handover` 核对 |
+| 2 presence 第 2 轮不做 | 设计 §5.3 写明：线程存活看 `agentthreads`，席位第 2 轮不常驻，presence 随第 3 轮 | infra `w31/23-decide` `95c0f0c` | 文档 | 统筹线程推 infra |
+| 3 第 1 轮不导入 | 设计 §5.3「怎么迁」表写明 | 同上 | 文档 | 同上 |
+| 4 记录器导入 | **发现一处挡路**：记录器导入卡原来没有推荐项，STG 不给规则会答的卡起评估，规则 v3 只能选「什么都不改」= Do not import（TD-393 的 STG 笔记也写了）。改成卡推荐「Import the log」，旁边写理由（试导已核过整条哈希链、日志是历史、导入后固定），同计划变更卡的做法（TD-397）；计划导入卡不变。17 份请求已按主线工具生成在 `~/agent-work/plan-import/recorder-<work>.json`（1108 条，哈希链全部成立，66 条掩本机路径；日志 10-15 后没再写） | 平台 `w31/23-recorder-card`（worktree `~/agent-work/w31-23-reccard`）：`33dab3ea` → `ab80ef23`（复核 482 C1：Console 的卡片夹具按真实问题库重新生成，按钮测试核推荐行）；基于主线 `872862a0` | 482「可以合并」0 A 0 B 3 C（C1 补了；C2、C3 是导入步骤，写在下面）；一轮收线 | 见下「记录器导入的步骤」 |
+| 片 1 等待计时 | 已在主线（统筹线程变基后推，`872862a0`） | — | 474 → 475 收线 | 随下一次 STG 发版 |
+
+**记录器导入的步骤**（统筹线程安排；Owner 只在 PROD 答卡）：
+1. 合并 `w31/23-recorder-card`，发 STG（STG 跑的平台要带这个提交，否则规则会答 Do not import）。
+2. STG：经 MCP `propose_plan_import`（STG 那一个），逐个提交 `recorder-<work>.json`，`reason` 写「W-31 2.3：本机派工记录迁进平台（Owner 10-21 第 4 条 A）」，每份一个新的幂等键。STG 的卡规则 v3 约 5–10 秒答 a；核对：`legacy:recorder:<work>` 17 条流、各自条数与本地一致（合计 1108）、`VerifyStream` 过；同一份再提一次回「已导入」。STG 有规则答的卡不受问题库配额限制（ByRule）。
+3. PROD：**分批提**（复核 482 C2）：问题库对每个请求方最多 3 张未答卡、每小时最多建 6 张，PROD 没有规则豁免。建议每批 3 张，Owner 答完、控制器确认后再提下一批；17 张约 6 批、至少 3 小时（每小时 6 张）。卡上会写推荐 Import 和理由；Owner 答 Import 落地，答 Do not import 什么都不写。
+4. PROD 17 条流核对过之后：infra 一个提交删 `agent-config/scripts/recorder/` 里的 `lane.py`、`rec.py`（`STATUS.md` 写去向：`legacy:recorder:<work>`），`_observer/` 不导入、随看板在 2.5 退役。
+
+**门禁**（本机 PG 17 `55432`、Redis `56379`、`AGENTRT_TEST_REQUIRED=1`；退出码存在 `~/agent-work/w31-23-search/gates-<提交>/`、`~/agent-work/w31-23-reccard/gates-<提交>/`）：
+
+| 头 | go build / test | lint（新增，含 linux agentd） | Console lint / type-check / test / build | MCP | code-health |
+|---|---|---|---|---|---|
+| search `9d9fc337` | 0 / 0（74 个包） | 0 / 0 条 | 0 / 0 / 1 → 见下 / 0 | 0（122） | OK |
+| recorder-card `33dab3ea` | 0 / 0（74） | 0 / 0 | 0 / 0 / 0（1567）/ 0 | 0（122） | OK |
+| recorder-card `ab80ef23` | 0 / 1 → 见下（73 个包过） | 0 / 0 | 0 / 0 / 0（1567）/ 0 | 0（122） | OK |
+
+search 那一次 Console 只有 `RecordsPage.test.tsx` 一条在 5 秒上超时（整套 116 秒，机器负载 25 左右，两条门禁和一次复核同时在跑）；本分支没有改 Console 的任何文件，这个文件单独重跑三次都过（4 / 4）。recorder-card `ab80ef23` 那次只有 agentd 的 `TestTakeOverIsBounded` 失败：负载 22 时 `git commit` 被测试自己的时限杀掉（`signal: killed`）；本分支没有改 agentd 的任何文件，`33dab3ea` 那一次同一包全过，`-count=3` 单独重跑 3 / 3 过。
