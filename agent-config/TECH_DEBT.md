@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-395** — 所有执行者都被连续失败撤下的 ready 任务改成 blocked 并出卡，推荐「不做这件」（R6，防 STG 自动答进死循环）；「再给一轮」给每个被撤下的执行者各一次（platform `e7a2a2b2`，#56 上 PROD）。验收：PASS 2026-10-20，PROD 上线后第一轮巡检 M-22 出卡 Q20、点名三家。防线：`RATCHETS.md`「没人能领的任务出卡」。后续：TD-406（从来没人能领、没有被撤下的任务仍不出卡）；TD-394 补记的「准备步骤失败算到执行者头上」。
 - **TD-399** — 领活的长轮询截止落在提交里时不再答错：每次轮询有自己的上限、不被截止切断，提交仍失败就回读这次的尝试在不在再照实回答（platform `e7a2a2b2`，在 STG）。验收：PASS 2026-10-20，两条防线测试各 20/20。防线：`RATCHETS.md`「领活截止落在提交里」。后续：无后续：agentd 途中断开仍可能被租给它（约 17 分钟后重发），要新协议，修复线和两轮复核都认为不值得单独记债。
 - **TD-402** — STG 的卡规则每秒扫一次，卡在等待 5 秒加不到 2 秒内被答（platform `e7a2a2b2`，在 STG）。验收：PASS 2026-10-20，三张新 mission 卡 5.41、5.08、6.46 秒被答。防线：`RATCHETS.md`「STG 卡按签名规则自动答」一行补上假时钟测试。后续：无后续：PROD 不接这个循环。
 - **TD-390** — STG 上走查留下的运行时卡由签名规则 card-auto-answer 按推荐自动答，PROD 没有这条规则（platform `8f30a9f6`，v1、v2 已签；后来按 TD-393 改成 5 秒、六种卡）。验收：PASS 2026-10-20，v2 等满 5 分钟按推荐 c 答了 4 张旧卡，M-10、M-18、M-21、M-22 跟你答一样关掉，STG 不再有开着的旧 mission。防线：`RATCHETS.md`「STG 卡按签名规则自动答」。后续：TD-393（观察到 10-27）、TD-401、TD-402。
@@ -2305,13 +2306,14 @@
 
 **P2 · agentrt · a task that no executor may take any more waits at ready with no card: nobody is told**
 
-- **状态**：在做（2026-10-20 20:0x：修复线 local_5a7f60ae 交回，复核 td395-1、td395-2 收线，合进 platform `e7a2a2b2`；推荐规则 R6「不做这件」防 STG 自动答死循环；发 PROD 后 M-22 第一轮巡检出卡）。 此前：未开始（2026-10-20 16:4x 统筹线程记；Owner「你发现的问题需要记入债务列表，将来修复」）
+- **状态**：待你签收（2026-10-20 20:3x）。 此前：在做（2026-10-20 20:0x：修复线 local_5a7f60ae 交回，复核 td395-1、td395-2 收线，合进 platform `e7a2a2b2`；推荐规则 R6「不做这件」防 STG 自动答死循环；发 PROD 后 M-22 第一轮巡检出卡）。 此前：未开始（2026-10-20 16:4x 统筹线程记；Owner「你发现的问题需要记入债务列表，将来修复」）
 - **Claim**: TD-381 stops offering a task to an executor after three failures in a row. When every candidate executor has been withdrawn that way the task stays ready, no host can take it, and nothing tells the Owner: no blocked card, no alert beyond three `policy_alert` events on the attempts. PROD M-22's only task (`t_01M5DJJA048PDG5XY98FX1FWFC`) has sat at ready since 16:14 after codex, cursor and claude each failed three times.
 - **Evidence**: PROD `agentrt.event` for M-22, three `policy_alert` repeated_failure ("not offered the task again"), task state ready; `bifrost-platform/api/internal/agentrt/store/retry.go` (the TD-381 backoff).
 - **Impact**: a task can stall indefinitely and look like it is waiting its turn; its mission never ends.
 - **Fix**: when no candidate executor is left for a ready task (all withdrawn by the backoff, or none routable), block it with a card that names what was tried and why each was withdrawn (the TD-389 card, with "Give it one more round" lifting the withdrawals for one round).
 - **Ratchet**: a store test: three executors each failing three times leaves the task blocked with such a card, not ready.
 - 验收: on STG a task whose setup always fails ends blocked with a card naming the three withdrawals within one pass.
+- 验收结果：PASS 2026-10-20 PROD platform `e7a2a2b2`（#56，20:26 上线）：上线后第一轮巡检 20:26:08，M-22 唯一的任务从 ready 转 blocked，原因点名 codex 1/4/7、claude 3/6/9、cursor 2/5/8 连续失败，出卡 Q20，推荐「Do not do this task」（R6）。验收原写在 STG 上做，STG 没有这种任务，以 PROD 第一例代替；防线测试 `TestNoExecutorLeftBlocksWithACard` 在 main 上 5/5
 - 审批 不需要 · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-394
@@ -2360,7 +2362,7 @@
 
 **P2 · agentrt · a card or approval reaches the Owner with no assessment of its content: a rule sees the card's fields, not that the work was already done elsewhere**
 
-- **状态**：观察中（到下一张 PROD 卡或审批单出现：看几分钟内出评估、证据能打开、写明读了台账；2026-10-20 19:2x Owner「合 162fce7：PROD workers 加 AGENTRT_LEDGER，让 PROD 的 AI 评估读台账」→ infra `015e7eb`，PROD workers 19:25 带上它重起（镜像不变，5d77b5c0 的 `14e05180`，日志干净）；STG 18:22–18:24 十二张卡都出了评估。经过：2026-10-20 17:1x：platform `054fee57` 合进 main、上 STG；参谋长考过之前评估由席位里试用中的 exec:claude 只读地做，job:chief_of_staff 保持 v1（Owner 17:1x「可以：参谋长规则保持现状，考过之前评估由试用中的 claude 只读地做，不用 codex 兼任」——取代下文「评审岗执行者兼任」：codex 一旦在该岗 active 会接走参谋长全部的活，且它的沙箱不是只读）；infra 只留 workers 的 AGENTRT_LEDGER。此前 2026-10-20 14:0x Owner「AI 评估用 A：卡和审批单一出来就派只读的评估任务，给推荐、带证据的理由和没查的东西，和规则推荐并排显示；不一致时 STG 也不自动答。记 TD-391，排在 TD-389、TD-390 之后」；同一条实现线 blocked-card-recommend）
+- **状态**：观察中（2026-10-20 20:3x PROD 实测：卡 Q18 出卡后约 70 秒、Q20 约 60 秒出评估，审批单 #56 建单后 30 秒出评估，证据都指向真实的提交、台账条目和事件，Q18 引了台账 TD-380；还缺「工作已在 main 上的卡推荐 b 并点名提交」那一例。原：到下一张 PROD 卡或审批单出现：看几分钟内出评估、证据能打开、写明读了台账；2026-10-20 19:2x Owner「合 162fce7：PROD workers 加 AGENTRT_LEDGER，让 PROD 的 AI 评估读台账」→ infra `015e7eb`，PROD workers 19:25 带上它重起（镜像不变，5d77b5c0 的 `14e05180`，日志干净）；STG 18:22–18:24 十二张卡都出了评估。经过：2026-10-20 17:1x：platform `054fee57` 合进 main、上 STG；参谋长考过之前评估由席位里试用中的 exec:claude 只读地做，job:chief_of_staff 保持 v1（Owner 17:1x「可以：参谋长规则保持现状，考过之前评估由试用中的 claude 只读地做，不用 codex 兼任」——取代下文「评审岗执行者兼任」：codex 一旦在该岗 active 会接走参谋长全部的活，且它的沙箱不是只读）；infra 只留 workers 的 AGENTRT_LEDGER。此前 2026-10-20 14:0x Owner「AI 评估用 A：卡和审批单一出来就派只读的评估任务，给推荐、带证据的理由和没查的东西，和规则推荐并排显示；不一致时 STG 也不自动答。记 TD-391，排在 TD-389、TD-390 之后」；同一条实现线 blocked-card-recommend）
 - **Claim**: the Owner judges each card and approval from its text alone. TD-389's rules read the card's own fields (budget, age, last check); they cannot see that the work was merged by hand, superseded, or proven by another walk. On 2026-10-20 PROD's M-9 card (TD-378's ratchet) asked for one more round for work already on main (`6b950732`), and M-14's (Gate B T09) for a drill whose star step was already done; the Owner asked the coordinator thread each time.
 - **Evidence**: PROD questions `q_24648b78255c075f` (M-9), `q_38e50606283e8ff5` (M-14), `q_b3fff27f1ec953a3` (M-19, fixed by hand in `144c5497`); the Owner's questions in the coordinator thread 13:5x to 14:0x.
 - **Impact**: every card that a rule cannot settle costs the Owner a round trip to the coordinator thread, or a guess.
