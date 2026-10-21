@@ -2158,6 +2158,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-407
+
+**P2 · agentrt · exam · a paper agentd refuses before any question runs still holds the executor for 24 hours: no sitting until it lapses**
+
+- **状态**：未开始（2026-10-20 21:0x 统筹线程记；Owner「不用等明天」，坐考卡在这张卷上）
+- **Claim**: `store/exam.go` issueExam refuses a new paper while the executor has an ungraded one that has not expired (`ExamPaperLife = 24h`), and a paper is graded only when its answers are recorded or it lapses. When agentd refuses a paper before running it (its checkPaper: STG 2026-10-20 22:31Z, paper `526ca46ad0db…`, three items with short commits), nothing tells the platform, so the paper stays open with no answers until 2026-10-21 22:31Z and the Owner's next sitting is refused with 409 ("exec:claude has paper … open until …").
+- **Evidence**: `api/internal/agentrt/store/exam.go:296-304`; agentd log 2026-10-21 00:27Z (409); the exam log `~/agent-work/agent-06-logs/exam-claude-20261020T192719-94563.txt`.
+- **Impact**: one bad paper (or one agentd crash before the first answer) blocks the chief's exam for a day; the qualifying path waits on a clock, not on work.
+- **Fix**: let a paper with no recorded answer be voided: either agentd reports its refusal and the platform closes the paper at once (graded as void, not as a fail), or an Owner-only route voids an unanswered paper. Either touches the exam package (exam freeze: the Owner opens the exception).
+- **Ratchet**: a store test: a paper with no answers can be voided and a new paper is issued at once; a paper with any answer cannot be voided.
+- 验收: on STG, the open paper is voided and the Owner's next `exam claude` sitting starts.
+- 审批 要（动考试包，考试冻结期内由 Owner 开口子；Owner 专用路由是新接口）· 代价 S · 风险 low · repos: bifrost-platform
+
 ### TD-406
 
 **P3 · agentrt · a ready task that no executor ever could take (empty route, every candidate retired or excluded, the envelope no longer in force) waits with no card; a brief whose executors were all withdrawn too**
