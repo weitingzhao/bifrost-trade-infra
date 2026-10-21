@@ -13,6 +13,8 @@
 
 ## 待你签收
 
+- **TD-399** — 领活的长轮询截止落在提交里时不再答错：每次轮询有自己的上限、不被截止切断，提交仍失败就回读这次的尝试在不在再照实回答（platform `e7a2a2b2`，在 STG）。验收：PASS 2026-10-20，两条防线测试各 20/20。防线：`RATCHETS.md`「领活截止落在提交里」。后续：无后续：agentd 途中断开仍可能被租给它（约 17 分钟后重发），要新协议，修复线和两轮复核都认为不值得单独记债。
+- **TD-402** — STG 的卡规则每秒扫一次，卡在等待 5 秒加不到 2 秒内被答（platform `e7a2a2b2`，在 STG）。验收：PASS 2026-10-20，三张新 mission 卡 5.41、5.08、6.46 秒被答。防线：`RATCHETS.md`「STG 卡按签名规则自动答」一行补上假时钟测试。后续：无后续：PROD 不接这个循环。
 - **TD-390** — STG 上走查留下的运行时卡由签名规则 card-auto-answer 按推荐自动答，PROD 没有这条规则（platform `8f30a9f6`，v1、v2 已签；后来按 TD-393 改成 5 秒、六种卡）。验收：PASS 2026-10-20，v2 等满 5 分钟按推荐 c 答了 4 张旧卡，M-10、M-18、M-21、M-22 跟你答一样关掉，STG 不再有开着的旧 mission。防线：`RATCHETS.md`「STG 卡按签名规则自动答」。后续：TD-393（观察到 10-27）、TD-401、TD-402。
 - **TD-268** — 删掉没人调用的 `ExecSQLOnPrimary` 和只为它存在的两个测试，换成全仓库零引用的防线 `TestRemovedPrimarySQLHelperStaysGone`；运行时 M-9 写、cursor 评审，统筹线程核对后合进 platform `868d4e8e`。验收：PASS 2026-10-19 `1b894f93`。防线：RATCHETS 新行。后续：无后续（还剩的 `execOnPrimary` 给数据克隆用，TD-268 本来就不动它）。
 - **TD-392** — 运行时连接池按环境设上限（PROD 每进程 4、STG/DEV 每进程 2），两个进程加起来低于库账号的连接上限，发版换 Pod 不再连不上库（platform `4986a68b`，#55 上 PROD）。验收：PASS 2026-10-20，PROD 换 Pod 0 次拒绝、连接 6/10。防线：`RATCHETS.md`「两个进程的连接池低于账号上限」。无后续：压到每池 2 个跑过运行时各包，没有嵌套占连接。
@@ -2210,13 +2212,14 @@
 
 **P3 · agentrt · on STG a card asked in the facts loop waits for the second rule tick: about 10 seconds, at the edge of TD-393's acceptance**
 
-- **状态**：在做（2026-10-20 20:0x：合进 platform `e7a2a2b2`（复核 460、461 收线），待 STG 验收：mission 卡三次都在 7 秒内被答）。 此前：未开始（2026-10-21 00:1x 实现线 local_21bbc6df 在 TD-393 的 STG 实测里找到，统筹线程记）
+- **状态**：待你签收（2026-10-20 20:2x）。 此前：在做（2026-10-20 20:0x：合进 platform `e7a2a2b2`（复核 460、461 收线），待 STG 验收：mission 卡三次都在 7 秒内被答）。 此前：未开始（2026-10-21 00:1x 实现线 local_21bbc6df 在 TD-393 的 STG 实测里找到，统筹线程记）
 - **Claim**: the card rule runs every 5 seconds (`controller.CardRuleEvery`) and the facts loop every 15; both start together, so a card the facts loop asks (blocked cards, the planner's questions) is first seen by a rule pass less than 5 seconds after it opens, which skips it as younger than `after_seconds` 5, and answered on the next pass: about 10 seconds plus processing.
 - **Evidence**: `bifrost-platform/api/internal/agentrt/controller/controller.go:359` (`CardRuleEvery = 5 * time.Second`); the TD-393 walk measured 9.8 s on a mission card (`q_e6c1b41290d26a5d`).
 - **Impact**: TD-393's "within 10 seconds" can be missed by a few hundred milliseconds; nothing else.
 - **Fix**: run the STG card rule loop every second (`CardRuleEvery = time.Second` on STG wiring; the pass is one indexed query when no card is open); the worst case becomes about 6 seconds.
 - **Ratchet**: a controller test with a fake clock: a card opened just after a pass is answered within `after_seconds` + 1 s.
 - 验收: on STG, a new mission card is answered within 7 seconds, three times.
+- 验收结果：PASS 2026-10-20 platform `e7a2a2b2` 在 STG：三张新 mission 卡（M-80、M-81、M-82，Q40–Q42）从开出到被规则答 5.41、5.08、6.46 秒（问题库 created_at → answer.at），都答 b（无推荐、不改变），三件都 stopped、什么都没跑，也没起评估
 - 审批 无（STG 内部节奏，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-401
@@ -2249,13 +2252,14 @@
 
 **P2 · agentrt · a claim whose long poll ends while its transaction commits answers wrong: 200 for a lease that may have rolled back, or 204 for a commit that landed**
 
-- **状态**：在做（2026-10-20 20:0x：修复线 local_5a7f60ae 交回 platform `w31/td-395-399`，复核 td395-1、td395-2 收线，统筹线程合并中。实测更正：旧代码在租到活的轮询被截止切在提交里时答 **200**，租约可能已回滚（延迟触发器阶段被 CancelRequest 中止），等于告诉 agentd 一个不存在的租约；「204 而提交落地」只出现在没租到活的轮询。此前：2026-10-20 19:xx Gate A 补跑线 local_6f3ef5b9 记；查 `ci-platform-tj5wx` 的偶发时找到）
+- **状态**：待你签收（2026-10-20 20:2x）。 此前：在做（2026-10-20 20:0x：修复线 local_5a7f60ae 交回 platform `w31/td-395-399`，复核 td395-1、td395-2 收线，统筹线程合并中。实测更正：旧代码在租到活的轮询被截止切在提交里时答 **200**，租约可能已回滚（延迟触发器阶段被 CancelRequest 中止），等于告诉 agentd 一个不存在的租约；「204 而提交落地」只出现在没租到活的轮询。此前：2026-10-20 19:xx Gate A 补跑线 local_6f3ef5b9 记；查 `ci-platform-tj5wx` 的偶发时找到）
 - **Claim**: `agentrtapi/api.go` claim runs each `store.ClaimNext` under the long poll's deadline (`context.WithTimeout(r.Context(), wait)`), and `store/write.go` InTx commits with that context. When the deadline falls while COMMIT is on its way, pgx returns "context deadline exceeded" but the server still commits (measured 2026-10-20 on the test Postgres under `commit_delay`: 5 of 5). The handler takes the error with `ctx.Err() != nil` as "nothing to claim" and answers 204. If that last poll leased a task, the attempt is leased to the host with no agentd knowing it.
 - **Evidence**: `agentrtapi/api.go` claim (`if err != nil && ctx.Err() == nil` … `case <-ctx.Done(): 204`); `store/write.go` InTx `tx.Commit(ctx)`; ci-platform-tj5wx (a poll's `last_poll_at` landing during a later request); experiment kept in the thread's scratchpad (`zz_latecommit_experiment_test.go.txt`).
 - **Impact**: rare (the poll that commits at the deadline must also find work), but then the task waits out the lease and the grace (about 17 minutes) before it is handed out again, and the lost attempt counts against the mission's attempt budget (T10).
 - **Fix**: run each ClaimNext with a context the poll deadline does not cut (`context.WithoutCancel(r.Context())` with its own bound), and stop polling only between polls; or, after an error with the deadline passed, read back whether this host was leased an attempt in that poll and answer it.
 - **Ratchet**: a test that stretches the commit (`commit_delay` on the test database) and lands the poll deadline in it: the handler answers the claim it made, or nothing was leased.
 - 验收: that test, `-count=20`.
+- 验收结果：PASS 2026-10-20 platform `e7a2a2b2`：`TestClaimDeadlineInCommitAnswersTheLease` 20/20（agentrtapi，36 秒）、`TestClaimReadsBackACutCommit` 20/20（store）；ci-platform-6vkdg Succeeded；STG 20:13 起跑这个提交
 - 审批 无（平台内部行为，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-398
