@@ -2154,6 +2154,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-404
+
+**P2 · agentd · codex cannot build the Go packages it changes inside its sandbox on 06, so it hands in work it could not check**
+
+- **状态**：未开始（2026-10-20 19:4x 统筹线程记；PROD M-23，第一件按 Owner 19:3x「下一件只改 Go 的平台修复走 PROD 运行时」交给运行时的活）
+- **Claim**: in M-23 codex implemented twice (attempts `a_01M5DYBC5TYG5FB1Z5Z4P3C5D8`, `a_01M5DYHSEAZ6NN6GWYG15H9WS6`); inside its sandbox `go -C api build ./...` and `go -C api vet ./...` exited 1, so it checked its test only as a single file (`go test tmp_writes_test.go`), which compiles without the package. Both times it handed in a test file whose `go/token` import clashes with `token` in `api/internal/agentd/codexlogin.go:128`; the deterministic check, whose build of the same tree passed, failed both rounds on vet. Why the build fails in codex's sandbox is not read yet (the actions keep exit codes only); its sandbox has no network (`--unshare-net`), so a missing module cache is the likely cause.
+- **Evidence**: `get_attempt_actions a_01M5DYHSEAZ6NN6GWYG15H9WS6` (build 1, vet 1, single-file test 0); verification evidence `sha256:cb99823b…` (build 0, vet 1 with the clash); PROD card Q18.
+- **Impact**: codex's Go work on 06 is unchecked by its author; every compile error costs a round and a card, and a task routed to codex twice can block on a one-line fix.
+- **Fix**: read the build error in codex's sandbox first; then give the sandbox a read-only, prefilled Go module cache (`GOMODCACHE` bound in, `GOFLAGS=-mod=mod`, `GOPROXY=off`) and a writable `GOCACHE` under its temporary directory, so `go build`/`go vet` run offline; until then, route a second round of a Go task that failed on compile to another executor.
+- **Ratchet**: agentd's codex proof (confine-probe) also runs `go -C api build ./...` inside the sandbox and must pass.
+- 验收: on 06, codex's attempt actions show `go -C api vet ./...` exit 0 on a task in bifrost-platform.
+- 审批 无（agentd 隔离配置，随平台发布；06 上换 agentd 要 Owner 跑 update-agentd）· 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
+
 ### TD-403
 
 **P1 · agentrt · on the agent host every database test skips: the runtime's deterministic check of agentrt and agentd work passes without running the tests that matter**
