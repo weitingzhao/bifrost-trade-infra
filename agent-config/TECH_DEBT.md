@@ -2308,7 +2308,7 @@
 
 **P2 · agentrt · nothing writes a gate verification, so no architecture row can ever be ticked**
 
-- **状态**：在做（2026-10-20 20:5x Owner 定 B：「发版后运行时按架构对照的行派门槛任务，06 上的确定性执行者在部署的提交上跑，记成 gate 验收」；不选 CI 上报（新路由 + CI 令牌）和手工登记。交给 TD-395 修复线 local_5a7f60ae：先写短设计、Codex 复核，再实现；要库的门槛依赖 TD-403（每次尝试临时测试库），门槛任务一律 AGENTRT_TEST_REQUIRED=1，缺库就是失败、不能跳过当通过）。 此前：未开始（2026-10-20 17:5x 统筹线程记；Gate A 补跑线 F-T33；归第 2 轮 2.5 架构对照的收尾）
+- **状态**：在做（2026-10-20 21:3x Owner「全按推荐：TD-397 ① 甲、② A」：① 迁移 0007 只放宽 0001_core.sql:147 那条 CHECK，放行 controller 建的、没有被检对象的门槛验收任务；② 计划变更卡只在每项都恰好等于审过的门槛目录时推荐应用，STG 规则照推荐自动应用，PROD 仍由 Owner 点。上 PROD 时迁移算 DDL，与 TD-394 的 0008 合成一张单）。 此前：在做（2026-10-20 20:5x Owner 定 B：「发版后运行时按架构对照的行派门槛任务，06 上的确定性执行者在部署的提交上跑，记成 gate 验收」；不选 CI 上报（新路由 + CI 令牌）和手工登记。交给 TD-395 修复线 local_5a7f60ae：先写短设计、Codex 复核，再实现；要库的门槛依赖 TD-403（每次尝试临时测试库），门槛任务一律 AGENTRT_TEST_REQUIRED=1，缺库就是失败、不能跳过当通过）。 此前：未开始（2026-10-20 17:5x 统筹线程记；Gate A 补跑线 F-T33；归第 2 轮 2.5 架构对照的收尾）
 - **Claim**: the architecture comparison (ARCH, 17 rows) ticks a row when its gate tests passed (`agentrt.verification` with method 'gate') against what the environment runs. No code path writes a verification with method 'gate': tests insert such rows directly (`progressarch_test.go`), and no route, CI step or controller loop records a gate run. So every row stays unknown on STG and PROD, whatever passes.
 - **Evidence**: gate-a-rest hand-back (side-session note gate-a-rest-2026-10-20.md, F-T33); `bifrost-platform` `git grep "'gate'"` finds the method only in the schema, the reader and tests; RUN-gate-a-stg-2026-10-15.md 10-20 section (T33).
 - **Impact**: the page meant to show how much of the architecture is real cannot show anything but unknown.
@@ -2348,7 +2348,7 @@
 
 **P2 · agentd · a failed setup leaves no report and no actions: why an attempt failed is only in agentd's journal on 06**
 
-- **状态**：未开始（2026-10-20 16:4x 统筹线程记；Owner「你发现的问题需要记入债务列表，将来修复」）
+- **状态**：在做（2026-10-20 21:3x Owner「TD-394 B」：attempt.end_how 加 prepare_failed（准备步骤、检出、旁边仓库克隆），TD-381/395 不计；连续 3 次 prepare_failed 进 blocked 出卡；迁移 0008，上 PROD 与 TD-397 的 0007 合成一张 DDL 单；旧平台拒收时 agentd 退回报 exit。实现线 local_7c7c00ad）。 此前：未开始（2026-10-20 16:4x 统筹线程记；Owner「你发现的问题需要记入债务列表，将来修复」）
 - **Claim**: agentd runs a task's setup commands (for bifrost-platform: `npm ci` for bifrost-ui and the Console) before the executor; a failed setup ends the attempt with exit code 3 and, by design, no report ("no report, so the attempt failed"). The platform records only `exit_code 3, conclusion failed`; the attempt has no actions and no report artifact, and the setup's output is in agentd's journal on 06, which only the Owner can read (no `agent-06-owner.sh` subcommand reads it). PROD M-22 (the 2.2-30 Console walk) failed nine attempts this way on 2026-10-20 16:13–16:14 and the cause is still unknown.
 - **Evidence**: `bifrost-platform/api/internal/agentd/setup.go:18-38` (setupFailed = 3, no report); PROD attempts `a_01M5DJKDBAKRTBFQ867Q773K37` … `a_01M5DJNGZ7ZGA0WH8WX4YD1FE7` (exit 3, no report, `get_attempt_actions` empty).
 - **Impact**: a broken setup (registry unreachable, a write the wall refuses, a missing sibling) cannot be told apart from anything else; diagnosis needs the Owner on 06.
