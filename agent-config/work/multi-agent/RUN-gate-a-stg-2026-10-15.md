@@ -130,6 +130,7 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 ### T22 ② 与合盖（10-21 01:58–04:30Z，M-93、M-95；T24 后半一并）
 
 执行者：STG mission M-93、M-95（标题「W-31 Gate A on STG: T22 case 2 and the lid drill…」，effect none，预算 20 次 / 8 小时，在常备授权内、直接 active），各一件实现任务，任务书只让 codex 跑一条 `sleep`：睡到 04:30Z 与 45 分钟中较早的那个（STG 每次尝试硬上限 1 小时，`budget:dev`），不改任何文件，verify `true`。这样没有任务会 blocked、也就没有卡；04:30Z 之后的尝试立即交差，任务被收下，mission 自己收成 done。M-93 的那次（01:58–02:43Z）等过了最晚开始时间（Owner 不在，统筹两次替他开脚本都停在口令上）；M-95 排在它后面接上，Owner 在它的窗口里跑了两项。最晚开始时间随长任务更替写在 `~/agent-work/gate-a-drills/watch.log`（Z 与 CDT）。
+**收尾**：合盖之后 M-95 的第 3 次尝试 03:47Z 起睡到 04:30Z，约 03:50Z Owner 开始在 STG agentd 上坐考（agentd 停掉），它 03:52Z 转 stale。统筹要求不再让它被领走：03:55:02Z 对 M-95 下 mission 级 stop（`c_01M5E9J8BNNKKJY1SVDDTF87K8`，只挡领活、不改任务状态，不出卡）；M-95 停在 active、任务 ready，等 Owner 定是否解除。M-93 只剩它的确定性验收（`true`）和评审，考完后自己跑完、收成 done。
 **偏差**：统筹要的 `needs_owner` 没带上。本线程的 STG MCP 跑在共享检出的 `mcp/platform` 上，那份停在 platform `8948a5c5`（比 main 落后 199 个提交），`propose_mission` 还没有这个字段；改用上面的「不出卡」设计，全程两个 mission 没有出过一张卡。
 
 **T22 ②**（M-95 第 1 次尝试 `a_01M5E5FT4CA19F9CNXDCG0DD5X`，输出 `~/agent-work/gate-a-rest/owner-t22-second-agentd.out`）：
