@@ -2148,6 +2148,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-424
+
+**P2 · release · an infra change to the platform delivery pipelines is not tested against the platform ratchets that read them**
+
+- **状态**：未开始（2026-10-22 统筹线程记，教训 198）
+- **Claim**: platform's `api/internal/delivery` tests (`TestPlatformCloneRefParamsFollowInfra` and the other tests that call `infraPipelines`) read the infra checkout beside platform; platform CI clones infra main for them. An infra push that changes `k8s/cicd/tekton/pipeline-deliver-platform*.yaml` runs only infra's own tests, so a mismatch shows up on the next platform commit's CI, not on the infra push.
+- **Evidence**: infra `b63fa49` (W-31 3.4 ①, PROD clones bifrost-platform alone) pushed 2026-10-22; platform `ci-platform-cwr5l` (Codex's console batch `b3b1143f`, no Go change) failed `test-api` at `platform_ref_rules_test.go:223`; fixed by platform `6ff3801b`.
+- **Impact**: for about six hours every platform commit was refused by push-main's CI gate (W-31 3.4 ②); the first lane to hit it debugs a failure it did not cause.
+- **Fix**: `push-main.sh`, for bifrost-trade-infra, when `origin/main..<commit>` touches `k8s/cicd/tekton/`: lay out a temp root with platform's `origin/main` and this infra commit side by side and run `go test ./internal/delivery/` there; a failure refuses the push and names the test. Same layout as the 2026-10-22 positive control.
+- **Ratchet**: a push-main test with a mutated pipeline in a temp infra tree that the platform test rejects.
+- 验收: an infra commit that drops a clone or a signed ref the platform table expects is refused by push-main, naming the platform test.
+- 审批 无 · 代价 S · 风险 low · repos: bifrost-trade-infra
+
 ### TD-423
 
 **P3 · gitea · batch D's step 5 copied back 12 attempt branches that agentd had deleted on purpose**
