@@ -1,32 +1,22 @@
-# The lane recorder, slice 1 — NOT trusted, NOT wired
+# The lane recorder — retired 2026-10-22
 
-This directory is on `main` by the Owner's decision of 2026-10-12 ("主线选 ②", W-66): after six implementation
-rounds the slice was merged as untrusted code instead of opening further rounds.
+`lane.py`, `rec.py` and the library behind them were removed on 2026-10-22 (W-31 2.3-3; the Owner's
+2026-10-21 decision "2.3 的四条都照推荐 A", item 4: retire them once PROD has imported the logs).
 
-**Nothing may read its output for a decision** — no board, no Console page, no pipeline, no agent — until
-`TD-319` in `agent-config/TECH_DEBT.md` is closed. A consumer added before that may only show the output beside
-the hand-maintained one, marked as a shadow.
+Where the history went:
 
-State on 2026-10-12, after the thin first slice (the Owner resumed this work to replace the coordinator's
-hand-kept progress board; usable first, not polished):
+- Each of the 17 local logs (`~/agent-work/recorder-root/<work>/events.jsonl`) is a stream
+  `legacy:recorder:<work>` in the agent runtime, on PROD and on STG: one event per line plus one
+  `legacy_imported` marker, the hash chain checked from the first line to the last, local paths masked
+  (each masked line keeps the digest of its original). 1,108 lines in all. Read them with
+  `GET /api/v1/agentrt/events?stream=legacy:recorder:<work>`.
+- PROD imported them through 17 Owner decision cards, the last answered 2026-10-22 23:00 UTC; STG through
+  the signed card rule on 2026-10-21. Proposing the same log again answers "already imported" and writes
+  nothing (checked on PROD with guard-1, 2026-10-22).
+- The board's observer rounds (`recorder-root/_observer/`) were not imported; they went with the local board
+  (W-31 2.5 slice 5).
+- The code: `git log -- agent-config/scripts/recorder/` (the last full tree is at `edf72e0`). TD-319, its
+  defect list, closed with the retirement: the code it described no longer exists.
 
-- The command line works end to end: `open`, `close`, `declare`, `start`, `finish`, `note`, `owner-open`,
-  `owner-ready`, `owner-close`, `fold`, `run`, `observe`. Review 130 used it for real (about 38 runs, 45 folds)
-  and found no false statement in the folded document.
-- Review 113's three wrong answers are fixed; their tests no longer carry `xfail`.
-- How to use `run` today: stop a wrapped job only with TERM to the wrapper (never `kill -9`, never a group
-  kill — the child would live on unrecorded); run `observe` before `fold` (a dead wrapper otherwise shows as
-  running for up to three minutes). The child's output goes to two files in its run directory; the wrapper says
-  where on standard error before the child starts.
-- Known and left for later (review 130): descriptors above 2 are closed for the child; only TERM, INT and HUP are
-  forwarded; one failed heartbeat write stops the bookkeeping of that run; the half of `observe` that reads the
-  platform is not built.
-
-How it gets trusted: the three fixed and independently reviewed; survivors at zero under the checker's
-definition; seven days running beside the hand-maintained board with no unexplained difference.
-
-The one permitted reader during the shadow week is the comparer described in
-`agent-config/work/multi-agent/PLAN-recorder-shadow-run-2026-10-12.md`; its output goes to a difference log, never to a page.
-
-`lane.py` is the coordinator's entry: `start` dispatches detached runs; `record` records non-process steps.
-Use its `owner-open`, `owner-close`, `stop`, and `status` commands; the trust and shadow restrictions above still apply.
+Dispatch and step bookkeeping now live in the agent runtime (missions, tasks, attempts, the plan and its
+sign-offs), shown in the Ops Console.
