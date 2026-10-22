@@ -164,3 +164,82 @@ bash ~/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh s
 在那之前 PROD 的 agentd 停着：PROD 平台还读 `bifrost-agents`，这时开它，交来的结果会被 409 永久拒收。
 
 **回退**（按做到哪）：见切法 §4「第 A 批」末尾。另加：第 6 条在「钥匙串访问」里删 `192.168.10.73` 那条；第 7 条 `bash ~/Desktop/stocks/bifrost-trade-infra/scripts/gitea/global-insteadof.sh remove bifrost-platform bifrost-ui`。
+
+---
+
+## 4　第 D 批：撤掉 `bifrost-agents`（你约 15 分钟，分两次：第 1–5 条一次，过一晚备份后第 6–7 条一次）
+
+最早 **10-25**：切法 §4 定在第 C 批（10-18 00:0x 做完）之后一周。早于这天做，由统筹线程定。
+
+为什么现在可以撤（10-22 02:3x UTC 实测）：PROD、STG 的 `platform-api` 都是 `AGENTRT_GIT_ORG=bifrost`（集群里读的 Deployment，与两份 overlay 一致）；06 上两个 agentd 的服务文件只有 `AGENTD_GIT_BASE=http://192.168.10.73:30300/bifrost`，没有推送地址（第 A 批起）；血缘在 Agent 组织等于交付组织时不扫它；infra 和平台代码里提到 `bifrost-agents` 的只剩第 A 批的搬分支脚本、注释、测试和一个 Console 夹具。Mac Pro 的 agentd（账号 `agentd-mbp-dev`）10-17 起没再连平台（主机 `mbp-dev` 最后一次轮询：PROD 10-17 17:00 UTC、STG 10-16 00:19 UTC）。
+
+这一批**不用开发布窗口、不用停 agentd**：`bifrost/*` 的内容、分支规则、标签规则都不动，只动三样：协作者、团队成员、`bifrost-agents` 本身。06 上两个账号的读写权限在撤协作者之后只靠团队 `agentd-write`，所以第 1 条先核对这个团队，第 2 条先只撤 STG 的账号、核对过再撤 PROD 的。
+
+页面名称按 Gitea 1.21 的英文界面写，可能稍有出入。出 `FAIL`、`REFUSED`、`DIFFERS` 或数字对不上就停下，把输出贴回线程，照下面的「回退」做。
+
+**0（我）** 开工前重核上面几条（两个平台的 `AGENTRT_GIT_ORG`、近一周 PROD 和 STG 交来的 Agent 分支都在 `bifrost/bifrost-platform`），在线程里说「可以做第 D 批」你再开始。
+
+**1（你）核对团队 `agentd-write`**：Gitea（`http://192.168.10.73:30300`，你的管理员账号）→ 组织 `bifrost` → Teams → `agentd-write`。
+
+- 判断成了：仓库一栏是全部仓库（All repositories），Code 是 Write；Members 里有 `agentd-agent-06` 和 `agentd-agent-06-stg`。少一个就停，回线程。
+
+**2（你）先只撤 STG 账号 `agentd-agent-06-stg`**：
+
+- `bifrost/bifrost-platform` → Settings → Collaborators：`agentd-agent-06-stg` 那一行点 Remove，确认。
+- `bifrost/bifrost-ui`、`bifrost-agents/bifrost-platform` 两个仓库同样。
+- 组织 `bifrost` → Teams → `agentd-read` → Members：把 `agentd-agent-06-stg` 移出（Remove）。
+- 判断成了：三个仓库的 Collaborators 页上都没有 `agentd-agent-06-stg`；`agentd-read` 的成员里没有它；`agentd-write` 的成员里还有它。
+
+**3（你）用探针核对 STG 账号只靠团队仍然对**（以 `agentd-agent-06-stg` 的身份在 `bifrost/primary-probe` 上逐条试：推 main、建标签、经合并请求合进 main、强推和删除它自己的 `agent/` 分支都被拒，建 `agent/_probe/<时间>/a1` 成功）：
+
+```bash
+bash ~/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh probe-protection
+```
+
+- 判断成了：最后一行是 `all as expected`。它会留下一条 `agent/_probe/…` 分支和一个已关闭的合并请求，删不删都行。
+- 接着我在 STG 派一件确定性的小任务，走到 accepted、分支落在 `bifrost/bifrost-platform` 的 `agent/<任务>/a1`；我在线程里说「STG 那件过了」你再做第 4 条。
+
+**4（你）撤 PROD 账号 `agentd-agent-06` 和 Mac Pro 的 `agentd-mbp-dev`**：
+
+- `agentd-agent-06`：和第 2 条一样，三个仓库的 Collaborators 各点一次 Remove，再移出 `agentd-read`。
+- `agentd-mbp-dev`：`bifrost/bifrost-platform`、`bifrost-agents/bifrost-platform` 的 Collaborators 各 Remove 一次；它若在 `agentd-read` 里也移出。
+- 我的建议：`agentd-mbp-dev` 若也在 `agentd-write` 里，一并移出（Mac Pro 的 agentd 已不再用）；以后还想用 Mac Pro 跑 agentd，就跳过这一小条。
+- 判断成了：三个仓库的 Collaborators 页上都没有这三个 agentd 账号（别的协作者不动）；`agentd-read` 里一个 agentd 账号都没有；`agentd-write` 里还有 `agentd-agent-06` 和 `agentd-agent-06-stg`。PROD 账号的实际克隆和推送由 PROD 下一件尝试证明，我会去核它交来的分支。
+
+**5（你）确认没有漏搬的分支，然后归档 `bifrost-agents/bifrost-platform`**：
+
+先重跑第 A 批的搬分支脚本当核对（`bifrost-agents` 里的每条 `agent/` 分支在 `bifrost/bifrost-platform` 里都应已有同一个提交；它不删、不强推任何东西）：
+
+```bash
+bash ~/Desktop/stocks/bifrost-trade-infra/scripts/gitea/copy-agent-branches.sh bifrost-platform
+```
+
+- 判断成了：最后一行是 `bifrost-platform: 0 copied, 18 already there, 0 not copied`（第 A 批搬过 18 条）。中间那个数不是 18、但 copied 和 not copied 都是 0，也算过；有 `DIFFERS` 或 `REFUSED` 行就停。
+
+再归档：`bifrost-agents/bifrost-platform` → Settings → 页面最下面 Danger Zone → **Archive this repo** → 确认。
+
+- 判断成了：仓库首页顶上出现「This repository is archived…」的横幅。记下归档的时间（第 6 条要用）。
+
+**6（你，归档后的第二天）核对归档之后已有一次成功的每晚备份**（每晚 03:10 UTC，你这边 22:10 开始，约 1 分钟）：
+
+```bash
+kubectl --kubeconfig ~/.kube/bifrost-k3s.yaml -n cicd get cronjob gitea-backup -o jsonpath='{.status.lastSuccessfulTime}{"\n"}'
+```
+
+- 判断成了：打印的时间（UTC）晚于第 5 条归档的时间。早于它就再等一晚。
+
+**7（你）删仓库、删组织（不可逆）**：
+
+- `bifrost-agents/bifrost-platform` → Settings → Danger Zone → **Delete This Repository** → 按提示输入仓库名 → 确认。
+- 组织 `bifrost-agents` → Settings → **Delete Organization** → 按页面提示确认（Gitea 要求组织里先没有仓库，所以先删仓库）。
+- 判断成了：打开 `http://192.168.10.73:30300/bifrost-agents` 是 404；Site Administration → Organizations 里没有 `bifrost-agents`。
+
+做完回「第 D 批做完了」。
+
+**8（我）** 之后的收尾，在 infra 一个提交里（切法 §4 第 D 批、§9.8）：删 `scripts/k3s/bootstrap-gitea-mirrors.sh` 和 Makefile 里的镜像目标；`AGENT_FACTS.md`、`docs/RELEASE.md`、`docs/DELIVER_STG.md` 写成 Gitea 做主的样子（bump `parity-id`）；`WORK.md` 第 2 轮 2.3-2 那一行写结果。agentd 的 `AGENTD_GIT_PUSH_BASE` 按 §9.8「留一版后删」，在平台下一版里删。
+
+**回退**（按做到哪）：
+
+- 第 2、4 条：在同一页加回协作者：`bifrost/bifrost-platform`、`bifrost/bifrost-ui` 给 Read，`bifrost-agents/bifrost-platform` 给 Write；`agentd-read` 加回成员。
+- 第 5 条：Settings → Danger Zone → **Unarchive this repo**。
+- 第 7 条：删了就回不来，只能按 `docs/runbooks/gitea-restore.md` 从每晚备份整台恢复（会连带回退备份之后 Gitea 上的一切）。所以第 6 条必须先过。
