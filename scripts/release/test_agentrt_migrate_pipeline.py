@@ -133,15 +133,16 @@ import json, os, sys
 log = os.environ["FAKE_LOG"]
 mode = os.environ.get("FAKE_MODE", "ok")
 args = sys.argv[1:]
-assert args[0].startswith("--request-timeout="), args
-args = args[1:]
 stdin = sys.stdin.read() if args[:1] == ["create"] else ""
 with open(log, "a") as f:
     f.write(json.dumps({"args": args, "stdin": stdin}) + "\n")
 UID = "uid-1"
+count = os.path.join(os.path.dirname(log), "pods-calls")
 if args[:1] == ["create"]:
     if mode == "create-fails":
         print("forbidden", file=sys.stderr); sys.exit(1)
+    if mode == "create-hangs":
+        import time; time.sleep(5)
     print("agentrt-migrate-abc12", end="")
 elif args[:2] == ["get", "job"]:
     conds, counts = {
@@ -153,10 +154,20 @@ elif args[:2] == ["get", "job"]:
         "failed-with-success": ([("Failed", "True")], {"succeeded": 1, "failed": 1}),
         "target-fails": ([("FailureTarget", "True")], {"succeeded": 1}),
         "complete-with-failed": ([("Complete", "True")], {"succeeded": 1, "failed": 1}),
+        "pod-late": ([("Complete", "True")], {"succeeded": 1}),
+        "pods-flaky": ([("Complete", "True")], {"succeeded": 1}),
+        "never-complete": ([], {"active": 1}),
+        "create-hangs": ([("Complete", "True")], {"succeeded": 1}),
     }[mode]
     status = dict(counts, conditions=[{"type": t, "status": v} for t, v in conds])
     print(json.dumps({"metadata": {"name": "agentrt-migrate-abc12", "uid": UID}, "status": status}))
 elif args[:2] == ["get", "pods"]:
+    n = int(open(count).read()) if os.path.exists(count) else 0
+    open(count, "w").write(str(n + 1))
+    if mode == "pods-flaky" and n == 0:
+        print("the server is busy", file=sys.stderr); sys.exit(1)
+    if mode == "pod-late" and n == 0:
+        print(json.dumps({"items": []})); sys.exit()
     def pod(name, uid, phase):
         return {"metadata": {"name": name, "ownerReferences": [{"kind": "Job", "uid": uid}]}, "status": {"phase": phase}}
     items = [pod("agentrt-migrate-abc12-x", UID, "Failed" if "fail" in mode else "Succeeded")]
@@ -175,7 +186,7 @@ elif args[:1] == ["logs"]:
 """
 
 
-def run_stg(tmp_path, mode="ok", digest=DIGEST, run=RUN):
+def run_stg(tmp_path, mode="ok", digest=DIGEST, run=RUN, wait_s=None, call_s=None):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     fake = bin_dir / "kubectl"
@@ -186,6 +197,10 @@ def run_stg(tmp_path, mode="ok", digest=DIGEST, run=RUN):
     log = tmp_path / "calls.jsonl"
     env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_LOG": str(log), "FAKE_MODE": mode,
            "API_DIGEST": digest, "DELIVER_RUN": run}
+    if wait_s:
+        env["AGENTRT_MIGRATE_WAIT_S"] = str(wait_s)
+    if call_s:
+        env["AGENTRT_MIGRATE_CALL_S"] = str(call_s)
     out = subprocess.run([sys.executable, str(script)], env=env, capture_output=True, text=True, timeout=60)
     calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
     return out, calls
@@ -224,23 +239,52 @@ def test_stg_run_name_stays_a_string():
         ("target-fails", "Job agentrt-migrate-abc12 failed"),
         ("complete-with-failed", "counts a failed pod"),
         ("two-pods", "with 2 succeeded pods, not one"),
-        ("foreign-pod", "with 0 succeeded pods, not one"),
+        # Review 500 B2: a pod list without the Job's own pod is read again until the deadline.
+        ("foreign-pod", "its succeeded pod could not be read in 3 s"),
         ("no-applied", "does not say what it applied"),
         ("create-fails", "the Job was not created: forbidden"),
     ],
 )
 def test_stg_stops_the_run(tmp_path, mode, says):
-    out, _ = run_stg(tmp_path, mode)
+    out, _ = run_stg(tmp_path, mode, wait_s=3 if mode == "foreign-pod" else None)
     assert out.returncode == 1, out.stdout
     assert says in out.stdout and "nothing is rolled out" in out.stdout
     if mode in ("job-fails", "failed-with-success"):
         assert "0009_x: syntax error" in out.stdout  # the Job's log is in the run's
 
 
-def test_stg_every_kubectl_call_is_bounded():
+def test_stg_kubectl_keeps_the_in_cluster_identity(tmp_path):
+    """Review 500 A1: with --request-timeout (or --server, --kubeconfig, a token ...) and no
+    kubeconfig, kubectl in a pod dials localhost:8080 instead of the in-cluster identity (the
+    Owner's trial run, 2026-10-12, test_platform_prod_gate). The shapes of every call are
+    listed, not the forbidden flags."""
+    out, calls = run_stg(tmp_path)
+    assert out.returncode == 0, out.stdout
+    for c in calls:
+        a = c["args"]
+        assert a[0] in ("create", "get", "logs"), a
+        assert not [x for x in a if x.startswith("--") and x != "--all-containers=true"], a
     s = stg_script()
-    assert '"--request-timeout=%ds" % (CALL_S // 2)' in s and "timeout=CALL_S)" in s
-    assert "subprocess.TimeoutExpired" in s
+    assert "timeout=min(CALL_S, left)" in s
+    assert "request-timeout=" not in s.replace("No --request-timeout", "")
+
+
+@pytest.mark.parametrize("mode", ["pod-late", "pods-flaky"])
+def test_stg_waits_for_the_succeeded_pod_within_the_deadline(tmp_path, mode):
+    # Review 500 B2: a pod list that is empty or fails once after Complete is read again.
+    out, calls = run_stg(tmp_path, mode)
+    assert out.returncode == 0, out.stdout
+    assert sum(c["args"][:2] == ["get", "pods"] for c in calls) == 2
+
+
+def test_stg_one_deadline_bounds_the_whole_step(tmp_path):
+    out, _ = run_stg(tmp_path, "never-complete", wait_s=3)
+    assert out.returncode == 1 and "did not finish in 3 s" in out.stdout
+
+
+def test_stg_says_a_job_may_exist_when_create_got_no_answer(tmp_path):
+    out, _ = run_stg(tmp_path, "create-hangs", call_s=1)
+    assert out.returncode == 1 and "a Job may exist" in out.stdout and RUN in out.stdout
 
 
 @pytest.mark.parametrize("digest, run", [("sha256:" + "AB" * 32, RUN), ("latest", RUN), (DIGEST, "Bad_Name"), (DIGEST, ""),
@@ -372,13 +416,14 @@ def test_prod_refuses_a_missing_migration_and_names_the_job(tmp_path, health):
     out = run_prod(tmp_path, d, health.url)
     assert out.returncode == 1
     assert "PROD's database misses 0003_grants, which this build carries" in out.stdout
-    line = "image: 192.168.10.73:30500/bifrost-platform-api:prod"
+    line = "image: 192.168.10.73:30500/bifrost-platform-api:prod$"
     printed = ("test \"$(grep -c '" + line + "' k8s/agentrt-migrate/prod/job.yaml)\" = 1 && sed 's#" + line
                + "#image: 192.168.10.73:30500/bifrost-platform-api@" + DIGEST
                + "#' k8s/agentrt-migrate/prod/job.yaml | kubectl create -f -")
     assert printed in out.stdout
-    # The command it prints edits exactly the PROD Job's one image line (C3 of review 498).
-    assert (ROOT / "k8s/agentrt-migrate/prod/job.yaml").read_text().count(line) == 1
+    # The command it prints edits exactly the PROD Job's one image line (C3 of reviews 498, 500).
+    job = (ROOT / "k8s/agentrt-migrate/prod/job.yaml").read_text().splitlines()
+    assert sum(re.search(line, x) is not None for x in job) == 1
 
 
 def test_prod_refuses_an_edited_migration(tmp_path, health):
@@ -469,11 +514,13 @@ def promote_script():
 
 @pytest.fixture
 def registry():
-    """A registry: manifests by digest, tags set by PUT; .wrong makes GET answer other bytes."""
+    """A registry: manifests by digest, tags set by PUT. .wrong makes GET answer other bytes,
+    .media is the Content-Type GET answers, .put_digest[repo] what a PUT to repo answers."""
     import hashlib as _h
 
     class R(http.server.BaseHTTPRequestHandler):
-        blobs, tags, wrong, put_digest = {}, {}, False, None
+        blobs, tags, wrong, put_digest = {}, {}, False, {}
+        media = "application/vnd.oci.image.manifest.v1+json"
 
         def _send(self, code, body=b"", headers=None):
             self.send_response(code)
@@ -489,14 +536,14 @@ def registry():
             body = R.blobs.get((repo, ref))
             if body is None:
                 return self._send(404)
-            self._send(200, b"other" if R.wrong else body, {"Content-Type": "application/vnd.oci.image.manifest.v1+json"})
+            self._send(200, b"other" if R.wrong else body, {"Content-Type": R.media})
 
         def do_PUT(self):
             repo, tag = self.path.split("/")[2], self.path.split("/")[-1]
             body = self.rfile.read(int(self.headers["Content-Length"]))
             d = "sha256:" + _h.sha256(body).hexdigest()
             R.tags[(repo, tag)] = d
-            self._send(201, b"", {"Docker-Content-Digest": R.put_digest or d})
+            self._send(201, b"", {"Docker-Content-Digest": R.put_digest.get(repo, d)})
 
         def do_HEAD(self):
             repo, tag = self.path.split("/")[2], self.path.split("/")[-1]
@@ -511,7 +558,13 @@ def registry():
     R.url = f"http://127.0.0.1:{srv.server_address[1]}"
     R.digests = {}
     for repo in ("bifrost-platform-api", "bifrost-platform-console"):
-        body = ("manifest of " + repo).encode()
+        # an OCI image manifest as kaniko pushes it (one config, layers)
+        body = json.dumps({
+            "schemaVersion": 2, "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "config": {"mediaType": "application/vnd.oci.image.config.v1+json", "size": 1,
+                       "digest": "sha256:" + _h.sha256(repo.encode()).hexdigest()},
+            "layers": [],
+        }, indent=3).encode()
         d = "sha256:" + _h.sha256(body).hexdigest()
         R.blobs[(repo, d)] = body
         R.digests[repo] = d
@@ -558,13 +611,53 @@ def test_promote_refuses_other_bytes_and_a_tag_that_does_not_read_back(tmp_path,
     out = run_promote(tmp_path, registry)
     assert out.returncode == 1 and "other bytes" in out.stdout and registry.tags == {}
     registry.wrong = False
-    registry.put_digest = "sha256:" + "f" * 64
+    registry.put_digest["bifrost-platform-api"] = "sha256:" + "f" * 64
     out = run_promote(tmp_path, registry)
     assert out.returncode == 1 and "does not read back" in out.stdout
-    assert "running tags moved by this step: none" in out.stdout
+    assert "running tags this step set and read back: none" in out.stdout
+    # the PUT went out, so the tag may have moved: the refusal says so (review 500 B1)
+    assert "may have written, not read back: bifrost-platform-api:stg" in out.stdout
+
+
+def test_promote_reports_what_it_set_and_what_it_is_unsure_of(tmp_path, registry):
+    registry.put_digest["bifrost-platform-console"] = "sha256:" + "f" * 64
+    out = run_promote(tmp_path, registry)
+    assert out.returncode == 1
+    assert "running tags this step set and read back: bifrost-platform-api:stg" in out.stdout
+    assert "may have written, not read back: bifrost-platform-console:stg" in out.stdout
+
+
+def test_promote_reads_both_manifests_before_either_tag_moves(tmp_path, registry):
+    # Review 500 B1: an unreadable console manifest leaves the api tag where it was.
+    del registry.blobs[("bifrost-platform-console", registry.digests["bifrost-platform-console"])]
+    out = run_promote(tmp_path, registry)
+    assert out.returncode == 1 and "cannot be read from the registry" in out.stdout
+    assert registry.tags == {} and "may have written" not in out.stdout
+
+
+def test_promote_refuses_what_is_not_an_image_manifest(tmp_path, registry):
+    registry.media = "text/html"
+    out = run_promote(tmp_path, registry)
+    assert out.returncode == 1 and "not an image manifest or index" in out.stdout
+    assert registry.tags == {}
 
 
 def test_promote_is_dominated_by_the_freeze_check_in_both_pipelines():
     for path in (STG_PIPELINE, PROD_PIPELINE):
         p = tasks(path)
         assert "freeze-check" in before(p, "promote-images"), path
+
+
+def test_the_registry_collection_keeps_the_candidate_tags():
+    # Review 500 B3: a candidate a run built and has not promoted yet is read by digest by its
+    # migration Job and its promotion; the registry's collection must not take it meanwhile.
+    import ast
+
+    src = (ROOT / "scripts/registry/keepset.py").read_text()
+    (line,) = [x for x in src.splitlines() if x.startswith("MOVING = ")]
+    moving = ast.literal_eval(line.split("=", 1)[1].strip())
+    for p, env in ((STG_PIPELINE, "stg"), (PROD_PIPELINE, "prod")):
+        built = {str(prm["value"]).rsplit(":", 1)[1] for t in tasks(p).values()
+                 for prm in t.get("params", []) if prm["name"] == "image" and ":" in str(prm["value"])}
+        assert built == {env + "-candidate"}, (p, built)
+        assert built <= moving

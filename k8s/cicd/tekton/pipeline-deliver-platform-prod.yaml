@@ -672,7 +672,7 @@ spec:
                   missing = [files[i][0] for i in sorted(files) if i not in have]
                   if missing:
                       image = REGISTRY + "@" + digest
-                      line = "image: 192.168.10.73:30500/bifrost-platform-api:prod"
+                      line = "image: 192.168.10.73:30500/bifrost-platform-api:prod$"
                       refuse("PROD's database misses %s, which this build carries" % ", ".join(missing), [
                           "The Owner runs PROD's agentrt migrations first (its DDL approved), with this build's image,",
                           "from an infra checkout on main (it creates nothing unless the Job's image line is there once):",

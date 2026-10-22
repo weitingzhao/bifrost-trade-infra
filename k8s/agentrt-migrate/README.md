@@ -35,8 +35,12 @@ DEV migration runs locally using the DEV owner identity; there is no DEV cluster
 
 - **Both deliver pipelines** build to a candidate tag (`:stg-candidate`, `:prod-candidate`)
   that no Deployment runs; `:stg` / `:prod` move to the run's digests only after the migration
-  step below passed (`task-promote-platform-images.yaml`), so a stopped run leaves nothing a
-  Pod restart could pick up.
+  step below passed (`task-promote-platform-images.yaml`). A run that stops before that
+  promotion leaves nothing a Pod restart could pick up; one that stops after it may leave the
+  promoted (and gated) tag behind, and the promotion's log says what it wrote.
+- **These Jobs as they are** run the image their `:stg` / `:prod` tag points at, which is what
+  the environment runs: they migrate for the running platform (a first install, a database
+  restored from backup). For a build not yet released use its digest, as below.
 - **STG**: `bifrost-deliver-platform` runs these migrations itself before it rolls out
   (`k8s/cicd/tekton/task-agentrt-migrate-stg.yaml`): the Job above, with the api image the
   run has just built pinned by digest and an annotation naming the run. A Job that fails

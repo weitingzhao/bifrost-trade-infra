@@ -49,7 +49,9 @@ for it in json.loads(out)["items"]:
             REFERENCED.add((repo.split("/")[-1], tag))
 
 repos = get("/v2/_catalog")[0]["repositories"]
-MOVING = {"prod","stg","dev","latest","main"}
+# stg-candidate and prod-candidate: what a platform deliver run built and has not promoted yet
+# (TD-411, task-promote-platform-images.yaml); its migration Job and promotion read it by digest.
+MOVING = {"prod","stg","dev","latest","main","stg-candidate","prod-candidate"}
 KEEP_RECENT = 3
 
 def semver_key(t):

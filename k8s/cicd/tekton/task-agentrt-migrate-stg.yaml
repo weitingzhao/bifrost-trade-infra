@@ -38,8 +38,11 @@ spec:
         # A PipelineRun's name is a DNS subdomain (review 498 B1); it only goes into an annotation.
         RUN_RE = re.compile(r"[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?\Z")
         APPLIED_RE = re.compile(r"^agentrt-migrate: env=stg database=bifrost_platform_stg applied=\[([0-9 ]*)\] seeded=(true|false)$", re.M)
-        WAIT_S = 960  # the Job's activeDeadlineSeconds is 900
-        CALL_S = 60  # one kubectl call, process and request (review 498 B1)
+        # The whole step's time, from its start (the Job's activeDeadlineSeconds is 900), and one
+        # kubectl call's at most. Read from the environment only by the tests, which shorten them.
+        WAIT_S = int(os.environ.get("AGENTRT_MIGRATE_WAIT_S", "960"))
+        CALL_S = int(os.environ.get("AGENTRT_MIGRATE_CALL_S", "60"))
+        DEADLINE = time.monotonic() + WAIT_S
         JOB = """\
         apiVersion: batch/v1
         kind: Job
@@ -122,11 +125,18 @@ spec:
 
 
         def kubectl(*args, stdin=None):
+            # One deadline for the whole step (review 500 B1): each call gets what is left of it,
+            # at most CALL_S. No --request-timeout or other connection flag: with one, kubectl in a
+            # pod stops falling back to the in-cluster identity and dials localhost:8080 (review 500
+            # A1; the deliver gate's trial run of 2026-10-12 hit this).
+            left = DEADLINE - time.monotonic()
+            if left <= 0:
+                return subprocess.CompletedProcess(args, 124, "", "no time left")
             try:
-                return subprocess.run(["kubectl", "--request-timeout=%ds" % (CALL_S // 2), *args], input=stdin,
-                                      capture_output=True, text=True, timeout=CALL_S)
+                return subprocess.run(["kubectl", *args], input=stdin, capture_output=True, text=True,
+                                      timeout=min(CALL_S, left))
             except subprocess.TimeoutExpired:
-                return subprocess.CompletedProcess(args, 124, "", "kubectl %s did not answer in %d s" % (args[0], CALL_S))
+                return subprocess.CompletedProcess(args, 124, "", "kubectl %s did not answer in time" % args[0])
 
 
         def refuse(why, logs=""):
@@ -146,17 +156,19 @@ spec:
 
 
         def job_pods(job, phase):
-            """The pods this Job owns (by its uid), in phase, or in any phase for None."""
+            """The pods this Job owns (by its uid), in phase or in any phase for None; None when unread."""
             uid = job["metadata"]["uid"]
             pods = read_json(kubectl("get", "pods", "-n", NS, "-l", "job-name=" + job["metadata"]["name"], "-o", "json"))
-            return sorted(p["metadata"]["name"] for p in (pods or {}).get("items", [])
+            if pods is None:
+                return None
+            return sorted(p["metadata"]["name"] for p in pods.get("items", [])
                           if any(o.get("uid") == uid for o in p["metadata"].get("ownerReferences", []))
                           and (phase is None or p.get("status", {}).get("phase") == phase))
 
 
-        def pod_logs(job, phase):
+        def pod_logs(job):
             out = []
-            for pod in job_pods(job, phase):
+            for pod in job_pods(job, None) or []:
                 got = kubectl("logs", pod, "-n", NS, "--all-containers=true")
                 out.append("--- %s ---\n%s%s" % (pod, got.stdout, got.stderr))
             return "\n".join(out)
@@ -172,27 +184,36 @@ spec:
             manifest = JOB.replace("__IMAGE__", REGISTRY + "@" + digest).replace("__RUN__", run)
             created = kubectl("create", "-f", "-", "-o", "jsonpath={.metadata.name}", stdin=manifest)
             name = created.stdout.strip()
+            if created.returncode == 124:
+                refuse("the Job create got no answer; a Job may exist: look for agentrt-migrate-* with "
+                       "annotation bifrost.io/deliver-run=%s in %s" % (run, NS))
             if created.returncode != 0 or not name.startswith("agentrt-migrate-"):
                 refuse("the Job was not created: " + created.stderr.strip())
             print("==> agentrt-migrate Job %s/%s, image %s@%s" % (NS, name, REGISTRY, digest))
-            deadline = time.monotonic() + WAIT_S
             # The Job's verdict is its conditions, not its pod counts (review 498 A2):
             # Failed or FailureTarget refuses; only Complete with no failed pod passes.
             while True:
                 job = read_json(kubectl("get", "job", name, "-n", NS, "-o", "json"))
                 cond = {c.get("type"): c.get("status") for c in (job or {}).get("status", {}).get("conditions", [])}
                 if cond.get("Failed") == "True" or cond.get("FailureTarget") == "True":
-                    refuse("Job %s failed" % name, pod_logs(job, None))
+                    refuse("Job %s failed" % name, pod_logs(job))
                 if cond.get("Complete") == "True":
                     if job["status"].get("failed"):
-                        refuse("Job %s is complete but counts a failed pod" % name, pod_logs(job, None))
+                        refuse("Job %s is complete but counts a failed pod" % name, pod_logs(job))
                     break
-                if time.monotonic() > deadline:
+                if time.monotonic() > DEADLINE:
                     refuse("Job %s did not finish in %d s" % (name, WAIT_S))
                 time.sleep(5)
-            pods = job_pods(job, "Succeeded")
-            if len(pods) != 1:
-                refuse("Job %s is complete with %d succeeded pods, not one" % (name, len(pods)))
+            # Its one succeeded pod, which may show a moment after Complete (review 500 B2).
+            while True:
+                pods = job_pods(job, "Succeeded")
+                if pods is not None and len(pods) > 1:
+                    refuse("Job %s is complete with %d succeeded pods, not one" % (name, len(pods)))
+                if pods:
+                    break
+                if time.monotonic() > DEADLINE:
+                    refuse("Job %s is complete but its succeeded pod could not be read in %d s" % (name, WAIT_S))
+                time.sleep(2)
             logs = kubectl("logs", pods[0], "-n", NS, "-c", "migrate")
             print(logs.stdout.rstrip())
             m = APPLIED_RE.search(logs.stdout)

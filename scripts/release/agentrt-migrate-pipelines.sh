@@ -6,14 +6,15 @@
 #                                                              are, a server dry-run, a diff
 #   bash scripts/release/agentrt-migrate-pipelines.sh apply   the same checks, then apply
 #
-# What is applied is this checkout's commit, which must be on origin/main: each file is
+# What is applied is this checkout's commit, which must be on origin/main (pushed, and
+# origin/main fetched or updated by the push; any commit of main's history passes): each file is
 # taken from that commit into a snapshot, and the dry-run, the diff and the apply all read
 # the snapshot. STG's files (the Role and RoleBinding in bifrost-platform-stg, the
 # migration Task, the image promotion Task, the STG pipeline) go first. PROD's pipeline
-# (the schema check and the promotion before its rollout) goes only once PROD's
-# platform-api has rolled out and reports agentrt_schema_applied on /health, five reads in
-# a row: before that its check would refuse every PROD release, the one that brings the
-# field included. Until then apply says so and leaves PROD's pipeline as it is; run apply
+# (the schema check and the promotion before its rollout) goes only once every PROD
+# platform-api pod reports agentrt_schema_applied on its own /health, the Deployment
+# converged on one image: before that its check would refuse every PROD release, the one
+# that brings the field included. Until then apply says so and leaves PROD's pipeline as it is; run apply
 # again after that release. A PROD platform rolled back to one without the field is
 # refused by the check on every release: roll back only to a platform that has it.
 # Run it in your own terminal (your kubeconfig, not the agent's). It stops at its first
@@ -29,7 +30,6 @@ STG_FILES=(
   k8s/cicd/tekton/pipeline-deliver-platform.yaml
 )
 PROD_FILE=k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml
-PROD_HEALTH="${AGENTRT_PROD_HEALTH:-http://192.168.10.100:30876/health}"
 
 say() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"; }
 die() { say "STOP: $*"; exit 1; }
@@ -37,7 +37,7 @@ die() { say "STOP: $*"; exit 1; }
 step="${1:-}"
 case "${step}" in
   check|apply) ;;
-  *) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  *) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac
 cd "${root}"
 
@@ -65,24 +65,48 @@ for want in "create tasks.tekton.dev -n cicd" "patch tasks.tekton.dev -n cicd" \
 done
 say "this identity passes the first screen (get, create, patch)"
 
-# PROD's pipeline waits until PROD's platform-api has rolled out and says, on every read,
-# which migrations its database has.
+# PROD's pipeline waits until every running PROD platform-api says which migrations its
+# database has (review 500 B2): the Deployment converged, every Pod of it Ready on one image,
+# and each Pod's own /health (through the API server's pod proxy) reporting the field.
+prod_replicas() { # prints "<pod> ..." when PROD's platform-api is ready for the PROD pipeline, else why not
+  local d p
+  d="$(kubectl get deployment platform-api -n bifrost-platform-prod -o json)" || { echo "NO: the Deployment cannot be read"; return; }
+  p="$(kubectl get pods -n bifrost-platform-prod -l app.kubernetes.io/name=platform-api -o json)" || { echo "NO: its pods cannot be read"; return; }
+  python3 - "$d" "$p" <<'PY'
+import json, sys
+d, p = json.loads(sys.argv[1]), json.loads(sys.argv[2])
+want, st = d["spec"].get("replicas", 1), d.get("status", {})
+if st.get("observedGeneration") != d["metadata"]["generation"] or any(
+        st.get(k, 0) != want for k in ("updatedReplicas", "readyReplicas", "availableReplicas")) or st.get("replicas", 0) != want:
+    print("NO: the Deployment has not converged on %d replicas: %s" % (want, {k: st.get(k) for k in sorted(st) if "eplicas" in k}))
+    sys.exit()
+pods = [x for x in p["items"] if not x["metadata"].get("deletionTimestamp")]
+ready = [x for x in pods if x.get("status", {}).get("phase") == "Running" and any(
+    c.get("type") == "Ready" and c.get("status") == "True" for c in x["status"].get("conditions", []))]
+images = {cs.get("imageID") for x in ready for cs in x["status"].get("containerStatuses", [])}
+if len(pods) != want or len(ready) != want or len(images) != 1:
+    print("NO: %d pods, %d Ready, %d images (want %d, %d, 1)" % (len(pods), len(ready), len(images), want, want))
+    sys.exit()
+print(" ".join(sorted(x["metadata"]["name"] for x in ready)))
+PY
+}
 prod=yes
-if ! kubectl rollout status deployment/platform-api -n bifrost-platform-prod --timeout=30s >/dev/null 2>&1; then
+pods_before="$(prod_replicas)"
+if [[ "${pods_before}" == NO:* ]]; then
   prod=no
-  say "PROD's platform-api has not finished rolling out: the PROD pipeline waits"
+  say "PROD's platform-api is not ready for the PROD pipeline (${pods_before#NO: }): the PROD pipeline waits"
 else
-  for i in 1 2 3 4 5; do
-    if ! body="$(curl -fsS --max-time 10 "${PROD_HEALTH}")" ||
+  for pod in ${pods_before}; do
+    if ! body="$(kubectl get --raw "/api/v1/namespaces/bifrost-platform-prod/pods/${pod}:8780/proxy/health")" ||
       ! printf '%s' "${body}" | python3 -c 'import json,sys; sys.exit(0 if isinstance(json.load(sys.stdin).get("agentrt_schema_applied"), list) else 1)'; then
       prod=no
-      say "PROD's platform-api (${PROD_HEALTH}, read ${i}) does not report agentrt_schema_applied: the PROD pipeline waits"
+      say "PROD's platform-api pod ${pod} does not report agentrt_schema_applied: the PROD pipeline waits"
       break
     fi
   done
 fi
 files=("${STG_FILES[@]}")
-[[ "${prod}" == yes ]] && files+=("${PROD_FILE}") && say "PROD's platform-api reports agentrt_schema_applied: the PROD pipeline goes too"
+[[ "${prod}" == yes ]] && files+=("${PROD_FILE}") && say "every PROD platform-api pod (${pods_before}) reports agentrt_schema_applied: the PROD pipeline goes too"
 
 for f in "${files[@]}"; do
   kubectl apply --dry-run=server -f "${snap}/${f}" >/dev/null || die "the server refuses ${f}"
@@ -98,10 +122,14 @@ if [[ "${step}" == check ]]; then
   exit 0
 fi
 
+# The PROD replicas checked are still the ones running (review 500 B2).
+if [[ "${prod}" == yes && "$(prod_replicas)" != "${pods_before}" ]]; then
+  die "PROD's platform-api pods changed during the checks; run apply again"
+fi
 done_files=()
 for f in "${files[@]}"; do
   if ! kubectl apply -f "${snap}/${f}"; then
-    die "applying ${f} failed; applied before it: ${done_files[*]:-none}. Running apply again is safe"
+    die "applying ${f} failed (it may be partly applied); applied before it: ${done_files[*]:-none}. Run apply again at commit ${sha:0:12}: it is safe"
   fi
   done_files+=("${f}")
 done

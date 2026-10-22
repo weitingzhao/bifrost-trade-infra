@@ -831,7 +831,7 @@ def test_protected_files_unchanged():
     # before the PROD rollout: the hash below is the file with them. The shared legacy restart Task stays unchanged.
     hashes = {
         "task-deliver-platform.yaml": "4795263ba3c5135c9c5bd5d1880626ab41558b32a47d33524fc18a45d89388e2",
-        "pipeline-deliver-platform-prod.yaml": "0f651f487e20cbdfdc824ac6d90e9335dd78d16da2685acb6ae6767cbdd768b9",
+        "pipeline-deliver-platform-prod.yaml": "a45f07d5930cc9d96406f3a9369b073cdafcf8c58c4cd2cfc48edffb75d58b58",
     }
     for filename, expected in hashes.items():
         assert (

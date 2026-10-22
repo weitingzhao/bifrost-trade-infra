@@ -4,10 +4,13 @@
 # migrations ran (STG) or were found applied (PROD) does this Task point the running
 # tag at the very digests the run built and checked: it copies each image's manifest,
 # by digest, to that tag in the registry and reads the tag back. A run that stops
-# before it leaves the running tags as they were, so no Pod restart picks up a build
-# whose migrations the database does not have. One candidate tag per environment,
-# overwritten by the next run, so an old candidate becomes untagged and the registry's
-# collection keeps working; the release window keeps one run at a time.
+# before this step leaves the running tags as they were, so no Pod restart picks up a
+# build whose migrations the database does not have; once it starts, what it wrote is
+# said, read back or not (a stopped run after it may leave a promoted tag behind).
+# One candidate tag per environment, overwritten by the next run, kept by the registry
+# keepset (scripts/registry/keepset.py); the release window keeps one run at a time,
+# which the pipeline itself does not enforce: two runs that overlap between promotion
+# and rollout can roll out each other's (gated) digests.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -56,12 +59,17 @@ spec:
         REPOS = {"API": "bifrost-platform-api", "CONSOLE": "bifrost-platform-console"}
 
 
-        moved = []
+        verified, attempted = [], []
 
 
         def refuse(why):
+            # A PUT whose answer or read-back failed may still have moved its tag (review 500 B1).
+            unsure = [t for t in attempted if t not in verified]
             print("REFUSED: promote platform images: " + why + "; nothing is rolled out")
-            print("running tags moved by this step: " + (", ".join(moved) if moved else "none"))
+            print("running tags this step set and read back: " + (", ".join(verified) or "none"))
+            if unsure:
+                print("running tags it wrote or may have written, not read back: " + ", ".join(unsure)
+                      + " (check them in the registry: a Pod restart pulls what they point at)")
             sys.exit(1)
 
 
@@ -82,8 +90,10 @@ spec:
 
 
         def main():
-            # Both are checked before either moves.
+            # Both targets and both manifests are read and checked before either tag moves; the two
+            # PUTs are still two writes, not one.
             plan = [target(k) for k in ("API", "CONSOLE")]
+            fetched = []
             for repo, tag, digest in plan:
                 try:
                     body, h = call("GET", "/v2/%s/manifests/%s" % (repo, digest), headers={"Accept": ACCEPT})
@@ -92,15 +102,21 @@ spec:
                 if "sha256:" + hashlib.sha256(body).hexdigest() != digest:
                     refuse("the registry answered %s@%s with other bytes" % (repo, digest))
                 media = h.get("Content-Type", "")
+                if media.split(";")[0].strip() not in ACCEPT.split(", "):
+                    refuse("%s@%s is a %r, not an image manifest or index" % (repo, digest, media))
+                fetched.append((repo, tag, digest, body, media))
+            for repo, tag, digest, body, media in fetched:
+                ref = "%s:%s" % (repo, tag)
+                attempted.append(ref)
                 try:
                     _, put = call("PUT", "/v2/%s/manifests/%s" % (repo, tag), body=body, headers={"Content-Type": media})
                     _, head = call("HEAD", "/v2/%s/manifests/%s" % (repo, tag), headers={"Accept": ACCEPT})
                 except Exception as e:  # noqa: BLE001
-                    refuse("%s:%s could not be set to %s: %s" % (repo, tag, digest, e))
+                    refuse("%s could not be set to %s: %s" % (ref, digest, e))
                 if put.get("Docker-Content-Digest") != digest or head.get("Docker-Content-Digest") != digest:
-                    refuse("%s:%s does not read back as %s" % (repo, tag, digest))
-                moved.append("%s:%s" % (repo, tag))
-                print("%s:%s is now %s" % (repo, tag, digest))
+                    refuse("%s does not read back as %s" % (ref, digest))
+                verified.append(ref)
+                print("%s is now %s" % (ref, digest))
 
 
         main()

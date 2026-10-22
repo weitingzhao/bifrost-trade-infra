@@ -1,8 +1,8 @@
 """TD-411: the Owner's apply script checks before it writes, applies STG at once and
-PROD's pipeline only once PROD's health reports agentrt_schema_applied.
+PROD's pipeline only once every PROD platform-api pod reports agentrt_schema_applied.
 
-Run in a throwaway git repository holding the script and its four files, with fake
-kubectl and curl on PATH."""
+Run in a throwaway git repository holding the script and its files, with a fake kubectl
+on PATH that answers PROD's Deployment, its pods and each pod's /health."""
 
 import json
 import os
@@ -21,30 +21,72 @@ STG = [
     "k8s/cicd/tekton/pipeline-deliver-platform.yaml",
 ]
 PROD = "k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml"
+NS = "bifrost-platform-prod"
 
-FAKE_KUBECTL = r'''#!/usr/bin/env bash
-echo "$*" >> "$FAKE_LOG"
-case "$1 $2" in
-  "auth can-i") echo "${FAKE_CAN:-yes}"; exit 0 ;;
-  "rollout status") exit "${FAKE_ROLLOUT:-0}" ;;
-esac
-if [[ "$1" == apply && "$2" == --dry-run=server ]]; then
-  [[ -n "${FAKE_REFUSE:-}" && "$4" == *"$FAKE_REFUSE" ]] && { echo refused >&2; exit 1; }
-  exit 0
-fi
-if [[ "$1" == apply && "$2" == -f ]]; then
-  # what is applied, byte for byte
-  { echo "--- $3"; cat "$3"; } >> "$FAKE_APPLIED"
-  [[ -n "${FAKE_APPLY_FAILS:-}" && "$3" == *"$FAKE_APPLY_FAILS" ]] && exit 1
-  exit 0
-fi
-[[ "$1" == diff ]] && exit 1
-exit 0
+FAKE_KUBECTL = r'''#!/usr/bin/env python3
+import json, os, sys
+a = sys.argv[1:]
+with open(os.environ["FAKE_LOG"], "a") as f:
+    f.write(" ".join(a) + "\n")
+st = json.loads(os.environ["FAKE_STATE"])
+if a[:2] == ["auth", "can-i"]:
+    print(os.environ.get("FAKE_CAN", "yes")); sys.exit()
+if a[:3] == ["get", "deployment", "platform-api"]:
+    assert a[3:] == ["-n", "bifrost-platform-prod", "-o", "json"], a
+    print(json.dumps(st["deployment"])); sys.exit()
+if a[:2] == ["get", "pods"]:
+    assert a[2:] == ["-n", "bifrost-platform-prod", "-l", "app.kubernetes.io/name=platform-api", "-o", "json"], a
+    n_file = os.environ["FAKE_LOG"] + ".pods"
+    n = int(open(n_file).read()) if os.path.exists(n_file) else 0
+    open(n_file, "w").write(str(n + 1))
+    sets = st["pods"]
+    print(json.dumps({"items": sets[min(n, len(sets) - 1)]})); sys.exit()
+if a[:2] == ["get", "--raw"]:
+    pre, post = "/api/v1/namespaces/bifrost-platform-prod/pods/", ":8780/proxy/health"
+    path = a[2]
+    assert path.startswith(pre) and path.endswith(post), path
+    body = st["health"].get(path[len(pre):-len(post)])
+    if body is None:
+        print("pod not found", file=sys.stderr); sys.exit(1)
+    print(json.dumps(body)); sys.exit()
+if a[:2] == ["apply", "--dry-run=server"]:
+    r = os.environ.get("FAKE_REFUSE")
+    if r and a[3].endswith(r):
+        print("refused", file=sys.stderr); sys.exit(1)
+    sys.exit()
+if a[:2] == ["apply", "-f"]:
+    # what is applied, byte for byte
+    with open(os.environ["FAKE_APPLIED"], "a") as f:
+        f.write("--- " + a[2] + "\n" + open(a[2]).read())
+    r = os.environ.get("FAKE_APPLY_FAILS")
+    sys.exit(1 if r and a[2].endswith(r) else 0)
+if a[:1] == ["diff"]:
+    sys.exit(1)
 '''
 
-FAKE_CURL = r'''#!/usr/bin/env bash
-printf '%s' "$FAKE_HEALTH"
-'''
+
+def deployment(replicas=2, converged=True):
+    st = {k: replicas for k in ("replicas", "updatedReplicas", "readyReplicas", "availableReplicas")}
+    if not converged:
+        st["updatedReplicas"] = replicas - 1
+    st["observedGeneration"] = 7
+    return {"metadata": {"generation": 7}, "spec": {"replicas": replicas}, "status": st}
+
+
+def pod(name, ready=True, image="sha256:aaa"):
+    return {"metadata": {"name": name},
+            "status": {"phase": "Running", "conditions": [{"type": "Ready", "status": "True" if ready else "False"}],
+                       "containerStatuses": [{"imageID": "registry/bifrost-platform-api@" + image}]}}
+
+
+PODS = [pod("platform-api-1"), pod("platform-api-2")]
+WITH = {"agentrt_schema": "current", "agentrt_schema_applied": []}
+WITHOUT = {"agentrt_schema": "current"}
+
+
+def state(health=None, deploy=None, pods=None):
+    return {"deployment": deploy or deployment(), "pods": pods or [PODS],
+            "health": health if health is not None else {"platform-api-1": WITHOUT, "platform-api-2": WITHOUT}}
 
 
 @pytest.fixture
@@ -60,21 +102,22 @@ def repo(tmp_path):
     subprocess.run([*git, "update-ref", "refs/remotes/origin/main", "HEAD"], check=True)
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    for name, body in (("kubectl", FAKE_KUBECTL), ("curl", FAKE_CURL)):
-        (bin_dir / name).write_text(body)
-        (bin_dir / name).chmod(0o755)
+    (bin_dir / "kubectl").write_text(FAKE_KUBECTL)
+    (bin_dir / "kubectl").chmod(0o755)
     return r, bin_dir, tmp_path / "kubectl.log"
 
 
-def run(repo, step, health=None, can="yes", refuse="", rollout="0", apply_fails=""):
+def run(repo, step, st=None, can="yes", refuse="", apply_fails=""):
     r, bin_dir, log = repo
-    body = json.dumps(health if health is not None else {"agentrt_schema": "current"})
     env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_LOG": str(log),
-           "FAKE_HEALTH": body, "FAKE_CAN": can, "FAKE_REFUSE": refuse, "FAKE_ROLLOUT": rollout,
+           "FAKE_STATE": json.dumps(st or state()), "FAKE_CAN": can, "FAKE_REFUSE": refuse,
            "FAKE_APPLIED": str(log) + ".applied", "FAKE_APPLY_FAILS": apply_fails}
     out = subprocess.run(["bash", str(r / SCRIPT), step], env=env, capture_output=True, text=True, timeout=60)
     calls = log.read_text().splitlines() if log.exists() else []
     return out, calls
+
+
+ALL_WITH = state({"platform-api-1": WITH, "platform-api-2": WITH})
 
 
 def applied(calls):
@@ -95,7 +138,7 @@ def test_apply_waits_with_prod_until_health_says(repo):
 
 
 def test_apply_takes_prod_once_health_says(repo):
-    out, calls = run(repo, "apply", {"agentrt_schema": "current", "agentrt_schema_applied": []})
+    out, calls = run(repo, "apply", ALL_WITH)
     assert out.returncode == 0, out.stdout + out.stderr
     assert applied(calls) == [*STG, PROD]
     # every file had a server dry-run before the first write
@@ -105,7 +148,7 @@ def test_apply_takes_prod_once_health_says(repo):
 
 
 def test_check_writes_nothing(repo):
-    out, calls = run(repo, "check", {"agentrt_schema_applied": []})
+    out, calls = run(repo, "check", ALL_WITH)
     assert out.returncode == 0 and applied(calls) == []
     assert "nothing written" in out.stdout
 
@@ -155,15 +198,55 @@ def test_a_commit_not_on_main_stops_before_kubectl(repo):
 
 
 def test_prod_waits_while_its_rollout_is_unfinished(repo):
-    out, calls = run(repo, "apply", {"agentrt_schema_applied": []}, rollout="1")
+    st = state({"platform-api-1": WITH, "platform-api-2": WITH}, deploy=deployment(converged=False))
+    out, calls = run(repo, "apply", st)
     assert out.returncode == 0 and applied(calls) == STG
-    assert "has not finished rolling out" in out.stdout
+    assert "has not converged on 2 replicas" in out.stdout and "the PROD pipeline waits" in out.stdout
+
+
+@pytest.mark.parametrize(
+    "pods, says",
+    [
+        ([pod("platform-api-1"), pod("platform-api-2", ready=False)], "2 pods, 1 Ready"),
+        ([pod("platform-api-1"), pod("platform-api-2", image="sha256:bbb")], "2 Ready, 2 images"),
+        ([pod("platform-api-1")], "1 pods, 1 Ready"),
+    ],
+)
+def test_prod_waits_while_its_pods_are_not_one_ready_set(repo, pods, says):
+    st = state({"platform-api-1": WITH, "platform-api-2": WITH}, pods=[pods])
+    out, calls = run(repo, "apply", st)
+    assert out.returncode == 0 and applied(calls) == STG
+    assert says in out.stdout and "the PROD pipeline waits" in out.stdout
+
+
+def test_prod_waits_while_one_pod_lacks_the_field(repo):
+    # Review 500 B2: every replica is asked on its own, not the Service, which answers from any.
+    out, calls = run(repo, "apply", state({"platform-api-1": WITH, "platform-api-2": WITHOUT}))
+    assert out.returncode == 0 and applied(calls) == STG
+    assert "pod platform-api-2 does not report agentrt_schema_applied" in out.stdout
+    asked = [c for c in calls if c.startswith("get --raw")]
+    assert [c.split("/")[-3].split(":")[0] for c in asked] == ["platform-api-1", "platform-api-2"]
+
+
+def test_prod_waits_while_a_pod_cannot_be_asked(repo):
+    out, calls = run(repo, "apply", state({"platform-api-1": WITH}))
+    assert out.returncode == 0 and applied(calls) == STG
+    assert "pod platform-api-2 does not report" in out.stdout
+
+
+def test_pods_that_change_during_the_checks_stop_before_any_write(repo):
+    st = state({"platform-api-1": WITH, "platform-api-2": WITH},
+               pods=[PODS, [pod("platform-api-1"), pod("platform-api-3")]])
+    out, calls = run(repo, "apply", st)
+    assert out.returncode == 1 and "pods changed during the checks" in out.stdout
+    assert applied(calls) == []
 
 
 def test_a_failed_apply_names_what_went_and_says_rerun(repo):
     out, calls = run(repo, "apply", apply_fails=STG[2])
     assert out.returncode == 1
-    assert "applied before it: " + STG[0] + " " + STG[1] in out.stdout and "Running apply again is safe" in out.stdout
+    assert "applied before it: " + STG[0] + " " + STG[1] in out.stdout
+    assert "Run apply again at commit" in out.stdout and "it is safe" in out.stdout
 
 
 def test_usage(repo):
