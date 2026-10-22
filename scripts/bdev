@@ -599,14 +599,19 @@ cmd_start() {
     if ! session_exists; then
       tmux new-session -d -s "$TMUX_SESSION" -n "$name" "$run_cmd"
       created_session=1
-      echo "● $name — started (new session) [restart=$restart]"
     elif window_exists "$name"; then
       tmux respawn-pane -t "$TMUX_SESSION:$name" -k "$run_cmd"
-      echo "● $name — respawned [restart=$restart]"
     else
       tmux new-window -t "$TMUX_SESSION" -n "$name" "$run_cmd"
-      echo "● $name — started [restart=$restart]"
     fi
+    # Creating a pane succeeds even when its shell immediately exits (for
+    # example, macOS denies access to a supervisor under Desktop).
+    sleep 1
+    if ! pane_is_alive "$name"; then
+      tmux capture-pane -p -t "$TMUX_SESSION:$name" -S -20 >&2 2>/dev/null || true
+      die "$name exited during startup. Check bdev logs $name and macOS Files and Folders permissions for the app that started tmux."
+    fi
+    echo "● $name — started [restart=$restart]"
   done < <(parse_sessions)
 
   if [[ -n "$target" ]]; then
