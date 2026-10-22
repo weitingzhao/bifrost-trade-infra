@@ -88,6 +88,9 @@ class DryRunClassifyTests(unittest.TestCase):
         application_read = ["kubectl", "get", "application", "bifrost-research", "-n", "cicd", "-o", "json"]
         application = {"metadata": {"name": "bifrost-research"},
                        "spec": {"source": {"repoURL": "https://example.invalid/research.git", "path": "k8s"}}}
+        stg_read = ["kubectl", "get", "application", "bifrost-platform-stg", "-n", "cicd", "-o", "json"]
+        stg = {"metadata": {"name": "bifrost-platform-stg"},
+               "spec": {"source": {"repoURL": "https://example.invalid/infra.git", "path": "k8s/overlays/platform-stg"}}}
         for readable in (False, True):
             with self.subTest(readable=readable):
                 calls: list[list[str]] = []
@@ -96,6 +99,8 @@ class DryRunClassifyTests(unittest.TestCase):
                     calls.append(list(args))
                     if list(args) == application_read:
                         return Result(0, json.dumps(application)) if readable else Result(1, "")
+                    if list(args) == stg_read:
+                        return Result(0, json.dumps(stg)) if readable else Result(1, "")
                     if list(args[:4]) == ["kubectl", "auth", "can-i", "impersonate"]:
                         return Result(0, "no\n")
                     self.fail(f"unexpected command: {args}")
@@ -111,8 +116,9 @@ class DryRunClassifyTests(unittest.TestCase):
                 self.assertGreater(len(calls), 1, calls)
                 self.assertTrue(all(c[:2] != ["kubectl", "apply"]
                                     and not any("--dry-run" in arg for arg in c) for c in calls), calls)
+                self.assertEqual(calls.count(stg_read), 1, calls)
                 self.assertTrue(all(c[:4] == ["kubectl", "auth", "can-i", "impersonate"]
-                                    for c in calls if c != application_read), calls)
+                                    for c in calls if c not in (application_read, stg_read)), calls)
 
 
 class PlanDiffTests(unittest.TestCase):
@@ -149,3 +155,57 @@ class AgentReadRoleTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DeliveryPinCaseTests(unittest.TestCase):
+    """TD-335: the live cases try the pin the gitops-sync Task writes, as tekton-deliver."""
+
+    def test_the_cases_cover_the_delivery_pin_and_its_neighbours(self) -> None:
+        class Result:
+            stderr = ""
+
+            def __init__(self, returncode: int, stdout: str):
+                self.returncode = returncode
+                self.stdout = stdout
+
+        apps = {
+            name: {"metadata": {"name": name, "namespace": "cicd"},
+                   "spec": {"project": "bifrost", "source": {"repoURL": "https://example.invalid/x.git", "path": path},
+                            "destination": {"namespace": name, "server": "https://kubernetes.default.svc"}}}
+            for name, path in (("bifrost-research", "k8s"), ("bifrost-platform-stg", "k8s/overlays/platform-stg"))
+        }
+        tried: list[tuple[str, dict]] = []
+
+        def fake_run(args, **kwargs):
+            args = list(args)
+            if args[:3] == ["kubectl", "get", "application"]:
+                return Result(0, json.dumps(apps[args[3]]))
+            if args[:4] == ["kubectl", "auth", "can-i", "impersonate"]:
+                return Result(0, "yes\n")
+            if args[:3] == ["kubectl", "apply", "--dry-run=server"]:
+                tried.append((args[args.index("--as") + 1], json.loads(kwargs["input"])
+                              if kwargs["input"].lstrip().startswith("{") else {}))
+                return Result(0, "")
+            self.fail(f"unexpected command: {args}")
+
+        original = guards.subprocess.run
+        guards.subprocess.run = fake_run
+        try:
+            guards.live()
+        finally:
+            guards.subprocess.run = original
+        deliver = "system:serviceaccount:cicd:tekton-deliver"
+        pins = [(who, body) for who, body in tried if "kustomize" in body.get("spec", {}).get("source", {})
+                and body["metadata"]["name"].startswith("bifrost-platform-")]
+        allowed = [body for who, body in pins if who == deliver
+                   and body["spec"]["source"]["kustomize"] == guards.delivery_pin()]
+        self.assertEqual(len(allowed), 1, pins)
+        zero = "sha256:" + "0" * 64
+        self.assertEqual(guards.delivery_pin()["images"], [
+            "registry.cicd.svc.cluster.local:5000/bifrost-platform-api=192.168.10.73:30500/bifrost-platform-api@" + zero,
+            "registry.cicd.svc.cluster.local:5000/bifrost-platform-console="
+            "192.168.10.73:30500/bifrost-platform-console@" + zero,
+        ])
+        self.assertIn(PLATFORM, [who for who, _ in pins])
+        research = [body for who, body in tried if who == deliver and body["metadata"]["name"] == "bifrost-research"]
+        self.assertEqual(len(research), 1)

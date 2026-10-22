@@ -29,6 +29,7 @@ TD-335 记了两条被叫停的路：
 已量（只读，2026-10-22）：
 - 两个 platform 应用 `bifrost-platform-stg`、`bifrost-platform-prod` 都由 Owner 手工应用，不归任何上层应用管（没有 tracking-id），现在没有 `kustomize` 字段。
 - `tekton-deliver` 在 `cicd` 对应用已有 get、patch、list（`T/rbac-deliver-stg.yaml:15-17`），不用加权限。
+- **漏量了一处**：准入策略 `bifrost-platform-application`（`k8s/platform-rbac/40-admission.yaml`，TD-271）不许平台身份和 `tekton-deliver` 改 `spec.source.kustomize`。第一次 STG 真跑（2026-10-22，run `bifrost-deliver-platform-1792708927`）的钉镜像 patch 就是被它拒的，见 §1.8。
 - 本机 kustomize v5.7.1 渲染 PROD overlay：镜像项加上摘要后，三个容器都是 `192.168.10.73:30500/bifrost-platform-{api,console}…@sha256:…`。overlay 原有的 `newTag: prod` 保留时得到 `:prod@sha256:…`，清掉时得到 `@sha256:…`，两种都按摘要拉取。
 
 ### 1.2 STG 流水线（顺带解决 TD-419）
@@ -105,6 +106,20 @@ W-56 门槛里的「回滚不重建」由此成立：被删掉的只会是没有
 - Console 的 PROD 步骤条按任务名分组，`Build` 那一段从此没有任务（`api/internal/delivery/pipeline_steps.go`）。这只影响显示，记为 platform 的后续。
 - Trade 的发版流水线不在这一片。
 
+### 1.8 准入策略的例外（第一次 STG 真跑之后补）
+
+第一次 STG 真跑的 `gitops-sync` 退出码 1，日志只有「a cluster call failed」。
+- 证据（只读）：apiserver 的计数 `apiserver_validating_admission_policy_check_total{policy="bifrost-platform-application",enforcement_action="deny"}` 在 22:45:23Z 第一次出现，值为 1；这次 `gitops-sync` 跑在 22:45:05–22:45:10Z。应用的 `kustomize.images` 是空的，同一次 patch 里的同步请求也没落下：被拒的 patch 什么都没写。
+- 原因：策略要求 `spec.source.kustomize` 前后不变，`tekton-deliver` 也在它管的身份里。准入拒绝回的是 422「is invalid」，不含「forbidden」，任务把它归成了「a cluster call failed」。
+
+改法：
+- **策略**：`kustomize` 的规则拆成单独一条。前后不变照旧放行；另外只放行一种改动——`tekton-deliver` 改 `bifrost-platform-stg` 或 `bifrost-platform-prod`，改完的 `kustomize` 只有 `images` 一个键，正好两项，第一项是 api、第二项是 console，都是 `registry.cicd.svc.cluster.local:5000/bifrost-platform-<x>=192.168.10.73:30500/bifrost-platform-<x>@sha256:<64 位十六进制>`。平台身份照旧不能改；别的应用、按 tag、别的仓库、多带字段都不行。其余字段的规则不变。
+- **任务**：失败的调用按固定类别报出，策略或 webhook 只报名字（名字先过正则），kubectl 的其余输出不进日志。API 服务器明确拒了 patch（准入、403、422、404）时，日志说「application is left as it was」；只有没回答的情况才说「may be pinned」。
+- **Owner 的应用脚本**：准入文件排第一个；应用完之后，以 `tekton-deliver` 身份对两个平台应用各做一次 `--dry-run=server` 的钉镜像 patch（不落库），必须通过；再试一次按 tag 钉，必须被这条策略拒。`check` 时也做，策略还没应用时如实报告「仍被拒」，不算失败。
+- **`scripts/check_admission_guards.py --live`** 多六种：`tekton-deliver` 钉 STG（放行）、换仓库、按 tag、多带 `namePrefix`、钉 research（都拒），平台身份去钉（拒）。
+
+别的走法（没选）：给两个应用加 `ignoreDifferences`、由流水线直接改 Deployment 的镜像。那会让 Argo 不再管镜像这一字段，回滚和自愈都要另做，改动更大。
+
 ## 2. ② CI 在分支上先跑，绿了才合 main
 
 ### 2.1 触发（`T/trigger-trade-ci.yaml`）
@@ -152,6 +167,7 @@ infra（分支 `w31/release-speedup`）：
 9. `R/release-speedup-apply.sh`（新）：Owner 的应用命令，见 §5。`scripts/k3s/apply-cicd-platform-pipeline.sh`（STG 平台流水线的引导脚本）补上 STG 流水线引用的任务：TD-411 的迁移任务、提升任务、迁移 RBAC，以及这次的钉镜像任务。
 10. 测试：上面每一处各有一组，旧测试里钉住结构和哈希的地方随之改。
 11. `docs/RELEASE.md`：PROD 不再构建、按摘要部署、回滚命令、`push-main.sh` 的 CI 一步。
+12. `k8s/platform-rbac/40-admission.yaml`：§1.8 的例外；`scripts/check_admission_guards.py` 的 `--live` 多六种情况。
 
 ## 4. 量用时（3.4-5）
 
@@ -172,8 +188,8 @@ bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/release
 - 每个文件先 server dry-run，再 diff，全部通过才写；
 - 出错即停，重跑安全。
 
-应用次序：两个 Task（新的钉镜像任务、改过的核对任务）→ 两条流水线 → CI 的 EventListener。
-不动应用（Application）对象：第一次 STG 发版时由流水线自己钉。
+应用次序：准入策略（§1.8）→ 两个 Task（新的钉镜像任务、改过的核对任务）→ 两条流水线 → CI 的 EventListener。
+不写应用（Application）对象：第一次 STG 发版时由流水线自己钉。脚本只以 `tekton-deliver` 身份试一次钉镜像（`--dry-run=server`，不落库），确认准入放行它、拒掉按 tag 钉。
 
 应用之后的第一次 STG 发版就是 ① 的真跑。核对四件事：
 1. `gitops-sync` 日志有「pinned」那一行；
@@ -184,6 +200,8 @@ bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/release
 之后第一次 PROD 发版没有构建任务，PROD 的三个 Deployment 写着同一对摘要。
 
 ## 6. 这一片证明不了的
+
+- 准入策略的 CEL 在本机没有引擎可跑：测试只核对例外的每一部分，并拿任务自己的 patch 去匹配其中的镜像正则。它在 API 服务器上的行为由 Owner 应用脚本里的 dry-run 核实（§5），`check_admission_guards.py --live` 再覆盖拒绝的几种。
 
 - 发布结束之后，有人手工 patch 应用或 `kubectl replace` 它（§1.5）。
 - registry 将来的清理作业是否照 keepset 的保留集删除：那个作业还不存在。

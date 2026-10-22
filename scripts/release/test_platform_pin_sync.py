@@ -4,6 +4,7 @@ import ast
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -15,6 +16,8 @@ TEKTON = ROOT / "k8s/cicd/tekton"
 TASK = TEKTON / "task-argocd-pin-sync-platform.yaml"
 STG_PIPELINE = TEKTON / "pipeline-deliver-platform.yaml"
 PROD_PIPELINE = TEKTON / "pipeline-deliver-platform-prod.yaml"
+ADMISSION = ROOT / "k8s/platform-rbac/40-admission.yaml"
+DELIVER = "system:serviceaccount:cicd:tekton-deliver"
 API = "sha256:" + "1" * 64
 CONSOLE = "sha256:" + "2" * 64
 RUN = "bifrost-deliver-platform-1792630711"
@@ -46,7 +49,20 @@ def save():
     json.dump(st, open(state_path, "w"))
 if mode == "forbidden":
     print("Error from server (Forbidden): applications.argoproj.io is forbidden", file=sys.stderr); sys.exit(1)
+if mode == "not-found":
+    print('Error from server (NotFound): applications.argoproj.io "x" not found', file=sys.stderr); sys.exit(1)
 app = a[a.index("application") + 1] if "application" in a else ""
+# what the API server answered a refused patch (the first STG run's, 2026-10-22, for "denied")
+REFUSED_PATCH = {
+    "denied": 'The applications "' + app + '" is invalid: : ValidatingAdmissionPolicy \'bifrost-platform-application\' '
+              "with binding 'bifrost-platform-application' denied request: platform may change only the sync operation",
+    "webhook": 'Error from server: admission webhook "validate.example.io" denied the request: spec.source secret-value',
+    "invalid": 'The Application "' + app + '" is invalid: spec.source.kustomize.images[0]: Invalid value: "secret-value"',
+    "patch-forbidden": 'Error from server (Forbidden): applications.argoproj.io "' + app + '" is forbidden: cannot patch',
+    "patch-lost": "Unable to connect to the server: EOF",
+}
+if a[2:4] == ["patch", "application"] and mode in REFUSED_PATCH:
+    print(REFUSED_PATCH[mode], file=sys.stderr); sys.exit(1)
 if a[2:4] == ["patch", "application"]:
     st["patched"] = json.loads(a[a.index("-p") + 1]); st["after"] = 0; save(); print("patched"); sys.exit()
 if a[2:4] != ["get", "application"]:
@@ -126,25 +142,34 @@ def test_a_running_sync_finishes_first(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "mode, says, written",
+    "mode, says, written, patches",
     [
-        ("failed", "this run's sync ended Failed", True),
-        ("error", "this run's sync ended Error", True),
-        ("never", "did not finish with the pinned images", True),
+        ("failed", "this run's sync ended Failed", True, 1),
+        ("error", "this run's sync ended Error", True, 1),
+        ("never", "did not finish with the pinned images", True, 1),
         # an automated sync that replaced this run's state is not this run's success
-        ("other", "did not finish with the pinned images", True),
-        ("no-images", "did not finish with the pinned images", True),
-        ("wrong-path", "does not deploy k8s/overlays/platform-stg", False),
-        ("forbidden", "cannot read or patch the application", False),
+        ("other", "did not finish with the pinned images", True, 1),
+        ("no-images", "did not finish with the pinned images", True, 1),
+        ("wrong-path", "does not deploy k8s/overlays/platform-stg", False, 0),
+        ("forbidden", "this identity cannot read the application", False, 0),
+        ("not-found", "the application was not found", False, 0),
+        # the API server refused the patch: nothing was stored, and the log says what refused it
+        ("denied", "the admission policy bifrost-platform-application denied the patch of the application", False, 1),
+        ("webhook", "the admission webhook validate.example.io denied the patch of the application", False, 1),
+        ("invalid", "the API server rejected the patch of the application as invalid", False, 1),
+        ("patch-forbidden", "this identity cannot patch the application", False, 1),
+        # no answer: the patch may have been stored
+        ("patch-lost", "the patch of the application failed", True, 1),
     ],
 )
-def test_refusals(tmp_path, mode, says, written):
+def test_refusals(tmp_path, mode, says, written, patches):
     out, calls, _ = execute(tmp_path, mode, wait=2)
     assert out.returncode == 1 and says in out.stdout, out.stdout
     assert out.stdout.splitlines()[-1].startswith("REFUSED: pin and sync of the platform application: ")
     assert ("may be pinned" in out.stdout) == written
     assert ("left as it was" in out.stdout) == (not written)
-    assert sum(c[2:3] == ["patch"] for c in calls) == (1 if written else 0)
+    assert sum(c[2:3] == ["patch"] for c in calls) == patches
+    assert "a cluster call failed" not in out.stdout
 
 
 @pytest.mark.parametrize(
@@ -176,9 +201,11 @@ def test_kubectl_keeps_the_in_cluster_identity(tmp_path):
     assert ast.unparse(runs[0].args[0]) == "['kubectl', '-n', NAMESPACE, *args]"
 
 
-def test_the_log_says_only_fixed_phrases(tmp_path):
-    out, _, _ = execute(tmp_path, "forbidden")
-    assert "Error from server" not in out.stdout and "applications.argoproj.io" not in out.stdout
+@pytest.mark.parametrize("mode", ["forbidden", "not-found", "denied", "webhook", "invalid", "patch-forbidden", "patch-lost"])
+def test_the_log_says_only_fixed_phrases(tmp_path, mode):
+    out, _, _ = execute(tmp_path, mode)
+    for said in ("Error from server", "applications.argoproj.io", "secret-value", "denied request", "Unable to connect"):
+        assert said not in out.stdout, (mode, out.stdout)
 
 
 def test_task_shape_and_embedding():
@@ -235,3 +262,66 @@ def test_the_prod_delivery_builds_nothing():
     assert t["agentrt-schema"]["runAfter"] == ["clone-platform"]
     assert t["promote-images"]["runAfter"] == ["agentrt-schema"]
     assert t["gitops-sync"]["runAfter"] == ["promote-images"]
+
+
+def application_rules():
+    (doc,) = [d for d in yaml.safe_load_all(ADMISSION.read_text()) if d and d["kind"] == "ValidatingAdmissionPolicy"
+              and d["metadata"]["name"] == "bifrost-platform-application"]
+    spec = doc["spec"]
+    assert "'" + DELIVER + "'" in spec["matchConditions"][0]["expression"]
+    return [" ".join(v["expression"].split()) for v in spec["validations"]]
+
+
+def test_the_admission_policy_lets_a_delivery_pin_its_application_by_digest(tmp_path):
+    """The first STG run's pin (2026-10-22) was denied: the policy let no one change spec.source.kustomize.
+
+    There is no CEL engine here; the exception's parts are read off the policy, and the
+    Task's own patch is matched against its image patterns. The Owner's apply script then
+    tries the pin against the API server (--dry-run=server, as tekton-deliver)."""
+    from platform_pin_sync import APPLICATIONS
+
+    rules = application_rules()
+    (general,) = [r for r in rules if "repoURL" in r]
+    assert "kustomize" not in general
+    (rule,) = [r for r in rules if "kustomize" in r]
+    unchanged, exception = rule.split(" || ( request.userInfo.username ", 1)
+    assert unchanged.endswith("|| ( has(object.spec.source.kustomize) == has(oldObject.spec.source.kustomize) && "
+                              "(!has(object.spec.source.kustomize) || object.spec.source.kustomize == "
+                              "oldObject.spec.source.kustomize) )")
+    assert exception.endswith(" )") and " || " not in exception  # every part of the exception must hold
+    parts = exception[: -len(" )")].split(" && ")
+    assert parts[0] == "== '" + DELIVER + "'"
+    assert parts[1] == "object.metadata.name in [" + ", ".join("'%s'" % a for a in APPLICATIONS) + "]"
+    assert parts[2:6] == [
+        "has(object.spec.source.kustomize)",
+        "object.spec.source.kustomize.all(k, k == 'images')",
+        "has(object.spec.source.kustomize.images)",
+        "size(object.spec.source.kustomize.images) == 2",
+    ]
+    patterns = [re.fullmatch(r"object\.spec\.source\.kustomize\.images\[%d\]\.matches\('([^']*)'\)" % i, part).group(1)
+                for i, part in enumerate(parts[6:])]
+    assert len(patterns) == 2
+    for app in APPLICATIONS:
+        (tmp_path / app).mkdir()
+        out, _, state = execute(tmp_path / app, app=app)
+        assert out.returncode == 0, out.stdout
+        kustomize = state["patched"]["spec"]["source"]["kustomize"]
+        assert list(kustomize) == ["images"] and len(kustomize["images"]) == 2
+        for pattern, image in zip(patterns, kustomize["images"]):
+            assert re.search(pattern, image), (pattern, image)
+    api = "registry.cicd.svc.cluster.local:5000/bifrost-platform-api=192.168.10.73:30500/bifrost-platform-api"
+    for image in (
+        api + ":stg",
+        api + ":stg@" + API,
+        api + "@sha256:" + "1" * 63,
+        api + "@sha256:" + "A" * 64,
+        api + "@" + API + "x",
+        "x" + api + "@" + API,
+        api.replace("=192.168.10.73:30500/", "=evil.example/") + "@" + API,
+        api.replace("bifrost-platform-api=", "bifrost-platform-console=") + "@" + API,
+        api.replace("192.168.10.73", "192x168.10.73") + "@" + API,
+    ):
+        assert not re.search(patterns[0], image), image
+    assert re.search(patterns[0], api + "@" + API)
+    assert re.search(patterns[1], api.replace("-api", "-console") + "@" + CONSOLE)
+    assert not re.search(patterns[1], api + "@" + API)

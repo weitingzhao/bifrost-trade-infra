@@ -97,6 +97,8 @@ scripts/release/release-check.sh diff old.json new.json --allow <file>
 
 **正式环境不再构建，按 STG 核对过的摘要部署**（TD-335，W-31 3.4 ①，Owner 2026-10-21「D3 A」；切法 `agent-config/work/multi-agent/CUT-release-speedup-2026-10-22.md`）。`check-source` 认定的那条 STG run，它的 `rollout` 核对过的 api、console 两个摘要（只在 Pod 真跑着之后才写），就是 PROD 发布的那一对；同一条 run 的 `clone-ui` 提交必须等于这张单子的 uiRevision。`agentrt-schema` 按这对里的 api 摘要查迁移，`promote-images` 把 `:prod` 挪到这一对（给 tag 的读者：Owner 的迁移 Job、registry 的保留集），`gitops-sync`（任务 `bifrost-argocd-pin-sync-platform`）在同一次 patch 里把应用 `bifrost-platform-prod` 的 `spec.source.kustomize.images` 钉到这两个摘要并发出同步、等这一次同步完成，`rollout` 以 `requireSpecDigest=true` 核对：三个 Deployment 的 spec 写着这个摘要，Pod 的 imageID 也是它（workers 用 API 摘要）。读取不是原子快照，不保证读完之后的状态。之后成立的是：Deployment 写的是摘要，Pod 重启拉的还是这一对，`:prod` 被谁改写都不改变 PROD 跑什么（TD-331）。STG 同样按本次构建的摘要钉住（TD-419）。
 
+准入策略 `bifrost-platform-application`（`k8s/platform-rbac/40-admission.yaml`）只许 `tekton-deliver` 对这两个平台应用写这一种改动：`spec.source.kustomize` 只有 `images`，api、console 各一项，都按摘要。平台身份不能改 `kustomize`；Owner 用管理员身份钉（下面的回滚）不受它管。
+
 **回滚不重建**：把上一次成功发布的那一对再钉回去。要么再成功发一次旧提交的 STG、再提升；要么 Owner 直接钉（两个摘要取自那次 PROD run 的 `check-source` 结果或台账）：
 
 ```bash

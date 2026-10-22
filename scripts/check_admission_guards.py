@@ -4,8 +4,8 @@
 Without --live this only reads the repo. --live asks the API server with
 kubectl dry-run=server and is for after the Owner applies k8s/platform-rbac.
 
-The dry-runs impersonate the PROD platform and applier ServiceAccounts, so they
-need the Owner kubeconfig (run through owner_run_command). With the Agent's
+The dry-runs impersonate the PROD platform, applier and tekton-deliver ServiceAccounts,
+so they need the Owner kubeconfig (run through owner_run_command). With the Agent's
 read-only identity the dry-runs are skipped and the exit code is 3; the
 Application-namespace check still runs (TD-277). A dry-run counts as denied
 only when the API server names a ValidatingAdmissionPolicy or refuses the
@@ -81,6 +81,7 @@ def static() -> list[str]:
         "hostPath",
         "object.spec.sources",
         "source.kustomize",
+        "object.spec.source.kustomize.all(k, k == 'images')",
         "source.helm",
         "source.plugin",
         "source.directory",
@@ -197,6 +198,7 @@ def live() -> list[str]:
     problems: list[str] = []
     platform = "system:serviceaccount:bifrost-platform-prod:bifrost-platform"
     applier = "system:serviceaccount:cicd:bifrost-applier"
+    deliver = "system:serviceaccount:cicd:tekton-deliver"
     cases = [
         ("inline-pipelinerun", platform, "cicd", inline_run(), True),
         ("resolver-pipelinerun", platform, "cicd", resolver_run(), True),
@@ -221,9 +223,26 @@ def live() -> list[str]:
             ("application-sources", platform, "cicd", with_spec(research, sources=[{"repoURL": "https://example.invalid/other.git", "path": "k8s"}]), True),
             ("application-kustomize", platform, "cicd", with_source(research, kustomize={"images": ["evil.example/x:1"]}), True),
         ]
+    # A platform delivery may pin its own application by digest and nothing else (TD-335).
+    stg = live_application("bifrost-platform-stg")
+    if stg is None:
+        problems.append("deliver-pin: cannot read the live Application bifrost-platform-stg")
+    else:
+        cases += [
+            ("deliver-pin", deliver, "cicd", with_source(stg, kustomize=delivery_pin()), False),
+            ("deliver-pin-other-registry", deliver, "cicd",
+             with_source(stg, kustomize=delivery_pin(api="evil.example/bifrost-platform-api@" + ZERO_DIGEST)), True),
+            ("deliver-pin-by-tag", deliver, "cicd",
+             with_source(stg, kustomize=delivery_pin(console=PIN_TARGET % "console" + ":stg")), True),
+            ("deliver-pin-and-more", deliver, "cicd",
+             with_source(stg, kustomize={**delivery_pin(), "namePrefix": "x-"}), True),
+            ("platform-pin", platform, "cicd", with_source(stg, kustomize=delivery_pin()), True),
+        ]
+        if research is not None:
+            cases.append(("deliver-pin-research", deliver, "cicd", with_source(research, kustomize=delivery_pin()), True))
     # Ask first: without impersonation kubectl fails while downloading OpenAPI as
     # the target ("failed to download openapi: unknown"), which names no cause.
-    for identity in (platform, applier):
+    for identity in (platform, applier, deliver):
         if not may_impersonate(identity):
             raise OwnerOnly(identity)
     for name, identity, ns, body, want_deny in cases:
@@ -437,6 +456,20 @@ def live_application(name: str) -> dict | None:
     for key in ("managedFields", "resourceVersion", "generation", "uid", "creationTimestamp", "annotations"):
         obj["metadata"].pop(key, None)
     return obj
+
+
+PIN_SOURCE = "registry.cicd.svc.cluster.local:5000/bifrost-platform-%s"
+PIN_TARGET = "192.168.10.73:30500/bifrost-platform-%s"
+# Never a live pin, so each case changes spec.source.kustomize and is checked by the rule.
+ZERO_DIGEST = "sha256:" + "0" * 64
+
+
+def delivery_pin(api: str | None = None, console: str | None = None) -> dict:
+    """The kustomize override a platform delivery's gitops-sync writes (task-argocd-pin-sync-platform)."""
+    return {"images": [
+        PIN_SOURCE % "api" + "=" + (api or PIN_TARGET % "api" + "@" + ZERO_DIGEST),
+        PIN_SOURCE % "console" + "=" + (console or PIN_TARGET % "console" + "@" + ZERO_DIGEST),
+    ]}
 
 
 def with_spec(obj: dict, **fields) -> str:

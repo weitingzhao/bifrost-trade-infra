@@ -235,8 +235,6 @@ spec:
           || (
             object.spec.source.repoURL == oldObject.spec.source.repoURL
             && object.spec.source.path == oldObject.spec.source.path
-            && has(object.spec.source.kustomize) == has(oldObject.spec.source.kustomize)
-            && (!has(object.spec.source.kustomize) || object.spec.source.kustomize == oldObject.spec.source.kustomize)
             && has(object.spec.source.helm) == has(oldObject.spec.source.helm)
             && (!has(object.spec.source.helm) || object.spec.source.helm == oldObject.spec.source.helm)
             && has(object.spec.source.plugin) == has(oldObject.spec.source.plugin)
@@ -251,6 +249,27 @@ spec:
         && has(object.spec.sources) == has(oldObject.spec.sources)
         && (!has(object.spec.sources) || object.spec.sources == oldObject.spec.sources)
       message: platform may change only the sync operation and targetRevision
+    # spec.source.kustomize stays as it is, with one exception (TD-335, W-31 3.4 ①): a platform
+    # delivery, as tekton-deliver, pins its own application to the two images it deploys, by
+    # digest, and to nothing else (task-argocd-pin-sync-platform.yaml writes exactly this list).
+    # Without the exception the first STG run's pin was denied here (2026-10-22).
+    - expression: >-
+        !has(object.spec.source) || !has(oldObject.spec.source)
+        || (
+          has(object.spec.source.kustomize) == has(oldObject.spec.source.kustomize)
+          && (!has(object.spec.source.kustomize) || object.spec.source.kustomize == oldObject.spec.source.kustomize)
+        )
+        || (
+          request.userInfo.username == 'system:serviceaccount:cicd:tekton-deliver'
+          && object.metadata.name in ['bifrost-platform-stg', 'bifrost-platform-prod']
+          && has(object.spec.source.kustomize)
+          && object.spec.source.kustomize.all(k, k == 'images')
+          && has(object.spec.source.kustomize.images)
+          && size(object.spec.source.kustomize.images) == 2
+          && object.spec.source.kustomize.images[0].matches('^registry[.]cicd[.]svc[.]cluster[.]local:5000/bifrost-platform-api=192[.]168[.]10[.]73:30500/bifrost-platform-api@sha256:[0-9a-f]{64}$')
+          && object.spec.source.kustomize.images[1].matches('^registry[.]cicd[.]svc[.]cluster[.]local:5000/bifrost-platform-console=192[.]168[.]10[.]73:30500/bifrost-platform-console@sha256:[0-9a-f]{64}$')
+        )
+      message: only a platform delivery may change spec.source.kustomize, and only to pin its application's api and console images by digest
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy

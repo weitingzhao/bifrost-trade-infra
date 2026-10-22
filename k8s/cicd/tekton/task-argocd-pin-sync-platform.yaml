@@ -75,6 +75,12 @@ spec:
         WAIT_S = int(os.environ.get("PIN_SYNC_WAIT_S", "180"))
         CALL_S = int(os.environ.get("PIN_SYNC_CALL_S", "20"))
         POLL_S = float(os.environ.get("PIN_SYNC_POLL_S", "2"))
+        # What denied a call, when the API server names it; of kubectl's output only such a name is logged.
+        DENIED_BY = (
+            (re.compile(r"validatingadmissionpolicy '([a-z0-9][-a-z0-9.]{0,252})'"), "admission policy"),
+            (re.compile(r'admission webhook "([a-z0-9][-a-z0-9.]{0,252})" denied'), "admission webhook"),
+        )
+        VERBS = {"get": "read", "patch": "patch"}
 
 
         class Refused(ValueError):
@@ -83,6 +89,27 @@ spec:
 
         class OutOfTime(Refused):
             """The step's deadline, not a slow cluster, ended a call."""
+
+
+        class Rejected(Refused):
+            """The API server answered the call with a refusal, so a refused patch wrote nothing."""
+
+
+        def failure(verb, stderr):
+            """A failed call's fixed category (the first STG run, 2026-10-22, could say only that a call failed)."""
+            text = stderr.lower() if isinstance(stderr, str) else ""
+            what = VERBS.get(verb, "call")
+            for pattern, kind in DENIED_BY:
+                found = pattern.search(text)
+                if found:
+                    return Rejected("the %s %s denied the %s of the application" % (kind, found.group(1), what))
+            if "forbidden" in text or "unauthorized" in text:
+                return Rejected("this identity cannot %s the application" % what)
+            if " is invalid" in text:
+                return Rejected("the API server rejected the %s of the application as invalid" % what)
+            if "(notfound)" in text:
+                return Rejected("the application was not found")
+            return Refused("the %s of the application failed" % what)
 
 
         def kubectl(args, deadline):
@@ -104,10 +131,7 @@ spec:
                     raise OutOfTime("the step's time ran out") from None
                 raise Refused("a cluster call did not answer in time") from None
             except subprocess.CalledProcessError as exc:
-                text = exc.stderr.lower() if isinstance(exc.stderr, str) else ""
-                if "forbidden" in text or "unauthorized" in text:
-                    raise Refused("this identity cannot read or patch the application") from None
-                raise Refused("a cluster call failed") from None
+                raise failure(args[0], exc.stderr) from None
 
 
         def unique_object(pairs):
@@ -181,7 +205,11 @@ spec:
                     "operation": {"initiatedBy": {"username": who}, "sync": {"revision": "HEAD"}},
                 }
                 written = True  # from here the application may be pinned, the patch's answer lost or not
-                kubectl(["patch", "application", app, "--type", "merge", "-p", json.dumps(patch)], deadline)
+                try:
+                    kubectl(["patch", "application", app, "--type", "merge", "-p", json.dumps(patch)], deadline)
+                except Rejected:
+                    written = False  # the API server refused the patch: nothing of it was stored
+                    raise
                 print("pinned %s to api %s and console %s; sync requested as %s" % (app, digests["api"], digests["console"], who))
                 late = "this run's sync did not finish with the pinned images in %d s" % WAIT_S
                 while True:

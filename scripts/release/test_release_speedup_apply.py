@@ -13,6 +13,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = "scripts/release/release-speedup-apply.sh"
 FILES = [
+    "k8s/platform-rbac/40-admission.yaml",
     "k8s/cicd/tekton/task-argocd-pin-sync-platform.yaml",
     "k8s/cicd/tekton/task-rollout-verify-platform.yaml",
     "k8s/cicd/tekton/pipeline-deliver-platform.yaml",
@@ -37,6 +38,20 @@ if a[:2] == ["apply", "-f"]:
     sys.exit(1 if r and a[2].endswith(r) else 0)
 if a[:1] == ["diff"]:
     sys.exit(1)
+if a[2:3] == ["patch"]:
+    # a delivery's pin as tekton-deliver: the live policy refuses it until 40-admission.yaml is
+    # applied (FAKE_PIN=live), or answers as FAKE_PIN says
+    mode = os.environ.get("FAKE_PIN", "live")
+    if mode == "live":
+        applied = os.path.exists(os.environ["FAKE_APPLIED"]) and "40-admission.yaml" in open(os.environ["FAKE_APPLIED"]).read()
+        mode = "new" if applied else "old"
+    by_tag = ":stg" in a[a.index("-p") + 1]
+    deny = "The applications \"x\" is invalid: : ValidatingAdmissionPolicy 'bifrost-platform-application' with binding 'bifrost-platform-application' denied request: no"
+    if mode == "old" or (mode == "new" and by_tag):
+        print(deny, file=sys.stderr); sys.exit(1)
+    if mode == "rbac":
+        print("forbidden: User \"system:serviceaccount:cicd:tekton-deliver\" cannot patch", file=sys.stderr); sys.exit(1)
+    print("application.argoproj.io/x patched (server dry run)"); sys.exit()
 '''
 
 
@@ -141,10 +156,63 @@ def test_every_cluster_call_is_bounded(repo):
             assert c.endswith(" --request-timeout=20s"), c
 
 
-def test_no_argo_application_is_touched():
-    # a delivery pins its own application; the Owner's apply never names one
+def test_no_argo_application_is_written(repo):
+    # a delivery pins its own application; the Owner's apply only tries the pin, not stored
+    out, calls = run(repo, "apply")
+    assert out.returncode == 0, out.stdout + out.stderr
+    named = [c for c in calls if "application" in c.lower() and "40-admission.yaml" not in c]
+    assert len(named) == 3, calls
+    for c in named:
+        assert c.startswith("-n cicd patch applications.argoproj.io/bifrost-platform-"), c
+        assert " --dry-run=server --as system:serviceaccount:cicd:tekton-deliver " in c, c
     code = [ln for ln in (ROOT / SCRIPT).read_text().splitlines() if not ln.strip().startswith("#")]
-    assert not [ln for ln in code if "application" in ln.lower()]
+    kubectl_lines = [i for i, ln in enumerate(code) if "kubectl" in ln and "application" in ln.lower()]
+    assert len(kubectl_lines) == 1 and "--dry-run=server" in code[kubectl_lines[0]], kubectl_lines
+
+
+def pin_calls(calls):
+    return [c for c in calls if c.startswith("-n cicd patch ")]
+
+
+def test_apply_tries_a_delivery_pin_after_every_write(repo):
+    out, calls = run(repo, "apply")
+    assert out.returncode == 0, out.stdout + out.stderr
+    last_write = max(i for i, c in enumerate(calls) if c.startswith("apply -f "))
+    pins = [i for i, c in enumerate(calls) if c.startswith("-n cicd patch ")]
+    assert pins and min(pins) > last_write
+    assert "a delivery's digest pin of bifrost-platform-stg passes admission" in out.stdout
+    assert "a delivery's digest pin of bifrost-platform-prod passes admission" in out.stdout
+    assert "a pin by tag is refused by the admission policy" in out.stdout
+    # the pin tried is the one the gitops-sync Task sends
+    body = pin_calls(calls)[0].split(" -p ", 1)[1].split(" --dry-run=server", 1)[0]
+    images = __import__("json").loads(body)["spec"]["source"]["kustomize"]["images"]
+    zero = "@sha256:" + "0" * 64
+    assert images == [
+        "registry.cicd.svc.cluster.local:5000/bifrost-platform-api=192.168.10.73:30500/bifrost-platform-api" + zero,
+        "registry.cicd.svc.cluster.local:5000/bifrost-platform-console=192.168.10.73:30500/bifrost-platform-console" + zero,
+    ]
+
+
+@pytest.mark.parametrize(
+    "pin, says",
+    [
+        ("old", "a delivery's digest pin of bifrost-platform-stg is refused: The applications"),
+        ("wide", "a pin by tag passes admission: the policy is wider than a digest pin"),
+        ("rbac", "is refused: forbidden"),
+    ],
+)
+def test_apply_stops_when_the_pin_is_not_answered_as_it_should_be(repo, pin, says):
+    out, _ = run(repo, "apply", FAKE_PIN=pin)
+    assert out.returncode == 1 and says in out.stdout, out.stdout
+    assert "start no platform delivery" in out.stdout
+
+
+def test_check_reports_the_policy_before_it_is_applied_and_writes_nothing(repo):
+    out, calls = run(repo, "check")
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert "a delivery's digest pin of bifrost-platform-stg is refused" in out.stdout
+    assert "until 40-admission.yaml is applied" in out.stdout and "nothing written" in out.stdout
+    assert applied(calls) == []
 
 
 def test_usage(repo):
