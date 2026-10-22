@@ -60,7 +60,17 @@ REFUSED_PATCH = {
     "invalid": 'The Application "' + app + '" is invalid: spec.source.kustomize.images[0]: Invalid value: "secret-value"',
     "patch-forbidden": 'Error from server (Forbidden): applications.argoproj.io "' + app + '" is forbidden: cannot patch',
     "patch-lost": "Unable to connect to the server: EOF",
+    "warn-denied": "Warning: an earlier discovery request was forbidden\n"
+                   'The applications "' + app + '" is invalid: : ValidatingAdmissionPolicy '
+                   "'bifrost-platform-application' with binding 'bifrost-platform-application' denied request: no",
+    "invalid-fields": 'The Application "' + app + '" is invalid: \n* spec.source.kustomize.images[0]: '
+                      'Invalid value: "secret-value"\n* spec.source.path: Required value',
+    # review 514 B1: the patch was stored and its answer lost, after a forbidden discovery warning
+    "stored-lost": "Warning: an earlier discovery request was forbidden\nerror: unexpected EOF",
+    "server-error": "Error from server (InternalError): Internal error occurred: secret-value",
 }
+if a[2:4] == ["patch", "application"] and mode in ("stored-lost", "server-error"):
+    st["patched"] = json.loads(a[a.index("-p") + 1]); save()
 if a[2:4] == ["patch", "application"] and mode in REFUSED_PATCH:
     print(REFUSED_PATCH[mode], file=sys.stderr); sys.exit(1)
 if a[2:4] == ["patch", "application"]:
@@ -158,8 +168,12 @@ def test_a_running_sync_finishes_first(tmp_path):
         ("webhook", "the admission webhook validate.example.io denied the patch of the application", False, 1),
         ("invalid", "the API server rejected the patch of the application as invalid", False, 1),
         ("patch-forbidden", "this identity cannot patch the application", False, 1),
-        # no answer: the patch may have been stored
-        ("patch-lost", "the patch of the application failed", True, 1),
+        ("warn-denied", "the admission policy bifrost-platform-application denied the patch of the application", False, 1),
+        ("invalid-fields", "the API server rejected the patch of the application as invalid", False, 1),
+        # no answer, or one that does not refuse: the patch may have been stored
+        ("patch-lost", "the patch of the application failed without an answer", True, 1),
+        ("stored-lost", "the patch of the application failed without an answer", True, 1),
+        ("server-error", "the API server answered the patch of the application with an error", True, 1),
     ],
 )
 def test_refusals(tmp_path, mode, says, written, patches):
@@ -201,10 +215,12 @@ def test_kubectl_keeps_the_in_cluster_identity(tmp_path):
     assert ast.unparse(runs[0].args[0]) == "['kubectl', '-n', NAMESPACE, *args]"
 
 
-@pytest.mark.parametrize("mode", ["forbidden", "not-found", "denied", "webhook", "invalid", "patch-forbidden", "patch-lost"])
+@pytest.mark.parametrize("mode", ["forbidden", "not-found", "denied", "webhook", "invalid", "patch-forbidden", "patch-lost",
+                                  "warn-denied", "invalid-fields", "stored-lost", "server-error"])
 def test_the_log_says_only_fixed_phrases(tmp_path, mode):
     out, _, _ = execute(tmp_path, mode)
-    for said in ("Error from server", "applications.argoproj.io", "secret-value", "denied request", "Unable to connect"):
+    for said in ("Error from server", "applications.argoproj.io", "secret-value", "denied request", "Unable to connect",
+                 "Warning", "unexpected EOF", "Internal error", "Required value"):
         assert said not in out.stdout, (mode, out.stdout)
 
 

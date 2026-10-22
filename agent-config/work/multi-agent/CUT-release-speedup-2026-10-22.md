@@ -114,7 +114,7 @@ W-56 门槛里的「回滚不重建」由此成立：被删掉的只会是没有
 
 改法：
 - **策略**：`kustomize` 的规则拆成单独一条。前后不变照旧放行；另外只放行一种改动——`tekton-deliver` 改 `bifrost-platform-stg` 或 `bifrost-platform-prod`，改完的 `kustomize` 只有 `images` 一个键，正好两项，第一项是 api、第二项是 console，都是 `registry.cicd.svc.cluster.local:5000/bifrost-platform-<x>=192.168.10.73:30500/bifrost-platform-<x>@sha256:<64 位十六进制>`。平台身份照旧不能改；别的应用、按 tag、别的仓库、多带字段都不行。其余字段的规则不变。
-- **任务**：失败的调用按固定类别报出，策略或 webhook 只报名字（名字先过正则），kubectl 的其余输出不进日志。API 服务器明确拒了 patch（准入、403、422、404）时，日志说「application is left as it was」；只有没回答的情况才说「may be pinned」。
+- **任务**：失败的调用按固定类别报出，策略或 webhook 只报名字（名字先过正则），kubectl 的其余输出不进日志。类别只看 kubectl 最后报出的那条 API 应答：它明确拒了 patch（准入、403、422、404）时，日志说「application is left as it was」；没有应答（连接断了、读不到）或应答是服务器错误时，说「may be pinned」。前面的警告和发现请求的报错不算数：patch 可能已经写入，只是应答丢了（复核 514 B1）。
 - **Owner 的应用脚本**：准入文件排第一个；应用完之后，以 `tekton-deliver` 身份对两个平台应用各做一次 `--dry-run=server` 的钉镜像 patch（不落库），必须通过；再试一次按 tag 钉，必须被这条策略拒。`check` 时也做，策略还没应用时如实报告「仍被拒」，不算失败。
 - **`scripts/check_admission_guards.py --live`** 多六种：`tekton-deliver` 钉 STG（放行）、换仓库、按 tag、多带 `namePrefix`、钉 research（都拒），平台身份去钉（拒）。
 

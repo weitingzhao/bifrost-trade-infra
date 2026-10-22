@@ -37,6 +37,9 @@ DENIED_BY = (
     (re.compile(r'admission webhook "([a-z0-9][-a-z0-9.]{0,252})" denied'), "admission webhook"),
 )
 VERBS = {"get": "read", "patch": "patch"}
+# kubectl's last word on a failed request, when the API server answered it (a Status). Warnings
+# and discovery errors come before it; an Invalid answer's field errors after it, as "* " lines.
+ANSWER_RE = re.compile(r'(error from server(?: \(([a-z]+)\))?: |the [-a-z0-9.]+ "[^"\n]*" is invalid: )')
 
 
 class Refused(ValueError):
@@ -48,24 +51,40 @@ class OutOfTime(Refused):
 
 
 class Rejected(Refused):
-    """The API server answered the call with a refusal, so a refused patch wrote nothing."""
+    """The API server's last answer to the call refused it, so a refused patch stored nothing."""
+
+
+def last_answer(stderr):
+    """The API server's answer kubectl reported last, lower-cased; None when its last word is not one."""
+    lines = [line for line in (stderr if isinstance(stderr, str) else "").lower().splitlines() if line.strip()]
+    while lines and lines[-1].startswith("* "):
+        lines.pop()
+    return lines[-1] if lines and ANSWER_RE.match(lines[-1]) else None
 
 
 def failure(verb, stderr):
-    """A failed call's fixed category (the first STG run, 2026-10-22, could say only that a call failed)."""
-    text = stderr.lower() if isinstance(stderr, str) else ""
+    """A failed call's fixed category (the first STG run, 2026-10-22, could say only that a call failed).
+
+    Only the answer kubectl reported last counts: a forbidden discovery warning before a lost
+    connection says nothing about the patch, which may have been stored (review 514 B1).
+    """
     what = VERBS.get(verb, "call")
+    answer = last_answer(stderr)
+    if answer is None:
+        return Refused("the %s of the application failed without an answer from the API server" % what)
     for pattern, kind in DENIED_BY:
-        found = pattern.search(text)
+        found = pattern.search(answer)
         if found:
             return Rejected("the %s %s denied the %s of the application" % (kind, found.group(1), what))
-    if "forbidden" in text or "unauthorized" in text:
+    reason = ANSWER_RE.match(answer).group(2) or ("invalid" if " is invalid: " in answer else "")
+    if reason in ("forbidden", "unauthorized"):
         return Rejected("this identity cannot %s the application" % what)
-    if " is invalid" in text:
+    if reason == "invalid":
         return Rejected("the API server rejected the %s of the application as invalid" % what)
-    if "(notfound)" in text:
+    if reason == "notfound":
         return Rejected("the application was not found")
-    return Refused("the %s of the application failed" % what)
+    # a server error, a timeout: the request may have been stored
+    return Refused("the API server answered the %s of the application with an error" % what)
 
 
 def kubectl(args, deadline):
@@ -187,7 +206,8 @@ def main():
         return 0
     except Exception as exc:
         reason = str(exc) if isinstance(exc, Refused) else "missing or malformed application fields"
-        # Only fixed phrases: object fields and kubectl output never enter the log.
+        # Only fixed phrases and a name DENIED_BY matched: object fields and the rest of
+        # kubectl's output never enter the log.
         said = (
             "; the application may be pinned to this run's digests and syncing to them"
             if written

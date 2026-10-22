@@ -183,14 +183,19 @@ def test_apply_tries_a_delivery_pin_after_every_write(repo):
     assert "a delivery's digest pin of bifrost-platform-stg passes admission" in out.stdout
     assert "a delivery's digest pin of bifrost-platform-prod passes admission" in out.stdout
     assert "a pin by tag is refused by the admission policy" in out.stdout
-    # the pin tried is the one the gitops-sync Task sends
+    # the pin tried is the one the gitops-sync Task sends (review 514: the whole patch, not only its images)
     body = pin_calls(calls)[0].split(" -p ", 1)[1].split(" --dry-run=server", 1)[0]
-    images = __import__("json").loads(body)["spec"]["source"]["kustomize"]["images"]
     zero = "@sha256:" + "0" * 64
-    assert images == [
-        "registry.cicd.svc.cluster.local:5000/bifrost-platform-api=192.168.10.73:30500/bifrost-platform-api" + zero,
-        "registry.cicd.svc.cluster.local:5000/bifrost-platform-console=192.168.10.73:30500/bifrost-platform-console" + zero,
-    ]
+    assert __import__("json").loads(body) == {
+        "spec": {"source": {"kustomize": {"images": [
+            "registry.cicd.svc.cluster.local:5000/bifrost-platform-api=192.168.10.73:30500/bifrost-platform-api" + zero,
+            "registry.cicd.svc.cluster.local:5000/bifrost-platform-console=192.168.10.73:30500/bifrost-platform-console" + zero,
+        ]}}},
+        "operation": {"initiatedBy": {"username": "tekton-deliver-platform:speedup-apply-check"}, "sync": {"revision": "HEAD"}},
+    }
+    task_patch = (ROOT / "scripts/release/platform_pin_sync.py").read_text()
+    assert 'who = "tekton-deliver-platform:" + run' in task_patch
+    assert '"operation": {"initiatedBy": {"username": who}, "sync": {"revision": "HEAD"}},' in task_patch
 
 
 @pytest.mark.parametrize(
