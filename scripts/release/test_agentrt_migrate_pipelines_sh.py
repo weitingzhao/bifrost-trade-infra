@@ -30,12 +30,14 @@ with open(os.environ["FAKE_LOG"], "a") as f:
     f.write(" ".join(a) + "\n")
 st = json.loads(os.environ["FAKE_STATE"])
 RT = "--request-timeout=20s"
-if a[:1] == ["get"] or a[:2] == ["auth", "can-i"]:
-    # every read before the writes is bounded (review 503 B2)
-    assert a[-1] == RT, a
+if (a[:1] == ["get"] or a[:2] == ["auth", "can-i"]) and a[-1] == RT:
+    # that every read carries it is test_every_read_before_the_writes_is_bounded's (review 504 C2)
     a = a[:-1]
 if a[:2] == ["auth", "can-i"]:
-    print(os.environ.get("FAKE_CAN", "yes") if " ".join(a[2:]) != os.environ.get("FAKE_CANNOT") else "no"); sys.exit()
+    answer = os.environ.get("FAKE_CAN", "yes") if " ".join(a[2:]) != os.environ.get("FAKE_CANNOT") else "no"
+    with open(os.environ["FAKE_LOG"] + ".can", "a") as f:
+        f.write(answer + "\n")
+    print(answer); sys.exit()
 if a[:3] == ["get", "deployment", "platform-api"]:
     assert a[3:] == ["-n", "bifrost-platform-prod", "-o", "json"], a
     print(json.dumps(st["deployment"])); sys.exit()
@@ -143,6 +145,17 @@ def run(repo, step, st=None, can="yes", refuse="", apply_fails="", cannot=""):
 ALL_WITH = state({"platform-api-1": WITH, "platform-api-2": WITH})
 
 
+def answered(repo):
+    """What the fake said to each can-i, in order."""
+    f = repo[2].parent / (repo[2].name + ".can")
+    return f.read_text().split() if f.exists() else []
+
+
+def pod_reads(repo):
+    f = repo[2].parent / (repo[2].name + ".pods")
+    return int(f.read_text()) if f.exists() else 0
+
+
 def applied(calls):
     # the snapshot path ends with the file's path in the repository
     out = []
@@ -180,6 +193,7 @@ def test_an_agent_identity_stops_before_anything(repo):
     out, calls = run(repo, "apply", can="no")
     assert out.returncode == 1 and "run this in your own terminal" in out.stdout
     assert all(c.startswith("auth can-i") for c in calls)
+    assert answered(repo) == ["no"]  # the first answer, a no, stopped it
 
 
 def test_a_refused_dry_run_stops_before_any_write(repo):
@@ -280,7 +294,7 @@ def test_the_same_pod_names_with_other_containers_stop_before_any_write(repo, la
     st = state({"platform-api-1": WITH, "platform-api-2": WITH}, pods=[PODS, later])
     out, calls = run(repo, "apply", st)
     assert out.returncode == 1 and "pods changed during the checks; nothing is written" in out.stdout
-    assert applied(calls) == []
+    assert applied(calls) == [] and pod_reads(repo) == 2
 
 
 def test_a_change_while_stg_is_applied_leaves_prods_pipeline_out(repo):
@@ -289,7 +303,7 @@ def test_a_change_while_stg_is_applied_leaves_prods_pipeline_out(repo):
                pods=[PODS, PODS, [pod("platform-api-1", image="sha256:bbb"), pod("platform-api-2", image="sha256:bbb")]])
     out, calls = run(repo, "apply", st)
     assert out.returncode == 1 and "so PROD's pipeline is not applied" in out.stdout
-    assert applied(calls) == STG
+    assert applied(calls) == STG and pod_reads(repo) == 3
     assert "applied: " + " ".join(STG) in out.stdout
 
 
@@ -304,6 +318,7 @@ def test_an_identity_that_cannot_ask_prods_pods_stops_before_anything(repo):
     out, calls = run(repo, "apply", ALL_WITH, cannot="get pods --subresource=proxy -n bifrost-platform-prod")
     assert out.returncode == 1 and "cannot get pods --subresource=proxy" in out.stdout
     assert all(c.startswith("auth can-i") for c in calls)
+    assert answered(repo)[-1] == "no" and set(answered(repo)[:-1]) == {"yes"}
 
 
 def test_pods_that_change_during_the_checks_stop_before_any_write(repo):

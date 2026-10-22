@@ -301,6 +301,65 @@ def test_stg_one_deadline_bounds_the_whole_step(tmp_path, mode, says):
     assert elapsed < 3 + 1.5, elapsed
 
 
+def run_stg_on_a_virtual_clock(monkeypatch, capsys, complete, pods):
+    """STG's step in this process, its clock virtual: each kubectl call answers in 0.25 s and a
+    sleep moves the clock by what it asks. Returns the exit code, the clock at the exit, the
+    calls (when, the timeout given) and what the step printed."""
+    import subprocess as real
+    import types
+
+    clock = {"now": 0.0}
+    calls = []
+
+    def run(args, input=None, capture_output=True, text=True, timeout=None):
+        calls.append((clock["now"], timeout))
+        clock["now"] += 0.25  # off the 2 s and 5 s grid, so a wait that overruns shows
+        a = args[1:]
+        if a[:1] == ["create"]:
+            return real.CompletedProcess(args, 0, "agentrt-migrate-abc12", "")
+        if a[:2] == ["get", "job"]:
+            conds = [{"type": "Complete", "status": "True"}] if complete else []
+            body = {"metadata": {"name": "agentrt-migrate-abc12", "uid": "uid-1"},
+                    "status": {"conditions": conds, "succeeded": 1 if complete else 0}}
+            return real.CompletedProcess(args, 0, json.dumps(body), "")
+        if a[:2] == ["get", "pods"]:
+            return real.CompletedProcess(args, 0, json.dumps({"items": pods}), "")
+        return real.CompletedProcess(args, 0, "", "")
+
+    fake_time = types.SimpleNamespace(monotonic=lambda: clock["now"],
+                                      sleep=lambda s: clock.__setitem__("now", clock["now"] + s))
+    fake_sp = types.SimpleNamespace(run=run, CompletedProcess=real.CompletedProcess, TimeoutExpired=real.TimeoutExpired)
+    head = "import json, os, re, subprocess, sys, time\n"
+    src = stg_script()
+    assert src.count(head) == 1
+    for k in ("AGENTRT_MIGRATE_WAIT_S", "AGENTRT_MIGRATE_CALL_S"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("API_DIGEST", DIGEST)
+    monkeypatch.setenv("DELIVER_RUN", RUN)
+    ns = {"__name__": "stg_step", "subprocess": fake_sp, "time": fake_time}
+    with pytest.raises(SystemExit) as e:
+        exec(compile(src.replace(head, "import json, os, re, sys\n"), "stg-step", "exec"), ns)
+    return e.value.code, clock["now"], calls, capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "complete, pods, says",
+    [
+        (False, [], "did not finish in 960 s"),
+        # the pod list never shows the Job's own pod (review 504 C1: the 2 s wait of the pod loop)
+        (True, [{"metadata": {"name": "agentrt-migrate-abc12-x", "ownerReferences": [{"uid": "another-uid"}]},
+                 "status": {"phase": "Succeeded"}}], "its succeeded pod could not be read in 960 s"),
+    ],
+)
+def test_stg_never_runs_past_its_deadline_on_a_virtual_clock(monkeypatch, capsys, complete, pods, says):
+    code, end, calls, out = run_stg_on_a_virtual_clock(monkeypatch, capsys, complete, pods)
+    assert code == 1 and says in out
+    # the waits end on the deadline, never a sleep past it; one call's 0.25 s at most after it
+    assert 960 <= end <= 960 + 0.25 + 1e-6, end
+    # no call is given more time than the step has left
+    assert all(t <= 960 - when + 1e-6 for when, t in calls), [c for c in calls if c[1] > 960 - c[0]]
+
+
 def test_stg_pipeline_task_has_a_backstop_timeout():
     m = tasks(STG_PIPELINE)["agentrt-migrate"]
     assert m["timeout"] == "20m"
