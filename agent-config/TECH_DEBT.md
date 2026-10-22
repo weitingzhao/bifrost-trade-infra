@@ -2165,16 +2165,16 @@
 
 ### TD-423
 
-**P2 · gitea · no `agent/**` branch rule is in force on any `bifrost/*` repository, so an agent account can write any branch but `main`, and agent branches can vanish**
+**P3 · gitea · batch D's step 5 copied back 12 attempt branches that agentd had deleted on purpose**
 
-- **状态**：未开始（2026-10-22 统筹线程在第 D 批第 5 条时发现）
-- **Claim**: the cut (`CUT-gitea-primary-2026-10-17.md`) and batch A's run note say `protect-repo.sh` set `main` and `agent/**` on `bifrost-platform` and `bifrost-ui` and read four rules back. On 2026-10-22 03:5xZ the Branch Protection page of `bifrost/bifrost-platform`, `bifrost/bifrost-ui`, `bifrost/bifrost-trade-infra` and `bifrost/primary-probe` lists one rule each: `main`. Consistent with that: `copy-agent-branches.sh bifrost-platform`, pushing with the admin account that an `agent/**` whitelist would refuse, created 12 branches; and those 12 (Gate A drills of 10-15 and 10-16, `agent/t_01M50…`, `t_01M54…`, `t_01M557…`, `t_01M559…`) had been copied in batch A and were gone from `bifrost/bifrost-platform` before tonight, so something deleted them unprotected.
-- **Evidence**: Gitea settings pages (read 2026-10-22 03:5xZ in the Owner's browser session); `copy-agent-branches.sh` log (12 copied, 6 already there; a second run 0 copied, 18 already there).
-- **Impact**: team `agentd-write` (Code write on every repository) lets the agentd accounts create, force-push and delete any branch except `main`, including another attempt's `agent/` branch and non-`agent/` names; lineage and earlier attempts' bases can disappear.
-- **Fix**: find when and how the `agent/**` rules went (Gitea admin log, `protect-repo.sh` history); re-apply them with `protect-repo.sh` on every repository agents work in (push whitelist team `agentd-write` and the Owner, no force push, no deletion by agents); add the read-back to `check-step1.sh`-style monitoring so a missing rule pages.
-- **Ratchet**: a scheduled read-only check that every repository in the agent-work list has its `main` and `agent/**` rules, alerting when one is missing.
-- 验收: the Branch Protection page of each repository lists `agent/**`; the protection probe refuses an agent account's push to a non-`agent/` branch and its force-push of another attempt's branch.
-- 审批 Owner（Gitea 管理员写）· 代价 S · 风险 low · repos: bifrost-trade-infra
+- **状态**：未开始（2026-10-22 统筹线程记；同日先按「agent/** 规则丢了」记错，读 `protect-repo.sh` 后改正，教训 195）
+- **Claim**: the `agent/**` branch rule is gone from every `bifrost/*` repository on purpose: TD-383 (the Owner 10-20 「分支 B 用 agentd」) lifted it so that agentd deletes attempt branches under the runtime's rule, and `protect-repo.sh` deletes the rule where it finds one. `OWNER-STEPS-gitea-primary.md` §4 step 5 was written expecting `0 copied, 18 already there`, as if nothing were ever deleted; on 2026-10-22 03:5xZ `copy-agent-branches.sh bifrost-platform` found 12 of the 18 batch-A branches gone (Gate A drills of 10-15 and 10-16: `agent/t_01M50…`, `t_01M54…`, `t_01M557…`, `t_01M559…`) and created them again in `bifrost/bifrost-platform`; a second run said `0 copied, 18 already there`.
+- **Evidence**: the script's log (12 copied, 6 already there); `protect-repo.sh` header and its `agent/** no more (TD-383)` block; Gitea branch pages listing `main` only.
+- **Impact**: 12 old attempt branches are back (their commits are also in the archived `bifrost-agents/bifrost-platform`); nothing points at them. The step text would mislead whoever runs it next.
+- **Fix**: the Owner decides whether the 12 go again (agentd's cleanup or a one-off deletion; they stay readable in the archived repository); §4 step 5's expected result is reworded: copied may be above 0 because agentd deletes attempt branches (TD-383), and what matters is `0 not copied` and no `DIFFERS`.
+- **Ratchet**: none beyond the reworded step (a one-off batch).
+- 验收: §4 step 5 says so; the 12 branches are gone or kept on the Owner's word.
+- 审批 Owner（删分支）· 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ### TD-422
 

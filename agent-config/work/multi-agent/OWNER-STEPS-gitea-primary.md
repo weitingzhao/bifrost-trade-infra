@@ -214,7 +214,7 @@ bash ~/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh p
 bash ~/Desktop/stocks/bifrost-trade-infra/scripts/gitea/copy-agent-branches.sh bifrost-platform
 ```
 
-- 判断成了：最后一行是 `bifrost-platform: 0 copied, 18 already there, 0 not copied`（第 A 批搬过 18 条）。中间那个数不是 18、但 copied 和 not copied 都是 0，也算过；有 `DIFFERS` 或 `REFUSED` 行就停。
+- 判断成了：最后一行 `not copied` 是 0，且没有 `DIFFERS`、`REFUSED` 行。`copied` 可以大于 0：agentd 按运行时的规则清理尝试分支（TD-383，agent/** 规则因此撤了），清理掉的会被搬回来（10-22 实跑：12 copied、6 already there，再跑一次 0 copied、18 already there；搬回的 12 条要不要再删见 TD-423）。
 
 再归档：`bifrost-agents/bifrost-platform` → Settings → 页面最下面 Danger Zone → **Archive this repo** → 确认。
 
