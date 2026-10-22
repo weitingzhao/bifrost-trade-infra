@@ -141,6 +141,8 @@ spec:
     # STG's database before anything else moves; a Job that fails stops the run here.
     - name: agentrt-migrate
       runAfter: [build-platform-api]
+      # a backstop: the step bounds itself to AGENTRT_MIGRATE_WAIT_S (960 s) (review 503)
+      timeout: 20m
       taskRef:
         name: bifrost-agentrt-migrate-stg
       params:

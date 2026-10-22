@@ -139,6 +139,11 @@ spec:
                 return subprocess.CompletedProcess(args, 124, "", "kubectl %s did not answer in time" % args[0])
 
 
+        def nap(seconds):
+            # never past the deadline (review 503 C)
+            time.sleep(min(seconds, max(0.0, DEADLINE - time.monotonic())))
+
+
         def refuse(why, logs=""):
             if logs:
                 print(logs.rstrip())
@@ -184,11 +189,14 @@ spec:
             manifest = JOB.replace("__IMAGE__", REGISTRY + "@" + digest).replace("__RUN__", run)
             created = kubectl("create", "-f", "-", "-o", "jsonpath={.metadata.name}", stdin=manifest)
             name = created.stdout.strip()
-            if created.returncode == 124:
-                refuse("the Job create got no answer; a Job may exist: look for agentrt-migrate-* with "
-                       "annotation bifrost.io/deliver-run=%s in %s" % (run, NS))
             if created.returncode != 0 or not name.startswith("agentrt-migrate-"):
-                refuse("the Job was not created: " + created.stderr.strip())
+                why = created.stderr.strip()
+                if created.returncode != 124 and "forbidden" in why.lower():
+                    refuse("the Job was not created: " + why)
+                # No answer, a broken one or a name it cannot read: the server may still have
+                # made the Job (review 503 B1).
+                refuse("the Job create was not confirmed (%s); a Job may exist: look for agentrt-migrate-* "
+                       "with annotation bifrost.io/deliver-run=%s in %s" % (why or "no error text", run, NS))
             print("==> agentrt-migrate Job %s/%s, image %s@%s" % (NS, name, REGISTRY, digest))
             # The Job's verdict is its conditions, not its pod counts (review 498 A2):
             # Failed or FailureTarget refuses; only Complete with no failed pod passes.
@@ -201,9 +209,9 @@ spec:
                     if job["status"].get("failed"):
                         refuse("Job %s is complete but counts a failed pod" % name, pod_logs(job))
                     break
-                if time.monotonic() > DEADLINE:
+                if time.monotonic() >= DEADLINE:
                     refuse("Job %s did not finish in %d s" % (name, WAIT_S))
-                time.sleep(5)
+                nap(5)
             # Its one succeeded pod, which may show a moment after Complete (review 500 B2).
             while True:
                 pods = job_pods(job, "Succeeded")
@@ -211,9 +219,9 @@ spec:
                     refuse("Job %s is complete with %d succeeded pods, not one" % (name, len(pods)))
                 if pods:
                     break
-                if time.monotonic() > DEADLINE:
+                if time.monotonic() >= DEADLINE:
                     refuse("Job %s is complete but its succeeded pod could not be read in %d s" % (name, WAIT_S))
-                time.sleep(2)
+                nap(2)
             logs = kubectl("logs", pods[0], "-n", NS, "-c", "migrate")
             print(logs.stdout.rstrip())
             m = APPLIED_RE.search(logs.stdout)

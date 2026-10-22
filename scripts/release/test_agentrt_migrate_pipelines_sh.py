@@ -29,11 +29,19 @@ a = sys.argv[1:]
 with open(os.environ["FAKE_LOG"], "a") as f:
     f.write(" ".join(a) + "\n")
 st = json.loads(os.environ["FAKE_STATE"])
+RT = "--request-timeout=20s"
+if a[:1] == ["get"] or a[:2] == ["auth", "can-i"]:
+    # every read before the writes is bounded (review 503 B2)
+    assert a[-1] == RT, a
+    a = a[:-1]
 if a[:2] == ["auth", "can-i"]:
-    print(os.environ.get("FAKE_CAN", "yes")); sys.exit()
+    print(os.environ.get("FAKE_CAN", "yes") if " ".join(a[2:]) != os.environ.get("FAKE_CANNOT") else "no"); sys.exit()
 if a[:3] == ["get", "deployment", "platform-api"]:
     assert a[3:] == ["-n", "bifrost-platform-prod", "-o", "json"], a
     print(json.dumps(st["deployment"])); sys.exit()
+if a[:2] == ["get", "replicasets"]:
+    assert a[2:] == ["-n", "bifrost-platform-prod", "-o", "json"], a
+    print(json.dumps({"items": st["replicasets"]})); sys.exit()
 if a[:2] == ["get", "pods"]:
     assert a[2:] == ["-n", "bifrost-platform-prod", "-l", "app.kubernetes.io/name=platform-api", "-o", "json"], a
     n_file = os.environ["FAKE_LOG"] + ".pods"
@@ -44,6 +52,7 @@ if a[:2] == ["get", "pods"]:
 if a[:2] == ["get", "--raw"]:
     pre, post = "/api/v1/namespaces/bifrost-platform-prod/pods/", ":8780/proxy/health"
     path = a[2]
+    assert len(a) == 3, a
     assert path.startswith(pre) and path.endswith(post), path
     body = st["health"].get(path[len(pre):-len(post)])
     if body is None:
@@ -70,13 +79,27 @@ def deployment(replicas=2, converged=True):
     if not converged:
         st["updatedReplicas"] = replicas - 1
     st["observedGeneration"] = 7
-    return {"metadata": {"generation": 7}, "spec": {"replicas": replicas}, "status": st}
+    return {"metadata": {"generation": 7, "uid": "deploy-uid"}, "spec": {"replicas": replicas}, "status": st}
 
 
-def pod(name, ready=True, image="sha256:aaa"):
-    return {"metadata": {"name": name},
+def owner(uid):
+    return [{"kind": "ReplicaSet", "uid": uid, "controller": True}]
+
+
+# the Deployment's ReplicaSet, and one with the same label that another owner holds
+REPLICASETS = [
+    {"metadata": {"name": "platform-api-7f9", "uid": "rs-uid",
+                  "ownerReferences": [{"kind": "Deployment", "uid": "deploy-uid", "controller": True}]}},
+    {"metadata": {"name": "platform-api-old", "uid": "rs-foreign",
+                  "ownerReferences": [{"kind": "Deployment", "uid": "another-deploy", "controller": True}]}},
+]
+
+
+def pod(name, ready=True, image="sha256:aaa", rs="rs-uid", container="containerd://c1", restarts=0):
+    return {"metadata": {"name": name, "uid": "uid-" + name, "ownerReferences": owner(rs)},
             "status": {"phase": "Running", "conditions": [{"type": "Ready", "status": "True" if ready else "False"}],
-                       "containerStatuses": [{"imageID": "registry/bifrost-platform-api@" + image}]}}
+                       "containerStatuses": [{"name": "platform-api", "imageID": "registry/bifrost-platform-api@" + image,
+                                              "containerID": container + "-" + name, "restartCount": restarts}]}}
 
 
 PODS = [pod("platform-api-1"), pod("platform-api-2")]
@@ -85,7 +108,7 @@ WITHOUT = {"agentrt_schema": "current"}
 
 
 def state(health=None, deploy=None, pods=None):
-    return {"deployment": deploy or deployment(), "pods": pods or [PODS],
+    return {"deployment": deploy or deployment(), "pods": pods or [PODS], "replicasets": REPLICASETS,
             "health": health if health is not None else {"platform-api-1": WITHOUT, "platform-api-2": WITHOUT}}
 
 
@@ -107,10 +130,10 @@ def repo(tmp_path):
     return r, bin_dir, tmp_path / "kubectl.log"
 
 
-def run(repo, step, st=None, can="yes", refuse="", apply_fails=""):
+def run(repo, step, st=None, can="yes", refuse="", apply_fails="", cannot=""):
     r, bin_dir, log = repo
     env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_LOG": str(log),
-           "FAKE_STATE": json.dumps(st or state()), "FAKE_CAN": can, "FAKE_REFUSE": refuse,
+           "FAKE_STATE": json.dumps(st or state()), "FAKE_CAN": can, "FAKE_CANNOT": cannot, "FAKE_REFUSE": refuse,
            "FAKE_APPLIED": str(log) + ".applied", "FAKE_APPLY_FAILS": apply_fails}
     out = subprocess.run(["bash", str(r / SCRIPT), step], env=env, capture_output=True, text=True, timeout=60)
     calls = log.read_text().splitlines() if log.exists() else []
@@ -231,7 +254,56 @@ def test_prod_waits_while_one_pod_lacks_the_field(repo):
 def test_prod_waits_while_a_pod_cannot_be_asked(repo):
     out, calls = run(repo, "apply", state({"platform-api-1": WITH}))
     assert out.returncode == 0 and applied(calls) == STG
-    assert "pod platform-api-2 does not report" in out.stdout
+    assert "pod platform-api-2 could not be asked for its /health" in out.stdout
+
+
+def test_prod_waits_while_a_labelled_pod_is_not_the_deployments(repo):
+    # Review 503 B2: the pods counted are the Deployment's own, through its ReplicaSet.
+    st = state({"platform-api-1": WITH, "platform-api-2": WITH},
+               pods=[[pod("platform-api-1"), pod("platform-api-2", rs="rs-foreign")]])
+    out, calls = run(repo, "apply", st)
+    assert out.returncode == 0 and applied(calls) == STG
+    assert "the Deployment does not own: platform-api-2" in out.stdout
+
+
+@pytest.mark.parametrize(
+    "later",
+    [
+        # the same names, another image: a container restarted and pulled a moving tag
+        [pod("platform-api-1", image="sha256:bbb"), pod("platform-api-2", image="sha256:bbb")],
+        # the same names, a restarted container
+        [pod("platform-api-1"), pod("platform-api-2", container="containerd://c2", restarts=1)],
+    ],
+)
+def test_the_same_pod_names_with_other_containers_stop_before_any_write(repo, later):
+    # Review 503 B1: the second read compares uids, images and containers, not the names alone.
+    st = state({"platform-api-1": WITH, "platform-api-2": WITH}, pods=[PODS, later])
+    out, calls = run(repo, "apply", st)
+    assert out.returncode == 1 and "pods changed during the checks; nothing is written" in out.stdout
+    assert applied(calls) == []
+
+
+def test_a_change_while_stg_is_applied_leaves_prods_pipeline_out(repo):
+    # Review 503 B2: read again right before PROD's pipeline, after STG's four files.
+    st = state({"platform-api-1": WITH, "platform-api-2": WITH},
+               pods=[PODS, PODS, [pod("platform-api-1", image="sha256:bbb"), pod("platform-api-2", image="sha256:bbb")]])
+    out, calls = run(repo, "apply", st)
+    assert out.returncode == 1 and "so PROD's pipeline is not applied" in out.stdout
+    assert applied(calls) == STG
+    assert "applied: " + " ".join(STG) in out.stdout
+
+
+def test_every_read_before_the_writes_is_bounded(repo):
+    out, calls = run(repo, "apply", ALL_WITH)
+    assert out.returncode == 0, out.stdout + out.stderr
+    reads = [c for c in calls if c.startswith(("get ", "auth can-i "))]
+    assert reads and all(c.endswith(" --request-timeout=20s") for c in reads)
+
+
+def test_an_identity_that_cannot_ask_prods_pods_stops_before_anything(repo):
+    out, calls = run(repo, "apply", ALL_WITH, cannot="get pods --subresource=proxy -n bifrost-platform-prod")
+    assert out.returncode == 1 and "cannot get pods --subresource=proxy" in out.stdout
+    assert all(c.startswith("auth can-i") for c in calls)
 
 
 def test_pods_that_change_during_the_checks_stop_before_any_write(repo):

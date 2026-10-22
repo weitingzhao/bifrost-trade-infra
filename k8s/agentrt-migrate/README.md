@@ -55,3 +55,8 @@ DEV migration runs locally using the DEV owner identity; there is no DEV cluster
   printed line from an infra checkout on main, watch the Job finish, then start the release
   again. The check refuses as well when PROD's health does not report the applied list, so a
   PROD platform is rolled back only to one that reports it.
+- **The first PROD release with `agentrt_schema_applied`** goes through PROD's old pipeline,
+  which neither checks nor prints: PROD's new pipeline is applied only once PROD reports the
+  field (`scripts/release/agentrt-migrate-pipelines.sh apply`, run again after that release).
+  If that release carries a migration PROD's database lacks, it goes as before TD-411: the
+  Owner runs this Job as it is (it runs the `:prod` just released) right after that release.

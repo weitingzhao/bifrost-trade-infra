@@ -141,6 +141,8 @@ count = os.path.join(os.path.dirname(log), "pods-calls")
 if args[:1] == ["create"]:
     if mode == "create-fails":
         print("forbidden", file=sys.stderr); sys.exit(1)
+    if mode == "create-eof":
+        print("error: unexpected EOF", file=sys.stderr); sys.exit(1)
     if mode == "create-hangs":
         import time; time.sleep(5)
     print("agentrt-migrate-abc12", end="")
@@ -253,16 +255,25 @@ def test_stg_stops_the_run(tmp_path, mode, says):
         assert "0009_x: syntax error" in out.stdout  # the Job's log is in the run's
 
 
-def test_stg_kubectl_keeps_the_in_cluster_identity(tmp_path):
+# kubectl's flags that change where it connects or who it is (kubectl options), long and short
+CONNECTION_FLAGS = ("--request-timeout", "--server", "-s", "--kubeconfig", "--token", "--context", "--cluster",
+                    "--user", "--as", "--as-group", "--as-uid", "--username", "--password", "--certificate-authority",
+                    "--client-certificate", "--client-key", "--insecure-skip-tls-verify", "--tls-server-name")
+
+
+@pytest.mark.parametrize("mode", ["ok", "job-fails", "pods-flaky", "two-pods", "create-fails"])
+def test_stg_kubectl_keeps_the_in_cluster_identity(tmp_path, mode):
     """Review 500 A1: with --request-timeout (or --server, --kubeconfig, a token ...) and no
     kubeconfig, kubectl in a pod dials localhost:8080 instead of the in-cluster identity (the
-    Owner's trial run, 2026-10-12, test_platform_prod_gate). The shapes of every call are
-    listed, not the forbidden flags."""
-    out, calls = run_stg(tmp_path)
-    assert out.returncode == 0, out.stdout
+    Owner's trial run, 2026-10-12, test_platform_prod_gate). Every call on the good and the
+    refusing paths keeps to the operation's own arguments (review 503 C)."""
+    out, calls = run_stg(tmp_path, mode)
+    assert out.returncode == (0 if mode in ("ok", "pods-flaky") else 1), out.stdout
+    assert calls
     for c in calls:
         a = c["args"]
         assert a[0] in ("create", "get", "logs"), a
+        assert not [x for x in a if x.split("=", 1)[0] in CONNECTION_FLAGS], a
         assert not [x for x in a if x.startswith("--") and x != "--all-containers=true"], a
     s = stg_script()
     assert "timeout=min(CALL_S, left)" in s
@@ -277,14 +288,31 @@ def test_stg_waits_for_the_succeeded_pod_within_the_deadline(tmp_path, mode):
     assert sum(c["args"][:2] == ["get", "pods"] for c in calls) == 2
 
 
-def test_stg_one_deadline_bounds_the_whole_step(tmp_path):
-    out, _ = run_stg(tmp_path, "never-complete", wait_s=3)
-    assert out.returncode == 1 and "did not finish in 3 s" in out.stdout
+@pytest.mark.parametrize("mode, says", [("never-complete", "did not finish in 3 s"),
+                                         ("foreign-pod", "could not be read in 3 s")])
+def test_stg_one_deadline_bounds_the_whole_step(tmp_path, mode, says):
+    # Review 503 C: the waits never sleep past the deadline (a 5 s nap against a 3 s budget).
+    import time
+
+    t0 = time.monotonic()
+    out, _ = run_stg(tmp_path, mode, wait_s=3)
+    elapsed = time.monotonic() - t0
+    assert out.returncode == 1 and says in out.stdout
+    assert elapsed < 3 + 1.5, elapsed
 
 
-def test_stg_says_a_job_may_exist_when_create_got_no_answer(tmp_path):
-    out, _ = run_stg(tmp_path, "create-hangs", call_s=1)
-    assert out.returncode == 1 and "a Job may exist" in out.stdout and RUN in out.stdout
+def test_stg_pipeline_task_has_a_backstop_timeout():
+    m = tasks(STG_PIPELINE)["agentrt-migrate"]
+    assert m["timeout"] == "20m"
+    assert 'os.environ.get("AGENTRT_MIGRATE_WAIT_S","960")' in stg_script().replace(" ", "")
+
+
+@pytest.mark.parametrize("mode, call_s", [("create-hangs", 1), ("create-eof", None)])
+def test_stg_says_a_job_may_exist_when_create_got_no_answer(tmp_path, mode, call_s):
+    # Review 503 B1: an answer cut off after the server made the Job is not a refusal to make it.
+    out, _ = run_stg(tmp_path, mode, call_s=call_s)
+    assert out.returncode == 1 and "was not confirmed" in out.stdout and "a Job may exist" in out.stdout
+    assert "bifrost.io/deliver-run=" + RUN in out.stdout and "the Job was not created" not in out.stdout
 
 
 @pytest.mark.parametrize("digest, run", [("sha256:" + "AB" * 32, RUN), ("latest", RUN), (DIGEST, "Bad_Name"), (DIGEST, ""),
