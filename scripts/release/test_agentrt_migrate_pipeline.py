@@ -70,7 +70,10 @@ def test_stg_pipeline_migrates_before_promotion_sync_and_rollout():
     m = p["agentrt-migrate"]
     assert m["taskRef"] == {"name": "bifrost-agentrt-migrate-stg"}
     assert m["runAfter"] == ["build-platform-api"]
-    assert m["params"] == [{"name": "apiDigest", "value": "$(tasks.build-platform-api.results.digest)"}]
+    assert m["params"] == [
+        {"name": "apiDigest", "value": "$(tasks.build-platform-api.results.digest)"},
+        {"name": "deliverRun", "value": "$(context.pipelineRun.name)"},
+    ]
     builds_go_to_candidates(p, "stg")
     pr = p["promote-images"]
     assert pr["taskRef"] == {"name": "bifrost-promote-platform-images"}
@@ -99,11 +102,11 @@ def stg_script():
 def test_stg_task_is_stg_only():
     spec = task_spec()
     # The namespace is not a param: nothing a caller passes moves the Job elsewhere.
-    assert [p["name"] for p in spec["params"]] == ["apiDigest"]
+    assert [p["name"] for p in spec["params"]] == ["apiDigest", "deliverRun"]
     (step,) = spec["steps"]
     assert step["env"] == [
         {"name": "API_DIGEST", "value": "$(params.apiDigest)"},
-        {"name": "DELIVER_RUN", "value": "$(context.pipelineRun.name)"},
+        {"name": "DELIVER_RUN", "value": "$(params.deliverRun)"},
     ]
     s = step["script"]
     assert 'NS = "bifrost-platform-stg"' in s
@@ -748,3 +751,20 @@ def test_the_registry_collection_keeps_the_candidate_tags():
                  for prm in t.get("params", []) if prm["name"] == "image" and ":" in str(prm["value"])}
         assert built == {env + "-candidate"}, (p, built)
         assert built <= moving
+
+
+def test_no_task_uses_a_pipeline_only_variable():
+    # Tekton substitutes $(context.pipelineRun.*) and $(context.pipeline.*) in a Pipeline, not
+    # in a Task: a Task that names one gets the literal text (STG 2026-10-22 01:45Z, TD-411's
+    # first real run refused before rollout). A Task takes them as params from its Pipeline.
+    tekton = TASK.parent
+    seen = []
+    for path in sorted(tekton.glob("*.yaml")):
+        for doc in yaml.safe_load_all(path.read_text()):
+            if not doc or doc.get("kind") != "Task":
+                continue
+            seen.append(path.name)
+            text = yaml.safe_dump(doc["spec"])
+            for var in ("$(context.pipelineRun.", "$(context.pipeline."):
+                assert var not in text, (path.name, var)
+    assert "task-agentrt-migrate-stg.yaml" in seen

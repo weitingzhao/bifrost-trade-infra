@@ -148,6 +148,8 @@ spec:
       params:
         - name: apiDigest
           value: $(tasks.build-platform-api.results.digest)
+        - name: deliverRun
+          value: $(context.pipelineRun.name)
     # Only now does :stg point at what this run built (review 498 A1).
     - name: promote-images
       runAfter: [agentrt-migrate, build-platform-console]

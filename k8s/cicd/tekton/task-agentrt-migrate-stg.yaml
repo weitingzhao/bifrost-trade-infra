@@ -20,6 +20,12 @@ spec:
     - name: apiDigest
       type: string
       description: the digest (sha256:...) of the platform-api image this run built
+    - name: deliverRun
+      type: string
+      description: >-
+        the PipelineRun's name, only for the Job's annotation. The Pipeline passes its
+        context.pipelineRun.name: Tekton substitutes that in a Pipeline, not in a Task
+        (STG 2026-10-22 01:45Z: the step got the literal text and refused)
   steps:
     - name: migrate
       image: alpine/k8s:1.31.4
@@ -27,7 +33,7 @@ spec:
         - name: API_DIGEST
           value: $(params.apiDigest)
         - name: DELIVER_RUN
-          value: $(context.pipelineRun.name)
+          value: $(params.deliverRun)
       script: |
         #!/usr/bin/env python3
         import json, os, re, subprocess, sys, time
