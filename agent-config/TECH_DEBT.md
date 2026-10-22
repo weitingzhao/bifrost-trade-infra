@@ -3163,9 +3163,9 @@
 
 **P2 · dev-services · bdev reports started while macOS refuses to execute the supervisor**
 
-- **状态**：在做（2026-10-21：startup reporting fixed on branch with two passing regression tests; original trade-ui cwd restored, service remains stopped pending Owner macOS permission）。
+- **状态**：在做（2026-10-21：startup reporting fixed on branch with two passing regression tests; Owner authorized rebuilding bdev session, trade-ui and all local health endpoints recovered; pending merge and sign-off）。
 - **Measured**：`bdev start trade-ui` reports started, then `bdev status` reports stopped and localhost:5173 refuses connections. Retained tmux pane reports `bdev-supervise: Operation not permitted`, exit 126. No supervisor-start event is recorded. Reproduces with the original cwd too.
-- **Evidence**：`scripts/bdev:606` reports success after creating the tmux window without checking its process; `scripts/bdev:340` directly executes the supervisor. macOS tccd logs identify SystemPolicyDesktopFolder requests attributed to com.anthropic.claude-code, with bash accessing the supervisor. Existing tmux server inherits that responsibility.
-- **Fix**：Owner diagnose macOS execution/access permission for the existing tmux host; then `bdev restart trade-ui`. Improve bdev startup reporting to check process/health and surface early supervisor failures. Do not bypass the OS denial.
+- **Evidence**：`scripts/bdev:606` reports success after creating the tmux window without checking its process; `scripts/bdev:340` directly executes the supervisor. A read-only head probe inside the old tmux server reproduces file-read-data denial in the kernel System Policy log. Earlier Claude Code TCC logs were unrelated and do not establish tmux attribution. Rebuilding bdev session resolves the denial without changing permissions.
+- **Fix**：Owner-approved `bdev stop` then `bdev start` rebuilt the old server context (2026-10-21); all health endpoints recovered. Startup reporting now checks early pane exit and surfaces failures. No OS permission was changed.
 - **Ratchet**：`scripts/test_bdev_start.py` exercises startup with a live pane and an immediately exited supervisor: failure returns nonzero with diagnostics and no started message (2 passed). Shell syntax check passes. This detects early process exit, not application health.
 - **验收**：`bdev restart trade-ui`; `bdev status --json` shows running and healthy; localhost:5173 loads.
