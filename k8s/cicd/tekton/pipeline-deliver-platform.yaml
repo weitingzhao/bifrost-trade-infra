@@ -116,13 +116,14 @@ spec:
               #!/usr/bin/env sh
               set -eu
               cp /cm/Dockerfile.platform-console-stg "$(workspaces.source.path)/Dockerfile.platform-console-stg"
+    # TD-411: built to the candidate tag; :stg moves only in promote-images.
     - name: build-platform-api
       runAfter: [stage-api-dockerfile]
       taskRef:
         name: bifrost-kaniko-platform-api-stg
       params:
         - name: image
-          value: $(params.platformApiImage)
+          value: registry.cicd.svc.cluster.local:5000/bifrost-platform-api:stg-candidate
       workspaces:
         - name: source
           workspace: build-context
@@ -132,7 +133,7 @@ spec:
         name: bifrost-kaniko-platform-console-stg
       params:
         - name: image
-          value: $(params.platformConsoleImage)
+          value: registry.cicd.svc.cluster.local:5000/bifrost-platform-console:stg-candidate
       workspaces:
         - name: source
           workspace: build-context
@@ -145,10 +146,24 @@ spec:
       params:
         - name: apiDigest
           value: $(tasks.build-platform-api.results.digest)
+    # Only now does :stg point at what this run built (review 498 A1).
+    - name: promote-images
+      runAfter: [agentrt-migrate, build-platform-console]
+      taskRef:
+        name: bifrost-promote-platform-images
+      params:
+        - name: apiImage
+          value: $(params.platformApiImage)
+        - name: apiDigest
+          value: $(tasks.build-platform-api.results.digest)
+        - name: consoleImage
+          value: $(params.platformConsoleImage)
+        - name: consoleDigest
+          value: $(tasks.build-platform-console.results.digest)
     # Sync ConfigMap (clusters.yaml grafana_url, etc.) before rollout so platform-api
     # reads updated config on pod start — not stale in-memory config from prior mount.
     - name: gitops-sync
-      runAfter: [build-platform-api, build-platform-console, agentrt-migrate]
+      runAfter: [promote-images]
       taskRef:
         name: bifrost-argocd-sync-platform-stg
     - name: rollout

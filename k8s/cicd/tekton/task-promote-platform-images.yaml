@@ -1,0 +1,106 @@
+# TD-411 (review 498 A1): a deliver run pushes the platform images it builds to a
+# candidate tag (:stg-candidate, :prod-candidate), which no Deployment runs, not to
+# the tag the Deployments run (:stg, :prod, pulled Always). Only after the agentrt
+# migrations ran (STG) or were found applied (PROD) does this Task point the running
+# tag at the very digests the run built and checked: it copies each image's manifest,
+# by digest, to that tag in the registry and reads the tag back. A run that stops
+# before it leaves the running tags as they were, so no Pod restart picks up a build
+# whose migrations the database does not have. One candidate tag per environment,
+# overwritten by the next run, so an old candidate becomes untagged and the registry's
+# collection keeps working; the release window keeps one run at a time.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-promote-platform-images
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: platform-deliver
+spec:
+  params:
+    - name: apiImage
+      type: string
+      description: the running tag of platform-api (registry/bifrost-platform-api:stg or :prod)
+    - name: apiDigest
+      type: string
+    - name: consoleImage
+      type: string
+      description: the running tag of platform-console
+    - name: consoleDigest
+      type: string
+  steps:
+    - name: promote
+      image: alpine/k8s:1.31.4
+      env:
+        - name: API_IMAGE
+          value: $(params.apiImage)
+        - name: API_DIGEST
+          value: $(params.apiDigest)
+        - name: CONSOLE_IMAGE
+          value: $(params.consoleImage)
+        - name: CONSOLE_DIGEST
+          value: $(params.consoleDigest)
+      script: |
+        #!/usr/bin/env python3
+        import hashlib, os, re, sys, urllib.request
+
+        REGISTRY = os.environ.get("REGISTRY_URL", "http://registry.cicd.svc.cluster.local:5000")
+        HOST = "registry.cicd.svc.cluster.local:5000"
+        DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
+        TAG_RE = re.compile(r"(stg|prod)\Z")
+        ACCEPT = ", ".join([
+            "application/vnd.oci.image.manifest.v1+json",
+            "application/vnd.oci.image.index.v1+json",
+            "application/vnd.docker.distribution.manifest.v2+json",
+            "application/vnd.docker.distribution.manifest.list.v2+json",
+        ])
+        REPOS = {"API": "bifrost-platform-api", "CONSOLE": "bifrost-platform-console"}
+
+
+        moved = []
+
+
+        def refuse(why):
+            print("REFUSED: promote platform images: " + why + "; nothing is rolled out")
+            print("running tags moved by this step: " + (", ".join(moved) if moved else "none"))
+            sys.exit(1)
+
+
+        def call(method, path, body=None, headers=None):
+            req = urllib.request.Request(REGISTRY + path, data=body, method=method, headers=headers or {})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return r.read(), r.headers
+
+
+        def target(kind):
+            ref, digest = os.environ.get(kind + "_IMAGE", ""), os.environ.get(kind + "_DIGEST", "")
+            if not DIGEST_RE.fullmatch(digest):
+                refuse("invalid %s digest %r" % (kind.lower(), digest))
+            prefix = HOST + "/" + REPOS[kind] + ":"
+            if not ref.startswith(prefix) or not TAG_RE.fullmatch(ref[len(prefix):]):
+                refuse("the %s image %r is not %s<stg|prod>" % (kind.lower(), ref, prefix))
+            return REPOS[kind], ref[len(prefix):], digest
+
+
+        def main():
+            # Both are checked before either moves.
+            plan = [target(k) for k in ("API", "CONSOLE")]
+            for repo, tag, digest in plan:
+                try:
+                    body, h = call("GET", "/v2/%s/manifests/%s" % (repo, digest), headers={"Accept": ACCEPT})
+                except Exception as e:  # noqa: BLE001
+                    refuse("%s@%s cannot be read from the registry: %s" % (repo, digest, e))
+                if "sha256:" + hashlib.sha256(body).hexdigest() != digest:
+                    refuse("the registry answered %s@%s with other bytes" % (repo, digest))
+                media = h.get("Content-Type", "")
+                try:
+                    _, put = call("PUT", "/v2/%s/manifests/%s" % (repo, tag), body=body, headers={"Content-Type": media})
+                    _, head = call("HEAD", "/v2/%s/manifests/%s" % (repo, tag), headers={"Accept": ACCEPT})
+                except Exception as e:  # noqa: BLE001
+                    refuse("%s:%s could not be set to %s: %s" % (repo, tag, digest, e))
+                if put.get("Docker-Content-Digest") != digest or head.get("Docker-Content-Digest") != digest:
+                    refuse("%s:%s does not read back as %s" % (repo, tag, digest))
+                moved.append("%s:%s" % (repo, tag))
+                print("%s:%s is now %s" % (repo, tag, digest))
+
+
+        main()

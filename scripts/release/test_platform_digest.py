@@ -211,10 +211,20 @@ def test_task_matches_mainline_aside_from_digest(name):
     assert live == mainline
 
 
+# TD-411 (review 498 A1): each pipeline builds to its environment's candidate tag, never
+# to the tag the Deployments run; promote-images moves that tag after the migration gate.
+CANDIDATE_TAG = {"pipeline-deliver-platform.yaml": "stg-candidate", "pipeline-deliver-platform-prod.yaml": "prod-candidate"}
+
+
 @pytest.mark.parametrize("pipeline", PIPELINES)
 def test_deliver_pipeline_task_refs_unchanged(pipeline):
     doc = load_one(TEKTON / pipeline)
     names = [task["name"] for task in doc["spec"]["tasks"]]
     for task_name, expected in PIPELINE_REFS.items():
+        expected = copy.deepcopy(expected)
+        repo = task_name.removeprefix("build-")
+        expected["params"][0]["value"] = (
+            "registry.cicd.svc.cluster.local:5000/bifrost-" + repo + ":" + CANDIDATE_TAG[pipeline]
+        )
         assert names.count(task_name) == 1
         assert doc["spec"]["tasks"][names.index(task_name)] == expected

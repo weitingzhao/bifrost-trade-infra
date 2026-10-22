@@ -547,13 +547,14 @@ spec:
               set -eu
               cp /cm/Dockerfile.platform-console-stg "$(workspaces.source.path)/Dockerfile.platform-console-stg"
 
+    # TD-411: built to the candidate tag; :prod moves only in promote-images.
     - name: build-platform-api
       runAfter: [stage-api-dockerfile]
       taskRef:
         name: bifrost-kaniko-platform-api-stg
       params:
         - name: image
-          value: $(params.platformApiImage)
+          value: registry.cicd.svc.cluster.local:5000/bifrost-platform-api:prod-candidate
       workspaces:
         - name: source
           workspace: build-context
@@ -564,7 +565,7 @@ spec:
         name: bifrost-kaniko-platform-console-stg
       params:
         - name: image
-          value: $(params.platformConsoleImage)
+          value: registry.cicd.svc.cluster.local:5000/bifrost-platform-console:prod-candidate
       workspaces:
         - name: source
           workspace: build-context
@@ -614,12 +615,19 @@ spec:
 
 
               def carried(src):
+                  # As the migrator reads them: numbered from 1 with no gap and no number twice
+                  # (review 498 B4), the sha256 of each file's bytes.
                   out = {}
                   for name in sorted(os.listdir(src)):
                       m = FILE_RE.fullmatch(name)
                       if m:
+                          n = int(m.group(1))
+                          if n in out:
+                              refuse("this build carries two migrations numbered %d (%s, %s)" % (n, out[n][0], name))
                           with open(os.path.join(src, name), "rb") as f:
-                              out[int(m.group(1))] = (name[: -len(".sql")], hashlib.sha256(f.read()).hexdigest())
+                              out[n] = (name[: -len(".sql")], hashlib.sha256(f.read()).hexdigest())
+                  if out and sorted(out) != list(range(1, max(out) + 1)):
+                      refuse("this build's migrations are not numbered 1 to %d without a gap: %s" % (max(out), sorted(out)))
                   return out
 
 
@@ -654,6 +662,8 @@ spec:
                       if (not isinstance(e, dict) or type(e.get("id")) is not int or not isinstance(e.get("sha256"), str)
                               or not SHA_RE.fullmatch(e["sha256"])):
                           refuse("PROD's agentrt_schema_applied holds %r, not an id and a sha256" % (e,))
+                      if e["id"] in have:
+                          refuse("PROD's agentrt_schema_applied names migration %d twice" % e["id"])
                       have[e["id"]] = e["sha256"]
                   edited = [files[i][0] for i in sorted(files) if i in have and have[i] != files[i][1]]
                   if edited:
@@ -662,10 +672,12 @@ spec:
                   missing = [files[i][0] for i in sorted(files) if i not in have]
                   if missing:
                       image = REGISTRY + "@" + digest
+                      line = "image: 192.168.10.73:30500/bifrost-platform-api:prod"
                       refuse("PROD's database misses %s, which this build carries" % ", ".join(missing), [
-                          "The Owner runs PROD's agentrt migrations first (its DDL approved), with this build's image:",
-                          "  sed 's#image: 192.168.10.73:30500/bifrost-platform-api:prod#image: %s#' "
-                          "k8s/agentrt-migrate/prod/job.yaml | kubectl create -f -" % image,
+                          "The Owner runs PROD's agentrt migrations first (its DDL approved), with this build's image,",
+                          "from an infra checkout on main (it creates nothing unless the Job's image line is there once):",
+                          "  test \"$(grep -c '%s' k8s/agentrt-migrate/prod/job.yaml)\" = 1 && sed 's#%s#image: %s#' "
+                          "k8s/agentrt-migrate/prod/job.yaml | kubectl create -f -" % (line, line, image),
                           "then watches the Job finish (k8s/agentrt-migrate/README.md) and starts this release again.",
                       ])
                   extra = sorted(set(have) - set(files))
@@ -677,8 +689,23 @@ spec:
 
               main()
 
+    # Only now does :prod point at what this run built and checked (review 498 A1).
+    - name: promote-images
+      runAfter: [agentrt-schema, build-platform-console]
+      taskRef:
+        name: bifrost-promote-platform-images
+      params:
+        - name: apiImage
+          value: $(params.platformApiImage)
+        - name: apiDigest
+          value: $(tasks.build-platform-api.results.digest)
+        - name: consoleImage
+          value: $(params.platformConsoleImage)
+        - name: consoleDigest
+          value: $(tasks.build-platform-console.results.digest)
+
     - name: rollout
-      runAfter: [build-platform-api, build-platform-console, agentrt-schema]
+      runAfter: [build-platform-api, build-platform-console, agentrt-schema, promote-images]
       taskRef:
         name: bifrost-rollout-verify-platform
       params:

@@ -33,15 +33,21 @@ DEV migration runs locally using the DEV owner identity; there is no DEV cluster
 
 ## Since TD-411 (Owner 2026-10-21: 「STG 的迁移由发布流水线先跑、PROD 照旧由我建 Job」)
 
+- **Both deliver pipelines** build to a candidate tag (`:stg-candidate`, `:prod-candidate`)
+  that no Deployment runs; `:stg` / `:prod` move to the run's digests only after the migration
+  step below passed (`task-promote-platform-images.yaml`), so a stopped run leaves nothing a
+  Pod restart could pick up.
 - **STG**: `bifrost-deliver-platform` runs these migrations itself before it rolls out
   (`k8s/cicd/tekton/task-agentrt-migrate-stg.yaml`): the Job above, with the api image the
   run has just built pinned by digest and an annotation naming the run. A Job that fails
-  stops the run before gitops-sync and rollout; the run's log says which migrations it applied.
-  The STG Job above stays for a database the pipeline has not reached.
+  stops the run before the promotion, gitops-sync and rollout; the run's log says which
+  migrations it applied. The STG Job above stays for a database the pipeline has not reached.
 - **PROD**: still this Owner-created Job. Before it rolls out, `bifrost-deliver-platform-prod`
   checks that PROD's database has applied every migration the build carries, with the same
   bytes, as PROD's platform-api reports on `/health` (`agentrt_schema_applied`). If one is
   missing, the run stops and prints, with the build's digest filled in, the one command that
   creates this Job with the build's image instead of `:prod` (a `sed` of the image line piped
-  to `kubectl create -f -`). Run that printed line, watch the Job finish, then start the release
-  again. The check refuses as well when PROD's health does not report the applied list.
+  to `kubectl create -f -`, which creates nothing unless that line is in the Job once). Run that
+  printed line from an infra checkout on main, watch the Job finish, then start the release
+  again. The check refuses as well when PROD's health does not report the applied list, so a
+  PROD platform is rolled back only to one that reports it.
