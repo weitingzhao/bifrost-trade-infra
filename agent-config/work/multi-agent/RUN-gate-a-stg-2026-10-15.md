@@ -326,6 +326,45 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 - 放行后 agentd 第一次 `POST /claim` 超时（`context deadline exceeded`），下一次就正常了；推测是停住 22 分钟后连接已失效，没有影响结果。
 - 放行后到采纳之前（21:45:02–21:47:02）本线快照里没有 `lost_attempt`，**是快照脚本读错了地方，不是运行时的问题**（2.5 第 ⑤ 片的线指出，本线已对过代码）：`drill-snap.sh` 取第一个 task_id 相同、带 `status` 的对象，`/progress` 的 `live` 排在 `work` 前面，有在跑的尝试时取到的是 `live[]` 那条，它本来就没有 `lost_attempt`。`store/progresspersist.go` 的 `lostAttempts` 会选「任务没结束、尝试 lost、之后没有别的尝试持久化」的那次；抢救只写 `persisted_at`、不改状态，所以它带着 `persisted: true` 留到采纳为止（`progresspersist_test.go` 的「Salvaged: its result is persisted」）。T24 的实跑结论和页面那一半改用的证据见 infra `PLAN-T24-stg-2026-10-21.md` §3c（`w31/owner-signoff-docs` @ 83e74b9）。
 
+### T32 最后两种与 T36（10-22 01:36–01:44Z，STG platform b6b565f2，本线 thread 身份）
+
+**T32 ① 规则引用之后移走任务：过。** 要先有一个挂在步骤上、并被该步骤完成规则点名的任务，而且这个任务永远派不出去。做法：
+
+| 时刻 | 动作 | 结果 |
+|---|---|---|
+| 01:36:18Z | 提 M-108，预算写 0 次 | 0 次被当成「没写预算」，进 awaiting_owner，卡 `q_978650dcc3f6da14`（Q79）。STG 规则 5 秒后取「不启动」（没有推荐的卡取不改的那一项，同 F-T32-card），M-108 变 stopped |
+| 01:36:5xZ | 加步骤 R2:2.2-34，绑 M-108 | 常设授权内，立即落地（提议事件 15560） |
+| 01:37:0xZ | 往 M-108 放夹具任务 | 409：`mission M-108 is stopped and takes no new tasks`。stopped 的 mission 不收任务 |
+| 01:37:13Z | 提 M-109，预算 1 次、1 小时，max_action none，no_merge | 常设范围内，active |
+| 01:37:1xZ | M-109 还没有任何任务时就加停止控制 | `c_01M5GM2QRTB79DKA0B3TGR4V88`（stop，只有 Owner 能解） |
+| 01:37:2xZ | 加步骤 R2:2.2-35，绑 M-109 | 立即落地（15567） |
+| 01:37:32Z | 往 M-109 放一个夹具任务，挂 R2:2.2-35 | `t_01M5GM37C2XBG6A4W29N0TFMSD`：role other、effect none、60 秒上限；任务书 `sha256:b37eee35…` 写明「什么都不做」 |
+| 01:37:38Z | R2:2.2-35 的完成规则设成 `{"task_accepted": "t_01M5GM37…"}` | 常设授权内（第一条规则、不含人工项），立即落地（15573） |
+| 01:37:43Z | 足迹（`t32-footprint.sh`） | `nodes 105 tasks 285 on_steps 1 rules 78 events 7603 my_events 37 plan_changed 6 idem 1264` |
+| 01:37:4xZ | **反例 C9**：`move_task` 把这个任务移到 R2:2.2-33 | **HTTP 422** `agentrt: the done rule of R2:2.2-35 names task t_01M5GM37C2XBG6A4W29N0TFMSD, which is not on this step` |
+| 01:37:48Z | 足迹 | 与上一行完全相同（事件数、幂等键都没变） |
+| 01:38:58Z、01:44:18Z | 夹具任务 | 都是 ready、0 次尝试：停止控制挡住了 |
+
+**T32 ② 参谋长席位提议的任务挂到别的 mission 的步骤：用接口测试证，STG 上没跑。** 本线的令牌是 thread / operator，STG 不给 Agent 线程席位令牌。platform 分支 `w31/t32-seat-route`（`a4a03aa1`、`a17d38d4`，基于 main `a7784531`，能快进）在 `agentrtapi/propose_test.go` 加了 `TestSeatTaskOntoAnotherMissionsStep`，走真 HTTP 路由，用测试服务器的 `seat:chief_of_staff` 令牌：
+- 把 M-2 的任务挂到 M-1 的步骤上：422 constraint「belongs to M-1」，任务、事件、幂等键都没多；
+- 同一个任务提给 M-1：落地，任务行、`task_proposed` 事件、幂等键都记成席位本人。
+
+复核 505「可以合并」，0 A、0 B。它提的 C（正例只核对了任务行）已在 `a17d38d4` 补上。复核方没有测试库，只做了静态审查；测试本身由本线在测试库上跑过，整包通过。
+
+**T36 页面：过（STG 部署 + 实数据 + Console 测试；没用浏览器看页面）。**
+- 统筹线程选了「加链接」，由 `267969f3`（10-21 04:26Z）实现：血缘页上提交的任务号旁边多一个链接，指向该任务所在目标卡上的这个任务，即 `#work?goal=M-n&task=t_…`。mission 从运行时的任务读（`GET /agentrt/tasks/{id}`）。
+- STG 最近一次 platform 发版 `bifrost-deliver-platform-1792630711`（10-22 00:58Z）构建的是 `b6b565f2`，包含 `267969f3`。
+- 链接要的数据在 STG 上实有：10-15 那个 agent 提交的任务 `t_01M50M1CZSDN8PNHRH8C2241RS`，`get_task` 的 mission_id 是 M-2，所以链接是 `#work?goal=M-2&task=t_01M50M1CZSDN8PNHRH8C2241RS`。
+- Console 测试在 main `a7784531` 上通过 30 个：`CommitLineagePage.test.tsx`（链接和地址；运行时不认识的任务不出链接）、`goalCards.test.tsx`（点名的任务详情会打开并滚进视野）。
+
+**留在 STG 上的**（都只在 STG）：
+- M-108：stopped，没有任务。
+- M-109：active，被 `c_01M5GM2QRTB79DKA0B3TGR4V88` 停着，有 1 个 ready 的夹具任务，永远不该做。只有 Owner 能解这个停止；解之前要先把任务取消。
+- R2:2.2-34：绑 M-108，没有任务、没有规则。
+- R2:2.2-35：绑 M-109，规则点名夹具任务，所以永远完不成。
+
+丢弃步骤（`drop_step`）要发卡，会被 STG 规则答成「不改」，所以都留着。R2:2.2 在 STG 上的分母比 10-21 再多 2（共多 4）。
+
 ### Gate A 收尾清单（计划步骤 R2:2.2-28，2026-10-21 04:10Z 核对）
 
 逐项对照设计 v5 §5.2 的 Gate A 表。「过」= 表里的过的标准都有证据；证据栏写在哪看。
@@ -344,16 +383,14 @@ STG 上不用跑：手动重启 agentd 落不进上传那几毫秒；平台侧�
 | T22 ④ 推分支与过期同时 | **过** | 新测试 `agentd/pushlapse_test.go` `TestPushAsTheLeaseLapses`（上文「T22 ④」） | 无 |
 | T22 ⑤ 锁后截止 | **过** | 存储层夹具 `store/kernel_test.go` `TestFenceAndLeaseClock`（「T22 ⑤」那段），按 10-15 计划不在 STG 重做 | 无 |
 | T25 状态只由事件改 | **过** | 上文「T25」：`TestRoutesMoveStateOnlyByEvents`（每条写路由、四个世界）+ `TestIdentitiesAndTheEventRule`（直写）+ STG 只读核对 | 无；STG 上用运行时身份直写做不到（F-probe），以迁移哈希、触发器、状态与事件一致性的只读核对代替 |
-| T32（经接口） | **基本过，差两种** | 10-15 9 条反例 422（「每项的状态」T32）；10-21 STG 再 9 条 422（上文「T32 经接口」：挂到 item、挂到别的 mission 的步骤、规则引用别一步的任务、没绑的审批、没绑的问题、步骤挂在 round 下、item 挂在 item 下、验收离开对象、改绑后再挂别的 mission 的任务），不留半条记录；接口层测试 `agentrtapi/propose_test.go`、`TestPlanProposalRoute` | ① 规则引用之后移走任务：STG 的卡片规则把夹具卡答成「不改」（F-T32-card），落不了地；同一拒收由路由调用的 `store.ProposePlanChange` 的测试覆盖（`TestPlanChangeOutside`）。② 参谋长席位：缺 STG 的 `seat:chief_of_staff` 令牌。「并发两条依赖」「迁移与新建交错」经接口构造不出来，由存储层 T32（`store_test.go`）证 |
+| T32（经接口） | **过** | 10-15 9 条反例 422（「每项的状态」T32）；10-21 STG 再 9 条 422（上文「T32 经接口」）；10-22 STG 第 10 种 C9「规则引用之后移走任务」422、足迹不变（上文「T32 最后两种与 T36」，夹具 M-109 被停止控制挡着）；参谋长席位那一种由接口测试 `TestSeatTaskOntoAnotherMissionsStep`（platform `w31/t32-seat-route` `a17d38d4`，复核 505）证 | 参谋长席位在 STG 上没跑（STG 不给 Agent 线程席位令牌）。「并发两条依赖」「迁移与新建交错」经接口构造不出来，由存储层 T32（`store_test.go`）证 |
 | T33 证据绑定版本 | **过** | 上文「T33」的测试；上文「T33 在 STG 上」：迁移后 e98b1487 上 T40、T41 的真门槛让 `ARCH:owner-three-duties`、`ARCH:release-guard` 打勾（M-100）；10-21 20:10Z 换成 6d2f40cd 后，新门槛过之前这两行都是 false、写「not run yet / running … at 6d2f40cd」，旧 PASS 不算，20:13Z 新门槛过了才回到 true（M-101） | 无；6d2f40cd 上 13 个门槛全过、13 行都打勾（M-101，06 的新 agentd 给了测试库） |
 | T34 ①②③⑥⑦ | **过** | 10-15 STG M-5（gate-b 测试客户端在接口层制造） | 无 |
 | T34 ④ 上传中途重启 | **过** | 新测试 `agentd/handover_restart_test.go` `TestRestartDuringTheHandOver`（真进程 SIGKILL，五个杀点） | 无 |
 | T34 ⑤ 主机永久丢失 | **过** | 上文「06 上一次冻结」：M-103 第 1 次尝试在 stale（21:24）、host_lost（21:26）、lost（21:39）三个时刻都写「result not persisted (last checkpoint 2 at …)」，lost 时 `lost_attempt` `persisted` false；不显示做完。另有 M-95 的现成一例（没有检查点） | 无 |
 | T34 ⑧ 采纳保全结果 | **过** | 上文「06 上一次冻结」：抢救的结果验收和评审都 pass（钉在 lost 的第 1 次尝试上），同一时刻取消第 2 次、任务 accepted，只有一条采纳；存储层另有 `TestAdoptSalvagedResult` | 无 |
 | T35 规则集 | **过** | 上文「T35」：`TestRuleSet` 等；STG 上 Owner 10-20 跑过错 namespace（403 unsigned，`concurrency` 仍 v1） | 无 |
-| T36 血缘尾注 | **接口过，页面待定** | 10-15：`get_commit_lineage` 返回任务号、agent 组织 6 个提交都带任务号 | 「血缘页能从提交点到任务」：现在血缘页点任务号只在本页筛选（F-T36b），没有跳到任务。Console 已有 Crew 页的任务详情（`OwnerCrew`），血缘页没连过去。要 Owner 定：认「按任务筛选」算过，或给血缘页的任务号加一个到 Crew 任务详情的链接（Console 小改） |
+| T36 血缘尾注 | **过** | 10-15：`get_commit_lineage` 返回任务号、agent 组织 6 个提交都带任务号；10-22：血缘页任务号到目标卡任务详情的链接（`267969f3`）在 STG 的 `b6b565f2` 里，链接的数据在 STG 上实有（M-2），Console 测试 30 个过（上文「T32 最后两种与 T36」） | 没用浏览器看 STG 页面（本线不用界面工具） |
 | 基准 6 题 | **过（建议算）** | 2.2-31 ★ 的同一次运行（`RUN-r2-stars-2026-10-20.md` 第二节、第五节「2.2-31」）：PROD M-15、STG M-27，6 题提议后零人工写入、22 分钟内全部到结论（4 accepted、2 两轮确定性验收不过而 blocked，答错不是环境）；codex 写、cursor 评审（Gate A 表允许「或反过来，按 capability_fact」）；题目组成改为 Go 3、TS 1、Python 1、shell 1（Python 第二题在 research，运行时派不到），Owner 10-20 11:5x「★ 三条 A」认可这处改写；结果在结论时记进 `capability_score`（PROD 10-20 05:25:56Z：codex `implementer` / `benchmark` 6 次、4 次首轮通过，0.300） | 无。附带发现 F-bench-score：两道不过的题 Owner 选「不做了」（任务 cancelled）之后，在岗成绩把它们剔掉了：PROD 15:28:54Z 变 5 次 4 过（0.376）、15:31:54Z 变 4 次 4 过（0.510）；STG 同样从 6 次 3 过（0.188）变成 4 次 3 过（0.301），失败不再计入；`store/scores.go` 只计 accepted、rejected 和 blocked-as-failed。要不要让「失败后被放弃」仍算失败，交统筹定（可记 TD） |
 
-**还差 2 项**（其余全部过；T33 10-21 20:13Z 过，T34 ⑤ ⑧ 10-21 21:47Z 过）：
-1. **T32 经接口的最后两种**：9 种已在 STG 上被拒。剩下两种：「规则引用之后移走任务」卡在 STG 的卡片规则把夹具卡答成「不改」（认 `TestPlanChangeOutside`，或在 M-95 里留一个不做事的任务当夹具）；「参谋长席位」卡在没有 STG 的席位令牌。
-2. **T36 页面**：卡在决定。认「按任务筛选」，或加一个到 Crew 任务详情的链接。
+**全部过**（T32 与 T36 10-22 01:44Z 收尾；其余见上表）。参谋长席位那一种 T32 在 STG 上没跑，由接口测试证；要合进 main 的是 platform `w31/t32-seat-route`（`a17d38d4`，只有测试）。
