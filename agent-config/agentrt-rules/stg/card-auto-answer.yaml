@@ -16,7 +16,8 @@ expires_at: 2027-01-20T00:00:00Z
 #     whatever its AI assessment says (assessment: veto below; v3 took the
 #     assessment's option here);
 #   - a card that has no option that changes nothing: not answered; it stays
-#     open for the Owner.
+#     open for the Owner and, unlike a card the rule answers, gets its AI
+#     assessment on STG too.
 # The option that changes nothing is known by its key, never by its label:
 # on the five decision cards (blocked, plan_change, plan_import,
 # recorder_import, mission), which the platform asks with that option
@@ -29,7 +30,7 @@ expires_at: 2027-01-20T00:00:00Z
 # Owner: A1): an AI assessment may only keep the rule from the card's
 # recommendation, never choose the option. It tightens v3 (the platform
 # checks so) and needs a platform that reads assessment: veto (W-31 2.3,
-# platform 1f500f02 or later on STG). v3 (five seconds, every kind) is the
+# platform b76ab1e1 or later on STG). v3 (five seconds, every kind) is the
 # one in force.
 after_seconds: 5
 # blocked: a blocked task's card; plan_question: a planner's question;
