@@ -3151,19 +3151,19 @@
 
 **P1 · trade-frontend · Rules scope text autosave replaces the entire symbol list when users intend to add**
 
-- **状态**：在做（2026-10-21：修复在 `codex/rules-symbols`；未发布，本地浏览器验收被 TD-418 阻塞）。
+- **状态**：在做（2026-10-21：已上线，待 Owner 签收；frontend `00d81a38`，STG `bifrost-deliver-stg-1792629368`、PROD `bifrost-deliver-prod-6ec7a8c24da4058f-1` 均通过发布后检查）。
 - **Measured**：Rules opportunity inspector accepts a symbol edit as viewer; PATCH is refused and the operator dialog asks the user to repeat the change. No inline retry or save state; the scope board exposes only symbol filters. Owner also reported the original scope disappearing after entering a new symbol in another opportunity; the whole-list replacement is confirmed in the form code. Scope was restored through the authenticated UI to the list explicitly confirmed by Owner; trade records remained intact. Reproduced in browser, then completed the requested change after Owner signed in.
 - **Evidence**：`bifrost-trade-frontend/src/pages/trade/rules/inspector/OpportunityInspector.tsx:126`；`src/pages/trade/rules/RulesRecord.tsx:111`；`src/hooks/useLiveEdit.ts:51`。
 - **Fix**：Scope-local edit entry; symbol chips plus shared ticker/company search, watchlist/position badges, disabled In scope matches, explicit match selection and deduplication; operator sign-in notice; inline pending/saving/saved/error state and retry without retyping while inspector is open.
 - **Ratchet**：`OpportunityInspector.test.tsx` covers no write for partial symbol input, preserving existing symbols, deduplication and retrying a refused draft. Rules and opportunity-form regression tests cover partial typing, company search, existing-scope matches, unmatched blur, preserving scope and refused-write retry; lint/build/legacy CSS checks pass (existing warnings).
 - **验收**：`npx vitest run src/pages/trade/rules`；local Vite against DEV: edit scope, add a new symbol, verify saved board, exercise viewer refusal and retry after sign-in.
-- **后续**：TD-418 blocks local visual acceptance; deployment remains outstanding. No API/schema change.
+- **后续**：Local DEV browser verified matching, Enter append, duplicate prevention, persistence, removal and company-name lookup. DEV scope restored after testing. PROD scope verified intact (11 symbols for opportunity 10; QQQ also retained on opportunity 16). Remote search omits QQQ, so known holdings/watchlist/benchmark matches are merged. 71 frontend tests pass; lint/build/legacy CSS pass. No API/schema change. Await Owner acceptance.
 
 ### TD-418
 
 **P2 · dev-services · bdev reports started while macOS refuses to execute the supervisor**
 
-- **状态**：在做（2026-10-21：startup reporting fixed on branch with two passing regression tests; Owner authorized rebuilding bdev session, trade-ui and all local health endpoints recovered; pending merge and sign-off）。
+- **状态**：在做（2026-10-21：修复已合 main `9706cda`，待 Owner 签收；Owner authorized rebuilding bdev session, trade-ui and all local health endpoints recovered. Shared infra checkout has unrelated tracked edits and was not fast-forwarded, so the installed bdev symlink still uses its earlier script until that checkout is updated）。
 - **Measured**：`bdev start trade-ui` reports started, then `bdev status` reports stopped and localhost:5173 refuses connections. Retained tmux pane reports `bdev-supervise: Operation not permitted`, exit 126. No supervisor-start event is recorded. Reproduces with the original cwd too.
 - **Evidence**：`scripts/bdev:606` reports success after creating the tmux window without checking its process; `scripts/bdev:340` directly executes the supervisor. A read-only head probe inside the old tmux server reproduces file-read-data denial in the kernel System Policy log. Earlier Claude Code TCC logs were unrelated and do not establish tmux attribution. Rebuilding bdev session resolves the denial without changing permissions.
 - **Fix**：Owner-approved `bdev stop` then `bdev start` rebuilt the old server context (2026-10-21); all health endpoints recovered. Startup reporting now checks early pane exit and surfaces failures. No OS permission was changed.
