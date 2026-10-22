@@ -27,7 +27,7 @@
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd -P)
-binary=agentd-4ea8158-linux-amd64
+binary=agentd-76b5f98-linux-amd64
 codex_version=0.163.0
 codex_prefix=/opt/bifrost/codex
 prod=bifrost-agentd
