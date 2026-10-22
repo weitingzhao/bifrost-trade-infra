@@ -184,17 +184,17 @@ class DominationTests(unittest.TestCase):
         self.assertNotIn("when", freezes[0])
         self.assertNotIn("runAfter", freezes[0])
         by_name = {task["name"]: task for task in tasks}
-        # TD-411: the rollout also waits for the agentrt schema check and the promotion of
-        # the checked images (review 498 A1); still not for freeze-check, which runs once.
-        self.assertEqual(
-            by_name["rollout"]["runAfter"],
-            ["build-platform-api", "build-platform-console", "agentrt-schema", "promote-images"],
-        )
+        # TD-335 (W-31 3.4 ①): PROD builds nothing. Its writes are the promotion of :prod,
+        # the pin and sync of the application (gitops-sync) and the rollout check after it;
+        # the one freeze check dominates each, and runs once.
+        self.assertEqual(by_name["rollout"]["runAfter"], ["gitops-sync"])
         self.assertNotIn("freeze-check", by_name["rollout"]["runAfter"])
         effects = fc.load_effects()
         self.assertEqual(by_name["rollout"]["taskRef"]["name"], "bifrost-rollout-verify-platform")
-        self.assertTrue(fc.is_side_effect(by_name["rollout"], effects, doc["metadata"]["name"]))
-        self.assertFalse(fc._path_misses_freeze(tasks, "rollout", {"freeze-check"}))
+        self.assertEqual(by_name["gitops-sync"]["taskRef"]["name"], "bifrost-argocd-pin-sync-platform")
+        for name in ("promote-images", "gitops-sync", "rollout"):
+            self.assertTrue(fc.is_side_effect(by_name[name], effects, doc["metadata"]["name"]), name)
+            self.assertFalse(fc._path_misses_freeze(tasks, name, {"freeze-check"}), name)
         self.assertEqual(fc.violations_for(doc), [])
         unguarded = copy.deepcopy(doc)
         unguarded["spec"]["tasks"] = [t for t in unguarded["spec"]["tasks"] if t["name"] != "freeze-check"]
@@ -202,8 +202,8 @@ class DominationTests(unittest.TestCase):
             if "runAfter" in task:
                 task["runAfter"] = [n for n in task["runAfter"] if n != "freeze-check"]
         self.assertIn("bifrost-deliver-platform-prod: rollout is not dominated by the freeze check", fc.violations_for(unguarded))
-        for push in ("build-platform-api", "build-platform-console"):
-            self.assertFalse(fc._path_misses_freeze(tasks, push, {"freeze-check"}))
+        # no build is left to push an image (TD-335)
+        self.assertFalse([t["name"] for t in tasks if t["name"].startswith("build-")])
 
     def test_on_error_continue_is_not_protection(self) -> None:
         doc = pipeline("demo", [

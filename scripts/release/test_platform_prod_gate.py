@@ -15,6 +15,8 @@ ROOT = Path(__file__).resolve().parents[2]
 PIPELINE = ROOT / "k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml"
 SHA = "a" * 40
 OTHER = "a" * 12 + "b" * 28
+API_DIGEST = "sha256:" + "1" * 64
+CONSOLE_DIGEST = "sha256:" + "2" * 64
 
 
 def tasks():
@@ -50,12 +52,29 @@ def run(pipeline, sha=SHA, ok="True", name="ci", timestamp="2026-10-12T10:00:00Z
 def answers():
     stg = run("bifrost-deliver-platform", name="stg")
     stg["status"]["childReferences"] = [
-        {"name": "clone", "kind": "TaskRun", "pipelineTaskName": "clone-platform"}
+        {"name": "clone", "kind": "TaskRun", "pipelineTaskName": "clone-platform"},
+        {"name": "clone-ui-tr", "kind": "TaskRun", "pipelineTaskName": "clone-ui"},
+        {"name": "rollout-tr", "kind": "TaskRun", "pipelineTaskName": "rollout"},
     ]
     task = run("unused", name="clone")
     task["metadata"]["labels"]["tekton.dev/pipelineRun"] = "stg"
     task["status"]["results"] = [{"name": "commit", "value": SHA}]
     return {"items": [run("bifrost-ci-platform"), stg]}, task
+
+
+def stg_tasks():
+    """The STG run's other TaskRuns the gate reads (TD-335): its UI clone and its rollout."""
+    ui = run("unused", name="clone-ui-tr")
+    ui["metadata"]["labels"]["tekton.dev/pipelineRun"] = "stg"
+    ui["status"]["results"] = [{"name": "commit", "value": SHA}]  # the fake mirror resolves the UI to SHA
+    rollout = run("unused", name="rollout-tr")
+    rollout["metadata"]["labels"]["tekton.dev/pipelineRun"] = "stg"
+    rollout["status"]["results"] = [
+        {"name": "api-digest", "value": API_DIGEST},
+        {"name": "console-digest", "value": CONSOLE_DIGEST},
+        {"name": "verified-at", "value": "2026-10-12T10:00:00Z"},
+    ]
+    return {"clone-ui-tr": ui, "rollout-tr": rollout}
 
 
 def execute(
@@ -67,12 +86,14 @@ def execute(
     source=None,
     revision="main",
     list_docs=None,
+    others=None,
 ):
     default_doc, default_task = answers()
     (tmp_path / "runs.json").write_text(json.dumps(default_doc if doc is None else doc))
     (tmp_path / "task.json").write_text(
         json.dumps(default_task if task is None else task)
     )
+    (tmp_path / "others.json").write_text(json.dumps(stg_tasks() if others is None else others))
     (tmp_path / "list-docs.json").write_text(json.dumps(list_docs or {}))
     fake = """#!{python}
 import os,sys,time,json
@@ -98,7 +119,10 @@ else:
  if mode=='empty': sys.exit(0)
  if mode=='duplicate': print('{{"items":[],"items":[]}}'); sys.exit(0)
  if mode=='malformed': print('{{'); sys.exit(0)
- if 'taskrun' in a: print((root/'task.json').read_text())
+ if 'taskrun' in a:
+  others=json.loads((root/'others.json').read_text())
+  name=a[a.index('taskrun')+1]
+  print(json.dumps(others[name]) if name in others else (root/'task.json').read_text())
  else:
   selector=a[a.index('-l')+1].split('=',1)[1]
   docs=json.loads((root/'list-docs.json').read_text())
@@ -124,6 +148,8 @@ else:
         "GITEA_BASE": "http://mirror/bifrost",
         "COMMIT_PATH": str(tmp_path / "commit"),
         "UI_COMMIT_PATH": str(tmp_path / "ui-commit"),
+        "API_DIGEST_PATH": str(tmp_path / "api-digest"),
+        "CONSOLE_DIGEST_PATH": str(tmp_path / "console-digest"),
     }
     return subprocess.run(
         [sys.executable, str(p)], env=env, text=True, capture_output=True, timeout=45
@@ -141,13 +167,23 @@ def test_gate_order():
     t = tasks()
     assert t["check-source"]["runAfter"] == ["mirror-sync"]
     assert t["clone-platform"]["runAfter"] == ["check-source"]
-    assert t["clone-ui"]["runAfter"] == ["check-source"]
+    # TD-335: PROD builds nothing; the UI is not even cloned.
+    assert "clone-ui" not in t
 
 
-def test_checked_sha_is_built():
-    for name, result in [("clone-platform", "commit"), ("clone-ui", "ui-commit")]:
-        params = {p["name"]: p["value"] for p in tasks()[name]["params"]}
-        assert params["revision"] == "$(tasks.check-source.results." + result + ")"
+def test_checked_sha_and_digests_are_what_ships():
+    # The clone the schema check reads is of the checked commit.
+    params = {p["name"]: p["value"] for p in tasks()["clone-platform"]["params"]}
+    assert params["revision"] == "$(tasks.check-source.results.commit)"
+    # TD-335: every task that names an image digest names the gate's.
+    for name in ("agentrt-schema", "promote-images", "gitops-sync", "rollout"):
+        named = {p["name"]: p["value"] for p in tasks()[name]["params"] if p["name"] in ("apiDigest", "consoleDigest")}
+        assert named, name
+        for key, value in named.items():
+            want = "api-digest" if key == "apiDigest" else "console-digest"
+            assert value == "$(tasks.check-source.results." + want + ")", (name, key)
+    results = [r["name"] for r in tasks()["check-source"]["taskSpec"]["results"]]
+    assert results == ["commit", "ui-commit", "api-digest", "console-digest"]
 
 
 def test_shared_ci_definition():
@@ -179,6 +215,57 @@ def test_success(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert (tmp_path / "commit").read_text() == SHA
     assert (tmp_path / "ui-commit").read_text() == SHA
+    # TD-335: the pair the same STG run's rollout verified.
+    assert (tmp_path / "api-digest").read_text() == API_DIGEST
+    assert (tmp_path / "console-digest").read_text() == CONSOLE_DIGEST
+
+
+@pytest.mark.parametrize(
+    "case, says",
+    [
+        ("ui-commit", "STG UI clone commit differs from uiRevision"),
+        ("ui-missing", "missing or ambiguous clone-ui TaskRun"),
+        ("ui-failed", "UI clone TaskRun identity/status mismatch"),
+        ("rollout-missing", "missing or ambiguous rollout TaskRun"),
+        ("rollout-other-run", "rollout TaskRun identity/status mismatch"),
+        ("rollout-failed", "rollout TaskRun identity/status mismatch"),
+        ("no-digest", "missing or ambiguous console-digest result"),
+        ("two-digests", "missing or ambiguous api-digest result"),
+        ("bad-digest", "STG rollout digests are malformed"),
+    ],
+)
+def test_stg_digests_refuse(tmp_path, case, says):
+    """TD-335: no pair is promoted that the same STG run's rollout did not verify, or that
+    was built from another UI commit than the one the request names."""
+    doc, task = answers()
+    others = stg_tasks()
+    ui, rollout = others["clone-ui-tr"], others["rollout-tr"]
+    if case == "ui-commit":
+        ui["status"]["results"][0]["value"] = OTHER
+    if case == "ui-missing":
+        doc["items"][1]["status"]["childReferences"] = [
+            c for c in doc["items"][1]["status"]["childReferences"] if c["pipelineTaskName"] != "clone-ui"
+        ]
+    if case == "ui-failed":
+        ui["status"]["conditions"][0]["status"] = "False"
+    if case == "rollout-missing":
+        doc["items"][1]["status"]["childReferences"] = [
+            c for c in doc["items"][1]["status"]["childReferences"] if c["pipelineTaskName"] != "rollout"
+        ]
+    if case == "rollout-other-run":
+        rollout["metadata"]["labels"]["tekton.dev/pipelineRun"] = "other"
+    if case == "rollout-failed":
+        rollout["status"]["conditions"][0]["status"] = "False"
+    if case == "no-digest":
+        rollout["status"]["results"] = [r for r in rollout["status"]["results"] if r["name"] != "console-digest"]
+    if case == "two-digests":
+        rollout["status"]["results"].append({"name": "api-digest", "value": API_DIGEST})
+    if case == "bad-digest":
+        rollout["status"]["results"][0]["value"] = "sha256:" + "1" * 63
+    result = execute(tmp_path, doc, task, others=others)
+    refuse(result, "STG")
+    assert says in result.stdout, result.stdout
+    assert not (tmp_path / "api-digest").exists() and not (tmp_path / "console-digest").exists()
 
 
 @pytest.mark.parametrize(
@@ -561,7 +648,8 @@ def test_kubectl_keeps_the_in_cluster_identity(tmp_path):
 
     assert execute(tmp_path).returncode == 0
     calls = [c for c in (tmp_path / "calls").read_text().splitlines() if c.startswith("kubectl ")]
-    assert len(calls) == 3
+    # two run lists, then the STG run's clone, UI clone and rollout TaskRuns (TD-335)
+    assert len(calls) == 5
     shapes = set()
     for call in calls:
         argv = ast.literal_eval(call[len("kubectl ") :])

@@ -28,6 +28,42 @@ PUSH_MAIN = HERE / "push-main.sh"
 BASELINES = HERE.parent.parent / "agent-config" / "scripts" / "code-health" / "baselines.env"
 SCAN = HERE.parent.parent / "agent-config" / "scripts" / "code-health" / "scan.sh"
 REAL_GIT = shutil.which("git")
+# W-31 3.4 ②: push-main reads the commit's ci-* runs with kubectl. This one answers for every
+# commit of every git repository under FAKE_CI_DIR (any checkout a case pushes from), in the
+# state FAKE_CI_STATE says (True, False, Unknown; none: no run;
+# error: kubectl fails; later: Unknown at the first read, then True), as bifrost-ci-platform runs
+# of FAKE_CI_REPO; the other CI pipelines have none.
+FAKE_KUBECTL = r'''#!/usr/bin/env python3
+import json, os, subprocess, sys
+state = os.environ.get("FAKE_CI_STATE", "True")
+log = os.environ.get("FAKE_CI_LOG")
+if log:
+    with open(log, "a") as f:
+        f.write(" ".join(sys.argv[1:]) + "\n")
+if state == "error":
+    print("The connection to the server localhost:8080 was refused", file=sys.stderr)
+    sys.exit(1)
+if state == "later":
+    seen = os.environ["FAKE_CI_DIR"] + "/ci-reads"
+    n = int(open(seen).read()) if os.path.exists(seen) else 0
+    open(seen, "w").write(str(n + 1))
+    state = "Unknown" if n < 3 else "True"
+pipeline = sys.argv[sys.argv.index("-l") + 1].split("=", 1)[1]
+items = []
+if pipeline == "bifrost-ci-platform" and state != "none":
+    shas = set()
+    for dirpath, dirnames, _ in os.walk(os.environ["FAKE_CI_DIR"]):
+        if os.path.basename(dirpath) == ".git" or dirpath.endswith(".git") and "objects" in dirnames:
+            shas |= set(subprocess.run(["git", "--git-dir", dirpath, "rev-list", "--all"],
+                                       capture_output=True, text=True).stdout.split())
+            dirnames[:] = []
+    for sha in shas:
+        items.append({"metadata": {"labels": {"tekton.dev/pipeline": pipeline,
+                                              "bifrost.io/repo": os.environ.get("FAKE_CI_REPO", "bifrost-platform")}},
+                      "spec": {"params": [{"name": "revision", "value": sha}]},
+                      "status": {"conditions": [{"type": "Succeeded", "status": state}]}})
+print(json.dumps({"items": items}))
+'''
 
 
 def _baseline(name: str) -> int:
@@ -62,7 +98,9 @@ def _commit(cwd: Path, subject: str, lineage: tuple[str, ...] = ("Change-Id", "C
     return _git(cwd, "rev-parse", "HEAD")
 
 
-class PushMain(unittest.TestCase):
+class _Fixture(unittest.TestCase):
+    """The fixture repositories and helpers; the test classes below share it."""
+
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         root = Path(self._tmp.name)
@@ -73,6 +111,9 @@ class PushMain(unittest.TestCase):
         self.window = root / "window.sh"
         self.window.write_text(f'#!/bin/sh\nexit "$(cat {self.window_rc})"\n')
         self.window.chmod(0o755)
+        self.kubectl = root / "kubectl-ci"
+        self.kubectl.write_text(FAKE_KUBECTL)
+        self.kubectl.chmod(0o755)
         self.origin = root / "remote" / "bifrost-platform.git"
         self.origin.parent.mkdir()
         _git(root, "init", "--quiet", "--bare", "--initial-branch=main", str(self.origin))
@@ -96,7 +137,9 @@ class PushMain(unittest.TestCase):
         _commit(self.work, f"files {start}..{start + n - 1}")
 
     def _env(self, **more: str) -> dict[str, str]:
-        return {**os.environ, "PUSH_MAIN_WINDOW": str(self.window), "PUSH_MAIN_SHARED_ROOT": str(self.shared_root), **more}
+        return {**os.environ, "PUSH_MAIN_WINDOW": str(self.window), "PUSH_MAIN_SHARED_ROOT": str(self.shared_root),
+                "PUSH_MAIN_KUBECTL": str(self.kubectl), "FAKE_CI_DIR": self._tmp.name, "PUSH_MAIN_CI_POLL": "0",
+                "PUSH_MAIN_CI_WAIT": "5", **more}
 
     def _push(self, *args: str, cwd: Path | None = None, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -118,6 +161,8 @@ class PushMain(unittest.TestCase):
     def _remote_main(self) -> str:
         return _git(self.origin, "rev-parse", "main")
 
+
+class PushMain(_Fixture):
     def test_at_the_baseline_pushes(self) -> None:
         self._big_files(0, _baseline("OVERSIZED_PLATFORM_BASELINE"))
         head = _git(self.work, "rev-parse", "HEAD")
@@ -416,6 +461,7 @@ class PushMain(unittest.TestCase):
         infra = ws / "bifrost-trade-infra"
         (infra / "scripts" / "release").mkdir(parents=True)
         shutil.copy(PUSH_MAIN, infra / "scripts" / "release" / "push-main.sh")
+        shutil.copy(HERE / "ci_gate.py", infra / "scripts" / "release" / "ci_gate.py")  # its CI step (W-31 3.4 ②)
         _git(ws, "init", "--quiet", "--initial-branch=main", str(infra))
         _git(infra, "add", "scripts")
         _commit(infra, "infra")
@@ -815,3 +861,119 @@ class GithubRepo(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PushMainCI(_Fixture):
+    """W-31 3.4 ② (Owner 2026-10-21 「D3 A」): a commit of a repo with its own CI reaches main
+    only with a Succeeded ci-* run of that exact commit."""
+
+    def _code_change(self) -> str:
+        (self.work / "x.go").write_text("package x\n")
+        _git(self.work, "add", "x.go")
+        return _commit(self.work, "a change")
+
+    def test_a_green_commit_is_pushed_and_said(self) -> None:
+        head = self._code_change()
+        r = self._push(env=self._env(FAKE_CI_STATE="True"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("bifrost-platform " + head + " ci=succeeded", r.stdout)
+        self.assertEqual(self._remote_main(), head)
+
+    def test_a_red_commit_is_refused(self) -> None:
+        before = self._remote_main()
+        self._code_change()
+        r = self._push(env=self._env(FAKE_CI_STATE="False"))
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("CI failed", r.stderr)
+        self.assertIn("--allow-red", r.stderr)
+        self.assertEqual(self._remote_main(), before)
+
+    def test_a_commit_without_finished_ci_is_refused_after_the_wait(self) -> None:
+        before = self._remote_main()
+        self._code_change()
+        for state in ("Unknown", "none"):
+            r = self._push(env=self._env(FAKE_CI_STATE=state, PUSH_MAIN_CI_WAIT="0"))
+            self.assertEqual(r.returncode, 1, r.stdout)
+            self.assertIn("has not succeeded within 0s", r.stderr)
+            self.assertIn("git push origin <branch>", r.stderr)
+            self.assertEqual(self._remote_main(), before)
+
+    def test_ci_that_turns_green_while_waited_for_is_pushed(self) -> None:
+        head = self._code_change()
+        r = self._push(env=self._env(FAKE_CI_STATE="later", PUSH_MAIN_CI_WAIT="60"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("has not finished, or has not started", r.stdout)
+        self.assertEqual(self._remote_main(), head)
+
+    def test_unreadable_runs_refuse(self) -> None:
+        before = self._remote_main()
+        self._code_change()
+        r = self._push(env=self._env(FAKE_CI_STATE="error"))
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("cannot read the CI runs in cicd", r.stderr)
+        self.assertEqual(self._remote_main(), before)
+
+    def test_allow_red_pushes_and_says_why(self) -> None:
+        head = self._code_change()
+        log = Path(self._tmp.name) / "ci.log"
+        r = self._push("--allow-red=the Owner's hotfix", env=self._env(FAKE_CI_STATE="False", FAKE_CI_LOG=str(log)))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("--allow-red: the Owner's hotfix", r.stdout)
+        self.assertEqual(self._remote_main(), head)
+        self.assertFalse(log.exists(), "the runs were read though CI was not required")
+
+    def test_allow_red_needs_a_reason(self) -> None:
+        self._code_change()
+        r = self._push("--allow-red= ", env=self._env(FAKE_CI_STATE="True"))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--allow-red needs a reason", r.stderr)
+
+    def test_a_documentation_push_is_not_checked(self) -> None:
+        (self.work / "NOTES.md").write_text("notes\n")
+        _git(self.work, "add", "NOTES.md")
+        head = _commit(self.work, "notes")
+        r = self._push(env=self._env(FAKE_CI_STATE="False"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("only documentation changed; no CI checked", r.stdout)
+        self.assertEqual(self._remote_main(), head)
+
+    def test_the_runs_are_read_as_release_sh_reads_them(self) -> None:
+        self._code_change()
+        log = Path(self._tmp.name) / "ci.log"
+        r = self._push(env=self._env(FAKE_CI_STATE="True", FAKE_CI_LOG=str(log)))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(log.read_text().splitlines(), [
+            "-n cicd get pipelineruns -l tekton.dev/pipeline=" + p + " -o json"
+            for p in ("bifrost-ci-python", "bifrost-ci-frontend", "bifrost-ci-platform")
+        ])
+
+    def test_a_repo_without_ci_of_its_own_is_not_checked(self) -> None:
+        root = Path(self._tmp.name)
+        origin = root / "remote" / "bifrost-ui.git"
+        _git(root, "init", "--quiet", "--bare", "--initial-branch=main", str(origin))
+        work = root / "work" / "bifrost-ui"
+        _git(root, "clone", "--quiet", str(origin), str(work))
+        _git(work, "checkout", "--quiet", "-b", "main")
+        (work / "README.md").write_text("ui\n")
+        _git(work, "add", "README.md")
+        _git(work, "commit", "--quiet", "-m", "init")
+        _git(work, "push", "--quiet", "origin", "main")
+        (work / "a.ts").write_text("export const a = 1\n")
+        _git(work, "add", "a.ts")
+        head = _commit(work, "ui change")
+        r = self._push(cwd=work, env=self._env(FAKE_CI_STATE="False"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("bifrost-ui has no CI of its own; no CI checked", r.stdout)
+        self.assertEqual(_git(origin, "rev-parse", "main"), head)
+
+    def test_a_missing_ci_gate_refuses_instead_of_waiting(self) -> None:
+        lone = Path(self._tmp.name) / "lone"
+        lone.mkdir()
+        shutil.copy(PUSH_MAIN, lone / "push-main.sh")
+        self._code_change()
+        r = subprocess.run(["bash", str(lone / "push-main.sh"), str(self.work)],
+                           env=self._env(FAKE_CI_STATE="True", PUSH_MAIN_SCAN=str(SCAN), PUSH_MAIN_CI_WAIT="600"),
+                           capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("ci_gate.py is not beside push-main.sh", r.stderr)
+

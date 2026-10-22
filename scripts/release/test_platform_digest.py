@@ -220,6 +220,10 @@ CANDIDATE_TAG = {"pipeline-deliver-platform.yaml": "stg-candidate", "pipeline-de
 def test_deliver_pipeline_task_refs_unchanged(pipeline):
     doc = load_one(TEKTON / pipeline)
     names = [task["name"] for task in doc["spec"]["tasks"]]
+    if pipeline == "pipeline-deliver-platform-prod.yaml":
+        # TD-335 (W-31 3.4 ①): PROD builds nothing; it deploys the digests STG verified.
+        assert not set(PIPELINE_REFS) & set(names)
+        return
     for task_name, expected in PIPELINE_REFS.items():
         expected = copy.deepcopy(expected)
         repo = task_name.removeprefix("build-")

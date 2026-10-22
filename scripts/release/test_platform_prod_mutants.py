@@ -19,7 +19,11 @@ from test_platform_prod_gate import PIPELINE, ROOT
         ("ci", "test_ci_refuses"),
         ("stg", "test_stg_refuses"),
         ("latest", "test_latest_stg_selects_newest"),
-        ("sha", "test_checked_sha_is_built"),
+        ("sha", "test_checked_sha_and_digests_are_what_ships"),
+        # TD-335: the digests that ship are the gate's, of the same STG run, of the asked UI
+        ("digest-source", "test_checked_sha_and_digests_are_what_ships"),
+        ("ui-commit", "test_stg_digests_refuse[ui-commit-STG UI clone commit differs from uiRevision]"),
+        ("digest-shape", "test_stg_digests_refuse[bad-digest-STG rollout digests are malformed]"),
         ("errors", "test_query_fail_closed"),
         ("identity-message", "test_default_identity_refuses"),
         ("image", "test_read_only_same_image"),
@@ -47,6 +51,8 @@ def test_planted_violation(tmp_path, mutation, named_test):
         ] = "$(params.revision)"
     elif mutation == "image":
         step["image"] = "alpine:3.20"
+    elif mutation == "digest-source":
+        next(p for p in tasks["rollout"]["params"] if p["name"] == "apiDigest")["value"] = "$(params.platformApiImage)"
     else:
         before, after = {
             "resolve": ("if len(candidates) != 1:", "if not candidates:"),
@@ -88,6 +94,8 @@ def test_planted_violation(tmp_path, mutation, named_test):
                 "if False:",
             ),
             "errors": ("        return 1\n", "        return 0\n"),
+            "ui-commit": ('if one_result(stg_child(stg, "clone-ui", "UI clone"), "commit") != ui:', "if False:"),
+            "digest-shape": ("if not DIGEST_RE.fullmatch(api) or not DIGEST_RE.fullmatch(console):", "if False:"),
             "identity-message": (
                 "identity cannot read PipelineRuns/TaskRuns in cicd",
                 "query failed",

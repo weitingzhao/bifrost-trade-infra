@@ -43,6 +43,12 @@ kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-deliver-platform.yaml"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/rbac-deliver-stg.yaml"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/rbac-deliver-platform.yaml"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-rollout-verify-platform.yaml"
+# The tasks the STG pipeline refers to since TD-411 (migrations, promotion) and TD-335 /
+# TD-419 (the application pinned to the run's digests); its pipeline refuses to run without them.
+kubectl apply -f "${ROOT}/k8s/cicd/tekton/rbac-deliver-migrate-stg.yaml"
+kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-agentrt-migrate-stg.yaml"
+kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-promote-platform-images.yaml"
+kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-argocd-pin-sync-platform.yaml"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-deliver-platform.yaml"
 
 if [[ "${APPLY_OVERLAY}" == "1" ]]; then

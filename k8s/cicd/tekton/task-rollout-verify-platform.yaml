@@ -42,7 +42,7 @@ spec:
         #!/usr/bin/env python3
         import os, re, subprocess
         try:
-            if os.environ['NAMESPACE'] not in ('bifrost-platform-stg', 'bifrost-platform-prod') or os.environ['RECORD_APPLICATION'] != 'none' or os.environ['REQUIRE_SPEC_DIGEST'] != 'false':
+            if os.environ['NAMESPACE'] not in ('bifrost-platform-stg', 'bifrost-platform-prod') or os.environ['RECORD_APPLICATION'] != 'none' or os.environ['REQUIRE_SPEC_DIGEST'] not in ('true', 'false'):
                 raise ValueError()
             for key in ('API_DIGEST', 'CONSOLE_DIGEST'):
                 if not re.fullmatch(r'sha256:[0-9a-f]{64}', os.environ[key]):
@@ -50,9 +50,13 @@ spec:
         except Exception:
             print('REFUSED: invalid STG or PROD rollout parameters')
             raise SystemExit(1)
+        # With the digests in the Deployment spec (gitops-sync pinned them, TD-335), the
+        # spec change is the rollout: wait for it. With tags, restart to pull the tag.
+        restart = os.environ['REQUIRE_SPEC_DIGEST'] == 'false'
         try:
             for dep in ('platform-api', 'platform-console', 'platform-workers'):
-                subprocess.run(['kubectl', '-n', os.environ['NAMESPACE'], 'rollout', 'restart', 'deployment/' + dep], check=True, capture_output=True, timeout=20)
+                if restart:
+                    subprocess.run(['kubectl', '-n', os.environ['NAMESPACE'], 'rollout', 'restart', 'deployment/' + dep], check=True, capture_output=True, timeout=20)
                 subprocess.run(['kubectl', '-n', os.environ['NAMESPACE'], 'rollout', 'status', 'deployment/' + dep, '--timeout=300s'], check=True, capture_output=True, timeout=310)
         except Exception:
             print('REFUSED: platform rollout failed or timed out')

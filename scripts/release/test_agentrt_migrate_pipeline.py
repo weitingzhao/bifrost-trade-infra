@@ -410,15 +410,21 @@ def test_stg_rbac_is_jobs_and_logs_in_stg_only():
 def test_prod_pipeline_checks_before_rollout():
     p = tasks(PROD_PIPELINE)
     c = p["agentrt-schema"]
-    assert c["runAfter"] == ["build-platform-api"]
+    # TD-335: PROD builds nothing; the api image checked is the one STG verified, the
+    # migrations are read from the checked commit's clone.
+    assert c["runAfter"] == ["clone-platform"]
     assert c["workspaces"] == [{"name": "source", "workspace": "build-context"}]
-    assert c["params"] == [{"name": "apiDigest", "value": "$(tasks.build-platform-api.results.digest)"}]
-    builds_go_to_candidates(p, "prod")
+    assert c["params"] == [{"name": "apiDigest", "value": "$(tasks.check-source.results.api-digest)"}]
     pr = p["promote-images"]
     assert pr["taskRef"] == {"name": "bifrost-promote-platform-images"}
-    assert set(pr["runAfter"]) == {"agentrt-schema", "build-platform-console"}
-    assert pr["params"] == promote_params()
-    assert {"agentrt-schema", "promote-images"} <= set(p["rollout"]["runAfter"])
+    assert pr["runAfter"] == ["agentrt-schema"]
+    assert pr["params"] == [
+        {"name": "apiImage", "value": "$(params.platformApiImage)"},
+        {"name": "apiDigest", "value": "$(tasks.check-source.results.api-digest)"},
+        {"name": "consoleImage", "value": "$(params.platformConsoleImage)"},
+        {"name": "consoleDigest", "value": "$(tasks.check-source.results.console-digest)"},
+    ]
+    assert {"agentrt-schema", "promote-images"} <= before(p, "rollout")
     assert {"agentrt-schema", "promote-images"} <= before(p, "gitops-sync")
     # PROD gets no migration step and no Job: the Owner's stays the only one.
     assert not any(t.get("taskRef", {}).get("name") == "bifrost-agentrt-migrate-stg" for t in p.values())
@@ -746,10 +752,11 @@ def test_the_registry_collection_keeps_the_candidate_tags():
     src = (ROOT / "scripts/registry/keepset.py").read_text()
     (line,) = [x for x in src.splitlines() if x.startswith("MOVING = ")]
     moving = ast.literal_eval(line.split("=", 1)[1].strip())
-    for p, env in ((STG_PIPELINE, "stg"), (PROD_PIPELINE, "prod")):
+    # PROD builds nothing since TD-335 (W-31 3.4 ①): it deploys the digests STG verified.
+    for p, want in ((STG_PIPELINE, {"stg-candidate"}), (PROD_PIPELINE, set())):
         built = {str(prm["value"]).rsplit(":", 1)[1] for t in tasks(p).values()
                  for prm in t.get("params", []) if prm["name"] == "image" and ":" in str(prm["value"])}
-        assert built == {env + "-candidate"}, (p, built)
+        assert built == want, (p, built)
         assert built <= moving
 
 

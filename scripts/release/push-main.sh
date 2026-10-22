@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Push a commit to a repo's main the way CI will judge it (TD-341).
 #
-#   push-main.sh [--no-lineage <reason>] [--skip-tests <reason>] <checkout> [<commit>]
-#                                          <commit> defaults to the checkout's HEAD
+#   push-main.sh [--no-lineage <reason>] [--skip-tests <reason>] [--allow-red <reason>]
+#                <checkout> [<commit>]     <commit> defaults to the checkout's HEAD
 #
 # 1. The release window must be closed (release.sh window), checked again
 #    right before the push.
@@ -11,11 +11,21 @@
 #    and a Claude-Session trailer (TD-400), or the push is refused naming
 #    each one that does not. --no-lineage <reason> pushes them anyway (the
 #    Owner's own commits, say) and prints the reason with them.
-# 4. For a repo whose CI runs the code-health ratchet, scan.sh runs on a
+# 4. For a repo with a CI pipeline of its own (CI_REPOS), <commit> must have a
+#    Succeeded ci-* run (W-31 3.4 ②, Owner 2026-10-21 「D3 A」): CI runs on every
+#    branch push (k8s/cicd/tekton/trigger-trade-ci.yaml), so a lane pushes its
+#    branch to Gitea first and its commit is green before it reaches main. A run
+#    not finished yet is waited for, up to PUSH_MAIN_CI_WAIT seconds (900); a
+#    failed one refuses; none at all refuses with that hint. The runs are read
+#    with kubectl from cicd (ci_gate.py, as release.sh does); a read that fails
+#    refuses. --allow-red <reason> pushes anyway and prints the reason, as
+#    release.sh --allow-red does. A push that changes only Markdown is not
+#    checked, as it runs no tests.
+# 5. For a repo whose CI runs the code-health ratchet, scan.sh runs on a
 #    fresh worktree of exactly <commit> (not the working tree, which may hold
 #    other sessions' edits), so a metric over its baseline (a file over 800
 #    lines, say) is refused here instead of turning main red.
-# 5. The repo's fast tests run on that same clean worktree (TD-413), and a
+# 6. The repo's fast tests run on that same clean worktree (TD-413), and a
 #    failure refuses the push: infra's pytest of scripts/release,
 #    scripts/agentrt and scripts/agent-host; platform's go vet ./... and
 #    go test of the packages origin/main..<commit> touches. Their exit code
@@ -25,8 +35,8 @@
 #    document guards (infra's exam-key scan): it says so and needs no reason.
 #    The worktree has the workspace's repositories beside it, as the tests
 #    read them.
-# 6. git push origin <commit>:refs/heads/main.
-# 7. The repo's shared checkout in the workspace (<workspace>/<repo>, where
+# 7. git push origin <commit>:refs/heads/main.
+# 8. The repo's shared checkout in the workspace (<workspace>/<repo>, where
 #    every session's MCP servers and dev builds run from) follows main
 #    (TD-408): it is fast-forwarded to <commit> when it is on main with no
 #    tracked changes, has the same origin and is not the checkout pushed
@@ -41,7 +51,7 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: push-main.sh [--no-lineage <reason>] [--skip-tests <reason>] <checkout> [<commit>]" >&2
+  echo "usage: push-main.sh [--no-lineage <reason>] [--skip-tests <reason>] [--allow-red <reason>] <checkout> [<commit>]" >&2
   exit 2
 }
 die() {
@@ -50,6 +60,7 @@ die() {
 }
 NO_LINEAGE=""
 SKIP_TESTS=""
+ALLOW_RED=""
 args=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -73,6 +84,16 @@ while [[ $# -gt 0 ]]; do
       [[ -n "${SKIP_TESTS//[[:space:]]/}" ]] || die "--skip-tests needs a reason"
       shift
       ;;
+    --allow-red)
+      [[ $# -ge 2 && -n "${2//[[:space:]]/}" ]] || die "--allow-red needs a reason"
+      ALLOW_RED="$2"
+      shift 2
+      ;;
+    --allow-red=*)
+      ALLOW_RED="${1#--allow-red=}"
+      [[ -n "${ALLOW_RED//[[:space:]]/}" ]] || die "--allow-red needs a reason"
+      shift
+      ;;
     -*) usage ;;
     *)
       args+=("$1")
@@ -90,6 +111,13 @@ WINDOW="${PUSH_MAIN_WINDOW:-$HERE/release.sh}"
 # pipeline-ci-platform, pipeline-ci-frontend, pipeline-ci-python,
 # task-research-lint-test). Keep in step with those.
 GATED=" bifrost-platform bifrost-trade-frontend bifrost-research bifrost-trade-api bifrost-trade-core bifrost-trade-worker "
+# The repos a push of which starts their own ci-* run (k8s/cicd/tekton/trigger-trade-ci.yaml:
+# python-ci, frontend-ci, platform-ci). Keep in step with those. bifrost-ui's push runs the
+# frontend's and the platform's CI against it, recorded under those repos, so it is not here.
+CI_REPOS=" bifrost-platform bifrost-trade-frontend bifrost-trade-core bifrost-trade-api bifrost-trade-worker bifrost-research "
+CI_WAIT="${PUSH_MAIN_CI_WAIT:-900}"
+CI_POLL="${PUSH_MAIN_CI_POLL:-20}"
+KUBECTL="${PUSH_MAIN_KUBECTL:-kubectl}"
 
 top="$(git -C "$DIR" rev-parse --show-toplevel 2>/dev/null)" || die "$DIR is not a git checkout"
 commit="$(git -C "$top" rev-parse --verify --quiet "$REF^{commit}")" || die "$REF is not a commit in $top"
@@ -421,6 +449,60 @@ docs_only=false
 [[ "${verdict%%$'\n'*}" == "docs" ]] && docs_only=true
 docs_said="${verdict#*$'\n'}"
 
+# ci — <commit> has a Succeeded ci-* run of its repo (W-31 3.4 ②), or the push stops.
+ci() {
+  if [[ "$CI_REPOS" != *" $repo "* ]]; then
+    echo "push-main: $repo has no CI of its own; no CI checked"
+    return 0
+  fi
+  if $docs_only; then
+    echo "push-main: only documentation changed; no CI checked"
+    return 0
+  fi
+  if [[ -n "$ALLOW_RED" ]]; then
+    echo "push-main: --allow-red: $ALLOW_RED; CI of $commit not required"
+    return 0
+  fi
+  local runs code out deadline said=false p
+  # its exit 2 means "not finished"; a missing gate would read the same (python3's own 2)
+  [[ -f "$HERE/ci_gate.py" ]] || die "ci_gate.py is not beside push-main.sh ($HERE); nothing pushed"
+  runs="$(mktemp -d "${TMPDIR:-/tmp}/push-main-ci.XXXXXX")"
+  deadline=$((SECONDS + CI_WAIT))
+  while true; do
+    for p in bifrost-ci-python bifrost-ci-frontend bifrost-ci-platform; do
+      if ! "$KUBECTL" -n cicd get pipelineruns -l "tekton.dev/pipeline=$p" -o json >"$runs/$p.json" 2>/dev/null; then
+        rm -rf "$runs"
+        die "cannot read the CI runs in cicd (kubectl and its KUBECONFIG); nothing pushed. Push with --allow-red <reason> if the Owner accepts it"
+      fi
+    done
+    code=0
+    out="$(python3 "$HERE/ci_gate.py" --runs "$runs/bifrost-ci-python.json" --runs "$runs/bifrost-ci-frontend.json" \
+      --runs "$runs/bifrost-ci-platform.json" "$repo=$commit" 2>&1)" || code=$?
+    case "$code" in
+      0)
+        rm -rf "$runs"
+        echo "push-main: CI: $out"
+        return 0
+        ;;
+      2)
+        if [[ "$SECONDS" -ge "$deadline" ]]; then
+          rm -rf "$runs"
+          die "CI of $repo $commit has not succeeded within ${CI_WAIT}s ($(tr '\n' ' ' <<<"$out")); nothing pushed. CI runs on a push of the branch to Gitea: git push origin <branch>"
+        fi
+        if ! $said; then
+          echo "push-main: CI of $repo $commit has not finished, or has not started (is the branch pushed to Gitea?); waiting up to ${CI_WAIT}s"
+          said=true
+        fi
+        sleep "$CI_POLL"
+        ;;
+      *)
+        rm -rf "$runs"
+        die "$(tr '\n' ' ' <<<"$out"); nothing pushed. Fix it on the branch, or push with --allow-red <reason> if the Owner accepts it"
+        ;;
+    esac
+  done
+}
+
 gated=false
 [[ "$GATED" == *" $repo "* ]] && gated=true
 testing=false
@@ -430,6 +512,7 @@ if has_tests && [[ -z "$SKIP_TESTS" ]]; then
     testing=false
   fi
 fi
+ci
 if $docs_only && has_tests && [[ -z "$SKIP_TESTS" ]]; then
   if $testing; then
     echo "push-main: only documentation changed: $docs_said"

@@ -1,4 +1,5 @@
-# Ops Platform deliver — Gitea clone → Kaniko (api + console) → agentrt-migrate → rollout → Argo sync.
+# Ops Platform deliver — Gitea clone → Kaniko (api + console) → agentrt-migrate → promote → pin the
+# application to the built digests and sync → rollout check (TD-411, TD-335, TD-419).
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
@@ -9,8 +10,8 @@ metadata:
 spec:
   description: >-
     Mirror-sync bifrost-platform → build platform-api + platform-console images →
-    run STG's agentrt migrations with the api image built → rollout
-    bifrost-platform-stg → Argo CD sync.
+    run STG's agentrt migrations with the api image built → pin
+    bifrost-platform-stg to the built digests and sync → verify the rollout.
   params:
     - name: revision
       type: string
@@ -166,10 +167,23 @@ spec:
           value: $(tasks.build-platform-console.results.digest)
     # Sync ConfigMap (clusters.yaml grafana_url, etc.) before rollout so platform-api
     # reads updated config on pod start — not stale in-memory config from prior mount.
+    # TD-335, TD-419: STG deploys this run's digests, not :stg. The application's image
+    # override is pinned to them in the same patch as the sync request, and the sync is
+    # waited for; a run that overlaps another fails its own check instead of claiming
+    # the other's build.
     - name: gitops-sync
       runAfter: [promote-images]
       taskRef:
-        name: bifrost-argocd-sync-platform-stg
+        name: bifrost-argocd-pin-sync-platform
+      params:
+        - name: application
+          value: bifrost-platform-stg
+        - name: apiDigest
+          value: $(tasks.build-platform-api.results.digest)
+        - name: consoleDigest
+          value: $(tasks.build-platform-console.results.digest)
+        - name: deliverRun
+          value: $(context.pipelineRun.name)
     - name: rollout
       runAfter: [gitops-sync]
       taskRef:
@@ -182,6 +196,6 @@ spec:
         - name: consoleDigest
           value: $(tasks.build-platform-console.results.digest)
         - name: requireSpecDigest
-          value: "false"
+          value: "true"
         - name: recordApplication
           value: none

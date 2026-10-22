@@ -728,11 +728,13 @@ def test_pipeline_wiring():
     assert rollout["taskRef"]["name"] == "bifrost-rollout-verify-platform"
     assert rollout["runAfter"] == ["gitops-sync"]
     assert not {"when", "onError", "retries"} & rollout.keys()
+    # TD-335, TD-419: gitops-sync pins the run's digests; the rollout check requires them
+    # in the Deployment spec as well as in the Pods.
     assert {p["name"]: p["value"] for p in rollout["params"]} == {
         "namespace": NS,
         "apiDigest": "$(tasks.build-platform-api.results.digest)",
         "consoleDigest": "$(tasks.build-platform-console.results.digest)",
-        "requireSpecDigest": "false",
+        "requireSpecDigest": "true",
         "recordApplication": "none",
     }
 
@@ -748,19 +750,21 @@ def test_prod_pipeline_wiring():
     assert names.count("rollout") == 1
     assert rollout["taskRef"] == {"name": "bifrost-rollout-verify-platform"}
     assert len(rollout["params"]) == 5
+    # TD-335: the pair STG verified (the source gate's results), required in the spec.
     assert {p["name"]: p["value"] for p in rollout["params"]} == {
         "namespace": PROD,
-        "apiDigest": "$(tasks.build-platform-api.results.digest)",
-        "consoleDigest": "$(tasks.build-platform-console.results.digest)",
-        "requireSpecDigest": "false",
+        "apiDigest": "$(tasks.check-source.results.api-digest)",
+        "consoleDigest": "$(tasks.check-source.results.console-digest)",
+        "requireSpecDigest": "true",
         "recordApplication": "none",
     }
     assert not {"when", "onError", "retries"} & rollout.keys()
-    # TD-411: the rollout waits for the agentrt schema check and the promotion as well.
-    assert rollout["runAfter"] == ["build-platform-api", "build-platform-console", "agentrt-schema", "promote-images"]
+    # The pin and sync comes first, then the check; the schema check and the promotion
+    # come before both.
+    assert rollout["runAfter"] == ["gitops-sync"]
     sync = next(t for t in tasks if t["name"] == "gitops-sync")
-    assert sync["runAfter"] == ["rollout"]
-    assert max(names.index(n) for n in rollout["runAfter"]) < names.index("rollout") < names.index("gitops-sync")
+    assert sync["runAfter"] == ["promote-images"]
+    assert names.index("agentrt-schema") < names.index("promote-images") < names.index("gitops-sync") < names.index("rollout")
     assert all(t.get("taskRef", {}).get("name") != "bifrost-rollout-platform-stg" for t in tasks)
 
 
@@ -796,7 +800,7 @@ def test_exactly_two_namespaces_in_source():
     assert namespace_condition(restart) == (
         "os.environ['NAMESPACE'] not in " + pair
         + " or os.environ['RECORD_APPLICATION'] != 'none'"
-        + " or os.environ['REQUIRE_SPEC_DIGEST'] != 'false'"
+        + " or os.environ['REQUIRE_SPEC_DIGEST'] not in ('true', 'false')"
     )
     trial = (ROOT / "scripts/release/platform_digest_verify_trial.py").read_text()
     assert namespace_condition(trial) == "namespace not in " + pair
@@ -828,10 +832,12 @@ def test_required_params_and_no_skip():
 def test_protected_files_unchanged():
     # Slice 3 changes only PROD rollout wiring; its new hash is pinned here.
     # TD-411 adds the agentrt schema check and the promotion of the checked images
-    # before the PROD rollout: the hash below is the file with them. The shared legacy restart Task stays unchanged.
+    # before the PROD rollout. TD-335 (W-31 3.4 ①) removes PROD's builds: it deploys the
+    # digests STG verified, pinned in the application. The hash below is the file with
+    # both. The shared legacy restart Task stays unchanged.
     hashes = {
         "task-deliver-platform.yaml": "4795263ba3c5135c9c5bd5d1880626ab41558b32a47d33524fc18a45d89388e2",
-        "pipeline-deliver-platform-prod.yaml": "a45f07d5930cc9d96406f3a9369b073cdafcf8c58c4cd2cfc48edffb75d58b58",
+        "pipeline-deliver-platform-prod.yaml": "0aca0fcfa680623db983fde5805874e1fae8333a509601e89541401d4be6333d",
     }
     for filename, expected in hashes.items():
         assert (
@@ -977,6 +983,20 @@ def test_apply_manifest_list():
 
 
 @pytest.mark.parametrize("namespace", [NS, PROD])
+def test_rollout_waits_without_a_restart_when_the_spec_names_the_digest(tmp_path, namespace):
+    # TD-335: gitops-sync pinned the digests into the Deployments; the spec change is the
+    # rollout, and a restart would only roll them again (PROD's api is Recreate).
+    source = task_spec()["steps"][0]["script"]
+    result = execute(tmp_path, source=source, env={"NAMESPACE": namespace, "REQUIRE_SPEC_DIGEST": "true"})
+    assert result.returncode == 0, result.stdout + result.stderr
+    calls = [json.loads(line) for line in (tmp_path / "calls").read_text().splitlines()]
+    assert calls == [
+        ["-n", namespace, "rollout", "status", "deployment/" + name, "--timeout=300s"]
+        for name in ("platform-api", "platform-console", "platform-workers")
+    ]
+
+
+@pytest.mark.parametrize("namespace", [NS, PROD])
 def test_rollout_restart_and_wait(tmp_path, namespace):
     source = task_spec()["steps"][0]["script"]
     result = execute(tmp_path, source=source, env={"NAMESPACE": namespace})
@@ -1005,7 +1025,8 @@ def test_rollout_failure_fixed_log(tmp_path, mode):
     [
         {"API_DIGEST": ""},
         {"CONSOLE_DIGEST": API + "\n"},
-        {"REQUIRE_SPEC_DIGEST": "true"},
+        {"REQUIRE_SPEC_DIGEST": "yes"},
+        {"REQUIRE_SPEC_DIGEST": ""},
         {"RECORD_APPLICATION": "bifrost-platform-prod"},
     ],
 )

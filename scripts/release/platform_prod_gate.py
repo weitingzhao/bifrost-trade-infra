@@ -12,6 +12,7 @@ from pathlib import Path
 from ci_gate import classify, _pipeline_name, _succeeded
 
 SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
+DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 BUDGET = 20
 
 
@@ -187,6 +188,34 @@ def latest_stg(runs):
     return chosen
 
 
+def stg_child(stg, task_name, label):
+    """The STG run's one TaskRun for task_name, read and checked to be that run's and Succeeded."""
+    children = [
+        c
+        for c in stg["status"]["childReferences"]
+        if c["pipelineTaskName"] == task_name and c["kind"] == "TaskRun"
+    ]
+    if len(children) != 1:
+        raise ValueError("missing or ambiguous " + task_name + " TaskRun")
+    task = read_json(["get", "taskrun", children[0]["name"]])
+    validate_run(task)
+    if (
+        task["metadata"]["name"] != children[0]["name"]
+        or task["metadata"]["labels"]["tekton.dev/pipelineRun"]
+        != stg["metadata"]["name"]
+        or _succeeded(task) != "True"
+    ):
+        raise ValueError(label + " TaskRun identity/status mismatch")
+    return task
+
+
+def one_result(task, name):
+    values = [r["value"] for r in task["status"]["results"] if r["name"] == name]
+    if len(values) != 1 or not isinstance(values[0], str):
+        raise ValueError("missing or ambiguous " + name + " result")
+    return values[0]
+
+
 def pipeline_runs(pipeline):
     doc = read_json(["get", "pipelineruns", "-l", "tekton.dev/pipeline=" + pipeline])
     if (
@@ -225,22 +254,7 @@ def main():
                 raise ValueError("no exact-SHA Succeeded CI")
             condition = "STG"
             stg = latest_stg(pipeline_runs("bifrost-deliver-platform"))
-            children = [
-                c
-                for c in stg["status"]["childReferences"]
-                if c["pipelineTaskName"] == "clone-platform" and c["kind"] == "TaskRun"
-            ]
-            if len(children) != 1:
-                raise ValueError("missing or ambiguous clone-platform TaskRun")
-            task = read_json(["get", "taskrun", children[0]["name"]])
-            validate_run(task)
-            if (
-                task["metadata"]["name"] != children[0]["name"]
-                or task["metadata"]["labels"]["tekton.dev/pipelineRun"]
-                != stg["metadata"]["name"]
-                or _succeeded(task) != "True"
-            ):
-                raise ValueError("clone TaskRun identity/status mismatch")
+            task = stg_child(stg, "clone-platform", "clone")
             commits = [
                 r["value"] for r in task["status"]["results"] if r["name"] == "commit"
             ]
@@ -250,8 +264,20 @@ def main():
             ui = resolve(
                 base + "/bifrost-ui.git", os.environ["UI_REVISION"], tmp + "/ui"
             )
+            # TD-335: PROD deploys the console STG built, so it must be of this UI commit.
+            condition = "STG"
+            if one_result(stg_child(stg, "clone-ui", "UI clone"), "commit") != ui:
+                raise ValueError("STG UI clone commit differs from uiRevision")
+            # The pair the same STG run's rollout verified on STG: its verifier writes
+            # them only once the Pods ran them, and took them from that run's builds.
+            rollout = stg_child(stg, "rollout", "rollout")
+            api, console = one_result(rollout, "api-digest"), one_result(rollout, "console-digest")
+            if not DIGEST_RE.fullmatch(api) or not DIGEST_RE.fullmatch(console):
+                raise ValueError("STG rollout digests are malformed")
             Path(os.environ["COMMIT_PATH"]).write_text(sha)
             Path(os.environ["UI_COMMIT_PATH"]).write_text(ui)
+            Path(os.environ["API_DIGEST_PATH"]).write_text(api)
+            Path(os.environ["CONSOLE_DIGEST_PATH"]).write_text(console)
         return 0
     except Exception as exc:
         if isinstance(exc, ValueError):

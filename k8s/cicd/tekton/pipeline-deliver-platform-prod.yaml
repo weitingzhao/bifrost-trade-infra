@@ -1,4 +1,6 @@
-# Ops Platform PROD deliver — preflight STG health → Kaniko (:prod) → agentrt schema check → rollout → Argo sync.
+# Ops Platform PROD deliver — preflight STG health → source gate (the commit, CI, and the image
+# digests the latest STG delivery verified) → agentrt schema check → :prod → pin the application
+# to those digests and sync → rollout check. Nothing is built here (TD-335, W-31 3.4 ①).
 # Conservative L1 rollout: only proceeds when platform-stg is healthy.
 apiVersion: tekton.dev/v1
 kind: Pipeline
@@ -11,7 +13,9 @@ metadata:
 spec:
   description: >-
     L1 prod deploy for Ops Platform. Preflight checks platform-stg health,
-    then builds :prod images, rolls out bifrost-platform-prod, and syncs Argo.
+    then deploys the image digests the latest STG delivery of this commit
+    verified, by digest: no build, the application pinned and synced, the
+    rollout checked against the digests.
   params:
     - name: revision
       type: string
@@ -97,6 +101,9 @@ spec:
         results:
           - name: commit
           - name: ui-commit
+          # TD-335: the digests the chosen STG run's rollout verified on STG.
+          - name: api-digest
+          - name: console-digest
         steps:
           - name: check
             image: alpine/k8s:1.31.4
@@ -121,6 +128,10 @@ spec:
                 value: $(results.commit.path)
               - name: UI_COMMIT_PATH
                 value: $(results.ui-commit.path)
+              - name: API_DIGEST_PATH
+                value: $(results.api-digest.path)
+              - name: CONSOLE_DIGEST_PATH
+                value: $(results.console-digest.path)
             script: |
               #!/usr/bin/env python3
               """Read-only, bounded platform PROD source gate; embedded in the Pipeline task."""
@@ -214,6 +225,7 @@ spec:
 
 
               SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
+              DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
               BUDGET = 20
 
 
@@ -389,6 +401,34 @@ spec:
                   return chosen
 
 
+              def stg_child(stg, task_name, label):
+                  """The STG run's one TaskRun for task_name, read and checked to be that run's and Succeeded."""
+                  children = [
+                      c
+                      for c in stg["status"]["childReferences"]
+                      if c["pipelineTaskName"] == task_name and c["kind"] == "TaskRun"
+                  ]
+                  if len(children) != 1:
+                      raise ValueError("missing or ambiguous " + task_name + " TaskRun")
+                  task = read_json(["get", "taskrun", children[0]["name"]])
+                  validate_run(task)
+                  if (
+                      task["metadata"]["name"] != children[0]["name"]
+                      or task["metadata"]["labels"]["tekton.dev/pipelineRun"]
+                      != stg["metadata"]["name"]
+                      or _succeeded(task) != "True"
+                  ):
+                      raise ValueError(label + " TaskRun identity/status mismatch")
+                  return task
+
+
+              def one_result(task, name):
+                  values = [r["value"] for r in task["status"]["results"] if r["name"] == name]
+                  if len(values) != 1 or not isinstance(values[0], str):
+                      raise ValueError("missing or ambiguous " + name + " result")
+                  return values[0]
+
+
               def pipeline_runs(pipeline):
                   doc = read_json(["get", "pipelineruns", "-l", "tekton.dev/pipeline=" + pipeline])
                   if (
@@ -427,22 +467,7 @@ spec:
                               raise ValueError("no exact-SHA Succeeded CI")
                           condition = "STG"
                           stg = latest_stg(pipeline_runs("bifrost-deliver-platform"))
-                          children = [
-                              c
-                              for c in stg["status"]["childReferences"]
-                              if c["pipelineTaskName"] == "clone-platform" and c["kind"] == "TaskRun"
-                          ]
-                          if len(children) != 1:
-                              raise ValueError("missing or ambiguous clone-platform TaskRun")
-                          task = read_json(["get", "taskrun", children[0]["name"]])
-                          validate_run(task)
-                          if (
-                              task["metadata"]["name"] != children[0]["name"]
-                              or task["metadata"]["labels"]["tekton.dev/pipelineRun"]
-                              != stg["metadata"]["name"]
-                              or _succeeded(task) != "True"
-                          ):
-                              raise ValueError("clone TaskRun identity/status mismatch")
+                          task = stg_child(stg, "clone-platform", "clone")
                           commits = [
                               r["value"] for r in task["status"]["results"] if r["name"] == "commit"
                           ]
@@ -452,8 +477,20 @@ spec:
                           ui = resolve(
                               base + "/bifrost-ui.git", os.environ["UI_REVISION"], tmp + "/ui"
                           )
+                          # TD-335: PROD deploys the console STG built, so it must be of this UI commit.
+                          condition = "STG"
+                          if one_result(stg_child(stg, "clone-ui", "UI clone"), "commit") != ui:
+                              raise ValueError("STG UI clone commit differs from uiRevision")
+                          # The pair the same STG run's rollout verified on STG: its verifier writes
+                          # them only once the Pods ran them, and took them from that run's builds.
+                          rollout = stg_child(stg, "rollout", "rollout")
+                          api, console = one_result(rollout, "api-digest"), one_result(rollout, "console-digest")
+                          if not DIGEST_RE.fullmatch(api) or not DIGEST_RE.fullmatch(console):
+                              raise ValueError("STG rollout digests are malformed")
                           Path(os.environ["COMMIT_PATH"]).write_text(sha)
                           Path(os.environ["UI_COMMIT_PATH"]).write_text(ui)
+                          Path(os.environ["API_DIGEST_PATH"]).write_text(api)
+                          Path(os.environ["CONSOLE_DIGEST_PATH"]).write_text(console)
                       return 0
                   except Exception as exc:
                       if isinstance(exc, ValueError):
@@ -486,103 +523,21 @@ spec:
         - name: output
           workspace: build-context
 
-    - name: clone-ui
-      runAfter: [check-source]
-      taskRef:
-        name: bifrost-git-clone-gitea
-      params:
-        - name: url
-          value: $(params.giteaBase)/bifrost-ui.git
-        - name: revision
-          value: $(tasks.check-source.results.ui-commit)
-        - name: subdir
-          value: bifrost-ui
-      workspaces:
-        - name: output
-          workspace: build-context
-
-    - name: stage-api-dockerfile
-      runAfter: [clone-platform]
-      workspaces:
-        - name: source
-          workspace: build-context
-      taskSpec:
-        workspaces:
-          - name: source
-        volumes:
-          - name: dockerfile-cm
-            configMap:
-              name: bifrost-platform-api-stg-dockerfile
-        steps:
-          - name: copy
-            image: alpine:3.20
-            volumeMounts:
-              - name: dockerfile-cm
-                mountPath: /cm
-            script: |
-              #!/usr/bin/env sh
-              set -eu
-              cp /cm/Dockerfile.platform-api-stg "$(workspaces.source.path)/Dockerfile.platform-api-stg"
-
-    - name: stage-console-dockerfile
-      runAfter: [clone-platform, clone-ui]
-      workspaces:
-        - name: source
-          workspace: build-context
-      taskSpec:
-        workspaces:
-          - name: source
-        volumes:
-          - name: dockerfile-cm
-            configMap:
-              name: bifrost-platform-console-stg-dockerfile
-        steps:
-          - name: copy
-            image: alpine:3.20
-            volumeMounts:
-              - name: dockerfile-cm
-                mountPath: /cm
-            script: |
-              #!/usr/bin/env sh
-              set -eu
-              cp /cm/Dockerfile.platform-console-stg "$(workspaces.source.path)/Dockerfile.platform-console-stg"
-
-    # TD-411: built to the candidate tag; :prod moves only in promote-images.
-    - name: build-platform-api
-      runAfter: [stage-api-dockerfile]
-      taskRef:
-        name: bifrost-kaniko-platform-api-stg
-      params:
-        - name: image
-          value: registry.cicd.svc.cluster.local:5000/bifrost-platform-api:prod-candidate
-      workspaces:
-        - name: source
-          workspace: build-context
-
-    - name: build-platform-console
-      runAfter: [stage-console-dockerfile]
-      taskRef:
-        name: bifrost-kaniko-platform-console-stg
-      params:
-        - name: image
-          value: registry.cicd.svc.cluster.local:5000/bifrost-platform-console:prod-candidate
-      workspaces:
-        - name: source
-          workspace: build-context
-
     # TD-411 (Owner 2026-10-21: PROD's migrations stay the Owner's Job): before the
     # rollout, every agentrt migration this build carries must already be applied to
     # PROD's database, with the same bytes, as PROD's platform-api says on /health
     # (agentrt_schema_applied). If one is missing the run stops here and names the
     # Job to create with this build's image; a health that does not say refuses too.
+    # "This build" is the api image STG built and verified (check-source's digest);
+    # the migrations are read from the same commit's clone.
     - name: agentrt-schema
-      runAfter: [build-platform-api]
+      runAfter: [clone-platform]
       workspaces:
         - name: source
           workspace: build-context
       params:
         - name: apiDigest
-          value: $(tasks.build-platform-api.results.digest)
+          value: $(tasks.check-source.results.api-digest)
       taskSpec:
         params:
           - name: apiDigest
@@ -689,41 +644,52 @@ spec:
 
               main()
 
-    # Only now does :prod point at what this run built and checked (review 498 A1).
+    # Only after the schema check does :prod point at the pair STG verified (review 498
+    # A1). The Deployments run the digests, not :prod (gitops-sync pins them); the tag is
+    # for its readers: the Owner's migration Job, the registry's keep set.
     - name: promote-images
-      runAfter: [agentrt-schema, build-platform-console]
+      runAfter: [agentrt-schema]
       taskRef:
         name: bifrost-promote-platform-images
       params:
         - name: apiImage
           value: $(params.platformApiImage)
         - name: apiDigest
-          value: $(tasks.build-platform-api.results.digest)
+          value: $(tasks.check-source.results.api-digest)
         - name: consoleImage
           value: $(params.platformConsoleImage)
         - name: consoleDigest
-          value: $(tasks.build-platform-console.results.digest)
+          value: $(tasks.check-source.results.console-digest)
+
+    # TD-335: PROD deploys the pair STG verified, by digest: the application's image
+    # override is pinned to it in the same patch as the sync request, and the sync is
+    # waited for before the rollout is checked.
+    - name: gitops-sync
+      runAfter: [promote-images]
+      taskRef:
+        name: bifrost-argocd-pin-sync-platform
+      params:
+        - name: application
+          value: bifrost-platform-prod
+        - name: apiDigest
+          value: $(tasks.check-source.results.api-digest)
+        - name: consoleDigest
+          value: $(tasks.check-source.results.console-digest)
+        - name: deliverRun
+          value: $(context.pipelineRun.name)
 
     - name: rollout
-      runAfter: [build-platform-api, build-platform-console, agentrt-schema, promote-images]
+      runAfter: [gitops-sync]
       taskRef:
         name: bifrost-rollout-verify-platform
       params:
         - name: namespace
           value: bifrost-platform-prod
         - name: apiDigest
-          value: $(tasks.build-platform-api.results.digest)
+          value: $(tasks.check-source.results.api-digest)
         - name: consoleDigest
-          value: $(tasks.build-platform-console.results.digest)
+          value: $(tasks.check-source.results.console-digest)
         - name: requireSpecDigest
-          value: "false"
+          value: "true"
         - name: recordApplication
           value: none
-
-    - name: gitops-sync
-      runAfter: [rollout]
-      taskRef:
-        name: bifrost-argocd-sync-platform-stg
-      params:
-        - name: application
-          value: bifrost-platform-prod

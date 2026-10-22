@@ -95,7 +95,15 @@ scripts/release/release-check.sh diff old.json new.json --allow <file>
 
 没有 allow-red。覆盖检查的途径是 Owner 应用此前版本的 Pipeline 定义。上线顺序是先把包含 check-source 身份接线的 platform 发到 PROD 并核对，再由 Owner 在没有平台发布在途、没有未结 PROD 发布单时应用 `k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml`；反过来会拒绝每次平台 PROD 发布。回退由 Owner 重新应用此前版本的同一 Pipeline 文件。
 
-正式环境仍重新构建 API 和 console 两个 :prod 镜像；重启后按本次 run 的两个 kaniko `digest` 结果核对 Pod。成功表示核对读到的那一刻，bifrost-platform-prod 的 platform-api、platform-console、platform-workers 各自就绪，所有计入核对的 Pod 的 imageID 摘要分别等于本次构建摘要（workers 用 API 摘要）。读取不是原子快照，不保证读完之后的状态。gitops-sync 仍在核对之后，之后的同步、标签变化或 Pod 重启不在保证内（TD-330、TD-331）。
+**正式环境不再构建，按 STG 核对过的摘要部署**（TD-335，W-31 3.4 ①，Owner 2026-10-21「D3 A」；切法 `agent-config/work/multi-agent/CUT-release-speedup-2026-10-22.md`）。`check-source` 认定的那条 STG run，它的 `rollout` 核对过的 api、console 两个摘要（只在 Pod 真跑着之后才写），就是 PROD 发布的那一对；同一条 run 的 `clone-ui` 提交必须等于这张单子的 uiRevision。`agentrt-schema` 按这对里的 api 摘要查迁移，`promote-images` 把 `:prod` 挪到这一对（给 tag 的读者：Owner 的迁移 Job、registry 的保留集），`gitops-sync`（任务 `bifrost-argocd-pin-sync-platform`）在同一次 patch 里把应用 `bifrost-platform-prod` 的 `spec.source.kustomize.images` 钉到这两个摘要并发出同步、等这一次同步完成，`rollout` 以 `requireSpecDigest=true` 核对：三个 Deployment 的 spec 写着这个摘要，Pod 的 imageID 也是它（workers 用 API 摘要）。读取不是原子快照，不保证读完之后的状态。之后成立的是：Deployment 写的是摘要，Pod 重启拉的还是这一对，`:prod` 被谁改写都不改变 PROD 跑什么（TD-331）。STG 同样按本次构建的摘要钉住（TD-419）。
+
+**回滚不重建**：把上一次成功发布的那一对再钉回去。要么再成功发一次旧提交的 STG、再提升；要么 Owner 直接钉（两个摘要取自那次 PROD run 的 `check-source` 结果或台账）：
+
+```bash
+kubectl -n cicd patch application bifrost-platform-prod --type merge -p '{"spec":{"source":{"kustomize":{"images":["registry.cicd.svc.cluster.local:5000/bifrost-platform-api=192.168.10.73:30500/bifrost-platform-api@sha256:<api>","registry.cicd.svc.cluster.local:5000/bifrost-platform-console=192.168.10.73:30500/bifrost-platform-console@sha256:<console>"]}}},"operation":{"initiatedBy":{"username":"owner-rollback"},"sync":{"revision":"HEAD"}}}'
+```
+
+钉子只在应用对象里：`kubectl apply` 重新应用 git 里的应用定义不会删它（那个字段不在定义里）；`kubectl replace` 整个对象会删掉它，Deployment 回到写 `:prod`，跑的东西不变（`:prod` 指着同一对）。
 
 钉住路径 `scripts/release/platform-prod-pinned-from-stg.sh <stg-run> -o <file>` 读取线上 PROD Pipeline：有 check-source 就设置该任务使用 tekton-deliver，保留其它 override；没有就不添加，读不到或 tasks 不是列表就拒绝生成。它只生成 JSON，创建发布仍由 Owner 批准。指定旧 STG run 不会绕过最新 STG 判定。
 
@@ -135,6 +143,8 @@ git show 27e4467:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | kubectl a
 | `STG run X has missing or unparsable completionTime`（或 `creationTimestamp`） | 有一条 STG run 还没结束，或它的时间字段坏了 | 等它结束；一直不结束或字段坏了，就删掉那条 run（`delete_pipeline_run`） |
 | `ambiguous latest STG delivery` | 两条 STG run 的创建时间在同一秒 | 再发一次 STG |
 | `missing or ambiguous clone-platform TaskRun`、`clone TaskRun identity/status mismatch` | 那次 STG 发布的拉代码记录不在了，或和 run 对不上 | 再发一次 STG |
+| `missing or ambiguous clone-ui TaskRun`、`UI clone TaskRun identity/status mismatch`、`STG UI clone commit differs from uiRevision` | PROD 部署的是那次 STG 构建出的 console（TD-335），它不是这张单子写的 UI 提交，或它的拉代码记录不在了 | 用那次 STG 发布的 UI 提交建单（`release.sh prod` 自己会取），或把这个 UI 提交先发到 STG |
+| `missing or ambiguous rollout TaskRun`、`rollout TaskRun identity/status mismatch`、`missing or ambiguous api-digest result`（或 `console-digest`）、`STG rollout digests are malformed` | 那次 STG 发布没有核对过的一对摘要可提升（TD-335：PROD 只部署 STG 核对过的摘要） | 再发一次 STG |
 | `empty or ambiguous mirror revision` | 镜像上没有这个分支或标签，或者同名的分支和标签都在 | 同步镜像；改给 40 位整 SHA |
 | `invalid revision`、`mirror returned another SHA`、`invalid mirror SHA`、`invalid resolved SHA` | 给的修订号不合法，或镜像回的不是它 | 只给分支名、标签名或 40 位整 SHA；再出现就停下查镜像 |
 | `query failed: <原因>`、`CalledProcessError: <原因>`（原因是几句固定的话之一，例如 `cannot reach the API server`、`mirror authentication failed`、`timed out`；认不出的写 `unrecognised error output`。工具自己的报错原文不进日志，因为这一步拿着镜像的凭证）、`malformed or incomplete PipelineRun list`、`PipelineRun does not match selector …`、`malformed run`、`malformed spec`、`malformed params`、`ambiguous params`、`ambiguous status`、`duplicate JSON key`、`timezone missing` | 读集群失败，或读回来的记录形状不对。关着失败 | 重试一次；仍然出现就不要绕过，把这一行原样交给统筹线程 |
@@ -199,7 +209,7 @@ STG 的 `rollout` 引用 `bifrost-rollout-verify-platform`，先重启并等待�
 scripts/release/push-main.sh <checkout> <sha>
 ```
 
-`push-main.sh`（TD-341）先跑 `release.sh window`，再在 `<sha>` 的干净 worktree 上跑和 CI 同一份 code-health 扫描（只对 CI 有 code-health 任务的仓库：platform、trade-frontend、research、trade-api / core / worker），过了才 `git push origin <sha>:refs/heads/main`，只接受快进，推之前再查一次窗口。直接 `git push` 到 main 由 `preflight.js` 拦截。
+`push-main.sh`（TD-341）先跑 `release.sh window`；对有自己 CI 的仓库（platform、trade-frontend、trade-core / api / worker、research），要求 `<sha>` 有一次成功的 ci-* 运行（W-31 3.4 ②：CI 在每次推分支时就跑，所以先把分支推到 Gitea，绿了再合；没跑完的最多等 `PUSH_MAIN_CI_WAIT` 秒，失败或一直没有就拒推；`--allow-red <理由>` 照推并打印理由，和 `release.sh --allow-red` 同义；只改 Markdown 的不查）；再在 `<sha>` 的干净 worktree 上跑和 CI 同一份 code-health 扫描（只对 CI 有 code-health 任务的仓库：platform、trade-frontend、research、trade-api / core / worker），过了才 `git push origin <sha>:refs/heads/main`，只接受快进，推之前再查一次窗口。直接 `git push` 到 main 由 `preflight.js` 拦截。
 
 - **血缘（TD-400）**：扫描之前先查 `origin/main..<sha>` 里的每个提交，必须同时带 `Change-Id` 和 `Claude-Session` 两个尾注。缺的会逐个点名，然后拒推。husky 仓库新开的 worktree 不跑钩子，在那里提交要自己补 `--trailer`。cherry-pick 和 rebase 保留原尾注。不在 Claude 会话里做的提交（比如 Owner 自己的），用 `push-main.sh --no-lineage <理由> <checkout> <sha>` 推，理由和这些提交会打在输出里。
 - **快测试（TD-413）**：在扫描用的那个干净 worktree 里接着跑这个仓库的快测试，失败就拒推。worktree 旁边会链接工作区里的其他仓库，因为测试会读它们。

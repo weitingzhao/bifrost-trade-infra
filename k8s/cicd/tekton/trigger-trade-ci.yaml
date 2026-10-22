@@ -1,7 +1,7 @@
 # Tekton Triggers for Bifrost CI gate — Gitea push webhook → CI pipeline.
 #
-# Flow: Gitea mirror-sync fires push webhook → EventListener → CEL filter
-#       routes to python-ci, frontend-ci, or platform-ci TriggerTemplate → PipelineRun.
+# Flow: Gitea fires a push webhook (any branch; a pull mirror's sync too) → EventListener →
+#       CEL filter routes to python-ci, frontend-ci, or platform-ci TriggerTemplate → PipelineRun.
 #       A push to a repository Gitea holds as its primary also starts github-sync
 #       (a TaskRun that copies main and tags to GitHub; k8s/cicd/github-sync).
 #
@@ -218,6 +218,10 @@ metadata:
 spec:
   serviceAccountName: tekton-trigger
   triggers:
+    # W-31 3.4 ② (Owner 2026-10-21 「D3 A」): CI runs on every branch push, not only main,
+    # so a lane's commit has its CI before it is merged; push-main.sh requires a
+    # Succeeded ci-* run for the exact commit it pushes. A push that deletes a branch
+    # (after = forty zeros) runs nothing. github-sync below stays main and tags only.
     # L2: Python repos (Trade + Research). code-health Task runs for
     # research + trade-api/core/worker (see pipeline-ci-python when clause).
     - name: python-ci
@@ -227,7 +231,8 @@ spec:
           params:
             - name: filter
               value: >-
-                body.ref == 'refs/heads/main' &&
+                body.ref.startsWith('refs/heads/') &&
+                body.after != '0000000000000000000000000000000000000000' &&
                 body.repository.name in ['bifrost-trade-core', 'bifrost-trade-api',
                   'bifrost-trade-worker', 'bifrost-research']
             - name: overlays
@@ -246,7 +251,8 @@ spec:
           params:
             - name: filter
               value: >-
-                body.ref == 'refs/heads/main' &&
+                body.ref.startsWith('refs/heads/') &&
+                body.after != '0000000000000000000000000000000000000000' &&
                 body.repository.name == 'bifrost-trade-frontend'
       bindings:
         - ref: bifrost-gitea-push
@@ -260,7 +266,8 @@ spec:
           params:
             - name: filter
               value: >-
-                body.ref == 'refs/heads/main' &&
+                body.ref.startsWith('refs/heads/') &&
+                body.after != '0000000000000000000000000000000000000000' &&
                 body.repository.name == 'bifrost-ui'
       bindings:
         - ref: bifrost-gitea-push-ui
@@ -274,7 +281,8 @@ spec:
           params:
             - name: filter
               value: >-
-                body.ref == 'refs/heads/main' &&
+                body.ref.startsWith('refs/heads/') &&
+                body.after != '0000000000000000000000000000000000000000' &&
                 body.repository.name == 'bifrost-platform'
       bindings:
         - ref: bifrost-gitea-push
@@ -289,7 +297,8 @@ spec:
           params:
             - name: filter
               value: >-
-                body.ref == 'refs/heads/main' &&
+                body.ref.startsWith('refs/heads/') &&
+                body.after != '0000000000000000000000000000000000000000' &&
                 body.repository.name == 'bifrost-ui'
       bindings:
         - ref: bifrost-gitea-push-ui
