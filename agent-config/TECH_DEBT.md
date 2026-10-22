@@ -2163,6 +2163,32 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-420
+
+**P2 · approvals · a pipeline-run approval is created without checking that its revision exists, so the Owner can approve a ticket that can never run**
+
+- **状态**：未开始（2026-10-21 统筹线程记；#80 事故）
+- **Claim**: `request_action start_pipeline_run` signs whatever `revision` and `params.*Revision` it is given. The ref preflight (`api/internal/delivery/ref_preflight.go` `runRefPreflight`) runs only when the approved request executes. #80 (2026-10-22 01:02Z) carried `b6b565f2…a1106f`, a hand-typed full SHA whose last characters were wrong (the commit is `…a115b1`); the Owner approved it at 01:11Z, it waited on the release window, and at 01:31Z the executor refused it ("revision is missing in: bifrost-platform … mirror was synced but the ref is still not present"). The Owner had to approve a second ticket (#82) for the same release.
+- **Evidence**: approvals #80 and #82; PROD platform-workers audit log 2026-10-22 01:31:28Z; `get_delivery_revisions` shows `w31/plan-signoff-usable` at `b6b565f2368e3f5ec39d09f288bfc0fd50a115b1`.
+- **Impact**: an approval the Owner gives can be wasted, and the release it was meant to start silently waits for a second approval.
+- **Fix**: at creation, `request_action` for `start_pipeline_run` runs the same per-repo ref check on every full SHA it signs (revision and each caller-overridable `*Revision`) and refuses a missing one with the repo and the SHA; the approval page shows "revision checked at creation".
+- **Ratchet**: a test that `request_action start_pipeline_run` with a full SHA Gitea does not have is refused and no approval row is written.
+- 验收: on STG, a request with a one-character-wrong SHA is refused at creation; the right SHA creates the request.
+- 审批 无 · 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-419
+
+**P3 · release · two overlapping platform deliver runs can each roll out the other's image; only the release window keeps them apart**
+
+- **状态**：未开始（2026-10-21 TD-411 复核 503 提出三个选项：1 清单按 digest 钉镜像、2 流水线加带租约的锁、3 保持现状。统筹线程按推荐取 3（Owner 10-11「按推荐往前走，事后审计」），本条跟进 1；Owner 可改）
+- **Claim**: after TD-411 the STG deliver pipeline moves the running tag (`:stg`) only after the migration gate, then syncs and restarts. If two runs overlap between the tag move and the rollout, each rollout picks up whichever digest the tag points at, so run A can roll out run B's build. Both builds passed their own migration gate, so no unmigrated code gets through; what breaks is "this run rolled out this build". Today one release window per repository is the only thing that prevents the overlap.
+- **Evidence**: TD-411 lane notes (Gate A lane local_6f3ef5b9, review 503); infra `edcf5ab` STG deliver pipeline.
+- **Impact**: low while the window holds; if a run is started outside the window (or the window lapses mid-run), the release record names the wrong build.
+- **Fix**: GitOps manifests pin platform images by digest (the deliver run writes the digest it built and verified), so a rollout can only start what that run wrote.
+- **Ratchet**: a pipeline test that the rollout step reads the digest from the run's own result, not from a tag.
+- 验收: two STG runs started back to back each roll out their own digest.
+- 审批 无（清单写法）；流水线改动应用到集群要 Owner · 代价 M · 风险 low · repos: bifrost-trade-infra, bifrost-platform
+
 ### TD-416
 
 **P2 · agentrt · a plan step whose done rule is owner_signoff can never be done: nothing calls store.SignOff**
@@ -2238,7 +2264,7 @@
 
 **P1 · release · a platform release whose code needs a new agentrt migration goes out without it, and the controller fails quietly every 15 seconds**
 
-- **状态**：在做（2026-10-21 18:4x Owner 定：「STG 的迁移由发布流水线先跑、PROD 照旧由我建 Job」；交 Gate A 线 local_6f3ef5b9：STG 发布流水线 rollout 前用本次镜像跑 agentrt-migrate，PROD 流水线缺迁移时拒发并点名迁移 Job；应用到集群由 Owner 跑）。 此前：在做（2026-10-21 02:1x：平台一半合进 platform `75022097`，02:13 上 STG：启动日志 ERROR、health `agentrt_schema: behind`、缺 0007/0008，现场验到；流水线一半待 Owner 定 A/B；STG 迁移 Job 待 Owner 建）。 此前：在做（2026-10-21 02:0x：平台一半交回 w31/td-411-schema（复核 466、467 收线）：health 的 agentrt_schema 与缺的迁移、Progress 与 Console 的提示、循环连续 4 次同样失败记 policy_alert；合并中。流水线一半要 Owner 定：A 发完后读 health 拒（要放行 cicd 读平台 health），或 B 发前对比迁移拒发（要 health 加 agentrt_schema_applied）；Owner 应用）。 此前：未开始（2026-10-21 01:1x 统筹线程记；Gate A 线 F-T33-migrate）
+- **状态**：在做（2026-10-21 20:3x CDT：Gate A 线交回，复核 498→500→503→504 收线（0 A 0 B）；platform 一半 `a7784531`（health 加 `agentrt_schema_applied`）与 infra 一半 `edcf5ab`（STG 流水线 rollout 前用本次镜像跑迁移，PROD 流水线发前对比迁移拒发，选 B）由统筹线程推 main。下一步：Owner 跑 `scripts/release/agentrt-migrate-pipelines.sh apply` 应用 STG 四份文件 → 下一次 STG platform 发版即真跑 → 带该字段的 platform 上 PROD 后 Owner 同一命令再跑一次应用 PROD 流水线。两个 run 重叠的问题取 3「保持现状」，跟进记 TD-419）。 此前：在做（2026-10-21 18:4x Owner 定：「STG 的迁移由发布流水线先跑、PROD 照旧由我建 Job」；交 Gate A 线 local_6f3ef5b9：STG 发布流水线 rollout 前用本次镜像跑 agentrt-migrate，PROD 流水线缺迁移时拒发并点名迁移 Job；应用到集群由 Owner 跑）。 此前：在做（2026-10-21 02:1x：平台一半合进 platform `75022097`，02:13 上 STG：启动日志 ERROR、health `agentrt_schema: behind`、缺 0007/0008，现场验到；流水线一半待 Owner 定 A/B；STG 迁移 Job 待 Owner 建）。 此前：在做（2026-10-21 02:0x：平台一半交回 w31/td-411-schema（复核 466、467 收线）：health 的 agentrt_schema 与缺的迁移、Progress 与 Console 的提示、循环连续 4 次同样失败记 policy_alert；合并中。流水线一半要 Owner 定：A 发完后读 health 拒（要放行 cicd 读平台 health），或 B 发前对比迁移拒发（要 health 加 agentrt_schema_applied）；Owner 应用）。 此前：未开始（2026-10-21 01:1x 统筹线程记；Gate A 线 F-T33-migrate）
 - **Claim**: `bifrost-deliver-platform` builds and rolls out platform-api and workers but never runs or checks the agentrt migrations; they run only when the Owner creates the plain Job in `k8s/agentrt-migrate/<env>/job.yaml` (README there). STG ran platform `d360a118` (with 0007, 0008) from 2026-10-20 23:24 CDT on a database still at 0006: the controller's facts-and-rules pass failed every 15 s (`agentrt-facts-rules: ... violates check constraint "task_check2"`), logged as WARN only; health stayed ok, nothing alerted, and gate tasks, blocked cards and the other facts-pass work stopped on STG. The coordinator released three more STG builds on top without noticing.
 - **Evidence**: STG platform-workers log 2026-10-21 06:15Z onward; agentrt-migrate Jobs in bifrost-platform-stg (latest 25 h old, before 0007/0008); Gate A run notes (infra branch w31/gate-a-t32 `5d7ce8f`).
 - **Impact**: any release carrying a migration silently disables the runtime's controller in that environment until someone reads the logs; on PROD the same would stop dispatch and cards.
