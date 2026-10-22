@@ -3145,3 +3145,27 @@
 - 验收: `cd bifrost-platform/mcp/platform && npx tsc --noEmit -p .` exits 0, and the CI pipeline has the step
 - 审批 无（测试与 CI 步骤，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
 
+
+
+### TD-417
+
+**P1 · trade-frontend · Rules scope text autosave replaces the entire symbol list when users intend to add**
+
+- **状态**：在做（2026-10-21：修复在 `codex/rules-symbols`；未发布，本地浏览器验收被 TD-418 阻塞）。
+- **Measured**：Rules opportunity inspector accepts a symbol edit as viewer; PATCH is refused and the operator dialog asks the user to repeat the change. No inline retry or save state; the scope board exposes only symbol filters. Owner also reported the original scope disappearing after entering a new symbol in another opportunity; the whole-list replacement is confirmed in the form code. Scope was restored through the authenticated UI to the list explicitly confirmed by Owner; trade records remained intact. Reproduced in browser, then completed the requested change after Owner signed in.
+- **Evidence**：`bifrost-trade-frontend/src/pages/trade/rules/inspector/OpportunityInspector.tsx:126`；`src/pages/trade/rules/RulesRecord.tsx:111`；`src/hooks/useLiveEdit.ts:51`。
+- **Fix**：Scope-local edit entry; symbol chips plus shared ticker/company search, watchlist/position badges, disabled In scope matches, explicit match selection and deduplication; operator sign-in notice; inline pending/saving/saved/error state and retry without retyping while inspector is open.
+- **Ratchet**：`OpportunityInspector.test.tsx` covers no write for partial symbol input, preserving existing symbols, deduplication and retrying a refused draft. Rules and opportunity-form regression tests cover partial typing, company search, existing-scope matches, unmatched blur, preserving scope and refused-write retry; lint/build/legacy CSS checks pass (existing warnings).
+- **验收**：`npx vitest run src/pages/trade/rules`；local Vite against DEV: edit scope, add a new symbol, verify saved board, exercise viewer refusal and retry after sign-in.
+- **后续**：TD-418 blocks local visual acceptance; deployment remains outstanding. No API/schema change.
+
+### TD-418
+
+**P2 · dev-services · bdev reports started while macOS refuses to execute the supervisor**
+
+- **状态**：未开始（2026-10-21：during Rules acceptance; original trade-ui cwd restored, service remains stopped）。
+- **Measured**：`bdev start trade-ui` reports started, then `bdev status` reports stopped and localhost:5173 refuses connections. Retained tmux pane reports `bdev-supervise: Operation not permitted`, exit 126. No supervisor-start event is recorded. Reproduces with the original cwd too.
+- **Evidence**：`scripts/bdev:606` reports success after creating the tmux window without checking its process; `scripts/bdev:340` directly executes the supervisor. macOS refusal observed on the Desktop checkout's script, cause not yet established.
+- **Fix**：Owner diagnose macOS execution/access permission for the existing tmux host; then `bdev restart trade-ui`. Improve bdev startup reporting to check process/health and surface early supervisor failures. Do not bypass the OS denial.
+- **Ratchet**：test a non-executable/refused supervisor: start must fail with an actionable error rather than print started.
+- **验收**：`bdev restart trade-ui`; `bdev status --json` shows running and healthy; localhost:5173 loads.
