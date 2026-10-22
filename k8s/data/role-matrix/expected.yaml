@@ -47,6 +47,32 @@ schemas:
     - agentrt
     - public
 roles:
+  # Finance logins share the cluster but must have no access to any database
+  # governed here. Finance's own matrix governs its separate databases.
+  finance_app_dev:
+    connect: []
+  finance_app_stg:
+    connect: []
+  finance_app_test:
+    connect: []
+  finance_ingest_dev:
+    connect: []
+  finance_ingest_stg:
+    connect: []
+  finance_ingest_test:
+    connect: []
+  finance_migrator_dev:
+    connect: []
+  finance_migrator_stg:
+    connect: []
+  finance_migrator_test:
+    connect: []
+  finance_reader_dev:
+    connect: []
+  finance_reader_stg:
+    connect: []
+  finance_reader_test:
+    connect: []
   # W-33 read-only login. CONNECT on the seven databases and nothing else here.
   # Membership in pg_read_all_data is not a grant cell; an omitted grant is denied.
   agent_reader:

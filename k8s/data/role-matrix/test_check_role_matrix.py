@@ -8,6 +8,27 @@ import check_role_matrix as crm
 HERE = Path(__file__).resolve().parent
 
 
+class FinanceBoundaryTests(unittest.TestCase):
+    def test_finance_logins_have_no_trade_access_and_drift_is_rejected(self):
+        import copy
+
+        matrix = crm.load_matrix((HERE / "expected.yaml").read_text())
+        for environment in ("dev", "stg", "test"):
+            for purpose in ("app", "ingest", "migrator", "reader"):
+                name = f"finance_{purpose}_{environment}"
+                role = matrix["roles"][name]
+                self.assertFalse(role["superuser"])
+                self.assertFalse(role["connect"])
+                self.assertFalse(role["grants"])
+                actual = copy.deepcopy(matrix)
+                actual["schemas"] = {db: set(names) for db, names in matrix["schemas"].items()}
+                actual["roles"][name]["connect"] = {"bifrost_prod"}
+                self.assertIn(
+                    f"connect role={name} database=bifrost_prod expected=false actual=true",
+                    crm.compare(matrix, actual),
+                )
+
+
 class ParseAclTests(unittest.TestCase):
     def test_public_connect_expands_to_every_role(self):
         letters = crm.effective_privileges(
