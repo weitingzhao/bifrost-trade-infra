@@ -943,7 +943,7 @@ class PushMainCI(_Fixture):
         r = self._push(env=self._env(FAKE_CI_STATE="True", FAKE_CI_LOG=str(log)))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(log.read_text().splitlines(), [
-            "-n cicd get pipelineruns -l tekton.dev/pipeline=" + p + " -o json"
+            "-n cicd get pipelineruns -l tekton.dev/pipeline=" + p + " -o json --request-timeout=20s"
             for p in ("bifrost-ci-python", "bifrost-ci-frontend", "bifrost-ci-platform")
         ])
 

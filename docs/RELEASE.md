@@ -103,7 +103,7 @@ scripts/release/release-check.sh diff old.json new.json --allow <file>
 kubectl -n cicd patch application bifrost-platform-prod --type merge -p '{"spec":{"source":{"kustomize":{"images":["registry.cicd.svc.cluster.local:5000/bifrost-platform-api=192.168.10.73:30500/bifrost-platform-api@sha256:<api>","registry.cicd.svc.cluster.local:5000/bifrost-platform-console=192.168.10.73:30500/bifrost-platform-console@sha256:<console>"]}}},"operation":{"initiatedBy":{"username":"owner-rollback"},"sync":{"revision":"HEAD"}}}'
 ```
 
-钉子只在应用对象里：`kubectl apply` 重新应用 git 里的应用定义不会删它（那个字段不在定义里）；`kubectl replace` 整个对象会删掉它，Deployment 回到写 `:prod`，跑的东西不变（`:prod` 指着同一对）。
+钉子只在应用对象里：`kubectl apply` 重新应用 git 里的应用定义不会删它（那个字段不在定义里）；`kubectl replace` 整个对象会删掉它，Deployment 回到写 `:prod`，跑 `:prod` 那一刻指着的东西。那**不一定**是刚才钉着的一对：回滚钉回旧的一对不挪 `:prod`，一次 PROD 发布挪了 `:prod` 却钉失败，也会让两者不一致（复核 513 C1）。钉子丢了，就从最后一次成功 PROD run 的 `check-source` 结果（或台账）取那两个摘要，用上面的命令钉回去，再看三个 Deployment 写着 `@sha256:<摘要>`、Pod 的 imageID 也是它；不靠 `:prod`。
 
 钉住路径 `scripts/release/platform-prod-pinned-from-stg.sh <stg-run> -o <file>` 读取线上 PROD Pipeline：有 check-source 就设置该任务使用 tekton-deliver，保留其它 override；没有就不添加，读不到或 tasks 不是列表就拒绝生成。它只生成 JSON，创建发布仍由 Owner 批准。指定旧 STG run 不会绕过最新 STG 判定。
 

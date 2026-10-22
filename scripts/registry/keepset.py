@@ -89,7 +89,9 @@ def main():
         drop_n += len(tags) - len(keep[repo])
 
     blobs, per_repo = {}, {}
-    for repo, tags in keep.items():
+    # a repository named only by digest has no kept tag, and still weighs (review 513 C2)
+    for repo in sorted(set(keep) | {r for r, _ in digests}):
+        tags = keep.get(repo, set())
         tot = 0
         for t in sorted(tags) + sorted(d for r, d in digests if r == repo):
             try: m, _ = get(f"/v2/{repo}/manifests/{t}", ACCEPT)

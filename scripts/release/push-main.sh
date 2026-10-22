@@ -470,7 +470,8 @@ ci() {
   deadline=$((SECONDS + CI_WAIT))
   while true; do
     for p in bifrost-ci-python bifrost-ci-frontend bifrost-ci-platform; do
-      if ! "$KUBECTL" -n cicd get pipelineruns -l "tekton.dev/pipeline=$p" -o json >"$runs/$p.json" 2>/dev/null; then
+      # bounded, so the wait is (review 513): the caller's kubeconfig, not kubectl in a pod
+      if ! "$KUBECTL" -n cicd get pipelineruns -l "tekton.dev/pipeline=$p" -o json --request-timeout=20s >"$runs/$p.json" 2>/dev/null; then
         rm -rf "$runs"
         die "cannot read the CI runs in cicd (kubectl and its KUBECONFIG); nothing pushed. Push with --allow-red <reason> if the Owner accepts it"
       fi
