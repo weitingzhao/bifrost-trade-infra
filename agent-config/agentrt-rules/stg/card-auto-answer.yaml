@@ -1,26 +1,41 @@
 rule_id: card-auto-answer
-rule_version: 3
-direction: loosen
-effective_at: 2026-10-21T00:00:00Z
+rule_version: 4
+direction: tighten
+effective_at: 2026-10-22T00:00:00Z
 expires_at: 2027-01-20T00:00:00Z
 # STG only (Owner 2026-10-20 「STG 用 A」, TD-390); PROD has no such file
 # (scripts/agentrt/test_rules_prod.py holds it so), and PROD's platform does
 # not wire the loop. A card the runtime asked, of a kind below, still open on
 # what it is about, whose mission (a proposal's card has none) is not marked
 # needs_owner, and that has been open after_seconds unanswered, is answered
-# by the platform as this rule (rule card-auto-answer v3), never the Owner:
-# with the option the card recommends, unless an AI assessment (TD-391) that
-# has come recommends another; a card that recommends nothing takes the
-# option of an assessment that has come; otherwise the option that changes
-# nothing (do not do the task, do not apply the change or import, do not
-# start the mission; a planner's question: its own). An option the card does
-# not recommend says why on the answer.
-# v3 (TD-393, Owner 2026-10-20 16:3x 「STG 的规则等待按秒、设 5 秒，循环每 5 秒；
-# STG 上所有种类的运行时卡都归规则管」): five seconds, every kind. It needs the
-# platform of TD-393 (after_seconds, the kinds below). v2 (five minutes,
-# blocked and plan_question) is the one in force, signed 2026-10-20 17:5x.
+# by the platform as this rule (rule card-auto-answer v4), never the Owner:
+#   - a card that recommends an option: with that option, unless an AI
+#     assessment (TD-391) that has come recommends another; then with the
+#     option that changes nothing (as in v3);
+#   - a card that recommends nothing: with the option that changes nothing,
+#     whatever its AI assessment says (assessment: veto below; v3 took the
+#     assessment's option here);
+#   - a card that has no option that changes nothing: not answered; it stays
+#     open for the Owner.
+# The option that changes nothing is known by its key, never by its label:
+# on the five decision cards (blocked, plan_change, plan_import,
+# recorder_import, mission), which the platform asks with that option
+# second, the key b (do not do the task, do not apply the change, do not
+# import, do not start the mission); on a planner's question, the option it
+# recommends, which the work goes on with. A planner's question that
+# recommends nothing has none, so the rule leaves it to the Owner. An option
+# the card does not recommend says why on the answer.
+# v4 (review 489 A1 on T12; the coordinating thread 2026-10-22 for the
+# Owner: A1): an AI assessment may only keep the rule from the card's
+# recommendation, never choose the option. It tightens v3 (the platform
+# checks so) and needs a platform that reads assessment: veto (W-31 2.3,
+# platform 1f500f02 or later on STG). v3 (five seconds, every kind) is the
+# one in force.
 after_seconds: 5
 # blocked: a blocked task's card; plan_question: a planner's question;
 # plan_change, plan_import, recorder_import: a proposal outside the standing
 # authorization; mission: a mission outside the standing envelope.
 kinds: [blocked, plan_question, plan_change, plan_import, recorder_import, mission]
+# veto: a card's AI assessment only ever keeps the rule from the card's
+# recommendation (the one value; without it, as in v1 to v3).
+assessment: veto

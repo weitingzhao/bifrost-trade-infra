@@ -27,8 +27,11 @@ def test_prod_has_no_card_auto_answer_rule() -> None:
 def test_stg_draft_is_the_rule() -> None:
     text = (RULES / "stg" / "card-auto-answer.yaml").read_text()
     assert RULE_ID.search(text)
-    # v3 (TD-393): five seconds, every kind of card the runtime asks
-    assert re.search(r"^rule_version: 3$", text, re.MULTILINE)
+    # v3 (TD-393): five seconds, every kind of card the runtime asks; v4
+    # (review 489 A1 on T12): an AI assessment only ever vetoes
+    assert re.search(r"^rule_version: 4$", text, re.MULTILINE)
+    assert re.search(r"^direction: tighten$", text, re.MULTILINE)
+    assert re.search(r"^assessment: veto$", text, re.MULTILINE)
     assert re.search(r"^after_seconds: 5$", text, re.MULTILINE)
     assert not re.search(r"^after_minutes:", text, re.MULTILINE)
     assert re.search(r"^kinds: \[blocked, plan_question, plan_change, plan_import, recorder_import, mission\]$", text, re.MULTILINE)
