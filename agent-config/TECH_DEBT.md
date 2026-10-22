@@ -2163,6 +2163,45 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-423
+
+**P2 · gitea · no `agent/**` branch rule is in force on any `bifrost/*` repository, so an agent account can write any branch but `main`, and agent branches can vanish**
+
+- **状态**：未开始（2026-10-22 统筹线程在第 D 批第 5 条时发现）
+- **Claim**: the cut (`CUT-gitea-primary-2026-10-17.md`) and batch A's run note say `protect-repo.sh` set `main` and `agent/**` on `bifrost-platform` and `bifrost-ui` and read four rules back. On 2026-10-22 03:5xZ the Branch Protection page of `bifrost/bifrost-platform`, `bifrost/bifrost-ui`, `bifrost/bifrost-trade-infra` and `bifrost/primary-probe` lists one rule each: `main`. Consistent with that: `copy-agent-branches.sh bifrost-platform`, pushing with the admin account that an `agent/**` whitelist would refuse, created 12 branches; and those 12 (Gate A drills of 10-15 and 10-16, `agent/t_01M50…`, `t_01M54…`, `t_01M557…`, `t_01M559…`) had been copied in batch A and were gone from `bifrost/bifrost-platform` before tonight, so something deleted them unprotected.
+- **Evidence**: Gitea settings pages (read 2026-10-22 03:5xZ in the Owner's browser session); `copy-agent-branches.sh` log (12 copied, 6 already there; a second run 0 copied, 18 already there).
+- **Impact**: team `agentd-write` (Code write on every repository) lets the agentd accounts create, force-push and delete any branch except `main`, including another attempt's `agent/` branch and non-`agent/` names; lineage and earlier attempts' bases can disappear.
+- **Fix**: find when and how the `agent/**` rules went (Gitea admin log, `protect-repo.sh` history); re-apply them with `protect-repo.sh` on every repository agents work in (push whitelist team `agentd-write` and the Owner, no force push, no deletion by agents); add the read-back to `check-step1.sh`-style monitoring so a missing rule pages.
+- **Ratchet**: a scheduled read-only check that every repository in the agent-work list has its `main` and `agent/**` rules, alerting when one is missing.
+- 验收: the Branch Protection page of each repository lists `agent/**`; the protection probe refuses an agent account's push to a non-`agent/` branch and its force-push of another attempt's branch.
+- 审批 Owner（Gitea 管理员写）· 代价 S · 风险 low · repos: bifrost-trade-infra
+
+### TD-422
+
+**P2 · runtime · recorder imports use up the runtime's hourly question quota**
+
+- **状态**：未开始（2026-10-22 统筹线程记；PROD 17 张导入卡分三批）
+- **Claim**: every recorder import is one Owner card from requester `agentrt`, and the question store allows 6 cards an hour per requester (`api/internal/questions/types.go` `hourlyPerRequester`, design W-65 §4). 17 imports took three hourly windows, and while six import cards were open in an hour, any other runtime card (a blocked task, a plan change) would have been refused with 429.
+- **Evidence**: PROD 2026-10-22 02:50Z `POST /plan/imports` 503 `hourly quota: 6 questions from this requester in the last hour`; again 03:47Z.
+- **Impact**: a bulk history import delays the Owner's real decisions by up to an hour, and spreads one decision over three hours of his time.
+- **Fix**: a batch import: one card for a set of recorder logs (each log's digest and counts listed), the controller landing each under that one decision; or the import cards on the rule path that does not count against the hourly ring when the Owner signed a rule for imports.
+- **Ratchet**: a store test that a batch of N recorder imports creates one question.
+- 验收: on STG, 17 logs go in under one card.
+- 审批 无 · 代价 M · 风险 low · repos: bifrost-platform
+
+### TD-421
+
+**P2 · runtime · a branch task without `base_commit` is accepted, and agentd runs it in an empty directory**
+
+- **状态**：未开始（2026-10-22 M-113）
+- **Claim**: `propose_tasks` takes an `effect_class: branch` task with no `base_commit`. agentd then starts the executor in a workspace with no checkout (codex: `git rev-parse` exit 128, `localpath.go` not found), the executor ends "done" with nothing to hand in, and the platform refuses the persist (`409 … a branch task's result is a pushed branch`). M-113 lost five attempts (codex twice, cursor twice for 19 and 10 minutes, claude) before the coordinator stopped it; M-114 with `base_commit` passed first time.
+- **Evidence**: STG M-113 events; 06 `bifrost-agentd-stg` journal 2026-10-22 03:16–03:36Z (four `refused at computed` lines); attempt actions of `a_01M5GSRGWFHPX5DEA25X3Q5SYP`.
+- **Impact**: a malformed task burns the mission's attempt budget and vendor quota with no result and no clear reason on the Console.
+- **Fix**: the platform refuses a branch task without `base_commit` at proposal (or fills the repository's main head and says so); agentd refuses to start an executor in a workspace without a checkout and ends the attempt with that reason.
+- **Ratchet**: an API test that a branch task without `base_commit` is refused; an agentd test that an empty workspace ends the attempt before the executor starts.
+- 验收: on STG, proposing such a task is refused with the reason.
+- 审批 无 · 代价 S · 风险 low · repos: bifrost-platform
+
 ### TD-420
 
 **P2 · approvals · a pipeline-run approval is created without checking that its revision exists, so the Owner can approve a ticket that can never run**
