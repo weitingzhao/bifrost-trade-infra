@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-335** — PROD 平台发布不再从源码重建，部署 STG 核过的那对镜像摘要；发布流水线按摘要钉 Argo 应用（infra `b63fa49`、`e318a80`，platform `6ff3801b`）。验收：PASS 2026-10-22，PROD #85 没有构建任务，Pod 摘要与 STG 记录一致，提交到上线 19 分半。防线：`test_platform_pin_sync.py` 的 `test_the_prod_delivery_builds_nothing` 等（`RATCHETS.md` 新一行）。后续：TD-331 观察到 10-23；TD-419 还差背靠背两跑的验收。
 - **TD-400** — push-main 推之前查每个提交的 Change-Id、Claude-Session，缺了拒推，`--no-lineage <理由>` 豁免（infra `e7118ce`）。验收：PASS 2026-10-21。防线：`test_push_main.py`。后续：无后续：新工作目录钩子不跑的问题由这一道在推送时兜住。
 - **TD-408** — push-main 推完把干净、在 main 上的共用检出快进到推的提交，做不到就点名说明（infra `e7118ce`）。验收：PASS 2026-10-21，platform 推送后共用检出自动跟上。防线：`test_push_main.py`。后续：无后续：core 的本地分叉提交 ceff454 留给你定。
 - **TD-413** — push-main 推之前在干净 worktree 里跑仓库的快测试（infra 三目录；platform 的 vet 与改过的包），失败拒推，`--skip-tests <理由>` 豁免（infra `27357ae`）。验收：PASS 2026-10-21。防线：`test_push_main.py` 7 条。后续：已补（infra `5366c75`）：只改普通 .md 的推送只跑约 7 秒的考题要点扫描，其余照常全跑。
@@ -2046,7 +2047,7 @@
 
 **P3 · ops-platform · production pods of the platform are deployed by a movable tag: after a promotion, a restart pulls whatever `:prod` points to then**
 
-- **状态**：未开始（2026-10-13 13:05 Owner 定：护栏 ⑤ 收口，标签那一片不做；正式环境照旧重新构建后推 `:prod`。这一条照旧成立：Pod 按可改写的标签部署。下面 Claim 里「with the tag route」的前半句不再适用，见 TD-335）
+- **状态**：观察中（到 10-23，看 PROD 的 platform Pod 重启后跑的仍是 #85 那一对摘要；10-22 起三个 Deployment 按 `@sha256` 部署，Argo 应用由发布流水线按摘要钉住，W-31 3.4 ①）。 之前：未开始（2026-10-13 13:05 Owner 定：护栏 ⑤ 收口，标签那一片不做；正式环境照旧重新构建后推 `:prod`。这一条照旧成立：Pod 按可改写的标签部署。下面 Claim 里「with the tag route」的前半句不再适用，见 TD-335）
 - **Claim**: with the tag route, a production delivery puts the pair of images verified on STG under `:prod` and checks that the pods run that pair when the delivery ends. The Deployments still name the tag and pull `Always`; the registry has no authentication. A later push to `:prod`, or the developer script that pushes it by default, changes what the next restart runs.
 - **Measured**: NOT MEASURED (read from the manifests and the registry Deployment during the design of guardrail 5).
 - **Evidence**: `k8s/overlays/platform-prod/kustomization.yaml:57-63`; `k8s/overlays/platform-prod/images-pull-always.patch.yaml`; `k8s/cicd/registry/deployment.yaml`; `bifrost-platform/scripts/push-platform-api.sh:4-7,33-36`.
@@ -2075,7 +2076,7 @@
 
 **P3 · ops-platform · a production delivery of the platform rebuilds both images from the commit instead of promoting the pair that STG verified; a rollback rebuilds too**
 
-- **状态**：未开始（2026-10-13 13:05 Owner 定：护栏 ⑤ 收口，这一半留到第 3 轮，和 registry 写保护一起做） 2026-10-13 20:54 实测一例：同一个提交 `38500f9`，测试环境构建的是 api `sha256:ced00aab…`、console `sha256:52eda002…`，正式环境（#16）重新构建出来的是 api `sha256:e9020617…`、console `sha256:1867798e…`——两边跑的不是同一份镜像。
+- **状态**：待你签收（2026-10-22 W-31 3.4 ①：PROD 平台发布不再构建，部署 STG 核过的那对摘要）。验收结果：PASS 2026-10-22 platform `6ff3801b`：PROD #85（`bifrost-deliver-platform-prod-35d11d075ded2cf3-1`）的任务里没有构建任务，Pod 跑 api `sha256:366d8fd1…`、console `sha256:2bde89b8…`，与 STG `bifrost-deliver-platform-1792712568` 记录的一致。 之前：未开始（2026-10-13 13:05 Owner 定：护栏 ⑤ 收口，这一半留到第 3 轮，和 registry 写保护一起做） 2026-10-13 20:54 实测一例：同一个提交 `38500f9`，测试环境构建的是 api `sha256:ced00aab…`、console `sha256:52eda002…`，正式环境（#16）重新构建出来的是 api `sha256:e9020617…`、console `sha256:1867798e…`——两边跑的不是同一份镜像。
 - **Claim**: production builds its own images from the approved commit (the same commit STG ran, checked by the source gate). Base images and dependencies can differ between the STG build and the production build, which were eleven hours apart on 2026-10-13. Two designs for using the STG artefacts were stopped after independent review: pinning digests into the production manifests (three drafts) and promoting by tag (two drafts). Each still had a path where the delivery succeeds while the claim is untrue, because the registry accepts unauthenticated writes with no compare-and-set and the cluster reads are not atomic. W-56's "rollback without rebuild" is open for the same reason.
 - **Measured**: MEASURED 2026-10-13 for commit bf39f96: the STG images and the production rebuilds have different digests (console `sha256:5cd4…` on STG, `sha256:9fd9…` on PROD), while the Console bundle file has the same content hash in both. Whether the images differ in anything that matters was not examined; nothing compares them. After guardrail 5 closes, a delivery records the digests it built and checks its own pods against them, in STG and in production.
 - **Evidence**: `k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml:474-570` (the six build tasks); `agent-config/work/multi-agent/DESIGN-guard5-tag-route-stopped.md` (the stopped design and why); `agent-config/work/multi-agent/LESSONS-from-practice.md` row 119; `docs/RELEASE.md:229`.
@@ -2217,7 +2218,7 @@
 
 **P3 · release · two overlapping platform deliver runs can each roll out the other's image; only the release window keeps them apart**
 
-- **状态**：未开始（2026-10-21 TD-411 复核 503 提出三个选项：1 清单按 digest 钉镜像、2 流水线加带租约的锁、3 保持现状。统筹线程按推荐取 3（Owner 10-11「按推荐往前走，事后审计」），本条跟进 1；Owner 可改）
+- **状态**：在做（2026-10-22 3.4 ① 上线后每次发布按摘要钉自己的 Argo 应用，结构上不会再互相覆盖；验收要求的「STG 背靠背跑两次」还没做）。 之前：未开始（2026-10-21 TD-411 复核 503 提出三个选项：1 清单按 digest 钉镜像、2 流水线加带租约的锁、3 保持现状。统筹线程按推荐取 3（Owner 10-11「按推荐往前走，事后审计」），本条跟进 1；Owner 可改）
 - **Claim**: after TD-411 the STG deliver pipeline moves the running tag (`:stg`) only after the migration gate, then syncs and restarts. If two runs overlap between the tag move and the rollout, each rollout picks up whichever digest the tag points at, so run A can roll out run B's build. Both builds passed their own migration gate, so no unmigrated code gets through; what breaks is "this run rolled out this build". Today one release window per repository is the only thing that prevents the overlap.
 - **Evidence**: TD-411 lane notes (Gate A lane local_6f3ef5b9, review 503); infra `edcf5ab` STG deliver pipeline.
 - **Impact**: low while the window holds; if a run is started outside the window (or the window lapses mid-run), the release record names the wrong build.
