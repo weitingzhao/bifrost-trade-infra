@@ -2149,6 +2149,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-425
+
+**P3 · ops-console · the sign-off list shows a step whose work has not started as if it were ready to sign**
+
+- **状态**：未开始（2026-10-22 统筹线程记，教训 199）
+- **Claim**: `signoffWaits` (`bifrost-platform/console/src/api/agentRuntimePlan.ts`) lists every step whose done rule has an unsigned `owner_signoff`, whatever the step's state. A rule set ahead of the work (R3 3.2-2…3.2-6 on 2026-10-22) puts steps nobody has started on the Owner's list; signing one marks it done.
+- **Evidence**: PROD Work page 2026-10-23 02:2xZ: 「Waiting for your sign-off · 16」, seven of them planned with no task and no evidence.
+- **Impact**: the Owner has to be told which to skip; a step signed by mistake is done in the runtime with no work behind it.
+- **Fix**: options for the Owner: A show planned steps in a separate 「Not started」 group under the list (Console only, the state is already in the answer); B the runtime refuses a sign-off on a step with no evidence (a platform rule change); C keep the convention of lesson 199 alone. Recommended A.
+- **Ratchet**: a Console test that a planned step is not counted in 「Waiting for your sign-off · n」.
+- 验收: on PROD, a step with an `owner_signoff` rule and state planned appears under 「Not started」 and not in the count.
+- 审批 无（A）· 代价 S · 风险 low · repos: bifrost-platform
+
 ### TD-424
 
 **P2 · release · an infra change to the platform delivery pipelines is not tested against the platform ratchets that read them**
