@@ -1,6 +1,6 @@
 # Screening 最小业务闭环：设计（W-31 第 3 轮 3.2-1）
 
-> **状态：设计，等 Owner 定第七节 D1–D5**（没回的照推荐走、事后审计；D1 选 C 是架构级，必须等他回）。2026-10-22 约 20:00 CDT 由统筹线程派的子代理只读调查写成，统筹线程复核后落地（复核意见见第九节）。
+> **状态：已定（Owner 2026-10-22 20:0x CDT「3.2-1 设计的 D1–D5 照推荐走」）**：D1 B（正文是运行时产物，索引在档案第九节）、D2 A、D3 A、D4 A（只在第一条问题要改前端时做 P1）、D5 A（72 小时）。2026-10-22 约 20:00 CDT 由统筹线程派的子代理只读调查写成，统筹线程复核后落地（复核意见见第九节）。
 > **输入**：`work/crew/PROFILE-screening.md` 第 1 版（infra `2770c94`）第五、六、九节；`work/crew/PROPOSAL-screening-profile-2026-10-22.md`；
 > 记忆 `project_crew_business_issue_handoff`、`project_crew_product_takeover_design`；`WORKMODE-owner-chief-of-staff-2026-10-15.md`；
 > `multi-agent/PLAN-round3-draft-2026-10-22.md`；`multi-agent/DESIGN-agent-runtime-v5-2026-10-14.md`；`multi-agent/RULE-waits-2026-10-12.md`。
@@ -277,7 +277,7 @@ written_at: 2026-10-2xThh:mm-05:00
 | # | 内容 | 粗估 |
 |---|---|---|
 | I1 | 档案第九节改成第三节的索引列；正文模板写进档案或本设计 | 半小时 |
-| I2 | `agent-config/scripts/issue_index_check.py`（加测试）：编号唯一且是 `BI-<n>`；状态是五态之一；推进中 / 待试用有接单；一个 M-n 只在一行、一行最多一个在途接单；待试用有交付；已解决 / 部分解决有太太原话 artifact、时间、入口；当前正文是 64 位 sha256；没有本机路径和令牌样式。`--id` 打印四个问题的答案。RATCHETS.md 记一条 | 半天 |
+| I2 | `scripts/agentrt/issue_index_check.py`（加测试；落地时从 `agent-config/scripts/` 改放这里，好让 push-main 每次推 infra 都跑它）：编号唯一且是 `BI-<n>`；状态是五态之一；推进中 / 待试用有接单；一个 M-n 只在一行、一行最多一个在途接单；待试用有交付；已解决 / 部分解决有太太原话 artifact、时间、入口；当前正文是 64 位 sha256；没有本机路径和令牌样式。`--id` 打印四个问题的答案。RATCHETS.md 记一条 | 半天 |
 | I3 | `propose_plan_change` 给 3.2-1…3.2-6 设完成规则 `owner_signoff`（plan-standing 允许：只点名 Owner 签收的第一条规则自动生效，infra `agentrt-rules/prod/plan-standing.yaml`）；D2 若调序，一并提 | 15 分钟；调序要不要上卡未核实 |
 | I4 | WORK.md W-31 第 3 轮行、LESSONS 按实际补 | 随做随记 |
 
@@ -297,7 +297,7 @@ written_at: 2026-10-2xThh:mm-05:00
 - **C（架构级）**：运行时新增通用的「业务问题」对象和关联表、路由、MCP 工具。走完 3.2-5 再按实际用到的字段定。
 
 **D2　3.2-4「批发布单」放哪、批什么**
-- **A（推荐）**：挪到 3.2-5 之后。批的是太太在 STG 确认过的那个前端提交上 PROD。不改代码的问题，这一步删掉。
+- **A（推荐）**：挪到 3.2-5 之后。批的是太太在 STG 确认过的那个前端提交上 PROD。不改代码的问题，这一步删掉。落地（10-22）：计划没有调换步骤顺序的操作，改成在 3.2-4 的标题里写明「在 3.2-5 太太试用确认之后批」，签收时按这个顺序。
 - B：照现在的顺序，先上 PROD 再请她试。和 S5 A（试用放 STG）不一致。
 - C：不管有没有代码都留着，批平台的发布单。B 方案下平台没有改动，没有东西可批。
 
