@@ -112,6 +112,7 @@ kubectl -n cicd patch application bifrost-platform-prod --type merge -p '{"spec"
 从 platform 提交 `ca645debff6d545ef7ad6e3fa9762921f9dad4b3`（含它的父提交 `b7f7d520`）起，问题卡片库的每个写者在业务问题的卡（work_id 以 `BI-` 开头）上都不存调用方的文字：Owner 的答复只收卡上的一个选项（带文字、`none` 都拒）；规则自动作答整张拒；撤回照收，但理由一律存固定的中性句。更早的版本会收 `none` 加文字，并经通用卡片读接口给 viewer 及以上看到（复核 518、520、521，设计 `agent-config/work/crew/DESIGN-crew-intake-2026-10-22.md` 第十一节末）。
 
 - **开卡之前**：STG、PROD 两边的 platform-api 和 platform-workers 的所有 Pod 都跑这一版或更新的版本（发布的摘要核对就是证据）之后，第 2 块才开放 BI 卡。
+  现状（2026-10-23）：STG 06:03Z（`bifrost-deliver-platform-1792735217`）、PROD 15:18Z（发布单 #102，`bifrost-deliver-platform-prod-c85c46b942aa3a26-1`）都跑 `ca645deb`；api、workers 的摘要都是 `sha256:956b6f7ee1df35cf760a91d51cadca41c1f706acb19d6e6e5e35132e075b33ee`，rollout 核对过 Pod 的 imageID。
 - **开卡之后**：任何回退都不能回到比它早的版本。这包括再发一次旧提交、上面那条 Owner 钉摘要的命令、Argo 回滚和手工改镜像。只有库里还没有任何 BI 卡时，回到更早的版本才是安全的。查法：`status=all` 的卡片列表里，没有 work_id 以 `BI-` 开头的卡。
 - 新版本不清理旧写者已经存下的文字。第 2 块开卡之前，库里不可能有 BI 卡，因为 `workIDPattern` 只收 `W-`、`TD-`、`LANE-`。
 
