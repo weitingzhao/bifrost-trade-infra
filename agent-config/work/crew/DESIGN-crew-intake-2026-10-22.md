@@ -825,7 +825,7 @@ C（公网入口）不在这张表里；要做时另起一份设计。
 
 **切片 1b（BI 卡不存文字）**：platform `ca645deb`。复核 520 有 1 条 A（撤回理由存下了调用方的字），改成撤回照收、理由存固定句；521 通过。STG 10-23 06:03Z、PROD 15:18Z（#102）都已跑上。最低可回退版本写在 infra `docs/RELEASE.md`。
 
-**切片 1（数据层）**：分支 `w31/bi1-1-data-r2`，基于 `ca645deb`。复核 522（8 A、1 B），对它的答复见 `work/multi-agent/reviews/response-2026-10-23-review522-bi1-1-data.md`；523 通过（无 A）。落地时定下、本稿原来没写清的几处：
+**切片 1（数据层）**：platform `859fbfd9`（分支 `w31/bi1-1-data-r2`，基于 `ca645deb`）。STG 10-23 16:34Z 发布，流水线应用了 0009；PROD 先由发布单 #108 停在 agentrt-schema、打印迁移命令，Owner 批 0009 的 PROD DDL 和 #110 后，迁移 Job 16:46Z 应用 0009（`applied=[9]`），#111 在 16:50Z 上线，库结构 current。复核 522（8 A、1 B），对它的答复见 `work/multi-agent/reviews/response-2026-10-23-review522-bi1-1-data.md`；523 通过（无 A）。落地时定下、本稿原来没写清的几处：
 
 - **迁移只有一个 0009**：CI 的 800 行防线只数 `.go/.ts/.tsx/.py`；当时超线的是 `propose.go`，`BI-` 保留检查已挪进 `CreateMission`（`write.go`）。
 - **第 1 块不开 BI 卡**（522 A1）：`take_issue` 不带 ask，封外 mission 停在 proposed，没有卡，仍占名额；`askMission` 对 `BI-` 一律拒。BI mission 的卡留到第 2 块，那时卡要带上问题的身份（`Card.WorkID`、`workIDPattern`、`agentRuntimeAsk`），用 5.3 的中性模板，不进 AI 评估。
