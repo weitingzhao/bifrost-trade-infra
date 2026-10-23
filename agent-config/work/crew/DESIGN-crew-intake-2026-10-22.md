@@ -838,7 +838,7 @@ C（公网入口）不在这张表里；要做时另起一份设计。
 
 **改记为 B、留给 Owner 以后选的**（522 A4、A5、A6 后半；523 同意改记）：用正确类型的事件直接写库的写入者，可以绕过接单证据和产品名额、结案依据、每日上限。按本稿，这几项由 `take_issue` / `close_issue` 在一个事务里算，库只按事件类型拦（4.3 和状态表）。持有运行时写库身份的只有 platform-api 和 platform-workers。要下沉到库里，需要统一的写入入口、产品锁与计数、结案证据检查和日限串行化，并维护它们与 Go 的一致。
 
-**切片 2（接口层）**：分支 `w31/bi1-2-api`（基于 `bb2efaeb`）。复核 524（2 A、2 B，全修，答复 `work/multi-agent/reviews/response-2026-10-23-review524-bi1-2-api.md`），525 通过（无 A）。落地时定下的：
+**切片 2（接口层）**：platform `c5ad80c2`（分支 `w31/bi1-2-api`，基于 `bb2efaeb`），STG 10-23 19:02Z、PROD 19:04Z（#124）上线，没有迁移；上线后匿名请求新路由一律 401，不给数据。复核 524（2 A、2 B，全修，答复 `work/multi-agent/reviews/response-2026-10-23-review524-bi1-2-api.md`），525 通过（无 A）。落地时定下的：
 
 - **路由分两组**：外部 Agent 的 7 条在 `/agentrt/intake/*`，crew 的在 `/agentrt/issues*`，两种投影不混用；`get_updates` 用 POST（它推进 served、可带回执）。读者名单是鉴权文件的新键 `issue_readers:`（不写时是 operator、admin），旧二进制忽略它。
 - **令牌**：`tokens:` 只收闭集里的角色（viewer、reporter、operator、admin、executor、agentd），写错一个角色名 platform-api 就起不来（失败即关）；10-23 核对过 PROD、STG 线上配置只用其中五种。intake 令牌只在 `intake_tokens:`，只有名字和 `token_env`。
