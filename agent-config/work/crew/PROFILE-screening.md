@@ -4,7 +4,7 @@
 > 新会话接手 Screening 的事，先读这一份；细节和代码位置在方案里：`PROPOSAL-screening-profile-2026-10-22.md`（下称「方案」）。方案的行号按调查时的提交算（research `73694cc`、frontend `28bf801f`），与第二节钉的版本只在 `lenses/screen.py` 一处不同。
 >
 > **依据**：Owner 2026-10-22 19:1x CDT 在统筹线程：「Screening 方案 S1–S10 照推荐走。S4 我另外打字告诉你。」
-> 所以本档案按方案第五节各项的推荐（A）写成。两项还没落地：**S2**（太太的 Research 用户，要 Owner 本人跑一次脚本）、**S4**（太太平时从哪里反馈，等 Owner 告知；在那之前第一条问题照 A 由 Owner 转述，见第六节）。
+> 所以本档案按方案第五节各项的推荐（A）写成。**S2** 已落地（2026-10-22 19:45 CDT，太太的 Research 用户已开通）；**S4** 还差一个事实（太太平时从哪里反馈，等 Owner 告知；在那之前第一条问题照 A 由 Owner 转述，见第六节）。
 >
 > **维护**：业务参谋和建设负责人共同维护（最小版由参谋长席位和统筹线程兼任，见第五节）。方法一变就改第二节并记新提交号；改动记在最后一节。
 > 仓库是公开的：这里不写账户内容、令牌或个人信息。
@@ -82,7 +82,7 @@
 ## 六、试用、身份与入口
 
 - **试用环境（S5 A）**：放 STG（`stg.trader.bifrost.lan`）。只改前端或 Trade 的，先在 STG 试。要改 Research 的，只做向后兼容的新增，发版照规矩要 Owner 点头。提醒太太：STG 上存的 screen 和 PROD 是同一张表。
-- **太太的登录（S2 A，待 Owner 执行）**：
+- **太太的登录（S2 A，2026-10-22 19:45 CDT 已开通）**：用户名只记在 Secret 里，不写进本仓库。Owner 跑脚本后 Research 有两个用户（Owner 的 `owner` 和太太的），两个都验证能登录；令牌已在 Owner 的剪贴板，由他转给太太。
   - 给她单独一个 Research 用户：`RESEARCH_USERS`（Secret `research/bifrost-research-secrets`）加一条。
   - Owner 用自己的管理员身份跑 infra `scripts/owner/research-user.sh add <用户名>`。脚本重启 research-api 和 research-mcp，令牌只进 Owner 的剪贴板，由他私下转给她，她在 Research 页面右上角贴一次。
   - Dagster 这次不重启（避免打断晚间作业），它在下次重启时才读到新用户（下次 Research 发版，或 `scripts/research-secret-restart.sh`）。
@@ -107,6 +107,7 @@
 |---|---|---|---|
 | 2026-10-22 | 第 1 版 | 按方案和 Owner 的 S1–S10 定稿；钉 frontend `ac431ff`、research `7d06c82` | Owner 10-22 19:1x CDT |
 | 2026-10-22 | 第 1 版（复核后） | 复核（3.1-4）两条 A：research 钉的来源改成 PROD 实际的构建提交 `7d06c82`；股票池补上两条排除和「Not rated」。另补：阶段分档、结构不进综合分、页面默认值、Owner 保留项、复核独立性、常备授权上限、S2 的脚本与重启范围、S4 现状、问题记录位置 | 3.1-4 独立复核 |
+| 2026-10-22 | 第 1 版 | S2 开通：太太的 Research 用户已加，research-api、research-mcp 重启，两个用户都验证能登录；Dagster 下次重启时读到 | Owner 跑 `scripts/owner/research-user.sh`（00:45Z） |
 
 ## 九、问题记录（过渡）
 
