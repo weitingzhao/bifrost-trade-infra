@@ -1,6 +1,6 @@
 # Screening 档案与授权最小版：方案（W-31 第 3 轮 3.1）
 
-> **状态：方案，等 Owner 过目。** 只读调查后写成，没有改代码、建表、派任务或改规则。
+> **状态：已定（Owner 2026-10-22 19:1x CDT「S1–S10 照推荐走。S4 我另外打字告诉你」）。** 定稿写进 `PROFILE-screening.md` 第 1 版；S2 待 Owner 执行，S4 待 Owner 告知。下文保留调查时的原样。
 > 2026-10-22 凌晨（CDT 10-21 23:xx）写。起因：Owner 10-21 23:2x 定「D1 A」，第 3 轮主线是 Screening 最小业务闭环，先做本文这一步。
 > 依据：
 > - `agent-config/work/multi-agent/PLAN-round3-draft-2026-10-22.md` 第三节；
