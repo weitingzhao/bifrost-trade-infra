@@ -2153,7 +2153,7 @@
 
 **P3 · agentrt · presence · with several API instances the controller's health probe samples the Service, so host-loss detection can be deferred (an accepted boundary)**
 
-- **状态**：未开始（2026-10-23 统筹线程记；Owner 选项 1：接受多实例时的概率保证并加推迟提示）
+- **状态**：未开始（2026-10-23 统筹线程记；Owner 17:5x CDT 选「选项 1」：接受多实例时的概率保证并加推迟提示。原话记在运行时产物 `sha256:50ddb7590b536d7c2eebc1eda1cf1bf2df17502adae0f5096a683f9eb6fa0cd0`）
 - **Claim**: the workers' controller decides whether the platform takes agentd's calls by probing the API Service with 5 fresh connections a pass (`bifrost-platform` `api/internal/server/agentrt_wire.go`, `serviceTakesCalls`). With one ready and one unready API instance, every connection of a pass can land on the unready one; each such pass is an observed outage, and the recovery after it gives every host 30 s again, so a really lost host can be judged late. A deferral past 2 minutes across two recoveries raises `presence_deferred`, so it is never silent, but it is not bounded.
 - **Evidence**: reviews 529 (A-2) and 530 (A), `agent-config/work/multi-agent/reviews/codex-2026-10-23-review530-r3-35-online-r5.md`; production runs one API replica, Recreate (`k8s/base-platform/manifest.yaml`), so the case does not arise today.
 - **Impact**: none while there is one API replica; with two or more, host-loss announcements can come late (visible as `presence_deferred`).
