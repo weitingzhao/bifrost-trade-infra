@@ -107,6 +107,14 @@ kubectl -n cicd patch application bifrost-platform-prod --type merge -p '{"spec"
 
 钉子只在应用对象里：`kubectl apply` 重新应用 git 里的应用定义不会删它（那个字段不在定义里）；`kubectl replace` 整个对象会删掉它，Deployment 回到写 `:prod`，跑 `:prod` 那一刻指着的东西。那**不一定**是刚才钉着的一对：回滚钉回旧的一对不挪 `:prod`，一次 PROD 发布挪了 `:prod` 却钉失败，也会让两者不一致（复核 513 C1）。钉子丢了，就从最后一次成功 PROD run 的 `check-source` 结果（或台账）取那两个摘要，用上面的命令钉回去，再看三个 Deployment 写着 `@sha256:<摘要>`、Pod 的 imageID 也是它；不靠 `:prod`。
 
+### 卡片写者的最低可回退版本（W-31 BI-1 切片 1b，Owner 2026-10-23「Y 选 A」）
+
+从 platform 提交 `ca645debff6d545ef7ad6e3fa9762921f9dad4b3`（含它的父提交 `b7f7d520`）起，问题卡片库的每个写者在业务问题的卡（work_id 以 `BI-` 开头）上都不存调用方的文字：Owner 的答复只收卡上的一个选项（带文字、`none` 都拒）；规则自动作答整张拒；撤回照收，但理由一律存固定的中性句。更早的版本会收 `none` 加文字，并经通用卡片读接口给 viewer 及以上看到（复核 518、520、521，设计 `agent-config/work/crew/DESIGN-crew-intake-2026-10-22.md` 第十一节末）。
+
+- **开卡之前**：STG、PROD 两边的 platform-api 和 platform-workers 的所有 Pod 都跑这一版或更新的版本（发布的摘要核对就是证据）之后，第 2 块才开放 BI 卡。
+- **开卡之后**：任何回退都不能回到比它早的版本。这包括再发一次旧提交、上面那条 Owner 钉摘要的命令、Argo 回滚和手工改镜像。只有库里还没有任何 BI 卡时，回到更早的版本才是安全的。查法：`status=all` 的卡片列表里，没有 work_id 以 `BI-` 开头的卡。
+- 新版本不清理旧写者已经存下的文字。第 2 块开卡之前，库里不可能有 BI 卡，因为 `workIDPattern` 只收 `W-`、`TD-`、`LANE-`。
+
 钉住路径 `scripts/release/platform-prod-pinned-from-stg.sh <stg-run> -o <file>` 读取线上 PROD Pipeline：有 check-source 就设置该任务使用 tekton-deliver，保留其它 override；没有就不添加，读不到或 tasks 不是列表就拒绝生成。它只生成 JSON，创建发布仍由 Owner 批准。指定旧 STG run 不会绕过最新 STG 判定。
 
 应用前，`python3 scripts/release/platform_prod_gate_trial.py <revision> [--ui-revision main] > <file>` 只打印一条 trial PipelineRun，内联任务与正式 check-source 完全相同、身份是 tekton-deliver；Owner 可对当前 STG 提交与没有 CI 的提交分别试跑。它不构建、不克隆、不发布，生成器从不调用 kubectl。ui commit 会解析为固定 SHA 并交给后续 clone，但不与 STG 比较。
