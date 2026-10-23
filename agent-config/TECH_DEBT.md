@@ -2149,6 +2149,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-426
+
+**P3 · agentrt · tests · TestExamVoidRefusals fails about once in 256 runs: its "no such paper" id can be a real paper's**
+
+- **状态**：未开始（2026-10-23 统筹线程记；BI-1 第 1 块的门禁里撞上一次）
+- **Claim**: the case "no such paper" builds a run id that should not exist as `"ab" + lapsed.RunID[2:]`. RunID is a sha256 in hex, so about one run in 256 starts with `ab`, and then the "missing" id is the real paper's: the void is not refused and the test fails.
+- **Evidence**: `bifrost-platform/api/internal/agentrt/store/examvoid_test.go:101`; failed once in a full `go test ./... -count=1` on branch `w31/bi1-1-data-r2` (2026-10-23), passed 30 runs alone and the next full run.
+- **Impact**: a red CI or push-main gate that has nothing to do with the change; someone re-runs until green and stops reading reds.
+- **Fix**: build an id that differs from the real one in every case (e.g. flip the first hex digit to a different one, or use a fixed id of the right length that no hash in the fixture can equal).
+- **Ratchet**: none practical beyond the fix; the case asserts the id it uses differs from the paper's.
+- 验收: the case's id is never equal to the real run id (an assertion in the test), and 300 runs of the test pass.
+- 审批 无 · 代价 S · 风险 low · repos: bifrost-platform
+
 ### TD-425
 
 **P3 · ops-console · the sign-off list shows a step whose work has not started as if it were ready to sign**

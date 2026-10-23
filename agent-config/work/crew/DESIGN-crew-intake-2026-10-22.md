@@ -820,3 +820,22 @@ C（公网入口）不在这张表里；要做时另起一份设计。
 - **D10**：接业务不带任何交易动作。下单类请求照收，分类 out_of_scope，回答「暂不提供」。
 - crew 主动呼叫 Dots；太太登录 Console；她本人控制的确认渠道（5.4）；同步她和 Dots 的聊天记录；推送到她手机；C（公网入口）；跨人合并（7.3）；Finance 等第二个产品接入（对象已支持，等真有问题再开）。
 - **首批不做、后移**（B1、B2；不是删掉需求，表和列都留着）：跨人 join 和共享交付；一个问题多个承诺并行；带工作或交付的合并；离线 outbox；第二种本机适配；Console 五视图、成批定优先级、Owner 的调级按钮和「新问题」表单排在试点之后（第十节切片 6 和「后移」）。
+
+## 十三、落地记录
+
+**切片 1b（BI 卡不存文字）**：platform `ca645deb`。复核 520 有 1 条 A（撤回理由存下了调用方的字），改成撤回照收、理由存固定句；521 通过。STG 10-23 06:03Z、PROD 15:18Z（#102）都已跑上。最低可回退版本写在 infra `docs/RELEASE.md`。
+
+**切片 1（数据层）**：分支 `w31/bi1-1-data-r2`，基于 `ca645deb`。复核 522（8 A、1 B），对它的答复见 `work/multi-agent/reviews/response-2026-10-23-review522-bi1-1-data.md`；523 通过（无 A）。落地时定下、本稿原来没写清的几处：
+
+- **迁移只有一个 0009**：CI 的 800 行防线只数 `.go/.ts/.tsx/.py`；当时超线的是 `propose.go`，`BI-` 保留检查已挪进 `CreateMission`（`write.go`）。
+- **第 1 块不开 BI 卡**（522 A1）：`take_issue` 不带 ask，封外 mission 停在 proposed，没有卡，仍占名额；`askMission` 对 `BI-` 一律拒。BI mission 的卡留到第 2 块，那时卡要带上问题的身份（`Card.WorkID`、`workIDPattern`、`agentRuntimeAsk`），用 5.3 的中性模板，不进 AI 评估。
+- **自提议一律要 Owner 定优先级**（522 A2）：小故障例外要求问题有被服务人。
+- **D 包括决定表**（522 A3）：D 是规范方案文档的 sha256，决定表在前、正文在后，整份存进 `issue_text`；接单时从存档里解析决定点。
+- **复核两轮停线进库**（522 A7）：轮次只能是上一轮加一；第 3 轮起要有 Owner 在当前 (B, D) 上、上一轮之后的 `review_dispute` 决定，选 `another_round`。
+- **作废一问只改作废时间**（522 A8）。**Agent 的范围和撤销**（choice 19、522 A6 前半）由库里的 `intake_sees` 在文字插入和问题更新时检查。
+- **第 4.2 节草图的几处更正**：`conclusion='merged'` 与 `duplicate_of` 的 CHECK 改成 `IS NOT DISTINCT FROM`；identity 行先 `nextval` 取号，事件才能点名它；补三个可空列 `issue.dedupe_key`、`issue_text.said_where`、`issue_work.created_at`；结案核对记成 `issue_reviewed`，`check_kind=close_check`；试用问答完后，`awaiting_user` 可以回到 `active`。
+- **agent_reader 不授新表**，但 PROD 的 agent_reader 是 `pg_read_all_data` 的成员，照样读得到。第十二节第 2 行的剩余风险不变。
+
+**改记为 B、留给 Owner 以后选的**（522 A4、A5、A6 后半；523 同意改记）：用正确类型的事件直接写库的写入者，可以绕过接单证据和产品名额、结案依据、每日上限。按本稿，这几项由 `take_issue` / `close_issue` 在一个事务里算，库只按事件类型拦（4.3 和状态表）。持有运行时写库身份的只有 platform-api 和 platform-workers。要下沉到库里，需要统一的写入入口、产品锁与计数、结案证据检查和日限串行化，并维护它们与 Go 的一致。
+
+**第 2 块要接的**：`hiddenFrom` 对 `issue:` / `intake:` 流的隐藏（在那之前，新二进制的 `/events` 也看得到问题流的元数据，但没有文字）；`get_updates` 的读取投影；卡片答复写证据的接线（`writerChannel` 还不认 controller 的卡片通道）；`intake_tokens:` 配置；BI-1 的旧记录导入；上面说的 BI 卡身份和中性模板。
