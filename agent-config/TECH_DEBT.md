@@ -2149,6 +2149,19 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-427
+
+**P3 · agentrt · presence · with several API instances the controller's health probe samples the Service, so host-loss detection can be deferred (an accepted boundary)**
+
+- **状态**：未开始（2026-10-23 统筹线程记；Owner 选项 1：接受多实例时的概率保证并加推迟提示）
+- **Claim**: the workers' controller decides whether the platform takes agentd's calls by probing the API Service with 5 fresh connections a pass (`bifrost-platform` `api/internal/server/agentrt_wire.go`, `serviceTakesCalls`). With one ready and one unready API instance, every connection of a pass can land on the unready one; each such pass is an observed outage, and the recovery after it gives every host 30 s again, so a really lost host can be judged late. A deferral past 2 minutes across two recoveries raises `presence_deferred`, so it is never silent, but it is not bounded.
+- **Evidence**: reviews 529 (A-2) and 530 (A), `agent-config/work/multi-agent/reviews/codex-2026-10-23-review530-r3-35-online-r5.md`; production runs one API replica, Recreate (`k8s/base-platform/manifest.yaml`), so the case does not arise today.
+- **Impact**: none while there is one API replica; with two or more, host-loss announcements can come late (visible as `presence_deferred`).
+- **Fix**: before running more than one API replica, give the controller evidence of the Service's whole availability: probe each ready endpoint (read EndpointSlices: a new RBAC grant for the platform SA, the Owner's), or make the API's Kubernetes readiness include `agentrt_ready` (weigh that the API's other features would leave the Service while agentrt is not ready).
+- **Ratchet**: a manifest check that platform-api `replicas` stays 1 until this item is closed (to add with the fix's first step).
+- 验收: with two API instances, one ready and one never ready, and every host really stopped, the hosts are announced within 35 s of their last contact.
+- 审批 要（RBAC 或 readiness 的取舍归 Owner）· 代价 M · 风险 low · repos: bifrost-platform, bifrost-trade-infra
+
 ### TD-426
 
 **P3 · agentrt · tests · TestExamVoidRefusals fails about once in 256 runs: its "no such paper" id can be a real paper's**

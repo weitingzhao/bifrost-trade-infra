@@ -73,7 +73,7 @@ mission 的 `mission_id`、`title`、`goal`、`state`、`deadline_at`、`work_id
 
 ### 2.3 `live[]`
 
-所有活着的尝试（`leased` / `running` / `stale`），按开始时间（时间值，不按字符串）排：`attempt_id`、`attempt_no`、`task_id`、`mission_id`、`host_id`、`executor`、`model`、`state`、`started_at`、`elapsed_s`、`heartbeat_age_s`、`status`；另有 `persisted`（`persisted_at` 有值）、`last_checkpoint_seq` 和 `last_checkpoint_at`（这次尝试最后一条 `attempt_checkpointed`，走任务索引读）、`unpersisted_for_s`（结果没持久化时，从最后检查点、没有就从开始，到现在的秒数）。尝试 stale、主机超过 3 分钟没轮询或从没轮询过、且结果没持久化时，`reason` 后面加「; result not persisted (last checkpoint N at …, nothing persisted for M min)」（TD-352，platform `w31/td-352-t36`）。动作流水等 2.3 交互总线（不在这里扫事件表）。
+所有活着的尝试（`leased` / `running` / `stale`），按开始时间（时间值，不按字符串）排：`attempt_id`、`attempt_no`、`task_id`、`mission_id`、`host_id`、`executor`、`model`、`state`、`started_at`、`elapsed_s`、`heartbeat_age_s`、`status`；另有 `persisted`（`persisted_at` 有值）、`last_checkpoint_seq` 和 `last_checkpoint_at`（这次尝试最后一条 `attempt_checkpointed`，走任务索引读）、`unpersisted_for_s`（结果没持久化时，从最后检查点、没有就从开始，到现在的秒数）。尝试 stale、主机失联（3.5 起：沉默超过 30 秒，口径见下文 `hosts`）或从没轮询过、且结果没持久化时，`reason` 后面加「; result not persisted (last checkpoint N at …, nothing persisted for M min)」（TD-352，platform `w31/td-352-t36`）。动作流水等 2.3 交互总线（不在这里扫事件表）。
 
 ### 2.4 `plan[]`
 
@@ -84,7 +84,7 @@ mission 的 `mission_id`、`title`、`goal`、`state`、`deadline_at`、`work_id
 
 ### 2.5 `hosts[]`、`controls[]`
 
-`hosts` 与 `GET /hosts` 是**同一段 SQL**（`store.HostsSQL`），只是时刻不同：本路由用快照的时刻，`GET /hosts` 用语句时刻。主机含 `poll_age_s`、`online`、`live_attempts`、`controls`；`online` = 距上次轮询 **不超过** 3 分钟（恰好 3 分钟算在线，超过才算失联，与 §3.1 的 `host_lost` 同一口径）。
+`hosts` 与 `GET /hosts` 是**同一段 SQL**（`store.HostsSQL`），只是时刻不同：本路由用快照的时刻，`GET /hosts` 用语句时刻。主机含 `poll_age_s`、`online`、`live_attempts`、`controls`；`online` = 主机沉默 **不超过** 30 秒（恰好 30 秒算在线，超过才算失联，与 §3.1 的 `host_lost` 同一口径；3.5 起，原为 3 分钟）。沉默从这几个时刻里最晚的那个算起：主机最后一次联系（agentd 主循环的领活或删分支调用，或它在跑的尝试的心跳）、读取方的恢复点（API 自己：agentrt 路由就绪的时刻；控制器：自己启动、平台重新接调用、探测看到的停服结束）。删分支轮次开着时，最多 165 秒内也算在线。另有 `claiming`（主循环 30 秒内调用过或删分支轮次开着；启动宽限内为 null）：执行者只在 `claiming` 的主机上算可用。切法与落地见 `CUT-online-status-2026-10-23.md`。
 `controls` 是所有未解除的控制，字段与 `GET /controls` 相同（不分页：未解除的控制只有几条，见 §4）。
 
 ### 2.6 `recent`
@@ -126,7 +126,7 @@ mission 的 `mission_id`、`title`、`goal`、`state`、`deadline_at`、`work_id
 | 状态 | 条件（按顺序，第一个成立的） |
 |---|---|
 | `unknown` | 有活着的尝试，但它记的主机运行时不认识：主机在干什么无从判断，所以排在所有条件之前（包括尝试是 `stale` 时） |
-| `host_lost` | 有活着的尝试，它的主机从没轮询过，或超过 3 分钟没有轮询（与 `GET /hosts` 同一段 SQL、同一比较口径，T24） |
+| `host_lost` | 有活着的尝试，它的主机从没轮询过，或沉默超过 30 秒（3.5 起；与 `GET /hosts` 同一段 SQL、同一比较口径，T24） |
 | `maybe_stuck` | 有活着的尝试，尝试是 `stale` |
 | `waiting_owner` | 任务 `awaiting_owner`，或它的 mission 是 `proposed` / `awaiting_owner`（任务本身是 `blocked` 也是这个） |
 | `blocked` | 任务 `blocked` 或 `paused`（`reason` 写原因事件里的说明） |
@@ -195,7 +195,7 @@ Console 的「需要你」是唯一的那个数：本路由的 `needs_you.items`
 - §4 每一项写了负责的人（184 A5）；补「等待累计」「下一次需要 Owner 的时间」「外部责任方」「读的成本」四项，读的成本写了适用规模、什么时候实测、谁做（184 B7）。代码里「每个查询都有上限、走索引」那句不成立，已改成指向 §4。
 - `needs_you`（184 B4）：`can_act_now` 改为 `null` 加原因，Console 以问题库为准（§5）；一张卡一条（`also_refs`）；最多 50 条加 `truncated`；`blocks` 按影响集合算，mission 和任务数同源。
 - `recent`（184 B3）：选候选、取前 20、输出用同一个键（时间，事件号），加 `ended_event_id`。
-- `hosts`（184 B5）：与 `GET /hosts` 用同一段 SQL，恰好 3 分钟两边都算在线。
+- `hosts`（184 B5）：与 `GET /hosts` 用同一段 SQL，恰好 30 秒两边都算在线（3.5 起）。
 
 ## 改了什么（第 3 → 第 4 版，2026-10-21）
 
