@@ -1,0 +1,42 @@
+# 复核 517 第 1 轮 · 逐条答复（BI-2 Flex 插件换 Rust 设计）
+
+- 被复核稿：infra `b7535a57` `agent-config/work/crew/DESIGN-bi2-flex-rust-2026-10-22.md`。
+- 修订稿：`DESIGN-bi2-r2.md`（状态：已按复核 517 第 1 轮修订，等第 2 轮复核）。
+- 代码版本：插件 `bf6c61c`（`fq/` = `src/bifrost_flex_query/`）；core `a87e39f`（`core/` = `src/bifrost_core/`）；platform `36481b9`；infra `b7535a5`；research `73694cc`。都用 `git show <sha>:<path>` 读，没有用工作树。
+- 9 项 A、4 项 B 全部接受并修改；没有不同意的条目。另有 4 条自查补充（表末）。
+- 本答复和修订稿里没有真实报表、真行、账户内容或带账户内容的错误文本；本轮只读了代码，没有读录制数据、Secret、`.env` 或数据库。
+
+| # | 复核发现（一句） | 处理 | 修订稿位置 | 依据的代码 |
+|---|---|---|---|---|
+| A1 | 设计把两条鉴权规则合成一条：`config/write` 在令牌为空时并不全开，只认网关头 | 已修：按路由列鉴权矩阵；写明令牌来源、网关头判定、401/409/400/500 的先后；A 层钉整个矩阵 | §1.6、§1.7 Q7、§2.5、§3.3 | `fq/api/deps.py:13-57`（`require_write_token` 空令牌直接放行；`require_config_write_identity` 空令牌只认 `X-Bifrost-Trade-Gateway: 1`）；`fq/api/config_summary.py:134-174`；`fq/api/ingest.py:31,101`；`fq/api/manual_ops.py:65,100` |
+| A2 | 现金流水没有三级回退：只在单分段、显式日期、允许回退、首次 1003 时重试一次默认期；空成功不回退，没有 `p=5` | 已修：trades、cash 拆成两张状态机表，写明每步请求和最多请求次数（3 和 2）；A 层断言请求次数和参数 | §1.3 | `fq/orchestration/trades.py:38-110`；`fq/orchestration/transactions.py:174,189-202,267-297`；`fq/scheduler/daily.py:103`；`fq/api/manual_ops.py:81` |
+| A3 | 「历史错误文本只去 query id」不是脱敏；数据库错误、core 的 WARNING、traceback 会把账户内容带进日志和产物 | 已修：新增隐私边界一节——私有模式（Python 只出 logger 名、级别、计数；Rust `Private<T>`；异常只出类型、SQLSTATE、类别）；PG 日志压到 panic、内存盘；输出不出键哈希；真实错误文本只在集群里比分类、公开用例用固定模板加假值；形状抽取只出白名单结构、不出描述模板；泄露金丝雀在 CI 和集群启动时各跑；D-R7 把数据库错误文本列为有意差异 | §2.2、§2.3、§2.4（重试分类行）、§2.6、§4.1、§10.1 D-R7 | `core/portfolio/reader/accounts.py:1255-1264`（缺 report_date 的 WARNING 带账户、ts、金额、类型）；`:934-940`（写库失败 WARNING 带 exec_id 和 `exc_info`）；`fq/orchestration/transactions.py:256-258`、`trades.py:381-391`（`str(e)` 进结果）；`fq/worker/handlers.py:21-29`；`fq/worker/loop.py:185-206`（日志 `msg[:300]`/`[:500]`、freshness 原文）；`fq/worker/claim.py:155-188`（`error[:2000]` 进 `job.result`）；`fq/worker/health.py:31` |
+| A4 | 「提交后再查同一批键」不是可靠的写前写后：core 自开连接自己提交，TWS/Ledger 会改同一行；1018 改别的 pending 作业；各步不在一个事务 | 已修：录制接缝放进写事务（core 的 `write_support.connect` 测试接缝），写前、语句、写后、序列值都在同一事务里读；生命周期按 L1–L13 切步，含 `defer_pending` 的其他行和每步失败；判等改为「Python 重放 = 生产写后」判案例有效、「Rust 重放 = Python 重放」判等；外部写入的案例判「不可判等」、不计入验收；用 6 个合成污染场景自证框架；新增 D-R10 | §1.5、§2.2、§2.4、§2.5、§10.1 D-R10 | `core/portfolio/reader/accounts.py:686-688,968`、`:1159,1301`（自开连接、自己 commit）；`core/monitor/reader/write_support.py:62-77`（`connect` 是写明的测试接缝，`open_conn` 每次都经它）；`core/persistence/postgres/commissions.py:97-115`（COALESCE）；`accounts.py:978-1012,1307-1486`（TWS 佣金、Ledger 改删）；`fq/worker/handlers.py:101-134`；`fq/worker/claim.py:138-214`；`fq/worker/loop.py:180-215` |
+| A5 | 无条件忽略代理键和 `created_at` 会漏掉可见差异：`executions_raw_flex_id` 就是对外的 `account_executions_id`，`created_at` 决定 `new_rows` | 已修：已有行的主键、`created_at`、不在写入列里的列不能变；新行主键用录到的序列值精确比、`created_at` 等于各自事务开始时间；多重集合保留重复；补同报表连跑两次、批内重复、两个唯一键冲突、缺 exec_id 等案例 | §1.4、§2.4、§2.5 | `core/portfolio/reader/accounts.py:269-302`（id 编码）；`core/persistence/postgres/brokerage_views.py:183`；`core/persistence/postgres/brokerage_ddl.py:41-101`（`strategy_*`、`legacy_*`、`currency`、`created_at` 不在 54 列里）、`:394-397`（`(account_id, trade_id)` 唯一）；`accounts.py:781-792,859-872`；`fq/worker/handlers.py:79-98` |
+| A6 | 「10 个运行日」和「录到的案例全绿」替代不了「10 个交易日」；没有独立分母，漏录可能被当成全绿 | 已修：回到需求的 10 个交易日；NYSE 日历和「被验证交易日」映射（周一的运行不新增天数）；计划槽 → 尝试 → 案例 → verdict 的离线对账，八种状态；一天计数的条件；12:00 只是出报告；候选身份（生产 crate 的 tree 哈希）绑定成绩；历史案例只补类型不补天数 | §4.2、§4.3、§10.1 D-R8 | `research` `src/bifrost_research/orchestration/schedules.py:108-127`（`30 6 * * 1-6`，周六收周五）；`fq/scheduler/daily.py:97-103`（入队默认 `as_of` 是 UTC 日期）；`fq/worker/catchup.py:49-50`（补跑用当地日期）；`fq/worker/claim.py:57-92` |
+| A7 | 回滚只换 tag 漏了 args；API 是 RollingUpdate 不是 Recreate；「不改表结构」不等于回滚不涉及数据；瞬时查 running=0 挡不住下一次认领和同步写 | 已修：停领活排空（缩 worker 到 0 后再查）；切换改 digest + command/args；回滚 = revert 切换提交；API 保持滚动并加混合版本测试；回滚演练；错误写入修复单列（会自愈与不会自愈的分开、按案例修、每次 Owner 批、证据保留期与镜像一致）；新增 D-R11 | §5.1–§5.7、§3.5、§10.1 D-R11 | 插件 `k8s/base/deployment-api.yaml:13-17,33`；`k8s/base/deployment-worker.yaml:10-11,27`；`Dockerfile:26-27`；`core/portfolio/reader/accounts.py:859-872`（全列覆盖）、`:1162-1180`（现金 COALESCE）；`core/persistence/postgres/commissions.py:108-113`；`fq/worker/claim.py:57-135`；`fq/api/manual_ops.py:65-118`（API 同步写库） |
+| A8 | Agent 接线漏了：06 上的 agentd 编译了 `store.Repos`；没有 `CARGO_HOME`，Setup 与执行者的 HOME 不同；Verify 从仓库根跑，裸 cargo 找不到 `rust/Cargo.toml` | 已修：平台条目 + 换 06 上的 agentd 二进制（同一提交，Owner 跑主机脚本）；homePins 钉 `CARGO_HOME`、`CARGO_TARGET_DIR`；工具链独立安装、不用 rustup；所有 cargo 命令带 `--manifest-path`；缺库失败；冷启动验收含三个反例（无工具链、无测试库程序、少一条库测试） | §七、§3.5、§九 切片 4 | `platform` `api/internal/agentrt/store/repos.go:14-33,68-95,203-205`；`api/internal/agentd/testdb.go:184-205,219-221,243-248`；`executors.go:37-40`；`confine.go:143-166`；`setup.go:165-177`；`infra` `scripts/agent-host/prepare-agent-06.sh:31`、`agentd.sha256` |
+| A9 | 加 Rust CI、让扫描认 `.rs` 还不够：插件不在 `push-main.sh` 的 `CI_REPOS`/`GATED` 里，没 CI 或 CI 红的提交仍能进 main | 已修：一条 `bifrost-ci-flex-query` 管全部检查（含 code-health）；加 trigger；`ci_gate.py` 加流水线并加「仓库 → 应有流水线」表；`push-main.sh` 两个列表都加；假 CI 结果测试覆盖同 SHA 成功、无记录、失败、别的 SHA、别的流水线；发布构建钉插件 SHA | §六 | `infra` `scripts/release/push-main.sh:110-117`；`k8s/cicd/tekton/trigger-trade-ci.yaml:220-245`；`scripts/release/ci_gate.py:20,63-77`；`agent-config/scripts/code-health/scan.sh:208-234,256-264` |
+| B1 | lint、SQL 离线元数据、库测试要证明「真的在检查」 | 已修：`make test-char-db` 缺库失败、打印条数、条数棘轮；`AGENTRT_TEST_PG` 键值串适配到 `PgConnectOptions`；每个 crate `[lints] workspace = true`；lint 阳性对照；棘轮和基线挪到 infra code-health（插件改动改不动），定初值与受审扩容规则；`.sqlx/` 从版本化无数据 schema 生成，CI 跑 `cargo sqlx prepare --check` | §2.5、§3.4、§3.5、§七 | 插件 `Makefile:16-21`（`make test` 排除 `db`）；`platform` `api/internal/agentd/testdb.go:243-248`；`api/internal/agentrt/store/repos.go:53-63` |
+| B2 | 把容易「合理化重写」的字段规则补成逐条用例 | 已修：怪癖从 10 条扩到 24 条（double 精度与 NaN/-0、`isdigit` 与 `int()` 的差别、千分位、币种优先级、XML 失败与报表级账户、NULL/空串、重复与唯一键冲突、日期截断、DST、「今天」不统一、cron 边界、API 时间格式、result JSON） | §1.3、§1.7 Q11–Q24 | `fq/client/flex_client.py:42-73,83-89,231-239,257-276,343-386,408-427,455-475,511-553,584-598,689-703`；`fq/orchestration/transactions.py:47-97`；`core/portfolio/reader/accounts.py:755-756,924-932,1215-1297`；`core/persistence/postgres/brokerage_ddl.py:41-101`；`fq/scheduler/cronutil.py:37-100`；`fq/scheduler/daily.py:97-100`；`fq/worker/claim.py:150` |
+| B3 | 影子隔离方向对，但文件和网络契约有三处矛盾，另有卷的访问模式、阻塞 I/O 等未定 | 已修：同一 PVC 挂两次，`cases` 只读、`verdicts` 可写；schema 指纹由录制侧出、重放侧离线比；所有碰真值的 Pod 共用隔离模板（独立标签、`egress: []`、无 envFrom/Secret、不挂 ConfigMap、不挂 SA 令牌）；渲染清单测试；录制后台线程 + 上限 + 30 秒放弃 + soft 挂载 + RWX；actuation 策略改记为「仓库配置支持、在线未验证」 | §2.2、§4.1、§六、§10.2 #6 #7 | 插件 `k8s/base/network-policy.yaml:11-30`；`k8s/base/deployment-worker.yaml:28-64`；`k8s/base/kustomization.yaml:18-23`；`fq/config.py:74-90`；`fq/orchestration/notify.py:87-115`；`infra` `k8s/cicd/tekton/apply-manifest/actuation-policy.yaml:29-31,41,48-78,124-140` |
+| B4 | 固定 Python 基准血缘；最小 CI 提前；减少可后置的工程 | 已修：`ci/core-pin` + 构建的 `coreRevision`，Agent 兄弟用 `pin/bi2-flex` 并在检查里比对；golden 记血缘、不自动重生成；最小 Python CI 放进切片 1；crate 5→3；cargo-chef、CI 缓存、大范围随机模糊后置；切片重排，agentd 在 Rust 骨架之后一次接好；保持「Python A/B 先过再写 Rust」 | §2.3、§3.1、§3.2、§六、§七、§九 | 插件 `k8s/cicd/pipeline-build.yaml:37-64`（插件和 core 共用 `revision`）；`k8s/cicd/Dockerfile:10-13`；`Makefile:38-57`；`platform` `api/internal/agentd/setup.go:49-74`（兄弟跟分支头）；`infra` `scripts/release/push-main.sh` |
+| 补1 | （自查）上一版 verdict 输出「键的哈希」：账户号是 U 加 7 位数字，不加盐的哈希可穷举还原 | 已修：只出案例编号和案例内行序号，映射只在私有目录 | §2.6、§4.2 | 设计本身（上一版 §4.2）；账户号格式见夹具假词表约定 |
+| 补2 | （自查）`ci_gate` 见到任一条 CI 流水线成功就放行；若 Python、Rust 分两条流水线，Python 绿 Rust 红也会过 | 已修：一条流水线管全部检查 + 「仓库 → 应有流水线」表 | §六 | `infra` `scripts/release/ci_gate.py:63-77` |
+| 补3 | （自查）把录制卷挂进 worker，会让 worker 的启动依赖 NAS | 已写进 D-R3 的代价和「停」的条件；capture 是单独组件，关录制即解除 | §2.2、§4.3、§六、§10.1 D-R3 | 插件 `k8s/base/deployment-worker.yaml`（新增卷后 Pod 启动需挂载成功） |
+| 补4 | （自查）API 的手动 `trigger`/`upload-xml` 也写这三张表，上一版没说明它们不在并跑覆盖里 | 已写明：不录（API 不挂卷，免得 Trade 网关依赖 NAS），由 A 层和混合版本测试覆盖，台账单列「设计内未录」 | §1.1、§2.2、§11.2 | `fq/api/manual_ops.py:65-118` |
+
+## 改了推荐或 Owner 决定的地方
+
+- D-R1…D-R9 的推荐都没有翻。
+- D-R2：影子与 B 层 Job 并成一个重放 Deployment（两个引擎）。D-R3：写明 NFS RWX、soft 挂载，以及 worker 启动对 NAS 的依赖。D-R7：有意差异加上数据库错误文本。D-R8：按候选身份清零；拿不到计数的日子不计也不清零。
+- 新增 D-R10（录制器插在哪，推荐用 core 的测试接缝）、D-R11（写错了怎么修，推荐按案例修、备份兜底）。
+- 验收口径：上一版自己改成的「10 个运行日」改回需求说明的「10 个交易日」。
+
+## 大小
+
+约 17 → 约 26 个 agent 日；墙钟 5–7 周 → 约 8 周（并跑至少 3 周）。增加主要在切片 1、2（契约、事务内录制、隐私、框架自证）和切片 4（agentd 与冷启动验收）。
+
+## 本轮没做的检查
+
+没有运行任何 Python、Rust、kustomize 或 CI（本轮只改设计）；鉴权、回退次数等结论是读代码得出的，复核方已用合成探针验证过同样的点。集群、NAS、registry、序列权限、准入策略相关的事实列在修订稿 §10.2，落地前查。
