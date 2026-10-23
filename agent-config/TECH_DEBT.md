@@ -15,7 +15,6 @@
 
 - **TD-335** — PROD 平台发布不再从源码重建，部署 STG 核过的那对镜像摘要；发布流水线按摘要钉 Argo 应用（infra `b63fa49`、`e318a80`，platform `6ff3801b`）。验收：PASS 2026-10-22，PROD #85 没有构建任务，Pod 摘要与 STG 记录一致，提交到上线 19 分半。防线：`test_platform_pin_sync.py` 的 `test_the_prod_delivery_builds_nothing` 等（`RATCHETS.md` 新一行）。后续：TD-331 观察到 10-23；TD-419 还差背靠背两跑的验收。
 - **TD-400** — push-main 推之前查每个提交的 Change-Id、Claude-Session，缺了拒推，`--no-lineage <理由>` 豁免（infra `e7118ce`）。验收：PASS 2026-10-21。防线：`test_push_main.py`。后续：无后续：新工作目录钩子不跑的问题由这一道在推送时兜住。
-- **TD-408** — push-main 推完把干净、在 main 上的共用检出快进到推的提交，做不到就点名说明（infra `e7118ce`）。验收：PASS 2026-10-21，platform 推送后共用检出自动跟上。防线：`test_push_main.py`。后续：无后续：core 的本地分叉提交 ceff454 留给你定。
 - **TD-413** — push-main 推之前在干净 worktree 里跑仓库的快测试（infra 三目录；platform 的 vet 与改过的包），失败拒推，`--skip-tests <理由>` 豁免（infra `27357ae`）。验收：PASS 2026-10-21。防线：`test_push_main.py` 7 条。后续：已补（infra `5366c75`）：只改普通 .md 的推送只跑约 7 秒的考题要点扫描，其余照常全跑。
 - **TD-410** — TD-399 那条回读测试改成按状态驱动：用 advisory 锁卡住提交，过了截止再由测试放开，不再靠 commit_delay 掐时间（platform `fb015014`）。验收：PASS 2026-10-21，负载下 `-count=50 -cpu=1,4` 两轮都过。防线：`RATCHETS.md`「领活截止落在提交里」一行注明按状态驱动。后续：无后续：剩下唯一的时间界限是生产代码的 ConfirmLimit（3 秒），取消送达只要毫秒，复核认为不值得再改。
 - **TD-407** — 一题没答的考卷能作废了：审批目录的 D 级动作 `void_exam_paper`，只能你在 Console 批，平台执行；作废只了结那张卷、不判分不计成绩，有答案的卷不能作废（platform `bb6b5a3e`，STG）。验收：PASS 2026-10-20，作废后同晚 22:50 坐考开始。防线：`RATCHETS.md`「只有没答过的卷能作废」。后续：无后续：PROD 没有考题，用到时随下一张 PROD 单。
@@ -2376,20 +2375,6 @@
 - **Ratchet**: an agentd test that a reviewer's prompt holds the checked attempt's report; a store or agentrtapi test that a review claim carries it.
 - 验收: on STG an effect-none task with a correct report passes its review.
 - 审批 无（运行时内部；06 上换 agentd 要 Owner 跑 update-agentd）· 代价 S · 风险 low · repos: bifrost-platform
-
-### TD-408
-
-**P2 · agent tooling · the shared checkouts fall behind main because nobody pulls them, and every session's MCP servers run from them: tools a release added are missing**
-
-- **状态**：待你签收（2026-10-21 03:2x）。 此前：观察中（到下一次从别的工作目录推 platform，看共用检出自动快进；infra `e7118ce` 起 push-main 推后让干净、在 main 上的共用检出跟上）。 此前：未开始（2026-10-20 21:1x 统筹线程记；Gate A 补跑线发现 STG MCP 的 propose_mission 没有 needs_owner）
-- **Claim**: lanes work in their own worktrees and push main from there, so the shared checkouts under `~/Desktop/stocks/` are never pulled. The platform MCP servers each session starts run from the shared `bifrost-platform/mcp/platform` source (`npm exec tsx ./bifrost-platform/mcp/platform/src/index.ts`), so a session gets the tools of whatever commit the checkout sits at: 2026-10-20 it sat at `8948a5c5`, 199 commits behind main, without `needs_owner` on propose_mission or `propose_plan_import`. The local platform-api binary and Console dev server build from the same checkouts.
-- **Evidence**: 2026-10-20 21:1x `git rev-list --count HEAD..origin/main`: bifrost-platform 199 (fast-forwarded to `9707ab68` by the coordinator), bifrost-trade-core 54 with a local commit `ceff454` (10-03, core 0.36.2) that is not on main (left alone: not the coordinator's), bifrost-platform-plugin-market-data 5 (fast-forwarded); the MCP processes' command lines.
-- **Impact**: sessions call stale tools (fields missing, routes absent) and can draw wrong conclusions from them; walks are designed around tools that do not exist.
-- **Fix**: after every push to a repo's main, push-main.sh fast-forwards the shared checkout of that repo when it is on main and has no tracked changes (and says so when it cannot); a SessionStart check lists the shared checkouts behind main. The core divergence is the Owner's to resolve (drop `ceff454` or push it).
-- **Ratchet**: push-main test: after a push, a clean shared checkout on main is at the pushed commit; a dirty one is left alone and named.
-- 验收: after the next platform push, the shared checkout is at the pushed commit without a manual pull.
-- 验收结果：PASS 2026-10-21：从 ~/agent-work/td-412 推 platform `e98b1487`，push-main 报「shared checkout … fast-forwarded to e98b1487」，没有手工 pull
-- 审批 无（工具改动）；core 的分叉提交怎么处理要 Owner 定 · 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ### TD-407
 
