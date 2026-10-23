@@ -1,6 +1,7 @@
 # Screening 最小业务闭环：设计（W-31 第 3 轮 3.2-1）
 
 > **状态：已定（Owner 2026-10-22 20:0x CDT「3.2-1 设计的 D1–D5 照推荐走」）**：D1 B（正文是运行时产物，索引在档案第九节）、D2 A、D3 A、D4 A（只在第一条问题要改前端时做 P1）、D5 A（72 小时）。2026-10-22 约 20:00 CDT 由统筹线程派的子代理只读调查写成，统筹线程复核后落地（复核意见见第九节）。
+> **2026-10-23 补**：接业务（BI-1）落地后，Screening 问题的分级与分拣见第十节；其余各节没改。
 > **输入**：`work/crew/PROFILE-screening.md` 第 1 版（infra `2770c94`）第五、六、九节；`work/crew/PROPOSAL-screening-profile-2026-10-22.md`；
 > 记忆 `project_crew_business_issue_handoff`、`project_crew_product_takeover_design`；`WORKMODE-owner-chief-of-staff-2026-10-15.md`；
 > `multi-agent/PLAN-round3-draft-2026-10-22.md`；`multi-agent/DESIGN-agent-runtime-v5-2026-10-14.md`；`multi-agent/RULE-waits-2026-10-12.md`。
@@ -348,3 +349,37 @@ written_at: 2026-10-2xThh:mm-05:00
 - D4 的 A 加了附注（见上）：P1 让平台多认一个 Trade 仓库名，建议届时一并提「仓库表改成配置」的选项。
 - 第六节 I3：3.1、3.4 的步骤已在 10-22 设了 `owner_signoff`；3.2-1 随本文落地设上，3.2-2…3.2-6 等 D2 定了顺序再一起设。
 - 其余照草稿：B 不需要平台改动，第一条问题照 S4 A 由 Owner 在统筹线程里转述。
+
+---
+
+## 十、分级与分拣（接业务落地后；BI-1 切片 3，2026-10-23）
+
+> 接业务（BI-1，`DESIGN-crew-intake-2026-10-22.md`）切片 1、2 已在 PROD（platform `c5ad80c2`）。本设计的 D1 由 B 换成 C（那份设计第九节）：问题记在运行时，`list_issues product=screening`，第三节的产物模板和档案第九节的索引不再新增。
+> 这里只写 Screening 的问题怎么分拣、怎么分级；第二节路径的其余步骤照那份设计第九节的对照表走。
+> 外部 Agent 读 `SKILL-intake.md`；crew 写需求说明用 `TEMPLATE-brief.md`，写方案用 `TEMPLATE-design.md`；交给席位、执行者的材料先过 `RULES-seat-brief.md`。
+
+**分拣（那份设计 7.3）**，按顺序：
+
+1. **进来**：她的 Agent 经本机桥 `submit_issue`（切片 4 之后）。在那之前由 Owner 在统筹线程转述，线程 `file_issue channel=owner_relay`；Owner 自己说的用 `channel=thread`；crew 自己的提议用 `on_behalf_of=self`。
+2. **归并**：同一个人说的同一件事，让她的 Agent 用 `add_to_issue` 补进已有那条（手册 3.2，`dedupe_key`）。已经开出两条的，`merge_issues`，只限同产品、同一被服务人、两条都没接过单。
+   Owner 和她说的是同一件事：不合并，只对一条接单，另一条排队；交付后对排队那条发 `check_answer`，她确认就以 `already_possible` 结案。
+3. **需求说明**：业务参谋按 `TEMPLATE-brief.md` 写，`draft_brief`，她经她的 Agent 确认。crew 自己的提议由 Owner 在卡上确认（`request_owner purpose=confirm_brief`）。没有确认过的当前版本，就不分级、不出方案、不接单。
+4. **分类和分级**：建设负责人先实测（第二节第 2 步之 1）；线程按 `RULES-seat-brief.md` 给席位发分级的 ask，附当前需求说明、实测证据、档案第五节 S1 那条线；席位答类别和级别；线程 `classify_issue`，`seat_report` 填席位那个 brief 任务的报告。
+5. **优先级**：`request_owner purpose=priority`，两步卡（Take it on / Later / Decline；选 Take it on 才问 p1 / p2 / p3）。Owner 选 Decline 的，先 `reply_to_requester` 告诉她，再 `close_issue declined`。
+6. **方案与复核**（中级、大级）：建设负责人按 `TEMPLATE-design.md` 写，`put_design`；另一家复核，`record_review`；大级的每个决定点 `request_owner purpose=design_decision`。
+7. **接单与之后**：`take_issue`，mission 的标题、目标、成功标准先过 `RULES-seat-brief.md`。之后照第二节第 4–8 步：试用发 `reply_to_requester ready_to_try`（环境 `stg`、提交、试什么、在哪、什么算好），她的回答经她的 Agent 回来；结案前席位核对（`record_close_check`），再 `close_issue`。
+
+**Screening 的分级对照**（那份设计 7.1–7.2；每级要哪几样证据是签名规则 `intake-gates`，v1 草稿在 `agent-config/agentrt-rules/{stg,prod}/intake-gates.yaml`）：
+
+| 级别 | Screening 里典型的 | 接单要的证据（v1） | 方案复核 | Owner |
+|---|---|---|---|---|
+| **小** | 文案、显示、排版；如实显示未知、依据和日期（档案第五节「不算改方法」）；只改前端、可撤回、落在 `standing-envelope:dev` 里 | 需求说明已确认、已分级、Owner 定了优先级、产品名额、规则有效 | 不复核方案；代码照旧走任务的 verify、review | 只定优先级 |
+| **中** | 业务逻辑或跨模块：例如 Research 读接口的向后兼容新增加前端呈现（S5 A）；已有数据没呈现、要动后端的 | 小级的五样，加方案、独立复核通过 | 另一家复核；满两轮还是「先修」，Owner 在分歧卡上定 | 定优先级；方案里出现架构级的点就升大级 |
+| **大** | 档案第五节「改选股方法」清单里的任何一项（服务器端条件和阈值、综合分权重、等级 / 阶段 / 路径分档、缺值当不通过、股票池定义、窗口、页面默认值、新增排名逻辑、把未知改成通过）；新表或新路由；读账户内容（S8）；对外暴露；不可撤回 | 中级的全部，加方案决定表里每个点都有 Owner 本人选的、能继续的字母 | 必须复核，最多两轮 | 定优先级、每个决定点、复核分歧 |
+
+- **拿不准按高的算**；级别只升不降（`classify_issue` 和库里都挡）。拿不准是「修偏差」还是「改方法」的，按改方法（大级）处理（档案第五节）。Owner 要调高，在统筹线程里说，线程用 `classify_issue` 往上调。
+- **类别**：guidance（指导即可）、improvement（普通改善）、method_change（改方法，至少大级）、data_not_shown（已有数据没呈现）、fault（她在用的东西坏了或数据错了）、out_of_scope（含下单类，D10：回「暂不提供」；她的问题结案要 Owner 在优先级卡上选 Decline）。
+- **两类常备例外**（v1 两个都开）：只答疑的（guidance）不接单，`reply_to_requester check_answer` 告诉她现在怎么做，她确认就 `close_issue already_possible`，不等优先级；
+  她在用的东西坏了或数据错了（fault、小级、有被服务人），不等优先级就能接单，但 mission 必须落在 `standing-envelope:dev` 里，落在外面整个接单回滚。两类都仍要她确认过的需求说明和分级。
+- **名额**：v1 每个产品同时只有 1 条问题有在途工作（`max_live_per_product: 1`，3.2 期间）。按在途 mission 数，不按问题的显示状态；等 Owner 批的 mission 也占；mission 结束才释放。
+- **规则不在有效期就什么都接不了**：`intake-gates` 还没签、或过了有效期（v1 草稿写的是 2026-10-23 到 2027-01-23），`take_issue` 一律拒，只答疑的结案（`already_possible`）也拒（接单谓词第 8 条）。
