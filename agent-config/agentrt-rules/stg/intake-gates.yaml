@@ -1,0 +1,11 @@
+rule_id: intake-gates
+rule_version: 1
+direction: initial
+effective_at: 2026-10-23T00:00:00Z
+expires_at: 2027-01-23T00:00:00Z
+classes:
+  small: [brief_confirmed, classified, owner_priority, quota, rule_in_force]
+  medium: [brief_confirmed, classified, owner_priority, design, review, quota, rule_in_force]
+  large: [brief_confirmed, classified, owner_priority, design, review, owner_decisions, quota, rule_in_force]
+max_live_per_product: 1
+exceptions: [answer_only, fault_small]
