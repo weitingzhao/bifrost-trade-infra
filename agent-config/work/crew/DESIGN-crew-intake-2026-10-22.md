@@ -838,4 +838,17 @@ C（公网入口）不在这张表里；要做时另起一份设计。
 
 **改记为 B、留给 Owner 以后选的**（522 A4、A5、A6 后半；523 同意改记）：用正确类型的事件直接写库的写入者，可以绕过接单证据和产品名额、结案依据、每日上限。按本稿，这几项由 `take_issue` / `close_issue` 在一个事务里算，库只按事件类型拦（4.3 和状态表）。持有运行时写库身份的只有 platform-api 和 platform-workers。要下沉到库里，需要统一的写入入口、产品锁与计数、结案证据检查和日限串行化，并维护它们与 Go 的一致。
 
-**第 2 块要接的**：`hiddenFrom` 对 `issue:` / `intake:` 流的隐藏（在那之前，新二进制的 `/events` 也看得到问题流的元数据，但没有文字）；`get_updates` 的读取投影；卡片答复写证据的接线（`writerChannel` 还不认 controller 的卡片通道）；`intake_tokens:` 配置；BI-1 的旧记录导入；上面说的 BI 卡身份和中性模板。
+**切片 2（接口层）**：分支 `w31/bi1-2-api`（基于 `bb2efaeb`）。复核 524（2 A、2 B，全修，答复 `work/multi-agent/reviews/response-2026-10-23-review524-bi1-2-api.md`），525 通过（无 A）。落地时定下的：
+
+- **路由分两组**：外部 Agent 的 7 条在 `/agentrt/intake/*`，crew 的在 `/agentrt/issues*`，两种投影不混用；`get_updates` 用 POST（它推进 served、可带回执）。读者名单是鉴权文件的新键 `issue_readers:`（不写时是 operator、admin），旧二进制忽略它。
+- **令牌**：`tokens:` 只收闭集里的角色（viewer、reporter、operator、admin、executor、agentd），写错一个角色名 platform-api 就起不来（失败即关）；10-23 核对过 PROD、STG 线上配置只用其中五种。intake 令牌只在 `intake_tokens:`，只有名字和 `token_env`。
+- **BI 卡**：只有运行时自己的 session 能开；规则和 AI 评估都不碰；优先级两步（Take it on / Later / Decline，选 Take 才开 p1 / p2 / p3）；方案决定卡的字母数由调用方给（2–4 的整数）；分歧卡在当前 (B, D) 两轮 fix 之后才能开，选项 Proceed / Stop / Another round。
+- **谢绝**（524 A2）：Owner 在卡上选 Decline，控制器记下当前 B 上的 `declined` 证据；人的问题由 crew 的 `close_issue(declined)` 凭这份证据结案（只认 Console 通道、当前 B、之后没有别的优先级），结案事件带卡号。没改库结构（0009 不让控制器写 `issue_state_changed`）。
+- **显示状态在读取时推算**（524 B1）：只有 Owner 的卡还开着时才显示 `owner_deciding`、等 Owner；卡收尾后按证据显示走到哪一步。
+- **游标**（524 B2）：超过已发给这个客户端的位置的游标一律 400，served 只推进到真正读出的位置。
+- **Console 问题页** `#issue?id=BI-n`：查询绑定登录身份，换身份或退出时立即丢掉、取消旧请求（524 A1）。
+- 设计里对不上的两处，按后一处做：§2.1 说 `intake_guide` 返回手册全文，§3.1 说手册由本机桥带着（服务端只返回身份、上限、已用量和回执点）。
+
+**仍没做的**：BI-1 旧记录导入（要在 PROD 上用 Owner 10-22 22:43 的原话、核对编号是 BI-1，单独一步）；`intake/clients`（第 4 块）；I-D8 的 PROD 流水线收紧（infra）。
+
+**第 2 块要接的**（第 1 块时列的，已在第 2 块做完）：`hiddenFrom` 对 `issue:` / `intake:` 流的隐藏（在那之前，新二进制的 `/events` 也看得到问题流的元数据，但没有文字）；`get_updates` 的读取投影；卡片答复写证据的接线（`writerChannel` 还不认 controller 的卡片通道）；`intake_tokens:` 配置；BI-1 的旧记录导入；上面说的 BI 卡身份和中性模板。
