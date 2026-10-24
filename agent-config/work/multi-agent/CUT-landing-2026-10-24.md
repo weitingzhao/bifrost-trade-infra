@@ -1,15 +1,49 @@
-# 切法：4.1 交房——验收通过的活由运行时自己合进 main（2026-10-24）
+# 切法：4.1 交房——验收通过的活由运行时自己合进 main（2026-10-24，第 2 稿）
 
-**这份文档回答什么**：Owner 10-23 23:3x 定「D4 A」（验收通过的活由运行时自动进 main，先 bifrost-platform、bifrost-trade-infra，PROD 仍按发版策略，规则由 Owner 签）。这里写：今天一件活从 agentd 推分支到进 main 实际怎么走（§1，带 `文件:行`）；运行时自己合要做哪些步骤、谁来做、出错怎么退回（§2）；分几片做、每片怎么验收、哪几片要 Owner（§3）。
-**Owner 要定什么**：五个架构级选择（§4，各有推荐）和规则 `landing:dev` 的内容（§2.8）；动手的有三类——签规则、在 Gitea 建身份并加进 main 的推送名单、批发布单（§3 末列）。全部待定点在 §5。
+**这份文档回答什么**：Owner 10-23 23:3x 定「D4 A」：验收通过的活由运行时自动进 main，先 bifrost-platform、bifrost-trade-infra，PROD 仍按发版策略，规则由 Owner 签。本文写三件事：
+- 今天一件活从 agentd 推分支到进 main 实际怎么走（§1，带 `文件:行`）；
+- 运行时自己合、自己发 STG，要哪些前置条件、步骤、记录，出错怎么办（§2）；
+- 分几片做、每片怎么验收、哪几片要 Owner（§3）。
 
-读的版本：infra `639edc9`（含第 4 轮逐项），platform `origin/main` = `82b3e9d7`；PROD 运行时库 `bifrost_platform` 2026-10-24 04:52Z 只读查询（`agent_reader`）；集群只读 `kubectl get`。切法本身**还没有独立复核**（4.1 第二步）。
+**Owner 要定什么**：
+- §4 的七个架构级选择；
+- §2.3 规则 `landing:dev` 的可判定契约；
+- 动手的几样：撤掉 STG 对 Gitea 管理员令牌的读取（TD-432）、签规则、在 Gitea 建身份并加进 main 的推送名单、批发布单。
+
+全部待定点在 §5 一张表里。
+
+**第 2 稿相对第 1 稿**（`047ea5ca`）：回应 Codex 复核 533（结论「先改」），以及 4.6 复核 534 的 B1。逐条回应在 `~/agent-work/codex-review-533/RESPONSE.md`。主要改动：
+- 第一片收窄成「只合 platform 的 Console 文案和纯展示组件」（B6）；
+- 加前置条件 P0：STG 拿不到 Gitea 管理员令牌（A1）；
+- 硬底线和可申请的例外分开（A2）；
+- 一条共用的资格判定，用在领取、推 main 前、发 STG 前三处，包括「计划和 mission 仍要这件活」（A3、534 B1）；
+- 落地写成有操作号、先记意图再动手、可对账的协议（A10）；
+- STG 发布钉死两个提交号，「待发布」单独记录（A7、A8）；
+- 第一片的失败只开落地问题，自动修复挪到 S4（A4、A5）；
+- 旧的 20 件与 D-L5 对齐（§2.2）。
+
+**读的版本**：
+- infra `639edc9`；
+- platform `origin/main` = `82b3e9d7`；
+- PROD、STG 运行时库，10-24 05:xxZ 只读查询（`agent_reader`）；
+- 集群只读 `kubectl get`。
+
+第 2 稿**还没有复核**。
 
 ---
 
 ## 0. 一段话
 
-今天运行时把活做到 `accepted` 就停了：结果留在 `agent/<任务>/a<n>`，要统筹线程用 `merge_accepted.py` 手工 cherry-pick、跑整套、经 `push-main.sh` 推（TD-383）；运行时只在别人合进去之后补记一笔。推荐的做法：**PROD 的 platform-workers 控制器多一个「落地」循环**，在 main 最新提交上重放收下的那个提交，推到 `land/prod/<任务>/<k>` 让 CI 按推送自己起，CI 绿、窗口关着、main 没动，才把**同一个提交**快进推到 main；冲突、重放改了评审过的差异、或 CI 红，就在同一个 mission 里开一个「落地」任务退回给执行者，不找 Owner。合进 platform 后由同一循环持窗口发 STG。凭证是一个只在 platform、infra 两个仓库 main 推送名单里的新 Gitea 用户，令牌只进 PROD 的 platform-workers；那个 Pod 只跑 Owner 批过的 PROD 代码，执行者写的代码进不去。
+今天运行时把活做到 `accepted` 就停了，要统筹线程手工 cherry-pick、跑整套、经 `push-main.sh` 推（TD-383）。
+
+推荐的做法：PROD 的 platform-workers 多一个「落地」循环。每件落地是一次有编号、逐步记在运行时库里的操作：
+1. 在 main 最新提交上用固定的时间戳重放收下的提交，得到候选 R；
+2. 推到 `land/prod/<任务>/<k>`，CI 随推送起；
+3. 推 main 之前，按当前规则和当前计划再完整判定一次资格；
+4. CI 绿、窗口不挡、main 没动，才把同一个 R 快进推到 main；
+5. 发 STG 时钉死 platform 和 ui 两个提交号，核对发布差异的权限、镜像摘要和健康检查。
+
+第一片只开放 platform 的 Console 文案和纯展示组件，一件在途；冲突、检查失败都开成明确的落地问题，不自动修。前置条件是先切断 STG 拿 Gitea 管理员令牌的路（TD-432）。落地身份只在 platform 一个仓库 main 的推送名单里，令牌只挂进 PROD 的 platform-workers。
 
 ---
 
@@ -19,244 +53,521 @@
 
 | 步 | 谁 | 实读 |
 |---|---|---|
-| 建任务 | 控制器（计划结果） | base 取当时 main 的头：`store/planresult.go:247-249` `BaseCommit: baseOf(pt.Repo)` |
-| 执行、提交 | agentd（06） | 提交带三个尾注 `Agentrt-Task`、`Change-Id`、`Work`，**没有 `Claude-Session`**：`agentd/workspace.go:343-350` |
-| 推分支 | agentd | 只许推 `refs/heads/agent/`：`agentd/workspace.go:355-358`；分支名固定 `agent/<task>/a<n>`：`store/kernel.go:78-81` |
-| 验收 | 控制器 | 确定性检查 → 异家评审 → 评审通过即 `accepted`：`store/accept.go:13-21`、`:398-407`；检查的命令写死在 `store/repos.go:68-95`（只有 platform、infra 两个仓库） |
-| 状态 | — | `accepted` 是终态，表里没有从它出去的边：`store/kernel.go:132-143`；库里 `task.state` 有 CHECK 约束：`migrations/0001_core.sql:135-136` |
-| mission 结束 | 控制器 | 任务全部 `accepted` 就关成 done，**不看进没进 main**：`store/close.go:40-45` |
-| 进 main | **统筹线程手工** | `merge_accepted.py apply --push`（§1.2），或手工 cherry-pick + `push-main.sh` |
-| 补记 | 控制器 | 每 5 分钟读 main，见到收下的那个提交（或它的 cherry-pick 行）就记一条 `note{landed}`：`controller/controller.go:426-442`、`store/prune.go:364-437`；main 经 Gitea API 读：`server/agentrt_prune.go:39-59` |
-| 删分支 | agentd（用自己的 Gitea 身份） | 规则 `store/prune.go:16-47`，`PruneAfter` 24 小时（`:50`），从 `landed` 那条 note 起算 |
+| 建任务 | 控制器 | base 取当时 main 的头：`store/planresult.go:247-249` |
+| 提交、推分支 | agentd（06） | 尾注 `Agentrt-Task`、`Change-Id`、`Work`，没有 `Claude-Session`：`agentd/workspace.go:343-350`；只许推 `refs/heads/agent/`：`:355-358`；分支名：`store/kernel.go:78-81` |
+| 验收 | 控制器 | 确定性检查 → 异家评审 → `accepted`：`store/accept.go:13-21`、`:398-407`；检查命令写死在 `store/repos.go:68-95`（只有 platform、infra） |
+| 状态 | — | `accepted` 没有出边：`kernel.go:132-143`；`failWork` 也按这张表走：`kernel.go:180-192`；库里有 CHECK：`migrations/0001_core.sql:135-136` |
+| 依赖 | 控制器 | 依赖的任务 `accepted` 就放行，不看进没进 main；被依赖的任务被取消或驳回才挡：`store/propose.go:754-777` |
+| 撤计划步骤 | Owner 的计划变更 | `dropStep` 只把步骤改成 dropped；步骤上已 `accepted` 的任务不算「未完成」，原样留着：`store/planchange.go:540-570` |
+| mission 结束 | 控制器 | 任务全部 `accepted` 就关成 done：`store/close.go:40-45` |
+| 进 main | **统筹线程手工** | `merge_accepted.py apply --push`（§1.2） |
+| 补记 | 控制器 | 每 5 分钟读一次 main，见到收下的提交就记 `note{landed}`，被 revert 的不算：`controller.go:426-442`、`store/prune.go:364-437` |
+| 删分支 | agentd | `store/prune.go:16-47`，`landed` 之后 24 小时 |
 
-实测（PROD，10-24 04:52Z）：`accepted` 的 implement 任务 20 件（platform 17、infra 3），有 `landed` note 的 10 件；没有的 10 件全在 M-1～M-15（演练、门槛实测，其中 M-13、M-15 没有 `no_merge` 标记，TD-383 原文已记）。`pruned` note 23 条，最后一条 `landed` 在 10-21 19:15Z。
+### 1.2 `merge_accepted.py`（infra `scripts/agentrt/merge_accepted.py`）
 
-### 1.2 `merge_accepted.py` 做了什么（infra `scripts/agentrt/merge_accepted.py`）
+- 只接「任务 base 上的一个提交」：`:391-400`。
+- 认 `git revert` 的标准格式：`:329-384`。
+- `plan` 判断「已在 main」时，丢掉了 `landed()` 返回的「曾落地后被撤销」这个理由：`:464-466`（复核 534 B1 指出）。
+- 改写提交信息时写死「Until the release queue, the coordinator merges…」，并给 `Work` 加 `TD-383`：`:410-445`。
+- 在干净 worktree 里 cherry-pick，跑 platform 的整套和 code-health：`:472-540`。
+- `--push` 只对 platform：`:71-75`。
 
-- 定位收下的尝试：任务最后一次 `verification_recorded{method: review, verdict: pass}` 指的那次尝试（`:246-292`）；mission 有 `no_merge` 就拒绝（`:458-459`）。
-- 只接「任务 base 上的一个提交」，否则让人手工合（`:391-400`）；按任务尾注和 Change-Id 查是否已在 main、是否被 `git revert` 撤掉（`:329-384`）。
-- 在 main 的干净 worktree 里 cherry-pick，改写提交信息：保留 `Agentrt-Task`、`Change-Id`，`Work` 加 `TD-383`，正文加一段「哪个 mission / 任务 / 尝试 / 评审方」和 `(cherry picked from commit …)` 行（`:410-445`、`:472-513`）。
-- 跑该仓库 CI 的整套（只有 platform 有，`SUITES` `:83-98`，数据库测试必须不跳过 `:99-101`）加 code-health（`:526-540`）；`--push` 只对 `PUSHABLE = {"bifrost-platform"}`（`:71`），infra 不推，理由是 Argo 同步它的 `k8s/`、`agent-config/` 放规则（`:72-75`）；推用 `push-main.sh`（`:552-553`）。
-- `list` 列出收下而没进 main 的（`:558-598`）；`prunable` 只报不删（`:601-702`）。
+### 1.3 TD-383、TD-387、TD-432
 
-### 1.3 TD-383 原文（`agent-config/TECH_DEBT.md:2706-2717`）
+- TD-383（`TECH_DEBT.md:2706-2717`）：收下的活由统筹线程经 `push-main.sh` 合，运行时按规则删分支。只剩「PROD 上第一条 `pruned`」没验收，而 PROD 已有 23 条。
+- TD-387（`:2653-2664`）：platform 任务的检查不跑 code-health，收下的修复要到推 main 时才被拒。
+- TD-432（统筹线程正在记，P1）：STG、PROD 的平台身份都能读 Gitea 管理员令牌，见 §1.5。
 
-标题「an attempt's branch has no lifecycle: accepted work never reaches main, and nothing deletes the branches」。Fix 原文：「until the release queue, an accepted implementation's branch is merged into main through `push-main.sh` by the coordinator (fast-forward after a rebase, the suite and code-health on the merged tree), recorded on the task; a runtime pass deletes an attempt branch …」。验收：「on PROD every accepted implementation's attempt commit is in main or its task says why not, and no `agent/` branch is older than 7 days without an open task」。状态「在做」，剩 PROD 上第一条 `pruned` note（已有 23 条，可以进签收）。同组的 TD-387（`TECH_DEBT.md:2653-2664`）：platform 任务的检查不跑 code-health，10-20 M-31 收下的修复在 `push-main.sh` 被拒（文件超 800 行），统筹线程手工拆文件。
+### 1.4 Gitea 1.21.11 的保护、推 main 的门槛、CI
 
-### 1.4 Gitea 的分支保护（1.21.11，`k8s/cicd/gitea/deployment.yaml:60`）
+**Gitea 保护**
+- `main`：推送和合并白名单只有 `maintainers` 和 Owner（`scripts/gitea/protect-repo.sh:5-7`、`:205-218`）。谁都不能删、不能强推（`CUT-gitea-primary-2026-10-17.md:119`）。
+- `agent/**`：10-20 由 Owner 去掉保护（`protect-repo.sh:8-12`、`:243-256`）。
+- 标签规则：只能在页面上设（`:13`、`:258`）。
 
-- `main`：推送白名单和合并白名单都只有团队 `maintainers`（Owner、`bifrost-mbp`）和 Owner 本人（`scripts/gitea/protect-repo.sh:5-7`、`:205-218`；切法目标 `CUT-gitea-primary-2026-10-17.md:140`）。1.21 管理员不例外；不开合并白名单时有写权限就能合 PR，所以两样都开（同文 `:117-118`）。受保护分支谁都不能删、不能强推（`:119`）。
-- `agent/**`：10-20 14:38 由 Owner 去掉（TD-383「分支 B 用 agentd」，`protect-repo.sh:8-12`、`:243-256`），agentd 才能删尝试分支。现在 `agentd-write` 团队能推、强推、删任何非 main 分支。
-- `protect-repo.sh` 只比对 main 规则和基线、不改（`:13-17`）：给某个仓库加一个推送用户，脚本会报 DIFFERS，要给基线加「按仓库的额外用户」。
+**`push-main.sh` 的门槛**，按执行顺序：
+1. 窗口关着（`:182-190`、`:273`）；
+2. 只快进（`:275-277`）；
+3. 新提交都有 `Change-Id` 和 `Claude-Session`（`:290-316`）；
+4. CI 绿（`:452-505`），`CI_REPOS` 不含 infra（`:117`）；
+5. code-health（`GATED` `:113`、`:534-540`）；
+6. 快测：platform 跑 `go vet ./...` 加改到的包（`:375-398`），infra 跑 pytest（`:344-368`）；
+7. 再查一次窗口（`:558`）；
+8. 推（`:559`）。
 
-### 1.5 推 main 的现行门槛（infra `scripts/release/push-main.sh`）
+**CI**
+- 推任何分支都起 CI（`trigger-trade-ci.yaml:221-225`）。只有三条流水线，没有 infra 的（`delivery/ci_run.go:11-17`）。
+- ci-platform 跑 `go test ./...` 和 code-health，**不跑 `go vet`**（`pipeline-ci-platform.yaml:175-176`、`:283-292`）。
+- 平台判 CI 结果时按「仓库@提交」建索引，**只要有一次成功就算成功**（`release_policy_facts.go:241-244` 与其下的建索引循环）。
+- 外部调用方起 CI 只能指定 `revision`，指定不了 ui（`ci_run.go:21-53`）。
+- CI 的 code-health 用现克隆的 infra main 上的脚本和基线（`task-code-health.yaml:54`）。
+- 实测 10-17～10-24：`bifrost-ci-platform` 146 次，成功 128 次。成功的中位耗时 6.3 分钟，p90 8.3 分钟。
 
-窗口关着（`:182-190`、`:273`）→ 只快进（`:275-277`）→ 新增的每个提交都有 `Change-Id` **和 `Claude-Session`**（`:290-316`，运行时的提交没有后者，只能 `--no-lineage`）→ 该提交有 Succeeded 的 `ci-*`（`:452-505`；`CI_REPOS` `:117` 不含 infra，infra「has no CI of its own」）→ code-health 扫这个提交的干净 worktree（`GATED` `:113`，不含 infra；`:534-540`）→ 快测（infra pytest `scripts/{release,agentrt,agent-host}`，platform `go vet` + 改到的包，`:318-402`）→ **再查一次窗口**（`:558`）→ `git push origin <c>:refs/heads/main`（`:559`）。preflight 拦直接 `git push` 到 main。
+### 1.5 凭证与身份
 
-### 1.6 CI
+- **STG 和 PROD 的平台身份都能读 `cicd/gitea-bootstrap`**：`k8s/platform-rbac/10-stg.yaml:137-143`、`20-prod.yaml` 同名绑定、`00-clusterroles.yaml:98-104`。平台代码把里面的 `gitea_admin_token` 当凭证用（`delivery/service.go:1292-1306`）。也就是说，STG 上跑的平台代码今天就能当 Gitea 管理员，包括改分支保护。
+- 06 上执行者和 agentd 是同一个系统用户，读不受限（`CUT-agentd-confine-2026-10-19.md:15`）。
+- CI 的 TaskRun 没写 `serviceAccountName`，用 cicd 的 default SA（`trigger-trade-ci.yaml:87-92`）。它能不能读 Secret 没查。
+- platform-workers 是 1 个副本、Recreate（`k8s/base-platform/manifest.yaml:83-108`）；镜像里没有 git（`k8s/cicd/docker/Dockerfile.platform-api-stg`）。
 
-- 推任何分支都起 CI（Owner 10-21「D3 A」，`k8s/cicd/tekton/trigger-trade-ci.yaml:221-225`）；删分支不起。按仓库分三条：python、frontend、platform；**没有 infra 的 CI**（`:227-305` 各条的仓库名单）。
-- Gitea 做主后推送当即起 CI（TD-155，`TECH_DEBT.md:16`，10-23 实测推分支 3 秒就有 `ci-platform-*`，待签收）。
-- CI 的 code-health 用的是**现克隆的 infra main** 上的 `scan.sh` 和基线（`task-code-health.yaml:54`）；ci-platform 还跑 infra 的 `check_ops_context_parity.py`。所以 infra 的部分脚本改了，所有仓库的闸门跟着变。
-- 实测（10-17～10-24，`kubectl get pipelineruns`）：`bifrost-ci-platform` 146 次，Succeeded 128、Failed 18；成功的中位 6.3 分钟、p90 8.3、最长 9.7。
-- 运行时已能按「仓库 + 提交」读 CI 结果（`controller.go:200-209`，来自 `delivery.PolicyFacts().CIRun`，`delivery/release_policy_facts.go:241`）。
+### 1.6 窗口、发布、STG
 
-### 1.7 STG 发版的现行规则
+**窗口**
+- 只有一个 ConfigMap（`delivery/release_window.go:14-19`）。
+- 写入时按 `who` 认持有者（`window_store.go:155-163`）。
+- 删除不带 resourceVersion 前提；读到过期的窗口会顺手删掉（`:183-211`）。
+- PROD 对这一个 ConfigMap 有 delete 权限（`k8s/platform-rbac/45-release-window.yaml:4-23`），STG 没有。
 
-工作区 `CLAUDE.md` §5（`agent-config/CLAUDE.md:220-224`）：STG 两个环境的发版和清单改动由 Agent 做、不用问，三个前提——该提交 `ci-*` Succeeded（不用 `--allow-red`）、先持窗口且一次一个会话、发完自己核对 Pod 跑的提交和启动日志并报结果。窗口只有一个（ConfigMap `cicd/bifrost-release-window`，`delivery/release_window.go:14-19`）；`bifrost-deliver-platform` 要求窗口的 `what` 含 platform 或 ui、`who` 等于持有者（`:37`、`:141-183`）。只有 PROD 的平台身份能建 PipelineRun（`k8s/platform-rbac/00-clusterroles.yaml:7-16`、`:167-171`），STG 发版也经 PROD 的 platform-api。STG 发布流水线会先跑 agentrt 的库迁移（`task-agentrt-migrate-stg.yaml:1-10`）。
+**发布**
+- `bifrost-deliver-platform` 的 `revision`、`uiRevision` 默认都是 `main`（`pipeline-deliver-platform.yaml:15-23`）；接口接受 `main`（`delivery/run_spec.go:25-42`）。
+- 带操作号起的 run 名是确定的，已存在就报「已存在」、不重建（`delivery/service.go:282-285`、`:332-363`，`actions.CreateAttemptFrom`）。
+- `Sources.Deployed("stg")` 读 platform 车道的提交号，并核对 api、workers、console 三个工作负载的镜像摘要（`server/agentrt_sources.go:20-34`、`:87-98`、`:186-218`）。
 
-### 1.8 常备授权 `standing-envelope:dev`
+**STG**
+- 发布会先用新 api 镜像、以 `agentrt_owner_stg` 身份跑库迁移（`task-agentrt-migrate-stg.yaml:1-10`、`:99-120`）。
+- 现行 STG 发版规则见工作区 `CLAUDE.md:220-224`。
 
-PROD 版 `agentrt-rules/prod/standing-envelope-dev.yaml:1-12`：`max_action: branch`、预算 40 次尝试 / 48 小时、四家执行者、主机 `agent-06`。解析器只认 `none`、`branch`，注释写「C-class actions are never in an envelope」（`rules/rules.go:81`）。规则种类与「收紧不签名、放宽要签」见 `agentrt-rules/README.md:22-35`。**合进 main 不在任何现有规则里**——这就是 D4 说的「放宽规则由 Owner 签」。
+### 1.7 规则与历史结果
 
-### 1.9 读到的另外几条事实
-
-- platform-workers 的镜像是只装 Go 程序的 alpine，**没有 git**（`k8s/cicd/docker/Dockerfile.platform-api-stg`）；PROD 的 platform-workers 1 个副本，内存上限 512Mi。两个仓库的 pack 只有 11 MiB、9 MiB。
-- STG 和 PROD 的平台身份都能读 `cicd/gitea-bootstrap`（`00-clusterroles.yaml:98-104`），里面是 Gitea 管理员令牌（`delivery/service.go:1292-1308`）。也就是说，platform-api 被攻破时，攻击者本来就能改分支保护；加一个只能推两个仓库 main 的令牌，不增加这个 Pod 已有的权限范围，只是多一个审计上分得清的身份。
-- 06 上的执行者和 agentd 同一系统用户，**读不受限**（`CUT-agentd-confine-2026-10-19.md:15`「同一用户下令牌文件仍可读」）。
-- Argo 的 `bifrost-platform-{stg,prod}` 自动同步 infra main 的 `k8s/overlays/platform-{stg,prod}`（`k8s/cicd/applications/bifrost-platform-*.yaml:13-22`，`AGENT_FACTS.md:414`）；两个 overlay 和 `k8s/base-platform` 里没有指向 `k8s/` 外的链接（`find -type l` 为空），所以 infra 里 `k8s/` 以外的改动不会经 Argo 改运行时。
-- platform main 近 7 天 387 个一线提交（`git log --first-parent`；提交时间不是推送时间，只能说明 main 动得很勤）。
+- 常备授权只许 `none`、`branch`（`rules/rules.go:81`、`agentrt-rules/prod/standing-envelope-dev.yaml:1-12`）。
+- 收紧的判断不信规则自己声明的方向，而是逐项比较（`rules/tighten.go:16-23`）。
+- 「问题的回答不是批准」（工作区 `CLAUDE.md:230-231`）。
+- 收下、没进 main、也没标 `no_merge` 的：PROD 10 件（M-1、M-2、M-3、M-4、M-13、M-15），STG 10 件（M-2、M-16、M-23、M-24、M-26、M-27、M-103、M-114 等），合计 20 件，就是 4.6 切法 D-L5 说的那 20 条。
 
 ---
 
 ## 2. 设计
 
-### 2.1 谁执行合入
+### 2.0 前置条件 P0：STG 拿不到、也间接用不到 main 的写权限（A1，TD-432）
 
-| | A. PROD platform-workers 的控制器（git 在 Pod 里做） | B. 06 上的 agentd，用专用 Gitea 身份 | C. Tekton 流水线（控制器起 run） |
+**要做的**
+- 删掉 STG 的 RoleBinding `bifrost-platform-gitea-creds-stg`。
+- 平台对 Gitea 的读（列分支、读 main、读文件、比对提交）改用一个**只读** Gitea 用户的令牌，每个环境一份 Secret。
+- PROD 也一起换成只读，不再读 `gitea-bootstrap`；管理员令牌只留给 Owner 的脚本。
+- STG 演练用的写身份另设：只有两个仓库的代码写权限，不进 main 和标签的名单。
+
+**验收**（S0 全部过了才开 S2）：
+1. 以 STG 的 `bifrost-platform` SA 做 SubjectAccessReview：get `cicd/gitea-bootstrap` 回 no；PROD 同样回 no。
+2. 用 STG 的只读令牌和演练令牌各跑一次 `check-step1.sh` 式的探针：推 main、建标签、改分支保护、合 PR 进 main 都被拒；读成功。
+3. 06 上执行任务和评审任务用的 agentd 身份照旧跑 probe-protection：推 main、建标签被拒。06 上没有落地令牌、管理员令牌、STG 演练令牌（按文件名和环境变量名核对，不读内容）。
+4. cicd 的 default SA（CI 跑执行者写的测试用它）get secrets 回 no。
+
+**只有它能拦住的用例**：STG 上的平台代码调用 Gitea 的分支保护接口，回 401/403，而不是像今天这样能改。
+
+### 2.1 谁执行合入（X1）
+
+| | A. PROD platform-workers 的控制器 | B. 06 上的 agentd | C. Tekton 流水线 |
 |---|---|---|---|
-| 怎么做 | 新循环 `Land`，复用 agentd 的 git 封装（`runGit`、`isolatedGit`），镜像加 `git` | 平台把「落地」当一种新活派给 agentd，像今天的删分支 | `bifrost-land-replay` 与 `bifrost-land-promote` 两条流水线，控制器按步起、读结果 |
-| 令牌放哪 | 新 Secret `bifrost-platform-prod/agentrt-lander`，只挂进 platform-workers | 06 上 agentd 的家目录 | 新 Secret `cicd/agentrt-lander` |
-| 谁的代码能碰到令牌 | 只有 Owner 批过的 PROD 平台代码（执行者写的代码要经发布单才进这个 Pod） | **执行者能读**（同一用户，读不受限，§1.9）：执行者可以绕过 CI 和评审直接推 main | cicd 里能建 Pod 的都能挂任意 Secret；PROD 平台本来就能建 PipelineRun；CI 也在 cicd 跑执行者写的测试（它的 SA 能做什么没查） |
-| 爆炸半径（令牌泄露） | 两个仓库的 main，只能快进，不能强推、删、建标签 | 同左，但泄露面是跑模型代码的主机 | 同 A |
-| 离线时 | workers 停 → 不合；已收下的排着，不丢（状态在库里） | 06 停 → 不合（也不派活） | Tekton 停 → 不合（CI 也停） |
-| 改动面 | 平台代码 + 镜像一行 + 一个 Secret | agentd + 新活类型 + 06 单元；要么接受执行者可读，要么在 06 另起一个系统用户和服务 | 两条流水线（Owner 应用）+ 控制器编排 + Secret |
-| 状态机在哪 | 运行时库里，和收下、删分支在一处 | 平台派、agentd 报，和删分支同一个模式 | 一半在 PipelineRun，一半在运行时 |
+| 令牌放哪 | `bifrost-platform-prod/agentrt-lander`，以文件挂进 workers | agentd 家目录 | `cicd/agentrt-lander` |
+| 执行者写的代码能不能碰到令牌 | 不能：这个 Pod 里只跑发布单批过的 PROD 代码（前提是 P0） | **能读**（§1.5） | cicd 里能建 Pod 的都能挂它；CI 也在 cicd 跑执行者写的测试 |
+| 离线时 | workers 停就不合；操作记在库里，恢复后对账 | 06 停就不合 | Tekton 停就不合 |
+| 改动面 | 平台代码、镜像加 git、一个 Secret | agentd 加一种新活；要么接受执行者可读，要么在 06 另起一个系统用户 | 两条流水线（Owner 应用），状态分在两处 |
 
-**推荐 A**。理由：令牌所在的 Pod 只跑 Owner 批过的代码，这是三者里唯一能断开「写代码的执行者」和「推 main 的凭证」的；B 的读权限问题在第 2 轮被明确接受为例外，不能拿来扛推 main。C 可行，但多两条要 Owner 应用的流水线，多一层状态同步，换来的只是 git 不在 workers 里跑。只用 Gitea API、不在 Pod 里跑 git 的做法不推荐：1.21 的合并接口改写不了提交信息（除 squash 外），也给不出「先在确切的那个提交上跑 CI、再动 main」——合并结果在合并之前不存在。
+**推荐 A**，并在 workers 里守住这几条：
+- 每次操作用新克隆的干净目录，remote 固定。
+- 关掉一切会执行仓库内容的入口：`core.hooksPath=/dev/null`、`GIT_CONFIG_NOSYSTEM=1`、`GIT_CONFIG_GLOBAL=/dev/null`；协议只放 http；不读 `.gitattributes` 里的 filter，不读 `.gitmodules`。
+- 令牌经单个 git 子进程的 `http.extraHeader` 环境变量给，不进命令行。
+- **这个进程里不跑候选的任何代码和测试**，测试都在 CI 里跑。
 
-### 2.2 合入步骤（PROD，一次一件、每个仓库同时最多一件在途）
+agentd 现有的 `isolatedGit`（`workspace.go:389-392`）只挡全局和系统配置，不能当完整的沙箱照搬。
 
-1. **入队**：`accepted` 的 implement 任务，仓库在规则里；mission 没有 `no_merge`、状态是 active 或 done；**收下时间不早于规则生效时间**（M-1～M-15 那 10 件不会被自动合）；没有 `landed` note、没有终结的落地 note（§2.9）；它依赖的任务都已落地。按收下时间排。
-2. **预检**：收下的提交必须是任务 base 上的一个提交（沿用 `merge_accepted.py:391-400`）；改到的文件全部落在规则允许的路径、不碰规则和代码里的禁止路径（§2.8），行数、文件数不超上限。不满足的不自动合，开一张「这件要合吗」的卡（§2.4 末）。
-3. **重放**：取 main 头 `M0`，在干净的工作目录 `git cherry-pick <收下的提交>`；冲突 → 退回（§2.4）。再比较 `git patch-id --stable`：重放前后差异的 patch-id 不同（三方合并自动改了评审过的内容）→ 也按冲突退回。提交信息按 `merge_accepted.py:410-445` 的规则写，另加尾注 `Landed-By: agentrt-prod`；作者保持原执行者，提交者是落地身份。
-4. **推落地分支**：推到 `refs/heads/land/prod/<任务>/<k>`（`k` 是这件第几次重放），推送当即起 CI；记 note `landing{phase: replayed, replay, main: M0, k}`。
-5. **等 CI**：按「仓库 + 重放提交」读（§1.6）。Succeeded → 第 6 步。Failed → 先看 `M0` 自己的 CI：不是 Succeeded 就是 main 红、不怪这件，等；main 绿就以同一个提交重跑一次（PROD 平台能直接建 `ci-*` 的 PipelineRun），还红再退回。15 分钟没有 run → 直接建一个；45 分钟还没有 → 记 note，接着等。
-6. **推之前再查**：规则仍有效且仍含这个仓库、mission 不是 stopped / paused、窗口不挡这个仓库（§2.6）、main 的头仍是 `M0`。main 动了 → 回第 3 步（记一次「抢输」）。
-7. **推 main**：`git push origin <重放提交>:refs/heads/main`，不带 force。被拒（不是快进）→ 回第 3 步。推成功后 `ls-remote` 确认 main 就是这个提交，再写 `note{landed}`（文字格式与 `prune.go:425-427` 相同）和 `landing{phase: landed}`。
-8. **收尾**：删 `land/prod/<任务>/<k>`（只在它仍指向这个提交时）；该仓库排队空了就发 STG（§2.6）。
+### 2.2 资格：哪些结果会被自动落地；旧的 20 件（A3、534 B1，与 D-L5 对齐）
 
-CI 只认「这个仓库在这个提交上的 run」，所以别人往 `land/**` 推什么都没用：第 7 步推的永远是第 3 步自己做出来、记在 note 里的那个提交。
+**同一个资格判定 `eligible()`**，在领取（§2.5 第 1 步）、推 main 前（第 6 步）、发 STG 前（§2.8）三处共用。它绑定这些东西：环境；mission 及其 scope 的版本；任务；收下的那次尝试和提交号；计划节点及其版本。
 
-### 2.3 和人手 `push-main.sh` 抢 main
+一件 implement 任务要**同时满足**以下全部条件：
 
-两边都只快进、Gitea 不许任何人强推 main，所以**抢输的一方只会被拒，不会覆盖**，安全靠服务端。代价是重放和 CI 白跑一轮（约 6–8 分钟）。规矩：
+1. 由 **PROD** 运行时收下（STG 只演练）。
+2. 收下时间不早于这个仓库的**启用时刻**。启用时刻 = 第一次有一版 `landing` 规则列进这个仓库、并且生效的那一刻。它记成一条 `landing_enabled{repo, rule_version, at}`，只写一次；规则换版、收紧、续期都不移动它（A3）。
+3. 所属 mission 创建于启用时刻之后，状态是 active，没有 `no_merge`。
+4. **计划和 mission 仍要这件活**：
+   - 任务绑着计划节点时，节点状态是 planned、active 或 done，不是 dropped 或 stopped；
+   - 任务不在计划上（目标拆出来的任务）时，产生它的计划任务仍是这个 mission 最后一次被采用的计划；
+   - 任务本身没被取消，也没被另一个落地任务替代（S4 起，§2.7）。
+5. 是「任务 base 上的一个提交」。
+6. **main 上从来没有过它**：main 历史上没有任何提交带它的 `Agentrt-Task` 或收下的那个 `Change-Id`，包括「曾落地后被撤销」的（照 `merge_accepted.py` 的 `landed()`，不丢撤销的理由）。有过就不自动合，开问题，要一个新的明确决定。没有 `landed` note 不等于从未落地。
+7. 没有终结的落地记录，例如 `declined`。
+8. 依赖都已有效落地（§2.7）。
 
-- 第 4 轮之前（D2 没做完、窗口只有一个）：不持窗口，抢输就重放，同一件一小时最多重放 6 次，超过就停一小时、记 note。持全局窗口会连带挡住 Trade 和 research 的发布，不值。
-- D2 的按应用窗口上线后：同一件连续抢输两次，第三次从重放到推 main 持「这个仓库所属应用」的窗口（ttl 5 分钟、每分钟续），`push-main.sh` 遇到它就等。
-- `push-main.sh` 不改抢的逻辑；只改一处：`Agentrt-Task` 也算血缘（今天它要求 `Claude-Session`，`:290-316`），这样人手补合运行时的活不用 `--no-lineage`。
+**顺序**：第二道闸（§2.5 第 6 步）在一个事务里，以 FOR SHARE 锁住 mission 行和计划节点后判定，并写 `landing_main_intent`。计划变更改节点时要 UPDATE 同一行，所以两者有先后：
+- 在这之前提交的变更（撤步骤、加 `no_merge`、叫停 mission），挡住推送；
+- 在这之后的，按「已落地」处理，要撤就走 §2.9。
 
-### 2.4 冲突、CI 红怎么退回原任务
+**旧的 20 件**，两道互不依赖的防线：
+- 上面第 2、3 条已经把它们全部排除，D-L5 没做也碰不到它们。
+- 照 D-L5（4.6 切法），按 mission 逐项确认属于演练或明确放弃之后，由 Owner 在 Console 批单标 `no_merge`（写库是 Owner 的事），之后 agentd 24 小时内删分支。
 
-`accepted` 是终态（§1.1），退回有两条路，见 §4 X2。推荐 **在同一个 mission 里开一个「落地」任务**：
+`no_merge` 用来解释和清理；不靠它兜住全部历史。`merge_accepted.py list` 届时应只剩 0 件。
 
-- 新 implement 任务，标题「落地：<原标题>」，`parent_task_id` 指原任务，base 是当前 main 的头，说明书 = 原说明书 + 退回原因 + 收下的那个差异（产物）。原因三类，都带证据：冲突（文件清单、`M0`）；重放改了评审过的差异（两个 patch-id）；CI 红（run 名、失败的 TaskRun、最后 40 行，按平台现有的脱敏）。
-- 它照常过确定性检查和异家评审，收下后由同一个循环落地。原任务记 `landing{phase: returned, reason, follow_up}`。
-- 一条链最多退回两次；第三次走现有的卡住卡（`failWork` → blocked card），这时才到人手上。
-- 预算照常记在 mission 上；预算用完照现有规矩卡住。
-- **mission 不再在「全部收下」时就关**：`close.go:40-45` 多一条——规则覆盖的仓库里，收下而既没落地、也没被退回的 implement 任务，让 mission 保持 active。这样「done」就等于「进了 main」，退回的新任务也能被派出去（只派 active 的 mission）。
+### 2.3 规则 `landing:<租户>`：可判定的契约（A2、A3、B3）
 
-预检不过的（禁止路径、超上限、依赖或迁移改动）不退回，开一张决定卡：推荐项「合」（Owner 点了就按第 3 步起照常走，记成 Owner 批的落地），另一项「不合」（记 `landing{phase: declined}`，`merge_accepted.py list` 不再报它）。这是唯一会找 Owner 的情形，按 Owner 定的规则内容出现得少。
-
-### 2.5 代码健康扫描放哪
-
-- **权威在 CI**：ci-platform 本来就有 code-health 任务，第 5 步等的就是它；不另跑。
-- **提前在验收**：做掉 TD-387——platform 任务的确定性检查加 `scan.sh --repo bifrost-platform`（对 main 的基线），超了在验收阶段就退给执行者，不等到落地才发现。
-- 落地循环自己不跑任何测试和扫描，Pod 里只有 git。
-- infra 没有 CI（§1.6），见 X5。
-
-### 2.6 合入后发 STG，窗口怎么持，怎么接 D2
-
-- 只对 platform：该仓库没有在途和排队的落地、且最近一次落地满 5 分钟（一阵子落几件只发一次）；main 头的 `ci-*` 是 Succeeded（§1.7 第一个前提）。
-- 持窗口：以 `who=agentrt-prod`、`what=bifrost-platform` 经 delivery 服务写窗口（ttl 5 分钟、每分钟续）；窗口被别人持着就等，30 分钟记一条 note，**从不清别人的窗口**（清窗口是 C 级）。持到后起 `bifrost-deliver-platform`（`revision=main`），看 run 结束，再读 STG 实际跑的提交（`Sources.Deployed`，`server/agentrt_sources.go:87-99`），确认落地的提交是它的祖先，才记 `landing{phase: stg, run, deployed}`；最后放窗口。三个前提和 §1.7 一一对应。
-- 发失败：放窗口、记 note、开一个运行时问题（issue）；main 不回退（往前修）；下一次落地再发。
-- 接 D2：落地和发 STG 只通过两个函数碰窗口——`blocks(repo)`（今天：任何窗口开着都挡，和 `push-main.sh` 一样；D2 后：只看「从这个仓库构建的应用」的窗口）和 `hold(app)`（今天：那一个 ConfigMap；D2 后：应用自己的窗口）。4.3 换实现，这边不动。
-- infra：规则允许的路径不进任何运行时（§2.8），没有 STG 可发。
-- PROD 不变：照「STG 同一提交、CI 绿、没有未结发布单」建审批单，Owner 在 Console 批。由运行时自己建这张单可以放 S7 或并进 4.3。
-
-### 2.7 尝试分支、落地分支的去留
-
-- `land/<env>/<任务>/<k>`：落地或退回后由落地循环立刻删（它只是让 CI 起来的把手，记录在运行时和 PipelineRun 里）；`prune.go` 的规则加一条兜底：没有在途落地、超过 `PruneAfter` 的 `land/` 分支也删。今天的正则不认 `land/`（`prune.go:58`），不加就会一直留着。
-- `agent/<任务>/a<n>`：规则不变（`landed` 起 24 小时）；被退回的原任务，收下的那个尝试分支留到它的落地任务落地之后再起算。
-- 工作目录（Pod 里的克隆）每次用完即删；和 4.6 的生命周期盘点对一下口径。
-
-### 2.8 新规则 `landing:<租户>` 的形状
+第一片的第 1 版：
 
 ```yaml
 rule_id: landing:dev
 rule_version: 1
-direction: initial            # 第 1 版要 Owner 签
-effective_at: 2026-10-2xT00:00:00Z
-expires_at: 2027-01-22T00:00:00Z   # 建议 90 天，过期即停合
-tenant: dev
+direction: initial                 # Owner 签
+effective_at: <签名当天>T00:00:00Z
+expires_at: <生效后 30 天>          # 授权期限，不是验证结论
+tenant: dev                        # 租户，不是环境：只有 PROD 控制器凭它推 main
 repos:
   - repo: bifrost-platform
-    allow: ["**"]
-    deny: ["api/internal/agentrt/migrations/**", "api/go.mod", "api/go.sum",
-           "console/package.json", "console/package-lock.json", "mcp/*/package*.json"]
-    core: true                # api/internal/agentrt、agentd 的改动是否也自动合
+    allow: ["console/src/components/**/*.tsx", "console/src/components/**/*.css",
+            "console/src/pages/**/*.tsx", "console/src/styles/**/*.css"]
+    deny: []                       # 只能在底线之上再加
     stg_release: bifrost-deliver-platform   # 或 none
-  # infra 在 S6 用第 2 版（放宽、要签）加进来，例如：
-  # - repo: bifrost-trade-infra
-  #   allow: ["scripts/agentrt/**", "scripts/benchmark/**"]
-  #   deny: ["scripts/agentrt/rule.sh"]
-  #   stg_release: none
-max_files: 30
-max_changed_lines: 1500
-max_landings_per_day: 30
+limits:                            # 按租户、UTC 日
+  max_files: 10
+  max_changed_lines: 300
+  max_landings_per_day: 5
+  max_in_flight_per_repo: 1
 ```
 
-- **代码里的底线，规则改不动**：`k8s/**`、`agent-config/**`、`scripts/release/**`、`scripts/gitea/**`、`.env*`，以及 `k8s/cicd/tekton` 里任何 Task 会执行的 infra 路径（由一条测试从 YAML 里抽出来，抽不到就失败）。理由：前三类是 Argo 同步的清单、治理与守卫、发布闸门；CI 的 code-health 用 infra main 的脚本和基线（§1.6），自动合它们等于自己放宽闸门。
-- 迁移和依赖放进 platform 的 `deny`：新表、新列、新外部依赖是架构级决策（工作区 `CLAUDE.md` §5），而 STG 发布会自动跑迁移（§1.7）。
-- 收紧的判断（接 `rules/tighten.go`）：仓库只减、`allow` 只删条目、`deny` 只增、上限只降、`core` 只从 true 到 false、`stg_release` 只到 none、到期只提前；别的都算放宽，要签。**停合的开关就是收紧**：去掉一个仓库不用签名，下一轮即生效。
-- 不动 `standing-envelope` 的 `max_action`：任务本身仍然只推分支，合进 main 是控制器在收下之后、按另一条签过的规则做的事。
+**路径语义**
+- 从仓库根锚定，区分大小写，分隔符 `/`；`*` 不跨 `/`，`**` 匹配零到多层。
+- 改名的新旧路径都要过；删除也算改动。
+- 一律拒绝：符号链接（120000）、子模块（160000）、只改模式位、二进制文件（numstat 给 `-`，不按 0 行算）。
+- 行数 = 增加 + 删除。
 
-### 2.9 事件、审计、Owner 在 Console 上看到什么
+**纯展示的判定**：改到的文件全在 `allow` 里；新增的行不出现指向 `api/`、`lib/`、`hooks/` 的 `import … from`；新增的行不含 `fetch(`、`XMLHttpRequest`、`useQuery`、`useMutation`、`window.location`。这是字符串规则，可判定。语义上算不算「纯展示」仍由评审把关，剩余风险写在 §5。
 
-- 记录：都是 mission 流上的 `note`，新键 `landing{phase, …}`，phase 取 `replayed / ci / waiting / landed / returned / declined / owner / stg`，`waiting` 带等什么（窗口持有者、main 红、CI 没起）。要改 `store/vocab.go` 的封闭词表（`:155-160`），不改库结构。`landed` 仍用今天的键，删分支和 `RecordLandings` 都照旧读它。
-- Work 页每件 implement 任务多一行落地状态：排队 / 在 main@… 上重放 / CI `ci-platform-…` 在跑 / 等窗口（谁）/ 已进 main `…` / STG 已跑到 `…` / 退回（原因）→ 落地任务 `t_…`。For you 只在两种时候出现：预检不过的决定卡、退回两次后的卡住卡。
-- Commit Lineage：落地提交带 `Agentrt-Task`、`Change-Id`、`Landed-By: agentrt-prod`，推送者是落地身份。第 4 轮的做完标准「进 main 的代码提交里由运行时自己合的过半」就数这个尾注；4.1 的验收「统筹线程零写入」数这个 mission 期间 actor 为 `thread:…` 的事件和 `bifrost-mbp` 往这两个仓库 main 的推送，都应为 0。
+**硬底线**：写在代码里。规则写什么都放不开，决定卡和例外审批也放不开（A2）。
 
-### 2.10 与 `RecordLandings`、`merge_accepted.py` 的关系
+- platform：
+  - `api/cmd/**`、`api/internal/{server,actuation,releasepolicy,delivery,agentrt,agentd}/**`；
+  - 迁移和迁移执行器；
+  - 任意深度的 `go.mod`、`go.sum`、`package.json`、`package-lock.json`；
+  - `console/{vite.config.*,tsconfig*,index.html}`、`console/src/{main.tsx,App.tsx}`、`console/src/{api,lib,hooks,pwa}/**`；
+  - `mcp/**`、`agent/**`、`scripts/**`、`config/**`、`Makefile`、`.husky/**`；
+  - 任意深度的 `.env*`。
 
-- `RecordLandings` 不改：落地循环自己写 `landed`，它查询时跳过已有 `landed` 的（`prune.go:383`），只给人手合的那些补记，并继续当兜底（例如推成功后 Pod 重启、note 没写上，下一轮它从 main 的 cherry-pick 行认出来）。
-- `merge_accepted.py`：`list` 变成审计——规则覆盖的仓库里收下超过 2 小时还没落地也没退回的，就是落地循环的毛病；`apply` 留给规则之外的活（Owner 在决定卡上选了「不合」以外、又要手工合的少数情形）。
+  理由：这些是信任边界、授权、发布、迁移、依赖、构建入口。迁移这一条尤其要紧：STG 发布会用新镜像、以 `agentrt_owner_stg` 跑迁移（§1.6）。
+- infra（S6 才用）：
+  - `k8s/**`、`agent-config/**`、`scripts/{release,gitea,agent-host}/**`、`scripts/agentrt/rule.sh`、任意深度的 `.env*`；
+  - 加一条测试：`allow` 里的每个目录，在 `k8s/`、`agent-config/` 和其他脚本里都没被按路径或模块名引用，有引用就失败。
 
-### 2.11 失败模式
+**碰底线怎么办**：直接拒，开落地问题，写明碰了哪条，以及正规入口：统筹线程或人手经 `push-main.sh`，按现有发布与治理规则。不出「合」的选项。
 
-| 情形 | 结果 | 谁处理 |
+**软上限**（`limits` 和规则里的 `deny`）：第 1 版**没有例外机制**（X7），超了就开落地问题。以后要例外，用独立的 C 级审批单，绑定仓库、收下的提交号、最终候选号、规则版本、例外项和有效期；候选一变就失效。问题卡的回答不算批准（§1.7）。
+
+**计数**
+- 按租户、UTC 日计。
+- 只数「推 main 已发出」的操作，成功和结果不明都算。
+- 同一操作重试只算一次；演练永不计数。
+- 在推 main 前的加锁决策里扣（§2.5 第 6 步）。
+
+**收紧与放宽**：接 `rules/tighten.go`。
+- 算收紧的：仓库只减，`allow` 只删条目，`deny` 只增，上限只降，`stg_release` 只改到 `none`，到期只提前。
+- 别的都算放宽，要签。
+- **停合的开关就是收紧**：去掉仓库不用签名，下一轮就生效。
+
+**续期、换版、过期**
+- 在途操作记下领取时的规则版本；换版后在三道闸按新版重判。
+- 不再被允许的转成 `parked{rule}`：不退回、不丢，恢复允许后接着走。
+- 过期只停新的领取和推送。已经发生的外部动作照常对账：确认落地、删分支、核对 STG。
+
+**按仓库分批发写权限**
+- platform main 的推送名单在 S3 发，infra 的在 S6 发。S3 时落地身份对 infra 连代码写权限都没有。
+- 标签规则 `*` 只放 `maintainers`，S3 前在两个仓库的页面上核对。
+
+**泄露怎么办**：令牌本身的能力是「有代码写权限、能快进 main」。路径、CI、额度的限制都在控制器里，不是令牌的限制。泄露后：
+1. Owner 先把这个用户移出推送名单，再换令牌；
+2. 按 Gitea 的推送记录，核查泄露期间这个用户的**全部** ref 和权限变更（任意代码、删文件、非保护分支）。
+
+Gitea 走集群内 HTTP，没有 TLS。在集群内抓包要有节点或网络权限，这一点接受，写在这里。
+
+### 2.4 操作协议（A10；X3：用事件，不建表）
+
+**操作号**：落地是 `land:<任务>:<k>`，`k` 是这件第几次重放；发 STG 是 `stg:<仓库>:<n>`。
+
+**记在哪**：流 `landing:<仓库>` 上，带 `task_id`、`mission_id`。Append 时持流锁，按仓库串行领取就靠它。另在 mission 流上镜像一条摘要给 Console。
+
+**事件类型是封闭的一组**，只改 `store/vocab.go`，不改库：
+`landing_enabled`、`landing_claimed`、`landing_prepared{R, M0, dates}`、`landing_branch_intent`、`landing_branch_pushed`、`landing_ci{run, status}`、`landing_main_intent`、`landing_main_result{ok|non_ff|denied|unknown}`、`landing_landed{R}`、`landing_parked{why, retry_at}`、`landing_failed{why}`、`landing_reverted`、`stg_pending`、`stg_intent`、`stg_started{run}`、`stg_verified{P, U, digests}`、`stg_failed`。
+
+- 每种事件的字段固定，`why` 的取值有限。
+- `dry_run` 是 `landing_prepared` 上的一个布尔字段，不是一个阶段。带它的操作永不写 `landing_landed`，也不进任何统计（C2）。
+- 一个纯函数把这些事件折叠成每个操作的状态。
+
+**外部动作一律先记意图、再动手；结果不明时先查、不重做**：
+
+- **R 可重建**：作者时间取原提交的，提交者时间取 `landing_prepared` 里记的，提交信息是确定的。所以重启后重建出来的还是同一个 SHA。
+- **推落地分支**：先记 `landing_branch_intent`。重启后 `ls-remote` 看分支：
+  - 等于 R → 补记 `landing_branch_pushed`；
+  - 不存在 → 重建同一个 R 再推；
+  - 是别的提交 → 不认它，`k+1`，旧分支按 SHA 条件删。
+- **推 main**：先记 `landing_main_intent`。结果不明或重启后，判断 R 是不是当前 main 头的祖先、且没被 revert（复用 `lineage.MainResults` 的认法）：是就记 `landing_landed`。不要求 main 头正好是 R，所以人手紧接着推了后继，也不会误判。
+- **起 STG 发布**：带着操作号起，run 名就是确定的（§1.6）。报「已存在」就接管那个 run。
+- **删分支**：带 SHA 前提（`--force-with-lease=<ref>:<R>` 删除），只删自己推的那个提交。
+
+`RecordLandings` 照旧当兜底，但它只补 `landed`。发布、额度、退回、分支清理的恢复都靠这套协议。
+
+**测试**：每个「外部已成功、记录还没写」的断点一个用例，共六个——推了落地分支、CI 已起、推了 main、建了 STG run、STG run 已结束、删了分支。每个断点都重启一次，验证不重复、不误退回。
+
+### 2.5 合入步骤（PROD；每个仓库同时最多一件「活动」）
+
+1. **领取**：`eligible()` 为真的，按收下时间排，在流锁下写 `landing_claimed`。`parked` 的不占活动位（A6）。
+2. **第一道闸**：先跑 `eligible()`，再按当前规则完整判定：路径、底线、纯展示规则、上限、`stg_release`、规则是否过期。
+   - 碰底线：开落地问题；
+   - 计划或 mission 不再要它：写 `landing_failed{stale}`，开问题；
+   - 规则变了：`parked{rule}`。
+3. **重放**：取 main 头 `M0`，在干净目录里 cherry-pick，写 `landing_prepared`。冲突或 patch-id 变了就是失败（§2.7）。
+   - **评审只对原提交 A 有效**（B1）：
+     - `M0` 等于 base：R 的树和 A 相同，评审结论成立。
+     - `M0` 不等于 base，且 base..M0 改过的文件和 A 改的文件有交集：第一片当失败处理；以后见 X6。
+     - 没有交集：接受「原补丁评审 + R 上的完整 CI」的剩余语义风险，写进 §5 由 Owner 接受。复核 533 的探针证明，patch-id 相同时语义仍可能变。
+   - **提交信息**（C3）：保留原正文。来源段写「Landed by the agent runtime (PROD) under landing:dev v<N>: mission …, task …, attempt …, reviewed by …, accepted …, replayed onto <M0> as <操作号>」。`Work`、`Change-Id`、`Agentrt-Task` 原样保留，**不加 TD-383**。加 `Landed-By: agentrt-prod/<操作号>` 和 cherry-pick 行。
+4. **推落地分支**：推到 `land/prod/<任务>/<k>`，按 §2.4 的意图协议。
+5. **等 CI**。每一轮先查 main 头、规则和 `eligible()`。main 已不是 `M0` 就丢掉这个候选（`k+1`，回第 3 步），不管 CI 到了哪一步（A6）。按 CI 状态分开处理：
+   - **Missing**：10 分钟后按操作号建一次 run，一次性标记写进事件；
+   - **Unknown**（读失败）：重读，不当成任何结论；
+   - **Running**：超过 30 分钟就 `parked{ci_stuck}` 并开问题；
+   - **Succeeded**：必须是这个 R、在 `landing_prepared` 之后建的、最新一次 run 成功。「曾有一次成功」不够（B4）；
+   - **Failed**：看 `M0` 自己最新一次 CI——
+     - `M0` 成功：按操作号重跑一次（一次性），还红就是失败；
+     - `M0` 失败：`parked{main_red}`，每轮复查；main 一动就丢掉候选、重放；
+     - `M0` 的 CI 是 Missing、Running 或 Unknown：只等，不判成 main 红。
+   - **上限**：一个根任务的操作，从第一次领取起最长 6 小时、最多重放 8 次；到了就写 `landing_failed{bound}` 并开问题。
+6. **第二道闸**：一次加锁的决策（锁法见 §2.2「顺序」），依次做完以下几件：
+   - 重跑 `eligible()` 和第 2 步的全部规则判定。CI 期间加了 deny、缩了 allow、改了 `stg_release`、加了 `no_merge`、撤了步骤、mission 被叫停，都在这里拦下；
+   - 扣当天额度；
+   - 确认 main 头仍是 `M0`；
+   - 确认窗口不挡（§2.6）；
+   - 写 `landing_main_intent`。
+7. **推 main**：`git push origin R:refs/heads/main`，不带 force。
+   - `ok`：按 §2.4 确认后写 `landing_landed`；
+   - `non_ff`：回第 3 步；
+   - `denied`：停这个仓库的落地，开问题；
+   - `unknown`：按 §2.4 对账。
+8. **收尾**：按 SHA 删落地分支，写 `stg_pending`（§2.8）。
+
+### 2.6 和人手抢 main；窗口接口（A9、C1）
+
+**抢 main**：两边都只快进，Gitea 不许强推 main，抢输的一方只会被拒。
+- **D2（4.3）上线之前**：不持窗口，抢输就重放，受第 5 步的上限约束。
+- **D2 上线之后**：连续抢输两次，第三次从重放到推 main 都持应用车道。
+
+**窗口接口**，现在就按 4.3 的租约来约定（`DESIGN-release-lanes-2026-10-24.md` §2.2、§2.4）：
+- `Acquire(op, repo, targetSHA, paths)`：拿到返回 `lease{token, expires}`；被占返回 `held{who, op, run, eta}`。
+- `Check(repo, paths, selfToken)`：只回答挡不挡；自己持的不挡自己。
+- `Renew(lease)`、`Release(lease)`。
+
+**第一版接今天那一个 ConfigMap**：
+- `who` 写 `agentrt-prod/<操作号>`。每次操作不同，所以重启后的新操作和旧发布不会被当成同一个持有者。
+- 释放用带 resourceVersion 前提的 Update，把 `expires_at` 设成现在；不用无前提的 Delete（§1.6）。
+- 读窗口失败一律当作「挡」。
+- 重启后，先找自己操作号名下在跑的 run，接管了再决定要不要新建。
+- 等窗口最多 30 分钟，之后 `parked{window}`，按 TD-267 当作暂时性拒绝重试，上限 24 小时。这和 4.3 §2.4 一致。
+
+**TOCTOU**：第 6 步读窗口和第 7 步推送之间有几秒，两次读取不构成互斥。
+- 运行时起的 STG 发布一律钉提交号（§2.8），推 main 改变不了它在构建什么。
+- 人手用 `main` 起的发布，仍可能撞上这几秒。
+
+严格互斥要等 4.3 给推 main 的入口加共用的最终判定（4.3 §2.3 第 3 条）。这几秒的风险写进 §5，请 Owner 接受。
+
+### 2.7 失败怎么办（A4、A5；X2）
+
+**第一片（S3）只开问题，不自动修。**
+
+- 冲突、patch-id 变了、改动有交集、CI 红、超上限、碰底线、权限被拒、活已过时，都写 `landing_failed{why}`。
+- 按根任务开**一个**落地问题：用现有 issues，去重键 `landing:<根任务>`。问题里带证据：
+  - 冲突的文件；
+  - 两个 patch-id；
+  - run 名和最后 40 行（按现有的脱敏）；
+  - 碰到的底线条目。
+- 收下的任务状态不动，不调 `failWork`，不计进执行者的成绩。CI 坏了、抢 main 输了，都不是执行者的错。
+- 问题上有两个动作：「再试一次」（重新领取一次）和「不合」（写 `landing_failed{declined}`）。
+- 算「已了结」的只有三种：「不合」、撤销规则、活已过时。
+
+**S4 才做自动修（R3）**，要先补齐五样：
+
+- **替代关系**：根 → 当前替代 → 有效结果。落地任务由控制器建，同一事务里写 `landing_replaces{root, follow_up}`。依赖、关闭、分支清理都按「根的有效结果」判，不伪造「原提交已进 main」。
+- **原子、幂等**：建替代任务、写替代关系、保持 mission active，在同一事务里完成，以操作号去重。
+- **关闭条件**：落地范围内每个根都满足其一——
+  - 已有效落地（`stg_release` 不是 `none` 时，还要已上 STG）；
+  - `declined`；
+  - 已过时；
+  - mission 本来就 `no_merge`。
+- **规则撤销后的根**：`parked{rule}`，mission 保持开着，并挂一个问题。
+- **第三次失败**：开一张可操作的卡，不碰 `accepted` 任务的状态。
+
+S4 的验收用例：
+- A→B 依赖链：A 冲突，A′ 落地之后 B 才落地；
+- 两层退回；
+- 「不合」之后 mission 能关；
+- 关闭循环和建替代任务并发跑 1000 次，没有一次提前关掉 mission；
+- 连续三次失败只出一张卡。
+
+### 2.8 发 STG（A7、A8）
+
+**待发布记录**：每个仓库一条 `stg_pending{R…}`，记录已落地、还没核到 STG 的最高提交。它有自己的状态，不靠新的落地唤醒。
+
+**什么时候发**：这个仓库没有活动的落地，或者最老的待发布已等了 20 分钟，取先到者。持续有新活也压不住已落地的工作。
+
+**怎么发**
+1. 用 §2.6 的接口持窗口，操作号 `stg:<仓库>:<n>`。
+2. 持到窗口之后定快照：
+   - platform 提交 P = 此刻 main 的头，必须包含全部待发布的 R；
+   - ui 提交 U = P 那次成功 CI 实际用的 ui。CI 是否记下了 ui 提交号，没核实；没有就在 S0 给 ci-platform 的克隆步骤加一个结果。
+3. 发前检查：
+   - P 的最新一次 ci-platform run 成功，且用的就是 U；
+   - **对整个发布差异判权限**：从上一条 STG 发布记录到 P，改到的每个文件都过 §2.3 的 `allow` 和底线。批里夹着人手提交的迁移之类的，不自动发，开问题「STG 要人发：差异含 X」；
+   - 每个待发布 R 的任务 `eligible()` 仍为真，`stg_release` 仍开着，这个仓库没有 `denied` 停合。
+4. 起 `bifrost-deliver-platform`，`revision=P`、`uiRevision=U`，都是完整 SHA，带操作号。
+5. 核对：
+   - run 成功，克隆结果的提交头就是 P；
+   - `Deployed("stg")` 等于 P，三个工作负载的镜像摘要都对；
+   - 平台的 STG 健康检查正常（MCP 有 `get_stg_smoke`，实现没读）。
+6. 逐个确认待发布的 R **在 P 里仍有效**，即没被 revert（A11），写 `stg_verified`；最后放窗口。
+
+**失败**：同一个快照退避重试两次（10 分钟、30 分钟），还不行就写 `stg_failed` 并开问题。待发布照旧显示。main 不回退，往前修。
+
+**mission 的完成**：`stg_release` 开着时，mission 要等它的结果全部 `stg_verified` 才算完成。Console 上「已合入」和「已上 STG」分两列显示，不把前者显示成后者。
+
+### 2.9 被撤销的落地、坏落地怎么救（A11）
+
+- 「曾经落地」是历史事实，保留。
+- 每轮按 `lineage.MainResults` 的 revert 认法（复用 `merge_accepted.py:342-363` 的规则）看结果当前还在不在，不在就写 `landing_reverted`。
+- 依赖、STG 核对、「已上 STG」都按「当前仍有效」判，不按祖先关系判。
+- 已 revert 的成果要重新落地，必须有新的明确决定（§2.2 第 6 条）。
+
+**坏落地的操作手册**：
+1. 收紧规则，去掉这个仓库，停掉后续的落地和发布。
+2. 在最新的 main 上，经 `push-main.sh` 提交受检的 revert 或修复。
+3. 按固定 SHA 重发 STG：运行时会自己发；运行时坏了，由人按现有入口发。
+4. **禁止 reset 和强推 main。** PROD 照原审批政策。
+
+### 2.10 代码健康、`push-main.sh` 门槛的逐项替代（B4）
+
+| 现有门槛 | 落地怎么做 | 是否等价 |
 |---|---|---|
-| 重放冲突 | 退回：落地任务带冲突文件 | 执行者 |
-| 重放干净但 patch-id 变了 | 同上，原因写「重放改了评审过的差异」 | 执行者 |
-| CI 红、main 绿 | 重跑一次，还红就退回，带 run 和最后 40 行 | 执行者 |
-| main 自己红 | 不退回，等；记 `waiting{main_red}` | 推红 main 的人 |
-| CI 没起（钩子丢了） | 15 分钟后直接建 run；45 分钟记 note 接着等 | 落地循环 |
-| main 在 CI 期间动了 / 推被拒 | 回到重放；一小时上限 6 次（§2.3） | 落地循环 |
-| 窗口被别人持着 | 等，30 分钟记 note，不清别人的窗口 | 持窗口的人 |
-| Gitea 连不上 | 退避重试；main 只有最后一步一次快进，不会半截 | 落地循环 |
-| workers 在推之后、记之前重启 | 下一轮按 note 续：main 已含这个提交就补 `landed`；`RecordLandings` 兜底 | 落地循环 |
-| 规则过期 / 被收紧、mission 被停 | 第 6 步拦下，不推；已推的 `land/` 删掉 | — |
-| 改动碰禁止路径、超上限 | 决定卡 | Owner |
-| 退回两次还不过 | 卡住卡 | Owner / 统筹 |
-| 已落地又被人 `revert` | 不再自动重合（有 `landed`）；删分支照今天的规则留着 | 人 |
-| 规则生效前收下的 | 永不自动合，`list` 照报 | 统筹 |
-| 落地令牌泄露 | 只能快进两个仓库的 main；推送者可查；Owner 换令牌 | Owner |
-| 落地改了落地循环自己 | 进 main 不生效；随 STG 发布先在 STG 生效（那边只演练、不推 main），PROD 要发布单 | — |
-| STG 发布失败 | 放窗口、开问题；main 不退；下次落地再发 | 落地循环 / 统筹 |
+| 只快进、不强推 | 保留；分清 `non_ff`、`denied`、`unknown` | 等价 |
+| `Change-Id` + `Claude-Session` | 要求 `Agentrt-Task` 恰好等于收下的任务，`Change-Id` 恰好一个 | 替代；S7 让 `push-main.sh` 也认它 |
+| 确切提交的 CI | 要最新一次、在候选生成之后建的 run；CI 之后不 amend、不 rebase；run 名和所用的 infra 提交进审计 | 更严 |
+| code-health | ci-platform 里本来就有；TD-387 在验收阶段提前反馈 | 等价；基线以 run 所用的 infra 提交为准 |
+| `go vet ./...` | CI 里没有。S0 把完整的 vet 加进 ci-platform | 补上后等价 |
+| infra 快测 | S6 的 `bifrost-ci-infra` 用同一份清单（push-main 的 release、agentrt、agent-host，加运行时检查），清单只放一处 | S6 之前不合 infra |
+| 窗口 | 读失败就挡；检查不等于持锁（§2.6） | 等价，TOCTOU 写明 |
+
+### 2.11 分支去留
+
+- `land/<环境>/<任务>/<k>`：落地或失败后按 SHA 条件删。`prune.go` 加一条兜底：超过 24 小时、又没有活动操作的 `land/` 分支也删。今天的正则不认这类分支（`prune.go:58`）。
+- `agent/<任务>/a<n>`：规则不变。被替代的根，它收下的那个尝试分支，等有效结果落地后再起算 24 小时。
+- 工作目录用完即删，口径和 4.6 对齐。
+
+### 2.12 Owner 看到什么，「统筹线程零写入」怎么量（B5）
+
+**Console 每件任务**显示：
+- 根任务；
+- 原提交 A、base、最终落地的 R、`M0`；
+- 规则版本（以后还有例外单）；
+- CI run；
+- 退回链；
+- 待发布、发布的 run、P、U、镜像摘要；
+- 发布失败、已撤销；
+- 下一次重试的时间。
+
+**主动提醒**：任何操作 `parked` 超过 2 小时，或待发布超过 1 小时，就开运行时问题（统筹线程看）。只有要 Owner 动手时才进 For you。
+
+**★ 怎么量**：取一个明确的 mission，看它的完整事件链，七个环节都要有记录：
+1. Owner 在 Console 输入目标；
+2. 提案和授权；
+3. 实现、检查、评审；
+4. 落地操作，以及 Gitea 上记录的推送者；
+5. CI；
+6. STG 的 run 和实际镜像摘要；
+7. 这段时间里统筹线程的全部写动作，下面每一类都应为 0：
+   - actor 为 `thread:…` 的事件；
+   - 平台审计里该会话发起的动作；
+   - `bifrost-mbp` 往两个仓库的推送；
+   - 手工建的 PipelineRun；
+   - 审批和问题上的操作。
+
+**「运行时自己合的占比」**：数 Gitea 推送者是落地身份、且有对应 `landing_landed` 的 main 提交。不只数 `Landed-By`，那个尾注谁都能写。能不能从 Gitea 拿到推送者，在 S0 实测。
+
+### 2.13 与 `RecordLandings`、`merge_accepted.py`
+
+- `RecordLandings` 不改。它跳过已有 `landed` 的，只给人手合的补记，并兜底「推了 main、还没来得及记」的情形。
+- `merge_accepted.py list` 当审计用：规则覆盖的仓库里，收下超过 2 小时、既没有活动操作也没有终结记录的，就是落地循环出了毛病。
+- `apply` 留给规则之外的活。`plan` 丢掉「曾落地后被撤销」理由的问题（§1.2），在 S7 一起改。
+
+### 2.14 失败模式（摘要；处理见各节）
+
+| 情形 | 结果 |
+|---|---|
+| 冲突 / patch-id 变了 / 改动有交集 / CI 红 | 开落地问题（S3）；S4 起自动修 |
+| 计划步骤被撤、加了 `no_merge`、mission 被叫停（在第二道闸之前） | `landing_failed{stale}`，不推 |
+| main 上曾有过它（含已撤销），但还没有 `landed` note | 不推，开问题等新的明确决定 |
+| `M0` 的 CI 红 | `parked{main_red}`；main 一动就重放 |
+| CI 没起 / 读不到 / 卡住 | 补建一次 run / 重读 / 30 分钟后 parked 并开问题 |
+| main 在 CI 期间动了，或推送 `non_ff` | 丢掉候选重放；受 6 小时、8 次上限约束 |
+| 推送 `denied` | 停这个仓库的落地，开问题 |
+| CI 期间规则被收紧或过期 | 第二道闸拦下，`parked{rule}` |
+| 碰底线 | 拒，开问题；不出「合」选项 |
+| 推 main 后重启，人手又推了后继 | 按「仍有效的祖先」认成已落地 |
+| STG run 建了但结果不明 | 按确定的 run 名接管 |
+| STG 发布失败 | 同一快照重试两次，之后开问题；mission 不算完成 |
+| 已落地又被 revert | 写 `landing_reverted`，不报「已上 STG」 |
+| 落地令牌泄露 | 先移出推送名单、再换令牌，核查泄露期间的全部推送 |
+| 规则启用前收下的、属于旧 mission 的 | 永不自动合；D-L5 另外按 mission 确认后标 `no_merge` |
 
 ---
 
 ## 3. 切片
 
-| 片 | 做什么 | 验收 | 只有它能拦住的用例 | 要 Owner |
-|---|---|---|---|---|
-| S1 规则与入队（不写 git） | `landing:<租户>` 的解析、收紧判断、底线路径；入队与预检；Console 显示「会合 / 规则外」 | store 与 rules 的测试；STG 上一件演练显示正确的入队结果 | ① 规则生效前收下的不入队；② 改了 `migrations/**` 的进决定卡；③ 规则加一个仓库被判为放宽；④ `no_merge` 的 mission 不入队；⑤ Tekton 执行的 infra 路径进底线（YAML 里新加一处，测试先红） | 无（随下一张发布单） |
-| S2 STG 演练（推 `land/stg/**`，不推 main） | 镜像加 git；STG 的落地身份；第 3–5 步与 §2.7 的分支删除；STG 上把第 7 步换成「记一条 would_land」 | STG 上一件确定性任务：重放、CI 绿、记 would_land、分支删掉 | ① 三方合并改了评审过的差异 → 退回而不是 would_land；② CI 期间 main 动了 → 重放；③ 别人改了 `land/` 分支的头 → 不认；④ main 红 → 等而不退回 | 建 Gitea 用户 `agentrt-lander-stg`（两个仓库写权限，**不进** main 名单）、令牌做成 STG 的 Secret；刷新 Dockerfile 的 ConfigMap |
-| S3 退回 | 落地任务；`close.go` 等落地；最多退回两次；TD-387 | STG 上制造一次冲突，落地任务被派出、收下、再落地（演练） | ① 冲突 → 新任务的 base 是 main 头且说明书带原因；② 收下没落地的 mission 不关；③ 第三次失败出卡住卡；④ CI 红一次、重跑绿 → 照常落地 | 无 |
-| S4 PROD 真合 platform | 第 6–8 步打开；`Landed-By`；`protect-repo.sh` 基线支持按仓库的额外用户 | PROD 上第一件真落地：main 上的提交带尾注、推送者是落地身份、有 `landed`、分支已删 | ① 窗口开着 → 不推；② CI 后规则过期 → 不推；③ 落地令牌推 infra main、建标签被拒（照 `check-step1.sh` 的探针）；④ 非快进被拒后重放 | **签 `landing:dev` 第 1 版**；建 `agentrt-lander`、加进 platform main 的推送名单、令牌做成 PROD 的 Secret；**批发布单** |
-| S5 自动发 STG | §2.6 全部 | **4.1 的 ★**：Owner 在 Console 提一句小目标，到进 main、上 STG，统筹线程零写入（§2.9 的两个数） | ① 窗口被别人持着 → 等、不清；② STG 实际跑的提交不含落地提交 → 不报「已上 STG」；③ main 头 CI 不绿 → 不发 | 批发布单（`stg_release` 已在 S4 的规则里签） |
-| S6 infra | `bifrost-ci-infra` 流水线（push-main 的 infra 快测 + 运行时的 infra 检查）；规则第 2 版加 infra | 一件 infra 任务（`scripts/agentrt/` 下）自动落地 | ① 碰 `k8s/**` 或 `agent-config/**` 的永不自动合，即使规则写了允许；② 改 `scripts/agentrt/rule.sh` 的进决定卡 | 应用流水线；**签第 2 版**；把落地身份加进 infra main 的推送名单 |
-| S7（可并进 4.3） | `push-main.sh` 认 `Agentrt-Task` 为血缘；运行时自建 PROD 审批单；「运行时自己合的占比」脚本 | 占比脚本对近 7 天跑出数 | 人手合运行时的提交不再需要 `--no-lineage` | 无 |
+| 片 | 做什么 | 只有它能拦住的用例（对应复核条目） | 要 Owner |
+|---|---|---|---|
+| **S0 前置** | P0（TD-432）；ci-platform 加 `go vet ./...` 并记下 ui 提交号；实测 Gitea 能否给出推送者；D-L5 | ① STG SA 读 `gitea-bootstrap` 回 no；STG 平台代码改分支保护回 401/403（A1）② 只有 vet 能抓的错误（自赋值）让 ci-platform 变红（B4） | 应用 RBAC 改动；建只读用户和 STG 演练用户、Secret；应用 Tekton 改动；批 D-L5 的单 |
+| **S1 规则与资格（不碰 git）** | `landing:<租户>` 的解析和收紧判断；底线；路径和纯展示规则；`eligible()`；§2.4 的词表和折叠函数 | ① 规则写了 `api/internal/server/**` 也被底线拒，且不出「合」（A2）② 换版不移动启用时刻，上一版下收下的仍在队里（A3）③ 改名的旧路径碰底线、符号链接、二进制 → 拒（B3）④ 启用前收下的、`no_merge` 的 → 不进队 ⑤ 带 `dry_run` 的不计数、不写 `landed`（C2）⑥ **规则生效后收下、再被 `drop_step` 撤掉步骤的任务 → `eligible()` 为假**（534 B1） | 无 |
+| **S2 STG 演练** | git 卫生；可重建的 R；推 `land/stg/**`；分状态等 CI；六个断点的恢复；STG 上不推 main | ① 旧 main 永红、新 main 已绿 → 丢掉候选，在新 main 上重放（A6）② CI 为 Missing 时只补建一次；Unknown 不当成 main 红（A6）③ 推了落地分支、还没记录就重启 → 重建出同一个 SHA（A10）④ base..M0 与 A 有交集 → 开问题（B1） | 镜像加 git（刷新 Dockerfile 的 ConfigMap）；STG 演练令牌的 Secret |
+| **S3 PROD 第一片（B6）** | 第 1 版规则：只开放 Console 文案和纯展示组件、一件在途；推 main；落地问题；固定 SHA 的 STG 发布和待发布记录；窗口适配；撤销的认定 | ① CI 期间收紧 `deny` → 不推（A3）② **CI 期间给 mission 加 `no_merge`，或撤掉它的计划步骤 → 不推**（534 B1）③ **人手合进去又 revert 了，`RecordLandings` 还没记 → 不推**（534 B1）④ 第三次失败只出一个问题，任务状态不变（A4）⑤ 等窗口期间有人推了 N → 发的是 P 不是 N；差异含人手迁移 → 不自动发（A7）⑥ STG 发布失败 → 重试、开问题，mission 不算完成（A8）⑦ 重启后接管在跑的 run，不建第二个；释放不会删掉别人刚续好的窗口（A9）⑧ 推 main 成功后人手推了后继 → 记已落地、不重放（A10）⑨ 已 revert 的 R 不报「已上 STG」（A11）⑩ 落地身份推 infra main、建标签都被拒 | **签 `landing:dev` 第 1 版**；建 `agentrt-lander`，只加进 platform main 的推送名单，令牌做成 PROD 的 Secret；核对标签规则；**批发布单** |
+| **★ 验收** | Owner 在 Console 提一句改 Console 文案的小目标，到进 main、上 STG；按 §2.12 的七项量，统筹线程零写入 | — | 提目标 |
+| **S4 自动修（R3）** | §2.7 的替代关系、原子创建、关闭条件、可操作的卡 | §2.7 的五个用例（A5） | 批发布单 |
+| **S5 放宽到 platform 非核心代码** | 第 2 版规则（放宽，要签）；X6 选定的评审方式 | 改动有交集时按 X6 处理；底线照旧拦 | 签第 2 版 |
+| **S6 infra** | `bifrost-ci-infra` 全套接线：触发器、`isCIPipeline`、CI 索引、`push-main.sh` 的 `CI_REPOS` 和 `ci_gate`；infra 的 `allow` 和引用测试 | ① 碰 `k8s/**`、`agent-config/**` 的永不自动合 ② `allow` 里的目录被 Tekton 任务间接引用 → 测试先红（B2、B3） | 应用流水线；签第 3 版；加进 infra main 的推送名单 |
+| **S7** | `push-main.sh` 认 `Agentrt-Task`（恰好等于收下的任务）；按推送者数的占比脚本；`merge_accepted.py plan` 不丢「曾落地后被撤销」；运行时自建 PROD 审批单（可并进 4.3） | 尾注是伪造的提交不进占比 | 无 |
 
-粗估：S1–S5 约 3–4 个工作日的实现加复核，Owner 约 1 小时、分三次（S2、S4、S6 前）。把握低：取决于复核轮数和 S4 发布单什么时候批。S1 与 S3 可以并行。
+粗估：S0–S3 加 ★，约 5–6 个工作日的实现加复核；Owner 约 2 小时，分 4 次。把握低：S0 的 TD-432 要改平台读 Gitea 的路径，工作量没细估。
 
 ---
 
-## 4. 架构级选择（各列选项和推荐，等 Owner 定）
+## 4. 架构级选择
 
-- **X1 谁执行合入**：A 控制器（推荐）/ B 06 上的 agentd / C Tekton。见 §2.1。
-- **X2 怎么退回**：
-  - R3 同一 mission 里开落地任务（推荐）：不改状态机、不动库，复用派活、检查、评审、预算、卡住卡；代价是 Console 上多一行任务、mission 关闭条件多一条。
-  - R2 在 `verifying` 和 `accepted` 之间加 `landing` 状态，退回走现成的 `rework`：语义最直（收下 = 进了 main），但要改 `task.state` 的 CHECK（PROD DDL），所有按状态列举的地方都要改（例如 `accept.go:439`、`blockedclose.go:70`）。
-- **X3 落地状态记在哪**：mission 流上的 `note`（推荐，不动库）/ 新表 `agentrt.landing`（查询方便，新表是架构级、要 PROD DDL）。
-- **X4 STG 怎么演练**：STG 运行时只推 `land/stg/**`、不推 main（推荐）/ 建一个受同样保护的探针仓库让 STG 真推（`store/repos.go` 写死仓库，要等 4.2 把接入挪进运行时记录）。
-- **X5 infra 的「CI」**：新建 `bifrost-ci-infra`（推荐，人手推 infra 也受益，补上 RATCHETS 里多处「infra 没有 CI」）/ 在 06 上对重放提交跑一次运行时的 infra 检查（`repos.go:154-170` 的清单不含 `scripts/release`，比 `push-main.sh` 弱）。
+| # | 选项 | 推荐 |
+|---|---|---|
+| X1 谁执行 | A workers 控制器 / B agentd / C Tekton | **A**，前提 P0 |
+| X2 第一片的失败 | 只开问题，S4 再做 R3 / 现在就做 R3 / 加 `landing` 任务状态（PROD DDL） | **只开问题，S4 做 R3** |
+| X3 状态记在哪 | 流 `landing:<仓库>` 上的封闭事件 / 新表 `agentrt.landing`（PROD DDL） | **事件** |
+| X4 STG 怎么演练 | 只推 `land/stg/**` / 用探针仓库真推（要等 4.2） | **只推 `land/stg/**`**；真推 main 的正反测试放 S3、用真身份 |
+| X5 infra 的 CI | 新建 `bifrost-ci-infra` 并全套接线 / 在 06 上对 R 跑运行时检查（更弱） | **新建** |
+| X6 base 漂移后的评审（B1） | M0≠base 就加一次集成复核 / 接受「原补丁评审 + R 上完整 CI」的剩余风险，有改动交集的不合 | **第一片取后者**；S5 起有交集的加集成复核 |
+| X7 软上限的例外 | 第 1 版不设 / 独立的 C 级单，绑定 SHA 和规则版本 | **第 1 版不设** |
 
 ---
 
 ## 5. 待 Owner 定的点
 
-1. X1–X5 五个选择（推荐 A、R3、note、只推 `land/stg/**`、新建 ci-infra）。怎么回：「4.1 切法照推荐」，或逐条写字母。
-2. 规则内容（§2.8）：`core` 是否自动合（推荐是：PROD 仍要发布单，STG 先吃到）；platform 的 `deny` 清单；三个上限；到期（推荐 90 天）；`stg_release` 开不开（推荐开）。在 S4 签名时定。
-3. D2 之前抢 main 不持窗口、只限次重放（§2.3）——推荐照此；D2 后改持应用窗口。
-4. PROD 上规则生效前收下、没进 main 的 10 件（M-1～M-15）：推荐不动，落地循环不碰它们；要清掉的话给 M-13、M-15 补 `no_merge`，要写 PROD 库，由 Owner 决定。
-5. 要 Owner 动手的（到那一片时带具体步骤）：S2 建 `agentrt-lander-stg` 和 Secret；S4 签第 1 版规则、建 `agentrt-lander`、改 platform main 名单、Secret、批发布单；S5 批发布单；S6 应用 ci-infra、签第 2 版、改 infra main 名单。
+| # | 定什么 | 推荐 | 在哪办、怎么回 |
+|---|---|---|---|
+| 1 | X1–X7 | 见 §4 | 统筹线程；回「4.1 第 2 稿照推荐」或逐条写字母 |
+| 2 | P0 / TD-432：撤掉 STG（及 PROD）对 `gitea-bootstrap` 的读取，平台读 Gitea 改用只读身份 | 做，作为 S2 的前置 | 统筹线程出步骤；你应用 RBAC、建用户 |
+| 3 | `landing:dev` 第 1 版：`allow` 四条、纯展示的字符串规则、三个上限、30 天到期、`stg_release` 开 | 照 §2.3 | S3 签名时 |
+| 4 | 底线清单（代码里写死，规则放不开） | 照 §2.3 | 回「底线照稿」或增删 |
+| 5 | 资格判定 `eligible()` 的八条，特别是「计划和 mission 仍要它」「main 上从来没有过它」 | 照 §2.2 | 回「资格照稿」 |
+| 6 | 接受的剩余风险：没有改动交集时的语义漂移（B1）；推 main 前几秒的窗口 TOCTOU（§2.6）；「纯展示」只靠字符串规则加评审 | 接受，因为第一片范围小 | 回「剩余风险接受」 |
+| 7 | `push-main.sh` 的逐项替代（§2.10），尤其 `Agentrt-Task` 代替 `Claude-Session` | 照表 | 同上 |
+| 8 | Owner 看到什么（§2.12）：「已合入」「已上 STG」两列，问题阈值 2 小时 / 1 小时 | 照稿 | 同上 |
+| 9 | ★ 怎么量（§2.12 的七项）；占比按推送者数 | 照稿 | 同上 |
+| 10 | 旧的 20 件：落地的资格规则本身排除它们；D-L5 按 mission 逐项确认后标 `no_merge`，用于解释和清理 | 两样都做 | D-L5 的单在 Console 批 |
+| 11 | 动手的事：S0 应用 RBAC 和 Tekton、建两个 Gitea 用户和 Secret；S3 签第 1 版、建 `agentrt-lander` 并加进 platform main 的名单、核对标签规则、批发布单；S6 再给 infra | — | 到那一片时带具体步骤 |
 
 ## 6. 没核实的
 
-- Gitea 1.21.11 有没有 `fast-forward-only` 合并方式、PR「按 rebase 更新」会不会保留提交号：没读源码（印象里前者 1.22 才有）。推荐的 A 不依赖它们。
-- platform-workers 里的 delivery 服务能不能直接写窗口、起 PipelineRun：读到 workers 用它读 CI（`agentrt_wire.go:425-427`），写的那条路没读。
-- `Sources.Deployed("stg")` 对 platform 报的是哪一个提交（`agentrtDeployLane` 的定义没读）。
-- CI 的 Pod 在 cicd 里用的 SA 能不能读 Secret：没查，所以 C 的风险写成「没查」。
-- Gitea 的推送记录里能不能按用户查推送者：没实测。
-- 收下的尝试提交在 `agent/**` 上自己的 CI 是不是都绿：没统计。
+- 线上 RoleBinding 是否与清单一致，令牌的 scope，cicd default SA 能不能读 Secret：都放进 S0 的验收实测。
+- Gitea 能否按用户给出推送者：S0 实测。
+- ci-platform 有没有记下它用的 ui 提交号：没有就在 S0 补。
+- 平台 STG 健康检查 `get_stg_smoke` 的实现。
+- Gitea 1.21.11 有没有 `fast-forward-only`：推荐方案不依赖它。
+- 目标拆出来的任务，「最后一次被采用的计划」的精确判法（`planresult.go` 的 `plan used` 事件）：没读完。S1 实现时补上，判不出就按「已过时」处理。
+- 复核 533 的两个探针（patch-id、vet）没有重跑。
