@@ -86,7 +86,8 @@ def write_markers(env: Dict[str, str], ids: List[str], now: int) -> List[str]:
 def _read_time(path: str, key: str) -> Tuple[Optional[int], Optional[str]]:
     """(the time in ns, None); (None, None) when the file does not exist; (None, why) otherwise.
     A file written before 553 has only the seconds, read as ns. Anything but a JSON object
-    holding a finite time is unreadable, never an error out of the sweep (review 554 A3)."""
+    holding a finite time is unreadable, never an error out of the sweep (review 554 A3), and so
+    is a finite time too large for the calendar, which would stop the sweep when printed (555 A1)."""
     try:
         with open(path, encoding="utf-8") as f:
             got = json.load(f)
@@ -100,6 +101,7 @@ def _read_time(path: str, key: str) -> Tuple[Optional[int], Optional[str]]:
             t = int(t * wo.NS)
         if type(t) is not int:
             raise ValueError
+        wo.fmt_ns(t)  # every time read here is printed later; one the calendar cannot hold fails now
         return t, None
     except FileNotFoundError:
         return None, None

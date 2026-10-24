@@ -80,19 +80,24 @@ def test_a_handover_history_that_lost_an_owner_ends_only_by_its_own_session(w):
     assert len(rec["taken_from"]) == wo.TAKEN_KEEP and not wo.history_complete(rec) and wo.problems(rec) == []
 
 
-@pytest.mark.parametrize("text", ["[]", "null", '"x"', '{"active_since": 1e999}', '{"active_since": 1e300}'])
+@pytest.mark.parametrize("text", [
+    "[]", "null", '"x"', '{"KEY": 1e999}', '{"KEY": 1e300}',
+    '{"KEY": 100000000000000000000}', '{"KEY_ns": 1000000000000000000000000000000}',
+])
 def test_a_marker_that_is_no_time_is_unreadable_and_the_report_still_comes(w, text):
     """Review 554 A3: a marker or resume-failed file that is valid JSON but not an object, or
     an old seconds value that is infinite or overflows in nanoseconds, made the report-only
-    sweep stop with no report. It is unreadable evidence: that worktree is kept and named."""
+    sweep stop with no report. Review 555 A1: a finite time too large for the calendar passed
+    the read and stopped the sweep later, when it was printed. It is unreadable evidence:
+    that worktree is kept and named. KEY is each file's own field (555 D)."""
     repo = w.repo()
     d = w.new_worktree(repo, "lane/bifrost-x", detach="origin/main", session="sess-1")
     w.end(d)
-    Path(ws.marker_path(w.env, "sess-1")).write_text(text)
+    Path(ws.marker_path(w.env, "sess-1")).write_text(text.replace("KEY", "active_since"))
     rc, out, rep = w.prune()
     assert rc == 0 and World.items(rep)[str(d)]["reason"] == "session-marker-unreadable", out
     Path(ws.marker_path(w.env, "sess-1")).unlink()
-    (Path(wo.admin_of(str(d))[0]) / wo.RESUME_FAILED).write_text(text)
+    (Path(wo.admin_of(str(d))[0]) / wo.RESUME_FAILED).write_text(text.replace("KEY", "failed_at"))
     rc, out, rep = w.prune()
     assert rc == 0 and World.items(rep)[str(d)]["reason"] == "session-marker-unreadable", out
 
