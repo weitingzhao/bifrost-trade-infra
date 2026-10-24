@@ -8,7 +8,12 @@
 # Left to the chart's node-exporter rules, which see these hosts because the job label is
 # node-exporter: NodeRAIDDegraded (critical, 15m: md1 on the NAS runs short of a disk),
 # NodeRAIDDiskFailure (warning), NodeFilesystemAlmostOutOfSpace / SpaceFillingUp
-# (critical at 3% free, or under 10% and full within 4h), clock skew.
+# (critical at 3% free for 30m, or under 10% and full within 4h for 1h), clock skew.
+#
+# Every "the watcher is gone" alert names what it expects (review 537 A2): one absent()
+# per host or per Gitea path, so losing one target out of two still fires. The NAS's
+# SMART view has its own critical guard (BifrostNasSmartBlind, review 537 A3): the
+# exporter answering is not enough, all three RAID disks must report health.
 #
 # Unit tests: rule-tests/host-rules.test.yaml (make check-alert-rules).
 apiVersion: monitoring.coreos.com/v1
@@ -25,14 +30,14 @@ spec:
   groups:
     - name: bifrost-hosts
       rules:
-        # Acceptance: any of the four down reaches the phone within 3 minutes. Worst case
-        # from the last good scrape: next scrape fails at +30s (+10s timeout), the rule
-        # sees it by +70s, fires after 1m at +130s, Alertmanager's group_wait adds 30s:
-        # about 2m40s, then the relay and ntfy (seconds).
-        # Two gaps it cannot close, both in the cut (CUT-w68-b4-host-monitoring §6):
-        # mini-50 is the relay itself, so its page comes from the .52 watchdog
-        # (RELAY_DOWN_MIN, 5 minutes today); and Prometheus keeps its data on the NAS, so
-        # with the NAS gone Prometheus may stall before it sends this.
+        # Time to the phone, from the last good scrape, while Prometheus, Alertmanager and
+        # the relay on .50 work and no other BifrostHostDown is being notified: next scrape
+        # fails at +30s (+10s timeout), the rule sees it by +70s, fires after 1m at +130s,
+        # Alertmanager's group_wait adds 30s: about 2m40s, then the relay and ntfy.
+        # Not covered by that figure (CUT-w68-b4-host-monitoring §6): mini-50 is the relay
+        # itself (the .52 watchdog pages instead, 5.5-8 minutes); Prometheus and
+        # Alertmanager keep their data on the NAS (may stall when it goes); a second
+        # host going down while the first is notified waits for group_interval (5m).
         - alert: BifrostHostDown
           expr: up{job="node-exporter",scope="external"} == 0
           for: 1m
@@ -50,19 +55,21 @@ spec:
 
         # Guards the target list itself: a target removed from the ScrapeConfig, or the
         # ScrapeConfig not loaded, would otherwise leave BifrostHostDown with nothing to see.
+        # One absent() per host, so the alert names the one that is missing.
         - alert: BifrostHostTargetsMissing
           expr: |
-            count(up{job="node-exporter",scope="external"}) < 4
-            or
-            absent(up{job="node-exporter",scope="external"})
+            absent(up{job="node-exporter",scope="external",host="agent-06"})
+            or absent(up{job="node-exporter",scope="external",host="nas"})
+            or absent(up{job="node-exporter",scope="external",host="mini-50"})
+            or absent(up{job="node-exporter",scope="external",host="mini-52"})
           for: 10m
           labels:
             severity: warning
           annotations:
-            summary: "Fewer than 4 external hosts are being scraped"
+            summary: "Host {{ $labels.host }} is not among Prometheus's targets"
             description: >-
-              Prometheus does not have all 4 targets of ScrapeConfig
-              monitoring/bifrost-hosts-node (agent-06, nas, mini-50, mini-52). Check that
+              ScrapeConfig monitoring/bifrost-hosts-node gives Prometheus no target for
+              {{ $labels.host }}, so BifrostHostDown cannot fire for it. Check that
               k8s/monitoring/bifrost-hosts-external.yaml is applied and lists all four.
 
         - alert: BifrostHostDiskSpaceLow
@@ -79,7 +86,7 @@ spec:
             description: >-
               {{ $labels.mountpoint }} ({{ $labels.device }}, {{ $labels.fstype }}) on
               {{ $labels.host }} is under 15% free. The chart's
-              NodeFilesystemAlmostOutOfSpace pages at 3%.
+              NodeFilesystemAlmostOutOfSpace pages at 3% free held for 30 minutes.
 
     - name: bifrost-host-disks
       rules:
@@ -170,7 +177,8 @@ spec:
               was a RAID member.
 
         # smartctl could not open or fully read a disk (exit status bits 0-2): its SMART
-        # alerts above are blind until this clears.
+        # alerts above are blind until this clears. Warning on any host; on the NAS,
+        # BifrostNasSmartBlind pages for the same thing after 2 hours.
         - alert: BifrostHostSmartReadFailing
           expr: smartctl_device_smartctl_exit_status{job="smartctl"} % 8 > 0
           for: 1h
@@ -183,20 +191,59 @@ spec:
               read-error bits set ({{ $value }}), so the SMART alerts for that disk cannot
               fire. Run `smartctl -a /dev/{{ $labels.device }}` as root on the host.
 
+        # A target that answers 0, or one of the two expected targets missing altogether
+        # (absent() per host: with only agent-06 left, nas still fires).
         - alert: BifrostHostSmartExporterDown
           expr: |
             up{job="smartctl"} == 0
-            or
-            absent(up{job="smartctl"})
+            or absent(up{job="smartctl",host="agent-06"})
+            or absent(up{job="smartctl",host="nas"})
           for: 15m
           labels:
             severity: warning
           annotations:
             summary: "No SMART data from {{ $labels.host }}"
             description: >-
-              smartctl_exporter on {{ $labels.instance }} has not answered for 15 minutes
-              (or ScrapeConfig monitoring/bifrost-hosts-smartctl is not loaded). If the host
-              is down, BifrostHostDown has paged already.
+              smartctl_exporter on {{ $labels.host }} has not answered for 15 minutes, or
+              ScrapeConfig monitoring/bifrost-hosts-smartctl has no target for it. If the
+              host is down, BifrostHostDown has paged already.
+
+        # Review 537 A3: the NAS is "known the same day when a disk goes" only while all
+        # three RAID disks are seen. Any of these for 2 hours pages: the exporter down or
+        # missing; it sees fewer than 3 disks (including 0 from the start, which
+        # BifrostHostDiskMissing cannot tell from normal); fewer than 3 disks report
+        # health; smartctl cannot read one (exit bits 0-2). Not when the whole NAS is
+        # down: BifrostHostDown has paged for that. 3 is the RAID members; the M.2 SSD,
+        # once fitted, is watched by BifrostHostDiskMissing. powermode-check=never on the
+        # NAS (compose.yaml), so a disk is never skipped for being asleep.
+        - alert: BifrostNasSmartBlind
+          expr: |
+            (
+                max by (host) (up{job="smartctl",host="nas"} == 0)
+              or
+                max by (host) (absent(up{job="smartctl",host="nas"}))
+              or
+                max by (host) (smartctl_devices{job="smartctl",host="nas"} < 3)
+              or
+                count by (host) (smartctl_device_smart_status{job="smartctl",host="nas"}) < 3
+              or
+                max by (host) (absent(smartctl_device_smart_status{job="smartctl",host="nas"}))
+              or
+                count by (host) (smartctl_device_smartctl_exit_status{job="smartctl",host="nas"} % 8 > 0)
+            )
+            unless on (host)
+              (up{job="node-exporter",scope="external",host="nas"} == 0)
+          for: 2h
+          labels:
+            severity: critical
+          annotations:
+            summary: "The NAS's disks have been out of SMART's sight for 2 hours"
+            description: >-
+              For 2 hours Prometheus has not had SMART health for all three RAID disks of
+              the NAS: smartctl_exporter is down or not configured, sees fewer than 3
+              disks, a disk reports no health, or smartctl cannot read one. Until this
+              clears, a failing disk is not reported. As root on the NAS: docker compose -f
+              /volume1/@bifrost/host-exporters/compose.yaml logs smartctl-exporter.
 
     - name: bifrost-gitea
       rules:
@@ -214,18 +261,20 @@ spec:
               Argo CD cannot sync and the agentd on 06 cannot fetch or push. Gitea is one
               pod on ubt-k3s-01: `kubectl -n cicd get pod -l app=gitea -o wide`.
 
+        # The prober unreachable, or one of the two paths missing from the ScrapeConfig
+        # (absent() per path: with only via=service left, via=nodeport still fires).
         - alert: BifrostGiteaProbeDown
           expr: |
             up{job="gitea-probe"} == 0
-            or
-            absent(up{job="gitea-probe"})
+            or absent(up{job="gitea-probe",via="nodeport"})
+            or absent(up{job="gitea-probe",via="service"})
           for: 10m
           labels:
             severity: warning
           annotations:
-            summary: "The Gitea probe is not running"
+            summary: "The Gitea probe for the {{ $labels.via }} path is not running"
             description: >-
               Prometheus cannot reach the prober (Deployment
-              monitoring/bifrost-blackbox-exporter) or ScrapeConfig
-              monitoring/bifrost-gitea-probe is not loaded, so BifrostGiteaUnavailable
-              cannot fire.
+              monitoring/bifrost-blackbox-exporter) for the {{ $labels.via }} path, or
+              ScrapeConfig monitoring/bifrost-gitea-probe has no target for it, so
+              BifrostGiteaUnavailable cannot fire for that path.

@@ -92,7 +92,8 @@ step_agent06() {
 }
 
 step_nas() {
-  need_ref scripts/host-exporters/nas/install-nas.sh scripts/host-exporters/nas/compose.yaml
+  need_ref scripts/host-exporters/nas/install-nas.sh scripts/host-exporters/nas/compose.yaml \
+    scripts/host-exporters/nas/secure-dir.sh
   local b64
   b64=$(archive_b64 scripts/host-exporters/nas)
   echo "==> nas (192.168.10.20) as k8s_admin: sudo asks for k8s_admin's NAS password once"
@@ -102,6 +103,10 @@ step_nas() {
 
 step_cluster() {
   [[ -r $ADMIN_KUBECONFIG ]] || die "admin kubeconfig ${ADMIN_KUBECONFIG} not found"
+  # The rules page for a host whose exporter is not there yet (BifrostNasSmartBlind after
+  # 2 hours, the absent() guards after 10-15 minutes), so the hosts come first.
+  echo "==> the six endpoints answer (steps 2-4 done)"
+  step_check || die "an endpoint is missing: finish steps 2-4 first; nothing applied"
   local f paths=()
   for f in "${MONITORING[@]}"; do paths+=("k8s/monitoring/$f"); done
   need_ref "${paths[@]}"

@@ -119,7 +119,8 @@ EOF
 cat > "$tmp/smartctl-exporter.service" <<EOF
 # Installed by bifrost-trade-infra scripts/host-exporters/install-linux.sh (W-68 B4 ①).
 # Root, because reading SMART needs raw access to the disks; capabilities are cut to the
-# two smartctl uses (ATA pass-through, NVMe admin commands).
+# two smartctl uses (ATA pass-through, NVMe admin commands). powermode-check=never: an
+# SSD has no spun-down state to respect, and a skipped read must not look like a healthy one.
 [Unit]
 Description=Prometheus smartctl_exporter (Bifrost host monitoring)
 After=network-online.target
@@ -129,7 +130,8 @@ Wants=network-online.target
 ExecStart=$BIN/smartctl_exporter \\
   --web.listen-address=${ADDR}:9633 \\
   --smartctl.path=${SMARTCTL} \\
-  --smartctl.interval=60s
+  --smartctl.interval=60s \\
+  --smartctl.powermode-check=never
 Restart=always
 RestartSec=5
 CapabilityBoundingSet=CAP_SYS_RAWIO CAP_SYS_ADMIN

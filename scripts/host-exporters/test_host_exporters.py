@@ -34,6 +34,14 @@ printf '%s\0' "$@" > "$FAKE_LOG/ssh-$n.args"
 exit "${FAKE_SSH_RC:-0}"
 '''
 
+FAKE_CURL = r'''#!/usr/bin/env bash
+# fake curl: every endpoint answers with the metrics host-exporters.sh check looks for,
+# except the one named in FAKE_CURL_DOWN
+for a in "$@"; do url=$a; done
+[ -n "${FAKE_CURL_DOWN:-}" ] && [ "${url#*//}" = "$FAKE_CURL_DOWN/metrics" ] && exit 7
+printf 'node_exporter_build_info 1\nnode_md_disks 3\nsmartctl_device_smart_status 1\n'
+'''
+
 FAKE_KUBECTL = r'''#!/usr/bin/env bash
 # fake kubectl: logs the call with KUBECONFIG; FAIL_DRYRUN names a file whose dry-run fails
 echo "KUBECONFIG=$KUBECONFIG kubectl $*" >> "$FAKE_LOG/kubectl"
@@ -54,7 +62,7 @@ class HostExporters(unittest.TestCase):
         self.log.mkdir()
         bindir = root / "bin"
         bindir.mkdir()
-        for name, body in (("ssh", FAKE_SSH), ("kubectl", FAKE_KUBECTL)):
+        for name, body in (("ssh", FAKE_SSH), ("kubectl", FAKE_KUBECTL), ("curl", FAKE_CURL)):
             (bindir / name).write_text(body)
             (bindir / name).chmod(0o755)
         self.origin = root / "origin.git"
@@ -168,7 +176,8 @@ class HostExporters(unittest.TestCase):
         self.assertIn("k8s_admin@192.168.10.20", call)
         self.assertIn("| sudo bash -c 't=$(mktemp -d)", call[-1])
         self.assertEqual(self.tar_names(call[-1]),
-                         {"scripts/host-exporters/nas/install-nas.sh", "scripts/host-exporters/nas/compose.yaml"})
+                         {"scripts/host-exporters/nas/install-nas.sh", "scripts/host-exporters/nas/compose.yaml",
+                          "scripts/host-exporters/nas/secure-dir.sh"})
 
     def test_cluster_dry_runs_all_four_before_applying_any(self) -> None:
         self.land()
@@ -179,6 +188,14 @@ class HostExporters(unittest.TestCase):
         verbs = [("dry" if "--dry-run=server" in c else "apply" if " apply " in c else "other") for c in calls]
         self.assertEqual(verbs, ["dry"] * 4 + ["apply"] * 4 + ["other"])
         self.assertEqual([c.rsplit("/", 1)[-1] for c in calls[4:8]], MONITORING)
+
+    def test_cluster_waits_for_the_hosts(self) -> None:
+        self.land()
+        r = self.run_step("cluster", FAKE_CURL_DOWN="192.168.10.20:9633")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("MISSING  nas 192.168.10.20:9633", r.stdout)
+        self.assertIn("finish steps 2-4 first; nothing applied", r.stderr)
+        self.assertEqual(self.kubectl_calls(), [])
 
     def test_cluster_applies_nothing_when_a_dry_run_fails(self) -> None:
         self.land()
@@ -213,6 +230,76 @@ class HostExporters(unittest.TestCase):
         self.land()
         r = self.run_step("mini", "50", FAKE_SSH_RC="255")
         self.assertEqual(r.returncode, 255)
+
+
+SECURE_DIR = HERE / "nas" / "secure-dir.sh"
+
+
+class SecureDir(unittest.TestCase):
+    """Review 537 A1: root's compose file on the NAS sits only under directories that no
+    other account can write, rename or link (secure-dir.sh, called by install-nas.sh)."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.base = Path(os.path.realpath(self.tmp.name))
+        self.uid = str(os.getuid())
+        r = self.check(self.base)
+        if r.returncode != 0:
+            self.tmp.cleanup()
+            self.skipTest(f"this machine's temp directory is not private: {r.stderr.strip()}")
+        self.parent = self.base / "bifrost"
+        self.dir = self.parent / "host-exporters"
+        self.dir.mkdir(parents=True)
+        os.chmod(self.parent, 0o755)
+        os.chmod(self.dir, 0o755)
+        self.file = self.dir / "compose.yaml"
+        self.file.write_text("name: test\n")
+        os.chmod(self.file, 0o644)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def check(self, path: Path) -> subprocess.CompletedProcess:
+        return subprocess.run(["bash", str(SECURE_DIR), self.uid, str(path)], capture_output=True, text=True,
+                              timeout=30)
+
+    def test_a_private_path_passes(self) -> None:
+        r = self.check(self.file)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_a_world_writable_parent_is_refused(self) -> None:
+        # /volume1/docker is 777: a root directory inside it can be renamed and replaced.
+        os.chmod(self.parent, 0o777)
+        r = self.check(self.file)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn(f"{self.parent} (mode 777) can be written by its group or by others", r.stderr)
+
+    def test_a_group_writable_file_is_refused(self) -> None:
+        os.chmod(self.file, 0o664)
+        r = self.check(self.file)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("can be written by its group or by others", r.stderr)
+
+    def test_a_symbolic_link_on_the_way_is_refused(self) -> None:
+        elsewhere = self.base / "elsewhere"
+        self.parent.rename(elsewhere)
+        self.parent.symlink_to(elsewhere)
+        r = self.check(self.file)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn(f"{self.parent} is a symbolic link", r.stderr)
+
+    def test_a_missing_path_is_refused(self) -> None:
+        r = self.check(self.dir / "absent.yaml")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("does not exist", r.stderr)
+
+    def test_install_nas_checks_before_it_writes_and_before_compose_reads(self) -> None:
+        text = (HERE / "nas" / "install-nas.sh").read_text()
+        self.assertIn("BASE=/volume1/@bifrost", text)
+        self.assertNotIn("DIR=/volume1/docker", text)
+        order = [text.index(s) for s in ('secure /volume1', 'secure "$DIR"', 'install -o root -g root -m 0644',
+                                         'secure "$COMPOSE"', 'docker compose -f "$COMPOSE" config')]
+        self.assertEqual(order, sorted(order))
 
 
 if __name__ == "__main__":

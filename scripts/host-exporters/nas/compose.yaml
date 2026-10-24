@@ -5,12 +5,16 @@
 # RAID 5 array md1 (sda2 + sdb2 + sdc2) to the chart's NodeRAIDDegraded alert.
 # smartctl_exporter (:9633) runs smartctl against every disk `smartctl --scan` finds (the
 # three ST12000NM0127 today; the M.2 SSD once it is fitted, since the container starts
-# again with the NAS) and skips disks that are spun down (--smartctl.powermode-check
-# standby, the default), so it does not wake them.
+# again with the NAS). It reads every disk every time (--smartctl.powermode-check=never):
+# the default skips a disk that is spun down, and a skipped disk looks the same as one
+# that cannot be read. These three never sleep anyway: Prometheus, Alertmanager, MinIO
+# and the registry write to them all the time. To let them sleep, set it back to standby
+# and teach BifrostNasSmartBlind about sleeping disks first.
 #
-# Lives in /volume1/docker/host-exporters/ on the NAS, root-owned like minio-backup:
-# whoever can edit this file and run compose as root can start a privileged container.
-# Run as root: sudo docker compose up -d. Steps: agent-config/work/multi-agent/
+# Lives in /volume1/@bifrost/host-exporters/ on the NAS, root's alone from / down
+# (install-nas.sh checks it with secure-dir.sh): whoever can replace this file and get
+# root to run compose can start a privileged container. Not /volume1/docker/, which is
+# 777 (review 537 A1). Steps: agent-config/work/multi-agent/
 # OWNER-STEPS-w68-b4-2026-10-24.md, step 4. Versions follow scripts/host-exporters/versions.env;
 # images are pinned by digest (quay.io manifest lists, read 2026-10-24).
 #
@@ -54,6 +58,7 @@ services:
     command:
       - --web.listen-address=192.168.10.20:9633
       - --smartctl.interval=60s
+      - --smartctl.powermode-check=never
     # SMART needs the raw disks: the image's README runs it privileged as root.
     privileged: true
     user: root

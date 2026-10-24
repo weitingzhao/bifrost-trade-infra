@@ -1,4 +1,6 @@
 # Bifrost Hosts dashboard (W-68 B4 ①, "全机房面板") — Grafana sidecar (label grafana_dashboard=1).
+# Links carry /grafana/: Grafana is served under that sub-path (ops.bifrost.lan routes only
+# /grafana to it, review 537 C2), and a bare /d/... would land in the Console.
 # One page for every machine Prometheus sees: reachable, uptime, filesystems, memory, CPU,
 # RAID, SMART, and the Gitea probe. Cluster nodes come from the DaemonSet, the hosts
 # outside the cluster from bifrost-hosts-external.yaml. Generated JSON; edit the panels in
@@ -36,7 +38,7 @@ data:
           "targetBlank": false,
           "title": "Node Exporter / Nodes",
           "type": "link",
-          "url": "/d/7d57716318ee0dddbac5a7f451fb7753"
+          "url": "/grafana/d/7d57716318ee0dddbac5a7f451fb7753"
         },
         {
           "asDropdown": false,
@@ -47,7 +49,7 @@ data:
           "targetBlank": false,
           "title": "Node Exporter / MacOS",
           "type": "link",
-          "url": "/d/629701ea43bf69291922ea45f4a87d37"
+          "url": "/grafana/d/629701ea43bf69291922ea45f4a87d37"
         }
       ],
       "panels": [
@@ -57,7 +59,7 @@ data:
           "type": "text",
           "title": "",
           "gridPos": {"h": 3, "w": 24, "x": 0, "y": 0},
-          "options": {"mode": "markdown", "content": "Every machine Prometheus watches: the k3s nodes (DaemonSet) and the hosts outside the cluster (agent-06, nas, mini-50, mini-52; `k8s/monitoring/bifrost-hosts-external.yaml`). gpu-server (192.168.10.60) reads DOWN while it sleeps (wake on LAN). Alerts: `bifrost-host-rules.yaml`. Per-host detail: [Node Exporter / Nodes](/d/7d57716318ee0dddbac5a7f451fb7753) (Linux) and [Node Exporter / MacOS](/d/629701ea43bf69291922ea45f4a87d37)."}
+          "options": {"mode": "markdown", "content": "Every machine Prometheus watches: the k3s nodes (DaemonSet) and the hosts outside the cluster (agent-06, nas, mini-50, mini-52; `k8s/monitoring/bifrost-hosts-external.yaml`). gpu-server (192.168.10.60) reads DOWN while it sleeps (wake on LAN). Alerts: `bifrost-host-rules.yaml`. Per-host detail: [Node Exporter / Nodes](/grafana/d/7d57716318ee0dddbac5a7f451fb7753) (Linux) and [Node Exporter / MacOS](/grafana/d/629701ea43bf69291922ea45f4a87d37)."}
         },
         {
           "id": 2,
@@ -149,7 +151,7 @@ data:
           "type": "table",
           "title": "Disks (SMART)",
           "gridPos": {"h": 8, "w": 24, "x": 0, "y": 25},
-          "description": "smartctl_exporter on agent-06 and nas (spun-down disks are skipped until they wake). Alerts: BifrostHostDiskSmartFailing, BifrostHostDiskBadSectors, BifrostHostDiskMissing (critical); reallocated growth and NVMe media errors (warning).",
+          "description": "smartctl_exporter on agent-06 and nas, every disk read every minute (powermode-check=never). Alerts: BifrostHostDiskSmartFailing, BifrostHostDiskBadSectors, BifrostHostDiskMissing, BifrostNasSmartBlind (critical); reallocated growth, NVMe media errors, read errors (warning).",
           "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "max by (host, device, model_name) (smartctl_device{job=\"smartctl\"})", "legendFormat": "", "refId": "A", "instant": true, "range": false, "format": "table"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "max by (host, device) (smartctl_device_smart_status{job=\"smartctl\"})", "legendFormat": "", "refId": "B", "instant": true, "range": false, "format": "table"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "max by (host, device) (smartctl_device_temperature{job=\"smartctl\",temperature_type=\"current\"})", "legendFormat": "", "refId": "C", "instant": true, "range": false, "format": "table"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "max by (host, device) (smartctl_device_power_on_seconds{job=\"smartctl\"}) / 3600", "legendFormat": "", "refId": "D", "instant": true, "range": false, "format": "table"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "max by (host, device) (smartctl_device_attribute{job=\"smartctl\",attribute_value_type=\"raw\",attribute_name=\"Reallocated_Sector_Ct\"})", "legendFormat": "", "refId": "E", "instant": true, "range": false, "format": "table"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "max by (host, device) (smartctl_device_attribute{job=\"smartctl\",attribute_value_type=\"raw\",attribute_name=~\"Current_Pending_Sector|Offline_Uncorrectable\"})", "legendFormat": "", "refId": "F", "instant": true, "range": false, "format": "table"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "max by (host, device) (smartctl_device_percentage_used{job=\"smartctl\"})", "legendFormat": "", "refId": "G", "instant": true, "range": false, "format": "table"}],
           "transformations": [{"id": "merge", "options": {}}, {"id": "organize", "options": {"excludeByName": {"Time": true, "Value #A": true}, "indexByName": {"host": 0, "device": 1, "model_name": 2, "Value #B": 3, "Value #C": 4, "Value #D": 5, "Value #E": 6, "Value #F": 7, "Value #G": 8}, "renameByName": {"host": "Host", "device": "Disk", "model_name": "Model", "Value #B": "SMART", "Value #C": "Temp °C", "Value #D": "Power-on h", "Value #E": "Reallocated", "Value #F": "Pending / uncorrectable", "Value #G": "NVMe used %"}}}],
           "fieldConfig": {"defaults": {"custom": {"align": "auto", "cellOptions": {"type": "auto"}}}, "overrides": [{"matcher": {"id": "byName", "options": "SMART"}, "properties": [{"id": "mappings", "value": [{"type": "value", "options": {"0": {"text": "FAILING", "color": "red", "index": 0}, "1": {"text": "passed", "color": "green", "index": 1}}}]}, {"id": "custom.cellOptions", "value": {"type": "color-text"}}]}, {"matcher": {"id": "byName", "options": "Pending / uncorrectable"}, "properties": [{"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}, {"id": "custom.cellOptions", "value": {"type": "color-text"}}]}, {"matcher": {"id": "byName", "options": "Power-on h"}, "properties": [{"id": "decimals", "value": 0}]}]},

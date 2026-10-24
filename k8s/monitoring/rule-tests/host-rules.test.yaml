@@ -63,9 +63,12 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: warning
+              job: node-exporter
+              scope: external
+              host: agent-06
             exp_annotations:
-              summary: "Fewer than 4 external hosts are being scraped"
-              description: "Prometheus does not have all 4 targets of ScrapeConfig monitoring/bifrost-hosts-node (agent-06, nas, mini-50, mini-52). Check that k8s/monitoring/bifrost-hosts-external.yaml is applied and lists all four."
+              summary: "Host agent-06 is not among Prometheus's targets"
+              description: "ScrapeConfig monitoring/bifrost-hosts-node gives Prometheus no target for agent-06, so BifrostHostDown cannot fire for it. Check that k8s/monitoring/bifrost-hosts-external.yaml is applied and lists all four."
 
   - name: SMART failing, unreadable sectors and a vanished disk page; a healthy disk does not
     interval: 1m
@@ -181,4 +184,149 @@ tests:
               description: "GET http://192.168.10.73:30300/api/healthz has failed for 2 minutes. CI does not start, Argo CD cannot sync and the agentd on 06 cannot fetch or push. Gitea is one pod on ubt-k3s-01: `kubectl -n cicd get pod -l app=gitea -o wide`."
       - eval_time: 5m
         alertname: BifrostGiteaProbeDown
+        exp_alerts: []
+
+  # Review 537 A2: one of two SMART targets missing. The old rule (up == 0 or absent of the
+  # whole job) stayed silent while agent-06 alone answered.
+  - name: the NAS's SMART target missing while agent-06's answers still fires
+    interval: 1m
+    input_series:
+      - series: 'up{job="smartctl",scope="external",host="agent-06",instance="192.168.10.79:9633"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: BifrostHostSmartExporterDown
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: BifrostHostSmartExporterDown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: smartctl
+              host: nas
+            exp_annotations:
+              summary: "No SMART data from nas"
+              description: "smartctl_exporter on nas has not answered for 15 minutes, or ScrapeConfig monitoring/bifrost-hosts-smartctl has no target for it. If the host is down, BifrostHostDown has paged already."
+
+  # Review 537 A2: one of the two Gitea paths missing from the ScrapeConfig.
+  - name: the Gitea NodePort path missing while the Service path answers still fires
+    interval: 1m
+    input_series:
+      - series: 'up{job="gitea-probe",via="service",instance="http://gitea.cicd.svc.cluster.local:3000/api/healthz"}'
+        values: '1x15'
+      - series: 'probe_success{job="gitea-probe",via="service",instance="http://gitea.cicd.svc.cluster.local:3000/api/healthz"}'
+        values: '1x15'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: BifrostGiteaProbeDown
+        exp_alerts: []
+      - eval_time: 11m
+        alertname: BifrostGiteaProbeDown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: gitea-probe
+              via: nodeport
+            exp_annotations:
+              summary: "The Gitea probe for the nodeport path is not running"
+              description: "Prometheus cannot reach the prober (Deployment monitoring/bifrost-blackbox-exporter) for the nodeport path, or ScrapeConfig monitoring/bifrost-gitea-probe has no target for it, so BifrostGiteaUnavailable cannot fire for that path."
+
+  # Review 537 A3: the exporter answers (up = 1) but has seen no disk from the start, so
+  # there is no health metric and no history for BifrostHostDiskMissing to compare with.
+  - name: SMART up but blind to every NAS disk pages after 2 hours
+    interval: 1m
+    input_series:
+      - series: 'up{job="node-exporter",scope="external",host="nas",instance="192.168.10.20:9100"}'
+        values: '1x130'
+      - series: 'up{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633"}'
+        values: '1x130'
+      - series: 'smartctl_devices{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633"}'
+        values: '0x130'
+    alert_rule_test:
+      - eval_time: 1h59m
+        alertname: BifrostNasSmartBlind
+        exp_alerts: []
+      - eval_time: 2h1m
+        alertname: BifrostNasSmartBlind
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              host: nas
+            exp_annotations:
+              summary: "The NAS's disks have been out of SMART's sight for 2 hours"
+              description: "For 2 hours Prometheus has not had SMART health for all three RAID disks of the NAS: smartctl_exporter is down or not configured, sees fewer than 3 disks, a disk reports no health, or smartctl cannot read one. Until this clears, a failing disk is not reported. As root on the NAS: docker compose -f /volume1/@bifrost/host-exporters/compose.yaml logs smartctl-exporter."
+      - eval_time: 2h1m
+        alertname: BifrostHostDiskMissing
+        exp_alerts: []
+
+  # Review 537 A3: three disks, all with health 1, but smartctl cannot read sdb (exit 2,
+  # "device open failed"): no SMART failure is reported, only the read-error bit.
+  - name: a read-error bit with no SMART failure pages after 2 hours on the NAS
+    interval: 1m
+    input_series:
+      - series: 'up{job="node-exporter",scope="external",host="nas",instance="192.168.10.20:9100"}'
+        values: '1x130'
+      - series: 'up{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633"}'
+        values: '1x130'
+      - series: 'smartctl_devices{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633"}'
+        values: '3x130'
+      - series: 'smartctl_device_smart_status{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633",device="sda"}'
+        values: '1x130'
+      - series: 'smartctl_device_smart_status{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633",device="sdb"}'
+        values: '1x130'
+      - series: 'smartctl_device_smart_status{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633",device="sdc"}'
+        values: '1x130'
+      - series: 'smartctl_device_smartctl_exit_status{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633",device="sda"}'
+        values: '0x130'
+      - series: 'smartctl_device_smartctl_exit_status{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633",device="sdb"}'
+        values: '2x130'
+      - series: 'smartctl_device_smartctl_exit_status{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633",device="sdc"}'
+        values: '0x130'
+    alert_rule_test:
+      - eval_time: 2h1m
+        alertname: BifrostHostDiskSmartFailing
+        exp_alerts: []
+      - eval_time: 1h59m
+        alertname: BifrostNasSmartBlind
+        exp_alerts: []
+      - eval_time: 2h1m
+        alertname: BifrostNasSmartBlind
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              host: nas
+            exp_annotations:
+              summary: "The NAS's disks have been out of SMART's sight for 2 hours"
+              description: "For 2 hours Prometheus has not had SMART health for all three RAID disks of the NAS: smartctl_exporter is down or not configured, sees fewer than 3 disks, a disk reports no health, or smartctl cannot read one. Until this clears, a failing disk is not reported. As root on the NAS: docker compose -f /volume1/@bifrost/host-exporters/compose.yaml logs smartctl-exporter."
+
+  # The guard stays quiet when SMART sees all three disks, and when the whole NAS is down
+  # (BifrostHostDown has paged for that).
+  - name: a healthy NAS, and a NAS that is down altogether, do not raise the blind alert
+    interval: 1m
+    input_series:
+      - series: 'up{job="node-exporter",scope="external",host="nas",instance="192.168.10.20:9100"}'
+        values: '1x60 0x150'
+      - series: 'up{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633"}'
+        values: '1x60 0x150'
+      - series: 'smartctl_devices{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633"}'
+        values: '3x60 _x150'
+      - series: 'smartctl_device_smart_status{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633",device="sda"}'
+        values: '1x60 _x150'
+      - series: 'smartctl_device_smart_status{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633",device="sdb"}'
+        values: '1x60 _x150'
+      - series: 'smartctl_device_smart_status{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633",device="sdc"}'
+        values: '1x60 _x150'
+      - series: 'smartctl_device_smartctl_exit_status{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633",device="sda"}'
+        values: '0x60 _x150'
+      - series: 'smartctl_device_smartctl_exit_status{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633",device="sdb"}'
+        values: '0x60 _x150'
+      - series: 'smartctl_device_smartctl_exit_status{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633",device="sdc"}'
+        values: '0x60 _x150'
+    alert_rule_test:
+      - eval_time: 59m
+        alertname: BifrostNasSmartBlind
+        exp_alerts: []
+      # Down from 61m: without the unless it would fire at 3h1m.
+      - eval_time: 3h20m
+        alertname: BifrostNasSmartBlind
         exp_alerts: []
