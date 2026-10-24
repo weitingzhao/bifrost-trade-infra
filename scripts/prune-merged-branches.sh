@@ -1,25 +1,32 @@
 #!/usr/bin/env bash
-# Prune branches that main already carries, across the workspace's sibling repos: origin's branches,
-# then this Mac's worktrees and local branches. origin is Gitea, the primary of every repository since
-# 2026-10-17 (agent-config/gitea-primary.txt). GitHub receives only main and tags from the cluster; its
-# older branches stay as they were at the cut, and this script does not touch them.
+# Prune branches across the workspace's sibling repos: origin's branches (the default mode), or
+# this machine's worktrees and local branches (--local-only). origin is Gitea, the primary of every
+# repository since 2026-10-17 (agent-config/gitea-primary.txt). GitHub receives only main and tags
+# from the cluster; its older branches stay as they were at the cut, and this script does not touch them.
 #
-#   scripts/prune-merged-branches.sh                 dry run: print what would go and what stays
-#   scripts/prune-merged-branches.sh --apply         back up, then delete remote branches
-#   scripts/prune-merged-branches.sh --apply --local also remove merged worktrees + local branches
+#   scripts/prune-merged-branches.sh                       dry run: print what would go and what stays
+#   scripts/prune-merged-branches.sh --apply               back up, then delete remote branches
+#   scripts/prune-merged-branches.sh --local-only [--apply] [--repos "a b"] [--offline]
+#        this machine only (W-31 4.6 S2; CUT-lifecycle-2026-10-24.md §4.3): worktrees whose
+#        registered session ended (new-worktree.sh) and branches made for them, judged by object
+#        reachability from the refs origin holds, reflogs archived first into a run directory
+#        that is never reused. Never pushes, fetches or calls gh. The rules are in
+#        scripts/agent-host/lifecycle_local.py and lifecycle_items.py. Report only without --apply.
 #
-# A branch counts as merged when every commit it has that main lacks (git cherry, patch-id) has a
-# twin on main: the same Change-Id trailer anywhere in a main commit message (agent-config/scripts/
-# git-hooks stamps one since 2026-10-06; it survives rebase, amend, a version bump and a squash), or,
-# for a commit without one, the same subject -- lanes are rebased or folded into a batch before they
-# land, so their patch ids change. Kept regardless:
+# The old --local (remote pruning, then worktrees removed with --force and branches deleted when a
+# Change-Id or subject matched main) is gone: it lost reflog-only commits and detached work
+# (review 534 A1, A2, A6). --local-only replaces it; it cannot be combined with the remote options.
+#
+# Remote mode. A branch counts as merged when every commit it has that main lacks (git cherry,
+# patch-id) has a twin on main: the same Change-Id trailer anywhere in a main commit message
+# (agent-config/scripts/git-hooks stamps one since 2026-10-06; it survives rebase, amend, a version
+# bump and a squash), or, for a commit without one, the same subject. Kept regardless:
 #   - a branch with an open PR, or whose tip is younger than --min-age-hours (default 24)
 #   - an agent/** branch on origin: an attempt's result, which agentd deletes under the runtime's
 #     rule (TD-383; CUT-gitea-primary-2026-10-17 §6), merged or not, reviewed or not
-#   - a worktree with a file changed in the last --min-age-hours, a process running from it, or
-#     changes other than an untracked node_modules
 # --apply writes a bundle of every ref it deletes, plus a name -> sha list, to
 # $BACKUP_ROOT/<date>/<repo>.{bundle,refs.tsv} first. Restore one: git push origin <sha>:refs/heads/<name>
+# (S4 replaces this mode with --remote-only once D-L1 is decided.)
 #
 # Options: --repos "a b"   only these repos (default: every sibling with an origin remote)
 #          --min-age-hours N
@@ -27,13 +34,27 @@
 #                           "<repo> <branch> <40-hex sha>" (# comments and blank lines skipped); a listed
 #                           branch goes only while it still names that sha (moved since: kept)
 # Failed remote batches retry remaining refs individually and report deleted/refused counts.
-# Pushes to no main; it only deletes branch refs. Exit 0 done, 1 a step failed, 2 usage.
+# Pushes to no main; it only deletes branch refs. Exit 0 done, 1 a step failed, 2 usage
+# (--local-only adds 3: another sweep holds the machine lock, 4: unusable configuration).
 set -euo pipefail
+
+for arg in "$@"; do
+  if [[ "$arg" == --local-only ]]; then
+    for other in "$@"; do
+      case "$other" in
+        --local-only|--apply|--offline|--repos) ;;
+        --local|--reviewed|--min-age-hours)
+          echo "$other cannot be combined with --local-only (it is the remote mode's option)" >&2; exit 2 ;;
+      esac
+    done
+    here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+    exec "${LIFECYCLE_PYTHON:-python3}" "$here/agent-host/lifecycle_local.py" "$@"
+  fi
+done
 
 WORKSPACE="${WORKSPACE:-$(cd "$(dirname "$0")/../.." && pwd)}"
 BACKUP_ROOT="${BACKUP_ROOT:-$HOME/bifrost-backups/git-branches}"
 APPLY=0
-LOCAL=0
 REPOS=""
 MIN_AGE_HOURS=24
 REVIEWED=""
@@ -41,7 +62,8 @@ REVIEWED=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --apply) APPLY=1 ;;
-    --local) LOCAL=1 ;;
+    --local) echo "--local is gone: it removed worktrees with --force and judged branches by Change-Id; use --local-only" >&2; exit 2 ;;
+    --offline) echo "--offline belongs to --local-only" >&2; exit 2 ;;
     --repos) REPOS="$2"; shift ;;
     --min-age-hours) MIN_AGE_HOURS="$2"; shift ;;
     --reviewed) REVIEWED="$2"; shift ;;
@@ -88,14 +110,6 @@ merged() {
   return 0
 }
 
-# worktree_quiet <path>: 0 when nothing but an untracked node_modules differs and nothing changed lately
-worktree_quiet() {
-  [[ -z "$(git -C "$1" status --porcelain | grep -v -E '^\?\? (.*/)?node_modules/?$')" ]] || return 1
-  # a process still running from it (a forgotten vite preview) writes nothing for days
-  ! lsof -d cwd -Fn 2>/dev/null | grep -Fq -- "n$1" || return 1
-  [[ -z "$(find "$1" -maxdepth 4 -newermt "-${MIN_AGE_HOURS} hours" -not -path '*/node_modules*' -not -path '*/.git*' 2>/dev/null | head -1)" ]]
-}
-
 for repo in $REPOS; do
   dir="$WORKSPACE/$repo"
   slug=$(git -C "$dir" remote get-url origin | sed -E 's#^(git@github.com:|https://github.com/)##; s#\.git$##')
@@ -128,31 +142,7 @@ for repo in $REPOS; do
     printf '  keep   %-24s %-44s %s\n' "$repo" "$b" "$why"
   done < <(git -C "$dir" for-each-ref --format='%(refname:short)|%(committerdate:unix)' refs/remotes/origin)
 
-  : > "$TMP/$repo.worktrees"
-  : > "$TMP/$repo.local"
-  if (( LOCAL )); then
-    while IFS=$'\t' read -r path br; do
-      [[ "$path" == "$dir" ]] && continue
-      if [[ "$br" == "(detached)" ]]; then
-        git -C "$dir" merge-base --is-ancestor "$(git -C "$path" rev-parse HEAD)" origin/main || { printf '  keep   %-24s %-44s %s\n' "$repo" "$path" "detached, not on main"; continue; }
-      elif ! merged "$dir" "refs/heads/$br" "$TMP/$repo.subjects" "$TMP/$repo.changeids"; then
-        printf '  keep   %-24s %-44s %s\n' "$repo" "$path" "$br not on main"; continue
-      fi
-      if ! worktree_quiet "$path"; then printf '  keep   %-24s %-44s %s\n' "$repo" "$path" "changes or recent edits"; continue; fi
-      printf '%s\t%s\n' "$path" "$br" >> "$TMP/$repo.worktrees"
-    done < <(git -C "$dir" worktree list --porcelain | awk '/^worktree /{p=substr($0,10)} /^branch /{b=substr($2,12)} /^detached/{b="(detached)"} /^$/{print p"\t"b; p="";b=""}')
-
-    # local branches: merged, not main, not checked out in a worktree that stays
-    git -C "$dir" for-each-ref --format='%(refname:short)' refs/heads | while read -r b; do
-      [[ "$b" == main ]] && continue
-      out=$(git -C "$dir" worktree list --porcelain | awk -v r="refs/heads/$b" '/^worktree /{p=substr($0,10)} $1=="branch" && $2==r {print p}')
-      if [[ -n "$out" ]] && ! grep -Fq -- "$out"$'\t' "$TMP/$repo.worktrees"; then continue; fi
-      if merged "$dir" "refs/heads/$b" "$TMP/$repo.subjects" "$TMP/$repo.changeids"; then echo "$b" >> "$TMP/$repo.local"; fi
-    done
-  fi
-
-  printf '%-24s remote %3d   worktrees %3d   local %3d\n' "$repo" \
-    "$(wc -l < "$TMP/$repo.remote")" "$(wc -l < "$TMP/$repo.worktrees")" "$(wc -l < "$TMP/$repo.local")"
+  printf '%-24s remote %3d\n' "$repo" "$(wc -l < "$TMP/$repo.remote")"
 done
 
 (( APPLY )) || { echo "dry run -- add --apply to delete"; exit 0; }
@@ -160,11 +150,8 @@ done
 mkdir -p "$BACKUP_ROOT/$DAY"
 for repo in $REPOS; do
   dir="$WORKSPACE/$repo"
-  if [[ ! -s "$TMP/$repo.remote" && ! -s "$TMP/$repo.local" ]]; then continue; fi
-  {
-    sed 's#^#refs/remotes/origin/#' "$TMP/$repo.remote"
-    sed 's#^#refs/heads/#' "$TMP/$repo.local"
-  } > "$TMP/$repo.refs"
+  if [[ ! -s "$TMP/$repo.remote" ]]; then continue; fi
+  sed 's#^#refs/remotes/origin/#' "$TMP/$repo.remote" > "$TMP/$repo.refs"
   while read -r r; do printf '%s\t%s\n' "$r" "$(git -C "$dir" rev-parse "$r")"; done < "$TMP/$repo.refs" \
     > "$BACKUP_ROOT/$DAY/$repo.refs.tsv"
   git -C "$dir" bundle create -q "$BACKUP_ROOT/$DAY/$repo.bundle" --stdin < "$TMP/$repo.refs"
@@ -218,14 +205,6 @@ for repo in $REPOS; do
       printf ', refused %d (%s)' "${#refused[@]}" "${refused[*]}"
     fi
     printf '\n'
-  fi
-  if (( LOCAL )); then
-    while IFS=$'\t' read -r path br; do
-      git -C "$dir" worktree remove --force "$path" || FAILED=1
-    done < "$TMP/$repo.worktrees"
-    git -C "$dir" worktree prune
-    if [[ -s "$TMP/$repo.local" ]]; then xargs git -C "$dir" branch -q -D < "$TMP/$repo.local" || FAILED=1; fi
-    echo "local   $repo: worktrees $(wc -l < "$TMP/$repo.worktrees" | tr -d ' '), branches $(wc -l < "$TMP/$repo.local" | tr -d ' ')"
   fi
 done
 exit "$FAILED"
