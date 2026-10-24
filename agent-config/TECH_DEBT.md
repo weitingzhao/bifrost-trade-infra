@@ -2190,19 +2190,6 @@
 - 验收: the platform's own ConfigMap writes still pass; a write to `github-sync-scripts` as either platform service account is refused by admission.
 - 审批 要（准入策略与 RBAC 归 Owner）· 代价 S · 风险 medium · repos: bifrost-trade-infra, bifrost-platform
 
-### TD-433
-
-**P3 · hosts · NAS · `/home/k8s_admin` on the NAS is mode 777**
-
-- **状态**：未开始（2026-10-24 统筹线程记；W-68 B4 ① 切法的子代理只读发现，统筹线程未重测）
-- **Claim**: the home directory of the account the cluster uses on the NAS (.20, UGOS) is world-writable (777).
-- **Evidence**: `work/multi-agent/CUT-w68-b4-host-monitoring-2026-10-24.md` (branch w31/r4-w68-b4 5c6782ed), section on the NAS; not re-measured.
-- **Impact**: any local account or container on the NAS can plant files in that home (shell start-up files, SSH `authorized_keys` if the directory is used for logins), so a compromise of any NAS-side process becomes the cluster account's.
-- **Fix**: `chmod 700` (or 750) the home, check `.ssh` modes; the Owner does it on the NAS together with the B4 ① install.
-- **Ratchet**: the B4 ① host checks report this directory's mode; anything wider than 750 is an alert.
-- 验收: the check reads 700 or 750.
-- 审批 要（NAS 上的操作归 Owner）· 代价 S · 风险 low · repos: bifrost-trade-infra
-
 ### TD-432
 
 **P1 · rbac · Gitea · the STG and PROD platform service accounts can read the Gitea admin token, so code that reaches STG holds Gitea admin**
@@ -2228,19 +2215,6 @@
 - **Ratchet**: a test that fails when a repository or pipeline name appears in a decision copy instead of the registry.
 - 验收: a new application registered in one place is decided the same by all three readers.
 - 审批 不要 · 代价 M · 风险 low · repos: bifrost-platform, bifrost-trade-infra
-
-### TD-430
-
-**P2 · delivery · release window · reading an expired window deletes the ConfigMap without a precondition, which can delete a window someone just took**
-
-- **状态**：未开始（2026-10-24 统筹线程记；统筹线程读代码核实）
-- **Claim**: `getReleaseWindow` deletes `cicd/bifrost-release-window` when the record it read is expired, with `metav1.DeleteOptions{}` and no `Preconditions` (`bifrost-platform` `api/internal/delivery/window_store.go:183-197`, main 82b3e9d7). Between that Get and that Delete another writer can update the same ConfigMap with a live window; the Delete removes it.
-- **Evidence**: code read 2026-10-24; first noted in `DESIGN-release-lanes-2026-10-24.md` §1.1.
-- **Impact**: rare, but a release can start believing it holds the window while the record is gone, so a second session can take it.
-- **Fix**: delete with `Preconditions{ResourceVersion: &cm.ResourceVersion}` and ignore a conflict, or never delete on read (expired means free).
-- **Ratchet**: a fake-clientset test where an update lands between the Get and the Delete; the live window survives.
-- 验收: that test passes; removing the precondition makes it fail.
-- 审批 不要 · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-429
 
