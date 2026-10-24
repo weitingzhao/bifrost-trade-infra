@@ -4,7 +4,7 @@
 # Requires:
 #   - bifrost-trade-frontend, bifrost-trade-infra and bifrost-ui on Gitea (the
 #     primary since 2026-10-17; nothing is mirrored from GitHub)
-#   - gitea-git-credentials secret
+#   - gitea-ci-reader secret
 #   - Registry + Tekton (make k3s-install-cicd-stack)
 #
 # Usage:
@@ -33,8 +33,8 @@ if ! kubectl get deploy tekton-pipelines-controller -n tekton-pipelines >/dev/nu
   exit 1
 fi
 
-if ! kubectl get secret gitea-git-credentials -n "${CICD_NAMESPACE}" >/dev/null 2>&1; then
-  echo "Missing gitea-git-credentials. See k8s/cicd/gitea/secret.yaml.example" >&2
+if ! kubectl get secret gitea-ci-reader -n "${CICD_NAMESPACE}" >/dev/null 2>&1; then
+  echo "Missing gitea-ci-reader. See k8s/cicd/gitea/secret.yaml.example" >&2
   exit 1
 fi
 

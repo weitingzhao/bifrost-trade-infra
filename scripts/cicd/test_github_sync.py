@@ -137,11 +137,11 @@ class Sync(unittest.TestCase):
 
     def test_other_branches_are_never_copied(self) -> None:
         result = self.f.run("refs/heads/agent/t_1/a1")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)  # not on Gitea: nothing to do
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)  # rejected before reading Gitea
         git(self.f.work, "push", "-q", "origin", "HEAD:refs/heads/agent/t_1/a1")
         result = self.f.run("refs/heads/agent/t_1/a1")
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("only main and tags are copied", result.stdout)
+        self.assertIn("only main and tags are copied", result.stdout + result.stderr)
         self.assertEqual(self.f.head(self.f.github, "refs/heads/agent/t_1/a1"), "")
 
     def test_no_token_is_needed_until_something_must_be_pushed(self) -> None:

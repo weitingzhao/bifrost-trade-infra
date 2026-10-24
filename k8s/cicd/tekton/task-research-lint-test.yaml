@@ -28,11 +28,17 @@ spec:
         limits:
           cpu: "2"
           memory: 2Gi
+      env:
+        - name: TASK_SOURCE_DIR
+          value: $(params.sourceDir)
       script: |
         #!/usr/bin/env bash
         set -euo pipefail
+        printf '%s\n' "${TASK_SOURCE_DIR}" | grep -Eq '^([A-Za-z0-9_-][A-Za-z0-9._-]*)?$' || { echo "invalid sourceDir" >&2; exit 1; }
+        case "${TASK_SOURCE_DIR}" in *'
+        '*) echo "invalid sourceDir" >&2; exit 1 ;; esac
         ws="$(workspaces.source.path)"
-        cd "${ws}/$(params.sourceDir)"
+        cd "${ws}/${TASK_SOURCE_DIR}"
         echo "==> Installing bifrost-research extras"
         pip install --quiet --upgrade pip
         extras="$(python -c "import tomllib,sys; d=tomllib.load(open('pyproject.toml','rb')); sys.stdout.write(','.join(sorted(d.get('project',{}).get('optional-dependencies',{}))))")"
@@ -60,11 +66,17 @@ spec:
         echo "==> lint-test passed"
     - name: code-health
       image: alpine:3.20
+      env:
+        - name: TASK_SOURCE_DIR
+          value: $(params.sourceDir)
       script: |
         #!/bin/sh
         set -eu
+        printf '%s\n' "${TASK_SOURCE_DIR}" | grep -Eq '^([A-Za-z0-9_-][A-Za-z0-9._-]*)?$' || { echo "invalid sourceDir" >&2; exit 1; }
+        case "${TASK_SOURCE_DIR}" in *'
+        '*) echo "invalid sourceDir" >&2; exit 1 ;; esac
         ws="$(workspaces.source.path)"
-        src="$(params.sourceDir)"
+        src="${TASK_SOURCE_DIR}"
         apk add --no-cache bash git >/dev/null 2>&1
         scan="${ws}/bifrost-trade-infra/agent-config/scripts/code-health/scan.sh"
         if [ ! -f "${scan}" ]; then

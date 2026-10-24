@@ -198,21 +198,26 @@ spec:
         steps:
           - name: read-pin
             image: alpine:3.20
+            env:
+              - name: TASK_TAG
+                value: $(params.tag)
             script: |
               #!/bin/sh
               set -eu
+              printf '%s\n' "${TASK_TAG}" | grep -Eq '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$' || { echo "invalid tag" >&2; exit 1; }
+              case "${TASK_TAG}" in *'
+              '*) echo "invalid tag" >&2; exit 1 ;; esac
               manifest="$(workspaces.source.path)/bifrost-research/k8s/api/deployment.yaml"
               pin="$(grep -oE 'bifrost-research:[A-Za-z0-9._-]+' "$manifest" | head -1 | cut -d: -f2 || true)"
               printf '%s' "$pin" > "$(results.manifestTag.path)"
-              if [ -n "$pin" ] && [ "$pin" = "$(params.tag)" ]; then
+              if [ -n "$pin" ] && [ "$pin" = "${TASK_TAG}" ]; then
                 printf true > "$(results.pinned.path)"
-                echo "manifest pins $(params.tag) — gitops-sync, rollout and verify will run"
+                echo "manifest pins ${TASK_TAG} — gitops-sync, rollout and verify will run"
               else
                 printf false > "$(results.pinned.path)"
-                echo "manifest pins ${pin:-nothing}, this run builds $(params.tag) — build-only"
+                echo "manifest pins ${pin:-nothing}, this run builds ${TASK_TAG} — build-only"
                 echo "next: confirm the tag in the registry, bump k8s/*.yaml, push, re-run"
               fi
-
     # Pinned runs only from here on. The sync goes first: rollout-research waits
     # for Argo CD to put the pinned tag on the Deployment spec, so verify never
     # races the Argo poll interval.

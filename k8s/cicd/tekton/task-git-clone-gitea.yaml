@@ -7,7 +7,7 @@ metadata:
   labels:
     bifrost.io/purpose: ci-git
 spec:
-  description: Shallow clone from Gitea HTTP with basic-auth secret gitea-git-credentials
+  description: Shallow clone from Gitea HTTP with basic-auth secret gitea-ci-reader
   params:
     - name: url
       type: string
@@ -33,53 +33,80 @@ spec:
         - name: GIT_USERNAME
           valueFrom:
             secretKeyRef:
-              name: gitea-git-credentials
+              name: gitea-ci-reader
               key: username
         - name: GIT_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: gitea-git-credentials
+              name: gitea-ci-reader
               key: password
+        - name: CLONE_URL
+          value: $(params.url)
+        - name: REVISION
+          value: $(params.revision)
+        - name: SUBDIR
+          value: $(params.subdir)
       script: |
         #!/usr/bin/env sh
         set -eu
-        out="$(workspaces.output.path)"
-        subdir="$(params.subdir)"
-        target="${out}"
-        if [ -n "${subdir}" ]; then
-          target="${out}/${subdir}"
+        user="${GIT_USERNAME:?}"
+        password="${GIT_PASSWORD:?}"
+        unset GIT_USERNAME GIT_PASSWORD
+        auth="$(printf '%s:%s' "$user" "$password" | base64 | tr -d '\n')"
+        unset user password
+        git_read() {
+          GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 \
+          GIT_CONFIG_COUNT=3 \
+          GIT_CONFIG_KEY_0=http.http://gitea.cicd.svc.cluster.local:3000/.extraHeader \
+          GIT_CONFIG_VALUE_0="Authorization: Basic $auth" \
+          GIT_CONFIG_KEY_1=http.followRedirects GIT_CONFIG_VALUE_1=false \
+          GIT_CONFIG_KEY_2=credential.helper GIT_CONFIG_VALUE_2= git "$@"
+        }
+        url="${CLONE_URL}"
+        case "$url" in *[!A-Za-z0-9._:/-]*) echo "invalid Gitea URL" >&2; exit 1 ;; esac
+        rev="${REVISION}"
+        subdir="${SUBDIR}"
+        printf '%s' "$url" | grep -Eq '^http://gitea\.cicd\.svc\.cluster\.local:3000/[A-Za-z0-9_-]+/[A-Za-z0-9_-][A-Za-z0-9._-]*\.git$' || { echo "invalid Gitea URL" >&2; exit 1; }
+        case "$subdir" in
+          *[!A-Za-z0-9._-]*|.|..|-*) echo "invalid subdir" >&2; exit 1 ;;
+        esac
+        case "$rev" in
+          ''|*[!A-Za-z0-9._/-]*|[!A-Za-z0-9]*) echo "invalid revision" >&2; exit 1 ;;
+        esac
+        if printf '%s' "$rev" | grep -Eq '^[0-9a-f]+$'; then
+          [ "${#rev}" -eq 40 ] || { echo "SHA must have 40 hex characters" >&2; exit 1; }
+        else
+          git check-ref-format "refs/heads/$rev" >/dev/null || { echo "invalid ref" >&2; exit 1; }
         fi
-        mkdir -p "${target}"
-        rm -rf "${target}"/* "${target}"/.[!.]* "${target}"/..?* 2>/dev/null || true
-        url="$(params.url)"
-        rev="$(params.revision)"
-        host_path="${url#http://}"
-        host_path="${host_path#https://}"
-        clone_url="http://${GIT_USERNAME}:${GIT_PASSWORD}@${host_path}"
+        out="$(workspaces.output.path)"
+        target="${out}${subdir:+/$subdir}"
+        mkdir -p "$target"
+        rm -rf "${target}"/* "${target}"/.[!.]* "${target}"/..?*
         echo "Cloning ${url} @ ${rev} into ${target} ..."
-        # A push webhook hands us a commit SHA, and `git clone --branch` cannot
+        # A push webhook hands us a commit SHA, and `git_read clone --branch` cannot
         # take one — it resolves branch and tag names only, so every
         # webhook-triggered run died here with "Remote branch <sha> not found".
         # Fetch the object instead; fall back to a full clone and checkout when
         # the server will not serve a bare SHA.
-        if echo "${rev}" | grep -qE '^[0-9a-f]{7,40}$'; then
+        if echo "${rev}" | grep -qE '^[0-9a-f]{40}$'; then
           git init -q "${target}"
           cd "${target}"
-          git remote add origin "${clone_url}"
-          if git fetch -q --depth=1 origin "${rev}" 2>/dev/null; then
+          git remote add origin "${url}"
+          if git_read fetch -q --depth=1 origin "${rev}" 2>/dev/null; then
             git checkout -q --detach FETCH_HEAD
           else
             echo "server refused a bare-SHA fetch — cloning in full and checking out ${rev}"
             cd /
             rm -rf "${target}"
-            git clone -q "${clone_url}" "${target}"
+            git_read clone -q "${url}" "${target}"
             cd "${target}"
             git checkout -q --detach "${rev}"
           fi
         else
-          git clone --depth=1 --branch "${rev}" "${clone_url}" "${target}"
+          git_read clone --depth=1 --branch "${rev}" "${url}" "${target}"
           cd "${target}"
         fi
+        unset auth
         head_sha="$(git rev-parse HEAD)"
         echo "=== HEAD ${head_sha} ==="
         printf '%s' "${head_sha}" > "$(results.commit.path)"

@@ -40,12 +40,23 @@ spec:
         limits:
           cpu: "1"
           memory: 512Mi
+      env:
+        - name: TASK_REPO
+          value: $(params.repo)
+        - name: TASK_SOURCE_DIR
+          value: $(params.sourceDir)
       script: |
         #!/usr/bin/env sh
         set -eu
+        printf '%s\n' "${TASK_REPO}" | grep -Eq '^[A-Za-z0-9_-][A-Za-z0-9._-]*$' || { echo "invalid repo" >&2; exit 1; }
+        case "${TASK_REPO}" in *'
+        '*) echo "invalid repo" >&2; exit 1 ;; esac
+        printf '%s\n' "${TASK_SOURCE_DIR}" | grep -Eq '^([A-Za-z0-9_-][A-Za-z0-9._-]*)?$' || { echo "invalid sourceDir" >&2; exit 1; }
+        case "${TASK_SOURCE_DIR}" in *'
+        '*) echo "invalid sourceDir" >&2; exit 1 ;; esac
         ws="$(workspaces.source.path)"
-        repo="$(params.repo)"
-        src="$(params.sourceDir)"
+        repo="${TASK_REPO}"
+        src="${TASK_SOURCE_DIR}"
 
         # scan.sh needs bash (arrays, indirection) and git (git ls-files defines
         # what counts as source, so gitignored vendor trees are excluded for free).

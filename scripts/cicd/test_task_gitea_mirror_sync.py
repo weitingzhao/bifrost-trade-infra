@@ -14,6 +14,7 @@ against a local HTTP server; no cluster, no network.
 from __future__ import annotations
 
 import os
+import json
 import subprocess
 import sys
 import tempfile
@@ -22,34 +23,95 @@ from pathlib import Path
 
 import yaml
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fake_gitea import FakeGitea, repo  # noqa: E402
+class FakeGitea:
+    """In-memory HTTP transport; no listening socket or cluster access."""
+    base = "http://caller.invalid"
+
+    def __init__(self, routes):
+        self.routes, self.requests = routes, []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        pass
+
+    def calls(self, method=None):
+        return [f"{m} {p}" for m, p, _ in self.requests if method is None or method == m]
+
+
+def repo(name, body):
+    return {f"GET /api/v1/repos/bifrost/{name}": (200, body)}
 
 ROOT = Path(__file__).resolve().parents[2]
 TASK = ROOT / "k8s" / "cicd" / "tekton" / "task-gitea-mirror-sync.yaml"
 SHA = "a" * 40
-TOKEN = "fixture-admin-token"
+TOKEN = "fixture-reader-token"
 
 
-def run(gitea: FakeGitea, repos: str, sha: str = "", only: str = "") -> subprocess.CompletedProcess:
+def run(gitea: FakeGitea, repos: str, sha: str = "", only: str = "", base: str | None = None) -> subprocess.CompletedProcess:
     script = yaml.safe_load(TASK.read_text(encoding="utf-8"))["spec"]["steps"][0]["script"]
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "step.py"
-        path.write_text(script, encoding="utf-8")
+        routes = Path(tmp) / "routes.json"
+        routes.write_text(json.dumps(gitea.routes))
+        requests = Path(tmp) / "requests.jsonl"
+        prelude = r'''import io, json, os, urllib.request, urllib.error, urllib.parse
+routes = json.load(open(os.environ["FAKE_ROUTES"]))
+class Response(io.BytesIO):
+    status = 200
+class Transport:
+    def open(self, req, timeout):
+        url = urllib.parse.urlsplit(req.full_url)
+        assert url.netloc == "gitea.cicd.svc.cluster.local:3000", url.netloc
+        with open(os.environ["FAKE_REQUESTS"], "a") as f:
+            f.write(json.dumps([req.method, url.path, req.headers["Authorization"]]) + "\n")
+        status, body = routes.get(req.method + " " + url.path, (404, "{}"))
+        if status != 200:
+            raise urllib.error.HTTPError(req.full_url, status, "fixture", {}, io.BytesIO(body.encode()))
+        return Response(body.encode())
+urllib.request.build_opener = lambda *args: Transport()
+'''
+        path.write_text(prelude + script, encoding="utf-8")
         env = {
+            "FAKE_ROUTES": str(routes),
+            "FAKE_REQUESTS": str(requests),
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
             "GITEA_TOKEN": TOKEN,
-            "GITEA_BASE": f"{gitea.base}/bifrost",
+            "GITEA_BASE": base or f"{gitea.base}/bifrost",
             "MIRROR_REPOS": repos,
             "EXPECT_SHA": sha,
             "EXPECT_REPO": only,
             "MIRROR_SYNC_POLL_SECONDS": "0",
             "MIRROR_SYNC_SETTLE_SECONDS": "0",
         }
-        return subprocess.run([sys.executable, str(path)], env=env, capture_output=True, text=True, timeout=60)
+        result = subprocess.run([sys.executable, str(path)], env=env, capture_output=True, text=True, timeout=60)
+        if requests.exists():
+            gitea.requests = [json.loads(line) for line in requests.read_text().splitlines()]
+        return result
 
 
 class MirrorSyncTask(unittest.TestCase):
+    def test_caller_host_is_ignored(self) -> None:
+        with FakeGitea(repo("primary", '{"mirror":false}')) as g:
+            result = run(g, "primary", base="http://attacker.invalid:1234/bifrost")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(g.requests), 1)
+
+    def test_invalid_parameters_never_send_credentials(self) -> None:
+        for repos, sha, only in (("../escape", "", ""), ("primary", "deadbeef", ""),
+                                 ("primary", SHA, "absent"), ("", "", "")):
+            with FakeGitea({}) as g:
+                result = run(g, repos, sha, only)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(g.requests, [])
+
+    def test_reader_cannot_sync_a_pull_mirror(self) -> None:
+        with FakeGitea({**repo("mirror", '{"mirror":true}'),
+                       "POST /api/v1/repos/bifrost/mirror/mirror-sync": (403, "")}) as g:
+            result = run(g, "mirror")
+        self.assertNotEqual(result.returncode, 0)
+
     def test_a_mirror_is_fetched_and_a_primary_is_not(self) -> None:
         routes = {
             **repo("mirrored", '{"name":"mirrored","parent":null,"mirror":true}'),

@@ -39,12 +39,33 @@ spec:
   steps:
     - name: rollout
       image: alpine/k8s:1.31.4
+      env:
+        - name: TASK_NAMESPACE
+          value: $(params.namespace)
+        - name: TASK_DEPLOYMENT
+          value: $(params.deployment)
+        - name: TASK_EXPECT_TAG
+          value: $(params.expectTag)
+        - name: TASK_APPLY_TIMEOUT_SECONDS
+          value: $(params.applyTimeoutSeconds)
       script: |
         #!/bin/sh
         set -eu
-        NS="$(params.namespace)"
-        DEP="$(params.deployment)"
-        WANT="$(params.expectTag)"
+        printf '%s\n' "${TASK_NAMESPACE}" | grep -Eq '^[a-z0-9][a-z0-9-]*$' || { echo "invalid namespace" >&2; exit 1; }
+        case "${TASK_NAMESPACE}" in *'
+        '*) echo "invalid namespace" >&2; exit 1 ;; esac
+        printf '%s\n' "${TASK_DEPLOYMENT}" | grep -Eq '^[a-z0-9][a-z0-9.-]*$' || { echo "invalid deployment" >&2; exit 1; }
+        case "${TASK_DEPLOYMENT}" in *'
+        '*) echo "invalid deployment" >&2; exit 1 ;; esac
+        printf '%s\n' "${TASK_EXPECT_TAG}" | grep -Eq '^([A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?$' || { echo "invalid expectTag" >&2; exit 1; }
+        case "${TASK_EXPECT_TAG}" in *'
+        '*) echo "invalid expectTag" >&2; exit 1 ;; esac
+        printf '%s\n' "${TASK_APPLY_TIMEOUT_SECONDS}" | grep -Eq '^[1-9][0-9]{0,4}$' || { echo "invalid applyTimeoutSeconds" >&2; exit 1; }
+        case "${TASK_APPLY_TIMEOUT_SECONDS}" in *'
+        '*) echo "invalid applyTimeoutSeconds" >&2; exit 1 ;; esac
+        NS="${TASK_NAMESPACE}"
+        DEP="${TASK_DEPLOYMENT}"
+        WANT="${TASK_EXPECT_TAG}"
 
         if ! kubectl get "deployment/${DEP}" -n "${NS}" >/dev/null 2>&1; then
           echo "ERROR: deployment/${DEP} not found in ${NS}" >&2
@@ -55,7 +76,7 @@ spec:
           echo "Restarting deployment/${DEP} in ${NS}"
           kubectl rollout restart "deployment/${DEP}" -n "${NS}"
         else
-          deadline=$(( $(date +%s) + $(params.applyTimeoutSeconds) ))
+          deadline=$(( $(date +%s) + ${TASK_APPLY_TIMEOUT_SECONDS} ))
           while :; do
             image="$(kubectl get deployment "${DEP}" -n "${NS}" \
               -o jsonpath='{.spec.template.spec.containers[0].image}')"
@@ -63,7 +84,7 @@ spec:
               *:"${WANT}") echo "deployment spec carries ${WANT}"; break ;;
             esac
             if [ "$(date +%s)" -ge "${deadline}" ]; then
-              echo "ERROR: deployment spec still ${image} after $(params.applyTimeoutSeconds)s." >&2
+              echo "ERROR: deployment spec still ${image} after ${TASK_APPLY_TIMEOUT_SECONDS}s." >&2
               echo "Argo CD has not applied the manifest pinning ${WANT}." >&2
               exit 1
             fi
@@ -110,16 +131,32 @@ spec:
   steps:
     - name: image-assert
       image: alpine/k8s:1.31.4
+      env:
+        - name: TASK_EXPECT_TAG
+          value: $(params.expectTag)
+        - name: TASK_NAMESPACE
+          value: $(params.namespace)
+        - name: TASK_DEPLOYMENT
+          value: $(params.deployment)
       script: |
         #!/bin/sh
         set -eu
-        WANT="$(params.expectTag)"
+        printf '%s\n' "${TASK_EXPECT_TAG}" | grep -Eq '^([A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?$' || { echo "invalid expectTag" >&2; exit 1; }
+        case "${TASK_EXPECT_TAG}" in *'
+        '*) echo "invalid expectTag" >&2; exit 1 ;; esac
+        printf '%s\n' "${TASK_NAMESPACE}" | grep -Eq '^[a-z0-9][a-z0-9-]*$' || { echo "invalid namespace" >&2; exit 1; }
+        case "${TASK_NAMESPACE}" in *'
+        '*) echo "invalid namespace" >&2; exit 1 ;; esac
+        printf '%s\n' "${TASK_DEPLOYMENT}" | grep -Eq '^[a-z0-9][a-z0-9.-]*$' || { echo "invalid deployment" >&2; exit 1; }
+        case "${TASK_DEPLOYMENT}" in *'
+        '*) echo "invalid deployment" >&2; exit 1 ;; esac
+        WANT="${TASK_EXPECT_TAG}"
         if [ -z "${WANT}" ]; then
           echo "expectTag empty — skipping image assertion"
           exit 0
         fi
-        NS="$(params.namespace)"
-        DEP="$(params.deployment)"
+        NS="${TASK_NAMESPACE}"
+        DEP="${TASK_DEPLOYMENT}"
         RUNNING="$(kubectl get deployment "${DEP}" -n "${NS}" \
           -o jsonpath='{.spec.template.spec.containers[0].image}')"
         echo "deployment image: ${RUNNING}"
@@ -151,10 +188,16 @@ spec:
         esac
     - name: http-smoke
       image: curlimages/curl:8.11.1
+      env:
+        - name: TASK_SERVICE_BASE
+          value: $(params.serviceBase)
       script: |
         #!/bin/sh
         set -eu
-        base="$(params.serviceBase)"
+        printf '%s\n' "${TASK_SERVICE_BASE}" | grep -Eq '^https?://[A-Za-z0-9][A-Za-z0-9.:-]*(/[A-Za-z0-9._/-]*)?$' || { echo "invalid serviceBase" >&2; exit 1; }
+        case "${TASK_SERVICE_BASE}" in *'
+        '*) echo "invalid serviceBase" >&2; exit 1 ;; esac
+        base="${TASK_SERVICE_BASE}"
         base="${base%/}"
 
         # Deployment readiness does not guarantee the app finished schema guard,

@@ -25,17 +25,28 @@ def command(args):
         ).decode()
         # Reuse clone's Secret without putting credentials in argv or log lines.
         env.update(
-            GIT_CONFIG_COUNT="1",
-            GIT_CONFIG_KEY_0="http.extraHeader",
+            GIT_CONFIG_COUNT="2",
+            GIT_CONFIG_KEY_0="http.http://gitea.cicd.svc.cluster.local:3000/.extraHeader",
+            GIT_CONFIG_KEY_1="http.followRedirects",
+            GIT_CONFIG_VALUE_1="false",
             GIT_CONFIG_VALUE_0="Authorization: Basic " + credential,
         )
+    env.pop("GIT_USERNAME", None)
+    env.pop("GIT_PASSWORD", None)
     return subprocess.run(
         args, check=True, capture_output=True, text=True, timeout=BUDGET, env=env
     ).stdout
 
 
 def resolve(url, revision, directory):
-    if not revision or revision.startswith("-") or any(c.isspace() for c in revision):
+    if (
+        not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]*", revision)
+        or ".." in revision
+        or "//" in revision
+        or revision.endswith(("/", ".", ".lock"))
+    ):
+        raise ValueError("invalid revision")
+    if re.fullmatch(r"[0-9a-f]+", revision) and not SHA_RE.fullmatch(revision):
         raise ValueError("invalid revision")
     command(["git", "init", "--quiet", directory])
     if not SHA_RE.fullmatch(revision):
@@ -243,6 +254,8 @@ def main():
     try:
         with tempfile.TemporaryDirectory() as tmp:
             base = os.environ["GITEA_BASE"]
+            if base != "http://gitea.cicd.svc.cluster.local:3000/bifrost":
+                raise ValueError("invalid Gitea base")
             sha = resolve(
                 base + "/bifrost-platform.git",
                 os.environ["REVISION"],

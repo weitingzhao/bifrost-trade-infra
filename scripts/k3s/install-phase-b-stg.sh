@@ -30,8 +30,8 @@ if [[ ! -f "${KUBECONFIG}" ]]; then
   exit 1
 fi
 
-if ! kubectl get secret gitea-git-credentials -n "${CICD_NAMESPACE}" >/dev/null 2>&1; then
-  echo "Missing gitea-git-credentials — complete Gitea secret setup first." >&2
+if ! kubectl get secret gitea-ci-reader -n "${CICD_NAMESPACE}" >/dev/null 2>&1; then
+  echo "Missing gitea-ci-reader — complete Gitea secret setup first." >&2
   exit 1
 fi
 

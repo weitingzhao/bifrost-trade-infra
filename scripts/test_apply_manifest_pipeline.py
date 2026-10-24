@@ -1,6 +1,6 @@
 """Review 545 F1, 546, 548 R1: the apply-manifest pipeline's own guards, run offline.
 
-The check step's shell runs as written, with the real checker and jq; git, wget, apk and
+The check step's shell runs as written, with the real checker and jq; git, curl, apk and
 kubectl are local stand-ins (no cluster, no network, no kubeconfig). A tier C or D apply
 needs requireOnMain=true and must render what main's head renders at the same path; the
 repository, path, organisation and Gitea address come from the mounted policy. Adapted
@@ -33,10 +33,15 @@ a = sys.argv[1:]
 r = pathlib.Path(os.environ["PROBE_DIR"])
 with (r / "calls.jsonl").open("a") as f:
     f.write(json.dumps([name, *a]) + "\n")
+if name != "git":
+    assert "GIT_PASSWORD" not in os.environ and "GIT_USERNAME" not in os.environ
+    assert not any(k.startswith("GIT_CONFIG_VALUE_") for k in os.environ)
 if name == "apk":
     sys.exit(0)
 if name == "git":
     if a[0] == "clone":
+        assert os.environ["GIT_CONFIG_VALUE_0"].startswith("Authorization: Basic ")
+        assert "fixture" not in a[-2] and "@" not in a[-2]
         pathlib.Path(a[-1]).mkdir()
     elif a[2] == "rev-parse":
         print(os.environ["PROBE_HEAD"])
@@ -44,9 +49,11 @@ if name == "git":
         sys.exit(0)
     else:
         sys.exit("unexpected git " + " ".join(a))
-elif name == "wget":
+elif name == "curl":
+    assert sys.stdin.read().startswith('header = "Authorization: Basic ')
+    assert "fixture" not in " ".join(a)
     sha = a[-1].rsplit("/", 1)[1].split(".")[0]
-    shutil.copyfile(r / (sha + ".tar.gz"), a[a.index("-O") + 1])
+    shutil.copyfile(r / (sha + ".tar.gz"), a[a.index("--output") + 1])
 elif name == "kubectl":
     if a[0] == "kustomize":
         print((pathlib.Path(a[1]) / "objects.json").read_text())
@@ -81,7 +88,7 @@ class ApplyPipelineGuards(unittest.TestCase):
         self.dir = pathlib.Path(tempfile.mkdtemp(prefix="td432-apply-"))
         self.bin = self.dir / "bin"
         self.bin.mkdir()
-        for name in ("apk", "git", "wget", "kubectl"):
+        for name in ("apk", "git", "curl", "kubectl"):
             (self.bin / name).write_text(FAKE)
             (self.bin / name).chmod(0o755)
         self.script = step_script()

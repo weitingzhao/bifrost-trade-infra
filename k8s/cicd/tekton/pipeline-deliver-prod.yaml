@@ -70,13 +70,24 @@ spec:
         steps:
           - name: stg-smoke-gate
             image: curlimages/curl:8.11.1
+            env:
+              - name: TASK_TRAEFIK_BASE
+                value: $(params.traefikBase)
+              - name: TASK_GATEWAY_HOST
+                value: $(params.gatewayHost)
             script: |
               #!/bin/sh
               set -eu
+              printf '%s\n' "${TASK_TRAEFIK_BASE}" | grep -Eq '^https?://[A-Za-z0-9][A-Za-z0-9.:-]*(/[A-Za-z0-9._/-]*)?$' || { echo "invalid traefikBase" >&2; exit 1; }
+              case "${TASK_TRAEFIK_BASE}" in *'
+              '*) echo "invalid traefikBase" >&2; exit 1 ;; esac
+              printf '%s\n' "${TASK_GATEWAY_HOST}" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?$' || { echo "invalid gatewayHost" >&2; exit 1; }
+              case "${TASK_GATEWAY_HOST}" in *'
+              '*) echo "invalid gatewayHost" >&2; exit 1 ;; esac
               echo "==> Prod preflight: verifying STG health before prod deploy (W1 Traefik)"
-              trf="$(params.traefikBase)"
+              trf="${TASK_TRAEFIK_BASE}"
               trf="${trf%/}"
-              host="$(params.gatewayHost)"
+              host="${TASK_GATEWAY_HOST}"
               fail=0
               check() {
                 id="$1"; path="$2"; url="${trf}${path}"

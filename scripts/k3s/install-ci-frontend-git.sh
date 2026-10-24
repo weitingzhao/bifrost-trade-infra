@@ -35,8 +35,8 @@ if ! kubectl get deploy tekton-pipelines-controller -n tekton-pipelines >/dev/nu
   exit 1
 fi
 
-if ! kubectl get secret gitea-git-credentials -n "${CICD_NAMESPACE}" >/dev/null 2>&1; then
-  echo "Missing secret gitea-git-credentials in ${CICD_NAMESPACE}." >&2
+if ! kubectl get secret gitea-ci-reader -n "${CICD_NAMESPACE}" >/dev/null 2>&1; then
+  echo "Missing secret gitea-ci-reader in ${CICD_NAMESPACE}." >&2
   echo "Copy k8s/cicd/gitea/secret.yaml.example → secret.yaml, fill Gitea CI user/token, then:" >&2
   echo "  kubectl apply -f k8s/cicd/gitea/secret.yaml -n ${CICD_NAMESPACE}" >&2
   exit 1

@@ -92,12 +92,12 @@ spec:
               - name: GIT_USERNAME
                 valueFrom:
                   secretKeyRef:
-                    name: gitea-git-credentials
+                    name: gitea-ci-reader
                     key: username
               - name: GIT_PASSWORD
                 valueFrom:
                   secretKeyRef:
-                    name: gitea-git-credentials
+                    name: gitea-ci-reader
                     key: password
             volumeMounts:
               - name: policy
@@ -109,12 +109,29 @@ spec:
             script: |
               #!/bin/sh
               set -eu
+              user="${GIT_USERNAME:?}"
+              password="${GIT_PASSWORD:?}"
+              unset GIT_USERNAME GIT_PASSWORD
+              auth="$(printf '%s:%s' "$user" "$password" | base64 | tr -d '\n')"
+              unset user password
+              git_read() {
+                GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 \
+                GIT_CONFIG_COUNT=3 \
+                GIT_CONFIG_KEY_0=http.http://gitea.cicd.svc.cluster.local:3000/.extraHeader \
+                GIT_CONFIG_VALUE_0="Authorization: Basic $auth" \
+                GIT_CONFIG_KEY_1=http.followRedirects GIT_CONFIG_VALUE_1=false \
+                GIT_CONFIG_KEY_2=credential.helper GIT_CONFIG_VALUE_2= git "$@"
+              }
               mode="${MODE:?}"
               repo="${REPO:?}"
               path="${PATH_IN_REPO:?}"
               commit="${COMMIT:?}"
               base="${GITEA_BASE:?}"
               org="${GITEA_ORG:?}"
+              case "$REQUIRE_ON_MAIN" in
+                true|false) ;;
+                *) echo "requireOnMain must be true or false" >&2; exit 1 ;;
+              esac
               case "$mode" in
                 plan|apply) ;;
                 *) echo "mode must be plan or apply" >&2; exit 1 ;;
@@ -170,10 +187,8 @@ spec:
                 # blobs and check that the commit is an ancestor of main.
                 apk add --no-cache git >/dev/null
                 remote="${base}/${repo}.git"
-                remote="${remote#http://}"
-                remote="${remote#https://}"
-                if ! git clone -q --bare --filter=blob:none --single-branch --branch main \
-                    "http://${GIT_USERNAME}:${GIT_PASSWORD}@${remote}" /tmp/main.git 2>/dev/null; then
+                if ! git_read clone -q --bare --filter=blob:none --single-branch --branch main \
+                    "${remote}" /tmp/main.git 2>/dev/null; then
                   echo "could not read main of ${repo}" >&2
                   exit 1
                 fi
@@ -182,15 +197,14 @@ spec:
                   exit 1
                 fi
               fi
-              apk add --no-cache jq >/dev/null
+              apk add --no-cache jq curl >/dev/null
               # render SHA DIR OUT: fetch repo@SHA, render path, write the normalized List to OUT.
               render() {
                 archive="$2.tar.gz"
                 # The API route accepts basic auth; the web archive route answers 404 for a private repo.
                 url="${base%%/bifrost}/api/v1/repos/${org}/${repo}/archive/$1.tar.gz"
-                host_path="${url#http://}"
-                host_path="${host_path#https://}"
-                if ! wget -q -O "$archive" "http://${GIT_USERNAME}:${GIT_PASSWORD}@${host_path}"; then
+                if ! printf 'header = "Authorization: Basic %s"\n' "$auth" | \
+                    curl --config - --fail --silent --show-error --max-redirs 0 --output "$archive" "$url"; then
                   echo "could not fetch ${repo}@$1" >&2
                   exit 1
                 fi

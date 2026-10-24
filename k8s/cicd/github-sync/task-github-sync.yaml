@@ -27,8 +27,8 @@ spec:
         - name: GITEA_TOKEN
           valueFrom:
             secretKeyRef:
-              name: gitea-bootstrap
-              key: gitea_admin_token
+              name: gitea-ci-reader
+              key: password
               optional: true
       volumeMounts:
         - name: scripts
@@ -43,8 +43,8 @@ spec:
         - name: GITEA_TOKEN
           valueFrom:
             secretKeyRef:
-              name: gitea-bootstrap
-              key: gitea_admin_token
+              name: gitea-ci-reader
+              key: password
               optional: true
         - name: GITHUB_TOKEN
           valueFrom:

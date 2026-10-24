@@ -108,11 +108,17 @@ spec:
               limits:
                 cpu: "2"
                 memory: 2Gi
+            env:
+              - name: TASK_REPO
+                value: $(params.repo)
             script: |
               #!/usr/bin/env bash
               set -euo pipefail
+              printf '%s\n' "${TASK_REPO}" | grep -Eq '^[A-Za-z0-9_-][A-Za-z0-9._-]*$' || { echo "invalid repo" >&2; exit 1; }
+              case "${TASK_REPO}" in *'
+              '*) echo "invalid repo" >&2; exit 1 ;; esac
               ws="$(workspaces.source.path)"
-              repo="$(params.repo)"
+              repo="${TASK_REPO}"
               cd "${ws}/repo"
 
               echo "==> Installing dependencies for ${repo}"

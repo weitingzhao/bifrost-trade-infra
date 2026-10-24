@@ -10,6 +10,7 @@ sync must not guess. Runs in alpine/k8s (python3)."""
 
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -21,13 +22,22 @@ def main() -> int:
     org = os.environ.get("GITEA_ORG", "bifrost")
     token = os.environ.get("GITEA_TOKEN", "")
     if not token:
-        print("ERROR: gitea-bootstrap/gitea_admin_token missing: cannot read the repositories", file=sys.stderr)
+        print("ERROR: gitea-ci-reader/password missing: cannot read the repositories", file=sys.stderr)
         return 1
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", org) or not repos or any(
+        not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9._-]*", repo) for repo in repos
+    ):
+        print("ERROR: invalid repository or organisation", file=sys.stderr)
+        return 1
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect)
     primaries = []
     for repo in repos:
         req = urllib.request.Request(f"{api}/repos/{org}/{repo}", headers={"Authorization": "token " + token})
         try:
-            with urllib.request.urlopen(req, timeout=30) as r:
+            with opener.open(req, timeout=30) as r:
                 code, raw = r.status, r.read()
         except urllib.error.HTTPError as e:
             code, raw = e.code, b""

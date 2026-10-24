@@ -36,8 +36,8 @@ spec:
         - name: GITEA_TOKEN
           valueFrom:
             secretKeyRef:
-              name: gitea-bootstrap
-              key: gitea_admin_token
+              name: gitea-ci-reader
+              key: password
               optional: true
         - name: GITEA_BASE
           value: $(params.giteaBase)
@@ -56,16 +56,30 @@ spec:
         import time
         import urllib.error
         import urllib.request
+        import urllib.parse
 
         token = os.environ.get("GITEA_TOKEN", "")
         if not token:
-            sys.exit("ERROR: gitea-bootstrap/gitea_admin_token missing — cannot mirror-sync")
+            sys.exit("ERROR: gitea-ci-reader/password missing — cannot mirror-sync")
         base = os.environ["GITEA_BASE"].rstrip("/")
-        org = base.rsplit("/", 1)[-1]
-        api = base.rsplit("/", 1)[0] + "/api/v1"
+        org = urllib.parse.urlsplit(base).path.strip("/")
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", org):
+            sys.exit("ERROR: invalid Gitea organisation")
+        # The caller cannot choose the recipient of the reader credential.
+        api = "http://gitea.cicd.svc.cluster.local:3000/api/v1"
         repos = os.environ.get("MIRROR_REPOS", "").split()
         sha = os.environ.get("EXPECT_SHA", "").strip()
         only = os.environ.get("EXPECT_REPO", "").strip()
+        if not repos or any(not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9._-]*", r) for r in repos):
+            sys.exit("ERROR: invalid repository list")
+        if sha and not re.fullmatch(r"[0-9a-f]{40}", sha):
+            sys.exit("ERROR: expectSha must be a full SHA")
+        if only and only not in repos:
+            sys.exit("ERROR: expectRepo must be in mirrorRepos")
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect)
         poll = float(os.environ.get("MIRROR_SYNC_POLL_SECONDS", "4"))
         settle = float(os.environ.get("MIRROR_SYNC_SETTLE_SECONDS", "8"))
 
@@ -74,7 +88,7 @@ spec:
             req = urllib.request.Request(api + path, data=body, method=method,
                                          headers={"Authorization": "token " + token, "Content-Type": "application/json"})
             try:
-                with urllib.request.urlopen(req, timeout=30) as r:
+                with opener.open(req, timeout=30) as r:
                     return r.status, r.read()
             except urllib.error.HTTPError as e:
                 return e.code, e.read()

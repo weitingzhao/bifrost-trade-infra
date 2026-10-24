@@ -13,10 +13,16 @@ spec:
   steps:
     - name: rollout-restart
       image: alpine/k8s:1.31.4
+      env:
+        - name: TASK_NAMESPACE
+          value: $(params.namespace)
       script: |
         #!/bin/sh
         set -eu
-        NS="$(params.namespace)"
+        printf '%s\n' "${TASK_NAMESPACE}" | grep -Eq '^[a-z0-9][a-z0-9-]*$' || { echo "invalid namespace" >&2; exit 1; }
+        case "${TASK_NAMESPACE}" in *'
+        '*) echo "invalid namespace" >&2; exit 1 ;; esac
+        NS="${TASK_NAMESPACE}"
         # platform-workers runs the same image tag as platform-api. Left out of
         # this list, it stayed on its 2026-09-11 image through every release.
         for dep in platform-api platform-console platform-workers; do
@@ -43,11 +49,22 @@ spec:
   steps:
     - name: sync
       image: alpine/k8s:1.31.4
+      env:
+        - name: TASK_APPLICATION
+          value: $(params.application)
+        - name: TASK_NAMESPACE
+          value: $(params.namespace)
       script: |
         #!/bin/sh
         set -eu
-        APP="$(params.application)"
-        NS="$(params.namespace)"
+        printf '%s\n' "${TASK_APPLICATION}" | grep -Eq '^[a-z0-9][a-z0-9.-]*$' || { echo "invalid application" >&2; exit 1; }
+        case "${TASK_APPLICATION}" in *'
+        '*) echo "invalid application" >&2; exit 1 ;; esac
+        printf '%s\n' "${TASK_NAMESPACE}" | grep -Eq '^[a-z0-9][a-z0-9-]*$' || { echo "invalid namespace" >&2; exit 1; }
+        case "${TASK_NAMESPACE}" in *'
+        '*) echo "invalid namespace" >&2; exit 1 ;; esac
+        APP="${TASK_APPLICATION}"
+        NS="${TASK_NAMESPACE}"
         kubectl patch application "${APP}" -n "${NS}" --type merge -p \
           '{"operation":{"initiatedBy":{"username":"tekton-deliver-platform"},"sync":{"revision":"HEAD"}}}'
         echo "Sync requested for Application ${APP}"

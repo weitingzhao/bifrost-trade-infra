@@ -145,7 +145,7 @@ else:
         "GIT_MODE": git_mode,
         "REVISION": revision,
         "UI_REVISION": "main",
-        "GITEA_BASE": "http://mirror/bifrost",
+        "GITEA_BASE": "http://gitea.cicd.svc.cluster.local:3000/bifrost",
         "COMMIT_PATH": str(tmp_path / "commit"),
         "UI_COMMIT_PATH": str(tmp_path / "ui-commit"),
         "API_DIGEST_PATH": str(tmp_path / "api-digest"),
@@ -524,7 +524,9 @@ def test_git_auth_stays_out_of_argv(monkeypatch):
     namespace["command"](["git", "ls-remote", "http://mirror/repo"])
     assert "test-password" not in repr(captured["args"])
     env = captured["kwargs"]["env"]
-    assert env["GIT_CONFIG_KEY_0"] == "http.extraHeader"
+    assert env["GIT_CONFIG_KEY_0"] == "http.http://gitea.cicd.svc.cluster.local:3000/.extraHeader"
+    assert "GIT_PASSWORD" not in env and "GIT_USERNAME" not in env
+    assert env["GIT_CONFIG_VALUE_1"] == "false"
     assert env["GIT_CONFIG_VALUE_0"].startswith("Authorization: Basic ")
     assert env["GIT_TERMINAL_PROMPT"] == "0"
     assert captured["kwargs"]["timeout"] == 20

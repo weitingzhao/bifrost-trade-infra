@@ -21,6 +21,9 @@ only="${2:-}"
 : "${GITEA_GIT_BASE:=http://gitea.cicd.svc.cluster.local:3000/bifrost}"
 : "${GITHUB_BASE:=https://github.com/weitingzhao}"
 
+gitea_token="${GITEA_TOKEN:-}"
+github_token="${GITHUB_TOKEN:-}"
+unset GITEA_TOKEN GITHUB_TOKEN
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
 
@@ -28,22 +31,36 @@ trap 'rm -rf "${work}"' EXIT
 host_of() {
   printf '%s' "$1" | sed -nE 's#^(https?://[^/]+)/.*#\1/#p'
 }
-GIT_CONFIG_COUNT=0
-export GIT_CONFIG_COUNT
-add_config() {
-  export "GIT_CONFIG_KEY_${GIT_CONFIG_COUNT}=$1" "GIT_CONFIG_VALUE_${GIT_CONFIG_COUNT}=$2"
-  GIT_CONFIG_COUNT=$((GIT_CONFIG_COUNT + 1))
-  export GIT_CONFIG_COUNT
-}
+# Validate before invoking git; the Task passes ref as an argument, never shell text.
+if [ -n "$only" ]; then
+  case "$only" in
+    refs/heads/main|refs/tags/*) ;;
+    *) echo "only main and tags are copied" >&2; exit 1 ;;
+  esac
+  case "$only" in *[!A-Za-z0-9._/-]*) echo "invalid ref" >&2; exit 1 ;; esac
+  git check-ref-format "$only" >/dev/null || exit 1
+fi
 gitea_host="$(host_of "${GITEA_GIT_BASE}")"
 github_host="$(host_of "${GITHUB_BASE}")"
-if [ -n "${GITEA_TOKEN:-}" ] && [ -n "${gitea_host}" ]; then
-  add_config "http.${gitea_host}.extraHeader" "Authorization: token ${GITEA_TOKEN}"
-fi
-if [ -n "${GITHUB_TOKEN:-}" ] && [ -n "${github_host}" ]; then
-  add_config "http.${github_host}.extraHeader" "Authorization: Basic $(printf 'x-access-token:%s' "${GITHUB_TOKEN}" | base64 | tr -d '\n')"
-fi
-export GIT_TERMINAL_PROMPT=0
+github_auth="$(printf 'x-access-token:%s' "${github_token}" | base64 | tr -d '\n')"
+git_read() (
+  GIT_CONFIG_COUNT=0
+  export GIT_CONFIG_COUNT
+  add_config() {
+    export "GIT_CONFIG_KEY_${GIT_CONFIG_COUNT}=$1" "GIT_CONFIG_VALUE_${GIT_CONFIG_COUNT}=$2"
+    GIT_CONFIG_COUNT=$((GIT_CONFIG_COUNT + 1))
+    export GIT_CONFIG_COUNT
+  }
+  if [ -n "${gitea_token}" ] && [ -n "${gitea_host}" ]; then
+    add_config "http.${gitea_host}.extraHeader" "Authorization: token ${gitea_token}"
+  fi
+  if [ -n "${github_token}" ] && [ -n "${github_host}" ]; then
+    add_config "http.${github_host}.extraHeader" "Authorization: Basic ${github_auth}"
+  fi
+  export GIT_TERMINAL_PROMPT=0
+  add_config http.followRedirects false
+  git "$@"
+)
 
 fails=0
 fail() {
@@ -54,7 +71,7 @@ fail() {
 # remote_sha <url> <ref> — the object ref names on url, empty when absent;
 # fails when url cannot be read (not hidden in a pipeline).
 remote_sha() {
-  _listed="$(git ls-remote "$1" "$2")" || return 1
+  _listed="$(git_read ls-remote "$1" "$2")" || return 1
   printf '%s\n' "${_listed}" | awk -v r="$2" '$2 == r { print $1 }'
 }
 
@@ -83,19 +100,19 @@ sync_ref() { # sync_ref <repo> <bare> <gitea-url> <github-url> <ref>
       return
       ;;
   esac
-  git -C "${bare}" fetch -q --no-tags "${from}" "+${ref}:${ref}" || { fail "${repo} ${ref}: fetch from Gitea failed"; return; }
+  git_read -C "${bare}" fetch -q --no-tags "${from}" "+${ref}:${ref}" || { fail "${repo} ${ref}: fetch from Gitea failed"; return; }
   if [ "${ref}" = "refs/heads/main" ] && [ -n "${h}" ]; then
-    git -C "${bare}" fetch -q --no-tags "${to}" "+refs/heads/main:refs/github/main" || { fail "${repo} main: fetch from GitHub failed"; return; }
-    if ! git -C "${bare}" merge-base --is-ancestor "${h}" "${g}"; then
+    git_read -C "${bare}" fetch -q --no-tags "${to}" "+refs/heads/main:refs/github/main" || { fail "${repo} main: fetch from GitHub failed"; return; }
+    if ! git_read -C "${bare}" merge-base --is-ancestor "${h}" "${g}"; then
       fail "${repo} main: GitHub has ${h}, which Gitea's ${g} does not contain (diverged or ahead); not pushed"
       return
     fi
   fi
-  if [ -z "${GITHUB_TOKEN:-}" ]; then
+  if [ -z "${github_token}" ]; then
     fail "${repo} ${ref}: needs a push and there is no GitHub token (Secret cicd/github-sync, key token)"
     return
   fi
-  if git -C "${bare}" push -q "${to}" "${ref}:${ref}"; then
+  if git_read -C "${bare}" push -q "${to}" "${ref}:${ref}"; then
     echo "${repo} ${ref}: pushed ${g} to GitHub"
   else
     fail "${repo} ${ref}: GitHub refused the push of ${g}"
@@ -104,16 +121,17 @@ sync_ref() { # sync_ref <repo> <bare> <gitea-url> <github-url> <ref>
 
 while IFS= read -r repo; do
   [ -n "${repo}" ] || continue
+  case "$repo" in *[!A-Za-z0-9._-]*|[!A-Za-z0-9]*|.|..) echo "invalid repo" >&2; exit 1 ;; esac
   from="${GITEA_GIT_BASE}/${repo}.git"
   to="${GITHUB_BASE}/${repo}.git"
   bare="${work}/${repo}.git"
-  git init -q --bare "${bare}"
+  git_read init -q --bare "${bare}"
   if [ -n "${only}" ]; then
     sync_ref "${repo}" "${bare}" "${from}" "${to}" "${only}"
     continue
   fi
   sync_ref "${repo}" "${bare}" "${from}" "${to}" refs/heads/main
-  listed="$(git ls-remote --tags --refs "${from}")" || { fail "${repo}: Gitea's tags could not be listed"; continue; }
+  listed="$(git_read ls-remote --tags --refs "${from}")" || { fail "${repo}: Gitea's tags could not be listed"; continue; }
   tags="$(printf '%s\n' "${listed}" | awk 'NF == 2 { print $2 }')"
   for ref in ${tags}; do
     sync_ref "${repo}" "${bare}" "${from}" "${to}" "${ref}"

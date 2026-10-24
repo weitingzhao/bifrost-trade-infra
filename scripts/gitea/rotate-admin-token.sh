@@ -1,49 +1,11 @@
 #!/usr/bin/env bash
-# rotate-admin-token.sh check|rotate|revoked — TD-365: the Gitea admin token
-# in Secret cicd/gitea-bootstrap (gitea_admin_token) has been in the public
-# infra history since 2026-06-17 (d30ef90), and the clone credentials in
-# Secret cicd/gitea-git-credentials (username, password: basic auth for every
-# Tekton clone) held the same token there. The Owner makes a new token in
-# Gitea; this puts it in every place that needs it; only then is the old one
-# revoked (OWNER-STEPS-gitea-primary.md section 0).
-#
-#   check    read only: what each Secret's credential is good for now, and
-#            whether it is still the leaked token
-#   rotate   reads the new token hidden and tries it, before writing anything,
-#            for what the Secrets are used for (review 256 A2, 257 A1, B4, B6):
-#            40 hex characters, not the leaked token; logs in as the Gitea
-#            administrator ADMIN_LOGIN (whatever the current token can still
-#            do: a broken or revoked one can be replaced); reads a repository
-#            (read:repository: lineage, clones); and asks a regular repository
-#            of the org to mirror-sync, which Gitea answers 400 "not a mirror"
-#            only once the token's write:repository scope has passed (403
-#            without it), so no mirror is touched; no regular repository means
-#            nothing is written (section 1 makes bifrost/primary-probe).
-#            Then the clone password first (when it is the leaked token, the
-#            admin token at the start, or the administrator's and no longer
-#            works), gitea_admin_token second, each only if the Secret is as it
-#            was read (resourceVersion). A failure half-way leaves the clone on
-#            a working token; rotate run again finishes it (review 256 A1).
-#            Done means: gitea_admin_token is the new token; neither Secret
-#            holds the leaked token or, unless it is the new one, the admin
-#            token of the start (review 257 B3); and both work as their users
-#            use them, the clone by basic auth like Tekton, over the API and
-#            over Git HTTP for every repository of the org (review 257 B2,
-#            258 B2, B8).
-#   revoked  after the Owner revoked the old token in Gitea: the token in the
-#            leaked file (read by its pinned blob id, no replacement objects)
-#            must be refused (HTTP 401) and both Secrets must still work
-#
-# Values are compared as stored, byte for byte; a stored value that is not 40
-# hex characters is reported, never sent. No token is printed or put on a
-# command line: Secrets are read as JSON into python, tokens travel in
-# environment variables to python only, writes go to kubectl through a pipe;
-# no proxy, no redirect, xtrace off. Gitea is reached through the port-forward
-# of the Owner's admin kubeconfig (lib.sh). The tests' mode (ROTATE_TEST_MODE=1)
-# takes GITEA_API from the environment and sends every kubectl call, lib.sh's
-# included, to ROTATE_TEST_KUBECTL, which must be the tests' fake (it carries
-# their marker line), so the tests' mode cannot reach a cluster (review 257 B5).
-# Stops at the first error.
+# rotate-admin-token.sh check|rotate|revoked — Owner-only administrator rotation.
+# TD-432 S7: CI uses the independent gitea-ci-reader Secret. This script reads
+# that reader only to verify it, and NEVER writes an admin token into it.
+# A broken or admin-owned reader must be replaced with put-reader-token.sh ci.
+# revoked checks historical leaked tokens only; S8 must also revoke each token
+# inventoried before the cutover, and move bootstrap with the Owner scripts.
+# Tests use only fake kubectl and fixture tokens (ROTATE_TEST_MODE).
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 ADMIN_LOGIN=weitingzhao
 if [[ "${ROTATE_TEST_MODE:-}" == 1 ]]; then
@@ -81,7 +43,7 @@ chmod 700 "${work}"
 # read_secrets — both Secrets as JSON into the work directory (mode 600)
 read_secrets() {
   (umask 077 && kubectl -n cicd get secret gitea-bootstrap -o json > "${work}/bootstrap.json") || gitea_die "cannot read Secret cicd/gitea-bootstrap"
-  (umask 077 && kubectl -n cicd get secret gitea-git-credentials -o json > "${work}/clone.json") || gitea_die "cannot read Secret cicd/gitea-git-credentials"
+  (umask 077 && kubectl -n cicd get secret gitea-ci-reader -o json > "${work}/clone.json") || gitea_die "cannot read Secret cicd/gitea-ci-reader"
 }
 
 # read_leaked — the leaked file, by its pinned blob id, checked against that id
@@ -213,7 +175,7 @@ def describe(bootstrap, clone_file):
     listed = repos(admin) if clean(admin) else []
     first = listed[0]["name"] if isinstance(listed, list) and listed else None
     print("gitea-bootstrap gitea_admin_token:", login(admin) if admin is not None else "missing")
-    print("gitea-git-credentials %s:" % ("(username %s)" % user), "can read %s/%s" % (ORG, first) if first and clone is not None and can_read((user, clone), first) else "CANNOT read a repository as Tekton does" if clone is not None else "no password")
+    print("gitea-ci-reader %s:" % ("(username %s)" % user), "can read %s/%s" % (ORG, first) if first and clone is not None and can_read((user, clone), first) else "CANNOT read a repository as Tekton does" if clone is not None else "no password")
     print("the clone password is", "THE SAME token as the admin token" if admin is not None and admin == clone else "a different token")
 '
 
@@ -224,7 +186,7 @@ case "${step}" in
     py "${DESCRIBE}"'
 describe(sys.argv[1], sys.argv[2])
 leaked = leaked_tokens(sys.argv[3])
-for path, key, name in ((sys.argv[1], "gitea_admin_token", "gitea-bootstrap"), (sys.argv[2], "password", "gitea-git-credentials")):
+for path, key, name in ((sys.argv[1], "gitea_admin_token", "gitea-bootstrap"), (sys.argv[2], "password", "gitea-ci-reader")):
     value = secret(path, key)
     print(name + ":", "STILL THE LEAKED TOKEN (not rotated yet)" if value is not None and (value in leaked or value.strip() in leaked) else "not the leaked token")
 ' "${work}/bootstrap.json" "${work}/clone.json" "${work}/leaked.yaml"
@@ -269,19 +231,12 @@ if not regular:
     sys.exit("no regular repository in %s to test write:repository on (section 1 makes %s/primary-probe); nothing changed" % (ORG, ORG))
 if not can_write(new, regular[0]):
     sys.exit("the new token cannot write %s/%s (mirror-sync not let through): give it repository Read and Write; nothing changed" % (ORG, regular[0]))
-clone_works = clone is not None and can_read((user, clone), listed[0]["name"])
-clone_old = clone is not None and (clone == admin or clone in leaked or clone.strip() in leaked)
-clone_admins = user == ADMIN
-if (clone_old or not clone_works) and not clone_admins:
-    sys.exit("the clone credentials (user %s) %s and are not the administrator%ss; fix them by hand; nothing changed" % (user, "hold the old token" if clone_old else "do not work", chr(39)))
-write_clone = clone_old or not clone_works
-print(("clone " if write_clone else "") + ("admin" if admin != new else "") or "nothing")
+if user != "bifrost-ci-reader" or login(clone) != "user bifrost-ci-reader":
+    sys.exit("CI credential is not bifrost-ci-reader; use put-reader-token.sh ci; nothing changed")
+if clone == admin or clone == new or clone in leaked or not can_read((user, clone), listed[0]["name"]):
+    sys.exit("CI credential is old or cannot read; use put-reader-token.sh ci; nothing changed")
+print("admin" if admin != new else "nothing")
 ' "${work}/bootstrap.json" "${work}/clone.json" "${work}/leaked.yaml")" || gitea_die "${plan:-the new token did not pass the checks}"
-    # the clone first: a failure after it leaves the clone on a token that works
-    if [[ "${plan}" == clone* ]]; then
-      patch gitea-git-credentials password "$(py 'print(rv(sys.argv[1]))' "${work}/clone.json")" ||
-        gitea_die "could not write gitea-git-credentials (changed since it was read, or refused); nothing changed; run rotate again"
-    fi
     if [[ "${plan}" == *admin ]]; then
       patch gitea-bootstrap gitea_admin_token "$(py 'print(rv(sys.argv[1]))' "${work}/bootstrap.json")" ||
         gitea_die "gitea-bootstrap could not be written (changed since it was read, or refused): run rotate again, with the same or another new token; do not revoke the old one yet"
@@ -310,7 +265,7 @@ elif isinstance(listed, list):
     if unread:
         problems.append("the clone credentials cannot list over Git HTTP: " + ", ".join(unread))
     else:
-        print("gitea-git-credentials lists all %d repositories of %s over Git HTTP, as Tekton clones" % (len(listed), ORG))
+        print("gitea-ci-reader lists all %d repositories of %s over Git HTTP, as Tekton clones" % (len(listed), ORG))
 local = sys.argv[5]
 if os.path.exists(local):
     text = open(local).read()
@@ -320,7 +275,7 @@ for p in problems:
 sys.exit(1 if problems else 0)
 ' "${work}/bootstrap.json" "${work}/clone.json" "${work}/leaked.yaml" "${work}/bootstrap.start.json" "${LOCAL_COPY}")" || {
       printf '%s\n' "${report}"
-      gitea_die "not done; do not revoke the old token: run rotate again"
+      gitea_die "not done; verify the admin and CI reader separately before revoking old tokens"
     }
     printf '%s\n' "${report}"
     unset NEW_TOKEN
@@ -346,7 +301,7 @@ listed = repos(admin) if clean(admin) else []
 first = listed[0]["name"] if isinstance(listed, list) and listed else None
 works = bool(first) and clone is not None and can_read((user, clone), first)
 unread = git_reads(user, clone, [r["name"] for r in listed]) if works else []
-print("gitea-git-credentials (username %s):" % user, ("CANNOT list over Git HTTP: " + ", ".join(unread)) if unread else "lists all %d repositories over Git HTTP" % len(listed) if works else "CANNOT read a repository as Tekton does")
+print("gitea-ci-reader (username %s):" % user, ("CANNOT list over Git HTTP: " + ", ".join(unread)) if unread else "lists all %d repositories over Git HTTP" % len(listed) if works else "CANNOT read a repository as Tekton does")
 bad += (not works) or bool(unread)
 sys.exit(1 if bad or not old else 0)
 ' "${work}/bootstrap.json" "${work}/clone.json" "${work}/leaked.yaml" || gitea_die "not done yet: see the lines above"

@@ -48,7 +48,7 @@
     {
       "pipeline": "bifrost-ci-python",
       "task": "lint-test",
-      "taskspec_sha256": "f1afa8067a555c3c011b91031541c6459c00b2ace42beb3012cdce8e4226abba"
+      "taskspec_sha256": "698e61d3c1f911168dd39f7c53d54bbc1a814779452aaf4ee1539bc5cf11e239"
     },
     {
       "pipeline": "bifrost-ci-python",

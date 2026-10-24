@@ -23,25 +23,55 @@ spec:
         - name: GIT_USERNAME
           valueFrom:
             secretKeyRef:
-              name: gitea-git-credentials
+              name: gitea-ci-reader
               key: username
         - name: GIT_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: gitea-git-credentials
+              name: gitea-ci-reader
               key: password
+        - name: GITEA_BASE
+          value: $(params.giteaBase)
+        - name: REVISION
+          value: $(params.revision)
       script: |
         #!/usr/bin/env sh
         set -eu
+        user="${GIT_USERNAME:?}"
+        password="${GIT_PASSWORD:?}"
+        unset GIT_USERNAME GIT_PASSWORD
+        auth="$(printf '%s:%s' "$user" "$password" | base64 | tr -d '\n')"
+        unset user password
+        git_read() {
+          GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 \
+          GIT_CONFIG_COUNT=3 \
+          GIT_CONFIG_KEY_0=http.http://gitea.cicd.svc.cluster.local:3000/.extraHeader \
+          GIT_CONFIG_VALUE_0="Authorization: Basic $auth" \
+          GIT_CONFIG_KEY_1=http.followRedirects GIT_CONFIG_VALUE_1=false \
+          GIT_CONFIG_KEY_2=credential.helper GIT_CONFIG_VALUE_2= git "$@"
+        }
+        [ "$GITEA_BASE" = http://gitea.cicd.svc.cluster.local:3000/bifrost ] || { echo "invalid Gitea base" >&2; exit 1; }
+        rev="$REVISION"
+        case "$rev" in *[!A-Za-z0-9.-]*) echo "invalid revision" >&2; exit 1 ;; esac
+        case "$rev" in
+          main) ;;
+          v[0-9]*)
+            printf '%s' "$rev" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9][A-Za-z0-9.-]*)?$' || { echo "invalid release tag" >&2; exit 1; } ;;
+          *) echo "revision must be main or a release tag" >&2; exit 1 ;;
+        esac
         out="$(workspaces.source.path)/bifrost-trade-infra"
-        mkdir -p "${out}"
-        rm -rf "${out}"/* "${out}"/.[!.]* "${out}"/..?* 2>/dev/null || true
-        url="$(params.giteaBase)/bifrost-trade-infra.git"
-        rev="$(params.revision)"
-        host_path="${url#http://}"
-        host_path="${host_path#https://}"
-        clone_url="http://${GIT_USERNAME}:${GIT_PASSWORD}@${host_path}"
-        git clone --depth=1 --branch "${rev}" "${clone_url}" "${out}"
+        url="$GITEA_BASE/bifrost-trade-infra.git"
+        mkdir -p "$out"
+        rm -rf "${out}"/* "${out}"/.[!.]* "${out}"/..?*
+        if [ "$rev" = main ]; then
+          git_read clone --depth=1 --branch main "$url" "$out"
+        else
+          git init -q "$out"
+          git -C "$out" remote add origin "$url"
+          git_read -C "$out" fetch --depth=1 origin "refs/tags/$rev"
+          git -C "$out" checkout -q --detach FETCH_HEAD
+        fi
+        unset auth
         cd "${out}"
         echo "=== infra HEAD $(git rev-parse --short HEAD) @ ${rev} ==="
     - name: dockerfile-configmaps

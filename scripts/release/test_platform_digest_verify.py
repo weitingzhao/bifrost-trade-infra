@@ -834,10 +834,12 @@ def test_protected_files_unchanged():
     # TD-411 adds the agentrt schema check and the promotion of the checked images
     # before the PROD rollout. TD-335 (W-31 3.4 ①) removes PROD's builds: it deploys the
     # digests STG verified, pinned in the application. The hash below is the file with
-    # both. The shared legacy restart Task stays unchanged.
+    # both. TD-432 S7 / TD-435 replace reader credentials and move parameters
+    # into env in these files; rollout/digest semantics stay unchanged. Repin the
+    # reviewed definitions so subsequent unrelated edits still fail.
     hashes = {
-        "task-deliver-platform.yaml": "4795263ba3c5135c9c5bd5d1880626ab41558b32a47d33524fc18a45d89388e2",
-        "pipeline-deliver-platform-prod.yaml": "0aca0fcfa680623db983fde5805874e1fae8333a509601e89541401d4be6333d",
+        "task-deliver-platform.yaml": "3c039ec342b7224ec593ee9d76566037b750878b522ecb75bc4c1e75188972aa",
+        "pipeline-deliver-platform-prod.yaml": "4d919e37b9c2b04a92da9fabba0bae99b09f75e4540199858011418c6a4ac779",
     }
     for filename, expected in hashes.items():
         assert (

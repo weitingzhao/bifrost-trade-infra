@@ -3,7 +3,7 @@
 #
 # Prerequisites:
 #   - K3s + Gitea + Tekton + registry (make k3s-install-cicd-stack)
-#   - gitea-git-credentials secret in cicd namespace
+#   - gitea-ci-reader secret in cicd namespace
 #   - Trade repos pushed to Gitea (the primary; GitHub follows main and tags
 #     from the cluster, k8s/cicd/github-sync). The pipeline's mirror-sync task
 #     fetches nothing from GitHub: it checks each repo is on Gitea.
@@ -36,8 +36,8 @@ if [[ ! -f "${KUBECONFIG}" ]]; then
   exit 1
 fi
 
-if ! kubectl get secret gitea-git-credentials -n "${CICD_NAMESPACE}" >/dev/null 2>&1; then
-  echo "Missing gitea-git-credentials in ${CICD_NAMESPACE}" >&2
+if ! kubectl get secret gitea-ci-reader -n "${CICD_NAMESPACE}" >/dev/null 2>&1; then
+  echo "Missing gitea-ci-reader in ${CICD_NAMESPACE}" >&2
   exit 1
 fi
 
