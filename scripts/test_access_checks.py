@@ -273,6 +273,13 @@ class DeliveryPinCaseTests(unittest.TestCase):
                 return Result(0, json.dumps(gitea))
             if args[:4] == ["kubectl", "auth", "can-i", "impersonate"]:
                 return Result(0, "yes\n")
+            if args[:3] == ["kubectl", "replace", "--raw"]:
+                assert args[3].endswith("?dryRun=All"), args
+                body = kwargs["input"]
+                who = args[args.index("--as") + 1]
+                tried.append((who, json.loads(body)))
+                replaced.append((who, json.loads(body)))
+                return Result(0, "")
             if args[:2] in (["kubectl", "apply"], ["kubectl", "replace"]) and args[2] == "--dry-run=server":
                 body = kwargs["input"]
                 who = args[args.index("--as") + 1]

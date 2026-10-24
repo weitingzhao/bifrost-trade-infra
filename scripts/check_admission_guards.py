@@ -328,9 +328,9 @@ def live() -> list[str]:
         if research is not None:
             cases.append(("deliver-pin-research", deliver, "cicd", with_source(research, kustomize=delivery_pin()), True, app_kustomize))
     # Review 542 A2, 545 F3/F4, 546 R1/R2: the platform may restart or scale a Deployment and set
-    # its session annotation, nothing else. Sent as a full-object update (kubectl replace) of the
-    # live object with its metadata kept (resourceVersion included, managedFields dropped), the
-    # way the platform's GET-then-Update sends it.
+    # its session annotation, nothing else. Sent as a raw PUT of the live object with its metadata
+    # kept (resourceVersion included, managedFields dropped), the way the platform's
+    # GET-then-Update sends it; `kubectl replace` would rewrite last-applied-configuration.
     gitea = live_object("cicd", "deployment", "gitea", keep_metadata=True)
     if gitea is None:
         problems.append("deployment cases: cannot read the live Deployment cicd/gitea")
@@ -342,7 +342,7 @@ def live() -> list[str]:
                 problems.append(f"platform-deployment-{label}: the change leaves the live object as it is")
                 continue
             cases.append((f"platform-deployment-{label}", platform, "cicd", json.dumps(changed), message is not None,
-                          (DEPLOY_POLICY, message) if message else None, "replace"))
+                          (DEPLOY_POLICY, message) if message else None, "put"))
     # Ask first: without impersonation kubectl fails while downloading OpenAPI as
     # the target ("failed to download openapi: unknown"), which names no cause.
     for identity in (platform, applier, deliver, stg_platform):
@@ -471,12 +471,17 @@ def classify(identity: str, returncode: int, stderr: str) -> str:
 
 
 def dry_run(identity: str, namespace: str, body: str, verb: str = "apply") -> tuple[str, str]:
-    r = subprocess.run(
-        ["kubectl", verb, "--dry-run=server", "-n", namespace, "--as", identity, "-f", "-"],
-        input=body,
-        capture_output=True,
-        text=True,
-    )
+    if verb == "put":
+        # A raw PUT of the object as given, like the platform's GET-then-Update. `kubectl replace`
+        # rewrites kubectl.kubernetes.io/last-applied-configuration when the object has one, and
+        # the Deployment policy rightly refuses that change (live check 2026-10-24 14:3x).
+        meta = json.loads(body)["metadata"]
+        argv = ["kubectl", "replace", "--raw",
+                f"/apis/apps/v1/namespaces/{namespace}/deployments/{meta['name']}?dryRun=All",
+                "--as", identity, "-f", "-"]
+    else:
+        argv = ["kubectl", verb, "--dry-run=server", "-n", namespace, "--as", identity, "-f", "-"]
+    r = subprocess.run(argv, input=body, capture_output=True, text=True)
     return classify(identity, r.returncode, r.stderr), r.stderr.strip()[:600]
 
 
