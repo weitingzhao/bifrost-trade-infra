@@ -206,10 +206,14 @@ spec:
                   echo "path not in ${repo}@$1" >&2
                   exit 1
                 fi
-                kubectl create --dry-run=client -o json -f "$2.rendered.yaml" \
-                  | jq -s '{apiVersion:"v1",kind:"List",items:.}' > "$3"
+                # Two steps, not a pipe: under sh a failed kubectl would leave jq's exit status.
+                kubectl create --dry-run=client -o json -f "$2.rendered.yaml" > "$2.objects.json"
+                jq -s '{apiVersion:"v1",kind:"List",items:.}' "$2.objects.json" > "$3"
               }
               render "$commit" /tmp/src /tmp/normalized.json
+              # The checker below rewrites normalized.json (it drops existing Namespaces); keep the
+              # render as it came for the comparison with main's head (review 548 R1).
+              cp /tmp/normalized.json /tmp/commit-rendered.json
               tier=$(sh /checks/apply-manifest-check.sh /policy/actuation-policy.yaml /tmp/normalized.json /tmp/objects.json)
               # Review 545 F1: the tier comes from what this commit renders, not from the caller.
               # The platform asks for main on tier C and D (workactions/service.go); a run that
@@ -232,7 +236,7 @@ spec:
                     head=$(git -C /tmp/main.git rev-parse refs/heads/main)
                     if [ "$head" != "$commit" ]; then
                       render "$head" /tmp/head /tmp/head-normalized.json
-                      jq -S . /tmp/normalized.json > /tmp/commit.sorted.json
+                      jq -S . /tmp/commit-rendered.json > /tmp/commit.sorted.json
                       jq -S . /tmp/head-normalized.json > /tmp/head.sorted.json
                       if ! cmp -s /tmp/commit.sorted.json /tmp/head.sorted.json; then
                         echo "${path} renders differently at main's head ${head}; plan again from main" >&2

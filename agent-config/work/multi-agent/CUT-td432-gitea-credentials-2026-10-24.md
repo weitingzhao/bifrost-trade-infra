@@ -8,7 +8,7 @@
 
 ## 0 第 3 稿改了什么（复核 545、546）
 
-复核 546 之后又补了五处：
+复核 546、548 之后又补了六处：
 
 | 复核 546 | 处理 |
 |---|---|
@@ -16,6 +16,7 @@
 | R2 只核策略名，不核是哪条校验拒的；旧拒绝用例接受 RBAC 拒绝 | 每个拒绝用例写明策略名和该条校验消息里的一段，两者都要在拒绝报文里；没写就算用例错误。参数的字符规则和 Gitea 地址规则拆成两条校验，各自有消息。Deployment 用例的改动保证真的改了字段（例如 `paused` 取反），改完与线上相同就报。测试加「同一策略、别的校验拒」的阳性对照 |
 | F1 剩余：「在 main 上」也包括 main 的旧提交，可借它退回旧版的应用流水线；仓库、组织只在平台代码里查 | 应用流水线对 C、D 级再加一条：渲染结果必须和 main 头在同一路径渲染出来的完全相同，否则「main 已改，重新做 plan」。仓库、路径、`giteaOrg`、`giteaBase` 改为对照挂进来的策略文件（`bifrost-actuation-policy`，平台写不了）检查，语义和平台代码 `actuationpolicy/policy.go:170-180` 一致 |
 | webhook 过滤收窄了 CI 的分支名 | CI 不用分支名，CI 触发器只钉 `after`；只有把 ref 往下传的 github-sync 钉 ref |
+| 复核 548 R1：比较的两侧处理阶段不同，含已存在 Namespace 的旧 main 提交被误拒 | 渲染后、checker 之前另存候选结果，和 main 头的未处理渲染比较；离线测试 `scripts/test_apply_manifest_pipeline.py` 覆盖 13 种情形 |
 | 次要 | `--live` 的 CRD 检查也报字段消失和不再裁剪未知字段；操作单的核对命令打印退出码，有 `FAIL` 就停在本节；Deployment 整对象更新保留全部 metadata（含 `resourceVersion`），只去掉 `managedFields` |
 
 下面是 545 那一轮：
