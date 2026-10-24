@@ -10,7 +10,6 @@ DELIVER_TIMEOUT="${DELIVER_TIMEOUT:-7200}"
 REVISION="${REVISION:-main}"
 UI_REVISION="${UI_REVISION:-${REVISION}}"
 TRIGGER="${TRIGGER:-deliver-prod}"
-SYNC_GITEA="${SYNC_GITEA:-1}"
 APPLY_OVERLAY="${APPLY_OVERLAY:-0}"
 RUN_DB_INIT="${RUN_DB_INIT:-0}"
 
@@ -24,12 +23,6 @@ fi
 if ! kubectl get secret gitea-git-credentials -n "${CICD_NAMESPACE}" >/dev/null 2>&1; then
   echo "Missing gitea-git-credentials in ${CICD_NAMESPACE}" >&2
   exit 1
-fi
-
-if [[ "${SYNC_GITEA}" == "1" ]]; then
-  echo "==> Sync Gitea mirrors from GitHub (${REVISION})"
-  MIRROR_REPOS="bifrost-trade-core bifrost-trade-worker bifrost-trade-api bifrost-trade-frontend bifrost-trade-infra bifrost-ui bifrost-platform" \
-    "${ROOT}/scripts/k3s/bootstrap-gitea-mirrors.sh"
 fi
 
 # The overlay config (k8s/overlays/prod/config/config.prod.yaml) is the only PROD config;

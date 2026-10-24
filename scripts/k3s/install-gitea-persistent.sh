@@ -33,7 +33,8 @@ kubectl create namespace "${CICD_NAMESPACE}" --dry-run=client -o yaml | kubectl 
 if kubectl get deploy gitea -n "${CICD_NAMESPACE}" >/dev/null 2>&1; then
   if kubectl get deploy gitea -n "${CICD_NAMESPACE}" -o yaml | grep -q 'emptyDir: {}'; then
     echo "WARN: Migrating Gitea from emptyDir → PVC. In-repo data on old pod will not migrate."
-    echo "      After this script, run: make k3s-bootstrap-gitea-mirrors"
+    echo "      Gitea holds the primary copy of every repository: restore them from the"
+    echo "      nightly backup (docs/runbooks/gitea-restore.md), not from GitHub."
   fi
 fi
 
@@ -73,5 +74,6 @@ echo ""
 echo "Next:"
 echo "  1. Complete Gitea first-run in UI (if fresh volume) + create admin API token"
 echo "  2. kubectl apply -f k8s/cicd/gitea/secret.yaml"
-echo "  3. make k3s-bootstrap-gitea-mirrors   # seed from GitHub (one-time / resync)"
+echo "  3. Repositories: Gitea is their primary; restore from the nightly backup"
+echo "     (docs/runbooks/gitea-restore.md), never re-seed them from GitHub"
 echo "  4. make k3s-install-ci-frontend-git   # Session S7 Tekton clone smoke"

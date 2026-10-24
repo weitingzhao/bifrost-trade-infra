@@ -146,7 +146,7 @@ git show 27e4467:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | kubectl a
 | 拒绝行里有 | 意思 | 怎么办 |
 |---|---|---|
 | `identity cannot read PipelineRuns/TaskRuns in cicd` | 检查没跑在 tekton-deliver 下 | platform 那一半还没到 PROD，或这条 run 是手建的、没给 check-source 指身份 |
-| `no exact-SHA Succeeded CI` | 这个提交没有成功的 `bifrost-ci-platform` | 等 CI；CI 没起就先同步镜像再起一次 |
+| `no exact-SHA Succeeded CI` | 这个提交没有成功的 `bifrost-ci-platform` | 等 CI；CI 没起，先查这个提交在不在 Gitea 上（它是主仓库，推上去钩子就起 CI），再起一次 |
 | `no STG delivery` | 集群里一条 `bifrost-deliver-platform` 的 run 都没有（run 只留 7 天） | 发一次 STG |
 | `STG clone commit differs or is ambiguous` | STG 最新一次成功发布的不是这个提交 | 先把这个提交发到 STG |
 | `STG run X is False`、`is Unknown`、`is running/no Succeeded condition` | 最新一次 STG 发布失败或还在跑 | 等它结束；失败就重发 STG |
@@ -156,8 +156,8 @@ git show 27e4467:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | kubectl a
 | `missing or ambiguous clone-platform TaskRun`、`clone TaskRun identity/status mismatch` | 那次 STG 发布的拉代码记录不在了，或和 run 对不上 | 再发一次 STG |
 | `missing or ambiguous clone-ui TaskRun`、`UI clone TaskRun identity/status mismatch`、`STG UI clone commit differs from uiRevision` | PROD 部署的是那次 STG 构建出的 console（TD-335），它不是这张单子写的 UI 提交，或它的拉代码记录不在了 | 用那次 STG 发布的 UI 提交建单（`release.sh prod` 自己会取），或把这个 UI 提交先发到 STG |
 | `missing or ambiguous rollout TaskRun`、`rollout TaskRun identity/status mismatch`、`missing or ambiguous api-digest result`（或 `console-digest`）、`STG rollout digests are malformed` | 那次 STG 发布没有核对过的一对摘要可提升（TD-335：PROD 只部署 STG 核对过的摘要） | 再发一次 STG |
-| `empty or ambiguous mirror revision` | 镜像上没有这个分支或标签，或者同名的分支和标签都在 | 同步镜像；改给 40 位整 SHA |
-| `invalid revision`、`mirror returned another SHA`、`invalid mirror SHA`、`invalid resolved SHA` | 给的修订号不合法，或镜像回的不是它 | 只给分支名、标签名或 40 位整 SHA；再出现就停下查镜像 |
+| `empty or ambiguous mirror revision` | Gitea 上没有这个分支或标签，或者同名的分支和标签都在（检查沿用旧名 mirror，读的是 Gitea 主仓库） | 先把它推到 Gitea；改给 40 位整 SHA |
+| `invalid revision`、`mirror returned another SHA`、`invalid mirror SHA`、`invalid resolved SHA` | 给的修订号不合法，或 Gitea 回的不是它 | 只给分支名、标签名或 40 位整 SHA；再出现就停下查 Gitea |
 | `query failed: <原因>`、`CalledProcessError: <原因>`（原因是几句固定的话之一，例如 `cannot reach the API server`、`mirror authentication failed`、`timed out`；认不出的写 `unrecognised error output`。工具自己的报错原文不进日志，因为这一步拿着镜像的凭证）、`malformed or incomplete PipelineRun list`、`PipelineRun does not match selector …`、`malformed run`、`malformed spec`、`malformed params`、`ambiguous params`、`ambiguous status`、`duplicate JSON key`、`timezone missing` | 读集群失败，或读回来的记录形状不对。关着失败 | 重试一次；仍然出现就不要绕过，把这一行原样交给统筹线程 |
 | 行尾是一个异常类名（`CalledProcessError`、`TimeoutExpired`、`KeyError` 等） | git 或 kubectl 子进程失败，或超过 20 秒 | 同上 |
 
@@ -214,13 +214,37 @@ STG 的 `rollout` 引用 `bifrost-rollout-verify-platform`，先重启并等待�
 | `REFUSED: invalid STG or PROD rollout parameters` | 重启前拒绝错误环境、摘要、记录或模式参数；查流水线接线。 |
 | `REFUSED: platform rollout failed or timed out` | 重启/等待失败；查滚动状态，工具原文不进日志。 |
 
+## 代码在哪：Gitea 做主（2026-10-17/18 起）
+
+切法 `agent-config/work/multi-agent/CUT-gitea-primary-2026-10-17.md`，第 D 批 2026-10-23 收尾。
+
+- **主仓库是集群内 Gitea** `bifrost/<repo>`（`http://192.168.10.73:30300`，集群内 `http://gitea.cicd.svc.cluster.local:3000`），
+  11 个仓库都是普通仓库、不是拉取镜像（名单 `agent-config/gitea-primary.txt`）。本机检出的 `origin` 是 Gitea，`github` 远端只读
+  （推送地址是 `no-push://…`）。推 main 经下面的 `push-main.sh`；人和会话的分支也推 Gitea。
+- **GitHub `weitingzhao/<repo>` 只跟随，只收 `main` 和标签**：Gitea 收到推 main 或推标签时，EventListener `bifrost-ci` 的
+  `github-sync` 触发器起 Task `bifrost-github-sync`；另有每 15 分钟的对账 CronJob `bifrost-github-sync-reconcile`（`k8s/cicd/github-sync/`，
+  令牌在 Secret `cicd/github-sync`）。只快进，不强推、不删；GitHub 领先或分叉时同步失败，告警 `BifrostGitHubSyncStale`（45 分钟没有一次成功）。
+  所以**不要在 GitHub 上改文件、合 PR、推任何东西**：`preflight.js` 拦向名单里仓库的 GitHub 推送，`push-main.sh` 拒绝 `origin` 还指向 GitHub 的检出。
+  12 个 GitHub 仓库仍是公开的；Agent 分支和人的工作分支只在私有的 Gitea 上。
+- **没有拉取镜像了**：从 GitHub 往 Gitea 建拉取镜像的脚本和它的 make 目标已删（第 D 批）。deliver 和构建流水线里名为 `mirror-sync`
+  的 Task 先问 Gitea 仓库是不是镜像，主仓库不拉取，只核对仓库在、给了 `expectSha` 时等提交在；平台的 `POST /api/v1/delivery/mirrors/sync`
+  同样只等提交在 Gitea 上（最多 90 秒），不请求同步。
+- **CI** 由 Gitea 的推送钩子直接起（`scripts/gitea/ensure-push-webhooks.sh` 装钩子），不再等镜像同步。
+- **Agent 分支**在同一个 `bifrost/<repo>` 的 `agent/<任务>/a<n>`；平台 `AGENTRT_GIT_ORG=bifrost`，agentd 克隆和推送都用 `bifrost`。
+  过渡用的组织 `bifrost-agents` 已删（2026-10-23，Gitea 回 404）。
+- **Argo CD** 的 5 个 Application 读 Gitea（`k8s/cicd/applications/*.yaml`）。
+- **core 的版本标签** `tag_core_release.sh --push` 推到 `origin`（Gitea），GitHub 由上面的同步跟上。
+- **新仓库**：在 Gitea 上用模板 `bifrost/repo-template` 建（带 `main` 分支规则和 CI 钩子），页面上加标签规则 `*`，名单 `gitea-primary.txt`
+  加一行；要公开的再在 GitHub 建一个空库，同步会把 main 推过去。
+- **Gitea 挂了**：告警 `BifrostGiteaUnavailable`；恢复见 `docs/runbooks/gitea-restore.md`（每晚加密备份），不要从 GitHub 重建仓库（GitHub 只有 main 和标签）。
+
 ## 发布窗口：推 main 或起 deliver 之前先看
 
 ```bash
 scripts/release/push-main.sh <checkout> <sha>
 ```
 
-`push-main.sh`（TD-341）先跑 `release.sh window`；对有自己 CI 的仓库（platform、trade-frontend、trade-core / api / worker、research），要求 `<sha>` 有一次成功的 ci-* 运行（W-31 3.4 ②：CI 在每次推分支时就跑，所以先把分支推到 Gitea，绿了再合；没跑完的最多等 `PUSH_MAIN_CI_WAIT` 秒，失败或一直没有就拒推；`--allow-red <理由>` 照推并打印理由，和 `release.sh --allow-red` 同义；只改 Markdown 的不查）；再在 `<sha>` 的干净 worktree 上跑和 CI 同一份 code-health 扫描（只对 CI 有 code-health 任务的仓库：platform、trade-frontend、research、trade-api / core / worker），过了才 `git push origin <sha>:refs/heads/main`，只接受快进，推之前再查一次窗口。直接 `git push` 到 main 由 `preflight.js` 拦截。
+`push-main.sh`（TD-341）先跑 `release.sh window`；对有自己 CI 的仓库（platform、trade-frontend、trade-core / api / worker、research），要求 `<sha>` 有一次成功的 ci-* 运行（W-31 3.4 ②：CI 在每次推分支时就跑，所以先把分支推到 Gitea，绿了再合；没跑完的最多等 `PUSH_MAIN_CI_WAIT` 秒，失败或一直没有就拒推；`--allow-red <理由>` 照推并打印理由，和 `release.sh --allow-red` 同义；只改 Markdown 的不查）；再在 `<sha>` 的干净 worktree 上跑和 CI 同一份 code-health 扫描（只对 CI 有 code-health 任务的仓库：platform、trade-frontend、research、trade-api / core / worker），过了才 `git push origin <sha>:refs/heads/main`（`origin` 是 Gitea；GitHub 由集群跟上，见上一节），只接受快进，推之前再查一次窗口。直接 `git push` 到 main 由 `preflight.js` 拦截。
 
 - **血缘（TD-400）**：扫描之前先查 `origin/main..<sha>` 里的每个提交，必须同时带 `Change-Id` 和 `Claude-Session` 两个尾注。缺的会逐个点名，然后拒推。husky 仓库新开的 worktree 不跑钩子，在那里提交要自己补 `--trailer`。cherry-pick 和 rebase 保留原尾注。不在 Claude 会话里做的提交（比如 Owner 自己的），用 `push-main.sh --no-lineage <理由> <checkout> <sha>` 推，理由和这些提交会打在输出里。
 - **快测试（TD-413）**：在扫描用的那个干净 worktree 里接着跑这个仓库的快测试，失败就拒推。worktree 旁边会链接工作区里的其他仓库，因为测试会读它们。
@@ -240,7 +264,7 @@ scripts/release/push-main.sh <checkout> <sha>
 窗口在 `release.sh` 运行期间存在（`hold` 一直占到进程退出，并续期）。Research 与插件用同一个
 ConfigMap `cicd/bifrost-release-window`，`what` 写仓库名。对应流水线的第一个 task
 和 platform-api 的 `start_pipeline_run` 在窗口被别人持有时拒绝。`stg` / `prod` 在起 run 之前
-`POST /api/v1/delivery/mirrors/sync`，并要求所发 SHA 有 Succeeded 的 `ci-*`，`--allow-red <原因>` 才放行。
+`POST /api/v1/delivery/mirrors/sync`（Gitea 做主后它不拉取任何东西，只确认所发 SHA 都在 Gitea 上），并要求所发 SHA 有 Succeeded 的 `ci-*`，`--allow-red <原因>` 才放行。
 STG 与 PROD 之间（等 Owner 看 STG）没有锁——这段时间推 main 不影响 PROD，
 因为 PROD 钉的是 STG 克隆的提交，不是 `main`。
 

@@ -35,10 +35,6 @@ if ! kubectl get secret gitea-git-credentials -n "${CICD_NAMESPACE}" >/dev/null 
   exit 1
 fi
 
-echo "==> Phase B: Gitea mirrors (Trade repos for API + frontend builds)"
-MIRROR_REPOS="bifrost-trade-core bifrost-trade-worker bifrost-trade-api bifrost-trade-frontend bifrost-trade-infra bifrost-ui bifrost-platform" \
-  "${ROOT}/scripts/k3s/bootstrap-gitea-mirrors.sh"
-
 echo "==> Sync stg config into kustomize overlay"
 # The overlay config is the only STG config (TD-06); it is applied as committed.
 
@@ -72,7 +68,7 @@ if [[ "${RUN_DELIVER}" != "1" ]]; then
   exit 0
 fi
 
-TRIGGER=install-phase-b-stg SYNC_GITEA=0 APPLY_OVERLAY=0 RUN_DB_INIT=1 \
+TRIGGER=install-phase-b-stg APPLY_OVERLAY=0 RUN_DB_INIT=1 \
   "${ROOT}/scripts/k3s/run-deliver-stg.sh"
 
 STG_GATEWAY_HOST="${STG_GATEWAY_HOST:-stg.trader.bifrost.lan}"

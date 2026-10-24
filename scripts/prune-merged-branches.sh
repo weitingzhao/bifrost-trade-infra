@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Prune branches that main already carries, across the workspace's sibling repos: GitHub branches,
-# then this Mac's worktrees and local branches. Gitea mirrors GitHub (pull mirror, 8h) and follows
-# on its next sync -- `make k3s-sync-gitea-mirrors` makes that immediate.
+# Prune branches that main already carries, across the workspace's sibling repos: origin's branches,
+# then this Mac's worktrees and local branches. origin is Gitea, the primary of every repository since
+# 2026-10-17 (agent-config/gitea-primary.txt). GitHub receives only main and tags from the cluster; its
+# older branches stay as they were at the cut, and this script does not touch them.
 #
 #   scripts/prune-merged-branches.sh                 dry run: print what would go and what stays
 #   scripts/prune-merged-branches.sh --apply         back up, then delete remote branches

@@ -54,7 +54,7 @@ curl -s http://127.0.0.1:8780/api/v1/plugins/market-data/api/market/doctor | pyt
 
 ## Release path (Plugin is not under Argo)
 
-push GitHub → `POST /api/v1/delivery/mirrors/sync` → `start_pipeline_run` name=`bifrost-build-market-data` with the image tag → confirm the tag in
+push main with `bifrost-trade-infra/scripts/release/push-main.sh` (`origin` is Gitea, the primary; GitHub follows from the cluster) → `start_pipeline_run` name=`bifrost-build-market-data` with the image tag → confirm the tag in
 `192.168.10.73:30500/v2/bifrost-market-data/tags/list` → `plan_manifest` then `apply_manifest` (tier C, Owner approves) → `make verify-market-data`.
 
 ### A release that adds a table lands the schema first

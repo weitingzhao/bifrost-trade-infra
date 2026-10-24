@@ -5,9 +5,9 @@
 ## 架构
 
 ```
-GitHub (upstream)
-    ↓ mirror-sync (must finish before any clone; includes bifrost-trade-infra)
-Gitea (cicd)  ← clone 7 repos (incl. bifrost-trade-infra)
+push-main.sh → Gitea (cicd) main   ← the primary of every repository; GitHub only follows (see below)
+    ↓ mirror-sync: each repo is Gitea's own, so nothing is fetched; fails if Gitea or a repo is missing
+    ↓ clone 7 repos from Gitea (incl. bifrost-trade-infra)
     ↓ prepare: Dockerfile ConfigMaps from infra clone
     ↓ Kaniko
 Registry :30500  →  bifrost-{api,frontend,worker,socket}:stg
@@ -16,7 +16,15 @@ Registry :30500  →  bifrost-{api,frontend,worker,socket}:stg
 bifrost-stg namespace  (+ Argo CD sync)
 ```
 
-**约束：** `clone-*` 必须 `runAfter: [mirror-sync]`。prepare 只写 Dockerfile ConfigMap，不再做 mirror（否则 clone 会吃到 Gitea 旧 SHA）。`bifrost-trade-infra` 必须在 mirrorRepos 里。
+**代码在哪（Gitea 做主，2026-10-17/18 起）：** 11 个仓库（`agent-config/gitea-primary.txt`）都以集群内 Gitea
+`bifrost/<repo>` 为主仓库，不再是 GitHub 的拉取镜像；建拉取镜像的脚本和它的两个 make 目标在第 D 批（2026-10-23）
+删除，`scripts/release/test_w33c_static.py` 守着不让它回来。人和 Agent 都推 Gitea；GitHub `weitingzhao/<repo>`
+只收 `main` 和标签，由集群快进推过去（`k8s/cicd/github-sync`），见 [RELEASE.md](RELEASE.md)「代码在哪」。
+
+**约束：** `clone-*` 仍 `runAfter: [mirror-sync]`。这个 Task（`bifrost-gitea-mirror-sync`）先问 Gitea 每个仓库是不是拉取镜像：
+是才请求同步，不是就打一行 `… is Gitea's primary: nothing to fetch`；给了 `expectSha` 就等到这个提交在 Gitea 上。
+今天 11 个仓库都是主仓库，所以它只核对 Gitea 在、仓库在（和提交在）。prepare 只写 Dockerfile ConfigMap。
+`bifrost-trade-infra` 必须在 mirrorRepos 里。
 
 | 组件 | 来源 | 说明 |
 |------|------|------|
@@ -39,15 +47,11 @@ bifrost-stg namespace  (+ Argo CD sync)
 
 ## 日常交付流程
 
-### 1. 推送业务仓库到 GitHub
+### 1. 把改动推到 Gitea 的 main
 
-至少涉及 STG 近期改动的 repo：
-
-- `bifrost-trade-api` — Ops Socket/Celery 修复
-- `bifrost-trade-socket` — Massive delayed WS + 120s heartbeat
-- `bifrost-trade-worker` — `run_celery.py`
-- `bifrost-trade-frontend` — Socket 页 Stg pill / k8s_managed
-- `bifrost-trade-infra` — overlay、config、Tekton、Dockerfile
+经 `scripts/release/push-main.sh <checkout> <sha>` 推（见 [RELEASE.md](RELEASE.md)「发布窗口」）：各检出的 `origin`
+是 Gitea（`http://192.168.10.73:30300/bifrost/<repo>.git`），`github` 远端只读。deliver 克隆的是 Gitea 上的提交；
+推到 Gitea 后 CI 由 Gitea 的推送钩子直接起，不用等任何同步。直接推 GitHub 被 `preflight.js` 和 `push-main.sh` 拒绝。
 
 ### 2. 同步配置（可选）
 
@@ -65,27 +69,25 @@ export KUBECONFIG=~/.kube/bifrost-k3s.yaml
 make k3s-deliver-stg
 ```
 
-等价于 `scripts/k3s/run-deliver-stg.sh`，默认：
+等价于 `scripts/k3s/run-deliver-stg.sh`（它用 `kubectl apply`，只有 Owner 的管理员 kubeconfig 能跑；Agent 发 STG 用
+`release.sh stg`，经平台起 run），默认：
 
-1. Gitea mirror-sync（从 GitHub 拉最新）
-2. `sync-stg-config`（若有 `.env`）
-3. 更新 Tekton Dockerfile ConfigMaps
-4. 创建 `bifrost-deliver-stg` PipelineRun
-5. 等待完成（默认 2h 超时）
+1. 本地检查 overlay 配置、Postgres 等待、`uiRevision` 接线
+2. 更新 Tekton Dockerfile ConfigMaps
+3. 创建 `bifrost-deliver-stg` PipelineRun
+4. 等待完成（默认 2h 超时）
+
+不再有「先同步 Gitea 镜像」这一步：Gitea 是主仓库，推上去的就是 deliver 克隆的。
 
 **环境变量：**
 
 | 变量 | 默认 | 说明 |
 |------|------|------|
-| `SYNC_GITEA` | `1` | 跑 Gitea mirror-sync |
 | `APPLY_OVERLAY` | `0` | deliver 时是否 `kubectl apply -k` |
 | `RUN_DB_INIT` | `0` | 成功后重跑 `db-init-stg` Job |
 | `REVISION` | `main` | Gitea clone 分支 |
 
 ```bash
-# 已手动 sync 过 Gitea，只重建镜像
-SYNC_GITEA=0 make k3s-deliver-stg
-
 # 配置 + 镜像一起更新
 APPLY_OVERLAY=1 make k3s-deliver-stg
 ```
@@ -147,13 +149,15 @@ STG → PROD → DEV 的整套步骤（窗口锁、并发检查、钉版本 spec
 
 ```
 k8s/cicd/tekton/pipeline-deliver-stg.yaml
-k8s/cicd/tekton/task-gitea-mirror-sync.yaml
+k8s/cicd/tekton/task-gitea-mirror-sync.yaml   # 主仓库不拉取，只核对仓库和提交在 Gitea 上
 k8s/cicd/tekton/task-prepare-deliver-stg.yaml
 k8s/cicd/tekton/task-deliver-stg.yaml
 k8s/cicd/tekton/task-kaniko-*.yaml
 k8s/cicd/docker/Dockerfile.*-stg
 scripts/k3s/run-deliver-stg.sh
-scripts/k3s/bootstrap-gitea-mirrors.sh
+scripts/release/push-main.sh                  # 推 Gitea main 的唯一入口
+k8s/cicd/github-sync/                         # GitHub 跟随 Gitea：main 和标签，只快进
+agent-config/gitea-primary.txt                # 以 Gitea 为主的仓库名单
 k8s/overlays/stg/
 ```
 

@@ -190,8 +190,10 @@ def main(argv: list[str] | None = None) -> int:
     check("--allow-red" in release and "ci_gate.py" in release, "release.sh does not gate on CI")
     check("TRADE_WHAT=" in release and "bifrost-release-window" in release, "release.sh does not publish the window")
     check("/api/v1/delivery/release-window" in release, "release.sh does not hold the window through the platform")
-    check("/api/v1/delivery/mirrors/sync" in release, "release.sh does not sync mirrors through the platform")
-    check("bootstrap-gitea-mirrors.sh" not in release, "release.sh still calls the mirror bootstrap script")
+    # With Gitea the primary, the platform fetches nothing for a regular repository and
+    # only waits until each shipped SHA is on Gitea (CUT-gitea-primary step 0b). The deleted
+    # GitHub pull-mirror bootstrap stays gone: scripts/release/test_w33c_static.py.
+    check("/api/v1/delivery/mirrors/sync" in release, "release.sh does not check the SHAs are on Gitea through the platform")
     for forbidden in ("kubectl create", "kubectl apply", "kubectl delete", "kubectl exec"):
         check(forbidden not in release, f"release.sh still contains {forbidden!r}")
 

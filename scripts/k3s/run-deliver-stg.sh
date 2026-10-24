@@ -4,12 +4,13 @@
 # Prerequisites:
 #   - K3s + Gitea + Tekton + registry (make k3s-install-cicd-stack)
 #   - gitea-git-credentials secret in cicd namespace
-#   - Trade repos pushed to GitHub; Gitea mirrors synced (SYNC_GITEA=1 default)
+#   - Trade repos pushed to Gitea (the primary; GitHub follows main and tags
+#     from the cluster, k8s/cicd/github-sync). The pipeline's mirror-sync task
+#     fetches nothing from GitHub: it checks each repo is on Gitea.
 #
 # Usage:
 #   make sync-stg-config                    # optional: refresh IB + overlay config
-#   make k3s-deliver-stg                    # mirror sync + build + rollout
-#   SYNC_GITEA=0 make k3s-deliver-stg       # skip Gitea mirror-sync (already fresh)
+#   make k3s-deliver-stg                    # build + rollout
 #   APPLY_OVERLAY=1 make k3s-deliver-stg   # also kubectl apply -k overlays/stg
 #   REVISION=main TRIGGER=manual make k3s-deliver-stg
 #
@@ -24,7 +25,6 @@ DELIVER_TIMEOUT="${DELIVER_TIMEOUT:-7200}"
 REVISION="${REVISION:-main}"
 UI_REVISION="${UI_REVISION:-${REVISION}}"
 TRIGGER="${TRIGGER:-deliver-stg}"
-SYNC_GITEA="${SYNC_GITEA:-1}"
 APPLY_OVERLAY="${APPLY_OVERLAY:-0}"
 RUN_DB_INIT="${RUN_DB_INIT:-0}"
 GITEA_ORG="${GITEA_ORG:-bifrost}"
@@ -39,12 +39,6 @@ fi
 if ! kubectl get secret gitea-git-credentials -n "${CICD_NAMESPACE}" >/dev/null 2>&1; then
   echo "Missing gitea-git-credentials in ${CICD_NAMESPACE}" >&2
   exit 1
-fi
-
-if [[ "${SYNC_GITEA}" == "1" ]]; then
-  echo "==> Sync Gitea mirrors from GitHub (${REVISION} on upstream)"
-  MIRROR_REPOS="bifrost-trade-core bifrost-trade-worker bifrost-trade-api bifrost-trade-frontend bifrost-trade-infra bifrost-ui bifrost-platform" \
-    "${ROOT}/scripts/k3s/bootstrap-gitea-mirrors.sh"
 fi
 
 # The overlay config (k8s/overlays/stg/config/config.stg.yaml) is the only STG config;

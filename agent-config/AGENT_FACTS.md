@@ -1,6 +1,6 @@
 ---
-parity-id: agent-facts-v12
-generated: 2026-10-07
+parity-id: agent-facts-v13
+generated: 2026-10-23
 authority: bifrost-platform/config/ops-context.yaml (spine) + 磁盘扫描
 ---
 
@@ -41,7 +41,7 @@ ib-gateway / market-data；`bifrost-deliver-stg` 是 Trade 专属），因而长
 | **Research** | **决策载荷** —— OLAP / Golden Source / Copilot |
 | Subcontractors | 外围供数插件 —— 写 `raw_*`，与 Research 的数据流方向相反 |
 
-发布链：`bifrost-deliver-research`（mirror-sync → clone → kaniko → rollout → verify → gitops-sync）。
+发布链：`bifrost-deliver-research`（mirror-sync → clone → kaniko → rollout → verify → gitops-sync；Gitea 做主后 mirror-sync 不拉取，只等提交在 Gitea 上）。
 
 ### 两个 Payload 的发布互动（前端是共用驾驶舱）
 
@@ -267,7 +267,7 @@ Owner **2026-08-31** 签批 D-14GF.1–6（R1）；同日 GitHub Archive + 授�
 | python-ci CEL | ✅ 含 `bifrost-research`；code-health Task 对 research + trade-api/core/worker 跑棘轮 |
 | python-ci ruff（2026-09-26） | ✅ **阻断** research + trade-api/core/worker（脚本里的 `lint_blocks`；research 的 35 条既有问题已于 76901a2 清零）。ruff 只来自各 repo `[dev]` 的 `ruff==0.16.9`，规则显式 `select = ["E4","E7","E9","F"]`（0.16 起默认规则 59→413 条）；CI 与 `make lint` 同为 `ruff check .`。**sqlfluff** 同一闸门：带 `.sqlfluff` 的 dbt 目录（research `src/bifrost_research/dbt`，postgres · jinja 模板器 · `rules = core,RF02,AM03,RF03,AL01,ST06,ST07,AM04` · `ignore_templated_areas = False`（否则 AM04 看不见 `{{ ref() }}`）（core 内含 CV03 / CV04，分别钉为 forbid / count(*)） · 行宽 100，`sqlfluff==4.3.0`）跑 `sqlfluff lint models/`，与 `make lint` 相同 |
 
-安装：`make k3s-install-ci-triggers` + `make k3s-install-ci-webhooks`；校验 `make k3s-verify-ci-triggers`。
+安装：`make k3s-install-ci-triggers`；推送钩子由 Owner 跑 `scripts/gitea/ensure-push-webhooks.sh`（`gitea-primary.txt` 里每个仓库一个，推 main 和标签同时触发 GitHub 同步）；校验 `make k3s-verify-ci-triggers`。
 
 **闸门只拦 OVER**；贴顶（AT CEILING）合入放行，规划灯另见 Console Code Health Posture Summary。
 
@@ -352,11 +352,17 @@ D10 冻结的那个进程只有一个，但在代码、集群与界面上有十�
 ### 代码托管可见性
 
 - GitHub `weitingzhao/*` 的 12 个工作区 repo **全部 PUBLIC**（含已归档的 `bifrost-trade-socket`）。
-  推送即公开：任何 `.env`、Secret YAML、dump、token 进入提交就是公开泄露。
+  进 main 即公开：Gitea 的 main 和标签几十秒内由集群同步到 GitHub，任何 `.env`、Secret YAML、dump、token 进入 main 的提交就是公开泄露。
 - 入库的 env 文件只有前端三个非秘密文件（`.env.development` / `.env.development.k3s` / `.env.production`）；
   Secret 清单只有 `*.example.yaml`；`agent-config/claude/settings.local.json` 已 gitignore。
-- 集群内 Gitea 镜像 `gitea.cicd.svc.cluster.local:3000/bifrost/<repo>`（NodePort `.73:30300`）
-  只由 deliver 流水线的 `mirror-sync` 写入，不手工 push。
+- **主仓库是集群内 Gitea**（2026-10-17/18 起，切法 `agent-config/work/multi-agent/CUT-gitea-primary-2026-10-17.md`）：
+  `gitea.cicd.svc.cluster.local:3000/bifrost/<repo>`（NodePort `.73:30300`），名单 `agent-config/gitea-primary.txt` 里 11 个仓库都是普通仓库，
+  不是 GitHub 的拉取镜像，也没有建拉取镜像的脚本了（第 D 批 2026-10-23 删除）。本机检出的 `origin` 是 Gitea，`github` 远端只读。
+  人和 Agent 都推 Gitea，main 只经 `push-main.sh`；CI 由 Gitea 推送钩子直接起；Argo CD 的 5 个 Application 读 Gitea。
+- **GitHub 只跟随**：只收 `main` 和标签，由集群的 `bifrost-github-sync`（推送触发 + 每 15 分钟对账，`k8s/cicd/github-sync/`）只快进地推过去，
+  不强推、不删；GitHub 领先或分叉时同步失败并告警。不在 GitHub 上改文件、合 PR 或推送（`preflight.js`、`push-main.sh` 拒推名单仓库的 GitHub）。
+  人的工作分支和 Agent 分支只在私有的 Gitea。
+- **Agent 分支**在同一个 `bifrost/<repo>` 的 `agent/<任务>/a<n>`（平台 `AGENTRT_GIT_ORG=bifrost`）；过渡组织 `bifrost-agents` 已删（2026-10-23）。
 
 ### 集群与节点（K3s `bifrost-bootstrap`）
 
@@ -405,9 +411,9 @@ Mac mini `.50` / `.52`（agent host）、ubt-k3s-06 `.79`（2026-10-17 出集群
 
 | Argo App | 源 | 同步策略 | 含义 |
 |----------|----|----------|------|
-| `bifrost-platform-stg` / `bifrost-platform-prod` | bifrost-trade-infra `main` | **automated + prune + selfHeal** | 推 infra main = 立即改 Ops STG/PROD 运行时 |
-| `bifrost-research` | bifrost-research `main` | automated（无 prune / selfHeal） | 推 research main = 改 research 运行时；先镜像后 manifest（research-release skill） |
-| `bifrost-stg` / `bifrost-prod` | bifrost-trade-infra `main` | 手动 | Trade 由 `bifrost-deliver-{stg,prod}` rollout，再 `gitops_sync_app` |
+| `bifrost-platform-stg` / `bifrost-platform-prod` | Gitea `bifrost/bifrost-trade-infra` `main` | **automated + prune + selfHeal** | 推 infra main = 立即改 Ops STG/PROD 运行时 |
+| `bifrost-research` | Gitea `bifrost/bifrost-research` `main` | automated（无 prune / selfHeal） | 推 research main = 改 research 运行时；先镜像后 manifest（research-release skill） |
+| `bifrost-stg` / `bifrost-prod` | Gitea `bifrost/bifrost-trade-infra` `main` | 手动 | Trade 由 `bifrost-deliver-{stg,prod}` rollout，再 `gitops_sync_app` |
 
 Tekton 流水线：`bifrost-ci-{frontend,platform,python}` · `bifrost-deliver-{stg,prod,platform,platform-prod,research}` ·
 `bifrost-build-{stg,frontend-stg,market-data,flex-query,research-dagster}` · `bifrost-smoke` · `bifrost-clone-frontend-smoke`。

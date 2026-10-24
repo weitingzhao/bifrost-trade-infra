@@ -3,8 +3,7 @@
 #
 # Usage:
 #   make sync-platform-k8s-config   # copy bifrost-platform config into overlay
-#   make k3s-deliver-platform       # mirror sync + build + rollout
-#   SYNC_GITEA=0 make k3s-deliver-platform
+#   make k3s-deliver-platform       # build + rollout (Gitea is the primary: nothing to sync)
 #   APPLY_OVERLAY=1 make k3s-deliver-platform
 #   APPLY_ARGO=1 make k3s-deliver-platform
 #
@@ -19,7 +18,6 @@ DELIVER_TIMEOUT="${DELIVER_TIMEOUT:-3600}"
 REVISION="${REVISION:-main}"
 UI_REVISION="${UI_REVISION:-${REVISION}}"
 TRIGGER="${TRIGGER:-deliver-platform}"
-SYNC_GITEA="${SYNC_GITEA:-1}"
 APPLY_OVERLAY="${APPLY_OVERLAY:-0}"
 APPLY_ARGO="${APPLY_ARGO:-0}"
 
@@ -40,12 +38,6 @@ python3 "${ROOT}/scripts/check_ui_revision.py"
 
 echo "==> Sync platform overlay config from bifrost-platform"
 "${ROOT}/scripts/sync_platform_k8s_config.sh"
-
-if [[ "${SYNC_GITEA}" == "1" ]]; then
-  echo "==> Sync Gitea mirrors (bifrost-platform + bifrost-ui)"
-  MIRROR_REPOS="bifrost-platform bifrost-ui" \
-    "${ROOT}/scripts/k3s/bootstrap-gitea-mirrors.sh"
-fi
 
 if [[ "${APPLY_OVERLAY}" == "1" ]]; then
   echo "==> Apply bifrost-platform-stg overlay"

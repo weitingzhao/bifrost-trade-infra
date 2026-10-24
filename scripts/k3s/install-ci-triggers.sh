@@ -7,7 +7,7 @@
 #
 # Requires:
 #   - Tekton Pipelines (make k3s-install-cicd-stack)
-#   - Gitea mirrors + gitea-git-credentials secret (make k3s-bootstrap-gitea-mirrors)
+#   - the repositories on Gitea (their primary) + the gitea-git-credentials secret
 #
 # Usage:
 #   KUBECONFIG=~/.kube/bifrost-k3s.yaml ./scripts/k3s/install-ci-triggers.sh

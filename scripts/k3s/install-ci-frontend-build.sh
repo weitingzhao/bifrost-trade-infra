@@ -2,7 +2,8 @@
 # Session S8 — real bifrost-trade-frontend image: Gitea clone → npm build → Kaniko → registry :stg
 #
 # Requires:
-#   - S7 Gitea mirrors (bifrost-trade-frontend + bifrost-ui)
+#   - bifrost-trade-frontend, bifrost-trade-infra and bifrost-ui on Gitea (the
+#     primary since 2026-10-17; nothing is mirrored from GitHub)
 #   - gitea-git-credentials secret
 #   - Registry + Tekton (make k3s-install-cicd-stack)
 #
@@ -35,12 +36,6 @@ fi
 if ! kubectl get secret gitea-git-credentials -n "${CICD_NAMESPACE}" >/dev/null 2>&1; then
   echo "Missing gitea-git-credentials. See k8s/cicd/gitea/secret.yaml.example" >&2
   exit 1
-fi
-
-if [[ "${SKIP_GITEA_BOOTSTRAP:-0}" != "1" ]]; then
-  echo "==> Ensure Gitea mirrors (includes bifrost-ui for file:../bifrost-ui)"
-  MIRROR_REPOS="bifrost-trade-frontend bifrost-trade-infra bifrost-ui" \
-    "${ROOT}/scripts/k3s/bootstrap-gitea-mirrors.sh"
 fi
 
 echo "==> ConfigMap Dockerfile.frontend-stg"

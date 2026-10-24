@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -30,12 +32,31 @@ class ReleaseChainStaticTests(unittest.TestCase):
             "kubectl apply",
             "kubectl delete",
             "kubectl exec",
-            "bootstrap-gitea-mirrors.sh",
         ):
             self.assertNotIn(forbidden, text)
         self.assertIn("/api/v1/delivery/release-window", text)
         self.assertIn("/api/v1/delivery/mirrors/sync", text)
         self.assertIn("bifrost-release-window", text)
+
+    def test_no_pull_mirror_from_github_comes_back(self) -> None:
+        # Gitea holds every repository as its primary (CUT-gitea-primary-2026-10-17,
+        # batch D step 8): the script that made Gitea's repositories pull mirrors of
+        # GitHub is deleted, with its make targets. A pull mirror refuses pushes, so
+        # one made again would cut people, agents and the GitHub sync off that repo.
+        # The names are split so this file does not match itself.
+        script = "bootstrap-gitea-" + "mirrors"
+        migrate = "/repos/" + "migrate"  # the Gitea API that creates a pull mirror
+        self.assertFalse((ROOT / "scripts" / "k3s" / f"{script}.sh").exists())
+        proc = subprocess.run(
+            ["git", "-C", str(ROOT), "grep", "-l", "-F", "-e", script, "-e", migrate,
+             "--", "Makefile", "scripts", "k8s", "docs", ":(exclude)docs/audits"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertIn(proc.returncode, (0, 1), proc.stderr)
+        self.assertEqual(proc.stdout.split(), [], f"tracked files still name {script}.sh or call Gitea's {migrate}")
+        makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+        self.assertIsNone(re.search(r"(?m)^[\w-]*gitea-mirrors\s*:", makefile))
 
     def test_pinned_output_is_six_shas(self) -> None:
         text = (ROOT / "scripts/release/prod-pinned-from-stg.sh").read_text(encoding="utf-8")

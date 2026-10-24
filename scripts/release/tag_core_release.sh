@@ -15,8 +15,8 @@
 #   --push        create the annotated tag locally and push it to <remote>
 #   --repo PATH   core checkout to use (default: $BIFROST_CORE_REPO, else ../bifrost-trade-core
 #                 next to this infra repo)
-#   --remote NAME remote to compare against and push to (default: origin, i.e. GitHub;
-#                 Gitea mirrors it)
+#   --remote NAME remote to compare against and push to (default: origin, i.e. Gitea, the
+#                 primary; the cluster's GitHub sync copies the tag to GitHub)
 #
 # Exit codes: 0 = tagged, would tag, or already tagged at this SHA
 #             1 = usage / repository error

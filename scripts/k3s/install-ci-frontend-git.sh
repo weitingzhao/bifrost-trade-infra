@@ -2,9 +2,13 @@
 # Session S7 — Gitea primary Git + Tekton clone smoke for bifrost-trade-frontend.
 #
 # Flow:
-#   1. bootstrap Gitea mirrors (GitHub → Gitea pull mirror)
+#   1. Gitea persistent volume (skip with SKIP_GITEA_PERSISTENT=1)
 #   2. apply Tekton git-clone task + clone smoke pipeline
 #   3. optional PipelineRun + wait
+#
+# The repositories are Gitea's own (the primary since 2026-10-17): nothing is
+# mirrored from GitHub, so there is no seeding step. A new repository is made
+# from the template bifrost/repo-template (CUT-gitea-primary-2026-10-17.md §3).
 #
 # Usage:
 #   KUBECONFIG=~/.kube/bifrost-k3s.yaml ./scripts/k3s/install-ci-frontend-git.sh
@@ -41,11 +45,6 @@ fi
 if [[ "${SKIP_GITEA_PERSISTENT:-0}" != "1" ]]; then
   echo "==> Gitea persistent volume (Session S7.5)"
   "${ROOT}/scripts/k3s/install-gitea-persistent.sh"
-fi
-
-if [[ "${SKIP_GITEA_BOOTSTRAP:-0}" != "1" ]]; then
-  echo "==> Bootstrap Gitea mirrors (GitHub → Gitea)"
-  "${ROOT}/scripts/k3s/bootstrap-gitea-mirrors.sh"
 fi
 
 echo "==> Applying Tekton git-clone task + clone smoke pipeline"

@@ -5,9 +5,8 @@
 # also written for a repo-root context, hence --context=<workspace>/plugin with
 # a bare --dockerfile=Dockerfile.
 #
-# Kaniko clones from Gitea, not GitHub. Refresh the mirror first (the plugin
-# repos were added to MIRROR_REPOS in scripts/k3s/bootstrap-gitea-mirrors.sh):
-#   make k3s-sync-gitea-mirrors
+# Kaniko clones from Gitea, the plugin's primary repository (since 2026-10-17;
+# nothing is mirrored from GitHub): push the commit to Gitea (origin) first.
 #
 # platform-api's generic runner injects neither params nor the build-context
 # workspace for this pipeline, so a run has to be created directly:
