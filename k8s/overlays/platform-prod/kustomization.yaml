@@ -55,6 +55,7 @@ patches:
   - path: platform-approval-notify.patch.yaml
   - path: platform-unifi-env.patch.yaml
   - path: platform-agentrt-env.patch.yaml
+  - path: platform-gitea-reader.patch.yaml
 
 images:
   - name: registry.cicd.svc.cluster.local:5000/bifrost-platform-api

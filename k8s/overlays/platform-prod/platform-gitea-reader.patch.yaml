@@ -1,0 +1,53 @@
+# TD-432: the platform reads Gitea with its own read-only account,
+# bifrost-platform-reader-prod (CUT-td432-gitea-credentials-2026-10-24.md). The
+# Owner makes Secret bifrost-gitea-reader (kubernetes.io/basic-auth: username,
+# password) in this namespace with scripts/gitea/put-reader-token.sh; the
+# platform reads the two files at every Gitea call and asks the API server for
+# no Secret. Without the Secret the directory is empty and every Gitea read
+# reports "no reader" (unknown, never "absent"); nothing falls back to the
+# Gitea administrator's token. Code before platform TD-432 ignores this.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform-api
+          env:
+            - name: GITEA_READER_DIR
+              value: /etc/bifrost/gitea-reader
+          volumeMounts:
+            - name: gitea-reader
+              mountPath: /etc/bifrost/gitea-reader
+              readOnly: true
+      volumes:
+        - name: gitea-reader
+          secret:
+            secretName: bifrost-gitea-reader
+            optional: true
+            defaultMode: 0400
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-workers
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform-api
+          env:
+            - name: GITEA_READER_DIR
+              value: /etc/bifrost/gitea-reader
+          volumeMounts:
+            - name: gitea-reader
+              mountPath: /etc/bifrost/gitea-reader
+              readOnly: true
+      volumes:
+        - name: gitea-reader
+          secret:
+            secretName: bifrost-gitea-reader
+            optional: true
+            defaultMode: 0400
