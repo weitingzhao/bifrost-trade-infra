@@ -208,6 +208,55 @@ tests:
               summary: "No SMART data from nas"
               description: "smartctl_exporter on nas has not answered for 15 minutes, or ScrapeConfig monitoring/bifrost-hosts-smartctl has no target for it. If the host is down, BifrostHostDown has paged already."
 
+  # Review 540: every SMART target and every Gitea path missing at once. Each absent()
+  # fires on its own, so each expected identity gets its own alert at its own for.
+  - name: no SMART target and no Gitea path at all raise one alert per expected identity
+    interval: 1m
+    input_series:
+      - series: 'up{job="node-exporter",scope="external",host="nas",instance="192.168.10.20:9100"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: BifrostHostSmartExporterDown
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: BifrostHostSmartExporterDown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: smartctl
+              host: agent-06
+            exp_annotations:
+              summary: "No SMART data from agent-06"
+              description: "smartctl_exporter on agent-06 has not answered for 15 minutes, or ScrapeConfig monitoring/bifrost-hosts-smartctl has no target for it. If the host is down, BifrostHostDown has paged already."
+          - exp_labels:
+              severity: warning
+              job: smartctl
+              host: nas
+            exp_annotations:
+              summary: "No SMART data from nas"
+              description: "smartctl_exporter on nas has not answered for 15 minutes, or ScrapeConfig monitoring/bifrost-hosts-smartctl has no target for it. If the host is down, BifrostHostDown has paged already."
+      - eval_time: 9m
+        alertname: BifrostGiteaProbeDown
+        exp_alerts: []
+      - eval_time: 11m
+        alertname: BifrostGiteaProbeDown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: gitea-probe
+              via: nodeport
+            exp_annotations:
+              summary: "The Gitea probe for the nodeport path is not running"
+              description: "Prometheus cannot reach the prober (Deployment monitoring/bifrost-blackbox-exporter) for the nodeport path, or ScrapeConfig monitoring/bifrost-gitea-probe has no target for it, so BifrostGiteaUnavailable cannot fire for that path."
+          - exp_labels:
+              severity: warning
+              job: gitea-probe
+              via: service
+            exp_annotations:
+              summary: "The Gitea probe for the service path is not running"
+              description: "Prometheus cannot reach the prober (Deployment monitoring/bifrost-blackbox-exporter) for the service path, or ScrapeConfig monitoring/bifrost-gitea-probe has no target for it, so BifrostGiteaUnavailable cannot fire for that path."
+
   # Review 537 A2: one of the two Gitea paths missing from the ScrapeConfig.
   - name: the Gitea NodePort path missing while the Service path answers still fires
     interval: 1m

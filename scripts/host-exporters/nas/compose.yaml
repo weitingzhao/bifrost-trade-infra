@@ -12,7 +12,8 @@
 # and teach BifrostNasSmartBlind about sleeping disks first.
 #
 # Lives in /volume1/@bifrost/host-exporters/ on the NAS, root's alone from / down
-# (install-nas.sh checks it with secure-dir.sh): whoever can replace this file and get
+# (install-nas.sh checks it with prepare-dir.sh and secure-dir.sh, and refuses an
+# existing directory that is not, without changing it): whoever can replace this file and get
 # root to run compose can start a privileged container. Not /volume1/docker/, which is
 # 777 (review 537 A1). Steps: agent-config/work/multi-agent/
 # OWNER-STEPS-w68-b4-2026-10-24.md, step 4. Versions follow scripts/host-exporters/versions.env;

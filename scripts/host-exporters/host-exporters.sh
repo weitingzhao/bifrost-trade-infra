@@ -9,7 +9,11 @@
 #                                       can run this one if the Owner says so
 #   bash host-exporters.sh agent-06     ubt-k3s-06: the Owner's node key (passphrase asked
 #                                       once), passwordless sudo there
-#   bash host-exporters.sh nas          the NAS as k8s_admin: sudo asks for its password once
+#   bash host-exporters.sh nas-home     the NAS as the Owner's admin account (Wzhao): check
+#                                       /home/k8s_admin as root without logging in as
+#                                       k8s_admin; chmod 700 only when clean (nas-home check:
+#                                       read only). sudo asks for Wzhao's password once
+#   bash host-exporters.sh nas          the NAS as Wzhao: sudo asks for its password once
 #   bash host-exporters.sh cluster      the admin kubeconfig: server dry-run of the four
 #                                       monitoring files, then apply them
 #   bash host-exporters.sh check        read only, anyone: every endpoint answers with its
@@ -35,6 +39,9 @@ REF=${HOST_EXPORTERS_REF:-origin/main}
 NODE_KEY=${HOST_EXPORTERS_NODE_KEY:-$HOME/.bifrost-owner/ssh/node}
 ADMIN_KUBECONFIG=${HOST_EXPORTERS_KUBECONFIG:-$HOME/.bifrost-owner/kube/admin.yaml}
 LAN_KEY=${HOST_EXPORTERS_LAN_KEY:-$HOME/.ssh/id_ed25519}
+# Root work on the NAS goes through the Owner's admin account, whose home is 700, not
+# through k8s_admin, whose home has been 777 (TD-433, review 540 A1).
+NAS_ADMIN=${HOST_EXPORTERS_NAS_ADMIN:-Wzhao}
 MONITORING=(bifrost-hosts-external.yaml bifrost-blackbox.yaml bifrost-host-rules.yaml grafana-dashboard-hosts.yaml)
 ENDPOINTS=(
   "agent-06 192.168.10.79:9100 node_exporter_build_info"
@@ -48,7 +55,7 @@ ENDPOINTS=(
 die() { echo "host-exporters: $*" >&2; exit 1; }
 
 usage() {
-  sed -n '7,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '7,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit 2
 }
 
@@ -91,13 +98,28 @@ step_agent06() {
     "printf '%s' '$b64' | base64 -d | sudo -n bash -c 't=\$(mktemp -d) && trap \"rm -r \$t\" EXIT && tar -C \"\$t\" -xf - && bash \"\$t/scripts/host-exporters/install-linux.sh\" 192.168.10.79'"
 }
 
+step_nas_home() {
+  local mode=${1:-fix}
+  [[ $mode == check || $mode == fix ]] || die "usage: nas-home [check]"
+  [[ -r ${LAN_KEY}.pub ]] || die "${LAN_KEY}.pub not found"
+  local fp
+  fp=$(ssh-keygen -lf "${LAN_KEY}.pub" | awk '{print $2}')
+  [[ $fp == SHA256:* ]] || die "could not read the fingerprint of ${LAN_KEY}.pub"
+  need_ref scripts/host-exporters/nas/check-k8s-admin-home.sh
+  local b64
+  b64=$(archive_b64 scripts/host-exporters/nas/check-k8s-admin-home.sh)
+  echo "==> nas (192.168.10.20) as ${NAS_ADMIN}: sudo asks for ${NAS_ADMIN}'s NAS password once"
+  lan_ssh -t "${NAS_ADMIN}@192.168.10.20" \
+    "printf '%s' '$b64' | base64 -d | sudo bash -c 't=\$(mktemp -d) && trap \"rm -r \$t\" EXIT && tar -C \"\$t\" -xf - && bash \"\$t/scripts/host-exporters/nas/check-k8s-admin-home.sh\" $fp $mode'"
+}
+
 step_nas() {
   need_ref scripts/host-exporters/nas/install-nas.sh scripts/host-exporters/nas/compose.yaml \
-    scripts/host-exporters/nas/secure-dir.sh
+    scripts/host-exporters/nas/secure-dir.sh scripts/host-exporters/nas/prepare-dir.sh
   local b64
   b64=$(archive_b64 scripts/host-exporters/nas)
-  echo "==> nas (192.168.10.20) as k8s_admin: sudo asks for k8s_admin's NAS password once"
-  lan_ssh -t k8s_admin@192.168.10.20 \
+  echo "==> nas (192.168.10.20) as ${NAS_ADMIN}: sudo asks for ${NAS_ADMIN}'s NAS password once"
+  lan_ssh -t "${NAS_ADMIN}@192.168.10.20" \
     "printf '%s' '$b64' | base64 -d | sudo bash -c 't=\$(mktemp -d) && trap \"rm -r \$t\" EXIT && tar -C \"\$t\" -xf - && bash \"\$t/scripts/host-exporters/nas/install-nas.sh\"'"
 }
 
@@ -147,6 +169,7 @@ step_check() {
 case "${1:-}" in
   mini) step_mini "${2:-}" ;;
   agent-06) step_agent06 ;;
+  nas-home) step_nas_home "${2:-fix}" ;;
   nas) step_nas ;;
   cluster) step_cluster ;;
   check) step_check ;;

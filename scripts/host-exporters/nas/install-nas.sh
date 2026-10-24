@@ -8,8 +8,11 @@
 # definition changed. Stops at the first problem with a non-zero exit.
 #
 # Where the compose file lives: /volume1/@bifrost/host-exporters/. Every directory from /
-# down to it is root's and writable by root alone, which secure-dir.sh checks before the
-# file is written and again before compose reads it. Not /volume1/docker/: that shared
+# down to it is root's and writable by root alone. prepare-dir.sh checks a directory that
+# already exists as it is and refuses it if it is not (no chown, no chmod: review 540 A1
+# P2), and creates a missing one as root 0755 and checks it right after. An existing
+# compose.yaml is checked the same way before it is replaced; the new one is checked and
+# compared after it is written, before compose reads it. Not /volume1/docker/: that shared
 # folder is 777, so any NAS account could rename a root directory inside it and put its
 # own compose file in its place, which root would then run (review 537 A1). Only the
 # directory and the file this script creates are touched; /volume1/docker and the
@@ -27,23 +30,18 @@ COMPOSE=$DIR/compose.yaml
 ADDR=192.168.10.20
 
 [[ $(id -u) == 0 ]] || die "run as root"
-[[ -f $HERE/compose.yaml && -f $HERE/secure-dir.sh ]] || die "compose.yaml and secure-dir.sh must be beside this script"
+[[ -f $HERE/compose.yaml && -f $HERE/secure-dir.sh && -f $HERE/prepare-dir.sh ]] \
+  || die "compose.yaml, secure-dir.sh and prepare-dir.sh must be beside this script"
 ip -4 -o addr show | grep " inet ${ADDR}/" >/dev/null || die "this host does not own ${ADDR}"
 command -v docker >/dev/null || die "docker not found"
 secure() { bash "$HERE/secure-dir.sh" 0 "$1" || die "refusing: $1 is not root's alone (see above)"; }
 
 echo "==> $DIR (root's alone, from / down)"
-secure /volume1
-for d in "$BASE" "$DIR"; do
-  [[ -L $d ]] && die "$d is a symbolic link"
-  if [[ ! -d $d ]]; then
-    mkdir -m 0755 "$d"
-  fi
-  chown root:root "$d"
-  chmod 0755 "$d"
-done
-secure "$DIR"
-[[ -L $COMPOSE ]] && die "$COMPOSE is a symbolic link"
+bash "$HERE/prepare-dir.sh" 0 /volume1 "$DIR" || die "refusing: see above; nothing was changed"
+if [[ -e $COMPOSE || -L $COMPOSE ]]; then
+  [[ -f $COMPOSE && ! -L $COMPOSE ]] || die "$COMPOSE exists and is not a plain file; refusing"
+  secure "$COMPOSE"
+fi
 install -o root -g root -m 0644 "$HERE/compose.yaml" "$COMPOSE"
 secure "$COMPOSE"
 cmp -s "$HERE/compose.yaml" "$COMPOSE" || die "$COMPOSE is not the file this run brought"

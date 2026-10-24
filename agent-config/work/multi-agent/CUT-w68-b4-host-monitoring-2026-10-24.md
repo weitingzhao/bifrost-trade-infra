@@ -1,6 +1,6 @@
 # 切法：W-68 B4 ① 集群外机器的主机监控与失联告警（第 4 轮 4.9）
 
-起草 2026-10-23 23:45–10-24 00:30 CDT（统筹线程派出的子代理）；按 Codex 复核 537（`~/agent-work/codex-review-537/REPORT.md`，结论「先改」）10-24 00:50 起改第 2 版，逐条回应在同目录 `RESPONSE.md`。
+起草 2026-10-23 23:45–10-24 00:30 CDT（统筹线程派出的子代理）；按 Codex 复核 537（`~/agent-work/codex-review-537/REPORT.md`，结论「先改」）10-24 00:50 起改第 2 版，逐条回应在同目录 `RESPONSE.md`；按窄复核 540（`~/agent-work/codex-review-540/REPORT.md`）01:45 起改第 3 版，回应在 `~/agent-work/codex-review-540/RESPONSE.md`。
 只读调研后写：没有 apply，没有在任何主机上装东西，没有建审批单。清单和脚本在 infra 分支 `w31/r4-w68-b4`（未推送）。Owner 要跑的命令在 `OWNER-STEPS-w68-b4-2026-10-24.md`。
 
 ## 1. 要做的事（Owner 2026-10-17 定）
@@ -31,7 +31,7 @@
 | 机器 | 系统 | 磁盘 | 现在有没有报数 | 谁能登、能做什么 |
 |---|---|---|---|---|
 | agent-06 `192.168.10.79` | Ubuntu 24.04（内核 6.8.0-146），x86_64 | 1 块 SATA SSD（型号 `SSD_512GB`），无 RAID | 没有：9100 没在听（10-24 从 Mac Pro 测，22 通） | `vision` 免密 sudo，只认 Owner 的节点钥匙（Agent 登不上）。nftables 只有出站链（管两个 agent 用户），**没有入站过滤** |
-| nas `192.168.10.20` | UGOS（Debian 12），内核 6.18.15，8 核，7.4 GB | **RAID 5 `md1` = sda2+sdb2+sdc2**，3 × Seagate ST12000NM0127 12 TB，`[3/3] [UUU]`；LVM 上 btrfs `/volume1` 22 TB 用了 6%；系统在 58 GB eMMC，根是 overlay | 只有 MinIO 的 :9000。没有 snmpd；`/sbin/smartctl` 在（要 root）；Docker Engine 29.6.2，数据目录 `/volume1/@docker` | `k8s_admin`（Agent 的 `~/.ssh/id_ed25519` 能登，只读查了上面这些）：sudo 要口令，免口令只有 minio 的 4 条 compose 命令。权限：`/`、`/volume1` 是 root 755；`@` 开头的系统目录 root 专用；共享目录（`docker`、`k3s-hot` 等）777；**`/home/k8s_admin` 777**（TD-433），里面没有 `.bashrc` / `.profile` |
+| nas `192.168.10.20` | UGOS（Debian 12），内核 6.18.15，8 核，7.4 GB | **RAID 5 `md1` = sda2+sdb2+sdc2**，3 × Seagate ST12000NM0127 12 TB，`[3/3] [UUU]`；LVM 上 btrfs `/volume1` 22 TB 用了 6%；系统在 58 GB eMMC，根是 overlay | 只有 MinIO 的 :9000。没有 snmpd；`/sbin/smartctl` 在（要 root）；Docker Engine 29.6.2，数据目录 `/volume1/@docker` | 账户：`Wzhao`（Owner，`admin` 组，**家目录 700**）、`k8s_admin`（`admin` 组，**家目录 777**，TD-433）、`Family`（nologin）；`PermitRootLogin no`。`admin` 组的 sudo 要口令；k8s_admin 免口令的只有 minio 的 4 条 compose 命令。UGOS 用 `ForceCommand /etc/ssh/force_command.sh`：`admin` 组成员的命令由登录 shell（bash）执行，所以 ssh 登录会先跑这个账户的 `~/.bashrc`、`~/.ssh/rc`。Agent 的 `~/.ssh/id_ed25519` 能登 k8s_admin（只读查了上面这些；它是 k8s_admin 唯一的授权钥匙，指纹 `SHA256:met8nr2+…`，6-20 以后没变过）。权限：`/`、`/volume1` 是 root 755；`@` 开头的系统目录 root 专用；共享目录（`docker`、`k3s-hot` 等）777 |
 | mini-50 `192.168.10.50` | macOS 26.5.1，arm64，16 GB | 一块板载 SSD（251 GB） | 没有 | `vision` 是 admin，Agent 能只读 SSH。Homebrew 在；系统防火墙关；**FileVault 开、自动登录被禁**；operator-plane 和 peer-watchdog 是 `gui` 域的 LaunchAgent；`pmset autorestart 1` |
 | mini-52 `192.168.10.52` | 同上 | 同上 | 没有 | 同上；**`pmset autorestart 0`**（停电来电后不会自己开机）。peer-watchdog 配了 `PEER_RELAY_URL`（看 .50 的中转）和 `PEER_AGENT_SSH`（.50 不通时去重启它） |
 
@@ -49,7 +49,7 @@
 | 机器 | 选的做法 | 为什么，放弃了什么 |
 |---|---|---|
 | agent-06 | 官方 release 包（校验 sha256）装到 `/usr/local/bin`，两个 systemd 服务：`node-exporter`（专用系统用户，`:9100`）、`smartctl-exporter`（root、能力只留 `CAP_SYS_RAWIO`/`CAP_SYS_ADMIN`，`:9633`）；`smartmontools` 从 Ubuntu 装 | Ubuntu 自带的 `prometheus-node-exporter` 是 1.7.x，和集群不同版，升级跟着发行版走、谁升级说不清 |
-| nas | UGOS 的 Docker：`/volume1/@bifrost/host-exporters/compose.yaml` 起两个容器（node_exporter 只读挂 `/proc`、`/sys`、`/`；smartctl_exporter 特权、root），镜像按 digest 钉死。**从 `/` 到这个文件每一级都只有 root 能写**，`secure-dir.sh` 在写文件前、compose 读文件前各查一次（复核 537 A1）。不放 `/volume1/docker/`：那个共享目录 777，任何 NAS 账户都能把里面的 root 目录改名、换成自己的 compose 文件，再由 root 跑起来 | **SNMP**：UGOS 上没有 snmpd，要另配 snmp_exporter 和 MIB，RAID / SMART 也不一定报，放弃；**直接装在系统里**：根是 overlay，UGOS 升级可能抹掉，放弃；**cron 跑 smartctl 写文本文件**：同一个问题。MinIO 从 10-06 起就是这样跑在 NAS 的 Docker 里 |
+| nas | UGOS 的 Docker：`/volume1/@bifrost/host-exporters/compose.yaml` 起两个容器（node_exporter 只读挂 `/proc`、`/sys`、`/`；smartctl_exporter 特权、root），镜像按 digest 钉死。**从 `/` 到这个文件每一级都只有 root 能写**：已经存在的目录按原样检查，不安全就拒绝，不 chown、不 chmod；缺的目录由 root 以 0755 新建、建完再查（`prepare-dir.sh`，复核 540 A1 P2）。已有的 compose 文件替换前查一次，新文件写完再查一次（`secure-dir.sh`，复核 537 A1）。root 的操作都从 Owner 的管理账户 Wzhao 进去，不经过 k8s_admin。不放 `/volume1/docker/`：那个共享目录 777，任何 NAS 账户都能把里面的 root 目录改名、换成自己的 compose 文件，再由 root 跑起来 | **SNMP**：UGOS 上没有 snmpd，要另配 snmp_exporter 和 MIB，RAID / SMART 也不一定报，放弃；**直接装在系统里**：根是 overlay，UGOS 升级可能抹掉，放弃；**cron 跑 smartctl 写文本文件**：同一个问题。MinIO 从 10-06 起就是这样跑在 NAS 的 Docker 里 |
 | mini ×2 | 官方 darwin-arm64 包装到 `~/bifrost-agent/node-exporter/<版本>/`，用户级 LaunchAgent `com.bifrost.node-exporter`，**不要 sudo** | `brew install node_exporter` 也不要 sudo，但版本跟着 `brew upgrade` 走，钉不住。mini 不做 SMART：板载单盘，坏了就是整机 HostDown，磨损慢，以后再看 |
 
 放在哪里听：每个报数程序只绑本机局域网地址（`192.168.10.x:9100` / `:9633`），和集群 DaemonSet 绑 `HOST_IP` 一样。
@@ -73,9 +73,9 @@
 | `k8s/monitoring/bifrost-blackbox.yaml` | Gitea 探针：blackbox_exporter v0.28.0（digest 钉死，非 root、只读根、去掉全部能力，**优先**不放控制面节点，不保证）+ ConfigMap + Service + ScrapeConfig `bifrost-gitea-probe`（每 30 秒 GET `/api/healthz`，走 NodePort `.73:30300` 和 Service 两条路） |
 | `k8s/monitoring/bifrost-host-rules.yaml` | PrometheusRule，三组 14 条（见 5.2） |
 | `k8s/monitoring/grafana-dashboard-hosts.yaml` | 面板「Bifrost Hosts」（uid `bifrost-hosts`）：所有机器的可达、开机时长、文件系统、内存、CPU、RAID 缺盘数、SMART 表、Gitea 探针；链到两个自带的主机面板（链接带 `/grafana/` 子路径，复核 537 C2） |
-| `k8s/monitoring/rule-tests/host-rules.test.yaml` | promtool 单测 10 组：失联时序、集群节点不触发、少一台目标、少一个 SMART 目标、少一条 Gitea 路、SMART 失败 / 坏扇区 / 掉盘 / 预失效位、SMART 正常应答但零盘、只有读错误位、健康与整机不在时不误报、Gitea 一条路失败 |
+| `k8s/monitoring/rule-tests/host-rules.test.yaml` | promtool 单测 11 组：失联时序、集群节点不触发、少一台目标、少一个 SMART 目标、少一条 Gitea 路、SMART 和 Gitea 目标全都没有、SMART 失败 / 坏扇区 / 掉盘 / 预失效位、SMART 正常应答但零盘、只有读错误位、健康与整机不在时不误报、Gitea 一条路失败 |
 | `k8s/monitoring/kustomization.yaml` | 加上面 4 个文件 |
-| `scripts/host-exporters/` | `versions.env`、`install-linux.sh`（06）、`install-mac.sh`（mini）、`nas/compose.yaml` + `nas/install-nas.sh` + `nas/secure-dir.sh`、`host-exporters.sh`（Owner / 统筹线程的入口，子命令 `mini 50|52`、`agent-06`、`nas`、`cluster`、`check`）、`test_host_exporters.py`（18 项） |
+| `scripts/host-exporters/` | `versions.env`、`install-linux.sh`（06）、`install-mac.sh`（mini）、`nas/compose.yaml` + `nas/install-nas.sh` + `nas/secure-dir.sh` + `nas/prepare-dir.sh` + `nas/check-k8s-admin-home.sh`、`host-exporters.sh`（Owner / 统筹线程的入口，子命令 `mini 50|52`、`agent-06`、`nas-home [check]`、`nas`、`cluster`、`check`）、`test_host_exporters.py`（33 项） |
 | `Makefile` | `check-host-exporters` |
 
 `jobName: node-exporter` 是有意的：图表自带的文件系统、RAID、时钟规则和两个主机面板不用复制就能看到这四台；`scope="external"` 把它们和 DaemonSet 的目标分开。
@@ -107,7 +107,7 @@
 
 ## 6. 已知缺口（要 Owner 定，都不算已验收）
 
-**G1 .50 自己整机坏：约 5.5–8 分钟，达不到 3 分钟。** 中转就在 .50 上，`BifrostHostDown{host="mini-50"}` 送不出去。兜底是 .52 的 peer-watchdog（`bifrost-platform` 的 `scripts/agent/peer_watchdog.sh`，launchd 每 60 秒起一次）：先查 `.50:8783/api/v1/alerts/relay` 三次（每次最多 8 秒、之间睡 5 秒，最多约 39 秒），从第一次失败那轮的开始时刻算，满 `RELAY_DOWN_MIN` 分钟（.52 没设，默认 5）的那一轮才直接发 ntfy；同一轮接着还要探 .50 的 operator-plane 三次、再 ssh 去重启它，.50 整机不在时一轮要跑约 100 秒，launchd 不会在上一轮没跑完时再起一轮，轮距变成约 100–120 秒。按这个推算：第一次失败的那一轮在 .50 坏后 0–60 秒内开始，第 3 轮（距它 300–360 秒）才满 5 分钟，再加这一轮自己探中转的 24–39 秒，**约 5.5–8 分钟**。实测只有两次「中转不可用、主机还在」（10-06 22:27→22:32:57、10-07 13:18→13:23:27），都是第一次失败那轮之后约 5.5 分钟，比整机不在要快。手工改 .52 的 `env.local.sh` 没用：`deploy_mac_mini.sh` 每次部署都重写它。
+**G1 .50 自己整机坏：约 5.5–8 分钟，达不到 3 分钟。** 中转就在 .50 上，`BifrostHostDown{host="mini-50"}` 送不出去。兜底是 .52 的 peer-watchdog（`bifrost-platform` 的 `scripts/agent/peer_watchdog.sh`，launchd 每 60 秒起一次）：先查 `.50:8783/api/v1/alerts/relay` 三次（每次最多 8 秒、之间睡 5 秒，最多约 39 秒），从第一次失败那轮的开始时刻算，满 `RELAY_DOWN_MIN` 分钟（.52 没设，默认 5）的那一轮才直接发 ntfy；同一轮接着还要探 .50 的 operator-plane 三次、再 ssh 去重启它，.50 整机不在时一轮要跑约 100 秒，launchd 不会在上一轮没跑完时再起一轮，轮距变成约 100–120 秒。按这个推算：第一次失败的那一轮在 .50 坏后 0–60 秒内开始，第 4 轮（距它 300–360 秒）才满 5 分钟，再加这一轮自己探中转的 24–39 秒，**约 5.5–8 分钟**。实测只有两次「中转不可用、主机还在」（10-06 22:27→22:32:57、10-07 13:18→13:23:27），都是第一次失败那轮之后约 5.5 分钟，比整机不在要快。手工改 .52 的 `env.local.sh` 没用：`deploy_mac_mini.sh` 每次部署都重写它。
 - A（建议）：放进 B3「告警转发成对」：.52 跟着 .50、.50 坏了自动接手。在那之前 B4 ① 对 .50 整机坏不算达标。
 - B：现在就把看门狗的默认等待从 5 分钟改成 1 分钟。按同样的推算是第 2 轮就发：**约 2 分–3 分 40 秒，不保证 3 分钟**（轮距被重启探测拖长的问题还在）；要稳定 3 分钟，得把「看中转」拆成单独、更频繁的一个 launchd 任务，这已经是 B3 的范围。没实测过。
 - C：一直接受。
@@ -118,11 +118,11 @@
 - B：给 .52 的看门狗加一项「直接探 NAS、直接发 ntfy」，不经过 NAS 上的监控存储。platform 仓库的小改动；时序和 G1-B 一样不保证 3 分钟，除非做成单独的快任务。
 - C：把 Prometheus / Alertmanager 的数据挪出 NFS。这推翻 TD-289 你选的「放 NAS」，不建议。
 
-**G3 两台接连坏、以及逐台演练：第二台可能再晚 5 分钟。** 根路由 `group_by: [alertname, namespace]`，外部主机的 `BifrostHostDown` 都没有 namespace，同名进同一组。组里第一条推出后，同组新告警要等下一个 `group_interval`（5 分钟）；恢复的 `RESOLVED` 也是在下一个 5 分钟刻度才推。这会影响连续停不同主机的演练（等多久算正常写在操作单第 7 步）。**需要你明确选一个，不回不算接受**：
+**G3 两台接连坏、以及逐台演练：第二台可能再晚 5 分钟。** 根路由 `group_by: [alertname, namespace]`，外部主机的 `BifrostHostDown` 都没有 namespace，同名进同一组。组里第一条推出后，同组新告警要等下一个 `group_interval`（5 分钟）；恢复的 `RESOLVED` 也是在下一个 5 分钟刻度才推。这会影响连续停不同主机的演练：RESOLVED 推出来，并不能证明旧组已经销毁，所以同一次演练里只有第一台能按 3 分钟判，后面几台按约 8 分钟（3 分钟加一个 5 分钟分组间隔）判（操作单第 7 步）。**需要你明确选一个，不回不算接受**：
 - A：给 `BifrostHostDown` 单独一条按 `host` 分组的路由（Alertmanager 配置，helm upgrade，你来跑）。手机和审计 webhook 两条去向都要保住，草稿如下（只写在这里，没改 values）：在 `routes:` 里 Watchdog、InfoInhibitor 之后加
   `- {receiver: owner-ntfy, matchers: ['alertname="BifrostHostDown"'], group_by: [alertname, host], group_interval: 1m, continue: true}`，
   并把现有 `severity="critical"` 那条改成 `matchers: ['severity="critical"', 'alertname!="BifrostHostDown"']`（否则手机收两条）；webhook 那条兜底路由不动。改完跑 `make check-alert-routing`，再 helm upgrade。
-- B（建议）：明确接受例外：「同一段时间里第一台 3 分钟内到，后面几台最多再晚 5 分钟」。理由：多台同时坏多半是同一个原因（停电、交换机），第一条推送已经让你知道出事了；改全局路由要动整个 Alertmanager 配置。
+- B（建议）：明确接受例外：「同一段时间里第一台 3 分钟内到，后面几台最多再晚 5 分钟」；逐台演练也照此判：每次演练只有第一台按 3 分钟。理由：多台同时坏多半是同一个原因（停电、交换机），第一条推送已经让你知道出事了；改全局路由要动整个 Alertmanager 配置。
 
 **G4 mini 重启以后。** FileVault 开着、自动登录被禁，mini 重启后停在解锁界面，operator-plane、中转、node_exporter 都不跑，直到有人登录。告警会一直响到那时，这是对的，但要知道「mini 重启 = 要人去登录一次」。.52 `pmset autorestart 0`，停电来电后不会自己开机（`sudo pmset -a autorestart 1` 能改，Owner；属于 B3 / B5，本脚本不改）。
 
@@ -134,7 +134,7 @@
 | 1 | 任何人 | 几秒 | 确认文件已在 origin/main |
 | 2 | mini 两台：**统筹线程可代做（待 Owner 定）**，不用 sudo | 各约 2 分钟 | `host-exporters.sh mini 50` / `mini 52` |
 | 3 | Owner（节点钥匙，问一次口令） | 约 5 分钟 | `host-exporters.sh agent-06` |
-| 4 | Owner：先收紧 `/home/k8s_admin`（TD-433，几秒，不用 sudo），再装（k8s_admin 的 NAS 口令问一次） | 约 9 分钟 | `chmod 700 ~`；`host-exporters.sh nas` |
+| 4 | Owner，都从 Wzhao 登录、各问一次 Wzhao 的 sudo 口令：先以 root 检查 `/home/k8s_admin`，不登录 k8s_admin，没有可疑才收成 700（TD-433）；再装 | 约 10 分钟 | `host-exporters.sh nas-home`；`host-exporters.sh nas` |
 | 5 | 第 2–4 步做完后（脚本先查 6 个端点都在，缺一个就停）。Owner 在终端跑 `host-exporters.sh cluster`；**或**统筹线程先跑 `host-exporters.sh check` 全 ok，再对 4 个文件各做一次 `plan_manifest` + `apply_manifest`，Owner 在 Console 批 4 张 C 级单 | 约 3 分钟 | 抓取、规则、探针、面板进集群 |
 | 6 | 统筹线程 | 约 15 分钟 | 核对，见下 |
 | 7 | 演练（操作单第 7 步） | 每台约 8 分钟（含等 RESOLVED） | 一次一台：停 node_exporter，记推送时间，恢复。mini 两台统筹线程可做；06、NAS 要 Owner |
@@ -156,7 +156,7 @@
 
 | 情形 | 本切片做完能到哪 | 怎么证明 | 缺的靠什么补 |
 |---|---|---|---|
-| 06、mini-52 报数停或整机坏；NAS、mini-50 只是报数停 | ≤ 约 2 分 40 秒（第 5.2 节的前提下） | 第 7 步逐台演练，每次从停到推送 ≤ 3 分钟 | — |
+| 06、mini-52 报数停或整机坏；NAS、mini-50 只是报数停 | ≤ 约 2 分 40 秒（第 5.2 节的前提下） | 第 7 步逐台演练：每次演练的第一台从停到推送 ≤ 3 分钟；同一次里后面几台按 ≤ 约 8 分钟判（G3） | 要每台都证明 3 分钟：G3 选 A，或分几次演、每次只演一台 |
 | mini-50 整机坏 | 约 5.5–8 分钟（推算） | 本切片不演 | **B3**（G1） |
 | NAS 整机坏 | 未知：Prometheus 不卡就和上一行一样，卡住则靠心跳，15 分钟以上 | 装 M.2 SSD 那次关机 | **那次实测**，必要时 G2-B |
 | 几台在同一段时间坏 | 第一台同上；后面几台最多再晚 5 分钟 | 演练里分开做 | G3：你选 A 或明确接受 B |
@@ -171,7 +171,12 @@
 - **smartctl_exporter 是 root。** NAS 上是特权容器，06 上是 root 进程（能力收窄到两项）。它的 HTTP 面很小，版本钉死、只在局域网；被打穿就是 root。
 - **版本钉死、谁升级。** 版本只在 `versions.env` 和 compose 的 digest 里，主机上不会自己变（06 不走 apt，NAS 不跟 latest，mini 不走 brew）。由统筹线程升级：图表升级让 DaemonSet 的 node-exporter 换版时，同一个提交改 `versions.env` 和 compose，然后重跑第 2–4 步（脚本可重跑，只替换二进制、重启服务）。smartmontools 在 06 上跟 Ubuntu 的安全更新走。还没有自动核对两边版本一致的检查，可以作为后续一条防线（比如 `check-host-exporters` 加一个读 DaemonSet 镜像的 LIVE 模式）。
 - **UGOS 升级。** 可能重置 `/etc/sudoers.d`（MinIO 的免口令规则就有这个提示），也可能把家目录权限改回去（第 6 步复查）。compose 文件在 `/volume1` 上，容器 `restart: unless-stopped`。没经历过一次 UGOS 升级，没核实。
-- **NAS 上谁能改 root 跑的东西。** host-exporters 的 compose 文件放在只有 root 能写的路径上（A1）。但两件旧事不在本切片改：① `minio-backup` 的 compose 和 `.env` 还在 777 的 `/volume1/docker/` 下，是同一类问题（任何 NAS 账户都能改名替换那个目录），建议另记一条债，修法同样是挪到 root 专用的路径；② Owner 在第 4 步是在 **k8s_admin 的会话里**输 sudo 口令，而 Agent 的钥匙本来就能以 k8s_admin 登 NAS，能改这个账户的家目录和 shell 启动文件。家目录收成 700（第 4 步，TD-433）挡住的是**其他** NAS 账户，挡不住 Agent。要彻底分开，Owner 在 NAS 上要有一个只认他带口令钥匙的管理账户，sudo 只在那里输。这超出本切片，记在这里。
+- **NAS 上谁能改 root 跑的东西。** host-exporters 的 compose 文件放在只有 root 能写的路径上（A1）。旧的、不在本切片改的：`minio-backup` 的 compose 和 `.env` 还在 777 的 `/volume1/docker/` 下，是同一类问题（任何 NAS 账户都能改名替换那个目录），建议另记一条债，修法同样是挪到 root 专用的路径。
+- **k8s_admin 的会话不可信（复核 540 A1 P1）。** 家目录 777 期间，任何 NAS 账户都能放启动文件（`.bashrc`、`.ssh/rc`），甚至整个换掉 `.ssh`；UGOS 的 ssh 用 bash 执行命令，登录时就会先跑这些文件，之后再 chmod 撤销不了已经跑过的东西。所以：
+  - 第 4 步 `nas-home` 从 Wzhao 登录，以 root 检查 k8s_admin 的家目录（每一项、启动文件、`.ssh` 和授权钥匙的属主、权限、时间和指纹），不加载 k8s_admin 的任何文件；有可疑就停、什么都不改；干净才 chmod 700，然后再查一遍。
+  - 装报数程序和演练里要 sudo 的命令都从 Wzhao 走，不再在 k8s_admin 的会话里输口令。
+  - 本次调研时 Agent 以 k8s_admin 只读登录过 NAS 十来次（10-23、10-24），没输过任何口令。如果 `nas-home` 发现可疑文件，这些登录可能已经以 k8s_admin 执行过它；那时先停，统筹线程查过再说。
+  - 还剩的风险：Mac 上这把 `id_ed25519` 若也授权给了 Wzhao（你的 ssh config 里 `Host nas` 就是这样配的；Agent 没试，不该用你的账户试），Agent 同样能改 Wzhao 的启动文件。家目录 700 挡住的是其他 NAS 账户，挡不住 Agent。要彻底分开，Wzhao 只认一把带口令、Agent 用不了的钥匙（例如节点钥匙），sudo 只在那里输。这超出本切片，记在这里。
 - **图表自带规则的噪音。** 这四台加进 `job="node-exporter"` 后，自带的 warning 也会作用于它们（例如 `TargetDown` 会和 HostDown 重复报一条 warning、`NodeSystemSaturation`），只进 webhook，不推手机。
 - **macOS 防火墙。** 现在关着；以后打开，未签名的 node_exporter 进来的连接会被拦，表现为 HostDown（能看到，不会静默）。
 
@@ -181,6 +186,7 @@
 - G1 的 5.5–8 分钟（和 B 的 2 分–3 分 40 秒）是按脚本和 launchd 的行为推算的；G2 里 Prometheus / Alertmanager 会不会卡住是推断。
 - smartctl_exporter 在 UGOS 的特权容器里能扫到 3 块盘；06 那块 `SSD_512GB` 是否给出完整的 SMART；NAS 三块盘确实不休眠（都要装好后看，第 7 节第 6 步）。
 - UGOS 怎么对待新建的 `/volume1/@bifrost`；家目录改成 700 以后 UGOS 自己的功能（个人文件夹）是否正常。
+- Mac 上的 `id_ed25519` 能否登 Wzhao、Wzhao 的 sudo 能不能用（Owner 的 ssh config 这么配；Agent 没有、也不该用 Owner 的账户去试）。登不上就停在第 4 步，告诉统筹线程。
 - NAS 能从 quay.io 拉镜像（DNS 能解析，没拉过）；06 能从 github.com 下载（root 不受 agent 出站规则限制，没试）。
 - 06 上 systemd 沙箱下文件系统的只读标记、mini 登录后指标齐全、blackbox 实际被调度到哪个节点（第 7 节第 6 步）。
 - 网络是推断（第 2.3 节）：节点实际源地址、主机防火墙、逐端口可达，都以装好后 Prometheus 里 `up=1` 为准。
