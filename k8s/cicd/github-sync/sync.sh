@@ -18,7 +18,7 @@ set -eu
 
 primaries="$1"
 only="${2:-}"
-: "${GITEA_GIT_BASE:=http://gitea.cicd.svc.cluster.local:3000/bifrost}"
+GITEA_GIT_BASE=http://gitea.cicd.svc.cluster.local:3000/bifrost
 : "${GITHUB_BASE:=https://github.com/weitingzhao}"
 
 gitea_token="${GITEA_TOKEN:-}"
@@ -37,7 +37,7 @@ if [ -n "$only" ]; then
     refs/heads/main|refs/tags/*) ;;
     *) echo "only main and tags are copied" >&2; exit 1 ;;
   esac
-  case "$only" in *[!A-Za-z0-9._/-]*) echo "invalid ref" >&2; exit 1 ;; esac
+  case "$only" in *[!A-Za-z0-9._/+-]*) echo "invalid ref" >&2; exit 1 ;; esac
   git check-ref-format "$only" >/dev/null || exit 1
 fi
 gitea_host="$(host_of "${GITEA_GIT_BASE}")"
@@ -57,8 +57,9 @@ git_read() (
   if [ -n "${github_token}" ] && [ -n "${github_host}" ]; then
     add_config "http.${github_host}.extraHeader" "Authorization: Basic ${github_auth}"
   fi
-  export GIT_TERMINAL_PROMPT=0
+  export GIT_TERMINAL_PROMPT=0 GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
   add_config http.followRedirects false
+  add_config credential.helper ''
   git "$@"
 )
 

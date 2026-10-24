@@ -519,6 +519,7 @@ def test_git_auth_stays_out_of_argv(monkeypatch):
         return SimpleNamespace(stdout="ok")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/host-config")
     monkeypatch.setenv("GIT_USERNAME", "test-user")
     monkeypatch.setenv("GIT_PASSWORD", "test-password")
     namespace["command"](["git", "ls-remote", "http://mirror/repo"])
@@ -526,7 +527,12 @@ def test_git_auth_stays_out_of_argv(monkeypatch):
     env = captured["kwargs"]["env"]
     assert env["GIT_CONFIG_KEY_0"] == "http.http://gitea.cicd.svc.cluster.local:3000/.extraHeader"
     assert "GIT_PASSWORD" not in env and "GIT_USERNAME" not in env
+    assert env["GIT_CONFIG_GLOBAL"] == "/dev/null"
+    assert env["GIT_CONFIG_KEY_1"] == "http.followRedirects"
     assert env["GIT_CONFIG_VALUE_1"] == "false"
+    assert env["GIT_CONFIG_KEY_2"] == "credential.helper"
+    assert env["GIT_CONFIG_VALUE_2"] == ""
+    assert env["GIT_CONFIG_COUNT"] == "3"
     assert env["GIT_CONFIG_VALUE_0"].startswith("Authorization: Basic ")
     assert env["GIT_TERMINAL_PROMPT"] == "0"
     assert captured["kwargs"]["timeout"] == 20

@@ -145,7 +145,9 @@ def applier_file(apply_ns, resources, cicd_resources, delivery_ns):
         "  labels: {app.kubernetes.io/part-of: bifrost-platform}\n"
         "rules:\n"
         "  - apiGroups: [\"\"]\n    resources: [secrets]\n"
-        "    resourceNames: [gitea-git-credentials]\n    verbs: [get]\n"
+        # S7 transition: old resolved TaskRuns still need the clone Secret.
+        # S8 removes the old name after those runs have drained.
+        "    resourceNames: [gitea-ci-reader, gitea-git-credentials]\n    verbs: [get]\n"
         "  - apiGroups: [\"\"]\n    resources: [configmaps]\n"
         "    resourceNames: [bifrost-actuation-policy, bifrost-apply-manifest-check]\n"
         "    verbs: [get]\n"

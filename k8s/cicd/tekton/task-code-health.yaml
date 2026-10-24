@@ -48,10 +48,10 @@ spec:
       script: |
         #!/usr/bin/env sh
         set -eu
-        printf '%s\n' "${TASK_REPO}" | grep -Eq '^[A-Za-z0-9_-][A-Za-z0-9._-]*$' || { echo "invalid repo" >&2; exit 1; }
+        printf '%s\n' "${TASK_REPO}" | grep -Eq '^[A-Za-z0-9_][A-Za-z0-9._-]*$' || { echo "invalid repo" >&2; exit 1; }
         case "${TASK_REPO}" in *'
         '*) echo "invalid repo" >&2; exit 1 ;; esac
-        printf '%s\n' "${TASK_SOURCE_DIR}" | grep -Eq '^([A-Za-z0-9_-][A-Za-z0-9._-]*)?$' || { echo "invalid sourceDir" >&2; exit 1; }
+        printf '%s\n' "${TASK_SOURCE_DIR}" | grep -Eq '^([A-Za-z0-9_][A-Za-z0-9._-]*)?$' || { echo "invalid sourceDir" >&2; exit 1; }
         case "${TASK_SOURCE_DIR}" in *'
         '*) echo "invalid sourceDir" >&2; exit 1 ;; esac
         ws="$(workspaces.source.path)"

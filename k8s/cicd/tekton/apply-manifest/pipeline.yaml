@@ -192,7 +192,7 @@ spec:
                   echo "could not read main of ${repo}" >&2
                   exit 1
                 fi
-                if ! git -C /tmp/main.git merge-base --is-ancestor "$commit" main 2>/dev/null; then
+                if ! git_read -C /tmp/main.git merge-base --is-ancestor "$commit" main 2>/dev/null; then
                   echo "commit is not reachable from main" >&2
                   exit 1
                 fi

@@ -18,7 +18,7 @@ import urllib.request
 
 def main() -> int:
     out, repos = sys.argv[1], sys.argv[2:]
-    api = os.environ.get("GITEA_API", "http://gitea.cicd.svc.cluster.local:3000/api/v1").rstrip("/")
+    api = "http://gitea.cicd.svc.cluster.local:3000/api/v1"
     org = os.environ.get("GITEA_ORG", "bifrost")
     token = os.environ.get("GITEA_TOKEN", "")
     if not token:

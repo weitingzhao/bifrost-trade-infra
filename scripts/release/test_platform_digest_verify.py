@@ -837,9 +837,10 @@ def test_protected_files_unchanged():
     # both. TD-432 S7 / TD-435 replace reader credentials and move parameters
     # into env in these files; rollout/digest semantics stay unchanged. Repin the
     # reviewed definitions so subsequent unrelated edits still fail.
+    # Work 561 round 2 also isolates git global config and clears credential.helper.
     hashes = {
         "task-deliver-platform.yaml": "3c039ec342b7224ec593ee9d76566037b750878b522ecb75bc4c1e75188972aa",
-        "pipeline-deliver-platform-prod.yaml": "4d919e37b9c2b04a92da9fabba0bae99b09f75e4540199858011418c6a4ac779",
+        "pipeline-deliver-platform-prod.yaml": "7654a44a98c955cd50a12cfefe14f06919108466a57c29e81a9b43a6dec6c36f",
     }
     for filename, expected in hashes.items():
         assert (

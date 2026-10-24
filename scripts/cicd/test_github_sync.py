@@ -12,6 +12,12 @@ read-primaries.py runs against a local fake Gitea. No cluster, no network.
 from __future__ import annotations
 
 import os
+import io
+import contextlib
+import runpy
+import shutil
+import urllib.request
+from unittest.mock import patch
 import subprocess
 import sys
 import tempfile
@@ -19,7 +25,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fake_gitea import FakeGitea, repo  # noqa: E402
+from test_task_gitea_mirror_sync import FakeGitea, repo  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 DIR = ROOT / "k8s" / "cicd" / "github-sync"
@@ -72,12 +78,35 @@ class Fixture:
             **os.environ,
             **GIT_ENV,
             "HOME": str(self.root),
-            "GITEA_GIT_BASE": f"file://{self.gitea}",
+            "GITEA_GIT_BASE": "http://attacker.invalid/bifrost",
+            "GITEA_TOKEN": "fixture-reader",
+            "GIT_CONFIG_GLOBAL": "/host-config",
             "GITHUB_BASE": f"file://{self.github}",
         }
         env.pop("GITHUB_TOKEN", None)
         if token is not None:
             env["GITHUB_TOKEN"] = token
+        bindir = self.root / 'bin'
+        bindir.mkdir(exist_ok=True)
+        wrapper = bindir / 'git'
+        wrapper.write_text("#!/usr/bin/env python3\n" + r'''import json, os, sys
+args = sys.argv[1:]
+if any(c in args for c in ('ls-remote', 'fetch', 'push', 'merge-base', 'init')):
+    config = {os.environ['GIT_CONFIG_KEY_' + str(i)]: os.environ['GIT_CONFIG_VALUE_' + str(i)]
+              for i in range(int(os.environ['GIT_CONFIG_COUNT']))}
+    assert config['http.followRedirects'] == 'false'
+    assert config['credential.helper'] == ''
+    assert config['http.http://gitea.cicd.svc.cluster.local:3000/.extraHeader'] == 'Authorization: token fixture-reader'
+    assert os.environ['GIT_CONFIG_GLOBAL'] == '/dev/null'
+    assert 'fixture-reader' not in str(args)
+    assert 'GITEA_TOKEN' not in os.environ
+    assert 'attacker.invalid' not in str(args)
+os.execv(os.environ['REAL_GIT'], [os.environ['REAL_GIT'], '-c',
+    'url.file://' + os.environ['LOCAL_GITEA'] + '/.insteadOf=http://gitea.cicd.svc.cluster.local:3000/bifrost/', *args])
+''')
+        wrapper.chmod(0o755)
+        env.update(REAL_GIT=shutil.which('git'), LOCAL_GITEA=str(self.gitea),
+                   PATH=str(bindir) + ':' + os.environ['PATH'])
         return subprocess.run(["sh", str(SYNC), str(listing), *args], env=env, capture_output=True, text=True, timeout=120)
 
 
@@ -135,6 +164,16 @@ class Sync(unittest.TestCase):
         self.assertEqual(self.f.head(self.f.github), sha)
         self.assertEqual(self.f.head(self.f.github, "refs/tags/v1"), "")
 
+    def test_plus_tag_matches_trigger_and_is_copied(self) -> None:
+        tag = 'v1.2.3+build.1'
+        git(self.f.work, 'tag', tag)
+        git(self.f.work, 'push', '-q', 'origin', 'refs/tags/' + tag)
+        result = self.f.run('refs/tags/' + tag)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.f.head(self.f.github, 'refs/tags/' + tag), self.f.head(self.f.gitea, 'refs/tags/' + tag))
+        trigger = (ROOT / 'k8s/cicd/tekton/trigger-trade-ci.yaml').read_text()
+        self.assertIn("^refs/tags/[A-Za-z0-9._/+-]{1,200}$", trigger)
+
     def test_other_branches_are_never_copied(self) -> None:
         result = self.f.run("refs/heads/agent/t_1/a1")
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)  # rejected before reading Gitea
@@ -169,12 +208,23 @@ class Sync(unittest.TestCase):
 
 class ReadPrimaries(unittest.TestCase):
     def run_read(self, repos: list[str], routes: dict) -> tuple[subprocess.CompletedProcess, list[str], FakeGitea]:
+        from http_transport_fixture import response
         with tempfile.TemporaryDirectory() as tmp, FakeGitea(routes) as g:
-            out = Path(tmp) / "primaries"
-            env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "GITEA_TOKEN": "fixture-admin-token",
-                   "GITEA_API": f"{g.base}/api/v1"}
-            result = subprocess.run([sys.executable, str(READ), str(out), *repos], env=env, capture_output=True, text=True, timeout=60)
-            listed = out.read_text(encoding="utf-8").split() if out.exists() else []
+            out = Path(tmp) / 'primaries'
+            def http_open(self, req):
+                assert req.host == 'gitea.cicd.svc.cluster.local:3000' and not req.has_proxy()
+                path = urllib.request.urlparse(req.full_url).path
+                g.requests.append((req.get_method(), path, req.headers['Authorization']))
+                status, body = routes.get(req.get_method() + ' ' + path, (404, '{}'))
+                return response(req, status, body)
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with patch.dict(os.environ, {'GITEA_TOKEN': 'fixture-admin-token', 'GITEA_API': 'http://attacker.invalid'}), \
+                    patch.object(sys, 'argv', [str(READ), str(out), *repos]), \
+                    patch.object(urllib.request.HTTPHandler, 'http_open', http_open), \
+                    contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                code = runpy.run_path(str(READ))['main']()
+            result = subprocess.CompletedProcess([], code, stdout.getvalue(), stderr.getvalue())
+            listed = out.read_text().split() if out.exists() else []
             return result, listed, g
 
     def test_only_regular_repositories_are_listed(self) -> None:

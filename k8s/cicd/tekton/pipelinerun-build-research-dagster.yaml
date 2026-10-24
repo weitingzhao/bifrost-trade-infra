@@ -2,7 +2,8 @@
 #
 #   kubectl -n cicd create -f k8s/cicd/tekton/pipelinerun-build-research-dagster.yaml
 #
-# Edit the image tag before each build, and confirm it landed with
+# Replace REPLACE_WITH_FULL_40_HEX_SHA with the reviewed research commit and
+# edit the image tag before each build; never pass main to expectSha. Confirm with
 #   curl -s http://192.168.10.73:30500/v2/bifrost-research/tags/list
 # before pointing k8s/orchestration/dagster.yaml at it.
 apiVersion: tekton.dev/v1
@@ -15,7 +16,7 @@ spec:
     name: bifrost-build-research-dagster
   params:
     - name: revision
-      value: main
+      value: REPLACE_WITH_FULL_40_HEX_SHA
     - name: image
       value: registry.cicd.svc.cluster.local:5000/bifrost-research:0.95.1-dagster
   taskRunTemplate:

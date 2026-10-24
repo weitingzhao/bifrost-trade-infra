@@ -56,21 +56,20 @@ def run(gitea: FakeGitea, repos: str, sha: str = "", only: str = "", base: str |
         routes = Path(tmp) / "routes.json"
         routes.write_text(json.dumps(gitea.routes))
         requests = Path(tmp) / "requests.jsonl"
-        prelude = r'''import io, json, os, urllib.request, urllib.error, urllib.parse
+        prelude = r'''import io, json, os, urllib.request, urllib.parse
+from email.message import Message
+from urllib.response import addinfourl
 routes = json.load(open(os.environ["FAKE_ROUTES"]))
-class Response(io.BytesIO):
-    status = 200
-class Transport:
-    def open(self, req, timeout):
-        url = urllib.parse.urlsplit(req.full_url)
-        assert url.netloc == "gitea.cicd.svc.cluster.local:3000", url.netloc
-        with open(os.environ["FAKE_REQUESTS"], "a") as f:
-            f.write(json.dumps([req.method, url.path, req.headers["Authorization"]]) + "\n")
-        status, body = routes.get(req.method + " " + url.path, (404, "{}"))
-        if status != 200:
-            raise urllib.error.HTTPError(req.full_url, status, "fixture", {}, io.BytesIO(body.encode()))
-        return Response(body.encode())
-urllib.request.build_opener = lambda *args: Transport()
+def http_open(self, req):
+    url = urllib.parse.urlsplit(req.full_url)
+    assert req.host == "gitea.cicd.svc.cluster.local:3000" and not req.has_proxy()
+    with open(os.environ["FAKE_REQUESTS"], "a") as f:
+        f.write(json.dumps([req.method, url.path, req.headers["Authorization"]]) + "\n")
+    status, body = routes.get(req.method + " " + url.path, (404, "{}"))
+    result = addinfourl(io.BytesIO(body.encode()), Message(), req.full_url, status)
+    result.msg = "fixture"
+    return result
+urllib.request.HTTPHandler.http_open = http_open
 '''
         path.write_text(prelude + script, encoding="utf-8")
         env = {

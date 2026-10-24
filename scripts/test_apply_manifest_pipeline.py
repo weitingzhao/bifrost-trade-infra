@@ -39,6 +39,14 @@ if name != "git":
 if name == "apk":
     sys.exit(0)
 if name == "git":
+    if "clone" in a or "merge-base" in a:
+        config = {os.environ["GIT_CONFIG_KEY_" + str(i)]: os.environ["GIT_CONFIG_VALUE_" + str(i)]
+                  for i in range(int(os.environ["GIT_CONFIG_COUNT"]))}
+        assert config["http.followRedirects"] == "false"
+        assert config["credential.helper"] == ""
+        assert os.environ["GIT_CONFIG_GLOBAL"] == "/dev/null"
+        assert config["http.http://gitea.cicd.svc.cluster.local:3000/.extraHeader"].startswith("Authorization: Basic ")
+        assert "fixture" not in str(a)
     if a[0] == "clone":
         assert os.environ["GIT_CONFIG_VALUE_0"].startswith("Authorization: Basic ")
         assert "fixture" not in a[-2] and "@" not in a[-2]
@@ -128,7 +136,7 @@ class ApplyPipelineGuards(unittest.TestCase):
         (r / "run.sh").write_text(s)
         env = {k: v for k, v in os.environ.items() if k != "KUBECONFIG"}
         env.update({"PATH": str(self.bin) + ":" + os.environ["PATH"], "TMPDIR": str(r / "tmp"),
-                    "MODE": mode, "REPO": repo, "PATH_IN_REPO": path, "COMMIT": commit, "GITEA_BASE": base,
+                    "GIT_CONFIG_GLOBAL": "/host-config", "MODE": mode, "REPO": repo, "PATH_IN_REPO": path, "COMMIT": commit, "GITEA_BASE": base,
                     "GITEA_ORG": org, "REQUIRE_ON_MAIN": require, "GIT_USERNAME": "fixture",
                     "GIT_PASSWORD": "fixture", "PROBE_DIR": str(r), "PROBE_HEAD": HEAD})
         out = subprocess.run(["sh", str(r / "run.sh")], env=env, capture_output=True, text=True)

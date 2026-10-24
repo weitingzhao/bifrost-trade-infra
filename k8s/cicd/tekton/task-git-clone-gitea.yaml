@@ -68,7 +68,7 @@ spec:
         subdir="${SUBDIR}"
         printf '%s' "$url" | grep -Eq '^http://gitea\.cicd\.svc\.cluster\.local:3000/[A-Za-z0-9_-]+/[A-Za-z0-9_-][A-Za-z0-9._-]*\.git$' || { echo "invalid Gitea URL" >&2; exit 1; }
         case "$subdir" in
-          *[!A-Za-z0-9._-]*|.|..|-*) echo "invalid subdir" >&2; exit 1 ;;
+          *[!A-Za-z0-9._-]*|.*|-*) echo "invalid subdir" >&2; exit 1 ;;
         esac
         case "$rev" in
           ''|*[!A-Za-z0-9._/-]*|[!A-Za-z0-9]*) echo "invalid revision" >&2; exit 1 ;;
