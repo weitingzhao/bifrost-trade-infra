@@ -85,7 +85,7 @@ from disk_guard_layout import du
 from disk_guard_roots import Entry, OpenFiles, parse_registry
 from disk_guard_items import classify, discovered_items, registered_items, unmanaged_items
 from disk_guard_apply import apply_items
-from disk_guard_state import Lock, journal_load
+from disk_guard_state import Lock, journal_load, journal_open
 from disk_guard_host import host_steps, thin_snapshots
 
 
@@ -217,7 +217,7 @@ def _sweep_locked(cfg: Config, run_id: str, apply: bool, host: bool) -> int:
                  "scope": "processes of this user" if os.geteuid() != 0 else "all processes"},
         "items": [it.public() for it in every],
         "host_steps": steps,
-        "journal": {"entries": len(journal), "notes": journal_notes},
+        "journal": {"loaded_entries": len(journal), "open_entries_at_end": journal_open(cfg), "notes": journal_notes},
         "not_in_this_sweep": "worktrees and local branches (S2: prune-merged-branches.sh --local-only); remote branches; node_modules are reported, not removed",
         "errors": errors,
     }

@@ -14,7 +14,8 @@ from typing import Dict, List, Optional
 from disk_guard_base import CACHE_NAMES, Chain, Config, Ident, Problem, QUARANTINE, _join, _under, gib
 from disk_guard_layout import detect, du, validate
 from disk_guard_roots import Entry, OpenFiles, check_git, check_original, check_policy, expand, overlaps
-from disk_guard_state import Journal
+from disk_guard_inventory import Inventory, Stop, compare_tree
+from disk_guard_state import Journal, inventory_load
 
 
 @dataclass
@@ -31,9 +32,10 @@ class Item:
     layout: Optional[str] = None
     run_done: Optional[bool] = None
     entry: Optional[Entry] = field(default=None, repr=False)
-    leftover: Optional[str] = None
+    leftover: Optional[str] = None  # None: no .lifecycle-del- suffix; a str (maybe empty): the run id after it
     ids: List[Ident] = field(default_factory=list, repr=False)  # AGENT_WORK/... down to the root
     journal: Optional[Dict[str, object]] = field(default=None, repr=False)  # a leftover's record
+    resume: Optional[Inventory] = field(default=None, repr=False)  # a stopped removal's inventory
 
     def keep(self, p: Problem) -> "Item":
         self.action, self.reason, self.detail = "keep", p.code, p.detail
@@ -41,7 +43,7 @@ class Item:
 
     def public(self) -> Dict[str, object]:
         d = {k: getattr(self, k) for k in ("path", "source", "kind", "policy", "action", "reason", "detail", "bytes", "bytes_complete", "layout", "run_done", "leftover")}
-        return {k: v for k, v in d.items() if v not in (None, "")}
+        return {k: v for k, v in d.items() if v is not None and (v != "" or k == "leftover")}
 
 
 def registered_items(cfg: Config, entries: List[Entry]) -> List[Item]:
@@ -81,13 +83,18 @@ def registered_items(cfg: Config, entries: List[Entry]) -> List[Item]:
     return items
 
 
+def is_leftover(it: Item) -> bool:
+    """The name carries a .lifecycle-del- suffix (review 547 A2: an empty run id counts too)."""
+    return it.leftover is not None
+
+
 def original_name(it: Item) -> str:
-    return it.path.rsplit(QUARANTINE, 1)[0] if it.leftover else it.path
+    return it.path.rsplit(QUARANTINE, 1)[0] if is_leftover(it) else it.path
 
 
 def check_git_for(cfg: Config, it: Item) -> None:
     path = os.path.join(cfg.agent_work, it.path)
-    if it.leftover:
+    if is_leftover(it):
         # renamed by a sweep that died: nothing tracked under the name it has, and its
         # original path must still pass Git in full, ignore rules included
         check_git(cfg, path, tracked_only=True)
@@ -98,6 +105,8 @@ def check_git_for(cfg: Config, it: Item) -> None:
 
 def recorded(journal: Journal, it: Item) -> Dict[str, object]:
     """The journal entry that makes a .lifecycle-del- directory a leftover of this sweeper."""
+    if it.leftover == "":
+        raise Problem("unrecorded-quarantine-name", "a .lifecycle-del- suffix with no run id: no sweep names a rename so; reported only")
     rec = journal.get(it.path)
     if not rec or rec.get("original") != original_name(it):
         raise Problem("unrecorded-quarantine-name", "named like a sweep's rename, but no journal entry records it: reported only")
@@ -113,21 +122,29 @@ def classify(cfg: Config, aw_fd: int, it: Item, lsof: OpenFiles, now: float, jou
     path = os.path.join(cfg.agent_work, it.path)
     owner = it.path.split("/", 1)[0]
     try:
-        rec = it.journal = recorded(journal, it) if it.leftover else None
+        rec = it.journal = recorded(journal, it) if is_leftover(it) else None
+        if rec is not None:
+            try:
+                it.resume = inventory_load(str(rec["file"]))
+            except ValueError as e:
+                raise Problem("journal-inventory-unusable", f"{e}: reported only")
         with Chain(aw_fd, it.path) as ch:
             it.ids = list(ch.ids)
             if rec is not None and tuple(rec.get("root") or ()) != it.ids[-1]:
                 raise Problem("unrecorded-quarantine-name", "the journal entry records another directory (device, inode): reported only")
-            w = validate(ch.fd, it.kind)
-            it.bytes, it.bytes_complete, it.layout = w.bytes, True, it.kind
-            owner_fd = ch.fds[0] if len(ch.fds) >= 2 else None
-            if it.entry.policy == "run.done" and owner_fd is not None:
-                try:
-                    it.run_done = stat.S_ISREG(os.stat("run.done", dir_fd=owner_fd, follow_symlinks=False).st_mode)
-                except OSError:
-                    it.run_done = False
-            check_policy(cfg, it.entry, owner_fd, owner, w, now)
-        if it.entry.cap_bytes is not None and w.bytes <= it.entry.cap_bytes:
+            if it.resume is not None:
+                resumable(ch.fd, it)
+            else:
+                w = validate(ch.fd, it.kind)
+                it.bytes, it.bytes_complete, it.layout = w.bytes, True, it.kind
+                owner_fd = ch.fds[0] if len(ch.fds) >= 2 else None
+                if it.entry.policy == "run.done" and owner_fd is not None:
+                    try:
+                        it.run_done = stat.S_ISREG(os.stat("run.done", dir_fd=owner_fd, follow_symlinks=False).st_mode)
+                    except OSError:
+                        it.run_done = False
+                check_policy(cfg, it.entry, owner_fd, owner, w, now)
+        if it.resume is None and it.entry.cap_bytes is not None and w.bytes <= it.entry.cap_bytes:
             raise Problem("under-cap", f"{gib(w.bytes)} <= cap {gib(it.entry.cap_bytes)}")
         check_git_for(cfg, it)
         unknown = lsof.problem_for(path)
@@ -141,8 +158,26 @@ def classify(cfg: Config, aw_fd: int, it: Item, lsof: OpenFiles, now: float, jou
         it.keep(p)
         return
     it.action = "prune" if it.entry.cap_bytes is not None else "delete"
-    it.reason = "pruned-over-cap" if it.action == "prune" else "registered-and-ended"
-    it.detail = f"{it.kind} layout checked in full ({w.files} files)"
+    if it.resume is not None:
+        it.bytes, it.bytes_complete = du(path)
+        it.layout = it.kind
+        it.reason, it.detail = "finishing-stopped-removal", "everything left is in the stopped removal's inventory"
+    else:
+        it.reason = "pruned-over-cap" if it.action == "prune" else "registered-and-ended"
+        it.detail = f"{it.kind} layout checked in full ({w.files} files)"
+
+
+def resumable(fd: int, it: Item) -> None:
+    """A stopped removal may be finished when what is left is all in its inventory, matching:
+    entries may be gone (removed before the stop, markers last of all) and directories may
+    carry the sweeper's own u+rwx; nothing may be new or changed (review 547 C1)."""
+    assert it.resume is not None
+    if it.resume.root_id != it.ids[-1]:
+        raise Problem("unrecorded-quarantine-name", "the inventory records another directory (device, inode): reported only")
+    try:
+        compare_tree(fd, it.resume)
+    except Stop as s:
+        raise Problem("changed-since-stopped", f"{it.resume.show(s.entry)} {s.why} since a sweep stopped removing it: reported only")
 
 
 def discovered_items(cfg: Config, aw_fd: int, registered: List[Item]) -> List[Item]:

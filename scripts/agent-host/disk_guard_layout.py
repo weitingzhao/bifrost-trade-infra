@@ -21,6 +21,7 @@ import stat
 from typing import Callable, Dict, Iterator, List, Optional, Tuple
 
 from disk_guard_base import Chain, O_DIR, O_FILE, Problem, Sig, ident, sig
+from disk_guard_inventory import Inventory
 
 GO_README_MARK = b"Go build system"
 HEX2 = re.compile(r"^[0-9a-f]{2}$")
@@ -65,6 +66,9 @@ class Walker:
         self.max_mtime = 0.0  # entries only: renaming the root changes nothing here
         self.inv: Dict[str, Sig] = {}  # every accepted entry, by path relative to the root
         self.listed: Dict[str, List[str]] = {}  # every directory read in full: its names
+
+    def inventory(self) -> Inventory:
+        return Inventory(dict(self.inv), {k: list(v) for k, v in self.listed.items()}, self.root_id, self.redact, self.leaf)
 
     def show(self, rel: str) -> str:
         if not self.redact:

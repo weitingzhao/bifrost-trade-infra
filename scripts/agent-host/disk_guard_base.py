@@ -35,7 +35,7 @@ O_DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 
 O_FILE = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
 
 Ident = Tuple[int, int]  # (st_dev, st_ino)
-Sig = Tuple[int, int, int, int, int]  # (st_dev, st_ino, file type, size, mtime_ns) of a checked entry
+Sig = Tuple[int, int, int, int, int, int]  # (st_dev, st_ino, st_mode, size, mtime_ns, ctime_ns) of a checked entry
 
 
 class ConfigError(Exception):
@@ -64,10 +64,23 @@ def ident(st: os.stat_result) -> Ident:
 
 
 def sig(st: os.stat_result) -> Sig:
-    """What the second check saw of an entry: identity and type; for a file also its size and
-    mtime_ns (review 544 A1: removal compares every entry with this before touching it)."""
+    """What the second check saw of an entry: identity and the whole st_mode (type and
+    permissions, review 547 A3); for a file also size, mtime_ns and ctime_ns, so a rewrite
+    that keeps the size and restores the mtime still shows. Removal compares every entry with
+    this before touching it (review 544 A1). A directory's times are left out: removing its
+    entries changes them."""
     reg = stat.S_ISREG(st.st_mode)
-    return (st.st_dev, st.st_ino, stat.S_IFMT(st.st_mode), st.st_size if reg else 0, st.st_mtime_ns if reg else 0)
+    return (st.st_dev, st.st_ino, st.st_mode, st.st_size if reg else 0, st.st_mtime_ns if reg else 0, st.st_ctime_ns if reg else 0)
+
+
+def same_entry(live: Sig, want: Sig, swept: bool = False) -> bool:
+    """live matches want; with swept, a directory may also carry the u+rwx the sweeper itself
+    added before removing what it held (a sweep that stopped part way)."""
+    if live == want:
+        return True
+    if swept and stat.S_ISDIR(want[2]) and live[:2] == want[:2] and live[3:] == want[3:]:
+        return live[2] == want[2] | stat.S_IRWXU
+    return False
 
 
 def open_dir_at(parent_fd: int, name: str, where: str) -> int:
@@ -155,13 +168,16 @@ def _float(env: Dict[str, str], name: str, default: float) -> float:
 
 
 def _rel_list(env: Dict[str, str], name: str, default: str) -> List[str]:
+    """Paths under AGENT_WORK, colon-separated, each in canonical form only (review 547 A4):
+    no leading or trailing /, no empty, . or .. segment, no surrounding spaces. Anything
+    else is a configuration error, never silently rewritten."""
     out = []
     for p in env.get(name, default).split(":"):
-        p = p.strip().strip("/")
-        if not p:
+        if p == "":
             continue
-        if p.startswith("..") or "/../" in f"/{p}/":
-            raise ConfigError(f"{name}: {p!r} leaves AGENT_WORK")
+        segs = p.split("/")
+        if p != p.strip() or any(s in ("", ".", "..") for s in segs):
+            raise ConfigError(f"{name}: {p!r} is not a canonical path under AGENT_WORK (write it as a/b/c)")
         out.append(p)
     return out
 

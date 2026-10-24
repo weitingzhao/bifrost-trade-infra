@@ -120,7 +120,8 @@ class Removal544(SweepCase):
         disk_guard_apply.during_removal = None
         disk_guard_apply.between_recheck_and_remove = None
         self.sweep("--apply")  # the next sweep finds a recorded leftover holding new material
-        self.assertKept(str(left.relative_to(self.aw)), "handwritten-file")
+        it = self.assertKept(str(left.relative_to(self.aw)), "changed-since-stopped")
+        self.assertIn("ab/late.go is new", it["detail"])
         self.assertTrue((left / "ab" / "late.go").is_file())
 
 

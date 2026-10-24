@@ -6,6 +6,12 @@ path, the quarantine path, the root's (device, inode) and the run id; the entry 
 root is removed or renamed back. Only a directory that a journal entry names, with the same
 original path and identity, is a leftover a later sweep may finish. A directory merely named
 like a quarantine is reported, never removed.
+
+Before the first entry of a root is removed, the inventory the second check accepted is
+written beside its journal entry (<entry>.inventory). A sweep that died part way through a
+removal leaves both, and the next sweep finishes it through that inventory (review 547 C1).
+Files and the journal directory are fsynced, so an entry survives a crash of the process;
+power loss is not tested.
 """
 
 from __future__ import annotations
@@ -18,6 +24,7 @@ import socket
 from typing import Dict, List, Optional, Tuple
 
 from disk_guard_base import Config, Ident, now_utc
+from disk_guard_inventory import Inventory
 
 JOURNAL_DIR = "lifecycle-journal"
 Journal = Dict[str, Dict[str, object]]
@@ -49,6 +56,9 @@ def journal_load(cfg: Config) -> Tuple[Journal, List[str]]:
         except (OSError, ValueError) as e:
             notes.append(f"journal {n}: unreadable ({e}): ignored")
             continue
+        if not isinstance(rec, dict):
+            notes.append(f"journal {n}: not a JSON object: ignored")
+            continue
         q, orig, root = rec.get("quarantine"), rec.get("original"), rec.get("root")
         if not (isinstance(q, str) and isinstance(orig, str) and isinstance(root, list) and len(root) == 2):
             notes.append(f"journal {n}: malformed: ignored")
@@ -62,26 +72,72 @@ def journal_load(cfg: Config) -> Tuple[Journal, List[str]]:
     return out, notes
 
 
+def _write_durably(p: str, data: object) -> None:
+    tmp = f"{p}.tmp-{os.getpid()}"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, p)
+    dfd = os.open(os.path.dirname(p), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(dfd)
+    finally:
+        os.close(dfd)
+
+
 def journal_write(cfg: Config, run_id: str, original: str, quarantine: str, root: Ident) -> str:
     d = journal_dir(cfg)
     os.makedirs(d, exist_ok=True)
     p = os.path.join(d, f"{run_id}-{hashlib.sha1(quarantine.encode()).hexdigest()[:16]}.json")
-    rec = {"run_id": run_id, "original": original, "quarantine": quarantine, "root": list(root), "written_at": now_utc()}
-    tmp = f"{p}.tmp-{os.getpid()}"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(rec, f)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, p)
+    _write_durably(p, {"run_id": run_id, "original": original, "quarantine": quarantine, "root": list(root), "written_at": now_utc()})
     return p
+
+
+def journal_open(cfg: Config) -> int:
+    """Entries still in the journal (the report's count at the end of a run)."""
+    try:
+        return sum(1 for n in os.listdir(journal_dir(cfg)) if n.endswith(".json"))
+    except OSError:
+        return 0
 
 
 def journal_drop(path: Optional[str]) -> None:
     if path:
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
+        for p in (path + ".inventory", path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+
+def inventory_write(journal_file: str, inv: Inventory) -> None:
+    _write_durably(journal_file + ".inventory", {
+        "root": list(inv.root_id), "redact": inv.redact, "leaf": inv.leaf,
+        "inv": {k: list(v) for k, v in inv.inv.items()}, "listed": inv.listed})
+
+
+def inventory_load(journal_file: str) -> Optional[Inventory]:
+    """None when there is no inventory (the sweep died before removing anything); raises
+    ValueError when there is one that cannot be used."""
+    try:
+        with open(journal_file + ".inventory", encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return None
+    except OSError as e:
+        raise ValueError(f"unreadable: {e.strerror or e}")
+    if not isinstance(data, dict) or not isinstance(data.get("inv"), dict) or not isinstance(data.get("listed"), dict):
+        raise ValueError("not an inventory")
+    try:
+        inv = {str(k): tuple(int(x) for x in v) for k, v in data["inv"].items()}
+        listed = {str(k): [str(n) for n in v] for k, v in data["listed"].items()}
+        root = tuple(int(x) for x in data["root"])
+    except (TypeError, ValueError, KeyError):
+        raise ValueError("malformed inventory")
+    if len(root) != 2 or any(len(v) != 6 for v in inv.values()):
+        raise ValueError("malformed inventory")
+    return Inventory(inv, listed, root, bool(data.get("redact")), data.get("leaf"), swept=True)  # type: ignore[arg-type]
 
 
 class Lock:

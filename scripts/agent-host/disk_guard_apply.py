@@ -1,21 +1,27 @@
 """Removing what the checks passed (disk-guard, W-31 4.6 S1; review 539 F4, review 543 A2,
-review 544 A1, A2).
+review 544 A1, A2, review 547 A1, C1).
 
 Under the machine lock each root is renamed aside through a handle on its parent, after
 checking that the path still leads to the same directories (device and inode) and after a
-journal entry records the rename. It is then checked again in full, and that second check's
-inventory (every entry it accepted, with device, inode, type and, for files, size and
-mtime_ns; every directory's listing) is all the removal may touch. Removal goes through
-handles opened without following links: it first compares the whole live tree with the
-inventory, and removes nothing if anything is new, missing, replaced or changed (the root is
-renamed back); while removing, every entry is compared again and the first difference
-stops it. It never removes an entry it did not check, and never falls back to deleting what
-a directory holds now.
+journal entry records the rename. It is then checked again in full (layout, end evidence,
+Git on the original path, open files); that second check's inventory is written beside the
+journal entry, and removal touches only what the inventory holds (disk_guard_inventory.py):
+the whole live tree is compared with it first, and nothing is removed if anything is new,
+missing, replaced or changed (the root is renamed back); while removing, the first
+difference stops it. A stop part way leaves a cache partly removed: the entries already
+gone were checked cache entries, which is acceptable for a cache; what is left stays under
+the quarantine name with its journal entry and inventory, reported "partly removed,
+stopped: ...", and the new material stays where it was put. A sweep that died part way is
+finished by the next one through the same inventory.
 
-A stop during removal leaves a cache partly removed: the entries already removed were
-checked cache entries, which is acceptable for a cache; what is left stays under the
-quarantine name with its journal entry, reported "partly removed, stopped: <entry> ...",
-and the new material stays where it was put.
+Threat model (review 547 A1): this guards against accidental loss, not against a process
+working against the sweep. The sweeper runs as the same user as every producer; such a
+process could delete the material itself. What is protected: nothing is removed unless the
+root has left its registered name, lsof saw no open file in it, and every entry removed
+matched the second check's inventory just before. What is not: a name swapped for other
+material in the instant between that last comparison and the unlink or rmdir, and a
+directory moved out of the quarantine while its entries are being removed (the open handle
+follows it).
 """
 
 from __future__ import annotations
@@ -25,11 +31,12 @@ import stat
 import time
 from typing import Callable, List, Optional, Tuple
 
-from disk_guard_base import Chain, Config, Ident, O_DIR, Problem, QUARANTINE, _join, gib, ident, open_dir_at, sig, split_rel
-from disk_guard_items import Item, check_git_for, original_name
+from disk_guard_base import Chain, Config, Ident, Problem, QUARANTINE, _join, gib, ident, open_dir_at, split_rel
+from disk_guard_inventory import Inventory, Stop, compare_tree, remove_checked
+from disk_guard_items import Item, check_git_for, is_leftover, original_name
 from disk_guard_layout import Walker, validate
 from disk_guard_roots import OpenFiles, check_git, check_original, check_policy
-from disk_guard_state import journal_drop, journal_write
+from disk_guard_state import inventory_write, journal_drop, journal_write
 
 # Test seams: called with the items about to be renamed; with the staged items after the
 # renames, before the second check; with one item after its second check (Git and lsof
@@ -39,122 +46,8 @@ between_check_and_delete: Optional[Callable[[list], None]] = None
 between_recheck_and_remove: Optional[Callable[[Item, int, str, str], None]] = None
 during_removal: Optional[Callable[[str], None]] = None
 BATCH = 64  # staged roots hold one directory handle each until removed
-# Removed last, so a root a stop leaves behind is still recognisably the same cache.
-MARKERS = {"README", "cache", "_cacache"}
 
 Staged = Tuple[int, str, str, Optional[str]]  # parent handle, name, quarantine name, journal file
-
-
-class Stop(Exception):
-    def __init__(self, entry: str, why: str) -> None:
-        super().__init__(f"{entry} {why}")
-        self.entry, self.why, self.removed = entry, why, 0
-
-
-def _check(fd: int, rel: str, w: Walker, n: str) -> os.stat_result:
-    crel = _join(rel, n)
-    want = w.inv.get(crel)
-    if want is None:
-        raise Stop(crel, "is new")
-    try:
-        st = os.stat(n, dir_fd=fd, follow_symlinks=False)
-    except FileNotFoundError:
-        raise Stop(crel, "is missing")
-    except OSError as e:
-        raise Stop(crel, f"cannot be read ({e.strerror or e})")
-    if sig(st) != want:
-        raise Stop(crel, "was replaced or changed")
-    return st
-
-
-def _names(fd: int, rel: str, w: Walker) -> List[str]:
-    """This directory's names, which must be exactly those the check read, in removal order."""
-    if rel not in w.listed:
-        raise Stop(rel or ".", "was not read by the check")
-    try:
-        now = set(os.listdir(fd))
-    except OSError as e:
-        raise Stop(rel or ".", f"cannot be listed ({e.strerror or e})")
-    want = set(w.listed[rel])
-    if now != want:
-        extra, gone = sorted(now - want), sorted(want - now)
-        raise Stop(_join(rel, extra[0]), "is new") if extra else Stop(_join(rel, gone[0]), "is missing")
-    return sorted(want, key=lambda n: (rel == "" and n in MARKERS, n))
-
-
-def _open_checked(fd: int, n: str, crel: str, st: os.stat_result) -> int:
-    try:
-        cfd = os.open(n, O_DIR, dir_fd=fd)
-    except OSError as e:
-        raise Stop(crel, f"cannot be opened ({e.strerror or e})")
-    if ident(os.fstat(cfd)) != ident(st):
-        os.close(cfd)
-        raise Stop(crel, "was replaced")
-    return cfd
-
-
-def _compare(fd: int, rel: str, w: Walker) -> None:
-    for n in _names(fd, rel, w):
-        st = _check(fd, rel, w, n)
-        if stat.S_ISDIR(st.st_mode):
-            cfd = _open_checked(fd, n, _join(rel, n), st)
-            try:
-                _compare(cfd, _join(rel, n), w)
-            finally:
-                os.close(cfd)
-
-
-def _remove(fd: int, rel: str, w: Walker, done: List[int]) -> None:
-    st = os.fstat(fd)
-    if (st.st_mode & stat.S_IRWXU) != stat.S_IRWXU:
-        try:
-            os.fchmod(fd, stat.S_IMODE(st.st_mode) | stat.S_IRWXU)  # Go's module dirs are 0555
-        except OSError as e:
-            raise Stop(rel or ".", f"cannot be made writable ({e.strerror or e})")
-    for n in _names(fd, rel, w):
-        crel = _join(rel, n)
-        est = _check(fd, rel, w, n)
-        try:
-            if stat.S_ISDIR(est.st_mode):
-                cfd = _open_checked(fd, n, crel, est)
-                try:
-                    _remove(cfd, crel, w, done)
-                finally:
-                    os.close(cfd)
-                os.rmdir(n, dir_fd=fd)  # fails if anything appeared in it meanwhile
-            else:
-                os.unlink(n, dir_fd=fd)
-        except OSError as e:
-            raise Stop(crel, f"could not be removed ({e.strerror or e})")
-        done[0] += 1
-        if during_removal is not None:
-            during_removal(crel)
-
-
-def remove_checked(parent_fd: int, q: str, w: Walker) -> None:
-    """Remove exactly the inventory of the second check, or stop at the first difference."""
-    done = [0]
-    try:
-        fd = os.open(q, O_DIR, dir_fd=parent_fd)
-    except OSError as e:
-        raise Stop(".", f"cannot be opened ({e.strerror or e})")
-    try:
-        if ident(os.fstat(fd)) != w.root_id:
-            raise Stop(".", "was replaced")
-        _compare(fd, "", w)
-        try:
-            _remove(fd, "", w, done)
-        except Stop as s:
-            s.removed = done[0]
-            raise
-    finally:
-        os.close(fd)
-    try:
-        os.rmdir(q, dir_fd=parent_fd)
-    except OSError as e:
-        s = Stop(".", f"could not be removed ({e.strerror or e})")
-        s.removed = done[0]
-        raise s
 
 
 def _restore_at(parent_fd: int, name: str, q: str) -> Tuple[str, bool]:
@@ -195,8 +88,9 @@ def stage(cfg: Config, aw_fd: int, run_id: str, it: Item) -> Optional[Staged]:
             if not stat.S_ISDIR(st.st_mode) or ident(st) != it.ids[-1]:
                 raise Problem("path-changed", f"{it.path} is not the directory first checked")
             check_git_for(cfg, it)  # in full, on the name it has now
-            if it.leftover:
-                return os.dup(ch.fd), name, name, str((it.journal or {}).get("file") or "") or None
+            if is_leftover(it):
+                jfile = (it.journal or {}).get("file")
+                return os.dup(ch.fd), name, name, str(jfile) if jfile is not None else None
             q = name + QUARANTINE + run_id
             try:
                 jfile = journal_write(cfg, run_id, it.path, _join(parent, q), it.ids[-1])
@@ -221,12 +115,26 @@ def stage(cfg: Config, aw_fd: int, run_id: str, it: Item) -> Optional[Staged]:
 def _undo(it: Item, staged: Staged) -> str:
     """After a failed check: rename back (and drop the journal entry) unless it is a leftover."""
     pfd, name, q, jfile = staged
-    if it.leftover:
+    if is_leftover(it):
         return ""
     msg, back = _restore_at(pfd, name, q)
     if back:
         journal_drop(jfile)
     return msg
+
+
+def _second_check(it: Item, rfd: int) -> Tuple[Inventory, int, Optional[Walker]]:
+    """(inventory to remove, bytes, walker for the end evidence): a full layout check, or for
+    a stopped removal the comparison with its own inventory."""
+    if it.resume is not None:
+        try:
+            compare_tree(rfd, it.resume)
+        except Stop as s:
+            raise Problem("changed-since-stopped", f"{it.resume.show(s.entry)} {s.why}")
+        return it.resume, it.bytes, None
+    assert it.kind is not None
+    w = validate(rfd, it.kind)
+    return w.inventory(), w.bytes, w
 
 
 def recheck_and_remove(cfg: Config, aw_fd: int, aw_id: Ident, it: Item, staged: Staged, lsof: OpenFiles, now: float) -> None:
@@ -240,7 +148,7 @@ def recheck_and_remove(cfg: Config, aw_fd: int, aw_id: Ident, it: Item, staged: 
         try:
             if ident(os.fstat(rfd)) != it.ids[-1]:
                 raise Problem("path-changed", f"{_join(parent, q)} is not the directory first checked")
-            w = validate(rfd, it.kind)
+            inv, size, w = _second_check(it, rfd)
         finally:
             os.close(rfd)
         # The path must still lead here: Git and lsof only know paths.
@@ -249,8 +157,8 @@ def recheck_and_remove(cfg: Config, aw_fd: int, aw_id: Ident, it: Item, staged: 
         with _same_path(aw_fd, parent, it) as ch:
             if ident(os.fstat(ch.fd)) != ident(os.fstat(pfd)):
                 raise Problem("path-changed", f"{parent or '.'} is not the parent renamed in")
-            owner_fd = ch.fds[0] if ch.fds else None
-            check_policy(cfg, it.entry, owner_fd, it.path.split("/", 1)[0], w, now)
+            if w is not None:  # a stopped removal's end evidence was its first sweep's
+                check_policy(cfg, it.entry, ch.fds[0] if ch.fds else None, it.path.split("/", 1)[0], w, now)
             check_git(cfg, here, tracked_only=True)
             check_original(cfg, orig)  # nothing tracked, still ignored (review 544 A2)
             unknown = lsof.problem_for(here, orig)
@@ -266,10 +174,18 @@ def recheck_and_remove(cfg: Config, aw_fd: int, aw_id: Ident, it: Item, staged: 
         return
     if between_recheck_and_remove is not None:
         between_recheck_and_remove(it, pfd, name, q)
+    if it.resume is None:
+        # written before the first unlink, so a sweep that dies part way can be finished
+        try:
+            assert jfile is not None
+            inventory_write(jfile, inv)
+        except (OSError, AssertionError) as e:
+            it.keep(Problem("inventory-write-failed", f"{e}: nothing removed{_undo(it, staged)}"))
+            return
     try:
-        remove_checked(pfd, q, w)
+        remove_checked(pfd, q, inv, during_removal)
     except Stop as s:
-        entry = w.show(s.entry)
+        entry = inv.show(s.entry)
         if s.removed == 0:
             it.keep(Problem("stopped-before-removal", f"{entry} {s.why} since the second check: nothing removed{_undo(it, staged)}"))
         else:
@@ -278,7 +194,7 @@ def recheck_and_remove(cfg: Config, aw_fd: int, aw_id: Ident, it: Item, staged: 
         return
     journal_drop(jfile)
     if it.action == "prune":
-        it.action, it.detail = "pruned", f"{gib(w.bytes)} over the cap: the whole root removed"
+        it.action, it.detail = "pruned", f"{gib(size)} over the cap: the whole root removed"
     else:
         it.action = "deleted"
 
