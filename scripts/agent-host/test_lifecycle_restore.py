@@ -26,11 +26,16 @@ def restore_world(tmp_path):
     return World(tmp_path)
 
 
-def interrupted(w, monkeypatch, rel="cut/bifrost-x"):
+def interrupted(w, monkeypatch, rel="cut/bifrost-x", relative=False):
     """An ended worktree whose sweep died in quarantine; renewed afterwards, so that once it
-    is back no sweep removes it. (repo, original path, quarantine path, admin dir)."""
+    is back no sweep removes it. (repo, original path, quarantine path, admin dir). With
+    relative, the repository writes relative worktree links (worktree.useRelativePaths)."""
     repo = w.repo()
+    if relative:
+        w.git(repo, "config", "worktree.useRelativePaths", "true")
     d = w.new_worktree(repo, rel, detach="origin/main")
+    if relative and os.path.isabs((Path(wo.admin_of(str(d))[0]) / "gitdir").read_text().strip()):
+        pytest.skip("this git does not write relative worktree links")
     w.end(d)
 
     def stop_in_quarantine(ctx, it, q):
@@ -114,3 +119,55 @@ def test_a_move_that_reports_an_error_keeps_its_journal_until_settled(w):
         assert rc == 0 and item["reason"] == "quarantine-failed", (env, out)
         assert d.exists() and journal(w) == [] and consistent(w, repo, d)
         assert not [p for p in d.parent.iterdir() if lq.QUARANTINE in p.name]
+
+
+def links(path):
+    """(the worktree's .git, its admin dir's gitdir) as text."""
+    admin = Path(wo.admin_of(str(path))[0])
+    return (path / ".git").read_text(), (admin / "gitdir").read_text()
+
+
+def test_repairing_one_worktree_touches_no_other(w, monkeypatch):
+    """Review 553 A2: the "directory back, gitdir still names the quarantine" shape is fixed
+    by rewriting that one gitdir; git worktree repair would rewrite every linked worktree of
+    the repository, here one outside the roots with relative links."""
+    repo, d, q, admin = interrupted(w, monkeypatch)
+    outside = w.tmp / "outside" / "bifrost-x"
+    w.git(repo, "worktree", "add", "-q", "--relative-paths", "--detach", outside, "origin/main")
+    before = links(outside)
+    stamp = [(p, p.stat().st_mtime_ns) for p in (outside / ".git", Path(wo.admin_of(str(outside))[0]) / "gitdir")]
+    os.rename(q, d)  # the directory is back; Git still names the quarantine
+    rc, out, rep = w.prune("--apply", inproc=True)
+    assert d.exists() and journal(w) == [] and consistent(w, repo, d)
+    assert links(outside) == before and [(p, p.stat().st_mtime_ns) for p, _ in stamp] == stamp
+
+
+@pytest.mark.parametrize("shape", ["finished", "after-rename", "before-rename"])
+def test_relative_links_are_followed_in_every_shape(w, monkeypatch, shape):
+    """Review 553 A3: with relative worktree links the quarantine goes back in all three shapes,
+    and the links stay relative."""
+    repo, d, q, admin = interrupted(w, monkeypatch, relative=True)
+    if shape == "after-rename":  # directory at q, Git still naming the original
+        (admin / "gitdir").write_text(os.path.relpath(d / ".git", admin) + "\n")
+    elif shape == "before-rename":  # directory back at the original, Git naming the quarantine
+        os.rename(q, d)
+    rc, out, rep = w.prune("--apply", inproc=True)
+    assert d.exists() and not q.exists() and journal(w) == [] and consistent(w, repo, d), notes(rep)
+    dotgit, gitdir = links(d)
+    assert not os.path.isabs(gitdir.strip()) and not os.path.isabs(dotgit.strip()[len("gitdir: "):])
+
+
+def test_a_shape_whose_links_do_not_close_keeps_its_journal(w, monkeypatch):
+    """Review 553 D3, D1: back at the original path but its .git names another admin dir, or a
+    gitdir file too long to be one: not settled, the journal stays, the report says so."""
+    repo, d, q, admin = interrupted(w, monkeypatch)
+    os.rename(q, d)
+    (admin / "gitdir").write_text(f"{d}/.git\n")
+    real = (d / ".git").read_text()
+    (d / ".git").write_text("gitdir: " + str(w.tmp / "nowhere") + "\n")
+    rc, out, rep = w.prune("--apply", inproc=True)
+    assert len(journal(w)) == 1 and "needs repair by hand" in notes(rep)
+    (d / ".git").write_text(real)
+    (admin / "gitdir").write_text(f"{d}/.git" + " " * 9000 + "\n")
+    rc, out, rep = w.prune("--apply", inproc=True)
+    assert len(journal(w)) == 1 and "larger than" in notes(rep)

@@ -177,15 +177,17 @@ def test_a_renewal_waits_for_the_sweep_and_finds_the_worktree_gone(w):
 
 
 def test_records_that_are_not_usable_are_refused(w):
-    good = wo.new_record("W-31", "sess-1", "", "", None, False, "", [], 1_700_000_000, 12)
+    S = wo.NS
+    good = wo.new_record("W-31", "sess-1", "", "", None, False, "", [], 1_700_000_000 * S, 12)
     assert wo.problems(good) == []
     for k, v in (("schema", 2), ("work", "W31"), ("session", ""), ("cache_roots", ["../x"]), ("ended_at", "yesterday"),
-                 ("branch_created", "yes"), ("lease_until", 5)):
+                 ("branch_created", "yes"), ("lease_until", 5), ("owner_since_ns", 5), ("generation", 0)):
         bad = dict(good, **{k: v})
         assert wo.problems(bad), k
     rec = dict(good)
-    wo.end(rec, 1_700_000_100, "t", "")
-    assert wo.end_evidence(rec, 1_700_000_100, 0) == (None, "")
+    wo.end(rec, 1_700_000_100 * S + 7, "t", "")
+    assert rec["ended_at_ns"] == 1_700_000_100 * S + 7 and wo.problems(rec) == []
+    assert wo.end_evidence(rec, 1_700_000_100.5, 0) == (None, "")
     assert wo.end_evidence(rec, 1_700_000_050, 0)[0] == "ended-in-future"
     assert wo.end_evidence(rec, 1_700_000_200, 3600)[0] == "end-too-recent"
     rec["lease_until"] = wo.fmt(1_700_009_999)
@@ -357,3 +359,67 @@ def test_a_late_end_of_an_older_session_of_the_same_thread_does_nothing(w):
     time.sleep(1.1)  # past B's start second (ended_at has whole seconds)
     hook(w, {"hook_event_name": "SessionEnd", "session_id": "sess-b", "reason": "other"}, host="local_t")
     assert w.look(d)["state"] == "ended"
+
+
+def test_one_second_holds_a_start_a_take_and_a_late_old_end(w):
+    """Review 553 A1: times in nanoseconds. Within one second: A starts, C (same thread)
+    starts, B starts, A hands the worktree to B; then A's and C's late ends arrive. A owned
+    an earlier generation and C started before this one: neither ends B's use. B's end does."""
+    repo = w.repo()
+    w.env["CLAUDE_CODE_SESSION_ID"], w.env["CLAUDE_CODE_HOST_SESSION_ID"] = "sess-a", "local_t"
+    for sid in ("sess-a", "sess-c", "sess-b"):
+        hook(w, {"hook_event_name": "SessionStart", "session_id": sid, "source": "startup"}, host="local_t")
+    d = w.new_worktree(repo, "t/bifrost-x", detach="origin/main", session="sess-a")
+    rc, out = w.call(new_worktree.main, ["--take", str(d), "--session", "sess-b", "--host-session", "local_t"])
+    assert rc == 0, out
+    for sid in ("sess-a", "sess-c"):
+        hook(w, {"hook_event_name": "SessionEnd", "session_id": sid, "reason": "other"}, host="local_t")
+        assert w.look(d)["state"] == "in-use", sid
+    # A resumes after the take: its marker is now newer than owner_since, yet A owned an
+    # earlier generation, so its end still matches nothing (the generation, not only time)
+    hook(w, {"hook_event_name": "SessionStart", "session_id": "sess-a", "source": "resume"}, host="local_t")
+    hook(w, {"hook_event_name": "SessionEnd", "session_id": "sess-a", "reason": "other"}, host="local_t")
+    assert w.look(d)["state"] == "in-use"
+    hook(w, {"hook_event_name": "SessionEnd", "session_id": "sess-b", "reason": "other"}, host="local_t")
+    assert w.look(d)["state"] == "ended"
+
+
+def test_a_resume_and_an_end_in_one_second_end_it(w):
+    """Review 553 A4: a start and a normal end within the same second leave it ended, and a
+    sweep removes it once the grace period passes. A record from before 553 (ended_at to the
+    second only) with a marker inside that second stays kept."""
+    repo = w.repo()
+    d = w.new_worktree(repo, "quick/bifrost-x", detach="origin/main", session="sess-1")
+    hook(w, {"hook_event_name": "SessionStart", "session_id": "sess-1", "source": "resume"})
+    hook(w, {"hook_event_name": "SessionEnd", "session_id": "sess-1", "reason": "other"})
+    assert w.look(d)["state"] == "ended"
+    old = w.new_worktree(repo, "old/bifrost-x", detach="origin/main", session="sess-2")
+    w.end(old)
+    admin = Path(wo.admin_of(str(old))[0])
+    rec = json.loads((admin / wo.OWNER).read_text())
+    rec.pop("ended_at_ns")
+    (admin / wo.OWNER).write_text(json.dumps(rec))
+    sec = wo.to_seconds(rec["ended_at"])
+    Path(ws.marker_path(w.env, "sess-2")).write_text(json.dumps({"session": "sess-2", "active_since_ns": int(sec) * wo.NS + 5}))
+    rc, out, rep = w.prune("--apply")
+    assert rc == 0 and not d.exists(), out
+    assert old.exists() and World.items(rep)[str(old)]["reason"] == "session-resumed"
+
+
+def test_the_hook_puts_the_instruction_first_and_caps_the_rest(w):
+    """Review 553 D2: with many worktrees and a long error, both fields start with the
+    instruction, list at most 20 paths and say how many more, and cut the error alone."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("worktree_lease", HOOK)
+    hook_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(hook_mod)
+    import contextlib
+    import io
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(io.StringIO()):
+        hook_mod.warn("start", "E" * 5000, [f"/w/{n:03d}" for n in range(30)])
+    said = json.loads(buf.getvalue())
+    for text in (said["systemMessage"], said["hookSpecificOutput"]["additionalContext"]):
+        assert text.startswith("Use none of these worktrees before") and "--renew <dir> succeeds" in text[:200]
+        assert "/w/019" in text and "/w/020" not in text and "(and 10 more)" in text
+        assert "E" * 400 in text and "E" * 401 not in text

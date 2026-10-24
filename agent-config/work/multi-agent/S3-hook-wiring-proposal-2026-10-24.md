@@ -1,6 +1,6 @@
-# 4.6 S3 钩子接线提案（2026-10-24，第 3 稿，按复核 551、552 改；**没有接线**）
+# 4.6 S3 钩子接线提案（2026-10-24，第 4 稿，按复核 551、552、553 改；**没有接线**）
 
-> 依据：`CUT-lifecycle-2026-10-24.md` §4.2、§5 S3；复核 539 F3、F4；复核 551 D1、D2；复核 552 A2、A3。
+> 依据：`CUT-lifecycle-2026-10-24.md` §4.2、§5 S3；复核 539 F3、F4；复核 551 D1、D2；复核 552 A2、A3；复核 553 A1、A4、D2、§C。
 > 脚本和测试：`scripts/agent-host/new-worktree.sh`（`new_worktree.py`、`worktree_owner.py`、`worktree_sessions.py`）、
 > `agent-config/claude/hooks/worktree-lease.py`。**没有改任何 settings.json、没有改 `preflight.js`、没有改 Cursor 的 hooks.json。**
 > 下面是建议的改法，原样可贴；接不接、什么时候接由统筹定。
@@ -49,10 +49,15 @@
   4. 清扫保留一个已结束的 worktree，除非能证明它的会话在结束之后没有再启动：标记目录要存在且可读（**不存在算「不知道」，不算「已结束」**），
      会话和 host 会话的标记、`resume-failed`、管理目录里的 `resume-failed`，都不能比 `ended_at` 新，也不能读不了。
      `new-worktree.sh` 登记时会建标记目录；只有 SessionStart 写标记（登记不写：否则同一会话先结束的 worktree 会被当成又启动了）。
-  5. 上面三样一样都写不下的 worktree（标记、续租、resume-failed 全失败），钩子在 stdout 打一个 JSON：`systemMessage` 给用户看，
-     `hookSpecificOutput.additionalContext` 给会话看，列出这些 worktree，说用之前先 `new-worktree.sh --renew <dir>`。
+  5. 钩子在三种情况下在 stdout 打一个 JSON（`systemMessage` 给用户看，`hookSpecificOutput.additionalContext` 给会话看，两边同一段文字）：
+     标记没能发布；有 worktree 什么保护都没写下（标记、续租、resume-failed 全失败）；钩子本身出错。
+     文字**第一句**就是「这些 worktree 在 `new-worktree.sh --renew <dir>` 成功之前一个都不要用」，然后最多列 20 个路径并写明还有几个，
+     最后才是错误原因（最多 400 字符），所以截断不会丢掉这句指令（复核 553 D2）。
      SessionStart 不能被任何钩子输出挡住；exit 2 也只把 stderr 给用户看（文档 hooks.md「Exit code 2 behavior per event」），所以用 exit 0 加 JSON。
+     **这是提示，不是阻断，也不是持久保护**：全部写失败时磁盘上的旧 `ended_at` 仍然成立，要靠会话收到并照做。
 - 会话之后再结束时 `ended_at` 前移到标记之后，才重新可删。
+- 所有时间都按整数纳秒存、按真实先后比较（`ended_at_ns`、`owner_since_ns`、标记的 `active_since_ns`、`failed_at_ns`，复核 553 A1、A4）：
+  同一秒里先启动、后正常结束，会按「已结束」处理，过了宽限期就能删。553 之前写的、只记到秒的记录，标记落在同一秒里时按「已恢复」处理，仍然保留。
 - 钩子永远 exit 0；一切正常时 stdout 不输出任何东西（SessionStart 的 stdout 会进上下文），只有上面第 5 条的情况打 JSON；问题写 stderr。
 - `$CLAUDE_PROJECT_DIR/.claude` 经符号链接指到 infra 的 `agent-config/claude`；钩子按自己的真实路径找到 `<infra>/scripts/agent-host/worktree_sessions.py`。
 - 钩子把输入里的 `cwd` 传进去：别的会话在这个 worktree 里启动时，记录上标 `foreign_use`，清扫一直保留，直到 `--take`。
@@ -123,7 +128,7 @@ function worktreeAddHint(cmd) {
 |---|---|---|
 | 进程被杀、Desktop 关闭或归档时 SessionEnd 是否触发（文档没说） | 没有 `ended_at`，worktree 一直「在用」 | 安全方向；要清时手工 `new-worktree.sh --end` |
 | `/clear`：SessionEnd(reason=clear) 被钩子跳过；之后 CLI 会话 id 变了 | 记录靠 `host_session`（`CLAUDE_CODE_HOST_SESSION_ID`，Desktop 线程 id）跟着线程走 | **没核实**这个变量在钩子进程里有（Bash 工具子进程里有，本会话实测）；没有时记录停在「在用」，安全方向 |
-| fork 出来的会话、或别的会话要用一个 worktree | 不隐式共享（复核 551 D2）：记录只认一个会话 | 先 `new-worktree.sh --take <dir> --session <新会话> [--host-session <新会话的线程 id>]` 接管，记录进入新的所有权代际（`generation`、`owner_since`）。调用者不是新会话时，不继承调用者的 host，`--host-session` 不给就记为未知（复核 552 A3）。之后：旧会话的结束事件按会话 id 不再匹配；只按 host 匹配的结束事件，只有该会话的标记晚于 `owner_since` 才算（同一线程里更早的会话迟到的结束不算）。`--renew` 不转移使用权 |
+| fork 出来的会话、或别的会话要用一个 worktree | 不隐式共享（复核 551 D2）：记录只认一个会话 | 先 `new-worktree.sh --take <dir> --session <新会话> [--host-session <新会话的线程 id>]` 接管，记录进入新的所有权代际（`generation`、`owner_since`）。调用者不是新会话时，不继承调用者的 host，`--host-session` 不给就记为未知（复核 552 A3）。之后：旧会话的结束事件按会话 id 不再匹配；只按 host 匹配的结束事件，要该会话没有拥有过更早的代际（`taken_from`），并且它的标记按纳秒晚于 `owner_since` 才算（同一线程里更早的会话迟到的结束不算，同一秒内也一样）。`--renew` 不转移使用权 |
 | 别的会话在别人的 worktree 里启动（SessionStart 的 cwd 在里面） | 钩子在记录上标 `foreign_use`；清扫一直保留它 | `--take` 或人工 `--end --by` 清掉标记。会话都在工作区根启动，这条只覆盖少数情况；以绝对路径去改别人的 worktree 钩子看不到，只有清扫那一刻的 lsof 能挡 |
 | 清扫与 `disk-guard.sh sweep` | 两者用同一把机器锁（`$AGENT_WORK/.lifecycle.lock`），不会同时跑 | disk-guard 还没调用 S2；以后接时要么先放锁再调，要么把锁交给子进程，不能在持锁时直接调（会拿不到锁、退出 3） |
 
@@ -135,3 +140,20 @@ function worktreeAddHint(cmd) {
    `<status>/lifecycle-sessions/<会话 id>.json` 已写；再退出，`ended_at` 在标记之后。
 3. `/clear` 一次，`--show` 仍是 `in-use`。
 4. 以上每步之后 `prune-merged-branches.sh --local-only`（只报）给出的原因依次是 `not-ended`、可删（`would-remove`）或 `end-too-recent`、`not-ended`。
+
+## 6. 接线前要在真实 app 里量的（复核 553 §C，作为接线验收）
+
+接线之前，下面每一项都要在真实的 Claude Desktop / Claude Code 里量到，结果写进接线提交的说明。Python 测试通过不能代替这些。
+
+1. **事件与身份**：startup、resume、`/clear`、fork（以及重开）各自触发什么事件，`reason`/`source` 是什么，输入里的 `session_id` 是什么；
+   钩子子进程里的 `CLAUDE_CODE_SESSION_ID` 和 `CLAUDE_CODE_HOST_SESSION_ID` 是否和它一致；开始事件是否总在第一次用到 worktree 之前完成。
+   还要看：接管之后旧会话的事件、同一线程里有多个 CLI 会话、没有 host 的路径。
+2. **顺序**：正常启动 → 正常结束 → 再恢复 → 再结束，以及同一秒内快速启停，记录和标记的先后都对；迟到或重复的 SessionEnd 不能结束新一代的使用权；
+   关闭、归档、杀进程这些没有结束事件的情况，worktree 保持保留。
+3. **失败路径**：标记目录只读、记录锁被占、管理目录也不可写，以及很多 worktree 同时失败：用户能不能看到 `systemMessage`；
+   会话能不能在第一次工具调用之前看到完整的 `additionalContext`，并在 `--renew` 成功之前不用这些路径。
+4. **时间**：实际登记规模下、和其他钩子同时跑时的耗时，共享超时，输出有没有被截断或丢掉。等锁预算 8 秒不是整个钩子的硬上限，扫描本身没有时限；
+   尤其要量「保护全部写失败、还没打出 JSON 就被 harness 超时杀掉」这条路径。
+5. **一致性**：同一组隔离夹具里，`new-worktree.sh --show` 和只报清扫的结果随上面这些事件一致变化；再核对 settings、提示规则和两侧 parity。
+   Cursor 的可靠开始事件没确认之前，Cursor 的结束登记继续不接。
+

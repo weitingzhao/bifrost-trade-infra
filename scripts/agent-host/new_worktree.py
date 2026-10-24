@@ -138,11 +138,11 @@ def create(env: Dict[str, str], a: argparse.Namespace) -> int:
     try:
         admin, _ = wo.admin_of(target)
         rec = wo.new_record(a.work, session, env.get("CLAUDE_CODE_HOST_SESSION_ID", ""), a.purpose or "",
-                            branch, created, base, roots, wo.now_ts(), wo.lease_hours(env))
+                            branch, created, base, roots, wo.now_ns(), wo.lease_hours(env))
         with wo.OwnerLock(admin, 30):
             wo.write_record(admin, rec)
         # the markers directory only: a marker says a session (re)started, which only SessionStart knows
-        for p in ws.write_markers(env, [], wo.now_ts()):
+        for p in ws.write_markers(env, [], wo.now_ns()):
             print(f"new-worktree: {p}; a sweep keeps every ended worktree until that directory exists", file=sys.stderr)
     except (wo.OwnerError, OSError) as e:
         # The worktree stands without a record: a sweep never removes it (no end evidence).
@@ -163,7 +163,7 @@ def end_or_renew(env: Dict[str, str], a: argparse.Namespace, which: str) -> int:
             rec, _, bad = wo.read_record(admin)
             if bad:
                 return _fail(f"{d}: {bad}")
-            now = wo.now_ts()
+            now = wo.now_ns()
             if rec is None:
                 if which != "end" or not a.work or not a.by:
                     return _fail(f"{d} has no record (made before new-worktree.sh): --end with --work and --by "

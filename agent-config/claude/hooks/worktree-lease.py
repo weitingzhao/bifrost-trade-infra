@@ -23,10 +23,11 @@ Claude Code gives all SessionEnd hooks 1.5 s unless a hook sets "timeout"; the p
 
 Never blocks a session (SessionStart cannot be blocked by any hook output; exit 2 only shows
 stderr to the user). It exits 0 and prints nothing on stdout when all went well. When a
-SessionStart could not publish the session's marker, or left worktrees that nothing protects,
-it prints one JSON object: "systemMessage" for the user and
-hookSpecificOutput.additionalContext for the session, naming the worktrees not to use until
-new-worktree.sh --renew succeeds for them (review 552 A2). SessionEnd output is discarded by
+SessionStart could not publish the session's marker, left worktrees that nothing protects,
+or failed outright, it prints one JSON object: "systemMessage" for the user and
+hookSpecificOutput.additionalContext for the session, the same text, which starts with the
+instruction to use none of the worktrees before new-worktree.sh --renew succeeds for them
+(reviews 552 A2, 553 D2). SessionEnd output is discarded by
 Claude Code; a failed end only leaves worktrees in use, so it reports on stderr. The record
 code lives in <infra>/scripts/agent-host/worktree_sessions.py, found from this file's real path.
 """
@@ -76,16 +77,30 @@ def main() -> int:
     return 0
 
 
+MAX_PATHS = 20
+MAX_WHY = 400
+
+
 def warn(what: str, why: str, unsafe: list) -> int:
-    """A SessionStart that could not record the resume: say so to the user and the session."""
+    """A SessionStart that could not record the resume: say so to the user and the session.
+    The instruction comes first, then the worktrees (at most MAX_PATHS, with how many more),
+    then the error (at most MAX_WHY characters), so a cut never loses the instruction
+    (review 553 D2). Printed when the marker could not be published, when worktrees were left
+    with nothing protecting them, or when the hook failed outright."""
     print(f"worktree-lease: {why}", file=sys.stderr)
     if what != "start":
         return 0
-    names = ", ".join(unsafe) if unsafe else "any worktree registered to this session"
-    text = (f"worktree-lease could not record that this session resumed ({why}). The lifecycle sweep may remove "
-            f"{names}. Run bifrost-trade-infra/scripts/agent-host/new-worktree.sh --renew <dir> for a worktree before using it.")
-    print(json.dumps({"systemMessage": text[:2000],
-                      "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text[:2000]}}))
+    head = ("Use none of these worktrees before bifrost-trade-infra/scripts/agent-host/new-worktree.sh --renew <dir> "
+            "succeeds for it: the lifecycle sweep may remove them, because this session's resume could not be recorded.")
+    if unsafe:
+        shown = list(unsafe[:MAX_PATHS])
+        more = len(unsafe) - len(shown)
+        names = "Worktrees: " + ", ".join(shown) + (f" (and {more} more)" if more else "") + "."
+    else:
+        names = "Worktrees: every worktree registered to this session."
+    detail = why if len(why) <= MAX_WHY else why[:MAX_WHY] + "..."
+    text = f"{head} {names} Cause: {detail}"
+    print(json.dumps({"systemMessage": text, "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}))
     return 0
 
 

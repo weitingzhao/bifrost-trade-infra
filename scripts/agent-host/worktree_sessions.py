@@ -22,10 +22,15 @@ dir, is newer than ended_at or unreadable. new-worktree.sh makes the directory, 
 once anything was registered; only SessionStart writes markers.
 
 SessionEnd: steps 2 and 3, writing ended_at (a later end moves it forward). A record matches
-by its session id; it matches by host session only when the ending session's own marker
-says it started after the record's current ownership generation began (owner_since): the
-late end of an older session of the same Desktop thread, or of the session a --take
-replaced, does nothing (review 552 A3).
+by its session id; it matches by host session only for a session that owned no earlier
+generation of it (taken_from) and whose own marker says it started after the current
+generation began (owner_since): the late end of an older session of the same Desktop thread,
+or of the session a --take replaced, does nothing (reviews 552 A3, 553 A1).
+
+Every time here is kept in integer nanoseconds (ended_at_ns, owner_since_ns, active_since_ns,
+failed_at_ns) and compared in real order (review 553 A1, A4). A record from before 553 knows
+its times only to the second: a marker inside that second counts as a resume (kept), and as
+not after the ownership began (no match).
 """
 
 from __future__ import annotations
@@ -50,15 +55,15 @@ def marker_path(env: Dict[str, str], sid: str, suffix: str = ".json") -> str:
     return os.path.join(markers_dir(env), f"{sid}{suffix}")
 
 
-def _write_time(path: str, sid: str, now: float, key: str) -> Optional[str]:
+def _write_time(path: str, sid: str, t: int, key: str) -> Optional[str]:
     try:
-        write_report(path, {"session": sid, key: now, "written_at": wo.fmt(now)})
+        write_report(path, {"session": sid, key + "_ns": t, key: t / wo.NS, "written_at": wo.fmt(t / wo.NS)})
         return None
     except OSError as e:
         return f"{path}: {e.strerror or e}"
 
 
-def write_markers(env: Dict[str, str], ids: List[str], now: float) -> List[str]:
+def write_markers(env: Dict[str, str], ids: List[str], now: int) -> List[str]:
     """Publish the active-since marker of each id, never moving one back; the problems (empty
     when all were written)."""
     try:
@@ -68,20 +73,27 @@ def write_markers(env: Dict[str, str], ids: List[str], now: float) -> List[str]:
     probs = []
     for sid in dict.fromkeys(i for i in ids if i):
         old, _ = _read_time(marker_path(env, sid), "active_since")
-        bad = _write_time(marker_path(env, sid), sid, max(now, old or 0.0), "active_since")
+        bad = _write_time(marker_path(env, sid), sid, max(now, old or 0), "active_since")
         if bad:
             probs.append(f"cannot publish the session marker: {bad}")
     return probs
 
 
-def _read_time(path: str, key: str) -> Tuple[Optional[float], Optional[str]]:
-    """(the time, None); (None, None) when the file does not exist; (None, why) otherwise."""
+def _read_time(path: str, key: str) -> Tuple[Optional[int], Optional[str]]:
+    """(the time in ns, None); (None, None) when the file does not exist; (None, why) otherwise.
+    A file written before 553 has only the seconds, read as ns."""
     try:
         with open(path, encoding="utf-8") as f:
-            t = json.load(f)[key]
-        if type(t) not in (int, float) or t != t:
+            got = json.load(f)
+        t = got.get(key + "_ns")
+        if t is None:
+            t = got[key]
+            if type(t) not in (int, float) or t != t:
+                raise ValueError
+            t = int(t * wo.NS)
+        if type(t) is not int:
             raise ValueError
-        return float(t), None
+        return t, None
     except FileNotFoundError:
         return None, None
     except (OSError, ValueError, KeyError, TypeError) as e:
@@ -90,8 +102,8 @@ def _read_time(path: str, key: str) -> Tuple[Optional[float], Optional[str]]:
 
 def session_problem(env: Dict[str, str], rec: Dict[str, object], admin: str) -> Why:
     """Why an ended record must still count as in use (the sweep's view of a resume)."""
-    ended = wo.to_seconds(rec.get("ended_at"))
-    if ended is None:
+    ended = wo.ns_of(rec, "ended_at")
+    if ended[0] is None:
         return "record-unusable", "ended_at cannot be read"
     d = markers_dir(env)
     if not os.path.isdir(d) or not os.access(d, os.R_OK | os.X_OK):
@@ -106,13 +118,13 @@ def session_problem(env: Dict[str, str], rec: Dict[str, object], admin: str) -> 
             t, bad = _read_time(marker_path(env, sid, suffix), k)
             if bad:
                 return "session-marker-unreadable", f"the {key} {bad}"
-            if t is not None and t > ended:
-                return code, f"{key} {sid} started again at {wo.fmt(t)}, after ended_at {rec['ended_at']}"
+            if t is not None and wo.resumed_after(t, ended):
+                return code, f"{key} {sid} started again at {wo.fmt(t / wo.NS)}, after ended_at {rec['ended_at']}"
     t, bad = _read_time(os.path.join(admin, wo.RESUME_FAILED), "failed_at")
     if bad:
         return "session-marker-unreadable", bad
-    if t is not None and t > ended:
-        return "resume-failed", f"its session resumed at {wo.fmt(t)} but could not publish it"
+    if t is not None and wo.resumed_after(t, ended):
+        return "resume-failed", f"its session resumed at {wo.fmt(t / wo.NS)} but could not publish it"
     return None
 
 
@@ -125,9 +137,8 @@ def foreign_problem(rec: Dict[str, object]) -> Why:
 
 def _worktree_of(admin: str) -> Optional[str]:
     try:
-        with open(os.path.join(admin, "gitdir"), encoding="utf-8") as f:
-            return os.path.realpath(os.path.dirname(f.read().strip()))
-    except OSError:
+        return wo.gitdir_target(admin)
+    except wo.OwnerError:
         return None
 
 
@@ -144,8 +155,10 @@ def matches(env: Dict[str, str], rec: Dict[str, object], session: str, host: str
         return False
     if event == "start":
         return True  # renewing is never unsafe
+    if any(isinstance(t, dict) and t.get("session") == session for t in rec.get("taken_from") or []):
+        return False  # an owner of an earlier generation
     since, bad = _read_time(marker_path(env, session), "active_since")
-    return bad is None and since is not None and since >= wo.owner_since(rec)
+    return bad is None and since is not None and wo.surely_after(since, wo.owner_since(rec))
 
 
 def session_event(env: Dict[str, str], event: str, session: str, host: str, reason: str,
@@ -157,7 +170,7 @@ def session_event(env: Dict[str, str], event: str, session: str, host: str, reas
         return [], [f"session id {session!r} is not an id: nothing done"], [], False
     host = host if wo.SESSION_RE.match(host or "") else ""
     deadline = time.monotonic() + budget
-    now = wo.now_ts()
+    now = wo.now_ns()
     marker_probs: List[str] = write_markers(env, [session, host], now) if event == "start" else []
     probs: List[str] = list(marker_probs)
     if marker_probs:
@@ -193,11 +206,11 @@ def session_event(env: Dict[str, str], event: str, session: str, host: str, reas
                 rec, _, bad = wo.read_record(admin)
                 if rec is None or (how == "own") != matches(env, rec, session, host, event):
                     continue
-                now = wo.now_ts()
+                now = wo.now_ns()
                 if how == "foreign":
                     if rec.get("foreign_use"):
                         continue
-                    rec["foreign_use"] = {"session": session, "at": wo.fmt(now)}
+                    rec["foreign_use"] = {"session": session, "at": wo.fmt(now / wo.NS)}
                 elif event == "end":
                     wo.end(rec, now, "session-end hook", reason)
                 else:

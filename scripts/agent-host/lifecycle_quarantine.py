@@ -131,34 +131,63 @@ def _parent_ok(parent: str, roots: List[Tuple[str, str]]) -> Why:
     return root_problem(parent, roots)
 
 
-def _gitdir_target(admin: str) -> Optional[str]:
-    """The worktree path the admin dir names (its gitdir file without the trailing /.git)."""
+def _same(target: Optional[str], path: str) -> bool:
+    return target is not None and target == os.path.realpath(path)
+
+
+def _closed(orig: str, q: str, want: Tuple[int, ...], admin: str) -> bool:
+    """The one test a settled entry must pass (review 553 D3): the directory the journal
+    recorded is at the original path, its .git and the admin dir's gitdir name each other,
+    and no quarantine is left."""
     try:
-        with open(os.path.join(admin, "gitdir"), encoding="utf-8") as f:
-            t = f.read(8193).strip()
-    except FileNotFoundError:
-        return None
-    if len(t) > 8192 or not t.endswith(os.sep + ".git"):
-        raise OSError(f"{admin}/gitdir cannot be read")
-    return os.path.normpath(t[:-len(os.sep + ".git")])
+        return (_ident(orig) == want and _same(wo.gitdir_target(admin), orig) and _dotgit_names(orig, admin)
+                and not os.path.lexists(q))
+    except (OSError, wo.OwnerError):
+        return False
+
+
+def _point_admin_at(admin: str, orig: str) -> None:
+    """Rewrite this admin dir's gitdir to name <orig>/.git, in the form (relative or absolute)
+    it had. Only this one link of this one worktree is written: git worktree repair would
+    walk every linked worktree of the repository (review 553 A2)."""
+    path = os.path.join(admin, "gitdir")
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        old = wo.read_all(fd, 8192).decode("utf-8", "surrogateescape").strip()
+    finally:
+        os.close(fd)
+    dotgit = os.path.join(orig, ".git")
+    text = dotgit if os.path.isabs(old) else os.path.relpath(dotgit, admin)
+    tmp = path + ".lifecycle-tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+    try:
+        os.write(fd, (text + "\n").encode("utf-8", "surrogateescape"))
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.replace(tmp, path)
 
 
 def settle(env: Dict[str, str], e: Dict[str, object], roots: List[Tuple[str, str]], apply: bool,
            lock_held: bool = False) -> Tuple[bool, str]:
     """Bring a journaled quarantine back to its original path when its shape is unambiguous
-    (review 552 A4, C1); (settled, what was found or done). Settled means the entry may go.
+    (reviews 552 A4, C1, 553 A2, A3, D3); (settled, what was found or done). Settled means the
+    entry may go, and only after _closed() (or "removed") holds.
 
     The directory is recognised only by the device and inode the journal recorded, the admin
     dir only by the path it recorded, and both paths must lie in one parent that this run's
-    roots allow, with no symlink. Shapes, by where the directory is and where the admin dir's
+    roots allow, with no symlink. Links may be relative (worktree.useRelativePaths); they
+    are resolved as Git does. Shapes, by where the directory is and where the admin dir's
     gitdir points:
       at q, gitdir q        a finished quarantine: git worktree move q -> original
       at q, gitdir original a move that stopped after the rename: rename q -> original
-      at original, gitdir q a move that stopped after Git's update: rewrite gitdir
-      at original, gitdir original  back already (or never moved)
+      at original, gitdir q a move that stopped after Git's update: rewrite that one gitdir,
+                            under the record's lock, and check both links again
+      at original, gitdir original  back already (or never moved), when _closed() holds
       neither, no admin dir  removed
     Anything else (both, another directory, a symlink, an admin dir not under the repo, the
-    original path taken) is reported and left alone."""
+    original path taken, links that do not name each other) is reported and left alone; the
+    report says when it needs repair by hand."""
     try:
         repo, orig, q, admin = (str(e[k]) for k in ("repo", "original", "quarantine", "admin"))
         want = tuple(e["ident"])  # type: ignore[arg-type]
@@ -172,8 +201,8 @@ def settle(env: Dict[str, str], e: Dict[str, object], roots: List[Tuple[str, str
             return False, f"{q}: the journal's admin dir is not under {repo}/.git; left as it is"
         at_o, at_q = _ident(orig), _ident(q)
         has_admin = os.path.isdir(admin)
-        target = _gitdir_target(admin) if has_admin else None
-    except (KeyError, TypeError, ValueError, OSError) as err:
+        target = wo.gitdir_target(admin) if has_admin else None
+    except (KeyError, TypeError, ValueError, OSError, wo.OwnerError) as err:
         return False, f"journal entry for {e.get('quarantine')}: {err}; left as it is"
     if at_o is None and at_q is None:
         return (not has_admin), (f"{q}: removed" if not has_admin else f"{q}: no directory at either path but {admin} is there; left as it is")
@@ -183,15 +212,18 @@ def settle(env: Dict[str, str], e: Dict[str, object], roots: List[Tuple[str, str
         return False, f"{q}: the directories at {orig} and {q} are not (only) the one the journal recorded; left as they are"
     if not has_admin:
         return False, f"{q}: {admin} is gone but the directory is there; left as it is"
-    where, points = ("q" if at_q else "orig"), ("q" if target == os.path.normpath(q) else "orig" if target == os.path.normpath(orig) else None)
+    where = "q" if at_q else "orig"
+    points = "q" if _same(target, q) else "orig" if _same(target, orig) else None
     if points is None:
-        return False, f"{q}: {admin}/gitdir names neither path; left as it is"
+        return False, f"{q}: {admin}/gitdir names neither path; needs repair by hand"
     if where == "orig" and points == "orig":
-        return True, f"{q}: {orig} is back in place"
+        if _closed(orig, q, want, admin):
+            return True, f"{q}: {orig} is back in place"
+        return False, f"{q}: {orig} is back but its links do not name each other; needs repair by hand"
     if not apply:
         return False, f"{q}: left in quarantine by run {e.get('run_id')}; --apply moves it back to {orig}"
     if not _dotgit_names(q if where == "q" else orig, admin):
-        return False, f"{q}: its .git file does not name {admin}; left as it is"
+        return False, f"{q}: its .git file does not name {admin}; needs repair by hand"
     try:
         with (contextlib.nullcontext() if lock_held else wo.OwnerLock(admin, 0)):
             if where == "q" and points == "q":
@@ -204,18 +236,14 @@ def settle(env: Dict[str, str], e: Dict[str, object], roots: List[Tuple[str, str
                     return False, f"{q}: {orig} is taken; left in quarantine"
                 os.rename(q, orig)  # same parent; Git already names orig
             else:
-                git(env, repo, "worktree", "repair", orig)
+                _point_admin_at(admin, orig)
             _unlock_ours(env, repo, orig)
     except (wo.OwnerError, OSError, GitError) as err:
         failed: Optional[BaseException] = err  # a step may have done its work and still failed
     else:
         failed = None
-    try:
-        back = _ident(orig) == want and _gitdir_target(admin) == os.path.normpath(orig) and not os.path.lexists(q)
-    except OSError:
-        back = False
-    if not back:
-        return False, f"{q}: could not be moved back ({failed or 'it does not check out afterwards'}); left as it is"
+    if not _closed(orig, q, want, admin):
+        return False, f"{q}: could not be moved back ({failed or 'its links do not check out afterwards'}); needs repair by hand"
     return True, f"{q}: moved back to {orig}" + (f" (a step reported: {failed})" if failed else "")
 
 
