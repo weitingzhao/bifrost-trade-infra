@@ -3363,6 +3363,19 @@
 - **Ratchet**: `make check-alert-rules` exercises long polls versus real slow routes and connection pressure relative to each instance; `python3 -m pytest -q k8s/data/role-matrix` checks that Finance CONNECT drift is still rejected; `make check-maintainers` checks the byte-identical inventory copy. Helm chart 88.1.3/Grafana 12.10.1 render confirms /grafana/metrics.
 - **验收**: After application, role-matrix logs zero differences and its next scheduled Job succeeds; maintainer-reconcile reports drift 0 and restores its own marker; Grafana up=1; the two corrected latency/connection rules no longer fire on the measured baseline. Do not mark accepted from source tests alone.
 
+### TD-439
+
+**P2 · network · the platform's UniFi read routes need no token**
+
+- **状态**：未开始（2026-10-24 统筹线程记；Codex 做 work 559 时读代码发现，统筹线程未重测）
+- **Claim**: every `GET /api/v1/network/*` route (status, zones, policies, audit, devices, clients, health, bandwidth, anomalies, sla) is registered with a bare `r.Get` in `bifrost-platform` `api/internal/server/server.go`, with no `s.auth.Require`, and the handlers check nothing.
+- **Evidence**: platform main 28620e5b; work 559 report round 2 (`~/agent-work/codex-work-559/REPORT-2.md`). The new `GET /api/v1/network/clients/{mac}` takes `Require(RoleViewer)`.
+- **Impact**: anyone who reaches the platform API on the LAN reads the UniFi device and client lists (names, MACs, IPs) and the firewall policy set.
+- **Fix**: put the network read routes behind `Require(RoleViewer)`; check the Console and MCP callers send a token.
+- **Ratchet**: the route-reach test (`route_reach_check_test.go`) lists the anonymous caller's reach; removing these routes from it pins the change.
+- 验收: an anonymous GET on each network read route answers 401; the Console network pages still load.
+- 审批 不要 · 代价 S · 风险 low · repos: bifrost-platform
+
 ### TD-438
 
 **P2 · market-data plugin · Permanent ticker-detail 404s are retried by nightly healing**
