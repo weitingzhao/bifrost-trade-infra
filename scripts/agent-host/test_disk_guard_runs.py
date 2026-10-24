@@ -27,7 +27,6 @@ sys.path.insert(0, str(HERE))
 import disk_guard  # noqa: E402
 import disk_guard_apply  # noqa: E402
 from disk_guard_base import QUARANTINE as QUAR  # noqa: E402
-from disk_guard_roots import LSOF_STAT_WARNING  # noqa: E402
 from test_disk_guard import CHAIN, SweepCase, backdate, chain, finished_review, go_build, go_mod, npm  # noqa: E402
 
 
@@ -73,35 +72,77 @@ class Runs(SweepCase):
         (self.fake / "err").write_text(f"lsof: WARNING: can't stat() nfs file system {self.aw / '.cache' / 'go-mod'}\n      Output information may be incomplete.\n")
         self.sweep("--apply")
         self.assertKept("codex-review-1/go-cache", "open-files-unknown")
-        # and, by default, a warning about any other mount
-        other = "/mnt/other-share"
-        (self.fake / "err").write_text(
-            f"lsof: WARNING: can't stat() smbfs file system {other}\n"
-            "      Output information may be incomplete.\n      assuming \"dev=36000349\" from mount table\n")
-        self.sweep("--apply")
-        self.assertKept("codex-review-1/go-cache", "open-files-unknown")
-        # a mount named in LIFECYCLE_LSOF_TOLERATED_MOUNTS, outside AGENT_WORK, does not stop it
-        self.env["LIFECYCLE_LSOF_TOLERATED_MOUNTS"] = other
+
+    # The one stderr form a sweep tolerates (Owner 2026-10-24, after review 543 A3): lsof's
+    # three-line can't-stat warning for a mount point in the mount table, outside AGENT_WORK.
+    # The path holds a UUID on a real Mac, so it is matched against the mount table, not set
+    # in a configuration.
+    SHARE = "/mnt/backup-share/4D3E36C4-0000-4000-8000-123456789ABC/TimeMachine"
+
+    def warn(self, path: str, second: str = "Output information may be incomplete.",
+             third: str = 'assuming "dev=36000349" from mount table', extra: str = "") -> None:
+        lines = [f"lsof: WARNING: can't stat() smbfs file system {path}"]
+        lines += [f"      {ln}" for ln in (second, third) if ln is not None]
+        (self.fake / "err").write_text("\n".join(lines) + "\n" + extra)
+
+    def mounts(self, *paths: str, linux: bool = False) -> None:
+        rows = ["/dev/disk3s1s1 on / (apfs, sealed, local, read-only, journaled)"]
+        for p in paths:
+            rows.append(f"/dev/sdb1 on {p} type cifs (rw,relatime)" if linux
+                        else f"//you@backup-host._smb._tcp.local./TimeMachine on {p} (smbfs, nodev, nosuid, mounted by you)")
+        (self.fake / "mount.out").write_text("\n".join(rows) + "\n")
+
+    def test_the_cant_stat_warning_for_an_outside_mount(self) -> None:
+        finished_review(self.aw, "codex-review-1")
+        self.register("codex-review-*/go-cache\tgo-build\trun.done\treview cache")
+        aw = str(self.aw)
+        keeps = [
+            ("names AGENT_WORK", lambda: (self.warn(aw), self.mounts(aw))),
+            ("names a parent of AGENT_WORK", lambda: (self.warn(str(self.aw.parent)), self.mounts(str(self.aw.parent)))),
+            ("names a mount inside AGENT_WORK", lambda: (self.warn(aw + "/.cache/go-mod"), self.mounts(aw + "/.cache/go-mod"))),
+            ("names a path not in the mount table", lambda: (self.warn(self.SHARE), self.mounts("/mnt/elsewhere"))),
+            ("has an extra unknown line", lambda: (self.warn(self.SHARE, extra="lsof: WARNING: something else\n"), self.mounts(self.SHARE))),
+            ("has a different second line", lambda: (self.warn(self.SHARE, second="Output information is fine."), self.mounts(self.SHARE))),
+            ("lacks the third line", lambda: (self.warn(self.SHARE, third=None), self.mounts(self.SHARE))),
+            ("names a relative path", lambda: (self.warn("mnt/share"), self.mounts("/mnt/share"))),
+        ]
+        for why, seed in keeps:
+            with self.subTest(why):
+                seed()
+                (self.fake / "mount.rc").write_text("0")
+                self.sweep("--apply")
+                self.assertKept("codex-review-1/go-cache", "open-files-unknown")
+        with self.subTest("the mount table cannot be read"):
+            self.warn(self.SHARE)
+            self.mounts(self.SHARE)
+            (self.fake / "mount.rc").write_text("1")
+            self.sweep("--apply")
+            self.assertKept("codex-review-1/go-cache", "open-files-unknown")
+        (self.fake / "mount.rc").write_text("0")
+        self.warn(self.SHARE)
+        self.mounts(self.SHARE)
         self.sweep("--apply")
         self.assertDeleted("codex-review-1/go-cache")
+        self.assertEqual(self.report()["lsof"]["tolerated"], [self.SHARE])
 
-    def test_a_tolerated_mount_may_not_overlap_agent_work(self) -> None:
-        for m in (str(self.aw.parent), str(self.aw / ".cache"), "relative/mount"):
-            self.env["LIFECYCLE_LSOF_TOLERATED_MOUNTS"] = m
-            rc, out = self.sweep("--apply")
-            self.assertEqual(rc, 4, out)
-            self.assertIn("LIFECYCLE_LSOF_TOLERATED_MOUNTS", out)
+    def test_the_mount_table_in_both_formats(self) -> None:
+        import disk_guard_base
+        import disk_guard_roots
+        cfg = disk_guard_base.load_config(self.env)
+        for linux in (False, True):
+            self.mounts(self.SHARE, "/mnt/with space", linux=linux)
+            points, err = disk_guard_roots.mount_points(cfg)
+            self.assertEqual(err, "")
+            self.assertEqual(points, ["/", self.SHARE, "/mnt/with space"])
+        (self.fake / "mount.out").write_text("")
+        self.assertIn("no mount table", disk_guard_roots.mount_points(cfg)[1])
 
     def test_open_file_keeps_the_cache(self) -> None:
         lsof = shutil.which("lsof") or ("/usr/sbin/lsof" if os.path.exists("/usr/sbin/lsof") else None)
         if not lsof:
             self.skipTest("no lsof")
         self.env["LIFECYCLE_LSOF"] = lsof
-        # this machine's lsof may warn about mounts elsewhere (a backup share): tolerate exactly
-        # those, which never overlap the temp AGENT_WORK
-        err = subprocess.run([lsof, "-nP", "-Fn"], capture_output=True, text=True).stderr
-        mounts = {m.group(1).rstrip("/") for m in map(LSOF_STAT_WARNING.match, err.splitlines()) if m}
-        self.env["LIFECYCLE_LSOF_TOLERATED_MOUNTS"] = ":".join(sorted(mounts))
+        self.env["LIFECYCLE_MOUNT"] = "/sbin/mount"  # the real one: this Mac's lsof warns about its backup share
         cache = finished_review(self.aw, "codex-review-1")
         finished_review(self.aw, "codex-review-2")
         self.register("codex-review-*/go-cache\tgo-build\trun.done\treview cache")

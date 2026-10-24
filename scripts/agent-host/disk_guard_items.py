@@ -115,8 +115,9 @@ def classify(cfg: Config, aw_fd: int, it: Item, lsof: OpenFiles, now: float) -> 
         if it.entry.cap_bytes is not None and w.bytes <= it.entry.cap_bytes:
             raise Problem("under-cap", f"{gib(w.bytes)} <= cap {gib(it.entry.cap_bytes)}")
         check_git_for(cfg, it)
-        if not lsof.ok:
-            raise Problem("open-files-unknown", lsof.error)
+        unknown = lsof.problem_for(path)
+        if unknown:
+            raise Problem("open-files-unknown", unknown)
         if lsof.under(path):
             raise Problem("open-files", "a process has a file open under it")
     except Problem as p:

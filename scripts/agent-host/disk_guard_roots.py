@@ -21,6 +21,10 @@ from disk_guard_layout import Walker
 
 
 LSOF_STAT_WARNING = re.compile(r"^lsof: WARNING: can't stat\(\) \S+ file system (.+)$")
+LSOF_INCOMPLETE = "Output information may be incomplete."
+LSOF_ASSUMING = re.compile(r'^assuming "dev=[0-9A-Fa-fx]+" from mount table$')
+# macOS: "<dev> on <path> (<type>, ...)"; Linux: "<dev> on <path> type <type> (...)"
+MOUNT_LINE = re.compile(r"^.+? on (/.*?) (?:\(|type \S+ \()")
 
 
 @dataclass
@@ -254,15 +258,42 @@ def check_git(cfg: Config, root: str, tracked_only: bool = False) -> None:
             raise Problem("git-not-ignored", f"git status: {rec[:2].decode(errors='replace')} (not ignored: someone's material?)")
 
 
+def overlaps(a: str, b: str) -> bool:
+    return _under(a, b) or _under(b, a)
+
+
+def mount_points(cfg: Config) -> Tuple[List[str], str]:
+    """The mount points in the current mount table (/sbin/mount; its output is read, nothing
+    is stat()ed, since stat is what fails on the mounts lsof warns about)."""
+    try:
+        r = subprocess.run([cfg.mount], env=cfg.env, capture_output=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return [], f"{cfg.mount}: {e}"
+    if r.returncode != 0:
+        return [], f"{cfg.mount} exit {r.returncode}: {_first(r.stderr)}"
+    points = []
+    for line in r.stdout.decode(errors="surrogateescape").split("\n"):
+        m = MOUNT_LINE.match(line)
+        if m:
+            points.append(m.group(1).rstrip("/") or "/")
+    if not points:
+        return [], f"{cfg.mount} printed no mount table"
+    return points, ""
+
+
 class OpenFiles:
     """One lsof snapshot of this user's processes. ok is False when lsof failed or printed
-    any warning (review 543 A3), except a can't-stat warning about a mount listed in
-    LIFECYCLE_LSOF_TOLERATED_MOUNTS, which never overlaps AGENT_WORK."""
+    anything on stderr (review 543 A3), with one exception: the three-line can't-stat
+    warning lsof prints for a mount it cannot stat (macOS: the Time Machine share, whose path
+    holds a UUID), when that path is absolute, is a mount point in the current mount table,
+    and neither contains nor lies inside AGENT_WORK. problem_for() also refuses a root that
+    such a mount contains or lies inside."""
 
     def __init__(self, cfg: Config) -> None:
         self.ok = False
         self.error = ""
         self.paths: List[str] = []
+        self.tolerated: List[str] = []
         exe = shutil.which(cfg.lsof, path=cfg.env.get("PATH")) if os.sep not in cfg.lsof else cfg.lsof
         if not exe:
             self.error = f"{cfg.lsof} not found"
@@ -275,32 +306,56 @@ class OpenFiles:
         if r.returncode != 0:
             self.error = f"lsof exit {r.returncode}: {_first(r.stderr)}"
             return
-        warning = self.warnings(r.stderr.decode(errors="replace"), cfg.lsof_tolerated)
-        if warning:
-            self.error = warning
+        warned, error = self.stat_warnings(r.stderr.decode(errors="replace"))
+        if not error and warned:
+            mounts, error = mount_points(cfg)
+            for path in warned:
+                if error:
+                    break
+                resolved = os.path.join(os.path.realpath(os.path.dirname(path)), os.path.basename(path))
+                if path not in mounts:
+                    error = f"lsof: can't stat {path}, which is not a mount point in the mount table"
+                elif overlaps(path, cfg.agent_work) or overlaps(resolved, cfg.agent_work):
+                    error = f"lsof: can't stat {path}, which overlaps AGENT_WORK"
+        if error:
+            self.error = error
             return
+        self.tolerated = warned
         for line in r.stdout.decode(errors="surrogateescape").split("\n"):
             if line.startswith("n/"):
                 self.paths.append(line[1:])
         self.ok = True
 
     @staticmethod
-    def warnings(stderr: str, tolerated: List[str]) -> str:
-        skipping = False
-        for line in stderr.split("\n"):
-            if not line.strip():
-                continue
-            if line[0].isspace():
-                if skipping:
-                    continue
-                return f"lsof: {line.strip()}"
-            skipping = False
-            m = LSOF_STAT_WARNING.match(line.strip())
-            if m and (m.group(1).rstrip("/") or "/") in tolerated:
-                skipping = True
-                continue
-            return f"lsof: {line.strip()}"
-        return ""
+    def stat_warnings(stderr: str) -> Tuple[List[str], str]:
+        """The paths of complete three-line can't-stat warnings, or why stderr is not only those."""
+        lines = [ln.rstrip() for ln in stderr.split("\n") if ln.strip()]
+        paths: List[str] = []
+        i = 0
+        while i < len(lines):
+            m = LSOF_STAT_WARNING.match(lines[i])
+            if not m:
+                return [], f"lsof: {lines[i].strip()}"
+            follow = lines[i + 1:i + 3]
+            if (len(follow) != 2 or not all(ln[:1].isspace() for ln in follow)
+                    or follow[0].strip() != LSOF_INCOMPLETE or not LSOF_ASSUMING.match(follow[1].strip())):
+                return [], f"lsof: {lines[i].strip()} (not followed by the two lines lsof always adds)"
+            path = m.group(1)
+            if not path.startswith("/"):
+                return [], f"lsof: {lines[i].strip()} (not an absolute path)"
+            paths.append(path.rstrip("/") or "/")
+            i += 3
+        return paths, ""
+
+    def problem_for(self, *roots: str) -> Optional[str]:
+        """Why this snapshot cannot say whether anything is open under these roots."""
+        if not self.ok:
+            return self.error
+        for m in self.tolerated:
+            for root in roots:
+                if overlaps(m, root):
+                    return f"lsof: can't stat {m}, which overlaps {root}"
+        return None
 
     def under(self, *roots: str) -> Optional[str]:
         for p in self.paths:

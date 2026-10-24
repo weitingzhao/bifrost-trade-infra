@@ -32,9 +32,10 @@ A sweep removes registered cache roots and nothing else under AGENT_WORK:
     _cacache/tmp or cache/vcs, or a read error anywhere keeps the whole root, with the reason.
   - In a Git worktree (looked for above AGENT_WORK too) the root must hold no tracked file
     and Git must report it ignored; a Git error keeps it.
-  - Open files: one lsof snapshot before and one after; lsof failing or printing any warning
-    keeps everything, except a can't-stat warning about a mount in
-    LIFECYCLE_LSOF_TOLERATED_MOUNTS (which may not overlap AGENT_WORK).
+  - Open files: one lsof snapshot before and one after; lsof failing or printing anything on
+    stderr keeps everything, except lsof's three-line can't-stat warning for a path that is
+    a mount point in the current mount table (/sbin/mount) and neither contains nor lies
+    inside AGENT_WORK or the root (the Time Machine share on a Mac).
   - One sweep at a time per machine (flock on LIFECYCLE_LOCK/lock, default
     AGENT_WORK/.lifecycle.lock). Paths are resolved once, without following links; from then
     on only directory handles are used. A root that passes is renamed to
@@ -54,7 +55,7 @@ snapshots thinned when still under STOP_GB (macOS). --no-host skips them.
 
 Environment: AGENT_WORK (~/agent-work), WARN_GB, STOP_GB, DISK_GUARD_VOLUME (AGENT_WORK),
 LIFECYCLE_CACHE_ROOTS, LIFECYCLE_STATUS_DIR (AGENT_WORK/status), LIFECYCLE_LOCK,
-LIFECYCLE_DONE_MIN_AGE_MIN, LIFECYCLE_LSOF (lsof), LIFECYCLE_LSOF_TOLERATED_MOUNTS,
+LIFECYCLE_DONE_MIN_AGE_MIN, LIFECYCLE_LSOF (lsof), LIFECYCLE_MOUNT (/sbin/mount),
 LIFECYCLE_EXCLUDE (colon-separated paths
 under AGENT_WORK another owner manages, e.g. agentd), LIFECYCLE_DISCOVER (codex-review-*),
 DEFAULT_GOCACHE_CAP_GB, CURSOR_DB_WARN_GB.
@@ -206,7 +207,8 @@ def _sweep_locked(cfg: Config, run_id: str, apply: bool, host: bool) -> int:
         "counts": counts,
         "bytes": sizes,
         "kept_reasons": dict(sorted(reasons.items(), key=lambda kv: (-kv[1], kv[0]))),
-        "lsof": {"ok": lsof.ok, "error": lsof.error, "scope": "processes of this user" if os.geteuid() != 0 else "all processes"},
+        "lsof": {"ok": lsof.ok, "error": lsof.error, "tolerated": lsof.tolerated,
+                 "scope": "processes of this user" if os.geteuid() != 0 else "all processes"},
         "items": [it.public() for it in every],
         "host_steps": steps,
         "not_in_this_sweep": "worktrees and local branches (S2: prune-merged-branches.sh --local-only); remote branches; node_modules are reported, not removed",

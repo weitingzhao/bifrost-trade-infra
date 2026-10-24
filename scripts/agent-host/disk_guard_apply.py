@@ -135,9 +135,11 @@ def recheck_and_remove(cfg: Config, aw_fd: int, aw_id: Ident, it: Item, staged: 
             owner_fd = ch.fds[0] if ch.fds else None
             check_policy(cfg, it.entry, owner_fd, it.path.split("/", 1)[0], w, now)
             check_git(cfg, os.path.join(cfg.agent_work, _join(parent, orig_name)), tracked_only=True)
-            if not lsof.ok:
-                raise Problem("open-files-unknown", lsof.error)
-            if lsof.under(os.path.join(cfg.agent_work, _join(parent, q)), os.path.join(cfg.agent_work, _join(parent, orig_name))):
+            here = (os.path.join(cfg.agent_work, _join(parent, q)), os.path.join(cfg.agent_work, _join(parent, orig_name)))
+            unknown = lsof.problem_for(*here)
+            if unknown:
+                raise Problem("open-files-unknown", unknown)
+            if lsof.under(*here):
                 raise Problem("open-files", "a process has a file open under it")
     except Problem as p:
         back = "" if it.leftover else _restore_at(pfd, name, q)

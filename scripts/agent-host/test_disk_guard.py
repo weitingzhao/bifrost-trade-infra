@@ -41,6 +41,11 @@ d=${FAKE_LSOF_DIR:?}
 [ -f "$d/err" ] && cat "$d/err" >&2
 exit "$(cat "$d/rc" 2>/dev/null || echo 0)"
 """
+FAKE_MOUNT = """#!/usr/bin/env bash
+d=${FAKE_LSOF_DIR:?}
+[ -f "$d/mount.out" ] && cat "$d/mount.out"
+exit "$(cat "$d/mount.rc" 2>/dev/null || echo 0)"
+"""
 # Records every call; `go env GOCACHE` answers with $FAKE_GOCACHE.
 FAKE_TOOL = """#!/usr/bin/env bash
 echo "$(basename "$0") $* GOCACHE=${GOCACHE:-} GOMODCACHE=${GOMODCACHE:-} npm_config_cache=${npm_config_cache:-}" >> "${FAKE_CALLS:?}"
@@ -152,6 +157,8 @@ class SweepCase(unittest.TestCase):
         self.fake.mkdir()
         (self.bin / "lsof").write_text(FAKE_LSOF)
         (self.bin / "lsof").chmod(0o755)
+        (self.bin / "mount").write_text(FAKE_MOUNT)
+        (self.bin / "mount").chmod(0o755)
         self.calls = base / "calls"
         self.calls.write_text("")
         self.registry = base / "cache-roots.tsv"
@@ -165,6 +172,7 @@ class SweepCase(unittest.TestCase):
             "AGENT_WORK": str(self.aw),
             "LIFECYCLE_CACHE_ROOTS": str(self.registry),
             "LIFECYCLE_LSOF": str(self.bin / "lsof"),
+            "LIFECYCLE_MOUNT": str(self.bin / "mount"),
             "FAKE_LSOF_DIR": str(self.fake),
             "LIFECYCLE_DONE_MIN_AGE_MIN": "10",
             "FAKE_CALLS": str(self.calls),

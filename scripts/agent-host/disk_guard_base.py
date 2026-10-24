@@ -124,7 +124,7 @@ class Config:
     lock_dir: str
     done_min_age: float
     lsof: str
-    lsof_tolerated: List[str]
+    mount: str
     exclude: List[str]
     discover: List[str]
     host_go_cap_gb: float
@@ -184,18 +184,6 @@ def load_config(env: Dict[str, str]) -> Config:
         registries = [(p, True) for p in regs_env.split(":") if p]
     else:
         registries = [(DEFAULT_REGISTRY, True), (os.path.join(status_dir, "cache-roots.tsv"), False)]
-    # lsof warnings keep everything (review 543 A3) unless the warning names a mount listed
-    # here, and a listed mount may neither contain AGENT_WORK nor lie inside it.
-    tolerated = []
-    for m in env.get("LIFECYCLE_LSOF_TOLERATED_MOUNTS", "").split(":"):
-        m = m.strip()
-        if not m:
-            continue
-        if not m.startswith("/"):
-            raise ConfigError(f"LIFECYCLE_LSOF_TOLERATED_MOUNTS: {m!r} is not an absolute mount point")
-        if _under(aw, m) or _under(m, aw):
-            raise ConfigError(f"LIFECYCLE_LSOF_TOLERATED_MOUNTS: {m} overlaps AGENT_WORK")
-        tolerated.append(m.rstrip("/") or "/")
     return Config(
         env=env,
         agent_work=aw,
@@ -207,7 +195,7 @@ def load_config(env: Dict[str, str]) -> Config:
         lock_dir=os.path.abspath(env.get("LIFECYCLE_LOCK", "").strip() or os.path.join(aw, ".lifecycle.lock")),
         done_min_age=_float(env, "LIFECYCLE_DONE_MIN_AGE_MIN", 120) * 60,
         lsof=env.get("LIFECYCLE_LSOF", "").strip() or "lsof",
-        lsof_tolerated=tolerated,
+        mount=env.get("LIFECYCLE_MOUNT", "").strip() or "/sbin/mount",
         exclude=_rel_list(env, "LIFECYCLE_EXCLUDE", ""),
         discover=_rel_list(env, "LIFECYCLE_DISCOVER", "codex-review-*"),
         host_go_cap_gb=_float(env, "DEFAULT_GOCACHE_CAP_GB", 30),
