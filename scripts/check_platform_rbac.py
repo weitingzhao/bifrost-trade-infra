@@ -3,7 +3,7 @@
 
 Asks the API server about a fixed matrix and, per B/C/D action in LANE-B1's tier
 table, that PROD can perform it and STG cannot. Must stay denied: Secrets beyond
-the two named ones, pod logs outside Bifrost namespaces, exec outside data,
+the named ones, pod logs outside Bifrost namespaces, exec outside data,
 creating Namespaces, deleting pods in kube-system, and any actuation from STG
 (Owner 2026-10-07: STG observes, PROD maintains).
 
@@ -48,7 +48,8 @@ MATRIX = [
     ("list", "nodes.metrics.k8s.io", "", True, True),
     ("get", "pods:log", "data", True, True),
     ("get", "pods:log", "bifrost-prod", True, True),
-    ("get", "secret/gitea-bootstrap", "cicd", True, True),
+    # TD-432: the Gitea administrator's Secret, STG never (slice S4), PROD until S6
+    ("get", "secret/gitea-bootstrap", "cicd", False, True),
     ("create", "configmaps", "cicd", True, True),
     # release window (LANE-W33C): PROD may delete that one ConfigMap, nothing else in cicd
     ("delete", "configmap/bifrost-release-window", "cicd", False, True),
@@ -72,6 +73,10 @@ MATRIX = [
     ("create", "pods:exec", "bifrost-prod", False, False),
     ("list", "secrets", "data", False, False),
     ("get", "secret/bifrost-prod-secrets", "bifrost-prod", False, False),
+    # TD-432: Gitea credentials are mounted, never read through the API server
+    ("get", "secret/gitea-git-credentials", "cicd", False, False),
+    ("get", "secret/gitea-ci-reader", "cicd", False, False),
+    ("get", "secret/bifrost-gitea-reader", "<own>", False, False),
     ("get", "secrets", "kube-system", False, False),
     ("create", "namespaces", "", False, False),
     ("create", "secrets", "bifrost-platform-prod", False, False),

@@ -41,7 +41,6 @@ DENY = {
 
 # (ServiceAccount namespace, Secret namespace, Secret) -> the slice that removes it.
 EXCEPTIONS = {
-    ("bifrost-platform-stg", "cicd", "gitea-bootstrap"): "TD-432 S4: after STG runs with its reader",
     ("bifrost-platform-prod", "cicd", "gitea-bootstrap"): "TD-432 S6: after PROD runs with its reader",
 }
 

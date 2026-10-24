@@ -183,9 +183,14 @@ def env_file(env, prod, job_ns):
     own = f"bifrost-platform-{env}"
     docs = [sa(env), crb(env, "bifrost-platform-observer")]
     docs += [rb(env, "bifrost-platform-logs", n) for n in BIFROST_NS]
-    docs += [rb(env, "bifrost-platform-state", own), rb(env, "bifrost-platform-state", "cicd"),
-             rb(env, "bifrost-platform-gitea-creds", "cicd")]
+    docs += [rb(env, "bifrost-platform-state", own), rb(env, "bifrost-platform-state", "cicd")]
     if prod:
+        # TD-432: the platform reads Gitea with its own read-only account,
+        # mounted from its namespace; STG no longer reaches the administrator's
+        # Secret. PROD keeps it until its release with the reader is checked
+        # (slice S6 removes this line, the ClusterRole and the exception in
+        # scripts/test_platform_rbac_secrets.py).
+        docs += [rb(env, "bifrost-platform-gitea-creds", "cicd")]
         docs += [rb(env, "bifrost-platform-workload-actuator", n) for n in BIFROST_NS]
         docs += [crb(env, "bifrost-platform-node-actuator"), crb(env, "bifrost-platform-node-drain"),
                  rb(env, "bifrost-platform-data-actuator", "data"),
