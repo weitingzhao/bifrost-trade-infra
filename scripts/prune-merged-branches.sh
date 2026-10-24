@@ -14,6 +14,8 @@
 # for a commit without one, the same subject -- lanes are rebased or folded into a batch before they
 # land, so their patch ids change. Kept regardless:
 #   - a branch with an open PR, or whose tip is younger than --min-age-hours (default 24)
+#   - an agent/** branch on origin: an attempt's result, which agentd deletes under the runtime's
+#     rule (TD-383; CUT-gitea-primary-2026-10-17 §6), merged or not, reviewed or not
 #   - a worktree with a file changed in the last --min-age-hours, a process running from it, or
 #     changes other than an untracked node_modules
 # --apply writes a bundle of every ref it deletes, plus a name -> sha list, to
@@ -43,7 +45,7 @@ while [[ $# -gt 0 ]]; do
     --repos) REPOS="$2"; shift ;;
     --min-age-hours) MIN_AGE_HOURS="$2"; shift ;;
     --reviewed) REVIEWED="$2"; shift ;;
-    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,/^set -euo pipefail$/{/^#/p;}' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
   shift
@@ -110,7 +112,8 @@ for repo in $REPOS; do
   while IFS='|' read -r ref ts; do
     b="${ref#origin/}"
     [[ "$b" == main || "$b" == HEAD || "$ref" == origin ]] && continue
-    if grep -Fxq -- "$b" "$TMP/$repo.prs"; then why="open PR"
+    if [[ "$b" == agent/* ]]; then why="agentd's to delete (TD-383)"
+    elif grep -Fxq -- "$b" "$TMP/$repo.prs"; then why="open PR"
     elif (( NOW - ts < MIN_AGE_SECS )); then why="younger than ${MIN_AGE_HOURS}h"
     elif ! merged "$dir" "$ref" "$TMP/$repo.subjects" "$TMP/$repo.changeids"; then
       want=$(reviewed_sha "$repo" "$b")
