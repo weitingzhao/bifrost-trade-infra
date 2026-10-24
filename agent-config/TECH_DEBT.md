@@ -2151,6 +2151,84 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-433
+
+**P3 · hosts · NAS · `/home/k8s_admin` on the NAS is mode 777**
+
+- **状态**：未开始（2026-10-24 统筹线程记；W-68 B4 ① 切法的子代理只读发现，统筹线程未重测）
+- **Claim**: the home directory of the account the cluster uses on the NAS (.20, UGOS) is world-writable (777).
+- **Evidence**: `work/multi-agent/CUT-w68-b4-host-monitoring-2026-10-24.md` (branch w31/r4-w68-b4 5c6782ed), section on the NAS; not re-measured.
+- **Impact**: any local account or container on the NAS can plant files in that home (shell start-up files, SSH `authorized_keys` if the directory is used for logins), so a compromise of any NAS-side process becomes the cluster account's.
+- **Fix**: `chmod 700` (or 750) the home, check `.ssh` modes; the Owner does it on the NAS together with the B4 ① install.
+- **Ratchet**: the B4 ① host checks report this directory's mode; anything wider than 750 is an alert.
+- 验收: the check reads 700 or 750.
+- 审批 要（NAS 上的操作归 Owner）· 代价 S · 风险 low · repos: bifrost-trade-infra
+
+### TD-432
+
+**P1 · rbac · Gitea · the STG and PROD platform service accounts can read the Gitea admin token, so code that reaches STG holds Gitea admin**
+
+- **状态**：未开始（2026-10-24 统筹线程记；Codex 复核 533 A1 指出，统筹线程读清单和代码核实；4.1 自动落地开工前必须先修）
+- **Claim**: the ClusterRole `bifrost-platform-gitea-creds` grants `get` on Secret `cicd/gitea-bootstrap` (`bifrost-trade-infra` `k8s/platform-rbac/00-clusterroles.yaml:98-104`), bound to the `bifrost-platform` service account of STG (`k8s/platform-rbac/10-stg.yaml`, RoleBinding `bifrost-platform-gitea-creds-stg`) as well as PROD. The platform uses that Secret's `gitea_admin_token` as its Gitea credential (`bifrost-platform` `api/internal/delivery/service.go:1292-1306`). STG releases are done by Agents without the Owner (CLAUDE.md §5 "STG 发布 A"), so any change that reaches platform main and is released to STG runs with a credential that can push any branch, change branch protection and create users. Two more paths to the same kind of credential, found by the 4.1 cut's third draft (`work/multi-agent/CUT-landing-2026-10-24.md` §P0, branch w31/r4-landing-cut e488d86a) and not yet re-measured by the coordinator: the CI clone step writes its clone credential into the checkout's `.git/config`, where the code under test can read it; the mirror-sync task uses the Gitea admin token.
+- **Evidence**: infra main 639edc9 and platform main 82b3e9d7, read 2026-10-24; `agent-config/work/multi-agent/reviews` will carry review 533. Live bindings and the token's actual scope not re-measured.
+- **Impact**: the boundary "only the Owner-approved release reaches PROD" and "Agents push only agent/**" both rest on code review alone; 4.1 (the runtime merges accepted work and releases to STG) would widen it.
+- **Fix**: give the platform's Gitea reads an own read-only Gitea identity (a token without admin and without push to main); remove `gitea-bootstrap` from both service accounts' reach; keep the admin token for the Owner's and bootstrap's use only. RBAC and Secret changes are the Owner's.
+- **Ratchet**: a test over `k8s/platform-rbac/` that fails when any platform service account can read a Secret named in a deny list (`gitea-bootstrap` first); a live check (`kubectl auth can-i get secret/gitea-bootstrap -n cicd --as=system:serviceaccount:bifrost-platform-stg:bifrost-platform` answers no).
+- 验收: both service accounts answer no; the platform's branch and tag listings still work with the read-only identity.
+- 审批 要（RBAC 与 Secret 归 Owner）· 代价 S · 风险 medium · repos: bifrost-trade-infra, bifrost-platform
+
+### TD-431
+
+**P2 · delivery · release window · the window's decision table is hard-coded three times with Trade's repository and pipeline names**
+
+- **状态**：未开始（2026-10-24 统筹线程记；4.3 设计稿实读，修法并进 4.3「应用登记」）
+- **Claim**: which pipelines must hold the window, which pass without it and which are refused is decided by three copies of one table, each naming Trade's five repositories and four deliver pipelines: Go `bifrost-platform` `api/internal/delivery/release_window.go:21-39,141-183`, Python `bifrost-trade-infra` `scripts/release/window_decision.py:12-33,75-126`, Tekton inline `k8s/cicd/tekton/task-release-window.yaml:39-134`. A pipeline not in the table (`bifrost-build-stg`, `build-frontend-stg`, `build-research-pine`, `ci-finance`) is refused whenever any window is open.
+- **Evidence**: `work/multi-agent/DESIGN-release-lanes-2026-10-24.md` §1.1 (branch w31/r4-release-lanes 836b6508); copies to be re-read by the fix.
+- **Impact**: the platform knows Trade by name (CLAUDE.md §1 verification test fails); adding an application means editing three files in two repositories that can drift apart.
+- **Fix**: one application registry the three readers load (4.3 §2.1), or one reader the others call.
+- **Ratchet**: a test that fails when a repository or pipeline name appears in a decision copy instead of the registry.
+- 验收: a new application registered in one place is decided the same by all three readers.
+- 审批 不要 · 代价 M · 风险 low · repos: bifrost-platform, bifrost-trade-infra
+
+### TD-430
+
+**P2 · delivery · release window · reading an expired window deletes the ConfigMap without a precondition, which can delete a window someone just took**
+
+- **状态**：未开始（2026-10-24 统筹线程记；统筹线程读代码核实）
+- **Claim**: `getReleaseWindow` deletes `cicd/bifrost-release-window` when the record it read is expired, with `metav1.DeleteOptions{}` and no `Preconditions` (`bifrost-platform` `api/internal/delivery/window_store.go:183-197`, main 82b3e9d7). Between that Get and that Delete another writer can update the same ConfigMap with a live window; the Delete removes it.
+- **Evidence**: code read 2026-10-24; first noted in `DESIGN-release-lanes-2026-10-24.md` §1.1.
+- **Impact**: rare, but a release can start believing it holds the window while the record is gone, so a second session can take it.
+- **Fix**: delete with `Preconditions{ResourceVersion: &cm.ResourceVersion}` and ignore a conflict, or never delete on read (expired means free).
+- **Ratchet**: a fake-clientset test where an update lands between the Get and the Delete; the live window survives.
+- 验收: that test passes; removing the precondition makes it fail.
+- 审批 不要 · 代价 S · 风险 low · repos: bifrost-platform
+
+### TD-429
+
+**P1 · delivery · release window · the holder is a machine, not a session, and approved PROD runs start without holding the window**
+
+- **状态**：未开始（2026-10-24 统筹线程记；修法并进 4.3「每个会话一个持有凭据」）
+- **Claim**: ① `release.sh` sets the holder to `${USER}@$(hostname -s)` (`bifrost-trade-infra` `scripts/release/release.sh:746,772`), and the window store treats a second hold by the same holder as a renewal that may change `what` (`bifrost-platform` `api/internal/delivery/window_store.go:155-163`): every session on one machine is the same holder, so the window does not keep two sessions on one machine apart. ② A PROD approval executes `start_pipeline_run` for the requester without the runner holding the window; on 2026-10-23 four platform PROD runs started while nobody held it (the coordinator's watcher takes the window only after the run appears).
+- **Evidence**: ① code read by the coordinator 2026-10-24; ② `DESIGN-release-lanes-2026-10-24.md` §1.3 (audit of 2026-10-23), not re-measured by the coordinator.
+- **Impact**: the two incidents the window exists for (2026-09-27 core 0.24.0 released twice, 2026-09-28 a plugin tag overwritten) can recur between sessions on the same machine, or between a PROD run and anything else.
+- **Fix**: a per-session holder credential issued by the platform; the PROD runner takes the application's lane before it starts the run and releases it when the run ends (4.3).
+- **Ratchet**: a test where two sessions on one host hold the same application: the second is refused; an audit check that every PROD run started inside a held lane.
+- 验收: both checks pass on PROD for a week of releases.
+- 审批 要（4.3 的设计由 Owner 定）· 代价 M · 风险 medium · repos: bifrost-platform, bifrost-trade-infra
+
+### TD-428
+
+**P2 · hosts · Mac mini · the out-of-band plane and the Claude app share the only (admin) account, and its config is readable by any staff user**
+
+- **状态**：未开始（2026-10-24 统筹线程记；修法并进 4.4 S2、S5）
+- **Claim**: both minis (.50, .52) have one account, `vision`, an administrator. The operator plane (`com.bifrost.operator-plane`), the peer watchdog and Claude.app all run in it, which is the "out-of-band and Agent share an account" ADR §3 rules out. `/Users/vision` is `drwxr-x---` group `staff`; `bifrost-agent/config` is 755 and several env files (backups included) are 644, so any new standard account (also in `staff`) could read them. `.52` has `autorestart 0` (does not power back on after an outage).
+- **Evidence**: read-only SSH 2026-10-23 23:45 CDT, `work/multi-agent/DESIGN-coordinator-placement-2026-10-24.md` §1.2 (branch w31/r4-coordinator-placement b995eef6).
+- **Impact**: today one user, so no second reader yet; the moment a second account exists (4.4) or an Agent runs as `vision`, the out-of-band config is exposed; `.52` stays off after a power cut until someone presses the button.
+- **Fix**: `chmod 700 /Users/vision`, env files 600, config 700 on both; `.52` `autorestart 1`; Claude.app out of `vision` (4.4 S5).
+- **Ratchet**: the W-68 B4 host checks report home and config modes and `autorestart` for both minis; a mode other than 700 / 600 is an alert.
+- 验收: the check reads 700 / 600 and `autorestart 1` on both minis.
+- 审批 要（Owner 在 mini 上跑，D3-3）· 代价 S · 风险 low · repos: bifrost-trade-infra
+
 ### TD-427
 
 **P3 · agentrt · presence · with several API instances the controller's health probe samples the Service, so host-loss detection can be deferred (an accepted boundary)**
