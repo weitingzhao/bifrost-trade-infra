@@ -1,20 +1,22 @@
 """Which roots a sweep may touch and what proves their owner is done (disk-guard, W-31 4.6
 S1): the registry, its expansion (no symlink followed, no wildcard over a name with a
-space, '=' or a quote), end evidence, git and open files (review 539 F1, F3).
+space, '=' or a quote), end evidence, Git and open files (review 539 F1, F3; review 543
+A3, A4, C).
 """
 
 from __future__ import annotations
 
 import fnmatch
+import math
 import os
 import re
 import shutil
 import stat
 import subprocess
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
-from disk_guard_base import CAP_KINDS, Config, GIB, GLOB_CHARS, KINDS, Problem, QUARANTINE, WEIRD, _first, _join
+from disk_guard_base import CAP_KINDS, Config, GIB, GLOB_CHARS, KINDS, Problem, QUARANTINE, WEIRD, _first, _join, _under
 from disk_guard_layout import Walker
 
 
@@ -75,8 +77,9 @@ def parse_registry(path: str, required: bool) -> Tuple[List[Entry], List[str]]:
                 errors.append(f"{where}: cap= is for {', '.join(CAP_KINDS)}")
                 continue
             try:
-                cap = int(float(policy[4:]) * GIB)
-            except ValueError:
+                gb = float(policy[4:])
+                cap = int(gb * GIB) if math.isfinite(gb) else -1
+            except (ValueError, OverflowError):
                 cap = -1
             if cap < 0:
                 errors.append(f"{where}: {policy!r} is not cap=<GiB>")
@@ -164,12 +167,13 @@ def expand(agent_work: str, entry: Entry) -> List[Cand]:
     return out
 
 
-def check_policy(cfg: Config, entry: Entry, rel: str, w: Walker, now: float) -> None:
+def check_policy(cfg: Config, entry: Entry, owner_fd: Optional[int], owner: str, w: Walker, now: float) -> None:
+    """Positive end evidence. owner_fd is a handle on the first directory of the path."""
     if entry.policy == "run.done":
-        owner = rel.split("/", 1)[0]
-        marker = os.path.join(cfg.agent_work, owner, "run.done")
+        if owner_fd is None:
+            raise Problem("no-run-done", "no owner directory above the root")
         try:
-            st = os.lstat(marker)
+            st = os.stat("run.done", dir_fd=owner_fd, follow_symlinks=False)
         except FileNotFoundError:
             raise Problem("no-run-done", f"{owner}/run.done is missing: no evidence the review ended")
         except OSError as e:
@@ -178,61 +182,82 @@ def check_policy(cfg: Config, entry: Entry, rel: str, w: Walker, now: float) -> 
             raise Problem("run-done-unreadable", f"{owner}/run.done is not a regular file")
         if now - st.st_mtime < cfg.done_min_age:
             raise Problem("run-done-too-fresh", f"{owner}/run.done is {int((now - st.st_mtime) / 60)} min old")
-        if w.max_mtime > st.st_mtime + 60:
+        # run.done is written after the review exits: nothing in its cache can be newer
+        if w.max_mtime > st.st_mtime:
             raise Problem("written-after-run-done", "the cache changed after run.done")
     elif entry.policy == "ended":
         if w.max_mtime and now - w.max_mtime < cfg.done_min_age:
             raise Problem("recently-written", f"written {int((now - w.max_mtime) / 60)} min ago")
 
 
-def git_top(agent_work: str, root: str) -> Optional[str]:
-    """The nearest directory between the root and AGENT_WORK that has a .git."""
-    d = os.path.dirname(root)
-    while True:
-        try:
-            os.lstat(os.path.join(d, ".git"))
-            return d
-        except FileNotFoundError:
-            pass
-        except OSError as e:
-            raise Problem("git-error", f"{os.path.relpath(d, agent_work)}/.git: {e.strerror or e}")
-        if d == agent_work or len(d) <= len(agent_work):
-            return None
-        d = os.path.dirname(d)
+def _git_env(cfg: Config) -> Dict[str, str]:
+    # Git's own discovery decides; nothing inherited may point it elsewhere or stop it early.
+    env = {k: v for k, v in cfg.env.items() if not k.startswith("GIT_")}
+    env.update(GIT_OPTIONAL_LOCKS="0", GIT_TERMINAL_PROMPT="0", GIT_DISCOVERY_ACROSS_FILESYSTEM="1", LC_ALL="C")
+    return env
 
 
-def _git(cfg: Config, top: str, *args: str) -> subprocess.CompletedProcess:
-    env = dict(cfg.env)
-    env.update(GIT_OPTIONAL_LOCKS="0", GIT_TERMINAL_PROMPT="0", LC_ALL="C")
+def _git(cfg: Config, cwd: str, *args: str) -> subprocess.CompletedProcess:
     try:
-        return subprocess.run(["git", "-C", top, *args], env=env, capture_output=True, timeout=300)
+        return subprocess.run(["git", "-C", cwd, *args], env=_git_env(cfg), capture_output=True, timeout=300)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise Problem("git-error", f"git {args[0]}: {e}")
 
 
+def git_top(cfg: Config, root: str) -> Optional[str]:
+    """The Git worktree holding root, looked for all the way up (AGENT_WORK may itself be
+    inside one, review 543 A4). None only when there is no .git above it and Git agrees."""
+    parent = os.path.dirname(root)
+    found = None
+    d = parent
+    while True:
+        try:
+            os.lstat(os.path.join(d, ".git"))
+            found = d
+            break
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            raise Problem("git-error", f"{d}/.git: {e.strerror or e}")
+        if d == os.path.dirname(d):
+            break
+        d = os.path.dirname(d)
+    r = _git(cfg, parent, "rev-parse", "--show-toplevel")
+    if r.returncode == 0:
+        top = r.stdout.decode(errors="surrogateescape").strip()
+        if not top or not _under(root, os.path.realpath(top)):
+            raise Problem("git-error", f"git rev-parse gave {top!r} for {parent}")
+        return os.path.realpath(top)
+    if found is None and b"not a git repository" in r.stderr:
+        return None
+    raise Problem("git-error", f"git rev-parse in {parent}: {_first(r.stderr)}" + (f" (.git at {found})" if found else ""))
+
+
 def check_git(cfg: Config, root: str, tracked_only: bool = False) -> None:
-    top = git_top(cfg.agent_work, root)
+    top = git_top(cfg, root)
     if top is None:
         return
     rel = os.path.relpath(root, top)
+    where = os.path.relpath(top, cfg.agent_work) if _under(top, cfg.agent_work) else top
     r = _git(cfg, top, "ls-files", "-z", "--", rel)
     if r.returncode != 0:
-        raise Problem("git-error", f"git ls-files in {os.path.relpath(top, cfg.agent_work)}: {_first(r.stderr)}")
+        raise Problem("git-error", f"git ls-files in {where}: {_first(r.stderr)}")
     if r.stdout.strip(b"\0"):
-        raise Problem("git-tracked-inside", f"git tracks files under it ({os.path.relpath(top, cfg.agent_work)})")
+        raise Problem("git-tracked-inside", f"git tracks files under it ({where})")
     if tracked_only:
         return
     r = _git(cfg, top, "status", "--porcelain=v1", "-z", "--ignored=matching", "--untracked-files=all", "--", rel)
     if r.returncode != 0:
-        raise Problem("git-error", f"git status in {os.path.relpath(top, cfg.agent_work)}: {_first(r.stderr)}")
+        raise Problem("git-error", f"git status in {where}: {_first(r.stderr)}")
     for rec in r.stdout.split(b"\0"):
         if rec and not rec.startswith(b"!! "):
             raise Problem("git-not-ignored", f"git status: {rec[:2].decode(errors='replace')} (not ignored: someone's material?)")
 
 
 class OpenFiles:
-    """One lsof snapshot of this user's processes. ok is False when lsof failed or warned
-    about anything other than a filesystem outside AGENT_WORK."""
+    """One lsof snapshot of this user's processes. ok is False when lsof failed or printed
+    any warning (review 543 A3), except a can't-stat warning about a mount listed in
+    LIFECYCLE_LSOF_TOLERATED_MOUNTS, which never overlaps AGENT_WORK."""
 
     def __init__(self, cfg: Config) -> None:
         self.ok = False
@@ -250,9 +275,9 @@ class OpenFiles:
         if r.returncode != 0:
             self.error = f"lsof exit {r.returncode}: {_first(r.stderr)}"
             return
-        relevant_warning = self._warnings(r.stderr.decode(errors="replace"), cfg.agent_work)
-        if relevant_warning:
-            self.error = relevant_warning
+        warning = self.warnings(r.stderr.decode(errors="replace"), cfg.lsof_tolerated)
+        if warning:
+            self.error = warning
             return
         for line in r.stdout.decode(errors="surrogateescape").split("\n"):
             if line.startswith("n/"):
@@ -260,7 +285,7 @@ class OpenFiles:
         self.ok = True
 
     @staticmethod
-    def _warnings(stderr: str, agent_work: str) -> str:
+    def warnings(stderr: str, tolerated: List[str]) -> str:
         skipping = False
         for line in stderr.split("\n"):
             if not line.strip():
@@ -269,11 +294,9 @@ class OpenFiles:
                 if skipping:
                     continue
                 return f"lsof: {line.strip()}"
+            skipping = False
             m = LSOF_STAT_WARNING.match(line.strip())
-            if m:
-                mount = m.group(1).rstrip("/") or "/"
-                if agent_work == mount or agent_work.startswith(mount.rstrip("/") + "/"):
-                    return f"lsof: {line.strip()}"
+            if m and (m.group(1).rstrip("/") or "/") in tolerated:
                 skipping = True
                 continue
             return f"lsof: {line.strip()}"

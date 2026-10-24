@@ -9,6 +9,7 @@ Fixtures and SweepCase are in test_disk_guard.py.
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import io
 import json
 import os
@@ -24,8 +25,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import disk_guard  # noqa: E402
-import disk_guard_items  # noqa: E402
+import disk_guard_apply  # noqa: E402
 from disk_guard_base import QUARANTINE as QUAR  # noqa: E402
+from disk_guard_roots import LSOF_STAT_WARNING  # noqa: E402
 from test_disk_guard import CHAIN, SweepCase, backdate, chain, finished_review, go_build, go_mod, npm  # noqa: E402
 
 
@@ -67,18 +69,39 @@ class Runs(SweepCase):
         (self.fake / "err").write_text(f"lsof: WARNING: can't stat() apfs file system {self.aw.parent}\n      Output information may be incomplete.\n")
         self.sweep("--apply")
         self.assertKept("codex-review-1/go-cache", "open-files-unknown")
-        # a warning about another mount (the NAS) does not stop the sweep
+        # review 543 A3: so is a warning about a mount inside AGENT_WORK
+        (self.fake / "err").write_text(f"lsof: WARNING: can't stat() nfs file system {self.aw / '.cache' / 'go-mod'}\n      Output information may be incomplete.\n")
+        self.sweep("--apply")
+        self.assertKept("codex-review-1/go-cache", "open-files-unknown")
+        # and, by default, a warning about any other mount
+        other = "/mnt/other-share"
         (self.fake / "err").write_text(
-            "lsof: WARNING: can't stat() smbfs file system /Volumes/.timemachine/nas/TimeMachine\n"
+            f"lsof: WARNING: can't stat() smbfs file system {other}\n"
             "      Output information may be incomplete.\n      assuming \"dev=36000349\" from mount table\n")
         self.sweep("--apply")
+        self.assertKept("codex-review-1/go-cache", "open-files-unknown")
+        # a mount named in LIFECYCLE_LSOF_TOLERATED_MOUNTS, outside AGENT_WORK, does not stop it
+        self.env["LIFECYCLE_LSOF_TOLERATED_MOUNTS"] = other
+        self.sweep("--apply")
         self.assertDeleted("codex-review-1/go-cache")
+
+    def test_a_tolerated_mount_may_not_overlap_agent_work(self) -> None:
+        for m in (str(self.aw.parent), str(self.aw / ".cache"), "relative/mount"):
+            self.env["LIFECYCLE_LSOF_TOLERATED_MOUNTS"] = m
+            rc, out = self.sweep("--apply")
+            self.assertEqual(rc, 4, out)
+            self.assertIn("LIFECYCLE_LSOF_TOLERATED_MOUNTS", out)
 
     def test_open_file_keeps_the_cache(self) -> None:
         lsof = shutil.which("lsof") or ("/usr/sbin/lsof" if os.path.exists("/usr/sbin/lsof") else None)
         if not lsof:
             self.skipTest("no lsof")
         self.env["LIFECYCLE_LSOF"] = lsof
+        # this machine's lsof may warn about mounts elsewhere (a backup share): tolerate exactly
+        # those, which never overlap the temp AGENT_WORK
+        err = subprocess.run([lsof, "-nP", "-Fn"], capture_output=True, text=True).stderr
+        mounts = {m.group(1).rstrip("/") for m in map(LSOF_STAT_WARNING.match, err.splitlines()) if m}
+        self.env["LIFECYCLE_LSOF_TOLERATED_MOUNTS"] = ":".join(sorted(mounts))
         cache = finished_review(self.aw, "codex-review-1")
         finished_review(self.aw, "codex-review-2")
         self.register("codex-review-*/go-cache\tgo-build\trun.done\treview cache")
@@ -138,9 +161,15 @@ class Runs(SweepCase):
         lock = self.aw / ".lifecycle.lock"
         lock.mkdir()
         (lock / "owner").write_text(json.dumps({"run_id": "other", "pid": os.getpid(), "host": socket.gethostname(), "started_at": "now"}))
-        rc, out = self.sweep("--apply")
+        fd = os.open(lock / "lock", os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)  # another sweep, alive
+            rc, out = self.sweep("--apply")
+        finally:
+            os.close(fd)
         self.assertEqual(rc, 3, out)
         self.assertIn("another sweep holds", out)
+        self.assertIn("run other", out)
         self.assertTrue((cache / "00").is_dir())
         self.assertFalse((self.aw / "status" / "lifecycle.json").exists())
         self.assertTrue((lock / "owner").is_file(), "someone else's lock stays")
@@ -153,10 +182,10 @@ class Runs(SweepCase):
         lock = self.aw / ".lifecycle.lock"
         lock.mkdir()
         (lock / "owner").write_text(json.dumps({"run_id": "dead", "pid": p.pid, "host": socket.gethostname(), "started_at": "then"}))
-        rc, out = self.sweep("--apply")
+        rc, out = self.sweep("--apply")  # nobody holds the flock: the kernel let go when it died
         self.assertEqual(rc, 0, out)
         self.assertDeleted("codex-review-1/go-cache")
-        self.assertFalse(lock.exists())
+        self.assertFalse((lock / "owner").exists())
 
     def test_a_write_between_check_and_delete_keeps_it(self) -> None:
         a = finished_review(self.aw, "codex-review-1")
@@ -164,16 +193,16 @@ class Runs(SweepCase):
         self.register("codex-review-*/go-cache\tgo-build\trun.done\treview cache")
 
         def another_session(staged: list) -> None:
-            for it, orig, q in staged:
+            for it, pfd, name, q in staged:
                 if it.path == "codex-review-1/go-cache":
-                    Path(q, "00", "late.go").write_text("package late\n")
+                    Path(self_aw, "codex-review-1", q, "00", "late.go").write_text("package late\n")
                 if it.path == "codex-review-2/go-cache":
                     os.unlink(os.path.join(self_aw, "codex-review-2", "run.done"))  # the review restarted
 
         self_aw = str(self.aw)
-        disk_guard_items.between_check_and_delete = another_session
+        disk_guard_apply.between_check_and_delete = another_session
         self.sweep("--apply")
-        self.assertKept("codex-review-1/go-cache", "recheck-unknown-entry")
+        self.assertKept("codex-review-1/go-cache", "recheck-handwritten-file")
         self.assertTrue((a / "00" / "late.go").is_file(), "renamed back with the new file")
         self.assertKept("codex-review-2/go-cache", "recheck-no-run-done")
         self.assertIn("renamed back", self.item("codex-review-2/go-cache")["detail"])
@@ -189,34 +218,43 @@ class Runs(SweepCase):
         self.register("codex-review-*/go-cache\tgo-build\trun.done\treview cache")
         self.sweep("--apply")
         self.assertDeleted("codex-review-1/go-cache" + QUAR + "20261024T000000Z-1")
-        self.assertKept("codex-review-2/go-cache" + QUAR + "20261024T000000Z-1", "unknown-entry")
+        self.assertKept("codex-review-2/go-cache" + QUAR + "20261024T000000Z-1", "handwritten-file")
 
-    def test_shared_roots_are_pruned_by_their_tool_over_the_cap(self) -> None:
-        self.tool("go", "npm")
+    def test_shared_roots_over_the_cap_are_removed_after_the_same_checks(self) -> None:
+        self.tool("go", "npm")  # the tools follow the path, so they are not called (review 543 A2)
         shared = self.aw / ".cache"
         go_build(shared / "go-build")
         go_mod(shared / "go-mod")
         npm(shared / "npm")
         go_build(shared / "go-build-2")
         (shared / "go-build-2" / "00" / "notes.go").write_text("package notes\n")
+        go_build(shared / "go-build-3")
         self.register(
             ".cache/go-build\tgo-build\tcap=0\tshared",
             ".cache/go-mod\tgo-mod\tcap=0\tshared",
             ".cache/npm\tnpm\tcap=100\tshared",
             ".cache/go-build-2\tgo-build\tcap=0\tshared",
+            ".cache/go-build-3\tgo-build\tcap=0\tshared",
         )
         self.sweep()
-        self.assertEqual(self.calls.read_text(), "", "a report-only run calls no tool")
         self.assertEqual(self.item(".cache/go-build")["action"], "would-prune")
+        self.assertTrue((shared / "go-build" / "00").is_dir())
+
+        def a_build_starts(staged: list) -> None:
+            for it, pfd, name, q in staged:
+                if it.path == ".cache/go-build-3":
+                    Path(shared, q, "ab", "notes.md").write_text("written during the sweep\n")
+
+        disk_guard_apply.between_check_and_delete = a_build_starts
         self.sweep("--apply")
-        calls = self.calls.read_text()
-        self.assertIn(f"go clean -cache GOCACHE={shared / 'go-build'} ", calls)
-        self.assertIn(f"go clean -modcache GOCACHE= GOMODCACHE={shared / 'go-mod'} ", calls)
-        self.assertNotIn("\nnpm ", "\n" + calls)
-        self.assertNotIn("go-build-2", calls)
-        self.assertEqual(self.item(".cache/go-build")["action"], "pruned")
+        self.assertEqual(self.calls.read_text(), "", "no tool is called")
+        for p in (".cache/go-build", ".cache/go-mod"):
+            self.assertEqual(self.item(p)["action"], "pruned")
+            self.assertFalse(os.path.lexists(self.aw / p))
         self.assertKept(".cache/npm", "under-cap")
-        self.assertKept(".cache/go-build-2", "unknown-entry")
+        self.assertKept(".cache/go-build-2", "handwritten-file")
+        self.assertKept(".cache/go-build-3", "recheck-handwritten-file")
+        self.assertTrue((shared / "go-build-3" / "ab" / "notes.md").is_file())
 
     def test_report_has_free_space_counts_and_reasons(self) -> None:
         finished_review(self.aw, "codex-review-1")
@@ -302,6 +340,12 @@ class Install(unittest.TestCase):
             self.assertIn("would run: launchctl bootstrap", r.stdout)
             self.assertIn("dry run, nothing changed", r.stdout)
             self.assertEqual(sorted(p.name for p in home.rglob("*")), ["agent-work"])
+
+    def test_installer_copies_every_module(self) -> None:
+        text = (HERE / "install-disk-guard.sh").read_text()
+        line = next(ln for ln in text.splitlines() if ln.startswith("modules="))
+        listed = sorted(line.split("=", 1)[1].strip('"').split())
+        self.assertEqual(listed, sorted(p.name for p in HERE.glob("disk_guard*.py")))
 
     def test_systemd_units(self) -> None:
         svc = (HERE / "bifrost-disk-guard@.service").read_text()

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """disk-guard: free-space check and lifecycle sweep for a machine that runs agents
-(W-31 round 4, 4.6 slice S1; CUT-lifecycle-2026-10-24.md §2, §4.1; review 539 F1–F4).
+(W-31 round 4, 4.6 slice S1; CUT-lifecycle-2026-10-24.md §2, §4.1; reviews 539, 543).
 
     disk-guard.sh check            free space on the volume that holds AGENT_WORK: exit 0 at or
                                    above WARN_GB (30), 1 below it (no new review, npm ci or
@@ -23,21 +23,30 @@ A sweep removes registered cache roots and nothing else under AGENT_WORK:
                  LIFECYCLE_DONE_MIN_AGE_MIN (120), and nothing in the cache is newer than it
       ended      the note records who confirmed the owner finished; nothing written for
                  LIFECYCLE_DONE_MIN_AGE_MIN
-      cap=<GiB>  a shared root: pruned with the tool's own command when larger than the cap
-  - Layout: the whole tree is read before anything is removed. A symlink, a nested .git,
-    another filesystem, a file the layout does not have (a hand-written .go, notes, ignored
-    material) or a read error anywhere keeps the whole root, with the reason in the report.
-  - Inside a git worktree the root must hold no tracked file and git must report it ignored;
-    a git error keeps it.
-  - Open files: one lsof snapshot before and one after; lsof failing keeps everything.
-  - One sweep at a time per machine (mkdir LIFECYCLE_LOCK, default AGENT_WORK/.lifecycle.lock).
-    A root that passes is renamed to <name>.lifecycle-del-<run>, checked again in full (layout,
-    end evidence, tracked files, open files), then removed; if the second check fails it is
-    renamed back. A rename left by a sweep that died is checked and removed by the next one.
+      cap=<GiB>  a shared root: removed whole when larger than the cap (what go clean -cache,
+                 go clean -modcache and npm cache clean do), after the same checks; the
+                 tools themselves are not called because they follow the path
+  - Layout: the whole tree is read before anything is removed, and every level accepts only
+    the entries the tool writes there. A symlink, a nested .git, another filesystem, a file
+    the layout does not have (a hand-written .go, notes, ignored material), a non-empty
+    _cacache/tmp or cache/vcs, or a read error anywhere keeps the whole root, with the reason.
+  - In a Git worktree (looked for above AGENT_WORK too) the root must hold no tracked file
+    and Git must report it ignored; a Git error keeps it.
+  - Open files: one lsof snapshot before and one after; lsof failing or printing any warning
+    keeps everything, except a can't-stat warning about a mount in
+    LIFECYCLE_LSOF_TOLERATED_MOUNTS (which may not overlap AGENT_WORK).
+  - One sweep at a time per machine (flock on LIFECYCLE_LOCK/lock, default
+    AGENT_WORK/.lifecycle.lock). Paths are resolved once, without following links; from then
+    on only directory handles are used. A root that passes is renamed to
+    <name>.lifecycle-del-<run> through a handle on its parent, after checking every directory
+    on the path is still the one first checked (device and inode), checked again in full
+    (layout, end evidence, tracked files, open files), then removed through handles; if any
+    check fails it is renamed back. A rename left by a sweep that died is finished next time.
 
 Everything else is reported, never removed: caches found by name that nobody registered
 (review dirs, the other entries of AGENT_WORK/.cache), worktrees and branches (S2,
-prune-merged-branches.sh --local-only), node_modules. With --apply the host steps that the
+prune-merged-branches.sh --local-only), node_modules (each reported with its size). With
+--apply the host steps that the
 Owner set on 2026-10-21 also run (R13): Docker build cache and dangling images older than 7
 days once a week, the default Go build cache over DEFAULT_GOCACHE_CAP_GB (30) while no Go
 build runs, SysV shared memory a killed test Postgres left (macOS), local Time Machine
@@ -45,7 +54,8 @@ snapshots thinned when still under STOP_GB (macOS). --no-host skips them.
 
 Environment: AGENT_WORK (~/agent-work), WARN_GB, STOP_GB, DISK_GUARD_VOLUME (AGENT_WORK),
 LIFECYCLE_CACHE_ROOTS, LIFECYCLE_STATUS_DIR (AGENT_WORK/status), LIFECYCLE_LOCK,
-LIFECYCLE_DONE_MIN_AGE_MIN, LIFECYCLE_LSOF (lsof), LIFECYCLE_EXCLUDE (colon-separated paths
+LIFECYCLE_DONE_MIN_AGE_MIN, LIFECYCLE_LSOF (lsof), LIFECYCLE_LSOF_TOLERATED_MOUNTS,
+LIFECYCLE_EXCLUDE (colon-separated paths
 under AGENT_WORK another owner manages, e.g. agentd), LIFECYCLE_DISCOVER (codex-review-*),
 DEFAULT_GOCACHE_CAP_GB, CURSOR_DB_WARN_GB.
 
@@ -65,10 +75,11 @@ import sys
 import time
 from typing import Dict, List, Optional, Tuple
 
-from disk_guard_base import Config, ConfigError, GIB, free_space, gib, load_config, now_utc, thresholds
-from disk_guard_layout import _du
+from disk_guard_base import O_DIR, Config, ConfigError, GIB, free_space, gib, load_config, now_utc, thresholds
+from disk_guard_layout import du
 from disk_guard_roots import Entry, OpenFiles, parse_registry
-from disk_guard_items import Lock, apply_items, classify, discovered_items, registered_items
+from disk_guard_items import classify, discovered_items, registered_items, unmanaged_items
+from disk_guard_apply import Lock, apply_items
 from disk_guard_host import host_steps, thin_snapshots
 
 
@@ -105,7 +116,7 @@ def cmd_status(env: Dict[str, str]) -> int:
         return rc
     sizes = []
     for n in sorted(os.listdir(cfg.agent_work)):
-        sizes.append((_du(os.path.join(cfg.agent_work, n)), n))
+        sizes.append((du(os.path.join(cfg.agent_work, n)), n))
     for b, n in sorted(sizes, reverse=True)[:10]:
         print(f"{b / GIB:7.1f} GiB  {n}")
     return rc
@@ -147,14 +158,23 @@ def _sweep_locked(cfg: Config, run_id: str, apply: bool, host: bool) -> int:
         entries += e
         errors += errs
         reg_report.append({"path": path, "entries": len(e), "errors": errs})
-    items = registered_items(cfg, entries)
-    lsof = OpenFiles(cfg)
-    now = time.time()
-    for it in items:
-        classify(cfg, it, lsof, now)
-    if apply:
-        apply_items(cfg, run_id, items, lsof)
-    found = discovered_items(cfg, items)
+    try:
+        aw_fd = os.open(cfg.agent_work, O_DIR)
+    except OSError as e:
+        print(f"disk-guard: cannot open AGENT_WORK={cfg.agent_work}: {e.strerror or e}")
+        return 4
+    try:
+        items = registered_items(cfg, entries)
+        lsof = OpenFiles(cfg)
+        now = time.time()
+        for it in items:
+            classify(cfg, aw_fd, it, lsof, now)
+        if apply:
+            apply_items(cfg, aw_fd, run_id, items)
+        found = discovered_items(cfg, aw_fd, items)
+    finally:
+        os.close(aw_fd)
+    found += unmanaged_items(cfg, [it.path for it in items + found])
     steps = host_steps(cfg, apply) if host else []
     tm = thin_snapshots(cfg, apply) if host else None
     if tm:
@@ -189,7 +209,7 @@ def _sweep_locked(cfg: Config, run_id: str, apply: bool, host: bool) -> int:
         "lsof": {"ok": lsof.ok, "error": lsof.error, "scope": "processes of this user" if os.geteuid() != 0 else "all processes"},
         "items": [it.public() for it in every],
         "host_steps": steps,
-        "not_in_this_sweep": "worktrees and local branches (S2: prune-merged-branches.sh --local-only); node_modules; remote branches",
+        "not_in_this_sweep": "worktrees and local branches (S2: prune-merged-branches.sh --local-only); remote branches; node_modules are reported, not removed",
         "errors": errors,
     }
     status_file = os.path.join(cfg.status_dir, "lifecycle.json")

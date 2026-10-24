@@ -23,7 +23,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import disk_guard  # noqa: E402
-import disk_guard_items  # noqa: E402
+import disk_guard_apply  # noqa: E402
 from disk_guard_base import QUARANTINE as QUAR  # noqa: E402
 
 GO_README = (
@@ -173,7 +173,8 @@ class SweepCase(unittest.TestCase):
         self.restore_modes: list = []
 
     def tearDown(self) -> None:
-        disk_guard_items.between_check_and_delete = None
+        disk_guard_apply.between_check_and_delete = None
+        disk_guard_apply.between_check_and_rename = None
         for p, mode in self.restore_modes:
             with contextlib.suppress(OSError):
                 os.chmod(p, mode)
@@ -239,7 +240,7 @@ class Layouts(SweepCase):
             self.assertTrue((self.aw / f"codex-review-{n}" / "BRIEF.md").is_file())
             self.assertTrue((self.aw / f"codex-review-{n}" / "run.done").is_file())
         self.assertEqual(self.report()["counts"].get("deleted"), 4)
-        self.assertFalse((self.aw / ".lifecycle.lock").exists(), "the lock is released")
+        self.assertFalse((self.aw / ".lifecycle.lock" / "owner").exists(), "the lock is released")
         self.assertFalse(any(QUAR in n for n in os.listdir(self.aw / "codex-review-1")))
 
     def test_dry_run_removes_nothing(self) -> None:
@@ -268,7 +269,7 @@ class Layouts(SweepCase):
             "codex-review-*/.gocache\tgo-mod\trun.done\treview module cache",
         )
         self.sweep("--apply")
-        it = self.assertKept("codex-review-1/go-cache", "unknown-entry")
+        it = self.assertKept("codex-review-1/go-cache", "handwritten-file")
         self.assertIn("00/draft.go", it["detail"])
         self.assertTrue((cache / "00" / "draft.go").is_file())
         self.assertKept("codex-review-2/.gocache", "writable-in-module")
@@ -306,7 +307,7 @@ class Layouts(SweepCase):
         self.register("lane-b/.gocache\tgo-build\tended\tlane finished (test)")
         self.sweep("--apply")
         it = self.assertKept("lane-b/.gocache", "git-error")
-        self.assertIn("git ls-files", it["detail"])
+        self.assertIn("not a git repository", it["detail"])
 
     def test_names_with_a_space_are_not_taken_by_a_wildcard(self) -> None:
         finished_review(self.aw, "codex-review-1")
@@ -413,8 +414,8 @@ class Layouts(SweepCase):
         self.assertDeleted(".cache/go-build GOMODCACHE=")
         it = self.assertKept(".cache/go-build GOMODCACHE=old", "chain-shape")
         self.assertIn("level 2", it["detail"])
-        leaf = self.assertKept(".cache/go-build GOMODCACHE=draft", "unknown-entry")
-        self.assertEqual(leaf["detail"], "<leaf>/00/draft.go")
+        leaf = self.assertKept(".cache/go-build GOMODCACHE=draft", "handwritten-file")
+        self.assertEqual(leaf["detail"], "<leaf>/00/draft.go looks hand-written")
         un = self.assertKept(".cache/go-build GOCACHE=x", "unregistered")
         self.assertEqual(un["layout"], "go-build-chain")
         text = (self.aw / "status" / "lifecycle.json").read_text()

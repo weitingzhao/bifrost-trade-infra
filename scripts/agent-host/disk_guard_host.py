@@ -13,7 +13,7 @@ import time
 from typing import Dict, List, Optional, Tuple
 
 from disk_guard_base import Config, GIB, _under, free_space, gib, now_utc
-from disk_guard_layout import _du
+from disk_guard_layout import du
 
 
 def _which(cfg: Config, name: str) -> Optional[str]:
@@ -48,7 +48,7 @@ def host_steps(cfg: Config, apply: bool) -> List[Dict[str, object]]:
         elif _under(os.path.realpath(gc), cfg.agent_work):
             step("default-go-cache", "skip", "GOCACHE is under AGENT_WORK: only the registry decides there")
         elif os.path.isdir(gc) and not os.path.islink(gc):
-            size = _du(gc)
+            size = du(gc)
             cap = int(cfg.host_go_cap_gb * GIB)
             if size <= cap:
                 step("default-go-cache", "keep", f"{gib(size)} <= cap {gib(cap)}")
@@ -92,14 +92,24 @@ def host_steps(cfg: Config, apply: bool) -> List[Dict[str, object]]:
                 ipcrm = _which(cfg, "ipcrm")
                 n = sum(1 for sid in leaked if ipcrm and _run(cfg, [ipcrm, "-m", sid])[0] == 0)
                 step("shared-memory", "removed", f"{n} of {len(leaked)} leaked segments")
-    # Review caches some sessions left in the system temp dir: reported only (not registered).
+    # Review caches some sessions left in the system temp dir: not registered, so reported
+    # only, each with its size and age (review 543 B), for their producers to clean.
     tmp_root = "/private/tmp" if darwin else "/tmp"
     try:
-        left = [n for n in os.listdir(tmp_root) if n.startswith("review")]
+        left = sorted(n for n in os.listdir(tmp_root) if n.startswith("review"))
     except OSError:
         left = []
     if left:
-        step("tmp-review-dirs", "keep", f"{len(left)} {tmp_root}/review* entries: not registered, reported only")
+        now = time.time()
+        sizes = []
+        for n in left:
+            p = os.path.join(tmp_root, n)
+            try:
+                age = (now - os.lstat(p).st_mtime) / 86400
+            except OSError:
+                continue
+            sizes.append(f"{n} {gib(du(p))} {age:.0f}d")
+        step("tmp-review-dirs", "keep", f"{len(left)} {tmp_root}/review* entries, not registered, reported only: " + "; ".join(sizes[:20]))
     # Cursor's state DB: compacting it needs Cursor closed, so it is only reported.
     if darwin:
         home = cfg.env.get("HOME") or os.path.expanduser("~")
@@ -114,10 +124,14 @@ def host_steps(cfg: Config, apply: bool) -> List[Dict[str, object]]:
     docker = _which(cfg, "docker")
     if docker:
         stamp = os.path.join(cfg.status_dir, "docker-pruned-at")
-        try:
-            age = time.time() - os.stat(stamp).st_mtime
-        except OSError:
-            age = None
+        # the old ~/agent-work/bin/disk-guard.sh kept its stamp in .cache: honour the newer
+        ages = []
+        for st_path in (stamp, os.path.join(cfg.agent_work, ".cache", "docker-pruned-at")):
+            try:
+                ages.append(time.time() - os.stat(st_path).st_mtime)
+            except OSError:
+                pass
+        age = min(ages) if ages else None
         if age is not None and age < 6.5 * 86400:
             step("docker", "keep", f"pruned {age / 86400:.1f} days ago")
         elif _run(cfg, [docker, "info"], timeout=30)[0] != 0:

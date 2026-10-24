@@ -9,7 +9,8 @@
 #   kind    go-build | go-mod | npm | go-build-chain
 #   policy  run.done   the first directory of the path holds run.done (a finished review)
 #           ended      the note says who confirmed the owner finished
-#           cap=<GiB>  shared root, pruned with the tool's own command above the cap
+#           cap=<GiB>  shared root, removed whole above the cap (what go clean -cache / -modcache and
+#                      npm cache clean do), after the same checks as any other root
 #
 # The shared caches every review uses (codex exec --add-dir ~/agent-work/.cache; the BRIEF
 # exports GOCACHE, GOMODCACHE and npm_config_cache to these three).
