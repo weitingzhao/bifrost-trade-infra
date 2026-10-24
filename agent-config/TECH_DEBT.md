@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-155** — 推送不再等镜像同步才起 CI：Gitea 做主后推送直接落在 Gitea，推送钩子当即起 CI（切法第 A–D 批，第 D 批 infra `5000f42`）。验收：PASS 2026-10-23，platform `6eb392e0` 推分支 3 秒、推 main 2 秒就有 `ci-platform-*`，没有手工同步。防线：`RATCHETS.md`「推送即起 CI，没有 CI 就不推不发」（push-main 第 4 步、release.sh 的 ci_gate、平台 PROD 发布的 CI 检查）。后续：无后续：钩子坏了只会让推 main 和发版因「没有 CI」被拒，不会悄悄发出去；不另加告警。
 - **TD-335** — PROD 平台发布不再从源码重建，部署 STG 核过的那对镜像摘要；发布流水线按摘要钉 Argo 应用（infra `b63fa49`、`e318a80`，platform `6ff3801b`）。验收：PASS 2026-10-22，PROD #85 没有构建任务，Pod 摘要与 STG 记录一致，提交到上线 19 分半。防线：`test_platform_pin_sync.py` 的 `test_the_prod_delivery_builds_nothing` 等（`RATCHETS.md` 新一行）。后续：TD-331 观察到 10-23；TD-419 还差背靠背两跑的验收。
 - **TD-400** — push-main 推之前查每个提交的 Change-Id、Claude-Session，缺了拒推，`--no-lineage <理由>` 豁免（infra `e7118ce`）。验收：PASS 2026-10-21。防线：`test_push_main.py`。后续：无后续：新工作目录钩子不跑的问题由这一道在推送时兜住。
 - **TD-413** — push-main 推之前在干净 worktree 里跑仓库的快测试（infra 三目录；platform 的 vet 与改过的包），失败拒推，`--skip-tests <理由>` 豁免（infra `27357ae`）。验收：PASS 2026-10-21。防线：`test_push_main.py` 7 条。后续：已补（infra `5366c75`）：只改普通 .md 的推送只跑约 7 秒的考题要点扫描，其余照常全跑。
@@ -879,16 +880,18 @@
 
 **P2 · ops-platform · Pushes to GitHub main do not trigger CI until the Gitea pull mirror syncs, so a commit can be released before its CI ever ran**
 
-- **状态**：观察中（release.sh 10-07 首用：镜像同步与 CI 检查生效；ci_gate 漏认前端 CI 已修 infra 403ba7f，下一次发版应不再需要 --allow-red）
-- **验收结果**：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
+- **状态**：待你签收（2026-10-23：Gitea 做主之后，推送直接落在 Gitea，它的推送钩子当即起 CI，中间没有镜像同步；切法 `work/multi-agent/CUT-gitea-primary-2026-10-17.md`，第 D 批 infra `5000f42`）
+- **验收**：往 `agent-config/gitea-primary.txt` 里任一个有 CI 的仓库推一个提交（分支或经 `push-main.sh` 推 main），记下推送时间，再读 `KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n cicd get pipelineruns --sort-by=.metadata.creationTimestamp -o 'custom-columns=NAME:.metadata.name,CREATED:.metadata.creationTimestamp,REV:.spec.params[?(@.name=="revision")].value,TRIGGER:.metadata.labels.triggers\.tekton\.dev/trigger' | tail -3`。预期：有一条 `ci-*` 的 revision 是推上去的整 SHA，建出时间在推送后 60 秒内，TRIGGER 是这个仓库的触发器（例如 `platform-ci`），其间没有人做任何同步。
+- **验收结果**：PASS 2026-10-23（CDT；UTC 已是 10-24）platform `6eb392e0`：推分支 `w31/agentd-drop-push-base` 02:59:19Z → `ci-platform-x64wk` 02:59:22Z（3 秒，触发器 `platform-ci`）；`push-main.sh` 推 main 03:08:53Z → `ci-platform-6cvhr` 03:08:55Z（2 秒），同一秒 `github-sync-bifrost-platform-f9vr2` 把 GitHub main 快进到同一提交。两次都没有手工同步。
+- 此前：PASS（代码层）2026-10-07 Claude 10-07 复验：各仓库分支合并后门禁全绿（core 13463、worker 180、trade-api 1018、flex 160、market-data 1288、research 2132、ib-gateway 84、platform Go 56 包 + Console 801 + agent 25、ui 5）
 - **Claim**: CI is triggered by Gitea webhooks; Gitea mirrors GitHub on a pull interval. On 10-06 core 0.49.0/0.50.0 (16:15/16:23 UTC) and api 0.10.0 had no CI run at all until `make k3s-sync-gitea-mirrors` was run by hand at ~16:30; core's previous CI was 14 h earlier. Together with TD-95 this means release.sh can deliver a SHA that CI has not seen.
 - **Measured**: MEASURED 10-06: no ci-python-bifrost-trade-core/api PipelineRun after the pushes; the manual mirror sync created ci-python-bifrost-trade-core-9vgjk and -api-h7scl within seconds.
 - **Evidence**:
   - `bifrost-trade-infra/k8s/cicd/tekton/trigger-trade-ci.yaml:225` — `body.repository.name in ['bifrost-trade-core', 'bifrost-trade-api',`
   - `bifrost-trade-infra/scripts/k3s/bootstrap-gitea-mirrors.sh:2` — `# Bootstrap Gitea org + GitHub pull mirrors (Session S7).`
 - **Impact**: CI results lag pushes by up to the mirror interval; releases and reviews see 'no CI' and proceed anyway.
-- **Fix**: Either a GitHub → Gitea push-mirror / webhook that syncs on push, or have release.sh (and the deliver pipelines, TD-95) sync the mirror and wait for the SHA's CI run before building.
-- **Ratchet**: release.sh refuses a SHA with no Succeeded CI run (TD-95's switch) — which makes a missing run as visible as a red one.
+- **Fix**: Either a GitHub → Gitea push-mirror / webhook that syncs on push, or have release.sh (and the deliver pipelines, TD-95) sync the mirror and wait for the SHA's CI run before building. Done another way: Gitea became the primary (2026-10-17 to 10-23), so nobody pushes to GitHub and there is no mirror to wait for; GitHub follows main and tags.
+- **Ratchet**: release.sh refuses a SHA with no Succeeded CI run (TD-95's switch) — which makes a missing run as visible as a red one. Since TD-341 / W-31 3.4 ② `push-main.sh` also refuses a commit of a CI repo with no Succeeded `ci-*` run, and `bifrost-deliver-platform-prod` refuses a platform SHA without one (`RATCHETS.md`「推送即起 CI」).
 - 审批 跨仓库发版 · 代价 S · 风险 med · repos: bifrost-trade-infra
 
 ### TD-156
