@@ -18,6 +18,8 @@ reason a worktree stays; a read that fails is a reason, never "nothing there".
   path and hold no mount point. A cache root without a kind (node_modules: no tool can tell
   its files from someone's) keeps the worktree whenever git shows anything in it; its size
   goes into the report so the cost is visible.
+- mount_problem: no mount point anywhere inside the worktree, by a mount table read for this
+  check; one that cannot be read keeps it.
 - open_problem: lsof's answer is complete and shows nothing open (no file, no cwd) under it.
 """
 
@@ -35,10 +37,37 @@ from lifecycle_git import HEX, GitError, git, status_entries
 
 Why = Optional[Tuple[str, str]]
 ALLOWED_FILES = {"HEAD", "ORIG_HEAD", "FETCH_HEAD", "AUTO_MERGE", "commondir", "gitdir", "index", "locked",
-                 "config.worktree", "COMMIT_EDITMSG", wo.OWNER, wo.OWNER_LOCK}
+                 "config.worktree", "COMMIT_EDITMSG", wo.OWNER, wo.OWNER_LOCK, wo.RESUME_FAILED}
 OPERATION = {"MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD", "MERGE_MSG", "MERGE_MODE",
              "MERGE_AUTOSTASH", "SQUASH_MSG", "rebase-merge", "rebase-apply", "sequencer"}
 PSEUDO = ("ORIG_HEAD", "FETCH_HEAD")
+MAX_PSEUDO = 64 << 20  # a pseudo ref larger than this keeps the worktree
+
+
+def object_types(env: Dict[str, str], repo: str, names: List[str], peel: str) -> Dict[str, Tuple[str, str]]:
+    """{name: (object id, type)} for names (each with peel appended), in one git call; a name
+    that does not resolve has type "missing"."""
+    out = git(env, repo, "cat-file", "--batch-check=%(objectname) %(objecttype)", stdin="".join(f"{x}{peel}\n" for x in names))
+    lines = out.splitlines()
+    if len(lines) != len(names):
+        raise GitError("git cat-file --batch-check: output does not match its input")
+    res = {}
+    for x, line in zip(names, lines):
+        parts = line.split(" ")
+        res[x] = (parts[0], parts[1]) if len(parts) == 2 and parts[1] != "missing" else ("", "missing")
+    return res
+
+
+def mount_problem(path: str, mounts: Optional[List[str]]) -> Why:
+    """A mount point strictly inside the worktree (any filesystem, same-device bind mounts
+    included) would be walked into by git worktree remove: keep it (review 552 A5)."""
+    if mounts is None:
+        return "mount-table-unknown", "the mount table could not be read"
+    for top in dict.fromkeys((os.path.abspath(path), os.path.realpath(path))):
+        hit = next((m for m in mounts if m.startswith(top.rstrip(os.sep) + os.sep)), None)
+        if hit:
+            return "mount-inside-worktree", f"{hit} is a mount point inside the worktree"
+    return None
 
 
 def root_problem(path: str, roots: List[Tuple[str, str]]) -> Why:
@@ -116,13 +145,19 @@ def admin_state(env: Dict[str, str], repo: str, admin: str) -> AdminState:
     h = hashlib.sha256()
     for n in ("HEAD",) + PSEUDO + ("AUTO_MERGE",):
         try:
-            with open(os.path.join(admin, n), "rb") as f:
-                raw = f.read(1 << 20)
+            fd = os.open(os.path.join(admin, n), os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0))
         except FileNotFoundError:
             continue
         except OSError as e:
             a.problem = ("pseudo-ref-unreadable", f"{n}: {e.strerror or e}")
             return a
+        try:
+            raw = wo.read_all(fd, MAX_PSEUDO)  # the whole file, never a prefix (review 552 A1)
+        except (OSError, wo.OwnerError) as e:
+            a.problem = ("pseudo-ref-unreadable", f"{n}: {getattr(e, 'strerror', None) or e}")
+            return a
+        finally:
+            os.close(fd)
         h.update(n.encode() + b"\0" + raw + b"\0")
         if n == "HEAD":
             continue
@@ -131,19 +166,24 @@ def admin_state(env: Dict[str, str], repo: str, admin: str) -> AdminState:
         if not shas or not all(HEX.match(x) for x in shas) or (n in ("ORIG_HEAD", "AUTO_MERGE") and len(shas) != 1):
             a.problem = ("pseudo-ref-unreadable", f"{n} does not name commits this sweep can read")
             return a
+        try:
+            kinds = object_types(env, repo, [shas[0]] if n == "AUTO_MERGE" else list(dict.fromkeys(shas)),
+                                 "" if n == "AUTO_MERGE" else "^{commit}")
+        except GitError as e:
+            a.problem = ("pseudo-ref-unreadable", f"{n}: {e}")
+            return a
         if n == "AUTO_MERGE":
-            try:
-                a.auto_merge = git(env, repo, "rev-parse", "--verify", "--quiet", shas[0] + "^{tree}").strip()
-            except GitError:
+            if kinds.get(shas[0], ("", ""))[1] != "tree":
                 a.problem = ("pseudo-ref-unreadable", f"AUTO_MERGE names {shas[0][:12]}, which is not a tree here")
                 return a
+            a.auto_merge = shas[0]
             continue
-        for x in shas:
-            try:
-                a.pseudo.append(git(env, repo, "rev-parse", "--verify", "--quiet", x + "^{commit}").strip())
-            except GitError:
+        for x in dict.fromkeys(shas):
+            sha, kind = kinds.get(x, ("", "missing"))
+            if kind != "commit":
                 a.problem = ("pseudo-ref-unreadable", f"{n} names {x[:12]}, which is not a commit here")
                 return a
+            a.pseudo.append(sha)
     a.digest = h.hexdigest()
     return a
 

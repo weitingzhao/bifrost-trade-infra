@@ -365,10 +365,10 @@ def test_a_cache_root_with_a_kind_goes_only_when_its_whole_layout_passes(w):
     assert not made["real"].exists()
     assert reason(rep, made["draft"]) == "cache-root-handwritten-file" and made["draft"].exists()
     assert reason(rep, made["nested"]) == "cache-root-nested-git" and made["nested"].exists()
-    assert reason(rep, made["mounted"]) == "cache-root-mount" and made["mounted"].exists()
+    assert reason(rep, made["mounted"]) == "mount-inside-worktree" and made["mounted"].exists()
     (w.lsof / "mount.out").write_text("")
     rc, out, rep = w.prune("--apply")
-    assert reason(rep, made["draft"]) == "cache-root-mount-unknown"
+    assert reason(rep, made["draft"]) == "mount-table-unknown"
 
 
 def test_index_flags_that_hide_changes_keep_it(w):

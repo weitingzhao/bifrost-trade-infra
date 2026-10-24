@@ -21,9 +21,14 @@ agent-config/work/multi-agent/S3-hook-wiring-proposal-2026-10-24.md.
 Cursor's sessionEnd / sessionStart payloads (conversation_id) are read the same way.
 Claude Code gives all SessionEnd hooks 1.5 s unless a hook sets "timeout"; the proposal sets one.
 
-Never blocks a session: it always exits 0, prints nothing on stdout (SessionStart stdout would
-become context), and reports problems on stderr. The record code lives in
-<infra>/scripts/agent-host/worktree_sessions.py, found from this file's real path.
+Never blocks a session (SessionStart cannot be blocked by any hook output; exit 2 only shows
+stderr to the user). It exits 0 and prints nothing on stdout when all went well. When a
+SessionStart could not publish the session's marker, or left worktrees that nothing protects,
+it prints one JSON object: "systemMessage" for the user and
+hookSpecificOutput.additionalContext for the session, naming the worktrees not to use until
+new-worktree.sh --renew succeeds for them (review 552 A2). SessionEnd output is discarded by
+Claude Code; a failed end only leaves worktrees in use, so it reports on stderr. The record
+code lives in <infra>/scripts/agent-host/worktree_sessions.py, found from this file's real path.
 """
 
 import json
@@ -53,21 +58,34 @@ def main() -> int:
     try:
         import worktree_sessions as ws
     except ImportError as e:
-        print(f"worktree-lease: cannot load worktree_sessions from {infra}: {e}", file=sys.stderr)
-        return 0
+        return warn(what, f"cannot load worktree_sessions from {infra}: {e}", [])
     env = dict(os.environ)
     session = str(payload.get("session_id") or payload.get("conversation_id") or "")
     host = env.get("CLAUDE_CODE_HOST_SESSION_ID", "")
     reason = str(payload.get("reason") or payload.get("source") or "")
     try:
-        changed, problems = ws.session_event(env, what, session, host, reason, cwd=str(payload.get("cwd") or ""))
+        changed, problems, unsafe, published = ws.session_event(env, what, session, host, reason, cwd=str(payload.get("cwd") or ""))
     except Exception as e:  # never break a session over its records
-        print(f"worktree-lease: {type(e).__name__}: {e}", file=sys.stderr)
-        return 0
+        return warn(what, f"{type(e).__name__}: {e}", [])
     for p in problems:
         print(f"worktree-lease: {p}", file=sys.stderr)
     if changed and what == "end":
         print(f"worktree-lease: ended {len(changed)} worktree record(s) of session {session}", file=sys.stderr)
+    if what == "start" and (unsafe or not published):
+        return warn(what, "; ".join(problems[:3]) or "the session marker was not published", unsafe)
+    return 0
+
+
+def warn(what: str, why: str, unsafe: list) -> int:
+    """A SessionStart that could not record the resume: say so to the user and the session."""
+    print(f"worktree-lease: {why}", file=sys.stderr)
+    if what != "start":
+        return 0
+    names = ", ".join(unsafe) if unsafe else "any worktree registered to this session"
+    text = (f"worktree-lease could not record that this session resumed ({why}). The lifecycle sweep may remove "
+            f"{names}. Run bifrost-trade-infra/scripts/agent-host/new-worktree.sh --renew <dir> for a worktree before using it.")
+    print(json.dumps({"systemMessage": text[:2000],
+                      "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text[:2000]}}))
     return 0
 
 

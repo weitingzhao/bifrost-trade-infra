@@ -30,10 +30,15 @@ d=${FAKE_LSOF_DIR:?}
 [ -f "$d/err" ] && cat "$d/err" >&2
 exit "$(cat "$d/rc" 2>/dev/null || echo 0)"
 """
-# Logs every call; fails a call whose arguments contain $FAKE_GIT_FAIL (a read failure).
+# Logs every call; fails a call whose arguments contain $FAKE_GIT_FAIL (a read failure), or
+# runs the first one containing $FAKE_GIT_AFTER and then fails it (a command that did its
+# work but reported an error).
 GIT_WRAPPER = f"""#!/usr/bin/env bash
 [ -n "${{GIT_CALLS:-}}" ] && printf '%s\\n' "$*" >> "$GIT_CALLS"
 if [ -n "${{FAKE_GIT_FAIL:-}}" ] && [[ " $* " == *" $FAKE_GIT_FAIL "* ]]; then echo "fatal: injected" >&2; exit 128; fi
+if [ -n "${{FAKE_GIT_AFTER:-}}" ] && [[ " $* " == *" $FAKE_GIT_AFTER "* ]] && [ ! -e "$FAKE_LSOF_DIR/after.done" ]; then
+  : > "$FAKE_LSOF_DIR/after.done"; {REAL_GIT} "$@"; echo "fatal: injected after" >&2; exit 128
+fi
 exec {REAL_GIT} "$@"
 """
 

@@ -19,7 +19,8 @@ fails is the reason it stays):
   - its HEAD reflog can be read; the commits it and the pseudo refs (ORIG_HEAD, FETCH_HEAD)
     name, where no remote ref reaches them, go into the run's unique bundle first, and so
     does a commit wrapping the tree AUTO_MERGE names;
-  - git status and the cache roots pass lifecycle_checks.content_problem;
+  - no mount point inside it (mount table read again at each check), and git status and the
+    cache roots pass lifecycle_checks.content_problem;
   - lsof's complete answer shows nothing open under it.
 A local branch may go only when it is not checked out in a worktree that stays, an ended
 worktree record that this run removes names it as the branch made for its work (review 539
@@ -34,7 +35,8 @@ from typing import Dict, List, Optional, Tuple
 
 import worktree_owner as wo
 import worktree_sessions as ws
-from lifecycle_checks import Why, admin_state, content_problem, open_problem, root_problem
+from disk_guard_roots import mount_points
+from lifecycle_checks import Why, admin_state, content_problem, mount_problem, open_problem, root_problem
 from lifecycle_git import GitError, Reflog, ReflogError, git, per_worktree_refs, without_copy, worktree_list
 
 QUARANTINE = ".lifecycle-del-"
@@ -102,7 +104,15 @@ class Ctx:
     now: float
     grace: float
     lsof: object  # disk_guard_roots.OpenFiles
-    mounts: Optional[List[str]]  # the mount table, None when it could not be read
+    mounts: Optional[List[str]]  # the mount table read for the first check, None when it could not be read
+    cfg: object = None  # disk_guard_base.Config: lsof and mount, read again at each later check
+
+    def fresh_mounts(self) -> Optional[List[str]]:
+        """The mount table now (review 552 A5): None when it cannot be read."""
+        if self.cfg is None:
+            return None
+        points, err = mount_points(self.cfg)  # type: ignore[arg-type]
+        return None if err else points
 
 
 def _ident(path: str) -> Tuple[int, int]:
@@ -110,11 +120,11 @@ def _ident(path: str) -> Tuple[int, int]:
     return (st.st_dev, st.st_ino)
 
 
-def record_problem(ctx: Ctx, rec: Dict[str, object]) -> Why:
+def record_problem(ctx: Ctx, rec: Dict[str, object], admin: str) -> Why:
     code, why = wo.end_evidence(rec, ctx.now, ctx.grace)
     if code:
         return code, why
-    return ws.foreign_problem(rec) or ws.session_problem(ctx.env, rec)
+    return ws.foreign_problem(rec) or ws.session_problem(ctx.env, rec, admin)
 
 
 def classify_worktree(ctx: Ctx, wt: Dict[str, object]) -> Item:
@@ -143,7 +153,7 @@ def classify_worktree(ctx: Ctx, wt: Dict[str, object]) -> Item:
         return it.keep("record-unusable", bad_rec)
     if it.record is None:
         return it.keep("unregistered", "no record: made before new-worktree.sh or by a tool that does not register (D-L8)")
-    bad = record_problem(ctx, it.record)
+    bad = record_problem(ctx, it.record, it.admin)
     if bad:
         return it.keep(*bad)
     st = admin_state(ctx.env, ctx.repo, it.admin)
@@ -167,7 +177,7 @@ def classify_worktree(ctx: Ctx, wt: Dict[str, object]) -> Item:
         return it.keep("reflog-unreadable", str(e))
     except GitError as e:
         return it.keep("git-error", str(e))
-    bad = content_problem(ctx.env, path, it.record, ctx.mounts, it.cache_bytes)
+    bad = mount_problem(path, ctx.mounts) or content_problem(ctx.env, path, it.record, ctx.mounts, it.cache_bytes)
     if bad:
         return it.keep(*bad)
     bad = open_problem(ctx.lsof, path)
@@ -246,7 +256,7 @@ def recheck_worktree(ctx: Ctx, it: Item, lock_reason: str, path: Optional[str] =
     rec, raw, bad_rec = wo.read_record(it.admin)
     if bad_rec or rec is None or raw != it.record_raw:
         return "record-changed", "the record changed since the check (a renewal voids an end)"
-    bad = record_problem(ctx, rec)
+    bad = record_problem(ctx, rec, it.admin)
     if bad:
         return bad
     st = admin_state(ctx.env, ctx.repo, it.admin)
@@ -265,7 +275,8 @@ def recheck_worktree(ctx: Ctx, it: Item, lock_reason: str, path: Optional[str] =
             return "head-without-copy", "HEAD is no longer reachable from the remote's refs"
     except GitError as e:
         return "git-error", str(e)
-    return content_problem(ctx.env, path, rec, ctx.mounts)
+    mounts = ctx.fresh_mounts()
+    return mount_problem(path, mounts) or mount_problem(it.name, mounts) or content_problem(ctx.env, path, rec, mounts)
 
 
 def recheck_branch(ctx: Ctx, it: Item) -> Why:

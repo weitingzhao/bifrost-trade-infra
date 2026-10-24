@@ -32,16 +32,19 @@ worktree-list read and update-ref -d is left on an unborn branch (its tip has a 
 
 from __future__ import annotations
 
+import contextlib
 import fnmatch
 import hashlib
 import json
 import os
+import stat
 from typing import Dict, List, Optional, Tuple
 
 import worktree_owner as wo
+from disk_guard_base import ConfigError
 from disk_guard_roots import OpenFiles, parse_registry
 from disk_guard_state import _private_dir, _read_private, _write_private
-from lifecycle_checks import Why, open_problem
+from lifecycle_checks import Why, open_problem, root_problem
 from lifecycle_git import GitError, git, worktree_list
 from lifecycle_items import QUARANTINE, Ctx, Item, recheck_worktree
 
@@ -63,7 +66,12 @@ class Guard:
     def __init__(self, backup_root: str, agent_work: str, registries: List[Tuple[str, bool]]) -> None:
         self.backup_root = backup_root
         self.agent_work = agent_work
-        self.patterns = [e.pattern for path, req in registries for e in parse_registry(path, req)[0]]
+        self.patterns: List[str] = []
+        for path, req in registries:
+            entries, errors = parse_registry(path, req)
+            if errors:  # an incomplete list of what disk-guard removes cannot clear the archive (552 D)
+                raise ConfigError("disk-guard's cache-root registry cannot be read in full: " + "; ".join(errors[:3]))
+            self.patterns += [e.pattern for e in entries]
         self.run_dirs: List[str] = []
 
     def problem(self, *paths: str) -> Why:
@@ -105,8 +113,137 @@ def journal_drop(path: str) -> None:
         pass
 
 
-def restore(env: Dict[str, str], repos: List[str], apply: bool, notes: List[str]) -> None:
-    """Move back every worktree an interrupted run left in quarantine (apply), or report them."""
+def _ident(path: str) -> Optional[Tuple[int, int]]:
+    """(dev, ino) of a real directory at path; None when nothing is there. OSError for a
+    symlink or anything that is not a directory."""
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return None
+    if not stat.S_ISDIR(st.st_mode):
+        raise OSError(f"{path} is not a directory (a symlink is not followed)")
+    return (st.st_dev, st.st_ino)
+
+
+def _parent_ok(parent: str, roots: List[Tuple[str, str]]) -> Why:
+    if any(parent in (g, r) for g, r in roots):
+        return None
+    return root_problem(parent, roots)
+
+
+def _gitdir_target(admin: str) -> Optional[str]:
+    """The worktree path the admin dir names (its gitdir file without the trailing /.git)."""
+    try:
+        with open(os.path.join(admin, "gitdir"), encoding="utf-8") as f:
+            t = f.read(8193).strip()
+    except FileNotFoundError:
+        return None
+    if len(t) > 8192 or not t.endswith(os.sep + ".git"):
+        raise OSError(f"{admin}/gitdir cannot be read")
+    return os.path.normpath(t[:-len(os.sep + ".git")])
+
+
+def settle(env: Dict[str, str], e: Dict[str, object], roots: List[Tuple[str, str]], apply: bool,
+           lock_held: bool = False) -> Tuple[bool, str]:
+    """Bring a journaled quarantine back to its original path when its shape is unambiguous
+    (review 552 A4, C1); (settled, what was found or done). Settled means the entry may go.
+
+    The directory is recognised only by the device and inode the journal recorded, the admin
+    dir only by the path it recorded, and both paths must lie in one parent that this run's
+    roots allow, with no symlink. Shapes, by where the directory is and where the admin dir's
+    gitdir points:
+      at q, gitdir q        a finished quarantine: git worktree move q -> original
+      at q, gitdir original a move that stopped after the rename: rename q -> original
+      at original, gitdir q a move that stopped after Git's update: rewrite gitdir
+      at original, gitdir original  back already (or never moved)
+      neither, no admin dir  removed
+    Anything else (both, another directory, a symlink, an admin dir not under the repo, the
+    original path taken) is reported and left alone."""
+    try:
+        repo, orig, q, admin = (str(e[k]) for k in ("repo", "original", "quarantine", "admin"))
+        want = tuple(e["ident"])  # type: ignore[arg-type]
+        parent = os.path.dirname(orig)
+        if os.path.dirname(q) != parent or QUARANTINE not in os.path.basename(q):
+            return False, f"{q}: the journal does not name a quarantine beside {orig}"
+        bad = _parent_ok(parent, roots)
+        if bad:
+            return False, f"{q}: {bad[1]}; left as it is"
+        if os.path.realpath(os.path.dirname(os.path.dirname(admin))) != os.path.realpath(os.path.join(repo, ".git")):
+            return False, f"{q}: the journal's admin dir is not under {repo}/.git; left as it is"
+        at_o, at_q = _ident(orig), _ident(q)
+        has_admin = os.path.isdir(admin)
+        target = _gitdir_target(admin) if has_admin else None
+    except (KeyError, TypeError, ValueError, OSError) as err:
+        return False, f"journal entry for {e.get('quarantine')}: {err}; left as it is"
+    if at_o is None and at_q is None:
+        return (not has_admin), (f"{q}: removed" if not has_admin else f"{q}: no directory at either path but {admin} is there; left as it is")
+    if at_q == want and os.path.lexists(orig) and at_o != want:
+        return False, f"{q}: {orig} is taken by something else; left in quarantine"
+    if (at_o is not None and at_o != want) or (at_q is not None and at_q != want) or (at_o and at_q):
+        return False, f"{q}: the directories at {orig} and {q} are not (only) the one the journal recorded; left as they are"
+    if not has_admin:
+        return False, f"{q}: {admin} is gone but the directory is there; left as it is"
+    where, points = ("q" if at_q else "orig"), ("q" if target == os.path.normpath(q) else "orig" if target == os.path.normpath(orig) else None)
+    if points is None:
+        return False, f"{q}: {admin}/gitdir names neither path; left as it is"
+    if where == "orig" and points == "orig":
+        return True, f"{q}: {orig} is back in place"
+    if not apply:
+        return False, f"{q}: left in quarantine by run {e.get('run_id')}; --apply moves it back to {orig}"
+    if not _dotgit_names(q if where == "q" else orig, admin):
+        return False, f"{q}: its .git file does not name {admin}; left as it is"
+    try:
+        with (contextlib.nullcontext() if lock_held else wo.OwnerLock(admin, 0)):
+            if where == "q" and points == "q":
+                if os.path.lexists(orig):
+                    return False, f"{q}: {orig} is taken; left in quarantine"
+                _unlock_ours(env, repo, q)
+                git(env, repo, "worktree", "move", q, orig)
+            elif where == "q":
+                if os.path.lexists(orig):
+                    return False, f"{q}: {orig} is taken; left in quarantine"
+                os.rename(q, orig)  # same parent; Git already names orig
+            else:
+                git(env, repo, "worktree", "repair", orig)
+            _unlock_ours(env, repo, orig)
+    except (wo.OwnerError, OSError, GitError) as err:
+        failed: Optional[BaseException] = err  # a step may have done its work and still failed
+    else:
+        failed = None
+    try:
+        back = _ident(orig) == want and _gitdir_target(admin) == os.path.normpath(orig) and not os.path.lexists(q)
+    except OSError:
+        back = False
+    if not back:
+        return False, f"{q}: could not be moved back ({failed or 'it does not check out afterwards'}); left as it is"
+    return True, f"{q}: moved back to {orig}" + (f" (a step reported: {failed})" if failed else "")
+
+
+def _dotgit_names(path: str, admin: str) -> bool:
+    """<path>/.git is a gitdir file naming admin (one way: during a half move the admin dir's
+    gitdir names the other path)."""
+    try:
+        fd = os.open(os.path.join(path, ".git"), os.O_RDONLY | os.O_NOFOLLOW)
+        try:
+            line = wo.read_all(fd, 8192).decode("utf-8", "surrogateescape").strip()
+        finally:
+            os.close(fd)
+    except (OSError, wo.OwnerError):
+        return False
+    if not line.startswith("gitdir: "):
+        return False
+    t = line[len("gitdir: "):]
+    return os.path.realpath(t if os.path.isabs(t) else os.path.join(path, t)) == os.path.realpath(admin)
+
+
+def _unlock_ours(env: Dict[str, str], repo: str, path: str) -> None:
+    for wt in worktree_list(env, repo):
+        if str(wt["path"]) == path and str(wt.get("locked", "")).startswith("lifecycle:"):
+            git(env, repo, "worktree", "unlock", path)
+
+
+def restore(env: Dict[str, str], repos: List[str], roots: List[Tuple[str, str]], apply: bool, notes: List[str]) -> None:
+    """Settle every journaled quarantine of an interrupted run (apply), or report them."""
     d = journal_dir(env)
     try:
         if not _private_dir(d, create=False):
@@ -119,41 +256,15 @@ def restore(env: Dict[str, str], repos: List[str], apply: bool, notes: List[str]
         p = os.path.join(d, n)
         try:
             e = json.loads(_read_private(p) or "")
-            repo, orig, q = str(e["repo"]), str(e["original"]), str(e["quarantine"])
-            if repo not in repos or QUARANTINE not in os.path.basename(q):
+            if not isinstance(e, dict) or str(e.get("repo")) not in repos:
                 raise ValueError("not an entry of a scanned repository")
-        except (OSError, ValueError, KeyError, TypeError) as err:
+        except (OSError, ValueError, TypeError) as err:
             notes.append(f"journal entry {n} cannot be used ({type(err).__name__}): its worktree stays where it is")
             continue
-        try:
-            listed = {str(w["path"]): w for w in worktree_list(env, repo)}
-        except GitError as err:
-            notes.append(f"journal entry {n}: {err}")
-            continue
-        if q not in listed:
-            if not os.path.lexists(q):
-                if apply:
-                    journal_drop(p)
-                notes.append(f"{q}: gone ({'entry dropped' if apply else 'entry stays until --apply'})")
-            else:
-                notes.append(f"{q}: in the journal but not a worktree of {repo}: left as it is")
-            continue
-        if not apply:
-            notes.append(f"{q}: left in quarantine by run {e.get('run_id')}; --apply moves it back to {orig}")
-            continue
-        if os.path.lexists(orig):
-            notes.append(f"{q}: left in quarantine; {orig} is taken, so it stays there")
-            continue
-        try:
-            admin, _ = wo.admin_of(q)
-            with wo.OwnerLock(admin, 0):
-                if str(listed[q].get("locked", "")).startswith("lifecycle:"):
-                    git(env, repo, "worktree", "unlock", q)
-                git(env, repo, "worktree", "move", q, orig)
+        done, note = settle(env, e, roots, apply)
+        if done and apply:
             journal_drop(p)
-            notes.append(f"{q}: moved back to {orig} (an interrupted run left it in quarantine)")
-        except (wo.OwnerError, OSError, GitError) as err:
-            notes.append(f"{q}: could not be moved back ({err}); it stays")
+        notes.append(note + ("" if not done else " (journal entry dropped)" if apply else " (entry stays until --apply)"))
 
 
 def quarantine_remove(cfg: object, ctx: Ctx, it: Item, run_id: str, guard: Guard,
@@ -161,13 +272,15 @@ def quarantine_remove(cfg: object, ctx: Ctx, it: Item, run_id: str, guard: Guard
     """Steps 1-4 above, called with the record's flock and this run's Git lock held and the
     second check passed; the caller releases a lock of this run that is still on it.name.
     False only when a step failed in a way the report must call a failure (a removal that
-    failed, a move back that failed)."""
+    failed, a quarantine that could not be settled)."""
     env, repo, reason = ctx.env, ctx.repo, "lifecycle:" + run_id
     q = os.path.join(os.path.dirname(it.name), os.path.basename(it.name) + QUARANTINE + run_id)
     before(ctx, it)  # type: ignore[operator]  # test seam: after the second check
     if os.path.lexists(q):
         it.keep("quarantine-failed", f"{q} exists")
         return True
+    entry = {"run_id": run_id, "repo": repo, "original": it.name, "quarantine": q, "ident": list(it.ident),
+             "admin": it.admin, "head": it.head}
     try:
         jp = journal_write(env, run_id, repo, it, q)
     except OSError as e:
@@ -176,19 +289,14 @@ def quarantine_remove(cfg: object, ctx: Ctx, it: Item, run_id: str, guard: Guard
     try:
         git(env, repo, "worktree", "unlock", it.name)
         git(env, repo, "worktree", "move", it.name, q)
-    except GitError as e:
-        journal_drop(jp)
-        it.keep("quarantine-failed", str(e))
-        return True
-    try:
         git(env, repo, "worktree", "lock", "--reason", reason, q)
-    except GitError as e:
-        return _back(env, repo, it, q, jp, ("quarantine-failed", f"cannot lock the quarantine: {e}"), locked=False)
+    except GitError as e:  # the move may have stopped half way: settle it from the journal (552 C1)
+        return _back(env, ctx.roots, it, entry, jp, ("quarantine-failed", str(e)))
     inside(ctx, it, q)  # type: ignore[operator]  # test seam: in quarantine, before the last checks
     bad = (recheck_worktree(ctx, it, reason, q) or open_problem(OpenFiles(cfg), q, it.name)  # type: ignore[arg-type]
            or guard.problem(q, it.name, it.admin))
     if bad:
-        return _back(env, repo, it, q, jp, bad, locked=True)
+        return _back(env, ctx.roots, it, entry, jp, bad)
     try:
         git(env, repo, "worktree", "unlock", q)
         git(env, repo, "worktree", "remove", q)
@@ -200,13 +308,11 @@ def quarantine_remove(cfg: object, ctx: Ctx, it: Item, run_id: str, guard: Guard
     return True
 
 
-def _back(env: Dict[str, str], repo: str, it: Item, q: str, jp: str, why: Tuple[str, str], locked: bool) -> bool:
-    try:
-        if locked:
-            git(env, repo, "worktree", "unlock", q)
-        git(env, repo, "worktree", "move", q, it.name)
-    except GitError as e:
-        it.keep("left-in-quarantine", f"{why[1]}; moving it back failed ({e}): the next --apply tries again")
+def _back(env: Dict[str, str], roots: List[Tuple[str, str]], it: Item, entry: Dict[str, object], jp: str,
+          why: Tuple[str, str]) -> bool:
+    done, note = settle(env, entry, roots, True, lock_held=True)  # the caller holds the record's flock
+    if not done:
+        it.keep("left-in-quarantine", f"{why[1]}; {note}: the journal entry stays for the next --apply")
         return False
     journal_drop(jp)
     it.keep(*why)

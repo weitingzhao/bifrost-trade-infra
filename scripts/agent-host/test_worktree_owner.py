@@ -133,12 +133,17 @@ def test_the_host_session_carries_a_thread_across_a_new_cli_session(w):
     repo = w.repo()
     w.env["CLAUDE_CODE_HOST_SESSION_ID"] = "local_thread-1"
     d = w.new_worktree(repo, "lane/bifrost-x", detach="origin/main", session="sess-1")
+    # an end that matches only by host counts from a session that started after the record's
+    # ownership began (its marker says so): sess-9 never started, so its end does nothing
     hook(w, {"hook_event_name": "SessionEnd", "session_id": "sess-9", "reason": "other"}, host="local_thread-1")
-    assert w.look(d)["state"] == "ended"
+    assert w.look(d)["state"] == "in-use"
     hook(w, {"hook_event_name": "SessionStart", "session_id": "sess-10", "source": "clear"}, host="local_thread-1")
     assert w.look(d)["state"] == "in-use"
-    hook(w, {"hook_event_name": "SessionEnd", "session_id": "sess-11"}, host="local_thread-other")
-    assert w.look(d)["state"] == "in-use"
+    time.sleep(1.1)  # past the start's second: ended_at has whole seconds
+    hook(w, {"hook_event_name": "SessionEnd", "session_id": "sess-10", "reason": "other"}, host="local_thread-1")
+    assert w.look(d)["state"] == "ended"
+    hook(w, {"hook_event_name": "SessionStart", "session_id": "sess-11", "source": "startup"}, host="local_thread-other")
+    assert w.look(d)["state"] == "ended"
 
 
 def test_the_hook_never_breaks_a_session(w):
@@ -161,14 +166,14 @@ def test_a_renewal_waits_for_the_sweep_and_finds_the_worktree_gone(w):
     w.end(d)
     admin, _ = wo.admin_of(str(d))
     with wo.OwnerLock(admin, 1):
-        changed, probs = ws.session_event(dict(w.env), "start", "sess-1", "", "resume", budget=0.2)
-        assert changed == [] and any("held by another process" in p for p in probs)
+        changed, probs, unsafe, published = ws.session_event(dict(w.env), "start", "sess-1", "", "resume", budget=0.2)
+        assert changed == [] and any("held by another process" in p for p in probs) and published and unsafe == []
         w.git(repo, "worktree", "remove", d)  # the sweep's removal, still under the lock
     with pytest.raises(wo.Gone):
         with wo.OwnerLock(admin, 1):
             pass
-    changed, probs = ws.session_event(dict(w.env), "start", "sess-1", "", "resume", budget=0.2)
-    assert changed == [] and probs == []
+    changed, probs, unsafe, published = ws.session_event(dict(w.env), "start", "sess-1", "", "resume", budget=0.2)
+    assert changed == [] and probs == [] and published
 
 
 def test_records_that_are_not_usable_are_refused(w):
@@ -208,7 +213,7 @@ def test_unrelated_locked_records_do_not_stop_a_resumed_session(w):
     w.end(mine)
     holders = [hold(wo.admin_of(str(d))[0]) for d in others]
     try:
-        changed, probs = ws.session_event(dict(w.env), "start", "sess-1", "", "resume", budget=1.0)
+        changed, probs, _, _ = ws.session_event(dict(w.env), "start", "sess-1", "", "resume", budget=1.0)
     finally:
         for h in holders:
             h.kill()
@@ -227,7 +232,7 @@ def test_a_renewal_that_fails_still_leaves_the_worktree_in_use(w):
     admin = Path(wo.admin_of(str(d))[0])
     admin.chmod(0o555)
     try:
-        changed, probs = ws.session_event(dict(w.env), "start", "sess-1", "", "resume")
+        changed, probs, _, _ = ws.session_event(dict(w.env), "start", "sess-1", "", "resume")
     finally:
         admin.chmod(0o755)
     assert changed == [] and probs and "ended_at" in w.look(d)["record"]
@@ -271,3 +276,84 @@ def test_a_session_starting_inside_someone_elses_worktree_keeps_it(w):
     assert d.exists() and World.items(rep)[str(d)]["reason"] == "used-by-another-session"
     rc, out = w.call(new_worktree.main, ["--take", str(d), "--session", "sess-b"])
     assert rc == 0 and "foreign_use" not in w.look(d)["record"] and w.look(d)["state"] == "in-use"
+
+
+def test_a_resume_that_cannot_publish_its_marker_still_keeps_the_worktree(w):
+    """Review 552 A2: markers directory unwritable and the record's lock held: the renewal and
+    the marker both fail, so the hook writes a resume-failed state into the admin dir; the
+    sweep keeps the worktree on it. When even that cannot be written, the hook says so to
+    the session and the user (JSON on stdout). A missing markers directory is unknown."""
+    repo = w.repo()
+    d = w.new_worktree(repo, "lane/bifrost-x", detach="origin/main", session="sess-1")
+    w.end(d)
+    time.sleep(1.1)  # the resume comes in a later second than the end
+    admin = Path(wo.admin_of(str(d))[0])
+    markers = Path(ws.markers_dir(w.env))
+    markers.chmod(0o555)
+    holder = hold(str(admin))
+    try:
+        changed, probs, unsafe, published = ws.session_event(dict(w.env), "start", "sess-1", "", "resume", budget=0.3)
+    finally:
+        holder.kill()
+        holder.wait()
+        markers.chmod(0o755)
+    assert changed == [] and not published and unsafe == []
+    assert (admin / wo.RESUME_FAILED).exists() and w.look(d)["state"] == "resume-failed"
+    rc, out, rep = w.prune("--apply")
+    assert d.exists() and World.items(rep)[str(d)]["reason"] == "resume-failed"
+    (admin / wo.RESUME_FAILED).unlink()
+    markers.chmod(0o555)
+    admin.chmod(0o555)
+    holder = hold(str(admin))
+    try:
+        r = hook(w, {"hook_event_name": "SessionStart", "session_id": "sess-1", "source": "resume"})
+    finally:
+        holder.kill()
+        holder.wait()
+        markers.chmod(0o755)
+        admin.chmod(0o755)
+    assert r.returncode == 0
+    said = json.loads(r.stdout)
+    assert str(d) in said["hookSpecificOutput"]["additionalContext"] and "--renew" in said["systemMessage"]
+    for p in markers.iterdir():
+        p.unlink()
+    markers.rmdir()
+    assert w.look(d)["state"] == "session-state-unknown"
+
+
+def test_take_for_another_session_does_not_inherit_the_callers_host(w):
+    """Review 552 A3, first case: run in A's thread, --take --session B records B's host as
+    unknown (not A's), so A's end, which matches only by host, ends nothing."""
+    repo = w.repo()
+    w.env["CLAUDE_CODE_SESSION_ID"], w.env["CLAUDE_CODE_HOST_SESSION_ID"] = "sess-a", "local_a"
+    d = w.new_worktree(repo, "a/bifrost-x", detach="origin/main", session="sess-a")
+    rc, out = w.call(new_worktree.main, ["--take", str(d), "--session", "sess-b"])
+    assert rc == 0, out
+    rec = w.look(d)["record"]
+    assert (rec["session"], rec["host_session"], rec["generation"]) == ("sess-b", "", 2)
+    hook(w, {"hook_event_name": "SessionStart", "session_id": "sess-a2", "source": "clear"}, host="local_a")
+    time.sleep(1.1)
+    hook(w, {"hook_event_name": "SessionEnd", "session_id": "sess-a2", "reason": "other"}, host="local_a")
+    assert w.look(d)["state"] == "in-use"
+
+
+def test_a_late_end_of_an_older_session_of_the_same_thread_does_nothing(w):
+    """Review 552 A3, second case: two CLI sessions of one Desktop thread. B takes the
+    worktree (its own host recorded, generation 2); the older session A ends afterwards and
+    matches only by host, but A started before this ownership began: nothing. B's end ends it."""
+    repo = w.repo()
+    hook(w, {"hook_event_name": "SessionStart", "session_id": "sess-a", "source": "startup"}, host="local_t")
+    w.env["CLAUDE_CODE_HOST_SESSION_ID"] = "local_t"
+    d = w.new_worktree(repo, "t/bifrost-x", detach="origin/main", session="sess-a")
+    time.sleep(1.1)
+    hook(w, {"hook_event_name": "SessionStart", "session_id": "sess-b", "source": "clear"}, host="local_t")
+    w.env["CLAUDE_CODE_SESSION_ID"] = "sess-b"
+    rc, out = w.call(new_worktree.main, ["--take", str(d), "--session", "sess-b"])
+    assert rc == 0, out
+    rec = w.look(d)["record"]
+    assert (rec["session"], rec["host_session"], rec["generation"]) == ("sess-b", "local_t", 2)
+    hook(w, {"hook_event_name": "SessionEnd", "session_id": "sess-a", "reason": "other"}, host="local_t")
+    assert w.look(d)["state"] == "in-use"
+    time.sleep(1.1)  # past B's start second (ended_at has whole seconds)
+    hook(w, {"hook_event_name": "SessionEnd", "session_id": "sess-b", "reason": "other"}, host="local_t")
+    assert w.look(d)["state"] == "ended"

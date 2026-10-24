@@ -1,6 +1,6 @@
-# 4.6 S3 钩子接线提案（2026-10-24，第 2 稿，按复核 551 改；**没有接线**）
+# 4.6 S3 钩子接线提案（2026-10-24，第 3 稿，按复核 551、552 改；**没有接线**）
 
-> 依据：`CUT-lifecycle-2026-10-24.md` §4.2、§5 S3；复核 539 F3、F4；复核 551 D1、D2。
+> 依据：`CUT-lifecycle-2026-10-24.md` §4.2、§5 S3；复核 539 F3、F4；复核 551 D1、D2；复核 552 A2、A3。
 > 脚本和测试：`scripts/agent-host/new-worktree.sh`（`new_worktree.py`、`worktree_owner.py`、`worktree_sessions.py`）、
 > `agent-config/claude/hooks/worktree-lease.py`。**没有改任何 settings.json、没有改 `preflight.js`、没有改 Cursor 的 hooks.json。**
 > 下面是建议的改法，原样可贴；接不接、什么时候接由统筹定。
@@ -39,13 +39,21 @@
 ]
 ```
 
-- `timeout: 15` 是为了 SessionEnd：一次事件只有一个总预算（`worktree_sessions.session_event` 的 `budget`，8 秒），
-  记录被清扫占着时在预算内等锁；1.5 秒的默认共享预算不够。本机实测没有登记记录时一次 0.18 秒（`python3` 3.12 与 `/usr/bin/python3` 3.9 一样）。
-- SessionStart 的顺序（复核 551 D1）：先原子地写会话级标记 `<status>/lifecycle-sessions/<会话 id>.json`（`active_since`，
-  CLI 会话 id 和 host 会话 id 各一份），再**不加锁**读记录、只挑本会话的（或本线程的），最后在总预算内逐个拿锁续租。
-  清扫把「标记比 `ended_at` 新」或「标记读不了」都当作在用，所以续租没拿到锁、写失败、超时，worktree 都仍算在用；
-  会话之后再结束时 `ended_at` 前移到标记之后，才重新可删。
-- 钩子永远 exit 0、stdout 不输出任何东西（SessionStart 的 stdout 会进上下文），问题写 stderr。
+- `timeout: 15` 是为了 SessionEnd：1.5 秒的默认共享预算不够。`worktree_sessions.session_event` 的 `budget`（8 秒）
+  **只约束等锁的总时间**；之前扫描记录目录、读记录没有单独的时限（复核 552 纠正了上一稿「整个钩子 8 秒」的说法）。
+  本机实测没有登记记录时一次 0.18 秒（`python3` 3.12 与 `/usr/bin/python3` 3.9 一样）。
+- SessionStart 的顺序（复核 551 D1、552 A2）：
+  1. 原子地发布会话标记 `<status>/lifecycle-sessions/<会话 id>.json`（`active_since`，CLI 会话 id 和 host 会话 id 各一份）；
+  2. 不加锁读记录、只挑本会话的（或本线程的）；在等锁预算内逐个续租；
+  3. 标记发布失败时：在标记目录写 `<id>.resume-failed`，并在每份**没续租成功**的本会话记录的管理目录里写 `bifrost-owner.resume-failed`（都记时间）；
+  4. 清扫保留一个已结束的 worktree，除非能证明它的会话在结束之后没有再启动：标记目录要存在且可读（**不存在算「不知道」，不算「已结束」**），
+     会话和 host 会话的标记、`resume-failed`、管理目录里的 `resume-failed`，都不能比 `ended_at` 新，也不能读不了。
+     `new-worktree.sh` 登记时会建标记目录；只有 SessionStart 写标记（登记不写：否则同一会话先结束的 worktree 会被当成又启动了）。
+  5. 上面三样一样都写不下的 worktree（标记、续租、resume-failed 全失败），钩子在 stdout 打一个 JSON：`systemMessage` 给用户看，
+     `hookSpecificOutput.additionalContext` 给会话看，列出这些 worktree，说用之前先 `new-worktree.sh --renew <dir>`。
+     SessionStart 不能被任何钩子输出挡住；exit 2 也只把 stderr 给用户看（文档 hooks.md「Exit code 2 behavior per event」），所以用 exit 0 加 JSON。
+- 会话之后再结束时 `ended_at` 前移到标记之后，才重新可删。
+- 钩子永远 exit 0；一切正常时 stdout 不输出任何东西（SessionStart 的 stdout 会进上下文），只有上面第 5 条的情况打 JSON；问题写 stderr。
 - `$CLAUDE_PROJECT_DIR/.claude` 经符号链接指到 infra 的 `agent-config/claude`；钩子按自己的真实路径找到 `<infra>/scripts/agent-host/worktree_sessions.py`。
 - 钩子把输入里的 `cwd` 传进去：别的会话在这个 worktree 里启动时，记录上标 `foreign_use`，清扫一直保留，直到 `--take`。
 
@@ -115,7 +123,7 @@ function worktreeAddHint(cmd) {
 |---|---|---|
 | 进程被杀、Desktop 关闭或归档时 SessionEnd 是否触发（文档没说） | 没有 `ended_at`，worktree 一直「在用」 | 安全方向；要清时手工 `new-worktree.sh --end` |
 | `/clear`：SessionEnd(reason=clear) 被钩子跳过；之后 CLI 会话 id 变了 | 记录靠 `host_session`（`CLAUDE_CODE_HOST_SESSION_ID`，Desktop 线程 id）跟着线程走 | **没核实**这个变量在钩子进程里有（Bash 工具子进程里有，本会话实测）；没有时记录停在「在用」，安全方向 |
-| fork 出来的会话、或别的会话要用一个 worktree | 不隐式共享（复核 551 D2）：记录只认一个会话 | 先 `new-worktree.sh --take <dir> --session <新会话>` 接管：旧会话以后的结束事件不再匹配，结束记录作废。`--renew` 不转移使用权，不用它来「借用」 |
+| fork 出来的会话、或别的会话要用一个 worktree | 不隐式共享（复核 551 D2）：记录只认一个会话 | 先 `new-worktree.sh --take <dir> --session <新会话> [--host-session <新会话的线程 id>]` 接管，记录进入新的所有权代际（`generation`、`owner_since`）。调用者不是新会话时，不继承调用者的 host，`--host-session` 不给就记为未知（复核 552 A3）。之后：旧会话的结束事件按会话 id 不再匹配；只按 host 匹配的结束事件，只有该会话的标记晚于 `owner_since` 才算（同一线程里更早的会话迟到的结束不算）。`--renew` 不转移使用权 |
 | 别的会话在别人的 worktree 里启动（SessionStart 的 cwd 在里面） | 钩子在记录上标 `foreign_use`；清扫一直保留它 | `--take` 或人工 `--end --by` 清掉标记。会话都在工作区根启动，这条只覆盖少数情况；以绝对路径去改别人的 worktree 钩子看不到，只有清扫那一刻的 lsof 能挡 |
 | 清扫与 `disk-guard.sh sweep` | 两者用同一把机器锁（`$AGENT_WORK/.lifecycle.lock`），不会同时跑 | disk-guard 还没调用 S2；以后接时要么先放锁再调，要么把锁交给子进程，不能在持锁时直接调（会拿不到锁、退出 3） |
 

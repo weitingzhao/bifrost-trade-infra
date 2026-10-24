@@ -134,9 +134,9 @@ def test_an_interrupted_quarantine_is_moved_back_never_finished(w, monkeypatch):
     repo = w.repo()
     d = ended(w, repo, "cut/bifrost-x", detach="origin/main")
 
-    def die(ctx, it, q):
+    def stop_in_quarantine(ctx, it, q):
         raise SystemExit(9)  # the run dies with the worktree in quarantine
-    monkeypatch.setattr(lifecycle_local, "_in_quarantine", die)
+    monkeypatch.setattr(lifecycle_local, "_in_quarantine", stop_in_quarantine)
     with pytest.raises(SystemExit):
         w.prune("--apply", inproc=True)
     left = [p for p in d.parent.iterdir() if lq.QUARANTINE in p.name]
@@ -239,3 +239,80 @@ def test_a_lingering_auto_merge_tree_is_archived_as_a_commit(w):
     w.git(w.tmp, "init", "-q", "--bare", empty)
     w.git(empty, "fetch", "-q", run / "unique.bundle", "refs/lifecycle-archive/*:refs/restored/*")
     assert w.git(empty, "cat-file", "-p", f"{tree}:only-here.txt") == "conflicted only"
+
+
+def test_a_fetch_head_past_one_mib_is_read_to_its_last_line(w, monkeypatch):
+    """Review 552 A1: the whole pseudo ref is read; the last line of a 1.5 MiB FETCH_HEAD
+    names a commit only this worktree knows, and it is archived. Past the limit the
+    worktree is kept, never judged by a prefix."""
+    import lifecycle_checks
+    repo = w.repo()
+    d = ended(w, repo, "fetched/bifrost-x", detach="origin/main")
+    lost = w.commit(d, "only FETCH_HEAD names this")
+    w.git(d, "reset", "-q", "--hard", "origin/main")
+    admin = Path(wo.admin_of(str(d))[0])
+    (admin / "logs" / "HEAD").unlink()
+    (admin / "ORIG_HEAD").unlink()
+    main = w.git(repo, "rev-parse", "HEAD")
+    filler = "".join(f"{main}\tnot-for-merge\tbranch 'w31/filler-{n:06d}' of gitea\n" for n in range(24000))
+    (admin / "FETCH_HEAD").write_text(filler + f"{lost}\t\tbranch 'w31/lost' of gitea\n")
+    assert (admin / "FETCH_HEAD").stat().st_size > 3 << 19
+    rc, out, rep = w.prune("--apply", inproc=True)
+    assert rc == 0 and not d.exists(), out
+    (run,) = w.run_dirs()
+    assert restores_alone(w, run / "unique.bundle", lost)
+    big = ended(w, repo, "toobig/bifrost-x", detach="origin/main")
+    (Path(wo.admin_of(str(big))[0]) / "FETCH_HEAD").write_text(filler)
+    monkeypatch.setattr(lifecycle_checks, "MAX_PSEUDO", 1 << 20)
+    rc, out, rep = w.prune("--apply", inproc=True)
+    assert big.exists() and reason(rep, big) == "pseudo-ref-unreadable" and "larger than" in World.items(rep)[str(big)]["detail"]
+
+
+def test_a_mount_inside_the_worktree_keeps_it_at_any_check(w, monkeypatch):
+    """Review 552 A5: a mount point anywhere inside the worktree (same-device bind mounts
+    included: only the mount table tells) keeps it, and the table is read again at the
+    second check: one that appears after the first check, or a table that can no longer be
+    read, keeps it."""
+    repo = w.repo()
+    sub = ended(w, repo, "sub/bifrost-x", detach="origin/main", extra=("--cache-root", "go-build:build/cache"))
+    late = ended(w, repo, "late/bifrost-x", detach="origin/main")
+    blind = ended(w, repo, "blind/bifrost-x", detach="origin/main")
+    (sub / "build").mkdir()
+    table = "/dev/disk1 on / (apfs)\n"
+    (w.lsof / "mount.out").write_text(table + f"/dev/disk1 on {os.path.realpath(sub / 'build')} (apfs, bind)\n")
+
+    def mount_now(ctx, items):
+        (w.lsof / "mount.out").write_text(table + f"/dev/disk2 on {os.path.realpath(late)}/node_modules (nfs)\n")
+    monkeypatch.setattr(lifecycle_local, "_between_checks", mount_now)
+    rc, out, rep = w.prune("--apply", inproc=True)
+    assert rc == 0, out
+    assert sub.exists() and reason(rep, sub) == "mount-inside-worktree"
+    assert late.exists() and reason(rep, late) == "mount-inside-worktree"
+    assert not blind.exists()  # no mount inside it: it goes
+    blind2 = ended(w, repo, "blind2/bifrost-x", detach="origin/main")
+    (w.lsof / "mount.out").write_text(table)
+    monkeypatch.setattr(lifecycle_local, "_between_checks", lambda ctx, items: (w.lsof / "mount.out").write_text(""))
+    rc, out, rep = w.prune("--apply", inproc=True)
+    assert blind2.exists() and reason(rep, blind2) == "mount-table-unknown"
+
+
+def test_records_and_registries_from_before_are_read_safely(w):
+    """Review 552 D: a record with the old plain-string cache roots reads as paths with no
+    kind; a disk-guard registry that cannot be read in full refuses the run; an AUTO_MERGE
+    that names a commit (not a tree) keeps the worktree."""
+    repo = w.repo()
+    d = ended(w, repo, "old/bifrost-x", detach="origin/main")
+    rec_path = Path(wo.admin_of(str(d))[0]) / wo.OWNER
+    rec = json.loads(rec_path.read_text())
+    rec["cache_roots"] = ["node_modules"]
+    rec_path.write_text(json.dumps(rec))
+    got, _, bad = wo.read_record(str(rec_path.parent))
+    assert bad is None and got["cache_roots"] == [{"path": "node_modules", "kind": None}]
+    (Path(wo.admin_of(str(d))[0]) / "AUTO_MERGE").write_text(w.git(repo, "rev-parse", "HEAD") + "\n")
+    rc, out, rep = w.prune("--apply")
+    assert d.exists() and reason(rep, d) == "pseudo-ref-unreadable"
+    bad_reg = w.tmp / "roots.tsv"
+    bad_reg.write_text("not a valid line\n")
+    w.env["LIFECYCLE_CACHE_ROOTS"] = str(bad_reg)
+    rc, out, rep = w.prune("--apply")
+    assert rc == 4 and "registry" in out

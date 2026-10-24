@@ -163,7 +163,7 @@ def classify_repo(s: Settings, repo: str, lsof: OpenFiles, mounts: Optional[List
     except GitError as e:
         out["problem"] = f"{e}: nothing in this repository is removed"
         return out
-    ctx = Ctx(env, repo, rid, durable, s.roots, time.time(), s.grace, lsof, mounts)
+    ctx = Ctx(env, repo, rid, durable, s.roots, time.time(), s.grace, lsof, mounts, s.cfg)
     items = [classify_worktree(ctx, wt) for wt in wts[1:] if not wt.get("bare")]
     out["paths"] = [str(wt["path"]) for wt in wts[1:]] + [i.admin for i in items if i.admin]
     try:
@@ -188,7 +188,7 @@ def apply_repo(s: Settings, plan: Dict[str, object], run_id: str, started: str) 
             i.keep("remote-unreadable", str(e))
         return True
     old: Ctx = plan["ctx"]  # type: ignore[assignment]
-    ctx = Ctx(env, repo, rid, durable, s.roots, time.time(), s.grace, old.lsof, old.mounts)
+    ctx = Ctx(env, repo, rid, durable, s.roots, time.time(), s.grace, old.lsof, old.mounts, s.cfg)
     try:
         for i in cands:
             if without_copy(env, repo, [i.head], durable):
@@ -338,7 +338,7 @@ def run(env: Dict[str, str], apply: bool, names: List[str], offline: bool) -> in
 
 def _run_locked(s: Settings, repos: List[str], notes: List[str], apply: bool, offline: bool, run_id: str) -> int:
     started = now_utc()
-    lq.restore(s.env, repos, apply, notes)
+    lq.restore(s.env, repos, s.roots, apply, notes)
     lsof = OpenFiles(s.cfg)
     points, err = mount_points(s.cfg)
     mounts = None if err else points

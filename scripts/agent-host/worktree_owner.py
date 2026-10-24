@@ -46,6 +46,7 @@ from disk_guard_state import write_report
 
 OWNER = "bifrost-owner"
 OWNER_LOCK = "bifrost-owner.lock"
+RESUME_FAILED = "bifrost-owner.resume-failed"  # worktree_sessions.py: a resume that could not be published
 SCHEMA = 1
 TIME_FMT = "%Y-%m-%dT%H:%M:%SZ"
 MAX_RECORD = 64 * 1024
@@ -127,6 +128,11 @@ def problems(rec: object) -> List[str]:
     for k in ("voided_ends", "taken_from"):
         if not isinstance(rec.get(k, []), list):
             out.append(f"{k} is not a list")
+    gen = rec.get("generation", 1)
+    if type(gen) is not int or gen < 1:
+        out.append("generation is not a whole number of at least 1")
+    if "owner_since" in rec and to_seconds(rec["owner_since"]) is None:
+        out.append(f"owner_since is not a time ({TIME_FMT})")
     fu = rec.get("foreign_use")
     if fu is not None and not (isinstance(fu, dict) and isinstance(fu.get("session"), str) and to_seconds(fu.get("at")) is not None):
         out.append("foreign_use is not {session, at}")
@@ -160,6 +166,7 @@ def new_record(work: str, session: str, host_session: str, purpose: str, branch:
         "purpose": purpose, "created_at": fmt(now), "cache_roots": list(cache_roots),
         "branch": branch, "branch_created": branch_created, "base": base,
         "renewed_at": fmt(now), "lease_until": fmt(now + lease_hours * 3600),
+        "generation": 1, "owner_since": fmt(now),
     }
 
 
@@ -189,13 +196,24 @@ def end(rec: Dict[str, object], now: float, by: str, reason: str) -> None:
     rec["lease_until"] = fmt(now)
 
 
+def owner_since(rec: Dict[str, object]) -> float:
+    """When the current ownership generation began (records before 552: created_at)."""
+    return to_seconds(rec.get("owner_since")) or to_seconds(rec.get("created_at")) or 0.0
+
+
 def take(rec: Dict[str, object], now: float, session: str, host_session: str, lease_hours: float) -> None:
-    """Hand the worktree to another session: the old session's later end events match
-    nothing, an end is voided, a recorded foreign use is cleared (review 551 D2)."""
+    """Hand the worktree to another session as a new ownership generation: the old session's
+    later end events match nothing, and an end event that matches only by host counts only
+    from a session that started after this generation began (worktree_sessions.py); an end
+    is voided, a recorded foreign use cleared (reviews 551 D2, 552 A3). host_session is the
+    target's, or empty when it is not known."""
     hist = list(rec.get("taken_from") or [])
-    hist.append({"session": rec.get("session"), "host_session": rec.get("host_session", ""), "at": fmt(now)})
+    hist.append({"session": rec.get("session"), "host_session": rec.get("host_session", ""),
+                 "generation": rec.get("generation", 1), "at": fmt(now)})
     rec["taken_from"] = hist[-5:]
     rec["session"], rec["host_session"] = session, host_session
+    rec["generation"] = int(rec.get("generation", 1)) + 1  # type: ignore[call-overload]
+    rec["owner_since"] = fmt(now)
     rec.pop("foreign_use", None)
     renew(rec, now, lease_hours)
 
@@ -214,17 +232,20 @@ def read_record(admin: str) -> Tuple[Optional[Dict[str, object]], Optional[bytes
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode):
             return None, None, f"{OWNER} is not a regular file"
-        if st.st_size > MAX_RECORD:
-            return None, None, f"{OWNER} is larger than {MAX_RECORD} bytes"
-        raw = os.read(fd, MAX_RECORD + 1)
+        raw = read_all(fd, MAX_RECORD)
     except OSError as e:
         return None, None, f"{OWNER}: {e.strerror or e}"
+    except OwnerError as e:
+        return None, None, f"{OWNER}: {e}"
     finally:
         os.close(fd)
     try:
         rec = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, ValueError):
         return None, raw, f"{OWNER} is not JSON"
+    if isinstance(rec, dict) and isinstance(rec.get("cache_roots"), list):
+        # a record written before kinds (a plain path): the same path, no kind (review 552 D)
+        rec["cache_roots"] = [{"path": r, "kind": None} if isinstance(r, str) else r for r in rec["cache_roots"]]
     bad = problems(rec)
     if bad:
         return None, raw, f"{OWNER}: " + "; ".join(bad)
@@ -290,12 +311,29 @@ class OwnerLock:
         self._close()
 
 
+def read_all(fd: int, limit: int) -> bytes:
+    """A regular file read to its end; OwnerError when it holds more than limit bytes (a
+    prefix is never taken for the file, review 552 A1)."""
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        raise OwnerError("not a regular file")
+    parts: List[bytes] = []
+    n = 0
+    while True:
+        b = os.read(fd, min(1 << 20, limit + 1 - n))
+        if not b:
+            return b"".join(parts)
+        parts.append(b)
+        n += len(b)
+        if n > limit:
+            raise OwnerError(f"larger than {limit} bytes")
+
+
 def _read_small(path: str) -> str:
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | O_CLOEXEC)
     try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            raise OwnerError(f"{path} is not a regular file")
-        return os.read(fd, 8192).decode("utf-8", "surrogateescape").strip()
+        return read_all(fd, 8192).decode("utf-8", "surrogateescape").strip()
+    except OwnerError as e:
+        raise OwnerError(f"{path}: {e}")
     finally:
         os.close(fd)
 
