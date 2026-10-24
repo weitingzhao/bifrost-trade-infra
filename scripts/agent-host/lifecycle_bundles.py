@@ -4,9 +4,12 @@
 A run that deletes anything in a repository first writes <backup root>/<machine>/<repo>/<run id>/,
 made with mkdir and never reused, so two runs on one day keep both. In it:
 
-  unique.bundle     commits no ref the remote holds reaches: the reflog commits of what is
-                    deleted. The last copy of those objects; nothing here ever deletes it
-                    (D-L4 moves such bundles to persistent storage).
+  unique.bundle     commits no ref the remote holds reaches: the reflog and pseudo-ref
+                    commits of what is deleted, with their whole history (no prerequisites),
+                    so a fresh empty repository restores them from this file alone; that is
+                    checked before anything is removed (review 551 C1). The last copy of
+                    those objects; nothing here ever deletes it (D-L4 moves such bundles to
+                    persistent storage).
   redundant.bundle  the rest of what is deleted beyond the remote's main and tags: the tips
                     (branch tips, worktree HEADs) and the reflog commits that a remote ref
                     other than main reached. Every commit in it was on a ref the remote held,
@@ -19,8 +22,9 @@ made with mkdir and never reused, so two runs on one day keep both. In it:
                     prerequisites, size and sha256
   actions.log       one line per deletion, appended as it is done
 
-Both bundles are thin against the remote's main and tags (their prerequisites), so they
-restore into any clone of the remote: git fetch <bundle> 'refs/lifecycle-archive/*:refs/restored/*'.
+The redundant bundle is thin against the remote's main and tags, so it restores into a clone
+of the remote; the manifest records the prerequisites the bundle's own header lists.
+Restore: git fetch <bundle> 'refs/lifecycle-archive/*:refs/restored/*'.
 While a bundle is written, its heads are refs/lifecycle-archive/<run id>/<u|r><n> in the
 repository, created only where no ref stands and removed by their sha afterwards. A run that
 dies between the two leaves them; they keep their objects alive and are reported, not removed.
@@ -34,7 +38,9 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import stat
+import tempfile
 import time
 from typing import Dict, List, Optional, Tuple
 
@@ -91,13 +97,53 @@ def list_heads(env: Dict[str, str], repo: str, path: str) -> Dict[str, str]:
     return out
 
 
+def header(path: str) -> Tuple[Dict[str, str], List[str]]:
+    """({ref: sha}, prerequisite shas) as the bundle file's own header lists them."""
+    refs: Dict[str, str] = {}
+    pre: List[str] = []
+    with open(path, "rb") as f:
+        first = f.readline()
+        if first not in (b"# v2 git bundle\n", b"# v3 git bundle\n"):
+            raise BundleError(f"{path}: not a v2 or v3 bundle")
+        for raw in iter(f.readline, b""):
+            line = raw.decode("utf-8", "surrogateescape").rstrip("\n")
+            if line == "":
+                return refs, pre
+            if line.startswith("@"):
+                continue
+            if line.startswith("-"):
+                pre.append(line[1:].split(" ", 1)[0])
+            else:
+                sha, _, ref = line.partition(" ")
+                refs[ref] = sha
+    raise BundleError(f"{path}: the header does not end")
+
+
+def verify_alone(env: Dict[str, str], path: str, heads: Dict[str, str]) -> None:
+    """The bundle restores every head into a fresh empty repository, with nothing else."""
+    t = tempfile.mkdtemp(prefix="lifecycle-verify-")
+    try:
+        git(env, t, "init", "-q", "--bare", "v.git")
+        v = os.path.join(t, "v.git")
+        git(env, v, "bundle", "verify", "-q", path)
+        git(env, v, "fetch", "-q", "--no-tags", path, "refs/lifecycle-archive/*:refs/restored/*")
+        for sha in heads.values():
+            git(env, v, "cat-file", "-e", sha + "^{commit}")
+    except GitError as e:
+        raise BundleError(f"{path} does not restore alone: {e}")
+    finally:
+        shutil.rmtree(t, ignore_errors=True)
+
+
 def make_bundle(env: Dict[str, str], repo: str, run_dir: str, run_id: str, kind: str,
                 heads: List[str], prereqs: List[str]) -> Dict[str, object]:
-    """Write <run_dir>/<kind>.bundle holding heads beyond prereqs, verified. The entry for the
-    manifest; its "file" is None when prereqs already reach every head."""
+    """Write <run_dir>/<kind>.bundle holding heads beyond prereqs, verified (the unique one
+    with no prereqs, and in an empty repository). The entry for the manifest; its "file" is
+    None when prereqs already reach every head."""
     beyond = set(without_copy(env, repo, list(dict.fromkeys(heads)), prereqs)) if heads else set()
     heads = [h for h in dict.fromkeys(heads) if h in beyond]  # a head on main or a tag adds nothing
-    entry: Dict[str, object] = {"kind": kind, "file": None, "heads": {}, "prerequisites": sorted(set(prereqs))}
+    entry: Dict[str, object] = {"kind": kind, "file": None, "heads": {}, "prerequisites": [],
+                                "thin_against": sorted(set(prereqs))}
     if not heads:
         entry["why_none"] = "nothing beyond the remote's main and tags"
         return entry
@@ -109,9 +155,14 @@ def make_bundle(env: Dict[str, str], repo: str, run_dir: str, run_id: str, kind:
         spec = "".join(f"{r}\n" for r in refs) + "".join(f"^{p}\n" for p in sorted(set(prereqs)))
         git(env, repo, "bundle", "create", "-q", tmp, "--stdin", stdin=spec)
         git(env, repo, "bundle", "verify", "-q", tmp)
-        got = list_heads(env, repo, tmp)
-        if got != refs:
+        got, actual = header(tmp)
+        if got != refs or list_heads(env, repo, tmp) != refs:
             raise BundleError(f"{tmp}: its heads are not the ones written")
+        if not prereqs and actual:
+            raise BundleError(f"{tmp}: a bundle meant to stand alone requires {len(actual)} commits")
+        if not prereqs:
+            verify_alone(env, tmp, refs)
+        entry["prerequisites"] = sorted(actual)
         if os.path.lexists(final):
             raise BundleError(f"{final} exists")
         os.rename(tmp, final)

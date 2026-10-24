@@ -5,8 +5,12 @@
                   --session, which defaults to CLAUDE_CODE_SESSION_ID), or to its host
                   session (CLAUDE_CODE_HOST_SESSION_ID, the Desktop thread). Not on reason
                   "clear": the thread goes on in a new session, so the work has not ended.
-    SessionStart  renew those records: a resumed session (or the session that follows a
-                  /clear in the same thread) voids an earlier end before it uses anything.
+    SessionStart  first the session's "active since" marker, then renew those records: a
+                  resumed session (or the one that follows a /clear in the same thread) voids
+                  an earlier end before it uses anything, and the marker keeps the worktree
+                  in use for the sweep even if a renewal fails. A record of another session
+                  whose worktree holds the hook's cwd is marked as foreign use (kept until
+                  new-worktree.sh --take). See scripts/agent-host/worktree_sessions.py.
 
 A sweep removes a worktree only when its record says ended (worktree_owner.py), so a session
 that dies without SessionEnd leaves its worktrees in use: the safe direction.
@@ -19,7 +23,7 @@ Claude Code gives all SessionEnd hooks 1.5 s unless a hook sets "timeout"; the p
 
 Never blocks a session: it always exits 0, prints nothing on stdout (SessionStart stdout would
 become context), and reports problems on stderr. The record code lives in
-<infra>/scripts/agent-host/worktree_owner.py, found from this file's real path.
+<infra>/scripts/agent-host/worktree_sessions.py, found from this file's real path.
 """
 
 import json
@@ -47,16 +51,16 @@ def main() -> int:
     infra = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
     sys.path.insert(0, os.path.join(infra, "scripts", "agent-host"))
     try:
-        import worktree_owner as wo
+        import worktree_sessions as ws
     except ImportError as e:
-        print(f"worktree-lease: cannot load worktree_owner from {infra}: {e}", file=sys.stderr)
+        print(f"worktree-lease: cannot load worktree_sessions from {infra}: {e}", file=sys.stderr)
         return 0
     env = dict(os.environ)
     session = str(payload.get("session_id") or payload.get("conversation_id") or "")
     host = env.get("CLAUDE_CODE_HOST_SESSION_ID", "")
     reason = str(payload.get("reason") or payload.get("source") or "")
     try:
-        changed, problems = wo.session_event(env, what, session, host, reason)
+        changed, problems = ws.session_event(env, what, session, host, reason, cwd=str(payload.get("cwd") or ""))
     except Exception as e:  # never break a session over its records
         print(f"worktree-lease: {type(e).__name__}: {e}", file=sys.stderr)
         return 0

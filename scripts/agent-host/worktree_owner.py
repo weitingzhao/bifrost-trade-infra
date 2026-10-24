@@ -8,16 +8,21 @@ removes it with the worktree, so the record lives exactly as long as the worktre
 
     schema 1; work (W-n, TD-n, BI-n or LANE-...); session (the Claude Code CLI session id,
     CLAUDE_CODE_SESSION_ID, or an id a wrapper passes); host_session (CLAUDE_CODE_HOST_SESSION_ID,
-    may be empty); purpose; created_at; cache_roots (paths inside the worktree that hold only
-    caches a tool regenerates); branch (null when detached); branch_created (new-worktree.sh
-    made the branch for this work); base; renewed_at; lease_until; once ended: ended_at,
-    ended_by, end_reason. voided_ends keeps the last five ends a later use voided.
+    may be empty); purpose; created_at; cache_roots ({path, kind}: a path inside the worktree
+    meant for a cache, kind one of disk-guard's layouts or null); branch (null when detached);
+    branch_created (new-worktree.sh made the branch for this work); base; renewed_at;
+    lease_until; once ended: ended_at, ended_by, end_reason. voided_ends keeps the last five
+    ends a later use voided; taken_from the sessions that handed it over (--take); foreign_use
+    a session other than its owner that started inside it (worktree_sessions.py).
 
 States, in order: in use (no ended_at) -> ended (a positive event wrote ended_at: the
-SessionEnd hook, new-worktree.sh --end, a wrapper on exit) -> in use again when it is used
-later (the SessionStart hook or --renew move renewed_at past the end and move ended_at into
-voided_ends). Nothing is inferred from time: a record without ended_at stays in use however
-old it is, and a worktree without a record is never removed by a sweep (D-L8).
+SessionEnd hook, new-worktree.sh --end, a wrapper on exit; a later end moves it forward) ->
+in use again when its session starts again (the SessionStart hook writes the session's
+"active since" marker first, then voids the end; see worktree_sessions.py). Nothing is
+inferred from time: a record without ended_at stays in use however old it is, and a
+worktree without a record is never removed by a sweep (D-L8). Another session uses a
+worktree only after new-worktree.sh --take hands it over: the old session's later end events
+then match nothing.
 
 Every read-modify-write of a record, and the sweep's last check and removal, hold flock on
 <admin>/bifrost-owner.lock. A renewal is therefore ordered either before the sweep's last
@@ -36,6 +41,7 @@ import stat
 import time
 from typing import Dict, List, Optional, Tuple
 
+from disk_guard_base import KINDS
 from disk_guard_state import write_report
 
 OWNER = "bifrost-owner"
@@ -110,14 +116,20 @@ def problems(rec: object) -> List[str]:
         if k in rec and not isinstance(rec[k], str):
             out.append(f"{k} is not a string")
     roots = rec.get("cache_roots", [])
-    if not isinstance(roots, list) or not all(canonical_rel(r) for r in roots):
-        out.append("cache_roots is not a list of canonical relative paths")
+    if not isinstance(roots, list) or not all(
+            isinstance(r, dict) and canonical_rel(r.get("path")) and (r.get("kind") is None or r.get("kind") in KINDS)
+            for r in roots):
+        out.append("cache_roots is not a list of {path: canonical relative path, kind: null or a disk-guard kind}")
     if rec.get("branch") is not None and not isinstance(rec.get("branch"), str):
         out.append("branch is neither null nor a string")
     if not isinstance(rec.get("branch_created", False), bool):
         out.append("branch_created is not true or false")
-    if not isinstance(rec.get("voided_ends", []), list):
-        out.append("voided_ends is not a list")
+    for k in ("voided_ends", "taken_from"):
+        if not isinstance(rec.get(k, []), list):
+            out.append(f"{k} is not a list")
+    fu = rec.get("foreign_use")
+    if fu is not None and not (isinstance(fu, dict) and isinstance(fu.get("session"), str) and to_seconds(fu.get("at")) is not None):
+        out.append("foreign_use is not {session, at}")
     return out
 
 
@@ -141,7 +153,8 @@ def end_evidence(rec: Dict[str, object], now: float, grace: float) -> Tuple[Opti
 
 
 def new_record(work: str, session: str, host_session: str, purpose: str, branch: Optional[str],
-               branch_created: bool, base: str, cache_roots: List[str], now: float, lease_hours: float) -> Dict[str, object]:
+               branch_created: bool, base: str, cache_roots: List[Dict[str, object]], now: float,
+               lease_hours: float) -> Dict[str, object]:
     return {
         "schema": SCHEMA, "work": work, "session": session, "host_session": host_session,
         "purpose": purpose, "created_at": fmt(now), "cache_roots": list(cache_roots),
@@ -165,18 +178,26 @@ def renew(rec: Dict[str, object], now: float, lease_hours: float) -> bool:
     return voided
 
 
-def end(rec: Dict[str, object], now: float, by: str, reason: str) -> bool:
-    """A positive end: ended_at now and the lease released. An end already recorded stands
-    (the earliest end since the last use); False then."""
-    if "ended_at" in rec:
-        return False
+def end(rec: Dict[str, object], now: float, by: str, reason: str) -> None:
+    """A positive end: ended_at now and the lease released. A later end moves ended_at
+    forward, so it is never older than a session marker the end follows (review 551 D1)."""
     rec["ended_at"] = fmt(now)
     rec["ended_by"] = by
     rec["end_reason"] = reason
     renewed = to_seconds(rec.get("renewed_at")) or now
     rec["renewed_at"] = fmt(min(renewed, now))
     rec["lease_until"] = fmt(now)
-    return True
+
+
+def take(rec: Dict[str, object], now: float, session: str, host_session: str, lease_hours: float) -> None:
+    """Hand the worktree to another session: the old session's later end events match
+    nothing, an end is voided, a recorded foreign use is cleared (review 551 D2)."""
+    hist = list(rec.get("taken_from") or [])
+    hist.append({"session": rec.get("session"), "host_session": rec.get("host_session", ""), "at": fmt(now)})
+    rec["taken_from"] = hist[-5:]
+    rec["session"], rec["host_session"] = session, host_session
+    rec.pop("foreign_use", None)
+    renew(rec, now, lease_hours)
 
 
 def read_record(admin: str) -> Tuple[Optional[Dict[str, object]], Optional[bytes], Optional[str]]:
@@ -311,6 +332,12 @@ def workspace(env: Dict[str, str]) -> str:
     return os.path.realpath(env.get("WORKSPACE", "").strip() or os.path.dirname(INFRA))
 
 
+def status_dir(env: Dict[str, str]) -> str:
+    """Where the sweeps keep their state (LIFECYCLE_STATUS_DIR, else AGENT_WORK/status), as
+    disk_guard_base.load_config computes it."""
+    return os.path.realpath(env.get("LIFECYCLE_STATUS_DIR", "").strip() or os.path.join(agent_work(env), "status"))
+
+
 def agent_work(env: Dict[str, str]) -> str:
     home = env.get("HOME") or os.path.expanduser("~")
     return os.path.realpath(env.get("AGENT_WORK", "").strip() or os.path.join(home, "agent-work"))
@@ -373,43 +400,6 @@ def registered(repos: List[str]) -> Tuple[List[str], List[str]]:
             if os.path.lexists(os.path.join(admin, OWNER)):
                 out.append(admin)
     return out, notes
-
-
-def session_event(env: Dict[str, str], event: str, session: str, host: str, reason: str,
-                  wait: float = 10.0) -> Tuple[List[str], List[str]]:
-    """The hook's work: on "end", ended_at on every record of this session (or of its host
-    session); on "start", renew them, which voids an end. (changed admin dirs, problems)."""
-    if not SESSION_RE.match(session or ""):
-        return [], [f"session id {session!r} is not an id: nothing done"]
-    repos, notes = known_repos(env)
-    admins, more = registered(repos)
-    probs = notes + more
-    changed: List[str] = []
-    lease = lease_hours(env)
-    for admin in admins:
-        try:
-            with OwnerLock(admin, wait):
-                rec, _, bad = read_record(admin)
-                if bad or rec is None:
-                    if bad:
-                        probs.append(f"{admin}: {bad}")
-                    continue
-                if rec["session"] != session and not (host and rec.get("host_session") == host):
-                    continue
-                now = now_ts()
-                did = end(rec, now, "session-end hook", reason) if event == "end" else renew(rec, now, lease)
-                if event != "end":
-                    did = True
-                if did:
-                    write_record(admin, rec)
-                    changed.append(admin)
-        except Gone:
-            continue
-        except OwnerError as e:
-            probs.append(f"{admin}: {e}")
-        except OSError as e:
-            probs.append(f"{admin}: {e.strerror or e}")
-    return changed, probs
 
 
 def _number(env: Dict[str, str], name: str, default: float, low: float, high: float) -> float:

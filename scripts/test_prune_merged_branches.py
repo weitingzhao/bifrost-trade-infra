@@ -20,6 +20,7 @@ import pytest
 SCRIPT = Path(__file__).with_name("prune-merged-branches.sh").resolve()
 sys.path.insert(0, str(SCRIPT.parent / "agent-host"))
 import lifecycle_local  # noqa: E402
+from lifecycle_git import repo_id  # noqa: E402
 from lifecycle_testlib import World  # noqa: E402
 
 W = World
@@ -322,7 +323,7 @@ def test_two_runs_on_one_day_keep_both_bundles(world):
 
 def _aged_run(w, repo, name, kind, head, days):
     """A run directory as S2 writes it, created_at days ago, holding one bundle of head."""
-    run = w.backup / "testhost" / "bifrost-x" / name
+    run = w.backup / "testhost" / repo_id(str(repo)) / name
     run.mkdir(parents=True)
     ref = f"refs/lifecycle-archive/{name}/x0"
     w.git(repo, "update-ref", ref, head)

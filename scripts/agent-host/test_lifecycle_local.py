@@ -239,6 +239,7 @@ def test_update_ref_refuses_a_branch_that_moved_after_the_last_check(w, monkeypa
         w.git(repo, "update-ref", "refs/heads/w31/lane", newer)
         return None
     monkeypatch.setattr(lifecycle_local, "recheck_branch", move_then_pass)
+    monkeypatch.setattr(lifecycle_local, "last_branch_check", lambda ctx, it: None)
     rc, out, rep = w.prune("--apply", inproc=True)
     assert rc == 0, out
     assert w.git(repo, "rev-parse", "refs/heads/w31/lane") == newer
@@ -317,25 +318,57 @@ def test_branches_need_end_evidence(w):
     assert "w31/someone-elses" in w.git(repo, "branch", "--list")
 
 
-def test_cache_roots_the_record_names_may_go_with_it_nothing_else_ignored(w):
+def test_a_cache_root_without_a_layout_check_keeps_the_worktree(w):
+    """Review 551 A1: a declared node_modules may hold someone's notes or patched sources,
+    and no tool can tell them from npm's; anything in it keeps the worktree, and the report
+    says how many bytes that costs. An undeclared ignored directory keeps it too."""
     repo = w.repo()
-    ok = w.new_worktree(repo, "fe/bifrost-x", detach="origin/main", extra=("--cache-root", "node_modules"))
-    (ok / "node_modules" / "pkg").mkdir(parents=True)
-    (ok / "node_modules" / "pkg" / "index.js").write_text("x\n")
+    notes = w.new_worktree(repo, "fe/bifrost-x", detach="origin/main", extra=("--cache-root", "node_modules"))
+    (notes / "node_modules" / "pkg").mkdir(parents=True)
+    (notes / "node_modules" / "pkg" / "index.js").write_text("x\n" * 100)
+    (notes / "node_modules" / "notes.md").write_text("hand-written, ignored\n")
     undeclared = w.new_worktree(repo, "fe2/bifrost-x", detach="origin/main")
     (undeclared / "build").mkdir()
     (undeclared / "build" / "notes.md").write_text("hand-written, ignored\n")
-    nested = w.new_worktree(repo, "fe3/bifrost-x", detach="origin/main", extra=("--cache-root", "node_modules"))
-    (nested / "node_modules" / "dep").mkdir(parents=True)
-    w.git(nested / "node_modules" / "dep", "init", "-q")
-    w.commit(nested / "node_modules" / "dep", "a repository someone cloned into the cache")
-    for d in (ok, undeclared, nested):
+    empty = w.new_worktree(repo, "fe3/bifrost-x", detach="origin/main", extra=("--cache-root", "node_modules"))
+    (empty / "node_modules" / "only" / "dirs").mkdir(parents=True)  # git shows nothing: nothing to lose
+    for d in (notes, undeclared, empty):
         w.end(d)
     rc, out, rep = w.prune("--apply")
     assert rc == 0, out
-    assert not ok.exists()
+    item = World.items(rep)[str(notes)]
+    assert notes.exists() and item["reason"] == "cache-root-unverified" and item["cache_root_bytes"]["node_modules"] > 0
+    assert rep["kept_for_cache_roots_bytes"] >= item["cache_root_bytes"]["node_modules"]
     assert undeclared.exists() and reason(rep, undeclared) == "ignored"
-    assert nested.exists() and reason(rep, nested) == "cache-root-unsafe"
+    assert not empty.exists()
+
+
+def test_a_cache_root_with_a_kind_goes_only_when_its_whole_layout_passes(w):
+    """A kind (go-build) puts the root through disk-guard's layout check (review 551 A1, A5):
+    a real cache goes with the worktree; a hand-written file in a bucket, a nested
+    repository, a mount point at the root or an unreadable mount table keep it."""
+    from test_disk_guard import go_build
+    repo = w.repo()
+    made = {}
+    for name in ("real", "draft", "nested", "mounted"):
+        d = w.new_worktree(repo, f"go-{name}/bifrost-x", detach="origin/main", extra=("--cache-root", "go-build:build"))
+        go_build(d / "build")
+        made[name] = d
+    (made["draft"] / "build" / "00" / "draft.go").write_text("package x\n")
+    (made["nested"] / "build" / "ab" / ".git").mkdir()
+    w.lsof_out()
+    (w.lsof / "mount.out").write_text(f"/dev/disk1 on / (apfs)\n/dev/disk9 on {os.path.realpath(made['mounted'] / 'build')} (nfs)\n")
+    for d in made.values():
+        w.end(d)
+    rc, out, rep = w.prune("--apply")
+    assert rc == 0, out
+    assert not made["real"].exists()
+    assert reason(rep, made["draft"]) == "cache-root-handwritten-file" and made["draft"].exists()
+    assert reason(rep, made["nested"]) == "cache-root-nested-git" and made["nested"].exists()
+    assert reason(rep, made["mounted"]) == "cache-root-mount" and made["mounted"].exists()
+    (w.lsof / "mount.out").write_text("")
+    rc, out, rep = w.prune("--apply")
+    assert reason(rep, made["draft"]) == "cache-root-mount-unknown"
 
 
 def test_index_flags_that_hide_changes_keep_it(w):

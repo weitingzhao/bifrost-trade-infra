@@ -48,7 +48,8 @@ class World:
             d.mkdir(parents=True, exist_ok=True)
         self.repos_file = self.tmp / "repos.txt"
         self.repos_file.write_text("# test list\n")
-        for name, text in (("lsof", FAKE_LSOF), ("mount", "#!/usr/bin/env bash\nexit 0\n"), ("git", GIT_WRAPPER),
+        mount = "#!/usr/bin/env bash\n[ -f \"$FAKE_LSOF_DIR/mount.out\" ] && cat \"$FAKE_LSOF_DIR/mount.out\" || echo '/dev/disk1 on / (apfs, local)'\n"
+        for name, text in (("lsof", FAKE_LSOF), ("mount", mount), ("git", GIT_WRAPPER),
                            ("gh", "#!/usr/bin/env bash\necho \"gh $*\" >> \"${GIT_CALLS:-/dev/null}\"\nexit 0\n")):
             (self.bin / name).write_text(text)
             (self.bin / name).chmod(0o755)
@@ -157,8 +158,11 @@ class World:
         return out
 
     def run_dirs(self, repo: str = "bifrost-x") -> List[Path]:
-        base = self.backup / "testhost" / repo
-        return sorted(p for p in base.iterdir()) if base.exists() else []
+        """Run directories under <backup>/testhost/<repo id>/, the repo id being <name>-<hash>."""
+        base = self.backup / "testhost"
+        if not base.exists():
+            return []
+        return sorted(r for d in base.iterdir() if d.name.rsplit("-", 1)[0] == repo for r in d.iterdir())
 
     def lsof_out(self, text: str = "", rc: int = 0, err: str = "") -> None:
         (self.lsof / "out").write_text(text)

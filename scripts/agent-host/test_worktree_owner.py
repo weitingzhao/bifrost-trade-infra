@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import new_worktree  # noqa: E402
 import worktree_owner as wo  # noqa: E402
+import worktree_sessions as ws  # noqa: E402
 from lifecycle_testlib import NEW_WORKTREE, World  # noqa: E402
 
 HOOK = HERE.parent.parent / "agent-config" / "claude" / "hooks" / "worktree-lease.py"
@@ -159,13 +161,13 @@ def test_a_renewal_waits_for_the_sweep_and_finds_the_worktree_gone(w):
     w.end(d)
     admin, _ = wo.admin_of(str(d))
     with wo.OwnerLock(admin, 1):
-        changed, probs = wo.session_event(dict(w.env), "start", "sess-1", "", "resume", wait=0.2)
+        changed, probs = ws.session_event(dict(w.env), "start", "sess-1", "", "resume", budget=0.2)
         assert changed == [] and any("held by another process" in p for p in probs)
         w.git(repo, "worktree", "remove", d)  # the sweep's removal, still under the lock
     with pytest.raises(wo.Gone):
         with wo.OwnerLock(admin, 1):
             pass
-    changed, probs = wo.session_event(dict(w.env), "start", "sess-1", "", "resume", wait=0.2)
+    changed, probs = ws.session_event(dict(w.env), "start", "sess-1", "", "resume", budget=0.2)
     assert changed == [] and probs == []
 
 
@@ -185,3 +187,87 @@ def test_records_that_are_not_usable_are_refused(w):
     assert wo.end_evidence(rec, 1_700_010_000, 0)[0] == "lease-renewed"
     with pytest.raises(wo.OwnerError):
         wo.write_record(str(w.tmp), dict(good, work="nope"))
+
+
+def hold(admin):
+    """Another process holding a record's flock until killed."""
+    p = subprocess.Popen([sys.executable, "-c", (
+        "import fcntl,os,time\n"
+        f"fd=os.open({os.path.join(admin, wo.OWNER_LOCK)!r}, os.O_RDWR|os.O_CREAT, 0o600)\n"
+        "fcntl.flock(fd, fcntl.LOCK_EX); print('held', flush=True); time.sleep(60)\n")], stdout=subprocess.PIPE, text=True)
+    assert p.stdout.readline().strip() == "held"
+    return p
+
+
+def test_unrelated_locked_records_do_not_stop_a_resumed_session(w):
+    """Review 551 D1: records are filtered by session before any lock is taken, under one
+    time budget for the whole event."""
+    repo = w.repo()
+    others = [w.new_worktree(repo, f"other{n}/bifrost-x", detach="origin/main", session=f"sess-{n}") for n in (2, 3)]
+    mine = w.new_worktree(repo, "mine/bifrost-x", detach="origin/main", session="sess-1")
+    w.end(mine)
+    holders = [hold(wo.admin_of(str(d))[0]) for d in others]
+    try:
+        changed, probs = ws.session_event(dict(w.env), "start", "sess-1", "", "resume", budget=1.0)
+    finally:
+        for h in holders:
+            h.kill()
+            h.wait()
+    assert changed == [wo.admin_of(str(mine))[0]] and probs == []
+    assert w.look(mine)["state"] == "in-use"
+
+
+def test_a_renewal_that_fails_still_leaves_the_worktree_in_use(w):
+    """Review 551 D1: the session marker is written before any record; a record the renewal
+    cannot write keeps its old ended_at, and the sweep still counts the worktree in use. A
+    later end moves ended_at past the marker."""
+    repo = w.repo()
+    d = w.new_worktree(repo, "lane/bifrost-x", detach="origin/main", session="sess-1")
+    w.end(d)
+    admin = Path(wo.admin_of(str(d))[0])
+    admin.chmod(0o555)
+    try:
+        changed, probs = ws.session_event(dict(w.env), "start", "sess-1", "", "resume")
+    finally:
+        admin.chmod(0o755)
+    assert changed == [] and probs and "ended_at" in w.look(d)["record"]
+    assert w.look(d)["state"] == "session-resumed"
+    rc, out, rep = w.prune("--apply")
+    assert d.exists() and World.items(rep)[str(d)]["reason"] == "session-resumed"
+    # ended_at has whole seconds and the marker does not: an end in the same second as the
+    # start still counts as resumed (the safe side), so this end comes a second later
+    time.sleep(1.1)
+    hook(w, {"hook_event_name": "SessionEnd", "session_id": "sess-1", "reason": "other"})
+    assert w.look(d)["state"] == "ended"
+    marker = Path(ws.marker_path(w.env, "sess-1"))
+    marker.write_text("{not json")
+    assert w.look(d)["state"] == "session-marker-unreadable"
+
+
+def test_take_hands_a_worktree_to_another_session(w):
+    """Review 551 D2: after --take the old session's end matches nothing; the new one's does."""
+    repo = w.repo()
+    d = w.new_worktree(repo, "shared/bifrost-x", detach="origin/main", session="sess-a")
+    rc, out = w.call(new_worktree.main, ["--take", str(d), "--session", "sess-b"])
+    assert rc == 0, out
+    rec = w.look(d)["record"]
+    assert rec["session"] == "sess-b" and rec["taken_from"][-1]["session"] == "sess-a"
+    hook(w, {"hook_event_name": "SessionEnd", "session_id": "sess-a", "reason": "other"})
+    assert w.look(d)["state"] == "in-use"
+    hook(w, {"hook_event_name": "SessionEnd", "session_id": "sess-b", "reason": "other"})
+    assert w.look(d)["state"] == "ended"
+
+
+def test_a_session_starting_inside_someone_elses_worktree_keeps_it(w):
+    """Review 551 D2: a SessionStart whose cwd is inside another session's worktree marks
+    foreign use; the sweep keeps it until --take, which clears the mark."""
+    repo = w.repo()
+    d = w.new_worktree(repo, "theirs/bifrost-x", detach="origin/main", session="sess-a")
+    w.end(d)
+    r = hook(w, {"hook_event_name": "SessionStart", "session_id": "sess-b", "source": "startup", "cwd": str(d)})
+    assert r.returncode == 0 and r.stdout == ""
+    assert w.look(d)["state"] == "used-by-another-session"
+    rc, out, rep = w.prune("--apply")
+    assert d.exists() and World.items(rep)[str(d)]["reason"] == "used-by-another-session"
+    rc, out = w.call(new_worktree.main, ["--take", str(d), "--session", "sess-b"])
+    assert rc == 0 and "foreign_use" not in w.look(d)["record"] and w.look(d)["state"] == "in-use"

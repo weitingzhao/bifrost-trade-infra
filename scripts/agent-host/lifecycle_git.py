@@ -60,6 +60,14 @@ def ok(env: Dict[str, str], cwd: str, *args: str) -> bool:
         return False
 
 
+def repo_id(repo: str) -> str:
+    """A stable name for a repository in backups and reports (review 551 E): its directory's
+    name and a hash of its common Git dir's real path, so two clones of one name never share."""
+    common = os.path.realpath(os.path.join(repo, ".git"))
+    name = re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(os.path.normpath(repo))) or "repo"
+    return f"{name}-{hashlib.sha256(common.encode()).hexdigest()[:12]}"
+
+
 def repo_problem(env: Dict[str, str], repo: str) -> Optional[str]:
     """Why this repository's reachability cannot be judged by reading files, or None."""
     try:
@@ -211,12 +219,6 @@ def status_entries(env: Dict[str, str], worktree: str) -> List[Tuple[str, str]]:
         if code[0] in "RC":
             i += 1  # the rename's source path follows
     return out
-
-
-def operation_markers(admin: str) -> List[str]:
-    """Files git leaves while a rebase, merge, cherry-pick, revert or bisect is under way."""
-    names = ("rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG", "sequencer")
-    return [n for n in names if os.path.lexists(os.path.join(admin, n))]
 
 
 def per_worktree_refs(env: Dict[str, str], worktree: str) -> List[str]:

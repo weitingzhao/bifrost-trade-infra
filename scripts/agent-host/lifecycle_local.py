@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """prune-merged-branches.sh --local-only: this machine's worktrees and local branches
-(W-31 round 4, 4.6 S2; CUT-lifecycle-2026-10-24.md §2, §3 R5-R7, R11, R12, §4.3; review 539).
+(W-31 round 4, 4.6 S2; CUT-lifecycle-2026-10-24.md §2, §3 R5-R7, R11, R12, §4.3; reviews 539, 551).
 
     prune-merged-branches.sh --local-only [--repos "a b"]            report only (the default)
     prune-merged-branches.sh --local-only --apply [--repos "a b"]    archive, then remove
@@ -10,32 +10,30 @@
 It never pushes, fetches or calls gh: the remote is only read, with git ls-remote. Repositories:
 agent-config/gitea-primary.txt under WORKSPACE, plus the real clones directly under AGENT_WORK
 (bifrost-finance); a clone itself is never removed. What may go, and why the rest stays, is in
-lifecycle_items.py; bundles and run directories in lifecycle_bundles.py; records in
-worktree_owner.py.
+lifecycle_items.py and lifecycle_checks.py; bundles and run directories in lifecycle_bundles.py;
+the guard, quarantine and what is still not protected in lifecycle_quarantine.py; records in
+worktree_owner.py and worktree_sessions.py.
 
---apply, per repository: read the remote's refs again; write the run directory with the unique
-bundle (reflog commits no remote ref reaches) and the redundant bundle (the tips, and the reflog
-commits only a remote ref other than main reaches), verified, before anything goes; then for each worktree: take its record's flock, git worktree lock --reason
-lifecycle:<run>, check everything again, take a fresh lsof snapshot, unlock our own lock and run
-git worktree remove (never --force); then each branch with git update-ref -d <ref> <old sha>
-after checking it again. A Git lock someone else holds is never touched; a lifecycle:<run>
-lock a dead sweep left is released first (the machine lock says no other sweep runs). Last,
-redundant bundles past LIFECYCLE_BUNDLE_DAYS whose heads the remote still holds are removed.
-
-Not protected (the same threat model as disk-guard, §4.1: mistakes, not a process racing the
-sweep on purpose): a process that starts using a worktree after the last lsof snapshot and
-before git worktree remove, or a commit made in that window on a detached HEAD (git worktree
-remove still refuses a worktree with changes or untracked files at that moment); a branch
-checked out between its last check and update-ref -d (its tip has a copy, so the checkout is
-left on an unborn branch, nothing is lost). Uses that go through the record (the session hook,
-new-worktree.sh --renew) are ordered by its flock and are protected.
+--apply: first move back any worktree an interrupted run left in quarantine. The backup root
+must not overlap any worktree, admin dir or disk-guard cache root (else exit 4, nothing done).
+Then per repository: read the remote's refs again; write the run directory
+<backup root>/<machine>/<repo id>/<run id>/ with the unique bundle (commits no remote ref
+reaches, whole history, restored once into an empty repository) and the redundant bundle
+(everything else beyond main and tags), before anything goes; then for each worktree: its
+record's flock, git worktree lock --reason lifecycle:<run>, every check again with a fresh
+lsof, then the quarantine of lifecycle_quarantine.py; then each branch: the checks again, a
+last read of the worktree list and its reflog, git update-ref -d <ref> <old sha>. A Git lock
+someone else holds is never touched; a lifecycle:<run> lock a dead sweep left is released
+when no process holds its record's flock. Last, redundant bundles past LIFECYCLE_BUNDLE_DAYS
+whose heads the remote still holds are removed.
 
 Environment: AGENT_WORK, WORKSPACE, BACKUP_ROOT (~/bifrost-backups/git-branches),
 LIFECYCLE_MACHINE (host name), LIFECYCLE_WORKTREE_ROOTS (AGENT_WORK:WORKSPACE:TMPDIR),
 LIFECYCLE_REPOS_FILE, LIFECYCLE_END_MIN_AGE_MIN (120), LIFECYCLE_BUNDLE_DAYS (90, never less),
 LIFECYCLE_STATUS_DIR, LIFECYCLE_LOCK, LIFECYCLE_LSOF, LIFECYCLE_MOUNT (as disk-guard).
 Exit 0 done, 1 a removal or archive step failed, 2 usage, 3 another sweep holds the machine
-lock, 4 the configuration is unusable or the report cannot be written.
+lock, 4 the configuration is unusable (an overlapping backup root included) or the report
+cannot be written.
 """
 
 from __future__ import annotations
@@ -52,18 +50,40 @@ import time
 from typing import Dict, List, Optional, Tuple
 
 import lifecycle_bundles as lb
+import lifecycle_quarantine as lq
 import worktree_owner as wo
 from disk_guard_base import ConfigError, load_config, now_utc
-from disk_guard_roots import OpenFiles
+from disk_guard_roots import OpenFiles, mount_points
 from disk_guard_state import Lock, write_report
-from lifecycle_git import GitError, commits_present, git, remote_refs, repo_problem, without_copy, worktree_list
-from lifecycle_items import Ctx, Item, classify_branches, classify_worktree, open_problem, recheck_branch, recheck_worktree
+from lifecycle_checks import open_problem
+from lifecycle_git import (GitError, commits_present, git, remote_refs, repo_id, repo_problem, without_copy,
+                           worktree_list)
+from lifecycle_items import Ctx, Item, classify_branches, classify_worktree, last_branch_check, recheck_branch, recheck_worktree
 
 LOCK_PREFIX = "lifecycle:"
 
 
+def _sweep_identity(env: Dict[str, str]) -> Dict[str, str]:
+    """The author of the commits the sweep makes to archive an AUTO_MERGE tree."""
+    return dict(env, GIT_AUTHOR_NAME="bifrost lifecycle sweep", GIT_AUTHOR_EMAIL="lifecycle@localhost.invalid",
+                GIT_COMMITTER_NAME="bifrost lifecycle sweep", GIT_COMMITTER_EMAIL="lifecycle@localhost.invalid")
+
+
+# Test seams, each a no-op here.
 def _between_checks(ctx: Ctx, items: List[Item]) -> None:
-    """Test seam: after the archive is written, before the second checks."""
+    """After the archive is written, before the second checks."""
+
+
+def _before_quarantine(ctx: Ctx, it: Item) -> None:
+    """After a worktree's second check and lsof, before the journal entry and the move."""
+
+
+def _in_quarantine(ctx: Ctx, it: Item, q: str) -> None:
+    """After the move into quarantine, before the checks there."""
+
+
+def _before_branch_delete(ctx: Ctx, it: Item) -> None:
+    """After a branch's second check, before the last read and update-ref -d."""
 
 
 class Settings:
@@ -92,6 +112,7 @@ class Settings:
             raise ConfigError("LIFECYCLE_BUNDLE_DAYS is not a number")
         if not self.days >= lb.MIN_DAYS or self.days == float("inf"):
             raise ConfigError(f"LIFECYCLE_BUNDLE_DAYS must be a number of at least {lb.MIN_DAYS}")
+        self.guard = lq.Guard(self.backup_root, self.cfg.agent_work, self.cfg.registries)
 
 
 def durable_of(env: Dict[str, str], repo: str, offline: bool) -> Tuple[List[str], List[str], Dict[str, object]]:
@@ -118,15 +139,16 @@ def _unlock_stale(env: Dict[str, str], repo: str, run_id: str, notes: List[str])
             admin, _ = wo.admin_of(path)
             with wo.OwnerLock(admin, 0):
                 git(env, repo, "worktree", "unlock", path)
-        except (wo.OwnerError, OSError) as e:  # Busy: a live sweep (another lock dir) holds it
+        except (wo.OwnerError, OSError, GitError) as e:  # Busy: a live sweep (another lock dir) holds it
             notes.append(f"kept {reason} on {path}: {e}")
             continue
         notes.append(f"released {reason} on {path} (left by a sweep that is not running)")
 
 
-def classify_repo(s: Settings, repo: str, lsof: OpenFiles, offline: bool, apply: bool, run_id: str) -> Dict[str, object]:
-    env = s.env
-    out: Dict[str, object] = {"repo": repo, "items": [], "notes": []}
+def classify_repo(s: Settings, repo: str, lsof: OpenFiles, mounts: Optional[List[str]], offline: bool, apply: bool,
+                  run_id: str) -> Dict[str, object]:
+    env, rid = s.env, repo_id(repo)
+    out: Dict[str, object] = {"repo": repo, "repo_id": rid, "items": [], "notes": []}
     notes: List[str] = out["notes"]  # type: ignore[assignment]
     try:
         bad = repo_problem(env, repo)
@@ -141,8 +163,9 @@ def classify_repo(s: Settings, repo: str, lsof: OpenFiles, offline: bool, apply:
     except GitError as e:
         out["problem"] = f"{e}: nothing in this repository is removed"
         return out
-    ctx = Ctx(env, repo, durable, s.roots, time.time(), s.grace, lsof)
+    ctx = Ctx(env, repo, rid, durable, s.roots, time.time(), s.grace, lsof, mounts)
     items = [classify_worktree(ctx, wt) for wt in wts[1:] if not wt.get("bare")]
+    out["paths"] = [str(wt["path"]) for wt in wts[1:]] + [i.admin for i in items if i.admin]
     try:
         items += classify_branches(ctx, wts, items)
     except GitError as e:
@@ -153,43 +176,50 @@ def classify_repo(s: Settings, repo: str, lsof: OpenFiles, offline: bool, apply:
 
 def apply_repo(s: Settings, plan: Dict[str, object], run_id: str, started: str) -> bool:
     """Archive, then remove. False when a step failed in a way the report must call a failure."""
-    env, repo = s.env, str(plan["repo"])
+    env, repo, rid = s.env, str(plan["repo"]), str(plan["repo_id"])
     items: List[Item] = plan["items"]  # type: ignore[assignment]
-    wts = [i for i in items if i.kind == "worktree" and i.action == "remove"]
-    brs = [i for i in items if i.kind == "branch" and i.action == "delete"]
-    if not wts and not brs:
+    cands = [i for i in items if (i.kind, i.action) in (("worktree", "remove"), ("branch", "delete"))]
+    if not cands:
         return True
-    cands = wts + brs
     try:
         durable, pre, _ = durable_of(env, repo, False)  # the remote may have dropped a ref meanwhile
     except GitError as e:
         for i in cands:
             i.keep("remote-unreadable", str(e))
         return True
-    ctx = Ctx(env, repo, durable, s.roots, time.time(), s.grace, plan["ctx"].lsof)  # type: ignore[union-attr]
+    old: Ctx = plan["ctx"]  # type: ignore[assignment]
+    ctx = Ctx(env, repo, rid, durable, s.roots, time.time(), s.grace, old.lsof, old.mounts)
     try:
         for i in cands:
             if without_copy(env, repo, [i.head], durable):
                 i.keep("head-without-copy", "no longer reachable from the remote's refs")
             else:
-                i.archive = without_copy(env, repo, i.reflog_shas, durable)
+                if i.auto_merge:  # a tree: archived as a commit no ref names, so it is unique
+                    i.auto_merge_commit = git(_sweep_identity(env), repo, "commit-tree", i.auto_merge, "-m",
+                                              f"lifecycle {run_id}: AUTO_MERGE of {i.name}").strip()
+                i.archive = without_copy(env, repo, i.history(), durable)
         cands = [i for i in cands if i.action != "keep"]
         if not cands:
             return True
-        run_dir = lb.new_run_dir(s.backup_root, s.machine, os.path.basename(repo), run_id)
-        uniq = {c for i in cands for c in i.archive}  # each is an ancestor of a reflog sha in uniq
-        unique = lb.make_bundle(env, repo, run_dir, run_id, "unique", [c for i in cands for c in i.reflog_shas if c in uniq], pre)
-        rest = [i.head for i in cands] + [c for i in cands for c in i.reflog_shas if c not in uniq]
+        run_dir = lb.new_run_dir(s.backup_root, s.machine, rid, run_id)
+        s.guard.run_dirs.append(run_dir)
+        bad = s.guard.problem(*[p for i in cands if i.kind == "worktree" for p in (i.name, i.admin)])
+        if bad:
+            raise lb.BundleError(bad[1])
+        uniq = {c for i in cands for c in i.archive}  # each is an ancestor of a history sha in uniq
+        unique = lb.make_bundle(env, repo, run_dir, run_id, "unique", [c for i in cands for c in i.history() if c in uniq], [])
+        rest = [i.head for i in cands] + [c for i in cands for c in i.history() if c not in uniq]
         redundant = lb.make_bundle(env, repo, run_dir, run_id, "redundant", rest, pre)
-        rows = [("worktree" if i.kind == "worktree" else "branch", i.name, i.head, "") for i in cands]
+        rows = [(i.kind, i.name, i.head, "") for i in cands]
         for b in (unique, redundant):
             for ref, sha in b["heads"].items():  # type: ignore[union-attr]
                 rows.append((f"{b['kind']}-head", "", sha, ref))
         lb.write_refs(run_dir, rows)
         manifest: Dict[str, object] = {
-            "schema": 1, "run_id": run_id, "created_at": started, "machine": s.machine, "repo": repo,
-            "restore": "git fetch <bundle> 'refs/lifecycle-archive/*:refs/restored/*'; a worktree: "
-                       "git worktree add <path> <sha>; a branch: git branch <name> <sha>",
+            "schema": 1, "run_id": run_id, "created_at": started, "machine": s.machine, "repo": repo, "repo_id": rid,
+            "restore": "unique: git init x && git -C x fetch <unique.bundle> 'refs/lifecycle-archive/*:refs/restored/*'; "
+                       "redundant: the same in a clone of the remote; a worktree: git worktree add <path> <sha>; "
+                       "a branch: git branch <name> <sha>",
             "planned": [i.public() for i in cands], "bundles": [unique, redundant],
         }
         lb.write_manifest(run_dir, manifest)
@@ -211,6 +241,7 @@ def apply_repo(s: Settings, plan: Dict[str, object], run_id: str, started: str) 
 
 def _remove_worktree(s: Settings, ctx: Ctx, it: Item, run_id: str, run_dir: str) -> bool:
     env, repo, reason = ctx.env, ctx.repo, LOCK_PREFIX + run_id
+    ok = True
     try:
         with wo.OwnerLock(it.admin, 2):
             try:
@@ -218,35 +249,34 @@ def _remove_worktree(s: Settings, ctx: Ctx, it: Item, run_id: str, run_dir: str)
             except GitError as e:
                 it.keep("locked", str(e))
                 return True
-            locked = True
             try:
-                bad = recheck_worktree(ctx, it, reason) or open_problem(OpenFiles(s.cfg), it.name)
+                bad = (recheck_worktree(ctx, it, reason) or open_problem(OpenFiles(s.cfg), it.name)
+                       or s.guard.problem(it.name, it.admin))
                 if bad:
                     it.keep(*bad)
-                    return True
-                git(env, repo, "worktree", "unlock", it.name)
-                locked = False
-                try:
-                    git(env, repo, "worktree", "remove", it.name)
-                except GitError as e:
-                    it.keep("remove-failed", str(e))
-                    return False
-                it.action, it.reason = "removed", "ended; archived; checked twice"
-                lb.log_action(run_dir, f"worktree-removed\t{it.name}\t{it.head}\t{it.branch or '(detached)'}")
-                return True
+                else:
+                    ok = lq.quarantine_remove(s.cfg, ctx, it, run_id, s.guard, _before_quarantine, _in_quarantine)
+                    if it.action == "removed":
+                        lb.log_action(run_dir, f"worktree-removed\t{it.name}\t{it.head}\t{it.branch or '(detached)'}")
             finally:
-                if locked:
-                    try:
-                        git(env, repo, "worktree", "unlock", it.name)
-                    except GitError as e:
-                        it.detail += f"; could not release this run's Git lock: {e}"
+                _release(env, repo, it, reason)
     except wo.Busy as e:
         it.keep("record-busy", str(e))
     except wo.Gone as e:
         it.keep("gone", str(e))
     except (wo.OwnerError, OSError) as e:
         it.keep("record-unusable", str(e))
-    return True
+    return ok
+
+
+def _release(env: Dict[str, str], repo: str, it: Item, reason: str) -> None:
+    """Take this run's Git lock off the worktree at its own path, if it is still there."""
+    try:
+        for wt in worktree_list(env, repo):
+            if str(wt["path"]) == it.name and wt.get("locked") == reason:
+                git(env, repo, "worktree", "unlock", it.name)
+    except GitError as e:
+        it.detail += f"; could not release this run's Git lock: {e}"
 
 
 def _delete_branch(ctx: Ctx, it: Item, run_dir: str) -> bool:
@@ -254,6 +284,11 @@ def _delete_branch(ctx: Ctx, it: Item, run_dir: str) -> bool:
         it.keep("worktree-kept", "the ended worktree that names it was not removed in this run")
         return True
     bad = recheck_branch(ctx, it)
+    if bad:
+        it.keep(*bad)
+        return True
+    _before_branch_delete(ctx, it)
+    bad = last_branch_check(ctx, it)
     if bad:
         it.keep(*bad)
         return True
@@ -303,12 +338,21 @@ def run(env: Dict[str, str], apply: bool, names: List[str], offline: bool) -> in
 
 def _run_locked(s: Settings, repos: List[str], notes: List[str], apply: bool, offline: bool, run_id: str) -> int:
     started = now_utc()
+    lq.restore(s.env, repos, apply, notes)
     lsof = OpenFiles(s.cfg)
-    plans = [classify_repo(s, r, lsof, offline, apply, run_id) for r in repos]
+    points, err = mount_points(s.cfg)
+    mounts = None if err else points
+    if err:
+        notes.append(f"mount table not read ({err}): cache roots with a kind are kept")
+    plans = [classify_repo(s, r, lsof, mounts, offline, apply, run_id) for r in repos]
+    bad = s.guard.problem(*[p for pl in plans for p in pl.get("paths", [])])  # type: ignore[union-attr]
+    if bad:
+        print(f"prune --local-only: BACKUP_ROOT {s.backup_root} cannot hold the archive: {bad[1]}; nothing is done")
+        return 4
     ok = True
     expired: List[Dict[str, object]] = []
     for p in plans:
-        base = os.path.join(s.backup_root, s.machine, os.path.basename(str(p["repo"])))
+        base = os.path.join(s.backup_root, s.machine, str(p["repo_id"]))
         if apply and "problem" not in p:
             ok = apply_repo(s, p, run_id, started) and ok
             try:
@@ -330,26 +374,31 @@ def _report(s: Settings, plans: List[Dict[str, object]], notes: List[str], apply
             started: str, lsof: OpenFiles, expired: List[Dict[str, object]], ok: bool) -> int:
     counts: Dict[str, int] = {}
     reasons: Dict[str, int] = {}
+    kept_cache = 0
     repos_out = []
     for p in plans:
         items: List[Item] = p.get("items", [])  # type: ignore[assignment]
+        line: Dict[str, int] = {}
         for i in items:
             act = i.action if apply or i.action == "keep" else f"would-{i.action}"
             i.action = act
-            k = f"{i.kind}:{act}"
-            counts[k] = counts.get(k, 0) + 1
+            counts[f"{i.kind}:{act}"] = counts.get(f"{i.kind}:{act}", 0) + 1
+            key = f"{'branches' if i.kind == 'branch' else 'worktrees'}-{act}"
+            line[key] = line.get(key, 0) + 1
             if act == "keep":
                 reasons[f"{i.kind}:{i.reason}"] = reasons.get(f"{i.kind}:{i.reason}", 0) + 1
-        repos_out.append({"repo": p["repo"], "problem": p.get("problem"), "remote": p.get("remote"),
+                kept_cache += sum(i.cache_bytes.values()) if i.reason.startswith("cache-root-") else 0
+        repos_out.append({"repo": p["repo"], "repo_id": p["repo_id"], "problem": p.get("problem"), "remote": p.get("remote"),
                           "notes": p["notes"], "items": [i.public() for i in items]})
-        line = " ".join(f"{k}={v}" for k, v in sorted(_count(items).items()))
-        print(f"prune --local-only: {os.path.basename(str(p['repo'])):32s} {p.get('problem') or line or 'nothing'}")
+        text = " ".join(f"{k}={v}" for k, v in sorted(line.items()))
+        print(f"prune --local-only: {os.path.basename(str(p['repo'])):32s} {p.get('problem') or text or 'nothing'}")
     report = {
         "schema": 1, "tool": "prune-merged-branches.sh --local-only (scripts/agent-host/lifecycle_local.py)",
         "run_id": run_id, "host": socket.gethostname(), "machine": s.machine,
         "mode": "apply" if apply else ("report-only, offline" if offline else "report-only"),
         "started_at": started, "finished_at": now_utc(), "roots": [r for r, _ in s.roots],
         "counts": counts, "kept_reasons": dict(sorted(reasons.items(), key=lambda kv: (-kv[1], kv[0]))),
+        "kept_for_cache_roots_bytes": kept_cache,
         "lsof": {"ok": lsof.ok, "error": lsof.error}, "repos": repos_out, "bundles_expiry": expired,
         "notes": notes, "remote": "read with git ls-remote only; nothing is pushed or fetched",
     }
@@ -364,16 +413,10 @@ def _report(s: Settings, plans: List[Dict[str, object]], notes: List[str], apply
         print(f"prune --local-only:   {k}: {v}")
     if reasons:
         print("prune --local-only:   kept because: " + ", ".join(f"{k} {v}" for k, v in report["kept_reasons"].items()))  # type: ignore[union-attr]
+    if kept_cache:
+        print(f"prune --local-only:   kept for their cache roots: {kept_cache / (1 << 30):.2f} GiB")
     print(f"prune --local-only: report {path}" + ("" if apply else " (report only; --apply removes)"))
     return 0 if ok else 1
-
-
-def _count(items: List[Item]) -> Dict[str, int]:
-    c: Dict[str, int] = {}
-    for i in items:
-        k = f"{'branches' if i.kind == 'branch' else 'worktrees'}-{i.action}"
-        c[k] = c.get(k, 0) + 1
-    return c
 
 
 def main(argv: Optional[List[str]] = None, env: Optional[Dict[str, str]] = None) -> int:

@@ -3,7 +3,7 @@
 CUT-lifecycle-2026-10-24.md §4.2). The record format and its states are in worktree_owner.py.
 
     new-worktree.sh <repo> <dir> <branch> --work W-n [--base REV] [--session ID]
-                    [--purpose TEXT] [--cache-root REL]...
+                    [--purpose TEXT] [--cache-root [KIND:]REL]...
         git worktree add <dir> on <branch>: an existing branch is checked out
         (branch_created false), a new one is made from --base (default origin/main)
     new-worktree.sh <repo> <dir> --detach <rev> --work W-n [...]
@@ -11,8 +11,16 @@ CUT-lifecycle-2026-10-24.md §4.2). The record format and its states are in work
         ended_at, so a sweep may remove it once its content has copies. A worktree with no
         record (one made before S3) gets one only with --work and --by: the person or
         thread that confirmed its work ended (D-L8)
-    new-worktree.sh --renew <dir>     a use: the lease is renewed and an end voided
+    new-worktree.sh --renew <dir>     a use by its own session: the lease is renewed and an end voided
+    new-worktree.sh --take <dir> [--session ID]
+        hand the worktree to this session: the old session's later end events match
+        nothing; an end and a recorded foreign use are cleared (review 551 D2). A session
+        that uses another session's worktree takes it first
     new-worktree.sh --show <dir>      the record and its state
+
+--cache-root names a directory inside the worktree meant for a cache. With a KIND (go-build,
+go-mod, npm, go-build-chain) the sweep checks its whole content against that layout; without
+one (node_modules) a sweep keeps the worktree whenever the directory holds anything.
 
 <repo> is one of the repositories the lifecycle tools scan (agent-config/gitea-primary.txt
 under WORKSPACE, or a clone directly under AGENT_WORK), by path or name. <dir> must lie
@@ -33,6 +41,7 @@ import sys
 from typing import Dict, List, Optional
 
 import worktree_owner as wo
+import worktree_sessions as ws
 
 
 def _git(cwd: str, *args: str, env: Dict[str, str]) -> subprocess.CompletedProcess:
@@ -82,10 +91,13 @@ def create(env: Dict[str, str], a: argparse.Namespace) -> int:
     session = a.session or env.get("CLAUDE_CODE_SESSION_ID", "")
     if not wo.SESSION_RE.match(session):
         return _fail("--session is required (or CLAUDE_CODE_SESSION_ID): the hook ends a worktree by it")
-    roots: List[str] = a.cache_root or []
-    for r in roots:
-        if not wo.canonical_rel(r):
-            return _fail(f"--cache-root {r!r} is not a canonical path inside the worktree")
+    roots: List[Dict[str, object]] = []
+    for r in a.cache_root or []:
+        kind, _, rel = r.rpartition(":") if ":" in r.split("/")[0] else ("", "", r)
+        if not wo.canonical_rel(rel) or (kind and kind not in wo.KINDS):
+            return _fail(f"--cache-root {r!r} is not [KIND:]REL with a canonical path inside the worktree "
+                         f"and KIND one of {', '.join(wo.KINDS)}")
+        roots.append({"path": rel, "kind": kind or None})
     try:
         repo = _resolve_repo(env, a.repo)
         target = _check_dir(env, a.dir)
@@ -135,7 +147,7 @@ def _admin(d: str) -> str:
 
 
 def end_or_renew(env: Dict[str, str], a: argparse.Namespace, which: str) -> int:
-    d = a.end if which == "end" else a.renew
+    d = {"end": a.end, "renew": a.renew, "take": a.take}[which]
     try:
         admin = _admin(d)
         with wo.OwnerLock(admin, 30):
@@ -155,27 +167,44 @@ def end_or_renew(env: Dict[str, str], a: argparse.Namespace, which: str) -> int:
                 rec["registered_at_end"] = True
             if which == "end":
                 by = a.by or f"new-worktree.sh --end ({env.get('USER', '')})"
-                if not wo.end(rec, now, by, a.reason or ""):
-                    print(f"new-worktree: {d} already ended at {rec['ended_at']}")
-                    return 0
+                wo.end(rec, now, by, a.reason or "")
+                if a.by:
+                    rec.pop("foreign_use", None)  # a person confirmed the work ended
+            elif which == "take":
+                session = a.session or env.get("CLAUDE_CODE_SESSION_ID", "")
+                if not wo.SESSION_RE.match(session):
+                    return _fail("--take needs --session (or CLAUDE_CODE_SESSION_ID)")
+                wo.take(rec, now, session, env.get("CLAUDE_CODE_HOST_SESSION_ID", ""), wo.lease_hours(env))
             else:
                 wo.renew(rec, now, wo.lease_hours(env))
             wo.write_record(admin, rec)
     except (wo.OwnerError, OSError) as e:
         return _fail(f"{d}: {e}")
-    print(f"new-worktree: {d} " + (f"ended at {rec['ended_at']}" if which == "end" else f"renewed until {rec['lease_until']}"))
+    said = {"end": f"ended at {rec.get('ended_at')}", "renew": f"renewed until {rec.get('lease_until')}",
+            "take": f"taken by session {rec.get('session')}"}
+    print(f"new-worktree: {d} {said[which]}")
     return 0
 
 
-def state_of(rec: Optional[Dict[str, object]], bad: Optional[str], now: float, grace: float) -> str:
+def state_of(env: Dict[str, str], rec: Optional[Dict[str, object]], bad: Optional[str], now: float, grace: float) -> str:
+    """What a sweep would make of the record: in-use, ended, ended-recently, or another reason."""
     if bad:
         return "unusable"
     if rec is None:
         return "unregistered"
+    hit = ws.foreign_problem(rec)
+    if hit:
+        return hit[0]
     code, _ = wo.end_evidence(rec, now, grace)
+    if code == "not-ended":
+        return "in-use"
+    if code is None or code == "end-too-recent":
+        hit = ws.session_problem(env, rec)
+        if hit:
+            return hit[0]
     if code is None:
         return "ended"
-    return "ended-recently" if code == "end-too-recent" else ("in-use" if code == "not-ended" else code)
+    return "ended-recently" if code == "end-too-recent" else code
 
 
 def show_one(env: Dict[str, str], a: argparse.Namespace) -> int:
@@ -185,7 +214,7 @@ def show_one(env: Dict[str, str], a: argparse.Namespace) -> int:
         return _fail(str(e))
     rec, _, bad = wo.read_record(admin)
     grace = wo.end_grace(env)
-    print(json.dumps({"admin": admin, "state": state_of(rec, bad, wo.now_ts(), grace), "problem": bad, "record": rec}, indent=1))
+    print(json.dumps({"admin": admin, "state": state_of(env, rec, bad, wo.now_ts(), grace), "problem": bad, "record": rec}, indent=1))
     return 0 if not bad else 1
 
 
@@ -204,13 +233,14 @@ def main(argv: Optional[List[str]] = None, env: Optional[Dict[str, str]] = None)
     ap.add_argument("--cache-root", action="append", metavar="REL")
     ap.add_argument("--end", metavar="DIR")
     ap.add_argument("--renew", metavar="DIR")
+    ap.add_argument("--take", metavar="DIR")
     ap.add_argument("--show", metavar="DIR")
     ap.add_argument("--by")
     ap.add_argument("--reason")
     a = ap.parse_args(argv)
-    modes = [m for m in ("end", "renew", "show") if getattr(a, m)]
+    modes = [m for m in ("end", "renew", "take", "show") if getattr(a, m)]
     if len(modes) > 1 or (modes and (a.repo or a.dir or a.branch)):
-        ap.error("--end, --renew and --show take only a worktree dir")
+        ap.error("--end, --renew, --take and --show take only a worktree dir")
     if modes:
         return show_one(env, a) if modes[0] == "show" else end_or_renew(env, a, modes[0])
     if not a.repo or not a.dir or bool(a.branch) == bool(a.detach):
