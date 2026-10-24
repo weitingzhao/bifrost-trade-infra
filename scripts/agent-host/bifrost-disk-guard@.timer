@@ -1,0 +1,13 @@
+# Hourly disk-guard.sh sweep for one agent user (W-31 4.6 S1); see bifrost-disk-guard@.service.
+# Enabled per user by install-disk-guard.sh --user <name>: bifrost-disk-guard@<name>.timer.
+[Unit]
+Description=Hourly Bifrost disk guard sweep for %i
+
+[Timer]
+OnBootSec=15min
+OnUnitInactiveSec=1h
+RandomizedDelaySec=5min
+Persistent=false
+
+[Install]
+WantedBy=timers.target

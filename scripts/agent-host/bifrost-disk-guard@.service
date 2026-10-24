@@ -1,0 +1,36 @@
+# disk-guard.sh sweep for one agent user on a Linux agent host (W-31 4.6 S1; 06, and a mini
+# once it takes work). The instance is the user: bifrost-disk-guard@bifrost-agentd.service
+# sweeps /home/bifrost-agentd/agent-work. agentd keeps its own root (AGENTD_ROOT, the agentd
+# directory there), so the sweep leaves it alone (LIFECYCLE_EXCLUDE).
+# Started hourly by bifrost-disk-guard@.timer. Installed by install-disk-guard.sh --user <name>
+# (as root); report only unless that was run with its apply flag, which writes the drop-in
+# bifrost-disk-guard@<name>.service.d/mode.conf setting DISK_GUARD_ARGS.
+[Unit]
+Description=Bifrost disk guard sweep for %i
+
+[Service]
+Type=oneshot
+User=%i
+Group=%i
+WorkingDirectory=/home/%i
+Environment=HOME=/home/%i
+Environment=LANG=C.UTF-8
+Environment=PATH=/usr/local/go/bin:/usr/local/lib/nodejs/current/bin:/usr/local/bin:/usr/bin:/bin
+Environment=AGENT_WORK=/home/%i/agent-work
+Environment=LIFECYCLE_EXCLUDE=agentd
+Environment=DISK_GUARD_ARGS=
+ExecStart=/bin/bash /usr/local/libexec/bifrost/disk-guard/disk-guard.sh sweep $DISK_GUARD_ARGS
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=2h
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=tmpfs
+BindPaths=/home/%i
+ReadWritePaths=/home/%i
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes

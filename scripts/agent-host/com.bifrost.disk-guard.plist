@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- LaunchAgent for disk-guard.sh sweep on a Mac that runs agents (W-31 4.6 S1).
+     A template: install-disk-guard.sh fills in the placeholders and writes the result to
+     ~/Library/LaunchAgents/com.bifrost.disk-guard.plist. The placeholder after "sweep"
+     becomes nothing (report only, the default) or one more string element holding the
+     apply flag (install-disk-guard.sh with its apply flag). -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.bifrost.disk-guard</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>@DISK_GUARD@</string>
+    <string>sweep</string>@APPLY@
+  </array>
+  <key>StartInterval</key>
+  <integer>3600</integer>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>LowPriorityIO</key>
+  <true/>
+  <key>Nice</key>
+  <integer>10</integer>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>AGENT_WORK</key>
+    <string>@AGENT_WORK@</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>@LOG@</string>
+  <key>StandardErrorPath</key>
+  <string>@LOG@</string>
+</dict>
+</plist>

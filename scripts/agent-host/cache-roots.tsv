@@ -1,0 +1,18 @@
+# Registered cache roots for disk-guard.sh sweep (W-31 4.6 S1; CUT-lifecycle-2026-10-24.md R8, R9).
+# The sweep removes nothing under AGENT_WORK that is not listed here or in
+# $AGENT_WORK/status/cache-roots.tsv (the machine's own list: roots a tool or the coordinator
+# registered there, e.g. a finished review's cache confirmed by hand).
+#
+# path<TAB>kind<TAB>policy<TAB>note
+#   path    relative to AGENT_WORK; * ? [] allowed within a segment, never matching a name with a
+#           space, '=' or a quote (register those by their exact name)
+#   kind    go-build | go-mod | npm | go-build-chain
+#   policy  run.done   the first directory of the path holds run.done (a finished review)
+#           ended      the note says who confirmed the owner finished
+#           cap=<GiB>  shared root, pruned with the tool's own command above the cap
+#
+# The shared caches every review uses (codex exec --add-dir ~/agent-work/.cache; the BRIEF
+# exports GOCACHE, GOMODCACHE and npm_config_cache to these three).
+.cache/go-build	go-build	cap=20	shared Go build cache (review BRIEF template)
+.cache/go-mod	go-mod	cap=10	shared Go module cache (review BRIEF template)
+.cache/npm	npm	cap=5	shared npm cache (review BRIEF template)
