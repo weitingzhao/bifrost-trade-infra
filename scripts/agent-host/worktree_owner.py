@@ -71,7 +71,7 @@ def fmt(ts: float) -> str:
     return time.strftime(TIME_FMT, time.gmtime(int(ts)))
 
 
-def parse_time(v: object) -> Optional[float]:
+def to_seconds(v: object) -> Optional[float]:
     """Seconds since the epoch for a TIME_FMT string, None for anything else."""
     if not isinstance(v, str) or len(v) != 20:
         return None
@@ -102,9 +102,9 @@ def problems(rec: object) -> List[str]:
         if not isinstance(rec.get(k, ""), str):
             out.append(f"{k} is not a string")
     for k in ("created_at", "renewed_at", "lease_until"):
-        if parse_time(rec.get(k)) is None:
+        if to_seconds(rec.get(k)) is None:
             out.append(f"{k} is not a time ({TIME_FMT})")
-    if "ended_at" in rec and parse_time(rec["ended_at"]) is None:
+    if "ended_at" in rec and to_seconds(rec["ended_at"]) is None:
         out.append(f"ended_at is not a time ({TIME_FMT})")
     for k in ("ended_by", "end_reason"):
         if k in rec and not isinstance(rec[k], str):
@@ -126,9 +126,9 @@ def end_evidence(rec: Dict[str, object], now: float, grace: float) -> Tuple[Opti
     nothing used the worktree since; else (code, why)."""
     if "ended_at" not in rec:
         return "not-ended", "the record has no ended_at: its session has not said it ended"
-    ended = parse_time(rec["ended_at"])
-    renewed = parse_time(rec.get("renewed_at"))
-    lease = parse_time(rec.get("lease_until"))
+    ended = to_seconds(rec["ended_at"])
+    renewed = to_seconds(rec.get("renewed_at"))
+    lease = to_seconds(rec.get("lease_until"))
     if ended is None or renewed is None or lease is None:
         return "record-unusable", "a time in the record cannot be read"
     if ended > now:
@@ -160,7 +160,7 @@ def renew(rec: Dict[str, object], now: float, lease_hours: float) -> bool:
         rec["voided_ends"] = ends[-5:]
         voided = True
     rec["renewed_at"] = fmt(now)
-    old = parse_time(rec.get("lease_until")) or 0.0
+    old = to_seconds(rec.get("lease_until")) or 0.0
     rec["lease_until"] = fmt(max(old, now + lease_hours * 3600))
     return voided
 
@@ -173,7 +173,7 @@ def end(rec: Dict[str, object], now: float, by: str, reason: str) -> bool:
     rec["ended_at"] = fmt(now)
     rec["ended_by"] = by
     rec["end_reason"] = reason
-    renewed = parse_time(rec.get("renewed_at")) or now
+    renewed = to_seconds(rec.get("renewed_at")) or now
     rec["renewed_at"] = fmt(min(renewed, now))
     rec["lease_until"] = fmt(now)
     return True

@@ -122,7 +122,7 @@ class World:
         rc, out = self.call(new_worktree.main, ["--renew", str(d)])
         assert rc == 0, out
 
-    def show(self, d: Path) -> Dict[str, object]:
+    def look(self, d: Path) -> Dict[str, object]:
         rc, out = self.call(new_worktree.main, ["--show", str(d)])
         return json.loads(out[out.index("{"):])
 
@@ -133,7 +133,7 @@ class World:
         return rc, buf.getvalue()
 
     # -- the sweep ---------------------------------------------------------------------------
-    def sweep(self, *args: str, inproc: bool = False) -> Tuple[int, str, Dict[str, object]]:
+    def prune(self, *args: str, inproc: bool = False) -> Tuple[int, str, Dict[str, object]]:
         """prune-merged-branches.sh --local-only <args>, through bash (or in-process for seams)."""
         report = self.status / "lifecycle-local.json"
         if report.exists():

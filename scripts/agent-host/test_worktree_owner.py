@@ -24,8 +24,8 @@ from lifecycle_testlib import NEW_WORKTREE, World  # noqa: E402
 HOOK = HERE.parent.parent / "agent-config" / "claude" / "hooks" / "worktree-lease.py"
 
 
-@pytest.fixture
-def w(tmp_path):
+@pytest.fixture(name="w")
+def owner_world(tmp_path):
     return World(tmp_path)
 
 
@@ -43,29 +43,29 @@ def test_made_ended_renewed_ended_again_in_order(w):
     r = subprocess.run(["bash", str(NEW_WORKTREE), str(repo), str(d), "w31/lane", "--work", "W-31", "--purpose", "test"],
                        env=w.env, capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
-    s = w.show(d)
+    s = w.look(d)
     assert s["state"] == "in-use" and s["record"]["session"] == "sess-1" and s["record"]["branch_created"] is True
     assert s["admin"].startswith(str(repo / ".git" / "worktrees"))
     assert w.git(d, "status", "--porcelain", "--ignored") == ""  # the record is not in the worktree
     w.end(d, "--reason", "lane done")
-    s = w.show(d)
+    s = w.look(d)
     assert s["state"] == "ended" and s["record"]["end_reason"] == "lane done"
     first_end = s["record"]["ended_at"]
     w.renew(d)
-    s = w.show(d)
+    s = w.look(d)
     assert s["state"] == "in-use" and "ended_at" not in s["record"]
     assert s["record"]["voided_ends"][-1]["ended_at"] == first_end
     w.end(d)
-    assert w.show(d)["state"] == "ended"
+    assert w.look(d)["state"] == "ended"
     w.env["LIFECYCLE_END_MIN_AGE_MIN"] = "120"
-    assert w.show(d)["state"] == "ended-recently"
+    assert w.look(d)["state"] == "ended-recently"
 
 
 def test_an_existing_branch_is_checked_out_not_claimed(w):
     repo = w.repo()
     w.git(repo, "branch", "w31/existing", "main")
     d = w.new_worktree(repo, "borrow/bifrost-x", branch="w31/existing")
-    rec = w.show(d)["record"]
+    rec = w.look(d)["record"]
     assert rec["branch"] == "w31/existing" and rec["branch_created"] is False
 
 
@@ -100,7 +100,7 @@ def test_end_on_an_unregistered_worktree_needs_who_confirmed(w):
     rc, out = w.call(new_worktree.main, ["--renew", str(d)])
     assert rc == 1
     w.end(d, "--work", "W-31", "--by", "coordinator, D-L8 check")
-    rec = w.show(d)["record"]
+    rec = w.look(d)["record"]
     assert rec["registered_at_end"] is True and rec["ended_by"] == "coordinator, D-L8 check"
 
 
@@ -110,20 +110,20 @@ def test_session_end_ends_only_that_sessions_worktrees(w):
     theirs = w.new_worktree(repo, "theirs/bifrost-x", detach="origin/main", session="sess-2")
     r = hook(w, {"hook_event_name": "SessionEnd", "session_id": "sess-1", "reason": "other"})
     assert r.returncode == 0 and r.stdout == ""
-    assert w.show(mine)["state"] == "ended" and w.show(theirs)["state"] == "in-use"
-    assert w.show(mine)["record"]["ended_by"] == "session-end hook"
+    assert w.look(mine)["state"] == "ended" and w.look(theirs)["state"] == "in-use"
+    assert w.look(mine)["record"]["ended_by"] == "session-end hook"
 
 
 def test_a_clear_is_not_an_end_and_a_start_voids_one(w):
     repo = w.repo()
     d = w.new_worktree(repo, "lane/bifrost-x", detach="origin/main", session="sess-1")
     hook(w, {"hook_event_name": "SessionEnd", "session_id": "sess-1", "reason": "clear"})
-    assert w.show(d)["state"] == "in-use"
+    assert w.look(d)["state"] == "in-use"
     hook(w, {"hook_event_name": "SessionEnd", "session_id": "sess-1", "reason": "prompt_input_exit"})
-    assert w.show(d)["state"] == "ended"
+    assert w.look(d)["state"] == "ended"
     r = hook(w, {"hook_event_name": "SessionStart", "session_id": "sess-1", "source": "resume"})
     assert r.returncode == 0 and r.stdout == ""
-    assert w.show(d)["state"] == "in-use"
+    assert w.look(d)["state"] == "in-use"
 
 
 def test_the_host_session_carries_a_thread_across_a_new_cli_session(w):
@@ -132,11 +132,11 @@ def test_the_host_session_carries_a_thread_across_a_new_cli_session(w):
     w.env["CLAUDE_CODE_HOST_SESSION_ID"] = "local_thread-1"
     d = w.new_worktree(repo, "lane/bifrost-x", detach="origin/main", session="sess-1")
     hook(w, {"hook_event_name": "SessionEnd", "session_id": "sess-9", "reason": "other"}, host="local_thread-1")
-    assert w.show(d)["state"] == "ended"
+    assert w.look(d)["state"] == "ended"
     hook(w, {"hook_event_name": "SessionStart", "session_id": "sess-10", "source": "clear"}, host="local_thread-1")
-    assert w.show(d)["state"] == "in-use"
+    assert w.look(d)["state"] == "in-use"
     hook(w, {"hook_event_name": "SessionEnd", "session_id": "sess-11"}, host="local_thread-other")
-    assert w.show(d)["state"] == "in-use"
+    assert w.look(d)["state"] == "in-use"
 
 
 def test_the_hook_never_breaks_a_session(w):

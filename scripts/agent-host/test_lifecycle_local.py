@@ -26,8 +26,8 @@ import worktree_owner as wo  # noqa: E402
 from lifecycle_testlib import World  # noqa: E402
 
 
-@pytest.fixture
-def w(tmp_path):
+@pytest.fixture(name="w")
+def lifecycle_world(tmp_path):
     return World(tmp_path)
 
 
@@ -45,7 +45,7 @@ def test_someone_elses_git_lock_is_never_touched(w):
     repo = w.repo()
     d = ended(w, repo, "held/bifrost-x", detach="origin/main")
     w.git(repo, "worktree", "lock", "--reason", "codex review 600", d)
-    rc, out, rep = w.sweep("--apply")
+    rc, out, rep = w.prune("--apply")
     assert rc == 0 and d.exists() and reason(rep, d) == "locked"
     assert "locked codex review 600" in w.git(repo, "worktree", "list", "--porcelain")
 
@@ -70,7 +70,7 @@ def test_a_lock_a_dead_sweep_left_is_released_and_the_worktree_judged_again(w):
     w.git(repo, "worktree", "lock", "--reason", "lifecycle:20260101T000000Z-2-fedcba", live)
     holder = hold_record_lock(wo.admin_of(str(live))[0])
     try:
-        rc, out, rep = w.sweep("--apply")
+        rc, out, rep = w.prune("--apply")
     finally:
         holder.kill()
         holder.wait()
@@ -91,7 +91,7 @@ def test_paths_outside_the_roots_or_through_a_symlink_stay(w):
     os.rename(w.aw / "moved", w.aw / "real")
     os.symlink(w.aw / "real", w.aw / "moved")  # git still names aw/moved/bifrost-x
     w.env["LIFECYCLE_WORKTREE_ROOTS"] = str(w.aw)
-    rc, out, rep = w.sweep("--apply")
+    rc, out, rep = w.prune("--apply")
     assert rc == 0, out
     assert outside.exists() and reason(rep, outside) == "outside-roots"
     assert (w.aw / "real" / "bifrost-x").exists() and reason(rep, inside) == "symlink-in-path"
@@ -105,12 +105,12 @@ def test_a_tool_checkout_in_tmpdir_needs_an_end_like_any_worktree(w):
     dirty = w.tmpdir / "push-main.DeF" / "bifrost-x"
     for d in (left, dirty):
         w.git(repo, "worktree", "add", "-q", "--detach", d, "origin/main")
-    rc, out, rep = w.sweep("--apply")
+    rc, out, rep = w.prune("--apply")
     assert left.exists() and reason(rep, left) == "unregistered"
     (dirty / "README").unlink()
     for d in (left, dirty):
         w.end(d, "--work", "TD-341", "--by", "coordinator: push-main was killed")
-    rc, out, rep = w.sweep("--apply")
+    rc, out, rep = w.prune("--apply")
     assert rc == 0, out
     assert not left.exists()
     assert dirty.exists() and reason(rep, dirty) == "changes"
@@ -119,7 +119,7 @@ def test_a_tool_checkout_in_tmpdir_needs_an_end_like_any_worktree(w):
 def test_a_clone_under_agent_work_is_swept_but_never_removed(w):
     clone = w.repo("bifrost-finance", where=w.aw, listed=False)
     d = ended(w, clone, "fin-lane/bifrost-finance", branch="w31/fin")
-    rc, out, rep = w.sweep("--apply")
+    rc, out, rep = w.prune("--apply")
     assert rc == 0, out
     assert not d.exists() and (clone / ".git").is_dir() and (clone / "README").exists()
     assert World.items(rep)["w31/fin"]["action"] == "deleted"
@@ -130,10 +130,10 @@ def test_open_files_or_an_incomplete_lsof_keep_a_worktree(w):
     repo = w.repo()
     d = ended(w, repo, "open/bifrost-x", detach="origin/main")
     w.lsof_out(f"p123\nn{d}/README\n")
-    rc, out, rep = w.sweep("--apply")
+    rc, out, rep = w.prune("--apply")
     assert d.exists() and reason(rep, d) == "in-use"
     w.lsof_out("", rc=1, err="lsof: something failed\n")
-    rc, out, rep = w.sweep("--apply")
+    rc, out, rep = w.prune("--apply")
     assert d.exists() and reason(rep, d) == "lsof-unknown"
 
 
@@ -141,7 +141,7 @@ def test_the_second_check_takes_a_fresh_lsof(w, monkeypatch):
     repo = w.repo()
     d = ended(w, repo, "late-open/bifrost-x", detach="origin/main")
     monkeypatch.setattr(lifecycle_local, "_between_checks", lambda ctx, items: w.lsof_out(f"p9\nn{os.path.realpath(d)}\n"))
-    rc, out, rep = w.sweep("--apply", inproc=True)
+    rc, out, rep = w.prune("--apply", inproc=True)
     assert rc == 0 and d.exists() and reason(rep, d) == "in-use"
 
 
@@ -151,7 +151,7 @@ def test_a_renewal_between_the_checks_keeps_it(w, monkeypatch):
     repo = w.repo()
     d = ended(w, repo, "resumed/bifrost-x", detach="origin/main")
     monkeypatch.setattr(lifecycle_local, "_between_checks", lambda ctx, items: w.renew(d))
-    rc, out, rep = w.sweep("--apply", inproc=True)
+    rc, out, rep = w.prune("--apply", inproc=True)
     assert rc == 0 and d.exists() and reason(rep, d) == "record-changed"
 
 
@@ -160,7 +160,7 @@ def test_a_record_held_by_another_process_keeps_it(w):
     d = ended(w, repo, "busy/bifrost-x", detach="origin/main")
     holder = hold_record_lock(wo.admin_of(str(d))[0])
     try:
-        rc, out, rep = w.sweep("--apply")
+        rc, out, rep = w.prune("--apply")
     finally:
         holder.kill()
         holder.wait()
@@ -179,7 +179,7 @@ def test_a_ref_the_remote_drops_mid_run_is_still_in_the_run_s_bundle(w, monkeypa
     bare = w.remotes / "bifrost-x.git"
     monkeypatch.setattr(lifecycle_local, "_between_checks",
                         lambda ctx, items: w.git(w.tmp, "--git-dir", bare, "update-ref", "-d", "refs/heads/w31/gone"))
-    rc, out, rep = w.sweep("--apply", inproc=True)
+    rc, out, rep = w.prune("--apply", inproc=True)
     assert rc == 0, out
     (run,) = w.run_dirs()
     assert head in w.git(repo, "bundle", "list-heads", run / "redundant.bundle")
@@ -187,7 +187,7 @@ def test_a_ref_the_remote_drops_mid_run_is_still_in_the_run_s_bundle(w, monkeypa
     man["created_at"] = "2026-01-01T00:00:00Z"
     (run / "manifest.json").write_text(json.dumps(man))
     monkeypatch.setattr(lifecycle_local, "_between_checks", lambda ctx, items: None)
-    rc, out, rep = w.sweep("--apply", inproc=True)
+    rc, out, rep = w.prune("--apply", inproc=True)
     assert (run / "redundant.bundle").exists()
     assert [e["reason"] for e in rep["bundles_expiry"] if e["kind"] == "redundant"] == ["a head is no longer on a ref the remote holds"]
 
@@ -204,7 +204,7 @@ def test_a_reflog_commit_whose_remote_branch_goes_mid_run_is_in_the_redundant_bu
     bare = w.remotes / "bifrost-x.git"
     monkeypatch.setattr(lifecycle_local, "_between_checks",
                         lambda ctx, items: w.git(w.tmp, "--git-dir", bare, "update-ref", "-d", "refs/heads/w31/side"))
-    rc, out, rep = w.sweep("--apply", inproc=True)
+    rc, out, rep = w.prune("--apply", inproc=True)
     assert rc == 0 and not d.exists(), out
     (run,) = w.run_dirs()
     assert not (run / "unique.bundle").exists()
@@ -221,7 +221,7 @@ def test_a_branch_checked_out_elsewhere_after_the_check_stays(w, monkeypatch):
     other = w.aw / "other" / "bifrost-x"
     monkeypatch.setattr(lifecycle_local, "_between_checks",
                         lambda ctx, items: w.git(repo, "worktree", "add", "-q", other, "w31/lane"))
-    rc, out, rep = w.sweep("--apply", inproc=True)
+    rc, out, rep = w.prune("--apply", inproc=True)
     assert rc == 0, out
     assert not d.exists() and other.exists()
     assert World.items(rep)["w31/lane"]["reason"] == "checked-out"
@@ -239,7 +239,7 @@ def test_update_ref_refuses_a_branch_that_moved_after_the_last_check(w, monkeypa
         w.git(repo, "update-ref", "refs/heads/w31/lane", newer)
         return None
     monkeypatch.setattr(lifecycle_local, "recheck_branch", move_then_pass)
-    rc, out, rep = w.sweep("--apply", inproc=True)
+    rc, out, rep = w.prune("--apply", inproc=True)
     assert rc == 0, out
     assert w.git(repo, "rev-parse", "refs/heads/w31/lane") == newer
     assert World.items(rep)["w31/lane"]["reason"] == "moved"
@@ -257,7 +257,7 @@ def test_an_unreadable_reflog_or_record_keeps_it(w):
     rec_c = Path(wo.admin_of(str(c))[0]) / wo.OWNER
     rec_c.write_text(json.dumps(dict(json.loads(rec_c.read_text()), cache_roots=["../elsewhere"])))
     try:
-        rc, out, rep = w.sweep("--apply")
+        rc, out, rep = w.prune("--apply")
     finally:
         if log.exists():
             log.chmod(0o644)
@@ -270,11 +270,11 @@ def test_a_worktree_list_or_remote_that_cannot_be_read_keeps_the_repository(w):
     repo = w.repo()
     d = ended(w, repo, "lane/bifrost-x", detach="origin/main")
     w.env["FAKE_GIT_FAIL"] = "list"
-    rc, out, rep = w.sweep("--apply")
+    rc, out, rep = w.prune("--apply")
     del w.env["FAKE_GIT_FAIL"]
     assert d.exists() and "git worktree list" in rep["repos"][0]["problem"]
     w.git(repo, "remote", "set-url", "origin", w.tmp / "no-such-remote.git")
-    rc, out, rep = w.sweep("--apply")
+    rc, out, rep = w.prune("--apply")
     assert d.exists() and "ls-remote" in rep["repos"][0]["problem"]
 
 
@@ -293,11 +293,11 @@ def test_stale_remote_tracking_and_agent_refs_are_no_copy(w):
     w.git(agent, "push", "-q", "origin", "HEAD:refs/heads/agent/t_1/a1")
     w.end(stale)
     w.end(agent)
-    rc, out, rep = w.sweep("--apply")
+    rc, out, rep = w.prune("--apply")
     assert rc == 0, out
     assert stale.exists() and reason(rep, stale) == "head-without-copy"
     assert agent.exists() and reason(rep, agent) == "head-without-copy"
-    rc, out, rep = w.sweep("--offline")
+    rc, out, rep = w.prune("--offline")
     assert World.items(rep)[str(stale)]["action"] == "would-remove" and stale.exists()
 
 
@@ -308,7 +308,7 @@ def test_branches_need_end_evidence(w):
     w.git(repo, "branch", "w31/someone-elses", "main")
     w.git(repo, "branch", "w31/never-checked-out", "main")
     d = ended(w, repo, "borrow/bifrost-x", branch="w31/someone-elses")
-    rc, out, rep = w.sweep("--apply")
+    rc, out, rep = w.prune("--apply")
     assert rc == 0, out
     items = World.items(rep)
     assert not d.exists()
@@ -331,7 +331,7 @@ def test_cache_roots_the_record_names_may_go_with_it_nothing_else_ignored(w):
     w.commit(nested / "node_modules" / "dep", "a repository someone cloned into the cache")
     for d in (ok, undeclared, nested):
         w.end(d)
-    rc, out, rep = w.sweep("--apply")
+    rc, out, rep = w.prune("--apply")
     assert rc == 0, out
     assert not ok.exists()
     assert undeclared.exists() and reason(rep, undeclared) == "ignored"
@@ -344,7 +344,7 @@ def test_index_flags_that_hide_changes_keep_it(w):
     w.git(d, "update-index", "--assume-unchanged", "README")
     (d / "README").write_text("edited, and status does not say so\n")
     assert w.git(d, "status", "--porcelain") == ""
-    rc, out, rep = w.sweep("--apply")
+    rc, out, rep = w.prune("--apply")
     assert d.exists() and reason(rep, d) == "hidden-changes"
 
 
@@ -356,7 +356,7 @@ def test_untracked_operations_and_per_worktree_refs_keep_it(w):
     (Path(wo.admin_of(str(b))[0]) / "MERGE_HEAD").write_text(w.git(repo, "rev-parse", "HEAD") + "\n")
     c = ended(w, repo, "wtref/bifrost-x", detach="origin/main")
     w.git(c, "update-ref", "refs/worktree/keep", "HEAD")
-    rc, out, rep = w.sweep("--apply")
+    rc, out, rep = w.prune("--apply")
     assert (reason(rep, a), reason(rep, b), reason(rep, c)) == ("untracked", "operation-in-progress", "per-worktree-refs")
     assert a.exists() and b.exists() and c.exists()
 
@@ -369,7 +369,7 @@ def test_a_worktree_whose_dir_is_gone_keeps_its_admin_dir(w):
     w.git(d, "checkout", "-q", "--detach", "origin/main")
     admin = Path(wo.admin_of(str(d))[0])
     subprocess.run(["rm", "-rf", str(d)], check=True)
-    rc, out, rep = w.sweep("--apply")
+    rc, out, rep = w.prune("--apply")
     assert rc == 0 and admin.is_dir() and reason(rep, d) == "missing"
 
 
@@ -377,7 +377,7 @@ def test_report_only_writes_nothing_in_the_repositories(w):
     repo = w.repo()
     d = ended(w, repo, "lane/bifrost-x", branch="w31/lane")
     before = w.git(repo, "for-each-ref")
-    rc, out, rep = w.sweep()
+    rc, out, rep = w.prune()
     assert rc == 0 and d.exists() and w.git(repo, "for-each-ref") == before
     assert World.items(rep)[str(d)]["action"] == "would-remove" and not w.backup.exists()
     assert stat.S_IMODE(os.stat(w.status / "lifecycle-local.json").st_mode) == 0o600
@@ -391,7 +391,7 @@ def test_a_held_machine_lock_stops_the_run(w):
     fd = os.open(str(w.tmp / "lock" / "lock"), os.O_RDWR | os.O_CREAT, 0o600)
     fcntl.flock(fd, fcntl.LOCK_EX)
     try:
-        rc, out, rep = w.sweep("--apply")
+        rc, out, rep = w.prune("--apply")
     finally:
         os.close(fd)
     assert rc == 3 and d.exists()

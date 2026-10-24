@@ -198,7 +198,7 @@ def test_reflog_only_commit_is_archived_first_and_restores_from_the_bundle(world
     lost = w.commit(wt, "work that only the reflog remembers")
     w.git(wt, "checkout", "-q", "--detach", "origin/main")
     w.end(wt)
-    rc, out, rep = w.sweep("--apply")
+    rc, out, rep = w.prune("--apply")
     assert rc == 0, out
     assert not wt.exists() and W.items(rep)[str(wt)]["action"] == "removed"
     (run,) = w.run_dirs()
@@ -229,7 +229,7 @@ def test_detached_head_on_no_ref_stays_although_its_change_id_is_on_main(world):
     w.git(repo, "push", "-q", "origin", "main")
     w.end(wt)
     w.end(br)
-    rc, out, rep = w.sweep("--apply")
+    rc, out, rep = w.prune("--apply")
     assert rc == 0, out
     items = W.items(rep)
     assert wt.exists() and items[str(wt)]["reason"] == "head-without-copy"
@@ -245,7 +245,7 @@ def test_an_uncommitted_deletion_keeps_the_worktree(world):
     wt = w.new_worktree(repo, "push-main.X/bifrost-x", detach="origin/main")
     (wt / "README").unlink()
     w.end(wt)
-    rc, out, rep = w.sweep("--apply")
+    rc, out, rep = w.prune("--apply")
     assert rc == 0 and wt.exists()
     item = W.items(rep)[str(wt)]
     assert item["reason"] == "changes" and "README" in item["detail"]
@@ -264,7 +264,7 @@ def test_a_commit_after_the_check_keeps_the_worktree_and_its_branch(world, monke
         seen.append(sorted(i.name for i in items))
         w.commit(wt, "a late commit")
     monkeypatch.setattr(lifecycle_local, "_between_checks", commit_now)
-    rc, out, rep = w.sweep("--apply", inproc=True)
+    rc, out, rep = w.prune("--apply", inproc=True)
     assert rc == 0, out
     assert seen == [sorted([str(wt), "w31/lane"])]  # both were candidates after the first check
     assert wt.exists() and w.git(repo, "rev-parse", "refs/heads/w31/lane") == w.git(wt, "rev-parse", "HEAD")
@@ -289,7 +289,7 @@ def test_local_only_never_pushes_fetches_or_calls_gh(world):
     before_remote = w.remote_refs()
     before_tracking = w.git(repo, "for-each-ref", "refs/remotes/")
     w.env["GIT_CALLS"] = str(w.git_calls)
-    rc, out, rep = w.sweep("--apply")
+    rc, out, rep = w.prune("--apply")
     del w.env["GIT_CALLS"]
     assert rc == 0, out
     assert not wt.exists()  # it did act locally
@@ -311,7 +311,7 @@ def test_two_runs_on_one_day_keep_both_bundles(world):
         shas.append(w.commit(wt, f"reflog-only work {n}"))
         w.git(wt, "checkout", "-q", "--detach", "origin/main")
         w.end(wt)
-        rc, out, _ = w.sweep("--apply")
+        rc, out, _ = w.prune("--apply")
         assert rc == 0, out
     runs = w.run_dirs()
     assert len(runs) == 2 and runs[0].name[:8] == runs[1].name[:8]  # same day
@@ -352,7 +352,7 @@ def test_a_bundle_with_unique_objects_outlives_90_days(world):
     legacy = w.backup / "2026-07-01" / "bifrost-x.bundle"
     legacy.parent.mkdir(parents=True)
     legacy.write_bytes(unique.read_bytes())
-    rc, out, rep = w.sweep("--apply")
+    rc, out, rep = w.prune("--apply")
     assert rc == 0, out
     assert unique.exists() and gone.exists() and young.exists() and legacy.exists()
     assert not old.exists()
@@ -377,7 +377,7 @@ def test_a_worktree_without_ended_at_is_never_removed(world):
     w.renew(renewed)
     ended = w.new_worktree(repo, "ended/bifrost-x", detach="origin/main")
     w.end(ended)
-    rc, out, rep = w.sweep("--apply")
+    rc, out, rep = w.prune("--apply")
     assert rc == 0, out
     items = W.items(rep)
     assert (items[str(in_use)]["reason"], items[str(plain)]["reason"], items[str(renewed)]["reason"]) == (

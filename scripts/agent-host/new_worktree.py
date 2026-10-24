@@ -178,7 +178,7 @@ def state_of(rec: Optional[Dict[str, object]], bad: Optional[str], now: float, g
     return "ended-recently" if code == "end-too-recent" else ("in-use" if code == "not-ended" else code)
 
 
-def show(env: Dict[str, str], a: argparse.Namespace) -> int:
+def show_one(env: Dict[str, str], a: argparse.Namespace) -> int:
     try:
         admin = _admin(a.show)
     except wo.OwnerError as e:
@@ -212,7 +212,7 @@ def main(argv: Optional[List[str]] = None, env: Optional[Dict[str, str]] = None)
     if len(modes) > 1 or (modes and (a.repo or a.dir or a.branch)):
         ap.error("--end, --renew and --show take only a worktree dir")
     if modes:
-        return show(env, a) if modes[0] == "show" else end_or_renew(env, a, modes[0])
+        return show_one(env, a) if modes[0] == "show" else end_or_renew(env, a, modes[0])
     if not a.repo or not a.dir or bool(a.branch) == bool(a.detach):
         ap.error("give <repo> <dir> and either <branch> or --detach <rev>")
     if a.detach and a.base:
