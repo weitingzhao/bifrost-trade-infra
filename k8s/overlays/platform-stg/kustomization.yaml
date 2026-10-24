@@ -43,6 +43,7 @@ patches:
   - path: platform-api-recreate.patch.yaml
   - path: platform-agentrt-env.patch.yaml
   - path: platform-api-exam-set.patch.yaml
+  - path: platform-gitea-reader.patch.yaml
 
 images:
   - name: registry.cicd.svc.cluster.local:5000/bifrost-platform-api
