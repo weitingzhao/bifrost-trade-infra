@@ -28,6 +28,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import socket
 import stat
 from typing import Dict, List, Optional, Tuple
@@ -46,19 +47,49 @@ def journal_dir(cfg: Config) -> str:
     return os.path.join(cfg.status_dir, JOURNAL_DIR)
 
 
-def _private_dir(d: str) -> None:
-    """d exists, is a directory of this user and is 0700. Raises OSError otherwise."""
+def _me() -> int:
+    """This user (a seam: a test stands in another owner without root)."""
+    return os.geteuid()
+
+
+def _private_dir(d: str, create: bool = True) -> bool:
+    """d is a directory of this user, 0700: created so, or tightened when this user's and
+    wider. False when it does not exist and create is False. Raises OSError when it is not a
+    directory, or belongs to someone else (review 549 C1, 550 A1)."""
+    if create:
+        try:
+            os.mkdir(d, 0o700)
+        except FileExistsError:
+            pass
     try:
-        os.mkdir(d, 0o700)
-    except FileExistsError:
-        pass
-    st = os.lstat(d)
+        st = os.lstat(d)
+    except FileNotFoundError:
+        if create:
+            raise
+        return False
     if not stat.S_ISDIR(st.st_mode):
         raise OSError(f"{d} is not a directory")
-    if st.st_uid != os.geteuid():
+    if st.st_uid != _me():
         raise OSError(f"{d} belongs to uid {st.st_uid}, not this user")
     if stat.S_IMODE(st.st_mode) != 0o700:
         os.chmod(d, 0o700)
+    return True
+
+
+def _read_private(path: str) -> Optional[str]:
+    """A state file's text, None when it does not exist. It must be a regular file of this
+    user, opened without following a link; one with a wider mode is brought to 0600."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0))
+    except FileNotFoundError:
+        return None
+    with os.fdopen(fd, "r", encoding="utf-8") as f:
+        st = os.fstat(f.fileno())
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != _me():
+            raise ValueError("not a regular file of this user")
+        if stat.S_IMODE(st.st_mode) != 0o600:
+            os.fchmod(f.fileno(), 0o600)
+        return f.read()
 
 
 def _valid_entry(rec: object) -> bool:
@@ -73,45 +104,63 @@ def _int_in(x: object, bounds: Tuple[int, int]) -> bool:
     return type(x) is int and bounds[0] <= x < bounds[1]  # bool and float are not ints here
 
 
-def journal_load(cfg: Config) -> Tuple[Journal, List[str]]:
-    """Entries by quarantine path. An entry whose quarantine path is gone grants nothing
-    and is dropped."""
+OUR_NAME = re.compile(r"^[0-9]{8}T[0-9]{6}Z-[0-9]+-[0-9a-f]{16}\.json$")
+
+
+def _label(n: str, i: int) -> str:
+    """How a note names a journal file: its own name when it is one this sweeper writes, else
+    only its position (review 550 A2: nothing from the state reaches the report raw)."""
+    return n if OUR_NAME.match(n) else f"#{i}"
+
+
+def journal_load(cfg: Config) -> Tuple[Journal, List[str], Optional[str]]:
+    """(entries by quarantine path, notes, refusal). The directory is checked first, on every
+    run (review 550 A1): a directory of this user is brought to 0700 and every state file in
+    it to 0600; a directory that is not one, or not this user's, is refused, and then no
+    leftover is finished. An entry whose quarantine path is gone is dropped."""
     d = journal_dir(cfg)
     try:
+        if not _private_dir(d, create=False):
+            return {}, [], None
         names = sorted(os.listdir(d))
-    except FileNotFoundError:
-        return {}, []
     except OSError as e:
-        return {}, [f"journal {d}: {e.strerror or e}: no leftover is finished this run"]
-    out: Journal = {}
+        return {}, [], f"the journal directory cannot be used ({e.strerror or e}): no leftover is finished"
     notes: List[str] = []
-    for n in names:
+    for i, n in enumerate(names):  # every state file of this user to 0600, read now or not
+        p = os.path.join(d, n)
+        try:
+            st = os.lstat(p)
+            if stat.S_ISREG(st.st_mode) and st.st_uid == _me() and stat.S_IMODE(st.st_mode) != 0o600:
+                os.chmod(p, 0o600)
+        except OSError:
+            notes.append(f"journal file {_label(n, i)}: its mode could not be checked")
+    out: Journal = {}
+    for i, n in enumerate(names):
         if not n.endswith(".json"):
             continue
         p = os.path.join(d, n)
         try:
-            with open(p, encoding="utf-8") as f:
-                rec = json.load(f)
+            rec = json.loads(_read_private(p) or "null")
         except (OSError, ValueError) as e:
-            notes.append(f"journal {n}: unreadable ({e}): ignored")
+            notes.append(f"journal file {_label(n, i)}: unusable ({type(e).__name__}): ignored")
             continue
         if not isinstance(rec, dict):
-            notes.append(f"journal {n}: not a JSON object: ignored")
+            notes.append(f"journal file {_label(n, i)}: not a JSON object: ignored")
             continue
         if not _valid_entry(rec):
-            notes.append(f"journal {n}: malformed: ignored")
+            notes.append(f"journal file {_label(n, i)}: malformed: ignored")
             continue
         q = str(rec["quarantine"])
         if not os.path.lexists(os.path.join(cfg.agent_work, q)):
             journal_drop(p)
-            notes.append(f"journal {n}: {q} is gone: entry dropped")
+            notes.append(f"journal file {_label(n, i)}: its quarantine path is gone: entry dropped")
             continue
         rec["file"] = p
         out[q] = rec
-    return out, notes
+    return out, notes, None
 
 
-def _write_private(p: str, data: object) -> None:
+def _write_private(p: str, data: object, indent: Optional[int] = None) -> None:
     """Write p as JSON: a 0600 temp file made with O_EXCL, fsynced, renamed over p, and the
     directory fsynced."""
     tmp = f"{p}.tmp-{os.getpid()}"
@@ -124,7 +173,9 @@ def _write_private(p: str, data: object) -> None:
         os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             fd = -1
-            json.dump(data, f)
+            json.dump(data, f, indent=indent, ensure_ascii=False)
+            if indent is not None:
+                f.write("\n")
             f.flush()
             os.fsync(f.fileno())
     finally:
@@ -132,6 +183,11 @@ def _write_private(p: str, data: object) -> None:
             os.close(fd)
     os.replace(tmp, p)
     _fsync_dir(os.path.dirname(p))
+
+
+def write_report(path: str, report: object) -> None:
+    """status/lifecycle.json, 0600 like the rest of the sweep's state (review 550 A2)."""
+    _write_private(path, report, indent=1)
 
 
 def _fsync_dir(d: str) -> None:
@@ -164,8 +220,7 @@ def journal_open(cfg: Config) -> Tuple[Optional[int], int]:
     good = bad = 0
     for n in names:
         try:
-            with open(os.path.join(d, n), encoding="utf-8") as f:
-                ok = _valid_entry(json.load(f))
+            ok = _valid_entry(json.loads(_read_private(os.path.join(d, n)) or "null"))
         except (OSError, ValueError):
             ok = False
         good, bad = (good + 1, bad) if ok else (good, bad + 1)
@@ -193,13 +248,15 @@ def chmod_recorder(journal_file: str) -> "ChmodLog":
 
 class ChmodLog:
     """Before the sweeper changes a directory's mode, one line: path, device, inode, new mode;
-    fsynced before the change is made (review 549 A1)."""
+    fsynced before the change is made (review 549 A1), and the directory too when the log is
+    first created (review 550)."""
 
     def __init__(self, path: str) -> None:
         self.path = path
 
     def __call__(self, rel: str, dev: int, ino: int, mode: int) -> None:
         line = json.dumps([rel, dev, ino, mode]) + "\n"
+        created = not os.path.lexists(self.path)
         fd = os.open(self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0), 0o600)
         try:
             os.fchmod(fd, 0o600)
@@ -207,27 +264,31 @@ class ChmodLog:
             os.fsync(fd)
         finally:
             os.close(fd)
+        if created:
+            _fsync_dir(os.path.dirname(self.path))
 
 
-def _sig(v: object) -> Tuple[int, ...]:
+def _sig(v: object, i: int) -> Tuple[int, ...]:
     if not (isinstance(v, list) and len(v) == 6 and all(_int_in(x, b) for x, b in zip(v, SIG_BOUNDS))):
-        raise ValueError("a signature is not six integers in range")
+        raise ValueError(f"inv entry {i}: not six integers in range")
     return tuple(v)  # type: ignore[arg-type]
 
 
 def inventory_load(journal_file: str) -> Optional[Inventory]:
     """None when there is no inventory (the sweep died before removing anything); raises
     ValueError when there is one that cannot be used. Every field is checked as written, with
-    no type coercion (review 549 C2)."""
+    no type coercion (review 549 C2); an error names a field and an index, never a path,
+    key or name from the file (review 550 A2)."""
     try:
-        with open(journal_file + ".inventory", encoding="utf-8") as f:
-            data = json.load(f)
-    except FileNotFoundError:
-        return None
+        text = _read_private(journal_file + ".inventory")
     except OSError as e:
-        raise ValueError(f"unreadable: {e.strerror or e}")
+        raise ValueError(f"inventory unreadable: {e.strerror or type(e).__name__}")
+    if text is None:
+        return None
+    try:
+        data = json.loads(text)
     except ValueError as e:
-        raise ValueError(f"not JSON: {e}")
+        raise ValueError(f"inventory is not JSON ({type(e).__name__})")
     if not isinstance(data, dict):
         raise ValueError("not an inventory")
     inv, listed, root, redact, leaf = data.get("inv"), data.get("listed"), data.get("root"), data.get("redact"), data.get("leaf")
@@ -239,10 +300,10 @@ def inventory_load(journal_file: str) -> Optional[Inventory]:
         raise ValueError("redact is not true or false")
     if not (leaf is None or isinstance(leaf, str)):
         raise ValueError("leaf is not a string or null")
-    sigs = {k: _sig(v) for k, v in inv.items()}
-    for k, v in listed.items():
+    sigs = {k: _sig(v, i) for i, (k, v) in enumerate(inv.items())}
+    for i, v in enumerate(listed.values()):
         if not (isinstance(v, list) and all(isinstance(n, str) for n in v)):
-            raise ValueError(f"the listing of {k!r} is not a list of names")
+            raise ValueError(f"listed entry {i}: not a list of names")
     out = Inventory(sigs, {k: list(v) for k, v in listed.items()}, (root[0], root[1]), redact, leaf, swept=True)  # type: ignore[arg-type]
     out.chmods = _chmods_load(journal_file + ".chmods", sigs)
     return out
@@ -252,26 +313,23 @@ def _chmods_load(path: str, sigs: Dict[str, Tuple[int, ...]]) -> Dict[str, int]:
     """The modes the sweeper recorded before changing them, by path; each must name an
     inventory directory with the same identity."""
     try:
-        with open(path, encoding="utf-8") as f:
-            lines = f.read().split("\n")
-    except FileNotFoundError:
-        return {}
+        text = _read_private(path)
     except OSError as e:
-        raise ValueError(f"chmod record unreadable: {e.strerror or e}")
+        raise ValueError(f"chmod record unreadable: {e.strerror or type(e).__name__}")
     out: Dict[str, int] = {}
-    for line in lines:
+    for i, line in enumerate((text or "").split("\n")):
         if not line:
             continue
         try:
             rec = json.loads(line)
         except ValueError:
-            raise ValueError("a chmod record is not JSON")
+            raise ValueError(f"chmod record {i}: not JSON")
         if not (isinstance(rec, list) and len(rec) == 4 and isinstance(rec[0], str)
                 and _int_in(rec[1], SIG_BOUNDS[0]) and _int_in(rec[2], SIG_BOUNDS[1]) and _int_in(rec[3], SIG_BOUNDS[2])):
-            raise ValueError("a chmod record is malformed")
+            raise ValueError(f"chmod record {i}: malformed")
         want = sigs.get(rec[0])
         if want is None or (want[0], want[1]) != (rec[1], rec[2]) or not stat.S_ISDIR(want[2]):
-            raise ValueError(f"a chmod record names no directory of the inventory: {rec[0]!r}")
+            raise ValueError(f"chmod record {i}: names no directory of the inventory")
         out[rec[0]] = rec[3]
     return out
 

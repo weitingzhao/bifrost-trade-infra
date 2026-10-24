@@ -35,8 +35,7 @@ class Item:
     leftover: Optional[str] = None  # None: no .lifecycle-del- suffix; a str (maybe empty): the run id after it
     ids: List[Ident] = field(default_factory=list, repr=False)  # AGENT_WORK/... down to the root
     journal: Optional[Dict[str, object]] = field(default=None, repr=False)  # a leftover's record
-    resume: Optional[Inventory] = field(default=None, repr=False)  # a stopped removal's inventory, while classified
-    resuming: bool = False  # a stopped removal to finish (its inventory is read again at removal)
+    resuming: bool = False  # a stopped removal to finish (its inventory is read again, per root, at removal)
 
     def keep(self, p: Problem) -> "Item":
         self.action, self.reason, self.detail = "keep", p.code, p.detail
@@ -104,8 +103,10 @@ def check_git_for(cfg: Config, it: Item) -> None:
         check_git(cfg, path)
 
 
-def recorded(journal: Journal, it: Item) -> Dict[str, object]:
+def recorded(journal: Journal, it: Item, refused: Optional[str] = None) -> Dict[str, object]:
     """The journal entry that makes a .lifecycle-del- directory a leftover of this sweeper."""
+    if refused:
+        raise Problem("journal-refused", f"{refused}: reported only")
     if it.leftover == "":
         raise Problem("unrecorded-quarantine-name", "a .lifecycle-del- suffix with no run id: no sweep names a rename so; reported only")
     rec = journal.get(it.path)
@@ -114,7 +115,8 @@ def recorded(journal: Journal, it: Item) -> Dict[str, object]:
     return rec
 
 
-def classify(cfg: Config, aw_fd: int, it: Item, lsof: OpenFiles, now: float, journal: Journal) -> None:
+def classify(cfg: Config, aw_fd: int, it: Item, lsof: OpenFiles, now: float, journal: Journal,
+             journal_refused: Optional[str] = None) -> None:
     """First check, through handles opened without following links; records the (device,
     inode) of every directory on the path for the checks before the rename and the removal."""
     if it.reason:
@@ -122,20 +124,23 @@ def classify(cfg: Config, aw_fd: int, it: Item, lsof: OpenFiles, now: float, jou
     assert it.entry is not None and it.kind is not None
     path = os.path.join(cfg.agent_work, it.path)
     owner = it.path.split("/", 1)[0]
+    resume: Optional[Inventory] = None  # held only here (review 550 C1)
     try:
-        rec = it.journal = recorded(journal, it) if is_leftover(it) else None
+        rec = it.journal = recorded(journal, it, journal_refused) if is_leftover(it) else None
         if rec is not None:
             try:
-                it.resume = inventory_load(str(rec["file"]))
+                resume = inventory_load(str(rec["file"]))
             except ValueError as e:
                 raise Problem("journal-inventory-unusable", f"{e}: reported only")
+            if resume is not None and it.kind == "go-build-chain":
+                resume.redact = True  # by the registry's kind, not by what the file says
         with Chain(aw_fd, it.path) as ch:
             it.ids = list(ch.ids)
             if rec is not None and tuple(rec.get("root") or ()) != it.ids[-1]:
                 raise Problem("unrecorded-quarantine-name", "the journal entry records another directory (device, inode): reported only")
-            if it.resume is not None:
-                resumable(ch.fd, it)
-                it.resume, it.resuming = None, True  # read again per root when it is removed
+            if resume is not None:
+                resumable(ch.fd, it, resume)
+                it.resuming = True  # its inventory is read again, per root, when it is removed
             else:
                 w = validate(ch.fd, it.kind)
                 it.bytes, it.bytes_complete, it.layout = w.bytes, True, it.kind
@@ -159,6 +164,8 @@ def classify(cfg: Config, aw_fd: int, it: Item, lsof: OpenFiles, now: float, jou
             it.bytes, it.bytes_complete = du(path)
         it.keep(p)
         return
+    finally:
+        resume = None
     it.action = "prune" if it.entry.cap_bytes is not None else "delete"
     if it.resuming:
         it.bytes, it.bytes_complete = du(path)
@@ -169,17 +176,17 @@ def classify(cfg: Config, aw_fd: int, it: Item, lsof: OpenFiles, now: float, jou
         it.detail = f"{it.kind} layout checked in full ({w.files} files)"
 
 
-def resumable(fd: int, it: Item) -> None:
+def resumable(fd: int, it: Item, inv: Inventory) -> None:
     """A stopped removal may be finished when what is left is all in its inventory, matching:
-    entries may be gone (removed before the stop, markers last of all) and directories may
-    carry the sweeper's own u+rwx; nothing may be new or changed (review 547 C1)."""
-    assert it.resume is not None
-    if it.resume.root_id != it.ids[-1]:
+    entries may be gone (removed before the stop, markers last of all), a directory may have
+    the mode the sweeper recorded before changing it; nothing may be new or changed (review
+    547 C1, 549 A1)."""
+    if inv.root_id != it.ids[-1]:
         raise Problem("unrecorded-quarantine-name", "the inventory records another directory (device, inode): reported only")
     try:
-        compare_tree(fd, it.resume)
+        compare_tree(fd, inv)
     except Stop as s:
-        raise Problem("changed-since-stopped", f"{it.resume.show(s.entry)} {s.why} since a sweep stopped removing it: reported only")
+        raise Problem("changed-since-stopped", f"{inv.show(s.entry)} {s.why} since a sweep stopped removing it: reported only")
 
 
 def discovered_items(cfg: Config, aw_fd: int, registered: List[Item]) -> List[Item]:

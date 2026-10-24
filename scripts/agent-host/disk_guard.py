@@ -73,7 +73,6 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
-import json
 import os
 import signal
 import socket
@@ -86,7 +85,7 @@ from disk_guard_layout import du
 from disk_guard_roots import Entry, OpenFiles, parse_registry
 from disk_guard_items import classify, discovered_items, registered_items, unmanaged_items
 from disk_guard_apply import apply_items
-from disk_guard_state import Lock, journal_load, journal_open
+from disk_guard_state import Lock, journal_load, journal_open, write_report
 from disk_guard_host import host_steps, thin_snapshots
 
 
@@ -170,13 +169,15 @@ def _sweep_locked(cfg: Config, run_id: str, apply: bool, host: bool) -> int:
     except OSError as e:
         print(f"disk-guard: cannot open AGENT_WORK={cfg.agent_work}: {e.strerror or e}")
         return 4
-    journal, journal_notes = journal_load(cfg)
+    journal, journal_notes, journal_refused = journal_load(cfg)
+    if journal_refused:
+        journal_notes.append(journal_refused)
     try:
         items = registered_items(cfg, entries)
         lsof = OpenFiles(cfg)
         now = time.time()
         for it in items:
-            classify(cfg, aw_fd, it, lsof, now, journal)
+            classify(cfg, aw_fd, it, lsof, now, journal, journal_refused)
         if apply:
             apply_items(cfg, aw_fd, run_id, items)
         found = discovered_items(cfg, aw_fd, items)
@@ -227,11 +228,7 @@ def _sweep_locked(cfg: Config, run_id: str, apply: bool, host: bool) -> int:
     status_file = os.path.join(cfg.status_dir, "lifecycle.json")
     try:
         os.makedirs(cfg.status_dir, exist_ok=True)
-        tmp = f"{status_file}.tmp-{os.getpid()}"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(report, f, indent=1, ensure_ascii=False)
-            f.write("\n")
-        os.replace(tmp, status_file)
+        write_report(status_file, report)
         wrote = True
     except OSError as e:
         print(f"disk-guard: cannot write {status_file}: {e}")

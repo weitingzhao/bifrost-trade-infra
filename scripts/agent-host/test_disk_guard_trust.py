@@ -158,10 +158,14 @@ class Trust549(SweepCase):
         self.sweep("--apply")
         j = self.report()["journal"]
         self.assertEqual((j["loaded_entries"], j["open_entries_at_end"], j["bad_files_at_end"]), (0, 0, 1))
-        if os.geteuid() != 0:
-            self.unreadable(d)
-            self.sweep("--apply")
-            self.assertEqual(self.report()["journal"]["open_entries_at_end"], "unknown")
+        # a journal path that cannot be listed (a mode-000 directory of this user is now
+        # tightened to 0700 and read, review 550 A1)
+        for p in d.iterdir():
+            p.unlink()
+        d.rmdir()
+        d.write_text("not a directory\n")
+        self.sweep("--apply")
+        self.assertEqual(self.report()["journal"]["open_entries_at_end"], "unknown")
 
 
 if __name__ == "__main__":

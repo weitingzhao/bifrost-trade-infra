@@ -140,6 +140,8 @@ def _second_check(it: Item, rfd: int, jfile: Optional[str]) -> Tuple[Inventory, 
             raise Problem("journal-inventory-unusable", str(e))
         if inv is None:
             raise Problem("journal-inventory-unusable", "the inventory is gone")
+        if it.kind == "go-build-chain":
+            inv.redact = True  # by the registry's kind, not by what the file says
         if inv.root_id != it.ids[-1]:
             raise Problem("unrecorded-quarantine-name", "the inventory records another directory (device, inode)")
         try:
