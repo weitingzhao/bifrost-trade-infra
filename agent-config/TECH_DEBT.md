@@ -2151,6 +2151,45 @@
 - 验收结果：PASS 2026-10-19 platform `1b894f93`（40 遍 0.74 秒，同时跑 store 与 agentrtapi 两个包；ci-platform-rvd7p Succeeded）
 - 审批 无（测试改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
+### TD-436
+
+**P1 · rbac · tekton · the platform may start any pipeline or task with any of the service accounts the admission policy lists, so a run of candidate code can carry write rights**
+
+- **状态**：未开始（2026-10-24 统筹线程记；Codex 复核 542 A3；与 TD-432、TD-434 一起是 4.1 自动落地的前提）
+- **Claim**: the admission rules for PipelineRuns the platform creates allow the `tekton-deliver` service account without tying it to particular pipelines or steps (`bifrost-trade-infra` `k8s/platform-rbac/40-admission.yaml:67,76`); the TaskRun rules only require a Task reference and a listed service account, `bifrost-applier` included, without limiting it to the apply task (`:123-135`). `tekton-deliver` may create, update and patch any ConfigMap in `cicd` (`k8s/cicd/tekton/rbac-deliver-stg.yaml:18`); the applier may change Tasks and Pipelines (`30-applier.yaml:47`). The CI pipeline runs the candidate commit's tests (`pipeline-ci-platform.yaml:169-176`).
+- **Evidence**: review 542 A3 (`agent-config/work/multi-agent/reviews/`, to be archived with the TD-432 cut); manifests at infra main 175d364.
+- **Impact**: the ConfigMap allowlist of TD-434 matches the platform's own service accounts only; a run the platform starts under a broader identity is outside it.
+- **Fix**: an admission rule that maps each referenced Pipeline or Task to the service accounts it may run as (candidate-code steps only with an identity that writes nothing); the applier only for the apply task; workspaces and podTemplate constrained; `tekton-deliver`'s ConfigMap writes narrowed to the objects it really writes.
+- **Ratchet**: admission dry-run cases (server side, run by the Owner) for each refused pairing, kept in `check_admission_guards.py --live`.
+- 验收: every disallowed Pipeline/Task–identity pairing is refused by a server dry-run; the platform's own runs still pass.
+- 审批 要（准入策略归 Owner）· 代价 M · 风险 medium · repos: bifrost-trade-infra
+
+### TD-435
+
+**P1 · tekton · two Tasks put parameter values into shell text**
+
+- **状态**：未开始（2026-10-24 统筹线程记；Codex 复核 542 A3 离线复现：一个参数值被当作命令执行）
+- **Claim**: `k8s/cicd/tekton/task-refresh-dockerfile-cms.yaml:39-40` and `task-git-clone-gitea.yaml:54-55` substitute `$(params.…)` straight into their shell scripts, so a parameter value is parsed as shell. The platform can create runs that reference these Tasks with parameters it chooses (TD-436).
+- **Evidence**: review 542 A3; reproduced offline with a harmless marker value.
+- **Impact**: whoever can set the parameter runs commands as the Task's service account.
+- **Fix**: pass parameters through `env` (or argv of a non-shell entrypoint) and validate them (full SHA, a ref name pattern) before use; never place `$(params.…)` inside script text. The platform side already refuses non-branch, non-tag revisions for the Dockerfile refresh (TD-432 branch `w31/td432-gitea-reader` 0150b811).
+- **Ratchet**: a test over `k8s/cicd/tekton/` that fails when a Task script contains `$(params.`.
+- 验收: the test passes over all Tasks; the two Tasks still work with valid parameters on STG.
+- 审批 要（cicd 的 Task 改动由 Owner 应用）· 代价 S · 风险 low · repos: bifrost-trade-infra
+
+### TD-434
+
+**P1 · rbac · cicd · both platform service accounts can rewrite any ConfigMap in `cicd`, including the script a job runs every 15 minutes with the Gitea admin token**
+
+- **状态**：未开始（2026-10-24 统筹线程记；TD-432 切法的子代理发现，统筹线程读清单核实；与 TD-432 一起修，4.1 自动落地开工前必须先修）
+- **Claim**: ClusterRole `bifrost-platform-state` grants `get, list, watch, create, update, patch` on every ConfigMap (no `resourceNames`) (`bifrost-trade-infra` `k8s/platform-rbac/00-clusterroles.yaml:84-93`) and is bound in `cicd` to the `bifrost-platform` service account of STG (RoleBinding `bifrost-platform-state-stg`, `k8s/platform-rbac/10-stg.yaml`) and of PROD. CronJob `cicd/github-sync-reconcile` (`k8s/cicd/github-sync/cronjob-reconcile.yaml`, schedule `*/15 * * * *`) mounts ConfigMap `github-sync-scripts` and runs it with the `gitea-bootstrap` token in its environment. No ValidatingAdmissionPolicy in `k8s/platform-rbac/40-admission.yaml` limits ConfigMap writes by the platform. So code released to STG (by an Agent, without the Owner) can replace that script and act with Gitea admin within 15 minutes, even after TD-432 removes its direct read of the Secret.
+- **Evidence**: infra main 175d364 read 2026-10-24 01:4x CDT; first written up in `work/multi-agent/CUT-td432-gitea-credentials-2026-10-24.md` (branch w31/td432-cut 4d669f3e) as its S3b. Live bindings were compared with the manifests by that cut (142/142 equal).
+- **Impact**: the same as TD-432, reachable even when TD-432 is fixed; any other privileged job in `cicd` that executes a ConfigMap the platform can write is the same hole.
+- **Fix**: a ValidatingAdmissionPolicy that lets the two platform service accounts create or change only the ConfigMaps the platform owns in `cicd` (an explicit name list read from the platform code: release window, state, lineage titles…); RBAC `resourceNames` cannot limit `create`, so the policy is the boundary. Then check every privileged job in `cicd` for what it executes.
+- **Ratchet**: a test over `k8s/platform-rbac/` that fails when a platform service account can write a ConfigMap outside the allowlist without the policy matching; a live dry-run (`kubectl create configmap … --dry-run=server` as the platform identity) refused for `github-sync-scripts`.
+- 验收: the platform's own ConfigMap writes still pass; a write to `github-sync-scripts` as either platform service account is refused by admission.
+- 审批 要（准入策略与 RBAC 归 Owner）· 代价 S · 风险 medium · repos: bifrost-trade-infra, bifrost-platform
+
 ### TD-433
 
 **P3 · hosts · NAS · `/home/k8s_admin` on the NAS is mode 777**
