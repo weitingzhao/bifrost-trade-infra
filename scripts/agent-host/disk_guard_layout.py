@@ -3,9 +3,13 @@ W-31 4.6 S1; review 539 F2, review 543 A1, A2).
 
 Every level of a layout accepts only the entries the tool writes there; anything else (a
 hand-written .go, notes, ignored material) keeps the whole root. Subtrees whose files cannot
-be told from someone's (npm's _cacache/tmp, Go's cache/vcs checkouts) must be empty. The
-walk goes through directory handles opened without following links, from a handle on the
-root, so a directory swapped for a symlink mid-walk stops it instead of leading elsewhere.
+be told from someone's are kept by design, each under its own reason so the report says why
+a cache is not reclaimed: npm's _npx installs and a non-empty _cacache/tmp, Go's cache/vcs
+checkouts, a Go download's leftover .tmp, a writable module directory (hand-placed, or
+-modcacherw). The walk goes through directory handles opened without following links, from
+a handle on the root, so a directory swapped for a symlink mid-walk stops it instead of
+leading elsewhere. A walk that passes leaves its inventory (every entry it accepted, with
+its signature, and every directory's listing): removal touches only that (review 544 A1).
 """
 
 from __future__ import annotations
@@ -16,13 +20,15 @@ import re
 import stat
 from typing import Callable, Dict, Iterator, List, Optional, Tuple
 
-from disk_guard_base import Chain, O_DIR, O_FILE, Problem, ident
+from disk_guard_base import Chain, O_DIR, O_FILE, Problem, Sig, ident, sig
 
 GO_README_MARK = b"Go build system"
 HEX2 = re.compile(r"^[0-9a-f]{2}$")
 GO_ENTRY = re.compile(r"^([0-9a-f]{2})[0-9a-f]{62}-([ad])$")
 TIMESTAMP = re.compile(rb"^\s*\d{1,20}\s*$")
 VERSION = r"v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.!+-]*)?"
+GO_DOWNLOAD_TMP = re.compile(r"\.tmp$")
+NPM_LASTVERIFIED = re.compile(rb"^[0-9]{1,20}$")
 AT_V_FILE = re.compile(rf"^(?:list|list\.lock|{VERSION}\.(?:info|mod|zip|ziphash|lock|partial|zip\.partial))$")
 MODULE_AT = re.compile(rf"@{VERSION}$")
 TILE_DIR = re.compile(r"^(?:[0-9]+|x[0-9]{3}|[0-9]{3}\.p|data)$")
@@ -57,6 +63,8 @@ class Walker:
         self.bytes = 0
         self.files = 0
         self.max_mtime = 0.0  # entries only: renaming the root changes nothing here
+        self.inv: Dict[str, Sig] = {}  # every accepted entry, by path relative to the root
+        self.listed: Dict[str, List[str]] = {}  # every directory read in full: its names
 
     def show(self, rel: str) -> str:
         if not self.redact:
@@ -93,7 +101,9 @@ class Walker:
             if stat.S_ISREG(st.st_mode):
                 self.files += 1
             self.max_mtime = max(self.max_mtime, st.st_mtime)
+            self.inv[crel] = sig(st)
             out.append((n, crel, st))
+        self.listed[rel] = [n for n, _, _ in out]
         return out
 
     @contextlib.contextmanager
@@ -197,7 +207,7 @@ def _go_mod_cache(w: Walker, fd: int, rel: str) -> None:
         with w.opened(fd, n, crel, st) as cfd:
             if n == "vcs":
                 if w.entries(cfd, crel):
-                    raise Problem("unverified-subtree", f"{crel} holds VCS checkouts, which cannot be told from someone's repository")
+                    raise Problem("go-vcs-checkouts", f"{crel} holds VCS checkouts (direct fetches), which cannot be told from someone's repository: kept, reported only")
                 continue
             for dn, drel, dst in w.entries(cfd, crel):
                 if not stat.S_ISDIR(dst.st_mode):
@@ -216,6 +226,8 @@ def _download_path(w: Walker, fd: int, rel: str) -> None:
         with w.opened(fd, n, crel, st) as cfd:
             if n == "@v":
                 for vn, vrel, vst in w.entries(cfd, crel):
+                    if stat.S_ISREG(vst.st_mode) and GO_DOWNLOAD_TMP.search(vn):
+                        raise Problem("go-download-tmp", f"{w.show(vrel)}: a download temp file a killed go left: kept, reported only")
                     if not (stat.S_ISREG(vst.st_mode) and AT_V_FILE.match(vn)):
                         raise unknown(w, vrel)
             else:
@@ -266,13 +278,14 @@ def _module_path(w: Walker, fd: int, rel: str, st: os.stat_result) -> None:
 
 
 def _module_tree(w: Walker, fd: int, rel: str, st: os.stat_result) -> None:
-    # Go extracts a module read-only (files 0444, directories 0555): anything writable in a
-    # module directory was put there by hand.
+    # Go extracts a module read-only (files 0444, directories 0555) unless -modcacherw was
+    # given: a writable entry is hand-placed or from -modcacherw, and the two look alike.
+    why = "writable in a module directory (hand-placed, or -modcacherw): kept, reported only"
     if st.st_mode & 0o222:
-        raise Problem("writable-in-module", w.show(rel))
+        raise Problem("writable-in-module", f"{w.show(rel)}: {why}")
     for n, crel, cst in w.entries(fd, rel, source_ok=True):
         if cst.st_mode & 0o222:
-            raise Problem("writable-in-module", w.show(crel))
+            raise Problem("writable-in-module", f"{w.show(crel)}: {why}")
         if stat.S_ISDIR(cst.st_mode):
             with w.opened(fd, n, crel, cst) as cfd:
                 _module_tree(w, cfd, crel, cst)
@@ -285,6 +298,8 @@ def check_npm(w: Walker, fd: int, rel: str) -> None:
     for n, crel, st in ents:
         if n == "_update-notifier-last-checked" and stat.S_ISREG(st.st_mode) and st.st_size == 0:
             continue
+        if n == "_npx":
+            raise Problem("npm-npx-installs", "_npx holds packages npm exec / npx installed: kept, reported only")
         if not stat.S_ISDIR(st.st_mode) or n not in ("_cacache", "_logs"):
             raise unknown(w, crel)
         with w.opened(fd, n, crel, st) as cfd:
@@ -298,12 +313,17 @@ def check_npm(w: Walker, fd: int, rel: str) -> None:
 
 def _cacache(w: Walker, fd: int, rel: str) -> None:
     for n, crel, st in w.entries(fd, rel):
+        if n == "_lastverified" and stat.S_ISREG(st.st_mode):
+            # npm cache verify writes the time in milliseconds, and nothing else
+            if not NPM_LASTVERIFIED.match(w.head(fd, n, crel, st, 64)):
+                raise unknown(w, crel, "not npm's millisecond timestamp")
+            continue
         if not stat.S_ISDIR(st.st_mode) or n not in ("content-v2", "index-v5", "tmp"):
             raise unknown(w, crel)
         with w.opened(fd, n, crel, st) as cfd:
             if n == "tmp":
                 if w.entries(cfd, crel):
-                    raise Problem("unverified-subtree", f"{crel} is not empty: npm's temporary files cannot be told from someone's")
+                    raise Problem("npm-tmp-not-empty", f"{crel} is not empty: npm's temporary files cannot be told from someone's: kept, reported only")
             elif n == "index-v5":
                 _hex_buckets(w, cfd, crel)
             else:
@@ -374,15 +394,15 @@ def guess(names: List[str]) -> Optional[str]:
     return None
 
 
-def detect(aw_fd: int, rel: str, path: str) -> Tuple[Optional[str], Optional[Problem], int]:
-    """Best guess at what an unregistered directory is (report only)."""
+def detect(aw_fd: int, rel: str, path: str) -> Tuple[Optional[str], Optional[Problem], Tuple[int, bool]]:
+    """Best guess at what an unregistered directory is (report only); size is (bytes, complete)."""
     try:
         with Chain(aw_fd, rel) as ch:
             kind = guess(os.listdir(ch.fd))
             if kind is None:
                 return None, Problem("layout-unknown", "no known cache marker"), du(path)
             try:
-                return kind, None, validate(ch.fd, kind).bytes
+                return kind, None, (validate(ch.fd, kind).bytes, True)
             except Problem as p:
                 # one directory inside is only a guess at a chain: if it is not one, say unknown
                 return (None if kind == "go-build-chain" and p.code == "chain-shape" else kind), p, du(path)
@@ -390,13 +410,18 @@ def detect(aw_fd: int, rel: str, path: str) -> Tuple[Optional[str], Optional[Pro
         return None, e if isinstance(e, Problem) else Problem("unreadable", str(e)), du(path)
 
 
-def du(path: str) -> int:
-    """Disk use for the report (never for a decision)."""
-    total = 0
-    for dp, dns, fns in os.walk(path, onerror=lambda e: None):
+def du(path: str) -> Tuple[int, bool]:
+    """Disk use for the report (never for a decision): (bytes, False if anything was unreadable)."""
+    total, complete = 0, True
+
+    def failed(e: OSError) -> None:
+        nonlocal complete
+        complete = False
+
+    for dp, dns, fns in os.walk(path, onerror=failed):
         for n in dns + fns:
             try:
                 total += os.lstat(os.path.join(dp, n)).st_blocks * 512
             except OSError:
-                pass
-    return total
+                complete = False
+    return total, complete

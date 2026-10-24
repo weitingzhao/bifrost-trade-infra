@@ -11,6 +11,7 @@ import math
 import os
 import re
 import stat
+import sys
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
@@ -34,6 +35,7 @@ O_DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 
 O_FILE = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
 
 Ident = Tuple[int, int]  # (st_dev, st_ino)
+Sig = Tuple[int, int, int, int, int]  # (st_dev, st_ino, file type, size, mtime_ns) of a checked entry
 
 
 class ConfigError(Exception):
@@ -59,6 +61,13 @@ def gib(n: float) -> str:
 
 def ident(st: os.stat_result) -> Ident:
     return (st.st_dev, st.st_ino)
+
+
+def sig(st: os.stat_result) -> Sig:
+    """What the second check saw of an entry: identity and type; for a file also its size and
+    mtime_ns (review 544 A1: removal compares every entry with this before touching it)."""
+    reg = stat.S_ISREG(st.st_mode)
+    return (st.st_dev, st.st_ino, stat.S_IFMT(st.st_mode), st.st_size if reg else 0, st.st_mtime_ns if reg else 0)
 
 
 def open_dir_at(parent_fd: int, name: str, where: str) -> int:
@@ -125,6 +134,7 @@ class Config:
     done_min_age: float
     lsof: str
     mount: str
+    tmp_root: str
     exclude: List[str]
     discover: List[str]
     host_go_cap_gb: float
@@ -196,6 +206,7 @@ def load_config(env: Dict[str, str]) -> Config:
         done_min_age=_float(env, "LIFECYCLE_DONE_MIN_AGE_MIN", 120) * 60,
         lsof=env.get("LIFECYCLE_LSOF", "").strip() or "lsof",
         mount=env.get("LIFECYCLE_MOUNT", "").strip() or "/sbin/mount",
+        tmp_root=env.get("LIFECYCLE_TMP_ROOT", "").strip() or ("/private/tmp" if sys.platform == "darwin" else "/tmp"),
         exclude=_rel_list(env, "LIFECYCLE_EXCLUDE", ""),
         discover=_rel_list(env, "LIFECYCLE_DISCOVER", "codex-review-*"),
         host_go_cap_gb=_float(env, "DEFAULT_GOCACHE_CAP_GB", 30),

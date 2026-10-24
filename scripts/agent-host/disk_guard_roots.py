@@ -194,16 +194,19 @@ def check_policy(cfg: Config, entry: Entry, owner_fd: Optional[int], owner: str,
             raise Problem("recently-written", f"written {int((now - w.max_mtime) / 60)} min ago")
 
 
-def _git_env(cfg: Config) -> Dict[str, str]:
+def _git_env(cfg: Config, literal: bool = True) -> Dict[str, str]:
     # Git's own discovery decides; nothing inherited may point it elsewhere or stop it early.
+    # A path is a path, never pathspec magic (review 544 A4: a directory named ":(literal)x").
     env = {k: v for k, v in cfg.env.items() if not k.startswith("GIT_")}
     env.update(GIT_OPTIONAL_LOCKS="0", GIT_TERMINAL_PROMPT="0", GIT_DISCOVERY_ACROSS_FILESYSTEM="1", LC_ALL="C")
+    if literal:
+        env["GIT_LITERAL_PATHSPECS"] = "1"
     return env
 
 
-def _git(cfg: Config, cwd: str, *args: str) -> subprocess.CompletedProcess:
+def _git(cfg: Config, cwd: str, *args: str, literal: bool = True) -> subprocess.CompletedProcess:
     try:
-        return subprocess.run(["git", "-C", cwd, *args], env=_git_env(cfg), capture_output=True, timeout=300)
+        return subprocess.run(["git", "-C", cwd, *args], env=_git_env(cfg, literal), capture_output=True, timeout=300)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise Problem("git-error", f"git {args[0]}: {e}")
 
@@ -235,6 +238,23 @@ def git_top(cfg: Config, root: str) -> Optional[str]:
     if found is None and b"not a git repository" in r.stderr:
         return None
     raise Problem("git-error", f"git rev-parse in {parent}: {_first(r.stderr)}" + (f" (.git at {found})" if found else ""))
+
+
+def check_original(cfg: Config, original: str) -> None:
+    """The Git conditions on a root's original path once it has been renamed away (review 544
+    A2): nothing tracked there, and the ignore rules still ignore it. check-ignore judges a
+    path that no longer exists; it refuses GIT_LITERAL_PATHSPECS, so the path is given as
+    ./<path>/, which no pathspec magic starts with, and the trailing / matches dir patterns."""
+    top = git_top(cfg, original)
+    if top is None:
+        return
+    check_git(cfg, original, tracked_only=True)
+    rel = os.path.relpath(original, top)
+    r = _git(cfg, top, "check-ignore", "-q", "--", f"./{rel}/", literal=False)
+    if r.returncode == 1:
+        raise Problem("git-not-ignored", f"{rel} is no longer ignored by Git")
+    if r.returncode != 0:
+        raise Problem("git-error", f"git check-ignore {rel}: {_first(r.stderr)}")
 
 
 def check_git(cfg: Config, root: str, tracked_only: bool = False) -> None:

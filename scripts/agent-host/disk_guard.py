@@ -23,9 +23,9 @@ A sweep removes registered cache roots and nothing else under AGENT_WORK:
                  LIFECYCLE_DONE_MIN_AGE_MIN (120), and nothing in the cache is newer than it
       ended      the note records who confirmed the owner finished; nothing written for
                  LIFECYCLE_DONE_MIN_AGE_MIN
-      cap=<GiB>  a shared root: removed whole when larger than the cap (what go clean -cache,
-                 go clean -modcache and npm cache clean do), after the same checks; the
-                 tools themselves are not called because they follow the path
+      cap=<GiB>  a shared root: removed whole when larger than the cap, after the same
+                 checks (an npm root's _logs and notifier stamp too, which npm cache clean
+                 would keep); go and npm are not called because they work by path
   - Layout: the whole tree is read before anything is removed, and every level accepts only
     the entries the tool writes there. A symlink, a nested .git, another filesystem, a file
     the layout does not have (a hand-written .go, notes, ignored material), a non-empty
@@ -40,9 +40,13 @@ A sweep removes registered cache roots and nothing else under AGENT_WORK:
     AGENT_WORK/.lifecycle.lock). Paths are resolved once, without following links; from then
     on only directory handles are used. A root that passes is renamed to
     <name>.lifecycle-del-<run> through a handle on its parent, after checking every directory
-    on the path is still the one first checked (device and inode), checked again in full
-    (layout, end evidence, tracked files, open files), then removed through handles; if any
-    check fails it is renamed back. A rename left by a sweep that died is finished next time.
+    on the path is still the one first checked (device and inode) and after a journal entry
+    (<status>/lifecycle-journal) records the rename. It is then checked again in full (layout,
+    end evidence, Git on the original path, open files), and removal touches only what that
+    second check accepted, stopping at the first entry that is new, missing, replaced or
+    changed (see disk_guard_apply.py). If anything fails before removal starts, the root is
+    renamed back. Only a .lifecycle-del- directory the journal records (same original path,
+    same identity) is finished by a later sweep; any other is reported.
 
 Everything else is reported, never removed: caches found by name that nobody registered
 (review dirs, the other entries of AGENT_WORK/.cache), worktrees and branches (S2,
@@ -80,7 +84,8 @@ from disk_guard_base import O_DIR, Config, ConfigError, GIB, free_space, gib, lo
 from disk_guard_layout import du
 from disk_guard_roots import Entry, OpenFiles, parse_registry
 from disk_guard_items import classify, discovered_items, registered_items, unmanaged_items
-from disk_guard_apply import Lock, apply_items
+from disk_guard_apply import apply_items
+from disk_guard_state import Lock, journal_load
 from disk_guard_host import host_steps, thin_snapshots
 
 
@@ -117,7 +122,7 @@ def cmd_status(env: Dict[str, str]) -> int:
         return rc
     sizes = []
     for n in sorted(os.listdir(cfg.agent_work)):
-        sizes.append((du(os.path.join(cfg.agent_work, n)), n))
+        sizes.append((du(os.path.join(cfg.agent_work, n))[0], n))
     for b, n in sorted(sizes, reverse=True)[:10]:
         print(f"{b / GIB:7.1f} GiB  {n}")
     return rc
@@ -164,12 +169,13 @@ def _sweep_locked(cfg: Config, run_id: str, apply: bool, host: bool) -> int:
     except OSError as e:
         print(f"disk-guard: cannot open AGENT_WORK={cfg.agent_work}: {e.strerror or e}")
         return 4
+    journal, journal_notes = journal_load(cfg)
     try:
         items = registered_items(cfg, entries)
         lsof = OpenFiles(cfg)
         now = time.time()
         for it in items:
-            classify(cfg, aw_fd, it, lsof, now)
+            classify(cfg, aw_fd, it, lsof, now, journal)
         if apply:
             apply_items(cfg, aw_fd, run_id, items)
         found = discovered_items(cfg, aw_fd, items)
@@ -211,6 +217,7 @@ def _sweep_locked(cfg: Config, run_id: str, apply: bool, host: bool) -> int:
                  "scope": "processes of this user" if os.geteuid() != 0 else "all processes"},
         "items": [it.public() for it in every],
         "host_steps": steps,
+        "journal": {"entries": len(journal), "notes": journal_notes},
         "not_in_this_sweep": "worktrees and local branches (S2: prune-merged-branches.sh --local-only); remote branches; node_modules are reported, not removed",
         "errors": errors,
     }

@@ -48,7 +48,7 @@ def host_steps(cfg: Config, apply: bool) -> List[Dict[str, object]]:
         elif _under(os.path.realpath(gc), cfg.agent_work):
             step("default-go-cache", "skip", "GOCACHE is under AGENT_WORK: only the registry decides there")
         elif os.path.isdir(gc) and not os.path.islink(gc):
-            size = du(gc)
+            size = du(gc)[0]
             cap = int(cfg.host_go_cap_gb * GIB)
             if size <= cap:
                 step("default-go-cache", "keep", f"{gib(size)} <= cap {gib(cap)}")
@@ -93,23 +93,24 @@ def host_steps(cfg: Config, apply: bool) -> List[Dict[str, object]]:
                 n = sum(1 for sid in leaked if ipcrm and _run(cfg, [ipcrm, "-m", sid])[0] == 0)
                 step("shared-memory", "removed", f"{n} of {len(leaked)} leaked segments")
     # Review caches some sessions left in the system temp dir: not registered, so reported
-    # only, each with its size and age (review 543 B), for their producers to clean.
-    tmp_root = "/private/tmp" if darwin else "/tmp"
+    # only, every one with its size and age (review 543 B, 544 D), for their producers to clean.
     try:
-        left = sorted(n for n in os.listdir(tmp_root) if n.startswith("review"))
+        left = sorted(n for n in os.listdir(cfg.tmp_root) if n.startswith("review"))
     except OSError:
         left = []
     if left:
-        now = time.time()
-        sizes = []
-        for n in left:
-            p = os.path.join(tmp_root, n)
+        now, rows = time.time(), []
+        for n in left[:500]:
+            p = os.path.join(cfg.tmp_root, n)
+            size, complete = du(p)
             try:
-                age = (now - os.lstat(p).st_mtime) / 86400
+                age = round((now - os.lstat(p).st_mtime) / 86400, 1)
             except OSError:
-                continue
-            sizes.append(f"{n} {gib(du(p))} {age:.0f}d")
-        step("tmp-review-dirs", "keep", f"{len(left)} {tmp_root}/review* entries, not registered, reported only: " + "; ".join(sizes[:20]))
+                age, complete = None, False
+            rows.append({"name": n, "bytes": size, "bytes_complete": complete, "age_days": age})
+        more = f"; {len(left) - 500} more not listed" if len(left) > 500 else ""
+        steps.append({"step": "tmp-review-dirs", "action": "keep", "entries": rows,
+                      "detail": f"{len(left)} {cfg.tmp_root}/review* entries ({gib(sum(r['bytes'] for r in rows))}), not registered, reported only{more}"})
     # Cursor's state DB: compacting it needs Cursor closed, so it is only reported.
     if darwin:
         home = cfg.env.get("HOME") or os.path.expanduser("~")

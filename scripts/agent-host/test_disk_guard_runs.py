@@ -250,16 +250,29 @@ class Runs(SweepCase):
         self.assertFalse(any(QUAR in n for d in ("codex-review-1", "codex-review-2") for n in os.listdir(self.aw / d)))
 
     def test_a_rename_left_by_a_dead_sweep_is_finished_or_kept(self) -> None:
+        tail = QUAR + "20261024T000000Z-1"
         good = finished_review(self.aw, "codex-review-1")
-        os.rename(good, str(good) + QUAR + "20261024T000000Z-1")
+        os.rename(good, str(good) + tail)
+        recorded = self.journal("codex-review-1/go-cache", "codex-review-1/go-cache" + tail)
         bad = finished_review(self.aw, "codex-review-2")
         (bad / "00" / "draft.go").write_text("package d\n")
         backdate(bad, 60)
-        os.rename(bad, str(bad) + QUAR + "20261024T000000Z-1")
+        os.rename(bad, str(bad) + tail)
+        self.journal("codex-review-2/go-cache", "codex-review-2/go-cache" + tail)
+        # review 544 A2: the suffix alone proves nothing
+        stray = finished_review(self.aw, "codex-review-3")
+        os.rename(stray, str(stray) + tail)
+        other = finished_review(self.aw, "codex-review-4")
+        os.rename(other, str(other) + tail)
+        self.journal("codex-review-4/go-cache", "codex-review-4/go-cache" + tail, root=(1, 2))  # another directory
         self.register("codex-review-*/go-cache\tgo-build\trun.done\treview cache")
         self.sweep("--apply")
-        self.assertDeleted("codex-review-1/go-cache" + QUAR + "20261024T000000Z-1")
-        self.assertKept("codex-review-2/go-cache" + QUAR + "20261024T000000Z-1", "handwritten-file")
+        self.assertDeleted("codex-review-1/go-cache" + tail)
+        self.assertFalse(recorded.exists(), "the journal entry goes with the root")
+        self.assertKept("codex-review-2/go-cache" + tail, "handwritten-file")
+        self.assertKept("codex-review-3/go-cache" + tail, "unrecorded-quarantine-name")
+        it = self.assertKept("codex-review-4/go-cache" + tail, "unrecorded-quarantine-name")
+        self.assertIn("another directory", it["detail"])
 
     def test_shared_roots_over_the_cap_are_removed_after_the_same_checks(self) -> None:
         self.tool("go", "npm")  # the tools follow the path, so they are not called (review 543 A2)

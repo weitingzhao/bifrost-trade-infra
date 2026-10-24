@@ -126,7 +126,7 @@ main 上同 Change-Id 的是拆分后的另一个提交；一批 worktree 的旧
 | R6 | 本地分支 | 同 R5 | 没有检出；分支头与分支 reflog 全可达 | 定时任务，`update-ref -d <旧 sha>` | 有不可达提交的（今天 111 条） |
 | R7 | 工作区根的旧目录、`.worktrees/` | 同 R5 | 同 R5 | 同 R5；以后不在工作区根建 worktree（只建在 `$AGENT_WORK/<线>/`） | 同 R5；`phase3-notes` 这类非 git 目录只报 |
 | R8 | 复核目录 | 复核号 | **缓存**：子目录布局确认、有 `run.done`、没有进程打开。**记录**（`BRIEF`、`REPORT`、`LAST`、日志、草稿）按 D-L4 | 定时任务 | 没有 `run.done` 的、布局对不上的 |
-| R9 | 共享缓存 `$AGENT_WORK/.cache` | 共享缓存约定（`go-build`、`go-mod`、`npm` 三个根） | 只按上限修剪（建议 `go-build` 20 GiB），超上限时经目录句柄整根删除（效果同 `go clean -cache` / `-modcache`、`npm cache clean`），且根下没有进程打开着文件。不调这些工具：它们按路径操作，会重新打开复核 543 A2 的口子（初查后路径被换成软链接就删到根外） | 定时任务 | 其余 40 项；引号目录在 S1 对它的单子目录链和末端布局专门校验之前只报 |
+| R9 | 共享缓存 `$AGENT_WORK/.cache` | 共享缓存约定（`go-build`、`go-mod`、`npm` 三个根） | 只按上限修剪（建议 `go-build` 20 GiB），超上限时经目录句柄删除整个根：只删第二次检查清点过的条目，整根都会删掉。npm 根里的 `_logs` 和 `_update-notifier-last-checked` 也一起删，而 `npm cache clean` 只删 `_cacache`、会留下这两样。前提是根下没有进程打开着文件。不调这些工具：它们按路径操作，会重新打开复核 543 A2 的口子（初查后路径被换成软链接就删到根外） | 定时任务 | 其余 40 项；引号目录在 S1 对它的单子目录链和末端布局专门校验之前只报 |
 | R10 | lane 目录里 git 以外的剩余、普通目录和文件 | 登记；没登记的只能猜 | 跟 R8 的记录同一规则（D-L4） | 定时任务 | 没登记的一律只报 |
 | R11 | 工具自己的临时 checkout（`$TMPDIR/push-main.*`、`merge-accepted/<task>/`） | 建它的工具 | **与 R5 完全相同的门槛**（`merge_accepted.py:485-503` 会在 detached checkout 上 cherry-pick、amend，不能假定它们都是 main 的祖先） | 定时任务；工具自己的 `trap` 照旧 | `push-main` 残留（12 处未提交删除）只报，除非完整归档了差异 |
 | R12 | 分支备份 | `prune-merged-branches.sh` | 冗余包（每个提交都还在持久引用上）90 天；含独有对象的包不按期限删 | 定时任务 | 现有 30 个包里有 168 个引用是最后的副本 |

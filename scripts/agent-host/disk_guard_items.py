@@ -13,7 +13,8 @@ from typing import Dict, List, Optional
 
 from disk_guard_base import CACHE_NAMES, Chain, Config, Ident, Problem, QUARANTINE, _join, _under, gib
 from disk_guard_layout import detect, du, validate
-from disk_guard_roots import Entry, OpenFiles, check_git, check_policy, expand
+from disk_guard_roots import Entry, OpenFiles, check_git, check_original, check_policy, expand, overlaps
+from disk_guard_state import Journal
 
 
 @dataclass
@@ -32,6 +33,7 @@ class Item:
     entry: Optional[Entry] = field(default=None, repr=False)
     leftover: Optional[str] = None
     ids: List[Ident] = field(default_factory=list, repr=False)  # AGENT_WORK/... down to the root
+    journal: Optional[Dict[str, object]] = field(default=None, repr=False)  # a leftover's record
 
     def keep(self, p: Problem) -> "Item":
         self.action, self.reason, self.detail = "keep", p.code, p.detail
@@ -68,12 +70,13 @@ def registered_items(cfg: Config, entries: List[Entry]) -> List[Item]:
     for it in items:
         if it.reason:
             continue
+        # either direction, for the path it has and the path it had (review 544 A3)
+        names = {it.path, original_name(it)}
         for ex in cfg.exclude:
-            if _under(it.path, ex):
+            if any(overlaps(n, ex) for n in names):
                 it.keep(Problem("excluded", f"{ex} is managed by its own owner (LIFECYCLE_EXCLUDE)"))
         for own in (cfg.lock_dir, cfg.status_dir):
-            p = os.path.join(cfg.agent_work, it.path)
-            if _under(p, own) or _under(own, p):
+            if any(overlaps(os.path.join(cfg.agent_work, n), own) for n in names):
                 it.keep(Problem("excluded", "the sweep's own lock or status directory"))
     return items
 
@@ -85,14 +88,23 @@ def original_name(it: Item) -> str:
 def check_git_for(cfg: Config, it: Item) -> None:
     path = os.path.join(cfg.agent_work, it.path)
     if it.leftover:
-        # renamed by a sweep that died: neither name may hold a tracked file
+        # renamed by a sweep that died: nothing tracked under the name it has, and its
+        # original path must still pass Git in full, ignore rules included
         check_git(cfg, path, tracked_only=True)
-        check_git(cfg, os.path.join(cfg.agent_work, original_name(it)), tracked_only=True)
+        check_original(cfg, os.path.join(cfg.agent_work, original_name(it)))
     else:
         check_git(cfg, path)
 
 
-def classify(cfg: Config, aw_fd: int, it: Item, lsof: OpenFiles, now: float) -> None:
+def recorded(journal: Journal, it: Item) -> Dict[str, object]:
+    """The journal entry that makes a .lifecycle-del- directory a leftover of this sweeper."""
+    rec = journal.get(it.path)
+    if not rec or rec.get("original") != original_name(it):
+        raise Problem("unrecorded-quarantine-name", "named like a sweep's rename, but no journal entry records it: reported only")
+    return rec
+
+
+def classify(cfg: Config, aw_fd: int, it: Item, lsof: OpenFiles, now: float, journal: Journal) -> None:
     """First check, through handles opened without following links; records the (device,
     inode) of every directory on the path for the checks before the rename and the removal."""
     if it.reason:
@@ -101,8 +113,11 @@ def classify(cfg: Config, aw_fd: int, it: Item, lsof: OpenFiles, now: float) -> 
     path = os.path.join(cfg.agent_work, it.path)
     owner = it.path.split("/", 1)[0]
     try:
+        rec = it.journal = recorded(journal, it) if it.leftover else None
         with Chain(aw_fd, it.path) as ch:
             it.ids = list(ch.ids)
+            if rec is not None and tuple(rec.get("root") or ()) != it.ids[-1]:
+                raise Problem("unrecorded-quarantine-name", "the journal entry records another directory (device, inode): reported only")
             w = validate(ch.fd, it.kind)
             it.bytes, it.bytes_complete, it.layout = w.bytes, True, it.kind
             owner_fd = ch.fds[0] if len(ch.fds) >= 2 else None
@@ -122,7 +137,7 @@ def classify(cfg: Config, aw_fd: int, it: Item, lsof: OpenFiles, now: float) -> 
             raise Problem("open-files", "a process has a file open under it")
     except Problem as p:
         if not it.bytes:
-            it.bytes = du(path)
+            it.bytes, it.bytes_complete = du(path)
         it.keep(p)
         return
     it.action = "prune" if it.entry.cap_bytes is not None else "delete"
@@ -154,10 +169,9 @@ def discovered_items(cfg: Config, aw_fd: int, registered: List[Item]) -> List[It
             it.bytes, it.bytes_complete = st.st_blocks * 512, True
             out.append(it.keep(Problem("unregistered", "a file, not a cache")))
             return
-        kind, problem, size = detect(aw_fd, rel, p)
-        it.layout, it.bytes = kind, size
+        kind, problem, (it.bytes, it.bytes_complete) = detect(aw_fd, rel, p)
+        it.layout = kind
         if problem is None:
-            it.bytes_complete = True
             hint = f"layout {kind} confirmed in full"
             if owner_done:
                 hint += ", owner has run.done"
@@ -204,8 +218,8 @@ def unmanaged_items(cfg: Config, taken: List[str], max_depth: int = 4) -> List[I
             if e.name in (".git", ".cache") or QUARANTINE in e.name or any(_under(crel, t) for t in taken + own + cfg.exclude):
                 continue
             if e.name == "node_modules":
-                size = du(e.path)
-                out.append(Item(crel, "discovered", None, None, bytes=size, bytes_complete=True).keep(
+                size, complete = du(e.path)
+                out.append(Item(crel, "discovered", None, None, bytes=size, bytes_complete=complete).keep(
                     Problem("unmanaged-node-modules", f"{gib(size)}: not a registered cache root; its owner removes or registers it")))
             elif depth < max_depth:
                 walk(e.path, crel, depth + 1)

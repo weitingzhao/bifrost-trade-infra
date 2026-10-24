@@ -22,7 +22,7 @@ set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 label=com.bifrost.disk-guard
-modules="disk_guard.py disk_guard_base.py disk_guard_layout.py disk_guard_roots.py disk_guard_items.py disk_guard_apply.py disk_guard_host.py"
+modules="disk_guard.py disk_guard_base.py disk_guard_layout.py disk_guard_roots.py disk_guard_items.py disk_guard_apply.py disk_guard_state.py disk_guard_host.py"
 apply=0 dry=0 user="" render=""
 while [ $# -gt 0 ]; do
   case "$1" in

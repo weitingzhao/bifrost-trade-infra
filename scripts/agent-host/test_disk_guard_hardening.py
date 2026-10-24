@@ -87,9 +87,9 @@ class Layouts543(SweepCase):
             "build-trim\tgo-build\tended\tx",
         )
         self.sweep("--apply")
-        self.assertKept("lane-n/.npm-cache", "unverified-subtree")
+        self.assertKept("lane-n/.npm-cache", "npm-tmp-not-empty")
         self.assertKept("lane-n/.npm-cache-2", "handwritten-file")
-        self.assertKept("mod-vcs", "unverified-subtree")
+        self.assertKept("mod-vcs", "go-vcs-checkouts")
         self.assertKept("mod-lookup", "unknown-entry")
         self.assertKept("mod-tile", "unknown-entry")
         self.assertKept("mod-at-v", "unknown-entry")
@@ -117,7 +117,8 @@ class Layouts543(SweepCase):
         if not go and not npm_exe:
             self.skipTest("no go and no npm")
         base = self.outside
-        env = {k: v for k, v in self.env.items() if not k.startswith(("GO", "npm_config_"))}
+        # NODE_USE_SYSTEM_CA makes node read the keychain, which a sandbox refuses (review 544)
+        env = {k: v for k, v in self.env.items() if not k.startswith(("GO", "npm_config_")) and k != "NODE_USE_SYSTEM_CA"}
         env.update(HOME=str(base / "toolhome"), GOPATH=str(base / "gopath"), GOTOOLCHAIN="local", GOFLAGS="-mod=mod",
                    GOSUMDB="off", GONOSUMDB="*", GOPRIVATE="", GOENV="off", GOTELEMETRY="off")
         (base / "toolhome").mkdir()
@@ -158,7 +159,10 @@ class Layouts543(SweepCase):
             nenv["npm_config_cache"] = str(review3 / "cache")
             r = subprocess.run([npm_exe, "cache", "add", str(pkg / "probe-pkg-1.0.0.tgz")], cwd=pkg, env=nenv, capture_output=True, text=True, timeout=300)
             self.assertEqual(r.returncode, 0, r.stderr)
-            roots.append("codex-review-*/cache\tnpm\trun.done\treal npm cache add")
+            r = subprocess.run([npm_exe, "cache", "verify"], cwd=pkg, env=nenv, capture_output=True, text=True, timeout=300)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue((review3 / "cache" / "_cacache" / "_lastverified").is_file(), "npm cache verify wrote no _lastverified")
+            roots.append("codex-review-*/cache\tnpm\trun.done\treal npm cache add and verify")
             (review3 / "run.done").write_text("exit=0\n")
         for review in self.aw.glob("codex-review-*"):
             for sub in review.iterdir():

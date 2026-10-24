@@ -183,6 +183,8 @@ class SweepCase(unittest.TestCase):
     def tearDown(self) -> None:
         disk_guard_apply.between_check_and_delete = None
         disk_guard_apply.between_check_and_rename = None
+        disk_guard_apply.between_recheck_and_remove = None
+        disk_guard_apply.during_removal = None
         for p, mode in self.restore_modes:
             with contextlib.suppress(OSError):
                 os.chmod(p, mode)
@@ -190,6 +192,16 @@ class SweepCase(unittest.TestCase):
 
     def register(self, *lines: str) -> None:
         self.registry.write_text("".join(line + "\n" for line in lines))
+
+    def journal(self, original: str, quarantine: str, root=None, run_id: str = "20261024T000000Z-1") -> Path:
+        """The entry a sweep writes before renaming original to quarantine (review 544 A2)."""
+        st = os.lstat(self.aw / quarantine)
+        d = self.aw / "status" / "lifecycle-journal"
+        d.mkdir(parents=True, exist_ok=True)
+        p = d / f"{run_id}-{abs(hash(quarantine))}.json"
+        p.write_text(json.dumps({"run_id": run_id, "original": original, "quarantine": quarantine,
+                                 "root": list(root or (st.st_dev, st.st_ino))}))
+        return p
 
     def tool(self, *names: str) -> None:
         for n in names:
