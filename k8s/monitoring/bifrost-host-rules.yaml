@@ -1,0 +1,231 @@
+# Hosts outside the cluster and Gitea (W-68 B4 ①). Targets: bifrost-hosts-external.yaml
+# (job node-exporter / smartctl, scope="external") and bifrost-blackbox.yaml (job gitea-probe).
+#
+# Paging is the existing route: severity=critical goes to owner-ntfy (the relay on Mac
+# mini .50) and to the PROD webhook; warning goes to the webhook only. Nothing here needs
+# a change to Alertmanager.
+#
+# Left to the chart's node-exporter rules, which see these hosts because the job label is
+# node-exporter: NodeRAIDDegraded (critical, 15m: md1 on the NAS runs short of a disk),
+# NodeRAIDDiskFailure (warning), NodeFilesystemAlmostOutOfSpace / SpaceFillingUp
+# (critical at 3% free, or under 10% and full within 4h), clock skew.
+#
+# Unit tests: rule-tests/host-rules.test.yaml (make check-alert-rules).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bifrost-host-rules
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: alerting
+spec:
+  groups:
+    - name: bifrost-hosts
+      rules:
+        # Acceptance: any of the four down reaches the phone within 3 minutes. Worst case
+        # from the last good scrape: next scrape fails at +30s (+10s timeout), the rule
+        # sees it by +70s, fires after 1m at +130s, Alertmanager's group_wait adds 30s:
+        # about 2m40s, then the relay and ntfy (seconds).
+        # Two gaps it cannot close, both in the cut (CUT-w68-b4-host-monitoring §6):
+        # mini-50 is the relay itself, so its page comes from the .52 watchdog
+        # (RELAY_DOWN_MIN, 5 minutes today); and Prometheus keeps its data on the NAS, so
+        # with the NAS gone Prometheus may stall before it sends this.
+        - alert: BifrostHostDown
+          expr: up{job="node-exporter",scope="external"} == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Host {{ $labels.host }} ({{ $labels.instance }}) is not answering"
+            description: >-
+              node_exporter on {{ $labels.host }} has not answered for a minute: the host
+              is off, hung or off the network, or only node_exporter stopped. agent-06: both
+              agentd stop. nas: registry, MinIO backups, WAL archive and Prometheus's disk.
+              mini-50: the ntfy relay (no other page gets through). mini-52: the watchdog
+              over that relay. A Mac mini with FileVault waits at the unlock screen after
+              a reboot until someone logs in.
+
+        # Guards the target list itself: a target removed from the ScrapeConfig, or the
+        # ScrapeConfig not loaded, would otherwise leave BifrostHostDown with nothing to see.
+        - alert: BifrostHostTargetsMissing
+          expr: |
+            count(up{job="node-exporter",scope="external"}) < 4
+            or
+            absent(up{job="node-exporter",scope="external"})
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Fewer than 4 external hosts are being scraped"
+            description: >-
+              Prometheus does not have all 4 targets of ScrapeConfig
+              monitoring/bifrost-hosts-node (agent-06, nas, mini-50, mini-52). Check that
+              k8s/monitoring/bifrost-hosts-external.yaml is applied and lists all four.
+
+        - alert: BifrostHostDiskSpaceLow
+          expr: |
+            100 * node_filesystem_avail_bytes{job="node-exporter",scope="external",fstype!="tmpfs"}
+              / node_filesystem_size_bytes{job="node-exporter",scope="external",fstype!="tmpfs"} < 15
+            and
+            node_filesystem_readonly{job="node-exporter",scope="external"} == 0
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.host }} {{ $labels.mountpoint }} has {{ $value | printf \"%.1f\" }}% free"
+            description: >-
+              {{ $labels.mountpoint }} ({{ $labels.device }}, {{ $labels.fstype }}) on
+              {{ $labels.host }} is under 15% free. The chart's
+              NodeFilesystemAlmostOutOfSpace pages at 3%.
+
+    - name: bifrost-host-disks
+      rules:
+        # smartctl's own verdict: overall health FAILED (bit 3 of its exit status, the same
+        # as smart_status 0) or a pre-failure attribute at or below its threshold (bit 4).
+        - alert: BifrostHostDiskSmartFailing
+          expr: |
+            smartctl_device_smart_status{job="smartctl"} == 0
+            or
+            floor(smartctl_device_smartctl_exit_status{job="smartctl"} / 16) % 2 == 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Disk {{ $labels.device }} on {{ $labels.host }} reports SMART failing"
+            description: >-
+              smartctl says {{ $labels.device }} on {{ $labels.host }} is failing or about
+              to. On the NAS it is one of the three RAID 5 disks: a second failure loses
+              /volume1. Replace it; read `smartctl -a /dev/{{ $labels.device }}` as root on
+              the host first.
+
+        # Sectors the disk could not read. On RAID 5 a rebuild after any other disk
+        # failure would hit them.
+        - alert: BifrostHostDiskBadSectors
+          expr: |
+            max by (instance, host, device, attribute_name) (
+              smartctl_device_attribute{job="smartctl",attribute_value_type="raw",
+                attribute_name=~"Current_Pending_Sector|Offline_Uncorrectable"}
+            ) > 0
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Disk {{ $labels.device }} on {{ $labels.host }} has {{ $value }} unreadable sectors"
+            description: >-
+              {{ $labels.attribute_name }} is {{ $value }} on {{ $labels.device }}
+              ({{ $labels.host }}). Plan the replacement; on the NAS check the array in
+              UGOS Storage before anything else touches the disks.
+
+        - alert: BifrostHostDiskReallocatedGrowing
+          expr: |
+            delta(smartctl_device_attribute{job="smartctl",attribute_value_type="raw",
+              attribute_name="Reallocated_Sector_Ct"}[1d]) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: "Disk {{ $labels.device }} on {{ $labels.host }} reallocated sectors in the last day"
+            description: >-
+              Reallocated_Sector_Ct on {{ $labels.device }} ({{ $labels.host }}) grew by
+              {{ $value }} in 24h. One step is wear; steady growth means the disk is going.
+
+        - alert: BifrostHostNvmeCriticalWarning
+          expr: smartctl_device_critical_warning{job="smartctl"} > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "NVMe {{ $labels.device }} on {{ $labels.host }} raised a critical warning"
+            description: >-
+              The NVMe critical-warning field is {{ $value }} on {{ $labels.device }}
+              ({{ $labels.host }}): spare space, temperature, reliability or read-only
+              mode. Read `smartctl -a /dev/{{ $labels.device }}` as root on the host.
+
+        - alert: BifrostHostNvmeMediaErrors
+          expr: delta(smartctl_device_media_errors{job="smartctl"}[1d]) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: "NVMe {{ $labels.device }} on {{ $labels.host }} logged media errors"
+            description: >-
+              Media and data-integrity errors on {{ $labels.device }} ({{ $labels.host }})
+              grew by {{ $value }} in 24h.
+
+        # A disk the exporter saw in the last day is gone (died, dropped off the bus,
+        # pulled). The exporter rescans every 10 minutes, so 25 minutes is two rescans.
+        - alert: BifrostHostDiskMissing
+          expr: |
+            smartctl_devices{job="smartctl"}
+              < max_over_time(smartctl_devices{job="smartctl"}[1d])
+          for: 25m
+          labels:
+            severity: critical
+          annotations:
+            summary: "A disk disappeared from {{ $labels.host }}"
+            description: >-
+              smartctl_exporter on {{ $labels.host }} sees {{ $value }} disks, fewer than
+              earlier today. On the NAS check UGOS Storage; NodeRAIDDegraded follows if it
+              was a RAID member.
+
+        # smartctl could not open or fully read a disk (exit status bits 0-2): its SMART
+        # alerts above are blind until this clears.
+        - alert: BifrostHostSmartReadFailing
+          expr: smartctl_device_smartctl_exit_status{job="smartctl"} % 8 > 0
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "smartctl cannot read {{ $labels.device }} on {{ $labels.host }}"
+            description: >-
+              smartctl's exit status for {{ $labels.device }} ({{ $labels.host }}) has its
+              read-error bits set ({{ $value }}), so the SMART alerts for that disk cannot
+              fire. Run `smartctl -a /dev/{{ $labels.device }}` as root on the host.
+
+        - alert: BifrostHostSmartExporterDown
+          expr: |
+            up{job="smartctl"} == 0
+            or
+            absent(up{job="smartctl"})
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "No SMART data from {{ $labels.host }}"
+            description: >-
+              smartctl_exporter on {{ $labels.instance }} has not answered for 15 minutes
+              (or ScrapeConfig monitoring/bifrost-hosts-smartctl is not loaded). If the host
+              is down, BifrostHostDown has paged already.
+
+    - name: bifrost-gitea
+      rules:
+        # The primary Git (CI, Argo CD, both agentd). for 2m rides out a planned restart
+        # (strategy Recreate, readiness after 15s).
+        - alert: BifrostGiteaUnavailable
+          expr: probe_success{job="gitea-probe"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Gitea is unavailable through the {{ $labels.via }} path"
+            description: >-
+              GET {{ $labels.instance }} has failed for 2 minutes. CI does not start,
+              Argo CD cannot sync and the agentd on 06 cannot fetch or push. Gitea is one
+              pod on ubt-k3s-01: `kubectl -n cicd get pod -l app=gitea -o wide`.
+
+        - alert: BifrostGiteaProbeDown
+          expr: |
+            up{job="gitea-probe"} == 0
+            or
+            absent(up{job="gitea-probe"})
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "The Gitea probe is not running"
+            description: >-
+              Prometheus cannot reach the prober (Deployment
+              monitoring/bifrost-blackbox-exporter) or ScrapeConfig
+              monitoring/bifrost-gitea-probe is not loaded, so BifrostGiteaUnavailable
+              cannot fire.

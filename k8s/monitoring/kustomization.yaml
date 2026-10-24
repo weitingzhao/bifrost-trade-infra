@@ -13,6 +13,10 @@ resources:
   - bifrost-redis.yaml
   - bifrost-postgres.yaml
   - bifrost-minio-nas.yaml
+  # W-68 B4 ①: hosts outside the cluster, and the Gitea probe.
+  - bifrost-hosts-external.yaml
+  - bifrost-blackbox.yaml
+  - bifrost-host-rules.yaml
   - bifrost-flex-query.yaml
   - bifrost-market-data.yaml
   - bifrost-research.yaml
@@ -40,6 +44,7 @@ resources:
   - grafana-dashboard-data-layer.yaml
   - grafana-dashboard-ib-gateway.yaml
   - grafana-dashboard-agent-operations.yaml
+  - grafana-dashboard-hosts.yaml
 
 labels:
   - pairs:

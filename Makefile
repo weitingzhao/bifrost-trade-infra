@@ -448,6 +448,8 @@ check-alert-routing:
 # (BifrostNodeUnexpectedReboot). promtool from PATH, or the Prometheus image through docker.
 check-alert-rules:
 	python3 scripts/check_alert_rules.py
+# W-68 B4 ①: host-exporters.sh against a throwaway origin (fake ssh / kubectl).
+check-host-exporters: ; python3 -m unittest scripts/host-exporters/test_host_exporters.py
 check-cluster-state-backup: ; python3 scripts/check_cluster_state_backup.py
 
 # TD-204: the Ops platform ServiceAccounts can do what platform code needs and nothing more

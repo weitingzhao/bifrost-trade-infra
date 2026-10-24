@@ -1,0 +1,184 @@
+# promtool unit tests for bifrost-host-rules.yaml (W-68 B4 ①).
+# Run: make check-alert-rules. The rule file is extracted from the PrometheusRule of the
+# same name in k8s/monitoring by scripts/check_alert_rules.py. The cluster evaluates
+# every 30s (Prometheus CR evaluationInterval), so the host and Gitea timings are
+# tested at 30s.
+rule_files:
+  - bifrost-host-rules.yaml
+
+evaluation_interval: 30s
+
+tests:
+  - name: an external host that stops answering pages after 1 minute; a cluster node does not
+    interval: 30s
+    input_series:
+      # The NAS answers until 120s and is gone from 150s.
+      - series: 'up{job="node-exporter",scope="external",host="nas",instance="192.168.10.20:9100"}'
+        values: '1x4 0x12'
+      - series: 'up{job="node-exporter",scope="external",host="agent-06",instance="192.168.10.79:9100"}'
+        values: '1x16'
+      - series: 'up{job="node-exporter",scope="external",host="mini-50",instance="192.168.10.50:9100"}'
+        values: '1x16'
+      - series: 'up{job="node-exporter",scope="external",host="mini-52",instance="192.168.10.52:9100"}'
+        values: '1x16'
+      # A cluster node's target has no scope label: KubeNodeNotReady is its alert.
+      - series: 'up{job="node-exporter",namespace="monitoring",instance="192.168.10.73:9100"}'
+        values: '0x16'
+    alert_rule_test:
+      # First failed sample at 150s: pending.
+      - eval_time: 3m
+        alertname: BifrostHostDown
+        exp_alerts: []
+      - eval_time: 3m30s
+        alertname: BifrostHostDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: node-exporter
+              scope: external
+              host: nas
+              instance: 192.168.10.20:9100
+            exp_annotations:
+              summary: "Host nas (192.168.10.20:9100) is not answering"
+              description: "node_exporter on nas has not answered for a minute: the host is off, hung or off the network, or only node_exporter stopped. agent-06: both agentd stop. nas: registry, MinIO backups, WAL archive and Prometheus's disk. mini-50: the ntfy relay (no other page gets through). mini-52: the watchdog over that relay. A Mac mini with FileVault waits at the unlock screen after a reboot until someone logs in."
+      - eval_time: 8m
+        alertname: BifrostHostTargetsMissing
+        exp_alerts: []
+
+  - name: a host dropped from the target list is noticed
+    interval: 1m
+    input_series:
+      - series: 'up{job="node-exporter",scope="external",host="nas",instance="192.168.10.20:9100"}'
+        values: '1x15'
+      - series: 'up{job="node-exporter",scope="external",host="mini-50",instance="192.168.10.50:9100"}'
+        values: '1x15'
+      - series: 'up{job="node-exporter",scope="external",host="mini-52",instance="192.168.10.52:9100"}'
+        values: '1x15'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: BifrostHostTargetsMissing
+        exp_alerts: []
+      - eval_time: 11m
+        alertname: BifrostHostTargetsMissing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Fewer than 4 external hosts are being scraped"
+              description: "Prometheus does not have all 4 targets of ScrapeConfig monitoring/bifrost-hosts-node (agent-06, nas, mini-50, mini-52). Check that k8s/monitoring/bifrost-hosts-external.yaml is applied and lists all four."
+
+  - name: SMART failing, unreadable sectors and a vanished disk page; a healthy disk does not
+    interval: 1m
+    input_series:
+      # sdb's health turns FAILED at 10m.
+      - series: 'smartctl_device_smart_status{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633",device="sdb"}'
+        values: '1x9 0x30'
+      - series: 'smartctl_device_smartctl_exit_status{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633",device="sdb"}'
+        values: '0x9 8x30'
+      # sda stays healthy; its pending-sector count goes to 8 at 10m.
+      - series: 'smartctl_device_smart_status{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633",device="sda"}'
+        values: '1x39'
+      - series: 'smartctl_device_smartctl_exit_status{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633",device="sda"}'
+        values: '0x39'
+      - series: 'smartctl_device_attribute{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633",device="sda",attribute_name="Current_Pending_Sector",attribute_id="197",attribute_value_type="raw",attribute_flags_short="-O--CK",attribute_flags_long="updateonline,eventcount,autokeep"}'
+        values: '0x9 8x30'
+      # The NAS saw 3 disks; from 5m it sees 2.
+      - series: 'smartctl_devices{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633"}'
+        values: '3x4 2x35'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: BifrostHostDiskSmartFailing
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: BifrostHostDiskSmartFailing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: smartctl
+              scope: external
+              host: nas
+              instance: 192.168.10.20:9633
+              device: sdb
+            exp_annotations:
+              summary: "Disk sdb on nas reports SMART failing"
+              description: "smartctl says sdb on nas is failing or about to. On the NAS it is one of the three RAID 5 disks: a second failure loses /volume1. Replace it; read `smartctl -a /dev/sdb` as root on the host first."
+      - eval_time: 21m
+        alertname: BifrostHostDiskBadSectors
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              host: nas
+              instance: 192.168.10.20:9633
+              device: sda
+              attribute_name: Current_Pending_Sector
+            exp_annotations:
+              summary: "Disk sda on nas has 8 unreadable sectors"
+              description: "Current_Pending_Sector is 8 on sda (nas). Plan the replacement; on the NAS check the array in UGOS Storage before anything else touches the disks."
+      - eval_time: 25m
+        alertname: BifrostHostDiskMissing
+        exp_alerts: []
+      - eval_time: 31m
+        alertname: BifrostHostDiskMissing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: smartctl
+              scope: external
+              host: nas
+              instance: 192.168.10.20:9633
+            exp_annotations:
+              summary: "A disk disappeared from nas"
+              description: "smartctl_exporter on nas sees 2 disks, fewer than earlier today. On the NAS check UGOS Storage; NodeRAIDDegraded follows if it was a RAID member."
+
+  - name: a prefail attribute at threshold (exit status bit 4) pages even while health still says PASSED
+    interval: 1m
+    input_series:
+      - series: 'smartctl_device_smart_status{job="smartctl",scope="external",host="agent-06",instance="192.168.10.79:9633",device="sda"}'
+        values: '1x15'
+      - series: 'smartctl_device_smartctl_exit_status{job="smartctl",scope="external",host="agent-06",instance="192.168.10.79:9633",device="sda"}'
+        values: '0x4 16x10'
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: BifrostHostDiskSmartFailing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: smartctl
+              scope: external
+              host: agent-06
+              instance: 192.168.10.79:9633
+              device: sda
+            exp_annotations:
+              summary: "Disk sda on agent-06 reports SMART failing"
+              description: "smartctl says sda on agent-06 is failing or about to. On the NAS it is one of the three RAID 5 disks: a second failure loses /volume1. Replace it; read `smartctl -a /dev/sda` as root on the host first."
+
+  - name: Gitea failing through one path pages after 2 minutes
+    interval: 30s
+    input_series:
+      # The NodePort path fails from 90s; the Service path stays up.
+      - series: 'probe_success{job="gitea-probe",via="nodeport",instance="http://192.168.10.73:30300/api/healthz"}'
+        values: '1x2 0x10'
+      - series: 'probe_success{job="gitea-probe",via="service",instance="http://gitea.cicd.svc.cluster.local:3000/api/healthz"}'
+        values: '1x12'
+      - series: 'up{job="gitea-probe",via="nodeport",instance="http://192.168.10.73:30300/api/healthz"}'
+        values: '1x12'
+      - series: 'up{job="gitea-probe",via="service",instance="http://gitea.cicd.svc.cluster.local:3000/api/healthz"}'
+        values: '1x12'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: BifrostGiteaUnavailable
+        exp_alerts: []
+      - eval_time: 3m30s
+        alertname: BifrostGiteaUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: gitea-probe
+              via: nodeport
+              instance: http://192.168.10.73:30300/api/healthz
+            exp_annotations:
+              summary: "Gitea is unavailable through the nodeport path"
+              description: "GET http://192.168.10.73:30300/api/healthz has failed for 2 minutes. CI does not start, Argo CD cannot sync and the agentd on 06 cannot fetch or push. Gitea is one pod on ubt-k3s-01: `kubectl -n cicd get pod -l app=gitea -o wide`."
+      - eval_time: 5m
+        alertname: BifrostGiteaProbeDown
+        exp_alerts: []

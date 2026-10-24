@@ -1,0 +1,67 @@
+# Host exporters on the NAS (192.168.10.20, UGOS on Debian 12, Docker 29) — W-68 B4 ①.
+#
+# node_exporter (:9100) reads the host's /proc, /sys and / read-only: CPU, memory, the
+# btrfs /volume1 and the eMMC system partitions, and /proc/mdstat, which gives the
+# RAID 5 array md1 (sda2 + sdb2 + sdc2) to the chart's NodeRAIDDegraded alert.
+# smartctl_exporter (:9633) runs smartctl against every disk `smartctl --scan` finds (the
+# three ST12000NM0127 today; the M.2 SSD once it is fitted, since the container starts
+# again with the NAS) and skips disks that are spun down (--smartctl.powermode-check
+# standby, the default), so it does not wake them.
+#
+# Lives in /volume1/docker/host-exporters/ on the NAS, root-owned like minio-backup:
+# whoever can edit this file and run compose as root can start a privileged container.
+# Run as root: sudo docker compose up -d. Steps: agent-config/work/multi-agent/
+# OWNER-STEPS-w68-b4-2026-10-24.md, step 4. Versions follow scripts/host-exporters/versions.env;
+# images are pinned by digest (quay.io manifest lists, read 2026-10-24).
+#
+# Both listen on the LAN address only (host network), unauthenticated, like MinIO's
+# public metrics on :9000 and the cluster's node-exporter on :9100.
+# Compose interpolates $: the regexes write a literal dollar as $$.
+name: host-exporters
+
+services:
+  node-exporter:
+    image: quay.io/prometheus/node-exporter:v1.12.1@sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0
+    container_name: node-exporter
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/host/root
+      - --path.udev.data=/host/root/run/udev/data
+      - --web.listen-address=192.168.10.20:9100
+      # The cluster DaemonSet's filters, plus Docker's own tree under /volume1/@docker
+      # and ramfs (UGOS mounts four).
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run/containerd/.+|var/lib/docker/.+|var/lib/kubelet/.+|volume[0-9]+/@docker/.+)($$|/)
+      - --collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|ramfs|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs|erofs)$$
+    network_mode: host
+    pid: host
+    read_only: true
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro,rslave
+    restart: unless-stopped
+    mem_limit: 128m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  smartctl-exporter:
+    image: quay.io/prometheuscommunity/smartctl-exporter:v0.14.0@sha256:cfe22c36d7d2fac48ebf619707305acb65eb0fb670656eb80f356e606d782bc1
+    container_name: smartctl-exporter
+    command:
+      - --web.listen-address=192.168.10.20:9633
+      - --smartctl.interval=60s
+    # SMART needs the raw disks: the image's README runs it privileged as root.
+    privileged: true
+    user: root
+    network_mode: host
+    restart: unless-stopped
+    mem_limit: 128m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
