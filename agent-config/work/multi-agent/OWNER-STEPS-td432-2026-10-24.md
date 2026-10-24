@@ -121,10 +121,10 @@ cd ~/Desktop/stocks/bifrost-trade-infra && kubectl --kubeconfig ~/.bifrost-owner
 做完会看到 `bifrost-cicd-configmap-writers` 和 `bifrost-platform-deployment-restart-scale` 两条策略及其绑定 `created`，`bifrost-platform-pipelinerun` 和 `bifrost-platform-taskrun` 为 `configured`，其余 `unchanged`。然后跑核对（要扮演平台身份，所以用同一份 kubeconfig）：
 
 ```bash
-cd ~/Desktop/stocks/bifrost-trade-infra && KUBECONFIG=~/.bifrost-owner/kube/admin.yaml python3 scripts/check_admission_guards.py --live > /tmp/td432-admission.txt 2>&1; tail -n 5 /tmp/td432-admission.txt
+cd ~/Desktop/stocks/bifrost-trade-infra && KUBECONFIG=~/.bifrost-owner/kube/admin.yaml python3 scripts/check_admission_guards.py --live > /tmp/td432-admission.txt 2>&1; echo "exit=$?"; tail -n 5 /tmp/td432-admission.txt
 ```
 
-做完最后一行是 `ok: admission files match the actuation policy`。有 `FAIL` 开头的行就回线程说一声，我读 `/tmp/td432-admission.txt`。
+做完会看到 `exit=0`，最后一行是 `ok: admission files match the actuation policy`。看到 `exit=1` 或 `FAIL` 开头的行，**这一节先停在这里，不做下面两条**，回线程说一声；我读 `/tmp/td432-admission.txt` 决定是改规则还是删掉刚加的策略（回退命令在本节末尾）。
 
 **第二条：CI 的 webhook 入口（TD-435，约 1 分钟）**。它不核对是谁发来的，所以过滤条件改成只收 40 位十六进制的提交号和普通字符的分支名。同样先检查再应用：
 

@@ -3,10 +3,22 @@
 **一段话**：今天 STG、PROD 两个平台的服务账号都能读 `cicd/gitea-bootstrap`，平台把里面的 Gitea 管理员令牌当成读 Gitea 的凭证用；CI 每次克隆都把另一份凭证（历史上也是管理员的）写进工作目录的 `.git/config`，候选代码的测试读得到；镜像同步和 GitHub 同步两个任务也带着管理员令牌跑。实测下来，平台对 Gitea **只读**：唯一的写是对「拉取镜像」发 `mirror-sync`，而 11 个仓库 10-17 已全部转成主仓库，这条在现状下不会发出。所以目标很简单：每个环境一个只读账号、CI 一个只读账号，凭证以文件挂进 Pod，平台对任何 Secret 都不再有 RBAC；管理员令牌只留给 Owner 和引导。另外实测发现一条同级的间接入口：**STG 平台能改 `cicd` 里任意 ConfigMap**，其中 `github-sync-scripts` 每 15 分钟由带管理员令牌的任务执行一次。这条不关，撤绑定也挡不住 STG 拿到管理员令牌，列为必做片 S3b。
 
 - 分支：infra `w31/td432-cut`（本文件、Owner 操作单、令牌脚本、两个 overlay 补丁、S4 的 RBAC 改动和防线）；platform `w31/td432-gitea-reader`（`giteaCredentials` 改读只读账号，带单测）。都没推送。
-- 依据：infra main `17499739`、platform main `82b3e9d7`；线上只读实测 2026-10-24 01:0x（`KUBECONFIG=~/.kube/bifrost-k3s.yaml`）。
+- 依据（第 1 稿的基线，历史）：infra main `17499739`、platform main `82b3e9d7`；线上只读实测 2026-10-24 01:0x（`KUBECONFIG=~/.kube/bifrost-k3s.yaml`）。第 3 稿核对于 infra main `a4a8b68`、platform main `7fe719fa`。
 - Owner 共约 75 分钟、分 6 次（理想操作时间，不含排障）；第一次最长，约 35 分钟（建账号、令牌、Secret）；第 2 次约 8 分钟，可以紧接着第一次做：三条准入策略、CI webhook 过滤、清单应用流水线，各自先服务器端 dry-run 再应用。
 
-## 0 第 3 稿改了什么（复核 545）
+## 0 第 3 稿改了什么（复核 545、546）
+
+复核 546 之后又补了五处：
+
+| 复核 546 | 处理 |
+|---|---|
+| R1 Deployment 的 `finalizers`、`ownerReferences` 没冻住 | `47` 加一条：两者都不许改 |
+| R2 只核策略名，不核是哪条校验拒的；旧拒绝用例接受 RBAC 拒绝 | 每个拒绝用例写明策略名和该条校验消息里的一段，两者都要在拒绝报文里；没写就算用例错误。参数的字符规则和 Gitea 地址规则拆成两条校验，各自有消息。Deployment 用例的改动保证真的改了字段（例如 `paused` 取反），改完与线上相同就报。测试加「同一策略、别的校验拒」的阳性对照 |
+| F1 剩余：「在 main 上」也包括 main 的旧提交，可借它退回旧版的应用流水线；仓库、组织只在平台代码里查 | 应用流水线对 C、D 级再加一条：渲染结果必须和 main 头在同一路径渲染出来的完全相同，否则「main 已改，重新做 plan」。仓库、路径、`giteaOrg`、`giteaBase` 改为对照挂进来的策略文件（`bifrost-actuation-policy`，平台写不了）检查，语义和平台代码 `actuationpolicy/policy.go:170-180` 一致 |
+| webhook 过滤收窄了 CI 的分支名 | CI 不用分支名，CI 触发器只钉 `after`；只有把 ref 往下传的 github-sync 钉 ref |
+| 次要 | `--live` 的 CRD 检查也报字段消失和不再裁剪未知字段；操作单的核对命令打印退出码，有 `FAIL` 就停在本节；Deployment 整对象更新保留全部 metadata（含 `resourceVersion`），只去掉 `managedFields` |
+
+下面是 545 那一轮：
 
 | 复核 | 处理 | 在哪 |
 |---|---|---|
@@ -21,7 +33,7 @@
 
 CEL 仍没在本地编译过。参数正则用了 RE2 的 `\p{L}`、`\p{N}`（CEL 字符串里写成双反斜杠），Python 的 `re` 不支持，只能靠服务器端 dry-run 和 `--live` 验证。
 
-## 0.1 第 2 稿改了什么（复核 542）
+## 0.1 第 2 稿改了什么（复核 542；其中的参数字符集已被第 3 稿替换）
 
 | 复核 | 处理 | 在哪 |
 |---|---|---|

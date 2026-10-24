@@ -156,12 +156,17 @@ spec:
         !has(object.spec.params)
         || object.spec.params.all(p,
           type(p.value) == string
-          && p.value.matches('^([\\p{L}\\p{N}._/:@+=][\\p{L}\\p{N}._/:@+=-]{0,255})?$')
-          && (p.name != 'giteaBase' || p.value == 'http://gitea.cicd.svc.cluster.local:3000/bifrost')
-          && (p.name != 'url' || p.value.startsWith('http://gitea.cicd.svc.cluster.local:3000/bifrost/')))
+          && p.value.matches('^([\\p{L}\\p{N}._/:@+=][\\p{L}\\p{N}._/:@+=-]{0,255})?$'))
       message: >-
-        platform run parameters must be plain strings of letters, digits and ._/:@+=- (at most 256, no leading dash),
-        giteaBase must be the in-cluster Gitea and url must point into it (TD-435, TD-436)
+        platform run parameters must be plain strings of letters, digits and ._/:@+=- (at most 256, no leading dash) (TD-435, TD-436)
+    - expression: >-
+        !has(object.spec.params)
+        || object.spec.params.all(p,
+          (p.name != 'giteaBase' || p.value == 'http://gitea.cicd.svc.cluster.local:3000/bifrost')
+          && (p.name != 'url' || (type(p.value) == string
+            && p.value.startsWith('http://gitea.cicd.svc.cluster.local:3000/bifrost/'))))
+      message: >-
+        platform run giteaBase must be the in-cluster Gitea and url must point into it (TD-435, TD-436, review 546 R2)
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
@@ -238,12 +243,17 @@ spec:
         !has(object.spec.params)
         || object.spec.params.all(p,
           type(p.value) == string
-          && p.value.matches('^([\\p{L}\\p{N}._/:@+=][\\p{L}\\p{N}._/:@+=-]{0,255})?$')
-          && (p.name != 'giteaBase' || p.value == 'http://gitea.cicd.svc.cluster.local:3000/bifrost')
-          && (p.name != 'url' || p.value.startsWith('http://gitea.cicd.svc.cluster.local:3000/bifrost/')))
+          && p.value.matches('^([\\p{L}\\p{N}._/:@+=][\\p{L}\\p{N}._/:@+=-]{0,255})?$'))
       message: >-
-        platform TaskRun parameters must be plain strings of letters, digits and ._/:@+=- (at most 256, no leading dash),
-        giteaBase must be the in-cluster Gitea and url must point into it (TD-435, TD-436)
+        platform TaskRun parameters must be plain strings of letters, digits and ._/:@+=- (at most 256, no leading dash) (TD-435, TD-436)
+    - expression: >-
+        !has(object.spec.params)
+        || object.spec.params.all(p,
+          (p.name != 'giteaBase' || p.value == 'http://gitea.cicd.svc.cluster.local:3000/bifrost')
+          && (p.name != 'url' || (type(p.value) == string
+            && p.value.startsWith('http://gitea.cicd.svc.cluster.local:3000/bifrost/'))))
+      message: >-
+        platform TaskRun giteaBase must be the in-cluster Gitea and url must point into it (TD-435, TD-436, review 546 R2)
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy

@@ -219,8 +219,9 @@ spec:
   serviceAccountName: tekton-trigger
   triggers:
     # TD-435: the listener does not check who posted the body (no webhook secret), so every
-    # filter also requires a 40-hex `after` and a ref of plain characters: `revision` reaches
-    # Task scripts as $(params.revision), and git allows `;`, `$`, `(` in branch names.
+    # filter requires a 40-hex `after`: it becomes the pipelines' `revision`, which Task
+    # scripts use as $(params.revision). CI does not take the branch name, so a CI trigger
+    # does not narrow it (review 546); github-sync passes the ref on and pins it.
     # W-31 3.4 ② (Owner 2026-10-21 「D3 A」): CI runs on every branch push, not only main,
     # so a lane's commit has its CI before it is merged; push-main.sh requires a
     # Succeeded ci-* run for the exact commit it pushes. A push that deletes a branch
@@ -234,7 +235,7 @@ spec:
           params:
             - name: filter
               value: >-
-                body.ref.matches('^refs/heads/[A-Za-z0-9._/+-]{1,200}$') &&
+                body.ref.startsWith('refs/heads/') &&
                 body.after.matches('^[0-9a-f]{40}$') &&
                 body.after != '0000000000000000000000000000000000000000' &&
                 body.repository.name in ['bifrost-trade-core', 'bifrost-trade-api',
@@ -255,7 +256,7 @@ spec:
           params:
             - name: filter
               value: >-
-                body.ref.matches('^refs/heads/[A-Za-z0-9._/+-]{1,200}$') &&
+                body.ref.startsWith('refs/heads/') &&
                 body.after.matches('^[0-9a-f]{40}$') &&
                 body.after != '0000000000000000000000000000000000000000' &&
                 body.repository.name == 'bifrost-trade-frontend'
@@ -271,7 +272,7 @@ spec:
           params:
             - name: filter
               value: >-
-                body.ref.matches('^refs/heads/[A-Za-z0-9._/+-]{1,200}$') &&
+                body.ref.startsWith('refs/heads/') &&
                 body.after.matches('^[0-9a-f]{40}$') &&
                 body.after != '0000000000000000000000000000000000000000' &&
                 body.repository.name == 'bifrost-ui'
@@ -287,7 +288,7 @@ spec:
           params:
             - name: filter
               value: >-
-                body.ref.matches('^refs/heads/[A-Za-z0-9._/+-]{1,200}$') &&
+                body.ref.startsWith('refs/heads/') &&
                 body.after.matches('^[0-9a-f]{40}$') &&
                 body.after != '0000000000000000000000000000000000000000' &&
                 body.repository.name == 'bifrost-platform'
@@ -304,7 +305,7 @@ spec:
           params:
             - name: filter
               value: >-
-                body.ref.matches('^refs/heads/[A-Za-z0-9._/+-]{1,200}$') &&
+                body.ref.startsWith('refs/heads/') &&
                 body.after.matches('^[0-9a-f]{40}$') &&
                 body.after != '0000000000000000000000000000000000000000' &&
                 body.repository.name == 'bifrost-ui'

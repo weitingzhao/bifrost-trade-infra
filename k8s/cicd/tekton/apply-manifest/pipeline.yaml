@@ -143,6 +143,27 @@ spec:
                 echo "commit must be a 40-character hex sha" >&2
                 exit 1
               fi
+              # Review 546: the repository, path and organisation come from the mounted policy,
+              # not only from the platform code that started the run.
+              if [ "$org" != "$(awk '/^  gitea_org:/ {print $2; exit}' /policy/actuation-policy.yaml)" ]; then
+                echo "giteaOrg is not the policy's gitea_org" >&2
+                exit 1
+              fi
+              if [ "$base" != "$(awk '/^  gitea_base:/ {print $2; exit}' /policy/actuation-policy.yaml)" ]; then
+                echo "giteaBase is not the policy's gitea_base" >&2
+                exit 1
+              fi
+              if ! awk -v repo="$repo" -v path="$path" '
+                  /^apply:/ { inapply = 1; next }
+                  inapply && /^[^ ]/ { inapply = 0 }
+                  inapply && /^  repos:/ { inrepos = 1; next }
+                  inrepos && /^  [^ ]/ { inrepos = 0 }
+                  inrepos && /^    - name: / { cur = $3; next }
+                  inrepos && /^        - / { if (cur == repo && (path == $2 || index(path, $2 "/") == 1)) ok = 1 }
+                  END { exit !ok }' /policy/actuation-policy.yaml; then
+                echo "repo ${repo} path ${path} is not in the policy's apply list" >&2
+                exit 1
+              fi
               if [ "${REQUIRE_ON_MAIN}" = "true" ]; then
                 # Gitea 1.21 has no compare API (it answered 404 and refused every
                 # tier C apply, TD-275). Ask git: fetch main's history without
@@ -161,30 +182,34 @@ spec:
                   exit 1
                 fi
               fi
-              archive=/tmp/src.tar.gz
-              # The API route accepts basic auth; the web archive route answers 404 for a private repo.
-              url="${base%%/bifrost}/api/v1/repos/${org}/${repo}/archive/${commit}.tar.gz"
-              host_path="${url#http://}"
-              host_path="${host_path#https://}"
-              if ! wget -q -O "$archive" "http://${GIT_USERNAME}:${GIT_PASSWORD}@${host_path}"; then
-                echo "could not fetch ${repo}@${commit}" >&2
-                exit 1
-              fi
-              mkdir -p /tmp/src
-              tar -xzf "$archive" -C /tmp/src
-              root=$(find /tmp/src -mindepth 1 -maxdepth 1 -type d | head -n 1)
-              target="${root}/${path}"
-              if [ -d "$target" ]; then
-                kubectl kustomize "$target" > /tmp/rendered.yaml
-              elif [ -f "$target" ]; then
-                cp "$target" /tmp/rendered.yaml
-              else
-                echo "path not in the commit" >&2
-                exit 1
-              fi
               apk add --no-cache jq >/dev/null
-              kubectl create --dry-run=client -o json -f /tmp/rendered.yaml \
-                | jq -s '{apiVersion:"v1",kind:"List",items:.}' > /tmp/normalized.json
+              # render SHA DIR OUT: fetch repo@SHA, render path, write the normalized List to OUT.
+              render() {
+                archive="$2.tar.gz"
+                # The API route accepts basic auth; the web archive route answers 404 for a private repo.
+                url="${base%%/bifrost}/api/v1/repos/${org}/${repo}/archive/$1.tar.gz"
+                host_path="${url#http://}"
+                host_path="${host_path#https://}"
+                if ! wget -q -O "$archive" "http://${GIT_USERNAME}:${GIT_PASSWORD}@${host_path}"; then
+                  echo "could not fetch ${repo}@$1" >&2
+                  exit 1
+                fi
+                mkdir -p "$2"
+                tar -xzf "$archive" -C "$2"
+                root=$(find "$2" -mindepth 1 -maxdepth 1 -type d | head -n 1)
+                target="${root}/${path}"
+                if [ -d "$target" ]; then
+                  kubectl kustomize "$target" > "$2.rendered.yaml"
+                elif [ -f "$target" ]; then
+                  cp "$target" "$2.rendered.yaml"
+                else
+                  echo "path not in ${repo}@$1" >&2
+                  exit 1
+                fi
+                kubectl create --dry-run=client -o json -f "$2.rendered.yaml" \
+                  | jq -s '{apiVersion:"v1",kind:"List",items:.}' > "$3"
+              }
+              render "$commit" /tmp/src /tmp/normalized.json
               tier=$(sh /checks/apply-manifest-check.sh /policy/actuation-policy.yaml /tmp/normalized.json /tmp/objects.json)
               # Review 545 F1: the tier comes from what this commit renders, not from the caller.
               # The platform asks for main on tier C and D (workactions/service.go); a run that
@@ -194,6 +219,27 @@ spec:
                 case "$tier" in
                   A|B) ;;
                   *) echo "tier ${tier} is applied only from main: requireOnMain must be true" >&2; exit 1 ;;
+                esac
+              fi
+              # Review 546: an older main commit is also "on main", and applying it would bring
+              # back an older definition (this pipeline's included). Tier C and D apply only
+              # what main's head renders at the same path; a plan made before main changed
+              # that path is refused and has to be made again.
+              if [ "$mode" = "apply" ]; then
+                case "$tier" in
+                  A|B) ;;
+                  *)
+                    head=$(git -C /tmp/main.git rev-parse refs/heads/main)
+                    if [ "$head" != "$commit" ]; then
+                      render "$head" /tmp/head /tmp/head-normalized.json
+                      jq -S . /tmp/normalized.json > /tmp/commit.sorted.json
+                      jq -S . /tmp/head-normalized.json > /tmp/head.sorted.json
+                      if ! cmp -s /tmp/commit.sorted.json /tmp/head.sorted.json; then
+                        echo "${path} renders differently at main's head ${head}; plan again from main" >&2
+                        exit 1
+                      fi
+                    fi
+                    ;;
                 esac
               fi
               if [ "$mode" = "plan" ]; then

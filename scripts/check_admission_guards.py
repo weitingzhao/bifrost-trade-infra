@@ -225,55 +225,77 @@ def live() -> list[str]:
     applier = "system:serviceaccount:cicd:bifrost-applier"
     deliver = "system:serviceaccount:cicd:tekton-deliver"
     stg_platform = "system:serviceaccount:bifrost-platform-stg:bifrost-platform"
+    # A refusal case names the policy and a stable part of the validation message it must be
+    # refused with (review 545 F3, 546 R2); RBAC or another validation refusing it is reported.
+    pr_ref = (PR_POLICY, "must name a pipelineRef and must not use a resolver or an inline spec")
+    pr_workspace = (PR_POLICY, "PipelineRun workspaces may only be volumeClaimTemplate or emptyDir")
+    pr_pod = (PR_POLICY, "PipelineRun podTemplate may set only nodeSelector, tolerations and affinity")
+    pr_steps = (PR_POLICY, "tekton-deliver runs only the listed delivery steps")
+    pr_params = (PR_POLICY, "platform run parameters must be plain strings")
+    pr_gitea = (PR_POLICY, "platform run giteaBase must be the in-cluster Gitea")
+    tr_identity = (TR_POLICY, "platform TaskRuns run as default")
+    tr_pod = (TR_POLICY, "TaskRun podTemplate may set only nodeSelector, tolerations and affinity")
+    tr_params = (TR_POLICY, "platform TaskRun parameters must be plain strings")
+    tr_gitea = (TR_POLICY, "platform TaskRun giteaBase must be the in-cluster Gitea")
+    cm_platform = (CM_POLICY, "the Ops platform may write only its own ConfigMaps in cicd")
+    cm_deliver = (CM_POLICY, "tekton-deliver may write only the STG Dockerfile ConfigMaps in cicd")
+    app_spec = ("bifrost-platform-application", "platform may change only the sync operation and targetRevision")
+    app_kustomize = ("bifrost-platform-application", "only a platform delivery may change spec.source.kustomize")
     cases = [
-        ("inline-pipelinerun", platform, "cicd", inline_run(), True),
-        ("resolver-pipelinerun", platform, "cicd", resolver_run(), True),
-        ("secret-workspace-pipelinerun", platform, "cicd", secret_workspace_run(), True),
-        ("hostpath-podtemplate-pipelinerun", platform, "cicd", hostpath_run(), True),
+        ("inline-pipelinerun", platform, "cicd", inline_run(), True, pr_ref),
+        ("resolver-pipelinerun", platform, "cicd", resolver_run(), True, pr_ref),
+        ("secret-workspace-pipelinerun", platform, "cicd", secret_workspace_run(), True, pr_workspace),
+        ("hostpath-podtemplate-pipelinerun", platform, "cicd", hostpath_run(), True, pr_pod),
         ("normal-pipelinerun", platform, "cicd", normal_run(), False),
         # TD-436: which steps may run as which identity, and plain parameters (TD-435).
-        ("ci-template-deliver-pipelinerun", platform, "cicd", tekton_run("bifrost-ci-platform", [], template_sa="tekton-deliver"), True, PR_POLICY),
-        ("gitea-base-pipelinerun", platform, "cicd", tekton_run("bifrost-ci-platform", [], params=[("giteaBase", "http://example.invalid/bifrost")]), True, PR_POLICY),
-        ("applier-taskrun", platform, "cicd", tekton_taskrun("bifrost-apply-manifest", "bifrost-applier"), True, TR_POLICY),
-        ("deliver-other-taskrun", platform, "cicd", tekton_taskrun("bifrost-git-clone-gitea", "tekton-deliver"), True, TR_POLICY),
+        ("ci-template-deliver-pipelinerun", platform, "cicd", tekton_run("bifrost-ci-platform", [], template_sa="tekton-deliver"), True, pr_steps),
+        ("gitea-base-pipelinerun", platform, "cicd", tekton_run("bifrost-ci-platform", [], params=[("giteaBase", "http://example.invalid/bifrost")]), True, pr_gitea),
+        ("applier-taskrun", platform, "cicd", tekton_taskrun("bifrost-apply-manifest", "bifrost-applier"), True, tr_identity),
+        ("deliver-other-taskrun", platform, "cicd", tekton_taskrun("bifrost-git-clone-gitea", "tekton-deliver"), True, tr_identity),
         ("refresh-taskrun", platform, "cicd", tekton_taskrun("bifrost-refresh-dockerfile-cms", "tekton-deliver"), False),
         # Review 545 F2: a Pod template may only place the Pod; it may not redirect names or add env.
         ("amd64-template-pipelinerun", platform, "cicd", tekton_run("bifrost-ci-platform", [], template_pod=AMD64), False),
-        ("host-alias-template-pipelinerun", platform, "cicd", tekton_run("bifrost-ci-platform", [], template_pod=HOST_ALIAS), True, PR_POLICY),
+        ("host-alias-template-pipelinerun", platform, "cicd", tekton_run("bifrost-ci-platform", [], template_pod=HOST_ALIAS), True, pr_pod),
         ("dns-step-pipelinerun", platform, "cicd",
-         tekton_run("bifrost-deliver-platform", [("rollout", "tekton-deliver")], step_pod=DNS_OVERRIDE), True, PR_POLICY),
+         tekton_run("bifrost-deliver-platform", [("rollout", "tekton-deliver")], step_pod=DNS_OVERRIDE), True, pr_pod),
         ("amd64-mirror-taskrun", platform, "cicd", tekton_taskrun("bifrost-gitea-mirror-sync", "default", pod=AMD64), False),
-        ("host-alias-mirror-taskrun", platform, "cicd", tekton_taskrun("bifrost-gitea-mirror-sync", "default", pod=HOST_ALIAS), True, TR_POLICY),
+        ("host-alias-mirror-taskrun", platform, "cicd", tekton_taskrun("bifrost-gitea-mirror-sync", "default", pod=HOST_ALIAS), True, tr_pod),
         ("env-mirror-taskrun", platform, "cicd",
-         tekton_taskrun("bifrost-gitea-mirror-sync", "default", pod={"env": [{"name": "X", "value": "1"}]}), True, TR_POLICY),
+         tekton_taskrun("bifrost-gitea-mirror-sync", "default", pod={"env": [{"name": "X", "value": "1"}]}), True, tr_pod),
         ("url-other-host-taskrun", platform, "cicd",
-         tekton_taskrun("bifrost-refresh-dockerfile-cms", "tekton-deliver", params=[("url", "http://example.invalid/bifrost/x")]), True, TR_POLICY),
+         tekton_taskrun("bifrost-refresh-dockerfile-cms", "tekton-deliver", params=[("url", "http://example.invalid/bifrost/x")]), True, tr_gitea),
         ("url-gitea-taskrun", platform, "cicd",
          tekton_taskrun("bifrost-refresh-dockerfile-cms", "tekton-deliver",
                         params=[("url", "http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-trade-infra")]), False),
+        ("semicolon-taskrun", platform, "cicd",
+         tekton_taskrun("bifrost-refresh-dockerfile-cms", "tekton-deliver", params=[("revision", "main;true")]), True, tr_params),
+        ("empty-param-taskrun", platform, "cicd",
+         tekton_taskrun("bifrost-refresh-dockerfile-cms", "tekton-deliver", params=[("revision", "")]), False),
         # TD-434: the platform writes only its own ConfigMaps in cicd.
-        ("deliver-writes-sync-script", deliver, "cicd", configmap("github-sync-scripts"), True),
-        ("deliver-writes-dockerfile", deliver, "cicd", configmap("bifrost-api-stg-dockerfile"), False),
+        ("deliver-writes-sync-script", deliver, "cicd", configmap("github-sync-scripts"), True, cm_deliver),
     ]
+    cases += [(f"deliver-writes-{name}", deliver, "cicd", configmap(name), False) for name in DOCKERFILE_CONFIGMAPS]
     # Review 542 TD-434: every ConfigMap in cicd that another workload runs or obeys is refused
     # to both platform accounts; the five kinds the platform owns still pass.
     for who, identity in (("prod", platform), ("stg", stg_platform)):
-        cases += [(f"{who}-writes-{name}", identity, "cicd", configmap(name), True, CM_POLICY) for name in CICD_FOREIGN_CONFIGMAPS]
+        cases += [(f"{who}-writes-{name}", identity, "cicd", configmap(name), True, cm_platform) for name in CICD_FOREIGN_CONFIGMAPS]
         cases += [(f"{who}-writes-{name}", identity, "cicd", configmap(name), False) for name in PLATFORM_CICD_CONFIGMAPS]
     # TD-436: every step admission lets tekton-deliver run is allowed, and no CI step may borrow it.
     cases += [(f"deliver-step-{pair}", platform, "cicd", tekton_run(pair.split("/")[0], [(pair.split("/")[1], "tekton-deliver")]), False)
               for pair in deliver_steps()]
-    cases += [(f"ci-step-as-deliver-{step}", platform, "cicd", tekton_run("bifrost-ci-platform", [(step, "tekton-deliver")]), True, PR_POLICY)
+    cases += [(f"ci-step-as-deliver-{step}", platform, "cicd", tekton_run("bifrost-ci-platform", [(step, "tekton-deliver")]), True, pr_steps)
               for step in ci_platform_steps()]
     # TD-435, review 545 F5: Git ref characters pass, shell syntax, a leading dash, arrays and length do not.
     for label, value, deny in PARAM_CASES:
         cases.append((f"param-{label}", platform, "cicd", tekton_run("bifrost-ci-platform", [], params=[("revision", value)]), deny,
-                      PR_POLICY if deny else None))
+                      pr_params if deny else None))
     cases += [
-        ("applier-hostpath-deployment", applier, "bifrost-dev", applier_hostpath_deployment(), True),
-        ("applier-grafana-deployment", applier, "monitoring", applier_grafana_deployment(), True),
-        ("application-sources", platform, "cicd", application_sources(), True),
-        ("application-kustomize", platform, "cicd", application_kustomize(), True),
+        ("applier-hostpath-deployment", applier, "bifrost-dev", applier_hostpath_deployment(), True,
+         ("bifrost-applier-pod-spec", "applier workloads must not use hostPath")),
+        ("applier-grafana-deployment", applier, "monitoring", applier_grafana_deployment(), True,
+         ("bifrost-applier-pod-spec", "applier workloads may only use a service account measured for that namespace")),
+        ("application-sources", platform, "cicd", application_sources(), True, app_spec),
+        ("application-kustomize", platform, "cicd", application_kustomize(), True, app_kustomize),
     ]
     # Built from the live Application where it can be read, so each case differs from it in the
     # one field it tests: a fixed repoURL or path would be denied by the repoURL rule instead and
@@ -285,8 +307,8 @@ def live() -> list[str]:
         problems.append("application-sources, application-kustomize: cannot read the live Application bifrost-research")
     else:
         cases[-2:] = [
-            ("application-sources", platform, "cicd", with_spec(research, sources=[{"repoURL": "https://example.invalid/other.git", "path": "k8s"}]), True),
-            ("application-kustomize", platform, "cicd", with_source(research, kustomize={"images": ["evil.example/x:1"]}), True),
+            ("application-sources", platform, "cicd", with_spec(research, sources=[{"repoURL": "https://example.invalid/other.git", "path": "k8s"}]), True, app_spec),
+            ("application-kustomize", platform, "cicd", with_source(research, kustomize={"images": ["evil.example/x:1"]}), True, app_kustomize),
         ]
     # A platform delivery may pin its own application by digest and nothing else (TD-335).
     stg = live_application("bifrost-platform-stg")
@@ -296,35 +318,42 @@ def live() -> list[str]:
         cases += [
             ("deliver-pin", deliver, "cicd", with_source(stg, kustomize=delivery_pin()), False),
             ("deliver-pin-other-registry", deliver, "cicd",
-             with_source(stg, kustomize=delivery_pin(api="evil.example/bifrost-platform-api@" + ZERO_DIGEST)), True),
+             with_source(stg, kustomize=delivery_pin(api="evil.example/bifrost-platform-api@" + ZERO_DIGEST)), True, app_kustomize),
             ("deliver-pin-by-tag", deliver, "cicd",
-             with_source(stg, kustomize=delivery_pin(console=PIN_TARGET % "console" + ":stg")), True),
+             with_source(stg, kustomize=delivery_pin(console=PIN_TARGET % "console" + ":stg")), True, app_kustomize),
             ("deliver-pin-and-more", deliver, "cicd",
-             with_source(stg, kustomize={**delivery_pin(), "namePrefix": "x-"}), True),
-            ("platform-pin", platform, "cicd", with_source(stg, kustomize=delivery_pin()), True),
+             with_source(stg, kustomize={**delivery_pin(), "namePrefix": "x-"}), True, app_kustomize),
+            ("platform-pin", platform, "cicd", with_source(stg, kustomize=delivery_pin()), True, app_kustomize),
         ]
         if research is not None:
-            cases.append(("deliver-pin-research", deliver, "cicd", with_source(research, kustomize=delivery_pin()), True))
-    # Review 542 A2, 545 F3/F4: the platform may restart or scale a Deployment and set its
-    # session annotation, nothing else. Sent as a full-object update (kubectl replace), the way
-    # the platform's GET-then-Update does it, from the live object with its metadata kept.
+            cases.append(("deliver-pin-research", deliver, "cicd", with_source(research, kustomize=delivery_pin()), True, app_kustomize))
+    # Review 542 A2, 545 F3/F4, 546 R1/R2: the platform may restart or scale a Deployment and set
+    # its session annotation, nothing else. Sent as a full-object update (kubectl replace) of the
+    # live object with its metadata kept (resourceVersion included, managedFields dropped), the
+    # way the platform's GET-then-Update sends it.
     gitea = live_object("cicd", "deployment", "gitea", keep_metadata=True)
     if gitea is None:
         problems.append("deployment cases: cannot read the live Deployment cicd/gitea")
     else:
-        for label, change, deny in DEPLOYMENT_CASES:
+        for label, change, message in DEPLOYMENT_CASES:
             changed = json.loads(json.dumps(gitea))
             change(changed)
-            cases.append((f"platform-deployment-{label}", platform, "cicd", json.dumps(changed), deny,
-                          DEPLOY_POLICY if deny else None, "replace"))
+            if changed == gitea:
+                problems.append(f"platform-deployment-{label}: the change leaves the live object as it is")
+                continue
+            cases.append((f"platform-deployment-{label}", platform, "cicd", json.dumps(changed), message is not None,
+                          (DEPLOY_POLICY, message) if message else None, "replace"))
     # Ask first: without impersonation kubectl fails while downloading OpenAPI as
     # the target ("failed to download openapi: unknown"), which names no cause.
     for identity in (platform, applier, deliver, stg_platform):
         if not may_impersonate(identity):
             raise OwnerOnly(identity)
     for name, identity, ns, body, want_deny, *rest in cases:
-        policy = rest[0] if rest else None
+        expect = rest[0] if rest else None
         verb = rest[1] if len(rest) > 1 else "apply"
+        if want_deny and expect is None:
+            problems.append(f"{name}: a refusal case must name its policy and message")
+            continue
         outcome, detail = dry_run(identity, ns, body, verb)
         if outcome == "impersonation":
             raise OwnerOnly(detail)
@@ -334,9 +363,10 @@ def live() -> list[str]:
         denied = outcome == "denied"
         if denied != want_deny:
             problems.append(f"{name}: denied={denied} want {want_deny}" + (f": {detail}" if denied else ""))
-        elif denied and policy and f"'{policy}'" not in detail:
-            # review 545 F3: the refusal must come from the rule under test, not another policy or RBAC
-            problems.append(f"{name}: denied, but not by {policy}: {detail}")
+        elif denied and not (f"'{expect[0]}'" in detail and expect[1] in detail):
+            # review 545 F3, 546 R2: the refusal must come from the validation under test, not
+            # from RBAC, another policy or another validation of the same policy
+            problems.append(f"{name}: denied, but not by {expect[0]} with \"{expect[1]}\": {detail}")
     return problems
 
 
@@ -363,6 +393,10 @@ def crd_pod_template_drift() -> list[str]:
             problems.append(f"crd {crd} {'.'.join(path)}: no typed fields (a schemaless template needs a different rule)")
         for f in sorted(fields - known):
             problems.append(f"crd {crd} {'.'.join(path)}: new field {f}: add it to POD_TEMPLATE_DENIED and 40-admission.yaml, or allow it")
+        for f in sorted(known - fields):
+            problems.append(f"crd {crd} {'.'.join(path)}: field {f} is gone: check the lists still match the CRD")
+        if node.get("x-kubernetes-preserve-unknown-fields") or node.get("additionalProperties"):
+            problems.append(f"crd {crd} {'.'.join(path)}: no longer prunes unknown fields: the deny list is no allow-list")
     return problems
 
 
@@ -731,15 +765,17 @@ def configmap(name: str) -> str:
 
 def live_object(namespace: str, kind: str, name: str, keep_metadata: bool = False) -> dict | None:
     """The live object stripped to what kubectl apply needs, or None when it cannot be read.
-    keep_metadata keeps labels and annotations for a full-object update (kubectl replace)."""
+    keep_metadata keeps all metadata but managedFields (resourceVersion included) for a
+    full-object update (kubectl replace), as the platform's GET-then-Update sends it."""
     r = subprocess.run(["kubectl", "get", kind, name, "-n", namespace, "-o", "json"], capture_output=True, text=True)
     if r.returncode != 0:
         return None
     obj = json.loads(r.stdout)
     meta = obj.get("metadata", {})
-    kept = {"name": meta.get("name"), "namespace": meta.get("namespace")}
     if keep_metadata:
-        kept.update({k: meta[k] for k in ("labels", "annotations") if k in meta})
+        kept = {k: v for k, v in meta.items() if k != "managedFields"}
+    else:
+        kept = {"name": meta.get("name"), "namespace": meta.get("namespace")}
     obj["metadata"] = kept
     obj.pop("status", None)
     return obj
@@ -766,19 +802,34 @@ def _set_image(d: dict) -> None:
     d["spec"]["template"]["spec"]["containers"][0]["image"] = "example.invalid/gitea:td432"
 
 
-# (label, change to a copy of the live cicd/gitea Deployment, denied?) — review 545 F3/F4
+# (label, change to a copy of the live cicd/gitea Deployment, None when allowed or the
+# validation message that must refuse it) — review 545 F3/F4, 546 R1/R2
 DEPLOYMENT_CASES = (
-    ("restart", _set_template_annotation("kubectl.kubernetes.io/restartedAt", "2026-10-24T00:00:00Z"), False),
-    ("scale", lambda d: d["spec"].__setitem__("replicas", 0), False),
-    ("session-annotation", _set_annotation("bifrost.dev/session-desired-replicas", "1"), False),
-    ("image", _set_image, True),
-    ("pause", lambda d: d["spec"].__setitem__("paused", True), True),
-    ("strategy", _flip_strategy, True),
-    ("min-ready", lambda d: d["spec"].__setitem__("minReadySeconds", 7), True),
-    ("template-label", lambda d: d["spec"]["template"].setdefault("metadata", {}).setdefault("labels", {}).__setitem__("td432", "x"), True),
-    ("template-annotation", _set_template_annotation("td432/other", "x"), True),
-    ("own-label", lambda d: d["metadata"].setdefault("labels", {}).__setitem__("td432", "x"), True),
-    ("own-annotation", _set_annotation("td432/other", "x"), True),
+    ("restart", _set_template_annotation("kubectl.kubernetes.io/restartedAt", "2026-10-24T00:00:00Z"), None),
+    ("scale", lambda d: d["spec"].__setitem__("replicas", 0 if d["spec"].get("replicas", 1) else 1), None),
+    ("session-annotation", _set_annotation("bifrost.dev/session-desired-replicas", "td432"), None),
+    ("image", _set_image, "not change its pod spec"),
+    ("pause", lambda d: d["spec"].__setitem__("paused", not d["spec"].get("paused", False)), "how a Deployment rolls out"),
+    ("strategy", _flip_strategy, "how a Deployment rolls out"),
+    ("min-ready", lambda d: d["spec"].__setitem__("minReadySeconds", d["spec"].get("minReadySeconds", 0) + 7), "how a Deployment rolls out"),
+    ("template-label", lambda d: d["spec"]["template"].setdefault("metadata", {}).setdefault("labels", {}).__setitem__("td432", "x"),
+     "pod template labels"),
+    ("template-annotation", _set_template_annotation("td432/other", "x"), "only the restartedAt annotation"),
+    ("own-label", lambda d: d["metadata"].setdefault("labels", {}).__setitem__("td432", "x"), "session-desired-replicas annotation"),
+    ("own-annotation", _set_annotation("td432/other", "x"), "session-desired-replicas annotation"),
+    ("finalizer", lambda d: d["metadata"].setdefault("finalizers", []).append("td432.example/hold"), "finalizers or owner references"),
+    ("owner-reference", lambda d: d["metadata"].setdefault("ownerReferences", []).append(
+        {"apiVersion": "v1", "kind": "ConfigMap", "name": "td432", "uid": "00000000-0000-0000-0000-000000000000"}),
+     "finalizers or owner references"),
+)
+
+# The five STG Dockerfile ConfigMaps tekton-deliver writes (46-cicd-configmaps.yaml).
+DOCKERFILE_CONFIGMAPS = (
+    "bifrost-api-stg-dockerfile",
+    "bifrost-frontend-stg-dockerfile",
+    "bifrost-worker-stg-dockerfile",
+    "bifrost-platform-api-stg-dockerfile",
+    "bifrost-platform-console-stg-dockerfile",
 )
 
 # (label, revision parameter value, denied?) — TD-435, review 545 F5
@@ -793,6 +844,8 @@ PARAM_CASES = (
     ("command-substitution", "$(id)", True),
     ("space", "main true", True),
     ("leading-dash", "--upload-pack=x", True),
+    ("empty", "", False),
+    ("object", {"a": "b"}, True),
     ("array", ["main"], True),
 )
 

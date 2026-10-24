@@ -1,4 +1,5 @@
-"""TD-435 ratchet: every trigger of the CI EventListener admits only a 40-hex `after`.
+"""TD-435 ratchet: every trigger of the CI EventListener admits only a 40-hex `after`;
+the one that passes the ref on (github-sync) also pins the ref.
 
 The EventListener bifrost-ci (k8s/cicd/tekton/trigger-trade-ci.yaml) has no webhook
 secret, so anything that can reach it can post a push body. `after` becomes the
@@ -38,13 +39,17 @@ def filters(docs: list[dict]) -> dict[str, list[str]]:
     return found
 
 
+# Triggers whose template passes the ref on (github-sync); CI templates take only `after`.
+REF_USERS = ("github-sync",)
+
+
 def problems(docs: list[dict]) -> list[str]:
     out = []
     for name, cel in filters(docs).items():
         text = " && ".join(cel)
         if SHA_RULE not in text:
             out.append(f"{name}: no 40-hex rule on body.after")
-        if not any(r in text for r in REF_RULES):
+        if name in REF_USERS and not any(r in text for r in REF_RULES):
             out.append(f"{name}: no plain-character rule on body.ref")
     return out
 
@@ -59,9 +64,11 @@ class TriggerFilters(unittest.TestCase):
         # positive control: the filter as it was before TD-435
         old = [{"kind": "EventListener", "spec": {"triggers": [{"name": "python-ci", "interceptors": [
             {"ref": {"name": "cel"}, "params": [{"name": "filter", "value":
-             "body.ref.startsWith('refs/heads/') && body.after != '0000000000000000000000000000000000000000'"}]}]}]}}]
+             "body.ref.startsWith('refs/heads/') && body.after != '0000000000000000000000000000000000000000'"}]}]},
+            {"name": "github-sync", "interceptors": [{"ref": {"name": "cel"}, "params": [{"name": "filter", "value":
+             "body.after.matches('^[0-9a-f]{40}$') && body.ref.startsWith('refs/tags/')"}]}]}]}}]
         self.assertEqual(problems(old), ["python-ci: no 40-hex rule on body.after",
-                                         "python-ci: no plain-character rule on body.ref"])
+                                         "github-sync: no plain-character rule on body.ref"])
 
 
 if __name__ == "__main__":

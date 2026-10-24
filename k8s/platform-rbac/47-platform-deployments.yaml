@@ -9,8 +9,9 @@
 # labels, the selector, every template annotation other than
 # kubectl.kubernetes.io/restartedAt, the rollout settings (paused, strategy,
 # minReadySeconds, progressDeadlineSeconds, revisionHistoryLimit), the
-# Deployment's labels and every annotation of its own other than
-# bifrost.dev/session-desired-replicas as they were (review 545 F4).
+# Deployment's labels, finalizers and owner references, and every annotation of
+# its own other than bifrost.dev/session-desired-replicas as they were (review
+# 545 F4, 546 R1).
 # resourceVersion, generation and managedFields are not compared. Image, command, environment,
 # ServiceAccount and volumes of Gitea, Argo CD, the EventListener, the
 # monitoring operator or any other workload stay with Argo CD, the applier and
@@ -91,6 +92,12 @@ spec:
       message: >-
         the Ops platform may change only the bifrost.dev/session-desired-replicas annotation
         of a Deployment's own metadata, and none of its labels (review 545 F4)
+    - expression: >-
+        has(object.metadata.finalizers) == has(oldObject.metadata.finalizers)
+        && (!has(object.metadata.finalizers) || object.metadata.finalizers == oldObject.metadata.finalizers)
+        && has(object.metadata.ownerReferences) == has(oldObject.metadata.ownerReferences)
+        && (!has(object.metadata.ownerReferences) || object.metadata.ownerReferences == oldObject.metadata.ownerReferences)
+      message: the Ops platform may not change a Deployment's finalizers or owner references (review 546 R1)
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

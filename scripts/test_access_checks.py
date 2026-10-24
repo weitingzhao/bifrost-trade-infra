@@ -169,6 +169,42 @@ class RefusalSourceTests(unittest.TestCase):
         self.assertTrue(any("param-semicolon: denied, but not by bifrost-platform-pipelinerun" in p for p in problems), problems)
         self.assertTrue(any("platform-deployment-restart: denied=True want False" in p for p in problems), problems)
 
+    def test_a_refusal_by_another_validation_of_the_same_policy_is_reported(self) -> None:
+        # review 546 R2: the policy's name alone does not show which rule refused
+        class Result:
+            def __init__(self, returncode: int, stdout: str = "", stderr: str = ""):
+                self.returncode, self.stdout, self.stderr = returncode, stdout, stderr
+
+        app = {"metadata": {"name": "x", "namespace": "cicd"},
+               "spec": {"project": "bifrost", "source": {"repoURL": "https://example.invalid/x.git", "path": "k8s"},
+                        "destination": {"namespace": "x", "server": "https://kubernetes.default.svc"}}}
+        gitea = {"metadata": {"name": "gitea", "namespace": "cicd"},
+                 "spec": {"template": {"metadata": {}, "spec": {"containers": [{"name": "gitea", "image": "g:1"}]}}}}
+        policies = [guards.PR_POLICY, guards.TR_POLICY, guards.CM_POLICY, guards.DEPLOY_POLICY,
+                    "bifrost-platform-application", "bifrost-applier-pod-spec"]
+
+        def fake_run(args, **_kwargs):
+            args = list(args)
+            if args[:3] == ["kubectl", "get", "application"]:
+                return Result(0, json.dumps(app))
+            if args[:4] == ["kubectl", "get", "deployment", "gitea"]:
+                return Result(0, json.dumps(gitea))
+            if args[:4] == ["kubectl", "auth", "can-i", "impersonate"]:
+                return Result(0, "yes\n")
+            named = " ".join(f"ValidatingAdmissionPolicy '{p}'" for p in policies)
+            return Result(1, stderr=f"x is forbidden: {named} denied request: an unrelated rule")
+
+        original = guards.subprocess.run
+        guards.subprocess.run = fake_run
+        try:
+            problems = guards.live()
+        finally:
+            guards.subprocess.run = original
+        wrong = [p for p in problems if "denied, but not by" in p]
+        self.assertTrue(any(p.startswith("platform-deployment-image:") for p in wrong), problems)
+        self.assertTrue(any(p.startswith("url-other-host-taskrun:") for p in wrong), problems)
+        self.assertFalse(any("must name its policy and message" in p for p in problems), problems)
+
 
 class PlanDiffTests(unittest.TestCase):
     def test_the_old_diff_line_is_refused(self) -> None:
