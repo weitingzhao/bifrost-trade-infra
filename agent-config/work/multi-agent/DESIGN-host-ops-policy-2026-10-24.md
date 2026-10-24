@@ -1,7 +1,7 @@
 # 主机操作策略与带外执行器
 
 2026-10-24 · Work 560 · W-31 第 4 轮 4.7 / W-50。
-状态：设计提案，未签名，未实施。
+状态：复核 1 修订稿，未签名，未实施。
 
 Owner 已决定三层授权。
 只读直接做；例行操作按签名策略自动做；高风险操作逐次批。
@@ -49,6 +49,32 @@ W-50 的“现在”列描述选定方案；其状态仍是搁置。
 `plan` 绑定前态、影响对象和回退方案。
 表中来源编号见 §2.4。
 
+### 2.0 资产登记的信任根
+
+全部登记表合成版本化 `host-ops-inventory` 制品。
+Owner 以 `bifrost-host-ops-inventory` 域签名完整字节。
+Agent 可提案；只有 Owner 签名才能发布或替换。
+执行器和 helper 均在本地验签并原子安装。
+文件及父目录归 root，Agent 与平台服务不可写。
+安装记录版本、摘要和有效期，拒绝回放旧版本。
+签名、有效期或本地副本缺失，R/M/H 都不执行。
+
+| 登记对象 | 签名内容 |
+|---|---|
+| host | ID、环境、系统、host key、MAC、固定 IP、生命周期初值、允许的 executor |
+| service/project | 规范服务名及别名、配置摘要、`stateful`、依赖、允许动作和维护范围 |
+| root_id/install_id | 根路径、属主、用途、可重建证明、文件清单、安装 execution ID |
+| endpoint_id/repo_set | 固定地址、端口、只读方法、仓库集合和合法映射 |
+| protected registry | VIP、共享地址、禁止目录、数据卷、受保护服务及凭证位置的标识 |
+
+R 的 allowlist 直接来自已签登记制品，不来自请求或可写数据库。
+`host_logs` 在 helper 内先限制来源、过滤字段，再脱敏。
+未经脱敏的日志不离开目标主机；失败时抑制整段。
+平台再次脱敏，不能代替 helper 的第一道处理。
+登记表扩权不自动扩大旧 M 策略；摘要不符须重新签策略。
+运行状态另存只增的 journal，不能改写签名登记表。
+安装归属由签名清单和 helper 的安装回执共同证明。
+
 ### 2.1 R：直接执行并留审计
 
 | 具名动作与参数 | 可触碰范围、实际执行 | 回退 | 来源 |
@@ -69,28 +95,38 @@ W-50 的“现在”列描述选定方案；其状态仍是搁置。
 
 | 具名动作与参数 | 可触碰范围、实际执行 | 回退或停止条件 | 来源 |
 |---|---|---|---|
-| `host_service_restart(host, service)` | 登记服务的 `systemctl restart` 或 `launchctl kickstart` | 重启不恢复内存；健康失败停自动循环 | O2/O13 |
-| `host_service_state(host, service, state)` | 固定 unit 的 start/stop/disable；含旧 Mac agentd 退役 | 恢复原启用及运行状态；agentd 先停派并排空 | O2/O8 |
+| `host_service_restart(host, service)` | 登记服务的 `systemctl restart` 或 `launchctl kickstart`；排除 never-M | 重启不恢复内存；健康失败停自动循环 | O2/O13 |
+| `host_service_state(host, service, state)` | 固定 unit 的 start/stop/disable；排除 never-M；含旧 Mac agentd 退役 | 恢复原启用及运行状态；agentd 先停派并排空 | O2/O8 |
 | `host_container_restart(host, project, service)` | 固定容器 `docker restart`；不变镜像、挂载、权限 | 健康失败恢复旧配置；内存不可恢复 | O13/B |
-| `host_compose_reconcile(host, project, bundle)` | 固定 compose 的 `pull`、`up -d`；同配置可 force-recreate | 保留旧 digest/config；用旧版重建；不执行 `down -v` | O13/B |
+| `host_compose_reconcile(host, project, bundle)` | 仅 `stateful=false`；签名 compose 的 `pull`、`up -d` 或重建 | 保留旧 digest/config；用旧版重建；不执行 `down -v` | O13/B |
 | `host_image_stage(host, artifact)` | 校验归档后 `docker load`；只导入已登记镜像 | 删除本次未引用镜像；不改运行容器 | O13 |
 | `host_monitoring_install(host, bundle)` | mini 安装 LaunchAgent；06 安装 exporter；NAS 固定 compose | 恢复旧文件与服务；首次安装可撤登记对象 | O13 |
-| `host_monitoring_remove(host, install_id)` | 停用本次安装的 exporter，移除确定的文件清单 | 重装原 bundle；先协调平台告警配置 | O13 |
+| `host_monitoring_remove(host, install_id)` | 仅移除本执行器安装回执对应的 exporter 与文件 | 重装原签名 bundle；不接管其他安装；先协调告警 | O13 |
 | `host_monitoring_drill(host, exporter, duration_s)` | 停一个 exporter，记录告警，再恢复；最长 10 分钟 | 主机本地定时恢复；一次只演一台 | O13 |
-| `host_agentd_update(host, bundle, environment)` | 停派、排空、安装固定二进制与等权 unit、启动、核对 | 回到上一 digest；隔离、凭证、出站规则变化转 H | O2/O8 |
+| `host_agentd_update(host, bundle, environment)` | 停派、排空、只替换已签二进制、启动、核对；unit 不变 | 回到上一 digest；unit、隔离、凭证、出站规则变化转 H | O2/O8 |
 | `host_toolchain_install(host, bundle)` | 已登记目录内安装固定 Go/Node/CLI/测试 DB 工具 | 切回旧版本；不运行可变远程安装脚本 | O2/O3 |
 | `host_validation_run(host, profile, bundle)` | 固定 sandbox、隔离、bench、exam、Git 保护探针 | 停指定进程组；只清合成测试资源；不放宽保护 | O2/O8 |
 | `host_temp_cleanup(host, plan)` | 重建缓存、node_modules、登记临时日志；先移入隔离区 | 7 天内恢复；到期只清可重建对象 | W1/O2 |
 | `host_lifecycle_collect(host, plan)` | 调现有生命周期检查；按任务归属归档已结束 worktree | 恢复 bundle；脏目录、无归属目录只报 | W1 |
-| `host_netplan_apply(host, plan)` | 固定接口及已审阅配置；备份、generate、apply、双路探测 | 先装本地超时回退；不改 VLAN、网关、防火墙 | B |
+| `host_netplan_apply(host, plan)` | 仅 `new/out-of-cluster`；签名配置、备份、generate、apply、双路探测 | 先装本地超时回退；集群内一律 H | B |
 | `host_new_node_join(host, runbook, cluster_id)` | 新空白 worker；固定 K3s 版本、标签和初始 taint | 无负载时撤本次安装；已有工作负载转 H | B/W2 |
 | `host_new_node_fixed_ip(host, plan)` | 平台调用现有 UniFi 实现；只写目标 MAC 的三字段 | 恢复 before；原为 DHCP 时需新增受限恢复动作 | B/N |
 | `host_git_endpoint_set(host, repo_set, mapping)` | 固定 origin/insteadOf；只允许登记的 Gitea 地址 | 恢复原配置；不接触 credential helper | O8 |
 
 M 不是“任何可撤回命令”。
 重启有短时中断，先检查依赖和维护锁。
-MinIO、Gitea、registry 有共享依赖，必须逐项目登记。
-NAS 旧 MinIO 路径安全性未核实前，不纳入自动重建。
+MinIO、Gitea、registry 必须登记为 `stateful=true`。
+有状态项目换镜像或 recreate 一律 H，不能假定降版能回退数据格式。
+M 仅允许同 digest、同配置的容器 restart，仍须依赖检查。
+未知 `stateful` 按有状态处理；NAS 旧 MinIO 不纳入自动重建。
+never-M 固化在 catalog 和 helper 代码，两边都检查。
+名单为 `k3s`、`k3s-agent`、`containerd`、`docker`、`postgresql`、`sshd`、`bifrost-host-exec`、`systemd-networkd`。
+匹配包含 `.service`、实例及 launchd 别名，先解析规范身份。
+签名策略也不能覆盖名单，其他动作不能代替服务入口绕行。
+名单限制既有服务维护；join 仅允许签名 runbook 中新 worker 的首次启动。
+join 不得调用既有 K3s 服务的 restart/state 来完成修复。
+执行器始终不得操作自己的账户、服务、钥匙或 helper。
+自维护由 Owner 的独立维护入口逐次执行。
 目录位于可写父目录时直接拒绝，不自动 chown 修补。
 
 `prepare-agent-06.sh` 同时改防火墙、AppArmor 和凭证。
@@ -101,14 +137,26 @@ NAS 旧 MinIO 路径安全性未核实前，不纳入自动重建。
 
 临时清理只涵盖可重建且无活跃引用的对象。
 身份由受保护登记表决定，不靠目录名猜测。
+helper 在锁内重算候选、活跃引用、属主、inode 和字节上限。
+请求中的 plan 只是提示，不能授权其列出的路径。
+实际候选必须属于签名登记范围，且不超出已绑定的计划。
+候选变化即拒绝并重做 plan；隔离及到期清理都复查。
 删除唯一代码、证据、备份或业务数据，永远归 H。
 已清缓存只能重建，不能宣称原字节可恢复。
 
-netplan 自动范围只含单机地址、DNS 等登记变更。
-集群成员须有第二管理路径和集群健康前置检查。
+netplan 自动范围只含集群外单机地址、DNS 等登记变更。
+任何集群成员，包括 PROD Postgres 节点，一律 H。
 涉及路由拓扑、共享 VIP 或无法证明回退，转 H。
 新节点加入前须证明不在集群、无业务卷。
 加入时保持 `NoSchedule`；放开调度另走平台动作。
+join 开始时先持有 host 锁，原子 CAS `new → joining`。
+生命周期记录带 generation，先持久化，再签票据、再做副作用。
+helper 同样先持久化 `joining`，才允许本次 join 的步骤。
+有效生命周期取登记初值与两侧 journal 中最保守的状态。
+任何一侧不一致、失联或已开始 join，都不能再视作 new。
+成功转 `in-cluster`；失败留 `joining/unknown`，回退不恢复 new。
+重设 new 只能通过更高版本的 Owner 签名登记变更。
+重设前须证明无集群成员身份、业务卷及运行负载。
 已有 join credential 仅由 helper 消费，不交给 Agent。
 创建、轮换或扩权该 credential 仍逐次批准。
 
@@ -117,6 +165,11 @@ MAC、IP、hostname 必须与资产记录完全匹配。
 现有 `unifi_client_fixed_ip` 保留 D 级入口。
 新入口复用其校验，额外检查生命周期与期望前态。
 补齐 DHCP 恢复、跨进程互斥后才能签入策略。
+UniFi 从未见过的客户端返回 `ErrClientNotFound`，本动作不写入。
+不附带“先 DHCP 一次”的隐含网络步骤；返回登记缺口供处理。
+固定 IP 还要排除登记的 VIP、静态地址和共享地址。
+例如 `192.168.10.100` 不因未出现在 UniFi 列表就可分配。
+fixed-IP 与 join 共用 host/lifecycle 锁；join CAS 后不能再领 fixed-IP。
 
 ### 2.3 H：逐动作批准；X：禁止
 
@@ -128,12 +181,16 @@ MAC、IP、hostname 必须与资产记录完全匹配。
 | `host_disk_provision(host, disk_id, layout)` | 指定序列号的分区、格式化、存储池 | 无原地回退；需已验备份；装 SSD 由人做 | B/W2 |
 | `host_data_delete(host, object_ids, plan)` | 精确数据、卷、备份或唯一文件；包括解密副本清理 | 从备份恢复；不能当临时缓存处理 | O2/O7/W1 |
 | `host_network_security_change(host, plan)` | firewall、VLAN、nftables、路由拓扑 | 独立管理路径回退；不经 M netplan 绕行 | O2/B |
+| `host_netplan_apply(host, plan)`（H 条件） | 任一集群成员的 netplan；包括数据节点 | 单次签名；独立管理路径与本地回退 | B/复核 A4 |
+| `host_compose_reconcile(host, project, bundle)`（H 条件） | 有状态项目的镜像变更或重建 | 先验证备份和恢复；旧 digest 不等于数据回退 | O13/复核 A4 |
+| `host_service_restart/state`（H 条件） | never-M 服务的逐次维护；执行器自身除外 | 显式影响及恢复计划；本执行器不得自维护 | O2/复核 A4 |
 | `host_node_power(host, operation, plan)` | 已入集群节点 reboot/poweroff；NAS 停机也纳入 | 开机与恢复负载；不可恢复内存 | O2/W2/B |
 | `host_node_retire(host, step, plan)` | cordon、卷备份/删除、drain、K3s uninstall、删除 Node | 每个高风险步骤单独批准；按 UID 复核 | O2 |
-| `host_access_change(host, account, plan)` | 新账户、sudoers、authorized_keys、AppArmor、NAS 家目录修复 | 吊销/禁用账户；不能回退为已知不安全权限 | O2/O3/O13 |
+| `host_access_change(host, account, plan)` | 新账户、sudoers、authorized_keys、AppArmor、helper 安装/升级、NAS 权限修复 | 逐次批准；执行器自身由 Owner 维护；不回退成不安全权限 | O2/O3/O13 |
 | `credential_install(target, credential_ref, operation)` | 生成、复制、轮换、撤销 Secret/令牌；CLI 登录、钥匙串、pgpass | 重新签发；不输出值；Owner 完成设备登录 | O2/O3/O4/O5/O8/O12 |
 | `host_backup_verify(host, backup_id, plan)` | 指定加密备份、私钥引用、隔离解密目录 | 清理副本另有明确授权；不读回明文 | O7 |
 | `rule_publish(rule_id, version, digest)` | 规则签发、续签、信任锚、公钥更换 | 新签版本；不得回退到更宽旧规则 | O2/O9 |
+| `host_execution_resolve(execution_id, evidence_hash, outcome)` | 只对账并关闭 unknown；不执行原命令 | Owner 签本次 resolve plan；证据不足不释放锁，见 §4.3 | 复核 B13 |
 | `platform_manifest_apply(plan_id)` | 现有 `plan_manifest/apply_manifest`；固定对象与提交 | 旧清单；删除对象或回退安全护栏仍逐次批 | O1/O6/O7/O10–O13 |
 | `platform_access_change(plan_id)` | RBAC、准入策略、NetworkPolicy、仓库权限 | 精确旧策略；扩大权限必须新批准 | O4/O5/O6/O8/O12 |
 | `platform_database_migrate(database, migration_id)` | 角色、建库、schema、授权；PROD DDL | 按迁移回退；破坏性 DDL 不自动 | O5 |
@@ -141,7 +198,7 @@ MAC、IP、hostname 必须与资产记录完全匹配。
 | `gitea_repository_admin(repo, operation, plan)` | 转普通仓库、复制分支、归档、删仓库/组织、注册开关 | 按动作恢复；删除可能需整库恢复 | O7/O8 |
 | `platform_release_request(release_id)` | 现有发布动作；仍按专门发布策略判断 | 依原发布回退约定；主机策略不扩大授权 | O1/O4/O6/O8/O12 |
 | `platform_backup_start(backup_id)` | 现有具名备份/Job 动作；保留原级别 | 无需撤回成功备份；清理失败产物另判 | O5/O7 |
-| `owner_run_command(command, reason, runner)`（现有） | 未覆盖操作的逐次 D 级兜底；默认 Owner 运行 | 不进 M；受限 host executor 不能运行任意 shell | ADR/W-50 |
+| `owner_run_command(command, reason, runner)`（现有） | 未覆盖操作逐次 D 级兜底；Owner 手工运行 | PROD 拒绝 `runner=host`；新 executor 永不领自由 shell 单 | ADR/W-50 |
 | `live_trading_operation(target, operation)`（X） | D10 禁止的真实发单、实盘对冲及执行扩容 | 不生成可批准执行单；本策略不能解锁 | B/spine |
 
 H 表含操作单中的非主机事项，防止遗漏或误收进 M。
@@ -187,6 +244,8 @@ O7 的共享挂载/卸载只作为受批备份会话的子步骤。
 规则及收紧记录存在修复链 statefile，不依赖 agentrt PG。
 Console 将它展示为规则集成员。
 
+### 3.1 签名规则与收紧方向
+
 下面是格式示意，不是可签发的有效规则。
 摘要和资产集合必须在签前具体化。
 
@@ -211,6 +270,9 @@ clauses:
     conditions: [identity_matches, config_unchanged, no_conflicting_run]
     timeout_s: 120
     rollback: restore_previous_service_state
+    max_per_day: 4
+    max_per_week: 12
+    repeated_success: {window_s: 3600, max_count: 3}
 limits:
   global_writes: 1
   per_host_writes: 1
@@ -228,14 +290,56 @@ digest:
 有效期上限 90 天，时间必须带时区。
 版本必须单调递增；新版本过期不退回旧版。
 初始、扩权、延期、换 helper 或资产范围须 Owner 签名。
-收紧只允许集合缩小、限额下降、期限缩短。
 无法证明是收紧，就按放宽处理。
 规则没有任意表达式，也没有命令正则授权。
+
+| 字段 | 无需 Owner 新签的收紧方向 | 其他变化 |
+|---|---|---|
+| clauses、hosts、executor_ids、参数允许集合 | 删除或取子集 | 新增、替换须签名 |
+| conditions | 增加已定义的合取条件 | 删除条件为放宽；未知条件拒绝 |
+| global/per_host_writes、次数与恢复上限 | 降低，包括降至零 | 增大须签名 |
+| cooldown_s | 增大 | 减小须签名 |
+| expires_at / effective_at | 提前到期 / 推迟生效 | 延期或提前生效须签名 |
+| repeated_success | 降低 max_count；固定 window 内更早熔断 | 改 window 不可比较，须签名 |
+| timeout_s、watchdog、rollback | 不支持自动比较 | 缩短也可能中断写；任何变化须签名 |
+| inventory/catalog/handler/bundle 摘要、环境、签名锚 | 不可比较 | 替换须签名 |
+| 审计、通知、时钟阈值、schema 和日历 | 不支持自动变更 | 须签名；不能关闭审计告警 |
+
+收紧记录绑定父摘要及单调版本，保留完整链。
+平台、执行器、helper 都按同一方向表验证，不能只信 `direction`。
+property tests 验证收紧后的可授权请求集合是原集合子集。
+覆盖传递性、混合字段、删条件、cooldown 反向和非法回退变化。
+次数、状态和已执行副作用也纳入测试，不能只测静态参数。
+收紧影响未启动步骤；已签的安全回退不能被缩短超时截断。
+
+### 3.2 签名制品清单
+
+`bundle` 必须来自 Owner 批量签名的 manifest。
+签名域为 `bifrost-host-ops-bundle`，覆盖 manifest 完整字节。
+manifest 绑定版本、环境、允许动作/主机集合、有效期及 helper 兼容摘要。
+每个条目列出相对路径、大小、SHA-256、属主、权限和用途。
+用途区分执行文件、配置、unit、compose、镜像归档和回退文件。
+镜像同时固定 OCI digest；禁止可变 tag、联网安装脚本和隐含下载。
+netplan 的配置字节也须签入 manifest，plan 只引用其摘要。
+包内不放 Secret；凭证只引用已授权的目标端安装。
+
+CI 仅生成候选包、差异和校验结果，不能签发。
+Owner 审阅后批量签清单；M 条款固定允许的 manifest 摘要集合。
+新制品须新签 manifest，并更新引用它的签名条款。
+源码来自 main、CI 成功或 handler_digest 正确，都不能替代该签名。
+执行器和 helper 都校验签名、范围、期限及实际收到的字节。
+安全解包拒绝绝对路径、链接、重复条目和未列出的文件。
+执行前从受保护暂存区重新核对字节，固定文件句柄与镜像 digest。
+回退制品同时验证；旧制品未保留时不启动 M。
+缺少有效 manifest 的 bundle 动作不能自动执行，转 H 审阅。
+H plan 仍必须明确授权全部制品字节，不能接受任意新包。
+
+### 3.3 匹配、限额与冻结
 
 请求结构为 `action + params + host + work_id + requester_thread`。
 调用身份由认证层取得，不信自报 requester。
 执行器身份也由凭证绑定，不能只信 `executor_id`。
-接线需补此校验，现有 claim 只限制 runner 角色。
+接线需补此校验；现有 host claim 的角色限制不足。
 
 新 M 动作默认按需审批处理，不能简单设成 TierB。
 专用 gate 命中后原子写入系统授权的执行记录。
@@ -247,9 +351,9 @@ digest:
 
 1. 严格解析请求；未知参数直接拒绝，不沿用静默丢弃。
 2. 查动作硬边界；X 拒绝，H 建逐次审批。
-3. R 走只读目录；不依赖 M 策略有效期。
+3. R 走本地签名登记的只读 allowlist；不依赖 M 策略有效期。
 4. M 校验签名、版本、环境、有效期、冻结与信任锚。
-5. 核对资产指纹、生命周期、参数集合、helper 与配置摘要。
+5. 核对本地登记、生命周期、参数、helper 和签名制品字节摘要。
 6. 生成确定性 plan，绑定前态、检查、回退和锁范围。
 7. 原子登记授权结果、`params_hash`、`plan_hash`、幂等键。
 8. 领单及每个副作用前重查策略、冻结、前态与租约。
@@ -261,12 +365,33 @@ digest:
 签名损坏或冻结不自动转成人工绕过路径。
 未知请求不降格为自由 shell。
 
+每条 clause 强制 `max_per_day/max_per_week`，缺少限额不签发。
+按 UTC 日/周持久计数；更换版本、条款名或重启不清零。
+条款变更须保持稳定 quota ID，相关目标合并计数防拆单。
+平台原子预占；执行器独立复核并落盘后才能签票据。
+失败和 unknown 均消耗次数；没有副作用的拒绝另记审计。
+同 host/action 的反复成功也触发 `repeated_success` 熔断。
+达到阈值暂停该条款目标并推送，不能靠持续重启假装已修复。
+恢复须 Owner 签定范围的解除记录，不能重命名绕过。
+
 冻结单独存为 `host_ops_freeze`，含单调 `epoch`。
 任何已认证 operator 可冻结；冻结立即持久化。
 解冻必须由 Owner 签 `bifrost-host-ops-unfreeze`。
-签名绑定环境、当前 epoch 和原因。
+签名绑定环境、当前 epoch、`min_rule_version` 和原因。
+执行器与 helper 持久保存 `max_rule_version`，低版本一律拒绝。
+解冻后版本不得低于本地最高值及签名要求的最低值。
+高水位缺失或回拨保持冻结，由 Owner 恢复，不能回退旧规则。
 删除冻结文件、回放旧解冻或回拨 epoch，均视为冻结。
 缺少冻结记录也视为冻结。
+
+`.50` 提供本地 `stop-writes` 入口，Owner/operator 无需平台即可触发。
+入口只能停写，不能执行动作或解冻；状态归 root 并持久化。
+平台 freeze 与本地 stop 任一成立即停止签票据。
+冻结还撤销已发票据；每个写步骤须查当前 epoch 和短期执行许可。
+helper 不能只凭未过期票据写入；撤销检查失联即停止新步骤。
+冻结在执行器与 helper 收到后立即生效；失联许可最多存活 5 秒。
+Console 显示各端确认和未确认主机，不宣称瞬时全网停止。
+不再发许可后，即使持有旧票据也不能开始下一步。
 
 冻结停止排队、新领单及未开始的副作用步骤。
 已开始的命令进入动作定义的安全停止点。
@@ -275,14 +400,17 @@ digest:
 回退范围和期限在原 plan 中固定，不能扩大。
 策略到期同样停止新步骤，不自动续期。
 到期前 14/3/1 天提醒；过期有等待任务时再提醒一次。
-续签入口显示范围差异、期限与执行统计。
+续签页逐字段显示旧值、新值、方向、资产/制品差异和执行统计。
+展示最终签名字节的摘要；批量续签逐项绑定摘要，不能签隐藏扩权。
+规则签发前必须通过 S2 告警、周报骨架和存活检测验收。
 
 ## 4. 执行器与主机边界
 
 ### 4.1 架构选项
 
-已定的 `.50` 放置不重新请求决定。
-其余推荐均是实现依据候选，本次不部署。
+下表九项选择均为 Owner 已定，本轮保留原选择。
+表中的其他选项仅保留决策背景，不重新投票。
+以下安全约束收紧所选方案，不新增架构选择。
 
 | 架构点 | 选项 A | 选项 B | 选项 C | 推荐与理由 |
 |---|---|---|---|---|
@@ -297,7 +425,11 @@ digest:
 | 自动授权接线 | 放宽 `owner_run_command` | 新 host 动作与专用 policy gate | 给 Agent admin 身份 | B；不能从任意 shell 获得自动授权 |
 
 mini 执行器是确定性程序，不运行模型、仓库测试或 Agent CLI。
-账户 `bifrost-host-exec` 与 operator-plane、Agent 账户分开。
+持节点钥匙的 `.50` 整机不得运行 LLM 或 Agent 进程。
+不能仅靠不同账户宣称隔离；参谋长可在无节点钥匙的 `.52`。
+若 `.50` 已有模型进程，S3 安装钥匙前必须完成迁出验收。
+这是执行器位置 B 的启用约束，不改变 mini 放置决定。
+账户 `bifrost-host-exec` 与 operator-plane 分开。
 operator-plane 只转交元数据，不直接加载私钥。
 实现可随同一平台制品发布，运行权限仍隔离。
 首片没有自动跨 mini 接管，也不复制节点私钥给 `.52`。
@@ -321,12 +453,31 @@ NAS 的 UGOS 强制命令机制必须单独验兼容性。
 非特权账户不加入 docker/admin 组。
 sudoers 只允许这个固定 helper，不允许 shell、编辑器或任意 systemctl。
 helper 再检查动作、参数、资产、摘要和授权票据。
-票据由平台签发，短期有效，绑定 plan、目标及执行器。
-M 票据还携带 Owner 签名策略及其收紧链。
-helper 独立验证范围和期限，不能只相信平台给的层级。
-H 票据绑定单次审批及本机预装能力，不能扩展 helper 权限。
+票据签名私钥只在 `.50` 执行器账户，不在 platform Pod。
+平台提交候选授权；执行器自己复核后才能签发。
+M 在执行器重新匹配完整策略、收紧链、冻结、限额和本地登记。
+helper 再独立验证，不能只相信平台或执行器报出的层级。
+
+H 必须携带 Owner 对 `plan_hash` 的 SSHSIG。
+签名域为 `bifrost-host-ops-approval`；普通 admin 批准记录不足以执行。
+Console/手机展示最终计划，再由 Owner 控制的签名端签署。
+签名私钥不传给 API、执行器或 Agent；缺签名端就保持待批。
+不以 admin bearer token 或“已批准”字段代签。
+plan 使用固定 schema 的规范编码，拒绝重复键和未知字段。
+hash 覆盖 action、参数、目标身份/环境、前态和全部制品字节摘要。
+同时绑定 inventory、catalog 和 handler_digest，不能换执行实现。
+还覆盖 execution/approval ID、一次性 nonce、期限、executor、回退及锁范围。
+任何变更都重做 plan 并重新签名，不能复用旧批准。
+执行器及 helper 都验证 Owner 签名、nonce 未消费和前态未变。
+H 仍受本机预装能力和 X 边界限制，不能扩展 helper 权限。
+
+票据绑定 plan_hash、目标、环境、executor、有效期、freeze epoch 和 fencing generation。
+M 附完整签名策略及收紧链；H 附上述 Owner 签名。
+冻结、过期、未知 helper 或 handler_digest 不匹配均拒绝。
 远端只持验签公钥，不持 Owner 的签名私钥。
 这把执行票据钥匙须独立安装并逐次批准轮换。
+helper 安装/升级本身是 `host_access_change`，不能靠 M 更新自己。
+安装新 helper 后，旧 handler_digest 条款不得继续运行。
 
 传输只发送严格 JSON 和制品字节，不拼接命令字符串。
 helper 使用固定 argv、干净环境和固定 PATH。
@@ -334,7 +485,7 @@ helper 使用固定 argv、干净环境和固定 PATH。
 源码、unit、compose、回退文件及所有父目录不可由 Agent 修改。
 路径逐层验证且禁止符号链接穿越。
 写前重新核对 inode、属主与摘要，避免检查后被替换。
-制品来自已审阅 manifest，不能只接受调用方给的哈希。
+制品按 §3.2 的签名 manifest 验证，不能只接受调用方给的哈希。
 
 Agent 仅持请求/只读身份，不持 executor 身份。
 mini 私钥目录 0700、文件 0600，不挂进 Agent 环境。
@@ -343,9 +494,42 @@ agent-06 的现有出站规则继续拒绝 SSH、NAS 和 UniFi。
 本机进程隔离与网络限制必须实测，不能仅靠提示词。
 STG 只接测试主机身份，不能领 PROD 的真实节点单。
 
+executor token 在服务端绑定 `executor_id + environment + host_ids`。
+claim 只返回该身份在签名登记范围内的 `host_*` 动作。
+renew/result 也绑定原执行器、lease 和目标，不能跨单报结果。
+host claim/renew/result 明确排除 `RoleAdmin` 的角色继承捷径。
+Owner 签名是 H 执行授权，仍不能替代 executor 身份领单。
+S2 即在 PROD 拒绝 `owner_run_command(runner=host)`。
+已有排队的自由 shell 单同样拒领并记原因，不留迁移后门。
+其他 `platform_*`、credential 动作保留原专用执行链。
+本设计的 `host_*` executor 不接管它们。
+
+### 4.2.1 系统适配与前态
+
+| 系统 | 固定适配与准入验收 |
+|---|---|
+| Linux | systemd、固定 sudo helper；断线进程组和本地 watchdog 演练 |
+| macOS | launchctl 固定 domain/label；用专用非 Agent 用户加载；保存 plist、loaded/disabled/running 前态 |
+| UGOS | 单验 forced-command、sudo 路径、Docker socket 隔离、NAS 文件权限；失败则该主机不准入 |
+
+受管 mini 的 helper 不能管理本机执行器；`.50` 自维护仍由 Owner 做。
+NAS 离线镜像在受保护目录暂存，验证归档字节及 OCI digest 后 load。
+不透传 Docker socket，不隐含从公网拉镜像。
+前态快照先持久化，再签 plan 和开始写入。
+包括文件摘要/权限、镜像、挂载、enabled/running 状态及依赖。
+快照不可读取 Secret 内容，只保存受控引用。
+回退按快照恢复；验证 disable 后恢复原 enabled 与 running 状态。
+没有可用前态、旧制品或足够空间，就不执行 M。
+有状态项目的数据恢复单独验证，配置快照不替代数据备份。
+
+执行器和 helper 都检查 NTP 同步状态及最近成功同步时间。
+签票与验票要求同步观测不超过 5 分钟，绝对偏差不超过 5 秒。
+未知 NTP、时钟回拨或超过阈值，拒绝新写并报警。
+租约、watchdog 用单调时钟；R 只能提供受限诊断，不签写票据。
+
 ### 4.3 执行、超时与并发
 
-全局同时一个写动作，每台主机也只有一个。
+全局同时一个正在执行的写动作，每台主机也只有一个。
 R 并发最多四个；网络变更和演练全局串行。
 主机维护还锁住依赖项目及对应发布窗口。
 窗口和资源锁不是授权，不能代替策略。
@@ -372,7 +556,15 @@ SSH 断开不等于远端已经停止。
 幂等性必须逐动作证明。
 只有确认“副作用尚未开始”才能按退避重试。
 失联后仍在运行、写后读回失败，均不得自动重试。
-`unknown` 占住冲突资源，直至确认完成或由 Owner 处置。
+`unknown` 只锁该主机及签名登记中的依赖，不冻结无关主机。
+登记该主机及依赖的隔离锁后释放全局调度槽；无关请求可继续。
+该锁隔离的是调度范围，不声称旧进程已经停止。
+`host_execution_resolve` 收集 journal、进程、前后态和 fencing 证据。
+它在原执行记录的锁内对账，不新领目标写锁，也不执行主机副作用。
+Owner 签 resolve plan 后才能关闭 unknown；普通 admin resolve 不足够。
+证明完成或未开始后才释放资源锁；结果仍不明就继续锁定。
+若无法证明旧进程已停，须先完成逐次批准的隔离，不能强制解锁重跑。
+resolve 只改执行状态；补救或重做是新 action、新授权。
 结果晚到可按原 lease 接收一次。
 本地 journal 保留至平台确认接收，重启后继续补传。
 
@@ -392,6 +584,12 @@ statefile 损坏或磁盘满时停止新写。
 | 结果 | exit code、耗时、后态、回退结果、错误分类、脱敏输出摘要及哈希 |
 | 投递 | 线程事件 ID、周报周期、提醒种类、目标、accepted/failed/skipped |
 
+拒绝也落审计：过期、冻结、未知 helper、未覆盖、签名和摘要不符。
+记录稳定 reason code、认证主体、请求哈希及可安全保存的目标。
+不保存恶意请求的原始敏感参数；审计不可写时仍拒绝并报存储故障。
+H 授权记录另存 Owner 签名及签名端指纹，不能只存 approval ID。
+登记、manifest、前态快照、签发票据和生效版本的摘要全部关联。
+
 沿用 W-50：平台保存不超过 2 KiB 的脱敏尾部。
 全文先脱敏后保存，留 `.50` 30 天，设容量上限。
 隐藏字符或无法安全脱敏的段落整段抑制。
@@ -405,42 +603,90 @@ statefile 损坏或磁盘满时停止新写。
 事件通过 outbox 回到原线程和工作项。
 只读阶段完成证据由事件驱动，不要求 Owner 回复“好了”。
 线程离线时保留待投递事件，恢复后按游标读取。
+审计以序号及前项哈希串联，周报引用截止序号和链头。
+每小时及每次生成摘要时，将链头 fsync 到 `.50` 本地存储。
+同时把链头交平台和 `.52` 留存，检测截断及不一致。
+`.50` 本地副本防平台记录丢失，不宣称能抵抗三处同时被改。
 
 每周一 09:00 Chicago 生成一份 Console 周报。
 含成功次数、主机、条款、回退、失败、unknown 和减少的逐次审批数。
 还显示操作耗时、Owner 决定数及最常见拒绝原因。
 成功不单独推手机；周报可查，不额外发送成功推送。
+网络、join、fixed-IP、agentd 更新成功立即有 Console 记录。
+这些成功还进入每日摘要，不能等一周才看见变更。
+`host_git_endpoint_set` 逐次列入每日、每周摘要，不仅给聚合次数。
 失败、unknown、回退失败才立即推；同事件去重。
+存活失效、反复成功熔断及摘要失约同属故障通知。
 审批需求、冻结和续签提醒是治理通知，照常发送。
 推送失败持久重试，不能把 accepted 写成手机已收到。
-复用现有通知中转；B3 完成前保留 `.50` 中转单点的限制。
+S2 必须提供不经过 `.50` 的故障投递路径，不等待其他项目。
+
+### 5.1 独立存活与死人开关
+
+| 检测方 | 信号及初始阈值 | 故障路径 |
+|---|---|---|
+| platform | executor 每 20 秒心跳；TTL 60 秒；含进度及最后 journal 序号 | 直接投 `.52` 独立 relay；不能经 `.50` 转发 |
+| platform | 最老可执行请求等待超过 5 分钟；审批等待另计 | Console 标积压，并经 `.52` 推送 |
+| `.52` watchdog | 直探 `.50` executor 和平台心跳；连续 60 秒缺失 | 本机持久 outbox 直接投现有通知提供方 |
+| `.52` watchdog | 每周一 09:15 仍未收到当前周期摘要及截止游标 | 推 `digest_missing`；零执行周也必须有空摘要 |
+| platform | `.52` relay/watchdog 60 秒失联，或投递持续失败 5 分钟 | 直投通知提供方，报警独立路径损坏 |
+
+`.52` 的 watchdog、relay 无节点钥匙，不具备执行能力。
+它们不依赖 `.50` 的进程、存储、代理或通知凭证。
+平台直投所需的通知身份也独立安装，不能经 `.50` 获取。
+复用现有通知提供方，不新增外部服务。
+失联消息从检测到提交提供方不超过 3 分钟。
+通知链路健康证明过期时停止签发新的 M 票据，原定回退可完成。
+不能把可发送等同于手机已阅读；投递状态明确区分。
+S2 做 `.50` 断电、平台断开、relay 停机和摘要漏发的故障注入。
+须看到独立通道送达证据，再允许生产策略签名。
+平台及两台 mini 同时断网仍可能无法送达，记录为剩余故障域。
 
 ## 6. 切片、估算与 Owner 的动作
 
-估算为单条实施线的人日，不含等待及硬件窗口。
-先交可核对的制品，再让 Owner 安装或签名。
+估算为实施、自检、独立复核和返工的合计人日。
+不含等待签名、硬件窗口和观察期的日历时间。
+每片预算两轮复核；签名协议和首次 M 预算三轮。
+复核仍有阻断项就不准入；超预算重新估算，不能压缩验收。
 
-| 切片 | 交付与验收门槛 | 估算 | Owner 必须做 |
+| 切片 | 交付与验收门槛 | 实施/自检 + 复核/返工 = 人日 | Owner 必须做 |
 |---|---|---|---|
-| S1 目录与规则 | 闭合 schema、签名/收紧/冻结；拒绝矩阵全过 | 2–3 天 | 最终签规则前审阅范围 |
-| S2 领单与审计 | 新动作 gate、认证绑定、statefile、outbox、线程回传 | 2–3 天 | 涉信任边界的发布批准 |
-| S3 执行器与 R | `.50` 独立服务、主机 helper、身份及限权阳性/阴性测试 | 2–3 天 | 安装账户、逐主机钥匙、sudoers、host key；约 60–90 分钟 |
-| S4 首批 M | exporter、服务/compose、二进制更新、缓存隔离；故障回退演练 | 2–3 天 | 签第一版 90 天策略；约 15–20 分钟 |
-| S5 网络与接入 | netplan watchdog、新节点 taint、UniFi 前态恢复；断线测试 | 3–4 天 | 新机资产登记、join credential 配置；硬件安装 |
-| S6 H 与可见性 | Console 逐动作审批、完整影响展示、周报、失败推送 | 1–2 天 | 批测试环境的高风险演练单 |
-| S7 一周观察 | 合盖运行、零手贴例行命令、审计齐全、每周决定少于 40 次 | 1 天工作 + 7 天观察 | 看周报；无逐项成功签收 |
+| S1 信任制品与规则 | 登记和 bundle 的签名流；字段方向/property tests；版本、冻结、never-M、H plan 协议；三轮复核 | 3–3.5 + 1–1.5 = 4–5 | 审阅候选范围；此时不签生产策略 |
+| S2 调度、审计与告警 | 身份/环境隔离、host-only claim、拒绝 shell、statefile/outbox；失败/unknown 推送、周报骨架、独立心跳与 dead-man；两轮复核 | 3.5–5 + 1.5–2 = 5–7 | 安装独立通知身份；批准所需部署；验独立路径 |
+| S3 执行器与 R | `.50` 无 Agent；Linux/macOS helper、launchctl、签名票据、Owner H 签名端；前态快照；unknown resolve；七个 R；两轮复核 | 3.5–5 + 1.5–2 = 5–7 | H 引导钥匙/sudoers/helper/锚；提供可丢弃 Linux 测试机与 macOS 测试账户；约 2–3 小时 |
+| S4 首批 M 闭环 | 下列七动作；拆二进制更新；单步撤销、回退、次数/熔断；Console scope diff；三轮复核 | 3.5–5 + 1.5–2 = 5–7 | 签登记及 manifest，签首版策略；约 30–60 分钟；先验 S1–S3 |
+| S7 首轮观察 | 首批范围合盖一夜；七天观察；审计完整、零手贴命令、故障可见；两次证据复核 | 0.5–1 + 0.5–1 = 1–2，另 7 天观察 | 看周报；不逐项签成功 |
+| S5 后续网络与接入 | netplan、join 原子生命周期、fixed-IP/VIP/DHCP 恢复；测试机拔网故障；三轮复核 | 4–6 + 2–3 = 6–9 | 登记新机、join credential；批测试准备；单独签扩展范围 |
+| S6a 后续 H 与展示 | 其余 host H 模板、逐动作恢复演练、完整日报/周报与审批下钻；两轮复核 | 2–3.5 + 1–1.5 = 3–5 | 签测试环境高风险 plan；独立维护执行器 |
+| S6b 后续适配与动作 | UGOS helper、NAS 离线镜像；工具链、验证、清理、生命周期、Git 端点、监控演练；两轮复核 | 3.5–5.5 + 1.5–2.5 = 5–8 | NAS 准入、签包与策略扩展；无准入不自动 |
 
-合计约 13–19 人日，另加一周观察。
-这是首批闭环估算，不是整个目录的全部实现工期。
-工具链、Git 配置、镜像离线搬运随后按需各补 0.5–1 天。
-其余 H 模板先复用现有动作或 Owner 兜底。
-把握中低；NAS SSH 限权和断线恢复风险最大。
+执行顺序为 S1→S2→S3→S4→S7，再做 S5、S6a、S6b。
+S5 明确拆为后续切片，不拖入首轮承诺。
+S1–S4 合计 19–26 人日；含 S7 为 20–28 人日。
+全部上述切片合计 34–50 人日，另加七天观察及硬件等待。
+原 13–19 人日撤回；不能再用零点几天估算完整动作适配。
+
+首轮七个 M 为 service_restart、service_state、container_restart、compose_reconcile。
+另含 monitoring_install、monitoring_remove、agentd_update，均为 `host_` 动作。
+只在登记准入的 Linux/macOS 目标开放；compose 仅限无状态项目。
+macOS 没有经过准入的容器运行时，就不开放容器动作。
+首轮不开放网络、join、fixed-IP、清理、工具链或 UGOS 写动作。
+未实现模板返回 unsupported，不借用自由 shell 填空。
+S3 的 H 只做信任引导和 resolve；其他破坏性 helper 暂不安装。
+S6a 才扩展 H 模板；Owner plan 验签机制已在 S1–S3 完成。
+S2 用测试信任锚和合成事件验收，不签生产 M 策略。
+S4 签发门槛包含 S2 故障投递证据及 S3 真实断线测试。
+scope diff 页、摘要骨架和每日关键变更记录不能后移到 S6。
+把握中等偏低；签名端、macOS/UGOS 限权和故障恢复风险最大。
+七动作以外仍可能需要人工；全局每周少于 40 次只是观察指标。
+只有完整范围实测达到该指标，才能宣布 WORK 4.7 全部完成。
 所有运行时发布继续遵守原发布规则。
 新接口、策略状态和票据协议随各片独立复核。
 本次只交设计，不启任何切片。
 
 首次凭证引导不能自动完成。
 Owner 配置节点钥匙、sudoers、执行器身份和公钥锚。
+初装 helper/登记由 Owner 独立入口完成，不借尚未可信的执行器自举。
 Owner 私钥、管理员 kubeconfig 不迁入执行器。
 已有 host credential 的受限使用不等于 Secret 变更。
 后续新增主机权限、轮换凭证、续签或扩权仍需 Owner。
@@ -461,11 +707,19 @@ Owner 私钥、管理员 kubeconfig 不迁入执行器。
 | 缓存清理误删成果 | 活跃引用、归属、快照、可重建证明；脏 worktree 留存 |
 | 普通日志泄漏凭证 | 合成密钥与隐藏字符测试；整段抑制；哈希与保存内容一致 |
 | 持钥 executor 被攻破 | 每主机权限隔离；不能访问任意 shell；单机吊销演练 |
+| admin 令牌泄漏伪造 H 批准 | 无 Owner plan 签名不签票、不执行；测试伪造批准记录与跨环境 claim |
+| main/CI 产物夹带 root 代码 | Owner manifest、实际字节双验；修改任一文件或镜像 digest 必须拒绝 |
+| 未签登记扩大 R/M 范围 | 本地 root-owned 签名制品；测试改 service、root、endpoint 与 stateful 标记 |
+| `.50` 停机导致静默 | 平台 TTL、队龄、`.52` dead-man 和直投路径；切断 `.50` 后验证告警 |
 | mini/平台/PG/NAS 故障 | 分别断开；验证承诺范围；未实现离线调度必须明确显示 |
 
 永久逐次审批：分区、格式化、数据及备份删除。
 还包括 firewall/VLAN、集群节点重启、凭证和 PROD DDL。
 信任锚、执行器提权与安全护栏放宽也不能自动批准。
+集群内 netplan、有状态项目换镜像/重建和 never-M 服务同样逐次批。
+helper 升级、生命周期重设及 unknown 人工裁决也不能经 M 放行。
+签名协议不能防御目标主机 root 被攻破；该主机须隔离并重建信任。
+H 签名阻止泄漏 admin 凭证独自授权，但不能恢复已损坏的数据。
 已有例行临时缓存保留策略不构成业务数据删除授权。
 D10 始终 BLOCKED；一张审批单也不能解锁。
 两台 TWS 主机的自动维护不在本设计范围。
@@ -474,3 +728,35 @@ D10 始终 BLOCKED；一张审批单也不能解锁。
 第一，Owner 合盖一晚，例行操作仍自动完成并回到线程。
 第二，越界、冻结、过期和未知结果都不会变成自动重试。
 一周后按实际决定数验 4.7，不按“少复制了几条命令”验收。
+
+## 8. 复核 1 的处理
+
+A/B 全部采纳；没有以接受风险替代修复。
+本表是设计处理记录，运行时验收仍须在对应切片执行。
+
+| 项 | 落点与验收 | 切片 |
+|---|---|---|
+| A1 | §4.2：Owner SSHSIG 绑定 plan；票据钥匙只在执行器；M 独立复核；伪造 admin 批准不能执行 | S1–S3 |
+| A2 | §3.2：Owner manifest 与文件/镜像字节双验；main 和 CI 不能自授权 | S1/S3/S4 |
+| A3 | §2.0：本地签名登记、R allowlist、helper 脱敏；登记篡改和日志秘密测试 | S1/S3 |
+| A4 | §2.2–2.3：集群 netplan、有状态重建、never-M 归 H；join 前原子转 joining | S1/S4/S5 |
+| A5 | §5–6：S2 失败/unknown 推送、周报骨架和存活验收；生产策略签名前强制检查 | S2/S4 |
+| A6 | §5.1：平台 TTL/队龄、`.52` 周报 dead-man、独立 relay；断 `.50` 仍报 | S2 |
+| B1 | §3.1：逐字段方向与 property tests；删条件、缩短 timeout、换 rollback 不误判收紧 | S1 |
+| B2 | §3.3：解冻绑定 min_rule_version；执行器/helper 高水位；旧规则重放拒绝 | S1/S3 |
+| B3 | §3.3：本地 stop-writes、已发票据撤销、逐步许可；冻结竞态测试 | S2–S4 |
+| B4 | §4.2：token 绑定 executor/host/env；host 路由排除 RoleAdmin；跨环境结果拒绝 | S2 |
+| B5 | §2.3、§4.2：只领 host_*；PROD 拒绝自由 shell host runner，含旧排队单 | S2 |
+| B6 | §3.3：条款日/周限额和反复成功熔断；并发、重启、重命名不重置 | S1/S2/S4 |
+| B7 | §5：关键成功立即入 Console、每日摘要；不增加成功手机推送 | S2/S4/S5 |
+| B8 | §5：过期、冻结、helper 未知、未覆盖等拒绝留痕；审计失败仍拒绝 | S2 |
+| B9 | §2.2：清理 plan 仅提示；helper 重算候选；活跃引用和路径替换拒绝 | S6b |
+| B10 | §2.2：ErrClientNotFound 不写；登记静态/VIP 保留地址；含 `.100` 冲突测试 | S5 |
+| B11 | §2.3、§4.2：helper 安装/升级为 H；handler_digest 不符拒绝 | S3/S4 |
+| B12 | §4.1：`.50` 整机无 LLM/Agent；安装钥匙前验收；不以账户分开替代 | S3 |
+| B13 | §6 显式列登记/manifest、macOS/UGOS、快照、二进制拆分、离线镜像、测试机、resolve 和 scope diff | S1–S6 |
+
+C1–C6 也全部并入：安装归属见 §2.0/2.2；Git 摘要见 §5。
+时钟检查见 §4.2.1；摘要链落盘见 §5。
+disable 回退测试见 §4.2.1；unknown 局部锁见 §4.3。
+对应验收分别归 S4、S6b、S3、S2、S4、S3。
