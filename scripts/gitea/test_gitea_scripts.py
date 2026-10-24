@@ -1,6 +1,6 @@
 """scripts/gitea (CUT-gitea-primary-2026-10-17 step 0f), run locally.
 
-compare-refs, copy-agent-branches and switch-local-remotes run real git
+compare-refs and switch-local-remotes run real git
 against bare repositories in a temporary directory standing for Gitea and
 GitHub; protect-repo runs against a fake Gitea API that keeps the rules it is
 given. No cluster, no network, no kubectl (GITEA_API, GITEA_GIT_BASE and
@@ -237,25 +237,6 @@ class Scripts(unittest.TestCase):
             self.assertIn("r: DIFFERENT", r.stdout)
         finally:
             api.close()
-
-    # copy-agent-branches
-    def test_copy_agent_branches_copies_only_what_is_missing(self) -> None:
-        src = self.bare(self.gitea / "bifrost-agents" / "r.git")
-        dst = self.bare(self.gitea / "bifrost" / "r.git")
-        git(self.work, "push", "-q", str(src), "main:refs/heads/agent/t_1/a1", "main:refs/heads/agent/t_2/a1")
-        (self.work / "f").write_text("two")
-        git(self.work, "commit", "-q", "-am", "two")
-        git(self.work, "push", "-q", str(dst), "main:refs/heads/agent/t_2/a1")
-        before = git(self.root, "--git-dir", str(dst), "rev-parse", "refs/heads/agent/t_2/a1")
-        r = self.run_script("copy-agent-branches.sh", "r")
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertIn("r: 1 copied, 0 already there, 1 not copied", r.stdout)
-        self.assertIn("DIFFERS refs/heads/agent/t_2/a1", r.stdout)
-        self.assertEqual(git(self.root, "--git-dir", str(dst), "rev-parse", "refs/heads/agent/t_2/a1"), before)
-        self.assertEqual(git(self.root, "--git-dir", str(dst), "rev-parse", "refs/heads/agent/t_1/a1"),
-                         git(self.root, "--git-dir", str(src), "rev-parse", "refs/heads/agent/t_1/a1"))
-        r = self.run_script("copy-agent-branches.sh", "r")
-        self.assertIn("r: 0 copied, 1 already there, 1 not copied", r.stdout)
 
     # protect-repo
     def test_protect_repo_sets_main_with_merge_whitelists(self) -> None:
@@ -555,14 +536,16 @@ esac
         finally:
             api.close()
 
-    # review 248 B6: the forward is stopped even when removing the work directory fails
-    def test_copy_stops_the_forward_when_rm_fails(self) -> None:
+    # review 248 B6: the forward is stopped even when removing the work directory fails; check-step1.sh
+    # and rotate-admin-token.sh stop it first in their EXIT trap (the batch A copy script, deleted, did too)
+    def test_the_forward_is_stopped_when_rm_fails(self) -> None:
         api = FakeApi({})
         try:
             bad_rm = self.wrapper("rm", "exit 1\n")
             kubectl = self.fake_kubectl(api)
-            r = self.run_script("copy-agent-branches.sh", "r", connect=True, path=Path(f"{bad_rm}:{kubectl}"))
+            r = self.run_script("check-step1.sh", connect=True, path=Path(f"{bad_rm}:{kubectl}"))
             self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertTrue((self.root / "forward.pid").exists(), r.stdout + r.stderr)
             self.assertFalse(self.forward_alive())
         finally:
             api.close()
@@ -648,39 +631,6 @@ esac
             self.assertFalse(any(c.startswith(("POST ", "PATCH ")) for c in api.calls))
         finally:
             api.close()
-
-    # copy-agent-branches: a branch made meanwhile is not fast-forwarded (B7); a failed listing stops it (B8)
-    def test_copy_does_not_fast_forward_a_branch_made_meanwhile(self) -> None:
-        src = self.bare(self.gitea / "bifrost-agents" / "r.git")
-        dst = self.bare(self.gitea / "bifrost" / "r.git")
-        ancestor = git(self.work, "rev-parse", "HEAD")
-        git(self.work, "push", "-q", str(dst), "main")  # the target has the ancestor
-        (self.work / "f").write_text("two")
-        git(self.work, "commit", "-q", "-am", "two")
-        git(self.work, "push", "-q", str(src), "main:refs/heads/agent/t_1/a1")
-        real = subprocess.run(["sh", "-c", "command -v git"], capture_output=True, text=True, check=True).stdout.strip()
-        race = self.wrapper("git", f"""if [[ " $* " == *" push "* && ! -e "{self.root}/raced" ]]; then
-  touch "{self.root}/raced"
-  "{real}" --git-dir "{dst}" update-ref refs/heads/agent/t_1/a1 {ancestor}
-fi
-exec "{real}" "$@"
-""")
-        r = self.run_script("copy-agent-branches.sh", "r", path=race)
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertIn("REFUSED refs/heads/agent/t_1/a1", r.stdout)
-        self.assertEqual(git(self.root, "--git-dir", str(dst), "rev-parse", "refs/heads/agent/t_1/a1"), ancestor)
-
-    def test_copy_stops_when_the_branches_cannot_be_listed(self) -> None:
-        src = self.bare(self.gitea / "bifrost-agents" / "r.git")
-        self.bare(self.gitea / "bifrost" / "r.git")
-        git(self.work, "push", "-q", str(src), "main:refs/heads/agent/t_1/a1")
-        real = subprocess.run(["sh", "-c", "command -v git"], capture_output=True, text=True, check=True).stdout.strip()
-        broken = self.wrapper("git", f"""if [[ " $* " == *" for-each-ref "* ]]; then exit 128; fi
-exec "{real}" "$@"
-""")
-        r = self.run_script("copy-agent-branches.sh", "r", path=broken)
-        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertNotIn("0 copied", r.stdout)
 
     # review 249 A1: a linked worktree's own config is read back too
     def test_switch_reads_back_a_linked_worktree_and_puts_it_back(self) -> None:

@@ -2204,13 +2204,13 @@
 
 **P3 · gitea · batch D's step 5 copied back 12 attempt branches that agentd had deleted on purpose**
 
-- **状态**：未开始（2026-10-22 统筹线程记；同日先按「agent/** 规则丢了」记错，读 `protect-repo.sh` 后改正，教训 195）
+- **状态**：未开始（2026-10-22 统筹线程记；同日先按「agent/** 规则丢了」记错，读 `protect-repo.sh` 后改正，教训 195）。2026-10-23 `copy-agent-branches.sh` 已删（源组织 `bifrost-agents` 已删），第 5 步不会再有人照着跑；剩下的只有这 12 条分支去留，等 Owner 定
 - **Claim**: the `agent/**` branch rule is gone from every `bifrost/*` repository on purpose: TD-383 (the Owner 10-20 「分支 B 用 agentd」) lifted it so that agentd deletes attempt branches under the runtime's rule, and `protect-repo.sh` deletes the rule where it finds one. `OWNER-STEPS-gitea-primary.md` §4 step 5 was written expecting `0 copied, 18 already there`, as if nothing were ever deleted; on 2026-10-22 03:5xZ `copy-agent-branches.sh bifrost-platform` found 12 of the 18 batch-A branches gone (Gate A drills of 10-15 and 10-16: `agent/t_01M50…`, `t_01M54…`, `t_01M557…`, `t_01M559…`) and created them again in `bifrost/bifrost-platform`; a second run said `0 copied, 18 already there`.
 - **Evidence**: the script's log (12 copied, 6 already there); `protect-repo.sh` header and its `agent/** no more (TD-383)` block; Gitea branch pages listing `main` only.
 - **Impact**: 12 old attempt branches are back (their commits are also in the archived `bifrost-agents/bifrost-platform`); nothing points at them. The step text would mislead whoever runs it next.
 - **Fix**: the Owner decides whether the 12 go again (agentd's cleanup or a one-off deletion; they stay readable in the archived repository); §4 step 5's expected result is reworded: copied may be above 0 because agentd deletes attempt branches (TD-383), and what matters is `0 not copied` and no `DIFFERS`.
 - **Ratchet**: none beyond the reworded step (a one-off batch).
-- 验收: §4 step 5 says so; the 12 branches are gone or kept on the Owner's word.
+- 验收: the 12 branches are gone or kept on the Owner's word (the step's wording no longer matters: the script is deleted, 2026-10-23).
 - 审批 Owner（删分支）· 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ### TD-422
