@@ -66,6 +66,9 @@ spec:
           # Every API times to the response headers and leaves /health out of both histograms
           # (Trade from core 0.55.0, research / plugins TD-161, platform-api TD-195), so an SSE
           # connection or a kubelet probe does not move the p99.
+          # Work 558: platform claim / message reads intentionally wait up to 25s
+          # before headers. Exclude only these long-poll routes from the fallback
+          # histogram; ordinary platform reads and all Python highr series remain.
           # Threshold from the 7 days to 2026-10-07, recomputed without /health and SSE: PROD's
           # normally slow reads (/bars/benchmark, /portfolio/model-analysis) take 1-3.4 s and one
           # slow request holds a 5m p99 up for 5 minutes (traffic is a few requests per window),
@@ -83,7 +86,7 @@ spec:
               or
               histogram_quantile(
                 0.99,
-                sum(rate(http_request_duration_seconds_bucket{namespace=~"bifrost-.*|research|plugin-.*"}[5m])) by (le, namespace, service)
+                sum(rate(http_request_duration_seconds_bucket{namespace=~"bifrost-.*|research|plugin-.*",handler!~"/api/v1/(agentrt/(claim|messages)|approvals/claim)"}[5m])) by (le, namespace, service)
               )
             ) > 5
           for: 10m
@@ -133,14 +136,19 @@ spec:
             description: "CNPG pod {{ $labels.pod }} replication replay lag exceeds 30s."
 
         - alert: BifrostPostgresHighConnections
+          # Work 558: 11 market-data workers retain 6 connections each. The
+          # measured baseline is ~103 against max_connections=200, not a leak.
+          # Keep 20% headroom and follow each instance's exported capacity.
           expr: |
-            sum(cnpg_backends_total{namespace="data"}) by (pod) > 80
+            sum(cnpg_backends_total{namespace="data"}) by (namespace, pod)
+            > on (namespace, pod)
+            0.8 * max(cnpg_pg_settings_setting{namespace="data",name="max_connections"}) by (namespace, pod)
           for: 5m
           labels:
             severity: warning
           annotations:
             summary: "PostgreSQL connection count high"
-            description: "CNPG pod {{ $labels.pod }} has more than 80 backends."
+            description: "CNPG pod {{ $labels.pod }} has used more than 80% of max_connections for 5m."
 
         # Capacity. Postgres had replication lag, connections and instance
         # presence and nothing about running out of room, which is the failure

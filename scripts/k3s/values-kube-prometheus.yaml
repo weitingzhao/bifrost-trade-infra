@@ -72,6 +72,10 @@ grafana:
     type: NodePort
     port: 80
     nodePort: 30883
+  # Work 558: /metrics redirects to the external HTTPS root_url. Scrape the
+  # internal sub-path directly, without the ingress redirect or its private CA.
+  serviceMonitor:
+    path: /grafana/metrics
   # Wave 7: Console Selected Domain embeds Grafana d-solo panels (same LAN).
   # allow_embedding clears X-Frame-Options:deny; anonymous Viewer skips login for iframe.
   grafana.ini:

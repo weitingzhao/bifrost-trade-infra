@@ -1,0 +1,242 @@
+# Work 558: long polls, real latency, and per-instance connection headroom.
+rule_files:
+- bifrost-alerting-rules.yaml
+evaluation_interval: 1m
+tests:
+- name: 'bifrost-platform-prod: long polls do not page'
+  interval: 1m
+  input_series:
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/lineage",le="0.5"}
+    values: 0+60x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/lineage",le="5"}
+    values: 0+60x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/lineage",le="10"}
+    values: 0+60x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/lineage",le="+Inf"}
+    values: 0+60x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/agentrt/claim",le="0.5"}
+    values: 0+0x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/agentrt/claim",le="5"}
+    values: 0+0x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/agentrt/claim",le="10"}
+    values: 0+60x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/agentrt/claim",le="+Inf"}
+    values: 0+60x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/agentrt/messages",le="0.5"}
+    values: 0+0x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/agentrt/messages",le="5"}
+    values: 0+0x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/agentrt/messages",le="10"}
+    values: 0+60x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/agentrt/messages",le="+Inf"}
+    values: 0+60x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/approvals/claim",le="0.5"}
+    values: 0+0x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/approvals/claim",le="5"}
+    values: 0+0x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/approvals/claim",le="10"}
+    values: 0+60x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/approvals/claim",le="+Inf"}
+    values: 0+60x30
+  alert_rule_test:
+  - eval_time: 20m
+    alertname: BifrostAPIHighLatency
+    exp_alerts: []
+- name: 'bifrost-platform-prod: ordinary slow reads still page'
+  interval: 1m
+  input_series:
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/lineage",le="0.5"}
+    values: 0+0x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/lineage",le="5"}
+    values: 0+0x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/lineage",le="10"}
+    values: 0+60x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/lineage",le="+Inf"}
+    values: 0+60x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/agentrt/claim",le="0.5"}
+    values: 0+0x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/agentrt/claim",le="5"}
+    values: 0+0x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/agentrt/claim",le="10"}
+    values: 0+60x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/agentrt/claim",le="+Inf"}
+    values: 0+60x30
+  alert_rule_test:
+  - eval_time: 20m
+    alertname: BifrostAPIHighLatency
+    exp_alerts:
+    - exp_labels:
+        namespace: bifrost-platform-prod
+        service: platform-api
+        severity: warning
+      exp_annotations:
+        summary: Bifrost API high P99 latency
+        description: Service platform-api in bifrost-platform-prod P99 latency to
+          the response headers has been above 5s for 10m.
+- name: 'bifrost-platform-stg: long polls do not page'
+  interval: 1m
+  input_series:
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-stg",service="platform-api",handler="/api/v1/lineage",le="0.5"}
+    values: 0+60x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-stg",service="platform-api",handler="/api/v1/lineage",le="5"}
+    values: 0+60x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-stg",service="platform-api",handler="/api/v1/lineage",le="10"}
+    values: 0+60x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-stg",service="platform-api",handler="/api/v1/lineage",le="+Inf"}
+    values: 0+60x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-stg",service="platform-api",handler="/api/v1/agentrt/claim",le="0.5"}
+    values: 0+0x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-stg",service="platform-api",handler="/api/v1/agentrt/claim",le="5"}
+    values: 0+0x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-stg",service="platform-api",handler="/api/v1/agentrt/claim",le="10"}
+    values: 0+60x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-stg",service="platform-api",handler="/api/v1/agentrt/claim",le="+Inf"}
+    values: 0+60x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-stg",service="platform-api",handler="/api/v1/agentrt/messages",le="0.5"}
+    values: 0+0x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-stg",service="platform-api",handler="/api/v1/agentrt/messages",le="5"}
+    values: 0+0x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-stg",service="platform-api",handler="/api/v1/agentrt/messages",le="10"}
+    values: 0+60x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-stg",service="platform-api",handler="/api/v1/agentrt/messages",le="+Inf"}
+    values: 0+60x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-stg",service="platform-api",handler="/api/v1/approvals/claim",le="0.5"}
+    values: 0+0x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-stg",service="platform-api",handler="/api/v1/approvals/claim",le="5"}
+    values: 0+0x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-stg",service="platform-api",handler="/api/v1/approvals/claim",le="10"}
+    values: 0+60x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-stg",service="platform-api",handler="/api/v1/approvals/claim",le="+Inf"}
+    values: 0+60x30
+  alert_rule_test:
+  - eval_time: 20m
+    alertname: BifrostAPIHighLatency
+    exp_alerts: []
+- name: 'bifrost-platform-stg: ordinary slow reads still page'
+  interval: 1m
+  input_series:
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-stg",service="platform-api",handler="/api/v1/lineage",le="0.5"}
+    values: 0+0x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-stg",service="platform-api",handler="/api/v1/lineage",le="5"}
+    values: 0+0x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-stg",service="platform-api",handler="/api/v1/lineage",le="10"}
+    values: 0+60x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-stg",service="platform-api",handler="/api/v1/lineage",le="+Inf"}
+    values: 0+60x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-stg",service="platform-api",handler="/api/v1/agentrt/claim",le="0.5"}
+    values: 0+0x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-stg",service="platform-api",handler="/api/v1/agentrt/claim",le="5"}
+    values: 0+0x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-stg",service="platform-api",handler="/api/v1/agentrt/claim",le="10"}
+    values: 0+60x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-stg",service="platform-api",handler="/api/v1/agentrt/claim",le="+Inf"}
+    values: 0+60x30
+  alert_rule_test:
+  - eval_time: 20m
+    alertname: BifrostAPIHighLatency
+    exp_alerts:
+    - exp_labels:
+        namespace: bifrost-platform-stg
+        service: platform-api
+        severity: warning
+      exp_annotations:
+        summary: Bifrost API high P99 latency
+        description: Service platform-api in bifrost-platform-stg P99 latency to the
+          response headers has been above 5s for 10m.
+- name: Python highr slow requests still page
+  interval: 1m
+  input_series:
+  - series: http_request_duration_highr_seconds_bucket{namespace="research",service="research-api",handler="",le="0.5"}
+    values: 0+0x30
+  - series: http_request_duration_highr_seconds_bucket{namespace="research",service="research-api",handler="",le="5"}
+    values: 0+0x30
+  - series: http_request_duration_highr_seconds_bucket{namespace="research",service="research-api",handler="",le="10"}
+    values: 0+60x30
+  - series: http_request_duration_highr_seconds_bucket{namespace="research",service="research-api",handler="",le="+Inf"}
+    values: 0+60x30
+  alert_rule_test:
+  - eval_time: 20m
+    alertname: BifrostAPIHighLatency
+    exp_alerts:
+    - exp_labels:
+        namespace: research
+        service: research-api
+        severity: warning
+      exp_annotations:
+        summary: Bifrost API high P99 latency
+        description: Service research-api in research P99 latency to the response
+          headers has been above 5s for 10m.
+- name: 103 backends with capacity 200
+  interval: 1m
+  input_series:
+  - series: cnpg_backends_total{namespace="data",pod="pg-1",datname="a"}
+    values: 93x20
+  - series: cnpg_backends_total{namespace="data",pod="pg-1",datname="b"}
+    values: 10x20
+  - series: cnpg_pg_settings_setting{namespace="data",pod="pg-1",name="max_connections"}
+    values: 200x20
+  - series: cnpg_pg_settings_setting{namespace="data",pod="pg-2",name="max_connections"}
+    values: 1000x20
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: BifrostPostgresHighConnections
+    exp_alerts: []
+- name: 160 backends with capacity 200
+  interval: 1m
+  input_series:
+  - series: cnpg_backends_total{namespace="data",pod="pg-1",datname="a"}
+    values: 150x20
+  - series: cnpg_backends_total{namespace="data",pod="pg-1",datname="b"}
+    values: 10x20
+  - series: cnpg_pg_settings_setting{namespace="data",pod="pg-1",name="max_connections"}
+    values: 200x20
+  - series: cnpg_pg_settings_setting{namespace="data",pod="pg-2",name="max_connections"}
+    values: 1000x20
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: BifrostPostgresHighConnections
+    exp_alerts: []
+- name: 161 backends with capacity 200
+  interval: 1m
+  input_series:
+  - series: cnpg_backends_total{namespace="data",pod="pg-1",datname="a"}
+    values: 151x20
+  - series: cnpg_backends_total{namespace="data",pod="pg-1",datname="b"}
+    values: 10x20
+  - series: cnpg_pg_settings_setting{namespace="data",pod="pg-1",name="max_connections"}
+    values: 200x20
+  - series: cnpg_pg_settings_setting{namespace="data",pod="pg-2",name="max_connections"}
+    values: 1000x20
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: BifrostPostgresHighConnections
+    exp_alerts:
+    - exp_labels:
+        namespace: data
+        pod: pg-1
+        severity: warning
+      exp_annotations:
+        summary: PostgreSQL connection count high
+        description: CNPG pod pg-1 has used more than 80% of max_connections for 5m.
+- name: 81 backends with capacity 100
+  interval: 1m
+  input_series:
+  - series: cnpg_backends_total{namespace="data",pod="pg-1",datname="a"}
+    values: 71x20
+  - series: cnpg_backends_total{namespace="data",pod="pg-1",datname="b"}
+    values: 10x20
+  - series: cnpg_pg_settings_setting{namespace="data",pod="pg-1",name="max_connections"}
+    values: 100x20
+  - series: cnpg_pg_settings_setting{namespace="data",pod="pg-2",name="max_connections"}
+    values: 1000x20
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: BifrostPostgresHighConnections
+    exp_alerts:
+    - exp_labels:
+        namespace: data
+        pod: pg-1
+        severity: warning
+      exp_annotations:
+        summary: PostgreSQL connection count high
+        description: CNPG pod pg-1 has used more than 80% of max_connections for 5m.

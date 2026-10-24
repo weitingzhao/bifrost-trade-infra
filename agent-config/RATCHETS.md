@@ -397,3 +397,10 @@
 - **强度**：run by the Owner (admin kubeconfig); not scheduled. The history scan that would have found the leak sooner is TD-367.
 - **覆盖**：TD-365. 2026-10-17 20:3x: `revoked` passed (the leaked token answers 401; both Secrets log in as admin; the clone credentials list every repository over Git HTTP).
 
+
+### Long polls and pooled database connections do not hide real pressure (Work 558 / TD-437)
+
+- **做什么**：Promtool fixtures distinguish intentional platform long polls from slow ordinary routes and Python high-resolution histograms; connection fixtures cover baseline, exactly 80%, above 80%, and a smaller instance's capacity.
+- **放哪**：`k8s/monitoring/rule-tests/alerts-1024.test.yaml`, run by `make check-alert-rules`.
+- **强度**：Local deterministic rule tests; not proof that the live rule was applied. The Finance boundary test in `k8s/data/role-matrix/test_check_role_matrix.py` covers all five Finance environments and still rejects Trade CONNECT grants. `make check-maintainers` requires byte-identical source and mounted inventories.
+- **覆盖**：TD-437. Grafana's /grafana/metrics is verified by a local Helm render and a read-only live proxy fetch; post-application up=1 remains required. Permanent ticker-detail absence needs plugin-owned tests (TD-438).

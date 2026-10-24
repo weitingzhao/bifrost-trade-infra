@@ -13,7 +13,7 @@ class FinanceBoundaryTests(unittest.TestCase):
         import copy
 
         matrix = crm.load_matrix((HERE / "expected.yaml").read_text())
-        for environment in ("dev", "stg", "test"):
+        for environment in ("dev", "stg", "test", "restore", "prod_validation"):
             for purpose in ("app", "ingest", "migrator", "reader"):
                 name = f"finance_{purpose}_{environment}"
                 role = matrix["roles"][name]

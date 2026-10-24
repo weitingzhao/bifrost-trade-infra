@@ -55,11 +55,19 @@ roles:
     connect: []
   finance_app_test:
     connect: []
+  finance_app_restore:
+    connect: []
+  finance_app_prod_validation:
+    connect: []
   finance_ingest_dev:
     connect: []
   finance_ingest_stg:
     connect: []
   finance_ingest_test:
+    connect: []
+  finance_ingest_restore:
+    connect: []
+  finance_ingest_prod_validation:
     connect: []
   finance_migrator_dev:
     connect: []
@@ -67,11 +75,19 @@ roles:
     connect: []
   finance_migrator_test:
     connect: []
+  finance_migrator_restore:
+    connect: []
+  finance_migrator_prod_validation:
+    connect: []
   finance_reader_dev:
     connect: []
   finance_reader_stg:
     connect: []
   finance_reader_test:
+    connect: []
+  finance_reader_restore:
+    connect: []
+  finance_reader_prod_validation:
     connect: []
   # W-33 read-only login. CONNECT on the seven databases and nothing else here.
   # Membership in pg_read_all_data is not a grant cell; an omitted grant is denied.

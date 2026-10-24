@@ -3351,3 +3351,25 @@
 - **Fix**：Owner-approved `bdev stop` then `bdev start` rebuilt the old server context (2026-10-21); all health endpoints recovered. Startup reporting now checks early pane exit and surfaces failures. No OS permission was changed.
 - **Ratchet**：`scripts/test_bdev_start.py` exercises startup with a live pane and an immediately exited supervisor: failure returns nonzero with diagnostics and no started message (2 passed). Shell syntax check passes. This detects early process exit, not application health.
 - **验收**：`bdev restart trade-ui`; `bdev status --json` shows running and healthy; localhost:5173 loads.
+
+### TD-437
+
+**P2 · infra monitoring · Work 558 alert corrections await controlled application**
+
+- **状态**：在做（2026-10-24；source edits prepared in the w31/alerts-1024 worktree; commit blocked by sandbox index.lock creation, no push or cluster write authorized by this brief）。
+- **Measured**: The deployed role matrix reports 20 unexpected Finance login roles; the checkout already covers 12, and adding the eight restore/prod-validation logins with no Trade CONNECT/CREATE/DML yields zero differences via agent_reader. Maintainer reconcile removes its clean marker for four unregistered Finance CronJobs. platform-api claim averages 25 seconds by design; excluding long polls makes the 17:08Z PROD/STG P99 0.449/0.099 seconds. 66 idle data_writer backends equal 11 workers times their six-connection pools, against max_connections=200. Grafana /metrics redirects to external HTTPS and fails private-CA verification; /grafana/metrics returns metrics directly.
+- **Evidence**: `k8s/data/role-matrix/expected.yaml:49`; `k8s/monitoring/maintainer-reconcile/MAINTAINERS.yaml:76`; `k8s/monitoring/bifrost-alerting-rules.yaml:60`; `scripts/k3s/values-kube-prometheus.yaml:77`. Live commands and bounded observations are in Work 558 REPORT.md, outside the public repo.
+- **Fix**: Apply the revised role-matrix ConfigMap and CronJob reference, maintainer inventory ConfigMap, PrometheusRule, and Helm-rendered Grafana ServiceMonitor through the platform. Retain the Helm values change for subsequent upgrades. No DB grants need changing; any future proven privilege violation remains an Owner DB action. After preserving evidence, remove only the completed failed Finance backup and old logical-backup drill Jobs through delete_finished_jobs or the Owner.
+- **Ratchet**: `make check-alert-rules` exercises long polls versus real slow routes and connection pressure relative to each instance; `python3 -m pytest -q k8s/data/role-matrix` checks that Finance CONNECT drift is still rejected; `make check-maintainers` checks the byte-identical inventory copy. Helm chart 88.1.3/Grafana 12.10.1 render confirms /grafana/metrics.
+- **验收**: After application, role-matrix logs zero differences and its next scheduled Job succeeds; maintainer-reconcile reports drift 0 and restores its own marker; Grafana up=1; the two corrected latency/connection rules no longer fire on the measured baseline. Do not mark accepted from source tests alone.
+
+### TD-438
+
+**P2 · market-data plugin · Permanent ticker-detail 404s are retried by nightly healing**
+
+- **状态**：未开始（2026-10-24；outside Work 558's permitted repository）。
+- **Measured**: Stocks workers repeatedly fail MSGKW/MSGRW ticker_sync detail requests with HTTP 404 at 00:45, 03:30 and 05:30 UTC. Doctor reports six failed jobs in 24h and prescribes retrying two again; BifrostMarketDataWarningLingering remains firing after 26h.
+- **Evidence**: `bifrost-platform-plugin-market-data/src/bifrost_market_data/ingest/ticker_sync.py:151`; `src/bifrost_market_data/worker/loop.py:167`; the 2026-10-24 doctor finding failed:ticker_sync and stocks-worker logs. Other ticker jobs and EOD checks succeed.
+- **Fix**: Plugin maintainer should distinguish ticker-detail vendor absence from transient failures, retain an explicit unavailable/boundary outcome and existing data, and prevent doctor healing from endlessly resubmitting the same permanent 404. Do not infer delisting from a 404 alone; validate the vendor catalogue. Keep retries for transient failures and keep genuine ingestion failures alertable.
+- **Ratchet**: Add plugin fixtures for detail 404, ordinary successful detail, transient retry, retained prior data, and doctor/heal behavior for permanent absence. Infra must not silence all ticker_sync failures.
+- **验收**: Plugin tests pass; after deployment and a scheduled ticker-details/heal cycle, MSGKW/MSGRW have explicit terminal outcomes with no retry loop; after the 24h failure window drains, failed:ticker_sync clears while transient/permanent unrelated failures remain visible.

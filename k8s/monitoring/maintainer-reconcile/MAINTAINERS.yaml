@@ -73,6 +73,38 @@ maintainers:
     max_tier: B
     detected_by: BifrostPositionSnapshotStale
     status: active
+  - id: cronjob/data/finance-backup
+    what: "Daily Finance STG ten-table logical backup with consistent snapshot and hot/cold checksums; owned by bifrost-finance ops/backup."
+    runs_on: cluster:data/CronJob
+    schedule: "45 4 * * * UTC"
+    env: shared
+    max_tier: B
+    detected_by: "none: kube-prometheus-stack KubeJobFailed covers failures; Finance has no dedicated freshness alert yet."
+    status: active
+  - id: cronjob/data/finance-restore-drill
+    what: "Monthly Finance STG backup restore into an isolated temporary PostgreSQL instance; owned by bifrost-finance ops/backup."
+    runs_on: cluster:data/CronJob
+    schedule: "30 6 1 * * UTC"
+    env: shared
+    max_tier: B
+    detected_by: "none: kube-prometheus-stack KubeJobFailed covers failures; Finance has no dedicated freshness alert yet."
+    status: active
+  - id: cronjob/data/finance-prod-validation-backup
+    what: "Daily synthetic finance_prod_validation backup, isolated Finance PVCs; owned by bifrost-finance ops/prod-validation-backup."
+    runs_on: cluster:data/CronJob
+    schedule: "15 5 * * * UTC"
+    env: shared
+    max_tier: B
+    detected_by: "none: kube-prometheus-stack KubeJobFailed covers failures; Finance has no dedicated freshness alert yet."
+    status: active
+  - id: cronjob/data/finance-prod-validation-restore-drill
+    what: "Monthly synthetic Finance prod-validation restore into an isolated temporary PostgreSQL instance; owned by bifrost-finance ops/prod-validation-backup."
+    runs_on: cluster:data/CronJob
+    schedule: "30 6 2 * * UTC"
+    env: shared
+    max_tier: B
+    detected_by: "none: kube-prometheus-stack KubeJobFailed covers failures; Finance has no dedicated freshness alert yet."
+    status: active
   - id: cronjob/data/logical-backup
     what: "Nightly logical dump of the CNPG databases, including bifrost_prod and bifrost_golden_source."
     runs_on: cluster:data/CronJob
