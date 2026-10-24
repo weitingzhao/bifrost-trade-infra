@@ -1,0 +1,79 @@
+# TD-434 (CUT-td432-gitea-credentials-2026-10-24.md, slice S3b; review 542 A1):
+# in cicd the Ops platform's two ServiceAccounts may create, update (patch is
+# checked as UPDATE) or delete only the ConfigMaps the platform owns, and
+# tekton-deliver only the STG Dockerfile ConfigMaps its tasks refresh. RBAC
+# grants both ConfigMap writes without resourceNames, and resourceNames cannot
+# limit create or a name prefix, so this policy is the boundary. Every other
+# ConfigMap in cicd (scripts and checkers that jobs run, policies, Argo CD
+# configuration, backup settings) is input to some other workload and stays
+# with the Owner and the applier.
+#
+# The platform's own ConfigMaps, read from platform main 82b3e9d7:
+#   lineage-thread-titles   threadtitles/threadtitles.go:35, :118-125
+#   bifrost-release-window  delivery/window_store.go:169, :179, :193, :211
+#   bifrost-release-policy  releasepolicy/policy.go:25 → delivery/release_policy_facts.go:55-76
+#   bifrost-release-freeze  releasepolicy/policy.go:26 → the same writer
+#   release-<run>           releases/record.go:56, :245; releases/service.go:205-226
+# DELETE stays limited by RBAC as well (only PROD, only bifrost-release-window).
+# Names are checked on the object as stored: for CREATE and UPDATE the new
+# object's name (a generateName is resolved before validation), for DELETE the
+# old one. Labels are not used: the caller could set them.
+#
+# Manual apply with the rest of k8s/platform-rbac, after a server dry-run.
+# Checked by scripts/check_admission_guards.py (static and --live).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: bifrost-cicd-configmap-writers
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["configmaps"]
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: cicd
+  matchConditions:
+    - name: platform-or-deliver
+      expression: >-
+        request.userInfo.username in [
+          'system:serviceaccount:bifrost-platform-prod:bifrost-platform',
+          'system:serviceaccount:bifrost-platform-stg:bifrost-platform',
+          'system:serviceaccount:cicd:tekton-deliver'
+        ]
+  variables:
+    - name: name
+      expression: "request.operation == 'DELETE' ? oldObject.metadata.name : object.metadata.name"
+    - name: deliver
+      expression: "request.userInfo.username == 'system:serviceaccount:cicd:tekton-deliver'"
+  validations:
+    - expression: >-
+        variables.deliver
+        || variables.name in ['lineage-thread-titles', 'bifrost-release-window', 'bifrost-release-policy', 'bifrost-release-freeze']
+        || (request.operation != 'DELETE' && variables.name.startsWith('release-'))
+      messageExpression: "'the Ops platform may write only its own ConfigMaps in cicd, not ' + variables.name"
+    - expression: >-
+        !variables.deliver
+        || (
+          request.operation != 'DELETE'
+          && variables.name in [
+            'bifrost-api-stg-dockerfile',
+            'bifrost-frontend-stg-dockerfile',
+            'bifrost-worker-stg-dockerfile',
+            'bifrost-platform-api-stg-dockerfile',
+            'bifrost-platform-console-stg-dockerfile'
+          ]
+        )
+      messageExpression: "'tekton-deliver may write only the STG Dockerfile ConfigMaps in cicd, not ' + variables.name"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: bifrost-cicd-configmap-writers
+spec:
+  policyName: bifrost-cicd-configmap-writers
+  validationActions: [Deny]

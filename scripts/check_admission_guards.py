@@ -14,6 +14,7 @@ impersonated account; any other failure is reported, not taken as a denial.
 from __future__ import annotations
 
 import pathlib
+import hashlib
 import json
 import subprocess
 import re
@@ -134,6 +135,30 @@ def static() -> list[str]:
     if "object.metadata.namespace == 'monitoring' || (\n          object.kind == 'Pod'" in admission:
         problems.append("platform Jobs and Pods must not skip host checks in monitoring")
     problems += pipeline_task_params()
+    problems += review_545_static(admission)
+    return problems
+
+
+APPLY_PIPELINE = ROOT / "k8s" / "cicd" / "tekton" / "apply-manifest" / "pipeline.yaml"
+F1_REFUSAL = 'echo "tier ${tier} is applied only from main: requireOnMain must be true"'
+
+
+def review_545_static(admission: str) -> list[str]:
+    """Review 545: the Pod template denials are written for all three places, the delivery
+    step list is readable, and the apply pipeline refuses tier C/D from a branch (F1)."""
+    problems = []
+    for prefix in ("object.spec.taskRunTemplate.podTemplate", "s.podTemplate", "object.spec.podTemplate"):
+        for f in POD_TEMPLATE_DENIED:
+            if f"!has({prefix}.{f})" not in admission:
+                problems.append(f"40-admission.yaml: {prefix}.{f} is not required absent (review 545 F2)")
+    if len(deliver_steps()) < 15:
+        problems.append(f"40-admission.yaml: only {len(deliver_steps())} delivery steps found for tekton-deliver")
+    pipeline = APPLY_PIPELINE.read_text()
+    tier_at = pipeline.find("tier=$(sh /checks/apply-manifest-check.sh")
+    refusal_at = pipeline.find(F1_REFUSAL)
+    apply_at = pipeline.find("kubectl apply -f /tmp/normalized.json")
+    if not (0 <= tier_at < refusal_at < apply_at):
+        problems.append("apply-manifest pipeline: no tier C/D refusal between the tier check and kubectl apply (review 545 F1)")
     return problems
 
 
@@ -199,12 +224,52 @@ def live() -> list[str]:
     platform = "system:serviceaccount:bifrost-platform-prod:bifrost-platform"
     applier = "system:serviceaccount:cicd:bifrost-applier"
     deliver = "system:serviceaccount:cicd:tekton-deliver"
+    stg_platform = "system:serviceaccount:bifrost-platform-stg:bifrost-platform"
     cases = [
         ("inline-pipelinerun", platform, "cicd", inline_run(), True),
         ("resolver-pipelinerun", platform, "cicd", resolver_run(), True),
         ("secret-workspace-pipelinerun", platform, "cicd", secret_workspace_run(), True),
         ("hostpath-podtemplate-pipelinerun", platform, "cicd", hostpath_run(), True),
         ("normal-pipelinerun", platform, "cicd", normal_run(), False),
+        # TD-436: which steps may run as which identity, and plain parameters (TD-435).
+        ("ci-template-deliver-pipelinerun", platform, "cicd", tekton_run("bifrost-ci-platform", [], template_sa="tekton-deliver"), True, PR_POLICY),
+        ("gitea-base-pipelinerun", platform, "cicd", tekton_run("bifrost-ci-platform", [], params=[("giteaBase", "http://example.invalid/bifrost")]), True, PR_POLICY),
+        ("applier-taskrun", platform, "cicd", tekton_taskrun("bifrost-apply-manifest", "bifrost-applier"), True, TR_POLICY),
+        ("deliver-other-taskrun", platform, "cicd", tekton_taskrun("bifrost-git-clone-gitea", "tekton-deliver"), True, TR_POLICY),
+        ("refresh-taskrun", platform, "cicd", tekton_taskrun("bifrost-refresh-dockerfile-cms", "tekton-deliver"), False),
+        # Review 545 F2: a Pod template may only place the Pod; it may not redirect names or add env.
+        ("amd64-template-pipelinerun", platform, "cicd", tekton_run("bifrost-ci-platform", [], template_pod=AMD64), False),
+        ("host-alias-template-pipelinerun", platform, "cicd", tekton_run("bifrost-ci-platform", [], template_pod=HOST_ALIAS), True, PR_POLICY),
+        ("dns-step-pipelinerun", platform, "cicd",
+         tekton_run("bifrost-deliver-platform", [("rollout", "tekton-deliver")], step_pod=DNS_OVERRIDE), True, PR_POLICY),
+        ("amd64-mirror-taskrun", platform, "cicd", tekton_taskrun("bifrost-gitea-mirror-sync", "default", pod=AMD64), False),
+        ("host-alias-mirror-taskrun", platform, "cicd", tekton_taskrun("bifrost-gitea-mirror-sync", "default", pod=HOST_ALIAS), True, TR_POLICY),
+        ("env-mirror-taskrun", platform, "cicd",
+         tekton_taskrun("bifrost-gitea-mirror-sync", "default", pod={"env": [{"name": "X", "value": "1"}]}), True, TR_POLICY),
+        ("url-other-host-taskrun", platform, "cicd",
+         tekton_taskrun("bifrost-refresh-dockerfile-cms", "tekton-deliver", params=[("url", "http://example.invalid/bifrost/x")]), True, TR_POLICY),
+        ("url-gitea-taskrun", platform, "cicd",
+         tekton_taskrun("bifrost-refresh-dockerfile-cms", "tekton-deliver",
+                        params=[("url", "http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-trade-infra")]), False),
+        # TD-434: the platform writes only its own ConfigMaps in cicd.
+        ("deliver-writes-sync-script", deliver, "cicd", configmap("github-sync-scripts"), True),
+        ("deliver-writes-dockerfile", deliver, "cicd", configmap("bifrost-api-stg-dockerfile"), False),
+    ]
+    # Review 542 TD-434: every ConfigMap in cicd that another workload runs or obeys is refused
+    # to both platform accounts; the five kinds the platform owns still pass.
+    for who, identity in (("prod", platform), ("stg", stg_platform)):
+        cases += [(f"{who}-writes-{name}", identity, "cicd", configmap(name), True, CM_POLICY) for name in CICD_FOREIGN_CONFIGMAPS]
+        cases += [(f"{who}-writes-{name}", identity, "cicd", configmap(name), False) for name in PLATFORM_CICD_CONFIGMAPS]
+    # TD-436: every step admission lets tekton-deliver run is allowed, and no CI step may borrow it.
+    cases += [(f"deliver-step-{pair}", platform, "cicd", tekton_run(pair.split("/")[0], [(pair.split("/")[1], "tekton-deliver")]), False)
+              for pair in deliver_steps()]
+    cases += [(f"ci-step-as-deliver-{step}", platform, "cicd", tekton_run("bifrost-ci-platform", [(step, "tekton-deliver")]), True, PR_POLICY)
+              for step in ci_platform_steps()]
+    # TD-435, review 545 F5: Git ref characters pass, shell syntax, a leading dash, arrays and length do not.
+    for label, value, deny in PARAM_CASES:
+        cases.append((f"param-{label}", platform, "cicd", tekton_run("bifrost-ci-platform", [], params=[("revision", value)]), deny,
+                      PR_POLICY if deny else None))
+    cases += [
         ("applier-hostpath-deployment", applier, "bifrost-dev", applier_hostpath_deployment(), True),
         ("applier-grafana-deployment", applier, "monitoring", applier_grafana_deployment(), True),
         ("application-sources", platform, "cicd", application_sources(), True),
@@ -240,13 +305,27 @@ def live() -> list[str]:
         ]
         if research is not None:
             cases.append(("deliver-pin-research", deliver, "cicd", with_source(research, kustomize=delivery_pin()), True))
+    # Review 542 A2, 545 F3/F4: the platform may restart or scale a Deployment and set its
+    # session annotation, nothing else. Sent as a full-object update (kubectl replace), the way
+    # the platform's GET-then-Update does it, from the live object with its metadata kept.
+    gitea = live_object("cicd", "deployment", "gitea", keep_metadata=True)
+    if gitea is None:
+        problems.append("deployment cases: cannot read the live Deployment cicd/gitea")
+    else:
+        for label, change, deny in DEPLOYMENT_CASES:
+            changed = json.loads(json.dumps(gitea))
+            change(changed)
+            cases.append((f"platform-deployment-{label}", platform, "cicd", json.dumps(changed), deny,
+                          DEPLOY_POLICY if deny else None, "replace"))
     # Ask first: without impersonation kubectl fails while downloading OpenAPI as
     # the target ("failed to download openapi: unknown"), which names no cause.
-    for identity in (platform, applier, deliver):
+    for identity in (platform, applier, deliver, stg_platform):
         if not may_impersonate(identity):
             raise OwnerOnly(identity)
-    for name, identity, ns, body, want_deny in cases:
-        outcome, detail = dry_run(identity, ns, body)
+    for name, identity, ns, body, want_deny, *rest in cases:
+        policy = rest[0] if rest else None
+        verb = rest[1] if len(rest) > 1 else "apply"
+        outcome, detail = dry_run(identity, ns, body, verb)
         if outcome == "impersonation":
             raise OwnerOnly(detail)
         if outcome == "error":
@@ -254,7 +333,36 @@ def live() -> list[str]:
             continue
         denied = outcome == "denied"
         if denied != want_deny:
-            problems.append(f"{name}: denied={denied} want {want_deny}")
+            problems.append(f"{name}: denied={denied} want {want_deny}" + (f": {detail}" if denied else ""))
+        elif denied and policy and f"'{policy}'" not in detail:
+            # review 545 F3: the refusal must come from the rule under test, not another policy or RBAC
+            problems.append(f"{name}: denied, but not by {policy}: {detail}")
+    return problems
+
+
+def crd_pod_template_drift() -> list[str]:
+    """Review 545 F2: the Pod template fields of the live Tekton CRDs are exactly the allowed and
+    denied lists, so a field a Tekton upgrade adds is decided before it can pass unchecked."""
+    problems = []
+    known = set(POD_TEMPLATE_ALLOWED) | set(POD_TEMPLATE_DENIED)
+    for crd, path in (("taskruns.tekton.dev", ("podTemplate",)),
+                      ("pipelineruns.tekton.dev", ("taskRunTemplate", "podTemplate")),
+                      ("pipelineruns.tekton.dev", ("taskRunSpecs", "podTemplate"))):
+        r = subprocess.run(["kubectl", "get", "crd", crd, "-o", "json"], capture_output=True, text=True)
+        if r.returncode != 0:
+            problems.append(f"crd {crd}: cannot read it: {r.stderr.strip()[:200]}")
+            continue
+        versions = [v for v in json.loads(r.stdout)["spec"]["versions"] if v["name"] == "v1"]
+        node = versions[0]["schema"]["openAPIV3Schema"]["properties"]["spec"] if versions else {}
+        for step in path:
+            node = node.get("properties", {}).get(step, {})
+            if node.get("type") == "array":
+                node = node.get("items", {})
+        fields = set(node.get("properties", {}))
+        if not fields:
+            problems.append(f"crd {crd} {'.'.join(path)}: no typed fields (a schemaless template needs a different rule)")
+        for f in sorted(fields - known):
+            problems.append(f"crd {crd} {'.'.join(path)}: new field {f}: add it to POD_TEMPLATE_DENIED and 40-admission.yaml, or allow it")
     return problems
 
 
@@ -319,6 +427,8 @@ def classify(identity: str, returncode: int, stderr: str) -> str:
         return "allowed"
     if "cannot impersonate" in stderr:
         return "impersonation"
+    if "resulted in error" in stderr or "compilation error" in stderr:
+        return "error"  # a policy that failed to evaluate denies too; it is not the rule working (review 545 F3)
     if "ValidatingAdmissionPolicy" in stderr:
         return "denied"
     if "is forbidden" in stderr and f'User "{identity}"' in stderr:
@@ -326,14 +436,14 @@ def classify(identity: str, returncode: int, stderr: str) -> str:
     return "error"
 
 
-def dry_run(identity: str, namespace: str, body: str) -> tuple[str, str]:
+def dry_run(identity: str, namespace: str, body: str, verb: str = "apply") -> tuple[str, str]:
     r = subprocess.run(
-        ["kubectl", "apply", "--dry-run=server", "-n", namespace, "--as", identity, "-f", "-"],
+        ["kubectl", verb, "--dry-run=server", "-n", namespace, "--as", identity, "-f", "-"],
         input=body,
         capture_output=True,
         text=True,
     )
-    return classify(identity, r.returncode, r.stderr), r.stderr.strip()[:300]
+    return classify(identity, r.returncode, r.stderr), r.stderr.strip()[:600]
 
 
 def inline_run() -> str:
@@ -523,6 +633,170 @@ spec:
 """
 
 
+def tekton_run(pipeline: str, steps: list[tuple[str, str]], template_sa: str = "",
+               params: list[tuple[str, object]] | None = None, template_pod: dict | None = None,
+               step_pod: dict | None = None) -> str:
+    """A PipelineRun the platform could create: one pipeline, per-step identities, parameters,
+    Pod templates for all steps or for the first listed step (TD-436, review 545 F2)."""
+    key = repr((pipeline, steps, template_sa, params, template_pod, step_pod))
+    spec: dict = {"pipelineRef": {"name": pipeline}}
+    if template_sa or template_pod:
+        spec["taskRunTemplate"] = {}
+        if template_sa:
+            spec["taskRunTemplate"]["serviceAccountName"] = template_sa
+        if template_pod:
+            spec["taskRunTemplate"]["podTemplate"] = template_pod
+    if steps:
+        spec["taskRunSpecs"] = [{"pipelineTaskName": task, "serviceAccountName": sa} for task, sa in steps]
+        if step_pod:
+            spec["taskRunSpecs"][0]["podTemplate"] = step_pod
+    if params:
+        spec["params"] = [{"name": n, "value": v} for n, v in params]
+    return json.dumps({"apiVersion": "tekton.dev/v1", "kind": "PipelineRun",
+                       "metadata": {"name": "td436-" + hashlib.sha1(key.encode()).hexdigest()[:10], "namespace": "cicd"},
+                       "spec": spec})
+
+
+def tekton_taskrun(task: str, sa: str, params: list[tuple[str, object]] | None = None,
+                   pod: dict | None = None) -> str:
+    """A TaskRun the platform could create with this identity (TD-436, review 545 F2)."""
+    key = repr((task, sa, params, pod))
+    spec: dict = {"taskRef": {"name": task}, "serviceAccountName": sa}
+    if params:
+        spec["params"] = [{"name": n, "value": v} for n, v in params]
+    if pod:
+        spec["podTemplate"] = pod
+    return json.dumps({"apiVersion": "tekton.dev/v1", "kind": "TaskRun",
+                       "metadata": {"name": "td436-" + hashlib.sha1(key.encode()).hexdigest()[:10], "namespace": "cicd"},
+                       "spec": spec})
+
+
+# Review 545 F2: the Pod template fields a platform run may set; every other field of the
+# CRD's podTemplate must be absent (40-admission.yaml), and a field the CRD gains later is
+# reported by crd_pod_template_drift() until it is placed in one list or the other.
+POD_TEMPLATE_ALLOWED = ("affinity", "nodeSelector", "tolerations")
+POD_TEMPLATE_DENIED = ("automountServiceAccountToken", "dnsConfig", "dnsPolicy", "enableServiceLinks", "env",
+                       "hostAliases", "hostNetwork", "imagePullSecrets", "priorityClassName", "runtimeClassName",
+                       "schedulerName", "securityContext", "topologySpreadConstraints", "volumes")
+AMD64 = {"nodeSelector": {"kubernetes.io/arch": "amd64"}}
+HOST_ALIAS = {"hostAliases": [{"ip": "192.0.2.10", "hostnames": ["gitea.cicd.svc.cluster.local"]}]}
+DNS_OVERRIDE = {"dnsPolicy": "None", "dnsConfig": {"nameservers": ["192.0.2.53"]}}
+PR_POLICY = "bifrost-platform-pipelinerun"
+TR_POLICY = "bifrost-platform-taskrun"
+CM_POLICY = "bifrost-cicd-configmap-writers"
+DEPLOY_POLICY = "bifrost-platform-deployment-restart-scale"
+
+
+def deliver_steps() -> list[str]:
+    """The (pipeline/step) pairs 40-admission.yaml lets tekton-deliver run."""
+    text = ADMISSION.read_text()
+    return sorted(set(re.findall(r"'(bifrost-deliver-[a-z-]+/[a-z-]+)'", text)))
+
+
+def ci_platform_steps() -> list[str]:
+    import yaml
+    docs = yaml.safe_load_all((ROOT / "k8s" / "cicd" / "tekton" / "pipeline-ci-platform.yaml").read_text())
+    pipeline = next(d for d in docs if isinstance(d, dict) and d.get("kind") == "Pipeline")
+    return [t["name"] for t in pipeline["spec"]["tasks"]]
+
+
+# Inputs of other workloads in cicd (review 542): scripts and checkers that jobs execute,
+# the applier's allowlist, backup settings, Argo CD configuration. A made-up backup-scripts
+# suffix stands for the hashed name: the policy refuses every name outside the allowlist.
+CICD_FOREIGN_CONFIGMAPS = (
+    "github-sync-scripts",
+    "bifrost-apply-manifest-check",
+    "bifrost-actuation-policy",
+    "bifrost-release-freeze-check",
+    "gitea-backup-scripts-td434",
+    "gitea-backup-recipient",
+    "bifrost-api-stg-dockerfile",
+    "argocd-cm",
+    "argocd-rbac-cm",
+)
+# The platform's own ConfigMaps in cicd (46-cicd-configmaps.yaml); release-<run> by a sample name.
+PLATFORM_CICD_CONFIGMAPS = (
+    "lineage-thread-titles",
+    "bifrost-release-window",
+    "bifrost-release-policy",
+    "bifrost-release-freeze",
+    "release-td434-guard",
+)
+
+
+def configmap(name: str) -> str:
+    """A ConfigMap write in cicd (TD-434)."""
+    return f"apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: {name}\n  namespace: cicd\ndata:\n  td434: guard\n"
+
+
+def live_object(namespace: str, kind: str, name: str, keep_metadata: bool = False) -> dict | None:
+    """The live object stripped to what kubectl apply needs, or None when it cannot be read.
+    keep_metadata keeps labels and annotations for a full-object update (kubectl replace)."""
+    r = subprocess.run(["kubectl", "get", kind, name, "-n", namespace, "-o", "json"], capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    obj = json.loads(r.stdout)
+    meta = obj.get("metadata", {})
+    kept = {"name": meta.get("name"), "namespace": meta.get("namespace")}
+    if keep_metadata:
+        kept.update({k: meta[k] for k in ("labels", "annotations") if k in meta})
+    obj["metadata"] = kept
+    obj.pop("status", None)
+    return obj
+
+
+def _set_template_annotation(key: str, value: str):
+    def change(d: dict) -> None:
+        d["spec"]["template"].setdefault("metadata", {}).setdefault("annotations", {})[key] = value
+    return change
+
+
+def _set_annotation(key: str, value: str):
+    def change(d: dict) -> None:
+        d["metadata"].setdefault("annotations", {})[key] = value
+    return change
+
+
+def _flip_strategy(d: dict) -> None:
+    kind = d["spec"].get("strategy", {}).get("type", "RollingUpdate")
+    d["spec"]["strategy"] = {"type": "RollingUpdate"} if kind == "Recreate" else {"type": "Recreate"}
+
+
+def _set_image(d: dict) -> None:
+    d["spec"]["template"]["spec"]["containers"][0]["image"] = "example.invalid/gitea:td432"
+
+
+# (label, change to a copy of the live cicd/gitea Deployment, denied?) — review 545 F3/F4
+DEPLOYMENT_CASES = (
+    ("restart", _set_template_annotation("kubectl.kubernetes.io/restartedAt", "2026-10-24T00:00:00Z"), False),
+    ("scale", lambda d: d["spec"].__setitem__("replicas", 0), False),
+    ("session-annotation", _set_annotation("bifrost.dev/session-desired-replicas", "1"), False),
+    ("image", _set_image, True),
+    ("pause", lambda d: d["spec"].__setitem__("paused", True), True),
+    ("strategy", _flip_strategy, True),
+    ("min-ready", lambda d: d["spec"].__setitem__("minReadySeconds", 7), True),
+    ("template-label", lambda d: d["spec"]["template"].setdefault("metadata", {}).setdefault("labels", {}).__setitem__("td432", "x"), True),
+    ("template-annotation", _set_template_annotation("td432/other", "x"), True),
+    ("own-label", lambda d: d["metadata"].setdefault("labels", {}).__setitem__("td432", "x"), True),
+    ("own-annotation", _set_annotation("td432/other", "x"), True),
+)
+
+# (label, revision parameter value, denied?) — TD-435, review 545 F5
+PARAM_CASES = (
+    ("sha", "0" * 40, False),
+    ("branch-with-equals", "feature/fix=1", False),
+    ("branch-non-ascii", "feature/修复", False),
+    ("tag", "v0.24.0+build.1", False),
+    ("length-256", "a" * 256, False),
+    ("length-257", "a" * 257, True),
+    ("semicolon", "main;true", True),
+    ("command-substitution", "$(id)", True),
+    ("space", "main true", True),
+    ("leading-dash", "--upload-pack=x", True),
+    ("array", ["main"], True),
+)
+
+
 def normal_run() -> str:
     return """apiVersion: tekton.dev/v1
 kind: PipelineRun
@@ -546,6 +820,7 @@ def main() -> int:
         except OwnerOnly as err:
             skipped = str(err)
         problems += app_namespaces_in_project()
+        problems += crd_pod_template_drift()
     if problems:
         for item in problems:
             print(f"FAIL {item}", file=sys.stderr)

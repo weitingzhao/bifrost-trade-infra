@@ -9,3 +9,5 @@ resources:
   - 40-admission.yaml
   - 42-appproject-bifrost.yaml
   - 45-release-window.yaml
+  - 46-cicd-configmaps.yaml
+  - 47-platform-deployments.yaml

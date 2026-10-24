@@ -1,0 +1,101 @@
+# TD-432 review 542 A2: the PROD platform's workload actuator may update any
+# Deployment in the Bifrost namespaces, cicd and monitoring included, and RBAC
+# cannot say which fields. The platform changes only two things
+# (platform main 82b3e9d7): the rollout-restart annotation of the pod template
+# (cluster/actuation.go:116-120) and spec.replicas (cluster/actuation.go:153-156;
+# devsession/provider_k8s.go:158-162 also sets bifrost.dev/session-desired-replicas
+# on the Deployment's own metadata). So for both platform ServiceAccounts, in every
+# namespace, an UPDATE of a Deployment must leave the pod template's spec and
+# labels, the selector, every template annotation other than
+# kubectl.kubernetes.io/restartedAt, the rollout settings (paused, strategy,
+# minReadySeconds, progressDeadlineSeconds, revisionHistoryLimit), the
+# Deployment's labels and every annotation of its own other than
+# bifrost.dev/session-desired-replicas as they were (review 545 F4).
+# resourceVersion, generation and managedFields are not compared. Image, command, environment,
+# ServiceAccount and volumes of Gitea, Argo CD, the EventListener, the
+# monitoring operator or any other workload stay with Argo CD, the applier and
+# the Owner. The scale subresource is not matched (it carries replicas only).
+#
+# Manual apply with the rest of k8s/platform-rbac, after a server dry-run.
+# Checked by scripts/check_admission_guards.py (static and --live).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: bifrost-platform-deployment-restart-scale
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["UPDATE"]
+        resources: ["deployments"]
+  matchConditions:
+    - name: platform-identity
+      expression: >-
+        request.userInfo.username in [
+          'system:serviceaccount:bifrost-platform-prod:bifrost-platform',
+          'system:serviceaccount:bifrost-platform-stg:bifrost-platform'
+        ]
+  validations:
+    - expression: >-
+        object.spec.template.spec == oldObject.spec.template.spec
+        && object.spec.selector == oldObject.spec.selector
+      message: the Ops platform may restart or scale a Deployment, not change its pod spec (image, command, environment, service account, volumes) or selector
+    - expression: >-
+        has(object.spec.template.metadata.labels) == has(oldObject.spec.template.metadata.labels)
+        && (!has(object.spec.template.metadata.labels)
+          || object.spec.template.metadata.labels == oldObject.spec.template.metadata.labels)
+      message: the Ops platform may not change a Deployment's pod template labels
+    - expression: >-
+        (!has(object.spec.template.metadata.annotations)
+          || object.spec.template.metadata.annotations.all(k,
+            k == 'kubectl.kubernetes.io/restartedAt'
+            || (has(oldObject.spec.template.metadata.annotations)
+              && k in oldObject.spec.template.metadata.annotations
+              && oldObject.spec.template.metadata.annotations[k] == object.spec.template.metadata.annotations[k])))
+        && (!has(oldObject.spec.template.metadata.annotations)
+          || oldObject.spec.template.metadata.annotations.all(k,
+            k == 'kubectl.kubernetes.io/restartedAt'
+            || (has(object.spec.template.metadata.annotations)
+              && k in object.spec.template.metadata.annotations)))
+      message: the Ops platform may change only the restartedAt annotation of a Deployment's pod template
+    - expression: >-
+        has(object.spec.paused) == has(oldObject.spec.paused)
+        && (!has(object.spec.paused) || object.spec.paused == oldObject.spec.paused)
+        && has(object.spec.strategy) == has(oldObject.spec.strategy)
+        && (!has(object.spec.strategy) || object.spec.strategy == oldObject.spec.strategy)
+        && has(object.spec.minReadySeconds) == has(oldObject.spec.minReadySeconds)
+        && (!has(object.spec.minReadySeconds) || object.spec.minReadySeconds == oldObject.spec.minReadySeconds)
+        && has(object.spec.progressDeadlineSeconds) == has(oldObject.spec.progressDeadlineSeconds)
+        && (!has(object.spec.progressDeadlineSeconds) || object.spec.progressDeadlineSeconds == oldObject.spec.progressDeadlineSeconds)
+        && has(object.spec.revisionHistoryLimit) == has(oldObject.spec.revisionHistoryLimit)
+        && (!has(object.spec.revisionHistoryLimit) || object.spec.revisionHistoryLimit == oldObject.spec.revisionHistoryLimit)
+      message: >-
+        the Ops platform may not change how a Deployment rolls out (paused, strategy,
+        minReadySeconds, progressDeadlineSeconds, revisionHistoryLimit; review 545 F4)
+    - expression: >-
+        has(object.metadata.labels) == has(oldObject.metadata.labels)
+        && (!has(object.metadata.labels) || object.metadata.labels == oldObject.metadata.labels)
+        && (!has(object.metadata.annotations)
+          || object.metadata.annotations.all(k,
+            k == 'bifrost.dev/session-desired-replicas'
+            || (has(oldObject.metadata.annotations)
+              && k in oldObject.metadata.annotations
+              && oldObject.metadata.annotations[k] == object.metadata.annotations[k])))
+        && (!has(oldObject.metadata.annotations)
+          || oldObject.metadata.annotations.all(k,
+            k == 'bifrost.dev/session-desired-replicas'
+            || (has(object.metadata.annotations) && k in object.metadata.annotations)))
+      message: >-
+        the Ops platform may change only the bifrost.dev/session-desired-replicas annotation
+        of a Deployment's own metadata, and none of its labels (review 545 F4)
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: bifrost-platform-deployment-restart-scale
+spec:
+  policyName: bifrost-platform-deployment-restart-scale
+  validationActions: [Deny]

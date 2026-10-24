@@ -186,6 +186,16 @@ spec:
               kubectl create --dry-run=client -o json -f /tmp/rendered.yaml \
                 | jq -s '{apiVersion:"v1",kind:"List",items:.}' > /tmp/normalized.json
               tier=$(sh /checks/apply-manifest-check.sh /policy/actuation-policy.yaml /tmp/normalized.json /tmp/objects.json)
+              # Review 545 F1: the tier comes from what this commit renders, not from the caller.
+              # The platform asks for main on tier C and D (workactions/service.go); a run that
+              # names a tier C or D change without requireOnMain=true is refused here, so a
+              # caller cannot apply Task or Pipeline definitions from a branch.
+              if [ "$mode" = "apply" ] && [ "${REQUIRE_ON_MAIN}" != "true" ]; then
+                case "$tier" in
+                  A|B) ;;
+                  *) echo "tier ${tier} is applied only from main: requireOnMain must be true" >&2; exit 1 ;;
+                esac
+              fi
               if [ "$mode" = "plan" ]; then
                 # Same field manager as the apply below. Under kubectl's default
                 # manager a changed field that bifrost-applier owns (an image tag)

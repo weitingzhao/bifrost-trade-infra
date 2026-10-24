@@ -218,6 +218,9 @@ metadata:
 spec:
   serviceAccountName: tekton-trigger
   triggers:
+    # TD-435: the listener does not check who posted the body (no webhook secret), so every
+    # filter also requires a 40-hex `after` and a ref of plain characters: `revision` reaches
+    # Task scripts as $(params.revision), and git allows `;`, `$`, `(` in branch names.
     # W-31 3.4 ② (Owner 2026-10-21 「D3 A」): CI runs on every branch push, not only main,
     # so a lane's commit has its CI before it is merged; push-main.sh requires a
     # Succeeded ci-* run for the exact commit it pushes. A push that deletes a branch
@@ -231,7 +234,8 @@ spec:
           params:
             - name: filter
               value: >-
-                body.ref.startsWith('refs/heads/') &&
+                body.ref.matches('^refs/heads/[A-Za-z0-9._/+-]{1,200}$') &&
+                body.after.matches('^[0-9a-f]{40}$') &&
                 body.after != '0000000000000000000000000000000000000000' &&
                 body.repository.name in ['bifrost-trade-core', 'bifrost-trade-api',
                   'bifrost-trade-worker', 'bifrost-research']
@@ -251,7 +255,8 @@ spec:
           params:
             - name: filter
               value: >-
-                body.ref.startsWith('refs/heads/') &&
+                body.ref.matches('^refs/heads/[A-Za-z0-9._/+-]{1,200}$') &&
+                body.after.matches('^[0-9a-f]{40}$') &&
                 body.after != '0000000000000000000000000000000000000000' &&
                 body.repository.name == 'bifrost-trade-frontend'
       bindings:
@@ -266,7 +271,8 @@ spec:
           params:
             - name: filter
               value: >-
-                body.ref.startsWith('refs/heads/') &&
+                body.ref.matches('^refs/heads/[A-Za-z0-9._/+-]{1,200}$') &&
+                body.after.matches('^[0-9a-f]{40}$') &&
                 body.after != '0000000000000000000000000000000000000000' &&
                 body.repository.name == 'bifrost-ui'
       bindings:
@@ -281,7 +287,8 @@ spec:
           params:
             - name: filter
               value: >-
-                body.ref.startsWith('refs/heads/') &&
+                body.ref.matches('^refs/heads/[A-Za-z0-9._/+-]{1,200}$') &&
+                body.after.matches('^[0-9a-f]{40}$') &&
                 body.after != '0000000000000000000000000000000000000000' &&
                 body.repository.name == 'bifrost-platform'
       bindings:
@@ -297,7 +304,8 @@ spec:
           params:
             - name: filter
               value: >-
-                body.ref.startsWith('refs/heads/') &&
+                body.ref.matches('^refs/heads/[A-Za-z0-9._/+-]{1,200}$') &&
+                body.after.matches('^[0-9a-f]{40}$') &&
                 body.after != '0000000000000000000000000000000000000000' &&
                 body.repository.name == 'bifrost-ui'
       bindings:
@@ -316,7 +324,8 @@ spec:
             - name: filter
               value: >-
                 !body.repository.mirror &&
-                (body.ref == 'refs/heads/main' || body.ref.startsWith('refs/tags/')) &&
+                body.after.matches('^[0-9a-f]{40}$') &&
+                (body.ref == 'refs/heads/main' || body.ref.matches('^refs/tags/[A-Za-z0-9._/+-]{1,200}$')) &&
                 body.repository.name in ['bifrost-trade-core', 'bifrost-trade-worker',
                   'bifrost-trade-api', 'bifrost-trade-frontend', 'bifrost-trade-infra',
                   'bifrost-ui', 'bifrost-platform', 'bifrost-research', 'bifrost-platform-plugin',

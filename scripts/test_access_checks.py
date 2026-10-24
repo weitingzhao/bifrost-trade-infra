@@ -91,6 +91,10 @@ class DryRunClassifyTests(unittest.TestCase):
         stg_read = ["kubectl", "get", "application", "bifrost-platform-stg", "-n", "cicd", "-o", "json"]
         stg = {"metadata": {"name": "bifrost-platform-stg"},
                "spec": {"source": {"repoURL": "https://example.invalid/infra.git", "path": "k8s/overlays/platform-stg"}}}
+        gitea_read = ["kubectl", "get", "deployment", "gitea", "-n", "cicd", "-o", "json"]
+        gitea = {"metadata": {"name": "gitea", "namespace": "cicd"},
+                 "spec": {"template": {"spec": {"containers": [{"name": "gitea", "image": "gitea/gitea:1.21"}]}}}}
+        reads = (application_read, stg_read, gitea_read)
         for readable in (False, True):
             with self.subTest(readable=readable):
                 calls: list[list[str]] = []
@@ -101,6 +105,8 @@ class DryRunClassifyTests(unittest.TestCase):
                         return Result(0, json.dumps(application)) if readable else Result(1, "")
                     if list(args) == stg_read:
                         return Result(0, json.dumps(stg)) if readable else Result(1, "")
+                    if list(args) == gitea_read:
+                        return Result(0, json.dumps(gitea)) if readable else Result(1, "")
                     if list(args[:4]) == ["kubectl", "auth", "can-i", "impersonate"]:
                         return Result(0, "no\n")
                     self.fail(f"unexpected command: {args}")
@@ -117,8 +123,51 @@ class DryRunClassifyTests(unittest.TestCase):
                 self.assertTrue(all(c[:2] != ["kubectl", "apply"]
                                     and not any("--dry-run" in arg for arg in c) for c in calls), calls)
                 self.assertEqual(calls.count(stg_read), 1, calls)
+                self.assertEqual(calls.count(gitea_read), 1, calls)
                 self.assertTrue(all(c[:4] == ["kubectl", "auth", "can-i", "impersonate"]
-                                    for c in calls if c not in (application_read, stg_read)), calls)
+                                    for c in calls if c not in reads), calls)
+
+
+class RefusalSourceTests(unittest.TestCase):
+    """Review 545 F3: a refusal counts only when the rule under test made it."""
+
+    def test_an_evaluation_error_is_not_a_denial(self) -> None:
+        err = ("deployments.apps \"gitea\" is forbidden: ValidatingAdmissionPolicy 'bifrost-platform-deployment-restart-scale' "
+               "with binding 'bifrost-platform-deployment-restart-scale' denied request: expression 'x' resulted in error: no such key")
+        self.assertEqual(guards.classify(PLATFORM, 1, err), "error")
+
+    def test_a_refusal_by_another_policy_is_reported(self) -> None:
+        class Result:
+            def __init__(self, returncode: int, stdout: str = "", stderr: str = ""):
+                self.returncode, self.stdout, self.stderr = returncode, stdout, stderr
+
+        app = {"metadata": {"name": "x", "namespace": "cicd"},
+               "spec": {"project": "bifrost", "source": {"repoURL": "https://example.invalid/x.git", "path": "k8s"},
+                        "destination": {"namespace": "x", "server": "https://kubernetes.default.svc"}}}
+        gitea = {"metadata": {"name": "gitea", "namespace": "cicd"},
+                 "spec": {"template": {"metadata": {}, "spec": {"containers": [{"name": "gitea", "image": "g:1"}]}}}}
+
+        def fake_run(args, **_kwargs):
+            args = list(args)
+            if args[:3] == ["kubectl", "get", "application"]:
+                return Result(0, json.dumps(app))
+            if args[:4] == ["kubectl", "get", "deployment", "gitea"]:
+                return Result(0, json.dumps(gitea))
+            if args[:4] == ["kubectl", "auth", "can-i", "impersonate"]:
+                return Result(0, "yes\n")
+            who = args[args.index("--as") + 1]
+            return Result(1, stderr=f"x is forbidden: ValidatingAdmissionPolicy 'some-other-policy' with binding 'b' denied request: no ({who})")
+
+        original = guards.subprocess.run
+        guards.subprocess.run = fake_run
+        try:
+            problems = guards.live()
+        finally:
+            guards.subprocess.run = original
+        self.assertTrue(any("platform-deployment-image: denied, but not by bifrost-platform-deployment-restart-scale" in p
+                            for p in problems), problems)
+        self.assertTrue(any("param-semicolon: denied, but not by bifrost-platform-pipelinerun" in p for p in problems), problems)
+        self.assertTrue(any("platform-deployment-restart: denied=True want False" in p for p in problems), problems)
 
 
 class PlanDiffTests(unittest.TestCase):
@@ -175,16 +224,27 @@ class DeliveryPinCaseTests(unittest.TestCase):
             for name, path in (("bifrost-research", "k8s"), ("bifrost-platform-stg", "k8s/overlays/platform-stg"))
         }
         tried: list[tuple[str, dict]] = []
+        written: list[tuple[str, str]] = []
+        replaced: list[tuple[str, dict]] = []
+        gitea = {"metadata": {"name": "gitea", "namespace": "cicd"},
+                 "spec": {"template": {"spec": {"containers": [{"name": "gitea", "image": "gitea/gitea:1.21"}]}}}}
 
         def fake_run(args, **kwargs):
             args = list(args)
             if args[:3] == ["kubectl", "get", "application"]:
                 return Result(0, json.dumps(apps[args[3]]))
+            if args[:4] == ["kubectl", "get", "deployment", "gitea"]:
+                return Result(0, json.dumps(gitea))
             if args[:4] == ["kubectl", "auth", "can-i", "impersonate"]:
                 return Result(0, "yes\n")
-            if args[:3] == ["kubectl", "apply", "--dry-run=server"]:
-                tried.append((args[args.index("--as") + 1], json.loads(kwargs["input"])
-                              if kwargs["input"].lstrip().startswith("{") else {}))
+            if args[:2] in (["kubectl", "apply"], ["kubectl", "replace"]) and args[2] == "--dry-run=server":
+                body = kwargs["input"]
+                who = args[args.index("--as") + 1]
+                tried.append((who, json.loads(body) if body.lstrip().startswith("{") else {}))
+                if body.startswith("apiVersion: v1\nkind: ConfigMap\n"):
+                    written.append((who, body.split("name: ", 1)[1].split("\n", 1)[0]))
+                if args[1] == "replace":
+                    replaced.append((who, json.loads(body)))
                 return Result(0, "")
             self.fail(f"unexpected command: {args}")
 
@@ -207,5 +267,31 @@ class DeliveryPinCaseTests(unittest.TestCase):
             "192.168.10.73:30500/bifrost-platform-console@" + zero,
         ])
         self.assertIn(PLATFORM, [who for who, _ in pins])
-        research = [body for who, body in tried if who == deliver and body["metadata"]["name"] == "bifrost-research"]
+        research = [body for who, body in tried if who == deliver and body.get("metadata", {}).get("name") == "bifrost-research"]
         self.assertEqual(len(research), 1)
+        # Review 542 TD-434: both platform accounts try every foreign ConfigMap and every own one.
+        stg = "system:serviceaccount:bifrost-platform-stg:bifrost-platform"
+        for who in (PLATFORM, stg):
+            for name in guards.CICD_FOREIGN_CONFIGMAPS + guards.PLATFORM_CICD_CONFIGMAPS:
+                self.assertIn((who, name), written)
+        self.assertIn((deliver, "bifrost-api-stg-dockerfile"), written)
+        # Review 542 A2, 545 F3/F4: every Deployment case is a full-object update of the live
+        # gitea object, as the platform; the allowed ones are there, not only refusals.
+        self.assertEqual(len(replaced), len(guards.DEPLOYMENT_CASES))
+        self.assertTrue(all(who == PLATFORM and b["metadata"]["name"] == "gitea" for who, b in replaced))
+        images = [b["spec"]["template"]["spec"]["containers"][0]["image"] for _, b in replaced]
+        self.assertEqual(images.count("example.invalid/gitea:td432"), 1)
+        self.assertIn("kubectl.kubernetes.io/restartedAt",
+                      replaced[0][1]["spec"]["template"]["metadata"]["annotations"])
+        self.assertEqual({label for label, _, deny in guards.DEPLOYMENT_CASES if not deny},
+                         {"restart", "scale", "session-annotation"})
+        # TD-436: every delivery step tekton-deliver may run is tried, and every CI step as a refusal.
+        steps = guards.deliver_steps()
+        self.assertGreaterEqual(len(steps), 15)
+        pairs = [(b["spec"]["pipelineRef"]["name"], s["pipelineTaskName"]) for who, b in tried
+                 if b.get("kind") == "PipelineRun" for s in b["spec"].get("taskRunSpecs", [])
+                 if s.get("serviceAccountName") == "tekton-deliver"]
+        for pair in steps:
+            self.assertIn(tuple(pair.split("/")), pairs)
+        for step in guards.ci_platform_steps():
+            self.assertIn(("bifrost-ci-platform", step), pairs)

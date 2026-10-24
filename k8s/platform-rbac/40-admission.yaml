@@ -44,9 +44,20 @@ spec:
         (
           !has(object.spec.taskRunTemplate) || !has(object.spec.taskRunTemplate.podTemplate)
           || (
-            !has(object.spec.taskRunTemplate.podTemplate.volumes)
-            && (!has(object.spec.taskRunTemplate.podTemplate.hostNetwork)
-              || object.spec.taskRunTemplate.podTemplate.hostNetwork == false)
+            !has(object.spec.taskRunTemplate.podTemplate.automountServiceAccountToken)
+            && !has(object.spec.taskRunTemplate.podTemplate.dnsConfig)
+            && !has(object.spec.taskRunTemplate.podTemplate.dnsPolicy)
+            && !has(object.spec.taskRunTemplate.podTemplate.enableServiceLinks)
+            && !has(object.spec.taskRunTemplate.podTemplate.env)
+            && !has(object.spec.taskRunTemplate.podTemplate.hostAliases)
+            && !has(object.spec.taskRunTemplate.podTemplate.hostNetwork)
+            && !has(object.spec.taskRunTemplate.podTemplate.imagePullSecrets)
+            && !has(object.spec.taskRunTemplate.podTemplate.priorityClassName)
+            && !has(object.spec.taskRunTemplate.podTemplate.runtimeClassName)
+            && !has(object.spec.taskRunTemplate.podTemplate.schedulerName)
+            && !has(object.spec.taskRunTemplate.podTemplate.securityContext)
+            && !has(object.spec.taskRunTemplate.podTemplate.topologySpreadConstraints)
+            && !has(object.spec.taskRunTemplate.podTemplate.volumes)
           )
         )
         && (
@@ -54,11 +65,25 @@ spec:
           || object.spec.taskRunSpecs.all(s,
             !has(s.podTemplate)
             || (
-              !has(s.podTemplate.volumes)
-              && (!has(s.podTemplate.hostNetwork) || s.podTemplate.hostNetwork == false)
+              !has(s.podTemplate.automountServiceAccountToken)
+              && !has(s.podTemplate.dnsConfig)
+              && !has(s.podTemplate.dnsPolicy)
+              && !has(s.podTemplate.enableServiceLinks)
+              && !has(s.podTemplate.env)
+              && !has(s.podTemplate.hostAliases)
+              && !has(s.podTemplate.hostNetwork)
+              && !has(s.podTemplate.imagePullSecrets)
+              && !has(s.podTemplate.priorityClassName)
+              && !has(s.podTemplate.runtimeClassName)
+              && !has(s.podTemplate.schedulerName)
+              && !has(s.podTemplate.securityContext)
+              && !has(s.podTemplate.topologySpreadConstraints)
+              && !has(s.podTemplate.volumes)
             ))
         )
-      message: platform PipelineRun podTemplate must not set volumes or hostNetwork
+      message: >-
+        a platform PipelineRun podTemplate may set only nodeSelector, tolerations and affinity
+        (no volumes, host network, host aliases, DNS settings, env or security context; review 545 F2)
     - expression: >-
         (
           !has(object.spec.taskRunTemplate)
@@ -93,6 +118,50 @@ spec:
         )
         || object.spec.pipelineRef.name == 'bifrost-apply-manifest'
       message: bifrost-applier may only run bifrost-apply-manifest
+    - expression: >-
+        (
+          !has(object.spec.taskRunTemplate) || !has(object.spec.taskRunTemplate.serviceAccountName)
+          || object.spec.taskRunTemplate.serviceAccountName == 'default'
+          || (object.spec.taskRunTemplate.serviceAccountName == 'bifrost-applier'
+              && object.spec.pipelineRef.name == 'bifrost-apply-manifest')
+        )
+        && (
+          !has(object.spec.taskRunSpecs)
+          || object.spec.taskRunSpecs.all(s,
+            !has(s.serviceAccountName) || s.serviceAccountName == 'default'
+            || (s.serviceAccountName == 'bifrost-applier' && object.spec.pipelineRef.name == 'bifrost-apply-manifest')
+            || (s.serviceAccountName == 'tekton-deliver' && has(s.pipelineTaskName)
+                && (object.spec.pipelineRef.name + '/' + s.pipelineTaskName) in [
+              'bifrost-deliver-stg/prepare',
+              'bifrost-deliver-stg/rollout',
+              'bifrost-deliver-stg/gitops-sync',
+              'bifrost-deliver-prod/prepare',
+              'bifrost-deliver-prod/rollout',
+              'bifrost-deliver-prod/gitops-sync',
+              'bifrost-deliver-platform/rollout',
+              'bifrost-deliver-platform/gitops-sync',
+              'bifrost-deliver-platform/agentrt-migrate',
+              'bifrost-deliver-platform-prod/rollout',
+              'bifrost-deliver-platform-prod/gitops-sync',
+              'bifrost-deliver-platform-prod/check-source',
+              'bifrost-deliver-research/rollout-research',
+              'bifrost-deliver-research/verify-research',
+              'bifrost-deliver-research/gitops-sync'
+            ]))
+        )
+      message: >-
+        tekton-deliver runs only the listed delivery steps, bifrost-applier only bifrost-apply-manifest;
+        every other step runs as default (TD-436)
+    - expression: >-
+        !has(object.spec.params)
+        || object.spec.params.all(p,
+          type(p.value) == string
+          && p.value.matches('^([\\p{L}\\p{N}._/:@+=][\\p{L}\\p{N}._/:@+=-]{0,255})?$')
+          && (p.name != 'giteaBase' || p.value == 'http://gitea.cicd.svc.cluster.local:3000/bifrost')
+          && (p.name != 'url' || p.value.startsWith('http://gitea.cicd.svc.cluster.local:3000/bifrost/')))
+      message: >-
+        platform run parameters must be plain strings of letters, digits and ._/:@+=- (at most 256, no leading dash),
+        giteaBase must be the in-cluster Gitea and url must point into it (TD-435, TD-436)
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
@@ -133,6 +202,48 @@ spec:
           && !object.spec.serviceAccountName.startsWith('argocd')
         )
       message: platform TaskRun service accounts must be allow-listed and must not be argocd-*
+    - expression: >-
+        !has(object.spec.serviceAccountName) || object.spec.serviceAccountName == 'default'
+        || (object.spec.serviceAccountName == 'tekton-deliver' && object.spec.taskRef.name == 'bifrost-refresh-dockerfile-cms')
+      message: platform TaskRuns run as default; tekton-deliver only for bifrost-refresh-dockerfile-cms; never bifrost-applier (TD-436)
+    - expression: >-
+        !has(object.spec.workspaces)
+        || object.spec.workspaces.all(w,
+          (has(w.volumeClaimTemplate) || has(w.emptyDir))
+          && !has(w.secret) && !has(w.configMap) && !has(w.persistentVolumeClaim)
+          && !has(w.projected) && !has(w.csi))
+      message: platform TaskRun workspaces may only be volumeClaimTemplate or emptyDir (TD-436)
+    - expression: >-
+        !has(object.spec.podTemplate)
+        || (
+          !has(object.spec.podTemplate.automountServiceAccountToken)
+          && !has(object.spec.podTemplate.dnsConfig)
+          && !has(object.spec.podTemplate.dnsPolicy)
+          && !has(object.spec.podTemplate.enableServiceLinks)
+          && !has(object.spec.podTemplate.env)
+          && !has(object.spec.podTemplate.hostAliases)
+          && !has(object.spec.podTemplate.hostNetwork)
+          && !has(object.spec.podTemplate.imagePullSecrets)
+          && !has(object.spec.podTemplate.priorityClassName)
+          && !has(object.spec.podTemplate.runtimeClassName)
+          && !has(object.spec.podTemplate.schedulerName)
+          && !has(object.spec.podTemplate.securityContext)
+          && !has(object.spec.podTemplate.topologySpreadConstraints)
+          && !has(object.spec.podTemplate.volumes)
+        )
+      message: >-
+        a platform TaskRun podTemplate may set only nodeSelector, tolerations and affinity
+        (TD-436, review 545 F2)
+    - expression: >-
+        !has(object.spec.params)
+        || object.spec.params.all(p,
+          type(p.value) == string
+          && p.value.matches('^([\\p{L}\\p{N}._/:@+=][\\p{L}\\p{N}._/:@+=-]{0,255})?$')
+          && (p.name != 'giteaBase' || p.value == 'http://gitea.cicd.svc.cluster.local:3000/bifrost')
+          && (p.name != 'url' || p.value.startsWith('http://gitea.cicd.svc.cluster.local:3000/bifrost/')))
+      message: >-
+        platform TaskRun parameters must be plain strings of letters, digits and ._/:@+=- (at most 256, no leading dash),
+        giteaBase must be the in-cluster Gitea and url must point into it (TD-435, TD-436)
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy

@@ -455,6 +455,7 @@ check-cluster-state-backup: ; python3 scripts/check_cluster_state_backup.py
 # TD-204: the Ops platform ServiceAccounts can do what platform code needs and nothing more
 # (STG observes, PROD maintains). Asks the API server; read-only.
 check-platform-rbac:
+	python3 -m unittest scripts/test_platform_rbac_secrets.py
 	python3 scripts/check_platform_rbac.py
 
 # TD-253 / W-33: PROD platform-api and platform-workers share the patrol skill
