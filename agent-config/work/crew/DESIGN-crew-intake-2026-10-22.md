@@ -779,8 +779,8 @@ C（公网入口）不在这张表里；要做时另起一份设计。
 
 | # | 事实 | 现在知道的 |
 |---|---|---|
-| V1 | 她 Mac 上的 ChatGPT 桌面版能不能挂本机 MCP；不能的话，跑本机命令的插件能不能用、要不要逐次允许 | Owner 10-22 说能读文件、操作屏幕和 Chrome、经插件跑命令；本机 MCP 未核实 |
-| V2 | Dots 的定时与主动调研在她 Mac 上跑还是在云端跑；后台运行能不能调用写工具 | 二手资料：每个 Dot 有自己的云端电脑和浏览器；后台主动调研只读；有定时任务；套餐 Pro / Business Premium（未核实） |
+| V1 | 她 Mac 上的 ChatGPT 桌面版能不能挂本机 MCP；不能的话，跑本机命令的插件能不能用、要不要逐次允许 | **大部分已核实（2026-10-23，Owner 在她 Mac 上截图）**：桌面版已与 Codex 合成一个应用；Settings → Integrations → Plugins 写着「Manage plugins, skills, and MCPs」，有 MCPs 标签（已装 1 个）和 Add；Configuration 有「Open config.toml」（Codex 配置，本机 stdio MCP 写在这里）。所以本机桥按首选做成 stdio MCP 服务器。General 的「Full access」是开的（不经批准跑命令）；Codex 配置是 Approval「On request」、Sandbox「Read only」，两者各管哪种对话、MCP 调用要不要每次点允许，待 `echo hello` 测试 |
+| V2 | Dots 的定时与主动调研在她 Mac 上跑还是在云端跑；后台运行能不能调用写工具 | **部分核实（2026-10-23 截图）**：Settings → Cloud computer 有「Your dot's cookies：Manage cookies saved by your dot」，她的 Dot 有云端电脑和浏览器；云端连不到她 Mac 上的桥，定时若在云端只能整理草稿、等她打开桌面版时再提交（3.3）。另装有插件「Remote Desktop Commander：Use your computer from chat」，云端能否借它在她 Mac 上跑命令待 Dots 回答 |
 | V3 | 她的 Mac 连不连得到 `192.168.10.100:30876` / `.73:30876`；在哪个网段 | **已核实（2026-10-23）**：她的 Mac 在家里 Wi-Fi 的 `192.168.20.x` 网段，`GET http://192.168.10.100:30876/api/v1/context` 返回 200；Owner 的 Mac 从同一网段的 Wi-Fi 口测 `.100`、`.73` 也都是 200。网段之间放行，不用改 UniFi。她不在家时连不到局域网，按 3.3 回「没提交」、第二天同键重提 |
 | V4 | Owner 的 GPT / Dots | 同 V1、V2 |
 | V5 | Claude Duet 能不能挂本机 MCP 或自定义远程连接器 | 10-22 搜索没找到一手资料；未核实 |
