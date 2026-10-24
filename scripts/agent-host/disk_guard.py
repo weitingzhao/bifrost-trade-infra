@@ -59,7 +59,8 @@ snapshots thinned when still under STOP_GB (macOS). --no-host skips them.
 
 Environment: AGENT_WORK (~/agent-work), WARN_GB, STOP_GB, DISK_GUARD_VOLUME (AGENT_WORK),
 LIFECYCLE_CACHE_ROOTS, LIFECYCLE_STATUS_DIR (AGENT_WORK/status), LIFECYCLE_LOCK,
-LIFECYCLE_DONE_MIN_AGE_MIN, LIFECYCLE_LSOF (lsof), LIFECYCLE_MOUNT (/sbin/mount),
+LIFECYCLE_MACHINE_ROOTS (<status>/cache-roots.tsv), LIFECYCLE_DONE_MIN_AGE_MIN,
+LIFECYCLE_LSOF (lsof), LIFECYCLE_MOUNT (/sbin/mount), LIFECYCLE_TMP_ROOT,
 LIFECYCLE_EXCLUDE (colon-separated paths
 under AGENT_WORK another owner manages, e.g. agentd), LIFECYCLE_DISCOVER (codex-review-*),
 DEFAULT_GOCACHE_CAP_GB, CURSOR_DB_WARN_GB.

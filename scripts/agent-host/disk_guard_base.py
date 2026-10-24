@@ -80,6 +80,8 @@ def open_dir_at(parent_fd: int, name: str, where: str) -> int:
     except OSError as e:
         try:
             st = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            raise Problem("gone", f"{where} is no longer there")
         except OSError:
             raise Problem("unreadable", f"{where}: {e.strerror or e}")
         if stat.S_ISLNK(st.st_mode):
@@ -199,7 +201,10 @@ def load_config(env: Dict[str, str]) -> Config:
     if regs_env:
         registries = [(p, True) for p in regs_env.split(":") if p]
     else:
-        registries = [(DEFAULT_REGISTRY, True), (os.path.join(status_dir, "cache-roots.tsv"), False)]
+        # the machine's own registry: beside the report unless named (the trial installed
+        # alongside the old disk-guard reads the same one a later install will)
+        machine = env.get("LIFECYCLE_MACHINE_ROOTS", "").strip() or os.path.join(status_dir, "cache-roots.tsv")
+        registries = [(DEFAULT_REGISTRY, True), (machine, False)]
     return Config(
         env=env,
         agent_work=aw,

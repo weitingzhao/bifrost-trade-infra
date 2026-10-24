@@ -88,6 +88,8 @@ def stage(cfg: Config, aw_fd: int, run_id: str, it: Item) -> Optional[Staged]:
         with _same_path(aw_fd, parent, it) as ch:
             try:
                 st = os.stat(name, dir_fd=ch.fd, follow_symlinks=False)
+            except FileNotFoundError:
+                raise Problem("gone", f"{it.path} is no longer there (another cleaner, or its owner, removed it)")
             except OSError as e:
                 raise Problem("path-changed", f"{it.path}: {e.strerror or e}")
             if not stat.S_ISDIR(st.st_mode) or ident(st) != it.ids[-1]:

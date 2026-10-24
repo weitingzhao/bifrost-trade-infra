@@ -89,6 +89,8 @@ class Walker:
             crel = f"{rel}/{n}" if rel else n
             try:
                 st = os.stat(n, dir_fd=fd, follow_symlinks=False)
+            except FileNotFoundError:
+                raise Problem("gone", f"{self.show(crel)} went away while it was read")
             except OSError as e:
                 raise Problem("unreadable", f"{self.show(crel)}: {e.strerror or e}")
             if n == ".git":
@@ -114,6 +116,8 @@ class Walker:
     def opened(self, fd: int, name: str, rel: str, st: os.stat_result) -> Iterator[int]:
         try:
             cfd = os.open(name, O_DIR, dir_fd=fd)
+        except FileNotFoundError:
+            raise Problem("gone", f"{self.show(rel)} went away while it was read")
         except OSError as e:
             raise Problem("unreadable", f"{self.show(rel)}: {e.strerror or e}")
         try:
@@ -126,6 +130,8 @@ class Walker:
     def head(self, fd: int, name: str, rel: str, st: os.stat_result, n: int = 4096) -> bytes:
         try:
             rfd = os.open(name, O_FILE, dir_fd=fd)
+        except FileNotFoundError:
+            raise Problem("gone", f"{self.show(rel)} went away while it was read")
         except OSError as e:
             raise Problem("unreadable", f"{self.show(rel)}: {e.strerror or e}")
         try:
