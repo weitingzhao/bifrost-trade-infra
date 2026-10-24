@@ -22,10 +22,13 @@ dir, is newer than ended_at or unreadable. new-worktree.sh makes the directory, 
 once anything was registered; only SessionStart writes markers.
 
 SessionEnd: steps 2 and 3, writing ended_at (a later end moves it forward). A record matches
-by its session id; it matches by host session only for a session that owned no earlier
-generation of it (taken_from) and whose own marker says it started after the current
-generation began (owner_since): the late end of an older session of the same Desktop thread,
-or of the session a --take replaced, does nothing (reviews 552 A3, 553 A1).
+by its session id; it matches by host session only when its handover history is complete
+(worktree_owner.history_complete: every earlier owner still listed in taken_from), for a
+session that owned no earlier generation of it and whose own marker says it started after
+the current generation began (owner_since): the late end of an older session of the same
+Desktop thread, or of a session any --take replaced, does nothing (reviews 552 A3, 553 A1,
+554 A1). A record handed over more than TAKEN_KEEP times ends only by its own session id or
+by new-worktree.sh --end.
 
 Every time here is kept in integer nanoseconds (ended_at_ns, owner_since_ns, active_since_ns,
 failed_at_ns) and compared in real order (review 553 A1, A4). A record from before 553 knows
@@ -36,6 +39,7 @@ not after the ownership began (no match).
 from __future__ import annotations
 
 import json
+import math
 import os
 import time
 from typing import Dict, List, Optional, Tuple
@@ -57,7 +61,7 @@ def marker_path(env: Dict[str, str], sid: str, suffix: str = ".json") -> str:
 
 def _write_time(path: str, sid: str, t: int, key: str) -> Optional[str]:
     try:
-        write_report(path, {"session": sid, key + "_ns": t, key: t / wo.NS, "written_at": wo.fmt(t / wo.NS)})
+        write_report(path, {"session": sid, key + "_ns": t, key: t / wo.NS, "written_at": wo.fmt_ns(t)})
         return None
     except OSError as e:
         return f"{path}: {e.strerror or e}"
@@ -81,14 +85,17 @@ def write_markers(env: Dict[str, str], ids: List[str], now: int) -> List[str]:
 
 def _read_time(path: str, key: str) -> Tuple[Optional[int], Optional[str]]:
     """(the time in ns, None); (None, None) when the file does not exist; (None, why) otherwise.
-    A file written before 553 has only the seconds, read as ns."""
+    A file written before 553 has only the seconds, read as ns. Anything but a JSON object
+    holding a finite time is unreadable, never an error out of the sweep (review 554 A3)."""
     try:
         with open(path, encoding="utf-8") as f:
             got = json.load(f)
+        if not isinstance(got, dict):
+            raise ValueError("not a JSON object")
         t = got.get(key + "_ns")
         if t is None:
             t = got[key]
-            if type(t) not in (int, float) or t != t:
+            if type(t) not in (int, float) or not math.isfinite(t):
                 raise ValueError
             t = int(t * wo.NS)
         if type(t) is not int:
@@ -96,7 +103,7 @@ def _read_time(path: str, key: str) -> Tuple[Optional[int], Optional[str]]:
         return t, None
     except FileNotFoundError:
         return None, None
-    except (OSError, ValueError, KeyError, TypeError) as e:
+    except (OSError, ValueError, KeyError, TypeError, OverflowError, RecursionError) as e:
         return None, f"{os.path.basename(path)} cannot be read ({type(e).__name__})"
 
 
@@ -119,12 +126,12 @@ def session_problem(env: Dict[str, str], rec: Dict[str, object], admin: str) -> 
             if bad:
                 return "session-marker-unreadable", f"the {key} {bad}"
             if t is not None and wo.resumed_after(t, ended):
-                return code, f"{key} {sid} started again at {wo.fmt(t / wo.NS)}, after ended_at {rec['ended_at']}"
+                return code, f"{key} {sid} started again at {wo.fmt_ns(t)}, after ended_at {rec['ended_at']}"
     t, bad = _read_time(os.path.join(admin, wo.RESUME_FAILED), "failed_at")
     if bad:
         return "session-marker-unreadable", bad
     if t is not None and wo.resumed_after(t, ended):
-        return "resume-failed", f"its session resumed at {wo.fmt(t / wo.NS)} but could not publish it"
+        return "resume-failed", f"its session resumed at {wo.fmt_ns(t)} but could not publish it"
     return None
 
 
@@ -155,6 +162,8 @@ def matches(env: Dict[str, str], rec: Dict[str, object], session: str, host: str
         return False
     if event == "start":
         return True  # renewing is never unsafe
+    if not wo.history_complete(rec):
+        return False  # an earlier owner may have dropped out of taken_from (554 A1)
     if any(isinstance(t, dict) and t.get("session") == session for t in rec.get("taken_from") or []):
         return False  # an owner of an earlier generation
     since, bad = _read_time(marker_path(env, session), "active_since")
@@ -210,7 +219,7 @@ def session_event(env: Dict[str, str], event: str, session: str, host: str, reas
                 if how == "foreign":
                     if rec.get("foreign_use"):
                         continue
-                    rec["foreign_use"] = {"session": session, "at": wo.fmt(now / wo.NS)}
+                    rec["foreign_use"] = {"session": session, "at": wo.fmt_ns(now)}
                 elif event == "end":
                     wo.end(rec, now, "session-end hook", reason)
                 else:

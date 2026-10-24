@@ -146,26 +146,60 @@ def _closed(orig: str, q: str, want: Tuple[int, ...], admin: str) -> bool:
         return False
 
 
-def _point_admin_at(admin: str, orig: str) -> None:
+def _admin_problem(repo: str, admin: str) -> Optional[str]:
+    """Why admin is not a real directory directly under this repository's .git/worktrees
+    (review 554 A2): the literal path must name <.git>/worktrees/<name>, and with every
+    symlink resolved it must still be that place, so neither the admin dir nor the worktrees
+    dir above it may be a link that leads elsewhere. None when it is, or when nothing is there."""
+    dotgit = os.path.realpath(os.path.join(repo, ".git"))
+    parent = os.path.dirname(admin)
+    if os.path.basename(parent) != "worktrees" or os.path.realpath(os.path.dirname(parent)) != dotgit:
+        return f"the journal's admin dir is not under {repo}/.git/worktrees"
+    try:
+        st = os.lstat(admin)
+    except FileNotFoundError:
+        return None
+    except OSError as e:
+        return f"{admin}: {e.strerror or e}"
+    if not stat.S_ISDIR(st.st_mode):
+        return f"{admin} is not a directory (a symlink is not followed)"
+    if os.path.realpath(admin) != os.path.join(dotgit, "worktrees", os.path.basename(admin)):
+        return f"{admin} resolves outside {repo}/.git/worktrees"
+    return None
+
+
+def _point_admin_at(repo: str, admin: str, orig: str) -> None:
     """Rewrite this admin dir's gitdir to name <orig>/.git, in the form (relative or absolute)
     it had. Only this one link of this one worktree is written: git worktree repair would
-    walk every linked worktree of the repository (review 553 A2)."""
-    path = os.path.join(admin, "gitdir")
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    walk every linked worktree of the repository (review 553 A2). The admin dir is checked
+    again and opened once, without following a link, and the read, the temporary file and
+    the replace all go through that one handle (review 554 A2)."""
+    bad = _admin_problem(repo, admin)
+    if bad:
+        raise OSError(bad)
+    dfd = os.open(admin, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
-        old = wo.read_all(fd, 8192).decode("utf-8", "surrogateescape").strip()
+        want = os.lstat(os.path.join(os.path.realpath(os.path.join(repo, ".git")), "worktrees", os.path.basename(admin)))
+        got = os.fstat(dfd)
+        if (got.st_dev, got.st_ino) != (want.st_dev, want.st_ino):
+            raise OSError(f"{admin} changed while it was checked")
+        fd = os.open("gitdir", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dfd)
+        try:
+            old = wo.read_all(fd, 8192).decode("utf-8", "surrogateescape").strip()
+        finally:
+            os.close(fd)
+        dotgit = os.path.join(orig, ".git")
+        text = dotgit if os.path.isabs(old) else os.path.relpath(dotgit, admin)
+        tmp = "gitdir.lifecycle-tmp"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644, dir_fd=dfd)
+        try:
+            os.write(fd, (text + "\n").encode("utf-8", "surrogateescape"))
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(tmp, "gitdir", src_dir_fd=dfd, dst_dir_fd=dfd)
     finally:
-        os.close(fd)
-    dotgit = os.path.join(orig, ".git")
-    text = dotgit if os.path.isabs(old) else os.path.relpath(dotgit, admin)
-    tmp = path + ".lifecycle-tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
-    try:
-        os.write(fd, (text + "\n").encode("utf-8", "surrogateescape"))
-        os.fsync(fd)
-    finally:
-        os.close(fd)
-    os.replace(tmp, path)
+        os.close(dfd)
 
 
 def settle(env: Dict[str, str], e: Dict[str, object], roots: List[Tuple[str, str]], apply: bool,
@@ -185,9 +219,10 @@ def settle(env: Dict[str, str], e: Dict[str, object], roots: List[Tuple[str, str
                             under the record's lock, and check both links again
       at original, gitdir original  back already (or never moved), when _closed() holds
       neither, no admin dir  removed
-    Anything else (both, another directory, a symlink, an admin dir not under the repo, the
-    original path taken, links that do not name each other) is reported and left alone; the
-    report says when it needs repair by hand."""
+    Anything else (both, another directory, a symlink, an admin dir that is not a real
+    directory directly under the repo's .git/worktrees, the original path taken, links that
+    do not name each other) is reported and left alone; the report says when it needs repair
+    by hand."""
     try:
         repo, orig, q, admin = (str(e[k]) for k in ("repo", "original", "quarantine", "admin"))
         want = tuple(e["ident"])  # type: ignore[arg-type]
@@ -197,10 +232,11 @@ def settle(env: Dict[str, str], e: Dict[str, object], roots: List[Tuple[str, str
         bad = _parent_ok(parent, roots)
         if bad:
             return False, f"{q}: {bad[1]}; left as it is"
-        if os.path.realpath(os.path.dirname(os.path.dirname(admin))) != os.path.realpath(os.path.join(repo, ".git")):
-            return False, f"{q}: the journal's admin dir is not under {repo}/.git; left as it is"
+        bad_admin = _admin_problem(repo, admin)
+        if bad_admin:
+            return False, f"{q}: {bad_admin}; left as it is"
         at_o, at_q = _ident(orig), _ident(q)
-        has_admin = os.path.isdir(admin)
+        has_admin = os.path.lexists(admin)
         target = wo.gitdir_target(admin) if has_admin else None
     except (KeyError, TypeError, ValueError, OSError, wo.OwnerError) as err:
         return False, f"journal entry for {e.get('quarantine')}: {err}; left as it is"
@@ -236,7 +272,7 @@ def settle(env: Dict[str, str], e: Dict[str, object], roots: List[Tuple[str, str
                     return False, f"{q}: {orig} is taken; left in quarantine"
                 os.rename(q, orig)  # same parent; Git already names orig
             else:
-                _point_admin_at(admin, orig)
+                _point_admin_at(repo, admin, orig)
             _unlock_ours(env, repo, orig)
     except (wo.OwnerError, OSError, GitError) as err:
         failed: Optional[BaseException] = err  # a step may have done its work and still failed

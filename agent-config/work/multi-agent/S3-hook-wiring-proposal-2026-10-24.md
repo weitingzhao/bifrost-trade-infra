@@ -128,7 +128,7 @@ function worktreeAddHint(cmd) {
 |---|---|---|
 | 进程被杀、Desktop 关闭或归档时 SessionEnd 是否触发（文档没说） | 没有 `ended_at`，worktree 一直「在用」 | 安全方向；要清时手工 `new-worktree.sh --end` |
 | `/clear`：SessionEnd(reason=clear) 被钩子跳过；之后 CLI 会话 id 变了 | 记录靠 `host_session`（`CLAUDE_CODE_HOST_SESSION_ID`，Desktop 线程 id）跟着线程走 | **没核实**这个变量在钩子进程里有（Bash 工具子进程里有，本会话实测）；没有时记录停在「在用」，安全方向 |
-| fork 出来的会话、或别的会话要用一个 worktree | 不隐式共享（复核 551 D2）：记录只认一个会话 | 先 `new-worktree.sh --take <dir> --session <新会话> [--host-session <新会话的线程 id>]` 接管，记录进入新的所有权代际（`generation`、`owner_since`）。调用者不是新会话时，不继承调用者的 host，`--host-session` 不给就记为未知（复核 552 A3）。之后：旧会话的结束事件按会话 id 不再匹配；只按 host 匹配的结束事件，要该会话没有拥有过更早的代际（`taken_from`），并且它的标记按纳秒晚于 `owner_since` 才算（同一线程里更早的会话迟到的结束不算，同一秒内也一样）。`--renew` 不转移使用权 |
+| fork 出来的会话、或别的会话要用一个 worktree | 不隐式共享（复核 551 D2）：记录只认一个会话 | 先 `new-worktree.sh --take <dir> --session <新会话> [--host-session <新会话的线程 id>]` 接管，记录进入新的所有权代际（`generation`、`owner_since`）。调用者不是新会话时，不继承调用者的 host，`--host-session` 不给就记为未知（复核 552 A3）。之后：旧会话的结束事件按会话 id 不再匹配；只按 host 匹配的结束事件，要记录的接管历史完整（`taken_from` 里每个更早的代际都还在，最多保留 32 次接管），该会话没有拥有过更早的代际，并且它的标记按纳秒晚于 `owner_since` 才算（同一线程里更早的会话迟到的结束不算，同一秒内也一样）。接管超过 32 次、或历史不完整的旧记录，只按自己的会话 id 或 `new-worktree.sh --end` 结束（复核 554 A1）。`--renew` 不转移使用权 |
 | 别的会话在别人的 worktree 里启动（SessionStart 的 cwd 在里面） | 钩子在记录上标 `foreign_use`；清扫一直保留它 | `--take` 或人工 `--end --by` 清掉标记。会话都在工作区根启动，这条只覆盖少数情况；以绝对路径去改别人的 worktree 钩子看不到，只有清扫那一刻的 lsof 能挡 |
 | 清扫与 `disk-guard.sh sweep` | 两者用同一把机器锁（`$AGENT_WORK/.lifecycle.lock`），不会同时跑 | disk-guard 还没调用 S2；以后接时要么先放锁再调，要么把锁交给子进程，不能在持锁时直接调（会拿不到锁、退出 3） |
 
@@ -156,4 +156,3 @@ function worktreeAddHint(cmd) {
    尤其要量「保护全部写失败、还没打出 JSON 就被 harness 超时杀掉」这条路径。
 5. **一致性**：同一组隔离夹具里，`new-worktree.sh --show` 和只报清扫的结果随上面这些事件一致变化；再核对 settings、提示规则和两侧 parity。
    Cursor 的可靠开始事件没确认之前，Cursor 的结束登记继续不接。
-

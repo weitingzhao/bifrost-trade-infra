@@ -176,3 +176,25 @@ def test_a_shape_whose_links_do_not_close_keeps_its_journal(w, monkeypatch):
     (admin / "gitdir").write_text(f"{d}/.git" + " " * 9000 + "\n")
     rc, out, rep = w.prune("--apply", inproc=True)
     assert len(journal(w)) == 1 and "larger than" in notes(rep)
+
+
+@pytest.mark.parametrize("link", ["admin", "worktrees"])
+def test_an_admin_dir_that_leads_out_of_the_repo_is_not_written(w, monkeypatch, link):
+    """Review 554 A2: the directory is back at the original path and Git still names the
+    quarantine, but the admin dir (or the worktrees dir above it) was moved out of the
+    repository and a symlink left in its place. The literal path still reads <repo>/.git/
+    worktrees/<name>; the rewrite would land outside. Nothing is written there, the journal
+    stays and the report says why."""
+    repo, d, q, admin = interrupted(w, monkeypatch)
+    os.rename(q, d)
+    away = w.tmp / "away"
+    away.mkdir()
+    moved = admin if link == "admin" else admin.parent
+    os.rename(moved, away / moved.name)
+    os.symlink(away / moved.name, moved)
+    outside = (away / moved.name / "gitdir") if link == "admin" else (away / moved.name / admin.name / "gitdir")
+    before = (outside.read_bytes(), outside.stat().st_mtime_ns)
+    rc, out, rep = w.prune("--apply", inproc=True)
+    assert (outside.read_bytes(), outside.stat().st_mtime_ns) == before
+    assert not (outside.parent / "gitdir.lifecycle-tmp").exists()
+    assert len(journal(w)) == 1 and "left as it is" in notes(rep), notes(rep)

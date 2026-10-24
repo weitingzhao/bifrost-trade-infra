@@ -12,8 +12,10 @@ removes it with the worktree, so the record lives exactly as long as the worktre
     meant for a cache, kind one of disk-guard's layouts or null); branch (null when detached);
     branch_created (new-worktree.sh made the branch for this work); base; renewed_at;
     lease_until; once ended: ended_at, ended_by, end_reason. voided_ends keeps the last five
-    ends a later use voided; taken_from the sessions that handed it over (--take); foreign_use
-    a session other than its owner that started inside it (worktree_sessions.py).
+    ends a later use voided; taken_from the sessions that handed it over (--take), the last
+    TAKEN_KEEP of them, one per earlier generation (history_complete says whether all are
+    still there, review 554 A1); foreign_use a session other than its owner that started
+    inside it (worktree_sessions.py).
 
 States, in order: in use (no ended_at) -> ended (a positive event wrote ended_at: the
 SessionEnd hook, new-worktree.sh --end, a wrapper on exit; a later end moves it forward) ->
@@ -53,6 +55,7 @@ MAX_RECORD = 64 * 1024
 WORK_RE = re.compile(r"^(?:(?:W|TD|BI)-[0-9]{1,6}|LANE-[A-Za-z0-9._-]{1,64})$")
 SESSION_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 DEFAULT_LEASE_HOURS = 12.0
+TAKEN_KEEP = 32  # handovers kept in taken_from; past this the history is incomplete (554 A1)
 
 
 NS = 10 ** 9
@@ -94,6 +97,12 @@ def surely_after(t: int, ref: Tuple[Optional[int], bool]) -> bool:
 
 def fmt(ts: float) -> str:
     return time.strftime(TIME_FMT, time.gmtime(int(ts)))
+
+
+def fmt_ns(t: int) -> str:
+    """The TIME_FMT second that holds t (ns), by integer division: t / NS as a float rounds
+    the last nanoseconds of a second up into the next one (review 554 D)."""
+    return fmt(t // NS)
 
 
 def to_seconds(v: object) -> Optional[float]:
@@ -185,19 +194,19 @@ def new_record(work: str, session: str, host_session: str, purpose: str, branch:
                branch_created: bool, base: str, cache_roots: List[Dict[str, object]], t: int,
                lease_hours: float) -> Dict[str, object]:
     """A record made at t (integer nanoseconds, now_ns())."""
-    now = t / NS
+    now = t // NS
     return {
         "schema": SCHEMA, "work": work, "session": session, "host_session": host_session,
         "purpose": purpose, "created_at": fmt(now), "cache_roots": list(cache_roots),
         "branch": branch, "branch_created": branch_created, "base": base,
         "renewed_at": fmt(now), "lease_until": fmt(now + lease_hours * 3600),
-        "generation": 1, "owner_since": fmt(t / NS), "owner_since_ns": t,
+        "generation": 1, "owner_since": fmt_ns(t), "owner_since_ns": t,
     }
 
 
 def renew(rec: Dict[str, object], t: int, lease_hours: float) -> bool:
     """A use at t (ns): renewed_at, the lease extended, an end voided. True when an end was voided."""
-    now = t / NS
+    now = t // NS
     voided = False
     if "ended_at" in rec:
         ends = list(rec.get("voided_ends") or [])
@@ -216,7 +225,7 @@ def end(rec: Dict[str, object], t: int, by: str, reason: str) -> None:
     """A positive end at t (ns): ended_at (and ended_at_ns, review 553) and the lease
     released. A later end moves ended_at forward, so it is never older than a session marker
     the end follows (review 551 D1)."""
-    now = t / NS
+    now = t // NS
     rec["ended_at"], rec["ended_at_ns"] = fmt(now), t
     rec["ended_by"] = by
     rec["end_reason"] = reason
@@ -232,17 +241,30 @@ def owner_since(rec: Dict[str, object]) -> Tuple[Optional[int], bool]:
     return got if got[0] is not None else ns_of(rec, "created_at")
 
 
+def history_complete(rec: Dict[str, object]) -> bool:
+    """Whether taken_from still holds every earlier owner: one entry per generation 1 ..
+    generation-1, in order (review 554 A1). A record handed over more than TAKEN_KEEP times,
+    or one written before generations were numbered, cannot show that a session never owned
+    it, so an end that matches only by host does not count for it (worktree_sessions.py)."""
+    gen = rec.get("generation", 1)
+    hist = rec.get("taken_from") or []
+    if type(gen) is not int or not isinstance(hist, list) or len(hist) != gen - 1:
+        return False
+    return all(isinstance(h, dict) and isinstance(h.get("session"), str) and h.get("generation") == n
+               for n, h in enumerate(hist, start=1))
+
+
 def take(rec: Dict[str, object], t: int, session: str, host_session: str, lease_hours: float) -> None:
     """Hand the worktree to another session as a new ownership generation: the old session's
     later end events match nothing, and an end event that matches only by host counts only
     from a session that started after this generation began (worktree_sessions.py); an end
     is voided, a recorded foreign use cleared (reviews 551 D2, 552 A3). host_session is the
     target's, or empty when it is not known."""
-    now = t / NS
+    now = t // NS
     hist = list(rec.get("taken_from") or [])
     hist.append({"session": rec.get("session"), "host_session": rec.get("host_session", ""),
                  "generation": rec.get("generation", 1), "at": fmt(now)})
-    rec["taken_from"] = hist[-5:]
+    rec["taken_from"] = hist[-TAKEN_KEEP:]
     rec["session"], rec["host_session"] = session, host_session
     rec["generation"] = int(rec.get("generation", 1)) + 1  # type: ignore[call-overload]
     rec["owner_since"], rec["owner_since_ns"] = fmt(now), t
