@@ -11,17 +11,21 @@ missing, replaced or changed (the root is renamed back); while removing, the fir
 difference stops it. A stop part way leaves a cache partly removed: the entries already
 gone were checked cache entries, which is acceptable for a cache; what is left stays under
 the quarantine name with its journal entry and inventory, reported "partly removed,
-stopped: ...", and the new material stays where it was put. A sweep that died part way is
-finished by the next one through the same inventory.
+stopped: ...", and the new material stays where it was put. The next sweep finishes a
+removal that stopped or died part way when the remaining entries match the inventory and
+the other checks (Git, open files, exclusions, journal identity) pass. A leftover's
+inventory is read when its root is classified and again, per root, when it is removed; it is
+not held in memory between the two.
 
 Threat model (review 547 A1): this guards against accidental loss, not against a process
 working against the sweep. The sweeper runs as the same user as every producer; such a
 process could delete the material itself. What is protected: nothing is removed unless the
 root has left its registered name, lsof saw no open file in it, and every entry removed
-matched the second check's inventory just before. What is not: a name swapped for other
-material in the instant between that last comparison and the unlink or rmdir, and a
-directory moved out of the quarantine while its entries are being removed (the open handle
-follows it).
+matched the second check's inventory at its last comparison. What is not: a name swapped
+for other material after its last comparison and before the name operation (unlink, or
+rmdir, which for a directory comes after everything under it is removed), and a directory
+moved out of the quarantine while its entries are being removed (the open handle follows
+it).
 """
 
 from __future__ import annotations
@@ -36,7 +40,7 @@ from disk_guard_inventory import Inventory, Stop, compare_tree, remove_checked
 from disk_guard_items import Item, check_git_for, is_leftover, original_name
 from disk_guard_layout import Walker, validate
 from disk_guard_roots import OpenFiles, check_git, check_original, check_policy
-from disk_guard_state import inventory_write, journal_drop, journal_write
+from disk_guard_state import chmod_recorder, inventory_load, inventory_write, journal_drop, journal_write
 
 # Test seams: called with the items about to be renamed; with the staged items after the
 # renames, before the second check; with one item after its second check (Git and lsof
@@ -44,6 +48,7 @@ from disk_guard_state import inventory_write, journal_drop, journal_write
 between_check_and_rename: Optional[Callable[[List[Item]], None]] = None
 between_check_and_delete: Optional[Callable[[list], None]] = None
 between_recheck_and_remove: Optional[Callable[[Item, int, str, str], None]] = None
+after_inventory_written: Optional[Callable[[Item], None]] = None
 during_removal: Optional[Callable[[str], None]] = None
 BATCH = 64  # staged roots hold one directory handle each until removed
 
@@ -123,15 +128,23 @@ def _undo(it: Item, staged: Staged) -> str:
     return msg
 
 
-def _second_check(it: Item, rfd: int) -> Tuple[Inventory, int, Optional[Walker]]:
+def _second_check(it: Item, rfd: int, jfile: Optional[str]) -> Tuple[Inventory, int, Optional[Walker]]:
     """(inventory to remove, bytes, walker for the end evidence): a full layout check, or for
-    a stopped removal the comparison with its own inventory."""
-    if it.resume is not None:
+    a stopped removal the comparison with its own inventory, read again from its file."""
+    if it.resuming:
         try:
-            compare_tree(rfd, it.resume)
+            inv = inventory_load(jfile) if jfile else None
+        except ValueError as e:
+            raise Problem("journal-inventory-unusable", str(e))
+        if inv is None:
+            raise Problem("journal-inventory-unusable", "the inventory is gone")
+        if inv.root_id != it.ids[-1]:
+            raise Problem("unrecorded-quarantine-name", "the inventory records another directory (device, inode)")
+        try:
+            compare_tree(rfd, inv)
         except Stop as s:
-            raise Problem("changed-since-stopped", f"{it.resume.show(s.entry)} {s.why}")
-        return it.resume, it.bytes, None
+            raise Problem("changed-since-stopped", f"{inv.show(s.entry)} {s.why}")
+        return inv, it.bytes, None
     assert it.kind is not None
     w = validate(rfd, it.kind)
     return w.inventory(), w.bytes, w
@@ -148,7 +161,7 @@ def recheck_and_remove(cfg: Config, aw_fd: int, aw_id: Ident, it: Item, staged: 
         try:
             if ident(os.fstat(rfd)) != it.ids[-1]:
                 raise Problem("path-changed", f"{_join(parent, q)} is not the directory first checked")
-            inv, size, w = _second_check(it, rfd)
+            inv, size, w = _second_check(it, rfd, jfile)
         finally:
             os.close(rfd)
         # The path must still lead here: Git and lsof only know paths.
@@ -174,16 +187,20 @@ def recheck_and_remove(cfg: Config, aw_fd: int, aw_id: Ident, it: Item, staged: 
         return
     if between_recheck_and_remove is not None:
         between_recheck_and_remove(it, pfd, name, q)
-    if it.resume is None:
+    if jfile is None:
+        it.keep(Problem("journal-write-failed", f"no journal entry: nothing removed{_undo(it, staged)}"))
+        return
+    if not it.resuming:
         # written before the first unlink, so a sweep that dies part way can be finished
         try:
-            assert jfile is not None
             inventory_write(jfile, inv)
-        except (OSError, AssertionError) as e:
+        except OSError as e:
             it.keep(Problem("inventory-write-failed", f"{e}: nothing removed{_undo(it, staged)}"))
             return
+        if after_inventory_written is not None:
+            after_inventory_written(it)
     try:
-        remove_checked(pfd, q, inv, during_removal)
+        remove_checked(pfd, q, inv, during_removal, chmod_recorder(jfile))
     except Stop as s:
         entry = inv.show(s.entry)
         if s.removed == 0:
@@ -194,7 +211,9 @@ def recheck_and_remove(cfg: Config, aw_fd: int, aw_id: Ident, it: Item, staged: 
         return
     journal_drop(jfile)
     if it.action == "prune":
-        it.action, it.detail = "pruned", f"{gib(size)} over the cap: the whole root removed"
+        it.action = "pruned"
+        it.detail = ("finished the removal a stopped sweep began (what was left may be under the cap)" if it.resuming
+                     else f"{gib(size)} over the cap: the whole root removed")
     else:
         it.action = "deleted"
 

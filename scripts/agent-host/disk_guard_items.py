@@ -35,7 +35,8 @@ class Item:
     leftover: Optional[str] = None  # None: no .lifecycle-del- suffix; a str (maybe empty): the run id after it
     ids: List[Ident] = field(default_factory=list, repr=False)  # AGENT_WORK/... down to the root
     journal: Optional[Dict[str, object]] = field(default=None, repr=False)  # a leftover's record
-    resume: Optional[Inventory] = field(default=None, repr=False)  # a stopped removal's inventory
+    resume: Optional[Inventory] = field(default=None, repr=False)  # a stopped removal's inventory, while classified
+    resuming: bool = False  # a stopped removal to finish (its inventory is read again at removal)
 
     def keep(self, p: Problem) -> "Item":
         self.action, self.reason, self.detail = "keep", p.code, p.detail
@@ -134,6 +135,7 @@ def classify(cfg: Config, aw_fd: int, it: Item, lsof: OpenFiles, now: float, jou
                 raise Problem("unrecorded-quarantine-name", "the journal entry records another directory (device, inode): reported only")
             if it.resume is not None:
                 resumable(ch.fd, it)
+                it.resume, it.resuming = None, True  # read again per root when it is removed
             else:
                 w = validate(ch.fd, it.kind)
                 it.bytes, it.bytes_complete, it.layout = w.bytes, True, it.kind
@@ -144,7 +146,7 @@ def classify(cfg: Config, aw_fd: int, it: Item, lsof: OpenFiles, now: float, jou
                     except OSError:
                         it.run_done = False
                 check_policy(cfg, it.entry, owner_fd, owner, w, now)
-        if it.resume is None and it.entry.cap_bytes is not None and w.bytes <= it.entry.cap_bytes:
+        if not it.resuming and it.entry.cap_bytes is not None and w.bytes <= it.entry.cap_bytes:
             raise Problem("under-cap", f"{gib(w.bytes)} <= cap {gib(it.entry.cap_bytes)}")
         check_git_for(cfg, it)
         unknown = lsof.problem_for(path)
@@ -158,7 +160,7 @@ def classify(cfg: Config, aw_fd: int, it: Item, lsof: OpenFiles, now: float, jou
         it.keep(p)
         return
     it.action = "prune" if it.entry.cap_bytes is not None else "delete"
-    if it.resume is not None:
+    if it.resuming:
         it.bytes, it.bytes_complete = du(path)
         it.layout = it.kind
         it.reason, it.detail = "finishing-stopped-removal", "everything left is in the stopped removal's inventory"

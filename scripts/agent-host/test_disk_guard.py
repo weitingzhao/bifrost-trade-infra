@@ -185,6 +185,7 @@ class SweepCase(unittest.TestCase):
         disk_guard_apply.between_check_and_rename = None
         disk_guard_apply.between_recheck_and_remove = None
         disk_guard_apply.during_removal = None
+        disk_guard_apply.after_inventory_written = None
         for p, mode in self.restore_modes:
             with contextlib.suppress(OSError):
                 os.chmod(p, mode)

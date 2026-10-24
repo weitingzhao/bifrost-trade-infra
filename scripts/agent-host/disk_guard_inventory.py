@@ -10,8 +10,10 @@ hold. Markers (README, cache, _cacache) go last at every level, so a stopped rem
 looks like the cache it was.
 
 A resumed inventory (swept) belongs to a removal a sweep stopped part way: entries may be
-gone, and a directory may carry the u+rwx the sweeper added before emptying it. Nothing may
-be new, and every remaining entry must match.
+gone; nothing may be new, and every remaining entry must match. The one difference allowed is
+a directory mode the sweeper recorded (journal <entry>.chmods) before changing it to empty
+that directory: such a directory may have its original mode or the recorded one, nothing
+else; any other directory must match exactly (review 549 A1).
 """
 
 from __future__ import annotations
@@ -20,7 +22,9 @@ import os
 import stat
 from typing import Callable, Dict, List, Optional
 
-from disk_guard_base import Ident, O_DIR, Sig, _join, ident, same_entry, sig
+from disk_guard_base import Ident, O_DIR, Sig, _join, ident, sig
+
+RecordChmod = Callable[[str, int, int, int], None]  # (path, device, inode, new mode), durable before the chmod
 
 MARKERS = {"README", "cache", "_cacache"}
 
@@ -30,6 +34,14 @@ class Inventory:
                  redact: bool = False, leaf: Optional[str] = None, swept: bool = False) -> None:
         self.inv, self.listed, self.root_id = inv, listed, root_id
         self.redact, self.leaf, self.swept = redact, leaf, swept
+        self.chmods: Dict[str, int] = {}  # path -> the mode the sweeper recorded before setting it
+
+    def matches(self, rel: str, live: Sig) -> bool:
+        want = self.inv[rel]
+        if live == want:
+            return True
+        mode = self.chmods.get(rel)
+        return mode is not None and live == (want[0], want[1], mode) + tuple(want[3:])
 
     def show(self, rel: str) -> str:
         """A chain's directory names can hold a whole command line: name a chain level by
@@ -58,7 +70,7 @@ def _check(fd: int, rel: str, inv: Inventory, n: str) -> os.stat_result:
         raise Stop(crel, "is missing")
     except OSError as e:
         raise Stop(crel, f"cannot be read ({e.strerror or e})")
-    if not same_entry(sig(st), want, inv.swept):
+    if not inv.matches(crel, sig(st)):
         raise Stop(crel, "was replaced or changed")
     return st
 
@@ -106,11 +118,16 @@ def compare_tree(fd: int, inv: Inventory, rel: str = "") -> None:
                 os.close(cfd)
 
 
-def _remove(fd: int, rel: str, inv: Inventory, done: List[int], after: Optional[Callable[[str], None]]) -> None:
+def _remove(fd: int, rel: str, inv: Inventory, done: List[int], after: Optional[Callable[[str], None]],
+            record: Optional[RecordChmod]) -> None:
     st = os.fstat(fd)
     if (st.st_mode & stat.S_IRWXU) != stat.S_IRWXU:
+        new = st.st_mode | stat.S_IRWXU  # Go's module dirs are 0555
         try:
-            os.fchmod(fd, stat.S_IMODE(st.st_mode) | stat.S_IRWXU)  # Go's module dirs are 0555
+            if rel and record is not None:
+                record(rel, st.st_dev, st.st_ino, new)  # durable first: a resumed removal may then see it
+                inv.chmods[rel] = new
+            os.fchmod(fd, stat.S_IMODE(new))
         except OSError as e:
             raise Stop(rel or ".", f"cannot be made writable ({e.strerror or e})")
     for n in _names(fd, rel, inv):
@@ -120,7 +137,7 @@ def _remove(fd: int, rel: str, inv: Inventory, done: List[int], after: Optional[
             if stat.S_ISDIR(est.st_mode):
                 cfd = _open_checked(fd, n, crel, est)
                 try:
-                    _remove(cfd, crel, inv, done, after)
+                    _remove(cfd, crel, inv, done, after, record)
                 finally:
                     os.close(cfd)
                 os.rmdir(n, dir_fd=fd)  # fails if anything appeared in it meanwhile
@@ -133,7 +150,8 @@ def _remove(fd: int, rel: str, inv: Inventory, done: List[int], after: Optional[
             after(crel)
 
 
-def remove_checked(parent_fd: int, q: str, inv: Inventory, after: Optional[Callable[[str], None]] = None) -> None:
+def remove_checked(parent_fd: int, q: str, inv: Inventory, after: Optional[Callable[[str], None]] = None,
+                   record: Optional[RecordChmod] = None) -> None:
     """Remove exactly the inventory, or stop at the first difference (Stop.removed says how
     many entries went first)."""
     done = [0]
@@ -144,7 +162,7 @@ def remove_checked(parent_fd: int, q: str, inv: Inventory, after: Optional[Calla
     try:
         compare_tree(fd, inv)
         try:
-            _remove(fd, "", inv, done, after)
+            _remove(fd, "", inv, done, after, record)
         except Stop as s:
             s.removed = done[0]
             raise

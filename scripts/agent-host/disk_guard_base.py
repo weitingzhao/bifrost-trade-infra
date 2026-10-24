@@ -73,16 +73,6 @@ def sig(st: os.stat_result) -> Sig:
     return (st.st_dev, st.st_ino, st.st_mode, st.st_size if reg else 0, st.st_mtime_ns if reg else 0, st.st_ctime_ns if reg else 0)
 
 
-def same_entry(live: Sig, want: Sig, swept: bool = False) -> bool:
-    """live matches want; with swept, a directory may also carry the u+rwx the sweeper itself
-    added before removing what it held (a sweep that stopped part way)."""
-    if live == want:
-        return True
-    if swept and stat.S_ISDIR(want[2]) and live[:2] == want[:2] and live[3:] == want[3:]:
-        return live[2] == want[2] | stat.S_IRWXU
-    return False
-
-
 def open_dir_at(parent_fd: int, name: str, where: str) -> int:
     """Open one directory below a handle, never through a symlink."""
     try:

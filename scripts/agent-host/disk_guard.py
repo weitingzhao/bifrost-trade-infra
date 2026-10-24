@@ -187,6 +187,7 @@ def _sweep_locked(cfg: Config, run_id: str, apply: bool, host: bool) -> int:
     if tm:
         steps.append(tm)
     space = free_space(cfg.volume)
+    open_end, bad_end = journal_open(cfg)
     rc, level_msg = level(space, cfg.warn_gb, cfg.stop_gb)
     every = items + found
     counts: Dict[str, int] = {}
@@ -217,7 +218,8 @@ def _sweep_locked(cfg: Config, run_id: str, apply: bool, host: bool) -> int:
                  "scope": "processes of this user" if os.geteuid() != 0 else "all processes"},
         "items": [it.public() for it in every],
         "host_steps": steps,
-        "journal": {"loaded_entries": len(journal), "open_entries_at_end": journal_open(cfg), "notes": journal_notes},
+        "journal": {"loaded_entries": len(journal), "open_entries_at_end": "unknown" if open_end is None else open_end,
+                    "bad_files_at_end": bad_end, "notes": journal_notes},
         "not_in_this_sweep": "worktrees and local branches (S2: prune-merged-branches.sh --local-only); remote branches; node_modules are reported, not removed",
         "errors": errors,
     }
