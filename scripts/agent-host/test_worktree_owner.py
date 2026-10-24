@@ -367,9 +367,12 @@ def test_one_second_holds_a_start_a_take_and_a_late_old_end(w):
     an earlier generation and C started before this one: neither ends B's use. B's end does."""
     repo = w.repo()
     w.env["CLAUDE_CODE_SESSION_ID"], w.env["CLAUDE_CODE_HOST_SESSION_ID"] = "sess-a", "local_t"
-    for sid in ("sess-a", "sess-c", "sess-b"):
-        hook(w, {"hook_event_name": "SessionStart", "session_id": sid, "source": "startup"}, host="local_t")
+    hook(w, {"hook_event_name": "SessionStart", "session_id": "sess-a", "source": "startup"}, host="local_t")
     d = w.new_worktree(repo, "t/bifrost-x", detach="origin/main", session="sess-a")
+    # C never owns it and starts after it was made, before the take: only owner_since keeps
+    # C's end out; A is kept out by the generation as well
+    for sid in ("sess-c", "sess-b"):
+        hook(w, {"hook_event_name": "SessionStart", "session_id": sid, "source": "startup"}, host="local_t")
     rc, out = w.call(new_worktree.main, ["--take", str(d), "--session", "sess-b", "--host-session", "local_t"])
     assert rc == 0, out
     for sid in ("sess-a", "sess-c"):

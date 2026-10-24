@@ -129,17 +129,22 @@ def links(path):
 
 def test_repairing_one_worktree_touches_no_other(w, monkeypatch):
     """Review 553 A2: the "directory back, gitdir still names the quarantine" shape is fixed
-    by rewriting that one gitdir; git worktree repair would rewrite every linked worktree of
-    the repository, here one outside the roots with relative links."""
+    by rewriting that one gitdir. git worktree repair <path> would also walk every linked
+    worktree of the repository and rewrite links it finds broken (Git 2.50: it rewrites the
+    .git of another worktree outside the roots). Both others stay byte for byte: one with
+    relative links, one whose .git someone broke."""
     repo, d, q, admin = interrupted(w, monkeypatch)
-    outside = w.tmp / "outside" / "bifrost-x"
-    w.git(repo, "worktree", "add", "-q", "--relative-paths", "--detach", outside, "origin/main")
-    before = links(outside)
-    stamp = [(p, p.stat().st_mtime_ns) for p in (outside / ".git", Path(wo.admin_of(str(outside))[0]) / "gitdir")]
+    rel = w.tmp / "outside" / "relative"
+    broken = w.tmp / "outside" / "broken"
+    w.git(repo, "worktree", "add", "-q", "--relative-paths", "--detach", rel, "origin/main")
+    w.git(repo, "worktree", "add", "-q", "--detach", broken, "origin/main")
+    (broken / ".git").write_text("gitdir: /nowhere/admin\n")
+    files = [rel / ".git", Path(wo.admin_of(str(rel))[0]) / "gitdir", broken / ".git"]
+    before = [(p.read_bytes(), p.stat().st_mtime_ns) for p in files]
     os.rename(q, d)  # the directory is back; Git still names the quarantine
     rc, out, rep = w.prune("--apply", inproc=True)
     assert d.exists() and journal(w) == [] and consistent(w, repo, d)
-    assert links(outside) == before and [(p, p.stat().st_mtime_ns) for p, _ in stamp] == stamp
+    assert [(p.read_bytes(), p.stat().st_mtime_ns) for p in files] == before
 
 
 @pytest.mark.parametrize("shape", ["finished", "after-rename", "before-rename"])
