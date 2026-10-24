@@ -34,9 +34,12 @@ def filters():
 
 def evaluate(expr, body):
     py = " ".join(expr.split())
+    # X.matches('re') -> _m(X, 're'): CEL's matches is an RE2 search; the filters anchor theirs (TD-435)
+    py = re.sub(r"([\w.]+)\.matches\(('[^']*')\)", r"_m(\1, \2)", py)
     py = py.replace("&&", " and ").replace("||", " or ").replace(".startsWith(", ".startswith(")
     py = re.sub(r"!(?!=)", " not ", py)
-    return bool(eval(py, {"__builtins__": {}}, {"body": Obj(body)}))  # noqa: S307 - our own file's filters
+    scope = {"body": Obj(body), "_m": lambda value, pattern: re.search(pattern, value) is not None}
+    return bool(eval(py, {"__builtins__": {}}, scope))  # noqa: S307 - our own file's filters
 
 
 def fired(body):
@@ -81,5 +84,17 @@ def test_github_sync_still_follows_main_and_tags_only():
 def test_every_ci_filter_has_the_same_ref_rule():
     for name in CI:
         expr = " ".join(filters()[name].split())
-        assert expr.startswith("body.ref.startsWith('refs/heads/') && body.after != '" + ZERO + "' && "), name
+        assert expr.startswith("body.ref.startsWith('refs/heads/') && body.after.matches('^[0-9a-f]{40}$') && "
+                               "body.after != '" + ZERO + "' && "), name
     assert set(filters()) == set(CI) | {"github-sync"}
+
+
+def test_a_posted_body_runs_nothing_unless_after_is_a_commit():
+    # TD-435: the listener does not check the sender; `after` becomes `revision` in Task scripts
+    for after in ("main;true", "$(id)", "A" * 40, "a" * 39, "a" * 41, ""):
+        assert fired(push("bifrost-platform", "refs/heads/main", after=after)) == [], after
+    # CI does not take the branch name, so any branch name still runs CI (review 546)
+    assert "platform-ci" in fired(push("bifrost-platform", "refs/heads/feature/fix=1"))
+    assert "platform-ci" in fired(push("bifrost-platform", "refs/heads/feature/修复"))
+    # github-sync passes the ref on, so it takes main and plain tags only
+    assert "github-sync" not in fired(push("bifrost-platform", "refs/tags/v1;true"))
