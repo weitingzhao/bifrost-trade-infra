@@ -42,7 +42,7 @@ chmod 700 "${work}"
 
 # read_secrets — both Secrets as JSON into the work directory (mode 600)
 read_secrets() {
-  (umask 077 && kubectl -n cicd get secret gitea-bootstrap -o json > "${work}/bootstrap.json") || gitea_die "cannot read Secret cicd/gitea-bootstrap"
+  (umask 077 && kubectl -n gitea-admin get secret gitea-bootstrap -o json > "${work}/bootstrap.json") || gitea_die "cannot read Secret gitea-admin/gitea-bootstrap"
   (umask 077 && kubectl -n cicd get secret gitea-ci-reader -o json > "${work}/clone.json") || gitea_die "cannot read Secret cicd/gitea-ci-reader"
 }
 
@@ -164,7 +164,7 @@ export GITEA_ORG_NAME="${GITEA_ORG}"
 # Secret is still at that resourceVersion
 patch() {
   py 'print(json.dumps({"metadata": {"resourceVersion": sys.argv[2]}, "stringData": {sys.argv[1]: os.environ["NEW_TOKEN"]}}))' "$2" "$3" |
-    kubectl -n cicd patch secret "$1" --type merge --patch-file /dev/stdin > /dev/null
+    kubectl -n gitea-admin patch secret "$1" --type merge --patch-file /dev/stdin > /dev/null
 }
 
 # the shared part of check and the end of rotate: what each Secret is good for

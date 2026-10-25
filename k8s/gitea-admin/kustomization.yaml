@@ -1,0 +1,6 @@
+# Owner applied only, outside Argo applications and overlays.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - isolation.yaml

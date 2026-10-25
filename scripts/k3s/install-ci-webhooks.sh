@@ -9,11 +9,12 @@
 # Idempotent: an existing webhook with the same URL is updated, not duplicated.
 #
 # Usage:
-#   KUBECONFIG=~/.kube/bifrost-k3s.yaml ./scripts/k3s/install-ci-webhooks.sh
+#   KUBECONFIG=~/.bifrost-owner/kube/admin.yaml ./scripts/k3s/install-ci-webhooks.sh
 #   make k3s-install-ci-webhooks
+{ set +x; } 2>/dev/null
 set -euo pipefail
 
-KUBECONFIG="${KUBECONFIG:-${PLATFORM_KUBECONFIG:-$HOME/.kube/bifrost-k3s.yaml}}"
+KUBECONFIG="${KUBECONFIG:-$HOME/.bifrost-owner/kube/admin.yaml}"
 CICD_NAMESPACE="${CICD_NAMESPACE:-cicd}"
 GITEA_ORG="${GITEA_ORG:-bifrost}"
 GITEA_LOCAL_PORT="${GITEA_LOCAL_PORT:-3999}"
@@ -29,11 +30,11 @@ export KUBECONFIG
 
 GITEA_ADMIN_TOKEN="${GITEA_ADMIN_TOKEN:-}"
 if [[ -z "${GITEA_ADMIN_TOKEN}" ]]; then
-  GITEA_ADMIN_TOKEN="$(kubectl get secret gitea-bootstrap -n "${CICD_NAMESPACE}" \
+  GITEA_ADMIN_TOKEN="$(kubectl get secret gitea-bootstrap -n gitea-admin \
     -o jsonpath='{.data.gitea_admin_token}' 2>/dev/null | base64 -d 2>/dev/null || true)"
 fi
 if [[ -z "${GITEA_ADMIN_TOKEN}" ]]; then
-  echo "Set GITEA_ADMIN_TOKEN or apply secret gitea-bootstrap" >&2
+  echo "Set GITEA_ADMIN_TOKEN or create Secret gitea-admin/gitea-bootstrap" >&2
   exit 1
 fi
 

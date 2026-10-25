@@ -32,6 +32,7 @@ PLATFORM_NAMESPACES = ("bifrost-platform-stg", "bifrost-platform-prod")
 
 # (namespace, Secret) a platform identity must never read through the API server.
 DENY = {
+    ("gitea-admin", "gitea-bootstrap"),
     ("cicd", "gitea-bootstrap"),  # the Gitea administrator's token
     ("cicd", "gitea-git-credentials"),  # the CI clone credential (an administrator's until TD-432 S7)
     ("cicd", "gitea-ci-reader"),  # the CI reader: mounted by Tekton, not read by the platform

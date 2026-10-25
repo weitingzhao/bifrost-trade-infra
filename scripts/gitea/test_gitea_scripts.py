@@ -476,7 +476,7 @@ class Scripts(unittest.TestCase):
             secret = f'kill "$(cat "{pidfile}")"; sleep 0.2; ' + secret
         return self.wrapper("kubectl", f"""case "$*" in
   *port-forward*) {pf} ;;
-  *"get secret"*) {secret} ;;
+  "-n gitea-admin get secret gitea-bootstrap -o json") {secret} ;;
   *) exit 2 ;;
 esac
 """)
@@ -1049,6 +1049,11 @@ class RotateAdminToken(unittest.TestCase):
         k.write_text(f"""#!/bin/bash
 {"# rotate-admin-token fake kubectl" if marker else "# some other kubectl"}
 store="{self.store}"
+if [[ "$*" == *gitea-bootstrap* ]]; then
+  [[ "$1 $2" == "-n gitea-admin" ]] || exit 41
+elif [[ "$*" == *gitea-ci-reader* ]]; then
+  [[ "$1 $2" == "-n cicd" ]] || exit 42
+fi
 case "$*" in
   *"get secret "*) name="${{@: -3:1}}"; cat "$store/$name.json" ;;
   *"patch secret "*)

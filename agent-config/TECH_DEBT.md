@@ -2195,6 +2195,7 @@
 **P1 · rbac · Gitea · the STG and PROD platform service accounts can read the Gitea admin token, so code that reaches STG holds Gitea admin**
 
 - **状态**：在做（2026-10-24 统筹线程记；Codex 复核 533 A1 指出，统筹线程读清单和代码核实；4.1 自动落地开工前必须先修。切法第 2 稿与 Owner 操作单 `work/multi-agent/CUT-td432-gitea-credentials-2026-10-24.md`、`OWNER-STEPS-td432-2026-10-24.md`；平台代码在 platform 分支 `w31/td432-gitea-reader`；下一步 Owner 第 1 节建只读账号）
+- **最新进展（Work 565，Owner 10-24 夜间报告）**：S0 §1–§6、reader/CI/RBAC、管理员轮换与旧令牌吊销、旧 clone Secret 删除已完成。S8 剩余搬迁的代码与 Owner 操作单已准备：`OWNER-STEPS-s8-bootstrap-move-2026-10-25.md`；目标 `gitea-admin`，零 Pod 配额，无平台/CI namespace 授权。源代码测试通过后仍等 Owner 应用、验证与删除 cicd 副本；不以本片宣称 S8 上线完成。下列 S7/原始 Claim 保留为历史发现依据。
 - **S7 实现（Work 561，2026-10-24）**：CI、同步、Dockerfile 刷新、apply-manifest 与 PROD check-source 改用 `gitea-ci-reader`；Git 主机范围请求头只给子进程，remote 不存凭证；管理员轮换只核对 reader、不写 reader。防线 `scripts/cicd/test_tekton_reader.py`、`test_task_gitea_mirror_sync.py` 和轮换夹具测试。尚未应用到集群，S7 线上验收与 S8 仍由 Owner 完成。
 - **Claim**: the ClusterRole `bifrost-platform-gitea-creds` grants `get` on Secret `cicd/gitea-bootstrap` (`bifrost-trade-infra` `k8s/platform-rbac/00-clusterroles.yaml:98-104`), bound to the `bifrost-platform` service account of STG (`k8s/platform-rbac/10-stg.yaml`, RoleBinding `bifrost-platform-gitea-creds-stg`) as well as PROD. The platform uses that Secret's `gitea_admin_token` as its Gitea credential (`bifrost-platform` `api/internal/delivery/service.go:1292-1306`). STG releases are done by Agents without the Owner (CLAUDE.md §5 "STG 发布 A"), so any change that reaches platform main and is released to STG runs with a credential that can push any branch, change branch protection and create users. Two more paths to the same kind of credential, found by the 4.1 cut's third draft (`work/multi-agent/CUT-landing-2026-10-24.md` §P0, branch w31/r4-landing-cut e488d86a) and not yet re-measured by the coordinator: the CI clone step writes its clone credential into the checkout's `.git/config`, where the code under test can read it; the mirror-sync task uses the Gitea admin token.
 - **Evidence**: infra main 639edc9 and platform main 82b3e9d7, read 2026-10-24; `agent-config/work/multi-agent/reviews` will carry review 533. Live bindings and the token's actual scope not re-measured.
@@ -3387,3 +3388,15 @@
 - **Fix**: Plugin maintainer should distinguish ticker-detail vendor absence from transient failures, retain an explicit unavailable/boundary outcome and existing data, and prevent doctor healing from endlessly resubmitting the same permanent 404. Do not infer delisting from a 404 alone; validate the vendor catalogue. Keep retries for transient failures and keep genuine ingestion failures alertable.
 - **Ratchet**: Add plugin fixtures for detail 404, ordinary successful detail, transient retry, retained prior data, and doctor/heal behavior for permanent absence. Infra must not silence all ticker_sync failures.
 - **验收**: Plugin tests pass; after deployment and a scheduled ticker-details/heal cycle, MSGKW/MSGRW have explicit terminal outcomes with no retry loop; after the 24h failure window drains, failed:ticker_sync clears while transient/permanent unrelated failures remain visible.
+
+### TD-440
+
+**P1 · 本机 Git 身份 · Keychain 缓存让 Agent 推送冒用 Owner**
+
+- **状态**：在做（2026-10-25，Work 565；Owner 已清缓存，新 metadata 检查已准备，历史血缘追溯和 Owner 验收未完成）。
+- **证据**：Owner 在 Work 565 BRIEF.md 报告：Mac Keychain 从 2026-07-30 起缓存 Gitea 的 `weitingzhao`，本地 Agent push 实际作为 Owner；2026-10-24 已删除该条目，本地 Git 改用仅能推分支的 `bifrost-mbp`。仓库保留说明：`agent-config/work/multi-agent/OWNER-STEPS-s8-bootstrap-move-2026-10-25.md:178`「本机身份事件」。本片未读取凭证值，未重做 push 探针。
+- **影响**：2026-07-30 至删除时的 Gitea 推送者身份不能单独证明 Owner 亲自操作或批准；Git author/committer、Claude-Session、Work、Change-Id 仍是来源线索，但不能补成授权证据。需将 Gitea 接收事件与会话/审批/提交逐一关联，不能批量把这段历史标成 Owner 签收，也不能据此认定所有提交恶意或未经授权。
+- **修法**：Owner 已删缓存并切到 `bifrost-mbp`；完整枚举当前 Gitea admin 登录名，检查该 host 的 Keychain metadata、Git URL 专属 username 和 credential helper，清理所有 admin 条目并维持 main Owner-only。审查上述窗口中依赖“Owner 推送”作授权判断的交付记录。
+- **防线**：`scripts/gitea/check-local-credential-identity.py:14`（执行 `python3 scripts/gitea/check-local-credential-identity.py --admin weitingzhao`）；不使用 `-g`、`-w` 或 `git credential fill`，只读账户元数据。发现 admin 返回 1，未知 helper 或 Keychain 查询失败返回 2，不能当 PASS。新增 admin 必须增加 `--admin`；Owner 负责核实完整名单和 host 别名。测试 `scripts/gitea/test_local_credential_identity.py` 覆盖命中、干净、未知 helper 和查询异常。
+- **验收**：在实际 Mac checkout 运行上面的 metadata 检查；Owner 确认 admin 名单完整、所有 Gitea host 别名已查；从 Gitea 服务端审计确认新推送者为 `bifrost-mbp`、main 被拒；完成 07-30 起授权血缘回溯。尚未全部完成，不能签收。
+- 审批：不推送、不改缓存的 metadata 检查不用；凭证变更/真实写探针由 Owner 操作。历史修正仅记录证据，不改写 Git 历史。

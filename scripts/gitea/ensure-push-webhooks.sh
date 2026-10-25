@@ -11,7 +11,7 @@
 # as it is when it is a gitea hook, json, POST, with the push event and active,
 # and is reported otherwise (not changed). A repository without one gets it,
 # then the hooks are read back. The admin token comes from Secret
-# cicd/gitea-bootstrap through lib.sh (never on a command line). Exits 1 on any
+# gitea-admin/gitea-bootstrap through lib.sh (never on a command line). Exits 1 on any
 # repository that does not end with a right hook.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 # shellcheck source=lib.sh

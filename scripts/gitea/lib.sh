@@ -4,7 +4,7 @@
 #
 # The Owner runs these from his Mac. Gitea is reached through a port-forward
 # made with his admin kubeconfig, and the admin token is read from Secret
-# cicd/gitea-bootstrap into this shell only: it is never printed, never on a
+# gitea-admin/gitea-bootstrap into this shell only: it is never printed, never on a
 # command line (API calls go through python3 with the token in a header; git
 # gets it as environment config scoped to the forwarded host). Neither follows
 # a redirect (review 246 A1) or goes through a proxy from the Owner's
@@ -92,9 +92,9 @@ gitea_connect() {
     gitea_alive
   fi
   if [[ -z "${GITEA_TOKEN:-}" ]]; then
-    GITEA_TOKEN="$(kubectl -n cicd get secret gitea-bootstrap -o json |
+    GITEA_TOKEN="$(kubectl -n gitea-admin get secret gitea-bootstrap -o json |
       python3 -c 'import base64,json,sys; print(base64.b64decode(json.load(sys.stdin)["data"]["gitea_admin_token"]).decode())')" ||
-      gitea_die "cannot read gitea_admin_token from Secret cicd/gitea-bootstrap"
+      gitea_die "cannot read gitea_admin_token from Secret gitea-admin/gitea-bootstrap"
     [[ -n "${GITEA_TOKEN}" ]] || gitea_die "gitea_admin_token is empty"
   fi
   gitea_alive

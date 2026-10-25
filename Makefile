@@ -456,6 +456,7 @@ check-cluster-state-backup: ; python3 scripts/check_cluster_state_backup.py
 # (STG observes, PROD maintains). Asks the API server; read-only.
 check-platform-rbac:
 	python3 -m unittest scripts/test_platform_rbac_secrets.py
+	python3 -m pytest -q scripts/gitea/test_bootstrap_isolation.py
 	python3 scripts/check_platform_rbac.py
 
 # TD-253 / W-33: PROD platform-api and platform-workers share the patrol skill

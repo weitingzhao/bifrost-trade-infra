@@ -1,0 +1,34 @@
+# RBAC is additive: no binding is introduced here. Platform/CI have no grants
+# here. Trusted cluster controllers remain recovery roots (see Owner steps).
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: no-workloads
+  namespace: gitea-admin
+spec:
+  hard:
+    count/pods: "0"
+    count/deployments.apps: "0"
+    count/statefulsets.apps: "0"
+    count/daemonsets.apps: "0"
+    count/replicasets.apps: "0"
+    count/jobs.batch: "0"
+    count/cronjobs.batch: "0"
+    count/taskruns.tekton.dev: "0"
+    count/pipelineruns.tekton.dev: "0"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: default
+  namespace: gitea-admin
+automountServiceAccountToken: false
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-all
+  namespace: gitea-admin
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]

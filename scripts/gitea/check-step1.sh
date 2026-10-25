@@ -23,7 +23,7 @@
 #             probe pushes a tag to primary-probe instead
 #
 # Prints one ok or FAIL line per item and exits 1 on any FAIL. It reads with
-# the admin token from Secret cicd/gitea-bootstrap (lib.sh: port-forward,
+# the admin token from Secret gitea-admin/gitea-bootstrap (lib.sh: port-forward,
 # token in a header, no proxy, no redirect) and changes nothing.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 # shellcheck source=lib.sh

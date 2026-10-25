@@ -16,14 +16,26 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 # Git here reads no global or system config: the Owner's ~/.gitconfig holds the Gitea-primary
 # batches' url.*.insteadOf rules (scripts/gitea/global-insteadof.sh), which rewrite the GitHub
 # addresses these cases use to Gitea, and the cases would test that Mac instead of push-main.
-os.environ["GIT_CONFIG_GLOBAL"] = os.devnull
-os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
+# Scope this to execution, not collection: the Gitea suite deliberately tests
+# its own temporary global config in the same pytest process (Work 565).
+_git_config_env = mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
+
+
+def setUpModule():
+    _git_config_env.start()
+
+
+def tearDownModule():
+    _git_config_env.stop()
+
+
 PUSH_MAIN = HERE / "push-main.sh"
 BASELINES = HERE.parent.parent / "agent-config" / "scripts" / "code-health" / "baselines.env"
 SCAN = HERE.parent.parent / "agent-config" / "scripts" / "code-health" / "scan.sh"
