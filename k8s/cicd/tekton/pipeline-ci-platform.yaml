@@ -2,7 +2,7 @@
 # Monorepo: Go API (api/) + TypeScript Console (console/) + spine check.
 # The Console imports @bifrost/ui from its sibling checkout (file:../../bifrost-ui,
 # tsconfig paths → bifrost-ui/dist), so bifrost-ui is cloned and built first.
-# Lightweight: clone → go test → console type-check, lint, test and build → check-spine →
+# Lightweight: clone → go vet + go test → console type-check, lint, test and build → check-spine →
 # ops-context parity against the infra copies. No deploy.
 apiVersion: tekton.dev/v1
 kind: Pipeline
@@ -14,10 +14,19 @@ metadata:
     bifrost.io/layer: L1
 spec:
   description: >-
-    CI gate for bifrost-platform — go test + console type-check, lint, test and build + check-spine
+    CI gate for bifrost-platform — go vet + go test + console type-check, lint, test and build + check-spine
     + ops-context parity against the infra overlay copies.
     Triggered by Gitea push webhook or manual Console run.
     L1 control plane: conservative gate, must not break ops visibility.
+  # Actual clone identities, not the requested (possibly moving) refs. S3 reads
+  # ui-commit from the successful CI of P to pin its STG snapshot U.
+  results:
+    - name: platform-commit
+      value: $(tasks.clone.results.commit)
+    - name: ui-commit
+      value: $(tasks.clone-ui.results.commit)
+    - name: infra-commit
+      value: $(tasks.clone-infra.results.commit)
   params:
     - name: revision
       type: string
@@ -171,6 +180,9 @@ spec:
 
               echo "==> go mod download"
               go mod download
+
+              echo "==> go vet ./..."
+              go vet ./...
 
               echo "==> go test ./..."
               go test ./... -count=1 -timeout=300s

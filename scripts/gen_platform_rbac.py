@@ -145,9 +145,9 @@ def applier_file(apply_ns, resources, cicd_resources, delivery_ns):
         "  labels: {app.kubernetes.io/part-of: bifrost-platform}\n"
         "rules:\n"
         "  - apiGroups: [\"\"]\n    resources: [secrets]\n"
-        # S7 transition: old resolved TaskRuns still need the clone Secret.
-        # S8 removes the old name after those runs have drained.
-        "    resourceNames: [gitea-ci-reader, gitea-git-credentials]\n    verbs: [get]\n"
+        # Landing S0 final state: apply only after old S7 runs have drained.
+        # s7-owner-apply.sh constructs its temporary two-name Role separately.
+        "    resourceNames: [gitea-ci-reader]\n    verbs: [get]\n"
         "  - apiGroups: [\"\"]\n    resources: [configmaps]\n"
         "    resourceNames: [bifrost-actuation-policy, bifrost-apply-manifest-check]\n"
         "    verbs: [get]\n"
@@ -187,12 +187,7 @@ def env_file(env, prod, job_ns):
     docs += [rb(env, "bifrost-platform-logs", n) for n in BIFROST_NS]
     docs += [rb(env, "bifrost-platform-state", own), rb(env, "bifrost-platform-state", "cicd")]
     if prod:
-        # TD-432: the platform reads Gitea with its own read-only account,
-        # mounted from its namespace; STG no longer reaches the administrator's
-        # Secret. PROD keeps it until its release with the reader is checked
-        # (slice S6 removes this line, the ClusterRole and the exception in
-        # scripts/test_platform_rbac_secrets.py).
-        docs += [rb(env, "bifrost-platform-gitea-creds", "cicd")]
+        # TD-432 S6 is applied: neither environment may read the admin Secret.
         docs += [rb(env, "bifrost-platform-workload-actuator", n) for n in BIFROST_NS]
         docs += [crb(env, "bifrost-platform-node-actuator"), crb(env, "bifrost-platform-node-drain"),
                  rb(env, "bifrost-platform-data-actuator", "data"),

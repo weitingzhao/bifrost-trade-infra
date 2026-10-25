@@ -78,7 +78,7 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: [secrets]
-    resourceNames: [gitea-ci-reader, gitea-git-credentials]
+    resourceNames: [gitea-ci-reader]
     verbs: [get]
   - apiGroups: [""]
     resources: [configmaps]

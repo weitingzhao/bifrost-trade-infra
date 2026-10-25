@@ -95,7 +95,7 @@ def test_reader_consumers_and_no_credential_initializer():
     assert "tekton.dev/git-" not in example
     role = list(yaml.safe_load_all((ROOT / "k8s/platform-rbac/30-applier.yaml").read_text()))
     read = next(d for d in role if d["kind"] == "Role" and d["metadata"]["name"] == "bifrost-applier-read")
-    assert any(r.get("resourceNames") == ["gitea-ci-reader", "gitea-git-credentials"] for r in read["rules"])
+    assert any(r.get("resourceNames") == ["gitea-ci-reader"] for r in read["rules"])
 
 
 @pytest.fixture

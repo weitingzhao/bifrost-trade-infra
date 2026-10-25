@@ -103,8 +103,11 @@ import yaml
 role = next(d for d in yaml.safe_load_all(Path('k8s/platform-rbac/30-applier.yaml').read_text())
             if d['kind'] == 'Role' and d['metadata']['name'] == 'bifrost-applier-read')
 assert role['metadata']['namespace'] == 'cicd'
-assert next(r['resourceNames'] for r in role['rules'] if r['resources'] == ['secrets']) == [
-    'gitea-ci-reader', 'gitea-git-credentials']
+# S0's final manifest is reader-only. S7 still needs both during its staged
+# migration; never put this temporary grant back in the generated manifest.
+secret_rule = next(r for r in role['rules'] if r['resources'] == ['secrets'])
+assert secret_rule['resourceNames'] == ['gitea-ci-reader']
+secret_rule['resourceNames'] = ['gitea-ci-reader', 'gitea-git-credentials']
 Path(sys.argv[1]).write_text(yaml.safe_dump(role))
 PY
 apply_file() {

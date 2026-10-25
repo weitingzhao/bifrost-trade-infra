@@ -700,3 +700,14 @@ check-config-secrets: ; python3 scripts/scrub_config_secrets.py --check && pytho
 check-hardcoded-paths: ; git -C agent-config fetch -q origin && python3 agent-config/scripts/check_hardcoded_paths.py --ref origin/main && python3 -m unittest agent-config/scripts/test_check_hardcoded_paths.py
 check-monitoring-persistence: ; python3 scripts/check_monitoring_persistence.py && python3 -m unittest scripts/test_check_monitoring_persistence.py
 check-pitr-drill: ; python3 scripts/check_pitr_drill_manifest.py
+
+# Work 564: local-only S0 / PV0 contracts. No kubectl queries or HTTP listeners.
+S0_PYTHON ?= python3
+.PHONY: check-landing-s0 check-plan-view
+check-landing-s0:
+	$(S0_PYTHON) -m pytest -q scripts/cicd/test_landing_s0.py scripts/cicd/test_tekton_reader.py scripts/cicd/test_task_gitea_mirror_sync.py scripts/gitea/test_landing_drill_token.py scripts/gitea/test_s7_owner_apply.py scripts/agent-host/test_landing_probe_offline.py scripts/test_platform_rbac_secrets.py
+	$(S0_PYTHON) scripts/check_admission_guards.py
+
+check-plan-view:
+	$(S0_PYTHON) agent-config/scripts/validate_plan_view.py
+	$(S0_PYTHON) -m unittest discover -s agent-config/scripts -p test_validate_plan_view.py

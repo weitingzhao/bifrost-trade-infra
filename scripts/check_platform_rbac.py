@@ -48,8 +48,8 @@ MATRIX = [
     ("list", "nodes.metrics.k8s.io", "", True, True),
     ("get", "pods:log", "data", True, True),
     ("get", "pods:log", "bifrost-prod", True, True),
-    # TD-432: the Gitea administrator's Secret, STG never (slice S4), PROD until S6
-    ("get", "secret/gitea-bootstrap", "cicd", False, True),
+    # TD-432 S6: both environments use their mounted reader credentials.
+    ("get", "secret/gitea-bootstrap", "cicd", False, False),
     ("create", "configmaps", "cicd", True, True),
     # release window (LANE-W33C): PROD may delete that one ConfigMap, nothing else in cicd
     ("delete", "configmap/bifrost-release-window", "cicd", False, True),

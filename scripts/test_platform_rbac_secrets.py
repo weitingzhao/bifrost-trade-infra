@@ -40,8 +40,14 @@ DENY = {
 }
 
 # (ServiceAccount namespace, Secret namespace, Secret) -> the slice that removes it.
-EXCEPTIONS = {
-    ("bifrost-platform-prod", "cicd", "gitea-bootstrap"): "TD-432 S6: after PROD runs with its reader",
+EXCEPTIONS = {}
+
+# A deliberately unsafe role used only as the positive control. It must not
+# come from the production manifests after S6 removed that role.
+UNSAFE_ROLE = {
+    "kind": "ClusterRole", "metadata": {"name": "bifrost-platform-gitea-creds"},
+    "rules": [{"apiGroups": [""], "resources": ["secrets"],
+               "resourceNames": ["gitea-bootstrap"], "verbs": ["get"]}],
 }
 
 READ = {"get", "list", "watch", "*"}
@@ -116,7 +122,7 @@ class PlatformSecretDenyList(unittest.TestCase):
 
     def test_it_sees_a_grant(self) -> None:
         # positive control: the same reader finds a grant written the way 00-clusterroles.yaml does
-        docs = load([RBAC / "00-clusterroles.yaml"]) + [{
+        docs = [UNSAFE_ROLE, {
             "kind": "RoleBinding", "metadata": {"name": "x", "namespace": "cicd"},
             "roleRef": {"kind": "ClusterRole", "name": "bifrost-platform-gitea-creds"},
             "subjects": [{"kind": "ServiceAccount", "name": "bifrost-platform", "namespace": "bifrost-platform-stg"}],
@@ -135,7 +141,7 @@ class PlatformSecretDenyList(unittest.TestCase):
 
     def test_it_sees_a_grant_to_a_group_or_user(self) -> None:
         # review 542 C: the old reader saw only kind ServiceAccount and missed these
-        docs = load([RBAC / "00-clusterroles.yaml"])
+        docs = [UNSAFE_ROLE]
         for subject, sa_ns in (
             ({"kind": "Group", "name": "system:serviceaccounts:bifrost-platform-stg"}, "bifrost-platform-stg"),
             ({"kind": "Group", "name": "system:serviceaccounts"}, "bifrost-platform-prod"),

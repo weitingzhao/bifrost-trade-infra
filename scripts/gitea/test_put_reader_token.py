@@ -32,6 +32,7 @@ FAKE_KUBECTL = r"""#!/usr/bin/env bash
 # fake kubectl for put-reader-token tests
 state="$FAKE_STATE"; echo "$*" >> "$state/calls"; args=" $* "
 case "$args" in
+  *" --dry-run=server -f - "*) cat >/dev/null; echo 'server dry run' ;;
   *" get secret $FAKE_NAME -o name "*) [[ -f "$state/secret.yaml" ]] && echo secret/x && exit 0; exit 1 ;;
   *" -n $FAKE_NS get serviceaccount default "*) echo serviceaccount/default ;;
   *" create -f - "*) cat > "$state/secret.yaml"; echo created ;;

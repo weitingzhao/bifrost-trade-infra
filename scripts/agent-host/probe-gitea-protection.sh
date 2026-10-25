@@ -38,7 +38,12 @@ BASE="${PROBE_GITEA:-http://192.168.10.73:30300}"
 REPO="${PROBE_REPO:-bifrost/primary-probe}"
 TOKEN_FILE="${PROBE_TOKEN_FILE:-$HOME/.config/bifrost/agentd-git.token}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-BRANCH="agent/_probe/${STAMP}/a1"
+# S0 can reuse the same actual-refusal probe for the landing drill namespace.
+case "${PROBE_BRANCH_PREFIX:-agent/_probe}" in
+  agent/_probe|land/stg/_probe) ;;
+  *) echo "probe: unsupported branch prefix" >&2; exit 1 ;;
+esac
+BRANCH="${PROBE_BRANCH_PREFIX:-agent/_probe}/${STAMP}/a1"
 TAG="probe-${STAMP}"
 URL="${BASE}/${REPO}.git"
 MERGEABLE_WAIT="${PROBE_MERGEABLE_WAIT:-30}"
