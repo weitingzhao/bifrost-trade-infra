@@ -114,3 +114,27 @@ def test_url_username_is_checked(audit):
     subprocess.run(['git', '-C', str(audit.path), 'remote', 'set-url', 'origin',
                     f'http://weitingzhao@{HOST}/bifrost/repo.git'], check=True)
     assert audit('[credential]\n username = bifrost-mbp\n')[0]
+
+
+@pytest.mark.parametrize('section', ['credential', f'credential "http://{HOST}/bifrost"'])
+def test_empty_url_username_does_not_hide_configured_admin(audit, section):
+    subprocess.run(['git', '-C', str(audit.path), 'remote', 'set-url', 'origin',
+                    f'http://@{HOST}/bifrost/repo.git'], check=True)
+    failures, unknown = audit(f'[{section}]\n username = weitingzhao\n helper = osxkeychain\n')
+    assert failures and not unknown
+
+
+def test_nonempty_url_username_overrides_configured_admin(audit):
+    subprocess.run(['git', '-C', str(audit.path), 'remote', 'set-url', 'origin',
+                    f'http://bifrost-mbp@{HOST}/bifrost/repo.git'], check=True)
+    assert audit('[credential]\n username = weitingzhao\n helper = osxkeychain\n') == ([], [])
+
+
+@pytest.mark.parametrize('scope', ['http://', 'http:///bifrost/repo.git', HOST,
+                                  f'http://{HOST}/%zz'])
+@pytest.mark.parametrize('entry', ['username = weitingzhao', 'helper = store'])
+def test_partial_or_malformed_credential_context_is_inconclusive(audit, scope, entry):
+    failures, unknown = audit(f'[credential "{scope}"]\n {entry}\n'
+                              '[credential]\n helper =\n helper = osxkeychain\n')
+    assert not failures
+    assert unknown

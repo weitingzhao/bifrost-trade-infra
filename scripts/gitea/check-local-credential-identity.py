@@ -46,6 +46,14 @@ def matches(key, url, run):
         raise ValueError('partial credential URL context needs a metadata audit')
     escaped = scope.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
     config = f'[credential "{escaped}"]\n helper = metadata-probe\n'
+    # Invalid URL contexts are silently skipped by --get-urlmatch, whereas
+    # credential.c tries a partial-URL fallback (e.g. http:// or http:///path).
+    # Require a successful self-match before trusting a target non-match. Use
+    # Git's normalization here rather than a second, divergent URL parser.
+    probe = run(['git', 'config', '--file', '-', '--get-urlmatch', 'credential.helper', scope],
+                input=config, capture_output=True, text=True)
+    if probe.returncode != 0 or probe.stdout.strip() != 'metadata-probe':
+        raise ValueError('partial or malformed credential URL context needs a metadata audit')
     result = run(['git', 'config', '--file', '-', '--get-urlmatch', 'credential.helper', url],
                  input=config, capture_output=True, text=True)
     if result.returncode not in (0, 1) or (result.returncode == 0 and result.stdout.strip() != 'metadata-probe'):
@@ -97,7 +105,8 @@ def check(host, admins, run=subprocess.run, checkout='.'):
                         helpers.append((origin, value))
                     else:
                         helpers.clear()
-                elif key.endswith('.username') and parsed.username is None:
+                # Git only sets username_from_proto for a nonempty URL username.
+                elif key.endswith('.username') and not parsed.username:
                     username = value
             if username in admins:
                 failures.append('git configured URL/username is an admin')
