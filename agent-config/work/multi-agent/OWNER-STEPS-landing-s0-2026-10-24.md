@@ -255,6 +255,12 @@ kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml -n bifrost-platform-stg de
 main 白名单保留 Owner-only，安全回退是暂停落地；
 若需恢复旧人员授权，要 Owner 明确另定，不能自动恢复 `maintainers` 来让 Agent 绕过 P0。
 
+收窄后用脚本读回比对，两仓都应打印 `main: there as the baseline, left as it is`。注意它不是纯只读：main 规则已存在时只比对；若 main 规则不存在，它会按基线新建；若仍有 `agent/**` 规则，它会删除（TD-383 的既定做法）。出现 `DIFFERS` 就停，回线程说：
+
+```bash
+bash scripts/gitea/protect-repo.sh --owner weitingzhao bifrost-platform bifrost-trade-infra
+```
+
 ## 5. 五项权限、真实推送者和 CI 验收
 
 先核对页面规则，再做**真实拒绝探针**。该探针会尝试推一个空提交到 main、建 tag、合 PR；
