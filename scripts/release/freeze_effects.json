@@ -28,7 +28,8 @@
     {
       "pipeline": "bifrost-ci-platform",
       "task": "test-api",
-      "taskspec_sha256": "26628d921ff71b96014b18007c8ab6f4088fb20b09c440225ad6703d754f1a85"
+      "taskspec_sha256": "c101ccbdae5d063336971a460328a7ec478602cacd34ff09fe5a846ce37e25ac",
+      "evidence": "2026-10-24 / Work 564 / W-31 S0：核对 45d789f 相对父提交 881253d 的 k8s/cicd/tekton/pipeline-ci-platform.yaml，test-api.taskSpec 仅在 go test 前新增 go vet ./... 及 echo；原摘要为 26628d921ff71b96014b18007c8ab6f4088fb20b09c440225ad6703d754f1a85。仍只运行模块下载、静态分析和测试，PostgreSQL/Redis sidecar 保持回环地址与临时存储，不新增 registry 或集群写入；freeze_chain.steps_write(taskSpec) 为 false。新摘要由 freeze_chain.taskspec_digest 对解析后的 taskSpec 计算；pipeline.spec.results 的三个 clone commit 接线不在摘要对象内。"
     },
     {
       "pipeline": "bifrost-ci-platform",
