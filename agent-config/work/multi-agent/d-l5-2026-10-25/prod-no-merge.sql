@@ -37,6 +37,6 @@ BEGIN
   END IF;
 END;
 $dl5$;
-UPDATE agentrt.mission SET scope_json=jsonb_set(scope_json,'{no_merge}',to_jsonb('D-L5 / Work 565：历史演练结果已逐任务核对并归档；已处置、未交付，不合 main。归档 2026-10-25-work-565；原始对象及取消/被替代尝试保留。'::text),true), version=version+1 WHERE mission_id IN ('M-1','M-13','M-15','M-2','M-3','M-4');
+UPDATE agentrt.mission SET scope_json=jsonb_set(scope_json,'{no_merge}',to_jsonb(CASE WHEN mission_id IN ('M-1','M-2','M-4') THEN 'D-L5 / Work 567：PROD M-1、M-2、M-4 是 Owner 自己的注释工作，不是演练；内容已作为新提交从 platform w31/dl5-comments 取回，并由 Owner 于 2026-10-25 推至 platform main：93399f27（M-4）、ce5d2c30（M-1）、ca4f8149（M-2）。这三个 mission 保留 no_merge，仅表示原尝试不合入；原始对象归档保留。归档 2026-10-25-work-565。'::text ELSE 'D-L5 / Work 565：历史演练结果已逐任务核对并归档；已处置、未交付，不合 main。归档 2026-10-25-work-565；原始对象及取消/被替代尝试保留。'::text END),true), version=version+1 WHERE mission_id IN ('M-1','M-13','M-15','M-2','M-3','M-4');
 SELECT mission_id,version,scope_json->>'no_merge' AS no_merge FROM agentrt.mission WHERE mission_id IN ('M-1','M-13','M-15','M-2','M-3','M-4') ORDER BY mission_id;
 COMMIT;

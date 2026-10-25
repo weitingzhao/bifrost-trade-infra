@@ -156,3 +156,58 @@ def test_copy_uses_create_and_dry_run_without_printing(monkeypatch, capsys):
     monkeypatch.setattr(module, 'invoke', refuse)
     with pytest.raises(RuntimeError, match='already exists'):
         module.main()
+
+
+def test_named_list_watch_grant_fails_live_preflight(monkeypatch, capsys):
+    import json
+    spec = importlib.util.spec_from_file_location('isolation', ROOT / 'scripts/gitea/check-bootstrap-isolation.py')
+    isolation = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(isolation)
+    role = {'kind': 'Role', 'metadata': {'name': 'named-reader', 'namespace': 'gitea-admin'},
+            'rules': [{'apiGroups': [''], 'resources': ['secrets'],
+                       'verbs': ['list', 'watch'], 'resourceNames': ['gitea-bootstrap']}]}
+    binding = {'kind': 'RoleBinding', 'metadata': {'namespace': 'gitea-admin'},
+               'roleRef': {'kind': 'Role', 'name': 'named-reader'},
+               'subjects': [{'kind': 'ServiceAccount', 'namespace': 'cicd', 'name': 'default'}]}
+    assert ci_grants([role, binding]) == {('cicd', 'gitea-admin', 'gitea-bootstrap')}
+    queries = []
+    grant_enabled = False
+    def kubectl(*args, data=None):
+        if args[0] == 'create':
+            spec = json.loads(data)['spec']
+            attrs = spec['resourceAttributes']
+            queries.append(attrs)
+            allowed = (grant_enabled and spec['user'] == 'system:serviceaccount:cicd:default'
+                       and attrs['namespace'] == role['metadata']['namespace']
+                       and any(attrs['group'] in rule['apiGroups']
+                               and attrs['resource'] in rule['resources']
+                               and attrs['verb'] in rule['verbs']
+                               and attrs['name'] in rule['resourceNames'] for rule in role['rules']))
+            return {'status': {'allowed': allowed}}
+        if args[3] == 'resourcequota':
+            return {'spec': {'hard': {'count/pods': '0'}}}
+        return {'items': []}
+    monkeypatch.setattr(isolation, 'kubectl', kubectl)
+    assert isolation.main() == 0
+    capsys.readouterr()
+    grant_enabled = True
+    assert isolation.main() == 1
+    output = capsys.readouterr().out
+    assert "FAIL: cicd/default: ('list', '', 'secrets', 'gitea-bootstrap')" in output
+    assert "FAIL: cicd/default: ('watch', '', 'secrets', 'gitea-bootstrap')" in output
+    assert 'PASS:' not in output
+    for verb in ('list', 'watch'):
+        assert any(q['verb'] == verb and q['resource'] == 'secrets' and q['name'] == '' for q in queries)
+
+
+def test_platform_probe_keeps_named_and_unnamed_list_watch():
+    spec = importlib.util.spec_from_file_location('platform_rbac', ROOT / 'scripts/check_platform_rbac.py')
+    platform = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(platform)
+    for verb in ('list', 'watch'):
+        for resource in ('secrets', 'secrets/gitea-bootstrap'):
+            assert (verb, resource, 'gitea-admin', False, False) in platform.MATRIX
+        attrs = platform.review_body('system:serviceaccount:bifrost-platform-prod:bifrost-platform',
+                                     verb, 'secrets/gitea-bootstrap', 'gitea-admin')['spec']['resourceAttributes']
+        assert attrs == {'verb': verb, 'resource': 'secrets', 'group': '',
+                         'name': 'gitea-bootstrap', 'namespace': 'gitea-admin'}

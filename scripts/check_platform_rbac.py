@@ -53,6 +53,8 @@ MATRIX = [
     ("get", "secret/gitea-bootstrap", "gitea-admin", False, False),
     ("list", "secrets", "gitea-admin", False, False),
     ("watch", "secrets", "gitea-admin", False, False),
+    ("list", "secrets/gitea-bootstrap", "gitea-admin", False, False),
+    ("watch", "secrets/gitea-bootstrap", "gitea-admin", False, False),
     ("create", "pods", "gitea-admin", False, False),
     ("create", "configmaps", "cicd", True, True),
     # release window (LANE-W33C): PROD may delete that one ConfigMap, nothing else in cicd

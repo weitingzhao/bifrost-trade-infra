@@ -18,6 +18,8 @@ ACCOUNTS = [
 ]
 CHECKS = [('get', '', 'secrets', 'gitea-bootstrap'),
           ('list', '', 'secrets', ''), ('watch', '', 'secrets', ''),
+          ('list', '', 'secrets', 'gitea-bootstrap'),
+          ('watch', '', 'secrets', 'gitea-bootstrap'),
           ('create', '', 'pods', ''), ('create', '', 'serviceaccounts', ''),
           ('create', 'rbac.authorization.k8s.io', 'rolebindings', ''),
           ('patch', '', 'resourcequotas', 'no-workloads'),

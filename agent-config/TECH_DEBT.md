@@ -3391,12 +3391,12 @@
 
 ### TD-440
 
-**P1 · 本机 Git 身份 · Keychain 缓存让 Agent 推送冒用 Owner**
+**P1 · 本机 Git 身份 · 管理员凭证缓存与历史推送身份待逐事件核定**
 
 - **状态**：在做（2026-10-25，Work 565；Owner 已清缓存，新 metadata 检查已准备，历史血缘追溯和 Owner 验收未完成）。
-- **证据**：Owner 在 Work 565 BRIEF.md 报告：Mac Keychain 从 2026-07-30 起缓存 Gitea 的 `weitingzhao`，本地 Agent push 实际作为 Owner；2026-10-24 已删除该条目，本地 Git 改用仅能推分支的 `bifrost-mbp`。仓库保留说明：`agent-config/work/multi-agent/OWNER-STEPS-s8-bootstrap-move-2026-10-25.md:178`「本机身份事件」。本片未读取凭证值，未重做 push 探针。
+- **证据**：Owner 报告（按 Work 567 BRIEF 校正）：Mac Keychain 在 2026-07-30 至 2026-10-25 存在 Gitea 管理员 `weitingzhao` 的缓存凭证，2026-10-25 已删除，本地 Git 改用仅能推分支的 `bifrost-mbp`。哪些推送实际使用了管理员凭证，必须依据 Gitea activity 逐事件核定，不能从缓存存在推断整段推送身份。已知反向证据：2026-10-25 03:36Z 的 platform main 推送及 03:40Z 的 infra main 推送者均为 `bifrost-mbp`（Work 567 BRIEF）。仓库保留说明：`agent-config/work/multi-agent/OWNER-STEPS-s8-bootstrap-move-2026-10-25.md:178`「本机身份事件」。本片未读取凭证值，未重做 push 探针。
 - **影响**：2026-07-30 至删除时的 Gitea 推送者身份不能单独证明 Owner 亲自操作或批准；Git author/committer、Claude-Session、Work、Change-Id 仍是来源线索，但不能补成授权证据。需将 Gitea 接收事件与会话/审批/提交逐一关联，不能批量把这段历史标成 Owner 签收，也不能据此认定所有提交恶意或未经授权。
-- **修法**：Owner 已删缓存并切到 `bifrost-mbp`；完整枚举当前 Gitea admin 登录名，检查该 host 的 Keychain metadata、Git URL 专属 username 和 credential helper，清理所有 admin 条目并维持 main Owner-only。审查上述窗口中依赖“Owner 推送”作授权判断的交付记录。
-- **防线**：`scripts/gitea/check-local-credential-identity.py:14`（执行 `python3 scripts/gitea/check-local-credential-identity.py --admin weitingzhao`）；不使用 `-g`、`-w` 或 `git credential fill`，只读账户元数据。发现 admin 返回 1，未知 helper 或 Keychain 查询失败返回 2，不能当 PASS。新增 admin 必须增加 `--admin`；Owner 负责核实完整名单和 host 别名。测试 `scripts/gitea/test_local_credential_identity.py` 覆盖命中、干净、未知 helper 和查询异常。
+- **修法**：Owner 已删缓存并切到 `bifrost-mbp`；完整枚举当前 Gitea admin 登录名，逐 checkout 检查实际 fetch/push URL 的 Keychain metadata、路径专属 username 和完整 credential helper 链（含空值重置及配置来源），清理所有 admin 条目并维持 main Owner-only。审查上述窗口中依赖“Owner 推送”作授权判断的交付记录。
+- **防线**：`scripts/gitea/check-local-credential-identity.py:14`（执行 `python3 scripts/gitea/check-local-credential-identity.py --admin weitingzhao`）；不使用 `-g`、`-w` 或 `git credential fill`，只读账户元数据。发现 admin 返回 1，未知 helper、未知配置来源或查询失败返回 2，不能当 PASS。新增 admin 必须增加 `--admin`；Owner 负责核实完整名单和 host 别名。测试 `scripts/gitea/test_local_credential_identity.py` 覆盖命中、干净、未知 helper 和查询异常。
 - **验收**：在实际 Mac checkout 运行上面的 metadata 检查；Owner 确认 admin 名单完整、所有 Gitea host 别名已查；从 Gitea 服务端审计确认新推送者为 `bifrost-mbp`、main 被拒；完成 07-30 起授权血缘回溯。尚未全部完成，不能签收。
 - 审批：不推送、不改缓存的 metadata 检查不用；凭证变更/真实写探针由 Owner 操作。历史修正仅记录证据，不改写 Git 历史。

@@ -175,11 +175,12 @@ python3 scripts/gitea/move-bootstrap.py --kubeconfig ~/.bifrost-owner/kube/admin
 
 ## 本机身份事件（TD-440）
 
-Owner 在本片 BRIEF.md 报告：Mac 的 Gitea Keychain 从 2026-07-30 缓存了 `weitingzhao`，
-本地 Agent 推送因而作为 Owner；2026-10-24 已删除，改用 `bifrost-mbp`（仅分支）。
-这是 Owner 报告的事实，本片没有读取密码或另做真实推送。此时间窗的“推送者是 Owner”不能单独作为批准证据。
+Owner 报告：Mac 的 Gitea Keychain 在 2026-07-30 至 2026-10-25 存在管理员 `weitingzhao` 的缓存凭证，
+2026-10-25 已删除，改用 `bifrost-mbp`（仅分支）。哪些推送实际使用该缓存，须从 Gitea activity 逐事件核定，不能由缓存存在推断。
+已知反向证据（Work 567 BRIEF）：2026-10-25 03:36Z 的 platform main 推送及 03:40Z 的 infra main 推送者均为 `bifrost-mbp`。
+这是 Owner 报告的事实，本片没有读取密码或另做真实推送。此时间窗的“推送者是 Owner”不能单独作为批准证据，也不能批量将这段历史标成 Owner 签收。
 Owner 完整核对 admin 名单后，在真实 checkout 跑下列只读 metadata 检查；有其他 admin 则重复 `--admin`，
-host 有别名则逐个指定 `--host`。未知 helper 返回 INCONCLUSIVE，必须另查该 helper 的账户元数据，不能放行。
+host 有别名则逐个指定 `--host`；每个真实 checkout 都须检查，可重复 `--checkout <path>`。检查覆盖全部实际 fetch/push URL、路径专属 username、helper 链、空值重置和配置来源。未知 helper 或来源返回 INCONCLUSIVE，必须另查账户元数据，不能放行。
 
 ```bash
 python3 scripts/gitea/check-local-credential-identity.py --host 192.168.10.73:30300 --admin weitingzhao

@@ -393,7 +393,7 @@
 
 ### The leaked Gitea admin token is in neither Secret (TD-365)
 
-- **做什么**：`scripts/gitea/rotate-admin-token.sh check` reads `cicd/gitea-bootstrap` and `cicd/gitea-ci-reader` and says, for each, whether it holds the token leaked in infra's history (compared with the blob pinned at commit `d30ef90`, never printed); `revoked` fails while the leaked token still logs in. TD-432 S7 后 rotate 只写管理员 Secret；reader 必须是 bifrost-ci-reader 的独立凭证，坏了用 put-reader-token.sh ci 修复。
+- **做什么**：`scripts/gitea/rotate-admin-token.sh check` reads `gitea-admin/gitea-bootstrap` and `cicd/gitea-ci-reader` and says, for each, whether it holds the token leaked in infra's history (compared with the blob pinned at commit `d30ef90`, never printed); `revoked` fails while the leaked token still logs in. TD-432 S7 后 rotate 只写管理员 Secret；reader 必须是 bifrost-ci-reader 的独立凭证，坏了用 put-reader-token.sh ci 修复。
 - **放哪**：bifrost-trade-infra `scripts/gitea/rotate-admin-token.sh` (check, revoked); its tests in `scripts/gitea/test_gitea_scripts.py` (RotateAdminToken).
 - **强度**：run by the Owner (admin kubeconfig); not scheduled. The history scan that would have found the leak sooner is TD-367.
 - **覆盖**：TD-365. 2026-10-17 20:3x: `revoked` passed (the leaked token answers 401; both Secrets log in as admin; the clone credentials list every repository over Git HTTP).
@@ -408,11 +408,11 @@
 
 ### 管理员凭证不随工作负载走（TD-432 S8，Work 565）
 
-- `scripts/gitea/test_bootstrap_isolation.py`：扫全仓 Kubernetes manifest，禁止 workload 引用 bootstrap；CI 和平台的 RBAC 拒绝新 namespace，阳性对照覆盖组/User/SA 和全局通配授权；零 Pod 配额、默认 SA 和所有 Owner 消费方位置受测。
+- `scripts/gitea/test_bootstrap_isolation.py`：扫全仓 Kubernetes manifest，禁止 workload 引用 bootstrap；CI 和平台的 RBAC 拒绝新 namespace，阳性对照覆盖组/User/SA、全局通配授权和按 resourceNames 授予的 Secret list/watch（线上探针保留命名及无名称两组）；零 Pod 配额、默认 SA 和所有 Owner 消费方位置受测。
 - `scripts/gitea/test_gitea_scripts.py` 的 fake kubectl 拒绝在 cicd 读写管理员 Secret；CI reader 必须仍在 cicd。
 - Owner 上线检查：`scripts/gitea/check-bootstrap-isolation.py`，只查元数据与权限；迁移步骤 `work/multi-agent/OWNER-STEPS-s8-bootstrap-move-2026-10-25.md`。源码通过不代表在线完成，集群基础设施信任根另列。
 
 ### 本机 Gitea 凭证账户不属于管理员（TD-440，Work 565）
 
-- `scripts/gitea/check-local-credential-identity.py --admin weitingzhao` 只取 Keychain/Git 账户元数据，禁止取密码；admin 命中拒绝，未知 helper/查询异常不报绿。当前管理员列表与主机别名完整性由 Owner 核对，不靠硬编码单用户推断全部 admin。
-- `scripts/gitea/test_local_credential_identity.py`：admin 命中、非 admin、未知 helper、查询异常；断言没有 password 读取参数或 credential fill。尚未完成真实 Mac 与历史血缘验收，TD-440 保留在做。
+- `scripts/gitea/check-local-credential-identity.py --admin weitingzhao` 只取 Keychain/Git 账户元数据，禁止取密码；逐 checkout 检查实际 fetch/push URL，完整 helper 链保留配置来源并处理空值重置；admin 命中拒绝，未知 helper/来源/查询异常不报绿。当前管理员列表与主机别名完整性由 Owner 核对，不靠硬编码单用户推断全部 admin。
+- `scripts/gitea/test_local_credential_identity.py`：admin 命中、非 admin、store→osxkeychain 链、路径专属 username、空值重置、include 来源、未知来源、fetch/push URL 重写和查询异常；断言没有 password 读取参数或 credential fill。尚未完成真实 Mac 与历史血缘验收，TD-440 保留在做。

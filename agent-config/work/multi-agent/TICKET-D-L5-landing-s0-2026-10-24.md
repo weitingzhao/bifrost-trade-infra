@@ -14,7 +14,7 @@ main 快照：`bifrost-platform` = `ed8bb2276d423085014d80fddebfe2937c60f3be`；
 
 全部 34 个 SHA 都不是此次 main 快照的祖先；main 日志没有 “This reverts commit <完整 SHA>” 的匹配。运行时 landing/revert notes 另存于 snapshot。没有按标题/patch-id 代替对象归档；未做等价 cherry-pick 或手改 revert 的人工裁决，不能把上述有限检查写成“绝无等价代码”。
 
-所有任务均为 accepted 或 cancelled；plan/review/verify 是同一演练的配套任务，实施类已取消任务也全部列出。没有未结束的新任务混入范围；本单明确整 mission 放弃，未将其标成交付。若 Owner 仍需要任一任务，该 mission 整体排除并重建参数，不在执行时扩大/缩小。
+所有任务均为 accepted 或 cancelled；plan/review/verify 是相应工作的配套任务，实施类已取消任务也全部列出。没有未结束的新任务混入范围；本单对整 mission 设置 no_merge，阻止原尝试合入，不改任务的交付状态。PROD M-1、M-2、M-4 是 Owner 自己的注释工作，不是演练；内容已作为新提交从 platform w31/dl5-comments 取回，并由 Owner 于 2026-10-25 推至 platform main：93399f27（M-4）、ce5d2c30（M-1）、ca4f8149（M-2）。这三个 mission 保留 no_merge，仅表示原尝试不合入；原始对象归档保留。其余 mission 仍按历史演练处置。除上述已用新提交取回的三项外，若 Owner 仍需要任一任务，该 mission 整体排除并重建参数，不在执行时扩大/缩小。
 
 ## STG 当前 mission 与全部任务
 
@@ -158,7 +158,7 @@ main 快照：`bifrost-platform` = `ed8bb2276d423085014d80fddebfe2937c60f3be`；
 | `t_01M511TG2R2KD16YZ4982YV1BP` | verify / accepted | `无 accepts_attempt 记录` |
 | `t_01M511X7ZB8W33K9NW2M6TPN6C` | review / accepted | `无 accepts_attempt 记录` |
 
-该 mission 全部任务均按历史演练处置；配套 plan/review/verify 不另计实现交付。
+该 mission 是 Owner 自己的注释工作，不是演练；内容已从 platform `w31/dl5-comments` 以新提交 `ce5d2c30` 取回，由 Owner 于 2026-10-25 推至 platform main。no_merge 保留，仅表示原尝试不合入；配套 plan/review/verify 不另计实现交付，原始对象归档保留。
 
 ### M-13 · version 2 · done
 
@@ -220,7 +220,7 @@ main 快照：`bifrost-platform` = `ed8bb2276d423085014d80fddebfe2937c60f3be`；
 | `t_01M51EQXPQ9CAC4HCW1WP53M4G` | verify / accepted | `无 accepts_attempt 记录` |
 | `t_01M51ES9MXG579B3408P457V21` | review / accepted | `无 accepts_attempt 记录` |
 
-该 mission 全部任务均按历史演练处置；配套 plan/review/verify 不另计实现交付。
+该 mission 是 Owner 自己的注释工作，不是演练；内容已从 platform `w31/dl5-comments` 以新提交 `ca4f8149` 取回，由 Owner 于 2026-10-25 推至 platform main。no_merge 保留，仅表示原尝试不合入；配套 plan/review/verify 不另计实现交付，原始对象归档保留。
 
 ### M-3 · version 2 · done
 
@@ -252,7 +252,7 @@ main 快照：`bifrost-platform` = `ed8bb2276d423085014d80fddebfe2937c60f3be`；
 | `t_01M56J80XXX3ZGMXPYKFMD4T4G` | verify / accepted | `无 accepts_attempt 记录` |
 | `t_01M56JB7FGS87Z8A7ZHA7DGXEN` | review / accepted | `无 accepts_attempt 记录` |
 
-该 mission 全部任务均按历史演练处置；配套 plan/review/verify 不另计实现交付。
+该 mission 是 Owner 自己的注释工作，不是演练；内容已从 platform `w31/dl5-comments` 以新提交 `93399f27` 取回，由 Owner 于 2026-10-25 推至 platform main。no_merge 保留，仅表示原尝试不合入；配套 plan/review/verify 不另计实现交付，原始对象归档保留。
 
 ## 全部尝试的数据库字段
 
@@ -419,4 +419,4 @@ END OF EVIDENCE
 
 ## Owner 2026-10-25：M-1、M-2、M-4 取回
 
-PROD M-1、M-2、M-4 由 Owner 建（`created_by_actor_id: owner`），三段注释不在 main 上。Owner 定为取回：按今天的代码改写后提交在 platform 分支 `w31/dl5-comments`（`93399f27` M-4、`ce5d2c30` M-1、`ca4f8149` M-2），冻结期由 Owner 推 main。原尝试分支仍按本单放弃，归档不变。5 个 cancelled 实现任务核对：4 个是基准题回放，原修复已在 infra main（Q12 = `67fda99`，Q20 = `4a59032`）；1 个是故意失败的实验（STG M-2 T06）。都没有要保留的工作。
+PROD M-1、M-2、M-4 是 Owner 自己的注释工作，不是演练；内容已作为新提交从 platform w31/dl5-comments 取回，并由 Owner 于 2026-10-25 推至 platform main：93399f27（M-4）、ce5d2c30（M-1）、ca4f8149（M-2）。这三个 mission 保留 no_merge，仅表示原尝试不合入；原始对象归档保留。5 个 cancelled 实现任务核对：4 个是基准题回放，原修复已在 infra main（Q12 = `67fda99`，Q20 = `4a59032`）；1 个是故意失败的实验（STG M-2 T06）。都没有要保留的工作。
