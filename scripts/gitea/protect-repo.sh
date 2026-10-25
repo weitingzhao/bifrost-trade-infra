@@ -2,7 +2,10 @@
 # protect-repo.sh --owner <login> <repo>... — the branch rule of the
 # Gitea-primary cut (§2.9, §3; batch step 5) on each converted repository,
 # then read back and compared field by field:
-#   main      push: team maintainers and <login>; merge (PR): the same
+#   main      platform/infra: <login> only (landing S0); other repos:
+#             team maintainers and <login>; merge (PR): the same
+# Removing maintainers blocks agent push-main.sh until dedicated landing is
+# enabled in S3 (platform) / S6 (infra); Owner pushes bridge that interval.
 # The rule carries a merge whitelist: without one, code write is enough to
 # merge a pull request into the branch (Gitea 1.21 IsUserMergeWhitelisted).
 # The cut also protected agent/** (push: team agentd-write and <login>). Gitea
@@ -10,7 +13,7 @@
 # clean up its attempt branches; the Owner chose to lift it (TD-383, 10-20
 # 「分支 B 用 agentd」: agentd deletes them under the runtime's rule). A rule
 # agent/** that is there is deleted and the rules read back without it.
-# The tag rule (*: maintainers and <login>) has no API in 1.21: the script
+# The tag rule (*: same allowed identities as main) has no API in 1.21: the script
 # prints the page to set it on. A main rule that is missing is created; one
 # that is there is only compared, never edited: it may have been tightened on
 # the page since (review 436 B5); one that differs is reported (exit 1) and
@@ -203,6 +206,9 @@ for repo in "$@"; do
   fi
   for rule in main; do
     push_team=maintainers
+    case "$repo" in
+      bifrost-platform|bifrost-trade-infra) push_team="" ;;
+    esac
     body="$(python3 - "${rule}" "${push_team}" "${owner}" << 'PY'
 import json, sys
 rule, team, owner = sys.argv[1:4]
@@ -210,11 +216,11 @@ print(json.dumps({
     "rule_name": rule,
     "enable_push": True,
     "enable_push_whitelist": True,
-    "push_whitelist_teams": [team],
+    "push_whitelist_teams": [team] if team else [],
     "push_whitelist_usernames": [owner],
     "push_whitelist_deploy_keys": False,
     "enable_merge_whitelist": True,
-    "merge_whitelist_teams": ["maintainers"],
+    "merge_whitelist_teams": [team] if team else [],
     "merge_whitelist_usernames": [owner],
 }))
 PY
@@ -255,6 +261,6 @@ PY
   else
     echo "${repo} agent/**: none (attempt branches may be deleted; TD-383)"
   fi
-  echo "${repo}: now add the tag rule on the page: Gitea → ${GITEA_ORG}/${repo} → Settings → Tags → New rule: *, allowed: team maintainers and ${owner}"
+  echo "${repo}: now add the tag rule on the page: Gitea → ${GITEA_ORG}/${repo} → Settings → Tags → New rule: *, allowed: ${push_team:+team ${push_team} and }${owner}"
 done
 exit "${fail}"

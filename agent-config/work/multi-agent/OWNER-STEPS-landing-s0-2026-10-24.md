@@ -9,6 +9,7 @@
 全包顺序：确认已有决定 → 检查 reader → 排空旧 run → RBAC/Tekton dry-run 和 apply →
 收窄 Gitea 权限并建演练身份 → 五项实测及推送者证据 → 旧凭证收尾 → D-L5 正式单。
 任何一步出现未解释的失败即停在该步；本包不让后面的命令掩盖前面的失败。
+下文 diff/apply、get/delete 的代码块每次只运行一行，查看结果后再运行下一行，不整段粘贴执行。
 
 ## 1. 确认范围，检查本片文件
 
@@ -21,14 +22,27 @@ Owner 管理员是恢复根；桌面 Agent 使用的 `bifrost-mbp` 不是这个�
 
 ```bash
 cd ~/Desktop/stocks/bifrost-trade-infra
-git status --short
+bash -euo pipefail <<'SH'
+landing_paths=$(git diff --name-only 881253d w31/landing-s0)
+while IFS= read -r landing_path; do
+  test -n "$landing_path" || continue
+  landing_status=$(git status --short -- "$landing_path")
+  if test -n "$landing_status"; then
+    printf '%s\n' "$landing_status"
+    echo 'STOP: integrated path has local changes' >&2
+    exit 1
+  fi
+done <<< "$landing_paths"
+echo 'PASS: integrated paths clean'
+SH
 git log -1 --format='%h %s'
 test -f agent-config/work/multi-agent/P0-landing-s0-2026-10-24.md
 python3 agent-config/scripts/validate_plan_view.py
 ```
 
-第一条状态应无输出；log 显示已整合本片的提交；`test` 成功无输出；校验输出
-`PASS: 12 nodes; references and blocking graph valid; not adopted`。文件不存在或有未提交更改先停。
+只检查 `881253d..w31/landing-s0` 的整合路径，成功输出 `PASS: integrated paths clean`；
+其他会话的无关路径可有更改，不要求整树干净。log 显示已整合本片的提交；`test` 成功无输出；校验输出
+`PASS: 12 nodes; references and blocking graph valid; not adopted`。文件或分支引用不存在、整合路径有未提交更改先停。
 读文件与校验无需回退。以下每段都在此 checkout 中执行。
 
 ## 2. 复用三套只读身份和 clone 身份
@@ -87,42 +101,65 @@ SH
 只应打印 `PASS: all existing runs completed`。否则打印未完成对象，等它们终结后再跑；
 不为通过检查删除或中止正在运行的任务。此检查只读，无需回退。
 
-保留 **CI Pipeline** 的无凭证回退副本（不备份 Secret）；文件已存在则拒绝覆盖：
+CI 回退基线固定为已应用的 `881253d` 中的 Pipeline，先确认本地对象可读：
 
 ```bash
-bash -euo pipefail <<'SH'
-umask 077
-mkdir -p ~/.bifrost-owner/landing-s0-2026-10-24
-test ! -e ~/.bifrost-owner/landing-s0-2026-10-24/ci-platform.before.yaml
-kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml -n cicd get pipeline bifrost-ci-platform -o yaml > ~/.bifrost-owner/landing-s0-2026-10-24/ci-platform.before.yaml
-echo 'Saved previous ci-platform Pipeline (no Secret)'
-SH
+git cat-file -e 881253d:k8s/cicd/tekton/pipeline-ci-platform.yaml
 ```
 
-输出 `Saved previous ci-platform Pipeline (no Secret)`。这是本包唯一的 CI 回退基线，不覆盖它。
-接着两个 server dry-run **全部无错**才做真实 apply：
+成功无输出。不要把在线 `get -o yaml` 的 resourceVersion、managedFields 或 last-applied 注解带回 apply；
+完整在线备份只能作审计，不能作回退输入。
+先看 diff，再做 server dry-run。`kubectl diff` 退出 0 是无差异，1 是有差异，>1 是错误；
+逐条查看，不能用 `&&` 把预期的 1 当失败，也不能用 `|| true` 吞掉错误。
+RBAC **只允许** `Role/cicd/bifrost-applier-read` 去掉旧 clone Secret 的读取权；
+Pipeline **只允许**新增 `go vet ./...`、对应的 `spec.description` 说明和三个实际 clone commit results。
+出现其他对象或字段变化（包括在线漂移）立即停止并核对，不能以 apply 回滚线上漂移。
+两个 server dry-run **全部无错**才做真实 apply：
 
 ```bash
+kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml diff -k k8s/platform-rbac
 kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml apply -k k8s/platform-rbac --dry-run=server
+kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml diff -f k8s/cicd/tekton/pipeline-ci-platform.yaml
 kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml apply -f k8s/cicd/tekton/pipeline-ci-platform.yaml --dry-run=server
 ```
 
-每个对象一行，以 `(server dry run)` 结尾，不能有 error。再执行：
+dry-run 每个对象一行，以 `(server dry run)` 结尾，不能有 error。
+真实 apply 前再次查看 diff；仍只有上述预期差异才执行下一行：
 
 ```bash
+kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml diff -k k8s/platform-rbac
 kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml apply -k k8s/platform-rbac
+kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml diff -f k8s/cicd/tekton/pipeline-ci-platform.yaml
 kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml apply -f k8s/cicd/tekton/pipeline-ci-platform.yaml
 ```
 
 RBAC 大部分 `unchanged`，`bifrost-applier-read configured`；Pipeline 为 `configured`。
-`apply -k` 不会删除已从清单移除的对象。S6 已删过，以下幂等确认防止漂移遗留：
+`apply -k` 不会删除已从清单移除的对象。先只读检查 PROD 绑定：
 
 ```bash
-kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml -n cicd delete rolebinding bifrost-platform-gitea-creds-stg bifrost-platform-gitea-creds-prod --ignore-not-found=true
+bash -euo pipefail <<'SH'
+landing_prod_binding=$(kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml -n cicd get rolebinding bifrost-platform-gitea-creds-prod --ignore-not-found=true -o name)
+if test -n "$landing_prod_binding"; then
+  printf '%s\n' "$landing_prod_binding"
+  echo 'STOP: TD-432 S6 did not take effect; investigate before continuing' >&2
+  exit 1
+fi
+echo 'PASS: PROD credential binding absent'
+SH
+```
+
+必须输出 `PASS: PROD credential binding absent`；若 PROD 绑定仍在，说明 S6 未生效，停在这里，
+不能用本包直接删除它来掩盖前置条件失败。以下只清理确认过的 STG 绑定和旧 ClusterRole：
+
+```bash
+kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml -n cicd get rolebinding bifrost-platform-gitea-creds-stg --ignore-not-found=true -o name
+kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml -n cicd delete rolebinding bifrost-platform-gitea-creds-stg --ignore-not-found=true
+kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml get clusterrole bifrost-platform-gitea-creds --ignore-not-found=true -o name
 kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml delete clusterrole bifrost-platform-gitea-creds --ignore-not-found=true
 ```
 
-正常无输出；若有漂移会显示 `deleted`。不要重跑旧版 S7 脚本，它会暂时放宽 applier Role。
+每条 delete 前先看对应 get：不存在无输出，存在只打印对象名；get 报错立即停，不执行 delete。
+正常删除无输出；确认的遗留对象会显示 `deleted`。不要重跑旧版 S7 脚本，它会暂时放宽 applier Role。
 核对：
 
 ```bash
@@ -139,18 +176,39 @@ kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml auth can-i create pods -n 
 五条 can-i 都应 `no`（`no` 本身退出非 0，是预期；不要用 `&&` 串这五条）。
 `yes` 或连接/权限检查错误均不是通过。
 
-**回退**：CI Pipeline 本身应用后异常，可先检查再恢复存下的对象：
+**回退**：CI Pipeline 本身应用后异常，从 Git 恢复 `881253d` 的声明式清单。
+先看 diff，只应撤去本片的 vet、对应 description 说明和 clone results；有其他漂移先停。每条管道分别执行，
+在当前终端开启 pipefail，确保 `git show` 失败不会被下游掩盖：
 
 ```bash
-kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml apply --dry-run=server -f ~/.bifrost-owner/landing-s0-2026-10-24/ci-platform.before.yaml
-kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml apply -f ~/.bifrost-owner/landing-s0-2026-10-24/ci-platform.before.yaml
+set -o pipefail
+git show 881253d:k8s/cicd/tekton/pipeline-ci-platform.yaml | kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml diff -f -
+git show 881253d:k8s/cicd/tekton/pipeline-ci-platform.yaml | kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml apply --dry-run=server -f -
 ```
 
-输出 Pipeline `(server dry run)` / `configured`。若 resourceVersion 冲突，停止并重新核对，不强覆盖。
+dry-run 无错才继续；再次核对 diff 后执行下一行：
+
+```bash
+git show 881253d:k8s/cicd/tekton/pipeline-ci-platform.yaml | kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml diff -f -
+git show 881253d:k8s/cicd/tekton/pipeline-ci-platform.yaml | kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml apply -f -
+```
+
+输出 Pipeline `(server dry run)` / `configured`（已恢复则 `unchanged`）。输入不含在线版本元数据；
+服务端校验失败即停止，不强覆盖。
 RBAC 收窄不回退成 admin 可读：reader 不通按第 2 节修凭证；旧 run 遗漏则保持落地关闭、完成旧 run 排障。
 不可直接 apply `881253d` 的整套 RBAC，否则会重新授予管理员读取权限。
 
 ## 4. 收窄 main/PR/tag，创建唯一的 STG 演练身份
+
+**顺序与中断影响**：执行本节前，先将两仓等待中的、已复核的提交合入（包括 S1/S2 若已准备好，
+以及工作区规则允许 Agent 推送的 STG overlay 更改）；尚未准备好的提交，在本节后由 Owner 使用自己的身份经
+`push-main.sh` 推送。移除 `maintainers` 会立即阻断两仓所有 Agent 的 `push-main.sh` 和 PR 合入，
+工作区的 STG 授权不绕过 Gitea 白名单。platform 到 S3、infra 到 S6 才加入专用 `agentrt-lander`；
+这只开放受规则控制的落地身份，不恢复桌面/06 Agent 直推权限。不能等 Agent 推 S1/S2 来解除这个中断。
+先合好等待项再收窄，或接受收窄后由 Owner 承担这些推送；P0 完成前仍不运行 S2/S3。
+
+`protect-repo.sh` 的两仓 main push/merge 基线已改为 Owner-only，tag 页面提示同步；其他仓库保留原基线。
+它对已有规则仍只比较、不覆盖。后续 S3/S6 加 lander 时须同时更新该仓基线，不能恢复 `maintainers`。
 
 先在 Gitea 两仓 `bifrost-platform`、`bifrost-trade-infra` 的 Settings → Branches：
 截图保存原规则（规则里只有名字，不含 token），main 的 push/merge whitelist 移除 `maintainers`
@@ -189,10 +247,12 @@ bash scripts/gitea/put-reader-token.sh drill replace
 并在尚未挂载的 S0 删除 Secret：
 
 ```bash
+kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml -n bifrost-platform-stg get secret agentrt-landing-drill -o name
 kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml -n bifrost-platform-stg delete secret agentrt-landing-drill
 ```
 
-输出 `secret "agentrt-landing-drill" deleted`。main 白名单保留 Owner-only，安全回退是暂停落地；
+先应只输出 `secret/agentrt-landing-drill`，get 报错就停；确认后 delete 输出 `secret "agentrt-landing-drill" deleted`。
+main 白名单保留 Owner-only，安全回退是暂停落地；
 若需恢复旧人员授权，要 Owner 明确另定，不能自动恢复 `maintainers` 来让 Agent 绕过 P0。
 
 ## 5. 五项权限、真实推送者和 CI 验收
@@ -224,6 +284,18 @@ main 若移动，先停止验收并记录 SHA，由 Owner 审核 revert；不能
 对每个身份还必须记录“改保护”返回 401/403；仓库权限元数据 admin=false 只作辅助。
 用该身份访问 Gitea 保护设置/提交无变化的保护编辑，记录拒绝应答，不能用 Owner 浏览器的登录态冒充。
 三套 reader 的写握手应拒绝；06 两用户也必须分别做真实 main/PR/tag 负测。
+运行前，Owner 在 Gitea 管理页分别核对 `agentd-agent-06-stg`（06 的 `bifrost-agentd-stg`）和
+`agentd-agent-06`（06 的 `bifrost-agentd`）：均非 Admin，Teams/Members 显示实际团队成员关系；
+该团队的 Repositories 覆盖两仓，Units 中 **Code Write、Pull Requests Write**，不能仅有 Code Write。
+旧 `agentd-write` 配置可能仍是 Pull Requests No Access；不足时先在两仓范围的专用团队补齐这两项，
+其余 No Access、不准建仓库，不加 main/tag 白名单。不要为了探针扩大到所有仓库。
+两用户各自登录后应可见两仓 Code 和 New Pull Request 入口，且 `agent/_probe/…` 没有匹配的保护规则；
+随后实际创建分支和 PR 的成功才是权限实证。缺分支/PR 权限的报错不能当作 merge 被保护拒绝。
+若还要跑下面可选的 primary-probe 基础探针，先同样核对它的 Code/PR 权限。
+
+**负载提醒**：下面 06 两用户 × 两仓探针会真实创建分支和 PR，并触发约 **8 次 platform CI runs**
+（以实际 webhook/Trigger 配置为准，记录 run 数）；预留 CI 容量并等 run 排空。可选基础探针和前面的
+演练身份探针另有写入与可能的 CI 负载。不要因为“负测”就当成只读命令。
 既有的 06 基础探针可先跑：
 
 ```bash
@@ -255,6 +327,9 @@ before/after SHA、时间及事件页面引用。应为 `agentrt-landing-stg`，
 CI：统筹后续用受控 platform 测试分支做 vet 种错及修复，参照仓库
 `scripts/cicd/test_landing_s0.py` 的 `context.WithCancel` 丢弃 cancel 用例；
 build/普通 test 绿而完整 vet 红，修复后 CI 绿。S0 本次只跑了离线实际脚本，不伪造集群 run。
+首个加入 vet 的 CI 后，记录 test-api 中 vet 与测试各自耗时，检查 `go test -timeout=300s`
+的余量和上层 TaskRun/PipelineRun deadline；vet 在测试之前执行，不算进 go test 自己的 300 秒，
+但会消耗上层总时限。若接近时限先分析日志，不自动放大 timeout 或跳过 vet。
 最近成功的 platform CI 结果可这样读（参数分支名不能代替实际 SHA）：
 
 ```bash
@@ -309,10 +384,12 @@ bash scripts/gitea/rotate-admin-token.sh revoked
 最后才退役旧 clone Secret：
 
 ```bash
+kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml -n cicd get secret gitea-git-credentials --ignore-not-found=true -o name
 kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml -n cicd delete secret gitea-git-credentials --ignore-not-found=true
 ```
 
-存在则 `deleted`，不存在无输出。该删除没有复原旧泄漏凭证的回退；修复用第 2 节只读身份。
+get 存在时只打印 `secret/gitea-git-credentials`，不存在无输出；get 报错先停，确认后才 delete。
+删除存在则 `deleted`，不存在无输出。该删除没有复原旧泄漏凭证的回退；修复用第 2 节只读身份。
 `gitea-bootstrap` 搬出 cicd 是 TD-432 S8 的独立剩余项：当前 `lib.sh` 和轮换脚本仍读取 cicd，
 不能只移动 Secret 让 Owner 恢复脚本失效。本片没有冒造一个不存在的搬迁脚本；
 在对应 S8 消费方切换、回退与实证就绪前，记录该缺口，P0 不签完成，不打开 S2/S3。

@@ -705,7 +705,7 @@ check-pitr-drill: ; python3 scripts/check_pitr_drill_manifest.py
 S0_PYTHON ?= python3
 .PHONY: check-landing-s0 check-plan-view
 check-landing-s0:
-	$(S0_PYTHON) -m pytest -q scripts/cicd/test_landing_s0.py scripts/cicd/test_tekton_reader.py scripts/cicd/test_task_gitea_mirror_sync.py scripts/gitea/test_landing_drill_token.py scripts/gitea/test_s7_owner_apply.py scripts/agent-host/test_landing_probe_offline.py scripts/test_platform_rbac_secrets.py
+	$(S0_PYTHON) -m pytest -q scripts/cicd/test_landing_s0.py scripts/cicd/test_landing_owner_steps.py scripts/cicd/test_tekton_reader.py scripts/cicd/test_task_gitea_mirror_sync.py scripts/gitea/test_landing_drill_token.py scripts/gitea/test_protect_repo_offline.py scripts/gitea/test_s7_owner_apply.py scripts/agent-host/test_landing_probe_offline.py scripts/test_platform_rbac_secrets.py
 	$(S0_PYTHON) scripts/check_admission_guards.py
 
 check-plan-view:

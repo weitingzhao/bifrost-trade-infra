@@ -240,27 +240,30 @@ class Scripts(unittest.TestCase):
 
     # protect-repo
     def test_protect_repo_sets_main_with_merge_whitelists(self) -> None:
-        api = FakeApi({"r": False})
-        try:
-            r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api)
-            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-            rules = api.rules["r"]
-            self.assertEqual(sorted(rules), ["main"])
-            self.assertEqual(rules["main"]["push_whitelist_teams"], ["maintainers"])
-            self.assertIn("r agent/**: none (attempt branches may be deleted; TD-383)", r.stdout)
-            for rule in rules.values():
-                self.assertTrue(rule["enable_merge_whitelist"])
-                self.assertEqual(rule["merge_whitelist_teams"], ["maintainers"])
-                self.assertEqual(rule["merge_whitelist_usernames"], ["vision"])
-            self.assertIn("Settings → Tags", r.stdout)
-            # a second run finds main as the baseline and neither edits nor adds (review 436 B5)
-            r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api)
-            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-            self.assertEqual(len(api.rules["r"]), 1)
-            self.assertIn("r main: there as the baseline, left as it is", r.stdout)
-            self.assertFalse(any(c.startswith("PATCH ") for c in api.calls))
-        finally:
-            api.close()
+        for repo, teams in [("r", ["maintainers"]), ("bifrost-platform", []), ("bifrost-trade-infra", [])]:
+            with self.subTest(repo=repo):
+                api = FakeApi({repo: False})
+                try:
+                    r = self.run_script("protect-repo.sh", "--owner", "vision", repo, api=api)
+                    self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                    rules = api.rules[repo]
+                    self.assertEqual(sorted(rules), ["main"])
+                    self.assertEqual(rules["main"]["push_whitelist_teams"], teams)
+                    self.assertIn(f"{repo} agent/**: none (attempt branches may be deleted; TD-383)", r.stdout)
+                    for rule in rules.values():
+                        self.assertTrue(rule["enable_merge_whitelist"])
+                        self.assertEqual(rule["merge_whitelist_teams"], teams)
+                        self.assertEqual(rule["merge_whitelist_usernames"], ["vision"])
+                    self.assertIn("Settings → Tags", r.stdout)
+                    self.assertIn("allowed: " + ("team maintainers and " if teams else "") + "vision", r.stdout)
+                    # a second run finds main as the baseline and neither edits nor adds (review 436 B5)
+                    r = self.run_script("protect-repo.sh", "--owner", "vision", repo, api=api)
+                    self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                    self.assertEqual(len(api.rules[repo]), 1)
+                    self.assertIn(f"{repo} main: there as the baseline, left as it is", r.stdout)
+                    self.assertFalse(any(c.startswith("PATCH ") for c in api.calls))
+                finally:
+                    api.close()
 
     def test_protect_repo_reports_a_rule_gitea_did_not_keep(self) -> None:
         api = FakeApi({"r": False}, drop_merge_whitelist=True)
