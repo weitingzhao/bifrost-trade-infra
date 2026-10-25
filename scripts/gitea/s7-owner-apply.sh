@@ -2,10 +2,13 @@
 # TD-432 S7, Owner only. Run with bash, never source into an interactive shell.
 # Inventory -> both-name Role -> Tasks/Pipelines -> GitHub sync -> SA unlink.
 # S8 is separate: drain old runs before narrowing Role or retiring credentials.
+set +x +v
 set -euo pipefail
+umask 077
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 work=$(mktemp -d "${TMPDIR:-/tmp}/td432-s7.XXXXXXXX")
 trap 'rm -rf "$work"' EXIT
+chmod 700 "$work"
 
 inventory() {
   # Output only name and git annotations, not last-applied (which can embed values).
@@ -39,22 +42,58 @@ PY
 
 # Step 1: read-only inventory, including previously unknown annotated Secrets.
 inventory
-# Pre-apply check: all 11 public Gitea repositories must be primaries.
-# This anonymous metadata GET reads no Secret and sends no credential.
-while IFS= read -r repo; do
-  case "$repo" in ''|'#'*) continue ;; esac
-  curl --fail --silent --show-error --noproxy '*' --max-redirs 0 \
-    "http://192.168.10.73:30300/api/v1/repos/bifrost/$repo" > "$work/repo.json"
-  python3 - "$work/repo.json" "$repo" <<'PY'
+# Pre-apply check: Gitea requires sign-in even for repository metadata.
+# Keep the reader and curl config inside the private, trap-cleaned directory.
+if ! kubectl -n cicd get secret gitea-ci-reader -o json > "$work/reader.json" 2>/dev/null; then
+  printf '%s\n' 'STOP: cannot read Secret cicd/gitea-ci-reader' >&2
+  exit 1
+fi
+python3 - "$work/reader.json" > "$work/reader.curl" <<'PY'
+import base64
 import json
 import sys
-with open(sys.argv[1]) as stream:
-    repo = json.load(stream)
+try:
+    with open(sys.argv[1]) as stream:
+        data = json.load(stream)['data']
+    user, password = (base64.b64decode(data[key], validate=True).decode()
+                      for key in ('username', 'password'))
+    if not user or not password or ':' in user or any(c in user + password for c in '\r\n\0'):
+        raise ValueError()
+except (KeyError, TypeError, ValueError, OSError):
+    raise SystemExit('STOP: invalid Secret cicd/gitea-ci-reader') from None
+auth = base64.b64encode((user + ':' + password).encode()).decode()
+print('header = "Authorization: Basic ' + auth + '"')
+PY
+rm -f "$work/reader.json"
+while IFS= read -r repo; do
+  case "$repo" in ''|'#'*) continue ;; esac
+  [[ "$repo" =~ ^bifrost-[a-z0-9-]+$ ]] || { printf '%s\n' 'STOP: invalid primary repository name' >&2; exit 1; }
+  if ! status=$(curl -q --silent --noproxy '*' --max-redirs 0 --max-time 30 \
+    --config - --output "$work/repo.json" --write-out '%{http_code}' \
+    "http://192.168.10.73:30300/api/v1/repos/bifrost/$repo" < "$work/reader.curl"); then
+    printf 'STOP: cannot read repository %s (HTTP %s; transport failure)\n' "$repo" "${status:-000}" >&2
+    exit 1
+  fi
+  if [ "$status" != 200 ]; then
+    printf 'STOP: cannot read repository %s (HTTP %s)\n' "$repo" "$status" >&2
+    exit 1
+  fi
+  python3 - "$work/repo.json" "$repo" "$status" <<'PY'
+import json
+import sys
+try:
+    with open(sys.argv[1]) as stream:
+        repo = json.load(stream)
+    if not isinstance(repo, dict):
+        raise ValueError()
+except (ValueError, OSError):
+    raise SystemExit('STOP: invalid repository metadata: ' + sys.argv[2] + ' (HTTP ' + sys.argv[3] + ')') from None
 if repo.get('full_name') != 'bifrost/' + sys.argv[2] or repo.get('mirror') is not False:
     raise SystemExit('STOP: repository is not a confirmed Gitea primary: ' + sys.argv[2])
 print(sys.argv[2] + ': mirror:false')
 PY
 done < agent-config/gitea-primary.txt
+rm -f "$work/reader.curl"
 
 # Step 2: widen only the read Role for the transition, not the other RBAC objects.
 python3 - "$work/applier-read.yaml" <<'PY'
