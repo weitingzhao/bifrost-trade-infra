@@ -3415,3 +3415,14 @@
 - **验收命令**：platform 根运行 `go -C api build ./... && go -C api vet ./... && go -C api test ./internal/actions/... ./internal/approvals/... ./internal/server/... ./internal/questions/...`；数据库集成测试须设隔离的 `AGENTRT_TEST_PG`、`AGENTRT_TEST_REDIS`、`AGENTRT_TEST_REQUIRED=1`，不得以 skip 代替通过。定向防线：`go -C api test ./internal/actions ./internal/approvals ./internal/server ./internal/questions -run 'Test(HumanApprovalHome|OwnerQuestionHome|CatalogHumanApprovalHome|STGRuleCard)' -count=1`。
 - **本片验证**：2026-10-26，本地未提交工作树（platform 验收时 HEAD `abd258c0`）：上述 build、vet、四包测试通过，隔离 PostgreSQL/Redis 集成测试已启用；新增防线在旧生产代码上失败、修复后通过。双轨新增规则及 `workspace-v26` 一致；完整 parity 仍有两项基线既存失败，详见 Work 609 `REPORT.md`，不将其记为 PASS。
 - **最终验收**：通道上线后在 PROD 建一张明确目标 STG 的单，Owner 只在 PROD 批一次；只有 STG runtime 发生预期变更，PROD 显示结果及证据；重放、越环境、篡改、过期、断网、部分完成探针全部通过。当前仅完成防回退，不能签收此债。
+
+### TD-442
+
+**P2 · 治理验收 · Review 613 的完整 parity 尚未通过**
+
+- **状态**：在做（2026-10-26，Work 616；infra 工作树修复已准备，未提交；完整验收仍 exit 1）。
+- **证据**：Review 613 B1；`agent-config/codex/check-codex-guard.py:42` 的 app-server 在当前沙箱内启动即 exit 1，stderr `Operation not permitted`；旧检查器丢弃 stderr 并抛异常。`origin/main` 的 `scripts/benchmark/pick.py:24` 和 platform `api/internal/agentd/benchreplay_test.go:35` 各有一处硬编码家目录路径，均超过基线 0。
+- **影响**：无法确认实际 Codex 接线，完整 parity 不满足验收；未提交的 infra 路径修复不会改变对 `origin/main` 的检查结果。
+- **修法**：本片已移除 infra 路径常量、增加工作区定位回归；Codex 检查器补启动诊断、字节分帧、RPC/目录覆盖校验及子进程回收，失败继续阻断。platform 另行将 `BENCH_REPOS` 的默认值改为 `BIFROST_WORKSPACE` 或从工作目录上溯 marker，缺失时明确失败；本片按 BRIEF 不改 platform。修复经正常流程进入两仓 main 后，由可正常启动 app-server 的既有受信工作区重跑完整检查；不更改 trust、沙箱策略、远端引用或基线来制造通过。
+- **防线**：`RATCHETS.md`「Codex 检查失败不误报成功（Work 616 / TD-442）」；保留完整 parity 全部检查项。
+- **验收命令**：infra 根运行 `python3 -m unittest discover -s agent-config/codex -p 'test_*.py' -v`、`python3 -m pytest -q scripts/benchmark`；完整工作区内运行 `bash scripts/check-agent-config-parity.sh`，确认实际使用待验收 infra 的治理文件，exit 0 才通过。未提交 infra 路径修复可单独运行 `BIFROST_WORKSPACE=<workspace> python3 agent-config/scripts/check_hardcoded_paths.py --worktree --new-only --repos bifrost-trade-infra`，此命令不替代完整验收。

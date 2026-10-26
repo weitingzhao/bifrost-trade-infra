@@ -18,7 +18,11 @@ python3 -m pytest -q scripts/benchmark
 ```
 
 `pick.py` reads local Git history only (`main`, last 150 days by default); it does
-not fetch. An unavailable repository/ref is reported on stderr with nonzero exit
+not fetch. With no explicit repositories, `--root` selects their parent directory;
+otherwise `BIFROST_WORKSPACE` takes precedence over ancestor discovery using
+`bifrost-platform/config/ops-context.yaml`. A missing workspace is an error; there
+is no machine-specific home-directory fallback. Explicit repositories need no
+workspace discovery. An unavailable repository/ref is reported on stderr with nonzero exit
 status, while other repositories are still scanned. Root/merge commits, deleted
 tests, commits touching `k8s/`, `.env*`, or `*.secret*` (including rename sources)
 are excluded. Regression evidence may be explicit regression wording, a review 2NN reference,

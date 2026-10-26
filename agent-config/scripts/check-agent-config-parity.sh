@@ -165,7 +165,7 @@ else:
             r = subprocess.run([sys.executable, str(cg)], capture_output=True, text=True, timeout=60,
                                env={**os.environ, 'BIFROST_WORKSPACE': str(ROOT)})
             if r.returncode != 0:
-                fails.append("Codex 没有在跑 preflight：" + (r.stdout.strip() or r.stderr.strip())[:500])
+                fails.append("Codex preflight 验证未通过（配置不符或检查未完成）：" + (r.stdout.strip() or r.stderr.strip())[:1500])
         except Exception as e:
             fails.append(f"Codex 闸门检查没跑完：{e}")
 

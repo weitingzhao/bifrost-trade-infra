@@ -100,6 +100,17 @@ trusted_hash = "sha256:54ead03e5d5092a3d63f264a99879a710eb716396910dee4542061b0b
 5. 写 `~/.codex/AGENTS.md`（指针）。
 6. 验收：`python3 bifrost-trade-infra/agent-config/codex/check-codex-guard.py --probe`。`--probe` 会在临时 git 仓库里让 Codex 跑一次 `git add -A`，要被 preflight 拦下、暂存区为空。不带 `--probe` 只查配置，不调模型。`bash scripts/check-agent-config-parity.sh` 在本机装了 codex 时会跑不带 `--probe` 的那一版。
 
+## 检查器失败的含义（Work 616，2026-10-26）
+
+`hooks/list` 检查依赖本机 `codex app-server` 能启动。当前受限环境中实测 CLI
+`0.163.0-alpha.11.2` 启动即 exit 1、stderr 为 `Operation not permitted`；这表示检查未完成，
+不能据此断言 hook 未运行。检查器保留启动错误，遇 RPC error、空/不完整的 cwd 列表或格式错误均返回 1；
+使用字节分帧避免通知与回复同批到达时丢失已缓冲回复，并在退出或超时后回收子进程。
+这些修改不改变本机 hooks、trust 或 sandbox 配置，也不把静态文件存在当作成功。
+
+离线回归：`python3 -m unittest discover -s agent-config/codex -p 'test_*.py' -v`（infra 根）。
+离线假 RPC 用例通过不等于真实接线通过；完整验收仍需实际 `hooks/list` 和 hook deny/allow 探针成功。
+
 ## 2026-10-10 的阳性对照
 
 不用 `--dangerously-bypass-hook-trust`，沙箱和审批取 config 的默认值，在临时仓库里跑：
