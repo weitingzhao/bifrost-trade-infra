@@ -1,5 +1,7 @@
 # 4.3 每个应用自己的发布节奏：发布操作、应用车道与按应用的发版策略（设计稿，2026-10-24）
 
+> **Owner 2026-10-26 定**：§5 的 12 点全部按推荐（含 11 A 独立窄 Argo 执行器、12 A 停发排空后切权威）。复核 579「可以给 Owner 定」。实施排在 4.1 之后，逐片复核。
+
 > 状态：**第 3 稿**，回应 Codex 复核 571 的 B1–B3、C1–C3、N；逐条回应在 `~/agent-work/codex-review-571/RESPONSE.md`。保留复核 532 已补的约束。第 4 轮 4.3（W-31；Owner 2026-10-23 23:3x「D2 A」），含 W-56 剩下的门槛。本文是待定案设计，不是无人值守上线许可。
 > 本稿源码核对：2026-10-26，`~/Desktop/stocks/` 下 infra HEAD / origin/main 均为 `833a2461fdea78b9f7ed6841ba0587b47fed009b`；platform HEAD `ed8bb2276d423085014d80fddebfe2937c60f3be`，origin/main `ca4f814998d335db45aebf40f721f2e2408e0fd3`，未 fetch。当前事实按本地源码核对，不代表已部署。§1.2 的集群数量、Finance 和 §1.3 数字仍是第二稿 2026-10-24 04:4x UTC 的历史快照（infra `8f0e51f`、platform `82b3e9d7`、Finance `0698265`），本稿未复验。
 > 简写：`P/` = `~/Desktop/stocks/bifrost-platform/`（本地 HEAD），`I/` = `~/Desktop/stocks/bifrost-trade-infra/`，`T/` = `I/k8s/cicd/tekton/`，`R/` = `I/scripts/release/`，`F/` = `~/agent-work/bifrost-finance/`，`W56/` = `I/agent-config/work/multi-agent/PLAN-w56-unattended-prod-2026-10-10.md`。本稿新增证据见 §1.6；未刷新的第二稿行号沿用历史快照，实施前须重新定位。
