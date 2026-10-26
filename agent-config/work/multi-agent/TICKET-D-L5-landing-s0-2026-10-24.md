@@ -1,4 +1,4 @@
-# D-L5 审批准备单：已归档，尚未提交审批（Work 565）
+# D-L5：归档完成，#165 被事件 guard 拒绝，待新动作标记（Work 565 / 582）
 
 来源：Work 564 原索引、`INVENTORY-lifecycle-2026-10-24.md` §3.1、`CUT-lifecycle-2026-10-24.md` §5 D-L5。原 19 条分支与 20 个 accepted 结果不能互换；本单以最新数据库与 Gitea 读取为准。
 
@@ -400,20 +400,23 @@ plan/review/verify 等任务没有独立代码 ref 时，归档为环境 runtime
 
 以上每份均 `git bundle verify`、独立空 bare 仓 fetch、rev-parse 与完整 SHA 相等、`git fsck --full --no-reflogs` PASS。完整路径是页首归档根目录加 bundle 文件名。
 
-## 统筹将提交的 request_action 参数
+## 审批执行记录与新动作（Owner 2026-10-26 选 A）
 
-先复核此证据及两个 JSON，按 **STG 后 PROD、分两张 D 级单**提交；参数文件是完整工具入参，不是占位符。本片没有调用 request_action。
+归档与校验于 **2026-10-25 完成**。正式审批 **#165 于 2026-10-26 16:01Z 执行**，原 SQL 写入被 runtime 自身的事件 guard 拒绝：
 
-- `d-l5-2026-10-25/stg-request-action.json` → action=owner_run_command、runner=owner、7 missions。
-- `d-l5-2026-10-25/prod-request-action.json` → action=owner_run_command、runner=owner、6 missions。
+`ERROR: agentrt: a state change needs SET LOCAL agentrt.event_id`（`agentrt.require_event()`）。
 
-Owner 在 Console 批准后，由正常 Owner executor 领取、执行已签 command 并上报退出码和输出；不能直接复制 SQL 跳过审批。runner=owner 不会让平台自行运行管理员命令。此命令要求 Owner 在存有本地归档的 Mac 执行；它先校验清单固定 SHA 和全部文件，再从每个 bundle 空仓读回，最后执行内嵌 SQL。旁边的 .sql 只是复核副本，执行不读可被修改的外部 SQL。
+**没有状态改动，no_merge 尚未标记。** 原 `d-l5-2026-10-25/{stg,prod}-request-action.json` 的 `owner_run_command` 与 SQL 只保留为历史证据，不再按原方案提交或重跑；不手工伪造事件、不关闭 guard。
 
-两环境不是一个分布式事务；一张失败则保留其失败事件，重新读取并重建该张参数。每张命令以 mission/task/attempt/verification 的只读快照指纹、完整旧 scope 和 version 拒绝漂移；事务将 version 增一，不改任务状态/accepted/landed。MD5 仅作并发快照比较，归档真实性由 SHA-256 与审批签名固定。
+Owner 选 A：新增正式动作 `mark_missions_no_merge`，随平台版本发布后，**在 S3 打开前**完成。资格规则的启用时间与 mission 创建时间已经排除旧结果；此标记用于「已处置、未交付」的解释和清理，不是挡住旧结果的唯一措施。
 
-批准/执行事件由现有审批链保留，结果包含每个 mission 的新 version/no_merge。没有伪造 agentrt.event 的哈希链事件。执行后统筹用 agent_reader 单独读回同一精确集合，并关联后续 agentd 清理日志与这两张审批号；单号尚不存在，不能预填。
+统筹先重新核对归档、mission 范围与当前版本，再按 **STG 后 PROD、分两张 D 级单**调用现有 `request_action`。动作由目标环境的平台执行自己的 runtime 数据库：`env` 为 `stg` / `prod`；`missions` 为 `{mission_id, expected_version}` 数组；`reason` 为最多 200 UTF-8 字节的 no_merge 理由；`archive_manifest_sha256` 固定为页首 SHA256SUMS 的 SHA-256。不同理由分单，不在执行时扩大范围。
 
-回退：未执行可取消。执行后必须另建版本约束更正单，不能直接清空理由；版本预期为本单旧 version+1 且 no_merge 等于本单新理由。若 agentd 已清理分支，须由 Owner 从本单 SHA-256 锁定的 bundle 恢复确切 ref/SHA；清空 no_merge 不会恢复分支。保留原审批、执行事件和读回输出。
+每张单全成或全退；只接收 `done` mission、预期版本与未设置的 no_merge，相同值幂等、不同值拒绝。修改先记 controller 的 `mission_amended`（reason、no_merge、approval_id、archive_manifest_sha256、env、expected_version、version），再在同一事务中更新 scope 并将 version 增一。保留其他 scope 与任务状态，不把 accepted 结果写成已交付。新审批号与执行结果待实际发生后补入，不能沿用 #165 当成成功记录。
+
+执行后统筹用 agent_reader 读回同一精确集合的 scope/version，核对 runtime 事件与审批号，并关联后续 agentd 清理日志。两环境不是一个分布式事务；一张失败须保留失败记录、重新读取后再申请。
+
+回退：未执行可取消；本动作不提供清空或覆盖 no_merge。若需更正，另行设计并审批带版本约束和事件的更正动作，不能直接 SQL 清空。若 agentd 已清理分支，由 Owner 从本单 SHA-256 锁定的 bundle 恢复确切 ref/SHA；更正 no_merge 本身不会恢复分支。保留原审批、执行事件和读回输出。
 
 END OF EVIDENCE
 
