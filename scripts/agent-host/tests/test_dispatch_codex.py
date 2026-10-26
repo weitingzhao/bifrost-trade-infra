@@ -1,3 +1,4 @@
+import fcntl
 import importlib.util
 import json
 import os
@@ -207,3 +208,40 @@ def test_changed_registration_refused_locally(world):
     with pytest.raises(ValueError, match="different content"):
         mod.dispatch(options, [])
     assert marker.read_text().splitlines() == ["launch"]
+
+
+@pytest.mark.parametrize("startup_delay", [0, 0.15])
+def test_review596_dead_supervisor_before_receipt_does_not_keep_heartbeating(world, monkeypatch, startup_delay):
+    options, _, data, marker = world
+    launches = []
+
+    def die_before_receipt(directory, args, repo):
+        with (directory / "child.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            child = subprocess.Popen(
+                [sys.executable, "-c", f"import time; time.sleep({startup_delay})"],
+                pass_fds=(lock.fileno(),),
+            )
+        if startup_delay == 0:
+            child.wait(timeout=3)
+        launches.append(child)
+        return child
+
+    monkeypatch.setattr(mod, "launch", die_before_receipt)
+    original_sleep = time.sleep
+    deadline = time.monotonic() + 1
+
+    def bounded_sleep(seconds):
+        if time.monotonic() > deadline:
+            pytest.fail("wrapper kept running after supervisor exited without a receipt")
+        original_sleep(seconds)
+
+    monkeypatch.setattr(mod.time, "sleep", bounded_sleep)
+    with pytest.raises(RuntimeError, match="child disappeared.*Unconfirmed"):
+        mod.dispatch(options, [], interval=0.03, poll=0.01)
+    assert not marker.exists()
+    assert not any(e["type"] in ("heartbeat", "submitted") for e in data["events"].values())
+    # Restart must retain uncertainty, even with neither child nor exit receipt.
+    with pytest.raises(RuntimeError, match="do not relaunch"):
+        mod.dispatch(options, [], interval=0.03, poll=0.01)
+    assert len(launches) == 1

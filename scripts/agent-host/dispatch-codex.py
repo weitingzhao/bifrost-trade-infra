@@ -245,27 +245,35 @@ def dispatch(options, args: list[str], *, interval=30.0, poll=0.2) -> int:
             event("started")
         child = None
         if not (run_dir / "exit.json").exists() and not child_active(run_dir):
-            if (run_dir / "child.json").exists():
+            if state.get("launch_attempted") or (run_dir / "child.json").exists():
                 raise RuntimeError(
-                    "child disappeared without an exit receipt; reconcile this run, do not relaunch"
+                    "child disappeared without an exit receipt; run stays Unconfirmed; reconcile this run, do not relaunch"
                 )
+            # Persist intent before spawning: a crash before the supervisor's
+            # receipt must not permit an implicit second launch on resume.
+            state["launch_attempted"] = True
+            atomic(path, state)
             child = launch(run_dir, args, repo)
         next_heartbeat = time.monotonic() + interval
         while not (run_dir / "exit.json").exists():
-            if time.monotonic() >= next_heartbeat:
-                try:
-                    event("heartbeat")
-                except RuntimeError as exc:
-                    print(str(exc), file=sys.stderr)
-                next_heartbeat += interval
             if (
-                not child_active(run_dir)
-                and (run_dir / "child.json").exists()
+                (
+                    (child is not None and child.poll() is not None)
+                    or not child_active(run_dir)
+                )
                 and not (run_dir / "exit.json").exists()
             ):
                 raise RuntimeError(
                     "child disappeared without an exit receipt; run stays Unconfirmed"
                 )
+            # Heartbeats require a durable startup acknowledgement. A stuck
+            # or dead supervisor before child.json is not confirmed running.
+            if (run_dir / "child.json").exists() and time.monotonic() >= next_heartbeat:
+                try:
+                    event("heartbeat")
+                except RuntimeError as exc:
+                    print(str(exc), file=sys.stderr)
+                next_heartbeat = time.monotonic() + interval
             time.sleep(poll)
         if child is not None:
             child.wait()
