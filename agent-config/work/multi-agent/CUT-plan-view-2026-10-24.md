@@ -1,6 +1,8 @@
 # 切法：Ops 全计划视图（2026-10-24）
 
-状态：待架构选择；本文不授权实施或发布。
+状态：A/A/A 路线已由 PV0 采用；PV1 part 2 按 Work 594 简报实施，本记录不授权发布。
+
+2026-10-26（Work 594，统筹 proceed-on-recommendation，Owner 事后审计）：Q1=A，仅持久化 dev 计划根，首次采用拒绝树内 business mission/task，之后每次绑定检查 dev，其他租户拒绝，无 DDL。Q2=A，本片只做可见性，拒绝非空 bindings；登记与摘要只证明 running/submitted，不证明 done；现有 controller 完成规则不变，四个新增完成原子及可信核验留到 PV2。
 
 目标：Owner 从手机看出主线位置、下一步，以及谁在等谁。
 
