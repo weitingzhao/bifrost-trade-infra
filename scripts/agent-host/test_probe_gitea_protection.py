@@ -421,6 +421,107 @@ exec "$real_git" "$@"
         self.assertNotIn(TOKEN, result.stdout + result.stderr)
         self.assertFalse(list(self.root.glob('tmp.*')))
 
+    def test_review622_writer_pr_cleanup_protocol_failures(self):
+        for method in ('PATCH', 'GET'):
+            for fault in ('status', 'header', 'body', 'error-body'):
+                with self.subTest(method=method, fault=fault):
+                    result, api = self.protocol_probe('writer', fault, '/pulls/7', method=method)
+                    output = result.stdout + result.stderr
+                    head = next(body['head'] for verb, path, body in api.bodies
+                                if verb == 'POST' and path.endswith('/pulls'))
+                    # The write took effect even though its response was lost.
+                    self.assertEqual(api.state, 'closed')
+                    self.assertTrue(any(verb == 'GET' and path.endswith('/pulls/7')
+                                        for verb, path, _ in api.calls))
+                    self.assertEqual(subprocess.check_output([
+                        'git', '--git-dir', str(self.bare), 'for-each-ref',
+                        'refs/heads/agent', 'refs/tags']), b'')
+                    self.assertFalse(list(self.root.glob('tmp.*')))
+                    self.assertNotIn(TOKEN, output)
+                    self.assertNotIn(SETUP_TOKEN, output)
+                    self.assertNotIn('Traceback', output)
+                    self.assertNotEqual(result.returncode, 0)
+                    failures = [line for line in output.splitlines() if line.startswith('FAIL')]
+                    self.assertTrue(any('#7' in line and head in line and 'HTTP 0' in line
+                                        for line in failures))
+                    self.assertIn('VERDICT FAIL mode=writer', output)
+                    self.assertNotIn('VERDICT PASS', output)
+
+    def test_review622_writer_git_cleanup_failures_are_reported(self):
+        for fault in ('tag-lookup', 'tag-delete', 'tag-readback', 'branch-delete'):
+            with self.subTest(fault=fault):
+                extra = self.git_wrapper('''
+if [[ "$1" == ls-remote && "$3" == refs/tags/probe-* ]]; then
+  if [[ ! -f "$PROBE_SEEN" ]]; then
+    touch "$PROBE_SEEN"
+    [[ "$PROBE_CLEANUP_FAULT" == tag-lookup ]] && exit 42
+  elif [[ "$PROBE_CLEANUP_FAULT" == tag-readback ]]; then
+    exit 42
+  fi
+fi
+if [[ "$*" == *:refs/heads/agent/* && "$*" != *HEAD:refs/heads/agent/* && "$PROBE_CLEANUP_FAULT" == branch-delete ]]; then
+  # Fail the normal delete, then lose the successful exit-cleanup response.
+  if [[ ! -f "$PROBE_SEEN" ]]; then touch "$PROBE_SEEN"; exit 42; fi
+  "$real_git" "$@"
+  echo "$PROBE_TOKEN" >&2
+  exit 42
+fi
+"$real_git" "$@"
+rc=$?
+if [[ "$*" == *:refs/tags/probe-* && "$*" != *HEAD:refs/tags/probe-* && "$PROBE_CLEANUP_FAULT" == tag-delete ]]; then
+  echo "$PROBE_TOKEN" >&2
+  exit 42
+fi
+exit "$rc"
+''')
+                marker = self.root / 'cleanup-seen'
+                marker.unlink(missing_ok=True)
+                extra.update(PROBE_CLEANUP_FAULT=fault, PROBE_SEEN=str(marker), PROBE_TOKEN=TOKEN)
+                api = FakeApi()
+                try:
+                    result = self.run_probe(api, mode='open-tag' if fault == 'tag-delete' else '', extra=extra)
+                finally:
+                    api.close()
+                output = result.stdout + result.stderr
+                self.assertEqual(api.state, 'closed')
+                self.assertEqual(subprocess.check_output([
+                    'git', '--git-dir', str(self.bare), 'for-each-ref',
+                    'refs/heads/agent', 'refs/tags']), b'')
+                self.assertFalse(list(self.root.glob('tmp.*')))
+                self.assertNotIn(TOKEN, output)
+                self.assertNotEqual(result.returncode, 0)
+                ref = 'refs/heads/agent/_probe/' if fault == 'branch-delete' else 'refs/tags/probe-'
+                step = {'tag-lookup': 'lookup failed', 'tag-delete': 'delete failed',
+                        'tag-readback': 'absence not verified', 'branch-delete': 'delete failed'}[fault]
+                self.assertTrue(any(line.startswith('FAIL') and ref in line and step in line
+                                    for line in output.splitlines()))
+                self.assertIn('VERDICT FAIL mode=writer', output)
+
+    def test_review622_writer_local_cleanup_failure_reports_directory(self):
+        directory = self.root / 'bin'
+        directory.mkdir()
+        wrapper = directory / 'rm'
+        wrapper.write_text('#!/bin/bash\necho "$PROBE_TOKEN" >&2\nexit 42\n')
+        wrapper.chmod(0o755)
+        api = FakeApi()
+        try:
+            result = self.run_probe(api, extra={
+                'PATH': str(directory) + ':' + os.environ['PATH'], 'PROBE_TOKEN': TOKEN})
+        finally:
+            api.close()
+        output = result.stdout + result.stderr
+        remaining = list(self.root.glob('tmp.*'))
+        self.assertEqual(len(remaining), 1)
+        self.assertEqual(api.state, 'closed')
+        self.assertEqual(subprocess.check_output([
+            'git', '--git-dir', str(self.bare), 'for-each-ref',
+            'refs/heads/agent', 'refs/tags']), b'')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(any(line.startswith('FAIL') and 'local cleanup' in line
+                            and str(remaining[0]) in line for line in output.splitlines()))
+        self.assertNotIn(TOKEN, output)
+        self.assertIn('VERDICT FAIL mode=writer', output)
+
     def test_every_rule_holds(self) -> None:
         api = FakeApi()
         try:

@@ -323,13 +323,17 @@ PY
 
 close_pr() {
   [[ -n "${pr}" && "${pr_closed}" -eq 0 ]] || return 0
-  local code state
-  IFS=$'\t' read -r code _ <<< "$(api PATCH "/repos/${REPO}/pulls/${pr}" '{"state":"closed"}' state)" || true
+  local closed code state
+  IFS=$'\t' read -r closed _ <<< "$(api PATCH "/repos/${REPO}/pulls/${pr}" '{"state":"closed"}' state)" || true
+  if [[ "${closed}" != 200 && "${closed}" != 201 ]]; then
+    echo "FAIL  PR cleanup #${pr} from ${BRANCH}; close request HTTP ${closed:-none}; checking readback" >&2
+    fail=1
+  fi
   IFS=$'\t' read -r code state <<< "$(api GET "/repos/${REPO}/pulls/${pr}" "" state)" || true
   if [[ "${code}" == 200 && "${state}" == '"closed"' ]]; then
     pr_closed=1
   else
-    echo "FAIL  close pull request #${pr} — still unverified (HTTP ${code:-none}); close it on the page" >&2
+    echo "FAIL  close pull request #${pr} — still unverified (HTTP ${code:-none}); head ${BRANCH} into main; close it on the page" >&2
     fail=1
   fi
 }
@@ -357,35 +361,40 @@ cleanup_pr() {
 }
 
 on_exit() {
-  local rc=$? remaining
+  local rc=$? remaining lookup_failed=0
   trap '' INT TERM
   set +e
   cleanup_pr
   if [[ "${tag_attempted}" -eq 1 ]]; then
     if remaining="$(git ls-remote "${URL}" "refs/tags/${TAG}" 2>/dev/null)"; then
       if [[ -n "${remaining}" ]]; then
+        echo "FAIL  tag cleanup refs/tags/${TAG}; unexpected tag exists; attempting deletion" >&2
         fail=1  # a lost creation response cannot hide an accepted tag
-        git -C "${work}/r" push -q origin ":refs/tags/${TAG}" >/dev/null 2>&1
-      fi
-      if remaining="$(git ls-remote "${URL}" "refs/tags/${TAG}" 2>/dev/null)" && [[ -z "${remaining}" ]]; then
-        echo "ok    tag cleanup refs/tags/${TAG}"
-      else
-        echo "FAIL  tag cleanup refs/tags/${TAG}; absence not verified" >&2
-        fail=1
       fi
     else
       # Try deletion even if the first read fails; always verify afterwards.
+      echo "FAIL  tag cleanup refs/tags/${TAG}; initial lookup failed; attempting deletion" >&2
       fail=1
-      git -C "${work}/r" push -q origin ":refs/tags/${TAG}" >/dev/null 2>&1
-      if remaining="$(git ls-remote "${URL}" "refs/tags/${TAG}" 2>/dev/null)" && [[ -z "${remaining}" ]]; then
-        echo "ok    tag cleanup refs/tags/${TAG}; initial lookup failed"
-      else
-        echo "FAIL  tag cleanup refs/tags/${TAG}; absence not verified" >&2
-      fi
+      lookup_failed=1
+    fi
+    if [[ "${lookup_failed}" -eq 1 || -n "${remaining}" ]]; then
+      git -C "${work}/r" push -q origin ":refs/tags/${TAG}" >/dev/null 2>&1 || {
+        echo "FAIL  tag cleanup refs/tags/${TAG}; delete failed; checking absence" >&2
+        fail=1
+      }
+    fi
+    if remaining="$(git ls-remote "${URL}" "refs/tags/${TAG}" 2>/dev/null)" && [[ -z "${remaining}" ]]; then
+      echo "ok    tag cleanup refs/tags/${TAG}"
+    else
+      echo "FAIL  tag cleanup refs/tags/${TAG}; absence not verified; inspect this tag" >&2
+      fail=1
     fi
   fi
   if [[ "${branch_attempted}" -eq 1 && -z "${deleted}" ]]; then
-    git -C "${work}/r" push -q origin ":refs/heads/${BRANCH}" > /dev/null 2>&1
+    git -C "${work}/r" push -q origin ":refs/heads/${BRANCH}" > /dev/null 2>&1 || {
+      echo "FAIL  exit cleanup refs/heads/${BRANCH}; delete failed; checking absence" >&2
+      fail=1
+    }
     if remaining="$(git ls-remote "${URL}" "refs/heads/${BRANCH}" 2>/dev/null)" && [[ -z "${remaining}" ]]; then
       echo "ok    exit cleanup ${BRANCH}"
     else
@@ -393,7 +402,10 @@ on_exit() {
       fail=1
     fi
   fi
-  [[ -z "${work}" ]] || rm -rf "${work}" || { echo "FAIL local cleanup" >&2; fail=1; }
+  [[ -z "${work}" ]] || rm -rf "${work}" >/dev/null 2>&1 || {
+    echo "FAIL local cleanup ${work}; directory may remain; inspect this path" >&2
+    fail=1
+  }
   [[ "${rc}" -ne 0 || "${fail}" -eq 0 ]] || rc=1
   if [[ "${rc}" -eq 0 ]]; then
     echo "VERDICT PASS mode=writer repo=${REPO} identity=${PROBE_EXPECT_LOGIN:-unspecified}"
