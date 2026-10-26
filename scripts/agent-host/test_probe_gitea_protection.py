@@ -510,8 +510,13 @@ exit "$rc"
         finally:
             api.close()
         output = result.stdout + result.stderr
-        remaining = list(self.root.glob('tmp.*'))
-        self.assertEqual(len(remaining), 1)
+        # Where mktemp puts the directory differs (GNU honours TMPDIR, BSD may
+        # not); take the path from the FAIL line and check it really remains.
+        lines = [line for line in output.splitlines() if line.startswith('FAIL') and 'local cleanup' in line]
+        self.assertEqual(len(lines), 1, output)
+        remaining = [Path(word) for word in lines[0].split() if word.startswith('/') and Path(word.rstrip(';')).is_dir()]
+        remaining = [Path(str(path).rstrip(';')) for path in remaining]
+        self.assertEqual(len(remaining), 1, output)
         self.assertEqual(api.state, 'closed')
         self.assertEqual(subprocess.check_output([
             'git', '--git-dir', str(self.bare), 'for-each-ref',
@@ -745,6 +750,47 @@ exit "$rc"
         for method, path, auth in api.calls:
             if method in ('POST', 'PATCH') and not path.endswith('/pulls/7'):
                 self.assertEqual(auth, 'token ' + TOKEN)
+
+    def test_review628_reader_local_cleanup_failure_reports_directory(self):
+        # Review 628 C1: a reader clone directory that cannot be removed must be
+        # named in a FAIL line, not swallowed by the generic precondition FAIL.
+        shim_dir = self.root / 'rmtree-shim'
+        shim_dir.mkdir()
+        (shim_dir / 'sitecustomize.py').write_text(
+            "import os, shutil\n"
+            "from pathlib import Path\n"
+            "_orig = shutil.rmtree\n"
+            "def _refuse(path, *a, **k):\n"
+            "    if Path(path).name.startswith('p0-reader-'):\n"
+            "        raise PermissionError(13, 'injected cleanup failure', str(path))\n"
+            "    return _orig(path, *a, **k)\n"
+            "shutil.rmtree = _refuse\n"
+            "_t = os.environ.get('PROBE_TEST_TRANSPORT')\n"
+            "if _t and os.path.exists(os.path.join(_t, 'sitecustomize.py')):\n"
+            "    exec(compile(open(os.path.join(_t, 'sitecustomize.py')).read(), 'transport_shim', 'exec'))\n")
+        setup = self.root / 'setup-token'
+        setup.write_text(SETUP_TOKEN)
+        api = FakeApi(negative={}, bare=self.bare, create_code=403)
+        # FakeApi.env is a property (and in sandbox transport mode it sets its own
+        # PYTHONPATH); the shim goes first and chains the transport shim itself.
+        transport_env = dict(api.env)
+        transport_env['PYTHONPATH'] = str(shim_dir)
+        try:
+            with patch.object(type(api), 'env', new=property(lambda _self: transport_env)):
+                result = self.run_probe(api, extra={
+                    'PROBE_MODE': 'reader', 'PROBE_EXPECT_LOGIN': 'reader', 'PROBE_SETUP_TOKEN_FILE': str(setup)})
+        finally:
+            api.close()
+        output = result.stdout + result.stderr
+        remaining = list(self.root.glob('p0-reader-*'))
+        self.assertEqual(len(remaining), 1, output)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(any(line.startswith('FAIL') and 'local cleanup' in line and str(remaining[0]) in line
+                            for line in output.splitlines()), output)
+        self.assertEqual(subprocess.check_output(['git', '--git-dir', str(self.bare), 'for-each-ref', 'refs/heads/agent'], text=True), '')
+        self.assertNotIn(TOKEN, output)
+        self.assertNotIn(SETUP_TOKEN, output)
+        self.assertIn('VERDICT FAIL mode=reader', output)
 
     def test_protection_only_never_creates_a_fixture(self):
         result, api = self.negative_probe(probe_mode='protection')

@@ -29,6 +29,7 @@ import os
 from pathlib import Path
 import pwd
 import re
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -167,6 +168,7 @@ signal.signal(signal.SIGINT, interrupted)
 branch = 'agent/_probe/' + uuid.uuid4().hex + '/a1'
 tag = 'probe-' + uuid.uuid4().hex
 fixture_started = tag_attempted = pr_attempted = False
+reader_dir = ''
 setup = token = ''
 try:
     require(bool(re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repo)), 'invalid repository')
@@ -191,14 +193,16 @@ try:
         identify(setup, 'agentrt-landing-stg')
         # A real ahead-of-main branch prevents a nonexistent/same-head PR from
         # being mistaken for a permission denial. Setup never uses reader auth.
-        with tempfile.TemporaryDirectory(prefix='p0-reader-') as work:
-            os.chmod(work, 0o700)
-            git_run(['clone', '-q', '--branch', 'main', '--single-branch', base + '/' + repo + '.git', 'r'], setup, work)
-            checkout = str(Path(work) / 'r')
-            git_run(['-c', 'user.name=probe', '-c', 'user.email=probe@invalid',
-                     'commit', '-q', '--allow-empty', '-m', 'P0 reader negative probe'], setup, checkout)
-            fixture_started = True  # also clean up a lost push response
-            git_run(['push', '-q', 'origin', 'HEAD:refs/heads/' + branch], setup, checkout)
+        # An explicit directory, removed in finally, so a failed removal is
+        # reported with the path left behind (review 628 C1).
+        reader_dir = tempfile.mkdtemp(prefix='p0-reader-')
+        os.chmod(reader_dir, 0o700)
+        git_run(['clone', '-q', '--branch', 'main', '--single-branch', base + '/' + repo + '.git', 'r'], setup, reader_dir)
+        checkout = str(Path(reader_dir) / 'r')
+        git_run(['-c', 'user.name=probe', '-c', 'user.email=probe@invalid',
+                 'commit', '-q', '--allow-empty', '-m', 'P0 reader negative probe'], setup, checkout)
+        fixture_started = True  # also clean up a lost push response
+        git_run(['push', '-q', 'origin', 'HEAD:refs/heads/' + branch], setup, checkout)
         pr_attempted = True
         denied('PR open', request(token, 'POST', root + '/pulls',
                {'head': branch, 'base': 'main', 'title': 'P0 reader negative probe'}))
@@ -211,6 +215,13 @@ except Exception:
 finally:
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
     signal.signal(signal.SIGINT, signal.SIG_IGN)
+    if reader_dir:
+        try:
+            shutil.rmtree(reader_dir)
+        except Exception:
+            pass
+        if os.path.exists(reader_dir):
+            report(False, 'local cleanup', 'left behind ' + reader_dir + '; remove it by hand')
     if fixture_started:
         # Isolate each registered object: one failed lookup/readback must not
         # prevent cleanup of the remaining refs. Never log exception text.
