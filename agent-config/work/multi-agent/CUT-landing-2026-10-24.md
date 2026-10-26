@@ -4,6 +4,8 @@
 S0 仓库准备见 `P0-landing-s0-2026-10-24.md`、`OWNER-STEPS-landing-s0-2026-10-24.md`；
 vet、实际 clone SHA 结果、最终 RBAC 与离线防线已准备。线上 P0、推送者、D-L5 仍待实证，未开启 S2/S3。
 
+**协议修订（Work 574，2026-10-26，v1.1）**：按统筹 Q1–Q3 决定增加 `retry`、`discarded`、`rehearsed`，仍是 `note.landing`，不加 DDL。旧 v1 事件继续可读。此次只完成 S2 代码和本机验证，不启用演练；P0 与 S3 的边界不变。
+
 **这份文档回答什么**：Owner 10-23 23:3x 定了「D4 A」：验收通过的活由运行时自动进 main，先接 bifrost-platform、bifrost-trade-infra 两个仓库；PROD 仍按发版策略走，规则由 Owner 签。本文分三部分：
 - §1：今天一件活从 agentd 推分支到进 main，实际怎么走（带 `文件:行`）；
 - §2：运行时自己合、自己发 STG，需要哪些前置条件、步骤和记录，出错怎么办；
@@ -204,7 +206,7 @@ vet、实际 clone SHA 结果、最终 RBAC 与离线防线已准备。线上 P0
 - 计划还要它：所在节点不是 dropped 或 stopped；如果是目标拆出来的任务，产生它的就是最后一次被采用的计划；
 - A 是 base 上的单个提交；
 - **main 历史是「从未有过」**；
-- 没有终结的落地记录；
+- 没有阻挡领取的终结记录：`landed/reverted` 和未被明确 retry 解除的 `failed` 阻挡；`discarded` 不阻挡；`rehearsed` 不阻挡后续 PROD 领取（STG 扫描不重复已完成的演练）。`retry` 只解除指定最新失败对一个新操作的阻挡，不绕过其余资格；
 - 依赖都已有效落地；
 - 规则允许这次改动。
 
@@ -228,7 +230,7 @@ vet、实际 clone SHA 结果、最终 RBAC 与离线防线已准备。线上 P0
 
 **STG 演练**：STG 的落地循环固定在演练模式，只看 STG 自己收下的任务，按同样的四个阶段判定。它用的身份没有 main 写权限（P0），也不为演练放宽任何生产条件。
 
-**旧的 20 件**：领取条件里的「启用时刻」和「mission 创建时间」两条，已经把它们排除在外。D-L5 按 mission 逐件确认后再标 `no_merge`，用来解释和清理，不是靠它挡住它们。
+**旧的 20 件**：领取条件里的「启用时刻」和「mission 创建时间」两条，已经把它们排除在外。D-L5 按 mission 逐件确认后再标 `no_merge`，用来解释和清理，不是靠它挡住它们。Owner 2026-10-26 选 A：新增正式 runtime 动作 `mark_missions_no_merge`，经 D 级审批、`mission_amended` 事件和同一事务更新；随平台版本发布，在 S3 打开前完成。
 
 ### 2.3 规则 `landing:<租户>`：可判定的契约（A2、B3、复核 538 §5）
 
@@ -313,7 +315,7 @@ limits:                            # 按租户、按 UTC 日
 - `text` 仍然必填，写给人看。
 - 只改 Go 代码，不加 DDL，不加表。
 
-**子协议 v1**：`landing` 是一个对象，必须有 `v: 1`、`kind`、`op` 三个键。每种 `kind` 都有固定的必填字段和类型。多出来的字段、未知的 `kind`、`v` 不等于 1，一律拒收。以后出 v2 就再加一个校验器，v1 照样能读。
+**子协议 v1.1**：`landing` 必须有 `v`、`kind`、`op`。旧版整数 `v: 1` 及其 kind 保持可读；新写入用字符串 `v: "1.1"`（事件的 canonical JSON 禁止小数，故不用数值 1.1）。每个 kind 的字段封闭，未知版本、kind、额外字段拒收；三个新 kind 只接受 v1.1。`retry` 的 `op` 等于 `after_op`，它是解除旧失败阻挡的记录，不改变旧操作的失败事实，也不原地重启。`reason` 为非空文字（最多 1000 字节），`by` 为答复者标识；只由控制器在读取明确答复后写入。
 
 **写到哪些流**：
 - `landing:<仓库>`：落地操作和 STG 操作。Append 时持流锁，同一仓库的写入因此串行。
@@ -324,12 +326,14 @@ limits:                            # 按租户、按 UTC 日
 
 | 分组 | kind |
 |---|---|
-| 落地 | `enabled{repo, rule_version}`、`claimed{task, attempt, A, rule_version}`、`prepared{R, M0, committer_date, dry_run}`、`branch_intent{ref, R}`、`branch_pushed{ref, R}`、`ci_kick{try}`、`ci_seen{run, status}`、`ci_rerun{try}`、`main_intent{R, M0}`、`main_result{outcome: ok\|non_ff\|denied\|unknown}`、`landed{R}`、`reverted{R, by}`、`parked{why, retry_at}`、`unparked`、`failed{why}` |
+| 落地 | `enabled{repo, rule_version}`、`claimed{task, attempt, A, rule_version}`、`prepared{R, M0, committer_date, dry_run}`、`branch_intent{ref, R}`、`branch_pushed{ref, R}`、`ci_kick{try}`、`ci_seen{run, status}`、`ci_rerun{try}`、`main_intent{R, M0}`、`main_result{outcome: ok\|non_ff\|denied\|unknown}`、`landed{R}`、`reverted{R, by}`、`parked{why, retry_at}`、`unparked`、`failed{why}`、`discarded{why}`、`rehearsed{R}`、`retry{root, after_op, reason, by}` |
 | 额度 | `reserved{root, op}` |
 | STG | `stg_pending{R[]}`、`stg_snapshot{P, U, try}`、`stg_started{run, try}`、`stg_result{run, outcome}`、`stg_verified{P, U, digests}`、`stg_failed{why}` |
 | S4 再加 | `replaces{root, follow_up}` |
 
-`why` 的取值也是封闭的：`stale`、`conflict`、`patch_changed`、`overlap`、`ci_failed`、`floor`、`limit`、`denied`、`bound`、`declined`、`rule`、`main_red`、`ci_stuck`、`window`。
+`why` 的取值也是封闭的：`stale`、`conflict`、`patch_changed`、`overlap`、`ci_failed`（v1 历史保留）、`ci_red`、`floor`、`limit`、`denied`、`bound`、`declined`、`rule`、`main_red`、`ci_stuck`、`window`。
+
+`discarded.why` 只接受 `main_changed`、`branch_collision`，不与失败原因混用。
 
 **折叠函数**：一个纯函数，把一个流按 `op` 折叠成每个操作的当前状态。写入时在流锁下先折叠，再检查这次转移是否合法；不合法就拒写。
 
@@ -337,12 +341,16 @@ limits:                            # 按租户、按 UTC 日
 
 | 从 | 可以到 |
 |---|---|
-| （无） | `claimed` |
+| （无） | `claimed`；若最新同根 k 是 `discarded`、k+1 因 `bound` 拒领，由控制器直接用一条事件写 k+1 的 `failed{bound}`（2026-10-26 统筹决策） |
 | `claimed` | `prepared`、`parked`、`failed` |
 | `prepared` | `branch_intent`、`parked`、`failed` |
-| `branch_intent` | `branch_pushed`、`failed` |
-| `branch_pushed` | `ci_kick`、`ci_seen`、`ci_rerun`、`parked`、`failed`、`main_intent` |
-| `parked` | `unparked`（回到停之前的状态）、`failed` |
+| `branch_intent` | `branch_pushed`、`failed`、`discarded` |
+| `branch_pushed` | `ci_kick`、`ci_seen`、`ci_rerun`、`parked`、`failed`、`main_intent`、`discarded`、`rehearsed` |
+| `parked` | `unparked`（回到停之前的状态）、`failed`、`discarded` |
+| `discarded` | 操作结束、释放活动位且不可改写；控制器自动开 k+1，重新过资格和预算；若断点恢复时预算已到限，k+1 按上行出生即失败 |
+| `rehearsed` | 演练成功终态、释放活动位；不转 landed 或发布 |
+| 最新 `failed{bound\|stale\|ci_red}` | 明确答复后追加一次 `retry`（原操作仍 failed），或 `failed{declined}` |
+| 最新其他 `failed` | 不可 retry；“不合”可补 `failed{declined}`，declined 后不可重试 |
 | `main_intent` | `main_result` |
 | `main_result{ok}` | `landed` |
 | `main_result{unknown}` | `landed`，或 `main_result{non_ff}` |
@@ -351,9 +359,17 @@ limits:                            # 按租户、按 UTC 日
 | `landed` | `reverted`（只改当前状态，历史上的 landed 保留） |
 
 补充约束：
-- 终态是 `landed`、`failed`、`main_result{non_ff}`；终态之后只允许 `reverted`。
+- 终态另含 `discarded`、`rehearsed`；不占活动位。终态不原地复活；`landed` 之后只允许 `reverted`，失败后的 retry/declined 按上表。
+- `rehearsed{R}` 只用于 STG dry_run：当前 main 必须仍为 M0，R 在 prepared 后创建的最新 CI 必须 Succeeded。若重跑，以持久化的操作号及 `try:2` 导出的确定 run 名确认本次尝试，适配器核对 pipeline、精确 R 和演练来源标记；创建时间不能早于意图所在秒，不跨精度比较同秒先后（2026-10-26，修复 review 578 B1）。当前规则下第二道资格闸通过且窗口不挡。控制器在规则及相关行锁下重读并写入。它不是 landed，不占生产额度，不加入发布队列；可按精确 SHA 删除演练分支。
+- 2026-10-26 统筹决策（review 578 B2）：出生即终态只允许 v1.1 `failed{bound}`，操作号必须是最新同根 discarded 的确定 k+1，且根任务预算确已到限；同一事件建立归属和失败状态，不先写 claimed，不占活动位。归属从前序记录恢复，不扩字段；重复扫描不得再造 k+2，旧 discarded 永久保留。
+- retry 只绑定同根任务最新操作的 `bound/stale/ci_red`，同一失败只解除一次；新 claimed 消耗它，旧失败仍保留。6 小时从 retry 事件时间重新算，累计 8 次重放不清零。过期答复或旧操作答复不能解除新失败。
 - `ci_kick`、`ci_rerun` 在一个操作里各最多一次。
 - 写 `main_intent` 之前，必须已经有同一个 R 的成功 `ci_seen`，而且那次 run 是在 `prepared` 之后建的。
+
+**v1.1 转移测试清单**（纯折叠与真实迁移 PG 两层）：
+- Q2：branch_intent、branch_pushed、parked 分别到 discarded，两种 why；其他源状态、非法 why、v1 冒用新 kind 拒写；终态无活动位、可领取 k+1；碰撞不删他人的 SHA。
+- Q3：成功最新 CI + 当前 main + 第二闸 + 窗口放行才 rehearsed；拒绝 PROD、错误 R、缺 CI、旧成功后新失败/运行/未知、重跑前成功、main 漂移、规则收紧、窗口阻挡；不可转 landed/额度/发布，可精确 SHA 清理且不重复演练，PROD 领取不受阻。
+- Q1：三种可重试失败，各允许一次最新根任务匹配的 retry；其他失败、declined、旧操作、错根、重复、非控制器拒写；不原地复活；新 claimed 消耗一次；六小时重启但第九次禁止；“不合”只改最新操作且不可再 retry；旧 v1 整链继续折叠。
 
 **STG 操作的合法转移**：
 - 第一步是 `stg_snapshot{try:1}`；
@@ -366,7 +382,7 @@ limits:                            # 按租户、按 UTC 日
 | 断在 | 查什么 | 补什么 |
 |---|---|---|
 | `prepared` 之后 | — | R 能按记下的提交时间和提交信息重建，SHA 不变 |
-| `branch_intent` 之后 | `ls-remote` 看分支 | 指向 R → 补 `branch_pushed`；分支不存在 → 重推同一个 R；指向别的提交 → `failed`，开 `k+1`，旧分支按 SHA 条件删 |
+| `branch_intent` 之后 | `ls-remote` 看分支 | 指向 R → 补 `branch_pushed`；分支不存在 → 重推同一个 R；指向别的提交 → `discarded{branch_collision}`，开 `k+1`，旧分支按 SHA 条件删 |
 | CI 期间 | 按 R 现读 CI | 照常继续 |
 | `main_intent` 之后 | main 历史里有没有 R | 有 → 记 `main_result{unknown}`，再记 `landed`；R 若已被撤销，再记 `reverted`。没有、且 main 头仍是 M0 → 视为没发出去，不重推，转 `failed{bound}`，由新操作重来。没有、且 main 已经动了 → 记 `main_result{non_ff}` |
 | `stg_snapshot` 之后 | 按确定的 run 名（操作号 + 尝试号）去查 | run 存在 → 补 `stg_started`；不存在 → 起 run |
@@ -390,17 +406,17 @@ limits:                            # 按租户、按 UTC 日
    - 没有交集 → 接受剩余风险（X6）。
    - 提交信息照第 2 稿写，另加 `Landed-By: agentrt-prod/<操作号>`。
 4. **推落地分支**：先写 `branch_intent`，再推，再写 `branch_pushed`。
-5. **等 CI**：每一轮先看 main 头、规则和资格；main 已经不是 `M0` 了，就丢掉这个候选。按 CI 状态处理：
+5. **等 CI**：每一轮先看 main 头、规则和资格；main 已经不是 `M0` 了，先记 `discarded{main_changed}` 释放活动位，控制器自动开 k+1 重放；不因旧 main 红而继续停放旧候选。按 CI 状态处理：
    - **Missing**：10 分钟后补建一次（`ci_kick`）；
    - **Unknown**：重读；
    - **Running**：超过 30 分钟 → `parked{ci_stuck}` 并开问题；
    - **Succeeded**：要求是「这个 R、在 `prepared` 之后建的、最新一次」，旧的成功不算；
    - **Failed**：看 `M0` 自己的 CI：
-     - `M0` 绿 → 重跑一次（`ci_rerun`）；
+     - `M0` 绿 → 重跑一次（`ci_rerun`）；重跑仍失败记 `failed{ci_red}`；
      - `M0` 红 → `parked{main_red}`；
      - `M0` 的状态不明 → 只等。
 
-   **总上限**：每个根任务最长 6 小时、最多重放 8 次。等窗口、等 main 变绿也算在内，到了就记 `failed{bound}`（§5 第 6 项）。
+   **总上限**：每个根任务最长 6 小时、最多重放 8 次。等窗口、等 main 变绿也算在内，到了就记 `failed{bound}`（§5 第 6 项）；只有明确 retry 重启六小时，累计八次不重置。第八次仍可完成，但若需要第九次则在当前操作记 failed{bound}，总上限优先于自动 k+1。演练成功写 `rehearsed` 收尾。
 6. **第二道闸**：在**一个事务**里，按全局固定的锁序做完下面的事。
    - **锁序**：
      1. capability 锁（共享）；
@@ -448,12 +464,16 @@ limits:                            # 按租户、按 UTC 日
 
 ### 2.7 失败怎么办，mission 怎么关（A4、A5、复核 538 §3.3）
 
+**2026-10-26 统筹决策（review 578 B2）**：若在 `discarded` 与领取 k+1 之间崩溃，恢复时 k+1 因六小时或累计次数到限（`bound`）拒领，控制器在仓库流锁下直接用一条 `failed{bound}` 事件建立 k+1。该操作出生即终态；k 的 discarded 不变。最新 k+1 按 v1.1 的明确 retry 规则处理：答复必须绑定它，后续新 claimed 消耗 retry、重启六小时，累计操作次数不清零。恢复收尾只依赖库内记录，不依赖当前规则或 Git/CI 可用。
+
+**扫描顺序（2026-10-26，review 578 B3）**：每轮先完成所有无需外部来源的预算到限和终态收尾，再执行外部恢复与 Git 清理；清理有独立预算，待处理项分配各自剩余时间份额并逐项访问。旧分支全部超时也不能挡住本轮其他操作写入 `failed{bound}`。
+
 **第一片只开问题，不自动修**：
 - 一个根任务只开一个落地问题，去重键 `landing:<根任务>`；
 - 不动任务状态，不调 `failWork`，不计进执行者成绩；
 - 问题上有两个动作：
-  - **「再试一次」**：新开一个操作，照样重走资格和底线，不能借此绕过 A2；
-  - **「不合」**：记 `failed{declined}`。
+  - **「再试一次」**：控制器针对最新 `failed{bound|stale|ci_red}` 写 `retry{root, after_op, reason, by}` 后新开操作；其他失败不可重试，declined 永不可重试。照样重走资格和底线，不能借此绕过 A2；六小时重启，八次计数不清零；
+  - **「不合」**：在该根任务最新操作写 `failed{declined}`（遵守 failed 的合法来源；已经 failed 时补记 declined），不另建操作；旧答复不能改写新操作。问题卡实际接线仍属 S3。
 
 **S3 就改 `close.go`。** 落地范围内的每个根任务，结局分三种：
 - **已交付**：`stg_release` 开着的，要 `stg_verified`；为 `none` 的，要 `landed` 且仍有效。
@@ -525,7 +545,7 @@ Console 上把「已交付」和「已处置、未交付」分开显示。不在
 
 ### 2.11 分支去留
 
-- `land/<环境>/<任务>/<k>`：落地或失败后，按 SHA 条件删除。`prune.go` 兜底：超过 24 小时、又没有活动操作的，也删掉。
+- `land/<环境>/<任务>/<k>`：落地、失败、discarded 或 rehearsed 后，按 SHA 条件删除（碰撞指向别的 SHA 不删）。`prune.go` 兜底：超过 24 小时、又没有活动操作的，也删掉。
 - `agent/**`：规则不变。
 - 工作目录用完即删，口径与 4.6 对齐。
 
@@ -557,7 +577,7 @@ Console 上把「已交付」和「已处置、未交付」分开显示。不在
 
 | 片 | 做什么 | 只有它能拦住的用例 | 要 Owner |
 |---|---|---|---|
-| **S0 前置** | P0 清单和改动；ci-platform 加 vet，接上 ui 的 `commit` 结果；实测 Gitea 推送者；D-L5 | ① 只有落地身份能推 main（A1）<br>② CI 测试读 `.git/config` 拿不到凭证（538 §2）<br>③ 镜像同步任务拿不到管理员令牌（538 §2）<br>④ 只有 vet 能抓到的错误会让 CI 变红（B4） | 定信任假设；应用 RBAC 和 Tekton 改动；建只读用户、克隆身份、演练用户和对应 Secret；批 D-L5 的单 |
+| **S0 前置** | P0 清单和改动；ci-platform 加 vet，接上 ui 的 `commit` 结果；实测 Gitea 推送者；D-L5 归档已完成，标记经新动作在 S3 打开前完成 | ① 只有落地身份能推 main（A1）<br>② CI 测试读 `.git/config` 拿不到凭证（538 §2）<br>③ 镜像同步任务拿不到管理员令牌（538 §2）<br>④ 只有 vet 能抓到的错误会让 CI 变红（B4） | 定信任假设；应用 RBAC 和 Tekton 改动；建只读用户、克隆身份、演练用户和对应 Secret；新动作随平台版本发布后批 D-L5 的 D 级单（S3 打开前） |
 | **S1 规则、资格、状态协议**（不碰 git） | 规则解析和收紧判断；底线；路径和纯展示判定；`facts` 和四个阶段；`note.landing` v1 的校验器、折叠函数、转移表 | ① **推 main 成功的结果，`eligibleToDeploy` 为真，`eligibleToClaim` 为假（已经在 main 上），不会被再领一次**（538 §3.1）<br>② **在真实迁移过的数据库上，写入并折叠全部 kind，CHECK 都接受**（538 §3.2）<br>③ 非法转移被拒写<br>④ 规则允许 `api/internal/actions/tier.go`，仍被底线拒（538 §5）<br>⑤ 旧 mission 里启用后才收下的被拒；签名当天零点之后、真实启用之前收下的被拒（538 §3.1）<br>⑥ 目标计划被替代、未被替代，各有正反用例<br>⑦ main 历史读失败，不判成「从未有过」<br>⑧ 第 2 稿 S1 的 ①–⑥ 保留 | 无 |
 | **S2 STG 演练** | git 卫生；推 `land/stg/**`；按状态等 CI；断点恢复 | ① 旧 main 一直红、新 main 已绿 → 丢掉候选重放<br>② 旧的成功、新的失败 → 不放行（B4）<br>③ 等窗口用满 6 小时 → `failed{bound}`，让出活动位（538 §4）<br>④ 第 2 稿 S2 的 ③④ | 镜像加 git；演练令牌的 Secret |
 | **S3 PROD 第一片**（B6） | 第 1 版规则；推 main；落地问题；改 `close.go`；钉 SHA 的 STG 发布和尝试号；窗口代码 | ① **并发收紧的两种次序**：规则写在第二道闸之前，挡住推送；写在之后，算已落地（538 §4）<br>② CI 期间加 `no_merge` 或撤步骤 → 不推<br>③ 人手合进去又撤销、还没补记 → 不推<br>④ **STG 第一次 run 失败，第二次真的重新执行；创建结果不明时不多建**（538 §3.3）<br>⑤ **只有已处置的 mission 关成 stopped；有已交付的关成 done；撤了规则的不关**（538 §3.3）<br>⑥ P、U 定下后 main 又前进，发出去的仍是 P、U；定快照前混进了人手迁移 → 拒绝自动发（538 §7）<br>⑦ **读到过期窗口、另一操作随即抢到新窗口，旧的读取方不会把新窗口删掉**（538 §6）<br>⑧ 租约断了、run 还在跑 → 不算 verified，开问题<br>⑨ Trade 的 smoke 绿、platform 健康失败 → 不算 verified（538 §7）<br>⑩ 推了 main、人手又推了后继 → 记成已落地<br>⑪ 推成功后、补记之前就被撤销 → 两条记录都写（538 §7）<br>⑫ 落地身份推 infra、建标签都被拒 | **签第 1 版规则**；建 `agentrt-lander`，加进 platform main 的推送白名单，配 Secret；核对标签规则；**批发布单** |
@@ -600,7 +620,7 @@ Console 上把「已交付」和「已处置、未交付」分开显示。不在
 | 9 | 接受的剩余风险 | 逐项接受：无交集时的语义漂移、纯展示只靠字符串加评审、窗口 TOCTOU、集群内 HTTP、4.3 之前租约断了别人可能进来 | 加最终集成复核 / 把文案文件逐个点名 / 提前做 4.3：分别增加评审工作、缩小适用范围、增加实现成本 | S3 签名前 |
 | 10 | 第 1 版规则的内容（§2.3） | 照稿 | 改条目 | S3 签名时 |
 | 11 | `push-main.sh` 的替代、Owner 看到什么、★ 怎么量 | 照 §2.10、§2.12 | — | S3、★ |
-| 12 | 旧的 20 件（D-L5） | 资格规则本身就排除它们；D-L5 按 mission 逐件确认后标 `no_merge` | — | S3 打开前 |
+| 12 | 旧的 20 件（D-L5） | 资格规则本身就排除它们；D-L5 按 mission 逐件确认后，经新动作 `mark_missions_no_merge` 标 `no_merge`（Owner 2026-10-26 选 A）；D 级审批 + runtime 事件，同批全成或全退，随平台版本发布 | 归档 2026-10-25 完成；#165 于 2026-10-26 16:01Z 执行，被事件 guard 拒绝，未改状态；不用裸 SQL 补写 | S3 打开前 |
 | 13 | X5 infra 的 CI | 新建 ci-infra 并全套接线 | 在 06 上跑检查，更弱 | S6 |
 
 ## 6. 没核实的
