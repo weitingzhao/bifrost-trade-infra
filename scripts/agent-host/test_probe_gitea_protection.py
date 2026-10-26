@@ -16,6 +16,8 @@ import json
 import io
 import ast
 import os
+import signal
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -24,11 +26,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+from contextlib import redirect_stdout
 
 HERE = Path(__file__).resolve().parent
 PROBE = HERE / "probe-gitea-protection.sh"
 TOKEN = "fixture-probe-token-0123456789"
 SETUP_TOKEN = "fixture-drill-token-0123456789"
+SCOPE_DENIAL = 'token does not have at least one of required scope(s): [write:repository]'
+ADMIN_DENIAL = 'user should be an owner or a collaborator with admin write of a repository'
 GIT_ENV = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT_COMMITTER_NAME": "t",
            "GIT_COMMITTER_EMAIL": "t@example.invalid", "GIT_CONFIG_NOSYSTEM": "1"}
 
@@ -44,7 +49,15 @@ while read -r old new ref; do
       [[ "$mode" == protected-word ]] && { echo "Gitea: Internal Server Connecting Error: protected-branch service unavailable"; exit 1; }
       [[ "$mode" == near-words ]] && { echo "Gitea: Not allowed to push to protected branch main-other"; exit 1; }
       echo "Gitea: Not allowed to push to protected branch main"; exit 1 ;;
-    refs/tags/*) echo "Gitea: Tag ${ref#refs/tags/} is protected"; exit 1 ;;
+    refs/tags/*)
+      [[ "$mode" == odd-refusal ]] && { echo "Gitea: Internal Server Connecting Error"; exit 1; }
+      [[ "$mode" == protected-word ]] && { echo "Gitea: Internal Server Connecting Error: protected-tag service unavailable"; exit 1; }
+      [[ "$mode" == near-words ]] && { echo "Gitea: Tag ${ref#refs/tags/}-other is protected"; exit 1; }
+      if [[ "$mode" == open-tag || "$mode" == tag-delete-fail ]]; then
+        [[ "$mode" == tag-delete-fail && "$new" == "$zero" ]] && exit 1
+        continue
+      fi
+      echo "Gitea: Tag ${ref#refs/tags/} is protected"; exit 1 ;;
     refs/heads/agent/*)
       if [[ "$mode" == protected-agent && "$new" == "$zero" ]]; then
         echo "Gitea: branch ${ref#refs/heads/} is protected from deletion"; exit 1
@@ -59,12 +72,15 @@ class FakeApi:
 
     def __init__(self, merge: tuple[int, str] = (405, "User not allowed to merge PR"), close_code: int = 201,
                  mergeable: bool = True, create_code: int = 201, opened_anyway: bool = True,
-                 negative: dict | None = None, bare: Path | None = None) -> None:
+                 negative: dict | None = None, bare: Path | None = None,
+                 delay_create=False, lookup_code=None) -> None:
         self.calls: list[tuple[str, str, str]] = []
         self.bodies: list[tuple[str, str, dict]] = []
         self.state = "open"
         self.opened = False
         self.tag_exists = False
+        self.created = threading.Event()
+        self.release = threading.Event()
         outer = self
         pad = {"padding": "x" * 5000}
 
@@ -79,9 +95,9 @@ class FakeApi:
                     setup = self.headers.get('Authorization') == 'token ' + SETUP_TOKEN
                     code, body = 200, {'login': 'agentrt-landing-stg' if setup else negative.get('login', 'reader'), 'is_admin': False}
                 elif negative is not None and self.path.endswith('/info/refs?service=git-receive-pack'):
-                    code, body = negative.get('handshake', 403), {}
+                    code, body = negative.get('handshake', 403), {'message': negative.get('handshake_message', SCOPE_DENIAL)}
                 elif negative is not None and self.path.endswith('/branch_protections/main'):
-                    code, body = negative.get('protection', 403), {}
+                    code, body = negative.get('protection', 403), {'message': negative.get('protection_message', ADMIN_DENIAL)}
                 elif negative is not None and key == ('GET', '/api/v1/repos/bifrost/primary-probe/branches/main'):
                     code, body = 200, {'protected': True}
                 elif negative is not None and '/branches/agent' in self.path:
@@ -92,7 +108,7 @@ class FakeApi:
                     found = subprocess.run(['git', '--git-dir', str(bare), 'show-ref', '--verify', 'refs/heads/' + branch], capture_output=True)
                     code, body = (200 if found.returncode == 0 else 404), {}
                 elif negative is not None and self.path.endswith('/tags'):
-                    code, body = negative.get('tag', 403), {}
+                    code, body = negative.get('tag', 403), {'message': negative.get('tag_message', SCOPE_DENIAL)}
                     outer.tag_exists = code in (200, 201)
                 elif negative is not None and '/tags/probe-' in self.path:
                     if self.command == 'DELETE' and not negative.get('cleanup_fail'):
@@ -104,8 +120,15 @@ class FakeApi:
                     # create_code other than 201: the answer is lost; the pull request may exist all the same
                     outer.opened = create_code == 201 or opened_anyway
                     code, body = (201, {"number": 7, "state": "open", **pad}) if create_code == 201 else (create_code, {"message": "gateway"})
+                    if negative is not None and create_code != 201:
+                        body = {'message': negative.get('pr_message', SCOPE_DENIAL)}
+                    outer.created.set()
+                    if delay_create:
+                        outer.release.wait(10)
                 elif self.command == "GET" and self.path.startswith("/api/v1/repos/bifrost/primary-probe/pulls/main/agent/_probe/"):
                     code, body = (200, {"number": 7, "state": outer.state, **pad}) if outer.opened else (404, {})
+                    if lookup_code:
+                        code, body = lookup_code, {}
                 elif key == ("GET", pr):
                     code, body = 200, {"number": 7, "state": outer.state, "mergeable": mergeable, **pad}
                 elif key == ("POST", pr + "/merge"):
@@ -177,6 +200,7 @@ class FakeApi:
         return {}
 
     def close(self) -> None:
+        self.release.set()
         if self.transport:
             self.stopping.set()
             self.thread.join(timeout=5)
@@ -232,7 +256,7 @@ class Probe(unittest.TestCase):
         env = {**os.environ, **GIT_ENV, "HOME": str(self.root)}
         subprocess.run(["git", "init", "-q", "--initial-branch=main", str(seed)], check=True, env=env)
         subprocess.run(["git", "-C", str(seed), "commit", "-q", "--allow-empty", "-m", "init"], check=True, env=env)
-        subprocess.run(["git", "-C", str(seed), "push", "-q", str(bare), "main"], check=True, env=env)
+        subprocess.run(["git", "--git-dir", str(bare), "fetch", "-q", str(seed), "main:refs/heads/main"], check=True, env=env)
         hook = bare / "hooks" / "pre-receive"
         hook.write_text(HOOK)
         hook.chmod(0o755)
@@ -245,11 +269,43 @@ class Probe(unittest.TestCase):
 
     def run_probe(self, api: FakeApi, mode: str = "", bash: tuple[str, ...] = (), extra: dict | None = None) -> subprocess.CompletedProcess:
         (self.bare / "probe-mode").write_text(mode)
-        env = {**os.environ, "HOME": str(self.root), "PROBE_GITEA": f"file://{self.gitea}", "PROBE_API_BASE": api.base,
+        env = {**os.environ, "HOME": str(self.root), "TMPDIR": str(self.root), "PROBE_GITEA": f"file://{self.gitea}", "PROBE_API_BASE": api.base,
                "PROBE_TOKEN_FILE": str(self.token_file), "PROBE_MERGEABLE_WAIT": "2"}
         env.update(extra or {})
         env.update(api.env)
         return subprocess.run(["bash", *bash, str(PROBE)], env=env, capture_output=True, text=True, timeout=120)
+
+    def test_memory_token_input_leaves_no_copy_or_trace(self):
+        self.token_file.unlink()
+        api = FakeApi()
+        try:
+            result = self.run_probe(api, bash=('-x',), extra={'PROBE_TOKEN': TOKEN})
+        finally:
+            api.close()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn(TOKEN, result.stdout + result.stderr)
+        self.assertFalse(self.token_file.exists())
+        self.assertFalse(list(self.root.glob('tmp.*')))
+        for path in self.root.rglob('*'):
+            if path.is_file():
+                self.assertNotIn(TOKEN.encode(), path.read_bytes())
+
+    def test_untrusted_git_errors_do_not_log_or_persist_tokens(self):
+        extra = self.git_wrapper('''
+if [[ "$*" == *HEAD:refs/tags/* || "$*" == *:refs/heads/agent/* ]]; then
+  echo "fatal: $PROBE_TOKEN" >&2
+  exit 42
+fi
+exec "$real_git" "$@"
+''')
+        api = FakeApi()
+        try:
+            result = self.run_probe(api, extra=extra)
+        finally:
+            api.close()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn(TOKEN, result.stdout + result.stderr)
+        self.assertFalse(list(self.root.glob('tmp.*')))
 
     def test_every_rule_holds(self) -> None:
         api = FakeApi()
@@ -268,20 +324,116 @@ class Probe(unittest.TestCase):
         self.assertTrue(all(auth == "token " + TOKEN for _, _, auth in api.calls))
         self.assertNotIn(TOKEN, r.stdout + r.stderr)
 
-    # TD-383: an agent/ branch Gitea will not let agentd delete fails the probe
-    def test_a_protected_agent_branch_fails_the_probe(self) -> None:
-        r = self.assert_fails(FakeApi(), "is protected from deletion", mode="protected-agent")
-        self.assertIn("FAIL  delete agent/_probe/", r.stdout)
+    def git_wrapper(self, body):
+        directory = self.root / 'bin'
+        directory.mkdir(exist_ok=True)
+        wrapper = directory / 'git'
+        wrapper.write_text('#!/bin/bash\nreal_git=' + shutil.which('git') + '\n' + body)
+        wrapper.chmod(0o755)
+        return {'PATH': str(directory) + ':' + os.environ['PATH']}
 
-    def test_a_main_that_takes_the_push_fails_the_probe(self) -> None:
-        api = FakeApi()
+    def test_b1_never_pushes_or_merges_main_even_if_unprotected(self):
+        before = subprocess.check_output(['git', '--git-dir', str(self.bare), 'rev-parse', 'main'])
+        calls = self.root / 'git-calls'
+        extra = self.git_wrapper('printf "%s\\n" "$*" >> "$PROBE_CALLS"\nexec "$real_git" "$@"\n')
+        extra['PROBE_CALLS'] = str(calls)
+        api = FakeApi(merge=(200, ''))
         try:
-            r = self.run_probe(api, mode="open-main")
+            result = self.run_probe(api, mode='open-main', extra=extra)
         finally:
             api.close()
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertIn("FAIL  push to main — Gitea accepted it", r.stdout)
-        self.assertIn("FAIL  main unchanged", r.stdout)
+        self.assertEqual(before, subprocess.check_output(['git', '--git-dir', str(self.bare), 'rev-parse', 'main']))
+        self.assertFalse(any('push' in line and ':refs/heads/main' in line for line in calls.read_text().splitlines()))
+        self.assertFalse(any(path.endswith('/merge') for _, path, _ in api.calls))
+        self.assertIn('UNVERIFIED main push/merge', result.stdout)
+
+    def test_c2_delete_readback_error_fails_and_retries_cleanup(self):
+        extra = self.git_wrapper('''
+if [[ "$1" == ls-remote && "$3" == refs/heads/agent/* ]]; then
+  echo readback >> "$PROBE_READBACKS"
+  exit 42
+fi
+exec "$real_git" "$@"
+''')
+        calls = self.root / 'readbacks'
+        extra['PROBE_READBACKS'] = str(calls)
+        api = FakeApi()
+        try:
+            result = self.run_probe(api, extra=extra)
+        finally:
+            api.close()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn('ok    delete agent/', result.stdout)
+        self.assertGreaterEqual(len(calls.read_text().splitlines()), 2)
+        self.assertIn('FAIL  exit cleanup', result.stderr)
+
+    def test_c3_writer_cleans_unexpected_tag_even_after_lost_response(self):
+        for lost in (False, True):
+            with self.subTest(lost=lost):
+                extra = self.git_wrapper('''
+"$real_git" "$@"
+rc=$?
+if [[ "$*" == *HEAD:refs/tags/* && "$PROBE_LOSE_TAG" == yes ]]; then exit 42; fi
+exit "$rc"
+''')
+                extra['PROBE_LOSE_TAG'] = 'yes' if lost else 'no'
+                api = FakeApi()
+                try:
+                    result = self.run_probe(api, mode='open-tag', extra=extra)
+                finally:
+                    api.close()
+                self.assertNotEqual(result.returncode, 0)
+                refs = subprocess.check_output(['git', '--git-dir', str(self.bare), 'for-each-ref', 'refs/tags'])
+                self.assertEqual(refs, b'')
+                self.assertIn('tag cleanup', result.stdout)
+
+    def test_c3_writer_reports_tag_cleanup_failure(self):
+        api = FakeApi()
+        try:
+            result = self.run_probe(api, mode='tag-delete-fail')
+        finally:
+            api.close()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('FAIL  tag cleanup refs/tags/probe-', result.stderr)
+
+    def test_c4_signal_during_pr_creation_finds_and_closes_pr(self):
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            with self.subTest(sig=sig):
+                api = FakeApi(delay_create=True)
+                env = {**os.environ, **api.env, 'HOME': str(self.root),
+                       'PROBE_GITEA': f'file://{self.gitea}', 'PROBE_API_BASE': api.base,
+                       'PROBE_TOKEN_FILE': str(self.token_file), 'TMPDIR': str(self.root)}
+                process = subprocess.Popen(['bash', str(PROBE)], env=env, stdout=subprocess.PIPE,
+                                           stderr=subprocess.PIPE, text=True, start_new_session=True)
+                try:
+                    self.assertTrue(api.created.wait(10))
+                    os.killpg(process.pid, sig)
+                    api.release.set()
+                    stdout, stderr = process.communicate(timeout=15)
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                        process.communicate()
+                    api.close()
+                self.assertEqual(process.returncode, 128 + sig)
+                self.assertEqual(api.state, 'closed', stdout + stderr)
+                self.assertNotIn(TOKEN, stdout + stderr)
+                self.assertFalse(list(self.root.glob('tmp.*')))
+
+    def test_c4_unknown_pr_lookup_failure_reports_head(self):
+        api = FakeApi(create_code=502, lookup_code=500)
+        try:
+            result = self.run_probe(api)
+        finally:
+            api.close()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('FAIL  PR cleanup agent/_probe/', result.stderr)
+
+    # TD-383: an agent/ branch Gitea will not let agentd delete fails the probe
+    def test_a_protected_agent_branch_fails_the_probe(self) -> None:
+        r = self.assert_fails(FakeApi(), "delete or readback failed", mode="protected-agent")
+        self.assertIn("FAIL  delete agent/_probe/", r.stdout)
+
 
     def test_a_refusal_that_is_not_a_rule_fails_the_probe(self) -> None:
         api = FakeApi()
@@ -292,16 +444,8 @@ class Probe(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("refused, but not in the words of that rule", r.stdout)
 
-    def test_a_merged_pull_request_fails_the_probe(self) -> None:
-        api = FakeApi(merge=(200, ""))
-        try:
-            r = self.run_probe(api)
-        finally:
-            api.close()
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertIn("Gitea merged it", r.stdout)
 
-    # review 254: a refusal or a merge answer that is not the rule's fails the probe; the pull request is closed
+    # Unknown tag refusals fail; the temporary PR is still closed.
     def assert_fails(self, api: FakeApi, words: str, mode: str = "") -> subprocess.CompletedProcess:
         try:
             r = self.run_probe(api, mode=mode)
@@ -315,35 +459,21 @@ class Probe(unittest.TestCase):
     def test_a_refusal_that_only_mentions_protected_fails_the_probe(self) -> None:
         self.assert_fails(FakeApi(), "not in the words of that rule", mode="protected-word")
 
-    def test_a_merge_refused_for_another_reason_fails_the_probe(self) -> None:
-        api = FakeApi(merge=(405, "Please try again later"))
-        self.assert_fails(api, "HTTP 405 for another reason")
-        self.assertEqual(api.state, "closed")
-
-    def test_a_merge_forbidden_fails_the_probe(self) -> None:
-        self.assert_fails(FakeApi(merge=(403, "token does not have at least one of required scope(s)")), "not recognised: HTTP 403")
-
-    def test_a_pull_request_never_mergeable_is_not_a_pass(self) -> None:
-        api = FakeApi(mergeable=False)
-        self.assert_fails(api, "never said it can be merged")
-        self.assertFalse(any(c[1].endswith("/merge") for c in api.calls))
 
     def test_a_pull_request_that_will_not_close_fails_the_probe(self) -> None:
         api = FakeApi(close_code=500)
         self.assert_fails(api, "close pull request #7 — still")
         self.assertEqual(api.state, "open")
 
-    # review 255 C: Gitea's words, whole, for that rule; the merge message, whole
-    def test_words_for_another_branch_fail_the_probe(self) -> None:
+    # review 255 C: require the complete tag rule and exact ref.
+    def test_words_for_another_tag_fail_the_probe(self) -> None:
         self.assert_fails(FakeApi(), "not in the words of that rule", mode="near-words")
 
-    def test_a_longer_merge_message_fails_the_probe(self) -> None:
-        self.assert_fails(FakeApi(merge=(405, "User not allowed to merge PR: unrelated permission denied")), "HTTP 405 for another reason")
 
     # review 255 B: a pull request opened although its answer was lost is found and closed
     def test_a_lost_answer_still_closes_the_pull_request(self) -> None:
         api = FakeApi(create_code=502)
-        r = self.assert_fails(api, "was there after all; it is closed")
+        r = self.assert_fails(api, "PR cleanup #7")
         self.assertEqual(api.state, "closed")
 
     def test_a_lost_answer_with_nothing_opened(self) -> None:
@@ -407,9 +537,25 @@ class Probe(unittest.TestCase):
         self.assertFalse(any(method in ('POST', 'DELETE') for method, _, _ in api.calls))
         self.assertIn('VERDICT PASS mode=protection', result.stdout)
 
-    def test_401_is_an_authorization_denial_after_valid_identity(self):
+    def test_c1_401_is_not_authorization_evidence_after_valid_identity(self):
         result, _ = self.negative_probe({'handshake': 401, 'protection': 401, 'tag': 401}, create_code=401)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+
+    def test_c1_same_status_wrong_reason_fails_for_each_endpoint(self):
+        for field in ('protection', 'handshake', 'pr', 'tag'):
+            for message in ('', 'CSRF check failed', 'token is invalid', 'insufficient scope', ADMIN_DENIAL + ' unrelated', TOKEN):
+                with self.subTest(field=field, message=message):
+                    result, _ = self.negative_probe({field + '_message': message})
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+
+    def test_c1_scope_denial_is_labeled_separately(self):
+        result, _ = self.negative_probe({'protection_message': SCOPE_DENIAL})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('token scope; repository ACL unverified', result.stdout)
+
+    def test_c1_protection_mode_requires_acl_denial(self):
+        result, _ = self.negative_probe({'protection_message': SCOPE_DENIAL}, probe_mode='protection')
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
 
     def test_unexpected_tag_is_removed_but_still_fails(self):
         result, api = self.negative_probe({'tag': 201})
@@ -447,6 +593,72 @@ class Probe(unittest.TestCase):
         result, api = self.negative_probe({'login': 'weitingzhao'})
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertFalse(any(method != 'GET' for method, _, _ in api.calls))
+
+
+class DesktopCredential(unittest.TestCase):
+    def test_c5_real_push_url_must_select_expected_credential(self):
+        steps = HERE.parents[1] / 'agent-config/work/multi-agent/OWNER-STEPS-p0-remaining-2026-10-26.md'
+        source = steps.read_text().split("<<'PY'\n")[-1].split('\nPY\n')[0]
+        good = 'http://192.168.10.73:30300/bifrost/bifrost-platform.git'
+        other = good.replace('http://', 'http://other-nonadmin@')
+        for variant in ('username', 'pushurl', 'rewrite', 'multiple', 'wrong-path', 'good', 'named', 'good-rewrite'):
+            with self.subTest(variant=variant), tempfile.TemporaryDirectory() as directory:
+                checkout = Path(directory) / 'repo'
+                destination = Path(directory) / 'token'
+                env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+                env.update(HOME=directory, GIT_TERMINAL_PROMPT='0')
+                run = subprocess.run
+                def git(*args):
+                    return run(['git', '-C', str(checkout), *args], env=env, check=True, capture_output=True)
+                run(['git', 'init', '-q', str(checkout)], env=env, check=True)
+                helper = Path(directory) / 'helper'
+                helper.write_text('#!/bin/sh\nu=bifrost-mbp\nwhile IFS= read -r line; do\n'
+                                  'case "$line" in username=*) u=${line#username=};; esac\ndone\n'
+                                  'printf "username=%s\\npassword=' + TOKEN + '\\n" "$u"\n')
+                helper.chmod(0o755)
+                git('config', 'credential.helper', str(helper))
+                git('remote', 'add', 'origin', other if variant == 'username' else good)
+                if variant == 'pushurl':
+                    git('config', 'remote.origin.pushurl', other)
+                if variant == 'rewrite':
+                    git('config', 'url.' + other + '.pushInsteadOf', good)
+                if variant == 'multiple':
+                    git('config', '--add', 'remote.origin.pushurl', good)
+                    git('config', '--add', 'remote.origin.pushurl', other)
+                if variant == 'wrong-path':
+                    git('config', 'remote.origin.pushurl', good.replace('bifrost-platform.git', 'another.git'))
+                if variant == 'named':
+                    git('config', 'remote.origin.pushurl', good.replace('http://', 'http://bifrost-mbp@'))
+                if variant == 'good-rewrite':
+                    git('remote', 'set-url', 'origin', 'fixture:repo')
+                    git('config', 'url.' + good + '.pushInsteadOf', 'fixture:repo')
+                expected_url = git('remote', 'get-url', '--push', 'origin').stdout.decode().strip()
+                lookups, probes = [], []
+                def run_checked(args, **kwargs):
+                    if args[0] == 'bash':
+                        probes.append(True)
+                        self.assertEqual(kwargs['env']['PROBE_TOKEN'], TOKEN)
+                        return subprocess.CompletedProcess(args, 0)
+                    if 'credential' in args:
+                        lookups.append(kwargs['input'])
+                    return run(args, **kwargs)
+                response = io.BytesIO(json.dumps({'permissions': {'admin': False}}).encode())
+                response.status = 200
+                output = io.StringIO()
+                with patch.dict(os.environ, env, clear=True), patch('sys.argv', ['probe', str(checkout), 'bifrost-platform', str(destination)]), \
+                     patch('urllib.request.build_opener', return_value=SimpleNamespace(open=lambda *a, **k: response)), \
+                     patch('subprocess.run', side_effect=run_checked), redirect_stdout(output):
+                    if variant in ('good', 'named', 'good-rewrite'):
+                        exec(compile(source, str(steps), 'exec'), {})
+                        self.assertEqual(lookups, ['url=' + expected_url + '\n\n'])
+                        self.assertEqual(probes, [True])
+                    else:
+                        with self.assertRaises(SystemExit):
+                            exec(compile(source, str(steps), 'exec'), {})
+                        self.assertEqual(lookups, [])
+                        self.assertEqual(probes, [])
+                self.assertNotIn(TOKEN, output.getvalue())
+                self.assertFalse(destination.exists())
 
 
 class InstalledIdentity(unittest.TestCase):
