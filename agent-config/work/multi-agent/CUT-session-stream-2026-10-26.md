@@ -1,6 +1,6 @@
 # 切法：Agent 完整会话时间线（2026-10-26）
 
-状态：**第 2 稿**，Work 597 修订 Work 591，逐项回应 Review 593（3 B、4 C）；Owner 已选完整时间线 A，其余架构选择见 §10「待 Owner 定」。本次只改设计与回复，不实施、不提交、不发布。
+状态：**第 3 稿**，Work 603 在 Work 597 第二稿上回应 Review 600 的 C1（次数配额与正常使用预算），保留 Review 593 已关闭的 3 B、4 C；Owner 已选完整时间线 A，其余架构选择见 §10「待 Owner 定」。本次只改设计与回复，不实施、不提交、不发布。
 
 ## 1. 目标、顺序与完成含义
 
@@ -14,7 +14,7 @@ Owner 在 `ops.bifrost.lan` 看见每个运行中会话说了什么、厂商实�
 
 ## 2. 本地证据基线
 
-2026-10-26 只读核对。`P/` = 工作区 `bifrost-platform/`，HEAD `ed8bb2276d423085014d80fddebfe2937c60f3be`；`I/` = infra 的 `w31/session-stream` worktree，第 2 稿基于 `c706768ec1d1227d88a671d5b9ecb4e75b61a519`。以下是本地代码与文档，不代表已部署版本。没有查询平台、集群、NAS 或厂商推理 API，也没有读取真实会话正文、凭证或 Owner 目录；第 2 稿补查公开官方文档。
+2026-10-26 只读核对。`P/` = 工作区 `bifrost-platform/`，前轮核对 HEAD `ed8bb2276d423085014d80fddebfe2937c60f3be`；`I/` = infra 的 `w31/session-stream` worktree，第 3 稿基于第二稿提交 `ab228b3a4846c2589e60758cee4435a44e8e1b81`。以下是前轮本地代码与文档证据，不代表已部署版本。没有查询平台、集群、NAS 或厂商推理 API，也没有读取真实会话正文、凭证或 Owner 目录；第 2 稿补查公开官方文档，Review 600 复核了 CLI/官方语义，第 3 稿仅引用该核实结果，不冒称重新实验。
 
 | 证据 | 已有行为 | 对本切法的约束 |
 |---|---|---|
@@ -107,7 +107,7 @@ collector 每 30 秒对账受管 launcher、已注册 PID/启动时间、hook �
 
 这是一条待固定版本合成实验验证的适配协议，不是厂商稳定路径保证：受管 launcher 先登记主 session 的受限 transcript 根和进程启动身份；collector 对经本地身份通道核验的 SubagentStart 保存 `(parent, agent_id, start)`。仅在这个主 session 的允许目录中，用固定版本路径映射寻找 `subagents/agent-<agent_id>.jsonl`；不遍历用户全目录、不从正文猜父子。打开后核验 regular file、目录归属/inode、路径不经 symlink 越界，并将文件内可用身份字段与登记关联比对；只有该版本的路径/身份组合已通过伪造、串线和更换 inode 夹具才 tail。
 
-候选尚未出现或不能唯一核验时，立即显示 child 元数据和 `Live source unavailable`，不读相邻文件；Stop 到达后核对 `agent_transcript_path` 与既有映射，再补读并标 `Delayed`。禁用持久化或只在结束时产出文件的模式不能宣称 3 秒实时；没有合法文件则 `Unavailable`。Start 通知丢失、Stop 先到、重复 agent_id、resume 和多层 parent_tool_use_id 各有对账夹具。**该路径仅解决事件发现**；§8.1 的每 session 读边界、taint 和容量门槛仍同时适用，原生同进程主/子不能借此升级为支持。
+候选尚未出现或不能唯一核验时，立即显示 child 元数据和 `Live source unavailable`，不读相邻文件；Stop 到达后核对 `agent_transcript_path` 与既有映射，再补读并标 `Delayed`。禁用持久化或只在结束时产出文件的模式不能宣称 3 秒实时；没有合法文件则 `Unavailable`。Start 通知丢失、Stop 先到、重复 agent_id、resume 和多层 parent_tool_use_id 各有对账夹具。**该路径仅解决事件发现**；SubagentStart 通知本身不能阻断子线程创建，不能把收到通知或事后 tail 当作 §5.2a 的输入顺序屏障（Review 600 N2）。必须另证可信 launcher/运行时在上下文交付前的屏障；无法证明就禁正文。§8.1 的每 session 读边界、taint 和容量门槛仍同时适用，原生同进程主/子不能借此升级为支持。
 
 ## 5. 宿主机出口过滤
 
@@ -184,7 +184,7 @@ resume、fork、compact、collector/主机重启不清除 taint。状态与 sour
 
 拟新增 `/api/v1/agentrt/session-streams` 命名空间。注册返回 source 绑定与短期 append capability；token 仅准指定 tenant/host/session/epoch，不能 GET 正文、列会话、写别人的流或修改 PV1 完成状态。agentd 从既有 host 身份取得授权；Mac collector 用独立安装的窄写入凭证，不借 admin/审批 token，不把凭证继承给子进程。
 
-默认每 1 秒或满 200 events/256 KiB（未压缩）发送一批。TLS 校验服务端身份；不能因现有 VIP/MinIO 使用 HTTP 而降级传正文。平台再校验 schema、source grant、归属、filter_version、长度和内容，错误仅返回 code/expected sequence，不回显原文。
+默认每个 session 每 1 秒或满 200 events/256 KiB（未压缩）发送一批；空批不写对象，不跨 session 合批。§7.1a 的低字节高频基准按每批仅 1 event 计费，不假设总能攒到 200 条。TLS 校验服务端身份；不能因现有 VIP/MinIO 使用 HTTP 而降级传正文。平台再校验 schema、source grant、归属、filter_version、长度和内容，错误仅返回 code/expected sequence，不回显原文。
 
 每条含 `source_id/source_epoch/source_seq`、vendor 可用的 event/item/call ID、`observed_at`；平台加 `received_at` 和每 session 单调 `seq`。source_id 由注册分配，平台事件用自己的 source_id，不能与厂商序号相撞。同源序号同净化内容重试幂等，不同内容 409 并 quarantine；乱序缺前段返回 expected source_seq，发送方重排重试。正常到达不按机器时钟排序；跨子 session 仅展示合并视图并保留各自顺序，不声称全局因果全序。
 
@@ -234,9 +234,9 @@ agentd 不能再把 stdout/stderr 直接无限写普通文件。受信捕获器�
 
 默认：正文按 server received_at 保留 **14 天**，长会话同样滚动到期；不能用未来 observed_at 延长。session/envelope/清除记录/查看审计保留 **90 天**，无正文；未完成 purge 的最小 fence 不随 90 天删除，见 §7.1。每 session 总正文 128 MiB 或 100,000 内容事件（先到者），单逻辑原记录内存最多 1 MiB，净化后单事件最多 64 KiB；超大记录先完整过滤或整条 withheld，不能先截断再扫描。
 
-每环境正文总 cap **20 GiB**、日摄入 **1 GiB**（不是 20 GiB/日）、metadata cap **2 GiB**；80% 提示，90% 限流，到分区硬上限按 §7.1 拒绝。容量默认是预算，不是测得的 NAS 余量；不自动删除未到期正文给新数据腾位置。生命周期作兜底，平台按 expires_at 立即拒绝读，到期删除任务的可见延迟目标 ≤ 1 小时。批/segment 统一最大 256 KiB、200 events；小对象同样消耗对象额度，SS2-Q 必须测物理开销，不能只量 payload 长度。
+第三稿推荐每环境正文物理总 cap **20 GiB**、对象日物理写入 **2 GiB**、PG metadata cap **32 GiB**，并同步提高对象/事件/审计次数上限，详见 §7.1–7.1a；这不是已批准扩容。80% 提示，90% 限流，到分区硬上限按 §7.1 拒绝。容量默认是预算，不是测得的 NAS 余量；不自动删除未到期正文给新数据腾位置。生命周期作兜底，平台按 expires_at 立即拒绝读，到期删除任务的可见延迟目标 ≤ 1 小时。批/segment 统一最大 256 KiB、200 events；小对象同样消耗对象额度，SS2-Q 必须测物理开销，不能只量 payload 长度。
 
-本地 spool 保留最多 24 小时与服务器 14 天不同；满额有缺口不承诺离线无限补齐。成本实测前只给算法：平均 20 个会话 × 20 MiB/天 × 14 天 ≈ 5.5 GiB 正文，另加索引、小对象和冗余。实际高于预算就显示受限，不以挤占备份卷维持“实时”。
+本地 spool 保留最多 24 小时与服务器 14 天不同；满额有缺口不承诺离线无限补齐。正文 GiB 不能代表可用时长：每秒一个小对象和每批一次审计会先耗尽次数或元数据额度。第三稿以 §7.1a 的采集/观看基准同时核算这些成本；实际高于预算就显示受限，不以挤占备份卷维持“实时”。
 
 ### 7.1 全路径配额与控制容量（B3，按 D-SS8 A 草拟）
 
@@ -246,20 +246,48 @@ agentd 不能再把 stdout/stderr 直接无限写普通文件。受信捕获器�
 |---|---|---|
 | host raw / sanitized / diagnostics / 控制区 | 512 MiB / 1 GiB / 8 MiB / 16 MiB；同 host 所有来源共享；最多 4,096 个 active/replay session | raw 轮转前有 gap；spool ACK/TTL；控制槽只在 seal/replay/fence 不再需要后回收 |
 | host 控制区 16 MiB | 4,096 个每个 3 KiB 固定 session 槽 + 4 MiB host 故障/taint 及维护区；槽含 seal、taint、合并 gap、purge 水位 | 已分配槽可原位更新，不能无限 append；无空槽则拒新 capture，launcher 工作本身按既有规则运行 |
-| 对象存量 | 20 GiB、100,000 objects/env；最多 128 个并发 reservation，单 session 一个；包括 committed、in-flight、orphan、临时及重试对象物理占用 | DELETE 后校验不存在且无旧 writer 再写才释放；删除失败仍占额，GC 故障只降可用性不突破 cap |
-| 对象日写入 | UTC 日 1 GiB 的写入预算；每次可能产生物理写入的 PUT 前预留，包括重试；另限 10,000 PUT/day | 到日界重置速率预算；不能靠删对象退还；已存在对象核验复用不再 PUT |
-| PG 普通元数据 | 2 GiB 中最多 1.25 GiB 给 session/binding/event/segment/reservation 及索引/膨胀；每 env 最多 10,000 个保留 session、1,000,000 个 event/control-range 行 | 到期分区删除并确认物理回收；预留不足拒注册/新批，已有 session 只更新预分配 coverage 槽 |
-| 查看/拒绝审计 | 256 MiB 独立额度，最多 200,000 行；成功读及每个 SSE 批次必须预留 durable 记录才发正文 | 90 天到期回收；不足即拒绝新的列表/历史/body/SSE 内容交付，不牺牲审计继续读 |
-| purge/fence/终结与拒绝计数 | 256 MiB 控制应急区；注册时为每 session 预分配 8 KiB 状态槽；额外最多 10,000 个 purge 工作项 | 仅确认全副本删完且旧 grant/replay 均失效后压缩为固定终态；离线未确认者长期占槽，满则拒新 session |
-| PG 维护余量 | 余下 256 MiB 专用于分区回收/索引维护临时分配，正文/审计不得借用 | 物理回收确认；无维护余量不做需扩容操作，转只读/拒新 admission |
+| 对象存量 | 20 GiB、1,000,000 objects/env；最多 128 个并发 reservation，单 session 一个；包括 committed、in-flight、orphan、临时及重试对象物理占用 | DELETE 后校验不存在且无旧 writer 再写才释放；删除失败仍占额，GC 故障只降可用性不突破 cap |
+| 对象日写入 | UTC 日 2 GiB 的物理写入预算；每次可能产生物理写入的 PUT 前预留，包括重试；另限 100,000 PUT/day | 到日界重置速率预算；不能靠删对象退还；已存在对象核验复用不再 PUT |
+| PG 普通元数据 | 32 GiB 中最多 24 GiB 给 session/binding/event/segment/reservation 及索引/膨胀；每 env 最多 10,000 个保留 session、6,000,000 个 event/control-range 行；segment、reservation 各最多 6,000,000 行（含终态） | 到期分区删除并确认物理回收；预留不足拒注册/新批，已有 session 只更新预分配 coverage 槽 |
+| 查看/拒绝审计 | 6 GiB 独立额度，最多 3,000,000 行；成功读及每个 SSE 批次必须预留 durable 记录才发正文 | 90 天到期回收；不足即拒绝新的列表/历史/body/SSE 内容交付，不牺牲审计继续读 |
+| purge/fence/终结与拒绝计数 | 1 GiB 控制应急区；注册时为每 session 预分配 8 KiB 状态槽；额外最多 10,000 个 purge 工作项 | 仅确认全副本删完且旧 grant/replay 均失效后压缩为固定终态；离线未确认者长期占槽，满则拒新 session |
+| PG 维护余量 | 余下 1 GiB 专用于分区回收/索引维护临时分配，正文/审计不得借用 | 物理回收确认；无维护余量不做需扩容操作，转只读/拒新 admission |
 
-PG 2 GiB 指本功能 relation/index/膨胀/临时分配，不把共享 PG 的 WAL/备份藏在此数字中。D-SS1 A 启用前须提供专属限额 tablespace/卷或等效硬配额、单写服务 admission、以及 **WAL/归档/备份保留与磁盘硬上限** 的运维证据；仅有 SQL count 不够。共享实例无法为这些持续增长路径证明上限/保留与维护空间时，转 D-SS1 B/C 的隔离存储，不在共享盘上先上线。索引分区与 reserved slots 预建所用空间计入上表；WAL/归档应另列实际预算，不能据本稿臆测现有配置已满足。
+PG 32 GiB 指本功能 relation/index/膨胀/临时分配，不把共享 PG 的 WAL/备份藏在此数字中。D-SS1 A 启用前须提供专属限额 tablespace/卷或等效硬配额、单写服务 admission、以及 **WAL/归档/备份保留与磁盘硬上限** 的运维证据；仅有 SQL count 不够。共享实例无法为这些持续增长路径证明上限/保留与维护空间时，转 D-SS1 B/C 的隔离存储，不在共享盘上先上线。索引分区与 reserved slots 预建所用空间计入上表；§7.1a 给出待验证的 WAL/备份容量方案，不能据本稿臆测现有配置已满足。
 
 withheld/gap 连续同因区间合并；原因交替或稀疏缺口耗尽每 session 256 个控制区间槽后，关闭该 session 新正文，用一个 `Coverage limited` 尾部范围概括后续并计数，不为每次丢弃新建一行。计数饱和写 `count_unknown`。session 注册先预留完整生命周期的控制槽，注册洪泛在分配前限速并拒绝。
 
 不再承诺无界的“每次拒绝一行”：成功内容访问逐次 durable；拒绝按固定已认证 principal 槽或统一 anonymous 槽、固定原因、小时窗口汇总 count/first/last，不保存任意请求 ID/URL。正常额度耗尽后，仅原位更新应急聚合槽（每环境合计最多 1,024 个，包含 90 天历史）；未知 principal 进统一 overflow 槽，旧小时窗口合并成日/更粗范围，必要时整环境一个区间，标 `Audit detail reduced`，不声称保留 90 天逐小时明细。连聚合更新也失败时仍拒读，预分配故障位置 `Audit incomplete`，不声称拒绝审计完整。健康告警限速且无正文。
 
 read fence 不依赖新建无限 tombstone：已有 session 控制槽含最高 generation/whole-session 禁读位。purge 工作项用尽时提升为整 session fence/purge，利用该 session 槽持久化进度；不能把正文/审计预算借给控制记录。磁盘/PG 故障无法更新 fence 时全局拒读/断 SSE，恢复先完成控制写入再开读。硬上限下可能长期拒绝新采集或读取，这是明确的可用性代价；清除与租约仍有各自预留资源和独立线程。
+
+### 7.1a 正常负载、次数成本与可用性验收（Review 600 C1）
+
+第二稿的配额确实不足：单会话每秒一个 1 KiB 事件、每批一个对象，10,000 PUT/day 在 **2 小时 46 分 40 秒**耗尽，此时正文仅 9.77 MiB；每天 10,000 对象会在第 10 天用完 100,000 槽，早于 14 天回收。200,000 审计行即使全部用于 SSE，也只够 55.56 窗口小时，90 天平均约 37 分钟/天，尚未扣其他读请求。这些是协议算术，不是线上压测。spool 只能缓冲暂时断网，不能消除每日入大于出的缺口。
+
+第三稿推荐的 **R 基准**（每环境合计，不是每 host 各领一份）：两台受管 host 各运行一个 clean session，**2 个并行会话，每天各采集 8 小时**，每天新建这两个 session；每个每秒 1 个已封闭、净化后 1 KiB 的事件（含生命周期事件，正常消息替换为这些事件而非另加），每批平均 **1 event**。正常日没有重试/丢包/withheld 洪泛。Owner **1 个并发实时窗口，每天看其中一路 8 小时**，每秒交付一个内容批；另给每天合计 1,000 条列表、分页、连接开关、重连及正常拒绝汇总审计。增加窗口、子 session 或事件频率都计入同一预算；两路采集不等于两路都可全天观看。单 session 为 28,800 events / 28.125 MiB，低于既有 100,000 events / 128 MiB 上限。
+
+物理核算采用**待测的预算包络**，不把平均正文长度当物理大小：R 的每个小对象含存储封装/分配开销最多 16 KiB；每 event 的 envelope、segment、reservation（终态也保留）、索引和摊销膨胀合计最多 4 KiB；每 audit 行含索引、结果更新及摊销膨胀最多 2 KiB。普通元数据另外预留 1 GiB 给 session/binding、预建分区、控制区间及固定开销。SSE 的 intended/delivered/unknown 更新同一个 audit_id，重发另记一行，连接开关另算；若实现采用两行，必须重算而不能漏计。大事件仍按实际上界预留，不套用这组小事件单价；任何包络实测不成立都应扩大预算或改方案，不能硬塞进假数字。
+
+| 项目 | R 每日 | 保留期稳态（无故障） | 第三稿推荐硬预算 |
+|---|---|---|---|
+| event / PUT / 新对象 | `2 × 8 × 3,600 = 57,600`，无重试时三者相同 | 14 天正文 806,400 对象；90 天 5,184,000 event，segment/reservation 各同数；180 session | 100,000 PUT/day；1,000,000 存量对象；6,000,000 event/control-range；segment/reservation 各 6,000,000；10,000 session |
+| 正文与对象分配 | 56.25 MiB 正文；按 16 KiB/object 分配为 0.879 GiB/日 | 14 天约 0.769 GiB 正文，**12.305 GiB 对象分配** | 20 GiB 存量；2 GiB/日物理写入，重试同样计费 |
+| PG 普通元数据 | `57,600 × 4 KiB = 225 MiB`，不含固定开销 | 90 天 19.775 GiB，再加最多 1 GiB 固定开销 | 24 GiB 独立分区，不能借审计/控制额度 |
+| 成功读与其他审计 | `8 × 3,600 + 1,000 = 29,800` 行 | 90 天 **2,682,000 行 / 5.116 GiB** | 3,000,000 行 / 6 GiB，先 durable 后交付 |
+
+稳态还需计入回收延迟：正文和 90 天元数据/审计的正常物理回收目标均 ≤ 1 小时。保守加一个满负载小时，最多再占 7,200 对象/event/segment/reservation，审计加 3,600 内容批 + 当天全部 1,000 额外行。于是对象 **813,600 / 12.415 GiB**；普通元数据 **5,191,200 event / 20.803 GiB（含 1 GiB 固定开销）**；审计 **2,686,600 行 / 5.124 GiB**。均低于各自 90% 限流线；80% 容量提示在稳态可能正常出现，不能把提示当提前拒收的理由。回收超过一小时、额外窗口或失败重试会吃掉余量，硬上限继续生效；这些故障不在无缺口承诺内，须显示原因和预计余量。
+
+**不是 20 GiB 就能上线。** 单环境的待批准容量包为对象 20 GiB + PG 32 GiB（24/6/1/1）+ 独立 WAL/归档 32 GiB + 元数据备份/维护 80 GiB，合计 **164 GiB**。WAL/归档暂按在线 8 GiB、归档 24 GiB（最多 3 天），要求 R 加正常维护实测 WAL ≤ 4 GiB/日；备份槽按两份各 ≤ 32 GiB 的无正文快照 + 16 GiB 轮换临时区设计。备份的实际增量/轮换过程、归档失败和复制槽积压必须也受硬配额，满额禁新写并告警；不能用这份账声称共享 PG 已支持这些隔离。对象自身冗余计入 16 KiB 包络；额外 PG 副本、快照或存储冗余须逐副本另加物理预算，164 GiB 不是集群现有空闲量，也不是多副本总量。两台 host 的 raw/spool/diagnostics/control 另各保留 1,560 MiB（合计约 3.047 GiB），不藏在服务端账内。
+
+运维成本随次数而来：R 活跃时每秒 2 次对象 PUT、至少 4 次 reservation/commit 事务，观看另有每秒 1 次审计提交及结果更新、至多逐批取对象；还需回收约 57,600 个过期对象/日和 90 天分区、监测 WAL/索引膨胀并验证备份轮换。每日 100,000 PUT 与 2 GiB 写预算留给有界重试，但不能承诺无限故障补传；读事务、磁盘 IOPS、CPU 和真实 p95 必须在 SS7 测出。硬件采购/费用未测，不将容量预算换算成虚构报价。D-SS1 A 的共享存储若无法提供这些边界，必须换隔离实例重估（保留 Review 600 N3 的门槛）。
+
+**可复现的专属验收（拟实现，不是本轮已运行的系统测试）：**
+
+1. `CapacityAdmissionMatrix` 增加 `NormalLowByteHighRate`：真实 adapter/预留/对象/PG/审计路径输入 R 的两个 clean 合成流，固定每秒封口一条 1 KiB marker；只用假内容。可注入时钟跑完整 UTC 日、连续 14/90 天及第 91 天回收边界，测实际行/对象/磁盘分配，不用纯计数 stub 代替物理核验；长周期可加速时钟，不必等待 90 天。日 PUT 必须 57,600、日审计 29,800，保留期计数符合上表，正常使用无 429/503、无 gap/配额引起的断流，每个 marker 可追溯。回收一小时的上界单独测，延迟更长须诚实退化且仍不超 cap。
+2. 同一测试加载第二稿旧限额作为反例：单会话每秒一批，第 10,000 次 PUT 可接收、第 10,001 次拒收；连续每天填满时第 10 天对象到 100,000，此后日预算重置仍不能腾出对象槽。独立灌入审计验证第 200,001 批读在发字节前拒绝（此前累计 55 小时 33 分 20 秒内容批）。这些首限时间必须与算术一致；再换第三稿配置跑 R，证明修复改善正常可用性而非只保留“不会超限”。
+3. 保留对象成功/PG 失败、重复 PUT、纯 withheld、注册/拒绝洪泛、审计失败与 purge/fence 测试；另用超过 R 的输入逐一耗尽新上限，确认拒收/拒读位置及计费不因重启清零。正常与故障两套结果都交付，不能全拒来通过容量测试。
+4. `ManagedFleetWitness` 在真实 STG 隔离环境跑 **24 小时墙钟**，其中一个连续 8 小时窗口执行 R，另外 16 小时用于回收/恢复观察；逐来源对账、记录 PUT/GET/事务速率、物理分配和 p95 ≤ 3 秒。无故障基准期不可提前停服；断平台/NAS/Redis、恢复与超额阶段另标，不混进正常统计。附加速 14/90 天的容量结果、WAL/备份轮换证据；只有算术通过不能签 SS2-Q/SS7。
 
 ### 7.2 segment 清除与在途写入互斥（C2）
 
@@ -364,15 +392,19 @@ cursor 绑定 tenant/session、过滤条件、schema 和 retention/purge generat
 
 | 决策 | 可选方案（均不放宽已定边界） | 推荐与代价 |
 |---|---|---|
-| D-SS1 新存储 | A：NAS 私有独立桶 + PG 私有索引；B：独立 Ops PG 数据库/受配额实例存正文及索引；C：独立对象服务/实例 | **A**，以可删除快照、TLS、IAM、物理配额及 WAL/归档预算可证为前提；否则选 B/C。B 事务简单但正文备份 purge 更难；C 运维成本高。B 必须拒绝所有 Agent CONNECT，不能只新增 schema |
-| D-SS2 保留与容量 | A：正文 14 天、无正文审计 90 天，正文不备份；B：正文 7 天、同 caps；C：正文 30 天并批准更大预算/删除方案 | **A**；容量耗尽仍 fail closed，不保证无限历史。正文存储灾难可丢历史；未完成 purge 最小 fence 不因 90 天到期撤销 |
+| D-SS1 新存储 | A：NAS 私有独立桶 + PG 私有索引；B：独立 Ops PG 数据库/受配额实例存正文及索引；C：独立对象服务/实例 | **A**，按 §7.1a 的 R 基准验证 164 GiB 单份服务端预算及独立 IOPS/WAL/备份边界，另计副本；以可删除快照、TLS、IAM、物理配额可证为前提，否则选 B/C 并重算物理包络。B 事务简单但正文备份 purge 更难；C 多一套运维。B 必须拒绝所有 Agent CONNECT，不能只新增 schema |
+| D-SS2 保留与容量 | A：正文 14 天、无正文元数据/审计 90 天，正文不备份；B：正文 7 天、元数据/审计仍 90 天，同 caps；C：正文 30 天并批准更大预算/删除方案 | **A + D-SS8 A 的 R 使用量**。B 约减半对象存量，不减少日 PUT、90 天 event 或审计。C 在 R 下需至少 1,728,000 对象 / 26.367 GiB（未加回收延迟），必须另批对象预算，不能沿用 1,000,000/20 GiB。灾难可丢正文历史；未完成 purge 最小 fence 不因 90 天到期撤销 |
 | D-SS3-D collector 部署（原 D-SS3 拆分） | A：Mac/06 都由独立服务管理同一个 collector binary；B：06 由 launcher 管理独立服务身份的 collector 子进程，Mac 用服务 | **A**，生命周期独立于 agentd 重启/settle；B 进程少但故障恢复/身份降权交接复杂。两者都不把凭证放入执行进程 |
 | D-SS3-I 会话读隔离（B1） | A：每 attempt/session 独立 OS/容器或 VM 身份及私有读视图；B：每 session 的强制 read/进程可见范围隔离整个执行树 | **A**，需 launcher、认证、目录迁移及账户回收，已进入 SS0-I 估时；B 可减少账户管理但跨 OS/executor 验证成本高。独立 collector 对两者都是前提 |
 | D-SS3-S 同进程子线程（B1） | A：改为独立隔离进程并以受控消息通道交接；B：等待厂商可验证的每子线程工具读隔离，再接原生流 | **A 先做可行性验证**；改变启动/父子交接，须保持 PV1 和 tool pins；B 无可承诺交付日期。当前原生同进程模式尚不支持，选 B 不能将全覆盖标完成 |
 | D-SS5 Owner 身份 | A：独立 Owner admin principal/短期凭证且不分发给 MCP/Agent；B：Owner 登录的后端 session/BFF | **A** 最小边界，需证明浏览器/凭证与 Agent 隔离；B 登录体验更完整但新增认证工程 |
 | D-SS6 接口/旧路径迁移 | A：私有 session-streams API，旧 actions/log_tail 给 Agent 只留安全类型化摘要或拒绝；B：旧 actions/artifacts 全面 Owner-only，另建 Agent 安全状态 API | **A** 迁移面积较小，仍须封住全部历史旁路；B 边界直白但下游迁移多 |
 | D-SS7 taint 处理（B2） | A：敏感输入后整个上下文 lineage 持续 withheld；B：同样的 lineage 防线，加本机有界敏感值匹配以帮助诊断/精确替换 | **A**，无需再存秘密，代价是触敏后的安全自由文本也不可见。B 只缓存被动观察到的值，不主动读凭证；每 lineage 最多 64 KiB/256 值、host 4 MiB、最长 24 小时且终止销毁；淘汰、重启丢失或匹配不可靠时仍回退 A，不能以“没匹配”解除 taint |
-| D-SS8 容量/审计饱和（B3） | A：采用 §6–7 硬配额、拒绝审计聚合与满额拒读/拒采集；B：独立有界审计存储，所有已 admission 的拒绝逐条落盘，入口无审计槽即 fail closed，并单列磁盘预算 | **A** 组件少，明确不能保留洪泛下每次拒绝详情；B 提供更细拒绝证据但多一套运维/清除与容量边界。两者 raw、orphan、in-flight 和 purge 都必须预留计费 |
+| D-SS8 使用量与审计饱和（B3、600-C1） | A：按 §7.1a 的 R 提高次数/PG 额度，拒绝审计有界聚合；B：同 R，另设独立有界审计存储，已 admission 的拒绝逐条记录，无审计槽即拒；C：保留第二稿小额度，明确接受下述 L 使用量与超量缺口 | **A**：两路各 8 小时采集 + 一窗口 8 小时观看/日，成本含每秒小对象、PG 32 GiB 和 90 天审计；B 多一套运维，必须另算拒绝流量/磁盘及总预算，不能把 R 的 1,000 额外行当洪泛保证；C 省元数据/请求资源但约定采集只有 33 分 20 秒、观看 15 分钟/日，不能宣称达到 R。三者满额拒读/拒采集，raw、orphan、in-flight 和 purge 仍预留计费 |
+
+D-SS8 C 的 **L 小用量**是每环境每天最多一个新 clean session，1 个事件/秒、1 KiB/事件、1 event/批，采集 **2,000 秒（33 分 20 秒）**；一个实时窗口看 **900 秒（15 分钟）**，另 100 条其他审计/日。复用旧 10,000 PUT/日、100,000 存量对象、1 GiB/日物理写入、20 GiB 对象、1,000,000 event/control-range、200,000 审计行及 PG 2 GiB（1.25 GiB 普通、256 MiB 审计、256 MiB 控制、256 MiB 维护）；segment/reservation 各设 1,000,000 行上限。14 天 28,000 对象，90 天 180,000 event / 90,000 审计行，按相同物理包络约 0.687 GiB 普通元数据、0.172 GiB 审计，普通固定开销须 ≤ 256 MiB；加一小时回收延迟最多多一个完整日的 L 用量，仍低于 90% 限流线。若真实需求是 R，C 明确不合格，不能靠每天 spool 积压伪装达标。L 也必须测物理包络/WAL/备份并另核隔离预算，不能沿用“2 GiB 就是全部成本”的说法。
+
+本稿不通过延长 1 秒 flush 来省次数，p95 ≤ 3 秒与先 durable commit 再 SSE 保持。若 Owner 希望用更少小对象支持 R，可另立持久批聚合/存储方案并重估 SS2-D/Q、purge 粒度、WAL 和延迟；未定案前不能将其当作本稿已经提供的吞吐。若选择更慢交付，必须明改 §4 实时目标并接受相应等待，不能只改 flush 数字。
 
 D-SS4 厂商暴露范围已并入固定契约：捕获正常提供的 text/summary/thinking，逐来源声明能力；先启通过验收的固定版本子集只是 rollout 顺序，能与最终全覆盖要求同时成立，不再作为互斥的 Owner 选项。隐藏/加密内部推理不属于待补功能。
 
@@ -390,7 +422,7 @@ D-SS4 厂商暴露范围已并入固定契约：捕获正常提供的 text/summa
 | SS1-F | typed adapter/filter、持久 taint/因果屏障；依赖 SS0-S、D-SS7 | 3–4 日 | `HostEgressCanary`：§5.3 跨块及读取→无标签复述→compact/resume/子线程全序列，独立 marker 通过；移除传播测试变红 |
 | SS1-H | raw/spool 硬限额、EOF handoff、独立清理；依赖 SS0-I、SS1-F | 2–3 日 | `CaptureHandoffBound`：持续输出超 raw/spool cap，collector 落后于 settle 或崩溃；磁盘有界、无静默尾部损失、有 receipt/gap、租约继续 |
 | SS2-D | 私有存储、reservation/commit/ACK、seal/replay；依赖 SS0-P、D-SS1/2、SS1-H | 2–3 日 | `DurableReplayCrashMatrix`：各事务/对象/ACK 边界中断，断网跨结束 10 分钟恢复；旧流只补封口内历史，新 attempt 正常；超过 24 小时仅固定 gap；清 Redis 不丢 durable 历史 |
-| SS2-Q | 并发字节/对象/元数据/应急配额与到期；依赖 SS2-D、D-SS8 | 2–3 日 | `CapacityAdmissionMatrix`：对象写成后反复令 PG commit 失败并重放；只造 withheld/注册/拒绝洪泛；实际桶/PG/磁盘有界，purge/fence 与租约仍有资源，额度不足无 PUT |
+| SS2-Q | 并发字节/对象/元数据/应急配额、到期及正常吞吐预算；依赖 SS2-D、D-SS8 | 3–4 日 | `CapacityAdmissionMatrix`：§7.1a 的低字节高频 R、旧额度首次限额反例、全天与加速 14/90 天计数/物理预算；保留对象写成后 PG 失败重放、withheld/注册/拒绝洪泛，证明正常用量不提前停服且故障不超 cap，purge/fence 与租约有资源 |
 | SS3 | 06 全部在用 executor 接入、绑定、日志私有化；依赖 SS0-I、SS1-H、SS2-Q、SS5-R | 2–3 日 | `RuntimeLeaseUnaffected`：双 attempt 加重试、collector 阻塞/拒收；租约不受阻，事件不串 attempt/epoch，历史 log_tail 不从旧路由漏出 |
 | SS4-C | 隔离子进程启动/受控消息交接可行性及迁移适配；依赖 D-SS3-S、SS0-S/I、SS1-F | 5–10 日 | `IsolatedChildHandoff`：独立子进程的权限、父子调用、结果/taint 传播、取消与 resume 等价；若厂商/tool pins 无法支持，输出 unsupported 并重估，不能据此宣布完整子流交付 |
 | SS4 | Mac 受管包装器/hooks/tail、自动发现、PV1/父子关联；依赖 SS0-P/S/I、SS1-H、SS2-Q、SS4-C、SS5-R | 3–5 日 | `ExternalAndChildIdentity`：重复 hook/换 inode/伪 agent_id/Stop 前发现/缺源/linked，身份唯一；live 与 delayed 符合源证据 |
@@ -398,15 +430,15 @@ D-SS4 厂商暴露范围已并入固定契约：捕获正常提供的 text/summa
 | SS5-A | 独立 durable 查看审计、拒绝聚合与满额拒读；依赖 SS5-R、SS2-Q | 1–2 日 | `AuditBeforeBytes`：注入审计 commit 失败/满额，body/缓存/SSE 新批零字节交付；拒绝洪泛有界且不伪称逐次完整审计 |
 | SS5-P | segment 扩大清除、generation/replay fence、全副本核验；依赖 SS2-Q、SS5-R/A、SS1-H | 2–4 日 | `SegmentPurgeRace`：1–200 混合段清 42，并发 PUT/补传与逐界面重启；扩大 tombstone 无悬空引用，旧秘密永不可读，late PUT/离线 host 未确认一直 pending |
 | SS6 | Console 时间线/PV1 深链、浏览器撤权；依赖 SS3/4、SS5-R/A/P | 2–3 日 | `ConsoleResumeContract`：父子流、断网重连、乱序、到期/purge/撤权，四类空态与等待事实清晰；无持久正文缓存 |
-| SS7 | STG 演练、容量/告警/回退、受管来源 coverage；依赖全部前片 | 2–3 日 + 24 小时观察 | `ManagedFleetWitness`：24 小时 launcher inventory 与 Owner session 对账，p95/断平台/NAS/Redis/满额恢复；未声明缺口即失败，unsupported 来源不能冒充全覆盖 |
+| SS7 | STG 演练、容量/告警/回退、受管来源 coverage；依赖全部前片 | 3–4 日 + 24 小时观察 | `ManagedFleetWitness`：§7.1a 的 24 小时墙钟内 R 连续 8 小时无提前停服、p95 ≤ 3 秒，核对次数/物理分配/WAL/备份轮换并附 14/90 天稳态结果；对账 launcher inventory，故障/恢复另测；未声明缺口即失败，unsupported 来源不能冒充全覆盖 |
 
-推荐路径基础实现 **30–49 工程人日**，另列同进程子线程替代的 SS4-C **5–10 人日**，合计 **35–59 人日 + 24 小时观察**；独立安全/架构复核另留 **2–3 人日**，总预算 **37–62 人日**。包含 B1 隔离/迁移与 B2/B3 改造，不沿用初稿 13–21 日。SS4-C 是待证的可行性/适配预算，若需厂商新能力则全覆盖日期未知，不能用这个区间保证完成。选 D-SS1 C、D-SS3-I B、D-SS5 B 或 D-SS8 B 须按选定部署重估。
+推荐路径基础实现 **32–51 工程人日**，另列同进程子线程替代的 SS4-C **5–10 人日**，合计 **37–61 人日 + 24 小时观察**；独立安全/架构复核另留 **2–3 人日**，总预算 **39–64 人日**。第三稿在 SS2-Q、SS7 各增加 1 人日用于真实分配/长周期容量与运维核算；包含 B1 隔离/迁移与 B2/B3 改造，不沿用初稿 13–21 日。SS4-C 是待证的可行性/适配预算，若需厂商新能力则全覆盖日期未知，不能用这个区间保证完成。选 D-SS1 B/C、D-SS3-I B、D-SS5 B、D-SS8 B 或另定持久聚合方案须按选定部署重估。
 
 开发可先用本机合成数据与 transport stub 验证 SS0-S/SS1-F/存储协议，不等待真实会话迁移。**正文采集到共享环境的启用门槛**是：PV1 契约与 Owner 选择已定，该来源 SS0-I 隔离通过，SS1-F/H、SS2-D/Q、SS5-R/A/P 全过；不能先接真正文再补权限。feature flag 默认 off，随后 STG 假内容、Owner 低风险真会话、逐来源 fleet rollout。SS7 全覆盖必须逐个清零尚不支持项或诚实报告未完成；不会以 rollout 子集重新定义 Owner 目标。回退只停新正文采集/私有页面，保留 PV1/运行时；已存数据继续鉴权、到期与清除，不能退回 viewer 正文访问。
 
 ## 12. 本次验证与尚未验证
 
-初稿的规则/spine/PV1、代码与 CLI 观察保留为基线；Review 593 的 CLI 实测已明确标来源。本次第 2 稿实际做了：读 BRIEF/Review 593、规则与 PV1 契约，核对 P 的 confine/run/disk/settle 代码与 HEAD，查三页官方文档；逐项改正文并做差异、引用、估时与覆盖自检。未运行模型会话，未改实现、schema、hook、collector、凭证或集群，未提交。
+初稿/第二稿的规则/spine/PV1、代码与 CLI 观察保留为基线；Review 593/600 的 CLI 实测已明确标来源。第 3 稿实际做了：读 BRIEF、Review 600 与 Review 593 回应、工作区规则/spine；核对 session-stream 分支/HEAD 和干净起点；修订 C1 的次数/物理/观看预算、Owner 选项和专属验收，补 N2 的 Start 非顺序屏障说明；用本地 Python 做旧限额时间、R/L 日及 14/90 天算术与估时/结构自检，并检查差异空白。这些只是文档算术/一致性检查，不是 `CapacityAdmissionMatrix` 或 `ManagedFleetWitness` PASS。未重新跑 CLI/官方网页或模型会话，未改实现、schema、hook、collector、凭证或集群，未提交。
 
 未验证：Work 588 最终接口/上线状态；固定版本真实 schema、thinking 可见比例、交互式/后台子源实时性；**新的** OS 读隔离（现有 06 不满足已由代码确定）、独立子进程适配可行性；taint/canary/mutation；NAS 新桶/TLS/IAM/容量和快照排除；PG RLS、WAL/物理配额、审计洪泛；durable ACK/10 分钟恢复/EOF 转交/purge race/备份恢复；实际 p95 与成本；浏览器、STG、PROD 与 24 小时覆盖。上表均是待实现验收，不是本次 PASS。
 
