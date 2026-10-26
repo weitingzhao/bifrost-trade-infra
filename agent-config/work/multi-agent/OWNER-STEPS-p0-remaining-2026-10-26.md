@@ -1,4 +1,4 @@
-# 4.1 P0 剩余权限负测：Owner 操作包（2026-10-26，Work 610 / 615 修订）
+# 4.1 P0 剩余权限负测：Owner 操作包（2026-10-26，Work 610 / 615 / 621 修订）
 
 本包补 P0-01、P0-05 及 P0-06 的凭据/tag/临时分支检查。P0-06 main push/merge 拒绝证据仍未验证：禁止向 main 推送或请求合并，不能凭 writer PASS 关闭这两项。依据是
 [S0 清单](P0-landing-s0-2026-10-24.md)、
@@ -24,12 +24,14 @@
 cd ~/agent-work/p0-remaining
 git branch --show-current
 git show 531016b -- scripts/agent-host/probe-gitea-protection.sh scripts/agent-host/test_probe_gitea_protection.py agent-config/work/multi-agent/OWNER-STEPS-p0-remaining-2026-10-26.md
+git diff 531016b HEAD -- scripts/agent-host/probe-gitea-protection.sh scripts/agent-host/test_probe_gitea_protection.py agent-config/work/multi-agent/OWNER-STEPS-p0-remaining-2026-10-26.md
 git diff HEAD -- scripts/agent-host/probe-gitea-protection.sh scripts/agent-host/test_probe_gitea_protection.py agent-config/work/multi-agent/OWNER-STEPS-p0-remaining-2026-10-26.md
 bash -n scripts/agent-host/probe-gitea-protection.sh
 PATH=/opt/anaconda3/bin:$PATH python3 -m pytest -q scripts/agent-host/test_probe_gitea_protection.py
 ```
 
-分支应为 `w31/p0-remaining`；语法检查无输出；pytest 全部通过。此处无提交操作。
+分支应为 `w31/p0-remaining`；依次查看原提交、从原提交到 HEAD 的已提交修复（含 `726b342`）、工作树额外改动。
+语法检查无输出；pytest 全部通过。此处无提交操作。
 
 ## 2. P0-01：三个 reader × 两仓
 
@@ -272,6 +274,8 @@ SH
 
 脚本退出和 INT/TERM 会清临时目录；SIGKILL、断电、网络中断不能保证远端清理完成，遇此必须按输出 ref/PR 在 Gitea 两仓确认。
 清理验证失败会输出 FAIL 和具体 ref/PR，绝不计 PASS。不要重复跑来掩盖失败。
+HTTP 协议或正文读取异常仅记录失败状态（HTTP 0 表示无法取得完整可信响应），不打印响应正文、响应头或异常原文。
+Reader 清理按 PR、分支、标签分别保护；某项失败仍继续其余已登记对象，并在最终 verdict 保留 FAIL。
 若标签或分支意外获准但测试身份无权删除，由 Owner 在 Gitea 页面删除该次打印的唯一测试对象、关闭对应 PR，
 再记录清理时间。main 读回变化表示并发外部改动或异常；保留证据停止，不自动 reset/force push。
 本包不改权限，不存在“恢复放宽白名单”的回退。

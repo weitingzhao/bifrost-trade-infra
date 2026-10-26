@@ -244,6 +244,46 @@ urllib.request.OpenerDirector.open = fixture_open
 '''
 
 
+# Feed real HTTP parser failures to the probe without opening any sockets.
+PROTOCOL_HTTP_SHIM = '''
+import http.client
+fixture_transport = urllib.request.OpenerDirector.open
+class WireSocket:
+    def __init__(self, wire):
+        self.wire = wire
+    def makefile(self, *args, **kwargs):
+        return io.BytesIO(self.wire)
+def protocol_open(self, req, *args, **kwargs):
+    path = urllib.parse.urlsplit(req.full_url).path
+    method = os.environ.get('PROBE_HTTP_FAULT_METHOD', '')
+    if os.environ['PROBE_HTTP_FAULT_PATH'] not in path or (method and method != req.get_method()):
+        return fixture_transport(self, req, *args, **kwargs)
+    # Preserve server-side effects, including a write whose answer is lost.
+    try:
+        response = fixture_transport(self, req, *args, **kwargs)
+    except urllib.error.HTTPError as error:
+        response = error
+    response.close()
+    secret = os.environ['PROBE_TOKEN'].encode()
+    kind = os.environ['PROBE_HTTP_FAULT']
+    if kind == 'unexpected':
+        raise TypeError(secret.decode())
+    if kind == 'status':
+        wire = b'Authorization: token ' + secret + b'\\r\\n'
+    elif kind == 'header':
+        wire = b'HTTP/1.1 200 OK\\r\\nX-Secret: ' + secret + b'x' * 70000 + b'\\r\\n\\r\\n'
+    else:
+        code = b'403 Forbidden' if kind == 'error-body' else b'200 OK'
+        wire = b'HTTP/1.1 ' + code + b'\\r\\nContent-Length: 10000\\r\\n\\r\\n' + secret
+    response = http.client.HTTPResponse(WireSocket(wire))
+    response.begin()
+    if response.status >= 400:
+        raise urllib.error.HTTPError(req.full_url, response.status, 'fixture', response.headers, response)
+    return response
+urllib.request.OpenerDirector.open = protocol_open
+'''
+
+
 class Probe(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -289,6 +329,80 @@ class Probe(unittest.TestCase):
         for path in self.root.rglob('*'):
             if path.is_file():
                 self.assertNotIn(TOKEN.encode(), path.read_bytes())
+
+    def protocol_probe(self, mode, fault, path, method='', **options):
+        with patch(__name__ + '.ThreadingHTTPServer', side_effect=PermissionError):
+            api = FakeApi(negative={} if mode != 'writer' else None, bare=self.bare,
+                          create_code=403 if mode == 'reader' else 201,
+                          opened_anyway=False, **options)
+        shim = Path(api.transport.name) / 'sitecustomize.py'
+        shim.write_text(FILE_HTTP_SHIM + PROTOCOL_HTTP_SHIM)
+        try:
+            result = self.run_probe(api, bash=('-x',), extra={
+                'PROBE_MODE': mode, 'PROBE_TOKEN': TOKEN, 'PROBE_SETUP_TOKEN': SETUP_TOKEN,
+                'PROBE_EXPECT_LOGIN': 'reader' if mode != 'writer' else '',
+                'PROBE_HTTP_FAULT': fault, 'PROBE_HTTP_FAULT_PATH': path,
+                'PROBE_HTTP_FAULT_METHOD': method})
+        finally:
+            api.close()
+        return result, api
+
+    def test_review618_protocol_errors_never_echo_credentials(self):
+        for mode in ('writer', 'reader', 'protection'):
+            for fault in ('status', 'header', 'body', 'error-body'):
+                with self.subTest(mode=mode, fault=fault):
+                    path = '/repos/bifrost/primary-probe' if mode == 'writer' else '/user'
+                    result, _ = self.protocol_probe(mode, fault, path)
+                    output = result.stdout + result.stderr
+                    self.assertNotEqual(result.returncode, 0)
+                    # Boolean assertions keep even synthetic credentials out of failure logs.
+                    self.assertFalse(TOKEN in output or SETUP_TOKEN in output)
+                    self.assertNotIn('Traceback', output)
+                    self.assertIn('VERDICT FAIL', output)
+
+    def test_review618_reader_cleanup_continues_after_protocol_errors(self):
+        for fault in ('status', 'body', 'error-body', 'unexpected'):
+            for path, check in (('/pulls/main/', 'PR'), ('/branches/agent', 'branch'),
+                                ('/tags/probe-', 'tag')):
+                with self.subTest(fault=fault, path=path):
+                    result, api = self.protocol_probe('reader', fault, path)
+                    output = result.stdout + result.stderr
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertTrue(any(method == 'DELETE' and '/branches/agent' in p
+                                        for method, p, _ in api.calls))
+                    self.assertTrue(any(method == 'GET' and '/tags/probe-' in p
+                                        for method, p, _ in api.calls))
+                    refs = subprocess.check_output(['git', '--git-dir', str(self.bare),
+                                                    'for-each-ref', 'refs/heads/agent'])
+                    self.assertEqual(refs, b'')
+                    head = next(body['head'] for method, p, body in api.bodies
+                                if method == 'POST' and p.endswith('/pulls'))
+                    ref = next(body['tag_name'] for method, p, body in api.bodies
+                               if method == 'POST' and p.endswith('/tags')) if check == 'tag' else head
+                    failures = [line for line in output.splitlines() if line.startswith('FAIL')]
+                    self.assertTrue(any(check + ' cleanup' in line and ref in line for line in failures))
+                    self.assertFalse(TOKEN in output or SETUP_TOKEN in output)
+                    self.assertNotIn('Traceback', output)
+                    self.assertIn('VERDICT FAIL mode=reader', output)
+
+    def test_review618_writer_lost_pr_protocol_response_is_reconciled(self):
+        for method in ('', 'POST'):
+            with self.subTest(method=method):
+                result, api = self.protocol_probe('writer', 'error-body', '/pulls', method=method)
+                output = result.stdout + result.stderr
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(TOKEN in output or SETUP_TOKEN in output)
+                self.assertNotIn('Traceback', output)
+                if method == 'POST':
+                    self.assertEqual(api.state, 'closed')
+                    self.assertIn('ok    PR cleanup #7', output)
+                else:
+                    self.assertIn('FAIL  PR cleanup agent/_probe/', output)
+                self.assertIn('VERDICT FAIL mode=writer', output)
+                self.assertTrue(any('/pulls/main/' in p for _, p, _ in api.calls))
+                refs = subprocess.check_output(['git', '--git-dir', str(self.bare),
+                                                'for-each-ref', 'refs/heads/agent'])
+                self.assertEqual(refs, b'')
 
     def test_untrusted_git_errors_do_not_log_or_persist_tokens(self):
         extra = self.git_wrapper('''
@@ -596,6 +710,17 @@ exit "$rc"
 
 
 class DesktopCredential(unittest.TestCase):
+    def test_review618_review_commands_include_committed_fixes(self):
+        steps = HERE.parents[1] / 'agent-config/work/multi-agent/OWNER-STEPS-p0-remaining-2026-10-26.md'
+        block = steps.read_text().split('```bash\n', 1)[1].split('```', 1)[0]
+        files = ('scripts/agent-host/probe-gitea-protection.sh',
+                 'scripts/agent-host/test_probe_gitea_protection.py',
+                 'agent-config/work/multi-agent/OWNER-STEPS-p0-remaining-2026-10-26.md')
+        for command in ('git show 531016b --', 'git diff 531016b HEAD --', 'git diff HEAD --'):
+            lines = [line for line in block.splitlines() if line.startswith(command)]
+            self.assertEqual(len(lines), 1, command)
+            self.assertTrue(all(path in lines[0] for path in files))
+
     def test_c5_real_push_url_must_select_expected_credential(self):
         steps = HERE.parents[1] / 'agent-config/work/multi-agent/OWNER-STEPS-p0-remaining-2026-10-26.md'
         source = steps.read_text().split("<<'PY'\n")[-1].split('\nPY\n')[0]

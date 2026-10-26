@@ -23,6 +23,7 @@ case "${PROBE_MODE:-writer}" in
   reader|protection)
     python3 - <<'PY'
 import base64
+import http.client
 import json
 import os
 from pathlib import Path
@@ -85,11 +86,15 @@ def request(token, method, path, body=None, git=False, user=''):
         data=json.dumps(body).encode() if body is not None else None,
         headers={'Authorization': auth, 'Content-Type': 'application/json'})
     try:
-        with opener.open(req, timeout=30) as response:
-            code, raw = response.status, response.read()
-    except urllib.error.HTTPError as error:
-        code, raw = error.code, error.read()
-    except (urllib.error.URLError, OSError):
+        try:
+            with opener.open(req, timeout=30) as response:
+                code, raw = response.status, response.read()
+        except urllib.error.HTTPError as error:
+            with error:
+                code, raw = error.code, error.read()
+    except (urllib.error.URLError, OSError, http.client.HTTPException, ValueError):
+        # Also guard HTTPError.read(): protocol exceptions may contain raw
+        # credential-bearing status lines, headers or partial response bodies.
         return 0, {}
     try:
         result = json.loads(raw)
@@ -200,35 +205,48 @@ try:
         tag_attempted = True
         denied('tag create', request(token, 'POST', root + '/tags',
                {'tag_name': tag, 'target': 'main'}))
-except (ProbeError, OSError, subprocess.SubprocessError):
+except Exception:
     # Neither response bodies nor exceptions may echo credentials.
     report(False, 'precondition/execution', 'not verified; check identity, user Read scope, repository and fixture access')
 finally:
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     if fixture_started:
-        try:
-            if pr_attempted:
+        # Isolate each registered object: one failed lookup/readback must not
+        # prevent cleanup of the remaining refs. Never log exception text.
+        if pr_attempted:
+            try:
                 code, body = request(setup, 'GET', root + '/pulls/main/' + branch)
-                if code == 200 and isinstance(body.get('number'), int):
+                if code == 200 and type(body.get('number')) is int and body['number'] > 0:
                     number = body['number']
-                    request(setup, 'PATCH', root + f'/pulls/{number}', {'state': 'closed'})
+                    closed, _ = request(setup, 'PATCH', root + f'/pulls/{number}', {'state': 'closed'})
                     status, state = request(setup, 'GET', root + f'/pulls/{number}')
-                    report(status == 200 and state.get('state') == 'closed', 'PR cleanup', f'PR #{number} closed readback')
+                    report(closed in (200, 201) and status == 200 and state.get('state') == 'closed',
+                           'PR cleanup', f'{branch}; PR #{number} closed readback; HTTP {closed}/{status}')
                 else:
-                    report(code == 404, 'PR cleanup', f'lookup HTTP {code}; expected 404')
+                    report(code == 404, 'PR cleanup', f'{branch} into main; lookup HTTP {code}; expected 404')
+            except Exception:
+                report(False, 'PR cleanup', f'not verified; inspect head {branch} into main')
+        try:
             encoded = urllib.parse.quote(branch, safe='')
-            request(setup, 'DELETE', root + '/branches/' + encoded)
+            deleted, _ = request(setup, 'DELETE', root + '/branches/' + encoded)
             code, _ = request(setup, 'GET', root + '/branches/' + encoded)
-            report(code == 404, 'branch cleanup', f'{branch}; HTTP {code}; expected 404')
-            if tag_attempted:
+            report(deleted in (200, 204, 404) and code == 404, 'branch cleanup',
+                   f'{branch}; delete HTTP {deleted}; readback HTTP {code}; expected 404')
+        except Exception:
+            report(False, 'branch cleanup', f'not verified; inspect refs/heads/{branch}')
+        if tag_attempted:
+            try:
                 code, _ = request(setup, 'GET', root + '/tags/' + tag)
-                if code == 200:
-                    request(setup, 'DELETE', root + '/tags/' + tag)
+                if code not in (200, 404):
+                    report(False, 'tag cleanup', f'{tag}; lookup HTTP {code}; absence not verified')
+                if code != 404:
+                    deleted, _ = request(setup, 'DELETE', root + '/tags/' + tag)
+                    report(deleted in (200, 204, 404), 'tag cleanup', f'{tag}; delete HTTP {deleted}')
                     code, _ = request(setup, 'GET', root + '/tags/' + tag)
                 report(code == 404, 'tag cleanup', f'{tag}; HTTP {code}; expected 404')
-        except (OSError, ValueError):
-            report(False, 'cleanup', f'not verified; inspect {branch} and {tag}')
+            except Exception:
+                report(False, 'tag cleanup', f'not verified; inspect refs/tags/{tag}')
 print(f'VERDICT {"FAIL" if failed else "PASS"} mode={mode} repo={repo} identity={login}')
 raise SystemExit(int(failed))
 PY
@@ -275,7 +293,7 @@ deleted=""
 # Callers never log response fields. A redirect is refused; no proxy is used.
 api() {
   python3 - "$@" << 'PY'
-import json, os, sys, urllib.error, urllib.request
+import http.client, json, os, sys, urllib.error, urllib.request
 method, path, body, fields = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -283,11 +301,14 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 req = urllib.request.Request(os.environ["PROBE_API"] + path, method=method, data=body.encode() if body else None,
                              headers={"Authorization": "token " + os.environ["PROBE_TOKEN"], "Content-Type": "application/json"})
 try:
-    with urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect).open(req, timeout=30) as r:
-        code, raw = r.status, r.read()
-except urllib.error.HTTPError as e:
-    code, raw = e.code, e.read()
-except (urllib.error.URLError, OSError) as e:
+    try:
+        with urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect).open(req, timeout=30) as r:
+            code, raw = r.status, r.read()
+    except urllib.error.HTTPError as e:
+        with e:
+            code, raw = e.code, e.read()
+except (urllib.error.URLError, OSError, http.client.HTTPException, ValueError):
+    # Guard both success and error-body reads; never echo exception/response text.
     code, raw = 0, b"{}"
 try:
     answer = json.loads(raw.decode() or "null")
