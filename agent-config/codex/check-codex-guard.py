@@ -26,6 +26,7 @@ import tomllib
 CODEX_HOME = pathlib.Path(os.environ.get("CODEX_HOME", pathlib.Path.home() / ".codex"))
 ADAPTER = "agent-guard/codex-pretooluse.js"
 MARKER = "bifrost-platform/config/ops-context.yaml"
+RPC_TIMEOUT = 25
 
 
 def workspace_root() -> pathlib.Path:
@@ -40,37 +41,98 @@ def workspace_root() -> pathlib.Path:
 
 
 def hooks_list(cwds: list[str]) -> dict:
-    p = subprocess.Popen(
-        ["codex", "app-server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL, text=True, bufsize=1,
-    )
+    # A file avoids a blocked stderr pipe; keep startup errors for diagnosis.
+    errors = tempfile.TemporaryFile()
+    try:
+        p = subprocess.Popen(
+            ["codex", "app-server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=errors, bufsize=0,
+        )
+    except OSError:
+        errors.close()
+        raise
+    pending = bytearray()
 
     def send(msg: dict) -> None:
-        p.stdin.write(json.dumps(msg) + "\n")
+        p.stdin.write((json.dumps(msg) + "\n").encode())
         p.stdin.flush()
 
     def recv(want: int) -> dict:
-        end = time.time() + 30
-        while time.time() < end:
-            ready, _, _ = select.select([p.stdout], [], [], 1)
-            if not ready:
+        end = time.monotonic() + RPC_TIMEOUT
+        while time.monotonic() < end:
+            # TextIO.readline can buffer the next response while select sees no
+            # readable bytes. Frame bytes ourselves, including partial lines.
+            if b"\n" not in pending:
+                ready, _, _ = select.select([p.stdout], [], [], min(1, max(0, end - time.monotonic())))
+                if not ready:
+                    continue
+                chunk = os.read(p.stdout.fileno(), 65536)
+                if not chunk:
+                    p.wait(timeout=2)
+                    errors.seek(0)
+                    detail = errors.read(2000).decode(errors="replace").strip()
+                    raise RuntimeError(f"codex app-server exited {p.returncode} before RPC {want}: {detail}")
+                pending.extend(chunk)
                 continue
-            line = p.stdout.readline()
-            if not line:
-                break
+            line, _, rest = pending.partition(b"\n")
+            pending[:] = rest
             msg = json.loads(line)
+            if not isinstance(msg, dict):
+                raise RuntimeError("codex app-server returned a non-object response")
             if msg.get("id") == want:
+                if "error" in msg:
+                    raise RuntimeError(f"codex app-server RPC {want} failed: {msg['error']}")
+                if not isinstance(msg.get("result"), dict):
+                    raise RuntimeError(f"codex app-server RPC {want} has no result object")
                 return msg
-        raise RuntimeError("codex app-server did not answer")
+        raise RuntimeError(f"codex app-server timed out waiting for RPC {want}")
 
     try:
         send({"method": "initialize", "id": 1, "params": {"clientInfo": {"name": "bifrost-check", "version": "0"}}})
         recv(1)
         send({"method": "initialized"})
         send({"method": "hooks/list", "id": 2, "params": {"cwds": cwds}})
-        return recv(2)
+        resp = recv(2)
+        validate_hooks_response(resp, cwds)
+        return resp
     finally:
-        p.terminate()
+        if p.poll() is None:
+            p.terminate()
+        try:
+            p.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.wait()
+        p.stdin.close()
+        p.stdout.close()
+        errors.close()
+
+
+def validate_hooks_response(resp: dict, cwds: list[str]) -> None:
+    """An absent/partial hooks list is not evidence that the gate is running."""
+    data = resp.get("result", {}).get("data")
+    if not isinstance(data, list) or not data:
+        raise RuntimeError("hooks/list returned no cwd entries")
+    seen = set()
+    for entry in data:
+        if not isinstance(entry, dict) or entry.get("cwd") not in cwds:
+            raise RuntimeError("hooks/list returned an unexpected cwd entry")
+        where = entry["cwd"]
+        if where in seen:
+            raise RuntimeError(f"hooks/list returned duplicate cwd {where}")
+        seen.add(where)
+        if not isinstance(entry.get("hooks"), list):
+            raise RuntimeError(f"hooks/list has no hooks array for {where}")
+        for hook in entry["hooks"]:
+            if (not isinstance(hook, dict)
+                    or any(not isinstance(hook.get(k), str)
+                           for k in ("eventName", "command", "key", "trustStatus", "currentHash"))
+                    or type(hook.get("enabled")) is not bool
+                    or "matcher" not in hook
+                    or (hook["matcher"] is not None and not isinstance(hook["matcher"], str))):
+                raise RuntimeError(f"hooks/list returned a malformed hook for {where}")
+    if seen != set(cwds):
+        raise RuntimeError(f"hooks/list omitted cwd entries: {sorted(set(cwds) - seen)}")
 
 
 def smoke_hook(command: str) -> list[str]:
@@ -195,4 +257,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+        print(f"✗ Codex gate verification could not complete: {exc}")
+        sys.exit(1)

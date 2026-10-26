@@ -6,6 +6,7 @@ import collections
 import difflib
 import importlib
 import json
+import os
 from pathlib import Path, PurePosixPath
 import re
 import sys
@@ -20,12 +21,25 @@ if _entry_path is not None:
 EVIDENCE = re.compile(r"fails? on (?:the )?old code|regression test|旧代码上失败|回归测试", re.I)
 REVIEW = re.compile(r'\breview[ _-]*2\d{2}\b|(?:\bfix(?:es|ed)?\b|修复)[^\n]{0,100}\b[AB][1-9]\b|\b[AB][1-9]\b[^\n]{0,100}(?:\bfix(?:es|ed)?\b|修复)', re.I)
 REVIEW_TEST = re.compile(r'(?:test[ _-]*review[ _-]*\d+|review[ _-]*\d+)', re.I)
-ROOT = Path('/Users/vision-mac-trader/Desktop/stocks')
+MARKER = Path('bifrost-platform/config/ops-context.yaml')
 REPOS = ['bifrost-platform', 'bifrost-research', 'bifrost-trade-core',
          'bifrost-trade-api', 'bifrost-trade-worker', 'bifrost-trade-socket',
          'bifrost-trade-frontend', 'bifrost-trade-infra', 'bifrost-platform-plugin',
          'bifrost-platform-plugin-market-data', 'bifrost-platform-plugin-flex-query',
          'bifrost-ui']
+
+
+def workspace_root():
+    configured = os.environ.get('BIFROST_WORKSPACE', '').strip()
+    if configured:
+        root = Path(configured).expanduser().resolve()
+        if not (root / MARKER).is_file():
+            raise ValueError(f'BIFROST_WORKSPACE has no {MARKER}: {root}')
+        return root
+    for parent in Path(__file__).resolve().parents:
+        if (parent / MARKER).is_file():
+            return parent
+    raise ValueError(f'workspace root not found (no {MARKER}); set BIFROST_WORKSPACE or --root')
 
 
 def git(repo, *args, missing=False):
@@ -268,14 +282,22 @@ def scan(repo, ref='main', days=150):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('repos', nargs='*', type=Path)
-    parser.add_argument('--root', type=Path, default=ROOT)
+    parser.add_argument('--root', type=Path,
+                        help='repository parent (default: BIFROST_WORKSPACE or ancestor workspace)')
     parser.add_argument('--ref', default='main')
     parser.add_argument('--days', type=int, default=150)
     args = parser.parse_args()
     if args.days <= 0:
         parser.error('--days must be positive')
+    repos = args.repos
+    if not repos:
+        try:
+            root = args.root.expanduser() if args.root is not None else workspace_root()
+        except ValueError as exc:
+            parser.error(str(exc))
+        repos = [root / name for name in REPOS]
     failed = False
-    for repo in args.repos or [args.root / name for name in REPOS]:
+    for repo in repos:
         try:
             for candidate in scan(repo, args.ref, args.days):
                 print(json.dumps(candidate, ensure_ascii=False))

@@ -1,5 +1,5 @@
 <!--
-parity-ids: workspace-v25, language-v1, agent-modes-v4, trade-execution-freeze-v4, dev-services-v3, phase-execution-v3, shared-worktree-v4, business-first-v1
+parity-ids: workspace-v27, language-v1, agent-modes-v4, trade-execution-freeze-v4, dev-services-v3, phase-execution-v3, shared-worktree-v4, business-first-v1
 对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
 改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
 -->
@@ -209,6 +209,8 @@ platform-api `start_pipeline_run` 还要求请求里的 `who` 等于窗口里的
 
 > 事故：2026-09-27 两个会话同时发 core 0.24.0；2026-09-28 插件 0.61.0 的 registry tag 被另一会话覆盖。
 
+**人工审批唯一入口（Owner 2026-10-26，Work 609）**：凡需要人批准的请求（C/D 级审批、Owner 签收），无论目标环境是什么，一律在 PROD 平台（`ops.bifrost.lan`）建单并批准；把这类请求放到其他环境平台的设计在评审时直接拒绝。跨环境执行通道未建成时，不能以目标环境本地建单代替。
+
 ### 放行规则只省「复制到终端」（Owner 2026-10-05）
 
 用户级 `permissions` 里有一组发布类放行规则（payload `.claude/auto-mode/release-permissions.json`）：
@@ -273,7 +275,9 @@ release.sh、db-init Job、dev/stg overlay、插件 ConfigMap 与 rollout、rese
 | — 共用 —— | `AGENT_FACTS.md` · `AGENTS.md`（三家入口，只放指针；Codex 只读它）· `scripts/agent-guard/preflight.js` |
 
 **改动任一侧的规则，必须同步另一侧并 bump 两侧的 `parity-id`。**
-提交前跑 `bash scripts/check-agent-config-parity.sh` 校验。
+提交前在工作区根跑 `bash scripts/check-agent-config-parity.sh`；infra 根的入口是 `make check-agent-parity`（实际脚本 `agent-config/scripts/check-agent-config-parity.sh`）。
+
+完整 parity 必须覆盖待验收 checkout 的治理文件，并以脚本 exit 0 为准。独立 worktree 需有完整工作区布局；链接到共享 checkout 的规则不能证明当前修改通过。Codex 检查器启动失败、超时或响应缺失表示「验证未完成」，不能推断 hook 未运行，也不能记为 PASS。路径棘轮扫描各仓库 `origin/main`；未提交修改另跑 `check_hardcoded_paths.py --worktree --new-only`，局部通过不替代完整验收。不得跳过检查、放宽基线或移动远端跟踪引用制造通过。
 
 MCP：Claude `.mcp.json` 把平台 server 指到 PROD VIP `http://192.168.10.100:30876`。`bifrost-platform` 与 `bifrost-kubernetes` 的 `MCP_WRITES=on`（本分支在 B1R 上 PROD 之后才合并；以 `off` 合并会让写工具中断）。`bifrost-approve` 只在 Claude 侧；Cursor 模板只有 `cursor/mcp.servers.json` 一份（platform 的 `config/cursor-mcp-bridges.json` 已删，卡 8），不含它。只有 `bifrost-local` 可以指向 `127.0.0.1`。令牌不要求进进程环境：MCP 进程从 `~/.config/bifrost/mcp-tokens.env`（权限 600）读三个键（B1R 实现，见 `.mcp.json.README.md`）。`preflight.js` 拦截直接打 `/api/v1/approvals/<id>/approve|reject`、用浏览器打开 `#approvals` 去点，以及读取或引用 admin 令牌和该文件；`mcp__bifrost-approve__*` 放行。原因见 ADR §5「已知的接受风险」。
 
