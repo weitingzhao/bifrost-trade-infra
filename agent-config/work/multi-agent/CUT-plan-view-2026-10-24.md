@@ -4,6 +4,8 @@
 
 2026-10-26（Work 594，统筹 proceed-on-recommendation，Owner 事后审计）：Q1=A，仅持久化 dev 计划根，首次采用拒绝树内 business mission/task，之后每次绑定检查 dev，其他租户拒绝，无 DDL。Q2=A，本片只做可见性，拒绝非空 bindings；登记与摘要只证明 running/submitted，不证明 done；现有 controller 完成规则不变，四个新增完成原子及可信核验留到 PV2。
 
+2026-10-26（Work 630，统筹 proceed-on-recommendation，Owner 事后审计）：PV2 采用可信核验源方案 A。`external_verified` 只认精确绑定 task/attempt/result 的平台 verification，或 Owner 对准确节点、验收版本及证据的签收；没有适用核验源则保持 Unknown。4.10 五个验收各自命名来源、分别签收，不复用一个结论。该决定授权本片实现，不是发布批准。
+
 目标：Owner 从手机看出主线位置、下一步，以及谁在等谁。
 
 ## 1. 范围与已定顺序
@@ -484,3 +486,17 @@ PV5 核验 390×844、1440×900；Light 与 Dark 均可读。
 | 运行时 R4 实际进度 | 未读取；文中布局和用例不是实时状态 |
 | 外部派工覆盖 | 尚需 PV3 入口接线及 PV5 清单对账 |
 | 独立复核 | 本稿尚未经过独立复核；估算已包含后续轮次 |
+
+## 12. PV2 方案 A 的实现契约（Work 630，2026-10-26）
+
+- `bindings[]` 使用封闭的 `agentrt.plan_binding/v1`（`v=1`）：`id/version/tenant/root/node/step/acceptance/acceptance_sha256/atom/source`。`version` 等于所采用的 `plan_version`；`node` 是视图节点，`step` 是该节点或其直属步骤的真实数据库 ID。验收 SHA256 覆盖完整 acceptance 对象。绑定身份摘要覆盖整条绑定。
+- 运行时结果固定 `mission/task/attempt/round/repo/result`（完整 SHA）；verification 源另外固定 `verification`。外部运行固定 `external_work/external_seq/report`，须是同一步骤的当前 Submitted 记录，若关联 runtime，任务、mission、提交 SHA 同时一致。
+- 四个规则原子统一形状：`{"main_effective":{"binding":"<id>","version":1}}`（其余 atom 同形）。采用视图的既有计划决策先写 `plan_changed`，再为对应步骤安装全部绑定的 `all` 规则；不会写 done。跨步引用、未知版本、跨 dev 租户和悬空引用均拒绝。
+- 有限来源：`git → main_effective`；`deployment → deployment_verified`；`verification → review_valid/external_verified`；`owner_signoff → external_verified`。verification 必须对应精确任务、attempt、当前 round 和结果；review 还检查当前轮次的 reviewer spec 及独立 executor/provider。登记报告、exit 0、任意 actor 声称 verified 都不构成核验。
+- Owner 来源的 `evidence[]` 是已存产物 ID。现有 Owner 专用签收入口使用 `plan-acceptance:<binding-sha256>` 作为 ref；事件保存节点、绑定摘要、验收摘要、计划版本和证据。更换任意一项必须重新签收。4.10 的五个 `rule_ref` 分别命名 `external_verified:4.10:<acceptance-id>:owner_signoff`；静态 fixture 不伪造已签收事件或 runtime ID。人工签收入口仍遵守 PROD 平台唯一入口规则。
+- deployment 固定 `application/environment/check/spec_sha256`；实际 Pod digest、rollout 与 release SHA 由现有平台读取器核对，健康 gate 须对应同一实际 SHA、digest 集合和 spec。后继 SHA 通过完整 Git 历史的当前有效性判断；回滚到不包含结果的版本不通过。目前已接实际部署读取器的 application 只有 `bifrost-platform`；其他应用为 Unknown，不借用平台结果。
+- Git 与 Gitea 读取器共用 landinggit 的完整历史判断；先固定 main SHA，再分页；保留 cherry-pick、标准 revert/revert-of-revert。只按准确 Change-Id 或准确 task+result/cherry-pick 身份认定；Work 仅是线索。Gitea 上限 200 页 × 50，截断或父链缺失为 Unknown，不能当 Never。
+- controller 每次成功采集（业务值不变也一样）写 `note.plan_observation` 到 `plan-observation:<root>`；来源 ID 为 root+绑定摘要，来源版本是该绑定下串行采集的单调版本。同版本同内容幂等、异内容冲突；乱序旧版本不会覆盖较新版本。事件的 `at` 和 `last_success` 来自服务端。失败保留上一份证据与最后成功时间。
+- 每个步骤的新原子及依赖从一个 SQL statement snapshot 读取；只读计划视图仍使用 repeatable-read，并返回逐流 committed 水位。超过 60 秒未成功采集为 Stale，读取失败为 Unknown；两者均不当业务失败，也不继续保持新原子的 done。历史事实保留，当前状态回到 active，依赖按所需 milestone 重算。旧规则的 Unknown 行为不变。
+- `note.landing` 继续由现有 `landing.State` reducer 重放，任务详情与近期变化直接读取它；生命周期事件不能替代 Git/部署的当前有效性证明。外部工作保留登记方的 Submitted 状态，另投影 controller 的 verification。
+- 无新增表、migration、agent 完成写入口或外部依赖。本片不发布、不将静态第 4 轮计划自动采用到运行环境；人工签收或上线核验仍是实际发生后才能写入的事实。
