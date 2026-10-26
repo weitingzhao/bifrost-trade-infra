@@ -3400,3 +3400,18 @@
 - **防线**：`scripts/gitea/check-local-credential-identity.py:14`（执行 `python3 scripts/gitea/check-local-credential-identity.py --admin weitingzhao`）；不使用 `-g`、`-w` 或 `git credential fill`，只读账户元数据。发现 admin 返回 1，未知 helper、未知配置来源或查询失败返回 2，不能当 PASS。新增 admin 必须增加 `--admin`；Owner 负责核实完整名单和 host 别名。测试 `scripts/gitea/test_local_credential_identity.py` 覆盖命中、干净、未知 helper 和查询异常。
 - **验收**：在实际 Mac checkout 运行上面的 metadata 检查；Owner 确认 admin 名单完整、所有 Gitea host 别名已查；从 Gitea 服务端审计确认新推送者为 `bifrost-mbp`、main 被拒；完成 07-30 起授权血缘回溯。尚未全部完成，不能签收。
 - 审批：不推送、不改缓存的 metadata 检查不用；凭证变更/真实写探针由 Owner 操作。历史修正仅记录证据，不改写 Git 历史。
+
+
+### TD-441
+
+**P1 · 人工审批归属 · PROD 审批与目标环境执行之间缺少通道**
+
+- **状态**：在做（2026-10-26，Work 609；本地防线与 CUT 已准备，尚未合并/部署，跨环境通道未实施）。
+- **事故**：Work 582 的 `mark_missions_no_merge` 按“目标 runtime 的平台”建单，STG #2（`appr_687dc07023699256`）落在 `stg.ops.bifrost.lan` 的审批存储。Owner 2026-10-26 决定：D-L5 只标 PROD；STG #2 自行过期；所有人工审批回到 `ops.bifrost.lan`。本条依据任务书的事故记录，未对线上单据做操作。
+- **证据**：platform 基线 `45ad51ee` 的 `api/internal/actions/catalog.go:452` 指示到目标平台建单；`:466` 的 `void_exam_paper` 也有同类说明；`api/internal/server/agentrt_nomerge.go:32`、`agentrt_voidpaper.go:28` 只允许本机 runtime 并引导去另一个平台；`api/internal/approvals/service.go:200` 在建单前没有环境防线。PROD 没有 STG runtime DB 的执行能力，改一句入口文案不能补齐执行链。
+- **影响**：Owner 要去多个 Console 批单，PROD 看不到完整决定和执行结果；PROD 批准不能安全执行 STG 本地状态变更。STG 的人工问题卡/签收也不能借本地问题存储成为第二个审批入口。
+- **修法**：先拒绝非 PROD 的人工建单（含演练审批单），保留 B 级直调、签名策略自动放行和 STG 内部规则卡；两个 runtime 本地动作暂限 PROD。按 [CUT](work/multi-agent/CUT-approvals-cross-env-2026-10-26.md) 在 4.7 实施中央审批、目标环境领单执行、结果回写；身份、参数哈希、期限、重复执行与未知结果均须验证。不能把 PROD 管理员令牌或 STG 数据库写身份复制到另一边代替通道。
+- **防线**：`RATCHETS.md`「人工审批只在 PROD 建单（TD-441）」；platform `approvalhome/home.go:15`、`approvals/service.go:203`、`questions/create.go:36` 为本片新增拒绝；`actions/approval_home_test.go` 同时扫目录描述与 server 接线/执行器的字符串，防止重新引导到目标环境建单。防线尚在工作树，未上线。
+- **验收命令**：platform 根运行 `go -C api build ./... && go -C api vet ./... && go -C api test ./internal/actions/... ./internal/approvals/... ./internal/server/... ./internal/questions/...`；数据库集成测试须设隔离的 `AGENTRT_TEST_PG`、`AGENTRT_TEST_REDIS`、`AGENTRT_TEST_REQUIRED=1`，不得以 skip 代替通过。定向防线：`go -C api test ./internal/actions ./internal/approvals ./internal/server ./internal/questions -run 'Test(HumanApprovalHome|OwnerQuestionHome|CatalogHumanApprovalHome|STGRuleCard)' -count=1`。
+- **本片验证**：2026-10-26，本地未提交工作树（platform 验收时 HEAD `abd258c0`）：上述 build、vet、四包测试通过，隔离 PostgreSQL/Redis 集成测试已启用；新增防线在旧生产代码上失败、修复后通过。双轨新增规则及 `workspace-v26` 一致；完整 parity 仍有两项基线既存失败，详见 Work 609 `REPORT.md`，不将其记为 PASS。
+- **最终验收**：通道上线后在 PROD 建一张明确目标 STG 的单，Owner 只在 PROD 批一次；只有 STG runtime 发生预期变更，PROD 显示结果及证据；重放、越环境、篡改、过期、断网、部分完成探针全部通过。当前仅完成防回退，不能签收此债。

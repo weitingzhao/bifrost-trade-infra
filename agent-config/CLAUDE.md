@@ -1,5 +1,5 @@
 <!--
-parity-ids: workspace-v25, language-v1, agent-modes-v4, trade-execution-freeze-v4, dev-services-v3, phase-execution-v3, shared-worktree-v4, business-first-v1
+parity-ids: workspace-v26, language-v1, agent-modes-v4, trade-execution-freeze-v4, dev-services-v3, phase-execution-v3, shared-worktree-v4, business-first-v1
 对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
 改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
 -->
@@ -208,6 +208,8 @@ platform-api `start_pipeline_run` 还要求请求里的 `who` 等于窗口里的
 - 细则见 `bifrost-trade-infra/docs/RELEASE.md`「发布窗口」。
 
 > 事故：2026-09-27 两个会话同时发 core 0.24.0；2026-09-28 插件 0.61.0 的 registry tag 被另一会话覆盖。
+
+**人工审批唯一入口（Owner 2026-10-26，Work 609）**：凡需要人批准的请求（C/D 级审批、Owner 签收），无论目标环境是什么，一律在 PROD 平台（`ops.bifrost.lan`）建单并批准；把这类请求放到其他环境平台的设计在评审时直接拒绝。跨环境执行通道未建成时，不能以目标环境本地建单代替。
 
 ### 放行规则只省「复制到终端」（Owner 2026-10-05）
 
