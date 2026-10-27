@@ -3497,3 +3497,15 @@
 - **修法**：1 统一「根任务是否还有待执行动作」的判定（discarded、non_ff 的后继、已 retry 未领取），close、扫描、到限收尾共用。2 对遗留生产中间态先对账再收尾，不支持的操作单独隔离，不回滚其他操作的到限记录；不放宽转移表。3 以仓库流已提交的 head/seq 为键复用折叠结果，持 mission 锁时核对 head。
 - **防线**：修 1 时把复核 638 的 `TestWork638NonFFKeepsMissionForReplay`（在 `~/agent-work/codex-work-638/review638_store_test.go`）改成正式回归；修 2 时加「一条不支持的旧中间态 + 一条到限 STG 操作，后者仍能收尾」。
 - **验收**：`go -C api test ./internal/agentrt/store/ -run 'Close|Landing|Drill' -count=1`（隔离的 `AGENTRT_TEST_PG`、`AGENTRT_TEST_REDIS`、`AGENTRT_TEST_REQUIRED=1`）。
+
+
+### TD-448
+
+**P1 · 交付 · STG 平台发布用的 Dockerfile 是 cicd 里的副本，改仓库文件不生效**
+
+- **状态**：未开始（2026-10-27 登记；当天由 Owner 手工刷新 `bifrost-platform-api-stg-dockerfile` 解了 S2 的燃眉之急，五份 STG Dockerfile 副本当时与 infra `d32eff8` 逐字一致）。
+- **证据**：`k8s/cicd/tekton/pipeline-deliver-platform.yaml` 的 `stage-api-dockerfile` 只 `cp /cm/Dockerfile.platform-api-stg`（ConfigMap `cicd/bifrost-platform-api-stg-dockerfile`），不读本次克隆的 infra。infra `01584b6`（2026-10-26）给 `k8s/cicd/docker/Dockerfile.platform-api-stg` 的运行层加了 `git`，之后两次 STG 发布都用的旧副本：签了 `landing:dev` 后 STG workers 每 15 秒记 `agentrt-landing-drill: landing git init failed`（10-27 16:08–16:18Z）。副本只由 `scripts/k3s/run-deliver-platform.sh`（Owner 管理员 kubeconfig）或平台的 `POST /api/v1/delivery/supply-chain/dockerfile-configmaps/refresh`（operator，没有 MCP 工具，不在动作目录）刷新；上一次跑刷新任务是 45 天前。
+- **影响**：改 Dockerfile 的提交在仓库和 CI 里都是绿的，部署出来的镜像却是旧的，说明里写的「镜像带 X」不成立；这次让 S2 演练从启用起就跑不起来。Trade 的 `bifrost-deliver-stg` 有 prepare 步骤从克隆写副本，平台这条没有。
+- **修法**：`bifrost-deliver-platform`（含 PROD 版）的 stage 步骤改为从本次 infra 克隆拷 Dockerfile（与 `bifrost-deliver-stg` 的 prepare 同法），或在 stage 前跑 `bifrost-refresh-dockerfile-cms`；改 Tekton 资源要 Owner 应用。
+- **防线**：在修好之前，`release.sh stg|prod` 发 platform 前只读比对五份副本与本次 infra main 的文件，不一致就停并打印刷新命令；修好之后加静态测试：deliver-platform 管线不得从 ConfigMap 读 Dockerfile。
+- **验收**：改 `Dockerfile.platform-api-stg` 一行注释后只跑 STG 发布，构建日志里的 Dockerfile 含这行；比对脚本对五份副本输出 `same`。
