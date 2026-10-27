@@ -3428,9 +3428,11 @@
 - **验收命令**：infra 根运行 `python3 -m unittest discover -s agent-config/codex -p 'test_*.py' -v`、`python3 -m pytest -q scripts/benchmark`；完整工作区内运行 `bash scripts/check-agent-config-parity.sh`，确认实际使用待验收 infra 的治理文件，exit 0 才通过。未提交 infra 路径修复可单独运行 `BIFROST_WORKSPACE=<workspace> python3 agent-config/scripts/check_hardcoded_paths.py --worktree --new-only --repos bifrost-trade-infra`，此命令不替代完整验收。
 
 
-### TD-443
+### TD-445
 
-**P2 · 计划视图 PV2 · 复核修完后留下的三处**
+**P2 · 计划视图 PV2 · 复核修完后留下的几处**
+
+（platform `3aa76022` 和 Work 631/632 的任务书里写作 TD-443；与 NAS 的 TD-443/444 撞号后改为 TD-445。）
 
 - **状态**：未开始（2026-10-26 统筹复核 PV2 `057251ee` 后登记；两个阻断项和五个应修项已在 `w31/pv2` 修复，下面三处没有修）。
 - **证据**：
@@ -3446,7 +3448,7 @@
 - **验收**：`go -C api test ./internal/agentrt/store/ -run 'PV2' -count=1`（设隔离的 `AGENTRT_TEST_PG`、`AGENTRT_TEST_REDIS`、`AGENTRT_TEST_REQUIRED=1`）。
 
 
-### TD-444
+### TD-446
 
 **P2 · 计划视图 · Claude 会话的活在 Work → Plan 上看不见**
 
