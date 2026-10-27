@@ -3426,3 +3426,27 @@
 - **修法**：本片已移除 infra 路径常量、增加工作区定位回归；Codex 检查器补启动诊断、字节分帧、RPC/目录覆盖校验及子进程回收，失败继续阻断。platform 另行将 `BENCH_REPOS` 的默认值改为 `BIFROST_WORKSPACE` 或从工作目录上溯 marker，缺失时明确失败；本片按 BRIEF 不改 platform。修复经正常流程进入两仓 main 后，由可正常启动 app-server 的既有受信工作区重跑完整检查；不更改 trust、沙箱策略、远端引用或基线来制造通过。
 - **防线**：`RATCHETS.md`「Codex 检查失败不误报成功（Work 616 / TD-442）」；保留完整 parity 全部检查项。
 - **验收命令**：infra 根运行 `python3 -m unittest discover -s agent-config/codex -p 'test_*.py' -v`、`python3 -m pytest -q scripts/benchmark`；完整工作区内运行 `bash scripts/check-agent-config-parity.sh`，确认实际使用待验收 infra 的治理文件，exit 0 才通过。未提交 infra 路径修复可单独运行 `BIFROST_WORKSPACE=<workspace> python3 agent-config/scripts/check_hardcoded_paths.py --worktree --new-only --repos bifrost-trade-infra`，此命令不替代完整验收。
+
+### TD-443
+
+**P1 · NAS 监控 · smartctl_exporter 0.14.0 对 NVMe 整页 500，NAS 四块盘的 SMART 都看不见**
+
+- **状态**：在做（2026-10-26；修复已提交到 infra 分支 `w68/nas-tiering`，等 Owner 推 main 后在 NAS 重跑一步）。
+- **证据**：`up{job="smartctl",host="nas"}` 自 2026-10-24 17:07:00 CDT 起为 0，Prometheus 报 `server returned HTTP status 500`；直接读 `http://192.168.10.20:9633/metrics` 的正文：`collected metric smartctl_device_bytes_written label:{name:"device" value:"nvme0"} ... with unregistered descriptor`。pool2 建于 17:07:27（设备名时间戳 `1792879647`），SSD 有了第一笔写入后触发。`BifrostNasSmartBlind`（critical）与 `BifrostHostSmartExporterDown` 自 10-24 22:08Z 起在报。上游 v0.15.0 的 #329（issue #326）修的就是这条。镜像：`scripts/host-exporters/nas/compose.yaml:58`；版本：`scripts/host-exporters/versions.env:21`。细节：`agent-config/work/multi-agent/CUT-w68-nas-tiering-2026-10-26.md` 第 3 节。
+- **影响**：三块 RAID5 机械盘和新 SSD 的坏盘、坏扇区、磨损告警全部失明两天多；RAID5 再坏一块就丢 `/volume1`。
+- **修法**：NAS 的 smartctl-exporter 升到 `v0.15.0@sha256:a76e08dbf5db4781fefd1ed81c65ad46ae8d2849dae6b6d3acebcde2fc4e59d6`，`versions.env` 同步 0.15.0 与 linux-amd64 校验和（06 下次重跑时一起升）。Owner 在终端面板跑：`git -C /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra fetch -q origin && git -C /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra show origin/main:scripts/host-exporters/host-exporters.sh > /tmp/b4-host-exporters.sh && bash /tmp/b4-host-exporters.sh nas`（sudo 问一次 Wzhao 的口令）。
+- **防线**：已有的两道起了作用，不加新的：`BifrostNasSmartBlind`（`k8s/monitoring/bifrost-host-rules.yaml:219`，看全三块盘才算不盲）和 `install-nas.sh` 安装后要求至少 3 行 `smartctl_device_smart_status`。剩余风险：0.15.0 仍是 `HTTPErrorOnError`，任一指标出错仍整页 500；下次改 `bifrost-host-rules.yaml` 时在 `BifrostNasSmartBlind` 说明里加「先 curl 这个地址看 500 正文」。
+- **验收**：`up{job="smartctl",host="nas"} == 1`，`count(smartctl_device_smart_status{host="nas"}) >= 3`，`BifrostNasSmartBlind` 不再 firing；并且 `smartctl_device_percentage_used{host="nas",device="nvme0"}` 有值。
+- 审批：推 infra main 由 Owner 推（冻结期）；NAS 上一步由 Owner 跑。
+
+### TD-444
+
+**P2 · NAS 存储 · 本机 Time Machine 每小时让 RAID5 饱和约 15 分钟，集群写延迟随之到 1.2 秒；分层方案待定**
+
+- **状态**：未开始（2026-10-26 设计已出，等 Owner 选 A / B / C）。
+- **证据**：`agent-config/work/multi-agent/CUT-w68-nas-tiering-2026-10-26.md` 第 2 节。10-24 16:30 至 10-26 21:50 CDT：52 次突发、每小时 0.97 次、每次约 15 分钟、中位收 3.5 GB；占 md1 全部写入 82%、盘忙时间 79%；突发间盘忙 4.7%。突发时 md1 写等待中位 1216 ms（空闲 107 ms），`NodeDiskIOSaturation` 每晚 pending。本机 Time Machine 目标是 NAS `TimeMachine` 共享，间隔 3600 秒，家目录每小时约 1.1 GB 改动（`~/.codex`、Chrome、Codex 应用数据等未排除）。
+- **影响**：Owner 每小时听到机械盘响一阵；Prometheus WAL、MinIO WAL 归档、registry 拉镜像每小时有约 15 分钟每次写要等一秒多；三块盘常年承受不必要的随机写。
+- **修法**：推荐 A：在 `/volume2` 建 `TimeMachine-SSD`（配额 600 GB），本机改备份到它并移除旧目标、加排除项；集群数据不动；SSD 另放行情归档每晚副本（集群 CronJob 复制并按 `_ledger.jsonl` 的 sha256 核对）。B / C 与步骤、停机、回退见 CUT 第 5 节。
+- **防线**：做完后加一条告警「NAS 一天里盘忙超 30% 的 5 分钟窗口超过 20 个」（`count_over_time((rate(node_disk_io_time_seconds_total{host="nas",device="sda"}[5m]) > 0.3)[1d:5m]) > 20`，warning），让「有人又往 RAID5 上放了热写」当天能看到；归档副本由 CronJob 的最近成功时间告警兜住。
+- **验收**：首次全量完成后 24 小时，CUT 第 7 节五项：盘忙超 30% 的窗口 ≤ 5/天、md1 最差写等待 < 0.3 秒、nvme0n1 每小时有写、SSD 健康 1、`NodeDiskIOSaturation` 不再 pending。
+- 审批：要你定 A / B / C 和归档副本方式（CUT 第 9 节）；NAS 与本机设置都是 Owner 做；B / C 的集群清单改动按 C 级单。

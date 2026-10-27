@@ -17,7 +17,8 @@
 # root to run compose can start a privileged container. Not /volume1/docker/, which is
 # 777 (review 537 A1). Steps: agent-config/work/multi-agent/
 # OWNER-STEPS-w68-b4-2026-10-24.md, step 4. Versions follow scripts/host-exporters/versions.env;
-# images are pinned by digest (quay.io manifest lists, read 2026-10-24).
+# images are pinned by digest (quay.io manifest lists, read 2026-10-24; smartctl-exporter
+# v0.15.0 read 2026-10-26, TD-443).
 #
 # Both listen on the LAN address only (host network), unauthenticated, like MinIO's
 # public metrics on :9000 and the cluster's node-exporter on :9100.
@@ -54,7 +55,7 @@ services:
         max-file: "3"
 
   smartctl-exporter:
-    image: quay.io/prometheuscommunity/smartctl-exporter:v0.14.0@sha256:cfe22c36d7d2fac48ebf619707305acb65eb0fb670656eb80f356e606d782bc1
+    image: quay.io/prometheuscommunity/smartctl-exporter:v0.15.0@sha256:a76e08dbf5db4781fefd1ed81c65ad46ae8d2849dae6b6d3acebcde2fc4e59d6
     container_name: smartctl-exporter
     command:
       - --web.listen-address=192.168.10.20:9633

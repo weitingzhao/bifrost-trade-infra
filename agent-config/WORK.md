@@ -609,6 +609,10 @@
         - [ ] （你）在 06、NAS、两台 mini 上装报数程序
         - [ ] 抓取与告警规则上集群并核对
         - [ ] （你）装 SSD、R7 小主机上架（选一个窗口）
+        - [ ] NAS 的 SMART 报数恢复：smartctl_exporter 升 0.15.0（TD-443）｜（你）推 infra 后在 NAS 重跑 `host-exporters.sh nas`
+        - [ ] NAS 存储分层（方案 B）：设计已出，Time Machine 才是 IO 大头｜infra `agent-config/work/multi-agent/CUT-w68-nas-tiering-2026-10-26.md`（TD-444）
+        - [ ] （你）选 A / B / C 和归档副本方式，按选定的做 NAS 与本机设置
+        - [ ] 行情归档每晚副本到 SSD 池，并按账本 sha256 核对
         - [ ] R7 进集群，PROD Trade 与 Postgres 主库从 02 拆开
         - [ ] B3 告警转发成对、B2 镜像回退
         - [ ] （你）B1 控制面三台（周末休市窗口）
@@ -1198,6 +1202,7 @@
 - **边界**：两台 Win11 只盘点、只写，按 RUNTIME-PLACEMENT §9 不装、不改交易区网络、不做准备性接线，直到 D10 解除且五条前提成立
 - **你已定的（咨询线程整理）**：第一批顺序 B4 → B3 → B2 → B1 → B5，都不用新硬件；B4 扩成集群外机器统一监控与管控五片（① node / RAID / SMART 报数与 HostDown、磁盘告警；② Shelly 插座和 UPS 电量；③ UniFi 经 unpoller；④ 06 和新节点的唤醒、关机，唤醒那一跳移出 01；⑤ 06 的漂移核对）；监控用现有 Prometheus / Alertmanager / Grafana 加社区报数程序，不另起第二套、不做统一控制面；不买第二台 NAS，NAS 空着的 M.2 插 1 TB SSD（已下单）做单独存储池，每晚 UGOS 备份行情归档（期权快照从 Postgres 修剪后的唯一一份），NAS 上的步骤你做；新小主机 R7 7735HS 24 GB（与 01/04/05 同型，已下单）作为对等节点进 K3s，通用池从 05 一台变两台，不当 Agent 主机；集群外机器改用 Ansible 管理列为「以后再看」（超过 6 台或 ⑤ 做完觉得脚本难维护时你定）。**还没定（你）**：B5 走哪条路（Mac Pro 冷备 / gpu-server 唤醒冷备 / 再买）、网关、age 密钥 / 管理员 kubeconfig / 节点钥匙有没有离线第二份。方案和依据在咨询线程的笔记里（`~/Library/Application Support/Claude/side-session-notes/local_728a47ff-…/PLAN-w68-redundancy-2026-10-17.md`、`redundancy-map-draft.md`），给你看的台账在 Claude Doc `https://claude.ai/artifact/Kb5jJTGhoSJCtdvs4ZKMJM`，「计划与进度」的状态由统筹方随落地改
 - **硬件到货（Owner 2026-10-19 10:2x）**：M.2 NVMe SSD 已到。Owner 同意先不装，等 R7 7735HS 小主机到货后和它一起排（新硬件接入一批做）。装 SSD 要 NAS 关机，NAS 上有 registry（约 30 个容器每次拉镜像）、Prometheus / Alertmanager 数据、MinIO（WAL 归档与备份）、逻辑备份、Gitea 备份、集群状态备份、行情归档：统筹方先确认当时没有发版、没有定时任务（避开 22:10 Gitea 备份），装完核对 Pod 与监控恢复，再写每晚把行情归档备份到新池的任务。
+- **存储分层设计（2026-10-26，子会话）**：实测 NAS 机械盘八成 IO 来自本机 Time Machine（每小时约 15 分钟突发、中位 3.5 GB，突发时集群写延迟 1.2 秒），集群自身只让盘忙约 5%；推荐把 Time Machine 换到 SSD 池、集群数据留 RAID5、SSD 放行情归档每晚副本，B（集群热数据上 SSD）与 C 列为备选。同时查明 SMART 失明是 smartctl_exporter 0.14.0 读 NVMe 的 bug（建 pool2 那一分钟起整页 500），升 0.15.0。设计与要你定的三点：`work/multi-agent/CUT-w68-nas-tiering-2026-10-26.md`；台账 TD-443、TD-444
 - **以后再看（Owner 2026-10-19 10:2x 提出，统筹方建议先不做，Owner 同意记在这里）**：两台跑 TWS 的 Win11 换成便宜小主机，原机重装成 Linux 节点给小牛牛包工队。为什么现在不做：包工队缺的不是机器（06 大部分时间空着，并发 2 刚要启用，7735HS 要进集群；真缺算力先唤醒 4090 Linux 服务器）；TWS 是 Trade 取 IB 数据与账户的唯一入口，换硬件、重配 TWS 与 API 端口、改防火墙分区、改平台连接地址，每一步都可能让 Trade 缺一天数据；10-07 定的「TWS 两台最后才上、极其谨慎」仍成立；省电不多、要花钱买两台。重新考虑的触发条件（任一）：① 实测 06 与 7735HS 都跑满、尝试排队等主机；② 两台 Win11 本来就到了该换的时候（老化、故障）；③ 重做交易区时考虑在 Linux 上跑无界面的 IB Gateway（要自动登录或定期人工登录，改变「登录只在 Win11 的 TWS 里」的安全模型，Owner 单独定）。真要迁：先迁从机、跑一周再迁主机；原机改作 Agent 主机前彻底重装并移到 Agent 网络分区，Agent 主机永不与 TWS 同网段。边界照旧受 RUNTIME-PLACEMENT §9 约束。
 - **下一步**：① 盘点出「能力 × 机器」后备表（主、备、切换方式与用时、怎么发现、最小修法、要不要新硬件、电）；② 你定第一批（候选：控制面三台高可用、NAS 单点、告警转发成对、工棚后备、补主机监控），不需要新硬件的先做；③ 再按插座计量的数据定要不要买、放哪
 - **验收**：拔掉任何一台非 Win11 的机器，对应能力在约定时间内由备机接上，并且你在手机上收到通知
