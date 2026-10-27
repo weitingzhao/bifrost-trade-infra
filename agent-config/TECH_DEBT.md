@@ -3493,8 +3493,9 @@
   2. `store/landing_bounds.go` `SettleLandingDrillBounds`：对所有非终态统一追加 `failed{bound}`，而 v1 合法链停在 `main_intent`、`main_result{ok|denied}` 时这条转移被拒（`illegal`），整个收尾事务回滚，同流里其他到限的操作也收不了尾。复核 638 的 `TestWork638LegacyProtocolEvidence` 实跑确认。今天三个库都没有落地记录。
   4. `close.go` `landingHolds` 的首次领取宽限只有 2 分钟（复核 640 R640-1，`TestWork640GraceSurvivesBusyRecovery` 在 `~/agent-work/codex-work-640/` 实跑为红）：一轮里旧操作的外部读取超过 2 分钟，或 `max_in_flight_per_repo` 被占超过 2 分钟，新任务的 mission 就会在首次领取前被关。S2 靠「一次只起一件演练任务」绕开；S3 要可落库、可到限的首次领取交接。另：6 小时 15 分的持住上限不分 dry_run，S3 的 v1 生产中间态（`main_intent`、`main_result{ok}`）不能靠它，修 2 时一起限定。
   3. `close.go`：每个可关闭 mission 在持 mission 行锁期间重新折叠整条 `landing:<repo>` 流，历史长了以后重复且部分随操作数平方增长。今天流为空。
-- **影响**：1、2 在 S3 接真推送后会让 mission 过早关闭或收尾整体卡住；3 是将来的锁持有时间。
-- **修法**：1 统一「根任务是否还有待执行动作」的判定（discarded、non_ff 的后继、已 retry 未领取），close、扫描、到限收尾共用。2 对遗留生产中间态先对账再收尾，不支持的操作单独隔离，不回滚其他操作的到限记录；不放宽转移表。3 以仓库流已提交的 head/seq 为键复用折叠结果，持 mission 锁时核对 head。
+  5. `store/landing_drill.go` `ClaimLandingDrill`：持 task / mission / `landing:bifrost-platform` 流锁的事务里调用 `LandingFacts`，后者经 `DrillGitFacts` 为 Result、History 各开一个临时仓库并 fetch（依赖还要再读），STG 每进程连接池只有 2 个（`server/agentrt_wire.go` `agentrtMaxConns`）。2026-10-27 签 `landing:dev` 后，12 件启用前的任务让一个连接常被占住，presence 超时、派活与验收停滞、workers CPU 0.04→0.7 核；platform `28119cb1`（测试 `2ba2b6eb`）先在 SQL 里筛掉只靠数据库就会拒的候选，止住了这一起。仍会每轮重读 Git 的：`history`/`rule`/`limit`/`terminal`/`result`/plan/依赖拒绝、已 rehearsed 或在途但 mission 仍 active 的任务；拒绝没有退避（复核 641 §3）。
+- **影响**：1、2 在 S3 接真推送后会让 mission 过早关闭或收尾整体卡住；3 是将来的锁持有时间；5 是任何一件会被反复拒绝的候选都会再次占住 STG 一半的连接。
+- **修法**：1 统一「根任务是否还有待执行动作」的判定（discarded、non_ff 的后继、已 retry 未领取），close、扫描、到限收尾共用。2 对遗留生产中间态先对账再收尾，不支持的操作单独隔离，不回滚其他操作的到限记录；不放宽转移表。3 以仓库流已提交的 head/seq 为键复用折叠结果，持 mission 锁时核对 head。5 把 Git 读取移出持锁事务：短事务读绑定（task/attempt/A/Base、mission、依赖、规则、流状态），先做数据库可判的拒绝与 rehearsed/in_progress 早返回；释放连接后按固定 SHA 读 Result/History（同一快照共用工作区）；再开短事务按既有锁序重读全部绑定，任一改变就丢弃预读结果；被拒候选按原因退避。`FinishLandingDrill` 的最终闸同理另做，不取消这道闸（复核 641 §3 的四点）。
 - **防线**：修 1 时把复核 638 的 `TestWork638NonFFKeepsMissionForReplay`（在 `~/agent-work/codex-work-638/review638_store_test.go`）改成正式回归；修 2 时加「一条不支持的旧中间态 + 一条到限 STG 操作，后者仍能收尾」。
 - **验收**：`go -C api test ./internal/agentrt/store/ -run 'Close|Landing|Drill' -count=1`（隔离的 `AGENTRT_TEST_PG`、`AGENTRT_TEST_REDIS`、`AGENTRT_TEST_REQUIRED=1`）。
 
