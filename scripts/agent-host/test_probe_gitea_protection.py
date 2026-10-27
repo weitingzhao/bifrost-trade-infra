@@ -79,6 +79,7 @@ class FakeApi:
         self.state = "open"
         self.opened = False
         self.tag_exists = False
+        self.deletes = 0
         self.created = threading.Event()
         self.release = threading.Event()
         outer = self
@@ -103,10 +104,15 @@ class FakeApi:
                 elif negative is not None and '/branches/agent' in self.path:
                     from urllib.parse import unquote
                     branch = unquote(self.path.split('/branches/')[1])
-                    if self.command == 'DELETE' and not negative.get('cleanup_fail'):
+                    lagging = False
+                    if self.command == 'DELETE' and negative.get('delete_lag', 0) > outer.deletes:
+                        # Gitea's branch table not synced yet: 500, nothing deleted.
+                        outer.deletes += 1
+                        lagging = True
+                    elif self.command == 'DELETE' and not negative.get('cleanup_fail'):
                         subprocess.run(['git', '--git-dir', str(bare), 'update-ref', '-d', 'refs/heads/' + branch], check=True)
                     found = subprocess.run(['git', '--git-dir', str(bare), 'show-ref', '--verify', 'refs/heads/' + branch], capture_output=True)
-                    code, body = (200 if found.returncode == 0 else 404), {}
+                    code, body = (500 if lagging else 200 if found.returncode == 0 else 404), {}
                 elif negative is not None and self.path.endswith('/tags'):
                     code, body = negative.get('tag', 403), {'message': negative.get('tag_message', SCOPE_DENIAL)}
                     outer.tag_exists = code in (200, 201)
@@ -808,6 +814,26 @@ exit "$rc"
                 with self.subTest(field=field, message=message):
                     result, _ = self.negative_probe({field + '_message': message})
                     self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+
+    def test_p0_01_git_bare_forbidden_is_a_scope_denial_only_for_the_handshake(self):
+        # Gitea 1.21.11's git HTTP scope check answers a bare "Forbidden" (2026-10-27 P0-01 run).
+        result, _ = self.negative_probe({'handshake_message': 'Forbidden'})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('push handshake: HTTP 403; token scope (git HTTP bare 403); repository ACL unverified', result.stdout)
+        for field in ('protection', 'pr', 'tag'):
+            with self.subTest(field=field):
+                result, _ = self.negative_probe({field + '_message': 'Forbidden'})
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        result, _ = self.negative_probe({'handshake_message': 'Forbidden', 'handshake': 404})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+
+    def test_p0_01_branch_cleanup_waits_for_gitea_branch_table(self):
+        # A just-pushed branch: DELETE answers 500 until Gitea syncs it (2026-10-27 P0-01 run).
+        result, _ = self.negative_probe({'delete_lag': 2})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('after 3 attempt(s); readback HTTP 404', result.stdout)
+        refs = subprocess.check_output(['git', '--git-dir', str(self.bare), 'for-each-ref', 'refs/heads/agent'], text=True)
+        self.assertEqual(refs, '')
 
     def test_c1_scope_denial_is_labeled_separately(self):
         result, _ = self.negative_probe({'protection_message': SCOPE_DENIAL})

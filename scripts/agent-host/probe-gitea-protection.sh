@@ -32,6 +32,7 @@ import re
 import shutil
 import signal
 import subprocess
+import time
 import tempfile
 import urllib.error
 import urllib.parse
@@ -137,8 +138,15 @@ def denied(check, response):
     # A generic "insufficient scope" does not identify the missing permission.
     # Git responses with no explicit write:repository reason stay unverified.
     known_scope = message == scope
+    # Gitea 1.21.11 answers a git HTTP request whose token lacks the scope with
+    # a bare ctx.Error(403) (modules/context/permission.go CheckRepoScopedToken):
+    # the body is exactly "Forbidden". A user without write access gets 404
+    # "Repository not found" there instead, so this 403 is a scope denial only.
+    git_scope = check == 'push handshake' and message == 'Forbidden'
     if code == 403 and known_scope and mode == 'reader':
         report(True, check, f'HTTP {code}; token scope; repository ACL unverified')
+    elif code == 403 and git_scope and mode == 'reader':
+        report(True, check, f'HTTP {code}; token scope (git HTTP bare 403); repository ACL unverified')
     elif code == 403 and check in acl and message == acl[check]:
         report(True, check, f'HTTP {code}; repository ACL denial')
     else:
@@ -240,10 +248,20 @@ finally:
                 report(False, 'PR cleanup', f'not verified; inspect head {branch} into main')
         try:
             encoded = urllib.parse.quote(branch, safe='')
-            deleted, _ = request(setup, 'DELETE', root + '/branches/' + encoded)
-            code, _ = request(setup, 'GET', root + '/branches/' + encoded)
+            # A branch just pushed over git reaches Gitea's branch table a
+            # moment later; until then DELETE answers 500 "branch does not
+            # exist" while the ref is readable (2026-10-27 P0-01 run). Retry
+            # until the readback is 404.
+            attempts = 0
+            while True:
+                attempts += 1
+                deleted, _ = request(setup, 'DELETE', root + '/branches/' + encoded)
+                code, _ = request(setup, 'GET', root + '/branches/' + encoded)
+                if code == 404 or attempts >= 10:
+                    break
+                time.sleep(2)
             report(deleted in (200, 204, 404) and code == 404, 'branch cleanup',
-                   f'{branch}; delete HTTP {deleted}; readback HTTP {code}; expected 404')
+                   f'{branch}; delete HTTP {deleted} after {attempts} attempt(s); readback HTTP {code}; expected 404')
         except Exception:
             report(False, 'branch cleanup', f'not verified; inspect refs/heads/{branch}')
         if tag_attempted:
