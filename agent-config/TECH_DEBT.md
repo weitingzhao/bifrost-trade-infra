@@ -3450,3 +3450,34 @@
 - **防线**：做完后加一条告警「NAS 一天里盘忙超 30% 的 5 分钟窗口超过 20 个」（`count_over_time((rate(node_disk_io_time_seconds_total{host="nas",device="sda"}[5m]) > 0.3)[1d:5m]) > 20`，warning），让「有人又往 RAID5 上放了热写」当天能看到；归档副本由 CronJob 的最近成功时间告警兜住。
 - **验收**：首次全量完成后 24 小时，CUT 第 7 节五项：盘忙超 30% 的窗口 ≤ 5/天、md1 最差写等待 < 0.3 秒、nvme0n1 每小时有写、SSD 健康 1、`NodeDiskIOSaturation` 不再 pending。
 - 审批：要你定 A / B / C 和归档副本方式（CUT 第 9 节）；NAS 与本机设置都是 Owner 做；B / C 的集群清单改动按 C 级单。
+
+### TD-445
+
+**P2 · 计划视图 PV2 · 复核修完后留下的几处**
+
+（platform `3aa76022` 和 Work 631/632 的任务书里写作 TD-443；与 NAS 的 TD-443/444 撞号后改为 TD-445。）
+
+- **状态**：未开始（2026-10-26 统筹复核 PV2 `057251ee` 后登记；两个阻断项和五个应修项已在 `w31/pv2` 修复，下面三处没有修）。
+- **证据**：
+  1. `api/internal/agentrt/store/planfactssnapshot.go` `readPlanFacts`：views、observations、external、landings 四段都按 `event_type='note'` 加 `body_json ? 'key'` 扫全部 note，只有 `event_type_at_idx` 可用。每条带新原子的规则求值读一次，Console 每次轮询 PlanView 也读一次。观测改为只在答案变化时写、每个 root 每 10 分钟最多一条 pass 之后，增长主要来自其他 note。
+  2. `planobservations.go` `readPlanSource` 的 verification 分支按 verification ID 钉住。同一 attempt 之后又出了 fail 结论，这条绑定仍按旧的 pass 算 true。
+  3. 任意一个 root 的视图文档解析失败，`readPlanFacts` 整体报错，所有 root 的 PlanView 和带新原子的规则求值都读不出来。
+  4. `landinggit/history.go` `EvaluateHistory`：一个 squash 提交同时写着「reverts X」和「reverts 分支上那个撤销 X 的提交」时（先 revert 再 reapply 的分支被 squash），后一个 SHA 不在 main 上，X 被判 Reverted，实际净零。方向偏安全（撤回 done），但理由写成「Result reverted」是错的。
+  6. plan-view 响应与 Console `console/src/api/planSnapshotSchema.ts` 的封闭解析之间没有共同的夹具：PV2（32821e76）加了节点字段，PROD 上 Work → Plan 整页报错近一小时（188ffb0c 修复）。Go 测试和 Console 测试各用自己写的夹具。
+  5. `lineage/planhistory.go`：仓库提交数超过 `MaxPages*50`（1 万）时，ancestry 永远不完整，每轮每个绑定都重读 200 页。现在最大的仓库约 2200 个提交，碰不到。
+- **影响**：1 在 note 到几十万条之后拖慢 Work → Plan 页和规则循环；2 只发生在同一结果被重新核验的少见情况；3 一份坏文档会挡住全部计划视图。
+- **修法**：1 需要 Owner 定：加 `(event_stream_id, seq)` 之外的部分索引或表达式索引（migration，架构级），或者把「每条流最新一条」做成投影表；在定之前不改。2 绑定改为钉 task/attempt/round，读该 attempt 最新一条同方法 verification。3 解析失败只让那个 root 变 Unknown，并写进 warnings。 6 Go 端一个测试把带绑定和不带绑定的 PlanView 响应写成 `console/src/api/__fixtures__/plan-view-generated*.json`（固定时间与 ID），CI 比对与提交的文件一致；Console 测试解析这两份。 4 同一提交内，一行撤销的若正是另一行所撤销提交的撤销，两行抵消。5 不完整的结果按 head 缓存，head 不变不重读。
+- **防线**：修 2、3 时各加一条回归测试（旧代码上失败）；1 定方案后加一条 PlanView 在 10 万条 note 下的耗时上限测试。
+- **验收**：`go -C api test ./internal/agentrt/store/ -run 'PV2' -count=1`（设隔离的 `AGENTRT_TEST_PG`、`AGENTRT_TEST_REDIS`、`AGENTRT_TEST_REQUIRED=1`）。
+
+
+### TD-446
+
+**P2 · 计划视图 · Claude 会话的活在 Work → Plan 上看不见**
+
+- **状态**：未开始（2026-10-26 晚登记）。
+- **证据**：NAS 分层会话（`local_74933fb2`）想给 `R4:4.9-9` 记进展，`post_plan_note` 返回 422 `R4:4.9-9 is a step: only an architecture row takes a note`。派活包装器 `scripts/agent-host/dispatch-codex.py` 只会启动 `codex exec`，Claude 会话没有对应的登记入口；本线程的 MCP 工具表是开线程时定格的，没有 `register_external_work`。
+- **影响**：统筹开出去的 Claude 会话（设计、调查、修复）不出现在 Live work 和 Finished today，Owner 只能来统筹线程问。
+- **修法**：给 Claude 会话一条与 Codex 对等的登记路径：开会话时由统筹经 reporter 登记外部派工（executor=claude），会话结束回报时提交 submitted；或 Stop hook 自动做。步骤备注是否放开给普通步骤由 Owner 定（备注不是完成证据，只是进展说明）。
+- **防线**：统筹开会话的流程里加一步「登记」，没登记的会话在 Coverage 里显示为 Unregistered（PV1 已有该计数，需要把 Claude 会话纳入）。
+- **验收**：开一个 Claude 会话后，Work → Plan 的 Live work 在一分钟内出现它，结束后进 Finished today。
