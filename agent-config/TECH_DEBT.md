@@ -3510,3 +3510,15 @@
 - **修法**：`bifrost-deliver-platform`（含 PROD 版）的 stage 步骤改为从本次 infra 克隆拷 Dockerfile（与 `bifrost-deliver-stg` 的 prepare 同法），或在 stage 前跑 `bifrost-refresh-dockerfile-cms`；改 Tekton 资源要 Owner 应用。
 - **防线**：在修好之前，`release.sh stg|prod` 发 platform 前只读比对五份副本与本次 infra main 的文件，不一致就停并打印刷新命令；修好之后加静态测试：deliver-platform 管线不得从 ConfigMap 读 Dockerfile。
 - **验收**：改 `Dockerfile.platform-api-stg` 一行注释后只跑 STG 发布，构建日志里的 Dockerfile 含这行；比对脚本对五份副本输出 `same`。
+
+
+### TD-449
+
+**P2 · 运行时 · 准备失败（prepare_failed）立即重试，几分钟烧光整个 mission 的尝试预算**
+
+- **状态**：未开始（2026-10-27 登记）。
+- **证据**：STG M-153 的 `t_01M5Z2M9BTW95TSVDH80BPAV1D`（任务说明漏了 `siblings`，`npm --prefix ../bifrost-ui ci` 每次 1 秒内失败）在 16:22–16:25Z 被领取了 40 次，每次 `attempt_computed{end_how: prepare_failed}` 后任务回到 ready 立刻再派，mission 的 `max_attempts` 40 用尽；随后 STG 的 card-auto-answer 规则按推荐选项「再给一轮」加了 3 次。同样的失败原因、同样的输出，40 次没有一次能成功。
+- **影响**：一个写错的任务说明在几分钟内耗光 mission 预算、刷出约 500 条事件，挤占同一 mission 里其他任务的尝试；在只有 2 个连接的 STG 池上同时加重派活负担。
+- **修法**：准备失败按失败原因与输出摘要去重：同一任务连续两次以同一摘要 prepare_failed 就转 blocked 并出卡（写明首个失败命令与输出尾部），不再回到 ready；或至少按指数退避。区分「说明本身错误」（不重试）与「主机临时故障」（换主机或退避后重试）。
+- **防线**：加测试：同一摘要的 prepare_failed 第二次后任务为 blocked、尝试数为 2。
+- **验收**：`go -C api test ./internal/agentrt/store/ -run 'Prepare' -count=1`（隔离的 `AGENTRT_TEST_PG`、`AGENTRT_TEST_REDIS`、`AGENTRT_TEST_REQUIRED=1`）。
