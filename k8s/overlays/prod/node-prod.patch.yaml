@@ -9,10 +9,16 @@
 # unschedulable ("didn't match Pod's node affinity/selector"), and the whole
 # Prod surface returned 503 until the host came back.
 #
-# Now it is a preference. Normal scheduling still puts everything on mini-pc-a
+# Now it is a preference. Normal scheduling puts everything on ubt-k3s-07
 # (weight 100). When that host is gone the pods move to the general pool and
 # Prod keeps serving, while BifrostClusterNodeDown still reports the node loss —
 # drifting does not hide the fault, it stops the fault from being an outage.
+#
+# 2026-10-27 (W-68, round 4 step 4.9-5): the preferred host moved from mini-pc-a
+# (ubt-k3s-02) to ubt-k3s-07, a new 7735HS node in the general pool. mini-pc-a
+# also holds the CloudNativePG primary (bifrost-postgres-1) and much of CI, so
+# Prod Trade and the database primary no longer share one machine. mini-pc-a
+# stays a fallback through the prod-pool label.
 #
 # The tolerations shorten the wait before a pod on an unreachable node is
 # evicted, from the 300s Kubernetes defaults to 45s, so failover is quick enough
@@ -36,14 +42,14 @@ spec:
                   - key: bifrost.io/workload-pool
                     operator: In
                     values: [prod-pool, general]
-          # Soft: mini-pc-a whenever it is available.
+          # Soft: ubt-k3s-07 whenever it is available.
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
               preference:
                 matchExpressions:
                   - key: bifrost.io/host-id
                     operator: In
-                    values: [mini-pc-a]
+                    values: [ubt-k3s-07]
       tolerations:
         - key: node.kubernetes.io/not-ready
           operator: Exists
@@ -70,14 +76,14 @@ spec:
                   - key: bifrost.io/workload-pool
                     operator: In
                     values: [prod-pool, general]
-          # Soft: mini-pc-a whenever it is available.
+          # Soft: ubt-k3s-07 whenever it is available.
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
               preference:
                 matchExpressions:
                   - key: bifrost.io/host-id
                     operator: In
-                    values: [mini-pc-a]
+                    values: [ubt-k3s-07]
       tolerations:
         - key: node.kubernetes.io/not-ready
           operator: Exists
@@ -104,14 +110,14 @@ spec:
                   - key: bifrost.io/workload-pool
                     operator: In
                     values: [prod-pool, general]
-          # Soft: mini-pc-a whenever it is available.
+          # Soft: ubt-k3s-07 whenever it is available.
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
               preference:
                 matchExpressions:
                   - key: bifrost.io/host-id
                     operator: In
-                    values: [mini-pc-a]
+                    values: [ubt-k3s-07]
       tolerations:
         - key: node.kubernetes.io/not-ready
           operator: Exists
@@ -138,14 +144,14 @@ spec:
                   - key: bifrost.io/workload-pool
                     operator: In
                     values: [prod-pool, general]
-          # Soft: mini-pc-a whenever it is available.
+          # Soft: ubt-k3s-07 whenever it is available.
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
               preference:
                 matchExpressions:
                   - key: bifrost.io/host-id
                     operator: In
-                    values: [mini-pc-a]
+                    values: [ubt-k3s-07]
       tolerations:
         - key: node.kubernetes.io/not-ready
           operator: Exists
@@ -172,14 +178,14 @@ spec:
                   - key: bifrost.io/workload-pool
                     operator: In
                     values: [prod-pool, general]
-          # Soft: mini-pc-a whenever it is available.
+          # Soft: ubt-k3s-07 whenever it is available.
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
               preference:
                 matchExpressions:
                   - key: bifrost.io/host-id
                     operator: In
-                    values: [mini-pc-a]
+                    values: [ubt-k3s-07]
       tolerations:
         - key: node.kubernetes.io/not-ready
           operator: Exists
@@ -206,14 +212,14 @@ spec:
                   - key: bifrost.io/workload-pool
                     operator: In
                     values: [prod-pool, general]
-          # Soft: mini-pc-a whenever it is available.
+          # Soft: ubt-k3s-07 whenever it is available.
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
               preference:
                 matchExpressions:
                   - key: bifrost.io/host-id
                     operator: In
-                    values: [mini-pc-a]
+                    values: [ubt-k3s-07]
       tolerations:
         - key: node.kubernetes.io/not-ready
           operator: Exists

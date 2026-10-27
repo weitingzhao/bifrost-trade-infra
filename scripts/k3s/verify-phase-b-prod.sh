@@ -24,8 +24,8 @@ FULL_VERIFY="${PROD_VERIFY_FULL:-0}"
 
 fail=0
 
-echo "==> Prod node (mini-pc-a pool)"
-kubectl get nodes -l bifrost.io/host-id=mini-pc-a -o wide 2>/dev/null || true
+echo "==> Prod preferred node (ubt-k3s-07; mini-pc-a is the prod-pool fallback)"
+kubectl get nodes -l 'bifrost.io/host-id in (ubt-k3s-07,mini-pc-a)' -o wide 2>/dev/null || true
 
 echo "==> Deployments (${NS})"
 kubectl get deploy -n "${NS}" -o wide 2>/dev/null || true

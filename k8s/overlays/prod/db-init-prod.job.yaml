@@ -15,7 +15,7 @@ spec:
     spec:
       restartPolicy: OnFailure
       # Same placement as every Prod workload (node-prod.patch.yaml): any Prod-capable node,
-      # mini-pc-a preferred. The hard pin left the schema refresh unschedulable whenever
+      # ubt-k3s-07 preferred. The hard pin left the schema refresh unschedulable whenever
       # that one host was down (2026-09-06; debt TD-68).
       affinity:
         nodeAffinity:
@@ -31,7 +31,7 @@ spec:
                 matchExpressions:
                   - key: bifrost.io/host-id
                     operator: In
-                    values: [mini-pc-a]
+                    values: [ubt-k3s-07]
       volumes:
         - name: bifrost-config
           configMap:
