@@ -10,6 +10,8 @@
 
 2026-10-26 晚（Owner 定，D-PV2-B）：Owner 签收类验收的证据用 B。采用计划时，`owner_signoff` 绑定只固定节点、验收版本（`acceptance_sha256`）和计划版本，不再要求 `evidence[]`；证据（已存产物 ID）在 Owner 签收时附上，写进 `owner_signoff` 事件，并纳入签收摘要。换验收版本仍要重新签收；没有附证据的签收不算 `external_verified` 成立。Console 签收入口要能列出该步骤上 Agent 提交的候选证据，供 Owner 选择后签收。实现排在复核 631 的修复（Work 632）之后，交 Codex。
 
+2026-10-27（Work 635，夜班统筹 proceed-on-recommendation，Owner 事后审计）：签收条目的 readiness 增加 `Not started`。依赖都满足、且步骤已开工（步骤 active/running/done，或步骤下任一任务有 attempt）或已有候选证据，才进 `owner_waiting` 显示 Ready；依赖不满足仍是 `owner_later` / Blocked；其余进 `owner_later` / Not started。Unknown 不算开工。起因：PROD R4 的 4.6-4、4.6-5 三条签收显示 Ready，实际步骤 planned、0 次 attempt、无候选证据。Console 封闭解析只在 owner_later 接受 Not started，「Needs you」只数 Ready。platform 分支 `w31/pv-signoff-not-started`（`ff2d64f7`）。
+
 目标：Owner 从手机看出主线位置、下一步，以及谁在等谁。
 
 ## 1. 范围与已定顺序

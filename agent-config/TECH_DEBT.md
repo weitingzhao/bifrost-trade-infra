@@ -3457,7 +3457,7 @@
 
 （platform `3aa76022` 和 Work 631/632 的任务书里写作 TD-443；与 NAS 的 TD-443/444 撞号后改为 TD-445。）
 
-- **状态**：未开始（2026-10-26 统筹复核 PV2 `057251ee` 后登记；两个阻断项和五个应修项已在 `w31/pv2` 修复，下面三处没有修）。
+- **状态**：在做（2026-10-27 夜班：第 2、3 项代码在 platform 分支 `w31/td445-binding-root` `72a72369`（集成分支 `w31/night-1027-r3` `64adc934`），Work 636 实现、夜班复核；真库回归 14 个场景通过且旧代码上失败（overlay 阴性对照）；未上线。第 1、4、5、6 项没动）。
 - **证据**：
   1. `api/internal/agentrt/store/planfactssnapshot.go` `readPlanFacts`：views、observations、external、landings 四段都按 `event_type='note'` 加 `body_json ? 'key'` 扫全部 note，只有 `event_type_at_idx` 可用。每条带新原子的规则求值读一次，Console 每次轮询 PlanView 也读一次。观测改为只在答案变化时写、每个 root 每 10 分钟最多一条 pass 之后，增长主要来自其他 note。
   2. `planobservations.go` `readPlanSource` 的 verification 分支按 verification ID 钉住。同一 attempt 之后又出了 fail 结论，这条绑定仍按旧的 pass 算 true。
@@ -3475,9 +3475,25 @@
 
 **P2 · 计划视图 · Claude 会话的活在 Work → Plan 上看不见**
 
-- **状态**：未开始（2026-10-26 晚登记）。
+- **状态**：在做（2026-10-27 夜班：infra 分支 `w31/td446-claude-work` `843764d` 加 `scripts/agent-host/register-claude-work.py`（register / heartbeat / submit / abandon，复用 Codex 包装器的客户端与事件重放），Work 637 实现、夜班复核；离线测试 37 项通过；平台源码核对 executor=claude 可接受，未在线试；没做 Stop hook 自动化、没把 Claude 会话纳入 Coverage 计数）。
 - **证据**：NAS 分层会话（`local_74933fb2`）想给 `R4:4.9-9` 记进展，`post_plan_note` 返回 422 `R4:4.9-9 is a step: only an architecture row takes a note`。派活包装器 `scripts/agent-host/dispatch-codex.py` 只会启动 `codex exec`，Claude 会话没有对应的登记入口；本线程的 MCP 工具表是开线程时定格的，没有 `register_external_work`。
 - **影响**：统筹开出去的 Claude 会话（设计、调查、修复）不出现在 Live work 和 Finished today，Owner 只能来统筹线程问。
 - **修法**：给 Claude 会话一条与 Codex 对等的登记路径：开会话时由统筹经 reporter 登记外部派工（executor=claude），会话结束回报时提交 submitted；或 Stop hook 自动做。步骤备注是否放开给普通步骤由 Owner 定（备注不是完成证据，只是进展说明）。
 - **防线**：统筹开会话的流程里加一步「登记」，没登记的会话在 Coverage 里显示为 Unregistered（PV1 已有该计数，需要把 Claude 会话纳入）。
 - **验收**：开一个 Claude 会话后，Work → Plan 的 Live work 在一分钟内出现它，结束后进 Finished today。
+
+
+### TD-447
+
+**P2 · 4.1 落地 · mission 持住与收尾在 S3 前要补的三处（复核 638）**
+
+- **状态**：未开始（2026-10-27 夜班登记；S2 用到的持住已在 platform `89722fd8`、`a504b8b4`、`51ebc966` 做了，下面几处属于 S3 的真推送）。
+- **证据**：
+  1. `api/internal/agentrt/store/close.go` `landingHolds`：只把最新操作为 `discarded` 当作「下一次待开」。协议里 `main_result{non_ff}` 同样只结束本次操作、不挡下一次领取（`landing/protocol.go` `Terminal`、`BlocksClaim`），但持住判断把它当已结束，mission 会在 k+1 之前被关；`SettleLandingDrillBounds` / `failDiscardedBound` 也不给它补到限的后继。S2 的 dry_run 走不到 `main_intent`，今天不可达。
+  2. `store/landing_bounds.go` `SettleLandingDrillBounds`：对所有非终态统一追加 `failed{bound}`，而 v1 合法链停在 `main_intent`、`main_result{ok|denied}` 时这条转移被拒（`illegal`），整个收尾事务回滚，同流里其他到限的操作也收不了尾。复核 638 的 `TestWork638LegacyProtocolEvidence` 实跑确认。今天三个库都没有落地记录。
+  4. `close.go` `landingHolds` 的首次领取宽限只有 2 分钟（复核 640 R640-1，`TestWork640GraceSurvivesBusyRecovery` 在 `~/agent-work/codex-work-640/` 实跑为红）：一轮里旧操作的外部读取超过 2 分钟，或 `max_in_flight_per_repo` 被占超过 2 分钟，新任务的 mission 就会在首次领取前被关。S2 靠「一次只起一件演练任务」绕开；S3 要可落库、可到限的首次领取交接。另：6 小时 15 分的持住上限不分 dry_run，S3 的 v1 生产中间态（`main_intent`、`main_result{ok}`）不能靠它，修 2 时一起限定。
+  3. `close.go`：每个可关闭 mission 在持 mission 行锁期间重新折叠整条 `landing:<repo>` 流，历史长了以后重复且部分随操作数平方增长。今天流为空。
+- **影响**：1、2 在 S3 接真推送后会让 mission 过早关闭或收尾整体卡住；3 是将来的锁持有时间。
+- **修法**：1 统一「根任务是否还有待执行动作」的判定（discarded、non_ff 的后继、已 retry 未领取），close、扫描、到限收尾共用。2 对遗留生产中间态先对账再收尾，不支持的操作单独隔离，不回滚其他操作的到限记录；不放宽转移表。3 以仓库流已提交的 head/seq 为键复用折叠结果，持 mission 锁时核对 head。
+- **防线**：修 1 时把复核 638 的 `TestWork638NonFFKeepsMissionForReplay`（在 `~/agent-work/codex-work-638/review638_store_test.go`）改成正式回归；修 2 时加「一条不支持的旧中间态 + 一条到限 STG 操作，后者仍能收尾」。
+- **验收**：`go -C api test ./internal/agentrt/store/ -run 'Close|Landing|Drill' -count=1`（隔离的 `AGENTRT_TEST_PG`、`AGENTRT_TEST_REDIS`、`AGENTRT_TEST_REQUIRED=1`）。
