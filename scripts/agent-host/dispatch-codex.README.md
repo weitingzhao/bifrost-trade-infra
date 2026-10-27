@@ -4,6 +4,10 @@
 Registration is visibility only: it grants no execution permission and a
 submitted report never completes a plan step.
 
+For an existing Claude session, use [register-claude-work.py](register-claude-work.README.md).
+Coordinator open-session step (TD-446): register the work, retain its state,
+heartbeat every 30 seconds while active, and submit the report when it returns.
+
 The platform must run the corresponding PV1 HTTP routes. The wrapper fails
 closed if upload, registration, recovery read, or the initial event fails.
 It sends a heartbeat every 30 seconds. Missing server heartbeats for more than

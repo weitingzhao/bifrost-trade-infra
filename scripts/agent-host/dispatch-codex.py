@@ -92,6 +92,35 @@ class Client:
             raise RuntimeError("platform unavailable") from None
 
 
+class EventJournal:
+    """Persist an event before POST and replay its exact key/sequence on retry."""
+
+    def __init__(self, client: Client, path: Path, state: dict, run_key: str):
+        self.client, self.path, self.state, self.run_key = client, path, state, run_key
+        self.route = "/external-work/" + urllib.parse.quote(state["id"], safe="")
+
+    def deliver_pending(self):
+        if "pending" not in self.state:
+            return
+        result = self.client.request("POST", self.route + "/events", self.state["pending"])
+        self.state["seq"] = result["seq"]
+        self.state.pop("pending")
+        atomic(self.path, self.state)
+        return result
+
+    def event(self, kind, **fields):
+        self.deliver_pending()
+        seq = self.state["seq"] + 1
+        self.state["pending"] = {
+            "idempotency_key": f"{self.run_key}:{seq}",
+            "seq": seq,
+            "type": kind,
+            **fields,
+        }
+        atomic(self.path, self.state)
+        return self.deliver_pending()
+
+
 def git(repo: str, *args: str) -> str:
     result = subprocess.run(
         ["git", "-C", repo, *args], capture_output=True, text=True, check=False
@@ -213,30 +242,10 @@ def dispatch(options, args: list[str], *, interval=30.0, poll=0.2) -> int:
         out = client.request("POST", "/external-work", registration)
         state["id"] = out["external_work_id"]
         atomic(path, state)
-        route = "/external-work/" + urllib.parse.quote(state["id"], safe="")
-
-        def deliver_pending():
-            if "pending" not in state:
-                return
-            result = client.request("POST", route + "/events", state["pending"])
-            state["seq"] = result["seq"]
-            state.pop("pending")
-            atomic(path, state)
-
-        def event(kind, **fields):
-            deliver_pending()
-            seq = state["seq"] + 1
-            state["pending"] = {
-                "idempotency_key": f"{options.run_key}:{seq}",
-                "seq": seq,
-                "type": kind,
-                **fields,
-            }
-            atomic(path, state)
-            deliver_pending()
-
-        deliver_pending()
-        current = client.request("GET", route)
+        journal = EventJournal(client, path, state, options.run_key)
+        event = journal.event
+        journal.deliver_pending()
+        current = client.request("GET", journal.route)
         state["seq"] = current["seq"]
         atomic(path, state)
         if current["state"] in ("Submitted", "Cancelled"):
