@@ -96,3 +96,27 @@ FROM agentrt.event WHERE event_stream_id='landing:bifrost-platform' AND event_ty
 - 落地身份能否推 `land/stg/**`、不能推 main：P0 已在 10-27 由 Owner 实证（`P0-landing-s0-2026-10-24.md` §6），今晚没重测。
 - 镜像里有 git：只看了 Dockerfile 和 infra `01584b6` 的说明，没进容器（STG 平台命名空间不许 exec）。
 - 规则文件只用平台自己的解析器离线核对（`rules.Parse` 通过，正文规范化输出见夜班记录），没跑 `rule.sh check`（它要读运行令牌）。
+
+## 7. 2026-10-27 白天在 STG 的实跑（统筹线程）
+
+时间均为 CDT。读回：`agent_reader` 查 `bifrost_platform_stg` 的 `landing:bifrost-platform` 流；Gitea `git ls-remote`。
+
+| 时间 | 事件 |
+|---|---|
+| 11:05 | Owner 推 platform main → `51ebc966`（S2 持住修复）；11:09 STG 发布 `bifrost-deliver-platform-1793117155` 成功 |
+| 11:07 | Owner 签 `landing:dev` v1（STG，`rule_signed` 11:07:59）；11:08:03 `enabled` |
+| 11:08–11:18 | workers 每 15 秒 `landing git init failed`：STG 运行镜像没有 git。原因是 `bifrost-deliver-platform` 从 cicd 的 Dockerfile ConfigMap 构建，infra `01584b6` 的改动没进副本（TD-448）。Owner 用管理员 kubeconfig 刷新副本后 11:19 重发 STG 成功 |
+| 11:20 | 起 M-153。第一件任务的说明漏了 `siblings`（bifrost-ui），准备阶段 `npm ci` 失败，3 分钟内耗尽 40 次尝试（prepare_failed 立即重试）；停掉，换 `t_01M5Z33A8KR0Q42XQMRNM0NWHY` |
+| 11:22–12:30 | 运行时几乎停滞：演练每轮为 12 件启用前的旧任务各读一次 Git，读的时候在持锁事务里占着 STG 池仅有的 2 个连接之一。presence 超时，派活、验收慢到分钟级，workers CPU 0.04→0.7。修复 platform `28119cb1`（候选查询先按库内条件筛），复核 641 SHOULD-FIX 补测试 `2ba2b6eb`（6 个变异体全红） |
+| 12:16 | 正常路径：`claimed → prepared → branch_intent → branch_pushed`，`land/stg/<task>/1`，R `5da89abe`，M0 `51ebc966` |
+| 12:22 | Owner 推 platform main → `2ba2b6eb` |
+| 12:24 | **用例 ①**：k=1 `discarded{main_changed}` |
+| 12:26 | k=2 `claimed → prepared`（M0 = `2ba2b6eb`，R `e9f87c25`）→ `branch_pushed`（`/2`） |
+| 12:28 | k=2 `ci_seen` `ci-platform-fffm8` Running |
+| 12:30:18 | **用例 ④**：STG 发布 `2ba2b6eb`，workers 重启 |
+| 12:35 | 同一 run `ci-platform-fffm8` Succeeded → `rehearsed`；重启后没有新的 `prepared`、没有新 CI run |
+| 12:36 | `land/stg/…/1`、`/2` 都已从 Gitea 删除；mission 在 rehearsed 之前一直 active |
+
+**结论**：正常路径、①、④ 在 STG 实跑通过；② 只由测试覆盖（无法故意造）；③ 待 Owner 定时间（操作单第 6 步）。
+
+**遗留**：M-153 在 rehearsed 后仍 active：被替换的旧任务停在 ready（任务级 stop 只拦领取，不改状态），Agent 没有正当途径关这个 mission；演练因此每轮为已 rehearsed 的任务重读 Git（CPU 约 0.35 核，复核 641 §3）。跟进：候选在读 Git 前按本轮已读的落地流跳过 rehearsed / 在途的任务（platform 跟进提交）；根治见 TD-447 第 5 项。prepare_failed 无退避地烧光尝试预算另记。
