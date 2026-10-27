@@ -1,0 +1,36 @@
+# W-31 4.1 S2 (CUT-landing-2026-10-24.md §3): the STG landing drill. Only the
+# workers tier runs the controller, and only with AGENTRT_LANDING_DRILL=on in
+# the stg environment (api/internal/server/agentrt_landing.go). The drill
+# pushes only refs/heads/land/stg/** (landinggit.drillRef) as
+# agentrt-landing-stg, whose Gitea team (landing-drill) cannot push main or
+# create tags (P0-05, 2026-10-27). The Owner made Secret agentrt-landing-drill
+# (kubernetes.io/basic-auth: username, password) in this namespace in S0; the
+# controller reads the two files at each git call and never puts the token in
+# its environment. Without the Secret the files are missing and the drill
+# reports "cannot read landing username file" and does nothing.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-workers
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform-api
+          env:
+            - name: AGENTRT_LANDING_DRILL
+              value: "on"
+            - name: AGENTRT_LANDING_USERNAME_FILE
+              value: /etc/bifrost/landing-drill/username
+            - name: AGENTRT_LANDING_PASSWORD_FILE
+              value: /etc/bifrost/landing-drill/password
+          volumeMounts:
+            - name: landing-drill
+              mountPath: /etc/bifrost/landing-drill
+              readOnly: true
+      volumes:
+        - name: landing-drill
+          secret:
+            secretName: agentrt-landing-drill
+            optional: true
+            defaultMode: 0400
