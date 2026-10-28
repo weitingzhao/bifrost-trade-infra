@@ -777,7 +777,9 @@ Console 上把「已交付」和「已处置、未交付」分开显示。不在
                     "why", "by", "answered_at", "mission_state"}}
 ```
 
-事件的 `MissionID`、`TaskID` 填根的 mission 与根任务，所以它出现在 mission 时间线上。`why` 是封闭词表：`retry`、`declined`（applied）；`already_retried`、`already_declined`、`superseded`、`not_failed`、`answered_before`、`unknown_choice`（moot）；`mission_not_active`（refused）。
+事件的 `MissionID`、`TaskID` 填根的 mission 与根任务，所以它出现在 mission 时间线上。`why` 是封闭词表：`retry`、`declined`（applied）；`already_retried`、`already_declined`、`superseded`、`not_failed`、`answered_before`、`unknown_choice`（moot）；`mission_not_active`、`not_retryable`、`not_declinable`（refused）。
+
+**实现时补的（v1.1）**：协议只允许对 `bound`、`stale`、`ci_red` 的失败 retry（`landing/protocol.go` `Apply`），其他失败上的 retry、协议不收的 `failed{declined}` 原来都是 Append 报错、整个事务回滚；现在先用 `landing.State.Check`（复制状态后试 Apply，不改原状态）判断，协议不收就记 `refused{not_retryable|not_declinable}`。`landing_answer` 是 `note` 的新可选字段，在 `store/vocab.go` 登记并校验封闭词表；这是 Go 侧字段表，不是数据库约束，不需要迁移。
 
 **`store.HandleLandingAnswer(ctx, db, q, root, op) (Handled, error)`** 取代 controller 里直接调 `ApplyLandingAnswer`：
 
@@ -810,3 +812,61 @@ Console 上把「已交付」和「已处置、未交付」分开显示。不在
 
 - For you 上的说明卡与文案（S3 接线）；mission 关闭后是否允许 Owner 重开或开新 mission（S3 政策）。
 - ②（时间策略）、③（main 对账器与 `failed{denied}`）。
+
+### 8.7 复核 655 与落地（v2）
+
+复核 655（gpt-6-astra xhigh）：1 阻断、5 应修、2 小问题；锁序与单事务方案通过，没有新锁环。处理：
+
+- **B1 协议拒绝**：先用 `landing.State.Check` 判断，协议不收记 `refused{not_retryable|not_declinable}`；只有数据库或流解析错误返回 error。
+- **R1 分类**：moot 只剩「什么都不用做」：`already_retried`、`already_declined`、`superseded`（真实后继）。`not_failed`、`answered_before`、`unknown_choice` 改为 **refused**：旧答复不适用，Owner 在新卡上重新确认（新失败要新 question id，S3 契约）。卡绑定的操作不存在或不属于该根 → `ErrLandingAnswerBinding`，不记录（S3 的绑定错误）。已 retry 的判定在 mission 状态之前；`do_not_merge` 不看 mission 状态。
+- **R2 原文**：记录加 `answer_text`（可为空）、`channel`。
+- **R3 测试**：v11 夹具每张卡用不同 id；新增「已存结果优先于再判断」（成功后出现后继 / 被拒后 mission 恢复，均返回原结果）、两次 Append 之间失败（钩子 `landing answer: business appended`）、提交失败、Ack 回调用另一连接核对已提交、绑定不符。
+- **R4 Ack**：结果加 `Acked`；没有 Ack 来源时不调用、`Acked=false`，下一轮仍返回已存结果；S3 的说明卡以存储的 refused 记录（按 question id）为来源，不依赖一次返回值。
+- **R5 词表**：`landing_answer` 登记为 `note` 的可选字段，`badLandingAnswer` 校验必填字段、outcome/why 配对与时间；去重读到的记录先校验，并核对 root / op，不符返回绑定错误。
+- **N1**：记录 note 让 Close 的同轮折叠缓存失效一次（按流 head），判定不变；接受，不搬到 mission 流。**N2**：去重范围是单仓库流，今天只有 `landing:bifrost-platform`；扩仓库前另定。
+
+变异：去掉去重（6 个测试红）、去掉已存记录的绑定核对（1 个红）、`not_failed` 改回 moot（1 个红）。
+
+## 9. S3 必做 ②：各道闸的时间策略（2026-10-28 统筹，设计稿 v1）
+
+### 9.1 问题（实读 platform main `6ea51e0e`，复核 646 §1、N652-2）
+
+- 扫描在一轮开头取一次 `now`（`controller/landing_scan.go:23`），整轮的到限收尾、未领取结算、恢复、领取、分支、CI、最终闸都用它。
+- `ClaimLandingDrill` 两次 bind 和资格判断共用这个 `now`（`store/landing_drill.go:37`、`:48`、`:66`）。中间不持锁读 Git 可能要几分钟：t0 有效的规则在读取期间被一个 `effective_at > t0` 的新版本取代，第二次 `CurrentRule(..., t0)` 选不到它；`accepted + 6h` 在读取期间到期，也照样领取（N652-2：T+5h59m 开始的领取在 T+6h01m 写下 claimed）。
+- 唯一已经「锁内读时钟」的是 Close：`landingHolds(..., eventClock())`（`store/close.go:94`）。
+
+### 9.2 规则（一句话）
+
+**在锁内做决定的地方，用锁拿到之后读的时钟做决定；一轮开头的 `now` 只用于排程**（这一轮试哪些候选、退避是否到期、`RetryAt` 是否到）。
+
+决定时间 `decisionAt(now) = max(now, eventClock())`，在该事务拿到它的锁之后读。用 `eventClock` 是因为写下的记录也用它（`store/event.go:129`），决定与记录的时间同源；取 `max` 只为测试：测试冻结 `eventClock`、另传更晚的 `now` 时语义不变，生产上 `eventClock()` 总不早于一轮开头的 `now`。
+
+### 9.3 各道闸
+
+| 闸 | 现在 | 改为 |
+|---|---|---|
+| 领取第 1 步 bind（短事务，预读） | `now` | `decisionAt`（只决定要不要去读 Git；早返回的 bound / settled 照常） |
+| 领取第 3 步 rebind + 资格 + 写 claimed | 同一个 `now` | 第 3 步事务锁后新读的 `decisionAt`；`CurrentRule`、`Bound`、窗口、`EligibleToClaim` 都用它 |
+| `LandingDecision`（恢复路径的 claim / push 判断） | `now` | 锁后 `decisionAt` |
+| `FinishLandingDrill` 最终闸 | `now` | 锁后 `decisionAt` |
+| `SettleLandingDrillBounds`、`failAwaitingBound` | `now` | 锁后 `decisionAt`（时间更晚只会更早收尾，不会把未到限的写成到限） |
+| `SettleUnclaimed` | `now`（查询与逐根重查） | 逐根重查的事务锁后 `decisionAt`；第一段只读筛选仍可用 `now`（它只决定去重查谁） |
+| Close `landingHolds` | 已是 `eventClock()` | 不变 |
+| 退避 `due` / `record`、`RetryAt` 判断 | `now` | 不变（排程） |
+
+### 9.4 后果
+
+- 读取期间生效的新规则：第 3 步选到它，按它判资格；与第 1 步不同的版本不需要另外比较——资格只按第二次的事实判（§7 已定）。
+- 读取期间到期的窗口：第 3 步判 `Bound`，按 §7 写 `failed{bound}` 并 settled，不再写 claimed。
+- 「6 小时」从此是锁内判定的上限：claimed 记录的时间与判定时间同源，差毫秒级。N652-2 关闭。
+
+### 9.5 测试（PostgreSQL；旧代码上必须红）
+
+1. 领取第 2 步读 Git 期间（测试钩子 `drill: external read`）插入一条 `effective_at` 在 t0 之后、读取结束之前的收紧规则 → 第 3 步按新规则拒绝；旧代码领取成功（红）。
+2. 根在 `accepted + 6h - 1s` 开始领取，读 Git 期间把 `eventClock` 推过 6 小时 → 写 `failed{bound}`、不写 claimed；旧代码写 claimed（红）。
+3. 最终闸：同 1 的形状，读取期间生效的新规则使最终闸拒绝。
+4. 退避与排程不变：一轮开头的 `now` 仍决定退避到期（回归）。
+
+### 9.6 不在本项
+
+- 规则表本身加锁（复核 646 提到「未加规则锁」）：新版本是追加的、按 `effective_at` 选，第 3 步锁内重选已足够；规则撤回的语义归 §5 第 5 项。
