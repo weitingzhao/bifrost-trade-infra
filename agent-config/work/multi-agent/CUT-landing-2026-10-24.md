@@ -870,3 +870,41 @@ Console 上把「已交付」和「已处置、未交付」分开显示。不在
 ### 9.6 不在本项
 
 - 规则表本身加锁（复核 646 提到「未加规则锁」）：新版本是追加的、按 `effective_at` 选，第 3 步锁内重选已足够；规则撤回的语义归 §5 第 5 项。
+
+## 10. S3 必做 ③：main 对账器与 `failed{denied}`（2026-10-28 统筹，设计稿 v1）
+
+### 10.1 问题（复核 645 §2，实读 `6ea51e0e`）
+
+最新操作停在 `main_intent`、`main_result{ok|unknown|denied}`（`AtMain`）时，Close 无限持住 mission（`store/close.go`，按设计不限时），但没有任何代码把它往下推：STG 恢复路径对这些 phase 直接返回（`controller/landing_branch.go:86`），PROD 没有恢复循环。§2.4「断点对账」表和 §2.3 `reconcile`（任何时候都跑、不看资格）早已写好，没有实现。今天 STG 是 dry_run，走不到 `main_intent`，所以不可达；S3 接真推送前必须有。
+
+### 10.2 设计
+
+**新阶段 `ReconcileMain`**：扫描每轮在 `SettleLandingDrillBounds` 之后、规则观察与资格之前跑；**不读规则、不看资格**（规则撤了、过期了照常对账，§2.3）。逐个 `AtMain` 的最新操作处理：
+
+| 最新 | 外部证据（不持锁读） | 写（锁内） |
+|---|---|---|
+| `main_result{denied}` | 不需要 | `failed{denied}` |
+| `main_intent{R, M0}` | main 头；R 是否在 main 历史里（`merge-base --is-ancestor R main`） | R 在 → `main_result{unknown}` + `landed{R}`；不在且头 = M0 → `main_result{unknown}` + `failed{bound}`（视为没发出去，不重推，由新操作重来）；不在且头 ≠ M0 → `main_result{non_ff}` |
+| `main_result{unknown}` | 同上 | R 在 → `landed{R}`；不在且头 = M0 → `failed{bound}`；不在且头 ≠ M0 → `main_result{non_ff}` |
+| `main_result{ok}` | R 是否在 main 历史里 | 在 → `landed{R}`；不在 → **不写**，记一条 `note` 说明（推送报成功却不在 main，只能人看），每个操作只记一次 |
+
+- 外部读用新接口 `MainEvidence func(ctx, repo, R, M0) (head string, hasR bool, err error)`，实现放 `landinggit`（同一个只读克隆：`fetch main` 后 `rev-parse` 与 `merge-base --is-ancestor`）。读失败：这个操作本轮跳过、按原因退避（照 §7 领取的退避），不写任何记录，不影响其他操作。
+- **锁内**：锁仓库流 → 重新折叠 → 核对该操作的最新 phase / outcome / R / M0 与读证据前一致，不一致就丢弃本次证据（别人已推进）→ 按表追加。决定时间用 §9 的 `decisionAt`。
+- `reverted`（R 已在 main 后被撤销）不在本项：`landed` 已是终态、不再持住 mission；撤销检测归 S4。
+- `failed{denied}` 之后「停掉这个仓库的落地、开问题」（§2.5 第 7 步）：本项只写记录；开问题与停仓库由 S3 接线（问题卡），记为 S3 接线项。
+
+### 10.3 与 Close 的关系
+
+对账写下终态后，下一次 Close 读到非 `AtMain`，按现有规则放开或继续持住；对账器不碰 mission。锁序：只拿仓库流（与 `SettleLandingDrillBounds`、appendDrill 相同），不拿 task / mission，不成环。
+
+### 10.4 测试（PostgreSQL + 假 Git；旧代码上必须红）
+
+1. 表里每一行一个用例：种入该最新状态，给定证据，跑一轮 → 写下的记录与表一致；再跑一轮不重复写。
+2. 规则已撤回时照常对账（旧代码：没有对账，mission 一直 active —— 红）。
+3. 读证据期间另一个写入推进了该操作 → 证据丢弃、不写。
+4. 证据读失败 → 不写、退避；其他操作照常。
+5. 对账后 Close：mission 从持住变为可关（`main_result{denied}` 七小时后的 mission 在旧代码上一直 active —— 红）。
+
+### 10.5 不在本项
+
+- 真推 main 的路径（S3 本体）；`reverted` 检测（S4）；`denied` 的问题卡与停仓库（S3 接线）。
