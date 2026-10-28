@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fetch K3s agent join token from bootstrap — run alone if join-gpu-server hangs.
+# Fetch the K3s agent token (not the server node-token: TD-450) from bootstrap — run alone if join-gpu-server hangs.
 # Saves to ~/.bifrost-k3s-node-token (chmod 600). Then:
 #   export K3S_TOKEN=$(cat ~/.bifrost-k3s-node-token)
 #   make k3s-join-gpu-server
@@ -12,7 +12,7 @@ SSH_OPTS=(-o ConnectTimeout=15)
 
 echo "SSH to ${BOOTSTRAP_HOST} — enter sudo password when prompted."
 ssh -t "${SSH_OPTS[@]}" "${BOOTSTRAP_HOST}" \
-  "sudo bash -c 'cat /var/lib/rancher/k3s/server/node-token > ${REMOTE} && chown vision:vision ${REMOTE} && chmod 600 ${REMOTE}'"
+  "sudo bash -c 'cat /var/lib/rancher/k3s/server/agent-token > ${REMOTE} && chown vision:vision ${REMOTE} && chmod 600 ${REMOTE}'"
 
 scp "${SSH_OPTS[@]}" "${BOOTSTRAP_HOST}:${REMOTE}" "${OUT}"
 chmod 600 "${OUT}"

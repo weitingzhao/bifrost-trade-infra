@@ -3,7 +3,9 @@
 #
 # Required env:
 #   K3S_URL   — e.g. https://192.168.10.73:6443
-#   K3S_TOKEN — from bootstrap: sudo cat /var/lib/rancher/k3s/server/node-token
+#   K3S_TOKEN — a 1-hour bootstrap token (on 01: sudo k3s token create --ttl 1h) or the agent token
+#               (sudo cat /var/lib/rancher/k3s/server/agent-token). Never the server token: it is
+#               cluster-admin and stays on disk in k3s-agent.service.env (TD-450).
 #   K3S_NODE_IP — LAN IP of this node
 #   INSTALL_K3S_VERSION — e.g. v1.35.5+k3s1; must equal the control plane
 #
@@ -18,7 +20,19 @@
 set -euo pipefail
 
 K3S_URL="${K3S_URL:?set K3S_URL (https://bootstrap:6443)}"
-K3S_TOKEN="${K3S_TOKEN:?set K3S_TOKEN (server node-token)}"
+K3S_TOKEN="${K3S_TOKEN:?set K3S_TOKEN (a bootstrap token or the agent token)}"
+# TD-450: only a bootstrap token (<id>.<secret>, optionally K10<ca-hash>::) or the agent token
+# (K10<ca-hash>::node:<password>). The server token (::server:) and bare passwords are refused.
+case "${K3S_TOKEN}" in
+  K10*::node:?*) ;;
+  K10*::[a-z0-9][a-z0-9][a-z0-9][a-z0-9][a-z0-9][a-z0-9].?*|[a-z0-9][a-z0-9][a-z0-9][a-z0-9][a-z0-9][a-z0-9].?*) ;;
+  *::server:*)
+    echo "Refusing the K3s server token: it is cluster-admin. Use a bootstrap token (sudo k3s token create --ttl 1h) or the agent token." >&2
+    exit 1 ;;
+  *)
+    echo "K3S_TOKEN is neither a bootstrap token nor the agent token (K10...::node:...); refusing (TD-450)." >&2
+    exit 1 ;;
+esac
 K3S_NODE_IP="${K3S_NODE_IP:?set K3S_NODE_IP}"
 K3S_NODE_NAME="${K3S_NODE_NAME:-$(hostname -s)}"
 # Pin the version: the "stable" channel moves, and a node that joins from it can
