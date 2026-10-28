@@ -1528,3 +1528,38 @@ B1 + B6 → B3 → B5 → B4，每块：设计细节 → Codex 设计复核 → 
 - **N-01**：按落地证据关闭时写结构化 `landing_close`（政策、轮次、逐根类别与原因、计数、规则），状态接口单独返回；只因 accepted brief 而 done 时正文写明。
 - 另：没有本仓库 implement 根的 mission 不读落地流，一个读不了的流只拦住它自己的 mission（本地全套发现）。
 - B4 第二轮代码复核 674 只结算以上各条，是 B4 的最后一轮。
+
+### 11.11 跨块验收与开门顺序（2026-10-28 19:xx 统筹）
+
+依据：§3 的 S3 用例 ①–⑫（B5 的 ④⑥⑦⑧⑨ 随 B5 放到开门之后），§2.7，§11.6 v3，§11.8 v2/v3 的测试清单。逐条对照现有测试的结果（只读盘点，2026-10-28）：⑪ 完整；①②③⑤⑩、B6、问题卡状态表与装配、B4 关闭组合为部分；⑫ 的服务端权限只能真机验。
+
+**1. 本机补测（PostgreSQL 17，开门前全部过）**
+- 第二道闸拒推：分支推上去之后再加 `no_merge`、人手合入又撤销、仓库被停，均不写意图、不预留额度（②③、B6）。已补：`store/landing_acceptance_test.go`（`7b9786e0`）。
+- `main_intent` 之后收紧规则不撤销推送；R 在别人后继提交之下照样记 landed（① 的另一半、⑩）。已补，同上。
+- 收尾组合：一根交付、一根未答保持 active；关闭前一刻规则改成要 STG 发布，已落地的根持在 rule（⑤）。已补，同上。
+- 问题卡收尾状态表（expired / withdrawn 后补卡、处理后 404、撤回时撞上已答、读失败不写、旧卡 Ack 失败后补 Ack）与卡片轮次装配（429 后本轮只查不建、暂停 30 分钟、held 后 24 小时冷却、缺 LookupKey）：在做（独立分支 `w31/s3-acc-cards`），过了合入。
+- 留作开门后：两连接下的真并发（收紧规则与第二道闸抢锁；Close 与答复、对账交错），live 开→关→开的回归。理由：锁序已由单连接测试与代码复核覆盖，这两类测试要专门的并发夹具；开门后作为第一批加固项。
+
+**2. 发布（live 关）**
+- Owner 推 `w31/s3-wiring-a` 到 platform main（推送冻结期由 Owner 推，统筹给一条现成命令）；CI 在该提交上 Succeeded 才推。
+- 统筹发 STG（「STG 发布 A」）：STG 照旧只跑演练，核对演练循环照常领取、`/health` 的 landing 段、问题页与目标详情能打开。
+- PROD 发布单（C 级，Owner 在 Console 批）：live 关着上线，核对 `/health` 显示 `live: false` 与原因、卡能力五项、对账循环在跑、mode 未写（live 关时不写）。
+
+**3. 开门前 Owner 事项（按顺序，各给一条现成的操作说明）**
+1. 签第 1 版规则 `landing:dev`，`bifrost-platform` 写 `stg_release: none`。
+2. 在 Gitea 建 `agentrt-lander`，只加进 platform main 与 `land/prod/**` 的推送白名单；配 Secret。
+3. 核对标签规则（落地身份不能建标签）。
+4. 批 D-L5 的 D 级单（旧 20 件标 `no_merge`）。
+5. 批打开 live 的发布单。
+
+**4. 只能真机验的（live 打开后的第一个小时内，统筹做）**
+- ⑫：落地身份推 platform main（快进）成功；推 infra、建标签、推 `land/stg/**` 被拒；其他身份推 main 被拒。记下 Gitea 实际的拒绝文本，补进 `landinggit` 的 `TestClassifyPush`，确认判成 denied（判错会落到 unknown，仓库不停）。
+- 问题库在 PROD 的真实配额与运行时其他卡共享时的表现（3 张未读、每小时 6 张）。
+- 第一次真实落地（★：Owner 提一个改 Console 文案的小目标）：CI 绿 → 第二道闸 → 推 main → 对账 landed → 关闭取证轮次 → mission done；全程在目标详情的 Landing 块和 `/health` 上看得到。
+- 任何一项不对：关 live，记进本节，往前修。
+
+**5. §11.10 留待项的结论**
+- Ask 的端到端期限：建卡时问题库唯一的外部调用（通知推送）有 10 秒上限，问题库本身是本机文件加锁；卡片流被慢调用占住的时间有界。接受，不另做。
+- `/health` 逐项列出卡能力：已实现（`ask`、`lookup_key`、`lookup`、`withdraw`、`ack`）。
+- 按 prep 查 unconfirmed / lost：目标详情的 Landing 块已按根显示「答复未确认」；单独的异常列表留到开门后。
+- 卡的预算轮转、通知给决定卡让位：通知类（ci_stuck、parked_long）已改为只显示不发卡，剩下的都是决定类；轮转留到开门后。
