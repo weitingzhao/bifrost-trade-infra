@@ -1438,3 +1438,63 @@ B1 + B6 → B3 → B5 → B4，每块：设计细节 → Codex 设计复核 → 
 **10. 术语与测试前提（668 N-01、N-02）**：§8、§11.4 的 B6 行、§11.1 加「以 §11.6 v3 为准」。采用「一个待决策卡，允许多个待收尾的历史卡」。历史 Ack 的测试用预置数据构造。
 
 **11. 工作量**：按 668 估 30–45 小时（含 floor 协议，已完成）。S3 开门剩余：B3 30–45 + B4 20–32 + 验收 8–12 ≈ 58–89 小时，开门估 11-05 至 11-08 不变（Codex 估的是单人有效工时，统筹与 Codex 并行）。
+
+### 11.8 v3 B4 收口（2026-10-28 17:5x；回应复核 669 的 B-01..B-04、R-01..R-04；在 §11.8 v2 基础上修订，冲突处以本节为准；B4 两轮设计复核已满，收口后直接实现）
+
+**1. 一个归属函数，领取与收尾共用（669 B-01）**
+- `landing_mode{v:"1", repo, env:"prod", mode:"live"}`：controller 在仓库流锁下写一次（已有则不写），只在 PROD 的 workers 以 live 装配时写；STG 的库里永远没有它。`ClaimLanding(prod)` 在同一把锁下先确认它已提交，否则拒绝领取。
+- `liveFence = max(enabled.at, mode.at)`，等时算在内。PROD 的 `EligibleToClaim`、`inHandoff`、`SettleUnclaimed` 与 Close 都用同一个 `landingScope` 函数做时间比较（替换只看 `EnabledAt` 的比较）。
+- 「根有 live 历史」的持久证明：仓库流上它有一条 seq 大于 `landing_mode` 事件 seq 的操作记录（claimed 或出生失败）。PROD 的库里，mode 之后的每个操作都是 live；这一点由库归属与流序号证明，不靠 `dry_run` 零值。没有 mode 记录的流（STG、旧数据）一律走旧政策。
+- Close 在 mission 锁之后、仓库流锁之下选择新旧政策，与 mode 的写入串行。
+
+**2. 关闭取证轮次（669 B-02）**
+- 当一个范围内的 mission 满足任务级条件，且每个根要么已处置、要么**只差新鲜证据**（landed 或 `in_main` 且没有其他未了结原因）时，Close 在 mission 流写 `landing_close_round{round, roots:[{root, op}], at, deadline: at + 30 分钟}`。round 号递增；根集合或处置变化后，旧轮次作废。
+- 对账器见到未过期的轮次，就绕过 30 分钟重查等待，优先读这些根（公平预算不变）。
+- Close 只在以下都成立时关闭：本轮次未过期；每个要算交付的根，都有读取时间晚于 `round.at` 的最新证据，且为 effective；决定时间早于 `deadline`。轮次过期就开新一轮，不挪旧轮。
+- 全部只是处置的 mission 不需要取证，直接关闭。
+- 剩余窗口写明：最多是「证据读取到关闭」的这几十秒到 30 分钟。关闭后 24 小时内对账器继续看交付的根，撤销记为事实，并发 `late_revert` 通知卡（第 4 条）。不在 Close 事务里读 Git。
+
+**3. 决定表（取代 v2 第 2 条；669 B-03、R-01）**
+
+| 优先级 | 条件 | 类 |
+|---|---|---|
+| 1 | 最新操作 AtMain | 未了结 `at_main` |
+| 2 | **平台合入**（`EverLanded && !Reverted`）或**外部合入**（`failed{in_main}` 且最新 `landing_external` 显示 H 有效），满足第 2 条的新鲜度，且关闭时规则明确 `stg_release: none` | **已交付** |
+| 3 | 平台撤销（`EverLanded && Reverted`），或外部撤销（最新 `landing_external` 确认 H 已撤销，带 `reverted_by`） | 已处置 `reverted` |
+| 4 | 最新操作 `failed{declined｜main_lost｜reverted}` | 已处置 |
+| 5 | `landing_disposed{why:"owner"}`（第 4 条） | 已处置 `owner` |
+| 6 | Owner 在阻塞卡上丢弃的根，且没有 AtMain | 已处置 `dropped` |
+| 7 | 其余全部 | 未了结（具体原因） |
+
+- 平台合入与外部合入同一优先级、同一冲突政策：有新鲜、有效的交付，就算交付；Owner 的处置只表示不再等，不抹掉合入事实（两者都写进关闭记录）。
+- `failed{in_main}` 一出现，B3 的触发就把它排除在 `root_failed` 之外（不提供 try_again / do_not_merge），改由外部证据路径接管。旧卡在消费时锁内重判，记 moot / `trigger_gone`。
+- `landing_external{v:"1", repo, root, op, attempt, A, H, head, read_at, validity, reverted_by}`：validity ∈ effective、reverted、unknown、absent、unreadable，字段组合同 `landing_main` v2；`read_at` 取外部读取开始前的 DecisionAt；与 §10 一样按读取时间排序、不去重。首次由领取写（与 `failed{in_main}` 同事务）；旧记录由对账器从已接受 attempt 的记录重建身份后补读。重建不了就保持未了结，并在 `landing_status` 写明原因。不解析说明文本。
+
+**4. 两张新卡接进 B3 生命周期（669 B-04）**
+
+| kind | 触发与等待区间 | 仍适用 | 选项 → 处理 |
+|---|---|---|---|
+| `landed_unverified` | 根是平台或外部合入，且最近一次 effective 观察之后（或合入之后，如果从未 effective）出现的**第一条非 effective 观察**；trigger_seq = 该观察事件的 seq；满 2 小时才发 | 自该观察起所有观察都非 effective，根不在 AtMain、未处置 | `confirm_not_delivered`：在 task → mission → 仓库流锁下重判仍适用，同事务写 `landing_disposed{v:"1", root, op, trigger_seq, question_id}` 和 `landing_card_outcome{applied, not_delivered}`；`wait`：held 24 小时 |
+| `late_revert` | mission 已关闭 24 小时内，交付的根出现撤销（平台 `reverted` 记录或外部 reverted 观察）；trigger_seq = 该事件 seq | 直到 ack | `ack`、`remind_later` |
+
+- 一次恢复 effective 就结束当前区间；再次失效会开新的区间、新的触发。重启不清零。
+- 只有**需要业务决定**的根卡（root_failed、floor、ok_missing、landed_unverified）在根被分类为已交付或已处置时进入待撤回。late_landing、late_revert 只以自己的 ack 结束；repo_stopped 按 stop generation 结束。
+- 处理结果词表加 `applied/not_delivered`（仅 landed_unverified）。
+
+**5. 规则取值的决定点（669 R-02）**：Close 不在 mission 锁之后反向取规则锁（会违反全局锁序）。决定点 = 取齐 mission 锁与仓库流锁之后，用 DecisionAt 读 `CurrentRule`；关闭记录保存这个时间与 rule id / version / 取值。规则写入与关闭不串行，接受这个窗口：关闭依据的是决定点那一刻的生效版本，事后可追溯。规则读失败只持住这个 mission。
+
+**6. 数据库结算的循环（669 R-03）**：独立对账循环每轮先做两件纯数据库的事，再碰 Git，都在 live、写身份、Git reader、规则检查之前：
+- 已有操作与 AwaitsNext 的预算结算（`SettleLandingDrillBounds` 的 PROD 版本）；
+- 范围内从未领取的根的到限结算（`SettleUnclaimed`，用第 1 条的归属函数）。
+- 两者分开事务，各自按原锁序，AtMain 排除。
+- 出口口径改为「逐根处置或规则修正」：规则不是明确 none 时，出口是 Owner 签新规则，不提供卡上绕过。
+
+**7. 测试（669 R-04）**：在 v2 第 11 条之上补：
+- mode 与 enabled 的四种先后（含等时），以及领取和 Close 的调度先后不改变政策；
+- 关闭取证轮次的过期与重开，「ready 后进程停三天」不关 done；
+- `in_main` 遇到旧 do_not_merge 卡记 moot；外部撤销算处置；
+- `landed_unverified` 区间：恢复后再失效开新触发；
+- late_revert 在关闭后撤销时发卡；
+- 规则在关闭前一刻换版本。
+
+**8. 工作量**：按 669 估 29–44 小时（单人有效工时）。剩余合计：B3 余量约 18–30（核心记录、触发、引擎已完成）+ B4 29–44 + 验收 8–12。开门估 **11-06 至 11-09**（比 §11.9 晚约一天，原因是 B4 复核上调）。
