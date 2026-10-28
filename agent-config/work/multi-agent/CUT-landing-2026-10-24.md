@@ -919,3 +919,18 @@ Console 上把「已交付」和「已处置、未交付」分开显示。不在
 ### 10.5 不在本项
 
 - 真推 main 的路径（S3 本体）；`reverted` 检测（S4）；`denied` 的问题卡与停仓库（S3 接线）。
+
+### 10.6 设计稿 v2（2026-10-28 下午；Owner 定 1A、2A；回应复核 656 C）
+
+**Owner 决定（13:4x CDT）**：
+- **1A**：协议新增结局 `failed{main_lost}`，只能从 `main_result{ok}` 转入，只由 Owner 在问题卡上确认后写入（答复选项 `confirm_main_lost`，走 §8 的 `HandleLandingAnswer`，记录、去重、先落库后 Ack 同 §8）。在此之前对账器每轮低频重查：后来在 main 上找到 R 就补 `landed`。
+- **2A**：按时间隔开。推送有硬超时 `T = 2 分钟`；对账器只在 `main_intent` 写下超过 `T + 10 分钟` 之后才把「main 上没有 R」当作没发出去。另加「迟到落地」检测：一个曾有 `main_intent`、后被判 `failed{bound}` 的操作，若之后 R 出现在 main 上，开一次异常记录交 Owner。不建租约。
+
+**对复核 656 C 的处理**：
+- **C-B1**：由 1A 解决。`ok` 而 R 不在 → 每轮重查 + 一次性异常记录（`landing_anomaly{kind: ok_missing}`）；Owner 确认后 `failed{main_lost}`，它是 failed、未 retry，不再持住 mission，也挡住同根再领（与其他非重试失败相同）。
+- **C-B2**：由 2A 解决：负证据只在时间栅栏之后才用；栅栏内一律不写。推送实现（S3 本体）必须保证单次推送在 T 内结束或放弃（客户端超时 + 不重试），这是 S3 接线的验收项；迟到落地检测兜底。
+- **C-R1 证据**：`MainEvidence(ctx, repo, R) (head, hasR, err)`：完整（非浅）fetch main，固定 head SHA；`cat-file -e R^{commit}` 不存在 → hasR=false（完整历史里没有它）；存在则 `merge-base --is-ancestor R head`：退出 0 → true、1 → false、其他 → error。任何 fetch / 命令故障 → error，不当 false。记录写下 head、R、M0。
+- **C-R1 去重**：异常记录用 note 新字段 `landing_anomaly{op, root, kind, R, head}`，在流锁内按 `(op, kind)` 查重，最多一条；与协议记录分开（无 `landing` 键）。
+- **C-R2 顺序与退避**：扫描里先做数据库收尾（到限、未领取），再做 `denied → failed{denied}`（不读 Git），最后逐个操作读证据；每个操作的读取有超时，失败只退避这个操作（键 = op + 期望状态，用新鲜排程时钟），不影响其他操作；规则为空 / 过期 / 撤回都照常对账。
+- **C-R3 交接**：`landed` 后加入 STG 发布队列、`failed{denied}` 后停仓库与问题卡：仍是 S3 接线的验收项（本项只写协议终态）；已在 §10.5 列出，S3 开门前必须做。
+- **C-R4 测试**：每个证据分支各一例（含 R 在 / 不在 × head = M0 / ≠ M0 × 栅栏前 / 后）；ok 缺失的异常记录与重查后 landed；`confirm_main_lost`；denied 不调 Git；并发推进后证据作废；证据错误不写、其他操作照常；迟到落地；变异：省略 `main_intent → unknown`、去掉锁后状态比较、错误当 false、只比 head 是否等于 R、去掉栅栏。
