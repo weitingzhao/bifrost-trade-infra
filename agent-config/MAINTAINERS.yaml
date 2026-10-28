@@ -436,6 +436,22 @@ maintainers:
     max_tier: D
     detected_by: "none: nothing restarts this interval agent; it is not a PrometheusRule"
     status: active
+  - id: launchd/.50/com.bifrost.node-exporter
+    what: "node_exporter on :9100 for Prometheus (W-68 B4, scripts/host-exporters/install-mac.sh). Read-only host metrics."
+    runs_on: mini:.50/launchd
+    schedule: "keep-alive"
+    env: prod
+    max_tier: A
+    detected_by: BifrostHostDown
+    status: active
+  - id: launchd/.52/com.bifrost.node-exporter
+    what: "node_exporter on :9100 for Prometheus (W-68 B4, scripts/host-exporters/install-mac.sh). Read-only host metrics."
+    runs_on: mini:.52/launchd
+    schedule: "keep-alive"
+    env: prod
+    max_tier: A
+    detected_by: BifrostHostDown
+    status: active
   - id: mac-pro/bdev/platform-api
     what: "Local platform-api on :8780 under bdev. It uses the Owner admin kubeconfig and does not start the workers loops."
     runs_on: mac-pro:bdev
