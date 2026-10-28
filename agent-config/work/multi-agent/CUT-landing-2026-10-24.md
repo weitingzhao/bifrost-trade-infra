@@ -1285,3 +1285,91 @@ B1 + B6 → B3 → B5 → B4，每块：设计细节 → Codex 设计复核 → 
 - 范围：live on→off→on；缺 Ask / Ack / Withdraw 各一；STG 零卡。
 
 **10. 工作量**（665）：B3 27–41 小时（原 12–20）。
+
+### 11.9 Owner 决定：B5 放到开门之后（2026-10-28 17:1x，线程里点选「放到开门之后」）
+
+- S3 开门范围 = B1 真推 main + B6 停仓库 + B3 问题卡 + B4 收尾分类 + 跨块验收。**B5 STG 自动发布在开门之后做**，设计 §11.7 与复核 666 的意见留作 B5 的起点。
+- 开门时第 1 版规则对 `bifrost-platform` 写 **`stg_release: none`**（Owner 签字时确认）。STG 照旧由统筹按「STG 发布 A」手动发（持窗口、CI 绿、发后核对），不进 S3 的自动流程，也不算 B4 的交付证据。
+- 连带：B3 不做 STG 类卡（`stg_failed`、`stg_blocked`、`pending_long`、`stg_ineligible`）；B4 的「已交付」只走「规则明确 none + landed + 关闭时当前有效」一条路径。
+- 剩余工时（按复核 665、667 的数，去掉 B5）：B3 27–41 + B4 约 20–32 + 验收 8–12 ≈ 55–85 小时；开门估 **11-05 至 11-08**。
+
+### 11.8 v2 B4 收尾分类（2026-10-28 17:2x；回应复核 667 B-01..B-05、R-01..R-05、N-01..N-02；按 §11.9 不含 B5；**取代 §2.7、§11.1、§11.4 中 B4 与「stale 算处置」的旧条款，及 §11.8 v1**）
+
+**1. 根的归属（667 B-01）**——按根判定，再聚合到 mission：
+- `liveFence` = 仓库流上 `landing_enabled` 与 `landing_mode{live}` 两个事件时间中较晚者（都要有）。`landing_mode{live}` 在 workers 首次以 live 装配时、于任何 PROD 领取之前写入（仓库流锁下幂等；`ClaimLanding(prod)` 要求它已存在，否则拒绝领取）。
+- 一个 implement 根属于 **live 落地范围**，当且仅当：
+  (a) 仓库流里它有 PROD live 操作（`claimed` 且 `dry_run` 不是 true；出生即失败的根以记录里的环境与 `v` 判定，不靠 `DryRun` 零值）；或
+  (b) 它的 repo 是 `bifrost-platform`，accepted 时间与当前 mission 创建时间都不早于 `liveFence`，mission 不是 `no_merge`。
+- (a) 一旦成立永久成立：rebind、规则撤回、凭证缺失、关开关都不改变。
+- 不在范围的根（早于栅栏、别的仓库、brief / verify / review）照旧按现行规则，B4 不持住它们。
+- 一个 mission 只要有一个范围内的根，就由 B4 决定关闭；范围外的任务只参与原任务级条件。
+
+**2. 每根恰好一类，按优先级判（667 B-03）**——在关闭事务里、仓库流锁下读：
+
+| 优先级 | 条件 | 类 | 原因码 |
+|---|---|---|---|
+| 1 | 最新操作 AtMain（main_intent、main_result 非 non_ff 且尚未 landed） | 未了结 | `at_main` |
+| 2 | 最新操作 landed、其后没有 `reverted`，且最新 `landing_main` 证据 = effective 且读取时间晚于本 mission 的 `close_ready`（第 4 条），且关闭时的规则对该仓库**明确** `stg_release: none` | **已交付** | `landed` |
+| 3 | 最新操作 landed 且其后有 `reverted{R,by}`（独立撤销记录） | 已处置 | `reverted` |
+| 4 | 最新操作 `failed{declined}`、`failed{main_lost}`、`failed{reverted}`（领取前发现已撤销） | 已处置 | 同 why |
+| 5 | Owner 在卡上处置：`landing_disposed{root, op, why:"owner"}`（第 5 条的新记录） | 已处置 | `owner` |
+| 6 | 根任务是 Owner 在阻塞卡上丢弃的（cancelled + `owner_wait_closed{outcome:dropped}`），且它没有 AtMain 操作 | 已处置 | `dropped` |
+| 7 | `failed{in_main}` 且结构化外部合入证据（第 3 条）显示 H 当前有效（同第 2 条的新鲜度与规则要求） | 已交付 | `in_main` |
+| 8 | 其余全部：进行中、parked、discarded / non_ff / retry 待领（AwaitsNext、Retried）、`failed{stale|bound|ci_red|denied|floor|result|conflict|…}` 未处置、landed 但证据不是 effective 或不够新、规则不是明确 none、`in_main` 没有结构化证据或 H 不有效 | 未了结 | 具体原因 |
+
+- 同一根的事实冲突时，按表的优先级取第一条。较新的撤销胜过较旧的有效。mission `no_merge` 不覆盖已交付（事实保留，关闭记录两者都写）。
+- `failed{stale}` 未处置一律未了结（作废 §2.7、§11.1 的「stale 算处置」）。refused、moot、Ack、卡过期都不改变分类，只有已应用的处理记录才会。
+
+**3. `in_main` 的结构化证据（667 B-04）**
+- 领取写 `failed{in_main}` 的同一事务里，另写 `landing_external{root, op, attempt, A, H, head, validity, read_at}`。H 取自领取时读到的 History.Commit；H ≠ A 是常态，不伪造 prepared / landed。
+- 对账器的候选加上「open mission 里 `failed{in_main}` 的根」，用 `MainEvidence(r=H, task, a=A)` 定期刷新，写新的 `landing_external` 观察（与 §10 的 landed 观察同样按读取时间排序、不去重）。
+- 旧的 `in_main` 没有结构化记录：对账器补读一次 History 写入，再按上面判定；补读之前算未了结。
+- 一旦根被判为已交付或已处置，B3 撤回它的 `root_failed` 卡。
+
+**4. 关闭时的新鲜证据（667 B-02）**
+- 一个范围内的 mission 第一次「任务级条件都满足、且没有第 2 条以外的未了结原因」时，Close 写 `landing_close_ready{mission, at}`（mission 流）。
+- 对账器优先读这些 mission 的 landed 与 in_main 根。Close 只在每个要算交付的根都有一条读取时间晚于 `close_ready.at`、且为 effective 的证据时才关闭。
+- 剩余风险写明：证据读取到关闭之间仍有几分钟窗口。关闭后对账器继续看这些根 24 小时；后来出现的撤销记为事实，并发一张 `late_revert` 卡（B3 的通知类），不重开 mission。
+
+**5. 每个未了结原因都有推进者和 Owner 出口（667 B-05）**
+
+| 原因 | 谁推进 | Owner 能做什么 |
+|---|---|---|
+| `at_main` | §10 对账（与开关无关） | 等；ok_missing 走 B3 卡 |
+| 进行中、parked、retry 待领 | 落地循环；**到限结算（6 小时 / 8 次）搬进独立对账循环，与 live 开关无关** | 到限后变成 `failed{bound}` → root_failed 卡 |
+| failed 各类未处置 | — | B3 root_failed / floor 卡：`try_again`（可重试时）、`do_not_merge` |
+| landed 但证据不是 effective（unknown / absent / unreadable）满 2 小时 | 对账继续读 | **新** B3 kind `landed_unverified`：`wait`（暂缓 24 小时）或 `confirm_not_delivered` → 写 `landing_disposed{why:"owner"}` |
+| 规则不是明确 none | — | Owner 签新规则版本；不提供卡上绕过 |
+| `in_main` 无证据或 H 不有效满 2 小时 | 对账补读 | 同 `landed_unverified` |
+
+- 不新增 mission 级 no_merge 修改入口；逐根处置足够覆盖所有非 AtMain 的情况。
+
+**6. 规则取值时点（667 R-01）**：用关闭决定时的现行 `landing:<tenant>` 版本；对该仓库必须明确 `stg_release: none`。缺失、过期、仓库条目被移除、读取失败分别记原因，都算未了结，不从旧版本里找有利的 none。关闭记录保存 rule id / version 与取值。
+
+**7. 一致性（667 R-02）**：Close 的事务按 mission（现有 `FOR NO KEY UPDATE`）→ 各相关仓库流（固定字典序 `lockStream`）的顺序加锁，再折叠分类并 `MoveMission`。对账器与答复处理写仓库流时都持流锁，所以与 Close 串行。坏流只持住本 mission（沿用 savepoint）。
+
+**8. 关闭条件与其他入口（667 R-03）**
+- 保留原候选条件（mission active、没有绑定 plan_node、任务都 accepted 或 Owner 丢弃）。
+- 有范围内根的 mission：没有未了结的根时，「已交付的根 ≥ 1，或有 accepted 的 brief」→ done，否则 → stopped。旧的 `drops == 0 → done` 对这类 mission 不再适用。
+- blocked 卡上的「关闭 mission」是 Owner 的明确决定，照旧允许；关闭记录写分类计数，不写成已交付。AtMain 的对账不受 mission 状态影响。
+
+**9. 状态接口与卡的适用性（667 R-04）**
+- mission 详情接口加 `landing_status`：逐根给出 {root, op, class, reason, since, question_id, actions}，以及最老等待时间、最后提醒时间（都从持久记录推出）。
+- B3 各 kind 的「仍适用」判断直接用这里的分类：已交付或已处置的根，卡进入待撤回。
+- Console 接入：在现有 mission 详情加一个最小的落地状态表。改 Console 前先登记 `design/codex/ops/COORDINATION.md`。这是业务入口，开门前验收，不等 Design 专轮。
+
+**10. 关闭文案（667 N-01）**：英文，单位是落地根，例如 `Closed from landing evidence at <time>: 1 root delivered, 1 disposed, 0 unresolved (rule landing:dev v<n>, stg_release none).`。任务计数另列；不写 `all work delivered`、`external actions stopped`。
+
+**11. 测试（667 R-05 矩阵，去掉 B5 行）**：
+- 归属：mode 与 enabled 的先后、等时；rebind；混合仓库；出生即失败。
+- 优先级表：每行一个例子，再加冲突组合（较新撤销胜过较旧有效、no_merge 加已交付、refused 不改变分类）。
+- 关闭：
+  - 1 交付 + 1 未答 → active；1 交付 + 1 dropped → done；全部 dropped 或处置 → stopped；
+  - live on→off→on（真正销毁、重建控制器；撤规则；去掉凭证）；
+  - 七小时、数日未答 → active，到限结算在开关关闭时也跑。
+- 新鲜度：landed 后、Close 前撤销；有效后读失败；旧观察晚提交。
+- `in_main`：H ≠ A；重启；H 后来被撤销；旧记录的补读。
+- 并发：答复、retry、对账写入与 Close 在两个连接上交错。
+- 非 live 回归：STG 演练、旧 mission、brief-only、plan_node mission、暂停的 mission 行为不变（旧测试保持绿，新测试在旧实现上红）。
+
+**12. 工作量**：约 20–32 小时。复核 667 估的 23–37 小时里含 B5 接口的部分，这里去掉了；新增了 `landed_unverified` 卡和 `in_main` 证据刷新。
