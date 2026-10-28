@@ -19,7 +19,9 @@ KUBE=(kubectl --kubeconfig "$HOME/.kube/bifrost-k3s.yaml")
 # Cluster nodes take the Owner node key (LANE-W33D), as join-07 and host-exporters.sh do.
 NODE_KEY="${NODE_KEY:-$HOME/.bifrost-owner/ssh/node}"
 SSHO=(-F /dev/null -o IdentitiesOnly=yes -o IdentityAgent=none -o PreferredAuthentications=publickey
-  -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ConnectTimeout=15 -i "$NODE_KEY")
+  -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ConnectTimeout=15 -i "$NODE_KEY"
+  # scp and ssh to the same node share one connection: one passphrase prompt per node, not two.
+  -o ControlMaster=auto -o ControlPath="$HOME/.ssh/td450-%C" -o ControlPersist=60)
 
 die() { echo "STOP: $*" >&2; exit 1; }
 ready() { "${KUBE[@]}" get node "$1" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true; }

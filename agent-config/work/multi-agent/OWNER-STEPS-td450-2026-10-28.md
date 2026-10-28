@@ -28,6 +28,7 @@ bash ~/agent-work/night-1028/infra/scripts/k3s/td450-rotate-token.sh check
 - 每台 agent：`k3s-agent starts with: SERVER token`（02、04、05、gpu-server 预期如此）；07 预期是 `bootstrap token`（它用 1 小时令牌加入，那张令牌已经过期——**它现在重启 k3s-agent 能不能再连上，文档没写、我们也没验证过**；下面第 2 步会把它也换成 agent 令牌，这个问题随之消失）。
 - `leftover: /home/vision/.join-env` 之类：旧的加入文件，里面也是旧令牌，第 3 步删。
 - gpu-server 现在是 NotReady（关机）：ssh 不通是正常的，见第 2 步最后。
+- **07 不收 node key**（10-28 早上 check 实测 `Permission denied (publickey)`：join-07.sh 当时用你默认的 ssh 登 07，只用 node key 连 01）。第 2 步之前在 07 上装一次 node key 的公钥（`ssh-copy-id -i <node key>.pub vision@192.168.10.80`），再单独 check 一次 07。
 
 有任何一行 `STOP`、或与上面预期不同：停下，把输出发到统筹线程。
 

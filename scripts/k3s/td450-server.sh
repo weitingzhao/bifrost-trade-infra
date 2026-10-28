@@ -20,7 +20,8 @@ case "${1:-}" in
     grep -c '^K3S_TOKEN=' /etc/systemd/system/k3s.service.env 2>/dev/null | sed 's/^/k3s.service.env K3S_TOKEN lines: /' || true
     grep -nE '^(token|agent-token):' /etc/rancher/k3s/config.yaml 2>/dev/null | cut -d: -f1-2 | sed 's/^/config.yaml has: /' || true
     echo "probe with the current token: $(probe "$(cat $d/token)") (want 200)"
-    k3s token list || true ;;
+    # Only each token's id: a live bootstrap token printed whole would land in a pasted transcript.
+    k3s token list | awk 'NR==1{print;next}{sub(/\.[^ ]*/, ".<hidden>", $1); print}' || true ;;
   rotate)
     [ -e "$drop" ] && { echo "STOP: $drop exists: rotation already ran"; exit 1; }
     if grep -qE '^(token|agent-token):' /etc/rancher/k3s/config.yaml 2>/dev/null || grep -q '^K3S_TOKEN=' /etc/systemd/system/k3s.service.env 2>/dev/null; then
@@ -49,7 +50,8 @@ case "${1:-}" in
     case "$(cat $d/agent-token)" in K10*::node:*) echo "agent token: separate, secure format" ;; *) echo "STOP: agent-token is not K10...::node:"; exit 1 ;; esac
     echo "server done" ;;
   list)
-    k3s token list || true ;;
+    # Only each token's id: a live bootstrap token printed whole would land in a pasted transcript.
+    k3s token list | awk 'NR==1{print;next}{sub(/\.[^ ]*/, ".<hidden>", $1); print}' || true ;;
   forget-old)
     for name in $(k3s etcd-snapshot ls 2>/dev/null | awk '$1 ~ /^pre-td450/ {print $1}'); do k3s etcd-snapshot delete "$name"; done
     rm -f /root/k3s-old-server-token
