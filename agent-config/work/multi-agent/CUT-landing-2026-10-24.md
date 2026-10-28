@@ -1069,3 +1069,82 @@ B1 + B6 → B3 → B5 → B4，每块：设计细节 → Codex 设计复核 → 
 **6. 测试（PG，旧代码上必须红）**：Ask 成功回包丢失（事务失败）后同 key 拿回并绑定；绑定前卡过期 → n 不变的新卡；两个建卡者交错只有一个绑定；旧代际卡晚答（stop generation 已变）→ moot；`wait` 后 24 小时仍适用 → 补卡，期间不补；暂缓期间解决 → 撤回、不补；Ack 失败 → 不重复处理；模板升级 → 新 key；自由文本 → refused 且限频补卡；`repo_resume` 不重试原根；关 live 开关时 stop 卡照常。
 
 **7. 本片不做**：B5 的 `stg_failed`、`pending_long` 卡（随 B5）；Console 新页面（卡走现有问题页）。
+
+### 11.7 B5 STG 发布接力细化（2026-10-28 17:0x 统筹，设计稿 v1；回应复核 661 B-07、R-01、R-02，660 R-01）
+
+实读 platform `34c8f430`：协议已有 `stg_pending{R} → stg_snapshot{P,U,try,not_before} → stg_started{run,try} → stg_result{run,outcome} → stg_verified{P,U,digests} | stg_failed{why}`（`landing/protocol.go:468–513`，try ≤ 3、退避 10 / 30 分钟已在协议里）。infra `pipeline-ci-platform.yaml:22–26` 已产出结果 `platform-commit`、`ui-commit`。本节补：批次归属、无执行的处置、run 身份、租约、P/U 的精确来源、发前检查、人工发布的证据结算、卡。
+
+**1. 待发布与批次**
+- 「待发布」是派生集合（§11.4）：landed、最新有效性证据为 effective、且不属于任何**未释放**批次的 R。批次 = 仓库流上的操作 `stg:<repo>:<n>`，`stg_pending{R:[…], roots:[…]}` 在仓库流锁下冻结成员。
+- 同仓库同时只有一个未终结批次（终结 = `stg_verified`、`stg_failed`、新增的 `stg_abandoned`）。
+- 开批条件：live 开、没有活动落地（claimed 到 main_result 之间的操作），或最老的待发布已等 20 分钟。
+- **尝试账跟着 R 走**（661 B-07：换批次不清零）：每个 R 的已用自动尝试 = 它所在批次中到达 `stg_started` 的 try 数之和。已用满 3 次的 R 不进自动批次，只等卡上 Owner 的决定或人工发布的证据。
+
+**2. 尚无外部执行的批次处置**（661 B-07 反例 1）
+- 新记录 `stg_abandoned{why, members:{R: release|no_merge|reverted|ineligible}}`：只允许从 `stg_pending`，或 `stg_snapshot` 且该 try 没有 `stg_started` 时写入。写了 `stg_started` 就不能放弃：create 结果可能已生效，只能走 run 观察。
+- `release` 的成员回到待发布（尝试账不变）；其余成员带处置原因离开自动发布，由 B4 按处置原因分类（`no_merge`、`reverted` 算已处置未交付；`ineligible` 算未了结，发卡）。
+- 触发：发前检查发现永久性不合格（成员 mission `no_merge`、R 已撤销、规则禁止该差异）；暂时性问题（CI 未完成、窗口被占、规则读不到）只等待，不放弃。
+
+**3. 快照 P、U 的来源**（661 R-02）
+- 持窗口后读 main 头 → P。找 `ci-platform` 中 revision 参数**恰为 P** 的最新一次 run：
+  - 必须 Succeeded，且结果 `platform-commit` = P、`ui-commit` 是完整 SHA → U；
+  - 还在跑：等，30 分钟不出结果就发卡；
+  - 失败或结果缺失：不回退到更早的提交，发卡「P 的 CI 未过」；
+  - 不存在：等 webhook 触发的 CI，30 分钟仍没有就发卡。
+- `stg_snapshot` 增记 `ci_run`、`ci_uid`、`ci_created_at`。重试沿用同一 P、U（协议已强制）。同一 P 的新 CI 用了另一个 U：拒绝，不替换快照。
+
+**4. 发前检查**（每个 try 在写 `stg_started` 前、持窗口时现读，不用缓存）
+- 每个成员 R：`EligibleToDeploy`（规则 `stg_release`、mission 不是 `no_merge`、最新有效性 = effective）。
+- 上次 STG 部署（`Deployed("stg")` 的提交）→ P 的整段差异按规则判权限。
+- P 的精确 CI 仍是快照里那一次。
+- 任何一项不过，按第 2 条区分永久性（放弃该成员）与暂时性（等待）。
+
+**5. run 身份与创建**（660 R-01、661 R-01）
+- 先写意图，再动外部：`stg_started{run, try, namespace, pipeline, P, U, fingerprint}`，其中 `fingerprint = sha256(pipeline + 完整参数)`；然后创建 PipelineRun `bifrost-deliver-platform`（`revision=P`、`uiRevision=U`），run 名 = `landing-stg-<op 摘要>-<try>`。
+- 观察：GET 同名 run。
+  - 404：确认未创建，用同名重建；
+  - 403 或超时：等，不等同于 404；
+  - 找到：参数指纹相符就写 `stg_bound{run, uid}`（只记一次，不改变阶段）；之后 UID 变了即为碰撞，写 `stg_result{outcome: collision}`，按失败的 try 计。
+  - 指纹不符：不接管，按碰撞处理。
+- 终态：PipelineRun Succeeded → 进核验；Failed → `stg_result{failed}`；运行中 → 继续观察（没有超时放弃，只发卡提醒，跑超过 90 分钟发一张）。
+
+**6. 窗口与租约**
+- 持窗口：`who = stg:<repo>:<n>/<try>`，从快照前一刻起持到核验写完；每分钟续一次，ttl 5 分钟。
+- 续不上：写诊断记录 `stg_lease_lost{try, at}`。它是附注，不改变阶段（协议允许它出现在 `stg_snapshot`、`stg_started`、`stg_result`）。继续观察已起的 run；放弃尚未 `stg_started` 的 try 的创建，下一轮重新持窗口。
+- 核验前若发现租约丢失期间 STG 被别人改过（`Deployed("stg")` ≠ P），按失败的 try 计（`stg_result{superseded}`）。
+- 释放：用读到的版本做带版本的更新（已实现，`aa30a556`）。
+
+**7. 核验与收尾**
+- 四项都要过：
+  1. run Succeeded，且克隆结果的头 = P；
+  2. `Deployed("stg")` = P，三个镜像摘要与 run 结果一致；
+  3. rollout 完成；
+  4. STG platform-api `/health` 报出的版本 = P。
+- 都过 → `stg_verified{P, U, digests, effective:[…], ineffective:[…]}`：逐个现读成员 R 在 P 的有效性，已撤销的成员记进 `ineffective`，不算交付。
+- 有一项不过 → `stg_result{failed, why}` → 按退避写新的 `stg_snapshot{try+1}`；第 3 次失败写 `stg_failed`。
+- **需要实测**：PROD workers 能否访问 STG 的 `/health`（网络通不通），以及 PROD platform-api 能否读到 ci run 的结果。在实现时用探针确认；访问不了就改为经 STG 平台 MCP 读，并在本节补记。
+
+**8. 人工发布的证据结算**（661 B-07 反例 2）
+- 不改已有批次的记录。新的观察操作 `stg-ext:<repo>:<m>`：在不持窗口的只读循环里，看到 STG 部署了某个 P2（任何 `bifrost-deliver-platform` run，含 Owner 或统筹手动发的），且对那次 run 四项核验都过时，写 `stg_external_verified{run, uid, P, U, digests, covers:[{root, op, R}]}`。
+- `covers` 只列「仍未交付、R 在 P2 的历史里、且在 P2 有效」的成员。一次人工发布可以覆盖多个历史批次；无效的成员不影响其他成员结算。
+- B4 把被 `covers` 覆盖的 R 视为已交付（STG 已验证）。
+
+**9. 卡**（接 B3 的种类表）
+- `stg_failed`：选项「再发一次」（`retry_release`，Owner 授权给这些 R 新的 3 次尝试，写授权记录）、「不发」（`do_not_release`：成员算已处置未交付）。人工发布后由第 8 条自动结算，卡随之撤回（已解决）。
+- `stg_blocked`：发前检查有暂时性问题且超过 2 小时，或 CI 30 分钟未出结果。
+- `pending_long`：待发布超过 1 小时仍未开批。
+- `stg_ineligible`：有成员被以 `ineligible` 放弃时发卡，说明原因。
+
+**10. 范围与开关**
+- 新开批次和创建 run 只在 PROD 且 live 开。
+- 已有批次的 run 观察、核验、`stg-ext` 结算、卡，不受开关限制。
+- STG 平台不跑本循环。
+
+**11. 测试（PG，加假 K8s 与假 HTTP；旧代码上红）**
+- 批次与处置：冻结后单个成员 `no_merge` 或被撤销 → 放弃，其余成员 release 后重新成批；后到的合法 R 继续处理；三次失败不能靠换批次清零。
+- run 身份：create 回包丢失 → 同名接管；UID 变化 → 碰撞；403 不当 404；指纹不符不接管。
+- 租约丢失期间别人发了 STG → 记为 superseded；P 的 CI 换了 U → 拒绝。
+- 人工发布：同 P/U 与新的 P2/U2 两种都能结算。
+- 关 live 开关时，已起的 run 照常观察到终态。
+
+**12. 工作量**：按 660 估 20–30 小时；第 7 条两项网络与权限实测不通时另计。
