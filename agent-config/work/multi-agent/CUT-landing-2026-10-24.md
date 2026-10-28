@@ -1201,3 +1201,87 @@ B1 + B6 → B3 → B5 → B4，每块：设计细节 → Codex 设计复核 → 
 - PROD 读 CI 结果：可以。`kubectl -n cicd get pipelinerun bifrost-ci-platform-1793222718` 的 `status.results` 有 `platform-commit`、`ui-commit`、`infra-commit`。delivery 服务本来就在 List 同一批 PipelineRun（`delivery/landing_drill.go:21`），多读 `status.results` 即可，不需要新权限。
 - PROD workers 到 STG：`bifrost-platform-prod` 与 `bifrost-platform-stg` 只有 `redis-agents-ingress` 两条网络策略，`platform-api.bifrost-platform-stg.svc:8780` 不受限。
 - **核验第 4 项改法**：平台 `/health`（`server/server.go:609`）不报版本，STG 部署按镜像摘要拉取、没有提交号环境变量。第 4 项改为：STG 上 `platform-api`、`platform-workers` 运行中 Pod 的 `containerStatuses[].imageID` 摘要都等于该 run 为 P 构建的摘要，且 `/health` 为 ok。与「版本 = P」等价（摘要由 run 从 P 构建），不改镜像构建。
+
+### 11.6 v2 B3 问题卡（2026-10-28 17:2x 统筹；回应复核 665 的 B-01..B-04、R-01..R-05、N-01..N-02；**取代 §11.6 v1 与 §11.1 / §11.4 中 B3 的旧条款**）
+
+**覆盖清单**（665 N-01）：§11.1 B3 行、§11.4「B3 问题卡 v2」、§11.6 v1 中与本节冲突的全部以本节为准。统一用词：停止记录是 `landing_stop{generation}` / `landing_resume{generation}`（§11.1 的 `landing_stopped/resumed` 作废）；refused 不派生说明卡（§11.1 作废）；「触发身份」= 仓库流事件 `(repo, seq)`；「stop generation」= `landing_stop` 正文里 B6 的编号；「n」= 同一触发的第几张物理卡；「模板版本」= 建卡请求的模板号。四者不互相赋值。
+
+**1. 触发（665 B-04）**——每个触发都有唯一的持久事件和写入者：
+
+| kind | 触发事件（写入者） | 仍适用（消费前在业务锁下重判） | 选项 |
+|---|---|---|---|
+| `root_failed` | 根的最新操作的 `failed{why}`（落地循环 / 对账 / 领取） | 该操作仍是根的最新操作且仍是这条 failed；未 retry、未 declined；mission 不是 `no_merge`、未结束 | why 可重试：`try_again`、`do_not_merge`；否则只有 `do_not_merge` |
+| `floor` | **新**：领取时变更碰到不可变底线（`rules.LandingFloor` 或尺寸上限，`CheckChanges` 返回 `floor:`）→ 领取写出生即终态的 `failed{floor}`（加入 `ClaimRefusals`）；已领取的操作在闸里碰到 → `failed{floor}` | 同 root_failed | 只有 `do_not_merge` |
+| `ok_missing` | `landing_anomaly{ok_missing}`（对账） | 绑定的操作仍是根的最新操作且处于 `main_result{ok}` | `confirm_main_lost`、`wait` |
+| `late_landing` | `landing_anomaly{late_landing}`（对账） | 直到 `acknowledged`（原根有后继、mission 已结束也保留） | `ack` |
+| `repo_stopped` | `landing_stop{generation}`（B6） | 当前最新 stop 是这条事件、尚未 resume | `repo_resume`、`keep_stopped` |
+| `ci_stuck` | `parked{why:ci_stuck}`（CI 运行满 30 分钟时写，§2.5）——**立即**发卡 | 操作当前仍 parked，且它最近一次进入 parked 的事件就是这条 | `ack` |
+| `parked_long` | 其他 `parked{why}` 进入事件 | 同上，且该区间已持续 2 小时 | `ack` |
+
+可规则暂停（`rule` 不是 floor）不发卡，留给 B4 作为未了结显示。park → unpark → park 是两个区间、两个触发；旧区间离开即永久不适用。
+
+**2. 建卡：先写准备记录，再 Ask，再绑定（665 B-01）**
+- 卡片流 `landing-cards:<repo>`（**不锁仓库流**）。三个独立事务：
+  1. 卡片流锁下：重判适用（快照）、查限频（第 4 条）、写 `landing_card_prepared{v, prep, repo, kind, trigger_seq, stop_generation?, n, template_version, key, request:{完整规范请求}, options:{字母→语义}}`。`key = sha256(规范 request)` 的 64 位十六进制；同一 `(trigger_seq, n)` 只能有一条准备记录（追加校验）。
+  2. 锁外：`Ask(request)`，用**存下的请求原样**（模板升级不影响已准备的请求）。
+  3. 卡片流锁下：写 `landing_card{prep, question_id}`；同一 prep、同一 question_id 只能绑一次。
+- **恢复**：每轮先处理所有「有准备、无绑定」的记录：按存下的请求原样再 Ask。问题库返回仍受保护的同 key 卡（open，或已答未读 7 天内）就绑定它；已过期或撤回就建新卡并绑定。**触发已不适用也照样恢复并绑定**，以便收尾旧卡（第 3 条），不跳过。
+- **保留期限（明确限制）**：问题库只保护已答未读的卡 7 天（`questions/types.go:164`）。控制器整体中断超过 7 天，未绑定的已答卡可能被裁剪：恢复时同 key 查不到、且准备时间已超过 7 天 → 写 `landing_card_closed{why:"lost"}` 和一条可见异常（Console 落地页可查），触发仍适用就按限频重新问。不做跨库永久交接（本片不改问题库）。
+- 适配器核对（665 R-01）：新增落地专用的读卡接口，返回 requester、task、key、状态、过期时间、答案字母、自由文本、by / at / channel，区分「读失败」与「确实不存在」。绑定前核对 requester、key 与准备记录一致。
+
+**3. 每张已绑定的卡都要走到终点（665 B-02）**
+- 卡的生命周期由持久记录推出：
+  - 未答（open 且未过期）；
+  - 已答待处理；
+  - 已处理待 Ack（有处理记录、无 `landing_card_acked`）；
+  - 待撤回（触发已不适用、卡仍 open）；
+  - 已结束：`landing_card_acked`，或 `landing_card_closed{why: expired|withdrawn|lost|resolved}`。
+- 每轮扫描**所有未结束的绑定**，不只是每个触发的最新一张：
+  - 已答 → 处理（第 5 条）→ Ack → 写 `landing_card_acked`；Ack 失败下一轮重试，处理不重复。
+  - 待撤回 → Withdraw。返回 409 时重读：已答就走处理（结果多为 moot），确实已过期或已撤回才写 closed。
+  - 过期判定同时看状态和 `ExpiresAt`，已答优先。读失败不当作不存在，不写 closed、不补卡。
+- 锁序：卡片流只做准备、绑定、关闭、Ack 记账；业务处理沿用 task → mission → 仓库流（§8），两者分开事务，不同时持两条流锁。
+
+**4. 限频与调度（665 R-02）**
+- 卡 TTL 显式 72 小时。
+- 同一触发同时最多一张未结束的卡。
+- 自动补卡（过期、撤回、lost、refused）至少间隔 6 小时；滚动 24 小时内每个触发最多 4 张。计数按**准备记录**（包括建了卡但事务回滚的情况），同一 key 重放不重复计数，模板升级不清零。
+- 到上限只延后，不永久关闭触发；`held` 的提醒时间与这些限制取较晚者。
+- 顺序：先收尾旧卡（处理、Ack、撤回），再建新卡；决定类（root_failed、floor、ok_missing、repo_stopped）先于通知类（late_landing、ci_stuck、parked_long）。
+- 问题库返回配额或容量错误时，该触发退避 30 分钟。不换 requester，不用 `ByRule`。
+
+**5. 处理与记录（665 R-01、R-03、B-03）**
+- 处理记录 `landing_answer` 加版本 `v:2` 与 `kind`。旧记录（无 kind）按 §8 原规则校验；新记录按下表校验，根卡的约束不放宽：
+
+| kind / choice | outcome / why | 约束 |
+|---|---|---|
+| root_failed、floor / `try_again`、`do_not_merge`；ok_missing / `confirm_main_lost` | 沿用 §8 | 走 §8 原有的锁序、判定与协议校验；floor 只能 `do_not_merge` |
+| repo_stopped / `repo_resume` | applied / repo_resumed；moot / stop_superseded、already_resumed | 无 root / mission 的专用分支；仓库流锁下核对当前最新 stop 的 seq 与 generation 都等于卡上记的、尚未 resume，才在**同一事务**写 `landing_resume{repo, generation}` 和处理记录 |
+| ok_missing / `wait`；repo_stopped / `keep_stopped` | held / wait、keep_stopped | 在业务锁下重判仍适用，否则 moot；`remind_at` = 答复时间 + 24 小时 |
+| late_landing、ci_stuck、parked_long / `ack` | acknowledged / ack | 只结束这个触发的通知，不代表业务已解决 |
+| 该 kind 不认的字母或自由文本 | refused / unknown_choice | 保存原文，不执行别的 kind 的动作 |
+
+- 已有处理记录的卡，重复读到就直接返回已存结果。
+- 新的 note 都注册进词表（`landing_card_prepared`、`landing_card`、`landing_card_acked`、`landing_card_closed`），只允许 controller 写在 `landing-cards:<repo>` 上，键严格校验。不新增 DDL。
+- 读触发用一个新的、带 seq 的持久记录读取器，不靠现有 `LandingState`（它只折叠 `body.landing`）。
+
+**6. 反馈去向（665 R-04）**：refused、moot 的原因记在处理记录里，并按 question_id 接到现有问题详情接口（新增 `landing_outcome` 字段：是否执行、为什么、下一步）；仓库停止卡没有 mission，也从这个接口查。不派生说明卡。
+
+**7. 运行范围与接口（665 R-05）**
+- PROD workers 独立装配卡循环：只要有 Question 读取就收尾和处理已有答案；有 Ask 才建新卡；有 Ack、Withdraw 才做对应收尾。缺哪一项都在 `/health` 的 agentrt 段可见。
+- 卡循环不依赖 live、MainPusher 或 Git 写身份。STG、DEV 不建、不处理这些卡。
+- mission `no_merge` 或已结束 → 该 mission 的 root_failed、floor 卡进入待撤回；late_landing 不受影响。
+- 与 B4 的接口：held、acknowledged、expired、refused 都**不是**业务处置。B4 只看处理结果中的 declined、main_lost 和协议终态。live 关时到限结算由谁跑，放在 B4 细化里定。
+- 与 B5：`stg_failed`、`stg_blocked`、`pending_long`、`stg_ineligible` 卡随 B5 实现，复用本节的准备、绑定、收尾机制；批次身份另成一个 kind，不塞进 root 卡。
+
+**8. 卡文案（665 N-02）**：英文。写仓库、任务标题、第几次操作、原因与发生时间、各选项的后果、下次提醒时间；`repo_resume` 写明「解除停止，不重试原失败，不自动发布」。审计 id 放详情，不塞正文；只有真正的 WorkID 才放链接。
+
+**9. 测试（PG，旧代码上红）**：
+- 建卡与恢复：Ask 成功但绑定事务失败 × 同模板 / 升级模板；回滚后触发已解决；孤儿已答未绑定；超过 7 天且已裁剪 → lost 与异常。
+- 收尾：Q1 已处理、Ack 失败、Q2 已绑定后 Q1 仍能 Ack；处理提交后回包丢失；答复与撤回在两个连接上竞争；扫描到已过期仍 open 的卡；读超时与真正 404。
+- B6：stop 的 seq 与 generation 故意不同；stop1 → resume1 → stop2 后旧卡的答复；重复 `repo_resume`；resume 写后处理记录失败整笔回滚。
+- 触发：首次领取碰底线（无操作）、已领取后碰底线；ci_stuck 满 30 分钟；park / unpark / repark 后旧卡晚答；late_landing 的原根已 declined 或已有后继。
+- 限频：自由文本连答、跨日、模板升级。
+- 范围：live on→off→on；缺 Ask / Ack / Withdraw 各一；STG 零卡。
+
+**10. 工作量**（665）：B3 27–41 小时（原 12–20）。
