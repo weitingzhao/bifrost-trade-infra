@@ -3487,7 +3487,7 @@
 
 **P2 · 4.1 落地 · mission 持住与收尾在 S3 前要补的三处（复核 638）**
 
-- **状态**：未开始（2026-10-27 夜班登记；S2 用到的持住已在 platform `89722fd8`、`a504b8b4`、`51ebc966` 做了，下面几处属于 S3 的真推送）。
+- **状态**：在做（2026-10-27 晚）。第 1、2、6 项在 platform 分支 `w31/td447-pending` `7fe6b34a`：`landing.State.AwaitsNext` / `RootPending`、`Operation.EndsAtBound` / `AtMain`，close、到限收尾、演练共用；在 main 停 non_ff、retry 未领取时持住，出生即终态的 `failed{bound}` 扩到这两种并消耗 retry；到限收尾跳过 main 上的操作（不再整事务回滚），main 上的操作不受 6 小时 15 分限制。三个测试在 `0a170bb8` 上全红。独立复核 645 在做。第 3、4、5 项未开始。之前：未开始（2026-10-27 夜班登记；S2 用到的持住已在 platform `89722fd8`、`a504b8b4`、`51ebc966` 做了，下面几处属于 S3 的真推送）。
 - **证据**：
   1. `api/internal/agentrt/store/close.go` `landingHolds`：只把最新操作为 `discarded` 当作「下一次待开」。协议里 `main_result{non_ff}` 同样只结束本次操作、不挡下一次领取（`landing/protocol.go` `Terminal`、`BlocksClaim`），但持住判断把它当已结束，mission 会在 k+1 之前被关；`SettleLandingDrillBounds` / `failDiscardedBound` 也不给它补到限的后继。S2 的 dry_run 走不到 `main_intent`，今天不可达。
   2. `store/landing_bounds.go` `SettleLandingDrillBounds`：对所有非终态统一追加 `failed{bound}`，而 v1 合法链停在 `main_intent`、`main_result{ok|denied}` 时这条转移被拒（`illegal`），整个收尾事务回滚，同流里其他到限的操作也收不了尾。复核 638 的 `TestWork638LegacyProtocolEvidence` 实跑确认。今天三个库都没有落地记录。
@@ -3517,7 +3517,7 @@
 
 **P2 · 运行时 · 准备失败（prepare_failed）立即重试，几分钟烧光整个 mission 的尝试预算**
 
-- **状态**：未开始（2026-10-27 登记）。
+- **状态**：在做（2026-10-27 晚）。修复在 platform 分支 `w31/td449-prepare-block`（Codex 644 写、统筹复核并跑数据库测试）。**诊断更正**：「三次准备失败就挂起」的规则早就有（TD-394，`store/preparefailed.go`），只是从没触发——它只在 `BlockWithdrawn` 的定期巡检里看 ready 的任务，而主机在每次失败后不到 1 秒就重新领走，巡检看不到 ready。修法改为在领取时（`store/claim.go` `take`，持任务和 mission 锁）判断并直接挂起；下面原写的「按摘要去重 / 指数退避」不再需要。
 - **证据**：STG M-153 的 `t_01M5Z2M9BTW95TSVDH80BPAV1D`（任务说明漏了 `siblings`，`npm --prefix ../bifrost-ui ci` 每次 1 秒内失败）在 16:22–16:25Z 被领取了 40 次，每次 `attempt_computed{end_how: prepare_failed}` 后任务回到 ready 立刻再派，mission 的 `max_attempts` 40 用尽；随后 STG 的 card-auto-answer 规则按推荐选项「再给一轮」加了 3 次。同样的失败原因、同样的输出，40 次没有一次能成功。
 - **影响**：一个写错的任务说明在几分钟内耗光 mission 预算、刷出约 500 条事件，挤占同一 mission 里其他任务的尝试；在只有 2 个连接的 STG 池上同时加重派活负担。
 - **修法**：准备失败按失败原因与输出摘要去重：同一任务连续两次以同一摘要 prepare_failed 就转 blocked 并出卡（写明首个失败命令与输出尾部），不再回到 ready；或至少按指数退避。区分「说明本身错误」（不重试）与「主机临时故障」（换主机或退避后重试）。
@@ -3539,7 +3539,7 @@
 
 **P3 · Agent 工具 · `bifrost-trade-api` MCP 用 HTTP 打网关，被重定向后全部 404**
 
-- **状态**：未开始（2026-10-27 登记）。
+- **状态**：待 Owner 改配置（2026-10-27 晚）。实测：Node 的 fetch 会丢掉手设的 `Host` 头，所以请求实际打到裸 IP（404）；把 `TRADE_API_GATEWAY` 写成 `https://stg.trader.bifrost.lan`、删掉 `TRADE_API_GATEWAY_HOST` 后，客户端 `tradeGet` 四个健康端点都 200（Node 认这张证书，不用跳过校验）。Agent 改自己的 MCP 配置被 auto mode 拦下，改由 Owner 跑一条命令。
 - **证据**：工作区 `.mcp.json` 的 `bifrost-trade-api` 用 `TRADE_API_GATEWAY=http://192.168.10.73`、`TRADE_API_GATEWAY_HOST=stg.trader.bifrost.lan`。2026-10-27 四个健康工具（`get_account_health` 等）都返回 `HTTP 404`；同一路径 `curl -H 'Host: stg.trader.bifrost.lan' http://192.168.10.73/api/account/health` 得 301（网关把 HTTP 转到 HTTPS），`https://192.168.10.100` 带同一 Host 得 200。另：这组工具名字看不出查的是 STG，不是 PROD。
 - **影响**：Agent 的 Trade 只读健康检查不可用，只能退回 curl；读到 404 容易误判成服务坏了。
 - **修法**：`agent-config/.mcp.json` 把网关改成 `https://192.168.10.100`，客户端接受集群自签证书或带 CA；按环境分 STG / PROD 两组，或在工具描述里写明环境。Cursor 侧 `agent-config/cursor/mcp.servers.json` 同步。
