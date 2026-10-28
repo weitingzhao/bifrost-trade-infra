@@ -934,3 +934,9 @@ Console 上把「已交付」和「已处置、未交付」分开显示。不在
 - **C-R2 顺序与退避**：扫描里先做数据库收尾（到限、未领取），再做 `denied → failed{denied}`（不读 Git），最后逐个操作读证据；每个操作的读取有超时，失败只退避这个操作（键 = op + 期望状态，用新鲜排程时钟），不影响其他操作；规则为空 / 过期 / 撤回都照常对账。
 - **C-R3 交接**：`landed` 后加入 STG 发布队列、`failed{denied}` 后停仓库与问题卡：仍是 S3 接线的验收项（本项只写协议终态）；已在 §10.5 列出，S3 开门前必须做。
 - **C-R4 测试**：每个证据分支各一例（含 R 在 / 不在 × head = M0 / ≠ M0 × 栅栏前 / 后）；ok 缺失的异常记录与重查后 landed；`confirm_main_lost`；denied 不调 Git；并发推进后证据作废；证据错误不写、其他操作照常；迟到落地；变异：省略 `main_intent → unknown`、去掉锁后状态比较、错误当 false、只比 head 是否等于 R、去掉栅栏。
+
+### 10.7 复核 657、658 与落地（2026-10-28 下午）
+
+- **657（①②代码）**：B657-1 校验器误拒合法记录 → 按 why 的规则表重写（可跟随的选项、mission 必须 active / 非 active / 不限），接受全部 mission 状态与空选项；R657-4 `not_retryable` 要求 active；R657-1 最终闸的记录改用最终事实里的规则版本（原来可能空指针）；R657-2 / N657-1 分支步骤读完后再判到限、`retry_at` 用新时钟；R657-3 补测：真等锁的双连接、提交成功但回包丢失、S2 各阶段 decline、每条决定后的记录可复读。platform `3752318d`。
+- **658（③代码）**：B1 证据改为 `rev-list` 遍历 main 完整历史（拒浅克隆），只有遍历完成且不含 R 才是 false；B2 负证据只认在栅栏之后开始的读取（`MainEvidence.ReadAt` 由对账器在读前打上）；B3 `main_lost` 只在 v1.1 `failed`、只从 `main_result{ok}`、只由 controller 写；R1 迟到落地锁内去重；R2 Owner 回「不合」后仍监测迟到落地；R4 每个终态同事务写 `landing_main` 证据（head、has_r、read_at）；N1 异常 / 证据记录校验 SHA 与根。platform `eb85778a`。
+- **仍留给 S3 接线（开门前必须）**：对账读取按操作退避与公平调度（658 R3）；landed 进 STG 队列、denied 停仓库与问题卡（656 C-R3）；ok_missing / late_landing 的 Owner 问题卡从持久异常记录生成并走 `confirm_main_lost`；推送 2 分钟硬超时；PROD 最终闸（main_intent / 配额）按 §9.7 取时间；中间闸（CI、分支）写新意图前按同一时点刷新规则（657 R657-2 的剩余部分）；读卡回调的超时（657 N657-3）。
