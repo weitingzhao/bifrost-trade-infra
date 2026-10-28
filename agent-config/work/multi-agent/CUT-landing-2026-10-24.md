@@ -1148,3 +1148,51 @@ B1 + B6 → B3 → B5 → B4，每块：设计细节 → Codex 设计复核 → 
 - 关 live 开关时，已起的 run 照常观察到终态。
 
 **12. 工作量**：按 660 估 20–30 小时；第 7 条两项网络与权限实测不通时另计。
+
+### 11.8 B4 收尾分类细化（2026-10-28 17:1x 统筹，设计稿 v1；回应复核 661 B-06）
+
+实读 platform `34c8f430`：`store/close.go` 的 `landingHolds` 用 `landingHoldLimit = ClaimWindow + 15 分钟` 计时放行，`RootPending` 之外的终态（landed、failed）一律不持住。B4 在 PROD live 范围内把它换成按证据分类。
+
+**1. 政策由持久事实决定，不看当前开关**（661 B-06 反例）
+- live 第一次装配成功时（workers 启动、`Controller.Live` 为真），在仓库流写一次 `landing_mode{mode:"live", at}`（已写过不重复）。
+- 一个 mission 属于 **live 范围** 的条件：仓库流有 `landing_mode{live}`，mission 创建时间不早于它，且 mission 的 implement 任务属于该仓库。
+- 一旦属于 live 范围，就永远按 B4 分类。关开关、撤规则、凭证缺失都不会让它退回旧的计时放行。
+- 不在 live 范围的 mission、STG 演练、只有 brief 的 mission，照旧用现有规则。
+
+**2. 每个根任务分三类**（读仓库流折叠、STG 操作、最新有效性证据；数据库内完成，不读外部）
+
+| 类 | 条件 |
+|---|---|
+| **已交付** | 规则 `stg_release` 开着：R 出现在某个 `stg_verified.effective` 或 `stg_external_verified.covers` 里。规则**明确**设为 `none`：`landed` 且最新证据 = effective。规则缺失或过期 ≠ none |
+| **已处置未交付** | 最新操作 `failed{declined}`（Owner 答了「不合」）、`failed{main_lost}`、`failed{reverted}`；STG 卡上答了 `do_not_release`；`stg_abandoned` 的成员处置为 `no_merge` 或 `reverted`；mission 是 `no_merge` 且该根没有 AtMain 操作、也没有运行中的 STG run |
+| **未了结** | 其余全部：操作进行中、AtMain、parked、`failed{bound\|stale\|ci_red\|denied\|conflict\|…}` 未答复、`failed{result}` 未答复、landed 但未完成 STG 核验、STG run 运行中、`stg_failed` 未答复、`ineligible` |
+
+- `failed{in_main}`（A 已被手工合进 main）：用 §10 对 H（A 在 main 里的那个提交）的有效性证据判：规则为 none 且有效 → 已交付；`stg_release` 开着时，`stg-ext` 覆盖 H 才算已交付；否则未了结。
+- `stale` 未答复算未了结（661：避免 Close 与答复竞争）。
+
+**3. mission 关闭**
+- 原有任务级条件（全部任务 accepted 或被丢弃）满足后，再看落地分类：
+  - 有一个未了结 → 保持 active，没有计时放行；
+  - 全部已交付或已处置，且至少一个已交付 → done；
+  - 全部只是已处置 → stopped。
+- 关闭记录写分类计数，不写「外部动作已停止」。
+
+**4. 无人答复**
+- 永远保持 active 是预期行为（661）。出口只有：合法的 retry、「不合」、`main_lost`、mission `no_merge`、STG 卡上的处置，或人工发布后的 `stg-ext` 结算。
+- B3 的过期补卡与限频提醒保证入口一直在。
+- mission 详情接口加 `landing_status{delivered, disposed, unresolved, oldest_wait, reasons, last_reminded}`，供 Console 显示（页面改版跟 Design 专轮，本片只出接口）。
+
+**5. 与其他块的接口**
+- B3：未了结的根一定有卡或在暂缓期。
+- B5：交付的证据来自 `stg_verified` 或 `stg-ext`。
+- §10：有效性来自最新 `landing_main` 证据；AtMain 先等对账。
+
+**6. 测试（PG；旧代码上红）**
+- live on→off→on，关开关时分别处于：未领取、retry 待领、landed 未发布、stg_started、failed 未答。
+- 七小时、数日未答 → 仍 active。
+- 全部答「不合」→ stopped；有真实交付 → done。
+- 规则 none 与 `stg_release` 两种交付判定；规则缺失不当 none。
+- `in_main` 的两种结果。
+- 非 live 范围的 mission 行为不变（现有测试全绿）。
+
+**7. 工作量**：按 660 估 10–16 小时。
