@@ -63,7 +63,7 @@ class PlatformDockerfiles(unittest.TestCase):
                         self.assertIn(ref, task_specs)
                         self.assertEqual(configmap_violations(task_specs[ref]), [], ref)
 
-    def test_infra_clone_uses_its_own_main_and_shared_workspace(self):
+    def test_infra_clone_uses_its_own_ref_param_and_shared_workspace(self):
         tasks = pipeline_tasks(STG)
         self.assertIn("clone-infra", tasks)
         clone = tasks["clone-infra"]
@@ -71,8 +71,10 @@ class PlatformDockerfiles(unittest.TestCase):
         self.assertEqual(clone["runAfter"], ["mirror-sync"])
         self.assertEqual({p["name"]: p["value"] for p in clone["params"]}, {
             "url": "$(params.giteaBase)/bifrost-trade-infra.git",
-            "revision": "main", "subdir": "bifrost-trade-infra",
+            "revision": "$(params.infraRevision)", "subdir": "bifrost-trade-infra",
         })
+        params = {p["name"]: p.get("default") for p in yaml.safe_load(open(STG))["spec"]["params"]}
+        self.assertEqual(params.get("infraRevision"), "main")
         self.assertEqual(clone["workspaces"], [{"name": "output", "workspace": "build-context"}])
         mirrors = {p["name"]: p["value"] for p in tasks["mirror-sync"]["params"]}
         self.assertIn("bifrost-trade-infra", mirrors["mirrorRepos"].split())

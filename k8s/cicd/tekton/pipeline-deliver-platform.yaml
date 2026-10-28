@@ -21,6 +21,12 @@ spec:
     - name: uiRevision
       type: string
       default: main
+    # The infra checkout the Dockerfiles come from (TD-448). Default main; a
+    # pinned run names the infra commit, so every clone has its own ref param
+    # (platform delivery ratchet TestPlatformCloneRefParamsFollowInfra).
+    - name: infraRevision
+      type: string
+      default: main
     - name: giteaBase
       type: string
       default: http://gitea.cicd.svc.cluster.local:3000/bifrost
@@ -55,7 +61,7 @@ spec:
         - name: url
           value: $(params.giteaBase)/bifrost-trade-infra.git
         - name: revision
-          value: main
+          value: $(params.infraRevision)
         - name: subdir
           value: bifrost-trade-infra
       workspaces:
