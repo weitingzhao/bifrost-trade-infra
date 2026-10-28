@@ -871,6 +871,17 @@ Console 上把「已交付」和「已处置、未交付」分开显示。不在
 
 - 规则表本身加锁（复核 646 提到「未加规则锁」）：新版本是追加的、按 `effective_at` 选，第 3 步锁内重选已足够；规则撤回的语义归 §5 第 5 项。
 
+### 9.7 复核 656 与 v2（2026-10-28 下午，已实现）
+
+复核 656：B 部分 1 阻断（B-B1）、3 应修、2 小问题。v2：
+
+- **一个时钟**（B-R2）：`DecisionAt()` 就是事件时钟 `eventClock`，不再取 `max(now, …)`。决定与记录同源（Append 也用它），`failAwaitingBound` 这类「决定时到限、Apply 再按 e.At 验到限」的两次判定不再可能不一致。测试推进时间只能拨这个时钟；三个原先「传一个未来的 now、不拨时钟」的测试改为同时拨时钟（`TestSettleUnclaimed`、`TestClaimPastTheWindowRecordsBoundWithoutGit`、`TestDrillWindowBoundFreesActiveSlotInDatabase`）。一轮的 `now` 只排程。**不防时钟回拨**：墙钟回拨（NTP）时，一个已到限的窗口在那一轮里可能看起来又没到；接受并记在台账。
+- **最终闸读完再选**（B-B1）：`FinishLandingDrill` 拿齐锁后取一次时间读事实，`observe`（读 CI、main、窗口）之后再取一次 `final`，用它重选规则、重读数据库一半事实（外部证据沿用，其键被锁住），`NextDrill` 也用 `final`。测试 `TestDrillFinalGateSelectsTheRuleAfterItsReads`：事先装好 effective 在两次时间之间的收紧版本 → 拒绝；变异「final 用拿锁时的时间」→ 红。
+- **补漏的闸**（B-R1）：`ObserveLandingEnabled` 先锁流、再按锁内时间选规则（不在已过期的规则上写启用栅栏）；`LandingDrillCI` 的到限、`NextDrill`（10 分钟补建、30 分钟卡住）、CI 创建时间核对、`parked.retry_at` 都用读完外部之后的时间；`LandingDrillBranch` 的到限同。`LandingDecision` 不持锁，是可重试的预判（每次新事务读时钟），不是最终授权闸。
+- **S3 的 PROD 最终闸**（`main_intent`、UTC 配额、预留）：按同一条规则——最后一次外部读之后取一次时间，规则、到限、配额日期、资格都用它；接线时照做，本项不含。
+- **退避**（B-N1）：§9.3 表写错了：退避的 `due` / `record` 本来就用新鲜的 `c.clock()`（慢失败后不立即重试），v2 不动它。
+- 测试钩子（B-N2）：没有新增钩子，测试直接在 `LandingSource.Result` / `observe` 回调里推进时钟，并断言回调确实被调用。
+
 ## 10. S3 必做 ③：main 对账器与 `failed{denied}`（2026-10-28 统筹，设计稿 v1）
 
 ### 10.1 问题（复核 645 §2，实读 `6ea51e0e`）
