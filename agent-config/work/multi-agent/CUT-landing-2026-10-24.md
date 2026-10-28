@@ -8,6 +8,8 @@ vet、实际 clone SHA 结果、最终 RBAC 与离线防线已准备。线上 P0
 
 **2026-10-27 夜班统筹（proceed-on-recommendation，Owner 事后审计）**：把 §2.7 里「未了结的保持 active」的**持住**部分提前到 S2。原因：STG 上不挂计划步骤的 mission 在任务全部 accepted 后同一轮就被 `CloseMissions` 关成 done（M-114：review 通过后 34 毫秒），而每一道落地闸都要求 mission 是 active，演练会在 CI 跑完前记成 `failed{stale}`，S2 到不了 `rehearsed`。platform `89722fd8`、`a504b8b4`、`51ebc966`（分支 `w31/s2-landing-holds-mission`，后两个回应复核 638、640）：mission 的实现任务最新一次落地操作未结束、或以 `discarded` 结束（k+1 待开）时不关，最长持到首次领取后 6 小时 15 分；从没被领取过的，在已启用落地的仓库里 accepted 后留 2 分钟首次领取宽限；`ClaimLandingDrill` 先以 FOR SHARE 锁任务、再锁其 mission、再锁仓库流。已知限制：繁忙的一轮仍可能错过首次领取，演练一次只起一件。S3 前还要补的见 TD-447。按结局分「已交付 / 已处置」关 mission 仍属 S3。另：演练 mission 不能带 `no_merge`（领取闸判 stale）。详见 `REPORT-landing-s2-2026-10-27.md`。
 
+**S2 实跑结果（2026-10-27，统筹线程）**：正常路径、①、③、④ 在 STG 实跑通过，② 只由测试覆盖；时间线见 `REPORT-landing-s2-2026-10-27.md` §7。③（窗口持满六小时 → `failed{bound}`）只做这一次：今后六小时 / 八次总上限只靠测试守住，不再在 STG 上持窗口演练（Owner 2026-10-27）。
+
 **这份文档回答什么**：Owner 10-23 23:3x 定了「D4 A」：验收通过的活由运行时自动进 main，先接 bifrost-platform、bifrost-trade-infra 两个仓库；PROD 仍按发版策略走，规则由 Owner 签。本文分三部分：
 - §1：今天一件活从 agentd 推分支到进 main，实际怎么走（带 `文件:行`）；
 - §2：运行时自己合、自己发 STG，需要哪些前置条件、步骤和记录，出错怎么办；

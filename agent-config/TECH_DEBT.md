@@ -3523,3 +3523,25 @@
 - **修法**：准备失败按失败原因与输出摘要去重：同一任务连续两次以同一摘要 prepare_failed 就转 blocked 并出卡（写明首个失败命令与输出尾部），不再回到 ready；或至少按指数退避。区分「说明本身错误」（不重试）与「主机临时故障」（换主机或退避后重试）。
 - **防线**：加测试：同一摘要的 prepare_failed 第二次后任务为 blocked、尝试数为 2。
 - **验收**：`go -C api test ./internal/agentrt/store/ -run 'Prepare' -count=1`（隔离的 `AGENTRT_TEST_PG`、`AGENTRT_TEST_REDIS`、`AGENTRT_TEST_REQUIRED=1`）。
+
+### TD-450
+
+**P2 · 集群安全 · 退货的旧 07 盘上留着 k3s 加入凭据，主令牌没轮换**
+
+- **状态**：未开始（2026-10-27 登记）。
+- **证据**：旧 ubt-k3s-07 在 10-24 按 `scripts/k3s/install-agent.sh:6`（`K3S_TOKEN — from bootstrap: sudo cat /var/lib/rancher/k3s/server/node-token`）加入集群；k3s agent 把 `K3S_TOKEN` 写进本机的 `/etc/systemd/system/k3s-agent.service.env`。这台机器 10-25 因 NVMe 写超时整机退回 Amazon，盘没擦。拿到这个令牌、又能连到 `192.168.10.73:6443` 的人，可以把一台机器作为 agent 加入集群，并被调度上工作负载。新 07（10-27）改用 1 小时有效的 bootstrap 令牌（`k3s token create --ttl 1h`），不受影响。
+- **影响**：只限内网（6443 不对外）；但集群里有 PROD 数据库和交易读面，加入的节点能拿到调度到它上面的 Pod 的 Secret。
+- **修法**：在 01 上 `k3s token rotate --new-token=<新值>`，按 K3s 文档更新每台 agent 的 `k3s-agent.service.env` 并逐台重启 agent（一次一台，先 PROD 以外）；新值不进仓库。`install-agent.sh:6`、`:21` 的说明改为只用 `k3s token create --ttl` 的 bootstrap 令牌，不再读 server node-token。
+- **防线**：`install-agent.sh` 拒绝看起来像 server 主令牌的值（`K10…::server:…`），只接受 bootstrap 令牌格式；加一个 shell 测试。
+- **验收**：01 上旧令牌加入被拒（拿旧值对 6443 做一次 agent 加入的 dry run，期望 401）；`bash scripts/k3s/test_install_agent_token.sh` 通过。Owner 执行（需要 01 和各节点的 sudo）。
+
+### TD-451
+
+**P3 · Agent 工具 · `bifrost-trade-api` MCP 用 HTTP 打网关，被重定向后全部 404**
+
+- **状态**：未开始（2026-10-27 登记）。
+- **证据**：工作区 `.mcp.json` 的 `bifrost-trade-api` 用 `TRADE_API_GATEWAY=http://192.168.10.73`、`TRADE_API_GATEWAY_HOST=stg.trader.bifrost.lan`。2026-10-27 四个健康工具（`get_account_health` 等）都返回 `HTTP 404`；同一路径 `curl -H 'Host: stg.trader.bifrost.lan' http://192.168.10.73/api/account/health` 得 301（网关把 HTTP 转到 HTTPS），`https://192.168.10.100` 带同一 Host 得 200。另：这组工具名字看不出查的是 STG，不是 PROD。
+- **影响**：Agent 的 Trade 只读健康检查不可用，只能退回 curl；读到 404 容易误判成服务坏了。
+- **修法**：`agent-config/.mcp.json` 把网关改成 `https://192.168.10.100`，客户端接受集群自签证书或带 CA；按环境分 STG / PROD 两组，或在工具描述里写明环境。Cursor 侧 `agent-config/cursor/mcp.servers.json` 同步。
+- **防线**：MCP 健康自检（`platform_mcp_health` 一类）对 trade 组发一次 `/api/account/health`，非 200 就报错。
+- **验收**：新开会话调 `mcp__bifrost-trade-api__get_account_health` 返回 200。

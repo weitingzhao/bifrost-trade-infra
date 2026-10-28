@@ -116,7 +116,13 @@ FROM agentrt.event WHERE event_stream_id='landing:bifrost-platform' AND event_ty
 | 12:30:18 | **用例 ④**：STG 发布 `2ba2b6eb`，workers 重启 |
 | 12:35 | 同一 run `ci-platform-fffm8` Succeeded → `rehearsed`；重启后没有新的 `prepared`、没有新 CI run |
 | 12:36 | `land/stg/…/1`、`/2` 都已从 Gitea 删除；mission 在 rehearsed 之前一直 active |
+| 13:21 | **用例 ③** 开始（Owner「现在就可以做」，白天跑，选项 A）：统筹 `release.sh hold --what bifrost-platform` 持住窗口；起 M-158（任务 `t_01M5Z9GG3G550KNZNX06TQZVJ5`，带 bifrost-ui siblings，基准 main `0a170bb8`） |
+| 13:27 | 任务 accepted → `claimed → prepared → branch_intent → branch_pushed`（`land/stg/t_01M5Z9GG3G550KNZNX06TQZVJ5/1`）→ `ci_seen` Running → Succeeded → `parked{window}` |
+| 13:27–19:27 | 一直停在 `parked{window}`，mission 保持 active；窗口挡住所有仓库发布，期间没有发版 |
+| 19:28:06 | 六小时到：`failed{bound}`；M-158 关成 done；统筹随后放开窗口（`no release window open`）；Gitea 上没有 `land/**` 分支 |
 
-**结论**：正常路径、①、④ 在 STG 实跑通过；② 只由测试覆盖（无法故意造）；③ 待 Owner 定时间（操作单第 6 步）。
+**结论**：正常路径、①、③、④ 在 STG 实跑通过；② 只由测试覆盖（无法故意造）。③ 读回里「活动位释放」没有被下一次领取直接证明（当时没有排队的任务），由 `failed` 是终态、`TestCloseMissionsWaitsForLandingInFlight` 与 mission 已关佐证。
+
+**以后不再做长演练（Owner 2026-10-27）**：六小时上限只靠测试守住（假时钟、秒级），不再在 STG 上持窗口六小时。原因：持窗口期间所有仓库都不能发版，代价是整整一个白天。上限或计时逻辑改动时，改的人补测试，不补演练。
 
 **遗留**：M-153 在 rehearsed 后仍 active：被替换的旧任务停在 ready（任务级 stop 只拦领取，不改状态），Agent 没有正当途径关这个 mission；演练因此每轮为已 rehearsed 的任务重读 Git（CPU 约 0.35 核，复核 641 §3）。跟进：候选在读 Git 前按本轮已读的落地流跳过 rehearsed / 在途的任务（platform 跟进提交）；根治见 TD-447 第 5 项。prepare_failed 无退避地烧光尝试预算另记。
