@@ -1005,3 +1005,18 @@ B1 + B6 → B3 → B5 → B4，每块：设计细节 → Codex 设计复核 → 
 **工作量与日期**（按 660）：68–107 小时；Claude + Codex 并行、夜班不停，开门估 **11-05 到 11-10**。最大风险：B5（跨系统最多）、B1（推送授权与期限）。
 
 **顺序**：B1 + 撤销检测 → B6 → B3 → B5 → B4；每块 设计细化 → 复核 → 实现 → 测试（分层：纯协议、PG、假 Git / 临时 Git、假 K8s、实际 Gitea / STG）→ 复核。
+
+### 11.5 复核 661 结论与执行清单（2026-10-28 15:2x）
+
+661：v2 可作为继续细化、实现的基础。B-01、B-03、B-05 设计层解除；B-02、B-04、B-06 部分解除；新增 B-07。各块开工前在本节下补「细化」小节并送一轮设计复核（报告 `~/agent-work/codex-work-661/REPORT.md`）。
+
+**已完成**（platform 分支 `w31/s3-wiring-a`，基于 main `9d611d54`）：`f07e0f35` 对账独立循环与退避、中间闸刷新、读卡超时；`aa30a556` 窗口读不删、释放带版本；`3a76c622` 落地身份与推 main Git 层；`49d5ac23` 推送绝对期限、进程组回收、R 必须在 M0 上、去 lease；`8f4023a4` live 第二道闸（锁序、读后决定、跨日回滚、ci_seen → reserved → main_intent）、推送结果记录、B6 停仓库（denied 同事务写 stop，领取查 stop）。全套 PG 测试绿。
+
+**待做（按顺序）**：
+1. **B1 收尾**：661 R-03 两个 Append 之间跨午夜（核对 reserved、main_intent 的实际事件时间与配额日一致，否则整笔回滚）；R-04 推送结果分类细化（本地 non_ff、远端非快进、明确权限拒绝、其余 unknown；不用 stderr 子串判 denied）；「唯一父为 M0」；第二道闸也查 stop（已做）。
+2. **撤销检测（B-02）**：`MainHistory` 加撤销者；有效性证据版本化写入（扩展 `landing_main`：observed head、状态、读取时间、撤销者），与 landed / reverted 同事务；未知不沿用旧结论；B4、B5 在作决定时现读、不用缓存。
+3. **live 编排**：`LandingLivePass`（PROD、`AGENTRT_LANDING_LIVE=on` 且整组能力齐全才起写循环）：领取（live）→ 分支（落地身份、`land/prod`、`dry_run:false`、提交信息加 `Landed-By: agentrt-prod/<op>`）→ CI → `AuthorizeLandingPush` → 本进程立即 `PushMain`（期限 = intent.at + 2 分钟）→ `RecordPushResult`。重启只对账。`land/prod` 分支不删（B-05）。
+4. **B3 问题卡**（661 B-04）：卡的代际与过期补卡；唯一绑定（同 key 两张卡只认一个）；已处理 / 已解决 / 暂缓三态，`wait`、`keep_stopped` 之后有再次决策的入口且限频；B6 的 resume。
+5. **B5 STG 接力**（661 B-07、R-01、R-02）：无外部执行的批次处置与成员交接；人工发布证据结算；run 身份先存指纹后绑 UID；租约丢失只是诊断；P 为选定 main 头的精确 CI。
+6. **B4 收尾**（661 B-06）：按持久 enabled 栅栏与模式记录选政策，live 开关不改变已纳入 live 的 mission；无人答的失败持久待办 + 补卡 + 限频提醒，不恢复计时放行。
+7. 每块：细化 → 复核 → 实现 + 分层测试（旧代码上红、关键变异）→ 代码复核 → 分支 CI；全部完成后整批发 STG / PROD（live 关），再由 Owner 做开门事项。
