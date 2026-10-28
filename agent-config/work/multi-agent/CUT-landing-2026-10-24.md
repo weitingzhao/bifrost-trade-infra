@@ -968,3 +968,40 @@ B1 + B6 → B3 → B5 → B4，每块：设计细节 → Codex 设计复核 → 
 3. B3 选项字母到语义的映射放在绑定记录里（kind 决定），`LandingAnswer` 的 read 回调由绑定适配器提供，不改 §8 的处理。
 4. B5 的 U 来源：`ci-platform` 的 `clone-ui` 任务结果 `commit`（S0 已接进审计）——需要核实 PROD 的 platform-api 能读到 ci run 的 task 结果。
 5. B4 改变现行行为：今天 `failed`（未 retry）放开 mission；改后要等 Owner 在卡上「不合」才算处置。B3 必须先上，否则 mission 卡在 active。
+
+### 11.4 设计稿 v2（2026-10-28 15:xx；回应复核 660 的 B-01..B-06、R-01..R-06、N-01..N-02）
+
+**已有 / 需扩展 / 新增**（N-02）：已有并需 live 装配与回归——独立对账循环、按操作退避与公平预算、中间闸刷新、读卡超时、窗口读不删与带版本释放（`f07e0f35`、`aa30a556`）；落地身份与推 main 的 Git 层（`3a76c622`，按 R-04 再收窄接口）。本片新增——live 循环与最终闸、推送的绝对期限、撤销检测前移、发布交接、问题卡 v2、停仓库、STG 接力、live 收尾分类。
+
+**开门契约**（R-06）：代码可以先发布，live 默认关（PROD 的 `AGENTRT_LANDING_LIVE` 不开，就不起写循环）；对账、停止标记、已存在 run 的观察、答复处理、数据库补齐照常跑。开门前置：P0 证据、D-L5 完成、落地身份阴阳性探针（R-04 表）、同提交 STG 验证、PROD 运行提交、正式规则——**审批在发布之前**。
+
+**B1 v2（B-01、R-03、R-04、N-01）**
+- 三段：**授权事务**（最终闸：按预期 UTC 日按序锁配额流 → 仓库流；外部读完取 final；final 跨日则整笔回滚从头按新日期锁；同事务写 `reserved` 与 `main_intent`，记规则版本、决定时间、配额日、精确 CI run）→ **外部动作**（推 main）→ **结果事务**（锁下重读；对账器已推进则接受，不覆盖、不重推）。
+- 推送只由**刚在本进程提交了该 intent 的调用方**发起（返回的 intent 事件序号即令牌）；重启读到已有 intent、提交回包丢失，都只对账。推送前再读一次：操作仍在该 intent、`main_intent.at + PushTimeout` 未到；Git 用同一绝对期限，不重新计时。
+- 进程树：Git 子进程独立进程组，到期杀整组并设 `WaitDelay`；回收余量计入 `PushTimeout` 预算。客户端放弃不证明服务端停止——2A 的残余风险写明，迟到落地检测保留（不是强 fencing，不提租约）。
+- `non_ff`、`denied` 只在服务端明确拒绝时用；其余一律 `unknown`。
+- 接口收窄（R-04）：`PushLandingBranch(root,k,R)`、`PushMain(R,M0,intentSeq)`、`DeleteLandingBranch(root,k,R)`；main 不进删除接口；只在 PROD live 装配提供 MainPusher；推 main 只一个显式 `R:refs/heads/main`，不用 `+`、force、tags、follow-tags（`--force-with-lease=main:M0` 换成「推前读 main 头 = M0 + 服务端只快进」两层：lease 本质是 force 家族，按 R-04 去掉）；R 必须是 prepared 的 R、父为 M0。argv/env 捕获测试。
+- 措辞（N-01）：第二道闸之后收紧「不追溯撤销已取得的授权」；是否落地、是否有效由外部证据定。
+
+**撤销检测前移（B-02，⑪）**：`MainEvidence` 增加当前有效性：在同一固定 head 上用 `EvaluateHistory`（补返回撤销提交 SHA）判 有效 / 已撤销 / 未知。对账（直接路径与断点路径同一函数）在 R 在历史里时：有效 → `landed`；已撤销 → `landed` + `reverted{R, by}`（同事务、此顺序）；未知 → 只 `landed`，不算交付、不发 STG。已 landed 的操作在其 mission 关闭前每 30 分钟重查一次有效性，后来撤销的补 `reverted`。已撤销的不自动重领。
+
+**发布交接（B-03）**：不靠成功路径的尾调用。「待发布」是**派生的**：已 landed、当前有效、且不在任何 STG 操作的 `stg_pending` 集合里的 R。B5 的批次器在仓库流锁下从折叠结果算出它、建新 STG 操作并冻结集合；直接推送与对账补记都只写 `landed`，同一机制接手。分支清理独立，失败不挡交接。
+
+**B6 停仓库 v2**：`landing_stopped{repo, op, generation}` 写在**所有** `failed{denied}` 写路径的同一事务（含 `ReconcileDenied`）。领取与最终闸在仓库流锁下检查。恢复只由 Owner 在「仓库已停止」卡上答「恢复」：锁下核对当前 stop generation 才写 `landing_resumed{repo, generation}`；旧恢复答复不解除新停止；恢复不重试原 denied 根。
+
+**B3 问题卡 v2（B-04）**
+- 逻辑上一根一个落地问题；物理卡幂等键 = `repo/root/op/kind/generation`（仓库停止卡 = `repo/stop-generation`，发布失败卡 = `stg-op`）。
+- 三步：先写 `landing_card_intent{key, kind, template_version, options:[字母→语义]}`（不可变映射）→ 用该 key 调 Ask（问题库按 key 幂等，`SameByKey`）→ 写 `landing_card{question_id, key}`。断点：有 intent 没绑定时，按 key 查询接管并核对 kind、选项、generation；不猜。
+- 答复按 kind 分派：`try_again`、`do_not_merge`、`confirm_main_lost` 走 §8；`repo_resume` 走 B6；`ack`、`wait`、`keep_stopped` 只写处理记录（§8 的记录词表扩展这几个 why）。一律先落库后 Ack。
+- 生成器输入 = 持久触发记录 + 当前适用性 + 已处理记录：已解决的撤卡（`ok_missing` 后来 landed）；`late_landing` 独立到确认；§8 的 refused 说明卡、发前拒绝、`stg_failed`、待发布超过 1 小时、`parked` 超过 2 小时都有卡。
+- 不调 `failWork`、不计执行者成绩（§2.7）。
+
+**B5 STG 接力 v2（R-01、R-02）**：仓库同时只有一个未终结 STG 操作，批次在流锁下冻结（后到的 R 下一批）；P、U 从**同一次**最新且 Succeeded 的 `ci-platform` run 的 `platform-commit`、`ui-commit` 结果读（缺失、矛盾、旧成功后有新 run 都拒，不回退 main；存 run 名、UID）；try 只在确认 run 终态失败后加；同名 run 创建不明 → GET 同名并核对 UID / pipeline / P / U / 来源，碰撞不接管；新 try 或首次创建前重验规则、no_merge、整段差异、精确 CI、窗口；已有 run 的观察不看当前授权；窗口 who = `stg-op/try`，每分钟续、TTL 5 分钟，丢失写诊断记录（扩 STG 协议一个 `stg_lease_lost`）并继续观察；四项核验 + 每个 R 当前有效才 `stg_verified`；三次失败 `stg_failed` + 卡；人工发布后按 P/U/R 与四项证据补核验。协议扩展：`stg_lease_lost`。
+
+**B4 收尾 v2（B-06）**：只在 PROD 且 live 模式启用；STG 保持 S2 的演练终态规则。分类器返回 已交付数 / 已处置数 / 未了结数，替换 PROD 的 6h15m 计时放行。已交付：`stg_release` 开着的要 `stg_verified` 且 R 当前有效；`none` 的要 `landed` 且有效（规则缺失或过期不等于 none）。已处置：Owner 已答「不合」（declined）、`main_lost`、mission `no_merge`。**`stale` 不再即时算处置**：未答复前算未了结，卡上可选「再试一次」或「不合」（避免 Close 与答复竞争）。`failed{in_main|reverted|result}` 按实际发布证据判。AtMain 先对账，`no_merge` 不当作外部动作已停止。分支不受 B4 影响（B-05 已定不自动删）。
+
+**B-05（统筹按推荐定，Owner 可推翻）**：`land/prod/**` 保持只有落地身份能写的保护；**不自动删除**这些分支（偏离 §2.11），分支保留并在 Console 显示数量与最老一条，由 Owner 定期按受控流程清理。若要自动删，另加服务端策略，约 8–16 小时。
+
+**工作量与日期**（按 660）：68–107 小时；Claude + Codex 并行、夜班不停，开门估 **11-05 到 11-10**。最大风险：B5（跨系统最多）、B1（推送授权与期限）。
+
+**顺序**：B1 + 撤销检测 → B6 → B3 → B5 → B4；每块 设计细化 → 复核 → 实现 → 测试（分层：纯协议、PG、假 Git / 临时 Git、假 K8s、实际 Gitea / STG）→ 复核。
