@@ -1020,3 +1020,52 @@ B1 + B6 → B3 → B5 → B4，每块：设计细节 → Codex 设计复核 → 
 5. **B5 STG 接力**（661 B-07、R-01、R-02）：无外部执行的批次处置与成员交接；人工发布证据结算；run 身份先存指纹后绑 UID；租约丢失只是诊断；P 为选定 main 头的精确 CI。
 6. **B4 收尾**（661 B-06）：按持久 enabled 栅栏与模式记录选政策，live 开关不改变已纳入 live 的 mission；无人答的失败持久待办 + 补卡 + 限频提醒，不恢复计时放行。
 7. 每块：细化 → 复核 → 实现 + 分层测试（旧代码上红、关键变异）→ 代码复核 → 分支 CI；全部完成后整批发 STG / PROD（live 关），再由 Owner 做开门事项。
+
+### 11.6 B3 问题卡细化（2026-10-28 16:5x 统筹，设计稿 v1；回应复核 661 B-04）
+
+实读 platform `w31/s3-wiring-a` `34c8f430`：建卡的现成做法是 `askBlocked`（`store/blockedcard.go:167`）：**在持锁事务里调 Ask，同一事务写绑定**；卡的 key 是规范输入的 sha256 十六进制（`blockedCardKey`，64 位，符合 `questions/canonical.go` 的 16–64 位规则）；问题库 `LookupKey` 只认受保护的卡（open，或已答未读 7 天内，`questions/types.go:164`）。B3 沿用这个做法，不另起「先写 intent、再 Ask、再绑定」三步，从而去掉 661 反例 1 的根源：**只有已提交的绑定算数**。
+
+**1. 触发与代际**
+- 触发 = 仓库流上一条不可变的持久记录，触发标识 = 该事件的 `seq`（天然代际，不另分配）：
+  | 种类 `kind` | 触发记录 | 仍适用的条件（折叠仓库流时判） | 选项（语义） |
+  |---|---|---|---|
+  | `root_failed` | 根的最新操作 `failed{why}`（why ≠ declined、main_lost） | 该操作仍是根的最新操作、未 retry、未 declined | `try_again`（仅 why 在可重试集合时）、`do_not_merge` |
+  | `ok_missing` | `landing_anomaly{ok_missing}` | 操作仍是 `main_result{ok}` | `confirm_main_lost`、`wait` |
+  | `late_landing` | `landing_anomaly{late_landing}` | 始终（直到答复） | `ack` |
+  | `repo_stopped` | `landing_stop{generation}` | 当前 stop generation = 该 generation 且未 resume | `repo_resume`、`keep_stopped` |
+  | `parked_long` | 操作进入 `parked` 的记录 | 仍 parked 且已超过 2 小时 | `ack` |
+  | （B5 补）`stg_failed`、`pending_long` | — | — | — |
+- 硬底线失败（规则硬拒绝、`result` 等 ClaimRefusals）只给 `do_not_merge`，不给「合」或放宽底线的选项（660 §2.5）。
+
+**2. 卡的物理 key 与唯一绑定**
+- 同一触发可以有多张卡（过期、暂缓后再问），序号 `n` = 该触发已提交绑定数 + 1。key = `sha256(canon{route:"landing", repo, kind, root, op, trigger_seq, n, template_version})` 的 64 位十六进制。模板升级 → 新 key，不撞 `KeyReused`。
+- 建卡事务：锁卡片流 `landing-cards:<repo>`（**不锁仓库流**，Ask 期间不挡最终闸）→ 读仓库流折叠（不加锁的快照）判触发仍适用 → 读该触发已有绑定（求 n、确认没有未结的卡）→ `Ask(key, SameByKey)`（有界超时）→ 同事务写卡片流 note `landing_card{v, key, question_id, kind, root, op, trigger_seq, n, template_version, options:{字母→语义}}`。
+- 唯一性：追加校验在卡片流锁下拒绝同 `(trigger_seq, n)` 的第二条 `landing_card`，也拒绝同 `question_id` 的第二条。
+- 断点：Ask 成功而事务失败 → 卡是孤儿、没有绑定。下一轮同 key 再 Ask：卡仍受保护（open 或已答未读）就拿回同一张并绑定；已过期 / 撤回 → 问题库建新卡，绑定新卡；孤儿卡已不可答，不会产生第二个答案来源。已答未读的孤儿在 7 天内一定被绑回。
+- 接管核对（661 改法 2）：拿回的卡要核对 requester、task、选项标签与映射一致（`SameByKey` 只比 task 与标签，落地另在绑定前比 `kind`、模板版本与 key 本身——key 已编码其余字段）。
+
+**3. 读答复与分派**（新 `store.HandleLandingCard`，§8 的处理不改）
+- 每轮读「每个触发的最新绑定」对应的卡；只认 console 答复、有 by / at。按绑定里的映射把字母转成语义，再按 `kind` 分派：
+  - `try_again`、`do_not_merge`、`confirm_main_lost` → 原 `HandleLandingAnswer(root, op)`（§8，处理与 Ack 顺序不变）。
+  - `repo_resume` → 仓库流锁下核对当前 stop generation = 卡的 generation，才写 `landing_resume{generation}`；不等则 `moot`。恢复不重试原 denied 根。
+  - `wait`、`keep_stopped` → 写处理记录 `held`，带 `remind_at = 答复时间 + 24 小时`。
+  - `ack` → 写处理记录 `acknowledged`。
+  - 自由文本 / 未知选项 → `refused{unknown_choice}`，卡结束；触发仍适用就按限频补一张 n+1。
+- 处理记录扩展 §8 的 `landing_answer` 词表：choice 加 `repo_resume / keep_stopped / wait / ack`，outcome 加 `held / acknowledged`；仓库停止卡没有 root / mission，记录改为可选 root，校验按 kind 分支（`repo_stopped` 不要求 mission 状态）。一律先落库、后 Ack；Ack 失败下一轮重试，不重复处理。
+- 处理记录写在**仓库流**（与 §8 相同），卡片流只放 `landing_card` 绑定与 `landing_card_closed`。
+
+**4. 已处理、已解决、暂缓三态**（661 反例 2）
+- **已处理**：绑定的卡有了处理记录 → 这张卡结束。
+- **已解决**：触发不再适用（ok_missing 后来 landed、stop 已 resume、失败根已 retry 或 declined、parked 已离开）→ 撤回该触发未结的卡（`Withdraw`，原因写明），写 `landing_card_closed{key, why:"resolved"}`，不再补卡。
+- **暂缓**：`held` 记录的 `remind_at` 未到 → 不补卡；到了且触发仍适用 → 补 n+1（暂缓不吃掉决策入口）。
+- `acknowledged` 结束该触发的提醒，不再补卡（`late_landing`、`parked_long` 只需知道一次）。
+- 限频：同一触发同时最多一张未结卡；卡过期后补卡至少隔 6 小时；每个触发每天最多 4 张。refused 不派生说明卡（只在下一张卡正文里写上次为什么没生效）。
+
+**5. 循环与范围**
+- 独立循环 `agentrt-landing-cards`（每 15 秒，有界预算，按触发轮转起点），PROD 在 `Sources.Ask` 与 `Sources.Question` 都有时运行，**不受 live 开关限制**（关开关后 stop / ok_missing 仍要有人决定）。STG 不开（演练失败不发卡，STG 的人批不在 STG，§「人批唯一入口」）。
+- 不调 `failWork`、不计执行者成绩（§2.7）。
+- Console 卡片正文（英文）：仓库、根任务标题、操作、触发原因、可选项的后果；不放 R / M0 以外的内部 id。
+
+**6. 测试（PG，旧代码上必须红）**：Ask 成功回包丢失（事务失败）后同 key 拿回并绑定；绑定前卡过期 → n 不变的新卡；两个建卡者交错只有一个绑定；旧代际卡晚答（stop generation 已变）→ moot；`wait` 后 24 小时仍适用 → 补卡，期间不补；暂缓期间解决 → 撤回、不补；Ack 失败 → 不重复处理；模板升级 → 新 key；自由文本 → refused 且限频补卡；`repo_resume` 不重试原根；关 live 开关时 stop 卡照常。
+
+**7. 本片不做**：B5 的 `stg_failed`、`pending_long` 卡（随 B5）；Console 新页面（卡走现有问题页）。
