@@ -1196,3 +1196,8 @@ B1 + B6 → B3 → B5 → B4，每块：设计细节 → Codex 设计复核 → 
 - 非 live 范围的 mission 行为不变（现有测试全绿）。
 
 **7. 工作量**：按 660 估 10–16 小时。
+
+**§11.7 补记（17:0x 实测）**
+- PROD 读 CI 结果：可以。`kubectl -n cicd get pipelinerun bifrost-ci-platform-1793222718` 的 `status.results` 有 `platform-commit`、`ui-commit`、`infra-commit`。delivery 服务本来就在 List 同一批 PipelineRun（`delivery/landing_drill.go:21`），多读 `status.results` 即可，不需要新权限。
+- PROD workers 到 STG：`bifrost-platform-prod` 与 `bifrost-platform-stg` 只有 `redis-agents-ingress` 两条网络策略，`platform-api.bifrost-platform-stg.svc:8780` 不受限。
+- **核验第 4 项改法**：平台 `/health`（`server/server.go:609`）不报版本，STG 部署按镜像摘要拉取、没有提交号环境变量。第 4 项改为：STG 上 `platform-api`、`platform-workers` 运行中 Pod 的 `containerStatuses[].imageID` 摘要都等于该 run 为 P 构建的摘要，且 `/health` 为 ok。与「版本 = P」等价（摘要由 run 从 P 构建），不改镜像构建。
