@@ -634,3 +634,119 @@ Console 上把「已交付」和「已处置、未交付」分开显示。不在
 - 镜像同步任务最少需要什么权限。S0 实测。
 - STG 的 platform-api `/health` 从 workers 能不能连上、会不会报版本。S3 接线时核实。
 - 复核 533 的两个探针我没有重跑。
+
+---
+
+## 7. TD-447 第 4 项：首次领取的持久交接（2026-10-28 夜班统筹，设计稿 v1）
+
+### 7.1 问题（实读 platform `c3cb9e76`）
+
+- `store/close.go` `landingHolds`：从没被领取过的根任务（`implement`，仓库已启用落地，mission 不是 `no_merge`，mission 创建与任务 accepted 都不早于 `EnabledAt`），只在 accepted 后 `landingClaimGrace = 2 分钟` 内持住 mission。
+- `store/landing_drill.go` `ClaimLandingDrill`（830c40a3 起）：第一段短事务读绑定 → **不持锁**读 Git（Result、根 History、各依赖 History）→ 第二段事务按同锁序重读、核证据键、按第二次读判资格。读 Git 期间不持 mission 锁，Close 可以在这时关 mission。
+- 结果（复核 646 §5）：读取跨过 2 分钟宽限的那一次领取，在第二段读到 mission 已 `done`，返回 stale/changed、不写记录；`LandingCandidates` 只列 active mission 的任务，这件活从此不再被扫描——**演练永久错过它，且没有任何记录说明它被错过**。繁忙的一轮（其他操作的外部读取、`max_in_flight_per_repo` 被占超过 2 分钟）同样会错过（复核 640 R640-1）。
+- 宽限是一个**无记录的计时器**：持住与否只取决于「现在离 accepted 多久」，与领取有没有发生、有没有被拒、为什么被拒无关。
+
+### 7.2 目标
+
+1. 只要扫描器在运行，一个进入落地范围的根任务**必然**以一条落地流上的记录结束：被领取（`claimed`），或被明确拒绝（带原因），或到限（`bound`）。
+2. 在它结束之前，Close 不关它的 mission；但持住**有界**：沿用现有 6 小时 / 8 次的根预算，Close 自己再留 15 分钟余量作兜底（扫描器不运行时 mission 也一定会被放开）。
+3. 不加 DDL、不加表，仍是 `note.landing` 子协议；不放宽已有操作的转移；不把 Git 读取放回锁内。
+
+### 7.3 选项
+
+**A. 接受时写「排队」记录。** 任务 accepted 的同一事务里，若仓库启用落地，在 `landing:<仓库>` 写 `queued{task}`；Close 持住「已排队、未领取、未拒绝」的根。
+- 优：从 accepted 那一刻就有持久记录。
+- 缺：把落地规则读取接进内核的接受路径（`MoveTask` 一类的事务），耦合两个子系统；被拒的根仍要另记一条才能放开，等于要两种新记录；接受路径一旦写落地流失败，任务接受也失败。
+
+**B. 默认持住，终局拒绝落成记录（推荐）。** 不写排队记录：「在落地范围内、从没领取」本身就是由库内事实推出来的排队状态（`landingHolds` 今天已经在算这些条件）。改两处：
+1. `landingHolds` 对「从没领取」的根，把 2 分钟宽限换成**有界持住**：直到该根在落地流里有了第一条操作记录，或 `accepted + landingHoldLimit`（6 小时 15 分）为止。删除 `landingClaimGrace`。
+2. 领取被**终局性**原因拒绝时，第二段事务（持 task → mission → 仓库流锁）在落地流写一条**出生即终态**的操作 `failed{why}`，操作号 `land:<task>:1`，于是 `RootPending` 为假、Close 放开、`unsettled` 以 `BlocksClaim` 过滤、不再读 Git。到限同理：第一段事务发现「从没领取且 `now ≥ accepted + 6h`」时写 `failed{bound}`（只读库，不读 Git）。
+- 终局 / 暂时的划分（`landing.EligibleToClaim` 的原因）：
+  | 原因 | 处理 | 理由 |
+  |---|---|---|
+  | `stale`（mission 非 active、`no_merge`、计划不合格） | 记 `failed{stale}` | 已处置（§2.7）；可经 retry 再开（retry 本来就接受 stale） |
+  | `result`（未 accepted、无 attempt、A/Base 非法、非单提交） | 记 `failed{result}` | 接受后这些事实不变；不可 retry |
+  | `history`，且 History 为 `effective` / `reverted` | 记 `failed{history}` | A 已经在 main 上出现过；不可 retry |
+  | `history` 且 `unknown`、`dependencies`、`rule`、`limit`、`changed` | 不记，下一轮再试（带退避，见 4） | 会自己变；最终由 6 小时到限收尾 |
+  | `before_enable`、`mode`、`terminal` | 不记 | 候选 SQL 和 `unsettled` 已排除，从没领取的根到不了这里 |
+3. 协议：`failed` 出生即终态目前只允许 `bound` 的 k+1 后继（复核 578 B2）。新增**第二种**出生即终态，条件全部满足才合法：v1.1；`op == land:<task>:1`；该 task 在流里没有任何操作；`why ∈ {stale, result, history, bound}`。`result`、`history` 只对这种出生即终态的 `failed` 合法（`parked` 等其他 kind 的 `why` 集合不变）。已有转移一条不动。这条操作没有 attempt/A/ref，`Task` 由操作号解出；`DryRun` 记为 true（只由 STG 扫描器写）。它计入根预算（第 1 次），retry 之后的领取是 k=2，与 §2.5 的「八次不清零」一致。
+4. 暂时性拒绝的退避：B 让暂时被拒的根在 6 小时内持续是候选（原来 2 分钟后 mission 关掉就不再是），若每 15 秒都重读一次 Git，就是复核 641 §3 说的「拒绝没有退避」被放大。控制器内存里按任务记退避：`changed` 不退避；其余暂时原因 1、2、4、8 分钟递增，封顶 15 分钟；领取成功或任务离开候选清单即清除。只放内存：重启后最多早试一次，不影响正确性。
+- 优：没有接受路径的耦合；只有一种新记录，且复用现有的 Terminal / BlocksClaim / RootPending / retry / Close 机制；S3 的「一个根任务一个落地问题」直接覆盖它（落地问题按 `failed` 开）；§2.7 的结局分类里 `stale` 已是「已处置」，`result`、`history` 一并归「已处置、未交付」。
+- 缺：扫描器在运行而规则一直把某根判为暂时不合格时，这个 mission 会被持满 6 小时；在 PROD 有落地规则但没有扫描器的时段，每个 mission 都会被持 6 小时 15 分（今天 PROD 没有落地规则；S3 接线时扫描器与规则同时上）。
+- 风险：把出生即终态从一种扩到两种。缓解：合法性条件写死在 `Apply`，测试覆盖「已有操作的 task 不能出生即终态」「op 号不是 1 不行」「why 不在集合里不行」「旧 v1 不行」。
+
+**C. 缩小时间窗：Close 读到「领取正在进行」就不关。** 用 advisory lock 或 Redis 标记表示「某根的领取在读 Git」，Close 见到就跳过。
+- 缺：不持久，崩溃即丢；依旧没有「被拒/错过」的记录；advisory lock 在连接池里易错（复核 646 的连接问题）。不推荐。
+
+**D. 加大宽限（例如 30 分钟）。** 最小改动，但仍是无记录的计时器，控制器停摆超过宽限就照样错过。不推荐，复核 646 §5 已明确否定。
+
+### 7.4 推荐 B 的细节
+
+- **Close 的条件**（`landingHolds` 中「从没领取」一支）：`enabled && accepted != nil && !accepted.Before(EnabledAt) && now.Before(accepted + landingHoldLimit)`。「从没领取」= 流里没有该 task 的任何操作（含出生即终态的 `failed`）。规则被撤回时 `enabled` 为假、照旧放开（与今天一致；「撤规则只暂停」仍是 §5 第 5 项待定）。
+- **领取**（`ClaimLandingDrill`）：
+  - 第一段（库内）：`n == 0` 且 `now ≥ facts.AcceptedAt + 6h` → 写 `failed{bound}`（`land:<task>:1`），settled。
+  - 第二段：资格判定为上表「记」的原因时，在同一事务里写出生即终态的 `failed{why}`，返回的 decision 不变（调用方看见的原因与今天相同）。证据键变了（`changed`）不记。
+  - 第二段读到 mission 已非 active（规则撤回后被关、或过了 6 小时 15 分兜底）同样记 `failed{stale}`：给错过的根留下记录。
+- **扫描**（`LandingDrillPass`）：`unsettled` 已因 `BlocksClaim` 跳过这些根，不再读 Git；新增内存退避。
+- **时间**：持住按 `accepted` 计、领取到限按 `accepted + 6h` 计，都用调用方传入的同一个 `now`；「两段共用一个 now」的整体时间策略仍是 S3 必做 ②，本项不改。
+- **不变的**：`claimed` 之后的持住（`RootPending`、`AtMain`、6 小时 15 分）、到限收尾、retry 的锁序（复核 647）、缓存折叠（第 3 项）。
+
+### 7.5 测试（PostgreSQL；旧代码上必须红）
+
+1. 慢读不再错过：根的 Result 回调阻塞；另一连接把事件时钟推过 2 分钟后跑 `CloseMissions` → mission 保持 active；放开回调后领取成功写 `claimed`。旧代码：mission 被关、领取返回 stale/changed、无记录。（现有 `TestConcurrentCloseDuringClaimReads` 的「past the grace」分支把这种错过当期望值，要改成新期望。）
+2. 终局拒绝落记录、放开 mission：History 返回 `effective` → 领取返回 `history`，流里有 `failed{history}` 的 `land:<task>:1`；随后 `CloseMissions` 立刻关掉 mission；下一轮扫描不再调 Result/History。
+3. 暂时拒绝持住：依赖不生效 → 无记录；时钟过 2 分钟、过 1 小时，Close 都不关；过 6 小时 15 分放开。
+4. 从没领取到限：时钟过 accepted + 6h → 领取第一段写 `failed{bound}`，不调任何 Git 回调，Close 放开。
+5. 协议单测：出生即终态的合法 / 非法组合（见 7.3 B 的风险一条）；`result`、`history` 对 `parked` 不合法；retry 可作用于出生即终态的 `failed{stale}`，不可作用于 `failed{result}`。
+6. 退避：被 `dependencies` 拒绝后，紧接着的一轮不调 Git 回调；退避到期后再调。
+
+### 7.6 不在本项
+
+- S3 必做 ①（答复结果记录、先落库再 Ack）、②（各道闸的时间策略）、③（main 对账器与 `failed{denied}`）。
+- 「撤规则只暂停」（§5 第 5 项，Owner 待定）。
+- 拒绝原因在 Console 的展示（S3 的落地问题）。
+
+### 7.7 设计稿 v2（2026-10-28 00:xx，回应复核 651 的 3 个阻断、5 个应修）
+
+复核 651 认可方向（库内推导排队 + 终局拒绝落记录），判 v1 三个阻断。v2 采用它推荐的「B + E（关闭前数据库结算）」，并把契约写窄、写准。v1 中与下文冲突处以 v2 为准。
+
+**契约（替换 §7.2）**
+
+1. **交接范围**只由持久事实决定，与当前规则无关：`implement` 根任务，仓库落地流有 `enabled` 记录（`EnabledAt`），mission 创建与任务 accepted 都不早于 `EnabledAt`，mission 不是 `no_merge`。规则撤回或到期**不让根退出范围**（§5 第 5 项已定「撤规则只暂停」，v1 写成待定是错的，N651-1）：撤回只停领取、不读 Git，记账义务不变。
+2. **不变量**：`CloseMissions` 绝不在范围内的根「没有任何操作记录」时关掉它的 mission。到 `accepted + 6h` 仍没有记录的根，由 Close 在关闭事务里自己先写 `failed{bound}`（`land:<root>:1`）再关——记录与关闭同一事务（B651-1、B651-2 的兜底，不依赖扫描器在跑）。
+3. **扫描器的数据库阶段**（新，`SettleUnclaimed`）：每轮在 `SettleLandingDrillBounds` 之后、任何外部读取之前，不看当前规则、不受退避与工作预算影响，枚举范围内、没有操作的根，按 task → mission → 仓库流的锁序逐根重查后幂等追加：mission 已是 done/stopped/expired → `failed{stale}`；`now ≥ accepted + 6h` → `failed{bound}`。被 Owner 叫停的 mission、被饿死的扫描，都在这里留下记录（B651-2）。
+4. **时间契约**（B651-3，选「两段预算、明说」）：首次交接最多 `accepted + 6h`；领取后沿用现有六小时 / 八次预算，从首次领取（或 retry）起算。所以一个根从 accepted 到终局最长约 12 小时（再加 retry 另计、`AtMain` 等对账不限时、mission 里其他任务没完时本来不归 Close 管）。不统一起点：统一需要把 accepted 时间写进 `claimed`（协议加字段），不值得在 S2 做。
+5. **重绑出范围**：合法 `rebind_step` 把 accepted 根移到 `EnabledAt` 之前创建的 mission，按第 1 条定义它就不在范围内，不持、不记（它在新 mission 里本来就永远不合格）。这是明说的契约，不是遗漏；若以后要求「曾进入范围」可追溯，再上选项 A 的入队凭据。
+
+**终局 / 暂时（替换 §7.3 B 的表，R651-2、R651-4）**
+
+| 领取时的事实 | 记录 | 说明 |
+|---|---|---|
+| mission done/stopped/expired、`no_merge`、步骤 dropped、目标任务的产出计划已被新计划取代 | `failed{stale}` | 不会自己恢复 |
+| mission paused、步骤 stopped、其他计划不合格 | 不记，等 | 可恢复；到 6h 记 bound |
+| Result 非单提交 / A、Base 非法 | `failed{result}` | 已 accepted 的结果不变 |
+| History = effective | `failed{in_main}` | A 已在 main 上（人手合入）；**不是「未交付」**，S3 按 main 与 STG 证据对账 |
+| History = reverted | `failed{reverted}` | 曾在 main 上后被撤销；与上一行分开 |
+| History unknown、依赖未生效、规则不放行、额度、证据键变了（changed）、外部读取报错 | 不记，等（带退避） | 到 6h 记 bound |
+
+新增的 `why` 只有 `result`、`in_main`、`reverted`，**只**对出生即终态的 `land:<root>:1` 合法（Parse 只对 `failed` 放行，Apply 对已有操作的 `failed` 转移拒绝）；`stale`、`bound` 沿用。retry 仍只接受 stale / bound（协议已如此）；对已关闭 mission 的 retry 会被 `ErrLandingMissionClosed` 拒绝——即「某次 stale 后自动尝试停止，要人工重启」，重启已关闭 mission 的流程不在本项（R651-2 的策略选择，明写）。
+
+**出生即终态的形状（R651-1）**：v1.1；`op` 精确为 `land:<合法 task id>:1`；流里没有该 task 的任何操作；折叠后 `Task`、`ClaimNumber=1`、`ClaimedAt=LastAt=事件时间`、`Phase=failed`、`Outcome=why`、`Retried=false`，其余为空。领取只在第二段锁内读到 `n == 0` 时写它，返回空 op（不触发「一轮只领一件」的 break）。已有 born-bound 后继（discarded、non_ff、已 retry 未领取）一条不动。
+
+**读取顺序（R651-3）**：领取路径里，Result 已判非单提交就不再读 History 和依赖；根 History 已是 effective / reverted 就不再读依赖——确定的拒绝不被后面的读取错误盖住。外部读取报错照旧不记，进入退避。
+
+**退避（R651-5）**：只放内存；1、2、4 分钟，封顶 5 分钟；领取成功、`changed`、仓库流的操作数或 retry 数变化时清空；读取报错也退避。到限记账（第 2、3 条）完全不经过退避。明说代价：退避期间资格短暂恢复又消失，可能错过一次本可成功的领取，最终记 bound。
+
+**测试（补 §7.5）**：协议正反矩阵（三个新 why 与 stale/bound、v1、错号、已有操作、普通 failed/parked 拒新 why、retry 后 k=2、result/in_main/reverted 拒 retry）；Close 在慢读期间（3 分钟、1 小时）不关；Close 到 6h 自己写 bound 再关、同一事务；Owner 叫停的 mission 由数据库阶段记 stale；数据库阶段在没有规则、没有 Git 来源时仍记 bound；Result=false 后 History 报错仍记 result；History effective → in_main、mission 立即可关；退避的单测。
+
+### 7.8 复核 652 结论与落地（2026-10-28 夜班）
+
+复核 652（gpt-6-astra，xhigh）：**B651-1/2/3 均解除，无新阻断**；B651-1 是按 v2 收窄后的「当前绑定范围」解除（重绑出范围不持不记，见 §7.7 第 5 条）。应修与小问题的处理：
+
+- R652-1（Close 写流后的折叠缓存）：Close 的折叠在本事务追加**之前**从已提交行读出，追加后（成功或失败）立即把该流移出缓存，下一个 mission 重新折叠；不在缓存里发布未提交状态。代码注释写明；没有加「保存点回滚后同 seq 被别的连接占用」的专门测试。
+- R652-2（确定性错误分类）：领取路径对数据库已能判定的结果（无 attempt、A/Base 非 SHA）不读 Git（Base 另有表约束）；Result 非单提交不读 History，History 终局不读依赖——确定拒绝不被后续读取错误盖住。适配器把「血缘非法」报成普通 error 的类型化分流**没做**（仍会退避、到 6h 记 bound），列为后续。短路只在领取专用读取里，push / deploy 走原来的完整读取。
+- R652-3（历史证据）：`in_main` / `reverted` 的记录正文写 attempt、A、base、mission 状态，以及 main 上命中的提交和读取时的 main 快照（来自那一次 History 读取）。
+- R652-4（退避失效信号）：世代改为每个操作的 phase/outcome 加每个 retry 的 after_op/consumed_by/时间；规则新版本、配额复位只在等待结束时被看到（最多 5 分钟），任何一根的新记录会清空全部等待（粗，但不错），注释写明代价。
+- N652-1：新生的出生即终态操作 `DryRun=false`、Attempt/A/Ref 为空，表示「从未运行」，不是生产执行证据；retry 集合仍是 bound/stale/ci_red（新增的 result/in_main/reverted 不可 retry），§7.7 那句「只接受 stale / bound」指新增的首次失败。
+- N652-2：「6 小时」是到限判定，不是墙钟提交保证：两段领取仍共用调用时的 `now`（S3 必做 ②），T+5h59m 开始的领取可能在 T+6h01m 写下 claimed；记录在下一次成功的数据库结算或 Close 提交时出现。
+- N652-3：测试已按 v2 重写（见提交说明）。
