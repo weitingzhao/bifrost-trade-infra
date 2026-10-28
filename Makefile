@@ -429,6 +429,11 @@ check-pg-wait:
 check-ui-revision:
 	python3 scripts/check_ui_revision.py
 
+# TD-448: platform Dockerfiles come from this run's infra clone, never ConfigMaps.
+.PHONY: check-platform-deliver-dockerfiles
+check-platform-deliver-dockerfiles:
+	python3 -m unittest scripts/test_platform_deliver_dockerfiles.py -v
+
 # TD-55: every Trade gateway prefix routes to its process and strips only itself (renders all 3 overlays).
 check-trade-gateway-routes:
 	python3 scripts/check_trade_gateway_routes.py

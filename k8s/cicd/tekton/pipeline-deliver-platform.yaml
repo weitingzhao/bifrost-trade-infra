@@ -44,7 +44,23 @@ spec:
         - name: giteaBase
           value: $(params.giteaBase)
         - name: mirrorRepos
-          value: bifrost-platform bifrost-ui
+          value: bifrost-platform bifrost-ui bifrost-trade-infra
+    # revision belongs to platform; Dockerfiles come from infra's own main.
+    # Clone once so both builds use the same infra commit (recorded by the task).
+    - name: clone-infra
+      runAfter: [mirror-sync]
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-trade-infra.git
+        - name: revision
+          value: main
+        - name: subdir
+          value: bifrost-trade-infra
+      workspaces:
+        - name: output
+          workspace: build-context
     - name: clone-platform
       runAfter: [mirror-sync]
       taskRef:
@@ -74,49 +90,39 @@ spec:
         - name: output
           workspace: build-context
     - name: stage-api-dockerfile
-      runAfter: [clone-platform]
+      runAfter: [clone-platform, clone-infra]
       workspaces:
         - name: source
           workspace: build-context
       taskSpec:
         workspaces:
           - name: source
-        volumes:
-          - name: dockerfile-cm
-            configMap:
-              name: bifrost-platform-api-stg-dockerfile
         steps:
           - name: copy
             image: alpine:3.20
-            volumeMounts:
-              - name: dockerfile-cm
-                mountPath: /cm
             script: |
               #!/usr/bin/env sh
               set -eu
-              cp /cm/Dockerfile.platform-api-stg "$(workspaces.source.path)/Dockerfile.platform-api-stg"
+              cp "$(workspaces.source.path)/bifrost-trade-infra/k8s/cicd/docker/Dockerfile.platform-api-stg" "$(workspaces.source.path)/Dockerfile.platform-api-stg"
+              echo "=== Dockerfile.platform-api-stg from this run's infra clone ==="
+              cat "$(workspaces.source.path)/Dockerfile.platform-api-stg"
     - name: stage-console-dockerfile
-      runAfter: [clone-platform, clone-ui]
+      runAfter: [clone-platform, clone-ui, clone-infra]
       workspaces:
         - name: source
           workspace: build-context
       taskSpec:
         workspaces:
           - name: source
-        volumes:
-          - name: dockerfile-cm
-            configMap:
-              name: bifrost-platform-console-stg-dockerfile
         steps:
           - name: copy
             image: alpine:3.20
-            volumeMounts:
-              - name: dockerfile-cm
-                mountPath: /cm
             script: |
               #!/usr/bin/env sh
               set -eu
-              cp /cm/Dockerfile.platform-console-stg "$(workspaces.source.path)/Dockerfile.platform-console-stg"
+              cp "$(workspaces.source.path)/bifrost-trade-infra/k8s/cicd/docker/Dockerfile.platform-console-stg" "$(workspaces.source.path)/Dockerfile.platform-console-stg"
+              echo "=== Dockerfile.platform-console-stg from this run's infra clone ==="
+              cat "$(workspaces.source.path)/Dockerfile.platform-console-stg"
     # TD-411: built to the candidate tag; :stg moves only in promote-images.
     - name: build-platform-api
       runAfter: [stage-api-dockerfile]
