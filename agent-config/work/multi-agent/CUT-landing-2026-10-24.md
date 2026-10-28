@@ -1373,3 +1373,68 @@ B1 + B6 → B3 → B5 → B4，每块：设计细节 → Codex 设计复核 → 
 - 非 live 回归：STG 演练、旧 mission、brief-only、plan_node mission、暂停的 mission 行为不变（旧测试保持绿，新测试在旧实现上红）。
 
 **12. 工作量**：约 20–32 小时。复核 667 估的 23–37 小时里含 B5 接口的部分，这里去掉了；新增了 `landed_unverified` 卡和 `in_main` 证据刷新。
+
+### 11.6 v3 B3 问题卡收口（2026-10-28 17:3x；回应复核 668 的 B-01..B-04、R-01..R-05、N-01..N-02；**在 §11.6 v2 基础上修订，冲突处以本节为准**）
+
+按「每条线最多两次」：B3 已经过 665、668 两轮设计复核，本节收口后直接实现，余下问题在代码复核里查。
+
+**1. 建卡与恢复串行化（668 B-01）**
+- 准备记录照旧先独立提交，并且算进「同一触发最多一个待决策请求」：已有未终结的准备或未结束的待决策卡时，不再准备 n+1。
+- Ask 和绑定都在**持卡片流锁的同一事务**里完成（同 `askBlocked`），只锁卡片流、不锁仓库流。两个恢复者因此串行：后来者在锁内重读，发现已绑定就跳过。
+- Ask 有超时上限。超时后迟到返回的卡没有绑定，按同一个 key 由下一轮恢复找回（见第 2 条）。
+- 幂等 key = `sha256(canon{route, repo, kind, trigger_seq, n, template_version})`，不含正文。完整请求另存，并存 `request_fp`。
+
+**2. 恢复状态表（668 B-02）**——在卡片流锁内按持久前态逐条处理：
+
+| 前态 | 处理 |
+|---|---|
+| 有准备、无 `ask_started` | 写 `ask_started{prep, at}` 并提交；然后在锁内 Ask、绑定 |
+| 有 `ask_started`、无绑定 | 先**无副作用**地 `LookupKey(key)`：找到 → 核对完整请求后绑定。找不到且 `now − ask_started.at < 7 天` → 重新 Ask、绑定。原因：若卡被答过，从答复时起受保护 7 天，而答复不早于 ask_started，所以这里找不到就说明从未建成，或建成后未答就已过期 / 撤回。找不到且 ≥ 7 天 → 写 `landing_card_closed{prep, why:"unconfirmed"}` 与一条可见异常，准备终结、不再 Ask；触发仍适用就按限频准备 n+1。读失败 → 什么都不写 |
+| 已绑定、未处理 | 用会触发过期清扫的权威读取（同 `Get` 持久化过期）：已答 → 处理；open 且未到期 → 等；问题库确认 expired / withdrawn → `closed{expired\|withdrawn}`，触发仍适用就按限频补卡；确实 404 → 有处理记录就 `closed{gone_after_handled}`，没有就 `closed{lost}` 并记异常、按限频补卡；读失败 → 不写 |
+| 已处理、未 Ack | Ack：成功或「已 Ack」→ `landing_card_acked`；404 → `closed{gone_after_handled}`（不重做业务、不伪造 Ack） |
+| 待撤回 | 调落地专用的 Withdraw（返回实际状态）：withdrawn → `closed{withdrawn}`；已答 → 走处理（多为 moot）；其他 → 下一轮重读 |
+| 已结束 | 不再处理 |
+
+- 本地时间过了 `ExpiresAt` 只是触发一次权威读取，不据此关闭。
+- 7 天限制针对「某张卡持续没被消费」，不只是整体停机。
+
+**3. floor 的协议与原因链（668 B-03）**——已实现于 platform `6e3303dd`：
+- floor 不加入 `ClaimRefusals`（那是「只许出生时使用」的原因）。它加入的是「允许出生即失败」的原因集合，并且照旧可以用于 claimed / prepared / branch_pushed / parked → `failed{floor}`。
+- 类型化原因：`rules.FloorViolation` 只覆盖**不可变**底线（底线路径、非普通文件、二进制或不支持的差异、无路径）。尺寸上限由签名规则定义，可以由新版本放宽，所以归 `rule`（停放）；当天配额、并发配额仍是 `limit`（停放）。领取、中间闸、最终闸用同一判断。
+- floor 卡只有 `do_not_merge` 与 `wait`（第 4 条）；`try_again` 不提供，处理器对 floor 拒绝 retry。
+
+**4. 每张卡至少两个选项（668 B-04）**：问题库只接受 2–4 个选项（`questions/canonical.go:361`），不改问题库。原来只有一个选项的 kind 加一个有业务含义的第二选项：
+- floor、不可重试的 root_failed：`do_not_merge`，或 `wait`（暂缓 24 小时，届时再问）；
+- late_landing、ci_stuck、parked_long：`ack`，或 `remind_later`（暂缓 24 小时，届时再提醒）；
+- 两者都写 `held`。
+
+**5. 记录矩阵与适配器（668 R-01）**
+- 处理记录 v2 的公共字段：repo、prep、question_id、kind、trigger_seq、原始字母、语义 choice、原文、channel、by、answered_at。
+- 根卡另带 root、op、mission_state；仓库卡不带这三项，另带 stop_generation。
+- 失效时的 why：`wait` / `remind_later` / `keep_stopped` 遇到触发已不适用 → moot / `trigger_gone`；`ack` 遇到旧区间 → moot / `trigger_gone`。先判 unknown_choice，再判是否适用。
+- 落地专用的问题库适配器：`AskRaw(request)` 显式带 TTL 72 小时、允许自由文本、选项顺序冻结，返回 question_id 与 key；另有 `LookupKey`、`Lookup`（权威、清扫过期）、`Withdraw`（返回实际状态）、`Ack`。不走 `SameByKey` 的宽松回退。绑定时核对 `request_fp`、requester、task、key 与准备里的映射。
+
+**6. 限频与调度（668 R-02）**
+- 冷却从**真实建卡**时间算（`ask_started` 之后绑定成功的时间，或找回时卡的 `CreatedAt`），不从准备时间算。每个触发持久记 `next_ask_at`。
+- 同一准备因原卡过期而重新 Ask、生成新的 question_id，也计一次。
+- 每轮顺序：处理 → Ack → 撤回 → 有界恢复 → 新建。恢复与新建共享本轮预算，类别内按触发轮转，按等待时间提升优先级。
+- 通知卡占满 open 配额时：先撤回已超 24 小时未答的通知类卡（`remind_later` 语义），为决定类腾位；仍不够就在 `landing_status` 里显示「等待配额」。
+
+**7. 触发互斥与区间变化（668 R-03）**
+- 同一 `(repo, trigger_seq)` 至多对应一个 kind：root_failed 排除 declined、main_lost 与 floor；parked_long 排除 ci_stuck 与 rule。
+- 已经 parked 的操作原因变了（例如 limit 停放期间 CI 转为运行超 30 分钟），落地循环在同一仓库事务里写 `unparked` 再写 `parked{ci_stuck}`，开一个新区间、新触发；旧区间永久不适用。这是 CI 步骤要补的写入（实现时改 `LandingDrillCI` 的 parked 分支）。
+
+**8. 现有页面接线（668 R-04）**
+- 现有问题详情页（`console/src/pages/QuestionPage.tsx`）显示 `landing_outcome`：待处理、已执行、已暂缓、已知悉、moot 与 refused 分开显示。
+- 按 question_id 查结果走独立接口：问题记录被裁剪后，结果仍可从仓库流查到。`lost` 和 `unconfirmed` 按 prep 查。
+- 任务卡链接到任务详情，仓库卡链接到仓库停止状态（由详情根据绑定推出），不伪造 WorkID。改 Console 前先登记 `design/codex/ops/COORDINATION.md`。
+
+**9. 开门能力与到限结算（668 R-05）**
+- 恢复可以降级：缺什么就停什么，其余照跑。
+- **新的 live 执行**要求卡的四项能力（Ask、Question、Ack、Withdraw）都在，否则 live 循环不领取新根，`/health` 写明缺了哪项。
+- 关开关后，纯数据库的到限结算由独立对账循环负责（§11.8 v2 第 5 条），只覆盖持久的 live 范围，仍走协议与锁，不碰 Git 写。
+- B4 读的处置是 applied 处理记录的 why 和协议记录，不是 Ack 或 closed。「未了结一定有卡」放宽为：一定有卡、暂缓中、或在 `landing_status` 里写明「等待规则 / 等待配额 / 已通知」。
+
+**10. 术语与测试前提（668 N-01、N-02）**：§8、§11.4 的 B6 行、§11.1 加「以 §11.6 v3 为准」。采用「一个待决策卡，允许多个待收尾的历史卡」。历史 Ack 的测试用预置数据构造。
+
+**11. 工作量**：按 668 估 30–45 小时（含 floor 协议，已完成）。S3 开门剩余：B3 30–45 + B4 20–32 + 验收 8–12 ≈ 58–89 小时，开门估 11-05 至 11-08 不变（Codex 估的是单人有效工时，统筹与 Codex 并行）。
