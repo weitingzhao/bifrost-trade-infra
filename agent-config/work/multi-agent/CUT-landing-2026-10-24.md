@@ -940,3 +940,31 @@ Console 上把「已交付」和「已处置、未交付」分开显示。不在
 - **657（①②代码）**：B657-1 校验器误拒合法记录 → 按 why 的规则表重写（可跟随的选项、mission 必须 active / 非 active / 不限），接受全部 mission 状态与空选项；R657-4 `not_retryable` 要求 active；R657-1 最终闸的记录改用最终事实里的规则版本（原来可能空指针）；R657-2 / N657-1 分支步骤读完后再判到限、`retry_at` 用新时钟；R657-3 补测：真等锁的双连接、提交成功但回包丢失、S2 各阶段 decline、每条决定后的记录可复读。platform `3752318d`。
 - **658（③代码）**：B1 证据改为 `rev-list` 遍历 main 完整历史（拒浅克隆），只有遍历完成且不含 R 才是 false；B2 负证据只认在栅栏之后开始的读取（`MainEvidence.ReadAt` 由对账器在读前打上）；B3 `main_lost` 只在 v1.1 `failed`、只从 `main_result{ok}`、只由 controller 写；R1 迟到落地锁内去重；R2 Owner 回「不合」后仍监测迟到落地；R4 每个终态同事务写 `landing_main` 证据（head、has_r、read_at）；N1 异常 / 证据记录校验 SHA 与根。platform `eb85778a`。
 - **仍留给 S3 接线（开门前必须）**：对账读取按操作退避与公平调度（658 R3）；landed 进 STG 队列、denied 停仓库与问题卡（656 C-R3）；ok_missing / late_landing 的 Owner 问题卡从持久异常记录生成并走 `confirm_main_lost`；推送 2 分钟硬超时；PROD 最终闸（main_intent / 配额）按 §9.7 取时间；中间闸（CI、分支）写新意图前按同一时点刷新规则（657 R657-2 的剩余部分）；读卡回调的超时（657 N657-3）。
+
+## 11. S3 本体：拆分与顺序（2026-10-28 15:xx 统筹，设计稿 v1）
+
+前提（已上 PROD `9d611d54`）：答复处理（§8）、决定时间（§9）、main 对账器（§10）。S3 接线 A 部分已在 platform 分支 `w31/s3-wiring-a`（`f07e0f35`：对账独立循环、按操作退避、中间闸刷新；`aa30a556`：窗口读不删、释放用带版本的更新）。
+
+S3 真推 main **只在 PROD 跑**（规则 `landing:dev` 只在 PROD 签；STG 继续 S2 演练）。所以落地问题卡开在 PROD 的问题库（ops.bifrost.lan），符合「人批的只在 PROD」。
+
+### 11.1 五块与依赖
+
+| 块 | 内容 | 依赖 | 对应 §3 S3 用例 |
+|---|---|---|---|
+| **B1 真推 main** | PROD 的落地循环 `LandingLivePass`（与 STG 演练平行，mode=live）：领取 → 第一道闸 → 重放（`Landed-By: agentrt-prod/<op>`）→ 推 `land/prod/<root>/<k>`（落地身份）→ 等 CI（同演练）→ **第二道闸**（§2.5 第 6 步：一个事务、固定锁序含当天 UTC 配额流；锁内重读规则 → `EligibleToPush` → main 头仍是 M0 → 窗口不挡 → 预留额度 → 写 `main_intent`；按 §9.7 读完外部后取时间）→ **推 main**（不带 force；单次硬超时 `PushTimeout` 2 分钟；不自动重推）→ `main_result{ok|non_ff|denied|unknown}` → ok 后确认 R 在 main 再写 `landed` → 按 SHA 删落地分支 → `stg_pending{R}`。`landinggit` 加 PROD 的身份与 `land/prod/**`、`refs/heads/main` 的推送（只快进）。 | 落地身份（Owner 建 `agentrt-lander`、加白名单、配 Secret） | ①②③⑩⑪⑫ |
+| **B6 denied 停仓库** | `failed{denied}` 写下的同一事务里写持久停止条件（note `landing_stopped{repo, op}`）；领取和第二道闸都先查它，有就拒（新 ClaimRefusal 不需要——拒在资格前、不写记录）；只有 Owner 在卡上「恢复」才解除（`landing_resumed`）。 | B1、B3 | — |
+| **B3 落地问题卡** | 每个根任务一张（去重键 `landing:<root>`），由持久记录驱动生成：最新操作 `failed{bound|stale|ci_red}`（选项「再试一次 / 不合」）、其他 `failed`（「不合」）、`ok_missing`（「确认已丢失 / 继续等」）、`late_landing`（只读说明 + 「知道了」）、`landing_stopped`（「恢复 / 保持停止」）、`parked` 超过 2 小时（只读说明）。卡与（根，操作，种类）的绑定写在仓库流 note `landing_card{question_id, root, op, kind}`；读答复走 §8 的 `LandingAnswer`（选项字母 → 语义选项由绑定种类决定）。卡在操作前进后作废（新卡换新 id）。 | §8 | §2.7 |
+| **B5 STG 发布接力** | §2.8 全部：`stg_pending` 汇总 → 无活动落地或最老等 20 分钟 → 持窗口 → 定 P、U（U 读 P 那次成功 CI 克隆的 ui 提交）→ 发前检查（每个 R 过 `EligibleToDeploy`；上次 STG → P 整个差异判权限；P 最新 CI 成功且用 U）→ `stg_snapshot{try}` → 起 `bifrost-deliver-platform`（revision=P、uiRevision=U）→ `stg_started` → 读 run 终态 `stg_result` → 核验四项（run 克隆头 = P；Deployed("stg") = P 且三个摘要对；rollout 完成；STG `/health` 版本 = P）→ `stg_verified` / 重试（同 P、U，try ≤ 3，退避 10 / 30 分钟）/ `stg_failed` + 卡。创建结果不明时按 run 名接管、不多建。 | B1、窗口（A 部分已改） | ④⑥⑦⑧⑨ |
+| **B4 收尾分类** | §2.7：落地范围内的根任务分已交付（规则 `stg_release` 开着的要 `stg_verified`；`none` 的要 `landed` 且仍有效）/ 已处置未交付（declined、stale、main_lost、mission no_merge）/ 未了结（其余，含 `parked{rule}` 和未答复的失败）；全部交付或处置且至少一个交付 → done，全部只处置 → stopped，有未了结 → 保持 active。替换现在 `landingHolds` 的「失败即放」。 | B3（未了结要有出口）、B5（已交付要 stg_verified） | ⑤ |
+
+### 11.2 顺序
+
+B1 + B6 → B3 → B5 → B4，每块：设计细节 → Codex 设计复核 → 实现 + PostgreSQL 测试（§3 的 S3 用例逐条一个测试，旧代码上必须红）→ Codex 代码复核 → 推分支 CI。全部做完再一起发 STG / PROD，然后 Owner 做 S3 开门的事（签第 1 版规则、建落地身份并加白名单配 Secret、核对标签规则、批 D-L5 的 D 级单、批发布单）。
+
+### 11.3 待复核的设计点
+
+1. B1 第二道闸与推 main 是两个事务：`main_intent` 提交后再推；推送结果不明（超时、断连）记 `main_result{unknown}`，交给 §10 的对账器。这样「推送进行中」由 `main_intent` + 2 分钟硬超时 + §10 的栅栏覆盖，不需要租约（Owner 2A）。
+2. 落地身份推 main 的 Gitea 权限：只在 platform main 白名单；`land/prod/**` 也只给它；它不能推 infra、不能建标签（用例 ⑫）。
+3. B3 选项字母到语义的映射放在绑定记录里（kind 决定），`LandingAnswer` 的 read 回调由绑定适配器提供，不改 §8 的处理。
+4. B5 的 U 来源：`ci-platform` 的 `clone-ui` 任务结果 `commit`（S0 已接进审计）——需要核实 PROD 的 platform-api 能读到 ci run 的 task 结果。
+5. B4 改变现行行为：今天 `failed`（未 retry）放开 mission；改后要等 Owner 在卡上「不合」才算处置。B3 必须先上，否则 mission 卡在 active。
