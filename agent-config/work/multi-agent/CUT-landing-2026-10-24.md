@@ -750,3 +750,63 @@ Console 上把「已交付」和「已处置、未交付」分开显示。不在
 - N652-1：新生的出生即终态操作 `DryRun=false`、Attempt/A/Ref 为空，表示「从未运行」，不是生产执行证据；retry 集合仍是 bound/stale/ci_red（新增的 result/in_main/reverted 不可 retry），§7.7 那句「只接受 stale / bound」指新增的首次失败。
 - N652-2：「6 小时」是到限判定，不是墙钟提交保证：两段领取仍共用调用时的 `now`（S3 必做 ②），T+5h59m 开始的领取可能在 T+6h01m 写下 claimed；记录在下一次成功的数据库结算或 Close 提交时出现。
 - N652-3：测试已按 v2 重写（见提交说明）。
+
+## 8. S3 必做 ①：落地答复的处理结果先落库、再 Ack（2026-10-28 统筹，设计稿 v1）
+
+### 8.1 问题（实读 platform main `6ea51e0e`）
+
+- `controller/landing_answer.go` `LandingAnswer` 读绑定到「根 + 操作」的问题卡；只要是 answered、console 渠道、有答复者，就在一个事务里调 `store.ApplyLandingAnswer`，把错误原样返回。它不 Ack，也不记录这张卡被怎么处理过（复核 647）。
+- `ApplyLandingAnswer` 的「不适用」全部是普通 error：不是最新操作、答复早于操作、retry 但操作不是 failed 或答复早于失败；mission 不是 active 时是 `ErrLandingMissionClosed`。错误让事务回滚，所以**拒绝不留痕**；S3 若每轮扫描 answered 卡，同一张卡每轮报同一个错，永远不 Ack；若提前 Ack，Owner 只看到「已回答」，不知道 retry 没生效。
+- 今天 `LandingAnswer` 只有测试调用（S3 才接线），所以这是接线前的语义修正，生产无行为变化。
+
+### 8.2 目标
+
+1. 一张答复卡（question id）**恰好被处理一次**：结果持久记录，进程重启、Ack 失败、重复扫描都不会再执行第二次。
+2. 结果分三类，记录里写明：`applied`（写了 retry 或 `failed{declined}`）、`moot`（没什么可做，Owner 不用管：已 retry、已 declined、卡绑定的操作已不是最新、卡被晚答到失败之前、未知选项）、`refused`（Owner 要知道：mission 已不是 active，retry 没生效）。
+3. 先落库、后 Ack：记录与 retry 同一事务提交之后才 Ack；Ack 失败下一轮重试 Ack，不重做业务。
+4. 临时错误（数据库、读卡超时）不记录、不 Ack，下一轮重来；它与业务拒绝分开，不进入「每轮同一个错」的循环。
+5. 不新增事件类型、表或列（避免改 `event_type` 约束的迁移）。
+
+### 8.3 设计
+
+**记录**：落地流 `landing:<repo>` 上一条 `note`，body 没有 `landing` 键（`LandingState` 只折叠 `body ? 'landing'` 的 note，见 `store/landing.go:17`，所以协议状态不受影响），而是：
+
+```
+{"text": "Landing answer <outcome>: <一句话>",
+ "landing_answer": {"question_id", "root", "op", "choice", "outcome": "applied|moot|refused",
+                    "why", "by", "answered_at", "mission_state"}}
+```
+
+事件的 `MissionID`、`TaskID` 填根的 mission 与根任务，所以它出现在 mission 时间线上。`why` 是封闭词表：`retry`、`declined`（applied）；`already_retried`、`already_declined`、`superseded`、`not_failed`、`answered_before`、`unknown_choice`（moot）；`mission_not_active`（refused）。
+
+**`store.HandleLandingAnswer(ctx, db, q, root, op) (Handled, error)`** 取代 controller 里直接调 `ApplyLandingAnswer`：
+
+1. 一个事务，锁序不变：task `FOR SHARE` → mission `FOR SHARE` → 仓库流（`lockStream`）。
+2. 锁下先查去重：同一流上已有 `body_json->'landing_answer'->>'question_id' = q.ID` 的 note → 返回已记录的结果（`Handled{Outcome, Recorded: false}`），不写任何东西。
+3. 否则按现有判断得出 outcome / why；`applied` 时照旧追加 retry 或 `failed{declined}`，紧接着追加记录 note；`moot` / `refused` 只追加记录 note。**这些都不再是 error**，事务正常提交。
+4. 只有数据库错误、锁超时等返回 error（事务回滚，什么都不记录）。
+
+**`controller.LandingAnswer`**：读卡（有超时）→ 卡不满足条件（未答、非 console、缺答复者或时间）照旧什么都不做 → `HandleLandingAnswer` → 成功提交后调 `c.ack()(q.ID)`；Ack 失败只返回 error，下一轮第 2 步去重后再 Ack。`refused` 额外返回一个可识别的结果（不是 error），S3 接线层据此在 For you 给 Owner 一张说明卡（文案与是否给「开新 mission」按钮由 S3 定；本项不自动重开，按复核 647：非 active 包括 paused，不能当成重开授权）。
+
+**去重键**只用 question id：卡与（根，操作）的绑定由读卡回调负责（`read(ctx, root, op)`，S3 提供），一张卡只绑定一个（根，操作）。`store.Question` 不带根与操作，所以本项不另做核对；同一 question id 若被不同（根，操作）调用，第 2 步按流上已有记录返回，不会二次执行。
+
+### 8.4 锁序与并发
+
+- 与 Close：二者都先拿 mission 行锁（答复 SHARE，Close NO KEY UPDATE），在 mission 行上串行；答复后追加的记录只写仓库流，Close 的 bound 写入也是 mission → 流，不成环（与 §7.7 同一锁序）。
+- 两个进程同时处理同一张卡：流锁串行化；后到的在第 2 步看到记录，返回已处理。
+- 记录与 retry 同一事务：不会出现「retry 写了、记录没写」或反过来。
+
+### 8.5 测试（PostgreSQL；旧代码上必须红）
+
+1. mission 已关后答复 try_again → 记录 `refused{mission_not_active}`、无 retry、事务提交；再处理一次 → 返回同一结果、不再写；旧代码返回 error 且什么都不留（红）。
+2. Ack 失败：处理成功、Ack 返回错误 → 第二轮不再写 retry、只 Ack 一次成功；计数 retry 恰为 1。
+3. 「重启」：新 Controller 实例处理同一张卡 → 去重命中。
+4. 临时错误：用测试钩子让事务在写记录前失败 → 无记录、无 Ack；下一轮正常 applied。
+5. moot 各 why 一例（已 retry、已 declined、不再是最新操作、答复早于失败、未知选项），每例只写一条记录。
+6. 并发：两个连接同时处理同一张卡 → 恰好一条记录、一条 retry。
+7. `LandingState` 折叠结果不受记录 note 影响（与不写记录时相同）。
+
+### 8.6 不在本项
+
+- For you 上的说明卡与文案（S3 接线）；mission 关闭后是否允许 Owner 重开或开新 mission（S3 政策）。
+- ②（时间策略）、③（main 对账器与 `failed{denied}`）。
