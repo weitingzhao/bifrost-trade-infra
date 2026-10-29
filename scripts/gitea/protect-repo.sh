@@ -3,7 +3,11 @@
 # Gitea-primary cut (§2.9, §3; batch step 5) on each converted repository,
 # then read back and compared field by field:
 #   main      platform/infra: <login> only (landing S0); other repos:
-#             team maintainers and <login>; merge (PR): the same
+#             team maintainers and <login>; merge (PR): the same.
+#             platform from S3 (CUT-landing §11.11): push <login> and the
+#             landing identity agentrt-lander; merge <login> only.
+#   land/prod/**  platform only (S3): push agentrt-lander alone, merge nobody,
+#             so no other writer of platform can make a PROD landing branch
 # Removing maintainers blocks agent push-main.sh until dedicated landing is
 # enabled in S3 (platform) / S6 (infra); Owner pushes bridge that interval.
 # The rule carries a merge whitelist: without one, code write is enough to
@@ -192,7 +196,7 @@ def clash(rule):
 
 
 names = [str(r.get("rule_name") or r.get("branch_name") or "") for r in json.load(sys.stdin)]
-print(" ".join(sorted(n for n in names if n not in ("main", "agent/**") and clash(n))))
+print(" ".join(sorted(n for n in names if n not in ("main", "agent/**", "land/prod/**") and clash(n))))
 '
 gitea_connect
 fail=0
@@ -204,24 +208,32 @@ for repo in "$@"; do
     fail=1
     continue
   fi
-  for rule in main; do
+  rules=main
+  [[ "$repo" != bifrost-platform ]] || rules="main land/prod/**"
+  for rule in ${rules}; do
     push_team=maintainers
     case "$repo" in
       bifrost-platform|bifrost-trade-infra) push_team="" ;;
     esac
-    body="$(python3 - "${rule}" "${push_team}" "${owner}" << 'PY'
+    body="$(python3 - "${rule}" "${push_team}" "${owner}" "${repo}" << 'PY'
 import json, sys
-rule, team, owner = sys.argv[1:4]
+rule, team, owner, repo = sys.argv[1:5]
+lander = "agentrt-lander"
+if rule == "land/prod/**":
+    push_users, merge_users, teams = [lander], [], []
+else:
+    push_users = [owner] + ([lander] if repo == "bifrost-platform" else [])
+    merge_users, teams = [owner], ([team] if team else [])
 print(json.dumps({
     "rule_name": rule,
     "enable_push": True,
     "enable_push_whitelist": True,
-    "push_whitelist_teams": [team] if team else [],
-    "push_whitelist_usernames": [owner],
+    "push_whitelist_teams": teams,
+    "push_whitelist_usernames": push_users,
     "push_whitelist_deploy_keys": False,
     "enable_merge_whitelist": True,
-    "merge_whitelist_teams": [team] if team else [],
-    "merge_whitelist_usernames": [owner],
+    "merge_whitelist_teams": teams,
+    "merge_whitelist_usernames": merge_users,
 }))
 PY
 )"

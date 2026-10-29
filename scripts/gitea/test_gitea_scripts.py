@@ -247,11 +247,21 @@ class Scripts(unittest.TestCase):
                     r = self.run_script("protect-repo.sh", "--owner", "vision", repo, api=api)
                     self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
                     rules = api.rules[repo]
-                    self.assertEqual(sorted(rules), ["main"])
+                    platform = repo == "bifrost-platform"
+                    self.assertEqual(sorted(rules), ["land/prod/**", "main"] if platform else ["main"])
                     self.assertEqual(rules["main"]["push_whitelist_teams"], teams)
+                    # S3: the landing identity pushes platform's main, never merges; infra waits for S6
+                    self.assertEqual(sorted(rules["main"]["push_whitelist_usernames"]),
+                                     ["agentrt-lander", "vision"] if platform else ["vision"])
                     self.assertIn(f"{repo} agent/**: none (attempt branches may be deleted; TD-383)", r.stdout)
-                    for rule in rules.values():
+                    for name, rule in rules.items():
                         self.assertTrue(rule["enable_merge_whitelist"])
+                        if name == "land/prod/**":
+                            # only the lander pushes PROD landing branches; nobody merges into them
+                            self.assertEqual(rule["push_whitelist_usernames"], ["agentrt-lander"])
+                            self.assertEqual(rule["push_whitelist_teams"], [])
+                            self.assertEqual(rule["merge_whitelist_usernames"], [])
+                            continue
                         self.assertEqual(rule["merge_whitelist_teams"], teams)
                         self.assertEqual(rule["merge_whitelist_usernames"], ["vision"])
                     self.assertIn("Settings → Tags", r.stdout)
@@ -259,7 +269,7 @@ class Scripts(unittest.TestCase):
                     # a second run finds main as the baseline and neither edits nor adds (review 436 B5)
                     r = self.run_script("protect-repo.sh", "--owner", "vision", repo, api=api)
                     self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-                    self.assertEqual(len(api.rules[repo]), 1)
+                    self.assertEqual(len(api.rules[repo]), 2 if platform else 1)
                     self.assertIn(f"{repo} main: there as the baseline, left as it is", r.stdout)
                     self.assertFalse(any(c.startswith("PATCH ") for c in api.calls))
                 finally:
