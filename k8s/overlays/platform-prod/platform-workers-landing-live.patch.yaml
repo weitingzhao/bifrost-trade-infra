@@ -1,0 +1,41 @@
+# W-31 4.1 S3 (CUT-landing-2026-10-24.md §11.11): the PROD landing. Only the
+# workers tier runs the controller (api/internal/server/agentrt_landing.go).
+# It reads main as agentrt-lander, whose Gitea team writes bifrost-platform
+# only and which is on platform main's whitelist alone (infra waits for S6;
+# no tag, no protection change). The Owner makes Secret agentrt-lander
+# (kubernetes.io/basic-auth: username, password) in this namespace with
+# scripts/gitea/put-reader-token.sh lander; the controller reads the two
+# files at each git call and never puts the token in its environment.
+# Without the Secret every read of main records unreadable and no landing
+# runs.
+#
+# AGENTRT_LANDING_LIVE stays "off" until the Owner approves the release that
+# turns it "on" (the last opening step). Off, the workers still reconcile
+# main and settle bounds and cards from the database; they write no mode, take
+# no claim and push nothing.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-workers
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform-api
+          env:
+            - name: AGENTRT_LANDING_LIVE
+              value: "off"
+            - name: AGENTRT_LANDER_USERNAME_FILE
+              value: /etc/bifrost/lander/username
+            - name: AGENTRT_LANDER_PASSWORD_FILE
+              value: /etc/bifrost/lander/password
+          volumeMounts:
+            - name: lander
+              mountPath: /etc/bifrost/lander
+              readOnly: true
+      volumes:
+        - name: lander
+          secret:
+            secretName: agentrt-lander
+            optional: true
+            defaultMode: 0400

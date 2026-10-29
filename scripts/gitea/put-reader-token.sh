@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# put-reader-token.sh stg|prod|ci|drill [replace] — TD-432 / landing S0
+# put-reader-token.sh stg|prod|ci|drill|lander [replace] — TD-432 / landing S0, S3
 # drill is deliberately NOT a reader: agentrt-landing-stg may write code only
 # in platform and infra, but may not push main or administer any repository.
+# lander (S3, CUT-landing §11.11) is the PROD landing identity agentrt-lander:
+# it may write code only in platform, and push platform's main (it is on the
+# main whitelist), but administer nothing; infra stays read-only until S6.
 # Branch/tag/PR protection still needs the Owner's actual refusal probes.
 # (agent-config/work/multi-agent/
 # CUT-td432-gitea-credentials-2026-10-24.md; OWNER-STEPS-td432-2026-10-24.md):
@@ -10,6 +13,8 @@
 #   stg   account bifrost-platform-reader-stg   → Secret bifrost-platform-stg/bifrost-gitea-reader
 #   prod  account bifrost-platform-reader-prod  → Secret bifrost-platform-prod/bifrost-gitea-reader
 #   ci    account bifrost-ci-reader             → Secret cicd/gitea-ci-reader
+#   drill account agentrt-landing-stg           → Secret bifrost-platform-stg/agentrt-landing-drill
+#   lander account agentrt-lander               → Secret bifrost-platform-prod/agentrt-lander
 #
 # Each Secret is kubernetes.io/basic-auth (username, password). The platform
 # mounts its own (k8s/overlays/platform-*/platform-gitea-reader.patch.yaml);
@@ -45,8 +50,9 @@ case "${1:-}" in
   prod) LOGIN=bifrost-platform-reader-prod NS=bifrost-platform-prod NAME=bifrost-gitea-reader ;;
   ci) LOGIN=bifrost-ci-reader NS=cicd NAME=gitea-ci-reader ;;
   drill) LOGIN=agentrt-landing-stg NS=bifrost-platform-stg NAME=agentrt-landing-drill ;;
+  lander) LOGIN=agentrt-lander NS=bifrost-platform-prod NAME=agentrt-lander ;;
   *)
-    echo "usage: ${0##*/} stg|prod|ci|drill [replace]" >&2
+    echo "usage: ${0##*/} stg|prod|ci|drill|lander [replace]" >&2
     exit 2
     ;;
 esac
@@ -54,7 +60,7 @@ case "${2:-}" in
   "") MODE=create ;;
   replace) MODE=replace ;;
   *)
-    echo "usage: ${0##*/} stg|prod|ci|drill [replace]" >&2
+    echo "usage: ${0##*/} stg|prod|ci|drill|lander [replace]" >&2
     exit 2
     ;;
 esac
@@ -74,6 +80,9 @@ die() { echo "ERROR: $*" >&2; echo "Nothing was written." >&2; exit 1; }
 [[ -r "${PRIMARIES}" ]] || die "cannot read ${PRIMARIES}"
 primaries="$(sed -e 's/#.*//' -e 's/[[:space:]]//g' "${PRIMARIES}" | sed '/^$/d' | sort -u)"
 if [[ "$1" == drill ]]; then
+  primaries=$'bifrost-platform\nbifrost-trade-infra'
+fi
+if [[ "$1" == lander ]]; then
   primaries=$'bifrost-platform\nbifrost-trade-infra'
 fi
 [[ -n "${primaries}" ]] || die "${PRIMARIES} names no repository"
@@ -127,17 +136,26 @@ for repo in ${primaries}; do
   [[ "${code}" == 200 ]] || die "GET /api/v1/repos/${org}/${repo} → HTTP ${code}: the token cannot read it"
   expected_push=false
   [[ "$1" != drill ]] || expected_push=true
+  [[ "$1" != lander || "${repo}" != bifrost-platform ]] || expected_push=true
   [[ "$(field permissions.admin)" == false && "$(field permissions.push)" == "${expected_push}" && "$(field permissions.pull)" == true ]] \
-    || die "on ${org}/${repo} ${LOGIN} has admin=$(field permissions.admin) push=$(field permissions.push) pull=$(field permissions.pull); a reader must only read; drill must only write its two repositories"
+    || die "on ${org}/${repo} ${LOGIN} has admin=$(field permissions.admin) push=$(field permissions.push) pull=$(field permissions.pull); a reader must only read; drill must only write its two repositories; lander must only write platform"
   if [[ "$1" == drill ]]; then
     code="$(ask token "${root}/api/v1/repos/${org}/${repo}/branches/main")"
     [[ "${code}" == 200 && "$(field user_can_push)" == false ]] || die "${repo}: main is writable or its protection could not be verified"
   fi
+  if [[ "$1" == lander ]]; then
+    # platform's main whitelists the lander (S3); infra's does not (S6).
+    main_push=false
+    [[ "${repo}" != bifrost-platform ]] || main_push=true
+    code="$(ask token "${root}/api/v1/repos/${org}/${repo}/branches/main")"
+    [[ "${code}" == 200 && "$(field user_can_push)" == "${main_push}" ]] \
+      || die "${repo}: main user_can_push=$(field user_can_push) (HTTP ${code}); the lander must push platform's main only"
+  fi
   code="$(ask basic "${BASE}/${repo}.git/info/refs?service=git-upload-pack")"
   [[ "${code}" == 200 ]] || die "fetch handshake on ${repo} → HTTP ${code}"
   code="$(ask basic "${BASE}/${repo}.git/info/refs?service=git-receive-pack")"
-  if [[ "$1" == drill ]]; then
-    [[ "${code}" == 200 ]] || die "drill push handshake on ${repo} → HTTP ${code}"
+  if [[ "$1" == drill || ( "$1" == lander && "${repo}" == bifrost-platform ) ]]; then
+    [[ "${code}" == 200 ]] || die "$1 push handshake on ${repo} → HTTP ${code}"
     continue
   fi
   [[ "${code}" != 200 ]] || die "push handshake on ${repo} → 200: the token can push there"
@@ -145,6 +163,8 @@ for repo in ${primaries}; do
 done
 if [[ "$1" == drill ]]; then
   echo "ok    drill: two code writers, main user_can_push=false; actual tag/PR/push probes still required"
+elif [[ "$1" == lander ]]; then
+  echo "ok    lander: writes platform only, pushes platform main, infra read-only; actual tag/push probes still required"
 else
   echo "ok    $(echo "${primaries}" | wc -l | tr -d ' ') primaries: read only (fetch 200, push refused)"
 fi
@@ -172,6 +192,9 @@ writable="$(sort -u "${work}/writable" | tr '\n' ' ')"
 if [[ "$1" == drill ]]; then
   [[ ! -s "${work}/administrable" ]] || die "drill can administer a repository"
   [[ "${writable}" == "${org}/bifrost-platform ${org}/bifrost-trade-infra " ]] || die "drill has unexpected writable repositories: ${writable}"
+elif [[ "$1" == lander ]]; then
+  [[ ! -s "${work}/administrable" ]] || die "lander can administer a repository"
+  [[ "${writable}" == "${org}/bifrost-platform " ]] || die "lander has unexpected writable repositories: ${writable}"
 else
   [[ -z "${writable// /}" ]] || die "${LOGIN} is administrator or writer of: ${writable}"
 fi
@@ -182,6 +205,8 @@ done
 [[ -z "${missing}" ]] || die "the search does not show:${missing}"
 if [[ "$1" == drill ]]; then
   echo "ok    search complete: only platform and infra writable"
+elif [[ "$1" == lander ]]; then
+  echo "ok    search complete: only platform writable"
 else
   echo "ok    it sees $(sort -u "${work}/seen" | wc -l | tr -d ' ') repositories and can write none"
 fi
@@ -190,6 +215,7 @@ verb=create
 [[ "${MODE}" == create ]] || verb=replace
 component=gitea-reader
 [[ "$1" != drill ]] || component=gitea-landing-drill
+[[ "$1" != lander ]] || component=gitea-lander
 emit_secret() {
   printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\n  labels:\n    bifrost.io/component: %s\ntype: kubernetes.io/basic-auth\nstringData:\n  username: %s\n  password: "%s"\n' \
     "${NAME}" "${NS}" "${component}" "${LOGIN}" "${t}"

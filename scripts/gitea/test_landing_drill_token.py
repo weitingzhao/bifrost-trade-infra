@@ -17,8 +17,12 @@ from urllib.parse import urlsplit, parse_qs
 sys.stdin.read()  # credential config never logged
 args=sys.argv[1:]; url=args[-1]; path=urlsplit(url).path
 mode=os.environ['TEST_MODE']; fault=os.environ.get('TEST_FAULT','')
-drill=mode=='drill'; user={'drill':'agentrt-landing-stg','ci':'bifrost-ci-reader','stg':'bifrost-platform-reader-stg','prod':'bifrost-platform-reader-prod'}[mode]
+drill=mode=='drill'; lander=mode=='lander'
+user={'drill':'agentrt-landing-stg','lander':'agentrt-lander','ci':'bifrost-ci-reader','stg':'bifrost-platform-reader-stg','prod':'bifrost-platform-reader-prod'}[mode]
 repos=['bifrost-platform','bifrost-trade-infra']
+def writes(repo):
+    # drill writes both; lander writes platform only (infra too under fault infra_write)
+    return drill or (lander and (repo=='bifrost-platform' or fault=='infra_write'))
 code=200; body={}
 if path=='/api/v1/user':
     body={'login':'wrong' if fault=='user' else user,'is_admin':fault=='admin'}
@@ -27,16 +31,21 @@ elif path=='/api/v1/repos/search':
     page=int(parse_qs(urlsplit(url).query)['page'][0])
     body={'data':[]}
     if page==1:
-        body={'data':[{'full_name':'bifrost/'+r,'permissions':{'admin':fault=='search_admin','push':drill,'pull':True}} for r in repos]}
+        body={'data':[{'full_name':'bifrost/'+r,'permissions':{'admin':fault=='search_admin','push':writes(r),'pull':True}} for r in repos]}
     if page==2 and fault=='extra':
         body={'data':[{'full_name':'bifrost/extra','permissions':{'admin':False,'push':True,'pull':True}}]}
 elif path.endswith('/branches/main'):
-    body={'user_can_push': fault=='main'}
+    repo=path.split('/')[5]
+    pushable = fault=='main'
+    if lander and repo=='bifrost-platform': pushable = fault!='platform_main_closed'
+    body={'user_can_push': pushable}
     if fault=='unknown_main': code=500
 elif path.startswith('/api/v1/repos/bifrost/'):
-    body={'permissions':{'admin':False,'push':drill and fault!='readonly','pull':True}}
+    repo=path.split('/')[5]
+    body={'permissions':{'admin':False,'push':writes(repo) and fault!='readonly','pull':True}}
 elif path.endswith('/info/refs'):
-    if 'receive-pack' in url: code=200 if drill else 403
+    repo=path.split('/')[2].removesuffix('.git')
+    if 'receive-pack' in url: code=200 if writes(repo) else 403
 else: code=404
 if fault=='http': code=500
 open(args[args.index('-o')+1],'w').write(json.dumps(body))
@@ -44,8 +53,10 @@ print(code,end='')
 '''
 
 
-@pytest.mark.parametrize("mode,fault", [("ci", ""), ("stg", ""), ("prod", ""), ("drill", ""), *[("drill", f) for f in
-                         ("user", "admin", "main", "unknown_main", "readonly", "extra", "search_admin", "http", "dryrun")]])
+@pytest.mark.parametrize("mode,fault", [("ci", ""), ("stg", ""), ("prod", ""), ("drill", ""), ("lander", ""), *[("drill", f) for f in
+                         ("user", "admin", "main", "unknown_main", "readonly", "extra", "search_admin", "http", "dryrun")],
+                         *[("lander", f) for f in ("user", "admin", "main", "platform_main_closed", "unknown_main", "readonly",
+                                                   "infra_write", "extra", "search_admin", "http", "dryrun")]])
 def test_installer_rejects_excess_permissions_before_any_write(tmp_path, mode, fault):
     bindir = tmp_path / "bin"
     bindir.mkdir()
@@ -62,6 +73,7 @@ def test_installer_rejects_excess_permissions_before_any_write(tmp_path, mode, f
     primaries = tmp_path / "primaries"
     primaries.write_text("bifrost-platform\nbifrost-trade-infra\n")
     ns, name = {"drill": ("bifrost-platform-stg", "agentrt-landing-drill"),
+                "lander": ("bifrost-platform-prod", "agentrt-lander"),
                 "ci": ("cicd", "gitea-ci-reader"),
                 "stg": ("bifrost-platform-stg", "bifrost-gitea-reader"),
                 "prod": ("bifrost-platform-prod", "bifrost-gitea-reader")}[mode]
@@ -80,5 +92,5 @@ def test_installer_rejects_excess_permissions_before_any_write(tmp_path, mode, f
         doc = yaml.safe_load((state / "secret.yaml").read_text())
         assert doc["metadata"]["namespace"] == ns and doc["metadata"]["name"] == name
         assert doc["stringData"]["password"] == GITEA_TOKEN_FIXTURE
-        assert doc["metadata"]["labels"]["bifrost.io/component"] == ("gitea-landing-drill" if mode == "drill" else "gitea-reader")
+        assert doc["metadata"]["labels"]["bifrost.io/component"] == {"drill": "gitea-landing-drill", "lander": "gitea-lander"}.get(mode, "gitea-reader")
         assert calls.index("--dry-run=server") < calls.index("create -f -")

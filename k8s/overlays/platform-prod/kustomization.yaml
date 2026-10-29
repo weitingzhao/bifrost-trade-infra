@@ -56,6 +56,7 @@ patches:
   - path: platform-unifi-env.patch.yaml
   - path: platform-agentrt-env.patch.yaml
   - path: platform-gitea-reader.patch.yaml
+  - path: platform-workers-landing-live.patch.yaml
 
 images:
   - name: registry.cicd.svc.cluster.local:5000/bifrost-platform-api
