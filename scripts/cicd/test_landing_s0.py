@@ -25,6 +25,25 @@ def test_actual_clone_results_are_auditable():
     assert any(r["name"] == "commit" for r in clone["spec"]["results"])
 
 
+def test_t50_receives_a_pinned_baseline_before_api_tests():
+    tasks = {t["name"]: t for t in pipeline()["tasks"]}
+    legacy = tasks["clone-legacy"]
+    assert legacy["taskRef"]["name"] == "bifrost-git-clone-gitea"
+    params = {p["name"]: p["value"] for p in legacy["params"]}
+    assert params["url"] == "$(params.giteaBase)/bifrost-platform.git"
+    assert params["revision"] == "5a8edd550aaa49474a320eb15ed7c9c33f0e1bc5"
+    assert params["subdir"] != "bifrost-platform"
+    assert legacy["workspaces"] == [{"name": "output", "workspace": "source"}]
+    api = tasks["test-api"]
+    assert set(api["runAfter"]) == {"clone", "clone-legacy"}
+    step = api["taskSpec"]["steps"][0]
+    env = {e["name"]: e.get("value") for e in step["env"]}
+    assert env["AGENTRT_T50_LEGACY_SRC"] == "$(workspaces.source.path)/" + params["subdir"] + "/api"
+    assert env["AGENTRT_TEST_REQUIRED"] == "1"
+    assert all("valueFrom" not in e for e in step["env"])
+    assert "when" not in legacy and "onError" not in legacy
+
+
 def test_vet_only_defect_stops_the_actual_ci_script(tmp_path):
     """Build and ordinary go test pass; full vet's lostcancel must stop CI.
 

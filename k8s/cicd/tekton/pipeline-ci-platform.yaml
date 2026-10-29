@@ -88,8 +88,23 @@ spec:
       workspaces:
         - name: output
           workspace: source
+    # T50 compiles the real pre-0010 API. The candidate's shallow clone has no
+    # historical objects, and the test step has no Git credentials to fetch them.
+    - name: clone-legacy
+      taskRef:
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-platform.git
+        - name: revision
+          value: 5a8edd550aaa49474a320eb15ed7c9c33f0e1bc5
+        - name: subdir
+          value: legacy-5a8edd55
+      workspaces:
+        - name: output
+          workspace: source
     - name: test-api
-      runAfter: [clone]
+      runAfter: [clone, clone-legacy]
       workspaces:
         - name: source
           workspace: source
@@ -157,6 +172,9 @@ spec:
             env:
               - name: GOTOOLCHAIN
                 value: auto
+              # T50 verifies this checkout's HEAD before exporting its API.
+              - name: AGENTRT_T50_LEGACY_SRC
+                value: $(workspaces.source.path)/legacy-5a8edd55/api
               # With these set the agentrt tests must run: a missing server
               # fails them instead of skipping them.
               - name: AGENTRT_TEST_PG
