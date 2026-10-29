@@ -9,10 +9,11 @@
 # Without the Secret every read of main records unreadable and no landing
 # runs.
 #
-# AGENTRT_LANDING_LIVE stays "off" until the Owner approves the release that
-# turns it "on" (the last opening step). Off, the workers still reconcile
-# main and settle bounds and cards from the database; they write no mode, take
-# no claim and push nothing.
+# AGENTRT_LANDING_LIVE is "on" from the S3 opening (the Owner pushed this
+# change, the last opening step): the workers record the live mode, claim
+# under the signed landing rule and push platform's main as agentrt-lander.
+# To stop landings, set it back to "off": the workers then only reconcile main
+# and settle bounds and cards from the database, writing no claim or push.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -24,7 +25,7 @@ spec:
         - name: platform-api
           env:
             - name: AGENTRT_LANDING_LIVE
-              value: "off"
+              value: "on"
             - name: AGENTRT_LANDER_USERNAME_FILE
               value: /etc/bifrost/lander/username
             - name: AGENTRT_LANDER_PASSWORD_FILE
