@@ -203,7 +203,9 @@ spec:
               go vet ./...
 
               echo "==> go test ./..."
-              go test ./... -count=1 -timeout=300s
+              # 900s: agentrt/store alone takes ~230s on a dev Mac with its PostgreSQL
+              # tests (W-31 core landing block); 300s timed out on the CI node.
+              go test ./... -count=1 -timeout=900s
 
               echo "==> Go API tests passed"
     - name: test-console
