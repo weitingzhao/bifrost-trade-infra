@@ -3,7 +3,7 @@
 依据：`CUT-landing-2026-10-24.md` §11.9（B5 放到开门后，规则 `stg_release: none`）、§11.11（跨块验收与开门顺序）。
 进度页：https://claude.ai/artifact/25ncziKDpLGmUH1VtDgszK
 
-你要动手的共 **7 件**：推三次 main（第 1、2、9 步）、批一张发布单（第 4 步）、签一条规则（第 5 步）、在 Gitea 建落地身份并装进集群（第 6 步）、跑权限探针（第 7 步）、批 D-L5 单（第 8 步）；最后给一个小目标（第 10 步）。
+你要动手的共 **6 件**：推三次 main（第 1、2、9 步）、批一张发布单（第 4 步）、签一条规则（第 5 步）、在 Gitea 建落地身份并装进集群（第 6 步）、跑权限探针（第 7 步）；最后给一个小目标（第 10 步）。D-L5（第 8 步）已完成。
 统筹每次只给你一步；你跑完回一句「跑完了」，统筹去读输出文件核对，再给下一步。命令都能原样运行，输出写进 `/tmp/s3-*.txt`。
 
 ---
@@ -74,9 +74,9 @@ cd /Users/vision-mac-trader/agent-work/night-1028/infra && bash scripts/gitea/pr
 token 还在剪贴板时跑（第 6 步第 4 项复制的）。探针从不推 main、不合 PR；platform 上验标签被拒、`land/prod/_probe/…` 临时分支能建能删、main 不动；infra 上验只读；两仓都验不能改保护。命令由统筹在这一步给（读剪贴板进内存、不落盘、跑完清剪贴板）。
 落地身份推 platform main 能成功这一条，由第 10 步的第一次真实落地来验。
 
-## 第 8 步 · 你：在 Console 批 D-L5 单
+## 第 8 步 · D-L5：已完成，不用做
 
-统筹用 `mark_missions_no_merge` 建 D 级单，把开门前的旧 mission 标 `no_merge`（逐件列出）。你在 ops.bifrost.lan 批。
+2026-10-28 20:2x 统筹读 PROD：M-1、M-2、M-3、M-4、M-13、M-15 都已有 `scope_json.no_merge`（版本均比 D-L5 建单时 +1），STG 按 Owner 10-26 决定不标。这一步划掉。
 
 ## 第 9 步 · 你：推 infra main，打开 live
 
