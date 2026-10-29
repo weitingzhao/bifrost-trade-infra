@@ -3579,3 +3579,14 @@
 - **修法**：查清后再定；若是时钟对齐问题，708 夹具（及其他按冻结时钟放启用栅栏的落地 PG 夹具）改为读 PostgreSQL `now()`，把启用事件放在它与测试时间之前。
 - **防线**：在 PG 测试 harness 里加一个检查：启用栅栏晚于库内 `now()` 时夹具直接失败并说明原因，而不是让资格判定给出 `before_enable`。
 - **验收**：`go test -count=5 ./internal/server/ -run TestReview708` 带库连续五次通过。
+
+### TD-457
+
+**P1 · platform 审批 / 问题卡 · 结论不回到建单线程，建单方只能等 Owner 在对话框里说一句**
+
+- **状态**：在做（2026-10-29）。
+- **证据**：C-7 实测 2，#191 建单 20 秒后 Owner 在 Console 批了，统筹仍在线程里等他回「批了」。`api/internal/approvals` 与 `api/internal/questions` 有 `requester_thread`，但结论只发 ntfy（`approvals` 的 `deliveries` 只有 `created`），不写线程收件箱；收件箱本身已有（`agentrt/store/signals.go:43 PostMessage`、`messages.go`、MCP `wait_for_messages`）。Owner 原话：「我在 Ops 上批了，不应该在对话框里还说一句……这条不是写进记忆，而是通过代码实现的系统规则。」
+- **影响**：Owner 在 Console 上的动作不是唯一输入；每张单都多一轮对话往返，建单方停在等待上。
+- **修法**：审批单进入终态（executed / failed / rejected / expired / unknown）和问题卡作答时，平台向 `requester_thread` 指向的线程 actor 发一条收件箱消息（单号、动作、结论、执行结果摘要、链接），幂等（同一单同一终态只发一次），失败可重试且不影响审批本身。统筹建单后只盯收件箱。
+- **防线**：审批与问题卡的测试：带 `requester_thread` 的单到终态后线程必须收到恰一条消息；不带的不发；重复执行不重复发。
+- **验收**：在 STG 建一张带 `requester_thread` 的单并批准，`wait_for_messages` 收到结论消息。
