@@ -3567,3 +3567,15 @@
 - **修法**：查 `list_questions` 的默认过滤（requester / 线程归属）；落地卡至少在不带过滤时出现，或给 MCP 加按 requester 的参数。
 - **防线**：问题列表接口测试加一条 requester=`agentrt` 的 open 卡必须出现。
 - **验收**：新建一张落地卡后 `list_questions` 能列出。
+
+### TD-456
+
+**P3 · platform 测试 · 落地 PG 测试的启用栅栏按冻结时钟放，偶发 before_enable**
+
+- **状态**：未开始（2026-10-29）。
+- **证据**：`api/internal/server/agentrt_landing_708_pg_test.go:239` `TestReview708FinalGatesTwoConnectionsPG` 在 server 包整包运行时偶发失败：STG 子用例 `drill final gate: failed stale`，PROD 子用例 `gate did not authorize … Reason:before_enable`。基线 `78cd8d26` 上连跑两次 server 包，第二次 6 个子用例全红；单独跑通过。同类根因已在 S6-6 的 T50–T55 夹具里确认并修掉（codex-work-721，platform `b728f2f0`）：启用事件按冻结的事件时钟写，mission 的 `created_at` 取 PostgreSQL `now()`，两者先后颠倒时资格判定正确地给出 `before_enable`。
+- **已排除**：server 包不冻结事件时钟（`FreezeEventClock` 只在 store 包的 export_test）；本机测试库比本机时钟快约 8 ms（2026-10-29 量），方向上只会让 mission 更晚，不能解释 `before_enable`。根因待查，先看资格判定里比较的是哪两个时间（规则 `effective_at` 截到秒、启用事件、mission 创建、验收事件）。
+- **影响**：CI 与本机全套偶发红，推 main 前要重跑；真实回归可能被当成偶发放过。
+- **修法**：查清后再定；若是时钟对齐问题，708 夹具（及其他按冻结时钟放启用栅栏的落地 PG 夹具）改为读 PostgreSQL `now()`，把启用事件放在它与测试时间之前。
+- **防线**：在 PG 测试 harness 里加一个检查：启用栅栏晚于库内 `now()` 时夹具直接失败并说明原因，而不是让资格判定给出 `before_enable`。
+- **验收**：`go test -count=5 ./internal/server/ -run TestReview708` 带库连续五次通过。
