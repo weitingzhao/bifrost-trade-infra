@@ -1580,3 +1580,15 @@ B1 + B6 → B3 → B5 → B4，每块：设计细节 → Codex 设计复核 → 
 - N-01：关闭记录逐根保留证据或处置引用与读取时间、规则身份；只在实际采用有效轮次时写轮号。
 
 接受理由：都不改变领取、第二道闸、推送、对账与关闭分类的正确性（675 逐项核对过）；前端两项影响显示，修复走正常发布。
+
+### 11.13 S3 开门记录（2026-10-28 晚，统筹）
+
+- 20:05 Owner 推 platform main `b1e26f09`、infra main `ffda1d4`；20:10 STG 发布 `b1e26f09`；Owner 签 PROD `landing:dev` v1（`stg_release: none`，事件 12227）；20:18 PROD 发布单 #182 批准并执行（live 关）。
+- 20:30–20:55 Owner 建 `landing-prod` 团队、`agentrt-lander` 账号与令牌，platform main 推送白名单加入落地身份；`put-reader-token.sh lander` 装 Secret（脚本因 infra 不可见先拒一次，`8ff75d3` 修）；权限探针 writer（不建 PR）与 protection 均 PASS（建标签被拒、改保护 403、临时分支能建能删、main 不动）；`protect-repo.sh` 读回基线并建 `land/prod/**`。D-L5 此前已标完，不用做。
+- B4 终轮复核 674 卡死两小时零产出（派发输出管道断开），重派 675：无阻断，余项列入 §11.12。
+- 20:57 Owner 推 infra main `e8447cc`（live on）；PROD workers 写下 `mode:live` 与 `enabled:dev`（同一秒）。
+- 第一次真实落地：M-181 因统筹把实现任务写成 `task_class: goal` 而没有计划任务，被领取资格判 `stale`（planOK，S1 ⑥），静默不领；统筹发 mission 停止控制，改为普通类别重建 M-183。
+- M-183：21:10 提出 → 21:15:56 验收与异家评审通过 → 21:16:16 领取、推 `land/prod/…/1` → 21:28:16 CI 绿 → 21:28:25 第二道闸（规则 v1）、`main_intent`、推 main `ok` → 21:28:31 对账 landed、证据有效 → 21:28:42 关闭取证第 1 轮 → **21:29:11 按落地证据关 done**（1 delivered、0 disposed）。platform main `90eb8867`，提交带 `Landed-By: agentrt-prod/land:t_01M62PS3R5RTZBRR1KTS87V72G:1` 与完整来源说明。
+- ⑫ 剩余：落地身份推 main 成功已由 M-183 实证；推送被拒时的 Gitea 文本尚无样本（没有发生拒绝），留到第一次真实拒绝时补进 `TestClassifyPush`。
+- M-181：mission 停止控制只拦派活、不改状态；其根在接受后 6 小时（10-29 03:04 CDT 左右）到首次领取窗口，结算为失败并发 root_failed 卡，Owner 答「不合入」后关 stopped。
+- 新增开门后修复项：领取被拒的原因（尤其 stale / rule）应在落地状态与目标详情里可见；手工提的落地任务不用 `goal` 类别（记忆已记）。
