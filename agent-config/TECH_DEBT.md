@@ -3545,3 +3545,25 @@
 - **修法**：`agent-config/.mcp.json` 把网关改成 `https://192.168.10.100`，客户端接受集群自签证书或带 CA；按环境分 STG / PROD 两组，或在工具描述里写明环境。Cursor 侧 `agent-config/cursor/mcp.servers.json` 同步。
 - **防线**：MCP 健康自检（`platform_mcp_health` 一类）对 trade 组发一次 `/api/account/health`，非 200 就报错。
 - **验收**：新开会话调 `mcp__bifrost-trade-api__get_account_health` 返回 200。
+
+### TD-454
+
+**P1 · 包工队运行 · 「看不见的卡住」：统筹被确认框挂住、执行者无输出拖到时限，Owner 都看不到**
+
+- **状态**：未开始（2026-10-29 Owner 定「先记下，后面做」，过渡期结束之后）。
+- **证据**：2026-10-29 03:40:49 统筹线程（`local_accccb4e`）一条拼了 `git push` + 派活的 Bash 被 auto mode 改为弹确认框，10:00:00 Owner 醒来确认才返回，停 6 小时 20 分；框只在 Claude Desktop 里，ops.bifrost.lan 与手机都看不到。同类：10-28 Codex 674（输出管道断）、678（等标准输入）各挂约 2 小时，直到人工发现。运行时尝试有租约与 `hard_limit_s`，执行者挂住会拖到时限才失败，期间无告警。
+- **影响**：「Owner 只在 Console 批单、答卡」的前提是卡住能被看见；过渡期结束后统筹仍从 Desktop 用 `handin.sh` 交付，同样会被确认框挂住。
+- **修法**：① 统筹存活信号：统筹会话（`seat:coordinator`）定期向运行时报到；有待办而超过 30 分钟无动静时，For you 出一条并经 ntfy 推送，写明最后一步；② 执行者无进展告警：尝试心跳在、但输出 / checkpoint 超过 N 分钟无增长时提前告警，不等 `hard_limit_s`。估 8–12 h。
+- **防线**：在修好之前：`git push` 单独一条命令、无人值守时一件事一条命令（统筹记忆 `push_alone_or_night_stalls`）；派活一律 `< /dev/null > log 2>&1` 并后台跑。修好之后：两条告警各有一条「故意挂住 → 告警到达」的验收测试。
+- **验收**：STG 上让一个模拟统筹报到后停止 31 分钟，For you 出现条目且 ntfy 收到；让一个执行者在心跳中停止输出 N+1 分钟，出现告警。
+
+### TD-455
+
+**P3 · Console / 平台 MCP · 落地卡不在问题列表里**
+
+- **状态**：未开始（2026-10-29）。
+- **证据**：落地卡 #46（`q_35be6bc99fe4c179`，requester `agentrt`，owner_duty `goal`）03:04 生成、`status=open`；同一时刻平台 MCP `list_questions` 返回空数组，`get_question` 按 id 能读到。Owner 在 Console 上能看到并作答（10:00 选 b），所以 Console 的列表口径与 MCP 的不同，或 MCP 默认过滤了 `agentrt` 发起的问题。
+- **影响**：统筹按列表找卡会漏掉落地卡（10-29 多等了 10 分钟才按 id 查到）。
+- **修法**：查 `list_questions` 的默认过滤（requester / 线程归属）；落地卡至少在不带过滤时出现，或给 MCP 加按 requester 的参数。
+- **防线**：问题列表接口测试加一条 requester=`agentrt` 的 open 卡必须出现。
+- **验收**：新建一张落地卡后 `list_questions` 能列出。
