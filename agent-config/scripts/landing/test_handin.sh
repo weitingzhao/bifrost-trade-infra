@@ -62,13 +62,31 @@ if '--data-binary' in args:
 s=json.loads((root/'state.json').read_text()); doc={'ok':True}; code=os.environ.get('TEST_CODE','200')
 action=route.rsplit('/',1)[-1]
 if route.startswith('/tasks/'): doc={'base_commit':os.environ['TEST_BASE'],'state':os.environ.get('TEST_TASK_STATE','ready')}
-elif route=='/claim/pinned': doc={'attempt_id':'a_fixture','lease_epoch':1,'pushed_ref':'refs/heads/agent/'+os.environ['TEST_TASK']+'/a1'}
+elif route=='/claim/pinned':
+    doc={'attempt_id':'a_fixture','lease_epoch':1,'pushed_ref':'refs/heads/agent/'+os.environ['TEST_TASK']+'/a1'}
+    if os.environ.get('TEST_CLAIM_ERROR'):
+        code='409'; doc={'error':'no_lease','message':'executor quota reached quota_stop_percent'}
 elif route=='/attempts/a_fixture': doc=s
 elif route.startswith('/missions/'): doc={'tasks':[{'task_id':os.environ['TEST_TASK']}]}
 elif route=='/landing/refresh':
     assert payload=={'task':os.environ['TEST_TASK'],'op':'land:'+os.environ['TEST_TASK']+':1'}
     doc={'refreshed':True,**payload}
 elif route.startswith('/landing/operations/'): doc={'phase':'awaiting_grant','main_known':True,'main_changed':True}
+elif '/material?' in route:
+    assert method=='GET'
+    assert Path(args[args.index('-H')+1][1:]).read_text()=='Authorization: Bearer SENTINEL_AGENTD\n'
+    stg=route.rsplit('=',1)[-1]=='true'
+    core=os.environ.get('TEST_CORE')=='1'
+    candidate={'env':'prod','repo':'bifrost-platform','task':os.environ['TEST_TASK'],
+        'op':'land:'+os.environ['TEST_TASK']+':1','R':'f'*40,'stg_release':stg,
+        'hard_core_paths':[{'path':'api/internal/agentrt/store/x.go'}] if core else [],
+        'decision_chain':core,'trust_review':core}
+    doc={'material':{'candidate':candidate,'material_digest':'sha256:'+'d'*64,
+        'action':'approve_core_landing' if core else 'approve_guardrail_landing',
+        'problems':['review_missing'] if os.environ.get('TEST_PROBLEMS') else [],
+        'soft_at_request':['core'] if core else ['floor_soft']},
+        'main_is_M0':not bool(os.environ.get('TEST_STALE_MAIN'))}
+    if os.environ.get('TEST_MATERIAL_BAD'): del doc['material']['candidate']['R']
 elif action=='heartbeat':
     doc={'stop':os.environ.get('TEST_BEAT')=='stop'}
     if os.environ.get('TEST_BEAT')=='reject': code='409'
@@ -81,6 +99,8 @@ elif action in ('start','computed','persist','submit'):
 if os.environ.get('TEST_BLOCK')==action:
     (root/'blocked').write_text(str(os.getpid())); time.sleep(20)
 Path(args[args.index('-o')+1]).write_text(json.dumps(doc))
+if route=='/claim/pinned' and os.environ.get('TEST_CLAIM_RAW'):
+    code='502'; Path(args[args.index('-o')+1]).write_text('<html>gateway unavailable</html>')
 if os.environ.get('TEST_TIMEOUT')=='1' or action==os.environ.get('TEST_LOST'):
     sys.exit(28)
 print(code,end='')
@@ -297,5 +317,42 @@ def refresh(root,repo,env,git,run,args,base,commit):
     assert 'main_changed' in run('refresh','--task',task,'--op',op).stdout
     run('refresh','--task',task,'--op',op,success=False,extra={'TEST_CODE':'403'})
 
-for name,fn in [('B-03',http),('R-03',squash),('R-04',recovery),('R-05',cleanup),('R-01-push',push_cleanup),('N-01',tokens),('N-02',refresh)]: test(name,fn)
+def claim_error(root,repo,env,git,run,args,base,commit):
+    p=run(*args,success=False,extra={'TEST_CLAIM_ERROR':'1'})
+    assert 'HTTP 409' in p.stderr and 'no_lease' in p.stderr and 'quota_stop_percent' in p.stderr
+    assert 'retry with the same key' in p.stderr
+    p=run(*args,success=False,extra={'TEST_CLAIM_RAW':'1'})
+    assert 'HTTP 502' in p.stderr and 'gateway unavailable' not in p.stderr
+    calls=[json.loads(line) for line in (root/'calls').read_text().splitlines()]
+    assert all(c[-1].endswith(('/tasks/'+task,'/claim/pinned')) for c in calls)
+    assert not (root/'pushes').exists()
+
+def material(root,repo,env,git,run,args,base,commit):
+    op='land:'+task+':1'
+    for options,core,stg in (([],False,True),(['--stg-release','false'],False,False),(['--stg-release','true'],True,True)):
+        p=run('material','--op',op,*options,extra={'TEST_CORE':'1' if core else ''})
+        doc=json.loads(p.stdout)
+        assert doc['action']==('approve_core_landing' if core else 'approve_guardrail_landing')
+        assert doc['params']=={'env':'prod','repo':'bifrost-platform','task':task,'op':op,'R':'f'*40,
+                              'material_digest':'sha256:'+'d'*64,'stg_release':stg}
+        assert doc['problems']==[] and doc['main_is_M0'] is True
+        assert doc['soft_at_request']==(['core'] if core else ['floor_soft'])
+        assert bool(doc['hard_core_paths'])==core
+        assert doc['decision_chain']==core and doc['trust_review']==core
+    for extra in ({'TEST_PROBLEMS':'1'}, {'TEST_STALE_MAIN':'1'}):
+        p=run('material','--op',op,success=False,extra=extra)
+        assert 'do not request_action' in p.stderr
+        assert json.loads(p.stdout)['problems'] or not json.loads(p.stdout)['main_is_M0']
+    for extra in ({'TEST_CODE':'403'}, {'TEST_MATERIAL_BAD':'1'}):
+        p=run('material','--op',op,success=False,extra=extra)
+        assert not p.stdout
+    before=(root/'calls').read_text()
+    for bad in ([],['--op'],['--op','land:x:0'],['--op',op+'?extra=1'],['--op',op,'--stg-release','yes'],['--op',op,'--stg-release']):
+        run('material',*bad,success=False)
+    assert before==(root/'calls').read_text(), 'invalid input made an HTTP request'
+    calls=[json.loads(line) for line in before.splitlines()]
+    assert all(c[c.index('-X')+1]=='GET' and '/material?stg_release=' in c[-1] for c in calls)
+    assert 'SENTINEL' not in before
+
+for name,fn in [('B-03',http),('R-03',squash),('R-04',recovery),('R-05',cleanup),('R-01-push',push_cleanup),('N-01',tokens),('N-02',refresh),('C-7-claim',claim_error),('C-7-material',material)]: test(name,fn)
 PY

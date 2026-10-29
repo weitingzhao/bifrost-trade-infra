@@ -1,6 +1,6 @@
 rule_id: landing:dev
-rule_version: 1
-direction: initial
+rule_version: 2
+direction: loosen
 effective_at: 2026-10-29T00:00:00Z
 expires_at: 2026-11-28T00:00:00Z
 tenant: dev
@@ -12,5 +12,5 @@ repos:
 limits:
   max_files: 10
   max_changed_lines: 300
-  max_landings_per_day: 5
+  max_landings_per_day: 12
   max_in_flight_per_repo: 1

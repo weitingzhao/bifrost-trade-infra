@@ -23,7 +23,9 @@
 #   handin.sh status [--attempt a_…] [--task t_…] [--op land:…]
 #   handin.sh refresh --task t_… --op land:…
 #       Read the attempt/task/landing wait; refresh uses the execution identity.
-#       Authorization material and approval subcommands belong to C-5.
+#   handin.sh material --op land:… [--stg-release true|false]
+#       Read grant evidence and print request_action params (default: true).
+#       Problems or a stale/unknown main refuse a request; never creates one.
 #
 # Credentials: environment or the current user's mode-600 coordinator token
 # files under ~/.config/bifrost (HANDIN_AGENTD_TOKEN_FILE / HANDIN_PROPOSER_TOKEN_FILE).
@@ -308,7 +310,7 @@ cmd_run() {
   valid_message "$commit" "$task" || die 'run: commit needs one matching Agentrt-Task and one Change-Id'
 
   call agentd POST /claim/pinned "$(jq -n --arg h "$HOST" --arg t "$task" --arg k "$key" '{host_id:$h,task_id:$t,idempotency_key:$k,free_slots:1}')"
-  ok || die "run: claim/pinned: HTTP $CODE; retry with the same key"
+  ok || die "run: claim/pinned: HTTP $CODE$(server_error); retry with the same key"
   attempt=$(printf '%s' "$RESPONSE" | jq -er .attempt_id)
   epoch=$(printf '%s' "$RESPONSE" | jq -er .lease_epoch)
   ref=$(printf '%s' "$RESPONSE" | jq -er .pushed_ref)
@@ -411,11 +413,54 @@ cmd_refresh() {
   cmd_status --task "$task" --op "$op"
 }
 
+server_error() {
+  # A transport/proxy error need not be JSON. Keep the HTTP diagnostic even
+  # then; only the server's named error/message fields are suitable to show.
+  printf '%s' "$RESPONSE" | jq -r '
+    if type == "object" then
+      [.error, .message | select(type == "string" and length > 0)] |
+      if length > 0 then "; " + join(": ") else "" end
+    else "" end' 2>/dev/null || true
+}
+
+cmd_material() {
+  local op="" stg_release=true
+  while [ $# -gt 0 ]; do
+    [ $# -ge 2 ] || die 'material: --op land:… [--stg-release true|false]'
+    case "$1" in
+      --op) op="$2"; shift 2 ;;
+      --stg-release) stg_release="$2"; shift 2 ;;
+      *) die "material: unknown $1" ;;
+    esac
+  done
+  [[ "$op" =~ ^land:[a-zA-Z0-9_-]+:[1-9][0-9]*$ ]] || die 'material: --op must be land:<task>:<positive integer>'
+  case "$stg_release" in true|false) ;; *) die 'material: --stg-release must be true or false' ;; esac
+  call agentd GET "/landing/$op/material?stg_release=$stg_release" ''
+  ok || die "material: HTTP $CODE$(server_error)"
+  printf '%s' "$RESPONSE" | jq -e --arg op "$op" --argjson stg "$stg_release" '
+    .material as $m | $m.candidate as $c |
+    ($m | type == "object") and ($c | type == "object") and
+    ($c.env == "prod") and ($c.op == $op) and ($c.stg_release == $stg) and
+    ([$c.repo, $c.task, $c.R, $m.material_digest] | all(type == "string" and length > 0)) and
+    ($m.action == "approve_guardrail_landing" or $m.action == "approve_core_landing") and
+    ($m.problems == null or ($m.problems | type == "array"))' >/dev/null || die 'material: incomplete or mismatched response'
+  printf '%s' "$RESPONSE" | jq '
+    .material as $m | $m.candidate as $c |
+    {action: $m.action, problems: ($m.problems // []), main_is_M0,
+     soft_at_request: $m.soft_at_request, hard_core_paths: $c.hard_core_paths,
+     decision_chain: $c.decision_chain, trust_review: $c.trust_review,
+     params: {env: "prod", repo: $c.repo, task: $c.task, op: $c.op, R: $c.R,
+              material_digest: $m.material_digest, stg_release: $c.stg_release}}'
+  printf '%s' "$RESPONSE" | jq -e '(.material.problems | length) == 0 and .main_is_M0 == true' >/dev/null ||
+    die 'material: do not request_action while problems exist or main is unknown/differs from M0'
+}
+
 case "${1:-}" in
   propose) shift; cmd_propose "$@" ;;
   squash) shift; cmd_squash "$@" ;;
   run) shift; cmd_run "$@" ;;
   status) shift; cmd_status "$@" ;;
   refresh) shift; cmd_refresh "$@" ;;
-  *) sed -n '2,33p' "$0"; exit 2 ;;
+  material) shift; cmd_material "$@" ;;
+  *) sed -n '2,35p' "$0"; exit 2 ;;
 esac
