@@ -35,3 +35,15 @@ spec:
                   name: bifrost-platform-role-tokens
                   key: PLATFORM_PROD_AGENTD_AGENT_06_TOKEN
                   optional: true
+            - name: PLATFORM_PROD_SEAT_COORDINATOR_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bifrost-platform-role-tokens
+                  key: PLATFORM_PROD_SEAT_COORDINATOR_TOKEN
+                  optional: true
+            - name: PLATFORM_PROD_AGENTD_COORDINATOR_MBP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bifrost-platform-role-tokens
+                  key: PLATFORM_PROD_AGENTD_COORDINATOR_MBP_TOKEN
+                  optional: true

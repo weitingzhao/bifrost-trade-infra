@@ -28,3 +28,12 @@ tokens:
   - name: agentd:agent-06
     role: agentd
     token_env: PLATFORM_PROD_AGENTD_AGENT_06_TOKEN
+  # W-31 round 4 C-7 (DESIGN-coordinator-landing-v3 §2.1): the coordinator's
+  # proposer seat (the only writer allowed to pin a task, once the signed
+  # envelope names it) and its Mac's agentd principal (exact claim only).
+  - name: seat:coordinator
+    role: reporter
+    token_env: PLATFORM_PROD_SEAT_COORDINATOR_TOKEN
+  - name: agentd:coordinator-mbp
+    role: agentd
+    token_env: PLATFORM_PROD_AGENTD_COORDINATOR_MBP_TOKEN
