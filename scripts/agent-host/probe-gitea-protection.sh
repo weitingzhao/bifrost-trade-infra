@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Writer checks tag refusal, temporary branch create/delete, PR create/close,
-# and read-only main stability. It NEVER pushes or merges into main, even on
+# and read-only main stability. PROBE_SKIP_PR=1 leaves the PR out for an
+# identity whose team has no pull-request unit (the S3 lander): the run says
+# so, and a PASS then covers tag, branch, main and tags only. It NEVER pushes or merges into main, even on
 # the historical primary-probe repository. Main push/merge refusal remains
 # UNVERIFIED; a writer PASS covers only the checks actually executed.
 # PROBE_MODE=protection checks PATCH {} permission; reader also checks Git
@@ -504,15 +506,19 @@ else
   exit 1
 fi
 
-pr_attempted=1
-IFS=$'\t' read -r code number <<< "$(api POST "/repos/${REPO}/pulls" "{\"head\":\"${BRANCH}\",\"base\":\"main\",\"title\":\"probe ${STAMP}\"}" number)"
-if [[ "${code}" == 201 && "${number}" =~ ^[0-9]+$ ]]; then
-  pr="${number}"
-  cleanup_pr
-  [[ "${pr_closed}" -eq 1 ]] && report ok "close pull request #${pr}"
+if [[ "${PROBE_SKIP_PR:-}" == 1 ]]; then
+  echo "UNVERIFIED pull request: skipped (PROBE_SKIP_PR=1; this identity has no pull-request unit)"
 else
-  report FAIL "open a pull request from ${BRANCH}" "HTTP ${code}; response suppressed"
-  cleanup_pr
+  pr_attempted=1
+  IFS=$'\t' read -r code number <<< "$(api POST "/repos/${REPO}/pulls" "{\"head\":\"${BRANCH}\",\"base\":\"main\",\"title\":\"probe ${STAMP}\"}" number)"
+  if [[ "${code}" == 201 && "${number}" =~ ^[0-9]+$ ]]; then
+    pr="${number}"
+    cleanup_pr
+    [[ "${pr_closed}" -eq 1 ]] && report ok "close pull request #${pr}"
+  else
+    report FAIL "open a pull request from ${BRANCH}" "HTTP ${code}; response suppressed"
+    cleanup_pr
+  fi
 fi
 
 # agentd deletes attempt branches (TD-383): the deletion must go through.
@@ -526,7 +532,9 @@ fi
 main_after="$(git ls-remote "${URL}" refs/heads/main 2>/dev/null | cut -f1)" && [[ "${main_after}" == "${main_before}" ]] && report ok "main unchanged" || report FAIL "main unchanged" "main moved"
 tags_after="$(git ls-remote --tags "${URL}" 2>/dev/null | cut -f2 | sort)" && [[ "${tags_after}" == "${tags_before}" ]] && report ok "no new tag" || report FAIL "no new tag" "the tags changed"
 
-if [[ "${fail}" -eq 0 ]]; then
+if [[ "${fail}" -eq 0 && "${PROBE_SKIP_PR:-}" == 1 ]]; then
+  echo "== all as expected; no pull request was opened"
+elif [[ "${fail}" -eq 0 ]]; then
   echo "== all as expected; left behind: closed pull request #${pr}"
 else
   echo "== NOT as expected: see FAIL lines and exit cleanup for ${BRANCH}${pr:+, pull request #${pr}}" >&2

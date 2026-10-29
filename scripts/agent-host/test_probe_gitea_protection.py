@@ -550,6 +550,30 @@ exit "$rc"
         self.assertTrue(all(auth == "token " + TOKEN for _, _, auth in api.calls))
         self.assertNotIn(TOKEN, r.stdout + r.stderr)
 
+    def test_skip_pr_opens_no_pull_request_and_says_so(self) -> None:
+        # S3 lander: its team has no pull-request unit; the probe leaves the PR
+        # out, says the PR is unverified, and still checks tag, branch, main.
+        api = FakeApi()
+        try:
+            r = self.run_probe(api, extra={"PROBE_SKIP_PR": "1"})
+        finally:
+            api.close()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse(any(path.endswith("/pulls") for _, path, _ in api.calls), api.calls)
+        self.assertIn("UNVERIFIED pull request: skipped", r.stdout)
+        self.assertIn("ok    delete agent/_probe/", r.stdout)
+        self.assertIn("no pull request was opened", r.stdout)
+        self.assertNotIn("FAIL", r.stdout)
+
+    def test_skip_pr_still_fails_an_open_tag(self) -> None:
+        api = FakeApi()
+        try:
+            r = self.run_probe(api, mode="open-tag", extra={"PROBE_SKIP_PR": "1"})
+        finally:
+            api.close()
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("FAIL", r.stdout + r.stderr)
+
     def git_wrapper(self, body):
         directory = self.root / 'bin'
         directory.mkdir(exist_ok=True)
