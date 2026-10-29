@@ -1551,7 +1551,8 @@ B1 + B6 → B3 → B5 → B4，每块：设计细节 → Codex 设计复核 → 
 2. 在 Gitea 建 `agentrt-lander`，只加进 platform main 与 `land/prod/**` 的推送白名单；配 Secret。
 3. 核对标签规则（落地身份不能建标签）。
 4. 批 D-L5 的 D 级单（旧 20 件标 `no_merge`）。
-5. 批打开 live 的发布单。
+5. 推打开 live 的 infra 提交（只改 `platform-workers-landing-live.patch.yaml` 一行；推送冻结期 infra main 由 Owner 推，Argo 自动同步）。
+操作单：`OWNER-STEPS-landing-s3-2026-10-28.md`（还含建身份的团队与白名单设置、`put-reader-token.sh lander`、`protect-repo.sh` 的 `land/prod/**` 规则、权限探针）。
 
 **4. 只能真机验的（live 打开后的第一个小时内，统筹做）**
 - ⑫：落地身份推 platform main（快进）成功；推 infra、建标签、推 `land/stg/**` 被拒；其他身份推 main 被拒。记下 Gitea 实际的拒绝文本，补进 `landinggit` 的 `TestClassifyPush`，确认判成 denied（判错会落到 unknown，仓库不停）。
