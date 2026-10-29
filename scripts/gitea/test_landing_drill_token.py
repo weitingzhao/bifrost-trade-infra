@@ -43,6 +43,8 @@ elif path.endswith('/branches/main'):
 elif path.startswith('/api/v1/repos/bifrost/'):
     repo=path.split('/')[5]
     body={'permissions':{'admin':False,'push':writes(repo) and fault!='readonly','pull':True}}
+    # the lander's team holds platform alone: infra is not visible (or, under infra_visible, read-only)
+    if lander and repo=='bifrost-trade-infra' and fault not in ('infra_visible','infra_write'): code=404
 elif path.endswith('/info/refs'):
     repo=path.split('/')[2].removesuffix('.git')
     if 'receive-pack' in url: code=200 if writes(repo) else 403
@@ -55,7 +57,8 @@ print(code,end='')
 
 @pytest.mark.parametrize("mode,fault", [("ci", ""), ("stg", ""), ("prod", ""), ("drill", ""), ("lander", ""), *[("drill", f) for f in
                          ("user", "admin", "main", "unknown_main", "readonly", "extra", "search_admin", "http", "dryrun")],
-                         *[("lander", f) for f in ("user", "admin", "main", "platform_main_closed", "unknown_main", "readonly",
+                         ("lander", "infra_visible"),
+                         *[("lander", f) for f in ("user", "admin", "platform_main_closed", "unknown_main", "readonly",
                                                    "infra_write", "extra", "search_admin", "http", "dryrun")]])
 def test_installer_rejects_excess_permissions_before_any_write(tmp_path, mode, fault):
     bindir = tmp_path / "bin"
@@ -83,7 +86,7 @@ def test_installer_rejects_excess_permissions_before_any_write(tmp_path, mode, f
     result, echoed = run_on_pty(["bash", str(HERE / "put-reader-token.sh"), mode], env, GITEA_TOKEN_FIXTURE)
     calls = (state / "calls").read_text()
     assert GITEA_TOKEN_FIXTURE not in result.stdout + result.stderr + echoed + calls
-    if fault:
+    if fault and fault != "infra_visible":
         assert result.returncode != 0
         assert not (state / "secret.yaml").exists()
         assert "create -f -" not in calls and "replace -f -" not in calls

@@ -4,7 +4,9 @@
 # in platform and infra, but may not push main or administer any repository.
 # lander (S3, CUT-landing §11.11) is the PROD landing identity agentrt-lander:
 # it may write code only in platform, and push platform's main (it is on the
-# main whitelist), but administer nothing; infra stays read-only until S6.
+# main whitelist), but administer nothing. Its team holds platform alone, so
+# infra is not even visible to it (404); visible, it must be read-only. S6
+# widens it.
 # Branch/tag/PR protection still needs the Owner's actual refusal probes.
 # (agent-config/work/multi-agent/
 # CUT-td432-gitea-credentials-2026-10-24.md; OWNER-STEPS-td432-2026-10-24.md):
@@ -83,7 +85,7 @@ if [[ "$1" == drill ]]; then
   primaries=$'bifrost-platform\nbifrost-trade-infra'
 fi
 if [[ "$1" == lander ]]; then
-  primaries=$'bifrost-platform\nbifrost-trade-infra'
+  primaries=bifrost-platform
 fi
 [[ -n "${primaries}" ]] || die "${PRIMARIES} names no repository"
 if kubectl -n "${NS}" get secret "${NAME}" -o name > /dev/null 2>&1; then
@@ -161,10 +163,24 @@ for repo in ${primaries}; do
   [[ "${code}" != 200 ]] || die "push handshake on ${repo} → 200: the token can push there"
   [[ "${code}" == 401 || "${code}" == 403 ]] || die "push handshake on ${repo} → HTTP ${code}: neither a refusal nor a yes; run this again when Gitea answers"
 done
+if [[ "$1" == lander ]]; then
+  # infra: not visible (its team holds platform alone), or visible read-only
+  code="$(ask token "${root}/api/v1/repos/${org}/bifrost-trade-infra")"
+  if [[ "${code}" == 200 ]]; then
+    [[ "$(field permissions.admin)" == false && "$(field permissions.push)" == false ]] \
+      || die "on ${org}/bifrost-trade-infra ${LOGIN} has admin=$(field permissions.admin) push=$(field permissions.push); infra waits for S6"
+    infra_seen="read-only"
+  else
+    [[ "${code}" == 404 ]] || die "GET /api/v1/repos/${org}/bifrost-trade-infra → HTTP ${code}: neither hidden nor readable"
+    infra_seen="not visible"
+  fi
+  code="$(ask basic "${BASE}/bifrost-trade-infra.git/info/refs?service=git-receive-pack")"
+  [[ "${code}" == 401 || "${code}" == 403 || "${code}" == 404 ]] || die "push handshake on bifrost-trade-infra → HTTP ${code}: the lander must not push infra"
+fi
 if [[ "$1" == drill ]]; then
   echo "ok    drill: two code writers, main user_can_push=false; actual tag/PR/push probes still required"
 elif [[ "$1" == lander ]]; then
-  echo "ok    lander: writes platform only, pushes platform main, infra read-only; actual tag/push probes still required"
+  echo "ok    lander: writes platform only, pushes platform main, infra ${infra_seen}; actual tag/push probes still required"
 else
   echo "ok    $(echo "${primaries}" | wc -l | tr -d ' ') primaries: read only (fetch 200, push refused)"
 fi
