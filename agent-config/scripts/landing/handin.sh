@@ -18,6 +18,8 @@
 #       it was (every step is idempotent); a lost claim answer comes back with
 #       the same key. A lost lease needs a new key: run again with
 #       --key <task>:<n+1>, which gets the next attempt and its own branch.
+#       After cancellation, keep the key: a remote push may have completed;
+#       run reads back the assigned ref before retrying the bound commit.
 #   handin.sh status [--attempt a_…] [--task t_…] [--op land:…]
 #   handin.sh refresh --task t_… --op land:…
 #       Read the attempt/task/landing wait; refresh uses the execution identity.
@@ -43,9 +45,24 @@ HOST="${HANDIN_HOST:-coordinator-mbp}"
 BEAT_PID=""
 CURL_PID=""
 WAIT_PID=""
+GIT_PID=""
 RUN_LOCK=""
 TMP=$(mktemp -d)
+stop_git() {
+  [ -n "$GIT_PID" ] || return 0
+  # Job control gives this one Git command its own process group, including
+  # transport and credential helpers. Keep its leader until the group is
+  # signalled; never target handin's own process group.
+  kill -TERM -- "-$GIT_PID" 2>/dev/null || true
+  # A helper may ignore TERM. Bound shutdown, then reap our direct child.
+  sleep 0.1
+  kill -KILL -- "-$GIT_PID" 2>/dev/null || true
+  wait "$GIT_PID" 2>/dev/null || true
+  GIT_PID=""
+}
 cleanup() {
+  trap '' INT TERM USR1
+  stop_git
   for pid in "$CURL_PID" "$WAIT_PID"; do
     [ -z "$pid" ] || { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; }
   done
@@ -67,6 +84,18 @@ need() { command -v "$1" >/dev/null 2>&1 || die "needs $1"; }
 need curl
 need jq
 need git
+
+# Background + wait lets Bash run its traps immediately during a blocked
+# push/readback. Enable job control only for this child, not the heartbeat.
+run_git() {
+  local rc=0
+  set -m
+  git "$@" & GIT_PID=$!
+  set +m
+  wait "$GIT_PID" || rc=$?
+  stop_git
+  return "$rc"
+}
 
 # call runs in the current shell; both CODE and RESPONSE survive the call.
 # Transport failures are retried with identical input. Ambiguous attempt writes
@@ -311,7 +340,16 @@ cmd_run() {
     has_stage computed_at || die 'run: computed not confirmed; retry with the same key'
   fi
   if ! has_stage persisted_at; then
-    git push "$remote" "$commit:$ref" >&2 || die 'run: push failed; retry with the same key'
+    # Cancellation/lost push output cannot tell us whether the remote wrote
+    # the ref. Read it before retrying, always using the locally bound SHA.
+    local remote_head
+    run_git ls-remote --refs "$remote" "$ref" >"$TMP/remote-ref" || die 'run: remote push outcome unknown; retry with the same key'
+    remote_head=$(cat "$TMP/remote-ref")
+    if [ -n "$remote_head" ]; then
+      [ "$remote_head" = "$commit"$'\t'"$ref" ] || die 'run: remote ref differs from the bound commit; read status before retrying'
+    else
+      run_git push "$remote" "$commit:$ref" >&2 || die 'run: push outcome unknown; retry with the same key to read it back'
+    fi
     call agentd POST "/attempts/$attempt/persist" "$(printf '%s' "$fence" | jq --arg r "$sum" --arg ref "$ref" --arg c "$commit" '.+{report:$r,pushed_ref:$ref,pushed_commit:$c}')"
     read_attempt
     has_stage persisted_at || die 'run: persist not confirmed; retry with the same key'
@@ -379,5 +417,5 @@ case "${1:-}" in
   run) shift; cmd_run "$@" ;;
   status) shift; cmd_status "$@" ;;
   refresh) shift; cmd_refresh "$@" ;;
-  *) sed -n '2,31p' "$0"; exit 2 ;;
+  *) sed -n '2,33p' "$0"; exit 2 ;;
 esac

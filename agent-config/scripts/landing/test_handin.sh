@@ -13,7 +13,7 @@ realgit = subprocess.check_output(['which','git'], text=True).strip()
 def stop_fixtures(root):
     # Only PIDs written by our own offline child fixtures; no system process
     # enumeration or process-group signaling (restricted on macOS sandboxes).
-    for name in ('sleep-pids', 'heartbeat-pids', 'curl-pids'):
+    for name in ('sleep-pids', 'heartbeat-pids', 'curl-pids', 'git-pids'):
         f=root/name
         for pid in f.read_text().splitlines() if f.exists() else []:
             try: os.kill(int(pid), signal.SIGKILL)
@@ -101,7 +101,14 @@ from pathlib import Path
 root=Path(os.environ['TEST_ROOT'])
 if sys.argv[1]=='push':
     with (root/'pushes').open('a') as f: f.write(' '.join(sys.argv[2:])+'\n')
+    if not os.environ.get('TEST_PUSH_FAIL'):
+        (root/'remote-ref').write_text(sys.argv[-1].replace(':','\t')+'\n')
     sys.exit(1 if os.environ.get('TEST_PUSH_FAIL') else 0)
+if sys.argv[1]=='ls-remote':
+    with (root/'readbacks').open('a') as f: f.write(' '.join(sys.argv[2:])+'\n')
+    if os.environ.get('TEST_READ_FAIL'): sys.exit(1)
+    if (root/'remote-ref').exists(): print((root/'remote-ref').read_text(),end='')
+    sys.exit(0)
 if sys.argv[1]=='commit-tree' and os.environ.get('TEST_COMMIT_FAIL'): sys.exit(1)
 os.execv(os.environ['TEST_REAL_GIT'],[os.environ['TEST_REAL_GIT'],*sys.argv[1:]])
 ''')
@@ -163,7 +170,7 @@ def recovery(root,repo,env,git,run,args,base,commit):
     run(*args,success=False)
 
 def dead_pids(root):
-    for name in ('sleep-pids','heartbeat-pids','curl-pids'):
+    for name in ('sleep-pids','heartbeat-pids','curl-pids','git-pids'):
         p=root/name
         for pid in p.read_text().splitlines() if p.exists() else []:
             try: os.kill(int(pid),0)
@@ -173,6 +180,7 @@ def dead_pids(root):
 def cleanup(root,repo,env,git,run,args,base,commit):
     run(*args); dead_pids(root)
     for extra in ({'TEST_PUSH_FAIL':'1'}, {'TEST_BEAT':'stop','TEST_BLOCK':'start'}, {'TEST_BEAT':'reject','TEST_BLOCK':'start'}):
+        (root/'remote-ref').unlink(missing_ok=True)
         (root/'state.json').write_text(json.dumps(dict(state='leased',task_id=task,host_id='coordinator-mbp',lease_epoch=1)))
         run(*args,success=False,extra=extra); dead_pids(root)
     for sig in (signal.SIGINT,signal.SIGTERM):
@@ -185,6 +193,87 @@ def cleanup(root,repo,env,git,run,args,base,commit):
         else: p.kill(); raise AssertionError('no blocked start')
         p.send_signal(sig); p.communicate(timeout=5)
         assert p.returncode!=0; dead_pids(root)
+
+def push_cleanup(root,repo,env,git,run,args,base,commit):
+    # A real child/grandchild tree stands in for Git's credential/transport
+    # helpers. The marker is emitted by the deepest child, after all exist.
+    helper=root/'helper.py'
+    helper.write_text(r'''import os,signal,subprocess,sys,time
+from pathlib import Path
+root=Path(os.environ['TEST_ROOT'])
+with (root/'git-pids').open('a') as f: f.write(str(os.getpid())+'\n')
+if sys.argv[1]=='leaf':
+    (root/'push-started').write_text('ready')
+    time.sleep(3)
+else:
+    p=subprocess.Popen([sys.executable,__file__,'leaf'])
+    def stop(sig,frame):
+        p.wait()
+        sys.exit(128+sig)
+    signal.signal(signal.SIGTERM,stop)
+    p.wait()
+''')
+    wrapper=root/'bin/git'
+    code=wrapper.read_text().replace('import os,sys', 'import os,sys,signal,subprocess')
+    code=code.replace("if sys.argv[1]=='push':", r'''if sys.argv[1]=='push' and os.environ.get('TEST_PUSH_BLOCK'):
+    with (root/'git-pids').open('a') as f: f.write(str(os.getpid())+'\n')
+    if os.environ.get('TEST_PUSH_LANDED'):
+        (root/'remote-ref').write_text(sys.argv[-1].replace(':','\t')+'\n')
+    p=subprocess.Popen([sys.executable,str(root/'helper.py'),'parent'])
+    def stop(sig,frame):
+        p.wait()
+        sys.exit(128+sig)
+    signal.signal(signal.SIGTERM,stop)
+    p.wait()
+    (root/'push-completed').write_text('done')
+if sys.argv[1]=='push':''')
+    wrapper.write_text(code)
+    sleeper=root/'bin/sleep'
+    sleeper.write_text(sleeper.read_text().replace("time.sleep(.02 if os.environ.get('TEST_BEAT') else 20)", """if os.environ.get('TEST_BEAT'):
+        for _ in range(600):
+            if (root/'push-started').exists(): break
+            time.sleep(.01)
+    else: time.sleep(20)"""))
+    for mode in ('control','stop','reject','term','int','landed'):
+        if os.environ.get('HANDIN_PUSH_CASE') and mode not in ('control',os.environ['HANDIN_PUSH_CASE']): continue
+        for f in ('push-started','push-completed','remote-ref'):
+            (root/f).unlink(missing_ok=True)
+        (root/'state.json').write_text(json.dumps(dict(state='leased',task_id=task,host_id='coordinator-mbp',lease_epoch=1)))
+        e=dict(env,TEST_PUSH_BLOCK='1',TEST_BEAT=mode if mode in ('stop','reject') else '')
+        if mode=='landed': e['TEST_PUSH_LANDED']='1'
+        p=subprocess.Popen(['bash',str(script),*args],cwd=repo,env=e,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        try:
+            deadline=time.monotonic()+6
+            while not (root/'push-started').exists():
+                assert p.poll() is None and time.monotonic()<deadline, 'push never started'
+                time.sleep(.01)
+            if mode in ('term','landed'): p.send_signal(signal.SIGTERM)
+            if mode=='int': p.send_signal(signal.SIGINT)
+            out,err=p.communicate(timeout=6 if mode=='control' else 1.5)
+            assert p.returncode==({'control':0,'term':143,'landed':143,'int':130}.get(mode,1)), (mode,p.returncode,err)
+            assert (root/'push-completed').exists()==(mode=='control'), mode
+            state=json.loads((root/'state.json').read_text())
+            assert ('persisted_at' in state)==(mode=='control'), (mode,state)
+            dead_pids(root)
+            assert not list((repo/'.git/handin/runs').glob('*.lock'))
+            print('PASS blocked push',mode)
+        finally:
+            if p.poll() is None:
+                p.kill(); stop_fixtures(root); p.communicate(timeout=5)
+        if mode=='landed':
+            # Advance HEAD after cancellation; the saved key must still
+            # recover the original result without issuing a second push.
+            (repo/'later').write_text('later\n'); git('add','later'); git('commit','-qm','Later work')
+            before=(root/'pushes').read_text()
+            (root/'remote-ref').write_text('e'*40+'\trefs/heads/agent/'+task+'/a1\n')
+            run(*args,success=False)
+            (root/'remote-ref').write_text(commit+'\trefs/heads/agent/'+task+'/a1\n')
+            run(*args,success=False,extra={'TEST_READ_FAIL':'1'})
+            assert 'persisted_at' not in json.loads((root/'state.json').read_text())
+            assert 'a_fixture' in run(*args).stdout
+            assert (root/'pushes').read_text()==before
+            assert json.loads((root/'state.json').read_text())['pushed_commit']==commit
+            dead_pids(root)
 
 def tokens(root,repo,env,git,run,args,base,commit):
     p=run('status','--attempt','a_fixture'); assert 'SENTINEL' not in p.stdout+p.stderr
@@ -208,5 +297,5 @@ def refresh(root,repo,env,git,run,args,base,commit):
     assert 'main_changed' in run('refresh','--task',task,'--op',op).stdout
     run('refresh','--task',task,'--op',op,success=False,extra={'TEST_CODE':'403'})
 
-for name,fn in [('B-03',http),('R-03',squash),('R-04',recovery),('R-05',cleanup),('N-01',tokens),('N-02',refresh)]: test(name,fn)
+for name,fn in [('B-03',http),('R-03',squash),('R-04',recovery),('R-05',cleanup),('R-01-push',push_cleanup),('N-01',tokens),('N-02',refresh)]: test(name,fn)
 PY
