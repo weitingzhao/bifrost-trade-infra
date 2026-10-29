@@ -77,7 +77,9 @@ cd /Users/vision-mac-trader/Desktop/stocks && bash bifrost-trade-infra/scripts/a
 |---|---|---|
 | S6-a | 经 STG MCP 提一个目标（repo `bifrost-platform`，信封内，立即 active）；`handin.sh propose` 提一件钉住的任务；隔离分支上做一个**规则内**改动（只改 `console/src/pages/**/*.tsx`，纯展示，≤10 文件 ≤300 行），`handin.sh squash`、`handin.sh run` | `claim/pinned` 返回 `a1` 与 `agent/<task>/a1`；STG 库里出现主机 `coordinator-mbp`，`host_kind = external`；验收（agent-06-stg 跑 Verify）与 Codex 评审通过、任务 accepted；STG 演练循环照常：推 `land/stg/<task>/1`、CI、dry-run 结论；STG main 不动 |
 | S6-b | 同上，但改动只碰软底线（例如 `api/internal/research/` 下一个测试文件） | 演练里 `MayAwaitGrant` 在 STG 恒为假：根直接 `failed{floor}`，**没有** `awaiting_grant`、没有单；STG 的自动回答规则处理可能出现的卡 |
-| S6-c | 反例：`HANDIN_PROPOSER_TOKEN_FILE` 指向 agentd 那个文件再跑一次 `propose` | 403，零任务 |
+| S6-c | 反例：`HANDIN_PROPOSER_TOKEN_FILE` 指向 agentd 那个文件再跑一次 `propose` | 401（`reporter or operator or admin token required`），零任务（2026-10-29 实测；原写 403） |
+
+**实测补记（2026-10-29）**：S6-a 在 M-173、S6-b 在 M-174 各一个目标——目标里的任务全部 accepted 后目标自动变 done，不再接受新任务，下一件要另提目标；落地演练结束后 `land/stg/<task>/1` 分支被清理。
 
 **通过**：三项都如期，`handin.sh` 全程无需人工补救（读回、续租正常）。统筹在线程里报结果和用时，然后给你 P1。
 **不通过**：统筹交一个收紧（§5 第 1 级，免签），STG 立即停止新钉与领取；往前修，再从 S6 重来。
