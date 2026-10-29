@@ -1608,3 +1608,30 @@ B1 + B6 → B3 → B5 → B4，每块：设计细节 → Codex 设计复核 → 
 - 落在：`DESIGN-coordinator-landing-v3-2026-10-29.md` §12（两层 hard、`approve_core_landing`、信任链复核清单、Gitea 独立核对、按工作单元压成单提交、规则日额度建议 12）。核心块工时 119–175 h。
 - 仍由 Owner 手推：`hard_absolute`（`.env*`、`.gitmodules`、`.github/`）、紧急修复、混合来源（F4 A）。infra 第一版仍按 S6 v3。
 - 不变：PROD DDL（迁移 0010）执行前另需 Owner 在线程里点头；规则日额度改 12 需 Owner 签下一版规则。
+
+### 11.16 C-7 启用记录：统筹提交走落地在 STG 与 PROD 打开（2026-10-29，统筹）
+
+依据：`OWNER-STEPS-transition-enable-2026-10-29.md`（16 步，先 STG 后 PROD）。platform PROD 跑 `78cd8d26`（#190，含 Owner 选 A 的只读身份、B5-c、B5-d）；infra main `2babd63`（STG 段）、`560a02a`（PROD 段）。
+
+**STG（S1–S6）**
+- 15:05 S1 令牌；15:25 S2 推 infra `2babd63`，STG 登记 `seat:coordinator`；S4 信封 v6（事件 25831）、S5 落地 v2（25832）。
+- S6-a（M-173）：`claim/pinned` 给 `a1`，主机 `coordinator-mbp` 记为 external；agent-06-stg 验收、Codex 评审过；演练推 `land/stg/…/1`、CI 绿、`rehearsed`；STG main 不动。
+- S6-b（M-174）：软底线改动 → `failed{floor}`，无 `awaiting_grant`、无单。
+- S6-c：用 agentd 令牌提议 → **401**（`reporter or operator or admin token required`；操作单原写 403，已改），零任务。
+- 实测补记：任务全部 accepted 后目标自动 done，下一件另提目标；`land/stg` 分支演练后被清理。
+
+**PROD（P1–P8）**
+- P1 令牌；P2 推 infra `560a02a`（第一次口令错，重推）；21:39Z 登记 `seat:coordinator`；P4 信封 v5（事件 15228）。
+- 实测 1 规则内（M-191）：`f0aa82bb` landed，`main_intent` 无 `landing_grant_use`，无单；目标按落地证据关 done。
+- 实测 2 软底线 + 撤销（M-192）：`awaiting_grant`（`floor_soft`、`rule_paths`）→ 持窗口建 **#191**，Owner 20 秒内批，授权 `lg_appr_406cb8811c2d9c62`，零推送 → Owner 在授权页撤销（`landing_grant_revoked`，17:45 CDT）→ 放开窗口一轮仍不推 → 建 **#192**，Owner 批 → 40 秒内 `main_intent` 带 `landing_grant_use{lg_appr_b0f6ea64b4def5a2}`、`f910d769` landed。
+- 实测 3 核心级（M-194，`--core`）：评审规格自动带信任链四问，Codex 逐条答 No、PASS；`awaiting_grant`（`core`、`rule_paths`）；反例：建 `approve_guardrail_landing` 被拒 422 `action_mismatch`；建 **#193**（`approve_core_landing`，hard_core 仅一个测试文件，decision_chain=false），Owner 在 Gitea 看 diff 后批 → `fd769681` landed，带 `Landed-By`。
+- P8 落地 v2（事件 15812，日额度 12）。
+
+**结论**：统筹的 platform 提交从此走 `handin.sh`；Owner 只在 Console 批 D 级 / 核心级单，不再手推 platform main（`hard_absolute`、紧急修复、混合来源照旧）。infra 仍由 Owner 推，直到 S6 第一版规则签署。
+
+**卡点与后续**
+- 每张单都多一轮「批了」的对话往返：结论没有回到建单线程。Owner：「我在 Ops 上批了，不应该在对话框里还说一句……这条不是写进记忆，而是通过代码实现的系统规则。」→ TD-457（在做）。
+- 任务刚提出时 `handin.sh run` 会 409「proposed, not ready」，要等几秒；`handin.sh` 应自己等就绪（并入下次 handin 修改）。
+- `release.sh hold` 结束时须连同其 `sleep` 一起结束（13:27 的 hold 空占 77 分钟，已清）。
+- 派活目录 clone 本机检出时 `origin/main` 是本机陈旧的 main，不是 Gitea 的；基线一律从 Gitea 取（725 第一次派错已重派）。
+- 推送被拒时的 Gitea 文本仍无样本（`TestClassifyPush` 待补）。
