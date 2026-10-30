@@ -22,8 +22,13 @@ import threading
 import time
 import unittest
 import urllib.parse
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
+
+try:
+    from .file_http_fixture import ThreadingHTTPServer
+except ImportError:
+    from file_http_fixture import ThreadingHTTPServer
 
 HERE = Path(__file__).resolve().parent
 GIT_ENV = {
@@ -107,6 +112,8 @@ class FakeApi:
                     self.send_header("Content-Length", "0")
                     self.end_headers()
                     return None
+                if path == "/api/v1/user":
+                    return self._send(200, {"login": "vision", "is_admin": True})
                 if path == "/api/v1/version":
                     return self._send(200, {"version": "1.21.11"})
                 parts = path.split("/")  # '', api, v1, repos, org, repo, ...
@@ -244,16 +251,16 @@ class Scripts(unittest.TestCase):
             with self.subTest(repo=repo):
                 api = FakeApi({repo: False})
                 try:
-                    r = self.run_script("protect-repo.sh", "--owner", "vision", repo, api=api)
+                    r = self.run_script("protect-repo.sh", "--apply", "--owner", "vision", repo, api=api)
                     self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
                     rules = api.rules[repo]
-                    platform = repo == "bifrost-platform"
+                    platform = repo in ("bifrost-platform", "bifrost-trade-infra")
                     self.assertEqual(sorted(rules), ["land/prod/**", "main"] if platform else ["main"])
                     self.assertEqual(rules["main"]["push_whitelist_teams"], teams)
-                    # S3: the landing identity pushes platform's main, never merges; infra waits for S6
+                    # S6: the landing identity pushes both mains, never merges
                     self.assertEqual(sorted(rules["main"]["push_whitelist_usernames"]),
                                      ["agentrt-lander", "vision"] if platform else ["vision"])
-                    self.assertIn(f"{repo} agent/**: none (attempt branches may be deleted; TD-383)", r.stdout)
+                    self.assertIn("agent/**: removed or absent", r.stdout)
                     for name, rule in rules.items():
                         self.assertTrue(rule["enable_merge_whitelist"])
                         if name == "land/prod/**":
@@ -267,7 +274,7 @@ class Scripts(unittest.TestCase):
                     self.assertIn("Settings → Tags", r.stdout)
                     self.assertIn("allowed: " + ("team maintainers and " if teams else "") + "vision", r.stdout)
                     # a second run finds main as the baseline and neither edits nor adds (review 436 B5)
-                    r = self.run_script("protect-repo.sh", "--owner", "vision", repo, api=api)
+                    r = self.run_script("protect-repo.sh", "--apply", "--owner", "vision", repo, api=api)
                     self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
                     self.assertEqual(len(api.rules[repo]), 2 if platform else 1)
                     self.assertIn(f"{repo} main: there as the baseline, left as it is", r.stdout)
@@ -278,10 +285,10 @@ class Scripts(unittest.TestCase):
     def test_protect_repo_reports_a_rule_gitea_did_not_keep(self) -> None:
         api = FakeApi({"r": False}, drop_merge_whitelist=True)
         try:
-            r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api)
+            r = self.run_script("protect-repo.sh", "--apply", "--owner", "vision", "r", api=api)
             self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-            self.assertIn("READ BACK DIFFERS", r.stdout)
-            self.assertIn("enable_merge_whitelist", r.stdout)
+            self.assertIn("READ BACK DIFFERS", r.stderr)
+            self.assertIn("enable_merge_whitelist", r.stderr)
         finally:
             api.close()
 
@@ -467,9 +474,9 @@ class Scripts(unittest.TestCase):
         other = FakeApi({"r": False})
         api = FakeApi({}, redirect=f"http://127.0.0.1:{other.server.server_address[1]}")
         try:
-            r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api)
+            r = self.run_script("protect-repo.sh", "--apply", "--owner", "vision", "r", api=api)
             self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-            self.assertIn("302", r.stderr)
+            self.assertIn("request failed", r.stderr)
             self.assertEqual(other.calls, [])
         finally:
             api.close()
@@ -503,7 +510,7 @@ esac
         # something else answering on a local port is never asked
         api = FakeApi({"r": False})
         try:
-            r = self.run_script("protect-repo.sh", "--owner", "vision", "r", connect=True,
+            r = self.run_script("protect-repo.sh", "--apply", "--owner", "vision", "r", connect=True,
                                 path=self.fake_kubectl(api, fail=True))
             self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
             self.assertIn("did not start", r.stderr)
@@ -514,7 +521,7 @@ esac
     def test_the_port_forward_kubectl_chose_is_used(self) -> None:
         api = FakeApi({"r": False})
         try:
-            r = self.run_script("protect-repo.sh", "--owner", "vision", "r", connect=True, path=self.fake_kubectl(api))
+            r = self.run_script("protect-repo.sh", "--apply", "--owner", "vision", "r", connect=True, path=self.fake_kubectl(api))
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             self.assertEqual(sorted(api.rules["r"]), ["main"])
             self.assertEqual({a for a in api.auth if a}, {"token kubectl-secret-token"})
@@ -529,7 +536,7 @@ esac
         extra = {k: address for k in ("http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY")}
         extra.update(no_proxy="", NO_PROXY="")
         try:
-            r = self.run_script("protect-repo.sh", "--owner", "vision", "r", connect=True, path=self.fake_kubectl(api), extra=extra)
+            r = self.run_script("protect-repo.sh", "--apply", "--owner", "vision", "r", connect=True, path=self.fake_kubectl(api), extra=extra)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             self.assertEqual(proxy.calls, [])
             self.assertEqual(sorted(api.rules["r"]), ["main"])
@@ -541,7 +548,7 @@ esac
     def test_a_forward_gone_after_the_check_gets_nothing(self) -> None:
         api = FakeApi({"r": False})
         try:
-            r = self.run_script("protect-repo.sh", "--owner", "vision", "r", connect=True,
+            r = self.run_script("protect-repo.sh", "--apply", "--owner", "vision", "r", connect=True,
                                 path=self.fake_kubectl(api, die_on_secret=True))
             self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
             self.assertIn("port-forward to svc/gitea stopped", r.stderr)
@@ -569,10 +576,10 @@ esac
         agent = {"rule_name": "agent/**", "enable_push": True, "push_whitelist_teams": ["agentd-write"]}
         api = FakeApi({"r": False}, rules={"r": {"agent/**": dict(agent)}})
         try:
-            r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api)
+            r = self.run_script("protect-repo.sh", "--apply", "--owner", "vision", "r", api=api)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             self.assertEqual(sorted(api.rules["r"]), ["main"])
-            self.assertIn("r agent/**: removed and read back", r.stdout)
+            self.assertIn("agent/**: removed or absent", r.stdout)
             self.assertIn("DELETE /api/v1/repos/bifrost/r/branch_protections/agent/**", api.calls)
         finally:
             api.close()
@@ -585,12 +592,11 @@ esac
         agent = {"rule_name": "agent/**", "enable_push": True, "push_whitelist_teams": ["agentd-write"]}
         api = FakeApi({"r": False}, rules={"r": {"main": dict(main), "agent/**": dict(agent)}})
         try:
-            r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api)
+            r = self.run_script("protect-repo.sh", "--apply", "--owner", "vision", "r", api=api)
             self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-            self.assertIn("r main: DIFFERS from the baseline above, left as it is", r.stdout)
+            self.assertIn("main: DIFFERS from the baseline", r.stderr)
             self.assertEqual(api.rules["r"]["main"], main)
-            self.assertEqual(sorted(api.rules["r"]), ["main"])
-            self.assertIn("r agent/**: removed and read back", r.stdout)
+            self.assertEqual(sorted(api.rules["r"]), ["agent/**", "main"])
             self.assertFalse(any(c.startswith(("PATCH ", "POST ")) for c in api.calls))
         finally:
             api.close()
@@ -599,7 +605,7 @@ esac
     def test_protect_repo_keeps_a_rule_that_cannot_match_first(self) -> None:
         api = FakeApi({"r": False}, rules={"r": {"release/**": {"rule_name": "release/**", "enable_push": True}}})
         try:
-            r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api)
+            r = self.run_script("protect-repo.sh", "--apply", "--owner", "vision", "r", api=api)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             self.assertEqual(sorted(api.rules["r"]), ["main", "release/**"])
         finally:
@@ -627,8 +633,9 @@ esac
     def test_xtrace_does_not_print_the_token(self) -> None:
         api = FakeApi({"r": False})
         try:
-            r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api, bash=("-x",))
-            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            r = self.run_script("protect-repo.sh", "--apply", "--owner", "vision", "r", api=api, bash=("-x",))
+            self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertEqual(api.calls, [])
             self.assertNotIn("fixture-admin-token", r.stdout + r.stderr)
         finally:
             api.close()
@@ -637,9 +644,9 @@ esac
     def test_protect_repo_stops_on_another_branch_rule(self) -> None:
         api = FakeApi({"r": False}, rules={"r": {"**": {"rule_name": "**", "enable_push": True}}})
         try:
-            r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api)
+            r = self.run_script("protect-repo.sh", "--apply", "--owner", "vision", "r", api=api)
             self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-            self.assertIn("STOPPED", r.stdout)
+            self.assertIn("STOPPED", r.stderr)
             self.assertEqual(sorted(api.rules["r"]), ["**"])
             self.assertFalse(any(c.startswith(("POST ", "PATCH ")) for c in api.calls))
         finally:
@@ -764,23 +771,23 @@ exec "{real}" "$@"
         for stopped in ("[^m]ain", "a**"):
             api = FakeApi({"r": False}, rules={"r": {stopped: {"rule_name": stopped, "enable_push": True}}})
             try:
-                r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api)
+                r = self.run_script("protect-repo.sh", "--apply", "--owner", "vision", "r", api=api)
                 self.assertEqual(r.returncode, 1, stopped + r.stdout + r.stderr)
-                self.assertIn("STOPPED", r.stdout)
+                self.assertIn("STOPPED", r.stderr)
             finally:
                 api.close()
         for kept in ("main?", "ma[st]er", "[^x]ain", "agent/."):
             api = FakeApi({"r": False}, rules={"r": {kept: {"rule_name": kept, "enable_push": True}}})
             try:
-                r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api)
+                r = self.run_script("protect-repo.sh", "--apply", "--owner", "vision", "r", api=api)
                 self.assertEqual(r.returncode, 0, kept + r.stdout + r.stderr)
             finally:
                 api.close()
         api = FakeApi({"r": False}, rules={"r": {"a**": {"rule_name": "a**", "enable_push": True}}})
         try:
-            r = self.run_script("protect-repo.sh", "--owner", "vision", "r", api=api)
+            r = self.run_script("protect-repo.sh", "--apply", "--owner", "vision", "r", api=api)
             self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-            self.assertIn("STOPPED", r.stdout)
+            self.assertIn("STOPPED", r.stderr)
         finally:
             api.close()
 

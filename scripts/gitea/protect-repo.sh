@@ -1,278 +1,88 @@
 #!/usr/bin/env bash
-# protect-repo.sh --owner <login> <repo>... — the branch rule of the
-# Gitea-primary cut (§2.9, §3; batch step 5) on each converted repository,
-# then read back and compared field by field:
-#   main      platform/infra: <login> only (landing S0); other repos:
-#             team maintainers and <login>; merge (PR): the same.
-#             platform from S3 (CUT-landing §11.11): push <login> and the
-#             landing identity agentrt-lander; merge <login> only.
-#   land/prod/**  platform only (S3): push agentrt-lander alone, merge nobody,
-#             so no other writer of platform can make a PROD landing branch
-# Removing maintainers blocks agent push-main.sh until dedicated landing is
-# enabled in S3 (platform) / S6 (infra); Owner pushes bridge that interval.
-# The rule carries a merge whitelist: without one, code write is enough to
-# merge a pull request into the branch (Gitea 1.21 IsUserMergeWhitelisted).
-# The cut also protected agent/** (push: team agentd-write and <login>). Gitea
-# 1.21 lets nobody delete a protected branch, so the agent runtime could not
-# clean up its attempt branches; the Owner chose to lift it (TD-383, 10-20
-# 「分支 B 用 agentd」: agentd deletes them under the runtime's rule). A rule
-# agent/** that is there is deleted and the rules read back without it.
-# The tag rule (*: same allowed identities as main) has no API in 1.21: the script
-# prints the page to set it on. A main rule that is missing is created; one
-# that is there is only compared, never edited: it may have been tightened on
-# the page since (review 436 B5); one that differs is reported (exit 1) and
-# left as it is. Another branch rule that could match main or an agent/ branch
-# stops it for that repository before anything is changed: Gitea 1.21 takes
-# the first rule that matches, so an older `**` or a narrower rule would
-# decide instead of this one (review 246 B9), and one matching an agent/
-# branch would keep it from being deleted. A rule that can match neither stays
-# (release/**, main?, ma[st]er; review 248 B7, 249 B4): the rule is read as
-# Gitea 1.21 reads it, a glob with / as the separator. Exits 1 when a
-# repository is stopped or a read-back differs.
+# Owner only. Default dry-run; --apply performs the printed mutations.
+# --check is a GET-only probe: missing/drifted/unreadable rules fail.
+# S6 widens only a verified S0 infra main whitelist, preserving other settings.
+case $- in *x*) { set +x; } 2>/dev/null; echo 'FAIL: xtrace is not allowed' >&2; exit 2 ;; esac
+set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-# shellcheck source=lib.sh
+# Credential sources unchanged: Owner's lib.sh bootstrap Secret / supplied env.
 source "$HERE/lib.sh"
-owner=""
-if [[ "${1:-}" == "--owner" && -n "${2:-}" ]]; then
-  owner="$2"
-  shift 2
-fi
-[[ -n "${owner}" && $# -ge 1 ]] || gitea_die "usage: protect-repo.sh --owner <your Gitea login> <repo>..."
-# the read-back must hold every field that was set (lists in any order)
-COMPARE_RULE='
-import json, sys
-want, got = json.loads(sys.argv[1]), json.load(sys.stdin)
-norm = lambda v: sorted(v or []) if isinstance(v, list) else v
-bad = [k for k, v in want.items() if (norm(got.get(k)) if isinstance(v, list) else got.get(k)) != norm(v)]
-for k in bad:
-    print(f"    {k}: want {want[k]!r}, Gitea has {got.get(k)!r}")
-sys.exit(1 if bad else 0)
-'
-# the other rules that could match main or a branch under agent/ (review 249 B4, 250 A2)
-OVERLAPPING_RULES='
-import json, sys
-
-# Gitea 1.21 branch rules are gobwas globs with "/" as the separator: * and ?
-# do not cross a "/", ** does, [...] / [!...] is one character (only ! negates;
-# ^ is a character like any other, as in gobwas), {a,b} picks one, a backslash
-# takes the next character as it is. A rule clashes when it can match "main"
-# or some branch "agent/<more>" whose next part can start a branch name (git
-# refuses a part that starts with "." and the characters below anywhere).
-
-
-def expand(p):
-    """The rule without braces: every choice of every {a,b} (nested too)."""
-    out, i, prefix = [], 0, ""
-    while i < len(p):
-        c = p[i]
-        if c == "\\" and i + 1 < len(p):
-            prefix += p[i:i + 2]
-            i += 2
-            continue
-        if c == "[":
-            j = p.find("]", i + 2)
-            if j == -1:
-                prefix += c
-                i += 1
-                continue
-            prefix += p[i:j + 1]
-            i = j + 1
-            continue
-        if c == "{":
-            depth, j, parts, start = 1, i + 1, [], i + 1
-            while j < len(p) and depth:
-                if p[j] == "\\":
-                    j += 2
-                    continue
-                if p[j] == "{":
-                    depth += 1
-                elif p[j] == "}":
-                    depth -= 1
-                    if depth == 0:
-                        parts.append(p[start:j])
-                        break
-                elif p[j] == "," and depth == 1:
-                    parts.append(p[start:j])
-                    start = j + 1
-                j += 1
-            if depth:
-                prefix += c
-                i += 1
-                continue
-            rest = expand(p[j + 1:])
-            return [prefix + a + r for part in parts for a in expand(part) for r in rest]
-        prefix += c
-        i += 1
-    return [prefix]
-
-
-def tokens(p):
-    out, i = [], 0
-    while i < len(p):
-        c = p[i]
-        if c == "\\" and i + 1 < len(p):
-            out.append(("lit", p[i + 1]))
-            i += 2
-        elif c == "*" and p[i + 1:i + 2] == "*":
-            out.append(("any",))
-            i += 2
-        elif c == "*":
-            out.append(("seg",))
-            i += 1
-        elif c == "?":
-            out.append(("one",))
-            i += 1
-        elif c == "[" and p.find("]", i + 2) != -1:
-            j = p.find("]", i + 2)
-            body, neg = p[i + 1:j], False
-            if body[:1] == "!":
-                body, neg = body[1:], True
-            out.append(("class", body, neg))
-            i = j + 1
-        else:
-            out.append(("lit", c))
-            i += 1
-    return out
-
-
-def in_class(body, c):
-    k = 0
-    while k < len(body):
-        if k + 2 < len(body) and body[k + 1] == "-":
-            if body[k] <= c <= body[k + 2]:
-                return True
-            k += 3
-        else:
-            if body[k] == c:
-                return True
-            k += 1
-    return False
-
-
-def closure(ts, states):
-    todo, seen = list(states), set(states)
-    while todo:
-        i = todo.pop()
-        if i < len(ts) and ts[i][0] in ("seg", "any") and i + 1 not in seen:
-            seen.add(i + 1)
-            todo.append(i + 1)
-    return seen
-
-
-def step(ts, states, c):
-    nxt = set()
-    for i in states:
-        if i == len(ts):
-            continue
-        t = ts[i]
-        if t[0] == "lit" and t[1] == c or t[0] == "one" and c != "/" or t[0] == "class" and in_class(t[1], c) != t[2]:
-            nxt.add(i + 1)
-        elif t[0] == "seg" and c != "/" or t[0] == "any":
-            nxt.add(i)
-    return closure(ts, nxt)
-
-
-def run(ts, text):
-    states = closure(ts, {0})
-    for c in text:
-        states = step(ts, states, c)
-    return states
-
-
-NOT_IN_A_BRANCH = set(" ~^:?*[\\\x7f") | {chr(c) for c in range(32)}
-STARTS = [chr(c) for c in range(33, 127) if chr(c) not in NOT_IN_A_BRANCH and chr(c) not in "./"]
-
-
-def clash(rule):
-    for p in expand(rule):
-        ts = tokens(p)
-        if len(ts) in run(ts, "main"):
-            return True
-        # after "agent/", some character that can start a branch part leaves a state behind
-        after = run(ts, "agent/")
-        if any(step(ts, after, c) for c in STARTS):
-            return True
-    return False
-
-
-names = [str(r.get("rule_name") or r.get("branch_name") or "") for r in json.load(sys.stdin)]
-print(" ".join(sorted(n for n in names if n not in ("main", "agent/**", "land/prod/**") and clash(n))))
-'
+mode=dry-run owner=""
+repos=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --owner)
+      [[ $# -ge 2 && -z "$owner" ]] || gitea_die 'usage: protect-repo.sh [--dry-run|--apply|--check] --owner <login> <repo>...'
+      owner="$2"; shift 2 ;;
+    --dry-run|--apply|--check)
+      [[ "$mode" == dry-run && -z "${mode_set:-}" ]] || gitea_die 'choose one mode'
+      mode="${1#--}"; mode_set=1; shift ;;
+    --*) gitea_die 'unknown option' ;;
+    *) repos+=("$1"); shift ;;
+  esac
+done
+[[ "$owner" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ && ${#repos[@]} -gt 0 ]] || gitea_die 'usage: protect-repo.sh [--dry-run|--apply|--check] --owner <login> <repo>...'
+[[ "$owner" != agentrt-* && "$owner" != bifrost-*-reader* ]] || gitea_die 'Owner login required'
+for repo in "${repos[@]}"; do
+  [[ "$repo" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || gitea_die 'invalid repository'
+done
+api() {
+  # lib.sh's generic API errors may include server response text. Never echo it.
+  gitea_api "$@" 2>/dev/null || gitea_die "FAIL: $1 request failed; response suppressed"
+}
 gitea_connect
+identity="$(api GET /user)" || exit 1
+python3 -c 'import json,sys
+try:
+    d=json.load(sys.stdin)
+    ok=d.get("login")==sys.argv[1] and d.get("is_admin") is True
+except (ValueError, AttributeError):
+    ok=False
+if not ok:
+    sys.exit("FAIL: credential must belong to the named Owner administrator")
+' "$owner" <<< "$identity"
 fail=0
-for repo in "$@"; do
-  existing="$(gitea_api GET "/repos/${GITEA_ORG}/${repo}/branch_protections")" || gitea_die "cannot read the rules of ${repo}"
-  others="$(python3 -c "${OVERLAPPING_RULES}" <<< "${existing}")" || gitea_die "cannot read the rules of ${repo}"
-  if [[ -n "${others}" ]]; then
-    echo "${repo}: STOPPED, nothing changed: these branch rules could match main or an agent/ branch first (${others}); remove them on the page or say why they stay, then run this again"
+for repo in "${repos[@]}"; do
+  path="/repos/${GITEA_ORG}/${repo}/branch_protections"
+  existing="$(api GET "$path")" || exit 1
+  # Gitea 1.21 ListBranchProtections returns the complete, unpaginated list.
+  if ! actions="$(python3 "$HERE/protection_policy.py" "$mode" "$repo" "$owner" <<< "$existing")"; then
     fail=1
     continue
   fi
-  rules=main
-  [[ "$repo" != bifrost-platform ]] || rules="main land/prod/**"
-  for rule in ${rules}; do
-    push_team=maintainers
-    case "$repo" in
-      bifrost-platform|bifrost-trade-infra) push_team="" ;;
-    esac
-    body="$(python3 - "${rule}" "${push_team}" "${owner}" "${repo}" << 'PY'
-import json, sys
-rule, team, owner, repo = sys.argv[1:5]
-lander = "agentrt-lander"
-if rule == "land/prod/**":
-    push_users, merge_users, teams = [lander], [], []
-else:
-    push_users = [owner] + ([lander] if repo == "bifrost-platform" else [])
-    merge_users, teams = [owner], ([team] if team else [])
-print(json.dumps({
-    "rule_name": rule,
-    "enable_push": True,
-    "enable_push_whitelist": True,
-    "push_whitelist_teams": teams,
-    "push_whitelist_usernames": push_users,
-    "push_whitelist_deploy_keys": False,
-    "enable_merge_whitelist": True,
-    "merge_whitelist_teams": teams,
-    "merge_whitelist_usernames": merge_users,
-}))
-PY
-)"
-    enc="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "${rule}")"
-    existing="$(gitea_api GET "/repos/${GITEA_ORG}/${repo}/branch_protections")" || gitea_die "cannot read the rules of ${repo}"
-    if python3 -c 'import json,sys; sys.exit(0 if any(r.get("rule_name") == sys.argv[1] for r in json.load(sys.stdin)) else 1)' "${rule}" <<< "${existing}"; then
-      got="$(gitea_api GET "/repos/${GITEA_ORG}/${repo}/branch_protections/${enc}")" || gitea_die "${repo} ${rule}: cannot read it"
-      if python3 -c "${COMPARE_RULE}" "${body}" <<< "${got}"; then
-        echo "${repo} ${rule}: there as the baseline, left as it is"
-      else
-        echo "${repo} ${rule}: DIFFERS from the baseline above, left as it is (change it on the page if it should be the baseline)"
-        fail=1
-      fi
-      continue
-    fi
-    gitea_api POST "/repos/${GITEA_ORG}/${repo}/branch_protections" "${body}" > /dev/null || gitea_die "${repo} ${rule}: create refused"
-    got="$(gitea_api GET "/repos/${GITEA_ORG}/${repo}/branch_protections/${enc}")" || gitea_die "${repo} ${rule}: cannot read it back"
-    if python3 -c "${COMPARE_RULE}" "${body}" <<< "${got}"; then
-      echo "${repo} ${rule}: set and read back"
-    else
-      echo "${repo} ${rule}: READ BACK DIFFERS"
-      fail=1
-    fi
-  done
-  # agent/** no more (TD-383): deleted, then read back.
-  has_agent_rule='import json,sys; sys.exit(0 if any((r.get("rule_name") or r.get("branch_name")) == "agent/**" for r in json.load(sys.stdin)) else 1)'
-  existing="$(gitea_api GET "/repos/${GITEA_ORG}/${repo}/branch_protections")" || gitea_die "cannot read the rules of ${repo}"
-  if python3 -c "${has_agent_rule}" <<< "${existing}"; then
-    gitea_api DELETE "/repos/${GITEA_ORG}/${repo}/branch_protections/agent%2F%2A%2A" > /dev/null || gitea_die "${repo} agent/**: delete refused"
-    existing="$(gitea_api GET "/repos/${GITEA_ORG}/${repo}/branch_protections")" || gitea_die "${repo} agent/**: cannot read the rules back"
-    if python3 -c "${has_agent_rule}" <<< "${existing}"; then
-      echo "${repo} agent/**: STILL THERE after the delete"
-      fail=1
-    else
-      echo "${repo} agent/**: removed and read back (attempt branches may be deleted; TD-383)"
-    fi
-  else
-    echo "${repo} agent/**: none (attempt branches may be deleted; TD-383)"
+  if [[ "$mode" == check ]]; then
+    echo "$repo: $actions"
+    continue
   fi
-  echo "${repo}: now add the tag rule on the page: Gitea → ${GITEA_ORG}/${repo} → Settings → Tags → New rule: *, allowed: ${push_team:+team ${push_team} and }${owner}"
+  if [[ -z "$actions" ]]; then
+    echo "$repo main: there as the baseline, left as it is"
+  fi
+  while IFS= read -r action; do
+    [[ -n "$action" ]] || continue
+    read -r method encoded <<< "$(python3 -c 'import json,sys,urllib.parse
+x=json.load(sys.stdin); print(x["method"],urllib.parse.quote(x["rule"],safe=""))' <<< "$action")"
+    body="$(python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["body"]))' <<< "$action")"
+    endpoint="$path"
+    [[ "$method" == POST ]] || endpoint="$path/$encoded"
+    echo "$repo: $mode $action"
+    [[ "$mode" == apply ]] || continue
+    # Re-read immediately before each write. Abort on concurrent edits; Gitea
+    # has no CAS for protection rules, so Owner must keep this change exclusive.
+    now="$(api GET "$path")" || exit 1
+    [[ "$now" == "$existing" ]] || gitea_die 'FAIL: branch rules changed during execution; stop and re-plan'
+    [[ "$method" != DELETE ]] || body=""
+    api "$method" "$endpoint" "$body" > /dev/null || exit 1
+    existing="$(api GET "$path")" || exit 1
+  done <<< "$actions"
+  if [[ "$mode" == apply ]]; then
+    if python3 "$HERE/protection_policy.py" check "$repo" "$owner" <<< "$existing"; then
+      echo "$repo: set and read back; agent/**: removed or absent (TD-383)"
+    else
+      echo "$repo: READ BACK DIFFERS; stop and inspect partial changes" >&2
+      fail=1
+    fi
+  fi
+  [[ "$repo" != bifrost-platform && "$repo" != bifrost-trade-infra ]] && team='team maintainers and ' || team=''
+  echo "$repo: verify tag rule on the page: Settings → Tags → *, allowed: ${team}${owner}"
 done
-exit "${fail}"
+exit "$fail"

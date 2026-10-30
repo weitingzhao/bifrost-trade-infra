@@ -15,8 +15,13 @@ import tempfile
 import threading
 import unittest
 import urllib.parse
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
+
+try:
+    from .file_http_fixture import ThreadingHTTPServer
+except ImportError:
+    from file_http_fixture import ThreadingHTTPServer
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -63,7 +68,7 @@ class PutReaderToken(unittest.TestCase):
         self.primaries.write_text("# comment\nbifrost-platform\n\nbifrost-ui  # trailing\n")
         self.path = f"{bindir}:{os.environ['PATH']}"
         # repo -> (admin, push, pull) as the token's user sees it
-        self.perms = {"bifrost-platform": (False, False, True), "bifrost-ui": (False, False, True),
+        self.perms = {"bifrost-trade-infra": (False, False, True), "bifrost-platform": (False, False, True), "bifrost-ui": (False, False, True),
                       "repo-template": (False, False, True)}
         self.push_code = 403
         self.user_scope = True
@@ -162,8 +167,8 @@ class PutReaderToken(unittest.TestCase):
                 self.assertEqual((doc["metadata"]["name"], doc["metadata"]["namespace"]), (self.name, self.ns))
                 self.assertEqual(doc["stringData"], {"username": self.login, "password": GITEA_TOKEN_FIXTURE})
                 self.assertIn(f"ok    token of {self.login}, not an administrator", r.stdout)
-                self.assertIn("ok    2 primaries: read only (fetch 200, push refused)", r.stdout)
-                self.assertIn("ok    it sees 3 repositories and can write none", r.stdout)
+                self.assertIn("ok    3 primaries: read only (fetch 200, push refused)", r.stdout)
+                self.assertIn("ok    it sees 4 repositories and can write none", r.stdout)
                 self.assertIn(f"==> Secret {self.ns}/{self.name} created", r.stdout)
                 self.assertNotIn(GITEA_TOKEN_FIXTURE, r.stdout + r.stderr + self.echoed + (self.state / "calls").read_text())
 
@@ -173,20 +178,20 @@ class PutReaderToken(unittest.TestCase):
             ("not a Gitea token", lambda: None, "github_pat_x", "40 hex characters"),
             ("token Gitea refuses", lambda: None, "e" * 40, "GET /api/v1/user → HTTP 401"),
             ("a token without user scope", lambda: setattr(self, "user_scope", False), None, "the token has no user scope"),
-            ("another account's token", lambda: setattr(self, "who", "bifrost-mbp"), None, "belongs to 'bifrost-mbp'"),
+            ("another account's token", lambda: setattr(self, "who", "bifrost-mbp"), None, "does not belong to bifrost-platform-reader-stg"),
             ("a site administrator", lambda: setattr(self, "is_admin", True), None, "is a site administrator"),
             ("a token without organization scope", lambda: setattr(self, "org_scope", False), None, "no organization scope"),
             ("a primary it cannot read", lambda: self.perms.pop("bifrost-ui"), None, "GET /api/v1/repos/bifrost/bifrost-ui → HTTP 404"),
             ("a writer of a primary", lambda: self.perms.update({"bifrost-ui": (False, True, True)}), None, "a reader must only read"),
             ("a token that can push", lambda: setattr(self, "push_code", 200), None, "push handshake on bifrost-platform → 200"),
-            ("a push handshake that errs", lambda: setattr(self, "push_code", 500), None, "HTTP 500: neither a refusal nor a yes"),
+            ("a push handshake that errs", lambda: setattr(self, "push_code", 500), None, "HTTP 500: neither a verified refusal nor a yes"),
             ("administrator of another repository", lambda: self.perms.update({"repo-template": (True, True, True)}), None,
-             "is administrator or writer of: bifrost/repo-template"),
+             "is administrator or writer of an unexpected repository"),
             ("a primary the search does not show", lambda: self.hidden.add("bifrost-ui"), None, "the search does not show: bifrost/bifrost-ui"),
             # review 542 A6: page 21 used to be past the last page read, and the run passed
             ("a writable repository on page 21",
              lambda: self.more_pages.extend([[(f"bifrost/r{p}-{i}", False, False) for i in range(50)] for p in range(2, 21)]
-                                            + [[("bifrost/late", False, True)]]), None, "is administrator or writer of: bifrost/late"),
+                                            + [[("bifrost/late", False, True)]]), None, "is administrator or writer of an unexpected repository"),
             ("a search that never ends",
              lambda: self.more_pages.extend([[(f"bifrost/r{p}", False, False)] for p in range(2, 60)]), None,
              "still returned repositories at page 40; the check is not finished"),
@@ -237,7 +242,7 @@ class PutReaderToken(unittest.TestCase):
         r = self.run_it()
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.pages_asked[-1], 23)
-        self.assertIn(f"ok    it sees {3 + 21 * 50} repositories and can write none", r.stdout)
+        self.assertIn(f"ok    it sees {4 + 21 * 50} repositories and can write none", r.stdout)
 
     def test_refuses_without_a_terminal(self) -> None:
         r = self.run_it(tty=False)

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# put-reader-token.sh stg|prod|ci|drill|lander [replace] — TD-432 / landing S0, S3
+# put-reader-token.sh stg|prod|ci|drill|lander [--check|replace] — TD-432 / S6-7
 # drill is deliberately NOT a reader: agentrt-landing-stg may write code only
 # in platform and infra, but may not push main or administer any repository.
-# lander (S3, CUT-landing §11.11) is the PROD landing identity agentrt-lander:
-# it may write code only in platform, and push platform's main (it is on the
-# main whitelist), but administer nothing. Its team holds platform alone, so
-# infra is not even visible to it (404); visible, it must be read-only. S6
-# widens it.
+# lander (S6) writes platform and infra, pushes both main branches, administers
+# neither, and cannot write any third repository. Existing reader identities
+# already cover infra through gitea-primary.txt; no new identity is needed.
+# --check performs GET-only permission checks and never calls kubectl. Use it
+# for S6: reuse the existing tokens and leave all Secrets unchanged.
 # Branch/tag/PR protection still needs the Owner's actual refusal probes.
 # (agent-config/work/multi-agent/
 # CUT-td432-gitea-credentials-2026-10-24.md; OWNER-STEPS-td432-2026-10-24.md):
@@ -44,8 +44,9 @@
 #
 # The token reaches curl as a config on stdin (curl -q: no ~/.curlrc) and
 # kubectl as a manifest on stdin; xtrace is off.
+case $- in *x*) { set +x; } 2>/dev/null; echo 'FAIL: xtrace is not allowed' >&2; exit 2 ;; esac
 set -euo pipefail
-set +x
+umask 077
 
 case "${1:-}" in
   stg) LOGIN=bifrost-platform-reader-stg NS=bifrost-platform-stg NAME=bifrost-gitea-reader ;;
@@ -54,18 +55,20 @@ case "${1:-}" in
   drill) LOGIN=agentrt-landing-stg NS=bifrost-platform-stg NAME=agentrt-landing-drill ;;
   lander) LOGIN=agentrt-lander NS=bifrost-platform-prod NAME=agentrt-lander ;;
   *)
-    echo "usage: ${0##*/} stg|prod|ci|drill|lander [replace]" >&2
+    echo "usage: ${0##*/} stg|prod|ci|drill|lander [--check|replace]" >&2
     exit 2
     ;;
 esac
 case "${2:-}" in
   "") MODE=create ;;
   replace) MODE=replace ;;
+  --check) MODE=check ;;
   *)
-    echo "usage: ${0##*/} stg|prod|ci|drill|lander [replace]" >&2
+    echo "usage: ${0##*/} stg|prod|ci|drill|lander [--check|replace]" >&2
     exit 2
     ;;
 esac
+[[ $# -le 2 ]] || { echo 'FAIL: too many arguments' >&2; exit 2; }
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PRIMARIES="${GITEA_PRIMARIES_FILE:-${HERE}/../../agent-config/gitea-primary.txt}"
 BASE="${GITEA_PUBLIC_BASE:-http://192.168.10.73:30300/bifrost}"
@@ -75,27 +78,34 @@ server="$(printf '%s' "${BASE}" | sed -nE 's#^(https?)://([^/]+)/(.+)$#\1 \2 \3#
 read -r proto host org <<< "${server}"
 root="${proto}://${host}"
 
-die() { echo "ERROR: $*" >&2; echo "Nothing was written." >&2; exit 1; }
+die() { echo "FAIL: $*" >&2; echo "Nothing was written." >&2; exit 1; }
 
 [[ -t 0 ]] || die "stdin is not a terminal; run it in a terminal tab"
-[[ -r "${KUBECONFIG}" ]] || die "no admin kubeconfig at ${KUBECONFIG}"
+[[ "$MODE" == check || -r "${KUBECONFIG}" ]] || die "no admin kubeconfig at ${KUBECONFIG}"
 [[ -r "${PRIMARIES}" ]] || die "cannot read ${PRIMARIES}"
 primaries="$(sed -e 's/#.*//' -e 's/[[:space:]]//g' "${PRIMARIES}" | sed '/^$/d' | sort -u)"
 if [[ "$1" == drill ]]; then
   primaries=$'bifrost-platform\nbifrost-trade-infra'
 fi
 if [[ "$1" == lander ]]; then
-  primaries=bifrost-platform
+  primaries=$'bifrost-platform\nbifrost-trade-infra'
 fi
+# An override/test primary list must not silently omit the S6 target.
 [[ -n "${primaries}" ]] || die "${PRIMARIES} names no repository"
-if kubectl -n "${NS}" get secret "${NAME}" -o name > /dev/null 2>&1; then
-  [[ "${MODE}" == replace ]] || die "Secret ${NS}/${NAME} already exists; to rotate its token run: ${0##*/} ${1} replace"
-else
-  [[ "${MODE}" == create ]] || die "Secret ${NS}/${NAME} does not exist; replace only rotates an existing one"
+primaries="$(printf '%s\nbifrost-trade-infra\n' "$primaries" | sort -u)"
+for repo in $primaries; do
+  [[ "$repo" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || die "invalid repository in primary list"
+done
+if [[ "$MODE" != check ]]; then
+  if kubectl -n "${NS}" get secret "${NAME}" -o name > /dev/null 2>&1; then
+    [[ "${MODE}" == replace ]] || die "Secret ${NS}/${NAME} already exists; to rotate its token run: ${0##*/} ${1} replace"
+  else
+    [[ "${MODE}" == create ]] || die "Secret ${NS}/${NAME} does not exist; replace only rotates an existing one"
+  fi
+  kubectl -n "${NS}" get serviceaccount default -o name > /dev/null || die "cannot reach namespace ${NS} with ${KUBECONFIG}"
 fi
-kubectl -n "${NS}" get serviceaccount default -o name > /dev/null || die "cannot reach namespace ${NS} with ${KUBECONFIG}"
 
-IFS= read -rs -p "Gitea token of ${LOGIN} (input hidden): " t
+IFS= read -rs -p "Gitea token of ${LOGIN} (input hidden): " t || die "token input interrupted"
 echo
 [[ -n "${t}" ]] || die "empty input"
 [[ "${t}" =~ ^[0-9a-f]{40}$ ]] || die "a Gitea token is 40 hex characters"
@@ -108,22 +118,28 @@ ask() { # MODE URL — the HTTP status; the body into $work/body
     printf 'header = "Authorization: token %s"\n' "${t}"
   else
     printf 'user = "%s:%s"\n' "${LOGIN}" "${t}"
-  fi | curl -q -sS -K - --noproxy '*' -o "${work}/body" -w '%{http_code}' --max-time 30 "${url}" || echo "000"
+  fi | curl -q -sS -K - --noproxy '*' -o "${work}/body" -w '%{http_code}' --max-time 30 "${url}" 2>/dev/null || echo "000"
 }
 field() { python3 -c 'import json,sys
-d = json.load(open(sys.argv[1]))
-for k in sys.argv[2].split("."):
-    d = d.get(k) if isinstance(d, dict) else None
-print({True: "true", False: "false", None: ""}.get(d, d))' "${work}/body" "$1"; }
+try:
+    d = json.load(open(sys.argv[1]))
+    for k in sys.argv[2].split("."):
+        d = d.get(k) if isinstance(d, dict) else None
+    if sys.argv[2] == "login":
+        print(sys.argv[3] if d == sys.argv[3] else "unknown")
+    else:
+        print("true" if d is True else "false" if d is False else "unknown")
+except (ValueError, OSError):
+    print("unknown")' "${work}/body" "$1" "$LOGIN"; }
 
 code="$(ask token "${root}/api/v1/user")"
 if [[ "${code}" == 403 ]] && grep -qi 'required scope' "${work}/body"; then
   die "the token has no user scope: make it with user Read as well as repository and organization Read"
 fi
-[[ "${code}" == 200 ]] || die "Gitea GET /api/v1/user → HTTP ${code}: the token is not accepted ($(head -c 200 "${work}/body" | tr -d '\n'))"
+[[ "${code}" == 200 ]] || die "Gitea GET /api/v1/user → HTTP ${code}: the token is not accepted"
 login="$(field login)"
-[[ "${login}" == "${LOGIN}" ]] || die "the token belongs to '${login}', not ${LOGIN}"
-[[ "$(field is_admin)" == false ]] || die "${LOGIN} is a site administrator (is_admin=$(field is_admin)); a reader must not be"
+[[ "${login}" == "${LOGIN}" ]] || die "the token does not belong to ${LOGIN}"
+[[ "$(field is_admin)" == false ]] || die "${LOGIN} is a site administrator or its status is unknown"
 echo "ok    token of ${login}, not an administrator"
 
 code="$(ask token "${root}/api/v1/orgs/${org}/repos?limit=1")"
@@ -138,49 +154,30 @@ for repo in ${primaries}; do
   [[ "${code}" == 200 ]] || die "GET /api/v1/repos/${org}/${repo} → HTTP ${code}: the token cannot read it"
   expected_push=false
   [[ "$1" != drill ]] || expected_push=true
-  [[ "$1" != lander || "${repo}" != bifrost-platform ]] || expected_push=true
+  [[ "$1" != lander ]] || expected_push=true
   [[ "$(field permissions.admin)" == false && "$(field permissions.push)" == "${expected_push}" && "$(field permissions.pull)" == true ]] \
-    || die "on ${org}/${repo} ${LOGIN} has admin=$(field permissions.admin) push=$(field permissions.push) pull=$(field permissions.pull); a reader must only read; drill must only write its two repositories; lander must only write platform"
-  if [[ "$1" == drill ]]; then
-    code="$(ask token "${root}/api/v1/repos/${org}/${repo}/branches/main")"
-    [[ "${code}" == 200 && "$(field user_can_push)" == false ]] || die "${repo}: main is writable or its protection could not be verified"
-  fi
-  if [[ "$1" == lander ]]; then
-    # platform's main whitelists the lander (S3); infra's does not (S6).
+    || die "on ${org}/${repo}: a reader must only read; drill/lander must only write platform and infra, without admin"
+  if [[ "$1" == drill || "$1" == lander || "$MODE" == check ]]; then
     main_push=false
-    [[ "${repo}" != bifrost-platform ]] || main_push=true
+    [[ "$1" != lander ]] || main_push=true
     code="$(ask token "${root}/api/v1/repos/${org}/${repo}/branches/main")"
-    [[ "${code}" == 200 && "$(field user_can_push)" == "${main_push}" ]] \
-      || die "${repo}: main user_can_push=$(field user_can_push) (HTTP ${code}); the lander must push platform's main only"
+    [[ "${code}" == 200 && "$(field protected)" == true && "$(field user_can_push)" == "$main_push" && "$(field user_can_merge)" == false ]] \
+      || die "${repo}: main protection or push/merge permission differs or is unreadable (HTTP ${code})"
   fi
   code="$(ask basic "${BASE}/${repo}.git/info/refs?service=git-upload-pack")"
   [[ "${code}" == 200 ]] || die "fetch handshake on ${repo} → HTTP ${code}"
   code="$(ask basic "${BASE}/${repo}.git/info/refs?service=git-receive-pack")"
-  if [[ "$1" == drill || ( "$1" == lander && "${repo}" == bifrost-platform ) ]]; then
+  if [[ "$1" == drill || "$1" == lander ]]; then
     [[ "${code}" == 200 ]] || die "$1 push handshake on ${repo} → HTTP ${code}"
     continue
   fi
   [[ "${code}" != 200 ]] || die "push handshake on ${repo} → 200: the token can push there"
-  [[ "${code}" == 401 || "${code}" == 403 ]] || die "push handshake on ${repo} → HTTP ${code}: neither a refusal nor a yes; run this again when Gitea answers"
+  [[ "${code}" == 403 ]] || die "push handshake on ${repo} → HTTP ${code}: neither a verified refusal nor a yes; run this again when Gitea answers"
 done
-if [[ "$1" == lander ]]; then
-  # infra: not visible (its team holds platform alone), or visible read-only
-  code="$(ask token "${root}/api/v1/repos/${org}/bifrost-trade-infra")"
-  if [[ "${code}" == 200 ]]; then
-    [[ "$(field permissions.admin)" == false && "$(field permissions.push)" == false ]] \
-      || die "on ${org}/bifrost-trade-infra ${LOGIN} has admin=$(field permissions.admin) push=$(field permissions.push); infra waits for S6"
-    infra_seen="read-only"
-  else
-    [[ "${code}" == 404 ]] || die "GET /api/v1/repos/${org}/bifrost-trade-infra → HTTP ${code}: neither hidden nor readable"
-    infra_seen="not visible"
-  fi
-  code="$(ask basic "${BASE}/bifrost-trade-infra.git/info/refs?service=git-receive-pack")"
-  [[ "${code}" == 401 || "${code}" == 403 || "${code}" == 404 ]] || die "push handshake on bifrost-trade-infra → HTTP ${code}: the lander must not push infra"
-fi
 if [[ "$1" == drill ]]; then
   echo "ok    drill: two code writers, main user_can_push=false; actual tag/PR/push probes still required"
 elif [[ "$1" == lander ]]; then
-  echo "ok    lander: writes platform only, pushes platform main, infra ${infra_seen}; actual tag/push probes still required"
+  echo "ok    lander: writes platform and infra only, pushes both main branches; actual tag/push probes still required"
 else
   echo "ok    $(echo "${primaries}" | wc -l | tr -d ' ') primaries: read only (fetch 200, push refused)"
 fi
@@ -192,14 +189,22 @@ page=1
 while :; do
   code="$(ask token "${root}/api/v1/repos/search?limit=50&page=${page}")"
   [[ "${code}" == 200 ]] || die "GET /api/v1/repos/search page ${page} → HTTP ${code}"
-  n="$(python3 -c 'import json,sys
-d = json.load(open(sys.argv[1]))
-rows = d.get("data") or []
+  n="$(python3 -c 'import json,re,sys
+try:
+    d = json.load(open(sys.argv[1]))
+    rows = d["data"]
+    if not isinstance(rows, list): raise ValueError()
+    for r in rows:
+        if not isinstance(r, dict): raise ValueError()
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", r["full_name"]): raise ValueError()
+        if not all(type(r["permissions"][k]) is bool for k in ("admin", "push", "pull")): raise ValueError()
+except (ValueError, TypeError, KeyError):
+    sys.exit("FAIL: incomplete or malformed repository search page")
 open(sys.argv[2], "a").write("".join(r.get("full_name", "?") + "\n" for r in rows))
 p = lambda r, k: (r.get("permissions") or {}).get(k)
 open(sys.argv[3], "a").write("".join(r.get("full_name", "?") + "\n" for r in rows if p(r, "admin") is not False or p(r, "push") is not False))
 open(sys.argv[4], "a").write("".join(r.get("full_name", "?") + "\n" for r in rows if p(r, "admin") is not False))
-print(len(rows))' "${work}/body" "${work}/seen" "${work}/writable" "${work}/administrable")"
+print(len(rows))' "${work}/body" "${work}/seen" "${work}/writable" "${work}/administrable")" || die "cannot verify repository search page ${page}"
   [[ "${n}" -gt 0 ]] || break
   [[ "${page}" -lt 40 ]] || die "the search still returned repositories at page 40; the check is not finished"
   page=$((page + 1))
@@ -207,12 +212,12 @@ done
 writable="$(sort -u "${work}/writable" | tr '\n' ' ')"
 if [[ "$1" == drill ]]; then
   [[ ! -s "${work}/administrable" ]] || die "drill can administer a repository"
-  [[ "${writable}" == "${org}/bifrost-platform ${org}/bifrost-trade-infra " ]] || die "drill has unexpected writable repositories: ${writable}"
+  [[ "${writable}" == "${org}/bifrost-platform ${org}/bifrost-trade-infra " ]] || die "drill has unexpected writable repositories"
 elif [[ "$1" == lander ]]; then
   [[ ! -s "${work}/administrable" ]] || die "lander can administer a repository"
-  [[ "${writable}" == "${org}/bifrost-platform " ]] || die "lander has unexpected writable repositories: ${writable}"
+  [[ "${writable}" == "${org}/bifrost-platform ${org}/bifrost-trade-infra " ]] || die "lander has unexpected writable repositories"
 else
-  [[ -z "${writable// /}" ]] || die "${LOGIN} is administrator or writer of: ${writable}"
+  [[ -z "${writable// /}" ]] || die "${LOGIN} is administrator or writer of an unexpected repository"
 fi
 missing=""
 for repo in ${primaries}; do
@@ -222,9 +227,15 @@ done
 if [[ "$1" == drill ]]; then
   echo "ok    search complete: only platform and infra writable"
 elif [[ "$1" == lander ]]; then
-  echo "ok    search complete: only platform writable"
+  echo "ok    search complete: only platform and infra writable"
 else
   echo "ok    it sees $(sort -u "${work}/seen" | wc -l | tr -d ' ') repositories and can write none"
+fi
+
+if [[ "$MODE" == check ]]; then
+  unset t
+  echo "PASS identity ${LOGIN}: permissions and complete repository inventory verified; no writes"
+  exit 0
 fi
 
 verb=create
