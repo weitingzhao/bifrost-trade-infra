@@ -51,7 +51,12 @@ spec:
     type: string
     value: $(tasks.s5-check.results.evidence-digest)
   tasks:
+  - name: freeze-check
+    taskRef:
+      name: bifrost-release-freeze-check
   - name: s5-fetch
+    runAfter:
+    - freeze-check
     taskRef:
       name: bifrost-s5-fetch
     timeout: 600s

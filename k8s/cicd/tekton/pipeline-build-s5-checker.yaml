@@ -18,7 +18,12 @@ spec:
   - name: image-digest
     value: $(tasks.build.results.digest)
   tasks:
+  - name: freeze-check
+    taskRef:
+      name: bifrost-release-freeze-check
   - name: validate-sources
+    runAfter:
+    - freeze-check
     params:
     - name: infraRevision
       value: $(params.infraRevision)
@@ -46,14 +51,9 @@ spec:
           value: $(params.infraRevision)
         - name: CHECKER_SHA
           value: $(params.checkerRevision)
-  - name: freeze-check
-    taskRef:
-      name: bifrost-release-freeze-check
-    runAfter:
-    - validate-sources
   - name: clone-infra
     runAfter:
-    - freeze-check
+    - validate-sources
     taskRef:
       name: bifrost-git-clone-gitea
     params:
@@ -68,7 +68,7 @@ spec:
       workspace: source
   - name: clone-checker
     runAfter:
-    - freeze-check
+    - validate-sources
     taskRef:
       name: bifrost-git-clone-gitea
     params:

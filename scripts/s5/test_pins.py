@@ -34,11 +34,16 @@ def test_unbuilt_is_rejected_and_real_pin_must_match_all_tasks(tmp_path):
 def test_mandatory_task_has_no_skip_or_inline_escape():
     c = contract(ready=False)
     pipeline = c["pipeline"]
-    assert [t["name"] for t in pipeline["tasks"]] == ["s5-fetch", "s5-check"]
+    assert [t["name"] for t in pipeline["tasks"]] == [
+        "freeze-check", "s5-fetch", "s5-check"
+    ]
+    assert pipeline["tasks"][0]["taskRef"] == {"name": "bifrost-release-freeze-check"}
+    assert "runAfter" not in pipeline["tasks"][0]
     assert "finally" not in pipeline
     for task in pipeline["tasks"]:
         assert not set(task) & {"when", "taskSpec", "matrix", "retries", "onError"}
         assert set(task["taskRef"]) == {"name"}
+    for task in pipeline["tasks"][1:]:
         p = {p["name"]: p["value"] for p in task["params"]}
         assert p["base"] == "$(params.base)" and p["revision"] == "$(params.revision)"
         assert (
@@ -49,7 +54,8 @@ def test_mandatory_task_has_no_skip_or_inline_escape():
             p["uiRevision"] == "$(params.uiRevision)"
             and p["ciUID"] == "$(context.pipelineRun.uid)"
         )
-    assert pipeline["tasks"][1]["runAfter"] == ["s5-fetch"]
+    assert pipeline["tasks"][1]["runAfter"] == ["freeze-check"]
+    assert pipeline["tasks"][2]["runAfter"] == ["s5-fetch"]
     assert all(
         r["value"].startswith("$(tasks.s5-check.results.") for r in pipeline["results"]
     )
