@@ -1,0 +1,67 @@
+# W-31 S6 §5. IMAGE_DIGEST is UNBUILT until Owner builds and pins the tools image.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: bifrost-build-ci-infra-tools
+  namespace: cicd
+  annotations:
+    bifrost.io/run-arch: amd64
+spec:
+  params:
+  - name: revision
+    type: string
+  workspaces:
+  - name: source
+  results:
+  - name: image-digest
+    value: $(tasks.build.results.digest)
+  tasks:
+  - name: clone
+    taskRef:
+      name: bifrost-git-clone-gitea
+    params:
+    - name: url
+      value: http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-trade-infra.git
+    - name: revision
+      value: $(params.revision)
+    - name: subdir
+      value: bifrost-trade-infra
+    workspaces:
+    - name: output
+      workspace: source
+  - name: build
+    runAfter:
+    - clone
+    params:
+    - name: revision
+      value: $(tasks.clone.results.commit)
+    workspaces:
+    - name: source
+      workspace: source
+    taskSpec:
+      params:
+      - name: revision
+        type: string
+      workspaces:
+      - name: source
+      results:
+      - name: digest
+      steps:
+      - name: build-and-push
+        image: gcr.io/kaniko-project/executor:v1.23.2
+        args:
+        - --dockerfile=docker/ci-infra/Dockerfile
+        - --context=$(workspaces.source.path)/bifrost-trade-infra
+        - --destination=registry.cicd.svc.cluster.local:5000/bifrost-ci-infra-tools:$(params.revision)
+        - --digest-file=$(results.digest.path)
+        - --custom-platform=linux/amd64
+        - --insecure
+        - --skip-tls-verify
+        - --insecure-registry=registry.cicd.svc.cluster.local:5000
+        computeResources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: '2'
+            memory: 2Gi

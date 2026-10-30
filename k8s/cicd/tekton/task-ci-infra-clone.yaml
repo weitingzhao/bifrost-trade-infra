@@ -1,0 +1,93 @@
+# W-31 S6 §5. IMAGE_DIGEST is UNBUILT until Owner builds and pins the tools image.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-ci-infra-clone
+  namespace: cicd
+spec:
+  params:
+  - name: revision
+    type: string
+  - name: base
+    type: string
+  - name: platformRevision
+    type: string
+  - name: purpose
+    type: string
+  results:
+  - name: commit
+  - name: base-commit
+  - name: platform-commit
+  workspaces:
+  - name: source
+  steps:
+  - name: clone
+    image: registry.cicd.svc.cluster.local:5000/bifrost-ci-infra-tools@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    env:
+    - name: GIT_USERNAME
+      valueFrom:
+        secretKeyRef:
+          name: gitea-ci-reader
+          key: username
+    - name: GIT_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: gitea-ci-reader
+          key: password
+    - name: REVISION
+      value: $(params.revision)
+    - name: BASE
+      value: $(params.base)
+    - name: PLATFORM_REVISION
+      value: $(params.platformRevision)
+    - name: PURPOSE
+      value: $(params.purpose)
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      # Credential only in environment; no argv, credential file, URL or tracing.
+      auth="$(printf '%s:%s' "${GIT_USERNAME:?}" "${GIT_PASSWORD:?}" | base64 | tr -d '\n')"
+      unset GIT_USERNAME GIT_PASSWORD
+      git_read() {
+        GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 \
+        GIT_CONFIG_COUNT=3 \
+        GIT_CONFIG_KEY_0=http.http://gitea.cicd.svc.cluster.local:3000/.extraHeader \
+        GIT_CONFIG_VALUE_0="Authorization: Basic $auth" \
+        GIT_CONFIG_KEY_1=http.followRedirects GIT_CONFIG_VALUE_1=false \
+        GIT_CONFIG_KEY_2=credential.helper GIT_CONFIG_VALUE_2= \
+        timeout 30 git "$@"
+      }
+      valid_sha() { [[ "$1" =~ ^[0-9a-f]{40}$ && "$1" != 0000000000000000000000000000000000000000 ]]; }
+      valid_sha "$REVISION" && valid_sha "$PLATFORM_REVISION" || exit 2
+      case "$PURPOSE" in landing|push) ;; *) exit 2 ;; esac
+      if [[ "$PURPOSE" == push && "$BASE" == 0000000000000000000000000000000000000000 ]]; then BASE=''; fi
+      if [[ -n "$BASE" ]]; then valid_sha "$BASE" || exit 2; else [[ "$PURPOSE" == push ]] || exit 2; fi
+      ws="$(workspaces.source.path)"
+      mkdir -p "$ws/cand" "$ws/base"
+      # A nonempty checkout is an error, not an invitation to delete a previous run.
+      for item in bifrost-trade-infra bifrost-platform; do
+        target="$ws/cand/$item"
+        [[ ! -e "$target" ]] || { echo checkout_exists >&2; exit 1; }
+        git init -q "$target"
+        git -C "$target" remote add origin "http://gitea.cicd.svc.cluster.local:3000/bifrost/$item.git"
+        if [[ "$item" == bifrost-trade-infra ]]; then rev="$REVISION"; depth=2; else rev="$PLATFORM_REVISION"; depth=1; fi
+        git_read -C "$target" fetch -q --depth="$depth" origin "$rev" 2>/dev/null || { echo clone_failed >&2; exit 1; }
+        git -C "$target" checkout -q --detach "$rev"
+        [[ "$(git -C "$target" rev-parse HEAD)" == "$rev" ]] || exit 1
+      done
+      unset auth
+      infra="$ws/cand/bifrost-trade-infra"
+      if [[ -n "$BASE" ]]; then
+        parents="$(git -C "$infra" rev-list --parents -n1 "$REVISION")"
+        [[ "$parents" == "$REVISION $BASE" ]] || { echo base_mismatch >&2; exit 1; }
+        git -C "$infra" worktree add --detach "$ws/base/bifrost-trade-infra" "$BASE"
+      fi
+      for link in CLAUDE.md AGENT_FACTS.md AGENTS.md DESIGN_CONTRACTS.md .mcp.json .mcp.json.README.md; do
+        ln -s "bifrost-trade-infra/agent-config/$link" "$ws/cand/$link"
+      done
+      ln -s bifrost-trade-infra/agent-config/claude "$ws/cand/.claude"
+      ln -s bifrost-trade-infra/agent-config/cursor "$ws/cand/.cursor"
+      ln -s bifrost-trade-infra/agent-config/scripts "$ws/cand/scripts"
+      printf '%s' "$REVISION" > "$(results.commit.path)"
+      printf '%s' "$BASE" > "$(results.base-commit.path)"
+      printf '%s' "$PLATFORM_REVISION" > "$(results.platform-commit.path)"

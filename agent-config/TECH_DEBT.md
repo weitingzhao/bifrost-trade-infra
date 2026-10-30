@@ -3617,6 +3617,17 @@
 - **防线**：接口测试——同一 op 连续两次取材料第二次不再读 Git；Console 测试——单进入终态后不再发材料请求。
 - **验收**：Console 开着四张已执行单的页面时，新单的 `handin.sh material` 在 10 秒内返回。
 
+### TD-461
+
+**P2 · infra code-health · 绝对基线与实测有历史差距**
+
+- **状态**：未开始（2026-10-30，W-31 S6 §5.6）。
+- **证据**：`agent-config/scripts/code-health/scan.sh:239`、`:246`、`:298`；在 infra `70c66c5` 上离线扫描得到 shell 重复函数 10 / 基线 3、Python 重复函数 35 / 基线 1、超过 500 行文件 57 / 基线 3。设计中的旧观测为 `85f578e` 的 10、34、52，本次没有抬高 `baselines.env`。
+- **影响**：直接使用绝对基线会使 infra CI 恒红；此前 infra 没有这道交付门禁。
+- **修法**：单独分批减少重复与超长文件，降到现有绝对基线；本项不借修改基线消除历史差距。
+- **防线**：S6 `scripts/landing/coverage_infra.py` 用 M0 扫描器比较 M0 与 R；任一指标增长即拒绝；`test_ci_infra_stages.py::test_health_real_500_to_501` 验证文档越过 500 行必红，缺失/不完整结果不算通过。
+- **验收**：在完整工作区运行 `bash bifrost-trade-infra/agent-config/scripts/code-health/scan.sh --repo bifrost-trade-infra` 退出 0，且未上调任何基线。
+
 ### TD-460
 
 **P2 · platform B5 · 首次 STG 自动发布 canary 缺「创建样本 / 收尾」的操作入口**

@@ -280,6 +280,23 @@ spec:
         - ref: bifrost-gitea-push-ui
       template:
         ref: bifrost-ci-frontend-template
+    - name: infra-ci
+      interceptors:
+        - ref:
+            name: cel
+          params:
+            - name: filter
+              value: >-
+                body.repository.full_name == 'bifrost/bifrost-trade-infra' &&
+                body.ref.startsWith('refs/heads/') &&
+                !body.ref.startsWith('refs/heads/land/') &&
+                !body.ref.startsWith('refs/heads/agent/') &&
+                body.after.matches('^[0-9a-f]{40}$') &&
+                body.after != '0000000000000000000000000000000000000000'
+      bindings:
+        - ref: bifrost-gitea-push-infra
+      template:
+        ref: bifrost-ci-infra-template
     # L1: Platform repo (control plane)
     - name: platform-ci
       interceptors:
@@ -335,3 +352,73 @@ spec:
         - ref: bifrost-gitea-push
       template:
         ref: bifrost-github-sync-template
+
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: bifrost-gitea-push-infra
+  namespace: cicd
+spec:
+  params:
+  - name: revision
+    value: $(body.after)
+  - name: base
+    value: $(body.before)
+  - name: purpose
+    value: push
+
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: bifrost-ci-infra-template
+  namespace: cicd
+spec:
+  params:
+  - name: revision
+  - name: base
+  - name: purpose
+  resourcetemplates:
+  - apiVersion: tekton.dev/v1
+    kind: PipelineRun
+    metadata:
+      generateName: ci-infra-
+      namespace: cicd
+      labels:
+        tekton.dev/pipeline: bifrost-ci-infra
+        bifrost.io/repo: bifrost-trade-infra
+        bifrost.io/purpose: push
+        bifrost.io/revision: $(tt.params.revision)
+    spec:
+      pipelineRef:
+        name: bifrost-ci-infra
+      params:
+      - name: revision
+        value: $(tt.params.revision)
+      - name: base
+        value: $(tt.params.base)
+      - name: purpose
+        value: $(tt.params.purpose)
+      - name: platformRevision
+        value: ''
+      - name: generation
+        value: ''
+      taskRunTemplate:
+        podTemplate:
+          nodeSelector:
+            kubernetes.io/arch: amd64
+          tolerations:
+          - key: node-role.kubernetes.io/control-plane
+            operator: Exists
+            effect: NoSchedule
+      workspaces:
+      - name: source
+        volumeClaimTemplate:
+          spec:
+            accessModes:
+            - ReadWriteOnce
+            storageClassName: local-path
+            resources:
+              requests:
+                storage: 2Gi

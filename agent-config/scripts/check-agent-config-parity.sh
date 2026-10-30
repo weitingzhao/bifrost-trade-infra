@@ -15,11 +15,22 @@
 
 set -uo pipefail
 
+# S6: explicit candidate-tree mode, before any host/hook/ref inspection.
+static_tree=''
+if [ "${1-}" = --static-tree ]; then
+  [ "$#" -eq 2 ] && [ -d "$2" ] || { echo 'invalid --static-tree' >&2; exit 2; }
+  static_tree="$(cd "$2" && pwd -P)"
+elif [ "$#" -ne 0 ]; then
+  echo 'unknown parity argument' >&2; exit 2
+fi
+
 # 向上查找工作区根（标记：bifrost-platform/config/ops-context.yaml），
 # 使脚本无论放在工作区根的 scripts/ 还是 bifrost-trade-infra/agent-config/scripts/ 都能工作。
 dir="$(cd "$(dirname "$0")" && pwd)"
 root=""
+if [ -n "$static_tree" ]; then root="$static_tree"; fi
 for _ in 1 2 3 4 5 6 7 8; do
+  [ -n "$root" ] && break
   if [ -f "$dir/bifrost-platform/config/ops-context.yaml" ]; then root="$dir"; break; fi
   parent="$(dirname "$dir")"
   [ "$parent" = "$dir" ] && break
@@ -31,11 +42,26 @@ if [ -z "$root" ]; then
 fi
 cd "$root" || exit 1
 
-exec python3 - "$root" <<'PY'
+exec python3 - "$root" "$static_tree" <<'PY'
 import sys, re, pathlib, json
 
 ROOT = pathlib.Path(sys.argv[1])
+STATIC = bool(sys.argv[2])
 fails, warns = [], []
+
+if STATIC:
+    for name in ('CLAUDE.md', 'AGENT_FACTS.md', '.cursor/rules', '.cursor/skills',
+                 '.claude/skills', 'bifrost-platform/config/ops-context.yaml'):
+        path = ROOT / name
+        if not path.exists() or not path.resolve().is_relative_to(ROOT):
+            print(f'FAIL parity-static missing/outside candidate: {name}')
+            sys.exit(1)
+    # Follow only workspace links which resolve into this candidate tree.
+    for pattern in ('.cursor/rules/*.mdc', '.cursor/skills/*/SKILL.md', '.claude/skills/*/SKILL.md'):
+        for path in ROOT.glob(pattern):
+            if not path.resolve().is_relative_to(ROOT):
+                print(f'FAIL parity-static outside candidate: {path}')
+                sys.exit(1)
 
 def rel(p): return str(p.relative_to(ROOT))
 
@@ -129,6 +155,14 @@ if spine.exists():
             if status == 'UNLOCKED' and 'BLOCKED' in t:
                 fails.append(f"{rel(f)} 仍写 D10 BLOCKED，但 spine 已 UNLOCKED — 需同步解冻文档")
         print(f"  spine D10 = {status}")
+
+if STATIC:
+    if not cursor_ids or not claude_ids:
+        fails.append('parity-static empty rule set')
+    for failure in fails:
+        print(f'FAIL parity-static {failure}')
+    print(f'parity-static: Cursor {len(cursor_ids)} / Claude {len(claude_ids)}; failures={len(fails)}')
+    sys.exit(bool(fails))
 
 # ─────────── 5. 硬边界 hook 接线 ───────────
 guard = ROOT / 'scripts/agent-guard/preflight.js'

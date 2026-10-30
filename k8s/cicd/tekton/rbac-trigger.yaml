@@ -8,6 +8,9 @@ metadata:
     bifrost.io/purpose: ci-trigger
 ---
 # The EventListener SA needs to create PipelineRuns in the cicd namespace.
+# W-31 S6: this existing create permission also covers bifrost-ci-infra.
+# Kubernetes RBAC cannot restrict create by pipelineRef; no new verb, resource,
+# Secret permission or cluster scope is required (design §5.2).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:

@@ -1,0 +1,286 @@
+# W-31 S6 §5. IMAGE_DIGEST is UNBUILT until Owner builds and pins the tools image.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-ci-infra-check
+  namespace: cicd
+spec:
+  params:
+  - name: revision
+    type: string
+  - name: base
+    type: string
+  - name: platformRevision
+    type: string
+  - name: generation
+    type: string
+  - name: purpose
+    type: string
+  results:
+  - name: tools-from
+  - name: doc-policy
+  - name: purpose
+  workspaces:
+  - name: source
+  steps:
+  - name: tools
+    image: registry.cicd.svc.cluster.local:5000/bifrost-ci-infra-tools@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    env:
+    - name: REVISION
+      value: $(params.revision)
+    - name: BASE
+      value: $(params.base)
+    - name: PLATFORM_REVISION
+      value: $(params.platformRevision)
+    - name: PURPOSE
+      value: $(params.purpose)
+    - name: GENERATION
+      value: $(params.generation)
+    computeResources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: '2'
+        memory: 2Gi
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      ws="$(workspaces.source.path)"
+      entry="$ws/base/bifrost-trade-infra/scripts/landing/ci-infra.sh"
+      if [[ "$PURPOSE" == push && -z "$BASE" ]]; then entry="$ws/cand/bifrost-trade-infra/scripts/landing/ci-infra.sh"; fi
+      bash "$entry" --stage tools --cand "$ws/cand" --base "$ws/base" \
+        --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
+        --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results
+  - name: scope
+    image: registry.cicd.svc.cluster.local:5000/bifrost-ci-infra-tools@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    env:
+    - name: REVISION
+      value: $(params.revision)
+    - name: BASE
+      value: $(params.base)
+    - name: PLATFORM_REVISION
+      value: $(params.platformRevision)
+    - name: PURPOSE
+      value: $(params.purpose)
+    - name: GENERATION
+      value: $(params.generation)
+    computeResources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: '2'
+        memory: 2Gi
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      ws="$(workspaces.source.path)"
+      entry="$ws/base/bifrost-trade-infra/scripts/landing/ci-infra.sh"
+      if [[ "$PURPOSE" == push && -z "$BASE" ]]; then entry="$ws/cand/bifrost-trade-infra/scripts/landing/ci-infra.sh"; fi
+      bash "$entry" --stage scope --cand "$ws/cand" --base "$ws/base" \
+        --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
+        --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results
+  - name: consumers
+    image: registry.cicd.svc.cluster.local:5000/bifrost-ci-infra-tools@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    env:
+    - name: REVISION
+      value: $(params.revision)
+    - name: BASE
+      value: $(params.base)
+    - name: PLATFORM_REVISION
+      value: $(params.platformRevision)
+    - name: PURPOSE
+      value: $(params.purpose)
+    - name: GENERATION
+      value: $(params.generation)
+    computeResources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: '2'
+        memory: 2Gi
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      ws="$(workspaces.source.path)"
+      entry="$ws/base/bifrost-trade-infra/scripts/landing/ci-infra.sh"
+      if [[ "$PURPOSE" == push && -z "$BASE" ]]; then entry="$ws/cand/bifrost-trade-infra/scripts/landing/ci-infra.sh"; fi
+      bash "$entry" --stage consumers --cand "$ws/cand" --base "$ws/base" \
+        --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
+        --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results
+  - name: doc-policy
+    image: registry.cicd.svc.cluster.local:5000/bifrost-ci-infra-tools@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    env:
+    - name: REVISION
+      value: $(params.revision)
+    - name: BASE
+      value: $(params.base)
+    - name: PLATFORM_REVISION
+      value: $(params.platformRevision)
+    - name: PURPOSE
+      value: $(params.purpose)
+    - name: GENERATION
+      value: $(params.generation)
+    computeResources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: '2'
+        memory: 2Gi
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      ws="$(workspaces.source.path)"
+      entry="$ws/base/bifrost-trade-infra/scripts/landing/ci-infra.sh"
+      if [[ "$PURPOSE" == push && -z "$BASE" ]]; then entry="$ws/cand/bifrost-trade-infra/scripts/landing/ci-infra.sh"; fi
+      bash "$entry" --stage doc-policy --cand "$ws/cand" --base "$ws/base" \
+        --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
+        --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results
+  - name: quick
+    image: registry.cicd.svc.cluster.local:5000/bifrost-ci-infra-tools@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    env:
+    - name: REVISION
+      value: $(params.revision)
+    - name: BASE
+      value: $(params.base)
+    - name: PLATFORM_REVISION
+      value: $(params.platformRevision)
+    - name: PURPOSE
+      value: $(params.purpose)
+    - name: GENERATION
+      value: $(params.generation)
+    computeResources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: '2'
+        memory: 2Gi
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      ws="$(workspaces.source.path)"
+      entry="$ws/base/bifrost-trade-infra/scripts/landing/ci-infra.sh"
+      if [[ "$PURPOSE" == push && -z "$BASE" ]]; then entry="$ws/cand/bifrost-trade-infra/scripts/landing/ci-infra.sh"; fi
+      bash "$entry" --stage quick --cand "$ws/cand" --base "$ws/base" \
+        --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
+        --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results
+  - name: statics
+    image: registry.cicd.svc.cluster.local:5000/bifrost-ci-infra-tools@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    env:
+    - name: REVISION
+      value: $(params.revision)
+    - name: BASE
+      value: $(params.base)
+    - name: PLATFORM_REVISION
+      value: $(params.platformRevision)
+    - name: PURPOSE
+      value: $(params.purpose)
+    - name: GENERATION
+      value: $(params.generation)
+    computeResources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: '2'
+        memory: 2Gi
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      ws="$(workspaces.source.path)"
+      entry="$ws/base/bifrost-trade-infra/scripts/landing/ci-infra.sh"
+      if [[ "$PURPOSE" == push && -z "$BASE" ]]; then entry="$ws/cand/bifrost-trade-infra/scripts/landing/ci-infra.sh"; fi
+      bash "$entry" --stage statics --cand "$ws/cand" --base "$ws/base" \
+        --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
+        --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results
+  - name: kustomize
+    image: registry.cicd.svc.cluster.local:5000/bifrost-ci-infra-tools@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    env:
+    - name: REVISION
+      value: $(params.revision)
+    - name: BASE
+      value: $(params.base)
+    - name: PLATFORM_REVISION
+      value: $(params.platformRevision)
+    - name: PURPOSE
+      value: $(params.purpose)
+    - name: GENERATION
+      value: $(params.generation)
+    computeResources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: '2'
+        memory: 2Gi
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      ws="$(workspaces.source.path)"
+      entry="$ws/base/bifrost-trade-infra/scripts/landing/ci-infra.sh"
+      if [[ "$PURPOSE" == push && -z "$BASE" ]]; then entry="$ws/cand/bifrost-trade-infra/scripts/landing/ci-infra.sh"; fi
+      bash "$entry" --stage kustomize --cand "$ws/cand" --base "$ws/base" \
+        --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
+        --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results
+  - name: code-health
+    image: registry.cicd.svc.cluster.local:5000/bifrost-ci-infra-tools@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    env:
+    - name: REVISION
+      value: $(params.revision)
+    - name: BASE
+      value: $(params.base)
+    - name: PLATFORM_REVISION
+      value: $(params.platformRevision)
+    - name: PURPOSE
+      value: $(params.purpose)
+    - name: GENERATION
+      value: $(params.generation)
+    computeResources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: '2'
+        memory: 2Gi
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      ws="$(workspaces.source.path)"
+      entry="$ws/base/bifrost-trade-infra/scripts/landing/ci-infra.sh"
+      if [[ "$PURPOSE" == push && -z "$BASE" ]]; then entry="$ws/cand/bifrost-trade-infra/scripts/landing/ci-infra.sh"; fi
+      bash "$entry" --stage code-health --cand "$ws/cand" --base "$ws/base" \
+        --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
+        --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results
+  - name: parity-static
+    image: registry.cicd.svc.cluster.local:5000/bifrost-ci-infra-tools@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    env:
+    - name: REVISION
+      value: $(params.revision)
+    - name: BASE
+      value: $(params.base)
+    - name: PLATFORM_REVISION
+      value: $(params.platformRevision)
+    - name: PURPOSE
+      value: $(params.purpose)
+    - name: GENERATION
+      value: $(params.generation)
+    computeResources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: '2'
+        memory: 2Gi
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      ws="$(workspaces.source.path)"
+      entry="$ws/base/bifrost-trade-infra/scripts/landing/ci-infra.sh"
+      if [[ "$PURPOSE" == push && -z "$BASE" ]]; then entry="$ws/cand/bifrost-trade-infra/scripts/landing/ci-infra.sh"; fi
+      bash "$entry" --stage parity-static --cand "$ws/cand" --base "$ws/base" \
+        --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
+        --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results

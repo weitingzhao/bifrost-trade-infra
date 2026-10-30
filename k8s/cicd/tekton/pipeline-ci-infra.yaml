@@ -1,0 +1,84 @@
+# W-31 S6 §5. IMAGE_DIGEST is UNBUILT until Owner builds and pins the tools image.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: bifrost-ci-infra
+  namespace: cicd
+  annotations:
+    bifrost.io/run-arch: amd64
+spec:
+  params:
+  - name: revision
+    type: string
+  - name: base
+    type: string
+    default: ''
+  - name: platformRevision
+    type: string
+    default: ''
+  - name: generation
+    type: string
+    default: ''
+  - name: purpose
+    type: string
+    default: push
+  workspaces:
+  - name: source
+  results:
+  - name: infra-commit
+    value: $(tasks.clone.results.commit)
+  - name: base-commit
+    value: $(tasks.clone.results.base-commit)
+  - name: platform-commit
+    value: $(tasks.clone.results.platform-commit)
+  - name: tools-from
+    value: $(tasks.check.results.tools-from)
+  - name: doc-policy
+    value: $(tasks.check.results.doc-policy)
+  - name: purpose
+    value: $(tasks.check.results.purpose)
+  tasks:
+  - name: resolve
+    taskRef:
+      name: bifrost-ci-infra-resolve
+    params:
+    - name: platformRevision
+      value: $(params.platformRevision)
+    - name: purpose
+      value: $(params.purpose)
+  - name: clone
+    taskRef:
+      name: bifrost-ci-infra-clone
+    params:
+    - name: revision
+      value: $(params.revision)
+    - name: base
+      value: $(params.base)
+    - name: platformRevision
+      value: $(tasks.resolve.results.platform-commit)
+    - name: purpose
+      value: $(params.purpose)
+    runAfter:
+    - resolve
+    workspaces:
+    - name: source
+      workspace: source
+  - name: check
+    taskRef:
+      name: bifrost-ci-infra-check
+    params:
+    - name: revision
+      value: $(params.revision)
+    - name: base
+      value: $(tasks.clone.results.base-commit)
+    - name: platformRevision
+      value: $(tasks.clone.results.platform-commit)
+    - name: generation
+      value: $(params.generation)
+    - name: purpose
+      value: $(params.purpose)
+    runAfter:
+    - clone
+    workspaces:
+    - name: source
+      workspace: source

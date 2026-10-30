@@ -1,0 +1,68 @@
+# W-31 S6 §5. IMAGE_DIGEST is UNBUILT until Owner builds and pins the tools image.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-ci-infra-resolve
+  namespace: cicd
+spec:
+  params:
+  - name: platformRevision
+    type: string
+    default: ''
+  - name: purpose
+    type: string
+    default: push
+  results:
+  - name: platform-commit
+  steps:
+  - name: resolve
+    image: registry.cicd.svc.cluster.local:5000/bifrost-ci-infra-tools@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    env:
+    - name: GIT_USERNAME
+      valueFrom:
+        secretKeyRef:
+          name: gitea-ci-reader
+          key: username
+    - name: GIT_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: gitea-ci-reader
+          key: password
+    - name: PLATFORM_REVISION
+      value: $(params.platformRevision)
+    - name: PURPOSE
+      value: $(params.purpose)
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      # Credential only in environment; no argv, credential file, URL or tracing.
+      auth="$(printf '%s:%s' "${GIT_USERNAME:?}" "${GIT_PASSWORD:?}" | base64 | tr -d '\n')"
+      unset GIT_USERNAME GIT_PASSWORD
+      git_read() {
+        GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 \
+        GIT_CONFIG_COUNT=3 \
+        GIT_CONFIG_KEY_0=http.http://gitea.cicd.svc.cluster.local:3000/.extraHeader \
+        GIT_CONFIG_VALUE_0="Authorization: Basic $auth" \
+        GIT_CONFIG_KEY_1=http.followRedirects GIT_CONFIG_VALUE_1=false \
+        GIT_CONFIG_KEY_2=credential.helper GIT_CONFIG_VALUE_2= \
+        timeout 30 git "$@"
+      }
+      valid_sha() { [[ "$1" =~ ^[0-9a-f]{40}$ && "$1" != 0000000000000000000000000000000000000000 ]]; }
+      case "$PURPOSE" in landing|push) ;; *) exit 2 ;; esac
+      if [[ -n "$PLATFORM_REVISION" ]]; then
+        valid_sha "$PLATFORM_REVISION" || { echo invalid_platform_revision >&2; exit 1; }
+        resolved="$PLATFORM_REVISION"
+      else
+        [[ "$PURPOSE" == push ]] || { echo platform_revision_missing >&2; exit 1; }
+        resolved=''
+        for attempt in 1 2 3; do
+          if output="$(git_read ls-remote http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-platform.git refs/heads/main 2>/dev/null)"; then
+            read -r resolved ref extra <<< "$output"
+            if valid_sha "$resolved" && [[ "$ref" == refs/heads/main && -z "$extra" && "$output" != *$'\n'* ]]; then break; fi
+          fi
+          resolved=''
+        done
+        valid_sha "$resolved" || { echo platform_resolve_failed >&2; exit 1; }
+      fi
+      unset auth
+      printf '%s' "$resolved" > "$(results.platform-commit.path)"
