@@ -3602,3 +3602,14 @@
 - **修法**：`run` 在 `proposed` 时按退避等到 `ready`（有上限，超时报清楚的原因）；`squash` 的恢复状态按（任务, 尝试序号）记，或在上一轮尝试已交付（`a<n>` 已推、已 submit）时自动归档旧状态；同一任务的各轮沿用第一次的 Change-Id。
 - **防线**：`test_handin.sh` 加两组：proposed→ready 自动等待（含超时）；第 1 轮已交付后第 2 轮 squash 成功且 Change-Id 不变。
 - **验收**：两组测试通过；下一次真实返工无需手工处理本地状态。
+
+### TD-459
+
+**P1 · platform 授权材料 · 每次请求重算约 50 秒，Console 对已执行的单持续轮询，把 api 占满，新单取材料 503**
+
+- **状态**：未开始（2026-10-29）。
+- **证据**：2026-10-29 21:57–21:59 CDT PROD platform-api 访问日志：来自 Console（`10.42.6.34`，host ops.bifrost.lan）的 `GET /api/v1/agentrt/landing/<op>/material?stg_release=false` 对四个**已落地、单已执行**的操作（#191–#194 对应的 `land:t_01M64V09…:1`、`land:t_01M64XRF…:1`、`land:t_01M650MW…:1`）每几秒一次，每次 33–58 秒（S6-6 的 102 KB）；同期统筹为 B5-e（`land:t_01M658DP…:1`，42 文件）取材料连续 503（40 秒服务端上限），`handin.sh material` 三次 `HTTP 000`。
+- **影响**：只要 Console 开着审批 / 授权页，新的软底线 / 核心级单就建不出来；api 的 Git 读取与 CPU 被已结束的单白白占用。
+- **修法**：材料按（op、R、规则版本、`stg_release`）缓存，终态（landed / failed / 单已执行）只读缓存；Console 对终态单停止轮询（或只在打开时取一次）；材料计算加并发上限，排队可见而不是 40 秒后 503。
+- **防线**：接口测试——同一 op 连续两次取材料第二次不再读 Git；Console 测试——单进入终态后不再发材料请求。
+- **验收**：Console 开着四张已执行单的页面时，新单的 `handin.sh material` 在 10 秒内返回。
