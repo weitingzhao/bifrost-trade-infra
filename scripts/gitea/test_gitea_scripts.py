@@ -27,8 +27,10 @@ from pathlib import Path
 
 try:
     from .file_http_fixture import ThreadingHTTPServer
+    from .protection_fixture import protection_rule
 except ImportError:
     from file_http_fixture import ThreadingHTTPServer
+    from protection_fixture import protection_rule
 
 HERE = Path(__file__).resolve().parent
 GIT_ENV = {
@@ -126,11 +128,11 @@ class FakeApi:
                 if self.command == "POST" and path.endswith("/mirror-sync"):
                     return self._send(200, {})
                 if path.endswith("/branch_protections") and self.command == "GET":
-                    return self._send(200, list(rules.values()))
+                    return self._send(200, [protection_rule(name, **row) for name, row in rules.items()])
                 if path.endswith("/branch_protections") and self.command == "POST":
                     if drop_merge_whitelist:
                         body = {**body, "enable_merge_whitelist": False}
-                    rules[body["rule_name"]] = body
+                    rules[body["rule_name"]] = protection_rule(body["rule_name"], **body)
                     return self._send(201, body)
                 if "/branch_protections/" in path:
                     name = path.split("/branch_protections/", 1)[1]

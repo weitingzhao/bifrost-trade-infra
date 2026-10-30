@@ -8,13 +8,15 @@ import sys
 
 import pytest
 
+from protection_fixture import PROTECTION_DEFAULTS, protection_rule
+
 HERE = Path(__file__).resolve().parent
 
 # Independent expectations: do not ask production code to generate its oracle.
 def expected(repo):
     landing = repo in ("bifrost-platform", "bifrost-trade-infra")
     teams = [] if landing else ["maintainers"]
-    main = {"rule_name": "main", "enable_push": True, "enable_push_whitelist": True,
+    main = {**protection_rule("main"), "enable_push": True, "enable_push_whitelist": True,
             "push_whitelist_usernames": ["vision", "agentrt-lander"] if landing else ["vision"],
             "push_whitelist_teams": teams, "push_whitelist_deploy_keys": False, "unprotected_file_patterns": "",
             "enable_merge_whitelist": True, "merge_whitelist_usernames": ["vision"],
@@ -36,7 +38,7 @@ gitea_connect() { :; }
 gitea_api() { "$TEST_PYTHON" "$TEST_API" "$@"; }
 ''')
     api = tmp_path / "api.py"
-    api.write_text('''import json, os, sys
+    api.write_text('PROTECTION_DEFAULTS = ' + repr(PROTECTION_DEFAULTS) + '\n' + '''import json, os, sys
 from pathlib import Path
 from urllib.parse import unquote
 state = Path(os.environ["TEST_STATE"])
@@ -53,13 +55,16 @@ if path == "/user":
 elif method == "GET":
     if fault == "malformed": print("not json")
     elif fault == "null": print("null")
-    else: print(json.dumps(list(rules.values())))
+    else:
+        if fault.startswith("omit:"): rules["main"].pop(fault.split(":", 1)[1])
+        if fault.startswith("invalid:"): rules["main"][fault.split(":", 1)[1]] = {"fixture-secret-must-not-leak": True}
+        print(json.dumps(list(rules.values())))
 elif fault == "refuse":
     sys.stderr.write("fixture-secret-must-not-leak")
     sys.exit(1)
 else:
     if method == "POST" and path.endswith("/branch_protections"):
-        data = json.loads(body[0]); rules[data["rule_name"]] = data
+        data = json.loads(body[0]); rules[data["rule_name"]] = {**PROTECTION_DEFAULTS, **data}
     elif method == "PATCH":
         rules[unquote(path.rsplit("/", 1)[1])].update(json.loads(body[0]))
     elif method == "DELETE":
@@ -70,7 +75,7 @@ else:
     if fault == "hardening" and method == "PATCH": rules["main"]["required_approvals"] = 0
     if fault == "other_rule": rules["release/**"]["enable_push"] = True
     if fault == "missing_post" and method == "POST": rules.pop(json.loads(body[0])["rule_name"])
-    if fault == "extra_rule": rules["release/unexpected"] = {"rule_name": "release/unexpected"}
+    if fault == "extra_rule": rules["release/unexpected"] = {**PROTECTION_DEFAULTS, "rule_name": "release/unexpected"}
     state.write_text(json.dumps(rules))
     print("{}")
 ''')
@@ -112,7 +117,7 @@ def test_s0_infra_upgrade_only_patches_push_users_and_preserves_hardening(fake):
     state, calls, run, _ = fake
     main = expected("bifrost-trade-infra")["main"]
     main.update(push_whitelist_usernames=["vision"], required_approvals=2, enable_status_check=True)
-    initial = {"main": main, "agent/**": {"rule_name": "agent/**"}}
+    initial = {"main": main, "agent/**": protection_rule("agent/**")}
     state.write_text(json.dumps(initial))
     result = run()
     assert result.returncode == 0 and '"method":"PATCH"' in result.stdout
@@ -141,7 +146,7 @@ def test_existing_drift_blocks_every_mutation(fake, rule, field, value):
     state, calls, run, _ = fake
     rules = expected("bifrost-trade-infra")
     rules[rule][field] = value
-    rules["agent/**"] = {"rule_name": "agent/**"}
+    rules["agent/**"] = protection_rule("agent/**")
     before = json.dumps(rules)
     state.write_text(before)
     for option in ("--check", "--apply", "--dry-run"):
@@ -157,7 +162,7 @@ def test_existing_drift_blocks_every_mutation(fake, rule, field, value):
                                   "land/prod/中文", "land/prod/[é-ê]/**", "agent/中文"])
 def test_conflicting_rules_fail_before_writes(fake, name):
     state, calls, run, _ = fake
-    state.write_text(json.dumps({name: {"rule_name": name}}))
+    state.write_text(json.dumps({name: protection_rule(name)}))
     result = run("--apply")
     assert result.returncode == 1 and "STOPPED" in result.stderr
     assert all(line.startswith("GET ") for line in calls.read_text().splitlines())
@@ -166,7 +171,7 @@ def test_conflicting_rules_fail_before_writes(fake, name):
 @pytest.mark.parametrize("name", ["release/**", "land/stg/**", "main?", "ma[st]er", "agent/."])
 def test_unrelated_rule_is_preserved(fake, name):
     state, _, run, _ = fake
-    state.write_text(json.dumps({name: {"rule_name": name}}))
+    state.write_text(json.dumps({name: protection_rule(name)}))
     result = run("--apply")
     assert result.returncode == 0, result.stderr
     assert name in json.loads(state.read_text())
@@ -175,7 +180,7 @@ def test_unrelated_rule_is_preserved(fake, name):
 @pytest.mark.parametrize("fault", ["unreadable", "malformed", "null", "identity", "nonadmin", "refuse", "readback", "keep_agent"])
 def test_unknown_and_failed_write_never_pass(fake, fault):
     state, _, run, _ = fake
-    state.write_text(json.dumps({"agent/**": {"rule_name": "agent/**"}}))
+    state.write_text(json.dumps({"agent/**": protection_rule("agent/**")}))
     result = run("--apply", fault=fault)
     assert result.returncode != 0
     assert "FAIL" in result.stdout + result.stderr
@@ -223,7 +228,7 @@ def test_combined_probe_is_get_only_and_aggregates_failure(fake, tmp_path, fault
 @pytest.mark.parametrize("mode", ["--check", "--apply"])
 def test_review771_matching_entry_points(fake, pattern, blocked, mode):
     state, calls, run, _ = fake
-    rules = {pattern: {"rule_name": pattern, "enable_push": True}, **expected("bifrost-trade-infra")}
+    rules = {pattern: protection_rule(pattern, enable_push=True), **expected("bifrost-trade-infra")}
     state.write_text(json.dumps(rules))
     result = run(mode)
     assert result.returncode == (1 if blocked else 0), result.stdout + result.stderr
@@ -239,7 +244,7 @@ def test_review771_combined_matching(fake, tmp_path, pattern, blocked):
     from test_landing_drill_token import setup_fake
     from test_gitea_scripts import GITEA_TOKEN_FIXTURE, run_on_pty
     policy, calls, _, api_env = fake
-    policy.write_text(json.dumps({pattern: {"rule_name": pattern}, **expected("bifrost-trade-infra")}))
+    policy.write_text(json.dumps({pattern: protection_rule(pattern), **expected("bifrost-trade-infra")}))
     state, env, _, _ = setup_fake(tmp_path, "prod", "")
     result, echoed = run_on_pty(["bash", str(tmp_path / "probe-infra-access.sh"), "--owner", "vision", "prod"],
                                {**api_env, **env}, GITEA_TOKEN_FIXTURE)
@@ -253,8 +258,8 @@ def test_review771_combined_matching(fake, tmp_path, pattern, blocked):
 def migration_rules():
     main = expected("bifrost-trade-infra")["main"]
     main.update(push_whitelist_usernames=["vision"], required_approvals=2, enable_status_check=True)
-    return {"main": main, "agent/**": {"rule_name": "agent/**", "enable_push": False},
-            "release/**": {"rule_name": "release/**", "enable_push": False}}
+    return {"main": main, "agent/**": protection_rule("agent/**", enable_push=False),
+            "release/**": protection_rule("release/**", enable_push=False)}
 
 
 @pytest.mark.parametrize("fault,methods", [
@@ -324,7 +329,7 @@ def test_platform_existing_protection_requests_unchanged(fake, tmp_path, with_ag
     initial = expected("bifrost-platform")
     initial["main"].update(required_approvals=2, enable_status_check=True)
     if with_agent:
-        initial["agent/**"] = {"rule_name": "agent/**", "enable_push": False}
+        initial["agent/**"] = protection_rule("agent/**", enable_push=False)
     state.write_text(json.dumps(initial))
     result = run("--apply", repo="bifrost-platform")
     assert result.returncode == 0, result.stderr
@@ -344,7 +349,7 @@ def test_platform_existing_protection_requests_unchanged(fake, tmp_path, with_ag
 @pytest.mark.parametrize("pattern", ["release/[", "{release/*", "release/[a-bc]", "release/[]", "release/\\"])
 def test_ambiguous_glob_is_rejected_before_writes(fake, pattern):
     state, calls, run, _ = fake
-    state.write_text(json.dumps({pattern: {"rule_name": pattern}, **expected("bifrost-trade-infra")}))
+    state.write_text(json.dumps({pattern: protection_rule(pattern), **expected("bifrost-trade-infra")}))
     for mode in ("--check", "--apply"):
         result = run(mode)
         assert result.returncode == 1 and "STOPPED" in result.stderr
@@ -370,7 +375,7 @@ def test_snapshot_identity_and_external_changes_refuse_restore(fake, tmp_path):
 def test_snapshot_keeps_effective_priority_and_refuses_reorder(fake, tmp_path):
     state, calls, run, _ = fake
     initial = migration_rules()
-    initial["release/private/**"] = {"rule_name": "release/private/**", "enable_push": False}
+    initial["release/private/**"] = protection_rule("release/private/**", enable_push=False)
     state.write_text(json.dumps(initial))
     snapshot = tmp_path / "before.json"
     assert run("--snapshot", str(snapshot)).returncode == 0
@@ -435,3 +440,170 @@ def test_post_defaults_and_patch_timestamp_are_allowed_but_hardening_is_preserve
     result = run("--apply")
     assert result.returncode == 0, result.stdout + result.stderr
     assert json.loads(state.read_text())["main"]["required_approvals"] == 2
+
+
+# REVIEW-773 A-1: unknown settings must never become permissive restore values.
+def hardened_migration_rules():
+    rules = migration_rules()
+    rules["main"].update(require_signed_commits=True, protected_file_patterns="sensitive/**",
+                         status_check_contexts=["ci"])
+    return rules
+
+
+@pytest.mark.parametrize("field", PROTECTION_DEFAULTS)
+@pytest.mark.parametrize("fault", ["omit", "invalid"])
+@pytest.mark.parametrize("entry", ["explicit", "auto"])
+def test_review773_invalid_snapshot_read_stops_before_first_write(fake, tmp_path, field, fault, entry):
+    state, calls, run, _ = fake
+    initial = hardened_migration_rules()
+    state.write_text(json.dumps(initial))
+    snapshot = tmp_path / "invalid.json"
+    options = ("--snapshot", str(snapshot)) if entry == "explicit" else ("--apply",)
+    result = run(*options, fault=f"{fault}:{field}")
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "FAIL" in result.stderr
+    assert "Execution snapshot:" not in result.stdout
+    assert not snapshot.exists()
+    assert all(line.startswith("GET ") for line in calls.read_text().splitlines())
+    assert json.loads(state.read_text()) == initial
+
+
+@pytest.mark.parametrize("field", PROTECTION_DEFAULTS)
+@pytest.mark.parametrize("fault", ["omit", "invalid"])
+def test_review773_corrupt_snapshot_refuses_restore_and_verify(fake, tmp_path, field, fault):
+    state, calls, run, _ = fake
+    initial = hardened_migration_rules()
+    state.write_text(json.dumps(initial))
+    rows = list(hardened_migration_rules().values())
+    # Corrupt the removed agent rule too: validation must cover every rule.
+    if fault == "omit":
+        del rows[1][field]
+    else:
+        rows[1][field] = {"fixture-secret-must-not-leak": True}
+    snapshot = tmp_path / "corrupt.json"
+    snapshot.write_text(json.dumps({"version": 1, "org": "bifrost", "repo": "bifrost-trade-infra",
+                                    "owner": "vision", "rules": rows}))
+    for options in (("--restore", str(snapshot)), ("--restore", str(snapshot), "--apply"),
+                    ("--verify-snapshot", str(snapshot))):
+        result = run(*options)
+        assert result.returncode != 0, result.stdout + result.stderr
+        assert "FAIL protection state" in result.stderr and "PASS snapshot" not in result.stdout
+        assert all(line.startswith("GET ") for line in calls.read_text().splitlines())
+        assert json.loads(state.read_text()) == initial
+
+
+def test_review773_complete_snapshot_restores_every_protection_field(fake, tmp_path):
+    state, calls, run, _ = fake
+    initial = hardened_migration_rules()
+    # Non-default values on the deleted/recreated rule exercise every field.
+    initial["agent/**"].update({key: True if type(value) is bool else 3 if type(value) is int
+                                else ["reviewers"] if isinstance(value, list) else "sensitive/**"
+                                for key, value in PROTECTION_DEFAULTS.items()})
+    state.write_text(json.dumps(initial))
+    snapshot = tmp_path / "complete.json"
+    saved = run("--snapshot", str(snapshot))
+    assert saved.returncode == 0, saved.stderr
+    assert run("--apply").returncode == 0
+    restored = run("--restore", str(snapshot), "--apply")
+    assert restored.returncode == 0, restored.stdout + restored.stderr
+    assert "PASS snapshot" in restored.stdout
+    assert json.loads(state.read_text()) == initial
+    post = next(line for line in calls.read_text().splitlines() if line.startswith("POST "))
+    assert json.loads(post.split(" ", 2)[2]) == initial["agent/**"]
+    checked = run("--verify-snapshot", str(snapshot))
+    assert checked.returncode == 0 and "PASS snapshot" in checked.stdout
+
+
+@pytest.mark.parametrize("field", PROTECTION_DEFAULTS)
+def test_review773_restore_readback_checks_every_field(fake, tmp_path, field):
+    state, calls, run, env = fake
+    initial = hardened_migration_rules()
+    state.write_text(json.dumps(initial))
+    snapshot = tmp_path / "complete.json"
+    assert run("--snapshot", str(snapshot)).returncode == 0
+    assert run("--apply").returncode == 0
+    api = Path(env["TEST_API"])
+    default = PROTECTION_DEFAULTS[field]
+    wrong = not default if type(default) is bool else 5 if type(default) is int else ["extra"] if isinstance(default, list) else "wrong/**"
+    api.write_text(api.read_text().replace('state.write_text(json.dumps(rules))',
+        f'if method == "POST": rules["agent/**"][{field!r}] = {wrong!r}\n    state.write_text(json.dumps(rules))'))
+    result = run("--restore", str(snapshot), "--apply")
+    assert result.returncode != 0 and "FAIL" in result.stderr
+    assert "PASS snapshot" not in result.stdout
+    assert [line.split()[0] for line in calls.read_text().splitlines() if not line.startswith("GET ")] == ["PATCH", "POST"]
+    # Stop at the bad readback, before removing the new landing protection.
+    assert "land/prod/**" in json.loads(state.read_text())
+    checked = run("--verify-snapshot", str(snapshot))
+    assert checked.returncode != 0 and "PASS snapshot" not in checked.stdout
+
+
+def test_review773_explicit_null_lists_restore_as_empty_lists(fake, tmp_path):
+    state, _, run, _ = fake
+    initial = hardened_migration_rules()
+    initial["agent/**"].update({key: None for key, value in PROTECTION_DEFAULTS.items() if isinstance(value, list)})
+    state.write_text(json.dumps(initial))
+    snapshot = tmp_path / "null-lists.json"
+    assert run("--snapshot", str(snapshot)).returncode == 0
+    assert run("--apply").returncode == 0
+    result = run("--restore", str(snapshot), "--apply")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(state.read_text())["agent/**"] == protection_rule("agent/**")
+    assert run("--verify-snapshot", str(snapshot)).returncode == 0
+
+
+@pytest.mark.parametrize("field", PROTECTION_DEFAULTS)
+@pytest.mark.parametrize("fault", ["omit", "changed"])
+def test_review773_snapshot_verification_requires_every_current_field(fake, tmp_path, field, fault):
+    state, calls, run, _ = fake
+    initial = hardened_migration_rules()
+    state.write_text(json.dumps(initial))
+    snapshot = tmp_path / "complete.json"
+    assert run("--snapshot", str(snapshot)).returncode == 0
+    if fault == "omit":
+        del initial["agent/**"][field]
+    else:
+        value = initial["agent/**"][field]
+        initial["agent/**"][field] = (not value if type(value) is bool else 5 if type(value) is int
+                                      else ["extra"] if isinstance(value, list) else "wrong/**")
+    state.write_text(json.dumps(initial))
+    result = run("--verify-snapshot", str(snapshot))
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "FAIL protection state" in result.stderr and "PASS snapshot" not in result.stdout
+    assert all(line.startswith("GET ") for line in calls.read_text().splitlines())
+
+
+@pytest.mark.parametrize("kind", ["absent", "directory", "malformed", "null", "unknown_field"])
+def test_review773_unreadable_snapshot_refuses_writes(fake, tmp_path, kind):
+    state, calls, run, _ = fake
+    initial = hardened_migration_rules()
+    state.write_text(json.dumps(initial))
+    snapshot = tmp_path / "unreadable.json"
+    if kind == "directory":
+        snapshot.mkdir()
+    elif kind == "malformed":
+        snapshot.write_text('{"fixture-secret-must-not-leak":')
+    elif kind == "null":
+        snapshot.write_text("null")
+    elif kind == "unknown_field":
+        assert run("--snapshot", str(snapshot)).returncode == 0
+        data = json.loads(snapshot.read_text())
+        data["rules"][0]["fixture-secret-must-not-leak"] = True
+        snapshot.write_text(json.dumps(data))
+    result = run("--restore", str(snapshot), "--apply")
+    assert result.returncode != 0
+    assert all(line.startswith("GET ") for line in calls.read_text().splitlines())
+    assert json.loads(state.read_text()) == initial
+
+
+def test_review773_snapshot_save_io_failure_refuses_writes(fake, tmp_path):
+    state, calls, run, _ = fake
+    initial = hardened_migration_rules()
+    state.write_text(json.dumps(initial))
+    helper = tmp_path / "protection_state.py"
+    helper.write_text(helper.read_text().replace(
+        'fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)',
+        'raise OSError("fixture-secret-must-not-leak")'))
+    result = run("--apply")
+    assert result.returncode != 0
+    assert all(line.startswith("GET ") for line in calls.read_text().splitlines())
+    assert json.loads(state.read_text()) == initial

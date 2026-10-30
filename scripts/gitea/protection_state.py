@@ -6,8 +6,9 @@ import sys
 
 from protection_policy import plan
 
-# Gitea 1.21.11 BranchProtection/CreateBranchProtectionOption. A POST adds
-# server defaults; a PATCH may change updated_at, but nothing else implicitly.
+# Gitea 1.21.11 BranchProtection/CreateBranchProtectionOption. Only a POST
+# request may omit settings and receive server defaults. Responses and stored
+# snapshots must explicitly contain every setting; a PATCH may change updated_at.
 DEFAULTS = {
     **dict.fromkeys(("enable_push", "enable_push_whitelist", "push_whitelist_deploy_keys",
                      "enable_merge_whitelist", "enable_status_check", "enable_approvals_whitelist",
@@ -38,6 +39,8 @@ def indexed(rows):
             raise StateError("missing or duplicate rule name")
         if set(row) - (DEFAULTS.keys() | METADATA | {"rule_name"}):
             raise StateError("unknown protection fields; manual inspection required")
+        if DEFAULTS.keys() - row.keys():
+            raise StateError("missing protection fields; snapshot or readback is incomplete")
         for key, value in row.items():
             if key in METADATA | {"rule_name"}:
                 if not isinstance(value, str) or (key == "branch_name" and value != name):
@@ -64,9 +67,10 @@ def equal(a, b):
 
 
 def settings(row):
-    # Missing optional defaults and null optional lists have the same semantics.
+    # Callers validate complete states first. Explicit null lists mean empty;
+    # missing fields are unknown and must never become permissive defaults.
     return {"rule_name": row["rule_name"], **{
-        k: ([] if isinstance(default, list) and row.get(k) is None else row.get(k, default))
+        k: ([] if isinstance(default, list) and row[k] is None else row[k])
         for k, default in DEFAULTS.items()}}
 
 
@@ -101,8 +105,10 @@ def verify_step(before, action, after):
                              or (k in want) != (k in got))
                 raise StateError("READ BACK DIFFERS; PATCH fields: " + ", ".join(bad))
         elif method == "POST":
-            if not equal(settings(body), settings(new[rule])):
-                bad = sorted(k for k in DEFAULTS if not equal(settings(body)[k], settings(new[rule])[k]))
+            # Defaults belong only to the creation request, never its readback.
+            want, got = settings({**DEFAULTS, **body}), settings(new[rule])
+            if not equal(want, got):
+                bad = sorted(k for k in DEFAULTS if not equal(want[k], got[k]))
                 raise StateError("READ BACK DIFFERS; POST fields: " + ", ".join(bad))
             # Explicit fields must be returned (do not accept missing/null as
             # an empty requested whitelist), even if they match a default.

@@ -39,6 +39,8 @@ bash scripts/gitea/protect-repo.sh --snapshot "$snapshot_dir/infra-before.json" 
 
 成功：退出 0，输出快照位置，文件权限 600；同名文件已存在会拒绝覆盖。此模式只 GET，保存完整分支规则、字段及 API 返回的有效优先顺序，包括原本缺失的规则。将 `snapshot_dir` 的绝对路径记入交接记录，换终端时重新设置为**同一目录**。
 
+每条已存在规则的全部保护字段都必须明确读到且类型有效；缺字段不代表默认值。显式快照和 `--apply` 的自动快照均拒绝不完整响应，在首次写入前停止。不要手工补入 `false`、`0` 或空值；应排查读取问题后重新获取完整快照。API 明确返回的 `null` 列表按空列表处理。
+
 同时用 Owner 在 Gitea 页面**只读记录**以下内容到 `$snapshot_dir/team-and-tags-before.md`（不记录任何凭据），填写完毕才执行第 2、3 节：
 
 - `landing-prod` 原始完整仓库列表，明确 infra 原来是否已在列表；成员、Code 权限、仓库管理权限。
@@ -80,7 +82,7 @@ bash scripts/gitea/protect-repo.sh --apply --owner weitingzhao bifrost-trade-inf
 
 成功：退出 0，包含 `PASS protection`、`set and read back`。每次 `--apply` 在第一次写入前额外将初始 GET 存为私有 `before.json`，打印 `Execution snapshot` 的路径，不增加 Gitea 请求。重复执行应只读取，规则不再修改。
 
-任一写入/读回异常会立即退出，输出已验证动作、最后尝试动作、当前规则存在性、私有 `current.json`（读回可解析时）和回退预览命令；不可读时明确状态未知，不继续 PATCH/DELETE 或下一个仓库。当前字段值只存私有文件，不在终端回显。没有自动回退，按第 6 节恢复；整次开门仍以第 1 节快照为准，不能把重跑生成的快照误当成最初状态。
+任一写入/读回异常会立即退出，输出已验证动作、最后尝试动作、当前规则存在性、私有 `current.json`（读回完整且有效时）和回退预览命令；不可读时明确状态未知，不继续 PATCH/DELETE 或下一个仓库。当前字段值只存私有文件，不在终端回显。没有自动回退，按第 6 节恢复；整次开门仍以第 1 节快照为准，不能把重跑生成的快照误当成最初状态。
 
 3. Gitea → `bifrost/bifrost-trade-infra` → Settings → Tags：确认既有 `*` 标签规则仅允许 Owner，无团队、无 lander。本次脚本不操作标签规则；Gitea 1.21 的分支规则 API 无法代替标签页面核对。
 
@@ -158,6 +160,8 @@ bash scripts/gitea/protect-repo.sh --restore "$snapshot_dir/infra-before.json" -
 ```
 
 默认回退只 GET 并打印动作；显式 `--apply` 才执行。它先恢复原 main 字段与已删除的 `agent/**`，再删除快照中原本不存在的新规则；原有 landing 规则按原字段保留。每步同样写后严格读回，异常立即停止。回退前也保存一份执行快照。无关规则发生外部变化、未知字段或快照身份不匹配时拒绝自动回退，由 Owner 对照快照逐项协调，不覆盖他人的改动。
+
+载入快照和读取当前状态时同样要求全部保护字段完整、类型有效；旧的不完整快照会在任何恢复写入前被拒绝。恢复只使用有效快照中的字段值，写后逐字段比对全部保护设置，缺字段或值不一致均报 FAIL，不能报告恢复成功。
 
 3. 验证恢复结果，使用快照比较入口：
 
