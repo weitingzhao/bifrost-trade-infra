@@ -27,6 +27,8 @@ def expected(repo):
 def fake(tmp_path):
     for name in ("protect-repo.sh", "protection_policy.py", "probe-infra-access.sh", "put-reader-token.sh"):
         shutil.copyfile(HERE / name, tmp_path / name)
+    if (HERE / "protection_state.py").exists():
+        shutil.copyfile(HERE / "protection_state.py", tmp_path / "protection_state.py")
     (tmp_path / "lib.sh").write_text('''set -euo pipefail
 GITEA_ORG=bifrost
 gitea_die() { echo "$*" >&2; exit 1; }
@@ -61,9 +63,14 @@ else:
     elif method == "PATCH":
         rules[unquote(path.rsplit("/", 1)[1])].update(json.loads(body[0]))
     elif method == "DELETE":
-        if fault != "keep_agent": rules.pop("agent/**")
+        if fault != "keep_agent": rules.pop(unquote(path.rsplit("/", 1)[1]))
     else: raise AssertionError("unexpected mutation")
-    if fault == "readback": rules["main"]["enable_merge_whitelist"] = False
+    if fault == "readback" and "main" in rules: rules["main"]["enable_merge_whitelist"] = False
+    if fault == "landing_extra" and method == "POST": rules["land/prod/**"]["push_whitelist_usernames"].append("vision")
+    if fault == "hardening" and method == "PATCH": rules["main"]["required_approvals"] = 0
+    if fault == "other_rule": rules["release/**"]["enable_push"] = True
+    if fault == "missing_post" and method == "POST": rules.pop(json.loads(body[0])["rule_name"])
+    if fault == "extra_rule": rules["release/unexpected"] = {"rule_name": "release/unexpected"}
     state.write_text(json.dumps(rules))
     print("{}")
 ''')
@@ -200,3 +207,231 @@ def test_combined_probe_is_get_only_and_aggregates_failure(fake, tmp_path, fault
     assert all(line.startswith("GET ") for line in calls.read_text().splitlines())
     assert all(line.startswith("GET ") for line in (state / "http-calls").read_text().splitlines())
     assert GITEA_TOKEN_FIXTURE not in result.stdout + result.stderr + echoed
+
+
+# REVIEW-771: same entry points, independent counterexamples and controls.
+@pytest.mark.parametrize("pattern,blocked", [
+    ("LAND/PROD/job/a1", True), ("MAIN", True), ("AGENT/job", True),
+    ("{land/prod/[x,y],release/**}", True),
+    (r"{land/prod/[x\,y],release/**}", True),
+    (r"{release/\{x\,y\},land/prod/[x,y]}", True),
+    ("LAND/STG/job/a1", False), ("LAND/PROD/*", False),
+    ("{land/stg/[x,y],release/**}", False),
+    (r"{land/stg/[x\]y],release/**}", False),
+    (r"{land/stg/\{x\,y\},release/**}", False),
+])
+@pytest.mark.parametrize("mode", ["--check", "--apply"])
+def test_review771_matching_entry_points(fake, pattern, blocked, mode):
+    state, calls, run, _ = fake
+    rules = {pattern: {"rule_name": pattern, "enable_push": True}, **expected("bifrost-trade-infra")}
+    state.write_text(json.dumps(rules))
+    result = run(mode)
+    assert result.returncode == (1 if blocked else 0), result.stdout + result.stderr
+    assert all(line.startswith("GET ") for line in calls.read_text().splitlines())
+
+
+@pytest.mark.parametrize("pattern,blocked", [
+    ("LAND/PROD/job/a1", True), ("{land/prod/[x,y],release/**}", True),
+    ("LAND/STG/job/a1", False), ("{land/stg/[x,y],release/**}", False),
+])
+def test_review771_combined_matching(fake, tmp_path, pattern, blocked):
+    sys.path.insert(0, str(HERE))
+    from test_landing_drill_token import setup_fake
+    from test_gitea_scripts import GITEA_TOKEN_FIXTURE, run_on_pty
+    policy, calls, _, api_env = fake
+    policy.write_text(json.dumps({pattern: {"rule_name": pattern}, **expected("bifrost-trade-infra")}))
+    state, env, _, _ = setup_fake(tmp_path, "prod", "")
+    result, echoed = run_on_pty(["bash", str(tmp_path / "probe-infra-access.sh"), "--owner", "vision", "prod"],
+                               {**api_env, **env}, GITEA_TOKEN_FIXTURE)
+    assert result.returncode == (1 if blocked else 0), result.stdout + result.stderr
+    assert ("VERDICT FAIL" if blocked else "VERDICT PASS") in result.stdout
+    assert all(line.startswith("GET ") for line in calls.read_text().splitlines())
+    assert not (state / "calls").exists()
+    assert GITEA_TOKEN_FIXTURE not in result.stdout + result.stderr + echoed
+
+
+def migration_rules():
+    main = expected("bifrost-trade-infra")["main"]
+    main.update(push_whitelist_usernames=["vision"], required_approvals=2, enable_status_check=True)
+    return {"main": main, "agent/**": {"rule_name": "agent/**", "enable_push": False},
+            "release/**": {"rule_name": "release/**", "enable_push": False}}
+
+
+@pytest.mark.parametrize("fault,methods", [
+    ("landing_extra", ["POST"]), ("readback", ["POST"]), ("refuse", ["POST"]),
+    ("other_rule", ["POST"]), ("missing_post", ["POST"]), ("extra_rule", ["POST"]),
+    ("hardening", ["POST", "PATCH"]), ("keep_agent", ["POST", "PATCH", "DELETE"]),
+])
+def test_review771_first_bad_readback_stops_all_writes(fake, fault, methods):
+    state, calls, run, _ = fake
+    state.write_text(json.dumps(migration_rules()))
+    result = run("--apply", fault=fault)
+    assert result.returncode != 0
+    writes = [line.split()[0] for line in calls.read_text().splitlines() if not line.startswith("GET ")]
+    assert writes == methods, calls.read_text()
+    if methods == ["POST"]:
+        assert json.loads(state.read_text())["main"]["push_whitelist_usernames"] == ["vision"]
+        assert "agent/**" in json.loads(state.read_text())
+    assert "verified actions:" in result.stderr
+    assert "current state:" in result.stderr and "--restore" in result.stderr
+
+
+@pytest.mark.parametrize("initial", [migration_rules(), expected("bifrost-trade-infra")], ids=["migration", "idempotent"])
+def test_review771_snapshot_restores_prior_rules(fake, tmp_path, initial):
+    state, calls, run, _ = fake
+    state.write_text(json.dumps(initial))
+    snapshot = tmp_path / "before.json"
+    result = run("--snapshot", str(snapshot))
+    assert result.returncode == 0, result.stderr
+    assert all(line.startswith("GET ") for line in calls.read_text().splitlines())
+    assert snapshot.stat().st_mode & 0o777 == 0o600
+    saved = snapshot.read_text()
+    assert run("--snapshot", str(snapshot)).returncode != 0  # never overwrite the pre-change evidence
+    assert snapshot.read_text() == saved
+    assert run("--apply").returncode == 0
+    assert run("--verify-snapshot", str(snapshot)).returncode == (0 if "agent/**" not in initial else 1)
+    assert run("--restore", str(snapshot)).returncode == 0  # dry-run
+    assert all(line.startswith("GET ") for line in calls.read_text().splitlines())
+    result = run("--restore", str(snapshot), "--apply")
+    assert result.returncode == 0, result.stdout + result.stderr
+    restored = json.loads(state.read_text())
+    assert set(restored) == set(initial)
+    for name, row in initial.items():
+        assert {key: restored[name][key] for key in row} == row
+        # Recreating a rule returns the server's explicit optional defaults.
+        assert all(value in (False, 0, "", []) for key, value in restored[name].items() if key not in row)
+    result = run("--verify-snapshot", str(snapshot))
+    assert result.returncode == 0 and "PASS snapshot" in result.stdout
+    assert all(line.startswith("GET ") for line in calls.read_text().splitlines())
+
+
+def test_review771_runbook_restores_team_tags_and_migration():
+    runbook = (HERE.parent.parent / "docs/runbooks/owner-steps-s6-7.md").read_text()
+    for required in ("--snapshot", "--restore", "--verify-snapshot", "team-and-tags-before.md",
+                     "迁移初态", "幂等重跑初态", "紧急撤权", "创建时间"):
+        assert required in runbook
+    assert "`agent/**` 继续采用" not in runbook
+
+
+def test_review771_no_blank_line_at_eof():
+    data = (HERE / "protection_policy.py").read_bytes()
+    assert data.endswith(b"\n") and not data.endswith(b"\n\n")
+
+
+@pytest.mark.parametrize("with_agent", [False, True])
+def test_platform_existing_protection_requests_unchanged(fake, tmp_path, with_agent):
+    state, calls, run, _ = fake
+    initial = expected("bifrost-platform")
+    initial["main"].update(required_approvals=2, enable_status_check=True)
+    if with_agent:
+        initial["agent/**"] = {"rule_name": "agent/**", "enable_push": False}
+    state.write_text(json.dumps(initial))
+    result = run("--apply", repo="bifrost-platform")
+    assert result.returncode == 0, result.stderr
+    actual_calls, actual_state = calls.read_text(), json.loads(state.read_text())
+    # Execute the reviewed commit with the very same transport and input.
+    for name in ("protect-repo.sh", "protection_policy.py"):
+        old = subprocess.run(["git", "-C", str(HERE), "show", "9e079f2:scripts/gitea/" + name],
+                             check=True, capture_output=True, text=True).stdout
+        (tmp_path / name).write_text(old)
+    state.write_text(json.dumps(initial))
+    result = run("--apply", repo="bifrost-platform")
+    assert result.returncode == 0, result.stderr
+    assert calls.read_text() == actual_calls
+    assert json.loads(state.read_text()) == actual_state
+
+
+@pytest.mark.parametrize("pattern", ["release/[", "{release/*", "release/[a-bc]", "release/[]", "release/\\"])
+def test_ambiguous_glob_is_rejected_before_writes(fake, pattern):
+    state, calls, run, _ = fake
+    state.write_text(json.dumps({pattern: {"rule_name": pattern}, **expected("bifrost-trade-infra")}))
+    for mode in ("--check", "--apply"):
+        result = run(mode)
+        assert result.returncode == 1 and "STOPPED" in result.stderr
+        assert all(line.startswith("GET ") for line in calls.read_text().splitlines())
+
+
+def test_snapshot_identity_and_external_changes_refuse_restore(fake, tmp_path):
+    state, calls, run, _ = fake
+    state.write_text(json.dumps(migration_rules()))
+    snapshot = tmp_path / "before.json"
+    assert run("--snapshot", str(snapshot)).returncode == 0
+    assert run("--apply").returncode == 0
+    for target in ("foreign-repo", "bifrost-platform"):
+        assert run("--restore", str(snapshot), "--apply", repo=target).returncode != 0
+        assert all(line.startswith("GET ") for line in calls.read_text().splitlines())
+    rules = json.loads(state.read_text())
+    rules["release/**"]["enable_push"] = True
+    state.write_text(json.dumps(rules))
+    assert run("--restore", str(snapshot), "--apply").returncode != 0
+    assert all(line.startswith("GET ") for line in calls.read_text().splitlines())
+
+
+def test_snapshot_keeps_effective_priority_and_refuses_reorder(fake, tmp_path):
+    state, calls, run, _ = fake
+    initial = migration_rules()
+    initial["release/private/**"] = {"rule_name": "release/private/**", "enable_push": False}
+    state.write_text(json.dumps(initial))
+    snapshot = tmp_path / "before.json"
+    assert run("--snapshot", str(snapshot)).returncode == 0
+    assert run("--apply").returncode == 0
+    assert run("--restore", str(snapshot), "--apply").returncode == 0
+    assert run("--verify-snapshot", str(snapshot)).returncode == 0
+    rules = json.loads(state.read_text())
+    rules["release/**"] = rules.pop("release/**")
+    state.write_text(json.dumps(rules))
+    for mode in ("--verify-snapshot", "--restore"):
+        assert run(mode, str(snapshot)).returncode != 0
+        assert all(line.startswith("GET ") for line in calls.read_text().splitlines())
+
+
+def test_auto_snapshot_precedes_first_write_and_failed_readback_can_restore(fake):
+    state, calls, run, _ = fake
+    initial = migration_rules()
+    state.write_text(json.dumps(initial))
+    result = run("--apply", fault="landing_extra")
+    assert result.returncode != 0
+    snapshot = Path(next(line.split(": ", 1)[1] for line in result.stdout.splitlines()
+                         if line.startswith("Execution snapshot: ")))
+    assert {row["rule_name"]: row for row in json.loads(snapshot.read_text())["rules"]} == initial
+    assert snapshot.stat().st_mode & 0o777 == 0o600
+    assert (snapshot.parent / "current.json").stat().st_mode & 0o777 == 0o600
+    assert run("--restore", str(snapshot), "--apply").returncode == 0
+    assert run("--verify-snapshot", str(snapshot)).returncode == 0
+
+
+def test_bad_readback_stops_before_next_repository(fake, tmp_path):
+    state, calls, _, env = fake
+    state.write_text(json.dumps(migration_rules()))
+    result = subprocess.run(["bash", str(tmp_path / "protect-repo.sh"), "--apply", "--owner", "vision",
+                             "bifrost-trade-infra", "bifrost-platform"],
+                            env={**env, "TEST_API_FAULT": "landing_extra"}, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "bifrost-platform" not in calls.read_text()
+    assert sum(not line.startswith("GET ") for line in calls.read_text().splitlines()) == 1
+
+
+def test_multiline_api_json_is_verified(fake):
+    state, _, run, env = fake
+    api = Path(env["TEST_API"])
+    api.write_text(api.read_text().replace('json.dumps(list(rules.values()))', 'json.dumps(list(rules.values()), indent=2)'))
+    state.write_text(json.dumps(migration_rules()))
+    result = run("--apply")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_post_defaults_and_patch_timestamp_are_allowed_but_hardening_is_preserved(fake):
+    state, _, run, env = fake
+    api = Path(env["TEST_API"])
+    api.write_text(api.read_text().replace('state.write_text(json.dumps(rules))', '''
+    if method == "POST":
+        rules[json.loads(body[0])["rule_name"]].update(required_approvals=0, status_check_contexts=None,
+                                                      created_at="2026-10-30T00:00:00Z", updated_at="2026-10-30T00:00:00Z")
+    if method == "PATCH": rules["main"]["updated_at"] = "2026-10-30T00:00:01Z"
+    state.write_text(json.dumps(rules))'''))
+    rules = migration_rules()
+    rules["main"].update(created_at="2026-01-01T00:00:00Z", updated_at="2026-01-01T00:00:00Z")
+    state.write_text(json.dumps(rules))
+    result = run("--apply")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(state.read_text())["main"]["required_approvals"] == 2

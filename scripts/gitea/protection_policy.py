@@ -10,21 +10,41 @@ import sys
 # refuses a part that starts with "." and the characters below anywhere).
 
 
+SPECIAL = set("*?\\[]{}")  # gobwas/syntax.Special, also used by Gitea IsRuleNameSpecial
+
+
+def class_end(p, start):
+    """Skip one character group, including escaped ] and commas in brace terms."""
+    i = start + 1
+    while i < len(p):
+        if p[i] == "\\":
+            i += 2
+        elif p[i] == "]":
+            if i == start + 1 or p[start + 1:i] == "!":
+                raise ValueError("STOPPED: unsupported empty character group")
+            return i
+        else:
+            i += 1
+    raise ValueError("STOPPED: unterminated character group")
+
+
 def expand(p):
-    """The rule without braces: every choice of every {a,b} (nested too)."""
-    out, i, prefix = [], 0, ""
+    """Expand brace alternatives without splitting escaped/grouped punctuation.
+
+    Invalid or unsupported syntax is refused, never interpreted as a harmless
+    literal. Cap expansion so untrusted rules cannot exhaust the Owner process.
+    """
+    i, prefix = 0, ""
     while i < len(p):
         c = p[i]
-        if c == "\\" and i + 1 < len(p):
+        if c == "\\":
+            if i + 1 == len(p):
+                raise ValueError("STOPPED: trailing glob escape")
             prefix += p[i:i + 2]
             i += 2
             continue
         if c == "[":
-            j = p.find("]", i + 2)
-            if j == -1:
-                prefix += c
-                i += 1
-                continue
+            j = class_end(p, i)
             prefix += p[i:j + 1]
             i = j + 1
             continue
@@ -33,6 +53,9 @@ def expand(p):
             while j < len(p) and depth:
                 if p[j] == "\\":
                     j += 2
+                    continue
+                if p[j] == "[":
+                    j = class_end(p, j) + 1
                     continue
                 if p[j] == "{":
                     depth += 1
@@ -46,11 +69,17 @@ def expand(p):
                     start = j + 1
                 j += 1
             if depth:
-                prefix += c
-                i += 1
-                continue
-            rest = expand(p[j + 1:])
-            return [prefix + a + r for part in parts for a in expand(part) for r in rest]
+                raise ValueError("STOPPED: unterminated glob alternatives")
+            rest, out = expand(p[j + 1:]), []
+            for part in parts:
+                for alternative in expand(part):
+                    for tail in rest:
+                        out.append(prefix + alternative + tail)
+                        if len(out) > 4096:
+                            raise ValueError("STOPPED: too many glob alternatives")
+            return out
+        if c in "}]":
+            raise ValueError("STOPPED: unsupported unmatched glob delimiter")
         prefix += c
         i += 1
     return [prefix]
@@ -60,7 +89,7 @@ def tokens(p):
     out, i = [], 0
     while i < len(p):
         c = p[i]
-        if c == "\\" and i + 1 < len(p):
+        if c == "\\":
             out.append(("lit", p[i + 1]))
             i += 2
         elif c == "*" and p[i + 1:i + 2] == "*":
@@ -72,31 +101,29 @@ def tokens(p):
         elif c == "?":
             out.append(("one",))
             i += 1
-        elif c == "[" and p.find("]", i + 2) != -1:
-            j = p.find("]", i + 2)
+        elif c == "[":
+            j = class_end(p, i)
             body, neg = p[i + 1:j], False
-            if body[:1] == "!":
+            if body.startswith("!"):
                 body, neg = body[1:], True
-            out.append(("class", body, neg))
+            # gobwas accepts a single range OR a character list, not mixtures.
+            if len(body) >= 2 and body[1] == "-":
+                if len(body) != 3 or body[0] > body[2] or "\\" in body:
+                    raise ValueError("STOPPED: unsupported character range")
+                out.append(("range", body[0] + body[2], neg))
+            else:
+                chars, k = "", 0
+                while k < len(body):
+                    if body[k] == "\\":
+                        k += 1
+                    chars += body[k]
+                    k += 1
+                out.append(("class", chars, neg))
             i = j + 1
         else:
             out.append(("lit", c))
             i += 1
     return out
-
-
-def in_class(body, c):
-    k = 0
-    while k < len(body):
-        if k + 2 < len(body) and body[k + 1] == "-":
-            if body[k] <= c <= body[k + 2]:
-                return True
-            k += 3
-        else:
-            if body[k] == c:
-                return True
-            k += 1
-    return False
 
 
 def closure(ts, states):
@@ -115,7 +142,7 @@ def step(ts, states, c):
         if i == len(ts):
             continue
         t = ts[i]
-        if t[0] == "lit" and t[1] == c or t[0] == "one" and c != "/" or t[0] == "class" and in_class(t[1], c) != t[2]:
+        if t[0] == "lit" and t[1] == c or t[0] == "one" and c != "/" or t[0] == "class" and (c in t[1]) != t[2] or t[0] == "range" and (t[1][0] <= c <= t[1][1]) != t[2]:
             nxt.add(i + 1)
         elif t[0] == "seg" and c != "/" or t[0] == "any":
             nxt.add(i)
@@ -134,13 +161,22 @@ STARTS = [chr(c) for c in range(33, 127) if chr(c) not in NOT_IN_A_BRANCH and ch
 
 
 def clash(rule):
+    if len(rule) > 4096:
+        raise ValueError("STOPPED: rule exceeds supported length")
+    if not SPECIAL.intersection(rule):
+        # Gitea EqualFold for plain names; glob rules remain case sensitive.
+        folded = rule.casefold()
+        return folded == "main" or any(
+            folded.startswith(prefix) and len(folded) > len(prefix)
+            and folded[len(prefix)] not in NOT_IN_A_BRANCH | {".", "/"}
+            for prefix in ("agent/", "land/prod/"))
     for p in expand(rule):
         ts = tokens(p)
         # Git permits Unicode branch names. Include every literal/class boundary
         # and its neighbors so a narrower non-ASCII rule cannot escape the scan.
         points = {128, 0x10FFFF}
         for token in ts:
-            if token[0] in ("lit", "class"):
+            if token[0] in ("lit", "class", "range"):
                 for char in token[1]:
                     points.update((ord(char) - 1, ord(char), ord(char) + 1))
         starts = STARTS + [chr(n) for n in points if 127 < n <= 0x10FFFF]
@@ -205,6 +241,9 @@ def plan(repo, owner, rows, check=False):
         if not isinstance(name, str) or not name or name in existing:
             raise ValueError("missing or duplicate branch rule name")
         existing[name] = row
+    # Gitea selects plain names before globs, then earlier creation times first. Refuse
+    # every competing overlap, regardless of current ordering: later recreation
+    # must not silently change the effective rule.
     # Exact land/prod/** is only exempt when we validate its full baseline.
     known = {"main", "agent/**"} | ({"land/prod/**"} if repo in LANDING_REPOS else set())
     if any(name not in known and clash(name) for name in existing):
@@ -251,5 +290,3 @@ if __name__ == "__main__":
         message = str(error) if type(error) is ValueError and not isinstance(error, json.JSONDecodeError) else "cannot parse branch rules"
         print("FAIL protection: " + message, file=sys.stderr)
         sys.exit(1)
-
-
