@@ -1,0 +1,99 @@
+# W-31 S5: UNBUILT; never install until the reviewed digest and contract are pinned.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: bifrost-ci-s5
+  namespace: cicd
+  annotations:
+    bifrost.io/run-arch: amd64
+spec:
+  params:
+  - name: base
+    type: string
+  - name: revision
+    type: string
+  - name: uiRevision
+    type: string
+  - name: key
+    type: string
+  - name: keyDigest
+    type: string
+  - name: generation
+    type: string
+  workspaces:
+  - name: trees
+  results:
+  - name: base-commit
+    type: string
+    value: $(tasks.s5-check.results.base-commit)
+  - name: revision-commit
+    type: string
+    value: $(tasks.s5-check.results.revision-commit)
+  - name: baseline-tree
+    type: string
+    value: $(tasks.s5-check.results.baseline-tree)
+  - name: result-tree
+    type: string
+    value: $(tasks.s5-check.results.result-tree)
+  - name: ui-commit
+    type: string
+    value: $(tasks.s5-check.results.ui-commit)
+  - name: key-digest
+    type: string
+    value: $(tasks.s5-check.results.key-digest)
+  - name: generation
+    type: string
+    value: $(tasks.s5-check.results.generation)
+  - name: evidence
+    type: string
+    value: $(tasks.s5-check.results.evidence)
+  - name: evidence-digest
+    type: string
+    value: $(tasks.s5-check.results.evidence-digest)
+  tasks:
+  - name: s5-fetch
+    taskRef:
+      name: bifrost-s5-fetch
+    timeout: 600s
+    params:
+    - name: base
+      value: $(params.base)
+    - name: revision
+      value: $(params.revision)
+    - name: uiRevision
+      value: $(params.uiRevision)
+    - name: key
+      value: $(params.key)
+    - name: keyDigest
+      value: $(params.keyDigest)
+    - name: generation
+      value: $(params.generation)
+    - name: ciUID
+      value: $(context.pipelineRun.uid)
+    workspaces:
+    - name: trees
+      workspace: trees
+  - name: s5-check
+    taskRef:
+      name: bifrost-s5-check
+    timeout: 600s
+    params:
+    - name: base
+      value: $(params.base)
+    - name: revision
+      value: $(params.revision)
+    - name: uiRevision
+      value: $(params.uiRevision)
+    - name: key
+      value: $(params.key)
+    - name: keyDigest
+      value: $(params.keyDigest)
+    - name: generation
+      value: $(params.generation)
+    - name: ciUID
+      value: $(context.pipelineRun.uid)
+    workspaces:
+    - name: trees
+      workspace: trees
+    runAfter:
+    - s5-fetch

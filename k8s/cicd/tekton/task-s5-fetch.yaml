@@ -1,0 +1,74 @@
+# W-31 S5: UNBUILT; never install until the reviewed digest and contract are pinned.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-s5-fetch
+  namespace: cicd
+spec:
+  params:
+  - name: base
+    type: string
+  - name: revision
+    type: string
+  - name: uiRevision
+    type: string
+  - name: key
+    type: string
+  - name: keyDigest
+    type: string
+  - name: generation
+    type: string
+  - name: ciUID
+    type: string
+  workspaces:
+  - name: trees
+    mountPath: /workspace/trees
+    readOnly: false
+  volumes:
+  - name: scratch
+    emptyDir:
+      sizeLimit: 128Mi
+  steps:
+  - name: fetch
+    image: registry.cicd.svc.cluster.local:5000/bifrost-s5-checker@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    command:
+    - python3
+    - -I
+    - /opt/s5/runner.py
+    args:
+    - fetch
+    env:
+    - name: S5_BASE
+      value: $(params.base)
+    - name: S5_REVISION
+      value: $(params.revision)
+    - name: S5_UI
+      value: $(params.uiRevision)
+    - name: S5_KEY
+      value: $(params.key)
+    - name: S5_KEY_DIGEST
+      value: $(params.keyDigest)
+    - name: S5_GENERATION
+      value: $(params.generation)
+    - name: S5_CI_UID
+      value: $(params.ciUID)
+    securityContext:
+      runAsUser: 1000
+      runAsGroup: 1000
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+        - ALL
+      seccompProfile:
+        type: RuntimeDefault
+    volumeMounts:
+    - name: scratch
+      mountPath: /tmp
+    computeResources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: '2'
+        memory: 2Gi

@@ -1,0 +1,15 @@
+# W-31 S5: UNBUILT; never install until the reviewed digest and contract are pinned.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bifrost-s5-check-offline
+  namespace: cicd
+spec:
+  podSelector:
+    matchLabels:
+      tekton.dev/task: bifrost-s5-check
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress: []
+  egress: []

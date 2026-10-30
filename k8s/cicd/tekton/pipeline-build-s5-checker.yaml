@@ -1,0 +1,124 @@
+# W-31 S5: build only independently reviewed immutable infra/checker sources.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: bifrost-build-s5-checker
+  namespace: cicd
+  annotations:
+    bifrost.io/run-arch: amd64
+spec:
+  params:
+  - name: infraRevision
+    type: string
+  - name: checkerRevision
+    type: string
+  workspaces:
+  - name: source
+  results:
+  - name: image-digest
+    value: $(tasks.build.results.digest)
+  tasks:
+  - name: validate-sources
+    params:
+    - name: infraRevision
+      value: $(params.infraRevision)
+    - name: checkerRevision
+      value: $(params.checkerRevision)
+    taskSpec:
+      params:
+      - name: infraRevision
+        type: string
+      - name: checkerRevision
+        type: string
+      steps:
+      - name: validate
+        image: python:3.12-slim-bookworm@sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337
+        command:
+        - python3
+        - -I
+        - -c
+        args:
+        - "import os,re\nfor name in ('INFRA_SHA','CHECKER_SHA'):\n value=os.environ[name]\n\
+          \ if not re.fullmatch('[0-9a-f]{40}',value) or value=='0'*40: raise SystemExit('reviewed\
+          \ full SHA required')"
+        env:
+        - name: INFRA_SHA
+          value: $(params.infraRevision)
+        - name: CHECKER_SHA
+          value: $(params.checkerRevision)
+  - name: freeze-check
+    taskRef:
+      name: bifrost-release-freeze-check
+    runAfter:
+    - validate-sources
+  - name: clone-infra
+    runAfter:
+    - freeze-check
+    taskRef:
+      name: bifrost-git-clone-gitea
+    params:
+    - name: url
+      value: http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-trade-infra.git
+    - name: revision
+      value: $(params.infraRevision)
+    - name: subdir
+      value: infra
+    workspaces:
+    - name: output
+      workspace: source
+  - name: clone-checker
+    runAfter:
+    - freeze-check
+    taskRef:
+      name: bifrost-git-clone-gitea
+    params:
+    - name: url
+      value: http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-platform.git
+    - name: revision
+      value: $(params.checkerRevision)
+    - name: subdir
+      value: platform
+    workspaces:
+    - name: output
+      workspace: source
+  - name: build
+    runAfter:
+    - clone-infra
+    - clone-checker
+    params:
+    - name: revision
+      value: $(tasks.clone-infra.results.commit)
+    - name: checkerRevision
+      value: $(tasks.clone-checker.results.commit)
+    workspaces:
+    - name: source
+      workspace: source
+    taskSpec:
+      params:
+      - name: revision
+        type: string
+      - name: checkerRevision
+        type: string
+      workspaces:
+      - name: source
+      results:
+      - name: digest
+      steps:
+      - name: build-and-push
+        image: gcr.io/kaniko-project/executor:v1.23.2
+        args:
+        - --dockerfile=infra/docker/s5-checker/Dockerfile
+        - --context=$(workspaces.source.path)
+        - --destination=registry.cicd.svc.cluster.local:5000/bifrost-s5-checker:$(params.revision)-$(params.checkerRevision)
+        - --digest-file=$(results.digest.path)
+        - --custom-platform=linux/amd64
+        - --insecure
+        - --skip-tls-verify
+        - --insecure-registry=registry.cicd.svc.cluster.local:5000
+        computeResources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: '2'
+            memory: 2Gi

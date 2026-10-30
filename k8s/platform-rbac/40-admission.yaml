@@ -25,6 +25,29 @@ spec:
           'system:serviceaccount:bifrost-platform-stg:bifrost-platform',
           'system:serviceaccount:cicd:tekton-deliver'
         ]
+  # W-31 S5: exact no-token template; no per-task override or shell interpolation.
+  variables:
+    - name: s5
+      expression: >-
+        has(object.spec.pipelineRef) && object.spec.pipelineRef == {'name': 'bifrost-ci-s5'}
+        && !has(object.spec.pipelineSpec) && !has(object.spec.taskRunSpecs)
+        && has(object.spec.taskRunTemplate)
+        && object.spec.taskRunTemplate == {
+          'serviceAccountName': 'bifrost-s5',
+          'podTemplate': {'automountServiceAccountToken': false, 'enableServiceLinks': false,
+            'nodeSelector': {'kubernetes.io/arch': 'amd64'}, 'securityContext': {'fsGroup': 1000}}}
+        && has(object.spec.timeouts) && object.spec.timeouts == {'pipeline': '1200s'}
+        && has(object.spec.workspaces) && object.spec.workspaces == [{
+          'name': 'trees', 'volumeClaimTemplate': {'spec': {'accessModes': ['ReadWriteOnce'],
+            'storageClassName': 'local-path', 'resources': {'requests': {'storage': '2Gi'}}}}}]
+        && has(object.spec.params) && size(object.spec.params) == 6
+        && ['base', 'revision', 'uiRevision', 'key', 'keyDigest', 'generation'].all(n,
+          object.spec.params.filter(p, p.name == n).size() == 1)
+        && object.spec.params.all(p, type(p.value) == string && (
+          (p.name in ['base', 'revision', 'uiRevision'] && p.value.matches('^[0-9a-f]{40}$'))
+          || (p.name == 'keyDigest' && p.value.matches('^[0-9a-f]{64}$'))
+          || (p.name == 'generation' && p.value.matches('^[1-9][0-9]{0,19}$'))
+          || (p.name == 'key' && size(p.value) <= 4096 && p.value.matches('^[A-Za-z0-9_./:{},"-]+$'))))
   validations:
     - expression: >-
         has(object.spec.pipelineRef) && has(object.spec.pipelineRef.name)
@@ -41,6 +64,7 @@ spec:
           && !has(w.projected) && !has(w.csi))
       message: platform PipelineRun workspaces may only be volumeClaimTemplate or emptyDir
     - expression: >-
+        variables.s5 || (
         (
           !has(object.spec.taskRunTemplate) || !has(object.spec.taskRunTemplate.podTemplate)
           || (
@@ -81,10 +105,12 @@ spec:
               && !has(s.podTemplate.volumes)
             ))
         )
+        )
       message: >-
         a platform PipelineRun podTemplate may set only nodeSelector, tolerations and affinity
         (no volumes, host network, host aliases, DNS settings, env or security context; review 545 F2)
     - expression: >-
+        variables.s5 || (
         (
           !has(object.spec.taskRunTemplate)
           || !has(object.spec.taskRunTemplate.serviceAccountName)
@@ -103,6 +129,7 @@ spec:
             )
           )
         )
+        )
       message: platform PipelineRun service accounts must be allow-listed and must not be argocd-*
     - expression: >-
         (
@@ -119,6 +146,7 @@ spec:
         || object.spec.pipelineRef.name == 'bifrost-apply-manifest'
       message: bifrost-applier may only run bifrost-apply-manifest
     - expression: >-
+        variables.s5 || (
         (
           !has(object.spec.taskRunTemplate) || !has(object.spec.taskRunTemplate.serviceAccountName)
           || object.spec.taskRunTemplate.serviceAccountName == 'default'
@@ -149,14 +177,17 @@ spec:
               'bifrost-deliver-research/gitops-sync'
             ]))
         )
+        )
       message: >-
         tekton-deliver runs only the listed delivery steps, bifrost-applier only bifrost-apply-manifest;
         every other step runs as default (TD-436)
     - expression: >-
+        variables.s5 || (
         !has(object.spec.params)
         || object.spec.params.all(p,
           type(p.value) == string
           && p.value.matches('^([\\p{L}\\p{N}._/:@+=][\\p{L}\\p{N}._/:@+=-]{0,255})?$'))
+        )
       message: >-
         platform run parameters must be plain strings of letters, digits and ._/:@+=- (at most 256, no leading dash) (TD-435, TD-436)
     - expression: >-
@@ -167,6 +198,10 @@ spec:
             && p.value.startsWith('http://gitea.cicd.svc.cluster.local:3000/bifrost/'))))
       message: >-
         platform run giteaBase must be the in-cluster Gitea and url must point into it (TD-435, TD-436, review 546 R2)
+    - expression: >-
+        !has(object.spec.pipelineRef) || !has(object.spec.pipelineRef.name)
+        || object.spec.pipelineRef.name != 'bifrost-ci-s5' || variables.s5
+      message: S5 requires the exact isolated template and complete immutable parameters
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy

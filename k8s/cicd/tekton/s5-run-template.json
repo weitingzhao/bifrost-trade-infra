@@ -1,0 +1,39 @@
+{
+  "pipelineRef": {
+    "name": "bifrost-ci-s5"
+  },
+  "taskRunTemplate": {
+    "podTemplate": {
+      "automountServiceAccountToken": false,
+      "enableServiceLinks": false,
+      "nodeSelector": {
+        "kubernetes.io/arch": "amd64"
+      },
+      "securityContext": {
+        "fsGroup": 1000
+      }
+    },
+    "serviceAccountName": "bifrost-s5"
+  },
+  "timeouts": {
+    "pipeline": "1200s"
+  },
+  "workspaces": [
+    {
+      "name": "trees",
+      "volumeClaimTemplate": {
+        "spec": {
+          "accessModes": [
+            "ReadWriteOnce"
+          ],
+          "resources": {
+            "requests": {
+              "storage": "2Gi"
+            }
+          },
+          "storageClassName": "local-path"
+        }
+      }
+    }
+  ]
+}
