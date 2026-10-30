@@ -3605,10 +3605,11 @@
 
 ### TD-459
 
-**P1 · platform 授权材料 · 每次请求重算约 50 秒，Console 对已执行的单持续轮询，把 api 占满，新单取材料 503**
+**P1 · platform 授权材料 · 每次请求重算约 50 秒（Owner 的批准按钮因此时灰时亮），Console 对已执行的单持续轮询，把 api 占满，新单取材料 503**
 
-- **状态**：未开始（2026-10-29）。
+- **状态**：在做（2026-10-29，codex-work-736）。
 - **证据**：2026-10-29 21:57–21:59 CDT PROD platform-api 访问日志：来自 Console（`10.42.6.34`，host ops.bifrost.lan）的 `GET /api/v1/agentrt/landing/<op>/material?stg_release=false` 对四个**已落地、单已执行**的操作（#191–#194 对应的 `land:t_01M64V09…:1`、`land:t_01M64XRF…:1`、`land:t_01M650MW…:1`）每几秒一次，每次 33–58 秒（S6-6 的 102 KB）；同期统筹为 B5-e（`land:t_01M658DP…:1`，42 文件）取材料连续 503（40 秒服务端上限），`handin.sh material` 三次 `HTTP 000`。
+- **Owner 侧症状**（2026-10-29 22:0x，#195）：审批页的 Approve（Review approval）按钮时灰时亮——`console/src/pages/ApprovalsPage.tsx:304` `landingReady` 要材料读到且 `main_is_M0`、`latest`；`LandingApprovalSummary.tsx:10` / `LandingGrantPage.tsx:31` 每 15 秒重取（`refetchInterval: 15_000`），而一次要 33–58 秒或 503，页面反复回到「Reading landing approval material…」。
 - **影响**：只要 Console 开着审批 / 授权页，新的软底线 / 核心级单就建不出来；api 的 Git 读取与 CPU 被已结束的单白白占用。
 - **修法**：材料按（op、R、规则版本、`stg_release`）缓存，终态（landed / failed / 单已执行）只读缓存；Console 对终态单停止轮询（或只在打开时取一次）；材料计算加并发上限，排队可见而不是 40 秒后 503。
 - **防线**：接口测试——同一 op 连续两次取材料第二次不再读 Git；Console 测试——单进入终态后不再发材料请求。
