@@ -225,8 +225,10 @@ def headings(lines):
             if re.fullmatch(r" {0,3}" + re.escape(fence[0]) + "{" + str(fence[1]) + r",}[ \t]*", line):
                 fence = None
             continue
-        opening = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
-        if opening:
+        opening = re.fullmatch(r" {0,3}(`{3,}|~{3,})(.*)", line)
+        # CommonMark 4.5: backtick info strings cannot contain backticks.
+        # Otherwise an inline span such as ```inline``` hides later headings.
+        if opening and (opening[1][0] == "~" or "`" not in opening[2]):
             fence, paragraph_start = (opening[1][0], len(opening[1])), None
             continue
         heading = re.match(r"^ {0,3}(#{1,6})(?:[ \t]+(.*)|$)", line)

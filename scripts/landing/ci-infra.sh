@@ -6,6 +6,26 @@ stage='' cand='' base_sha='' revision='' purpose=landing
 args=("$@")
 while (($#)); do
   case "$1" in
+    --help|-h)
+      cat <<'HELP'
+Usage: ci-infra.sh --stage NAME --cand DIR --base DIR --revision SHA
+                   --base-sha SHA --platform-revision SHA [--purpose landing|push]
+                   [--generation ID] [--results-dir DIR]
+Stages: tools, scope, consumers, doc-policy, quick, statics, kustomize,
+        code-health, parity-static, all. The tools stage needs no workspace.
+
+landing (default): revision must have exactly one parent, base-sha.
+push: checks the final tree and fixed before/after differences only;
+      intermediate commits are not checked, including violations later restored.
+      Merge and force pushes use the same endpoints; no history traversal.
+      scope is skipped; missing endpoint objects fail. An empty/zero before
+      skips doc-policy, but code-health fails without a baseline.
+      Push results are never landing evidence.
+Reason: DESIGN-S6-v3-2026-10-29.md sections 5.1 and 5.6 fix before/after
+        inputs and compare two snapshots. Landing authorization separately
+        requires the single-parent candidate; push is endpoint feedback only.
+HELP
+      exit 0 ;;
     --stage) stage="${2:?}" ;;
     --cand) cand="${2:?}" ;;
     --base-sha) base_sha="${2-}" ;;
