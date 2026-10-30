@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Offline behavioral regressions for review 691. Real temporary Git repositories;
+# Offline behavioral regressions for review 691 and TD-458. Real temporary Git repositories;
 # curl is replaced before any invocation, with fixture-only credentials.
 set -euo pipefail
 script=${HANDIN_SCRIPT:-$(cd "$(dirname "$0")" && pwd)/handin.sh}
@@ -63,9 +63,17 @@ s=json.loads((root/'state.json').read_text()); doc={'ok':True}; code=os.environ.
 action=route.rsplit('/',1)[-1]
 if route.startswith('/tasks/'): doc={'base_commit':os.environ['TEST_BASE'],'state':os.environ.get('TEST_TASK_STATE','ready')}
 elif route=='/claim/pinned':
-    doc={'attempt_id':'a_fixture','lease_epoch':1,'pushed_ref':'refs/heads/agent/'+os.environ['TEST_TASK']+'/a1'}
+    doc={'attempt_id':'a_fixture','lease_epoch':1,'pushed_ref':'refs/heads/agent/'+os.environ['TEST_TASK']+'/a'+os.environ.get('TEST_ATTEMPT','1')}
     if os.environ.get('TEST_CLAIM_ERROR'):
         code='409'; doc={'error':'no_lease','message':'executor quota reached quota_stop_percent'}
+    if os.environ.get('TEST_CLAIMS'):
+        counter=root/'claim-count'; n=int(counter.read_text()) if counter.exists() else 0
+        counter.write_text(str(n+1))
+        replies=json.loads(os.environ['TEST_CLAIMS']); reply=replies[min(n,len(replies)-1)]
+        if reply.get('timeout'):
+            time.sleep(float(args[args.index('--max-time')+1])); sys.exit(28)
+        code=str(reply['code'])
+        if 'message' in reply: doc={'error':'state','message':reply['message']}
 elif route=='/attempts/a_fixture': doc=s
 elif route.startswith('/missions/'): doc={'tasks':[{'task_id':os.environ['TEST_TASK']}]}
 elif route=='/landing/refresh':
@@ -113,7 +121,10 @@ if sys.argv[1]=='60':
     with (root/'sleep-pids').open('a') as f: f.write(str(os.getpid())+'\n')
     with (root/'heartbeat-pids').open('a') as f: f.write(str(os.getppid())+'\n')
     time.sleep(.02 if os.environ.get('TEST_BEAT') else 20)
-else: time.sleep(.01)
+else:
+    root=Path(os.environ['TEST_ROOT'])
+    with (root/'waits').open('a') as f: f.write(sys.argv[1]+'\n')
+    time.sleep(float(sys.argv[1]) if os.environ.get('TEST_REAL_WAIT') else .01)
 ''')
         (bin/'git').write_text(r'''#!/usr/bin/env python3
 import os,sys
@@ -133,7 +144,11 @@ if sys.argv[1]=='commit-tree' and os.environ.get('TEST_COMMIT_FAIL'): sys.exit(1
 os.execv(os.environ['TEST_REAL_GIT'],[os.environ['TEST_REAL_GIT'],*sys.argv[1:]])
 ''')
         for f in bin.iterdir(): f.chmod(0o755)
-        def run(*a, success=True, extra=None): return invoke(['bash',str(script),*a], repo, dict(env,**(extra or {})),success)
+        def run(*a, success=True, extra=None):
+            p=invoke(['bash',str(script),*a], repo, dict(env,**(extra or {})),success)
+            assert 'SENTINEL' not in p.stdout+p.stderr
+            if (root/'calls').exists(): assert 'SENTINEL' not in (root/'calls').read_text()
+            return p
         args=['run','--task',task,'--report',str(root/'report'),'--remote','fixture','--key','same']
         try:
             fn(root,repo,env,git,run,args,base,commit)
@@ -188,6 +203,77 @@ def recovery(root,repo,env,git,run,args,base,commit):
     (root/'report').write_text('fixture report\n')
     s=json.loads((root/'state.json').read_text()); s['pushed_commit']='e'*40; (root/'state.json').write_text(json.dumps(s))
     run(*args,success=False)
+
+def squash_attempts(root,repo,env,git,run,args,base,commit):
+    def edit(name):
+        (repo/name).write_text(name+'\n'); git('add',name); git('commit','-qm',name)
+        return git('rev-parse','HEAD')
+    def selection(*commits, attempt='1'):
+        return ['squash','--task',task,'--base',base,'--attempt',attempt,
+                *[arg for c in commits for arg in ('--commit',c)]]
+    def change(c):
+        return [line for line in git('show','-s','--format=%B',c).splitlines() if line.startswith('Change-Id:')]
+    other=edit('first-round')
+    first=run(*selection(commit,other)).stdout.strip()
+    state_dir=repo/'.git/handin/squash'/task
+    original={p.name:p.read_bytes() for p in state_dir.iterdir() if p.is_file()}
+    backup=git('rev-parse','refs/handin/backups/'+task)
+    assert 'a_fixture' in run(*args).stdout
+    assert json.loads((root/'state.json').read_text())['state']=='submitted'
+    assert (root/'remote-ref').read_text()==first+'\trefs/heads/agent/'+task+'/a1\n'
+    later=edit('second-round')
+    # Default/explicit attempt 1 must still refuse a changed source, even
+    # after delivery. Selecting attempt 2 must leave all old recovery intact.
+    p=run(*selection(first,later),success=False)
+    assert 'recovery state differs' in p.stderr and git('rev-parse','HEAD')==later
+    second_args=selection(first,later,attempt='2')
+    run(*second_args,success=False,extra={'TEST_COMMIT_FAIL':'1'})
+    second_dir=state_dir/'attempts/2'
+    second_saved={p.name:p.read_bytes() for p in second_dir.iterdir()}
+    assert git('rev-parse','HEAD')==later
+    git('checkout','-q','-b','interrupted-drift')
+    drift=edit('unexpected-change')
+    p=run(*selection(first,later,drift,attempt='2'),success=False)
+    assert 'recovery state differs' in p.stderr and git('rev-parse','HEAD')==drift
+    assert all((second_dir/name).read_bytes()==data for name,data in second_saved.items())
+    git('checkout','-q','work-unit')
+    second=run(*second_args).stdout.strip()
+    assert git('rev-parse','HEAD')==second and second!=first
+    assert git('rev-parse',second+'^')==base
+    assert git('rev-parse',second+'^{tree}')==git('rev-parse',later+'^{tree}')
+    assert change(first)==change(second) and len(change(second))==1
+    assert all((second_dir/name).read_bytes()==data for name,data in second_saved.items())
+    assert run(*second_args).stdout.strip()==second
+    assert all((state_dir/name).read_bytes()==data for name,data in original.items())
+    assert git('rev-parse','refs/handin/backups/'+task)==backup
+    assert git('rev-parse','refs/handin/attempt-backups/'+task+'/a2')==later
+    # The second attempt is a separate run binding and a2 push, using the
+    # same fixture API but no real remote or credentials.
+    (root/'state.json').write_text(json.dumps(dict(state='leased',task_id=task,host_id='coordinator-mbp',lease_epoch=1)))
+    (root/'remote-ref').unlink()
+    assert 'a_fixture' in run(*args,'--key',task+':2',extra={'TEST_ATTEMPT':'2'}).stdout
+    assert (root/'remote-ref').read_text()==second+'\trefs/heads/agent/'+task+'/a2\n'
+    third_tip=edit('third-round')
+    third=run(*selection(second,third_tip,attempt='3')).stdout.strip()
+    assert change(third)==change(first)
+    for invalid in ('0','-1','01','../2','2/3','abc'):
+        run(*selection(third,attempt=invalid),success=False)
+    # A prepared commit with a different identity must not skip the lineage
+    # check on the idempotent fast path. Keep the good branch unchanged.
+    git('checkout','-q','-b','wrong-identity',commit)
+    p=run('squash','--task',task,'--base',base,'--attempt','4',success=False)
+    assert 'Change-Id differs from first attempt' in p.stderr
+    assert git('rev-parse','HEAD')==commit
+
+def squash_prepared(root,repo,env,git,run,args,base,commit):
+    # Prepared attempt 1 has no recovery message, but its identity remains
+    # available in the explicitly selected history for a later attempt.
+    assert run('squash','--task',task,'--base',base).stdout.strip()==commit
+    (repo/'rework').write_text('rework\n'); git('add','rework'); git('commit','-qm','Rework')
+    tip=git('rev-parse','HEAD')
+    result=run('squash','--task',task,'--base',base,'--attempt','2','--commit',commit,'--commit',tip).stdout.strip()
+    assert 'Change-Id: I'+'c'*40 in git('show','-s','--format=%B',result)
+    assert not (root/'calls').exists(), 'squash must remain offline'
 
 def dead_pids(root):
     for name in ('sleep-pids','heartbeat-pids','curl-pids','git-pids'):
@@ -327,6 +413,53 @@ def claim_error(root,repo,env,git,run,args,base,commit):
     assert all(c[-1].endswith(('/tasks/'+task,'/claim/pinned')) for c in calls)
     assert not (root/'pushes').exists()
 
+def claim_ready(root,repo,env,git,run,args,base,commit):
+    proposed={'code':409,'message':'task '+task+' is proposed, not ready'}
+    def claims():
+        return [json.loads(line) for line in (root/'calls').read_text().splitlines()
+                if json.loads(line)[-1].endswith('/claim/pinned')]
+    def reset():
+        for name in ('calls','claim-count','waits'): (root/name).unlink(missing_ok=True)
+    p=run(*args,extra={'TEST_TASK_STATE':'proposed','TEST_CLAIMS':json.dumps([proposed]*5+[{'code':200}])})
+    assert 'a_fixture' in p.stdout and 'retrying claim/pinned' in p.stderr
+    requests=claims()
+    assert len(requests)==6
+    bodies=[c[c.index('--data-binary')+1] for c in requests]
+    assert len(set(bodies))==1 and json.loads(bodies[0])['idempotency_key']=='same'
+    assert (root/'waits').read_text().splitlines()[:5]==['1','2','4','8','10']
+    assert json.loads((root/'state.json').read_text())['state']=='submitted'
+    dead_pids(root)
+    # Both a persistent proposed response and a transport timeout after one
+    # must respect the total deadline. Curl gets only the remaining budget.
+    for replies in ([proposed], [proposed,{'code':200,'timeout':True}]):
+        reset(); started=time.monotonic()
+        p=run(*args,success=False,extra={'TEST_CLAIMS':json.dumps(replies),
+            'HANDIN_READY_TIMEOUT_SECONDS':'2','TEST_REAL_WAIT':'1' if len(replies)==1 else ''})
+        elapsed=time.monotonic()-started
+        # Bash SECONDS has one-second granularity; the deadline may be
+        # reached up to one second earlier than a monotonic stopwatch.
+        assert .8<elapsed<3.5, elapsed
+        if len(replies)>1: assert len(claims())>=2
+        assert 'timed out after 2s' in p.stderr and task in p.stderr and 'is proposed, not ready' in p.stderr
+        assert 'retry with the same key' in p.stderr
+        assert all(0<float(c[c.index('--max-time')+1])<=2 for c in claims())
+        assert all(c[-1].endswith(('/tasks/'+task,'/claim/pinned'))
+                   for c in map(json.loads,(root/'calls').read_text().splitlines()))
+        dead_pids(root)
+        assert not list((repo/'.git/handin/runs').glob('*.lock'))
+    # Other 409s and the same text under another status stop immediately;
+    # a quota response after proposed must also stop the readiness loop.
+    for code,message in ((409,'quota_stop_percent'),(409,'task is running, not ready'),
+                         (403,proposed['message']),(409,None),(409,['is proposed, not ready'])):
+        reset()
+        p=run(*args,success=False,extra={'TEST_CLAIMS':json.dumps([{'code':code,'message':message}])})
+        assert len(claims())==1 and 'HTTP '+str(code) in p.stderr
+        assert not (root/'waits').exists()
+    reset()
+    p=run(*args,success=False,extra={'TEST_CLAIMS':json.dumps([proposed,{'code':409,'message':'quota_stop_percent'}])})
+    assert len(claims())==2 and 'quota_stop_percent' in p.stderr and 'timed out' not in p.stderr
+    assert (root/'waits').read_text().splitlines()==['1']
+
 def material(root,repo,env,git,run,args,base,commit):
     op='land:'+task+':1'
     for options,core,stg in (([],False,True),(['--stg-release','false'],False,False),(['--stg-release','true'],True,True)):
@@ -354,5 +487,5 @@ def material(root,repo,env,git,run,args,base,commit):
     assert all(c[c.index('-X')+1]=='GET' and '/material?stg_release=' in c[-1] for c in calls)
     assert 'SENTINEL' not in before
 
-for name,fn in [('B-03',http),('R-03',squash),('R-04',recovery),('R-05',cleanup),('R-01-push',push_cleanup),('N-01',tokens),('N-02',refresh),('C-7-claim',claim_error),('C-7-material',material)]: test(name,fn)
+for name,fn in [('B-03',http),('R-03',squash),('TD-458-squash',squash_attempts),('TD-458-prepared',squash_prepared),('R-04',recovery),('R-05',cleanup),('R-01-push',push_cleanup),('N-01',tokens),('N-02',refresh),('C-7-claim',claim_error),('TD-458-ready',claim_ready),('C-7-material',material)]: test(name,fn)
 PY

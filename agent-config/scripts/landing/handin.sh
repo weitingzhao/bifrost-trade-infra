@@ -8,9 +8,11 @@
 #       Propose the pinned task as the proposer seat (seat:coordinator); its
 #       spec is the platform's, the providers declared [anthropic]. Prints the
 #       task id.
-#   handin.sh squash --task t_… --base SHA --commit SHA [--commit SHA…] [--title T]
+#   handin.sh squash --task t_… --base SHA --commit SHA [--commit SHA…] [--title T] [--attempt N]
 #       Make the explicitly selected isolated branch history one commit on BASE whose message lists the commits it replaces, with one
 #       Agentrt-Task trailer and one Change-Id. Never amend it afterwards.
+#       For rework use --attempt N (default: 1), then run with --key <task>:N.
+#       Keep N on interrupted retries; earlier recovery messages remain intact.
 #   handin.sh run --task t_… --report FILE --remote REMOTE [--key K] [--commit SHA]
 #       claim/pinned, upload the report, start, computed, push the commit to
 #       the branch the platform gave, persist, submit; the lease is renewed
@@ -31,6 +33,7 @@
 # files under ~/.config/bifrost (HANDIN_AGENTD_TOKEN_FILE / HANDIN_PROPOSER_TOKEN_FILE).
 #   PLATFORM_AGENTRT_URL                platform-api base (default: the PROD VIP NodePort)
 #   HANDIN_HOST                         the external host (default: coordinator-mbp)
+#   HANDIN_READY_TIMEOUT_SECONDS        proposed-task wait limit (1..120, default: 120)
 #   AGENTRT_COORDINATOR_AGENTD_TOKEN    the execution principal agentd:coordinator-mbp
 #   AGENTRT_COORDINATOR_PROPOSER_TOKEN  the proposer seat seat:coordinator (propose only)
 # Refuse tracing before the first credential expansion, including a separate
@@ -107,7 +110,7 @@ RESPONSE=""
 call() {
   local kind="$1" method="$2" path="$3" body="$4"
   shift 4
-  local var=AGENTRT_COORDINATOR_AGENTD_TOKEN file token header out try
+  local var=AGENTRT_COORDINATOR_AGENTD_TOKEN file token header out try remaining delay max_time
   file="${HANDIN_AGENTD_TOKEN_FILE:-$HOME/.config/bifrost/coordinator-agentd.token}"
   if [ "$kind" = proposer ]; then
     var=AGENTRT_COORDINATOR_PROPOSER_TOKEN
@@ -130,8 +133,17 @@ call() {
   out=$(mktemp "$TMP/body.XXXXXX")
   printf 'Authorization: Bearer %s\n' "$token" >"$header"
   unset token
+  CODE=000
   for try in 1 2 3; do
-    local args=(-sS -o "$out" -w '%{http_code}' -X "$method" --max-time 40 -H "@$header")
+    max_time=40
+    # claim_pinned scopes this deadline to the whole readiness wait, including
+    # transport retries. Other callers retain their existing retry limits.
+    if [ -n "${call_deadline:-}" ]; then
+      remaining=$((call_deadline - SECONDS))
+      [ "$remaining" -gt 0 ] || break
+      [ "$remaining" -ge "$max_time" ] || max_time=$remaining
+    fi
+    local args=(-sS -o "$out" -w '%{http_code}' -X "$method" --max-time "$max_time" -H "@$header")
     [ -n "$body" ] && args+=(-H 'Content-Type: application/json' --data-binary "$body")
     curl "${args[@]}" "$@" "$BASE_URL$path" >"$out.code" & CURL_PID=$!
     if wait "$CURL_PID"; then
@@ -139,7 +151,13 @@ call() {
     fi
     CURL_PID=""; CODE=000
     if [ "$try" != 3 ]; then
-      sleep "$((try * 3))" & WAIT_PID=$!
+      delay=$((try * 3))
+      if [ -n "${call_deadline:-}" ]; then
+        remaining=$((call_deadline - SECONDS))
+        [ "$remaining" -gt 0 ] || break
+        [ "$remaining" -ge "$delay" ] || delay=$remaining
+      fi
+      sleep "$delay" & WAIT_PID=$!
       wait "$WAIT_PID"; WAIT_PID=""
     fi
   done
@@ -194,18 +212,20 @@ cmd_propose() {
 }
 
 cmd_squash() {
-  local task="" base="" title="" selected=() c branch head count msg dir original actual
+  local task="" base="" title="" attempt=1 selected=() c branch head count msg dir original actual first_msg change_id=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --task) task="$2"; shift 2 ;;
       --base) base="$2"; shift 2 ;;
       --title) title="$2"; shift 2 ;;
+      --attempt) attempt="$2"; shift 2 ;;
       --commit) selected+=("$2"); shift 2 ;;
       *) die "squash: unknown $1" ;;
     esac
   done
   [ -n "$task" ] && [ -n "$base" ] || die "squash: --task and --base"
   [[ "$task" =~ ^t_[0-9A-HJKMNP-TV-Z]{26}$ ]] || die "squash: invalid task id"
+  [[ "$attempt" =~ ^[1-9][0-9]*$ ]] || die 'squash: --attempt must be a positive integer'
   branch=$(git symbolic-ref --quiet --short HEAD) || die 'squash: an isolated branch is required'
   case "$branch" in main|master|prod|stg|dev) die 'squash: shared branch is forbidden' ;; esac
   [ -z "$(git status --porcelain)" ] || die 'squash: the working tree must be clean'
@@ -214,9 +234,21 @@ cmd_squash() {
   git merge-base --is-ancestor "$base" "$head" || die 'squash: base is not an ancestor'
   count=$(git rev-list --count "$base..$head")
   [ "$count" -gt 0 ] || die 'squash: nothing to hand in'
+  dir=$(git rev-parse --git-path "handin/squash/$task")
+  # Attempt 1 keeps the legacy location, including interrupted old invocations.
+  # Later attempts never replace its source/message or backup ref.
+  first_msg="$dir/message"
+  if [ "$attempt" != 1 ]; then
+    dir="$dir/attempts/$attempt"
+    if [ -f "$first_msg" ]; then
+      change_id=$(awk 'tolower($1) == "change-id:" {print $2}' "$first_msg")
+      [[ "$change_id" =~ ^I[0-9a-fA-F]{40}$ ]] || die 'squash: invalid Change-Id in first attempt recovery message'
+    fi
+  fi
   # Prepared identities never change, even when the original selection is
   # supplied again after a lost local command response.
   if [ "$count" = 1 ] && [ "$(git rev-list --parents -n1 "$head" | cut -d' ' -f2-)" = "$base" ] && valid_message "$head" "$task"; then
+    [ -z "$change_id" ] || [ "$(git show -s --format=%B "$head" | awk 'tolower($1) == "change-id:" {print $2}')" = "$change_id" ] || die 'squash: prepared commit Change-Id differs from first attempt'
     printf '%s\n' "$head"; return
   fi
   [ "${#selected[@]}" -gt 0 ] || die 'squash: explicitly select this work unit with --commit SHA (repeat in oldest-first order)'
@@ -234,7 +266,17 @@ cmd_squash() {
   printf 'handin: selected commits:\n%s\n' "$actual" >&2
   git diff --stat "$base" "$head" >&2
   git diff --name-only "$base" "$head" >&2
-  dir=$(git rev-parse --git-path "handin/squash/$task")
+  if [ "$attempt" != 1 ] && [ -z "$change_id" ]; then
+    # A pre-prepared first commit took the identity-preserving fast path,
+    # so there may be no recovery file. Its selected history is the source.
+    for c in "${selected[@]}"; do
+      if valid_message "$c" "$task"; then
+        change_id=$(git show -s --format=%B "$c" | awk 'tolower($1) == "change-id:" {print $2}')
+        break
+      fi
+    done
+    [ -n "$change_id" ] || die 'squash: first attempt message missing; select its prepared commit to preserve Change-Id'
+  fi
   mkdir -p "$dir"
   msg="$dir/message"
   if [ -f "$dir/source" ]; then
@@ -248,15 +290,19 @@ cmd_squash() {
     {
       printf '%s\n\nSelected work unit commits:\n' "$title"
       git log --reverse --format='- %h %s' "$base..$head"
-      printf '\nAgentrt-Task: %s\nChange-Id: I%s\n' "$task" "$(openssl rand -hex 20)"
+      [ -n "$change_id" ] || change_id="I$(openssl rand -hex 20)"
+      printf '\nAgentrt-Task: %s\nChange-Id: %s\n' "$task" "$change_id"
     } >"$msg"
   fi
   # Keep the original tip and message if creation fails. Only update the
   # isolated branch after the new object exists, using compare-and-swap.
-  git update-ref "refs/handin/backups/$task" "$head"
+  local backup="refs/handin/backups/$task"
+  # A legacy ref cannot have child refs, so use a separate namespace for N>1.
+  [ "$attempt" = 1 ] || backup="refs/handin/attempt-backups/$task/a$attempt"
+  git update-ref "$backup" "$head"
   local result
   result=$(git commit-tree "$(git rev-parse "$head^{tree}")" -p "$base" -F "$msg") || die "squash: original tip preserved; retry using $msg"
-  git update-ref "refs/heads/$branch" "$result" "$head" || die 'squash: branch moved concurrently; original tip is in refs/handin/backups'
+  git update-ref "refs/heads/$branch" "$result" "$head" || die "squash: branch moved concurrently; original tip is in $backup"
   printf '%s\n' "$result"
 }
 
@@ -309,8 +355,7 @@ cmd_run() {
   [ "$parents" = "$base" ] || die 'run: commit must have the task base as its only parent'
   valid_message "$commit" "$task" || die 'run: commit needs one matching Agentrt-Task and one Change-Id'
 
-  call agentd POST /claim/pinned "$(jq -n --arg h "$HOST" --arg t "$task" --arg k "$key" '{host_id:$h,task_id:$t,idempotency_key:$k,free_slots:1}')"
-  ok || die "run: claim/pinned: HTTP $CODE$(server_error); retry with the same key"
+  claim_pinned "$(jq -n --arg h "$HOST" --arg t "$task" --arg k "$key" '{host_id:$h,task_id:$t,idempotency_key:$k,free_slots:1}')"
   attempt=$(printf '%s' "$RESPONSE" | jq -er .attempt_id)
   epoch=$(printf '%s' "$RESPONSE" | jq -er .lease_epoch)
   ref=$(printf '%s' "$RESPONSE" | jq -er .pushed_ref)
@@ -366,6 +411,33 @@ cmd_run() {
   wait "$BEAT_PID" 2>/dev/null || true
   BEAT_PID=""
   printf '%s\n' "$attempt"
+}
+
+# Only the specific not-yet-ready response is retryable. Reuse the exact claim
+# body/key, and keep the sleep interruptible through the normal cleanup path.
+claim_pinned() {
+  local body="$1" timeout="${HANDIN_READY_TIMEOUT_SECONDS:-120}" delay=1 remaining proposed_error=""
+  [[ "$timeout" =~ ^[1-9][0-9]{0,2}$ ]] && [ "$timeout" -le 120 ] || die 'run: HANDIN_READY_TIMEOUT_SECONDS must be in 1..120'
+  local call_deadline=$((SECONDS + timeout))
+  while true; do
+    call agentd POST /claim/pinned "$body"
+    ok && return
+    if [ "$CODE" = 409 ] && printf '%s' "$RESPONSE" | jq -e '.message | strings | contains("is proposed, not ready")' >/dev/null 2>&1; then
+      proposed_error="HTTP $CODE$(server_error)"
+    elif [ "$CODE" != 000 ] || [ "$SECONDS" -lt "$call_deadline" ] || [ -z "$proposed_error" ]; then
+      die "run: claim/pinned: HTTP $CODE$(server_error); retry with the same key"
+    fi
+    remaining=$((call_deadline - SECONDS))
+    [ "$remaining" -gt 0 ] || break
+    [ "$delay" -le "$remaining" ] || delay=$remaining
+    echo "handin: task $task is proposed, not ready; retrying claim/pinned in ${delay}s (${remaining}s remaining)" >&2
+    sleep "$delay" & WAIT_PID=$!
+    wait "$WAIT_PID"; WAIT_PID=""
+    [ "$SECONDS" -lt "$call_deadline" ] || break
+    delay=$((delay * 2))
+    [ "$delay" -le 10 ] || delay=10
+  done
+  die "run: timed out after ${timeout}s waiting for task $task to become ready; last proposed response: $proposed_error; retry with the same key"
 }
 
 # Helpers deliberately share cmd_run's dynamically scoped, immutable binding.
