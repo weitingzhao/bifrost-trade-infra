@@ -3638,6 +3638,7 @@
 - **证据**：10-30 早上同时有 6 张基于 main `0cf36126` 的落地单等批（#197–#202）。`api/internal/agentrt/store/landing_grant_material.go:657` 在建授权时要求 main 仍等于 M0，否则 `grant refused main_changed … needs a new request`；`landing_wait.go:197` 把等待中的操作标 `discarded{main_changed}`，控制器按 k+1 重放（`controller/landing_drill.go:123`），新 R、新材料、新单。按代码推算：一次全批只落一张，其余 5 张批了也作废；串行要 6 轮「批 → 落地 → 重放与 CI → 取材料 → 建单」。
 - **影响**：过渡期结束后所有改动走落地单，并行交付越多 Owner 重复批同一内容越多；作废单仍在 Console 上可点，批了白批。
 - **修法**（架构级，先问 Owner）：A. 授权绑定变更内容而不是 R：记录批准时的 patch-id（`git patch-id --stable`），干净重放（无冲突、patch-id 相同、落地 CI 绿、规则版本不变）沿用原授权，否则作废；B. 落地队列：Owner 一次批一组，平台按序重放、逐个推进，任一组员重放后 patch-id 变化就停下重问；C. 维持现状，统筹一次只建一张单。推荐 A（Owner 批的是内容；重放只换父提交）。
+- **同类延误**（10-30 实测）：①改过同一批文件的等待单重放时 `failed{overlap}`，不可重试，只能答 do_not_merge 后手工拣到新 main、新 mission 重交（TD-457、N-01）；②已授权的单要等仓库在途名额（`max_in_flight_per_repo: 1`）：别的任务刚被领取、正跑落地 CI 时，最终闸不推，按 `grantTryEvery` 10 分钟后再试（#203 授权到落地 11 分钟、#205 约 20 分钟）。修法加两条：等待中的已授权单优先于新领取；最终闸被在途挡住时在在途让出后立即重试，而不是固定 10 分钟。
 - **防线**：PG 测试——两张并行单，先落一张，另一张干净重放后不需新单即可落地；patch-id 变化（冲突解决）时必须新单。
 - **验收**：两件并行改动 Owner 各批一次即全部落地。
 
