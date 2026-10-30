@@ -10,18 +10,23 @@
 
 来源：[Node 官方校验和](https://nodejs.org/download/release/v22.14.0/SHASUMS256.txt)、[Go 官方发布清单](https://go.dev/dl/?mode=json&include=all)；TypeScript SRI 与设计基线 platform/console/package-lock.json 一致。Python base 和 apt 版本沿用已存在的 ci-infra 锁。
 
-构建、推镜像及安装仍是另行批准的核心发布动作。本次只交付文件。构建完成后，复核镜像产物，将 digest 同时填入 IMAGE_DIGEST、两个 Task 的 image，生成并复核平台嵌入合同：
+构建、推镜像及安装仍是另行批准的核心发布动作。本次只交付文件。构建流水线回报两个结果：`image-digest`（kaniko）和 `materials`（`report-materials` 在刚推送的镜像里读 `/opt/s5/materials.json`，即镜像内 `s5check --ci-materials` 的输出，校验规范 JSON、六个字段齐全且非零）。复核镜像产物后，用**同一次运行**的这两个结果一步回填 IMAGE_DIGEST、两个 Task 的 image 与 `MATERIALS.json`，生成并复核平台嵌入合同：
 
 ```sh
-python scripts/s5/pins.py --ready --output ../platform/api/internal/agentrt/landingci/s5trusted/contract.json
+python scripts/s5/pins.py --backfill-digest <image-digest> --backfill-materials <materials 结果文件> \
+  --ready --output ../platform/api/internal/agentrt/landingci/s5trusted/contract.json
 python scripts/s5/pins.py --ready --check-platform ../platform/api/internal/agentrt/landingci/s5trusted/contract.json
 ```
+
+`MATERIALS.json` 在 UNBUILT 时是全零占位（形状与平台 `landingci` 的 `s5Materials` 一致）。`pins.py` 要求镜像状态与材料一致：全零镜像只接受全零占位，已构建镜像必须带真实非零材料（即使不加 `--ready`）；`--ready` 拒绝 UNBUILT。回填任一输入不合法时不写任何文件，回填后合同不就绪则恢复原文件。
+
+`toolchainDigest` 只有一种定义：`TOOLS.lock.json` 规范 JSON（键排序、无空白、UTF-8）的 SHA-256，即 `verify_materials.toolchain_digest`，与平台 `s5check.ToolchainDigest` 相同；共享 golden 在 `test_verify_materials.py` 与平台 `rules/s5check/testdata/ci-materials-golden.json`。TypeScript 配置与编译器实际读取的声明由 profile（manifest 的 `typescript/configs/toolchain`，进 `profileDigest`）绑定，检查器每次运行复测。
 
 两个仓库必须作为同一次核心变更发布。不得从候选树、可写 ConfigMap、labels 或创建请求注入 trust root。必须先在真实 Tekton 上确认已解析 spec 的默认字段与嵌入合同一致；未知默认值保持拒绝，不能为通过而通配忽略字段。
 
 ## 线 A 提供的内部 CLI
 
-此线不修改 A 的 `rules/s5check` 或 `cmd/s5check`。构建和运行依赖以下最小适配入口；缺入口即失败，没有假成功实现：
+入口已在平台 `api/cmd/s5check`（`rules/s5check/ci.go`、`materials.go`、`behavior.go`）实现；缺入口或材料即失败，没有假成功实现。`--ci-materials` 还要求平台 `rules/s5check/policies/ui-revision.json` 钉住非零 UI 提交（随附为全零，故在核心车道钉住 UI 之前镜像构建失败）。合同：
 
 * `s5check --ci-materials /opt/s5/s5check /opt/s5/TOOLS.lock.json`：输出 canonical JSON，包含 `profileDigest, toolchainDigest, callersDigest, typesDigest, testsDigest, uiSHA`。所有摘要为 64 位小写 hex，UI 为完整 SHA。`toolchainDigest` 是 TOOLS.lock.json canonical JSON 的 SHA256；其余来自镜像内冻结材料。
 * `s5check --ci-request-stdin`：stdin 为 `{schema:2,key:S5CIKey,ciUID,platformGitDir,uiGitDir,policyRoot}`。两个 Git 目录是只读 bare object stores，固定 refs 为 `refs/s5/{base,a,m0,revision}` 和 UI 的 `refs/s5/ui`。不得 checkout symlink 后读取宿主、不得执行候选构建脚本。

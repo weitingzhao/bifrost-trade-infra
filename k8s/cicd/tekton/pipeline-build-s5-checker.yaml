@@ -17,6 +17,10 @@ spec:
   results:
   - name: image-digest
     value: $(tasks.build.results.digest)
+  # `s5check --ci-materials` output measured inside the image just built; it is
+  # backfilled with image-digest in one step (scripts/s5/pins.py --backfill-*).
+  - name: materials
+    value: $(tasks.report-materials.results.materials)
   tasks:
   - name: freeze-check
     taskRef:
@@ -122,3 +126,39 @@ spec:
           limits:
             cpu: '2'
             memory: 2Gi
+  - name: report-materials
+    runAfter:
+    - build
+    params:
+    - name: digest
+      value: $(tasks.build.results.digest)
+    taskSpec:
+      params:
+      - name: digest
+        type: string
+      results:
+      - name: materials
+      steps:
+      - name: read-materials
+        # The image just pushed, addressed by the digest kaniko reported.
+        image: registry.cicd.svc.cluster.local:5000/bifrost-s5-checker@$(params.digest)
+        command:
+        - python3
+        - -I
+        - -c
+        args:
+        - "import json,os,re\nraw=open('/opt/s5/materials.json').read().strip()\n\
+          m=json.loads(raw)\nif json.dumps(m,sort_keys=True,separators=(',',':'),ensure_ascii=False)!=raw:\
+          \ raise SystemExit('noncanonical materials')\nsizes={'profileDigest':64,'toolchainDigest':64,'callersDigest':64,'typesDigest':64,'testsDigest':64,'uiSHA':40}\n\
+          if set(m)!=set(sizes) or any(not isinstance(m[k],str) or not re.fullmatch('[0-9a-f]{%d}'%n,m[k])\
+          \ or m[k]=='0'*n for k,n in sizes.items()): raise SystemExit('incomplete materials')\n\
+          open(os.environ['RESULT'],'w').write(raw)"
+        env:
+        - name: RESULT
+          value: $(results.materials.path)
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
