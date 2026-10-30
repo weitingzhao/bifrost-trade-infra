@@ -3598,6 +3598,7 @@
 
 - **状态**：未开始（2026-10-29）。
 - **证据**：① C-7 实测 2（t_01M64V09RSFFRPCA7Z4QSRB4CA）`propose` 后立刻 `run`：`claim/pinned: HTTP 409 … is proposed, not ready`，等约 20 秒后重跑才成功；之后每次都要手写等待循环。② B5-e（t_01M658DPFZH5GDSJGN233HRPMT）运行时评审第 1 轮 FAIL 进第 2 轮，`handin.sh squash` 报 `recovery state differs: <git-dir>/handin/squash/<task>`——恢复状态按任务记（`agent-config/scripts/landing/handin.sh:241` 比较 `source = "$base $head"`），不按尝试记；统筹把第 1 轮的状态目录改名为 `.attempt1` 后才压成功，第 2 轮也因此换了 Change-Id。
+- **第三例**（2026-10-30 00:2x，N-01 t_01M65M2BJ4HTGF762CJDPE19HA）：在派活目录（clone 自本机检出）里跑 `run --remote origin`，`origin` 是本机路径，分支推到了本机而不是 Gitea；平台 persist 读 Gitea 找不到 ref，连续 409，尝试过期成 stale。修法加一条：`run` 推送前核对 `--remote` 的 URL 就是该任务仓库在 Gitea 的地址，不是就拒绝并说明。
 - **影响**：每件交付多一步手工等待；返工轮需要手动处理本地状态，容易误删或误用旧消息，Change-Id 在轮次间不稳定。
 - **修法**：`run` 在 `proposed` 时按退避等到 `ready`（有上限，超时报清楚的原因）；`squash` 的恢复状态按（任务, 尝试序号）记，或在上一轮尝试已交付（`a<n>` 已推、已 submit）时自动归档旧状态；同一任务的各轮沿用第一次的 Change-Id。
 - **防线**：`test_handin.sh` 加两组：proposed→ready 自动等待（含超时）；第 1 轮已交付后第 2 轮 squash 成功且 Change-Id 不变。
