@@ -3574,6 +3574,7 @@
 
 - **状态**：未开始（2026-10-29）。
 - **证据**：`api/internal/server/agentrt_landing_708_pg_test.go:239` `TestReview708FinalGatesTwoConnectionsPG` 在 server 包整包运行时偶发失败：STG 子用例 `drill final gate: failed stale`，PROD 子用例 `gate did not authorize … Reason:before_enable`。基线 `78cd8d26` 上连跑两次 server 包，第二次 6 个子用例全红；单独跑通过。同类根因已在 S6-6 的 T50–T55 夹具里确认并修掉（codex-work-721，platform `b728f2f0`）：启用事件按冻结的事件时钟写，mission 的 `created_at` 取 PostgreSQL `now()`，两者先后颠倒时资格判定正确地给出 `before_enable`。
+- **同类第二例**（2026-10-29 19:0x CDT，S6-6 落地 CI `landing-ci-a48a84e3f01c0e4e3381260f-1`）：`internal/agentrt/store` `TestLiveGateRefusesARootPastItsWindow/during_the_reads` 报 `landing gate: the UTC day changed during the gate`——CI 恰好跨过 UTC 午夜；测试用真实时钟，日界附近必然误报。修法同：测试注入时钟，不读墙钟。
 - **已排除**：server 包不冻结事件时钟（`FreezeEventClock` 只在 store 包的 export_test）；本机测试库比本机时钟快约 8 ms（2026-10-29 量），方向上只会让 mission 更晚，不能解释 `before_enable`。根因待查，先看资格判定里比较的是哪两个时间（规则 `effective_at` 截到秒、启用事件、mission 创建、验收事件）。
 - **影响**：CI 与本机全套偶发红，推 main 前要重跑；真实回归可能被当成偶发放过。
 - **修法**：查清后再定；若是时钟对齐问题，708 夹具（及其他按冻结时钟放启用栅栏的落地 PG 夹具）改为读 PostgreSQL `now()`，把启用事件放在它与测试时间之前。
