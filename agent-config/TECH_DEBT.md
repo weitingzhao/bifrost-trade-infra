@@ -3641,6 +3641,17 @@
 - **防线**：PG 测试——两张并行单，先落一张，另一张干净重放后不需新单即可落地；patch-id 变化（冲突解决）时必须新单。
 - **验收**：两件并行改动 Owner 各批一次即全部落地。
 
+### TD-463
+
+**P3 · platform AI assessment · 改为 Owner 点了才生成（Owner 2026-10-30 早上提出）**
+
+- **状态**：未开始（2026-10-30）。
+- **来源**：Owner 原话：「有了 AI assessment 的能力很好，我想这个能力可以让我手动点击去问，默认不用，我点了，再给我 Assessment」。
+- **现状**：`api/internal/agentrt/controller/assess.go:30` 的 `Assess` 按 `AssessEvery` 定时扫描，每张等 Owner 的审批单和每张卡都自动交给参谋长席位评估；Console `pages/ApprovalsPage.tsx:400` 与 `pages/question/AssessmentPanel.tsx` 直接展示。
+- **修法**：默认不生成；审批页 / 问题页的 Assessment 区放一个「Ask for assessment」按钮，点了才登记评估请求，由现有循环处理并在页面上显示进度与结果；已生成的保留。是否保留某些类别自动评估，先问 Owner。
+- **防线**：store 测试——未请求的单不进评估队列；Console 测试——没点按钮时不显示评估、点了后发一次请求。
+- **验收**：新建一张审批单，不点按钮则无评估；点了后页面出现评估。
+
 ### TD-460
 
 **P2 · platform B5 · 首次 STG 自动发布 canary 缺「创建样本 / 收尾」的操作入口**
