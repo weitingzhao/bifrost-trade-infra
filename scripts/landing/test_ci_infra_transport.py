@@ -72,7 +72,7 @@ printf '%s\\trefs/heads/main\\n' "$RESOLVED"
         assert 'fixture-password' not in result.stdout + result.stderr
 
 
-@pytest.mark.parametrize('base_kind', ['parent', 'mismatch', 'no_base', 'merge'])
+@pytest.mark.parametrize('base_kind', ['parent', 'mismatch', 'no_base', 'merge', 'push_two', 'push_one', 'push_missing', 'push_merge'])
 def test_clone_depth_identity_and_base_results(tmp_path, base_kind):
     env = fixture_env(tmp_path)
     source = tmp_path / 'sources'
@@ -89,7 +89,7 @@ def test_clone_depth_identity_and_base_results(tmp_path, base_kind):
             parent = commit(repo)
             put(repo, 'third', 'three\n')
             revision = commit(repo)
-            if base_kind == 'merge':
+            if base_kind in ('merge', 'push_merge'):
                 git(repo, 'checkout', '-b', 'side', parent)
                 put(repo, 'side', 'side\n')
                 commit(repo)
@@ -111,21 +111,27 @@ for i, arg in enumerate(args):
 os.execv(os.environ['REAL_GIT'], [os.environ['REAL_GIT'], *args])
 ''')
     fake.chmod(0o755)
-    base = first if base_kind == 'mismatch' else parent
+    base = first if base_kind in ('mismatch', 'push_two', 'push_merge') else parent
     if base_kind == 'no_base':
         base = '0' * 40
+    if base_kind == 'push_missing':
+        base = 'f' * 40
     result = subprocess.run(['bash'], input=script('clone', tmp_path), text=True, capture_output=True, check=False,
                             env=dict(env, SOURCE=str(source), REAL_GIT=real_git, REVISION=revision, BASE=base,
-                                     PLATFORM_REVISION=platform_revision, PURPOSE='push' if base_kind == 'no_base' else 'landing'))
+                                     PLATFORM_REVISION=platform_revision,
+                                     PURPOSE='push' if base_kind == 'no_base' or base_kind.startswith('push_') else 'landing'))
     assert 'fixture-password' not in result.stdout + result.stderr
     if base_kind in ('mismatch', 'merge'):
         assert result.returncode != 0 and 'base_mismatch' in result.stderr
         return
+    if base_kind == 'push_missing':
+        assert result.returncode != 0 and 'base_fetch_failed' in result.stderr
+        return
     assert result.returncode == 0, result.stderr
     assert (tmp_path / 'results/commit').read_text() == revision
     assert (tmp_path / 'results/platform-commit').read_text() == platform_revision
-    assert (tmp_path / 'results/base-commit').read_text() == ('' if base_kind == 'no_base' else parent)
+    assert (tmp_path / 'results/base-commit').read_text() == ('' if base_kind == 'no_base' else base)
     assert git(tmp_path / 'ws/cand/bifrost-platform', 'rev-list', '--count', 'HEAD') == '1'
-    assert git(tmp_path / 'ws/cand/bifrost-trade-infra', 'rev-list', '--count', 'HEAD') == '2'
+    assert git(tmp_path / 'ws/cand/bifrost-trade-infra', 'rev-list', '--count', 'HEAD') == ('3' if base_kind == 'push_merge' else '2')
     if base_kind == 'parent':
         assert git(tmp_path / 'ws/base/bifrost-trade-infra', 'rev-parse', 'HEAD') == parent

@@ -3,6 +3,9 @@
   "freeze_pipeline_task": "freeze-check",
   "taskspec_digest": "sha256 of json.dumps(taskSpec, sort_keys=true, separators=(',', ':'), ensure_ascii=false). A changed inline spec does not match.",
   "read_only_task_ref": [
+    "bifrost-ci-infra-resolve",
+    "bifrost-ci-infra-clone",
+    "bifrost-ci-infra-check",
     "bifrost-code-health",
     "bifrost-git-clone-gitea",
     "bifrost-release-freeze-check",
@@ -28,8 +31,8 @@
     {
       "pipeline": "bifrost-ci-platform",
       "task": "test-api",
-      "taskspec_sha256": "aca15fa245a2a790a322f60d186f98f283382edef89bc5cf325bcee3524f3f6c",
-      "evidence": "2026-10-29 / Work 687 / W-31 B-689-01：相对 e8447cc 的 test-api.taskSpec 仅新增 AGENTRT_T50_LEGACY_SRC 环境变量，指向 clone-legacy 提供的固定 5a8edd55 API；原摘要为 c101ccbdae5d063336971a460328a7ec478602cacd34ff09fe5a846ce37e25ac。测试脚本、凭据、PostgreSQL/Redis sidecar 均未改，仍只运行模块下载、静态分析和测试，不新增 registry 或集群写入；freeze_chain.steps_write(taskSpec) 为 false。新摘要由 freeze_chain.taskspec_digest 对解析后的 taskSpec 计算；clone-legacy 复用已核对的 bifrost-git-clone-gitea，不改变只读分类规则。"
+      "taskspec_sha256": "752e22343069495bc72c38aeeba1afa75cf7269981dbe30eb166b9cf8df15099",
+      "evidence": "2026-10-29 / Work 687 / W-31 B-689-01：相对 e8447cc 的 test-api.taskSpec 仅新增 AGENTRT_T50_LEGACY_SRC 环境变量，指向 clone-legacy 提供的固定 5a8edd55 API；原摘要为 c101ccbdae5d063336971a460328a7ec478602cacd34ff09fe5a846ce37e25ac。测试脚本、凭据、PostgreSQL/Redis sidecar 均未改，仍只运行模块下载、静态分析和测试，不新增 registry 或集群写入；freeze_chain.steps_write(taskSpec) 为 false。新摘要由 freeze_chain.taskspec_digest 对解析后的 taskSpec 计算；clone-legacy 复用已核对的 bifrost-git-clone-gitea，不改变只读分类规则。；2026-10-30 / W-31 review 778：复核 ace7899，仅 go test timeout 从 300s 调整为 900s 并增加解释注释；脚本无新增写入，凭据与 sidecar 未变。重新绑定当前 taskSpec 摘要。"
     },
     {
       "pipeline": "bifrost-ci-platform",
@@ -137,5 +140,10 @@
     "build-research",
     "kaniko",
     "run"
-  ]
+  ],
+  "read_only_task_ref_evidence": {
+    "bifrost-ci-infra-resolve": "W-31 review 778: fixed SHA validation and read-only git ls-remote; reader credential only in environment.",
+    "bifrost-ci-infra-clone": "W-31 review 778: git fetch/checkout and local workspace creation only; no remote or cluster writes.",
+    "bifrost-ci-infra-check": "W-31 review 778: isolated local policy, tests, static checks, kubectl kustomize, scanner and result files; no Secret injection, --live, scan --report or remote writes."
+  }
 }

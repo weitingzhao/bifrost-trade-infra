@@ -61,12 +61,13 @@ def main():
     ap.add_argument("--revision", required=True)
     ap.add_argument("--platform", type=Path, required=True)
     ap.add_argument("--platform-revision", required=True)
+    ap.add_argument("--purpose", choices=("landing", "push"), default="landing")
     args = ap.parse_args()
     try:
         rows = P["registry"](args.repo, args.base)
         verify(rows, discover(args.repo, args.revision), P["REPO"])
         verify(rows, discover(args.platform, args.platform_revision, True), "bifrost-platform")
-        P["consumers"](args.repo, args.base, args.revision)
+        P["consumers"](args.repo, args.base, args.revision, args.purpose)
     except (P["PolicyError"], OSError, ValueError, KeyError, TypeError, P["yaml"].YAMLError) as exc:
         print(f"FAIL {exc}", file=sys.stderr)
         return 1

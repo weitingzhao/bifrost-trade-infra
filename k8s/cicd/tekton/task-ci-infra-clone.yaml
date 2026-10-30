@@ -75,13 +75,20 @@ spec:
         git -C "$target" checkout -q --detach "$rev"
         [[ "$(git -C "$target" rev-parse HEAD)" == "$rev" ]] || exit 1
       done
-      unset auth
       infra="$ws/cand/bifrost-trade-infra"
       if [[ -n "$BASE" ]]; then
-        parents="$(git -C "$infra" rev-list --parents -n1 "$REVISION")"
-        [[ "$parents" == "$REVISION $BASE" ]] || { echo base_mismatch >&2; exit 1; }
+        if [[ "$PURPOSE" == landing ]]; then
+          parents="$(git -C "$infra" rev-list --parents -n1 "$REVISION")"
+          [[ "$parents" == "$REVISION $BASE" ]] || { echo base_mismatch >&2; exit 1; }
+        elif ! git -C "$infra" cat-file -e "$BASE^{commit}" 2>/dev/null; then
+          # before can be older than depth=2 (or from a force push). Fetch
+          # only that fixed endpoint, never the moving branch or full history.
+          git_read -C "$infra" fetch -q --depth=1 origin "$BASE" 2>/dev/null || { echo base_fetch_failed >&2; exit 1; }
+        fi
+        [[ "$(git -C "$infra" cat-file -t "$BASE")" == commit ]] || { echo base_not_commit >&2; exit 1; }
         git -C "$infra" worktree add --detach "$ws/base/bifrost-trade-infra" "$BASE"
       fi
+      unset auth
       for link in CLAUDE.md AGENT_FACTS.md AGENTS.md DESIGN_CONTRACTS.md .mcp.json .mcp.json.README.md; do
         ln -s "bifrost-trade-infra/agent-config/$link" "$ws/cand/$link"
       done

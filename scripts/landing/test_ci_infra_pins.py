@@ -121,7 +121,7 @@ def test_locks_and_build_source():
         assert re.search(r'\b' + name + r'=[\w.:+~-]+', docker)
     build = read_yaml('pipeline-build-ci-infra-tools.yaml')['spec']
     assert build['results'][0]['value'] == '$(tasks.build.results.digest)'
-    args = build['tasks'][1]['taskSpec']['steps'][0]['args']
+    args = next(t for t in build['tasks'] if t['name'] == 'build')['taskSpec']['steps'][0]['args']
     assert '--digest-file=$(results.digest.path)' in args
     assert '--custom-platform=linux/amd64' in args
 

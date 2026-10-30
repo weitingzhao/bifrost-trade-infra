@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run each ci-infra stage with immutable inputs and fail-closed evidence."""
 import argparse
+import hashlib
 import json
 import os
 import runpy
@@ -47,7 +48,7 @@ def check_workspace(args):
         if P["git"](repo, "status", "--porcelain", "--untracked-files=normal").strip():
             raise Error("checkout_dirty")
     if args.base_sha:
-        P["identity"](infra, args.revision, args.base_sha)
+        P["identity"](infra, args.revision, args.base_sha, args.purpose)
         base_repo = args.base / P["REPO"]
         if P["git"](base_repo, "rev-parse", "HEAD").decode().strip() != args.base_sha:
             raise Error("base_checkout_mismatch")
@@ -62,6 +63,9 @@ def metric_values(path):
     data = json.loads(path.read_text())
     if data.get("not_measured") or not isinstance(data.get("metrics"), list):
         raise Error("code_health_unmeasured")
+    coverage = data.get("scan_complete", {}).get(P["REPO"], {})
+    if type(coverage.get("files_read")) is not int or not coverage.get("paths_sha256"):
+        raise Error("code_health_scan_incomplete")
     values = {}
     for m in data["metrics"]:
         if m.get("repo") != P["REPO"]:
@@ -104,6 +108,12 @@ def code_health(args, infra):
             if result.returncode not in (0, 1):
                 raise Error("code_health_scan_failed")
             metric_values(output)
+            revision = args.base_sha if label == "base" else args.revision
+            names = sorted(name.encode("utf-8") for name in P["tree"](infra, revision)
+                           if name.endswith((".ts", ".tsx", ".py", ".go", ".sh", ".yml", ".yaml", ".md")))
+            expected = {"files_read": len(names), "paths_sha256": hashlib.sha256(b"".join(n + b"\0" for n in names)).hexdigest()}
+            if json.loads(output.read_text())["scan_complete"][P["REPO"]] != expected:
+                raise Error("code_health_scan_incomplete")
             outputs.append(output)
         compare_health(*outputs)
 
@@ -127,14 +137,17 @@ def quick(args, infra, platform):
     print(f"quick_seconds={seconds:.3f}")
     if seconds > 120:
         print("WARN quick_budget_exceeded seconds=" + str(round(seconds, 3)))
-    if args.results_dir:
-        (args.results_dir / "quick-timing.json").write_text(json.dumps({"seconds": seconds}))
+    # This warning measures this execution. There is no previous-run artifact
+    # contract; logs are the timing record, not an undeclared Tekton result.
 
 
 def statics(infra):
     for name in ("check_admission_guards.py", "check_agent_access.py", "check_platform_maintenance.py",
-                 "check_alert_routing.py", "check-release-chain.py"):
+                 "check_alert_routing.py"):
         run([sys.executable, "-I", infra / "scripts" / name], cwd=infra)
+    # This fixed two-repository workspace has no flex-query revision. The
+    # default release-chain entry remains the full cross-repository check.
+    run([sys.executable, "-I", infra / "scripts/check-release-chain.py", "--scope", "infra"], cwd=infra)
     run([sys.executable, "-I", infra / "agent-config/scripts/check_hardcoded_paths.py",
          "--ref", "HEAD", "--new-only"], cwd=infra)
 
@@ -168,7 +181,8 @@ def stage(args, name, infra, platform):
         if name != "consumers":
             command.append(name)
         run(command + ["--repo", infra, "--base", args.base_sha, "--revision", args.revision,
-                       "--platform", platform, "--platform-revision", args.platform_revision])
+                       "--platform", platform, "--platform-revision", args.platform_revision,
+                       "--purpose", args.purpose])
         if name == "doc-policy":
             write_result(args, "doc-policy", "pass")
     elif name == "quick":

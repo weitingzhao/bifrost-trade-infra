@@ -9,6 +9,7 @@ Pipeline task is not dominated by the fail-closed freeze check.
 
 from __future__ import annotations
 
+import argparse
 import os
 import re
 import subprocess
@@ -38,7 +39,7 @@ def workspace_root() -> Path:
     return Path(os.environ.get("BIFROST_WORKSPACE", str(ROOT.parent)))
 
 
-def collect_build_deliver_pipeline_paths() -> dict[str, Path]:
+def collect_build_deliver_pipeline_paths(scope: str = "workspace") -> dict[str, Path]:
     """Map Pipeline metadata.name -> YAML for bifrost-build-* / bifrost-deliver-*."""
     paths: dict[str, Path] = {}
     tekton = ROOT / "k8s/cicd/tekton"
@@ -47,6 +48,8 @@ def collect_build_deliver_pipeline_paths() -> dict[str, Path]:
         match = re.search(r"\n  name: (bifrost-(?:build|deliver)-[^\n]+)", text)
         if match:
             paths[match.group(1).strip()] = path
+    if scope == "infra":
+        return paths
     flex_root = os.environ.get("FLEX_QUERY_ROOT")
     if flex_root:
         flex_repo = Path(flex_root)
@@ -69,7 +72,7 @@ def first_task_name(pipeline_yaml: str) -> str | None:
     return match.group(1).strip() if match else None
 
 
-def assert_guarded_pipelines_release_window_first() -> None:
+def assert_guarded_pipelines_release_window_first(scope: str = "workspace") -> None:
     """TD-263: every MUST_HOLD pipeline runs release-window after the freeze check.
 
     The fail-closed freeze check is the first task and release-window runs after
@@ -78,8 +81,10 @@ def assert_guarded_pipelines_release_window_first() -> None:
     parent of this repository) or FLEX_QUERY_ROOT when the sibling checkout is
     elsewhere.
     """
-    paths = collect_build_deliver_pipeline_paths()
+    paths = collect_build_deliver_pipeline_paths(scope)
     for pipeline in sorted(wd.MUST_HOLD):
+        if scope == "infra" and pipeline == "bifrost-build-flex-query":
+            continue  # Explicit external ownership, never infer scope from absence.
         path = paths.get(pipeline)
         if path is None:
             check(
@@ -132,8 +137,12 @@ def external_pipeline_files() -> list[tuple[str, Path]]:
 
 def main(argv: list[str] | None = None) -> int:
     failures.clear()
-    args = list(sys.argv[1:] if argv is None else argv)
-    allow_known_gaps = "--allow-known-gaps" in args
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--scope", choices=("workspace", "infra"), default="workspace",
+                        help="infra checks only this repository; workspace also requires flex-query")
+    parser.add_argument("--allow-known-gaps", action="store_true")
+    args = parser.parse_args(argv)
+    allow_known_gaps = args.allow_known_gaps
     task_decide = load_task_decide()
     cases = [
         (None, "bifrost-deliver-research"),
@@ -165,13 +174,13 @@ def main(argv: list[str] | None = None) -> int:
         check("default: main" not in rev, f"{rel} still defaults revision to main")
         check("40-character" in text, f"{rel} does not document the SHA revision")
 
-    assert_guarded_pipelines_release_window_first()
+    assert_guarded_pipelines_release_window_first(args.scope)
 
     for msg in freeze_chain.violations_under(ROOT / "k8s/cicd/tekton"):
         check(False, msg)
 
     external_records: list[dict] = []
-    for repo, path in external_pipeline_files():
+    for repo, path in external_pipeline_files() if args.scope == "workspace" else []:
         external_records.extend(freeze_chain.records_in_file(path, repo))
     hard_external, known = freeze_chain.split_known_gaps(external_records)
     for msg in hard_external:
@@ -214,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if known and not allow_known_gaps:
         return 1
-    print(f"check-release-chain: ok ({len(cases)} window cases)")
+    print(f"check-release-chain: ok ({len(cases)} window cases; scope={args.scope})")
     return 0
 
 

@@ -1,37 +1,38 @@
-"""Consume a previous CI timing artifact; exceeding two minutes warns only."""
-import json
-import math
-import os
-import warnings
+"""Warn on the current quick execution; historical timing is not an input."""
+import runpy
 from pathlib import Path
 
-import pytest
+T = runpy.run_path(str(Path(__file__).with_name('test_ci_infra_stages.py')))
+ci_workspace = T['ci_workspace']
+C = T['C']
 
 
-def check_budget(path):
-    seconds = json.loads(Path(path).read_text())['seconds']
-    if type(seconds) not in (float, int) or not math.isfinite(seconds) or seconds < 0:
-        raise ValueError('invalid quick timing')
-    if seconds > 120:
-        warnings.warn(f'quick_budget_exceeded {seconds}s > 120s', stacklevel=2)
-    return seconds
+def measure_quick(args, infra, platform, monkeypatch, seconds):
+    (platform / 'api/cmd/infracheck').mkdir(parents=True, exist_ok=True)
+    clock = iter((0.0, seconds))
+    monkeypatch.setattr(C.time, 'monotonic', lambda: next(clock))
+    real_run = C.run
+    def generated_command(argv, **kwargs):
+        if argv[0] == 'go':
+            return 'exit 0'
+        return real_run(argv, **kwargs)
+    monkeypatch.setattr(C, 'run', generated_command)
+    C.quick(args, infra, platform)
 
 
-def test_last_ci_budget():
-    path = os.environ.get('CI_INFRA_QUICK_TIMING')
-    if not path:
-        warnings.warn('quick_budget_unmeasured: no previous CI timing artifact', stacklevel=1)
-        return
-    check_budget(path)  # An explicitly supplied unreadable artifact is a failure.
+def test_last_ci_budget(ci_workspace, monkeypatch, capsys):
+    # Keep the existing test entry for quick-list compatibility, while dropping
+    # the unsupported historical artifact dependency (review 777 N-01).
+    args, infra, platform = ci_workspace
+    measure_quick(args, infra, platform, monkeypatch, 120.0)
+    output = capsys.readouterr().out
+    assert 'quick_seconds=120.000' in output
+    assert 'quick_budget_exceeded' not in output
 
 
-def test_budget_warning_and_unreadable(tmp_path):
-    path = tmp_path / 'quick.json'
-    path.write_text('{"seconds": 120}')
-    assert check_budget(path) == 120
-    path.write_text('{"seconds": 121}')
-    with pytest.warns(UserWarning, match='quick_budget_exceeded'):
-        assert check_budget(path) == 121
-    path.unlink()
-    with pytest.raises(OSError):
-        check_budget(path)
+def test_budget_warning_and_unreadable(ci_workspace, monkeypatch, capsys, tmp_path):
+    args, infra, platform = ci_workspace
+    args.results_dir = tmp_path
+    measure_quick(args, infra, platform, monkeypatch, 121.0)
+    assert 'WARN quick_budget_exceeded seconds=121.0' in capsys.readouterr().out
+    assert not (tmp_path / 'quick-timing.json').exists()

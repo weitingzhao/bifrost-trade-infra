@@ -20,6 +20,7 @@
 #                                 can show it (needs PLATFORM_OPERATOR_TOKEN;
 #                                 PLATFORM_API_URL defaults to 127.0.0.1:8780)
 set -euo pipefail
+export LC_ALL=C
 
 usage() {
   cat >&2 <<'USAGE'
@@ -90,6 +91,8 @@ metrics_json=""
 summary_lines=""
 
 not_measured=""
+scan_temp="$(mktemp -d)"
+trap 'rm -rf "$scan_temp"' EXIT
 
 # Should this repo be scanned? Honours --repo, and reports a selected-but-absent
 # repo as NOT MEASURED rather than scanning nothing and calling it zero. A CI
@@ -107,28 +110,29 @@ want() {
   return 0
 }
 
-# List git-tracked files matching the given pathspecs, one per line.
-# Fails loudly on whitespace in filenames rather than miscounting silently.
+# Return a NUL-delimited manifest, never a shell variable containing paths.
+# Keep every successful manifest for the scan-completeness attestation.
 tracked() {
   local repo="$1"; shift
-  [[ -d "$ROOT/$repo/.git" || -f "$ROOT/$repo/.git" ]] || return 0
-  local out
-  out="$(cd "$ROOT/$repo" && git ls-files "$@" 2>/dev/null || true)"
-  if [[ -n "$out" ]] && printf '%s\n' "$out" | grep -q '[[:space:]]'; then
-    echo "code-health: whitespace in a tracked filename under $repo — refusing to guess counts" >&2
-    exit 2
-  fi
-  printf '%s' "$out"
+  local manifest file
+  manifest="$(mktemp "$scan_temp/$repo.XXXXXX")" || return 2
+  git -C "$ROOT/$repo" ls-files -z -- "$@" > "$manifest" || return 2
+  while IFS= read -r -d '' file; do
+    cat -- "$ROOT/$repo/$file" > /dev/null || return 2
+  done < "$manifest"
+  printf '%s' "$manifest"
 }
 
-# grep -h over a newline-separated list of repo-relative paths. Runs inside the
-# repo so the paths resolve. An empty list yields no output (a bare xargs would
-# run grep with no operands and block reading stdin).
+# No match (1) is normal; read/regex errors (2) must fail the entire scan.
 grep_files() {
   local repo="$1" files="$2" pattern="$3"
-  [[ -n "$files" ]] || return 0
-  ( cd "$ROOT/$repo" && printf '%s\n' "$files" | tr '\n' '\0' \
-    | xargs -0 grep -hoE "$pattern" 2>/dev/null ) || true
+  local file rc
+  while IFS= read -r -d '' file; do
+    LC_ALL=C grep -ahoE "$pattern" -- "$ROOT/$repo/$file" && continue
+    rc=$?
+    [[ "$rc" == 1 ]] || return 2
+  done < "$files"
+  return 0
 }
 
 json_escape() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
@@ -190,12 +194,12 @@ add_metric() {
 #       19 copies of `_row_to_dict` and 17 of `_connect_or_503`, one per class,
 #       because there is no shared base. Restricting to module scope would drop
 #       exactly the signal worth having.
-dup_table() { sort | uniq -c | sort -rn | awk '$1>3' || true; }
+dup_table() { sort | uniq -c | sort -rn | awk '$1>3'; }
 dup_detail() { head -3 | awk '{printf "%s(%s) ", $2, $1}' || true; }
 
 # TS module-scope dup (frontend). See comment above for why indentation is excluded.
 if want bifrost-trade-frontend; then
-fe_files="$(tracked bifrost-trade-frontend 'src/*.ts' 'src/*.tsx' | grep -vE '\.(test|spec)\.tsx?$' || true)"
+fe_files="$(tracked bifrost-trade-frontend 'src/*.ts' 'src/*.tsx' ':(exclude)*.test.ts' ':(exclude)*.spec.ts' ':(exclude)*.test.tsx' ':(exclude)*.spec.tsx')"
 fe_dup="$(grep_files bifrost-trade-frontend "$fe_files" \
   '^(export )?(async )?function [a-zA-Z_][a-zA-Z0-9_]*|^(export )?const [a-zA-Z_][a-zA-Z0-9_]* = (async )?\(' \
   | sed -E 's/.*function //; s/.*const //; s/ = .*//' | dup_table)"
@@ -210,9 +214,9 @@ py_dup_metric() {
   local repo="$1" domain="$2" id="$3" var="$4" label_suffix="$5"
   want "$repo" || return 0
   local files dup n
-  files="$(tracked "$repo" '*.py' | grep -vE '^tests/' || true)"
+  files="$(tracked "$repo" '*.py' ':(exclude)tests/**')" || return 2
   dup="$(grep_files "$repo" "$files" '^[[:space:]]*(async )?def [a-zA-Z_][a-zA-Z0-9_]*' \
-    | sed -E 's/.*def //' | grep -vE '^__.*__$' | dup_table)"
+    | sed -E 's/.*def //' | sed -E '/^__.*__$/d' | dup_table)" || return 2
   n=$(printf '%s' "$dup" | grep -c . || true)
   add_metric "$id" "duplicated function names ($label_suffix)" "$domain" "$repo" \
     "$n" "$var" "top: $(printf '%s\n' "$dup" | dup_detail)" "$dup"
@@ -238,7 +242,7 @@ py_dup_metric bifrost-platform-plugin-flex-query subcontractors \
 if want bifrost-trade-infra; then
 infra_sh_files="$(tracked bifrost-trade-infra '*.sh')"
 infra_sh_dup="$(grep_files bifrost-trade-infra "$infra_sh_files" '^[a-zA-Z_][a-zA-Z0-9_]*\(\)' \
-  | sed 's/()$//' | grep -vE '^(pass|fail|ok|bad)$' | dup_table)"
+  | sed 's/()$//' | sed -E '/^(pass|fail|ok|bad)$/d' | dup_table)"
 infra_sh_dup_n=$(printf '%s' "$infra_sh_dup" | grep -c . || true)
 add_metric code.duplication.rocket.infra "duplicated shell function names (infra)" rocket bifrost-trade-infra \
   "$infra_sh_dup_n" DUP_FUNCS_INFRA_SH_BASELINE \
@@ -257,20 +261,26 @@ oversized() {
   local repo="$1"
   local threshold="${2:-800}"
   local files
-  files="$(tracked "$repo" '*.ts' '*.tsx' '*.py' '*.go')"
-  [[ -n "$files" ]] || { echo ""; return 0; }
-  ( cd "$ROOT/$repo" && printf '%s\n' "$files" | tr '\n' '\0' | xargs -0 wc -l 2>/dev/null ) \
-    | awk -v thr="$threshold" '$2!="total" && $1>thr {print $1" "$2}' | sort -rn || true
+  files="$(tracked "$repo" '*.ts' '*.tsx' '*.py' '*.go')" || return 2
+  count_large_files "$repo" "$files" "$threshold" | sort -rn
+}
+
+count_large_files() {
+  local repo="$1" files="$2" threshold="$3" file count
+  while IFS= read -r -d '' file; do
+    count="$(wc -l < "$ROOT/$repo/$file")" || return 2
+    # Shell-escape display paths to keep one offender per output line, even
+    # when the real Git path contains tabs, newlines, quotes or spaces.
+    if [[ "$count" -gt "$threshold" ]]; then printf '%s %q\n' "$count" "$file"; fi
+  done < "$files"
 }
 
 oversized_infra() {
   local repo="$1"
   local threshold="${2:-500}"
   local files
-  files="$(tracked "$repo" '*.ts' '*.tsx' '*.py' '*.go' '*.sh' '*.yml' '*.yaml' '*.md')"
-  [[ -n "$files" ]] || { echo ""; return 0; }
-  ( cd "$ROOT/$repo" && printf '%s\n' "$files" | tr '\n' '\0' | xargs -0 wc -l 2>/dev/null ) \
-    | awk -v thr="$threshold" '$2!="total" && $1>thr {print $1" "$2}' | sort -rn || true
+  files="$(tracked "$repo" '*.ts' '*.tsx' '*.py' '*.go' '*.sh' '*.yml' '*.yaml' '*.md')" || return 2
+  count_large_files "$repo" "$files" "$threshold" | sort -rn
 }
 
 # id domain repo baseline_var label_suffix
@@ -314,7 +324,11 @@ fi
 if want bifrost-trade-frontend; then
 flat_pages=""
 for d in $(cd "$ROOT/bifrost-trade-frontend" 2>/dev/null && ls -d src/pages/*/ 2>/dev/null | sed 's:/*$::'); do
-  n=$(tracked bifrost-trade-frontend "$d/*" | sed "s|$d/||" | grep -cv '/' || true)
+  page_manifest="$(tracked bifrost-trade-frontend "$d/*")"
+  n=0
+  while IFS= read -r -d '' page; do
+    [[ "${page#"$d/"}" == */* ]] || n=$((n+1))
+  done < "$page_manifest"
   [[ "${n:-0}" -gt 0 ]] && flat_pages+="$n $(basename "$d")"$'\n'
 done
 flat_total=$(printf '%s' "$flat_pages" | awk '{s+=$1} END{print s+0}')
@@ -329,16 +343,19 @@ fi
 # on independent delivery chains, so an unvalidated module is an endpoint whose
 # backend can drift with nothing to notice.
 if want bifrost-trade-frontend; then
-api_all="$(tracked bifrost-trade-frontend 'src/api/*.ts' | grep -vE '\.(test|spec)\.ts$' || true)"
-api_total=$(printf '%s' "$api_all" | grep -c . || true)
+api_all="$(tracked bifrost-trade-frontend 'src/api/*.ts' ':(exclude)*.test.ts' ':(exclude)*.spec.ts')"
+api_total=0
 api_validated=0
 api_unvalidated=""
-if [[ -n "$api_all" ]]; then
-  validated_list=$( (cd "$ROOT/bifrost-trade-frontend" && printf '%s\n' "$api_all" | tr '\n' '\0' \
-    | xargs -0 grep -lE 'apiValidation|lib/schemas' 2>/dev/null || true) | sort)
-  api_validated=$(printf '%s' "$validated_list" | grep -c . || true)
-  api_unvalidated=$(comm -23 <(printf '%s\n' "$api_all" | sort) <(printf '%s\n' "$validated_list") || true)
-fi
+while IFS= read -r -d '' file; do
+  api_total=$((api_total+1))
+  if grep -aE 'apiValidation|lib/schemas' -- "$ROOT/bifrost-trade-frontend/$file" > /dev/null; then
+    api_validated=$((api_validated+1))
+  else
+    rc=$?; [[ "$rc" == 1 ]] || exit 2
+    api_unvalidated+="$(printf '%q' "$file")"$'\n'
+  fi
+done < "$api_all"
 add_metric code.contract-coverage.satellite "API modules without schema" satellite bifrost-trade-frontend \
   "$(( api_total - api_validated ))" UNVALIDATED_API_BASELINE \
   "$api_validated/$api_total modules validated" "$api_unvalidated"
@@ -378,11 +395,23 @@ fi
 echo >&3
 
 if [[ -n "$JSON_OUT" || "$DO_REPORT" -eq 1 ]]; then
+  coverage="$(python3 - "$scan_temp" <<'PY'
+import hashlib, json, sys
+from pathlib import Path
+files = {}
+for manifest in Path(sys.argv[1]).iterdir():
+    repo = manifest.name.rsplit('.', 1)[0]
+    files.setdefault(repo, set()).update(filter(None, manifest.read_bytes().split(b'\0')))
+print(json.dumps({repo: {'files_read': len(names), 'paths_sha256': hashlib.sha256(b''.join(n + b'\0' for n in sorted(names))).hexdigest()}
+                  for repo, names in files.items()}))
+PY
+)"
   json="{
   \"generated_at\": \"$generated_at\",
   \"source\": \"$(json_escape "$SOURCE")\",
   \"commit\": \"$commit\",
   \"not_measured\": \"$(json_escape "$not_measured")\",
+  \"scan_complete\": $coverage,
   \"metrics\": [$metrics_json
   ]
 }"

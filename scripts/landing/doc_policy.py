@@ -92,16 +92,25 @@ def blob(repo, revision, name):
     return git(repo, "show", f"{sha(revision)}:{path_name(name)}")
 
 
-def identity(repo, revision, base):
+def identity(repo, revision, base, purpose="landing"):
     sha(revision)
     sha(base)
+    if purpose == "push":
+        # Webhook before/after are endpoints, including multi-commit or force
+        # pushes. Require both exact commit objects, not an immediate parent.
+        for value in (base, revision):
+            if git(repo, "cat-file", "-t", value).strip() != b"commit":
+                raise PolicyError("commit_missing")
+        return
+    if purpose != "landing":
+        raise PolicyError("invalid_purpose")
     parents = git(repo, "rev-list", "--parents", "-n1", revision).decode().split()
     if parents != [revision, base]:
         raise PolicyError("base_mismatch")
 
 
-def changes(repo, base, revision):
-    identity(repo, revision, base)
+def changes(repo, base, revision, purpose="landing"):
+    identity(repo, revision, base, purpose)
     names = git(repo, "diff", "--no-ext-diff", "--no-renames", "--name-status", "-z", base, revision).split(b"\0")
     if names[-1] != b"" or (len(names) - 1) % 2:
         raise PolicyError("path_invalid")
@@ -184,9 +193,9 @@ def consumed(rows, paths):
                     raise PolicyError(f"consumed_path {name}")
 
 
-def consumers(repo, base, revision):
+def consumers(repo, base, revision, purpose="landing"):
     rows, patterns = registry(repo, base), allow(repo, base)
-    changed = [r[1] for r in changes(repo, base, revision)]
+    changed = [r[1] for r in changes(repo, base, revision, purpose)]
     paths = set(tree(repo, revision)) | set(changed)
     for row in rows:
         if row["class"] != "reader":
@@ -206,14 +215,43 @@ def content(data, name):
         raise PolicyError(f"doc_content {name}") from exc
 
 
-def marked(lines):
-    active, result = [], set()
+def headings(lines):
+    result, paragraph_start, fence = {}, None, None
     for i, line in enumerate(lines):
-        heading = re.match(r"^(#{1,6})\s+(.+)", line)
+        # Keep Git's LF indices; a terminal CR belongs to a CRLF line ending
+        # for Markdown syntax, not to the title/underline itself.
+        line = line.removesuffix("\r")
+        if fence:
+            if re.fullmatch(r" {0,3}" + re.escape(fence[0]) + "{" + str(fence[1]) + r",}[ \t]*", line):
+                fence = None
+            continue
+        opening = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+        if opening:
+            fence, paragraph_start = (opening[1][0], len(opening[1])), None
+            continue
+        heading = re.match(r"^ {0,3}(#{1,6})(?:[ \t]+(.*)|$)", line)
         if heading:
-            level = len(heading[1])
+            result[i] = len(heading[1]), heading[2] or ""
+            paragraph_start = None
+            continue
+        underline = re.fullmatch(r" {0,3}(=+|-+)[ \t]*", line)
+        if underline and paragraph_start is not None:
+            result[paragraph_start] = (1 if underline[1][0] == "=" else 2), "\n".join(lines[paragraph_start:i])
+            paragraph_start = None
+        elif not line.strip() or line.startswith(("    ", "\t", ">")):
+            paragraph_start = None
+        elif paragraph_start is None:
+            paragraph_start = i
+    return result
+
+
+def marked(lines):
+    active, result, sections = [], set(), headings(lines)
+    for i, line in enumerate(lines):
+        if i in sections:
+            level, title = sections[i]
             active = [(n, yes) for n, yes in active if n < level]
-            active.append((level, "Owner 决定" in heading[2]))
+            active.append((level, "Owner 决定" in title))
         if CLAIM.search(line) or (line.strip() and any(yes for _, yes in active)):
             result.add(i)
     return result
@@ -257,18 +295,37 @@ def evidence(text, repo, base, platform, platform_revision, name):
     return ""
 
 
+def git_lines(text):
+    """Git counts only LF, with no phantom line after a terminal LF."""
+    return text[:-1].split("\n") if text.endswith("\n") else text.split("\n") if text else []
+
+
 def diff_hunks(repo, base, revision, name):
-    raw = git(repo, "diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--unified=3",
+    raw = git(repo, "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames", "--unified=3",
               base, revision, "--", name).decode("utf-8")
     hunks, current = [], None
-    left = right = 0
-    for line in raw.splitlines():
-        header = re.match(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", line)
+    before = git_lines(blob(repo, base, name).decode("utf-8")) if name in tree(repo, base) else []
+    after = git_lines(blob(repo, revision, name).decode("utf-8")) if name in tree(repo, revision) else []
+    left = right = left_end = right_end = 0
+    for line in git_lines(raw):
+        header = re.match(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", line)
         if header:
-            left, right = int(header[1]) - 1, int(header[2]) - 1
+            if current is not None and (left != left_end or right != right_end):
+                raise PolicyError("diff_hunk_count")
+            old_count, new_count = int(header[2] or 1), int(header[4] or 1)
+            left = int(header[1]) - bool(old_count)
+            right = int(header[3]) - bool(new_count)
+            left_end, right_end = left + old_count, right + new_count
             current = ([], [])
             hunks.append(current)
         elif current is not None:
+            if line.startswith("\\ No newline at end of file"):
+                continue
+            if line[:1] not in ("+", "-", " ") or not line:
+                raise PolicyError("diff_hunk_format")
+            for sign, index, limit, lines in (("-", left, left_end, before), ("+", right, right_end, after)):
+                if line[0] in (sign, " ") and (not 0 <= index < min(limit, len(lines)) or lines[index] != line[1:]):
+                    raise PolicyError("diff_hunk_mapping")
             if line.startswith("+"):
                 current[0].append(right)
                 right += 1
@@ -278,11 +335,15 @@ def diff_hunks(repo, base, revision, name):
             elif line.startswith(" "):
                 left += 1
                 right += 1
+    if current is not None and (left != left_end or right != right_end):
+        raise PolicyError("diff_hunk_count")
+    if before != after and not hunks:
+        raise PolicyError("diff_hunk_missing")
     return hunks
 
 
 def owner_claims(old, new, repo, base, platform, platform_revision, name, hunks=None):
-    before, after = old.splitlines(), new.splitlines()
+    before, after = git_lines(old), git_lines(new)
     old_marks, new_marks = marked(before), marked(after)
     if hunks is None:  # Inner tests; the CLI always uses Git's actual hunks.
         hunks = []
@@ -318,10 +379,10 @@ def owner_claims(old, new, repo, base, platform, platform_revision, name, hunks=
         raise PolicyError("; ".join(errors))
 
 
-def documents(repo, base, revision, platform, platform_revision):
+def documents(repo, base, revision, platform, platform_revision, purpose="landing"):
     patterns = allow(repo, base)
     errors = []
-    for kind, name, _ in changes(repo, base, revision):
+    for kind, name, _ in changes(repo, base, revision, purpose):
         if not any(matches(p, name) for p in patterns) or hard(name):
             continue
         new = content(blob(repo, revision, name), name) if kind != "D" else ""
@@ -343,15 +404,16 @@ def main():
     ap.add_argument("--revision", required=True)
     ap.add_argument("--platform", type=Path, required=True)
     ap.add_argument("--platform-revision", required=True)
+    ap.add_argument("--purpose", choices=("landing", "push"), default="landing")
     args = ap.parse_args()
     try:
         sha(args.platform_revision)
         if args.stage == "scope":
             scope(args.repo, args.base, args.revision)
         elif args.stage == "consumers":
-            consumers(args.repo, args.base, args.revision)
+            consumers(args.repo, args.base, args.revision, args.purpose)
         else:
-            documents(args.repo, args.base, args.revision, args.platform, args.platform_revision)
+            documents(args.repo, args.base, args.revision, args.platform, args.platform_revision, args.purpose)
     except (PolicyError, OSError, ValueError, KeyError, TypeError, yaml.YAMLError) as exc:
         print(f"FAIL {exc}", file=sys.stderr)
         return 1
