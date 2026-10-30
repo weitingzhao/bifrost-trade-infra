@@ -38,6 +38,19 @@ spec:
     args:
     - fetch
     env:
+    # TD-432: Gitea refuses anonymous reads. The read-only reader credential,
+    # as in bifrost-ci-infra-clone, is mapped into this fetch step only; the
+    # runner removes it from its environment before any git call.
+    - name: GIT_USERNAME
+      valueFrom:
+        secretKeyRef:
+          name: gitea-ci-reader
+          key: username
+    - name: GIT_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: gitea-ci-reader
+          key: password
     - name: S5_BASE
       value: $(params.base)
     - name: S5_REVISION

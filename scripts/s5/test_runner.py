@@ -159,6 +159,10 @@ def test_git_identities_are_measured_not_copied(tmp_path):
         "fake-digest",
         "wrong-blob",
         "oversize",
+        "rejected",
+        "rejected-no-code",
+        "rejected-exit-0",
+        "passed-exit-1",
     ],
 )
 def test_supervisor_only_accepts_image_checker_output(tmp_path, monkeypatch, mutation):
@@ -193,6 +197,13 @@ def test_supervisor_only_accepts_image_checker_output(tmp_path, monkeypatch, mut
         e["files"][0]["afterBlob"] = "f" * 40
     if mutation == "oversize":
         e["files"][0]["path"] = "x" * 4000
+    finding = {"code": "S5_CALLER_CHANGED", "path": "a.ts", "line": 1, "column": 1, "detail": "x"}
+    if mutation.startswith("rejected"):
+        e["passed"], e["findings"] = False, [finding]
+    if mutation == "rejected-no-code":
+        e["findings"] = [{**finding, "code": "not-a-code"}]
+    # s5check exits 1 with its evidence when it refuses the candidate.
+    exit_one = mutation in ("rejected", "rejected-no-code", "passed-exit-1")
     # Only the TEST image supplies a stub. Production always uses the fixed binary.
     binary = root / "bin/s5check"
     body = (
@@ -204,6 +215,8 @@ def test_supervisor_only_accepts_image_checker_output(tmp_path, monkeypatch, mut
         body += "sys.exit(1)\n"
     elif mutation != "empty":
         body += "sys.stdout.write(" + repr(r.canonical(e).decode()) + ")\n"
+        if exit_one:
+            body += "sys.exit(1)\n"
     binary.write_text(body)
     binary.chmod(0o755)
     monkeypatch.setattr(r, "ROOT", root)
@@ -214,7 +227,15 @@ def test_supervisor_only_accepts_image_checker_output(tmp_path, monkeypatch, mut
         r.os, "statvfs", lambda _: type("RO", (), {"f_flag": os.ST_RDONLY})()
     )
     results = tmp_path / "results"
-    if mutation:
+    if mutation == "rejected":
+        # A bound refusal is reported as results (the platform keeps its
+        # code) and still never passes.
+        r.check(trees, k, "uid", results)
+        evidence = r.checked_json((results / "evidence").read_text())
+        assert evidence == e and evidence["passed"] is False
+        assert evidence["findings"][0]["code"] == "S5_CALLER_CHANGED"
+        assert (results / "evidence-digest").read_text() == r.digest(e)
+    elif mutation:
         with pytest.raises((ValueError, json.JSONDecodeError)):
             r.check(trees, k, "uid", results)
         assert not list(results.glob("*"))
@@ -242,3 +263,37 @@ def test_kernel_sandbox_denies_network():
         capture_output=True,
     )
     assert proc.returncode != 0 and b"Operation not permitted" in proc.stderr
+
+
+def test_reader_credential_reaches_git_only_as_scoped_header(monkeypatch):
+    env = {"GIT_USERNAME": "reader", "GIT_PASSWORD": "s3cret", "OTHER": "x"}
+    auth = r.reader_auth(env)
+    assert env == {"OTHER": "x"}
+    seen = []
+
+    def run(cmd, env, **_):
+        seen.append((cmd, env))
+        return subprocess.CompletedProcess(cmd, 0, b"", b"")
+
+    monkeypatch.setattr(r.subprocess, "run", run)
+    r.git(Path("/x.git"), "fetch", r.GIT_URL + "bifrost-platform.git", auth=auth)
+    r.git(Path("/x.git"), "rev-parse", "HEAD")
+    (cmd, with_auth), (_, without) = seen
+    assert "s3cret" not in " ".join(cmd) and auth not in " ".join(cmd)
+    assert with_auth["GIT_CONFIG_KEY_0"] == "http." + r.GIT_HOST + ".extraHeader"
+    assert with_auth["GIT_CONFIG_VALUE_0"] == "Authorization: Basic " + auth
+    assert "credential.helper=" in cmd and "http.followRedirects=false" in cmd
+    assert not any(k.startswith("GIT_CONFIG_KEY") for k in without)
+    for missing in ({}, {"GIT_USERNAME": "reader"}, {"GIT_PASSWORD": "p"}):
+        with pytest.raises(ValueError, match="reader credential"):
+            r.reader_auth(dict(missing))
+
+
+def test_check_never_holds_the_reader_credential(monkeypatch):
+    env = environ(key())
+    env["GIT_PASSWORD"] = "s3cret"
+    monkeypatch.setattr(r.os, "environ", env)
+    monkeypatch.setattr(r.sys, "argv", ["runner.py", "check"])
+    monkeypatch.setattr(r, "check", lambda *a: pytest.fail("check ran"))
+    with pytest.raises(ValueError, match="credential in check"):
+        r.main()

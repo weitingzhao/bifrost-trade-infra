@@ -164,7 +164,18 @@ def test_readonly_mount_credentials_and_network_boundary():
         assert step["securityContext"]["allowPrivilegeEscalation"] is False
         assert step["securityContext"]["readOnlyRootFilesystem"] is True
         assert step["securityContext"]["capabilities"]["drop"] == ["ALL"]
-        assert not any("valueFrom" in e for e in step["env"])
+        secret = [e for e in step["env"] if "valueFrom" in e]
+        if stage == "check":
+            assert secret == []
+        else:
+            # TD-432: only fetch reads Gitea, with the read-only reader secret.
+            assert secret == [
+                {
+                    "name": "GIT_" + n.upper(),
+                    "valueFrom": {"secretKeyRef": {"name": "gitea-ci-reader", "key": n}},
+                }
+                for n in ("username", "password")
+            ]
         assert not set(step) & {"script", "envFrom"}
         assert all(set(v) == {"name", "emptyDir"} for v in task["volumes"])
         assert step["computeResources"]["limits"] == {"cpu": "2", "memory": "2Gi"}
@@ -230,3 +241,27 @@ def test_build_reports_materials_from_the_image_it_built():
     assert "/opt/s5/materials.json" in step["args"][0]
     assert step["env"] == [{"name": "RESULT", "value": "$(results.materials.path)"}]
     assert step["securityContext"]["readOnlyRootFilesystem"] is True
+
+
+def test_run_template_is_tekton_stored_form_with_one_freeze_override():
+    c = contract(ready=False)
+    run = c["runTemplate"]
+    # Tekton stores metav1.Duration ("1200s" would read back as "20m0s");
+    # the template, the pipeline and admission use the stored form.
+    assert run["timeouts"] == {"pipeline": "20m0s"}
+    assert [t["timeout"] for t in c["pipeline"]["tasks"][1:]] == ["10m0s", "10m0s"]
+    # The freeze check reads cicd/bifrost-release-freeze with the default SA
+    # token (tekton-release-window); every S5 task keeps the no-token template.
+    assert run["taskRunSpecs"] == [
+        {
+            "pipelineTaskName": "freeze-check",
+            "serviceAccountName": "default",
+            "podTemplate": {"nodeSelector": {"kubernetes.io/arch": "amd64"}},
+        }
+    ]
+    policy = (ROOT / "k8s/platform-rbac/40-admission.yaml").read_text()
+    s5 = policy.split("- name: s5", 1)[1].split("validations:", 1)[0]
+    assert "'pipelineTaskName': 'freeze-check', 'serviceAccountName': 'default'" in s5
+    assert "object.spec.timeouts == {'pipeline': '20m0s'}" in s5
+    assert "1200s" not in s5 and "!has(object.spec.taskRunSpecs)" not in s5
+    assert "metadata.all(k, k == 'creationTimestamp')" in s5

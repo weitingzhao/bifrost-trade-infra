@@ -25,21 +25,38 @@ spec:
           'system:serviceaccount:bifrost-platform-stg:bifrost-platform',
           'system:serviceaccount:cicd:tekton-deliver'
         ]
-  # W-31 S5: exact no-token template; no per-task override or shell interpolation.
+  # W-31 S5: exact no-token template; no shell interpolation. The only
+  # per-task override is the release freeze check's: it reads one ConfigMap
+  # and needs the default ServiceAccount's token (tekton-release-window), which
+  # the S5 template denies to every other task. Policies see the object after
+  # Tekton's defaulting webhook, which round-trips it through the Go types:
+  # durations become "20m0s" and the claim template gains
+  # metadata.creationTimestamp null and status {} (observed on cicd runs).
+  # Only those inert fields are tolerated.
   variables:
     - name: s5
       expression: >-
         has(object.spec.pipelineRef) && object.spec.pipelineRef == {'name': 'bifrost-ci-s5'}
-        && !has(object.spec.pipelineSpec) && !has(object.spec.taskRunSpecs)
+        && !has(object.spec.pipelineSpec)
+        && has(object.spec.taskRunSpecs) && object.spec.taskRunSpecs == [{
+          'pipelineTaskName': 'freeze-check', 'serviceAccountName': 'default',
+          'podTemplate': {'nodeSelector': {'kubernetes.io/arch': 'amd64'}}}]
         && has(object.spec.taskRunTemplate)
         && object.spec.taskRunTemplate == {
           'serviceAccountName': 'bifrost-s5',
           'podTemplate': {'automountServiceAccountToken': false, 'enableServiceLinks': false,
             'nodeSelector': {'kubernetes.io/arch': 'amd64'}, 'securityContext': {'fsGroup': 1000}}}
-        && has(object.spec.timeouts) && object.spec.timeouts == {'pipeline': '1200s'}
-        && has(object.spec.workspaces) && object.spec.workspaces == [{
-          'name': 'trees', 'volumeClaimTemplate': {'spec': {'accessModes': ['ReadWriteOnce'],
-            'storageClassName': 'local-path', 'resources': {'requests': {'storage': '2Gi'}}}}}]
+        && has(object.spec.timeouts) && object.spec.timeouts == {'pipeline': '20m0s'}
+        && has(object.spec.workspaces) && size(object.spec.workspaces) == 1
+        && object.spec.workspaces[0].all(k, k in ['name', 'volumeClaimTemplate'])
+        && object.spec.workspaces[0].name == 'trees'
+        && object.spec.workspaces[0].volumeClaimTemplate.all(k, k in ['metadata', 'spec', 'status'])
+        && object.spec.workspaces[0].volumeClaimTemplate.spec == {'accessModes': ['ReadWriteOnce'],
+            'storageClassName': 'local-path', 'resources': {'requests': {'storage': '2Gi'}}}
+        && (!has(object.spec.workspaces[0].volumeClaimTemplate.metadata)
+          || object.spec.workspaces[0].volumeClaimTemplate.metadata.all(k, k == 'creationTimestamp'))
+        && (!has(object.spec.workspaces[0].volumeClaimTemplate.status)
+          || size(object.spec.workspaces[0].volumeClaimTemplate.status) == 0)
         && has(object.spec.params) && size(object.spec.params) == 6
         && ['base', 'revision', 'uiRevision', 'key', 'keyDigest', 'generation'].all(n,
           object.spec.params.filter(p, p.name == n).size() == 1)

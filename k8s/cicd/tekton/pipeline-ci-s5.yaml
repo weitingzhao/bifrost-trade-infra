@@ -59,7 +59,7 @@ spec:
     - freeze-check
     taskRef:
       name: bifrost-s5-fetch
-    timeout: 600s
+    timeout: 10m0s
     params:
     - name: base
       value: $(params.base)
@@ -81,7 +81,7 @@ spec:
   - name: s5-check
     taskRef:
       name: bifrost-s5-check
-    timeout: 600s
+    timeout: 10m0s
     params:
     - name: base
       value: $(params.base)

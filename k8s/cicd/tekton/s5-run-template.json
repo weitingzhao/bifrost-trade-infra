@@ -2,6 +2,17 @@
   "pipelineRef": {
     "name": "bifrost-ci-s5"
   },
+  "taskRunSpecs": [
+    {
+      "pipelineTaskName": "freeze-check",
+      "podTemplate": {
+        "nodeSelector": {
+          "kubernetes.io/arch": "amd64"
+        }
+      },
+      "serviceAccountName": "default"
+    }
+  ],
   "taskRunTemplate": {
     "podTemplate": {
       "automountServiceAccountToken": false,
@@ -16,7 +27,7 @@
     "serviceAccountName": "bifrost-s5"
   },
   "timeouts": {
-    "pipeline": "1200s"
+    "pipeline": "20m0s"
   },
   "workspaces": [
     {

@@ -35,7 +35,7 @@ python scripts/s5/pins.py --ready --check-platform ../platform/api/internal/agen
 
 runner 在 Linux/amd64 的独立低权限子进程中执行可信 checker：固定 CPU/文件大小/文件描述符/墙钟上限、seccomp 拒绝网络和命名空间/挂载逃逸、禁止创建新进程组；子进程与其 suite 继承限制。只在父进程验证 JSON、所有 key 绑定、实读树/文件 blob 后写 Tekton results。`/tekton/results` 仅父 uid 可写。候选代码绝不能在该父进程中执行。
 
-树 fetch 与 check 是不同 Task/Pod；fetch 匿名访问固定 Gitea 地址，无凭据回退。check 树 workspace 内核只读，根文件系统只读，没有 kubeconfig、Secret、宿主卷和 push 凭据。ServiceAccount 禁止自动 token，NetworkPolicy 拒绝 check 的 ingress/egress；seccomp 的网络限制不依赖网络策略收敛。
+树 fetch 与 check 是不同 Task/Pod；fetch 用只读凭据 `gitea-ci-reader`（TD-432，与 `bifrost-ci-infra-clone` 同法）访问固定 Gitea 地址：secretKeyRef 只映射进 fetch 步骤，runner 读后立即从环境删除，只以限定该 Gitea 地址的 Authorization 头交给 git，不进 argv、URL、文件或 credential helper；check 步骤见到该变量即失败。check 树 workspace 内核只读，根文件系统只读，没有 kubeconfig、Secret、宿主卷和 push 凭据。ServiceAccount 禁止自动 token，NetworkPolicy 拒绝 check 的 ingress/egress；seccomp 的网络限制不依赖网络策略收敛。
 
 ## 线 B 读取接口
 
@@ -67,4 +67,6 @@ python scripts/s5/pins.py --check-platform ../platform/api/internal/agentrt/land
 python scripts/s5/pins.py --ready
 ```
 
-Python supervisor 成功对照使用临时 Git 真对象和测试专用假 checker；它证明输送/绑定，不是 P1–P4 检查器验收。macOS 不支持 Linux seccomp/setuid/只读挂载，相关内核测试明确 skip。真实镜像构建、可信 suite、Tekton、admission dry-run、匿名 Gitea 连通性、网络隔离和发布均未在本次实施中执行。
+Python supervisor 成功对照使用临时 Git 真对象和测试专用假 checker；它证明输送/绑定，不是 P1–P4 检查器验收。macOS 不支持 Linux seccomp/setuid/只读挂载，相关内核测试明确 skip。真实镜像构建、可信 suite、Tekton、admission dry-run、Gitea 读凭据连通性、网络隔离和发布均未在本次实施中执行。
+
+check 拒绝候选时（s5check 退出 1 且 stdout 是绑定一致、`passed:false`、findings 均带 `S5_*` 码的证据），runner 照常写结果并以 0 退出，平台读回后保留 finding 的具体拒绝码；它永远不是通过。其他退出码、无证据或证据不合规仍使 check 失败（平台记 S5_BEHAVIOR）。冻结检查 `freeze-check` 用 `taskRunSpecs` 单独以 default ServiceAccount 运行（只为读 `cicd/bifrost-release-freeze`）；被冻结拒绝的 run 由平台按基础设施原因有界重试（新 generation）。

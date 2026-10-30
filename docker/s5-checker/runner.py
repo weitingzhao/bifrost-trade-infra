@@ -1,5 +1,6 @@
 """Image-owned S5 transport. Never import, build or launch tooling from R."""
 
+import base64
 import ctypes
 import errno
 import hashlib
@@ -15,7 +16,12 @@ import sys
 import tempfile
 
 ROOT = Path("/opt/s5")
-GIT_URL = "http://gitea.cicd.svc.cluster.local:3000/bifrost/"
+GIT_HOST = "http://gitea.cicd.svc.cluster.local:3000/"
+GIT_URL = GIT_HOST + "bifrost/"
+READER_ENV = ("GIT_USERNAME", "GIT_PASSWORD")
+# A stable refusal code from the S5 table; the platform passes it through only
+# as a refusal (landingci s5Code).
+CODE = re.compile(r"S5_[A-Z][A-Z_]{1,60}")
 FIELDS = (
     "schema env tenant repo task attempt op base A M0 R baselineTree resultTree "
     "uiSHA ruleVersion ruleDigest profileDigest checkerImageDigest toolchainDigest "
@@ -96,7 +102,19 @@ def request(environ):
     return key
 
 
-def git(repo, *args):
+def reader_auth(environ):
+    """Gitea refuses anonymous reads (TD-432). As in bifrost-ci-infra-clone,
+    the read-only gitea-ci-reader credential reaches the fetch step only, as
+    secretKeyRef environment. It is removed from the environment at once and
+    given to git as one Authorization header scoped to the in-cluster Gitea:
+    never in argv, a URL, a file or a credential helper."""
+    user, password = (environ.pop(name, "") for name in READER_ENV)
+    if not user or not password:
+        raise ValueError("S5_EVIDENCE_MISSING: Gitea reader credential")
+    return base64.b64encode((user + ":" + password).encode()).decode()
+
+
+def git(repo, *args, auth=None):
     # No inherited config, hooks, helpers, redirects, replacement objects or credentials.
     env = {
         "PATH": "/usr/local/bin:/usr/bin:/bin",
@@ -106,6 +124,12 @@ def git(repo, *args):
         "GIT_TERMINAL_PROMPT": "0",
         "GIT_NO_REPLACE_OBJECTS": "1",
     }
+    if auth is not None:
+        env.update(
+            GIT_CONFIG_COUNT="1",
+            GIT_CONFIG_KEY_0="http." + GIT_HOST + ".extraHeader",
+            GIT_CONFIG_VALUE_0="Authorization: Basic " + auth,
+        )
     cmd = [
         "git",
         "-c",
@@ -149,7 +173,7 @@ def identities(trees, key):
     return actual
 
 
-def fetch(trees, key):
+def fetch(trees, key, auth):
     for name, refs in [
         (
             "platform",
@@ -166,6 +190,7 @@ def fetch(trees, key):
             "--no-tags",
             GIT_URL + "bifrost-" + name + ".git",
             *[sha + ":refs/s5/" + ref for ref, sha in refs.items()],
+            auth=auth,
         )
     identities(trees, key)
 
@@ -261,17 +286,34 @@ def evidence_bindings(key, uid):
     return result
 
 
-def validate_evidence(evidence, key, uid):
+def validate_evidence(evidence, key, uid, rejected=False):
+    """A pass, or (rejected) a bound refusal whose findings carry their codes.
+
+    A refusal is reported as results, not as a failed task, so the platform
+    can keep the checker's own code (S5_CALLER_CHANGED, ...) instead of a
+    generic S5_BEHAVIOR. It still never passes: passed is false and the
+    findings are non-empty."""
     want = evidence_bindings(key, uid)
     if set(evidence) != set(want) | {"files", "findings", "passed"} or any(
         evidence.get(n) != v for n, v in want.items()
     ):
         raise ValueError("S5_BINDING: checker evidence")
-    if (
-        evidence["passed"] is not True
-        or evidence["findings"] != []
-        or not isinstance(evidence["files"], list)
-    ):
+    findings = evidence["findings"]
+    if not isinstance(evidence["files"], list) or not isinstance(findings, list):
+        raise ValueError("S5_BEHAVIOR: checker rejected candidate")
+    if rejected:
+        if (
+            evidence["passed"] is not False
+            or not findings
+            or not all(
+                isinstance(f, dict)
+                and isinstance(f.get("code"), str)
+                and CODE.fullmatch(f["code"])
+                for f in findings
+            )
+        ):
+            raise ValueError("S5_BEHAVIOR: checker rejected candidate")
+    elif evidence["passed"] is not True or findings != []:
         raise ValueError("S5_BEHAVIOR: checker rejected candidate")
     seen = set()
     for f in evidence["files"]:
@@ -354,12 +396,15 @@ def check(trees, key, uid, results):
                     os.killpg(proc.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-            if proc.returncode != 0:
+            # s5check exits 1 with its evidence on stdout when it refuses the
+            # candidate; any other status, or 1 without bound evidence, is a
+            # failed check.
+            if proc.returncode not in (0, 1):
                 raise ValueError("S5_BEHAVIOR: checker failed")
             stdout.seek(0)
             raw = stdout.read(3001).decode().strip()
     evidence = checked_json(raw)
-    validate_evidence(evidence, key, uid)
+    validate_evidence(evidence, key, uid, rejected=proc.returncode == 1)
     for file in evidence["files"]:
         for commit, blob in [
             (key["M0"], file["beforeBlob"]),
@@ -394,8 +439,11 @@ def main():
     key = request(os.environ)
     trees = Path("/workspace/trees")
     if sys.argv[1:] == ["fetch"]:
-        fetch(trees, key)
+        fetch(trees, key, reader_auth(os.environ))
     elif sys.argv[1:] == ["check"]:
+        # The check never holds the reader credential (only fetch maps it).
+        if any(name in os.environ for name in READER_ENV):
+            raise ValueError("S5_CI_IDENTITY: credential in check")
         check(trees, key, os.environ["S5_CI_UID"], Path("/tekton/results"))
     else:
         raise ValueError("unknown S5 stage")
