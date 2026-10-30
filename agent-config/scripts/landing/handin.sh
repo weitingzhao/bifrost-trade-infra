@@ -13,6 +13,7 @@
 #       Agentrt-Task trailer and one Change-Id. Never amend it afterwards.
 #       For rework use --attempt N (default: 1), then run with --key <task>:N.
 #       Keep N on interrupted retries; earlier recovery messages remain intact.
+#       Every attempt keeps the first saved task identity, including prepared commits.
 #   handin.sh run --task t_… --report FILE --remote REMOTE [--key K] [--commit SHA]
 #       claim/pinned, upload the report, start, computed, push the commit to
 #       the branch the platform gave, persist, submit; the lease is renewed
@@ -211,8 +212,26 @@ cmd_propose() {
   printf '%s\n' "$out" | jq -r '.tasks[0].task_id'
 }
 
+save_squash_identity() {
+  local identity="$1" task="$2" change_id="$3" pending
+  [[ "$change_id" =~ ^I[0-9a-fA-F]{40}$ ]] || die 'squash: invalid Change-Id in task identity'
+  mkdir -p "$(dirname "$identity")"
+  # Keep the temporary file on the same filesystem as the Git directory.
+  pending=$(mktemp "$identity.XXXXXX")
+  printf 'Agentrt-Task: %s\nChange-Id: %s\n' "$task" "$change_id" >"$pending"
+  # Publish the complete identity atomically without replacing an existing
+  # one. Concurrent first invocations must agree, too.
+  if ! ln "$pending" "$identity" 2>/dev/null; then
+    rm -f "$pending"
+    [ -f "$identity" ] || die "squash: cannot save task identity: $identity"
+    printf 'Agentrt-Task: %s\nChange-Id: %s\n' "$task" "$change_id" | cmp -s - "$identity" || die 'squash: task identity / Change-Id differs from first attempt'
+  else
+    rm -f "$pending"
+  fi
+}
+
 cmd_squash() {
-  local task="" base="" title="" attempt=1 selected=() c branch head count msg dir original actual first_msg change_id=""
+  local task="" base="" title="" attempt=1 selected=() c branch head count msg dir original actual first_msg identity recovery_id change_id=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --task) task="$2"; shift 2 ;;
@@ -238,17 +257,25 @@ cmd_squash() {
   # Attempt 1 keeps the legacy location, including interrupted old invocations.
   # Later attempts never replace its source/message or backup ref.
   first_msg="$dir/message"
-  if [ "$attempt" != 1 ]; then
-    dir="$dir/attempts/$attempt"
-    if [ -f "$first_msg" ]; then
-      change_id=$(awk 'tolower($1) == "change-id:" {print $2}' "$first_msg")
-      [[ "$change_id" =~ ^I[0-9a-fA-F]{40}$ ]] || die 'squash: invalid Change-Id in first attempt recovery message'
-    fi
+  identity="$dir/identity"
+  if [ -f "$identity" ]; then
+    change_id=$(awk 'tolower($1) == "change-id:" {print $2}' "$identity")
+    save_squash_identity "$identity" "$task" "$change_id"
   fi
+  # Legacy recovery messages are also authoritative; never replace them.
+  if [ -f "$first_msg" ]; then
+    change_id=$(awk 'tolower($1) == "change-id:" {print $2}' "$first_msg")
+    [[ "$change_id" =~ ^I[0-9a-fA-F]{40}$ ]] || die 'squash: invalid Change-Id in first attempt recovery message'
+    save_squash_identity "$identity" "$task" "$change_id"
+  fi
+  [ "$attempt" = 1 ] || dir="$dir/attempts/$attempt"
   # Prepared identities never change, even when the original selection is
   # supplied again after a lost local command response.
   if [ "$count" = 1 ] && [ "$(git rev-list --parents -n1 "$head" | cut -d' ' -f2-)" = "$base" ] && valid_message "$head" "$task"; then
-    [ -z "$change_id" ] || [ "$(git show -s --format=%B "$head" | awk 'tolower($1) == "change-id:" {print $2}')" = "$change_id" ] || die 'squash: prepared commit Change-Id differs from first attempt'
+    [ "$attempt" = 1 ] || [ -n "$change_id" ] || die 'squash: first attempt identity missing; squash attempt 1 before prepared rework'
+    recovery_id=$(git show -s --format=%B "$head" | awk 'tolower($1) == "change-id:" {print $2}')
+    [ -z "$change_id" ] || [ "$recovery_id" = "$change_id" ] || die 'squash: prepared commit Change-Id differs from first attempt'
+    save_squash_identity "$identity" "$task" "$recovery_id"
     printf '%s\n' "$head"; return
   fi
   [ "${#selected[@]}" -gt 0 ] || die 'squash: explicitly select this work unit with --commit SHA (repeat in oldest-first order)'
@@ -267,8 +294,8 @@ cmd_squash() {
   git diff --stat "$base" "$head" >&2
   git diff --name-only "$base" "$head" >&2
   if [ "$attempt" != 1 ] && [ -z "$change_id" ]; then
-    # A pre-prepared first commit took the identity-preserving fast path,
-    # so there may be no recovery file. Its selected history is the source.
+    # Older versions did not save prepared first attempts. Recover their
+    # identity from the explicitly selected history when no state exists.
     for c in "${selected[@]}"; do
       if valid_message "$c" "$task"; then
         change_id=$(git show -s --format=%B "$c" | awk 'tolower($1) == "change-id:" {print $2}')
@@ -294,6 +321,9 @@ cmd_squash() {
       printf '\nAgentrt-Task: %s\nChange-Id: %s\n' "$task" "$change_id"
     } >"$msg"
   fi
+  recovery_id=$(awk 'tolower($1) == "change-id:" {print $2}' "$msg")
+  [ -z "$change_id" ] || [ "$recovery_id" = "$change_id" ] || die 'squash: recovery message Change-Id differs from first attempt'
+  save_squash_identity "$identity" "$task" "$recovery_id"
   # Keep the original tip and message if creation fails. Only update the
   # isolated branch after the new object exists, using compare-and-swap.
   local backup="refs/handin/backups/$task"

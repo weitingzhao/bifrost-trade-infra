@@ -266,13 +266,75 @@ def squash_attempts(root,repo,env,git,run,args,base,commit):
     assert git('rev-parse','HEAD')==commit
 
 def squash_prepared(root,repo,env,git,run,args,base,commit):
-    # Prepared attempt 1 has no recovery message, but its identity remains
-    # available in the explicitly selected history for a later attempt.
+    # Prepared attempt 1 saves its identity without needing a recovery message.
     assert run('squash','--task',task,'--base',base).stdout.strip()==commit
     (repo/'rework').write_text('rework\n'); git('add','rework'); git('commit','-qm','Rework')
     tip=git('rev-parse','HEAD')
     result=run('squash','--task',task,'--base',base,'--attempt','2','--commit',commit,'--commit',tip).stdout.strip()
     assert 'Change-Id: I'+'c'*40 in git('show','-s','--format=%B',result)
+    assert not (root/'calls').exists(), 'squash must remain offline'
+
+def squash_prepared_identity(root,repo,env,git,run,args,base,commit):
+    # Review 749 R-01: deliver a prepared first attempt, then prepare rework
+    # independently from the same base, without changing its commit or state.
+    assert run('squash','--task',task,'--base',base).stdout.strip()==commit
+    assert 'a_fixture' in run(*args).stdout
+    assert json.loads((root/'state.json').read_text())['state']=='submitted'
+    assert (root/'remote-ref').read_text()==commit+'\trefs/heads/agent/'+task+'/a1\n'
+    calls=(root/'calls').read_bytes()
+    state_dir=repo/'.git/handin/squash'/task
+    original={p.name:p.read_bytes() for p in state_dir.iterdir() if p.is_file()} if state_dir.exists() else {}
+    def prepared(branch, change_id):
+        git('checkout','-q','-b',branch,base)
+        (repo/'rework').write_text(branch+'\n'); git('add','rework')
+        git('commit','-qm','Rework\n\nAgentrt-Task: '+task+'\nChange-Id: '+change_id)
+        return git('rev-parse','HEAD')
+    same=prepared('same-identity','I'+'c'*40)
+    second_args=['squash','--task',task,'--base',base,'--attempt','2']
+    assert run(*second_args).stdout.strip()==same
+    assert run(*second_args).stdout.strip()==same, 'same-attempt replay must retain SHA'
+    wrong=prepared('wrong-identity','I'+'d'*40)
+    for attempt in ('2','3','1'):
+        p=run('squash','--task',task,'--base',base,'--attempt',attempt,success=False)
+        assert 'Change-Id differs from first attempt' in p.stderr
+        assert git('rev-parse','HEAD')==wrong, 'conflicting prepared commit must not be rewritten'
+        assert git('status','--porcelain')==''
+    assert original, 'prepared attempt 1 must save its task identity'
+    assert all((state_dir/name).read_bytes()==data for name,data in original.items())
+    assert git('rev-parse','work-unit')==commit
+    assert calls==(root/'calls').read_bytes(), 'squash must remain offline'
+
+def squash_legacy_identity(root,repo,env,git,run,args,base,commit):
+    state_dir=repo/'.git/handin/squash'/task
+    # A later prepared attempt cannot establish the missing first identity.
+    p=run('squash','--task',task,'--base',base,'--attempt','2',success=False)
+    assert 'first attempt identity missing' in p.stderr and git('rev-parse','HEAD')==commit
+    # Model an old prepared first attempt: no saved state, but its selected
+    # history is still available. Migration must preserve that identity.
+    (repo/'rework').write_text('rework\n'); git('add','rework'); git('commit','-qm','Rework')
+    tip=git('rev-parse','HEAD')
+    second_args=['squash','--task',task,'--base',base,'--attempt','2','--commit',commit,'--commit',tip]
+    run(*second_args,success=False,extra={'TEST_COMMIT_FAIL':'1'})
+    identity=(state_dir/'identity').read_bytes()
+    message=state_dir/'attempts/2/message'; saved=message.read_text()
+    message.write_text(saved.replace('I'+'c'*40,'I'+'d'*40))
+    p=run(*second_args,success=False)
+    assert 'recovery message Change-Id differs from first attempt' in p.stderr
+    assert git('rev-parse','HEAD')==tip and (state_dir/'identity').read_bytes()==identity
+    message.write_text(saved)
+    second=run(*second_args).stdout.strip()
+    assert 'Change-Id: I'+'c'*40 in git('show','-s','--format=%B',second)
+    assert run(*second_args).stdout.strip()==second
+    # Model legacy attempt-1 recovery files, before the identity file existed.
+    (state_dir/'message').write_text(saved)
+    (state_dir/'source').write_text(base+' '+tip+'\n')
+    git('update-ref','refs/handin/backups/'+task,tip)
+    (state_dir/'identity').unlink()
+    original={p.name:p.read_bytes() for p in state_dir.iterdir() if p.is_file()}
+    assert run('squash','--task',task,'--base',base,'--attempt','3').stdout.strip()==second
+    assert (state_dir/'identity').read_bytes()==identity
+    assert all((state_dir/name).read_bytes()==data for name,data in original.items())
+    assert git('rev-parse','refs/handin/backups/'+task)==tip
     assert not (root/'calls').exists(), 'squash must remain offline'
 
 def dead_pids(root):
@@ -487,5 +549,5 @@ def material(root,repo,env,git,run,args,base,commit):
     assert all(c[c.index('-X')+1]=='GET' and '/material?stg_release=' in c[-1] for c in calls)
     assert 'SENTINEL' not in before
 
-for name,fn in [('B-03',http),('R-03',squash),('TD-458-squash',squash_attempts),('TD-458-prepared',squash_prepared),('R-04',recovery),('R-05',cleanup),('R-01-push',push_cleanup),('N-01',tokens),('N-02',refresh),('C-7-claim',claim_error),('TD-458-ready',claim_ready),('C-7-material',material)]: test(name,fn)
+for name,fn in [('B-03',http),('R-03',squash),('TD-458-squash',squash_attempts),('TD-458-prepared',squash_prepared),('TD-458-prepared-identity',squash_prepared_identity),('TD-458-legacy-identity',squash_legacy_identity),('R-04',recovery),('R-05',cleanup),('R-01-push',push_cleanup),('N-01',tokens),('N-02',refresh),('C-7-claim',claim_error),('TD-458-ready',claim_ready),('C-7-material',material)]: test(name,fn)
 PY
