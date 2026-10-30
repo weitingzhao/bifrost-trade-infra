@@ -3615,6 +3615,7 @@
 - **Owner 侧症状**（2026-10-29 22:0x，#195）：审批页的 Approve（Review approval）按钮时灰时亮——`console/src/pages/ApprovalsPage.tsx:304` `landingReady` 要材料读到且 `main_is_M0`、`latest`；`LandingApprovalSummary.tsx:10` / `LandingGrantPage.tsx:31` 每 15 秒重取（`refetchInterval: 15_000`），而一次要 33–58 秒或 503，页面反复回到「Reading landing approval material…」。
 - **影响**：只要 Console 开着审批 / 授权页，新的软底线 / 核心级单就建不出来；api 的 Git 读取与 CPU 被已结束的单白白占用。
 - **修法**：材料按（op、R、规则版本、`stg_release`）缓存，终态（landed / failed / 单已执行）只读缓存；Console 对终态单停止轮询（或只在打开时取一次）；材料计算加并发上限，排队可见而不是 40 秒后 503。
+- **附带**（2026-10-30 07:2x–07:4x）：PROD platform-api 连续 2 小时以上顶在 1 CPU 上限（`container_cpu_usage_seconds_total` 约 0.96–1.0，limit 1），`/landing/{op}/material` 平均同时在算约 12 个、每分钟 9 次 2xx，单次约 80 秒；Console 等得到，`handin.sh` 写死 `--max-time 40`（`handin.sh:139`）三次都超时。统筹改用 170 秒、单次请求的本地副本后 07:36–07:42 三份核心材料全部取到。修法加一条：`handin.sh material` 的超时可配（上限 180 秒），且不在超时后立即重发（服务端不会取消已在算的请求）。
 - **防线**：接口测试——同一 op 连续两次取材料第二次不再读 Git；Console 测试——单进入终态后不再发材料请求。
 - **验收**：Console 开着四张已执行单的页面时，新单的 `handin.sh material` 在 10 秒内返回。
 
@@ -3628,6 +3629,17 @@
 - **修法**：单独分批减少重复与超长文件，降到现有绝对基线；本项不借修改基线消除历史差距。
 - **防线**：S6 `scripts/landing/coverage_infra.py` 用 M0 扫描器比较 M0 与 R；任一指标增长即拒绝；`test_ci_infra_stages.py::test_health_real_500_to_501` 验证文档越过 500 行必红，缺失/不完整结果不算通过。
 - **验收**：在完整工作区运行 `bash bifrost-trade-infra/agent-config/scripts/code-health/scan.sh --repo bifrost-trade-infra` 退出 0，且未上调任何基线。
+
+### TD-462
+
+**P1 · platform 落地授权 · 并行的落地单各自绑定同一个 M0，一张落地后其余全部作废，要重算材料、重建单、Owner 重批**
+
+- **状态**：未开始（2026-10-30）。
+- **证据**：10-30 早上同时有 6 张基于 main `0cf36126` 的落地单等批（#197–#202）。`api/internal/agentrt/store/landing_grant_material.go:657` 在建授权时要求 main 仍等于 M0，否则 `grant refused main_changed … needs a new request`；`landing_wait.go:197` 把等待中的操作标 `discarded{main_changed}`，控制器按 k+1 重放（`controller/landing_drill.go:123`），新 R、新材料、新单。按代码推算：一次全批只落一张，其余 5 张批了也作废；串行要 6 轮「批 → 落地 → 重放与 CI → 取材料 → 建单」。
+- **影响**：过渡期结束后所有改动走落地单，并行交付越多 Owner 重复批同一内容越多；作废单仍在 Console 上可点，批了白批。
+- **修法**（架构级，先问 Owner）：A. 授权绑定变更内容而不是 R：记录批准时的 patch-id（`git patch-id --stable`），干净重放（无冲突、patch-id 相同、落地 CI 绿、规则版本不变）沿用原授权，否则作废；B. 落地队列：Owner 一次批一组，平台按序重放、逐个推进，任一组员重放后 patch-id 变化就停下重问；C. 维持现状，统筹一次只建一张单。推荐 A（Owner 批的是内容；重放只换父提交）。
+- **防线**：PG 测试——两张并行单，先落一张，另一张干净重放后不需新单即可落地；patch-id 变化（冲突解决）时必须新单。
+- **验收**：两件并行改动 Owner 各批一次即全部落地。
 
 ### TD-460
 
