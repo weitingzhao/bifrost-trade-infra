@@ -9,7 +9,7 @@ import re
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-REPOSITORY = "registry.cicd.svc.cluster.local:5000/bifrost-s5-checker@"
+REPOSITORY = "192.168.10.73:30500/bifrost-s5-checker@"
 ZERO_IMAGE = "sha256:" + "0" * 64
 IMAGE_DIGEST = "docker/s5-checker/IMAGE_DIGEST"
 # `s5check --ci-materials` output of the pinned image (reported by

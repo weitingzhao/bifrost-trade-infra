@@ -141,7 +141,7 @@ spec:
       steps:
       - name: read-materials
         # The image just pushed, addressed by the digest kaniko reported.
-        image: registry.cicd.svc.cluster.local:5000/bifrost-s5-checker@$(params.digest)
+        image: 192.168.10.73:30500/bifrost-s5-checker@$(params.digest)
         command:
         - python3
         - -I

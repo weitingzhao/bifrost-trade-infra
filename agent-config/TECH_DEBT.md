@@ -3680,7 +3680,7 @@
 
 **P2 · S5 · 检查器镜像地址用的是集群内服务名，节点拉不到**
 
-- **状态**：未开始（2026-10-31）。
+- **状态**：在做——修复在 platform `5b918b4`、infra 本提交（两边都是分支 `w31/td467-s5-image`，2026-10-31），待落地与 S5 启用演练验收。改动：platform `s5ImageRepository` 与 `s5trusted/contract.json`（`pins.py --output` 重生成，`--check-platform` 相等）；infra 两个 S5 Task、`pipeline-build-s5-checker.yaml` 的 report-materials 步骤、`scripts/s5/pins.py`；`s5-run-template.json` 与 `40-admission.yaml` 的 S5 段实测没有镜像字面量，不用改。防线已加（见 RATCHETS）。
 - **证据**：2026-10-31 00:3x ci-infra 首次阳性运行 `bifrost-ci-infra-1793424335` 在 resolve 步骤 `ErrImagePull`：Task 镜像写成 `registry.cicd.svc.cluster.local:5000/…`，节点上的 containerd 解析不了集群内服务名（平台自己的镜像都用 `192.168.10.73:30500/…`）。ci-infra 已改（本提交）；S5 同样写法未改：platform `api/internal/agentrt/landingci/s5.go:51`（`s5ImageRepository`）、`landingci/s5trusted/contract.json:2,363`，以及 infra `k8s/cicd/tekton` 下 S5 的 Task 与 `s5-run-template.json`、VAP 字面量。
 - **影响**：S5 启用后每个 S5 运行都会拉镜像失败。
 - **修法**：S5 启用前一并改为节点可达的 registry 地址（platform 常量与 contract、infra 清单与 VAP、pins.py 重生成），并在 pins 测试里断言 Task 镜像主机与平台其他镜像一致。

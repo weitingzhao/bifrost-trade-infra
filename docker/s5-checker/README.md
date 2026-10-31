@@ -12,6 +12,8 @@
 
 构建、推镜像及安装仍是另行批准的核心发布动作。本次只交付文件。构建流水线回报两个结果：`image-digest`（kaniko）和 `materials`（`report-materials` 在刚推送的镜像里读 `/opt/s5/materials.json`，即镜像内 `s5check --ci-materials` 的输出，校验规范 JSON、六个字段齐全且非零）。复核镜像产物后，用**同一次运行**的这两个结果一步回填 IMAGE_DIGEST、两个 Task 的 image 与 `MATERIALS.json`，生成并复核平台嵌入合同：
 
+镜像地址（TD-467）：两个 Task 与 `report-materials` 步骤的 `image` 用节点可达的 registry NodePort（`192.168.10.73:30500/bifrost-s5-checker@<digest>`，与平台其他镜像一致）；节点 containerd 不走集群 DNS，写成 `registry.cicd.svc.cluster.local:5000/…` 会 `ErrImagePull`。Kaniko 的 `--destination` 仍是集群内服务名（Pod 内推送），同一摘要在两个地址都能取到。防线：`scripts/landing/test_tekton_step_images.py`、`scripts/s5/test_pins.py`。
+
 ```sh
 python scripts/s5/pins.py --backfill-digest <image-digest> --backfill-materials <materials 结果文件> \
   --ready --output ../platform/api/internal/agentrt/landingci/s5trusted/contract.json

@@ -4,7 +4,7 @@ import shutil
 import pytest
 import yaml
 
-from pins import MATERIALS, ROOT, backfill, contract
+from pins import MATERIALS, REPOSITORY, ROOT, backfill, contract
 
 ZERO, PIN = "sha256:" + "0" * 64, "sha256:" + "1" * 64
 BUILT = {
@@ -234,13 +234,37 @@ def test_build_reports_materials_from_the_image_it_built():
         {"name": "digest", "value": "$(tasks.build.results.digest)"}
     ]
     (step,) = task["taskSpec"]["steps"]
-    assert step["image"] == (
-        "registry.cicd.svc.cluster.local:5000/bifrost-s5-checker@$(params.digest)"
-    )
+    assert step["image"] == REPOSITORY + "$(params.digest)"
     assert step["command"] == ["python3", "-I", "-c"]
     assert "/opt/s5/materials.json" in step["args"][0]
     assert step["env"] == [{"name": "RESULT", "value": "$(results.materials.path)"}]
     assert step["securityContext"]["readOnlyRootFilesystem"] is True
+
+
+def test_image_host_is_the_node_reachable_registry_of_every_platform_image():
+    # TD-467: a node pulls a step image with containerd, outside cluster DNS,
+    # so the registry's Service name fails with ErrImagePull. Every platform
+    # image is pinned at the registry NodePort in the overlays; S5 pulls its
+    # checker (Tasks and the build's report-materials step) from that host.
+    # Kaniko's --destination stays the Service name: it pushes from inside the
+    # pod, and the digest it reports is the same object at both addresses.
+    host = REPOSITORY.split("/", 1)[0]
+    assert not host.endswith((".svc", ".svc.cluster.local"))
+    overlays = sorted((ROOT / "k8s/overlays").glob("*/kustomization.yaml"))
+    pinned = {
+        image["newName"].split("/", 1)[0]
+        for p in overlays
+        for image in yaml.safe_load(p.read_text()).get("images") or []
+        if "newName" in image
+    }
+    assert pinned == {host}
+    c = contract(ready=False)
+    assert c["image"].startswith(REPOSITORY)
+    for task in c["tasks"].values():
+        assert [s["image"].split("/", 1)[0] for s in task["steps"]] == [host]
+    build = load("pipeline-build-s5-checker.yaml")["spec"]
+    report = next(t for t in build["tasks"] if t["name"] == "report-materials")
+    assert report["taskSpec"]["steps"][0]["image"].startswith(REPOSITORY)
 
 
 def test_run_template_is_tekton_stored_form_with_one_freeze_override():
