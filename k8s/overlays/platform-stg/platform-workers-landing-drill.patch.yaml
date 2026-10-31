@@ -20,6 +20,10 @@ spec:
           env:
             - name: AGENTRT_LANDING_DRILL
               value: "on"
+            # W-31 S6 STG drill (T80): rehearse infra too. Requires the signed
+            # landing:dev v3 (STG, 2026-10-31); without it infra is dropped.
+            - name: AGENTRT_LANDING_LIVE_REPOS
+              value: "bifrost-platform,bifrost-trade-infra"
             - name: AGENTRT_LANDING_USERNAME_FILE
               value: /etc/bifrost/landing-drill/username
             - name: AGENTRT_LANDING_PASSWORD_FILE
