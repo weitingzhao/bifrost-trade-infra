@@ -12,12 +12,17 @@ ENV GOTOOLCHAIN=auto
 RUN go mod download
 COPY bifrost-platform/api/ ./
 RUN CGO_ENABLED=0 GOOS=linux go build -o /platform-api ./cmd/platform-api
+# W-31 B5: the read-only pre-open probe runs as a one-off Job on this exact
+# image digest under the workers' ServiceAccount (platform
+# api/cmd/stg-release-probe/CANARY.md). It is never the entrypoint.
+RUN CGO_ENABLED=0 GOOS=linux go build -o /stg-release-probe ./cmd/stg-release-probe
 
 FROM alpine:3.20
 # git: the STG landing drill (W-31 4.1 S2) clones, replays and pushes land/stg/**
 # with the git binary (landinggit); PROD runs the same image and never enables it.
 RUN apk add --no-cache ca-certificates git
 COPY --from=builder /platform-api /usr/local/bin/platform-api
+COPY --from=builder /stg-release-probe /usr/local/bin/stg-release-probe
 
 ENV PLATFORM_CONFIG=/app/config/environments.yaml
 WORKDIR /app
