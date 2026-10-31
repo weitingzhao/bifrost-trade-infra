@@ -26,6 +26,12 @@ spec:
           env:
             - name: AGENTRT_LANDING_LIVE
               value: "on"
+            # W-31 S6 opening (2026-10-31): infra joins the live landing under
+            # the signed landing:dev v3. Present, this setting wins over the
+            # legacy switch above (landing/repos.go LiveRepos); set it to ""
+            # to stop new landings in every repository.
+            - name: AGENTRT_LANDING_LIVE_REPOS
+              value: "bifrost-platform,bifrost-trade-infra"
             - name: AGENTRT_LANDER_USERNAME_FILE
               value: /etc/bifrost/lander/username
             - name: AGENTRT_LANDER_PASSWORD_FILE
