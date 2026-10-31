@@ -24,7 +24,7 @@ spec:
   - name: source
   steps:
   - name: tools
-    image: registry.cicd.svc.cluster.local:5000/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
+    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
     env:
     - name: REVISION
       value: $(params.revision)
@@ -53,7 +53,7 @@ spec:
         --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
         --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results
   - name: scope
-    image: registry.cicd.svc.cluster.local:5000/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
+    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
     env:
     - name: REVISION
       value: $(params.revision)
@@ -82,7 +82,7 @@ spec:
         --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
         --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results
   - name: consumers
-    image: registry.cicd.svc.cluster.local:5000/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
+    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
     env:
     - name: REVISION
       value: $(params.revision)
@@ -111,7 +111,7 @@ spec:
         --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
         --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results
   - name: doc-policy
-    image: registry.cicd.svc.cluster.local:5000/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
+    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
     env:
     - name: REVISION
       value: $(params.revision)
@@ -140,7 +140,7 @@ spec:
         --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
         --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results
   - name: quick
-    image: registry.cicd.svc.cluster.local:5000/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
+    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
     env:
     - name: REVISION
       value: $(params.revision)
@@ -169,7 +169,7 @@ spec:
         --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
         --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results
   - name: statics
-    image: registry.cicd.svc.cluster.local:5000/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
+    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
     env:
     - name: REVISION
       value: $(params.revision)
@@ -198,7 +198,7 @@ spec:
         --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
         --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results
   - name: kustomize
-    image: registry.cicd.svc.cluster.local:5000/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
+    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
     env:
     - name: REVISION
       value: $(params.revision)
@@ -227,7 +227,7 @@ spec:
         --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
         --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results
   - name: code-health
-    image: registry.cicd.svc.cluster.local:5000/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
+    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
     env:
     - name: REVISION
       value: $(params.revision)
@@ -256,7 +256,7 @@ spec:
         --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
         --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results
   - name: parity-static
-    image: registry.cicd.svc.cluster.local:5000/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
+    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
     env:
     - name: REVISION
       value: $(params.revision)

@@ -28,7 +28,7 @@ def validate_images(root=ROOT, ready=False):
     for path in paths:
         doc = yaml.safe_load(path.read_text())
         for step in doc['spec']['steps']:
-            if step['image'] != 'registry.cicd.svc.cluster.local:5000/bifrost-ci-infra-tools@' + digest:
+            if step['image'] != '192.168.10.73:30500/bifrost-ci-infra-tools@' + digest:
                 raise ValueError('image_digest_mismatch ' + path.name)
 
 

@@ -16,7 +16,7 @@ spec:
   - name: platform-commit
   steps:
   - name: resolve
-    image: registry.cicd.svc.cluster.local:5000/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
+    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
     env:
     - name: GIT_USERNAME
       valueFrom:

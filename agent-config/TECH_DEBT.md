@@ -3643,6 +3643,17 @@
 - **防线**：PG 测试——两张并行单，先落一张，另一张干净重放后不需新单即可落地；patch-id 变化（冲突解决）时必须新单。
 - **验收**：两件并行改动 Owner 各批一次即全部落地。
 
+### TD-467
+
+**P2 · S5 · 检查器镜像地址用的是集群内服务名，节点拉不到**
+
+- **状态**：未开始（2026-10-31）。
+- **证据**：2026-10-31 00:3x ci-infra 首次阳性运行 `bifrost-ci-infra-1793424335` 在 resolve 步骤 `ErrImagePull`：Task 镜像写成 `registry.cicd.svc.cluster.local:5000/…`，节点上的 containerd 解析不了集群内服务名（平台自己的镜像都用 `192.168.10.73:30500/…`）。ci-infra 已改（本提交）；S5 同样写法未改：platform `api/internal/agentrt/landingci/s5.go:51`（`s5ImageRepository`）、`landingci/s5trusted/contract.json:2,363`，以及 infra `k8s/cicd/tekton` 下 S5 的 Task 与 `s5-run-template.json`、VAP 字面量。
+- **影响**：S5 启用后每个 S5 运行都会拉镜像失败。
+- **修法**：S5 启用前一并改为节点可达的 registry 地址（platform 常量与 contract、infra 清单与 VAP、pins.py 重生成），并在 pins 测试里断言 Task 镜像主机与平台其他镜像一致。
+- **防线**：infra 加一条检查：`k8s/cicd/tekton` 下 Task 步骤的 `image` 不得用 `*.svc.cluster.local` 主机。
+- **验收**：S5 启用演练中 S5 Task 的 Pod 成功拉取检查器镜像。
+
 ### TD-464
 
 **P3 · handin · 报告过大被拒后 key 绑死，新 key 要等 15 分钟宽限**
