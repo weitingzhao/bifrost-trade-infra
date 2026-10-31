@@ -3643,6 +3643,17 @@
 - **防线**：PG 测试——两张并行单，先落一张，另一张干净重放后不需新单即可落地；patch-id 变化（冲突解决）时必须新单。
 - **验收**：两件并行改动 Owner 各批一次即全部落地。
 
+### TD-471
+
+**P2 · S5 · 检查器镜像里没有清单绑定的依赖声明文件，启用后每次检查都会报 S5_TYPE，且构建期发现不了**
+
+- **状态**：未开始（2026-10-31）。修法待 Owner 选（A / B / C）。
+- **证据**：检查器从 `/opt/s5/node_modules` 解析依赖（platform `api/internal/agentrt/rules/s5check/ts/compiler.cjs:11-13,170-178`），实读的每个声明文件 sha256 进 toolchain，与 `policies/manifest.json` 不等即拒：`ts/contracts.cjs:270`（S5_TYPE）、`:298`（S5_IMPORT_UNKNOWN）。manifest 的 toolchain 共 324 项，其中 `dependencies/*` 263 个文件 / 78 个包（`@bifrost/ui` 71 个：`dist/**/*.d.ts`、`package.json`、嵌套的 clsx / class-variance-authority；其余是 console 的 `@types/react`、radix、vitest、tanstack 等）。镜像只装 go、node、typescript（infra `docker/s5-checker/TOOLS.lock.json`、`fetch_tools.py:21-23`、`Dockerfile:6-11,19-21`），runner 只把 UI 当 bare 仓库绑 SHA、不构建 dist（`runner.py:176-195,340-341,379`）。镜像构建期的 `verify_materials.py` 与 `--ci-materials`（`materials.go:257-276`）只校 manifest、脚本、TOOLS.lock、UI pin，不校 toolchain 里的依赖文件，所以镜像会「绿着」构建出来。2026-10-31 实测：本机 `console/node_modules` + bifrost-ui c83f40b 构建产物与 263 项逐一相等，修法可行。
+- **影响**：S5 启用后没有一件落地能过检查；而规则一登记 S5 路径，platform 所有 `.ts/.tsx` 落地都要 S5 证据（`landing/s5.go:106,114`），展示类 TSX 落地会一起卡住。
+- **修法（三选一）**：A（推荐）镜像内按 `platform/console/package-lock.json` 做 `npm ci --ignore-scripts`，流水线加 `clone-ui`（`uiRevision` = `policies/ui-revision.json` 的 pin，validate-sources 一并校验）并构出 dist，组装 `/opt/s5/node_modules`；B 检查时由 fetch Task 现装（扩大联网面，违背 README:96-97「不在检查时安装」）；C 把 263 个文件 vendor 进 `rules/s5check/vendor/`，Dockerfile 直接 COPY（离线，但每次 enroll 要重新 vendor）。
+- **防线**：`docker/s5-checker/verify_materials.py` 构建期逐项比对 manifest.toolchain 的全部哈希，不等即构建失败；platform 的 `--ci-materials` 同样覆盖。
+- **验收**：S5 启用演练中一次真实检查 `passed:true`、`findings:[]`，且 toolchain 无 S5_TYPE。
+
 ### TD-470
 
 **P3 · STG agentrt · 统筹主机在 STG 领不到自己钉的任务（no_lease：no tool of the host is on the task's route）**
