@@ -1,16 +1,5 @@
 # Phase ③ — STG uses CloudNativePG @ data NS (bifrost-postgres-rw.data.svc).
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: postgres
-$patch: delete
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: postgres
-$patch: delete
----
+# One deleted object per file: kustomize 5.4 (kubectl 1.31) panics on several $patch: delete in one file.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

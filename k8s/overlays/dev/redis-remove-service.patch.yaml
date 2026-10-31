@@ -1,0 +1,7 @@
+# Phase ⑥ — DEV uses redis-dev @ data NS (live db=0 · queue db=1 on same instance).
+# One deleted object per file: kustomize 5.4 (kubectl 1.31) panics on several $patch: delete in one file.
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+$patch: delete

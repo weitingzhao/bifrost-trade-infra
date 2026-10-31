@@ -29,8 +29,11 @@ patches:
   - path: prod-secrets-env.patch.yaml
   - path: prod-write-token-secret.patch.yaml
   - path: prod-images-pull-always.patch.yaml
-  - path: postgres-remove.patch.yaml
-  - path: redis-remove.patch.yaml
+  - path: postgres-remove-deployment.patch.yaml
+  - path: postgres-remove-service.patch.yaml
+  - path: postgres-remove-persistentvolumeclaim.patch.yaml
+  - path: redis-remove-deployment.patch.yaml
+  - path: redis-remove-service.patch.yaml
   - path: delete-db-init-stg.patch.yaml
 
 images:

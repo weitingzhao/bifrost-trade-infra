@@ -1,10 +1,5 @@
 # Phase ⑥ — PROD uses redis-live/queue @ data NS (no embedded redis Deployment).
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: redis
-$patch: delete
----
+# One deleted object per file: kustomize 5.4 (kubectl 1.31) panics on several $patch: delete in one file.
 apiVersion: v1
 kind: Service
 metadata:
