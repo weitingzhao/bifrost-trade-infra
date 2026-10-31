@@ -256,12 +256,24 @@ def test_run_template_is_tekton_stored_form_with_one_freeze_override():
         {
             "pipelineTaskName": "freeze-check",
             "serviceAccountName": "default",
-            "podTemplate": {"nodeSelector": {"kubernetes.io/arch": "amd64"}},
+            "podTemplate": {
+                "automountServiceAccountToken": True,
+                "nodeSelector": {"kubernetes.io/arch": "amd64"},
+            },
         }
     ]
+    # Tekton v1.6.0 GetTaskRunSpec merges a task's podTemplate over
+    # taskRunTemplate.podTemplate field by field (MergePodTemplateWithDefault):
+    # the freeze check gets a token, every S5 task keeps none.
+    default = run["taskRunTemplate"]["podTemplate"]
+    merged = {**default, **run["taskRunSpecs"][0]["podTemplate"]}
+    assert merged["automountServiceAccountToken"] is True
+    assert default["automountServiceAccountToken"] is False
+    assert [s["pipelineTaskName"] for s in run["taskRunSpecs"]] == ["freeze-check"]
     policy = (ROOT / "k8s/platform-rbac/40-admission.yaml").read_text()
     s5 = policy.split("- name: s5", 1)[1].split("validations:", 1)[0]
     assert "'pipelineTaskName': 'freeze-check', 'serviceAccountName': 'default'" in s5
+    assert "'podTemplate': {'automountServiceAccountToken': true, 'nodeSelector'" in s5
     assert "object.spec.timeouts == {'pipeline': '20m0s'}" in s5
     assert "1200s" not in s5 and "!has(object.spec.taskRunSpecs)" not in s5
     assert "metadata.all(k, k == 'creationTimestamp')" in s5

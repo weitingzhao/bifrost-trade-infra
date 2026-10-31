@@ -28,7 +28,9 @@ spec:
   # W-31 S5: exact no-token template; no shell interpolation. The only
   # per-task override is the release freeze check's: it reads one ConfigMap
   # and needs the default ServiceAccount's token (tekton-release-window), which
-  # the S5 template denies to every other task. Policies see the object after
+  # the S5 template denies to every other task. Tekton merges a task's
+  # podTemplate over taskRunTemplate.podTemplate field by field, so the
+  # override must set automountServiceAccountToken: true itself. Policies see the object after
   # Tekton's defaulting webhook, which round-trips it through the Go types:
   # durations become "20m0s" and the claim template gains
   # metadata.creationTimestamp null and status {} (observed on cicd runs).
@@ -40,7 +42,7 @@ spec:
         && !has(object.spec.pipelineSpec)
         && has(object.spec.taskRunSpecs) && object.spec.taskRunSpecs == [{
           'pipelineTaskName': 'freeze-check', 'serviceAccountName': 'default',
-          'podTemplate': {'nodeSelector': {'kubernetes.io/arch': 'amd64'}}}]
+          'podTemplate': {'automountServiceAccountToken': true, 'nodeSelector': {'kubernetes.io/arch': 'amd64'}}}]
         && has(object.spec.taskRunTemplate)
         && object.spec.taskRunTemplate == {
           'serviceAccountName': 'bifrost-s5',

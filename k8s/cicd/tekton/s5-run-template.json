@@ -6,6 +6,7 @@
     {
       "pipelineTaskName": "freeze-check",
       "podTemplate": {
+        "automountServiceAccountToken": true,
         "nodeSelector": {
           "kubernetes.io/arch": "amd64"
         }

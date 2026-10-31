@@ -69,4 +69,4 @@ python scripts/s5/pins.py --ready
 
 Python supervisor 成功对照使用临时 Git 真对象和测试专用假 checker；它证明输送/绑定，不是 P1–P4 检查器验收。macOS 不支持 Linux seccomp/setuid/只读挂载，相关内核测试明确 skip。真实镜像构建、可信 suite、Tekton、admission dry-run、Gitea 读凭据连通性、网络隔离和发布均未在本次实施中执行。
 
-check 拒绝候选时（s5check 退出 1 且 stdout 是绑定一致、`passed:false`、findings 均带 `S5_*` 码的证据），runner 照常写结果并以 0 退出，平台读回后保留 finding 的具体拒绝码；它永远不是通过。其他退出码、无证据或证据不合规仍使 check 失败（平台记 S5_BEHAVIOR）。冻结检查 `freeze-check` 用 `taskRunSpecs` 单独以 default ServiceAccount 运行（只为读 `cicd/bifrost-release-freeze`）；被冻结拒绝的 run 由平台按基础设施原因有界重试（新 generation）。
+check 拒绝候选时（s5check 退出 1 且 stdout 是绑定一致、`passed:false`、findings 均带 `S5_*` 码的证据），runner 照常写结果并以 0 退出，平台读回后保留 finding 的具体拒绝码；它永远不是通过。其他退出码、无证据或证据不合规仍使 check 失败（平台记 S5_BEHAVIOR）。冻结检查 `freeze-check` 用 `taskRunSpecs` 单独以 default ServiceAccount 运行，并显式 `automountServiceAccountToken: true`（只为读 `cicd/bifrost-release-freeze`；Tekton v1.6.0 把任务级 podTemplate 逐字段合并到 taskRunTemplate 上，不写就继承 false）；被冻结拒绝的 run 由平台按基础设施原因有界重试（新 generation）。
