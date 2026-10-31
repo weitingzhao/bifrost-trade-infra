@@ -213,6 +213,12 @@ def main():
     ap.add_argument("--generation", default="")
     ap.add_argument("--results-dir", type=Path)
     args = ap.parse_args()
+    # The CI image has no git identity, and quick runs tests that commit and
+    # revert in temporary repositories (first positive run, 2026-10-31). A
+    # fixed CI identity keeps every stage independent of the host's git config.
+    for key, value in (("GIT_AUTHOR_NAME", "bifrost-ci-infra"), ("GIT_AUTHOR_EMAIL", "ci-infra@bifrost.invalid"),
+                       ("GIT_COMMITTER_NAME", "bifrost-ci-infra"), ("GIT_COMMITTER_EMAIL", "ci-infra@bifrost.invalid")):
+        os.environ.setdefault(key, value)
     current_stage = args.stage
     try:
         if args.stage == "tools":
